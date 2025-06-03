@@ -25,11 +25,6 @@ BlpEnumerateDisks(
     IN PCONFIGURATION_COMPONENT_DATA ConfigData
     );
 
-BOOLEAN
-BlpReadSignature(
-    IN PCHAR Diskname
-    );
-
 
 ARC_STATUS
 BlGetArcDiskInformation(
@@ -106,13 +101,14 @@ Return Value:
 
     BlGetPathnameFromComponent(ConfigData, DiskName);
 
-    return(BlpReadSignature(DiskName));
+    return(BlReadSignature(DiskName,FALSE));
 }
 
 
 BOOLEAN
-BlpReadSignature(
-    IN PCHAR DiskName
+BlReadSignature(
+    IN PCHAR DiskName,
+    IN BOOLEAN IsCdRom
     )
 
 /*++
@@ -126,6 +122,8 @@ Arguments:
 
     Diskname - Supplies the name of the disk.
 
+    IsCdRom - Indicates whether the disk is a CD-ROM.
+
 Return Value:
 
     TRUE - Success
@@ -136,7 +134,7 @@ Return Value:
 
 {
     PARC_DISK_SIGNATURE Signature;
-    UCHAR SectorBuffer[512+256];
+    UCHAR SectorBuffer[2048+256];
     UCHAR Partition[100];
     ULONG DiskId;
     ULONG Status;
@@ -145,6 +143,13 @@ Return Value:
     ULONG i;
     ULONG Sum;
     ULONG Count;
+    ULONG SectorSize;
+
+    if (IsCdRom) {
+        SectorSize = 2048;
+    } else {
+        SectorSize = 512;
+    }
 
     Signature = BlAllocateHeap(sizeof(ARC_DISK_SIGNATURE));
     if (Signature==NULL) {
@@ -162,7 +167,7 @@ Return Value:
     // in order to be consistent with the rest of the system
     // (particularly the arcname in boot.ini)
     //
-    if (strnicmp(DiskName,"eisa",4)==0) {
+    if (_strnicmp(DiskName,"eisa",4)==0) {
         strcpy(Signature->ArcName,"multi");
         strcpy(Partition,"multi");
         strcat(Signature->ArcName,DiskName+4);
@@ -187,14 +192,22 @@ Return Value:
     // Read in the first sector
     //
     Sector = ALIGN_BUFFER(SectorBuffer);
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    if (IsCdRom) {
+        //
+        // For a CD-ROM, the interesting data starts at 0x8000.
+        //
+        SeekValue.QuadPart = 0x8000;
+    } else {
+        SeekValue.QuadPart = 0;
+    }
     Status = ArcSeek(DiskId, &SeekValue, SeekAbsolute);
     if (Status == ESUCCESS) {
         Status = ArcRead(DiskId,
                          Sector,
-                         512,
+                         SectorSize,
                          &Count);
     }
+    ArcClose(DiskId);
     if (Status != ESUCCESS) {
         return(TRUE);
     }
@@ -214,10 +227,10 @@ Return Value:
     // compute the checksum
     //
     Sum = 0;
-    for (i=0;i<128;i++) {
+    for (i=0; i<(SectorSize/4); i++) {
         Sum += ((PULONG)Sector)[i];
     }
-    Signature->CheckSum = -Sum;
+    Signature->CheckSum = ~Sum + 1;
 
     InsertHeadList(&BlLoaderBlock->ArcDiskInformation->DiskSignatures,
                    &Signature->ListEntry);
@@ -225,4 +238,3 @@ Return Value:
     return(TRUE);
 
 }
-

@@ -42,7 +42,7 @@ Revision History:
 #include <apinums.h>    // API_ equates.
 #include <dlwksta.h>    // NetpIsOldWkstaInfoLevel().
 #include <lmerr.h>      // ERROR_ and NERR_ equates.
-#include <netdebug.h>   // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rap.h>        // LPDESC.
 #include <remdef.h>     // REM16_, REM32_, REMSmb_ equates.
@@ -85,9 +85,9 @@ Return Value:
     DWORD TotalAvail;
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( PREFIX_NETAPI "RxpWkstaGetOldInfo: starting, server="
+        NetpKdPrint(( PREFIX_NETAPI "RxpWkstaGetOldInfo: starting, server="
                 FORMAT_LPTSTR ", lvl=" FORMAT_DWORD ".\n",
-                UncServerName, Level);
+                UncServerName, Level));
     }
 
     //
@@ -139,7 +139,7 @@ Return Value:
             // rest of API's arguments, in 32-bit LM 2.x format:
             Level,
             BufPtr,                     // alloc buffer & set this ptr
-            BufSize,            
+            BufSize,
             & TotalAvail);              // total size (BUGBUG meaningless?)
 
     NetpAssert( Status != ERROR_MORE_DATA );

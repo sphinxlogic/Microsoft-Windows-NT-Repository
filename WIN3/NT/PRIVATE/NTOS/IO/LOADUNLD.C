@@ -25,7 +25,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "zwapi.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtLoadDriver)
@@ -185,7 +184,8 @@ IopCheckUnloadDriver(
     if ((driverObject->DeviceObject == NULL &&
         (driverObject->Flags & DRVO_UNLOAD_INVOKED)) ||
         (driverObject->DeviceObject &&
-        driverObject->DeviceObject->Flags & DO_UNLOAD_PENDING)) {
+        driverObject->DeviceObject->DeviceObjectExtension->ExtensionFlags
+        & DOE_UNLOAD_PENDING)) {
 
         //
         // The driver has already been marked for unload or is being
@@ -213,9 +213,9 @@ IopCheckUnloadDriver(
     *unloadDriver = TRUE;
 
     while (deviceObject) {
-        deviceObject->Flags |= DO_UNLOAD_PENDING;
+        deviceObject->DeviceObjectExtension->ExtensionFlags |= DOE_UNLOAD_PENDING;
         if (deviceObject->ReferenceCount || deviceObject->AttachedDevice) {
-	    *unloadDriver = FALSE;
+            *unloadDriver = FALSE;
         }
         deviceObject = deviceObject->NextDevice;
     }

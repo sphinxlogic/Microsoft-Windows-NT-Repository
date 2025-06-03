@@ -1,6 +1,6 @@
 /*** globals.h - global variables/needed across modules ************************
 *
-*	Copyright (c) 1988-1990, Microsoft Corporation.  All rights reserved.
+*       Copyright (c) 1988-1990, Microsoft Corporation.  All rights reserved.
 *
 * Purpose:
 *  Globals.c is the routine in which global variables reside. Globals.h mirrors
@@ -25,22 +25,22 @@
 *  19-Oct-1989 SB variable fOptionK added (ifdef SLASHK)
 *  02-Oct-1989 SB add dynamic inline file handling support
 *  24-Apr-1989 SB Added ext_size, filename_size, filenameext_size &
-*		  resultbuf_size for OS/2 1.2 support
+*                 resultbuf_size for OS/2 1.2 support
 *  05-Apr-1989 SB made revList, delList, scriptFileList NEAR
 *  22-Mar-1989 SB removed tmpFileStack and related variables
 *  16-Feb-1989 SB added delList to have scriptfile deletes at end of make
 *  21-Dec-1988 SB Added scriptFileList to handle multiple script files
-*		  removed tmpScriptFile and fKeep (not reqd anymore)
+*                 removed tmpScriptFile and fKeep (not reqd anymore)
 *  19-Dec-1988 SB Added fKeep to handle KEEP/NOKEEP
 *  14-Dec-1988 SB Added tmpScriptFile for 'z' option
 *  30-Nov-1988 SB Added revList to handle 'z' option
 *  23-Nov-1988 SB Added CmdLine[] to handle extmake syntax
-*		  made pCmdLineCopy Global in build.c
+*                 made pCmdLineCopy Global in build.c
 *  21-Oct-1988 SB Added fInheritUserEnv to inherit macros
 *  20-Sep-1988 RB Clean up.
 *  17-Aug-1988 RB Declare everything NEAR.
 *  06-Jul-1988 rj Ditched shell and argVector globals.
-*		  Put all ECS declarations as macros in here.
+*                 Put all ECS declarations as macros in here.
 *
 *******************************************************************************/
 
@@ -56,11 +56,11 @@ extern unsigned long CntFreeStrList;
 extern unsigned long CntAllocStrList;
 #endif
 
-extern UCHAR NEAR startOfSave;		/* dummy variable */
+extern UCHAR NEAR startOfSave;          /* dummy variable */
 
-extern BOOL  NEAR fOptionK;		/* user specified /K ? */
-extern BOOL  NEAR fDescRebuildOrder;	/* user specified /O ? */
-extern BOOL  NEAR fNoEmsXms;		/* user specified /M ? */
+extern BOOL  NEAR fOptionK;             /* user specified /K ? */
+extern BOOL  NEAR fDescRebuildOrder;    /* user specified /O ? */
+extern BOOL  NEAR fNoEmsXms;            /* user specified /M ? */
 extern BOOL  NEAR fSlashKStatus;
 
 
@@ -110,26 +110,26 @@ extern STRINGLIST * NEAR revList;
 
 /* from NMAKE.C   */
 
-extern BOOL	    NEAR firstToken;	      /* to initialize parser	*/
-extern BOOL	    NEAR bannerDisplayed;
-extern UCHAR	    NEAR flags; 	      /* holds -d -s -n -i	*/
-extern UCHAR	    NEAR gFlags;	      /* "global" -- all targets*/
-extern char	  * NEAR makeflags;
-extern FILE	  * NEAR file;
-extern STRINGLIST * NEAR makeTargets;	 /* list of targets to make*/
-extern STRINGLIST * NEAR makeFiles;	 /* user can specify > 1   */
-extern BOOL	    NEAR fDebug;
+extern BOOL         NEAR firstToken;          /* to initialize parser   */
+extern BOOL         NEAR bannerDisplayed;
+extern UCHAR        NEAR flags;               /* holds -d -s -n -i      */
+extern UCHAR        NEAR gFlags;              /* "global" -- all targets*/
+extern char         NEAR makeflags[];
+extern FILE       * NEAR file;
+extern STRINGLIST * NEAR makeTargets;    /* list of targets to make*/
+extern STRINGLIST * NEAR makeFiles;      /* user can specify > 1   */
+extern BOOL         NEAR fDebug;
 
 
 /* from LEXER.C  */
 
 extern unsigned     NEAR line;
-extern BOOL	    NEAR colZero;	/* global flag set if at column zero
-				    of a makefile/tools.ini */
-extern char	  * NEAR fName;
-extern char	  * NEAR string;
+extern BOOL         NEAR colZero;       /* global flag set if at column zero
+                                    of a makefile/tools.ini */
+extern char       * NEAR fName;
+extern char       * NEAR string;
 extern INCLUDEINFO  NEAR incStack[MAXINCLUDE];
-extern int	    NEAR incTop;
+extern int          NEAR incTop;
 
 /* Inline file list -- Gets created in lexer.c and is used by action.c to
  * produce a delete command when 'NOKEEP' or Z option is set
@@ -140,11 +140,11 @@ extern SCRIPTLIST * NEAR scriptFileList;
 
 #define STACKSIZE 16
 
-extern UCHAR	    NEAR stack[STACKSIZE];
-extern int	    NEAR top;		    /* gets pre-incremented before use*/
-extern unsigned     NEAR currentLine;	    /* used for all error messages    */
-extern BOOL	    NEAR init;		    /* global boolean value to indicate
-					if tools.ini is being parsed  */
+extern UCHAR        NEAR stack[STACKSIZE];
+extern int          NEAR top;               /* gets pre-incremented before use*/
+extern unsigned     NEAR currentLine;       /* used for all error messages    */
+extern BOOL         NEAR init;              /* global boolean value to indicate
+                                        if tools.ini is being parsed  */
 
 /* from ACTION.C  */
 
@@ -155,58 +155,58 @@ extern STRINGLIST * NEAR dotSuffixList;
 extern STRINGLIST * NEAR dotPreciousList;
 extern RULELIST   * NEAR rules;
 extern STRINGLIST * NEAR list;
-extern char	  * NEAR name;
+extern char       * NEAR name;
 extern BUILDBLOCK * NEAR block;
-extern UCHAR	    NEAR currentFlags;
-extern UCHAR	    NEAR actionFlags;
+extern UCHAR        NEAR currentFlags;
+extern UCHAR        NEAR actionFlags;
 
 
 /* from BUILD.C  */
 
-extern long	    NEAR errorLevel;
+extern long         NEAR errorLevel;
 extern unsigned     NEAR numCommands;
-extern char	  * NEAR pCmdLineCopy;
+extern char       * NEAR pCmdLineCopy;
 
 /* Used to store expanded Command Line returned by SPRINTF, the result on
  * expanding extmake syntax part in the command line */
-extern char		 CmdLine[MAXCMDLINELENGTH];
+extern char              CmdLine[MAXCMDLINELENGTH];
 
 /* from IFEXPR.C */
 
 #define IFSTACKSIZE     16
 
-extern UCHAR	    NEAR ifStack[IFSTACKSIZE];
-extern int	    NEAR ifTop; 	 /* gets pre-incremented before use   */
-extern char	  * NEAR lbufPtr;	 /* pointer to alloc'd buffer         */
-					 /* we don't use a static buffer so
-					     that buffer may be realloced     */
-extern char	  * NEAR prevDirPtr;	 /* ptr to directive to be processed  */
-extern unsigned     NEAR lbufSize;	 /* initial size of the buffer	      */
+extern UCHAR        NEAR ifStack[IFSTACKSIZE];
+extern int          NEAR ifTop;          /* gets pre-incremented before use   */
+extern char       * NEAR lbufPtr;        /* pointer to alloc'd buffer         */
+                                         /* we don't use a static buffer so
+                                             that buffer may be realloced     */
+extern char       * NEAR prevDirPtr;     /* ptr to directive to be processed  */
+extern unsigned     NEAR lbufSize;       /* initial size of the buffer        */
 
 
 /* from UTIL.C */
 
-extern char	  * NEAR dollarDollarAt;
-extern char	  * NEAR dollarLessThan;
-extern char	  * NEAR dollarStar;
-extern char	  * NEAR dollarAt;
+extern char       * NEAR dollarDollarAt;
+extern char       * NEAR dollarLessThan;
+extern char       * NEAR dollarStar;
+extern char       * NEAR dollarAt;
 extern STRINGLIST * NEAR dollarQuestion;
 extern STRINGLIST * NEAR dollarStarStar;
 
-extern char	    NEAR buf[MAXBUF];	  /* from parser.c */
+extern char         NEAR buf[MAXBUF];     /* from parser.c */
 
-extern UCHAR	    NEAR endOfSave;	  /* dummy variable */
+extern UCHAR        NEAR endOfSave;       /* dummy variable */
 
 
-extern char	    NEAR suffixes[];	  /* from action.c */
-extern char	    NEAR ignore[];
-extern char	    NEAR silent[];
-extern char	    NEAR precious[];
+extern char         NEAR suffixes[];      /* from action.c */
+extern char         NEAR ignore[];
+extern char         NEAR silent[];
+extern char         NEAR precious[];
 
-extern unsigned  NEAR	ext_size;	       /* default	    .ext size */
-extern unsigned  NEAR	filename_size;	       /*	    filename	 size */
-extern unsigned  NEAR	filenameext_size;      /*	    filename.ext size */
-extern unsigned  NEAR	resultbuf_size;        /*	    fileFindBuf  size */
+extern unsigned  NEAR   ext_size;              /* default           .ext size */
+extern unsigned  NEAR   filename_size;         /*           filename     size */
+extern unsigned  NEAR   filenameext_size;      /*           filename.ext size */
+extern unsigned  NEAR   resultbuf_size;        /*           fileFindBuf  size */
 
 /* This flag activates special heap functionality.
  *

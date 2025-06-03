@@ -34,6 +34,7 @@ include callconv.inc
 
         EXTRNP  _KeContextToKframes,5
         EXTRNP  _KeContextFromKframes,3
+        extrn   _KeFeatureBits:DWORD
 
         page ,132
 _TEXT   SEGMENT DWORD PUBLIC 'CODE'
@@ -142,11 +143,14 @@ cPublicProc _KiSaveProcessorControlState   ,1
 
         mov     [edx].PsSpecialRegisters.SrCr4, ecx
 
-        cmp     word ptr PCR[PcPrcbData.PbCpuType], 5
-        jc      short @f
+        test    _KeFeatureBits, KF_CR4
+        jz      short @f
 
-        db      0fh, 20h, 0e0h      ; MOV EAX, CR4
+.586p
+        mov     eax, cr4
         mov     [edx].PsSpecialRegisters.SrCr4, eax
+.486p
+
 @@:
         mov     eax,dr0
         mov     [edx].PsSpecialRegisters.SrKernelDr0,eax
@@ -272,11 +276,13 @@ cPublicProc _KiRestoreProcessorControlState,1
         mov     eax, [edx].PsSpecialRegisters.SrCr3
         mov     cr3, eax
 
-        cmp     word ptr PCR[PcPrcbData.PbCpuType], 5
-        jc      short @f
+        test    _KeFeatureBits, KF_CR4
+        jz      short @f
 
+.586p
         mov     eax, [edx].PsSpecialRegisters.SrCr4
-        db      0fh, 22h, 0e0h      ; MOV CR4, EAX
+        mov     cr4, eax
+.486p
 @@:
         mov     eax, [edx].PsSpecialRegisters.SrKernelDr0
         mov     dr0, eax
@@ -299,8 +305,11 @@ cPublicProc _KiRestoreProcessorControlState,1
 ; when we load the TR.
 ;
 
-        mov     eax,[edx].PsSpecialRegisters.SrGdtr+2   ; (eax)->GDT base
-        add     eax,KGDT_TSS+5                          ; (eax)->TSS Desc. Byte
+        mov     eax, [edx].PsSpecialRegisters.SrGdtr+2  ; (eax)->GDT base
+        xor     ecx, ecx
+        mov     cx,  word ptr [edx].PsSpecialRegisters.SrTr
+        add     eax, 5
+        add     eax, ecx                                ; (eax)->TSS Desc. Byte
         and     byte ptr [eax],NOT 2
         ltr     word ptr [edx].PsSpecialRegisters.SrTr
 
@@ -312,4 +321,3 @@ stdENDP _KiRestoreProcessorControlState
 
 _TEXT   ENDS
         END
-

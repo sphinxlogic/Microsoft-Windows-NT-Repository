@@ -217,12 +217,12 @@ VOID putintarray16(VPINT16 vpInt, INT c, LPINT lpInt)
     register INT16 *pInt16;
 
     if (lpInt && GETVDMPTR(vpInt, sizeof(INT16)*c, pInt16)) {
-    for (i=0; i < c; i++) {
-        STOREWORD(pInt16[i], lpInt[i]);
+	for (i=0; i < c; i++) {
+	    STOREWORD(pInt16[i], lpInt[i]);
+	}
+	FLUSHVDMPTR(vpInt, sizeof(INT16)*c, pInt16);
+	FREEVDMPTR(pInt16);
     }
-    }
-    FLUSHVDMPTR(vpInt, sizeof(INT16)*c, pInt16);
-    FREEVDMPTR(pInt16);
 }
 
 
@@ -365,6 +365,7 @@ INT GetBMI16Size(PVPVOID vpbmi16, WORD fuColorUse, LPDWORD lpdwClrUsed)
     int      nEntSize;
     int      nEntries;
     int      nBitCount;
+    int      nClrUsed = 0;
     register PBITMAPINFOHEADER16 pbmi16;
 
     GETVDMPTR(vpbmi16, sizeof(BITMAPINFO16), pbmi16);
@@ -383,7 +384,8 @@ INT GetBMI16Size(PVPVOID vpbmi16, WORD fuColorUse, LPDWORD lpdwClrUsed)
 
     if( nHdrSize == sizeof(BITMAPINFOHEADER) ) {
         nBitCount    = FETCHWORD (pbmi16->biBitCount);
-        *lpdwClrUsed = FETCHDWORD(pbmi16->biClrUsed);
+        nClrUsed     = FETCHDWORD(pbmi16->biClrUsed);
+        *lpdwClrUsed = nClrUsed;
     }
     else {
         nBitCount    = FETCHWORD(((LPBITMAPCOREHEADER)pbmi16)->bcBitCount);
@@ -404,11 +406,15 @@ INT GetBMI16Size(PVPVOID vpbmi16, WORD fuColorUse, LPDWORD lpdwClrUsed)
  *
  *  but due to the fact that many apps don't initialize the biBitCount &
  *  biClrUsed fields (especially biClrUsed) we have to do the following
- *  sanity checking instead.  v-cjones
+ *  sanity checking instead.  a-craigj
  */
 
     if ( nBitCount <= 8 ) {
         nEntries = 1 << nBitCount;
+
+        // for selected apps ? What apps will be broken by this ?
+        if (nClrUsed > 0 && nClrUsed < nEntries)
+            nEntries = nClrUsed;
     }
     else if (( nBitCount == 16 ) || ( nBitCount == 32)) {
         nEntries = 3;
@@ -419,8 +425,12 @@ INT GetBMI16Size(PVPVOID vpbmi16, WORD fuColorUse, LPDWORD lpdwClrUsed)
     }
 
     // if this asserts it's an app bug
-    WOW32ASSERTEXP((nEntries > 1),
-                   ("WOW::GetBMI16Size:bad BitCount:v-cjones\n"));
+    // Changed assert to warning at Craig's request - DaveHart
+#ifdef DEBUG
+    if (!(nEntries > 1) && !(nBitCount == 24)) {
+        LOGDEBUG(LOG_ALWAYS, ("WOW::GetBMI16Size:bad BitCount:a-craigj\n"));
+    }
+#endif
 
     // this will never be true for a CORE type DIB
     if(*lpdwClrUsed > (DWORD)nEntries) {
@@ -472,8 +482,8 @@ INT GetBMI32Size(LPBITMAPINFO lpbmi32, WORD fuColorUse)
             nEntries = 3;
         }
         // if this asserts it's an app bug -- we'll try to salvage things
-        WOW32ASSERTEXP((nEntries > 1),
-                       ("WOW::GetBMI32Size:bad BitCount:v-cjones\n"));
+        WOW32ASSERTMSG((nEntries > 1),
+                       ("WOW::GetBMI32Size:bad BitCount:a-craigj\n"));
 
         // sanity check for apps (lots) that don't init the dwClrUsed field
         if(dwClrUsed) {
@@ -699,6 +709,8 @@ VOID putcompareitem16(VPCOMPAREITEMSTRUCT16 vpCI16, LPCOMPAREITEMSTRUCT lpCI)
 //    WM32GetDlgCode
 //    ThunkWMMsg16
 // Don't call them from any other function!
+//
+// WARNING: May cause 16-bit memory movement, invalidating flat pointers.
 
 // Fill in a 32 bit MSG from a 16 bit one
 // See NOTE above!
@@ -737,7 +749,7 @@ VOID getmsg16(VPMSG16 vpmsg16, LPMSG lpmsg, LPMSGPARAMEX lpmpex)
         htask16  = CURRENTPTD()->htask16;
         wIDEvent = wParam;
 
-        ptmr = IsDuplicateTimer16( hwnd16, htask16, wIDEvent );
+        ptmr = FindTimer16( hwnd16, htask16, wIDEvent );
 
         if ( !ptmr ) {
             LOGDEBUG(LOG_TRACE,("    getmsg16 WARNING: cannot find timer %04x\n", wIDEvent));
@@ -757,6 +769,9 @@ VOID getmsg16(VPMSG16 vpmsg16, LPMSG lpmsg, LPMSGPARAMEX lpmpex)
         lpmpex->iMsgThunkClass = WOWCLASS_WIN16;
 
         hwnd32 = ThunkMsg16(lpmpex);
+        // memory may have moved
+        FREEVDMPTR(pmsg16);
+        GETVDMPTR(vpmsg16, sizeof(MSG16), pmsg16);
 
         lParam = lpmpex->lParam;
         lpmsg->hwnd = hwnd32;
@@ -1392,40 +1407,181 @@ VOID puthandletable16(VPWORD vpht, UINT c, LPHANDLETABLE lpht)
 
 
 
-LPDEVMODE GetDevMode32(VPDEVMODE16 vpdm16)
+
+
+
+
+/*
+ * To solve a ton of devmode compatibility issues we are now going to return
+ * Win3.1 devmodes to 16-bit apps instead of NT devmodes.
+ *
+ * The most common problem we encounter is that apps determine the size to
+ * allocate for a DEVMODE buffer by: sizeof(DEVMODE) + dm->dmDriverExtra
+ * Apps seem to handle the DriverExtra stuff pretty well but there is a wide-
+ * spread belief that the public DEVMODE structure is a fixed size.
+ * We hide the NT specific DEVMODE stuff and the WOW devmode thunk info in
+ * what the app thinks is the DriverExtra part of the devmode:
+ *
+ *        ____________________________  _____
+ *       | Win 3.1 DEVMODE            |      |
+ *       | dmSize = sizeof(DEVMODE31) |      |
+ *       | dmDriverExtra =            |      |
+ *    ___|__/ (sizeof(DEVMODENT)   -  |   Win 3.1 DEVMODE
+ *   |   |  \  sizeof(DEVMODE31))  +  |      |
+ *  -|---|--- original DriverExtra +  |      |
+ * | |  _|__/ sizeof(DWORD)        +  |      |
+ * | | | |  \ (sizeof(WORD) * 3)      |      |
+ * | | | |____________________________| _____|  <-- where app thinks driver
+ * | | | | NT DEVMODE stuff not in    |      |      extra starts
+ * | `-->| the Win3.1 DEVMODE struct  |   NT specific DEVMODE stuff
+ * |   | |____________________________| _____|  <-- where driver extra really
+ * `---->| actual NT driver extra     |             starts
+ *     | |____________________________|         <-- where WOWDM31 struct starts
+ *     | | DWORD with "DM31"          | <--- WOW DEVMODE31 signature
+ *     ->| WORD original dmSpecVersion|\
+ *       | WORD original dmSize       | <--- values returned by the driver
+ *       | WORD original dmDriverExtra|/
+ *       | WORD to pad to even DWORD  | <--- requried for ptr arithmetic
+ *       |____________________________|
+ *
+ * NOTE: We may see Win3.0 & Win3.1 DevModes that are returned by 16-bit fax
+ *       drivers.
+ *
+*/
+LPDEVMODE ThunkDevMode16to32(VPDEVMODE31 vpdm16)
 {
-    INT        nSize;
+    INT        nSize, nDriverExtra;
     LPDEVMODE  lpdm32;
-    PDEVMODE16 pdm16;
+    PDEVMODE31 pdm16;
+    PWOWDM31   pWOWDM31;
 
     if(FETCHDWORD(vpdm16) == 0L) {
         return(NULL);
     }
 
-    GETVDMPTR(vpdm16, sizeof(DEVMODE16), pdm16);
+    GETVDMPTR(vpdm16, sizeof(DEVMODE31), pdm16);
 
+
+    // we will generally see only Win3.1 DevMode's here but 16-bit fax
+    // drivers can return a Win3.0 DevMode.
     nSize = FETCHWORD(pdm16->dmSize);
+    WOW32WARNMSGF((nSize==sizeof(DEVMODE31)),
+                  ("ThunkDevMode16to32: Unexpected dmSize(16) = %d\n", nSize));
 
     // check for bad DEVMODE (PageMaker & MSProfit are known culprits)
+    // (PageMaker 5.0a passes a 16:16 ptr to NULL!!)
     // this test taken from gdi\client\object.c!bConvertToDevmodeW
     if ( (nSize < (offsetof(DEVMODE, dmDriverExtra) + sizeof(WORD))) ||
          (nSize > sizeof(DEVMODE)) ) {
-        LOGDEBUG(LOG_ALWAYS,("WOW::GetDevMode32:Bogus DEVMODE encountered\n"));
+        LOGDEBUG(LOG_ALWAYS,("WOW::ThunkDevMode16to32:Bail out case!!\n"));
 
         return(NULL);
     }
 
-    nSize += FETCHWORD(pdm16->dmDriverExtra);
+    // note this might include the "extra" DriverExtra we added in 
+    // ThunkDevMode32to16()
+    nDriverExtra = FETCHWORD(pdm16->dmDriverExtra);
 
-    if (lpdm32 = malloc_w(nSize)) {
-        RtlCopyMemory((VOID *)lpdm32, (CONST VOID *)pdm16, nSize);
+    // allocate 32-bit DEVMODE -- don't worry if we alloc a little too much due
+    // to the WOW stuff we added to the end of the driver extra
+    if(lpdm32 = malloc_w(nSize + nDriverExtra)) {
 
+        // fill in the 32-bit devmode
+        RtlCopyMemory((VOID *)lpdm32,(CONST VOID *)pdm16, nSize + nDriverExtra);
+
+        // if this is a Win3.1 size DEVMODE, it may be one of our special ones
+        if(nSize == sizeof(DEVMODE31)) {
+
+            // see if it has our "DM31" signature at the end of the DEVMODE
+            pWOWDM31  = (PWOWDM31)((PBYTE)lpdm32     + 
+                                   sizeof(DEVMODE31) + 
+                                   nDriverExtra      -
+                                   sizeof(WOWDM31));
+ 
+            // if it does, adjust the dmSpecVersion, dmSize & dmDriverExtra 
+            // back to the values we got from the driver
+            if(pWOWDM31->dwWOWSig == WOW_DEVMODE31SIG) {
+                lpdm32->dmSpecVersion = pWOWDM31->dmSpecVersion;
+                lpdm32->dmSize        = pWOWDM31->dmSize;
+                lpdm32->dmDriverExtra = pWOWDM31->dmDriverExtra;
+            }
+        }
     }
 
     FREEVDMPTR(pdm16);
 
     return(lpdm32);
 }
+
+
+
+
+
+
+BOOL ThunkDevMode32to16(VPDEVMODE31 vpdm16, LPDEVMODE lpdm32, UINT nBytes)
+{
+
+    UINT nSize, nDriverExtra;
+
+    PDEVMODE31 pdm16;
+    PWOWDM31   pWOWDM31;
+
+
+    GETVDMPTR(vpdm16, sizeof(DEVMODE31), pdm16);
+
+    if((FETCHDWORD(vpdm16) == 0L) || (!lpdm32) || (!pdm16)) {
+        return(FALSE);
+    }
+
+    nSize = lpdm32->dmSize;
+
+    // We should only see DevModes of the current NT size because the spooler 
+    // converts all devmodes to the current version
+    WOW32WARNMSGF((nSize==sizeof(DEVMODE)),
+                  ("ThunkDevMode32to16: Unexpected devmode size = %d\n",nSize));
+
+    nDriverExtra = lpdm32->dmDriverExtra;
+
+    // fill in the 16-bit devmode
+    RtlCopyMemory((VOID *)pdm16, 
+                  (CONST VOID *)lpdm32, 
+                  min((nSize + nDriverExtra), nBytes));
+
+    // Convert NT sized devmodes to Win3.1 devmodes.
+    // Note: Winfax.drv passes back an NT size DevMode with dmSpecVersion=0x300
+    //       also it passes a hard coded 0xa9 to GetEnvironment() as the max
+    //       size of its buffer (see GetEnvironment() notes in wgdi.c)
+    //       If there is a buffer constraint, we'll just have to be satisfied
+    //       with copying the nBytes worth of the devmode which should work
+    //       in the case of WinFax.
+    if((nSize == sizeof(DEVMODE)) && ((nSize + nDriverExtra) <= nBytes)) {
+
+        // save our signature along with the original dmSpecVersion, dmSize, 
+        // and dmDriverExtra at the end of the DriverExtra memory
+        pWOWDM31  = (PWOWDM31)((PBYTE)pdm16    + 
+                               sizeof(DEVMODE) + 
+                               nDriverExtra);
+        pWOWDM31->dwWOWSig      = WOW_DEVMODE31SIG;
+        pWOWDM31->dmSpecVersion = lpdm32->dmSpecVersion;
+        pWOWDM31->dmSize        = nSize;
+        pWOWDM31->dmDriverExtra = nDriverExtra;
+
+        // Make our special adjustments to the public devmode stuff.
+        // We can't tell an app a Win3.0 DevMode is a Win3.1 version or it might
+        // try to write to the new Win3.1 fields
+        if(lpdm32->dmSpecVersion > WOW_DEVMODE31SPEC) {
+            pdm16->dmSpecVersion  = WOW_DEVMODE31SPEC;
+        }
+        pdm16->dmSize         = sizeof(DEVMODE31);
+        pdm16->dmDriverExtra += WOW_DEVMODEEXTRA;
+    }
+
+    FLUSHVDMPTR(vpdm16, sizeof(DEVMODE31), pdm16);
+    FREEVDMPTR(pdm16);
+
+    return(TRUE);
+}
+
 
 
 
@@ -1472,8 +1628,6 @@ VOID W32CopyMsgStruct(VPMSG16 vpmsg16, LPMSG lpmsg, BOOL fThunk16To32)
     GETVDMPTR(vpmsg16, sizeof(MSG16), pmsg16);
 
     if (fThunk16To32) {
-        WOW32ASSERT(aw32Msg[pmsg16->message].lpfnM32 == WM32NoThunking ||
-                       aw32Msg[pmsg16->message].lpfnM32 == WM32UNDOCUMENTED);
         lpmsg->hwnd      = HWND32(pmsg16->hwnd);
         lpmsg->message   = pmsg16->message;
         lpmsg->wParam    = pmsg16->wParam;
@@ -1525,5 +1679,3 @@ VOID putpaintstruct16(VPVOID vp, LPPAINTSTRUCT lp)
     FLUSHVDMPTR(vp, sizeof(PAINTSTRUCT16), pps16);
     FREEVDMPTR(pps16);
 }
-
-

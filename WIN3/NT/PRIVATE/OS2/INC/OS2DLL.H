@@ -240,9 +240,13 @@ ReleaseFileLockExclusive(
     );
 
 #else
-#define AcquireFileLockShared(x) (VOID)RtlAcquireResourceShared( &Od2Process->FileLock, TRUE )
-#define ReleaseFileLockShared(x) RtlReleaseResource( &Od2Process->FileLock )
 #define PromoteFileLocktoExclusive(x) RtlConvertSharedToExclusive( &Od2Process->FileLock )
+
+VOID
+AcquireFileLockShared( VOID );
+
+VOID
+ReleaseFileLockShared( VOID );
 
 VOID
 AcquireFileLockExclusive( VOID );
@@ -441,6 +445,9 @@ Od2FormatExecPgmMessage(
     OUT POS2_DOSEXECPGM_MSG a,
     OUT POS2_CAPTURE_HEADER *CaptureBuffer,
     OUT PNTSTATUS   Od2IsConsoleTypeReturnStatus,
+#if PMNT
+    OUT PULONG      IsPMApp,
+#endif // PMNT
     IN  PSZ     ErrorText,
     IN  LONG    MaximumErrorTextLength,
     IN  ULONG   Flags,
@@ -452,6 +459,10 @@ Od2FormatExecPgmMessage(
 NTSTATUS
 Od2IsFileConsoleType(
     PSTRING NtImagePathName
+#if PMNT
+    ,
+    PULONG  IsPMApp
+#endif // PMNT
     );
 
 //
@@ -726,6 +737,16 @@ Od2CaptureMessageString(
     OUT PSTRING CapturedString
     );
 
+void
+Od2StartTimeout(
+    PLARGE_INTEGER StartTimeStamp
+    );
+
+NTSTATUS
+Od2ContinueTimeout(
+    PLARGE_INTEGER StartTimeStamp,
+    PLARGE_INTEGER Timeout
+    );
 
 PLARGE_INTEGER
 Od2CaptureTimeout(

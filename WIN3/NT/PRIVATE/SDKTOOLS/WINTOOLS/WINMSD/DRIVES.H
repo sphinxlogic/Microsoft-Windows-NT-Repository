@@ -28,15 +28,15 @@ Environment:
 
 #include "wintools.h"
 
-
+
 BOOL
 BuildDrivesReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     );
 
-
 BOOL
-DrivesDlgProc(
+DrivesTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,

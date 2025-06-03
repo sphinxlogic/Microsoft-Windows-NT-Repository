@@ -1,2 +1,0 @@
-#include "..\..\source\parallel.c"
-

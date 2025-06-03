@@ -105,4 +105,4 @@ INT16 BE_Init( BE_INIT_STR_PTR be_ptr, struct BE_CFG * conf_ptr ) ;
 VOID  BE_Deinit( struct HEAD_DLE * ) ;
 VOID  BE_InitLW( BE_INIT_STR_PTR be_ptr ) ;
 #endif
-
+

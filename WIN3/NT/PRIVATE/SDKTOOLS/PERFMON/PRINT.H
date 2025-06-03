@@ -13,4 +13,4 @@ BOOL StartJob (HDC hDCPrint,
 
 
 BOOL EndJob (HDC hDCPrint) ;
-
+

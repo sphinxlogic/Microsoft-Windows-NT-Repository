@@ -318,8 +318,6 @@ Return Value:
     PFCB fcb;
     PVOID fsContext2;
 
-    extern POBJECT_TYPE *IoFileObjectType;
-
     PAGED_CODE();
 
     //

@@ -42,22 +42,34 @@ BufferPoolCreate(
 
 NTSTATUS
 BufferPoolExpand(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool
     );
 
 VOID
 BufferPoolFreeExtraPages(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool
     );
 
 VOID
 DeallocateBuffer(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN PDLC_BUFFER_HEADER pBuffer
     );
 
 NTSTATUS
 AllocateBufferHeader(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN PDLC_BUFFER_HEADER pParent,
     IN UCHAR Size,
@@ -67,6 +79,9 @@ AllocateBufferHeader(
 
 NTSTATUS
 BufferPoolAllocate(
+#if DBG
+    IN PDLC_FILE_CONTEXT pFileContext,
+#endif
     IN PDLC_BUFFER_POOL pBufferPool,
     IN UINT BufferSize,
     IN UINT FrameHeaderSize,
@@ -140,6 +155,11 @@ NTSTATUS
 CloseAdapterFileContext(
     IN PDEVICE_OBJECT pDeviceObject,
     IN PIRP pIrp
+    );
+
+VOID
+DlcKillFileContext(
+    IN PDLC_FILE_CONTEXT pFileContext
     );
 
 VOID
@@ -281,7 +301,8 @@ MakeDlcEvent(
     IN USHORT StationId,
     IN PDLC_OBJECT pDlcObject,
     IN PVOID pEventInformation,
-    IN ULONG SecondaryInfo
+    IN ULONG SecondaryInfo,
+    IN BOOLEAN FreeEventInfo
     );
 
 NTSTATUS
@@ -313,6 +334,16 @@ CancelDlcCommand(
     IN OUT PVOID *ppCcbLink,
     IN UINT CancelStatus,
     IN BOOLEAN SuppressCommandCompletion
+    );
+
+VOID
+PurgeDlcEventQueue(
+    IN PDLC_FILE_CONTEXT pFileContext
+    );
+
+VOID
+PurgeDlcFlowControlQueue(
+    IN PDLC_FILE_CONTEXT pFileContext
     );
 
 VOID
@@ -652,7 +683,7 @@ DlcCloseStation(
     IN ULONG OutputBufferLength
     );
 
-VOID
+BOOLEAN
 CloseAllStations(
     IN PDLC_FILE_CONTEXT pFileContext,
     IN PIRP pIrp,

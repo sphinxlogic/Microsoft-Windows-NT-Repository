@@ -116,6 +116,7 @@ Return Value:
 
 {
     PIRP_CONTEXT IrpContext;
+    PFCB Fcb;
     PIO_STACK_LOCATION IrpSp = NULL;
 
     IrpContext = (PIRP_CONTEXT) Context;
@@ -137,12 +138,23 @@ Return Value:
 
     IrpContext->TransactionId = 0;
 
-    while (!IsListEmpty(&IrpContext->ExclusivePagingIoList)) {
+    //
+    //  Free any exclusive paging I/O resource, or IoAtEof condition,
+    //  this field is overlayed, minimally in write.c.
+    //
 
-        NtfsReleasePagingIo( IrpContext,
-                             (PFCB)CONTAINING_RECORD(IrpContext->ExclusivePagingIoList.Flink,
-                                                     FCB,
-                                                     ExclusivePagingIoLinks ));
+    Fcb = IrpContext->FcbWithPagingExclusive;
+    if (Fcb != NULL) {
+
+        if (Fcb->NodeTypeCode == NTFS_NTC_FCB) {
+
+            NtfsReleasePagingIo(IrpContext, Fcb );
+
+        } else {
+
+            FsRtlUnlockFsRtlHeader( (PFSRTL_ADVANCED_FCB_HEADER) Fcb );
+            IrpContext->FcbWithPagingExclusive = NULL;
+        }
     }
 
     while (!IsListEmpty(&IrpContext->ExclusiveFcbList)) {
@@ -151,6 +163,15 @@ Return Value:
                         (PFCB)CONTAINING_RECORD(IrpContext->ExclusiveFcbList.Flink,
                                                 FCB,
                                                 ExclusiveFcbLinks ));
+    }
+
+    //
+    //  Go through and free any Scb's in the queue of shared Scb's for transactions.
+    //
+
+    if (IrpContext->SharedScb != NULL) {
+
+        NtfsReleaseSharedResources( IrpContext );
     }
 
     IrpContext->OriginatingIrp = Irp;
@@ -223,6 +244,20 @@ Return Value:
                                     Irp,
                                     IoReadAccess,
                                     IrpSp->Parameters.SetEa.Length );
+
+            //
+            //  These two FSCTLs use neither I/O, so check for them.
+            //
+
+            } else if ((IrpContext->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
+                       (IrpContext->MinorFunction == IRP_MN_USER_FS_REQUEST) &&
+                       ((IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_GET_VOLUME_BITMAP) ||
+                        (IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_GET_RETRIEVAL_POINTERS))) {
+
+                NtfsLockUserBuffer( IrpContext,
+                                    Irp,
+                                    IoWriteAccess,
+                                    IrpSp->Parameters.FileSystemControl.OutputBufferLength );
             }
 
             //
@@ -351,7 +386,7 @@ Return Value:
             //  queue.  If not, then send it off to an exworker thread.
             //
 
-            KeAcquireSpinLock( &Vdo->OverflowQueueSpinLock, &SavedIrql );
+            ExAcquireSpinLock( &Vdo->OverflowQueueSpinLock, &SavedIrql );
 
             if ( Vdo->PostedRequestCount > FSP_PER_DEVICE_THRESHOLD) {
 
@@ -365,7 +400,7 @@ Return Value:
 
                 Vdo->OverflowQueueCount += 1;
 
-                KeReleaseSpinLock( &Vdo->OverflowQueueSpinLock, SavedIrql );
+                ExReleaseSpinLock( &Vdo->OverflowQueueSpinLock, SavedIrql );
 
                 return;
 
@@ -378,7 +413,7 @@ Return Value:
 
                 Vdo->PostedRequestCount += 1;
 
-                KeReleaseSpinLock( &Vdo->OverflowQueueSpinLock, SavedIrql );
+                ExReleaseSpinLock( &Vdo->OverflowQueueSpinLock, SavedIrql );
             }
         }
     }
@@ -393,7 +428,6 @@ Return Value:
 
     ExQueueWorkItem( &IrpContext->WorkQueueItem, CriticalWorkQueue );
 
-    UNREFERENCED_PARAMETER( Irp );
-
     return;
 }
+

@@ -522,47 +522,10 @@ LONG FAR PASCAL LOADDS WatchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     PVTEXT    pvtext;
 
 
-    try {
+    __try {
 
-    switch (msg) {
-        case WU_INITDEBUGWIN:
-            Dbg(InitWatchVit());
-            hWndWatch = hwnd;
-
-            SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
-            SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
-            SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
-            p->MaxIdx = (WORD)1;
-            WatchUpdate(p, FALSE, wParam);
-            break;
-
-        case WM_DESTROY:
-            hWndWatch = NULL;
-            //
-            // Fall thru...
-            //
-
-        case WU_DBG_UNLOADEE:
-        case WU_DBG_UNLOADEM:
-            //
-            // Lose the Watch Tree
-            //
-            if ( pvitWatch && pvitWatch->pvibChild ) {
-                FTFreeAllSib(pvitWatch->pvibChild);
-                pvitWatch->pvibChild = NULL;
-                free(pvitWatch);
-                pvitWatch = NULL;
-                SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
-                SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
-                SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
-                p->MaxIdx = (WORD)1;
-                WatchUpdate(p, FALSE, wParam);
-            }
-            break;
-
-        case WU_DBG_LOADEM:
-        case WU_DBG_LOADEE:
-            if (!pvitWatch) {
+        switch (msg) {
+            case WU_INITDEBUGWIN:
                 Dbg(InitWatchVit());
                 hWndWatch = hwnd;
 
@@ -571,128 +534,164 @@ LONG FAR PASCAL LOADDS WatchEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
                 p->MaxIdx = (WORD)1;
                 WatchUpdate(p, FALSE, wParam);
-            }
-            break;
+                break;
 
-        case WU_INVALIDATE:
-            if (p == (PPANE)NULL) {
-                p = (PPANE)GetWindowLong(GetWatchHWND(), GWW_EDIT);
-            }
+            case WM_DESTROY:
+                hWndWatch = NULL;
+                //
+                // Fall thru...
+                //
 
-            SendMessage(p->hWndLeft, LB_SETCOUNT, 0, 0);
-            SendMessage(p->hWndButton, LB_SETCOUNT, 0, 0);
-            SendMessage(p->hWndRight, LB_SETCOUNT, 0, 0);
-            p->MaxIdx = 0;
-            WatchUpdate(p, FALSE, wParam);
-
-            InvalidateRect(p->hWndButton, NULL, TRUE);
-            InvalidateRect(p->hWndLeft, NULL, TRUE);
-            InvalidateRect(p->hWndRight, NULL, TRUE);
-            UpdateWindow (p->hWndButton);
-            UpdateWindow (p->hWndLeft);
-            UpdateWindow (p->hWndRight);
-            break;
-
-        case WU_OPTIONS:
-            pVib = FTvibGetAtLine( pvitWatch, pInfo->ItemId);
-            if ( pVib == NULL) {
-                return(FALSE);
-            }
-
-            pvtext = &pVib->pvtext[pVib->vibIndex];
-
-            if ( pInfo->pFormat && (*(pvtext->pszValueC) != '{') ) {
-                FTEnsureTextExists(pVib);
-
-                if ( pvtext->pszFormat) {
-                    free(pvtext->pszFormat);
+            case WU_DBG_UNLOADEE:
+            case WU_DBG_UNLOADEM:
+                //
+                // Lose the Watch Tree
+                //
+                if ( pvitWatch && pvitWatch->pvibChild ) {
+                    FTFreeAllSib(pvitWatch->pvibChild);
+                    pvitWatch->pvibChild = NULL;
+                    free(pvitWatch);
+                    pvitWatch = NULL;
+                    SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
+                    p->MaxIdx = (WORD)1;
+                    WatchUpdate(p, FALSE, wParam);
                 }
-                pvtext->pszFormat = strdup(pInfo->pFormat);
+                break;
 
-                if ( pvtext->pszValueC) {
-                    free(pvtext->pszValueC);
+            case WU_DBG_LOADEM:
+            case WU_DBG_LOADEE:
+                if (!pvitWatch) {
+                    Dbg(InitWatchVit());
+                    hWndWatch = hwnd;
+
+                    SendMessage(p->hWndLeft, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndButton, LB_SETCOUNT, 1, 0);
+                    SendMessage(p->hWndRight, LB_SETCOUNT, 1, 0);
+                    p->MaxIdx = (WORD)1;
+                    WatchUpdate(p, FALSE, wParam);
                 }
-                pvtext->pszValueC = NULL;
+                break;
 
-                PaneInvalidateRow(p);
-            } else {
-                FTEnsureTextExists(pVib);
-
-                if (pvtext->pszFormat) {
-                    free(pvtext->pszFormat);
+            case WU_INVALIDATE:
+                if (p == (PPANE)NULL) {
+                    p = (PPANE)GetWindowLong(GetWatchHWND(), GWW_EDIT);
                 }
-                pvtext->pszFormat = '\0';
 
-                if ( pvtext->pszValueC) {
-                    free(pvtext->pszValueC);
+                SendMessage(p->hWndLeft, LB_SETCOUNT, 0, 0);
+                SendMessage(p->hWndButton, LB_SETCOUNT, 0, 0);
+                SendMessage(p->hWndRight, LB_SETCOUNT, 0, 0);
+                p->MaxIdx = 0;
+                WatchUpdate(p, FALSE, wParam);
+
+                InvalidateRect(p->hWndButton, NULL, TRUE);
+                InvalidateRect(p->hWndLeft, NULL, TRUE);
+                InvalidateRect(p->hWndRight, NULL, TRUE);
+                UpdateWindow (p->hWndButton);
+                UpdateWindow (p->hWndLeft);
+                UpdateWindow (p->hWndRight);
+                break;
+
+            case WU_OPTIONS:
+                pVib = FTvibGetAtLine( pvitWatch, pInfo->ItemId);
+                if ( pVib == NULL) {
+                    return(FALSE);
                 }
-                pvtext->pszValueC = NULL;
 
-                PaneInvalidateRow(p);
-            }
-            return TRUE;
+                pvtext = &pVib->pvtext[pVib->vibIndex];
 
-        case WU_INFO:
-            pInfo->pBuffer  = pInfo->pFormat = NULL;
-            pInfo->NewText  = FALSE;
-            pInfo->ReadOnly = (pInfo->CtrlId == ID_PANE_LEFT) ? FALSE : TRUE;
+                if ( pInfo->pFormat && (*(pvtext->pszValueC) != '{') ) {
+                    FTEnsureTextExists(pVib);
 
-            pVib = FTvibGetAtLine( pvitWatch, pInfo->ItemId);
+                    if ( pvtext->pszFormat) {
+                        free(pvtext->pszFormat);
+                    }
+                    pvtext->pszFormat = _strdup(pInfo->pFormat);
 
-            if ( pVib == NULL) {
-                return(FALSE);
-            }
+                    if ( pvtext->pszValueC) {
+                        free(pvtext->pszValueC);
+                    }
+                    pvtext->pszValueC = NULL;
 
-            FTEnsureTextExists(pVib);
-            pvtext = &pVib->pvtext[pVib->vibIndex];
-            pInfo->pFormat = pvtext->pszFormat;
+                    PaneInvalidateRow(p);
+                } else {
+                    FTEnsureTextExists(pVib);
 
-            pInfo->pBuffer  = FTGetPanelString( pvitWatch, pVib, pInfo->CtrlId);
-            pInfo->ReadOnly = (pInfo->ItemId == (UINT) p->MaxIdx);
+                    if (pvtext->pszFormat) {
+                        free(pvtext->pszFormat);
+                    }
+                    pvtext->pszFormat = '\0';
 
-            if ( pInfo->CtrlId == ID_PANE_LEFT ) {
+                    if ( pvtext->pszValueC) {
+                        free(pvtext->pszValueC);
+                    }
+                    pvtext->pszValueC = NULL;
+
+                    PaneInvalidateRow(p);
+                }
+                return TRUE;
+
+            case WU_INFO:
+                pInfo->pBuffer  = pInfo->pFormat = NULL;
                 pInfo->NewText  = FALSE;
-            } else if ( pInfo->CtrlId == ID_PANE_RIGHT) {
-                pInfo->NewText  = FTGetPanelStatus( pVib, pInfo->CtrlId);
-            } else {
-                pInfo->ReadOnly = TRUE;
-                pInfo->NewText  = FALSE;
-            }
-            return TRUE;
+                pInfo->ReadOnly = (pInfo->CtrlId == ID_PANE_LEFT) ? FALSE : TRUE;
 
-        case WU_SETWATCH:
-            if (pvitWatch == NULL) {
-                return(FALSE);
-            }
+                pVib = FTvibGetAtLine( pvitWatch, pInfo->ItemId);
 
-            if (p->nCtrlId == ID_PANE_LEFT) {
-                return(AcceptWatchUpdate( pvitWatch, p, wParam));
-            } else {
-                BOOL retval;
-                retval = (AcceptValueUpdate( pvitWatch, p));
-                if (retval == TRUE) {
-                    UpdateDebuggerState(UPDATE_DATAWINS);
+                if ( pVib == NULL) {
+                    return(FALSE);
                 }
-                return retval;
-            }
-            break;
 
-        case WU_EXPANDWATCH:
-            if (pvitWatch == NULL) {
-                return(FALSE);
-            }
-            if ( FTExpand(pvitWatch, (ULONG)(wParam)) == OK) {
-                p->LeftOk = p->RightOk = FALSE;
-                WatchUpdate(p, FALSE, wParam);   // Watch Count changed
-            }
-            break;
+                FTEnsureTextExists(pVib);
+                pvtext = &pVib->pvtext[pVib->vibIndex];
+                pInfo->pFormat = pvtext->pszFormat;
 
-        case WU_UPDATE:
-            WatchUpdate(p, (BOOL)wParam, wParam);
-             break;
-    }
+                pInfo->pBuffer  = FTGetPanelString( pvitWatch, pVib, pInfo->CtrlId);
+                pInfo->ReadOnly = (pInfo->ItemId == (UINT) p->MaxIdx);
 
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+                if ( pInfo->CtrlId == ID_PANE_LEFT ) {
+                    pInfo->NewText  = FALSE;
+                } else if ( pInfo->CtrlId == ID_PANE_RIGHT) {
+                    pInfo->NewText  = FTGetPanelStatus( pVib, pInfo->CtrlId);
+                } else {
+                    pInfo->ReadOnly = TRUE;
+                    pInfo->NewText  = FALSE;
+                }
+                return TRUE;
+
+            case WU_SETWATCH:
+                if (pvitWatch == NULL) {
+                    return(FALSE);
+                }
+
+                if (p->nCtrlId == ID_PANE_LEFT) {
+                    return(AcceptWatchUpdate( pvitWatch, p, wParam));
+                } else {
+                    BOOL retval;
+                    retval = (AcceptValueUpdate( pvitWatch, p));
+                    if (retval == TRUE) {
+                        UpdateDebuggerState(UPDATE_DATAWINS);
+                    }
+                    return retval;
+                }
+                break;
+
+            case WU_EXPANDWATCH:
+                if (pvitWatch == NULL) {
+                    return(FALSE);
+                }
+                if ( FTExpand(pvitWatch, (ULONG)(wParam)) == OK) {
+                    p->LeftOk = p->RightOk = FALSE;
+                    WatchUpdate(p, FALSE, wParam);   // Watch Count changed
+                }
+                break;
+
+            case WU_UPDATE:
+                WatchUpdate(p, (BOOL)wParam, wParam);
+                 break;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
 
         return FALSE;
 

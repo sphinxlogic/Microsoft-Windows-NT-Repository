@@ -11,10 +11,12 @@
 #include "tophook.h"
 
 HWND     hwndHookTopDesk    = NULL;
-HOOKPROC nextCBTHookProc    = NULL;
+HWND     hwndHookMrShadow   = NULL;
 HWND     hwndDT             = NULL;
-DWORD    pid                = 0xFFFFFFFF;
-HHOOK    hCBTHook           = NULL;
+DWORD    pidTopDesk         = 0xFFFFFFFF;
+DWORD    pidMrShadow        = 0xFFFFFFFF;
+HHOOK    hCBTHookTopDesk    = NULL;
+HHOOK    hCBTHookMrShadow   = NULL;
 UINT     wmRefreshMsg       = 0;
 
 
@@ -22,7 +24,7 @@ UINT     wmRefreshMsg       = 0;
  * Passes significant window events onto TopDesk for automatic updating
  * and desktop jumping.
  */
-DWORD FAR PASCAL CBTHookProc(
+DWORD FAR PASCAL CBTHookProcTopDesk(
 int code,
 UINT wParam,
 DWORD lParam)
@@ -59,7 +61,49 @@ DWORD lParam)
             }
         }
     }
-    return(CallNextHookEx(hCBTHook, code, wParam, lParam));
+    return(CallNextHookEx(hCBTHookTopDesk, code, wParam, lParam));
+}
+
+
+/*
+ * Passes significant window events onto TopDesk for automatic updating
+ * and desktop jumping.
+ */
+DWORD FAR PASCAL CBTHookProcMrShadow(
+int code,
+UINT wParam,
+DWORD lParam)
+{
+    switch (code) {
+    case HCBT_ACTIVATE:
+        // wParam = hwndActivating
+        // lParam = LPCBTACTIVATESTRUCT
+
+    case HCBT_MOVESIZE:
+        // wParam = hwndMoving
+        // lParam = PRECT
+
+    case HCBT_CREATEWND:
+        // wParam = hwndCreated
+        // lParam = LPCBT_CREATEWND
+
+    case HCBT_DESTROYWND:
+        // wParam = hwndDestroyed
+
+    case HCBT_MINMAX:
+        // wParam = hwndMinMax
+        // LOWORD(lParam) = SW_*
+
+        if (IsWindow((HWND)wParam) &&       // seems to be a bug in the hook
+                IsWindow(hwndHookMrShadow) &&
+                (HWND)wParam != hwndHookMrShadow) {
+            HWND hwndParent = GetParent((HWND)wParam);
+            if (hwndParent == hwndDT || hwndParent == NULL) {
+                PostMessage(hwndHookMrShadow, wmRefreshMsg, wParam, 0);
+            }
+        }
+    }
+    return(CallNextHookEx(hCBTHookMrShadow, code, wParam, lParam));
 }
 
 
@@ -75,9 +119,13 @@ LPVOID lpReserved)
     if (dwReason == DLL_PROCESS_ATTACH) {
         return(TRUE);    // all hooked processes will call us - let them in
     } else if (dwReason == DLL_PROCESS_DETACH) {
-        if (pid == GetCurrentProcessId()) {
-            pid = (DWORD)-1;
-            UnhookWindowsHookEx(hCBTHook);
+        if (pidTopDesk == GetCurrentProcessId()) {
+            pidTopDesk = (DWORD)-1;
+            UnhookWindowsHookEx(hCBTHookTopDesk);
+        }
+        if (pidMrShadow == GetCurrentProcessId()) {
+            pidMrShadow = (DWORD)-1;
+            UnhookWindowsHookEx(hCBTHookMrShadow);
         }
         return(TRUE);
     }
@@ -89,18 +137,51 @@ LPVOID lpReserved)
 BOOL FAR PASCAL SetTopDeskHooks(
 HWND hwnd)
 {
-    if (pid != -1) {
+    if (pidTopDesk != -1) {
         return(FALSE);          // only ONE GUY allowed!
     }
-    pid = GetCurrentProcessId();
-    wmRefreshMsg = RegisterWindowMessage(szMYWM_REFRESH);
-    hwndDT = GetDesktopWindow();
+    pidTopDesk = GetCurrentProcessId();
+    if (!wmRefreshMsg) {
+        wmRefreshMsg = RegisterWindowMessage(szMYWM_REFRESH);
+        hwndDT = GetDesktopWindow();
+    }
     hwndHookTopDesk = hwnd;
-    hCBTHook = SetWindowsHookEx(WH_CBT, (HOOKPROC)CBTHookProc,
+    hCBTHookTopDesk = SetWindowsHookEx(WH_CBT, (HOOKPROC)CBTHookProcTopDesk,
             GetModuleHandle("tophook"), 0);
     return(TRUE);
 }
 
 
 
-
+BOOL FAR PASCAL SetMrShadowHooks(
+HWND hwnd)
+{
+    if (pidMrShadow != -1) {
+        return(FALSE);          // only ONE GUY allowed!
+    }
+    pidMrShadow = GetCurrentProcessId();
+    if (!wmRefreshMsg) {
+        wmRefreshMsg = RegisterWindowMessage(szMYWM_REFRESH);
+        hwndDT = GetDesktopWindow();
+    }
+    hwndHookMrShadow = hwnd;
+    hCBTHookMrShadow = SetWindowsHookEx(WH_CBT, (HOOKPROC)CBTHookProcMrShadow,
+            GetModuleHandle("tophook"), 0);
+    return(TRUE);
+}
+
+
+BOOL FAR PASCAL ClearMrShadowHooks(
+HWND hwnd)
+{
+    if (pidMrShadow != GetCurrentProcessId()) {
+        return(FALSE);
+    }
+    if (UnhookWindowsHookEx(hCBTHookMrShadow)) {
+        pidMrShadow = (DWORD)-1;
+        hCBTHookMrShadow = NULL;
+        hwndHookMrShadow = NULL;
+        return(TRUE);
+    }
+    return(FALSE);
+}

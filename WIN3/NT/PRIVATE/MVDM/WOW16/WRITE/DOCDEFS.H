@@ -84,4 +84,3 @@ struct DOD
 #define cbDOD (sizeof (struct DOD))
 
 struct FNTB **HfntbGet();
-

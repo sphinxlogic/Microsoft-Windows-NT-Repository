@@ -51,8 +51,12 @@ KdpQueryPerformanceCounter (
         otherwise 0
 --*/
 {
+
     if (!(TrapFrame->EFlags & EFLAGS_INTERRUPT_MASK)) {
-        return RtlConvertUlongToLargeInteger(0);
+        LARGE_INTEGER LargeIntegerZero;
+
+        LargeIntegerZero.QuadPart = 0;
+        return LargeIntegerZero;
     } else {
         return KeQueryPerformanceCounter(0);
     }

@@ -18,6 +18,10 @@ Author:
 
 #include "fdisk.h"
 
+HWND    InitDlg;
+BOOLEAN StartedAsIcon = FALSE;
+BOOLEAN InitDlgComplete = FALSE;
+
 BOOL
 InitializeApp(
     VOID
@@ -59,19 +63,38 @@ Return Value:
 
     // fonts
 
+#ifdef JAPAN
+    hFontGraph =  CreateFont(GetHeightFromPoints(10), 0,
+                             0, 0, 400, FALSE, FALSE, FALSE, SHIFTJIS_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                             DEFAULT_QUALITY, VARIABLE_PITCH | FF_SWISS,
+                             TEXT("System")
+                            );
+#else
     hFontGraph =  CreateFont(GetHeightFromPoints(8), 0,
                              0, 0, 400, FALSE, FALSE, FALSE, ANSI_CHARSET,
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                              DEFAULT_QUALITY, VARIABLE_PITCH | FF_SWISS,
                              TEXT("Helv"));
+#endif
+
     hFontLegend = hFontGraph;
     hFontStatus = hFontGraph;
 
+#ifdef JAPAN
+    hFontGraphBold = CreateFont(GetHeightFromPoints(10), 0,
+                                0, 0, 700, FALSE, FALSE, FALSE,
+                                                                SHIFTJIS_CHARSET, OUT_DEFAULT_PRECIS,
+                                                                CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                                                                VARIABLE_PITCH | FF_SWISS, TEXT("System")
+                               );
+#else
     hFontGraphBold = CreateFont(GetHeightFromPoints(8), 0,
                                 0, 0, 700, FALSE, FALSE, FALSE, ANSI_CHARSET,
                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                 DEFAULT_QUALITY, VARIABLE_PITCH | FF_SWISS,
                                 TEXT("Helv"));
+#endif
 
     hfontT = SelectObject(hdcScreen, hFontGraph);
     GetTextMetrics(hdcScreen, &tm);
@@ -309,7 +332,138 @@ createSignature:
     *SignatureCreated = (BOOL)pDiskState->SigWasCreated;
 }
 
-#if 0
+BOOL
+InitializationDlgProc(
+    IN HWND hDlg,
+    IN UINT uMsg,
+    IN WPARAM wParam,
+    IN LPARAM lParam
+    )
+
+/*++
+
+Routine Description:
+
+Arguments:
+
+    standard Windows dialog procedure
+
+Return Values:
+
+    standard Windows dialog procedure
+
+--*/
+
+{
+    static DWORD          percentDrawn;
+    static RECT           rectGG;              // GasGauge rectangle
+    static BOOL           captionIsLoaded;
+    static PFORMAT_PARAMS formatParams;
+           TCHAR          title[100],
+                          templateString[100];
+
+    switch (uMsg) {
+    case WM_INITDIALOG: {
+        HWND   hwndGauge = GetDlgItem(hDlg, IDC_GASGAUGE);
+
+        InitDlg = hDlg;
+        percentDrawn = 0;
+        StartedAsIcon = IsIconic(hDlg);
+
+        // Get the coordinates of the gas gauge static control rectangle,
+        // and convert them to dialog client area coordinates
+
+        GetClientRect(hwndGauge, &rectGG);
+        ClientToScreen(hwndGauge, (LPPOINT)&rectGG.left);
+        ClientToScreen(hwndGauge, (LPPOINT)&rectGG.right);
+        ScreenToClient(hDlg, (LPPOINT)&rectGG.left);
+        ScreenToClient(hDlg, (LPPOINT)&rectGG.right);
+        return TRUE;
+    }
+
+    case WM_PAINT: {
+        INT         width  = rectGG.right - rectGG.left;
+        INT         height = rectGG.bottom - rectGG.top;
+        INT         nDivideRects;
+        HDC         hDC;
+        PAINTSTRUCT ps;
+        TCHAR       buffer[10];
+        SIZE        size;
+        INT         xText,
+                    yText,
+                    byteCount;
+        RECT        rectDone,
+                    rectLeftToDo;
+
+        hDC = BeginPaint(hDlg, &ps);
+        byteCount = wsprintf(buffer, TEXT("%3d%%"), percentDrawn);
+        GetTextExtentPoint(hDC, buffer, lstrlen(buffer), &size);
+        xText = rectGG.left + (width  - size.cx) / 2;
+        yText = rectGG.top  + (height - size.cy) / 2;
+
+        // Paint in the "done so far" rectangle of the gas
+        // gauge with blue background and white text
+
+        nDivideRects = (width * percentDrawn) / 100;
+        SetRect(&rectDone,
+                rectGG.left,
+                rectGG.top,
+                rectGG.left + nDivideRects,
+                rectGG.bottom);
+
+        SetTextColor(hDC, RGB(255, 255, 255));
+        SetBkColor(hDC, RGB(0, 0, 255));
+        ExtTextOut(hDC,
+                   xText,
+                   yText,
+                   ETO_CLIPPED | ETO_OPAQUE,
+                   &rectDone,
+                   buffer,
+                   byteCount/sizeof(TCHAR),
+                   NULL);
+
+        // Paint in the "still left to do" rectangle of the gas
+        // gauge with white background and blue text
+
+        SetRect(&rectLeftToDo,
+                rectGG.left + nDivideRects,
+                rectGG.top,
+                rectGG.right,
+                rectGG.bottom);
+        SetBkColor(hDC, RGB(255, 255, 255));
+        SetTextColor(hDC, RGB(0, 0, 255));
+        ExtTextOut(hDC,
+                   xText,
+                   yText,
+                   ETO_CLIPPED | ETO_OPAQUE,
+                   &rectLeftToDo,
+                   buffer,
+                   byteCount/sizeof(TCHAR),
+                   NULL);
+        EndPaint(hDlg, &ps);
+
+        if (percentDrawn == 100) {
+            InitDlgComplete = TRUE;
+        }
+        return TRUE;
+    }
+
+    case WM_USER:
+         percentDrawn = (INT)wParam;
+         InvalidateRect(hDlg, &rectGG, TRUE);
+         UpdateWindow(hDlg);
+         return TRUE;
+
+    case (WM_USER + 1):
+        EndDialog(hDlg, FALSE);
+        return TRUE;
+
+    default:
+
+        return FALSE;
+    }
+}
+
 VOID
 InitializationMessageThread(
     PVOID ThreadParameter
@@ -334,10 +488,12 @@ Return Value:
 
 {
     DialogBoxParam(hModule,
-                   MAKEINTRESOURCE(IDD_INITIALIZATION_MESSAGE),
+                   MAKEINTRESOURCE(IDD_INITIALIZING),
                    hwndFrame,
-                   (DLGPROC) InitializationDialogProc,
+                   (DLGPROC) InitializationDlgProc,
                    (ULONG) NULL);
+    InitDlg = (HWND) 0;
+    ExitThread(0L);
 }
 
 VOID
@@ -372,7 +528,6 @@ Return Value:
                                 (DWORD) 0,
                                 (LPDWORD) &threadId);
     if (!threadHandle) {
-        Close(threadHandle);
+        CloseHandle(threadHandle);
     }
 }
-#endif

@@ -5,6 +5,10 @@
 #ifndef _HNETUTIL_
 #define _HNETUTIL_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 // made to match usri3 info structure for easy save/retrieval
 typedef struct _NT_USER_INFO {
     LPWSTR   name;
@@ -39,6 +43,17 @@ typedef struct _NT_USER_INFO {
 } NT_USER_INFO, *PNT_USER_INFO, *LPNT_USER_INFO;
 
 
+typedef struct _FPNW_INFO {
+   WORD MaxConnections;
+   WORD PasswordInterval;
+   BYTE GraceLoginAllowed;
+   BYTE GraceLoginRemaining;
+   LPWSTR LoginFrom;
+   LPWSTR HomeDir;
+} FPNW_INFO, *PFPNW_INFO, *LPFPNW_INFO;
+
+
+
 // made to match  USER_MODALS_INFO_0 info structure for easy save/retrieval
 typedef struct _NT_DEFAULTS {
     DWORD min_passwd_len;
@@ -62,7 +77,11 @@ void GetLocalName(LPTSTR *lpLocalName);
 BOOL SetProvider(LPTSTR Provider, NETRESOURCE *ResourceBuf);
 ENUM_REC *AllocEnumBuffer();
 DWORD FAR PASCAL EnumBufferBuild(ENUM_REC **BufHead, int *NumBufs, NETRESOURCE ResourceBuf);
-BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare);
+BOOL UseAddPswd(HWND hwnd, LPTSTR UserName, LPTSTR lpszServer, LPTSTR lpszShare, LPTSTR Provider);
 LPTSTR NicePath(int Len, LPTSTR Path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -237,6 +237,10 @@ FSYS_HAND fsh ;
      return SUCCESS ;
 }
 
+INT32 NTFS_EndOperationOnDLE( FSYS_HAND fsh )
+{
+     return SUCCESS ;
+}
 
 /**/
 /**
@@ -411,4 +415,5 @@ static VOID NTFS_FixUpSysReg( FSYS_HAND fsh )
           free( old_reg_name ) ;
      }
 }
+
 

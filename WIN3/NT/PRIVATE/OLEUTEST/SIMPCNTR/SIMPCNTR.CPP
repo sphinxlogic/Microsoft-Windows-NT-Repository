@@ -64,6 +64,15 @@ void DeactivateIfActive(HWND hWnd)
 }
 
 
+BOOL fBeVerbose = FALSE;
+extern "C"
+void TestDebugOut(LPSTR psz)
+{
+    if (fBeVerbose)
+    {
+	OutputDebugStringA(psz);
+    }
+}
 
 
 //**********************************************************************
@@ -118,6 +127,12 @@ int PASCAL WinMain
     SetMessageQueue(96);
 
     lpCSimpleApp = new CSimpleApp;
+    fBeVerbose = GetProfileInt("OLEUTEST","BeVerbose",0);
+
+    if(fBeVerbose == 0)
+    {
+	fBeVerbose = GetProfileInt("OLEUTEST","simpcntr",0);
+    }
 
     if (!lpCSimpleApp)
     {
@@ -505,4 +520,4 @@ long FAR PASCAL EXPORT DocWndProc(HWND hWnd, UINT message,
     }
     return (NULL);
 }
-
+

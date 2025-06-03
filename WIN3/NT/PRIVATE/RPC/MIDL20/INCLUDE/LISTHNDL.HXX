@@ -110,14 +110,16 @@ public:
 
 	STATUS_T			GetNext( void ** ppReturn )
 							{
-							STATUS_T	rc = I_ERR_NO_PEER;
 							if(pCurrent != (struct _gplist *)NULL)
 								{
 								(*ppReturn)	 = pCurrent->pElement;
 								pCurrent = pCurrent->pNext;
-								rc = STATUS_OK;
+								return STATUS_OK;
 								}
-							return rc;
+							// null out the return if the list was empty
+							if ( !pFirst )
+								(*ppReturn) = NULL;
+							return I_ERR_NO_PEER;
 							}
 
 	void			*	PeekThis()
@@ -189,4 +191,3 @@ typedef gplistmgr ITERATOR;
 
 
 #endif	// __LISTHNDL_HXX__
-

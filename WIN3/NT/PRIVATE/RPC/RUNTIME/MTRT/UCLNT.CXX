@@ -21,17 +21,38 @@ Revision History:
 
 --*/
 
+#include <precomp.hxx>
 
-#include <string.h>
-#include <stdlib.h>
 #ifdef DOS
 #define SECURITY_DOS
 #include "..\..\security\ntlmssp\ntlmssp.h"
 #endif
 
+#ifdef MAC
+#include <tests.h>
+#endif
+
+#ifdef MAC
+#define swaplong(Value) \
+          Value =  (  (((Value) & 0xFF000000) >> 24) \
+             | (((Value) & 0x00FF0000) >> 8) \
+             | (((Value) & 0x0000FF00) << 8) \
+             | (((Value) & 0x000000FF) << 24))
+#else
+#define swaplong(Value)
+#endif
+
+#ifdef MAC
+#define swapshort(Value) \
+   Value = (  (((Value) & 0x00FF) << 8) \
+             | (((Value) & 0xFF00) >> 8))
+#else
+#define swapshort(Value)
+#endif
+
+
 #if defined(DOS) && ! defined(WIN)
 #define NOTHREADS
-
 //
 // Gross hack because the dos dlls are compiled under c7 which calls
 // stricmp "_stricmp"
@@ -48,6 +69,11 @@ int _stricmp(char _far *s1, char _far *s2)
 #endif
 
 #ifdef WIN
+// Keep linker happer
+SECURITY_PROVIDER_INFO __far * ProviderList;
+#endif
+
+#if defined(WIN) || defined(MAC)
 #define NOTHREADS
 #endif // WIN
 
@@ -59,13 +85,6 @@ int _stricmp(char _far *s1, char _far *s2)
 
 #include <sysinc.h>
 
-#ifdef OS2_12
-
-GINFOSEG * near pInfoSegG;	// Global info seg from OS/2
-LINFOSEG * near pInfoSegL;	// Local ""
-
-#endif
-
 #ifdef WIN
 START_C_EXTERN
 
@@ -74,7 +93,7 @@ START_C_EXTERN
 char *szCaption = "RPC BVT - uClnt";
 
 // BUGBUG - Clean up this declaration
-extern HWND near hWndStdio;	// Handle to standard I/O window
+extern HWND near hWndStdio; // Handle to standard I/O window
 
 // main() needs to be redefined for Windows (to not confuse the C7 linker)
 #define main c_main
@@ -85,7 +104,7 @@ extern int PASCAL WinMain(HANDLE, HANDLE, LPSTR, int);
 static int (PASCAL *wm_ptr)(HANDLE, HANDLE, LPSTR, int) = WinMain;
 
 END_C_EXTERN
-#endif	// WIN
+#endif  // WIN
 
 #include <rpc.h>
 #include <rpcdcep.h>
@@ -98,10 +117,15 @@ END_C_EXTERN
 
 #include <mutex.hxx>
 #include <threads.hxx>
+#ifdef NTENV
+#include "pipe.h"
+#endif
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
 THREAD ThreadStatic;
 #endif
+
+BOOL  IsWMSG = FALSE ;
 
 /*
 Transports:
@@ -117,8 +141,10 @@ Transports:
 #define RPC_TRANSPORT_SPX       6
 #define RPC_TRANSPORT_UDP       7
 #define RPC_TRANSPORT_IPX       8
+#define RPC_TRANSPORT_DSP       9
+#define RPC_TRANSPORT_VNS       10
 
-#define RETRYCOUNT 4
+#define RETRYCOUNT 10
 #define RETRYDELAY 500L
 
 #define LONG_TESTDELAY 10000L
@@ -141,12 +167,23 @@ unsigned int NoSecurityTests = 0;
 unsigned int HackForOldStubs = 0;
 unsigned int DatagramTests   = 0;
 
-#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+#if !defined(WIN32)
+int AutoListenFlag = 1;
+#else
+int AutoListenFlag = 0;
+#endif
+
+#ifndef MAC
 char far *SecurityUser     = NULL;
 char far *SecurityDomain   = NULL;
 char far *SecurityPassword = NULL;
 #endif
 
+unsigned long ulSecurityPackage = 123 ;
+unsigned long TransportType;
+int ClientType ;
+#define SYNC_WMSG 1
+#define ASYNC_WMSG 2
 
  /* --------------------------------------------------------------------
 
@@ -154,20 +191,53 @@ Utility Routines.
 
 -------------------------------------------------------------------- */
 
-#ifdef NTENV
-#define _fmemcmp memcmp
-#endif
-
 unsigned int WarnFlag = 0; // Flag for warning messages.
 unsigned int ErrorFlag = 1; // Flag for error messages.
-unsigned long TransportType;
 
 char NetBiosProtocol[20] = "ncacn_nb_nb";  // NetBios transport protocol
 
-char * Server;
+#ifndef MAC
+char * Server ;
+#endif
 
 RPC_STATUS Status; // Contains the status of the last RPC API call.
 MUTEX * PrintMutex; // Mutex used to serialize print operations.
+
+/* volatile */ int fShutdown; // Flag indicating that shutdown should occur.
+
+#define CHUNK_SIZE   50
+#define NUM_CHUNKS 100
+#define BUFF_SIZE 100
+
+// if you change the type of the pipe element
+// make sure you change the pull and push routines
+// to correctly initialize the pipe element
+typedef int pipe_element_t ;
+
+typedef struct {
+    void (PAPI *Pull) (
+        char PAPI *state,
+        pipe_element_t PAPI *buffer,
+        int max_buf,
+        int PAPI *size_to_send
+        ) ;
+
+    void (PAPI *Push) (
+        char PAPI *state,
+        pipe_element_t PAPI *input_buffer,
+        int ecount
+        ) ;
+
+    void (PAPI *Alloc) (
+        char PAPI *state,
+        int requested_size,
+        pipe_element_t PAPI * PAPI *allocate_buf,
+        int PAPI *allocated_size
+        ) ;
+
+    char PAPI *state ;
+    } pipe_t ;
+
 
 void
 ApiError ( // An API error occured; we just print a message.
@@ -182,6 +252,8 @@ ApiError ( // An API error occured; we just print a message.
         PrintToConsole("    ApiError in %s (%s = %u)\n",Routine,API,status);
         PrintMutex->Clear();
         }
+
+   // _asm {int 3} ;    
 }
 
 void
@@ -236,7 +308,7 @@ PauseExecution (
     start = GetCurrentTime();
     while (1)
         {
-	if (GetCurrentTime() - start > time)
+    if (GetCurrentTime() - start > time)
             return;
         }
 }
@@ -250,6 +322,27 @@ void __far I_RpcWinAssert(char __far *con,
 }
 
 #endif
+unsigned int IsabelleErrors = 0;
+unsigned int HelgaErrors = 0;
+unsigned int SylviaErrors = 0;
+
+void IsabelleError (
+    )
+{
+    IsabelleErrors += 1 ;
+}
+
+void HelgaError (
+    )
+{
+    HelgaErrors += 1 ;
+}
+
+void SylviaError (
+    )
+{
+    SylviaErrors += 1 ;
+}
 
 #define SIGFRIED 0
 #define ELLIOTMINIMIZE 1
@@ -275,6 +368,8 @@ void __far I_RpcWinAssert(char __far *con,
 #define IVAN 26
 #define JASON 27
 #define KENNETH 28
+#define TESTYIELD 29
+#define SPIPE TESTYIELD
 
 
 /*
@@ -314,7 +409,8 @@ char * NamepipeAddresses [] =
     "\\pipe\\herman",
     "\\pipe\\ivan",
     "\\pipe\\jason",
-    "\\pipe\\kenneth"
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
 };
 #else
 char * NamepipeAddresses [] =
@@ -347,9 +443,44 @@ char * NamepipeAddresses [] =
     "\\pipe\\herman",
     "\\pipe\\ivan",
     "\\pipe\\jason",
-    "\\pipe\\kenneth"
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
 };
 #endif
+
+char * DspAddresses [] =
+{
+    "\\pipe\\sigfried",
+    "\\pipe\\elliotmi",
+    "\\pipe\\elliotma",
+    "\\pipe\\elliotno",
+    "\\pipe\\andromno",
+    0,
+    0,
+    "\\pipe\\fredrick",
+    0,
+    0,
+    "\\pipe\\isabelno",
+    "\\pipe\\isabelmi",
+    "\\pipe\\isabelma",
+    "\\pipe\\christ",
+    "\\pipe\\zippyhe",
+    "\\pipe\\zippyis",
+    0,
+    "\\pipe\\tyler",
+    "\\pipe\\richard",
+    "\\pipe\\richardh",
+    0,
+    "\\pipe\\david1",
+    "\\pipe\\david2",
+    "\\pipe\\bart",
+    "\\pipe\\grant",
+    "\\pipe\\herman",
+    "\\pipe\\ivan",
+    "\\pipe\\jason",
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
+};
 
 char * TCPDefaultServer =
     "serverhost";
@@ -386,73 +517,76 @@ char * NetBiosAddresses [] =
     "221",    // herman
     "222",    // ivan
     "223",    // jason
-    "224"     // kenneth
+    "224",     // kenneth
+    "225"     // testyield
 };
 
 char * TCPAddresses [] =
 {
-    "1025", // SIGFRIED
-    "1026", // ELLIOTMINIMIZE
-    "1027", // ELLIOTMAXIMIZE
-    "1028", // ELLIOTNORMAL
-    "1029", // ANDROMIDA
+    "2025", // SIGFRIED
+    "2026", // ELLIOTMINIMIZE
+    "2027", // ELLIOTMAXIMIZE
+    "2028", // ELLIOTNORMAL
+    "2029", // ANDROMIDA
     0,
     0,
-    "1032", // FREDRICK
+    "2032", // FREDRICK
     0,
     0,
-    "1035", // ISABELLENORMAL
-    "1036", // ISABELLEMINIMIZE
-    "1037", // ISABELLEMAXIMIZE
-    "1038", // CHRISTOPHER
-    "1039", // CHRISTOPHERHELGA
-    "1040", // CHRISTOPHERISABELLE
+    "2035", // ISABELLENORMAL
+    "2036", // ISABELLEMINIMIZE
+    "2037", // ISABELLEMAXIMIZE
+    "2038", // CHRISTOPHER
+    "2039", // CHRISTOPHERHELGA
+    "2040", // CHRISTOPHERISABELLE
     0,
-    "1042", // TYLER
-    "1043", // RICHARD
-    "1044", // RICHARDHELPER
+    "2042", // TYLER
+    "2043", // RICHARD
+    "2044", // RICHARDHELPER
     0,
-    "1045", //D1
-    "1046", //D2
-    "1047", // Bartholomew
-    "1048", // Grant
-    "1049", // Herman
-    "1050", // Ivan
-    "1051", // Jason
-    "1052"  // Kenneth
+    "2045", //D1
+    "2046", //D2
+    "2047", // Bartholomew
+    "2048", // Grant
+    "2049", // Herman
+    "2050", // Ivan
+    "2051", // Jason
+    "2052",  // Kenneth
+    "2053"   // TestYield
 };
 
 char * UDPAddresses [] =
 {
-    "1025", // SIGFRIED
-    "1026", // ELLIOTMINIMIZE
-    "1027", // ELLIOTMAXIMIZE
-    "1028", // ELLIOTNORMAL
-    "1029", // ANDROMIDA
+    "2025", // SIGFRIED
+    "2026", // ELLIOTMINIMIZE
+    "2027", // ELLIOTMAXIMIZE
+    "2028", // ELLIOTNORMAL
+    "2029", // ANDROMIDA
     0,
     0,
-    "1032", // FREDRICK
+    "2032", // FREDRICK
     0,
     0,
-    "1035", // ISABELLENORMAL
-    "1036", // ISABELLEMINIMIZE
-    "1037", // ISABELLEMAXIMIZE
-    "1038", // CHRISTOPHER
-    "1039", // CHRISTOPHERHELGA
-    "1040", // CHRISTOPHERISABELLE
+    "2035", // ISABELLENORMAL
+    "2036", // ISABELLEMINIMIZE
+    "2037", // ISABELLEMAXIMIZE
+    "2038", // CHRISTOPHER
+    "2039", // CHRISTOPHERHELGA
+    "2040", // CHRISTOPHERISABELLE
     0,
-    "1042", // TYLER
-    "1043", // RICHARD
-    "1044", // RICHARDHELPER
+    "2042", // TYLER
+    "2043", // RICHARD
+    "2044", // RICHARDHELPER
     0,
-    "1045", //D1
-    "1046", //D2
-    "1047", // Bartholomew
-    "1048", // Grant
-    "1049", // Herman
-    "1050", // Ivan
-    "1051", // Jason
-    "1052"  // Kenneth
+    "2045", //D1
+    "2046", //D2
+    "2047", // Bartholomew
+    "2048", // Grant
+    "2049", // Herman
+    "2050", // Ivan
+    "2051", // Jason
+    "2052",  // Kenneth
+    "2053"  // TestYield
 };
 
 char * SPCAddresses [] =
@@ -485,7 +619,8 @@ char * SPCAddresses [] =
     "herman",
     "ivan",
     "jason",
-    "kenneth"
+    "kenneth",
+    "testyield"
 };
 
 char * SPXAddresses [] =
@@ -518,7 +653,8 @@ char * SPXAddresses [] =
     "5026",    // herman
     "5027",    // ivan
     "5028",    // jason
-    "5029"     // kenneth
+    "5029",     // kenneth
+    "5030"     // testyield
 };
 
 char * IPXAddresses [] =
@@ -551,10 +687,45 @@ char * IPXAddresses [] =
     "5026",    // herman
     "5027",    // ivan
     "5028",    // jason
-    "5029"     // kenneth
+    "5029",     // kenneth
+    "5030"     // testyield
 };
 
-
+char * VNSAddresses [] =
+{
+    "250",    // sigfried
+    "251",    // elliotmi
+    "252",    // elliotma
+    "253",    // elliotno
+    "254",    // andromno
+    "255",
+    "256",
+    "257",    // fredrick
+    "258",
+    "259",
+    "260",    // isabelno
+    "261",    // isabelmi
+    "262",    // isabelma
+    "263",    // christ
+    "264",    // zippyhe
+    "265",    // zippyis
+    "266",
+    "267",    // tyler
+    "270",    // richard
+    "271",    // richardh
+    0,
+    "272",    // david1
+    "273",    // david2
+    "274",    // bart
+    "275",    // grant
+    "276",    // herman
+    "277",    // ivan
+    "278",    // jason
+    "279",     // kenneth
+    "280"     // testyield
+};
+
+
 unsigned char PAPI *
 GetStringBinding (
     IN unsigned int Address,
@@ -661,6 +832,23 @@ Transports:
                 NetworkOptions, &StringBinding);
         }
 
+   if (TransportType == RPC_TRANSPORT_DSP)
+    {
+    Status = RpcStringBindingCompose((unsigned char PAPI *) ObjectUuid,
+                (unsigned char PAPI *) "ncacn_at_dsp",
+                (unsigned char PAPI *) Server,
+                (unsigned char PAPI *) DspAddresses[Address],
+                NetworkOptions, &StringBinding);
+    }
+    if (TransportType == RPC_TRANSPORT_VNS)
+    {
+    Status = RpcStringBindingCompose((unsigned char PAPI *) ObjectUuid,
+                (unsigned char PAPI *) "ncacn_vns_spp",
+                (unsigned char PAPI *) Server,
+                (unsigned char PAPI *) VNSAddresses[Address],
+                NetworkOptions, &StringBinding);
+    }
+
    if (Status)
         {
         ApiError("GetStringBinding","RpcStringBindingCompose",Status);
@@ -671,6 +859,22 @@ Transports:
 
    return(StringBinding);
 }
+
+#ifdef NTENV
+extern RPC_STATUS
+I_RpcBlockingFunc(
+    HANDLE hSyncEvent
+    ) ;
+
+RPC_STATUS UclntBlockingFunc (
+    void *wnd,
+    void *context,
+    HANDLE hSyncEvent
+    )
+{
+    return I_RpcBlockingFunc(hSyncEvent) ;
+}
+#endif
 
 
 RPC_STATUS
@@ -690,7 +894,7 @@ Arguments:
     Address - Supplies an index into a table of endpoints.
 
     Binding - A pointer to the location to store the returned binding
-	handle.
+    handle.
 
 Return Value:
 
@@ -706,19 +910,19 @@ Return Value:
     Status = RpcBindingFromStringBinding(StringBinding, Binding);
 
     if (Status)
-	ApiError("GetBinding","RpcBindingFromStringBinding",Status);
+    ApiError("GetBinding","RpcBindingFromStringBinding",Status);
 
     if (StringBinding)
-	 {
-	 FreeStatus = RpcStringFree(&StringBinding);
+     {
+     FreeStatus = RpcStringFree(&StringBinding);
 
-	 if (FreeStatus)
-	      {
+     if (FreeStatus)
+          {
               ApiError("GetBinding","RpcStringFree",FreeStatus);
               PrintToConsole("GetBinding failed in ");
-	      PrintToConsole("RpcStringFree\n");
-	      }
-	 }
+          PrintToConsole("RpcStringFree\n");
+          }
+     }
 
     return(Status);
 }
@@ -745,7 +949,20 @@ Return Value:
 
 --*/
 {
+#ifdef NTENV
+    switch (ClientType)
+        {
+        case ASYNC_WMSG:
+            Status = I_RpcAsyncSendReceive(RpcMessage, 0, 0) ;
+            break;
+
+        default:
+            Status = I_RpcSendReceive(RpcMessage);
+        }
+#else
     Status = I_RpcSendReceive(RpcMessage);
+#endif
+
     return(Status);
 }
 
@@ -772,6 +989,23 @@ Return Value:
 {
     unsigned int RetryCount;
 
+#ifdef NTENV
+    switch (ClientType)
+        {
+        case ASYNC_WMSG:
+            Status = I_RpcBindingSetAsync(RpcMessage->Handle, UclntBlockingFunc) ;
+            if (Status)
+                ApiError("UclntGetBuffer","I_RpcBindingSetAsync",Status);
+            break;
+
+        case SYNC_WMSG:
+            Status = I_RpcBindingSetAsync(RpcMessage->Handle, 0) ;
+            if (Status)
+                ApiError("UclntGetBuffer","I_RpcBindingSetAsync",Status);
+            break;
+        }
+#endif
+
     for (RetryCount = 0; RetryCount < RETRYCOUNT; RetryCount++)
         {
         Status = I_RpcGetBuffer(RpcMessage);
@@ -789,7 +1023,6 @@ Isabelle Interface
 
 -------------------------------------------------------------------- */
 
-unsigned int IsabelleErrors = 0;
 
 RPC_PROTSEQ_ENDPOINT IsabelleRpcProtseqEndpoint[] =
 {
@@ -803,12 +1036,14 @@ RPC_PROTSEQ_ENDPOINT IsabelleRpcProtseqEndpoint[] =
 #else // NTENV
     {(unsigned char *) "ncacn_np",(unsigned char *) "\\pipe\\zippyis"},
 #endif // NTENV
-    {(unsigned char *) "ncacn_ip_tcp",(unsigned char *) "1040"}
-    ,{(unsigned char *) "ncadg_ip_udp",(unsigned char *) "1040"}
+    {(unsigned char *) "ncacn_ip_tcp",(unsigned char *) "2040"}
+    ,{(unsigned char *) "ncadg_ip_udp",(unsigned char *) "2040"}
     ,{(unsigned char *) "ncalrpc",(unsigned char *) "christopherisabelle"}
     ,{(unsigned char *) "ncacn_nb_nb",(unsigned char *) "212"}
     ,{(unsigned char *) "ncacn_spx",(unsigned char *) "5015"}
     ,{(unsigned char *) "ncadg_ipx",(unsigned char *) "5015"}
+    ,{(unsigned char *) "ncacn_vns_spp", (unsigned char *) "265"}
+    ,{(unsigned char *) "ncacn_at_dsp", (unsigned char *) "\\pipe\\zippyis"}
 };
 
 RPC_CLIENT_INTERFACE IsabelleInterfaceInformation =
@@ -817,10 +1052,17 @@ RPC_CLIENT_INTERFACE IsabelleInterfaceInformation =
     {{9,8,8,{7,7,7,7,7,7,7,7}},
      {1,1}},
     {{9,8,7,{6,5,4,3,2,1,2,3}},
-     {4,5}},
+     {0,0}}, /* {4,5}}, */
     0,
     sizeof(IsabelleRpcProtseqEndpoint) / sizeof(RPC_PROTSEQ_ENDPOINT),
-    IsabelleRpcProtseqEndpoint
+    IsabelleRpcProtseqEndpoint,
+    0,
+    NULL,
+#ifdef NTENV
+    RPC_INTERFACE_HAS_PIPES
+#else
+    NULL
+#endif
 };
 
 void
@@ -855,7 +1097,7 @@ IsabelleShutdown (
     if (Status)
         {
         ApiError("IsabelleShutdown", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -864,7 +1106,7 @@ IsabelleShutdown (
     if (Status)
         {
         ApiError("IsabelleShutdown","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -872,14 +1114,14 @@ IsabelleShutdown (
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleShutdown","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleShutdown","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
@@ -919,7 +1161,7 @@ IsabelleNtSecurity (
     if (Status)
         {
         ApiError("IsabelleNtSecurity","I_RpcGetBuffer",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     RpcpMemoryCopy(Caller.Buffer,Buffer,BufferLength);
@@ -929,7 +1171,7 @@ IsabelleNtSecurity (
     if (Status)
         {
         ApiError("IsabelleNtSecurity","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -937,14 +1179,14 @@ IsabelleNtSecurity (
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleNtSecurity","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleNtSecurity","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
@@ -982,7 +1224,7 @@ IsabelleToStringBinding (
     if (Status)
         {
         ApiError("IsabelleToStringBinding", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -991,7 +1233,7 @@ IsabelleToStringBinding (
     if (Status)
         {
         ApiError("IsabelleToStringBinding","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -999,14 +1241,14 @@ IsabelleToStringBinding (
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleToStringBinding","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleToStringBinding","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
@@ -1021,7 +1263,7 @@ IsabelleToStringBinding (
 RPC_STATUS
 IsabelleRichardHelper (
     IN RPC_BINDING_HANDLE Binding,
-    IN unsigned long Command
+    IN unsigned /*long*/ char Command
     )
 /*++
 
@@ -1054,10 +1296,10 @@ Return Value:
 --*/
 {
     RPC_MESSAGE Caller;
-    unsigned long PAPI * plScan;
+    unsigned /*long*/ char PAPI * plScan;
 
     Caller.Handle = Binding;
-    Caller.BufferLength = sizeof(unsigned long);
+    Caller.BufferLength = sizeof(unsigned /*long*/ char);
     Caller.ProcNum = 3 | HackForOldStubs ;
     Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
     Caller.RpcFlags = 0;
@@ -1080,7 +1322,7 @@ Return Value:
     if (Status != RPC_S_OK)
         return(Status);
 
-    plScan = (unsigned long PAPI *) Caller.Buffer;
+    plScan = (unsigned /*long*/ char PAPI *) Caller.Buffer;
     *plScan = Command;
 
     Status = UclntSendReceive(&Caller);
@@ -1095,7 +1337,7 @@ Return Value:
 RPC_STATUS
 IsabelleRaiseException (
     IN RPC_BINDING_HANDLE Binding,
-    IN unsigned long Exception
+    IN unsigned /*long*/ char Exception
     )
 /*++
 
@@ -1118,10 +1360,10 @@ Return Value:
 --*/
 {
     RPC_MESSAGE Caller;
-    unsigned long PAPI * plScan;
+    unsigned /*long*/ char PAPI * plScan;
 
     Caller.Handle = Binding;
-    Caller.BufferLength = sizeof(unsigned long);
+    Caller.BufferLength = sizeof(unsigned /*long*/ char);
     Caller.ProcNum = 4 | HackForOldStubs ;
     Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
     Caller.RpcFlags = 0;
@@ -1144,7 +1386,7 @@ Return Value:
     if (Status != RPC_S_OK)
         return(Status);
 
-    plScan = (unsigned long PAPI *) Caller.Buffer;
+    plScan = (unsigned /*long*/ char PAPI *) Caller.Buffer;
     *plScan = Exception;
 
     Status = UclntSendReceive(&Caller);
@@ -1197,7 +1439,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleSetRundown", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -1206,7 +1448,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleSetRundown","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -1214,14 +1456,14 @@ Arguments:
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleSetRundown","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleSetRundown","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
@@ -1272,7 +1514,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckRundown", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -1281,7 +1523,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckRundown","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -1289,17 +1531,71 @@ Arguments:
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleCheckRundown","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleCheckRundown","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
+}
+
+void
+IsabelleMustFail (
+    RPC_BINDING_HANDLE Binding
+    )
+/*++
+
+Routine Description:
+
+Arguments:
+
+    Binding - Supplies a binding handle to be used to direct the
+        remote procedure call.
+
+--*/
+{
+    RPC_MESSAGE Caller;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 6| HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = 0;
+    if (IdempotentTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_IDEMPOTENT;
+        }
+    if (MaybeTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_MAYBE;
+        }
+    if (BroadcastTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_BROADCAST;
+        }
+
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        return;
+        }
+
+    Status = UclntSendReceive(&Caller);
+
+    if (Status)
+        {
+        return;
+        }
+
+    PrintToConsole("IsabelleMustFail: This call is supposed to fail\n") ;
+    IsabelleError();
 }
 
 
@@ -1348,7 +1644,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckContext", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -1357,7 +1653,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckContext","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -1365,14 +1661,14 @@ Arguments:
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleCheckContext","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleCheckContext","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         }
@@ -1431,7 +1727,7 @@ Return Value:
     if (Status)
         {
         ApiError("IsabelleGetStringBinding", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return(0);
         }
 
@@ -1440,7 +1736,7 @@ Return Value:
     if (Status)
         {
         ApiError("IsabelleGetStringBinding","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return(0);
         }
 
@@ -1456,7 +1752,7 @@ Return Value:
     if (Status)
         {
         ApiError("IsabelleGetStringBinding","I_RpcFreeBuffer",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return(0);
         }
     return(StringBinding);
@@ -1507,7 +1803,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckNoRundown", "I_RpcGetBuffer", Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
 
@@ -1516,7 +1812,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleCheckNoRundown","I_RpcSendReceive",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         return;
         }
     else
@@ -1524,16 +1820,843 @@ Arguments:
         if (Caller.BufferLength != 0)
             {
             OtherError("IsabelleCheckNoRundown","BufferLength != 0");
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("IsabelleCheckNoRundown","I_RpcFreeBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
+        }
+}
+
+
+void
+IsabelleUnregisterInterfaces (
+    RPC_BINDING_HANDLE Binding
+    )
+/*++
+
+Routine Description:
+
+Arguments:
+
+    Binding - Supplies a binding handle to be used to direct the
+        remote procedure call.
+
+--*/
+{
+    RPC_MESSAGE Caller;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 11| HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = 0;
+    if (IdempotentTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_IDEMPOTENT;
+        }
+    if (MaybeTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_MAYBE;
+        }
+    if (BroadcastTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_BROADCAST;
+        }
+
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        ApiError("IsabelleUnregisterInterfaces", "I_RpcGetBuffer", Status);
+        IsabelleError();
+        return;
+        }
+
+    Status = UclntSendReceive(&Caller);
+
+    if (Status)
+        {
+        ApiError("IsabelleUnregisterInterfaces","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    Status = I_RpcFreeBuffer(&Caller);
+    if (Status)
+        {
+        ApiError("IsabelleUnregisterInterfaces","I_RpcFreeBuffer",Status);
+        IsabelleError();
+        return;
+        }
+}
+
+
+void
+IsabelleRegisterInterfaces (
+    RPC_BINDING_HANDLE Binding
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    Binding - Supplies a binding handle to be used to direct the
+        remote procedure call.
+
+--*/
+{
+    RPC_MESSAGE Caller;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 12| HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = 0;
+    if (IdempotentTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_IDEMPOTENT;
+        }
+    if (MaybeTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_MAYBE;
+        }
+    if (BroadcastTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_BROADCAST;
+        }
+
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        ApiError("IsabelleRegisterInterfaces", "I_RpcGetBuffer", Status);
+        IsabelleError();
+        return;
+        }
+
+    Status = UclntSendReceive(&Caller);
+
+    if (Status)
+        {
+        ApiError("IsabelleRegisterInterfaces","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    Status = I_RpcFreeBuffer(&Caller);
+    if (Status)
+        {
+        ApiError("IsabelleRegisterInterfaces","I_RpcFreeBuffer",Status);
+        IsabelleError();
+        return;
+        }
+}
+
+#ifdef NTENV
+void PipeAlloc(
+    char PAPI *state,
+    int requested_size,
+    pipe_element_t PAPI * PAPI *allocated_buf,
+    int PAPI * allocated_size)
+{
+    static int size = 0;
+    static void PAPI *buffer = NULL;
+
+    if (size < requested_size)
+        {
+        if (buffer)
+            {
+            I_RpcFree(buffer) ;
+            }
+
+        buffer =  I_RpcAllocate(requested_size) ;
+        if (buffer == 0)
+            {
+            *allocated_size = 0 ;
+            size = 0 ;
+            }
+        else
+            {
+            *allocated_size = requested_size ;
+            size = requested_size ;
+            }
+
+        *allocated_buf = (pipe_element_t PAPI *) buffer ;
+        }
+    else
+        {
+        *allocated_buf = (pipe_element_t PAPI *) buffer ;
+        *allocated_size = size ;
+        }
+}
+
+void PipePull(
+    char PAPI *state,
+    pipe_element_t PAPI *buffer,
+    int num_buf_elem,
+    int PAPI *size_to_send
+    )
+{
+    int i ;
+    char j = 0;
+
+    if (*((int PAPI *)state) <= 0)
+        {
+        *size_to_send = 0 ;
+        return ;
+        }
+
+    // fill pipe elements
+    for (i = 0; i<num_buf_elem; i++, j++)
+        {
+        buffer[i] = i ;
+        }
+
+    *size_to_send = num_buf_elem ;
+    --*((int PAPI *) state) ;
+}
+
+int localchecksum ;
+
+void  PipePush(
+    char PAPI *state,
+    pipe_element_t PAPI *input_buffer,
+    int ecount
+    )
+{
+    char PAPI *temp = (char PAPI *) input_buffer ;
+    int i, j ;
+
+    for (i = 0; i < ecount; i++)
+        {
+        localchecksum += input_buffer[i] ;
+        }
+}
+
+void
+IsabellePipeIN (
+    RPC_BINDING_HANDLE Binding,
+    pipe_t PAPI *pipe,
+    int chunksize,
+    int numchunks,
+    long checksum,
+    int buffsize,
+    char PAPI *buffer
+    )
+{
+    RPC_MESSAGE Caller, TempBuf;
+    pipe_element_t PAPI *buf ;
+    int num_buf_bytes ;
+    int count ;
+    int num_buf_elem ;
+    DWORD size = 0 ;
+    char PAPI *Temp ;
+    int BufferOffset = 0 ;
+    int LengthToSend ;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 3 * sizeof(int) + buffsize;
+    Caller.ProcNum = 13 | HackForOldStubs | RPC_FLAGS_VALID_BIT;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = RPC_BUFFER_PARTIAL ;
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        ApiError("IsabellePipeIN", "I_RpcGetBuffer", Status);
+        IsabelleError();
+        return;
+        }
+
+    // marshal the fixed parameters
+    Temp = (char PAPI *) Caller.Buffer ;
+    *((int PAPI *) Temp) = chunksize ;
+    Temp += sizeof(int) ;
+
+    *((int PAPI *) Temp) = numchunks ;
+    Temp += sizeof(int) ;
+
+    *((long PAPI *) Temp) = checksum ;
+    Temp += sizeof(long) ;
+
+    *((int PAPI *) Temp) = buffsize ;
+    Temp += sizeof(int) ;
+
+
+    RpcpMemoryCopy(Temp, buffer, buffsize) ;
+
+    // send the marshalled parameters
+    Status = I_RpcSend(&Caller);
+
+    if (Status == RPC_S_SEND_INCOMPLETE)
+        {
+        BufferOffset = Caller.BufferLength ;
+        }
+    else if (Status)
+        {
+        ApiError("IsabellePipeIN","I_RpcSend",Status);
+        IsabelleError();
+        return;
+        }
+
+    do
+        {
+        pipe->Alloc(pipe->state,
+                        chunksize * sizeof(pipe_element_t) + sizeof(DWORD),
+                        &buf,
+                        &num_buf_bytes
+                        ) ;
+
+        num_buf_elem = (num_buf_bytes -sizeof(DWORD)) / sizeof(pipe_element_t) ;
+
+        pipe->Pull(pipe->state,
+                       (pipe_element_t PAPI *) ((char PAPI *) buf+sizeof(DWORD)),
+                       num_buf_elem,
+                       &count
+                       ) ;
+
+        *((DWORD PAPI *) buf) = count ;
+        LengthToSend = (count * sizeof(pipe_element_t)) + sizeof(DWORD) ;
+
+        Status = I_RpcReallocPipeBuffer(&Caller, LengthToSend+BufferOffset) ;
+
+        if (Status)
+            {
+            ApiError("IsabellePipeIN","I_RpcReallocPipeBuffer",Status);
+            IsabelleError();
+            return;
+            }
+
+        if (count == 0)
+            {
+            Caller.RpcFlags = 0 ;
+            }
+
+        RpcpMemoryCopy((char PAPI *) Caller.Buffer+BufferOffset, buf, LengthToSend) ;
+
+        Status = I_RpcSend(&Caller) ;
+        if (Status == RPC_S_SEND_INCOMPLETE)
+            {
+            BufferOffset = Caller.BufferLength ;
+            }
+        else if (Status)
+            {
+            ApiError("IsabellePipeIN","I_RpcSend",Status);
+            IsabelleError();
+            return;
+            }
+        else
+            {
+            BufferOffset = 0 ;
+            }
+        }
+    while (count > 0) ;
+
+    size = 0 ;
+    Caller.RpcFlags = 0 ;
+
+    Status = I_RpcReceive(&Caller, size) ;
+
+    if (Status == RPC_S_OK)
+       {
+        if (Caller.BufferLength != 0)
+            {
+            OtherError("IsabellePipeIN","BufferLength != 0");
+            IsabelleError();
+            return;
+            }
+        Status = I_RpcFreeBuffer(&Caller);
+        if (Status)
+            {
+            ApiError("IsabellePipeIN","I_RpcFreeBuffer",Status);
+            IsabelleError();
+            return;
+            }
+        }
+}
+
+void LocalPipePull(
+    PIPE_STATE PAPI *state,
+    void PAPI *buffer,
+    int max_buf,
+    int PAPI *actual_transfer_count
+    )
+{
+    PRPC_MESSAGE Caller = state->Callee ;
+    int num_elements = 0 ;
+    DWORD size = (DWORD) max_buf;
+    int bytescopied ;
+
+    *actual_transfer_count = 0 ;
+
+    if (state->EndOfPipe)
+        {
+        return ;
+        }
+
+    I_RpcReadPipeElementsFromBuffer(state, (char PAPI *) buffer, max_buf, &num_elements) ;
+    *actual_transfer_count += num_elements ;
+    bytescopied = num_elements * sizeof(pipe_element_t) ;
+
+    if (state->EndOfPipe == 0 &&
+        num_elements < (max_buf / sizeof(pipe_element_t)))
+        {
+        Caller->RpcFlags |= RPC_BUFFER_PARTIAL ;
+
+        Status = I_RpcReceive(Caller, size) ;
+        if (Status)
+            {
+            ApiError("PipePull", "I_RpcReceive", Status) ;
+            return ;
+            }
+
+        num_elements = 0 ;
+        state->CurPointer = (char PAPI *) Caller->Buffer ;
+        state->BytesRemaining = Caller->BufferLength ;
+
+        I_RpcReadPipeElementsFromBuffer(
+                        (PIPE_STATE PAPI *) state,
+                        (char PAPI *) buffer+bytescopied,
+                        max_buf - bytescopied, &num_elements) ;
+
+        *actual_transfer_count += num_elements ;
+        }
+}
+
+void
+IsabellePipeOUT (
+    RPC_BINDING_HANDLE Binding,
+    pipe_t PAPI *pipe,
+    int chunksize
+    )
+{
+    RPC_MESSAGE Caller;
+    int num_elements ;
+    int count ;
+    DWORD size = chunksize * sizeof(pipe_element_t) + sizeof(DWORD) *2;
+    int max_buf ;
+    PIPE_STATE localstate ;
+    pipe_element_t PAPI *buf ;
+    pipe_element_t pipe_element ;
+    int rchunksize, rnumchunks, rbuffsize, rchecksum ;
+    char PAPI *temp, PAPI *cur ;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 14 | HackForOldStubs | RPC_FLAGS_VALID_BIT;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = RPC_BUFFER_PARTIAL ;
+
+    Status = I_RpcGetBuffer(&Caller) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeOUT","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    Caller.RpcFlags = 0;
+    Status = I_RpcSend(&Caller) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeOUT","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    Caller.RpcFlags |= RPC_BUFFER_PARTIAL ;
+
+    Status = I_RpcReceive(&Caller, size) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeOUT", "I_RpcReceive", Status) ;
+        IsabelleError() ;
+        return ;
+        }
+
+    localstate.Callee = &Caller ;
+    localstate.CurrentState = start ;
+    localstate.CurPointer = (char PAPI *) Caller.Buffer ;
+    localstate.BytesRemaining = Caller.BufferLength ;
+    localstate.EndOfPipe = 0 ;
+    localstate.PipeElementSize = sizeof(pipe_element_t) ;
+    localstate.PartialPipeElement = &pipe_element ;
+    localchecksum = 0;
+
+    do
+        {
+        pipe->Alloc(pipe->state,
+                        size,
+                        &buf,
+                        &max_buf
+                        ) ;
+
+        LocalPipePull(&localstate, buf, max_buf, &num_elements) ;
+
+        pipe->Push(pipe->state,
+                        buf,
+                        num_elements) ;
+        }
+    while (num_elements > 0);
+
+    if (!(Caller.RpcFlags & RPC_BUFFER_COMPLETE))
+        {
+        Caller.RpcFlags = 0 ;
+        Status = I_RpcReceive(&Caller, size) ;
+        if (Status)
+            {
+            ApiError("IsabellePipeOUT", "I_RpcReceive", Status) ;
+            IsabelleError() ;
+            return ;
+            }
+        }
+
+    if (localstate.BytesRemaining > 0)
+        {
+        // this might be quite inefficient... need to improve
+        // Also, CurPointer may be a pointer in Caller.Buffer
+        // need to keep track of this in the state.
+
+        temp = (char PAPI *) I_RpcAllocate(Caller.BufferLength + localstate.BytesRemaining) ;
+        RpcpMemoryCopy(temp, localstate.CurPointer, localstate.BytesRemaining) ;
+        RpcpMemoryCopy(temp+localstate.BytesRemaining,
+                                  Caller.Buffer, Caller.BufferLength) ;
+        cur = temp ;
+        }
+    else
+        {
+        temp = 0;
+        cur = (char PAPI *) Caller.Buffer ;
+        }
+
+    rchunksize = *((int PAPI *) cur) ;
+    cur += sizeof(int) ;
+
+    rnumchunks = *((int PAPI *) cur) ;
+    cur += sizeof(int) ;
+
+    rchecksum = *((int PAPI *) cur) ;
+    cur += sizeof(int) ;
+
+    rbuffsize = *((int PAPI *) cur) ;
+    cur += sizeof(int) ;
+
+    PrintToConsole("IsabellePipeOUT: chunksize = %d\n", rchunksize)  ;
+    PrintToConsole("IsabellePipeOUT: numchunks = %d\n", rnumchunks)  ;
+    PrintToConsole("IsabellePipeOUT: buffsize = %d\n", rbuffsize)  ;
+    PrintToConsole("IsabellePipeOUT: checksum = %d\n", rchecksum) ;
+
+    if (temp)
+        {
+        I_RpcFree(temp) ;
+        }
+
+    Status = I_RpcFreeBuffer(&Caller) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeOUT","I_RpcSendReceive",Status);
+        IsabelleError() ;
+        return;
+        }
+
+    if (rchecksum != localchecksum)
+        {
+        IsabelleError() ;
+        }
+}
+
+void
+IsabellePipeINOUT (
+    RPC_BINDING_HANDLE Binding,
+    pipe_t PAPI *pipe,
+    int chunksize,
+    int checksum
+    )
+{
+    RPC_MESSAGE Caller, TempBuf;
+    pipe_element_t PAPI *buf ;
+    int num_buf_bytes ;
+    int count ;
+    int num_buf_elem ;
+    DWORD size = chunksize * sizeof(pipe_element_t) + sizeof(DWORD) * 2;
+    PIPE_STATE localstate ;
+    int max_buf ;
+    int num_elements ;
+    pipe_element_t pipe_element ;
+    int BufferOffset = 0 ;
+    int LengthToSend ;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 15 | HackForOldStubs | RPC_FLAGS_VALID_BIT;
+    Caller.RpcInterfaceInformation = &IsabelleInterfaceInformation;
+    Caller.RpcFlags = RPC_BUFFER_PARTIAL ;
+
+    Status = UclntGetBuffer(&Caller) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeINOUT","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    // send the marshalled parameters
+    Status = I_RpcSend(&Caller);
+
+    if (Status == RPC_S_SEND_INCOMPLETE)
+        {
+        BufferOffset = Caller.BufferLength ;
+        }
+    else if (Status)
+        {
+        ApiError("IsabellePipeINOUT","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    do
+        {
+        pipe->Alloc(pipe->state,
+                         size,
+                         &buf,
+                         &num_buf_bytes
+                         ) ;
+
+        num_buf_elem = (num_buf_bytes -sizeof(DWORD)) / sizeof(pipe_element_t) ;
+
+        pipe->Pull(pipe->state,
+                       (pipe_element_t PAPI *) ((char PAPI *) buf+sizeof(DWORD)),
+                       num_buf_elem,
+                       &count
+                       ) ;
+
+        *((DWORD PAPI *) buf) = count ;
+
+        LengthToSend = (count * sizeof(pipe_element_t)) + sizeof(DWORD) ;
+
+        Status = I_RpcReallocPipeBuffer(&Caller, LengthToSend+BufferOffset) ;
+
+        if (Status)
+            {
+            ApiError("IsabellePipeINOUT","I_RpcGetBuffer",Status);
+            IsabelleError();
+            return;
+            }
+
+        if (count == 0)
+            {
+            Caller.RpcFlags = 0 ;
+            }
+
+        RpcpMemoryCopy((char PAPI *) Caller.Buffer+BufferOffset, buf, LengthToSend) ;
+
+        Status = I_RpcSend(&Caller) ;
+        if (Status == RPC_S_SEND_INCOMPLETE)
+            {
+            BufferOffset = Caller.BufferLength ;
+            }
+        else if (Status)
+            {
+            ApiError("IsabellePipeINOUT","I_RpcSend",Status);
+            IsabelleError();
+            return;
+            }
+        else
+            {
+            BufferOffset = 0 ;
+            }
+        }
+    while (count > 0) ;
+
+    Caller.RpcFlags |= RPC_BUFFER_PARTIAL ;
+
+    Status = I_RpcReceive(&Caller, size) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeINOUT", "I_RpcReceive", Status) ;
+        IsabelleError() ;
+        return ;
+        }
+
+    PrintToConsole("IsabellePipeINOUT: checksum (IN) = %d\n",
+                                checksum) ;
+
+    localstate.Callee = &Caller ;
+    localstate.CurrentState = start ;
+    localstate.CurPointer = (char PAPI *) Caller.Buffer ;
+    localstate.BytesRemaining = Caller.BufferLength ;
+    localstate.EndOfPipe = 0 ;
+    localstate.PipeElementSize = sizeof(pipe_element_t) ;
+    localstate.PartialPipeElement = &pipe_element ;
+    localchecksum = 0;
+
+    do
+        {
+        pipe->Alloc(pipe->state,
+                        size,
+                        &buf,
+                        &max_buf
+                        ) ;
+
+        LocalPipePull(&localstate, buf, max_buf, &num_elements) ;
+
+        pipe->Push(pipe->state,
+                         buf,
+                         num_elements
+                         ) ;
+        }
+    while (num_elements > 0);
+
+    if (!(Caller.RpcFlags & RPC_BUFFER_COMPLETE))
+        {
+        Status = I_RpcReceive(&Caller, size) ;
+        if (Status)
+            {
+            ApiError("IsabellePipeINOUT", "I_RpcReceive", Status) ;
+            IsabelleError() ;
+            return ;
+            }
+        }
+
+    Status = I_RpcFreeBuffer(&Caller) ;
+    if (Status)
+        {
+        ApiError("IsabellePipeINOUT","I_RpcSendReceive",Status);
+        IsabelleError();
+        return;
+        }
+
+    PrintToConsole("IsabellePipeINOUT: checksum (OUT) = %d\n", localchecksum) ;
+}
+#endif
+
+/* -----------------------------------------------------------------
+
+Synchronize Routine
+
+--------------------------------------------------------------------*/
+extern RPC_CLIENT_INTERFACE HelgaInterfaceInformation ;
+void Synchro(
+     unsigned int Address // Specifies the binding to use in making the call
+    )
+{
+    RPC_BINDING_HANDLE Binding ;
+    int fPrint = 0;
+    RPC_MESSAGE Caller;
+
+    if (AutoListenFlag)
+        {
+        Caller.BufferLength = 0;
+        Caller.ProcNum = 4 | HackForOldStubs ;
+        Caller.RpcInterfaceInformation = &HelgaInterfaceInformation ;
+        Caller.RpcFlags = 0;
+        }
+
+    Status = GetBinding(Address, &Binding);
+    if (Status)
+        {
+        ApiError("Synchro","GetBinding",Status);
+        PrintToConsole("Synchro : FAIL - Unable to Bind\n");
+
+        return;
+        }
+
+#ifdef __RPC_WIN32__
+    if (AutoListenFlag)
+        {
+        Caller.Handle = Binding;
+
+        while(1)
+            {
+            while(UclntGetBuffer(&Caller))
+                {
+                Caller.Handle = Binding;
+                PrintToConsole(".");
+                fPrint = 1;
+                PauseExecution(100);
+                }
+
+            if( UclntSendReceive(&Caller) == 0)
+                {
+                PrintToConsole("\n");
+                break ;
+                }
+
+            PauseExecution(100) ;
+            PrintToConsole(".");
+            fPrint = 1;
+            Caller.Handle = Binding ;
+            }
+
+
+       // SendReceive okay, free buffer now.
+       Status = I_RpcFreeBuffer(&Caller);
+       if (Status)
+           ApiError("Synchro","I_RpcFreeBuffer",Status);
+        }
+    else
+        {
+        while(RpcMgmtIsServerListening(Binding) != RPC_S_OK)
+            {
+            PrintToConsole(".");
+            fPrint = 1;
+            PauseExecution(100) ;
+            }
+        }
+
+#else
+    Caller.Handle = Binding;
+
+    while(1)
+        {
+        while(UclntGetBuffer(&Caller))
+            {
+            Caller.Handle = Binding;
+            PrintToConsole(".");
+            fPrint = 1;
+            PauseExecution(100);
+            }
+
+        if( UclntSendReceive(&Caller) == 0)
+            {
+            PrintToConsole("\n");
+            break ;
+            }
+
+        PauseExecution(100) ;
+        PrintToConsole(".");
+        fPrint = 1;
+        }
+
+
+   // SendReceive okay, free buffer now.
+   Status = I_RpcFreeBuffer(&Caller);
+   if (Status)
+       ApiError("Synchro","I_RpcFreeBuffer",Status);
+#endif
+
+    Status = RpcBindingFree(&Binding);
+    if (Status)
+        {
+        ApiError("Synchro","RpcBindingFree",Status);
+        PrintToConsole("Synchro : FAIL - Unable to Free Binding");
+        return;
+        }
+
+    if (fPrint)
+        {
+        PrintToConsole("\n");
         }
 }
 
@@ -1543,7 +2666,6 @@ Helga Interface
 
 -------------------------------------------------------------------- */
 
-
 void
 InitializeBuffer (
     IN OUT void PAPI * Buffer,
@@ -1572,6 +2694,8 @@ Arguments:
 
     Length = (unsigned long PAPI *) Buffer;
     *Length = BufferLength;
+    swaplong(*Length) ;
+
     Value = InitialValue;
     InitialValue += 1;
 
@@ -1611,6 +2735,7 @@ Return Value:
     unsigned char Value = 0;
 
     Length = (unsigned long PAPI *) Buffer;
+    swaplong(*Length) ;
 
     for (BufferScan = (unsigned char PAPI *) (Length + 1),
                 Value = *BufferScan, BufferLength -= 4;
@@ -1621,7 +2746,6 @@ Return Value:
     return(0);
 }
 
-unsigned int HelgaErrors = 0;
 
 RPC_PROTSEQ_ENDPOINT HelgaRpcProtseqEndpoint[] =
 {
@@ -1635,12 +2759,14 @@ RPC_PROTSEQ_ENDPOINT HelgaRpcProtseqEndpoint[] =
 #else // NTENV
     {(unsigned char *) "ncacn_np",(unsigned char *) "\\pipe\\zippyhe"},
 #endif // NTENV
-    {(unsigned char *) "ncacn_ip_tcp", (unsigned char *) "1039"}
-   ,{(unsigned char *) "ncadg_ip_udp", (unsigned char *) "1039"}
+    {(unsigned char *) "ncacn_ip_tcp", (unsigned char *) "2039"}
+   ,{(unsigned char *) "ncadg_ip_udp", (unsigned char *) "2039"}
    ,{(unsigned char *) "ncalrpc",(unsigned char *) "christopherhelga"}
    ,{(unsigned char *) "ncacn_nb_nb",(unsigned char *) "211"}
    ,{(unsigned char *) "ncacn_spx", (unsigned char *) "5014"}
    ,{(unsigned char *) "ncadg_ipx", (unsigned char *) "5014"}
+   ,{(unsigned char *) "ncacn_vns_spp", (unsigned char *) "264"}
+   ,{(unsigned char *) "ncacn_at_dsp", (unsigned char *) "\\pipe\\zippyhe"}
 };
 
 RPC_CLIENT_INTERFACE HelgaInterfaceInformation =
@@ -1652,7 +2778,10 @@ RPC_CLIENT_INTERFACE HelgaInterfaceInformation =
      {0,0}},
     0,
     sizeof(HelgaRpcProtseqEndpoint) / sizeof(RPC_PROTSEQ_ENDPOINT),
-    HelgaRpcProtseqEndpoint
+    HelgaRpcProtseqEndpoint,
+    0,
+    NULL,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 // Send a 0 length packet and expect a 0 length one in reply
@@ -1689,7 +2818,7 @@ Helga (
     if (Status)
         {
         ApiError("Helga","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
 
@@ -1697,7 +2826,7 @@ Helga (
     if (Status)
         {
         ApiError("Helga","I_RpcSendReceive",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
     else
@@ -1705,17 +2834,124 @@ Helga (
         if (Caller.BufferLength != 0)
             {
             OtherError("Helga","BufferLength != 0");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("Helga","I_RpcFreeBuffer",Status);
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         }
+}
+
+void
+HelgaLpcSecurity (
+    RPC_BINDING_HANDLE Binding // Specifies the binding to use in making the
+                       // remote procedure call.
+    )
+{
+    RPC_MESSAGE Caller;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 6 | HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &HelgaInterfaceInformation;
+    Caller.RpcFlags = 0;
+    if (IdempotentTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_IDEMPOTENT;
+        }
+    if (MaybeTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_MAYBE;
+        }
+    if (BroadcastTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_BROADCAST;
+        }
+
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        ApiError("HelgaLpcSecurity","I_RpcGetBuffer",Status);
+        HelgaError();
+        return;
+        }
+
+    Status = UclntSendReceive(&Caller);
+    if (Status)
+        {
+        ApiError("HelgaLpcSecurity","I_RpcSendReceive",Status);
+        HelgaError();
+        return;
+        }
+    else
+        {
+        if (Caller.BufferLength != 0)
+            {
+            OtherError("HelgaLpcSecurity","BufferLength != 0");
+            HelgaError();
+            return;
+            }
+        Status = I_RpcFreeBuffer(&Caller);
+        if (Status)
+            {
+            ApiError("HelgaLpcSecurity","I_RpcFreeBuffer",Status);
+            HelgaError();
+            return;
+            }
+        }
+}
+
+void
+HelgaMustFail (
+    RPC_BINDING_HANDLE Binding // Specifies the binding to use in making the
+                       // remote procedure call.
+    )
+{
+    RPC_MESSAGE Caller;
+
+    Caller.Handle = Binding;
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 0 | HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &HelgaInterfaceInformation;
+    Caller.RpcFlags = 0;
+    if (IdempotentTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_IDEMPOTENT;
+        }
+    if (MaybeTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_MAYBE;
+        }
+    if (BroadcastTests != 0)
+        {
+          Caller.RpcFlags |= RPC_NCA_FLAGS_BROADCAST;
+        }
+
+
+    Status = UclntGetBuffer(&Caller);
+
+    if (Status)
+        {
+        PrintToConsole("HelgaMustFail: I_RpcGetBuffer: %d\n", Status) ;
+        return;
+        }
+
+    Status = UclntSendReceive(&Caller);
+    if (Status)
+        {
+        PrintToConsole("HelgaMustFail: I_RpcSendReceive: %d\n", Status) ;
+        return;
+        }
+
+    PrintToConsole("HelgaMustFail: This call is supposed to fail\n") ;
+    HelgaError();
 }
 
 // BUGBUG - Testing RpcSsDestroyClientContext needs to be moved to the
@@ -1752,7 +2988,7 @@ HelgaUsingContextHandle (
     if (Status)
         {
         ApiError("Helga","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
 
@@ -1760,7 +2996,7 @@ HelgaUsingContextHandle (
     if (Status)
         {
         ApiError("Helga","I_RpcSendReceive",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
     else
@@ -1768,14 +3004,14 @@ HelgaUsingContextHandle (
         if (Caller.BufferLength != 0)
             {
             OtherError("Helga","BufferLength != 0");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("Helga","I_RpcFreeBuffer",Status);
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         }
@@ -1817,7 +3053,7 @@ HelgaIN (
     if (Status)
         {
         ApiError("HelgaIN","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
 
@@ -1827,7 +3063,7 @@ HelgaIN (
     if (Status)
         {
         ApiError("HelgaIN","I_RpcSendReceive",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
     else
@@ -1835,14 +3071,14 @@ HelgaIN (
         if (Caller.BufferLength != 0)
             {
             OtherError("HelgaIN","BufferLength != 0");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("HelgaIN","I_RpcFreeBuffer",Status);
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         }
@@ -1885,41 +3121,43 @@ HelgaOUT (
     if (Status)
         {
         ApiError("HelgaOUT","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
 
     Length = (unsigned long PAPI *) Caller.Buffer;
     *Length = BufferLength;
+    swaplong(*Length) ;
 
     Status = UclntSendReceive(&Caller);
 
     if (Status)
         {
         ApiError("HelgaOUT","I_RpcSendReceive",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
     else
         {
         Length = (unsigned long PAPI *) Caller.Buffer;
+    swaplong(*Length) ;
         if (Caller.BufferLength != *Length)
             {
             OtherError("HelgaOUT","BufferLength != *Length");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         if (CheckBuffer(Caller.Buffer, Caller.BufferLength) != 0)
             {
             OtherError("HelgaOUT","CheckBuffer Failed");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("HelgaOUT","I_RpcFreeBuffer",Status);
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         }
@@ -1931,8 +3169,8 @@ HelgaOUT (
 void
 HelgaINOUT (
     RPC_BINDING_HANDLE Binding, // Specifies the binding to use in making the
-                        // remote procedure call.
-    unsigned long BufferLength // Specifies the length of the buffer.
+                            // remote procedure call.
+    unsigned long BufferLength  // Specifies the length of the buffer.
     )
 {
     RPC_MESSAGE Caller;
@@ -1961,7 +3199,7 @@ HelgaINOUT (
     if (Status)
         {
         ApiError("HelgaINOUT","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
 
@@ -1972,34 +3210,34 @@ HelgaINOUT (
     if (Status)
         {
         ApiError("HelgaINOUT","I_RpcSendReceive",Status);
-        HelgaErrors += 1;
+        HelgaError();
         return;
         }
     else
         {
         Length = (unsigned long PAPI *) Caller.Buffer;
+    swaplong(*Length) ;
         if (Caller.BufferLength != *Length)
             {
             OtherError("HelgaINOUT","BufferLength != *Length");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         if (CheckBuffer(Caller.Buffer, Caller.BufferLength) != 0)
             {
             OtherError("HelgaINOUT","CheckBuffer Failed");
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         Status = I_RpcFreeBuffer(&Caller);
         if (Status)
             {
             ApiError("HelgaINOUT","I_RpcFreeBuffer",Status);
-            HelgaErrors += 1;
+            HelgaError();
             return;
             }
         }
 }
-
 
 unsigned long
 HelgaSizes[] =
@@ -2011,7 +3249,15 @@ HelgaSizes[] =
   0
 };
 
-
+#if 0
+unsigned long
+HelgaSizes[] =
+{
+    128, 128,
+    0
+};
+#endif
+
 void
 TestHelgaInterface (
     RPC_BINDING_HANDLE HelgaBinding,
@@ -2071,7 +3317,10 @@ RPC_CLIENT_INTERFACE HelgaInterfaceWrongTransferSyntax =
      {0,0}},
     0,
     0,
-    0
+    0,
+    0,
+    0,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 RPC_CLIENT_INTERFACE HelgaInterfaceWrongGuid =
@@ -2083,7 +3332,10 @@ RPC_CLIENT_INTERFACE HelgaInterfaceWrongGuid =
      {0,0}},
     0,
     0,
-    0
+    0,
+    0,
+    0,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 
@@ -2219,14 +3471,17 @@ RPC_CLIENT_INTERFACE SylviaInterfaceInformation =
      {0,0}},
     &SylviaDispatchTable,
     0,
-    0
+    0,
+    0,
+    0,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 unsigned int
 LocalSylviaCall (
-    unsigned long Depth,
-    unsigned long Breadth,
-    unsigned long Count
+    unsigned /*long*/ char Depth,
+    unsigned /*long*/ char Breadth,
+    unsigned /*long*/ char Count
     )
 {
     if (Depth > 0)
@@ -2241,18 +3496,17 @@ LocalSylviaCall (
     return(Count+1);
 }
 
-unsigned int SylviaErrors = 0;
 
-unsigned long// Specifies the new count of calls.
+unsigned /*long*/ char // Specifies the new count of calls.
 SylviaCall (
     RPC_BINDING_HANDLE Binding,
-    unsigned long Depth, // Specifies the depth of recursion desired.
-    unsigned long Breadth, // Specifies the breadth desired.
-    unsigned long Count // Specifies the count of calls up to this point.
+    unsigned /*long*/ char Depth, // Specifies the depth of recursion desired.
+    unsigned /*long*/ char Breadth, // Specifies the breadth desired.
+    unsigned /*long*/ char Count // Specifies the count of calls up to this point.
     )
 {
     RPC_MESSAGE Caller;
-    unsigned long PAPI * plScan, ReturnValue;
+    unsigned /*long*/ char PAPI * plScan, ReturnValue ;
 
     if ( NoCallBacksFlag != 0 )
         {
@@ -2260,7 +3514,7 @@ SylviaCall (
         }
 
     Caller.Handle = Binding;
-    Caller.BufferLength = sizeof(unsigned long)*3;
+    Caller.BufferLength = sizeof(unsigned /*long*/ char) *4;
     Caller.ProcNum = 0 | HackForOldStubs ;
     Caller.RpcInterfaceInformation = &SylviaInterfaceInformation;
     Caller.RpcFlags = 0;
@@ -2283,30 +3537,30 @@ SylviaCall (
     if (Status)
         {
         ApiError("SylviaCall","I_RpcGetBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
-    plScan = (unsigned long PAPI *) Caller.Buffer;
-    plScan[0] = Depth;
-    plScan[1] = Breadth;
-    plScan[2] = Count;
+    plScan = (unsigned /*long*/ char PAPI *) Caller.Buffer;
+    plScan[0] = (unsigned char) Depth;
+    plScan[1] = (unsigned char) Breadth;
+    plScan[2] = (unsigned char) Count;
 
     Status = UclntSendReceive(&Caller);
 
     if (Status)
         {
         ApiError("SylviaCall","I_RpcSendReceive",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
 
-    plScan = (unsigned long PAPI *) Caller.Buffer;
+    plScan = (unsigned /*long*/ char PAPI *) Caller.Buffer;
     ReturnValue = *plScan;
     Status = I_RpcFreeBuffer(&Caller);
     if (Status)
         {
         ApiError("SylviaCall","I_RpcFreeBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
     return(ReturnValue);
@@ -2316,17 +3570,17 @@ RPC_BINDING_HANDLE SylviaBinding;
 
 unsigned int
 SylviaCallbackUserCode (
-    unsigned long Depth,
-    unsigned long Breadth,
-    unsigned long Count
+    unsigned /*long*/ char Depth,
+    unsigned /*long*/ char Breadth,
+    unsigned /*long*/ char Count
     ); // Prototype to keep the compiler happy because we recursively call
        // this routine.
 
 unsigned int
 SylviaCallbackUserCode ( // The user code for SylviaCallback.
-    unsigned long Depth,
-    unsigned long Breadth,
-    unsigned long Count
+    unsigned /*long*/ char Depth,
+    unsigned /*long*/ char Breadth,
+    unsigned /*long*/ char Count
     )
 {
     if (Depth > 0)
@@ -2350,43 +3604,43 @@ SylviaCallback (
     PRPC_MESSAGE Callee
     )
 {
-    unsigned long ReturnValue, PAPI *plScan;
+    unsigned /*long*/ char ReturnValue, PAPI *plScan;
 
     if ( Callee->ProcNum != 0 )
         {
         OtherError("SylviaCallback", "Callee->ProcNum != 0");
-        SylviaErrors += 1;
+        SylviaError();
         }
 
-    if ( _fmemcmp(Callee->RpcInterfaceInformation,
+    if ( RpcpMemoryCompare(Callee->RpcInterfaceInformation,
                 &SylviaInterfaceInformation,
                 sizeof(SylviaInterfaceInformation)) != 0 )
         {
         OtherError("SylviaCallback",
                 "Callee->RpcInteraceInformation != &SylviaInterfaceInformation");
-        SylviaErrors += 1;
+        SylviaError();
         }
 
-    if (Callee->BufferLength != sizeof(unsigned long)*3)
+    if (Callee->BufferLength != sizeof(unsigned /*long*/ char)*4)
         {
         OtherError("SylviaCallback",
-                "Callee->BufferLength != sizeof(unsigned int)*3");
-        SylviaErrors += 1;
+                "Callee->BufferLength != sizeof(unsigned int)*4");
+        SylviaError();
         }
 
-    plScan = (unsigned long PAPI *) Callee->Buffer;
+    plScan = (unsigned /*long*/ char PAPI *) Callee->Buffer;
 
     ReturnValue = SylviaCallbackUserCode(plScan[0],plScan[1],plScan[2]);
 
-    Callee->BufferLength = sizeof(unsigned long);
+    Callee->BufferLength = sizeof(unsigned char /*long*/);
     Status = I_RpcGetBuffer(Callee);
 
     if (Status)
         {
         ApiError("SylviaCallback","I_RpcGetBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         }
-    plScan = (unsigned long PAPI *) Callee->Buffer;
+    plScan = (unsigned /*long*/ char PAPI *) Callee->Buffer;
     *plScan = ReturnValue;
 }
 #ifdef WIN
@@ -2399,14 +3653,6 @@ RPC_DISPATCH_TABLE SylviaDispatchTable =
 {
     1, SylviaDispatchFunction
 };
-
-#if defined(NTENV) || defined(DOSWIN32RPC)
-extern "C" {
-extern void Theodore();
-}
-#else
-#include "theodore.c"
-#endif
 
 
 void
@@ -2431,10 +3677,16 @@ Arguments:
 
 --*/
 {
-    Uuid->Data1 = ((unsigned long) MagicNumber)
-        * ((unsigned long) MagicNumber);
+
+    Uuid->Data1= (unsigned long) MagicNumber * (unsigned long) MagicNumber ;
+    //swaplong(Uuid->Data1) ;
+
     Uuid->Data2 = MagicNumber;
     Uuid->Data3 = MagicNumber / 2;
+
+    //swapshort(Uuid->Data2) ;
+    //swapshort(Uuid->Data3) ;
+
     Uuid->Data4[0] = MagicNumber % 256;
     Uuid->Data4[1] = MagicNumber % 257;
     Uuid->Data4[2] = MagicNumber % 258;
@@ -2471,11 +3723,16 @@ Return Value:
 
 --*/
 {
+ //   swaplong(Uuid->Data1) ;
     if ( Uuid->Data1 != ((unsigned long) MagicNumber)
                 * ((unsigned long) MagicNumber))
         return(1);
+
+//    swapshort(Uuid->Data2) ;
     if ( Uuid->Data2 != MagicNumber )
         return(1);
+
+//    swapshort(Uuid->Data3) ;
     if ( Uuid->Data3 != MagicNumber / 2 )
         return(1);
     if ( Uuid->Data4[0] != MagicNumber % 256 )
@@ -2497,7 +3754,112 @@ Return Value:
     return(0);
 }
 
-
+static unsigned int TryFinallyCount;
+static unsigned int TryFinallyFailed;
+
+void
+TheodoreTryFinally (
+    unsigned int count,
+    unsigned int raise
+    )
+{
+    if (count == 0)
+        {
+        if (raise)
+            RpcRaiseException(437);
+        return;
+        }
+
+    RpcTryFinally
+        {
+        TryFinallyCount += 1;
+        TheodoreTryFinally(count-1,raise);
+        }
+    RpcFinally
+        {
+        TryFinallyCount -= 1;
+        if (   (RpcAbnormalTermination() && !raise)
+            || (!RpcAbnormalTermination() && raise))
+            TryFinallyFailed += 1;
+        }
+    RpcEndFinally
+}
+
+void
+Theodore ( // This test checks the exception handling support provided
+           // by the RPC runtime.  No remote procedure calls occur.
+    )
+{
+    unsigned int TryFinallyPass = 0;
+
+    if ( NumberOfTestsRun++ )
+        {
+        PauseExecution(TestDelay);
+        }
+
+    PrintToConsole("Theodore : Verify exception handling support\n");
+
+    TryFinallyCount = 0;
+    TryFinallyFailed = 0;
+
+    RpcTryExcept
+        {
+        RpcTryExcept
+            {
+            TheodoreTryFinally(20,1);
+            }
+        RpcExcept(1)
+            {
+            if (   (RpcExceptionCode() == 437)
+                && (TryFinallyCount == 0))
+                TryFinallyPass = 1;
+            }
+        RpcEndExcept
+        }
+    RpcExcept(1)
+        {
+        PrintToConsole("Theodore : FAIL in RpcTryExcept (%u)\n",TryFinallyCount);
+        return;
+        }
+    RpcEndExcept
+
+    if (!TryFinallyPass)
+        {
+        PrintToConsole("Theodore : FAIL in RpcTryFinally\n");
+        return;
+        }
+
+    if (TryFinallyFailed)
+        {
+        PrintToConsole("Theodore : FAIL in RpcTryFinally\n");
+        return;
+        }
+
+    TryFinallyCount = 0;
+    TryFinallyFailed = 0;
+
+    RpcTryExcept
+        {
+        TheodoreTryFinally(20,0);
+        }
+    RpcExcept(1)
+        {
+        PrintToConsole("Theodore : FAIL in RpcTryExcept\n");
+        return;
+        }
+    RpcEndExcept
+
+    if (TryFinallyFailed)
+        {
+        PrintToConsole("Theodore : FAIL in RpcTryFinally\n");
+        return;
+        }
+
+
+    PrintToConsole("Theodore : PASS\n");
+}
+
+
 void
 Sebastian (
     )
@@ -2515,6 +3877,8 @@ Routine Description:
     RPC_BINDING_HANDLE IsabelleBinding;
     int HelgaCount;
 
+    Synchro(SIGFRIED) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -2529,6 +3893,8 @@ Routine Description:
         PrintToConsole("Sebastian : FAIL - Unable to Bind (Sigfried)\n");
         return;
         }
+
+    
     Status = GetBinding(SIGFRIED, &IsabelleBinding);
     if (Status)
         {
@@ -2537,12 +3903,14 @@ Routine Description:
         return;
         }
 
+
     for (HelgaCount = 0; HelgaCount < 100; HelgaCount++)
         {
         Helga(HelgaBinding);
         }
 
     TestHelgaInterface(HelgaBinding, HelgaMaxSize);
+
 
     IsabelleShutdown(IsabelleBinding);
     if (HelgaErrors != 0)
@@ -2580,7 +3948,291 @@ Routine Description:
     PrintToConsole("Sebastian : PASS\n");
 }
 
-
+#ifdef NTENV
+void
+Pipe (
+    )
+/*++
+
+Routine Description:
+
+    We perform a build verification test in the routine.  This test
+    checks for basic functionality of the runtime.  It works with
+    Sigfried in usvr.exe.  This particular test is dedicated to a cat.
+
+--*/
+{
+    RPC_BINDING_HANDLE IsabelleBinding;
+    pipe_t pipe ;
+    int state ;
+    int local_buf[BUFF_SIZE] ;
+    int i ;
+    long checksum ;
+
+    Synchro(SPIPE) ;
+
+    if ( NumberOfTestsRun++ )
+        {
+        PauseExecution(TestDelay);
+        }
+
+    PrintToConsole("PIPE : Verify Basic Client Functionality\n");
+
+    Status = GetBinding(SPIPE, &IsabelleBinding);
+    if (Status)
+        {
+        ApiError("PIPE","GetBinding",Status);
+        PrintToConsole("PIPE : FAIL - Unable to Bind (Sigfried)\n");
+        return;
+        }
+
+    pipe.Alloc = PipeAlloc ;
+    pipe.Pull = PipePull ;
+    pipe.Push = PipePush ;
+    pipe.state = (char PAPI *) &state ;
+
+    for (i = 0; i < BUFF_SIZE; i++)
+        {
+        local_buf[i] = i ;
+        }
+
+    state = NUM_CHUNKS ;
+    checksum = (long) (CHUNK_SIZE-1) * (long) CHUNK_SIZE /2  *
+                        (long) NUM_CHUNKS ;
+    IsabellePipeIN(IsabelleBinding, &pipe,
+                        CHUNK_SIZE, NUM_CHUNKS, checksum,
+                        BUFF_SIZE * sizeof(int), (char PAPI *) local_buf) ;
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("PIPE : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    IsabellePipeOUT(IsabelleBinding, &pipe, CHUNK_SIZE) ;
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("PIPE : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    state = NUM_CHUNKS ;
+    IsabellePipeINOUT(IsabelleBinding, &pipe, CHUNK_SIZE, checksum) ;
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("PIPE : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    IsabelleShutdown(IsabelleBinding);
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("PIPE : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&IsabelleBinding);
+    if (Status)
+        {
+        ApiError("PIPE","RpcBindingFree",Status);
+        PrintToConsole("PIPE : FAIL - Unable to Free Binding");
+        PrintToConsole(" (IsabelleBinding)\n");
+        return;
+        }
+
+    PrintToConsole("PIPE : PASS\n");
+}
+#endif
+
+void
+LpcSecurity (
+    )
+/*++
+
+Routine Description:
+
+    We perform a build verification test in the routine.  This test
+    checks for basic functionality of the runtime.  It works with
+    Sigfried in usvr.exe.  This particular test is dedicated to a cat.
+
+--*/
+{
+    RPC_BINDING_HANDLE HelgaBinding;
+    RPC_BINDING_HANDLE IsabelleBinding;
+    int HelgaCount;
+
+    Synchro(SIGFRIED) ;
+
+    if ( NumberOfTestsRun++ )
+        {
+        PauseExecution(TestDelay);
+        }
+
+    PrintToConsole("LpcSecurity : Verify Basic Client Functionality\n");
+
+    Status = GetBinding(SIGFRIED, &HelgaBinding);
+    if (Status)
+        {
+        ApiError("LpcSecurity","GetBinding",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Bind (Sigfried)\n");
+        return;
+        }
+
+    
+    Status = GetBinding(SIGFRIED, &IsabelleBinding);
+    if (Status)
+        {
+        ApiError("LpcSecurity","GetBinding",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Bind (Sigfried)\n");
+        return;
+        }
+
+
+    HelgaLpcSecurity(HelgaBinding) ;
+
+    IsabelleShutdown(IsabelleBinding);
+    if (HelgaErrors != 0)
+        {
+        PrintToConsole("LpcSecurity : FAIL - Error(s) in Helga Interface\n");
+        HelgaErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&HelgaBinding);
+    if (Status)
+        {
+        ApiError("LpcSecurity","RpcBindingFree",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Free Binding");
+        PrintToConsole(" (HelgaBinding)\n");
+        return;
+        }
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("LpcSecurity : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&IsabelleBinding);
+    if (Status)
+        {
+        ApiError("LpcSecurity","RpcBindingFree",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Free Binding");
+        PrintToConsole(" (IsabelleBinding)\n");
+        return;
+        }
+
+    PrintToConsole("LpcSecurity : PASS\n");
+}
+
+void
+Hybrid (
+    )
+/*++
+
+Routine Description:
+
+    We perform a build verification test in the routine.  This test
+    checks for basic functionality of the runtime.  It works with
+    Hybrid in usvr.exe.  This particular test is dedicated to a cat.
+
+--*/
+{
+    RPC_BINDING_HANDLE HelgaBinding;
+    RPC_BINDING_HANDLE IsabelleBinding;
+    int HelgaCount;
+
+    Synchro(SIGFRIED) ;
+
+    if ( NumberOfTestsRun++ )
+        {
+        PauseExecution(TestDelay);
+        }
+
+    PrintToConsole("Hybrid : Verify Basic Client Functionality\n");
+
+    Status = GetBinding(SIGFRIED, &HelgaBinding);
+    if (Status)
+        {
+        ApiError("Hybrid","GetBinding",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Bind (Sigfried)\n");
+        return;
+        }
+
+    
+    Status = GetBinding(SIGFRIED, &IsabelleBinding);
+    if (Status)
+        {
+        ApiError("Hybrid","GetBinding",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Bind (Sigfried)\n");
+        return;
+        }
+
+
+    for (HelgaCount = 0; HelgaCount < 30; HelgaCount++)
+        {
+        Helga(HelgaBinding);
+
+        IsabelleUnregisterInterfaces(IsabelleBinding) ;
+
+        HelgaMustFail(HelgaBinding) ;
+
+        IsabelleRegisterInterfaces(IsabelleBinding) ;
+        }
+
+    for (HelgaCount = 0; HelgaCount < 5; HelgaCount++)
+        {
+        TestHelgaInterface(HelgaBinding, HelgaMaxSize);
+
+        IsabelleUnregisterInterfaces(IsabelleBinding) ;
+
+        HelgaMustFail(HelgaBinding) ;
+
+        IsabelleRegisterInterfaces(IsabelleBinding) ;
+        }
+
+    IsabelleShutdown(IsabelleBinding);
+    if (HelgaErrors != 0)
+        {
+        PrintToConsole("Hybrid : FAIL - Error(s) in Helga Interface\n");
+        HelgaErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&HelgaBinding);
+    if (Status)
+        {
+        ApiError("Hybrid","RpcBindingFree",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Free Binding");
+        PrintToConsole(" (HelgaBinding)\n");
+        return;
+        }
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("Hybrid : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&IsabelleBinding);
+    if (Status)
+        {
+        ApiError("Hybrid","RpcBindingFree",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Free Binding");
+        PrintToConsole(" (IsabelleBinding)\n");
+        return;
+        }
+
+    PrintToConsole("Hybrid : PASS\n");
+}
+
 void
 Graham (
     )
@@ -2600,6 +4252,8 @@ Routine Description:
     unsigned short MagicValue;
     unsigned int Count;
 
+    Synchro(GRANT) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -2614,6 +4268,8 @@ Routine Description:
         PrintToConsole("Graham : FAIL - Unable to Bind (Grant)\n");
         return;
         }
+
+
     Status = GetBinding(GRANT, &IsabelleBinding);
     if (Status)
         {
@@ -2760,6 +4416,8 @@ Routine Description:
     RPC_BINDING_HANDLE EdwardNormal;
     RPC_BINDING_HANDLE EdwardMaximize;
 
+    Synchro(ELLIOTMINIMIZE) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -2776,6 +4434,7 @@ Routine Description:
         return;
         }
 
+
     Status = GetBinding(ELLIOTMAXIMIZE, &SylviaMaximize);
     if (Status)
         {
@@ -2791,6 +4450,7 @@ Routine Description:
         PrintToConsole("Edward : FAIL - Unable to Bind (Elliot Minimize)\n");
         return;
         }
+
 
     Status = GetBinding(ELLIOTMAXIMIZE, &HelgaMaximize);
     if (Status)
@@ -3048,7 +4708,7 @@ Routine Description:
 
 #ifdef NOVELL_NP
 unsigned int AstroThreads = 1;
-#else	// NOVELL_NP
+#else   // NOVELL_NP
 #ifdef NTENV
 unsigned int AstroThreads = 2;
 #else // NTENV
@@ -3094,7 +4754,7 @@ Arguments:
     if (SylviaCall(SylviaBinding,10,5,0) != LocalSylviaCall(10,5,0))
         {
         PrintToConsole("AstroSylvia : FAIL - Incorrect result from");
-	PrintToConsole(" SylviaCall(10,5,0)\n");
+    PrintToConsole(" SylviaCall(10,5,0)\n");
         return;
         }
 
@@ -3107,8 +4767,6 @@ Arguments:
         }
     else
         AstroMutex->Clear();
-
-    delete ThreadSelf();
 }
 
 
@@ -3144,7 +4802,6 @@ Arguments:
         }
     else
         AstroMutex->Clear();
-    delete ThreadSelf();
 }
 
 
@@ -3189,7 +4846,6 @@ Arguments:
         }
     else
         AstroMutex->Clear();
-    delete ThreadSelf();
 }
 
 typedef enum _ASTRO_BIND_OPTION
@@ -3278,8 +4934,12 @@ Return Value:
                 }
             }
         RpcStatus = RPC_S_OK;
+#ifdef MAC
+        Thread = new THREAD((THREAD_PROC) AstroTestRoutine, BindingHandle);
+#else
         Thread = new THREAD((THREAD_PROC) AstroTestRoutine, BindingHandle,
                 &RpcStatus);
+#endif
         if (   ( Thread == 0 )
             || ( RpcStatus != RPC_S_OK ) )
             {
@@ -3339,6 +4999,8 @@ Routine Description:
     RPC_BINDING_HANDLE IsabelleBinding;
     RPC_STATUS RpcStatus = RPC_S_OK;
 
+    Synchro(ANDROMIDA) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -3353,6 +5015,8 @@ Routine Description:
         PrintToConsole("Astro : FAIL - Unable to Bind (Andromida)\n");
         return;
         }
+
+    
 
 #ifndef NOTHREADS
 
@@ -3530,11 +5194,11 @@ Return Value:
     RPC_STATUS Status;
 
     Status = RpcStringBindingParse((unsigned char PAPI *) StringBinding,
-	    (ARGUMENT_PRESENT(ExpectedObjUuid) ? (unsigned char PAPI * PAPI *) &ObjUuid : 0),
-	    (ARGUMENT_PRESENT(ExpectedProtseq) ? (unsigned char PAPI * PAPI *) &Protseq : 0),
-	    (ARGUMENT_PRESENT(ExpectedNetworkAddr) ? (unsigned char PAPI * PAPI *) &NetworkAddr : 0),
-	    (ARGUMENT_PRESENT(ExpectedEndpoint) ? (unsigned char PAPI * PAPI *) &Endpoint : 0),
-	    (ARGUMENT_PRESENT(ExpectedOptions) ? (unsigned char PAPI * PAPI *) &Options : 0));
+        (ARGUMENT_PRESENT(ExpectedObjUuid) ? (unsigned char PAPI * PAPI *) &ObjUuid : 0),
+        (ARGUMENT_PRESENT(ExpectedProtseq) ? (unsigned char PAPI * PAPI *) &Protseq : 0),
+        (ARGUMENT_PRESENT(ExpectedNetworkAddr) ? (unsigned char PAPI * PAPI *) &NetworkAddr : 0),
+        (ARGUMENT_PRESENT(ExpectedEndpoint) ? (unsigned char PAPI * PAPI *) &Endpoint : 0),
+        (ARGUMENT_PRESENT(ExpectedOptions) ? (unsigned char PAPI * PAPI *) &Options : 0));
     if (Status)
         {
         ApiError("FitzgeraldParse","RpcStringBindingParse",Status);
@@ -4077,7 +5741,7 @@ Return Value:
         PrintToConsole("Fitzgerald : FAIL - Unable to Free Binding");
         PrintToConsole(" (BindingHandle)\n");
         return(1);
-	}
+    }
     return(0);
 }
 
@@ -4102,6 +5766,8 @@ Return Value:
 --*/
 {
     UUID ObjectUuid;
+    unsigned char PAPI * StringBinding1;
+    unsigned char PAPI * StringBinding2;
 
     if (FitzgeraldToStringBinding(GetStringBinding(FREDRICK,0,0),
             GetStringBinding(FREDRICK,0,0), 0))
@@ -4125,10 +5791,19 @@ Return Value:
     ObjectUuid.Data4[6] = 0x3D;
     ObjectUuid.Data4[7] = 0x7A;
 
+    StringBinding1 = GetStringBinding(FREDRICK, 0, 0) ;
+    StringBinding2 = GetStringBinding(FREDRICK,
+                            "12345678-9012-B456-8001-08002B033D7A",0) ;
+
+    if (FitzgeraldToStringBinding(StringBinding1, StringBinding2, &ObjectUuid))
+        return(1);
+
+#if 0
     if (FitzgeraldToStringBinding(GetStringBinding(FREDRICK,0,0),
             GetStringBinding(FREDRICK,
                     "12345678-9012-B456-8001-08002B033D7A",0), &ObjectUuid))
         return(1);
+#endif
 
     if (FitzgeraldInqSetObjectUuid(1,1,&ObjectUuid,
             GetStringBinding(FREDRICK,0,0)))
@@ -4338,7 +6013,7 @@ Return Value:
 
     Helga(ExceptionBinding);
 
-    if (IsabelleRaiseException(ExceptionBinding,12345L) != 12345)
+    if (IsabelleRaiseException(ExceptionBinding,ulSecurityPackage) != ulSecurityPackage)
         {
         PrintToConsole("Fitzgerald : FAIL - Exception Not Raised\n");
         return(1);
@@ -4384,6 +6059,7 @@ FitzgeraldContextHandle (
     RPC_BINDING_HANDLE BindingHandle;
     unsigned long ContextUuid[5];
 
+
     Status = GetBinding(FREDRICK, &BindingHandle);
     if (Status)
         {
@@ -4392,6 +6068,7 @@ FitzgeraldContextHandle (
         PrintToConsole(" (Fredrick)");
         return(1);
         }
+
 
     Helga(BindingHandle);
 
@@ -4417,7 +6094,7 @@ FitzgeraldContextHandle (
     RpcSsDestroyClientContext(&ContextHandle);
     if ( ContextHandle != 0 )
         {
-        PrintToDebugger("Fitzgerald : FAIL - ContextHandle != 0\n");
+        PrintToConsole("Fitzgerald : FAIL - ContextHandle != 0\n");
         return(1);
         }
     return(0);
@@ -4465,6 +6142,8 @@ Routine Description:
         {
         PauseExecution(TestDelay);
         }
+
+    Synchro(FREDRICK) ;
 
     PrintToConsole("Fitzgerald : Verify All Client APIs\n");
 
@@ -4558,6 +6237,7 @@ Routine Description:
         return;
         }
 
+#ifndef MAC
     Status = RpcNsBindingInqEntryName(IsabelleBinding, RPC_C_NS_SYNTAX_DCE,
             &String);
     if ( Status != RPC_S_NO_ENTRY_NAME )
@@ -4567,6 +6247,7 @@ Routine Description:
         PrintToConsole(" Did Not Fail");
         return;
         }
+#endif
 
     // This routine will test RpcStringBindingCompose,
     // RpcStringBindingParse, RpcStringFree for us.
@@ -4629,32 +6310,35 @@ Routine Description:
         return;
         }
 
-    PauseExecution(1000L);
-
-    Status = GetBinding(FREDRICK, &IsabelleBinding);
-    if (Status)
+    if (AutoListenFlag == 0)
         {
-        ApiError("Fitzgerald","GetBinding",Status);
-        PrintToConsole("Fitzgerald : FAIL - Unable to Bind");
-        PrintToConsole(" (Fredrick)");
-        return;
-        }
+        PauseExecution(1000L);
 
-    Status = IsabelleRaiseException(IsabelleBinding, 10666L);
-    if ( Status != RPC_S_SERVER_TOO_BUSY )
-        {
-        OtherError("Fitzgerald","Status != RPC_S_SERVER_TOO_BUSY");
-        PrintToConsole("Fitzgerald : FAIL - Status != RPC_S_SERVER_TOO_BUSY\n");
-        return;
-        }
+        Status = GetBinding(FREDRICK, &IsabelleBinding);
+        if (Status)
+            {
+            ApiError("Fitzgerald","GetBinding",Status);
+            PrintToConsole("Fitzgerald : FAIL - Unable to Bind");
+            PrintToConsole(" (Fredrick)");
+            return;
+            }
 
-    Status = RpcBindingFree(&IsabelleBinding);
-    if (Status)
-        {
-        ApiError("Fitzgerald","RpcBindingFree",Status);
-        PrintToConsole("Fitzgerald : FAIL - Unable to Free Binding");
-        PrintToConsole(" (IsabelleBinding)\n");
-        return;
+        Status = IsabelleRaiseException(IsabelleBinding, 106);
+        if ( Status != RPC_S_SERVER_TOO_BUSY )
+            {
+            OtherError("Fitzgerald","Status != RPC_S_SERVER_TOO_BUSY");
+            PrintToConsole("Fitzgerald : FAIL - Status != RPC_S_SERVER_TOO_BUSY\n");
+            return;
+            }
+
+        Status = RpcBindingFree(&IsabelleBinding);
+        if (Status)
+            {
+            ApiError("Fitzgerald","RpcBindingFree",Status);
+            PrintToConsole("Fitzgerald : FAIL - Unable to Free Binding");
+            PrintToConsole(" (IsabelleBinding)\n");
+            return;
+            }
         }
 
     Status = RpcIfInqId((RPC_IF_HANDLE) &IsabelleInterfaceInformation,
@@ -4683,8 +6367,11 @@ Routine Description:
         PrintToConsole("Fitzgerald : FAIL - Wrong RpcIfId\n");
         return;
         }
-
+#ifdef MAC
+    Status = RpcNetworkIsProtseqValid((unsigned char *) "ncacn_at_dsp");
+#else
     Status = RpcNetworkIsProtseqValid((unsigned char *) "ncacn_np");
+#endif
     if (Status)
         {
         ApiError("Fitzgerald","RpcNetworkIsProtseqValid",Status);
@@ -4731,10 +6418,13 @@ Routine Description:
     RPC_BINDING_HANDLE ChristopherHelgaNoEndpoint;
     UUID ObjectUuid;
 
-    if ( NumberOfTestsRun++ )
+   if ( NumberOfTestsRun++ )
         {
-        PauseExecution(LONG_TESTDELAY);
+        PauseExecution(30000);
         }
+
+    Synchro(CHRISTOPHER) ;
+
 
     PrintToConsole("Charles : Verify All Server APIs\n");
 
@@ -4746,6 +6436,7 @@ Routine Description:
         PrintToConsole("(Christopher)\n");
         return;
         }
+
 
     GenerateUuidValue(288, &ObjectUuid);
     Status = RpcBindingSetObject(ChristopherBinding, &ObjectUuid);
@@ -4936,7 +6627,8 @@ Routine Description:
 #ifdef NTENV
 
 int
-ThomasNtSecurity (
+ThomasNtSecurity
+(
     IN char * NetworkOptions
     )
 /*++
@@ -5185,70 +6877,241 @@ Return Value:
 
 --*/
 {
+#ifdef NTENV
+    RPC_AUTH_IDENTITY_HANDLE AuthId = NULL;
+#else
+    SEC_WINNT_AUTH_IDENTITY  Ntlmssp;
+    RPC_AUTH_IDENTITY_HANDLE AuthId = &Ntlmssp;
+    unsigned char            User[80];
+    unsigned char            Domain[80];
+    unsigned char            Password[80];
+    Ntlmssp.User     = SecurityUser;
+    Ntlmssp.Domain   = SecurityDomain;
+    Ntlmssp.Password = SecurityPassword;
+
+    #ifdef WIN
+    // By default windows will try "the current user" if
+    // no AuthId is used.
+    if (   0 == SecurityUser
+        && 0 == SecurityDomain
+        && 0 == SecurityPassword)
+        AuthId = 0;
+    #endif
+
+#endif
+
+    if(ulSecurityPackage == 123)
+        AuthId = 0 ;
+
     if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_CONNECT, 123, 0, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage, AuthId , 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_CONNECT) != 0 )
         {
         return(1);
         }
 
-    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CONNECT, 123,
+    if(ulSecurityPackage == 123)
+    {
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage,
                 (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_CONNECT) != 0 )
         {
         return(1);
         }
+    }
 
     if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_CALL, 123, 0, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_CALL, ulSecurityPackage, AuthId, 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_PKT) != 0 )
         {
         return(1);
         }
 
-    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CALL, 123,
+    if(ulSecurityPackage == 123)
+    {
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CALL, ulSecurityPackage,
                 (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT) != 0 )
         {
         return(1);
         }
+    }
 
     if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_PKT, 123, 0, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT, ulSecurityPackage, AuthId, 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_PKT) != 0 )
         {
         return(1);
         }
 
-    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT, 123,
+    if(ulSecurityPackage == 123)
+    {
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT, ulSecurityPackage,
                 (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT) != 0 )
         {
         return(1);
         }
+    }
 
     if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, 123, 0, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, ulSecurityPackage, AuthId, 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_PKT_INTEGRITY) != 0 )
         {
         return(1);
         }
 
-    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, 123,
+    if(ulSecurityPackage == 123)
+    {
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, ulSecurityPackage,
                 (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY) != 0 )
         {
         return(1);
         }
+    }
 
     if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_PKT_PRIVACY, 123, 0, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY, ulSecurityPackage, AuthId , 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
         {
         return(1);
         }
 
-    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, 123,
+    if(ulSecurityPackage == 123)
+    {
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, ulSecurityPackage,
+                (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
+                0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+    }
+
+    return(0);
+}
+
+
+#ifdef WIN32RPC
+int
+ThomasTestLRpcSecurity (
+    )
+/*++
+
+Routine Description:
+
+    This routine exercises rpc protocol level security support in the
+    runtime.
+
+Return Value:
+
+    A non-zero return value indicates that the test failed.
+
+--*/
+{
+
+    SEC_WINNT_AUTH_IDENTITY  ntssp;
+    RPC_AUTH_IDENTITY_HANDLE AuthId = &ntssp;
+
+    ntssp.User     = (unsigned char *)   SecurityUser;
+    if (ntssp.User)
+        {
+        ntssp.UserLength = strlen(SecurityUser);
+        }
+    else
+        {
+        ntssp.UserLength = 0;
+        }
+
+    ntssp.Domain   = (unsigned char *)  SecurityDomain;
+    if (ntssp.Domain)
+        {
+        ntssp.DomainLength = strlen(SecurityDomain);
+        }
+    else
+        {
+        ntssp.DomainLength = 0;
+        }
+
+    ntssp.Password = (unsigned char *)  SecurityPassword;
+    if (ntssp.Password)
+        {
+        ntssp.PasswordLength = strlen(SecurityPassword);
+        }
+    else
+        {
+        ntssp.PasswordLength = 0;
+        }
+
+    ntssp.Flags = SEC_WINNT_AUTH_IDENTITY_ANSI;
+
+    // LRPC can only use 10
+    ulSecurityPackage = 10 ;
+
+    if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
+                RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage, AuthId , 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage,
+                (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
+                0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
+                RPC_C_AUTHN_LEVEL_CALL, ulSecurityPackage, AuthId, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CALL, ulSecurityPackage,
+                (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
+                0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
+                RPC_C_AUTHN_LEVEL_PKT, ulSecurityPackage, AuthId, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT, ulSecurityPackage,
+                (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
+                0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
+                RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, ulSecurityPackage, AuthId, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_INTEGRITY, ulSecurityPackage,
+                (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
+                0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY, ulSecurityPackage, AuthId , 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
+        {
+        return(1);
+        }
+
+    if ( ThomasInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, ulSecurityPackage,
                 (RPC_AUTH_IDENTITY_HANDLE) RPC_CONST_STRING("ClientPrincipal"),
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_PKT_PRIVACY) != 0 )
         {
@@ -5257,6 +7120,8 @@ Return Value:
 
     return(0);
 }
+#endif
+
 
 
 void
@@ -5273,6 +7138,8 @@ Routine Description:
 {
     RPC_BINDING_HANDLE IsabelleBinding;
 
+    Synchro(TYLER) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -5288,12 +7155,23 @@ Routine Description:
         return;
         }
 
-    if ( TransportType != RPC_LRPC )
+    // change here to test rpc security for LRPC also
+
+    if(TransportType != RPC_LRPC)
         {
         if ( ThomasTestRpcSecurity() != 0 )
             {
             return;
             }
+        }
+    else
+        {
+#ifdef WIN32RPC
+        if ( ThomasTestLRpcSecurity() != 0 )
+            {
+            return;
+            }
+#endif
         }
 
 #ifdef NTENV
@@ -5473,15 +7351,17 @@ Return Value:
     Ntlmssp.Domain   = SecurityDomain;
     Ntlmssp.Password = SecurityPassword;
 #endif
-
+    
+    // RPC_C_AUTHN_WINNT to ulSecurityPackage in the intrest of generality
     if ( TimInqSetAuthInfo((unsigned char PAPI *) "ServerPrincipal",
-                RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_WINNT, AuthId, 0, RPC_S_OK,
+                RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage, AuthId, 0, RPC_S_OK,
                 RPC_C_AUTHN_LEVEL_CONNECT) != 0 )
         {
         return(1);
         }
 
-    if ( TimInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CONNECT, RPC_C_AUTHN_WINNT,
+    // RPC_C_AUTHN_WINNT to ulSecurityPackage in the intrest of generality
+    if ( TimInqSetAuthInfo(0, RPC_C_AUTHN_LEVEL_CONNECT, ulSecurityPackage,
                               AuthId,
                 0, RPC_S_OK, RPC_C_AUTHN_LEVEL_CONNECT) != 0 )
         {
@@ -5506,6 +7386,8 @@ Routine Description:
 {
     RPC_BINDING_HANDLE IsabelleBinding;
 
+    Synchro(TYLER) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -5520,6 +7402,7 @@ Routine Description:
         PrintToConsole("Tim : FAIL - Unable to Bind (Tyler)\n");
         return;
         }
+
 
     if ( TransportType != RPC_LRPC )
         {
@@ -5567,6 +7450,8 @@ Routine Description:
     RPC_BINDING_HANDLE RichardHelperBinding;
     unsigned int RetryCount;
 
+    Synchro(RICHARD) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -5581,6 +7466,7 @@ Routine Description:
         PrintToConsole("Robert : FAIL - Unable to Bind (Richard)\n");
         return;
         }
+
 
     Status = GetBinding(RICHARDHELPER, &RichardHelperBinding);
     if (Status)
@@ -5599,7 +7485,8 @@ Routine Description:
         return;
         }
 
-    PauseExecution(2000L);
+  //  PauseExecution(30000L);
+   Synchro(RICHARDHELPER) ; 
 
     for (RetryCount = 0; RetryCount < RETRYCOUNT; RetryCount++)
         {
@@ -5646,6 +7533,7 @@ Routine Description:
         return;
         }
 
+    PrintToConsole("Robert : Spawning RichardHelper again\n") ;
     Status = IsabelleRichardHelper(RichardBinding,RICHARDHELPER_EXECUTE);
 
     if (Status != RPC_S_OK)
@@ -5656,7 +7544,8 @@ Routine Description:
         return;
         }
 
-    PauseExecution(2000L);
+ //   PauseExecution(30000L);
+   Synchro(RICHARDHELPER) ; 
 
     for (RetryCount = 0; RetryCount < RETRYCOUNT; RetryCount++)
         {
@@ -5721,6 +7610,8 @@ Routine Description:
     RPC_BINDING_HANDLE KennethBinding;
     RPC_BINDING_HANDLE KennethHelperBinding;
 
+    Synchro(KENNETH) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -5753,7 +7644,7 @@ Routine Description:
         return;
         }
 
-    PauseExecution(2000L);
+    PauseExecution(20000L);
 
     Status = IsabelleRichardHelper(KennethHelperBinding, RICHARDHELPER_IGNORE);
     if (Status != RPC_S_OK)
@@ -5774,7 +7665,7 @@ Routine Description:
         return;
         }
 
-    PauseExecution(3000L);
+    PauseExecution(30000L);
 
     Status = IsabelleRichardHelper(KennethBinding, RICHARDHELPER_EXECUTE);
     if (Status != RPC_S_OK)
@@ -5785,7 +7676,7 @@ Routine Description:
         return;
         }
 
-    PauseExecution(4000L);
+    PauseExecution(40000L);
 
     Status = IsabelleRichardHelper(KennethHelperBinding, RICHARDHELPER_IGNORE);
     if (Status != RPC_S_OK)
@@ -5843,6 +7734,8 @@ Routine Description:
     RPC_BINDING_HANDLE DanielFirst;;
     RPC_BINDING_HANDLE DanielSecond;
 
+    Synchro(DAVIDFIRST) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
@@ -5857,6 +7750,7 @@ Routine Description:
         PrintToConsole("Daniel : FAIL - Unable to Bind (DavidFirst)\n");
         return;
         }
+
 
     Status = GetBinding(DAVIDSECOND, &DanielSecond);
     if (Status)
@@ -6076,6 +7970,8 @@ Routine Description:
     RPC_BINDING_HANDLE Bartholomew;
     unsigned char * StringBinding;
 
+    Synchro(BARTHOLOMEW) ;
+
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(4*LONG_TESTDELAY);
@@ -6090,6 +7986,7 @@ Routine Description:
         PrintToConsole("Benjamin : FAIL - Unable to Bind (Bartholomew)\n");
         return;
         }
+
 
     while ((StringBinding = IsabelleGetStringBinding(Bartholomew)) != 0)
         {
@@ -6137,12 +8034,19 @@ Routine Description:
     int seconds;
 
     PrintToConsole("Harold : Test Idle Connection Cleanup and Context\n");
+    Synchro(HERMAN) ;
 
     if ( NumberOfTestsRun++ )
         {
         PauseExecution(TestDelay);
         }
 
+#ifdef DOS
+    PrintToConsole("Idle connection cleanup doesn't work on DOS\n"
+                   "Don't run this test - it will now fail.\n");
+#endif
+
+#ifndef MAC
     Status = RpcMgmtEnableIdleCleanup();
     if (Status)
         {
@@ -6150,6 +8054,7 @@ Routine Description:
         PrintToConsole("Harold : FAIL - RpcMgmtEnableIdleCleanup\n");
         return;
         }
+#endif
 
     Status = GetBinding(HERMAN, &Binding);
     if (Status)
@@ -6159,6 +8064,8 @@ Routine Description:
         return;
         }
 
+
+#ifndef MAC
     IsabelleSetRundown(Binding);
     IsabelleCheckContext(Binding);
 
@@ -6181,6 +8088,7 @@ Routine Description:
         IsabelleErrors = 0;
         return;
         }
+#endif
 
     Status = I_RpcBindingCopy(Binding, &ContextBinding);
     if (Status)
@@ -6199,6 +8107,7 @@ Routine Description:
         return;
         }
 
+#ifndef MAC
     IsabelleSetRundown(ContextBinding);
     IsabelleCheckContext(ContextBinding);
 
@@ -6223,6 +8132,8 @@ Routine Description:
         IsabelleErrors = 0;
         return;
         }
+
+#endif
 
     IsabelleShutdown(ContextBinding);
 
@@ -6265,9 +8176,12 @@ Routine Description:
     unsigned long StartingTime, EndingTime;
     unsigned char PAPI * StringBinding;
 #endif // NTENV
+    UUID ObjectUuid;
 
     PrintToConsole("James : Timing Test (%d) %d times\n", JamesSize,
             JamesCount);
+
+    Synchro(JASON) ;
 
     if ( NumberOfTestsRun++ )
         {
@@ -6402,6 +8316,59 @@ Routine Description:
         }
 
     PrintToConsole("    InCall(%d) : %d.%d ms [%d in %d milliseconds]\n",
+            JamesSize, (EndingTime - StartingTime) / JamesCount,
+            ((1000 * (EndingTime - StartingTime) / JamesCount) % 1000),
+            JamesCount, (EndingTime - StartingTime));
+
+
+    //
+    // InCall w/Binding Object UUID
+    //
+
+    Status = GetBinding(JASON, &Binding);
+    if (Status)
+        {
+        ApiError("James","GetBinding",Status);
+        PrintToConsole("James : FAIL - Unable to Bind (Jason)\n");
+        return;
+        }
+    GenerateUuidValue(8179, &ObjectUuid);
+    Status = RpcBindingSetObject(Binding, &ObjectUuid);
+    if (Status)
+        {
+        ApiError("Graham", "RpcBindingSetObject", Status);
+        PrintToConsole("Graham : FAIL - Unable to Set Object\n");
+        return;
+        }
+
+    Helga(Binding);
+
+    StartingTime = GetCurrentTime();
+
+    for (Count = 0; Count < JamesCount; Count++)
+        {
+        HelgaIN(Binding,JamesSize);
+        }
+
+    EndingTime = GetCurrentTime();
+
+    if (HelgaErrors != 0)
+        {
+        PrintToConsole("James : FAIL - Error(s) in Helga Interface\n");
+        HelgaErrors = 0;
+        return;
+        }
+
+    Status = RpcBindingFree(&Binding);
+    if (Status)
+        {
+        ApiError("James","RpcBindingFree",Status);
+        PrintToConsole("James : FAIL - Unable to Free Binding");
+        PrintToConsole(" (Binding)\n");
+        return;
+        }
+
+    PrintToConsole("  InCall/WUUID(%d) : %d.%d ms [%d in %d milliseconds]\n",
             JamesSize, (EndingTime - StartingTime) / JamesCount,
             ((1000 * (EndingTime - StartingTime) / JamesCount) % 1000),
             JamesCount, (EndingTime - StartingTime));
@@ -6631,6 +8598,7 @@ Routine Description:
     PrintToConsole("Isaac : Stress Test (%d to %d by %d) %d times\n",
             IsaacInitialSize, IsaacMaximumSize, IsaacIncrement,
             IsaacIterations);
+    Synchro(IVAN) ;
 
     if ( NumberOfTestsRun++ )
         {
@@ -6648,6 +8616,7 @@ Routine Description:
         }
     PrintToConsole("\n");
 
+       // this piece of code was below the loop
     Status = GetBinding(IVAN, &Binding);
     if (Status)
         {
@@ -6655,6 +8624,8 @@ Routine Description:
         PrintToConsole("Isaac : FAIL - Unable to Bind (Ivan)\n");
         return;
         }
+
+
 
     IsabelleShutdown(Binding);
 
@@ -6677,7 +8648,300 @@ Routine Description:
     PrintToConsole("Isaac : PASS\n");
 }
 
+void  TestYield(void)
+{
+    RPC_BINDING_HANDLE Binding ;
+    RPC_MESSAGE Caller;
+
+    Synchro(TESTYIELD) ;
+
+    Caller.BufferLength = 0;
+    Caller.ProcNum = 5 | HackForOldStubs ;
+    Caller.RpcInterfaceInformation = &HelgaInterfaceInformation ;
+    Caller.RpcFlags = 0;
+
+    Status = GetBinding(TESTYIELD, &Binding);
+    if (Status)
+        {
+        ApiError("TestYield","GetBinding",Status);
+        PrintToConsole("TestYield: FAIL - Unable to Bind\n");
+
+        return;
+        }
+
+    // new code end
+    Caller.Handle = Binding;
+
+    while(UclntGetBuffer(&Caller))
+    {
+       Caller.Handle = Binding ;
+       PauseExecution(1000) ;
+    }
+
+    if(UclntSendReceive(&Caller) != 0)
+    {
+        ApiError("TestYield","GetBinding",Status);
+        PrintToConsole("TestYield: FAIL - Unable to Bind\n");
+
+        return;
+    }
+
+   Status = I_RpcFreeBuffer(&Caller);
+   if (Status)
+       ApiError("TestYield","I_RpcFreeBuffer",Status);
+
+   Status = RpcBindingFree(&Binding);
+   if (Status)
+        {
+        ApiError("TestYield","RpcBindingFree",Status);
+        PrintToConsole("TestYield: FAIL - Unable to Free Binding");
+        return;
+        }
+}
+
+#ifdef NTENV
+extern RPC_STATUS RPC_ENTRY
+I_RpcSetWMsgEndpoint (
+    IN RPC_CHAR PAPI * Endpoint
+    ) ;
+
+NTSTATUS
+ThreadStartRoutine (
+    )
+{
+    PrintToConsole("WMSG thread started\n") ;
+
+    Status = RpcServerUseProtseqEp((unsigned char *) "ncalrpc", 1,
+                                                    (unsigned char *) "replyport", 0);
+    if (Status)
+        {
+        ApiError("WMSG","RpcServerUseProtseqEp",Status);
+        PrintToConsole("WMSG : FAIL - Unable to Use Protseq Endpoint\n");
+        return 0;
+        }
+
+    Status = I_RpcSetWMsgEndpoint(RPC_CONST_STRING("replyport")) ;
+
+    Status = RpcServerListen(1, 1, 0);
+    if (Status)
+        {
+        ApiError("WMSG","RpcServerListen",Status);
+        PrintToConsole("WMSG: RpcServerListen failed\n");
+        return 0;
+        }
+
+    PrintToConsole("WMSG thread stopped listening\n") ;
+
+    return 1;
+}
+static unsigned long DefaultThreadStackSize = 0;
+
+void
+StartWMSGServer()
+{
+    unsigned long ThreadIdentifier;
+
+    HANDLE HandleToThread = CreateThread(0, DefaultThreadStackSize,
+                    (LPTHREAD_START_ROUTINE) ThreadStartRoutine,
+                    0, 0, &ThreadIdentifier);
+
+    if (HandleToThread == 0)
+        {
+        PrintToConsole("StartWMSGServer: Can't start WMSG server\n") ;
+        return ;
+        }
+
+    Sleep(5000) ;
+}
+
+char *GetNextCard (
+    char **Ptr
+    )
+{
+    char *Card = *Ptr ;
+    if (*Card == 0)
+        {
+        return NULL ;
+        }
+
+    while (**Ptr) (*Ptr)++ ;
+    (*Ptr)++ ;
+
+    ASSERT(*Card == '\\') ;
+    Card++ ;
+    while (*Card != '\\') Card++ ;
+    Card++ ;
+
+    return Card ;
+}
+
+char *GetNextIPAddress(
+    char **Ptr
+    )
+{
+    char *Address = *Ptr ;
+    if (*Address == 0)
+        {
+        return NULL ;
+        }
+
+    while (**Ptr) (*Ptr)++ ;
+    (*Ptr)++ ;
+
+    return Address ;
+}
+
+void PrintAddresses(
+    char *Card
+    )
+{
+    char szBuf[512] ;
+    HKEY hKey;
+    RPC_STATUS Status;
+    char Buffer[512] ;
+    DWORD Size = 512;
+    char *address ;
+    char *temp1 ;
+    DWORD Type;
+
+    // Create the key string
+    sprintf(szBuf,
+             "System\\CurrentControlSet\\Services\\%s\\Parameters\\Tcpip",
+             Card) ;
+
+    Status =
+    RegOpenKeyExA(
+        HKEY_LOCAL_MACHINE,
+        szBuf,
+        0,
+        KEY_READ,
+        &hKey);
+
+    if (   Status != ERROR_SUCCESS
+    && Status != ERROR_FILE_NOT_FOUND )
+    {
+    ASSERT(0);
+    return;
+    }
+
+    // Get DHCP Address
+    if (Status == ERROR_SUCCESS)
+        {
+        Status =
+        RegQueryValueExA(
+            hKey,
+            "DhcpIPAddress",
+            0,
+            &Type,
+            (unsigned char *) Buffer,
+            &Size);
+
+        }
+
+    if (   Status != ERROR_SUCCESS
+        && Status != ERROR_FILE_NOT_FOUND )
+        {
+        ASSERT(0);
+        return ;
+        }
+
+    PrintToConsole("\tDHCP: %s\n", Buffer) ;
+    Status =
+    RegQueryValueExA(
+        hKey,
+        "IPAddress",
+        0,
+        &Type,
+        (unsigned char *) Buffer,
+        &Size);
+
+    if (   Status != ERROR_SUCCESS
+        && Status != ERROR_FILE_NOT_FOUND )
+        {
+        ASSERT(0);
+        return ;
+        }
+
+    int i ;
+    for (i =0, temp1 = Buffer; address = GetNextIPAddress(&temp1); i++)
+        {
+        PrintToConsole("\tStatic IP Address [%d]: %s\n", i, address) ;
+        }
+}
+
+void RegLookup()
+{
+    char *temp ;
+    char *Card ;
+    char Buffer[512] ;
+    RPC_STATUS Status;
+    HKEY hKey;
+    DWORD Size = 512;
+    DWORD Type;
+
+    PrintToConsole("RegLookup\n") ;
+    NumberOfTestsRun++ ;
+
+    Status =
+    RegOpenKeyExA(
+        HKEY_LOCAL_MACHINE,
+        "System\\CurrentControlSet\\Services\\Rpc\\Linkage",
+        0,
+        KEY_READ,
+        &hKey);
+
+    if (   Status != ERROR_SUCCESS
+        && Status != ERROR_FILE_NOT_FOUND )
+        {
+        ASSERT(0);
+        return;
+        }
+
+    if (Status == ERROR_SUCCESS)
+        {
+        Status =
+        RegQueryValueExA(
+            hKey,
+            "Bind",
+            0,
+            &Type,
+            (unsigned char *) Buffer,
+            &Size);
+
+        }
+
+    if (   Status != ERROR_SUCCESS
+        && Status != ERROR_FILE_NOT_FOUND )
+        {
+        ASSERT(0);
+        return ;
+        }
+
+    char *temp1;
+    char *address;
+
+    PrintToConsole("Cards:") ;
+    for (temp = Buffer; Card = GetNextCard(&temp);)
+        {
+        PrintToConsole("%s:\n", Card) ;
+        PrintAddresses(Card) ;
+        }
+}
+#endif
+
+#ifdef MAC
+void MacCallbackFunc(short *pStatus)
+{
+    while(*pStatus == 1) ;
+}
+#endif
+
+#ifdef NTENV
+extern int InitializeRpcAllocator(void);
+#endif
+
 
+#ifndef MAC
 #ifdef NTENV
 int _CRTAPI1
 #else // NTENV
@@ -6697,6 +8961,7 @@ Transports:
 {
     int argscan;
     RPC_STATUS RpcStatus = RPC_S_OK;
+    char *option ;
 
 #ifdef NTENV
     NTSTATUS Status;
@@ -6708,17 +8973,19 @@ Transports:
     // routine.  However, we are linking in our own copy of the threads
     // package, so we need to call this to initialize it.
 
+    InitializeRpcAllocator();
     InitializeThreads();
-#endif
-
-#ifdef OS2_12
-    DosGetInfoSeg((PSEL) ((int *)&pInfoSegG+1), (PSEL) ((int *)&pInfoSegL+1));
-    pThreadID = (int *) &pInfoSegL->tidCurrent;
 #endif
 
 #ifdef WIN
     RpcWinSetYieldInfo(hWndStdio, FALSE, 0, 0);
 #endif
+
+#ifdef MAC
+    RpcMacSetYieldInfo(MacCallbackFunc) ;
+#endif
+
+    RpcMgmtSetCancelTimeout(20) ;
 
     PrintMutex = new MUTEX(&RpcStatus);
     ASSERT( RpcStatus == RPC_S_OK );
@@ -6730,7 +8997,12 @@ Transports:
     for (argscan = 1; argscan < argc; argscan++)
         {
 
-        if (strcmp(argv[argscan],"-warn") == 0)
+        if (strcmp(argv[argscan], "-p") == 0)
+        {
+            ulSecurityPackage = (unsigned long) atol(argv[argscan+1]);
+            argscan++;
+        }
+        else if (strcmp(argv[argscan],"-warn") == 0)
             {
             WarnFlag = 1;
             }
@@ -6764,8 +9036,6 @@ Transports:
             }
         else if (strcmp(argv[argscan],"-idempotent") == 0)
             {
-            IdempotentTests = 1;
-            DatagramTests   = 1;
             HackForOldStubs = RPC_FLAGS_VALID_BIT;
             }
         else if (strcmp(argv[argscan],"-theodore") == 0)
@@ -6775,6 +9045,14 @@ Transports:
         else if (strcmp(argv[argscan],"-sebastian") == 0)
             {
             Sebastian();
+            }
+        else if (strcmp(argv[argscan],"-hybrid") == 0)
+            {
+            Hybrid();
+            }
+        else if (strcmp(argv[argscan],"-lpcsecurity") == 0)
+            {
+            LpcSecurity();
             }
         else if (strcmp(argv[argscan],"-graham") == 0)
             {
@@ -6832,6 +9110,16 @@ Transports:
             {
             Keith();
             }
+#ifdef NTENV
+        else if (strcmp(argv[argscan],"-reg") == 0)
+            {
+            RegLookup() ;
+            }
+        else if (strcmp(argv[argscan],"-pipe") == 0)
+            {
+            Pipe() ;
+            }
+#endif
         else if (strcmp(argv[argscan],"-namepipe") == 0)
             {
             TransportType = RPC_TRANSPORT_NAMEPIPE;
@@ -6840,12 +9128,33 @@ Transports:
             {
             TransportType = RPC_LRPC;
             }
+#ifdef NTENV
+        else if (strncmp(argv[argscan],"-wmsg:",
+                         strlen("-wmsg:")) == 0)
+            {
+            TransportType = RPC_LRPC;
+            NoCallBacksFlag = 1;
+            option = argv[argscan] + strlen("-wmsg:");
+            if (strcmp(option, "sync") == 0)
+                {
+                ClientType = SYNC_WMSG ;
+                }
+            else
+                {
+                StartWMSGServer() ;
+                AutoListenFlag = 1;
+                ClientType = ASYNC_WMSG ;
+                }
+            }
+#endif
         else if (strcmp(argv[argscan],"-tcp") == 0)
             {
             TransportType = RPC_TRANSPORT_TCP;
             }
         else if (strcmp(argv[argscan],"-udp") == 0)
             {
+            DatagramTests   = 1;
+            NoCallBacksFlag = 1;
             TransportType = RPC_TRANSPORT_UDP;
             }
         else if (strcmp(argv[argscan],"-dnet") == 0)
@@ -6861,10 +9170,23 @@ Transports:
             {
             TransportType = RPC_TRANSPORT_SPX;
             }
+        else if (strcmp(argv[argscan], "-dsp") == 0)
+            {
+            TransportType = RPC_TRANSPORT_DSP ;
+            }
+        else if (strcmp(argv[argscan], "-autolisten") == 0)
+            {
+            AutoListenFlag = 1 ;
+            }
         else if (strcmp(argv[argscan],"-ipx") == 0)
             {
+            DatagramTests   = 1;
             NoCallBacksFlag = 1;
             TransportType = RPC_TRANSPORT_IPX;
+            }
+        else if (strcmp(argv[argscan],"-vns") == 0)
+            {
+            TransportType = RPC_TRANSPORT_VNS;
             }
         else if (strcmp(argv[argscan],"-protocol") == 0)
             {
@@ -6876,7 +9198,6 @@ Transports:
             {
             Server = argv[argscan] + strlen("-server:");
             }
-#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
         else if (strncmp(argv[argscan],"-su:",
                          strlen("-su:")) == 0)
             {
@@ -6892,8 +9213,7 @@ Transports:
             {
             SecurityPassword = (char far *) (argv[argscan] + strlen("-sp:"));
             }
-#endif
-        else if (strncmp(argv[argscan],"-threads:",strlen("-threads:")) == 0)
+            else if (strncmp(argv[argscan],"-threads:",strlen("-threads:")) == 0)
             {
             AstroThreads = atoi(argv[argscan] + strlen("-threads:"));
             if (AstroThreads == 0)
@@ -6981,6 +9301,7 @@ Transports:
             PrintToConsole("        -isaac\n");
             PrintToConsole("        -james\n");
             PrintToConsole("        -keith\n");
+            PrintToConsole("        -pipe\n") ;
             PrintToConsole("        -namepipe\n");
             PrintToConsole("        -lrpc\n");
             PrintToConsole("        -tcp\n");
@@ -6990,6 +9311,7 @@ Transports:
             PrintToConsole("        -server:<server>\n");
             PrintToConsole("        -spx\n");
             PrintToConsole("        -ipx\n");
+            PrintToConsole("        -dsp\n") ;
             PrintToConsole("        -threads:<astro threads>\n");
             PrintToConsole("        -iterations:<isaac iterations>\n");
             PrintToConsole("        -initial:<isaac initial size>\n");
@@ -6998,11 +9320,10 @@ Transports:
             PrintToConsole("        -size:<james size>\n");
             PrintToConsole("        -count:<james count>\n");
             PrintToConsole("        -rpcss\n");
-#if defined(__RPC_DOS__) || defined (__RPC_WIN16__)
+            PrintToConsole("        -p <security provider #>\n");
             PrintToConsole("        -su:<tim user>\n");
             PrintToConsole("        -sd:<tim domain>\n");
             PrintToConsole("        -sp:<tim password>\n");
-#endif
             return(1);
             }
         else
@@ -7036,6 +9357,8 @@ Transports:
 #if defined(WIN)
 END_C_EXTERN
 #endif
+
+#endif // ! MAC
 
 #if defined(DOS) && ! defined (WIN)
 

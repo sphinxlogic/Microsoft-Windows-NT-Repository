@@ -1,5 +1,5 @@
 /************************************************************************
- 
+
 Copyright (c) 1993 Microsoft Corporation
 
 Module Name :
@@ -12,12 +12,13 @@ Abstract :
     stubs and the interpreter.
 
 Author :
-    
+
     David Kays  dkays   September 1993.
 
 Revision History :
 
   ***********************************************************************/
+
 #include "ndrp.h"
 #include "hndl.h"
 #include "ndrole.h"
@@ -25,7 +26,7 @@ Revision History :
 //
 // Function table of marshalling routines.
 //
-PMARSHALL_ROUTINE   pfnMarshallRoutines[] =
+const PMARSHALL_ROUTINE MarshallRoutinesTable[] =
                     {
                     NdrPointerMarshall,
                     NdrPointerMarshall,
@@ -47,7 +48,7 @@ PMARSHALL_ROUTINE   pfnMarshallRoutines[] =
                     NdrVaryingArrayMarshall,
                     NdrVaryingArrayMarshall,
 
-                    NdrComplexArrayMarshall, 
+                    NdrComplexArrayMarshall,
 
                     NdrConformantStringMarshall,
                     NdrConformantStringMarshall,
@@ -69,17 +70,30 @@ PMARSHALL_ROUTINE   pfnMarshallRoutines[] =
 
                     NdrInterfacePointerMarshall,
 
-                    NdrMarshallHandle
+                    NdrMarshallHandle,
+
+                    // New Post NT 3.5 token serviced from here on.
+
+                    NdrHardStructMarshall,
+
+                    NdrXmitOrRepAsMarshall,  // transmit as ptr
+                    NdrXmitOrRepAsMarshall,  // represent as ptr
+
+                    NdrUserMarshalMarshall
+
                     };
 
-#if defined( DOS ) || defined( WIN )
-#pragma code_seg( "NDR_1" )
+const PMARSHALL_ROUTINE * pfnMarshallRoutines = &MarshallRoutinesTable[-FC_RP];
+
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_3" )
 #endif
 
 void RPC_ENTRY
-NdrSimpleTypeMarshall( 
+NdrSimpleTypeMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
-    uchar *             pMemory, 
+    uchar *             pMemory,
     uchar               FormatChar )
 /*++
 
@@ -97,13 +111,14 @@ Return :
 
     None.
 
---*/ 
+--*/
 {
     switch ( FormatChar )
         {
         case FC_CHAR :
         case FC_BYTE :
         case FC_SMALL :
+        case FC_USMALL :
             *(pStubMsg->Buffer)++ = *pMemory;
             break;
 
@@ -112,16 +127,23 @@ Return :
                 {
                 RpcRaiseException(RPC_X_ENUM_VALUE_OUT_OF_RANGE);
                 }
-            // fall through
+
+#if defined(__RPC_MAC__)
+            pMemory += 2;
+#endif
+
+            // fall through...
 
         case FC_WCHAR :
         case FC_SHORT :
+        case FC_USHORT :
             ALIGN(pStubMsg->Buffer,1);
 
             *((ushort *)pStubMsg->Buffer)++ = *((ushort *)pMemory);
             break;
 
         case FC_LONG :
+        case FC_ULONG :
         case FC_FLOAT :
         case FC_ENUM32 :
         case FC_ERROR_STATUS_T:
@@ -146,19 +168,25 @@ Return :
 
         default :
             NDR_ASSERT(0,"NdrSimpleTypeMarshall : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 }
 
+
 unsigned char * RPC_ENTRY
-NdrPointerMarshall( 
+NdrPointerMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
-    uchar *             pMemory, 
+    uchar *             pMemory,
     PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
 
-    Marshalls a pointer to anything.
+    Marshalls a top level pointer to anything.  Pointers embedded in
+    structures, arrays, or unions call NdrpPointerMarshall directly.
+
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
 
 Arguments :
 
@@ -168,7 +196,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the pointer.
+    None.
 
 --*/
 {
@@ -188,33 +216,49 @@ Return :
         pStubMsg->Buffer += 4;
         }
     else
-        pBufferMark = NULL;
+        pBufferMark = 0;
+
+    //
+    // For ref pointers pBufferMark will not be used and can be left
+    // unitialized.
+    //
 
     NdrpPointerMarshall( pStubMsg,
                          pBufferMark,
                          pMemory,
                          pFormat );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+#if defined( DOS ) || defined( WIN )
+#pragma code_seg()
+#endif
+
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
+
 void
-NdrpPointerMarshall( 
+NdrpPointerMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pBufferMark,
-    uchar *             pMemory, 
+    uchar *             pMemory,
     PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
 
-    Private routine for marshalling a pointer to anything.  Used for both
-    top level and embedded pointers.
+    Private routine for marshalling a pointer to anything.  This is the
+    entry point for pointers embedded in structures, arrays, and unions.
+
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
 
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
-    pBufferMark - The location in the buffer where the pointer's node id is 
+    pBufferMark - The location in the buffer where the pointer's node id is
                   marshalled.  Important for full pointers, unfortunately it's
                   overkill for unique pointers.
     pMemory     - Pointer to the data to be marshalled.
@@ -229,7 +273,7 @@ Return :
     //
     // Check the pointer type.
     //
-    switch ( *pFormat ) 
+    switch ( *pFormat )
         {
         case FC_RP :
             if ( ! pMemory )
@@ -249,7 +293,7 @@ Return :
 
         case FC_FP :
             //
-            // Marshall the pointer's ref id and see if we've already 
+            // Marshall the pointer's ref id and see if we've already
             // marshalled the pointer's data.
             //
             if ( NdrFullPointerQueryPointer( pStubMsg->FullPtrXlatTables,
@@ -257,11 +301,13 @@ Return :
                                              FULL_POINTER_MARSHALLED,
                                              (ulong *) pBufferMark ) )
                 return;
-        
+
             break;
 
         default :
             NDR_ASSERT(0,"NdrpPointerMarshall : bad pointer type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     //
@@ -279,53 +325,58 @@ Return :
         // Set format string to complex type description.
         // Cast must be to a signed short since some offsets are negative.
         //
-        pFormat += *((signed short *)pFormat); 
+        pFormat += *((signed short *)pFormat);
 
         //
-        // Look up the proper marshalling routine in the marshalling function 
+        // Look up the proper marshalling routine in the marshalling function
         // table.
         //
-        (void) (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
-                                                                pMemory,
-                                                                pFormat );
+        (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                         pMemory,
+                                                         pFormat );
         return;
         }
 
     //
-    // Else it's a pointer to a simple type, another pointer, or string.
+    // Else it's a pointer to a simple type or a string pointer.
     //
 
-    switch ( pFormat[2] ) 
+    switch ( pFormat[2] )
         {
         case FC_C_CSTRING :
         case FC_C_BSTRING :
         case FC_C_WSTRING :
         case FC_C_SSTRING :
-            (void) NdrConformantStringMarshall( pStubMsg,
-                                                pMemory,
-                                                pFormat + 2 );
+            NdrConformantStringMarshall( pStubMsg,
+                                         pMemory,
+                                         pFormat + 2 );
             break;
-            
+
         default :
             NdrSimpleTypeMarshall( pStubMsg,
                                    pMemory,
                                    pFormat[2] );
             break;
-        } 
-
-    return;
+        }
 }
 
-unsigned char * RPC_ENTRY 
-NdrSimpleStructMarshall( 
-    PMIDL_STUB_MESSAGE  pStubMsg, 
-    uchar *             pMemory, 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg()
+#endif
+
+unsigned char * RPC_ENTRY
+NdrSimpleStructMarshall(
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
     PFORMAT_STRING      pFormat )
 /*++
 
 Routine description :
 
     Marshalls a simple structure.
+
+    Used for FC_STRUCT and FC_PSTRUCT.
 
 Arguments :
 
@@ -335,7 +386,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the structure.
+    None.
 
 --*/
 {
@@ -362,11 +413,12 @@ Return :
                                      pFormat + 4 );
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrConformantStructMarshall ( 
+NdrConformantStructMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -376,6 +428,8 @@ Routine description :
 
     Marshalls a conformant structure.
 
+    Used for FC_CSTRUCT and FC_CPSTRUCT.
+
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
@@ -384,19 +438,16 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the structure.
+    None.
 
 --*/
 {
-    uchar *         pBuffer;
     PFORMAT_STRING  pFormatArray;
     uint            StructSize;
     uchar           Alignment;
 
     // Align the buffer for conformance count marshalling.
     ALIGN(pStubMsg->Buffer,3);
-
-    pBuffer = pStubMsg->Buffer;
 
     // Save structure's alignment.
     Alignment = pFormat[1];
@@ -411,7 +462,7 @@ Return :
     pFormatArray = pFormat + *((signed short *)pFormat);
 
     //
-    // Compute conformance information.  Pass a memory pointer to the 
+    // Compute conformance information.  Pass a memory pointer to the
     // end of the non-conformant part of the structure.
     //
     NdrpComputeConformance( pStubMsg,
@@ -419,11 +470,11 @@ Return :
                             pFormatArray );
 
     // Marshall conformance count.
-    *((ulong *)pBuffer)++ = pStubMsg->MaxCount;
+    *((ulong *)pStubMsg->Buffer)++ = pStubMsg->MaxCount;
 
     // Re-align buffer only if struct is aligned on an 8 byte boundary.
-    if ( Alignment == 7 ) 
-        ALIGN(pBuffer,7);
+    if ( Alignment == 7 )
+        ALIGN(pStubMsg->Buffer,7);
 
     // Increment array format string to array element size field.
     pFormatArray += 2;
@@ -431,32 +482,36 @@ Return :
     // Add the size of the conformant array to the structure size.
     StructSize += pStubMsg->MaxCount * *((ushort *)pFormatArray);
 
-    RpcpMemoryCopy( pBuffer,
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory,
                     StructSize );
 
     // Update the buffer pointer.
-    pStubMsg->Buffer = pBuffer + StructSize;
+    pStubMsg->Buffer += StructSize;
 
     // Increment format string past offset to array description field.
     pFormat += 2;
 
     // Marshall embedded pointers.
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         // Mark the start of the structure in the buffer.
-        pStubMsg->BufferMark = pBuffer;
+        pStubMsg->BufferMark = pStubMsg->Buffer - StructSize;
 
         NdrpEmbeddedPointerMarshall( pStubMsg,
                                      pMemory,
                                      pFormat );
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+#if defined( DOS ) || defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
+
 unsigned char * RPC_ENTRY
-NdrConformantVaryingStructMarshall ( 
+NdrConformantVaryingStructMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -466,6 +521,8 @@ Routine description :
 
     Marshalls a structure which contains a conformant varying array.
 
+    Used for FC_CVSTRUCT.
+
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
@@ -474,25 +531,22 @@ Arguments :
 
 Return :
 
-    Buffer pointer after unmarshalling the structure.
+    None.
 
 --*/
 {
-    uchar *         pBuffer;
     PFORMAT_STRING  pFormatArray;
-    uint           StructSize;
+    uint            StructSize;
     uchar           Alignment;
 
     // Align the buffer for marshalling conformance info.
     ALIGN(pStubMsg->Buffer,3);
 
-    pBuffer = pStubMsg->Buffer;
-
     // Mark the location in the buffer where the conformance will be marshalled.
     pStubMsg->BufferMark = pStubMsg->Buffer;
 
     // Save the structure's alignment.
-    Alignment = pFormat[1]; 
+    Alignment = pFormat[1];
 
     // Increment format string to struct size field.
     pFormat += 2;
@@ -504,57 +558,58 @@ Return :
     pFormatArray = pFormat + *((signed short *)pFormat);
 
     // Increment buffer pointer past where conformance will be marshalled.
-    pBuffer += 4;
+    pStubMsg->Buffer += 4;
 
     // Align buffer if needed on 8 byte boundary.
-    if ( Alignment == 7 ) 
-        ALIGN(pBuffer,7);
-            
-    RpcpMemoryCopy( pBuffer,
+    if ( Alignment == 7 )
+        ALIGN(pStubMsg->Buffer,7);
+
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory,
                     StructSize );
 
     // Set stub message buffer pointer past non-conformant part of struct.
-    pStubMsg->Buffer = pBuffer + StructSize;
+    pStubMsg->Buffer += StructSize;
 
     //
-    // Call the correct private array or string marshalling routine.  
+    // Call the correct private array or string marshalling routine.
     // We must pass a memory pointer to the beginning of the array/string.
     //
-    if ( *pFormatArray == FC_CVARRAY ) 
+    if ( *pFormatArray == FC_CVARRAY )
         {
         NdrpConformantVaryingArrayMarshall( pStubMsg,
                                             pMemory + StructSize,
                                             pFormatArray );
         }
-    else 
+    else
         {
         NdrpConformantStringMarshall( pStubMsg,
                                       pMemory + StructSize,
                                       pFormatArray );
-        } 
+        }
 
     // Increment format string past the offset_to_array_description<2> field.
     pFormat += 2;
 
-    // 
+    //
     // Marshall embedded pointers.
     //
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         // Mark the start of the structure in the buffer.
-        pStubMsg->BufferMark = pBuffer;
+        pStubMsg->BufferMark = pStubMsg->Buffer - StructSize;
 
         NdrpEmbeddedPointerMarshall( pStubMsg,
                                      pMemory,
                                      pFormat );
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrComplexStructMarshall ( 
+NdrHardStructMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -562,7 +617,9 @@ NdrComplexStructMarshall (
 
 Routine description :
 
-    Marshalls a complex structure.
+    Marshalls a hard structure.
+
+    Used for FC_HARD_STRUCT.
 
 Arguments :
 
@@ -572,8 +629,74 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the structure.
-    
+    None.
+
+--*/
+{
+    ALIGN(pStubMsg->Buffer,pFormat[1]);
+
+    pFormat += 8;
+
+    //
+    // Do any needed enum16 exception check.
+    //
+    if ( *((short *)pFormat) != (short) -1 )
+        {
+        if ( *((int *)(pMemory + *((ushort *)pFormat))) & ~((int)0x7fff) )
+            {
+            RpcRaiseException(RPC_X_ENUM_VALUE_OUT_OF_RANGE);
+            }
+        }
+
+    pFormat += 2;
+
+    RpcpMemoryCopy( pStubMsg->Buffer,
+                    pMemory,
+                    *((ushort *)pFormat) );
+
+    pStubMsg->Buffer += *((ushort *)pFormat)++;
+
+    //
+    // See if we have a union.
+    //
+    if ( *((short *)&pFormat[2]) )
+        {
+        pMemory += *((ushort *)pFormat)++;
+
+        pFormat += *((short *)pFormat);
+
+        (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                         pMemory,
+                                                         pFormat );
+        }
+
+    return 0;
+}
+
+
+unsigned char * RPC_ENTRY
+NdrComplexStructMarshall(
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
+/*++
+
+Routine description :
+
+    Marshalls a complex structure.
+
+    Used for FC_BOGUS_STRUCT.
+
+Arguments :
+
+    pStubMsg    - Pointer to the stub message.
+    pMemory     - Pointer to the structure being marshalled.
+    pFormat     - Structure's format string description.
+
+Return :
+
+    None.
+
 --*/
 {
     uchar *         pBufferSave;
@@ -587,9 +710,9 @@ Return :
     long            Align8Mod;
     uchar           fSetPointerBufferMark;
 
-    #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-        long        Align4Mod;
-    #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+    long            Align4Mod;
+#endif
 
     // Get struct's wire alignment.
     Alignment = pFormat[1];
@@ -600,9 +723,9 @@ Return :
     //
     Align8Mod = (long) pMemory % 8;
 
-    #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-        Align4Mod = (long) pMemory % 4;
-    #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+    Align4Mod = (long) pMemory % 4;
+#endif
 
     pFormatSave = pFormat;
 
@@ -622,7 +745,7 @@ Return :
 
         // Align for conformance marshalling.
         ALIGN(pStubMsg->Buffer,3);
-        
+
         // Remember where the conformance count(s) will be marshalled.
         pBufferMark = pStubMsg->Buffer;
 
@@ -630,7 +753,10 @@ Return :
         pStubMsg->Buffer += NdrpArrayDimensions( pFormatArray, FALSE ) * 4;
         }
     else
+        {
         pFormatArray = 0;
+        pBufferMark = 0;
+        }
 
     pFormat += 2;
 
@@ -660,28 +786,28 @@ Return :
         pStubMsg->IgnoreEmbeddedPointers = TRUE;
 
         //
-        // Set BufferLength equal to the current buffer pointer, and then 
-        // when we return from NdrComplexStructBufferSize it will pointer to 
+        // Set BufferLength equal to the current buffer pointer, and then
+        // when we return from NdrComplexStructBufferSize it will pointer to
         // the location in the buffer where the pointees should be marshalled.
         //
         pStubMsg->BufferLength = (ulong) pBufferSave;
 
-        (void) NdrComplexStructBufferSize( pStubMsg,
-                                           pMemory,
-                                           pFormatSave );
+        NdrComplexStructBufferSize( pStubMsg,
+                                    pMemory,
+                                    pFormatSave );
 
         // Set the location in the buffer where pointees will be marshalled.
         pStubMsg->PointerBufferMark = (uchar *) pStubMsg->BufferLength;
-    
+
         pStubMsg->IgnoreEmbeddedPointers = fOldIgnore;
         }
 
     //
     // Marshall the structure member by member.
     //
-    for ( ; ; pFormat++ ) 
+    for ( ; ; pFormat++ )
         {
-        switch ( *pFormat ) 
+        switch ( *pFormat )
             {
             //
             // Simple types.
@@ -714,7 +840,7 @@ Return :
                 uchar *     pBuffer;
 
                 ALIGN( pStubMsg->Buffer, 0x3 );
-    
+
                 // Save current buffer pointer.
                 pBuffer = pStubMsg->Buffer;
 
@@ -730,7 +856,7 @@ Return :
                                      pBuffer,
                                      *((uchar **)pMemory),
                                      pFormatPointers );
-                
+
                 // Update.
                 pStubMsg->PointerBufferMark = pStubMsg->Buffer;
 
@@ -760,7 +886,6 @@ Return :
                 pFormatComplex = pFormat + *((signed short UNALIGNED *)pFormat);
 
                 // Marshall complex type.
-                (void) 
                 (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormatComplex)])
                 ( pStubMsg,
                   (*pFormatComplex == FC_IP) ? *(uchar **)pMemory : pMemory,
@@ -774,11 +899,11 @@ Return :
                                                pFormatComplex );
 
                 //
-                // Increment the main format string one byte.  The loop 
+                // Increment the main format string one byte.  The loop
                 // will increment it one more byte past the offset field.
                 //
                 pFormat++;
-    
+
                 break;
 
             case FC_ALIGNM2 :
@@ -786,19 +911,19 @@ Return :
                 break;
 
             case FC_ALIGNM4 :
-                #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-                    //
-                    // We have to play some tricks for the dos and win16
-                    // to handle the case when an 4 byte aligned structure
-                    // is passed by value.  The alignment of the struct on
-                    // the stack is not guaranteed to be on an 4 byte boundary.
-                    //
-                    pMemory -= Align4Mod;
-                    ALIGN( pMemory, 0x3 );
-                    pMemory += Align4Mod;
-                #else
-                    ALIGN( pMemory, 0x3 );
-                #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+                //
+                // We have to play some tricks for the dos and win16
+                // to handle the case when an 4 byte aligned structure
+                // is passed by value.  The alignment of the struct on
+                // the stack is not guaranteed to be on an 4 byte boundary.
+                //
+                pMemory -= Align4Mod;
+                ALIGN( pMemory, 0x3 );
+                pMemory += Align4Mod;
+#else
+                ALIGN( pMemory, 0x3 );
+#endif
 
                 break;
 
@@ -825,7 +950,7 @@ Return :
                 //
                 // Increment memory pointer by amount of padding.
                 //
-                pMemory += (*pFormat - FC_STRUCTPAD1) + 1; 
+                pMemory += (*pFormat - FC_STRUCTPAD1) + 1;
                 break;
 
             case FC_PAD :
@@ -839,8 +964,9 @@ Return :
 
             default :
                 NDR_ASSERT(0,"NdrComplexStructMarshall : bad format char");
-
-            } // switch 
+                RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                return 0;
+            } // switch
         } // for
 
 ComplexMarshallEnd:
@@ -906,11 +1032,12 @@ MarshallConfArray:
 
     pStubMsg->Memory = pMemorySave;
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrNonConformantStringMarshall ( 
+NdrNonConformantStringMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -918,7 +1045,10 @@ NdrNonConformantStringMarshall (
 
 Routine description :
 
-    Marshalls a non conformant string.  
+    Marshalls a non conformant string.
+
+    Used for FC_CSTRING, FC_WSTRING, FC_SSTRING, and FC_BSTRING (NT Beta2
+    compatability only).
 
 Arguments :
 
@@ -928,27 +1058,24 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the string.
+    None.
 
 --*/
 {
-    uchar *     pBuffer;
     uint        Count;
     uint        CopySize;
 
-    pBuffer = pStubMsg->Buffer;
-
     // Align the buffer for offset and count marshalling.
-    ALIGN(pBuffer,3); 
+    ALIGN(pStubMsg->Buffer,3);
 
     switch ( *pFormat )
         {
-        case FC_CSTRING : 
-        case FC_BSTRING : 
+        case FC_CSTRING :
+        case FC_BSTRING :
             CopySize = Count = MIDL_ascii_strlen((char *)pMemory) + 1;
             break;
 
-        case FC_WSTRING : 
+        case FC_WSTRING :
             Count = MIDL_wchar_strlen((wchar_t *)pMemory) + 1;
             CopySize = Count * 2;
             break;
@@ -957,25 +1084,31 @@ Return :
             Count = NdrpStringStructLen( pMemory, pFormat[1] ) + 1;
             CopySize = Count * pFormat[1];
             break;
+
+        default :
+            NDR_ASSERT(0,"NdrNonConformantStringMarshall : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
     // Marshall variance.
-    *((ulong *)pBuffer)++ = 0;
-    *((ulong *)pBuffer)++ = Count;
+    *((ulong *)pStubMsg->Buffer)++ = 0;
+    *((ulong *)pStubMsg->Buffer)++ = Count;
 
     // Copy the string.
-    RpcpMemoryCopy( pBuffer,
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory,
                     CopySize );
 
     // Update buffer pointer.
-    pStubMsg->Buffer = pBuffer + CopySize;
+    pStubMsg->Buffer += CopySize;
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrConformantStringMarshall ( 
+NdrConformantStringMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -983,7 +1116,10 @@ NdrConformantStringMarshall (
 
 Routine description :
 
-    Marshalls a conformant string.
+    Marshalls a top level conformant string.
+
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING
+    (NT Beta2 compatability only).
 
 Arguments :
 
@@ -993,7 +1129,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the string.
+    None.
 
 --*/
 {
@@ -1024,11 +1160,19 @@ Return :
                                   pMemory,
                                   pFormat );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+#if defined( DOS ) || defined( WIN )
+#pragma code_seg()
+#endif
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
+
 void
-NdrpConformantStringMarshall ( 
+NdrpConformantStringMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1036,8 +1180,11 @@ NdrpConformantStringMarshall (
 
 Routine description :
 
-    Private routine for marshalling a conformant string.  This is the 
+    Private routine for marshalling a conformant string.  This is the
     entry point for marshalling an embedded conformant strings.
+
+    Used for FC_C_CSTRING, FC_C_WSTRING, FC_C_SSTRING, and FC_C_BSTRING
+    (NT Beta2 compatability only).
 
 Arguments :
 
@@ -1045,29 +1192,27 @@ Arguments :
     pMemory     - Pointer to the string to be marshalled.
     pFormat     - String's format string description.
 
-Return : 
+Return :
 
     None.
 
 --*/
 {
-    uchar *     pBuffer;
     ulong       MaxCount;
     uint        ActualCount, CopySize;
     BOOL        IsSized;
 
-    // This is the default - for regular strings.
     IsSized = (pFormat[1] == FC_STRING_SIZED);
 
     // Compute the element count of the string and the total copy size.
     switch ( *pFormat )
         {
-        case FC_C_CSTRING : 
-        case FC_C_BSTRING : 
+        case FC_C_CSTRING :
+        case FC_C_BSTRING :
             CopySize = ActualCount = MIDL_ascii_strlen((char *)pMemory) + 1;
             break;
 
-        case FC_C_WSTRING : 
+        case FC_C_WSTRING :
             ActualCount = MIDL_wchar_strlen((wchar_t *)pMemory) + 1;
             CopySize = ActualCount * 2;
             break;
@@ -1079,19 +1224,24 @@ Return :
             // Redo this check correctly.
             IsSized = (pFormat[2] == FC_STRING_SIZED);
             break;
+
+        default :
+            NDR_ASSERT(0,"NdrpConformantStringMarshall : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
     //
-    // If the string is sized then compute the max count, otherwise the 
+    // If the string is sized then compute the max count, otherwise the
     // max count is equal to the actual count.
     //
-    if ( IsSized ) 
+    if ( IsSized )
         {
         MaxCount = NdrpComputeConformance( pStubMsg,
-                                           pMemory, 
+                                           pMemory,
                                            pFormat );
         }
-    else 
+    else
         {
         MaxCount = ActualCount;
         }
@@ -1099,26 +1249,28 @@ Return :
     // Marshall the max count.
     *((ulong *)pStubMsg->BufferMark) = MaxCount;
 
-    pBuffer = pStubMsg->Buffer; 
-
     // Align the buffer for variance marshalling.
-    ALIGN(pBuffer,3);
+    ALIGN(pStubMsg->Buffer,3);
 
     // Marshall variance.
-    *((ulong *)pBuffer)++ = 0;      
-    *((ulong *)pBuffer)++ = ActualCount;
+    *((ulong *)pStubMsg->Buffer)++ = 0;
+    *((ulong *)pStubMsg->Buffer)++ = ActualCount;
 
-    // Copy the string.
-    RpcpMemoryCopy( pBuffer,
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory,
                     CopySize );
 
     // Update the Buffer pointer.
-    pStubMsg->Buffer = pBuffer + CopySize;
+    pStubMsg->Buffer += CopySize;
 }
 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg()
+#endif
+
 unsigned char * RPC_ENTRY
-NdrFixedArrayMarshall ( 
+NdrFixedArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1126,7 +1278,9 @@ NdrFixedArrayMarshall (
 
 Routine Description :
 
-    Marshalls a fixed array.
+    Marshalls a fixed array of any number of dimensions.
+
+    Used for FC_SMFARRAY and FC_LGFARRAY.
 
 Arguments :
 
@@ -1136,7 +1290,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the array.
+    None.
 
 --*/
 {
@@ -1146,7 +1300,7 @@ Return :
     ALIGN(pStubMsg->Buffer,pFormat[1]);
 
     // Get total array size.
-    if ( *pFormat == FC_SMFARRAY ) 
+    if ( *pFormat == FC_SMFARRAY )
         {
         pFormat += 2;
         Size = (ulong) *((ushort *)pFormat)++;
@@ -1166,7 +1320,7 @@ Return :
     pStubMsg->Buffer += Size;
 
     // Marshall embedded pointers.
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         // Mark the start of the array in the buffer.
         pStubMsg->BufferMark = pStubMsg->Buffer - Size;
@@ -1176,11 +1330,12 @@ Return :
                                      pFormat );
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrConformantArrayMarshall ( 
+NdrConformantArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1188,7 +1343,9 @@ NdrConformantArrayMarshall (
 
 Routine Description :
 
-    Marshalls a one dimensional conformant array.
+    Marshalls a top level one dimensional conformant array.
+
+    Used for FC_CARRAY.
 
 Arguments :
 
@@ -1198,7 +1355,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the array.
+    None.
 
 --*/
 {
@@ -1216,11 +1373,12 @@ Return :
                                  pMemory,
                                  pFormat );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 void
-NdrpConformantArrayMarshall ( 
+NdrpConformantArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1228,8 +1386,10 @@ NdrpConformantArrayMarshall (
 
 Routine Description :
 
-    Private routine for marshalling a one dimensional conformant array.  This 
-    is the entry point for marshalling an embedded conformant array. 
+    Private routine for marshalling a one dimensional conformant array.
+    This is the entry point for marshalling an embedded conformant array.
+
+    Used for FC_CARRAY.
 
 Arguments :
 
@@ -1250,19 +1410,19 @@ Return :
     Count = NdrpComputeConformance( pStubMsg,
                                     pMemory,
                                     pFormat );
-        
+
     // Marshall the conformance.
     *((ulong *)pStubMsg->BufferMark) = Count;
 
     //
     // Return if size is 0.
     //
-    if ( ! Count ) 
+    if ( ! Count )
         return;
 
     ALIGN(pStubMsg->Buffer,pFormat[1]);
 
-    // Compute the total array size in bytes.  
+    // Compute the total array size in bytes.
     CopySize = Count * *((ushort *)(pFormat + 2));
 
     RpcpMemoryCopy( pStubMsg->Buffer,
@@ -1276,7 +1436,7 @@ Return :
     pFormat += 8;
 
     // Marshall embedded pointers.
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         //
         // Mark the start of the array in the buffer.
@@ -1289,8 +1449,9 @@ Return :
         }
 }
 
+
 unsigned char * RPC_ENTRY
-NdrConformantVaryingArrayMarshall ( 
+NdrConformantVaryingArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1298,7 +1459,9 @@ NdrConformantVaryingArrayMarshall (
 
 Routine Description :
 
-    Marshalls a one dimensional conformant varying array.
+    Marshalls a top level one dimensional conformant varying array.
+
+    Used for FC_CVARRAY.
 
 Arguments :
 
@@ -1308,7 +1471,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the array.
+    None.
 
 --*/
 {
@@ -1326,11 +1489,19 @@ Return :
                                         pMemory,
                                         pFormat );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
+#if defined( DOS ) || defined( WIN )
+#pragma code_seg()
+#endif
+
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
 
 void
-NdrpConformantVaryingArrayMarshall ( 
+NdrpConformantVaryingArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1339,8 +1510,10 @@ NdrpConformantVaryingArrayMarshall (
 Routine Description :
 
     Private routine for marshalling a one dimensional conformant varying array.
-    This is the entry point for marshalling an embedded conformant varying 
+    This is the entry point for marshalling an embedded conformant varying
     array.
+
+    Used for FC_CVARRAY.
 
 Arguments :
 
@@ -1354,7 +1527,6 @@ Return :
 
 --*/
 {
-    uchar *     pBuffer;
     uint        CopyOffset, CopySize;
     ushort      ElemSize;
 
@@ -1362,55 +1534,46 @@ Return :
     *((ulong *)pStubMsg->BufferMark) = NdrpComputeConformance( pStubMsg,
                                                                pMemory,
                                                                pFormat );
-        
+
     // Compute variance offset and count.
     NdrpComputeVariance( pStubMsg,
-                         pMemory, 
+                         pMemory,
                          pFormat );
 
-    pBuffer = pStubMsg->Buffer;
-
     // Align the buffer for variance marshalling.
-    ALIGN(pBuffer,3);
+    ALIGN(pStubMsg->Buffer,3);
 
     // Marshall variance.
-    *((ulong *)pBuffer)++ = pStubMsg->Offset;
-    *((ulong *)pBuffer)++ = pStubMsg->ActualCount;
+    *((ulong *)pStubMsg->Buffer)++ = pStubMsg->Offset;
+    *((ulong *)pStubMsg->Buffer)++ = pStubMsg->ActualCount;
 
     //
     // Return if length is 0.
     //
     if ( ! pStubMsg->ActualCount )
-        {
-        //
-        // Make sure to re-set the buffer pointer!!!
-        //
-        pStubMsg->Buffer = pBuffer;
         return;
-        }
 
     // Align the buffer if needed on an 8 byte boundary.
-    if ( pFormat[1] == 7 ) 
-        ALIGN(pBuffer,7); 
+    if ( pFormat[1] == 7 )
+        ALIGN(pStubMsg->Buffer,7);
 
-    // Get element size.
     ElemSize = *((ushort *)(pFormat + 2));
 
-    // Compute byte offset and size for the array copy. 
+    // Compute byte offset and size for the array copy.
     CopyOffset = pStubMsg->Offset * ElemSize;
     CopySize = pStubMsg->ActualCount * ElemSize;
 
-    RpcpMemoryCopy( pBuffer,
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory + CopyOffset,
                     CopySize );
 
-    pStubMsg->Buffer = pBuffer + CopySize;
+    pStubMsg->Buffer += CopySize;
 
     // Increment to a possible pointer layout.
     pFormat += 12;
 
     // Marshall embedded pointers.
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         //
         // Set the MaxCount field equal to the ActualCount field.  The pointer
@@ -1424,17 +1587,21 @@ Return :
         //
         // Mark the start of the array in the buffer.
         //
-        pStubMsg->BufferMark = pBuffer;
+        pStubMsg->BufferMark = pStubMsg->Buffer - CopySize;
 
         NdrpEmbeddedPointerMarshall( pStubMsg,
                                      pMemory,
                                      pFormat );
         }
-
 }
 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg()
+#endif
+
 unsigned char * RPC_ENTRY
-NdrVaryingArrayMarshall ( 
+NdrVaryingArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1442,7 +1609,9 @@ NdrVaryingArrayMarshall (
 
 Routine Description :
 
-    Marshalls a one dimensional varying array.
+    Marshalls a top level or embedded one dimensional varying array.
+
+    Used for FC_SMVARRAY and FC_LGVARRAY.
 
 Arguments :
 
@@ -1452,47 +1621,37 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the array.
+    None.
 
 --*/
 {
-    uchar *     pBuffer;
     uint        CopyOffset, CopySize;
     ushort      ElemSize;
 
     // Compute the variance offset and count.
     NdrpComputeVariance( pStubMsg,
-                         pMemory, 
+                         pMemory,
                          pFormat );
 
-    pBuffer = pStubMsg->Buffer;
-
     // Align the buffer for variance marshalling.
-    ALIGN(pBuffer,3); 
+    ALIGN(pStubMsg->Buffer,3);
 
     // Marshall variance.
-    *((ulong *)pBuffer)++ = pStubMsg->Offset;
-    *((ulong *)pBuffer)++ = pStubMsg->ActualCount;
+    *((ulong *)pStubMsg->Buffer)++ = pStubMsg->Offset;
+    *((ulong *)pStubMsg->Buffer)++ = pStubMsg->ActualCount;
 
     //
     // Return if length is 0.
     //
     if ( ! pStubMsg->ActualCount )
-        {
-        //
-        // Make sure to re-set the buffer pointer!!!
-        //
-        pStubMsg->Buffer = pBuffer;
-
-        return pStubMsg->Buffer;
-        }
+        return 0;
 
     // Align the buffer if needed on an 8 byte boundary.
     if ( pFormat[1] == 7 )
-        ALIGN(pBuffer,7);
+        ALIGN(pStubMsg->Buffer,7);
 
     // Increment the format string to the element_size field.
-    if ( *pFormat == FC_SMVARRAY ) 
+    if ( *pFormat == FC_SMVARRAY )
         pFormat += 6;
     else // *pFormat == FC_LGVARRAY
         pFormat += 10;
@@ -1508,21 +1667,21 @@ Return :
     CopySize = pStubMsg->ActualCount * ElemSize;
 
     // Copy the array.
-    RpcpMemoryCopy( pBuffer,
+    RpcpMemoryCopy( pStubMsg->Buffer,
                     pMemory + CopyOffset,
                     CopySize );
 
     // Update buffer pointer.
-    pStubMsg->Buffer = pBuffer + CopySize;
+    pStubMsg->Buffer += CopySize;
 
     // Increment format string to possible pointer layout.
     pFormat += 6;
 
     // Marshall embedded pointers.
-    if ( *pFormat == FC_PP ) 
+    if ( *pFormat == FC_PP )
         {
         // Mark the start of the array in the buffer.
-        pStubMsg->BufferMark = pBuffer;
+        pStubMsg->BufferMark = pStubMsg->Buffer - CopySize;
 
         //
         // Set the MaxCount field equal to the ActualCount field.  The pointer
@@ -1535,19 +1694,20 @@ Return :
 
         //
         // Marshall the embedded pointers.
-        // Make sure to pass a memory pointer to the first array element 
-        // which is actually being marshalled.  
+        // Make sure to pass a memory pointer to the first array element
+        // which is actually being marshalled.
         //
         NdrpEmbeddedPointerMarshall( pStubMsg,
                                      pMemory + CopyOffset,
                                      pFormat );
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrComplexArrayMarshall ( 
+NdrComplexArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1555,7 +1715,9 @@ NdrComplexArrayMarshall (
 
 Routine Description :
 
-    Marshalls a complex array.
+    Marshalls a top level complex array.
+
+    Used for FC_BOGUS_STRUCT.
 
 Arguments :
 
@@ -1565,26 +1727,26 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the array.
+    None.
 
 --*/
 {
     BOOL    fSetPointerBufferMark;
 
     //
-    // Setting this flag means that the array is not embedded inside of 
+    // Setting this flag means that the array is not embedded inside of
     // another complex struct or array.
     //
-    fSetPointerBufferMark = (! pStubMsg->PointerBufferMark) && 
+    fSetPointerBufferMark = (! pStubMsg->PointerBufferMark) &&
                             (pFormat[12] != FC_RP);
 
-    if ( fSetPointerBufferMark ) 
+    if ( fSetPointerBufferMark )
         {
         BOOL                fOldIgnore;
         ulong               MaxCount, Offset, ActualCount;
 
         //
-        // Save the current conformance and variance fields.  The sizing 
+        // Save the current conformance and variance fields.  The sizing
         // routine can overwrite them.
         //
         MaxCount = pStubMsg->MaxCount;
@@ -1592,27 +1754,27 @@ Return :
         ActualCount = pStubMsg->ActualCount;
 
         fOldIgnore = pStubMsg->IgnoreEmbeddedPointers;
-    
+
         pStubMsg->IgnoreEmbeddedPointers = TRUE;
 
         //
-        // Set BufferLength equal to the current buffer pointer, and then 
-        // when we return from NdrComplexArrayBufferSize it will point to 
+        // Set BufferLength equal to the current buffer pointer, and then
+        // when we return from NdrComplexArrayBufferSize it will point to
         // the location in the buffer where the pointers should be marshalled
         // into.
         //
         pStubMsg->BufferLength = (ulong) pStubMsg->Buffer;
 
-        (void) NdrComplexArrayBufferSize( pStubMsg,
-                                          pMemory,
-                                          pFormat );
+        NdrComplexArrayBufferSize( pStubMsg,
+                                   pMemory,
+                                   pFormat );
 
         //
-        // This is the buffer pointer to the position where embedded pointers 
+        // This is the buffer pointer to the position where embedded pointers
         // will be marshalled.
         //
         pStubMsg->PointerBufferMark = (uchar *) pStubMsg->BufferLength;
-    
+
         pStubMsg->IgnoreEmbeddedPointers = fOldIgnore;
 
         // Restore conformance and variance fields.
@@ -1621,7 +1783,7 @@ Return :
         pStubMsg->ActualCount = ActualCount;
         }
 
-    if ( ( *((long UNALIGNED *)(pFormat + 4)) != 0xffffffff ) && 
+    if ( ( *((long UNALIGNED *)(pFormat + 4)) != 0xffffffff ) &&
          ( pStubMsg->pArrayInfo == 0 ) )
         {
         //
@@ -1630,17 +1792,17 @@ Return :
 
         // Align the buffer for conformance marshalling.
         ALIGN(pStubMsg->Buffer,3);
-    
+
         // Mark where the conformance count(s) will be marshalled.
         pStubMsg->BufferMark = pStubMsg->Buffer;
-    
+
         // Increment past where the conformance will go.
         pStubMsg->Buffer += NdrpArrayDimensions( pFormat, FALSE ) * 4;
         }
 
     // Call the private marshalling routine to do all the work.
     NdrpComplexArrayMarshall( pStubMsg,
-                              pMemory, 
+                              pMemory,
                               pFormat );
 
     if ( fSetPointerBufferMark )
@@ -1654,11 +1816,16 @@ Return :
         pStubMsg->PointerBufferMark = 0;
         }
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
-void 
-NdrpComplexArrayMarshall ( 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
+
+void
+NdrpComplexArrayMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1666,7 +1833,10 @@ NdrpComplexArrayMarshall (
 
 Routine Description :
 
-    Private routine for marshalling a complex array.
+    Private routine for marshalling a complex array.  This is the entry
+    point for marshalling an embedded complex array.
+
+    Used for FC_BOGUS_ARRAY.
 
 Arguments :
 
@@ -1691,7 +1861,10 @@ Return :
     uchar               Alignment;
 
     //
-    // Lots of setup if we are the outer dimension.
+    // Lots of setup if we are the outer dimension.  All this is for
+    // multidimensional array support.  If we didn't have to worry about
+    // Beta2 stub compatability we could this much better.
+    //
     //
     if ( ! pStubMsg->pArrayInfo )
         {
@@ -1716,7 +1889,7 @@ Return :
 
     pFormat += 2;
 
-    // Get number of elements (0 if the array has conformance). 
+    // Get number of elements (0 if the array has conformance).
     Elements = *((ushort *)pFormat)++;
 
     //
@@ -1727,7 +1900,7 @@ Return :
         Elements = NdrpComputeConformance( pStubMsg,
                                            pMemory,
                                            pFormatStart );
-        
+
         // Marshall this dimension's conformance count.
         pArrayInfo->BufferConformanceMark[Dimension] = Elements;
         }
@@ -1751,7 +1924,7 @@ Return :
             pArrayInfo->BufferVarianceMark = (unsigned long *) pStubMsg->Buffer;
 
             // Increment past where the variance will go.
-            pStubMsg->Buffer += 
+            pStubMsg->Buffer +=
                     NdrpArrayDimensions( pFormatStart, TRUE ) * 8;
             }
 
@@ -1806,7 +1979,7 @@ Return :
         case FC_UP :
         case FC_FP :
         case FC_OP :
-            pfnMarshall = NdrPointerMarshall;
+            pfnMarshall = (PMARSHALL_ROUTINE) NdrpPointerMarshall;
 
             // Need this in case we have a variant offset.
             MemoryElementSize = PTR_MEM_SIZE;
@@ -1821,6 +1994,9 @@ Return :
 
         case FC_ENUM16 :
             pfnMarshall = 0;
+
+            // Need this in case we have a variant offset.
+            MemoryElementSize = sizeof(int);
             break;
 
         default :
@@ -1866,14 +2042,14 @@ Return :
     //
     // Array of ref or interface pointers.
     //
-    if ( (pfnMarshall == NdrPointerMarshall) ||
+    if ( (pfnMarshall == (PMARSHALL_ROUTINE) NdrpPointerMarshall) ||
          (pfnMarshall == NdrInterfacePointerMarshall) )
         {
         uchar * pBuffer;
 
         pStubMsg->pArrayInfo = 0;
 
-        // 
+        //
         // If PointerBufferMark is set then we must set the buffer pointer
         // here before marshalling.
         //
@@ -1888,18 +2064,27 @@ Return :
         else
             pBuffer = 0;
 
-        // Marshall the elements.
-        for ( ; Count--; )
+        if ( pfnMarshall == (PMARSHALL_ROUTINE) NdrpPointerMarshall )
             {
-            (*pfnMarshall)( pStubMsg,
-                            *((uchar **)pMemory),
-                            pFormat );
-    
-            // Increment the memory pointer by the element size.
-            pMemory += PTR_MEM_SIZE;
+            for ( ; Count--; )
+                {
+                NdrpPointerMarshall( pStubMsg,
+                                     0,
+                                     *((uchar **)pMemory)++,
+                                     pFormat );
+                }
+            }
+        else
+            {
+            for ( ; Count--; )
+                {
+                NdrInterfacePointerMarshall( pStubMsg,
+                                             *((uchar **)pMemory)++,
+                                             pFormat );
+                }
             }
 
-        // 
+        //
         // Fix up the stub message buffer fields if needed.
         //
         if ( pBuffer )
@@ -1940,8 +2125,13 @@ ComplexArrayMarshallEnd:
     pStubMsg->pArrayInfo = (Dimension == 0) ? 0 : pArrayInfo;
 }
 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg()
+#endif
+
 unsigned char * RPC_ENTRY
-NdrEncapsulatedUnionMarshall ( 
+NdrEncapsulatedUnionMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -1951,6 +2141,8 @@ Routine Description :
 
     Marshalls an encapsulated union.
 
+    Used for FC_ENCAPSULATED_UNION.
+
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
@@ -1959,7 +2151,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the union.
+    None.
 
 --*/
 {
@@ -1968,31 +2160,40 @@ Return :
 
     SwitchType = LOW_NIBBLE(pFormat[1]);
 
-    switch ( SwitchType ) 
+    switch ( SwitchType )
         {
-        case FC_BYTE :
-        case FC_CHAR :
         case FC_SMALL :
+        case FC_CHAR :
             SwitchIs = (long) *((char *)pMemory);
             break;
         case FC_USMALL :
             SwitchIs = (long) *((uchar *)pMemory);
             break;
-        case FC_SHORT :
+
         case FC_ENUM16 :
+            #if defined(__RPC_MAC__)
+                SwitchIs = (long) *((short *)(pMemory+2));
+                break;
+            #endif
+            // non-Mac: fall to short
+
+        case FC_SHORT :
             SwitchIs = (long) *((short *)pMemory);
             break;
-        case FC_WCHAR :
+
         case FC_USHORT :
+        case FC_WCHAR :
             SwitchIs = (long) *((ushort *)pMemory);
             break;
         case FC_LONG :
+        case FC_ULONG :
         case FC_ENUM32 :
             SwitchIs = *((long *)pMemory);
             break;
         default :
-            NDR_ASSERT(0,"NdrEncapsulatedUnionMarshall : "
-                         "bad swith type format char");
+            NDR_ASSERT(0,"NdrEncapsulatedUnionMarshall : bad swith type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
     // Increment the memory pointer to the union.
@@ -2004,11 +2205,12 @@ Return :
                        SwitchIs,
                        SwitchType );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
 unsigned char * RPC_ENTRY
-NdrNonEncapsulatedUnionMarshall ( 
+NdrNonEncapsulatedUnionMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -2018,6 +2220,8 @@ Routine Description :
 
     Marshalls a non encapsulated union.
 
+    Used for FC_NON_ENCAPSULATED_UNION.
+
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
@@ -2026,7 +2230,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the union.
+    None.
 
 --*/
 {
@@ -2051,11 +2255,16 @@ Return :
                        SwitchIs,
                        SwitchType );
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_9" )
+#endif
+
 void
-NdrpUnionMarshall ( 
+NdrpUnionMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat,
@@ -2065,7 +2274,9 @@ NdrpUnionMarshall (
 
 Routine Description :
 
-    Private routine for marshalling a union.
+    Private routine for marshalling a union.  This routine is shared for
+    both encapsulated and non-encapsulated unions and handles the actual
+    marshalling of the proper union arm.
 
 Arguments :
 
@@ -2085,28 +2296,43 @@ Return :
     long    Arms;
     uchar   Alignment;
 
+#if defined(__RPC_MAC__)
+    long    SavedSwitchIs;
+
+    SavedSwitchIs = SwitchIs;
+
+    if ( (FC_BYTE <= SwitchType) && (SwitchType <= FC_USMALL) )
+        SwitchIs <<= 24;
+    else if ( (FC_WCHAR <= SwitchType) && (SwitchType <= FC_USHORT) )
+        SwitchIs <<= 16;
+#endif
+
     // Marshall the switch is value.
     NdrSimpleTypeMarshall( pStubMsg,
                            (uchar *)&SwitchIs,
                            SwitchType );
 
+#if defined(__RPC_MAC__)
+    SwitchIs = SavedSwitchIs;
+#endif
+
     // Skip the memory size field.
     pFormat += 2;
 
     //
-    // We're at the union_arms<2> field now, which contains both the 
+    // We're at the union_arms<2> field now, which contains both the
     // Microsoft union aligment value and the number of union arms.
     //
 
     //
-    // Get the union alignment (0 if this is a DCE union). 
+    // Get the union alignment (0 if this is a DCE union).
     //
     Alignment = (uchar) ( *((ushort *)pFormat) >> 12 );
 
     ALIGN(pStubMsg->Buffer,Alignment);
 
     //
-    // Number of arms is the lower 12 bits.  
+    // Number of arms is the lower 12 bits.
     //
     Arms = (long) ( *((ushort *)pFormat)++ & 0x0fff);
 
@@ -2118,7 +2344,7 @@ Return :
         if ( *((long UNALIGNED *)pFormat)++ == SwitchIs )
             {
             //
-            // Found the right arm, break out.  
+            // Found the right arm, break out.
             //
             break;
             }
@@ -2142,23 +2368,28 @@ Return :
         return;
 
     //
-    // Get the arm's description.  
+    // Get the arm's description.
     //
-    // We need a real solution after beta for simple type arms.  This could 
+    // We need a real solution after beta for simple type arms.  This could
     // break if we have a format string larger than about 32K.
     //
-    if ( pFormat[1] != MAGIC_UNION_BYTE )
-        pFormat += *((signed short *)pFormat);
-    else
+    if ( IS_MAGIC_UNION_BYTE(pFormat) )
         {
         NdrSimpleTypeMarshall( pStubMsg,
                                pMemory,
-                               *pFormat );
+#if defined(__RPC_MAC__)
+                               pFormat[1] );
+#else
+                               pFormat[0] );
+#endif
+
         return;
         }
 
+    pFormat += *((signed short *)pFormat);
+
     //
-    // If the union arm we take is a pointer, we have to dereference the 
+    // If the union arm we take is a pointer, we have to dereference the
     // current memory pointer since we're passed a pointer to the union
     // (regardless of whether the actual parameter was a by-value union
     // or a pointer to a union).
@@ -2169,11 +2400,17 @@ Return :
     if ( IS_POINTER_TYPE(*pFormat) )
         {
         pMemory = *((uchar **)pMemory);
+        }
 
+    //
+    // Non-interface pointers only.
+    //
+    if ( IS_BASIC_POINTER(*pFormat) )
+        {
         //
         // If we're embedded in a struct or array we have do some extra stuff.
         //
-        if ( pStubMsg->PointerBufferMark ) 
+        if ( pStubMsg->PointerBufferMark )
             {
             uchar * pBufferSave;
 
@@ -2186,7 +2423,7 @@ Return :
 
             pStubMsg->PointerBufferMark = 0;
 
-            // 
+            //
             // We must call the private pointer marshalling routine.
             //
             NdrpPointerMarshall( pStubMsg,
@@ -2195,7 +2432,7 @@ Return :
                                  pFormat );
 
             pStubMsg->PointerBufferMark = pStubMsg->Buffer;
-    
+
             // Increment past the pointer in the buffer.
             pStubMsg->Buffer = pBufferSave + 4;
 
@@ -2212,8 +2449,13 @@ Return :
       pFormat );
 }
 
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg()
+#endif
+
 unsigned char * RPC_ENTRY
-NdrByteCountPointerMarshall ( 
+NdrByteCountPointerMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -2223,6 +2465,8 @@ Routine Description :
 
     Marshalls a pointer with the byte count attribute applied to it.
 
+    Used for FC_BYTE_COUNT_POINTER.
+
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
@@ -2231,7 +2475,7 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the byte count pointer.
+    None.
 
 --*/
 {
@@ -2244,27 +2488,27 @@ Return :
         NdrSimpleTypeMarshall( pStubMsg,
                                pMemory,
                                pFormat[1] );
-
-        return pStubMsg->Buffer;
         }
     else
         {
         pFormat += 6;
         pFormat += *((signed short *)pFormat);
 
-        return (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])
-               ( pStubMsg,
-                 pMemory,
-                 pFormat );
+        (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                         pMemory,
+                                                         pFormat );
         }
+
+    return 0;
 }
 
+
 #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
 #pragma optimize( "", off )
 #endif
 
 unsigned char * RPC_ENTRY
-NdrXmitOrRepAsMarshall ( 
+NdrXmitOrRepAsMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -2298,6 +2542,8 @@ Arguments :
     unsigned char *                pTransmittedType;
     const XMIT_ROUTINE_QUINTUPLE * pQuintuple = pStubMsg->StubDesc->aXmitQuintuple;
     unsigned short                 QIndex;
+    BOOL                           fXmitByPtr = *pFormat == FC_TRANSMIT_AS_PTR ||
+                                                *pFormat == FC_REPRESENT_AS_PTR;
 
     // Skip the token itself and Oi flag. Fetch the QuintupleIndex.
 
@@ -2324,10 +2570,11 @@ Arguments :
         }
     else
         {
-        *pfnMarshallRoutines[ ROUTINE_INDEX( *pFormat) ]
-                    ( pStubMsg,
-                      pTransmittedType,
-                      pFormat );
+        (*pfnMarshallRoutines[ROUTINE_INDEX(*pFormat)])
+            ( pStubMsg,
+              fXmitByPtr  ?  *(uchar **)pTransmittedType
+                          :  pTransmittedType,
+              pFormat );
         }
     pStubMsg->pTransmitType = pTransmittedType;
 
@@ -2335,15 +2582,132 @@ Arguments :
 
     pQuintuple[ QIndex ].pfnFreeXmit( pStubMsg );
 
-    return( pStubMsg->Buffer );
+    return 0;
 }
 
 #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
 #pragma optimize( "", on )
 #endif
 
+
 unsigned char * RPC_ENTRY
-NdrInterfacePointerMarshall ( 
+NdrUserMarshalMarshall(
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
+/*++
+
+Routine Description :
+
+    Marshals a usr_marshall object.
+
+    The format string layout is as follows:
+
+        FC_USER_MARSHAL
+        flags & alignment<1>
+        quadruple index<2>
+        memory size<2>
+        wire size<2>
+        type offset<2>
+
+    The wire layout description is at the type offset.
+
+Arguments :
+
+    pStubMsg    - Pointer to the stub message.
+    pMemory     - Pointer to the usr_marshall object to marshall.
+    pFormat     - Object's format string description.
+
+Return :
+
+    None.
+
+--*/
+{
+    const USER_MARSHAL_ROUTINE_QUADRUPLE *  pQuadruple;
+    unsigned short                          QIndex;
+    unsigned char *                         pUserBuffer;
+    USER_MARSHAL_CB                         UserMarshalCB;
+    unsigned long *                         pWireMarkerPtr = 0;
+    unsigned char *                         pUserBufferSaved;
+
+    // Align for the object or a pointer to it.
+
+    ALIGN( pStubMsg->Buffer, LOW_NIBBLE(pFormat[1]) );
+
+    if ( (pFormat[1] & USER_MARSHAL_UNIQUE)  ||
+         ((pFormat[1] & USER_MARSHAL_REF) && pStubMsg->PointerBufferMark) )
+        {
+        pWireMarkerPtr = (unsigned long *) pStubMsg->Buffer;
+        *((unsigned long *)pStubMsg->Buffer)++ = USER_MARSHAL_MARKER;
+        }
+
+    // Check if the object is embedded.
+    // Pointer buffer mark is set only when in a complex struct or array.
+    // For unions, when the union is embedded in a complex struct or array.
+    // If the union is top level, it's the same like a top level object.
+
+    if ( (pFormat[1] & USER_MARSHAL_POINTER)  && pStubMsg->PointerBufferMark )
+        {
+        // Embedded: User object among pointees.
+
+        pUserBuffer = pStubMsg->PointerBufferMark;
+        }
+    else
+        pUserBuffer = pStubMsg->Buffer;
+
+    pUserBufferSaved = pUserBuffer;
+
+    // We always call user's routine to marshall.
+
+    UserMarshalCB.Flags    = USER_CALL_CTXT_MASK( pStubMsg->dwDestContext );
+    UserMarshalCB.pStubMsg = pStubMsg;
+    if ( pFormat[1] & USER_MARSHAL_IID )
+        {
+        UserMarshalCB.pReserve = pFormat + 10;
+        }
+    else
+        {
+        UserMarshalCB.pReserve = 0;
+        }
+
+    QIndex = *(unsigned short *)(pFormat + 2);
+    pQuadruple = pStubMsg->StubDesc->aUserMarshalQuadruple;
+
+    pUserBuffer = pQuadruple[ QIndex ].pfnMarshall( (ulong*) &UserMarshalCB,
+                                                    pUserBuffer,
+                                                    pMemory );
+
+    if ( (unsigned long) (pUserBuffer - (uchar *) pStubMsg->RpcMsg->Buffer)
+                                      > pStubMsg->RpcMsg->BufferLength )
+        RpcRaiseException( RPC_X_INVALID_BUFFER );
+
+    if ( pUserBuffer == pUserBufferSaved )
+        {
+        // This is valid only if the wire type was a unique type.
+
+        if ( (pFormat[1] & USER_MARSHAL_UNIQUE) )
+            {
+            *pWireMarkerPtr = 0;
+            return 0;
+            }
+        else
+            RpcRaiseException( RPC_X_NULL_REF_POINTER );
+        }
+
+    // Advance the appropriate buffer pointer.
+
+    if ( (pFormat[1] & USER_MARSHAL_POINTER)  && pStubMsg->PointerBufferMark )
+        pStubMsg->PointerBufferMark = pUserBuffer;
+    else
+        pStubMsg->Buffer = pUserBuffer;
+
+    return(0);
+}
+
+
+unsigned char * RPC_ENTRY
+NdrInterfacePointerMarshall (
     PMIDL_STUB_MESSAGE  pStubMsg,
     uchar *             pMemory,
     PFORMAT_STRING      pFormat )
@@ -2361,43 +2725,65 @@ Arguments :
 
 Return :
 
-    Buffer pointer after marshalling the interface pointer.
+    None.
+
+Notes : There is now one representation of a marshalled interface pointer.
+        The format string contains FC_IP followed by either
+        FC_CONSTANT_IID or FC_PAD.
+
+            typedef struct
+            {
+                unsigned long size;
+                [size_is(size)] byte data[];
+            }MarshalledInterface;
 
 --*/
 {
-#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-    NDR_ASSERT(0, "Unimplemented");
-#else //NT or Chicago
-    IID     iid;
-    IID *   piid;
-    HRESULT hr;
-    unsigned long *pcbData;
-    unsigned long *pcbSize;
-    unsigned long cbData = 0;
-    unsigned long cbMax;
-    unsigned long position;
-    IStream *pStream;
-    LARGE_INTEGER libMove;
-    ULARGE_INTEGER libPosition;
-    uchar * pBufferSave;
+#if !defined( NDR_OLE_SUPPORT )
 
+    NDR_ASSERT(0, "Unimplemented");
+
+#else //NT or Chicago
+
+    HRESULT         hr;
+    IID             iid;
+    IID *           piid;
+    unsigned long * pSize;
+    unsigned long * pMaxCount;
+    unsigned long   cbData = 0;
+    unsigned long   cbMax;
+    unsigned long   position;
+    IStream *       pStream;
+    LARGE_INTEGER   libMove;
+    ULARGE_INTEGER  libPosition;
+    uchar *         pBufferSave;
+
+    // Always put the pointer itself on wire, it behaves like a unique.
     //
-    // This is MAGIC which makes sure that we marshall embedded interface 
-    // pointers in the right place.
+
+    ALIGN(pStubMsg->Buffer,0x3);
+    *((long *)pStubMsg->Buffer)++ = (long) pMemory;
+
+    // If the pointer is null, it's done.
+
+    if ( pMemory == 0 )
+        return 0;
+
+    // Check if the pointer is embedded, to put the pointee
+    // in the right place.
     //
+
     if ( pStubMsg->PointerBufferMark )
         {
-        ALIGN(pStubMsg->Buffer,0x3);
-        *((long *)pStubMsg->Buffer)++ = (long) pMemory;
-
         pBufferSave = pStubMsg->Buffer;
         pStubMsg->Buffer = pStubMsg->PointerBufferMark;
+
+        //Align the buffer on a 4 byte boundary
+        ALIGN(pStubMsg->Buffer,0x3);
         }
     else
         pBufferSave = 0;
 
-    //Align the buffer on a 4 byte boundary
-    ALIGN(pStubMsg->Buffer,0x3);
 
     //
     // Get an IID pointer.
@@ -2405,62 +2791,53 @@ Return :
     if ( pFormat[1] != FC_CONSTANT_IID )
         {
         //
-        // Here's how to get the iid pointer if iid_is was applied to this 
-        // interface pointer.  It's magic.
+        // This is like computing a variance with a long.
         //
+
         piid = (IID *) NdrpComputeIIDPointer( pStubMsg,
                                                pMemory,
                                                pFormat );
-
         if(piid == 0)
-            {
-            piid = &iid;
-            RpcpMemoryCopy( &iid, &IID_IUnknown, sizeof(iid) );
-            }
-
-        //Write the IID.
-        memcpy(pStubMsg->Buffer, piid, sizeof(IID));
-        pStubMsg->Buffer += sizeof(IID);
+            RpcRaiseException( RPC_S_INVALID_ARG );
         }
     else
         {
         // 
-        // The IID starts at pFormat[2] and is placed in the format string in 
-        // a format identical to the IID structure : long, short, short, 
-        // char[8].  
+        // The IID may not be aligned properly in the format string,
+        // so we copy it to a local variable.
         //
 
         piid = &iid;
         RpcpMemoryCopy( &iid, &pFormat[2], sizeof(iid) );
         }
 
-    //Leave space for length
-    pcbData = (unsigned long *) pStubMsg->Buffer;
+    // Leave space in the buffer for the conformant size an the size field.
+
+    pMaxCount = (unsigned long *) pStubMsg->Buffer;
     pStubMsg->Buffer += sizeof(unsigned long);
 
-    //Leave space for array bounds
-    pcbSize = (unsigned long *) pStubMsg->Buffer;
+    pSize = (unsigned long *) pStubMsg->Buffer;
     pStubMsg->Buffer += sizeof(unsigned long);
 
     if(pMemory)
         {
         //Calculate the maximum size of the stream.
+
         position = pStubMsg->Buffer - (unsigned char *)pStubMsg->RpcMsg->Buffer;
         cbMax = pStubMsg->BufferLength - position;
 
     #if DBG == 1
-        //In the debug build, we call CoGetMarshalSizeMax to get 
+        //In the debug build, we call CoGetMarshalSizeMax to get
         //upper bound for the size of the marshalled interface pointer.
-        EnsureOleLoaded();
         hr = (*pfnCoGetMarshalSizeMax)(&cbMax, piid, (IUnknown *)pMemory, pStubMsg->dwDestContext, pStubMsg->pvDestContext, 0);
     #endif
 
         //Create a stream on memory.
+
         pStream = NdrpCreateStreamOnMemory(pStubMsg->Buffer, cbMax);
         if(pStream == 0)
             RpcRaiseException(RPC_S_OUT_OF_MEMORY);
 
-        EnsureOleLoaded();
         hr = (*pfnCoMarshalInterface)(pStream, piid, (IUnknown *)pMemory, pStubMsg->dwDestContext, pStubMsg->pvDestContext, 0);
         if(FAILED(hr))
             {
@@ -2470,6 +2847,7 @@ Return :
             }
 
         //Calculate the size of the data written
+
         libMove.LowPart = 0;
         libMove.HighPart = 0;
         pStream->lpVtbl->Seek(pStream, libMove, STREAM_SEEK_CUR, &libPosition);
@@ -2479,8 +2857,9 @@ Return :
         }
 
     //Update the array bounds.
-    *pcbData = cbData;
-    *pcbSize = cbData;
+
+    *pMaxCount = cbData;
+    *pSize = cbData;
 
     //Advance the stub message buffer pointer.
     pStubMsg->Buffer += cbData;
@@ -2494,16 +2873,17 @@ Return :
         pStubMsg->Buffer = pBufferSave;
         }
 #endif// NT or Chicago
-    
-    return pStubMsg->Buffer;
+
+    return 0;
 }
 
+
 //
 // Context handle marshalling routines.
 //
 
 void RPC_ENTRY
-NdrClientContextMarshall( 
+NdrClientContextMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     NDR_CCONTEXT        ContextHandle,
     int                 fCheck )
@@ -2526,18 +2906,21 @@ Return :
 
 --*/
 {
-    if ( fCheck && ! ContextHandle ) 
+    if ( fCheck && ! ContextHandle )
         RpcRaiseException( RPC_X_SS_IN_NULL_CONTEXT );
 
     ALIGN(pStubMsg->Buffer,3);
+
+    // This call will check for bogus handles now and will raise
+    // an exception when necessary.
 
     NDRCContextMarshall( ContextHandle, pStubMsg->Buffer );
 
     pStubMsg->Buffer += 20;
 }
 
-void RPC_ENTRY 
-NdrServerContextMarshall( 
+void RPC_ENTRY
+NdrServerContextMarshall(
     PMIDL_STUB_MESSAGE  pStubMsg,
     NDR_SCONTEXT        ContextHandle,
     NDR_RUNDOWN         RundownRoutine )
@@ -2559,7 +2942,8 @@ Return :
 
 --*/
 {
-#if !defined(DOS) && !defined(WIN)
+#if defined( NDR_SERVER_SUPPORT )
+
     ALIGN(pStubMsg->Buffer,3);
 
     NDRSContextMarshall( ContextHandle,
@@ -2567,5 +2951,9 @@ Return :
                          RundownRoutine );
 
     pStubMsg->Buffer += 20;
+
 #endif
 }
+
+
+

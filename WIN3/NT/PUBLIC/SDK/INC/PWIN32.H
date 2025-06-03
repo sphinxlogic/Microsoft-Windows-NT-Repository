@@ -302,4 +302,4 @@ INT WINAPI    MWriteComm(HFILE nCid, LPSTR lpBuf, INT nSize);
 
 #define MCatch                              setjmp
 #define MThrow                              longjmp
-
+

@@ -1,14 +1,7 @@
 /* addproj - adds the named project to the slm system. */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "slmproto.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 F FAddPInit(pad)

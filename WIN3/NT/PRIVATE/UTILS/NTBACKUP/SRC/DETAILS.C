@@ -421,11 +421,7 @@ DATE_TIME      *date)       /* I - pointer to date/time struct      */
 
      /* Format display string */
      if( dir ) {
-#ifndef UNICODE
           sprintf( buffer, TEXT("%-*s %s\n"),
-#else //UNICODE
-          sprintf( buffer, TEXT("%-*ws %ws\n"),
-#endif //UNICODE
             name_len,
             name,
             attrib_buf );
@@ -436,11 +432,7 @@ DATE_TIME      *date)       /* I - pointer to date/time struct      */
           UI_MakeShortTimeString( time_str, date->hour, date->minute );
 
           if ( U64_Msw( size ) == 0 ) {
-#ifndef UNICODE
                sprintf( buffer, TEXT("%-*s %s %10lu %11s %11s\n"),
-#else //UNICODE
-               sprintf( buffer, TEXT("%-*ws %ws %10lu %11ws %11ws\n"),
-#endif //UNICODE
                  name_len,
                  name,
                  attrib_buf,
@@ -451,11 +443,7 @@ DATE_TIME      *date)       /* I - pointer to date/time struct      */
           } else {
 
                U64_Litoa( size, numeral, (INT16) 10, &stat ) ;
-#ifndef UNICODE
                sprintf( buffer, TEXT("%-*s %s %s %11s %11s\n"),
-#else //UNICODE
-               sprintf( buffer, TEXT("%-*ws %ws %ws %11ws %11ws\n"),
-#endif //UNICODE
                  name_len,
                  name,
                  attrib_buf,
@@ -563,6 +551,7 @@ OBJECT_TYPE fdb_type)            /* I - Object type  e.g. AFP                  *
      if( attribs & OBJ_HIDDEN_BIT      ||
        attribs & OBJ_SYSTEM_BIT      ||
        attribs & OBJ_READONLY_BIT     ||
+       attribs & OBJ_CORRUPT_BIT  ||
        ( fdb_type == AFP_OBJECT ) ) {
 
           len = UI_ATTRIBS_PADDING;
@@ -579,6 +568,10 @@ OBJECT_TYPE fdb_type)            /* I - Object type  e.g. AFP                  *
           }
           if( attribs & OBJ_SYSTEM_BIT ) {
                strcat( buffer, TEXT("S") );
+               len--;
+          }
+          if( attribs & OBJ_CORRUPT_BIT ) {
+               strcat( buffer, TEXT("C") );
                len--;
           }
           if( fdb_type == AFP_OBJECT ) {
@@ -832,11 +825,7 @@ VOID UI_DisplayFile( CHAR_PTR filename )
      }
      buffer[i]=TEXT('\0');
 
-#ifndef UNICODE
      yprintf( TEXT("%s\r"), buffer );
-#else //UNICODE
-     yprintf( TEXT("%ws\r"), buffer );
-#endif //UNICODE
 
      last_file_length = cur_file_length;
 }
@@ -937,6 +926,8 @@ INT16     channel )
      INT16     print_err_type       = DETAIL_PRINT_VALUE;
      BOOLEAN   call_eresprintf_flag = TRUE;
      CHAR      text[MAX_UI_RESOURCE_SIZE];
+     BOOLEAN   call_msgbox_flag     = FALSE ;
+   
 
 
      switch ( error ) {
@@ -977,7 +968,7 @@ INT16     channel )
 
      case TFLE_OTC_FAILURE:
           gb_error_during_operation = TRUE;
-          resource_id    = RES_NODISKSPACE;
+          resource_id    = RES_INSUFFICIENT_DISK_SPACE;
           print_err_type = DETAIL_PRINT_ERR_ONLY;
           *disposition   = ABORT_OPERATION;
           break;
@@ -1073,7 +1064,16 @@ INT16     channel )
           *disposition   = ABORT_OPERATION;
           break;
 
+     case LP_END_OPER_FAILED:
+          gb_error_during_operation = TRUE;
+          call_msgbox_flag = TRUE ;
+          call_eresprintf_flag = FALSE ;
+          resource_id    = RES_ERROR_EMS_RESTART ;
+          print_err_type = DETAIL_PRINT_ERROR_DEVICE;
+          break;
+
      case LP_ACCESS_DENIED_ERROR:
+     case FS_BAD_ATTACH_TO_SERVER:
           call_eresprintf_flag = FALSE;
           *disposition   = SKIP_OBJECT;
           gb_error_during_operation = TRUE;
@@ -1112,6 +1112,37 @@ INT16     channel )
           break;
      }
 
+     if ( call_msgbox_flag ) {
+
+          switch( print_err_type ) {
+
+          case DETAIL_PRINT_ERR_ONLY:
+               if ( eresprintf_cancel( resource_id ) ) {
+                    *disposition   = ABORT_OPERATION;
+               }
+               break;
+
+          case DETAIL_PRINT_VALUE:
+               if ( eresprintf_cancel( resource_id, error ) ) {
+                    *disposition   = ABORT_OPERATION;
+               }
+               break;
+
+          case DETAIL_PRINT_DEVICE:
+               if( eresprintf_cancel( resource_id, BE_GetCurrentDeviceName( channel ) ) ) {
+                    *disposition   = ABORT_OPERATION;
+               }
+               break;
+
+          case DETAIL_PRINT_ERROR_DEVICE:
+               if ( eresprintf_cancel( resource_id, error, BE_GetCurrentDeviceName( channel ) ) ) {
+                    *disposition   = ABORT_OPERATION;
+               } 
+               break;
+
+          }
+
+     }
      if ( call_eresprintf_flag ) {
 
           switch( print_err_type ) {

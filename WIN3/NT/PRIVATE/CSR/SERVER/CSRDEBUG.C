@@ -54,7 +54,8 @@ CsrDebugProcess(
     //
 
     if ( TargetProcessId == -1 ) {
-        if ( RtlGetNtGlobalFlags() & FLG_DISABLE_CSRDEBUG ) {
+        if (!(RtlGetNtGlobalFlags() & FLG_ENABLE_CSRDEBUG)) {
+            KdPrint(( "CSRSRV: CSR Debugging not enabled - NtGlobalFlag == %x\n", RtlGetNtGlobalFlags()));
             return STATUS_ACCESS_DENIED;
             }
         }
@@ -74,6 +75,8 @@ CsrDebugProcess(
             ) {
             ProcessFound = TRUE;
             if ( TargetProcessId == -1 ) {
+
+                CsrpServerDebugInitialize = TRUE;
 
                 Process = CsrInitializeCsrDebugProcess(NULL);
 
@@ -142,6 +145,8 @@ CsrDebugProcess(
     Status = CsrSendProcessAndThreadEvents(Process,AttachCompleteRoutine);
     CsrResumeProcess(Process);
     CsrTeardownCsrDebugProcess(Process);
+
+    CsrpServerDebugInitialize = FALSE;
 
     if ( NT_SUCCESS(Status) ) {
         if ( TargetProcessId == -1 ) {
@@ -323,6 +328,7 @@ Return Value:
                 );
 
             CsrOpenLdrEntry(
+                FirstThread,
                 Process,
                 &LdrEntryData,
                 &CreateProcessArgs->FileHandle
@@ -390,6 +396,7 @@ Return Value:
             );
 
         CsrOpenLdrEntry(
+            FirstThread,
             Process,
             &LdrEntryData,
             &LoadDllArgs->FileHandle
@@ -516,7 +523,7 @@ CsrpLocateDebugSection(
     // target process
     //
 
-    DosHeaderRawData = RtlAllocateHeap(RtlProcessHeap(), 0,
+    DosHeaderRawData = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( TMP_TAG ),
                                 sizeof(IMAGE_DOS_HEADER));
 
     if ( !DosHeaderRawData ) {
@@ -538,7 +545,7 @@ CsrpLocateDebugSection(
         return NULL;
         }
 
-    ImageHeaderRawData = RtlAllocateHeap(RtlProcessHeap(), 0, AllocSize);
+    ImageHeaderRawData = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( TMP_TAG ), AllocSize);
     if ( !ImageHeaderRawData ) {
         return NULL;
         }
@@ -555,11 +562,16 @@ CsrpLocateDebugSection(
         }
 
     NtHeaders = RtlImageNtHeader(ImageHeaderRawData);
-    Addr = (ULONG)NtHeaders->OptionalHeader.DataDirectory
-                             [IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
+    if ( NtHeaders ) {
+        Addr = (ULONG)NtHeaders->OptionalHeader.DataDirectory
+                                 [IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
 
-    if ( Addr ) {
-        Addr += (ULONG)Base;
+        if ( Addr ) {
+            Addr += (ULONG)Base;
+            }
+        }
+    else {
+        Addr = 0;
         }
 
     RtlFreeHeap(RtlProcessHeap(),0,ImageHeaderRawData);
@@ -568,6 +580,7 @@ CsrpLocateDebugSection(
 
 VOID
 CsrOpenLdrEntry(
+    IN PCSR_THREAD Thread,
     IN PCSR_PROCESS Process,
     IN PLDR_DATA_TABLE_ENTRY LdrEntry,
     OUT PHANDLE FileHandle
@@ -581,6 +594,8 @@ Routine Description:
     by the ldr entry in the context of the specified process.
 
 Arguments:
+
+    Thread - Supplies the address of the first thread in the process
 
     Process - Supplies the address of the process whose context this
         file is to be opened in.
@@ -606,11 +621,13 @@ Return Value:
     HANDLE LocalHandle;
     IO_STATUS_BLOCK IoStatusBlock;
     BOOLEAN TranslationStatus;
+    NTSTATUS ImpersonationStatus;
+    HANDLE NewToken;
 
     *FileHandle = NULL;
     DosName.Length = LdrEntry->FullDllName.Length;
     DosName.MaximumLength = LdrEntry->FullDllName.MaximumLength;
-    DosName.Buffer = RtlAllocateHeap(RtlProcessHeap(), 0, DosName.MaximumLength);
+    DosName.Buffer = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( TMP_TAG ), DosName.MaximumLength);
     if ( !DosName.Buffer ) {
         return;
         }
@@ -647,6 +664,7 @@ Return Value:
                     FILE_SHARE_READ | FILE_SHARE_WRITE,
                     FILE_SYNCHRONOUS_IO_NONALERT
                     );
+
         RtlFreeHeap(RtlProcessHeap(),0,DosName.Buffer);
         if ( !NT_SUCCESS(Status) ) {
             return;
@@ -701,6 +719,32 @@ Return Value:
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 FILE_SYNCHRONOUS_IO_NONALERT
                 );
+    if ( !NT_SUCCESS(Status) && Thread ) {
+        ImpersonationStatus = NtImpersonateThread(
+                                NtCurrentThread(),
+                                Thread->ThreadHandle,
+                                &CsrSecurityQos
+                                );
+        if ( NT_SUCCESS(ImpersonationStatus) ) {
+            Status = NtOpenFile(
+                        &LocalHandle,
+                        (ACCESS_MASK)(GENERIC_READ | SYNCHRONIZE),
+                        &Obja,
+                        &IoStatusBlock,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        FILE_SYNCHRONOUS_IO_NONALERT
+                        );
+
+            NewToken = NULL;
+            ImpersonationStatus = NtSetInformationThread(
+                                    NtCurrentThread(),
+                                    ThreadImpersonationToken,
+                                    (PVOID)&NewToken,
+                                    (ULONG)sizeof(HANDLE)
+                                    );
+            ASSERT( NT_SUCCESS(ImpersonationStatus) );
+            }
+        }
     RtlFreeHeap(RtlProcessHeap(),0,DosName.Buffer);
     RtlFreeHeap(RtlProcessHeap(),0,FileName.Buffer);
     if ( !NT_SUCCESS(Status) ) {
@@ -859,7 +903,7 @@ Return Value:
     NTSTATUS Status;
     PCSR_THREAD ServerThread;
 
-    Process = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(*Process));
+    Process = RtlAllocateHeap(RtlProcessHeap(),MAKE_TAG( PROCESS_TAG ),sizeof(*Process));
     if (!Process) {
         return NULL;
         }
@@ -897,7 +941,7 @@ Return Value:
         ThreadListNext = ThreadListHead->Flink;
         while (ThreadListNext != ThreadListHead) {
             ServerThread = CONTAINING_RECORD( ThreadListNext, CSR_THREAD, Link );
-            Thread = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(*Thread));
+            Thread = RtlAllocateHeap(RtlProcessHeap(),MAKE_TAG( PROCESS_TAG ),sizeof(*Thread));
             if ( Thread ) {
                 Thread->ClientId = ServerThread->ClientId;
                 Thread->ThreadHandle = ServerThread->ThreadHandle;
@@ -906,45 +950,6 @@ Return Value:
             ThreadListNext = ThreadListNext->Flink;
             }
 
-        //
-        // Now walk through the process structure and find all client threads
-        // that have an associated server
-        //
-
-        ProcessListHead = &CsrRootProcess->ListLink;
-        ProcessListNext = ProcessListHead->Flink;
-        while (ProcessListNext != ProcessListHead) {
-            ProcessPtr = CONTAINING_RECORD( ProcessListNext, CSR_PROCESS, ListLink );
-
-
-            ThreadListHead = &ProcessPtr->ThreadList;
-            ThreadListNext = ThreadListHead->Flink;
-            while (ThreadListNext != ThreadListHead) {
-                ThreadPtr = CONTAINING_RECORD( ThreadListNext, CSR_THREAD, Link );
-                if (ThreadPtr->ServerThreadHandle) {
-                    Thread = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(*Thread));
-                    if ( Thread ) {
-                        Thread->ThreadHandle = ThreadPtr->ServerThreadHandle;
-                        Status = NtQueryInformationThread(
-                                    Thread->ThreadHandle,
-                                    ThreadBasicInformation,
-                                    &BasicInfo,
-                                    sizeof(BasicInfo),
-                                    NULL
-                                    );
-                        if ( NT_SUCCESS(Status) ) {
-                            Thread->ClientId = BasicInfo.ClientId;
-                            InsertTailList( &Process->ThreadList, &Thread->Link );
-                            }
-                        else {
-                            RtlFreeHeap(RtlProcessHeap(),0,Thread);
-                            }
-                        }
-                    }
-                ThreadListNext = ThreadListNext->Flink;
-                }
-            ProcessListNext = ProcessListNext->Flink;
-            }
         }
     else {
 
@@ -961,7 +966,7 @@ Return Value:
         ThreadListNext = ThreadListHead->Flink;
         while (ThreadListNext != ThreadListHead) {
             ThreadPtr = CONTAINING_RECORD( ThreadListNext, CSR_THREAD, Link );
-            Thread = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(*Thread));
+            Thread = RtlAllocateHeap(RtlProcessHeap(),MAKE_TAG( PROCESS_TAG ),sizeof(*Thread));
             if ( Thread ) {
                 Thread->ThreadHandle = ThreadPtr->ThreadHandle;
                 Thread->ClientId = ThreadPtr->ClientId;

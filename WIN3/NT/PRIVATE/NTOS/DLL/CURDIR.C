@@ -47,6 +47,51 @@ UNICODE_STRING RtlpDosDevicesPrefix;
 UNICODE_STRING RtlpDosDevicesUncPrefix;
 ULONG RtlpLongestPrefix;
 
+ULONG
+RtlpComputeBackupIndex(
+    IN PCURDIR CurDir
+    )
+{
+    ULONG BackupIndex;
+    PWSTR UncPathPointer;
+    ULONG NumberOfPathSeparators;
+    RTL_PATH_TYPE CurDirPathType;
+
+
+    //
+    // Get pathType of curdir
+    //
+
+    CurDirPathType = RtlDetermineDosPathNameType_U(CurDir->DosPath.Buffer);
+    BackupIndex = 3;
+    if ( CurDirPathType == RtlPathTypeUncAbsolute ) {
+
+        //
+        // We want to scan the supplied path to determine where
+        // the "share" ends, and set BackupIndex to that point.
+        //
+
+        UncPathPointer = CurDir->DosPath.Buffer + 2;
+        NumberOfPathSeparators = 0;
+        while (*UncPathPointer) {
+            if (IS_PATH_SEPARATOR_U(*UncPathPointer)) {
+
+                NumberOfPathSeparators++;
+
+                if (NumberOfPathSeparators == 2) {
+                    break;
+                    }
+                }
+
+            UncPathPointer++;
+
+            }
+
+        BackupIndex = (UncPathPointer - CurDir->DosPath.Buffer);
+        }
+    return BackupIndex;
+}
+
 
 ULONG
 RtlGetLongestNtPathLength( VOID )
@@ -95,8 +140,8 @@ RtlpCurdirInit()
     RtlInitUnicodeString( &RtlpDosDevices[ DOS_DEVICE_CON ], L"CON" );
     RtlInitUnicodeString( &RtlpDosDevices[ DOS_DEVICE_SLASHCON ], L"\\\\.\\CON" );
     RtlInitUnicodeString( &RtlpSlashSlashDot, L"\\\\.\\" );
-    RtlInitUnicodeString( &RtlpDosDevicesPrefix, L"\\DosDevices\\" );
-    RtlInitUnicodeString( &RtlpDosDevicesUncPrefix, L"\\DosDevices\\UNC\\" );
+    RtlInitUnicodeString( &RtlpDosDevicesPrefix, L"\\??\\" );
+    RtlInitUnicodeString( &RtlpDosDevicesUncPrefix, L"\\??\\UNC\\" );
     RtlpLongestPrefix = RtlpDosDevicesUncPrefix.Length;
 }
 
@@ -558,11 +603,11 @@ Return Value:
 
 {
     UNICODE_STRING UnicodeString;
-    ULONG NumberOfCharacters;
+    USHORT NumberOfCharacters;
     ULONG ReturnLength;
     ULONG ReturnOffset;
     LPWSTR p;
-    ULONG ColonBias;
+    USHORT ColonBias;
     RTL_PATH_TYPE PathType;
     WCHAR wch;
 
@@ -617,7 +662,7 @@ Return Value:
     if ( NumberOfCharacters ) {
         p = UnicodeString.Buffer + NumberOfCharacters-1;
         while ( p >= UnicodeString.Buffer ) {
-            if ( *p == (WCHAR)'\\' || *p == (WCHAR)':' || *p == (WCHAR)'/') {
+            if ( *p == (WCHAR)'\\' || (*p == (WCHAR)':'&& *(p+1)!=(WCHAR)'.') || *p == (WCHAR)'/') {
                 p++;
 
                 wch = *p;
@@ -673,6 +718,10 @@ Return Value:
     if ( p ) {
         NumberOfCharacters = p - UnicodeString.Buffer;
         UnicodeString.Length = NumberOfCharacters << 1;
+        if (UnicodeString.Buffer[NumberOfCharacters-1] == (WCHAR)':') {
+            UnicodeString.Length -= sizeof(WCHAR);
+            NumberOfCharacters--;
+            }
         }
 
     if ( NumberOfCharacters == 4 && iswdigit(UnicodeString.Buffer[3] ) ) {
@@ -835,6 +884,10 @@ Return Value:
 
     if ( ARGUMENT_PRESENT(NameInvalid) ) {
         *NameInvalid = FALSE;
+        }
+
+    if ( nBufferLength > MAXUSHORT ) {
+        nBufferLength = MAXUSHORT-2;
         }
 
     *InputPathType = RtlPathTypeUnknown;
@@ -1009,7 +1062,7 @@ Return Value:
             case RtlPathTypeLocalDevice :
 
                 //
-                // Local device name. prefix = \\.\
+                // Local device name. prefix = "\\.\"
                 //
 
                 PrefixSourceLength = RtlpSlashSlashDot.Length;
@@ -1020,7 +1073,7 @@ Return Value:
             case RtlPathTypeRootLocalDevice :
 
                 //
-                // Local Device root. prefix = \\.\
+                // Local Device root. prefix = "\\.\"
                 //
 
 
@@ -1227,14 +1280,20 @@ Return Value:
                 break;
 
             case RtlPathTypeRooted :
+                BackupIndex = RtlpComputeBackupIndex(CurDir);
+                if ( BackupIndex != 3 ) {
+                    Prefix = CurDir->DosPath;
+                    Prefix.Length = (USHORT)(BackupIndex << 1);
+                    }
+                else {
 
-                //
-                // Rooted name. Prefix is drive portion of current directory
-                //
+                    //
+                    // Rooted name. Prefix is drive portion of current directory
+                    //
 
-                Prefix = CurDir->DosPath;
-                Prefix.Length = 2*sizeof(UNICODE_NULL);
-                BackupIndex = 3;
+                    Prefix = CurDir->DosPath;
+                    Prefix.Length = 2*sizeof(UNICODE_NULL);
+                    }
                 break;
 
             case RtlPathTypeRelative :
@@ -1302,8 +1361,7 @@ Return Value:
                 //
 
                 Prefix = CurDir->DosPath;
-                BackupIndex = 3;
-//RnameCheck = Prefix.Length>>1;
+                BackupIndex = RtlpComputeBackupIndex(CurDir);
                 break;
 
             default:
@@ -1330,7 +1388,7 @@ Return Value:
             else {
 
                 //
-                // If we are expanding curdir, then remember the trailing \
+                // If we are expanding curdir, then remember the trailing '\'
                 //
 
                 if ( NumberOfCharacters == 1 && *lpFileName == (WCHAR)'.' ) {
@@ -1448,8 +1506,7 @@ skipit:
                     }
                 else if ( IS_DOT_DOT_U(Source) ) {
                     //
-                    // backup destination string looking for
-                    // a \
+                    // backup destination string looking for a '\'
                     //
 
                     while (*Dest != (WCHAR)'\\') {
@@ -2298,6 +2355,8 @@ Return Value:
     OBJECT_ATTRIBUTES Obja;
     IO_STATUS_BLOCK IoStatusBlock;
     HANDLE DirHandle;
+    ULONG HardErrorValue;
+    PTEB Teb;
 
     EnvVarNameBuffer[0] = (WCHAR)'=';
     EnvVarNameBuffer[1] = (WCHAR)NewDrive;
@@ -2350,6 +2409,10 @@ Return Value:
         );
 
 
+    Teb = NtCurrentTeb();
+    HardErrorValue = Teb->HardErrorsAreDisabled;
+    Teb->HardErrorsAreDisabled = 1;
+
     Status = NtOpenFile(
                 &DirHandle,
                 SYNCHRONIZE,
@@ -2358,6 +2421,8 @@ Return Value:
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
                 );
+
+    Teb->HardErrorsAreDisabled = HardErrorValue;
 
     //
     // If the open succeeds, then the directory is valid... No need to do anything

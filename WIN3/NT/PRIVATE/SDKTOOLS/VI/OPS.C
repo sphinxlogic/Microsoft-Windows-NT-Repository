@@ -230,7 +230,7 @@ int     num;
         strcat(itmp, ITMP);
         strcat(otmp, OTMP);
 
-        if (mktemp(itmp) == NULL || mktemp(otmp) == NULL) {
+        if (_mktemp(itmp) == NULL || _mktemp(otmp) == NULL) {
                 emsg("Can't get temp file names");
                 return;
         }

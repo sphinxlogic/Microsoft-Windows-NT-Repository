@@ -77,7 +77,6 @@
 #include "dbgexp.h"
 #include "wucomm.h"
 #include "wowmmcb.h"
-#include "sharewow.h"
 #include "isz.h"
 #include "wkmem.h"
 #include <mmddk.h>
@@ -112,3 +111,6 @@
 #include "wthman.h"
 #include "wusercli.h"
 #include "wole2.h"
+#include "wparam.h"
+#include <limits.h>
+

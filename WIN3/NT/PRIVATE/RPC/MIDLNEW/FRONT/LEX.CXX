@@ -1026,4 +1026,3 @@ ScanVersion( void )
 
 	return VERSIONTOKEN;
 	}
-

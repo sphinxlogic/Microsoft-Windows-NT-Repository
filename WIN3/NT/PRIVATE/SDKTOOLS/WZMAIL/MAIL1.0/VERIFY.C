@@ -199,9 +199,9 @@ INT OpenAlias (PSTR fn)
         //  afp = fopen ( fn, "rb" );
         // open with sharing, as deny write
 
-        if ((hhfp = sopen(fn, O_RDONLY | O_BINARY, SH_DENYWR, S_IREAD)) == -1)
+        if ((hhfp = _sopen(fn, O_RDONLY | O_BINARY, SH_DENYWR, S_IREAD)) == -1)
             return ERROR;
-        if ((hafp = sopen(fn, O_RDONLY | O_BINARY, SH_DENYWR, S_IREAD)) == -1) {
+        if ((hafp = _sopen(fn, O_RDONLY | O_BINARY, SH_DENYWR, S_IREAD)) == -1) {
             close(hhfp);
             return ERROR;
         }
@@ -466,7 +466,7 @@ INT VerifyAlias ( PSTR cp )
                         if (aseek(dpos+datapos) < 0 || (key=readalias())==NULL){
                                 return ERROR;
                         }
-                        if (strcmpi(cp, key) == 0)
+                        if (_strcmpi(cp, key) == 0)
                         {
                             dpos = apos;
                             /* alias found, check to see if it is valid */

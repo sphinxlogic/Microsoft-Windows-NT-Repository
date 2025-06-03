@@ -1,9 +1,6 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "dir.h"
-#include "console.h"
 
-TCHAR ThousandSeparator;
+extern TCHAR ThousandSeparator[];
 
 STATUS
 FormatFileSize(
@@ -12,17 +9,6 @@ FormatFileSize(
     IN DWORD Width,
     OUT PTCHAR FormattedSize
     );
-
-/*
-
- The following are definitions of the debugging group and level bits
- for the code in this file.
-
-*/
-
-#define ICGRP	0x0040	/* Informational commands group */
-#define DISLVL  0x0040  /* Directory level              */
-
 
 //         Entry is displayed.
 //         If not /b,
@@ -43,7 +29,7 @@ FormatFileSize(
 #define DIR_NEW_PAST_SIZE 39
 
 extern TCHAR Fmt00[], Fmt01[], Fmt03[], Fmt08[], Fmt09[], Fmt14[], Fmt19[], Fmt26[] ;
-extern BOOLEAN CtrlCSeen;
+extern BOOL CtrlCSeen;
 
 BOOLEAN  GetDrive( PTCHAR , PTCHAR );
 
@@ -108,7 +94,7 @@ DisplayFileList (
     OUT PLARGE_INTEGER pcbFileTotal,
     IN  ULONG   rgfSwitchs,
     IN  ULONG   dwTimeType,
-    IN	PFS     pfsFiles
+    IN  PFS     pfsFiles
     )
 
 /*++
@@ -202,10 +188,10 @@ Return Value:
         //
         // number of row required for entire list
         //
-        if (cffColMax == 0)	// wider than a line
-	    goto abort_wide;	// abort wide format for this list
-	else
-	    crowMax = (cff + cffColMax) / cffColMax;
+        if (cffColMax == 0)     // wider than a line
+            goto abort_wide;    // abort wide format for this list
+        else
+            crowMax = (cff + cffColMax) / cffColMax;
 
         //
         // move down each rown picking the elements cffCols aport down the list.
@@ -225,17 +211,12 @@ Return Value:
                                      rgfSwitchs,
                                      dwTimeType,
                                      &pfsFiles->cbFileTotal,
-                                     pfsFiles->pszDir,
+                                     pfsFiles,
                                      pfsFiles->prgpff[irgpff]);
 
 
 
-                    if (rc == SUCCESS) {
-
-                        pfsFiles->cffDisplayed++;
-
-                    } else {
-
+                    if (rc != SUCCESS) {
                         return( rc );
                     }
 
@@ -269,16 +250,11 @@ abort_wide:
                                  rgfSwitchs,
                                  dwTimeType,
                                  &pfsFiles->cbFileTotal,
-                                 pfsFiles->pszDir,
+                                 pfsFiles,
                                  pfsFiles->prgpff[irgpff]);
 
 
-                if (rc == SUCCESS) {
-
-                    pfsFiles->cffDisplayed++;
-
-                } else {
-
+                if (rc != SUCCESS) {
                     return( rc );
                 }
             }
@@ -313,7 +289,7 @@ DisplayFile (
     IN  ULONG            rgfSwitchs,
     IN  ULONG            dwTimeType,
     OUT PLARGE_INTEGER   pcbFileTotal,
-    IN  PTCHAR           pszDir,
+    IN  PFS              pfs,
     IN  PFF              pff
     )
 /*++
@@ -326,8 +302,8 @@ Arguments:
 
     pscr - screen handle
     rgfSwitchs - command line switch (controls formating)
-    pszDir - current directory (used for full path information)
-    pdata - data gotten back from FindNext API
+    pfs - current directory (used for full path information)
+    pff - current file
 
 
 Return Value:
@@ -354,7 +330,7 @@ Return Value:
 
     if (rgfSwitchs & BAREFORMATSWITCH) {
 
-        rc = DisplayBare(pscr, rgfSwitchs, pszDir, pdata);
+        rc = DisplayBare(pscr, rgfSwitchs, pfs->pszDir, pdata);
 
     } else {
 
@@ -409,6 +385,7 @@ Return Value:
 
     if (rc == SUCCESS) {
         pcbFileTotal->QuadPart = cbFile.QuadPart + pcbFileTotal->QuadPart;
+        pfs->cffDisplayed += 1;
     }
 
     return( rc );
@@ -634,12 +611,12 @@ Return Value:
     TCHAR   szFileName[MAX_PATH + 2];
     PTCHAR  pszExt, pszName;
     USHORT  cbName;
-#ifdef JAPAN
-    int	    i;
-    int	    l;
-#endif /* Japan */
+#if defined(JAPAN) && defined(UNICODE)
+    int     i;
+    int     l;
+#endif /* defined(JAPAN) && defined(UNICODE) */
 
-    mywcsnset(szFileName, SPACE, MAX_PATH + 2);
+    mytcsnset(szFileName, SPACE, MAX_PATH + 2);
 
     pszName = pdata->cFileName;
 
@@ -655,7 +632,7 @@ Return Value:
     } else {
 
         pszExt = mystrrchr(pszName, (int)DOT);
-	cbName = (USHORT)(pszExt - pszName)*sizeof(WCHAR);
+        cbName = (USHORT)(pszExt - pszName)*sizeof(WCHAR);
     }
 
     //
@@ -669,20 +646,20 @@ Return Value:
 
     memcpy(szFileName, pszName, cbName );
 
-#ifdef JAPAN
+#if defined(JAPAN) && defined(UNICODE)
     //
     // If we had an extension then print it after
     // all the spaces
     //
     i = 9;
     for (l=0 ; l<8 ; l++) {
-	if (IsFullWidth(szFileName[l]))
-	    i--;
+        if (IsFullWidth(szFileName[l]))
+            i--;
     }
 
     if (pszExt) {
 
-	mystrcpy(szFileName + i, pszExt + 1);
+        mystrcpy(szFileName + i, pszExt + 1);
     }
 
     //
@@ -691,21 +668,21 @@ Return Value:
 
     szFileName[i+3] = NULLC;
     if (pszExt) {
-	//
-	// Only 1 of three can be full width, since 3/2=1.
-	// If the first isn't, only the second could be.
-	//
-	if (IsFullWidth(*(pszExt+1)) || IsFullWidth(*(pszExt+2)))
-	    szFileName[i+2] = NULLC;
+        //
+        // Only 1 of three can be full width, since 3/2=1.
+        // If the first isn't, only the second could be.
+        //
+        if (IsFullWidth(*(pszExt+1)) || IsFullWidth(*(pszExt+2)))
+            szFileName[i+2] = NULLC;
     }
-#else /* not Japan */
+#else /* defined(JAPAN) && defined(UNICODE) */
     if (pszExt) {
 
         //
         // move pszExt past dot. use 9 not 8 to pass
         // over 1 space between name and extension
         //
-	mystrcpy(szFileName + 9, pszExt + 1);
+        mystrcpy(szFileName + 9, pszExt + 1);
 
     }
 
@@ -713,7 +690,7 @@ Return Value:
     // terminate at max end for a FAT name
     //
     szFileName[12] = NULLC;
-#endif /* Japan */
+#endif /* defined(JAPAN) && defined(UNICODE) */
 
     if (rgfSwitchs & LOWERCASEFORMATSWITCH) {
 
@@ -838,10 +815,9 @@ Return Value:
 
 
     if (ConvertFileTimeToTime( &ft, &FileTime )) {
-
-        PrintDate(&FileTime, PD_DIR, szT) ;
+        PrintDate(&FileTime, PD_DIR, szT, MAX_PATH) ;
         CHECKSTATUS( WriteFmtString(pscr, TEXT("%s  "), (PVOID)szT));
-        PrintTime(&FileTime, PT_DIR, szT) ;
+        PrintTime(&FileTime, PT_DIR, szT, MAX_PATH) ;
         CHECKSTATUS( WriteFmtString(pscr, TEXT("%s "), (PVOID)szT) );
 
     } else {
@@ -1020,11 +996,11 @@ Return Value:
         irgff < cff;
         irgff++) {
 
-#ifdef JAPAN
+#if defined(JAPAN) && defined(UNICODE)
         cb = max(cb, (USHORT)SizeOfHalfWidthString(((pfsFiles->prgpff[irgff])->data).cFileName));
-#else /* not Japan */
+#else /* defined(JAPAN) && defined(UNICODE) */
         cb = max(cb, (USHORT)mystrlen( ((pfsFiles->prgpff[irgff])->data).cFileName ));
-#endif /* Japan */
+#endif /* defined(JAPAN) && defined(UNICODE) */
 
     }
 
@@ -1077,7 +1053,7 @@ Return Value:
 STATUS
 DisplayTotals(
     IN  PSCREEN pscr,
-    IN	ULONG	cffTotal,
+    IN  ULONG   cffTotal,
     IN  PLARGE_INTEGER cbFileTotal,
     IN  ULONG rgfSwitchs
     )
@@ -1184,8 +1160,8 @@ Return Value:
 
 STATUS
 DisplayVolInfo(
-    IN	PSCREEN pscr,
-    IN	PTCHAR	pszDrive
+    IN  PSCREEN pscr,
+    IN  PTCHAR  pszDrive
     )
 
 /*++
@@ -1239,14 +1215,14 @@ Return Value:
             szVolRoot[1] = NULLC;
         }
 
-	if (szVolName[0]) {
+        if (szVolName[0]) {
 
             rc = WriteMsgString(pscr,
                                 MSG_DR_VOL_LABEL,
                                 TWOARGS,
                                 argstr1(TEXT("%s"), (ULONG)(szVolRoot)),
                                 argstr2(TEXT("%s"), (ULONG)szVolName ) ) ;
-	} else {
+        } else {
 
             rc = WriteMsgString(pscr,
                                 MSG_HAS_NO_LABEL,
@@ -1259,7 +1235,7 @@ Return Value:
 
             wsprintf(szT,Fmt26,(Vsn[0] & 0xffff0000)>>16, (Vsn[0] & 0xffff) );
             rc = WriteMsgString(pscr, MSG_DR_VOL_SERIAL, ONEARG, szT);
-	}
+        }
     }
 
     return( rc );
@@ -1277,32 +1253,24 @@ FormatFileSize(
     TCHAR Buffer[ 100 ];
     PTCHAR s, s1;
     ULONG DigitIndex, Digit;
-    ULONG Size;
-    LARGE_INTEGER TempSize;
+    ULONG nThousandSeparator;
+    ULONGLONG Size;
 
+    nThousandSeparator = _tcslen(ThousandSeparator);
     s = &Buffer[ 99 ];
     *s = TEXT('\0');
     DigitIndex = 0;
-    TempSize = *FileSize;
-    while (TempSize.HighPart != 0) {
-        Digit = TempSize.LowPart % 10;
-        if (TempSize.HighPart != 0) {
-            TempSize.QuadPart = TempSize.QuadPart / 10;
-            }
-        else {
-            TempSize.LowPart = TempSize.LowPart / 10;
-            }
+    Size = FileSize->QuadPart;
+    while (Size != 0) {
+        Digit = (ULONG)(Size % 10);
+        Size = Size / 10;
         *--s = (TCHAR)(TEXT('0') + Digit);
         if ((++DigitIndex % 3) == 0 && (rgfSwitchs & THOUSANDSEPSWITCH)) {
-            *--s = ThousandSeparator;
-        }
-    }
-    Size = TempSize.LowPart;
-    while (Size != 0) {
-        *--s = (TCHAR)(TEXT('0') + (Size % 10));
-        Size = Size / 10;
-        if ((++DigitIndex % 3) == 0 && (rgfSwitchs & THOUSANDSEPSWITCH)) {
-            *--s = ThousandSeparator;
+            // If non-null Thousand separator, insert it.
+            if (nThousandSeparator) {
+                s -= nThousandSeparator;
+                _tcsncpy(s, ThousandSeparator, nThousandSeparator);
+            }
         }
     }
 
@@ -1310,8 +1278,8 @@ FormatFileSize(
         *--s = TEXT('0');
     }
     else
-    if ((rgfSwitchs & THOUSANDSEPSWITCH) && *s == ThousandSeparator) {
-        s += 1;
+    if ((rgfSwitchs & THOUSANDSEPSWITCH) && !_tcsncmp(s, ThousandSeparator, nThousandSeparator)) {
+        s += nThousandSeparator;
     }
 
     Size = _tcslen( s );

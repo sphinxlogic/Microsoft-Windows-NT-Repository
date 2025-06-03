@@ -21,6 +21,7 @@ Environment:
 Revision History:
 
 --*/
+#include <setupbat.h>
 #include "setupldr.h"
 #include "stdio.h"
 #include "string.h"
@@ -31,6 +32,22 @@ Revision History:
 #define VGA_DRIVER_FILENAME "vga.sys"
 
 #define KERNEL_IMAGE_FILENAME "ntkrnlmp.exe"
+
+//
+// Global string constants.
+//
+PCHAR FilesSectionName = "SourceDisksFiles";
+PCHAR MediaSectionName = "SourceDisksNames";
+
+#if defined(_ALPHA_)
+PCHAR PlatformExtension = ".alpha";
+#elif defined(_MIPS_)
+PCHAR PlatformExtension = ".mips";
+#elif defined(_PPC_)
+PCHAR PlatformExtension = ".ppc";
+#elif defined(_X86_)
+PCHAR PlatformExtension = ".x86";
+#endif
 
 //
 // Global data
@@ -63,6 +80,23 @@ BOOLEAN LoadCdfs;
 BOOLEAN FixedBootMedia = FALSE;
 
 PVOID InfFile;
+PVOID WinntSifHandle;
+BOOLEAN IgnoreMissingFiles;
+
+//
+//  Pre-install stuff
+//
+
+PCHAR   OemTag = "OEM";
+BOOLEAN PreInstall = FALSE;
+PCHAR   ComputerType = NULL;
+BOOLEAN OemHal = FALSE;
+PPREINSTALL_DRIVER_INFO PreinstallDriverList = NULL;
+
+
+#if defined(ELTORITO)
+extern BOOLEAN ElToritoCDBoot;
+#endif
 
 //
 // Define transfer entry of loaded image.
@@ -130,6 +164,10 @@ SlCheckOemKeypress(
     VOID
     );
 
+ARC_STATUS
+SlLoadBusExtender(
+    IN PVOID Inf
+    );
 
 
 ARC_STATUS
@@ -308,13 +346,27 @@ Return Value:
     SlInitDisplay();
     SlWriteHeaderText(SL_WELCOME_HEADER);
     SlClearClientArea();
+
+#if defined(_X86_) && !defined(ALLOW_386)
+    //
+    // Disallow installation on a 386
+    //
+    {
+        extern BOOLEAN SlIs386(VOID);
+
+        if(SlIs386()) {
+            SlFatalError(SL_TEXT_REQUIRES_486);
+        }
+    }
+#endif
+
     //
     // If this is a winnt setup, then we want to behave as if
     // we were started from the location specified by the
     // OSLOADPARTITION and OSLOADFILENAME nv-ram variables.
     //
     p = BlGetArgumentValue(Argc,Argv,"osloadoptions");
-    if(p && !stricmp(p,"winnt32")) {
+    if(p && !_stricmp(p,"winnt32")) {
 
         p = BlGetArgumentValue(Argc,Argv,"osloadpartition");
         if(!p) {
@@ -361,8 +413,8 @@ Return Value:
             SlFriendlyError(
                 Status,
                 SetupDevice,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
             goto LoadFailed;
         }
@@ -383,6 +435,15 @@ Return Value:
         p=strrchr(SetupDirectory, '\\');
         *(p+1) = '\0';
     }
+
+#if defined(ELTORITO)
+    if (ElToritoCDBoot) {
+        //
+        // Use the i386 directory for setup files when we boot from an El Torito CD
+        //
+        strcat(SetupDirectory, "i386\\");
+    }
+#endif
 
     //
     // We need to check to see if the user pressed any keys to force OEM HAL,
@@ -429,7 +490,7 @@ Return Value:
         BootDeviceIdValid = TRUE;
     }
 
-    strlwr(BootDevice);
+    _strlwr(BootDevice);
     FixedBootMedia = (strstr(BootDevice,")rdisk(") != NULL);
 
     //
@@ -474,6 +535,110 @@ Return Value:
     }
     BlLoaderBlock->NtBootPathName = BootPath;
 
+    //
+    // Attempt to load winnt.sif from the path where we are
+    // loading setup files. Borrow the BadFileName buffer
+    // for temporary use.
+    //
+    strcpy(BadFileName,BootPath);
+    strcat(BadFileName,WINNT_SIF_FILE);
+    Status = SlInitIniFile(NULL,BootDeviceId,BadFileName,&WinntSifHandle,&DontCare);
+    if(Status == ESUCCESS) {
+        //
+        //  Find out if this is a pre-install, by looking at OemPreinstall key
+        //  in [unattended] section of winnt.sif
+        //
+        p = SlGetSectionKeyIndex(WinntSifHandle,WINNT_UNATTENDED,WINNT_U_OEMPREINSTALL,0);
+        if(p && !_stricmp(p,"yes")) {
+            PreInstall = TRUE;
+        }
+
+        //
+        //  If this is a pre-install, find out which hal to load, by looking
+        //  at ComputerType key in [unattended] section of winnt.sif.
+        //
+        if( PreInstall ) {
+            ComputerType = SlGetSectionKeyIndex(WinntSifHandle,WINNT_UNATTENDED,WINNT_U_COMPUTERTYPE,0);
+            if(ComputerType) {
+                //
+                // If the hal to load is an OEM one, then set OemHal to TRUE
+                //
+                p = SlGetSectionKeyIndex(WinntSifHandle,WINNT_UNATTENDED,WINNT_U_COMPUTERTYPE,1);
+                if(p && !_stricmp(p, OemTag)) {
+                    OemHal = TRUE;
+                } else {
+                    OemHal = FALSE;
+                }
+                //
+                //  In the pre-install mode, don't let the user specify
+                //  an OEM hal, if one was specified in unattend.txt
+                //
+                PromptOemHal = FALSE;
+            }
+
+            //
+            //  Find out which SCSI drivers to load, by looking at
+            //  [MassStorageDrivers] in winnt.sif
+            //
+            if( SpSearchINFSection( WinntSifHandle, WINNT_OEMSCSIDRIVERS ) ) {
+                ULONG   i;
+                PPREINSTALL_DRIVER_INFO TempDriverInfo;
+
+                PreinstallDriverList = NULL;
+                for( i = 0;
+                     ((p = SlGetKeyName( WinntSifHandle, WINNT_OEMSCSIDRIVERS, i )) != NULL);
+                     i++ ) {
+                    TempDriverInfo = BlAllocateHeap(sizeof(PREINSTALL_DRIVER_INFO));
+                    if (TempDriverInfo==NULL) {
+                        SlNoMemoryError();
+                        goto LoadFailed;
+                    }
+                    TempDriverInfo->DriverDescription = p;
+                    p = SlGetIniValue( WinntSifHandle,
+                                       WINNT_OEMSCSIDRIVERS,
+                                       TempDriverInfo->DriverDescription,
+                                       NULL );
+                    TempDriverInfo->OemDriver = (p && !_stricmp(p, OemTag))? TRUE : FALSE;
+                    TempDriverInfo->Next = PreinstallDriverList;
+                    PreinstallDriverList = TempDriverInfo;
+                }
+                if( PreinstallDriverList != NULL ) {
+                    //
+                    //  In the pre-install mode, don't let the user specify
+                    //  an OEM scsi, if at least one was specified in unattend.txt
+                    //
+                    PromptOemScsi = FALSE;
+                }
+            }
+        }
+
+        p = SlGetSectionKeyIndex(WinntSifHandle,WINNT_SETUPPARAMS,WINNT_S_SKIPMISSING,0);
+        if(p && (*p != '0')) {
+            IgnoreMissingFiles = TRUE;
+        }
+    } else {
+        WinntSifHandle = NULL;
+    }
+
+    //
+    // Initialize the debugging system.
+    //
+
+    BlLogInitialize(BootDeviceId);
+
+    //
+    // Do PPC-specific initialization.
+    //
+
+#if defined(_PPC_)
+
+    Status = BlPpcInitialize();
+    if (Status != ESUCCESS) {
+        goto LoadFailed;
+    }
+
+#endif // defined(_PPC_)
+
     SlGetDisk(KERNEL_IMAGE_FILENAME);
 
     strcpy(KernelDirectoryPath, BootPath);
@@ -490,10 +655,27 @@ Return Value:
     }
 
     strcpy(HalDirectoryPath, BootPath);
-    if (PromptOemHal) {
+
+    if (PromptOemHal || (PreInstall && (ComputerType != NULL))) {
+        if(PreInstall && OemHal) {
+            //
+            //  This is a pre-install and an OEM hal was specified
+            //
+            strcat( HalDirectoryPath,
+#ifdef _X86_
+                    WINNT_OEM_DIR
+#else
+                    WINNT_OEM_TEXTMODE_DIR
+#endif
+                  );
+            strcat( HalDirectoryPath, "\\" );
+        }
         SlPromptOemHal(&HalBase, &HalName);
         strcat(HalDirectoryPath,HalName);
+
+
     } else {
+
         strcat(HalDirectoryPath,HalName);
         SlGetDisk(HalName);
         BlOutputLoadMessage(BlFindMessage(SL_HAL_NAME), HalDirectoryPath);
@@ -567,7 +749,7 @@ Return Value:
         //
 
         //
-        // BUGBUG John Vert (jvert) 4-Feb-1994
+        // NOTE John Vert (jvert) 4-Feb-1994
         //  Below call assumes all the PALs are on
         //  the same floppy.  We really should check the SIF
         //  file and go immediately to the diskette prompt
@@ -671,13 +853,13 @@ Return Value:
                 OemPal->Files = OemPalFile;
 
                 OemPalFile->Next = NULL;
-                OemPalFile->Filename = PalFileName;
+                OemPalFile->Filename = SlCopyString(PalFileName);
                 OemPalFile->FileType = HwFileMax;
                 OemPalFile->ConfigName = NULL;
                 OemPalFile->RegistryValueList = NULL;
-                OemPalFile->DiskDescription = DiskDescription;
+                OemPalFile->DiskDescription = SlCopyString(DiskDescription);
                 OemPalFile->DiskTagfile = NULL;
-                OemPalFile->Directory = "";
+                OemPalFile->Directory = SlCopyString("");
             }
         }
 
@@ -685,8 +867,8 @@ Return Value:
             SlFriendlyError(
                 Status,
                 PalFileName,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
             goto LoadFailed;
         }
@@ -836,6 +1018,17 @@ Return Value:
                              L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\setupdd");
 
     //
+    // Load the Winnt.SIF file *here*
+    //
+
+    //
+    //  Load bus extenders.
+    //  It has to be done before scsiport.sys
+    //
+
+    Status = SlLoadBusExtender( InfFile );
+
+    //
     // Load scsiport.sys next, so it'll always be around for any scsi miniports we may load
     //
     Status = SlLoadDriver(BlFindMessage(SL_SCSIPORT_NAME),
@@ -850,10 +1043,20 @@ Return Value:
     // (If the user wants to select their own SCSI devices, we won't
     // do any detection)
     //
-    if(!PromptOemScsi) {
+    if(!PromptOemScsi  && (PreinstallDriverList == NULL) ) {
         SlDetectScsi(SetupBlock);
     }
     SlDetectVideo(SetupBlock);
+
+#if defined(ELTORITO)
+    //
+    // If this is an El Torito CD-ROM install, then we want to load all SCSI miniports
+    // and disk class drivers.
+    //
+    if(ElToritoCDBoot) {
+        LoadScsiMiniports = TRUE;
+    }
+#endif
 
     //
     // If the LoadScsi flag is set, enumerate all the known SCSI miniports and load each
@@ -870,7 +1073,7 @@ Return Value:
     //
     // Allow the user to pick an OEM SCSI driver here
     //
-    if (PromptOemScsi) {
+    if (PromptOemScsi || (PreinstallDriverList != NULL) ) {
         SlPromptOemScsi(&OemScsiInfo);
     }
 
@@ -903,14 +1106,17 @@ Return Value:
                                   );
         }
 
-        if (Status==ESUCCESS) {
+        if((Status == ESUCCESS)
+        || ((Status == ENOENT) && IgnoreMissingFiles && !ScsiDevice->ThirdPartyOptionSelected)) {
+
             SetupBlock->ScalarValues.LoadedScsi = 1;
+
         } else {
             SlFriendlyError(
                 Status,
-                ScsiDevice->Description,
-                0,
-                NULL
+                ScsiDevice->BaseDllName,
+                __LINE__,
+                __FILE__
                 );
             goto LoadFailed;
         }
@@ -974,8 +1180,8 @@ Return Value:
                 SlFriendlyError(
                     Status,
                     VideoFileName,
-                    0,
-                    NULL
+                    __LINE__,
+                    __FILE__
                     );
                 goto LoadFailed;
             }
@@ -1012,8 +1218,8 @@ Return Value:
             SlFriendlyError(
                 Status,
                 VGA_DRIVER_FILENAME,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
             goto LoadFailed;
         }
@@ -1039,8 +1245,8 @@ Return Value:
         SlFriendlyError(
              Status,
              "floppy.sys",
-             0,
-             NULL
+             __LINE__,
+             __FILE__
              );
         goto LoadFailed;
     }
@@ -1074,8 +1280,8 @@ Return Value:
         SlFriendlyError(
              Status,
              "i8042prt.sys",
-             0,
-             NULL
+             __LINE__,
+             __FILE__
              );
         goto LoadFailed;
     }
@@ -1089,8 +1295,8 @@ Return Value:
         SlFriendlyError(
              Status,
              "kbdclass.sys",
-             0,
-             NULL
+             __LINE__,
+             __FILE__
              );
         goto LoadFailed;
     }
@@ -1108,8 +1314,8 @@ Return Value:
         SlFriendlyError(
              Status,
              "fastfat.sys",
-             0,
-             NULL
+             __LINE__,
+             __FILE__
              );
         goto LoadFailed;
     }
@@ -1151,6 +1357,17 @@ Return Value:
     SlpMarkDisks();
 
     //
+    // If setup was started from a CD-ROM, generate an entry in the ARC disk
+    // information list describing the cd-rom.
+    //
+    if (!BlGetPathMnemonicKey(SetupDevice,
+                              "cdrom",
+                              &BootDriveNumber)) {
+        BlReadSignature(SetupDevice,TRUE);
+    }
+
+
+    //
     //
     // Execute the architecture specific setup code.
     //
@@ -1160,11 +1377,17 @@ Return Value:
         SlFriendlyError(
             Status,
             "\"Windows NT Executive\"",
-            0,
-            NULL
+             __LINE__,
+             __FILE__
             );
         goto LoadFailed;
     }
+
+    //
+    // Turn off the debugging system.
+    //
+
+    BlLogTerminate();
 
     //
     // Transfer control to loaded image.
@@ -1176,8 +1399,8 @@ Return Value:
     SlFriendlyError(
         Status,
         "\"Windows NT Executive\"",
-        0,
-        NULL
+        __LINE__,
+        __FILE__
         );
 
 LoadFailed:
@@ -1562,7 +1785,7 @@ Routine Description:
 
     Given a filename, this routine ensures that the correct disk is
     in the drive identified by the global variables BootDevice and
-    BootDeviceId.  The user may be prompted to change disks.
+    BootDeviceId. The user may be prompted to change disks.
 
 Arguments:
 
@@ -1581,6 +1804,7 @@ Return Value:
     PCHAR DiskName;
     PCHAR DiskTag;
     ULONG FileId;
+    CHAR PlatformSpecificSection[128];
 
     //
     // If the media is fixed, the user can't change disks.
@@ -1591,30 +1815,64 @@ Return Value:
     }
 
     //
-    // Look up filename to get the disk number.
+    // Look up filename to get the disk number. Look in the platform-specific
+    // directory first.
     //
-    DiskNumber = SlGetSectionKeyIndex(InfFile,"Files",Filename,2);
+    strcpy(PlatformSpecificSection,FilesSectionName);
+    strcat(PlatformSpecificSection,PlatformExtension);
+
+#if defined(ELTORITO)
+    if (ElToritoCDBoot) {
+        // for Cd boot we use the setup media path instead of a boot-media-specific path
+        DiskNumber = SlGetSectionKeyIndex(InfFile,PlatformSpecificSection,Filename,0);
+    } else {
+#endif
+
+    DiskNumber = SlGetSectionKeyIndex(InfFile,PlatformSpecificSection,Filename,6);
+
+#if defined(ELTORITO)
+    }
+#endif
+
+    if(DiskNumber == NULL) {
+
+#if defined(ELTORITO)
+        if (ElToritoCDBoot) {
+            // for Cd boot we use the setup media path instead of a boot-media-specific path
+            DiskNumber = SlGetSectionKeyIndex(InfFile,FilesSectionName,Filename,0);
+        } else {
+#endif
+
+        DiskNumber = SlGetSectionKeyIndex(InfFile,FilesSectionName,Filename,6);
+
+#if defined(ELTORITO)
+        }
+#endif
+
+    }
 
     if((DiskNumber==NULL) || !(*DiskNumber)) {
-        SlFatalError(SL_INF_ENTRY_MISSING,Filename,"Files");
+        SlFatalError(SL_INF_ENTRY_MISSING,Filename,FilesSectionName);
         return(FALSE);
     }
 
     //
-    // Look up disk number to get the diskname, tag, and directory
+    // Look up disk number to get the diskname and tag.
+    // Look in platform-specific directory first.
     //
-    DiskName = SlGetIniValue(InfFile,
-                             "Media",
-                             DiskNumber,
-                             NULL);
-    if (DiskName==NULL) {
-        SlFatalError(SL_INF_ENTRY_MISSING,DiskNumber,"Media");
-        return(FALSE);
+    strcpy(PlatformSpecificSection,MediaSectionName);
+    strcat(PlatformSpecificSection,PlatformExtension);
+
+    if(DiskName = SlGetSectionKeyIndex(InfFile,PlatformSpecificSection,DiskNumber,0)) {
+        DiskTag = SlGetSectionKeyIndex(InfFile,PlatformSpecificSection,DiskNumber,1);
+    } else {
+        if(DiskName = SlGetSectionKeyIndex(InfFile,MediaSectionName,DiskNumber,0)) {
+            DiskTag = SlGetSectionKeyIndex(InfFile,MediaSectionName,DiskNumber,1);
+        } else {
+            SlFatalError(SL_INF_ENTRY_MISSING,DiskNumber,MediaSectionName);
+            return(FALSE);
+        }
     }
-    DiskTag = SlGetSectionKeyIndex(InfFile,
-                                   "Media",
-                                   DiskNumber,
-                                   1);
 
     while(1) {
 
@@ -1748,7 +2006,7 @@ Return Value:
         DriverFilename = SlGetSectionLineIndex(Inf,LoadSectionName,i,SIF_FILENAME_INDEX);
         NoLoadSpec = SlGetSectionLineIndex(Inf,LoadSectionName,i,2);
 
-        if(DriverFilename && ((NoLoadSpec == NULL) || stricmp(NoLoadSpec,"noload"))) {
+        if(DriverFilename && ((NoLoadSpec == NULL) || _stricmp(NoLoadSpec,"noload"))) {
 
             if(!IsScsiSection) {
                 //
@@ -1761,6 +2019,10 @@ Return Value:
                                       0,
                                       TRUE
                                       );
+
+                if((Status == ENOENT) && IgnoreMissingFiles) {
+                    Status = ESUCCESS;
+                }
             } else {
                 Status = ESUCCESS;
             }
@@ -1781,7 +2043,7 @@ Return Value:
                         //
                         // Sanity check to make sure we're talking about the same driver
                         //
-                        if(strcmpi(ScsiDevice->BaseDllName, DriverFilename)) {
+                        if(_strcmpi(ScsiDevice->BaseDllName, DriverFilename)) {
                             SlError(400);
                             return EINVAL;
                         }
@@ -1813,8 +2075,8 @@ Return Value:
                 SlFriendlyError(
                     Status,
                     DriverFilename,
-                    0,
-                    NULL
+                    __LINE__,
+                    __FILE__
                     );
                 return(Status);
             }
@@ -1883,7 +2145,7 @@ Return Value:
                 //
                 CheckEntry = Entry->Flink;
                 while (CheckEntry != &DiskInfo->DiskSignatures) {
-                    CheckSignature = CONTAINING_RECORD(Entry,ARC_DISK_SIGNATURE,ListEntry);
+                    CheckSignature = CONTAINING_RECORD(CheckEntry,ARC_DISK_SIGNATURE,ListEntry);
                     if ((CheckSignature->Signature==0) &&
                         (CheckSignature->ValidPartitionTable) &&
                         (CheckSignature->CheckSum == DiskSignature->CheckSum)) {
@@ -1979,7 +2241,7 @@ Return Value:
     // Read in the first sector
     //
     Sector = ALIGN_BUFFER(SectorBuffer);
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = ArcSeek(DiskId, &SeekValue, SeekAbsolute);
     if (Status == ESUCCESS) {
         Status = ArcRead(DiskId, Sector, 512, &Count);
@@ -2090,7 +2352,7 @@ ReScan:
     // Read in the first sector
     //
     Sector = ALIGN_BUFFER(SectorBuffer);
-    SeekValue = RtlConvertUlongToLargeInteger(0);
+    SeekValue.QuadPart = 0;
     Status = ArcSeek(DiskId, &SeekValue, SeekAbsolute);
     if (Status == ESUCCESS) {
         Status = ArcRead(DiskId,Sector,512,&Count);
@@ -2233,5 +2495,32 @@ Return Value:
     (*pScsiDevice)->Ordinal = Ordinal;
 
     return ScsiInsertNewEntry;
+}
+
+
+ARC_STATUS
+SlLoadBusExtender(
+    IN PVOID Inf
+    )
+
+/*++
+
+Routine Description:
+
+    Loads all known extender drivers.
+
+Arguments:
+
+    Inf - Supplies a handle to the INF file.
+
+
+Return Value:
+
+    ESUCCESS if all drivers were loaded successfully/no errors encountered
+
+--*/
+
+{
+    return( SlLoadSection(Inf,"Extenders",FALSE) );
 }
 

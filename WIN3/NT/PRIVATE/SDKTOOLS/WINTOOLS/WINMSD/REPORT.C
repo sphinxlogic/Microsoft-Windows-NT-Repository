@@ -41,40 +41,40 @@ Environment:
 #include "resprint.h"
 #include "environ.h"
 #include "network.h"
-#include "system.h"
 
 #include <commdlg.h>
 
 #include <string.h>
 #include <tchar.h>
+#include <lmerr.h>
+
+//
+// Global Variables
+//
 
 LPREPORT_LINE lpReportHeadg;
 LPREPORT_LINE lpReportLastg = NULL;
 
-//
-// Table of report Id's
-//
+BOOL bAbortReport;
 
-int ReportControlIds[ ] = {
+HWND volatile hdlgProgress;
 
-        IDC_RADIO_ALL,
-        IDC_CHECK_OSVER,
-        IDC_CHECK_HARDWARE,
-        IDC_CHECK_MEMORY,
-        IDC_CHECK_DRIVERS,
-        IDC_CHECK_SERVICES,
-        IDC_CHECK_DRIVES,
-        IDC_CHECK_DEVICES,
-        IDC_CHECK_IRQ,
-        IDC_CHECK_DMA,
-        IDC_CHECK_ENVIRONMENT,
-        IDC_CHECK_NETWORK,
-        IDC_CHECK_SYSTEM
-};
+LRESULT
+CALLBACK
+ProgressDialogProc(
+        HWND hwndDlg,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam
+            );
 
-SELECT_REPORT  SelectReport [ NUM_REPORT_ITEMS ];
 
-
+long WINAPI
+ProgressThread(
+      VOID
+      );
+
+
 BOOL
 ReportDlgProc(
     IN HWND hWnd,
@@ -87,7 +87,7 @@ ReportDlgProc(
 
 Routine Description:
 
-    ReportDlgProc allows the selection of what the report will contain.
+    ReportDlgProc allows the selection of report options.
 
 Arguments:
 
@@ -105,9 +105,16 @@ Return Value:
     BOOL   Success;
     int    i;
 
-    switch( message ) {
+    static
+    UINT   iScope = IDC_ALL_TABS;
 
-    CASE_WM_CTLCOLOR_DIALOG;
+    static
+    UINT   iDetailLevel = IDC_SUMMARY_REPORT;
+
+    static
+    UINT   iDestination = IDC_SEND_TO_PRINTER;
+
+    switch( message ) {
 
     case WM_INITDIALOG:
         {
@@ -122,6 +129,7 @@ Return Value:
             //
 
             Success = ( ReportType == IDM_FILE_PRINT ) ||
+                      ( ReportType == IDC_PUSH_PRINT ) ||
                       ( ReportType == IDM_FILE_SAVE );
 
             DbgAssert( Success );
@@ -131,92 +139,64 @@ Return Value:
             }
 
             //
-            // Set the title depending on weather we are Save or Print.
+            // Initial settings.
             //
+
+            SetDlgItemText( hWnd, IDC_SYSTEM_NAME, _lpszSelectedComputer);
+
+            Success = CheckRadioButton(
+                hWnd,
+                IDC_CURRENT_TAB,
+                IDC_ALL_TABS,
+                iScope
+                );
+            DbgAssert( Success );
+
+            Success = CheckRadioButton(
+                hWnd,
+                IDC_SUMMARY_REPORT,
+                IDC_COMPLETE_REPORT,
+                iDetailLevel
+                );
+            DbgAssert( Success );
+
 
             if ( ReportType == IDM_FILE_SAVE ) {
 
-                Success = SetWindowText(
-                            hWnd,
-                            GetString( IDS_SAVE_REPORT_OPTS )
-                            );
+               Success = CheckRadioButton(
+                               hWnd,
+                               IDC_SEND_TO_FILE,
+                               IDC_SEND_TO_PRINTER,
+                               IDC_SEND_TO_FILE
+                               );
+               DbgAssert( Success );
+               iDestination = IDC_SEND_TO_FILE;
+
             } else {
 
-                Success = SetWindowText(
-                            hWnd,
-                            GetString( IDS_PRINT_REPORT_OPTS )
-                            );
-            }
+               Success = CheckRadioButton(
+                               hWnd,
+                               IDC_SEND_TO_FILE,
+                               IDC_SEND_TO_PRINTER,
+                               IDC_SEND_TO_PRINTER
+                               );
+               DbgAssert( Success );
+               iDestination = IDC_SEND_TO_PRINTER;
 
-            DbgAssert( Success );
+            }
 
             if( Success == FALSE ) {
                 return FALSE;
             }
-
-            //
-            // By default select all items to be reported.
-            //
-
-            Success = CheckRadioButton(
-                            hWnd,
-                            IDC_RADIO_ALL,
-                            IDC_RADIO_ONLY,
-                            IDC_RADIO_ALL
-                            );
-            DbgAssert( Success );
-
-            if( Success == FALSE ) {
-                return FALSE;
-            }
-
-            //
-            // Set SelectReport so that all reports are selected by default.
-            //
-
-            for( i = 0; i < NumberOfEntries( ReportControlIds ); i++ ) {
-
-               SelectReport[ i ].ControlId = ReportControlIds [ i ];
-
-               SelectReport[ i ].bSelected = TRUE;
-            }
-
-            //
-            // Simulate that the ALL radio button was clicked.
-            //
-
-            SendMessage(
-                    hWnd,
-                    WM_COMMAND,
-                    MAKEWPARAM( IDC_RADIO_ALL, BN_CLICKED ),
-                    ( LPARAM ) GetDlgItem( hWnd, IDC_RADIO_ALL )
-                    );
 
             return TRUE;
             }
+
     case WM_COMMAND:
 
         switch( LOWORD( wParam )) {
 
         case IDOK: {
-
-             //
-             // Check and see if the RADIO_ONLY button is selected
-             //
-
-             if ( IsDlgButtonChecked ( hWnd, IDC_RADIO_ONLY ) ) {
-
-                 //
-                 // Scan the controls and set the SelectReport status.
-                 //
-
-                 for( i = 0; i < NumberOfEntries( ReportControlIds ); i++ ) {
-
-                     SelectReport[ i ].bSelected =
-                          IsDlgButtonChecked ( hWnd,
-                          SelectReport[ i ].ControlId );
-                 }
-             }
 
              EndDialog ( hWnd, 1 ) ;
 
@@ -224,7 +204,7 @@ Return Value:
              // Generate the report.
              //
 
-             Success = GenerateReport ( hWnd, ReportType, SelectReport );
+             Success = GenerateReport ( GetParent( hWnd ), iDestination, iScope, iDetailLevel, FALSE );
 
              if( Success == FALSE ) {
                  return FALSE;
@@ -233,46 +213,65 @@ Return Value:
              return TRUE;
 
              }
-        case IDCANCEL:
+
+        case IDC_CURRENT_TAB:
+        case IDC_ALL_TABS:
+               Success = CheckRadioButton(
+                               hWnd,
+                               IDC_CURRENT_TAB,
+                               IDC_ALL_TABS,
+                               LOWORD( wParam )
+                               );
+               DbgAssert( Success );
+               iScope = LOWORD( wParam );
+               break;
+
+        case IDC_SUMMARY_REPORT:
+        case IDC_COMPLETE_REPORT:
+               Success = CheckRadioButton(
+                               hWnd,
+                               IDC_SUMMARY_REPORT,
+                               IDC_COMPLETE_REPORT,
+                               LOWORD( wParam )
+                               );
+               DbgAssert( Success );
+               iDetailLevel = LOWORD( wParam );
+               break;
+
+        case IDC_SEND_TO_FILE:
+        case IDC_CLIPBOARD:
+        case IDC_SEND_TO_PRINTER:
+               Success = CheckRadioButton(
+                               hWnd,
+                               IDC_SEND_TO_FILE,
+                               IDC_SEND_TO_PRINTER,
+                               LOWORD( wParam )
+                               );
+               DbgAssert( Success );
+               iDestination = LOWORD( wParam );
+               break;
+
+       case IDCANCEL:
 
             EndDialog( hWnd, 1 );
             return TRUE;
 
-        case IDC_RADIO_ALL:
-        case IDC_RADIO_ONLY:
-            {
+       }
 
-                DbgAssert(
-                       LOWORD( wParam ) == IDC_RADIO_ALL ||
-                       LOWORD( wParam ) == IDC_RADIO_ONLY );
 
-                 //
-                 // Enable or disable the checkboxes.
-                 //
-
-                 for ( i  = IDC_CHECK_OSVER; i <= IDC_CHECK_SYSTEM; i++ )
-
-                	EnableWindow(
-                	    GetDlgItem ( hWnd,  i ),
-                	    (LOWORD( wParam ) == IDC_RADIO_ONLY
-                              ? TRUE
-                              : FALSE)
-                              ) ;
-
-            }
-        }
     }
     return FALSE;
 }
 
-
+
 BOOL
 GenerateReport(
     IN HWND hWnd,
-    IN UINT ReportType,
-    IN SELECT_REPORT  SelectReport []
+    IN UINT iDestination,
+    IN UINT iScope,
+    IN UINT iDetailLevel,
+    IN BOOL bCallFromCommandLine
     )
-
 /*++
 
 Routine Description:
@@ -281,7 +280,11 @@ Routine Description:
 
 Arguments:
 
-
+    IN HWND hWnd                 - handle of main window
+    IN UINT iDestination         - report desitination
+    IN UINT iScope               - single tab or all tabs?
+    IN UINT iDetailLevel         - summary or all details
+    IN BOOL bCallFromCommandLine - Was this function called because of command line options?
 
 Return Value:
 
@@ -292,24 +295,41 @@ Return Value:
 {
 
     BOOL          Success;
-    TCHAR         Title  [ MAX_PATH ];
-    TCHAR         RptFileName[ MAX_PATH ];
+    TCHAR         Title  [ MAX_PATH*2 ];
+    TCHAR         RptFileName[ MAX_PATH*2 ];
     HDC           PrinterDC;
     int           i;
+    DLGHDR        *pHdr = (DLGHDR *) GetWindowLong( hWnd, GWL_USERDATA );
+    HANDLE        hProgressThread;
+    HCURSOR       hSaveCursor;
+	TC_ITEM		  tci;
+
+    //
+    // Initialize the abort flag
+    //
+
+    bAbortReport = FALSE;
 
     //
     // Make sure we get a valid filename or hPrinter
     //
 
-    if ( ReportType == IDM_FILE_SAVE ) {
+    if ( iDestination == IDC_SEND_TO_FILE ) {
 
-        Success = GetReportFileName ( hWnd, RptFileName );
+       if (bCallFromCommandLine) {
+          lstrcpy( RptFileName, _lpszSelectedComputer+2 );
+          lstrcat( RptFileName, L".TXT" );
 
-        if ( ! Success )
-            return FALSE;
+       } else {
+          Success = GetReportFileName ( hWnd, RptFileName );
+
+          if ( ! Success )
+             return FALSE;
+       }
 
     }
-    if ( ReportType == IDM_FILE_PRINT ) {
+
+    if ( iDestination == IDC_SEND_TO_PRINTER ) {
 
         //
         // If its a printed report, get the default printer DC
@@ -319,8 +339,33 @@ Return Value:
 
         if ( ! Success )
            return FALSE;
-
     }
+
+    UpdateWindow( hWnd );
+
+    //
+    // Display the modeless progress / cancel dialog
+    //
+
+    hdlgProgress = 0;
+
+    hProgressThread = CreateThread( NULL,
+                                    0,
+                                    (LPTHREAD_START_ROUTINE) ProgressThread,
+                                    NULL,
+                                    0,
+                                    &i);
+
+    //
+    // Disable the application's window.
+    //
+
+    EnableWindow( hWnd, FALSE );
+
+    //
+    // Wait until dialog appears
+    //
+    while(!hdlgProgress);
 
     //
     // Initialize the report head pointer.
@@ -352,19 +397,13 @@ Return Value:
 
     DbgAssert( Success );
 
-    if ( ! Success )
-        return FALSE;
-
     //
     // Add the title.
     //
 
-    Success = AddLineToReport( 0, RFO_CENTER | RFO_SINGLELINE,  Title, NULL );
+    Success = AddLineToReport( 0, RFO_SINGLELINE,  Title, NULL );
 
     DbgAssert( Success );
-
-    if ( ! Success )
-        return FALSE;
 
     //
     // Add a separator.
@@ -374,186 +413,111 @@ Return Value:
 
     DbgAssert( Success );
 
-    if ( ! Success )
-        return FALSE;
-
     //
-    // Find out which reports to do
+    // Call selected report functions
     //
 
-    for ( i = 0; i < NUM_REPORT_ITEMS; ++i ) {
+    if (iScope == IDC_CURRENT_TAB) {
+		//
+		//get the proper index to the appropriate procs
+		//that were set in MakeTabs
+		//
+		tci.mask = TCIF_PARAM;
+		i = TabCtrl_GetCurSel( pHdr->hwndTab );
+		TabCtrl_GetItem(pHdr->hwndTab, i, &tci);			
 
-        if ( SelectReport[ i ].bSelected ) {
+		pHdr->TabPrintProc[ tci.lParam ]( GetParent( hWnd ), iDetailLevel);
 
-            switch( SelectReport[ i ].ControlId ) {
+    } 
+	else 
+	{
+		// cycle through all the active tabs 
 
-                case IDC_CHECK_OSVER: {
+		for (i = 0; i < TabCtrl_GetItemCount(pHdr->hwndTab); i++) 
+		{
+			tci.mask = TCIF_PARAM;
+			TabCtrl_GetItem(pHdr->hwndTab, i, &tci);	
 
-                     //
-                     // Add the OsVer Report to the report buffer
-                     //
+			SendMessage(GetDlgItem(hdlgProgress, IDD_REPORT_PROGRESS), PBM_STEPIT, 0, 0);
 
-                     Success = BuildOsVerReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-                case IDC_CHECK_HARDWARE: {
+			pHdr->TabPrintProc[ tci.lParam ]( GetParent( hWnd ), iDetailLevel);
 
-                     //
-                     // Add the Hardware Report to the report buffer
-                     //
-
-                     Success = BuildHardwareReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-                case IDC_CHECK_MEMORY: {
-
-                     //
-                     // Add the Memory Report to the report buffer
-                     //
-
-                     Success = BuildMemoryReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_DRIVERS: {
-
-                     //
-                     // Add the Drivers Report to the report buffer
-                     //
-
-                     Success = BuildDriversReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_SERVICES: {
-
-                     //
-                     // Add the Services Report to the report buffer
-                     //
-
-                     Success = BuildServicesReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_DRIVES: {
-
-                     //
-                     // Add the Drives Report to the report buffer
-                     //
-
-                     Success = BuildDrivesReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_DEVICES: {
-
-                     //
-                     // Add the Devices Report to the report buffer
-                     //
-
-                     Success = BuildDevicesReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_IRQ: {
-
-                     //
-                     // Add the IRQ Report to the report buffer
-                     //
-
-                     Success = BuildIRQReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_DMA: {
-
-                     //
-                     // Add the DMA Report to the report buffer
-                     //
-
-                     Success = BuildDMAReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_ENVIRONMENT: {
-
-                     //
-                     // Add the Environment Report to the report buffer
-                     //
-
-                     Success = BuildEnvironmentReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_NETWORK: {
-
-                     //
-                     // Add the Network Report to the report buffer
-                     //
-
-                     Success = BuildNetworkReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-
-                case IDC_CHECK_SYSTEM: {
-
-                     //
-                     // Add the System Report to the report buffer
-                     //
-
-                     Success = BuildSystemReport( hWnd ) ;
-                     DbgAssert ( Success );
-                     break;
-                     }
-                 }
-            }
+			//
+			// Check to see if we need to abort
+			//
+			if (bAbortReport)
+			{
+				goto AbortReport;
+			}
+		}
     }
+
+    //
+    // Check to see if we need to abort
+    //
+
+    if (bAbortReport)
+	{
+       goto AbortReport;
+	}
 
     //
     // See if there is anything to report.
     // The title and header take up 4 lines.
     //
 
-    if ( NumReportLines( lpReportHeadg ) < 5 ) {
-
-        DbgAssert( FALSE );
-
-        return FALSE;
+    if ( NumReportLines( lpReportHeadg ) < 5 ) 
+	{
+        Success = FALSE;
+        goto AbortReport;
     }
 
     //
     // Set up to save report to a file
     //
 
-    if ( ReportType == IDM_FILE_SAVE ) {
+    switch (iDestination) {
 
-        Success = SaveReportToFile( hWnd, lpReportHeadg, RptFileName );
-    // BUGBUG: Need to FreeReport( lpReportHeadg ); on !Success.
-        return Success;
+    case IDC_SEND_TO_FILE:
+       Success = SaveReportToFile( hWnd, lpReportHeadg, RptFileName );
+       break;
+
+    case IDC_SEND_TO_PRINTER:
+       Success = PrintReportToPrinter( hWnd, lpReportHeadg, PrinterDC );
+       break;
+
+    case IDC_CLIPBOARD:
+       Success = CopyReportToClipboard( hWnd, lpReportHeadg );
+       break;
+
+    default:
+       Success = FALSE;
+       break;
     }
 
-    if ( ReportType == IDM_FILE_PRINT ) {
+AbortReport:
 
-        Success = PrintReportToPrinter( hWnd, lpReportHeadg, PrinterDC );
+    //
+    // Re-enable the application's window.
+    //
 
-        return Success;
-    }
+    EnableWindow( hWnd, TRUE );
 
-    return FALSE;
+    //
+    // Remove the Progress window and thread.
+    //
+    SendMessage( hdlgProgress, WM_CLOSE, 0, 0 );
+    TerminateThread( hProgressThread, 0 );
+
+    //
+    // Set the focus on the OK button on main window
+    //
+    SetFocus( GetDlgItem( _hWndMain, IDOK) );
+
+    return Success;
 }
 
-
+
 BOOL
 SaveReportToFile(
     IN HWND   hWnd,
@@ -581,7 +545,7 @@ Return Value:
 {
 
     HANDLE hReportFile;
-    TCHAR  Buffer [ MAX_PATH ];
+    TCHAR  Buffer [ MAX_PATH*2 ];
     DWORD  dwLastError;
     BOOL   Success;
 
@@ -601,8 +565,6 @@ Return Value:
     // Check Handle
     //
 
-    DbgHandleAssert( hReportFile );
-
     if ( hReportFile == INVALID_HANDLE_VALUE ) {
 
         //
@@ -616,12 +578,12 @@ Return Value:
         //
 
         wsprintf( Buffer, GetString( IDS_FILE_OPEN_ERROR ), dwLastError );
-        MessageBox( hWnd, GetString( IDS_SAVE_REPORT_ERROR ), Buffer, MB_OK );
+        MessageBox( hWnd, Buffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
 
         return FALSE;
     }
 
-    Success = OutputReportLines( hWnd, hReportFile, IDM_FILE_SAVE, lpReportHead );
+    Success = OutputReportLines( hWnd, hReportFile, IDC_SEND_TO_FILE, lpReportHead );
 
     //
     // See if the write succeded.
@@ -640,7 +602,8 @@ Return Value:
         //
 
         wsprintf( Buffer, GetString( IDS_FILE_WRITE_ERROR ), dwLastError );
-        MessageBox( hWnd, GetString( IDS_SAVE_REPORT_ERROR ), Buffer, MB_OK );
+        MessageBox( hWnd, Buffer, GetString( IDS_APPLICATION_FULLNAME ), MB_OK | MB_ICONSTOP );
+
 
         CloseHandle( hReportFile );
 
@@ -659,6 +622,81 @@ Return Value:
 
     return TRUE;
 }
+
+BOOL
+CopyReportToClipboard(
+    IN HWND   hWnd,
+    IN LPREPORT_LINE lpReportHead
+    )
+
+/*++
+
+Routine Description:
+
+    CopyReportToClipboard formats the report data and copies it to the clipboard.
+
+Arguments:
+
+    hWnd           - Handle to window
+    ReportFileName - Name of file to save report to.
+
+Return Value:
+
+    BOOL - True if report was copied to the clipboard successfully, FALSE otherwise.
+
+--*/
+
+{
+
+   HANDLE  hReportFile;
+   TCHAR   szBuffer [ MAX_PATH*2 ];
+   DWORD   dwLastError;
+   BOOL    Success;
+   LPTSTR  lptstrCopy;
+   HGLOBAL hglbCopy;
+   UINT    nLines = NumReportLines( lpReportHead );
+
+
+
+   //
+   // Open the clipboard, and empty it.
+   //
+   if (!OpenClipboard(hWnd))
+     return FALSE;
+   EmptyClipboard();
+
+   //
+   // Allocate a global memory object for the text.
+   //
+   hglbCopy = GlobalAlloc(GMEM_DDESHARE | GMEM_ZEROINIT, 1024 * nLines );
+
+   if (hglbCopy == NULL) {
+      CloseClipboard();
+      return FALSE;
+   }
+
+   //
+   // Lock the handle and copy the text to the buffer.
+   //
+   lptstrCopy = GlobalLock(hglbCopy);
+
+   Success = OutputReportLines( hWnd, lptstrCopy, IDC_CLIPBOARD, lpReportHead );
+
+   GlobalUnlock(hglbCopy);
+
+   //
+   // Place the handle on the clipboard.
+   //
+   SetClipboardData(CF_UNICODETEXT, hglbCopy);
+
+   //
+   // Close the clipboard.
+   //
+   CloseClipboard();
+
+   return TRUE;
+}
+
 
 
 BOOL
@@ -690,7 +728,7 @@ Return Value:
     //
 
     OPENFILENAME    Ofn;
-    TCHAR           FileName[ MAX_PATH ];
+    TCHAR           FileName[ MAX_PATH*2 ];
     LPCTSTR         FilterString;
     TCHAR           ReplaceChar;
     int             Length;
@@ -784,7 +822,7 @@ Return Value:
     Ofn.nMaxFileTitle       = 0;
     Ofn.lpstrInitialDir     = NULL;
     Ofn.lpstrTitle          = GetString( IDS_FILE_REPORT_TITLE );
-    Ofn.Flags               = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY ;
+    Ofn.Flags               = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST;
     Ofn.nFileOffset         = 0;
     Ofn.nFileExtension      = 0;
     Ofn.lpstrDefExt         = NULL;
@@ -834,7 +872,7 @@ Routine Description:
 Arguments:
 
     hWnd   - Handle to window.
-    Device - Handle to device to write to (hFile or hPrinterDC).
+    Device - Handle to device to write to (hFile or hPrinterDC or pointer to clipboard data).
     Destination - Indicates file or printer.
     ReportHead  - Head pointer to report.
 
@@ -847,10 +885,10 @@ Return Value:
 {
 
     LPREPORT_LINE lpNode, lpNext;
-    TCHAR         LineBuffer [ MAX_PATH ];
+    TCHAR         LineBuffer [ MAX_PATH*2+4];
     UINT          LinesToPrint;
     UINT          u;
-    BOOL          Success;
+    BOOL          Success = TRUE;
 
     //
     // Prepare to walk the ReportLine linked list.
@@ -916,27 +954,49 @@ Return Value:
             //
             // Send the line to the device
             //
+            switch( Destination ) {
 
-            if( Destination == IDM_FILE_PRINT ) {
+            case IDC_SEND_TO_PRINTER:
+               Success = PrintLine( hDevice, LineBuffer );
+               DbgAssert( Success );
+               break;
 
-                //
-                // Print it
-                //
+            case IDC_SEND_TO_FILE:
+               //
+               // Append a newline onto the end of the LineBuffer.
+               //
+               lstrcat( LineBuffer, L"\r\n" );
 
-                Success = PrintLine( hDevice, LineBuffer );
+               //
+               // Save it to the file.
+               //
+               Success = AnsiWriteFile( hDevice, (LPTSTR) LineBuffer );
 
-                DbgAssert( Success );
+               DbgAssert( Success );
 
-            } else {
+               break;
 
-                //
-                // Save it to the file.
-                //
+            case IDC_CLIPBOARD:
+               //
+               // Append a newline onto the end of the LineBuffer.
+               //
+               lstrcat( LineBuffer, L"\r\n" );
 
-                Success = AnsiWriteFile( hDevice, (LPTSTR) LineBuffer );
+               if (lstrlen( (LPTSTR) hDevice ) ) {
+                  lstrcat( (LPTSTR) hDevice, LineBuffer );
+               } else {
+                  lstrcpy( (LPTSTR) hDevice, LineBuffer );
+               }
 
-                DbgAssert( Success );
+               break;
+
+            defualt:
+
+               break;
+
             }
+
+
 
         }
 
@@ -999,6 +1059,22 @@ Return Value:
 
 {
      LPREPORT_LINE ReportNew;
+     LPTSTR        lpszNextValue;
+     BOOL          bMultilineValue = FALSE;
+
+
+     //
+     // Check to see if the value is multi-line
+     //
+     if ( FormatOpt & (RFO_RPTLINE | RFO_RPTVALUE) ) {
+
+        lpszNextValue = wcschr( Value, '\r');
+        if (lpszNextValue) {
+           bMultilineValue = TRUE;
+           *lpszNextValue++ = UNICODE_NULL;
+           lpszNextValue++;
+        }
+     }
 
      //
      // Validate Head (Global)
@@ -1073,8 +1149,12 @@ Return Value:
           //
 
           if( Label )
-              ReportNew->Label = _tcsdup( Label );
-
+		  {  
+              
+			  ReportNew->Label = (LPTSTR) LocalAlloc(LPTR, (lstrlen(Label)*sizeof(TCHAR)) + 2);
+  			  lstrcpyn( ReportNew->Label, Label,(lstrlen(Label)*sizeof(TCHAR)) );
+              
+		  }
           return TRUE;
      }
 
@@ -1085,7 +1165,18 @@ Return Value:
           //
 
           if( Value )
-              ReportNew->Value = _tcsdup( Value );
+		  {	  	
+ 			  ReportNew->Value = (LPTSTR) LocalAlloc( LPTR, (lstrlen(Value)*sizeof(TCHAR)) + 2);
+			  lstrcpyn( ReportNew->Value, Value, (lstrlen(Value)*sizeof(TCHAR)) );							
+		  }
+
+          //
+          // if this was a multi-line value, call function again with next line
+          //
+          if (bMultilineValue) 
+          { 
+               AddLineToReport(Indent, FormatOpt, Label, lpszNextValue);
+          }
 
           return TRUE;
      }
@@ -1093,14 +1184,29 @@ Return Value:
      if ( FormatOpt & RFO_RPTLINE ) {
 
           //
-          // RFO_RPTLINE - Add both Label an Value.
+          // RFO_RPTLINE - Add both Label and Value.
           //
-
           if( Label )
-              ReportNew->Label = _tcsdup( Label );
+		  {      
+			  ReportNew->Label = (LPTSTR) LocalAlloc(LPTR, (lstrlen(Label)*sizeof(TCHAR)) + 2);
+			  lstrcpyn( ReportNew->Label, Label,(lstrlen(Label)*sizeof(TCHAR)) );
+		  }
 
-          if( Value )
-              ReportNew->Value = _tcsdup( Value  );
+		  if( Value )
+		  {
+			  ReportNew->Value = (LPTSTR) LocalAlloc( LPTR, (lstrlen(Value)*sizeof(TCHAR)) + 2);
+   			  lstrcpyn( ReportNew->Value, Value, (lstrlen(Value)*sizeof(TCHAR))  );
+		  }
+
+          //
+          // if this was a multi-line value, call function again with next line
+          //
+          if (bMultilineValue) {
+
+               _wcsset( Label, ' ');
+               AddLineToReport(Indent, FormatOpt, Label, lpszNextValue);
+
+          }
 
           return TRUE;
     }
@@ -1155,6 +1261,7 @@ Return Value:
         //
         // Make sure the node is valid.
         //
+
 
         DbgAssert( CheckSignature( Node ) );
 
@@ -1305,7 +1412,7 @@ Return Value:
 
     int    i, iLen;
     UINT   u;
-    TCHAR  Buffer [ MAX_PATH ];
+    TCHAR  Buffer [ MAX_PATH*2 ];
 
     //
     // Validate the node and the buffer
@@ -1362,13 +1469,6 @@ Return Value:
              }
 
              //
-             // Append spaces to LineBuffer to pad for centering.
-             //
-
-             for( i = 0; i < 36; ++i )
-                 lstrcat( LineBuffer, L" " );
-
-             //
              // Append the string to the LineBuffer.
              //
 
@@ -1394,15 +1494,6 @@ Return Value:
 
                  return FALSE;
              }
-
-             iLen = 35 - lstrlen( lpNode->Label );
-
-             //
-             // Append spaces to LineBuffer to pad for centering.
-             //
-
-             for( i = 0; i < iLen; ++i )
-                 lstrcat( LineBuffer, L" " );
 
              //
              // Append the string to the padded LineBuffer.
@@ -1448,7 +1539,16 @@ Return Value:
 
              // BUGBUG: #define FILE_WIDTH
 
+#if defined(DBCS) && defined(UNICODE)
+             // Get number of bytes, not number of characters
+             iLen = 35 - (WideCharToMultiByte(CP_ACP,
+                                  WC_COMPOSITECHECK,
+                                  LineBuffer, -1,
+                                  NULL, 0,
+                                  NULL, NULL) / 2);
+#else
              iLen = 35 - (lstrlen( LineBuffer ) / 2);
+#endif
 
              //
              // Save a copy of the LineBuffer in Buffer.
@@ -1519,11 +1619,6 @@ Return Value:
             return FALSE;
         }
 
-        //
-        // Append a newline onto the end of the LineBuffer.
-        //
-
-        lstrcat( LineBuffer, L"\n" );
 }
 
 
@@ -1575,4 +1670,139 @@ Return Value:
 }
 
 
+long WINAPI
+ProgressThread(
+      VOID
+      )
+/*++
 
+Routine Description:
+
+    ProgressThread - entry point for thread tracking progress of report generation.
+
+Arguments:
+
+    None
+
+Return Value:
+
+    BOOL
+
+--*/
+
+
+{
+    MSG msg;
+
+    hdlgProgress = CreateDialog( _hModule,
+                                 (LPTSTR) L"AbortDlg",
+                                 NULL,
+                                 (DLGPROC) ProgressDialogProc );
+
+    SetForegroundWindow( hdlgProgress );
+
+    //
+    // Retrieve and remove messages from the thread's message queue.
+    //
+
+    while( GetMessage( &msg, hdlgProgress, 0, 0 )) {
+
+       if( ! IsDialogMessage( hdlgProgress, &msg ) ) {
+
+          TranslateMessage( &msg );
+          DispatchMessage( &msg );
+       }
+
+    }
+
+    return msg.wParam;
+
+}
+
+
+LRESULT
+CALLBACK
+ProgressDialogProc(
+        HWND hwndDlg,
+        UINT message,
+        WPARAM wParam,
+        LPARAM lParam
+            )
+
+/*++
+
+Routine Description:
+
+    ProgressDialogProc - handles the Progress dialog.
+
+Arguments:
+
+    Standard dialog entry
+
+Return Value:
+
+    BOOL - Depending on input message and processing options.
+
+--*/
+
+{
+   int     Success;
+
+   switch (message) {
+
+   case WM_INITDIALOG:
+        {
+            RECT rc;
+
+            GetWindowRect( _hWndMain, &rc);
+
+            Success = SetWindowPos(
+                            hwndDlg,
+                            _hWndMain,
+                            ( rc.left + 60 ),
+                            ( rc.top + 95 ),
+                            0,
+                            0,
+                            SWP_NOSIZE | SWP_SHOWWINDOW
+                            );
+
+            DbgAssert( Success );
+
+            //
+            // Initialize the static text control.
+            //
+
+            //SetDlgItemText( hwndDlg, IDD_FILE, GetString( IDS_DOC_TITLE ) );
+
+            return TRUE;
+
+       }
+
+     case WM_COMMAND:
+
+        if (wParam == IDD_CANCEL) {
+
+            //
+            // If we have hit the cancel button, flip the global flag to cancel,
+            // but do not close this dialog yet.  A message will be sent to kill
+            // this thread.
+            //
+
+            bAbortReport = TRUE;
+
+            SetDlgItemText( hwndDlg, IDD_FILE, GetString( IDS_CANCEL_REPORT ) );
+
+        }
+
+        break;
+
+   case WM_DESTROY:
+      PostQuitMessage(0);
+      return(0);
+
+   }
+
+
+   return FALSE;
+
+}

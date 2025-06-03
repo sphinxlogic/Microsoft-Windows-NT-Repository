@@ -29,6 +29,9 @@ ULONG SrvLogonCount = 0;
 ULONG SrvNullLogonCount = 0;
 #endif
 
+#define ROUND_UP_COUNT(Count,Pow2) \
+        ( ((Count)+(Pow2)-1) & (~((Pow2)-1)) )
+
 typedef struct _LOGON_INFO {
     PWCH WorkstationName;
     ULONG WorkstationNameLength;
@@ -42,15 +45,8 @@ typedef struct _LOGON_INFO {
     ULONG CaseSensitivePasswordLength;
     CHAR EncryptionKey[MSV1_0_CHALLENGE_LENGTH];
     LUID LogonId;
-
-#ifdef _CAIRO_
     CtxtHandle  Token;
     BOOLEAN     HaveHandle;
-    BOOLEAN HaveCairo;
-#else // _CAIRO_
-    HANDLE Token;
-#endif // _CAIRO_
-
     LARGE_INTEGER KickOffTime;
     LARGE_INTEGER LogOffTime;
     USHORT Action;
@@ -58,6 +54,7 @@ typedef struct _LOGON_INFO {
     BOOLEAN EncryptedLogon;
     BOOLEAN NtSmbs;
     BOOLEAN IsNullSession;
+    BOOLEAN IsAdmin;
     CHAR NtUserSessionKey[MSV1_0_USER_SESSION_KEY_LENGTH];
     CHAR LanManSessionKey[MSV1_0_LANMAN_SESSION_KEY_LENGTH];
 } LOGON_INFO, *PLOGON_INFO;
@@ -68,39 +65,25 @@ DoUserLogon (
     );
 
 
-#ifdef _CAIRO_
-
-#define CONTEXT_EQUAL(x,y)  (((x).dwLower == (y).dwLower) && ((x).dwUpper == (y).dwUpper))
-#define CONTEXT_NULL(x)     (((x).dwLower == 0) && ((x).dwUpper == 0))
 
 ULONG SrvHaveCreds = 0;
 #define HAVEKERBEROS 1
 #define HAVENTLM 2
 
-#endif // _CAIRO_
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvValidateUser )
 #pragma alloc_text( PAGE, DoUserLogon )
-
-#ifdef _CAIRO_
-
-#pragma alloc_text( PAGE, SrvValidateBlob )
+#pragma alloc_text( PAGE, SrvIsAdmin )
 #pragma alloc_text( PAGE, SrvFreeSecurityContexts )
 #pragma alloc_text( PAGE, AcquireLMCredentials )
-
-#endif // _CAIRO_
-
+#pragma alloc_text( PAGE, SrvValidateBlob )
+#pragma alloc_text( PAGE, SrvIsKerberosAvailable )
 #endif
 
 
 NTSTATUS
 SrvValidateUser (
-#ifdef _CAIRO_
     OUT CtxtHandle *Token,
-#else // _CAIRO_
-    OUT PHANDLE Token,
-#endif // _CAIRO_
     IN PSESSION Session OPTIONAL,
     IN PCONNECTION Connection OPTIONAL,
     IN PUNICODE_STRING UserName OPTIONAL,
@@ -211,18 +194,11 @@ Return Value:
 
     logonInfo.CaseInsensitivePassword = CaseInsensitivePassword;
     logonInfo.CaseInsensitivePasswordLength = CaseInsensitivePasswordLength;
+    logonInfo.HaveHandle = FALSE;
 
     if ( ARGUMENT_PRESENT(Action) ) {
         logonInfo.Action = *Action;
     }
-
-#ifndef _CAIRO_
-    //
-    // Initialize the Token handle to NULL in case the logon attempt fails.
-    //
-
-    logonInfo.Token = NULL;
-#endif // _CAIRO_
 
     //
     // Attempt the logon.
@@ -253,13 +229,11 @@ Return Value:
             Session->GuestLogon = logonInfo.GuestLogon;
             Session->EncryptedLogon = logonInfo.EncryptedLogon;
             Session->IsNullSession = logonInfo.IsNullSession;
+            Session->IsAdmin = logonInfo.IsAdmin;
 
-#ifdef _CAIRO_
             Session->HaveHandle = logonInfo.HaveHandle;
-            Session->HaveCairo = logonInfo.HaveCairo;
 
             Session->UserHandle = logonInfo.Token;
-#endif // _CAIRO_
 
             RtlCopyMemory(
                 Session->NtUserSessionKey,
@@ -310,13 +284,8 @@ Return Value:
 
 {
     NTSTATUS status, subStatus, freeStatus;
-    PMSV1_0_LM20_LOGON userInfo = NULL;
-    ULONG userInfoBufferLength;
     ULONG actualUserInfoBufferLength;
     ULONG oldSessionCount;
-    BOOLEAN sessionCountIncremented = FALSE;
-
-#ifdef _CAIRO_
     LUID LogonId;
     ULONG Catts;
     LARGE_INTEGER Expiry;
@@ -332,36 +301,13 @@ Return Value:
     ULONG InTokenSize;
     ULONG OutTokenSize;
     ULONG AllocateSize;
-#else // _CAIRO_
-    PMSV1_0_LM20_LOGON_PROFILE profileBuffer;
-#endif // _CAIRO_
 
     ULONG profileBufferLength;
 
     PAGED_CODE( );
 
     LogonInfo->IsNullSession = FALSE;
-
-#ifndef _CAIRO_
-    //
-    // If we didn't actually link with the security package, just return
-    // success.
-    //
-
-    if ( SrvLsaHandle == NULL ) {
-
-        LogonInfo->Token = NULL;
-
-        LogonInfo->KickOffTime.QuadPart = 0x7FFFFFFFFFFFFFFF;
-        LogonInfo->LogOffTime.QuadPart = 0x7FFFFFFFFFFFFFFF;
-
-        LogonInfo->GuestLogon = FALSE;
-        LogonInfo->EncryptedLogon = FALSE;
-
-        return STATUS_SUCCESS;
-
-    }
-#endif // _CAIRO_
+    LogonInfo->IsAdmin = FALSE;
 
 #if DBG
     SrvLogonCount++;
@@ -383,15 +329,9 @@ Return Value:
         SrvNullLogonCount++;
 #endif
 
-#ifdef _CAIRO_
         if ( !CONTEXT_NULL(SrvNullSessionToken) ) {
 
             LogonInfo->HaveHandle = TRUE;
-            LogonInfo->HaveCairo = TRUE;
-#else // _CAIRO_
-        if ( SrvNullSessionToken != NULL ) {
-#endif // _CAIRO_
-
             LogonInfo->Token = SrvNullSessionToken;
 
             LogonInfo->KickOffTime.QuadPart = 0x7FFFFFFFFFFFFFFF;
@@ -403,22 +343,8 @@ Return Value:
             return STATUS_SUCCESS;
         }
 
-    } else {
-
-        oldSessionCount = ExInterlockedAddUlong(
-                            &SrvStatistics.CurrentNumberOfSessions,
-                            1,
-                            &GLOBAL_SPIN_LOCK(Statistics)
-                            );
-        sessionCountIncremented = TRUE;
-        if ( oldSessionCount >= SrvMaxUsers ) {
-            status = STATUS_REQUEST_NOT_ACCEPTED;
-            goto error_exit;
-        }
-
     }
 
-#ifdef _CAIRO_
     //
     // This is the main body of the Cairo logon user code
     //
@@ -449,14 +375,20 @@ Return Value:
             LogonInfo->WorkstationNameLength +
             LogonInfo->DomainNameLength +
             LogonInfo->CaseInsensitivePasswordLength +
-            LogonInfo->CaseSensitivePasswordLength;
+            ROUND_UP_COUNT(LogonInfo->CaseSensitivePasswordLength, sizeof(USHORT));
+
 
     InTokenSize = (InTokenSize + 3) & 0xfffffffc;
 
     OutTokenSize = sizeof(NTLM_ACCEPT_RESPONSE);
     OutTokenSize = (OutTokenSize + 3) & 0xfffffffc;
 
-    AllocateSize = NtlmInTokenSize + InTokenSize + OutTokenSize;
+    //
+    // Round this up to 8 byte boundary becaus the out token needs to be
+    // quad word aligned for the LARGE_INTEGER.
+    //
+
+    AllocateSize = ((NtlmInTokenSize + InTokenSize + 7) & 0xfffffff8) + OutTokenSize;
 
     status = NtAllocateVirtualMemory(
                  NtCurrentProcess( ),
@@ -490,8 +422,17 @@ Return Value:
         goto error_exit;
     }
 
+    //
+    // Zero the input tokens
+    //
+
+    RtlZeroMemory(
+        InToken,
+        InTokenSize + NtlmInTokenSize
+        );
+
     NtlmInToken = (PNTLM_AUTHENTICATE_MESSAGE) ((PUCHAR) InToken + InTokenSize);
-    OutToken = (PNTLM_ACCEPT_RESPONSE) ((PUCHAR) NtlmInToken + NtlmInTokenSize);
+    OutToken = (PNTLM_ACCEPT_RESPONSE) ((PUCHAR) (((ULONG) NtlmInToken + NtlmInTokenSize + 7) & 0xfffffff8));
 
     //
     // First set up the NtlmInToken, since it is the easiest.
@@ -502,6 +443,9 @@ Return Value:
         LogonInfo->EncryptionKey,
         MSV1_0_CHALLENGE_LENGTH
         );
+
+    NtlmInToken->ParameterControl = 0;
+
 
     //
     // Okay, now for the tought part - marshalling the AUTHENTICATE_MESSAGE
@@ -528,7 +472,7 @@ Return Value:
                     LogonInfo->CaseInsensitivePassword,
                     LogonInfo->CaseInsensitivePasswordLength);
 
-    BufferOffset += LogonInfo->CaseInsensitivePasswordLength;
+    BufferOffset += ROUND_UP_COUNT(LogonInfo->CaseInsensitivePasswordLength, sizeof(USHORT));
 
     //
     // NT password - case sensitive
@@ -582,7 +526,7 @@ Return Value:
 
     InToken->UserName.Buffer = (PCHAR) BufferOffset;
     InToken->UserName.Length =
-        InToken->UserName.Length =
+        InToken->UserName.MaximumLength =
             (USHORT) LogonInfo->UserNameLength;
 
     RtlCopyMemory(  BufferOffset + (PCHAR) InToken,
@@ -614,6 +558,8 @@ Return Value:
     OutputBuffer.cbBuffer = OutTokenSize;
     OutputBuffer.BufferType = SECBUFFER_TOKEN;
 
+    SrvStatistics.SessionLogonAttempts++;
+
     status = AcceptSecurityContext(
                 &SrvLmLsaHandle,
                 NULL,
@@ -626,215 +572,13 @@ Return Value:
                 (PTimeStamp) &Expiry
                 );
 
+    status = MapSecurityError( status );
+
     if ( !NT_SUCCESS(status) ) {
 
 
         LogonInfo->Token.dwLower = 0;
         LogonInfo->Token.dwUpper = 0;
-
-        //
-        // BUGBUG - Milans. Since security package does not return ntstatus
-        //          codes, we convert all errors into STATUS_ACCESS_DENIED.
-        //
-
-        status = STATUS_ACCESS_DENIED;
-
-#else // _CAIRO_
-    //
-    // Determine the size of and allocate the buffer for the user's
-    // authentication information.  Add 1 to the CaseInsensitivePassword
-    // to account for possible padding.
-    //
-
-    userInfoBufferLength =
-        sizeof(MSV1_0_LM20_LOGON) +
-            LogonInfo->UserNameLength + sizeof(WCHAR) +
-            LogonInfo->WorkstationNameLength + sizeof(WCHAR) +
-            LogonInfo->DomainNameLength + sizeof(WCHAR) +
-            LogonInfo->CaseInsensitivePasswordLength + 1 +
-            LogonInfo->CaseSensitivePasswordLength;
-
-    actualUserInfoBufferLength = userInfoBufferLength;
-
-    status = NtAllocateVirtualMemory(
-                 NtCurrentProcess( ),
-                 (PVOID *)&userInfo,
-                 0,
-                 &userInfoBufferLength,
-                 MEM_COMMIT,
-                 PAGE_READWRITE
-                 );
-
-    if ( !NT_SUCCESS(status) ) {
-
-        INTERNAL_ERROR(
-            ERROR_LEVEL_EXPECTED,
-            "SrvValidateUser: NtAllocateVirtualMemory failed: %X\n.",
-            status,
-            NULL
-            );
-
-        SrvLogError(
-            SrvDeviceObject,
-            EVENT_SRV_NO_VIRTUAL_MEMORY,
-            status,
-            &actualUserInfoBufferLength,
-            sizeof(ULONG),
-            NULL,
-            0
-            );
-
-        status = STATUS_INSUFF_SERVER_RESOURCES;
-        goto error_exit;
-    }
-
-    //
-    // Set up the user info structure.  Following the MSV1_0_LM20_LOGON
-    // structure, there are the buffers for the unicode user name, the
-    // unicode workstation name, the password, and the user domain.
-    //
-
-    userInfo->MessageType = MsV1_0Lm20Logon;
-
-    userInfo->UserName.Length = (USHORT)LogonInfo->UserNameLength;
-    userInfo->UserName.MaximumLength =
-        (USHORT)( userInfo->UserName.Length + sizeof(WCHAR) );
-    userInfo->UserName.Buffer = (PWSTR)( userInfo + 1 );
-    RtlCopyMemory(
-        userInfo->UserName.Buffer,
-        LogonInfo->UserName,
-        userInfo->UserName.MaximumLength
-        );
-
-    userInfo->Workstation.Length = (USHORT)LogonInfo->WorkstationNameLength;
-    userInfo->Workstation.MaximumLength =
-        (USHORT)( userInfo->Workstation.Length + sizeof(WCHAR) );
-    userInfo->Workstation.Buffer = (PWSTR)( (PCHAR)userInfo->UserName.Buffer +
-                                            userInfo->UserName.MaximumLength );
-    RtlCopyMemory(
-        userInfo->Workstation.Buffer,
-        LogonInfo->WorkstationName,
-        userInfo->Workstation.Length
-        );
-    userInfo->Workstation.Buffer[userInfo->Workstation.Length] = UNICODE_NULL;
-
-    RtlCopyMemory(
-        userInfo->ChallengeToClient,
-        LogonInfo->EncryptionKey,
-        MSV1_0_CHALLENGE_LENGTH
-        );
-
-    //
-    // Set up the case-insensitive password (ANSI, uppercase) in the
-    // buffer.
-    //
-
-    userInfo->CaseInsensitiveChallengeResponse.Length =
-        (USHORT)LogonInfo->CaseInsensitivePasswordLength;
-    userInfo->CaseInsensitiveChallengeResponse.MaximumLength =
-        (USHORT)((userInfo->CaseInsensitiveChallengeResponse.Length + 1) & ~1);
-    userInfo->CaseInsensitiveChallengeResponse.Buffer =
-        (PCHAR)userInfo->Workstation.Buffer +
-                                    userInfo->Workstation.MaximumLength;
-    RtlCopyMemory(
-        userInfo->CaseInsensitiveChallengeResponse.Buffer,
-        LogonInfo->CaseInsensitivePassword,
-        userInfo->CaseInsensitiveChallengeResponse.Length
-        );
-
-    //
-    // Set up the case-sensitive password (Unicode, mixed-case) in the
-    // buffer.
-    //
-
-    userInfo->CaseSensitiveChallengeResponse.Length =
-        (USHORT)LogonInfo->CaseSensitivePasswordLength;
-    userInfo->CaseSensitiveChallengeResponse.MaximumLength =
-        (USHORT)userInfo->CaseSensitiveChallengeResponse.Length;
-    userInfo->CaseSensitiveChallengeResponse.Buffer =
-        userInfo->CaseInsensitiveChallengeResponse.Buffer +
-        userInfo->CaseInsensitiveChallengeResponse.MaximumLength;
-    RtlCopyMemory(
-        userInfo->CaseSensitiveChallengeResponse.Buffer,
-        LogonInfo->CaseSensitivePassword,
-        userInfo->CaseSensitiveChallengeResponse.Length
-        );
-
-    //
-    // Set up the user domain buffer.
-    //
-
-    userInfo->LogonDomainName.Length = (USHORT)LogonInfo->DomainNameLength;
-    userInfo->LogonDomainName.MaximumLength =
-        (USHORT)( userInfo->LogonDomainName.Length + sizeof(WCHAR) );
-    userInfo->LogonDomainName.Buffer =
-        (PWCH)(userInfo->CaseSensitiveChallengeResponse.Buffer +
-                userInfo->CaseSensitiveChallengeResponse.MaximumLength);
-    RtlCopyMemory(
-        userInfo->LogonDomainName.Buffer,
-        LogonInfo->DomainName,
-        userInfo->LogonDomainName.Length
-        );
-
-    //
-    // Attempt to log on the user.
-    //
-
-    {
-        ANSI_STRING ansiMachineNameString;
-        QUOTA_LIMITS Quotas;
-
-        status = RtlUnicodeStringToAnsiString(
-                    &ansiMachineNameString,
-                    &userInfo->Workstation,
-                    TRUE
-                    );
-
-        if ( NT_SUCCESS(status) ) {
-            status = LsaLogonUser(
-                         SrvLsaHandle,
-                         &ansiMachineNameString,
-                         Network,
-                         SrvAuthenticationPackage,
-                         userInfo,
-                         actualUserInfoBufferLength,
-                         NULL,
-                         &SrvTokenSource,
-                         (PVOID *)&profileBuffer,
-                         &profileBufferLength,
-                         &LogonInfo->LogonId,
-                         &LogonInfo->Token,
-                         &Quotas,           // Not used for network logons
-                         &subStatus
-                         );
-        }
-
-        RtlFreeAnsiString( &ansiMachineNameString );
-
-    }
-
-    freeStatus = NtFreeVirtualMemory(
-                     NtCurrentProcess( ),
-                     (PVOID *)&userInfo,
-                     &userInfoBufferLength,
-                     MEM_RELEASE
-                     );
-    ASSERT( NT_SUCCESS(freeStatus) );
-    if ( status == STATUS_ACCOUNT_RESTRICTION ) {
-        status = subStatus;
-    }
-
-    if ( !NT_SUCCESS(status) ) {
-
-        //
-        // LsaLogonUser returns garbage in the UserToken handle if it
-        // fails.  Write a NULL into the handle so that we don't try to
-        // close a bogus handle later.
-        //
-
-        LogonInfo->Token = NULL;
-
-#endif // _CAIRO_
 
 
         INTERNAL_ERROR(
@@ -843,71 +587,28 @@ Return Value:
             status,
             NULL
             );
+
+        freeStatus = NtFreeVirtualMemory(
+                        NtCurrentProcess( ),
+                        (PVOID *)&InToken,
+                        &AllocateSize,
+                        MEM_RELEASE
+                        );
+
+        ASSERT(NT_SUCCESS(freeStatus));
+
         goto error_exit;
     }
 
-#ifdef _CAIRO_
-    //
-    // BUGBUG: we will be able to set the flags soon MMS 3/29/94
-    //
 
-    LogonInfo->KickOffTime = Expiry;
+    LogonInfo->KickOffTime = OutToken->KickoffTime;
     LogonInfo->LogOffTime = Expiry;
-    LogonInfo->GuestLogon = FALSE;
-    LogonInfo->EncryptedLogon = TRUE;
-    LogonInfo->HaveHandle = LogonInfo->HaveCairo = TRUE;
+    LogonInfo->GuestLogon = (BOOLEAN)(OutToken->UserFlags & LOGON_GUEST);
+    LogonInfo->EncryptedLogon = (BOOLEAN)!(OutToken->UserFlags & LOGON_NOENCRYPTION);
     LogonInfo->LogonId = OutToken->LogonId;
+    LogonInfo->HaveHandle = TRUE;
 
-    //
-    // BUGBUG: should check flags to see if want LM session key
-    //
-
-    RtlCopyMemory(
-        LogonInfo->NtUserSessionKey,
-        OutToken->UserSessionKey,
-        MSV1_0_USER_SESSION_KEY_LENGTH
-        );
-
-    RtlCopyMemory(
-        LogonInfo->LanManSessionKey,
-        OutToken->LanmanSessionKey,
-        MSV1_0_LANMAN_SESSION_KEY_LENGTH
-        );
-
-
-    freeStatus = NtFreeVirtualMemory(
-                     NtCurrentProcess( ),
-                     (PVOID *)&InToken,
-                     &AllocateSize,
-                     MEM_RELEASE
-                     );
-
-    ASSERT(NT_SUCCESS(freeStatus));
-#else // _CAIRO_
-    SRVDBG_CLAIM_HANDLE( LogonInfo->Token, "TOK", 1, NULL );
-
-    //
-    // Copy profile buffer information to the session block, then free it.
-    //
-
-    LogonInfo->KickOffTime = profileBuffer->KickOffTime;
-    LogonInfo->LogOffTime = profileBuffer->LogoffTime;
-    LogonInfo->GuestLogon = (BOOLEAN)(profileBuffer->UserFlags & LOGON_GUEST);
-    LogonInfo->EncryptedLogon =
-        (BOOLEAN)!(profileBuffer->UserFlags & LOGON_NOENCRYPTION);
-
-    //
-    // If MSV validated us using the LM password,
-    //  and the NT client understands the LOGON_USED_LM_PASSWORD bit,
-    //  Use the LanmanSessionKey as the UserSessionKey.
-    //
-    // The NtSmbs check below is a kludge.  That capability wasn't set for
-    // NT beta2 redir and started being set on the same build (435) that the
-    // redir started supported LOGON_USED_LM_PASSWORD.  Once all the beta2
-    // clients disappear, we can just ditch the test.
-    //
-
-    if ( (profileBuffer->UserFlags & LOGON_USED_LM_PASSWORD) &&
+    if ( (OutToken->UserFlags & LOGON_USED_LM_PASSWORD) &&
         LogonInfo->NtSmbs ) {
 
         ASSERT( MSV1_0_USER_SESSION_KEY_LENGTH >=
@@ -920,7 +621,7 @@ Return Value:
 
         RtlCopyMemory(
             LogonInfo->NtUserSessionKey,
-            profileBuffer->LanmanSessionKey,
+            OutToken->LanmanSessionKey,
             MSV1_0_LANMAN_SESSION_KEY_LENGTH
             );
 
@@ -935,7 +636,7 @@ Return Value:
 
         RtlCopyMemory(
             LogonInfo->NtUserSessionKey,
-            profileBuffer->UserSessionKey,
+            OutToken->UserSessionKey,
             MSV1_0_USER_SESSION_KEY_LENGTH
             );
 
@@ -943,31 +644,133 @@ Return Value:
 
     RtlCopyMemory(
         LogonInfo->LanManSessionKey,
-        profileBuffer->LanmanSessionKey,
+        OutToken->LanmanSessionKey,
         MSV1_0_LANMAN_SESSION_KEY_LENGTH
         );
 
-    freeStatus = LsaFreeReturnBuffer( profileBuffer );
-    ASSERT( NT_SUCCESS( freeStatus ) );
+    freeStatus = NtFreeVirtualMemory(
+                    NtCurrentProcess( ),
+                    (PVOID *)&InToken,
+                    &AllocateSize,
+                    MEM_RELEASE
+                    );
 
-#endif // _CAIRO_
+    ASSERT(NT_SUCCESS(freeStatus));
+
+    //
+    // Note whether or not this user is an administrator
+    //
+
+    LogonInfo->IsAdmin = SrvIsAdmin( LogonInfo->Token );
+
+    //
+    // One last check:  Is our session count being exceeded?
+    //   We will let the session be exceeded by 1 iff the client
+    //   is an administrator.
+    //
+
+    if( LogonInfo->IsNullSession == FALSE ) {
+
+        oldSessionCount = ExInterlockedAddUlong(
+                          &SrvStatistics.CurrentNumberOfSessions,
+                          1,
+                          &GLOBAL_SPIN_LOCK(Statistics)
+                          );
+
+        if ( oldSessionCount >= SrvMaxUsers ) {
+            if( oldSessionCount != SrvMaxUsers || !LogonInfo->IsAdmin ) {
+
+                ExInterlockedAddUlong(
+                    &SrvStatistics.CurrentNumberOfSessions,
+                    (ULONG)-1,
+                    &GLOBAL_SPIN_LOCK(Statistics)
+                    );
+
+
+                DeleteSecurityContext( &LogonInfo->Token );
+                RtlZeroMemory( &LogonInfo->Token, sizeof( LogonInfo->Token ) );
+
+                status = STATUS_REQUEST_NOT_ACCEPTED;
+                goto error_exit;
+            }
+        }
+    }
 
     return STATUS_SUCCESS;
 
 error_exit:
 
-    if ( sessionCountIncremented ) {
-        ExInterlockedAddUlong(
-            &SrvStatistics.CurrentNumberOfSessions,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(Statistics)
-            );
-    }
     return status;
 
 } // DoUserLogon
 
-#ifdef _CAIRO_
+BOOLEAN
+SrvIsAdmin(
+    CtxtHandle  Handle
+)
+/*++
+
+Routine Description:
+
+    Returns TRUE if the user represented by Handle is an
+      administrator
+
+Arguments:
+
+    Handle - Represents the user we're interested in
+
+Return Value:
+
+    TRUE if the user is an administrator.  FALSE otherwise.
+
+--*/
+{
+    NTSTATUS                 status;
+    SECURITY_SUBJECT_CONTEXT SubjectContext;
+    ACCESS_MASK              GrantedAccess;
+    GENERIC_MAPPING          Mapping = {   FILE_GENERIC_READ,
+                                           FILE_GENERIC_WRITE,
+                                           FILE_GENERIC_EXECUTE,
+                                           FILE_ALL_ACCESS
+                                       };
+    HANDLE                   NullHandle = NULL;
+    BOOLEAN                  retval  = FALSE;
+
+    PAGED_CODE();
+
+    //
+    // Impersonate the client
+    //
+    status = ImpersonateSecurityContext( &Handle );
+
+    if( !NT_SUCCESS( status ) )
+        return FALSE;
+
+    SeCaptureSubjectContext( &SubjectContext );
+
+    retval = SeAccessCheck( &SrvAdminSecurityDescriptor,
+                            &SubjectContext,
+                            FALSE,
+                            FILE_GENERIC_READ,
+                            0,
+                            NULL,
+                            &Mapping,
+                            UserMode,
+                            &GrantedAccess,
+                            &status );
+
+    SeReleaseSubjectContext( &SubjectContext );
+
+    //
+    // Revert back to our original identity
+    //
+    NtSetInformationThread( NtCurrentThread( ),
+                            ThreadImpersonationToken,
+                            &NullHandle,
+                            sizeof(NullHandle)
+                          );
+    return retval;
+}
 
 
 NTSTATUS
@@ -1012,30 +815,12 @@ Return Value:
     LARGE_INTEGER Expiry;
     PUCHAR AllocateMemory = NULL;
     ULONG AllocateLength = *BlobLength;
-    ULONG oldSessionCount;
     BOOLEAN virtualMemoryAllocated = FALSE;
     SecBufferDesc InputToken;
     SecBuffer InputBuffer;
     SecBufferDesc OutputToken;
     SecBuffer OutputBuffer;
-
-
-    //
-    // First, check to see if we can accept a new logon.
-    //
-
-    oldSessionCount = ExInterlockedAddUlong(
-                        &SrvStatistics.CurrentNumberOfSessions,
-                        1,
-                        &GLOBAL_SPIN_LOCK(Statistics)
-                        );
-
-    if ( oldSessionCount >= SrvMaxUsers ) {
-
-         Status = STATUS_REQUEST_NOT_ACCEPTED;
-
-         goto get_out;
-    }
+    ULONG oldSessionCount;
 
     AllocateLength += 16;
 
@@ -1065,12 +850,12 @@ Return Value:
 
         Kerb.Length = Kerb.MaximumLength = 16;
         Kerb.Buffer = (LPWSTR) AllocateMemory;
-        RtlCopyMemory( Kerb.Buffer, L"Kerberos", 16 );
+        RtlCopyMemory( Kerb.Buffer, MICROSOFT_KERBEROS_NAME, 16);
 
         Status = AcquireCredentialsHandle(
                     NULL,              // Default principal
                     (PSECURITY_STRING) &Kerb,
-                    SECPKG_CRED_BOTH,   // Need to define this
+                    SECPKG_CRED_INBOUND,   // Need to define this
                     NULL,               // No LUID
                     NULL,               // no AuthData
                     NULL,               // no GetKeyFn
@@ -1080,6 +865,7 @@ Return Value:
                     );
 
         if ( !NT_SUCCESS(Status) ) {
+            Status = MapSecurityError(Status);
             goto get_out;
         }
         SrvHaveCreds |= HAVEKERBEROS;
@@ -1100,11 +886,13 @@ Return Value:
     OutputBuffer.cbBuffer = *BlobLength;
     OutputBuffer.BufferType = SECBUFFER_TOKEN;
 
+    SrvStatistics.SessionLogonAttempts++;
+
     Status = AcceptSecurityContext(
                 &SrvKerberosLsaHandle,
                 (PCtxtHandle)NULL,
                 &InputToken,
-                0,               // fContextReq
+                ASC_REQ_EXTENDED_ERROR,               // fContextReq
                 SECURITY_NATIVE_DREP,
                 &Session->UserHandle,
                 &OutputToken,
@@ -1112,8 +900,12 @@ Return Value:
                 (PTimeStamp)&Expiry
                 );
 
-    if ( NT_SUCCESS(Status) ) {
-        Session->HaveCairo = Session->HaveHandle = TRUE;
+    Status = MapSecurityError( Status );
+
+    if ( NT_SUCCESS(Status)
+              ||
+         (Catts & ASC_RET_EXTENDED_ERROR) )
+    {
         *BlobLength = OutputBuffer.cbBuffer;
         RtlCopyMemory( Blob, AllocateMemory, *BlobLength );
 
@@ -1123,19 +915,57 @@ Return Value:
         // And while we're at it, get the LogonId as well
         //
 
-        Session->KickOffTime = Expiry;
-        Session->LogOffTime = Expiry;
-        Session->GuestLogon = FALSE;   // No guest logon this way
-        Session->EncryptedLogon = TRUE;
+        if(NT_SUCCESS(Status))
+        {
 
-    } else {
+            //
+            // Note whether or not this user is an administrator
+            //
 
-        //
-        // BUGBUG - Milans. Since security package does not return ntstatus
-        //          codes, we convert all errors into STATUS_ACCESS_DENIED.
-        //
+            Session->IsAdmin = SrvIsAdmin( Session->UserHandle );
 
-        Status = STATUS_ACCESS_DENIED;
+            //
+            // fiddle with the session structures iff the
+            // security context was actually accepted
+            //
+
+            Session->HaveHandle = TRUE;
+            Session->KickOffTime = Expiry;
+            Session->LogOffTime = Expiry;
+            Session->GuestLogon = FALSE;   // No guest logon this way
+            Session->EncryptedLogon = TRUE;
+
+            //
+            // See if the session count is being exceeded.  We'll allow it only
+            //   if the new client is an administrator
+            //
+            oldSessionCount = ExInterlockedAddUlong(
+                              &SrvStatistics.CurrentNumberOfSessions,
+                              1,
+                              &GLOBAL_SPIN_LOCK(Statistics)
+                              );
+
+            if ( oldSessionCount >= SrvMaxUsers ) {
+                if( oldSessionCount != SrvMaxUsers || !SrvIsAdmin( Session->UserHandle ) ) {
+
+                    ExInterlockedAddUlong(
+                        &SrvStatistics.CurrentNumberOfSessions,
+                        (ULONG)-1,
+                        &GLOBAL_SPIN_LOCK(Statistics)
+                        );
+
+                    DeleteSecurityContext( &Session->UserHandle );
+                    Session->HaveHandle = FALSE;
+
+                    Status = STATUS_REQUEST_NOT_ACCEPTED;
+                    goto get_out;
+                }
+            }
+        }
+    }
+    else
+    {
+        *BlobLength = 0;
     }
 
 get_out:
@@ -1149,16 +979,10 @@ get_out:
                 );
     }
 
-    if (!NT_SUCCESS(Status)) {
-        ExInterlockedAddUlong(
-          &SrvStatistics.CurrentNumberOfSessions,
-          (ULONG)-1,
-          &GLOBAL_SPIN_LOCK(Statistics));
-    }
-
     return Status;
 
 } // SrvValidateBlob
+
 
 
 NTSTATUS
@@ -1183,7 +1007,7 @@ Return Value:
 --*/
 
 {
-    if ( Session->HaveHandle && Session->HaveCairo ) {
+    if ( Session->HaveHandle ) {
         if ( !CONTEXT_EQUAL( Session->UserHandle, SrvNullSessionToken ) ) {
             ExInterlockedAddUlong(
                 &SrvStatistics.CurrentNumberOfSessions,
@@ -1229,13 +1053,13 @@ AcquireLMCredentials (
     RtlCopyMemory( Ntlm.Buffer, L"NTLM", 8 );
 
     status = AcquireCredentialsHandle(
-                NULL,             // Default principal
+                NULL,                   // Default principal
                 (PSECURITY_STRING) &Ntlm,
-                SECPKG_CRED_BOTH,   // Need to define this
-                NULL,               // No LUID
-                NULL,               // No AuthData
-                NULL,               // No GetKeyFn
-                NULL,               // No GetKeyArg
+                SECPKG_CRED_INBOUND,    // Need to define this
+                NULL,                   // No LUID
+                NULL,                   // No AuthData
+                NULL,                   // No GetKeyFn
+                NULL,                   // No GetKeyArg
                 &SrvLmLsaHandle,
                 &Expiry
                 );
@@ -1248,11 +1072,65 @@ AcquireLMCredentials (
                 );
 
     if ( !NT_SUCCESS(status) ) {
+        status = MapSecurityError(status);
         return status;
     }
     SrvHaveCreds |= HAVENTLM;
 
+    return status;
+
 } // AcquireLMCredentials
 
-#endif // _CAIRO_
 
+BOOLEAN
+SrvIsKerberosAvailable(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    Checks whether Kerberos is one of the supported security packages.
+
+Arguments:
+
+
+Return Value:
+
+    TRUE if Kerberos is available, FALSE if otherwise or error.
+
+--*/
+
+{
+    NTSTATUS Status;
+    ULONG PackageCount, Index;
+    PSecPkgInfoW Packages;
+    BOOLEAN FoundKerberos = FALSE;
+
+    //
+    // Get the list of packages from the security driver
+    //
+
+    Status = EnumerateSecurityPackages(
+                &PackageCount,
+                &Packages
+                );
+    if (!NT_SUCCESS(Status)) {
+        return(FALSE);
+    }
+
+    //
+    // Loop through the list looking for Kerberos
+    //
+
+    for (Index = 0; Index < PackageCount ; Index++ ) {
+        if (!_wcsicmp(Packages[Index].Name, MICROSOFT_KERBEROS_NAME_W)) {
+            FoundKerberos = TRUE;
+            break;
+        }
+    }
+
+    FreeContextBuffer(Packages);
+    return(FoundKerberos);
+
+}

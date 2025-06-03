@@ -56,7 +56,77 @@ SerialSetEscapeChar(
 #pragma alloc_text(PAGESER,SerialGetCommStatus)
 #pragma alloc_text(PAGESER,SerialGetProperties)
 #pragma alloc_text(PAGESER,SerialSetEscapeChar)
+#pragma alloc_text(PAGESER,SerialGetStats)
+#pragma alloc_text(PAGESER,SerialClearStats)
 #endif
+
+
+BOOLEAN
+SerialGetStats(
+    IN PVOID Context
+    )
+
+/*++
+
+Routine Description:
+
+    In sync with the interrpt service routine (which sets the perf stats)
+    return the perf stats to the caller.
+
+
+Arguments:
+
+    Context - Pointer to a the irp.
+
+Return Value:
+
+    This routine always returns FALSE.
+
+--*/
+
+{
+
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation((PIRP)Context);
+    PSERIAL_DEVICE_EXTENSION extension = irpSp->DeviceObject->DeviceExtension;
+    PSERIALPERF_STATS sp = ((PIRP)Context)->AssociatedIrp.SystemBuffer;
+
+    *sp = extension->PerfStats;
+    return FALSE;
+
+}
+
+BOOLEAN
+SerialClearStats(
+    IN PVOID Context
+    )
+
+/*++
+
+Routine Description:
+
+    In sync with the interrpt service routine (which sets the perf stats)
+    clear the perf stats.
+
+
+Arguments:
+
+    Context - Pointer to a the extension.
+
+Return Value:
+
+    This routine always returns FALSE.
+
+--*/
+
+{
+
+    RtlZeroMemory(
+        &((PSERIAL_DEVICE_EXTENSION)Context)->PerfStats,
+        sizeof(SERIALPERF_STATS)
+        );
+    return FALSE;
+
+}
 
 
 BOOLEAN
@@ -1314,6 +1384,13 @@ Return Value:
 
             ULONG Mask;
 
+            if (IrpSp->Parameters.DeviceIoControl.InputBufferLength <
+                sizeof(ULONG)) {
+
+                Status = STATUS_BUFFER_TOO_SMALL;
+                break;
+
+            }
             //
             // Check to make sure that the mask only has
             // 0 or the other appropriate values.
@@ -1719,6 +1796,35 @@ Return Value:
 
             *(PULONG)Irp->AssociatedIrp.SystemBuffer = 0;
 
+            break;
+        }
+        case IOCTL_SERIAL_GET_STATS: {
+
+            if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength <
+                sizeof(SERIALPERF_STATS)) {
+
+                Status = STATUS_BUFFER_TOO_SMALL;
+                break;
+
+            }
+            Irp->IoStatus.Information = sizeof(SERIALPERF_STATS);
+            Irp->IoStatus.Status = STATUS_SUCCESS;
+
+            KeSynchronizeExecution(
+                Extension->Interrupt,
+                SerialGetStats,
+                Irp
+                );
+
+            break;
+        }
+        case IOCTL_SERIAL_CLEAR_STATS: {
+
+            KeSynchronizeExecution(
+                Extension->Interrupt,
+                SerialClearStats,
+                Extension
+                );
             break;
         }
         default: {

@@ -20,8 +20,16 @@
 #include "becls.hxx"
 #pragma hdrstop
 
+extern CMD_ARG * pCommand;
+
 void
 CG_HANDLE::GenNdrParamDescription( CCB * pCCB )
+{
+	assert(0);
+}
+
+void
+CG_HANDLE::GenNdrParamDescriptionOld( CCB * pCCB )
 {
 	assert(0);
 }
@@ -37,15 +45,16 @@ Description:
     Produces a handle flag byte (actually, a nibble) that can keep the
     following simple flags:
 
-        HANDLE_PARAM_IS_VIA_PTR - Bind parameter is a pointer to a handle type.
-        HANDLE_PARAM_IS_IN -    Binding param is [in] (context handles only).
-        HANDLE_PARAM_IS_OUT -   Binding param is [out] (context handles only).  
+        HANDLE_PARAM_IS_VIA_PTR - Bind param is a pointer to a handle type.
+        HANDLE_PARAM_IS_IN -      Bind param is [in] (context handles only).
+        HANDLE_PARAM_IS_OUT -     Bind param is [out] (context handles only).
+        HANDLE_PARAM_IS_RETURN -  Bind param is return (context handles only).
 
 Note:
 
     Flags are set on the upper nibble (lower nibble is used for generic
     handle size).
-                             
+
 --*/
 {
     unsigned char  Flag = 0;
@@ -59,12 +68,14 @@ Note:
             Flag |= HANDLE_PARAM_IS_IN;
         if ( pHandleParam->IsParamOut() )
             Flag |= HANDLE_PARAM_IS_OUT;
+        if ( pHandleParam->GetCGID() == ID_CG_RETURN )
+            Flag |= HANDLE_PARAM_IS_RETURN;
         }
 
     return( Flag );
 }
 
-void 
+void
 CG_PRIMITIVE_HANDLE::GenNdrHandleFormat( CCB * pCCB )
 /*++
     The layout is:
@@ -83,10 +94,13 @@ CG_PRIMITIVE_HANDLE::GenNdrHandleFormat( CCB * pCCB )
 	pProcFormatString->PushByte(
                 MakeExplicitHandleFlag( pBindParam, FC_BIND_PRIMITIVE ) );
 
-	pProcFormatString->PushShortStackOffset( 
-            (short) pBindParam->GetStackOffset( pCCB, FALSE ),
-            (short) pBindParam->GetStackOffset( pCCB, TRUE ),
-            (short) pBindParam->GetStackOffset( pCCB, FALSE, TRUE ) );
+	pProcFormatString->PushShortStackOffset(
+            (short) pBindParam->GetStackOffset( pCCB, I386_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, ALPHA_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MIPS_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, PPC_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MAC_STACK_SIZING )
+            );
 }
 
 void
@@ -118,15 +132,18 @@ CG_GENERIC_HANDLE::GenNdrHandleFormat( CCB * pCCB )
 	pProcFormatString->PushByte( FlagAndSize );
 
 	// Param offset.
-	pProcFormatString->PushShortStackOffset( 
-            (short) pBindParam->GetStackOffset( pCCB, FALSE ),
-            (short) pBindParam->GetStackOffset( pCCB, TRUE ),
-            (short) pBindParam->GetStackOffset( pCCB, FALSE, TRUE ) );
+	pProcFormatString->PushShortStackOffset(
+            (short) pBindParam->GetStackOffset( pCCB, I386_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, ALPHA_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MIPS_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, PPC_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MAC_STACK_SIZING )
+            );
 
 	// Routine index.
     // IndexMgr keeps indexes 1..n, we use indexes 0..n-1
 
-	pProcFormatString->PushByte( 
+	pProcFormatString->PushByte(
 		   (char) (pCCB->LookupBindingRoutine(GetHandleTypeName()) -1) );
 
 	pProcFormatString->PushFormatChar( FC_PAD );
@@ -142,7 +159,7 @@ CG_GENERIC_HANDLE::GenNdrHandleFormat( CCB * pCCB )
    	pCCB->RegisterGenericHandleType( GetHandleType() );
 }
 
-void 
+void
 CG_CONTEXT_HANDLE::GenNdrHandleFormat( CCB * pCCB )
 /*++
     The layout is:
@@ -157,6 +174,8 @@ CG_CONTEXT_HANDLE::GenNdrHandleFormat( CCB * pCCB )
     FORMAT_STRING * pProcFormatString = pCCB->GetProcFormatString();
     CG_PARAM *      pBindParam = (CG_PARAM *) pCCB->GetLastPlaceholderClass();
 
+	assert( pCCB->GetCGNodeContext()->IsProc() );
+
 	SetNdrBindDescriptionOffset( pProcFormatString->GetCurrentOffset() );
 
 	pProcFormatString->PushFormatChar( FC_BIND_CONTEXT );
@@ -164,21 +183,25 @@ CG_CONTEXT_HANDLE::GenNdrHandleFormat( CCB * pCCB )
                   MakeExplicitHandleFlag( pBindParam, FC_BIND_CONTEXT ) );
 
 	// Param offset.
-	pProcFormatString->PushShortStackOffset( 
-            (short) pBindParam->GetStackOffset( pCCB, FALSE ),
-            (short) pBindParam->GetStackOffset( pCCB, TRUE ),
-            (short) pBindParam->GetStackOffset( pCCB, FALSE, TRUE ) );
+	pProcFormatString->PushShortStackOffset(
+            (short) pBindParam->GetStackOffset( pCCB, I386_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, ALPHA_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MIPS_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, PPC_STACK_SIZING ),
+            (short) pBindParam->GetStackOffset( pCCB, MAC_STACK_SIZING )
+            );
 
 	// Routine index.
     // IndexMgr keeps indexes 1..n, we use indexes 0..n-1
 
-	pProcFormatString->PushByte( 
+	pProcFormatString->PushByte(
 			(char)(pCCB->LookupRundownRoutine(GetRundownRtnName()) - 1) );
 
-	pProcFormatString->PushFormatChar( FC_PAD );
+    // Context handle's number - unused for binding description.
+    pProcFormatString->PushByte( 0 );
 
    	if ( GetHandleType()->NodeKind() == NODE_DEF )
-		{ 
+		{
        	pCCB->RegisterContextHandleType( GetHandleType() );
        	}
 }
@@ -201,7 +224,7 @@ CG_GENERIC_HANDLE::GenNdrFormat( CCB * pCCB )
 Routine Description :
 	
 	This routine is only called in the case of a pointer to a generic handle
-	in which case the context handle just acts as an intermediary between the 
+	in which case the context handle just acts as an intermediary between the
 	pointer and underlying user type.
 
 --*/
@@ -210,7 +233,7 @@ Routine Description :
 
 	pChild = (CG_NDR *)GetChild();
 
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	pChild->GenNdrFormat( pCCB );
@@ -220,7 +243,7 @@ Routine Description :
 	assert( pCCB->GetCGNodeContext()->IsProc() );
 
 	//
-	// Register the generic handle.  
+	// Register the generic handle.
 	//
 	if ( ((CG_PROC *)pCCB->GetCGNodeContext())->GetHandleClassPtr() == this )
     	pCCB->RegisterGenericHandleType( GetHandleType() );
@@ -236,8 +259,12 @@ Routine Description :
 {
 	FORMAT_STRING * pFormatString;
     CG_PARAM *      pBindParam = (CG_PARAM *) pCCB->GetLastPlaceholderClass();
+    CG_PROC *       pProc;
 	
-	if ( GetFormatStringOffset() != -1 ) 
+    pProc = (CG_PROC *) pCCB->GetCGNodeContext();
+	assert( pProc->IsProc() );
+
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	pFormatString = pCCB->GetFormatString();
@@ -249,14 +276,12 @@ Routine Description :
 	//
 	pFormatString->PushFormatChar( FC_BIND_CONTEXT );
 
-	assert( pCCB->GetCGNodeContext()->IsProc() );
-
 	//
-	// Register the rundown routine always, even if the context handle is 
-    // not used as the binding paramter.  
+	// Register the rundown routine always, even if the context handle is
+    // not used as the binding paramter.
 	//
     if ( GetHandleType()->NodeKind() == NODE_DEF )
-		{ 
+		{
         pCCB->RegisterContextHandleType( GetHandleType() );
         }
 
@@ -270,20 +295,30 @@ Routine Description :
 	pFormatString->PushByte(
             (char) (pCCB->LookupRundownRoutine(GetRundownRtnName()) - 1) );
 
-    pFormatString->PushFormatChar( FC_PAD );
+    if ( pCCB->GetOptimOption() & OPTIMIZE_NON_NT351 )
+        {
+        // Context handle's parameter number.
+        pFormatString->PushByte( pProc->GetContextHandleCount() );
+        pProc->SetContextHandleCount( pProc->GetContextHandleCount() + 1 );
+        }
+    else
+        {
+        // Context handle's parameter number.  MIDL 2.00.102 and older stubs.
+        pFormatString->PushByte( pBindParam->GetParamNumber() );
+        }
 
 	SetFormatStringEndOffset( pFormatString->GetCurrentOffset() );
 	SetFormatStringOffset( pFormatString->OptimizeFragment( this ) );
 
 }
 
-void                    
+void
 CG_PRIMITIVE_HANDLE::GenNdrParamOffline( CCB * pCCB )
 {
 	// Do nothing.
 }
 
-void                    
+void
 CG_GENERIC_HANDLE::GenNdrParamOffline( CCB * pCCB )
 {
 	((CG_NDR *)GetChild())->GenNdrParamOffline( pCCB );
@@ -291,20 +326,43 @@ CG_GENERIC_HANDLE::GenNdrParamOffline( CCB * pCCB )
 	assert( pCCB->GetCGNodeContext()->IsProc() );
 
 	//
-	// Register the generic handle.  
+	// Register the generic handle.
 	//
 	if ( ((CG_PROC *)pCCB->GetCGNodeContext())->GetHandleClassPtr() == this )
     	pCCB->RegisterGenericHandleType( GetHandleType() );
 }
 
-void                    
+void
 CG_CONTEXT_HANDLE::GenNdrParamOffline( CCB * pCCB )
 {
 	GenNdrFormat( pCCB );
 }
 
-void                    
+void
 CG_PRIMITIVE_HANDLE::GenNdrParamDescription( CCB * pCCB )
+{
+    // No description is emitted, handle_t is not marshalled.
+}
+
+void
+CG_GENERIC_HANDLE::GenNdrParamDescription( CCB * pCCB )
+{
+	((CG_NDR *)GetChild())->GenNdrParamDescription( pCCB );
+}
+
+void
+CG_CONTEXT_HANDLE::GenNdrParamDescription( CCB * pCCB )
+{
+	CG_NDR::GenNdrParamDescription( pCCB );
+}
+
+//
+// +++++++++++++++++++
+// Old style parameter description routines.
+// +++++++++++++++++++
+//
+void
+CG_PRIMITIVE_HANDLE::GenNdrParamDescriptionOld( CCB * pCCB )
 {
 	FORMAT_STRING * pProcFormatString;
 
@@ -313,16 +371,16 @@ CG_PRIMITIVE_HANDLE::GenNdrParamDescription( CCB * pCCB )
 	pProcFormatString->PushFormatChar( FC_IGNORE );
 }
 
-void                    
-CG_GENERIC_HANDLE::GenNdrParamDescription( CCB * pCCB )
+void
+CG_GENERIC_HANDLE::GenNdrParamDescriptionOld( CCB * pCCB )
 {
-	((CG_NDR *)GetChild())->GenNdrParamDescription( pCCB );
+	((CG_NDR *)GetChild())->GenNdrParamDescriptionOld( pCCB );
 }
 
-void                    
-CG_CONTEXT_HANDLE::GenNdrParamDescription( CCB * pCCB )
+void
+CG_CONTEXT_HANDLE::GenNdrParamDescriptionOld( CCB * pCCB )
 {
-	CG_NDR::GenNdrParamDescription( pCCB );
+	CG_NDR::GenNdrParamDescriptionOld( pCCB );
 }
 
 

@@ -10,7 +10,7 @@ Abstract:
 
     This module implements the LAN Manager server FSP worker thread
     function.  It also implements routines for managing (i.e., starting
-    and stopping) worker threads.
+    and stopping) worker threads, and balancing load.
 
 Author:
 
@@ -30,65 +30,45 @@ Revision History:
 
 #define BugCheckFileId SRV_FILE_WORKER
 
-#define THREAD_NUMBER (ULONG)StartContext
-
 //
 // Local declarations
 //
 
 NTSTATUS
-CreateQueueThreads (
-    IN PWORK_QUEUE Queue,
-    IN PKSTART_ROUTINE WorkerRoutine,
-    IN BOOLEAN SetIrpThread
+CreateQueueThread (
+    IN PWORK_QUEUE Queue
     );
 
 VOID
 InitializeWorkerThread (
-    IN ULONG ThreadNumber,
-    OUT PWORKER_THREAD ThreadInfo,
+    IN PWORK_QUEUE WorkQueue,
     IN KPRIORITY ThreadPriority
     );
 
 VOID
 DequeueAndProcessWorkItem (
-    IN PWORK_QUEUE WorkQueue,
-    IN PWORKER_THREAD ThreadInfo
+    IN PWORK_QUEUE WorkQueue
     );
 
 STATIC
 VOID
 WorkerThread (
-    IN PVOID StartContext
-    );
-
-STATIC
-VOID
-BlockingWorkerThread (
-    IN PVOID StartContext
-    );
-
-STATIC
-VOID
-CriticalWorkerThread (
-    IN PVOID StartContext
+    IN PWORK_QUEUE WorkQueue
     );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvCreateWorkerThreads )
-#pragma alloc_text( PAGE, CreateQueueThreads )
+#pragma alloc_text( PAGE, CreateQueueThread )
 #pragma alloc_text( PAGE, InitializeWorkerThread )
-//#pragma alloc_text( PAGE, DequeueAndProcessWorkItem )
+#pragma alloc_text( PAGE, DequeueAndProcessWorkItem )
 #pragma alloc_text( PAGE, WorkerThread )
-#pragma alloc_text( PAGE, BlockingWorkerThread )
-#pragma alloc_text( PAGE, CriticalWorkerThread )
 #pragma alloc_text( PAGE, SrvTerminateWorkerThread )
 #endif
 #if 0
 NOT PAGEABLE -- SrvQueueWorkToBlockingThread
-NOT PAGEABLE -- SrvQueueWorkToCriticalThread
 NOT PAGEABLE -- SrvQueueWorkToFsp
 NOT PAGEABLE -- SrvQueueWorkToFspAtSendCompletion
+NOT PAGEABLE -- SrvBalanceLoad
 #endif
 
 
@@ -115,188 +95,114 @@ Return Value:
 --*/
 
 {
-    KPROCESSOR_MODE waitMode;
     NTSTATUS status;
+    PWORK_QUEUE queue;
 
     PAGED_CODE( );
 
     //
-    // Initialize the work queues.
+    // Create the nonblocking worker threads.
     //
-
-    waitMode = UserMode;
-    if ( SrvProductTypeServer ) {
-        waitMode = KernelMode;
-    }
-
-    KeInitializeQueue( &SrvWorkQueue.Queue, 0 );
-    SrvWorkQueue.Threads = SrvNonblockingThreads;
-    SrvWorkQueue.ThreadHandles = SrvThreadHandles;
-    SrvWorkQueue.WaitMode = waitMode;
-
-#if SRVDBG_STATS2
-    RtlZeroMemory(
-        &SrvWorkQueue.ItemsQueued,
-        sizeof(WORK_QUEUE) - FIELD_OFFSET(WORK_QUEUE,ItemsQueued)
-        );
-    SrvWorkQueue.MaximumDepth = -1;
-#endif
-
-    KeInitializeQueue( &SrvBlockingWorkQueue.Queue, 0 );
-    SrvBlockingWorkQueue.Threads = SrvBlockingThreads;
-    SrvBlockingWorkQueue.ThreadHandles =
-                SrvWorkQueue.ThreadHandles + SrvNonblockingThreads;
-    SrvBlockingWorkQueue.WaitMode = waitMode;
-
-#if SRVDBG_STATS2
-    RtlZeroMemory(
-        &SrvBlockingWorkQueue.ItemsQueued,
-        sizeof(WORK_QUEUE) - FIELD_OFFSET(WORK_QUEUE,ItemsQueued)
-        );
-    SrvBlockingWorkQueue.MaximumDepth = -1;
-#endif
-
-    KeInitializeQueue( &SrvCriticalWorkQueue.Queue, 0 );
-    SrvCriticalWorkQueue.Threads = SrvCriticalThreads;
-    SrvCriticalWorkQueue.ThreadHandles =
-                SrvBlockingWorkQueue.ThreadHandles + SrvBlockingThreads;
-    SrvCriticalWorkQueue.WaitMode = waitMode;
-
-#if SRVDBG_STATS2
-    RtlZeroMemory(
-        &SrvCriticalWorkQueue.ItemsQueued,
-        sizeof(WORK_QUEUE) - FIELD_OFFSET(WORK_QUEUE,ItemsQueued)
-        );
-    SrvCriticalWorkQueue.MaximumDepth = -1;
-#endif
-
-    //
-    // Create the worker threads.
-    //
-
-    status = CreateQueueThreads( &SrvWorkQueue, WorkerThread, TRUE );
-    if (NT_SUCCESS(status)) {
-        status = CreateQueueThreads(
-                    &SrvBlockingWorkQueue,
-                    BlockingWorkerThread,
-                    FALSE
-                    );
-        if (NT_SUCCESS(status)) {
-            status = CreateQueueThreads(
-                        &SrvCriticalWorkQueue,
-                        CriticalWorkerThread,
-                        FALSE
-                        );
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+        status = CreateQueueThread( queue );
+        if( !NT_SUCCESS( status ) ) {
+            return status;
         }
     }
 
-    return status;
+    //
+    // Create the blocking worker threads
+    //
+    return CreateQueueThread( &SrvBlockingWorkQueue );
 
 } // SrvCreateWorkerThreads
 
 
 NTSTATUS
-CreateQueueThreads (
-    IN PWORK_QUEUE Queue,
-    IN PKSTART_ROUTINE WorkerRoutine,
-    IN BOOLEAN SetIrpThread
+CreateQueueThread (
+    IN PWORK_QUEUE Queue
     )
+/*++
+
+Routine Description:
+
+    This function creates a worker thread to service a queue.
+
+    NOTE:  The scavenger occasionally kills off threads on a queue.  If logic
+        here is modified, you may need to look there too.
+
+Arguments:
+
+    Queue - the queue to service
+
+Return Value:
+
+    NTSTATUS - Status of thread creation
+
+--*/
 {
-    ULONG thread;
-    ULONG threadCount;
     HANDLE threadHandle;
     LARGE_INTEGER interval;
     NTSTATUS status;
 
+    PAGED_CODE();
+
     //
-    // Create a number of worker threads.
+    // Another thread is coming into being.  Keep the counts up to date
     //
+    InterlockedIncrement( &Queue->Threads );
+    InterlockedIncrement( &Queue->AvailableThreads );
 
-    threadCount = Queue->Threads;
+    status = PsCreateSystemThread(
+                &threadHandle,
+                PROCESS_ALL_ACCESS,
+                NULL,
+                NtCurrentProcess(),
+                NULL,
+                WorkerThread,
+                Queue
+                );
 
-    for ( thread = 0; thread < threadCount; thread++ ) {
-
-        if ( SetIrpThread && (thread == 0) ) {
-            SrvIrpThread == NULL;
-        }
-
-        //
-        // Bump the count of active worker threads.
-        //
-
-        ExInterlockedAddUlong(
-            (PULONG)&SrvThreadCount,
-            1,
-            &GLOBAL_SPIN_LOCK(Fsd)
+    if ( !NT_SUCCESS(status) ) {
+        INTERNAL_ERROR(
+            ERROR_LEVEL_EXPECTED,
+            "CreateQueueThread: PsCreateSystemThread for "
+                "queue %X returned %X",
+            Queue,
+            status
             );
 
-        //
-        // Create the worker thread.  If this works, increment the count
-        // of active blocking threads.
-        //
+        InterlockedDecrement( &Queue->Threads );
+        InterlockedDecrement( &Queue->AvailableThreads );
 
-        status = PsCreateSystemThread(
-                    &threadHandle,
-                    PROCESS_ALL_ACCESS,
-                    NULL,
-                    NtCurrentProcess(),
-                    NULL,
-                    WorkerRoutine,
-                    (PVOID)(thread + 1)
-                    );
+        SrvLogServiceFailure( SRV_SVC_PS_CREATE_SYSTEM_THREAD, status );
+        return status;
+    }
 
-        if ( !NT_SUCCESS(status) ) {
-            INTERNAL_ERROR(
-                ERROR_LEVEL_EXPECTED,
-                "CreateQueueThreads: PsCreateSystemThread for "
-                    "thread %lu returned %X",
-                thread,
-                status
-                );
+    //
+    // Close the handle so the thread can die when needed
+    //
 
-            SrvLogServiceFailure( SRV_SVC_PS_CREATE_SYSTEM_THREAD, status );
-            ExInterlockedAddUlong(
-                (PULONG)&SrvThreadCount,
-                (ULONG)-1,
-                &GLOBAL_SPIN_LOCK(Fsd)
-                );
-            ExInterlockedAddUlong(
-                &Queue->Threads,
-                (ULONG)-1,
-                &GLOBAL_SPIN_LOCK(Fsd)
-                );
-            return status;
-        }
+    SrvNtClose( threadHandle, FALSE );
 
-        //
-        // Save the handle so it can be waited on during termination.
-        //
-
-        Queue->ThreadHandles[thread] = threadHandle;
-
-        //
-        // If we just created the first nonblocking thread, wait for it
-        // to store its thread pointer in SrvIrpThread.  This pointer is
-        // stored in all IRPs issued by the server.
-        //
-
-        if ( SetIrpThread && (thread == 0) ) {
-            while ( SrvIrpThread == NULL ) {
-                interval.QuadPart = -1*10*1000*10; // .01 second
-                KeDelayExecutionThread( KernelMode, FALSE, &interval );
-            }
-        }
+    //
+    // If we just created the first queue thread, wait for it
+    // to store its thread pointer in IrpThread.  This pointer is
+    // stored in all IRPs issued for this queue by the server.
+    //
+    while ( Queue->IrpThread == NULL ) {
+        interval.QuadPart = -1*10*1000*10; // .01 second
+        KeDelayExecutionThread( KernelMode, FALSE, &interval );
     }
 
     return STATUS_SUCCESS;
 
-} // CreateQueueThreads
+} // CreateQueueThread
 
 
 VOID
 InitializeWorkerThread (
-    IN ULONG ThreadNumber,
-    OUT PWORKER_THREAD ThreadInfo,
+    IN PWORK_QUEUE WorkQueue,
     IN KPRIORITY ThreadPriority
     )
 {
@@ -305,12 +211,6 @@ InitializeWorkerThread (
 
     PAGED_CODE( );
 
-    //
-    // Initialize the thread descriptor.
-    //
-
-    RtlZeroMemory( ThreadInfo, sizeof(WORKER_THREAD) );
-    ThreadInfo->ThreadNumber = ThreadNumber;
 
 #if SRVDBG_LOCK
 {
@@ -350,36 +250,49 @@ InitializeWorkerThread (
     if ( !NT_SUCCESS(status) ) {
         INTERNAL_ERROR(
             ERROR_LEVEL_UNEXPECTED,
-            "BlockingWorkerThread: NtSetInformationThread failed: %X\n",
+            "InitializeWorkerThread: NtSetInformationThread failed: %X\n",
             status,
             NULL
             );
         SrvLogServiceFailure( SRV_SVC_NT_SET_INFO_THREAD, status );
     }
 
-#ifndef BUILD_FOR_511
+#if MULTIPROCESSOR
+    //
+    // If this is a nonblocking worker thread, set its ideal processor affinity.  Setting
+    //  ideal affinity informs ntos that the thread would rather run on its ideal
+    //  processor if reasonable, but if ntos can't schedule it on that processor then it is
+    //  ok to schedule it on a different processor.
+    //
+    if( SrvNumberOfProcessors > 1 && WorkQueue >= SrvWorkQueues && WorkQueue < eSrvWorkQueues ) {
+        KeSetIdealProcessorThread( KeGetCurrentThread(), (CCHAR)(WorkQueue - SrvWorkQueues) );
+    }
+#endif
+
     //
     // Disable hard error popups for this thread.
     //
 
-    PsGetCurrentThread()->HardErrorsAreDisabled = TRUE;
-#endif
+    IoSetThreadHardErrorMode( FALSE );
 
     return;
 
 } // InitializeWorkerThread
 
 
-#if !defined(SRV_ASM) || !defined(i386)
 VOID
 DequeueAndProcessWorkItem (
-    IN PWORK_QUEUE WorkQueue,
-    IN PWORKER_THREAD ThreadInfo
+    IN PWORK_QUEUE WorkQueue
     )
 {
     PLIST_ENTRY listEntry;
     PWORK_CONTEXT workContext;
     ULONG timeDifference;
+    ULONG updateSmbCount = 0;
+    ULONG updateTime = 0;
+    ULONG iAmBlockingThread = (WorkQueue == &SrvBlockingWorkQueue);
+
+    PAGED_CODE();
 
     //
     // Loop infinitely dequeueing and processing work items.
@@ -392,15 +305,23 @@ DequeueAndProcessWorkItem (
     while ( TRUE ) {
 #endif
 
-        //
-        // Take a work item off the work queue.
-        //
-
         listEntry = KeRemoveQueue(
                         &WorkQueue->Queue,
                         WorkQueue->WaitMode,
-                        NULL        // !!! no timeout for now
+                        NULL                                 // no timeout
                         );
+
+        if( InterlockedDecrement( &WorkQueue->AvailableThreads ) == 0 &&
+            !SrvFspTransitioning &&
+            WorkQueue->Threads < WorkQueue->MaxThreads ) {
+
+            //
+            // We are running low on threads for this queue.  Spin up
+            // another one before handling this request
+            //
+            CreateQueueThread( WorkQueue );
+        }
+
         ASSERT( listEntry != (PVOID)STATUS_TIMEOUT );
 
         //
@@ -423,8 +344,8 @@ DequeueAndProcessWorkItem (
         ASSERT( (GET_BLOCK_TYPE(workContext) == BlockTypeWorkContextInitial) ||
                 (GET_BLOCK_TYPE(workContext) == BlockTypeWorkContextNormal) ||
                 (GET_BLOCK_TYPE(workContext) == BlockTypeWorkContextRaw) ||
-                ( (GET_BLOCK_TYPE(workContext) == BlockTypeRfcb) &&
-                  (WorkQueue == &SrvWorkQueue) ) );
+                (GET_BLOCK_TYPE(workContext) == BlockTypeWorkContextSpecial) ||
+                (GET_BLOCK_TYPE(workContext) == BlockTypeRfcb) );
 
 #if DBG
         if ( GET_BLOCK_TYPE( workContext ) == BlockTypeRfcb ) {
@@ -434,29 +355,59 @@ DequeueAndProcessWorkItem (
 #endif
 
         IF_DEBUG(WORKER1) {
-            KdPrint(( "WorkerThread(%lx) working on work context %lx",
-                        ThreadInfo->ThreadNumber, workContext ));
+            KdPrint(( "WorkerThread working on work context %lx", workContext ));
+        }
+
+        //
+        // Make sure we have a resaonable idea of the system time
+        //
+        if( ++updateTime == TIME_SMB_INTERVAL ) {
+            updateTime = 0;
+            SET_SERVER_TIME( WorkQueue );
         }
 
         //
         // Update statistics.
         //
+        if ( ++updateSmbCount == STATISTICS_SMB_INTERVAL ) {
 
-        if ( ++ThreadInfo->StatisticsUpdateWorkItemCount ==
-                                                STATISTICS_SMB_INTERVAL ) {
+            updateSmbCount = 0;
 
-            ThreadInfo->StatisticsUpdateWorkItemCount = 0;
-
-            GET_SERVER_TIME( &timeDifference );
+            GET_SERVER_TIME( WorkQueue, &timeDifference );
             timeDifference = timeDifference - workContext->Timestamp;
 
-            SrvStatisticsShadow.WorkItemsQueued.Count++;
-            SrvStatisticsShadow.WorkItemsQueued.Time.LowPart += timeDifference;
+            ++(WorkQueue->stats.WorkItemsQueued.Count);
+            WorkQueue->stats.WorkItemsQueued.Time.QuadPart += timeDifference;
         }
+
+        {
+        //
+        // Put the workContext out relative to bp so we can find it later if we need
+        //  to debug.  The block of memory we're writing to is likely already in cache,
+        //  so this should be relatively cheap.
+        //
+        PWORK_CONTEXT volatile savedWorkContext;
+        savedWorkContext = workContext;
+
+        }
+
+        //
+        // Make sure the WorkContext knows if it is on the blocking work queue
+        //
+        workContext->UsingBlockingThread = iAmBlockingThread;
 
         //
         // Call the restart routine for the work item.
         //
+
+        IF_SMB_DEBUG( TRACE ) {
+            KdPrint(( "Blocking %d, Count %d -> %X( %X )\n",
+                        iAmBlockingThread,
+                        workContext->ProcessingCount,
+                        workContext->FspRestartRoutine,
+                        workContext
+            ));
+        }
 
         workContext->FspRestartRoutine( workContext );
 
@@ -465,6 +416,11 @@ DequeueAndProcessWorkItem (
         //
 
         ASSERT( KeGetCurrentIrql() == 0 );
+
+        //
+        // We're getting ready to be available (i.e. waiting on the queue)
+        //
+        InterlockedIncrement( &WorkQueue->AvailableThreads );
 
 #ifndef SRVDBG_WT
     }
@@ -477,13 +433,11 @@ DequeueAndProcessWorkItem (
     return;
 
 } // DequeueAndProcessWorkItem
-#endif // !defined(SRV_ASM) || !defined(i386)
-
 
 STATIC
 VOID
 WorkerThread (
-    IN PVOID StartContext
+    IN PWORK_QUEUE WorkQueue
     )
 
 /*++
@@ -505,19 +459,17 @@ Return Value:
 --*/
 
 {
-    WORKER_THREAD threadInfo;
-
     PAGED_CODE( );
 
     //
     // If this is the first worker thread, save the thread pointer.
     //
 
-    if ( THREAD_NUMBER == 1 ) {
-        SrvIrpThread = PsGetCurrentThread( );
+    if( WorkQueue->IrpThread == NULL ) {
+        WorkQueue->IrpThread = PsGetCurrentThread( );
     }
 
-    InitializeWorkerThread( THREAD_NUMBER, &threadInfo, SrvThreadPriority );
+    InitializeWorkerThread( WorkQueue, SrvThreadPriority );
 
     //
     // Main loop, executed until the thread is terminated.
@@ -531,7 +483,7 @@ Return Value:
     while ( TRUE ) {
 #endif
 
-    DequeueAndProcessWorkItem( &SrvWorkQueue, &threadInfo );
+    DequeueAndProcessWorkItem( WorkQueue );
 
 #ifdef SRVDBG_WT
     }
@@ -542,132 +494,14 @@ Return Value:
     // Can't get here.
     //
 
-    KdPrint(( "WorkerThread(%lx): exited loop!  ", THREAD_NUMBER ));
+    KdPrint(( "WorkerThread(%lx): exited loop!  ", WorkQueue - SrvWorkQueues ));
 
     return;
 
 } // WorkerThread
 
 
-STATIC
-VOID
-BlockingWorkerThread (
-    IN PVOID StartContext
-    )
-
-/*++
-
-Routine Description:
-
-    Main routine for blocking FSP worker threads.  Waits for a work item
-    to appear in the blocking work queue, dequeues it, and processes it.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    WORKER_THREAD threadInfo;
-
-    PAGED_CODE( );
-
-    InitializeWorkerThread( THREAD_NUMBER, &threadInfo, SrvThreadPriority );
-
-    //
-    // Main loop, executed until the thread is terminated.
-    //
-    // *** If SRVDBG_WT is defined, the loop is implemented here, rather
-    //     than in DequeueAndProcessWorkItem, in order to facilitate
-    //     instruction tracing.
-    //
-
-#ifdef SRVDBG_WT
-    while ( TRUE ) {
-#endif
-
-    DequeueAndProcessWorkItem( &SrvBlockingWorkQueue, &threadInfo );
-
-#ifdef SRVDBG_WT
-    }
-#endif
-
-
-    //
-    // Can't get here.
-    //
-
-    KdPrint(( "BlockingWorkerThread(%lx): exited loop!  ", THREAD_NUMBER ));
-
-    return;
-
-} // BlockingWorkerThread
-
-
-STATIC
-VOID
-CriticalWorkerThread (
-    IN PVOID StartContext
-    )
-
-/*++
-
-Routine Description:
-
-    Main routine for critical FSP worker threads.  Waits for a work item
-    to appear in the blocking work queue, dequeues it, and processes it.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    WORKER_THREAD threadInfo;
-
-    PAGED_CODE( );
-
-    InitializeWorkerThread( THREAD_NUMBER, &threadInfo, THREAD_BASE_PRIORITY_LOWRT );
-
-    //
-    // Main loop, executed until the thread is terminated.
-    //
-    // *** If SRVDBG_WT is defined, the loop is implemented here, rather
-    //     than in DequeueAndProcessWorkItem, in order to facilitate
-    //     instruction tracing.
-    //
-
-#ifdef SRVDBG_WT
-    while ( TRUE ) {
-#endif
-
-    DequeueAndProcessWorkItem( &SrvCriticalWorkQueue, &threadInfo );
-
-#ifdef SRVDBG_WT
-    }
-#endif
-
-    //
-    // Can't get here.
-    //
-
-    KdPrint(( "CriticalWorkerThread(%lx): exited loop!  ", THREAD_NUMBER ));
-
-    return;
-
-} // CriticalWorkerThread
-
-VOID
+VOID SRVFASTCALL
 SrvQueueWorkToBlockingThread (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -705,57 +539,14 @@ Return Value:
     SrvInsertWorkQueueTail(
         &SrvBlockingWorkQueue,
         (PQUEUEABLE_BLOCK_HEADER)WorkContext
-        );
+    );
 
     return;
 
 } // SrvQueueWorkToBlockingThread
 
 
-VOID
-SrvQueueWorkToCriticalThread (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This routine queues a work item to a critical thread.
-
-Arguments:
-
-    WorkContext - Supplies a pointer to the work context block
-        representing the work item
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    //
-    // Increment the processing count.
-    //
-
-    WorkContext->ProcessingCount++;
-
-    //
-    // Insert the work item at the tail of the critical work queue.
-    //
-
-    SrvInsertWorkQueueTail(
-        &SrvCriticalWorkQueue,
-        (PQUEUEABLE_BLOCK_HEADER)WorkContext
-        );
-
-    return;
-
-} // SrvQueueWorkToCriticalThread
-
-
-VOID
+VOID SRVFASTCALL
 SrvQueueWorkToFsp (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -792,12 +583,21 @@ Return Value:
     // Insert the work item at the tail of the nonblocking work queue.
     //
 
-    SrvInsertWorkQueueTail(
-        &SrvWorkQueue,
-        (PQUEUEABLE_BLOCK_HEADER)WorkContext
+    if( WorkContext->QueueToHead ) {
+
+        SrvInsertWorkQueueHead(
+            WorkContext->CurrentWorkQueue,
+            (PQUEUEABLE_BLOCK_HEADER)WorkContext
         );
 
-    return;
+    } else {
+
+        SrvInsertWorkQueueTail(
+            WorkContext->CurrentWorkQueue,
+            (PQUEUEABLE_BLOCK_HEADER)WorkContext
+        );
+
+    }
 
 } // SrvQueueWorkToFsp
 
@@ -854,39 +654,290 @@ Return Value:
     WorkContext->ProcessingCount++;
 
     //
-    // Insert the work item at the tail of the nonblocking work queue.
+    // Insert the work item on the nonblocking work queue.
     //
 
-    SrvInsertWorkQueueTail(
-        &SrvWorkQueue,
-        (PQUEUEABLE_BLOCK_HEADER)WorkContext
+    if( WorkContext->QueueToHead ) {
+
+        SrvInsertWorkQueueHead(
+            WorkContext->CurrentWorkQueue,
+            (PQUEUEABLE_BLOCK_HEADER)WorkContext
         );
+
+    } else {
+
+        SrvInsertWorkQueueTail(
+            WorkContext->CurrentWorkQueue,
+            (PQUEUEABLE_BLOCK_HEADER)WorkContext
+        );
+
+    }
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
 } // SrvQueueWorkToFspAtSendCompletion
 
 
-VOID
+VOID SRVFASTCALL
 SrvTerminateWorkerThread (
-    PTERMINATION_WORK_ITEM WorkItem
+    IN OUT PWORK_CONTEXT WorkItem
     )
+/*++
+
+Routine Description:
+
+    This routine is called when a thread is being requested to terminate.  There
+        are two cases when this happens.  One is at server shutdown -- in this
+        case we need to keep requeueing the termination request until all the
+        threads on the queue have terminated.  The scavenger also queues a termination
+        work item when it believes there are too many threads servicing clients.  In
+        this case we don't want to requeue the work item (else all the threads
+        would disappear!)
+
+--*/
 {
-    ULONG oldCount;
+    PWORK_QUEUE queue = WorkItem->CurrentWorkQueue;
+    ULONG result;
+    NTSTATUS status;
 
     PAGED_CODE( );
 
-    oldCount = ExInterlockedAddUlong(
-                    &WorkItem->WorkQueue->Threads,
-                    (ULONG)-1,
-                    &GLOBAL_SPIN_LOCK(Fsd)
-                    );
-    if ( oldCount != 1 ) {
-        SrvInsertWorkQueueTail(
-            WorkItem->WorkQueue,
-            (PQUEUEABLE_BLOCK_HEADER)WorkItem
-            );
+    if( WorkItem == (PWORK_CONTEXT)(&queue->KillOneThreadWorkItem) ) {
+        //
+        // We are being asked to just terminate this one worker thread by the scavengr
+        //   One of the threads on each queue is special -- its pointer is stored in
+        //   queue->IrpThread and is used for irps passed into the system.  That thread
+        //   cannot die while the server is still running.  So if this is the IrpThread
+        //   we need to requeue this workitem and let some other thread pick it up.
+        //
+        if( queue->IrpThread == PsGetCurrentThread() ) {
+            //
+            // This is the IrpThread.  Requeue the item and wait for somebody else
+            //  to get it.
+            //
+            SrvInsertWorkQueueHead( queue, (PQUEUEABLE_BLOCK_HEADER)WorkItem );
+
+            //
+            // We'll know when another thread got the request because it will set
+            //  the block type.
+            //
+            while( GET_BLOCK_TYPE( WorkItem ) != BlockTypeGarbage ) {
+
+                LARGE_INTEGER interval;
+
+                interval.QuadPart = -1*10*1000*10; // .01 second
+                KeDelayExecutionThread( KernelMode, FALSE, &interval );
+            }
+
+            //
+            // Go back to servicing clients
+            //
+            return;
+        }
+
+        //
+        // We are not the IrpThread.  Must terminate.
+        //
+        // Give Xactsrv a chance to kill one of its threads if it wants to.  We
+        //  use the UsingBlockingThread because most operations from srv.sys to
+        //  Xactsrv are made by the blocking threads, so Xactsrv is probably
+        //
+        if( WorkItem->UsingBlockingThread ) {
+            SrvXsInformThreadDeath();
+        }
+
+        //
+        //   We set the block type back to BlockTypeGarbage so others will know
+        //   that we're done with this special work item.
+        //
+        SET_BLOCK_TYPE( WorkItem, BlockTypeGarbage );
+
+        InterlockedDecrement( &queue->Threads );
+
+    } else {
+        //
+        // We are being asked to terminate all of the worker threads on this queue.
+        //  So, if we're not the last thread, we should requeue the workitem so
+        //  the other threads will terminate
+        //
+
+        if( InterlockedDecrement( &queue->Threads ) != 0 ) {
+            //
+            // There are still other threads servicing this queue, so requeue
+            //  the workitem
+            //
+            SrvInsertWorkQueueTail( queue, (PQUEUEABLE_BLOCK_HEADER)WorkItem );
+        }
     }
 
-    PsTerminateSystemThread( STATUS_SUCCESS ); // no return;
+    status = PsTerminateSystemThread( STATUS_SUCCESS ); // no return;
+    SrvLogServiceFailure( SRV_SVC_PS_TERMINATE_SYSTEM_THREAD, status );
+
+    //
+    // Should we bugcheck here?
+    //
 }
+
+
+#if MULTIPROCESSOR
+
+VOID
+SrvBalanceLoad(
+    IN PCONNECTION connection
+    )
+/*++
+
+Routine Description:
+
+    Ensure that the processor handling 'connection' is the best one
+     for the job.  This routine is called periodically per connection from
+     DPC level.  It can not be paged.
+
+Arguments:
+
+    connection - the connection to inspect
+
+Return Value:
+
+    none.
+
+--*/
+{
+    ULONG MyQueueLength, OtherQueueLength;
+    ULONG i;
+    PWORK_QUEUE tmpqueue;
+    PWORK_QUEUE queue = connection->CurrentWorkQueue;
+
+    ASSERT( queue >= SrvWorkQueues );
+    ASSERT( queue < eSrvWorkQueues );
+
+    //
+    // Reset the countdown.  After the client performs BalanceCount
+    //   more operations, we'll call this routine again.
+    //
+    connection->BalanceCount = SrvBalanceCount;
+
+    //
+    // Figure out the load on the current work queue.  The load is
+    //  the sum of the average work queue depth and the current work
+    //  queue depth.  This gives us some history mixed in with the
+    //  load *right now*
+    //
+    MyQueueLength = queue->AvgQueueDepthSum >> LOG2_QUEUE_SAMPLES;
+    MyQueueLength += KeReadStateQueue( &queue->Queue );
+
+    //
+    // If we are not on our preferred queue, look to see if we want to
+    //  go back to it.  The preferred queue is the queue for the processor
+    //  handling this client's network card DPCs.  We prefer to run on that
+    //  processor to avoid sloshing data between CPUs in an MP system.
+    //
+    tmpqueue = connection->PreferredWorkQueue;
+
+    ASSERT( tmpqueue >= SrvWorkQueues );
+    ASSERT( tmpqueue < eSrvWorkQueues );
+
+    if( tmpqueue != queue ) {
+
+        //
+        // We are not queueing to our preferred queue.  See if we
+        // should go back to our preferred queue
+        //
+
+        ULONG PreferredQueueLength;
+
+        PreferredQueueLength = tmpqueue->AvgQueueDepthSum >> LOG2_QUEUE_SAMPLES;
+        PreferredQueueLength += KeReadStateQueue( &tmpqueue->Queue );
+
+        if( PreferredQueueLength <= MyQueueLength + SrvPreferredAffinity ) {
+
+            //
+            // We want to switch back to our preferred processor!
+            //
+
+            IF_DEBUG( REBALANCE ) {
+                KdPrint(( "%X C%d(%d) > P%d(%d)\n",
+                    connection,
+                    MyQueueLength,
+                    connection->CurrentWorkQueue - SrvWorkQueues,
+                    tmpqueue - SrvWorkQueues,
+                    PreferredQueueLength ));
+            }
+
+            InterlockedDecrement( &queue->CurrentClients );
+            InterlockedExchange( (LPLONG)(&connection->CurrentWorkQueue), (LONG)tmpqueue );
+            InterlockedIncrement( &tmpqueue->CurrentClients );
+            SrvReBalanced++;
+            return;
+        }
+    }
+
+    //
+    // We didn't hop to the preferred processor, so let's see if
+    // another processor looks more lightly loaded than we are.
+    //
+
+    //
+    // SrvNextBalanceProcessor is the next processor we should consider
+    //  moving to.  It is a global to ensure everybody doesn't pick the
+    //  the same processor as the next candidate.
+    //
+    tmpqueue = &SrvWorkQueues[ SrvNextBalanceProcessor ];
+
+    //
+    // Advance SrvNextBalanceProcessor to the next processor in the system
+    //
+    i = SrvNextBalanceProcessor + 1;
+
+    if( i >= SrvNumberOfProcessors )
+        i = 0;
+
+    SrvNextBalanceProcessor = i;
+
+    //
+    // Look at the other processors, and pick the next one which is doing
+    // enough less work than we are to make the jump worthwhile
+    //
+
+    for( i = SrvNumberOfProcessors; i > 1; --i ) {
+
+        ASSERT( tmpqueue >= SrvWorkQueues );
+        ASSERT( tmpqueue < eSrvWorkQueues );
+
+        OtherQueueLength = tmpqueue->AvgQueueDepthSum >> LOG2_QUEUE_SAMPLES;
+        OtherQueueLength += KeReadStateQueue( &tmpqueue->Queue );
+
+        if( OtherQueueLength + SrvOtherQueueAffinity < MyQueueLength ) {
+
+            //
+            // This processor looks promising.  Switch to it
+            //
+
+            IF_DEBUG( REBALANCE ) {
+                KdPrint(( "%X %c%d(%d) > %c%d(%d)\n",
+                    connection,
+                    queue == connection->PreferredWorkQueue ? 'P' : 'C',
+                    queue - SrvWorkQueues,
+                    MyQueueLength,
+                    tmpqueue == connection->PreferredWorkQueue ? 'P' : 'C',
+                    tmpqueue - SrvWorkQueues,
+                    OtherQueueLength ));
+            }
+
+            InterlockedDecrement( &queue->CurrentClients );
+            InterlockedExchange( (LPLONG)(&connection->CurrentWorkQueue), (LONG)tmpqueue );
+            InterlockedIncrement( &tmpqueue->CurrentClients );
+            SrvReBalanced++;
+            return;
+        }
+
+        if( ++tmpqueue == eSrvWorkQueues )
+            tmpqueue = SrvWorkQueues;
+    }
+
+    //
+    // No rebalancing necessary
+    //
+    return;
+}
+#endif

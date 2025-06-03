@@ -101,6 +101,7 @@ Return Value:
         status = STATUS_PENDING;
 
     } else {
+        KIRQL cancelIrql;
 
         //
         // Once the reference is in, LinkSpinLock will be valid.
@@ -109,17 +110,11 @@ Return Value:
         NbfReferenceConnection("TdiReceive request", connection, CREF_RECEIVE_IRP);
         RELEASE_DPC_C_SPIN_LOCK (&connection->SpinLock);
 
+        IoAcquireCancelSpinLock(&cancelIrql);
         ACQUIRE_DPC_SPIN_LOCK (connection->LinkSpinLock);
 
         IRP_RECEIVE_IRP(irpSp) = Irp;
         IRP_RECEIVE_REFCOUNT(irpSp) = 1;
-
-        //
-        // Insert onto the receive queue, and make the IRP
-        // cancellable.
-        //
-
-        InsertTailList (&connection->ReceiveQueue,&Irp->Tail.Overlay.ListEntry);
 
 #if DBG
         NbfReceives[NbfReceivesNext].Irp = Irp;
@@ -129,19 +124,10 @@ Return Value:
 #endif
 
         //
-        // Set this the quick way, without the cancel lock.
-        //
-
-        Irp->CancelRoutine = NbfCancelReceive;
-
-        //
-        // If this IRP has been cancelled, then call the
-        // cancel routine.
+        // If this IRP has been cancelled, complete it now.
         //
 
         if (Irp->Cancel) {
-
-            (VOID)RemoveHeadList (&connection->ReceiveQueue);
 
 #if DBG
             NbfCompletedReceives[NbfCompletedReceivesNext].Irp = Irp;
@@ -172,16 +158,35 @@ Return Value:
             NbfCompletedReceivesNext = (NbfCompletedReceivesNext++) % TRACK_TDI_LIMIT;
 #endif
 
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            //
+            // It is safe to do this with locks held.
+            //
             NbfCompleteReceiveIrp (Irp, STATUS_CANCELLED, 0);
 
             RELEASE_DPC_SPIN_LOCK (connection->LinkSpinLock);
+            IoReleaseCancelSpinLock(cancelIrql);
 
         } else {
 
             //
-            // This call releases the spinlock, and references the
-            // connection first it if needs to access it after
+            // Insert onto the receive queue, and make the IRP
+            // cancellable.
+            //
+
+            InsertTailList (&connection->ReceiveQueue,&Irp->Tail.Overlay.ListEntry);
+            IoSetCancelRoutine(Irp, NbfCancelReceive);
+
+            //
+            // Release the cancel spinlock out of order. Since we were
+            // already at dpc level when it was acquired, we don't
+            // need to swap irqls.
+            //
+            ASSERT(cancelIrql == DISPATCH_LEVEL);
+            IoReleaseCancelSpinLock(cancelIrql);
+
+            //
+            // This call releases the link spinlock, and references the
+            // connection first if it needs to access it after
             // releasing the lock.
             //
 
@@ -229,6 +234,7 @@ Return Value:
     PTP_ADDRESS address;
     PTP_ADDRESS_FILE addressFile;
     PIO_STACK_LOCATION irpSp;
+    KIRQL cancelIrql;
 
     //
     // verify that the operation is taking place on an address. At the same
@@ -255,10 +261,13 @@ Return Value:
 
     address = addressFile->Address;
 
+    IoAcquireCancelSpinLock(&cancelIrql);
     ACQUIRE_SPIN_LOCK (&address->SpinLock,&oldirql);
+
     if ((address->Flags & (ADDRESS_FLAGS_STOPPING | ADDRESS_FLAGS_CONFLICT)) != 0) {
 
         RELEASE_SPIN_LOCK (&address->SpinLock,oldirql);
+        IoReleaseCancelSpinLock(cancelIrql);
 
         Irp->IoStatus.Information = 0;
         Irp->IoStatus.Status = (address->Flags & ADDRESS_FLAGS_STOPPING) ?
@@ -268,12 +277,6 @@ Return Value:
     } else {
 
         //
-        // Set this the quick way, without the cancel lock.
-        //
-
-        Irp->CancelRoutine = NbfCancelReceiveDatagram;
-
-        //
         // If this IRP has been cancelled, then call the
         // cancel routine.
         //
@@ -281,18 +284,19 @@ Return Value:
         if (Irp->Cancel) {
 
             RELEASE_SPIN_LOCK (&address->SpinLock, oldirql);
+            IoReleaseCancelSpinLock(cancelIrql);
 
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
             Irp->IoStatus.Information = 0;
             Irp->IoStatus.Status = STATUS_CANCELLED;
             IoCompleteRequest (Irp, IO_NETWORK_INCREMENT);
 
         } else {
 
+            IoSetCancelRoutine(Irp, NbfCancelReceiveDatagram);
             NbfReferenceAddress ("Receive datagram", address, AREF_REQUEST);
             InsertTailList (&addressFile->ReceiveDatagramQueue,&Irp->Tail.Overlay.ListEntry);
             RELEASE_SPIN_LOCK (&address->SpinLock,oldirql);
-
+            IoReleaseCancelSpinLock(cancelIrql);
         }
 
     }

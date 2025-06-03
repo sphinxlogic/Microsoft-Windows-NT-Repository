@@ -25,7 +25,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "fsrtl.h"
 
 //
 // Create local definitions for long flag names to make code slightly more
@@ -35,10 +34,68 @@ Revision History:
 #define FSIO_A  FILE_SYNCHRONOUS_IO_ALERT
 #define FSIO_NA FILE_SYNCHRONOUS_IO_NONALERT
 
+//
+// Forward declarations of local routines.
+//
+
+ULONG
+IopGetModeInformation(
+    IN PFILE_OBJECT FileObject
+    );
+
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, IopGetModeInformation)
 #pragma alloc_text(PAGE, NtQueryInformationFile)
 #pragma alloc_text(PAGE, NtSetInformationFile)
 #endif
+
+
+ULONG
+IopGetModeInformation(
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This encapsulates extracting and translating the mode bits from
+    the passed file object, to be returned from a query information call.
+
+Arguments:
+
+    FileObject - Specifies the file object for which to return Mode info.
+
+Return Value:
+
+    The translated mode information is returned.
+
+--*/
+
+{
+    ULONG mode = 0;
+
+    if (FileObject->Flags & FO_WRITE_THROUGH) {
+        mode = FILE_WRITE_THROUGH;
+    }
+    if (FileObject->Flags & FO_SEQUENTIAL_ONLY) {
+        mode |= FILE_SEQUENTIAL_ONLY;
+    }
+    if (FileObject->Flags & FO_NO_INTERMEDIATE_BUFFERING) {
+        mode |= FILE_NO_INTERMEDIATE_BUFFERING;
+    }
+    if (FileObject->Flags & FO_SYNCHRONOUS_IO) {
+        if (FileObject->Flags & FO_ALERTABLE_IO) {
+            mode |= FILE_SYNCHRONOUS_IO_ALERT;
+        } else {
+            mode |= FILE_SYNCHRONOUS_IO_NONALERT;
+        }
+    }
+    if (FileObject->Flags & FO_DELETE_ON_CLOSE) {
+        mode |= FILE_DELETE_ON_CLOSE;
+    }
+    return mode;
+}
 
 NTSTATUS
 NtQueryInformationFile(
@@ -90,6 +147,7 @@ Return Value:
     IO_STATUS_BLOCK localIoStatus;
     OBJECT_HANDLE_INFORMATION handleInformation;
     BOOLEAN synchronousIo;
+    BOOLEAN skipDriver;
 
     PAGED_CODE();
 
@@ -100,6 +158,26 @@ Return Value:
     requestorMode = KeGetPreviousMode();
 
     if (requestorMode != KernelMode) {
+
+        //
+        // Ensure that the FileInformationClass parameter is legal for querying
+        // information about the file.
+        //
+
+        if (FileInformationClass >= FileMaximumInformation ||
+            !IopQueryOperationLength[FileInformationClass]) {
+            return STATUS_INVALID_INFO_CLASS;
+        }
+
+        //
+        // Ensure that the supplied buffer is large enough to contain the
+        // information associated with the specified set operation that is
+        // to be performed.
+        //
+
+        if (Length < (ULONG) IopQueryOperationLength[FileInformationClass]) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
 
         //
         // The caller's access mode is not kernel so probe each of the arguments
@@ -121,7 +199,13 @@ Return Value:
             // The FileInformation buffer must be writeable by the caller.
             //
 
+#if defined(_X86_)
             ProbeForWrite( FileInformation, Length, sizeof( ULONG ) );
+#else
+            ProbeForWrite( FileInformation,
+                           Length,
+                           IopQuerySetAlignmentRequirement[FileInformationClass] );
+#endif
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
 
@@ -131,12 +215,22 @@ Return Value:
             // code.
             //
 
+#if DBG
+            if (GetExceptionCode() == STATUS_DATATYPE_MISALIGNMENT) {
+                DbgBreakPoint();
+            }
+#endif // DBG
+
             return GetExceptionCode();
         }
 
+#if DBG
+
+    } else {
+
         //
-        // Ensure that the FileInformationClass parameter is legal for querying
-        // information about the file.
+        // The caller's mode is kernel.  Ensure that at least the information
+        // class and lengths are appropriate.
         //
 
         if (FileInformationClass >= FileMaximumInformation ||
@@ -144,15 +238,11 @@ Return Value:
             return STATUS_INVALID_INFO_CLASS;
         }
 
-        //
-        // Ensure that the supplied buffer is large enough to contain the
-        // information associated with the specified set operation that is
-        // to be performed.
-        //
-
         if (Length < (ULONG) IopQueryOperationLength[FileInformationClass]) {
             return STATUS_INFO_LENGTH_MISMATCH;
         }
+
+#endif // DBG
 
     }
 
@@ -498,6 +588,8 @@ Return Value:
     // the I/O completion code requires it.
     //
 
+    skipDriver = FALSE;
+
     if (FileInformationClass == FileAccessInformation) {
 
         PFILE_ACCESS_INFORMATION accessBuffer = irp->AssociatedIrp.SystemBuffer;
@@ -512,9 +604,8 @@ Return Value:
         // Complete the I/O operation.
         //
 
-        status = STATUS_SUCCESS;
-        irp->IoStatus.Status = STATUS_SUCCESS;
         irp->IoStatus.Information = sizeof( FILE_ACCESS_INFORMATION );
+        skipDriver = TRUE;
 
     } else if (FileInformationClass == FileModeInformation) {
 
@@ -524,39 +615,14 @@ Return Value:
         // Return the mode information for this file.
         //
 
-        modeBuffer->Mode = 0L;
-
-        if (fileObject->Flags & FO_WRITE_THROUGH) {
-            modeBuffer->Mode = FILE_WRITE_THROUGH;
-        }
-
-        if (fileObject->Flags & FO_SEQUENTIAL_ONLY) {
-            modeBuffer->Mode |= FILE_SEQUENTIAL_ONLY;
-        }
-
-        if (fileObject->Flags & FO_NO_INTERMEDIATE_BUFFERING) {
-            modeBuffer->Mode |= FILE_NO_INTERMEDIATE_BUFFERING;
-        }
-
-        if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-            if (fileObject->Flags & FO_ALERTABLE_IO) {
-                modeBuffer->Mode |= FILE_SYNCHRONOUS_IO_ALERT;
-            } else {
-                modeBuffer->Mode |= FILE_SYNCHRONOUS_IO_NONALERT;
-            }
-        }
-
-        if (fileObject->Flags & FO_DELETE_ON_CLOSE) {
-            modeBuffer->Mode |= FILE_DELETE_ON_CLOSE;
-        }
+        modeBuffer->Mode = IopGetModeInformation( fileObject );
 
         //
         // Complete the I/O operation.
         //
 
-        status = STATUS_SUCCESS;
-        irp->IoStatus.Status = STATUS_SUCCESS;
         irp->IoStatus.Information = sizeof( FILE_MODE_INFORMATION );
+        skipDriver = TRUE;
 
     } else if (FileInformationClass == FileAlignmentInformation) {
 
@@ -572,9 +638,8 @@ Return Value:
         // Complete the I/O operation.
         //
 
-        status = STATUS_SUCCESS;
-        irp->IoStatus.Status = STATUS_SUCCESS;
         irp->IoStatus.Information = sizeof( FILE_ALIGNMENT_INFORMATION );
+        skipDriver = TRUE;
 
     } else if (FileInformationClass == FileAllInformation) {
 
@@ -583,49 +648,28 @@ Return Value:
         //
         // The caller has requested all of the information about the file.
         // This request is handled specially because the service will fill
-        // in the Access and Mode information in the buffer and then pass
-        // the buffer to the driver to fill in the remainder.
+        // in the Access and Mode and Alignment information in the buffer
+        // and then pass the buffer to the driver to fill in the remainder.
         //
         // Begin by returning the Access information for the file.
         //
 
-        allInformation->AccessInformation.AccessFlags = handleInformation.GrantedAccess;
+        allInformation->AccessInformation.AccessFlags =
+            handleInformation.GrantedAccess;
 
         //
         // Return the mode information for this file.
         //
 
-        allInformation->ModeInformation.Mode = 0L;
-
-        if (fileObject->Flags & FO_WRITE_THROUGH) {
-            allInformation->ModeInformation.Mode = FILE_WRITE_THROUGH;
-        }
-
-        if (fileObject->Flags & FO_SEQUENTIAL_ONLY) {
-            allInformation->ModeInformation.Mode |= FILE_SEQUENTIAL_ONLY;
-        }
-
-        if (fileObject->Flags & FO_NO_INTERMEDIATE_BUFFERING) {
-            allInformation->ModeInformation.Mode |= FILE_NO_INTERMEDIATE_BUFFERING;
-        }
-
-        if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-            if (fileObject->Flags & FO_ALERTABLE_IO) {
-                allInformation->ModeInformation.Mode |= FILE_SYNCHRONOUS_IO_ALERT;
-            } else {
-                allInformation->ModeInformation.Mode |= FILE_SYNCHRONOUS_IO_NONALERT;
-            }
-        }
-
-        if (fileObject->Flags & FO_DELETE_ON_CLOSE) {
-            allInformation->ModeInformation.Mode |= FILE_DELETE_ON_CLOSE;
-        }
+        allInformation->ModeInformation.Mode =
+            IopGetModeInformation( fileObject );
 
         //
         // Return the alignment information for this file.
         //
 
-        allInformation->AlignmentInformation.AlignmentRequirement = deviceObject->AlignmentRequirement;
+        allInformation->AlignmentInformation.AlignmentRequirement =
+            deviceObject->AlignmentRequirement;
 
         //
         // Finally, set the information field of the IoStatus block in the IRP
@@ -634,15 +678,65 @@ Return Value:
         //
 
         irp->IoStatus.Information = sizeof( FILE_ACCESS_INFORMATION ) +
-                                    sizeof( FILE_MODE_INFORMATION );
+                                    sizeof( FILE_MODE_INFORMATION ) +
+                                    sizeof( FILE_ALIGNMENT_INFORMATION );
 
-        status = IoCallDriver( deviceObject, irp );
+    } else if (FileInformationClass == FileOleAllInformation) {
+
+        PFILE_OLE_ALL_INFORMATION oleallInformation = irp->AssociatedIrp.SystemBuffer;
+
+        //
+        // The caller has requested all of the information about the file.
+        // This request is handled specially because the service will fill
+        // in the Access and Mode and Alignment information in the buffer
+        // and then pass the buffer to the driver to fill in the remainder.
+        //
+        // Begin by returning the Access information for the file.
+        //
+
+        oleallInformation->AccessInformation.AccessFlags =
+            handleInformation.GrantedAccess;
+
+        //
+        // Return the mode information for this file.
+        //
+
+        oleallInformation->ModeInformation.Mode =
+            IopGetModeInformation( fileObject );
+
+        //
+        // Return the alignment information for this file.
+        //
+
+        oleallInformation->AlignmentInformation.AlignmentRequirement =
+            deviceObject->AlignmentRequirement;
+
+        //
+        // Finally, set the information field of the IoStatus block in the IRP
+        // to account for the amount information already filled in and invoke
+        // the driver to fill in the remainder.
+        //
+
+        irp->IoStatus.Information = sizeof( FILE_ACCESS_INFORMATION ) +
+                                    sizeof( FILE_MODE_INFORMATION ) +
+                                    sizeof( FILE_ALIGNMENT_INFORMATION );
+    }
+
+    if (skipDriver) {
+
+        //
+        // The requested operation has already been performed.  Simply
+        // set the final status in the packet and the return state.
+        //
+
+        status = STATUS_SUCCESS;
+        irp->IoStatus.Status = STATUS_SUCCESS;
 
     } else {
 
         //
-        // This is not a request that can be performed here, so invoke the
-        // driver at its appropriate dispatch entry with the IRP.
+        // This is not a request that can be [completely] performed here, so
+        // invoke the driver at its appropriate dispatch entry with the IRP.
         //
 
         status = IoCallDriver( deviceObject, irp );
@@ -840,6 +934,26 @@ Return Value:
     if (requestorMode != KernelMode) {
 
         //
+        // Ensure that the FileInformationClass parameter is legal for setting
+        // information about the file.
+        //
+
+        if (FileInformationClass >= FileMaximumInformation ||
+            !IopSetOperationLength[FileInformationClass]) {
+            return STATUS_INVALID_INFO_CLASS;
+        }
+
+        //
+        // Ensure that the supplied buffer is large enough to contain the
+        // information associated with the specified set operation that is
+        // to be performed.
+        //
+
+        if (Length < (ULONG) IopSetOperationLength[FileInformationClass]) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        //
         // The caller's access mode is user, so probe each of the arguments
         // and capture them as necessary.  If any failures occur, the condition
         // handler will be invoked to handle them.  It will simply cleanup and
@@ -859,9 +973,15 @@ Return Value:
             // The FileInformation buffer must be readable by the caller.
             //
 
+#if defined(_X86_)
             ProbeForRead( FileInformation,
                           Length,
-                          FileInformationClass == FileDispositionInformation ? sizeof( BOOLEAN ) : sizeof( ULONG ) );
+                          Length == sizeof( BOOLEAN ) ? sizeof( BOOLEAN ) : sizeof( ULONG ) );
+#else
+            ProbeForRead( FileInformation,
+                          Length,
+                          IopQuerySetAlignmentRequirement[FileInformationClass] );
+#endif
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
 
@@ -870,13 +990,23 @@ Return Value:
             // Simply return an appropriate error status code.
             //
 
+#if DBG
+            if (GetExceptionCode() == STATUS_DATATYPE_MISALIGNMENT) {
+                DbgBreakPoint();
+            }
+#endif // DBG
+
             return GetExceptionCode();
 
         }
 
+#if DBG
+
+    } else {
+
         //
-        // Ensure that the FileInformationClass parameter is legal for setting
-        // information about the file.
+        // The caller's mode is kernel.  Ensure that at least the information
+        // class and lengths are appropriate.
         //
 
         if (FileInformationClass >= FileMaximumInformation ||
@@ -884,15 +1014,12 @@ Return Value:
             return STATUS_INVALID_INFO_CLASS;
         }
 
-        //
-        // Ensure that the supplied buffer is large enough to contain the
-        // information associated with the specified set operation that is
-        // to be performed.
-        //
-
         if (Length < (ULONG) IopSetOperationLength[FileInformationClass]) {
             return STATUS_INFO_LENGTH_MISMATCH;
         }
+
+#endif // DBG
+
     }
 
     //
@@ -1228,12 +1355,6 @@ Return Value:
 
         } else {
 
-            if (modeBuffer->Mode & FILE_DELETE_ON_CLOSE) {
-                if (!(SeComputeGrantedAccesses( handleInformation.GrantedAccess, DELETE ))) {
-                    status = STATUS_ACCESS_DENIED;
-                }
-            }
-
             //
             // Set or clear the appropriate flags in the file object.
             //
@@ -1260,10 +1381,6 @@ Return Value:
                 }
             }
 
-            if (modeBuffer->Mode & FILE_DELETE_ON_CLOSE) {
-                fileObject->Flags |= FO_DELETE_ON_CLOSE;
-            }
-
             status = STATUS_SUCCESS;
         }
 
@@ -1277,12 +1394,12 @@ Return Value:
     } else if (FileInformationClass == FileRenameInformation ||
                FileInformationClass == FileLinkInformation ||
                FileInformationClass == FileCopyOnWriteInformation ||
-	       FileInformationClass == FileMoveClusterInformation) {
+               FileInformationClass == FileMoveClusterInformation) {
 
         //
         // Note that following code depends on the fact that the rename
         // information, link information and copy-on-write information
-	// structures look exactly the same.
+        // structures look exactly the same.
         //
 
         PFILE_RENAME_INFORMATION renameBuffer = irp->AssociatedIrp.SystemBuffer;
@@ -1300,18 +1417,18 @@ Return Value:
 
         } else {
 
-	    //
-	    // Copy the value of the replace BOOLEAN (or the ClusterCount field)
-	    // from the caller's buffer to the I/O stack location parameter
-	    // field where it is expected by file systems.
-	    //
+            //
+            // Copy the value of the replace BOOLEAN (or the ClusterCount field)
+            // from the caller's buffer to the I/O stack location parameter
+            // field where it is expected by file systems.
+            //
 
-	    if (FileInformationClass == FileMoveClusterInformation) {
-		irpSp->Parameters.SetFile.ClusterCount =
-		    ((FILE_MOVE_CLUSTER_INFORMATION *) renameBuffer)->ClusterCount;
-	    } else {
-		irpSp->Parameters.SetFile.ReplaceIfExists = renameBuffer->ReplaceIfExists;
-	    }
+            if (FileInformationClass == FileMoveClusterInformation) {
+                irpSp->Parameters.SetFile.ClusterCount =
+                    ((FILE_MOVE_CLUSTER_INFORMATION *) renameBuffer)->ClusterCount;
+            } else {
+                irpSp->Parameters.SetFile.ReplaceIfExists = renameBuffer->ReplaceIfExists;
+            }
 
             //
             // Check to see whether or not a fully qualified pathname was
@@ -1360,6 +1477,26 @@ Return Value:
 
             }
         }
+
+    } else if (FileInformationClass == FileDispositionInformation) {
+
+        PFILE_DISPOSITION_INFORMATION disposition = irp->AssociatedIrp.SystemBuffer;
+
+        //
+        // Check to see whether the disposition delete field has been set to
+        // TRUE and, if so, copy the handle being used to do this to the IRP
+        // stack location parameter.
+        //
+
+        if (disposition->DeleteFile) {
+            irpSp->Parameters.SetFile.DeleteHandle = FileHandle;
+        }
+
+        //
+        // Simply invoke the driver to perform the (un)delete operation.
+        //
+
+        status = IoCallDriver( deviceObject, irp );
 
     } else if (FileInformationClass == FileCompletionInformation) {
 

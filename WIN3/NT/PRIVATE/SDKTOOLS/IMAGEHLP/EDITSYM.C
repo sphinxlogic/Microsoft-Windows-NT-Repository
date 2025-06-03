@@ -20,17 +20,8 @@ Revision History:
 
 --*/
 
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <memory.h>
-#include <ctype.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 BOOL fVerbose;
 
@@ -130,8 +121,8 @@ BOOL EditSymbols(
         goto nosyms;
         }
 
-    if (NtHeaders->OptionalHeader.MajorLinkerVersion < 2 ||
-        NtHeaders->OptionalHeader.MinorLinkerVersion < 5
+    if ((NtHeaders->OptionalHeader.MajorLinkerVersion < 3) &&
+        (NtHeaders->OptionalHeader.MinorLinkerVersion < 5)
        ) {
         SetLastError( ERROR_BAD_EXE_FORMAT );
         goto nosyms;
@@ -147,7 +138,7 @@ BOOL EditSymbols(
                                                   IMAGE_DIRECTORY_ENTRY_DEBUG,
                                                   &DebugDirectorySize
                                                 );
-    if (DebugDirectories == NULL || DebugDirectorySize == 0) {
+    if (!DebugDirectoryIsUseful(DebugDirectories, DebugDirectorySize)) {
         SetLastError( ERROR_BAD_EXE_FORMAT );
         goto nosyms;
     }
@@ -176,7 +167,7 @@ BOOL EditSymbols(
         }
 
     if (DbgFileHeader.Signature != IMAGE_SEPARATE_DEBUG_SIGNATURE ||
-        DbgFileHeader.Flags != 0 ||
+        (DbgFileHeader.Flags & ~IMAGE_SEPARATE_DEBUG_FLAGS_MASK) != 0 ||
         DbgFileHeader.Machine != NtHeaders->FileHeader.Machine ||
         DbgFileHeader.Characteristics != NtHeaders->FileHeader.Characteristics ||
         DbgFileHeader.TimeDateStamp != NtHeaders->FileHeader.TimeDateStamp ||
@@ -187,15 +178,17 @@ BOOL EditSymbols(
         goto nosyms;
         }
 
+    if (DbgFileHeader.Flags & IMAGE_SEPARATE_DEBUG_MISMATCH) {
+        fprintf(stderr, "Warning: %s updated unsafely; symbols may be wrong\n",
+                pDbgFileName);
+    }
 
-    // check if thgis is the right dbg file
 
-    // save the DebugDirectory adn get ready to write the
+    // check if this is the right dbg file
+
+    // save the DebugDirectory and get ready to write the
     // debug data to the image file.
-    DebugDirectoriesSave = (PIMAGE_DEBUG_DIRECTORY) VirtualAlloc ( NULL,
-                                          DebugDirectorySize,
-                                          MEM_COMMIT,
-                                          PAGE_READWRITE );
+    DebugDirectoriesSave = (PIMAGE_DEBUG_DIRECTORY) malloc( DebugDirectorySize );
     if (DebugDirectoriesSave == NULL)
         goto nosyms;
 
@@ -221,11 +214,7 @@ BOOL EditSymbols(
 
         }
         else if (DebugDirectory->Type != IMAGE_DEBUG_TYPE_FPO) {
-            DebugData = (LPBYTE) VirtualAlloc( NULL,
-                                 DebugDirectory->SizeOfData,
-                                 MEM_COMMIT,
-                                 PAGE_READWRITE );
-
+            DebugData = (LPBYTE) malloc( DebugDirectory->SizeOfData );
             if (SetFilePointer( SymbolFileHandle,
                     DebugDirectory->PointerToRawData,
                     NULL,
@@ -252,16 +241,16 @@ BOOL EditSymbols(
                 }
                 else {
                     SetLastError( ERROR_WRITE_FAULT );
-                    VirtualFree( DebugData, 0, MEM_RELEASE );
+                    free( DebugData );
                     goto nosyms;
                 }
             }
             else {
                 SetLastError( ERROR_BAD_EXE_FORMAT );
-                VirtualFree( DebugData, 0, MEM_RELEASE );
+                free( DebugData );
                 goto nosyms;
             }
-            VirtualFree( DebugData, 0, MEM_RELEASE );
+            free( DebugData );
         }
         DebugDirectory += 1;
     }
@@ -335,7 +324,7 @@ BOOL EditSymbols(
                    DebugDirectoriesSave,
                    DebugDirectorySize);
 
-    VirtualFree( DebugDirectoriesSave, 0, MEM_RELEASE );
+    free( DebugDirectoriesSave );
 
     NtHeaders->FileHeader.Characteristics &= ~IMAGE_FILE_DEBUG_STRIPPED;
 
@@ -360,7 +349,7 @@ nosyms:
     SavedErrorCode = GetLastError();
 
     if (DebugDirectoriesSave)
-        VirtualFree( DebugDirectoriesSave, 0, MEM_RELEASE );
+        free( DebugDirectoriesSave );
 
     if (SymbolFileHandle && SymbolFileHandle != INVALID_HANDLE_VALUE) {
         CloseHandle( SymbolFileHandle );

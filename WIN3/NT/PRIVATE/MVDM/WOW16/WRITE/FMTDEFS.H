@@ -82,4 +82,4 @@ e.g. space before = yp+dypLine - (yp+dypAfter+dypFont)
 #define flmCharMode	2
 #define flmNoMSJ	4
 #define flmSandMode	8
-
+

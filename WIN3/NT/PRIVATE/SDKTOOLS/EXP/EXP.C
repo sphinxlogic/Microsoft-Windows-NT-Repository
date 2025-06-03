@@ -75,7 +75,7 @@ struct findType *b;
 void *dummy;
 {
     if (b == NULL ||
-            (strcmpi(b->fbuf.cFileName, "deleted") && TESTFLAG(b->fbuf.dwFileAttributes,FILE_ATTRIBUTE_DIRECTORY) &&
+            (_strcmpi(b->fbuf.cFileName, "deleted") && TESTFLAG(b->fbuf.dwFileAttributes,FILE_ATTRIBUTE_DIRECTORY) &&
             strcmp(b->fbuf.cFileName, ".") && strcmp(b->fbuf.cFileName, ".."))) {
         fexpunge(p, pFile);
         if (fRecurse) {
@@ -120,8 +120,8 @@ char *v[];
                     pFile = NULL;
                     break;
                 case 'h':
-                    if (!strcmpi(p, "help")) {
-                        iRetCode = spawnlp(P_WAIT, "qh.exe", "qh", "/u",
+                    if (!_strcmpi(p, "help")) {
+                        iRetCode = _spawnlp(P_WAIT, "qh.exe", "qh", "/u",
                                            "exp.exe", NULL);
                         /* qh returns QH_TOPIC_NOT_FOUND and
                          *            -1 is returned when the spawn fails
@@ -151,4 +151,3 @@ char *v[];
         }
     return( 0 );
 }
-

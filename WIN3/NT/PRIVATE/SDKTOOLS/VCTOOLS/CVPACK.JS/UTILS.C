@@ -294,4 +294,4 @@ ushort C7SizeOfNumeric (uchar *pNumeric)
         }
     }
 }
-
+

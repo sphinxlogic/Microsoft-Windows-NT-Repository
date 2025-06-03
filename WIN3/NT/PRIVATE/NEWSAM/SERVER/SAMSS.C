@@ -60,7 +60,9 @@ Revision History:
 
 
 NTSTATUS
-SampInitialize( VOID );
+SampInitialize(
+    OUT PULONG Revision
+    );
 
 NTSTATUS
 SampInitializeWellKnownSids( VOID );
@@ -137,6 +139,7 @@ Return Value:
     NTSTATUS NtStatus = STATUS_SUCCESS;
     NTSTATUS IgnoreStatus;
     HANDLE EventHandle = NULL;
+    ULONG Revision = 0;
 
 //
 // The following conditional code is used to generate artifical errors
@@ -178,7 +181,7 @@ Return Value:
 
     if (NT_SUCCESS(NtStatus)) {
 
-        NtStatus = SampInitialize();
+        NtStatus = SampInitialize( &Revision );
     }
 
     //
@@ -207,6 +210,19 @@ Return Value:
         KdPrint(("SAM Server: Alias Caching turned off\n"));
     }
 
+    //
+    // Perform any necessary upgrades.
+    //
+
+    if (NT_SUCCESS(NtStatus)) {
+
+        NtStatus = SampUpgradeSamDatabase(
+                        Revision
+                        );
+        if (!NT_SUCCESS(IgnoreStatus)) {
+            KdPrint(("SAM Server: Failed to upgrade SAM database: 0x%x\n",IgnoreStatus));
+        }
+    }
 
 
     //
@@ -236,6 +252,7 @@ Return Value:
 
 NTSTATUS
 SampInitialize(
+    OUT PULONG Revision
     )
 
 /*++
@@ -259,7 +276,7 @@ Routine Description:
 
 Arguments:
 
-    None.
+    Revision - receives the revision of the database.
 
 Return Value:
 
@@ -278,13 +295,15 @@ Return Value:
     OBJECT_ATTRIBUTES SamAttributes;
     UNICODE_STRING SamNameU;
     PULONG RevisionLevel;
-    ULONG Revision;
     BOOLEAN ProductExplicitlySpecified;
     PPOLICY_AUDIT_EVENTS_INFO PolicyAuditEventsInfo = NULL;
 
     SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
 
     CHAR    NullLmPassword = 0;
+    RPC_STATUS  RpcStatus;
+    HANDLE      ThreadHandle;
+    ULONG       ThreadId;
 
     //
     // Set the state of our service to "initializing" until everything
@@ -301,7 +320,7 @@ Return Value:
     NtStatus = SampInitializeWellKnownSids();
     if (!NT_SUCCESS(NtStatus)) {
         return(NtStatus);
-    }   
+    }
 
 
     //
@@ -686,8 +705,21 @@ Return Value:
     }
 
     //
+    // The RootKey for a SERVER object is the root of the SAM database.
+    // This key should not be closed when the context is deleted.
+    //
+
+    ServerContext->RootKey = SampKey;
+
+    //
     // Get the FIXED attributes, which just consists of the revision level.
     //
+
+    //
+    // BUGBUG: this does not actually return the fixed attributes. Find
+    // out why.  MMS 9/10/95
+    //
+
 
     NtStatus = SampGetFixedAttributes(
                    ServerContext,
@@ -703,15 +735,15 @@ Return Value:
         return(NtStatus);
     }
 
-    Revision = *RevisionLevel;
+    *Revision = *RevisionLevel;
 
-    if ( ((Revision && 0xFFFF0000) > SAMP_MAJOR_REVISION) ||
-         (Revision > SAMP_REVISION) ) {
+    if ( ((*Revision && 0xFFFF0000) > SAMP_MAJOR_REVISION) ||
+         (*Revision > SAMP_SERVER_REVISION) ) {
 
         KdPrint(("SAM Server: The SAM database revision level is not one supported\n"));
         KdPrint(("            by this version of the SAM server code.  The highest revision\n"));
         KdPrint(("            level supported is 0x%lx.  The SAM Database revision is 0x%lx \n",
-                              (ULONG)SAMP_REVISION, Revision));
+                              (ULONG)SAMP_SERVER_REVISION, *Revision));
         KdPrint(("            Failing to initialize SAM.\n"));
         return(STATUS_UNKNOWN_REVISION);
     }
@@ -769,6 +801,64 @@ Return Value:
         return(NtStatus);
     }
 
+    //
+    // If we are running as a netware server, for Small World or FPNW,
+    // register an SPX endpoint and some authentication info.
+    //
+
+
+    //
+    // Build null session token handle if a Netware server is
+    // installed.
+    //
+
+
+
+    if (SampStartNonNamedPipeTransports()) {
+
+        NtStatus = SampCreateNullToken();
+        if (!NT_SUCCESS(NtStatus)) {
+            KdPrint(("SAMSS:  Unable to create NULL token: 0x%x\n",
+                NtStatus));
+            return(NtStatus);
+        }
+
+    }
+
+    //
+    // Create a thread to start authenticated RPC.
+    //
+
+    ThreadHandle = CreateThread(
+                        NULL,
+                        0,
+                        (LPTHREAD_START_ROUTINE) SampSecureRpcInit,
+                        NULL,
+                        0,
+                        &ThreadId
+                        );
+
+
+    if (ThreadHandle == NULL) {
+        KdPrint(("SAMSS:  Unable to create thread: %d\n",
+            GetLastError()));
+
+        return(STATUS_INVALID_HANDLE);
+
+    }
+
+    //
+    // Load the password-change notification packages.
+    //
+
+    NtStatus = SampLoadNotificationPackages( );
+
+    if (!NT_SUCCESS(NtStatus)) {
+
+        KdPrint(("SAMSS:  Failed to load notification packagees: 0x%x.\n"
+                 "        Failing to initialize SAM Server.\n", NtStatus));
+        return(NtStatus);
+    }
 
     //
     // Allow each sub-component of SAM a chance to initialize
@@ -1077,7 +1167,7 @@ Return Value:
     //
 
     AuditPrivilege =
-        RtlConvertLongToLargeInteger(SE_AUDIT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_AUDIT_PRIVILEGE);
 
     ASSERT( (sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES)) < 100);
     NewState = RtlAllocateHeap(RtlProcessHeap(), 0, 100 );
@@ -1129,7 +1219,7 @@ Arguments:
 
     None - uses the gobal variable "SampKey".
 
-    
+
 Return Value:
 
     The status value of the registry services needed to query
@@ -1586,7 +1676,7 @@ Return Values:
     //
     // Now create the diagnostic process...
     //
-    
+
     Result = CreateProcess(
                       NULL,             // Image name
                       CommandLine.Buffer,
@@ -1605,7 +1695,7 @@ Return Values:
                         "     Error: 0x%lx (%d)\n\n",
                         GetLastError(), GetLastError()) );
     }
-    
+
     return(STATUS_SUCCESS);         // Exit this thread
 }
 #endif // SAMP_DIAGNOSTICS

@@ -48,7 +48,7 @@ Return Value:
 --*/
 {
     NTSTATUS    status;
-    PCELL_DATA  ptarget;
+    PCM_KEY_NODE  ptarget;
     PHHIVE      Hive;
     HCELL_INDEX Cell;
     PCM_KEY_CONTROL_BLOCK   KeyControlBlock;
@@ -68,12 +68,11 @@ Return Value:
         goto Exit;
     }
 
-    ptarget = HvGetCell(KeyControlBlock->KeyHive,
-                        KeyControlBlock->KeyCell);
+    ptarget = KeyControlBlock->KeyNode;
 
-    if ( ((ptarget->u.KeyNode.SubKeyCounts[Stable] +
-           ptarget->u.KeyNode.SubKeyCounts[Volatile]) == 0) &&
-         ((ptarget->u.KeyNode.Flags & KEY_NO_DELETE) == 0))
+    if ( ((ptarget->SubKeyCounts[Stable] +
+           ptarget->SubKeyCounts[Volatile]) == 0) &&
+         ((ptarget->Flags & KEY_NO_DELETE) == 0))
     {
         //
         // Cell is NOT marked NO_DELETE and does NOT have children
@@ -107,6 +106,7 @@ Return Value:
             CmpRemoveKeyControlBlock(KeyControlBlock);
             KeyControlBlock->KeyHive = NULL;
             KeyControlBlock->KeyCell = HCELL_NIL;
+            KeyControlBlock->KeyNode = NULL;
 
             KeyControlBlock->Delete = TRUE;
         }
@@ -121,4 +121,3 @@ Exit:
     CmpUnlockRegistry();
     return status;
 }
-

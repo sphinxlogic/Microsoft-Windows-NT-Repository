@@ -66,7 +66,7 @@ main( int argc, char **argv )
 
     // Synchronize the parity information for the entire volume:
     //
-    SyncInfo.ByteOffset = LiFromUlong( 0 );
+    SyncInfo.ByteOffset.QuadPart = 0;
     SyncInfo.ByteCount =  PartitionInfo.PartitionLength;
 
     // Issue the IOCTL

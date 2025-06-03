@@ -60,7 +60,7 @@ wract( int i)
          else if( p1 == ERRCODE ) 
             {
             p1 = 0;
-            goto exc;
+            goto exc;
 exc:
             if( flag++ == 0 ) fprintf( ftable, "-1, %d,\n", i );
             fprintf( ftable, "\t%d, %d,\n", tokset[p0].value, p1 );

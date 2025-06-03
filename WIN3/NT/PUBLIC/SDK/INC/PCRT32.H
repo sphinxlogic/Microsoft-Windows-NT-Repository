@@ -10,7 +10,7 @@
 #define _fmemchr memchr
 #define _fmemcmp memcmp
 #define _fmemcpy memcpy
-#define _fmemicmp memicmp
+#define _fmemicmp _memicmp
 #define _fmemmove memmove
 #define _fmemset memset
 #define _frealloc realloc
@@ -19,14 +19,14 @@
 #define _fstrcmp strcmp
 #define _fstrcpy strcpy
 #define _fstrcspn strcspn
-#define _fstrdup strdup
-#define _fstricmp stricmp
+#define _fstrdup _strdup
+#define _fstricmp _stricmp
 #define _fstrlen strlen
-#define _fstrlwr strlwr
+#define _fstrlwr _strlwr
 #define _fstrncat strncat
 #define _fstrncmp strncmp
 #define _fstrncpy strncpy
-#define _fstrnicmp strnicmp
+#define _fstrnicmp _strnicmp
 #define _fstrnset strnset
 #define _fstrpbrk strpbrk
 #define _fstrrchr strrchr
@@ -35,5 +35,5 @@
 #define _fstrspn strspn
 #define _fstrstr strstr
 #define _fstrtok strtok
-#define _fstrupr strupr
-
+#define _fstrupr _strupr
+

@@ -147,10 +147,10 @@ Language=Japanese
 
 MessageId=1013
 Language=English
-%1 (%2!d!) : error RC1013 : mismatched parentheses
+%1 (%2!d!): error RC1013 : mismatched parentheses
 .
 Language=Japanese
-%1 (%2!d!) : error RC1013 : 左右のｶッｺの数が不一致です
+%1 (%2!d!): error RC1013 : 左右のｶッｺの数が不一致です
 .
 
 MessageId=1014
@@ -283,171 +283,219 @@ compiler limit : identifier overflowed internal buffer
 
 MessageId=1101
 Language=English
-RC : fatal error RC1101: no resource binary filename specified.
+RC : fatal error RC1101 : no resource binary filename specified.
 .
 Language=Japanese
-RC : fatal error RC1101: ﾘｿｰｽのﾊﾞｲﾅﾘﾌｧｲﾙ名が指定されていません.
+RC : fatal error RC1101 : ﾘｿｰｽのﾊﾞｲﾅﾘﾌｧｲﾙ名が指定されていません.
 .
 
 MessageId=1102
 Language=English
-RC : fatal error RC1102: internal error : too many arguments to RCPP
+RC : fatal error RC1102 : internal error : too many arguments to RCPP
 .
 Language=Japanese
-RC : fatal error RC1102: 実行可能ﾌｧｲﾙ名が指定されていません.
+RC : fatal error RC1102 : 実行可能ﾌｧｲﾙ名が指定されていません.
 .
 
 MessageId=1103
 Language=English
-;-red RC : fatal error RC1103: Invalid switch, %1
-RC : fatal error RC1103: invalid option, %1
+;-red RC : fatal error RC1103 : Invalid switch, %1
+RC : fatal error RC1103 : invalid option, %1
 .
 Language=Japanese
-RC : fatal error RC1103: ｽｲッﾁ %1 は無効です
+RC : fatal error RC1103 : ｽｲッﾁ %1 は無効です
+.
+
+MessageId=1104
+Language=English
+RC : fatal error RC1104 : invalid option, %1: too many /u options
+.
+Language=Japanese
+RC : fatal error RC1104 : Invalid switch, %1: too many -U switches
 .
 
 MessageId=1105
 Language=English
-RC : fatal error RC1105: invalid option, %1: too many /d options
+RC : fatal error RC1105 : invalid option, %1: too many /d options
 .
 Language=Japanese
-RC : fatal error RC1105: Invalid switch, %1: too many -D switches
+RC : fatal error RC1105 : Invalid switch, %1: too many -D switches
 .
 
 MessageId=1106
 Language=English
-RC : fatal error RC1106: invalid option: %1
+RC : fatal error RC1106 : invalid option: %1
 .
 Language=Japanese
-RC : fatal error RC1106: ｽｲッﾁ %1 は無効です.
+RC : fatal error RC1106 : ｽｲッﾁ %1 は無効です.
 .
 
 MessageId=1107
 Language=English
-RC : fatal error RC1107: invalid usage; use RC /? for Help
+RC : fatal error RC1107 : invalid usage; use RC /? for Help
 .
 Language=Japanese
-RC : fatal error RC1107: 構文が正しくありません.  構文を確認するには rc -? と入力してください
+RC : fatal error RC1107 : 構文が正しくありません.  構文を確認するには rc -? と入力してください
 .
 
 MessageId=1109
 Language=English
-RC : fatal error RC1109: error creating %1
+RC : fatal error RC1109 : error creating %1
 .
 Language=Japanese
-RC : fatal error RC1109: %1 の作成中にｴﾗｰが発生しました
+RC : fatal error RC1109 : %1 の作成中にｴﾗｰが発生しました
 .
 
 MessageId=1110
 Language=English
-RC : fatal error RC1110: could not open %1
+RC : fatal error RC1110 : could not open %1
 .
 Language=Japanese
-RC : fatal error RC1110: %1 がｵｰﾌﾟﾝできません
+RC : fatal error RC1110 : %1 がｵｰﾌﾟﾝできません
 .
 
 MessageId=1116
 Language=English
-RC : fatal error RC1116: RC terminating after preprocessor errors
+RC : fatal error RC1116 : RC terminating after preprocessor errors
 .
 Language=Japanese
-RC : fatal error RC1116: RC はﾌﾟﾘﾌﾟﾛｾッｻｴﾗｰの後に終了します
+RC : fatal error RC1116 : RC はﾌﾟﾘﾌﾟﾛｾッｻｴﾗｰの後に終了します
 .
 
 MessageId=1120
 Language=English
-RC : fatal error RC1120: out of memory, needed %1!d! bytes
+RC : fatal error RC1120 : out of memory, needed %1!d! bytes
 .
 Language=Japanese
-RC : fatal error RC1120: ﾒﾓﾘ不足です. あと %1!d! ﾊﾞｲﾄ必要です
+RC : fatal error RC1120 : ﾒﾓﾘ不足です. あと %1!d! ﾊﾞｲﾄ必要です
 .
 
 MessageId=1121
 Language=English
-RC : fatal error RC1121: I/O error reading file
+RC : fatal error RC1121 : I/O error reading file
 .
 Language=Japanese
-RC : fatal error RC1121: ﾌｧｲﾙ読み出し時の I/O ｴﾗｰ
+RC : fatal error RC1121 : ﾌｧｲﾙ読み出し時の I/O ｴﾗｰ
 .
 
 MessageId=1122
 Language=English
-RC : fatal error RC1122: I/O error writing file
+RC : fatal error RC1122 : I/O error writing file
 .
 Language=Japanese
-RC : fatal error RC1122: ﾌｧｲﾙ書き込み時の I/O ｴﾗｰ
+RC : fatal error RC1122 : ﾌｧｲﾙ書き込み時の I/O ｴﾗｰ
 .
 
 MessageId=1123
 Language=English
-RC : fatal error RC1123: I/O error seeking in file
+RC : fatal error RC1123 : I/O error seeking in file
 .
 Language=Japanese
-RC : fatal error RC1123: ﾌｧｲﾙ検索時の I/O ｴﾗｰ
+RC : fatal error RC1123 : ﾌｧｲﾙ検索時の I/O ｴﾗｰ
 .
 
 MessageId=1201
 Language=English
-RC : fatal error RC1201: invalid option; missing include path after /i
+RC : fatal error RC1201 : invalid option; missing include path after /i
 .
 Language=Japanese
-RC : fatal error RC1201: Invalid switch - missing include path after -I.
+RC : fatal error RC1201 : Invalid switch - missing include path after -I.
 .
 
 MessageId=1202
 Language=English
-RC : fatal error RC1202: invalid option - missing default language ID after /l
+RC : fatal error RC1202 : invalid option - missing default language ID after /l
 .
 Language=Japanese
-RC : fatal error RC1202: Invalid switch - missing default language ID after -L.
+RC : fatal error RC1202 : Invalid switch - missing default language ID after -L.
 .
 
 MessageId=1203
 Language=English
-RC : fatal error RC1203: invalid hexadecimal default language ID specified
+RC : fatal error RC1203 : invalid hexadecimal default language ID specified
 .
 Language=Japanese
-RC : fatal error RC1203: Invalid hexidecimal default language Id specified.
+RC : fatal error RC1203 : Invalid hexidecimal default language Id specified.
 .
 
 MessageId=1204
 Language=English
-RC : fatal error RC1204: invalid switch; missing code page after /c
+RC : fatal error RC1204 : invalid switch; missing code page after /c
 .
 Language=Japanese
-RC : fatal error RC1204: Invalid switch - missing CodePage after -C.
+RC : fatal error RC1204 : Invalid switch - missing CodePage after -C.
 .
 
 MessageId=1205
 Language=English
-RC : fatal error RC1205: invalid code page
+RC : fatal error RC1205 : invalid code page
 .
 Language=Japanese
-RC : fatal error RC1205: Invalid Code page.
+RC : fatal error RC1205 : Invalid Code page.
 .
 
 MessageId=1206
 Language=English
-RC : fatal error RC1206: code page specified on command line not in registry
+RC : fatal error RC1206 : code page specified on command line not in registry
 .
 Language=Japanese
-RC : fatal error RC1206: Specified Code page at cmd line does not exist in registry.
+RC : fatal error RC1206 : Specified Code page at cmd line does not exist in registry.
 .
 
 MessageId=1207
 Language=English
-RC : fatal error RC1207: invalid default code page
+RC : fatal error RC1207 : invalid default code page
 .
 Language=Japanese
-RC : fatal error RC1207: Default Code page is invalid.
+RC : fatal error RC1207 : Default Code page is invalid.
 .
 
 MessageId=1208
 Language=English
-RC : fatal error RC1208: input file has .RES extension
+RC : fatal error RC1208 : input file has .RES extension
 .
 Language=Japanese
-RC : fatal error RC1208: Input file has .RES suffix
+RC : fatal error RC1208 : Input file has .RES suffix
+.
+
+MessageId=1209
+Language=English
+RC : fatal error RC1209 : invalid option; missing resource base number after /br
+.
+Language=Japanese
+RC : fatal error RC1209 : invalid option; missing resource base number after /br
+.
+
+MessageId=1210
+Language=English
+RC : fatal error RC1210 : resource base number must be from 1 to 32767
+.
+Language=Japanese
+RC : fatal error RC1210 : resource base number must be from 1 to 32767
+.
+
+MessageId=1211
+Language=English
+RC : fatal error RC1211 : invalid option - missing argument after /z
+.
+Language=Japanese
+RC : fatal error RC1211 : Invalid switch - missing argument after -Z.
+.
+
+MessageId=1212
+Language=English
+RC : fatal error RC1212 : invalid option - /z argument missing substitute font name
+.
+Language=Japanese
+RC : fatal error RC1212 : Invalid switch - -Z argument missing substitute font name.
+.
+
+MessageId=1213
+Language=English
+RC : fatal error RC1213 : invalid option - /z argument specified too many font names
+.
+Language=Japanese
+RC : fatal error RC1213 : Invalid switch - -Z argument specified too many font names.
 .
 
 MessageId=2001
@@ -612,234 +660,234 @@ Language=Japanese
 
 MessageId=2101
 Language=English
-%1 (%2!d!) : error RC2101 : invalid directive in preprocessed RC file
+%1 (%2!d!): error RC2101 : invalid directive in preprocessed RC file
 .
 Language=Japanese
-%1 (%2!d!) : error RC2101 : ﾌﾟﾘﾌﾟﾛｾｽの RC ﾌｧｲﾙには無効なﾃﾞｨﾚｸﾃｨﾌﾞです
+%1 (%2!d!): error RC2101 : ﾌﾟﾘﾌﾟﾛｾｽの RC ﾌｧｲﾙには無効なﾃﾞｨﾚｸﾃｨﾌﾞです
 .
 
 MessageId=2102
 Language=English
-%1 (%2!d!) : error RC2102 : string literal too long
+%1 (%2!d!): error RC2102 : string literal too long
 .
 Language=Japanese
-%1 (%2!d!) : error RC2102 : ﾘﾃﾗﾙ文字列が長すぎます
+%1 (%2!d!): error RC2102 : ﾘﾃﾗﾙ文字列が長すぎます
 .
 
 MessageId=2103
 Language=English
-%1 (%2!d!) : error RC2103 : unexpected end of file in string literal
+%1 (%2!d!): error RC2103 : unexpected end of file in string literal
 .
 Language=Japanese
-%1 (%2!d!) : error RC2103 : ﾘﾃﾗﾙ文字列の中に不要な EOF があります
+%1 (%2!d!): error RC2103 : ﾘﾃﾗﾙ文字列の中に不要な EOF があります
 .
 
 MessageId=2104
 Language=English
-%1 (%2!d!) : error RC2104 : undefined keyword or key name: %3!ws!
+%1 (%2!d!): error RC2104 : undefined keyword or key name: %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2104 : 未定義のｷｰﾜｰﾄﾞまたはｷｰ名: %3!ws!
+%1 (%2!d!): error RC2104 : 未定義のｷｰﾜｰﾄﾞまたはｷｰ名: %3!ws!
 .
 
 MessageId=2105
 Language=English
-%1 (%2!d!) : error RC2105 : BEGIN expected in string table
+%1 (%2!d!): error RC2105 : BEGIN expected in string table
 .
 Language=Japanese
-%1 (%2!d!) : error RC2105 : ｽﾄﾘﾝｸﾞﾃｰﾌﾞﾙには BEGIN が必要です
+%1 (%2!d!): error RC2105 : ｽﾄﾘﾝｸﾞﾃｰﾌﾞﾙには BEGIN が必要です
 .
 
 MessageId=2106
 Language=English
-%1 (%2!d!) : error RC2106 : BEGIN expected in accelerator table
+%1 (%2!d!): error RC2106 : BEGIN expected in accelerator table
 .
 Language=Japanese
-%1 (%2!d!) : error RC2106 : ｱｸｾﾗﾚｰﾀﾃｰﾌﾞﾙには BEGIN が必要です
+%1 (%2!d!): error RC2106 : ｱｸｾﾗﾚｰﾀﾃｰﾌﾞﾙには BEGIN が必要です
 .
 
 MessageId=2107
 Language=English
-%1 (%2!d!) : error RC2107 : expected numeric command value
+%1 (%2!d!): error RC2107 : expected numeric command value
 .
 Language=Japanese
-%1 (%2!d!) : error RC2107 : ｺﾏﾝﾄﾞ数値が必要です
+%1 (%2!d!): error RC2107 : ｺﾏﾝﾄﾞ数値が必要です
 .
 
 MessageId=2108
 Language=English
-%1 (%2!d!) : error RC2108 : mismatched parentheses
+%1 (%2!d!): error RC2108 : mismatched parentheses
 .
 Language=Japanese
-%1 (%2!d!) : error RC2108 : ｶッｺの形が合っていません
+%1 (%2!d!): error RC2108 : ｶッｺの形が合っていません
 .
 
 MessageId=2109
 Language=English
-%1 (%2!d!) : error RC2108 : expected numerical dialog constant
+%1 (%2!d!): error RC2108 : expected numerical dialog constant
 .
 Language=Japanese
-%1 (%2!d!) : error RC2108 : Expected Numerical Dialog constant
+%1 (%2!d!): error RC2108 : Expected Numerical Dialog constant
 .
 
 MessageId=2110
 Language=English
-%1 (%2!d!) : error RC2110 : expected numerical dialog constant
+%1 (%2!d!): error RC2110 : expected numerical dialog constant
 .
 Language=Japanese
-%1 (%2!d!) : error RC2110 : DIALOG 文に数値定数が必要です
+%1 (%2!d!): error RC2110 : DIALOG 文に数値定数が必要です
 .
 
 MessageId=2111
 Language=English
-%1 (%2!d!) : error RC2111 : invalid control type
+%1 (%2!d!): error RC2111 : invalid control type
 .
 Language=Japanese
-%1 (%2!d!) : error RC2111 : ｺﾝﾄﾛｰﾙﾀｲﾌﾟは無効です
+%1 (%2!d!): error RC2111 : ｺﾝﾄﾛｰﾙﾀｲﾌﾟは無効です
 .
 
 MessageId=2112
 Language=English
-%1 (%2!d!) : error RC2112 : BEGIN expected in dialog
+%1 (%2!d!): error RC2112 : BEGIN expected in dialog
 .
 Language=Japanese
-%1 (%2!d!) : error RC2112 : DIALOG 文に BEGIN が必要です
+%1 (%2!d!): error RC2112 : DIALOG 文に BEGIN が必要です
 .
 
 MessageId=2113
 Language=English
-%1 (%2!d!) : error RC2113 : END expected in dialog
+%1 (%2!d!): error RC2113 : END expected in dialog
 .
 Language=Japanese
-%1 (%2!d!) : error RC2113 : DIALOG 文に END が必要です
+%1 (%2!d!): error RC2113 : DIALOG 文に END が必要です
 .
 
 MessageId=2114
 Language=English
-%1 (%2!d!) : error RC2114 : expected control class name
+%1 (%2!d!): error RC2114 : expected control class name
 .
 Language=Japanese
-%1 (%2!d!) : error RC2114 : ｺﾝﾄﾛｰﾙのｸﾗｽ名が必要です
+%1 (%2!d!): error RC2114 : ｺﾝﾄﾛｰﾙのｸﾗｽ名が必要です
 .
 
 MessageId=2115
 Language=English
-%1 (%2!d!) : error RC2115 : text string or ordinal expected in control
+%1 (%2!d!): error RC2115 : text string or ordinal expected in control
 .
 Language=Japanese
-%1 (%2!d!) : error RC2115 : CONTROL 文にﾃｷｽﾄ文字列か数値が必要です
+%1 (%2!d!): error RC2115 : CONTROL 文にﾃｷｽﾄ文字列か数値が必要です
 .
 
 MessageId=2116
 Language=English
-%1 (%2!d!) : error RC2116 : expecting number for ID
+%1 (%2!d!): error RC2116 : expecting number for ID
 .
 Language=Japanese
-%1 (%2!d!) : error RC2116 : ID に番号が必要です
+%1 (%2!d!): error RC2116 : ID に番号が必要です
 .
 
 MessageId=2117
 Language=English
-%1 (%2!d!) : error RC2117 : expected numeric point size
+%1 (%2!d!): error RC2117 : expected numeric point size
 .
 Language=Japanese
-%1 (%2!d!) : error RC2117 : ﾎﾟｲﾝﾄ数が必要です
+%1 (%2!d!): error RC2117 : ﾎﾟｲﾝﾄ数が必要です
 .
 
 MessageId=2118
 Language=English
-%1 (%2!d!) : error RC2118 : expected font face name
+%1 (%2!d!): error RC2118 : expected font face name
 .
 Language=Japanese
-%1 (%2!d!) : error RC2118 : ﾌｫﾝﾄのﾌｪｲｽ名が必要です
+%1 (%2!d!): error RC2118 : ﾌｫﾝﾄのﾌｪｲｽ名が必要です
 .
 
 MessageId=2119
 Language=English
-%1 (%2!d!) : error RC2119 : expecting quoted string in dialog title
+%1 (%2!d!): error RC2119 : expecting quoted string in dialog title
 .
 Language=Japanese
-%1 (%2!d!) : error RC2119 : ﾀﾞｲｱﾛｸﾞのﾀｲﾄﾙは "" で囲んでください
+%1 (%2!d!): error RC2119 : ﾀﾞｲｱﾛｸﾞのﾀｲﾄﾙは "" で囲んでください
 .
 
 MessageId=2120
 Language=English
-%1 (%2!d!) : error RC2120 : expecting quoted string in dialog class
+%1 (%2!d!): error RC2120 : expecting quoted string in dialog class
 .
 Language=Japanese
-%1 (%2!d!) : error RC2120 : ﾀﾞｲｱﾛｸﾞのｸﾗｽは "" で囲んでください
+%1 (%2!d!): error RC2120 : ﾀﾞｲｱﾛｸﾞのｸﾗｽは "" で囲んでください
 .
 
 MessageId=2121
 Language=English
-%1 (%2!d!) : error RC2121 : BEGIN expected in menu
+%1 (%2!d!): error RC2121 : BEGIN expected in menu
 .
 Language=Japanese
-%1 (%2!d!) : error RC2121 : MENU 文には BEGIN が必要です
+%1 (%2!d!): error RC2121 : MENU 文には BEGIN が必要です
 .
 
 MessageId=2122
 Language=English
-%1 (%2!d!) : error RC2122 : unknown menu subtype
+%1 (%2!d!): error RC2122 : unknown menu subtype
 .
 Language=Japanese
-%1 (%2!d!) : error RC2122 : ﾒﾆｭｰのｻﾌﾞﾀｲﾌﾟは無効です
+%1 (%2!d!): error RC2122 : ﾒﾆｭｰのｻﾌﾞﾀｲﾌﾟは無効です
 .
 
 MessageId=2123
 Language=English
-%1 (%2!d!) : error RC2123 : END expected in menu
+%1 (%2!d!): error RC2123 : END expected in menu
 .
 Language=Japanese
-%1 (%2!d!) : error RC2123 : MENU 文には END が必要です
+%1 (%2!d!): error RC2123 : MENU 文には END が必要です
 .
 
 MessageId=2124
 Language=English
-%1 (%2!d!) : error RC2124 : empty menus not allowed
+%1 (%2!d!): error RC2124 : empty menus not allowed
 .
 Language=Japanese
-%1 (%2!d!) : error RC2124 : 空のﾒﾆｭｰは定義できません
+%1 (%2!d!): error RC2124 : 空のﾒﾆｭｰは定義できません
 .
 
 MessageId=2125
 Language=English
-%1 (%2!d!) : error RC2125 : expected ID value for menu item
+%1 (%2!d!): error RC2125 : expected ID value for menu item
 .
 Language=Japanese
-%1 (%2!d!) : error RC2125 : MENUITEM 文には ID 値が必要です
+%1 (%2!d!): error RC2125 : MENUITEM 文には ID 値が必要です
 .
 
 MessageId=2126
 Language=English
-%1 (%2!d!) : error RC2126 : expected menu string
+%1 (%2!d!): error RC2126 : expected menu string
 .
 Language=Japanese
-%1 (%2!d!) : error RC2126 : MENU 文には文字列が必要です
+%1 (%2!d!): error RC2126 : MENU 文には文字列が必要です
 .
 
 MessageId=2127
 Language=English
-%1 (%2!d!) : error RC2127 : version WORDs separated by commas expected
+%1 (%2!d!): error RC2127 : version WORDs separated by commas expected
 .
 Language=Japanese
-%1 (%2!d!) : error RC2127 : ﾊﾞｰｼﾞｮﾝの WORD はｶﾝﾏで区切らなければなりません
+%1 (%2!d!): error RC2127 : ﾊﾞｰｼﾞｮﾝの WORD はｶﾝﾏで区切らなければなりません
 .
 
 MessageId=2128
 Language=English
-%1 (%2!d!) : error RC2128 : DWORD expected
+%1 (%2!d!): error RC2128 : DWORD expected
 .
 Language=Japanese
-%1 (%2!d!) : error RC2128 : DWORD が必要です
+%1 (%2!d!): error RC2128 : DWORD が必要です
 .
 
 MessageId=2129
 Language=English
-%1 (%2!d!) : error RC2129 : BEGIN expected in VERSIONINFO resource
+%1 (%2!d!): error RC2129 : BEGIN expected in VERSIONINFO resource
 .
 Language=Japanese
-%1 (%2!d!) : error RC2129 : VERSIONINFO ﾘｿｰｽには BEGIN が必要です
+%1 (%2!d!): error RC2129 : VERSIONINFO ﾘｿｰｽには BEGIN が必要です
 .
 
 MessageId=2130
@@ -852,50 +900,50 @@ Language=Japanese
 
 MessageId=2131
 Language=English
-%1 (%2!d!) : error RC2131 : expecting quoted string for key
+%1 (%2!d!): error RC2131 : expecting quoted string for key
 .
 Language=Japanese
-%1 (%2!d!) : error RC2131 : ｱｸｾﾗﾚｰﾀｷｰの定義では文字列を "" で囲んでください
+%1 (%2!d!): error RC2131 : ｱｸｾﾗﾚｰﾀｷｰの定義では文字列を "" で囲んでください
 .
 
 MessageId=2132
 Language=English
-%1 (%2!d!) : error RC2132 : expected VALUE, BLOCK, or END keyword
+%1 (%2!d!): error RC2132 : expected VALUE, BLOCK, or END keyword
 .
 Language=Japanese
-%1 (%2!d!) : error RC2132 : VALUE, BLOCK, END のうちのいずれかのｷｰﾜｰﾄﾞが必要です.
+%1 (%2!d!): error RC2132 : VALUE, BLOCK, END のうちのいずれかのｷｰﾜｰﾄﾞが必要です.
 .
 
 MessageId=2133
 Language=English
-%1 (%2!d!) : error RC2133 : unexpected value in value data
+%1 (%2!d!): error RC2133 : unexpected value in value data
 .
 Language=Japanese
-%1 (%2!d!) : error RC2133 : value のﾃﾞｰﾀ値は無効です
+%1 (%2!d!): error RC2133 : value のﾃﾞｰﾀ値は無効です
 .
 
 MessageId=2134
 Language=English
-%1 (%2!d!) : error RC2134 : BEGIN expected in RCDATA
+%1 (%2!d!): error RC2134 : BEGIN expected in RCDATA
 .
 Language=Japanese
-%1 (%2!d!) : error RC2134 : RCDATA 文には BEGIN が必要です
+%1 (%2!d!): error RC2134 : RCDATA 文には BEGIN が必要です
 .
 
 MessageId=2135
 Language=English
-%1 (%2!d!) : error RC2135 : file not found: %3
+%1 (%2!d!): error RC2135 : file not found: %3
 .
 Language=Japanese
-%1 (%2!d!) : error RC2135 : File not found: %3
+%1 (%2!d!): error RC2135 : File not found: %3
 .
 
 MessageId=2136
 Language=English
-%1 (%2!d!) : error RC2136 : missing '=' in EXSTYLE=<flags>
+%1 (%2!d!): error RC2136 : missing '=' in EXSTYLE=<flags>
 .
 Language=Japanese
-%1 (%2!d!) : error RC2136 : Missing '=' in EXSTYLE=<flags>
+%1 (%2!d!): error RC2136 : Missing '=' in EXSTYLE=<flags>
 .
 
 MessageId=2137
@@ -916,26 +964,26 @@ unmatched close comment '/*'
 
 MessageId=2139
 Language=English
-%1 (%2!d!) : error RC2139 : VERSION not a number
+%1 (%2!d!): error RC2139 : VERSION not a number
 .
 Language=Japanese
-%1 (%2!d!) : error RC2139 : VERSION not a number
+%1 (%2!d!): error RC2139 : VERSION not a number
 .
 
 MessageId=2140
 Language=English
-%1 (%2!d!) : error RC2140 : CHARACTERISTICS not a number
+%1 (%2!d!): error RC2140 : CHARACTERISTICS not a number
 .
 Language=Japanese
-%1 (%2!d!) : error RC2140 : CHARACTERISTICS not a number
+%1 (%2!d!): error RC2140 : CHARACTERISTICS not a number
 .
 
 MessageId=2141
 Language=English
-%1 (%2!d!) : error RC2141 : invalid type
+%1 (%2!d!): error RC2141 : invalid type
 .
 Language=Japanese
-%1 (%2!d!) : error RC2141 : Invalid Type
+%1 (%2!d!): error RC2141 : Invalid Type
 .
 
 MessageId=2142
@@ -948,82 +996,82 @@ Language=Japanese
 
 MessageId=2143
 Language=English
-%1 (%2!d!) : error RC2143 : font names must be ordinals
+%1 (%2!d!): error RC2143 : font names must be ordinals
 .
 Language=Japanese
-%1 (%2!d!) : error RC2143 : Font names must be ordinals
+%1 (%2!d!): error RC2143 : Font names must be ordinals
 .
 
 MessageId=2144
 Language=English
-%1 (%2!d!) : error RC2144 : PRIMARY LANGUAGE ID not a number
+%1 (%2!d!): error RC2144 : PRIMARY LANGUAGE ID not a number
 .
 Language=Japanese
-%1 (%2!d!) : error RC2144 : PRIMARY LANGUAGE ID not a number
+%1 (%2!d!): error RC2144 : PRIMARY LANGUAGE ID not a number
 .
 
 MessageId=2145
 Language=English
-%1 (%2!d!) : error RC2145 : PRIMARY LANGUAGE ID too large
+%1 (%2!d!): error RC2145 : PRIMARY LANGUAGE ID too large
 .
 Language=Japanese
-%1 (%2!d!) : error RC2145 : PRIMARY LANGUAGE ID too large
+%1 (%2!d!): error RC2145 : PRIMARY LANGUAGE ID too large
 .
 
 MessageId=2146
 Language=English
-%1 (%2!d!) : error RC2146 : missing comma in LANGUAGE statement
+%1 (%2!d!): error RC2146 : missing comma in LANGUAGE statement
 .
 Language=Japanese
-%1 (%2!d!) : error RC2146 : Missing COMMA in LANGUAGE Statement
+%1 (%2!d!): error RC2146 : Missing COMMA in LANGUAGE Statement
 .
 
 MessageId=2147
 Language=English
-%1 (%2!d!) : error RC2147 : SUBLANGUAGE ID not a number
+%1 (%2!d!): error RC2147 : SUBLANGUAGE ID not a number
 .
 Language=Japanese
-%1 (%2!d!) : error RC2147 : SUBLANGUAGE ID not a number
+%1 (%2!d!): error RC2147 : SUBLANGUAGE ID not a number
 .
 
 MessageId=2148
 Language=English
-%1 (%2!d!) : error RC2148 : SUBLANGUAGE ID too large
+%1 (%2!d!): error RC2148 : SUBLANGUAGE ID too large
 .
 Language=Japanese
-%1 (%2!d!) : error RC2148 : SUBLANGUAGE ID too large
+%1 (%2!d!): error RC2148 : SUBLANGUAGE ID too large
 .
 
 MessageId=2149
 Language=English
-%1 (%2!d!) : error RC2148 : expected numeric constant in string table
+%1 (%2!d!): error RC2148 : expected numeric constant in string table
 .
 Language=Japanese
-%1 (%2!d!) : error RC2148 : Expected numeric constant in string table
+%1 (%2!d!): error RC2148 : Expected numeric constant in string table
 .
 
 MessageId=2150
 Language=English
-%1 (%2!d!) : error RC2150 : expected string in STRINGTABLE
+%1 (%2!d!): error RC2150 : expected string in STRINGTABLE
 .
 Language=Japanese
-%1 (%2!d!) : error RC2150 : Expected String in STRINGTABLE
+%1 (%2!d!): error RC2150 : Expected String in STRINGTABLE
 .
 
 MessageId=2151
 Language=English
-%1 (%2!d!) : error RC2151 : cannot reuse string constants
+%1 (%2!d!): error RC2151 : cannot reuse string constants
 .
 Language=Japanese
-%1 (%2!d!) : error RC2151 : Cannot Re-use String Constants
+%1 (%2!d!): error RC2151 : Cannot Re-use String Constants
 .
 
 MessageId=2152
 Language=English
-%1 (%2!d!) : error RC2152 : invalid control character
+%1 (%2!d!): error RC2152 : invalid control character
 .
 Language=Japanese
-%1 (%2!d!) : error RC2152 : Invalid control character
+%1 (%2!d!): error RC2152 : Invalid control character
 .
 
 MessageId=2153
@@ -1036,42 +1084,42 @@ Language=Japanese
 
 MessageId=2154
 Language=English
-%1 (%2!d!) : error RC2154 : control character out of range [^A - ^Z]
+%1 (%2!d!): error RC2154 : control character out of range [^A - ^Z]
 .
 Language=Japanese
-%1 (%2!d!) : error RC2154 : Control Character out of range [^A - ^Z]
+%1 (%2!d!): error RC2154 : Control Character out of range [^A - ^Z]
 .
 
 MessageId=2155
 Language=English
-%1 (%2!d!) : error RC2155 : invalid accelerator
+%1 (%2!d!): error RC2155 : invalid accelerator
 .
 Language=Japanese
-%1 (%2!d!) : error RC2155 : Invalid Accelerator
+%1 (%2!d!): error RC2155 : Invalid Accelerator
 .
 
 MessageId=2156
 Language=English
-%1 (%2!d!) : error RC2156 : expected string or constant accelerator command
+%1 (%2!d!): error RC2156 : expected string or constant accelerator command
 .
 Language=Japanese
-%1 (%2!d!) : error RC2156 : Expected String or Constant Accelerator command
+%1 (%2!d!): error RC2156 : Expected String or Constant Accelerator command
 .
 
 MessageId=2157
 Language=English
-%1 (%2!d!) : error RC2157 : expected comma in accelerator table
+%1 (%2!d!): error RC2157 : expected comma in accelerator table
 .
 Language=Japanese
-%1 (%2!d!) : error RC2157 : Expected Comma in Accelerator Table
+%1 (%2!d!): error RC2157 : Expected Comma in Accelerator Table
 .
 
 MessageId=2159
 Language=English
-%1 (%2!d!) : error RC2159 : invalid accelerator type [ASCII or VIRTKEY]
+%1 (%2!d!): error RC2159 : invalid accelerator type [ASCII or VIRTKEY]
 .
 Language=Japanese
-%1 (%2!d!) : error RC2159 : Invalid Accelerator Type [ASCII or VIRTKEY]
+%1 (%2!d!): error RC2159 : Invalid Accelerator Type [ASCII or VIRTKEY]
 .
 
 MessageId=2160
@@ -1100,98 +1148,106 @@ Language=Japanese
 
 MessageId=2163
 Language=English
-%1 (%2!d!) : error RC2163 : accelerator type required [ASCII or VIRTKEY]
+%1 (%2!d!): error RC2163 : accelerator type required [ASCII or VIRTKEY]
 .
 Language=Japanese
-%1 (%2!d!) : error RC2163 : Accelerator Type required [ASCII or VIRTKEY]
+%1 (%2!d!): error RC2163 : Accelerator Type required [ASCII or VIRTKEY]
 .
 
 MessageId=2164
 Language=English
-%1 (%2!d!) : error RC2164 : unexpected value in RCDATA
+%1 (%2!d!): error RC2164 : unexpected value in RCDATA
 .
 Language=Japanese
-%1 (%2!d!) : error RC2164 : Unexpected value in RCData
+%1 (%2!d!): error RC2164 : Unexpected value in RCData
 .
 
 MessageId=2165
 Language=English
-%1 (%2!d!) : error RC2165 : string not found in DLGINCLUDE statement
+%1 (%2!d!): error RC2165 : string not found in DLGINCLUDE statement
 .
 Language=Japanese
-%1 (%2!d!) : error RC2165 : String not found in DLGINCLUDE statement
+%1 (%2!d!): error RC2165 : String not found in DLGINCLUDE statement
 .
 
 MessageId=2166
 Language=English
-%1 (%2!d!) : error RC2166 : numeric value expected at %3!wc!
+%1 (%2!d!): error RC2166 : numeric value expected at %3!wc!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2166 : 数値は '%3!wc!' でなければなりません
+%1 (%2!d!): error RC2166 : 数値は '%3!wc!' でなければなりません
 .
 
 MessageId=2167
 Language=English
-%1 (%2!d!) : error RC2167 : unrecognized VERSIONINFO field;  BEGIN or comma expected
+%1 (%2!d!): error RC2167 : unrecognized VERSIONINFO field;  BEGIN or comma expected
 .
 Language=Japanese
-%1 (%2!d!) : error RC2167 : VERSIONINFO ﾌｨｰﾙﾄﾞは無効です;  BEGIN またはｶﾝﾏ (,) が必要です
+%1 (%2!d!): error RC2167 : VERSIONINFO ﾌｨｰﾙﾄﾞは無効です;  BEGIN またはｶﾝﾏ (,) が必要です
 .
 
 MessageId=2168
 Language=English
-%1 (%2!d!) : error RC2168 : resource too large
+%1 (%2!d!): error RC2168 : resource too large
 .
 Language=Japanese
-%1 (%2!d!) : error RC2168 : ﾘｿｰｽが大きすぎます
+%1 (%2!d!): error RC2168 : ﾘｿｰｽが大きすぎます
 .
 
 MessageId=2169
 Language=English
-%1 (%2!d!) : error RC2169 : resource file %3!ws! is not in 2.03 format
+%1 (%2!d!): error RC2169 : resource file %3!ws! is not in 2.03 format
 .
 Language=Japanese
-%1 (%2!d!) : error RC2169 : ﾘｿｰｽﾌｧｲﾙ %3!ws! は 2.03 ﾌｫｰﾏッﾄではありません.
+%1 (%2!d!): error RC2169 : ﾘｿｰｽﾌｧｲﾙ %3!ws! は 2.03 ﾌｫｰﾏッﾄではありません.
 .
 
 MessageId=2170
 Language=English
-%1 (%2!d!) : error RC2170 : bitmap file %3!ws! is not in 3.00 format
+%1 (%2!d!): error RC2170 : bitmap file %3!ws! is not in 3.00 format
 .
 Language=Japanese
-%1 (%2!d!) : error RC2170 : ﾋﾞッﾄﾏッﾌﾟﾌｧｲﾙ %3!ws! は 3.00 ﾌｫｰﾏッﾄではありません.
+%1 (%2!d!): error RC2170 : ﾋﾞッﾄﾏッﾌﾟﾌｧｲﾙ %3!ws! は 3.00 ﾌｫｰﾏッﾄではありません.
 .
 
 MessageId=2171
 Language=English
-%1 (%2!d!) : error RC2171 : unknown DIB header format
+%1 (%2!d!): error RC2171 : unknown DIB header format
 .
 Language=Japanese
-%1 (%2!d!) : error RC2171 : DIB ﾍッﾀﾞｰﾌｧｲﾙは無効です
+%1 (%2!d!): error RC2171 : DIB ﾍッﾀﾞｰﾌｧｲﾙは無効です
+.
+
+MessageId=2173
+Language=English
+%1 (%2!d!): error RC2173 : file %3!ws! is not a valid animated cursor/icon RIFF file
+.
+Language=Japanese
+%1 (%2!d!): error RC2173 : file %3!ws! is not a valid animated cursor/icon RIFF file
 .
 
 MessageId=2174
 Language=English
-%1 (%2!d!) : error RC2174 : bitmap file %3!ws! is not in 2.03 format
+%1 (%2!d!): error RC2174 : bitmap file %3!ws! is not in 2.03 format
 .
 Language=Japanese
-%1 (%2!d!) : error RC2174 : ﾋﾞッﾄﾏッﾌﾟﾌｧｲﾙ %3!ws! は 2.03 ﾌｫｰﾏッﾄではありません.
+%1 (%2!d!): error RC2174 : ﾋﾞッﾄﾏッﾌﾟﾌｧｲﾙ %3!ws! は 2.03 ﾌｫｰﾏッﾄではありません.
 .
 
 MessageId=2175
 Language=English
-%1 (%2!d!) : error RC2175 : resource file %3!ws! is not in 3.00 format
+%1 (%2!d!): error RC2175 : resource file %3!ws! is not in 3.00 format
 .
 Language=Japanese
-%1 (%2!d!) : error RC2175 : ﾘｿｰｽﾌｧｲﾙ %3!ws! は 3.00 ﾌｫｰﾏッﾄではありません.
+%1 (%2!d!): error RC2175 : ﾘｿｰｽﾌｧｲﾙ %3!ws! は 3.00 ﾌｫｰﾏッﾄではありません.
 .
 
 MessageId=2176
 Language=English
-%1 (%2!d!) : error RC2176 : old DIB in %3!ws!; pass it through SDKPAINT
+%1 (%2!d!): error RC2176 : old DIB in %3!ws!; pass it through SDKPAINT
 .
 Language=Japanese
-%1 (%2!d!) : error RC2176 : %3!ws! 中の DIB は古いﾊﾞｰｼﾞｮﾝのものです.  SDKPAINT を使って渡してください.
+%1 (%2!d!): error RC2176 : %3!ws! 中の DIB は古いﾊﾞｰｼﾞｮﾝのものです.  SDKPAINT を使って渡してください.
 .
 
 MessageId=2177
@@ -1204,18 +1260,26 @@ constant too big
 
 MessageId=2180
 Language=English
-RC : fatal error RC2180: unable to open temporary file
+RC : fatal error RC2180 : unable to open temporary file
 .
 Language=Japanese
-RC : fatal error RC2180: ﾃﾝﾎﾟﾗﾘ ﾌｧｲﾙをｵｰﾌﾟﾝできません
+RC : fatal error RC2180 : ﾃﾝﾎﾟﾗﾘ ﾌｧｲﾙをｵｰﾌﾟﾝできません
 .
 
 MessageId=2181
 Language=English
-%1 (%2!d!) : error RC2181: duplicate font ID %3!d!
+%1 (%2!d!): error RC2181 : duplicate font ID %3!d!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2181: Duplicate Font ID %3!d!
+%1 (%2!d!): error RC2181 : Duplicate Font ID %3!d!
+.
+
+MessageId=2182
+Language=English
+%1 (%2!d!): warning RC2182 : duplicate dialog control ID %3!d!
+.
+Language=Japanese
+%1 (%2!d!): warning RC2182 : Duplicate dialog control ID %3!d!
 .
 
 MessageId=2189
@@ -1228,122 +1292,162 @@ Language=Japanese
 
 MessageId=2235
 Language=English
-%1 (%2!d!) : error RC2235 : too many arguments supplied
+%1 (%2!d!): error RC2235 : too many arguments supplied
 .
 Language=Japanese
-%1 (%2!d!) : error RC2235 : Too many arguments supplied
+%1 (%2!d!): error RC2235 : Too many arguments supplied
 .
 
 MessageId=2236
 Language=English
-%1 (%2!d!) : error RC2236 : required parameter missing
+%1 (%2!d!): error RC2236 : required parameter missing
 .
 Language=Japanese
-%1 (%2!d!) : error RC2236 : Required parameter missing
+%1 (%2!d!): error RC2236 : Required parameter missing
 .
 
 MessageId=2237
 Language=English
-%1 (%2!d!) : error RC2237 : numeric value expected at %3!ws!
+%1 (%2!d!): error RC2237 : numeric value expected at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2237 : Numeric value expected at %3!ws!
+%1 (%2!d!): error RC2237 : Numeric value expected at %3!ws!
 .
 
 MessageId=2238
 Language=English
-%1 (%2!d!) : error RC2238 : string expected at %3!ws!
+%1 (%2!d!): error RC2238 : string expected at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2238 : String expected at %3!ws!
+%1 (%2!d!): error RC2238 : String expected at %3!ws!
 .
 
 MessageId=2239
 Language=English
-%1 (%2!d!) : error RC2239 : BEGIN expected at %3!ws!
+%1 (%2!d!): error RC2239 : BEGIN expected at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2239 : BEGIN expected at %3!ws!
+%1 (%2!d!): error RC2239 : BEGIN expected at %3!ws!
 .
 
 MessageId=2240
 Language=English
-%1 (%2!d!) : error RC2240 : END expected at %3!ws!
+%1 (%2!d!): error RC2240 : END expected at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2240 : END expected at %3!ws!
+%1 (%2!d!): error RC2240 : END expected at %3!ws!
 .
 
 MessageId=2241
 Language=English
-%1 (%2!d!) : error RC2241 : mismatched parentheses
+%1 (%2!d!): error RC2241 : mismatched parentheses
 .
 Language=Japanese
-%1 (%2!d!) : error RC2241 : Mismatched parentheses
+%1 (%2!d!): error RC2241 : Mismatched parentheses
 .
 
 MessageId=2242
 Language=English
-%1 (%2!d!) : error RC2242 : invalid numeric expression at %3!ws!
+%1 (%2!d!): error RC2242 : invalid numeric expression at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2242 : Invalid numeric expression at %3!ws!
+%1 (%2!d!): error RC2242 : Invalid numeric expression at %3!ws!
 .
 
 MessageId=2243
 Language=English
-%1 (%2!d!) : error RC2243 : invalid string expression at %3!ws!
+%1 (%2!d!): error RC2243 : invalid string expression at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2243 : Invalid string expression at %3!ws!
+%1 (%2!d!): error RC2243 : Invalid string expression at %3!ws!
 .
 
 MessageId=2244
 Language=English
-%1 (%2!d!) : error RC2244 : can't have a separator with a popup menu
+%1 (%2!d!): error RC2244 : can't have a separator with a popup menu
 .
 Language=Japanese
-%1 (%2!d!) : error RC2244 : Can't have a separator with a popup menu
+%1 (%2!d!): error RC2244 : Can't have a separator with a popup menu
 .
 
 MessageId=2245
 Language=English
-%1 (%2!d!) : error RC2245 : invalid submenu type at %3!ws!
+%1 (%2!d!): error RC2245 : invalid submenu type at %3!ws!
 .
 Language=Japanese
-%1 (%2!d!) : error RC2245 : Invalid submenu type at %3!ws!
+%1 (%2!d!): error RC2245 : Invalid submenu type at %3!ws!
 .
 
 MessageId=2246
 Language=English
-%1 (%2!d!) : error RC2246 : empty menus not allowed
+%1 (%2!d!): error RC2246 : empty menus not allowed
 .
 Language=Japanese
-%1 (%2!d!) : error RC2246 : Empty menus not allowed
+%1 (%2!d!): error RC2246 : Empty menus not allowed
 .
 
 MessageId=2247
 Language=English
-%1 (%2!d!) : error RC2247 : SYMBOL name too long
+%1 (%2!d!): error RC2247 : SYMBOL name too long
 .
 Language=Japanese
-%1 (%2!d!) : error RC2247 : SYMBOL name too long
+%1 (%2!d!): error RC2247 : SYMBOL name too long
 .
 
 MessageId=2248
 Language=English
-%1 (%2!d!) : error RC2248 : SYMBOL definition did not terminate with delimiter
+%1 (%2!d!): error RC2248 : SYMBOL definition did not terminate with delimiter
 .
 Language=Japanese
-%1 (%2!d!) : error RC2248 : SYMBOL definition did not terminate with delimiter
+%1 (%2!d!): error RC2248 : SYMBOL definition did not terminate with delimiter
 .
 
 MessageId=2249
 Language=English
-%1 (%2!d!) : error RC2249 : SYMBOL definition missing quote
+%1 (%2!d!): error RC2249 : SYMBOL definition missing quote
 .
 Language=Japanese
-%1 (%2!d!) : error RC2249 : SYMBOL definition missing quote
+%1 (%2!d!): error RC2249 : SYMBOL definition missing quote
+.
+
+MessageId=2250
+Language=English
+%1 (%2!d!): error RC2250 : expected numerical toolbar constant
+.
+Language=Japanese
+%1 (%2!d!): error RC2250 : expected numerical toolbar constant
+.
+
+MessageId=2251
+Language=English
+%1 (%2!d!): error RC2251 : BEGIN expected in toolbar
+.
+Language=Japanese
+%1 (%2!d!): error RC2251 : BEGIN expected in toolbar
+.
+
+MessageId=2252
+Language=English
+%1 (%2!d!): error RC2252 : END expected in toolbar
+.
+Language=Japanese
+%1 (%2!d!): error RC2252 : END expected in toolbar
+.
+
+MessageId=2253
+Language=English
+%1 (%2!d!): error RC2253 : unknown toolbar item type
+.
+Language=Japanese
+%1 (%2!d!): error RC2253 : unknown toolbar item type
+.
+
+MessageId=2254
+Language=English
+%1 (%2!d!): error RC2254 : empty toolbars not allowed
+.
+Language=Japanese
+%1 (%2!d!): error RC2254 : empty toolbars not allowed
 .
 
 MessageId=4000
@@ -1463,50 +1567,90 @@ Language=Japanese
 
 MessageId=4203
 Language=English
-%1 (%2!d!) : warning RC4203: SHIFT or CONTROL used without VIRTKEY
+%1 (%2!d!): warning RC4203 : SHIFT or CONTROL used without VIRTKEY
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4203: SHIFT または CONTROL が VIRTKEY なしで使われています
+%1 (%2!d!): warning RC4203 : SHIFT または CONTROL が VIRTKEY なしで使われています
 .
 
 MessageId=4204
 Language=English
-%1 (%2!d!) : warning RC4204: ASCII character not equivalent to virtual key code
+%1 (%2!d!): warning RC4204 : ASCII character not equivalent to virtual key code
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4204: この ASCII 文字に対応している仮想ｷｰｺｰﾄﾞはありません
+%1 (%2!d!): warning RC4204 : この ASCII 文字に対応している仮想ｷｰｺｰﾄﾞはありません
 .
 
 MessageId=4205
 Language=English
-%1 (%2!d!) : warning RC4205: string literal longer than 256; stored anyway
+%1 (%2!d!): warning RC4205 : string literal longer than 256; stored anyway
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4205: String Literal longer than 256 - stored anyway
+%1 (%2!d!): warning RC4205 : String Literal longer than 256 - stored anyway
 .
 
 MessageId=4206
 Language=English
-%1 (%2!d!) : warning RC4206: name string too long; truncated at 256
+%1 (%2!d!): warning RC4206 : name string too long; truncated at 256
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4206: Name String too long - truncated at 256
+%1 (%2!d!): warning RC4206 : Name String too long - truncated at 256
 .
 
 MessageId=4207
 Language=English
-%1 (%2!d!) : warning RC4206: type string too long; truncated at 256
+%1 (%2!d!): warning RC4206 : type string too long; truncated at 256
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4206: Type String too long - truncated at 256
+%1 (%2!d!): warning RC4206 : Type String too long - truncated at 256
 .
 
 MessageId=4208
 Language=English
-%1 (%2!d!) : warning RC4206: title string too long; truncated at 256
+%1 (%2!d!): warning RC4206 : title string too long; truncated at 256
 .
 Language=Japanese
-%1 (%2!d!) : warning RC4206: Title String too long - truncated at 256
+%1 (%2!d!): warning RC4206 : Title String too long - truncated at 256
+.
+
+MessageId=4210
+Language=English
+Missing left parenthesis in code_page #pragma
+.
+Language=Japanese
+Missing left parenthesis in code_page #pragma
+.
+
+MessageId=4211
+Language=English
+Missing right parenthesis in code_page #pragma
+.
+Language=Japanese
+Missing right parenthesis in code_page #pragma
+.
+
+MessageId=4212
+Language=English
+Codepage not integer:  %0
+.
+Language=Japanese
+Codepage not integer:  %0
+.
+
+MessageId=4213
+Language=English
+Codepage 1200 (Unicode) not allowed:  ignored
+.
+Language=Japanese
+Codepage 1200 (Unicode) not allowed:  ignored
+.
+
+MessageId=4214
+Language=English
+Codepage not valid:  ignored
+.
+Language=Japanese
+Codepage not valid:  ignored
 .
 
 MessageId=4413
@@ -1515,6 +1659,46 @@ Cannot determine file type for '%1' : assuming 8-bit ASCII
 .
 Language=Japanese
 '%1' のﾌｧｲﾙﾀｲﾌﾟが特定できません : 8 ﾋﾞッﾄの ASCII と仮定します
+.
+
+MessageId=4506
+Language=English
+%1 (%2!d!): warning RC4506 : scaling cursor %3!ws! down to 16 by 16
+.
+Language=Japanese
+%1 (%2!d!): warning RC4506 : scaling cursor %3!ws! down to 16 by 16
+.
+
+MessageId=4507
+Language=English
+%1 (%2!d!): warning RC4507 : Macintosh cursor %3!ws! must be 16 by 16 and monochrome; ignored
+.
+Language=Japanese
+%1 (%2!d!): warning RC4507 : Macintosh cursor %3!ws! must be 16 by 16 and monochrome; ignored
+.
+
+MessageId=4508
+Language=English
+%1 (%2!d!): warning RC4508 : Ignoring icon %3!ws! with invalid Macintosh size or color
+.
+Language=Japanese
+%1 (%2!d!): warning RC4508 : Ignoring icon %3!ws! with invalid Macintosh size or color
+.
+
+MessageId=4509
+Language=English
+%1 (%2!d!): warning RC4509 : Resource types '%3' and '%4' were both mapped to '%5'
+.
+Language=Japanese
+%1 (%2!d!): warning RC4509 : Resource types '%3' and '%4' were both mapped to '%5'
+.
+
+MessageId=4510
+Language=English
+%1 (%2!d!): warning RC4510 : Hardcoded font '%3!ws!' changed to '%4!ws!'
+.
+Language=Japanese
+%1 (%2!d!): warning RC4510 : Hardcoded font '%3!ws!' changed to '%4!ws!'
 .
 
 MessageId=10001
@@ -1573,12 +1757,12 @@ Switches:
    /r    Emit .RES file (optional)
    /v    Verbose (print progress messages)
    /d    Define a symbol
+   /u	 Undefine a symbol
    /fo   Rename .RES file
    /l    Default language ID in hex
    /i    Add a path for INCLUDE searches
    /x    Ignore INCLUDE environment variable
    /c    Define a code page used by NLS conversion
-   /s    Generate symbol tables for VC++ resource editor
 Flags may be either upper or lower case
 
 .
@@ -1589,12 +1773,12 @@ Switches:
    /r    Emit .RES file (optional)
    /v    Verbose (print progress messages)
    /d    Define a symbol
+   /u	 Undefine a symbol
    /fo   Rename .RES file
    /l    Default language ID in hex
    /i    Add a path for INCLUDE searches
    /x    Ignore INCLUDE environment variable
    /c    Define a CodePage used by NLS Conversion
-   /s    Generate symbol tables for VC++ resource editor
 Flags may be either upper or lower case
 
 .
@@ -1609,18 +1793,18 @@ RC はﾕｰｻﾞｰの操作により終了しました
 
 MessageId=22103
 Language=English
-RC : fatal error RC2203: unable to initialize symbol information
+RC : fatal error RC2203 : unable to initialize symbol information
 .
 Language=Japanese
-RC : fatal error RC2203: ｼﾝﾎﾞﾙ情報を保存できません
+RC : fatal error RC2203 : ｼﾝﾎﾞﾙ情報を保存できません
 .
 
-MessageId=22103
+MessageId=22104
 Language=English
-RC : fatal error RC2204: unable to save symbol information
+RC : fatal error RC2204 : unable to save symbol information
 .
 Language=Japanese
-RC : fatal error RC2204: ｼﾝﾎﾞﾙ情報を保存できません"},
+RC : fatal error RC2204 : ｼﾝﾎﾞﾙ情報を保存できません"},
 .
 
 ;

@@ -20,8 +20,6 @@ Revision History:
 
 #include <ldrdbg.h>
 
-PVOID Ol2Heap;
-
 BOOLEAN
 ldrInit(
     VOID

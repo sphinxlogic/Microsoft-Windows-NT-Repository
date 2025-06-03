@@ -56,19 +56,6 @@ SizeTransports (
 #pragma alloc_text( PAGE, SizeTransports )
 #endif
 
-//
-// Macros to determine the size a transport would take up in the output
-// buffer.
-//
-
-#define TOTAL_SIZE_OF_TRANSPORT(endpoint)                                  \
-    ( sizeof(SERVER_TRANSPORT_INFO_0) +                                    \
-          SrvLengthOfStringInApiBuffer(&(endpoint)->TransportName) +       \
-          (endpoint)->TransportAddress.Length + sizeof(TCHAR) +            \
-          SrvLengthOfStringInApiBuffer(&(endpoint)->NetworkAddress) )
-
-#define FIXED_SIZE_OF_TRANSPORT sizeof(SERVER_TRANSPORT_INFO_0)
-
 
 NTSTATUS
 SrvNetServerTransportAdd (
@@ -112,14 +99,13 @@ Return Value:
 
 {
     NTSTATUS status;
-    PSERVER_TRANSPORT_INFO_0 svti0;
+    PSERVER_TRANSPORT_INFO_1 svti1;
     UNICODE_STRING transportName;
+    UNICODE_STRING domainName;
     ANSI_STRING transportAddress;
     UNICODE_STRING netName;
 
     PAGED_CODE( );
-
-    Srp;
 
     //
     // Convert the offsets in the transport data structure to pointers.
@@ -127,34 +113,43 @@ Return Value:
     // buffer.
     //
 
-    svti0 = Buffer;
+    svti1 = Buffer;
 
-    OFFSET_TO_POINTER( svti0->svti0_transportname, svti0 );
-    OFFSET_TO_POINTER( svti0->svti0_transportaddress, svti0 );
+    OFFSET_TO_POINTER( svti1->svti1_transportname, svti1 );
+    OFFSET_TO_POINTER( svti1->svti1_transportaddress, svti1 );
+    OFFSET_TO_POINTER( svti1->svti1_domain, svti1 );
 
-    if ( !POINTER_IS_VALID( svti0->svti0_transportname, svti0, BufferLength ) ||
-         !POINTER_IS_VALID( svti0->svti0_transportaddress, svti0, BufferLength ) ) {
+    if ( !POINTER_IS_VALID( svti1->svti1_transportname, svti1, BufferLength ) ||
+         !POINTER_IS_VALID( svti1->svti1_transportaddress, svti1, BufferLength ) ||
+         !POINTER_IS_VALID( svti1->svti1_domain, svti1, BufferLength ) ) {
         return STATUS_ACCESS_VIOLATION;
     }
 
     //
-    // Set up the transport name, server name, and net name.
+    // Set up the transport name, server name, domain name, and net name.
     //
 
-    RtlInitUnicodeString( &transportName, (PWCH)svti0->svti0_transportname );
+    RtlInitUnicodeString( &transportName, (PWCH)svti1->svti1_transportname );
+
     netName.Buffer = NULL;
     netName.Length = 0;
     netName.MaximumLength = 0;
 
-    transportAddress.Buffer = svti0->svti0_transportaddress;
-    transportAddress.Length = (USHORT)svti0->svti0_transportaddresslength;
-    transportAddress.MaximumLength = (USHORT)svti0->svti0_transportaddresslength;
+    RtlInitUnicodeString( &domainName, (PWCH)svti1->svti1_domain );
+
+    transportAddress.Buffer = svti1->svti1_transportaddress;
+    transportAddress.Length = (USHORT)svti1->svti1_transportaddresslength;
+    transportAddress.MaximumLength = (USHORT)svti1->svti1_transportaddresslength;
 
     //
     // Attempt to add the new transport to the server.
     //
 
-    status = SrvAddServedNet( &netName, &transportName, &transportAddress );
+    status = SrvAddServedNet( &netName,
+                              &transportName,
+                              &transportAddress,
+                              &domainName,
+                              Srp->Flags & SRP_XADD_PRIMARY_MACHINE );
 
     return status;
 
@@ -202,8 +197,9 @@ Return Value:
 
 {
     NTSTATUS status;
-    PSERVER_TRANSPORT_INFO_0 svti0;
+    PSERVER_TRANSPORT_INFO_1 svti1;
     UNICODE_STRING transportName;
+    UNICODE_STRING domainName;
     ANSI_STRING transportAddress;
 
     PAGED_CODE( );
@@ -216,25 +212,27 @@ Return Value:
     // buffer.
     //
 
-    svti0 = Buffer;
+    svti1 = Buffer;
 
-    OFFSET_TO_POINTER( svti0->svti0_transportname, svti0 );
-    OFFSET_TO_POINTER( svti0->svti0_transportaddress, svti0 );
+    OFFSET_TO_POINTER( svti1->svti1_transportname, svti1 );
+    OFFSET_TO_POINTER( svti1->svti1_transportaddress, svti1 );
+    OFFSET_TO_POINTER( svti1->svti1_domain, svti1 );
 
-    if ( !POINTER_IS_VALID( svti0->svti0_transportname, svti0, BufferLength ) ||
-         !POINTER_IS_VALID( svti0->svti0_transportaddress, svti0, BufferLength ) ) {
+    if ( !POINTER_IS_VALID( svti1->svti1_transportname, svti1, BufferLength ) ||
+         !POINTER_IS_VALID( svti1->svti1_transportaddress, svti1, BufferLength ) ||
+         !POINTER_IS_VALID( svti1->svti1_domain, svti1, BufferLength ) ) {
         return STATUS_ACCESS_VIOLATION;
     }
 
     //
-    // Set up the transport name, server name, and net name.
+    // Set up the transport name, server name, domain name, and net name.
     //
 
-    RtlInitUnicodeString( &transportName, (PWCH)svti0->svti0_transportname );
+    RtlInitUnicodeString( &transportName, (PWCH)svti1->svti1_transportname );
 
-    transportAddress.Buffer = svti0->svti0_transportaddress;
-    transportAddress.Length = (USHORT)svti0->svti0_transportaddresslength;
-    transportAddress.MaximumLength = (USHORT)svti0->svti0_transportaddresslength;
+    transportAddress.Buffer = svti1->svti1_transportaddress;
+    transportAddress.Length = (USHORT)svti1->svti1_transportaddresslength;
+    transportAddress.MaximumLength = (USHORT)svti1->svti1_transportaddresslength;
 
     //
     // Attempt to delete the transport endpoint from the server.
@@ -347,17 +345,18 @@ Return Value:
 
 {
     PENDPOINT endpoint = Block;
-    PSERVER_TRANSPORT_INFO_0 svti0 = *FixedStructure;
+    PSERVER_TRANSPORT_INFO_1 svti1 = *FixedStructure;
+    ULONG TransportAddressLength;
 
     PAGED_CODE( );
-
-    Srp;
 
     //
     // Update FixedStructure to point to the next structure location.
     //
 
-    *FixedStructure = (PCHAR)*FixedStructure + FIXED_SIZE_OF_TRANSPORT;
+    *FixedStructure = (PCHAR)*FixedStructure +
+        (Srp->Level ? sizeof( SERVER_TRANSPORT_INFO_1 ) : sizeof( SERVER_TRANSPORT_INFO_0 ));
+
     ASSERT( (ULONG)*EndOfVariableData >= (ULONG)*FixedStructure );
 
     //
@@ -365,9 +364,9 @@ Return Value:
     // of connections on the endpoint less the free connections.
     //
 
-    ACQUIRE_LOCK( &SrvEndpointLock );
+    ACQUIRE_LOCK_SHARED( &SrvEndpointLock );
 
-    svti0->svti0_numberofvcs =
+    svti1->svti1_numberofvcs =
         endpoint->TotalConnectionCount - endpoint->FreeConnectionCount;
 
     RELEASE_LOCK( &SrvEndpointLock );
@@ -380,16 +379,53 @@ Return Value:
         &endpoint->TransportName,
         *FixedStructure,
         EndOfVariableData,
-        &svti0->svti0_transportname
+        &svti1->svti1_transportname
         );
+
+    //
+    // Copy over the network name.
+    //
+
+    SrvCopyUnicodeStringToBuffer(
+        &endpoint->NetworkAddress,
+        *FixedStructure,
+        EndOfVariableData,
+        &svti1->svti1_networkaddress
+        );
+
+    //
+    // Copy over the domain name
+    //
+    if( Srp->Level > 0 ) {
+
+        SrvCopyUnicodeStringToBuffer(
+            &endpoint->DomainName,
+            *FixedStructure,
+            EndOfVariableData,
+            &svti1->svti1_domain
+            );
+
+    }
 
     //
     // Copy over the transport address.  We have to manually check here
     // whether it will fit in the output buffer.
     //
+    //
+    // Don't copy the trailing blanks of the transport address.
+    //
 
-    *EndOfVariableData = (LPTSTR)( (PCHAR)*EndOfVariableData -
-                                      endpoint->TransportAddress.Length );
+    for ( TransportAddressLength = endpoint->TransportAddress.Length;
+          TransportAddressLength > 0 && endpoint->TransportAddress.Buffer[TransportAddressLength-1] == ' ' ;
+          TransportAddressLength-- ) ;
+
+    *EndOfVariableData = (LPTSTR)( (PCHAR)*EndOfVariableData - TransportAddressLength );
+
+    //
+    // Ensure we remain byte aligned, so knock off the low bit if necessary.  Remember, we
+    //  are filling backwards from the end of the buffer so we want to round the address down
+    //
+    *EndOfVariableData = (LPTSTR)( (ULONG)*EndOfVariableData & ~1 );
 
     if ( (ULONG)*EndOfVariableData > (ULONG)*FixedStructure ) {
 
@@ -400,28 +436,17 @@ Return Value:
         RtlCopyMemory(
             *EndOfVariableData,
             endpoint->TransportAddress.Buffer,
-            endpoint->TransportAddress.Length
+            TransportAddressLength
             );
 
-        svti0->svti0_transportaddress = (LPBYTE)*EndOfVariableData;
-        svti0->svti0_transportaddresslength = endpoint->TransportAddress.Length;
+        svti1->svti1_transportaddress = (LPBYTE)*EndOfVariableData;
+        svti1->svti1_transportaddresslength = TransportAddressLength;
 
     } else {
 
-        svti0->svti0_transportaddress = NULL;
-        svti0->svti0_transportaddresslength = 0;
+        svti1->svti1_transportaddress = NULL;
+        svti1->svti1_transportaddresslength = 0;
     }
-
-    //
-    // Copy over the network name.
-    //
-
-    SrvCopyUnicodeStringToBuffer(
-        &endpoint->NetworkAddress,
-        *FixedStructure,
-        EndOfVariableData,
-        &svti0->svti0_networkaddress
-        );
 
     return;
 
@@ -496,12 +521,21 @@ Return Value:
 
 {
     PENDPOINT endpoint = Block;
+    ULONG size;
 
     PAGED_CODE( );
 
-    Srp;
+    size = Srp->Level ? sizeof( SERVER_TRANSPORT_INFO_1 ) : sizeof( SERVER_TRANSPORT_INFO_0 );
 
-    return TOTAL_SIZE_OF_TRANSPORT( endpoint );
+    size += SrvLengthOfStringInApiBuffer(&(endpoint)->TransportName);
+    size += (endpoint)->TransportAddress.Length + sizeof(TCHAR);
+    size += SrvLengthOfStringInApiBuffer(&(endpoint)->NetworkAddress);
+
+    if( Srp->Level ) {
+        size += SrvLengthOfStringInApiBuffer( &(endpoint)->DomainName );
+    }
+
+    return size;
 
 } // SizeTransports
 

@@ -68,10 +68,7 @@ fgetsW (
     return (string);
 }
 
-
-/*
- * Read the specified stream into the user's buffer
- */
+// Read the specified stream into the user's buffer
 
 long
 freadW (
@@ -83,6 +80,7 @@ freadW (
     size_t n;
     long cbRead = 0;
     WCHAR *pch = string;
+    WCHAR ch;
 
     assert (string != NULL);
     assert (fp != 0);
@@ -91,13 +89,10 @@ freadW (
         return ((long) NULL);
 
     while (cbRead < count && !feof(fp)) {
-        if (bUnicode)
-            n = fread(pch, 1, sizeof(WCHAR), fp);
-        else {
-            *pch = L'\0';
-            n = fread(pch, (size_t)1, (size_t)1, fp);
-        }
+        ch = L'\0';
+        n = fread(&ch, 1, bUnicode ? sizeof(WCHAR) : sizeof(CHAR), fp);
         if (n) {
+            *pch = ch;
             pch++;
             cbRead += n;
         }
@@ -148,7 +143,7 @@ BOOL WINAPI SlmIsTextUnicode( PVOID Buffer, ULONG Size, PULONG Result );
 
 static void InitIsText(void)
 {
-    //  Since this it the first NT specific function to be called, initialize
+    // Since this it the first NT specific function to be called, initialize
     // the Unicode test ptr.
 
     if ((GetVersion() >> 16 & 0x00007fff) < 546)

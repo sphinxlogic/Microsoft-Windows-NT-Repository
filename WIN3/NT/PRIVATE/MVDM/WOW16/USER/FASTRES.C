@@ -425,4 +425,3 @@ HANDLE  API SetClipboardData (UINT cbformat, HANDLE hMem)
     ul = WOWSetClipboardData (cbformat, hMem);
     return (ul);
 }
-

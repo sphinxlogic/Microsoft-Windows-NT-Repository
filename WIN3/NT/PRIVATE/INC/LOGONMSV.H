@@ -75,6 +75,7 @@ typedef enum _NETLOGON_SECURE_CHANNEL_TYPE {
 //
 // Input information to NetLogonSamLogon.
 //
+// begin_ntsubauth
 
 typedef enum _NETLOGON_LOGON_INFO_CLASS {
     NetlogonInteractiveInformation = 1,
@@ -118,6 +119,7 @@ typedef struct _NETLOGON_NETWORK_INFO {
     STRING LmChallengeResponse;
 } NETLOGON_NETWORK_INFO, *PNETLOGON_NETWORK_INFO;
 #pragma pack()
+// end_ntsubauth
 
 //
 // Structure to pass a SID_AND_ATTRIBUTES over the network.
@@ -149,7 +151,8 @@ typedef enum _NETLOGON_VALIDATION_INFO_CLASS {
      NetlogonValidationUasInfo = 1,
      NetlogonValidationSamInfo,
      NetlogonValidationSamInfo2,
-     NetlogonValidationPacInfo
+     NetlogonValidationPacInfo,
+     NetlogonValidationPacInfo2
 } NETLOGON_VALIDATION_INFO_CLASS;
 
 #pragma pack(4)
@@ -276,7 +279,6 @@ typedef struct _NETLOGON_VALIDATION_SAM_INFO2 {
 //
 
 typedef struct _NETLOGON_VALIDATION_PAC_INFO {
-
     ULONG   cbPacSize;
 #ifdef MIDL_PASS
     [size_is(cbPacSize),unique]
@@ -284,7 +286,20 @@ typedef struct _NETLOGON_VALIDATION_PAC_INFO {
     PUCHAR pbPacData;
     UNICODE_STRING LogonDomain;
     UNICODE_STRING LogonServer;
+    UNICODE_STRING PrincipalName;
+    ULONG cbAuthData;
+#ifdef MIDL_PASS
+    [size_is(cbAuthData),unique]
+#endif //MIDL_PASS
+    PUCHAR pbAuthData;
     USER_SESSION_KEY UserSessionKey;
+
+    ULONG    ExpansionRoom[10];        // First two are the LanmanSessionKey
+    UNICODE_STRING DummyString1;       // Not used yet
+    UNICODE_STRING DummyString2;       // Not used yet
+    UNICODE_STRING DummyString3;       // Not used yet
+    UNICODE_STRING DummyString4;       // Not used yet
+
 } NETLOGON_VALIDATION_PAC_INFO, *PNETLOGON_VALIDATION_PAC_INFO;
 
 #pragma pack()
@@ -353,6 +368,23 @@ typedef NTSTATUS
     IN LPBYTE LogonInformation
 );
 
+//
+// Actual logon/logoff routines for Cairo
+//
+
+NET_API_STATUS
+NetlogonInitialize(
+    PVOID Context
+    );
+
+NTSTATUS
+NetlogonSamLogon (
+    IN NETLOGON_LOGON_INFO_CLASS LogonLevel,
+    IN LPBYTE LogonInformation,
+    IN NETLOGON_VALIDATION_INFO_CLASS ValidationLevel,
+    OUT LPBYTE *ValidationInformation,
+    OUT PBOOLEAN Authoritative
+    );
 
 //
 // Routine to get a list of NT DC's in the specified domain.
@@ -385,6 +417,14 @@ MsvSamValidate (
     IN DWORD AccountsToTry
 );
 
+//
+// Routine to get running number of logon attempts which lives in msv1_0.dll
+//
+ULONG
+MsvGetLogonAttemptCount (
+    VOID
+);
+
 // Values for AccountsToTry
 #define MSVSAM_SPECIFIED 0x01        // Try specified account
 #define MSVSAM_GUEST     0x02        // Try guest account
@@ -396,12 +436,13 @@ MsvSamLogoff (
     IN PVOID LogonInformation
 );
 
+// begin_ntsubauth
 
 // Values for Flags
 #define MSV1_0_PASSTHRU     0x01
 #define MSV1_0_GUEST_LOGON  0x02
 
-NTSTATUS
+NTSTATUS NTAPI
 Msv1_0SubAuthenticationRoutine(
     IN NETLOGON_LOGON_INFO_CLASS LogonLevel,
     IN PVOID LogonInformation,
@@ -413,5 +454,20 @@ Msv1_0SubAuthenticationRoutine(
     OUT PLARGE_INTEGER LogoffTime,
     OUT PLARGE_INTEGER KickoffTime
 );
+
+NTSTATUS NTAPI
+Msv1_0SubAuthenticationFilter(
+    IN NETLOGON_LOGON_INFO_CLASS LogonLevel,
+    IN PVOID LogonInformation,
+    IN ULONG Flags,
+    IN PUSER_ALL_INFORMATION UserAll,
+    OUT PULONG WhichFields,
+    OUT PULONG UserFlags,
+    OUT PBOOLEAN Authoritative,
+    OUT PLARGE_INTEGER LogoffTime,
+    OUT PLARGE_INTEGER KickoffTime
+);
+
+// end_ntsubauth
 
 #endif // __LOGONMSV_H__

@@ -4,7 +4,7 @@
 #include <windows.h>
 #include "null.h"
 
-#define NULL1_ITERATIONS 5000
+#define NULL1_ITERATIONS 25000
 ULONG Longs[32];
 
 //
@@ -12,8 +12,8 @@ ULONG Longs[32];
 //
 
 typedef struct _PERFINFO {
-    LARGE_INTEGER StartTime;
-    LARGE_INTEGER StopTime;
+    DWORD StartTime;
+    DWORD StopTime;
     PCHAR Title;
     ULONG Iterations;
 } PERFINFO, *PPERFINFO;
@@ -38,7 +38,6 @@ Null1Test (
 
     ULONG Index;
     PERFINFO PerfInfo;
-    LARGE_INTEGER SystemTime;
 
     //
     // Announce start of benchmark and capture performance parmeters.
@@ -71,7 +70,6 @@ Null4Test (
 
     ULONG Index;
     PERFINFO PerfInfo;
-    LARGE_INTEGER SystemTime;
 
     //
     // Announce start of benchmark and capture performance parmeters.
@@ -104,7 +102,6 @@ Null8Test (
 
     ULONG Index;
     PERFINFO PerfInfo;
-    LARGE_INTEGER SystemTime;
 
     //
     // Announce start of benchmark and capture performance parmeters.
@@ -137,7 +134,6 @@ Null16Test (
 
     ULONG Index;
     PERFINFO PerfInfo;
-    LARGE_INTEGER SystemTime;
 
     //
     // Announce start of benchmark and capture performance parmeters.
@@ -179,26 +175,40 @@ main(
     }
 
     st = NullConnect();
-    ASSERT(NT_SUCCESS(st));
+    if ( !NT_SUCCESS(st) ) {
+        printf("NullConnect Failed %x\n",st);
+        ExitProcess(1);
+        }
 
     st = Null1(Longs[32]);
-    ASSERT(NT_SUCCESS(st));
+    if ( !NT_SUCCESS(st) ) {
+        printf("Null1 Failed %x\n",st);
+        ExitProcess(1);
+        }
 
     st = Null4(&Longs[0]);
-    ASSERT(NT_SUCCESS(st));
+    if ( !NT_SUCCESS(st) ) {
+        printf("Null4 Failed %x\n",st);
+        ExitProcess(1);
+        }
 
     st = Null8(&Longs[0]);
-    ASSERT(NT_SUCCESS(st));
+    if ( !NT_SUCCESS(st) ) {
+        printf("Null8 Failed %x\n",st);
+        ExitProcess(1);
+        }
 
     st = Null16(&Longs[0]);
-    ASSERT(NT_SUCCESS(st));
-
-    for(i=0;i<10;i++){
-        Null1Test();
-        Null4Test();
-        Null8Test();
-        Null16Test();
+    if ( !NT_SUCCESS(st) ) {
+        printf("Null16 Failed %x\n",st);
+        ExitProcess(1);
         }
+
+    Null1Test();
+    Null4Test();
+    Null8Test();
+    Null16Test();
+
     ExitProcess(st);
 }
 
@@ -209,7 +219,7 @@ FinishBenchMark (
 
 {
 
-    LARGE_INTEGER Duration;
+    DWORD Duration;
     ULONG Length;
     ULONG Performance;
 
@@ -217,14 +227,13 @@ FinishBenchMark (
     // Print results and announce end of test.
     //
 
-    NtQuerySystemTime((PLARGE_INTEGER)&PerfInfo->StopTime);
-    Duration = RtlLargeIntegerSubtract(PerfInfo->StopTime, PerfInfo->StartTime);
-    Length = Duration.LowPart / 10000;
-    DbgPrint("        Test time in milliseconds %d\n", Length);
-    DbgPrint("        Number of iterations      %d\n", PerfInfo->Iterations);
-    Performance = PerfInfo->Iterations * 1000 / Length;
-    DbgPrint("        Iterations per second     %d\n", Performance);
-    DbgPrint("*** End of Test ***\n\n");
+    PerfInfo->StopTime = GetTickCount();
+    Duration = PerfInfo->StopTime -  PerfInfo->StartTime;
+    printf("        Test time in milliseconds %d\n", Duration);
+    printf("        Number of iterations      %d\n", PerfInfo->Iterations);
+    Performance = PerfInfo->Iterations * 1000 / Duration;
+    printf("        Iterations per second     %d\n", Performance);
+    printf("*** End of Test ***\n\n");
     return;
 }
 
@@ -241,9 +250,9 @@ StartBenchMark (
     // Announce start of test and the number of iterations.
     //
 
-    DbgPrint("*** Start of test ***\n    %s\n", Title);
+    printf("*** Start of test ***\n    %s\n", Title);
     PerfInfo->Title = Title;
     PerfInfo->Iterations = Iterations;
-    NtQuerySystemTime((PLARGE_INTEGER)&PerfInfo->StartTime);
+    PerfInfo->StartTime = GetTickCount();
     return;
 }

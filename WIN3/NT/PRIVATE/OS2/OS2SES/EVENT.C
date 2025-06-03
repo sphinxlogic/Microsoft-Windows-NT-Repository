@@ -597,7 +597,7 @@ RemoveConForWinProcess()
 #if DBG
         KdPrint(("OS2SES(event-RemoveConForWinProcess): SetConsoleMode(Output) failed \n"));
 #endif
-    } 
+    }
 
     return (0L);
 }
@@ -3398,7 +3398,7 @@ void PMNTReadDisplayAdapterName(void)
 
 PMNTSetFocus(HWND FocusHwnd)
 {
-    BOOLEAN rc, rc1;
+    BOOLEAN rc;
 
 // Code below doesn't work when the PM window which has been clicked on (which
 // is closing itself) causes PMShell to be selected (next in focus chain)
@@ -3420,14 +3420,23 @@ PMNTSetFocus(HWND FocusHwnd)
     DbgPrint("PMNTSetFocus: passing handle=%x\n", FocusHwnd);
 #endif
 
-    rc1 = SetForegroundWindow(FocusHwnd);
+    rc = SetForegroundWindow(FocusHwnd);
+
+    // PatrickQ 4/26/96: CBA fix, don't call OpenIcon if the
+    //  SetForegroundWindow call failed. This prevents the PMShell window from
+    //  being in a restored state when we attempt this code while a screen such
+    //  as CTRL-ALT-DEL is on the desktop
+    if (!rc)
+    {
 #if DBG
-    if (!rc1)
        DbgPrint("SetForegroundWindow failed, rc=0\n");
 #endif
+       return ERROR_INVALID_PARAMETER;
+    }
+
     rc = OpenIcon(FocusHwnd);
 //    rc = ShowWindow(FocusHwnd, SW_SHOWMAXIMIZED);
-    if (!(rc && rc1))
+    if (!rc)
     {
 #if DBG
         DbgPrint("OpenIcon failed, rc=0\n");
@@ -3644,8 +3653,9 @@ void PMNTSetFullScreen(USHORT Register)
                              (DWORD)  0,
                              textBufferSize,
                              (PVOID *) &textBuffer
-                       )
-      )
+                           ) ||
+        (!stateLength)
+       )
     {
 #if DBG
         DbgPrint("PMNTSetFullScreen: ERROR, RegisterConsoleVDM() failed, error=0x%x\n",
@@ -3738,13 +3748,29 @@ PMNTCloseWindow()
     {
         DWORD Dummy;
 
+
+#if DBG
+        DbgPrint("PMNTCloseWindow\n");
+#endif
+
         // Special case: minimize PMShell window
         if (!VDMConsoleOperation(
                 1,  //VDM_HIDE_WINDOW
                 (LPVOID)&Dummy))
         {
 #if DBG
-            DbgPrint("PMNTSetFocus: VDMConsoleOperation() failed, error=0x%x\n",
+            DbgPrint("PMNTCloseWindow: VDMConsoleOperation() 1 failed, error=0x%x\n",
+                        GetLastError());
+#endif
+            return ERROR_INVALID_PARAMETER;
+        }
+        ShowWindow(Ow2ForegroundWindow, SW_HIDE);
+        if (!VDMConsoleOperation(
+                1,  //VDM_HIDE_WINDOW
+                (LPVOID)&Dummy))
+        {
+#if DBG
+            DbgPrint("PMNTCloseWindow: VDMConsoleOperation() 2 failed, error=0x%x\n",
                         GetLastError());
 #endif
             return ERROR_INVALID_PARAMETER;
@@ -3787,6 +3813,17 @@ PMNTCloseWindow()
 #if DBG
     DbgPrint("PMNTCloseWindow: passing handle=%x\n", Ow2ForegroundWindow);
 #endif
+
+    // PatrickQ 4/26/96: Upon closing the current window, take the opportunity
+    //  to correct situations where we remember a 0 Ow2ForeGroundWindow
+    //  because, for example, the PM app was started when a CTRL-ALT-DEL screen
+    //  was active. This change is prompted by the CBA problem when starting
+    //  PM apps while screen is locked
+    if (Ow2ForegroundWindow == 0)
+    {
+        // Re-acquire Ow2ForegroundWindow
+        Ow2ForegroundWindow = GetForegroundWindow();
+    }
 
     if (!CloseWindow(Ow2ForegroundWindow))
     {

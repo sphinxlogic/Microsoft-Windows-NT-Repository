@@ -178,7 +178,7 @@ extern ACCESS_MASK LsapDbRequiredAccessSetTrustedDomain[];
 #define LSAP_DB_OBJECT_OPEN_IF             FILE_OPEN_IF
 #define LSAP_DB_OBJECT_CREATE              FILE_CREATE
 #define LSAP_DB_KEY_VALUE_MAX_LENGTH       (0x00000040L)
-#define LSAP_DB_LOGICAL_NAME_MAX_LENGTH    (0x00000080L)
+#define LSAP_DB_LOGICAL_NAME_MAX_LENGTH    (0x00000100L)
 
 //
 // LSA Database Object SubKey Defines

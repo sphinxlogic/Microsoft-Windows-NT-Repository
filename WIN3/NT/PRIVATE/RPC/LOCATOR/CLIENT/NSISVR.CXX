@@ -306,4 +306,3 @@ Routine Description:
     return(RpcNsBindingUnexportW(EntryNameSyntax, &EntryNameW,
         RpcIfHandle, ObjectVector));
 }
-

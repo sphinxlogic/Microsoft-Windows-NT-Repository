@@ -32,4 +32,3 @@ VOID FAR          ShowNewWindow(APPITEMPTR);
 PSTR FAR          UnqualifyPath(PSTR);
 VOID CALLBACK     fnTimerBlockProc(HWND, UINT, UINT, DWORD);
 BOOL FAR          ToggleBlockTimer(BOOL);
-

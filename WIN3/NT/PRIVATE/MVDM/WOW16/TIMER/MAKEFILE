@@ -17,21 +17,22 @@ INCS    = -I. -I..\inc -I..\..\inc
 
 OPT     = -Oxws
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
 #
 #   build a retail build
 #
-!if "$(NTDEBUG)" == "" || "$(NTDEBUG)" == "retail"
+!if "$(NTDEBUG)" == "" || "$(NTDEBUG)" == "retail" && "$(NTDEBUG)" != "ntsdnodbg"
 
 CLOPT   =-I..\inc -I.\rinc -I..\..\inc
 MASMOPT =-I..\inc -I..\..\inc
 LINKOPT =
-RC      =rc16 -i..\inc -i..\mmsystem\rinc
+RC      =rc16 -i..\inc
 OBJD    =
 Z       = .\retail^\
 MMDEBUG =
@@ -40,16 +41,9 @@ MMDEBUG =
 #   build a full debug build
 #
 !else
-
-!if "$(NTDEBUGTYPE)"=="windbg"
-CDEBUG  =-Zi -Odi
-ADEBUG  =-Zi
-LDEBUG  =/CO
-!else
 CDEBUG  =-Zd -Odi
 ADEBUG  =-Zd
 LDEBUG  =/LI
-!endif
 
 CLOPT   =$(CDEBUG) -DDEBUG -I..\inc -I.\rinc -I..\..\inc
 MASMOPT =$(ADEBUG) -DDEBUG -I..\inc -I..\..\inc
@@ -63,9 +57,9 @@ MMDEBUG = DEBUG=1
 
 
 !if "$(STRICT)" == "YES"
-TYPES	=-DSTRICT
+TYPES   =-DSTRICT
 !else
-TYPES	=
+TYPES   =
 !endif
 
 #
@@ -88,7 +82,7 @@ LINK    = link16 /NOD/NOE/MAP/ALIGN:16 $(LINKOPT)
 
 ###################################
 
-goal:	$(NAME).$(EXT) $(NAME).sym
+all:   $(NAME).$(EXT) $(NAME).sym
 
 $(NAME).$(EXT): $(OBJFIRST) $(OBJ) $(NAME).def $(NAME).res
         $(LINK) @<<
@@ -100,42 +94,34 @@ $(LIBS),
 $(NAME).def
 <<
         $(RC) -t $(NAME).res $(NAME).$(EXT)
-	@mapsym /n $*.map
-        -binplace timer.drv
-        -binplace timer.sym
+        @mapsym /n $*.map
+        -binplace timer.drv timer.map timer.sym
 
 RES_DIR =.\messages\usa
 
 $(NAME).rc: $(RES_DIR)\$(NAME).rc
-	@copy $(RES_DIR)\$(NAME).rc
+        @copy $(RES_DIR)\$(NAME).rc
 
 $(NAME).rcv:  $(RES_DIR)\$(NAME).rcv
         @copy $(RES_DIR)\$(NAME).rcv
 
-
-$(NAME).res: $(NAME).rc $(NAME).rcv
+$(NAME).res: $(NAME).rc $(NAME).rcv ..\inc\common.ver
         $(RC) -r $(NAME).rc
 
 
 
-############## iclean ##############
-iclean:
-	-@del *.rc
-	-@del *.dlg
-        -@del *.res
-
-
-
 ############## clean ##############
-clean:
-	-@del $(NAME).$(EXT)
-	-@del $(NAME).res
-	-@del *.sym
-	-@del *.map
-	-@del *.lib
-	-@del $Z*.cod
-	-@del $Z*.obj
-	-@del *.rcv
+clean: cleanup all
+
+cleanup:
+        -@del $(NAME).$(EXT)
+        -@del $(NAME).res
+        -@del *.sym
+        -@del *.map
+        -@del *.lib
+        -@del $Z*.cod
+        -@del $Z*.obj
+        -@del *.rcv
         -@del *.rc
 
 # START Dependencies

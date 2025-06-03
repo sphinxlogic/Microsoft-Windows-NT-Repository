@@ -65,7 +65,7 @@ LPTSTR ReverseScan(
          if (!strncmp( lpLast, lpSearch, iLen))
             break;
       } else {
-         if (!strnicmp (lpLast, lpSearch, iLen))
+         if (!_strnicmp (lpLast, lpSearch, iLen))
             break;
       }
    } while (TRUE);
@@ -94,7 +94,7 @@ LPTSTR ForwardScan(LPTSTR lpSource, LPTSTR lpSearch, BOOL fCaseSensitive ) {
          if (!strncmp( lpSource, lpSearch, iLen))
             break;
       } else {
-         if (!strnicmp( lpSource, lpSearch, iLen))
+         if (!_strnicmp( lpSource, lpSearch, iLen))
             break;
       }
 
@@ -169,9 +169,20 @@ void FAR Search (TCHAR * szKey) {
     SetCursor(hStdCursor);
 
     if (pMatch == NULL) {
-MessageBox(hwndFrame, TEXT("Can't Find String"), TEXT("LogView"),
-//        AlertBox(hDlgFind ? hDlgFind : hwndFrame, TEXT("LogView"), TEXT("Can't Find String"), szSearch,
-                                       MB_APPLMODAL | MB_OK | MB_ICONASTERISK);
+        TCHAR Message[256], AppName[256] ;
+
+        if (!LoadString(hInst, IDS_CANTFINDSTR, Message,
+                        sizeof(Message)/sizeof(Message[0]))) {
+            Message[0] = 0 ;
+        }
+        
+        if (!LoadString(hInst, IDS_APPNAME, AppName,
+                        sizeof(AppName)/sizeof(AppName[0]))) {
+            AppName[0] = 0 ;
+        }
+        
+        MessageBox(hwndFrame, Message, AppName,
+                   MB_APPLMODAL | MB_OK | MB_ICONASTERISK);
     } else {
         SelStart = pMatch - pStart;
         SendMessage(hwndActiveEdit, EM_SETSEL, SelStart, SelStart+lstrlen(szKey));

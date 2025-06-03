@@ -249,6 +249,8 @@ Return Value:
                 break;
 
             } else if (IS_HANDLER_DEFINED(FunctionEntry) && InFunction) {
+
+                ULONG Index;
 #if DBG
     if (RtlDebugFlags & RTL_DBG_DISPATCH_EXCEPTION_DETAIL) {
         DbgPrint("RtlDispatchException: ExceptionHandler = %lx, HandlerData = %lx\n",
@@ -269,6 +271,16 @@ Return Value:
                 DispatcherContext.EstablisherFrame = EstablisherFrame.Virtual;
                 DispatcherContext.ContextRecord = ContextRecord;
                 ExceptionRecord->ExceptionFlags = ExceptionFlags;
+
+                if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                    Index = RtlpLogExceptionHandler(
+                                    ExceptionRecord,
+                                    ContextRecord,
+                                    ControlPc,
+                                    FunctionEntry,
+                                    sizeof(RUNTIME_FUNCTION));
+                }
+
 #if DBG
     if (RtlDebugFlags & RTL_DBG_DISPATCH_EXCEPTION_DETAIL) {
         DbgPrint("RtlDispatchException: calling RtlpExecuteHandlerForException, ControlPc = %lx\n", ControlPc);
@@ -285,6 +297,10 @@ Return Value:
         DbgPrint("RtlDispatchException: RtlpExecuteHandlerForException returned Disposition = %lx\n", Disposition);
     }
 #endif
+
+                if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                    RtlpLogLastExceptionDisposition(Index, Disposition);
+                }
 
                 ExceptionFlags |=
                     (ExceptionRecord->ExceptionFlags & EXCEPTION_NONCONTINUABLE);

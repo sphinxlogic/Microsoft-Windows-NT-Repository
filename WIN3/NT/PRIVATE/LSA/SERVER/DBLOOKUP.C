@@ -3116,26 +3116,26 @@ Return Values:
         // Some entries were read, allocate an information buffer for returning
         // them.
         //
-        
+
         Names = MIDL_user_allocate( sizeof (UNICODE_STRING) * EntriesRead );
-        
+
         if (Names == NULL) {
-        
+
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto EnumerateNamesError;
         }
-        
+
         //
         // Memory was successfully allocated for the return buffer.
         // Copy in the enumerated Names.
         //
-        
+
         for (NextElement = FirstElement, Index = 0;
             NextElement != &LastElement;
             NextElement = NextElement->Next, Index++) {
-        
+
             ASSERT(Index < EntriesRead);
-        
+
             Names[Index] = NextElement->Name;
         }
 
@@ -3357,34 +3357,34 @@ Return Value:
         // character representation of the full Name, not just the Relative Id
         // part.
         //
-        
+
         SubKeyNameU.MaximumLength = (USHORT) LSAP_DB_LOGICAL_NAME_MAX_LENGTH;
         SubKeyNameU.Length = 0;
         SubKeyNameU.Buffer = LsapAllocateLsaHeap(SubKeyNameU.MaximumLength);
-        
+
         if (SubKeyNameU.Buffer == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
         } else {
-        
+
             //
             // Now enumerate the next subkey.
             //
-            
+
             Status = RtlpNtEnumerateSubKey(
                          ContDirKeyHandle,
                          (PUNICODE_STRING) &SubKeyNameU,
                          *EnumerationContext,
                          NULL
                          );
-            
+
             if (NT_SUCCESS(Status)) {
-            
+
                 (*EnumerationContext)++;
-            
+
                 //
                 // Return the Name.
                 //
-            
+
                 *NextName = SubKeyNameU;
 
             } else {
@@ -3416,7 +3416,7 @@ Return Value:
         SecondaryStatus = NtClose(ContDirKeyHandle);
         ASSERT(NT_SUCCESS(SecondaryStatus));
     }
-    
+
     return(Status);
 
 }
@@ -4222,6 +4222,8 @@ Return Values:
         Status = STATUS_SUCCESS,
         IgnoreStatus;
 
+    NTSTATUS SecondaryStatus = STATUS_SUCCESS;
+
     ULONG
         NameIndex;
 
@@ -4434,12 +4436,14 @@ Return Values:
 
                     PDTrustedDomainList.Valid = FALSE;
                     PrimaryDomainAccessible = FALSE;
+                    SecondaryStatus = LsaClose(ControllerPolicyHandle);
+                    ControllerPolicyHandle = NULL;
                     continue;
                 }
             }
 
         } else {
-        
+
             ASSERT (LsapProductType == NtProductLanManNt);
 
             //
@@ -4474,6 +4478,13 @@ Return Values:
 
             Status = STATUS_SUCCESS;
 
+            if ( ControllerPolicyHandle != NULL) {
+
+                SecondaryStatus = LsaClose( ControllerPolicyHandle );
+                ControllerPolicyHandle = NULL;
+
+            }
+
             continue;
         }
 
@@ -4493,6 +4504,13 @@ Return Values:
                      );
 
         if (NT_SUCCESS(Status)) {
+
+            if ( ControllerPolicyHandle != NULL) {
+
+                SecondaryStatus = LsaClose( ControllerPolicyHandle );
+                ControllerPolicyHandle = NULL;
+
+            }
 
             continue;
         }
@@ -4519,6 +4537,19 @@ LookupIsolatedDomainNamesFinish:
     if (PDTrustedDomainList.Valid) {
         IgnoreStatus = LsapDbDestroyTrustedDomainList( &PDTrustedDomainList );
         ASSERT(NT_SUCCESS(IgnoreStatus));
+    }
+
+    if ( ControllerPolicyHandle != NULL) {
+
+        SecondaryStatus = LsaClose( ControllerPolicyHandle );
+        ControllerPolicyHandle = NULL;
+
+        if (!NT_SUCCESS(SecondaryStatus)) {
+
+            if (NT_SUCCESS(Status)) {
+                Status = SecondaryStatus;
+            }
+        }
     }
 
 
@@ -5491,8 +5522,8 @@ Arguments:
 
     LocalDomain - Indicates which local domain to look in.  Valid values
         are:
-                LSAP_DB_SEARCH_BUILT_IN_DOMAIN 
-                LSAP_DB_SEARCH_ACCOUNT_DOMAIN  
+                LSAP_DB_SEARCH_BUILT_IN_DOMAIN
+                LSAP_DB_SEARCH_ACCOUNT_DOMAIN
 
     Count - Number of Sids in the Sids array,  Note that some of these
         may already have been mapped elsewhere, as specified by the
@@ -5648,9 +5679,9 @@ Return Values:
             (OutputNames[SidIndex].DomainIndex == LSA_UNKNOWN_INDEX)) {
 
             if (LsapRtlPrefixSid( (PSID) DomainSid, (PSID) Sids[SidIndex])) {
-                RelativeIdCount++;                                     
+                RelativeIdCount++;
             } else if (RtlEqualSid( (PSID)DomainSid, (PSID)Sids[SidIndex])) {
-        
+
                 //
                 // This is the domain sid itself.  Update
                 // the output information directly, but don't add
@@ -5660,7 +5691,7 @@ Return Values:
                 // is.  So, just link these entries together and we'll
                 // set the index later.
                 //
-                
+
                 OutputNames[SidIndex].DomainIndex = DomainSidIndexList;
                 DomainSidIndexList = SidIndex;
                 OutputNames[SidIndex].Use         = SidTypeDomain;
@@ -5686,14 +5717,14 @@ Return Values:
         // domain SID).  Add the domain to the list of Referenced
         // Domains and obtain a Domain Index back.
         //
-        
+
         Status = LsapDbLookupAddListReferencedDomains(
                      ReferencedDomains,
                      TrustInformation,
                      &DomainIndex
                      );
-        
-        if (!NT_SUCCESS(Status)) { 
+
+        if (!NT_SUCCESS(Status)) {
             goto LookupSidsInLocalDomainError;
         }
 
@@ -5721,64 +5752,64 @@ Return Values:
     //
 
     if (RelativeIdCount != 0) {
-    
+
         //
         // Allocate memory for the Relative Id and cross reference arrays
         //
-        
+
         RelativeIds = LsapAllocateLsaHeap( RelativeIdCount * sizeof(ULONG));
-        
-        
+
+
         Status = STATUS_INSUFFICIENT_RESOURCES;
-        
-        if (RelativeIds == NULL) { 
+
+        if (RelativeIds == NULL) {
             goto LookupSidsInLocalDomainError;
         }
-        
+
         SidIndices = LsapAllocateLsaHeap( RelativeIdCount * sizeof(ULONG));
-        
+
         if (SidIndices == NULL) {
             goto LookupSidsInLocalDomainError;
         }
-        
+
         Status = STATUS_SUCCESS;
-        
+
         //
         // Obtain the SubAuthorityCount for the Domain Sid
         //
-        
+
         SubAuthorityCountDomain = *RtlSubAuthorityCountSid( (PSID) DomainSid );
-        
+
         //
         // Now setup the array of Relative Ids to be looked up, recording
         // in the SidIndices array the index of the corresponding Sid within the
         // original Sids array.  Set the DomainIndex field for those Sids
         // eligible for the SAM lookup.
         //
-        
+
         for (RelativeIdIndex = 0, SidIndex = 0;
              (RelativeIdIndex < RelativeIdCount) && (SidIndex < Count);
              SidIndex++) {
-        
+
             if ((OutputNames[SidIndex].Use == SidTypeUnknown) &&
                 (OutputNames[SidIndex].DomainIndex == LSA_UNKNOWN_INDEX)) {
-        
+
                 if (LsapRtlPrefixSid( (PSID) DomainSid, (PSID) Sids[SidIndex] )) {
-        
+
                     SidIndices[RelativeIdIndex] = SidIndex;
                     RelativeIds[RelativeIdIndex] =
                         *RtlSubAuthoritySid(
                              (PSID) Sids[SidIndex],
                              SubAuthorityCountDomain
                              );
-        
+
                     OutputNames[SidIndex].DomainIndex = DomainIndex;
                     RelativeIdIndex++;
-        
+
                 }
             }
         }
-        
+
         //
         // Lookup the Sids in the specified SAM Domain.
         //
@@ -5793,7 +5824,7 @@ Return Values:
         //
         // Call SAM to lookup the Relative Id's
         //
-        
+
         Status = SamrLookupIdsInDomain(
                      LocalSamDomainHandle,
                      RelativeIdCount,
@@ -5801,62 +5832,62 @@ Return Values:
                      &SamReturnedNames,
                      &SamReturnedUses
                      );
-        
+
         if (!NT_SUCCESS(Status)) {
-        
+
             //
             // The only error allowed is STATUS_NONE_MAPPED.  Filter this out.
             //
-        
+
             if (Status != STATUS_NONE_MAPPED) {
                 goto LookupSidsInLocalDomainError;
             }
-        
+
             Status = STATUS_SUCCESS;
         }
-        
+
         //
         // Now copy the information returned from SAM into the output
         // Translated Sids array.  As we go, compute a count of the names
         // mapped by SAM.
         //
-        
+
         for (RelativeIdIndex = 0;
              RelativeIdIndex < SamReturnedNames.Count;
              RelativeIdIndex++) {
-        
+
             SidIndex =  SidIndices[RelativeIdIndex];
-        
+
             //
             // Copy the Sid Use.  If the Sid was mapped by this SAM call, copy
             // its Name and increment the count of Sids mapped by this SAM call.
             // Note that we don't need to set the DomainIndex since we did so
             // earlier.
             //
-        
+
             OutputNames[SidIndex].Use = SamReturnedUses.Element[RelativeIdIndex];
-        
+
             if (OutputNames[SidIndex].Use != SidTypeUnknown) {
-        
+
                 Status = LsapRpcCopyUnicodeString(
                              NULL,
                              &OutputNames[SidIndex].Name,
                              (PUNICODE_STRING) &SamReturnedNames.Element[RelativeIdIndex]
                              );
-        
+
                 if (!NT_SUCCESS(Status)) {
                     break;
                 }
-        
+
                 LocalMappedCount++;
             }
         }
-        
+
         if (!NT_SUCCESS(Status)) {
-        
+
             goto LookupSidsInLocalDomainError;
         }
-        
+
     }
 
 
@@ -5866,7 +5897,7 @@ Return Values:
     // Completely Unmapped Count subtract the number of Sids presented to
     // Sam, since all of these will be at least partially translated.
     //
-    
+
     *MappedCount += LocalMappedCount;
     *CompletelyUnmappedCount -= (RelativeIdCount + DomainSidCount);
 
@@ -6816,8 +6847,8 @@ Arguments:
 
     LocalDomain - Indicates which local domain to look in.  Valid values
         are:
-                LSAP_DB_SEARCH_BUILT_IN_DOMAIN 
-                LSAP_DB_SEARCH_ACCOUNT_DOMAIN  
+                LSAP_DB_SEARCH_BUILT_IN_DOMAIN
+                LSAP_DB_SEARCH_ACCOUNT_DOMAIN
 
     Count - Number of Names in the PrefixNames and SuffixNames arrays,
         Note that some of these may already have been mapped elsewhere, as
@@ -7256,7 +7287,8 @@ Return Values:
             break;
         }
 
-        if (!(UserControlInfo->UserAccountControl & USER_NORMAL_ACCOUNT)) {
+        if (!(UserControlInfo->UserAccountControl & USER_NORMAL_ACCOUNT) &&
+            !(UserControlInfo->UserAccountControl & USER_TEMP_DUPLICATE_ACCOUNT)) {
             SamReturnedUses.Element[NameLookupIndex] = SidTypeUnknown;
         }
 
@@ -7332,7 +7364,7 @@ LookupNamesInLocalDomainFinish:
         LsapFreeLsaHeap( SamLookupSuffixNames );
     }
 
-    if (SidIndices != NULL) {          
+    if (SidIndices != NULL) {
         LsapFreeLsaHeap( SidIndices );
     }
 
@@ -9366,7 +9398,7 @@ Return Value:
             while (NextWorkItem != AnchorWorkItem) {
 
                 if (RtlEqualDomainName(
-                        (PUNICODE_STRING) &NextWorkItem->TrustInformation->Name,
+                        (PUNICODE_STRING) &NextWorkItem->TrustInformation.Name,
                         (PUNICODE_STRING) DomainName
                         ))  {
 
@@ -9518,7 +9550,7 @@ Return Value:
                 //
 
                 Status = LsapDbLookupCreateWorkItem(
-                             TrustInformation,
+                             NULL,
                              DomainIndex,
                              (ULONG) LSAP_DB_LOOKUP_WORK_ITEM_GRANULARITY + (ULONG) 1,
                              &IsolatedNamesWorkItem
@@ -9975,7 +10007,7 @@ Return Values:
 
         while (NextWorkItem != AnchorWorkItem) {
 
-            if (RtlEqualSid((PSID) NextWorkItem->TrustInformation->Sid,DomainSid)) {
+            if (RtlEqualSid((PSID) NextWorkItem->TrustInformation.Sid,DomainSid)) {
 
                 //
                 // A Work Item already exists for the Sid's Trusted Domain.
@@ -10020,17 +10052,34 @@ Return Values:
                          DomainSid,
                          &TrustInformation
                          );
+
             MIDL_user_free(DomainSid);
 
-            if (!NT_SUCCESS(Status)) {
+            if ( !NT_SUCCESS(Status) ) {
 
                 if (Status == STATUS_NO_SUCH_DOMAIN) {
 
-                    Status = STATUS_SUCCESS;
-                    continue;
+                    //
+                    // Try looking up the sid itself as a domain
+                    //
+
+                    Status = LsapDbLookupSidTrustedDomainList(
+                                NULL,
+                                Sid,
+                                &TrustInformation
+                                );
+
+
+                    if (Status == STATUS_NO_SUCH_DOMAIN) {
+
+                        Status = STATUS_SUCCESS;
+                        continue;
+                    }
                 }
 
-                break;
+                if ( !NT_SUCCESS(Status) ) {
+                    break;
+                }
             }
 
             //
@@ -10396,6 +10445,10 @@ Return Value:
 
             MIDL_user_free( ThisWorkItem->Indices );
         }
+
+        MIDL_user_free( ThisWorkItem->TrustInformation.Sid );
+
+        MIDL_user_free( ThisWorkItem->TrustInformation.Name.Buffer );
 
         MIDL_user_free( ThisWorkItem );
 
@@ -11190,7 +11243,7 @@ Return Value:
     //
 
     Status = LsapDbOpenPolicyTrustedDomain(
-                 WorkItem->TrustInformation,
+                 &WorkItem->TrustInformation,
                  POLICY_LOOKUP_NAMES,
                  &ControllerPolicyHandle
                  );
@@ -11704,7 +11757,7 @@ Return Values:
 
             Status = LsapDbLookupAddListReferencedDomains(
                          WorkList->ReferencedDomains,
-                         WorkItem->TrustInformation,
+                         &WorkItem->TrustInformation,
                          (PLONG) &WorkItem->DomainIndex
                          );
 
@@ -11800,6 +11853,11 @@ Return Value:
         goto LookupCreateWorkItemError;
     }
 
+    RtlZeroMemory(
+        OutputWorkItem,
+        sizeof(LSAP_DB_LOOKUP_WORK_ITEM)
+        );
+
     //
     // Initialize the fixed fields in the Work Item.
     //
@@ -11815,7 +11873,44 @@ Return Value:
     // Initialize other fields from parameters.
     //
 
-    OutputWorkItem->TrustInformation = TrustInformation;
+    //
+    // Copy the trusted domain information into the work item.  The
+    // trust information may be NULL if this is the isolated names
+    // work item.
+    //
+
+    if (TrustInformation != NULL) {
+
+        OutputWorkItem->TrustInformation.Sid =
+            MIDL_user_allocate( RtlLengthSid(TrustInformation->Sid) );
+
+        if (OutputWorkItem->TrustInformation.Sid == NULL) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto LookupCreateWorkItemError;
+        }
+
+        RtlCopyMemory(
+            OutputWorkItem->TrustInformation.Sid,
+            TrustInformation->Sid,
+            RtlLengthSid(TrustInformation->Sid)
+            );
+
+        OutputWorkItem->TrustInformation.Name.MaximumLength = TrustInformation->Name.Length + sizeof(WCHAR);
+        OutputWorkItem->TrustInformation.Name.Buffer =
+            MIDL_user_allocate(TrustInformation->Name.Length + sizeof(WCHAR));
+
+        if (OutputWorkItem->TrustInformation.Name.Buffer == NULL ) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto LookupCreateWorkItemError;
+        }
+
+        RtlCopyUnicodeString(
+            (PUNICODE_STRING) &OutputWorkItem->TrustInformation.Name,
+            (PUNICODE_STRING) &TrustInformation->Name
+            );
+
+    }
+
 
     //
     // Create the Indices array in the Work Item.
@@ -11867,6 +11962,13 @@ LookupCreateWorkItemError:
     //
 
     if (OutputWorkItem != NULL) {
+        if (OutputWorkItem->TrustInformation.Sid != NULL) {
+            MIDL_user_free( OutputWorkItem->TrustInformation.Sid );
+        }
+
+        if (OutputWorkItem->TrustInformation.Name.Buffer != NULL) {
+            MIDL_user_free( OutputWorkItem->TrustInformation.Name.Buffer );
+        }
 
         MIDL_user_free(OutputWorkItem);
         OutputWorkItem = NULL;
@@ -12840,5 +12942,197 @@ LookupIsolatedDomainNameFinish:
 LookupIsolatedDomainNameError:
 
     goto LookupIsolatedDomainNameFinish;
+}
+
+NTSTATUS
+LsarGetUserName(
+    IN PLSAPR_SERVER_NAME ServerName,
+    OUT PLSAPR_UNICODE_STRING * UserName,
+    OUT OPTIONAL PLSAPR_UNICODE_STRING * DomainName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is the LSA Server worker routine for the LsaGetUserName
+    API.
+
+
+    WARNING:  This routine allocates memory for its output.  The caller is
+    responsible for freeing this memory after use.  See description of the
+    Names parameter.
+
+Arguments:
+
+    ServerName - the name of the server the client asked to execute
+        this API on, or NULL for the local machine.
+
+    UserName - Receives name of the current user.
+
+    DomainName - Optioanlly receives domain name of the current user.
+
+Return Values:
+
+    NTSTATUS - Standard Nt Result Code
+
+        STATUS_SUCCESS - The call completed successfully and all Sids have
+            been translated to names.
+
+        STATUS_INSUFFICIENT_RESOURCES - Insufficient system resources
+            such as memory to complete the call.
+--*/
+
+{
+    LUID LogonId;
+    PUNICODE_STRING AccountName;
+    PUNICODE_STRING AuthorityName;
+    PSID UserSid;
+    PSID DomainSid = NULL;
+    ULONG Rid;
+    PLSAP_LOGON_SESSION LogonSession;
+    PTOKEN_USER TokenUserInformation = NULL;
+    NTSTATUS Status;
+    BOOLEAN LockHeld = FALSE;
+
+    *UserName = NULL;
+    if (ARGUMENT_PRESENT(DomainName)) {
+        *DomainName = NULL;
+    }
+
+    //
+    // Let's see if we're trying to look up the currently logged on
+    // user.
+    //
+    //
+    // TokenUserInformation from this call must be freed by calling
+    // LsapFreeLsaHeap().
+    //
+
+    Status = LsapQueryClientInfo(
+                &TokenUserInformation,
+                &LogonId
+                );
+
+    if ( !NT_SUCCESS( Status )) {
+
+        goto Cleanup;
+    }
+
+    //
+    // If the user ID is Anonymous then there is no name and domain in the
+    // logon session
+    //
+
+    if (RtlEqualSid(
+            TokenUserInformation->User.Sid,
+            LsapAnonymousSid
+            )) {
+        AccountName = &WellKnownSids[LsapAnonymousSidIndex].Name;
+        AuthorityName = &WellKnownSids[LsapAnonymousSidIndex].DomainName;
+
+    } else {
+
+        LsapAuLock();
+        LockHeld = TRUE;
+
+        LogonSession = LsapGetLogonSession ( &LogonId, FALSE );
+
+        //
+        // During setup, we may get NULL returned for the logon session.
+        //
+
+        if (LogonSession == NULL) {
+
+            Status = STATUS_NO_SUCH_LOGON_SESSION;
+            goto Cleanup;
+        }
+
+        //
+        // Got a match.  Get the username and domain information
+        // from the LogonId
+        //
+
+
+        AccountName   = LogonSession->AccountName;
+        AuthorityName = LogonSession->AuthorityName;
+
+    }
+
+    *UserName = MIDL_user_allocate(sizeof(LSAPR_UNICODE_STRING));
+
+    if (*UserName == NULL) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Cleanup;
+    }
+
+    Status = LsapRpcCopyUnicodeString(
+                NULL,
+                (PUNICODE_STRING) *UserName,
+                AccountName
+                );
+
+    if (!NT_SUCCESS(Status)) {
+        goto Cleanup;
+    }
+
+    //
+    // Optionally copy the domain name
+    //
+
+    if (ARGUMENT_PRESENT(DomainName)) {
+
+        *DomainName = MIDL_user_allocate(sizeof(LSAPR_UNICODE_STRING));
+
+        if (*DomainName == NULL) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Cleanup;
+        }
+
+        Status = LsapRpcCopyUnicodeString(
+                    NULL,
+                    (PUNICODE_STRING) *DomainName,
+                    AuthorityName
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+            goto Cleanup;
+        }
+
+    }
+
+
+
+
+Cleanup:
+
+    if (LockHeld) {
+        LsapAuUnlock();
+    }
+
+    if (TokenUserInformation != NULL) {
+        LsapFreeLsaHeap( TokenUserInformation );
+    }
+
+    if (!NT_SUCCESS(Status)) {
+        if (*UserName != NULL) {
+            if ((*UserName)->Buffer != NULL) {
+                MIDL_user_free((*UserName)->Buffer);
+            }
+            MIDL_user_free(*UserName);
+            *UserName = NULL;
+        }
+
+        if ( ARGUMENT_PRESENT(DomainName) ){
+            if (*DomainName != NULL) {
+                if ((*DomainName)->Buffer != NULL) {
+                    MIDL_user_free((*DomainName)->Buffer);
+                }
+                MIDL_user_free(*DomainName);
+                *DomainName = NULL;
+            }
+        }
+    }
+    return(Status);
 }
 

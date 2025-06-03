@@ -37,4 +37,3 @@ typedef	UCHAR	BYTE;
 #define HIBYTE(w)           ((BYTE)(((WORD)(w) >> 8) & 0xFF))
 
 #endif		/* _MYTYPES_ */
-

@@ -45,17 +45,20 @@ HalpAdjustResourceListUpperLimits (
 
 Routine Description:
 
+    Adjust a pResource list with respect to the upper bounds supplied.
+    (A resource is changed only if it execceds the maximum.)
+
 Arguments:
 
-    pResouceList - 
+    pResouceList - Resource list to be checked.
 
-    MaximumPortAddress -
+    MaximumPortAddress - Maximum I/O port allowed.
 
-    MaximumMemoryAddress -
+    MaximumMemoryAddress - Maximum I/O memory address allowed.
 
-    MaximumInterruptVector -
+    MaximumInterruptVector - Maximum interrupt vector allowed.
 
-    MaximumDmaChannel -
+    MaximumDmaChannel - Maximum dma channel allowed.
 
 Return Value:
 
@@ -88,9 +91,8 @@ Return Value:
 
             switch (Descriptor->Type) {
                 case CmResourceTypePort:
-                    if (RtlLargeIntegerGreaterThan (
-                            Descriptor->u.Port.MaximumAddress,
-                            MaximumPortAddress)) {
+                    if (Descriptor->u.Port.MaximumAddress.QuadPart >
+                        MaximumPortAddress.QuadPart) {
 
                         Descriptor->u.Port.MaximumAddress = MaximumPortAddress;
                     }
@@ -107,9 +109,8 @@ Return Value:
                     break;
 
                 case CmResourceTypeMemory:
-                    if (RtlLargeIntegerGreaterThan (
-                            Descriptor->u.Memory.MaximumAddress,
-                            MaximumMemoryAddress)) {
+                    if (Descriptor->u.Memory.MaximumAddress.QuadPart >
+                        MaximumMemoryAddress.QuadPart) {
 
                         Descriptor->u.Memory.MaximumAddress =
                             MaximumMemoryAddress;

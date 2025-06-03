@@ -69,7 +69,7 @@ void setup(int argc,char **argv)
                 if (pszPrefix) {
                     free(pszPrefix);
                 }
-                pszPrefix = strdup(*argv);
+                pszPrefix = _strdup(*argv);
                 goto next_arg;  // I hate myself
             }
             break;
@@ -142,7 +142,7 @@ next_arg:
    ftemp = fopen( TEMPNAME, "w" );
    if( ftemp==NULL ) error( "cannot open temp file" );
    faction = fopen( ACTNAME, "w" );
-   if( faction==NULL ) error( "cannot open action file" );
+   if( faction==NULL ) error( "cannot open action file" );
 
 /*
  * Now put the full filename of the input file into
@@ -198,7 +198,7 @@ void yyparse(void)
       case TYPEDEF:
          if( (t=gettok()) != TYPENAME ) error( "bad syntax in %%type" );
          ty = numbval;
-         for(;;)
+         for(;;)
             {
             t = gettok();
             switch( t )
@@ -260,7 +260,7 @@ void yyparse(void)
             /* there is a type defined */
             ty = numbval;
             t = gettok();
-            }
+            }
          for(;;)
             {
             switch( t )
@@ -322,7 +322,7 @@ void yyparse(void)
    if( t == ENDFILE )
       {
       error( "unexpected EOF before %%" );
-      }
+      }
    /* t is MARK */
 
    defout();
@@ -381,7 +381,7 @@ more_rule:
          ++mem;
          t = gettok();
          }
-      if( t == PREC )
+      if( t == PREC )
          {
          if( gettok()!=IDENTIFIER) error( "illegal %%prec syntax" );
          j = chfind(2,tokname);
@@ -443,7 +443,7 @@ more_rule:
          if( tempty != nontrst[*prdptr[nprod]-NTBASE].tvalue )
             {
             error( "default action causes potential type clash" );
-            }
+            }
          }
       if( ++nprod >= NPROD ) error( "more than %d rules", NPROD );
       prdptr[nprod] = mem;

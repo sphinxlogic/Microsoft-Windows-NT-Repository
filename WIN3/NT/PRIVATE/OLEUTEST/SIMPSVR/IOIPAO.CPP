@@ -44,7 +44,7 @@
 
 STDMETHODIMP COleInPlaceActiveObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::QueryInterface\r\n"));
     // need to NULL the out parameter
     return m_lpObj->QueryInterface(riid, ppvObj);
 }
@@ -79,7 +79,7 @@ STDMETHODIMP COleInPlaceActiveObject::QueryInterface ( REFIID riid, LPVOID FAR* 
 
 STDMETHODIMP_(ULONG) COleInPlaceActiveObject::AddRef ()
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::AddRef\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::AddRef\r\n"));
 
     return m_lpObj->AddRef();
 }
@@ -106,7 +106,7 @@ STDMETHODIMP_(ULONG) COleInPlaceActiveObject::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 //
@@ -114,7 +114,7 @@ STDMETHODIMP_(ULONG) COleInPlaceActiveObject::AddRef ()
 
 STDMETHODIMP_(ULONG) COleInPlaceActiveObject::Release ()
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::Release\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::Release\r\n"));
 
     return m_lpObj->Release();
 }
@@ -138,7 +138,7 @@ STDMETHODIMP_(ULONG) COleInPlaceActiveObject::Release ()
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      IOleInPlaceFrame::SetActiveObject   Container
 //      CSimpSvrObject::AddFrameLevelUI     OBJ.CPP
 //
@@ -147,7 +147,7 @@ STDMETHODIMP_(ULONG) COleInPlaceActiveObject::Release ()
 
 STDMETHODIMP COleInPlaceActiveObject::OnDocWindowActivate  ( BOOL fActivate )
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::OnDocWindowActivate\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::OnDocWindowActivate\r\n"));
 
     // Activating?
     if (fActivate)
@@ -177,7 +177,7 @@ STDMETHODIMP COleInPlaceActiveObject::OnDocWindowActivate  ( BOOL fActivate )
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetFocus                    Windows API
 //
 //
@@ -188,7 +188,7 @@ STDMETHODIMP COleInPlaceActiveObject::OnDocWindowActivate  ( BOOL fActivate )
 
 STDMETHODIMP COleInPlaceActiveObject::OnFrameWindowActivate  ( BOOL fActivate)
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::OnFrameWindowActivate\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::OnFrameWindowActivate\r\n"));
 
     // set the focus to the object window if we are activating.
 /*    if (fActivate)
@@ -216,7 +216,7 @@ STDMETHODIMP COleInPlaceActiveObject::OnFrameWindowActivate  ( BOOL fActivate)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrDoc::GethDocWnd     DOC.H
 //
 //
@@ -224,7 +224,7 @@ STDMETHODIMP COleInPlaceActiveObject::OnFrameWindowActivate  ( BOOL fActivate)
 
 STDMETHODIMP COleInPlaceActiveObject::GetWindow  ( HWND FAR* lphwnd)
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::GetWindow\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::GetWindow\r\n"));
     // need to NULL the out parameter
     *lphwnd = m_lpObj->m_lpDoc->GethDocWnd();
     return ResultFromScode( S_OK );
@@ -249,7 +249,7 @@ STDMETHODIMP COleInPlaceActiveObject::GetWindow  ( HWND FAR* lphwnd)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 // Comments:
@@ -261,7 +261,7 @@ STDMETHODIMP COleInPlaceActiveObject::GetWindow  ( HWND FAR* lphwnd)
 
 STDMETHODIMP COleInPlaceActiveObject::ContextSensitiveHelp  ( BOOL fEnterMode )
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::ContextSensitiveHelp\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::ContextSensitiveHelp\r\n"));
     return ResultFromScode( E_NOTIMPL);
 }
 
@@ -284,7 +284,7 @@ STDMETHODIMP COleInPlaceActiveObject::ContextSensitiveHelp  ( BOOL fEnterMode )
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 // Comments:
@@ -296,7 +296,7 @@ STDMETHODIMP COleInPlaceActiveObject::ContextSensitiveHelp  ( BOOL fEnterMode )
 
 STDMETHODIMP COleInPlaceActiveObject::TranslateAccelerator  ( LPMSG lpmsg)
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::TranslateAccelerator\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::TranslateAccelerator\r\n"));
     // no accelerator table, return FALSE
     return ResultFromScode( S_FALSE );
 }
@@ -325,7 +325,7 @@ STDMETHODIMP COleInPlaceActiveObject::TranslateAccelerator  ( LPMSG lpmsg)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 // Comments:
@@ -340,12 +340,12 @@ STDMETHODIMP COleInPlaceActiveObject::ResizeBorder  ( LPCRECT lprectBorder,
 {
     HRESULT hRes;
 
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::ResizeBorder\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::ResizeBorder\r\n"));
 
     // should always have an inplace frame...
     if ((hRes=m_lpObj->GetInPlaceFrame()->SetBorderSpace(NULL)) != S_OK)
     {
-       OutputDebugString(TEXT("COleInPlaceActiveObject::ResizeBorder  \
+       TestDebugOut(TEXT("COleInPlaceActiveObject::ResizeBorder  \
                                SetBorderSpace fails\n"));
        return(hRes);
     }
@@ -356,7 +356,7 @@ STDMETHODIMP COleInPlaceActiveObject::ResizeBorder  ( LPCRECT lprectBorder,
     {
         if((hRes=m_lpObj->GetUIWindow()->SetBorderSpace(NULL)) != S_OK)
         {
-          OutputDebugString(TEXT("COleInPlaceActiveObject::ResizeBorder  \
+          TestDebugOut(TEXT("COleInPlaceActiveObject::ResizeBorder  \
                                   SetBorderSpace fails\n"));
           return(hRes);
         }
@@ -384,7 +384,7 @@ STDMETHODIMP COleInPlaceActiveObject::ResizeBorder  ( LPCRECT lprectBorder,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 // Comments:
@@ -399,7 +399,6 @@ STDMETHODIMP COleInPlaceActiveObject::ResizeBorder  ( LPCRECT lprectBorder,
 
 STDMETHODIMP COleInPlaceActiveObject::EnableModeless  ( BOOL fEnable)
 {
-    OutputDebugString(TEXT("In COleInPlaceActiveObject::EnableModeless\r\n"));
+    TestDebugOut(TEXT("In COleInPlaceActiveObject::EnableModeless\r\n"));
     return ResultFromScode( S_OK );
 }
-

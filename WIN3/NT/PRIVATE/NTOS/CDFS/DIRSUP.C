@@ -10,9 +10,61 @@ Abstract:
 
     This module implements the dirent support routines for Cdfs.
 
+    Directories on a CD consist of a number of contiguous sectors on
+    the disk.  File descriptors consist of one or more directory entries
+    (dirents) within a directory.  Files may contain version numbers.  If
+    present all like-named files will be ordered contiguously in the
+    directory by decreasing version numbers.  We will only return the
+    first of these on a directory query unless the user explicitly
+    asks for version numbers.  Finally dirents will not span sector
+    boundaries.  Unused bytes at the end of a sector will be zero
+    filled.
+
+    Directory sector:                                                   Offset
+                                                                        2048
+        +---------------------------------------------------------------+
+        |            |          |          |           |          |     |
+        | foo;4      | foo;4    | foo;3    |  hat      |  zebra   | Zero|
+        |            |          |          |           |          | Fill|
+        |            |  final   |  single  |           |          |     |
+        |            |  extent  |   extent |           |          |     |
+        +---------------------------------------------------------------+
+
+    Dirent operations:
+
+        - Position scan at known offset in directory.  Dirent at this
+            offset must exist and is valid.  Used when scanning a directory
+            from the beginning when the self entry is known to be valid.
+            Used when positioning at the first dirent for an open
+            file to scan the allocation information.  Used when resuming
+            a directory enumeration from a valid directory entry.
+
+        - Position scan at known offset in directory.  Dirent is known to
+            start at this position but must be checked for validity.
+            Used to read the self-directory entry.
+
+        - Move to the next dirent within a directory.
+
+        - Given a known starting dirent, collect all the dirents for
+            that file.  Scan will finish positioned at the last dirent
+            for the file.  We will accumulate the extent lengths to
+            find the size of the file.
+
+        - Given a known starting dirent, position the scan for the first
+            dirent of the following file.  Used when not interested in
+            all of the details for the current file and are looking for
+            the next file.
+
+        - Update a common dirent structure with the details of the on-disk
+            structure.  This is used to smooth out the differences
+
+        - Build the filename (name and version strings) out of the stream
+            of bytes in the file name on disk.  For Joliet disks we will have
+            to convert to little endian.
+
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -21,978 +73,1588 @@ Revision History:
 #include "CdProcs.h"
 
 //
+//  The Bug check file id for this module
+//
+
+#define BugCheckFileId                   (CDFS_BUG_CHECK_DIRSUP)
+
+//
 //  Local debug trace level
 //
 
 #define Dbg                              (DEBUG_TRACE_DIRSUP)
 
 //
-//  Local procedure prototypes
+//  Local macros
 //
 
-BOOLEAN
-CdLocateNextFileDirent (
+//
+//  PRAW_DIRENT
+//  CdRawDirent (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PDIR_ENUM_CONTEXT DirContext
+//      );
+//
+
+#define CdRawDirent(IC,DC)                                      \
+    Add2Ptr( (DC)->Sector, (DC)->SectorOffset, PRAW_DIRENT )
+
+//
+//  Local support routines
+//
+
+ULONG
+CdCheckRawDirentBounds (
     IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN CD_VBO OffsetToStartSearchFrom,
-    IN PDIRENT StartingDirent OPTIONAL,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
+    IN PDIRENT_ENUM_CONTEXT DirContext
     );
 
-BOOLEAN
-CdFileMatch (
+XA_EXTENT_TYPE
+CdCheckForXAExtent (
     IN PIRP_CONTEXT IrpContext,
-    IN PCODEPAGE CodePage,
-    IN PDIRENT Dirent,
-    IN PSTRING FileName,
-    IN BOOLEAN WildcardExpression,
-    OUT PBOOLEAN MatchedVersion
-    );
-
-BOOLEAN
-CdIsDirentValid (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDIRENT Dirent
+    IN PRAW_DIRENT RawDirent,
+    IN OUT PDIRENT Dirent
     );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdContinueFileDirentSearch)
-#pragma alloc_text(PAGE, CdCopyRawDirentToDirent)
-#pragma alloc_text(PAGE, CdFileMatch)
-#pragma alloc_text(PAGE, CdGetNextDirent)
-#pragma alloc_text(PAGE, CdIsDirentValid)
-#pragma alloc_text(PAGE, CdLocateFileDirent)
-#pragma alloc_text(PAGE, CdLocateNextFileDirent)
-#pragma alloc_text(PAGE, CdLocateOffsetDirent)
+#pragma alloc_text(PAGE, CdCheckForXAExtent)
+#pragma alloc_text(PAGE, CdCheckRawDirentBounds)
+#pragma alloc_text(PAGE, CdCleanupFileContext)
+#pragma alloc_text(PAGE, CdFindFile)
+#pragma alloc_text(PAGE, CdFindDirectory)
+#pragma alloc_text(PAGE, CdFindFileByShortName)
+#pragma alloc_text(PAGE, CdLookupDirent)
+#pragma alloc_text(PAGE, CdLookupLastFileDirent)
+#pragma alloc_text(PAGE, CdLookupNextDirent)
+#pragma alloc_text(PAGE, CdLookupNextInitialFileDirent)
+#pragma alloc_text(PAGE, CdUpdateDirentFromRawDirent)
+#pragma alloc_text(PAGE, CdUpdateDirentName)
 #endif
 
 
 VOID
-CdCopyRawDirentToDirent (
+CdLookupDirent (
     IN PIRP_CONTEXT IrpContext,
-    IN BOOLEAN IsoVol,
-    IN PRAW_DIR_REC RawDirent,
-    IN CD_VBO DirentOffset,
-    OUT PDIRENT Dirent
+    IN PFCB Fcb,
+    IN ULONG DirentOffset,
+    OUT PDIRENT_ENUM_CONTEXT DirContext
     )
 
 /*++
 
 Routine Description:
 
-    This routine copies the data from an on-disk directory entry into
-    a disk dirent structure.  The filesystem then uses this structure
-    for all references to a disk dirent.
+    This routine is called to initiate a walk through a directory.  We will
+    position ourselves in the directory at offset DirentOffset.  We know that
+    a dirent begins at this boundary but may have to verify the dirent bounds.
+    We will call this routine when looking up the first entry of a known
+    file or verifying the self entry of a directory.
 
 Arguments:
 
-    IsoVol - Indicates if this is ISO or HSG volume.
+    Fcb - Fcb for the directory being traversed.
 
-    RawDirent - Supplies a pointer to the on-disk structure.
+    DirentOffset - This is our target point in the directory.  We will map the
+        page containing this entry and possibly verify the dirent bounds at
+        this location.
 
-    Dirent - Supplies a pointer to the in-memory structure.
+    DirContext - This is the dirent context for this scan.  We update it with
+        the location of the dirent we found.  This structure has been initialized
+        outside of this call.
 
 Return Value:
 
-    None
+    None.
 
 --*/
 
 {
+    LONGLONG BaseOffset;
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdCopyRawDirentToDirent:  Entered\n", 0);
-
     //
-    //  Verify that this is a legal dirent.
+    //  Initialize the offset of the first dirent we want to map.
     //
 
-    if (RawDirent->DirLen < MIN_DIR_REC_SIZE
-        || (RawDirent->FileIdLen + MIN_DIR_REC_SIZE) > RawDirent->DirLen) {
+    DirContext->BaseOffset = SectorTruncate( DirentOffset );
+    BaseOffset = DirContext->BaseOffset;
 
-        DebugTrace(-1, Dbg, "CdCopyRawDirentToDirent:  Exit -- Invalid dirent on disk\n", 0);
+    DirContext->DataLength = SECTOR_SIZE;
 
-        ExRaiseStatus( STATUS_FILE_CORRUPT_ERROR );
+    DirContext->SectorOffset = SectorOffset( DirentOffset );
+
+    //
+    //  Truncate the data length if we are at the end of the file.
+    //
+
+    if (DirContext->DataLength > (Fcb->FileSize.QuadPart - BaseOffset)) {
+
+        DirContext->DataLength = (ULONG) (Fcb->FileSize.QuadPart - BaseOffset);
     }
 
-    Dirent->ParentEntry = FALSE;
-
     //
-    //  If this is either a self entry or parent entry then convert
-    //  the names to the constants "." or "..".
+    //  Now map the data at this offset.
     //
 
-    if (RawDirent->FileIdLen == 1
-        && (RawDirent->FileId[0] == '\0'
-            || RawDirent->FileId[0] == '\1')) {
-
-        if (RawDirent->FileId[0] == '\0') {
-
-            RtlInitString( &Dirent->Filename, "." );
-
-        } else if (RawDirent->FileId[0] == '\1') {
-
-            RtlInitString( &Dirent->Filename, ".." );
-            Dirent->ParentEntry = TRUE;
-        }
+    CcMapData( Fcb->FileObject,
+               (PLARGE_INTEGER) &BaseOffset,
+               DirContext->DataLength,
+               TRUE,
+               &DirContext->Bcb,
+               &DirContext->Sector );
 
     //
-    //  Otherwise use the string name in the raw dirent.
+    //  Verify the dirent bounds.
+    //
+
+    DirContext->NextDirentOffset = CdCheckRawDirentBounds( IrpContext,
+                                                           DirContext );
+
+    return;
+}
+
+
+BOOLEAN
+CdLookupNextDirent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PDIRENT_ENUM_CONTEXT CurrentDirContext,
+    OUT PDIRENT_ENUM_CONTEXT NextDirContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to find the next dirent in the directory.  The
+    current position is given and we look for the next.  We leave the context
+    for the starting position untouched and update the context for the
+    dirent we found.  The target context may already be initialized so we
+    may already have the sector in memory.
+
+    This routine will position the enumeration context for the next dirent and
+    verify the dirent bounds.
+
+    NOTE - This routine can be called with CurrentDirContext and NextDirContext
+        pointing to the same enumeration context.
+
+Arguments:
+
+    Fcb - Fcb for the directory being traversed.
+
+    CurrentDirContext - This is the dirent context for this scan.  We update
+        it with the location of the dirent we found.  This is currently
+        pointing to a dirent location.  The dirent bounds at this location
+        have already been verified.
+
+    NextDirContext - This is the dirent context to update with the dirent we
+        find.  This may already point to a dirent so we need to check if
+        we are in the same sector and unmap any buffer as necessary.
+
+        This dirent is left in an indeterminant state if we don't find a dirent.
+
+Return Value:
+
+    BOOLEAN - TRUE if we find a location for the next dirent, FALSE otherwise.
+        This routine can cause a raise if the directory is corrupt.
+
+--*/
+
+{
+    LONGLONG CurrentBaseOffset = CurrentDirContext->BaseOffset;
+    ULONG TempUlong;
+
+    BOOLEAN FoundDirent = FALSE;
+
+    PAGED_CODE();
+
+    //
+    //  Check if a different sector is mapped.  If so then move our target
+    //  enumeration context to the same sector.
+    //
+
+    if ((CurrentDirContext->BaseOffset != NextDirContext->BaseOffset) ||
+        (NextDirContext->Bcb == NULL)) {
+
+        //
+        //  Unpin the current target Bcb and map the next sector.
+        //
+
+        CdUnpinData( IrpContext, &NextDirContext->Bcb );
+
+        CcMapData( Fcb->FileObject,
+                   (PLARGE_INTEGER) &CurrentBaseOffset,
+                   CurrentDirContext->DataLength,
+                   TRUE,
+                   &NextDirContext->Bcb,
+                   &NextDirContext->Sector );
+
+        //
+        //  Copy the data length and sector offset.
+        //
+
+        NextDirContext->DataLength = CurrentDirContext->DataLength;
+        NextDirContext->BaseOffset = CurrentDirContext->BaseOffset;
+    }
+
+    //
+    //  Now move to the same offset in the sector.
+    //
+
+    NextDirContext->SectorOffset = CurrentDirContext->SectorOffset;
+
+    //
+    //  If the value is zero then unmap the current sector and set up
+    //  the base offset to the beginning of the next sector.
+    //
+
+    if (CurrentDirContext->NextDirentOffset == 0) {
+
+        CurrentBaseOffset = NextDirContext->BaseOffset + NextDirContext->DataLength;
+
+        //
+        //  Unmap the current sector.  We test the value of the Bcb in the
+        //  loop below to see if we need to read in another sector.
+        //
+
+        CdUnpinData( IrpContext, &NextDirContext->Bcb );
+
+    //
+    //  There is another possible dirent in the current sector.  Update the
+    //  enumeration context to reflect this.
     //
 
     } else {
 
-        Dirent->Filename.Length = RawDirent->FileIdLen;
-        Dirent->Filename.MaximumLength = RawDirent->FileIdLen;
-        Dirent->Filename.Buffer = RawDirent->FileId;
+        NextDirContext->SectorOffset += CurrentDirContext->NextDirentOffset;
     }
 
     //
-    //  The full file name is the same as the filename at this point.
+    //  Now loop until we find the next possible dirent or walk off the directory.
     //
 
-    Dirent->FullFilename = Dirent->Filename;
+    while (TRUE) {
+
+        //
+        //  If we don't currently have a sector mapped then map the
+        //  directory at the current offset.
+        //
+
+        if (NextDirContext->Bcb == NULL) {
+
+            TempUlong = SECTOR_SIZE;
+
+            if (TempUlong > (ULONG) (Fcb->FileSize.QuadPart - CurrentBaseOffset)) {
+
+                TempUlong = (ULONG) (Fcb->FileSize.QuadPart - CurrentBaseOffset);
+
+                //
+                //  If the length is zero then there is no dirent.
+                //
+
+                if (TempUlong == 0) {
+
+                    break;
+                }
+            }
+
+            CcMapData( Fcb->FileObject,
+                       (PLARGE_INTEGER) &CurrentBaseOffset,
+                       TempUlong,
+                       TRUE,
+                       &NextDirContext->Bcb,
+                       &NextDirContext->Sector );
+
+            NextDirContext->BaseOffset = (ULONG) CurrentBaseOffset;
+            NextDirContext->SectorOffset = 0;
+            NextDirContext->DataLength = TempUlong;
+        }
+
+        //
+        //  The CDFS spec allows for sectors in a directory to contain all zeroes.
+        //  In this case we need to move to the next sector.  So look at the
+        //  current potential dirent for a zero length.  Move to the next
+        //  dirent if length is zero.
+        //
+
+        if (*((PCHAR) CdRawDirent( IrpContext, NextDirContext )) != 0) {
+
+            FoundDirent = TRUE;
+            break;
+        }
+
+        CurrentBaseOffset = NextDirContext->BaseOffset + NextDirContext->DataLength;
+        CdUnpinData( IrpContext, &NextDirContext->Bcb );
+    }
 
     //
-    //  Fill in the dirent offset.
+    //  Check the dirent bounds if we found a dirent.
     //
 
-    Dirent->DirentOffset = DirentOffset;
+    if (FoundDirent) {
+
+        NextDirContext->NextDirentOffset = CdCheckRawDirentBounds( IrpContext,
+                                                                   NextDirContext );
+    }
+
+    return FoundDirent;
+}
+
+
+VOID
+CdUpdateDirentFromRawDirent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PDIRENT_ENUM_CONTEXT DirContext,
+    IN OUT PDIRENT Dirent
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to safely copy the data from the dirent on disk
+    to the in-memory dirent.  The fields on disk are unaligned so we
+    need to safely copy them to our structure.
+
+Arguments:
+
+    Fcb - Fcb for the directory being scanned.
+
+    DirContext - Enumeration context for the raw disk dirent.
+
+    Dirent - In-memory dirent to update.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PRAW_DIRENT RawDirent = CdRawDirent( IrpContext, DirContext );
+
+    PAGED_CODE();
 
     //
-    //  Fill in the dirent length.
+    //  Clear all of the current state flags except the flag indicating that
+    //  we allocated a name string.
+    //
+
+    ClearFlag( Dirent->Flags, DIRENT_FLAG_NOT_PERSISTENT );
+
+    //
+    //  The dirent offset is the sum of the start of the sector and the
+    //  sector offset.
+    //
+
+    Dirent->DirentOffset = DirContext->BaseOffset + DirContext->SectorOffset;
+
+    //
+    //  Copy the dirent length from the raw dirent.
     //
 
     Dirent->DirentLength = RawDirent->DirLen;
 
     //
-    //  Fill the starting logical block and length of XAR region.
+    //  The starting offset on disk is computed by finding the starting
+    //  logical block and stepping over the Xar block.
     //
 
-    CopyUchar4( &Dirent->LogicalBlock, RawDirent->FileLoc );
-    Dirent->XarBlocks = RawDirent->XarLen;
+    CopyUchar4( &Dirent->StartingOffset, RawDirent->FileLoc );
+
+    Dirent->StartingOffset += RawDirent->XarLen;
 
     //
-    //  Copy the data length for the extent.
+    //  Do a safe copy to get the data length.
     //
 
     CopyUchar4( &Dirent->DataLength, RawDirent->DataLen );
 
     //
-    //  Copy the flags but simply remember a pointer to the date/time
-    //  array.
+    //  Save a pointer to the time stamps.
     //
-
-    Dirent->Flags = DE_FILE_FLAGS( IsoVol, RawDirent );
 
     Dirent->CdTime = RawDirent->RecordTime;
 
     //
-    //  Copy the interleave and volume sequence information.
+    //  Copy the dirent flags.
     //
 
-    Dirent->FileUnitSize = RawDirent->IntLeaveSize;
-    Dirent->InterleaveGapSize = RawDirent->IntLeaveSkip;
+    Dirent->DirentFlags = CdRawDirentFlags( IrpContext, RawDirent );
 
-    CopyUchar2( &Dirent->VolumeSequenceNumber, RawDirent->Vssn );
+    //
+    //  For both the file unit and interleave skip we want to take the
+    //  logical block count.
+    //
 
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  DirentOffset  -> %08lx\n", Dirent->DirentOffset);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  Filename      -> %Z\n", &Dirent->Filename);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  FullFilename  -> %Z\n", &Dirent->FullFilename);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  DirentLength  -> %08lx\n", Dirent->DirentLength);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  LogicalBlock  -> %08lx\n", Dirent->LogicalBlock);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  XarBlocks     -> %08lx\n", Dirent->XarBlocks);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  DataLength    -> %08lx\n", Dirent->DataLength);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  Flags         -> %04x\n", Dirent->Flags);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  InterleaveGap -> %08lx\n", Dirent->InterleaveGapSize);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  FileUnitSize  -> %08lx\n", Dirent->FileUnitSize);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  VolumeSeqNum  -> %08lx\n", Dirent->VolumeSequenceNumber);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  PreviousVers  -> %04x\n", Dirent->PreviousVersion);
-    DebugTrace(0, Dbg, "CdCopyRawDirentToDirent:  VersionName   -> %04x\n", Dirent->VersionWithName);
+    Dirent->FileUnitSize =
+    Dirent->InterleaveGapSize = 0;
 
-    DebugTrace(-1, Dbg, "CdCopyRawDirentToDirent:  Exit\n", 0);
+    if (RawDirent->IntLeaveSize != 0) {
+
+        Dirent->FileUnitSize = RawDirent->IntLeaveSize;
+        Dirent->InterleaveGapSize = RawDirent->IntLeaveSkip;
+    }
+
+    //
+    //  Get the name length and remember a pointer to the start of the
+    //  name string.  We don't do any processing on the name at this
+    //  point.
+    //
+    //  Check that the name length is non-zero.
+    //
+
+    if (RawDirent->FileIdLen == 0) {
+
+        CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+    }
+
+    Dirent->FileNameLen = RawDirent->FileIdLen;
+    Dirent->FileName = RawDirent->FileId;
+
+    //
+    //  If there are any remaining bytes at the end of the dirent then
+    //  there may be a system use area.  We protect ourselves from
+    //  disks which don't pad the dirent entries correctly by using
+    //  a fudge factor of one.  All system use areas must have a length
+    //  greater than one.  Don't bother with the system use area
+    //  if this is a directory.
+    //
+
+    Dirent->XAAttributes = 0;
+    Dirent->XAFileNumber = 0;
+    Dirent->ExtentType = Form1Data;
+    Dirent->SystemUseOffset = 0;
+
+    if (!FlagOn( Dirent->DirentFlags, CD_ATTRIBUTE_DIRECTORY ) &&
+        (Dirent->DirentLength > ((FIELD_OFFSET( RAW_DIRENT, FileId ) + Dirent->FileNameLen) + 1))) {
+
+        Dirent->SystemUseOffset = WordAlign( FIELD_OFFSET( RAW_DIRENT, FileId ) + Dirent->FileNameLen );
+    }
 
     return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
 }
 
 
-BOOLEAN
-CdGetNextDirent (
-    PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN CD_VBO DirentOffset,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
+VOID
+CdUpdateDirentName (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PDIRENT Dirent,
+    IN ULONG IgnoreCase
     )
 
 /*++
 
 Routine Description:
 
-    This function returns the first dirent found at or after offset
-    'DirentOffset' in the stream file which is associated with 'Dcb'.
-
-    A dirent must be contained totally within a sector.  Unused entries
-    at the end of a sector will contain '\0' bytes.
+    This routine is called to update the name in the dirent with the name
+    from the disk.  We will look for the special case of the self and
+    parent entries and also construct the Unicode name for the Joliet disk
+    in order to work around the BigEndian on-disk structure.
 
 Arguments:
 
-    Dcb - Pointer to the DCB structure for this directory.
+    Dirent - Pointer to the in-memory dirent structure.
 
-    DirentOffset - Offset to start search for dirent.
-
-    Dirent - Pointer to disk dirent structure to update.
-
-    Bcb - Bcb used to track pinned dirent.
+    IgnoreCase - TRUE if we should build the upcased version.  Otherwise we
+        use the exact case name.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry was found, FALSE if not found.  An error
-              status will be raised on other errors.
+    None.
 
 --*/
 
 {
-    BOOLEAN FoundDirent;
+    UCHAR DirectoryValue;
+    ULONG Length;
 
-    ULONG SectorOffset;
-    CD_VBO SectorVbo;
-    PBCB LocalBcb;
+    NTSTATUS Status;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdGetNextDirent:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdGetNextDirent:  Dcb          -> %08lx\n", Dcb );
-    DebugTrace( 0, Dbg, "CdGetNextDirent:  DirentOffset -> %08lx\n", DirentOffset );
-    DebugTrace( 0, Dbg, "CdGetNextDirent:  Dirent       -> %08lx\n", Dirent );
-
-    LocalBcb = NULL;
-
     //
-    //  Break the dirent offset into a base sector value and sector offset.
+    //  Check if this is a self or parent entry.  There is no version number
+    //  in these cases.  We use a fixed string for these.
+    //
+    //      Self-Entry - Length is 1, value is 0.
+    //      Parent-Entry - Length is 1, value is 1.
     //
 
-    SectorOffset = DirentOffset & (CD_SECTOR_SIZE - 1);
-    SectorVbo = DirentOffset & ~(CD_SECTOR_SIZE - 1);
+    if ((Dirent->FileNameLen == 1) &&
+        FlagOn( Dirent->DirentFlags, CD_ATTRIBUTE_DIRECTORY )) {
 
-    //
-    //  Use a try finally to perform cleanup.
-    //
+        DirectoryValue = *((PCHAR) Dirent->FileName);
 
-    try {
-
-        ULONG RemainingBytes;
-        PCHAR ThisSector;
-
-        //
-        //  Loop until the directory is exhausted or a disk dirent is
-        //  found.
-        //
-
-        while (TRUE) {
-
-            LARGE_INTEGER StreamFileOffset = {0,0};
-
-            DebugTrace(0, Dbg, "CdGetNextDirent: Start search at directory offset -> %08lx\n", SectorVbo);
-            DebugTrace(0, Dbg, "CdGetNextDirent: Sector offset is at              -> %08lx\n", SectorOffset);
+        if ((DirectoryValue == 0) || (DirectoryValue == 1)) {
 
             //
-            //  If the current offset is beyond the end of the directory,
-            //  raise an appropriate status.
+            //  We should not have allocated a name for these cases.
             //
 
-            if (DirentOffset >= Dcb->FileSize) {
+            ASSERT( !FlagOn( Dirent->Flags, DIRENT_FLAG_ALLOC_BUFFER ));
 
-                DebugTrace(0, Dbg, "CdGetNextDirent:  Beyond end of directory\n", 0);
+            //
+            //  Now use one of the hard coded directory names.
+            //
 
-                FoundDirent = FALSE;
+            Dirent->CdFileName.FileName = CdUnicodeDirectoryNames[DirectoryValue];
+
+            //
+            //  Show that there is no version number.
+            //
+
+            Dirent->CdFileName.VersionString.Length = 0;
+
+            //
+            //  The case name is the same as the exact name.
+            //
+
+            Dirent->CdCaseFileName = Dirent->CdFileName;
+
+            //
+            //  Return now.
+            //
+
+            return;
+        }
+    }
+
+    //
+    //  Compute how large a buffer we will need.  If this is an ignore
+    //  case operation then we will want a double size buffer.  If the disk is not
+    //  a Joliet disk then we might need two bytes for each byte in the name.
+    //
+
+    Length = Dirent->FileNameLen;
+
+    if (IgnoreCase) {
+
+        Length *= 2;
+    }
+
+    if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_JOLIET )) {
+
+        Length *= sizeof( WCHAR );
+    }
+
+    //
+    //  Now decide if we need to allocate a new buffer.  We will if
+    //  this name won't fit in the embedded name buffer and it is
+    //  larger than the current allocated buffer.  We always use the
+    //  allocated buffer if present.
+    //
+    //  If we haven't allocated a buffer then use the embedded buffer if the data
+    //  will fit.  This is the typical case.
+    //
+
+    if (!FlagOn( Dirent->Flags, DIRENT_FLAG_ALLOC_BUFFER ) &&
+        (Length <= sizeof( Dirent->NameBuffer ))) {
+
+        Dirent->CdFileName.FileName.MaximumLength = sizeof( Dirent->NameBuffer );
+        Dirent->CdFileName.FileName.Buffer = Dirent->NameBuffer;
+
+    } else {
+
+        //
+        //  We need to use an allocated buffer.  Check if the current buffer
+        //  is large enough.
+        //
+
+        if (Length > Dirent->CdFileName.FileName.MaximumLength) {
+
+            //
+            //  Free any allocated buffer.
+            //
+
+            if (FlagOn( Dirent->Flags, DIRENT_FLAG_ALLOC_BUFFER )) {
+
+                ExFreePool( Dirent->CdFileName.FileName.Buffer );
+                ClearFlag( Dirent->Flags, DIRENT_FLAG_ALLOC_BUFFER );
+            }
+
+            Dirent->CdFileName.FileName.Buffer = FsRtlAllocatePoolWithTag( CdPagedPool,
+                                                                            Length,
+                                                                            TAG_DIRENT_NAME );
+
+            SetFlag( Dirent->Flags, DIRENT_FLAG_ALLOC_BUFFER );
+
+            Dirent->CdFileName.FileName.MaximumLength = (USHORT) Length;
+        }
+    }
+
+    //
+    //  We now have a buffer for the name.  We need to either convert the on-disk bigendian
+    //  to little endian or covert the name to Unicode.
+    //
+
+    if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_JOLIET )) {
+
+        Status = RtlOemToUnicodeN( Dirent->CdFileName.FileName.Buffer,
+                                   Dirent->CdFileName.FileName.MaximumLength,
+                                   &Length,
+                                   Dirent->FileName,
+                                   Dirent->FileNameLen );
+
+        ASSERT( Status == STATUS_SUCCESS );
+        Dirent->CdFileName.FileName.Length = (USHORT) Length;
+
+    } else {
+
+        //
+        //  Convert this string to little endian.
+        //
+
+        CdConvertBigToLittleEndian( IrpContext,
+                                    Dirent->FileName,
+                                    Dirent->FileNameLen,
+                                    (PCHAR) Dirent->CdFileName.FileName.Buffer );
+
+        Dirent->CdFileName.FileName.Length = (USHORT) Dirent->FileNameLen;
+    }
+
+    //
+    //  Split the name into name and version strings.
+    //
+
+    CdConvertNameToCdName( IrpContext,
+                           &Dirent->CdFileName );
+
+    //
+    //  The name length better be non-zero.
+    //
+
+    if (Dirent->CdFileName.FileName.Length == 0) {
+
+        CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+    }
+
+    //
+    //  If the filename ends with a period then back up one character.
+    //
+
+    if (Dirent->CdFileName.FileName.Buffer[(Dirent->CdFileName.FileName.Length - sizeof( WCHAR )) / 2] == L'.') {
+
+        //
+        //  Slide the version string down.
+        //
+
+        if (Dirent->CdFileName.VersionString.Length != 0) {
+
+            PWCHAR NewVersion;
+
+            //
+            //  Start from the position currently containing the separator.
+            //
+
+            NewVersion = Add2Ptr( Dirent->CdFileName.FileName.Buffer,
+                                  Dirent->CdFileName.FileName.Length,
+                                  PWCHAR );
+
+            //
+            //  Now overwrite the period.
+            //
+
+            RtlMoveMemory( NewVersion - 1,
+                           NewVersion,
+                           Dirent->CdFileName.VersionString.Length + sizeof( WCHAR ));
+
+            //
+            //  Now point to the new version string.
+            //
+
+            Dirent->CdFileName.VersionString.Buffer = NewVersion;
+        }
+
+        //
+        //  Shrink the filename length.
+        //
+
+        Dirent->CdFileName.FileName.Length -= sizeof( WCHAR );
+    }
+
+    //
+    //  If this an exact case operation then use the filename exactly.
+    //
+
+    if (!IgnoreCase) {
+
+        Dirent->CdCaseFileName = Dirent->CdFileName;
+
+    //
+    //  Otherwise perform our upcase operation.  We already have guaranteed the buffers are
+    //  there.
+    //
+
+    } else {
+
+        Dirent->CdCaseFileName.FileName.Buffer = Add2Ptr( Dirent->CdFileName.FileName.Buffer,
+                                                          Dirent->CdFileName.FileName.MaximumLength / 2,
+                                                          PWCHAR);
+
+        Dirent->CdCaseFileName.FileName.MaximumLength = Dirent->CdFileName.FileName.MaximumLength / 2;
+
+        CdUpcaseName( IrpContext,
+                      &Dirent->CdFileName,
+                      &Dirent->CdCaseFileName );
+    }
+
+    return;
+}
+
+
+BOOLEAN
+CdFindFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PCD_NAME Name,
+    IN BOOLEAN IgnoreCase,
+    IN OUT PFILE_ENUM_CONTEXT FileContext,
+    OUT PCD_NAME *MatchingName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to search a dirctory for a file matching the input
+    name.  This name has been upcased at this point if this a case-insensitive
+    search.  The name has been separated into separate name and version strings.
+    We look for an exact match in the name and only consider the version if
+    there is a version specified in the search name.
+
+Arguments:
+
+    Fcb - Fcb for the directory being scanned.
+
+    Name - Name to search for.
+
+    IgnoreCase - Indicates the case of the search.
+
+    FileContext - File context to use for the search.  This has already been
+        initialized.
+
+    MatchingName - Pointer to buffer containing matching name.  We need this
+        in case we don't match the name in the directory but match the
+        short name instead.
+
+Return Value:
+
+    BOOLEAN - TRUE if matching entry is found, FALSE otherwise.
+
+--*/
+
+{
+    PDIRENT Dirent;
+    ULONG ShortNameDirentOffset;
+
+    BOOLEAN Found = FALSE;
+
+    PAGED_CODE();
+
+    //
+    //  Make sure there is a stream file for this Fcb.
+    //
+
+    if (Fcb->FileObject == NULL) {
+
+        CdCreateInternalStream( IrpContext, Fcb->Vcb, Fcb );
+    }
+
+    //
+    //  Check to see whether we need to check for a possible short name.
+    //
+
+    ShortNameDirentOffset = CdShortNameDirentOffset( IrpContext, &Name->FileName );
+
+    //
+    //  Position ourselves at the first entry.
+    //
+
+    CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, Fcb->StreamOffset );
+
+    //
+    //  Loop while there are more entries in this directory.
+    //
+
+    do {
+
+        Dirent = &FileContext->InitialDirent->Dirent;
+
+        //
+        //  We only consider files which don't have the associated bit set.
+        //  We also only look for files.  All directories would already
+        //  have been found.
+        //
+
+        if (!FlagOn( Dirent->DirentFlags, CD_ATTRIBUTE_ASSOC | CD_ATTRIBUTE_DIRECTORY )) {
+
+            //
+            //  Update the name in the current dirent.
+            //
+
+            CdUpdateDirentName( IrpContext, Dirent, IgnoreCase );
+
+            //
+            //  Now check whether we have a name match.
+            //  We exit the loop if we have a match.
+            //
+
+            if (CdIsNameInExpression( IrpContext,
+                                      &Dirent->CdCaseFileName,
+                                      Name,
+                                      0,
+                                      TRUE )) {
+
+                *MatchingName = &Dirent->CdCaseFileName;
+                Found = TRUE;
                 break;
             }
 
             //
-            //  Compute the remaining bytes in this sector.
+            //  The names didn't match.  If the input name is a possible short
+            //  name and we are at the correct offset in the directory then
+            //  check if the short names match.
             //
 
-            RemainingBytes = CD_SECTOR_SIZE - SectorOffset;
-
-            DebugTrace(0, Dbg, "CdGetNextDirent: Remaining bytes in sector -> %08lx\n", RemainingBytes);
-
-            //
-            //  If the remaining bytes in this sector is less than the
-            //  minimum then move to the next sector.
-            //
-
-            if (RemainingBytes < MIN_DIR_REC_SIZE) {
-
-                DebugTrace(0, Dbg, "CdGetNextDirent:  Insufficient bytes in sector\n", 0);
-                SectorVbo += CD_SECTOR_SIZE;
-                DirentOffset = SectorVbo;
-                SectorOffset = 0;
-
-                if (LocalBcb != NULL) {
-
-                    CdUnpinBcb( IrpContext, LocalBcb );
-                }
-
-                continue;
-            }
-
-            //
-            //  If the sector is not pinned, do so now.
-            //
-
-            if (LocalBcb == NULL) {
-
-                DebugTrace(0, Dbg, "CdGetNextDirent: Pinning sector at offset -> %08lx\n", SectorVbo);
-
-                StreamFileOffset.LowPart = SectorVbo;
-
-                if (!CcPinRead( Dcb->Specific.Dcb.StreamFile,
-                                &StreamFileOffset,
-                                CD_SECTOR_SIZE,
-                                IrpContext->Wait,
-                                &LocalBcb,
-                                (PVOID *) &ThisSector )) {
-
-                    DebugTrace(0, Dbg, "CdGetNextDirent:  Sector pin couldn't wait\n", 0);
-                    ExRaiseStatus( STATUS_CANT_WAIT );
-                }
-
-            }
-
-            //
-            //  If the first byte of the dirent is '\0', then we move to
-            //  the next sector.
-            //
-
-            if (*(ThisSector + SectorOffset) == '\0') {
-
-                DebugTrace(0, Dbg, "CdGetNextDirent:  Remaining bytes are NULL\n", 0);
-                SectorVbo += CD_SECTOR_SIZE;
-                DirentOffset = SectorVbo;
-                SectorOffset = 0;
-
-                CdUnpinBcb( IrpContext, LocalBcb );
-
-                continue;
-            }
-
-            //
-            //  Copy the raw data from the disk.
-            //
-
-            CdCopyRawDirentToDirent( IrpContext,
-                                     BooleanFlagOn( Dcb->Vcb->Mvcb->MvcbState,
-                                                    MVCB_STATE_FLAG_ISO_VOLUME ),
-                                     (PRAW_DIR_REC) (ThisSector + SectorOffset),
-                                     DirentOffset,
-                                     Dirent );
-
-            //
-            //  If the size of this dirent extends beyond the end of this
-            //  sector, we abort the search.
-            //
-
-            if (Dirent->DirentLength > RemainingBytes) {
-
-                DebugTrace(0, Dbg, "CdGetNextDirent:  Corrupt sectors\n", 0);
-
-                CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
-            }
-
-            //
-            //  We have successfully found the next entry.  We copy the
-            //  Bcb value to the user's parameter.
-            //
-
-            *Bcb = LocalBcb;
-            LocalBcb = NULL;
-            FoundDirent = TRUE;
-
-            DebugTrace(0, Dbg, "CdGetNextDirent:  Filename in dirent -> %Z\n", &Dirent->FullFilename);
-
-            try_return( NOTHING );
-        }
-
-    try_exit: NOTHING;
-    } finally {
-
-        //
-        //  We unpin any buffers we are responsible for.
-        //
-
-        if (LocalBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, LocalBcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdGetNextDirent:  Exit\n", 0);
-    }
-
-    return FoundDirent;
-}
-
-
-BOOLEAN
-CdLocateFileDirent (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN PSTRING FileName,
-    IN BOOLEAN WildcardExpression,
-    IN CD_VBO OffsetToStartSearchFrom,
-    IN BOOLEAN ReturnFirstDirent,
-    OUT PBOOLEAN MatchedVersion,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
-    )
-
-/*++
-
-Routine Description:
-
-    This function updates a file dirent structure by walking through
-    the directory cache file in the parent directory.  If the cache
-    file has not been initialized for this dcb, we do so now.  This is
-    done by searching for the '.' self entry.
-
-    In order to support version numbers in ISO/HSG file names, at times
-    we need to find the previous entry in order to compare file names.
-    This is indicated by the 'ReturnFirstDirent' value.  If TRUE, then
-    we assume that the entry at offset 'OffsetToStartSearchFrom' has
-    no previous version.
-
-Arguments:
-
-    Dcb - Pointer to the DCB structure for this directory.
-
-    FileName - The name of the file to find.
-
-    WildCardExpression - Indicates if the file name is a wildcard
-                         expression.
-
-    OffsetToStartSearchFrom - Offset in the cache file to start the search
-                              from.
-
-    ReturnFirstDirent - Flag indicating if we should assume the first file
-                        found is the most recent version.
-
-    MatchedVersion - Pointer to a boolean which indicates if the filename
-                     with version was needed to make the match.
-
-    Dirent - Pointer to dirent to update.
-
-    Bcb - Bcb used to track pinned dirent.
-
-Return Value:
-
-    BOOLEAN - TRUE if the entry was found, FALSE if not found.  An error
-              status will be raised on other errors.
-
---*/
-
-{
-    BOOLEAN FoundDirent;
-    DIRENT LocalDirent;
-    PDIRENT DirentA;
-    PDIRENT DirentB;
-    PDIRENT TempDirent;
-    PBCB DirentABcb;
-    PBCB DirentBBcb;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdLocateFileDirent:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdLocateFileDirent:  Find file             -> %Z\n", FileName);
-    DebugTrace( 0, Dbg, "CdLocateFileDirent:  Start offset          -> %08lx\n", OffsetToStartSearchFrom);
-    DebugTrace( 0, Dbg, "CdLocateFileDirent:  Return first dirent   -> %04x\n", ReturnFirstDirent);
-
-    //
-    //  Initialize the local variables.
-    //
-
-    DirentA = Dirent;
-    DirentB = &LocalDirent;
-
-    DirentABcb = NULL;
-    DirentBBcb = NULL;
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  Verify that the parent Dcb has a cache file.
-        //
-
-        CdOpenStreamFile( IrpContext, Dcb );
-
-        //
-        //  If the user indicated that the offset given is for a dirent
-        //  already returned, we locate that file dirent.  This will then
-        //  be the starting point for the search for the actual target
-        //  file dirent.  Otherwise we will use a NULL pointer for the
-        //  basis of the search.
-        //
-
-        if (!ReturnFirstDirent) {
-
-            DebugTrace(0, Dbg, "CdLocateFileDirent:  Look for starting dirent\n", 0);
-
-            if (!CdLocateNextFileDirent( IrpContext,
-                                         Dcb,
-                                         OffsetToStartSearchFrom,
-                                         NULL,
-                                         DirentB,
-                                         &DirentBBcb )) {
-
-                DebugTrace(0, Dbg, "CdLocateFileDirent:  Can't get starting file dirent\n", 0);
-                try_return( FoundDirent = FALSE );
-            }
-
-            OffsetToStartSearchFrom = DirentB->DirentOffset + DirentB->DirentLength;
-        }
-
-        //
-        //  At this time we have the starting file dirent, if we needed
-        //  it.  We now get the next file dirent and continue working
-        //  through the directory until either the target is found or
-        //  the directory is exhausted.
-        //
-
-        DebugTrace(0, Dbg, "CdLocateFileDirent:  Look for target dirent\n", 0);
-
-        if (!CdLocateNextFileDirent( IrpContext,
-                                     Dcb,
-                                     OffsetToStartSearchFrom,
-                                     ReturnFirstDirent ? NULL : DirentB,
-                                     DirentA,
-                                     &DirentABcb )) {
-
-            DebugTrace(0, Dbg, "CdLocateFileDirent:  Can't find first file dirent\n", 0);
-            try_return( FoundDirent = FALSE );
-        }
-
-        //
-        //  As long as Dirent A is not the file dirent, we will try again.
-        //
-
-        while (!CdFileMatch( IrpContext,
-                             Dcb->Vcb->CodePage,
-                             DirentA,
-                             FileName,
-                             WildcardExpression,
-                             MatchedVersion )) {
-
-            DebugTrace(0, Dbg, "CdLocateFileDirent:  Match fails for this dirent\n", 0);
-
-            //
-            //  Switch to get to the next file dirent.
-            //
-
-            TempDirent = DirentA;
-            DirentA = DirentB;
-            DirentB = TempDirent;
-
-            OffsetToStartSearchFrom = DirentB->DirentOffset + DirentB->DirentLength;
-
-            if (DirentBBcb != NULL) {
-
-                CdUnpinBcb( IrpContext, DirentBBcb );
-            }
-
-            DirentBBcb = DirentABcb;
-            DirentABcb = NULL;
-
-            //
-            //  Find the next file dirent.
-            //
-
-            DebugTrace(0, Dbg, "CdLocateFileDirent:  Look again for target dirent\n", 0);
-
-            if (!CdLocateNextFileDirent( IrpContext,
-                                         Dcb,
-                                         OffsetToStartSearchFrom,
-                                         DirentB,
-                                         DirentA,
-                                         &DirentABcb )) {
-
-                DebugTrace(0, Dbg, "CdLocateFileDirent:  Couldn't find next dirent\n", 0);
-                try_return( FoundDirent = FALSE );
-            }
-        }
-
-        //
-        //  At this point we have found the next file dirent.  We have been
-        //  using the caller's dirent structure as well as a local dirent
-        //  structure.  If the data did not end up in the caller's structure
-        //  we need to copy it now.
-        //
-
-        if (DirentA != Dirent) {
-
-            *Dirent = *DirentA;
-        }
-
-        *Bcb = DirentABcb;
-        DirentABcb = NULL;
-
-        FoundDirent = TRUE;
-
-    try_exit: NOTHING;
-    } finally {
-
-        //
-        //  We always unpin the Bcb if pinned.
-        //
-
-        if (DirentABcb != NULL) {
-
-            CdUnpinBcb( IrpContext, DirentABcb );
-        }
-
-        if (DirentBBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, DirentBBcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdLocateFileDirent:  Exit -> %04x\n", FoundDirent);
-    }
-
-    return FoundDirent;
-}
-
-
-BOOLEAN
-CdLocateOffsetDirent (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN CD_VBO OffsetDirent,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
-    )
-
-/*++
-
-Routine Description:
-
-    This function reads a dirent at a particular offset in a directory.
-    It gets there by reading each dirent from the begining, to verify
-    that a dirent actually exists at that offset.
-
-
-Arguments:
-
-    Dcb - Pointer to the DCB structure for this directory.
-
-    OffsetDirent - The offset of the dirent we're looking for.
-
-    Dirent - Pointer to dirent to update.
-
-    Bcb - Bcb used to track pinned dirent.
-
-Return Value:
-
-    BOOLEAN - TRUE if the entry was found, FALSE if not found.  An error
-              status will be raised on other errors.
-
---*/
-
-{
-    BOOLEAN FoundDirent;
-    PBCB    DirentBcb;
-    CD_VBO  OffsetToSearchFrom;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdLocateOffsetDirent:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdLocateOffsetDirent:  Find offset           -> %08lx\n", OffsetDirent);
-
-    //
-    //  Initialize the local variables.
-    //
-
-    DirentBcb = NULL;
-    OffsetToSearchFrom = Dcb->DirentOffset;
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  Verify that the parent Dcb has a cache file.
-        //
-
-        CdOpenStreamFile( IrpContext, Dcb );
-
-        DebugTrace(0, Dbg, "CdLocateOffsetDirent:  Look for target dirent\n", 0);
-
-        while (TRUE) {
-
-            //
-            //  Find the next file dirent.
-            //
-
-            DebugTrace(0, Dbg, "CdLocateFileDirent:  Look again for target dirent\n", 0);
-
-            if (!CdLocateNextFileDirent( IrpContext,
-                                         Dcb,
-                                         OffsetToSearchFrom,
-                                         NULL,
-                                         Dirent,
-                                         &DirentBcb )) {
-
-                DebugTrace(0, Dbg, "CdLocateFileDirent:  Couldn't find next dirent\n", 0);
-                try_return( FoundDirent = FALSE );
-            }
-
-            if (Dirent->DirentOffset < OffsetDirent) {
+            if (((Dirent->DirentOffset >> SHORT_NAME_SHIFT) == ShortNameDirentOffset) &&
+                (Name->VersionString.Length == 0) &&
+                !CdIs8dot3Name( IrpContext,
+                                Dirent->CdFileName.FileName )) {
 
                 //
-                //  Switch to get to the next file dirent.
+                //  Create the short name and check for a match.
                 //
 
-                OffsetToSearchFrom = Dirent->DirentOffset + Dirent->DirentLength;
+                CdGenerate8dot3Name( IrpContext,
+                                     &Dirent->CdCaseFileName.FileName,
+                                     Dirent->DirentOffset,
+                                     FileContext->ShortName.FileName.Buffer,
+                                     &FileContext->ShortName.FileName.Length );
 
-                if (DirentBcb != NULL) {
+                //
+                //  Now check whether we have a name match.
+                //  We exit the loop if we have a match.
+                //
 
-                    CdUnpinBcb( IrpContext, DirentBcb );
-                }
+                if (CdIsNameInExpression( IrpContext,
+                                          &FileContext->ShortName,
+                                          Name,
+                                          0,
+                                          FALSE )) {
 
-            } else {
-
-                if (Dirent->DirentOffset > OffsetDirent) {
-
-                    DebugTrace(0, Dbg, "CdLocateOffsetDirent:  No dirent at that offset\n", 0);
-                    try_return( FoundDirent = FALSE );
-                } else {
-
+                    *MatchingName = &FileContext->ShortName,
+                    Found = TRUE;
                     break;
                 }
             }
         }
 
-        *Bcb = DirentBcb;
-        DirentBcb = NULL;
-
-        FoundDirent = TRUE;
-
-    try_exit: NOTHING;
-    } finally {
-
         //
-        //  We always unpin the Bcb if pinned.
+        //  Go to the next initial dirent for a file.
         //
 
-        if (DirentBcb != NULL) {
+    } while (CdLookupNextInitialFileDirent( IrpContext, Fcb, FileContext ));
 
-            CdUnpinBcb( IrpContext, DirentBcb );
-        }
+    //
+    //  If we find the file then collect all of the dirents.
+    //
 
-        DebugTrace(-1, Dbg, "CdLocateOffsetDirent:  Exit -> %04x\n", FoundDirent);
+    if (Found) {
+
+        CdLookupLastFileDirent( IrpContext, Fcb, FileContext );
+
     }
 
-    return FoundDirent;
+    return Found;
 }
 
 
 BOOLEAN
-CdContinueFileDirentSearch (
+CdFindDirectory (
     IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN PSTRING FileName,
-    IN BOOLEAN WildcardExpression,
-    IN PDIRENT StartingDirent,
-    OUT PBOOLEAN MatchedVersion,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
+    IN PFCB Fcb,
+    IN PCD_NAME Name,
+    IN BOOLEAN IgnoreCase,
+    IN OUT PFILE_ENUM_CONTEXT FileContext
     )
 
 /*++
 
 Routine Description:
 
-    This function updates a file dirent structure by walking through
-    the directory cache file in the parent directory.  For this function,
-    we are given a dirent from which to start the search.
-
-    In order to support version numbers in ISO/HSG file names, at times
-    we need to find the previous entry in order to compare file names.
-    The Starting dirent provides this for the first entry to find.
+    This routine is called to search a dirctory for a directory matching the input
+    name.  This name has been upcased at this point if this a case-insensitive
+    search.  We look for an exact match in the name and do not look for shortname
+    equivalents.
 
 Arguments:
 
-    Dcb - Pointer to the DCB structure for this directory.
+    Fcb - Fcb for the directory being scanned.
 
-    FileName - The name of the file to find.
+    Name - Name to search for.
 
-    WildCardExpression - Indicates if the file name is a wildcard
-                         expression.
+    IgnoreCase - Indicates the case of the search.
 
-    StartingDirent - A dirent to use as a starting point.  The version
-                     information in it will be used to check version numbers.
-
-    MatchedVersion - Pointer to a boolean which indicates if the filename
-                     with version was needed to make the match.
-
-    Dirent - Pointer to dirent to update.
-
-    Bcb - Bcb used to track pinned dirent.
+    FileContext - File context to use for the search.  This has already been
+        initialized.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry was found, FALSE if not found.  An error
-              status will be raised on other errors.
+    BOOLEAN - TRUE if matching entry is found, FALSE otherwise.
 
 --*/
 
 {
-    BOOLEAN FoundDirent;
-    DIRENT LocalDirent;
-    PDIRENT DirentA;
-    PDIRENT DirentB;
-    PDIRENT TempDirent;
-    PBCB DirentABcb;
-    PBCB DirentBBcb;
+    PDIRENT Dirent;
 
-    CD_VBO OffsetToStartSearchFrom;
+    BOOLEAN Found = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdContinueFileDirentSearch:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdContinueFileDirentSearch:  Find file             -> %Z\n", FileName);
-
     //
-    //  Initialize the local variables.
+    //  Make sure there is a stream file for this Fcb.
     //
 
-    DirentA = Dirent;
-    DirentB = &LocalDirent;
+    if (Fcb->FileObject == NULL) {
 
-    DirentABcb = NULL;
-    DirentBBcb = NULL;
-
-    OffsetToStartSearchFrom = StartingDirent->DirentOffset + StartingDirent->DirentLength;
+        CdCreateInternalStream( IrpContext, Fcb->Vcb, Fcb );
+    }
 
     //
-    //  Use a try-finally to facilitate cleanup.
+    //  Position ourselves at the first entry.
     //
 
-    try {
+    CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, Fcb->StreamOffset );
+
+    //
+    //  Loop while there are more entries in this directory.
+    //
+
+    do {
+
+        Dirent = &FileContext->InitialDirent->Dirent;
 
         //
-        //  At this time we have the starting file dirent, if we needed
-        //  it.  We now get the next file dirent and continue working
-        //  through the directory until either the target is found or
-        //  the directory is exhausted.
+        //  We only look for directories.  Directories cannot have the
+        //  associated bit set.
         //
 
-        DebugTrace(0, Dbg, "CdContinueFileDirentSearch:  Look for target dirent\n", 0);
-
-        if (!CdLocateNextFileDirent( IrpContext,
-                                     Dcb,
-                                     OffsetToStartSearchFrom,
-                                     StartingDirent,
-                                     DirentA,
-                                     &DirentABcb )) {
-
-            DebugTrace(0, Dbg, "CdContinueFileDirentSearch:  Can't find first file dirent\n", 0);
-            try_return( FoundDirent = FALSE );
-        }
-
-        //
-        //  As long as Dirent A is not the file dirent, we will try again.
-        //
-
-        while (!CdFileMatch( IrpContext,
-                             Dcb->Vcb->CodePage,
-                             DirentA,
-                             FileName,
-                             WildcardExpression,
-                             MatchedVersion )) {
-
-            DebugTrace(0, Dbg, "CdContinueFileDirentSearch:  Match fails for this dirent\n", 0);
+        if (FlagOn( Dirent->DirentFlags, CD_ATTRIBUTE_DIRECTORY )) {
 
             //
-            //  Switch to get to the next file dirent.
+            //  Update the name in the current dirent.
             //
 
-            TempDirent = DirentA;
-            DirentA = DirentB;
-            DirentB = TempDirent;
-
-            OffsetToStartSearchFrom = DirentB->DirentOffset + DirentB->DirentLength;
-
-            if (DirentBBcb != NULL) {
-
-                CdUnpinBcb( IrpContext, DirentBBcb );
-            }
-
-            DirentBBcb = DirentABcb;
-            DirentABcb = NULL;
+            CdUpdateDirentName( IrpContext, Dirent, IgnoreCase );
 
             //
-            //  Find the next file dirent.
+            //  Now check whether we have a name match.
+            //  We exit the loop if we have a match.
             //
 
-            DebugTrace(0, Dbg, "CdContinueFileDirentSearch:  Look again for target dirent\n", 0);
+            if (CdIsNameInExpression( IrpContext,
+                                      &Dirent->CdCaseFileName,
+                                      Name,
+                                      0,
+                                      TRUE )) {
 
-            if (!CdLocateNextFileDirent( IrpContext,
-                                         Dcb,
-                                         OffsetToStartSearchFrom,
-                                         DirentB,
-                                         DirentA,
-                                         &DirentABcb )) {
-
-                DebugTrace(0, Dbg, "CdContinueFileDirentSearch:  Couldn't find next dirent\n", 0);
-                try_return( FoundDirent = FALSE );
+                Found = TRUE;
+                break;
             }
         }
 
         //
-        //  At this point we have found the next file dirent.  We have been
-        //  using the caller's dirent structure as well as a local dirent
-        //  structure.  If the data did not end up in the caller's structure
-        //  we need to copy it now.
+        //  Go to the next initial dirent.
         //
 
-        if (DirentA != Dirent) {
+    } while (CdLookupNextInitialFileDirent( IrpContext, Fcb, FileContext ));
 
-            *Dirent = *DirentA;
-        }
+    return Found;
+}
 
-        *Bcb = DirentABcb;
-        DirentABcb = NULL;
+
+BOOLEAN
+CdFindFileByShortName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PCD_NAME Name,
+    IN BOOLEAN IgnoreCase,
+    IN ULONG ShortNameDirentOffset,
+    IN OUT PFILE_ENUM_CONTEXT FileContext
+    )
 
-        FoundDirent = TRUE;
+/*++
 
-    try_exit: NOTHING;
-    } finally {
+Routine Description:
+
+    This routine is called to find the file name entry whose short name
+    is defined by the input DirentOffset.  The dirent offset here is
+    multiplied by 32 and we look for the dirent begins in this 32 byte offset in
+    directory.  The minimum dirent length is 34 so we are guaranteed that only
+    one dirent can begin in each 32 byte block in the directory.
+
+Arguments:
+
+    Fcb - Fcb for the directory being scanned.
+
+    Name - Name we are trying to match.  We know this contains the tilde
+        character followed by decimal characters.
+
+    IgnoreCase - Indicates whether we need to upcase the long name and
+        generated short name.
+
+    ShortNameDirentOffset - This is the shifted value for the offset of the
+        name in the directory.
+
+    FileContext - This is the initialized file context to use for the search.
+
+Return Value:
+
+    BOOLEAN - TRUE if a matching name was found, FALSE otherwise.
+
+--*/
+
+{
+    BOOLEAN Found = FALSE;
+    PDIRENT Dirent;
+
+    ULONG ThisShortNameDirentOffset;
+
+    PAGED_CODE();
+
+    //
+    //  Make sure there is a stream file for this Fcb.
+    //
+
+    if (Fcb->FileObject == NULL) {
+
+        CdCreateInternalStream( IrpContext, Fcb->Vcb, Fcb );
+    }
+
+    //
+    //  Position ourselves at the start of the directory and update
+    //
+    //
+
+    CdLookupInitialFileDirent( IrpContext, Fcb, FileContext, Fcb->StreamOffset );
+
+    //
+    //  Loop until we have found the entry or are beyond this dirent.
+    //
+
+    do {
 
         //
-        //  We always unpin the Bcb if pinned.
+        //  Compute the short name dirent offset for the current dirent.
         //
 
-        if (DirentABcb != NULL) {
+        Dirent = &FileContext->InitialDirent->Dirent;
+        ThisShortNameDirentOffset = Dirent->DirentOffset >> SHORT_NAME_SHIFT;
 
-            CdUnpinBcb( IrpContext, DirentABcb );
+        //
+        //  If beyond the target then exit.
+        //
+
+        if (ThisShortNameDirentOffset > ShortNameDirentOffset) {
+
+            break;
         }
 
-        if (DirentBBcb != NULL) {
+        //
+        //  If equal to the target then check if we have a name match.
+        //  We will either match or fail here.
+        //
 
-            CdUnpinBcb( IrpContext, DirentBBcb );
+        if (ThisShortNameDirentOffset == ShortNameDirentOffset) {
+
+            //
+            //  If this is an associated file then get out.
+            //
+
+            if (FlagOn( Dirent->DirentFlags, CD_ATTRIBUTE_ASSOC )) {
+
+                break;
+            }
+
+            //
+            //  Update the name in the dirent and check if it is not
+            //  an 8.3 name.
+            //
+
+            CdUpdateDirentName( IrpContext, Dirent, IgnoreCase );
+
+            if (CdIs8dot3Name( IrpContext,
+                               Dirent->CdFileName.FileName )) {
+
+                break;
+            }
+
+            //
+            //  Generate the 8.3 name see if it matches our input name.
+            //
+
+            CdGenerate8dot3Name( IrpContext,
+                                 &Dirent->CdCaseFileName.FileName,
+                                 Dirent->DirentOffset,
+                                 FileContext->ShortName.FileName.Buffer,
+                                 &FileContext->ShortName.FileName.Length );
+
+            //
+            //  Check if this name matches.
+            //
+
+            if (CdIsNameInExpression( IrpContext,
+                                      Name,
+                                      &FileContext->ShortName,
+                                      0,
+                                      FALSE )) {
+
+                //
+                //  Let our caller know we found an entry.
+                //
+
+                Found = TRUE;
+            }
+
+            //
+            //  Break out of the loop.
+            //
+
+            break;
         }
 
-        DebugTrace(-1, Dbg, "CdContinueFileDirentSearch:  Exit -> %04x\n", FoundDirent);
+        //
+        //  Continue until there are no more entries.
+        //
+
+    } while (CdLookupNextInitialFileDirent( IrpContext, Fcb, FileContext ));
+
+    //
+    //  If we find the file then collect all of the dirents.
+    //
+
+    if (Found) {
+
+        CdLookupLastFileDirent( IrpContext, Fcb, FileContext );
+
+    }
+
+    return Found;
+}
+
+
+BOOLEAN
+CdLookupNextInitialFileDirent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN OUT PFILE_ENUM_CONTEXT FileContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to walk through the directory until we find the
+    first possible dirent for file.  We are positioned at some point described
+    by the FileContext.  We will walk through any remaing dirents for the
+    current file until we find the first dirent for some subsequent file.
+
+    We can be called when we have found just one dirent for a file or all
+    of them.  We first check the CurrentDirContext.  In the typical
+    single-extent case this is unused.  Then we look to the InitialDirContext
+    which must be initialized.
+
+    This routine will save the initial DirContext to the PriorDirContext and
+    clean up any existing DirContext for the Prior or Current positions in
+    the enumeration context.
+
+Arguments:
+
+    Fcb - This is the directory to scan.
+
+    FileContext - This is the file enumeration context.  It is currently pointing
+        at some file in the directory.
+
+Return Value:
+
+--*/
+
+{
+    PRAW_DIRENT RawDirent;
+
+    PDIRENT_ENUM_CONTEXT CurrentDirContext;
+    PDIRENT_ENUM_CONTEXT TargetDirContext;
+    PCOMPOUND_DIRENT TempDirent;
+
+    BOOLEAN FoundDirent;
+    BOOLEAN FoundLastDirent;
+
+    PAGED_CODE();
+
+    //
+    //  Start by saving the initial dirent of the current file as the
+    //  previous file.
+    //
+
+    TempDirent = FileContext->PriorDirent;
+    FileContext->PriorDirent = FileContext->InitialDirent;
+    FileContext->InitialDirent = TempDirent;
+
+    //
+    //  We will use the initial dirent of the prior file unless the
+    //  previous search returned multiple extents.
+    //
+
+    CurrentDirContext = &FileContext->PriorDirent->DirContext;
+
+    if (FlagOn( FileContext->Flags, FILE_CONTEXT_MULTIPLE_DIRENTS )) {
+
+        CurrentDirContext = &FileContext->CurrentDirent->DirContext;
+    }
+
+    //
+    //  Clear all of the flags and file size for the next file.
+    //
+
+    FileContext->Flags = 0;
+    FileContext->FileSize = 0;
+
+    FileContext->ShortName.FileName.Length = 0;
+
+    //
+    //  We always want to store the result into the updated initial dirent
+    //  context.
+    //
+
+    TargetDirContext = &FileContext->InitialDirent->DirContext;
+
+    //
+    //  Loop until we find the first dirent after the last dirent of the
+    //  current file.  We may not be at the last dirent for the current file yet
+    //  so we may walk forward looking for the last and then find the
+    //  initial dirent for the next file after that.
+    //
+
+    while (TRUE) {
+
+        //
+        //  Remember if the last dirent we visited was the last dirent for
+        //  a file.
+        //
+
+        RawDirent = CdRawDirent( IrpContext, CurrentDirContext );
+
+        FoundLastDirent = !FlagOn( CdRawDirentFlags( IrpContext, RawDirent ), CD_ATTRIBUTE_MULTI );
+
+        //
+        //  Try to find another dirent.
+        //
+
+        FoundDirent = CdLookupNextDirent( IrpContext,
+                                          Fcb,
+                                          CurrentDirContext,
+                                          TargetDirContext );
+
+        //
+        //  Exit the loop if no entry found.
+        //
+
+        if (!FoundDirent) {
+
+            break;
+
+        }
+
+        //
+        //  Update the in-memory dirent.
+        //
+
+        CdUpdateDirentFromRawDirent( IrpContext,
+                                     Fcb,
+                                     TargetDirContext,
+                                     &FileContext->InitialDirent->Dirent );
+
+        //
+        //  Exit the loop if we had the end for the previous file.
+        //
+
+        if (FoundLastDirent) {
+
+            break;
+        }
+
+        //
+        //  Always use a single dirent from this point on.
+        //
+
+        CurrentDirContext = TargetDirContext;
     }
 
     return FoundDirent;
+}
+
+
+VOID
+CdLookupLastFileDirent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PFILE_ENUM_CONTEXT FileContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when we've found the matching initial dirent for
+    a file.  Now we want to find all of the dirents for a file as well as
+    compute the running total for the file size.
+
+    We also go out to the system use area and check whether this is an
+    XA sector.  In that case we will compute the real file size.
+
+    The dirent in the initial compound dirent has been updated from the
+    raw dirent when this routine is called.
+
+Arguments:
+
+    Fcb - Directory containing the entries for the file.
+
+    FileContext - Enumeration context for this search.  It currently points
+        to the first dirent of the file and the in-memory dirent has been
+        updated.
+
+Return Value:
+
+    None.  This routine may raise STATUS_FILE_CORRUPT.
+
+--*/
+
+{
+    XA_EXTENT_TYPE ExtentType;
+    PCOMPOUND_DIRENT CurrentCompoundDirent;
+    PDIRENT CurrentDirent;
+
+    BOOLEAN FirstPass = TRUE;
+    BOOLEAN FoundDirent;
+
+    PAGED_CODE();
+
+    //
+    //  The current dirent to look at is the initial dirent for the file.
+    //
+
+    CurrentCompoundDirent = FileContext->InitialDirent;
+
+    //
+    //  Loop until we reach the last dirent for the file.
+    //
+
+    while (TRUE) {
+
+        CurrentDirent = &CurrentCompoundDirent->Dirent;
+
+        //
+        //  Check if this extent has XA sectors.
+        //
+
+        if ((CurrentDirent->SystemUseOffset != 0) &&
+            FlagOn( Fcb->Vcb->VcbState, VCB_STATE_CDXA ) &&
+            CdCheckForXAExtent( IrpContext,
+                                CdRawDirent( IrpContext, &CurrentCompoundDirent->DirContext ),
+                                CurrentDirent )) {
+
+            //
+            //  Any previous dirent must describe XA sectors as well.
+            //
+
+            if (!FirstPass && (ExtentType != CurrentDirent->ExtentType)) {
+
+                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+            }
+
+            //
+            //  If there are XA sectors then the data on the disk must
+            //  be correctly aligned on sectors and be an integral number of
+            //  sectors.  Only an issue if the logical block size is not
+            //  2048.
+            //
+
+            if (Fcb->Vcb->BlockSize != SECTOR_SIZE) {
+
+                //
+                //  We will do the following checks.
+                //
+                //      Data must start on a sector boundary.
+                //      Data length must be integral number of sectors.
+                //
+
+                if ((SectorBlockOffset( Fcb->Vcb, CurrentDirent->StartingOffset ) != 0) ||
+                    (SectorBlockOffset( Fcb->Vcb, CurrentDirent->DataLength ) != 0)) {
+
+                    CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+                }
+
+                //
+                //  If interleaved then both the file unit and interleave
+                //  gap must be integral number of sectors.
+                //
+
+                if ((CurrentDirent->FileUnitSize != 0) &&
+                    ((SectorBlockOffset( Fcb->Vcb, CurrentDirent->FileUnitSize ) != 0) ||
+                     (SectorBlockOffset( Fcb->Vcb, CurrentDirent->InterleaveGapSize ) != 0))) {
+
+                    CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+                }
+            }
+
+            //
+            //  If this is the first dirent then add the bytes for the RIFF
+            //  header.
+            //
+
+            if (FirstPass) {
+
+                FileContext->FileSize = sizeof( RIFF_HEADER );
+            }
+
+            //
+            //  Add the size of the mode2-form2 sector for each sector
+            //  we have here.
+            //
+
+            FileContext->FileSize += Int32x32To64( CurrentDirent->DataLength >> SECTOR_SHIFT,
+                                                   XA_SECTOR_SIZE);
+
+        } else {
+
+            //
+            //  This extent does not have XA sectors.  Any previous dirent
+            //  better not have XA sectors.
+            //
+
+            if (!FirstPass && (ExtentType != CurrentDirent->ExtentType)) {
+
+                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+            }
+
+            //
+            //  Add these bytes to the file size.
+            //
+
+            FileContext->FileSize += CurrentDirent->DataLength;
+        }
+
+        //
+        //  If we are at the last dirent then exit.
+        //
+
+        if (!FlagOn( CurrentDirent->DirentFlags, CD_ATTRIBUTE_MULTI )) {
+
+            break;
+        }
+
+        //
+        //  Remember the extent type of the current extent.
+        //
+
+        ExtentType = CurrentDirent->ExtentType;
+
+        //
+        //  Look for the next dirent of the file.
+        //
+
+        FoundDirent = CdLookupNextDirent( IrpContext,
+                                          Fcb,
+                                          &CurrentCompoundDirent->DirContext,
+                                          &FileContext->CurrentDirent->DirContext );
+
+        //
+        //  If we didn't find the entry then this is a corrupt directory.
+        //
+
+        if (!FoundDirent) {
+
+            CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+        }
+
+        //
+        //  Remember the dirent we just found.
+        //
+
+        CurrentCompoundDirent = FileContext->CurrentDirent;
+        FirstPass = FALSE;
+
+        CdUpdateDirentFromRawDirent( IrpContext,
+                                     Fcb,
+                                     &CurrentCompoundDirent->DirContext,
+                                     &CurrentCompoundDirent->Dirent );
+
+        //
+        //  Look up all of the dirent information for the given dirent.
+        //
+
+        CdUpdateDirentFromRawDirent( IrpContext,
+                                     Fcb,
+                                     &CurrentCompoundDirent->DirContext,
+                                     &CurrentCompoundDirent->Dirent );
+
+        //
+        //  Set flag to show there were multiple extents.
+        //
+
+        SetFlag( FileContext->Flags, FILE_CONTEXT_MULTIPLE_DIRENTS );
+    }
+
+    return;
+}
+
+
+VOID
+CdCleanupFileContext (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_ENUM_CONTEXT FileContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to cleanup the enumeration context for a file
+    search in a directory.  We will unpin any remaining Bcbs and free
+    any allocated buffers.
+
+Arguments:
+
+    FileContext - Enumeration context for the file search.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PCOMPOUND_DIRENT CurrentCompoundDirent;
+    ULONG Count = 2;
+
+    PAGED_CODE();
+
+    //
+    //  Cleanup the individual compound dirents.
+    //
+
+    do {
+
+        CurrentCompoundDirent = &FileContext->Dirents[ Count ];
+        CdCleanupDirContext( IrpContext, &CurrentCompoundDirent->DirContext );
+        CdCleanupDirent( IrpContext, &CurrentCompoundDirent->Dirent );
+
+    } while (Count--);
+
+    return;
 }
 
 
@@ -1000,317 +1662,174 @@ Return Value:
 //  Local support routine
 //
 
-BOOLEAN
-CdLocateNextFileDirent (
+ULONG
+CdCheckRawDirentBounds (
     IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN CD_VBO OffsetToStartSearchFrom,
-    IN PDIRENT StartingDirent OPTIONAL,
-    OUT PDIRENT Dirent,
-    OUT PBCB *Bcb
+    IN PDIRENT_ENUM_CONTEXT DirContext
     )
 
 /*++
 
 Routine Description:
 
-    This function searches through a directory for the next file dirent
-    which is recognized by the CDFS.  It will eliminate multi-extent
-    files, interleaved files and those with an invalid name.
+    This routine takes a Dirent enumeration context and computes the offset
+    to the next dirent.  A non-zero value indicates the offset within this
+    sector.  A zero value indicates to move to the next sector.  If the
+    current dirent does not fit within the sector then we will raise
+    STATUS_CORRUPT.
 
 Arguments:
 
-    Dcb - Pointer to the DCB structure for this directory.
-
-    OffsetToStartSearchFrom - Offset in the cache file to start the search
-                              from.
-
-    StartingDirent - If specified, then the file dirent found will be
-                     compared with this to see if they share the same
-                     file version.
-
-    Dirent - Pointer to dirent to update.
-
-    Bcb - Bcb used to track pinned dirent.
+    DirContext - Enumeration context indicating the current position in
+        the sector.
 
 Return Value:
 
-    BOOLEAN - TRUE if the entry was found, FALSE if not found.  An error
-              status will be raised on other errors.
+    ULONG - Offset to the next dirent in this sector or zero if the
+        next dirent is in the next sector.
+
+    This routine will raise on a dirent which does not fit into the
+    described data buffer.
 
 --*/
 
 {
-    BOOLEAN FoundDirent;
-    PBCB DirentBcb;
-
-    FoundDirent = FALSE;
+    ULONG NextDirentOffset;
+    PRAW_DIRENT RawDirent;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdLocateNextFileDirent:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdLocateNextFileDirent:  StartingOffset    -> %08lx\n", OffsetToStartSearchFrom);
-    DebugTrace( 0, Dbg, "CdLocateNextFileDirent:  StartingDirent    -> %08lx\n", StartingDirent);
-
-    DirentBcb = NULL;
-
     //
-    //  Verify that the parent Dcb has a cache file.
+    //  We should always have at least a byte still available in the
+    //  current buffer.
     //
 
-    CdOpenStreamFile( IrpContext, Dcb );
+    ASSERT( (DirContext->DataLength - DirContext->SectorOffset) >= 1 );
 
-    try {
+    //
+    //  Get a pointer to the current dirent.
+    //
+
+    RawDirent = CdRawDirent( IrpContext, DirContext );
+
+    //
+    //  If the dirent length is non-zero then look at the current dirent.
+    //
+
+    if (RawDirent->DirLen != 0) {
 
         //
-        //  We loop indefinitely until either a file is found or the
-        //  directory is exhausted.
+        //  Check the following bound for the dirent length.
+        //
+        //      - Fits in the available bytes in the sector.
+        //      - Is at least the minimal dirent size.
+        //      - Is large enough to hold the file name.
         //
 
-        while (TRUE) {
+        if ((RawDirent->DirLen > (DirContext->DataLength - DirContext->SectorOffset)) ||
+            (RawDirent->DirLen < MIN_RAW_DIRENT_LEN) ||
+            (RawDirent->DirLen < (MIN_RAW_DIRENT_LEN - 1 + RawDirent->FileIdLen))) {
 
-            DebugTrace( 0, Dbg, "CdLocateNextFileDirent:  Get the next dirent\n", 0);
-
-            if (!CdGetNextDirent( IrpContext,
-                                  Dcb,
-                                  OffsetToStartSearchFrom,
-                                  Dirent,
-                                  &DirentBcb )) {
-
-                DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Can't find initial next dirent\n", 0);
-                try_return( FoundDirent = FALSE );
-            }
-
-            OffsetToStartSearchFrom = Dirent->DirentOffset + Dirent->DirentLength;
-
-            //
-            //  If this is an invalid file either because it is multi-extent
-            //  or interleaved we collect all the extents associated with
-            //  it and throw it away.
-            //
-
-            if (!CdIsDirentValid( IrpContext, Dirent )) {
-
-                DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Invalid file\n", 0);
-
-                CdUnpinBcb( IrpContext, DirentBcb );
-
-                while (FlagOn( Dirent->Flags, ISO_ATTR_MULTI )) {
-
-                    if (!CdGetNextDirent( IrpContext,
-                                          Dcb,
-                                          OffsetToStartSearchFrom,
-                                          Dirent,
-                                          &DirentBcb )) {
-
-                        DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Can't extent from multi-extent\n", 0);
-                        try_return( FoundDirent = FALSE );
-                    }
-
-                    CdUnpinBcb( IrpContext, DirentBcb );
-                    OffsetToStartSearchFrom = Dirent->DirentOffset + Dirent->DirentLength;
-                }
-
-            } else {
-
-                break;
-            }
+            CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
         }
 
         //
-        //  We now have the next file dirent, we need to update the dirent
-        //  and analyze the file name.  Also if there is a previous dirent
-        //  specified, we need to see if this is an earlier version of the
-        //  same file.
+        //  Copy the dirent length field.
         //
 
-        DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Full file name -> %Z\n", &Dirent->FullFilename);
+        NextDirentOffset = RawDirent->DirLen;
 
-        if (CdCheckForVersion( IrpContext,
-                               Dcb->Vcb->CodePage,
-                               &Dirent->FullFilename,
-                               &Dirent->Filename )) {
+        //
+        //  If we are exactly at the next sector then tell our caller by
+        //  returning zero.
+        //
 
-            DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Version number found\n", 0);
+        if (NextDirentOffset == (DirContext->DataLength - DirContext->SectorOffset)) {
 
-            Dirent->VersionWithName = TRUE;
-
-            //
-            //  Now compare with the previous file if there is one.
-            //
-
-            if (ARGUMENT_PRESENT( StartingDirent )
-                && StartingDirent->VersionWithName
-                && StartingDirent->Filename.Length == Dirent->Filename.Length
-                && (RtlCompareMemory( StartingDirent->Filename.Buffer,
-                                      Dirent->Filename.Buffer,
-                                      Dirent->Filename.Length ) == (ULONG)Dirent->Filename.Length )) {
-
-                DebugTrace(0, Dbg, "CdLocateNextFileDirent:  Previous version exists\n", 0);
-                Dirent->PreviousVersion = TRUE;
-
-            } else {
-
-                DebugTrace(0, Dbg, "CdLocateNextFileDirent:  No previous version\n", 0);
-                Dirent->PreviousVersion = FALSE;
-            }
-
-        } else {
-
-            DebugTrace(0, Dbg, "CdLocateNextFileDirent:  No version number found\n", 0);
-
-            Dirent->PreviousVersion = FALSE;
-            Dirent->VersionWithName = FALSE;
+            NextDirentOffset = 0;
         }
 
-        *Bcb = DirentBcb;
-        DirentBcb = NULL;
+    } else {
 
-        try_return( FoundDirent = TRUE );
-
-    try_exit: NOTHING;
-    } finally {
-
-        if (DirentBcb != NULL) {
-
-            CdUnpinBcb( IrpContext, DirentBcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdLocateNextFileDirent:  Exit -> %04x\n", FoundDirent);
+        NextDirentOffset = 0;
     }
 
-    return FoundDirent;
+    return NextDirentOffset;
 }
 
-BOOLEAN
-CdFileMatch (
+
+//
+//  Local support routine
+//
+
+XA_EXTENT_TYPE
+CdCheckForXAExtent (
     IN PIRP_CONTEXT IrpContext,
-    IN PCODEPAGE CodePage,
-    IN PDIRENT Dirent,
-    IN PSTRING FileName,
-    IN BOOLEAN WildcardExpression,
-    OUT PBOOLEAN MatchedVersion
+    IN PRAW_DIRENT RawDirent,
+    IN OUT PDIRENT Dirent
     )
 
 /*++
 
 Routine Description:
 
-    This routine checks if the name in the dirent matches the filename
-    string.  A filename match exists when the base filename matches
-    the expression string and the file has no previous version.  A
-    match also exists when the full filename with version number matches
-    the expression string.
+    This routine is called to scan through the system use area to test if
+    the current dirent has the XA bit set.  The bit in the in-memory
+    dirent will be set as appropriate.
 
 Arguments:
 
-    Codepage - Codepage to use to analyze the name.
+    RawDirent - Pointer to the on-disk dirent.
 
-    Dirent - Dirent with filename and full filename fields.
-
-    FileName - String with the expression string to match.
-
-    WildCardExpression - Indicates if the file name is a wildcard
-                         expression.
-
-    MatchedVersion - Boolean which indicates if the version number was
-                     needed to perform the match.
+    Dirent - Pointer to the in-memory dirent.  We will update this with the
+        appropriate XA flag.
 
 Return Value:
 
-    BOOLEAN - TRUE if the filename matches, FALSE otherwise.
+    XA_EXTENT_TYPE - Type of physical extent for this on disk dirent.
 
 --*/
 
 {
-    BOOLEAN MatchMade;
+    XA_EXTENT_TYPE ExtentType = Form1Data;
+    PSYSTEM_USE_XA SystemUseArea;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdFileMatch:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "CdFileMatch:  Expression  -> %Z\n", FileName );
-    DebugTrace( 0, Dbg, "CdFileMatch:  Dirent file -> %Z\n", &Dirent->FullFilename );
-
     //
-    //  If there is no previous version and the base filename matches
-    //  we have a match.
+    //  Check if there is enough space for the XA system use area.
     //
 
-    if (!Dirent->PreviousVersion
-        && (WildcardExpression
-            ? CdIsDbcsInExpression( IrpContext, CodePage, *FileName, Dirent->Filename )
-            : (FileName->Length == Dirent->Filename.Length
-               && (RtlCompareMemory( FileName->Buffer,
-                                     Dirent->Filename.Buffer,
-                                     FileName->Length ) == (ULONG)FileName->Length)))) {
+    if (Dirent->DirentLength - Dirent->SystemUseOffset >= sizeof( SYSTEM_USE_XA )) {
 
-        DebugTrace(0, Dbg, "CdFileMatch:  Base file matches\n", 0);
+        SystemUseArea = Add2Ptr( RawDirent, Dirent->SystemUseOffset, PSYSTEM_USE_XA );
 
-        *MatchedVersion = FALSE;
-        MatchMade = TRUE;
+        //
+        //  Check for a valid signature.
+        //
 
-    } else if (Dirent->VersionWithName
-               && (WildcardExpression
-                   ? (Dirent->ParentEntry
-                      ? CdIsDbcsInExpression( IrpContext, CodePage, *FileName, CdSelfString )
-                      : CdIsDbcsInExpression( IrpContext, CodePage, *FileName, Dirent->FullFilename ))
-                   : (FileName->Length == Dirent->FullFilename.Length
-                      && (RtlCompareMemory( FileName->Buffer,
-                                            Dirent->FullFilename.Buffer,
-                                            FileName->Length ) == (ULONG)FileName->Length)))) {
+        if (SystemUseArea->Signature == SYSTEM_XA_SIGNATURE) {
 
-        DebugTrace(0, Dbg, "CdFileMatch:  Full file matches\n", 0);
+            //
+            //  Check for an audio track.
+            //
 
-        *MatchedVersion = TRUE;
-        MatchMade = TRUE;
+            if (FlagOn( SystemUseArea->Attributes, SYSTEM_USE_XA_DA )) {
 
-    } else {
+                ExtentType = CDAudio;
 
-        DebugTrace(0, Dbg, "CdFileMatch:  No match made\n", 0);
-        MatchMade = FALSE;
+            } else if (FlagOn( SystemUseArea->Attributes, SYSTEM_USE_XA_FORM2 )) {
+
+                ExtentType = Mode2Form2Data;
+            }
+
+            Dirent->XAAttributes = SystemUseArea->Attributes;
+            Dirent->XAFileNumber = SystemUseArea->FileNumber;
+        }
     }
 
-    DebugTrace(-1, Dbg, "CdFileMatch:  Exit -> %08lx\n", MatchMade);
-
-    return MatchMade;
-
-    UNREFERENCED_PARAMETER( IrpContext );
+    Dirent->ExtentType = ExtentType;
+    return ExtentType;
 }
 
-BOOLEAN
-CdIsDirentValid (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDIRENT Dirent
-    )
 
-{
-    BOOLEAN DirentValid;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdIsDirentValid:  Entered -> %Z\n", &Dirent->FullFilename);
-
-    //
-    //  A valid dirent may not be multi-extent or interleaved.  Nor can it
-    //  be an associated file.
-    //
-
-    if (FlagOn( Dirent->Flags, ISO_ATTR_MULTI )
-        || FlagOn( Dirent->Flags, ISO_ATTR_ASSOC )
-        || Dirent->Filename.Length == 0
-        || Dirent->FileUnitSize != 0
-        || Dirent->InterleaveGapSize != 0) {
-
-        DirentValid = FALSE;
-
-    } else {
-
-        DirentValid = TRUE;
-    }
-
-    DebugTrace(-1, Dbg, "CdIsDirentValid:  Exit -> %04d\n", DirentValid);
-
-    return DirentValid;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}

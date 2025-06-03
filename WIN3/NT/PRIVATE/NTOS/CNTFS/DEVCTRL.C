@@ -76,12 +76,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdDeviceControl\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdDeviceControl\n") );
 
     //
     //  Call the common Device Control routine
@@ -138,7 +139,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdDeviceControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdDeviceControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -191,9 +192,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonDeviceControl\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonDeviceControl\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
@@ -210,7 +211,7 @@ Return Value:
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsCommonDeviceControl -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsCommonDeviceControl -> %08lx\n", STATUS_INVALID_PARAMETER) );
         return STATUS_INVALID_PARAMETER;
     }
 
@@ -235,7 +236,7 @@ Return Value:
 
     NtfsDeleteIrpContext( &IrpContext );
 
-    DebugTrace(-1, Dbg, "NtfsCommonDeviceControl -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsCommonDeviceControl -> %08lx\n", Status) );
 
     return Status;
 }
@@ -253,6 +254,9 @@ DeviceControlCompletionRoutine (
     )
 
 {
+    UNREFERENCED_PARAMETER( DeviceObject );
+    UNREFERENCED_PARAMETER( Contxt );
+
     //
     //  Add the hack-o-ramma to fix formats.
     //
@@ -261,9 +265,6 @@ DeviceControlCompletionRoutine (
 
         IoMarkIrpPending( Irp );
     }
-
-    UNREFERENCED_PARAMETER( DeviceObject );
-    UNREFERENCED_PARAMETER( Irp );
 
     return STATUS_SUCCESS;
 }

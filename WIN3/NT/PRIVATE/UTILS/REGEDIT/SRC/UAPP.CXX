@@ -119,7 +119,7 @@ Return Value:
            DEFINE_CLASS_DESCRIPTOR( IO_DESCRIPTOR_LIST             ) &&
            DEFINE_CLASS_DESCRIPTOR( IO_REQUIREMENTS_LIST           )
          ) ) {
-        DbgPrint( "Could not initialize class descriptors!");
+        DebugPrint( "Could not initialize class descriptors!");
         return( FALSE );
     }
     return TRUE;
@@ -167,7 +167,7 @@ Return Value:
         return TRUE;
     }
 
-    DbgAbort( "Regedt32 initialization failed!!!\n" );
+    DebugAbort( "Regedt32 initialization failed!!!\n" );
     return( FALSE );
 
 }

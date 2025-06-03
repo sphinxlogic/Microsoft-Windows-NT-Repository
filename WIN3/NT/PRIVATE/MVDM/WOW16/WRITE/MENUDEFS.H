@@ -160,4 +160,3 @@ to be modified also -- rgmfAllItem, rgmfScrap, SetMenuFlags etc.
 #define CDOCU  (imiDocuMax - imiDocuMin)
 #define CHELP  (imiHelpMax - imiHelpMin)
 #endif
-

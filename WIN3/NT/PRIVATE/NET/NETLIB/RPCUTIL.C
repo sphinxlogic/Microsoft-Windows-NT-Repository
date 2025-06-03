@@ -49,7 +49,7 @@ Revision History:
 #include <rpcutil.h>            // MIDL_user_allocate(), MIDL_user_free().
 #include <string.h>             // for strcpy strcat strlen memcmp
 #include <debuglib.h>           // IF_DEBUG
-#include <netdebug.h>           // FORMAT_NTSTATUS, NetpDbgPrint().
+#include <netdebug.h>           // FORMAT_NTSTATUS, NetpKdPrint(()).
 #include <tstring.h>            // STRLEN etc.
 
 // Temporary
@@ -169,7 +169,7 @@ Return Value:
 
     if (rpcStatus) {
         IF_DEBUG(RPC) {
-            NetpDbgPrint("Unbind Failure! RpcBindingFree = %u\n",rpcStatus);
+            NetpKdPrint(("Unbind Failure! RpcBindingFree = %u\n",rpcStatus));
         }
     }
     return(rpcStatus);
@@ -190,4 +190,3 @@ NetpInitRpcBindCache(
     return(TRUE);
 }
 
-

@@ -12,6 +12,7 @@
  *      21-Aug-1993 bens    Added variable lists
  *      11-Feb-1994 bens    VarSet creates new VARIABLE if necessary
  *      20-Apr-1994 bens    Pass hvlist to variable validation functions
+ *      03-Jun-1994 bens    Added list traversal, get/set flags, get name
  *
  *  Exported Functions:
  *    VarCreateList  - Create a list of variables
@@ -21,13 +22,20 @@
  *    VarCreate      - Create a variable
  *    VarDelete      - Delete existing variable
  *    VarFind        - See if variable exists
- *    VarSet         - Set value of a variable (create if necessary)
- *    VarSetLong     - Set long variable value (create if necessary)
  *
  *    VarGetBool     - Get value of boolean variable
  *    VarGetInt      - Get value of int variable
  *    VarGetLong     - Get value of long variable
  *    VarGetString   - Get value of string variable
+ *
+ *    VarSet         - Set value of a variable (create if necessary)
+ *    VarSetLong     - Set long variable value (create if necessary)
+ *
+ *    VarFirstVar    - Get first variable from list
+ *    VarGetFlags    - Get variable flags
+ *    VarSetFlags    - Set variable flags
+ *    VarGetName     - Get name of variable
+ *    VarNextVar     - Get next variable
  */
 
 #ifndef INCLUDED_VARIABLE
@@ -49,6 +57,8 @@ typedef void * HVARIABLE;   /* hvar - VARIABLE handle */
 typedef unsigned VARFLAGS;  /* vfl - VARIABLE flags */
 #define vflNONE     0x00    // VARIABLE is not special
 #define vflPERM     0x01    // VARIABLE cannot be deleted
+#define vflDEFINE   0x02    // VARIABLE was .Defined
+#define vflCOPY     0x04    // VARIABLE needs to be copied
 
 typedef enum {
     vtypeBAD,       // Invalid type
@@ -174,16 +184,16 @@ BOOL VarDestroyList(HVARLIST hvlist, PERROR perr);
  *      perr     - ERROR structure
  *      
  *  Exit-Success: 
- *      Returns TRUE, variable is created (if necessary) and value set.
+ *      Returns HVARIABLE, variable is created (if necessary) and value set.
  *
  *  Exit-Failure:
- *      Returns FALSE, cannot set variable value.
+ *      Returns NULL, cannot set variable value.
  *      ERROR structure filled in with details of error.
  */
-BOOL VarSet(HVARLIST  hvlist,
-            char     *pszName,
-            char     *pszValue,
-            PERROR    perr);
+HVARIABLE VarSet(HVARLIST  hvlist,
+                 char     *pszName,
+                 char     *pszValue,
+                 PERROR    perr);
 
             
 /***    VarSetLong - Set long variable value (create if necessary)
@@ -286,5 +296,69 @@ long VarGetLong(HVARIABLE hvar);
  *      NOTE: Caller may not modify variable value directly!
  */
 char *VarGetString(HVARIABLE hvar);
+
+
+/***    VarSetFlags - Set variable flags
+ *
+ *  Entry:
+ *      hvar - Variable handle
+ *      vfl  - New value for variable flags
+ *      
+ *  Exit-Success: 
+ *      Variable flags are updated.
+ */
+void VarSetFlags(HVARIABLE hvar,
+                 VARFLAGS  vfl);
+
+            
+/***    VarGetFlags - Get variable flags
+ *
+ *  Entry:
+ *      hvar - Variable handle
+ *      
+ *  Exit-Success: 
+ *      Returns variable flags.
+ */
+VARFLAGS VarGetFlags(HVARIABLE hvar);
+
+
+/***    VarFirstVar - Get first variable from list
+ *
+ *  Entry:
+ *      hvlist - Variable list
+ *
+ *  Exit-Success:
+ *      Returns HVARIABLE of first variable in list.
+ *
+ *  Exit-Failure:
+ *      Returns NULL; hglist is bad or empty.
+ */
+HVARIABLE VarFirstVar(HVARLIST hvlist);
+
+
+/***    VarNextVar - Get next variable
+ *
+ *  Entry:
+ *      hvar - Variable handle
+ *
+ *  Exit-Success:
+ *      Returns HVARIABLE of next variable following hvar in list.
+ *
+ *  Exit-Failure:
+ *      Returns NULL; no more variables
+ */
+HVARIABLE VarNextVar(HVARIABLE hvar);
+
+
+/***    VarGetName - Get name of variable
+ *
+ *  Entry:
+ *      hvar - Variable handle
+ *      
+ *  Exit-Success:
+ *      Returns pointer to name of variable.
+ *      NOTE: Caller may not modify the name directly!
+ */
+char *VarGetName(HVARIABLE hvar);
 
 #endif // !INCLUDED_VARIABLE

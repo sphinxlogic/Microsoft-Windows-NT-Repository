@@ -1,5 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 /***	hstoi - convert a hex string to an integer
  *

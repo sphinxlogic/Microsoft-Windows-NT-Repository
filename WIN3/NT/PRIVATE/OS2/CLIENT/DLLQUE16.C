@@ -57,7 +57,7 @@ Dos16ReadQueue(
     }
 
     if (SemHandle != 0) {
-        pSem = Od2LookupOrCreateSem (SemHandle, &FirstTime, FALSE);
+        pSem = Od2LookupOrCreateSem (SemHandle, &FirstTime, 0);
         if (pSem == NULL) {
             return(ERROR_INVALID_HANDLE);
         }
@@ -83,6 +83,11 @@ Dos16ReadQueue(
 
     return rc;
 }
+
+APIRET
+DosSemSet(
+        IN HSEM hsem
+        );
 
 APIRET
 Dos16PeekQueue(
@@ -114,9 +119,24 @@ Dos16PeekQueue(
     }
 
     if (SemHandle != 0) {
-        pSem = Od2LookupOrCreateSem (SemHandle, &FirstTime, FALSE);
+
+        //
+        // DosPeekQueue should set the semaphore (test case approves this) [YosefD Jul 4 1995]
+        //
+        DosSemSet(SemHandle);
+
+        pSem = Od2LookupOrCreateSem (SemHandle, &FirstTime, 0);
         if (pSem == NULL) {
             return(ERROR_INVALID_HANDLE);
+        }
+        if (pSem->FlagsByte) {
+            //
+            // This is system semaphore.
+            // Special hack that marks the semaphore. Semaphore APIs will know that this
+            // semaphore was used by DosPeekQueue. In the case that DosSemRequest will
+            // be called to wait on this semaphore we will call to DosSemWait.
+            //
+            pSem->FlagsByte |= SYSSEM_QUEUE;
         }
         SemEvent = pSem->Event;
     }

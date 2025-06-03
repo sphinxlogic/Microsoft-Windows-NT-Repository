@@ -3,7 +3,7 @@
 //     Contains all functions that execute USER32 client code on 16bitside.
 //     Most of these functions don't exist on x86 builds. So any changes
 //     to these files must be reflected in wow16\user\usercli.asm
-// 
+//
 //                                                          - nanduri
 //**************************************************************************
 
@@ -144,37 +144,13 @@ ULONG FASTCALL WU32GetDlgItem(PVDMFRAME pFrame)
 
     ul = GETHWND16(GetDlgItem(HWND32(parg16->f1),WORD32(parg16->f2)));
 
+    if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_DBASEHANDLEBUG) {
+        ((PTDB)SEGPTR(pFrame->wTDB,0))->TDB_CompatHandle = (USHORT) ul;
+    }
+
+
     FREEARGPTR(parg16);
     RETURN(ul);
-}
-
-
-
-//**************************************************************************
-//  WU32GetKeyboardState -
-//
-//**************************************************************************
-
-ULONG FASTCALL WU32GetKeyboardState(PVDMFRAME pFrame)
-{
-    PBYTE pb1;
-    register PGETKEYBOARDSTATE16 parg16;
-
-    GETARGPTR(pFrame, sizeof(GETKEYBOARDSTATE16), parg16);
-    ALLOCVDMPTR(parg16->f1, 256, pb1);
-
-#ifdef HACK32   // bug 5704
-    if (pb1) {
-        GetKeyboardState( pb1 );
-    }
-#else
-        GetKeyboardState( pb1 );
-#endif
-
-    FLUSHVDMPTR(parg16->f1, 256, pb1);
-    FREEVDMPTR(pb1);
-    FREEARGPTR(parg16);
-    RETURN(0);
 }
 
 
@@ -517,7 +493,7 @@ ULONG FASTCALL WU32IsWindowEnabled(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(ISWINDOWENABLED16), parg16);
 
-    ul = GETBOOL16(IsWindowEnabled( HWND32(parg16->f1) )); 
+    ul = GETBOOL16(IsWindowEnabled( HWND32(parg16->f1) ));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -705,4 +681,31 @@ ULONG FASTCALL WU32GetKeyState(PVDMFRAME pFrame)
 }
 
 
+
+//**************************************************************************
+//  WU32GetKeyboardState -
+//
+//**************************************************************************
+
+ULONG FASTCALL WU32GetKeyboardState(PVDMFRAME pFrame)
+{
+    PBYTE pb1;
+    register PGETKEYBOARDSTATE16 parg16;
+
+    GETARGPTR(pFrame, sizeof(GETKEYBOARDSTATE16), parg16);
+    ALLOCVDMPTR(parg16->f1, 256, pb1);
+
+#ifdef HACK32   // bug 5704
+    if (pb1) {
+        GetKeyboardState( pb1 );
+    }
+#else
+        GetKeyboardState( pb1 );
+#endif
+
+    FLUSHVDMPTR(parg16->f1, 256, pb1);
+    FREEVDMPTR(pb1);
+    FREEARGPTR(parg16);
+    RETURN(0);
+}
 

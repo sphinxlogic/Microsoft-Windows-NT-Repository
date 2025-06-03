@@ -3779,8 +3779,6 @@ Return Value:
 
     IF_LOG(LOG('e'));
 
-    Adapter->References++;
-
     RequeueRcv = (BOOLEAN)(LM_Service_Receive_Events(&Adapter->LMAdapter) ==
                            REQUEUE_LATER);
 
@@ -3853,15 +3851,12 @@ Return Value:
 
     }
 
-
-
     if ((Adapter->ResetRequested) && (Adapter->References == 1)) {
 
         PNDIS_PACKET Packet;
         PWD_OPEN TmpOpen;
 
         IF_LOG(LOG('R'));
-
         IF_VERY_LOUD( DbgPrint("Starting Reset\n");)
 
         Adapter->ResetInProgress = TRUE;
@@ -4085,8 +4080,6 @@ Return Value:
     }
 
 #endif
-
-    Adapter->References--;
 
     IF_LOG(LOG('E'));
 

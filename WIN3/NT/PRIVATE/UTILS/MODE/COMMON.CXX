@@ -75,8 +75,8 @@ Notes:
     PREGISTRY_VALUE_ENTRY   Value;
 
 
-	DbgPtrAssert( Request );
-	DbgAssert( Request->DeviceType == DEVICE_TYPE_ALL );
+	DebugPtrAssert( Request );
+	DebugAssert( Request->DeviceType == DEVICE_TYPE_ALL );
 
 	//
 	//	If this is not a null request, then we pass this request to all
@@ -217,7 +217,7 @@ Notes:
 		break;
 
 	default:
-		DbgAssert( FALSE );
+		DebugAssert( FALSE );
 
 	}
 
@@ -235,7 +235,7 @@ Notes:
 		//	Now substitute the matchnumber character with the number
 		//
 		Index = DeviceName.Strchr( '#'	);
-		DbgAssert( Index != INVALID_CHNUM );
+		DebugAssert( Index != INVALID_CHNUM );
 
         DeviceName.Replace( Index, 1, &Number );
 
@@ -255,7 +255,7 @@ Notes:
 	if ( DevicePathPointer ) {
 
 		DevicePath = NEW PATH;
-		DbgPtrAssert( DevicePath );
+		DebugPtrAssert( DevicePath );
 
 		if ( DevicePath ) {
 
@@ -306,7 +306,7 @@ Notes:
 
 	if ( !Header ) {
 
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 
 	}
 
@@ -315,7 +315,7 @@ Notes:
 	//	path.
 	//
 	Index = Header->Strchr( '*' );
-	DbgAssert( Index != INVALID_CHNUM );
+	DebugAssert( Index != INVALID_CHNUM );
 
     Header->Replace( Index, 1, DevicePath->GetPathString() );
 

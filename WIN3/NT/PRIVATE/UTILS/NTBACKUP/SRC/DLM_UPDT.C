@@ -643,6 +643,9 @@ PDS_WMINFO      pWinInfo )
      case WMTYPE_SERVERS :
      case WMTYPE_LOGVIEW :
      case WMTYPE_SEARCH :
+#ifdef OEM_EMS
+     case WMTYPE_EXCHANGE :
+#endif
 
                pdsHdr = NULL ;
                break ;

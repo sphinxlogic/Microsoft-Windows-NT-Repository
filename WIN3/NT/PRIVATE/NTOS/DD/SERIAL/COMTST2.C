@@ -104,7 +104,7 @@ if(!GetCommState(
     return FALSE;
 }
 dcb.DCBlength   = sizeof(DCB);
-// dcb.DCBversion  = 0x0002; BUG BUG in spec not in header
+// dcb.DCBversion  = 0x0002;
 
 dcb.BaudRate = Baud;
 dcb.ByteSize = Size;
@@ -126,8 +126,6 @@ dcb.fInX  =0;            //  disable xon handling
 dcb.fErrorChar = 0;         // forget about parity char
 dcb.fNull =  0;          // forget about the null striping
 //dcb.fChEvt = 0;           forget about event char
-//dcb.fDtrFlow = 0;         no dtr flow control      BUGBUG in spec Flow
-//dcb.fRtsFlow = 0;         no rts flow control      BUGBUG in spec Flow
 
 bRc = SetCommState(hCommPort,&dcb);
 

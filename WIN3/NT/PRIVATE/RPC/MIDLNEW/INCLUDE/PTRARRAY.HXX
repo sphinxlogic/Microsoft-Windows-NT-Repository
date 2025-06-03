@@ -308,4 +308,3 @@ public:
 
 
 #endif	// __PTRARRAY_HXX__
-

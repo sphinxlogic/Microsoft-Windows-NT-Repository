@@ -81,6 +81,7 @@ CommDlgOpen (
 {
 	OPENFILENAME	ofTempOF;
 	HFILE			hFile;
+	CHAR            szBuf[_MAX_PATH];
 
 	ofTempOF.lStructSize =		sizeof(OPENFILENAME);
 	ofTempOF.hwndOwner =		hWndParent;
@@ -108,8 +109,12 @@ CommDlgOpen (
 		}
 	}
 
+	// save lpstrFile. Because if GetSaveFileName returns 0(i.e. select
+	// [Cancel] in dialog, pointer to lpstrFile will be lost.
+	lstrcpy(szBuf,pszNewNameIn);
 	if (GetOpenFileName (&ofTempOF) == FALSE)
 	{
+		lstrcpy(pszNewNameIn,szBuf);
 		return (FALSE);
 	}
 
@@ -172,6 +177,7 @@ CommDlgSaveAs(
 {
 	OPENFILENAME	ofTempOF;
 	HFILE			hFile;
+	CHAR            szBuf[_MAX_PATH];
 
 	ofTempOF.lStructSize =		sizeof(OPENFILENAME);
 	ofTempOF.hwndOwner =		hWndParent;
@@ -195,8 +201,12 @@ CommDlgSaveAs(
 		return (FALSE);
 	}
 
+	// save lpstrFile. Because if GetSaveFileName returns 0(i.e. select
+	// [Cancel] in dialog, pointer to lpstrFile will be lost.
+	lstrcpy(szBuf,pszNewNameIn);
 	if (GetSaveFileName (&ofTempOF) == FALSE)
 	{
+		lstrcpy(pszNewNameIn,szBuf);
 		return (FALSE);
 	}
 

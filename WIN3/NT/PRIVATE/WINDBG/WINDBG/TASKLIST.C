@@ -71,36 +71,40 @@ Return Value:
         case WM_INITDIALOG:
             SendDlgItemMessage( hDlg, ID_TL_TASK_LIST, WM_SETFONT,
                                 (WPARAM)GetStockObject( SYSTEM_FIXED_FONT ), (LPARAM)FALSE );
-            ConnectDebugger();
-            pig = (PIOCTLGENERIC) malloc( (sizeof(TASK_LIST)*MAX_TASKS) + sizeof(IOCTLGENERIC) );
-            ZeroMemory( pig, (sizeof(TASK_LIST)*MAX_TASKS) + sizeof(IOCTLGENERIC) );
-            pig->ioctlSubType = IG_TASK_LIST;
-            pig->length = sizeof(TASK_LIST)*MAX_TASKS;
-            pTask = (PTASK_LIST)pig->data;
-            pTask->dwProcessId = MAX_TASKS;
-            OSDIoctl( LppdCur->hpid, NULL, ioctlGeneric, pig->length + sizeof(IOCTLGENERIC), (LPV)pig );
-            for (i=0; i<MAX_TASKS; i++) {
-                if (pTask[i].dwProcessId == 0) {
-                    break;
-                }
-                if (pTask[i].dwProcessId == (DWORD)-2) {
-                    pTask[i].dwProcessId = 0;
-                }
-                if ((radix == 10) || (pTask[i].dwProcessId == (DWORD)-1)) {
-                    fmt = "%4d %s";
-                } else if (radix == 16) {
-                    fmt = "%4x %s";
-                } else {
-                    fmt = "%4d %s";
-                }
-                sprintf(buf, fmt, pTask[i].dwProcessId, pTask[i].ProcessName );
-                SendDlgItemMessage( hDlg, ID_TL_TASK_LIST, LB_ADDSTRING, 0, (LPARAM)buf );
+            if (ConnectDebugger()  &&
+                NULL != (pig = (PIOCTLGENERIC) malloc((sizeof(TASK_LIST)*MAX_TASKS) +
+                                                      sizeof(IOCTLGENERIC)))) {
+               ZeroMemory( pig, (sizeof(TASK_LIST)*MAX_TASKS) + sizeof(IOCTLGENERIC) );
+               pig->ioctlSubType = IG_TASK_LIST;
+               pig->length = sizeof(TASK_LIST)*MAX_TASKS;
+               pTask = (PTASK_LIST)pig->data;
+               pTask->dwProcessId = MAX_TASKS;
+               OSDIoctl( LppdCur->hpid, NULL, ioctlGeneric, pig->length + sizeof(IOCTLGENERIC), (LPV)pig );
+               for (i=0; i<MAX_TASKS; i++) {
+                   if (pTask[i].dwProcessId == 0) {
+                       break;
+                   }
+                   if (pTask[i].dwProcessId == (DWORD)-2) {
+                       pTask[i].dwProcessId = 0;
+                   }
+                   if ((radix == 10) || (pTask[i].dwProcessId == (DWORD)-1)) {
+                       fmt = "%4d %s";
+                   } else if (radix == 16) {
+                       fmt = "%4x %s";
+                   } else {
+                       fmt = "%4d %s";
+                   }
+                   sprintf(buf, fmt, pTask[i].dwProcessId, pTask[i].ProcessName );
+                   SendDlgItemMessage( hDlg, ID_TL_TASK_LIST, LB_ADDSTRING, 0, (LPARAM)buf );
+               }
+               if (i) {
+                   --i;
+               }
+               SendDlgItemMessage( hDlg, ID_TL_TASK_LIST, LB_SETCURSEL, i, 0 );
+               free( pig );
+            } else {
+               EndDialog( hDlg, TRUE );
             }
-            if (i) {
-                --i;
-            }
-            SendDlgItemMessage( hDlg, ID_TL_TASK_LIST, LB_SETCURSEL, i, 0 );
-            free( pig );
             return TRUE;
 
         case WM_COMMAND:
@@ -141,7 +145,7 @@ Return Value:
                     EndDialog( hDlg, TRUE );
                     return TRUE;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     WinHelp( hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)IDM_RUN_ATTACH );
                     return (TRUE);
             }

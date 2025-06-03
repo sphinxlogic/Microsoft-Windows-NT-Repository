@@ -2,25 +2,8 @@
  * version 2 and 3 SLM status files.
  */
 
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "slmck.h"
-#include <sys/stat.h>
-
-#include "proto.h"
-#include "ckproto.h"
-
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 #define FDirFi2(pfi2)   ((pfi2)->fk == fkDir)
@@ -44,24 +27,24 @@ EnableAssert
 private void    CkSh2(AD *, SD *);
 private F       FQStat(SD *, char *, ...);
 // private F       FQStat(SD *, char *, AD *, ...);
-private void    CkFi2(AD *, SD *, FI2 far *);
-private void    CheckName(AD *, SD *, char *, char far *, int, ...);
+private void    CkFi2(AD *, SD *, FI2 *);
+private void    CheckName(AD *, SD *, char *, char *, int, F (*)(char *, int, int *), char *);
 private F       FQFile(SD *, char *, ...);
-// private F       FQFile(SD *, char *, AD *, char far *, ...);
-private void    CkEd2(AD *, SD *, ED2 far *);
-// private F       FQPth(SD *, char *, AD *, char far *, ...);
+// private F       FQFile(SD *, char *, AD *, char *, ...);
+private void    CkEd2(AD *, SD *, ED2 *);
+// private F       FQPth(SD *, char *, AD *, char *, ...);
 private F       FQPth(SD *, char *, ...);
 private F       FMapFi2Fs2(AD *, SD *);
-private void    Match2(AD *, SD *, NE *, FI2 far *);
-private F       FFixFi2(AD *, SD *, FI2 far *, NE *);
+private void    Match2(AD *, SD *, NE *, FI2 *);
+private F       FFixFi2(AD *, SD *, FI2 *, NE *);
 private void    Fi2UnMarkAll(SD *);
 private F       FSortFi2(SD *);
 private F       FSrtdFi2(SD *);
-private SP      SpFi2Del(SD *, FI2 far *);
-private void    CkFi2Fs2(AD *, SD *, FI2 far *, NE *);
-private void    CkFs2(AD *, SD *, NE *, ED2 far  *, FI2 far *, FS2 far *);
-// private F       FQFOwn(SD *, char *, AD *, char far *, char far *, ...);
-private F       FQFOwn(SD *, char *, AD *, ...);
+private SP      SpFi2Del(SD *, FI2 *);
+private void    CkFi2Fs2(AD *, SD *, FI2 *, NE *);
+private void    CkFs2(AD *, SD *, NE *, ED2  *, FI2 *, FS2 *);
+// private F       FQFOwn(SD *, char *, AD *, char *, char *, ...);
+private F       FQFOwn(SD *, char *, ...);
 private int     CmpIfi2(SD *, IFI2, IFI2);
 
 static  short wStart;                    // start time
@@ -78,7 +61,7 @@ FVer2Semantics(
     AD *pad,
     SD *psd)
 {
-    ED2 far *ped2;
+    ED2 *ped2;
 
     wStart = (short) (time(NULL) >> 16);
 
@@ -113,18 +96,19 @@ CkSh2(
     IFI2 ifiT;              /* temp constant for holding data */
     IED2 iedT;
     BI biNext;
-    SH2 far *psh2 = psd->psh2;
+    SH2 *psh2 = psd->psh2;
     PTH pthBase[cchPthMax];
 
     if (psh2->magic != MAGIC && FQStat(psd, "magic is incorrect", pad))
         psh2->magic = MAGIC;
 
-    // Version 2 must handle ver 2 and ver 3 and ver 4 status files.
-    // However, don't force version 4. Let slmck or slmed do it.
+    // Version 2 must handle ver 2 and ver 3 and ver 4 and ver 5 status files.
+    // However, don't force version 4 or 5. Let slmck or slmed do it.
 
     if (psh2->version != 2 &&
         psh2->version != 3 &&
         psh2->version != 4 &&
+        psh2->version != 5 &&
         FQStat(psd, "version is incorrect; should probably be 3", pad))
             psh2->version = 3;
 
@@ -134,16 +118,16 @@ CkSh2(
     if (!(psh2->lck == lckAll || psh2->fAdminLock) &&
         !FAllZero(psh2->nmLocker, cchUserMax) &&
         FQStat(psd, "unlocked but nmLocker non-zero", pad))
-            ClearLpbCb((char far *)psh2->nmLocker, cchUserMax);
+            ClearLpbCb((char *)psh2->nmLocker, cchUserMax);
 
     /* if it's locked, there's nothing we can do to verify the locker's name */
 
-    ifiT = (IFI2)(long)((FI2 huge *)psd->rged2 - (FI2 huge *)psd->rgfi2);
+    ifiT = (IFI2)(long)((FI2 *)psd->rged2 - (FI2 *)psd->rgfi2);
     if ((IFI2)(psh2->ifiMac) != ifiT &&
         FQStat(psd, "ifiMac is %d; should be %d", pad, psh2->ifiMac, ifiT))
             psh2->ifiMac = ifiT;
 
-    iedT = (IED2)(long)((ED2 huge *)psd->rgfs2 - (ED2 huge *)psd->rged2);
+    iedT = (IED2)(long)((ED2 *)psd->rgfs2 - (ED2 *)psd->rged2);
     if ((IED2)psh2->iedMac != iedT &&
         FQStat(psd, "iedMac is %d; should be %d", pad, psh2->iedMac, iedT))
             psh2->iedMac = iedT;
@@ -164,9 +148,9 @@ CkSh2(
         PrErr("rgfSpare cleared in Status Header\n");
     }
 
-    if (!FAllZero((char far *)psh2->rgwSpare, sizeof(psh2->rgwSpare)))
+    if (!FAllZero((char *)psh2->rgwSpare, sizeof(psh2->rgwSpare)))
     {
-        ClearLpbCb((char far *)psh2->rgwSpare, sizeof(psh2->rgwSpare));
+        ClearLpbCb((char *)psh2->rgwSpare, sizeof(psh2->rgwSpare));
         psd->fAnyChanges = fTrue;
         PrErr("rgwSpare cleared in Status Header\n");
     }
@@ -202,12 +186,12 @@ private void
 CkFi2(
     AD *pad,
     SD *psd,
-    FI2 far *pfi2)
+    FI2 *pfi2)
 {
     char szFile[cchFileMax+1];
     AssertF(cchFileMax == 14);
 
-    MakePrintLsz((char far *)SzPrint(szFile, "%.14ls", pfi2->nmFile));
+    MakePrintLsz((char *)SzPrint(szFile, "%.14ls", pfi2->nmFile));
     CheckName(pad, psd, "file name", pfi2->nmFile, cchFileMax, FIsFileNm,
               szFile);
 
@@ -246,7 +230,7 @@ private void
 CkEd2(
     AD *pad,
     SD *psd,
-    ED2 far *ped2)
+    ED2 *ped2)
 {
     char szT[cchPthMax];
 
@@ -254,7 +238,7 @@ CkEd2(
     MakePrintLsz(SzCopyPth(szT, ped2->pthEd));
     CheckName(pad, psd, "path", ped2->pthEd, cchPthMax, FIsPth, szT);
 
-    MakePrintLsz((char far *)SzPrint(szT, "%.14ls", ped2->nmOwner));
+    MakePrintLsz((char *)SzPrint(szT, "%.14ls", ped2->nmOwner));
     CheckName(pad, psd, "owner", ped2->nmOwner, cchUserMax, FIsNm, szT);
 
     if (ped2->fLocked && FQPth(psd, "fLock set", pad, ped2->pthEd))
@@ -298,8 +282,8 @@ FMapFi2Fs2(
     NE *pneNil = (NE *)0;           /* null pointer */
     PTH pth[cchPthMax];
     NE *pneDirList;
-    FI2 far *pfi2;
-    FI2 far *pfi2Cur;
+    FI2 *pfi2;
+    FI2 *pfi2Cur;
     NE *pneCmp;                     /* NE being compared now */
     NE *pneCur;                     /* holds depth finished in DirList */
 
@@ -372,7 +356,7 @@ FMapFi2Fs2(
              * the user has answered no about a bad fDeleted.
              */
             if (!pfi2Cur->fDeleted ||
-                NeCmpiNm(pneCur, (char far *)pfi2Cur) == 0)
+                NeCmpiNm(pneCur, (char *)pfi2Cur) == 0)
                     pneCur = pneCur->pneNext;
             pfi2Cur++;
         }
@@ -434,10 +418,10 @@ Match2(
     AD *pad,
     SD *psd,
     NE *pneCur,
-    FI2 far *pfi2Cur)
+    FI2 *pfi2Cur)
 {
     NE *pneCmp;
-    FI2 far *pfi2;
+    FI2 *pfi2;
     PTH pth[cchPthMax];
     F fDir;
 
@@ -475,7 +459,7 @@ private F
 FFixFi2(
     AD *pad,
     SD *psd,
-    FI2 far *pfi2,
+    FI2 *pfi2,
     NE *pne)
 {
     AssertF(cchFileMax == 14);
@@ -498,7 +482,7 @@ private void
 Fi2UnMarkAll(
     SD *psd)
 {
-    register FI2 far *pfi2;
+    register FI2 *pfi2;
 
     for (pfi2 = psd->rgfi2; CbHugeDiff(pfi2, psd->rged2) < 0; pfi2++)
         pfi2->fMarked = fFalse;
@@ -510,8 +494,8 @@ private F
 FSrtdFi2(
     SD *psd)
 {
-    register FI2 far *pfi2Cur;
-    register FI2 far *pfi2;
+    register FI2 *pfi2Cur;
+    register FI2 *pfi2;
 
     pfi2Cur = psd->rgfi2;
     for (pfi2 = pfi2Cur++; CbHugeDiff(pfi2Cur, psd->rged2) < 0; pfi2 = pfi2Cur++)
@@ -548,7 +532,7 @@ FSortFi2(
     SD *psd)
 {
     register INO *pino;
-    register FI2 far *pfi2;
+    register FI2 *pfi2;
 
     pino = PinoNew(psd->psh2->ifiMac, CmpIfi2);
 
@@ -563,18 +547,18 @@ FSortFi2(
          * Apply the ordering to each rgfs in turn.
          */
         IED ied;
-        FS2 huge *rgfs2;
+        FS2 *rgfs2;
 
         for (ied = 0, rgfs2 = psd->rgfs2;
              ied < psd->psh2->iedMac;
-             ied++, rgfs2 = (FS2 far *)LpbFromHpb((char huge *)(rgfs2 + psd->psh2->ifiMac)))
+             ied++, rgfs2 = (FS2 *)LpbFromHpb((char *)(rgfs2 + psd->psh2->ifiMac)))
         {
-            ApplyIno(pino, (char far *)rgfs2, sizeof(FS2));
+            ApplyIno(pino, (char *)rgfs2, sizeof(FS2));
         }
     }
 
     /* Apply the ordering to the rgfi */
-    ApplyIno(pino, (char far *)psd->rgfi2, sizeof(FI2));
+    ApplyIno(pino, (char *)psd->rgfi2, sizeof(FI2));
 
     FreeIno(pino);
 
@@ -589,21 +573,21 @@ FSortFi2(
 private SP
 SpFi2Del(
     SD *psd,
-    FI2 far *pfi2)
+    FI2 *pfi2)
 {
-    register FS2 far *pfs2;
+    register FS2 *pfs2;
     WP wp;
 
     InitWp(&wp);
     AddWpF(&wp, twHeavy,  pfi2->fDeleted);
 
     /* check the fs. We have to re-normalize each time we increment pfs2
-     * because the whole rgrgfs may be > 64k.  We can still use far ptrs
+     * because the whole rgrgfs may be > 64k.  We can still use ptrs
      * because we know that each rgfs is < 64k.
      */
-    for (pfs2 = (FS2 far *)LpbFromHpb((char huge *)((FS2 huge *)psd->rgfs2 + ((FI2 huge *)pfi2 - (FI2 huge *)psd->rgfi2)));
+    for (pfs2 = (FS2 *)LpbFromHpb((char *)((FS2 *)psd->rgfs2 + ((FI2 *)pfi2 - (FI2 *)psd->rgfi2)));
          CbHugeDiff(pfs2, psd->hpbStatMac) < 0;
-         pfs2 = (FS2 far *)LpbFromHpb((char huge *)((FS2 huge *)pfs2 + psd->psh2->ifiMac)))
+         pfs2 = (FS2 *)LpbFromHpb((char *)((FS2 *)pfs2 + psd->psh2->ifiMac)))
             AddWpF(&wp, twMedium, FDelFm(pfs2->fm));
     return SpFromWp(&wp);
 }
@@ -613,10 +597,10 @@ private void
 CkFi2Fs2(
     AD *pad,
     SD *psd,
-    FI2 far *pfi2,
+    FI2 *pfi2,
     NE *pne)
 {
-    FS2 far *pfs2;
+    FS2 *pfs2;
     F fDir;
     F fType;
     PTH pth[cchPthMax];
@@ -674,9 +658,9 @@ CkFi2Fs2(
     }
 
     /* check the fs for a particular FI */
-    for (ied = 0, pfs2 = (FS2 far *)LpbFromHpb((char huge *)((FS2 huge *)psd->rgfs2 + ((FI2 huge *)pfi2 - (FI2 huge *)psd->rgfi2)));
+    for (ied = 0, pfs2 = (FS2 *)LpbFromHpb((char *)((FS2 *)psd->rgfs2 + ((FI2 *)pfi2 - (FI2 *)psd->rgfi2)));
          ied < psd->psh2->iedMac;
-         ied++, pfs2 = (FS2 far *)LpbFromHpb((char huge *)((FS2 huge *)pfs2 + psd->psh2->ifiMac)))
+         ied++, pfs2 = (FS2 *)LpbFromHpb((char *)((FS2 *)pfs2 + psd->psh2->ifiMac)))
         CkFs2(pad, psd, pne, psd->rged2 + ied, pfi2, pfs2);
 }
 
@@ -686,12 +670,12 @@ CkFs2(
     AD *pad,
     SD *psd,
     NE *pne,
-    ED2 far *ped2,
-    FI2 far *pfi2,
-    FS2 far *pfs2)
+    ED2 *ped2,
+    FI2 *pfi2,
+    FS2 *pfs2)
 {
     PTH pth[cchPthMax];
-    struct stat st;
+        struct _stat st;
 
     if (!FValidFm(pfs2->fm) &&
         FQFOwn(psd, "file mode unknown", pad, pfi2->nmFile, ped2->nmOwner))
@@ -799,13 +783,13 @@ CheckName(
     AD *pad,
     SD *psd,
     char *szWhat,
-    char far *lsz,
+    char *lsz,
     int cchMax,
-    F (*pfnf)(char far *, int, int *),
+    F (*pfnf)(char *, int, int *),
     char *szPrint)
 {
     F fTrailZ;
-    char far *lpch;
+    char *lpch;
 
     if (!(*pfnf)(lsz, cchMax, &fTrailZ))
     {
@@ -845,7 +829,7 @@ FQFile(
     SD *psd,
     char *szMsg,
 //    AD *pad,
-//    char far *lszFile,
+//    char *lszFile,
     ...)
 {
     char szBuf[cchMsgMax];
@@ -869,7 +853,7 @@ FQPth(
     SD *psd,
     char *szMsg,
 //    AD *pad,
-//    char far *lszPth,
+//    char *lszPth,
     ...)
 {
     char szBuf[cchMsgMax];
@@ -892,9 +876,9 @@ private F
 FQFOwn(
     SD *psd,
     char *szMsg,
-    AD *pad,
-//    char far *lszFile,
-//    char far *lszOwner,
+//    AD *pad,
+//    char *lszFile,
+//    char *lszOwner,
     ...)
 {
     char szBuf[cchMsgMax];

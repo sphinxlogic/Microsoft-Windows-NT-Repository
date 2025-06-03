@@ -168,7 +168,6 @@ Revision History:
 //  flags
 //
 
-#define FlagOn(Flags,SingleFlag)        ((Flags) & (SingleFlag))
 #define BooleanFlagOn(Flags,SingleFlag) ((BOOLEAN)((((Flags) & (SingleFlag)) != 0)))
 
 #define SetFlag(Flags,SingleFlag) { \
@@ -286,6 +285,11 @@ BowserInitializeDiscardableCode(
 VOID
 BowserUninitializeDiscardableCode(
     VOID
+    );
+
+NTSTATUS
+BowserStartElection(
+    IN PTRANSPORT Transport
     );
 
 

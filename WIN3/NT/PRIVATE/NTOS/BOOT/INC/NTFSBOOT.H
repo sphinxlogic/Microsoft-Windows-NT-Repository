@@ -137,9 +137,9 @@ typedef struct _NTFS_STRUCTURE_CONTEXT {
     //  attribute and the third field contains the cached mcb.
     //
 
-    LONGLONG CachedMcbFileRecord[8];
-    USHORT CachedMcbFileRecordOffset[8];
-    NTFS_MCB CachedMcb[8];
+    LONGLONG CachedMcbFileRecord[16];
+    USHORT CachedMcbFileRecordOffset[16];
+    NTFS_MCB CachedMcb[16];
 
 } NTFS_STRUCTURE_CONTEXT, *PNTFS_STRUCTURE_CONTEXT;
 
@@ -202,4 +202,3 @@ NtfsInitialize(
     );
 
 #endif // _NTFSBOOT_
-

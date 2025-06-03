@@ -60,7 +60,7 @@ void callopt(void)
       break;
       }
 
-   yypgo[nnonter--] = (--pmem) - mem0;
+   yypgo[nnonter--] = (--pmem) - mem0;
    for( i=0; i<nstate; ++i )
       {
 
@@ -118,7 +118,7 @@ void callopt(void)
 
       }
 
-   if( adb>2 )
+   if( adb>2 )
       {
       /* print a array */
       for( p=a; p <= maxa; p += 10)

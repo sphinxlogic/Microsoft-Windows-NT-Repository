@@ -10,6 +10,12 @@ Copyright(c) Maynard Electronics, Inc. 1984-92
 
      $Log:   T:/LOGFILES/MAYN40.H_V  $
 
+   Rev 1.38.1.3   12 Jan 1995 11:13:22   GREGG
+Calculate OTC addrs from fmk instead of always asking (fixes Wangtek bug).
+
+   Rev 1.38.1.2   08 Jan 1995 22:08:20   GREGG
+Added database type DBLK.
+
    Rev 1.38.1.1   26 Oct 1993 21:34:04   GREGG
 Increased size of OTC temp file name strings in environment.
 
@@ -206,14 +212,15 @@ Initial revision.
 #define F40_STREAM_CHKSUM_LEN (((sizeof(MTF_STREAM) - sizeof(UINT16)) / 2))
 
 /* 16 bit ID's for the internal use of determining what block type we have */
-#define   F40_SSET_IDI       1         /* Volume Control Block */
-#define   F40_EOTM_IDI       2         /* Closing Volume Control Block */
-#define   F40_ESET_IDI       3         /* Backup Summary Descriptor Block */
-#define   F40_DIRB_IDI       8         /* Directory Descriptor Block */
-#define   F40_FILE_IDI       9         /* File Descriptor Block */
-#define   F40_IMAG_IDI      10         /* Image Descriptor Block */
-#define   F40_CFIL_IDI      11         /* Corrupt File Descriptor Block */
-#define   F40_VOLB_IDI      13
+#define   F40_SSET_IDI      BT_VCB     /* Volume Control Block */
+#define   F40_EOTM_IDI      BT_CVCB    /* Closing Volume Control Block */
+#define   F40_ESET_IDI      BT_BSDB    /* Backup Summary Descriptor Block */
+#define   F40_DIRB_IDI      BT_DDB     /* Directory Descriptor Block */
+#define   F40_FILE_IDI      BT_FDB     /* File Descriptor Block */
+#define   F40_IMAG_IDI      BT_IDB     /* Image Descriptor Block */
+#define   F40_CFIL_IDI      BT_CFDB    /* Corrupt File Descriptor Block */
+#define   F40_VOLB_IDI      13         /* Volume Descriptor Block */
+#define   F40_DBDB_IDI      BT_DDB     /* Database Descriptor Block */
 #define   F40_ESPB_IDI      BT_MDB     /* End of Set Pad Block */
 #define   F40_TAPE_IDI      100        /* For tape header id */
 
@@ -258,6 +265,27 @@ typedef struct {
 } F40_UDB, * F40_UDB_PTR ;
 
 
+/**/
+/*
+     Database DBLK and FDD Entry (DBDB)
+*/
+
+#define  F40_DBDB_N     "DBDB"    /* Image Descriptor Block ID */
+
+typedef struct {
+     MTF_DB_HDR          block_hdr ;
+     UINT32              database_attribs ;
+     MTF_DATE_TIME       backup_date ;
+     MTF_TAPE_ADDRESS    database_name ;
+} F40_DBDB, * F40_DBDB_PTR ;
+
+typedef struct {
+     MTF_DATE_TIME       backup_date ;
+     UINT32              database_attribs ;
+     MTF_TAPE_ADDRESS    database_name ;
+     MTF_TAPE_ADDRESS    os_info ;
+} F40_FDD_DBDB, * F40_FDD_DBDB_PTR ;
+
 #pragma pack()
 
 typedef struct {
@@ -269,7 +297,7 @@ typedef struct {
      UINT16         sm_count ;
      MTF_STREAM     eom_stream ;
 
-     UINT32         corrupt_file_count ;
+     UINT32         corrupt_obj_count ;
      UINT64         used_so_far ;
      MTF_TAPE       tape_hdr ;
      UINT8_PTR      tape_name ;
@@ -304,7 +332,8 @@ typedef struct {
      CHAR           sm_fname[14] ;
      CHAR           fdd_fname[14] ;
      CHAR           eom_fname[14] ;
-     long           last_file_fdd_offset ;
+     long           last_fdd_offset ;
+     UINT16         last_fdd_type ;
      long           last_sm_offset ;
      long           cont_sm_offset ;
      UINT32         dir_count ;
@@ -339,6 +368,7 @@ typedef struct {
      BOOLEAN        old_tape ;
      UINT32         eom_file_id ;
      UINT32         eom_dir_id ;
+     UINT32         eset_base_addr ;
 
 } F40_ENV, *F40_ENV_PTR ;
 
@@ -358,12 +388,15 @@ typedef struct {
 #define OTC_CLOSE_SM     1
 #define OTC_CLOSE_ALL    2
 
-/* Returns from FDD block determiner */
+/* Returns from FDD block determiner (also used to store type of last
+   FDD entry written in case we need to go back and mark it corrupt).
+*/
 #define FDD_UNKNOWN_BLK  0
 #define FDD_VOL_BLK      1
 #define FDD_DIR_BLK      2
 #define FDD_FILE_BLK     3
 #define FDD_END_BLK      4
+#define FDD_DBDB_BLK     5
 
 /* For translating old MTF tapes where the attribute bits were screwed up. */
 

@@ -115,16 +115,16 @@ NetpFileStructureInfo (
 
 #if 0
     if (DataDesc16) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc 16 is " FORMAT_LPDESC ".\n",
-                *DataDesc16 );
+        NetpKdPrint(( "NetpFileStructureInfo: desc 16 is " FORMAT_LPDESC ".\n",
+                *DataDesc16 ));
     }
     if (DataDesc32) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc 32 is " FORMAT_LPDESC ".\n",
-                *DataDesc32 );
+        NetpKdPrint(( "NetpFileStructureInfo: desc 32 is " FORMAT_LPDESC ".\n",
+                *DataDesc32 ));
     }
     if (DataDescSmb) {
-        NetpDbgPrint( "NetpFileStructureInfo: desc Smb is " FORMAT_LPDESC ".\n",
-                *DataDescSmb );
+        NetpKdPrint(( "NetpFileStructureInfo: desc Smb is " FORMAT_LPDESC ".\n",
+                *DataDescSmb ));
     }
 #endif
 

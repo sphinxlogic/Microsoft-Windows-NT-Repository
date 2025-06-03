@@ -38,7 +38,7 @@ Revision History:
 #include <netlib.h>   // NetpMemory*
 #include <netlibnt.h> // NetpNtStatusToApiStatus
 #include <string.h>
-#include <stdio.h>    
+#include <stdio.h>
 #include <stdlib.h>   // itoa
 #include <tchar.h>
 #include <tstring.h>
@@ -104,7 +104,7 @@ Return Value:
     static HANDLE lpSource = NULL ;
     static TCHAR CurrentMsgFile[MAX_PATH] = {0,} ;
 
-    // 
+    //
     // init clear the output string
     //
     Status = NERR_Success;
@@ -113,7 +113,7 @@ Return Value:
 
     //
     // make sure we are not over loaded & allocate
-    // memory for the Unicode buffer 
+    // memory for the Unicode buffer
     //
     if (NumberofStrings > MAX_INSERT_STRINGS)
         return ERROR_INVALID_PARAMETER ;
@@ -121,11 +121,11 @@ Return Value:
     //
     // See if they want to get the message from the system message file.
     //
- 
+
     if (! STRCMP(FileName, OS2MSG_FILENAME)) {
        dwFlags |= FORMAT_MESSAGE_FROM_SYSTEM;
     }
-    else 
+    else
     {
        //
        // They want it from a separate message file.  Get a handle to DLL
@@ -139,7 +139,7 @@ Return Value:
            }
            STRCPY(CurrentMsgFile, FileName) ;
            lpSource = LoadLibrary(FileName);
-           if (!lpSource) 
+           if (!lpSource)
            {
                Status = ERROR_MR_UN_ACC_MSGF;
                goto ExitPoint ;
@@ -147,16 +147,16 @@ Return Value:
        }
        dwFlags |= FORMAT_MESSAGE_FROM_HMODULE;
     }
- 
+
     //
     // If they just want to get the message back for later formatting,
     // ignore the insert strings.
     //
-    if (NumberofStrings == 0) 
+    if (NumberofStrings == 0)
     {
         dwFlags |= FORMAT_MESSAGE_IGNORE_INSERTS;
     }
- 
+
     //
     // call the Unicode version
     //
@@ -166,17 +166,17 @@ Return Value:
                                             0,       // LanguageId defaulted
                                             Buffer,
                                             (DWORD)BufferLength * sizeof(WCHAR),
-                                            (PCHAR*)InsertionStrings);
+                                            (va_list *)InsertionStrings);
 
     //
     // If it failed get the return code and map it to an OS/2 equivalent
     //
- 
-    if (*pMessageLength == 0) 
+
+    if (*pMessageLength == 0)
     {
         Buffer[0] = 0 ;
         Status = GetLastError();
-        if (Status == ERROR_MR_MID_NOT_FOUND) 
+        if (Status == ERROR_MR_MID_NOT_FOUND)
         {
             //
             // get the message number in Unicode
@@ -195,7 +195,7 @@ Return Value:
             //
             InsertionStrings[0] = NumberString ;
             InsertionStrings[1] = FileName ;
-            
+
             //
             // recall the API
             //
@@ -205,7 +205,7 @@ Return Value:
                                             0,       // LanguageId defaulted
                                             Buffer,
                                             (DWORD)BufferLength * sizeof(WCHAR),
-                                            (PCHAR*)InsertionStrings);
+                                            (va_list *)InsertionStrings);
             InsertionStrings[1] = NULL ;
 
             //
@@ -214,9 +214,9 @@ Return Value:
             Status = ERROR_MR_MID_NOT_FOUND ;
         }
     }
-    
+
 ExitPoint:
-    // 
+    //
     // note: NumberString dont need to be freed
     // since if used, they would be in the InsertionStrings which is whacked
     //
@@ -274,7 +274,7 @@ Return Value:
 
    UNREFERENCED_PARAMETER(InputMessageLength);
 
-    // 
+    //
     // init clear the output string
     //
     Status = NERR_Success;
@@ -283,7 +283,7 @@ Return Value:
 
    //
    // make sure we are not over loaded & allocate
-   // memory for the Unicode buffer 
+   // memory for the Unicode buffer
    //
    if (NumberofStrings > MAX_INSERT_STRINGS)
        return ERROR_INVALID_PARAMETER ;
@@ -307,13 +307,13 @@ Return Value:
                                    0,            // LanguageId defaulted
                                    Buffer,
                                    (DWORD)BufferLength,
-                                   (PCHAR*)InsertionStrings);
+                                   (va_list *)InsertionStrings);
 
    //
    // If it failed get the return code and map it to an OS/2 equivalent
    //
 
-   if (*pMessageLength == 0) 
+   if (*pMessageLength == 0)
    {
       Status = GetLastError();
       goto ExitPoint ;
@@ -363,6 +363,36 @@ DosPutMessageW(
 
         us = (WORD) wcslen(pch);
 
+        switch ( GetConsoleOutputCP() ) {
+	case 932:
+	case 936:
+	case 949:
+	case 950:
+
+            // In case we are in Japanese text mode, We do not any
+            // KINSOKU (= Break character) processing, but
+            // just output the text that is already adjusted ( or formatted )
+            // for our screen in message file.
+
+            //
+            // Ok now print it out
+            //
+
+            if (chSave == NEWLINE) {
+                GenOutput1(hf, TEXT("%s\n"), pch);
+            }
+            else {
+                GenOutput1(hf, TEXT("%s"), pch);
+            }
+
+            //
+            // Move pointer to next
+            //
+
+            pch = pch + us;
+	    break;
+
+        default:
         while (us > SCREEN_WIDTH) {
 
             //
@@ -400,7 +430,7 @@ DosPutMessageW(
             // Ok now print it out
             //
 
-            GenOutput1(hf, TEXT("%s\n"), pch);
+            GenOutput1(hf, TEXT("%s\r\n"), pch);
 
             //
             // Fix the string back up if we modified it
@@ -425,10 +455,12 @@ DosPutMessageW(
         //
 
         if (chSave == NEWLINE) {
-            GenOutput1(hf, TEXT("%s\n"), pch);
+            GenOutput1(hf, TEXT("%s\r\n"), pch);
         }
         else {
             GenOutput1(hf, TEXT("%s"), pch);
+        }
+
         }
 
         // Now set the pointer to the start of the next string, unless
@@ -451,7 +483,7 @@ DosPutMessageW(
 
             while (*pchDelimiter && *pchDelimiter == NEWLINE) {
                 pchDelimiter++;
-                GenOutput(hf, TEXT("\n"));
+                GenOutput(hf, TEXT("\r\n"));
             }
 
             while (*pchDelimiter && *pchDelimiter != NEWLINE) {
@@ -466,7 +498,7 @@ DosPutMessageW(
 
                 // Print the last line
 
-                GenOutput1(hf, TEXT("%s\n"), pch);
+                GenOutput1(hf, TEXT("%s\r\n"), pch);
 
                 // Terminate the loop
 

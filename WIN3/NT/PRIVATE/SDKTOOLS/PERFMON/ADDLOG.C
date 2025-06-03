@@ -92,7 +92,7 @@ void /*static*/ OnLogDestroy (HDLG hDlg)
    dwCurrentDlgID = 0 ;
 
    if (!PlayingBackLog ())
-      MemoryFree (pPerfData) ;
+      MemoryFree ((LPMEMORY)pPerfData) ;
 
    bAddLineInProgress = FALSE ;
    }  // OnLogDestroy
@@ -105,7 +105,7 @@ void /*static*/ OnLogDestroy (HDLG hDlg)
 
 void /* static */ OnInitAddLogDialog (HDLG hDlg)
    {  // OnInitAddLogDialog
-   TCHAR          szRemoteComputerName[MAX_COMPUTERNAME_LENGTH + 3] ;
+   TCHAR          szRemoteComputerName[MAX_PATH + 3] ;
    int            iIndex ;
    PLOGENTRY      pLogEntry ;
    LPTSTR         pComputerName ;
@@ -189,7 +189,7 @@ void /* static */ OnAddToLog (HDLG hDlg)
    DWORD          iObjectType ;
    DWORD          iObjectNum ;
    HWND           hWndObjectTypes ;
-   PPERF_OBJECT_TYPE    pObject ;
+   PPERFOBJECT    pObject ;
    PLOG           pLog ;
 
    pLog = LogData (hWndLog) ;
@@ -210,7 +210,7 @@ void /* static */ OnAddToLog (HDLG hDlg)
       if (LBSelected (hWndObjectTypes, iObjectType))
          {  // if
          LBString (hWndObjectTypes, iObjectType, szObjectType) ;
-         pObject = (PPERF_OBJECT_TYPE) LBData (hWndObjectTypes, iObjectType) ;
+         pObject = (PPERFOBJECT) LBData (hWndObjectTypes, iObjectType) ;
 
          // eliminate duplicates here
          if (LogFindEntry(szComputer, pObject->ObjectNameTitleIndex) ==
@@ -332,4 +332,4 @@ BOOL AddLog (HWND hWndParent)
       }  // if
    return (FALSE) ;
    }  // AddLog
-
+

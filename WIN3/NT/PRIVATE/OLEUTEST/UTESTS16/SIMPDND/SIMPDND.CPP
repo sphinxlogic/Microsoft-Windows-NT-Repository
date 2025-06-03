@@ -29,6 +29,15 @@ extern "C" {
 }
 
 CSimpleApp FAR * lpCSimpleApp;
+BOOL fBeVerbose = FALSE;
+extern "C"
+void TestDebugOut(LPSTR psz)
+{
+    if (fBeVerbose)
+    {
+	OutputDebugString(psz);
+    }
+}
 
 //**********************************************************************
 //
@@ -75,6 +84,12 @@ int PASCAL WinMain(HANDLE hInstance,HANDLE hPrevInstance,LPSTR lpCmdLine,int nCm
 {
         LPSTR       pszTemp;
         MSG msg;
+	fBeVerbose = GetProfileInt("OLEUTEST","BeVerbose",0);
+
+	if(fBeVerbose == 0)
+	{
+	    fBeVerbose = GetProfileInt("OLEUTEST","spdnd16",0);
+	}
 
         // needed for LRPC to work properly...
         SetMessageQueue(96);

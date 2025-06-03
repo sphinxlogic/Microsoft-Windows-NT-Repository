@@ -4,7 +4,7 @@ Copyright (c) 1989  Microsoft Corporation
 
 Module Name:
 
-    tinit.c
+    ntoskrnl.c
 
 Abstract:
 
@@ -20,7 +20,7 @@ Revision History:
 
 #include "ntos.h"
 
-#if !defined(MIPS) && !defined(_ALPHA_)
+#if !defined(_MIPS_) && !defined(_ALPHA_) && !defined(_PPC_)
 
 int
 cdecl
@@ -41,4 +41,4 @@ main(
     return 0;
 }
 
-#endif // MIPS
+#endif // _MIPS_ && _ALPHA_ && _PPC_

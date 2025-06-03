@@ -73,6 +73,9 @@ int _CRTAPI3 _getlocaleinfo (
 	void *address
 	)
 {
+#if defined _POSIX_
+   return -1;
+#else /* _POSIX_ */
    if (lc_type == LC_STR_TYPE)
    {
 	char **straddress = (char **)address;
@@ -134,6 +137,7 @@ error:
       return 0;
    }
    return -1;
+#endif /* _POSIX_ */
 }
 
 #endif /*_INTL*/

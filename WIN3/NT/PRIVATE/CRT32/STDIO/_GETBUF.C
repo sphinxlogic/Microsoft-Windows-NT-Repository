@@ -66,15 +66,15 @@ void _CALLTYPE1 _getbuf (
 
 	assert(str != NULL);
 
-#ifndef _NTSUBSET_
+#if !defined _NTSUBSET_ || defined _POSIX_
 	/* force library pre-termination procedure */
 	_cflush++;
-#endif // _NTSUBSET_
+#endif // _NTSUBSET_ || _POSIX_
 
 	/* Init pointers */
 	stream = str;
 
-#ifndef _NTSUBSET_
+#if !defined _NTSUBSET_ || defined _POSIX_
 	/* Try to get a big buffer */
 
 	if (stream->_base = malloc(BUFSIZ)) {
@@ -85,15 +85,15 @@ void _CALLTYPE1 _getbuf (
 	}
 
 	else {
-#endif // _NTSUBSET_
+#endif // _NTSUBSET_ || _POSIX_
 
 		/* Did NOT get a buffer - use single char buffering. */
 		stream->_flag |= _IONBF;
 		stream->_base = (char *)&(stream->_charbuf);
 		stream->_bufsiz = 2;
-#ifndef _NTSUBSET_
+#if !defined _NTSUBSET_ || defined _POSIX_
 	}
-#endif // _NTSUBSET_
+#endif // _NTSUBSET_ || _POSIX_
 
 	stream->_ptr = stream->_base;
 	stream->_cnt = 0;

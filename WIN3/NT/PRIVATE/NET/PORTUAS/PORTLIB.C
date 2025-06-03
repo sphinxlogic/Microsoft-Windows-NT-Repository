@@ -1179,8 +1179,8 @@ PortUasMachineAllowsUpdates(
     LPUSER_MODALS_INFO_1 Modals = NULL;
 
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
-                "getting role...\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
+                "getting role...\n" ));
     }
     ApiStatus = NetUserModalsGet(
             NULL,                               // no server name (local)
@@ -1207,9 +1207,9 @@ PortUasMachineAllowsUpdates(
     case UAS_ROLE_STANDALONE:   /*FALLTHROUGH*/
     default:
         // CliffV says we won't ever see member or standalone for NT.
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
                 "unexpected value " FORMAT_DWORD " for role.\n",
-                Modals->usrmod1_role );
+                Modals->usrmod1_role ));
         NetpAssert( FALSE );
         ApiStatus = NERR_InternalError;
         goto Cleanup;
@@ -1220,8 +1220,8 @@ PortUasMachineAllowsUpdates(
     //
 
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
-                "seeing if we're an admin.\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasMachineAllowsUpdates: "
+                "seeing if we're an admin.\n" ));
     }
 
     ApiStatus = NetUserModalsSet (

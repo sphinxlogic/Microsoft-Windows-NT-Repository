@@ -67,14 +67,14 @@ flagType
                 /*
                  * Process previous search & replace strings
                  */
-                if (!strnicmp ("SRCH:", buf, 5)) {
+                if (!_strnicmp ("SRCH:", buf, 5)) {
                     strcpy (srchbuf, buf+5);
-                } else if (!strnicmp ("DST:", buf, 4)) {
+                } else if (!_strnicmp ("DST:", buf, 4)) {
                     strcpy (rplbuf, buf+4);
-                } else if (!strnicmp ("SRC:", buf, 4)) {
+                } else if (!_strnicmp ("SRC:", buf, 4)) {
                     strcpy (srcbuf, buf+4);
-                } else if (!strnicmp ("INS:", buf, 4)) {
-                    fInsert = (flagType)!strnicmp ("ON", buf+4, 2);
+                } else if (!_strnicmp ("INS:", buf, 4)) {
+                    fInsert = (flagType)!_strnicmp ("ON", buf+4, 2);
                 } else {
                     switch (buf[0]) {
 

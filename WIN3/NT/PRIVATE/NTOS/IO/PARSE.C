@@ -34,21 +34,8 @@ Revision History:
     (Length < 128 - 8) ? 128 - 8 :\
     (Length < 256 - 8) ? 256 - 8 : Length )
 
-//
-// Define procedure prototype for creating a real file object.
-//
-
-NTSTATUS
-IopCreateRealFileObject(
-    IN ULONG Attributes,
-    IN KPROCESSOR_MODE AccessMode,
-    IN POPEN_PACKET OpenPacket,
-    IN BOOLEAN InitializeObject,
-    OUT PFILE_OBJECT *FileObject
-    );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, IopCreateRealFileObject)
 #pragma alloc_text(PAGE, IopParseFile)
 #pragma alloc_text(PAGE, IopParseDevice)
 #pragma alloc_text(PAGE, IopQueryName)
@@ -81,11 +68,13 @@ IopCheckDeviceAndDriver(
     //
 
     ExAcquireFastLock( &IopDatabaseLock, &irql );
-    *noSuchDevice = (BOOLEAN) ((parseDeviceObject->Flags &
-                              (DO_UNLOAD_PENDING | DO_DEVICE_INITIALIZING)) != 0);
+    *noSuchDevice = (BOOLEAN) (parseDeviceObject->DeviceObjectExtension->ExtensionFlags &
+                              (DOE_UNLOAD_PENDING | DOE_DELETE_PENDING) ||
+                                parseDeviceObject->Flags & DO_DEVICE_INITIALIZING);
     *exclusiveAccessed = (BOOLEAN) (parseDeviceObject->Flags & DO_EXCLUSIVE &&
                             parseDeviceObject->ReferenceCount != 0 &&
-                            op->RelatedFileObject == NULL);
+                            op->RelatedFileObject == NULL &&
+                            !(op->Options & IO_ATTACH_DEVICE));
     if (!*noSuchDevice && !*exclusiveAccessed) {
         parseDeviceObject->ReferenceCount++;
     }
@@ -131,9 +120,7 @@ IopCheckVpbMounted(
         //
 
         if (!NT_SUCCESS( *status ) || *status == STATUS_USER_APC || *status == STATUS_ALERTED) {
-            ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                                   0xffffffff,
-                                   &IopDatabaseLock );
+            IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
             if (!NT_SUCCESS( *status )) {
                 return NULL;
             } else {
@@ -171,73 +158,6 @@ IopCheckVpbMounted(
     return vpb;
 }
 
-NTSTATUS
-IopCreateRealFileObject(
-    IN ULONG Attributes,
-    IN KPROCESSOR_MODE AccessMode,
-    IN POPEN_PACKET OpenPacket,
-    IN BOOLEAN InitializeObject,
-    OUT PFILE_OBJECT *FileObject
-    )
-{
-    NTSTATUS status;
-    OBJECT_ATTRIBUTES objectAttributes;
-    PFILE_OBJECT fileObject;
-
-    InitializeObjectAttributes( &objectAttributes,
-                                (PUNICODE_STRING) NULL,
-                                Attributes,
-                                (HANDLE) NULL,
-                                (PSECURITY_DESCRIPTOR) NULL
-                              );
-
-    status = ObCreateObject( KernelMode,
-                             IoFileObjectType,
-                             &objectAttributes,
-                             AccessMode,
-                             (PVOID) NULL,
-                             (ULONG) sizeof( FILE_OBJECT ),
-                             0,
-                             0,
-                             (PVOID *) &fileObject );
-
-    if (NT_SUCCESS( status )) {
-        *FileObject = fileObject;
-        if (InitializeObject) {
-            RtlZeroMemory( fileObject, sizeof( FILE_OBJECT ) );
-            if (OpenPacket->CreateOptions & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)) {
-                fileObject->Flags = FO_SYNCHRONOUS_IO;
-                if (OpenPacket->CreateOptions & FILE_SYNCHRONOUS_IO_ALERT) {
-                    fileObject->Flags |= FO_ALERTABLE_IO;
-                }
-            }
-
-            //
-            // Now fill in the file object as best is possible at this point and set
-            // a pointer to it in the IRP so everyone else can find it.
-            //
-
-            if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-                KeInitializeEvent( &fileObject->Lock, SynchronizationEvent, FALSE );
-                fileObject->Waiters = 0;
-                fileObject->CurrentByteOffset.LowPart = 0;
-                fileObject->CurrentByteOffset.HighPart = 0;
-            }
-            if (OpenPacket->CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) {
-                fileObject->Flags |= FO_NO_INTERMEDIATE_BUFFERING;
-            }
-            if (OpenPacket->CreateOptions & FILE_WRITE_THROUGH) {
-                fileObject->Flags |= FO_WRITE_THROUGH;
-            }
-            if (OpenPacket->CreateOptions & FILE_SEQUENTIAL_ONLY) {
-                fileObject->Flags |= FO_SEQUENTIAL_ONLY;
-            }
-        }
-    }
-
-    return status;
-}
-
 VOID
 IopDereferenceVpbAndFree(
     IN PVPB Vpb
@@ -259,12 +179,6 @@ IopDereferenceVpbAndFree(
     }
 }
 
-typedef struct _DUMMY_FILE_OBJECT {
-    NONPAGED_OBJECT_HEADER NonPagedHeader;
-    OBJECT_HEADER ObjectHeader;
-    CHAR FileObjectBody[ sizeof( FILE_OBJECT ) ];
-} DUMMY_FILE_OBJECT, *PDUMMY_FILE_OBJECT;
-
 NTSTATUS
 IopParseDevice(
     IN PVOID ParseObject,
@@ -355,6 +269,15 @@ Return Value:
 
 {
 
+#define COPY_ATTRIBUTES( n, b, s ) {                                    \
+        (n)->CreationTime.QuadPart = (b)->CreationTime.QuadPart;        \
+        (n)->LastAccessTime.QuadPart = (b)->LastAccessTime.QuadPart;    \
+        (n)->LastWriteTime.QuadPart = (b)->LastWriteTime.QuadPart;      \
+        (n)->ChangeTime.QuadPart = (b)->ChangeTime.QuadPart;            \
+        (n)->AllocationSize.QuadPart = (s)->AllocationSize.QuadPart;    \
+        (n)->EndOfFile.QuadPart = (s)->EndOfFile.QuadPart;              \
+        (n)->FileAttributes = (b)->FileAttributes; }
+
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
     POPEN_PACKET op;
@@ -366,15 +289,12 @@ Return Value:
     IO_SECURITY_CONTEXT securityContext;
     PDEVICE_OBJECT deviceObject;
     PDEVICE_OBJECT parseDeviceObject;
-    BOOLEAN generateAuditOnClose = FALSE;
     BOOLEAN directDeviceOpen;
     PVPB vpb;
     ACCESS_MASK desiredAccess;
-    DUMMY_FILE_OBJECT localFileObject;
+    PDUMMY_FILE_OBJECT localFileObject;
     BOOLEAN realFileObjectRequired;
     KPROCESSOR_MODE modeForPrivilegeCheck;
-
-    UNREFERENCED_PARAMETER( ObjectType );
 
     PAGED_CODE();
 
@@ -449,8 +369,19 @@ Return Value:
         return op->FinalStatus = STATUS_ACCESS_DENIED;
     }
 
+    //
+    // Since ObOpenObjectByName is called without being passed
+    // any object type information, we need to map the generic
+    // bits in the DesiredAccess mask here.  We also need to save
+    // the object's generic mapping in the access state structure
+    // here, because this is the earliest opportunity we have
+    // to do so.
+    //
+
     RtlMapGenericMask( &AccessState->RemainingDesiredAccess,
                        &IoFileObjectType->TypeInfo.GenericMapping );
+
+    SeSetAccessStateGenericMapping( AccessState, &IoFileObjectType->TypeInfo.GenericMapping );
 
     desiredAccess = AccessState->RemainingDesiredAccess;
 
@@ -466,7 +397,8 @@ Return Value:
 
     IopCheckBackupRestorePrivilege( AccessState,
                                     &op->CreateOptions,
-                                    modeForPrivilegeCheck
+                                    modeForPrivilegeCheck,
+                                    op->Disposition
                                     );
 
     //
@@ -556,7 +488,7 @@ Return Value:
                                     FALSE,
                                     accessGranted,
                                     UserMode,
-                                    &generateAuditOnClose );
+                                    &AccessState->GenerateOnClose );
 
 
         } else {
@@ -579,7 +511,8 @@ Return Value:
             //
 
             if (!(AccessState->Flags & TOKEN_HAS_TRAVERSE_PRIVILEGE) ||
-                parseDeviceObject->DeviceType == FILE_DEVICE_DISK) {
+                parseDeviceObject->DeviceType == FILE_DEVICE_DISK ||
+                parseDeviceObject->DeviceType == FILE_DEVICE_CD_ROM ) {
 
                 accessGranted = SeFastTraverseCheck( parseDeviceObject->SecurityDescriptor,
                                                      FILE_TRAVERSE,
@@ -638,8 +571,6 @@ Return Value:
                                       accessGranted,
                                       UserMode );
 
-                generateAuditOnClose = FALSE;
-
             } else {
 
                 accessGranted = TRUE;
@@ -662,22 +593,23 @@ Return Value:
         //
 
         if (!accessGranted) {
-            ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                                   0xffffffff,
-                                   &IopDatabaseLock );
+            IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
             return STATUS_ACCESS_DENIED;
         }
 
     }
 
+    realFileObjectRequired = !(op->QueryOnly || op->DeleteOnly);
+
     if (RemainingName->Length == 0 &&
-       op->RelatedFileObject == NULL &&
-       ((desiredAccess & ~(SYNCHRONIZE |
-                           FILE_READ_ATTRIBUTES |
-                           READ_CONTROL |
-                           ACCESS_SYSTEM_SECURITY |
-                           WRITE_OWNER |
-                           WRITE_DAC)) == 0)) {
+        op->RelatedFileObject == NULL &&
+        ((desiredAccess & ~(SYNCHRONIZE |
+                            FILE_READ_ATTRIBUTES |
+                            READ_CONTROL |
+                            ACCESS_SYSTEM_SECURITY |
+                            WRITE_OWNER |
+                            WRITE_DAC)) == 0) &&
+        realFileObjectRequired) {
 
         //
         // If the name of the object being opened is just the name of the
@@ -785,7 +717,7 @@ Return Value:
         //
 
         if (!directDeviceOpen) {
-            if (deviceObject->AttachedDevice != NULL) {
+            if (deviceObject->AttachedDevice) {
                 deviceObject = IoGetAttachedDevice( deviceObject );
             }
         }
@@ -797,7 +729,7 @@ Return Value:
     // case the caller does not have enough quota to allocate the packet.
     //
 
-    irp = IoAllocateIrp( deviceObject->StackSize, TRUE );
+    irp = IopAllocateIrp( deviceObject->StackSize, TRUE );
     if (!irp) {
 
         //
@@ -805,9 +737,7 @@ Return Value:
         // error status code.
         //
 
-        ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                               0xffffffff,
-                               &IopDatabaseLock );
+        IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
 
         if (vpb) {
             IopDereferenceVpbAndFree(vpb);
@@ -821,6 +751,7 @@ Return Value:
     securityContext.SecurityQos = SecurityQos;
     securityContext.AccessState = AccessState;
     securityContext.DesiredAccess = desiredAccess;
+    securityContext.FullCreateOptions = op->CreateOptions;
 
     //
     // Get a pointer to the stack location for the first driver.  This is where
@@ -828,6 +759,7 @@ Return Value:
     //
 
     irpSp = IoGetNextIrpStackLocation( irp );
+    irpSp->Control = 0;
 
     if (op->CreateFileType == CreateFileTypeNone) {
 
@@ -867,7 +799,7 @@ Return Value:
 
     irp->Overlay.AllocationSize = op->AllocationSize;
     irp->AssociatedIrp.SystemBuffer = op->EaBuffer;
-    irpSp->Parameters.Create.Options = op->CreateOptions;
+    irpSp->Parameters.Create.Options = (op->Disposition << 24) | (op->CreateOptions & 0x00ffffff);
     irpSp->Parameters.Create.FileAttributes = op->FileAttributes;
     irpSp->Parameters.Create.ShareAccess = op->ShareAccess;
     irpSp->Parameters.Create.SecurityContext = &securityContext;
@@ -878,6 +810,12 @@ Return Value:
     //
 
     irp->UserIosb = &ioStatus;
+    irp->MdlAddress = (PMDL) NULL;
+    irp->PendingReturned = FALSE;
+    irp->Cancel = FALSE;
+    irp->UserEvent = (PKEVENT) NULL;
+    irp->CancelRoutine = (PDRIVER_CANCEL) NULL;
+    irp->Tail.Overlay.AuxiliaryBuffer = (PVOID) NULL;
 
     //
     // Allocate and initialize the file object that will be used in dealing
@@ -887,28 +825,71 @@ Return Value:
     // delete only operations.
     //
 
-    realFileObjectRequired = !(op->QueryOnly || op->DeleteOnly);
-
     if (realFileObjectRequired) {
+
+        OBJECT_ATTRIBUTES objectAttributes;
 
         //
         // A real, full-blown file object is actually required.
         //
 
-        status = IopCreateRealFileObject( Attributes,
-                                          AccessMode,
-                                          op,
-                                          TRUE,
-                                          &fileObject );
+        InitializeObjectAttributes( &objectAttributes,
+                                    (PUNICODE_STRING) NULL,
+                                    Attributes,
+                                    (HANDLE) NULL,
+                                    (PSECURITY_DESCRIPTOR) NULL
+                                  );
+
+        status = ObCreateObject( KernelMode,
+                                 IoFileObjectType,
+                                 &objectAttributes,
+                                 AccessMode,
+                                 (PVOID) NULL,
+                                 (ULONG) sizeof( FILE_OBJECT ),
+                                 0,
+                                 0,
+                                 (PVOID *) &fileObject );
+
         if (!NT_SUCCESS( status )) {
             IoFreeIrp( irp );
-            ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                                   0xffffffff,
-                                   &IopDatabaseLock );
+
+            IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
+
             if (vpb) {
                IopDereferenceVpbAndFree(vpb);
             }
             return op->FinalStatus = status;
+        }
+
+        RtlZeroMemory( fileObject, sizeof( FILE_OBJECT ) );
+        fileObject->Type = IO_TYPE_FILE;
+        fileObject->Size = sizeof( FILE_OBJECT );
+        fileObject->RelatedFileObject = op->RelatedFileObject;
+        if (op->CreateOptions & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)) {
+            fileObject->Flags = FO_SYNCHRONOUS_IO;
+            if (op->CreateOptions & FILE_SYNCHRONOUS_IO_ALERT) {
+                fileObject->Flags |= FO_ALERTABLE_IO;
+            }
+        }
+
+        //
+        // Now fill in the file object as best is possible at this point and set
+        // a pointer to it in the IRP so everyone else can find it.
+        //
+
+        if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
+            KeInitializeEvent( &fileObject->Lock, SynchronizationEvent, FALSE );
+            fileObject->Waiters = 0;
+            fileObject->CurrentByteOffset.QuadPart = 0;
+        }
+        if (op->CreateOptions & FILE_NO_INTERMEDIATE_BUFFERING) {
+            fileObject->Flags |= FO_NO_INTERMEDIATE_BUFFERING;
+        }
+        if (op->CreateOptions & FILE_WRITE_THROUGH) {
+            fileObject->Flags |= FO_WRITE_THROUGH;
+        }
+        if (op->CreateOptions & FILE_SEQUENTIAL_ONLY) {
+            fileObject->Flags |= FO_SEQUENTIAL_ONLY;
         }
 
     } else {
@@ -920,14 +901,13 @@ Return Value:
         // and then operating on it.
         //
 
-        RtlZeroMemory( &localFileObject, sizeof( DUMMY_FILE_OBJECT ) );
-        localFileObject.ObjectHeader.NonPagedObjectHeader = &localFileObject.NonPagedHeader;
-        fileObject = (PFILE_OBJECT) &localFileObject.ObjectHeader.Body;
+        localFileObject = op->LocalFileObject;
+        RtlZeroMemory( localFileObject, sizeof( DUMMY_FILE_OBJECT ) );
+        fileObject = (PFILE_OBJECT) &localFileObject->ObjectHeader.Body;
+        localFileObject->ObjectHeader.Type = IoFileObjectType;
+        localFileObject->ObjectHeader.PointerCount = 1;
     }
 
-    if (generateAuditOnClose) {
-        fileObject->Flags |= FO_GENERATE_AUDIT_ON_CLOSE;
-    }
     if (directDeviceOpen) {
         fileObject->Flags |= FO_DIRECT_DEVICE_OPEN;
     }
@@ -955,9 +935,8 @@ Return Value:
                                                              'mNoI' );
         if (!fileObject->FileName.Buffer) {
             IoFreeIrp( irp );
-            ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                                   0xffffffff,
-                                   &IopDatabaseLock );
+            IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
+
             if (vpb) {
                IopDereferenceVpbAndFree(vpb);
             }
@@ -976,6 +955,77 @@ Return Value:
     //
 
     RtlCopyUnicodeString( &fileObject->FileName, RemainingName );
+
+    //
+    // Before invoking the driver's open routine, check to see whether or not
+    // this is a fast network attributes query and, if so, and the driver
+    // implements the function, attempt to call it here.
+    //
+
+    if (op->QueryOnly) {
+        PFAST_IO_DISPATCH fastIoDispatch = deviceObject->DriverObject->FastIoDispatch;
+        BOOLEAN result;
+
+        if (fastIoDispatch &&
+            fastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET( FAST_IO_DISPATCH, FastIoQueryOpen ) &&
+            fastIoDispatch->FastIoQueryOpen) {
+
+            IoSetNextIrpStackLocation( irp );
+            irpSp->DeviceObject = deviceObject;
+            result = (fastIoDispatch->FastIoQueryOpen)( irp,
+                                                        op->NetworkInformation,
+                                                        deviceObject );
+            if (result) {
+                op->FinalStatus = irp->IoStatus.Status;
+                op->Information = irp->IoStatus.Information;
+
+                //
+                // The operation worked, so simply dereference and free the
+                // resources acquired up to this point.
+                //
+
+                if (fileObject->FileName.Length) {
+                    ExFreePool( fileObject->FileName.Buffer );
+                }
+                IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
+
+                if (vpb) {
+                    IopDereferenceVpbAndFree(vpb);
+                }
+
+                IoFreeIrp( irp );
+
+                //
+                // Finally, indicate that the parse routine was actually
+                // invoked and that the information returned herein can be
+                // used.
+                //
+
+                op->ParseCheck = OPEN_PACKET_PATTERN;
+                status = STATUS_SUCCESS;
+
+                if (!op->FullAttributes) {
+                    try {
+                        op->BasicInformation->FileAttributes = op->NetworkInformation->FileAttributes;
+                    } except(EXCEPTION_EXECUTE_HANDLER) {
+                        status = GetExceptionCode();
+                    }
+                }
+
+                return status;
+
+            } else {
+
+                //
+                // The fast I/O operation did not work, so take the longer
+                // route.
+                //
+
+                irp->Tail.Overlay.CurrentStackLocation++;
+                irp->CurrentLocation++;
+            }
+        }
+    }
 
     //
     // Finally, initialize the file object's event to the Not Signaled state
@@ -1039,13 +1089,30 @@ Return Value:
         KIRQL irql;
 
         ASSERT( !irp->PendingReturned );
+        ASSERT( !irp->MdlAddress );
 
         KeRaiseIrql( APC_LEVEL, &irql );
-        IopCompleteRequest( &irp->Tail.Apc,
-                            &normalRoutine,
-                            &normalContext,
-                            (PVOID *) &fileObject,
-                            &normalContext );
+
+        //
+        // Note that normally the system would simply call IopCompleteRequest
+        // here to complete the packet.  However, because this is a create
+        // operation, several assumptions can be made that make it much faster
+        // to perform the couple of operations that completing the request
+        // would perform.  These include:  copying the I/O status block,
+        // dequeueing the IRP and freeing it, and setting the file object's
+        // event to the signalled state.  The latter is done here by hand,
+        // since it is known that it is not possible for any thread to be
+        // waiting on the event.
+        //
+
+        ioStatus = irp->IoStatus;
+        status = ioStatus.Status;
+
+        fileObject->Event.Header.SignalState = 1;
+
+        IopDequeueThreadIrp( irp );
+        IoFreeIrp( irp );
+
         KeLowerIrql( irql );
     }
 
@@ -1075,9 +1142,7 @@ Return Value:
         }
         op->FileObject = (PFILE_OBJECT) NULL;
 
-        ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                               0xffffffff,
-                               &IopDatabaseLock );
+        IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
 
         if (vpb) {
             IopDereferenceVpbAndFree(vpb);
@@ -1126,8 +1191,6 @@ Return Value:
             RtlCopyUnicodeString( CompleteName, &fileObject->FileName );
         }
 
-        RemainingName->Length = 0;
-
         //
         // Kill the file object, dereference the device object, and return a
         // null pointer.
@@ -1145,27 +1208,69 @@ Return Value:
         }
         op->FileObject = (PFILE_OBJECT) NULL;
 
-        ExInterlockedAddUlong( &parseDeviceObject->ReferenceCount,
-                               0xffffffff,
-                               &IopDatabaseLock );
+        IopDecrementDeviceObjectRef( parseDeviceObject, FALSE );
 
         if (vpb) {
             IopDereferenceVpbAndFree(vpb);
         }
 
-        return STATUS_REPARSE;
+        if (ioStatus.Information != IO_REPARSE) {
+            //
+            // If we are reparsing to verify a volume, call ourselves
+            // to repeat this parse attempt.
+            //
 
+            return IopParseDevice( ParseObject,
+                                   ObjectType,
+                                   AccessState,
+                                   AccessMode,
+                                   Attributes,
+                                   CompleteName,
+                                   RemainingName,
+                                   Context,
+                                   SecurityQos,
+                                   Object );
+
+        } else {
+            //
+            // Really reparsing a symbolic link, so go back to the object
+            // manager so it can begin the parse from the top.
+            //
+
+            return STATUS_REPARSE;
+        }
     } else {
 
         //
-        // The operation was successful.  If this is not a query or a delete,
-        // but rather a normal open/create, return the address of the FileObject
-        // to the caller and set the informaiton returned in the original
-        // requestor's I/O status block.  Also set the value of the parse
-        // check field in the open packet to a value which will let the caller
-        // know that this routine was successful in creating the file object.
-        // Finally, return the status of the operation to the caller.
+        // The operation was successful. The first thing to do is to see if
+        // the device that processed the open also opened the file. If
+        // not, we need to adjust the vpb reference counts. Then, if this is
+        // not a query or a delete, but rather a normal open/create, return
+        // the address of the FileObject to the caller and set the
+        // information returned in the original requestor's I/O status block.
+        // Also set the value of the parse check field in the open packet to
+        // a value which will let the caller know that this routine was
+        // successful in creating the file object. Finally, return the status
+        // of the operation to the caller.
         //
+
+        PDEVICE_OBJECT deviceObjectThatOpenedFile;
+
+        deviceObjectThatOpenedFile = IoGetRelatedDeviceObject(fileObject);
+        if (deviceObject != deviceObjectThatOpenedFile) {
+            //
+            // The device that opened the related file is not the one
+            // that opened this file. So, readjust the vpb reference
+            // counts.
+            if (vpb) {
+                IopDereferenceVpbAndFree(vpb);
+            }
+            vpb = fileObject->Vpb;
+            if (vpb) {
+                ExInterlockedAddUlong(
+                    &vpb->ReferenceCount, 1, &IopVpbSpinLock );
+            }
+        }
 
         if (realFileObjectRequired) {
 
@@ -1182,61 +1287,142 @@ Return Value:
             //
 
             if (op->QueryOnly) {
-                PFILE_BASIC_INFORMATION basicInfo = NULL;
+                PFAST_IO_DISPATCH fastIoDispatch;
+                BOOLEAN queryResult = FALSE;
 
-                try {
-                    PFAST_IO_DISPATCH fastIoDispatch;
-                    BOOLEAN queryResult = FALSE;
+                fastIoDispatch = deviceObjectThatOpenedFile->DriverObject->FastIoDispatch;
 
-                    fastIoDispatch = deviceObject->DriverObject->FastIoDispatch;
-                    if (fastIoDispatch && fastIoDispatch->FastIoQueryBasicInfo) {
-                        queryResult = fastIoDispatch->FastIoQueryBasicInfo( fileObject,
-                                                                            TRUE,
-                                                                            op->BasicInformation,
-                                                                            &ioStatus,
-                                                                            deviceObject );
-                    }
-                    if (!queryResult) {
-                        ULONG returnedLength;
-                        PFILE_OBJECT realFileObject;
+                if (!op->FullAttributes) {
+                    PFILE_BASIC_INFORMATION basicInfo = NULL;
 
-                        status = IopCreateRealFileObject( Attributes,
-                                                          AccessMode,
-                                                          op,
-                                                          FALSE,
-                                                          &realFileObject );
-                        if (NT_SUCCESS( status )) {
-                            realFileObjectRequired = TRUE;
-                            RtlCopyMemory( realFileObject,
-                                           fileObject,
-                                           sizeof( FILE_OBJECT ) );
-                            fileObject = realFileObject;
+                    //
+                    // This is a simple FAT file attribute query.  Attempt to
+                    // obtain the basic information about the file.
+                    //
+
+                    try {
+
+                        if (fastIoDispatch && fastIoDispatch->FastIoQueryBasicInfo) {
+                            queryResult = fastIoDispatch->FastIoQueryBasicInfo(
+                                            fileObject,
+                                            TRUE,
+                                            op->BasicInformation,
+                                            &ioStatus,
+                                            deviceObjectThatOpenedFile
+                                            );
+                        }
+                        if (!queryResult) {
+                            ULONG returnedLength;
+
                             basicInfo = ExAllocatePool( NonPagedPool,
                                                         sizeof( FILE_BASIC_INFORMATION ) );
                             if (basicInfo) {
-                                status = IoQueryFileInformation( fileObject,
-                                                                 FileBasicInformation,
-                                                                 sizeof( FILE_BASIC_INFORMATION ),
-                                                                 basicInfo,
-                                                                 &returnedLength );
+                                status = IoQueryFileInformation(
+                                            fileObject,
+                                            FileBasicInformation,
+                                            sizeof( FILE_BASIC_INFORMATION ),
+                                            basicInfo,
+                                            &returnedLength
+                                            );
                                 if (NT_SUCCESS( status )) {
                                     RtlCopyMemory( op->BasicInformation,
                                                    basicInfo,
                                                    returnedLength );
                                 }
                                 ExFreePool( basicInfo );
+                            } else {
+                                status = STATUS_INSUFFICIENT_RESOURCES;
                             }
                         } else {
-                            status = STATUS_INSUFFICIENT_RESOURCES;
+                            status = ioStatus.Status;
                         }
-                    } else {
-                        status = ioStatus.Status;
+                    } except(EXCEPTION_EXECUTE_HANDLER) {
+                        if (basicInfo) {
+                            ExFreePool( basicInfo );
+                        }
+                        status = GetExceptionCode();
                     }
-                } except(EXCEPTION_EXECUTE_HANDLER) {
-                    if (basicInfo) {
-                        ExFreePool( basicInfo );
+
+                } else {
+
+                    //
+                    // This is a full attribute query.  Attempt to obtain the
+                    // full network attributes for the file.  This includes
+                    // both the basic and standard information about the
+                    // file.  Try the fast path first, if it exists.
+                    //
+
+                    if (fastIoDispatch &&
+                        fastIoDispatch->SizeOfFastIoDispatch > FIELD_OFFSET( FAST_IO_DISPATCH, FastIoQueryNetworkOpenInfo ) &&
+                        fastIoDispatch->FastIoQueryNetworkOpenInfo) {
+                        queryResult = fastIoDispatch->FastIoQueryNetworkOpenInfo(
+                                        fileObject,
+                                        TRUE,
+                                        op->NetworkInformation,
+                                        &ioStatus,
+                                        deviceObjectThatOpenedFile
+                                        );
                     }
-                    status = GetExceptionCode();
+                    if (!queryResult) {
+                        ULONG returnedLength;
+
+                        //
+                        // Either the fast dispatch routine did not exist, or
+                        // it simply wasn't callable at this time.  Attempt to
+                        // obtain all of the information at once via an IRP-
+                        // based call.
+                        //
+
+                        status = IoQueryFileInformation(
+                                    fileObject,
+                                    FileNetworkOpenInformation,
+                                    sizeof( FILE_NETWORK_OPEN_INFORMATION ),
+                                    op->NetworkInformation,
+                                    &returnedLength
+                                    );
+
+                        if (!NT_SUCCESS( status )) {
+                            if (status == STATUS_INVALID_PARAMETER ||
+                                status == STATUS_NOT_IMPLEMENTED) {
+                                FILE_BASIC_INFORMATION basicInfo;
+                                FILE_STANDARD_INFORMATION stdInfo;
+
+                                //
+                                // The IRP-based call did not work either, so
+                                // simply try to obtain the information by
+                                // doing IRP-based queries for the basic and
+                                // standard information and piecing together
+                                // the results into the caller's buffer.  Note
+                                // that it might be possible to perform fast
+                                // I/O operations to get the data, but it
+                                // might also fail because of the above.  So
+                                // simply query the information the long way.
+                                //
+
+                                status = IoQueryFileInformation(
+                                            fileObject,
+                                            FileBasicInformation,
+                                            sizeof( FILE_BASIC_INFORMATION ),
+                                            &basicInfo,
+                                            &returnedLength
+                                            );
+                                if (NT_SUCCESS( status )) {
+                                    status = IoQueryFileInformation(
+                                                fileObject,
+                                                FileStandardInformation,
+                                                sizeof( FILE_STANDARD_INFORMATION ),
+                                                &stdInfo,
+                                                &returnedLength
+                                                );
+                                    if (NT_SUCCESS( status )) {
+                                        COPY_ATTRIBUTES( op->NetworkInformation,
+                                                         &basicInfo,
+                                                         &stdInfo );
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
             } else {
@@ -1499,7 +1685,8 @@ VOID
 IopCheckBackupRestorePrivilege(
     IN PACCESS_STATE AccessState,
     IN OUT PULONG CreateOptions,
-    IN KPROCESSOR_MODE PreviousMode
+    IN KPROCESSOR_MODE PreviousMode,
+    IN ULONG Disposition
     )
 
 /*++
@@ -1531,6 +1718,8 @@ Arguments:
 
     PreviousMode - The processor mode to be used in checking parameters.
 
+    Disposition - The create disposition for this request.
+
 Return Value:
 
     None.
@@ -1544,7 +1733,6 @@ Return Value:
     PRIVILEGE_SET requiredPrivileges;
     BOOLEAN accessGranted;
     BOOLEAN keepBackupIntent = FALSE;
-    UCHAR Disposition;
     BOOLEAN ForceRestoreCheck = FALSE;
 
     PAGED_CODE();
@@ -1576,8 +1764,6 @@ Return Value:
             desiredAccess |= ( readAccess | writeAccess );
         }
 
-        Disposition = (UCHAR)(*CreateOptions >> 24);
-
         //
         // If the disposition says that we're opening the file, check for both backup
         // and restore privilege, depending on what's in the desired access.
@@ -1595,25 +1781,25 @@ Return Value:
             // privielege.  If the caller has it, then grant the intersection of
             // the desired access and read access masks.
             //
-    
+
             if (readAccess & desiredAccess) {
-    
+
                 requiredPrivileges.PrivilegeCount = 1;
                 requiredPrivileges.Control = PRIVILEGE_SET_ALL_NECESSARY;
                 requiredPrivileges.Privilege[0].Luid = SeBackupPrivilege;
                 requiredPrivileges.Privilege[0].Attributes = 0;
-    
+
                 accessGranted = SePrivilegeCheck( &requiredPrivileges,
                                                   &AccessState->SubjectSecurityContext,
                                                   PreviousMode );
-    
+
                 if (accessGranted) {
-    
+
                     //
                     // The caller has Backup privilege, so grant the appropriate
                     // accesses.
                     //
-    
+
                     keepBackupIntent = TRUE;
                     (VOID) SeAppendPrivileges( AccessState, &requiredPrivileges );
                     AccessState->PreviouslyGrantedAccess |= ( desiredAccess & readAccess );

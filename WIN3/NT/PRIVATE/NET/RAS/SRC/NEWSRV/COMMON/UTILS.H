@@ -1,4 +1,0 @@
-WORD LoadNbGateway(
-    VOID)
-    ;
-

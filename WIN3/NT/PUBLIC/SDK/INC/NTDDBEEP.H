@@ -56,4 +56,4 @@ typedef struct _BEEP_SET_PARAMETERS {
 #define BEEP_FREQUENCY_MAXIMUM 0x7FFF
 
 #endif // _NTDDBEEP_
-
+

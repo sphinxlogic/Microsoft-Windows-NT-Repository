@@ -547,4 +547,3 @@ void QueryMsg()
   // Don't bother cleaning up.
 }
 
-

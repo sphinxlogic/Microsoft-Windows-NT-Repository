@@ -25,6 +25,10 @@ Revision History:
 #ifndef VXD
 
 #include <nbtioctl.h>
+#ifdef RASAUTODIAL
+#include <acd.h>
+#include <acdapi.h>
+#endif // RASAUTODIAL
 #endif
 //
 // Allocate storage for the configuration information and setup a ptr to
@@ -85,6 +89,7 @@ CleanupFromRegisterFailed(
     IN  PUCHAR      pNameRslv,
     IN  tCLIENTELE  *pClientEle
         );
+
 VOID
 SendDgramContinue(
         IN  PVOID       pContext,
@@ -102,6 +107,7 @@ CTECountedFreeMem(
         PVOID   pBuffer,
         ULONG   Size
         );
+
 VOID
 SendDgramCompletion(
     IN  PVOID       pContext,
@@ -182,11 +188,6 @@ FindNameRemoteThenLocal(
     IN  tDGRAM_SEND_TRACKING    *pTracker,
     OUT PULONG                  plNameType
         );
-VOID
-NodeStatusDone(
-        IN  PVOID       pContext,
-        IN  NTSTATUS    status
-        );
 
 VOID
 FreeTracker(
@@ -195,8 +196,57 @@ FreeTracker(
     );
 
 VOID
-LockedDereferenceName(
-    IN  tNAMEADDR    *pNameAddr
+WipeOutLowerconn(
+    IN  PVOID       pContext
+    );
+
+#ifdef RASAUTODIAL
+extern BOOLEAN fAcdLoadedG;
+extern ACD_DRIVER AcdDriverG;
+
+VOID
+NbtRetryPreConnect(
+    IN BOOLEAN fSuccess,
+    IN PVOID *pArgs
+    );
+
+VOID
+NbtCancelPreConnect(
+    IN PDEVICE_OBJECT pDeviceObject,
+    IN PIRP pIrp
+    );
+
+VOID
+NbtRetryPostConnect(
+    IN BOOLEAN fSuccess,
+    IN PVOID *pArgs
+    );
+
+BOOLEAN
+NbtAttemptAutoDial(
+    IN  tCONNECTELE                 *pConnEle,
+    IN  PVOID                       pTimeout,
+    IN  PTDI_CONNECTION_INFORMATION pCallInfo,
+    IN  PTDI_CONNECTION_INFORMATION pReturnInfo,
+    IN  PIRP                        pIrp,
+    IN  ULONG                       ulFlags,
+    IN  ACD_CONNECT_CALLBACK        pProc
+    );
+
+VOID
+NbtNoteNewConnection(
+    IN tCONNECTELE *pConnEle,
+    IN tNAMEADDR *pNameAddr
+    );
+#endif // RASAUTODIAL
+
+NTSTATUS
+NbtConnectCommon(
+    IN  TDI_REQUEST                 *pRequest,
+    IN  PVOID                       pTimeout,
+    IN  PTDI_CONNECTION_INFORMATION pCallInfo,
+    IN  PTDI_CONNECTION_INFORMATION pReturnInfo,
+    IN  PIRP                        pIrp
     );
 
 
@@ -208,7 +258,6 @@ LockedDereferenceName(
 #pragma CTEMakePageable(PAGE, BuildSendDgramHdr)
 #pragma CTEMakePageable(PAGE, NbtResyncRemoteCache)
 #pragma CTEMakePageable(PAGE, NbtQueryFindName)
-#pragma CTEMakePageable(PAGE, NbtSendNodeStatus)
 #endif
 //*******************  Pageable Routine Declarations ****************
 
@@ -216,12 +265,11 @@ LockedDereferenceName(
 NTSTATUS
 NbtOpenAddress(
     IN  TDI_REQUEST                     *pRequest,
-    IN  PTDI_ADDRESS_NETBIOS            pAddressName,
+    IN  TA_ADDRESS UNALIGNED            *pTaAddress,
     IN  ULONG                           IpAddress,
     IN  PVOID                           pSecurityDescriptor,
     IN  tDEVICECONTEXT                  *pContext,
     IN  PVOID                           pIrp)
-
 /*++
 Routine Description:
 
@@ -251,9 +299,10 @@ Return Value:
     BOOLEAN              ReRegister;
     BOOLEAN              MultiHomedReRegister;
     BOOLEAN              DontIncrement= FALSE;
+    ULONG                TdiAddressType;
 
 
-    ASSERT(pAddressName);
+    ASSERT(pTaAddress);
     if (!IpAddress)
     {
         //
@@ -265,8 +314,34 @@ Return Value:
         IpAddress = LOOP_BACK;
     }
 
-    // get the type of name (group or unique)
-    uAddrType = pAddressName->NetbiosNameType;
+
+    TdiAddressType = pTaAddress->AddressType;
+    switch (TdiAddressType) {
+    case TDI_ADDRESS_TYPE_NETBIOS:
+       {
+          PTDI_ADDRESS_NETBIOS pNetbiosAddress = (PTDI_ADDRESS_NETBIOS)pTaAddress->Address;
+
+          uAddrType = pNetbiosAddress->NetbiosNameType;
+          pNameRslv = (PCHAR)pNetbiosAddress->NetbiosName;
+       }
+       break;
+    case TDI_ADDRESS_TYPE_NETBIOS_EX:
+       {
+          // The NETBIOS_EX address passed in will have two components,
+          // an Endpoint name as well as the NETBIOS address.
+          // In this implementation we ignore the second
+          // component and register the Endpoint name as a netbios
+          // address.
+
+          PTDI_ADDRESS_NETBIOS_EX pNetbiosExAddress = (PTDI_ADDRESS_NETBIOS_EX)pTaAddress->Address;
+
+          uAddrType = TDI_ADDRESS_NETBIOS_TYPE_QUICK_UNIQUE;
+          pNameRslv = (PCHAR)pNetbiosExAddress->EndpointName;
+       }
+       break;
+    default:
+       return STATUS_INVALID_ADDRESS_COMPONENT;
+    }
 
     // check for a zero length address, because this means that the
     // client wants to receive "Netbios Broadcasts" which are names
@@ -274,16 +349,14 @@ Return Value:
     // queried the broadcast address with NBT which would have returned
     // "*....'
     //
-    pNameRslv = (PCHAR)pAddressName->NetbiosName;
 
     IF_DBG(NBT_DEBUG_NAMESRV)
     KdPrint(("Nbt:Registering name = %16.16s<%X>\n",pNameRslv,pNameRslv[15]));
 
-
     //
     // be sure the broadcast name has 15 zeroes after it
     //
-    if (pNameRslv[0] == '*')
+    if ((pNameRslv[0] == '*') && (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS))
     {
         CTEZeroMemory(&pNameRslv[1],NETBIOS_NAME_SIZE-1);
     }
@@ -321,16 +394,18 @@ Return Value:
         //
         // first of all allocate memory for the address block
         //
-        pAddrElement = (tADDRESSELE *)CTEAllocMem(sizeof (tADDRESSELE));
-        CTEZeroMemory(pAddrElement,sizeof(tADDRESSELE));
+        pAddrElement = (tADDRESSELE *)NbtAllocMem(sizeof (tADDRESSELE),NBT_TAG('C'));
         status = STATUS_INSUFFICIENT_RESOURCES;
 
         if (pAddrElement)
         {
+        CTEZeroMemory(pAddrElement,sizeof(tADDRESSELE));
             CTEInitLock(&pAddrElement->SpinLock);
             pAddrElement->pDeviceContext = pContext;
             pAddrElement->RefCount = 1;
             pAddrElement->LockNumber = ADDRESS_LOCK;
+
+            pAddrElement->AddressType = TdiAddressType;
 
             if ((uAddrType == NBT_UNIQUE ) || (uAddrType == NBT_QUICK_UNIQUE))
             {
@@ -351,6 +426,8 @@ Return Value:
 
             if (pClientEle)
             {
+                pClientEle->AddressType = TdiAddressType;
+
                 // we need to track the Irp so that when the name registration
                 // completes, we can complete the Irp.
                 pClientEle->pIrp = pIrp;
@@ -382,13 +459,9 @@ Return Value:
                 // to the client
                 pRequest->Handle.AddressHandle = (PVOID)pClientEle;
 
-                // link the address element to the head of the address list
-                // The Joint Lock protects this operation.
-                ExInterlockedInsertTailList(&NbtConfig.AddressHead,
-                                            &pAddrElement->Linkage,
-                                            &NbtConfig.JointLock.SpinLock);
-
                 pAddrElement->Verify = NBT_VERIFY_ADDRESS;
+
+                InitializeListHead(&pAddrElement->Linkage);
 
                 // keep track of which adapter this name is registered against.
                 pClientEle->pDeviceContext = (PVOID)pContext;
@@ -402,7 +475,9 @@ Return Value:
                 if (pIrp)
                 {
 #ifndef VXD
-                    NTSetFileObjectContexts(pClientEle,(PVOID)pClientEle,(PVOID)NBT_ADDRESS_TYPE);
+                    NTSetFileObjectContexts(
+                        pClientEle->pIrp,(PVOID)pClientEle,
+                        (PVOID)(NBT_ADDRESS_TYPE));
 #endif
                 }
 
@@ -431,6 +506,7 @@ Return Value:
                     IpAddress = 0;
                 }
 
+                pAddrElement->RefCount++;
 
                 status = NbtRegisterName(
                                       NBT_LOCAL,
@@ -441,22 +517,25 @@ Return Value:
                                       (PVOID)NbtRegisterCompletion, // completion routine for
                                       uAddrType,                    // Name Srv to call
                                       pContext);
-                if (!NT_SUCCESS(status))
-                {
-                    NbtFreeClientObj(pClientEle);
-                    //
-                    // remove the address from the addressHead in NbtConfig
-                    //
-                    CTESpinLock(&NbtConfig.JointLock,OldIrq);
-                    RemoveEntryList(&pAddrElement->Linkage);
-                    CTESpinFree(&NbtConfig.JointLock,OldIrq);
-
-                    NbtFreeAddressObj(pAddrElement);
-                }
                 //
                 // ret status could be either status pending or status success since Quick
                 // names return success - or status failure
                 //
+                if (NT_SUCCESS(status))
+                {
+                    // link the address element to the head of the address list
+                    // The Joint Lock protects this operation.
+                    ExInterlockedInsertTailList(&NbtConfig.AddressHead,
+                                                &pAddrElement->Linkage,
+                                                &NbtConfig.JointLock.SpinLock);
+                    NbtDereferenceAddress(pAddrElement);
+                }
+                else
+                {
+                    NbtFreeClientObj(pClientEle);
+
+                    NbtFreeAddressObj(pAddrElement);
+                }
 
             } // if pClientEle
             else
@@ -488,8 +567,7 @@ Return Value:
         // increment here before releasing the spinlock so that a name
         // release done cannot free pAddrElement.
         //
-        CTEInterlockedIncrementLong(&pAddrElement->RefCount,
-                                   &pAddrElement->SpinLock);
+        CTEInterlockedIncrementLong(&pAddrElement->RefCount);
 #ifndef VXD
 
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
@@ -497,10 +575,13 @@ Return Value:
         // check the shared access of the name - this check must be done
         // at Irl = 0, so no spin locks held
         //
-        status = NTCheckSharedAccess(
-                          pContext,
-                          pIrp,
-                          (tADDRESSELE *)pNameAddr->pAddressEle);
+
+        if (pIrp) {
+            status = NTCheckSharedAccess(
+                              pContext,
+                              pIrp,
+                              (tADDRESSELE *)pNameAddr->pAddressEle);
+        }
 
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
 #else
@@ -543,9 +624,9 @@ Return Value:
             // We allow a single client to use the permanent name - since its
             // a unique name it will fail the Vxd check too.
             //
-            if (sizeof(tMAC_ADDRESS) == CTEMemCmp(&pNameAddr->Name[10],
-                                                  &pContext->MacAddress.Address[0],
-                                                  sizeof(tMAC_ADDRESS)))
+            if (CTEMemEqu(&pNameAddr->Name[10],
+                          &pContext->MacAddress.Address[0],
+                          sizeof(tMAC_ADDRESS)))
             {
                 // check if there is just one element on the client list.  If so
                 // then the permanent name is not being used yet - i.e. it has
@@ -605,14 +686,6 @@ Return Value:
                 // so complete that irp back to them
                 if (pClientCompletion)
                 {
-                    // We must increment the reference count here to avoid deleting the
-                    // address element when we call the client completion routine after
-                    // stoping the timer(below) RefCount is one now, so make
-                    // it two to avoid Deref in RegisterCompletion
-                    //
-                    CTEInterlockedIncrementLong(&pAddrElement->RefCount,
-                                               &pAddrElement->SpinLock);
-                    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
                     //
                     // NOTE****
@@ -622,10 +695,11 @@ Return Value:
                     //
                     CHECK_PTR(pNameAddr);
                     pNameAddr->AdapterMask = 0;
+                    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
                     (*pClientCompletion)(Context,STATUS_SUCCESS);
 
                     CTESpinLock(&NbtConfig.JointLock,OldIrq);
-                    DontIncrement = TRUE;
 
                 }
                 CHECK_PTR(pNameAddr);
@@ -695,16 +769,6 @@ Return Value:
         //
         CTESpinLock(pAddrElement,OldIrq1);
 
-        // We have already incremented the refcount so that the name cannot
-        // disappear if a name release is going on concurrently, so now
-        // check the flag and remove that reference if it was not needed - i.e.
-        // we stopped the name release done before it did its dereference.
-        //
-        if (DontIncrement)
-        {
-            pAddrElement->RefCount--;
-        }
-
         // create client block and link to addresslist
         // pass back the client block address as a handle for future reference
         // to the client
@@ -713,6 +777,8 @@ Return Value:
         {
             CTESpinFree(pAddrElement,OldIrq1);
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+            NbtDereferenceAddress(pAddrElement);
             status = STATUS_INSUFFICIENT_RESOURCES;
             goto ExitRoutine;
 
@@ -724,6 +790,7 @@ Return Value:
 
         // keep track of which adapter this name is registered against.
         pClientEle->pDeviceContext = (PVOID)pContext;
+        pClientEle->AddressType = TdiAddressType;
 
         pRequest->Handle.AddressHandle = (PVOID)pClientEle;
 
@@ -735,7 +802,9 @@ Return Value:
         if (pIrp)
         {
 #ifndef VXD
-            NTSetFileObjectContexts(pClientEle,(PVOID)pClientEle,(PVOID)NBT_ADDRESS_TYPE);
+            NTSetFileObjectContexts(
+               pClientEle->pIrp,(PVOID)pClientEle,
+               (PVOID)(NBT_ADDRESS_TYPE));
 #endif
         }
 
@@ -751,7 +820,7 @@ Return Value:
             // since in the resolving state, the name will be tacked on the
             // end of the current registration
             //
-            if (pNameAddr->NameTypeState & STATE_RESOLVED)
+            if ( pNameAddr->NameTypeState & STATE_RESOLVED)
             {
                 MultiHomedReRegister = TRUE;
             }
@@ -835,6 +904,10 @@ Return Value:
                                       uAddrType,
                                       pContext);
 
+                if (!NT_SUCCESS(status))
+                {
+                    NbtDereferenceAddress(pAddrElement);
+                }
             }
             else
             {
@@ -900,6 +973,7 @@ Return Values:
     tNAMEADDR       *pNameAddr;
     tCLIENTELE      *pClientEle;
     LIST_ENTRY      TempList;
+    ULONG           Count=0;
 
     InitializeListHead(&TempList);
 
@@ -996,7 +1070,7 @@ FailRegistration:
                 // the irp ( i.e. the context values are cleared )
                 //
 #ifndef VXD
-                NTSetFileObjectContexts(pClientEle,NULL,NULL);
+                NTSetFileObjectContexts(pClientEle->pIrp,NULL,NULL);
 
 #endif
                 RemoveEntryList(&pClientEle->Linkage);
@@ -1015,6 +1089,7 @@ FailRegistration:
             //
             //  pAddress gets set in the name table for this NCB
             //
+            Count++;
             CTESpinFree(pAddress,OldIrq1);
             CTEIoComplete( pClientEle->pIrp, status, (ULONG) pClientEle ) ;
             CTESpinLock(pAddress,OldIrq1);
@@ -1049,6 +1124,7 @@ FailRegistration:
         pIrp = CONTAINING_RECORD(pEntry,IRP,Tail.Overlay.ListEntry);
 
         CTEIoComplete(pIrp,status,0);
+        Count++;
     }
 #endif
 
@@ -1060,7 +1136,15 @@ FailRegistration:
     //
     if (!NT_SUCCESS(status))
     {
-        NbtDereferenceAddress(pAddress);
+        //
+        // dereference the address the same number of times that we have
+        // returned failed registrations since each reg. referenced pAddress
+        // once
+        //
+        while (Count--)
+        {
+            NbtDereferenceAddress(pAddress);
+        }
     }
     else
     {
@@ -1093,6 +1177,12 @@ FailRegistration:
                 }
                 else
                     uAddrType = NBT_GROUP;
+
+                //
+                // preserve the "QUICK"ness
+                //
+                if ( pNameAddr->NameTypeState & NAMETYPE_QUICK)
+                    uAddrType |= NBT_QUICK_UNIQUE;
 
                 // should be multihomed to get to here!!
                 ASSERT(NbtConfig.MultiHomed);
@@ -1130,11 +1220,18 @@ FailRegistration:
                     pClientEle->WaitingForRegistration = TRUE;
                     goto FailRegistration;
                 }
-                else
+                // just register one name at a time, unless we get immediate success
+                else if (status == STATUS_PENDING)
                 {
-                    // just register one name at a time.
                     break;
-                }
+        }
+        else    // SUCCESS
+        {
+            CTESpinFree(pAddress,OldIrq1);
+            CTEIoComplete(pClientEle->pIrp,status,0);
+            pClientEle->pIrp = NULL;
+            CTESpinLock(pAddress,OldIrq1);
+        }
             }
         }
         CTESpinFree(pAddress,OldIrq1);
@@ -1154,7 +1251,6 @@ NbtOpenConnection(
     IN  TDI_REQUEST         *pRequest,
     IN  CONNECTION_CONTEXT  ConnectionContext,
     IN  tDEVICECONTEXT      *pDeviceContext)
-
 /*++
 
 Routine Description
@@ -1179,7 +1275,7 @@ Return Values:
 
     CTEPagedCode();
 
-    pConnEle = (tCONNECTELE *)CTEAllocMem(sizeof(tCONNECTELE));
+    pConnEle = (tCONNECTELE *)NbtAllocMem(sizeof(tCONNECTELE),NBT_TAG('D'));
     if (!pConnEle)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -1192,6 +1288,7 @@ Return Values:
     IF_DBG(NBT_DEBUG_NAMESRV)
     KdPrint(("Nbt:OpenConnection <%X>\n",pConnEle));
 
+    // This ensures that all BOOLEAN values begin with a FALSE value among other things.
     CTEZeroMemory(pConnEle,sizeof(tCONNECTELE));
 
     CTEInitLock(&pConnEle->SpinLock);
@@ -1203,6 +1300,10 @@ Return Values:
     // store a context value to return to the client in various
     // Event calls(such as Receive or Disconnect events)
     pConnEle->ConnectContext = ConnectionContext;
+
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+    pConnEle->pDeviceContext = pDeviceContext;
+#endif
 
     pConnEle->state = NBT_IDLE;
     pConnEle->Verify = NBT_VERIFY_CONNECTION;
@@ -1238,7 +1339,7 @@ Return Values:
             //
             // allocate memory for the lower connection block.
             //
-            pLowerConn = (tLOWERCONNECTION *)CTEAllocMem(sizeof(tLOWERCONNECTION));
+            pLowerConn = (tLOWERCONNECTION *)NbtAllocMem(sizeof(tLOWERCONNECTION),NBT_TAG('E'));
 
             if (pLowerConn)
             {
@@ -1349,7 +1450,6 @@ Return Value:
 
     status = NbtTdiOpenConnection(pLowerConn,pDeviceContext);
 
-
     // set this to null to signify that this lower connection does not
     // have an address object associated with it specifically - i.e.
     // it is an inbound connection associated with the 139 address, not
@@ -1378,9 +1478,6 @@ Return Value:
 
             NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
             Locstatus = NbtTdiCloseConnection(pLowerConn);
-#if 0
-            NbtDereferenceLowerConnection(pLowerConn);
-#endif
         }
         else
         {
@@ -1668,6 +1765,10 @@ Return Values:
 {
     tCLIENTELE      *pClientEle;
     NTSTATUS        status;
+#ifndef VXD
+    UCHAR           IrpFlags;
+    PIO_STACK_LOCATION           pIrpsp;
+#endif
 
     pClientEle = (tCLIENTELE *)pRequest->Handle.ConnectionContext;
     if (!pClientEle->pAddress)
@@ -1702,10 +1803,23 @@ Return Values:
     //
     (VOID)NTClearFileObjectContext(pIrp);
     pClientEle->pIrp = pIrp;
+
+    pIrpsp = IoGetCurrentIrpStackLocation(((PIRP)pIrp));
+
+    IrpFlags = pIrpsp->Control;
+    IoMarkIrpPending(((PIRP)pIrp));
+
 #endif
 
     status = NbtDereferenceClient(pClientEle);
 
+#ifndef VXD
+    if (status != STATUS_PENDING)
+    {
+        pIrpsp->Control = IrpFlags;
+    }
+
+#endif
 
     return(status);
 }
@@ -1742,6 +1856,8 @@ Return Value:
     PLIST_ENTRY         pHead,pEntry;
     PLIST_ENTRY         pEntryConn;
     tADDRESSELE         *pAddress;
+    DWORD               dwNumConn=0;
+    DWORD               i;
 
     // to prevent connections and datagram from the wire...remove from the
     // list of clients hooked to the address element
@@ -1757,7 +1873,7 @@ Return Value:
     // allowing the client to free datagram receive buffers in the middle
     // of DgramHndlrNotOs finding a buffer
     //
-    CTESpinLock(pAddress,OldIrq3);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq3);
 
     if (!IsListEmpty(&pClientEle->RcvDgramHead))
     {
@@ -1768,23 +1884,26 @@ Return Value:
 
         pHead = &pClientEle->RcvDgramHead;
         pEntry = pHead->Flink;
+
+        // prevent any datagram from the wire seeing this list
+        //
+        InitializeListHead(&pClientEle->RcvDgramHead);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq3);
+
         while (pEntry != pHead)
         {
-            pEntry = RemoveHeadList(&pClientEle->RcvDgramHead);
-
             pRcvEle   = CONTAINING_RECORD(pEntry,tRCVELE,Linkage);
             pRcvIrp   = pRcvEle->pIrp;
 
             CTEIoComplete(pRcvIrp,STATUS_NETWORK_NAME_DELETED,0);
 
-            // removing the element from the list does not affect its Flink
-            // so we can still get the next entry with this code
             pEntry = pEntry->Flink;
 
             CTEMemFree(pRcvEle);
         }
     }
-    CTESpinFree(pAddress,OldIrq3);
+    else
+        CTESpinFree(&NbtConfig.JointLock,OldIrq3);
 
     // lock the client and the device context till we're done
     CTESpinLock(pClientEle,OldIrq);
@@ -1881,6 +2000,38 @@ Return Value:
     CTESpinLock(pDeviceContext,OldIrq);
     while (pEntry != pHead )
     {
+
+        pConnEle = CONTAINING_RECORD(pEntry,tCONNECTELE,Linkage);
+
+        ASSERT ( ( pConnEle->Verify == NBT_VERIFY_CONNECTION ) || ( pConnEle->Verify == NBT_VERIFY_CONNECTION_DOWN ) );
+
+        pEntry = pEntry->Flink;
+
+        RemoveEntryList(&pConnEle->Linkage);
+
+        CTESpinLock(pConnEle,OldIrq2);
+
+        // disassociate the connection from the address by changing its state
+        // to idle and linking it to the pDeviceContext list of unassociated
+        // connections
+        //
+        pConnEle->state = NBT_IDLE;
+        CHECK_PTR(pConnEle);
+        pConnEle->Verify = NBT_VERIFY_CONNECTION_DOWN;
+        pConnEle->pClientEle = NULL;
+        ASSERT(pConnEle->RefCount == 1);
+        InsertTailList(&pDeviceContext->UpConnectionInUse,&pConnEle->Linkage);
+
+        CTESpinFree(pConnEle,OldIrq2);
+
+        //
+        // Count up the # of connections that were associated here so we can free that many lowerblocks
+        // later.
+        //
+        dwNumConn++;
+    }
+
+    for (i=0; i<dwNumConn; i++) {
         //
         // Get a free connection to the transport and close it
         // for each free connection on this list.  It is possible that this
@@ -1903,34 +2054,13 @@ Return Value:
             KdPrint(("Nbt:Closing Handle %X -> %X\n",pLowerConn,pLowerConn->pFileObject));
 #endif
             // dereference the fileobject ptr
-            NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
-            status = NbtTdiCloseConnection(pLowerConn);
+            //NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
+            //status = NbtTdiCloseConnection(pLowerConn);
 
             NbtDereferenceLowerConnection(pLowerConn);
 
             CTESpinLock(pDeviceContext,OldIrq);
         }
-
-        pConnEle = CONTAINING_RECORD(pEntry,tCONNECTELE,Linkage);
-
-        pEntry = pEntry->Flink;
-
-        RemoveEntryList(&pConnEle->Linkage);
-
-        CTESpinLock(pConnEle,OldIrq2);
-
-        // disassociate the connection from the address by changing its state
-        // to idle and linking it to the pDeviceContext list of unassociated
-        // connections
-        //
-        pConnEle->state = NBT_IDLE;
-        CHECK_PTR(pConnEle);
-        pConnEle->pClientEle = NULL;
-        ASSERT(pConnEle->RefCount == 1);
-        InsertTailList(&pDeviceContext->UpConnectionInUse,&pConnEle->Linkage);
-
-        CTESpinFree(pConnEle,OldIrq2);
-
     }
     CTESpinFree(pDeviceContext,OldIrq);
 
@@ -1938,85 +2068,6 @@ Return Value:
     // name queries to complete, so there could be timers associated with them
     //
 
-#if 0
-    //
-    // NOTE:
-    // Since datagrams are buffered now, they are completed immediately
-    // so they are not linked to the client during the send and there is
-    // no need to hunt them down and return them - eventually the transport
-    // will complete them and they will cleanup correctly.
-    //
-
-    pHead = &pClientEle->SndDgrams;
-    pEntry = pHead->Flink;
-    while (pEntry != pHead )
-    {
-        tTIMERQENTRY            *pTimer;
-        tNAMEADDR               *pNameAddr;
-        COMPLETIONCLIENT        pClientCompletion;
-        PVOID                   Context;
-        tDGRAM_SEND_TRACKING    *pTracker;
-
-        pTracker = CONTAINING_RECORD(pEntry,tDGRAM_SEND_TRACKING,Linkage);
-        pEntry = pEntry->Flink;
-
-        // find the destination name in the hashtable
-        status = FindInHashTable(NbtConfig.pRemoteHashTbl,
-                                pTracker->pDestName,
-                                NbtConfig.pScope,
-                                &pNameAddr);
-        if (NT_SUCCESS(status))
-        {
-
-            // remove any timer block and call the completion routine
-            if ((pTimer = pNameAddr->pTimer))
-            {
-                // this routine puts the timer block back on the timer Q, and
-                // handles race conditions to cancel the timer when the timer
-                // is expiring.
-                status = StopTimer(pTimer,&pClientCompletion,&Context);
-
-                CTESpinFree(&NbtConfig.JointLock,OldIrq2);
-
-                // there is no irp to complete because the datagram sends are
-                // buffered and the irp is completed immediately.
-                //
-                //CTEIoComplete(pTracker->pClientIrp,STATUS_NETWORK_NAME_DELETED,0L);
-
-                NbtDereferenceClient(pTracker->pClientEle);
-
-                CTESpinLock(&NbtConfig.JointLock,OldIrq2);
-
-                RemoveEntryList(&pTracker->Linkage);
-                InitializeListHead(&pTracker->Linkage);
-
-                // Datagram sends are explicitly buffered so free the memory
-                // here
-                //
-                CTEMemFreeCounted(pTracker->SendBuffer.pDgramHdr,
-                                  pTracker->AllocatedLength);
-                CTEMemFree((PVOID)pTracker);
-
-                CHECK_PTR(pNameAddr);
-                pNameAddr->pTimer = NULL;
-                //
-                // the name is resolving(probably) so this dereference will
-                // delete the name - only delete if the timer completion routine
-                // hasn't run for the final time.  During the final run the
-                // clients completion routine is nulled out.
-                if (pClientCompletion)
-                {
-                    NbtDereferenceName(pNameAddr);
-                }
-
-            }
-            else
-            {
-                NbtDereferenceName(pNameAddr);
-            }
-        }
-    }
-#endif
 
     //
     //  Complete any outstanding listens not on an active connection
@@ -2113,7 +2164,7 @@ Arguments:
 
 Return Values:
 
-    TDI_STATUS - status of the request
+    TDI_STTTUS - status of the request
 
 --*/
 {
@@ -2240,22 +2291,7 @@ Return Value:
                 // there is no need to call nbtdisconnect
                 //
                 DoDisconnect = FALSE;
-#if 0
-                if (NT_SUCCESS(status))
-                {
-
-                    // the name query was successfully terminated
-                    CTEExReleaseResource(&NbtConfig.Resource);
-                    return(status);
-                }
-                else
-                {   //
-                    // the connection must have just transitioned to OutBound or
-                    // timed out on the name query.
-                    //
-                }
-#endif
-            }
+           }
         }
 
 
@@ -2313,26 +2349,9 @@ Return Value:
     //
 
     CTESpinLock(pConnEle,OldIrq);
-    pHead = &pConnEle->RcvHead;
-    while (!IsListEmpty(pHead))
-    {
-        PLIST_ENTRY            pRcvEntry;
-        PVOID                  pRcvElement ;
 
-        KdPrint(("***Nbt:Freeing Posted Rcvs on Connection Cleanup!\n"));
-        pRcvEntry = RemoveHeadList(pHead);
-        CTESpinFree(pConnEle,OldIrq);
+    FreeRcvBuffers(pConnEle,&OldIrq);
 
-#ifndef VXD
-        pRcvElement = CONTAINING_RECORD(pRcvEntry,IRP,Tail.Overlay.ListEntry);
-        CTEIoComplete( (PIRP) pRcvElement, STATUS_CANCELLED,0);
-#else
-        pRcvElement = CONTAINING_RECORD(pRcvEntry, RCV_CONTEXT, ListEntry ) ;
-        CTEIoComplete( ((PRCV_CONTEXT)pRcvEntry)->pNCB, STATUS_CANCELLED, 0);
-#endif
-
-        CTESpinLock(pConnEle,OldIrq);
-    }
     CTESpinFree(pConnEle,OldIrq);
 
 
@@ -2388,7 +2407,7 @@ Return Value:
 
             CTESpinFree(pDeviceContext,OldIrq);
             // dereference the fileobject ptr
-            NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
+            //NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
 
 
             // close the lower connection with the transport
@@ -2398,7 +2417,7 @@ Return Value:
 #else
             KdPrint(("Nbt:Closing Handle %X -> %X\n",pLowerConn,pLowerConn->pFileObject));
 #endif
-            Locstatus = NbtTdiCloseConnection(pLowerConn);
+            //Locstatus = NbtTdiCloseConnection(pLowerConn);
 
             NbtDereferenceLowerConnection(pLowerConn);
         }
@@ -2417,9 +2436,9 @@ Return Value:
     {
         CTESpinLock(pConnEle->pClientEle,OldIrq2);
 
-        RemoveEntryList(&pConnEle->Linkage);
+    RemoveEntryList(&pConnEle->Linkage);
 
-        CTESpinFree(pConnEle->pClientEle,OldIrq2);
+    CTESpinFree(pConnEle->pClientEle,OldIrq2);
 
         // do the disassociate here
         //
@@ -2435,12 +2454,63 @@ Return Value:
         RemoveEntryList(&pConnEle->Linkage);
     }
 
+    InitializeListHead(&pConnEle->Linkage);
+
     CTESpinFree(pDeviceContext,OldIrq);
     CTEExReleaseResource(&NbtConfig.Resource);
 
     // this could be status pending from NbtDisconnect...
     //
     return(status);
+}
+//----------------------------------------------------------------------------
+VOID
+FreeRcvBuffers(
+    tCONNECTELE     *pConnEle,
+    CTELockHandle   *pOldIrq
+    )
+/*++
+Routine Description:
+
+    This Routine handles freeing any recv buffers posted by the client.
+    The pConnEle lock could be held prior to calling this routine.
+
+Arguments:
+
+    pListHead
+    pTracker
+
+Return Value:
+
+    NTSTATUS - status of the request
+
+--*/
+
+{
+    NTSTATUS                status = STATUS_SUCCESS;
+    PLIST_ENTRY             pHead;
+
+    pHead = &pConnEle->RcvHead;
+    while (!IsListEmpty(pHead))
+    {
+        PLIST_ENTRY            pRcvEntry;
+        PVOID                  pRcvElement ;
+
+        KdPrint(("***Nbt:Freeing Posted Rcvs on Connection Cleanup!\n"));
+        pRcvEntry = RemoveHeadList(pHead);
+        CTESpinFree(pConnEle,*pOldIrq);
+
+#ifndef VXD
+        pRcvElement = CONTAINING_RECORD(pRcvEntry,IRP,Tail.Overlay.ListEntry);
+        CTEIoComplete( (PIRP) pRcvElement, STATUS_CANCELLED,0);
+#else
+        pRcvElement = CONTAINING_RECORD(pRcvEntry, RCV_CONTEXT, ListEntry ) ;
+        CTEIoComplete( ((PRCV_CONTEXT)pRcvEntry)->pNCB, STATUS_CANCELLED, 0);
+#endif
+
+        CTESpinLock(pConnEle,*pOldIrq);
+    }
+
 }
 //----------------------------------------------------------------------------
 NTSTATUS
@@ -2664,6 +2734,7 @@ Return Value:
                                     pConnEle));
                         pWiContext = WiContext;
                         LmHostQueries.Context = NULL;
+                        NTClearContextCancel( pWiContext );
                         status = STATUS_SUCCESS;
                     }
                     else
@@ -2679,7 +2750,7 @@ Return Value:
                         {
                             LOCATION(0x75);
                             IF_DBG(NBT_DEBUG_NAMESRV)
-                            KdPrint(("Nbt:Found NameQuery on Dns/Lmhost Q: pConnEle %X\n",
+                            KdPrint(("Nbt:Found NameQuery on Lmhost Q: pConnEle %X\n",
                                         pConnEle));
 
                         }
@@ -2695,8 +2766,26 @@ Return Value:
 
                             pWiContext = DnsQueries.Context;
                             DnsQueries.Context = NULL;
+                            NTClearContextCancel( pWiContext );
                             status = STATUS_SUCCESS;
 
+                        } else {
+
+                            LOCATION(0x78);
+                            //
+                            // check the list for this tracker
+                            //
+                            status = CheckListForTracker(&DnsQueries.ToResolve,
+                                                         pTracker,
+                                                         &pWiContext);
+                            if (NT_SUCCESS(status))
+                            {
+                                LOCATION(0x79);
+                                IF_DBG(NBT_DEBUG_NAMESRV)
+                                KdPrint(("Nbt:Found NameQuery on Dns Q: pConnEle %X\n",
+                                            pConnEle));
+
+                            }
                         }
 #endif
                     }
@@ -2776,6 +2865,8 @@ Return Value:
             CTESpinLock(pConnEle,*OldIrq);
 
         }
+        else
+            status = STATUS_UNSUCCESSFUL;
     }
     return(status);
 }
@@ -2817,13 +2908,21 @@ Return Value:
     pTracker->Connect.pTimer = NULL;
     if (pTracker->Flags & TRACKER_CANCELLED)
     {
+        CTELockHandle           OldIrq1;
+
         //
         // the the connection setup got cancelled, return the connect irp
         //
+
+        CTESpinLock(pConnEle,OldIrq1);
         if (pIrp = pConnEle->pIrp)
         {
             pConnEle->pIrp = NULL;
+            CTESpinFree(pConnEle,OldIrq1);
+
             CTEIoComplete(pIrp,STATUS_CANCELLED,0);
+        } else {
+            CTESpinFree(pConnEle,OldIrq1);
         }
 
         //
@@ -2868,10 +2967,17 @@ Return Value:
         //
         // tell the client that the session setup failed
         //
+        CTELockHandle           OldIrq1;
+
+        CTESpinLock(pConnEle,OldIrq1);
         if (pIrp = pConnEle->pIrp)
         {
             pConnEle->pIrp = NULL;
+            CTESpinFree(pConnEle,OldIrq1);
+
             CTEIoComplete( pConnEle->pIrp, STATUS_REMOTE_NOT_LISTENING, 0 ) ;
+        } else {
+            CTESpinFree(pConnEle,OldIrq1);
         }
     }
 }
@@ -2908,29 +3014,65 @@ Return Value:
     tCONNECTELE             *pConnEle;
     NTSTATUS                status;
     CTELockHandle           OldIrq;
-    CTELockHandle           OldIrq1;
-    ULONG                   IpAddress;
-    PTA_NETBIOS_ADDRESS     pRemoteAddress;
-    PCHAR                   pToName;
-    USHORT                  sLength;
-    tSESSIONREQ             *pSessionReq = NULL;
-    PUCHAR                  pCopyTo;
-    tCLIENTELE              *pClientEle;
-    LONG                    NameType;
-    tDGRAM_SEND_TRACKING    *pTracker;
-    tNAMEADDR               *pNameAddr;
-    tLOWERCONNECTION        *pLowerConn;
-    tDEVICECONTEXT          *pDeviceContext;
 
 
     pConnEle = pRequest->Handle.ConnectionContext;
+
     //
     // this code handles the When DHCP has not assigned an IP address yet
     //
+
     if (pCallInfo)
     {
-        if (!pConnEle->pClientEle->pDeviceContext->pSessionFileObject)
-        {
+        BOOLEAN fNoIpAddress;
+
+        fNoIpAddress =
+          (!pConnEle->pClientEle->pDeviceContext->pSessionFileObject) ||
+             (pConnEle->pClientEle->pDeviceContext->IpAddress == 0);
+#ifdef RASAUTODIAL
+        if (fNoIpAddress && fAcdLoadedG) {
+            CTELockHandle adirql;
+            BOOLEAN fEnabled;
+
+            //
+            // There is no IP address assigned to the interface,
+            // attempt to create an automatic connection.
+            //
+            CTEGetLock(&AcdDriverG.SpinLock, &adirql);
+            fEnabled = AcdDriverG.fEnabled;
+            CTEFreeLock(&AcdDriverG.SpinLock, adirql);
+            if (fEnabled) {
+                //
+                // Set a special cancel routine on the irp
+                // in case we get cancelled during the
+                // automatic connection.
+                //
+                (VOID)NTSetCancelRoutine(
+                  pIrp,
+                  NbtCancelPreConnect,
+                  pConnEle->pClientEle->pDeviceContext);
+                if (NbtAttemptAutoDial(
+                      pConnEle,
+                      pTimeout,
+                      pCallInfo,
+                      pReturnInfo,
+                      pIrp,
+                      0,
+                      NbtRetryPreConnect))
+                {
+                    return STATUS_PENDING;
+                }
+                //
+                // We did not enqueue the irp on the
+                // automatic connection driver, so
+                // clear the cancel routine we set
+                // above.
+                //
+                (VOID)NTCancelCancelRoutine(pIrp);
+            }
+        }
+#endif // RASAUTODIAL
+        if (fNoIpAddress) {
             return(STATUS_BAD_NETWORK_PATH);
         }
 
@@ -2938,11 +3080,107 @@ Return Value:
         CTEVerifyHandle(pConnEle,NBT_VERIFY_CONNECTION,tCONNECTELE,&status)
 
     }
+    return NbtConnectCommon(pRequest, pTimeout, pCallInfo, pReturnInfo, pIrp);
+}
+
+//----------------------------------------------------------------------------
+NTSTATUS
+NbtConnectCommon(
+    IN  TDI_REQUEST                 *pRequest,
+    IN  PVOID                       pTimeout,
+    IN  PTDI_CONNECTION_INFORMATION pCallInfo,
+    IN  PTDI_CONNECTION_INFORMATION pReturnInfo,
+    IN  PIRP                        pIrp)
+
+/*++
+Routine Description:
+
+    This Routine handles setting up a connection (netbios session) to
+    destination. This routine is also called by the Reconnect code when
+    doing a Retarget or trying to reach a destination that does not have
+    a listen currently posted.  In this case the parameters mean different
+    things.  pIrp could be a new Ipaddress to use (Retarget) and pCallinfo
+    will be null.
+
+Arguments:
+
+
+Return Value:
+
+    TDI_STATUS - status of the request
+
+--*/
+
+{
+    tCONNECTELE             *pConnEle;
+    NTSTATUS                status;
+    CTELockHandle           OldIrq;
+    CTELockHandle           OldIrq1;
+    ULONG                   IpAddress;
+    PCHAR                   pToName;
+    USHORT                  sLength;
+    tSESSIONREQ             *pSessionReq = NULL;
+    PUCHAR                  pCopyTo;
+    tCLIENTELE              *pClientEle;
+    LONG                    NameType;
+    ULONG                   NameLen;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    tNAMEADDR               *pNameAddr;
+    tLOWERCONNECTION        *pLowerConn;
+    tDEVICECONTEXT          *pDeviceContext;
+    NBT_WORK_ITEM_CONTEXT   *pContext;
+    ULONG                   RemoteIpAddress;
+
+
+    pConnEle = pRequest->Handle.ConnectionContext;
     //
     // Acquire this resource to co-ordinate with DHCP changing the IP
     // address
     CTEExAcquireResourceExclusive(&NbtConfig.Resource,TRUE);
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+    CTESpinLock(pConnEle,OldIrq);
+    if ((pConnEle->state != NBT_ASSOCIATED) &&
+       (pConnEle->state != NBT_DISCONNECTED))
+    {
+        // the connection is Idle and is not associated with an address
+        // so reject the connect attempt
+        //
+        status = STATUS_INVALID_DEVICE_REQUEST;
+        goto ExitProc2;
+    }
+
+    pClientEle = pConnEle->pClientEle;
+    CTESpinLock(pClientEle,OldIrq1);
+    if ( pClientEle->Verify != NBT_VERIFY_CLIENT )
+    {
+        if ( pClientEle->Verify == NBT_VERIFY_CLIENT_DOWN )
+        {
+            status = STATUS_CANCELLED;
+        }
+        else
+        {
+            status = STATUS_INVALID_HANDLE;
+        }
+        goto ExitProc;
+    }
+
+    //
+    // BUGBUG - Should be using pDeviceContext lock instead of
+    // NbtConfig.Resource, above.
+    //
+    pDeviceContext = pClientEle->pDeviceContext;
+    //
+    // this code handles the case when DHCP has not assigned an IP address yet
+    //
+    if (
+        ( (pCallInfo) && (!pDeviceContext->pSessionFileObject) )
+        || (pDeviceContext->IpAddress == 0)
+    )
+    {
+        status = STATUS_BAD_NETWORK_PATH;
+        goto ExitProc;
+    }
+
     //
     // check if the Reconnect got cancelled
     //
@@ -2967,49 +3205,18 @@ Return Value:
                 pTracker->RefConn--;
             }
             status = STATUS_CANCELLED;
-            goto ExitProc2;
-        }
-
-    }
-
-
-    if ((pConnEle->state != NBT_ASSOCIATED) &&
-       (pConnEle->state != NBT_DISCONNECTED))
-    {
-        // the connection is Idle and is not associated with an address
-        // so reject the connect attempt
-        //
-        status = STATUS_INVALID_DEVICE_REQUEST;
-        goto ExitProc2;
-    }
-    else
-    {
-        ULONG   NameState;
-
-        // get the ptr to the client record which defines the name of the src
-        // endpoint and check if the name is still valid, since a name conflict
-        // demand could have come in and the name can no longer be used
-        // for sessions.
-        //
-        pClientEle = pConnEle->pClientEle;
-        CTESpinLock(pClientEle,OldIrq1);
-        //
-        // be sure the name is in the correct state for a connection
-        //
-        NameState = pClientEle->pAddress->pNameAddr->NameTypeState;
-        if (NameState & STATE_CONFLICT)
-        {
-            status = STATUS_DUPLICATE_NAME;
             goto ExitProc;
         }
     }
 
-    pDeviceContext = pClientEle->pDeviceContext;
-    if (pDeviceContext->IpAddress == 0)
+    // be sure the name is in the correct state for a connection
+    //
+    if (pClientEle->pAddress->pNameAddr->NameTypeState & STATE_CONFLICT)
     {
-        status = STATUS_BAD_NETWORK_PATH;
+        status = STATUS_DUPLICATE_NAME;
         goto ExitProc;
     }
+
     pConnEle->state = NBT_CONNECTING;
 
     // Increment the ref count so that a cleanup cannot remove
@@ -3025,27 +3232,68 @@ Return Value:
     RemoveEntryList(&pConnEle->Linkage);
     InsertTailList(&pClientEle->ConnectActive,&pConnEle->Linkage);
 
+    // this field is used to hold a disconnect irp if it comes down during
+    // NBT_CONNECTING or NBT_SESSION_OUTBOUND states
+    //
+    pConnEle->pIrpDisc = NULL;
+
     // if null then this is being called to reconnect and the tracker is already
     // setup.
     //
     if (pCallInfo)
     {
+        PTRANSPORT_ADDRESS     pRemoteAddress;
+        PTA_NETBIOS_ADDRESS    pRemoteNetBiosAddress;
+        PTA_NETBIOS_EX_ADDRESS pRemoteNetbiosExAddress;
+        ULONG                  TdiAddressType;
+
         // we must store the client's irp in the connection element so that when
         // the session sets up, we can complete the Irp.
         pConnEle->pIrp = (PVOID)pIrp;
         pConnEle->Orig = TRUE;
         pConnEle->SessionSetupCount = NBT_SESSION_SETUP_COUNT-1; // -1 for this attempt
 
-        pRemoteAddress = (PTA_NETBIOS_ADDRESS)pCallInfo->RemoteAddress;
-        status = GetNetBiosNameFromTransportAddress(
-                                        pRemoteAddress,
-                                        &pToName,
-                                        &NameType);
+        pRemoteAddress = (PTRANSPORT_ADDRESS)pCallInfo->RemoteAddress;
+        TdiAddressType = pRemoteAddress->Address[0].AddressType;
+        pConnEle->pClientEle->AddressType = TdiAddressType;
+        pConnEle->AddressType = TdiAddressType;
+
+        if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+           PTDI_ADDRESS_NETBIOS pNetbiosAddress;
+
+           pRemoteNetbiosExAddress = (PTA_NETBIOS_EX_ADDRESS)pRemoteAddress;
+
+           CTEMemCopy(pConnEle->pClientEle->EndpointName,
+                      pRemoteNetbiosExAddress->Address[0].Address[0].EndpointName,
+                      sizeof(pRemoteNetbiosExAddress->Address[0].Address[0].EndpointName));
+
+           IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NetBt:Handling New Address Type with SessionName %16s\n",
+                       pConnEle->pClientEle->EndpointName));
+
+           pNetbiosAddress = &pRemoteNetbiosExAddress->Address[0].Address[0].NetbiosAddress;
+           pToName  = pNetbiosAddress->NetbiosName;
+           NameType = pNetbiosAddress->NetbiosNameType;
+           NameLen  = pRemoteNetbiosExAddress->Address[0].AddressLength -
+                      FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,NetbiosAddress) -
+                      FIELD_OFFSET(TDI_ADDRESS_NETBIOS,NetbiosName);
+           IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NetBt:NETBIOS address NameLen(%ld) Name %16s\n",NameLen,pToName));
+           status = STATUS_SUCCESS;
+        } else if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS) {
+              pRemoteNetBiosAddress = (PTA_NETBIOS_ADDRESS)pRemoteAddress;
+              status = GetNetBiosNameFromTransportAddress(
+                                              pRemoteNetBiosAddress,
+                                              &pToName,
+                                              &NameLen,
+                                              &NameType);
+        } else {
+           status = STATUS_INVALID_ADDRESS_COMPONENT;
+        }
+
         if(!NT_SUCCESS(status))
         {
-
             pConnEle->state = NBT_ASSOCIATED;
-            status = STATUS_BAD_NETWORK_PATH;
             goto ExitProc1;
         }
 
@@ -3058,18 +3306,30 @@ Return Value:
             goto ExitProc1;
         }
 
+        IF_DBG(NBT_DEBUG_NETBIOS_EX)
+            KdPrint(("NbtConnectCommon:Tracker %lx\n",pTracker));
 
         // save this in case we need to do a reconnect later and need the
         // destination name again.
-        pTracker->SendBuffer.pBuffer = pToName;
+        pTracker->SendBuffer.pBuffer = NbtAllocMem(NameLen,NBT_TAG('F'));
+        if (!pTracker->SendBuffer.pBuffer)
+        {
+            pConnEle->state = NBT_ASSOCIATED;
+            FreeTracker(pTracker,FREE_HDR | RELINK_TRACKER);
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto ExitProc1;
+        }
+        CTEMemCopy(pTracker->SendBuffer.pBuffer,pToName,NameLen);
+
         CHECK_PTR(&pTracker);
-        pTracker->SendBuffer.Length = 0;
+        pTracker->SendBuffer.Length = NameLen;
         pTracker->pClientIrp = pIrp;
         pTracker->RefConn = 1;
+        pTracker->Flags = SESSION_SETUP_FLAG;
 
 
         CTESpinFree(pClientEle,OldIrq1);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        CTESpinFree(pConnEle,OldIrq);
 
         pTracker->Connect.pDeviceContext = pDeviceContext;
         pTracker->Connect.pConnEle       = (PVOID)pConnEle;
@@ -3081,7 +3341,7 @@ Return Value:
         // is overwritten when the name resolves, so that it points the the
         // pNameAddr in the hash table.
         //
-        pTracker->Connect.pDestName    = pToName;
+        pTracker->Connect.pDestName    = pTracker->SendBuffer.pBuffer;
 
         // the timeout value is passed on through to the transport
         pTracker->Connect.pTimeout = pTimeout;
@@ -3093,7 +3353,11 @@ Return Value:
                                     + (NbtConfig.ScopeLength <<1);
 
         status = STATUS_INSUFFICIENT_RESOURCES ;
-        pSessionReq = (tSESSIONREQ *)CTEAllocMem(sLength);
+        pSessionReq = (tSESSIONREQ *)NbtAllocMem(sLength,NBT_TAG('G'));
+        if (!pSessionReq)
+        {
+            goto NbtConnect_Error;
+        }
 
         pTracker->SendBuffer.pDgramHdr = pSessionReq;
 
@@ -3112,15 +3376,10 @@ Return Value:
         // retry the connection.
         pTracker = (tDGRAM_SEND_TRACKING *)pReturnInfo;
         pTracker->RefConn++;
+        NameLen = NETBIOS_NAME_SIZE;
         CTESpinFree(pClientEle,OldIrq1);
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        CTESpinFree(pConnEle,OldIrq);
     }
-
-    // this field is used to hold a disconnect irp if it comes down during
-    // NBT_CONNECTING or NBT_SESSION_OUTBOUND states
-    //
-    CHECK_PTR(pConnEle);
-    pConnEle->pIrpDisc = NULL;
 
     // for the reconnect case a null pCallInfo gets us into this If
     if (!pCallInfo || pSessionReq)
@@ -3128,6 +3387,14 @@ Return Value:
 
         if (pCallInfo)
         {
+            PCHAR pSessionName;
+
+            if (pConnEle->pClientEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+               pSessionName = pConnEle->pClientEle->EndpointName;
+            } else {
+               pSessionName = pToName;
+            }
+
             pSessionReq->Hdr.Type   = NBT_SESSION_REQUEST;
             pSessionReq->Hdr.Flags  = NBT_SESSION_FLAGS;
             pSessionReq->Hdr.Length = (USHORT)htons(sLength- (USHORT)sizeof(tSESSIONHDR));  // size of called and calling NB names.
@@ -3136,7 +3403,7 @@ Return Value:
 
             // put the Dest HalfAscii name into the Session Pdu
             pCopyTo = ConvertToHalfAscii( (PCHAR)&pSessionReq->CalledName.NameLength,
-                                pToName,
+                                pSessionName,
                                 NbtConfig.pScope,
                                 NbtConfig.ScopeLength);
 
@@ -3146,7 +3413,9 @@ Return Value:
                                 NbtConfig.pScope,
                                 NbtConfig.ScopeLength);
 
+
         }
+
 
         // open a connection with the transport for this session
         status = TdiOpenandAssocConnection(
@@ -3191,11 +3460,13 @@ Return Value:
                 // connection.
                 //
                 CTESpinLock(pDeviceContext,OldIrq1);
-                if (!IsListEmpty(&pDeviceContext->LowerConnFreeHead))
+                if (!pConnEle->LowerConnBlockRemoved &&
+                    !IsListEmpty(&pDeviceContext->LowerConnFreeHead))
                 {
                     pEntry = RemoveHeadList(&pDeviceContext->LowerConnFreeHead);
                     pLowerDump = CONTAINING_RECORD(pEntry,tLOWERCONNECTION,Linkage);
 
+                    pConnEle->LowerConnBlockRemoved = TRUE;
                     CTESpinFree(pDeviceContext,OldIrq1);
 
                     //
@@ -3207,8 +3478,8 @@ Return Value:
 #else
                     KdPrint(("Nbt:Closing Handle %X -> %X\n",pLowerDump,pLowerDump->pFileObject));
 #endif
-                    NTDereferenceObject((PVOID *)pLowerDump->pFileObject);
-                    NbtTdiCloseConnection(pLowerDump);
+                    //NTDereferenceObject((PVOID *)pLowerDump->pFileObject);
+                    //NbtTdiCloseConnection(pLowerDump);
 
                     NbtDereferenceLowerConnection(pLowerDump);
                 }
@@ -3223,7 +3494,7 @@ Return Value:
             {
                 // the original "ToName" was stashed in this unused
                 // ptr! - for the Reconnect case
-                pToName = pTracker->SendBuffer.pBuffer;
+                pToName = pTracker->Connect.pConnEle->RemoteName;
                 // the pNameAddr part of pTracker(pDestName) needs to pt. to
                 // the name so that SessionSetupContinue can find the name
                 pTracker->Connect.pDestName = pToName;
@@ -3233,13 +3504,89 @@ Return Value:
             //
             // find the destination IP address
             //
-            status = FindNameOrQuery(pTracker,
-                                     pToName,
-                                     pDeviceContext,
-                                     SessionSetupContinue,
-                                     &pConnEle->pTracker,
-                                     TRUE,
-                                     &pNameAddr);
+
+            //
+            // if the name is longer than 16 bytes, it's not a netbios name.
+            // skip wins, broadcast etc. and go straight to dns resolution
+            //
+
+            if (pConnEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+                RemoteIpAddress = Nbt_inet_addr(pToName);
+            } else {
+                RemoteIpAddress = 0;
+            }
+
+            if (RemoteIpAddress != 0) {
+               tNAMEADDR *pRemoteNameAddr;
+
+               //
+               // add this server name to the remote hashtable
+               //
+
+               pRemoteNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('8'));
+               if (pRemoteNameAddr != NULL)
+               {
+                  tNAMEADDR *pTableAddress;
+
+                  CTEZeroMemory(pRemoteNameAddr,sizeof(tNAMEADDR));
+                  InitializeListHead(&pRemoteNameAddr->Linkage);
+                  CTEMemCopy(pRemoteNameAddr->Name,pToName,NETBIOS_NAME_SIZE);
+                  pRemoteNameAddr->Verify = REMOTE_NAME;
+                  pRemoteNameAddr->RefCount = 1;
+                  pRemoteNameAddr->NameTypeState = STATE_RESOLVED | NAMETYPE_UNIQUE;
+                  pRemoteNameAddr->AdapterMask = (CTEULONGLONG)-1;
+                  pRemoteNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+                  pRemoteNameAddr->IpAddress = RemoteIpAddress;
+
+                  status = AddToHashTable(
+                                  NbtConfig.pRemoteHashTbl,
+                                  pRemoteNameAddr->Name,
+                                  NbtConfig.pScope,
+                                  0,
+                                  0,
+                                  pRemoteNameAddr,
+                                  &pTableAddress);
+
+                  IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                     KdPrint(("NbtConnectCommon ...AddRecordToHashTable %s Status %lx\n",pRemoteNameAddr->Name,status));
+               } else {
+                  status = STATUS_INSUFFICIENT_RESOURCES;
+               }
+
+               if (status == STATUS_SUCCESS) {
+                   SessionSetupContinue(pTracker,status);
+                   status = STATUS_PENDING;
+               }
+            } else {
+//                if ((pConnEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) ||
+//                    (NameLen > NETBIOS_NAME_SIZE)) {
+               if (NameLen > NETBIOS_NAME_SIZE) {
+                   pTracker->AddressType = pConnEle->AddressType;
+                   if (pConnEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+                      IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                          KdPrint(("$$$$$ Avoiding NETBIOS name translation on connection to %16s\n",pConnEle->RemoteName));
+                   }
+                   pContext = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('H'));
+                   if (!pContext)
+                   {
+                       KdPrint(("Nbt: NbtConnect: couldn't alloc mem for pContext\n"));
+                       goto NbtConnect_Error;
+                   }
+
+                   pContext->pTracker = NULL;              // no query tracker
+                   pContext->pClientContext = pTracker;    // the client tracker
+                   pContext->ClientCompletion = SessionSetupContinue;
+                   status = DoDnsResolve(pContext);
+                } else {
+                   status = FindNameOrQuery(pTracker,
+                                            pToName,
+                                            pDeviceContext,
+                                            SessionSetupContinue,
+                                            &pConnEle->pTracker,
+                                            TRUE,
+                                            &pNameAddr);
+                }
+            }
 
             if (status == STATUS_SUCCESS)
             {
@@ -3279,7 +3626,8 @@ Return Value:
                     status = STATUS_CANCELLED;
                 }
                 else
-                if (pNameAddr->NameTypeState & NAMETYPE_UNIQUE )
+                if ((pNameAddr->NameTypeState & NAMETYPE_UNIQUE ) ||
+                    (NodeType & BNODE))
                 {
                     // set the session state to NBT_CONNECTING
                     CHECK_PTR(((tCONNECTELE *)pTracker->Connect.pConnEle));
@@ -3311,7 +3659,26 @@ Return Value:
                     // call the completion routine which will look after
                     // cleaning up
                     //
+
                     CTEExReleaseResource(&NbtConfig.Resource);
+
+#ifdef RASAUTODIAL
+                    //
+                    // Notify the automatic connection driver
+                    // of the successful connection.
+                    //
+                    if (fAcdLoadedG && NT_SUCCESS(status)) {
+                        CTELockHandle adirql;
+                        BOOLEAN fEnabled;
+
+                        CTEGetLock(&AcdDriverG.SpinLock, &adirql);
+                        fEnabled = AcdDriverG.fEnabled;
+                        CTEFreeLock(&AcdDriverG.SpinLock, adirql);
+                        if (fEnabled)
+                            NbtNoteNewConnection(pConnEle, pNameAddr);
+                    }
+#endif // RASAUTODIAL
+
                     return(status);
                 }
                 else
@@ -3337,6 +3704,9 @@ Return Value:
         }
 
     }
+
+
+NbtConnect_Error:
 
     //
     // *** Error Handling Here ***
@@ -3370,10 +3740,9 @@ Return Value:
         // need to increment the ref count for CleanupAfterDisconnect to
         // work correctly since it assumes the connection got fully connected
         //
-        CTEInterlockedIncrementLong(&pLowerConn->RefCount,
-                                   &pLowerConn->SpinLock);
+        CTEInterlockedIncrementLong(&pLowerConn->RefCount);
         ASSERT(pLowerConn->RefCount == 2);
-#ifndef VXD
+#if !defined(VXD) && DBG
         //
         // DEBUG to catch upper connections being put on lower conn QUEUE
         //
@@ -3387,7 +3756,8 @@ Return Value:
         (void) CTEQueueForNonDispProcessing( NULL,
                                              pLowerConn,
                                              NULL,
-                                             CleanupAfterDisconnect);
+                                             CleanupAfterDisconnect,
+                                             pLowerConn->pDeviceContext);
 
     }
     else
@@ -3418,11 +3788,101 @@ ExitProc1:
 ExitProc:
     CTESpinFree(pClientEle,OldIrq1);
 ExitProc2:
-    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    CTESpinFree(pConnEle,OldIrq);
     CTEExReleaseResource(&NbtConfig.Resource);
     return(status);
 
 
+}
+
+//----------------------------------------------------------------------------
+VOID
+CleanUpPartialConnection(
+    IN NTSTATUS             status,
+    IN tCONNECTELE          *pConnEle,
+    IN tDGRAM_SEND_TRACKING *pTracker,
+    IN PIRP                 pClientIrp,
+    IN CTELockHandle        irqlJointLock,
+    IN CTELockHandle        irqlConnEle
+    )
+{
+    CTELockHandle OldIrq;
+    CTELockHandle OldIrq1;
+    PIRP pIrpDisc;
+
+    //
+    // we had allocated this in nbtconnect
+    //
+    if (pTracker->SendBuffer.pBuffer)
+    {
+        CTEFreeMem(pTracker->SendBuffer.pBuffer);
+        pTracker->SendBuffer.pBuffer = NULL;
+    }
+
+    FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR);
+
+    if (pConnEle->state != NBT_IDLE)
+    {
+        pConnEle->state = NBT_ASSOCIATED;
+    }
+
+    CTESpinFree(pConnEle,irqlConnEle);
+    CTESpinFree(&NbtConfig.JointLock,irqlJointLock);
+
+    //
+    // If the tracker is cancelled then NbtDisconnect has run and there is
+    // a disconnect irp waiting to be returned.
+    //
+    pIrpDisc = NULL;
+    if (pTracker->Flags & TRACKER_CANCELLED)
+    {
+        //
+        // Complete the disconnect irp now too
+        //
+        pIrpDisc = pConnEle->pIrpDisc;
+
+        status = STATUS_CANCELLED;
+    }
+
+    //
+    // this will close the lower connection and dereference pConnEle once.
+    //
+    QueueCleanup(pConnEle);
+
+    //
+    // If the state is IDLE it means that NbtCleanupConnection has run and
+    // the connection has been removed from the  list so don't add it to
+    // the list again
+    //
+    CTESpinLock(pConnEle,irqlConnEle);
+    if (pConnEle->state != NBT_IDLE)
+    {
+        RelistConnection(pConnEle);
+    }
+    CTESpinFree(pConnEle,irqlConnEle);
+
+    //
+    // remove the last reference added in nbt connect.  The refcount will be 2
+    // if nbtcleanupconnection has not run and 1, if it has.  So this call
+    // could free pConnEle.
+    //
+    NbtDereferenceConnection(pConnEle);
+
+    if (status == STATUS_TIMEOUT)
+    {
+        status = STATUS_BAD_NETWORK_PATH;
+    }
+
+    CTEIoComplete(pClientIrp,status,0L);
+
+    //
+    // This is a disconnect irp that has been queued till the name query
+    // completed
+    //
+    if (pIrpDisc)
+    {
+        CTEIoComplete(pIrpDisc,STATUS_SUCCESS,0L);
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -3474,7 +3934,9 @@ Return Values:
     CTESpinLock(pConnEle,OldIrq);
     pLowerConn = pConnEle->pLowerConnId;
 
-    if ((status == STATUS_SUCCESS) && !(pTracker->Flags & TRACKER_CANCELLED))
+    TrackerCancelled = pTracker->Flags & TRACKER_CANCELLED;
+
+    if (status == STATUS_SUCCESS && !TrackerCancelled)
     {
         // this is the QueryOnNet Tracker ptr being cleared rather than the
         // session setup tracker.
@@ -3501,7 +3963,7 @@ Return Values:
             }
 
             // a session can only be started with a unique named destination
-            if (lNameType & NAMETYPE_UNIQUE )
+            if ((lNameType & NAMETYPE_UNIQUE ) || (NodeType & BNODE))
             {
                 // set the session state, initialize a few things and setup a
                 // TCP connection, calling SessionStartupContinue when the TCP
@@ -3550,85 +4012,72 @@ Return Values:
                 // part of the code has disconnected and cleanedup, so
                 // just return
                 //
+
+#ifdef RASAUTODIAL
+                //
+                // Notify the automatic connection driver
+                // of the successful connection.
+                //
+                if (fAcdLoadedG && NT_SUCCESS(status)) {
+                    CTELockHandle adirql;
+                    BOOLEAN fEnabled;
+
+                    CTEGetLock(&AcdDriverG.SpinLock, &adirql);
+                    fEnabled = AcdDriverG.fEnabled;
+                    CTEFreeLock(&AcdDriverG.SpinLock, adirql);
+                    if (fEnabled)
+                        NbtNoteNewConnection(pConnEle, pNameAddr);
+                }
+#endif // RASAUTODIAL
+
                 return;
 
             }
 
         }
-        else
-            status = STATUS_BAD_NETWORK_PATH;
+        status = STATUS_BAD_NETWORK_PATH;
     }
 
     pClientIrp = pConnEle->pIrp;
     pConnEle->pIrp = NULL;
 
-    TrackerCancelled = pTracker->Flags & TRACKER_CANCELLED;
-
-    FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR);
-
-    if (pConnEle->state != NBT_IDLE)
+#ifdef RASAUTODIAL
+    //
+    // Before we return an error, give this
+    // address to the automatic connection driver
+    // to see if it can create a new network
+    // connection.
+    //
+    if (fAcdLoadedG &&
+        !TrackerCancelled &&
+        status == STATUS_BAD_NETWORK_PATH)
     {
-        pConnEle->state = NBT_ASSOCIATED;
+        CTELockHandle adirql;
+        BOOLEAN fEnabled;
+
+        CTEGetLock(&AcdDriverG.SpinLock, &adirql);
+        fEnabled = AcdDriverG.fEnabled;
+        CTEFreeLock(&AcdDriverG.SpinLock, adirql);
+        if (fEnabled &&
+            NbtAttemptAutoDial(
+              pConnEle,
+              pTracker->Connect.pTimeout,
+              NULL,
+              (PTDI_CONNECTION_INFORMATION)pTracker,
+              pClientIrp,
+              0,
+              NbtRetryPostConnect))
+        {
+            CTESpinFree(pConnEle,OldIrq);
+            CTESpinFree(&NbtConfig.JointLock,OldIrq1);
+            return;
+        }
     }
+#endif // RASAUTODIAL
 
-    CTESpinFree(pConnEle,OldIrq);
-    CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-
-    //
-    // If the tracker is cancelled then NbtDisconnect has run and there is
-    // a disconnect irp waiting to be returned.
-    //
-    pIrpDisc = NULL;
-    if (TrackerCancelled)
-    {
-        //
-        // Complete the disconnect irp now too
-        //
-        pIrpDisc = pConnEle->pIrpDisc;
-
-        status = STATUS_CANCELLED;
-    }
-
-    //
-    // this will close the lower connection and dereference pConnEle once.
-    //
-    QueueCleanup(pConnEle);
-
-    //
-    // If the state is IDLE it means that NbtCleanupConnection has run and
-    // the connection has been removed from the  list so don't add it to
-    // the list again
-    //
-    CTESpinLock(pConnEle,OldIrq);
-    if (pConnEle->state != NBT_IDLE)
-    {
-        RelistConnection(pConnEle);
-    }
-    CTESpinFree(pConnEle,OldIrq);
-
-    //
-    // remove the last reference added in nbt connect.  The refcount will be 2
-    // if nbtcleanupconnection has not run and 1, if it has.  So this call
-    // could free pConnEle.
-    //
-    NbtDereferenceConnection(pConnEle);
-
-    if (status == STATUS_TIMEOUT)
-    {
-        status = STATUS_BAD_NETWORK_PATH;
-    }
-
-    CTEIoComplete(pClientIrp,status,0L);
-    //
-    // This is a disconnect irp that has been queued till the name query
-    // completed
-    //
-    if (pIrpDisc)
-    {
-        CTEIoComplete(pIrpDisc,STATUS_SUCCESS,0L);
-    }
-
+    CleanUpPartialConnection(status, pConnEle, pTracker, pClientIrp, OldIrq1, OldIrq);
 }
+
 //----------------------------------------------------------------------------
 VOID
 QueueCleanup(
@@ -3654,6 +4103,7 @@ Return Values:
     NTSTATUS         status;
     CTELockHandle    OldIrq;
     CTELockHandle    OldIrq1;
+    CTELockHandle    OldIrq2;
     ULONG            State;
     BOOLEAN          DerefConnEle;
     tLOWERCONNECTION *pLowerConn;
@@ -3672,6 +4122,7 @@ Return Values:
            (pLowerConn->State > NBT_IDLE) &&
            (pLowerConn->State < NBT_DISCONNECTING))
         {
+            CTESpinLock(pConnEle,OldIrq2);
             CTESpinLock(pLowerConn,OldIrq);
 
             IF_DBG(NBT_DEBUG_DISCONNECT)
@@ -3684,7 +4135,11 @@ Return Values:
 
             pLowerConn->State = NBT_DISCONNECTING;
 
-            pConnEle->state = NBT_DISCONNECTED;
+            if (pConnEle->state != NBT_IDLE)
+            {
+                pConnEle->state = NBT_DISCONNECTED;
+            }
+
             pConnEle->pLowerConnId       = NULL;
             pLowerConn->pUpperConnection = NULL;
 
@@ -3702,7 +4157,7 @@ Return Values:
 
 
 
-    #ifndef VXD
+#if !defined(VXD) && DBG
             //
             // DEBUG to catch upper connections being put on lower conn QUEUE
             //
@@ -3711,8 +4166,9 @@ Return Values:
             {
                 DbgBreakPoint();
             }
-    #endif
+#endif
             CTESpinFree(pLowerConn,OldIrq);
+            CTESpinFree(pConnEle,OldIrq2);
             CTESpinFree(&NbtConfig.JointLock,OldIrq1);
 
             //
@@ -3725,7 +4181,8 @@ Return Values:
                                            NULL,
                                            pLowerConn,
                                            NULL,
-                                           CleanupAfterDisconnect);
+                                           CleanupAfterDisconnect,
+                                           pLowerConn->pDeviceContext);
         }
         else
         {
@@ -3852,6 +4309,16 @@ Return Values:
     pConnEle = (tCONNECTELE *)pTracker->Connect.pConnEle;
 
     CTESpinLock(&NbtConfig.JointLock,OldIrq1);
+
+    //
+    // we had allocated this in nbtconnect: we don't need anymore, free it
+    //
+    if (pTracker->SendBuffer.pBuffer)
+    {
+        CTEFreeMem(pTracker->SendBuffer.pBuffer);
+        pTracker->SendBuffer.pBuffer = NULL;
+    }
+
     //
     // remove the reference done with FindNameOrQuery was called, or when
     // SessionSetupContinue ran
@@ -3959,68 +4426,6 @@ Return Values:
         // get this if the destination does not have NBT running at all. This
         // is a short timeout - 250 milliseconds, times 3.
         //
-#if 0
-        if (status == STATUS_REMOTE_NOT_LISTENING)
-        {
-            tDGRAM_SEND_TRACKING        *pTracker;
-
-            // try the connection setup again after a timeout
-            //
-            if (pConnEle->SessionSetupCount--)
-            {
-                tTIMERQENTRY    *pTimerEntry;
-
-                {
-                    //
-                    // This connection is not connected, so set the state to
-                    // disconnected so that SessionRetry will find the connection
-                    // disconnected and retry the session setup correctly.
-                    //
-                    pConnEle->state = NBT_DISCONNECTED;
-
-                    pTracker = (tDGRAM_SEND_TRACKING *)pConnEle->pIrpRcv;
-                    status = StartTimer(
-                                      NbtConfig.uRetryTimeout,
-                                      (PVOID)pConnEle,       // context value
-                                      NULL,            // context2 value
-                                      SessionRetry,
-                                      pTracker,
-                                      SessionSetupContinue,
-                                      NbtConfig.uNumRetries,
-                                      &pTimerEntry);
-
-                    IF_DBG(NBT_DEBUG_NAMESRV)
-                    KdPrint(("Nbt:Remote not listening, retry Tcp connection %X,\n",
-                            pConnEle));
-
-                    //
-                    // set up a cancel routine to cancel the irp, to handle the
-                    // case where the destination never sends a Nbt session response
-                    // pdu
-                    //
-                    if (NT_SUCCESS(status))
-                    {
-                        pTracker->Connect.pTimer = pTimerEntry;
-                        CTESpinFree(pConnEle,OldIrq);
-                        CTESpinFree(&NbtConfig.JointLock,OldIrq1);
-                        //
-                        // no need to dereference the connection here since we are keeping
-                        // it around for another try when the timer times out.
-                        //
-
-                        return;
-                    }
-                }
-            }
-            else
-            {
-                // set the state to this so that the QueueCleanup code
-                // below runs to close the lower connection.
-                pConnEle->state = NBT_CONNECTING;
-            }
-
-        }
-#endif
     }
 
     //
@@ -4083,10 +4488,31 @@ Return Values:
         pIrpDisc = pConnEle->pIrpDisc;
         status = STATUS_CANCELLED;
     }
-    else
-    {
-        QueueCleanup(pConnEle);
+
+    // Cache the fact that an attempt to set up a TDI connection failed. This will enable us to
+    // weed out repeated attempts on the same remote address. The only case that is exempt is a
+    // NETBIOS name which we let it pass through because it adopts a different name resolution
+    // mechanism.
+
+    if (pConnEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+        IF_DBG(NBT_DEBUG_NETBIOS_EX)
+           KdPrint(("NETBT@@@ Will avoid repeated attempts on a nonexistent address\n"));
+        pConnEle->RemoteNameDoesNotExistInDNS = TRUE;
     }
+
+#ifndef VXD
+    if (status == STATUS_CONNECTION_REFUSED || status == STATUS_IO_TIMEOUT)
+    {
+        status = STATUS_BAD_NETWORK_PATH;
+    }
+#else
+    if (status == TDI_CONN_REFUSED || status == TDI_TIMED_OUT)
+    {
+        status = STATUS_BAD_NETWORK_PATH;
+    }
+#endif
+
+    QueueCleanup(pConnEle);
 
     //
     // put back on the idle connection list if nbtcleanupconnection has not
@@ -4349,6 +4775,7 @@ Return Value:
 
         pConnEle = pTracker->Connect.pConnEle;
         pLowerConn = pConnEle->pLowerConnId;
+        pTracker->Connect.pTimer = NULL;
 
         IF_DBG(NBT_DEBUG_DISCONNECT)
         KdPrint(("Nbt:Session Timed Out, UpperState=%X,,pConnEle=%X\n",
@@ -4551,7 +4978,7 @@ Return Value:
 
     pClientEle = (tCLIENTELE *)pConnEle->pClientEle;
 
-    pListenReq = CTEAllocMem(sizeof(tLISTENREQUESTS));
+    pListenReq = NbtAllocMem(sizeof(tLISTENREQUESTS),NBT_TAG('I'));
 
     if (!pListenReq)
     {
@@ -4690,6 +5117,7 @@ Return Value:
     //
 
     pLowerConn = pConnEle->pLowerConnId;
+
     //
     // a disconnect wait is not really a disconnect, it is just there so that
     // when a disconnect occurs, the transport will complete it, and indicate
@@ -4758,6 +5186,11 @@ Return Value:
 
                     CTESpinFree(pConnEle,OldIrq2);
                     CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+                    CTESpinLock(pConnEle,OldIrq);
+                    FreeRcvBuffers(pConnEle,&OldIrq);
+                    CTESpinFree(pConnEle,OldIrq);
+
                     return(STATUS_SUCCESS);
 
                 case NBT_SESSION_OUTBOUND:
@@ -4988,7 +5421,6 @@ Return Value:
             else
                 CTESpinFree(pLowerConn,OldIrq);
 
-
             //
             // check if there is still data waiting in the transport for this end point
             // and if so do an abortive disconnect to let the other side know that something
@@ -5014,6 +5446,10 @@ Return Value:
     }
 
     ASSERT(pConnEle->RefCount > 0);
+
+    CTESpinLock(pConnEle,OldIrq);
+    FreeRcvBuffers(pConnEle,&OldIrq);
+    CTESpinFree(pConnEle,OldIrq);
 
     if (RelistIt)
     {
@@ -5122,7 +5558,6 @@ Return Value:
                         TimeVal,Flags));
 #endif
 
-#ifndef VXD
                 // in the case where CleanupAddress calls cleanupConnection
                 // which calls nbtdisconnect, we do not have an irp to wait
                 // on so pass a flag down to TdiDisconnect to do a synchronous
@@ -5130,6 +5565,7 @@ Return Value:
                 //
                 status = TcpDisconnect(pTracker,Timeout,Flags,Wait);
 
+#ifndef VXD
                 if (Wait)
                 {
                     // we need to call disconnect done now
@@ -5139,10 +5575,17 @@ Return Value:
                 }
 #else
                 //
-                //  Vnbt Netbios never waits for the lower connection to
-                //  disconnect, it deals only with upper connections
+                // if the disconnect is abortive, transport doesn't call us
+                // back so let's call DisconnectDone so that the lowerconn gets
+                // cleaned up properly! (Wait parm is of no use in vxd)
                 //
-                status = TcpDisconnect(pTracker,Timeout,Flags,FALSE);
+                if (Flags == TDI_DISCONNECT_ABORT)
+                {
+                    // we need to call disconnect done now
+                    // to free the tracker and cleanup the connection
+                    //
+                    DisconnectDone(pTracker,STATUS_SUCCESS,0);
+                }
 #endif
             }
             else
@@ -5183,6 +5626,7 @@ Return Values:
 {
     tCONNECTELE  *pConnectEle;
     NTSTATUS     status;
+    CTELockHandle OldIrq;
 
     // get the client object associated with this connection
     pConnectEle = (tCONNECTELE *)pRequest->Handle.ConnectionContext;
@@ -5192,6 +5636,8 @@ Return Values:
     //
     // a Listen has completed
     //
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    CTESpinLockAtDpc(pConnectEle);
     if (pConnectEle->state == NBT_SESSION_WAITACCEPT)
     {
         tLOWERCONNECTION    *pLowerConn;
@@ -5207,6 +5653,9 @@ Return Values:
         pLowerConn->StateRcv = NORMAL;
         SetStateProc( pLowerConn, Normal ) ;
 
+        CTESpinFreeAtDpc(pConnectEle);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
         status = TcpSendSessionResponse(
                     pLowerConn,
                     NBT_POSITIVE_SESSION_RESPONSE,
@@ -5219,7 +5668,11 @@ Return Values:
 
     }
     else
+    {
         status = STATUS_UNSUCCESSFUL;
+        CTESpinFreeAtDpc(pConnectEle);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
 
     return(status);
 
@@ -5268,7 +5721,7 @@ Return Values:
 
     pAddressEle = pClientEle->pAddress;
 
-    pRcvEle = (tRCVELE *)CTEAllocMem(sizeof(tRCVELE));
+    pRcvEle = (tRCVELE *)NbtAllocMem(sizeof(tRCVELE),NBT_TAG('J'));
     if (!pRcvEle)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -5280,7 +5733,7 @@ Return Values:
     pRcvEle->RcvLength = ReceiveLength;
     pRcvEle->pRcvBuffer = pBuffer;
 
-    CTESpinLock(pClientEle,OldIrq);
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     //
     // tack the receive on to the client element for later use
     //
@@ -5294,7 +5747,7 @@ Return Values:
     else
         status = STATUS_PENDING;
 
-    CTESpinFree(pClientEle,OldIrq);
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
     IF_DBG(NBT_DEBUG_NAMESRV)
     KdPrint(("Nbt:RcvDgram posted (pIrp) %X \n",pIrp));
@@ -5364,10 +5817,11 @@ Return Values:
         // are group names, and NbtConnect will not allow a session to a group
         // name.
         status = STATUS_INSUFFICIENT_RESOURCES ;
-        pNameAddr = CTEAllocMem(sizeof(tNAMEADDR));
+        pNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('K'));
 
         if (pNameAddr)
         {
+            CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
             CTEMemCopy( pNameAddr->Name, pName, NETBIOS_NAME_SIZE ) ;
             pNameAddr->IpAddress     = pDeviceContext->BroadcastAddress;
             pNameAddr->NameTypeState = NAMETYPE_GROUP | STATE_RESOLVED;
@@ -5398,22 +5852,23 @@ Return Values:
     {
         // The pdu is all made up and ready to go except that we don't know
         // the destination IP address yet, so check in the local then remote
-        // table for the ip address.  For internet group names, do not check
-        // the local table because if we find it there we won't do a name
-        // query to the server to get all other members.  Since a 1C name
-        // also gets broadcast on the subnet, the local client(s) will see it
-        // always.
+        // table for the ip address.
         //
         pNameAddr = NULL;
-        if ((pName[NETBIOS_NAME_SIZE-1] != 0x1C) )
+
+        //
+        // Dont check local cache for 1C names, to force a WINS query; so we find other
+        // DCs even if we have a local DC running.
+        //
+        if ((pName[NETBIOS_NAME_SIZE-1] != 0x1c) )
         {
             status = FindInHashTable(NbtConfig.pLocalHashTbl,
                                     pName,
                                     NbtConfig.pScope,
                                     &pNameAddr);
-        }
-        else
+        } else {
             status = STATUS_UNSUCCESSFUL;
+        }
 
         // check the remote table now if not found, or if it was found in
         // conflict in the local table, or if it was found and its a group name
@@ -5512,18 +5967,32 @@ Return Values:
             //
             if  ( pTracker->pDestName[NETBIOS_NAME_SIZE-1] == 0x1c
 
-// 1c hack for vxd not needed anymore (this part never worked anyway!)
-#if 0
-#ifdef VXD
-                  || pTracker->pDestName[NETBIOS_NAME_SIZE-1] == 0x00
-#endif
-#endif
                 )
             {
-                pTracker->p1CNameAddr = FindInDomainList(pTracker->pDestName,&DomainNames.DomainList);
-                if (pTracker->p1CNameAddr)
-                {
+                tNAMEADDR *pNameHdr;
+
+                //
+                // If the 1CNameAddr field is NULL here, we overwrite the pConnEle element (which is
+                // a union in the tracker). We check for NULL here and fail the request.
+                //
+                if (pNameHdr = FindInDomainList(pTracker->pDestName,&DomainNames.DomainList)) {
+                    pTracker->p1CNameAddr = pNameHdr;
                     pTracker->p1CNameAddr->RefCount++;
+                } else {
+                    pTracker->p1CNameAddr = NULL;
+
+                    //
+                    // Fail all connect attempts to 1C names.
+                    //
+                    if (pTracker->Flags & SESSION_SETUP_FLAG) {
+                        KdPrint(("Session setup: p1CNameAddr was NULL\n"));
+#if DBG
+                        if (NodeType & BNODE) {
+                            ASSERT(FALSE);
+                        }
+#endif
+                        status = STATUS_UNEXPECTED_NETWORK_ERROR;
+                    }
                 }
 
             }
@@ -5767,7 +6236,9 @@ Return Values:
     ULONG                   lNameType;
     tNAMEADDR               *pNameAddr;
     tDGRAM_SEND_TRACKING    *pTracker;
-    PCHAR                   pName;
+    PCHAR                   pName,pSourceName;
+    ULONG                   NameLen;
+    LONG                    NameType;
     ULONG                   SendCount;
 
 
@@ -5784,18 +6255,56 @@ Return Values:
     pClientEle = (tCLIENTELE *)pRequest->Handle.AddressHandle;
     CTEVerifyHandle(pClientEle,NBT_VERIFY_CLIENT,tCLIENTELE,&status);
 
-    // don't need spin lock because the client can't close this address
-    // since they are in this call and the handle has a reference count > 0
-    //
-    //pClientEle->RefCount++;
+    {
+        PTRANSPORT_ADDRESS     pRemoteAddress;
+        PTA_NETBIOS_ADDRESS    pRemoteNetBiosAddress;
+        PTA_NETBIOS_EX_ADDRESS pRemoteNetbiosExAddress;
+        ULONG                  TdiAddressType;
 
-    // this routine gets a ptr to the netbios name out of the wierd
-    // TDI address syntax.
-    ASSERT(pSendInfo->RemoteAddressLength);
-    status = GetNetBiosNameFromTransportAddress(
-                                pSendInfo->RemoteAddress,
-                                &pName,
-                                &lNameType);
+        pRemoteAddress = (PTRANSPORT_ADDRESS)pSendInfo->RemoteAddress;
+        TdiAddressType = pRemoteAddress->Address[0].AddressType;
+        pClientEle->AddressType = TdiAddressType;
+
+        if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+           PTDI_ADDRESS_NETBIOS pNetbiosAddress;
+
+           pRemoteNetbiosExAddress = (PTA_NETBIOS_EX_ADDRESS)pRemoteAddress;
+
+           CTEMemCopy(pClientEle->EndpointName,
+                      pRemoteNetbiosExAddress->Address[0].Address[0].EndpointName,
+                      sizeof(pRemoteNetbiosExAddress->Address[0].Address[0].EndpointName));
+
+           IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NetBt:Handling New Address Type with SessionName %16s\n",
+                       pClientEle->EndpointName));
+
+           pNetbiosAddress = &pRemoteNetbiosExAddress->Address[0].Address[0].NetbiosAddress;
+           pName  = pNetbiosAddress->NetbiosName;
+           NameType = pNetbiosAddress->NetbiosNameType;
+           NameLen  = pRemoteNetbiosExAddress->Address[0].AddressLength -
+                      FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,NetbiosAddress) -
+                      FIELD_OFFSET(TDI_ADDRESS_NETBIOS,NetbiosName);
+           IF_DBG(NBT_DEBUG_NETBIOS_EX)
+               KdPrint(("NetBt:NETBIOS address NameLen(%ld) Name %16s\n",NameLen,pName));
+           status = STATUS_SUCCESS;
+        } else if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS) {
+            // don't need spin lock because the client can't close this address
+            // since they are in this call and the handle has a reference count > 0
+            //
+            //pClientEle->RefCount++;
+
+            // this routine gets a ptr to the netbios name out of the wierd
+            // TDI address syntax.
+            ASSERT(pSendInfo->RemoteAddressLength);
+            status = GetNetBiosNameFromTransportAddress(
+                                        pSendInfo->RemoteAddress,
+                                        &pName,
+                                        &NameLen,
+                                        &lNameType);
+        } else {
+           status = STATUS_INVALID_ADDRESS_COMPONENT;
+        }
+    }
 
     if (!NT_SUCCESS(status))
     {
@@ -5804,27 +6313,22 @@ Return Values:
         return(STATUS_INVALID_PARAMETER);
     }
 
+    pSourceName = ((tADDRESSELE *)pClientEle->pAddress)->pNameAddr->Name;
+
     IF_DBG(NBT_DEBUG_SEND)
     KdPrint(("Nbt:Dgram Send to  = %16.16s<%X>\n",pName,pName[15]));
 
 
-// 1c hack for vxd not needed anymore (wfw rdr will submit datagrams for 1c)
-#if 0
-    SendCount = 2;
-#ifdef VXD
-    while (SendCount--)
-#endif
-#endif
     {
+        ULONG                   RemoteIpAddress;
+
         status = BuildSendDgramHdr(SendLength,
                                     pDeviceContext,
-                                    pSendInfo->RemoteAddress,
-                                    pClientEle,
+                                    pSourceName,
                                     pName,
                                     pBuffer,
                                     &pDgramHdr,
                                     &pTracker);
-
 
 
         if (!NT_SUCCESS(status))
@@ -5836,17 +6340,146 @@ Return Values:
         // save the devicecontext that the client is sending on.
         //
         pTracker->pDeviceContext = (PVOID)pDeviceContext;
+        pTracker->Flags = DGRAM_SEND_FLAG;
+
+        //
+        // if the name is longer than 16 bytes, it's not a netbios name.
+        // skip wins, broadcast etc. and go straight to dns resolution
+        //
+
+        if (pClientEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+            RemoteIpAddress = Nbt_inet_addr(pName);
+        } else {
+            RemoteIpAddress = 0;
+        }
+
+        if (RemoteIpAddress != 0) {
+           tNAMEADDR *pRemoteNameAddr;
+
+           //
+           // add this server name to the remote hashtable
+           //
+
+           pRemoteNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('8'));
+           if (pRemoteNameAddr != NULL)
+           {
+              tNAMEADDR *pTableAddress;
+
+              CTEZeroMemory(pRemoteNameAddr,sizeof(tNAMEADDR));
+              InitializeListHead(&pRemoteNameAddr->Linkage);
+              CTEMemCopy(pRemoteNameAddr->Name,pName,NETBIOS_NAME_SIZE);
+              pRemoteNameAddr->Verify = REMOTE_NAME;
+              pRemoteNameAddr->RefCount = 1;
+              pRemoteNameAddr->NameTypeState = STATE_RESOLVED | NAMETYPE_UNIQUE;
+              pRemoteNameAddr->AdapterMask = (CTEULONGLONG)-1;
+              pRemoteNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+              pRemoteNameAddr->IpAddress = RemoteIpAddress;
+
+              status = AddToHashTable(
+                              NbtConfig.pRemoteHashTbl,
+                              pRemoteNameAddr->Name,
+                              NbtConfig.pScope,
+                              0,
+                              0,
+                              pRemoteNameAddr,
+                              &pTableAddress);
+
+              IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                 KdPrint(("NbtConnectCommon ...AddRecordToHashTable %s Status %lx\n",pRemoteNameAddr->Name,status));
+           } else {
+              status = STATUS_INSUFFICIENT_RESOURCES;
+           }
+
+           if (status == STATUS_SUCCESS) {
+                PUCHAR  pCopyTo;
+
+                //
+                // Copy over the called name here.
+                //
+                pCopyTo = (PVOID)&pDgramHdr->SrcName.NameLength;
+
+                IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                    KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                pCopyTo += 1 +                          // Length field
+                           2 * NETBIOS_NAME_SIZE +     // actual name in half-ascii
+                           NbtConfig.ScopeLength;     // length of scope
+
+                IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                    KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                ConvertToHalfAscii( pCopyTo,
+                                    pClientEle->EndpointName,
+                                    NbtConfig.pScope,
+                                    NbtConfig.ScopeLength);
+
+                IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                    KdPrint(("Copied the remote name for dgram sends - IP\n"));
+
+               SendDgramContinue(pTracker,status);
+               status = STATUS_PENDING;
+           }
+        } else {
+//                if ((pConnEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) ||
+//                    (NameLen > NETBIOS_NAME_SIZE)) {
+           if (NameLen > NETBIOS_NAME_SIZE) {
+               NBT_WORK_ITEM_CONTEXT   *pContext;
+
+               pTracker->AddressType = pClientEle->AddressType;
+               if (pClientEle->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+                  //IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                      //KdPrint(("$$$$$ Avoiding NETBIOS name translation on connection to %16s\n",pClientEle->RemoteName));
+               }
+               pContext = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('H'));
+               if (!pContext)
+               {
+                   KdPrint(("Nbt: NbtConnect: couldn't alloc mem for pContext\n"));
+                   status = STATUS_INSUFFICIENT_RESOURCES;
+               } else {
+                    PUCHAR  pCopyTo;
+
+                    //
+                    // Copy over the called name here.
+                    //
+                    pCopyTo = (PVOID)&pDgramHdr->SrcName.NameLength;
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                    pCopyTo += 1 +                          // Length field
+                               2 * NETBIOS_NAME_SIZE +     // actual name in half-ascii
+                               NbtConfig.ScopeLength;     // length of scope
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("pCopyTo:%lx\n", pCopyTo));
+
+                    ConvertToHalfAscii( pCopyTo,
+                                        pClientEle->EndpointName,
+                                        NbtConfig.pScope,
+                                        NbtConfig.ScopeLength);
+
+                    IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                        KdPrint(("Copied the remote name for dgram sends DNS\n"));
+
+                   pContext->pTracker = NULL;              // no query tracker
+                   pContext->pClientContext = pTracker;    // the client tracker
+                   pContext->ClientCompletion = SendDgramContinue;
+                   status = DoDnsResolve(pContext);
+               }
+            } else {
+                status = FindNameOrQuery(pTracker,
+                                         pName,
+                                         pDeviceContext,
+                                         SendDgramContinue,
+                                         NULL,
+                                         TRUE,
+                                         &pNameAddr);
+            }
+        }
 
         // this routine checks the hash tables and does a name query if
         // it can't find the name.  If it finds the name, it returns
         // STATUS_SUCCESS.
-        status = FindNameOrQuery(pTracker,
-                                 pName,
-                                 pDeviceContext,
-                                 SendDgramContinue,
-                                 NULL,
-                                 TRUE,
-                                 &pNameAddr);
 
         //
         // in other words Pending was not returned...
@@ -5867,6 +6500,10 @@ Return Values:
             //
             // *** Error Handling Here ***
             //
+#ifdef VXD
+            pTracker->pNameAddr = NULL;
+#endif
+
             DgramSendCleanupTracker(pTracker,status,0);
         }
         else
@@ -5879,23 +6516,6 @@ Return Values:
             status =  STATUS_SUCCESS;
         }
 
-
-// 1c hack for vxd not needed anymore (wfw rdr will submit datagrams for 1c)
-#if 0
-#ifdef VXD
-        if (pName[NETBIOS_NAME_SIZE-1] == 0)
-        {
-            //
-            // For the VXD any sends to names ending in 0 are probably sends
-            // to the domain controller, so we need to munge the name to end
-            // in 1C and send to the Nt domain controllers too
-            //
-            pName[NETBIOS_NAME_SIZE-1] = 0x1c;
-        }
-        else
-            SendCount = 0;
-#endif
-#endif
 
     }
 
@@ -5915,8 +6535,7 @@ Return Values:
 BuildSendDgramHdr(
         IN  ULONG                   SendLength,
         IN  tDEVICECONTEXT          *pDeviceContext,
-        IN  PVOID                   pRemoteAddress,
-        IN  tCLIENTELE              *pClientEle,
+        IN  PCHAR                   pSourceName,
         IN  PCHAR                   pName,
         IN  PVOID                   pBuffer,
         OUT tDGRAMHDR               **ppDgramHdr,
@@ -5950,6 +6569,7 @@ Return Values:
     PVOID                   pSendBuffer;
     PVOID                   pNameBuffer;
     PCTE_MDL                pMdl;
+    CTELockHandle   OldIrq;
 
     CTEPagedCode();
 
@@ -5968,8 +6588,9 @@ Return Values:
 
     // fill in the Dgram header
     pDgramHdr->Flags    = FIRST_DGRAM | (NbtConfig.PduNodeType >> 10);
-    pDgramHdr->DgramId  = htons(NbtConfig.TransactionId);
-    NbtConfig.TransactionId++;
+
+    pDgramHdr->DgramId  = htons(GetTransactId());
+
     pDgramHdr->SrcPort  = htons(NBT_DATAGRAM_UDP_PORT);
 
     //
@@ -5988,7 +6609,7 @@ Return Values:
 
     pCopyTo = ConvertToHalfAscii(
                             pCopyTo,
-                            ((tADDRESSELE *)pClientEle->pAddress)->pNameAddr->Name,
+                            pSourceName,
                             NbtConfig.pScope,
                             NbtConfig.ScopeLength);
 
@@ -6101,6 +6722,58 @@ Return Values:
 
 }
 //----------------------------------------------------------------------------
+USHORT
+GetTransactId(
+        )
+/*++
+Routine Description:
+
+    This Routine increments the transaction id with the spin lock held.
+    It uses NbtConfig.JointLock.
+
+Arguments:
+
+Return Value:
+
+
+--*/
+
+{
+    CTELockHandle           OldIrq;
+    USHORT                  TransactId;
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+    TransactId = GetTransactIdLocked();
+
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+    return (TransactId);
+
+}
+
+USHORT
+GetTransactIdLocked(
+)
+{
+    USHORT                  TransactId;
+    TransactId = NbtConfig.TransactionId++;
+
+#ifndef VXD
+    if (TransactId == 0xFFFF)
+    {
+        NbtConfig.TransactionId = WINS_MAXIMUM_TRANSACTION_ID +1;
+    }
+#else
+    if (TransactId == (DIRECT_DNS_NAME_QUERY_BASE - 1))
+    {
+        NbtConfig.TransactionId = 0;
+    }
+#endif
+    return (TransactId);
+}
+
+//----------------------------------------------------------------------------
 VOID
 CTECountedAllocMem(
         PVOID   *pBuffer,
@@ -6134,7 +6807,7 @@ Return Value:
     else
     {
         NbtMemoryAllocated += Size;
-        *pBuffer = CTEAllocMem(Size);
+        *pBuffer = NbtAllocMem(Size,NBT_TAG('L'));
     }
     CTESpinFree(&NbtConfig.JointLock,OldIrq);
 }
@@ -6239,12 +6912,6 @@ Return Values:
         //
         if  ( pTracker->pDestName[NETBIOS_NAME_SIZE-1] == 0x1c
 
-// 1c hack for vxd not needed anymore (wfw rdr will submit datagrams for 1c)
-#if 0
-#ifdef VXD
-              || pTracker->pDestName[NETBIOS_NAME_SIZE-1] == 0x00
-#endif
-#endif
             )
         {
             pTracker->p1CNameAddr = FindInDomainList(pTracker->pDestName,&DomainNames.DomainList);
@@ -6272,6 +6939,11 @@ Return Values:
             // routine
             //
             pNameAddr->RefCount++;
+
+            if (pTracker->p1CNameAddr)
+            {
+                pTracker->p1CNameAddr->RefCount++;
+            }
 
             // overwrite the pDestName field with the pNameAddr value
             // so that SendDgramContinue can send to Internet group names
@@ -6361,6 +7033,7 @@ Return Values:
 {
     ULONG                   IpAddress;
     NTSTATUS                status;
+    PFILE_OBJECT            pFileObject;
 
     if (pNameAddr->NameTypeState & NAMETYPE_UNIQUE )
     {
@@ -6397,6 +7070,11 @@ Return Values:
             (!(pNameAddr->NameTypeState & NAMETYPE_UNIQUE)))
         {
             IpAddress = pNameAddr->IpAddress;
+
+            if (pNameAddr->NameTypeState & NAMETYPE_GROUP)
+            {
+                IpAddress = 0;
+            }
         }
         else
         {
@@ -6410,10 +7088,16 @@ Return Values:
     }
 
     // send the Datagram...
+    if (pTracker->pDeviceContext->IpAddress)
+    {
+        pFileObject = pTracker->pDeviceContext->pDgramFileObject;
+    }
+    else
+        pFileObject = NULL;
     status = UdpSendDatagram(
                     pTracker,
                     IpAddress,
-                    ((tDEVICECONTEXT *)pTracker->pDeviceContext)->pDgramFileObject,
+                    pFileObject,
                     SendDgramCompletion,
                     pTracker,               // context for completion
                     NBT_DATAGRAM_UDP_PORT,
@@ -6454,6 +7138,7 @@ Return Value:
     NTSTATUS                status;
     tDGRAM_SEND_TRACKING    *pTracker;
     ULONG                   IpAddress;
+    PFILE_OBJECT            pFileObject;
 
     pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
 
@@ -6464,10 +7149,16 @@ Return Value:
                     pTracker->pNameAddr->Name,pTracker->pNameAddr->Name[15],IpAddress));
 
     // send the Datagram...
+    if (pTracker->pDeviceContext->IpAddress)
+    {
+        pFileObject = pTracker->pDeviceContext->pDgramFileObject;
+    }
+    else
+        pFileObject = NULL;
     status = UdpSendDatagram(
                     pTracker,
                     IpAddress,
-                    ((tDEVICECONTEXT *)pTracker->pDeviceContext)->pDgramFileObject,
+                    pFileObject,
                     SendDgramCompletion,
                     pTracker,
                     NBT_DATAGRAM_UDP_PORT,
@@ -6538,7 +7229,8 @@ Return Values:
 
                 pTracker->RCount++;
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
-                CTEQueueForNonDispProcessing(pTracker,(PVOID)IpAddress,NULL,SendDgramDist);
+                CTEQueueForNonDispProcessing(pTracker,(PVOID)IpAddress,NULL,
+                                       SendDgramDist,pTracker->pDeviceContext);
                 return;
 
             }
@@ -6590,11 +7282,6 @@ Return Values:
         pTracker->p1CNameAddr = NULL;
 
         pTracker->pNameAddr = pNameAddr;
-        //
-        // increment to account for the decrement when this send
-        // completes.
-        //
-        pNameAddr->RefCount++;
 
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
@@ -6684,15 +7371,11 @@ Return Value:
                 NbtDereferenceName(pTracker->pNameAddr);
 
                 pTracker->pNameAddr = pNameAddr;
-                //
-                // increment to account for the decrement when this send
-                // completes.
-                //
-                pNameAddr->RefCount++;
                 pTracker->RCount++;
 
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
-                CTEQueueForNonDispProcessing(pTracker,(PVOID)IpAddress,NULL,SendDgramDist);
+                CTEQueueForNonDispProcessing(pTracker,(PVOID)IpAddress,NULL,
+                                              SendDgramDist,pTracker->pDeviceContext);
 
                 pTimerQEntry->Flags |= TIMER_RESTART;
                 return;
@@ -6786,6 +7469,7 @@ Return Values:
     ULONG                   Index;
     ULONG                   IpAddress;
     ULONG                   TotalNumber;
+    PFILE_OBJECT            pFileObject;
 
     // NOTE: this could be made to be paged code IF it was farmed out to
     // a worker thread!!!
@@ -6836,10 +7520,16 @@ Return Values:
                         pNameAddr->Name,pNameAddr->Name[15],IpAddress));
 
         // send the Datagram...
+        if (pTracker->pDeviceContext->IpAddress)
+        {
+            pFileObject = pTracker->pDeviceContext->pDgramFileObject;
+        }
+        else
+            pFileObject = NULL;
         status = UdpSendDatagram(
                         pTracker,
                         IpAddress,
-                        ((tDEVICECONTEXT *)pTracker->pDeviceContext)->pDgramFileObject,
+                        pFileObject,
                         SendDgramCompletion,
                         pTracker,
                         NBT_DATAGRAM_UDP_PORT,
@@ -7099,18 +7789,28 @@ Return Values:
 //----------------------------------------------------------------------------
 NTSTATUS
 NbtSendNodeStatus(
-    IN  PTDI_CONNECTION_INFORMATION     pInfo,
-    IN  tDEVICECONTEXT                  *pDeviceContext,
+    IN  tDEVICECONTEXT                 *pDeviceContext,
+    IN  PCHAR                           pName,
     IN  PIRP                            pIrp,
-    IN  ULONG                           IpAddress
+    IN  PULONG                          pIpAddrsList,
+    IN  PVOID                           ClientContext,
+    IN  PVOID                           CompletionRoutine
     )
 /*++
 
 Routine Description
 
     This routine sends a node status message to another node.
-    The IpAddress of the destination can be passed in when we want
-    to send an adapter status to a particular host.
+    It's called for two reasons:
+    1) in response to nbtstat -a (or -A).  In this case, CompletionRoutine that's
+       passed in is NodeStatusDone, and ClientContext is 0.
+    2) in response to "net use \\foobar.microsoft.com" (or net use \\11.1.1.3)
+       In this case, CompletionRoutine that's passed in is SessionSetupContinue,
+       and ClientContext is the tracker that correspondes to session setup.
+
+    The ip addr(s) s of the destination can be passed in (pIpAddrsList) when we
+    want to send an adapter status to a particular host. (case 2 above and
+    nbtstat -A pass in the ip address(es) since they don't know the name)
 
 Arguments:
 
@@ -7123,28 +7823,16 @@ Return Values:
 {
     NTSTATUS                status;
     tDGRAM_SEND_TRACKING    *pTracker;
-    PCHAR                   pName;
     ULONG                   lNameType;
     ULONG                   Length;
     PUCHAR                  pHdr;
     tNAMEADDR               *pNameAddr;
     ULONG UNALIGNED *       pAddress;
+    PFILE_OBJECT            pFileObject;
+    ULONG                   IpAddress;
+    PCHAR                   pName0;
 
-    CTEPagedCode();
-    // this routine gets a ptr to the netbios name out of the wierd
-    // TDI address syntax.
-    ASSERT(pInfo->RemoteAddressLength);
-    status = GetNetBiosNameFromTransportAddress(
-                                pInfo->RemoteAddress,
-                                &pName,
-                                &lNameType);
 
-    if (!NT_SUCCESS(status) || (lNameType != TDI_ADDRESS_NETBIOS_TYPE_UNIQUE))
-    {
-        IF_DBG(NBT_DEBUG_SEND)
-        KdPrint(("Nbt:Unable to get dest name from address in SendNodeStatus\n"));
-        return(STATUS_INVALID_PARAMETER);
-    }
 
     status = GetTracker(&pTracker);
     if (!NT_SUCCESS(status))
@@ -7152,14 +7840,15 @@ Return Values:
         return(status);
     }
 
-
     IF_DBG(NBT_DEBUG_SEND)
     KdPrint(("Nbt:Send Node Status to  = %16.16s<%X>\n",pName,pName[15]));
+
+    pName0 = Nbt_inet_addr(pName) ? "*\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0" : pName;
 
     // the node status is almost identical with the query pdu so use it
     // as a basis and adjust it .
     //
-    pAddress = (ULONG UNALIGNED *)CreatePdu(pName,
+    pAddress = (ULONG UNALIGNED *)CreatePdu(pName0,
                                             NbtConfig.pScope,
                                             0L,
                                             0,
@@ -7188,6 +7877,7 @@ Return Values:
     pTracker->SendBuffer.pBuffer = NULL;
     CHECK_PTR(&pTracker);
     pTracker->SendBuffer.Length = 0;
+    pTracker->Flags = REMOTE_ADAPTER_STAT_FLAG;
 
     // one for the send completion and one for the node status completion
     pTracker->RefCount = 2;
@@ -7195,13 +7885,6 @@ Return Values:
     pTracker->pDestName = pName;
     pTracker->pClientIrp = pIrp;
     pTracker->pDeviceContext = (PVOID)pDeviceContext;
-
-    // the tracker block is put on a global Q in the Config data structure
-    // to keep track of it.
-    //
-    ExInterlockedInsertTailList(&NbtConfig.NodeStatusHead,
-                                &pTracker->Linkage,
-                                &NbtConfig.SpinLock);
 
     status = FindNameOrQuery(pTracker,
                              pName,
@@ -7214,17 +7897,39 @@ Return Values:
     if (status == STATUS_SUCCESS)
     {
         //
-        // If the ip address is passed in then the name is '*', meaning, send
-        // an adapter status call to the ip address specified.  Since FindNameOrQuery
-        // allocates memory specially for '*' names, overwrite the Ipaddress
-        // with the value passed in.
+        // If the ip addr(s) is passed in then the name is '*', meaning, send
+        // an adapter status call to the ip address specified.  See how many
+        // ip addrs are there, allocate that much memory and store them
         //
-        if ((IpAddress) && (pName[0] == '*'))
+        if ((pIpAddrsList) && (*pIpAddrsList) && (pName[0] == '*'))
         {
-            if (pNameAddr)
+            int    i=0;
+
+            // caller is expected to make sure list terminates in 0 and is
+            // not bigger than MAX_IPADDRS_PER_HOST elements
+            while(pIpAddrsList[i])
+                i++;
+
+            ASSERT(i<MAX_IPADDRS_PER_HOST);
+            i++;                            // for the trailing 0
+            pNameAddr->pIpAddrsList = NbtAllocMem(i*sizeof(ULONG),NBT_TAG('M'));
+            if(!pNameAddr->pIpAddrsList)
             {
-                pNameAddr->IpAddress = IpAddress;
+                FreeTracker(pTracker,RELINK_TRACKER);
+                CTEMemFree(pHdr);
+                return(STATUS_INSUFFICIENT_RESOURCES);
             }
+
+            i = 0;
+            do
+            {
+                pNameAddr->pIpAddrsList[i] = pIpAddrsList[i];
+            } while(pIpAddrsList[i++]);
+        }
+
+        if (pName[0] == '*')
+        {
+            ASSERT(pNameAddr->pIpAddrsList);
         }
 
         //
@@ -7236,8 +7941,8 @@ Return Values:
                             NbtConfig.uRetryTimeout,
                             pTracker,
                             NodeStatusCompletion,
-                            pTracker,
-                            NodeStatusDone,
+                            ClientContext,
+                            CompletionRoutine,
                             NbtConfig.uNumRetries,
                             pNameAddr,
                             FALSE);
@@ -7251,16 +7956,42 @@ Return Values:
             if ((pNameAddr->Verify == REMOTE_NAME) ||
                 (!(pNameAddr->NameTypeState & NAMETYPE_UNIQUE)))
             {
-                IpAddress = pNameAddr->IpAddress;
+                //
+                // if we have multiple ipaddrs, just choose the first one
+                //
+                if(pNameAddr->pIpAddrsList)
+                {
+                    IpAddress = pNameAddr->pIpAddrsList[0];
+                    pNameAddr->IpAddress = IpAddress;
+                }
+                else
+                {
+                    IpAddress = pNameAddr->IpAddress;
+                }
+
             }
             else
             {
                 IpAddress = pTracker->pDeviceContext->IpAddress;
             }
 
+            if (pDeviceContext->IpAddress)
+            {
+                pFileObject = pDeviceContext->pNameServerFileObject;
+            }
+            else
+                pFileObject = NULL;
+
+            // the tracker block is put on a global Q in the Config
+            // data structure to keep track of it.
+            //
+            ExInterlockedInsertTailList(&NbtConfig.NodeStatusHead,
+                                        &pTracker->Linkage,
+                                        &NbtConfig.SpinLock);
+
             status = UdpSendDatagram(pTracker,
                                        IpAddress,
-                                       pDeviceContext->pNameServerFileObject,
+                                       pFileObject,
                                        NameDgramSendCompleted,
                                        pHdr,                    // context
                                        NBT_NAMESERVICE_UDP_PORT,
@@ -7268,18 +7999,11 @@ Return Values:
 
             DereferenceTracker(pTracker);
 
-            if (NT_SUCCESS(status))
-            {
-                // so we don't complete the irp till the timeout
-                return(STATUS_PENDING);
-            }
-            else
-            {
-                // if the send failed, the timer will timeout and we will
-                // try the send again.
-                //
-                return(status);
-            }
+            //
+            // BUGBUG - Not returning status reflecting failure to send datagram
+            // to client.  Client will eventually get STATUS_TIMEOUT.
+            //
+            return(STATUS_PENDING);
         }
         else
         {   //
@@ -7287,8 +8011,7 @@ Return Values:
             //
             LockedDereferenceName(pNameAddr);
 
-            FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR | REMOVE_LIST);
-
+            FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR);
         }
 
 
@@ -7305,7 +8028,7 @@ Return Values:
         //
         // Failed to FindNameOrQuery - probably out of memory
         //
-        FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR | REMOVE_LIST);
+        FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR);
         return(status);
     }
 
@@ -7340,6 +8063,12 @@ Return Values:
     PCHAR                   pName;
     ULONG                   lNameType;
     tNAMEADDR               *pNameAddr;
+    PIRP                    pClientIrp;
+    ULONG                   NameLen;
+#ifndef VXD
+    PIO_STACK_LOCATION      pIrpSp;
+    CTELockHandle           OldIrq1;
+#endif
 
     CTEPagedCode();
 
@@ -7351,9 +8080,11 @@ Return Values:
         status = GetNetBiosNameFromTransportAddress(
                                     pInfo->RemoteAddress,
                                     &pName,
+                                    &NameLen,
                                     &lNameType);
 
-        if (!NT_SUCCESS(status) || (lNameType != TDI_ADDRESS_NETBIOS_TYPE_UNIQUE))
+        if (!NT_SUCCESS(status) || (lNameType != TDI_ADDRESS_NETBIOS_TYPE_UNIQUE)
+            || (NameLen > NETBIOS_NAME_SIZE))
         {
             IF_DBG(NBT_DEBUG_SEND)
             KdPrint(("Nbt:Unable to get dest name from address in QueryFindName\n"));
@@ -7379,9 +8110,29 @@ Return Values:
     {
         return(status);
     }
+
     pTracker->pClientIrp     = pIrp;
     pTracker->pDestName      = pName;
     pTracker->pDeviceContext = pDeviceContext;
+
+    //
+    // Set the FIND_NAME_FLAG here to indicate to the DNS name resolution code that
+    // this is not a session setup attempt so it can avoid the call to
+    // ConvertToHalfAscii (where pSessionHdr is NULL).
+    //
+    pTracker->Flags = REMOTE_ADAPTER_STAT_FLAG|FIND_NAME_FLAG;
+
+#ifndef VXD
+    pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
+    pIrpSp->Parameters.Others.Argument4 = (PVOID)pTracker;
+    status = NTCheckSetCancelRoutine( pIrp,FindNameCancel,pDeviceContext );
+
+    if (status == STATUS_CANCELLED )
+    {
+        FreeTracker(pTracker,RELINK_TRACKER);
+        return(status);
+    }
+#endif
 
     status = FindNameOrQuery(pTracker,
                              pName,
@@ -7391,20 +8142,46 @@ Return Values:
                              FALSE,
                              &pNameAddr);
 
-    if (status == STATUS_SUCCESS)
+    if ((status == STATUS_SUCCESS) || (!NT_SUCCESS(status)))
     {
-        FreeTracker(pTracker,RELINK_TRACKER);
-        //
-        // found the name
-        //
-        status = CopyFindNameData(pNameAddr,pIrp,pDeviceContext->IpAddress);
 
-        LockedDereferenceName(pNameAddr);
-    }
-    else
-    if (!NT_SUCCESS(status))
-    {
+#ifndef VXD
+        IoAcquireCancelSpinLock(&OldIrq1);
+        pClientIrp = pTracker->pClientIrp;
+        if (pClientIrp == pIrp)
+        {
+            pTracker->pClientIrp = NULL;
+        }
+        pIrpSp->Parameters.Others.Argument4 = NULL;
+        IoReleaseCancelSpinLock(OldIrq1);
+#else
+        pClientIrp = pTracker->pClientIrp;
+#endif
         FreeTracker(pTracker,RELINK_TRACKER);
+
+        if (pClientIrp)
+        {
+            ASSERT( pClientIrp == pIrp );
+
+            if (status == STATUS_SUCCESS)
+            {
+                status = CopyFindNameData(pNameAddr,pIrp,pDeviceContext->IpAddress);
+
+                LockedDereferenceName(pNameAddr);
+            }
+        }
+
+        //
+        // irp is already completed: return pending so we don't complete again
+        //
+        else
+        {
+            if (status == STATUS_SUCCESS)
+            {
+                LockedDereferenceName(pNameAddr);
+            }
+            status = STATUS_PENDING;
+        }
     }
 
     return(status);
@@ -7437,19 +8214,52 @@ Return Values:
 --*/
 {
     tDGRAM_SEND_TRACKING    *pTracker;
-    CTELockHandle           OldIrq;
+    CTELockHandle           OldIrq, OldIrq1;
     tNAMEADDR               *pNameAddr;
     ULONG                   lNameType;
-    PLIST_ENTRY             pHead;
-    PCTE_IRP                pIrp;
+    PIRP                    pClientIrp;
+#ifndef VXD
+    PIO_STACK_LOCATION      pIrpSp;
+
+    //
+    // We now use Cancel SpinLocks to check the validity of our Irps
+    // This is to prevent a race condition in between the time that
+    // the Cancel routine (FindNameCancel) releases the Cancel SpinLock
+    // and acquires the joint lock and we complete the Irp over here
+    //
+    IoAcquireCancelSpinLock(&OldIrq1);
+#endif
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
-    pHead = &pTracker->TrackerList;
+    pClientIrp = pTracker->pClientIrp;
+    pTracker->pClientIrp = NULL;
+
+#ifndef VXD
+    IoReleaseCancelSpinLock(OldIrq1);
+
+//
+// Make sure all parameters are valid for the Irp processing
+//
+    if (! ((pClientIrp) &&
+          (pIrpSp = IoGetCurrentIrpStackLocation(pClientIrp)) &&
+          (pIrpSp->Parameters.Others.Argument4 == pTracker)))
+    {
+        KdPrint(("Nbt: irp from Tracker <0x%4X> has been cancelled already\n", pTracker));
+        FreeTracker( pTracker,RELINK_TRACKER );
+        return;
+    }
+#endif
+
+    pIrpSp->Parameters.Others.Argument4 = NULL;
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+#ifndef VXD
+    NTCancelCancelRoutine(pClientIrp);
+    NTClearFileObjectContext(pClientIrp);
+#endif
 
     if (status == STATUS_SUCCESS)
     {
-        CTESpinLock(&NbtConfig.JointLock,OldIrq);
-
         //
         // attempt to find the destination name in the local/remote hash table.
         //
@@ -7457,29 +8267,24 @@ Return Values:
 
         if (pNameAddr)
         {
-            status = CopyFindNameData(pNameAddr,pTracker->pClientIrp,
+            status = CopyFindNameData(pNameAddr,pClientIrp,
                              pTracker->pDeviceContext->IpAddress);
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
-            CTEIoComplete(pTracker->pClientIrp,status,0xFFFFFFFF);
+            CTEIoComplete(pClientIrp,status,0xFFFFFFFF);
 
             FreeTracker(pTracker,RELINK_TRACKER);
             return;
         }
-        else
-        {
-            CTESpinFree(&NbtConfig.JointLock,OldIrq);
-        }
-
     }
 
     // this is the ERROR handling if something goes wrong with the send
 
-    pIrp = pTracker->pClientIrp;
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+    CTEIoComplete(pClientIrp,STATUS_IO_TIMEOUT,0L);
 
     FreeTracker(pTracker,RELINK_TRACKER);
-
-    CTEIoComplete(pTracker->pClientIrp,STATUS_IO_TIMEOUT,0L);
 
 }
 
@@ -7547,13 +8352,15 @@ Return Values:
                     (PVOID)pTracker,       // context value
                     NULL,            // context2 value
                     NodeStatusCompletion,
-                    pTracker,
+                    NULL,
                     NodeStatusDone,
                     NbtConfig.uNumRetries,
                     &pTimerEntry);
 
             if (NT_SUCCESS(status))
             {
+                PFILE_OBJECT    pFileObject;
+
                 pTracker->Connect.pNameAddr = pNameAddr;
                 pTracker->Connect.pTimer = pTimerEntry;
 
@@ -7574,9 +8381,23 @@ Return Values:
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
                 // send the Datagram...
+                if (pTracker->pDeviceContext->IpAddress)
+                {
+                    pFileObject = pTracker->pDeviceContext->pNameServerFileObject;
+                }
+                else
+                    pFileObject = NULL;
+
+                // the tracker block is put on a global Q in the Config
+                // data structure to keep track of it.
+                //
+                ExInterlockedInsertTailList(&NbtConfig.NodeStatusHead,
+                                            &pTracker->Linkage,
+                                            &NbtConfig.SpinLock);
+
                 status = UdpSendDatagram(pTracker,
                                            IpAddress,
-                                           ((tDEVICECONTEXT *)pTracker->pDeviceContext)->pNameServerFileObject,
+                                           pFileObject,
                                            NameDgramSendCompleted,
                                            pTracker->SendBuffer.pDgramHdr, // context
                                            NBT_NAMESERVICE_UDP_PORT,
@@ -7596,7 +8417,6 @@ Return Values:
                 CTESpinFree(&NbtConfig.JointLock,OldIrq);
             }
 
-
         }
         else
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
@@ -7604,12 +8424,14 @@ Return Values:
 
     // this is the ERROR handling if something goes wrong with the send
 
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     pIrp = pTracker->pClientIrp;
+    pTracker->pClientIrp = NULL;
+    CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
-    // unlink the tracker block from the NodeStatus Q
-    FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR | REMOVE_LIST);
+    FreeTracker(pTracker,RELINK_TRACKER | FREE_HDR);
 
-    CTEIoComplete(pTracker->pClientIrp,STATUS_IO_TIMEOUT,0L);
+    CTEIoComplete(pIrp,STATUS_IO_TIMEOUT,0L);
 
 }
 
@@ -7644,12 +8466,14 @@ Return Values:
 
     pTracker = (tDGRAM_SEND_TRACKING *)pContext;
 
+    LOCATION(0x3E);
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     pIrp = pTracker->pClientIrp;
+    pTracker->pClientIrp = NULL;
 
     // remove the reference done in FindNameOrQuery
     //
-    LOCATION(0x3E);
-    CTESpinLock(&NbtConfig.JointLock,OldIrq);
     NbtDereferenceName(pTracker->Connect.pNameAddr);
     CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
@@ -7754,7 +8578,7 @@ Return Value:
         return(STATUS_UNSUCCESSFUL);
     }
 
-    pFindNameHdr = CTEAllocMem((USHORT)BuffSize);
+    pFindNameHdr = NbtAllocMem((USHORT)BuffSize,NBT_TAG('N'));
     if (!pFindNameHdr)
     {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -7898,15 +8722,44 @@ Return Value:
             ASSERT(pTrack != pTracker);
             pEntry = pEntry->Flink;
         }
+
+        ASSERT(pTracker->Verify == NBT_VERIFY_TRACKER);
+
+        pTracker->Verify -= 10;
+        pTracker->pClientIrp = (PVOID)0x1F1F1F1F;
+
+        pTracker->pConnEle = (PVOID)0x1F1F1F1F;
+        pTracker->SendBuffer.HdrLength = 0x1F1F1F1F;
+        pTracker->SendBuffer.pDgramHdr = (PVOID)0x1F1F1F1F;
+        pTracker->SendBuffer.Length    = 0x1F1F1F1F;
+        pTracker->SendBuffer.pBuffer   = (PVOID)0x1F1F1F1F;
+        pTracker->pDeviceContext = (PVOID)0x1F1F1F1F;
+        pTracker->pTimer = (PVOID)0x1F1F1F1F;
+        pTracker->RefCount = 0x1F1F1F1F;
+        pTracker->pDestName = (PVOID)0x1F1F1F1F;
+        pTracker->pNameAddr = (PVOID)0x1F1F1F1F;
+#ifdef VXD
+        pTracker->pchDomainName = (PVOID)0x1F1F1F1F;
+#endif
+        pTracker->pTimeout = (PVOID)0x1F1F1F1F;
+        pTracker->SrcIpAddress = 0x1F1F1F1F;
+        pTracker->CompletionRoutine = (PVOID)0x1F1F1F1F;
+        pTracker->Flags = 0x1F1F;
     }
 #endif
 
     CHECK_PTR(pTracker);
     pTracker->SendBuffer.pDgramHdr = NULL;
+    if (pTracker->IpList) {
+        ASSERT(pTracker->NumAddrs != 0);
+        CTEMemFree(pTracker->IpList);
 
+        pTracker->IpList = NULL;
+        pTracker->NumAddrs = 0x1F1F1F1F;
+    }
     CTESpinFree(&NbtConfig,OldIrq);
 
-    REMOVE_FROM_LIST(&pTracker->DebugLinkage);
+    //REMOVE_FROM_LIST(&pTracker->DebugLinkage);
     ExInterlockedInsertTailList(&NbtConfig.DgramTrackerFreeQ,
                                 &pTracker->Linkage,
                                 &NbtConfig.SpinLock);
@@ -7973,7 +8826,7 @@ Return Values:
 {
     NTSTATUS            status;
     CTELockHandle       OldIrq1;
-    LONG                Count;
+    LONG                Count=0;
     LONG                i,j;
     LONG                BuffSize;
     PADAPTER_STATUS     pAdapterStatus;
@@ -8003,13 +8856,37 @@ Return Values:
     if (pDeviceContext)
     {
 
+        // count the number of netbios names
+        //
+        // CountLocalNames returns all names except the '*' names and resolving names.
+        // Now, we come here and bump up the count by one (on assumption that the only
+        // '*' name is the "*0000000" name). However, there are now al least two other
+        // names - "*SMBSERVER and the bowser name.
+        //
+        // So, count here only.
+        //
+        Count = 0;
+        for (i=0;i < NbtConfig.pLocalHashTbl->lNumBuckets ;i++ )
+        {
+            pHead = &NbtConfig.pLocalHashTbl->Bucket[i];
+            pEntry = pHead;
+            while ((pEntry = pEntry->Flink) != pHead)
+            {
+                pNameAddr = CONTAINING_RECORD(pEntry,tNAMEADDR,Linkage);
+                //
+                // don't want unresolved names, or the broadcast name
+                //
+                if (!(pNameAddr->NameTypeState & STATE_RESOLVING))
+                    // && (pNameAddr->Name[0] != '*')) count these!!
+                {
+                    Count++;
+                }
+            }
+        }
+
         // get the list of addresses for this device - local hash table
         pHead = &NbtConfig.AddressHead;
         pEntry = pHead->Flink;
-        // count the number of netbios names
-        Count = CountLocalNames(&NbtConfig);
-        Count++; // to include the * name
-
         NameSize = sizeof(NAME_BUFFER);
     }
     else
@@ -8054,7 +8931,7 @@ Return Values:
         BuffSize = sizeof(ADAPTER_STATUS) + Count*NameSize;
     }
 
-    pAdapterStatus = CTEAllocMem((USHORT)BuffSize);
+    pAdapterStatus = NbtAllocMem((USHORT)BuffSize,NBT_TAG('O'));
     if (!pAdapterStatus)
     {
         CTESpinFree(&NbtConfig.JointLock,OldIrq1);
@@ -8397,7 +9274,7 @@ Return Values:
         BuffSize = sizeof(tCONNECTION_LIST) + Count*NameSize;
     }
 
-    pConnList = CTEAllocMem((USHORT)BuffSize);
+    pConnList = NbtAllocMem(BuffSize,NBT_TAG('P'));
     if (!pConnList)
     {
         CTESpinFree(&NbtConfig,OldIrq1);
@@ -8619,7 +9496,11 @@ Return Values:
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
-    pStats = CTEAllocMem(sizeof(tNAMESTATS_INFO));
+    pStats = NbtAllocMem(sizeof(tNAMESTATS_INFO),NBT_TAG('Q'));
+    if ( !pStats )
+    {
+        return(STATUS_INSUFFICIENT_RESOURCES);
+    }
 
 
     // Fill out the adapter status structure with zeros first
@@ -8697,6 +9578,7 @@ Return Value:
     ULONG               DeviceIndex;
     BOOLEAN             Attached;
     ULONG               Count;
+    BOOLEAN             times = FALSE;
 
     CTEPagedCode();
 
@@ -8763,6 +9645,7 @@ Return Value:
         Count = CountUpperConnections(pDeviceContext);
         Count += NBT_NUM_INITIAL_CONNECTIONS;
 
+retry:
         status = NbtCreateAddressObjects(
                         IpAddress,
                         SubnetMask,
@@ -8774,6 +9657,16 @@ Return Value:
             NbtLogEvent(EVENT_NBT_CREATE_ADDRESS,status);
 
             KdPrint(("Failed to create the Address Objects after a new DHCP address, status=%X\n",status));
+            KdPrint(("IpAddress: %lx, SubnetMask: %lx, pDeviceContext: %lx\n", IpAddress, SubnetMask, pDeviceContext));
+
+            ASSERT(FALSE);
+
+            if (!times) {
+                KdPrint(("Retrying...\n"));
+                times = TRUE;
+                CTEAttachFsp(&Attached);
+                goto retry;
+            }
         }
         else
         {
@@ -8792,35 +9685,6 @@ Return Value:
 
         CTEDetachFsp(Attached);
 
-#if 0
-    //
-    // DO THIS WHEN THE RE_READ REGISTRY IOCTL comes down from DHCP because
-    // we have the new WINS addresses then.
-    //
-        if (!(NodeType & BNODE))
-        {
-            if (NT_SUCCESS(status))
-            {
-                //
-                // we must re-register all the names on this node with WINS
-                // since the IP address has changed.
-                //
-                IF_DBG(NBT_DEBUG_NAMESRV)
-                KdPrint(("Nbt:Reregistering names with WINS\n"));
-
-                ReRegisterLocalNames();
-            }
-
-        }
-        else
-        {
-            //
-            // stop the refresh timer since we are now a Bnode
-            //
-            LockedStopTimer(&NbtConfig.pRefreshTimer);
-        }
-
-#endif
     }
 
     CTEExReleaseResource(&NbtConfig.Resource);
@@ -8894,12 +9758,14 @@ Return Values:
     // will get released when all clients drop the name.  In addition, only
     // allow this if only one client has registered the name on each card.
     //
+    // 5/23/95: this logic applies not just to the browser name, but any name
+    //
     pNameAddr = pAddress->pNameAddr;
     AdapterNumber = pClientEle->pDeviceContext->AdapterNumber;
 
     if (((pNameAddr->AdapterMask & ~AdapterNumber) != 0 ) &&
-        (pAddress->MultiClients == FALSE) &&
-        (pNameAddr->Name[NETBIOS_NAME_SIZE-1] == 0x1d) )
+        (pAddress->MultiClients == FALSE) )
+           // (pNameAddr->Name[NETBIOS_NAME_SIZE-1] == 0x1d) )
     {
         pNameAddr->AdapterMask &= ~pClientEle->pDeviceContext->AdapterNumber;
     }
@@ -9018,13 +9884,11 @@ Return Values:
     ASSERT(IsListEmpty(&pAddress->ClientHead));
     ASSERT(pAddress->pNameAddr->Verify == LOCAL_NAME);
 
-#ifndef VXD
-//#if DBG
+#if !defined(VXD) && DBG
     if (pAddress->pNameAddr->Verify != LOCAL_NAME)
     {
         DbgBreakPoint();
     }
-//#endif
 #endif
 
     IF_DBG(NBT_DEBUG_NAMESRV)
@@ -9075,7 +9939,8 @@ Return Values:
                        NbtConfig.pScope,
                        pAddress,
                        NameReleaseDone,
-                       NodeType);
+                       NodeType,
+                       NULL);
         // so the caller waits for the release to complete.
         //
         if (NT_SUCCESS(status))
@@ -9197,6 +10062,15 @@ Return Values:
         ASSERT(pNameAddr->Verify == LOCAL_NAME);
 
     }
+
+    if ( (pNameAddr->NameTypeState & NAMETYPE_INET_GROUP) == 0 )
+    {
+        if (pNameAddr->pIpAddrsList)
+        {
+            CTEMemFree((PVOID)pNameAddr->pIpAddrsList);
+        }
+    }
+
     //
     // free the memory now
     //
@@ -9312,7 +10186,7 @@ Return Value:
 {
     CTELockHandle   OldIrq1;
     tDEVICECONTEXT  *pDeviceContext;
-    PVOID           pIndicate;
+    NTSTATUS        status;
 
     pDeviceContext = pLowerConn->pDeviceContext;
 
@@ -9325,20 +10199,25 @@ Return Value:
         IF_DBG(NBT_DEBUG_NAMESRV)
         KdPrint(("NBt: Delete Lower Connection Object %X\n",pLowerConn));
 
-#ifndef VXD
-        // free the indicate buffer and the mdl that holds it
         //
-        pIndicate = MmGetMdlVirtualAddress(pLowerConn->pIndicateMdl);
-
-        CTEMemFree(pIndicate);
-        IoFreeMdl(pLowerConn->pIndicateMdl);
-#endif
+        // it's possible that transport may indicate before we run the code
+        // in WipeOutLowerconn.  If that happens, we don't want to run this
+        // code again ( which will queue this to worker thread again!)
+        // So, bump it up to some large value
+        //
+        pLowerConn->RefCount = 1000;
 
         CTESpinFree(pLowerConn,OldIrq1);
 
-        // now free the memory block tracking this connection
-        CTEMemFree((PVOID)pLowerConn);
-
+        //
+        // let's come back and do this later since we may be at dpc now
+        //
+        CTEQueueForNonDispProcessing(
+                               NULL,
+                               pLowerConn,
+                               NULL,
+                               WipeOutLowerconn,
+                               pLowerConn->pDeviceContext);
     }
     else
         CTESpinFree(pLowerConn,OldIrq1);
@@ -9368,6 +10247,9 @@ Return Value:
     CTELockHandle   OldIrq;
     tDEVICECONTEXT  *pDeviceContext;
 
+
+    status = STATUS_SUCCESS;
+
     // remove the lower connection from the active queue and then
     // delete it
     //
@@ -9375,9 +10257,52 @@ Return Value:
 
     CTESpinLock(pDeviceContext,OldIrq);
 
+    //
+    // The lower conn can get removed from the inactive list in OutOfRsrcKill (when we queue it on
+    // the OutofRsrc.ConnectionHead). Check the flag that indicates this connection was dequed then.
+    //
+    if (!pLowerConn->OutOfRsrcFlag) {
         RemoveEntryList(&pLowerConn->Linkage);
+    }
+
+    pLowerConn->Linkage.Flink = pLowerConn->Linkage.Blink = (struct _LIST_ENTRY * volatile)0x00009789;
 
     CTESpinFree(pDeviceContext,OldIrq);
+
+    NbtDereferenceLowerConnection(pLowerConn);
+
+    return(status);
+
+}
+
+//----------------------------------------------------------------------------
+VOID
+WipeOutLowerconn(
+    IN  PVOID       pContext
+    )
+/*++
+Routine Description:
+
+    This routine does all the file close etc. that we couldn't do at dpc level
+    and then frees the memory.
+
+Arguments:
+
+    pLowerConn - the lower connection to be wiped out
+
+Return Value:
+
+     NONE
+
+--*/
+
+{
+
+    tLOWERCONNECTION    *pLowerConn;
+    PVOID           pIndicate;
+
+
+    pLowerConn = (tLOWERCONNECTION*)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
 
     // dereference the fileobject ptr
     NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
@@ -9389,7 +10314,8 @@ Return Value:
 #else
     KdPrint(("Nbt:Closing Handle %X -> %X\n",pLowerConn,pLowerConn->pFileObject));
 #endif
-    status = NbtTdiCloseConnection(pLowerConn);
+
+    NbtTdiCloseConnection(pLowerConn);
 
     // Close the Address object too since outbound connections use unique
     // addresses for each connection, whereas inbound connections all use
@@ -9399,16 +10325,21 @@ Return Value:
         // dereference the fileobject ptr
         NTDereferenceObject((PVOID *)pLowerConn->pAddrFileObject);
 
-        status = NbtTdiCloseAddress(pLowerConn);
+        NbtTdiCloseAddress(pLowerConn);
     }
 
-    NbtDereferenceLowerConnection(pLowerConn);
+#ifndef VXD
+        // free the indicate buffer and the mdl that holds it
+        //
+        pIndicate = MmGetMdlVirtualAddress(pLowerConn->pIndicateMdl);
 
-    return(status);
+        CTEMemFree(pIndicate);
+        IoFreeMdl(pLowerConn->pIndicateMdl);
+#endif
+
+    // now free the memory block tracking this connection
+    CTEMemFree((PVOID)pLowerConn);
+
+    CTEMemFree(pContext);
 
 }
-
-
-
-
-

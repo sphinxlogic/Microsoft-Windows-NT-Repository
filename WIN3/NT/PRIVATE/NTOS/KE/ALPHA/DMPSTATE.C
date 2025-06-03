@@ -27,7 +27,6 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include "stdio.h"
 
 //
 // Define forward referenced prototypes.
@@ -43,6 +42,13 @@ KiPcToFileHeader(
     IN PVOID PcValue,
     OUT PVOID *BaseOfImage,
     OUT PLDR_DATA_TABLE_ENTRY *DataTableEntry
+    );
+
+VOID
+KiMachineCheck (
+    IN PEXCEPTION_RECORD ExceptionRecord,
+    IN PKEXCEPTION_FRAME ExceptionFrame,
+    IN PKTRAP_FRAME TrapFrame
     );
 
 //
@@ -108,8 +114,8 @@ Return Value:
     //
 
     ContextRecord = &ProcessorState->ContextFrame;
-    LastStack = ContextRecord->IntSp;
-    ControlPc = ContextRecord->IntRa - 4;
+    LastStack = (ULONG)ContextRecord->IntSp;
+    ControlPc = (ULONG)ContextRecord->IntRa - 4;
     NextPc = ControlPc;
     FunctionEntry = KiLookupFunctionEntry(ControlPc);
     if (FunctionEntry != NULL) {
@@ -350,7 +356,7 @@ Return Value:
             HalDisplayString(Buffer);
             if ((NextPc != ControlPc) || (ContextRecord->IntSp != LastStack)) {
                 ControlPc = NextPc;
-                LastStack = ContextRecord->IntSp;
+                LastStack = (ULONG)ContextRecord->IntSp;
                 FunctionEntry = KiLookupFunctionEntry(ControlPc);
                 if ((FunctionEntry != NULL) && (LastStack < StackLimit)) {
                     NextPc = RtlVirtualUnwind(ControlPc,
@@ -360,7 +366,7 @@ Return Value:
                                               &EstablisherFrame,
                                               NULL);
                 } else {
-                    NextPc = ContextRecord->IntRa;
+                    NextPc = (ULONG)ContextRecord->IntRa;
                 }
 
             } else {
@@ -531,7 +537,6 @@ Return Value:
     PLIST_ENTRY Next;
     ULONG Bounds;
     PVOID ReturnBase, Base;
-    PIMAGE_NT_HEADERS NtHeaders;
 
     //
     // If the module list has been initialized, then scan the list to
@@ -555,8 +560,7 @@ Return Value:
 
             Next = Next->Flink;
             Base = Entry->DllBase;
-            NtHeaders = RtlImageNtHeader(Base);
-            Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
+            Bounds = (ULONG)Base + Entry->SizeOfImage;
             if ((ULONG)PcValue >= (ULONG)Base && (ULONG)PcValue < Bounds) {
                 *DataTableEntry = Entry;
                 ReturnBase = Base;

@@ -929,6 +929,11 @@ INT QTC_StartBackup( QTC_BUILD_PTR build, DBLK_PTR dblk )
       fImage = TRUE;
    }
 
+   build->num_files = FS_ViewNumFiles( dblk ) ;
+   build->num_dirs  = FS_ViewNumDirs( dblk ) ;
+   build->num_corrupt_files = FS_ViewNumCorrupt( dblk ) ;
+
+
    switch ( QTC_StartNewBackup( build,
                                 szTapeName,
                                 szSetName,
@@ -979,6 +984,7 @@ INT QTC_StartBackup( QTC_BUILD_PTR build, DBLK_PTR dblk )
         break;
 
    }
+
    return( ret_val );
 
 }
@@ -1132,6 +1138,10 @@ UINT xtra_size )
                QTC_AddDirectoryToCatalog( build, DisplaySize, buffer, nPathLength, Date, Time, Attribute, LBA, xtra_bytes, xtra_size );
 
                // FillFakeInfo( build, buffer, nPathLength, DisplaySize, Date, Time, Attribute, LBA, xtra_bytes, xtra_size );
+
+               if ( Attribute & OBJ_CORRUPT_BIT ) {
+                  QTC_BlockBad( build );
+               }
 
                free( buffer );
             }

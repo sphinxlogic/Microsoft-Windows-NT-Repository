@@ -14,6 +14,10 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a1f.c  $
 *	
+*	   Rev 1.1   10 Aug 1994 09:53:26   BOBLEHMA
+*	Changed parameter to dUWord xor_register.
+*	
+*	
 *	   Rev 1.0   09 Dec 1993 13:29:40   KEVINKES
 *	Initial Revision.
 *
@@ -53,4 +57,3 @@ dStatus kdi_CheckXOR
 
 	return DONT_PANIC;
 }
-

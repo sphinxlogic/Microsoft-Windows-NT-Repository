@@ -22,4 +22,3 @@ Revision History:
 --*/
 
 extern call_ica_hw_interrupt(int, int, int);
-

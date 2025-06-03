@@ -52,7 +52,7 @@ Revision History:
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
 #include <lmsvc.h>
 #include <rxp.h>                // RxpFatalErrorCode().
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpPointerPlusSomeBytes().
 #include <prefix.h>     // PREFIX_ equates.
 #include <rap.h>                // LPDESC, RapConvertSingleEntry().
@@ -92,12 +92,16 @@ RxNetServiceInstall (
     // Compute how much memory we'll need for single CmdArgs array.
     //
     for (ArgIndex = 0; ArgIndex < ArgC; ++ArgIndex) {
+#if defined(DBCS) && defined(UNICODE) // RxNetServiceInstall ()
+        CmdArgsLen += NetpUnicodeToDBCSLen(ArgV[ArgIndex]) + 1;  // string and null.
+#else
         CmdArgsLen += STRLEN(ArgV[ArgIndex]) + 1;  // string and null.
+#endif // defined(DBCS) && defined(UNICODE)
     }
     ++CmdArgsLen;  // include a null char at end of array.
 
     //
-    // Allocate the array.  This is in ASCII, so we don't need to 
+    // Allocate the array.  This is in ASCII, so we don't need to
     // add sizeof(some_char_type).
     //
     TempStatus = NetApiBufferAllocate( CmdArgsLen, (LPVOID *) & CmdArgs );
@@ -112,15 +116,22 @@ RxNetServiceInstall (
     CmdArgsIndex = 0;  // start
     for (ArgIndex=0; ArgIndex<ArgC; ++ArgIndex) {
         NetpAssert( ArgV[ArgIndex] != NULL );
+#if defined(DBCS) && defined(UNICODE) // RxNetServiceInstall ()
+        NetpCopyWStrToStrDBCS(
+                & CmdArgs[CmdArgsIndex],                // dest
+                ArgV[ArgIndex] );                       // src
+        CmdArgsIndex += strlen(&CmdArgs[CmdArgsIndex])+1; //str and null
+#else
         NetpCopyTStrToStr(
                 & CmdArgs[CmdArgsIndex],                // dest
                 ArgV[ArgIndex]);                        // src
         CmdArgsIndex += STRLEN(ArgV[ArgIndex]) + 1;     // str and null.
+#endif // defined(DBCS) && defined(UNICODE)
     }
     CmdArgs[CmdArgsIndex] = '\0';  // null char to end list.
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( PREFIX_NETAPI
-                "RxNetServiceInstall: cmd args (partial):\n" );
+        NetpKdPrint(( PREFIX_NETAPI
+                "RxNetServiceInstall: cmd args (partial):\n" ));
         NetpDbgHexDump( (LPBYTE) (LPVOID) CmdArgs,
                 NetpDbgReasonable(CmdArgsLen) );
     }
@@ -160,7 +171,7 @@ RxNetServiceInstall (
     // why we're passing something besides the expected value for cbBuffer:
     //
     /* Now for a slightly unclean fix for an oversight in the
-     * parameters spec'ed for this call. The command arg buf is 
+     * parameters spec'ed for this call. The command arg buf is
      * the variable length buffer while the outbuf is actually
      * a fixed length structure (no var. length ptrs) yet the
      * parameters to the API give only the outbuflen. In order
@@ -188,13 +199,13 @@ RxNetServiceInstall (
             CmdArgsLen);                // cbBuffer (not OldTotalSize; see
                                         // comment above).
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxNetServiceInstall: OldInfo=" FORMAT_LPVOID ".\n",
-                (LPVOID) OldInfo );
+                (LPVOID) OldInfo ));
         if (OldInfo) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxNetServiceInstall: *OldInfo=" FORMAT_LPVOID ".\n",
-                    *(LPVOID *) OldInfo );
+                    *(LPVOID *) OldInfo ));
         }
     }
 
@@ -238,9 +249,9 @@ RxNetServiceInstall (
         // Convert info structure to native format.
         //
         IF_DEBUG(SERVICE) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxNetServiceInstall: Unconverted info at "
-                    FORMAT_LPVOID "\n", (LPVOID) OldInfo );
+                    FORMAT_LPVOID "\n", (LPVOID) OldInfo ));
             NetpDbgHexDump( OldInfo, OldTotalSize );
         }
         TempStatus = RapConvertSingleEntry (
@@ -257,9 +268,9 @@ RxNetServiceInstall (
                 RapToNative);           // conversion mode
         NetpAssert( TempStatus == NERR_Success );
         IF_DEBUG(SERVICE) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxNetServiceInstall: Converted info at "
-                    FORMAT_LPVOID "\n", (LPVOID) NewInfo );
+                    FORMAT_LPVOID "\n", (LPVOID) NewInfo ));
             NetpDbgHexDump( NewInfo, NewTotalSize );
         }
         NetpAssert( BytesRequired <= NewTotalSize );

@@ -42,11 +42,17 @@ AfdSetupConnectDataBuffers (
     IN PTDI_CONNECTION_INFORMATION ReturnConnectionInformation
     );
 
+VOID
+AfdEnableFailedConnectEvent(
+    IN PAFD_ENDPOINT Endpoint
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, AfdConnect )
 #pragma alloc_text( PAGEAFD, AfdDoDatagramConnect )
 #pragma alloc_text( PAGEAFD, AfdRestartConnect )
 #pragma alloc_text( PAGEAFD, AfdSetupConnectDataBuffers )
+#pragma alloc_text( PAGEAFD, AfdEnableFailedConnectEvent )
 #endif
 
 
@@ -60,7 +66,7 @@ AfdConnect (
 
 Routine Description:
 
-    Handles the IOCTL_TDI_CONNECT IOCTL.
+    Handles the IOCTL_AFD_CONNECT IOCTL.
 
 Arguments:
 
@@ -81,6 +87,7 @@ Return Value:
     PTDI_REQUEST_CONNECT tdiRequest;
     PTDI_CONNECTION_INFORMATION requestConnectionInformation;
     PTDI_CONNECTION_INFORMATION returnConnectionInformation;
+    ULONG offset;
 
     PAGED_CODE( );
 
@@ -108,7 +115,7 @@ Return Value:
          endpoint->State != AfdEndpointStateBound ||
              endpoint->ConnectOutstanding ) {
 
-        if ( endpoint->EndpointType != AfdEndpointTypeDatagram ||
+        if ( !IS_DGRAM_ENDPOINT(endpoint) ||
                  endpoint->State != AfdEndpointStateConnected ) {
             status = STATUS_INVALID_PARAMETER;
             goto complete;
@@ -116,12 +123,61 @@ Return Value:
     }
 
     //
+    // Determine where in the system buffer the request and return
+    // connection information structures exist.  Pass pointers to
+    // these locations instead of the user-mode pointers in the
+    // tdiRequest structure so that the memory will be nonpageable.
+    //
+
+    tdiRequest = Irp->AssociatedIrp.SystemBuffer;
+
+    offset = (ULONG)tdiRequest->RequestConnectionInformation -
+        (ULONG)Irp->UserBuffer;
+
+    if( (LONG)offset < 0 ||
+        ( offset + sizeof(*requestConnectionInformation) ) >
+            IrpSp->Parameters.DeviceIoControl.InputBufferLength ) {
+        status = STATUS_INVALID_PARAMETER;
+        goto complete;
+    }
+
+    requestConnectionInformation = (PVOID)( (ULONG)tdiRequest + offset );
+
+    offset = (ULONG)tdiRequest->ReturnConnectionInformation -
+        (ULONG)Irp->UserBuffer;
+
+    if( (LONG)offset < 0 ||
+        ( offset + sizeof(*returnConnectionInformation) ) >
+            IrpSp->Parameters.DeviceIoControl.InputBufferLength ) {
+        status = STATUS_INVALID_PARAMETER;
+        goto complete;
+    }
+
+    returnConnectionInformation = (PVOID)( (ULONG)tdiRequest + offset );
+
+    offset = (ULONG)requestConnectionInformation->RemoteAddress -
+        (ULONG)Irp->UserBuffer;
+
+    if( (LONG)offset < 0 ||
+        ( offset + requestConnectionInformation->RemoteAddressLength ) >
+            IrpSp->Parameters.DeviceIoControl.InputBufferLength ) {
+        status = STATUS_INVALID_PARAMETER;
+        goto complete;
+    }
+
+    requestConnectionInformation->RemoteAddress =
+        (PVOID)( (ULONG)tdiRequest + offset );
+
+    //
     // If this is a datagram endpoint, simply remember the specified
     // address so that we can use it on sends, receives, writes, and
     // reads.
     //
 
-    if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+    if ( IS_DGRAM_ENDPOINT(endpoint) ) {
+        tdiRequest->RequestConnectionInformation = requestConnectionInformation;
+        tdiRequest->ReturnConnectionInformation = returnConnectionInformation;
+
         return AfdDoDatagramConnect( endpoint, Irp );
     }
 
@@ -143,6 +199,16 @@ Return Value:
     }
 
     //
+    // Set up a referenced pointer from the connection to the endpoint.
+    // Note that we set up the connection's pointer to the endpoint
+    // BEFORE the endpoint's pointer to the connection so that AfdPoll
+    // doesn't try to back reference the endpoint from the connection.
+    //
+
+    REFERENCE_ENDPOINT( endpoint );
+    connection->Endpoint = endpoint;
+
+    //
     // Remember that this is now a connecting type of endpoint, and set
     // up a pointer to the connection in the endpoint.  This is
     // implicitly a referenced pointer.
@@ -154,48 +220,12 @@ Return Value:
     ASSERT( endpoint->TdiBufferring == connection->TdiBufferring );
 
     //
-    // Set up a referenced pointer from the connection to the endpoint.
-    //
-
-    AfdReferenceEndpoint( endpoint, FALSE );
-    connection->Endpoint = endpoint;
-
-    tdiRequest = Irp->AssociatedIrp.SystemBuffer;
-
-    //
     // Add an additional reference to the connection.  This prevents the
     // connection from being closed until the disconnect event handler
     // is called.
     //
 
     AfdAddConnectedReference( connection );
-
-    //
-    // Determine where in the system buffer the request and return
-    // connection information structures exist.  Pass pointers to
-    // these locations instead of the user-mode pointers in the
-    // tdiRequest structure so that the memory will be nonpageable.
-    //
-    // !!! we really should do some sort of buffer integrity test here--
-    //     make sure that UserBuffer != NULL and that the pointers we
-    //     are calculating lie within SystemBuffer.  However, if we later
-    //     change to use TdiMapUserRequest(), then this won't be
-    //     necessary.
-
-    requestConnectionInformation =
-        (PVOID)( (ULONG)tdiRequest +
-            ((ULONG)tdiRequest->RequestConnectionInformation -
-             (ULONG)Irp->UserBuffer) );
-
-    returnConnectionInformation =
-        (PVOID)( (ULONG)tdiRequest +
-            ((ULONG)tdiRequest->ReturnConnectionInformation -
-             (ULONG)Irp->UserBuffer) );
-
-    requestConnectionInformation->RemoteAddress =
-        (PVOID)( (ULONG)tdiRequest +
-            ((ULONG)tdiRequest->RequestConnectionInformation->RemoteAddress -
-             (ULONG)Irp->UserBuffer) );
 
     //
     // Remember that there is a connect operation outstanding on this
@@ -227,13 +257,20 @@ Return Value:
     IrpSp->Parameters.DeviceIoControl.Type3InputBuffer = returnConnectionInformation;
 
     //
+    // Since we may be reissuing a connect after a previous failed connect,
+    // reenable the failed connect event bit.
+    //
+
+    AfdEnableFailedConnectEvent( endpoint );
+
+    //
     // Build a TDI kernel-mode connect request in the next stack location
     // of the IRP.
     //
 
     TdiBuildConnect(
         Irp,
-        connection->FileObject->DeviceObject,
+        connection->DeviceObject,
         connection->FileObject,
         AfdRestartConnect,
         endpoint,
@@ -253,7 +290,7 @@ Return Value:
     // Call the transport to actually perform the connect operation.
     //
 
-    return AfdIoCallDriver( endpoint, connection->FileObject->DeviceObject, Irp );
+    return AfdIoCallDriver( endpoint, connection->DeviceObject, Irp );
 
 complete:
 
@@ -287,20 +324,25 @@ AfdDoDatagramConnect (
 
     inputAddress = tdiRequest->RequestConnectionInformation->RemoteAddress;
 
-    KeAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
 
     if ( Endpoint->Common.Datagram.RemoteAddress != NULL ) {
-        AFD_FREE_POOL( Endpoint->Common.Datagram.RemoteAddress );
+        AFD_FREE_POOL(
+            Endpoint->Common.Datagram.RemoteAddress,
+            AFD_REMOTE_ADDRESS_POOL_TAG
+            );
     }
 
     Endpoint->Common.Datagram.RemoteAddress =
         AFD_ALLOCATE_POOL(
             NonPagedPool,
-            tdiRequest->RequestConnectionInformation->RemoteAddressLength
+            tdiRequest->RequestConnectionInformation->RemoteAddressLength,
+            AFD_REMOTE_ADDRESS_POOL_TAG
             );
+
     if ( Endpoint->Common.Datagram.RemoteAddress == NULL ) {
-        KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
-        status = STATUS_NO_MEMORY;
+        AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+        status = STATUS_INSUFFICIENT_RESOURCES;
         goto complete;
     }
 
@@ -316,16 +358,25 @@ AfdDoDatagramConnect (
 
     Endpoint->DisconnectMode = 0;
 
-    KeReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
-
     //
     // Indicate that the connect completed.  Implicitly, the
     // successful completion of a connect also means that the caller
     // can do a send on the socket.
     //
 
-    AfdIndicatePollEvent( Endpoint, AFD_POLL_CONNECT, STATUS_SUCCESS );
-    AfdIndicatePollEvent( Endpoint, AFD_POLL_SEND, STATUS_SUCCESS );
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+
+    AfdIndicatePollEvent(
+        Endpoint,
+        AFD_POLL_CONNECT_BIT,
+        STATUS_SUCCESS
+        );
+
+    AfdIndicatePollEvent(
+        Endpoint,
+        AFD_POLL_SEND_BIT,
+        STATUS_SUCCESS
+        );
 
     status = STATUS_SUCCESS;
 
@@ -350,7 +401,7 @@ AfdSetupConnectDataBuffers (
 {
     KIRQL oldIrql;
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( Endpoint->ConnectDataBuffers != NULL ) {
 
@@ -378,7 +429,7 @@ AfdSetupConnectDataBuffers (
 
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
 } // AfdSetupConnectDataBuffers
 
@@ -394,7 +445,7 @@ AfdRestartConnect (
 
 Routine Description:
 
-    Handles the IOCTL_TDI_CONNECT IOCTL.
+    Handles the IOCTL_AFD_CONNECT IOCTL.
 
 Arguments:
 
@@ -441,7 +492,7 @@ Return Value:
     // size of the return connect data.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     if ( connection->ConnectDataBuffers != NULL ) {
 
@@ -464,7 +515,7 @@ Return Value:
             returnConnectionInformation->OptionsLength;
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
     // Indicate that the connect completed.  Implicitly, the successful
@@ -476,7 +527,7 @@ Return Value:
 
         AfdIndicatePollEvent(
             endpoint,
-            AFD_POLL_CONNECT,
+            AFD_POLL_CONNECT_BIT,
             Irp->IoStatus.Status
             );
 
@@ -489,13 +540,17 @@ Return Value:
         endpoint->State = AfdEndpointStateConnected;
         ASSERT( endpoint->Type = AfdBlockTypeVcConnecting );
 
-    } else {
+        //
+        // Remember the time that the connection started.
+        //
 
-        BOOLEAN returnQuota;
+        KeQuerySystemTime( (PLARGE_INTEGER)&connection->ConnectTime );
+
+    } else {
 
         AfdIndicatePollEvent(
             endpoint,
-            AFD_POLL_CONNECT_FAIL,
+            AFD_POLL_CONNECT_FAIL_BIT,
             Irp->IoStatus.Status
             );
 
@@ -507,58 +562,20 @@ Return Value:
         // up.
         //
 
-        //
-        // !!! chuckl 6/6/1994
-        //
-        // The following code isn't as clean as it could be.  I am just doing
-        // enough to make it work for the beta.  We use two different fields
-        // to synchronize between this routine and AfdCleanup to ensure
-        // that only one of the two routines returns the pool quota for the
-        // connection.  If connection->CleanupBegun is clear, we know that
-        // AfdCleanup hasn't run yet, so we can return the pool quota.  We set
-        // endpoint->Type to AfdBlockTypeEndpoint to indicate that we have
-        // returned the pool quota.
-        //
-
-        KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
         //
         // The connect failed, so reset the type to open.
         //
 
         endpoint->Type = AfdBlockTypeEndpoint;
-        returnQuota = !connection->CleanupBegun;
 
         if ( connection->ConnectedReferenceAdded ) {
             connection->ConnectedReferenceAdded = FALSE;
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-            AfdDereferenceConnection( connection );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            DEREFERENCE_CONNECTION( connection );
         } else {
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-        }
-
-        if ( returnQuota ) {
-
-            //
-            // Return the quota we charged to this process when we allocated
-            // the connection object.
-            //
-
-            PsReturnPoolQuota(
-                endpoint->OwningProcess,
-                NonPagedPool,
-                connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes
-                );
-            AfdRecordQuotaHistory(
-                endpoint->OwningProcess,
-                -(LONG)(connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes),
-                "RestartConn ",
-                connection
-                );
-#ifdef AFDDBG_QUOTA
-        } else {
-            DbgPrint( "AFD: BROKEN CONDITION HIT!\n" );
-#endif
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         }
 
         //
@@ -567,12 +584,18 @@ Return Value:
         // to zero to the connection object can be deleted.
         //
 
-        AfdDereferenceConnection( connection );
+        DEREFERENCE_CONNECTION( connection );
         endpoint->Common.VcConnecting.Connection = NULL;
     }
 
     if ( NT_SUCCESS(Irp->IoStatus.Status ) ) {
-        AfdIndicatePollEvent( endpoint, AFD_POLL_SEND, STATUS_SUCCESS );
+
+        AfdIndicatePollEvent(
+            endpoint,
+            AFD_POLL_SEND_BIT,
+            STATUS_SUCCESS
+            );
+
     }
 
     //
@@ -589,4 +612,48 @@ Return Value:
     return STATUS_SUCCESS;
 
 } // AfdRestartConnect
+
+
+VOID
+AfdEnableFailedConnectEvent(
+    IN PAFD_ENDPOINT Endpoint
+    )
+
+/*++
+
+Routine Description:
+
+    Reenables the failed connect poll bit on the specified endpoint.
+    This is off in a separate (nonpageable) routine so that the bulk
+    of AfdConnect() can remain pageable.
+
+Arguments:
+
+    Endpoint - The endpoint to enable.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    KIRQL oldIrql;
+
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
+
+    ASSERT( ( Endpoint->EventsActive & AFD_POLL_CONNECT ) == 0 );
+    Endpoint->EventsActive &= ~AFD_POLL_CONNECT_FAIL;
+
+    IF_DEBUG(EVENT_SELECT) {
+        KdPrint((
+            "AfdConnect: Endp %08lX, Active %08lX\n",
+            Endpoint,
+            Endpoint->EventsActive
+            ));
+    }
+
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
+
+}   // AfdEnableFailedConnectEvent
 

@@ -98,6 +98,13 @@ typedef struct _LFCB_SYNC {
 
     KEVENT Event;
 
+    //
+    //  User Count.  Number of clients using this structure.  We will deallocate
+    //  when all clients are gone.
+    //
+
+    ULONG UserCount;
+
 } LFCB_SYNC, *PLFCB_SYNC;
 
 
@@ -535,6 +542,14 @@ typedef struct _LFCB {
     ULONG Flags;
 
     //
+    //  The following are the spare Lbcb's for the volume and a field with
+    //  the count for these.
+    //
+
+    ULONG SpareLbcbCount;
+    LIST_ENTRY SpareLbcbList;
+
+    //
     //  The following structure synchronizes access to this structure.
     //
 
@@ -549,6 +564,12 @@ typedef struct _LFCB {
 #define LFCB_REUSE_TAIL                 (0x00000010)
 #define LFCB_NO_OLDEST_LSN              (0x00000020)
 #define LFCB_LOG_FILE_CORRUPT           (0x00000040)
+#define LFCB_FINAL_SHUTDOWN             (0x00000080)
+#define LFCB_READ_FIRST_RESTART         (0x00000100)
+#define LFCB_READ_SECOND_RESTART        (0x00000200)
+
+#define LFCB_RESERVE_LBCB_COUNT         (5)
+#define LFCB_MAX_LBCB_COUNT             (25)
 
 
 //

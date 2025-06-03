@@ -1,32 +1,28 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                       MDI Text File Viewer                              |
-  +-------------------------------------------------------------------------+
-  |                        (c) Copyright 1994                               |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [LogView.c]                                     |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Feb 11, 1994]                                  |
-  | Last Update           : [Feb 11, 1994]                                  |
-  |                                                                         |
-  | Version:  0.10                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jul 27, 1993    0.10    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
 
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   LogView.C
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 27-Jul-1993
+
+Revision History:
+
+--*/
 
 #include "LogView.h"
 #include <string.h>
 #include <stdio.h>
-#include <dos.h>
-#include <direct.h>
+//#include <dos.h>
+//#include <direct.h>
+#include <shellapi.h>
 
 // global variables used in this module or among more than one module
 HANDLE hInst;
@@ -37,6 +33,7 @@ HWND hwndActive = NULL;
 HWND hwndActiveEdit = NULL;
 HWND hDlgFind = NULL;
 LPSTR lpMenu = IDLOGVIEW;
+TCHAR szAppName[] = "LogView";
 
 FINDREPLACE FR;
 PRINTDLG PD;
@@ -55,19 +52,35 @@ void FAR Search (TCHAR * szKey);
 VOID NEAR PASCAL InitializeMenu (HANDLE);
 VOID NEAR PASCAL CommandHandler (HWND, UINT, LONG);
 LPSTR GetCmdLine( VOID );
-LRESULT CALLBACK DlgAppAbout(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 BOOL CenterWindow( HWND hwndChild, HWND hwndParent );
 
 #define HELP_FILE TEXT("logview.hlp")
 
-/*+-------------------------------------------------------------------------+
-  | WinMain()                                                               |
-  |                                                                         |
-  |    Creates the "frame" window, does some initialization and enters the  |
-  |    message loop.                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+/////////////////////////////////////////////////////////////////////////
+int PASCAL 
+WinMain(
+   HINSTANCE hInstance, 
+   HINSTANCE hPrevInstance, 
+   LPSTR lpCmdLine, 
+   int nCmdShow
+   )
+
+/*++
+
+Routine Description:
+
+    Creates the "frame" window, does some initialization and enters the
+    message loop.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     MSG msg;
 
     hInst = hInstance;
@@ -84,11 +97,6 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     if (!InitializeInstance (lpCmdLine, nCmdShow))
         return 0;
 
-#ifdef Ctl3d
-   Ctl3dRegister(hInst);
-   Ctl3dAutoSubclass(hInst);
-#endif
-
     while (GetMessage (&msg, NULL, 0, 0)){
         // If a keyboard message is for the MDI , let the MDI client take care of it.
         // Otherwise, check to see if it's a normal accelerator key (like F3 = find next).
@@ -102,23 +110,36 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         }
     }
     
-#ifdef Ctl3d
-   Ctl3dUnregister(hInst);
-#endif
-
     return 0;
     
 } // WinMain
 
 
-/*+-------------------------------------------------------------------------+
-  | MPFrameWndProc()                                                        |
-  |                                                                         |
-  |   The window function for the "frame" window, which controls the menu   |
-  |   and encompasses all the MDI child windows.                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LONG APIENTRY MPFrameWndProc ( HWND    hwnd, UINT msg, UINT wParam, LONG lParam) {
+/////////////////////////////////////////////////////////////////////////
+LONG APIENTRY 
+MPFrameWndProc ( 
+   HWND hwnd, 
+   UINT msg, 
+   UINT wParam, 
+   LONG lParam
+   )
+
+/*++
+
+Routine Description:
+
+   The window function for the "frame" window, which controls the menu
+   and encompasses all the MDI child windows.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPFINDREPLACE lpfr;
    DWORD dwFlags;
 
@@ -178,12 +199,6 @@ LONG APIENTRY MPFrameWndProc ( HWND    hwnd, UINT msg, UINT wParam, LONG lParam)
          PostQuitMessage (0);
          break;
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       default:
          if (msg == wFRMsg)
           {
@@ -210,11 +225,29 @@ LONG APIENTRY MPFrameWndProc ( HWND    hwnd, UINT msg, UINT wParam, LONG lParam)
 } // MPFrameWndProc
 
 
-/*+-------------------------------------------------------------------------+
-  | MPMDIWndProc()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LONG APIENTRY MPMDIChildWndProc ( HWND hwnd, UINT msg, UINT wParam, LONG lParam) {
+/////////////////////////////////////////////////////////////////////////
+LONG APIENTRY 
+MPMDIChildWndProc ( 
+   HWND hwnd, 
+   UINT msg, 
+   UINT wParam, 
+   LONG lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    HWND hwndEdit;
    HFONT hFont;
    LRESULT ret;
@@ -234,8 +267,7 @@ LONG APIENTRY MPMDIChildWndProc ( HWND hwnd, UINT msg, UINT wParam, LONG lParam)
          SetWindowWord (hwnd, GWL_WORDWRAP, FALSE);
          SetWindowWord (hwnd, GWW_UNTITLED, TRUE);
             
-         // Need fixed-pitch font to make everything line up...
-         hFont = GetStockObject(ANSI_FIXED_FONT);
+         hFont = GetStockObject(SYSTEM_FIXED_FONT);
          ret = SendMessage(hwndEdit, WM_SETFONT, (WPARAM) hFont, (LPARAM) MAKELONG((WORD) TRUE, 0));
             
          SetFocus (hwndEdit);
@@ -304,13 +336,27 @@ CallDCP:
 } // MPMDIChildWndProc
 
 
-/*+-------------------------------------------------------------------------+
-  | InitializeMenu()                                                        |
-  |                                                                         |
-  |   Sets up greying, enabling and checking of main menu items.            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID NEAR PASCAL InitializeMenu (register HANDLE hmenu) {
+/////////////////////////////////////////////////////////////////////////
+VOID NEAR PASCAL 
+InitializeMenu (
+   register HANDLE hmenu
+   )
+
+/*++
+
+Routine Description:
+
+   Sets up greying, enabling and checking of main menu items.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    WORD status;
    WORD i;
    INT j;
@@ -377,13 +423,25 @@ VOID NEAR PASCAL InitializeMenu (register HANDLE hmenu) {
 } // InitializeMenu
 
 
-/*+-------------------------------------------------------------------------+
-  | CloseAllChildren()                                                      |
-  |                                                                         |
-  |    Destroys all MDI child windows.                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID NEAR PASCAL CloseAllChildren () {
+/////////////////////////////////////////////////////////////////////////
+VOID NEAR PASCAL 
+CloseAllChildren ()
+
+/*++
+
+Routine Description:
+
+    Destroys all MDI child windows.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     register HWND hwndT;
 
     // hide the MDI client window to avoid multiple repaints
@@ -405,11 +463,28 @@ VOID NEAR PASCAL CloseAllChildren () {
 } // CloseAllChildren
 
 
-/*+-------------------------------------------------------------------------+
-  | CommandHandler()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID NEAR PASCAL CommandHandler ( HWND hwnd, UINT wParam, LONG lParam) {
+/////////////////////////////////////////////////////////////////////////
+VOID NEAR PASCAL 
+CommandHandler ( 
+   HWND hwnd, 
+   UINT wParam, 
+   LONG lParam
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DLGPROC lpfnDlg;
    
     switch (LOWORD(wParam)){
@@ -466,12 +541,10 @@ VOID NEAR PASCAL CommandHandler ( HWND hwnd, UINT wParam, LONG lParam) {
             SendMessage (hwnd, WM_CLOSE, 0, 0L);
             break;
 
-        case IDM_HELPABOUT:{
-            lpfnDlg = MakeProcInstance((DLGPROC)DlgAppAbout, hInst);
-            DialogBox(hInst, TEXT("AboutBox"), hwnd, lpfnDlg) ;
-            FreeProcInstance(lpfnDlg);
+        case IDM_HELPABOUT:
+            // Just let the shell display the about box...
+            ShellAbout(hwnd, szAppName, szAppName, LoadIcon(hInst, IDLOGVIEW));
             break;
-        }
 
         // The following are edit commands. Pass these off to the active child'd edit
         // control window.
@@ -479,8 +552,17 @@ VOID NEAR PASCAL CommandHandler ( HWND hwnd, UINT wParam, LONG lParam) {
             SendMessage(hwndActive, WM_COMMAND, GET_WM_COMMAND_MPS(IDM_EDITWRAP, 1, 0));
             break;
 
+        case IDM_SEARCHPREV:
+            if (szSearch[0]) {
+               fReverse = TRUE;
+               Search(szSearch);
+               break;
+            }
+            // else fall through and bring up find dialog
+
         case IDM_SEARCHNEXT:
             if (szSearch[0]) {
+               fReverse = FALSE;
                Search(szSearch);
                break;
             }
@@ -541,11 +623,29 @@ VOID NEAR PASCAL CommandHandler ( HWND hwnd, UINT wParam, LONG lParam) {
 } // CommandHandler
 
 
-/*+-------------------------------------------------------------------------+
-  | MPError()                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-SHORT MPError( HWND hwnd, WORD bFlags, WORD id, char *psz ) {
+/////////////////////////////////////////////////////////////////////////
+SHORT 
+MPError( 
+   HWND hwnd, 
+   WORD bFlags, 
+   WORD id, 
+   char *psz 
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     CHAR sz[160];
     CHAR szFmt[128];
 
@@ -558,11 +658,26 @@ SHORT MPError( HWND hwnd, WORD bFlags, WORD id, char *psz ) {
 } // MPError
 
 
-/*+-------------------------------------------------------------------------+
-  | GetCmdLine()                                                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPSTR GetCmdLine( VOID ) {
+/////////////////////////////////////////////////////////////////////////
+LPSTR 
+GetCmdLine( 
+   VOID
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     LPSTR lpCmdLine, lpT;
 
     lpCmdLine = GetCommandLine();
@@ -590,76 +705,27 @@ LPSTR GetCmdLine( VOID ) {
 #define CY_SHADOW   4
 #define CX_SHADOW   4
 
-/*+-------------------------------------------------------------------------+
-  | DlgAppAbout()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LRESULT CALLBACK DlgAppAbout(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-   int wmId, wmEvent;
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+CenterWindow( 
+   HWND hwndChild, 
+   HWND hwndParent
+   )
 
-   switch (message) {
-      case WM_INITDIALOG:
-         // Center the dialog over the application window
-         CenterWindow (hDlg, GetWindow (hDlg, GW_OWNER));
+/*++
 
-         {      
-            TCHAR str[256], strFmt[256];
-            MEMORYSTATUS MemStat;
-            struct _diskfree_t diskfree;
-
-            LoadString(hInst, IDS_PHYSICAL_MEM, strFmt, sizeof(strFmt));
-            MemStat.dwLength = sizeof(MEMORYSTATUS);
-
-            GlobalMemoryStatus(&MemStat);
-            wsprintf(str, strFmt, MemStat.dwTotalPhys / 1024L);
-            SetDlgItemText(hDlg, IDC_PHYSICAL_MEM, str);
-
-            // fill disk free information
-            if (_getdiskfree(_getdrive(), &diskfree) == 0) {
-               LoadString(hInst, IDS_DISK_SPACE, strFmt, sizeof(strFmt));
-               wsprintf(str, strFmt, (DWORD)diskfree.avail_clusters *
-                  (DWORD)diskfree.sectors_per_cluster *
-                  (DWORD)diskfree.bytes_per_sector / (DWORD)1024L);
-            } else
-               LoadString(hInst, IDS_DISK_SPACE_UNAVAIL, str, sizeof(str));
-
-            SetDlgItemText(hDlg, IDC_DISK_SPACE, str);
-         }
-
-         return (TRUE);
-
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
-      case WM_COMMAND:
-         wmId    = LOWORD(wParam);
-         wmEvent = HIWORD(wParam);
-
-         switch (wmId) {
-            case IDOK:
-               EndDialog(hDlg, 0);
-               return (TRUE);
-
-               break;
-         }
-
-         break;
-   }
-
-   return (FALSE); // Didn't process the message
-
-   lParam;
-} // DlgAppAbout
+Routine Description:
 
 
-/*+-------------------------------------------------------------------------+
-  | Name: CenterWindow()                                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL CenterWindow( HWND hwndChild, HWND hwndParent ) {
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    RECT    rChild, rParent;
    int     wChild, hChild, wParent, hParent;
    int     wScreen, hScreen, xNew, yNew;

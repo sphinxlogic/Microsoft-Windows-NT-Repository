@@ -350,6 +350,5 @@ HWND hWnd;
 {
     SendMessage(hWnd, WM_CLOSE, 0, 0L);
 }
-
-
-
+
+

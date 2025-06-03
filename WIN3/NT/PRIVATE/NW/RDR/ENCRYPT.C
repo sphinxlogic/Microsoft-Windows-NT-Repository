@@ -168,6 +168,14 @@ Return Value:
     PAGED_CODE();
 
     //
+    //  Truncate all trailing zeros from the password.
+    //
+
+    while (iPasswordLen > 0 && szUpperPassword[iPasswordLen-1] == 0 ) {
+        iPasswordLen--;
+    }
+
+    //
     //  Initialize the achTemp buffer. Initialization consists of taking
     //  the password and dividing it up into chunks of 32. Any bytes left
     //  over are the remainder and do not go into the initialization.

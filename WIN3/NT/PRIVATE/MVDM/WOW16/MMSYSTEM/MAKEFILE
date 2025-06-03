@@ -21,16 +21,17 @@ INCS    = -I. -I..\inc -I..\..\inc
 
 OPT     = -Oxws
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
 #
 #   build a retail build
 #
-!if "$(NTDEBUG)" == "" || "$(NTDEBUG)" == "retail"
+!if "$(NTDEBUG)" == "" || "$(NTDEBUG)" == "retail" && "$(NTDEBUG)" != "ntsdnodbg"
 
 CLOPT   =-I..\inc -I.\rinc -I..\..\inc
 MASMOPT =-I..\inc -I..\..\inc
@@ -45,15 +46,9 @@ MMDEBUG =
 #
 !else
 
-!if "$(NTDEBUGTYPE)"=="windbg"
-CDEBUG  =-Zi -Odi
-ADEBUG  =-Zi
-LDEBUG  =/CO
-!else
 CDEBUG  =-Zd -Odi
 ADEBUG  =-Zd
 LDEBUG  =/LI
-!endif
 
 CLOPT   =$(CDEBUG) -DDEBUG -I..\inc -I.\rinc -I..\..\inc
 MASMOPT =$(ADEBUG) -DDEBUG -I..\inc -I..\..\inc
@@ -67,9 +62,9 @@ MMDEBUG = DEBUG=1
 
 
 !if "$(STRICT)" == "YES"
-TYPES	=-DSTRICT
+TYPES   =-DSTRICT
 !else
-TYPES	=
+TYPES   =
 !endif
 
 #
@@ -92,10 +87,10 @@ LINK    = link16 /NOD/NOE/MAP/ALIGN:16 $(LINKOPT)
 
 ###################################
 
-goal:   $(NAME).$(EXT) $(NAME).sym mmtask.tsk
+all:   $(NAME).$(EXT) $(NAME).sym mmtask.tsk
 
 $(NAME).$(EXT): $(OBJFIRST) $(OBJ) $(NAME).def $(NAME).res mmtask.tsk
-	@$(LINK) @<<
+        @$(LINK) @<<
 $(OBJFIRST) +
 $(OBJ1)+
 $(OBJ2)+
@@ -108,40 +103,31 @@ $(NAME),
 $(LIBS),
 $(NAME).def
 <<
-	@$(RC) -t $(NAME).res $(NAME).$(EXT)
-	@mapsym /n $*.map
-        -binplace mmsystem.dll
-        -binplace mmsystem.sym
-        -binplace mmtask.tsk
+        @$(RC) -t $(NAME).res $(NAME).$(EXT)
+        @mapsym /n $*.map
+        -binplace mmsystem.dll mmsystem.map mmsystem.sym mmtask.tsk mmtask.map mmtask.sym
 
 RES_DIR =.\messages\usa
 
 $(NAME).rc: $(RES_DIR)\$(NAME).rc
-	@copy $(RES_DIR)\$(NAME).rc
+        @copy $(RES_DIR)\$(NAME).rc
 
 mci.rc: $(RES_DIR)\$$(@F)
-	@copy $(RES_DIR)\$@
+        @copy $(RES_DIR)\$@
 
-$(NAME).rcv: $(RES_DIR)\$$(@F) rinc\mmsysver.h
-	@copy $(RES_DIR)\$@
-	@touch $@
+$(NAME).rcv: $(RES_DIR)\$$(@F) ..\inc\common.ver
+        @copy $(RES_DIR)\$@
+        @touch $@
 
 $(NAME).res: $(NAME).rc mci.rc ..\inc\$(NAME).h $(NAME).rcv mmsysi.h ..\inc\mmddk.h
-	@$(RC) -r $(NAME).rc
-
-iclean:
-	-@del *.rc
-	-@del *.dlg
-        -@del *.res
-        -@del *.tsk
-
+        @$(RC) -r $(NAME).rc
 
 ############## mmtask #############
 
 mmtask.tsk: mmtask\mmtask.asm mmtask\makefile mmtask\mmtask.def mmtask\mmtask.h
-	@cd mmtask
+        @cd mmtask
         @$(MAKE) $(MMDEBUG)
-	@cd ..
+        @cd ..
 
 ############## includes ##############
 
@@ -150,19 +136,21 @@ mmtask.tsk: mmtask\mmtask.asm mmtask\makefile mmtask\mmtask.def mmtask\mmtask.h
 
 ############## clean ##############
 
-clean:
-	-@del $(NAME).$(EXT)
-	-@del $(NAME).res
-	-@del *.sym
-	-@del *.map
-	-@del *.lib
-	-@del $Z*.cod
-	-@del $Z*.obj
-	-@del *.rcv
+clean: cleanup all
+
+cleanup:
+        -@del $(NAME).$(EXT)
+        -@del $(NAME).res
+        -@del *.sym
+        -@del *.map
+        -@del *.lib
+        -@del $Z*.cod
+        -@del $Z*.obj
+        -@del *.rcv
         -@del *.rc
         -@del *.tsk
-	@cd mmtask
-	@$(MAKE) clean
+        @cd mmtask
+        @$(MAKE) clean
         @cd ..
 
 ########### segmentation ##########
@@ -207,12 +195,12 @@ $Zmixer.obj       : ; $(SEGC:CSEG=MIXER)
 ############# depend ##############
 
 depend:
-	mv makefile makefile.old
-	sed "/^# START Dependencies/,/^# END Dependencies/D" makefile.old > makefile
-	-del makefile.old
-	echo # START Dependencies >> makefile
-	includes -l *.c *.asm >> makefile
-	echo # END Dependencies >> makefile
+        mv makefile makefile.old
+        sed "/^# START Dependencies/,/^# END Dependencies/D" makefile.old > makefile
+        -del makefile.old
+        echo # START Dependencies >> makefile
+        includes -l *.c *.asm >> makefile
+        echo # END Dependencies >> makefile
 
 ##################################################################
 # START Dependencies

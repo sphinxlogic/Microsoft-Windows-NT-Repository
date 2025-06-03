@@ -60,5 +60,5 @@ Notes:
 --*/
 
 {
-    return(ParWriteLoopPI(Controller, WriteBuffer, NumBytesToWrite));
+    return(ParWriteLoopPI(Controller, WriteBuffer, NumBytesToWrite, 1));
 }

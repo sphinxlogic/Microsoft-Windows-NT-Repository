@@ -1150,8 +1150,11 @@ WORD MapWin32ErrorToWN16(DWORD err)
 {
     switch (err) 
     {
-        case ERROR_NOT_SUPPORTED: 
+        case ERROR_NOT_SUPPORTED:
             return WN_NOT_SUPPORTED ;
+    
+        case WIN32_WN_CANCEL:
+            return WN_CANCEL ;
     
         case WIN32_EXTENDED_ERROR :
         case ERROR_UNEXP_NET_ERR:

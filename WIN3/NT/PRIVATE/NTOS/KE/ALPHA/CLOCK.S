@@ -1,4 +1,4 @@
-//      TITLE("Interval and Profile Clock Interrupts")
+//   r   TITLE("Interval and Profile Clock Interrupts")
 //++
 //
 // Copyright (c) 1990  Microsoft Corporation
@@ -78,8 +78,7 @@
         lda     t0, KiTimerTableListHead // get base address of timer table
         stl     a3, 0(a2)               // store tick offset value
         bgt     a3, 10f                 // if gt, tick not completed
-        lda     a4, KeMaximumIncrement  // get maximum increment value
-        ldl     a4, 0(a4)               //
+        ldl     a4, KeMaximumIncrement  // get maximum increment value
 
 //
 // Update system time.
@@ -181,16 +180,23 @@
         stl     t2, LsFlink(t4)         // set next link in old last entry
         stl     t3, LsFlink(t2)         // set address of next entry
         stl     t4, LsBlink(t2)         // set address of previous entry
+        ldl     t5, PbDpcQueueDepth(v0) // get current DPC queue depth
+        addl    t5, 1, t7               // increment DPC queue depth
+        stl     t7, PbDpcQueueDepth(v0) // set updated DPC queue depth
 
-        bis     a0, zero, t11           // save copy of a0
-        ldil    a0, DISPATCH_INTERRUPT  // a0 = level of interrupt to request
-        REQUEST_SOFTWARE_INTERRUPT      // request a DISPATCH sfw interrupt
-        bis     t11, zero, a0           // restore a0
-35:                                     //
+//
+// N.B. Since an interrupt must be active, simply set the software interrupt
+//      request bit in the PRCB to request a dispatch interrupt directly from
+//      the interrupt exception handler.
+//
+
+        ldil    t11, DISPATCH_INTERRUPT         // a0 = level of interrupt to request
+        stl     t11, PbSoftwareInterrupts(v0)   // request a DISPATCH sfw interrupt
+35:
 
 #if !defined(NT_UP)
 
-        wmb                             // insure all previous writes go
+        mb                              // insure all previous writes go
                                         //   before the lock is released
         stl     zero, 0(t1)             // set spin lock not owned
 
@@ -240,11 +246,27 @@
 //--
 
         LEAF_ENTRY(KeUpdateRunTime)
-
         GET_CURRENT_THREAD              // v0 = current thread address
         bis     v0, zero, t0            // t0 = current thread address
         GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = processor block address
         bis     v0, zero, t5            // t5 = processor block address
+
+//
+// Update the current DPC rate.
+//
+// A running average of the DPC rate is used. The number of DPCs requested
+// in the previous tick is added to the current DPC rate and divided by two.
+// This becomes the new DPC rate.
+//
+        ldl     t1, PbDpcCount(t5)          // get current DPC count
+        ldl     t6, PbLastDpcCount(t5)      // get last DPC count
+        subl    t1, t6, t7                  // compute difference
+        ldl     t2, PbDpcRequestRate(t5)    // get old DPC request rate
+        addl    t7, t2, t3                  // compute average
+        srl     t3, 1, t4                   //
+        stl     t4, PbDpcRequestRate(t5)    // store new DPC request rate
+        stl     t1, PbLastDpcCount(t5)      // update last DPC count
+
         ldl     t2, ThApcState + AsProcess(t0)  // get address of current proc
         ldl     t3, TrPsr(a0)           // get saved processor status
         and     t3, PSR_MODE_MASK, t6   // isolate previous mode
@@ -258,7 +280,7 @@
 //
 
         srl     t3, PSR_IRQL, t6        // t6 = previous Irql
-        GET_DPC_ACTIVE_FLAG             // v0 = DPC active flag
+        ldl     v0, PbDpcRoutineActive(t5)  // v0 = DPC active flag
         subl    t6, DISPATCH_LEVEL, t6  // previous Irql - DPC level
         blt     t6, 20f                 // if lt then charge against thread
 
@@ -278,7 +300,7 @@
         addl    t11, 1, t11             // increment processor time
         stl     t11, 0(t8)              // update processor time
         lda     t6, PbKernelTime(t5)    // compute address of kernel time
-        br      zero, 50f               // update kernel time
+        br      zero, 45f               // update kernel time
 
 //
 // Update the time spent in kernel mode for the current thread and the current
@@ -315,7 +337,7 @@
         ldl_l   t11, 0(t2)              // get process time
         addl    t11, 1, t11             // increment process time
         stl_c   t11, 0(t2)              // store updated process time
-        beq     t11, 45f                // if eq, store conditional failed
+        beq     t11, 41f                // if eq, store conditional failed
         mb                              // synchronize subsequent reads
 
 #else
@@ -325,48 +347,124 @@
 #endif
 
 //
+// A DPC is not active.  If there are  DPCs in the DPC queue and a  DPC
+// interrupt has not  been requested, request  a dispatch interrupt  in
+// order to initiate the batch  processing of the  pending DPCs in  the
+// DPC queue.
+//
+// N.B. Since an interrupt must be active, the software interrupt request
+//      bit in the PRCB can be set to request a dispatch interrupt directly from
+//      the interrupt exception handler.
+//
+// Pushing DPCs from the clock interrupt indicates that the current maximum
+// DPC queue depth is too high. If the DPC rate does not exceed the ideal
+// rate, decrement the maximum DPC queue depth and
+// reset the threshold to its original value.
+//
+        ldl     t1, PbDpcQueueDepth(t5)         // get current queue depth
+        beq     t1, 45f                         // skip if queue is empty
+        ldl     t2, PbDpcInterruptRequested(t5) // get dpc interrupt request flag
+        bne     t2, 45f                         // skip if flag is set
+        ldil    a0, DISPATCH_INTERRUPT          // a0 = request software interrupt
+        stl     a0, PbSoftwareInterrupts(t5)
+        ldl     t3, PbMaximumDpcQueueDepth(t5)  // get current DPC queue depth
+        subl    t3, 1, t4                       // decrement
+        ldl     t2, PbDpcRequestRate(t5)        // get old DPC request rate
+        ldl     t1, KiIdealDpcRate              // get ideal DPC rate
+        cmpult  t2, t1, t2                      // compare current with ideal
+        ldl     t1, KiAdjustDpcThreshold        // get system threshold default
+        stl     t1, PbAdjustDpcThreshold(t5)    // reset processor threshold default
+        beq     t4, 50f                         // if queue depth==0, skip decrement
+        beq     t2, 50f                         // if rate not lt ideal rate, skip decrement
+        stl     t4, PbMaximumDpcQueueDepth(t5)  // set current DPC queue depth
+        br      zero, 50f                       // rejoin common code
+
+45:
+//
+// There is no need to push a DPC from the clock interrupt. This indicates that
+// the current maximum DPC queue depth may be too low. Decrement the threshold
+// indicator, and if the new threshold is zero, and the current maximum queue
+// depth is less than the maximum, increment the maximum DPC queue
+// depth.
+//
+        ldl     t1, PbAdjustDpcThreshold(t5)    // get current threshold
+        subl    t1, 1, t2                       // decrement threshold
+        stl     t2, PbAdjustDpcThreshold(t5)    // update current threshold
+        bne     t2, 50f                         // if threshold nez, skip
+
+        ldl     t1, KiAdjustDpcThreshold        // get system threshold default
+        stl     t1, PbAdjustDpcThreshold(t5)    // reset processor threshold default
+
+        ldl     t3, PbMaximumDpcQueueDepth(t5)  // get current DPC queue depth
+        ldl     t1, KiMaximumDpcQueueDepth      // get maximum DPC queue depth
+        cmpult  t3, t1, t2                      // compare
+        beq     t2, 50f                         // if current not lt maximum, skip
+        addl    t3, 1, t4                       // increment queue depth
+        stl     t4, PbMaximumDpcQueueDepth(t5)  // update current DPC queue depth
+
+50:
+//
 // Update the time spent in kernel/user mode for the current processor.
 //
 // t5 = pointer to processor time to increment
 //
 
-50:
         ldl     t11, 0(t6)              // get processor time
         addl    t11, 1, t11             // increment processor time
         stl     t11, 0(t6)              // store updated processor time
 
 //
-// Decrement current thread quantum and check to determine if a quantum end
-// has occurred.
+// If the current thread is not the idle thread, decrement its
+// quantum and check to determine if a quantum end has occurred.
 //
+        ldl     t6, PbIdleThread(t5)
+        cmpeq   t6, t0, t7
+        bne     t7, 70f                 // if nez, current thread is idle thread
 
-        ALTERNATE_ENTRY(KiDecrementQuantum)
-        ldb     t7, ThQuantum(t0)       // get current thread quantum
-        ldb     t6, KiClockQuantumDecrement // get quantum decrement value
-        subl    t7, t6, t7              // decrement current quantum
-        StoreByte( t7, ThQuantum(t0) )  // store thread quantum
-        bgt     t7, 60f                 // if gtz, quantum remaining
+        LoadByte(t7, ThQuantum(t0))             // get current thread quantum
+        sll     t7, 56, t9
+        sra     t9, 56, t7
+        subl    t7, CLOCK_QUANTUM_DECREMENT, t7 // decrement quantum
+        StoreByte( t7, ThQuantum(t0) )          // store thread quantum
+        bgt     t7, 60f                         // if gtz, quantum remaining
 
 //
 // Put processor specific quantum end DPC in the system DPC list and initiate
 // a dispatch interrupt on the current processor.
 //
+// N.B. Since an interrupt must be active, simply set the software interrupt
+//      request bit in the PRCB to request a dispatch interrupt directly from
+//      the interrupt exception handler.
+//
 
         stl     sp, PbQuantumEnd(t5)    // set quantum end indicator
 
         ldil    a0, DISPATCH_INTERRUPT  // a0 = request sfw interrupt
-        REQUEST_SOFTWARE_INTERRUPT      // request a sfw interrupt
-
+        stl     a0, PbSoftwareInterrupts(t5)    // request a sfw interrupt
 
 60:
         ret     zero, (ra)              // return
 
-45:     br      zero, 40b               // retry spin lock
+70:
+        bis     zero, zero, t7
+        ret     zero, (ra)              // return
 
+#if !defined(NT_UP)
+
+41:     br      zero, 40b               // retry spin lock
+
+#endif
 
         .end    KeUpdateRunTime
+
 
 //++
+//
+// VOID
+// KeProfileInterruptWithSource (
+//    IN PKTRAP_FRAME TrapFrame,
+//    IN KPROFILE_SOURCE ProfileSource
+//    )
 //
 // VOID
 // KeProfileInterrupt (
@@ -385,6 +483,10 @@
 //
 //    TrapFrame (a0) - Supplies a pointer to a trap frame.
 //
+//    ProfileSource (a1) - Supplies the source of the profile interrupt
+//              KeProfileInterrupt is an alternate entry for backwards
+//              compatibility that sets the source to zero (ProfileTime)
+//
 // Return Value:
 //
 //    None.
@@ -398,6 +500,10 @@ PfRa:   .space  8                       // return address
 ProfileFrameLength:
 
         NESTED_ENTRY(KeProfileInterrupt, ProfileFrameLength, zero)
+
+        bis     zero, zero, a1          // set profile source to ProfileTime
+
+        ALTERNATE_ENTRY(KeProfileInterruptWithSource)
 
         lda     sp, -ProfileFrameLength(sp) // allocate stack frame
         stq     ra, PfRa(sp)            // save return address
@@ -425,16 +531,16 @@ ProfileFrameLength:
 #endif
 
         GET_CURRENT_THREAD              // v0 = current thread address
-        ldl     a1, ThApcState + AsProcess(v0) // get address of current process
-        addl    a1, PrProfileListHead, a1 // compute profile listhead addr
+        ldl     a2, ThApcState + AsProcess(v0) // get address of current process
+        addl    a2, PrProfileListHead, a2 // compute profile listhead addr
         bsr     ra, KiProcessProfileList // process profile list
 
-        lda     a1, KiProfileListHead   // get profile listhead address
+        lda     a2, KiProfileListHead   // get profile listhead address
         bsr     ra, KiProcessProfileList // process profile list
 
 #if !defined(NT_UP)
 
-        wmb                             // insure all previous writes go
+        mb                              // insure all previous writes go
                                         //   before the lock is released
         stl     zero, 0(s0)             // set spin lock not owned
         ldq     s0, PfS0(sp)            // restore s0
@@ -463,6 +569,7 @@ ProfileFrameLength:
 // VOID
 // KiProcessProfileList (
 //    IN PKTRAP_FRAME TrapFrame,
+//    IN KPROFILE_SOURCE Source,
 //    IN PLIST_ENTRY ListHead
 //    )
 //
@@ -474,7 +581,9 @@ ProfileFrameLength:
 //
 //    TrapFrame (a0) - Supplies a pointer to a trap frame.
 //
-//    ListHead (a1) - Supplies a pointer to a profile list.
+//    Source (a1) - Supplies profile source to match
+//
+//    ListHead (a2) - Supplies a pointer to a profile list.
 //
 // Return Value:
 //
@@ -484,24 +593,34 @@ ProfileFrameLength:
 
         LEAF_ENTRY(KiProcessProfileList)
 
-        ldl     a2, LsFlink(a1)         // get address of next entry
-        cmpeq   a1, a2, t0              // end of list ?
+        ldl     a3, LsFlink(a2)         // get address of next entry
+        cmpeq   a2, a3, t0              // end of list ?
         bne     t0, 30f                 // if ne[true], end of list
         ldl     t0, TrFir(a0)           // get interrupt PC address
+
+        GET_PROCESSOR_CONTROL_REGION_BASE   // get pcr base
+        ldl     t6, PcSetMember(v0)         // get processor member
 
 //
 // Scan profile list and increment profile buckets as appropriate.
 //
 
-10:     ldl     t1, PfRangeBase - PfProfileListEntry(a2)  // get base of range
-        ldl     t2, PfRangeLimit - PfProfileListEntry(a2) // get limit of range
+10:     ldl     t1, PfRangeBase - PfProfileListEntry(a3)  // get base of range
+        ldl     t2, PfRangeLimit - PfProfileListEntry(a3) // get limit of range
+        ldl     t4, PfSource - PfProfileListEntry(a3)     // get source
+        ldl     t7, PfAffinity - PfProfileListEntry(a3)   // get affinity
+        zapnot  t4, 3, t4                                 // source is a SHORT
+        cmpeq   t4, a1, t5              // check against profile source
+        and     t7, t6, v0              // check against processor
+        beq     t5, 20f                 // if ne, profile source doesn't match
+        beq     v0, 20f                 // if ne, processor doesn't match
         cmpult  t0, t1, v0              // check against range base
         cmpult  t0, t2, t3              // check against range limit
         bne     v0, 20f                 // if ne, less than range base
         beq     t3, 20f                 // if eq, not less than range limit
         subl    t0, t1, t1              // compute offset in range
-        ldl     t2, PfBucketShift - PfProfileListEntry(a2) // get shift count
-        ldl     v0, PfBuffer - PfProfileListEntry(a2)      // prof buffer addr
+        ldl     t2, PfBucketShift - PfProfileListEntry(a3) // get shift count
+        ldl     v0, PfBuffer - PfProfileListEntry(a3)      // prof buffer addr
         zap     t1, 0xf0, t1            // force bucket offset to 32bit unit
         srl     t1, t2, t3              // compute bucket offset
         bic     t3, 0x3, t3             // clear low order offset bits
@@ -509,8 +628,8 @@ ProfileFrameLength:
         ldl     v0, 0(t3)               // increment profile bucket
         addl    v0, 1, v0               //
         stl     v0, 0(t3)               //
-20:     ldl     a2, LsFlink(a2)         // get address of next entry
-        cmpeq   a1, a2, t1              // end of list?
+20:     ldl     a3, LsFlink(a3)         // get address of next entry
+        cmpeq   a2, a3, t1              // end of list?
         beq     t1, 10b                 // if eq[false], more entries
 
 30:     ret     zero, (ra)              // return

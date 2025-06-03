@@ -41,6 +41,7 @@ enum CLIENT_TYPE
     }
 
 extern BOOLEAN CachePrimed;
+extern BOOL    fInInit;
 
 //
 // this is used for AdapterStatus and FindName calls because we need to retain
@@ -109,6 +110,15 @@ NCBERR VxdResetContinue( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 //
 #define MAX_NCB_NUMS    254
 #define ANY_NAME        255
+
+NTSTATUS
+PostInit_Proc();
+
+//*******************  Pageable Routine Declarations ****************
+#ifdef ALLOC_PRAGMA
+#pragma CTEMakePageable(PAGE, PostInit_Proc)
+#endif
+//*******************  Pageable Routine Declarations ****************
 
 /*******************************************************************
 
@@ -338,7 +348,8 @@ NCBERR VxdCall( tDEVICECONTEXT * pDeviceContext, NCB * pNCB )
     TDI_REQUEST                   Request;
     PSESS_SETUP_CONTEXT           pSessSetupContext = NULL ;
 
-    if ( pNCB->ncb_name[0] == '*' )
+    if ( ( pNCB->ncb_name[0] == '*' )
+        || ( pNCB->ncb_callname[0] == '*' ) )
     {
         return NRC_NOWILD ;
     }
@@ -401,7 +412,7 @@ NCBERR VxdSend( tDEVICECONTEXT  *pDeviceContext, NCB * pNCB )
     tCONNECTELE                 * pConnEle;
     CTELockHandle                 OldIrq;
     tLOWERCONNECTION            * pLowerConn;
-    tSESSIONHDR                 * pHdr ;
+    tSESSIONHDR                 * pHdr=NULL;
     tBUFFERCHAINSEND              SendBuff ;
     TDI_REQUEST                   Request ;
     ULONG                         SentSize ;
@@ -484,17 +495,21 @@ NCBERR VxdSend( tDEVICECONTEXT  *pDeviceContext, NCB * pNCB )
 
             pLowerConn->BytesSent += SentSize;
 
-            if ( status == STATUS_PENDING )
-                return NRC_PENDING ;
+            return NRC_PENDING ;
 
-            //
-            //  Remove from the timeout list if an error occurred
-            //
-            if ( !NT_SUCCESS( status ) &&
-                 pConnEle->STO != NCB_INFINITE_TIME_OUT )
-            {
-                RemoveEntryList( &pSendCont->ListEntry ) ;
-            }
+           //
+           // if TdiSend fails, it will call the completion routine (directly
+           // or eventually, Vxdiocomplete) which will remove this from the list
+           // so, don't remove it here also or we overwrite redir's code segment!!
+           //
+           // //
+           // //  Remove from the timeout list if an error occurred
+           // //
+           // if ( !NT_SUCCESS( status ) &&
+           //      pConnEle->STO != NCB_INFINITE_TIME_OUT )
+           // {
+           //     RemoveEntryList( &pSendCont->ListEntry ) ;
+           // }
         }
         else
         {
@@ -649,8 +664,7 @@ NCBERR VxdReceiveAny( tDEVICECONTEXT  *pDeviceContext, NCB * pNCB )
             return errNCB ;
         }
 
-        return VxdReceive( pDeviceContext,
-                           pNCB ) ;
+        return VxdReceive( pDeviceContext, pNCB, FALSE ) ;
     }
     else
     {
@@ -668,6 +682,7 @@ QueueRcv:
                       pNCB->ncb_buffer,
                       pNCB->ncb_length,
                       NULL ) ;
+        prcvCont->usFlags = TDI_RECEIVE_NORMAL;
         *((PRCV_CONTEXT*)&pNCB->ncb_reserve) = prcvCont ;
 
         if ( pNCB->ncb_num != ANY_NAME )
@@ -696,7 +711,8 @@ QueueRcv:
 
     ENTRY:      pDeviceContext - Adapter to call on
                 pNCB           - NCB that contains the receive command
-
+                fReceive - TRUE if we got here via a Receive ncb
+                         - FALSE if we got here via a ReceiveAny ncb
     EXIT:
 
     RETURNS:
@@ -713,7 +729,7 @@ QueueRcv:
 
 ********************************************************************/
 
-NCBERR VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   )
+NCBERR VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB, BOOL fReceive )
 {
     NTSTATUS                      status;
     NCBERR                        errNCB ;
@@ -748,6 +764,7 @@ NCBERR VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   )
                       pNCB->ncb_length,
                       NULL ) ;
         prcvCont->RTO = pConnEle->RTO ;
+        prcvCont->usFlags = TDI_RECEIVE_NORMAL;
 
         *((PRCV_CONTEXT*)&pNCB->ncb_reserve) = prcvCont ;
 
@@ -761,6 +778,11 @@ NCBERR VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   )
             //  Make sure a RcvAny didn't get to here
             //
             ASSERT( (pNCB->ncb_command & ~ASYNCH)== NCBRECV ) ;
+
+            if ( !pConnEle->Orig && fReceive )
+            {
+               prcvCont->usFlags = TDI_RECEIVE_NO_RESPONSE_EXP ;
+            }
 
             InsertTailList(&pConnEle->RcvHead,
                            &prcvCont->ListEntry);
@@ -779,27 +801,37 @@ NCBERR VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   )
 
             pConnEle->OffsetFromStart   = 0 ;
 
-            //
-            //  Don't pass zero length buffers to the transport
-            //
-            if ( !pNCB->ncb_length )
-            {
-                CompletionRcv( prcvCont, STATUS_SUCCESS, 0 ) ;
-                return NRC_GOODRET ;
-            }
-
             Request.RequestNotifyObject      = CompletionRcv ;
             Request.RequestContext           = prcvCont ;
             Request.Handle.ConnectionContext = pLowerConn->pFileObject ;
-
-            cbReceiveLength = min( pNCB->ncb_length,
-                                   pConnEle->TotalPcktLen-pConnEle->BytesRcvd ) ;
 
             pConnEle->pIrpRcv    = NULL ;       // Buffer in the transport
             pLowerConn->StateRcv = FILL_IRP ;
             RemoveEntryList( &pLowerConn->PartialRcvList ) ;
             pLowerConn->fOnPartialRcvList = FALSE;
             InitializeListHead(&pLowerConn->PartialRcvList);
+
+            cbReceiveLength = min( pNCB->ncb_length,
+                                   pConnEle->TotalPcktLen-pConnEle->BytesRcvd ) ;
+
+            //
+            //  Don't pass zero length buffers to the transport
+            //
+            if ( !cbReceiveLength )
+            {
+                CompletionRcv( prcvCont, STATUS_SUCCESS, 0 ) ;
+                return NRC_GOODRET ;
+            }
+
+            //
+            // if it's an incoming session and this is a receive (as opp. to
+            // receive-any) then give transport a hint that there is no response
+            // coming back (trying to solve the raw-write-to-smb-server-perf problem)
+            //
+            if ( !pConnEle->Orig && fReceive )
+            {
+               usFlags = TDI_RECEIVE_NO_RESPONSE_EXP ;
+            }
 
             status = TdiVxdReceive( &Request,
                                     &usFlags,
@@ -1182,6 +1214,7 @@ BOOL ActiveSessions( tCLIENTELE * pClientEle )
         {
             return TRUE ;
         }
+
         pEntry = pEntry->Flink ;
     }
 
@@ -1223,6 +1256,7 @@ NCBERR VxdCleanupAddress( tDEVICECONTEXT * pDeviceContext,
     TDI_STATUS                 tdistatus ;
     USHORT                     NameType ;
     PLIST_ENTRY                pHead, pEntry ;
+    PLIST_ENTRY                pNextEntry;
     tLISTENREQUESTS          * pListen ;
     PRCV_CONTEXT               prcvCont ;
     tRCVELE                  * prcvEle ;
@@ -1270,17 +1304,17 @@ NCBERR VxdCleanupAddress( tDEVICECONTEXT * pDeviceContext,
         while ( pEntry != pHead )
         {
             prcvEle = CONTAINING_RECORD( pEntry, tRCVELE, Linkage ) ;
+            pNextEntry = pEntry->Flink ;
             if ( ((NCB*)prcvEle->pIrp)->ncb_num == NameNum )
             {
                 RemoveEntryList( pEntry ) ;
                 CTEIoComplete( prcvEle->pIrp, STATUS_NETWORK_NAME_DELETED, 0 ) ;
                 CTEMemFree( prcvEle ) ;
             }
-            pEntry = pEntry->Flink ;
+            pEntry = pNextEntry ;
         }
     }
-    else
-        ASSERT( FALSE ) ;
+
 
     //
     //  Delete all outstanding Receive Anys on this name
@@ -1293,6 +1327,7 @@ NCBERR VxdCleanupAddress( tDEVICECONTEXT * pDeviceContext,
         CTEIoComplete( prcvCont->pNCB, STATUS_NETWORK_NAME_DELETED, 0 ) ;
     }
 
+    tdistatus = TDI_SUCCESS;
     if ( fDeleteAddress )
     {
         Request.Handle.ConnectionContext = pClientEle ;
@@ -1301,10 +1336,16 @@ NCBERR VxdCleanupAddress( tDEVICECONTEXT * pDeviceContext,
                                      pDeviceContext,
                                      pNCB ) ;
 
-        if ( tdistatus != TDI_PENDING )
+        if ( (tdistatus != TDI_PENDING) && pNCB )
             CTEIoComplete( pNCB, tdistatus, 0 ) ;
 
         REQUIRE( NBUnregister( pDeviceContext, NameNum, NB_NAME )) ;
+
+        DbgPrint("VxdCloseName: NBUnregistered:NameNum = 0x") ;
+        DbgPrintNum( NameNum ) ;
+        DbgPrint(" ClientEle = 0x") ;
+        DbgPrintNum( pClientEle ) ;
+        DbgPrint("\r\n") ;
 
         if ( !NT_SUCCESS( tdistatus ))
         {
@@ -1426,18 +1467,17 @@ NCBERR VxdAdapterStatus( tDEVICECONTEXT * pDeviceContext,
     else
     {
 
-        //
-        //  Get a remote adapter's status
-        //
-        TDI_CONNECTION_INFORMATION RequestInfo ;
+        ULONG     IpAddrsList[2];
 
-        DbgPrint("VxdAdapterStatus: AStat for remote\r\n") ;
-        InitNBTDIConnectInfo( &RequestInfo, &tanb_global, pNCB->ncb_callname ) ;
-        status = NbtSendNodeStatus( &RequestInfo,
-                                    pDeviceContext,
+        IpAddrsList[0] = Ipaddr;
+        IpAddrsList[1] = 0;
+
+        status = NbtSendNodeStatus( pDeviceContext,
+                                    pNCB->ncb_callname,
                                     pNCB,
-                                    Ipaddr ) ;
-
+                                    IpAddrsList,
+                                    0,
+                                    NodeStatusDone);
     }
 
     return MapTDIStatus2NCBErr( status ) ;
@@ -2162,7 +2202,7 @@ NCBERR VxdCancel( tDEVICECONTEXT * pDeviceContext, NCB * pNCB )
                                        NULL,
                                        &pClientEle ))
         {
-            DbgPrint("VxdCancel: Tried to cancel listen on non-existent name\r\n") ;
+            DbgPrint("VxdCancel: Tried to cancel call on non-existent name\r\n") ;
             errNCB = NRC_CANOCCR ;
             break ;
         }
@@ -2175,25 +2215,30 @@ NCBERR VxdCancel( tDEVICECONTEXT * pDeviceContext, NCB * pNCB )
             pConnEle = CONTAINING_RECORD( pEntry, tCONNECTELE, Linkage ) ;
             if ( pConnEle->pIrp == pNCBCancelled )
             {
-                BOOLEAN fDoDeref ;
                 tDGRAM_SEND_TRACKING * pTracker = (tDGRAM_SEND_TRACKING*)
                                                         pConnEle->pIrpRcv ;
 
+                //
+                // if it's too late, just say we can't cancel it
+                //
+                if (pConnEle->state >= NBT_SESSION_OUTBOUND)
+                {
+                    errNCB = NRC_CANOCCR ;
+                    break;
+                }
+
+                //
+                // yes, we can cancel it.   we just mark the tracker to say
+                // this call is cancelled: both the original ncb and this
+                // cancel ncb will get completed at some stage.
+                //
                 DbgPrint("VxdCancel: Cancelling NCB 0x") ;
                 DbgPrintNum( (ULONG) pNCBCancelled ) ; DbgPrint("\r\n") ;
 
-                if ( pConnEle->state == NBT_SESSION_OUTBOUND  )
-                {
-                    QueueCleanup( pConnEle ) ;
-                }
+                pTracker->Flags |= TRACKER_CANCELLED;
+                pConnEle->pIrpDisc = pNCB;
 
-                pConnEle->pLowerConnId = NULL ;
-                StopTimer( pTracker->Connect.pTimer, NULL, NULL ) ;
-                FreeTracker( pTracker, RELINK_TRACKER | FREE_HDR ) ;
-
-                CTEIoComplete( pNCBCancelled, STATUS_CANCELLED, 0 ) ;
-                errNCB = NRC_GOODRET ;
-                break ;
+                return NRC_GOODRET ;
             }
         }
         break ;
@@ -2303,8 +2348,12 @@ NCBERR VxdCancel( tDEVICECONTEXT * pDeviceContext, NCB * pNCB )
 
 
     CTEIoComplete( pNCB, errNCB, 0 ) ;
-    pNCB->ncb_retcode  = errNCB ;
-    pNCB->ncb_cmd_cplt = errNCB ;
+
+    //
+    // No, no!  Don't touch that ncb after completing it!
+    //
+    //pNCB->ncb_retcode  = errNCB ;
+    //pNCB->ncb_cmd_cplt = errNCB ;
 
     return errNCB ;
 }
@@ -2361,7 +2410,10 @@ VOID VxdIoComplete( PCTE_IRP pirp,
         return ;
 
     fAsync = !!(pNCB->ncb_command & ASYNCH) ;
+
     pDeviceContext = GetDeviceContext( pNCB ) ;
+
+    ASSERT(pDeviceContext);
 
     //
     //  Note that we drop through the below case statement even if an error
@@ -2701,8 +2753,10 @@ VOID VxdIoComplete( PCTE_IRP pirp,
         pNCB->ncb_cmd_cplt = errNCB ;
         goto SkipPost ;
 
-    case NCBCANCEL:     // Codes set in Routine
-        goto SkipPost ;
+    case NCBCANCEL:
+        pNCB->ncb_retcode  = errNCB ;
+        pNCB->ncb_cmd_cplt = errNCB ;
+        break;
 
     case NCBHANGUP:
     case NCBDELNAME:
@@ -2722,9 +2776,12 @@ VOID VxdIoComplete( PCTE_IRP pirp,
     }
     else
     {
-        CTEPrint("VxdIoComplete: ncb_retcode already set!\r\n") ;
-        CTEPrint("\tCommand: 0x") ; DbgPrintNum(pNCB->ncb_command) ;
-        CTEPrint("  NCB Address: 0x") ; DbgPrintNum( (ULONG) pNCB ) ;
+        if ( (pNCB->ncb_command & ~ASYNCH) != NCBCANCEL )
+        {
+            CTEPrint("VxdIoComplete: ncb_retcode already set!\r\n") ;
+            CTEPrint("\tCommand: 0x") ; DbgPrintNum(pNCB->ncb_command) ;
+            CTEPrint("  NCB Address: 0x") ; DbgPrintNum( (ULONG) pNCB ) ;
+        }
         goto SkipPost ;
     }
 
@@ -2754,11 +2811,50 @@ SkipPost:
     //
     if ( !fAsync )
     {
-        if ( fWaitingForNCB )
+        PBLOCKING_NCB_CONTEXT  pBlkNcbContext;
+        PLIST_ENTRY            pHead, pEntry ;
+
+        //
+        // find the blocking ncb context from the list corresponding to this ncb
+        //
+        pHead = &NbtConfig.BlockingNcbs;
+        pEntry = pHead->Flink;
+        while( pEntry != pHead )
         {
-            CTESignal( &WaitNCBBlock, 0 ) ;
+            pBlkNcbContext = CONTAINING_RECORD( pEntry, BLOCKING_NCB_CONTEXT, Linkage ) ;
+            if (pBlkNcbContext->pNCB == pNCB)
+                break;
+            else
+                pBlkNcbContext = NULL;
+            pEntry = pEntry->Flink;
         }
-        fNCBCompleted = TRUE ;
+
+        if (pBlkNcbContext)
+        {
+            ASSERT(pBlkNcbContext->Verify == NBT_VERIFY_BLOCKING_NCB);
+
+            //
+            // if the ncb is blocked for completion, remove the context from
+            // the list first (important!) and then signal the thread that we
+            // are done.  Then free the memory.
+            //
+            if ( pBlkNcbContext->fBlocked )
+            {
+                RemoveEntryList(&pBlkNcbContext->Linkage);
+                CTESignal( pBlkNcbContext->pWaitNCBBlock, 0 ) ;
+                CTEFreeMem(pBlkNcbContext->pWaitNCBBlock);
+                CTEFreeMem(pBlkNcbContext);
+            }
+            else
+            {
+                pBlkNcbContext->fNCBCompleted = TRUE;
+            }
+        }
+        else
+        {
+            DbgPrint("VxdIoComplete: didn't find blocking ncb context\r\n") ;
+            DbgPrint("for NCB Address: 0x") ; DbgPrintNum( (ULONG) pNCB ) ;
+        }
     }
 }
 
@@ -2873,7 +2969,7 @@ ErrorExit1:
     REQUIRE( NbtCloseConnection( pRequest,
                                  &RequestStatus,
                                  pDeviceContext,
-                                 pNCB ) == TDI_SUCCESS ) ;
+                                 NULL ) == TDI_SUCCESS ) ;
 
     return MapTDIStatus2NCBErr( status ) ;
 }
@@ -3079,12 +3175,16 @@ NCBERR VxdFindNameNum( tDEVICECONTEXT * pDeviceContext,
                        tADDRESSELE    * pAddressEle,
                        UCHAR          * pNum )
 {
+    tCLIENTELE  *pClientEle;
+
     ASSERT( (pDeviceContext != NULL) && (pAddressEle != NULL) && (pNum != NULL)) ;
     ASSERT( pAddressEle->Verify == NBT_VERIFY_ADDRESS ) ;
 
     for ( *pNum = 0 ; *pNum <= pDeviceContext->cMaxNames ; (*pNum)++ )
     {
-        if ( pDeviceContext->pNameTable[*pNum]->pAddress == pAddressEle )
+        pClientEle = pDeviceContext->pNameTable[*pNum];
+
+        if ( (pClientEle) && (pClientEle->pAddress == pAddressEle ) )
             return NRC_GOODRET ;
     }
 
@@ -3118,17 +3218,36 @@ NCBERR VxdNameToClient( tDEVICECONTEXT *   pDeviceContext,
     USHORT         NameType ;
     tNAMEADDR    * pNameAddr ;
     UCHAR          NameNum ;
+    NTSTATUS       status;
 
     //
     //  Lookup the Client Element associated with this name
     //
-    if ( pName[0] == '*' ||
-         !(pNameAddr = FindName( NBT_LOCAL,
-                                 pName,
-                                 NbtConfig.pScope,
-                                 &NameType )))
+    if ( pName[0] == '*' )
     {
         return NRC_NOWILD ;     // Also means name not found
+    }
+
+    status = FindInHashTable(
+                    NbtConfig.pLocalHashTbl,
+                    pName,
+                    NbtConfig.pScope,
+                    &pNameAddr);
+
+    if (!NT_SUCCESS(status))
+    {
+        return NRC_NOWILD ;     // Also means name not found
+    }
+
+    //
+    // if the name is not registered on the adapter (provided by the client)
+    // tell the client so!
+    //
+    if ( pNameAddr->AdapterMask &&
+        !(pNameAddr->AdapterMask & pDeviceContext->AdapterNumber) )
+    {
+        DbgPrint("VxdNameToClient: wrong DeviceContext element\r\n") ;
+        return NRC_NOWILD ;
     }
 
     if ( VxdFindNameNum( pDeviceContext, pNameAddr->pAddressEle, &NameNum ))
@@ -3532,6 +3651,45 @@ void FreeSessSetupContext( PSESS_SETUP_CONTEXT pSessSetupContext )
 
 /*******************************************************************
 
+    NAME:       DelayedSessEstablish
+
+    SYNOPSIS:   This routine is called by VxdScheduleDelayedEvent.
+                After name query is successful, we typically make a tcp
+                connection.  We delay that step until later so that stack
+                usage is reduced.  (yes, there is only 4k of stack on chicago!)
+
+    ENTRY:      pContext - context that contains the actual parms
+
+    RETURNS:    Nothing
+
+    HISTORY:
+        Koti    Dec. 19, 94
+
+********************************************************************/
+VOID DelayedSessEstablish( PVOID pContext )
+{
+    tDGRAM_SEND_TRACKING  *pTracker;
+    NTSTATUS               status;
+    COMPLETIONCLIENT       pClientCompletion;
+
+    //
+    // get our parameters out
+    //
+    pTracker = ((NBT_WORK_ITEM_CONTEXT *)pContext)->pTracker;
+    status = (NTSTATUS)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
+    pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)pContext)->ClientCompletion;
+
+    CTEMemFree(pContext);
+
+    CompleteClientReq(pClientCompletion,
+                      pTracker,
+                      status);
+}
+
+
+
+/*******************************************************************
+
     NAME:       VxdApiWorker
 
     SYNOPSIS:   When clients such as another vxd or a V86 app (such as
@@ -3555,13 +3713,15 @@ VxdApiWorker(
     PVOID ClientOutBuffer,
     DWORD ClientOutBufLen,
     PVOID ClientInBuffer,
-    DWORD ClientInBufLen
+    DWORD ClientInBufLen,
+    DWORD fOkToTrashInputBuffer
     )
 {
 
     NTSTATUS         status;
     USHORT           OpCode;
     int              i;
+    USHORT           NumLanas;
     PCHAR            pchBuffer;
     DWORD            dwSize;
     DWORD            dwBytesToCopy;
@@ -3569,6 +3729,7 @@ VxdApiWorker(
     PLIST_ENTRY      pEntry,pHead;
     tDEVICECONTEXT  *pDeviceContext;
     NCB              ncb;
+    UCHAR            retcode;
     tIPANDNAMEINFO  *pIpAndNameInfo;
     tIPCONFIG_INFO  *pIpCfg;
 
@@ -3592,6 +3753,10 @@ VxdApiWorker(
                 return( STATUS_BUFFER_OVERFLOW );
             }
 
+            if (!ClientOutBuffer)
+            {
+                return( STATUS_INVALID_PARAMETER );
+            }
             pIpAddr = (PULONG )ClientOutBuffer;
 
             pEntry = pHead = &NbtConfig.DeviceContexts;
@@ -3660,6 +3825,11 @@ VxdApiWorker(
        // nbtstat -a, nbtstat -A
        case IOCTL_NETBT_ADAPTER_STATUS:
 
+            if (!ClientOutBuffer)
+            {
+                return( STATUS_INVALID_PARAMETER );
+            }
+
             CTEZeroMemory( &ncb, sizeof(NCB) );
 
             ncb.ncb_command = NCBASTAT;
@@ -3667,6 +3837,10 @@ VxdApiWorker(
             ncb.ncb_length = ClientOutBufLen;
             ncb.ncb_lana_num = pDeviceContext->iLana;
 
+            if (!ClientInBuffer)
+            {
+                return( STATUS_INVALID_PARAMETER );
+            }
             pIpAndNameInfo = (tIPANDNAMEINFO *)ClientInBuffer;
 
             //
@@ -3675,7 +3849,7 @@ VxdApiWorker(
             if ( pIpAndNameInfo->IpAddress )
             {
                ncb.ncb_callname[0] = '*';
-               NCBHandler( &ncb, pIpAndNameInfo->IpAddress );
+               retcode = VNBT_NCB_X( &ncb, 0, &pIpAndNameInfo->IpAddress, 0, 0 );
             }
             //
             // no ipaddress: use the name that's given to us
@@ -3686,25 +3860,24 @@ VxdApiWorker(
                   &ncb.ncb_callname[0],
                   &(pIpAndNameInfo->NetbiosAddress.Address[0].Address[0].NetbiosName[0]),
                   NCBNAMSZ );
-               NCBHandler( &ncb, 0 );
+               retcode = VNBT_NCB_X( &ncb, 0, 0, 0, 0 );
             }
 
-            if (ncb.ncb_retcode == NRC_GOODRET)
-                status = STATUS_SUCCESS;
-            else if (ncb.ncb_retcode == NRC_INCOMP)
-                status = TDI_BUFFER_OVERFLOW;
-            else
-                status = STATUS_UNSUCCESSFUL;
+            status = STATUS_UNSUCCESSFUL;
+            if (!retcode)
+            {
+                if (ncb.ncb_retcode == NRC_GOODRET)
+                    status = STATUS_SUCCESS;
+                else if (ncb.ncb_retcode == NRC_INCOMP)
+                    status = TDI_BUFFER_OVERFLOW;
+            }
 
             break;
 
        // ipconfig queries us for nodetype and scope
        case IOCTL_NETBT_IPCONFIG_INFO:
 
-            dwBytesToCopy = sizeof(NodeType) +
-                            sizeof(pDeviceContext->lNameServerAddress) +
-                            sizeof(pDeviceContext->lBackupServer) +
-                            sizeof(NbtConfig.ScopeLength) +
+            dwBytesToCopy = sizeof(tIPCONFIG_INFO) +
                             NbtConfig.ScopeLength;
 
             if ( !ClientOutBuffer || ClientOutBufLen < dwBytesToCopy )
@@ -3715,9 +3888,26 @@ VxdApiWorker(
 
             pIpCfg = (tIPCONFIG_INFO *)ClientOutBuffer;
 
+            NumLanas = 0;
+            for ( i = 0; i < NBT_MAX_LANAS; i++)
+            {
+                if (LanaTable[i].pDeviceContext != NULL)
+                {
+                    pDeviceContext = LanaTable[i].pDeviceContext;
+                    pIpCfg->LanaInfo[NumLanas].LanaNumber = pDeviceContext->iLana;
+                    pIpCfg->LanaInfo[NumLanas].IpAddress = pDeviceContext->IpAddress;
+                    pIpCfg->LanaInfo[NumLanas].NameServerAddress = pDeviceContext->lNameServerAddress;
+                    pIpCfg->LanaInfo[NumLanas].BackupServer = pDeviceContext->lBackupServer;
+                    pIpCfg->LanaInfo[NumLanas].lDnsServerAddress = pDeviceContext->lDnsServerAddress;
+                    pIpCfg->LanaInfo[NumLanas].lDnsBackupServer = pDeviceContext->lDnsBackupServer;
+                    NumLanas++;
+                }
+            }
+
+            pIpCfg->NumLanas = NumLanas;
+
             pIpCfg->NodeType = NodeType;
-            pIpCfg->NameServerAddress = pDeviceContext->lNameServerAddress;
-            pIpCfg->BackupServer = pDeviceContext->lBackupServer;
+
             pIpCfg->ScopeLength = NbtConfig.ScopeLength;
 
             CTEMemCopy( &pIpCfg->szScope[0],
@@ -3759,7 +3949,17 @@ VxdApiWorker(
          }
     }
 
-    if ( ClientInBuffer )
+    //
+    // we may be called either through the vxd entry point which 16 bit apps
+    // will do (for now, only nbtstat.exe), or through the file system api's
+    // which 32 bit apps will do via CreateFile and ioctl.
+    // If we came here through file system (i.e.VNBT_DeviceIoControl called us)
+    // then don't trash the input buffer since the status gets passed back as
+    // it is.  For 16 bit apps (i.e.VNBT_Api_Handler called us), the only way
+    // we can pass status back (without major changes all over) is through the
+    // input buffer.
+    //
+    if ( ClientInBuffer && fOkToTrashInputBuffer )
     {
        *(NTSTATUS *)ClientInBuffer = status;
     }
@@ -3793,6 +3993,8 @@ PostInit_Proc()
 
     CachePrimed = FALSE;
 
+    CTEPagedCode();
+
 
     lRetcode = PrimeCache( NbtConfig.pLmHosts,
                            NULL,
@@ -3803,4 +4005,38 @@ PostInit_Proc()
         CachePrimed = TRUE ;
     }
 
+}
+
+
+/*******************************************************************
+
+    NAME:       CTEAllocInitMem
+
+    SYNOPSIS:   Allocates memory during driver initialization
+
+    NOTES:      If first allocation fails, we refill the heap spare and
+                try again.  We can only do this during driver initialization
+                because the act of refilling may yield the current
+                thread.
+
+    HISTORY:
+        Johnl   27-Aug-1993     Created
+********************************************************************/
+
+PVOID CTEAllocInitMem( ULONG cbBuff )
+{
+    PVOID pv = CTEAllocMem( cbBuff ) ;
+
+    if ( pv )
+    {
+        return pv ;
+    }
+    else if ( fInInit )
+    {
+        DbgPrint("CTEAllocInitMem: Failed allocation, trying again\r\n") ;
+        CTERefillMem() ;
+        pv = CTEAllocMem( cbBuff ) ;
+    }
+
+    return pv ;
 }

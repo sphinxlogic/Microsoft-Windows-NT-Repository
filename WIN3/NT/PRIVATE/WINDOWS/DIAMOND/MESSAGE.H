@@ -45,6 +45,9 @@
  *               sprintf() formatting strings.  There must be at least as
  *               many formatting strings as the highest parameter string
  *               number.  Excess formatting strings are ignored.
+ *               NOTE: To get thousand separators (,) in numbers, include
+ *                     a comma (",") immediately after the "%" for %d
+ *                     format specifiers!
  *      Arg1   - Value for %1.
  *      Arg2   - Value for %2.
  *      ...
@@ -71,6 +74,9 @@
  *
  *      (2) MsgSet(ach,"%3 is %1 months old %2.","%d%s%s",3,"today","Joe");
  *          RESULT: ach = "Joe is 3 months old today"
+ *
+ *      (3) MsgSet(ach,"%1 bytes","%,d",123456789L);
+ *          RESULT: ach = "123,456,789 bytes"
  */
 int __cdecl MsgSet(char *ach, char *pszMsg, ...);
 
@@ -100,4 +106,4 @@ int __cdecl MsgSet(char *ach, char *pszMsg, ...);
 int MsgSetWorker(char *ach, char *pszMsg, char *pszFmtList, va_list marker);
 
 #endif // !INCLUDED_MESSAGE
-
+

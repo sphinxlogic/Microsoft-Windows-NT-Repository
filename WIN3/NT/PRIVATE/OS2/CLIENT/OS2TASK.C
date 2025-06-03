@@ -785,7 +785,7 @@ DumpPib(
             if (*src == '=') {
                 RestoreEqualChar = src;
                 *src++ = '\0';
-                if (!stricmp( VariableName, "PATH" )) {
+                if (!_stricmp( VariableName, "PATH" )) {
                     PathVariableValue = src;
                     }
                 VariableValue = src;

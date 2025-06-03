@@ -30,7 +30,7 @@ Revision History:
         RAID 3556: Added NetpSystemTimeToGmtTime() for DosPrint APIs.
 
     16-Feb-1993     chuckc
-        fixed to read internation info from system
+        fixed to _read internation info from system
 
     22-Feb-1993     yihsins
         Moved from netcmd\map32\pdate.c. And added LUI_ParseDateSinceStartOfDay.

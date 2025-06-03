@@ -29,7 +29,11 @@ Initial revision.
 // For restore definitions, see muiconf.h
 
 BOOL     RestoreSetSave( HWND ) ;
-VOID     RestoreSetRetrieve( HWND ) ;
+#ifndef OEM_EMS
+VOID RestoreSetRetrieve ( HWND );
+#else
+VOID RestoreSetRetrieve( HWND, DLG_MODE * );
+#endif
 INT      RestoreSetDefaultDescription( VOID ) ;
 
 BSD_PTR  GetTapeBSDPointer( INT ) ;

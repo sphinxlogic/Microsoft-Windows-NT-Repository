@@ -46,15 +46,14 @@ void BuildLine( ULONG  ulRow,
 	    }
 	}
 	else {
-	    if( ( *pData >= 0x20 ) || ( *pData == 0x0d ) ) {
-		if( *pData != 0x0d ) {
-		    *pchDest++ = *pData++;
-		}
-		else {
-		    *pchDest++ = 0x20;
-		    *pData++;
-		}
-		ulBufferIndex++;
+	    if (*pData >= 0x20) {
+		*pchDest++ = *pData++;
+                ulBufferIndex++;
+            }
+            else if ( (*pData == 0x0d) || (*pData == 0x0a) ) {
+		*pchDest++ = 0x20;
+		pData++;
+                ulBufferIndex++;
 	    }
 	    else if( *pData == 0x09 ) {
 		ulNumberOfSpaces = vDisTab - ulBufferIndex % vDisTab;
@@ -66,11 +65,9 @@ void BuildLine( ULONG  ulRow,
 		pData++;
 	    }
 	    else {
-		*pchDest++ = 0x20;
-		pData++;
+		*pchDest++ = *pData++;
 		ulBufferIndex++;
 	    }
-
 	}
 	ulDataLeft--;
 	ulBlkOffset++;

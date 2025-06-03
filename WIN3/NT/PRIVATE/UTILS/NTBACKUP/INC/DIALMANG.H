@@ -391,6 +391,11 @@ DLGRESULT APIENTRY DM_Erase             (HWND, MSGID, MP1, MP2);
 DLGRESULT APIENTRY DM_NextSet           (HWND, MSGID, MP1, MP2);
 DLGRESULT APIENTRY DM_SkipNo            (HWND, MSGID, MP1, MP2);
 
+#if defined ( OEM_EMS )
+DLGRESULT APIENTRY DM_ExchgConnect      (HWND, MSGID, MP1, MP2);
+DLGRESULT APIENTRY DM_ExchgRecover      (HWND, MSGID, MP1, MP2);
+#endif
+
 //  settings
 
 DLGRESULT APIENTRY DM_OptionHardware     (HWND, MSGID, MP1, MP2);

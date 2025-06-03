@@ -12,15 +12,20 @@
 ;****************************************************************************
 
 NOEXTERNS = 1
+.xlist
 include user.inc
+.list
 
 
 createSeg _INTDS, INTDS, BYTE, PUBLIC, DATA
 
 sBegin INTDS
 
-GlobalW hqSysQueue,	00h
-GlobalW fMouseMoved,	00h
+GlobalW hqSysQueue,     00h
+
+ifndef WOW
+
+GlobalW fMouseMoved,    00h
 ;; GlobalB fAltKeyUp,	80h 	; no longer used
 
 GlobalW fInt24          00h     ; used for INT24 detection in NCMOUSEDOWN
@@ -29,10 +34,15 @@ GlobalW fInt24          00h     ; used for INT24 detection in NCMOUSEDOWN
 ; For Asynchronous key state information.
 ;
 public rgbAsyncKeyState
-rgbAsyncKeyState db	64 DUP(0)   ; 512 bits of information, 2 per key.
+rgbAsyncKeyState db     64 DUP(0)   ; 512 bits of information, 2 per key.
 
-GlobalW fEnableInput,	TRUE
+GlobalW fEnableInput,   TRUE
+
+endif ; !WOW
+
 GlobalW hqSysModal,	0	    ; hq of system modal window
+
+ifndef WOW
 
 ;
 ; These are for the code that always keeps enough room for KEYUP/MOUSEUP msgs.
@@ -104,6 +114,9 @@ rghkhHotKeyHooks    dw	CHOTKEYHOOKMAX * (size HOTKEYHOOK)/2 dup (0)
 
 GlobalD hwEventHook,	NULL
 
+endif ; !WOW
+
+
 ;
 ; Q management.
 ;
@@ -116,6 +129,9 @@ GlobalW hqKeyboard,	0	    ; hq last to get kbd msg
 GlobalW cQEntries,	120	    ; System queue size
 GlobalW hqSysLock	0	    ; HQ of guy looking at the current event
 GlobalW idSysLock	0ffffh	    ; Msg ID of event that's locking sys queue
+
+
+ifndef WOW
 
 ;
 ; Timer management
@@ -153,15 +169,19 @@ GlobalB fDontMakeAltUpASysKey  0    ; whether any intervening chars have arrived
 ; These strings reside in user.rc but are loaded at boot time.  They must
 ; remain in user.rc for localization reasons.
 
+endif ; !WOW
+
 public szSysError
 public szDivZero
 szSysError      db      20 DUP(0)   ; "System Error"
 szDivZero       db      50 DUP(0)   ; "Divide By Zero or Overflow Error"
 
+ifndef WOW
+
 public szNull
 szNull		db	0,13
 
-
+endif ; !WOW
 
 sEnd INTDS
 

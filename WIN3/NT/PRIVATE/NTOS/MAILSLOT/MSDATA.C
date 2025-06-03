@@ -36,19 +36,19 @@ LONG MsDebugTraceIndent;
 // This lock protects access to reference counts.
 //
 
-ERESOURCE MsGlobalResource = {0};
+PERESOURCE MsGlobalResource;
 
 //
 // This lock protects access to mailslot prefix table
 //
 
-ERESOURCE MsPrefixTableResource = {0};
+PERESOURCE MsPrefixTableResource;
 
 //
 // This lock protects access to the per FCB, CCB list
 //
 
-ERESOURCE MsCcbListResource = {0};
+PERESOURCE MsCcbListResource;
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, MsInitializeData )
@@ -82,8 +82,14 @@ Return Value:
     MsDebugTraceIndent = 0;
 #endif
 
-    ExInitializeResource ( &MsGlobalResource );
-    ExInitializeResource ( &MsPrefixTableResource );
-    ExInitializeResource ( &MsCcbListResource );
+    MsGlobalResource = FsRtlAllocatePoolWithTag (NonPagedPoolMustSucceed,
+                                                 sizeof(ERESOURCE) * 3,
+                                                 'sFsM');
+    MsPrefixTableResource = MsGlobalResource + 1;
+    MsCcbListResource = MsGlobalResource + 2;
+
+    ExInitializeResource ( MsGlobalResource );
+    ExInitializeResource ( MsPrefixTableResource );
+    ExInitializeResource ( MsCcbListResource );
 
 }

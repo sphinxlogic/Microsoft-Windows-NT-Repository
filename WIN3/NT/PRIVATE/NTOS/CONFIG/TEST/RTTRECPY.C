@@ -277,7 +277,7 @@ processargs(
     }
 
     p=argv+1;
-    if (stricmp(*p,"-s")==0) {
+    if (_stricmp(*p,"-s")==0) {
         CopySecurity = TRUE;
         ++p;
     } else {
@@ -306,4 +306,3 @@ processargs(
 
     return;
 }
-

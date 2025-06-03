@@ -150,7 +150,8 @@ public:
         IN PRPC_CLIENT_INTERFACE RpcInterfaceInformation,
         IN RPC_UUID * ObjectUuid,
         IN OUT void PAPI * PAPI * EpLookupHandle,
-        IN BOOL UseEpMapperEp = FALSE
+        IN BOOL UseEpMapperEp,
+        IN unsigned Timeout
         );
 
     int
@@ -246,6 +247,11 @@ SpcCreateBindingHandle (
     );
 
 extern BINDING_HANDLE *
+WmsgCreateBindingHandle (
+    void
+    );
+
+extern BINDING_HANDLE *
 DgCreateBindingHandle (
     void
     );
@@ -260,7 +266,7 @@ DuplicateString (
     IN RPC_CHAR PAPI * String
     );
 
-#ifdef WIN
+#if defined(WIN) || defined(MAC)
 extern RPC_CHAR PAPI *
 AllocateEmptyStringPAPI (
     void
@@ -275,5 +281,10 @@ DuplicateStringPAPI (
 #define DuplicateStringPAPI DuplicateString
 #define AllocateEmptyStringPAPI AllocateEmptyString
 #endif // WIN
+
+#ifdef WIN32RPC
+extern UUID MgmtIf;
+extern UUID NullUuid;
+#endif
 
 #endif // __BINDING_HXX__

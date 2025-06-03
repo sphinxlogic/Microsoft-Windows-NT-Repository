@@ -109,6 +109,11 @@ class ACLCONV : public PROGRAM {
         GetSidCache(
             );
 
+        NONVIRTUAL
+        PSID_CACHE
+        GetAclWorkSids(
+            );
+
     private:
 
         NONVIRTUAL
@@ -180,6 +185,10 @@ class ACLCONV : public PROGRAM {
             OUT PUSHORT     AuditInfo
             );
 
+        NONVIRTUAL
+        BOOLEAN
+        ReadAclWorkSids(
+            );
 
         BOOLEAN                     _IsInListMode;
         PATH                        _DataFilePath;
@@ -195,15 +204,20 @@ class ACLCONV : public PROGRAM {
         PFSN_FILE                   _LogFile;
         PFILE_STREAM                _LogFileStream;
 
-        PACL_CONVERT_NODE            _RootNode;
-        PWSTRING                     _DriveName;
-        PWSTRING                     _DomainName;
-        ULONG                        _SourceCodepage;
+        PATH                        _AclWorkPath;
+        PFSN_FILE                   _AclWorkFile;
+        PFILE_STREAM                _AclWorkStream;
 
-        SID_CACHE                    _SidCache;
-        WCHAR                        _NameBuffer[ MAX_RESOURCE_NAME_LENGTH + 1 ];
-        PWCHAR                       _SidLookupTableName;
+        PACL_CONVERT_NODE           _RootNode;
+        PWSTRING                    _DriveName;
+        PWSTRING                    _DomainName;
+        ULONG                       _SourceCodepage;
 
+        SID_CACHE                   _SidCache;
+        WCHAR                       _NameBuffer[ MAX_RESOURCE_NAME_LENGTH + 1 ];
+        PWCHAR                      _SidLookupTableName;
+
+        SID_CACHE                   _AclWorkSids;
 };
 
 
@@ -294,6 +308,14 @@ ACLCONV::GetSidCache(
     )
 {
     return &_SidCache;
+}
+
+INLINE
+PSID_CACHE
+ACLCONV::GetAclWorkSids(
+    )
+{
+    return &_AclWorkSids;
 }
 
 #endif

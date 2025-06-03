@@ -27,10 +27,6 @@ Revision History:
 
 #define DISK_ROOT_NAME_TEMPLATE L"\\DosDevices\\X:\\"
 
-#ifdef _CAIRO_
-#define STYPE_DFSCONNECT 100
-#endif // _CAIRO_
-
 //
 // Forward declarations.
 //
@@ -69,11 +65,12 @@ SizeShares (
 #endif
 
 
-#define FIXED_SIZE_OF_SHARE(level)                  \
-    ( (level) == 0 ? sizeof(SHARE_INFO_0) :         \
-      (level) == 1 ? sizeof(SHARE_INFO_1) :         \
-      (level) == 2 ? sizeof(SHARE_INFO_2) :         \
-                     sizeof(SHARE_INFO_502) )
+#define FIXED_SIZE_OF_SHARE(level)                      \
+    ( (level) == 0    ? sizeof(SHARE_INFO_0) :          \
+      (level) == 1    ? sizeof(SHARE_INFO_1) :          \
+      (level) == 2    ? sizeof(SHARE_INFO_2) :          \
+      (level) == 502  ? sizeof(SHARE_INFO_502) :        \
+                        sizeof(SHARE_INFO_1005) )
 
 
 NTSTATUS
@@ -128,10 +125,6 @@ Return Value:
     PSECURITY_DESCRIPTOR securityDescriptor;
     PSECURITY_DESCRIPTOR fileSecurityDescriptor = NULL;
 
-#ifdef _CAIRO_
-    BOOLEAN isDfs = FALSE;
-#endif // _CAIRO_
-
     PAGED_CODE( );
 
     //
@@ -182,12 +175,6 @@ Return Value:
 
         isRemovable = TRUE;     // lack of break is intentional
 
-#ifdef _CAIRO_
-    case STYPE_DFSCONNECT:
-
-        isDfs = TRUE;
-#endif // _CAIRO_
-
     case STYPE_DISKTREE:
 
         shareType = ShareTypeDisk;
@@ -209,7 +196,6 @@ Return Value:
         shareType = ShareTypeComm;
         break;
 #endif
-
 
     default:
 
@@ -283,9 +269,6 @@ Return Value:
     share->SpecialShare = isSpecial;
     share->Removable = isRemovable;
 
-#ifdef _CAIRO_
-    share->IsDfs = isDfs;
-#endif // _CAIRO_
 
     //
     // Set the MaxUses field in the share.  The CurrentUses field was
@@ -382,6 +365,11 @@ Return Value:
     }
 
     //
+    // Mark the share if it is in the DFS
+    //
+    SrvIsShareInDfs( share, &share->IsDfs, &share->IsDfsRoot );
+
+    //
     // Ensure that another share with the same name doesn't already
     // exist.  Insert the share block in the global share list.
     //
@@ -419,7 +407,7 @@ Return Value:
     // Insert the share on the global ordered list.
     //
 
-    SrvInsertEntryOrderedList( &SrvShareList, share );
+    SrvAddShare( share );
 
     RELEASE_LOCK( &SrvShareLock );
 
@@ -458,6 +446,21 @@ Return Value:
                             fileSystemName,
                             fileSystemNameLength
                             );
+
+    }
+
+    //
+    // If this is an administrative disk share, update SrvDiskConfiguration
+    // to cause the scavenger thread to check the disk free space.  The server
+    // service has already verified that the format of the pathname is valid
+    // before it allowed the ShareAdd to get this far.
+    //
+    if( share->SpecialShare && share->ShareType == ShareTypeDisk &&
+        share->ShareName.Buffer[1] == L'$' ) {
+
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+        SrvDiskConfiguration |= (0x80000000 >> (share->DosPathName.Buffer[0] - L'A'));
+        RELEASE_LOCK( &SrvConfigurationLock );
 
     }
 
@@ -511,6 +514,7 @@ Return Value:
 
 {
     PSHARE share;
+    DWORD AdministrativeDiskBit = 0;
 
     PAGED_CODE( );
 
@@ -540,11 +544,54 @@ Return Value:
     }
 
     //
-    // If this is a print share, close the printer.
+    // If the share really is in the DFS, then do not allow it to be deleted
     //
+    if( share->IsDfs == TRUE ) {
 
-    if ( share->ShareType == ShareTypePrint ) {
+        //
+        // Maybe it *was* in the Dfs, but the administrator removed it and we
+        //  didn't notice (for some reason).
+        //
+
+        SrvIsShareInDfs( share, &share->IsDfs, &share->IsDfsRoot );
+
+        if( share->IsDfs ) {
+
+            RELEASE_LOCK( &SrvShareLock );
+
+            IF_DEBUG( DFS ) {
+                KdPrint(("NetShareDel attempted on share in DFS!\n" ));
+            }
+
+            Srp->ErrorCode = NERR_IsDfsShare;
+
+            return STATUS_SUCCESS;
+        }
+
+        IF_DEBUG( DFS ) {
+            KdPrint(("NetShareDel: %wZ was in DFS, but it isn't now!\n", &share->ShareName));
+        }
+
+    }
+
+
+    switch( share->ShareType ) {
+    case ShareTypePrint:
+        //
+        // This is a print share: close the printer.
+        //
         SrvClosePrinter( share->Type.hPrinter );
+        break;
+
+    case ShareTypeDisk:
+        //
+        // See if this was an administrative disk share
+        //
+        if( share->SpecialShare && share->DosPathName.Buffer[1] == L'$' ) {
+            AdministrativeDiskBit = (0x80000000 >> (share->DosPathName.Buffer[0] - L'A'));
+        }
+
+        break;
     }
 
     //
@@ -557,6 +604,16 @@ Return Value:
     SrvCloseShare( share );
 
     RELEASE_LOCK( &SrvShareLock );
+
+    //
+    // If this was an administrative disk share, update SrvDiskConfiguration
+    // to cause the scavenger thread to ignore this disk.
+    //
+    if( AdministrativeDiskBit ) {
+        ACQUIRE_LOCK( &SrvConfigurationLock );
+        SrvDiskConfiguration &= ~AdministrativeDiskBit;
+        RELEASE_LOCK( &SrvConfigurationLock );
+    }
 
     return STATUS_SUCCESS;
 
@@ -615,11 +672,10 @@ Return Value:
 {
     PAGED_CODE( );
 
-    return SrvEnumApiHandler(
+    return SrvShareEnumApiHandler(
                Srp,
                Buffer,
                BufferLength,
-               &SrvShareList,
                FilterShares,
                SizeShares,
                FillShareInfoBuffer
@@ -687,21 +743,24 @@ Return Value:
     //
 
     level = Srp->Level;
-    shi502 = Buffer;
 
-    OFFSET_TO_POINTER( shi502->shi502_netname, shi502 );
-    OFFSET_TO_POINTER( shi502->shi502_remark, shi502 );
-    OFFSET_TO_POINTER( shi502->shi502_path, shi502 );
-    OFFSET_TO_POINTER( (PCHAR)shi502->shi502_permissions, shi502 );
-    OFFSET_TO_POINTER( shi502->shi502_security_descriptor, shi502 );
+    if( level != 1005 ) {
+        shi502 = Buffer;
 
-    if ( !POINTER_IS_VALID( shi502->shi502_netname, shi502, BufferLength ) ||
-         !POINTER_IS_VALID( shi502->shi502_remark, shi502, BufferLength ) ||
-         !POINTER_IS_VALID( shi502->shi502_path, shi502, BufferLength ) ||
-         !POINTER_IS_VALID( (PCHAR)shi502->shi502_permissions, shi502, BufferLength ) ||
-         !POINTER_IS_VALID( shi502->shi502_security_descriptor, shi502, BufferLength ) ) {
+        OFFSET_TO_POINTER( shi502->shi502_netname, shi502 );
+        OFFSET_TO_POINTER( shi502->shi502_remark, shi502 );
+        OFFSET_TO_POINTER( shi502->shi502_path, shi502 );
+        OFFSET_TO_POINTER( (PCHAR)shi502->shi502_permissions, shi502 );
+        OFFSET_TO_POINTER( shi502->shi502_security_descriptor, shi502 );
 
-        return STATUS_ACCESS_VIOLATION;
+        if ( !POINTER_IS_VALID( shi502->shi502_netname, shi502, BufferLength ) ||
+             !POINTER_IS_VALID( shi502->shi502_remark, shi502, BufferLength ) ||
+             !POINTER_IS_VALID( shi502->shi502_path, shi502, BufferLength ) ||
+             !POINTER_IS_VALID( (PCHAR)shi502->shi502_permissions, shi502, BufferLength ) ||
+             !POINTER_IS_VALID( shi502->shi502_security_descriptor, shi502, BufferLength ) ) {
+
+            return STATUS_ACCESS_VIOLATION;
+        }
     }
 
     //
@@ -721,6 +780,48 @@ Return Value:
         RELEASE_LOCK( &SrvShareLock );
         Srp->ErrorCode = NERR_NetNameNotFound;
         return STATUS_SUCCESS;
+    }
+
+    if( level == 1005 ) {
+        NTSTATUS status = STATUS_SUCCESS;
+        BOOLEAN inDfs = (Srp->Flags & SHI1005_FLAGS_DFS) ? TRUE : FALSE;
+
+        Srp->Parameters.Set.ErrorParameter = 0;
+
+        if( inDfs && share->IsDfs == FALSE ) {
+
+            SrvIsShareInDfs( share, &share->IsDfs, &share->IsDfsRoot );
+
+            if( share->IsDfs == FALSE ) {
+                //
+                // We either aren't really running the DFS driver, or the
+                //  DFS driver doesn't agree that this should be in the DFS.
+                //  Disallow the operation.
+                //
+                status = STATUS_ACCESS_DENIED;
+            }
+        } else if( !inDfs && share->IsDfs == TRUE ) {
+            //
+            // Take this share out of the DFS!
+            //
+            SrvIsShareInDfs( share, &share->IsDfs, &share->IsDfsRoot );
+            if( share->IsDfs == TRUE ) {
+                //
+                // The DFS driver really believes this share is still in the DFS.
+                //  Disallow the operation.
+                //
+                status = STATUS_ACCESS_DENIED;
+
+            }
+
+        }
+
+        IF_DEBUG( DFS ) {
+            KdPrint(( "Share %wZ DFS state set to %d\n", &Srp->Name1, share->IsDfs ));
+        }
+
+        RELEASE_LOCK( &SrvShareLock );
+        return status;
     }
 
     //
@@ -900,8 +1001,6 @@ Routine Description:
     associated variable data, into a buffer.  Fixed data goes at the
     beginning of the buffer, variable data at the end.
 
-    *** This routine must be called with SrvShareLock held!
-
 Arguments:
 
     Level - the level of information to copy from the share.
@@ -928,14 +1027,9 @@ Return Value:
 
     PSHARE share = Block;
     PSHARE_INFO_502 shi502 = *FixedStructure;
+    PSHARE_INFO_1005 shi1005 = *FixedStructure;
 
     PAGED_CODE( );
-
-    //
-    // Lock the share.
-    //
-
-    ACQUIRE_LOCK( &SrvShareLock );
 
     //
     // Update FixedStructure to point to the next structure
@@ -960,6 +1054,19 @@ Return Value:
     //
 
     switch( Srp->Level ) {
+
+    case 1005:
+        shi1005->shi1005_flags = 0;
+
+        SrvIsShareInDfs( share, &share->IsDfs, &share->IsDfsRoot );
+
+        if (share->IsDfs) {
+            shi1005->shi1005_flags |= SHI1005_FLAGS_DFS;
+        }
+        if (share->IsDfsRoot) {
+            shi1005->shi1005_flags |= SHI1005_FLAGS_DFS_ROOT;
+        }
+        break;
 
     case 502:
 
@@ -1125,8 +1232,6 @@ Return Value:
             );
 
     }
-
-    RELEASE_LOCK( &SrvShareLock );
 
     return;
 

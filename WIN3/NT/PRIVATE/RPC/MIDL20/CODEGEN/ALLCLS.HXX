@@ -26,6 +26,7 @@
 #include "bindcls.hxx"
 #include "proccls.hxx"
 #include "misccls.hxx"
+#include "filecls.hxx"
 #include "arraycls.hxx"
 #include "ptrcls.hxx"
 #include "unioncls.hxx"

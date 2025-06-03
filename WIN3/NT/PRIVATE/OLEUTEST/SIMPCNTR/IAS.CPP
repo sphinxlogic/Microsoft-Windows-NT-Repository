@@ -42,7 +42,7 @@
 //      Function                    Location
 //
 //      CSimpleSite::QueryInterface SITE.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -53,7 +53,7 @@
 
 STDMETHODIMP CAdviseSink::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In IAS::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In IAS::QueryInterface\r\n"));
 
     // delegate to the document Object
     return m_pSite->QueryInterface(riid, ppvObj);
@@ -82,14 +82,14 @@ STDMETHODIMP CAdviseSink::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 //      Function                    Location
 //
 //      CSimpleSite::AddReff        SITE.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CAdviseSink::AddRef()
 {
-    OutputDebugString(TEXT("In IAS::AddRef\r\n"));
+    TestDebugOut(TEXT("In IAS::AddRef\r\n"));
 
     // delegate to the container Site
     return m_pSite->AddRef();
@@ -119,14 +119,14 @@ STDMETHODIMP_(ULONG) CAdviseSink::AddRef()
 //      Function                    Location
 //
 //      CSimpleSite::Release        SITE.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CAdviseSink::Release()
 {
-    OutputDebugString(TEXT("In IAS::Release\r\n"));
+    TestDebugOut(TEXT("In IAS::Release\r\n"));
 
     // delegate to the container Site
     return m_pSite->Release();
@@ -152,7 +152,7 @@ STDMETHODIMP_(ULONG) CAdviseSink::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
@@ -160,7 +160,7 @@ STDMETHODIMP_(ULONG) CAdviseSink::Release()
 STDMETHODIMP_(void) CAdviseSink::OnDataChange (FORMATETC FAR* pFormatetc,
                                                STGMEDIUM FAR* pStgmed)
 {
-    OutputDebugString(TEXT("In IAS::OnDataChange\r\n"));
+    TestDebugOut(TEXT("In IAS::OnDataChange\r\n"));
 }
 
 //**********************************************************************
@@ -184,7 +184,7 @@ STDMETHODIMP_(void) CAdviseSink::OnDataChange (FORMATETC FAR* pFormatetc,
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      InvalidateRect              Windows API
 //      IOleObject::QueryInterface  Object
 //      IViewObject2::GetExtent     Object
@@ -197,7 +197,7 @@ STDMETHODIMP_(void) CAdviseSink::OnViewChange (DWORD dwAspect, LONG lindex)
 {
     LPVIEWOBJECT2 lpViewObject2;
 
-    OutputDebugString(TEXT("In IAS::OnViewChange\r\n"));
+    TestDebugOut(TEXT("In IAS::OnViewChange\r\n"));
 
     // get a pointer to IViewObject2
     HRESULT hErr = m_pSite->m_lpOleObject->QueryInterface(
@@ -235,14 +235,14 @@ STDMETHODIMP_(void) CAdviseSink::OnViewChange (DWORD dwAspect, LONG lindex)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(void) CAdviseSink::OnRename (LPMONIKER pmk)
 {
-    OutputDebugString(TEXT("In IAS::OnRename\r\n"));
+    TestDebugOut(TEXT("In IAS::OnRename\r\n"));
 }
 
 //**********************************************************************
@@ -264,14 +264,14 @@ STDMETHODIMP_(void) CAdviseSink::OnRename (LPMONIKER pmk)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(void) CAdviseSink::OnSave ()
 {
-    OutputDebugString(TEXT("In IAS::OnSave\r\n"));
+    TestDebugOut(TEXT("In IAS::OnSave\r\n"));
 }
 
 //**********************************************************************
@@ -293,13 +293,12 @@ STDMETHODIMP_(void) CAdviseSink::OnSave ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(void) CAdviseSink::OnClose()
 {
-    OutputDebugString(TEXT("In IAS::OnClose\r\n"));
+    TestDebugOut(TEXT("In IAS::OnClose\r\n"));
 }
-

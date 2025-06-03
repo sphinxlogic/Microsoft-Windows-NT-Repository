@@ -34,7 +34,7 @@ BOOLEAN TargetAttributeRequired[] = {FALSE, FALSE, TRUE, TRUE,
                                      TRUE, TRUE, TRUE, TRUE,
                                      FALSE, FALSE, FALSE, FALSE,
                                      TRUE, FALSE, FALSE, FALSE,
-                                     FALSE };
+                                     FALSE, TRUE, TRUE };
 
 //
 //  Local procedure prototypes
@@ -47,6 +47,7 @@ BOOLEAN TargetAttributeRequired[] = {FALSE, FALSE, TRUE, TRUE,
 #pragma alloc_text(PAGE, NtfsCheckIndexHeader)
 #pragma alloc_text(PAGE, NtfsCheckIndexRoot)
 #pragma alloc_text(PAGE, NtfsCheckLogRecord)
+#pragma alloc_text(PAGE, NtfsCheckRestartTable)
 #endif
 
 
@@ -61,7 +62,6 @@ NtfsCheckFileRecord (
     PATTRIBUTE_RECORD_HEADER Attribute;
     PFILE_RECORD_SEGMENT_HEADER EndOfFileRecord;
     ULONG BytesPerFileRecordSegment = Vcb->BytesPerFileRecordSegment;
-    ATTRIBUTE_TYPE_CODE LastCode = 0;
     BOOLEAN StandardInformationSeen = FALSE;
     BOOLEAN AttributeListPresent = FALSE;
     BOOLEAN FirstPass = TRUE;
@@ -101,7 +101,7 @@ NtfsCheckFileRecord (
 
         (FileRecord->BytesAvailable != BytesPerFileRecordSegment)) {
 
-        DebugTrace( 0, 0, "Invalid file record: %08lx\n", FileRecord );
+        DebugTrace( 0, 0, ("Invalid file record: %08lx\n", FileRecord) );
 
         ASSERTMSG( "Invalid resident file record\n", FALSE );
 
@@ -121,7 +121,7 @@ NtfsCheckFileRecord (
 //          (Attribute->TypeCode != $STANDARD_INFORMATION) &&
 //          XxEqlZero(FileRecord->BaseFileRecordSegment)) {
 //
-//          DebugTrace( 0, 0, "Standard Information missing: %08lx\n", Attribute );
+//          DebugTrace( 0, 0, ("Standard Information missing: %08lx\n", Attribute) );
 //
 //          ASSERTMSG( "Standard Information missing\n", FALSE );
 //
@@ -152,8 +152,7 @@ NtfsCheckFileRecord (
         if (!NtfsCheckAttributeRecord( IrpContext,
                                        Vcb,
                                        FileRecord,
-                                       Attribute,
-                                       AttributeListPresent )) {
+                                       Attribute )) {
 
             return FALSE;
         }
@@ -167,8 +166,7 @@ NtfsCheckAttributeRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
-    IN PATTRIBUTE_RECORD_HEADER Attribute,
-    IN BOOLEAN AttributeListPresent
+    IN PATTRIBUTE_RECORD_HEADER Attribute
     )
 
 {
@@ -200,7 +198,7 @@ NtfsCheckAttributeRecord (
          (((ULONG)Attribute->NameOffset + (ULONG)Attribute->NameLength) >
            Attribute->RecordLength))) {
 
-        DebugTrace( 0, 0, "Invalid attribute record header: %08lx\n", Attribute );
+        DebugTrace( 0, 0, ("Invalid attribute record header: %08lx\n", Attribute) );
 
         ASSERTMSG( "Invalid attribute record header\n", FALSE );
 
@@ -221,7 +219,7 @@ NtfsCheckAttributeRecord (
             (((ULONG)Attribute->Form.Resident.ValueOffset +
               Attribute->Form.Resident.ValueLength) > Attribute->RecordLength)) {
 
-            DebugTrace( 0, 0, "Invalid resident attribute record header: %08lx\n", Attribute );
+            DebugTrace( 0, 0, ("Invalid resident attribute record header: %08lx\n", Attribute) );
 
             ASSERTMSG( "Invalid resident attribute record header\n", FALSE );
 
@@ -242,12 +240,7 @@ NtfsCheckAttributeRecord (
         ULONG VcnBytes;
         ULONG LcnBytes;
 
-        if ((Attribute->Form.Nonresident.LowestVcn != 0) &&
-            (*((PLONGLONG)&FileRecord->BaseFileRecordSegment) == 0)
-
-                ||
-
-            (Attribute->Form.Nonresident.LowestVcn >
+        if ((Attribute->Form.Nonresident.LowestVcn >
                 (Attribute->Form.Nonresident.HighestVcn + 1))
 
                 ||
@@ -265,7 +258,7 @@ NtfsCheckAttributeRecord (
             (Attribute->Form.Nonresident.FileSize >
                 Attribute->Form.Nonresident.AllocatedLength)) {
 
-            DebugTrace( 0, 0, "Invalid nonresident attribute record header: %08lx\n", Attribute );
+            DebugTrace( 0, 0, ("Invalid nonresident attribute record header: %08lx\n", Attribute) );
 
             ASSERTMSG( "Invalid nonresident attribute record header\n", FALSE );
 
@@ -305,6 +298,21 @@ NtfsCheckAttributeRecord (
             LcnBytes = *ch++ >> 4;
 
             //
+            //  Neither of these should be larger than a VCN.
+            //
+
+            if ((VcnBytes > sizeof( VCN )) ||
+                (LcnBytes > sizeof( VCN ))) {
+
+                DebugTrace( 0, 0, ("Invalid maping pair byte count: %08lx\n", Attribute) );
+
+                ASSERTMSG( "Invalid maping pair byte count\n", FALSE );
+
+                NtfsMarkVolumeDirty( IrpContext, IrpContext->Vcb );
+                return FALSE;
+            }
+
+            //
             //  Extract the Vcn change (use of RtlCopyMemory works for little-Endian)
             //  and update NextVcn.
             //
@@ -322,13 +330,12 @@ NtfsCheckAttributeRecord (
 
                 IsCharLtrZero(*(ch + VcnBytes - 1))) {
 
-                DebugTrace( 0, 0, "Invalid maping pairs array: %08lx\n", Attribute );
+                DebugTrace( 0, 0, ("Invalid maping pairs array: %08lx\n", Attribute) );
 
                 ASSERTMSG( "Invalid maping pairs array\n", FALSE );
 
                 NtfsMarkVolumeDirty( IrpContext, IrpContext->Vcb );
                 return FALSE;
-
             }
 
             RtlCopyMemory( &Change, ch, VcnBytes );
@@ -350,7 +357,7 @@ NtfsCheckAttributeRecord (
             if ((LcnBytes != 0) &&
                 ((CurrentLcn + (NextVcn - CurrentVcn)) > Vcb->TotalClusters)) {
 
-                DebugTrace( 0, 0, "Invalid Lcn: %08lx\n", Attribute );
+                DebugTrace( 0, 0, ("Invalid Lcn: %08lx\n", Attribute) );
 
                 ASSERTMSG( "Invalid Lcn\n", FALSE );
 
@@ -365,7 +372,7 @@ NtfsCheckAttributeRecord (
 
         if (NextVcn != (Attribute->Form.Nonresident.HighestVcn + 1)) {
 
-            DebugTrace( 0, 0, "Disagreement with mapping pairs: %08lx\n", Attribute );
+            DebugTrace( 0, 0, ("Disagreement with mapping pairs: %08lx\n", Attribute) );
 
             ASSERTMSG( "Disagreement with mapping pairs\n", FALSE );
 
@@ -375,7 +382,7 @@ NtfsCheckAttributeRecord (
 
     } else {
 
-        DebugTrace( 0, 0, "Invalid attribute form code: %08lx\n", Attribute );
+        DebugTrace( 0, 0, ("Invalid attribute form code: %08lx\n", Attribute) );
 
         ASSERTMSG( "Invalid attribute form code\n", FALSE );
 
@@ -404,7 +411,7 @@ NtfsCheckAttributeRecord (
             if ((ULONG)((PFILE_NAME)Data)->FileNameLength * 2 >
                 (Length - (ULONG)sizeof(FILE_NAME) + 2)) {
 
-                DebugTrace( 0, 0, "Invalid File Name attribute: %08lx\n", Attribute );
+                DebugTrace( 0, 0, ("Invalid File Name attribute: %08lx\n", Attribute) );
 
                 ASSERTMSG( "Invalid File Name attribute\n", FALSE );
 
@@ -421,8 +428,26 @@ NtfsCheckAttributeRecord (
         }
 
     case $STANDARD_INFORMATION:
+
+#ifdef _CARIO_
+        {
+            if (Length < sizeof( STANDARD_INFORMATION ) &&
+                Length != SIZEOF_OLD_STANDARD_INFORMATION)
+            {
+                DebugTrace( 0, 0, ("Invalid Standard Information attribute: %08lx\n", Attribute) );
+
+                ASSERTMSG( "Invalid Standard Information attribute size\n", FALSE );
+
+                NtfsMarkVolumeDirty( IrpContext, IrpContext->Vcb );
+                return FALSE;
+            }
+
+            break;
+        }
+#endif
+
     case $ATTRIBUTE_LIST:
-    case $VOLUME_VERSION:
+    case $OBJECT_ID:
     case $SECURITY_DESCRIPTOR:
     case $VOLUME_NAME:
     case $VOLUME_INFORMATION:
@@ -432,13 +457,16 @@ NtfsCheckAttributeRecord (
     case $SYMBOLIC_LINK:
     case $EA_INFORMATION:
     case $EA:
+#ifdef _CAIRO_
+    case $PROPERTY_SET:
+#endif  //  _CAIRO_
 
         break;
 
     default:
 
         {
-            DebugTrace( 0, 0, "Bad Attribute type code: %08lx\n", Attribute );
+            DebugTrace( 0, 0, ("Bad Attribute type code: %08lx\n", Attribute) );
 
             ASSERTMSG( "Bad Attribute type code\n", FALSE );
 
@@ -459,11 +487,36 @@ NtfsCheckIndexRoot (
     )
 
 {
+    UCHAR ShiftValue;
     PAGED_CODE();
+
+    //
+    //  Check whether this index root uses clusters or if the cluster size is larger than
+    //  the index block.
+    //
+
+    if (IndexRoot->BytesPerIndexBuffer >= Vcb->BytesPerCluster) {
+
+        ShiftValue = (UCHAR) Vcb->ClusterShift;
+
+    } else {
+
+        ShiftValue = DEFAULT_INDEX_BLOCK_BYTE_SHIFT;
+    }
 
     if ((AttributeSize < sizeof(INDEX_ROOT))
 
             ||
+
+#ifdef _CAIRO_
+
+        ((IndexRoot->IndexedAttributeType != $FILE_NAME) && (IndexRoot->IndexedAttributeType != $UNUSED))
+
+            ||
+
+        ((IndexRoot->IndexedAttributeType == $FILE_NAME) && (IndexRoot->CollationRule != COLLATION_FILE_NAME))
+
+#else
 
         (IndexRoot->IndexedAttributeType != $FILE_NAME)
 
@@ -471,19 +524,26 @@ NtfsCheckIndexRoot (
 
         (IndexRoot->CollationRule != COLLATION_FILE_NAME)
 
+#endif _CAIRO_
+
             ||
+
 
         (IndexRoot->BytesPerIndexBuffer !=
-         BytesFromClusters(Vcb, IndexRoot->ClustersPerIndexBuffer))
+         BytesFromIndexBlocks( IndexRoot->BlocksPerIndexBuffer, ShiftValue ))
 
             ||
 
-        ((IndexRoot->ClustersPerIndexBuffer != 1) &&
-         (IndexRoot->ClustersPerIndexBuffer != 2) &&
-         (IndexRoot->ClustersPerIndexBuffer != 4) &&
-         (IndexRoot->ClustersPerIndexBuffer != 8))) {
+        ((IndexRoot->BlocksPerIndexBuffer != 1) &&
+         (IndexRoot->BlocksPerIndexBuffer != 2) &&
+         (IndexRoot->BlocksPerIndexBuffer != 4) &&
+         (IndexRoot->BlocksPerIndexBuffer != 8) &&
+         (IndexRoot->BlocksPerIndexBuffer != 16) &&
+         (IndexRoot->BlocksPerIndexBuffer != 32) &&
+         (IndexRoot->BlocksPerIndexBuffer != 64) &&
+         (IndexRoot->BlocksPerIndexBuffer != 128))) {
 
-        DebugTrace( 0, 0, "Bad Index Root: %08lx\n", IndexRoot );
+        DebugTrace( 0, 0, ("Bad Index Root: %08lx\n", IndexRoot) );
 
         ASSERTMSG( "Bad Index Root\n", FALSE );
 
@@ -525,7 +585,7 @@ NtfsCheckIndexBuffer (
         ((ULONG)((IndexBuffer->MultiSectorHeader.UpdateSequenceArraySize - 1) * SEQUENCE_NUMBER_STRIDE) !=
          BytesPerIndexBuffer)) {
 
-        DebugTrace( 0, 0, "Invalid Index Buffer: %08lx\n", IndexBuffer );
+        DebugTrace( 0, 0, ("Invalid Index Buffer: %08lx\n", IndexBuffer) );
 
         ASSERTMSG( "Invalid resident Index Buffer\n", FALSE );
 
@@ -577,7 +637,7 @@ NtfsCheckIndexHeader (
 
         (IndexHeader->FirstFreeByte > IndexHeader->BytesAvailable)) {
 
-        DebugTrace( 0, 0, "Bad Index Header: %08lx\n", IndexHeader );
+        DebugTrace( 0, 0, ("Bad Index Header: %08lx\n", IndexHeader) );
 
         ASSERTMSG( "Bad Index Header\n", FALSE );
 
@@ -609,7 +669,7 @@ NtfsCheckIndexHeader (
             (BooleanFlagOn(IndexEntry->Flags, INDEX_ENTRY_NODE) !=
              BooleanFlagOn(IndexHeader->Flags, INDEX_NODE))) {
 
-            DebugTrace( 0, 0, "Bad Index Entry: %08lx\n", IndexEntry );
+            DebugTrace( 0, 0, ("Bad Index Entry: %08lx\n", IndexEntry) );
 
             ASSERTMSG( "Bad Index Entry\n", FALSE );
 
@@ -664,14 +724,6 @@ NtfsCheckLogRecord (
 
         ||
 
-        (LogRecord->RedoOperation > TransactionTableDump)
-
-        ||
-
-        (LogRecord->UndoOperation > TransactionTableDump)
-
-        ||
-
         (LogRecord->RedoOffset & 7)
 
         ||
@@ -684,19 +736,21 @@ NtfsCheckLogRecord (
 
         ||
 
-        (LogRecord->UndoOperation != CompensationLogRecord
-         && (ULONG) LogRecord->UndoOffset + LogRecord->UndoLength > LogRecordLength)
+        ((LogRecord->UndoOperation != CompensationLogRecord) &&
+         ((ULONG) LogRecord->UndoOffset + LogRecord->UndoLength > LogRecordLength))
 
         ||
 
-        ((TargetAttributeRequired[LogRecord->RedoOperation]
-          || TargetAttributeRequired[LogRecord->UndoOperation])
-         && LogRecord->TargetAttribute == 0)
+        ((LogRecord->TargetAttribute == 0) &&
+         (((LogRecord->RedoOperation <= UpdateRecordDataAllocation) &&
+           TargetAttributeRequired[LogRecord->RedoOperation]) ||
+          ((LogRecord->UndoOperation <= UpdateRecordDataAllocation) &&
+           TargetAttributeRequired[LogRecord->UndoOperation])))
 
         ||
 
-        (LogRecord->LcnsToFollow != 0
-         && (LogRecord->TargetAttribute - sizeof( RESTART_TABLE )) % SIZEOF_OPEN_ATTRIBUTE_ENTRY)
+        ((LogRecord->LcnsToFollow != 0) &&
+         ((LogRecord->TargetAttribute - sizeof( RESTART_TABLE )) % SIZEOF_OPEN_ATTRIBUTE_ENTRY))
 
         ||
 
@@ -709,6 +763,98 @@ NtfsCheckLogRecord (
 
         NtfsMarkVolumeDirty( IrpContext, IrpContext->Vcb );
         return FALSE;
+    }
+
+    return TRUE;
+}
+
+
+BOOLEAN
+NtfsCheckRestartTable (
+    IN PRESTART_TABLE RestartTable,
+    IN ULONG TableSize
+    )
+{
+    ULONG ActualTableSize;
+    ULONG Index;
+    PDIRTY_PAGE_ENTRY NextEntry;
+
+    PAGED_CODE();
+
+    //
+    //  We want to make the following checks.
+    //
+    //      EntrySize - Must be less than table size and non-zero.
+    //
+    //      NumberEntries - The table size must contain at least this many entries
+    //                      plus the table header.
+    //
+    //      NumberAllocated - Must be less than/equal to NumberEntries
+    //
+    //      FreeGoal - Must lie in the table.
+    //
+    //      FirstFree
+    //      LastFree - Must either be 0 or be on a restart entry boundary.
+    //
+
+    if ((RestartTable->EntrySize == 0) ||
+        (RestartTable->EntrySize > TableSize) ||
+        ((RestartTable->EntrySize + sizeof( RESTART_TABLE )) > TableSize) ||
+        (((TableSize - sizeof( RESTART_TABLE )) / RestartTable->EntrySize) < RestartTable->NumberEntries) ||
+        (RestartTable->NumberAllocated > RestartTable->NumberEntries)) {
+
+        ASSERTMSG( "Invalid Restart Table sizes\n", FALSE );
+        return FALSE;
+    }
+
+    ActualTableSize = (RestartTable->EntrySize * RestartTable->NumberEntries) +
+                      sizeof( RESTART_TABLE );
+
+    if ((RestartTable->FirstFree > ActualTableSize) ||
+        (RestartTable->LastFree > ActualTableSize) ||
+        ((RestartTable->FirstFree != 0) && (RestartTable->FirstFree < sizeof( RESTART_TABLE ))) ||
+        ((RestartTable->LastFree != 0) && (RestartTable->LastFree < sizeof( RESTART_TABLE )))) {
+
+        ASSERTMSG( "Invalid Restart Table List Head\n", FALSE );
+        return FALSE;
+    }
+
+    //
+    //  Make a pass through the table verifying that each entry
+    //  is either allocated or points to a valid offset in the
+    //  table.
+    //
+
+    for (Index = 0;Index < RestartTable->NumberEntries; Index++) {
+
+        NextEntry = (PDIRTY_PAGE_ENTRY) Add2Ptr( RestartTable,
+                                                 ((Index * RestartTable->EntrySize) +
+                                                  sizeof( RESTART_TABLE )));
+
+        if ((NextEntry->AllocatedOrNextFree != RESTART_ENTRY_ALLOCATED) &&
+            (NextEntry->AllocatedOrNextFree != 0) &&
+            ((NextEntry->AllocatedOrNextFree < sizeof( RESTART_TABLE )) ||
+             (((NextEntry->AllocatedOrNextFree - sizeof( RESTART_TABLE )) % RestartTable->EntrySize) != 0))) {
+
+            ASSERTMSG( "Invalid Restart Table Entry\n", FALSE );
+            return FALSE;
+        }
+    }
+
+    //
+    //  Walk through the list headed by the first entry to make sure none
+    //  of the entries are currently being used.
+    //
+
+    for (Index = RestartTable->FirstFree; Index != 0; Index = NextEntry->AllocatedOrNextFree) {
+
+        if (Index == RESTART_ENTRY_ALLOCATED) {
+
+            ASSERTMSG( "Invalid Restart Table Free List\n", FALSE );
+            return FALSE;
+        }
+
+        NextEntry = (PDIRTY_PAGE_ENTRY) Add2Ptr( RestartTable, Index );
     }
 
     return TRUE;

@@ -252,7 +252,7 @@ BOOL FAR PASCAL EXPORT DlgQuickCommand(HWND hDlg, UINT message, WPARAM wParam, L
             EndDialog(hDlg, FALSE);
             return TRUE;
 
-        case IDHELP :
+        case IDWINDBGHELP :
             Dbg(WinHelp(hDlg, szHelpFileName, HELP_CONTEXT, ID_QUICKW_HELP));
             return TRUE;
 
@@ -463,4 +463,4 @@ VOID UpdateQuickWatch(PPANE p, WPARAM wParam)
 
 
 
-
+

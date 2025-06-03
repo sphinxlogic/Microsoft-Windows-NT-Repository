@@ -51,7 +51,7 @@ Revision History:
 #include <config.h>     // LPNET_CONFIG_HANDLE, Netp config routines.
 #include <configp.h>    // private config stuff.
 #include <debuglib.h>   // IF_DEBUG().
-#include <netdebug.h>   // NetpDbgPrint(), etc.
+#include <netdebug.h>   // NetpKdPrint(()), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <strarray.h>   // NetpTStrArrayEntryCount().
 #include <winerror.h>   // ERROR_ equates, NO_ERROR.
@@ -112,10 +112,10 @@ NetpNumberOfConfigKeywords (
                 &LastWriteTime
                 );
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpNumberOfConfigKeywords: RegQueryInfoKey ret "
                     FORMAT_LONG "; " FORMAT_DWORD " values and " FORMAT_DWORD
-                    " subkeys.\n", Error, NumberOfValues, NumberOfSubKeys );
+                    " subkeys.\n", Error, NumberOfValues, NumberOfSubKeys ));
         }
         NetpAssert( Error == ERROR_SUCCESS );  // BUGBUG
 
@@ -145,10 +145,10 @@ NetpNumberOfConfigKeywords (
         ApiStatus = NO_ERROR;
 
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpNumberOfConfigKeywords: returning " FORMAT_DWORD
                     " for section " FORMAT_LPTSTR ".\n", Count,
-                    lpnetHandle->FakeRWDataForThisSection->SectionName );
+                    lpnetHandle->FakeRWDataForThisSection->SectionName ));
         }
     }
 
@@ -165,9 +165,9 @@ NetpNumberOfConfigKeywords (
     *CountPtr = Count;
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpNumberOfConfigKeywords: returning " FORMAT_DWORD
-                " for number of keywords.\n", Count );
+                " for number of keywords.\n", Count ));
     }
 
     return (ApiStatus);

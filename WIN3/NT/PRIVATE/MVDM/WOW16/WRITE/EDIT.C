@@ -1275,5 +1275,4 @@ if (hffntb != 0)
         AddSprmCps(rgbSprm, docDest, cpMin, cpLim);
         }
 }
-
-
+

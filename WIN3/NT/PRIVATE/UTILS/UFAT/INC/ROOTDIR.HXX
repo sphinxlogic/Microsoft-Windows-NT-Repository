@@ -25,20 +25,31 @@ Author:
 #include "mem.hxx"
 #include "secrun.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 DECLARE_CLASS( ROOTDIR );
 
 
 class ROOTDIR : public FATDIR {
 
-	public:
+        public:
 
- 		DECLARE_CONSTRUCTOR( ROOTDIR );
+                UFAT_EXPORT
+                DECLARE_CONSTRUCTOR( ROOTDIR );
 
-		VIRTUAL
-		~ROOTDIR(
-			);
+                UFAT_EXPORT
+                VIRTUAL
+                ~ROOTDIR(
+                        );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN      PMEM                Mem,
@@ -63,11 +74,11 @@ class ROOTDIR : public FATDIR {
             IN  LONG    EntryNumber
             );
 
-	private:
+        private:
 
- 		VOID
- 		Construct (
- 			);
+                VOID
+                Construct (
+                        );
 
         NONVIRTUAL
         VOID

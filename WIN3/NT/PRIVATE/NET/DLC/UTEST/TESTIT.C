@@ -170,7 +170,7 @@ void _CRTAPI1 main(int argc, char** argv) {
                 break;
 
             case 'd':
-                if (!stricmp(*argv, "debug")) {
+                if (!_stricmp(*argv, "debug")) {
                     CommandLineDebugFlag = TRUE;
                 } else {
                     printf("Error: Unknown -d option: \"%s\"\n", *argv);
@@ -271,7 +271,7 @@ void _CRTAPI1 main(int argc, char** argv) {
         //
 
         puts("Waiting Quit.");
-        while (toupper(getch()) != 'Q');
+        while (toupper(_getch()) != 'Q');
         break;
     }
     puts("ExitProcess.");

@@ -413,11 +413,7 @@ INT16  TpOpen( DIL_HWD_PTR hwd,
      }
 
 #ifdef DEBUG_DIL
-#ifndef UNICODE
      zprintf( DEBUG_TEMPORARY, TEXT("TpOpen(): %s\n"), ( status ) ? TEXT("Success") : TEXT("Failed") ) ;
-#else
-     zprintf( DEBUG_TEMPORARY, TEXT("TpOpen(): %ws\n"), ( status ) ? TEXT("Success") : TEXT("Failed") ) ;
-#endif
 #endif
 
      return( status ) ;

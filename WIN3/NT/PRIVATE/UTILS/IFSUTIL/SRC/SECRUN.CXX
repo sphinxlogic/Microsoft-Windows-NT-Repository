@@ -1,18 +1,21 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "error.hxx"
 #include "secrun.hxx"
 
 
-DEFINE_CONSTRUCTOR( SECRUN, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( SECRUN, OBJECT, IFSUTIL_EXPORT );
 
 
 VOID
 SECRUN::Construct (
-	)
+        )
 
 /*++
 
@@ -67,6 +70,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 SECRUN::~SECRUN(
     )
 /*++
@@ -89,6 +93,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 SECRUN::Initialize(
     IN OUT  PMEM            Mem,
@@ -121,8 +126,8 @@ Return Value:
 
     Destroy();
 
-    DbgAssert(Drive);
-    DbgAssert(Mem);
+    DebugAssert(Drive);
+    DebugAssert(Mem);
 
     _drive = Drive;
     _start_sector = StartSector;
@@ -138,6 +143,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 SECRUN::Read(
     )
@@ -158,11 +164,12 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_buf);
+    DebugAssert(_buf);
     return _drive->Read(_start_sector, _num_sectors, _buf);
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 SECRUN::Write(
     )
@@ -183,6 +190,6 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_buf);
+    DebugAssert(_buf);
     return _drive->Write(_start_sector, _num_sectors, _buf);
 }

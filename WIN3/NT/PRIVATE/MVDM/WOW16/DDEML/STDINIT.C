@@ -19,7 +19,7 @@ PAPPINFO pai)
 {
     PCLIENTINFO pci;
 
-    static DWORD defid = QID_SYNC;
+    static DWORD defid = (DWORD)QID_SYNC;
     static XFERINFO defXferInfo = {
             &defid,
             1L,
@@ -80,7 +80,7 @@ PCONVCONTEXT pCC)
 
     SEMCHECKOUT();
     if(!(hwnd = CreateWindow(SZCLIENTCLASS, szNull, WS_CHILD, 0, 0, 0, 0, hwndParent,
-         NULL, hInstance, (LPSTR)pai))) {
+         NULL, hInstance, &pai))) {
         return(NULL);
     }
 
@@ -302,7 +302,7 @@ PCONVCONTEXT pCC)
      * Create the server window
      */
     if ((hwndServer = CreateWindow(SZSERVERCLASS, szNull, WS_CHILD,
-            0, 0, 0, 0, pai->hwndSvrRoot, NULL, hInstance, (LPSTR)pai)) == NULL) {
+            0, 0, 0, 0, pai->hwndSvrRoot, NULL, hInstance, &pai)) == NULL) {
         SETLASTERROR(pai, DMLERR_SYS_ERROR);
         return(NULL);
     }
@@ -436,7 +436,7 @@ Abort:
 
 
         hwndClient = CreateWindow(SZCLIENTCLASS, szNull, WS_CHILD,
-            0, 0, 0, 0, GetParent(hwnd), NULL, hInstance, (LPSTR)pci->ci.pai);
+            0, 0, 0, 0, GetParent(hwnd), NULL, hInstance, &(pci->ci.pai));
 
         if (!hwndClient) {
             SETLASTERROR(pci->ci.pai, DMLERR_SYS_ERROR);
@@ -461,5 +461,4 @@ Abort:
 
     return(TRUE);
 }
-
 

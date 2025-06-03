@@ -83,17 +83,17 @@ ModMatch (
 
     if ( MatchKind == MATCH_FULLPATH ) {
 
-        Match = stricmp( Name1, Name2 );
+        Match = _stricmp( Name1, Name2 );
 
     } else {
 
         _splitpath( Name1, NULL, NULL, Base1, Ext1 );
         _splitpath( Name2, NULL, NULL, Base2, Ext2 );
 
-        Match = stricmp( Base1, Base2 );
+        Match = _stricmp( Base1, Base2 );
 
         if ( !Match && MatchKind == MATCH_FILENAME ) {
-            Match = stricmp( Ext1, Ext2 );
+            Match = _stricmp( Ext1, Ext2 );
         }
     }
 
@@ -859,7 +859,7 @@ BOOL UserDllBrowseHookProc (HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
         switch( LOWORD( wParam )) {
 
-        case IDHELP:
+        case IDWINDBGHELP:
         case pshHelp:
 
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_USERDLL_HELP));
@@ -880,19 +880,17 @@ UserDllDef(
     SHE     She;
     INT     Selected;
 
-    She = UserDllGetShe(
-                   GetDlgItem( hDlg, ID_USERDLL_LOAD ),
-                   GetDlgItem( hDlg, ID_USERDLL_DEFER ),
-                   GetDlgItem( hDlg, ID_USERDLL_SUPPRESS )
-                   );
+    She = UserDllGetShe(GetDlgItem(hDlg, ID_USERDLL_LOAD),
+                        GetDlgItem(hDlg, ID_USERDLL_DEFER),
+                        GetDlgItem(hDlg, ID_USERDLL_SUPPRESS));
 
-    Assert( She != sheLastError );
-    ModListSetDefaultShe( She );
-    UserDllShowDef( hDlg );
+    Assert(She != sheMax);
+    ModListSetDefaultShe(She);
+    UserDllShowDef(hDlg);
 
-    Selected = SendMessage( GetDlgItem( hDlg, ID_USERDLL_LIST ), LB_GETSELCOUNT, 0, 0 );
+    Selected = SendMessage(GetDlgItem(hDlg, ID_USERDLL_LIST), LB_GETSELCOUNT, 0, 0);
 
-    if ( Selected <= 0 ) {
+    if (Selected <= 0) {
         SheChanged = FALSE;
     }
 }
@@ -999,7 +997,7 @@ UserDllGetShe(
     } else if (SendMessage( hSuppress, BM_GETCHECK, 0, 0L ) == 1) {
         She = sheSuppressSyms;
     } else {
-        She = sheLastError;
+        She = sheMax;
     }
 
     return She;
@@ -1215,7 +1213,7 @@ UserDllDllList(
             }
 
             if ( !SheChanged ) {
-                UserDllSetShe( She == SheLast ? She : sheLastError,
+                UserDllSetShe( She == SheLast ? She : sheMax,
                                GetDlgItem( hDlg, ID_USERDLL_LOAD ),
                                GetDlgItem( hDlg, ID_USERDLL_DEFER ),
                                GetDlgItem( hDlg, ID_USERDLL_SUPPRESS )
@@ -1316,12 +1314,12 @@ UserDllEnableButtons(
 
     if ( Selected >  0 ) {
 
-        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DEFAULT), She != sheLastError );
+        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DEFAULT), She != sheMax );
         EnableWindow( GetDlgItem( hDlg, ID_USERDLL_ADD),  FALSE );
-        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_CHANGE),  She != sheLastError );
+        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_CHANGE),  She != sheMax );
 /*! ==v==(-) !**
 /*! --*-- !*/
-        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DELETE),  She != sheLastError );
+        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DELETE),  She != sheMax );
 /*! ==^==(+) !*/
 
     } else {
@@ -1331,8 +1329,8 @@ UserDllEnableButtons(
         //
         NewDllLen = SendMessage( GetDlgItem(hDlg, ID_USERDLL_ADD_NAME ), WM_GETTEXTLENGTH, 0, 0 );
 
-        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DEFAULT), She != sheLastError );
-        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_ADD),  NewDllLen > 0 && She != sheLastError );
+        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_DEFAULT), She != sheMax );
+        EnableWindow( GetDlgItem( hDlg, ID_USERDLL_ADD),  NewDllLen > 0 && She != sheMax );
         EnableWindow( GetDlgItem( hDlg, ID_USERDLL_CHANGE),  FALSE );
 /*! ==v==(-) !**
 /*! --*-- !*/
@@ -1449,7 +1447,7 @@ DlgUserdll(
                     EndDialog(hDlg, TRUE);
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_USERDLL_HELP));
                     break;
 
@@ -1462,4 +1460,3 @@ DlgUserdll(
 
     return Ret;
 }
-

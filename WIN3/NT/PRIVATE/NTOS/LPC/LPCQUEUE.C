@@ -23,41 +23,69 @@ Revision History:
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,LpcpInitializePortZone)
 #pragma alloc_text(PAGE,LpcpInitializePortQueue)
+#pragma alloc_text(PAGE,LpcpDestroyPortQueue)
+#pragma alloc_text(PAGE,LpcpExtendPortZone)
+#pragma alloc_text(PAGE,LpcpAllocateFromPortZone)
+#pragma alloc_text(PAGE,LpcpFreeToPortZone)
+#pragma alloc_text(PAGE,LpcpSaveDataInfoMessage)
+#pragma alloc_text(PAGE,LpcpFreeDataInfoMessage)
+#pragma alloc_text(PAGE,LpcpFindDataInfoMessage)
 #endif
 
 
-VOID
+NTSTATUS
 LpcpInitializePortQueue(
     IN PLPCP_PORT_OBJECT Port
     )
 {
-    KeInitializeSemaphore( &Port->MsgQueue.Semaphore, 0, 0x7FFFFFFF );
+    PLPCP_NONPAGED_PORT_QUEUE NonPagedPortQueue;
+
+    PAGED_CODE();
+
+    NonPagedPortQueue = ExAllocatePoolWithTag(NonPagedPool,
+                                              sizeof(LPCP_NONPAGED_PORT_QUEUE),
+                                              'troP');
+    if (NonPagedPortQueue == NULL) {
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+    KeInitializeSemaphore( &NonPagedPortQueue->Semaphore, 0, 0x7FFFFFFF );
+    NonPagedPortQueue->BackPointer = Port;
+    Port->MsgQueue.Semaphore = &NonPagedPortQueue->Semaphore;
     InitializeListHead( &Port->MsgQueue.ReceiveHead );
+    return( STATUS_SUCCESS );
 }
 
 
 VOID
 LpcpDestroyPortQueue(
-    IN PLPCP_PORT_OBJECT Port
+    IN PLPCP_PORT_OBJECT Port,
+    IN BOOLEAN CleanupAndDestroy
     )
 {
     PLIST_ENTRY Next, Head;
     PETHREAD ThreadWaitingForReply;
     PLPCP_MESSAGE Msg;
-    KIRQL OldIrql;
 
+    PAGED_CODE();
     //
     // If this port is connected to another port, then disconnect it.
     // Protect this with a lock in case the other side is going away
     // at the same time.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
 
     if (Port->ConnectedPort != NULL) {
         Port->ConnectedPort->ConnectedPort = NULL;
         }
 
+    //
+    // If connection port, then mark name as deleted
+    //
+
+    if ((Port->Flags & PORT_TYPE) == SERVER_CONNECTION_PORT) {
+        Port->Flags |= PORT_NAME_DELETED;
+        }
 
     //
     // Walk list of threads waiting for a reply to a message sent to this port.
@@ -74,6 +102,18 @@ LpcpDestroyPortQueue(
         InitializeListHead( &ThreadWaitingForReply->LpcReplyChain );
 
         if (!KeReadStateSemaphore( &ThreadWaitingForReply->LpcReplySemaphore )) {
+
+            //
+            // Thread is waiting on a message. Signal the semaphore and free the message
+            //
+
+            Msg = ThreadWaitingForReply->LpcReplyMessage;
+            if ( Msg ) {
+                ThreadWaitingForReply->LpcReplyMessage = NULL;
+                ThreadWaitingForReply->LpcReplyMessageId = 0;
+                LpcpFreeToPortZone( Msg, TRUE );
+                }
+
             KeReleaseSemaphore( &ThreadWaitingForReply->LpcReplySemaphore,
                                 0,
                                 1L,
@@ -98,7 +138,19 @@ LpcpDestroyPortQueue(
         }
     InitializeListHead( &Port->MsgQueue.ReceiveHead );
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
+
+    if ( CleanupAndDestroy ) {
+
+        //
+        // Free semaphore associated with the queue.
+        //
+        if (Port->MsgQueue.Semaphore != NULL) {
+            ExFreePool(CONTAINING_RECORD(Port->MsgQueue.Semaphore,
+                                         LPCP_NONPAGED_PORT_QUEUE,
+                                         Semaphore));
+            }
+        }
     return;
 }
 
@@ -115,9 +167,10 @@ LpcpInitializePortZone(
     PLPCP_MESSAGE Msg;
     LONG SegSize;
 
+    PAGED_CODE();
     LpcpZone.MaxPoolUsage = MaxPoolUsage;
     LpcpZone.GrowSize = SegmentSize;
-    Segment = ExAllocatePool( NonPagedPool, SegmentSize );
+    Segment = ExAllocatePoolWithTag( PagedPool, SegmentSize, 'ZcpL' );
     if (Segment == NULL) {
         return( STATUS_INSUFFICIENT_RESOURCES );
         }
@@ -137,6 +190,7 @@ LpcpInitializePortZone(
     Msg = (PLPCP_MESSAGE)((PZONE_SEGMENT_HEADER)Segment + 1);
     while (SegSize >= (LONG)LpcpZone.Zone.BlockSize) {
         Msg->ZoneIndex = (USHORT)++LpcpTotalNumberOfMessages;
+        Msg->Reserved0 = 0;
         Msg->Request.MessageId = 0;
         Msg = (PLPCP_MESSAGE)((PCHAR)Msg + LpcpZone.Zone.BlockSize);
         SegSize -= LpcpZone.Zone.BlockSize;
@@ -148,7 +202,7 @@ LpcpInitializePortZone(
 
 NTSTATUS
 LpcpExtendPortZone(
-    IN PKIRQL OldIrql
+    VOID
     )
 {
     NTSTATUS Status;
@@ -158,6 +212,7 @@ LpcpExtendPortZone(
     BOOLEAN AlreadyRetried;
     LONG SegmentSize;
 
+    PAGED_CODE();
     AlreadyRetried = FALSE;
 retry:
     if (LpcpZone.Zone.TotalSegmentSize + LpcpZone.GrowSize > LpcpZone.MaxPoolUsage) {
@@ -166,14 +221,14 @@ retry:
                  ));
 
         WaitTimeout.QuadPart = Int32x32To64( 120000, -10000 );
-        ExReleaseSpinLock( &LpcpLock, *OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         Status = KeWaitForSingleObject( &LpcpZone.FreeEvent,
                                         Executive,
                                         KernelMode,
                                         FALSE,
                                         &WaitTimeout
                                       );
-        ExAcquireSpinLock( &LpcpLock, OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
         if (Status != STATUS_SUCCESS) {
             LpcpPrint(( "Error waiting for %lx->FreeEvent - Status == %X\n",
                         &LpcpZone,
@@ -190,7 +245,7 @@ retry:
         return( Status );
         }
 
-    Segment = ExAllocatePool( NonPagedPool, LpcpZone.GrowSize );
+    Segment = ExAllocatePoolWithTag( PagedPool, LpcpZone.GrowSize, 'ZcpL' );
     if (Segment == NULL) {
         return( STATUS_INSUFFICIENT_RESOURCES );
         }
@@ -224,20 +279,13 @@ retry:
 PLPCP_MESSAGE
 FASTCALL
 LpcpAllocateFromPortZone(
-    ULONG Size,
-    PKIRQL OldIrql OPTIONAL
+    ULONG Size
     )
 {
     NTSTATUS Status;
-    KIRQL OldIrqlTemp;
     PLPCP_MESSAGE Msg;
 
-    if (!ARGUMENT_PRESENT( OldIrql )) {
-        ExAcquireSpinLock( &LpcpLock, &OldIrqlTemp );
-        Msg = LpcpAllocateFromPortZone (Size, &OldIrqlTemp );
-        ExReleaseSpinLock( &LpcpLock, OldIrqlTemp );
-        return Msg;
-    }
+    PAGED_CODE();
 
     do {
         Msg = (PLPCP_MESSAGE)ExAllocateFromZone( &LpcpZone.Zone );
@@ -253,7 +301,7 @@ LpcpAllocateFromPortZone(
         }
 
         LpcpTrace(( "Extending Zone %lx\n", &LpcpZone.Zone ));
-        Status = LpcpExtendPortZone( OldIrql );
+        Status = LpcpExtendPortZone( );
     } while (NT_SUCCESS(Status));
 
     return NULL;
@@ -264,14 +312,15 @@ VOID
 FASTCALL
 LpcpFreeToPortZone(
     IN PLPCP_MESSAGE Msg,
-    IN BOOLEAN SpinlockOwned
+    IN BOOLEAN MutexOwned
     )
 {
     BOOLEAN ZoneMemoryAvailable;
-    KIRQL OldIrql;
 
-    if (!SpinlockOwned) {
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    PAGED_CODE();
+
+    if (!MutexOwned) {
+        ExAcquireFastMutex( &LpcpLock );
         }
 
     LpcpTrace(( "Free Msg %lx\n", Msg ));
@@ -280,8 +329,8 @@ LpcpFreeToPortZone(
         LpcpPrint(( "Msg %lx has already been freed.\n", Msg ));
         DbgBreakPoint();
 
-        if (!SpinlockOwned) {
-            ExReleaseSpinLock( &LpcpLock, OldIrql );
+        if (!MutexOwned) {
+            ExReleaseFastMutex( &LpcpLock );
             }
         return;
         }
@@ -290,6 +339,7 @@ LpcpFreeToPortZone(
 #endif
     if (!IsListEmpty( &Msg->Entry )) {
         RemoveEntryList( &Msg->Entry );
+        InitializeListHead( &Msg->Entry );
         }
 
     if (Msg->RepliedToThread != NULL) {
@@ -297,10 +347,11 @@ LpcpFreeToPortZone(
         Msg->RepliedToThread = NULL;
         }
 
-    ZoneMemoryAvailable = (BOOLEAN)(ExFreeToZone( &LpcpZone.Zone, Msg ) == NULL);
+    Msg->Reserved0 = 0;        // Mark as free
+    ZoneMemoryAvailable = (BOOLEAN)(ExFreeToZone( &LpcpZone.Zone, &Msg->FreeEntry ) == NULL);
 
-    if (!SpinlockOwned) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+    if (!MutexOwned) {
+        ExReleaseFastMutex( &LpcpLock );
         }
 
     if (ZoneMemoryAvailable) {
@@ -312,16 +363,41 @@ LpcpFreeToPortZone(
 }
 
 
-PLPCP_MESSAGE
-LpcpFindDataInfoMessage(
+VOID
+LpcpSaveDataInfoMessage(
+    IN PLPCP_PORT_OBJECT Port,
+    PLPCP_MESSAGE Msg
+    )
+{
+    PAGED_CODE();
+
+    ExAcquireFastMutex( &LpcpLock );
+    if ((Port->Flags & PORT_TYPE) > UNCONNECTED_COMMUNICATION_PORT) {
+        Port = Port->ConnectionPort;
+        }
+    LpcpTrace(( "%s Saving DataInfo Message %lx (%u.%u)  Port: %lx\n",
+                PsGetCurrentProcess()->ImageFileName,
+                Msg,
+                Msg->Request.MessageId,
+                Msg->Request.CallbackId,
+                Port
+             ));
+    InsertTailList( &Port->LpcDataInfoChainHead, &Msg->Entry );
+    ExReleaseFastMutex( &LpcpLock );
+}
+
+
+VOID
+LpcpFreeDataInfoMessage(
     IN PLPCP_PORT_OBJECT Port,
     IN ULONG MessageId,
-    IN BOOLEAN RemoveFromList
+    IN ULONG CallbackId
     )
 {
     PLPCP_MESSAGE Msg;
     PLIST_ENTRY Head, Next;
 
+    PAGED_CODE();
     if ((Port->Flags & PORT_TYPE) > UNCONNECTED_COMMUNICATION_PORT) {
         Port = Port->ConnectionPort;
         }
@@ -329,36 +405,75 @@ LpcpFindDataInfoMessage(
     Next = Head->Flink;
     while (Next != Head) {
         Msg = CONTAINING_RECORD( Next, LPCP_MESSAGE, Entry );
-        if (Msg->Request.MessageId == MessageId) {
-            if (RemoveFromList || Msg->Request.u2.s2.DataInfoOffset == 0) {
-                LpcpTrace(( "%s Removing DataInfo Message %lx (%u)  Port: %lx\n",
-                            PsGetCurrentProcess()->ImageFileName,
-                            Msg,
-                            Msg->Request.MessageId,
-                            Port
-                         ));
-                RemoveEntryList( &Msg->Entry );
-                LpcpFreeToPortZone( Msg, TRUE );
-                return NULL;
-                }
-            else {
-                LpcpTrace(( "%s Found DataInfo Message %lx (%u)  Port: %lx\n",
-                            PsGetCurrentProcess()->ImageFileName,
-                            Msg,
-                            Msg->Request.MessageId,
-                            Port
-                         ));
-                return Msg;
-                }
+        if (Msg->Request.MessageId == MessageId &&
+            Msg->Request.CallbackId == CallbackId
+           ) {
+            LpcpTrace(( "%s Removing DataInfo Message %lx (%u.%u) Port: %lx\n",
+                        PsGetCurrentProcess()->ImageFileName,
+                        Msg,
+                        Msg->Request.MessageId,
+                        Msg->Request.CallbackId,
+                        Port
+                     ));
+            RemoveEntryList( &Msg->Entry );
+            InitializeListHead( &Msg->Entry );
+            LpcpFreeToPortZone( Msg, TRUE );
+            return;
             }
         else {
             Next = Next->Flink;
             }
         }
 
-    LpcpTrace(( "%s Unable to find DataInfo Message (%u)  Port: %lx\n",
+    LpcpTrace(( "%s Unable to find DataInfo Message (%u.%u)  Port: %lx\n",
                 PsGetCurrentProcess()->ImageFileName,
                 MessageId,
+                CallbackId,
+                Port
+             ));
+    return;
+}
+
+
+PLPCP_MESSAGE
+LpcpFindDataInfoMessage(
+    IN PLPCP_PORT_OBJECT Port,
+    IN ULONG MessageId,
+    IN ULONG CallbackId
+    )
+{
+    PLPCP_MESSAGE Msg;
+    PLIST_ENTRY Head, Next;
+
+    PAGED_CODE();
+    if ((Port->Flags & PORT_TYPE) > UNCONNECTED_COMMUNICATION_PORT) {
+        Port = Port->ConnectionPort;
+        }
+    Head = &Port->LpcDataInfoChainHead;
+    Next = Head->Flink;
+    while (Next != Head) {
+        Msg = CONTAINING_RECORD( Next, LPCP_MESSAGE, Entry );
+        if (Msg->Request.MessageId == MessageId &&
+            Msg->Request.CallbackId == CallbackId
+           ) {
+            LpcpTrace(( "%s Found DataInfo Message %lx (%u.%u)  Port: %lx\n",
+                        PsGetCurrentProcess()->ImageFileName,
+                        Msg,
+                        Msg->Request.MessageId,
+                        Msg->Request.CallbackId,
+                        Port
+                     ));
+            return Msg;
+            }
+        else {
+            Next = Next->Flink;
+            }
+        }
+
+    LpcpTrace(( "%s Unable to find DataInfo Message (%u.%u)  Port: %lx\n",
+                PsGetCurrentProcess()->ImageFileName,
+                MessageId,
+                CallbackId,
                 Port
              ));
     return NULL;

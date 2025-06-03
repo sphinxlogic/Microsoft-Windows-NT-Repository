@@ -39,6 +39,13 @@ Revision History:
 #pragma alloc_text(PAGE, ScsiClassSendSrbAsynchronous)
 #endif
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'LscS')
+#endif
+
 NTSTATUS
 DriverEntry(
     IN PDRIVER_OBJECT DriverObject,
@@ -100,10 +107,10 @@ Notes:
 --*/
 
 {
-    PIRP irp;
+    PIRP            irp;
     IO_STATUS_BLOCK ioStatus;
-    KEVENT event;
-    NTSTATUS status;
+    KEVENT          event;
+    NTSTATUS        status;
 
     PAGED_CODE();
 
@@ -182,10 +189,10 @@ Notes:
 --*/
 
 {
-    PIRP irp;
-    IO_STATUS_BLOCK ioStatus;
-    KEVENT event;
-    NTSTATUS status;
+    PIRP                   irp;
+    IO_STATUS_BLOCK        ioStatus;
+    KEVENT                 event;
+    NTSTATUS               status;
     PSCSI_ADAPTER_BUS_INFO buffer;
 
     PAGED_CODE();
@@ -274,13 +281,13 @@ Return Value:
 
 --*/
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PCDB cdb;
+    PDEVICE_EXTENSION   deviceExtension = DeviceObject->DeviceExtension;
+    ULONG               retries = 1;
+    ULONG               lastSector;
+    PCDB                cdb;
     PREAD_CAPACITY_DATA readCapacityBuffer;
-    SCSI_REQUEST_BLOCK srb;
-    ULONG lastSector;
-    ULONG retries = 1;
-    NTSTATUS status;
+    SCSI_REQUEST_BLOCK  srb;
+    NTSTATUS            status;
 
     //
     // Allocate read capacity buffer from nonpaged pool.
@@ -369,19 +376,16 @@ Retry:
         // Calculate media capacity in bytes.
         //
 
-        deviceExtension->PartitionLength =
-            LiFromLong(lastSector + 1);
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG)(lastSector + 1);
 
         //
         // Calculate number of cylinders.
         //
 
-        deviceExtension->DiskGeometry->Cylinders =
-            LiFromLong((lastSector + 1)/(32 * 64));
+        deviceExtension->DiskGeometry->Cylinders.QuadPart = (LONGLONG)((lastSector + 1)/(32 * 64));
 
-        deviceExtension->PartitionLength =
-            LiShl(deviceExtension->PartitionLength,
-                  deviceExtension->SectorShift);
+        deviceExtension->PartitionLength.QuadPart =
+            (deviceExtension->PartitionLength.QuadPart << deviceExtension->SectorShift);
 
         if (DeviceObject->Characteristics & FILE_REMOVABLE_MEDIA) {
 
@@ -441,12 +445,9 @@ Retry:
         //
 
         RtlZeroMemory(deviceExtension->DiskGeometry, sizeof(DISK_GEOMETRY));
-
         deviceExtension->DiskGeometry->BytesPerSector = 512;
-
         deviceExtension->SectorShift = 9;
-
-        deviceExtension->PartitionLength = LiFromUlong(0);
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG) 0;
 
         if (DeviceObject->Characteristics & FILE_REMOVABLE_MEDIA) {
 
@@ -695,7 +696,6 @@ Return Value:
     //
 
     irp = IoAllocateIrp(DeviceObject->StackSize, FALSE);
-
     IoSetCompletionRoutine(irp,
                            (PIO_COMPLETION_ROUTINE)ScsiClassAsynchronousCompletion,
                            context,
@@ -704,9 +704,7 @@ Return Value:
                            TRUE);
 
     irpStack = IoGetNextIrpStackLocation(irp);
-
     irpStack->MajorFunction = IRP_MJ_SCSI;
-
     srb->OriginalRequest = irp;
 
     //
@@ -839,16 +837,16 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+    PDEVICE_EXTENSION  deviceExtension = DeviceObject->DeviceExtension;
     PIO_STACK_LOCATION currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
     PIO_STACK_LOCATION nextIrpStack = IoGetNextIrpStackLocation(Irp);
-    ULONG transferByteCount = currentIrpStack->Parameters.Read.Length;
-    LARGE_INTEGER startingOffset = currentIrpStack->Parameters.Read.ByteOffset;
-    PVOID dataBuffer = MmGetMdlVirtualAddress(Irp->MdlAddress);
-    ULONG dataLength = MaximumBytes;
-    ULONG irpCount = (transferByteCount + MaximumBytes - 1) / MaximumBytes;
+    ULONG              transferByteCount = currentIrpStack->Parameters.Read.Length;
+    LARGE_INTEGER      startingOffset = currentIrpStack->Parameters.Read.ByteOffset;
+    PVOID              dataBuffer = MmGetMdlVirtualAddress(Irp->MdlAddress);
+    ULONG              dataLength = MaximumBytes;
+    ULONG              irpCount = (transferByteCount + MaximumBytes - 1) / MaximumBytes;
+    ULONG              i;
     PSCSI_REQUEST_BLOCK srb;
-    ULONG i;
 
     DebugPrint((2, "ScsiClassSplitRequest: Requires %d IRPs\n", irpCount));
     DebugPrint((2, "ScsiClassSplitRequest: Original IRP %lx\n", Irp));
@@ -989,7 +987,7 @@ Return Value:
         // Adjust disk byte offset.
         //
 
-        startingOffset = LiAdd(startingOffset, LiFromUlong(MaximumBytes));
+        startingOffset.QuadPart = startingOffset.QuadPart + MaximumBytes;
     }
 
     return;
@@ -1070,7 +1068,6 @@ Return Value:
 
             status = STATUS_IO_DEVICE_ERROR;
             retry = TRUE;
-
         }
 
         if (retry && ((ULONG)irpStack->Parameters.Others.Argument4)--) {
@@ -1080,14 +1077,9 @@ Return Value:
             //
 
             DebugPrint((1, "Retry request %lx\n", Irp));
-
             RetryRequest(DeviceObject, Irp, srb, FALSE);
-
             return STATUS_MORE_PROCESSING_REQUIRED;
         }
-
-
-
     } else {
 
         //
@@ -1104,14 +1096,12 @@ Return Value:
 
     if (srb->SrbFlags & SRB_FLAGS_ALLOCATED_FROM_ZONE) {
 
-        ExInterlockedFreeToZone( deviceExtension->SrbZone,
-                                 srb,
-                                 deviceExtension->SrbZoneSpinLock);
-
+        ExInterlockedFreeToZone(deviceExtension->SrbZone,
+                                srb,
+                                deviceExtension->SrbZoneSpinLock);
     } else {
 
         ExFreePool(srb);
-
     }
 
     //
@@ -1119,6 +1109,9 @@ Return Value:
     //
 
     Irp->IoStatus.Status = status;
+    if ((NT_SUCCESS(status)) && (Irp->Flags & IRP_PAGING_IO)) {
+        ASSERT(Irp->IoStatus.Information);
+    }
 
     //
     // Set the hard error if necessary.
@@ -1133,7 +1126,6 @@ Return Value:
 
         IoSetHardErrorOrVerifyDevice(Irp, DeviceObject);
         Irp->IoStatus.Information = 0;
-
     }
 
     //
@@ -1186,13 +1178,13 @@ Return Value:
 --*/
 
 {
-    PIO_STACK_LOCATION irpStack = IoGetCurrentIrpStackLocation(Irp);
+    PIO_STACK_LOCATION  irpStack = IoGetCurrentIrpStackLocation(Irp);
     PSCSI_REQUEST_BLOCK srb = Context;
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    INTERLOCKED_RESULT irpCount;
-    PIRP originalIrp = Irp->AssociatedIrp.MasterIrp;
-    NTSTATUS status;
-    BOOLEAN retry;
+    PDEVICE_EXTENSION   deviceExtension = DeviceObject->DeviceExtension;
+    PIRP                originalIrp = Irp->AssociatedIrp.MasterIrp;
+    LONG                irpCount;
+    NTSTATUS            status;
+    BOOLEAN             retry;
 
     //
     // Check SRB status for success of completing request.
@@ -1228,7 +1220,6 @@ Return Value:
 
             status = STATUS_IO_DEVICE_ERROR;
             retry = TRUE;
-
         }
 
         if (retry && ((ULONG)irpStack->Parameters.Others.Argument4)--) {
@@ -1262,16 +1253,13 @@ Return Value:
 
     if (srb->SrbFlags & SRB_FLAGS_ALLOCATED_FROM_ZONE) {
 
-        ExInterlockedFreeToZone( deviceExtension->SrbZone,
-                                 srb,
-                                 deviceExtension->SrbZoneSpinLock);
-
+        ExInterlockedFreeToZone(deviceExtension->SrbZone,
+                                srb,
+                                deviceExtension->SrbZoneSpinLock);
     } else {
 
         ExFreePool(srb);
-
     }
-
 
     //
     // Set status in completing IRP.
@@ -1302,7 +1290,6 @@ Return Value:
         originalIrp->IoStatus.Status = status;
         originalIrp->IoStatus.Information = 0;
 
-
         //
         // Set the hard error if necessary.
         //
@@ -1314,23 +1301,19 @@ Return Value:
             //
 
             IoSetHardErrorOrVerifyDevice(originalIrp, DeviceObject);
-
         }
-
     }
 
     //
     // Decrement and get the count of remaining IRPs.
     //
 
-    irpCount = ExInterlockedDecrementLong(
-            (PLONG)&irpStack->Parameters.Others.Argument1,
-            &deviceExtension->SplitRequestSpinLock);
+    irpCount = InterlockedDecrement((PLONG)&irpStack->Parameters.Others.Argument1);
 
     DebugPrint((2, "ScsiClassIoCompleteAssociated: Partial IRPs left %d\n",
                 irpCount));
 
-    if (irpCount == ResultZero) {
+    if (irpCount == 0) {
 
         //
         // All partial IRPs have completed.
@@ -1349,7 +1332,6 @@ Return Value:
     //
 
     IoFreeIrp(Irp);
-
     return STATUS_MORE_PROCESSING_REQUIRED;
 
 } // end ScsiClassIoCompleteAssociated()
@@ -1419,7 +1401,6 @@ Return Value:
     Srb->PathId = deviceExtension->PathId;
     Srb->TargetId = deviceExtension->TargetId;
     Srb->Lun = deviceExtension->Lun;
-
     Srb->Function = SRB_FUNCTION_EXECUTE_SCSI;
 
     //
@@ -1451,7 +1432,6 @@ Return Value:
     }
 
     Srb->SenseInfoBuffer = senseInfoBuffer;
-
     Srb->DataBuffer = BufferAddress;
 
     //
@@ -1496,15 +1476,15 @@ retry:
     // Build device I/O control request with data transfer.
     //
 
-    irp = IoBuildDeviceIoControlRequest( controlType,
-                                         deviceExtension->PortDeviceObject,
-                                         NULL,
-                                         0,
-                                         BufferAddress,
-                                         BufferLength,
-                                         TRUE,
-                                         &event,
-                                         &ioStatus);
+    irp = IoBuildDeviceIoControlRequest(controlType,
+                                        deviceExtension->PortDeviceObject,
+                                        NULL,
+                                        0,
+                                        BufferAddress,
+                                        BufferLength,
+                                        TRUE,
+                                        &event,
+                                        &ioStatus);
 
     if (irp == NULL) {
         ExFreePool(senseInfoBuffer);
@@ -1529,7 +1509,6 @@ retry:
     //
 
     Srb->ScsiStatus = Srb->SrbStatus = 0;
-
     Srb->NextSrb = 0;
 
     //
@@ -1598,7 +1577,7 @@ retry:
                 // Delay for 2 seconds.
                 //
 
-                delay = LiFromLong( - 10 * 1000 * 1000 * 2 );
+                delay.QuadPart = (LONGLONG)( - 10 * 1000 * 1000 * 2 );
 
                 //
                 // Stall for a while to let the controller spinup.
@@ -1669,15 +1648,15 @@ Return Value:
 
 {
     PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PSENSE_DATA senseBuffer = Srb->SenseInfoBuffer;
-    BOOLEAN retry;
-    BOOLEAN logError;
-    ULONG uniqueId;
-    NTSTATUS logStatus;
+    PSENSE_DATA       senseBuffer = Srb->SenseInfoBuffer;
+    BOOLEAN           retry;
+    BOOLEAN           logError;
+    ULONG             uniqueId;
+    NTSTATUS          logStatus;
+    ULONG             badSector;
+    ULONG             readSector;
+    ULONG             index;
     PIO_ERROR_LOG_PACKET errorLogEntry;
-    ULONG badSector;
-    ULONG readSector;
-    ULONG index;
 
     logError = FALSE;
     retry = TRUE;
@@ -1945,7 +1924,7 @@ Return Value:
 
             case SCSI_ADSENSE_REC_DATA_NOECC:
             case SCSI_ADSENSE_REC_DATA_ECC:
-                logStatus = STATUS_DEVICE_DATA_ERROR;
+                logStatus = IO_RECOVERED_VIA_ECC;
                 break;
 
             default:
@@ -2050,7 +2029,6 @@ Return Value:
             //
 
             deviceExtension->ErrorCount++;
-
             *Status = STATUS_IO_TIMEOUT;
             break;
 
@@ -2240,8 +2218,7 @@ Return Value:
 
         if (deviceExtension->DiskGeometry != NULL) {
 
-            errorLogEntry->DeviceOffset = LiFromLong(
-                                            badSector);
+            errorLogEntry->DeviceOffset.QuadPart = (LONGLONG) badSector;
             errorLogEntry->DeviceOffset = RtlExtendedIntegerMultiply(
                                errorLogEntry->DeviceOffset,
                                deviceExtension->DiskGeometry->BytesPerSector);
@@ -2390,9 +2367,7 @@ Return Value:
     } else {
 
         IoSetCompletionRoutine(Irp, ScsiClassIoComplete, Srb, TRUE, TRUE, TRUE);
-
     }
-
 
     //
     // Pass the request to the port driver.
@@ -2438,22 +2413,20 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PIO_STACK_LOCATION currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
-    PIO_STACK_LOCATION nextIrpStack = IoGetNextIrpStackLocation(Irp);
+    PDEVICE_EXTENSION   deviceExtension = DeviceObject->DeviceExtension;
+    PIO_STACK_LOCATION  currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
+    PIO_STACK_LOCATION  nextIrpStack = IoGetNextIrpStackLocation(Irp);
+    LARGE_INTEGER       startingOffset = currentIrpStack->Parameters.Read.ByteOffset;
     PSCSI_REQUEST_BLOCK srb;
-    PCDB cdb;
-    ULONG logicalBlockAddress;
-    LARGE_INTEGER startingOffset =
-        currentIrpStack->Parameters.Read.ByteOffset;
-    USHORT transferBlocks;
+    PCDB                cdb;
+    ULONG               logicalBlockAddress;
+    USHORT              transferBlocks;
 
     //
     // Calculate relative sector address.
     //
 
-    logicalBlockAddress =  LiShr(startingOffset,
-                                 deviceExtension->SectorShift).LowPart;
+    logicalBlockAddress =  (ULONG)(Int64ShrlMod32(startingOffset.QuadPart, deviceExtension->SectorShift));
 
     //
     // Allocate an Srb.
@@ -2474,9 +2447,7 @@ Return Value:
         //
 
         srb = ExAllocatePool(NonPagedPoolMustSucceed, SCSI_REQUEST_BLOCK_SIZE);
-
         srb->SrbFlags = 0;
-
     }
 
     //
@@ -2498,9 +2469,7 @@ Return Value:
     srb->PathId = deviceExtension->PathId;
     srb->TargetId = deviceExtension->TargetId;
     srb->Lun = deviceExtension->Lun;
-
     srb->Function = SRB_FUNCTION_EXECUTE_SCSI;
-
     srb->DataBuffer = MmGetMdlVirtualAddress(Irp->MdlAddress);
 
     //
@@ -2561,7 +2530,6 @@ Return Value:
     RtlZeroMemory(cdb, MAXIMUM_CDB_SIZE);
 
     cdb->CDB10.LogicalUnitNumber = deviceExtension->Lun;
-
     transferBlocks = (USHORT)(currentIrpStack->Parameters.Read.Length >> deviceExtension->SectorShift);
 
     //
@@ -2741,131 +2709,8 @@ Retry:
     }
 
 } // end ScsiClassModeSense()
-
-BOOLEAN
-ScsiClassModeSelect(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PCHAR ModeSelectBuffer,
-    IN ULONG Length,
-    IN BOOLEAN SavePage
-    )
-
-/*++
-
-Routine Description:
-
-    This routine sends a mode select command to a target ID and returns
-    when it is complete.
-
-Arguments:
-
-    DeviceObject - Supplies the device object associated with this request.
-
-    ModeSelectBuffer - Supplies a buffer containing the page data.
-
-    Length - Supplies the length in bytes of the mode select buffer.
-
-    SavePage - Indicates that parameters should be written to disk.
-
-Return Value:
-
-    Length of the transferred data is returned.
-
---*/
-{
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PCDB cdb;
-    SCSI_REQUEST_BLOCK srb;
-    ULONG retries = 1;
-    NTSTATUS status;
-    PULONG buffer;
-
-    //
-    // Allocate buffer for mode select header and page.
-    //
-
-    buffer = ExAllocatePool(NonPagedPoolCacheAligned,
-                            Length + sizeof(MODE_PARAMETER_HEADER));
-
-    //
-    // Zero mode parameter header (4 bytes).
-    //
-
-    *buffer = 0;
-
-    //
-    // Set length in header to size of mode page.
-    //
-
-    ((PMODE_PARAMETER_HEADER)buffer)->ModeDataLength = (UCHAR)Length;
-
-    //
-    // Copy mode page to buffer.
-    //
-
-    RtlCopyMemory(buffer + 1, ModeSelectBuffer, Length);
-
-    //
-    // Zero SRB.
-    //
-
-    RtlZeroMemory(&srb, sizeof(SCSI_REQUEST_BLOCK));
-
-    //
-    // Build the MODE SELECT CDB.
-    //
-
-    srb.CdbLength = 6;
-    cdb = (PCDB)srb.Cdb;
-
-    //
-    // Set timeout value from device extension.
-    //
-
-    srb.TimeOutValue = deviceExtension->TimeOutValue * 2;
-
-    cdb->MODE_SELECT.OperationCode = SCSIOP_MODE_SELECT;
-    cdb->MODE_SELECT.SPBit = SavePage;
-    cdb->MODE_SELECT.ParameterListLength = (UCHAR)(Length + 4);
-
-Retry:
-
-    status = ScsiClassSendSrbSynchronous(DeviceObject,
-                                         &srb,
-                                         buffer,
-                                         Length,
-                                         FALSE);
 
 
-    if (status == STATUS_VERIFY_REQUIRED) {
-
-        //
-        // Routine ScsiClassSendSrbSynchronous does not retry requests returned with
-        // this status. MODE SENSE commands should be retried anyway.
-        //
-
-        if (retries--) {
-
-            //
-            // Retry request.
-            //
-
-            goto Retry;
-        }
-
-    } else if (SRB_STATUS(srb.SrbStatus) == SRB_STATUS_DATA_OVERRUN) {
-        status = STATUS_SUCCESS;
-    }
-
-    ExFreePool(buffer);
-
-    if (NT_SUCCESS(status)) {
-        return(TRUE);
-    } else {
-        return(FALSE);
-    }
-
-} // end ScsiClassModeSelect()
 
 PVOID
 ScsiClassFindModePage(
@@ -3003,9 +2848,7 @@ Return Value:
     //
 
     Srb->SenseInfoBuffer = deviceExtension->SenseData;
-
     Srb->SenseInfoBufferLength = SENSE_BUFFER_SIZE;
-
     Srb->DataBuffer = BufferAddress;
 
     if (BufferAddress != NULL) {
@@ -3175,7 +3018,6 @@ Return Value:
             Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
             IoCompleteRequest(Irp, IO_NO_INCREMENT);
             return(STATUS_INVALID_PARAMETER);
-
         }
 
         //
@@ -3230,7 +3072,6 @@ Return Value:
         Irp->IoStatus.Status = STATUS_SUCCESS;
         IoCompleteRequest(Irp, IO_NO_INCREMENT);
         return(STATUS_SUCCESS);
-
     }
 
     srb = ExAllocatePool(NonPagedPool, SCSI_REQUEST_BLOCK_SIZE);
@@ -3268,7 +3109,6 @@ Return Value:
         DebugPrint((3,"ScsiDeviceIoControl: Check verify\n"));
 
         srb->CdbLength = 6;
-
         cdb->CDB6GENERIC.OperationCode = SCSIOP_TEST_UNIT_READY;
 
         //
@@ -3276,22 +3116,17 @@ Return Value:
         //
 
         srb->TimeOutValue = deviceExtension->TimeOutValue;
-
         status = ScsiClassSendSrbAsynchronous(DeviceObject,
                                               srb,
                                               Irp,
                                               NULL,
                                               0,
                                               FALSE);
-
         return(status);
 
     case IOCTL_DISK_MEDIA_REMOVAL:
-
     {
-
-        PPREVENT_MEDIA_REMOVAL MediaRemoval =
-            Irp->AssociatedIrp.SystemBuffer;
+        PPREVENT_MEDIA_REMOVAL MediaRemoval = Irp->AssociatedIrp.SystemBuffer;
 
         //
         // Prevent/Allow media removal.
@@ -3331,8 +3166,7 @@ Return Value:
             // was reset and lock cleared.
             //
 
-            ExInterlockedIncrementLong(&deviceExtension->LockCount,
-                                       &deviceExtension->IrpCountSpinLock);
+            InterlockedIncrement(&deviceExtension->LockCount);
 
             DebugPrint((1,
                        "ScsiClassDeviceControl: Lock media, lock count %x on disk %x\n",
@@ -3346,8 +3180,7 @@ Return Value:
             //
 
             if (!deviceExtension->LockCount ||
-                ExInterlockedDecrementLong(&deviceExtension->LockCount,
-                                           &deviceExtension->IrpCountSpinLock) != ResultZero) {
+                (InterlockedDecrement(&deviceExtension->LockCount) != 0)) {
 
                 DebugPrint((1,
                            "ScsiClassDeviceControl: Unlock media, lock count %x on disk %x\n",
@@ -3386,7 +3219,6 @@ Return Value:
         //
 
         srb->TimeOutValue = deviceExtension->TimeOutValue;
-
         status = ScsiClassSendSrbAsynchronous(DeviceObject,
                                               srb,
                                               Irp,
@@ -3463,7 +3295,6 @@ Return Value:
         srb->CdbLength = 6;
 
         cdb->START_STOP.OperationCode = SCSIOP_START_STOP_UNIT;
-
         cdb->START_STOP.LoadEject = 1;
         cdb->START_STOP.Start     = 0;
 
@@ -3472,14 +3303,12 @@ Return Value:
         //
 
         srb->TimeOutValue = deviceExtension->TimeOutValue;
-
         status = ScsiClassSendSrbAsynchronous(DeviceObject,
                                               srb,
                                               Irp,
                                               NULL,
                                               0,
                                               FALSE);
-
         return(status);
         break;
 
@@ -3494,7 +3323,6 @@ Return Value:
         srb->CdbLength = 6;
 
         cdb->START_STOP.OperationCode = SCSIOP_START_STOP_UNIT;
-
         cdb->START_STOP.LoadEject = 1;
         cdb->START_STOP.Start     = 1;
 
@@ -3503,14 +3331,12 @@ Return Value:
         //
 
         srb->TimeOutValue = deviceExtension->TimeOutValue;
-
         status = ScsiClassSendSrbAsynchronous(DeviceObject,
                                                srb,
                                                Irp,
                                                NULL,
                                                0,
                                                FALSE);
-
         return(status);
 
     case IOCTL_DISK_FIND_NEW_DEVICES:
@@ -3544,7 +3370,6 @@ Return Value:
         //
 
         nextStack = IoGetNextIrpStackLocation(Irp);
-
         nextStack->Parameters = irpStack->Parameters;
         nextStack->MajorFunction = irpStack->MajorFunction;
         nextStack->MinorFunction = irpStack->MinorFunction;
@@ -3588,11 +3413,11 @@ Return Value:
 --*/
 
 {
-    IO_STATUS_BLOCK ioStatus;
-    PIRP irp;
+    IO_STATUS_BLOCK    ioStatus;
+    PIRP               irp;
     PIO_STACK_LOCATION irpStack;
-    KEVENT event;
-    NTSTATUS status;
+    KEVENT             event;
+    NTSTATUS           status;
     SCSI_REQUEST_BLOCK srb;
 
     PAGED_CODE();
@@ -3635,20 +3460,20 @@ Return Value:
     // Build synchronous request with no transfer.
     //
 
-    irp = IoBuildDeviceIoControlRequest( IOCTL_SCSI_EXECUTE_NONE,
-                                         PortDeviceObject,
-                                         NULL,
-                                         0,
-                                         NULL,
-                                         0,
-                                         TRUE,
-                                         &event,
-                                         &ioStatus);
+    irp = IoBuildDeviceIoControlRequest(IOCTL_SCSI_EXECUTE_NONE,
+                                        PortDeviceObject,
+                                        NULL,
+                                        0,
+                                        NULL,
+                                        0,
+                                        TRUE,
+                                        &event,
+                                        &ioStatus);
 
     if (irp == NULL) {
 
         DebugPrint((1, "ScsiClassClaimDevice: Can't allocate Irp\n"));
-        return(STATUS_INSUFFICIENT_RESOURCES);
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     irpStack = IoGetNextIrpStackLocation(irp);
@@ -3684,11 +3509,11 @@ Return Value:
     if (Release) {
 
         ObDereferenceObject(PortDeviceObject);
-        return(STATUS_SUCCESS);
+        return STATUS_SUCCESS;
     }
 
     if (!NT_SUCCESS(status)) {
-        return(status);
+        return status;
     }
 
     ASSERT(srb.DataBuffer != NULL);
@@ -3698,16 +3523,7 @@ Return Value:
     // it is being used.
     //
 
-    status = ObReferenceObjectByPointer(srb.DataBuffer,
-                                        0,
-                                        NULL,
-                                        KernelMode );
-
-    if (!NT_SUCCESS(status)) {
-
-        return(status);
-
-    }
+    ObReferenceObject(srb.DataBuffer);
 
     //
     // Return the new port device object pointer.
@@ -3718,111 +3534,7 @@ Return Value:
     }
 
     return status;
-
 }
-
-
-NTSTATUS
-ScsiClassRemoveDevice(
-    IN PDEVICE_OBJECT PortDeviceObject,
-    IN UCHAR PathId,
-    IN UCHAR TargetId,
-    IN UCHAR Lun
-    )
-
-/*++
-
-Routine Description:
-
-    This routine issues a request to the SCSI port driver to remove
-    a SCSI device.
-
-Arguments:
-
-    PortDeviceObject - Port driver device object representing the HBA.
-    PathId, TargetId, Lun - SCSI bus address of device to remove.
-
-Return Value:
-
-    Nt status indicating the results of the operation.
-
---*/
-
-{
-    PIRP irp;
-    SCSI_REQUEST_BLOCK srb;
-    IO_STATUS_BLOCK ioStatus;
-    KEVENT event;
-    NTSTATUS status;
-
-    PAGED_CODE();
-
-    //
-    // Create notification event object to be used to signal the inquiry
-    // request completion.
-    //
-
-    KeInitializeEvent(&event, NotificationEvent, FALSE);
-
-    //
-    // Zero out SRB.
-    //
-
-    RtlZeroMemory(&srb, sizeof(SCSI_REQUEST_BLOCK));
-
-    //
-    // Set SRB function and length.
-    //
-
-    srb.Function = SRB_FUNCTION_REMOVE_DEVICE;
-    srb.Length = sizeof(SCSI_REQUEST_BLOCK);
-
-    //
-    // Set SCSI bus address of device to remove.
-    //
-
-    srb.PathId = PathId;
-    srb.TargetId = TargetId;
-    srb.Lun = Lun;
-
-    //
-    // Build the synchronous request to be sent to the port driver.
-    //
-
-    irp = IoBuildDeviceIoControlRequest(IOCTL_SCSI_EXECUTE_NONE,
-                                        PortDeviceObject,
-                                        NULL,
-                                        0,
-                                        NULL,
-                                        0,
-                                        TRUE,
-                                        &event,
-                                        &ioStatus);
-
-    if (irp == NULL) {
-        return(STATUS_INSUFFICIENT_RESOURCES);
-    }
-
-    //
-    // Set IRP pointer in SRB.
-    //
-
-    srb.OriginalRequest = irp;
-
-    //
-    // Pass request to port driver and wait for request to complete.
-    //
-
-    status = IoCallDriver(PortDeviceObject, irp);
-
-    if (status == STATUS_PENDING) {
-        KeWaitForSingleObject(&event, Suspended, KernelMode, FALSE, NULL);
-        status = ioStatus.Status;
-    }
-
-    return status;
-
-} // end ScsiClassRemoveDevice()
 
 
 NTSTATUS
@@ -3894,8 +3606,7 @@ Return Value:
     irpStack->MinorFunction = IRP_MN_SCSI_CLASS;
 
     IoSetCompletionRoutine(Irp, ClassIoCompletion, NULL, TRUE, TRUE, TRUE);
-
-    return(IoCallDriver(deviceExtension->PortDeviceObject, Irp));
+    return IoCallDriver(deviceExtension->PortDeviceObject, Irp);
 }
 
 NTSTATUS
@@ -3931,7 +3642,6 @@ Return Value:
     UNREFERENCED_PARAMETER(Context);
     UNREFERENCED_PARAMETER(DeviceObject);
 
-
     //
     // If pending is returned for this Irp then mark current stack
     // as pending
@@ -3940,9 +3650,7 @@ Return Value:
     if (Irp->PendingReturned) {
 
         IoMarkIrpPending( Irp );
-
     }
 
     return Irp->IoStatus.Status;
-
 }

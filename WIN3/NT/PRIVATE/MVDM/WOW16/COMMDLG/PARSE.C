@@ -367,4 +367,3 @@ FAILURE:
   return(MAKELONG(nFileOffset, nExtOffset));
 }
 
-

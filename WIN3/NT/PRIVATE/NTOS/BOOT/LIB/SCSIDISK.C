@@ -243,12 +243,10 @@ Return Value:
 
     Context = &BlFileTable[FileId].u.PartitionContext;
 
-    Finfo->StartingAddress = RtlConvertLongToLargeInteger (Context->StartingSector);
-    Finfo->StartingAddress = RtlLargeIntegerShiftLeft(Finfo->StartingAddress,
-                                                      Context->SectorShift);
+    Finfo->StartingAddress.QuadPart = Context->StartingSector;
+    Finfo->StartingAddress.QuadPart <<= Context->SectorShift;
 
-    Finfo->EndingAddress = RtlLargeIntegerAdd(Finfo->StartingAddress,
-                                              Context->PartitionLength);
+    Finfo->EndingAddress.QuadPart = Finfo->StartingAddress.QuadPart + Context->PartitionLength.QuadPart;
 
     Finfo->Type = DiskPeripheral;
 
@@ -383,7 +381,7 @@ Return Value:
         return ENODEV;
     }
 
-    Context->DiskId = Id;
+    Context->DiskId = (UCHAR)Id;
 
     if (!FwGetPathMnemonicKey(OpenPath, "cdrom", &Id)) {
         IsCdRom = TRUE;
@@ -393,9 +391,9 @@ Return Value:
         return ENODEV;
     }
 
-    Context->PathId = Id / SCSI_MAXIMUM_TARGETS_PER_BUS;
+    Context->PathId = (UCHAR)(Id / SCSI_MAXIMUM_TARGETS_PER_BUS);
 
-    Context->TargetId = Id % SCSI_MAXIMUM_TARGETS_PER_BUS;
+    Context->TargetId = (UCHAR)(Id % SCSI_MAXIMUM_TARGETS_PER_BUS);
 
     //
     // Initialize any bad devices.
@@ -427,7 +425,7 @@ Return Value:
     }
 
     if (Partition != 0) {
-        if (ScsiDiskBootPartitionOpen(*FileId,0,Partition) != STATUS_SUCCESS) {
+        if (ScsiDiskBootPartitionOpen(*FileId,0,(UCHAR)Partition) != STATUS_SUCCESS) {
             return ENODEV;
         }
     }
@@ -557,8 +555,7 @@ Return Value:
     while (Offset != 0 || (ULONG) Buffer & alignmentMask) {
 
         Position = BlFileTable[FileId].Position;
-        BlFileTable[FileId].Position = RtlLargeIntegerSubtract(Position,
-                                           RtlConvertLongToLargeInteger(Offset));
+        BlFileTable[FileId].Position.QuadPart = Position.QuadPart - Offset;
 
         ArcStatus = ScsiDiskRead(FileId, TempPointer, SectorSize, &TransferCount);
         if (ArcStatus != ESUCCESS) {
@@ -588,8 +585,7 @@ Return Value:
         *Count += Limit - Offset;
         Length -= Limit - Offset;
         Buffer = (PVOID)((PCHAR)Buffer + Limit - Offset);
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd( Position,
-                                       RtlConvertLongToLargeInteger(Limit - Offset));
+        BlFileTable[FileId].Position.QuadPart = Position.QuadPart + (Limit - Offset);
 
         Offset = BlFileTable[FileId].Position.LowPart & (SectorSize - 1);
 
@@ -639,8 +635,8 @@ Return Value:
         //
 
         KeFlushIoBuffers(MdlAddress, TRUE, TRUE);
-        LogicalBlock = RtlLargeIntegerShiftRight(BlFileTable[FileId].Position,
-                                                 BlFileTable[FileId].u.PartitionContext.SectorShift);
+        LogicalBlock.QuadPart = BlFileTable[FileId].Position.QuadPart >>
+                                    BlFileTable[FileId].u.PartitionContext.SectorShift;
         LogicalBlock.LowPart += BlFileTable[FileId].u.PartitionContext.StartingSector;
         NtStatus = ScsiDiskBootIO(MdlAddress,
             LogicalBlock.LowPart,
@@ -655,8 +651,7 @@ Return Value:
         Length -= Limit;
         Buffer = (PVOID)((PCHAR)Buffer + Limit);
         BytesToTransfer -= Limit;
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd(BlFileTable[FileId].Position,
-                                                          RtlConvertLongToLargeInteger(Limit));
+        BlFileTable[FileId].Position.QuadPart = BlFileTable[FileId].Position.QuadPart + Limit;
     }
 
     //
@@ -682,8 +677,7 @@ Return Value:
         //
 
         *Count += Length;
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd(Position,
-                                                          RtlConvertLongToLargeInteger(Length));
+        BlFileTable[FileId].Position.QuadPart = Position.QuadPart + Length;
     }
 
     return ESUCCESS;
@@ -750,8 +744,7 @@ Return Value:
         BlFileTable[FileId].Position = *Offset;
 
     } else if (SeekMode == SeekRelative) {
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd(BlFileTable[FileId].Position,
-                                                          *Offset);
+        BlFileTable[FileId].Position.QuadPart = BlFileTable[FileId].Position.QuadPart + Offset->QuadPart;
     }
 
     return ESUCCESS;
@@ -877,8 +870,7 @@ Return Value:
     while (Offset != 0 || (ULONG) Buffer & alignmentMask) {
 
         Position = BlFileTable[FileId].Position;
-        BlFileTable[FileId].Position = RtlLargeIntegerSubtract(Position,
-                                           RtlConvertLongToLargeInteger(Offset));
+        BlFileTable[FileId].Position.QuadPart = Position.QuadPart - Offset;
         WritePosition = BlFileTable[FileId].Position;
         ArcStatus = ScsiDiskRead(FileId, TempPointer, SectorSize, &TransferCount);
         if (ArcStatus != ESUCCESS) {
@@ -928,8 +920,7 @@ Return Value:
         *Count += Limit - Offset;
         Length -= Limit - Offset;
         Buffer = (PVOID)((PCHAR)Buffer + Limit - Offset);
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd(Position,
-                                           RtlConvertLongToLargeInteger(Limit - Offset));
+        BlFileTable[FileId].Position.QuadPart = Position.QuadPart + (Limit - Offset);
 
         Offset = BlFileTable[FileId].Position.LowPart & (SectorSize - 1);
 
@@ -977,8 +968,8 @@ Return Value:
         //
 
         KeFlushIoBuffers(MdlAddress, FALSE, TRUE);
-        LogicalBlock = RtlLargeIntegerShiftRight(BlFileTable[FileId].Position,
-                                                 BlFileTable[FileId].u.PartitionContext.SectorShift);
+        LogicalBlock.QuadPart = BlFileTable[FileId].Position.QuadPart >>
+                                    BlFileTable[FileId].u.PartitionContext.SectorShift;
         LogicalBlock.LowPart += BlFileTable[FileId].u.PartitionContext.StartingSector;
         NtStatus = ScsiDiskBootIO(MdlAddress,
             LogicalBlock.LowPart,
@@ -993,8 +984,7 @@ Return Value:
         Length -= Limit;
         Buffer = (PVOID)((PCHAR)Buffer + Limit);
         BytesToTransfer -= Limit;
-        BlFileTable[FileId].Position = RtlLargeIntegerAdd(BlFileTable[FileId].Position,
-                                                          RtlConvertLongToLargeInteger(Limit));
+        BlFileTable[FileId].Position.QuadPart = BlFileTable[FileId].Position.QuadPart + Limit;
     }
 
     //
@@ -1175,7 +1165,7 @@ Return Value:
                 // Count first the partitions in the MBR. The units
                 // inside the extended partition are counted later.
                 //
-                if ((Partition->PartitionType != PARTITION_EXTENDED) &&
+                if (!IsContainerPartition(Partition->PartitionType) &&
                     (Partition->PartitionType != PARTITION_ENTRY_UNUSED)) {
                     PartitionCount++;   // another partition found.
                 }
@@ -1194,9 +1184,8 @@ Return Value:
                                       (ULONG)(Partition->PartitionLengthMsb0 << 16) |
                                       (ULONG)(Partition->PartitionLengthMsb1 << 24);
 
-                    Context->PartitionLength = RtlConvertLongToLargeInteger (PartitionLength);
-                    Context->PartitionLength = RtlLargeIntegerShiftLeft(Context->PartitionLength,
-                                                                    Context->SectorShift);
+                    Context->PartitionLength.QuadPart = PartitionLength;
+                    Context->PartitionLength.QuadPart <<= Context->SectorShift;
                     Context->StartingSector = PartitionOffset + StartingSector;
                     Context->EndingSector = Context->StartingSector + PartitionLength;
                     return Status;
@@ -1212,7 +1201,7 @@ Return Value:
             for (PartitionIndex=0;
                 PartitionIndex < NUM_PARTITION_TABLE_ENTRIES;
                 PartitionIndex++,Partition++) {
-                if (Partition->PartitionType == PARTITION_EXTENDED) {
+                if (IsContainerPartition(Partition->PartitionType)) {
                     StartingSector = (ULONG)(Partition->StartingSectorLsb0) |
                                      (ULONG)(Partition->StartingSectorLsb1 << 8) |
                                      (ULONG)(Partition->StartingSectorMsb0 << 16) |
@@ -1905,12 +1894,9 @@ Retry:
         // Calculate media capacity in bytes.
         //
 
-        deviceExtension->PartitionLength =
-            RtlConvertLongToLargeInteger(LastSector + 1);
+        deviceExtension->PartitionLength = LastSector + 1;
 
-        deviceExtension->PartitionLength =
-            RtlLargeIntegerShiftLeft(deviceExtension->PartitionLength,
-            deviceExtension->SectorShift);
+        deviceExtension->PartitionLength.QuadPart <<= deviceExtension->SectorShift.QuadPart;
 
         //
         // Assume media type is fixed disk.
@@ -1977,9 +1963,8 @@ Retry:
             ((PFOUR_BYTE)&ReadCapacityBuffer->LogicalBlockAddress)->Byte0;
 
 
-        PartitionContext->PartitionLength = RtlConvertLongToLargeInteger(LastSector + 1);
-        PartitionContext->PartitionLength = RtlLargeIntegerShiftLeft(PartitionContext->PartitionLength,
-                                                                     PartitionContext->SectorShift);
+        PartitionContext->PartitionLength.QuadPart = LastSector + 1;
+        PartitionContext->PartitionLength.QuadPart <<= PartitionContext->SectorShift;
 
         PartitionContext->StartingSector=0;
         PartitionContext->EndingSector = LastSector + 1;
@@ -2281,7 +2266,7 @@ Return Value:
                             ScsiDebugPrint(1,
                                         "InterpretSenseInfo:"
                                         " Manual intervention required\n");
-                           *Status = STATUS_NO_MEDIA_IN_DEVICE;
+                           *Status = (ARC_STATUS)STATUS_NO_MEDIA_IN_DEVICE;
                             retry = FALSE;
                             break;
 
@@ -2432,7 +2417,7 @@ Return Value:
 
                     ScsiDebugPrint(1,"InterpretSenseInfo: Unrecognized sense code\n");
 
-                    *Status = STATUS_UNSUCCESSFUL;
+                    *Status = (ARC_STATUS)STATUS_UNSUCCESSFUL;
 
                     retry = TRUE;
 
@@ -2753,7 +2738,7 @@ Return Value:
 
     //
     // Set timeout value large enough for drive to spin up.
-    // BUGBUG: This value is arbitrary.
+    // NOTE: This value is arbitrary.
     //
 
     srb->TimeOutValue = 30;
@@ -2860,7 +2845,7 @@ Return Value:
 
     cdb->MODE_SENSE.OperationCode = SCSIOP_MODE_SENSE;
     cdb->MODE_SENSE.PageCode = PageMode;
-    cdb->MODE_SENSE.AllocationLength = Length;
+    cdb->MODE_SENSE.AllocationLength = (UCHAR)Length;
 
 Retry:
 

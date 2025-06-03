@@ -45,7 +45,7 @@
 
 STDMETHODIMP CClassFactory::QueryInterface  ( REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In CClassFactory::QueryInterface\r\n");
+	TestDebugOut("In CClassFactory::QueryInterface\r\n");
 
 	SCODE sc = S_OK;
 
@@ -95,7 +95,7 @@ STDMETHODIMP CClassFactory::QueryInterface  ( REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CClassFactory::AddRef ()
 {
-	OutputDebugString("In CClassFactory::AddRef\r\n");
+	TestDebugOut("In CClassFactory::AddRef\r\n");
 
 	return ++m_nCount;
 };
@@ -120,7 +120,7 @@ STDMETHODIMP_(ULONG) CClassFactory::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -130,7 +130,7 @@ STDMETHODIMP_(ULONG) CClassFactory::AddRef ()
 
 STDMETHODIMP_(ULONG) CClassFactory::Release ()
 {
-	OutputDebugString("In CClassFactory::Release\r\n");
+	TestDebugOut("In CClassFactory::Release\r\n");
 
 	if (--m_nCount == 0) {
 		delete this;
@@ -166,7 +166,7 @@ STDMETHODIMP_(ULONG) CClassFactory::Release ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrDoc::CreateObject   DOC.CPP
 //
 // Comments:
@@ -180,7 +180,7 @@ STDMETHODIMP CClassFactory::CreateInstance ( LPUNKNOWN pUnkOuter,
 {
 	HRESULT hErr;
 
-	OutputDebugString("In CClassFactory::CreateInstance\r\n");
+	TestDebugOut("In CClassFactory::CreateInstance\r\n");
 
 	// need to NULL the out parameter
 	*ppvObject = NULL;
@@ -216,7 +216,7 @@ error:
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CoLockObjectExternal        OLE API
 //      ResultFromScode             OLE API
 //
@@ -228,7 +228,7 @@ error:
 
 STDMETHODIMP CClassFactory::LockServer ( BOOL fLock)
 {
-	OutputDebugString("In CClassFactory::LockServer\r\n");
+	TestDebugOut("In CClassFactory::LockServer\r\n");
 	CoLockObjectExternal(m_lpApp, fLock, TRUE);
 
 	return ResultFromScode( S_OK);

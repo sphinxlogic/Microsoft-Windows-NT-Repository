@@ -952,7 +952,7 @@ Return Value:
 
     case WM_COMMAND:
         switch (wParam) {
-        case IDHELP:
+        case FD_IDHELP:
             break;
 
         case IDCANCEL:
@@ -1240,7 +1240,7 @@ Return Value:
     case WM_COMMAND:
         switch (wParam) {
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(HC_DM_DLG_DOUBLESPACE_MOUNT);
             break;
@@ -1422,7 +1422,7 @@ Return Value:
     case WM_COMMAND:
         switch (wParam) {
 
-        case IDHELP:
+        case FD_IDHELP:
 
             DialogHelp(HC_DM_DLG_DOUBLESPACE);
             break;

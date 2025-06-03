@@ -137,12 +137,12 @@ Return Value:
         //
 
         KiRestoreInterrupts(Enable);
-        Flag = KiIpiServiceRoutine(TrapFrame, ExceptionFrame);
+        Flag = KiIpiServiceRoutine((PVOID)TrapFrame, (PVOID)ExceptionFrame);
         KiDisableInterrupts();
 
 #if IDBG
 
-        if (Flag == TRUE) {
+        if (Flag != FALSE) {
             Count = 30000;
             continue;
         }
@@ -469,23 +469,63 @@ Return Value:
     KiReleaseSpinLock(&KiFreezeExecutionLock);
 
 #endif
-
-    //
-    // Lower IRQL to the previous level.
-    //
-
-    KeLowerIrql(OldIrql);
-
 #endif  // !defined (NT_UP)
 
+
     //
-    // Restore interrupt enable and flush the current TB, instruction
-    // cache, and data cache.
+    // Flush the current TB, instruction cache, and data cache.
     //
 
-    KiRestoreInterrupts(Enable);
     KeFlushCurrentTb();
     KeSweepCurrentIcache();
     KeSweepCurrentDcache();
+
+    //
+    // Lower IRQL and restore interrupt enable
+    //
+
+#if !defined(NT_UP)
+    KeLowerIrql(OldIrql);
+#endif
+    KiRestoreInterrupts(Enable);
     return;
+}
+
+VOID
+KeReturnToFirmware (
+    IN FIRMWARE_REENTRY Routine
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will thaw all other processors in an MP environment to cause
+    them to return to do a return to firmware with the supplied parameter.
+
+    It will then call HalReturnToFirmware itself.
+
+    N.B. It is assumed that we are in the environment of the kernel debugger
+    or a crash dump.
+
+
+Arguments:
+
+    Routine - What to invoke on return to firmware.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    //
+    // Just get the interface in now.  When intel and kenr come up with the
+    // right stuff we can fill this in.
+    //
+
+    HalReturnToFirmware(Routine);
+
 }

@@ -26,6 +26,8 @@ OLEDBGDATA
 
 static TCHAR szAssertMemAlloc[] = TEXT("CoGetMalloc failed");
 
+static int IsCloseFormatEtc(FORMATETC FAR* pFetcLeft, FORMATETC FAR* pFetcRight);
+
 
 /* OleStdSetupAdvises
 ** ------------------
@@ -51,8 +53,8 @@ static TCHAR szAssertMemAlloc[] = TEXT("CoGetMalloc failed");
 **    advise, but it was not useful).
 */
 STDAPI_(BOOL) OleStdSetupAdvises(LPOLEOBJECT lpOleObject, DWORD dwDrawAspect,
-		    LPTSTR lpszContainerApp, LPTSTR lpszContainerObj,
-		    LPADVISESINK lpAdviseSink, BOOL fCreate)
+                    LPTSTR lpszContainerApp, LPTSTR lpszContainerObj,
+                    LPADVISESINK lpAdviseSink, BOOL fCreate)
 {
     LPVIEWOBJECT lpViewObject;
     HRESULT hrErr;
@@ -62,26 +64,26 @@ STDAPI_(BOOL) OleStdSetupAdvises(LPOLEOBJECT lpOleObject, DWORD dwDrawAspect,
 #endif
 
     hrErr = lpOleObject->lpVtbl->QueryInterface(
-	    lpOleObject,
-	    &IID_IViewObject,
-	    (LPVOID FAR*)&lpViewObject
+            lpOleObject,
+            &IID_IViewObject,
+            (LPVOID FAR*)&lpViewObject
     );
 
     /* Setup View advise */
     if (hrErr == NOERROR) {
 
-	OLEDBG_BEGIN2(TEXT("IViewObject::SetAdvise called\r\n"))
-	lpViewObject->lpVtbl->SetAdvise(
-		lpViewObject,
-		dwDrawAspect,
-		(fCreate ? ADVF_PRIMEFIRST : 0),
-		lpAdviseSink
-	);
-	OLEDBG_END2
+        OLEDBG_BEGIN2(TEXT("IViewObject::SetAdvise called\r\n"))
+        lpViewObject->lpVtbl->SetAdvise(
+                lpViewObject,
+                dwDrawAspect,
+                (fCreate ? ADVF_PRIMEFIRST : 0),
+                lpAdviseSink
+        );
+        OLEDBG_END2
 
-	OleStdRelease((LPUNKNOWN)lpViewObject);
+        OleStdRelease((LPUNKNOWN)lpViewObject);
     } else {
-	fStatus = FALSE;
+        fStatus = FALSE;
     }
 
 #if defined( SPECIAL_CONTAINER )
@@ -98,9 +100,9 @@ STDAPI_(BOOL) OleStdSetupAdvises(LPOLEOBJECT lpOleObject, DWORD dwDrawAspect,
     */
     OLEDBG_BEGIN2(TEXT("IOleObject::Advise called\r\n"))
     hrErr = lpOleObject->lpVtbl->Advise(
-	    lpOleObject,
-	    lpAdviseSink,
-	    (DWORD FAR*)&dwTemp
+            lpOleObject,
+            lpAdviseSink,
+            (DWORD FAR*)&dwTemp
     );
     OLEDBG_END2
     if (hrErr != NOERROR) fStatus = FALSE;
@@ -110,9 +112,9 @@ STDAPI_(BOOL) OleStdSetupAdvises(LPOLEOBJECT lpOleObject, DWORD dwDrawAspect,
     OLEDBG_BEGIN2(TEXT("IOleObject::SetHostNames called\r\n"))
 
     hrErr = CallIOleObjectSetHostNamesA(
-	    lpOleObject,
-	    lpszContainerApp,
-	    lpszContainerObj
+            lpOleObject,
+            lpszContainerApp,
+            lpszContainerObj
     );
 
     OLEDBG_END2
@@ -149,14 +151,14 @@ STDAPI_(BOOL) OleStdSetupAdvises(LPOLEOBJECT lpOleObject, DWORD dwDrawAspect,
 **            cache contents unchanged.
 */
 STDAPI OleStdSwitchDisplayAspect(
-	LPOLEOBJECT             lpOleObj,
-	LPDWORD                 lpdwCurAspect,
-	DWORD                   dwNewAspect,
-	HGLOBAL                 hMetaPict,
-	BOOL                    fDeleteOldAspect,
-	BOOL                    fSetupViewAdvise,
-	LPADVISESINK            lpAdviseSink,
-	BOOL FAR*               lpfMustUpdate
+        LPOLEOBJECT             lpOleObj,
+        LPDWORD                 lpdwCurAspect,
+        DWORD                   dwNewAspect,
+        HGLOBAL                 hMetaPict,
+        BOOL                    fDeleteOldAspect,
+        BOOL                    fSetupViewAdvise,
+        LPADVISESINK            lpAdviseSink,
+        BOOL FAR*               lpfMustUpdate
 )
 {
     LPOLECACHE      lpOleCache = NULL;
@@ -171,14 +173,14 @@ STDAPI OleStdSwitchDisplayAspect(
     HRESULT         hrErr;
 
     if (lpfMustUpdate)
-	*lpfMustUpdate = FALSE;
+        *lpfMustUpdate = FALSE;
 
     lpOleCache = (LPOLECACHE)OleStdQueryInterface(
-					(LPUNKNOWN)lpOleObj,&IID_IOleCache);
+                                        (LPUNKNOWN)lpOleObj,&IID_IOleCache);
 
     // if IOleCache* is NOT available, do nothing
     if (! lpOleCache)
-	return ResultFromScode(E_INVALIDARG);
+        return ResultFromScode(E_INVALIDARG);
 
     // Setup new cache with the new aspect
     FmtEtc.cfFormat = (CLIPFORMAT) NULL;     // whatever is needed to draw
@@ -194,23 +196,23 @@ STDAPI OleStdSwitchDisplayAspect(
     **    connection.
     */
     if (dwNewAspect == DVASPECT_ICON && hMetaPict)
-	dwAdvf = ADVF_NODATA;
+        dwAdvf = ADVF_NODATA;
     else
-	dwAdvf = ADVF_PRIMEFIRST;
+        dwAdvf = ADVF_PRIMEFIRST;
 
     OLEDBG_BEGIN2(TEXT("IOleCache::Cache called\r\n"))
     hrErr = lpOleCache->lpVtbl->Cache(
-	    lpOleCache,
-	    (LPFORMATETC)&FmtEtc,
-	    dwAdvf,
-	    (LPDWORD)&dwNewConnection
+            lpOleCache,
+            (LPFORMATETC)&FmtEtc,
+            dwAdvf,
+            (LPDWORD)&dwNewConnection
     );
     OLEDBG_END2
 
     if (! SUCCEEDED(hrErr)) {
-	OleDbgOutHResult(TEXT("IOleCache::Cache returned"), hrErr);
-	OleStdRelease((LPUNKNOWN)lpOleCache);
-	return hrErr;
+        OleDbgOutHResult(TEXT("IOleCache::Cache returned"), hrErr);
+        OleStdRelease((LPUNKNOWN)lpOleCache);
+        return hrErr;
     }
 
     *lpdwCurAspect = dwNewAspect;
@@ -223,47 +225,47 @@ STDAPI OleStdSwitchDisplayAspect(
     */
     if (dwNewAspect == DVASPECT_ICON && hMetaPict) {
 
-	FmtEtc.cfFormat = CF_METAFILEPICT;
-	FmtEtc.ptd      = NULL;
-	FmtEtc.dwAspect = DVASPECT_ICON;
-	FmtEtc.lindex   = -1;
-	FmtEtc.tymed    = TYMED_MFPICT;
+        FmtEtc.cfFormat = CF_METAFILEPICT;
+        FmtEtc.ptd      = NULL;
+        FmtEtc.dwAspect = DVASPECT_ICON;
+        FmtEtc.lindex   = -1;
+        FmtEtc.tymed    = TYMED_MFPICT;
 
-	Medium.tymed            = TYMED_MFPICT;
-	Medium.hGlobal          = hMetaPict;
-	Medium.pUnkForRelease   = NULL;
+        Medium.tymed            = TYMED_MFPICT;
+        Medium.hGlobal          = hMetaPict;
+        Medium.pUnkForRelease   = NULL;
 
-	OLEDBG_BEGIN2(TEXT("IOleCache::SetData called\r\n"))
-	hrErr = lpOleCache->lpVtbl->SetData(
-		lpOleCache,
-		(LPFORMATETC)&FmtEtc,
-		(LPSTGMEDIUM)&Medium,
-		FALSE   /* fRelease */
-	);
-	OLEDBG_END2
+        OLEDBG_BEGIN2(TEXT("IOleCache::SetData called\r\n"))
+        hrErr = lpOleCache->lpVtbl->SetData(
+                lpOleCache,
+                (LPFORMATETC)&FmtEtc,
+                (LPSTGMEDIUM)&Medium,
+                FALSE   /* fRelease */
+        );
+        OLEDBG_END2
     } else {
-	if (lpfMustUpdate)
-	    *lpfMustUpdate = TRUE;
+        if (lpfMustUpdate)
+            *lpfMustUpdate = TRUE;
     }
 
     if (fSetupViewAdvise && lpAdviseSink) {
-	/* OLE2NOTE: re-establish the ViewAdvise connection */
-	lpViewObj = (LPVIEWOBJECT)OleStdQueryInterface(
-					(LPUNKNOWN)lpOleObj,&IID_IViewObject);
+        /* OLE2NOTE: re-establish the ViewAdvise connection */
+        lpViewObj = (LPVIEWOBJECT)OleStdQueryInterface(
+                                        (LPUNKNOWN)lpOleObj,&IID_IViewObject);
 
-	if (lpViewObj) {
+        if (lpViewObj) {
 
-	    OLEDBG_BEGIN2(TEXT("IViewObject::SetAdvise called\r\n"))
-	    lpViewObj->lpVtbl->SetAdvise(
-		    lpViewObj,
-		    dwNewAspect,
-		    0,
-		    lpAdviseSink
-	    );
-	    OLEDBG_END2
+            OLEDBG_BEGIN2(TEXT("IViewObject::SetAdvise called\r\n"))
+            lpViewObj->lpVtbl->SetAdvise(
+                    lpViewObj,
+                    dwNewAspect,
+                    0,
+                    lpAdviseSink
+            );
+            OLEDBG_END2
 
-	    OleStdRelease((LPUNKNOWN)lpViewObj);
-	}
+            OleStdRelease((LPUNKNOWN)lpViewObj);
+        }
     }
 
     /* OLE2NOTE: remove any existing caches that are set up for the old
@@ -277,42 +279,42 @@ STDAPI OleStdSwitchDisplayAspect(
     */
 
     if (fDeleteOldAspect) {
-	OLEDBG_BEGIN2(TEXT("IOleCache::EnumCache called\r\n"))
-	hrErr = lpOleCache->lpVtbl->EnumCache(
-		lpOleCache,
-		(LPENUMSTATDATA FAR*)&lpEnumStatData
-	);
-	OLEDBG_END2
+        OLEDBG_BEGIN2(TEXT("IOleCache::EnumCache called\r\n"))
+        hrErr = lpOleCache->lpVtbl->EnumCache(
+                lpOleCache,
+                (LPENUMSTATDATA FAR*)&lpEnumStatData
+        );
+        OLEDBG_END2
 
-	while(hrErr == NOERROR) {
-	    hrErr = lpEnumStatData->lpVtbl->Next(
-		    lpEnumStatData,
-		    1,
-		    (LPSTATDATA)&StatData,
-		    NULL
-	    );
-	    if (hrErr != NOERROR)
-		break;              // DONE! no more caches.
+        while(hrErr == NOERROR) {
+            hrErr = lpEnumStatData->lpVtbl->Next(
+                    lpEnumStatData,
+                    1,
+                    (LPSTATDATA)&StatData,
+                    NULL
+            );
+            if (hrErr != NOERROR)
+                break;              // DONE! no more caches.
 
-	    if (StatData.formatetc.dwAspect == dwOldAspect) {
+            if (StatData.formatetc.dwAspect == dwOldAspect) {
 
-		// Remove previous cache with old aspect
-		OLEDBG_BEGIN2(TEXT("IOleCache::Uncache called\r\n"))
-		lpOleCache->lpVtbl->Uncache(lpOleCache,StatData.dwConnection);
-		OLEDBG_END2
-	    }
-	}
+                // Remove previous cache with old aspect
+                OLEDBG_BEGIN2(TEXT("IOleCache::Uncache called\r\n"))
+                lpOleCache->lpVtbl->Uncache(lpOleCache,StatData.dwConnection);
+                OLEDBG_END2
+            }
+        }
 
-	if (lpEnumStatData) {
-	    OleStdVerifyRelease(
-		    (LPUNKNOWN)lpEnumStatData,
-		    TEXT("OleStdSwitchDisplayAspect: Cache enumerator NOT released")
-	    );
-	}
+        if (lpEnumStatData) {
+            OleStdVerifyRelease(
+                    (LPUNKNOWN)lpEnumStatData,
+                    TEXT("OleStdSwitchDisplayAspect: Cache enumerator NOT released")
+            );
+        }
     }
 
     if (lpOleCache)
-	OleStdRelease((LPUNKNOWN)lpOleCache);
+        OleStdRelease((LPUNKNOWN)lpOleCache);
 
     return NOERROR;
 }
@@ -333,12 +335,12 @@ STDAPI OleStdSetIconInCache(LPOLEOBJECT lpOleObj, HGLOBAL hMetaPict)
     HRESULT         hrErr;
 
     if (! hMetaPict)
-	return FALSE;   // invalid icon
+        return FALSE;   // invalid icon
 
     lpOleCache = (LPOLECACHE)OleStdQueryInterface(
-					(LPUNKNOWN)lpOleObj,&IID_IOleCache);
+                                        (LPUNKNOWN)lpOleObj,&IID_IOleCache);
     if (! lpOleCache)
-	return FALSE;   // if IOleCache* is NOT available, do nothing
+        return FALSE;   // if IOleCache* is NOT available, do nothing
 
     FmtEtc.cfFormat = CF_METAFILEPICT;
     FmtEtc.ptd      = NULL;
@@ -353,10 +355,10 @@ STDAPI OleStdSetIconInCache(LPOLEOBJECT lpOleObj, HGLOBAL hMetaPict)
 
     OLEDBG_BEGIN2(TEXT("IOleCache::SetData called\r\n"))
     hrErr = lpOleCache->lpVtbl->SetData(
-	    lpOleCache,
-	    (LPFORMATETC)&FmtEtc,
-	    (LPSTGMEDIUM)&Medium,
-	    FALSE   /* fRelease */
+            lpOleCache,
+            (LPFORMATETC)&FmtEtc,
+            (LPSTGMEDIUM)&Medium,
+            FALSE   /* fRelease */
     );
     OLEDBG_END2
 
@@ -391,8 +393,8 @@ STDAPI OleStdDoConvert(LPSTORAGE lpStg, REFCLSID rClsidNew)
     TCHAR szNew[OLEUI_CCHKEYMAX];
 
     if ((error = ReadClassStg(lpStg, &clsidOld)) != NOERROR) {
-	clsidOld = CLSID_NULL;
-	goto errRtn;
+        clsidOld = CLSID_NULL;
+        goto errRtn;
     }
 
     // read old fmt/old user type; sets out params to NULL on error
@@ -408,18 +410,18 @@ STDAPI OleStdDoConvert(LPSTORAGE lpStg, REFCLSID rClsidNew)
 
     // get new user type name; if error, set to NULL string
     if (OleStdGetUserTypeOfClass(
-	    // (LPCLSID)
-	    rClsidNew, szNew,sizeof(szNew),NULL /* hKey */) == 0)
-	szNew[0] = TEXT('\0');
+            // (LPCLSID)
+            rClsidNew, szNew,sizeof(szNew),NULL /* hKey */) == 0)
+        szNew[0] = TEXT('\0');
 
     // write class stg
     if ((error = WriteClassStg(lpStg, rClsidNew)) != NOERROR)
-	goto errRtn;
+        goto errRtn;
 
     // write old fmt/new user type;
 #ifdef UNICODE
     if ((error = WriteFmtUserTypeStg(lpStg, cfOld, szNew)) != NOERROR)
-	goto errRewriteInfo;
+        goto errRewriteInfo;
 #else
     {
        // Chicago OLE is using UNICODE, so we need to convert the string to
@@ -427,13 +429,13 @@ STDAPI OleStdDoConvert(LPSTORAGE lpStg, REFCLSID rClsidNew)
        WCHAR szNewT[OLEUI_CCHKEYMAX];
        mbstowcs(szNewT, szNew, sizeof(szNew));
        if ((error = WriteFmtUserTypeStg(lpStg, cfOld, szNewT)) != NOERROR)
-	   goto errRewriteInfo;
+           goto errRewriteInfo;
     }
 #endif
 
     // set convert bit
     if ((error = SetConvertStg(lpStg, TRUE)) != NOERROR)
-	goto errRewriteInfo;
+        goto errRewriteInfo;
 
     goto okRtn;
 
@@ -472,11 +474,11 @@ okRtn:
 **               lpclsid = CLSID_NULL; lplpszType = lpcfFmt = NULL;
 */
 STDAPI_(BOOL) OleStdGetTreatAsFmtUserType(
-	REFCLSID        rclsidApp,
-	LPSTORAGE       lpStg,
-	CLSID FAR*      lpclsid,
-	CLIPFORMAT FAR* lpcfFmt,
-	LPTSTR FAR*      lplpszType
+        REFCLSID        rclsidApp,
+        LPSTORAGE       lpStg,
+        CLSID FAR*      lpclsid,
+        CLIPFORMAT FAR* lpcfFmt,
+        LPTSTR FAR*      lplpszType
 )
 {
     HRESULT hrErr;
@@ -491,31 +493,31 @@ STDAPI_(BOOL) OleStdGetTreatAsFmtUserType(
 
     hrErr = ReadClassStg(lpStg, lpclsid);
     if (hrErr == NOERROR &&
-	! IsEqualCLSID(lpclsid, &CLSID_NULL) &&
-	! IsEqualCLSID(lpclsid, rclsidApp)) {
+        ! IsEqualCLSID(lpclsid, &CLSID_NULL) &&
+        ! IsEqualCLSID(lpclsid, rclsidApp)) {
 
-	hrErr = ReadFmtUserTypeStgA(lpStg,(CLIPFORMAT FAR*)lpcfFmt, lplpszType);
+        hrErr = ReadFmtUserTypeStgA(lpStg,(CLIPFORMAT FAR*)lpcfFmt, lplpszType);
 
-	if (hrErr == NOERROR && lplpszType && *lpcfFmt != 0)
-	    return TRUE;    // Do TreatAs. info was in lpStg.
+        if (hrErr == NOERROR && lplpszType && *lpcfFmt != 0)
+            return TRUE;    // Do TreatAs. info was in lpStg.
 
-	/* read info from REGDB
-	**    *lpcfFmt = value of field: CLSID\{...}\DataFormats\DefaultFile
-	**    *lplpszType = value of field: CLSID\{...}
-	*/
-	//Open up the root key.
-	lRet=RegOpenKey(HKEY_CLASSES_ROOT, NULL, &hKey);
-	if (lRet != (LONG)ERROR_SUCCESS)
-	    return FALSE;
-	*lpcfFmt = OleStdGetDefaultFileFormatOfClass(lpclsid, hKey);
-	if (*lpcfFmt == 0)
-	    return FALSE;
-	lSize = OleStdGetUserTypeOfClass(lpclsid,szBuf,sizeof(szBuf),hKey);
-	if (lSize == 0)
-	    return FALSE;
-	*lplpszType = OleStdCopyString(szBuf, NULL);
+        /* read info from REGDB
+        **    *lpcfFmt = value of field: CLSID\{...}\DataFormats\DefaultFile
+        **    *lplpszType = value of field: CLSID\{...}
+        */
+        //Open up the root key.
+        lRet=RegOpenKey(HKEY_CLASSES_ROOT, NULL, &hKey);
+        if (lRet != (LONG)ERROR_SUCCESS)
+            return FALSE;
+        *lpcfFmt = OleStdGetDefaultFileFormatOfClass(lpclsid, hKey);
+        if (*lpcfFmt == 0)
+            return FALSE;
+        lSize = OleStdGetUserTypeOfClass(lpclsid,szBuf,sizeof(szBuf),hKey);
+        if (lSize == 0)
+            return FALSE;
+        *lplpszType = OleStdCopyString(szBuf, NULL);
     } else {
-	return FALSE;       // NO TreatAs
+        return FALSE;       // NO TreatAs
     }
 }
 
@@ -548,18 +550,18 @@ STDAPI OleStdDoTreatAsClass(LPTSTR lpszUserType, REFCLSID rclsid, REFCLSID rclsi
     OLEDBG_END2
 
     if ((hrErr != NOERROR) && lpszUserType) {
-	lRet = RegOpenKey(HKEY_CLASSES_ROOT, (LPCTSTR) TEXT("CLSID"),
-		(HKEY FAR *)&hKey);
-	StringFromCLSIDA(rclsid, &lpszCLSID);
+        lRet = RegOpenKey(HKEY_CLASSES_ROOT, (LPCTSTR) TEXT("CLSID"),
+                (HKEY FAR *)&hKey);
+        StringFromCLSIDA(rclsid, &lpszCLSID);
 
-	RegSetValue(hKey, lpszCLSID, REG_SZ, lpszUserType,
-		lstrlen(lpszUserType));
+        RegSetValue(hKey, lpszCLSID, REG_SZ, lpszUserType,
+                lstrlen(lpszUserType));
 
-	if (lpszCLSID)
-	    OleStdFreeString(lpszCLSID, NULL);
+        if (lpszCLSID)
+            OleStdFreeString(lpszCLSID, NULL);
 
-	hrErr = CoTreatAsClass(rclsid, rclsidNew);
-	RegCloseKey(hKey);
+        hrErr = CoTreatAsClass(rclsid, rclsidNew);
+        RegCloseKey(hKey);
     }
 
     return hrErr;
@@ -580,10 +582,10 @@ STDAPI_(BOOL) OleStdIsOleLink(LPUNKNOWN lpUnk)
     lpOleLink = (LPOLELINK)OleStdQueryInterface(lpUnk, &IID_IOleLink);
 
     if (lpOleLink) {
-	OleStdRelease((LPUNKNOWN)lpOleLink);
-	return TRUE;
+        OleStdRelease((LPUNKNOWN)lpOleLink);
+        return TRUE;
     } else
-	return FALSE;
+        return FALSE;
 }
 
 
@@ -600,15 +602,15 @@ STDAPI_(LPUNKNOWN) OleStdQueryInterface(LPUNKNOWN lpUnk, REFIID riid)
     HRESULT hrErr;
 
     hrErr = lpUnk->lpVtbl->QueryInterface(
-	    lpUnk,
-	    riid,
-	    (LPVOID FAR*)&lpInterface
+            lpUnk,
+            riid,
+            (LPVOID FAR*)&lpInterface
     );
 
     if (hrErr == NOERROR)
-	return lpInterface;
+        return lpInterface;
     else
-	return NULL;
+        return NULL;
 }
 
 
@@ -645,11 +647,11 @@ STDAPI_(LPUNKNOWN) OleStdQueryInterface(LPUNKNOWN lpUnk, REFIID riid)
 **       NULL    -- if error.
 */
 STDAPI_(HGLOBAL) OleStdGetData(
-	LPDATAOBJECT        lpDataObj,
-	CLIPFORMAT          cfFormat,
-	DVTARGETDEVICE FAR* lpTargetDevice,
-	DWORD               dwDrawAspect,
-	LPSTGMEDIUM         lpMedium
+        LPDATAOBJECT        lpDataObj,
+        CLIPFORMAT          cfFormat,
+        DVTARGETDEVICE FAR* lpTargetDevice,
+        DWORD               dwDrawAspect,
+        LPSTGMEDIUM         lpMedium
 )
 {
     HRESULT hrErr;
@@ -664,55 +666,55 @@ STDAPI_(HGLOBAL) OleStdGetData(
     formatetc.lindex = -1;
 
     switch (cfFormat) {
-	case CF_METAFILEPICT:
-	    formatetc.tymed = TYMED_MFPICT;
-	    break;
+        case CF_METAFILEPICT:
+            formatetc.tymed = TYMED_MFPICT;
+            break;
 
-	case CF_BITMAP:
-	    formatetc.tymed = TYMED_GDI;
-	    break;
+        case CF_BITMAP:
+            formatetc.tymed = TYMED_GDI;
+            break;
 
-	default:
-	    formatetc.tymed = TYMED_HGLOBAL;
-	    break;
+        default:
+            formatetc.tymed = TYMED_HGLOBAL;
+            break;
     }
 
     OLEDBG_BEGIN2(TEXT("IDataObject::GetData called\r\n"))
     hrErr = lpDataObj->lpVtbl->GetData(
-	    lpDataObj,
-	    (LPFORMATETC)&formatetc,
-	    lpMedium
+            lpDataObj,
+            (LPFORMATETC)&formatetc,
+            lpMedium
     );
     OLEDBG_END2
 
     if (hrErr != NOERROR)
-	return NULL;
+        return NULL;
 
     if ((hGlobal = lpMedium->hGlobal) == NULL)
-	return NULL;
+        return NULL;
 
     // Check if hGlobal really points to valid memory
     if ((lp = GlobalLock(hGlobal)) != NULL) {
-	if (IsBadReadPtr(lp, 1)) {
-	    GlobalUnlock(hGlobal);
-	    return NULL;    // ERROR: memory is NOT valid
-	}
-	GlobalUnlock(hGlobal);
+        if (IsBadReadPtr(lp, 1)) {
+            GlobalUnlock(hGlobal);
+            return NULL;    // ERROR: memory is NOT valid
+        }
+        GlobalUnlock(hGlobal);
     }
 
     if (hGlobal != NULL && lpMedium->pUnkForRelease != NULL) {
-	/* OLE2NOTE: the callee wants to retain ownership of the data.
-	**    this is indicated by passing a non-NULL pUnkForRelease.
-	**    thus, we will make a copy of the data and release the
-	**    callee's copy.
-	*/
+        /* OLE2NOTE: the callee wants to retain ownership of the data.
+        **    this is indicated by passing a non-NULL pUnkForRelease.
+        **    thus, we will make a copy of the data and release the
+        **    callee's copy.
+        */
 
-	hCopy = OleDuplicateData(hGlobal, cfFormat, GHND|GMEM_SHARE);
-	ReleaseStgMedium(lpMedium); // release callee's copy of data
+        hCopy = OleDuplicateData(hGlobal, cfFormat, GHND|GMEM_SHARE);
+        ReleaseStgMedium(lpMedium); // release callee's copy of data
 
-	hGlobal = hCopy;
-	lpMedium->hGlobal = hCopy;
-	lpMedium->pUnkForRelease = NULL;
+        hGlobal = hCopy;
+        lpMedium->hGlobal = hCopy;
+        lpMedium->pUnkForRelease = NULL;
     }
     return hGlobal;
 }
@@ -728,14 +730,14 @@ STDAPI_(LPVOID) OleStdMalloc(ULONG ulSize)
     LPMALLOC pmalloc;
 
     if (CoGetMalloc(MEMCTX_TASK, &pmalloc) != NOERROR) {
-	OleDbgAssertSz(0, szAssertMemAlloc);
-	return NULL;
+        OleDbgAssertSz(0, szAssertMemAlloc);
+        return NULL;
     }
 
     pout = (LPVOID)pmalloc->lpVtbl->Alloc(pmalloc, ulSize);
 
     if (pmalloc != NULL) {
-	ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
+        ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
     }
 
     return pout;
@@ -752,14 +754,14 @@ STDAPI_(LPVOID) OleStdRealloc(LPVOID pmem, ULONG ulSize)
     LPMALLOC pmalloc;
 
     if (CoGetMalloc(MEMCTX_TASK, &pmalloc) != NOERROR) {
-	OleDbgAssertSz(0, szAssertMemAlloc);
-	return NULL;
+        OleDbgAssertSz(0, szAssertMemAlloc);
+        return NULL;
     }
 
     pout = (LPVOID)pmalloc->lpVtbl->Realloc(pmalloc, pmem, ulSize);
 
     if (pmalloc != NULL) {
-	ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
+        ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
     }
 
     return pout;
@@ -775,17 +777,17 @@ STDAPI_(void) OleStdFree(LPVOID pmem)
     LPMALLOC pmalloc;
 
     if (pmem == NULL)
-	return;
+        return;
 
     if (CoGetMalloc(MEMCTX_TASK, &pmalloc) != NOERROR) {
-	OleDbgAssertSz(0, szAssertMemAlloc);
-	return;
+        OleDbgAssertSz(0, szAssertMemAlloc);
+        return;
     }
 
     pmalloc->lpVtbl->Free(pmalloc, pmem);
 
     if (pmalloc != NULL) {
-	ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
+        ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
     }
 }
 
@@ -801,14 +803,14 @@ STDAPI_(ULONG) OleStdGetSize(LPVOID pmem)
     LPMALLOC pmalloc;
 
     if (CoGetMalloc(MEMCTX_TASK, &pmalloc) != NOERROR) {
-	OleDbgAssertSz(0, szAssertMemAlloc);
-	return (ULONG)-1;
+        OleDbgAssertSz(0, szAssertMemAlloc);
+        return (ULONG)-1;
     }
 
     ulSize = pmalloc->lpVtbl->GetSize(pmalloc, pmem);
 
     if (pmalloc != NULL) {
-	ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
+        ULONG refs = pmalloc->lpVtbl->Release(pmalloc);
     }
 
     return ulSize;
@@ -829,15 +831,15 @@ STDAPI_(void) OleStdFreeString(LPTSTR lpsz, LPMALLOC lpMalloc)
     BOOL fMustRelease = FALSE;
 
     if (! lpMalloc) {
-	if (CoGetMalloc(MEMCTX_TASK, &lpMalloc) != NOERROR)
-	    return;
-	fMustRelease = TRUE;
+        if (CoGetMalloc(MEMCTX_TASK, &lpMalloc) != NOERROR)
+            return;
+        fMustRelease = TRUE;
     }
 
     lpMalloc->lpVtbl->Free(lpMalloc, lpsz);
 
     if (fMustRelease)
-	lpMalloc->lpVtbl->Release(lpMalloc);
+        lpMalloc->lpVtbl->Release(lpMalloc);
 }
 
 
@@ -857,18 +859,18 @@ STDAPI_(LPTSTR) OleStdCopyString(LPTSTR lpszSrc, LPMALLOC lpMalloc)
     UINT lSize = lstrlen(lpszSrc);
 
     if (! lpMalloc) {
-	if (CoGetMalloc(MEMCTX_TASK, &lpMalloc) != NOERROR)
-	    return NULL;
-	fMustRelease = TRUE;
+        if (CoGetMalloc(MEMCTX_TASK, &lpMalloc) != NOERROR)
+            return NULL;
+        fMustRelease = TRUE;
     }
 
     lpszDest = lpMalloc->lpVtbl->Alloc(lpMalloc, (lSize+1)*sizeof(TCHAR));
 
     if (lpszDest)
-	lstrcpy(lpszDest, lpszSrc);
+        lstrcpy(lpszDest, lpszSrc);
 
     if (fMustRelease)
-	lpMalloc->lpVtbl->Release(lpMalloc);
+        lpMalloc->lpVtbl->Release(lpMalloc);
     return lpszDest;
 }
 
@@ -903,9 +905,9 @@ STDAPI_(LPTSTR) OleStdCopyString(LPTSTR lpszSrc, LPMALLOC lpMalloc)
  *    SCODE  -  S_OK if successful
  */
 STDAPI_(LPSTORAGE) OleStdCreateStorageOnHGlobal(
-	HANDLE hGlobal,
-	BOOL fDeleteOnRelease,
-	DWORD grfMode
+        HANDLE hGlobal,
+        BOOL fDeleteOnRelease,
+        DWORD grfMode
 )
 {
     DWORD grfCreateMode=grfMode | (hGlobal==NULL ? STGM_CREATE:STGM_CONVERT);
@@ -915,22 +917,22 @@ STDAPI_(LPSTORAGE) OleStdCreateStorageOnHGlobal(
     LPSTORAGE lpStg = NULL;
 
     hrErr = CreateILockBytesOnHGlobal(
-	    hGlobal,
-	    fDeleteOnRelease,
-	    (LPLOCKBYTES FAR*)&lpLockBytes
+            hGlobal,
+            fDeleteOnRelease,
+            (LPLOCKBYTES FAR*)&lpLockBytes
     );
     if (hrErr != NOERROR)
-	return NULL;
+        return NULL;
 
     hrErr = StgCreateDocfileOnILockBytes(
-	    lpLockBytes,
-	    grfCreateMode,
-	    reserved,
-	    (LPSTORAGE FAR*)&lpStg
+            lpLockBytes,
+            grfCreateMode,
+            reserved,
+            (LPSTORAGE FAR*)&lpStg
     );
     if (hrErr != NOERROR) {
-	OleStdRelease((LPUNKNOWN)lpLockBytes);
-	return NULL;
+        OleStdRelease((LPUNKNOWN)lpLockBytes);
+        return NULL;
     }
     return lpStg;
 }
@@ -958,21 +960,21 @@ STDAPI_(LPSTORAGE) OleStdCreateTempStorage(BOOL fUseMemory, DWORD grfMode)
     DWORD       reserved = 0;
 
     if (fUseMemory) {
-	lpstg = OleStdCreateStorageOnHGlobal(
-		NULL,  /* auto allocate */
-		TRUE,  /* delete on release */
-		grfMode
-	);
+        lpstg = OleStdCreateStorageOnHGlobal(
+                NULL,  /* auto allocate */
+                TRUE,  /* delete on release */
+                grfMode
+        );
     } else {
-	/* allocate a temp docfile that will delete on last release */
-	hrErr = StgCreateDocfile(
-		NULL,
-		grfMode | STGM_DELETEONRELEASE | STGM_CREATE,
-		reserved,
-		&lpstg
-	);
-	if (hrErr != NOERROR)
-	    return NULL;
+        /* allocate a temp docfile that will delete on last release */
+        hrErr = StgCreateDocfile(
+                NULL,
+                grfMode | STGM_DELETEONRELEASE | STGM_CREATE,
+                reserved,
+                &lpstg
+        );
+        if (hrErr != NOERROR)
+            return NULL;
     }
     return lpstg;
 }
@@ -996,10 +998,10 @@ STDAPI_(LPSTORAGE) OleStdCreateTempStorage(BOOL fUseMemory, DWORD grfMode)
 **    own IStorage.
 */
 STDAPI OleStdGetOleObjectData(
-	LPPERSISTSTORAGE        lpPStg,
-	LPFORMATETC             lpformatetc,
-	LPSTGMEDIUM             lpMedium,
-	BOOL                    fUseMemory
+        LPPERSISTSTORAGE        lpPStg,
+        LPFORMATETC             lpformatetc,
+        LPSTGMEDIUM             lpMedium,
+        BOOL                    fUseMemory
 )
 {
     LPSTORAGE   lpstg = NULL;
@@ -1011,26 +1013,26 @@ STDAPI OleStdGetOleObjectData(
 
     if (lpMedium->tymed == TYMED_NULL) {
 
-	if (lpformatetc->tymed & TYMED_ISTORAGE) {
+        if (lpformatetc->tymed & TYMED_ISTORAGE) {
 
-	    /* allocate a temp docfile that will delete on last release */
-	    lpstg = OleStdCreateTempStorage(
-		    TRUE /*fUseMemory*/,
-		    STGM_READWRITE | STGM_TRANSACTED | STGM_SHARE_EXCLUSIVE
-	    );
-	    if (!lpstg)
-		return ResultFromScode(E_OUTOFMEMORY);
+            /* allocate a temp docfile that will delete on last release */
+            lpstg = OleStdCreateTempStorage(
+                    TRUE /*fUseMemory*/,
+                    STGM_READWRITE | STGM_TRANSACTED | STGM_SHARE_EXCLUSIVE
+            );
+            if (!lpstg)
+                return ResultFromScode(E_OUTOFMEMORY);
 
-	    lpMedium->pstg = lpstg;
-	    lpMedium->tymed = TYMED_ISTORAGE;
-	    lpMedium->pUnkForRelease = NULL;
-	} else {
-	    return ResultFromScode(DATA_E_FORMATETC);
-	}
+            lpMedium->pstg = lpstg;
+            lpMedium->tymed = TYMED_ISTORAGE;
+            lpMedium->pUnkForRelease = NULL;
+        } else {
+            return ResultFromScode(DATA_E_FORMATETC);
+        }
     } else if (lpMedium->tymed == TYMED_ISTORAGE) {
-	lpMedium->tymed = TYMED_ISTORAGE;
+        lpMedium->tymed = TYMED_ISTORAGE;
     } else {
-	return ResultFromScode(DATA_E_FORMATETC);
+        return ResultFromScode(DATA_E_FORMATETC);
     }
 
     // OLE2NOTE: even if OleSave returns an error you should still call
@@ -1041,17 +1043,17 @@ STDAPI OleStdGetOleObjectData(
     OLEDBG_END2
 
     if (hrErr != NOERROR) {
-	OleDbgOutHResult(TEXT("WARNING: OleSave returned"), hrErr);
-	sc = GetScode(hrErr);
+        OleDbgOutHResult(TEXT("WARNING: OleSave returned"), hrErr);
+        sc = GetScode(hrErr);
     }
     OLEDBG_BEGIN2(TEXT("IPersistStorage::SaveCompleted called\r\n"))
     hrErr = lpPStg->lpVtbl->SaveCompleted(lpPStg, NULL);
     OLEDBG_END2
 
     if (hrErr != NOERROR) {
-	OleDbgOutHResult(TEXT("WARNING: SaveCompleted returned"),hrErr);
-	if (sc == S_OK)
-	    sc = GetScode(hrErr);
+        OleDbgOutHResult(TEXT("WARNING: SaveCompleted returned"),hrErr);
+        if (sc == S_OK)
+            sc = GetScode(hrErr);
     }
 
     return ResultFromScode(sc);
@@ -1059,10 +1061,10 @@ STDAPI OleStdGetOleObjectData(
 
 
 STDAPI OleStdGetLinkSourceData(
-	LPMONIKER           lpmk,
-	LPCLSID             lpClsID,
-	LPFORMATETC         lpformatetc,
-	LPSTGMEDIUM         lpMedium
+        LPMONIKER           lpmk,
+        LPCLSID             lpClsID,
+        LPFORMATETC         lpformatetc,
+        LPSTGMEDIUM         lpMedium
 )
 {
     LPSTREAM    lpstm = NULL;
@@ -1070,32 +1072,32 @@ STDAPI OleStdGetLinkSourceData(
     HRESULT     hrErr;
 
     if (lpMedium->tymed == TYMED_NULL) {
-	if (lpformatetc->tymed & TYMED_ISTREAM) {
-	    hrErr = CreateStreamOnHGlobal(
-		    NULL, /* auto allocate */
-		    TRUE, /* delete on release */
-		    (LPSTREAM FAR*)&lpstm
-	    );
-	    if (hrErr != NOERROR) {
-		lpMedium->pUnkForRelease = NULL;
-		return ResultFromScode(E_OUTOFMEMORY);
-	    }
-	    lpMedium->pstm = lpstm;
-	    lpMedium->tymed = TYMED_ISTREAM;
-	    lpMedium->pUnkForRelease = NULL;
-	} else {
-	    lpMedium->pUnkForRelease = NULL;
-	    return ResultFromScode(DATA_E_FORMATETC);
-	}
+        if (lpformatetc->tymed & TYMED_ISTREAM) {
+            hrErr = CreateStreamOnHGlobal(
+                    NULL, /* auto allocate */
+                    TRUE, /* delete on release */
+                    (LPSTREAM FAR*)&lpstm
+            );
+            if (hrErr != NOERROR) {
+                lpMedium->pUnkForRelease = NULL;
+                return ResultFromScode(E_OUTOFMEMORY);
+            }
+            lpMedium->pstm = lpstm;
+            lpMedium->tymed = TYMED_ISTREAM;
+            lpMedium->pUnkForRelease = NULL;
+        } else {
+            lpMedium->pUnkForRelease = NULL;
+            return ResultFromScode(DATA_E_FORMATETC);
+        }
     } else {
-	if (lpMedium->tymed == TYMED_ISTREAM) {
-	    lpMedium->tymed = TYMED_ISTREAM;
-	    lpMedium->pstm = lpMedium->pstm;
-	    lpMedium->pUnkForRelease = NULL;
-	} else {
-	    lpMedium->pUnkForRelease = NULL;
-	    return ResultFromScode(DATA_E_FORMATETC);
-	}
+        if (lpMedium->tymed == TYMED_ISTREAM) {
+            lpMedium->tymed = TYMED_ISTREAM;
+            lpMedium->pstm = lpMedium->pstm;
+            lpMedium->pUnkForRelease = NULL;
+        } else {
+            lpMedium->pUnkForRelease = NULL;
+            return ResultFromScode(DATA_E_FORMATETC);
+        }
     }
 
     hrErr = OleSaveToStream((LPPERSISTSTREAM)lpmk, lpMedium->pstm);
@@ -1144,7 +1146,7 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorData(
 
     if( lpszSrcOfCopyA )
     {
-	lpszSrcOfCopy = CreateOLESTR(lpszSrcOfCopyA);
+        lpszSrcOfCopy = CreateOLESTR(lpszSrcOfCopyA);
     }
 
     lpszFullUserTypeName = CreateOLESTR(lpszFullUserTypeNameA);
@@ -1164,33 +1166,33 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorData(
     // Allocate space for OBJECTDESCRIPTOR and the additional string data
     dwObjectDescSize = sizeof(OBJECTDESCRIPTOR);
     hMem = GlobalAlloc(GMEM_MOVEABLE | GMEM_SHARE, dwObjectDescSize +
-	       (dwFullUserTypeNameLen + dwSrcOfCopyLen)*sizeof(OLECHAR));
+               (dwFullUserTypeNameLen + dwSrcOfCopyLen)*sizeof(OLECHAR));
     if (NULL == hMem)
-	goto error;
+        goto error;
 
     lpOD = (LPOBJECTDESCRIPTOR)GlobalLock(hMem);
 
     // Set the FullUserTypeName offset and copy the string
     if (lpszFullUserTypeName)
     {
-	lpOD->dwFullUserTypeName = dwObjectDescSize;
-	wcscpy((LPOLESTR)(((BYTE FAR *)lpOD)+lpOD->dwFullUserTypeName),
-			lpszFullUserTypeName);
+        lpOD->dwFullUserTypeName = dwObjectDescSize;
+        wcscpy((LPOLESTR)(((BYTE FAR *)lpOD)+lpOD->dwFullUserTypeName),
+                        lpszFullUserTypeName);
     }
     else lpOD->dwFullUserTypeName = 0;  // zero offset indicates that string is not present
 
     // Set the SrcOfCopy offset and copy the string
     if (lpszSrcOfCopy)
     {
-	lpOD->dwSrcOfCopy = dwObjectDescSize +
-		 dwFullUserTypeNameLen*sizeof(OLECHAR);
-	wcscpy((LPOLESTR)(((BYTE FAR *)lpOD)+lpOD->dwSrcOfCopy), lpszSrcOfCopy);
+        lpOD->dwSrcOfCopy = dwObjectDescSize +
+                 dwFullUserTypeNameLen*sizeof(OLECHAR);
+        wcscpy((LPOLESTR)(((BYTE FAR *)lpOD)+lpOD->dwSrcOfCopy), lpszSrcOfCopy);
     }
     else lpOD->dwSrcOfCopy = 0;  // zero offset indicates that string is not present
 
     // Initialize the rest of the OBJECTDESCRIPTOR
     lpOD->cbSize       = dwObjectDescSize +
-		(dwFullUserTypeNameLen + dwSrcOfCopyLen)*sizeof(OLECHAR);
+                (dwFullUserTypeNameLen + dwSrcOfCopyLen)*sizeof(OLECHAR);
     lpOD->clsid        = clsid;
     lpOD->dwDrawAspect = dwDrawAspect;
     lpOD->sizel        = sizel;
@@ -1249,11 +1251,11 @@ error:
  */
 
 STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
-	LPOLEOBJECT lpOleObj,
-	LPTSTR       lpszSrcOfCopy,
-	DWORD       dwDrawAspect,
-	POINTL      pointl,
-	LPSIZEL     lpSizelHim
+        LPOLEOBJECT lpOleObj,
+        LPTSTR       lpszSrcOfCopy,
+        DWORD       dwDrawAspect,
+        POINTL      pointl,
+        LPSIZEL     lpSizelHim
 )
 {
     CLSID clsid;
@@ -1265,11 +1267,11 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
     SIZEL sizelHim;
     BOOL  fFreeSrcOfCopy = FALSE;
     LPOLELINK lpOleLink = (LPOLELINK)
-	   OleStdQueryInterface((LPUNKNOWN)lpOleObj,&IID_IOleLink);
+           OleStdQueryInterface((LPUNKNOWN)lpOleObj,&IID_IOleLink);
 
 #ifdef OLE201
     LPVIEWOBJECT2 lpViewObj2 = (LPVIEWOBJECT2)
-	    OleStdQueryInterface((LPUNKNOWN)lpOleObj, &IID_IViewObject2);
+            OleStdQueryInterface((LPUNKNOWN)lpOleObj, &IID_IViewObject2);
 #endif
 
     BOOL  fIsLink = (lpOleLink ? TRUE : FALSE);
@@ -1282,7 +1284,7 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
     hrErr = lpOleObj->lpVtbl->GetUserClassID(lpOleObj, &clsid);
     OLEDBG_END2
     if (hrErr != NOERROR)
-	clsid = CLSID_NULL;
+        clsid = CLSID_NULL;
 
     // Get FullUserTypeName
     OLEDBG_BEGIN2(TEXT("IOleObject::GetUserType called\r\n"))
@@ -1290,9 +1292,9 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
     LPOLESTR polestr;
 
     hrErr = lpOleObj->lpVtbl->GetUserType(
-	    lpOleObj,
-	    USERCLASSTYPE_FULL,
-	    &polestr
+            lpOleObj,
+            USERCLASSTYPE_FULL,
+            &polestr
     );
 
     CopyAndFreeOLESTR(polestr, &lpszFullUserTypeName);
@@ -1303,17 +1305,17 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
 // REVIEW: added IDS_OLE2UILINKEDTYPE to strings.rc
     /* if object is a link, then expand usertypename to be "Linked %s" */
     if (fIsLink && lpszFullUserTypeName) {
-	if (0 == LoadString(ghInst, IDS_OLE2UIPASTELINKEDTYPE,
-			(LPTSTR)szLinkedTypeFmt, sizeof(szLinkedTypeFmt)/sizeof(TCHAR)))
-	    lstrcpy(szLinkedTypeFmt, (LPTSTR) TEXT("Linked %s"));
-	lpszBuf = OleStdMalloc(
-		(lstrlen(lpszFullUserTypeName)+lstrlen(szLinkedTypeFmt)+1) *
-		sizeof(TCHAR));
-	if (lpszBuf) {
-	    wsprintf(lpszBuf, szLinkedTypeFmt, lpszFullUserTypeName);
-	    OleStdFreeString(lpszFullUserTypeName, NULL);
-	    lpszFullUserTypeName = lpszBuf;
-	}
+        if (0 == LoadString(ghInst, IDS_OLE2UIPASTELINKEDTYPE,
+                        (LPTSTR)szLinkedTypeFmt, sizeof(szLinkedTypeFmt)/sizeof(TCHAR)))
+            lstrcpy(szLinkedTypeFmt, (LPTSTR) TEXT("Linked %s"));
+        lpszBuf = OleStdMalloc(
+                (lstrlen(lpszFullUserTypeName)+lstrlen(szLinkedTypeFmt)+1) *
+                sizeof(TCHAR));
+        if (lpszBuf) {
+            wsprintf(lpszBuf, szLinkedTypeFmt, lpszFullUserTypeName);
+            OleStdFreeString(lpszFullUserTypeName, NULL);
+            lpszFullUserTypeName = lpszBuf;
+        }
     }
 
     /* Get Source Of Copy
@@ -1322,114 +1324,114 @@ STDAPI_(HGLOBAL) OleStdGetObjectDescriptorDataFromOleObject(
     */
     if (fIsLink) {
 
-	OLEDBG_BEGIN2(TEXT("IOleLink::GetSourceDisplayName called\r\n"))
+        OLEDBG_BEGIN2(TEXT("IOleLink::GetSourceDisplayName called\r\n"))
 
-	{
-	LPOLESTR polestr;
+        {
+        LPOLESTR polestr;
 
-	hrErr = lpOleLink->lpVtbl->GetSourceDisplayName(
-		lpOleLink, &polestr );
+        hrErr = lpOleLink->lpVtbl->GetSourceDisplayName(
+                lpOleLink, &polestr );
 
-	CopyAndFreeOLESTR(polestr, &lpszSrcOfCopy);
-	}
-	OLEDBG_END2
-	fFreeSrcOfCopy = TRUE;
+        CopyAndFreeOLESTR(polestr, &lpszSrcOfCopy);
+        }
+        OLEDBG_END2
+        fFreeSrcOfCopy = TRUE;
 
     } else {
 
-	if (lpszSrcOfCopy == NULL) {
-	    OLEDBG_BEGIN2(TEXT("IOleObject::GetMoniker called\r\n"))
-	    hrErr = lpOleObj->lpVtbl->GetMoniker(
-		    lpOleObj,
-		    OLEGETMONIKER_TEMPFORUSER,
-		    OLEWHICHMK_OBJFULL,
-		    (LPMONIKER FAR*)&lpSrcMonikerOfCopy
-	    );
-	    OLEDBG_END2
-	    if (hrErr == NOERROR)
-	    {
+        if (lpszSrcOfCopy == NULL) {
+            OLEDBG_BEGIN2(TEXT("IOleObject::GetMoniker called\r\n"))
+            hrErr = lpOleObj->lpVtbl->GetMoniker(
+                    lpOleObj,
+                    OLEGETMONIKER_TEMPFORUSER,
+                    OLEWHICHMK_OBJFULL,
+                    (LPMONIKER FAR*)&lpSrcMonikerOfCopy
+            );
+            OLEDBG_END2
+            if (hrErr == NOERROR)
+            {
 #ifdef OLE201
-		CreateBindCtx(0, (LPBC FAR*)&pbc);
+                CreateBindCtx(0, (LPBC FAR*)&pbc);
 #endif
-		CallIMonikerGetDisplayNameA(
-			lpSrcMonikerOfCopy, pbc, NULL, &lpszSrcOfCopy);
+                CallIMonikerGetDisplayNameA(
+                        lpSrcMonikerOfCopy, pbc, NULL, &lpszSrcOfCopy);
 
-		pbc->lpVtbl->Release(pbc);
-		fFreeSrcOfCopy = TRUE;
-	    }
-	}
+                pbc->lpVtbl->Release(pbc);
+                fFreeSrcOfCopy = TRUE;
+            }
+        }
     }
 
     // Get SIZEL
     if (lpSizelHim) {
-	// Use extents passed by the caller
-	sizelHim = *lpSizelHim;
+        // Use extents passed by the caller
+        sizelHim = *lpSizelHim;
     } else if (lpViewObj2) {
-	// Get the current extents from the object
-	OLEDBG_BEGIN2(TEXT("IViewObject2::GetExtent called\r\n"))
-	hrErr = lpViewObj2->lpVtbl->GetExtent(
-		lpViewObj2,
-		dwDrawAspect,
-		-1,     /*lindex*/
-		NULL,   /*ptd*/
-		(LPSIZEL)&sizelHim
-	);
-	OLEDBG_END2
-	if (hrErr != NOERROR)
-	    sizelHim.cx = sizelHim.cy = 0;
+        // Get the current extents from the object
+        OLEDBG_BEGIN2(TEXT("IViewObject2::GetExtent called\r\n"))
+        hrErr = lpViewObj2->lpVtbl->GetExtent(
+                lpViewObj2,
+                dwDrawAspect,
+                -1,     /*lindex*/
+                NULL,   /*ptd*/
+                (LPSIZEL)&sizelHim
+        );
+        OLEDBG_END2
+        if (hrErr != NOERROR)
+            sizelHim.cx = sizelHim.cy = 0;
     } else {
-	sizelHim.cx = sizelHim.cy = 0;
+        sizelHim.cx = sizelHim.cy = 0;
     }
 
     // Get DWSTATUS
     OLEDBG_BEGIN2(TEXT("IOleObject::GetMiscStatus called\r\n"))
     hrErr = lpOleObj->lpVtbl->GetMiscStatus(
-		lpOleObj,
-		dwDrawAspect,
-		&dwStatus
+                lpOleObj,
+                dwDrawAspect,
+                &dwStatus
     );
     OLEDBG_END2
     if (hrErr != NOERROR)
-	dwStatus = 0;
+        dwStatus = 0;
 
     // Get OBJECTDESCRIPTOR
     hObjDesc = OleStdGetObjectDescriptorData(
-	    clsid,
-	    dwDrawAspect,
-	    sizelHim,
-	    pointl,
-	    dwStatus,
-	    lpszFullUserTypeName,
-	    lpszSrcOfCopy
+            clsid,
+            dwDrawAspect,
+            sizelHim,
+            pointl,
+            dwStatus,
+            lpszFullUserTypeName,
+            lpszSrcOfCopy
     );
     if (! hObjDesc)
-	goto error;
+        goto error;
 
     // Clean up
     if (lpszFullUserTypeName)
-	OleStdFreeString(lpszFullUserTypeName, NULL);
+        OleStdFreeString(lpszFullUserTypeName, NULL);
     if (fFreeSrcOfCopy && lpszSrcOfCopy)
-	OleStdFreeString(lpszSrcOfCopy, NULL);
+        OleStdFreeString(lpszSrcOfCopy, NULL);
     if (lpSrcMonikerOfCopy)
-	OleStdRelease((LPUNKNOWN)lpSrcMonikerOfCopy);
+        OleStdRelease((LPUNKNOWN)lpSrcMonikerOfCopy);
     if (lpOleLink)
-	OleStdRelease((LPUNKNOWN)lpOleLink);
+        OleStdRelease((LPUNKNOWN)lpOleLink);
     if (lpViewObj2)
-	OleStdRelease((LPUNKNOWN)lpViewObj2);
+        OleStdRelease((LPUNKNOWN)lpViewObj2);
 
     return hObjDesc;
 
 error:
     if (lpszFullUserTypeName)
-	OleStdFreeString(lpszFullUserTypeName, NULL);
+        OleStdFreeString(lpszFullUserTypeName, NULL);
     if (fFreeSrcOfCopy && lpszSrcOfCopy)
-	OleStdFreeString(lpszSrcOfCopy, NULL);
+        OleStdFreeString(lpszSrcOfCopy, NULL);
     if (lpSrcMonikerOfCopy)
-	OleStdRelease((LPUNKNOWN)lpSrcMonikerOfCopy);
+        OleStdRelease((LPUNKNOWN)lpSrcMonikerOfCopy);
     if (lpOleLink)
-	OleStdRelease((LPUNKNOWN)lpOleLink);
+        OleStdRelease((LPUNKNOWN)lpOleLink);
     if (lpViewObj2)
-	OleStdRelease((LPUNKNOWN)lpViewObj2);
+        OleStdRelease((LPUNKNOWN)lpViewObj2);
 
     return NULL;
 }
@@ -1454,9 +1456,9 @@ error:
  */
 
 STDAPI_(HGLOBAL) OleStdFillObjectDescriptorFromData(
-	LPDATAOBJECT     lpDataObject,
-	LPSTGMEDIUM      lpmedium,
-	CLIPFORMAT FAR* lpcfFmt
+        LPDATAOBJECT     lpDataObject,
+        LPSTGMEDIUM      lpmedium,
+        CLIPFORMAT FAR* lpcfFmt
 )
 {
     CLSID              clsid;
@@ -1476,143 +1478,143 @@ STDAPI_(HGLOBAL) OleStdFillObjectDescriptorFromData(
     // GetData CF_OBJECTDESCRIPTOR format from the object on the clipboard.
     // Only OLE 2 objects on the clipboard will offer CF_OBJECTDESCRIPTOR
     if (hMem = OleStdGetData(
-	    lpDataObject,
-	    (CLIPFORMAT) cfObjectDescriptor,
-	    NULL,
-	    DVASPECT_CONTENT,
-	    lpmedium))
+            lpDataObject,
+            (CLIPFORMAT) cfObjectDescriptor,
+            NULL,
+            DVASPECT_CONTENT,
+            lpmedium))
     {
-	*lpcfFmt = cfObjectDescriptor;
-	return hMem;  // Don't drop to clean up at the end of this function
+        *lpcfFmt = cfObjectDescriptor;
+        return hMem;  // Don't drop to clean up at the end of this function
     }
     // If CF_OBJECTDESCRIPTOR is not available, i.e. if this is not an OLE2 object,
     //     check if this is an OLE 1 object. OLE 1 objects will offer CF_OWNERLINK
     else if (hMem = OleStdGetData(
-		lpDataObject,
-		(CLIPFORMAT) cfOwnerLink,
-		NULL,
-		DVASPECT_CONTENT,
-		lpmedium))
+                lpDataObject,
+                (CLIPFORMAT) cfOwnerLink,
+                NULL,
+                DVASPECT_CONTENT,
+                lpmedium))
     {
-	*lpcfFmt = cfOwnerLink;
-	// CF_OWNERLINK contains null-terminated strings for class name, document name
-	// and item name with two null terminating characters at the end
-	szClassName = (LPTSTR)GlobalLock(hMem);
-	nClassName = lstrlen(szClassName);
-	szDocName   = szClassName + nClassName + 1;
-	nDocName   = lstrlen(szDocName);
-	szItemName  = szDocName + nDocName + 1;
-	nItemName  =  lstrlen(szItemName);
+        *lpcfFmt = cfOwnerLink;
+        // CF_OWNERLINK contains null-terminated strings for class name, document name
+        // and item name with two null terminating characters at the end
+        szClassName = (LPTSTR)GlobalLock(hMem);
+        nClassName = lstrlen(szClassName);
+        szDocName   = szClassName + nClassName + 1;
+        nDocName   = lstrlen(szDocName);
+        szItemName  = szDocName + nDocName + 1;
+        nItemName  =  lstrlen(szItemName);
 
-	hrErr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
-	if (hrErr != NOERROR)
-	    goto error;
+        hrErr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
+        if (hrErr != NOERROR)
+            goto error;
 
-	// Find FullUserTypeName from Registration database using class name
-	if (RegOpenKey(HKEY_CLASSES_ROOT, NULL, &hKey) != ERROR_SUCCESS)
-	   goto error;
+        // Find FullUserTypeName from Registration database using class name
+        if (RegOpenKey(HKEY_CLASSES_ROOT, NULL, &hKey) != ERROR_SUCCESS)
+           goto error;
 
-	// Allocate space for szFullUserTypeName & szSrcOfCopy. Maximum length of FullUserTypeName
-	// is OLEUI_CCHKEYMAX_SIZE. SrcOfCopy is constructed by concatenating FullUserTypeName, Document
-	// Name and ItemName separated by spaces.
-	szBuf = (LPTSTR)pIMalloc->lpVtbl->Alloc(pIMalloc,
-			    (DWORD)2*OLEUI_CCHKEYMAX_SIZE+
-				(nDocName+nItemName+4)*sizeof(TCHAR));
-	if (NULL == szBuf)
-	    goto error;
-	szFullUserTypeName = szBuf;
-	szSrcOfCopy = szFullUserTypeName+OLEUI_CCHKEYMAX_SIZE+1;
+        // Allocate space for szFullUserTypeName & szSrcOfCopy. Maximum length of FullUserTypeName
+        // is OLEUI_CCHKEYMAX_SIZE. SrcOfCopy is constructed by concatenating FullUserTypeName, Document
+        // Name and ItemName separated by spaces.
+        szBuf = (LPTSTR)pIMalloc->lpVtbl->Alloc(pIMalloc,
+                            (DWORD)2*OLEUI_CCHKEYMAX_SIZE+
+                                (nDocName+nItemName+4)*sizeof(TCHAR));
+        if (NULL == szBuf)
+            goto error;
+        szFullUserTypeName = szBuf;
+        szSrcOfCopy = szFullUserTypeName+OLEUI_CCHKEYMAX_SIZE+1;
 
-	// Get FullUserTypeName
-	if (RegQueryValue(hKey, NULL, szFullUserTypeName, &dw) != ERROR_SUCCESS)
-	   goto error;
+        // Get FullUserTypeName
+        if (RegQueryValue(hKey, NULL, szFullUserTypeName, &dw) != ERROR_SUCCESS)
+           goto error;
 
-	// Build up SrcOfCopy string from FullUserTypeName, DocumentName & ItemName
-	lpsz = szSrcOfCopy;
-	lstrcpy(lpsz, szFullUserTypeName);
-	nFullUserTypeName = lstrlen(szFullUserTypeName);
-	lpsz[nFullUserTypeName]= TEXT(' ');
-	lpsz += nFullUserTypeName+1;
-	lstrcpy(lpsz, szDocName);
-	lpsz[nDocName] = TEXT(' ');
-	lpsz += nDocName+1;
-	lstrcpy(lpsz, szItemName);
+        // Build up SrcOfCopy string from FullUserTypeName, DocumentName & ItemName
+        lpsz = szSrcOfCopy;
+        lstrcpy(lpsz, szFullUserTypeName);
+        nFullUserTypeName = lstrlen(szFullUserTypeName);
+        lpsz[nFullUserTypeName]= TEXT(' ');
+        lpsz += nFullUserTypeName+1;
+        lstrcpy(lpsz, szDocName);
+        lpsz[nDocName] = TEXT(' ');
+        lpsz += nDocName+1;
+        lstrcpy(lpsz, szItemName);
 
-	sizelHim.cx = sizelHim.cy = 0;
-	pointl.x = pointl.y = 0;
+        sizelHim.cx = sizelHim.cy = 0;
+        pointl.x = pointl.y = 0;
 
-	CLSIDFromProgIDA(szClassName, &clsid);
+        CLSIDFromProgIDA(szClassName, &clsid);
 
-	hObjDesc = OleStdGetObjectDescriptorData(
-		clsid,
-		DVASPECT_CONTENT,
-		sizelHim,
-		pointl,
-		0,
-		szFullUserTypeName,
-		szSrcOfCopy
-	);
-	if (!hObjDesc)
-	   goto error;
+        hObjDesc = OleStdGetObjectDescriptorData(
+                clsid,
+                DVASPECT_CONTENT,
+                sizelHim,
+                pointl,
+                0,
+                szFullUserTypeName,
+                szSrcOfCopy
+        );
+        if (!hObjDesc)
+           goto error;
      }
      // Check if object is CF_FILENAME
      else if (hMem = OleStdGetData(
-		lpDataObject,
-		(CLIPFORMAT) cfFileName,
-		NULL,
-		DVASPECT_CONTENT,
-		lpmedium))
+                lpDataObject,
+                (CLIPFORMAT) cfFileName,
+                NULL,
+                DVASPECT_CONTENT,
+                lpmedium))
      {
-	 *lpcfFmt = cfFileName;
-	 lpsz = (LPTSTR)GlobalLock(hMem);
+         *lpcfFmt = cfFileName;
+         lpsz = (LPTSTR)GlobalLock(hMem);
 
-	 hrErr = GetClassFileA(lpsz, &clsid);
+         hrErr = GetClassFileA(lpsz, &clsid);
 
-	 /* OLE2NOTE: if the file does not have an OLE class
-	 **    associated, then use the OLE 1 Packager as the class of
-	 **    the object to be created. this is the behavior of
-	 **    OleCreateFromData API
-	 */
-	 if (hrErr != NOERROR)
-	    CLSIDFromProgIDA("Package", &clsid);
-	 sizelHim.cx = sizelHim.cy = 0;
-	 pointl.x = pointl.y = 0;
+         /* OLE2NOTE: if the file does not have an OLE class
+         **    associated, then use the OLE 1 Packager as the class of
+         **    the object to be created. this is the behavior of
+         **    OleCreateFromData API
+         */
+         if (hrErr != NOERROR)
+            CLSIDFromProgIDA("Package", &clsid);
+         sizelHim.cx = sizelHim.cy = 0;
+         pointl.x = pointl.y = 0;
 
-	 hrErr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
-	 if (hrErr != NOERROR)
-	    goto error;
-	 szBuf = (LPTSTR)pIMalloc->lpVtbl->Alloc(pIMalloc, (DWORD)OLEUI_CCHKEYMAX_SIZE);
-	 if (NULL == szBuf)
-	    goto error;
+         hrErr = CoGetMalloc(MEMCTX_TASK, &pIMalloc);
+         if (hrErr != NOERROR)
+            goto error;
+         szBuf = (LPTSTR)pIMalloc->lpVtbl->Alloc(pIMalloc, (DWORD)OLEUI_CCHKEYMAX_SIZE);
+         if (NULL == szBuf)
+            goto error;
 
-	 OleStdGetUserTypeOfClass(&clsid, szBuf, OLEUI_CCHKEYMAX_SIZE, NULL);
+         OleStdGetUserTypeOfClass(&clsid, szBuf, OLEUI_CCHKEYMAX_SIZE, NULL);
 
-	 hObjDesc = OleStdGetObjectDescriptorData(
-		clsid,
-		DVASPECT_CONTENT,
-		sizelHim,
-		pointl,
-		0,
-		szBuf,
-		lpsz
-	);
-	if (!hObjDesc)
-	   goto error;
+         hObjDesc = OleStdGetObjectDescriptorData(
+                clsid,
+                DVASPECT_CONTENT,
+                sizelHim,
+                pointl,
+                0,
+                szBuf,
+                lpsz
+        );
+        if (!hObjDesc)
+           goto error;
      }
      else goto error;
 
      // Clean up
      if (szBuf)
-	 pIMalloc->lpVtbl->Free(pIMalloc, (LPVOID)szBuf);
+         pIMalloc->lpVtbl->Free(pIMalloc, (LPVOID)szBuf);
      if (pIMalloc)
-	 pIMalloc->lpVtbl->Release(pIMalloc);
+         pIMalloc->lpVtbl->Release(pIMalloc);
      if (hMem)
      {
-	 GlobalUnlock(hMem);
-	 GlobalFree(hMem);
+         GlobalUnlock(hMem);
+         GlobalFree(hMem);
      }
      if (hKey)
-	 RegCloseKey(hKey);
+         RegCloseKey(hKey);
      return hObjDesc;
 
 error:
@@ -1622,11 +1624,11 @@ error:
        pIMalloc->lpVtbl->Release(pIMalloc);
      if (hMem)
      {
-	 GlobalUnlock(hMem);
-	 GlobalFree(hMem);
+         GlobalUnlock(hMem);
+         GlobalFree(hMem);
      }
      if (hKey)
-	 RegCloseKey(hKey);
+         RegCloseKey(hKey);
      return NULL;
 }
 
@@ -1648,9 +1650,9 @@ error:
 STDAPI OleStdQueryOleObjectData(LPFORMATETC lpformatetc)
 {
     if (lpformatetc->tymed & TYMED_ISTORAGE) {
-	return NOERROR;
+        return NOERROR;
     } else {
-	return ResultFromScode(DATA_E_FORMATETC);
+        return ResultFromScode(DATA_E_FORMATETC);
     }
 }
 
@@ -1658,9 +1660,9 @@ STDAPI OleStdQueryOleObjectData(LPFORMATETC lpformatetc)
 STDAPI OleStdQueryLinkSourceData(LPFORMATETC lpformatetc)
 {
     if (lpformatetc->tymed & TYMED_ISTREAM) {
-	return NOERROR;
+        return NOERROR;
     } else {
-	return ResultFromScode(DATA_E_FORMATETC);
+        return ResultFromScode(DATA_E_FORMATETC);
     }
 }
 
@@ -1668,9 +1670,9 @@ STDAPI OleStdQueryLinkSourceData(LPFORMATETC lpformatetc)
 STDAPI OleStdQueryObjectDescriptorData(LPFORMATETC lpformatetc)
 {
     if (lpformatetc->tymed & TYMED_HGLOBAL) {
-	return NOERROR;
+        return NOERROR;
     } else {
-	return ResultFromScode(DATA_E_FORMATETC);
+        return ResultFromScode(DATA_E_FORMATETC);
     }
 }
 
@@ -1678,9 +1680,9 @@ STDAPI OleStdQueryObjectDescriptorData(LPFORMATETC lpformatetc)
 STDAPI OleStdQueryFormatMedium(LPFORMATETC lpformatetc, TYMED tymed)
 {
     if (lpformatetc->tymed & tymed) {
-	return NOERROR;
+        return NOERROR;
     } else {
-	return ResultFromScode(DATA_E_FORMATETC);
+        return ResultFromScode(DATA_E_FORMATETC);
     }
 }
 
@@ -1701,24 +1703,24 @@ STDAPI_(BOOL) OleStdCopyMetafilePict(HANDLE hpictin, HANDLE FAR* phpictout)
     LPMETAFILEPICT ppictin, ppictout;
 
     if (hpictin == NULL || phpictout == NULL) {
-	OleDbgAssert(hpictin == NULL || phpictout == NULL);
-	return FALSE;
+        OleDbgAssert(hpictin == NULL || phpictout == NULL);
+        return FALSE;
     }
 
     *phpictout = NULL;
 
     if ((ppictin = (LPMETAFILEPICT)GlobalLock(hpictin)) == NULL) {
-	return FALSE;
+        return FALSE;
     }
 
     hpictout = GlobalAlloc(GHND|GMEM_SHARE, sizeof(METAFILEPICT));
 
     if (hpictout && (ppictout = (LPMETAFILEPICT)GlobalLock(hpictout))){
-	ppictout->hMF  = CopyMetaFile(ppictin->hMF, NULL);
-	ppictout->xExt = ppictin->xExt;
-	ppictout->yExt = ppictin->yExt;
-	ppictout->mm   = ppictin->mm;
-	GlobalUnlock(hpictout);
+        ppictout->hMF  = CopyMetaFile(ppictin->hMF, NULL);
+        ppictout->xExt = ppictin->xExt;
+        ppictout->yExt = ppictin->yExt;
+        ppictout->mm   = ppictin->mm;
+        GlobalUnlock(hpictout);
     }
 
     *phpictout = hpictout;
@@ -1752,13 +1754,13 @@ STDAPI_(DWORD) OleStdGetDropEffect( DWORD grfKeyState )
 
     if (grfKeyState & MK_CONTROL) {
 
-	if (grfKeyState & MK_SHIFT)
-	    return DROPEFFECT_LINK;
-	else
-	    return DROPEFFECT_COPY;
+        if (grfKeyState & MK_SHIFT)
+            return DROPEFFECT_LINK;
+        else
+            return DROPEFFECT_COPY;
 
     } else if (grfKeyState & MK_SHIFT)
-	return DROPEFFECT_MOVE;
+        return DROPEFFECT_MOVE;
 
     return 0;    // no modifier -- do default operation
 }
@@ -1786,10 +1788,10 @@ STDAPI_(DWORD) OleStdGetDropEffect( DWORD grfKeyState )
  *    HANDLE    -- handle of allocated METAFILEPICT
  */
 STDAPI_(HANDLE) OleStdGetMetafilePictFromOleObject(
-	LPOLEOBJECT         lpOleObj,
-	DWORD               dwDrawAspect,
-	LPSIZEL             lpSizelHim,
-	DVTARGETDEVICE FAR* ptd
+        LPOLEOBJECT         lpOleObj,
+        DWORD               dwDrawAspect,
+        LPSIZEL             lpSizelHim,
+        DVTARGETDEVICE FAR* ptd
 )
 {
     LPVIEWOBJECT2 lpViewObj2 = NULL;
@@ -1806,29 +1808,29 @@ STDAPI_(HANDLE) OleStdGetMetafilePictFromOleObject(
 
 #ifdef OLE201
     lpViewObj2 = (LPVIEWOBJECT2)OleStdQueryInterface(
-	    (LPUNKNOWN)lpOleObj, &IID_IViewObject2);
+            (LPUNKNOWN)lpOleObj, &IID_IViewObject2);
 #endif
 
     if (! lpViewObj2)
-	return NULL;
+        return NULL;
 
     // Get SIZEL
     if (lpSizelHim) {
-	// Use extents passed by the caller
-	sizelHim = *lpSizelHim;
+        // Use extents passed by the caller
+        sizelHim = *lpSizelHim;
     } else {
-	// Get the current extents from the object
-	OLEDBG_BEGIN2(TEXT("IViewObject2::GetExtent called\r\n"))
-	hrErr = lpViewObj2->lpVtbl->GetExtent(
-		lpViewObj2,
-		dwDrawAspect,
-		-1,     /*lindex*/
-		ptd,    /*ptd*/
-		(LPSIZEL)&sizelHim
-	);
-	OLEDBG_END2
-	if (hrErr != NOERROR)
-	    sizelHim.cx = sizelHim.cy = 0;
+        // Get the current extents from the object
+        OLEDBG_BEGIN2(TEXT("IViewObject2::GetExtent called\r\n"))
+        hrErr = lpViewObj2->lpVtbl->GetExtent(
+                lpViewObj2,
+                dwDrawAspect,
+                -1,     /*lindex*/
+                ptd,    /*ptd*/
+                (LPSIZEL)&sizelHim
+        );
+        OLEDBG_END2
+        if (hrErr != NOERROR)
+            sizelHim.cx = sizelHim.cy = 0;
     }
 
     hDC = CreateMetaFile(NULL);
@@ -1848,23 +1850,23 @@ STDAPI_(HANDLE) OleStdGetMetafilePictFromOleObject(
 
     OLEDBG_BEGIN2(TEXT("IViewObject::Draw called\r\n"))
     hrErr = lpViewObj2->lpVtbl->Draw(
-	    lpViewObj2,
-	    dwDrawAspect,
-	    -1,
-	    NULL,
-	    ptd,
-	    NULL,
-	    hDC,
-	    (LPRECTL)&rclHim,
-	    (LPRECTL)&rclHim,
-	    NULL,
-	    0
+            lpViewObj2,
+            dwDrawAspect,
+            -1,
+            NULL,
+            ptd,
+            NULL,
+            hDC,
+            (LPRECTL)&rclHim,
+            (LPRECTL)&rclHim,
+            NULL,
+            0
     );
     OLEDBG_END2
 
     OleStdRelease((LPUNKNOWN)lpViewObj2);
     if (hrErr != NOERROR) {
-	OleDbgOutHResult(TEXT("IViewObject::Draw returned"), hrErr);
+        OleDbgOutHResult(TEXT("IViewObject::Draw returned"), hrErr);
     }
 
     hmf = CloseMetaFile(hDC);
@@ -1872,11 +1874,11 @@ STDAPI_(HANDLE) OleStdGetMetafilePictFromOleObject(
     hMetaPict = GlobalAlloc(GHND|GMEM_SHARE, sizeof(METAFILEPICT));
 
     if (hMetaPict && (lpPict = (LPMETAFILEPICT)GlobalLock(hMetaPict))){
-	lpPict->hMF  = hmf;
-	lpPict->xExt = (int)sizelHim.cx ;
-	lpPict->yExt = (int)sizelHim.cy ;
-	lpPict->mm   = MM_ANISOTROPIC;
-	GlobalUnlock(hMetaPict);
+        lpPict->hMF  = hmf;
+        lpPict->xExt = (int)sizelHim.cx ;
+        lpPict->yExt = (int)sizelHim.cy ;
+        lpPict->mm   = MM_ANISOTROPIC;
+        GlobalUnlock(hMetaPict);
     }
 
     return hMetaPict;
@@ -1894,26 +1896,26 @@ STDAPI_(ULONG) OleStdVerifyRelease(LPUNKNOWN lpUnk, LPTSTR lpszMsg)
 
 #if defined( _DEBUG )
     if (cRef != 0) {
-	TCHAR szBuf[80];
-	if (lpszMsg)
-	    MessageBox(NULL, lpszMsg, NULL, MB_ICONEXCLAMATION | MB_OK);
-	wsprintf(
-		(LPTSTR)szBuf,
-		TEXT("refcnt (%ld) != 0 after object (0x%lx) release\n"),
-		cRef,
-		lpUnk
-	);
-	if (lpszMsg)
-	    OleDbgOut1(lpszMsg);
-	OleDbgOut1((LPTSTR)szBuf);
-	OleDbgAssertSz(cRef == 0, (LPTSTR)szBuf);
+        TCHAR szBuf[80];
+        if (lpszMsg)
+            MessageBox(NULL, lpszMsg, NULL, MB_ICONEXCLAMATION | MB_OK);
+        wsprintf(
+                (LPTSTR)szBuf,
+                TEXT("refcnt (%ld) != 0 after object (0x%lx) release\n"),
+                cRef,
+                lpUnk
+        );
+        if (lpszMsg)
+            OleDbgOut1(lpszMsg);
+        OleDbgOut1((LPTSTR)szBuf);
+        OleDbgAssertSz(cRef == 0, (LPTSTR)szBuf);
     } else {
-	TCHAR szBuf[80];
-	wsprintf(
-		(LPTSTR)szBuf,
-		TEXT("refcnt = 0 after object (0x%lx) release\n"), lpUnk
-	);
-	OleDbgOut4((LPTSTR)szBuf);
+        TCHAR szBuf[80];
+        wsprintf(
+                (LPTSTR)szBuf,
+                TEXT("refcnt = 0 after object (0x%lx) release\n"), lpUnk
+        );
+        OleDbgOut4((LPTSTR)szBuf);
     }
 #endif
     return cRef;
@@ -1930,14 +1932,14 @@ STDAPI_(ULONG) OleStdRelease(LPUNKNOWN lpUnk)
 
 #if defined( _DEBUG )
     {
-	TCHAR szBuf[80];
-	wsprintf(
-		(LPTSTR)szBuf,
-		TEXT("refcnt = %ld after object (0x%lx) release\n"),
-		cRef,
-		lpUnk
-	);
-	OleDbgOut4((LPTSTR)szBuf);
+        TCHAR szBuf[80];
+        wsprintf(
+                (LPTSTR)szBuf,
+                TEXT("refcnt = %ld after object (0x%lx) release\n"),
+                cRef,
+                lpUnk
+        );
+        OleDbgOut4((LPTSTR)szBuf);
     }
 #endif
     return cRef;
@@ -1967,7 +1969,7 @@ STDAPI_(void) OleStdInitVtbl(LPVOID lpVtbl, UINT nSizeOfVtbl)
     UINT i;
 
     for (i = 0; i < nMethods; i++) {
-	lpFuncPtrArr[i] = OleStdNullMethod;
+        lpFuncPtrArr[i] = OleStdNullMethod;
     }
 }
 
@@ -1994,14 +1996,14 @@ STDAPI_(BOOL) OleStdCheckVtbl(LPVOID lpVtbl, UINT nSizeOfVtbl, LPTSTR lpszIface)
     int nChar = 0;
 
     for (i = 0; i < nMethods; i++) {
-	if (lpFuncPtrArr[i] == NULL || lpFuncPtrArr[i] == OleStdNullMethod) {
+        if (lpFuncPtrArr[i] == NULL || lpFuncPtrArr[i] == OleStdNullMethod) {
 #if defined( _DEBUG )
-	    TCHAR szBuf[256];
-	    wsprintf(szBuf, TEXT("%s::method# %d NOT valid!"), lpszIface, i);
-	    OleDbgOut1((LPTSTR)szBuf);
+            TCHAR szBuf[256];
+            wsprintf(szBuf, TEXT("%s::method# %d NOT valid!"), lpszIface, i);
+            OleDbgOut1((LPTSTR)szBuf);
 #endif
-	    fStatus = FALSE;
-	}
+            fStatus = FALSE;
+        }
     }
     return fStatus;
 }
@@ -2019,10 +2021,10 @@ STDAPI_(BOOL) OleStdCheckVtbl(LPVOID lpVtbl, UINT nSizeOfVtbl, LPTSTR lpszIface)
 STDMETHODIMP OleStdNullMethod(LPUNKNOWN lpThis)
 {
     MessageBox(
-	    NULL,
-	    TEXT("ERROR: INTERFACE METHOD NOT IMPLEMENTED!\r\n"),
-	    NULL,
-	    MB_SYSTEMMODAL | MB_ICONHAND | MB_OK
+            NULL,
+            TEXT("ERROR: INTERFACE METHOD NOT IMPLEMENTED!\r\n"),
+            NULL,
+            MB_SYSTEMMODAL | MB_ICONHAND | MB_OK
     );
 
     return ResultFromScode(E_NOTIMPL);
@@ -2037,7 +2039,7 @@ static BOOL  GetFileTimes(LPTSTR lpszFileName, FILETIME FAR* pfiletime)
     HANDLE hFind;
     hFind = FindFirstFile(lpszFileName,&fd);
     if (hFind == NULL || hFind == INVALID_HANDLE_VALUE) {
-	return FALSE;
+        return FALSE;
     }
     FindClose(hFind);
     *pfiletime = fd.ftLastWriteTime;
@@ -2050,8 +2052,8 @@ static BOOL  GetFileTimes(LPTSTR lpszFileName, FILETIME FAR* pfiletime)
     sz[sizeof(sz)-1]= TEXT('\0');
     AnsiToOem(sz, sz);
     return (_dos_findfirst(sz,_A_NORMAL|_A_HIDDEN|_A_SUBDIR|_A_SYSTEM,
-		     (struct _find_t *)&fileinfo) == 0 &&
-	CoDosDateTimeToFileTime(fileinfo.wr_date,fileinfo.wr_time,pfiletime));
+                     (struct _find_t *)&fileinfo) == 0 &&
+        CoDosDateTimeToFileTime(fileinfo.wr_date,fileinfo.wr_time,pfiletime));
 #endif // Win32
 }
 
@@ -2079,78 +2081,78 @@ STDAPI_(void) OleStdRegisterAsRunning(LPUNKNOWN lpUnk, LPMONIKER lpmkFull, DWORD
 
     if (hrErr == NOERROR) {
 
-	/* register as running if a valid moniker is passed
-	**
-	** OLE2NOTE: we deliberately register the new moniker BEFORE
-	**    revoking the old moniker just in case the object
-	**    currently has no external locks. if the object has no
-	**    locks then revoking it from the running object table will
-	**    cause the object's StubManager to initiate shutdown of
-	**    the object.
-	*/
-	if (lpmkFull) {
+        /* register as running if a valid moniker is passed
+        **
+        ** OLE2NOTE: we deliberately register the new moniker BEFORE
+        **    revoking the old moniker just in case the object
+        **    currently has no external locks. if the object has no
+        **    locks then revoking it from the running object table will
+        **    cause the object's StubManager to initiate shutdown of
+        **    the object.
+        */
+        if (lpmkFull) {
 
-	    OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Register called\r\n"))
-	    lpROT->lpVtbl->Register(lpROT, 0, lpUnk,lpmkFull,lpdwRegister);
-	    OLEDBG_END2
+            OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Register called\r\n"))
+            lpROT->lpVtbl->Register(lpROT, 0, lpUnk,lpmkFull,lpdwRegister);
+            OLEDBG_END2
 
 #if defined(_DEBUG)
-	    {
-		TCHAR szBuf[512];
-		LPTSTR lpszDisplay;
-		LPBC lpbc;
+            {
+                TCHAR szBuf[512];
+                LPTSTR lpszDisplay;
+                LPBC lpbc;
 
 #ifdef OLE201
-		CreateBindCtx(0, (LPBC FAR*)&lpbc);
+                CreateBindCtx(0, (LPBC FAR*)&lpbc);
 #endif
 
-		CallIMonikerGetDisplayNameA(
-			lpmkFull,
-			lpbc,
-			NULL,
-			&lpszDisplay
-		);
-		OleStdRelease((LPUNKNOWN)lpbc);
-		wsprintf(
-			szBuf,
-			TEXT("Moniker '%s' REGISTERED as [0x%lx] in ROT\r\n"),
-			lpszDisplay,
-			*lpdwRegister
-		);
-		OleDbgOut2(szBuf);
-		OleStdFreeString(lpszDisplay, NULL);
-	    }
+                CallIMonikerGetDisplayNameA(
+                        lpmkFull,
+                        lpbc,
+                        NULL,
+                        &lpszDisplay
+                );
+                OleStdRelease((LPUNKNOWN)lpbc);
+                wsprintf(
+                        szBuf,
+                        TEXT("Moniker '%s' REGISTERED as [0x%lx] in ROT\r\n"),
+                        lpszDisplay,
+                        *lpdwRegister
+                );
+                OleDbgOut2(szBuf);
+                OleStdFreeString(lpszDisplay, NULL);
+            }
 #endif  // _DEBUG
 
-	}
+        }
 
-	// if already registered, revoke
-	if (dwOldRegister != 0) {
+        // if already registered, revoke
+        if (dwOldRegister != 0) {
 
 #if defined(_DEBUG)
-	    {
-		TCHAR szBuf[512];
+            {
+                TCHAR szBuf[512];
 
-		wsprintf(
-			szBuf,
-			TEXT("Moniker [0x%lx] REVOKED from ROT\r\n"),
-			dwOldRegister
-		);
-		OleDbgOut2(szBuf);
-	    }
+                wsprintf(
+                        szBuf,
+                        TEXT("Moniker [0x%lx] REVOKED from ROT\r\n"),
+                        dwOldRegister
+                );
+                OleDbgOut2(szBuf);
+            }
 #endif  // _DEBUG
 
-	    OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Revoke called\r\n"))
-	    lpROT->lpVtbl->Revoke(lpROT, dwOldRegister);
-	    OLEDBG_END2
-	}
+            OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Revoke called\r\n"))
+            lpROT->lpVtbl->Revoke(lpROT, dwOldRegister);
+            OLEDBG_END2
+        }
 
-	OleStdRelease((LPUNKNOWN)lpROT);
+        OleStdRelease((LPUNKNOWN)lpROT);
     } else {
-	OleDbgAssertSz(
-		lpROT != NULL,
-		TEXT("OleStdRegisterAsRunning: GetRunningObjectTable FAILED\r\n")
-	);
+        OleDbgAssertSz(
+                lpROT != NULL,
+                TEXT("OleStdRegisterAsRunning: GetRunningObjectTable FAILED\r\n")
+        );
     }
 
     OLEDBG_END2
@@ -2175,38 +2177,38 @@ STDAPI_(void) OleStdRevokeAsRunning(DWORD FAR* lpdwRegister)
     // if still registered, then revoke
     if (*lpdwRegister != 0) {
 
-	OLEDBG_BEGIN2(TEXT("GetRunningObjectTable called\r\n"))
-	hrErr = GetRunningObjectTable(0,(LPRUNNINGOBJECTTABLE FAR*)&lpROT);
-	OLEDBG_END2
+        OLEDBG_BEGIN2(TEXT("GetRunningObjectTable called\r\n"))
+        hrErr = GetRunningObjectTable(0,(LPRUNNINGOBJECTTABLE FAR*)&lpROT);
+        OLEDBG_END2
 
-	if (hrErr == NOERROR) {
+        if (hrErr == NOERROR) {
 
 #if defined(_DEBUG)
-	    {
-		TCHAR szBuf[512];
+            {
+                TCHAR szBuf[512];
 
-		wsprintf(
-			szBuf,
-			TEXT("Moniker [0x%lx] REVOKED from ROT\r\n"),
-			*lpdwRegister
-		);
-		OleDbgOut2(szBuf);
-	    }
+                wsprintf(
+                        szBuf,
+                        TEXT("Moniker [0x%lx] REVOKED from ROT\r\n"),
+                        *lpdwRegister
+                );
+                OleDbgOut2(szBuf);
+            }
 #endif  // _DEBUG
 
-	    OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Revoke called\r\n"))
-	    lpROT->lpVtbl->Revoke(lpROT, *lpdwRegister);
-	    OLEDBG_END2
+            OLEDBG_BEGIN2(TEXT("IRunningObjectTable::Revoke called\r\n"))
+            lpROT->lpVtbl->Revoke(lpROT, *lpdwRegister);
+            OLEDBG_END2
 
-	    *lpdwRegister = 0;
+            *lpdwRegister = 0;
 
-	    OleStdRelease((LPUNKNOWN)lpROT);
-	} else {
-	    OleDbgAssertSz(
-		    lpROT != NULL,
-		    TEXT("OleStdRevokeAsRunning: GetRunningObjectTable FAILED\r\n")
-	    );
-	}
+            OleStdRelease((LPUNKNOWN)lpROT);
+        } else {
+            OleDbgAssertSz(
+                    lpROT != NULL,
+                    TEXT("OleStdRevokeAsRunning: GetRunningObjectTable FAILED\r\n")
+            );
+        }
     }
     OLEDBG_END2
 }
@@ -2226,17 +2228,17 @@ STDAPI_(void) OleStdNoteFileChangeTime(LPTSTR lpszFileName, DWORD dwRegister)
 {
     if (dwRegister != 0) {
 
-	LPRUNNINGOBJECTTABLE lprot;
-	FILETIME filetime;
+        LPRUNNINGOBJECTTABLE lprot;
+        FILETIME filetime;
 
-	if (GetFileTimes(lpszFileName, &filetime) &&
-	    GetRunningObjectTable(0,&lprot) == NOERROR)
-	{
-	    lprot->lpVtbl->NoteChangeTime( lprot, dwRegister, &filetime );
-	    lprot->lpVtbl->Release(lprot);
+        if (GetFileTimes(lpszFileName, &filetime) &&
+            GetRunningObjectTable(0,&lprot) == NOERROR)
+        {
+            lprot->lpVtbl->NoteChangeTime( lprot, dwRegister, &filetime );
+            lprot->lpVtbl->Release(lprot);
 
-	    OleDbgOut2(TEXT("IRunningObjectTable::NoteChangeTime called\r\n"));
-	}
+            OleDbgOut2(TEXT("IRunningObjectTable::NoteChangeTime called\r\n"));
+        }
     }
 }
 
@@ -2256,19 +2258,19 @@ STDAPI_(void) OleStdNoteObjectChangeTime(DWORD dwRegister)
 {
     if (dwRegister != 0) {
 
-	LPRUNNINGOBJECTTABLE lprot;
-	FILETIME filetime;
+        LPRUNNINGOBJECTTABLE lprot;
+        FILETIME filetime;
 
-	if (GetRunningObjectTable(0,&lprot) == NOERROR)
-	{
+        if (GetRunningObjectTable(0,&lprot) == NOERROR)
+        {
 #ifdef OLE201
-	    CoFileTimeNow( &filetime );
-	    lprot->lpVtbl->NoteChangeTime( lprot, dwRegister, &filetime );
+            CoFileTimeNow( &filetime );
+            lprot->lpVtbl->NoteChangeTime( lprot, dwRegister, &filetime );
 #endif
-	    lprot->lpVtbl->Release(lprot);
+            lprot->lpVtbl->Release(lprot);
 
-	    OleDbgOut2(TEXT("IRunningObjectTable::NoteChangeTime called\r\n"));
-	}
+            OleDbgOut2(TEXT("IRunningObjectTable::NoteChangeTime called\r\n"));
+        }
     }
 }
 
@@ -2307,10 +2309,10 @@ STDAPI_(void) OleStdNoteObjectChangeTime(DWORD dwRegister)
 **    CreateTempFileName.
 */
 STDAPI_(void) OleStdCreateTempFileMoniker(
-	LPTSTR           lpszPrefixString,
-	UINT FAR*       lpuUnique,
-	LPTSTR           lpszName,
-	LPMONIKER FAR*  lplpmk
+        LPTSTR           lpszPrefixString,
+        UINT FAR*       lpuUnique,
+        LPTSTR           lpszName,
+        LPMONIKER FAR*  lplpmk
 )
 {
     LPRUNNINGOBJECTTABLE lpROT = NULL;
@@ -2328,31 +2330,31 @@ STDAPI_(void) OleStdCreateTempFileMoniker(
 
     if (hrErr == NOERROR) {
 
-	while (1) {
-	    if (! *lplpmk)
-		break;  // failed to create FileMoniker
+        while (1) {
+            if (! *lplpmk)
+                break;  // failed to create FileMoniker
 
-	    OLEDBG_BEGIN2(TEXT("IRunningObjectTable::IsRunning called\r\n"))
-	    hrErr = lpROT->lpVtbl->IsRunning(lpROT,*lplpmk);
-	    OLEDBG_END2
+            OLEDBG_BEGIN2(TEXT("IRunningObjectTable::IsRunning called\r\n"))
+            hrErr = lpROT->lpVtbl->IsRunning(lpROT,*lplpmk);
+            OLEDBG_END2
 
-	    if (hrErr != NOERROR)
-		break;  // the Moniker is NOT running; found unused one!
+            if (hrErr != NOERROR)
+                break;  // the Moniker is NOT running; found unused one!
 
-	    OleStdVerifyRelease(
-		    (LPUNKNOWN)*lplpmk,
-		    TEXT("OleStdCreateTempFileMoniker: Moniker NOT released")
-		);
+            OleStdVerifyRelease(
+                    (LPUNKNOWN)*lplpmk,
+                    TEXT("OleStdCreateTempFileMoniker: Moniker NOT released")
+                );
 
-	    wsprintf(lpszName, TEXT("%s%d"), lpszPrefixString, i++);
-	    CreateFileMonikerA(lpszName, lplpmk);
-	}
+            wsprintf(lpszName, TEXT("%s%d"), lpszPrefixString, i++);
+            CreateFileMonikerA(lpszName, lplpmk);
+        }
 
-	OleStdRelease((LPUNKNOWN)lpROT);
+        OleStdRelease((LPUNKNOWN)lpROT);
     }
 
     if (lpuUnique != NULL)
-	*lpuUnique = i;
+        *lpuUnique = i;
 }
 
 
@@ -2371,38 +2373,38 @@ STDAPI_(LPMONIKER) OleStdGetFirstMoniker(LPMONIKER lpmk)
     HRESULT         hrErr;
 
     if (! lpmk)
-	return NULL;
+        return NULL;
 
     if (lpmk->lpVtbl->IsSystemMoniker(lpmk, (LPDWORD)&dwMksys) == NOERROR
-	&& dwMksys == MKSYS_GENERICCOMPOSITE) {
+        && dwMksys == MKSYS_GENERICCOMPOSITE) {
 
-	/* OLE2NOTE: the moniker is a GenericCompositeMoniker.
-	**    enumerate the moniker to pull off the first piece.
-	*/
+        /* OLE2NOTE: the moniker is a GenericCompositeMoniker.
+        **    enumerate the moniker to pull off the first piece.
+        */
 
-	hrErr = lpmk->lpVtbl->Enum(
-		lpmk,
-		TRUE /* fForward */,
-		(LPENUMMONIKER FAR*)&lpenumMoniker
-	);
-	if (hrErr != NOERROR)
-	    return NULL;    // ERROR: give up!
+        hrErr = lpmk->lpVtbl->Enum(
+                lpmk,
+                TRUE /* fForward */,
+                (LPENUMMONIKER FAR*)&lpenumMoniker
+        );
+        if (hrErr != NOERROR)
+            return NULL;    // ERROR: give up!
 
-	hrErr = lpenumMoniker->lpVtbl->Next(
-		lpenumMoniker,
-		1,
-		(LPMONIKER FAR*)&lpmkFirst,
-		NULL
-	);
-	lpenumMoniker->lpVtbl->Release(lpenumMoniker);
-	return lpmkFirst;
+        hrErr = lpenumMoniker->lpVtbl->Next(
+                lpenumMoniker,
+                1,
+                (LPMONIKER FAR*)&lpmkFirst,
+                NULL
+        );
+        lpenumMoniker->lpVtbl->Release(lpenumMoniker);
+        return lpmkFirst;
 
     } else {
-	/* OLE2NOTE: the moniker is NOT a GenericCompositeMoniker.
-	**    return an AddRef'ed pointer to the input moniker.
-	*/
-	lpmk->lpVtbl->AddRef(lpmk);
-	return lpmk;
+        /* OLE2NOTE: the moniker is NOT a GenericCompositeMoniker.
+        **    return an AddRef'ed pointer to the input moniker.
+        */
+        lpmk->lpVtbl->AddRef(lpmk);
+        return lpmk;
     }
 }
 
@@ -2429,29 +2431,29 @@ STDAPI_(ULONG) OleStdGetLenFilePrefixOfMoniker(LPMONIKER lpmk)
     HRESULT         hrErr;
 
     if (! lpmk)
-	return 0;
+        return 0;
 
     lpmkFirst = OleStdGetFirstMoniker(lpmk);
     if (lpmkFirst) {
-	if ( (lpmkFirst->lpVtbl->IsSystemMoniker(
-			    lpmkFirst, (LPDWORD)&dwMksys) == NOERROR)
-		&& dwMksys == MKSYS_FILEMONIKER) {
+        if ( (lpmkFirst->lpVtbl->IsSystemMoniker(
+                            lpmkFirst, (LPDWORD)&dwMksys) == NOERROR)
+                && dwMksys == MKSYS_FILEMONIKER) {
 
 #ifdef OLE201
-	     hrErr = CreateBindCtx(0, (LPBC FAR*)&lpbc);
+             hrErr = CreateBindCtx(0, (LPBC FAR*)&lpbc);
 #endif
-	    if (hrErr == NOERROR) {
-		hrErr = CallIMonikerGetDisplayNameA(lpmkFirst, lpbc, NULL,
-			&lpsz);
+            if (hrErr == NOERROR) {
+                hrErr = CallIMonikerGetDisplayNameA(lpmkFirst, lpbc, NULL,
+                        &lpsz);
 
-		if (hrErr == NOERROR && lpsz != NULL) {
-		    uLen = lstrlen(lpsz);
-		    OleStdFreeString(lpsz, NULL);
-		}
-		OleStdRelease((LPUNKNOWN)lpbc);
-	    }
-	}
-	lpmkFirst->lpVtbl->Release(lpmkFirst);
+                if (hrErr == NOERROR && lpsz != NULL) {
+                    uLen = lstrlen(lpsz);
+                    OleStdFreeString(lpsz, NULL);
+                }
+                OleStdRelease((LPUNKNOWN)lpbc);
+            }
+        }
+        lpmkFirst->lpVtbl->Release(lpmkFirst);
     }
     return uLen;
 }
@@ -2483,55 +2485,55 @@ STDAPI_(ULONG) OleStdGetLenFilePrefixOfMoniker(LPMONIKER lpmk)
 **    else error code returned by MkParseDisplayName
 */
 STDAPI OleStdMkParseDisplayName(
-	REFCLSID        rClsid,
-	LPBC            lpbc,
-	LPTSTR		lpszUserName,
-	ULONG FAR*      lpchEaten,
-	LPMONIKER FAR*  lplpmk
+        REFCLSID        rClsid,
+        LPBC            lpbc,
+        LPTSTR          lpszUserName,
+        ULONG FAR*      lpchEaten,
+        LPMONIKER FAR*  lplpmk
 )
 {
     HRESULT hrErr;
 
     if (!IsEqualCLSID(rClsid,&CLSID_NULL) && CoIsOle1Class(rClsid) &&
-	lpszUserName[0] != '@') {
-	LPTSTR lpszBuf;
-	LPTSTR lpszProgID;
+        lpszUserName[0] != '@') {
+        LPTSTR lpszBuf;
+        LPTSTR lpszProgID;
 
-	// Prepend "@<ProgID>!" to the input string
-	ProgIDFromCLSIDA(rClsid, &lpszProgID);
+        // Prepend "@<ProgID>!" to the input string
+        ProgIDFromCLSIDA(rClsid, &lpszProgID);
 
-	if (lpszProgID == NULL)
-	    goto Cont1;
-	lpszBuf = OleStdMalloc(
-		((ULONG)lstrlen(lpszUserName)+
+        if (lpszProgID == NULL)
+            goto Cont1;
+        lpszBuf = OleStdMalloc(
+                ((ULONG)lstrlen(lpszUserName)+
 #ifdef UNICODE
-		       // OLE in Win32 is always UNICODE
-		       wcslen(lpszProgID)
+                       // OLE in Win32 is always UNICODE
+                       wcslen(lpszProgID)
 #else
-		       lstrlen(lpszProgID)
+                       lstrlen(lpszProgID)
 #endif
-		       +3)*sizeof(TCHAR));
-	if (lpszBuf == NULL) {
-	    if (lpszProgID)
-		OleStdFree(lpszProgID);
-	    goto Cont1;
-	}
+                       +3)*sizeof(TCHAR));
+        if (lpszBuf == NULL) {
+            if (lpszProgID)
+                OleStdFree(lpszProgID);
+            goto Cont1;
+        }
 
-	wsprintf(lpszBuf, TEXT("@%s!%s"), lpszProgID, lpszUserName);
+        wsprintf(lpszBuf, TEXT("@%s!%s"), lpszProgID, lpszUserName);
 
-	OLEDBG_BEGIN2(TEXT("MkParseDisplayName called\r\n"))
+        OLEDBG_BEGIN2(TEXT("MkParseDisplayName called\r\n"))
 
-	hrErr = MkParseDisplayNameA(lpbc, lpszBuf, lpchEaten, lplpmk);
+        hrErr = MkParseDisplayNameA(lpbc, lpszBuf, lpchEaten, lplpmk);
 
-	OLEDBG_END2
+        OLEDBG_END2
 
-	if (lpszProgID)
-	    OleStdFree(lpszProgID);
-	if (lpszBuf)
-	    OleStdFree(lpszBuf);
+        if (lpszProgID)
+            OleStdFree(lpszProgID);
+        if (lpszBuf)
+            OleStdFree(lpszBuf);
 
-	if (hrErr == NOERROR)
-	    return NOERROR;
+        if (hrErr == NOERROR)
+            return NOERROR;
     }
 
 Cont1:
@@ -2562,88 +2564,88 @@ Cont1:
  *   none
  */
 STDAPI_(void) OleStdMarkPasteEntryList(
-	LPDATAOBJECT        lpSrcDataObj,
-	LPOLEUIPASTEENTRY   lpPriorityList,
-	int                 cEntries
+        LPDATAOBJECT        lpSrcDataObj,
+        LPOLEUIPASTEENTRY   lpPriorityList,
+        int                 cEntries
 )
 {
     LPENUMFORMATETC     lpEnumFmtEtc = NULL;
-	#define FORMATETC_MAX 20
+        #define FORMATETC_MAX 20
     FORMATETC           rgfmtetc[FORMATETC_MAX];
     int                 i;
     HRESULT             hrErr;
-	long                            j, cFetched;
+        long                            j, cFetched;
 
     // Clear all marks
     for (i = 0; i < cEntries; i++) {
-	lpPriorityList[i].dwScratchSpace = FALSE;
+        lpPriorityList[i].dwScratchSpace = FALSE;
 
-	if (! lpPriorityList[i].fmtetc.cfFormat) {
-	    // caller wants this item always considered available
-	    // (by specifying a NULL format)
-	    lpPriorityList[i].dwScratchSpace = TRUE;
-	} else if (lpPriorityList[i].fmtetc.cfFormat == cfEmbeddedObject
-		|| lpPriorityList[i].fmtetc.cfFormat == cfEmbedSource
-		|| lpPriorityList[i].fmtetc.cfFormat == cfFileName) {
+        if (! lpPriorityList[i].fmtetc.cfFormat) {
+            // caller wants this item always considered available
+            // (by specifying a NULL format)
+            lpPriorityList[i].dwScratchSpace = TRUE;
+        } else if (lpPriorityList[i].fmtetc.cfFormat == cfEmbeddedObject
+                || lpPriorityList[i].fmtetc.cfFormat == cfEmbedSource
+                || lpPriorityList[i].fmtetc.cfFormat == cfFileName) {
 
-	    // if there is an OLE object format, then handle it
-	    // specially by calling OleQueryCreateFromData. the caller
-	    // need only specify one object type format.
-	    OLEDBG_BEGIN2(TEXT("OleQueryCreateFromData called\r\n"))
-	    hrErr = OleQueryCreateFromData(lpSrcDataObj);
-	    OLEDBG_END2
-	    if(NOERROR == hrErr) {
-		lpPriorityList[i].dwScratchSpace = TRUE;
-	    }
-	} else if (lpPriorityList[i].fmtetc.cfFormat == cfLinkSource) {
+            // if there is an OLE object format, then handle it
+            // specially by calling OleQueryCreateFromData. the caller
+            // need only specify one object type format.
+            OLEDBG_BEGIN2(TEXT("OleQueryCreateFromData called\r\n"))
+            hrErr = OleQueryCreateFromData(lpSrcDataObj);
+            OLEDBG_END2
+            if(NOERROR == hrErr) {
+                lpPriorityList[i].dwScratchSpace = TRUE;
+            }
+        } else if (lpPriorityList[i].fmtetc.cfFormat == cfLinkSource) {
 
-	    // if there is OLE 2.0 LinkSource format, then handle it
-	    // specially by calling OleQueryLinkFromData.
-	    OLEDBG_BEGIN2(TEXT("OleQueryLinkFromData called\r\n"))
-	    hrErr = OleQueryLinkFromData(lpSrcDataObj);
-	    OLEDBG_END2
-	    if(NOERROR == hrErr) {
-		lpPriorityList[i].dwScratchSpace = TRUE;
-	    }
-	}
+            // if there is OLE 2.0 LinkSource format, then handle it
+            // specially by calling OleQueryLinkFromData.
+            OLEDBG_BEGIN2(TEXT("OleQueryLinkFromData called\r\n"))
+            hrErr = OleQueryLinkFromData(lpSrcDataObj);
+            OLEDBG_END2
+            if(NOERROR == hrErr) {
+                lpPriorityList[i].dwScratchSpace = TRUE;
+            }
+        }
     }
 
     OLEDBG_BEGIN2(TEXT("IDataObject::EnumFormatEtc called\r\n"))
     hrErr = lpSrcDataObj->lpVtbl->EnumFormatEtc(
-	    lpSrcDataObj,
-	    DATADIR_GET,
-	    (LPENUMFORMATETC FAR*)&lpEnumFmtEtc
+            lpSrcDataObj,
+            DATADIR_GET,
+            (LPENUMFORMATETC FAR*)&lpEnumFmtEtc
     );
     OLEDBG_END2
 
     if (hrErr != NOERROR)
-	return;    // unable to get format enumerator
+        return;    // unable to get format enumerator
 
     // Enumerate the formats offered by the source
     // Loop over all formats offered by the source
-	cFetched = 0;
-	_fmemset(rgfmtetc,0,sizeof(rgfmtetc[FORMATETC_MAX]) );
+        cFetched = 0;
+        _fmemset(rgfmtetc,0,sizeof(rgfmtetc[FORMATETC_MAX]) );
     if (lpEnumFmtEtc->lpVtbl->Next(
-	    lpEnumFmtEtc, FORMATETC_MAX, rgfmtetc, &cFetched) == NOERROR
-		|| (cFetched > 0 && cFetched <= FORMATETC_MAX) )
-	{
+            lpEnumFmtEtc, FORMATETC_MAX, rgfmtetc, &cFetched) == NOERROR
+                || (cFetched > 0 && cFetched <= FORMATETC_MAX) )
+        {
 
-		for (j = 0; j < cFetched; j++)
-	{
-	    for (i = 0; i < cEntries; i++)
-		{
-		    if (! lpPriorityList[i].dwScratchSpace &&
-		    IsEqualFORMATETC(rgfmtetc[j], lpPriorityList[i].fmtetc))
-		    {
-		    lpPriorityList[i].dwScratchSpace = TRUE;
-		    }
-	    }
-	    }
-	} // endif
+                for (j = 0; j < cFetched; j++)
+        {
+            for (i = 0; i < cEntries; i++)
+                {
+                    if (! lpPriorityList[i].dwScratchSpace &&
+                    IsCloseFormatEtc(&rgfmtetc[j], &lpPriorityList[i].fmtetc))
+                    {
+                    lpPriorityList[i].dwScratchSpace = TRUE;
+                    }
+            }
+            }
+        } // endif
 
     // Clean up
     if (lpEnumFmtEtc)
-	OleStdRelease((LPUNKNOWN)lpEnumFmtEtc);
+        OleStdRelease((LPUNKNOWN)lpEnumFmtEtc);
 }
 
 
@@ -2658,9 +2660,9 @@ STDAPI_(void) OleStdMarkPasteEntryList(
 **
 */
 STDAPI_(int) OleStdGetPriorityClipboardFormat(
-	LPDATAOBJECT        lpSrcDataObj,
-	LPOLEUIPASTEENTRY   lpPriorityList,
-	int                 cEntries
+        LPDATAOBJECT        lpSrcDataObj,
+        LPOLEUIPASTEENTRY   lpPriorityList,
+        int                 cEntries
 )
 {
     int i;
@@ -2672,15 +2674,15 @@ STDAPI_(int) OleStdGetPriorityClipboardFormat(
     // Loop over the target's priority list of formats
     for (i = 0; i < cEntries; i++)
     {
-	if (lpPriorityList[i].dwFlags != OLEUIPASTE_PASTEONLY &&
-		!(lpPriorityList[i].dwFlags & OLEUIPASTE_PASTE))
-	    continue;
+        if (lpPriorityList[i].dwFlags != OLEUIPASTE_PASTEONLY &&
+                !(lpPriorityList[i].dwFlags & OLEUIPASTE_PASTE))
+            continue;
 
-	// get first marked entry
-	if (lpPriorityList[i].dwScratchSpace) {
-	    nFmtEtc = i;
-	    break;          // Found priority format; DONE
-	}
+        // get first marked entry
+        if (lpPriorityList[i].dwScratchSpace) {
+            nFmtEtc = i;
+            break;          // Found priority format; DONE
+        }
     }
 
     return nFmtEtc;
@@ -2693,16 +2695,16 @@ STDAPI_(int) OleStdGetPriorityClipboardFormat(
 **    FormatEtc structures.
 */
 STDAPI_(BOOL) OleStdIsDuplicateFormat(
-	LPFORMATETC         lpFmtEtc,
-	LPFORMATETC         arrFmtEtc,
-	int                 nFmtEtc
+        LPFORMATETC         lpFmtEtc,
+        LPFORMATETC         arrFmtEtc,
+        int                 nFmtEtc
 )
 {
     int i;
 
     for (i = 0; i < nFmtEtc; i++) {
-	if (IsEqualFORMATETC((*lpFmtEtc), arrFmtEtc[i]))
-	    return TRUE;
+        if (IsEqualFORMATETC((*lpFmtEtc), arrFmtEtc[i]))
+            return TRUE;
     }
 
     return FALSE;
@@ -2728,18 +2730,18 @@ STDAPI_(ULONG) OleStdGetItemToken(LPTSTR lpszSrc, LPTSTR lpszDst, int nMaxChars)
 
     // skip leading delimeter characters
     while (*lpszSrc && --nMaxChars > 0
-			       && ((*lpszSrc==TEXT('/')) || (*lpszSrc==TEXT('\\')) ||
-								   (*lpszSrc==TEXT('!')) || (*lpszSrc==TEXT(':')))) {
-	*lpszSrc++;
-	chEaten++;
-	}
+                               && ((*lpszSrc==TEXT('/')) || (*lpszSrc==TEXT('\\')) ||
+                                                                   (*lpszSrc==TEXT('!')) || (*lpszSrc==TEXT(':')))) {
+        *lpszSrc++;
+        chEaten++;
+        }
 
     // Extract token string (up to first delimeter char or EOS)
     while (*lpszSrc && --nMaxChars > 0
-			       && !((*lpszSrc==TEXT('/')) || (*lpszSrc==TEXT('\\')) ||
-								   (*lpszSrc==TEXT('!')) || (*lpszSrc==TEXT(':')))) {
-	*lpszDst++ = *lpszSrc++;
-	chEaten++;
+                               && !((*lpszSrc==TEXT('/')) || (*lpszSrc==TEXT('\\')) ||
+                                                                   (*lpszSrc==TEXT('!')) || (*lpszSrc==TEXT(':')))) {
+        *lpszDst++ = *lpszSrc++;
+        chEaten++;
     }
     *lpszDst = TEXT('\0');
     return chEaten;
@@ -2767,17 +2769,17 @@ STDAPI_(LPSTORAGE) OleStdCreateRootStorage(LPTSTR lpszStgName, DWORD grfMode)
 
     // if temp file is being created, enable delete-on-release
     if (! lpszStgName)
-	grfCreateMode |= STGM_DELETEONRELEASE;
+        grfCreateMode |= STGM_DELETEONRELEASE;
 
     hr = StgCreateDocfileA(
-	    lpszStgName,
-	    grfMode | grfCreateMode,
-	    reserved,
-	    (LPSTORAGE FAR*)&lpRootStg
-	);
+            lpszStgName,
+            grfMode | grfCreateMode,
+            reserved,
+            (LPSTORAGE FAR*)&lpRootStg
+        );
 
     if (hr == NOERROR)
-	return lpRootStg;               // existing file successfully opened
+        return lpRootStg;               // existing file successfully opened
 
     OleDbgOutHResult(TEXT("StgCreateDocfile returned"), hr);
 
@@ -2808,19 +2810,19 @@ STDAPI_(LPSTORAGE) OleStdOpenRootStorage(LPTSTR lpszStgName, DWORD grfMode)
     TCHAR  szMsg[64];
 
     if (lpszStgName) {
-	hr = StgOpenStorageA(
-		lpszStgName,
-		NULL,
-		grfMode | STGM_TRANSACTED,
-		NULL,
-		reserved,
-		(LPSTORAGE FAR*)&lpRootStg
-	    );
+        hr = StgOpenStorageA(
+                lpszStgName,
+                NULL,
+                grfMode | STGM_TRANSACTED,
+                NULL,
+                reserved,
+                (LPSTORAGE FAR*)&lpRootStg
+            );
 
-	if (hr == NOERROR)
-	    return lpRootStg;     // existing file successfully opened
+        if (hr == NOERROR)
+            return lpRootStg;     // existing file successfully opened
 
-	OleDbgOutHResult(TEXT("StgOpenStorage returned"), hr);
+        OleDbgOutHResult(TEXT("StgOpenStorage returned"), hr);
     }
 
     if (0 == LoadString(ghInst, IDS_OLESTDNOOPENFILE, szMsg, 64))
@@ -2853,36 +2855,36 @@ STDAPI_(LPSTORAGE) OleStdOpenOrCreateRootStorage(LPTSTR lpszStgName, DWORD grfMo
 
     if (lpszStgName) {
 
-	hrErr = StgOpenStorageA(
-		lpszStgName,
-		NULL,
-		grfMode | STGM_READWRITE | STGM_TRANSACTED,
-		NULL,
-		reserved,
-		(LPSTORAGE FAR*)&lpRootStg
-	);
+        hrErr = StgOpenStorageA(
+                lpszStgName,
+                NULL,
+                grfMode | STGM_READWRITE | STGM_TRANSACTED,
+                NULL,
+                reserved,
+                (LPSTORAGE FAR*)&lpRootStg
+        );
 
-	if (hrErr == NOERROR)
-	    return lpRootStg;      // existing file successfully opened
+        if (hrErr == NOERROR)
+            return lpRootStg;      // existing file successfully opened
 
-	OleDbgOutHResult(TEXT("StgOpenStorage returned"), hrErr);
-	sc = GetScode(hrErr);
+        OleDbgOutHResult(TEXT("StgOpenStorage returned"), hrErr);
+        sc = GetScode(hrErr);
 
-	if (sc!=STG_E_FILENOTFOUND && sc!=STG_E_FILEALREADYEXISTS) {
-	    return NULL;
-	}
+        if (sc!=STG_E_FILENOTFOUND && sc!=STG_E_FILEALREADYEXISTS) {
+            return NULL;
+        }
     }
 
     /* if file did not already exist, try to create a new one */
     hrErr = StgCreateDocfileA(
-	    lpszStgName,
-	    grfMode | STGM_READWRITE | STGM_TRANSACTED,
-	    reserved,
-	    (LPSTORAGE FAR*)&lpRootStg
+            lpszStgName,
+            grfMode | STGM_READWRITE | STGM_TRANSACTED,
+            reserved,
+            (LPSTORAGE FAR*)&lpRootStg
     );
 
     if (hrErr == NOERROR)
-	return lpRootStg;               // existing file successfully opened
+        return lpRootStg;               // existing file successfully opened
 
     OleDbgOutHResult(TEXT("StgCreateDocfile returned"), hrErr);
 
@@ -2904,24 +2906,24 @@ STDAPI_(LPSTORAGE) OleStdOpenOrCreateRootStorage(LPTSTR lpszStgName, DWORD grfMo
 STDAPI_(LPSTORAGE) OleStdCreateChildStorage(LPSTORAGE lpStg, LPTSTR lpszStgName)
 {
     if (lpStg != NULL) {
-	LPSTORAGE lpChildStg;
-	DWORD grfMode = (STGM_READWRITE | STGM_TRANSACTED |
-		STGM_SHARE_EXCLUSIVE);
-	DWORD reserved = 0;
+        LPSTORAGE lpChildStg;
+        DWORD grfMode = (STGM_READWRITE | STGM_TRANSACTED |
+                STGM_SHARE_EXCLUSIVE);
+        DWORD reserved = 0;
 
-	HRESULT hrErr = CallIStorageCreateStorageA(
-		lpStg,
-		lpszStgName,
-		grfMode,
-		reserved,
-		reserved,
-		(LPSTORAGE FAR*)&lpChildStg
-	    );
+        HRESULT hrErr = CallIStorageCreateStorageA(
+                lpStg,
+                lpszStgName,
+                grfMode,
+                reserved,
+                reserved,
+                (LPSTORAGE FAR*)&lpChildStg
+            );
 
-	if (hrErr == NOERROR)
-	    return lpChildStg;
+        if (hrErr == NOERROR)
+            return lpChildStg;
 
-	OleDbgOutHResult(TEXT("lpStg->lpVtbl->CreateStorage returned"), hrErr);
+        OleDbgOutHResult(TEXT("lpStg->lpVtbl->CreateStorage returned"), hrErr);
     }
     return NULL;
 }
@@ -2943,20 +2945,20 @@ STDAPI_(LPSTORAGE) OleStdOpenChildStorage(LPSTORAGE lpStg, LPTSTR lpszStgName, D
 
     if (lpStg  != NULL) {
 
-	hrErr = CallIStorageOpenStorageA(
-		lpStg,
-		lpszStgName,
-		lpstgPriority,
-		grfMode | STGM_TRANSACTED | STGM_SHARE_EXCLUSIVE,
-		NULL,
-		reserved,
-		(LPSTORAGE FAR*)&lpChildStg
-	    );
+        hrErr = CallIStorageOpenStorageA(
+                lpStg,
+                lpszStgName,
+                lpstgPriority,
+                grfMode | STGM_TRANSACTED | STGM_SHARE_EXCLUSIVE,
+                NULL,
+                reserved,
+                (LPSTORAGE FAR*)&lpChildStg
+            );
 
-	if (hrErr == NOERROR)
-	    return lpChildStg;
+        if (hrErr == NOERROR)
+            return lpChildStg;
 
-	OleDbgOutHResult(TEXT("lpStg->lpVtbl->OpenStorage returned"), hrErr);
+        OleDbgOutHResult(TEXT("lpStg->lpVtbl->OpenStorage returned"), hrErr);
     }
     return NULL;
 }
@@ -2980,23 +2982,23 @@ STDAPI_(BOOL) OleStdCommitStorage(LPSTORAGE lpStg)
     hrErr = lpStg->lpVtbl->Commit(lpStg, 0);
 
     if (GetScode(hrErr) == STG_E_MEDIUMFULL) {
-	// try to commit changes in less robust manner.
-	OleDbgOut(TEXT("Warning: commiting with STGC_OVERWRITE specified\n"));
-	hrErr = lpStg->lpVtbl->Commit(lpStg, STGC_OVERWRITE);
+        // try to commit changes in less robust manner.
+        OleDbgOut(TEXT("Warning: commiting with STGC_OVERWRITE specified\n"));
+        hrErr = lpStg->lpVtbl->Commit(lpStg, STGC_OVERWRITE);
     }
 
     if (hrErr != NOERROR)
     {
-	TCHAR szMsg[64];
+        TCHAR szMsg[64];
 
-	if (0 == LoadString(ghInst, IDS_OLESTDDISKFULL, (LPTSTR)szMsg, 64))
-	   return FALSE;
+        if (0 == LoadString(ghInst, IDS_OLESTDDISKFULL, (LPTSTR)szMsg, 64))
+           return FALSE;
 
-	MessageBox(NULL, (LPTSTR)szMsg, NULL, MB_ICONEXCLAMATION | MB_OK);
-	return FALSE;
+        MessageBox(NULL, (LPTSTR)szMsg, NULL, MB_ICONEXCLAMATION | MB_OK);
+        return FALSE;
     }
     else {
-	return TRUE;
+        return TRUE;
     }
 }
 
@@ -3013,18 +3015,34 @@ STDAPI OleStdDestroyAllElements(LPSTORAGE lpStg)
     HRESULT hrErr;
 
     hrErr = lpStg->lpVtbl->EnumElements(
-	    lpStg, 0, NULL, 0, (IEnumSTATSTG FAR* FAR*)&lpEnum);
+            lpStg, 0, NULL, 0, (IEnumSTATSTG FAR* FAR*)&lpEnum);
 
     if (hrErr != NOERROR)
-	return hrErr;
+        return hrErr;
 
     while (1) {
-	if (lpEnum->lpVtbl->Next(lpEnum, 1, &sstg, NULL) != NOERROR)
-	    break;
-	lpStg->lpVtbl->DestroyElement(lpStg, sstg.pwcsName);
-	OleStdFree(sstg.pwcsName);
+        if (lpEnum->lpVtbl->Next(lpEnum, 1, &sstg, NULL) != NOERROR)
+            break;
+        lpStg->lpVtbl->DestroyElement(lpStg, sstg.pwcsName);
+        OleStdFree(sstg.pwcsName);
     }
     lpEnum->lpVtbl->Release(lpEnum);
     return NOERROR;
 }
-
+
+// returns 1 for a close match
+//  (all fields match exactly except the tymed which simply overlaps)
+// 0 for no match
+
+int IsCloseFormatEtc(FORMATETC FAR* pFetcLeft, FORMATETC FAR* pFetcRight)
+{
+        if (pFetcLeft->cfFormat != pFetcRight->cfFormat)
+                return 0;
+        else if (!OleStdCompareTargetDevice (pFetcLeft->ptd, pFetcRight->ptd))
+                return 0;
+        if (pFetcLeft->dwAspect != pFetcRight->dwAspect)
+                return 0;
+        return((pFetcLeft->tymed | pFetcRight->tymed) != 0);
+}
+
+

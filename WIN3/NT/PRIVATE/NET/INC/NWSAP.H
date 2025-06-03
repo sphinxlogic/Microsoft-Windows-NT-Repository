@@ -30,6 +30,7 @@ Revision History:
 #define SAPRETURN_NOTEXIST      3
 #define SAPRETURN_NOTINIT       4
 #define SAPRETURN_INVALIDNAME   5
+#define SAPRETURN_DUPLICATE     6
 
 /** Function Prototypes **/
 
@@ -74,4 +75,3 @@ SapScanObject(
     IN USHORT   ScanType);
 
 #endif
-

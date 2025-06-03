@@ -41,7 +41,6 @@ Revision History:
 #define SERIAL0_PHYSICAL_BASE 0x80006000 // physical base of serial port 0
 #define SERIAL1_PHYSICAL_BASE 0x80007000 // physical base of serial port 1
 #define PARALLEL_PHYSICAL_BASE 0x80008000 // physical base of parallel port
-#define NVRAM_PHYSICAL_BASE 0x80009000  // physical base of nonvolatile RAM
 #define SOUND_PHYSICAL_BASE 0x8000C000  // physical base of sound control
 #define EISA_CONTROL_PHYSICAL_BASE 0x90000000 // physical base of EISA control
 #define EISA_MEMORY_PHYSICAL_BASE 0x91000000 // physical base of EISA memory
@@ -52,6 +51,9 @@ Revision History:
 //
 // Define virtual/physical base addresses for system mapping.
 //
+
+#define NVRAM_VIRTUAL_BASE 0xffff8000   // virtual base of nonvolatile RAM
+#define NVRAM_PHYSICAL_BASE 0x80009000  // physical base of nonvolatile RAM
 
 #define SP_VIRTUAL_BASE 0xffffa000      // virtual base of serial port 0
 #define SP_PHYSICAL_BASE SERIAL0_PHYSICAL_BASE // physical base of serial port 0

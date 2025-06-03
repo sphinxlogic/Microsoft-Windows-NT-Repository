@@ -15,104 +15,93 @@
 #include <ctype.h>
 #include <memory.h>
 #include "oemuni.h"
-#include "cmdpif.h"
+#include "nt_pif.h"
+#include "nt_uis.h"	  // For resource id
 
-#include "..\..\softpc\host\inc\nt_uis.h"    // For resource id
-extern PCHAR pCurDirForSeparateWow;
 
+VOID GetWowKernelCmdLine(VOID);
+extern ULONG fSeparateWow;
 
 VOID cmdGetNextCmd (VOID)
 {
-LPSTR   lpszCmd,lpszEnv,Temp;
+LPSTR   lpszCmd;
 PCMDINFO pCMDInfo;
-ULONG   cb,cbSCSComSpec,i;
+ULONG   cb;
 PREDIRCOMPLETE_INFO pRdrInfo;
 VDMINFO MyVDMInfo;
-extern ULONG fSeparateWow;
-char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
+
+char    *pSrc, *pDst;
+char    achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
+char    CmdLine[MAX_PATH];
+
     //
     // This routine is called once for WOW VDMs, to retrieve the
-    // "krnl386 wowapp" command.  If this is a seperate WOW VDM,
-    // BaseSrv has no record of it, so we special case this call.
-    //
-
-    if (fSeparateWow) {
-        DeleteConfigFiles();   // get rid of the temp boot files
-        cmdGetNextCmdForSeparateWow();
+    // "krnl386" command line.
+    //                                         5
+    if (VDMForWOW) {
+        GetWowKernelCmdLine();
         return;
     }
-
 
     VDMInfo.VDMState = 0;
     pCMDInfo = (LPVOID) GetVDMAddr ((USHORT)getDS(),(USHORT)getDX());
 
     VDMInfo.ErrorCode = FETCHWORD(pCMDInfo->ReturnCode);
-    VDMInfo.CmdSize = FETCHWORD(pCMDInfo->CmdLineSize) + 3;
+    VDMInfo.CmdSize = sizeof(CmdLine);
+    VDMInfo.CmdLine = CmdLine;
+    VDMInfo.AppName = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->ExecPathSeg),
+                                        FETCHWORD(pCMDInfo->ExecPathOff));
+    VDMInfo.AppLen = FETCHWORD(pCMDInfo->ExecPathSize);
+    VDMInfo.PifLen = 0;
     VDMInfo.EnviornmentSize = 0;
-    VDMInfo.CmdLine =  (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->CmdLineSeg),
-                                  FETCHWORD(pCMDInfo->CmdLineOff)+2);
     VDMInfo.Enviornment = NULL;
     VDMInfo.CurDrive = 0;
     VDMInfo.TitleLen = 0;
-    if (VDMForWOW) {
-        VDMInfo.ReservedLen = MAX_SHORTCUT_SIZE;
-        VDMInfo.Reserved = ShortCutInfo;
-    }
-    else
-        VDMInfo.ReservedLen = 0;
+    VDMInfo.ReservedLen = 0;
     VDMInfo.DesktopLen = 0;
     VDMInfo.CurDirectoryLen = MAX_PATH + 1;
     VDMInfo.CurDirectory = achCurDirectory;
 
     if(IsFirstCall){
-        // Note: ASKING_FOR_FIRST_COMMAND is being used for certain special
-	// processing to be done for WOW's first command and subsequent
-	// commands.
-	VDMInfo.VDMState = ASKING_FOR_FIRST_COMMAND;
+        VDMInfo.VDMState = ASKING_FOR_FIRST_COMMAND;
         VDMInfo.ErrorCode = 0;
 
         DeleteConfigFiles();   // get rid of the temp boot files
+
 	// When COMMAND.COM issues first cmdGetNextCmd, it has
 	// a completed environment already(cmdGetInitEnvironment),
 	// Therefore, we don't have to ask environment from BASE
 	cmdVDMEnvBlk.lpszzEnv = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->EnvSeg),0);
-	cmdVDMEnvBlk.cchEnv = FETCHWORD(pCMDInfo->EnvSize);
-	//clear bits that track printer flushing
+        cmdVDMEnvBlk.cchEnv = FETCHWORD(pCMDInfo->EnvSize);
 
-	host_lpt_flush_initialize();
+	//clear bits that track printer flushing
+        host_lpt_flush_initialize();
     }
     else {
 
-	// before we proceed to get the next command (before we are blocked),
-	// free floppy for the other process.
-	nt_floppy_release_lock();
-	nt_fdisk_release_lock();
 	// program has terminated. If the termiation was issued from
 	// second(or later) instance of command.com(cmd.exe), don't
 	// reset the flag.
 	if (Exe32ActiveCount == 0)
-	    DontCheckDosBinaryType = FALSE;
+            DontCheckDosBinaryType = FALSE;
+
 	// tell the base our new current directories (in ANSI)
 	// we don't do it on repeat call(the shell out case is handled in
 	// return exit code
-	if (!VDMForWOW && !IsRepeatCall) {
-	    // we just completed a command and will be waiting for a new command
-	    // send the current directories to our parent
-	    //
+        if (!IsRepeatCall) {
             cmdUpdateCurrentDirectories((BYTE)pCMDInfo->CurDrive);
 	}
 
-	// Temporary till WOWExec is'nt the only way.
-        if(VDMForWOW && IsRepeatCall == FALSE)
-           ExitVDM(TRUE,iWOWTaskId);
         VDMInfo.VDMState = 0;
         if(!IsRepeatCall){
             demCloseAllPSPRecords ();
-            if (!pfdata.CloseOnExit && DosSessionId && !VDMForWOW)
+
+            if (!pfdata.CloseOnExit && DosSessionId)
                 nt_block_event_thread(1);
             else
                 nt_block_event_thread(0);
-            if (DosSessionId && !VDMForWOW) {
+
+            if (DosSessionId) {
 		if (!pfdata.CloseOnExit){
 		    char  achTitle[MAX_PATH];
                     char  achInactive[60];     //should be plenty for 'inactive'
@@ -147,18 +136,12 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
             IsRepeatCall = FALSE;
     }
 
-    if(VDMForWOW)
-         VDMInfo.VDMState |= ASKING_FOR_WOW_BINARY;
-    else
-         VDMInfo.VDMState |= ASKING_FOR_DOS_BINARY;
+    VDMInfo.VDMState |= ASKING_FOR_DOS_BINARY;
 
-    if (!VDMForWOW &&
-        !IsFirstCall &&
-        !(VDMInfo.VDMState & ASKING_FOR_SECOND_TIME)){
+    if (!IsFirstCall && !(VDMInfo.VDMState & ASKING_FOR_SECOND_TIME)) {
         pRdrInfo = (PREDIRCOMPLETE_INFO) FETCHDWORD(pCMDInfo->pRdrInfo);
         if (cmdCheckCopyForRedirection (pRdrInfo) == FALSE)
             VDMInfo.ErrorCode = ERROR_NOT_ENOUGH_MEMORY;
-
     }
 
     // Leave the current directory in a safe place, so that other 32bit
@@ -178,11 +161,9 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 	(1). Not the first comamnd &&
 	(2). NTVDM is running on an existing console ||
 	     NTVDM has been shelled out.
-	Note that WOW doesn't need enviornment merging and
-	it only calls this function once.
+        Note that WOW doesn't need enviornment merging.
     **/
-    if (!DosEnvCreated && !IsFirstCall && !VDMForWOW &&
-	 (!DosSessionId || Exe32ActiveCount)) {
+    if (!DosEnvCreated && !IsFirstCall && (!DosSessionId || Exe32ActiveCount)) {
 	RtlZeroMemory(&MyVDMInfo, sizeof(VDMINFO));
 	MyVDMInfo.VDMState = ASKING_FOR_ENVIRONMENT | ASKING_FOR_DOS_BINARY;
 	if (IsRepeatCall) {
@@ -191,24 +172,26 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 	}
 	else
 	    MyVDMInfo.ErrorCode = VDMInfo.ErrorCode;
-	MyVDMInfo.CmdLine = lpszzVDMEnv32;
-	MyVDMInfo.CmdSize = cchVDMEnv32;
-	if (!GetNextVDMCommand(&MyVDMInfo) && MyVDMInfo.CmdSize > cchVDMEnv32) {
-	    MyVDMInfo.CmdLine = realloc(lpszzVDMEnv32, MyVDMInfo.CmdSize);
-	    if (MyVDMInfo.CmdLine == NULL) {
+        MyVDMInfo.Enviornment = lpszzVDMEnv32;
+        MyVDMInfo.EnviornmentSize = (USHORT) cchVDMEnv32;
+        if (!GetNextVDMCommand(&MyVDMInfo) && MyVDMInfo.EnviornmentSize > cchVDMEnv32) {
+            MyVDMInfo.Enviornment = realloc(lpszzVDMEnv32, MyVDMInfo.EnviornmentSize);
+            if (MyVDMInfo.Enviornment == NULL) {
 		RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
 		TerminateVDM();
 	    }
-	    lpszzVDMEnv32 = MyVDMInfo.CmdLine;
-	    cchVDMEnv32 = MyVDMInfo.CmdSize;
+            lpszzVDMEnv32 = MyVDMInfo.Enviornment;
+            cchVDMEnv32 = MyVDMInfo.EnviornmentSize;
 	    MyVDMInfo.VDMState = ASKING_FOR_DOS_BINARY | ASKING_FOR_ENVIRONMENT |
-				 ASKING_FOR_SECOND_TIME;
-	    MyVDMInfo.TitleLen =
+                                 ASKING_FOR_SECOND_TIME;
+
+            MyVDMInfo.TitleLen =
 	    MyVDMInfo.DesktopLen =
-	    MyVDMInfo.CurDirectoryLen =
-	    MyVDMInfo.EnviornmentSize =
-	    MyVDMInfo.ReservedLen = 0;
-            MyVDMInfo.Enviornment = NULL;
+            MyVDMInfo.ReservedLen =
+            MyVDMInfo.CmdSize =
+            MyVDMInfo.AppLen =
+            MyVDMInfo.PifLen =
+            MyVDMInfo.CurDirectoryLen = 0;
             MyVDMInfo.ErrorCode = 0;
 	    if (!GetNextVDMCommand(&MyVDMInfo)) {
 		RcErrorDialogBox(EG_ENVIRONMENT_ERR, NULL, NULL);
@@ -220,62 +203,32 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 	    TerminateVDM();
 	}
 	DosEnvCreated = TRUE;
-	VDMInfo.Enviornment = NULL;
-        VDMInfo.EnviornmentSize = 0;
         VDMInfo.ErrorCode = 0;
     }
     if (cmdVDMEnvBlk.cchEnv > FETCHWORD(pCMDInfo->EnvSize)) {
         setAX((USHORT)cmdVDMEnvBlk.cchEnv);
 	setCF(1);
-	if (IsFirstCall = TRUE)
-	    IsFirstCall = FALSE;
+        IsFirstCall = FALSE;
 	IsRepeatCall = TRUE;
 	return;
     }
     if (DosEnvCreated)
 	VDMInfo.VDMState |= ASKING_FOR_SECOND_TIME;
-    while (TRUE) {
-	if(GetNextVDMCommand (&VDMInfo) == FALSE){
-	    if (VDMForWOW && VDMInfo.ReservedLen > MAX_SHORTCUT_SIZE) {
-                VDMInfo.VDMState = 0;
-                VDMInfo.CmdSize = FETCHWORD(pCMDInfo->CmdLineSize) + 3;
-		VDMInfo.EnviornmentSize = 0;
-                VDMInfo.TitleLen = 0;
-                VDMInfo.ReservedLen = 0;
-                VDMInfo.Reserved = NULL;
-                VDMInfo.DesktopLen = 0;
-		VDMInfo.CurDirectoryLen = 0;
-		VDMInfo.CurDirectory = NULL;
-                VDMInfo.VDMState |= (ASKING_FOR_SECOND_TIME | ASKING_FOR_WOW_BINARY) ;
-                continue;
-            }
-            else {
-                // This is just to check the sanity of base MVDM apis. Base will
-                // never take a command line bigger than 128.
-                if(VDMInfo.CmdSize > (USHORT)(FETCHWORD(pCMDInfo->CmdLineSize)+3))
-                    DbgPrint("DOS command line > 128 characters; Command Failed");
 
-                TerminateVDM();
-            }
-        }
-        break;
+    if(!GetNextVDMCommand(&VDMInfo)){
+       RcErrorDialogBox(EG_ENVIRONMENT_ERR, NULL, NULL);
+       TerminateVDM();
     }
 
-    if(IsPifCallOut && !VDMForWOW) {
-        nt_pif_callout (VDMInfo.CmdLine);
-        IsPifCallOut = FALSE;
-    }
 
-    if(IsRepeatCall)
-        IsRepeatCall = FALSE;
-
-    if(IsFirstCall)
-        IsFirstCall = FALSE;
+    IsRepeatCall = FALSE;
+    IsFirstCall = FALSE;
 
     if(fBlock){
          nt_resume_event_thread();
          fBlock = FALSE;
     }
+
     // Sync VDMs enviornment variables for current directories
     cmdSetDirectories (lpszzVDMEnv32, &VDMInfo);
 
@@ -293,9 +246,89 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 
     cmdCheckForPIF (&VDMInfo);
 
+
+    //
+    // if forcedos, then don't check binary type on int 21 exec process,
+    // so that child spawns stay in dos land. Begining with NT 4.0 forcedos.exe
+    // no longer uses pif files to force execution of a binary as a dos exe.
+    // It now uses a bit in CreateProcess (dwCreationFlags).
+    //
+
+    DontCheckDosBinaryType = (VDMInfo.dwCreationFlags & CREATE_FORCEDOS) != 0;
+
+
+    // convert exec path name to upper case. This is what command.com expect
+    if (_strupr(VDMInfo.AppName) == NULL) {
+       pSrc = VDMInfo.AppName;
+       while (*pSrc)
+	    *pSrc++ = (char)toupper((int)*pSrc);
+    }
+    // figure out the extention type
+    // at least one char for the base name plus
+    // EXTENTION_STRING_LEN for the extention
+    // plus the NULL char
+    if (VDMInfo.AppLen > 1 + EXTENTION_STRING_LEN  + 1) {
+	pSrc = (PCHAR)VDMInfo.AppName + VDMInfo.AppLen - 5;
+	if (!strncmp(pSrc, EXE_EXTENTION_STRING, EXTENTION_STRING_LEN))
+	    STOREWORD(pCMDInfo->ExecExtType, EXE_EXTENTION);
+	else if (!strncmp(pSrc, COM_EXTENTION_STRING, EXTENTION_STRING_LEN))
+	    STOREWORD(pCMDInfo->ExecExtType, COM_EXTENTION);
+	else if (!strncmp(pSrc, BAT_EXTENTION_STRING, EXTENTION_STRING_LEN))
+	    STOREWORD(pCMDInfo->ExecExtType, BAT_EXTENTION);
+	else
+	    STOREWORD(pCMDInfo->ExecExtType, UNKNOWN_EXTENTION);
+    }
+    else
+	STOREWORD(pCMDInfo->ExecExtType, UNKNOWN_EXTENTION);
+
+    // tell command.com the length of the app full path name.
+    STOREWORD(pCMDInfo->ExecPathSize, VDMInfo.AppLen);
+
+    //
+    // Prepare ccom's UCOMBUF
+    //
     lpszCmd = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->CmdLineSeg),
                                 FETCHWORD(pCMDInfo->CmdLineOff));
-    lpszCmd[1] = (UCHAR)(VDMInfo.CmdSize - 3);
+
+    // Copy filepart of AppName excluding extension to ccom's buffer
+    pSrc = strrchr(VDMInfo.AppName, '\\');
+    if (!pSrc) {
+         pSrc = VDMInfo.AppName;
+        }
+    else {
+         pSrc++;
+        }
+    pDst = lpszCmd + 2;
+    while (*pSrc && *pSrc != '.') {
+         *pDst++ = *pSrc++;
+         }
+    cb = strlen(CmdLine);
+
+    // cmd line must be terminated with "\0xd\0xa\0". This is either done
+    // by BASE or cmdCheckForPif function(cmdpif.c).
+
+    ASSERT((cb >= 2) && (0xd == CmdLine[cb - 2]) && (0xa == CmdLine[cb - 1]));
+
+    // if cmd line is not blank, separate program base name and
+    // cmd line with a SPACE. If it IS blank, do not insert any white chars
+    // or we end up passing white chars to the applications as cmd line
+    // and some applications just can not live with that.
+    // We do not strip leading white characters in the passed command line
+    // so the application sees the original data.
+    if (cb > 2)
+	*pDst++ = ' ';
+
+    // append the command tail(at least, "\0xd\0xa")
+    strncpy(pDst, CmdLine, cb + 1);
+
+    // set the count
+    // cb has the cmd line length including the terminated 0xd and 0xa
+    // It does NOT count the terminated NULL char.
+    ASSERT((cb + pDst - lpszCmd - 2) <= 127);
+
+    // minus 2 because the real data in lpszCmd start from lpszCmd[2]
+    lpszCmd[1] = (CHAR)(cb + pDst - lpszCmd - 2);
+
 
 
     if (DosEnvCreated) {
@@ -317,19 +350,6 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 
     cmdVDMEnvBlk.lpszzEnv = NULL;
     cmdVDMEnvBlk.cchEnv = 0;
-    if(VDMForWOW) {
-        iWOWTaskId = VDMInfo.iTask;
-
-        // BUGBUG Sudeepb 27-Dec-1991; This is a temporary fix to get
-        // WOW binaries runnning from CMD prompt when the user does'nt
-        // type the .exe (i.e. just types winword rather than winword.exe)
-        // This cannot be fixed in SCS in a proper way as adding .exe
-        // might cross the 128 limit for command line. It has to be handled
-        // in WOW kernel. I am fixing it here as kernel may not be fixed
-        // any sooner. Remove it when Kernel is fixed.
-
-        CheckDotExeForWOW (lpszCmd);
-    }
 
     IsFirstVDM = FALSE;
 
@@ -345,24 +365,28 @@ char	achCurDirectory[MAXIMUM_VDM_CURRENT_DIR + 4];
 }
 
 
-VOID cmdGetNextCmdForSeparateWow (VOID)
+
+VOID GetWowKernelCmdLine(VOID)
 {
 CMDINFO UNALIGNED *pCMDInfo;
-PCHAR    pch;
+PCHAR	 pch, pEnvStrings;
+PCHAR    pSlash;
+int      Len;
 LPSTR    pszCmdLine;
-USHORT   CmdLineLen;
-LPSTR    lpszCmd;
-char     achEnvDrive[] = "=?:";
+
+
+    DeleteConfigFiles();   // get rid of the temp boot files
+    host_lpt_flush_initialize();
+
     //
     // Only a few things need be set for WOW.
     //   1. NumDrives
     //   2. Environment (get from current 32-bit env.)
-    //   3. CmdLine (get from ntvdm command tail)
+    //   3. Kernel CmdLine (get from ntvdm command tail)
     //   4. Current drive
     //
 
     pCMDInfo = (LPVOID) GetVDMAddr ((USHORT)getDS(),(USHORT)getDX());
-
     pCMDInfo->NumDrives = nDrives;
 
     //
@@ -370,7 +394,7 @@ char     achEnvDrive[] = "=?:";
     // its size into cchVDMEnv32.
     //
 
-    pch = lpszzVDMEnv32 = GetEnvironmentStrings();
+    pEnvStrings = pch = lpszzVDMEnv32 = GetEnvironmentStrings();
     cchVDMEnv32 = 0;
     while (pch[0] || pch[1]) {
         cchVDMEnv32++;
@@ -399,55 +423,88 @@ char     achEnvDrive[] = "=?:";
                  );
     STOREWORD(pCMDInfo->EnvSize,cmdVDMEnvBlk.cchEnv);
     free(cmdVDMEnvBlk.lpszzEnv);
+    // GetEnvironmentStrings needs us to call its corresponding function
+    // to free the memory it allocated.
+    FreeEnvironmentStrings(pEnvStrings);
 
     //
-    // Get the command line like "-a [path]\krnl386 write".
+    // Get the command line parameter, which consists of a fully
+    // qualified short path file name: "-a %SystemRoot%\system32\krnl386.exe".
     //
+    // Note that the first token of cmdline is "%SystemRoot%\system32\ntvdm ",
+    // and may be a long file name surrounded by quotes.
+    //
+    pszCmdLine = GetCommandLine();
+    if (pszCmdLine) {
 
-    if (!(pszCmdLine = strstr(GetCommandLine(), "-a ")) ||
-        !pszCmdLine[3]) {
+        // skip leading spaces
+        while (*pszCmdLine && !isgraph(*pszCmdLine)) {
+               pszCmdLine++;
+               }
+
+        // skip first token
+        if (*pszCmdLine == '"') {
+            pszCmdLine++;
+            while (*pszCmdLine && *pszCmdLine++ != '"')
+                   ;
+            }
+        else {
+            while (isgraph(*pszCmdLine)) {
+                   pszCmdLine++;
+                   }
+            }
+
+        // mov to beg of WowKernelPathName
+        pszCmdLine = strstr(pszCmdLine, " -a ");
+        pszCmdLine += 4;
+        while (*pszCmdLine && *pszCmdLine == ' ') {
+               pszCmdLine++;
+        }
+    }
+
+    if (!pszCmdLine || !*pszCmdLine) {
         RcErrorDialogBox(EG_ENVIRONMENT_ERR, NULL, NULL);
         TerminateVDM();
     }
 
-    pszCmdLine += 3;    // skip over "-a "
 
-    CmdLineLen = strlen(pszCmdLine);
-    if (CmdLineLen > FETCHWORD(pCMDInfo->CmdLineSize) - 3) {
-        CmdLineLen = FETCHWORD(pCMDInfo->CmdLineSize) - 3;
+    //
+    // Copy first token to ExecPath, and find the beg of the file part.
+    //
+    Len = FETCHWORD(pCMDInfo->ExecPathSize);
+    pch = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->ExecPathSeg),
+                            FETCHWORD(pCMDInfo->ExecPathOff));
+
+    pSlash = pszCmdLine;
+    while (--Len && isgraph(*pszCmdLine)) {
+         if (*pszCmdLine == '\\') {
+             pSlash = pszCmdLine + 1;
+         }
+         *pch++ = *pszCmdLine++;
     }
+    *pch = '\0';
+    pCMDInfo->ExecPathSize -= Len;
+    pCMDInfo->ExecExtType = EXE_EXTENTION; // for WOW, use EXE extention
+
+    pszCmdLine = pSlash;              // filepart begins here
+
 
     //
-    // Copy the command line to command.com's buffer.
+    // Copy filepart of first token and rest to CmdLine buffer
     //
+    Len = FETCHWORD(pCMDInfo->CmdLineSize);
+    pch = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->CmdLineSeg),
+                            FETCHWORD(pCMDInfo->CmdLineOff));
 
-    lpszCmd = (PVOID)GetVDMAddr(FETCHWORD(pCMDInfo->CmdLineSeg),
-                                FETCHWORD(pCMDInfo->CmdLineOff));
-    lpszCmd[1] = (UCHAR)CmdLineLen;
+    while (--Len && *pszCmdLine) {
+         *pch++ = *pszCmdLine++;
+    }
+    strcpy(pch, "\x0d\x0a");
 
-    RtlMoveMemory(lpszCmd+2,
-                  pszCmdLine,
-                  CmdLineLen
-                 );
 
-    lpszCmd[2 /* skip count bytes */ + CmdLineLen + 0] = 0xd;
-    lpszCmd[2 /* skip count bytes */ + CmdLineLen + 1] = 0xa;
-
-    //
-    // Append .exe as needed.
-    //
-
-    CheckDotExeForWOW (lpszCmd);
-
-    //
-    // Set the current drive.
-    //
-
-    pCMDInfo->CurDrive = toupper(pCurDirForSeparateWow[0]) - 'A';
-    achEnvDrive[1] = toupper(pCurDirForSeparateWow[0]);
-    SetEnvironmentVariable(achEnvDrive, pCurDirForSeparateWow);
-    free (pCurDirForSeparateWow);
-    pCurDirForSeparateWow = NULL;
+    *pIsDosBinary = 1;
+    IsRepeatCall = FALSE;
+    IsFirstCall = FALSE;
 
     // Tell DOS that it has to invalidate the CDSs
     *pSCS_ToSync = (CHAR)0xff;
@@ -475,16 +532,25 @@ VOID cmdGetCurrentDir (VOID)
 PCHAR lpszCurDir;
 UCHAR chDrive;
 CHAR  EnvVar[] = "=?:";
+CHAR  RootName[] = "?:\\";
 DWORD EnvVarLen;
+UINT  DriveType;
 
 
     lpszCurDir = (PCHAR) GetVDMAddr ((USHORT)getDS(),(USHORT)getSI());
     chDrive = getAL();
     EnvVar[1] = chDrive + 'A';
+    RootName[0] = chDrive + 'A';
+
     // if the drive doesn't exist, blindly clear the environment var
     // and return error
-    if ((GetLogicalDrives() & (1 << chDrive)) == 0) {
-	SetEnvironmentVariableOem(EnvVar, NULL);
+    DriveType = demGetPhysicalDriveType(chDrive);
+    if (DriveType == DRIVE_UNKNOWN) {
+        DriveType = GetDriveTypeOem(RootName);
+        }
+
+    if (DriveType == DRIVE_UNKNOWN || DriveType == DRIVE_NO_ROOT_DIR){
+        SetEnvironmentVariableOem(EnvVar, NULL);
 	setCF(1);
 	setAX(0);
 	return;
@@ -495,12 +561,8 @@ DWORD EnvVarLen;
 
 	// if its not in env then and drive exist then we have'nt
 	// yet touched it.
-
-	lpszCurDir[0] = EnvVar[1];
-	lpszCurDir[1] = ':';
-	lpszCurDir[2] = '\\';
-	lpszCurDir[3] = 0;
-	SetEnvironmentVariableOem ((LPSTR)EnvVar,(LPSTR)lpszCurDir);
+        strcpy(lpszCurDir, RootName);
+        SetEnvironmentVariableOem (EnvVar,RootName);
 	setCF(0);
 	return;
     }
@@ -588,54 +650,15 @@ LPSTR   lpszCS;
     return;
 }
 
-VOID CheckDotExeForWOW (LPSTR lpszCmd)
-{
-
-LPSTR lpszWOWCmd = (LPSTR)((ULONG)lpszCmd+2);
-LPSTR lpszTemp;
-
-    // lpszWOWCmd will be of this format = "dosx/kernel winword/winword.exe"
-    // We have to check the actual wow binary so skip over dosx/kernel
-
-    if((lpszWOWCmd = strchr(lpszWOWCmd,' ')) == NULL){
-        DbgPrint ("Invalid Command Format for WOW application\n'%s'\n", lpszCmd+2);
-        return;
-    }
-
-    lpszTemp = ++lpszWOWCmd;
-
-    // find the end of WOW binary name. It can be a full path.
-    while (!isspace(*lpszTemp) && *lpszTemp != 0)
-        lpszTemp++;
-
-    if(((ULONG)lpszTemp - (ULONG)lpszWOWCmd) < 4 ||
-                *(PCHAR)((ULONG)lpszTemp - 4) != '.') {
-        // Add .exe
-        if(((UCHAR)lpszCmd[1]+(UCHAR)sizeof(".exe")-(UCHAR)1) >
-                        (UCHAR)lpszCmd[0]-(UCHAR)2){
-            DbgPrint ("Command Line for WOW app too big\n");
-            return;
-        }
-
-        RtlMoveMemory((PVOID)((ULONG)lpszTemp+4),lpszTemp,strlen(lpszTemp)+1);
-        lpszTemp[0] = '.';
-        lpszTemp[1] = 'e';
-        lpszTemp[2] = 'x';
-        lpszTemp[3] = 'e';
-
-        lpszCmd[1] += 4;
-    }
-    return;
-}
 
 VOID cmdSaveWorld (VOID)
 {
+#ifdef CHECK_IT_LATER
 SAVEWORLD VDMState;
 HANDLE  hFile;
 PCHAR   pVDM;
 DWORD   dwBytesWritten;
 
-#ifdef CHECK_IT_LATER
     if(IsFirstVDMInSystem) {
         IsFirstVDMInSystem = FALSE;
         if ((hFile = CreateFile("c:\\nt\\bin86\\savevdm.wld",
@@ -726,20 +749,6 @@ USHORT cmdMapCodePage (ULONG CodePage)
 }
 
 
-ULONG GetWOWTaskId ( VOID )
-{
-ULONG i;
-
-    if (iWOWTaskId != (ULONG) -1){
-        i = iWOWTaskId;
-        iWOWTaskId = (ULONG)-1;
-        return i;
-    }
-    else{
-        DbgPrint("GetWOWTaskId can be called only once. Contact Sudeepb or Mattfe");
-        TerminateVDM();
-    }
-}
 
 /* GetWOWShortCutInfo - returns the startupinf.reserved field of
  *                      vdminfo for the first wow task.
@@ -771,8 +780,10 @@ VOID cmdUpdateCurrentDirectories(BYTE CurDrive)
     DWORD cchRemain, cchCurDir;
     CHAR *lpszCurDir;
     BYTE Drive;
-    DWORD DriveMask;
+    DWORD DriveType;
     CHAR achName[] = "=?:";
+    CHAR RootName[] = "?:\\";
+
 
     // allocate new space for the new current directories
     lpszzCurrentDirectories = (CHAR*) malloc(MAX_PATH);
@@ -798,47 +809,59 @@ VOID cmdUpdateCurrentDirectories(BYTE CurDrive)
 
 	cchRemain -= ++cchCurrentDirectories;
 	// we got current directory already. Keep the drive number
-	lpszCurDir += cchCurrentDirectories;
-	DriveMask = GetLogicalDrives();
-	while (DriveMask != 0) {
-	    // ignore invalid drives and current drive
-	    if (DriveMask & 1 && Drive != CurDrive) {
-		achName[1] = Drive + 'A';
-		cchCurDir = GetEnvironmentVariable(
-						   achName,
-						   lpszCurDir,
-						   cchRemain
-						   );
-		if(cchCurDir > cchRemain) {
-		    lpszCurDir = (CHAR *)realloc(lpszzCurrentDirectories,
-						 cchRemain + MAX_PATH + cchCurrentDirectories
-						 );
-		    if (lpszCurDir == NULL) {
-			free(lpszzCurrentDirectories);
-			lpszzCurrentDirectories = NULL;
-			cchCurrentDirectories = 0;
-			return;
-		    }
-		    lpszzCurrentDirectories = lpszCurDir;
-		    lpszCurDir += cchCurrentDirectories;
-		    cchRemain += MAX_PATH;
-		    cchCurDir = GetEnvironmentVariable(
-						       achName,
-						       lpszCurDir,
-						       cchRemain
-						       );
-		}
-		if (cchCurDir != 0) {
-		    // GetEnvironmentVariable doesn't count the NULL char
-		    lpszCurDir += ++cchCurDir;
-		    cchRemain -= cchCurDir;
-		    cchCurrentDirectories += cchCurDir;
-		}
-	    }
+        lpszCurDir += cchCurrentDirectories;
+
+        while (Drive < 26) {
+
+            // ignore invalid drives and current drive
+            if (Drive != CurDrive) {
+                DriveType = demGetPhysicalDriveType(Drive);
+                if (DriveType == DRIVE_UNKNOWN) {
+                    RootName[0] = (CHAR)('A' + Drive);
+                    DriveType = GetDriveTypeOem(RootName);
+                }
+
+                if (DriveType != DRIVE_UNKNOWN &&
+                    DriveType != DRIVE_NO_ROOT_DIR )
+                 {
+                    achName[1] = Drive + 'A';
+                    cchCurDir = GetEnvironmentVariable(
+                                                       achName,
+                                                       lpszCurDir,
+                                                       cchRemain
+                                                       );
+                    if(cchCurDir > cchRemain) {
+                        lpszCurDir = (CHAR *)realloc(lpszzCurrentDirectories,
+                                                     cchRemain + MAX_PATH + cchCurrentDirectories
+                                                     );
+                        if (lpszCurDir == NULL) {
+                            free(lpszzCurrentDirectories);
+                            lpszzCurrentDirectories = NULL;
+                            cchCurrentDirectories = 0;
+                            return;
+                        }
+                        lpszzCurrentDirectories = lpszCurDir;
+                        lpszCurDir += cchCurrentDirectories;
+                        cchRemain += MAX_PATH;
+                        cchCurDir = GetEnvironmentVariable(
+                                                           achName,
+                                                           lpszCurDir,
+                                                           cchRemain
+                                                           );
+                    }
+                    if (cchCurDir != 0) {
+                        // GetEnvironmentVariable doesn't count the NULL char
+                        lpszCurDir += ++cchCurDir;
+                        cchRemain -= cchCurDir;
+                        cchCurrentDirectories += cchCurDir;
+                    }
+                }
+            }
 	    // next drive
 	    Drive++;
-	    DriveMask >>=1;
-	}
+        }
+
+
 	lpszCurDir = lpszzCurrentDirectories;
 	// need space for the ending NULL and shrink the space if necessary
 	lpszzCurrentDirectories = (CHAR *) realloc(lpszCurDir, cchCurrentDirectories + 1);

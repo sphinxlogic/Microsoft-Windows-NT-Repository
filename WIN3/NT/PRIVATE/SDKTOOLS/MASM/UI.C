@@ -204,7 +204,7 @@ extern char crefopt;		    /* cross reference options */
 #endif
 
 EXTERNAL char *malloc();
-EXTERNAL char *strcat(), *strcpy(), *strdup(), *strchr(), *strrchr();
+EXTERNAL char *strcat(), *strcpy(), *_strdup(), *strchr(), *strrchr();
 
 LOCAL int DoArgs();	/* defined below */
 LOCAL int DoName();	/* defined below */
@@ -538,11 +538,11 @@ DoName ( filename )
 				strncpy( Master, p, q - p );
 				Master[q - p] = '\0';
 				}
-			else if (!(Master = strdup( p )))
+			else if (!(Master = _strdup( p )))
 				HeapError();
 
 		if (strchr( p, '.' )) {  /* extension present */
-			if (!(p = strdup( filename )))
+			if (!(p = _strdup( filename )))
 				HeapError();
 			}
 		else	{  /* supply default extension */

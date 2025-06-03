@@ -176,9 +176,9 @@ Return Value:
         break;
 
     default:
-        NetpDbgPrint( PREFIX_NETRAP
+        NetpKdPrint(( PREFIX_NETRAP
                 "RapArrayLength: Unexpected desc char '" FORMAT_DESC_CHAR
-                "'.\n", *Descriptor);
+                "'.\n", *Descriptor));
         NetpBreakPoint();
         return (0);
     }

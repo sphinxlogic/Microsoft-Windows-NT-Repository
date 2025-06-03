@@ -171,6 +171,7 @@ Return Value:
     PVOID           Image;
     ULONG           i;
     PHBIN           Pbin;
+    ULONG           Alignment;
 
     CMLOG(CML_MAJOR, CMS_INIT) {
         KdPrint(("HvInitializeHive:\n"));
@@ -269,6 +270,18 @@ Return Value:
         BaseBlock = (PHBASE_BLOCK)((Hive->Allocate)(sizeof(HBASE_BLOCK), UseForIo));
         if (BaseBlock == NULL) {
             return STATUS_INSUFFICIENT_RESOURCES;
+        }
+        //
+        // Make sure the buffer we got back is cluster-aligned. If not, try
+        // harder to get an aligned buffer.
+        //
+        Alignment = Cluster * HSECTOR_SIZE - 1;
+        if (((ULONG)BaseBlock & Alignment) != 0) {
+            (Hive->Free)(BaseBlock, sizeof(HBASE_BLOCK));
+            BaseBlock = (PHBASE_BLOCK)((Hive->Allocate)(PAGE_SIZE, TRUE));
+            if (BaseBlock == NULL) {
+                return STATUS_INSUFFICIENT_RESOURCES;
+            }
         }
 
         BaseBlock->Signature = HBASE_BLOCK_SIGNATURE;
@@ -378,6 +391,18 @@ Return Value:
         Hive->BaseBlock = (PHBASE_BLOCK)((Hive->Allocate)(sizeof(HBASE_BLOCK), UseForIo));
         if (Hive->BaseBlock==NULL) {
             return(STATUS_INSUFFICIENT_RESOURCES);
+        }
+        //
+        // Make sure the buffer we got back is cluster-aligned. If not, try
+        // harder to get an aligned buffer.
+        //
+        Alignment = Cluster * HSECTOR_SIZE - 1;
+        if (((ULONG)Hive->BaseBlock & Alignment) != 0) {
+            (Hive->Free)(Hive->BaseBlock, sizeof(HBASE_BLOCK));
+            Hive->BaseBlock = (PHBASE_BLOCK)((Hive->Allocate)(PAGE_SIZE, TRUE));
+            if (Hive->BaseBlock == NULL) {
+                return (STATUS_INSUFFICIENT_RESOURCES);
+            }
         }
         RtlCopyMemory(Hive->BaseBlock, BaseBlock, HSECTOR_SIZE);
 

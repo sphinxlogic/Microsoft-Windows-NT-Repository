@@ -89,8 +89,9 @@ RtlpGetRegistryHandle(
 {
     NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
-    WCHAR KeyPathBuffer[ 260 ];
+    WCHAR KeyPathBuffer[ MAXIMUM_FILENAME_LENGTH+6 ];
     UNICODE_STRING KeyPath;
+    UNICODE_STRING CurrentUserKeyPath;
     BOOLEAN OptionalPath;
 
     if (RelativeTo & RTL_REGISTRY_HANDLE) {
@@ -114,10 +115,30 @@ RtlpGetRegistryHandle(
     KeyPath.Length = 0;
     KeyPath.MaximumLength = sizeof( KeyPathBuffer );
     if (RelativeTo != RTL_REGISTRY_ABSOLUTE) {
-        RtlAppendUnicodeToString( &KeyPath, RtlpRegistryPaths[ RelativeTo ] );
-        RtlAppendUnicodeToString( &KeyPath, L"\\" );
+        if (RelativeTo == RTL_REGISTRY_USER &&
+            NT_SUCCESS( RtlFormatCurrentUserKeyPath( &CurrentUserKeyPath ) )
+           ) {
+            Status = RtlAppendUnicodeStringToString( &KeyPath, &CurrentUserKeyPath );
+            RtlFreeUnicodeString( &CurrentUserKeyPath );
+            }
+        else {
+            Status = RtlAppendUnicodeToString( &KeyPath, RtlpRegistryPaths[ RelativeTo ] );
+            }
+
+        if (!NT_SUCCESS( Status )) {
+            return Status;
+            }
+
+        Status = RtlAppendUnicodeToString( &KeyPath, L"\\" );
+        if (!NT_SUCCESS( Status )) {
+            return Status;
+            }
         }
-    RtlAppendUnicodeToString( &KeyPath, KeyName );
+
+    Status = RtlAppendUnicodeToString( &KeyPath, KeyName );
+    if (!NT_SUCCESS( Status )) {
+        return Status;
+        }
 
     InitializeObjectAttributes( &ObjectAttributes,
                                 &KeyPath,
@@ -137,7 +158,7 @@ RtlpGetRegistryHandle(
         }
     else {
         Status = ZwOpenKey( Key,
-                            GENERIC_READ,
+                            MAXIMUM_ALLOWED | GENERIC_READ,
                             &ObjectAttributes
                           );
         }
@@ -406,6 +427,8 @@ Return Value:
 
     if (!(QueryTable->Flags & RTL_QUERY_REGISTRY_NOEXPAND)) {
         if (ValueType == REG_MULTI_SZ) {
+            PWSTR ValueEnd;
+
             //
             // For REG_MULTI_SZ value type, call the query routine once
             // for each null terminated string in the registry value.  Fake
@@ -413,7 +436,9 @@ Return Value:
             //
 
             Status = STATUS_SUCCESS;
-            while (*(s = (PWSTR)ValueData)) {
+            ValueEnd = (PWSTR)((PCHAR)ValueData + ValueLength) - 2;
+            s = (PWSTR)ValueData;
+            while (s < ValueEnd) {
                 while (*s++ != UNICODE_NULL) {
                     }
 
@@ -750,6 +775,7 @@ Return Value:
         else
         if (QueryTable->Name != NULL) {
             RtlInitUnicodeString( &KeyValueName, QueryTable->Name );
+retryqueryvalue:
             Status = ZwQueryValueKey( Key1,
                                       &KeyValueName,
                                       KeyValueFullInformation,
@@ -761,12 +787,38 @@ Return Value:
                 if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
 
                     KeyValueInformation->Type = REG_NONE;
+                    KeyValueInformation->DataLength = 0;
                     Status = RtlpCallQueryRegistryRoutine( QueryTable,
                                                            KeyValueInformation,
                                                            KeyValueInfoLength,
                                                            Context,
                                                            Environment
                                                          );
+                    }
+
+                else if (Status == STATUS_BUFFER_OVERFLOW) {
+                    PVOID NewBuffer = NULL;
+
+                    //
+                    // Try to allocate a larger buffer as this is one humongous
+                    // value.
+                    //
+                    Status = ZwAllocateVirtualMemory( NtCurrentProcess(),
+                                                      &NewBuffer,
+                                                      0,
+                                                      &ResultLength,
+                                                      MEM_COMMIT,
+                                                      PAGE_READWRITE );
+                    if (!NT_SUCCESS(Status)) {
+                        break;
+                        }
+                    ZwFreeVirtualMemory( NtCurrentProcess(),
+                                         (PVOID *)&KeyValueInformation,
+                                         &KeyValueInfoLength,
+                                         MEM_RELEASE );
+                    KeyValueInformation = (PKEY_VALUE_FULL_INFORMATION)NewBuffer;
+                    KeyValueInfoLength = ResultLength;
+                    goto retryqueryvalue;
                     }
                 }
             else {
@@ -790,9 +842,7 @@ Return Value:
                 //
 
                 if (NT_SUCCESS( Status ) && QueryTable->Flags & RTL_QUERY_REGISTRY_DELETE) {
-                    Status = ZwDeleteValueKey( Key1,
-                                               &KeyValueName
-                                             );
+                    ZwDeleteValueKey (Key1, &KeyValueName);
                     }
                 }
             }
@@ -1111,7 +1161,7 @@ RtlGetNtGlobalFlags( VOID )
 
 
 NTSTATUS
-RtlFormatCurrentUserKeyPath (
+RtlFormatCurrentUserKeyPath(
     OUT PUNICODE_STRING CurrentUserKeyPath
     )
 
@@ -1266,7 +1316,7 @@ trydefault:
         //
         // Opening \REGISTRY\USER\<SID> failed, try \REGISTRY\USER\.DEFAULT
         //
-        RtlInitUnicodeString( &CurrentUserKeyPath, L"\\REGISTRY\\USER\\.DEFAULT" );
+        RtlInitUnicodeString( &CurrentUserKeyPath, RtlpRegistryPaths[ RTL_REGISTRY_USER ] );
         InitializeObjectAttributes( &Obja,
                                     &CurrentUserKeyPath,
                                     OBJ_CASE_INSENSITIVE,
@@ -1465,6 +1515,8 @@ RtlSetActiveTimeBias(
 {
     NTSTATUS Status;
     HANDLE Key;
+    RTL_QUERY_REGISTRY_TABLE RegistryConfigurationTable[ 2 ];
+    LONG CurrentActiveBias;
 
     RTL_PAGED_CODE();
 
@@ -1473,13 +1525,29 @@ RtlSetActiveTimeBias(
         return Status;
         }
 
-    Status = RtlWriteRegistryValue( RTL_REGISTRY_HANDLE,
-                                    (PWSTR)Key,
-                                    L"ActiveTimeBias",
-                                    REG_DWORD,
-                                    &ActiveBias,
-                                    sizeof( ActiveBias )
-                                  );
+    RtlZeroMemory( RegistryConfigurationTable, sizeof( RegistryConfigurationTable ) );
+    RegistryConfigurationTable[ 0 ].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_REQUIRED;
+    RegistryConfigurationTable[ 0 ].Name = L"ActiveTimeBias";
+    RegistryConfigurationTable[ 0 ].EntryContext = &CurrentActiveBias;
+
+    Status = RtlQueryRegistryValues( RTL_REGISTRY_HANDLE,
+                                     (PWSTR)Key,
+                                     RegistryConfigurationTable,
+                                     NULL,
+                                     NULL
+                                   );
+    if ( NT_SUCCESS(Status) && CurrentActiveBias == ActiveBias ) {
+        ;
+        }
+    else {
+        Status = RtlWriteRegistryValue( RTL_REGISTRY_HANDLE,
+                                        (PWSTR)Key,
+                                        L"ActiveTimeBias",
+                                        REG_DWORD,
+                                        &ActiveBias,
+                                        sizeof( ActiveBias )
+                                      );
+        }
     ZwClose( Key );
     return Status;
 }

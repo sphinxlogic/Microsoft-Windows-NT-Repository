@@ -21,15 +21,11 @@ Revision History:
 #ifndef __DGCLNT_HXX__
 #define __DGCLNT_HXX__
 
-// Number of times to retry a call. This is the suggested number from the
-// NCA book.
-#define DG_MAX_REQUESTS       5
+#define BROADCAST    (0x01)
+#define UNRESOLVEDEP (0x02)
 
 // Number of times to retry a ping. This is the suggested number.
 #define DG_MAX_PINGS          30
-
-// CLH 6/25/93 Number of times to retry a fragment sent.  Not specified
-// in the NCA book.
 
 // Num times to retry sending a particular fragment
 
@@ -39,13 +35,9 @@ Revision History:
 
 #define DG_MAX_NUM_FRAG_RCV_RETRIES   10
 
-
-
-
 //
 // Endpoint States  (See the Flags in Endpoint)
 //
-
 #define NOTINUSE         0x00
 #define INUSE            0x01
 
@@ -70,10 +62,19 @@ typedef ENDPOINT * PENDPOINT;
 NEW_SDICT(ENDPOINT);
 #pragma warning(default:4099)
 
+class   DG_BINDING_HANDLE;
+typedef DG_BINDING_HANDLE * PDG_BINDING_HANDLE;
+
+class   DG_CASSOCIATION;
+typedef DG_CASSOCIATION  * PDG_CASSOCIATION;
+
+class   DG_CCALL;
+typedef DG_CCALL * PDG_CCALL;
+
+
 class DG_ENDPOINT_MANAGER
 
 /*++
-
 
 Class Description:
 
@@ -89,16 +90,9 @@ Class Description:
     For certain transports this is an overkill. i.e. transport interface
     may allow concurrent io. But in general, rpc doesnt count on it.
 
-
-
-Class History:
-Fields:
-
-
 --*/
 
 {
-
 private:
 
   ENDPOINT_DICT EndpointDictionary;
@@ -150,39 +144,143 @@ typedef  DG_ENDPOINT_MANAGER * PDG_ENDPOINT_MANAGER;
 //
 //  (Windows only) Dictionary of ENDPOINT_MANAGERS
 //
-
 NEW_SDICT(DG_ENDPOINT_MANAGER);
 extern DG_ENDPOINT_MANAGER_DICT * EpmDict;
 
 #endif
 
-//
-// Forward defn.
-//
-
-class DG_CCALL;
-
 NEW_SDICT(DG_CCALL);
 
-void __RPC_FAR
-MapRpcToNcaStatusCode(
-    IN RPC_STATUS                   RpcStatus,
-    OUT unsigned char __RPC_FAR *   pPacketType,
-    OUT unsigned long __RPC_FAR *   pErrorCode
-    );
+class DG_SECURITY_CONTEXT : public SECURITY_CONTEXT
 
-#ifndef NTENV
-    char __RPC_FAR * AllocateLargeBuffer(int Size);
-    void FreeLargeBuffer(char __RPC_FAR * Ptr);
-#endif
+{
+private :
+    int SecurityContextInitialized;
+    int MaxTokenLength;
+
+public  :
+
+    DG_SECURITY_CONTEXT(
+        CLIENT_AUTH_INFO * myAuthInfo,
+        unsigned AuthContextId,
+        RPC_STATUS __RPC_FAR * pStatus
+        );
+
+    RPC_STATUS
+    InitializeFirstTime(
+        IN SECURITY_CREDENTIALS * Credentials,
+        IN RPC_CHAR * ServerPrincipal,
+        IN unsigned long AuthenticationLevel,
+        IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
+        );
+
+    RPC_STATUS
+    InitializeOnCallback(
+        IN unsigned long DataRep,
+        IN SECURITY_BUFFER_DESCRIPTOR PAPI * In,
+        IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * Out
+        );
+
+    RPC_STATUS
+    SignOrSeal(
+        IN unsigned long SequenceNumber,
+        IN unsigned int SignNotSealFlag,
+        IN OUT SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
+        );
+
+    RPC_STATUS
+    VerifyOrUnSealPacket(
+        IN unsigned long SequenceNumber,
+        IN unsigned int VerifyNotUnsealFlag,
+        IN OUT  SECURITY_BUFFER_DESCRIPTOR PAPI * BufferDescriptor
+        );
+
+    int
+    IsSecurityContextInitialized(
+        );
+
+};
+
+typedef DG_SECURITY_CONTEXT * PDG_SECURITY_CONTEXT;
 
 
-#define BROADCAST    (0x01)
-#define UNRESOLVEDEP (0x02)
+inline
+DG_SECURITY_CONTEXT::DG_SECURITY_CONTEXT(
+    CLIENT_AUTH_INFO * myAuthInfo,
+    unsigned AuthContextId,
+    RPC_STATUS __RPC_FAR * pStatus
+    )
+    : SECURITY_CONTEXT(myAuthInfo, AuthContextId, TRUE, pStatus)
+{
+    SecurityContextInitialized = 0;
+}
+
+inline int
+DG_SECURITY_CONTEXT::IsSecurityContextInitialized(
+    )
+{
+    return (SecurityContextInitialized);
+}
+
+
+class INTERFACE_AND_OBJECT_LIST
+{
+public:
+
+    inline
+    INTERFACE_AND_OBJECT_LIST(
+        )
+    {
+        Head = 0;
+    }
+
+    ~INTERFACE_AND_OBJECT_LIST(
+        );
+
+    BOOL
+    Insert(
+        void __RPC_FAR * Interface,
+        RPC_UUID __RPC_FAR * Object
+        );
+
+    BOOL
+    Find(
+        void __RPC_FAR * Interface,
+        RPC_UUID __RPC_FAR * Object
+        );
+
+    BOOL
+    Delete(
+        void __RPC_FAR * Interface,
+        RPC_UUID __RPC_FAR * Object
+        );
+
+private:
+
+    struct INTERFACE_AND_OBJECT
+    {
+        void __RPC_FAR * Interface;
+        RPC_UUID         Object;
+
+        INTERFACE_AND_OBJECT * Next;
+
+        inline void
+        Update(
+            void __RPC_FAR * a_Interface,
+            RPC_UUID __RPC_FAR * a_Object
+            )
+        {
+            Interface = a_Interface;
+            Object = *a_Object;
+        }
+    };
+
+    INTERFACE_AND_OBJECT * Head;
+};
 
 
 
-class DG_CASSOCIATION
+class DG_CASSOCIATION : public DG_ASSOCIATION
 
 /*++
 
@@ -192,124 +290,48 @@ Class Description:
     Binding handles can use this pointer to actually transact
     the rpc call.
 
-Fields:
-
-    pCachedCCall - A pointer to a pre-allocated DG_CCALL, representing an
-        RPC in progress.
-
-    CachedCCallInUse - Flag indicating whether the cached DG_CCALL is in use.
-
-    AssociationMutex - Mutex protecting things in this object.
-
-    pTransport - Pointer at the DG_CLIENT_TRANSPORT object that is used to
-        send and receive packets.
-
-    EndpointManager - A Pointer to the endpoint manager associated for the
-        transport that this association is bound to.
-
-    pTransAddress - The transport address "handle" pointing at a
-        server/endpoint.
-
-    pAlternameAddress - The Server may send from an alternate port
-        We use this address to recvfrom. Occasionally this address
-        will be what we need to send out subsequent addresses from
-        Always - this alternate address is where call back responses go to.
-
-    pDceBinding - Pointer the DCE_BINDING object representing this binding.
-
-    CallDict    - A Dictionary of calls for this association.
-
-    LargestDataSize - Largest amount of data, not including the nca packet
-        header, that can be sent in a single rpc call.
-
-    ServerBootTime - This is returned by the server on the first call made.
-        The server uses this field to make sure non-idempotent calls aren't
-        repeated.
-
-    SequenceNumber - Each new rpc call made will get a new sequence number.
-        This plus the activity uuid provides a way to identify a call.
-
-    ActivityUuid - The activity uuid associated with this handle. This is
-        created at handle initialization.
-
-    ReferenceCount - Number of binding handles that are referring to this
-        association. If this hits zero, this will delete itself.
-
-    DictionaryKey - Key to our place in the association dictionary.
-
-    InterfaceHint - The server provided interface hint
-
-    AcrivityHint  - The server provided activity hint
-
-    UnresolvedEndpointFlag - TRUE if Ep is unresolved
-
-    ToStringBinding - Creates a string binding from the DCE_BINDING
-        that this association is using.
-
-    DecrementRefCount - Decrements the Reference count. If the
-        ref count hits zero, we will remove this association.
-
-    IncrementRefCount - Increments the Reference count.
-
-
-    CompareWithDceBinding - Compares the specified binding to the one
-        'this' is referencing.
-
-    AllocateCCall - Allocates a new DG_CCALL object. If it can, this will
-        use the cached one.
-
-    GrabCachedCCallIfAvailable - Checks to see if the cached ccall is
-        available and, if so, grabs it. This is done separately from
-        AllocateCCall so that it is small enough to be placed inline for
-        speed.
-
-    InsertInDictionary - Inserts 'this' in the global association dictionary.
-
-    DuplicateDceBinding - Creates a duplicate of this association's
-        DCE_BINDING.
-
 --*/
 
 {
-
-friend class DG_CCALL;
-friend void __RPC_FAR conv_who_are_you(
-    UUID          __RPC_FAR *   pUuid,
-    unsigned long               ServerBootTime,
-    unsigned long __RPC_FAR *   SequenceNumber,
-    unsigned long __RPC_FAR *   Status
+friend
+void __RPC_FAR
+conv_are_you_there(
+    handle_t Binding,
+    UUID __RPC_FAR *pUuid,
+    unsigned long ServerBootTime,
+    error_status_t __RPC_FAR *Status
     );
 
-private:
-
-    DCE_BINDING             * pDceBinding;
-    unsigned int            ReferenceCount;
-    DG_CCALL  *             pCachedCCall;
-    unsigned long           SequenceNumber;
-    unsigned long           LargestDataSize;
-    void PAPI *             pTransAddress;
-    void PAPI *             AlternateAddress;
-    DG_CCALL_DICT           InactiveCallsDict;
-    BOOL                    CachedCCallInUse;
-    MUTEX                   AssociationMutex;
-    PDG_RPC_CLIENT_TRANSPORT_INFO pTransport;
-    PDG_ENDPOINT_MANAGER    EndpointManager;
-    unsigned long           ServerBootTime;
-    int                     DictionaryKey;
-    int                     FreePackets;
-    PDG_PACKET              pFreePackets;
-    unsigned short          InterfaceHint;
-    unsigned short          ActivityHint;
-
+friend
+void __RPC_FAR
+conv_who_are_you(
+    IN handle_t                     Binding,
+    IN UUID          __RPC_FAR *    pUuid,
+    IN unsigned long                ServerBootTime,
+    OUT unsigned long __RPC_FAR *   SequenceNumber,
+    OUT error_status_t __RPC_FAR *  Status
+    );
 
 public:
 
-    unsigned long AssociationFlag;
+    PDG_RPC_CLIENT_TRANSPORT_INFO pTransport;
+    PDG_ENDPOINT_MANAGER          EndpointManager;
+
+    unsigned long           AssociationFlag;
+    unsigned long           ServerBootTime;
+    unsigned long           ServerDataRep;
+
+    void __RPC_FAR *        ServerAddress;
+
+    unsigned long           ExpirationTime;
+
+    //----------------------------------------------------------
 
     DG_CASSOCIATION(
         IN PDG_RPC_CLIENT_TRANSPORT_INFO     pTransport,
-        IN DCE_BINDING *  pDceBinding,
+        IN PDG_BINDING_HANDLE pBinding,
         IN unsigned long UnresolvedEndpointFlag,
+        IN DCE_BINDING * NewDceBinding,
         OUT RPC_STATUS __RPC_FAR *  pStatus
         );
 
@@ -332,18 +354,32 @@ public:
         );
 
     int
-    CompareWithDceBinding(
-        IN DCE_BINDING  *  pDceBinding
+    CompareWithBinding(
+        IN PDG_BINDING_HANDLE pBinding
         );
 
-    DG_CCALL *
+    BOOL
+    ComparePartialBinding(
+        IN PDG_BINDING_HANDLE pBinding,
+        void __RPC_FAR *      Interface
+        );
+
+    BOOL
+    AddInterface(
+        void __RPC_FAR *     InterfaceInformation,
+        RPC_UUID __RPC_FAR * ObjectUuid
+        );
+
+    BOOL
+    RemoveInterface(
+        void __RPC_FAR *     InterfaceInformation,
+        RPC_UUID __RPC_FAR * ObjectUuid
+        );
+
+    RPC_STATUS
     AllocateCCall(
-        void
-        );
-
-    DG_CCALL *
-    GrabCachedCCallIfAvailable(
-        void
+        PDG_CCALL __RPC_FAR * ppCCall,
+        CLIENT_AUTH_INFO * ClientAuthInfo = 0
         );
 
     void
@@ -356,41 +392,63 @@ public:
         void
         );
 
-    int
+    void
     FreeCall(
         IN DG_CCALL * Call
         );
 
-    RPC_STATUS
-    AllocatePacket(
-       OUT PDG_PACKET __RPC_FAR * ppPacket
-       );
+    void PAPI *
+    UpdateServerAddress(
+        void PAPI * pNewAddress
+        );
 
-    RPC_STATUS
-    FreePacket(
-       IN PDG_PACKET pPacket
-       );
+    void PAPI *
+    UpdateAssociationWithAddress(
+        void PAPI * pNewAddress
+        );
+
+    static void
+    ScavengerProc(
+        void * Unused
+        );
+
+    void
+    ScavengeCalls(
+        DG_CCALL_DICT * DiscardedCallsDict
+        );
+
+    void
+    PurgeAmbiguousActivities(
+        );
+
+    void SetErrorFlag  ()  { fErrorFlag = TRUE;   }
+    void ClearErrorFlag()  { fErrorFlag = FALSE;  }
+    boolean ErrorFlag  ()  { return fErrorFlag;   }
+
+private:
+
+#define MAGIC_ASSOC (0x789aU)
+
+    unsigned                Magic;
+
+    boolean                 fErrorFlag;
+
+    // a string binding for our server
+    //
+    DCE_BINDING             * pDceBinding;
+    int                     DictionaryKey;
+
+    DG_CCALL_DICT           InactiveCallsDict;
+
+    INTERFACE_AND_OBJECT_LIST InterfaceAndObjectDict;
+
 };
 
-typedef DG_CASSOCIATION  * PDG_CASSOCIATION;
-
-
-inline
-int
-DG_CASSOCIATION::CompareWithDceBinding(
-    IN DCE_BINDING  *  pDceBinding
-    )
-{
-    return ( this->pDceBinding->Compare(pDceBinding)
-             || (AssociationFlag | UNRESOLVEDEP)
-             || (AssociationFlag | BROADCAST)  );
-}
-
-
 inline DCE_BINDING *
 DG_CASSOCIATION::DuplicateDceBinding (
     )
 {
+    ASSERT(Magic == MAGIC_ASSOC);
     return(pDceBinding->DuplicateDceBinding());
 }
 
@@ -400,39 +458,37 @@ DG_CASSOCIATION::IncrementRefCount(
     void
     )
 {
-
-    //
-    // Association Ref. Counts are controlled by
-    // Taking GlobalMutex() - reasons for this
-    // i) avoid a proliferation of mutexes
-    // ii) We need to take global mutex anyways becaues
-    //     to get to association we need to walk the global assoc. dict
-    //
-    // ASSERT(HaveTakenGlobalMutex());
-    ReferenceCount++;
+    ASSERT(Magic == MAGIC_ASSOC);
+    ReferenceCount.Increment();
 }
 
+
 inline
-DG_CCALL *
-DG_CASSOCIATION::GrabCachedCCallIfAvailable(
-    void
+void PAPI *
+DG_CASSOCIATION::UpdateServerAddress(
+    void PAPI * pNewAddress
     )
 {
-    AssociationMutex.Request();
+    //
+    // The endpoint needs to be changed only if it is unresolved.
+    //
+    unsigned long Flag;
 
-    if (!CachedCCallInUse)
+    ASSERT(Magic == MAGIC_ASSOC);
+    if (0 == (AssociationFlag & UNRESOLVEDEP))
         {
-        CachedCCallInUse = TRUE;
-        AssociationMutex.Clear();
-        return pCachedCCall;
+        return pNewAddress;
         }
-    else
+
+    Flag =  InterlockedExchange((LONG *)&AssociationFlag, 0);
+
+    if (0 == Flag)
         {
-        AssociationMutex.Clear();
-        return 0;
+        return (pNewAddress);
         }
+
+    return UpdateAssociationWithAddress(pNewAddress);
 }
-
 
 
 class DG_BINDING_HANDLE : public BINDING_HANDLE
@@ -445,10 +501,6 @@ Class Description:
 
 Fields:
 
-    <in addition to the fields and members from BINDING_HANDLE>
-
-    pCAssociation - The association this binding handle is active on.
-
     pDceBinding - Until a DG_CASSOCIATION is found (or created) for this
         binding handle, pDceBinding will point at the appropriate DCE_BINDING.
 
@@ -456,13 +508,6 @@ Fields:
 
     ReferenceCount - Number of DG_CCALLs currently associated with this
         binding handle.
-
-
-    InqCAssociation - Returns a pointer to the DG_CASSOCIATION that this
-        binding handle is associated with.
-
-    IncrementReferenceCount - Increments the reference count to this binding
-        handle.
 
     DecrementReferenceCount - Decrements the reference count to this binding
         handle. If the reference count hits 0, the binding handle is deleted.
@@ -476,60 +521,68 @@ Fields:
 private:
 
     DG_CASSOCIATION       * pCAssociation;
-    DCE_BINDING           * pDceBinding;
     PDG_RPC_CLIENT_TRANSPORT_INFO    pTransport;
     MUTEX                   BindingHandleMutex;
     unsigned int            ReferenceCount;
 
+    unsigned                ParmBufferLength;
+    unsigned                ParmMaxDatagramLength;
+
+    boolean                 fDynamicEndpoint;
+
 public:
+
+    DCE_BINDING           * pDceBinding;
 
     DG_BINDING_HANDLE(
         IN OUT RPC_STATUS PAPI * RpcStatus
         );
 
-    virtual
     ~DG_BINDING_HANDLE();
 
-    virtual RPC_STATUS
+    RPC_STATUS
     GetBuffer (
         IN OUT PRPC_MESSAGE Message
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     BindingCopy (
         OUT BINDING_HANDLE  * __RPC_FAR * DestinationBinding,
         IN unsigned int MaintainContext
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     BindingFree (
         );
 
-    virtual void
+    void
     PrepareBindingHandle (
         IN void * TransportInterface,
         IN DCE_BINDING * DceBinding
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     ToStringBinding (
         OUT RPC_CHAR __RPC_FAR * __RPC_FAR * StringBinding
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     ResolveBinding (
         IN RPC_CLIENT_INTERFACE __RPC_FAR * RpcClientInterface
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     BindingReset (
         );
 
-    virtual RPC_STATUS
+    RPC_STATUS
     InquireTransportType(
         OUT unsigned int PAPI * Type
         )
-    { *Type = TRANSPORT_TYPE_DG; return(RPC_S_OK); }
+    {
+        *Type = TRANSPORT_TYPE_DG;
+        return(RPC_S_OK);
+    }
 
     PDG_CASSOCIATION
     InqCAssociation(
@@ -555,9 +608,45 @@ public:
     DisassociateFromServer(
        );
 
+    unsigned long
+    MapAuthenticationLevel (
+        IN unsigned long AuthenticationLevel
+        );
+
+    RPC_STATUS
+    SetConnectionParameter (
+        IN unsigned Parameter,
+        IN unsigned long Value
+        );
+
+    RPC_STATUS
+    InqConnectionParameter (
+        IN unsigned Parameter,
+        IN unsigned long __RPC_FAR * pValue
+        );
+
+    unsigned
+    InqMaxDatagramLength(
+        )
+    {
+        return ParmMaxDatagramLength;
+    }
+
+    unsigned
+    InqTransportBufferLength(
+        )
+    {
+        return ParmBufferLength;
+    }
+
+    inline BOOL
+    IsDynamic()
+    {
+        return fDynamicEndpoint;
+    }
+
 };
 
-typedef DG_BINDING_HANDLE * PDG_BINDING_HANDLE;
 
 inline
 PDG_CASSOCIATION
@@ -568,44 +657,8 @@ DG_BINDING_HANDLE::InqCAssociation(
     return pCAssociation;
 }
 
-inline
-void
-DG_BINDING_HANDLE::IncrementReferenceCount(
-    void
-    )
-{
-    BindingHandleMutex.Request();
-    ReferenceCount++;
-    BindingHandleMutex.Clear();
-}
-
-inline
-void
-DG_BINDING_HANDLE::DecrementReferenceCount(
-    void
-    )
-{
-    BindingHandleMutex.Request();
-    ReferenceCount--;
-    if (ReferenceCount == 0)
-        {
-        //
-        // Don't try to clear mutex...it was deleted along
-        // this the binding handle.
-        //
-
-        delete this;
-        }
-     else
-        {
-        BindingHandleMutex.Clear();
-        }
-
-   }
-
-
 
-class DG_CCALL : public CCONNECTION
+class DG_CCALL : public CCONNECTION, private DG_PACKET_ENGINE
 
 /*++
 
@@ -614,86 +667,274 @@ Class Description:
 
     This class represents an RPC in progress on the client side.
 
-Class History:
-Fields:
-                                                *
-    <in addition to the fields from CCONNECTION>
-
-
-    pCAssociation - A pointer to the DG_CASSOCIATION to perform this rpc on.
-
-    pBindingHandle - A pointer to the Binding handle that is being used
-        to perform this RPC.
-
-    ActivityUuid  - Activity UUID [Call ID]
-
-    CallbackInProgress - Will be true if a callback is in progress.
-
-    SequenceNumber - The sequence number for this call.
-
-    DictionaryKey - Key if this is a non-idempotent call and it is in the
-        dictionary of all outstanding non-idempotent calls in progress.
-
-    AssociationKey - Key into the InactiveCallsDict
-
-    RecvListHead  - Head of D.L.L for all recv. packets
-
-    RecvListTail  - Tail of D.L.L for all recv. packets
-
-    FreeInParms - Frees the Buffer element of the passed Message structure.
-
-    SendToServer - Breaks the Message->Buffer up into packets and sends
-        it to the server. If RequestCount>0, then it waits for facks also.
-
-    ReceiveFromServer - Receives (potentially) multiple packets from the
-        server and coalesces them.
-
-    SendCallbackError - Sends an error packet to the server after a callback
-        generates one.
-
-    BroadcastOrMaybeSendReceive - Serves as SendReceive for broadcast or
-        maybe calls.
-
-    BuildNcaPacketHeader - Given a packet and an RPC_MESSAGE, does just that.
-
-    SetBindingHandleReference - Sets the
-
-    PENDPOINT - A Transport dependent endpoint .. this is an opaque entity
-        that EndpointManager for the transport assigns to us and we
-        religiously pass to Send and Recv routines in the transport
-
 --*/
 
 {
 
 friend class DG_CASSOCIATION;
 
-friend void __RPC_FAR conv_who_are_you(
-    IN UUID           __RPC_FAR *   pUuid,
-    IN unsigned long                ServerBootTime,
-    OUT unsigned long __RPC_FAR *   SequenceNumber,
-    OUT unsigned long __RPC_FAR *   Status
+friend
+void __RPC_FAR
+conv_are_you_there(
+    handle_t Binding,
+    UUID __RPC_FAR *pUuid,
+    unsigned long ServerBootTime,
+    error_status_t __RPC_FAR *Status
     );
 
-friend RPC_STATUS
-DG_BINDING_HANDLE::GetBuffer (
-    IN OUT PRPC_MESSAGE Message
+friend
+void __RPC_FAR
+conv_who_are_you(
+    IN handle_t                     Binding,
+    IN UUID          __RPC_FAR *    pUuid,
+    IN unsigned long                ServerBootTime,
+    OUT unsigned long __RPC_FAR *   SequenceNumber,
+    OUT error_status_t __RPC_FAR *  Status
     );
+
+friend
+void __RPC_FAR
+conv_who_are_you_auth(
+    handle_t Binding,
+    UUID __RPC_FAR *pUuid,
+    unsigned long ServerBootTime,
+    byte __RPC_FAR InData[  ],
+    long InLength,
+    long OutMaxLength,
+    unsigned long __RPC_FAR *SequenceNumber,
+    UUID __RPC_FAR * pCASUuid,
+    byte __RPC_FAR OutData[  ],
+    long __RPC_FAR * pOutLength,
+    error_status_t __RPC_FAR *Status
+    ) ;
+
+public:
+
+    // PENDPOINT - A Transport dependent endpoint .. this is an opaque entity
+    // that EndpointManager for the transport assigns to us and we
+    // religiously pass to Send and Recv routines in the transport
+    //
+    ENDPOINT  * EndpointHandle;
+    void      __RPC_FAR * Endpoint;
+
+#if defined(MULTITHREADED)
+
+    DELAYED_ACTION_NODE DelayedAckTimer;
+    unsigned long       ExpirationTime;
+
+#endif
+
+    DG_CCALL(
+        IN PDG_CASSOCIATION         pCAssociation,
+        unsigned                    AddressSize,
+        CLIENT_AUTH_INFO *          pClientAuthInfo,
+        OUT RPC_STATUS __RPC_FAR *  pStatus
+        );
+
+    virtual
+    ~DG_CCALL();
+
+    //------------------------------------------------
+    //
+    // implementations of CCONNECTION virtual functions
+    //
+
+    virtual RPC_STATUS
+    GetBuffer (
+            IN OUT PRPC_MESSAGE Message
+        );
+
+    virtual RPC_STATUS
+    SendReceive (
+            IN OUT PRPC_MESSAGE Message
+        );
+
+    virtual RPC_STATUS
+    Send(
+        PRPC_MESSAGE Message
+        );
+
+    virtual RPC_STATUS
+    Receive(
+        PRPC_MESSAGE Message,
+        unsigned MinimumSize
+        );
+
+    virtual void
+    FreeBuffer (
+            IN PRPC_MESSAGE Message
+        );
+
+    virtual void
+    FreePipeBuffer (
+        IN PRPC_MESSAGE Message
+        ) ;
+
+    virtual RPC_STATUS
+    ReallocPipeBuffer (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int NewSize
+        ) ;
+
+    inline int
+    IsSupportedAuthInfo(
+        IN CLIENT_AUTH_INFO * ClientAuthInfo
+        );
+
+#if defined(NTENV) || defined(DOSWIN32RPC)
+
+    virtual RPC_STATUS
+    Cancel(
+        void * ThreadHandle
+        );
+
+    virtual unsigned
+    TestCancel(
+        );
+
+#endif
+
+    //------------------------------------------------
+    //
+    // other public member functions
+    //
+
+    inline void
+    Initialize(
+        PDG_BINDING_HANDLE Binding
+        );
+
+    void
+    SendAck(
+        );
 
 private:
 
     RPC_UUID                ActivityUuid;
     PDG_CASSOCIATION        pCAssociation;
     PDG_BINDING_HANDLE      pBindingHandle;
-    BOOL                    CallbackInProgress;
-    unsigned long           SequenceNumber;
-    int                     DictionaryKey;
     int                     AssociationKey;
-    unsigned short          SerialNumber;
 
-    PDG_PACKET              RecvListHead;
-    PDG_PACKET              RecvListTail;
-    void    PAPI *          ServerAddress;
+    void    PAPI *          CallbackAddress;
+
+    // The number of working packets we've received.
+    // Used for ping back-off.
+    //
+    unsigned                WorkingCount;
+    unsigned                UnansweredRequestCount;
+
+    // Wait time for ReceivePacket().
+    //
+    unsigned                Timeout;
+
+    boolean                 UseSecurity;
+    boolean                 fNewCall;
+
+    boolean                 InsideCallback;
+    boolean                 CallbackCompleted;
+
+    boolean                 ServerResponded;
+    boolean                 AckPending;
+
+    boolean                 StaticArgsSent;
+    boolean                 AllArgsSent;
+
+#ifdef MULTITHREADED
+    boolean                 CancelComplete;
+    unsigned long           CancelTime;
+#endif
+
+    PDG_SECURITY_CONTEXT    ActiveSecurityContext;
+    PDG_SECURITY_CONTEXT    PreviousSecurityContext;
+
+    //-----------------------------------------------
+
+    RPC_STATUS
+    SendReceiveRecur(
+        PRPC_MESSAGE Message,
+        boolean AllowRetry
+        );
+
+    RPC_STATUS
+    SendRecur(
+        PRPC_MESSAGE Message,
+        boolean AllowRetry
+        );
+
+    RPC_STATUS
+    SingleSendReceive(
+        );
+
+    RPC_STATUS
+    SendSomething(
+        );
+
+    RPC_STATUS
+    SendFragment(
+        PRPC_MESSAGE pMessage,
+        PNCA_PACKET_HEADER pBaseHeader
+        );
+
+    RPC_STATUS
+    SendQuit(
+        );
+
+    inline RPC_STATUS
+    SendPing(
+        );
+
+    virtual RPC_STATUS
+    SealAndSendPacket(
+        PNCA_PACKET_HEADER pHeader
+        );
+
+    //-----------------------------------------------
+
+    RPC_STATUS
+    DealWithNocall(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithFault(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithWorking(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithRequest(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithResponse(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithFack(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithQuack(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    DealWithAuthCallback(
+        IN void  PAPI * InToken,
+        IN long  InTokenLengh,
+        OUT void PAPI * OutToken,
+        OUT long MaxOutTokenLength,
+        OUT long PAPI * OutTokenLength
+        );
+
+    //-----------------------------------------------
 
     void
     FreeInParms(
@@ -705,94 +946,35 @@ private:
         PRPC_MESSAGE    pMessage
         );
 
-    RPC_STATUS
-    SendToServer(
-        IN PRPC_MESSAGE        pMessage,
-        IN int                 RequestCount,
-        IN unsigned char       PacketType,
-        IN OUT unsigned long __RPC_FAR * pAmountReceived
-        );
-
-
-   RPC_STATUS
-   ReceiveFackOrResponse(
-        IN PDG_PACKET          pSendPacket,
-        IN PDG_PACKET          pFackPacket,
-        IN OUT unsigned long __RPC_FAR * pAmountReceived
-        );
-
-    RPC_STATUS
-    ReceiveFromServer(
-        OUT PRPC_MESSAGE       pMessage,
-        OUT BOOL __RPC_FAR     *pThisIsACallback,
-        IN OUT unsigned long __RPC_FAR * pAmountReceived,
-        IN int                 RequestCount
+    void
+    InitErrorPacket(
+        PNCA_PACKET_HEADER pHeader,
+        unsigned char   PacketType,
+        RPC_STATUS      RpcStatus
         );
 
     void
-    SendCallbackError(
-        IN PRPC_MESSAGE Message,
-        IN RPC_STATUS   Status
-        );
-
-   RPC_STATUS
-   PrepareUserBuffer(
-        IN OUT PRPC_MESSAGE Message,
-        IN     unsigned long DataLength
-        );
-
-   inline
-   int
-   InqNextFragNumberToRecv(
-        );
-
-   void
-   EnqueueReceivedPacket(
-       IN PDG_PACKET Packet
-       );
-
-   void
-   SendFackOrAckIfNeeded(
-       IN PDG_PACKET Packet
-       );
-
-   inline
-   void
-   SwitchAddressesIfNecessary(
-   );
-
-public:
-
-    ENDPOINT  * EndpointHandle;
-    void      __RPC_FAR * Endpoint;
-
-    DG_CCALL(
-        IN PDG_CASSOCIATION         pCAssociation,
-        OUT RPC_STATUS __RPC_FAR *  pStatus
-        );
-
-    virtual
-    ~DG_CCALL();
-
-    virtual RPC_STATUS
-    SendReceive (
-            IN OUT PRPC_MESSAGE Message
-        );
-
-
-    virtual RPC_STATUS
-    GetBuffer (
-            IN OUT PRPC_MESSAGE Message
-        );
-
-    virtual void
-    FreeBuffer (
-            IN PRPC_MESSAGE Message
+    FreeEndpoint(
         );
 
     RPC_STATUS
-    BroadcastOrMaybeSendReceive(
-        IN OUT PRPC_MESSAGE Message
+    InitializeSecurityContext(
+        );
+
+    RPC_STATUS
+    VerifyPacket(
+        PDG_PACKET pPacket
+        );
+
+    RPC_STATUS
+    BeforeSendReceive(
+        PRPC_MESSAGE Message
+        );
+
+    RPC_STATUS
+    AfterSendReceive(
+        PRPC_MESSAGE Message,
+        RPC_STATUS Status
         );
 
     void
@@ -802,19 +984,14 @@ public:
         );
 
     RPC_STATUS
-    SendReceive2 (
+    MaybeSendReceive(
         IN OUT PRPC_MESSAGE Message
-       );
-
-    inline
-    void
-    ResetSerialNumber(
-    );
-
+        );
 };
 
-typedef DG_CCALL * PDG_CCALL;
-
+RPC_STATUS
+InitializeClientGlobals(
+    );
 
 #endif __DGCLNT_HXX__
 

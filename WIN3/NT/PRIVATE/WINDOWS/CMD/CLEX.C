@@ -1,14 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define PAGRP   0x0004  /* Parser                                          */
-#define LXLVL   0x0002  /* Lexing                                          */
-#define LFLVL   0x0004  /* Input routine                                   */
-#define BYLVL   0x0010  /* Byte input routines                             */
 
 extern unsigned int DosErr;
 extern jmp_buf CmdJBuf2 ; /* Used for error handling  */
@@ -16,6 +6,7 @@ extern jmp_buf CmdJBuf2 ; /* Used for error handling  */
 extern TCHAR DTNums[] ;
 extern TCHAR MsgBuf[];
 extern unsigned msglen;                    /*    @@@@@@@@   */
+extern TCHAR VerMsg[] ;                  /* dgs - print out cmd version too */
 
 int Necho = 0;                             /* No echo option */
 extern int KeysFlag; /* @@5 */
@@ -54,26 +45,32 @@ static TCHAR *PrevLexPtr ;       /* M013 - New previous token pointer       */
 
 static TCHAR FrsBuf[LBUFLEN+1] ;
 
+extern int LastRetCode ;
+TCHAR LastRetCodeStr[32];
+
 extern CHAR  AnsiBuf[];
 
 extern TCHAR Fmt27[], Fmt14[] ;
 
 extern struct batdata *CurBat ;         /* M026 - Batch file struct ptr    */
 
-extern TCHAR CrLf[] ;                                            /* M023    */
-extern int NulNode ;                                            /* M023    */
-extern TCHAR Fmt19[] ;                                           /* M023    */
-extern TCHAR DBkSpc[] ;                                          /* M023    */
+extern TCHAR CrLf[] ;
+extern TCHAR ErrStr[] ;
+extern int NulNode ;
+extern TCHAR Fmt19[] ;
+extern TCHAR DBkSpc[] ;
+#if defined(DBCS) // DDBkSpc[]
+extern TCHAR DDBkSpc[] ;
+#endif // defined(DBCS)
 extern unsigned global_dfvalue;            /* @@4 */
 
 extern int EchoFlag ;
 extern TCHAR PromptStr[], CurDrvDir[], Delimiters[] ;
 extern unsigned flgwd ;
-extern   BOOLEAN CtrlCSeen;
+extern BOOL CtrlCSeen;
 
 VOID    SetCtrlC();
 VOID    ResetCtrlC();
-BOOL    IsCtrlCSet();
 
 //
 // Prompt string special characters and associated print character/flag.
@@ -90,8 +87,9 @@ BOOL    IsCtrlCSet();
 #define PBAKFLAG    5   // destructive backspace flag
 #define PNLNFLAG    6   // newline prompt flag
 #define PDRVFLAG    7
-#define PHLPFLAG    8   // Display top line of help
-#define PLITFLAG    9   // Print character in SpecialChar field
+#define PLITFLAG    8   // Print character in SpecialChar field
+#define PDPTFLAG    9   // Print depth of pushd stack
+#define PNETFLAG   10   // Print \\server\share or local for current drive
 
 //
 // Esc character used to mark a special prompt char. in prompt string
@@ -127,7 +125,8 @@ PROMPT_ENTRY PromptTable[] = {
        { TEXT('A'),PLITFLAG, ANDOP   },
        { TEXT('C'),PLITFLAG, LPOP   },
        { TEXT('F'),PLITFLAG, RPOP   },
-       { TEXT('I'),PHLPFLAG, NULLC },
+       { TEXT('+'),PDPTFLAG, NULLC },
+       { TEXT('M'),PNETFLAG, NULLC },
        { NULLC,PNULLFLAG, NULLC}};
 
 /***    InitLex - initialize the lexer's global variables
@@ -193,7 +192,7 @@ unsigned lflag ;
                 *tbcpy;         /* Copy of tokbuf                          */
 
         if(setjmp(CmdJBuf2)) {          /* M026 - Now msg printed prior    */
-	    return((unsigned)LEXERROR) ;  /* ...to arrival here              */
+            return((unsigned)LEXERROR) ;  /* ...to arrival here              */
         } ;
 
 /*  M013 - This code detects request to unget last token and if so, performs
@@ -362,6 +361,9 @@ unsigned *lflag ;
                 case SILOP:             /* M017 - New unary operator       */
                                         /* ...binds like left paren        */
 
+                        if ((*lflag & (LX_QUOTE|LX_REM)))      /* M005    */
+                                break ;
+
                         if( !AtIsToken )   /* If @ is not to be treated */
                           {                /* as token, then indicate  */
                             return( *c );  /* such  @@4    */
@@ -369,10 +371,16 @@ unsigned *lflag ;
 
                 case LPOP:              /* M002 - Moved these two cases    */
 
+                        if ((*lflag & (LX_QUOTE|LX_REM)))      /* M005    */
+                                break ;
+
                         if(!(*lflag & GT_LPOP)) /* ...up and break if      */
                                 break ;         /* ...they are not to      */
 
                 case RPOP:                      /* ...be treated as ops    */
+
+                        if ((*lflag & (LX_QUOTE|LX_REM)))      /* M005    */
+                                break ;
 
                         if((!(*lflag & GT_RPOP)) && *c == RPOP)
                                 break ; /* M002 ends                       */
@@ -473,10 +481,10 @@ unsigned *lflag ;
 
 TCHAR GetByte()
 {
-        static int saw_dbcs_lead = 0;	/* remember if we're in the middle
-					   of a double byte character */
-        TCHAR lead;			/* variables for remember parts of
-					   double byte characters */
+        static int saw_dbcs_lead = 0;   /* remember if we're in the middle
+                                           of a double byte character */
+        TCHAR lead;                     /* variables for remember parts of
+                                           double byte characters */
 
         if (!*LexBufPtr)
                 FillBuf() ;
@@ -497,7 +505,7 @@ TCHAR GetByte()
         }
         else {
                 lead = *LexBufPtr++;
-		return(lead);
+                return(lead);
         }
 }
 
@@ -562,6 +570,8 @@ void UnGetByte()
  *
  */
 
+BOOL ReadFromStdInOkay = FALSE;
+
 void FillBuf()
 {
 
@@ -570,8 +580,8 @@ void FillBuf()
         TCHAR *sptr ;           /* Copy of DataPtr                 */
         size_t i ;                      /* Work variable                   */
 
-	DWORD cnt ;              /* Count of input bytes    */
-	BOOL flag;
+        DWORD cnt ;              /* Count of input bytes    */
+        BOOL flag;
 
         //
         // clear this flag in case it was hit from previous command
@@ -610,7 +620,7 @@ void FillBuf()
                           while (
                           ( cnt < LBUFLEN) &&   /* ##1 */
                           ( (ReadBufFromFile(CRTTONT(DataPtr),
-				  &FrsBuf[cnt], 1, (LPDWORD)&i)) != 0 ||
+                                  &FrsBuf[cnt], 1, (LPDWORD)&i)) != 0 ||
                             GetLastError() == ERROR_MORE_DATA) &&
                           ( i != 0 )
                           ) {
@@ -630,10 +640,10 @@ void FillBuf()
                             if ( KeysFlag ) {
                                 i = EditLine( DataPtr, FrsBuf, LBUFLEN, &cnt );
                             }
-			    else {
+                            else {
                                 ResetCtrlC();
                                 if (ReadBufFromConsole(
-					     CRTTONT(DataPtr),
+                                             CRTTONT(DataPtr),
                                              FrsBuf,
                                              LBUFLEN,
                                              &cnt) ) {
@@ -651,10 +661,6 @@ void FillBuf()
                                     if (cnt == 0) {
 
                                         if (GetLastError() == ERROR_OPERATION_ABORTED) {
-                                            while (!IsCtrlCSet()) {
-                                                Sleep(100);
-                                            };
-                                            ResetCtrlC();
                                             cmd_printf(CrLf);
                                             longjmp(CmdJBuf2, -1);
                                         }
@@ -669,10 +675,10 @@ void FillBuf()
                                 }
                             }
                         }
-			else {
+                        else {
                           flag = ReadBufFromFile(
-					CRTTONT(DataPtr),
-					FrsBuf, LBUFLEN, (LPDWORD)&cnt) ;
+                                        CRTTONT(DataPtr),
+                                        FrsBuf, LBUFLEN, (LPDWORD)&cnt) ;
                           DEBUG((PAGRP, LFLVL, "FLBF: Read %d bytes", cnt)) ;
                           if (CtrlCSeen) {
                               ResetCtrlC();
@@ -684,7 +690,7 @@ void FillBuf()
                             cnt = 0;
                             i = GetLastError();
                           }
-			  else {
+                          else {
                             i = 0;
                           }
                         }
@@ -694,7 +700,7 @@ void FillBuf()
                                 DEBUG((PAGRP,LFLVL,"FLBF: ^Z from STDIN!")) ;
                                 DEBUG((PAGRP,LFLVL,"      READFILE retd %d",i)) ;
 
-                                if (FileIsDevice(STDIN)) {
+                                if (FileIsDevice(STDIN) && ReadFromStdInOkay) {
 
                                         DEBUG((PAGRP,LFLVL,"FLBF: Is device, fixing up buffer")) ;
                                         FrsBuf[0] = NLN ;
@@ -704,7 +710,9 @@ void FillBuf()
                                         DEBUG((PAGRP,LFLVL,"FLBF: Is file, aborting!!!")) ;
                                         ExitAbort(EXIT_EOF) ;
                                 } ;
-                        } ;
+                        } else if (!ReadFromStdInOkay && cnt && DataPtr == STDIN) {
+                            ReadFromStdInOkay = TRUE;
+                        }
 
                         cnt = LexCopy(LexBuf, FrsBuf, cnt);
 
@@ -822,6 +830,7 @@ int count;
 }
 
 BOOLEAN PromptValid;
+TCHAR PromptVariableBuffer[ 256 ];
 TCHAR PromptBuffer[ 256 ];
 
 void
@@ -851,7 +860,15 @@ Return Value:
 
 {
         TCHAR *pszPrompt ;
+        TCHAR *s;
+        int nLeft, nUsed;
         ULONG idx;
+        ULONG vrs ;
+#if defined(JAPAN) && defined(UNICODE)
+        // This local variable is used for determine the last
+        // character is full width character (=DBCS) or not.
+        WCHAR chLast = NULLC;
+#endif /* defined(JAPAN) && defined(UNICODE) */
 #if 0
         //
         // used in pipe if a ^c see on dispatch of left side
@@ -888,7 +905,7 @@ Return Value:
     }
 
     if ( PromptValid ) {
-        pszPrompt = PromptBuffer;
+        pszPrompt = PromptVariableBuffer;
         }
     else {
         //
@@ -896,8 +913,8 @@ Return Value:
         //
         pszPrompt = GetEnvVar(PromptStr) ;
         if ( pszPrompt ) {
-            mystrcpy( PromptBuffer, pszPrompt);
-            pszPrompt = PromptBuffer;
+            mystrcpy( PromptVariableBuffer, pszPrompt);
+            pszPrompt = PromptVariableBuffer;
             PromptValid = TRUE;
             }
         }
@@ -908,12 +925,18 @@ Return Value:
     GetDir(CurDrvDir, GD_DEFAULT) ;
     DEBUG((PAGRP, LFLVL, "PRINTPROMPT: pszPrompt = `%ws'", pszPrompt)) ;
 
+    s = PromptBuffer;
+    *s = NULLC;
+    nLeft = sizeof(PromptBuffer) / sizeof(TCHAR);
+
     //
     // Check if there was a prompt string.
     // If there is not prompt string then just print current drive
     //
     if (!pszPrompt || !*pszPrompt) {
-        cmd_printf(Fmt27, CurDrvDir) ;
+        nUsed = _sntprintf( s, nLeft, Fmt27, CurDrvDir) ;
+        s += nUsed;
+        nLeft -= nUsed;
 
     } else {
 
@@ -928,7 +951,17 @@ Return Value:
             //
             if (*pszPrompt != PROMPTESC) {
 
-                cmd_printf(Fmt19, *pszPrompt) ;
+                nUsed = _sntprintf( s, nLeft, Fmt19, *pszPrompt) ;
+                s += nUsed;
+                nLeft -= nUsed;
+
+#if defined(JAPAN) && defined(UNICODE)
+                // If character is full width character, mark it.
+                if (IsFullWidth(*pszPrompt))
+                    chLast = pszPrompt;
+                 else
+                    chLast = NULLC;
+#endif /* defined(JAPAN) && defined(UNICODE) */
 
             } else {
 
@@ -963,7 +996,9 @@ Return Value:
 
                     if (PromptTable[idx].Format == PLITFLAG) {
 
-                        cmd_printf(Fmt19, PromptTable[idx].Literal) ;
+                        nUsed = _sntprintf( s, nLeft, Fmt19, PromptTable[idx].Literal) ;
+                        s += nUsed;
+                        nLeft -= nUsed;
 
                     } else {
 
@@ -971,47 +1006,126 @@ Return Value:
 
                         case PTIMFLAG:
 
-                            PrintTime(NULL,PT_TIME, (TCHAR *)NULL) ;
+                            nUsed = PrintTime(NULL, PT_TIME, s, nLeft) ;
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
                         case PDATFLAG:
 
-                            PrintDate(NULL,PD_DATE, (TCHAR *)NULL) ;
+                            nUsed = PrintDate(NULL, PD_DATE, s, nLeft) ;
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
                         case PPATFLAG:
 
-                            cmd_printf(Fmt14, CurDrvDir) ;
+                            nUsed = _sntprintf( s, nLeft, Fmt14, CurDrvDir) ;
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
                         case PVERFLAG:
+                            vrs = GetVersion();
+                            GetMsg( MSG_MS_DOS_VERSION,
+                                    THREEARGS,
+                                    VerMsg,
+                                    argstr1( TEXT("%d"), (unsigned long)(vrs & 0xFF)),
+                                    argstr2( TEXT("%-2d"), (unsigned long)((vrs >> 8)& 0xFF))
+                                  );
 
-                            eVersion(NULL) ;
+                            nUsed = _sntprintf( s, nLeft, Fmt14, MsgBuf );
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
                         case PBAKFLAG:
 
-                            cmd_printf(DBkSpc) ;
+#if defined(DBCS) // PrintPrompt()
+                            // if the last character is full width character.
+                            // we should delete 2 bytes.
+                            if (chLast != NULLC)
+                                nUsed = _sntprintf( s, nLeft, DDBkSpc);
+                             else
+                                nUsed = _sntprintf( s, nLeft, DBkSpc) ;
+#else
+                            nUsed = _sntprintf( s, nLeft, DBkSpc) ;
+#endif // defined(DBCS)
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
                         case PNLNFLAG:
 
-                            cmd_printf(CrLf) ;
+                            nUsed = _sntprintf( s, nLeft, CrLf) ;
+                            s += nUsed;
+                            nLeft -= nUsed;
                             break ;
 
-                        case PHLPFLAG:
+                        case PDPTFLAG:
+                        case PNETFLAG:
+                            //
+                            // If extensions are enabled, then two new prompt characters
+                            //
+                            //  $+ generates from zero to N plus characters, depending upon
+                            //     the depth of the PUSHD directory stack.
+                            //
+                            //  $m generates the empty string if the current drive is not a
+                            //     network drive.  If it is, then $m generates the \\server\share
+                            //     name with a trailing space.
+                            //
+                            if (fEnableExtensions) {
+                                if (PromptTable[idx].Format == PDPTFLAG) {
+                                    nUsed = _sntprintf( s, nLeft, TEXT("%.*s"), GetDirStackDepth(), TEXT("+++++++++++++++++++++++++++++++++"));
+                                    s += nUsed;
+                                    nLeft -= nUsed;
+                                }
+                                else {
+                                    TCHAR CurDrive[4];
+                                    TCHAR NetPath[MAX_PATH];
+                                    DWORD n;
 
-                            // BUGBUG
-                            // ConHlpPrmpt();
+                                    _tcsncpy(CurDrive, CurDrvDir, 2);
+                                    CurDrive[2] = NULLC;
+                                    n = MAX_PATH;
+                                    switch (WNetGetConnection(CurDrive,
+                                                              NetPath,
+                                                              &n
+                                                             )
+                                           ) {
+                                    case NO_ERROR:
+                                        NetPath[n] = NULLC;
+                                        nUsed = _sntprintf( s, nLeft, TEXT("%s "), NetPath);
+                                        s += nUsed;
+                                        nLeft -= nUsed;
+                                        break;
+
+                                    case ERROR_NOT_CONNECTED:
+                                        break;
+
+                                    default:
+                                        nUsed = _sntprintf( s, nLeft, TEXT("Unknown"));
+                                        s += nUsed;
+                                        nLeft -= nUsed;
+                                        break;
+                                    }
+                                }
+                            }
                             break;
+
                         default:
-                            cmd_printf(Fmt19, CurDrvDir[0]) ;
+                            nUsed = _sntprintf( s, nLeft, Fmt19, CurDrvDir[0]) ;
+                            s += nUsed;
+                            nLeft -= nUsed;
                         }
                     }
                 }
             }
         } // for
     } // else
+
+    *s = NULLC;
+    cmd_printf(TEXT("%s"), PromptBuffer);
 
     //
     // If ^c seen while printing prompt blow it away
@@ -1062,7 +1176,7 @@ int IsData()
  *
  *  NOTES:
  *    - This function does not return if expansion causes length to exceed
- *      maximum line length (LBUFLEN = 128).
+ *      maximum line length (LBUFLEN = 2048).
  *    - M026 caused complete rewrite to perform batch variable substitution
  *      at the lexer stage rather than in batch processing.  Note that the
  *      printing of error messages can now be either line too long or token
@@ -1105,43 +1219,62 @@ void SubVar()
                         continue ;
                 } ;
 
-                if (CurBat && _istdigit(*srcp)) {
-                        j = *srcp - TEXT('0') ;       /* Found batch variable*/
-                        ++srcp ;                /* Kick past digit         */
+                //
+                // If inside a command script and extensions are enabled,
+                // expand %* into all the arguments (%1 through %n).
+                //
+                if (CurBat && fEnableExtensions && *srcp == STAR) {
+                        ++srcp ;                /* Kick past star          */
 
-                        DEBUG((PAGRP,LXLVL,"SBVAR: Found batch var %d", j)) ;
-                        DEBUG((PAGRP,LXLVL,"SBVAR:   - len = %d", CurBat->alens[j])) ;
-                        DEBUG((PAGRP,LXLVL,"SBVAR:   - var = %ws", CurBat->aptrs[j])) ;
+                        slen = mystrlen(CurBat->orgargs);
+                        substr = CurBat->orgargs;
+                        DEBUG((PAGRP,LXLVL,"SBVAR: Found batch var %*")) ;
+                        DEBUG((PAGRP,LXLVL,"SBVAR:   - len = %d", slen)) ;
+                        DEBUG((PAGRP,LXLVL,"SBVAR:   - var = %ws", substr)) ;
 
-                        if (CurBat->alens[j] > 0) {
-                                if (dlen+CurBat->alens[j] > MAXTOKLEN) {
+                        if (slen > 0) {
+                                if (dlen+slen > MAXTOKLEN) {
 
                                         DEBUG((PAGRP,LXLVL,"SBVAR: Too Long!"));
 
-                                        _tcsncpy(LexBufPtr,CurBat->aptrs[j],MAXTOKLEN - dlen) ;
+                                        _tcsncpy(LexBufPtr,substr,MAXTOKLEN - dlen) ;
                                         LexBuf[MAXTOKLEN] = NULLC ;
                                         PutStdErr(MSG_TOKEN_TOO_LONG, ONEARG,LexBuf) ;
                                         longjmp(CmdJBuf2,-1) ;
                                 } ;
 
-                                mystrcpy(LexBufPtr, CurBat->aptrs[j]) ;
-                                dlen += CurBat->alens[j] ;
-                                LexBufPtr += CurBat->alens[j] ;
+                                mystrcpy(LexBufPtr, substr) ;
+                                dlen += slen ;
+                                LexBufPtr += slen ;
 
                                 DEBUG((PAGRP,LXLVL,"SBVAR: Subst complete; dest = `%ws'", LexBuf)) ;
                         } else {
 
-                                DEBUG((PAGRP,LXLVL,"SBVAR: Var %d undefined", j)) ;
+                                DEBUG((PAGRP,LXLVL,"SBVAR: Var %* undefined")) ;
                         } ;
-                        DEBUG((PAGRP,LXLVL,"SBVAR: No single char subst.")) ;
 
                         continue ;
                 } ;
 
-                if(substr = MSEnvVar(srcp,&j)) {
+                //
+                // If inside a command script attempt to expand variable references
+                // of the form %n where n is a digit from 0 to 9
+                //
+                // If not in a command script or not a variable reference see if
+                // this is an environment variable expansion request.
+                //
+                if((CurBat &&
+                    (substr = MSCmdVar(&CmdJBuf2,srcp,&j,TEXT("0123456789"),CurBat->aptrs))
+                   ) ||
+                   (substr = MSEnvVar(&CmdJBuf2,srcp,&j, PERCENT)) != NULL
+                  ) {
 
-                        DEBUG((PAGRP,LXLVL,"SBVAR: Found env var %ws", substr)) ;
+                        DEBUG((PAGRP,LXLVL,"SBVAR: Found var %ws", substr)) ;
 
+                        //
+                        // Either variable reference or environment variable reference.
+                        // Copy the result to the input buffer
+                        //
                         if((dlen += (slen = mystrlen(substr))) > LBUFLEN+1) {
                                 PutStdErr(MSG_LINES_TOO_LONG, NOARGS);
                                 longjmp(CmdJBuf2,-1) ;
@@ -1151,8 +1284,14 @@ void SubVar()
                         srcp += j ;             /* M027 'j+1' --> 'j'      */
                 } else {
 
-                        DEBUG((PAGRP,LXLVL,"SBVAR: No env var found")) ;
+                        DEBUG((PAGRP,LXLVL,"SBVAR: No var found")) ;
 
+                        //
+                        // Variable not found.  If inside of command script, toss
+                        // the variable reference in the bit bucket.  If not in a
+                        // command script pass the characters that make up the reference
+                        // into the input buffer.  User will see their mistake shortly.
+                        //
                         if (CurBat) {
                                 srcp += j ;
                         } else {
@@ -1182,15 +1321,16 @@ void SubVar()
  *      this function is called to determine if there is an environment
  *      variable substitution possible.
  *
- *  TCHAR *MSEnvVar(TCHAR *str, int *supdate)
+ *  TCHAR *MSEnvVar(TCHAR *str, int *supdate, TCHAR delim)
  *
  *  Args:
+ *      errjmp  - optional pointer to jmp_buf for errors
  *      str     - pointer to a possible environment variable name
  *      supdate - location to place env variable name length in
- *
+ *      delim   - delimiter character to look for (e.g. PERCENT)
  *
  *  Returns:
- *      If there is no ending percent,
+ *      If there is no ending delim,
  *              set supdate to 0
  *              return NULL
  *      else
@@ -1207,16 +1347,31 @@ void SubVar()
  *
  */
 
-TCHAR *MSEnvVar(str, supdate)
+TCHAR *MSEnvVar(errjmp, str, supdate, delim)
+jmp_buf *errjmp ;
 TCHAR *str ;
 int *supdate ;
+TCHAR delim ;
 {
-        TCHAR *w0 ;             /* Points to ending PERCENT        */
-        TCHAR *w1 ;                      /* Will hold ptr to env var value  */
+        TCHAR *w0 ;                     /* Points to ending delim          */
+        TCHAR *w1 ;                     /* Will hold ptr to env var value  */
+        TCHAR *w2 ;
+        TCHAR *wSrch ;                  /* Will hold ptr to search string  */
+        TCHAR *wRepl ;                  /* Will hold ptr to replace string */
+        TCHAR savec ;
+        int noff, nlen, nsrchlen, nrepllen, ndeltalen, fPrefixMatch;
 
         *supdate = 0 ;                  /* M026 - Init to "Not found"      */
-        for (w0 = str ; *w0 ; w0++)     /* Search for ending PERCENT       */
-                if (*w0 == PERCENT)
+        for (w0 = str ; *w0 ; w0++)     /* Search for ending delim         */
+                if (fEnableExtensions) {
+                    if (*w0 == delim ||
+                        (*w0 == COLON && w0[1] != delim)
+                        // || !_istalnum(*w0)
+                       )
+                        break;
+                }
+                else
+                if (*w0 == delim)
                         break ;
 
         DEBUG((PAGRP, LFLVL, "MSENVVAR: *w0 = %04x", *w0)) ;
@@ -1227,14 +1382,417 @@ int *supdate ;
         if (!*w0 || (w0 - str) == 0)    /* If none or two together "%%"    */
                 return(NULL) ;          /* Say, "Not found"                */
 
+        savec = *w0;
         *w0 = NULLC ;                   /* Null term any Env Var name      */
         *supdate = mystrlen(str) ;      /* M026 - supdate = source len     */
-        *supdate += 1 ;                 /* Kick it past ending '%'         */
+        if (savec == delim)
+            *supdate += 1 ;             /* Kick it past ending delim       */
 
         DEBUG((PAGRP, LFLVL, "MSENVVAR: Possible env var = `%ws'", str)) ;
 
         w1 = GetEnvVar(str) ;           /* w1 == NULL or env variable      */
+        if (fEnableExtensions && w1 == NULL) {
+            if (!_tcsicmp(str, ErrStr))
+                wsprintf( w1 = LastRetCodeStr, TEXT("%d"), LastRetCode );
+            else
+            if (!_tcsicmp(str, TEXT("CMDCMDLINE")))
+                w1 = GetCommandLine();
+        }
+        *w0 = savec ;                   /* Restore str and...              */
+        if (savec == delim || savec == COLON)
+            w0 += 1;
 
-        *w0 = PERCENT ;                 /* Restore str and...              */
+        //
+        // If Command Extensions are enabled, then we support munging the
+        // output of environment variable expansion.  Here is the supported
+        // syntax, all keyed off a trailing COLON character at the end of
+        // the environment variable name.  Note, that %FOO:% is treated
+        // as it was before.
+        //
+        //  Environment variable substitution has been enhanced as follows:
+        //
+        //      %PATH:str1=str2%
+        //
+        //  would expand the PATH environment variable, substituting each
+        //  occurrence of "str1" in the expanded result with "str2".  "str2" can
+        //  be the empty string to effectively delete all occurrences of "str1"
+        //  from the expanded output.  Additionally:
+        //
+        //      %PATH:~10,5%
+        //
+        //  would expand the PATH environment variable, and then use only the 5
+        //  characters that begin at the 11th character of the expanded result.
+        //  If the ,5 is left off, it will take the entire remainder of the
+        //  expanded result.
+        //
+        if (fEnableExtensions && savec == COLON && w1 != NULL) {
+            wSrch = w0;
+            if (*w0 == EQI) {
+                //
+                // %PATH:~10,5%
+
+                w0 += 1;
+                noff = _tcstol(w0, &w0, 0);
+                if (*w0 == COMMA) {
+                    w0 += 1;
+                    nlen = _tcstol(w0, &w0, 0);
+                    if (nlen>0) {
+                        //
+                        // If length specified, use it
+                        //
+                        _tcsncpy(w1, w1+noff, nlen);
+                        w1[nlen] = NULLC;
+                    }
+                } else
+                    //
+                    // Otherwise just copy from offset to end of string.
+                    //
+                    _tcscpy(w1, w1+noff);
+
+                if (*w0 == delim)
+                    w0 += 1;
+            } else {
+                //
+                // Not extracting a string, so must be search and replacing
+                //
+                //  %PATH:str1=str2%
+                //
+                //
+                while (*w0 && *w0 != EQ) {
+                    if (*w0 == delim)
+                        break;
+                    w0 += 1;
+                }
+
+                if (*w0 == EQ) {
+                    *w0++ = NULLC;
+                    nsrchlen = _tcslen(wSrch);
+                    wRepl = w0;
+                    while (*w0 && *w0 != delim)
+                        w0 += 1;
+
+                    if (*w0) {
+                        *w0 = NULLC;
+                        nrepllen = _tcslen(wRepl);
+                        w2 = w1;
+                        if (*wSrch == STAR) {
+                            fPrefixMatch = TRUE;
+                            wSrch += 1;
+                            nsrchlen -= 1;
+                        } else
+                            fPrefixMatch = FALSE;
+
+                        while (*w2) {
+                            if (!_tcsnicmp(w2, wSrch, nsrchlen)) {
+                                if (fPrefixMatch) {
+                                    nsrchlen = (w2 - w1) + nsrchlen;
+                                    w2 = w1;
+                                }
+                                ndeltalen = nsrchlen-nrepllen;
+                                if (ndeltalen < 0)
+                                    memmove(w2-ndeltalen, w2, (_tcslen(w2)+1)*sizeof(TCHAR));
+                                else
+                                if (ndeltalen > 0)
+                                    _tcscpy(w2, w2+ndeltalen);
+                                memmove(w2, wRepl, nrepllen*sizeof(TCHAR));
+                                if (fPrefixMatch) {
+                                    wSrch -= 1;
+                                    break;
+                                }
+                                w2 += nrepllen;
+                            } else {
+                                w2 += 1;
+                            }
+                        }
+                        *w0++ = delim;
+                    }
+                    *--wRepl = EQ;
+                }
+                else
+                if (*w0) {
+                    if (errjmp != NULL) {
+                        PutStdErr(MSG_SYNERR_GENL, ONEARG, wSrch);
+                        longjmp(*errjmp,-1) ;
+                    } else
+                        return NULL;
+                }
+            }
+
+            *supdate += w0 - wSrch + 1;
+        }
+
         return(w1) ;                    /* ...return what was found        */
+}
+
+
+/***    MSCmdVar - Does command variable substitution
+ *
+ *  Purpose:
+ *      When percent signs are found in the newly filled lexer buffer,
+ *      this function is called to determine if there is a command processor
+ *      variable substitution possible.
+ *
+ *  TCHAR *MSCmdVar(TCHAR *srcp, int *supdate, TCHAR *vars, TCHAR *subs[])
+ *
+ *  Args:
+ *      errjmp  - optional pointer to jmp_buf for errors
+ *      srcp    - pointer to a possible variable name
+ *      supdate - location to place variable name length in
+ *      vars    - array of character variable names to look for
+ *      subs    - array of substitution strings for each variable name.
+ *
+ *  Returns:
+ *      If there is no ending delimiter
+ *              set supdate to 0
+ *              return NULL
+ *      else
+ *              set supdate to the enclosed string length
+ *              if the string is not a variable
+ *                      return NULL
+ *              else
+ *                      return a pointer to the replacement string
+ */
+
+TCHAR *MSCmdVar(errjmp, srcp, supdate, vars, subs)
+jmp_buf *errjmp ;
+TCHAR *srcp ;
+int *supdate ;
+TCHAR *vars ;
+TCHAR *subs[] ;
+{
+    TCHAR *substr;
+    TCHAR *s1;
+    int j;
+
+    substr = NULL;
+    *supdate = 0;
+    //
+    // If extensions are enabled, we support the following syntax for expanding
+    // variable values:
+    //     %~fi         - expands %i to a fully qualified path name
+    //     %~di         - expands %i to a drive letter only
+    //     %~pi         - expands %i to a path only
+    //     %~ni         - expands %i to a file name only
+    //     %~xi         - expands %i to a file extension only
+    //     %~si         - changes the meaning of n and x options to
+    //                     reference the short name instead
+    //     %~$PATH:i    - searches the directories listed in the PATH
+    //                     environment variable and expands %i to the
+    //                     fully qualified name of the first one found.
+    //                     If the environment variable name is not
+    //                     defined or the file is not found by the
+    //                     search, then this modifier expands to the
+    //                     empty string
+    //
+    // The modifiers can be combined to get compound results:
+    //
+    //     %~dpi       - expands %i to a drive letter and path only
+    //     %~nxi       - expands %i to a file name and extension only
+    //     %~dp$PATH:i - searches the directories listed in the PATH
+    //                    environment variable for %i and expands to the
+    //                    drive letter and path of the first one found.
+    //
+
+    //
+    // See if new syntax is being specified
+    //
+    if (fEnableExtensions && *srcp == EQI) {
+        BOOL fWantFullPath = FALSE;
+        BOOL fWantDrive = FALSE;
+        BOOL fWantPath = FALSE;
+        BOOL fWantName = FALSE;
+        BOOL fWantExtension = FALSE;
+        BOOL fWantShortName = FALSE;
+        WIN32_FIND_DATA FindBuf;
+        HANDLE FindHandle;
+        TCHAR c;
+        TCHAR ArgStr[MAX_PATH];
+        TCHAR FullPath[MAX_PATH], NullExt;
+        TCHAR *FilePart, *Extension, *StartPath, *VarName, *SearchVar, *StartBuf;
+        DWORD FullPathLength;
+
+        //
+        // New syntax.  Scan the modifiers after the ~ until we see
+        // a single letter variable name that matches one the passed in
+        // array of variable letters.
+        //
+        FullPathLength = 0;
+        SearchVar = NULL;
+        StartBuf = srcp-1;
+        s1 = NULL;
+        while (!s1 && *++srcp) {
+            switch (_totlower(*srcp)) {
+            case TEXT('f'): fWantFullPath = TRUE; break;
+            case TEXT('d'): fWantDrive = TRUE; break;
+            case TEXT('p'): fWantPath = TRUE; break;
+            case TEXT('n'): fWantName = TRUE; break;
+            case TEXT('x'): fWantExtension = TRUE; break;
+            case TEXT('s'): fWantShortName = TRUE; break;
+            case TEXT('$'): VarName = ++srcp;
+                            while (*srcp && *srcp != COLON)
+                                srcp++;
+
+                            if (!*srcp) {
+                                if (errjmp != NULL) {
+                                    PutStdErr(MSG_PATH_OPERATOR_INVALID, ONEARG, StartBuf) ;
+                                    longjmp(*errjmp,-1) ;
+                                } else
+                                    return NULL;
+                            }
+
+                            *srcp = NULLC;
+                            SearchVar = MyGetEnvVarPtr(VarName);
+                            if (SearchVar == NULL) {
+                                SearchVar = (TCHAR *)-1;
+                            }
+                            *srcp = COLON;
+                            break;
+
+            default:
+                            if ((s1 = _tcsrchr(vars, *srcp)) == NULL) {
+                                if (errjmp != NULL) {
+                                    PutStdErr(MSG_PATH_OPERATOR_INVALID, ONEARG, StartBuf) ;
+                                    longjmp(*errjmp,-1) ;
+                                } else
+                                    return NULL;
+                            }
+            }
+        }
+
+        //
+        // If we get here without a variable name, then bogus input.
+        // Bail with an error message.
+        //
+        if (s1 == NULL) {
+            if (errjmp != NULL) {
+                PutStdErr(MSG_PATH_OPERATOR_INVALID, ONEARG, StartBuf) ;
+                longjmp(*errjmp,-1) ;
+            } else
+                return NULL;
+        }
+
+        //
+        // Get current value of variable
+        //
+        substr = subs[s1 - vars];
+        if (substr != NULL && *substr == QUOTE) {
+            _tcscpy(ArgStr, substr+1);
+            s1 = lastc(ArgStr);
+            if (*s1 == QUOTE)
+                *s1 = NULLC;
+
+            substr = ArgStr;
+        }
+        else
+        if (substr != NULL &&
+            *srcp == TEXT('0') &&
+            CurBat != NULL &&
+            CurBat->orgaptr0 == substr &&
+            SearchVar == NULL &&
+            (fWantFullPath || fWantDrive || fWantPath || fWantName ||
+             fWantExtension || fWantShortName)
+           ) {
+            substr = CurBat->filespec;
+        }
+
+        // Skip past the variable name letter and tell caller how much of the
+        // source string we consumed.
+        //
+        ++srcp ;
+        *supdate = (srcp - StartBuf) - 1;
+
+        //
+        // If the variable has a value, then apply the modifiers to the
+        // value.
+        //
+        if (substr && *substr) {
+            //
+            // If requested searching an environment variable path, do that.
+            //
+            FullPath[0] = NULLC;
+            if (SearchVar != NULL) {
+                if (SearchVar != (TCHAR *)-1) {
+                    FullPathLength = SearchPath(SearchVar,substr,NULL,MAX_PATH,FullPath,&FilePart);
+                    if (FullPathLength == 0)
+                        SearchVar = (TCHAR *)-1;
+                    else
+                    if (!fWantFullPath && !fWantDrive &&
+                        !fWantPath && !fWantName && !fWantExtension)
+                        fWantFullPath = TRUE;
+                }
+            }
+
+            if (SearchVar == NULL) {
+                //
+                // If not searching environment variable path, start with full path.
+
+                FullPathLength = GetFullPathName(substr,MAX_PATH,FullPath,&FilePart);
+                if (FilePart == NULL)
+                    FilePart = _tcschr( FullPath, NULLC );
+            }
+            else
+            if (SearchVar == (TCHAR *)-1) {
+                //
+                // If search of environment variable path failed, result is empty string
+                //
+                substr = NULL;
+            }
+
+            //
+            // Fixup the path to have same case as on disk, substituting short
+            // names if requested.
+            //
+            FixupPath(FullPath, fWantShortName);
+
+            //
+            // If we have a full path, the result gets the portions requested by
+            // the user, unless they wanted the full path, in which case there is
+            // nothing more to do.
+            //
+            if (FullPathLength != 0) {
+                if (!fWantFullPath) {
+                    StartPath = FullPath + 2;
+                    if (!fWantDrive) {
+                        StartPath = _tcscpy(FullPath, StartPath);
+                        FilePart -= 2;
+                    }
+                    if (!fWantPath)
+                        FilePart = _tcscpy(StartPath, FilePart);
+                    Extension = _tcsrchr(FilePart, DOT);
+                    if (Extension == NULL) {
+                        NullExt = NULLC;
+                        Extension = &NullExt;
+                    }
+                    if (!fWantExtension)
+                        *Extension = NULLC;
+                    if (!fWantName)
+                        _tcscpy(FilePart, Extension);
+                }
+
+                substr = FullPath;
+            }
+        }
+    }
+    else
+    if (*srcp && (s1 = _tcsrchr(vars, *srcp))) {
+        //
+        // Old syntax.  Result is value of variable
+        //
+        substr = subs[s1 - vars]; /* Found variable*/
+
+        //
+        // Skip past the variable name letter and tell caller how much of the
+        // source string we consumed.
+        //
+        ++srcp ;            /* Kick past name*/
+        *supdate += 1;
+    } ;
+
+    //
+    // If result was empty, then return the null string.  Otherwise return the result
+    //
+    if (!substr && *supdate != 0)
+        return TEXT("");
+    else
+        return substr;
 }

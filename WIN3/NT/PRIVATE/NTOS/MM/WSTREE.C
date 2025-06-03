@@ -30,11 +30,24 @@ extern ULONG MmSystemCachePage;
 extern ULONG MmPagedPoolPage;
 extern ULONG MmSystemDriverPage;
 
+ULONG MmNumberOfInserts;
+
+ULONG
+MiLookupWsleHashIndex (
+    IN ULONG WsleEntry,
+    IN PMMWSL WorkingSetList
+    );
+
+VOID
+MiCheckWsleHash (
+    IN PMMWSL WorkingSetList
+    );
+
 
 VOID
 FASTCALL
 MiInsertWsle (
-    IN USHORT Entry,
+    IN ULONG Entry,
     IN PMMWSL WorkingSetList
     )
 
@@ -61,79 +74,158 @@ Environment:
 --*/
 
 {
-    USHORT i;
-    USHORT Parent;
+    ULONG i;
+    ULONG Parent;
     PVOID VirtualAddress;
     PMMWSLE Wsle;
+    PMMSUPPORT WsInfo;
+    ULONG Hash;
+    PMMWSLE_HASH Table;
+    ULONG j;
+    PMMPTE PointerPte;
+    ULONG Index;
+    LARGE_INTEGER TickCount;
+    ULONG Size;
+    KIRQL OldIrql;
 
     Wsle = WorkingSetList->Wsle;
 
     VirtualAddress = PAGE_ALIGN(Wsle[Entry].u1.VirtualAddress);
 
 #if DBG
-    if (MmDebug & 2) {
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
         DbgPrint("inserting element %lx %lx\n", Entry, Wsle[Entry].u1.Long);
     }
 
     ASSERT (Wsle[Entry].u1.e1.Valid == 1);
-#endif
+    ASSERT (Wsle[Entry].u1.e1.Direct != 1);
+#endif //DBG
 
-    //
-    // Initialize the new entry.
-    //
+    WorkingSetList->NonDirectCount += 1;
 
-    Wsle[Entry].u2.s.LeftChild = WSLE_NULL_INDEX;
-    Wsle[Entry].u2.s.RightChild = WSLE_NULL_INDEX;
-
-
-    i = (USHORT)WorkingSetList->Root;
-
-    if (i == WSLE_NULL_INDEX) {
-
-        //
-        // Empty list, this is the first element, hence the root.
-        //
-
-        WorkingSetList->Root = Entry;
+    if ((Table = WorkingSetList->HashTable) == NULL) {
         return;
     }
 
-    for (;;) {
+#if DBG
+    MmNumberOfInserts += 1;
+#endif //DBG
 
-        Parent = i;
+    Hash = (Wsle[Entry].u1.Long >> (PAGE_SHIFT - 2)) % (WorkingSetList->HashTableSize - 1);
 
-        ASSERT (VirtualAddress != PAGE_ALIGN(Wsle[i].u1.VirtualAddress));
+    //
+    // Check hash table size and see if there is enough room to
+    // hash or if the table should be grown.
+    //
 
-        if (VirtualAddress < PAGE_ALIGN(Wsle[i].u1.VirtualAddress)) {
-            i = Wsle[i].u2.s.LeftChild;
+    if ((WorkingSetList->NonDirectCount + 10 +
+            (WorkingSetList->HashTableSize >> 4)) >
+                                 WorkingSetList->HashTableSize) {
 
-            if (i == WSLE_NULL_INDEX) {
-
-                //
-                // Insert the leaf here as the left child.
-                //
-
-                Wsle[Parent].u2.s.LeftChild = Entry;
-                return;
-
-            }
+        if (MmWorkingSetList == WorkingSetList) {
+            WsInfo = &PsGetCurrentProcess()->Vm;
         } else {
-            i = Wsle[i].u2.s.RightChild;
+            WsInfo = &MmSystemCacheWs;
+        }
 
-            if (i == WSLE_NULL_INDEX) {
+        if ((WorkingSetList->HashTableSize <
+                 (MM_WSLE_MAX_HASH_SIZE - ((2*PAGE_SIZE) / sizeof (MMWSLE_HASH))))
+                     &&
+            (WsInfo->AllowWorkingSetAdjustment)) {
+            LOCK_EXPANSION_IF_ALPHA (OldIrql);
+            WsInfo->AllowWorkingSetAdjustment = MM_GROW_WSLE_HASH;
+            UNLOCK_EXPANSION_IF_ALPHA (OldIrql);
+        }
 
-                //
-                // Insert the leaf here as a right child.
-                //
+        if ((WorkingSetList->NonDirectCount +
+                (WorkingSetList->HashTableSize >> 4)) >
+                                     WorkingSetList->HashTableSize) {
 
-                Wsle[Parent].u2.s.RightChild = Entry;
-                return;
+            //
+            // No more room in the hash table, remove one and add there.
+            // Pick a victum within 16 of where this would hash to.
+            //
+
+            KeQueryTickCount(&TickCount);
+            j = Hash + (TickCount.LowPart & 0xF);
+
+            Size = WorkingSetList->HashTableSize;
+
+            if (j >= Size) {
+                j = TickCount.LowPart & 0xF;
             }
+
+            do {
+                if (Table[j].Key != 0) {
+                    PointerPte = MiGetPteAddress (Table[j].Key);
+                    Index = WorkingSetList->HashTable[j].Index;
+                    ASSERT (Wsle[Index].u1.e1.Valid == 1);
+                    PointerPte = MiGetPteAddress (Wsle[Index].u1.VirtualAddress);
+                    if (MiFreeWsle (Index, WsInfo, PointerPte)) {
+                        break;
+                    }
+                }
+                j += 1;
+                if (j >= Size) {
+                    j = 0;
+                }
+            } while (TRUE);
         }
     }
+
+    //
+    // Add to the hash table.
+    //
+
+    while (Table[Hash].Key != 0) {
+        Hash += 1;
+        if (Hash >= WorkingSetList->HashTableSize) {
+            Hash = 0;
+        }
+    }
+
+    Table[Hash].Key = Wsle[Entry].u1.Long & ~(PAGE_SIZE - 1);
+    Table[Hash].Index = Entry;
+
+#if DBG
+    if ((MmNumberOfInserts % 1000) == 0) {
+        MiCheckWsleHash (WorkingSetList);
+    }
+#endif //DBG
+    return;
 }
+
+#if DBG
+VOID
+MiCheckWsleHash (
+    IN PMMWSL WorkingSetList
+    )
+
+{
+    ULONG j;
+    ULONG found = 0;
+    PMMWSLE Wsle;
+
+    Wsle = WorkingSetList->Wsle;
+
+    for (j =0; j < WorkingSetList->HashTableSize ; j++ ) {
+        if (WorkingSetList->HashTable[j].Key != 0) {
+            found += 1;
+            ASSERT (WorkingSetList->HashTable[j].Key ==
+                     (Wsle[WorkingSetList->HashTable[j].Index].u1.Long &
+                                                            ~(PAGE_SIZE -1)));
+        }
+    }
+    if (found != WorkingSetList->NonDirectCount) {
+        DbgPrint("MMWSLE: Found %lx, nondirect %lx\n",
+                    found, WorkingSetList->NonDirectCount);
+        DbgBreakPoint();
+    }
+}
+#endif //dbg
+
 
-USHORT
+ULONG
 FASTCALL
 MiLocateWsle (
     IN PVOID VirtualAddress,
@@ -164,50 +256,67 @@ Environment:
 --*/
 
 {
-    USHORT i;
+    ULONG i;
     PMMWSLE Wsle;
+    ULONG LastWsle;
+    ULONG Hash;
+    PMMWSLE_HASH Table;
+    ULONG Tries;
 
     Wsle = WorkingSetList->Wsle;
 
     VirtualAddress = PAGE_ALIGN(VirtualAddress);
 
     if (WsPfnIndex <= WorkingSetList->LastInitializedWsle) {
-        if (VirtualAddress == PAGE_ALIGN(Wsle[WsPfnIndex].u1.VirtualAddress)) {
-            return (USHORT)WsPfnIndex;
+        if ((VirtualAddress == PAGE_ALIGN(Wsle[WsPfnIndex].u1.VirtualAddress)) &&
+            (Wsle[WsPfnIndex].u1.e1.Valid == 1)) {
+            return WsPfnIndex;
         }
     }
 
-    i = (USHORT)WorkingSetList->Root;
+    if (WorkingSetList->HashTable) {
+        Tries = 0;
+        Table = WorkingSetList->HashTable;
 
-    for (;;) {
+        Hash = ((ULONG)VirtualAddress >> (PAGE_SHIFT - 2)) % (WorkingSetList->HashTableSize - 1);
 
-        if (i == WSLE_NULL_INDEX) {
-
-            //
-            // Entry not found in list.
-            //
-
-            return WSLE_NULL_INDEX;
+        while (Table[Hash].Key != (ULONG)VirtualAddress) {
+            Hash += 1;
+            if (Hash >= WorkingSetList->HashTableSize) {
+                Hash = 0;
+                if (Tries != 0) {
+                    KeBugCheckEx (MEMORY_MANAGEMENT,
+                                  0x41284,
+                                  (ULONG)VirtualAddress,
+                                  WsPfnIndex,
+                                  (ULONG)WorkingSetList);
+                }
+                Tries = 1;
+            }
         }
+        ASSERT (WorkingSetList->Wsle[Table[Hash].Index].u1.e1.Direct == 0);
+        return Table[Hash].Index;
+    }
 
-        if (VirtualAddress == PAGE_ALIGN(Wsle[i].u1.VirtualAddress)) {
+    i = 0;
+
+    for (; ; ) {
+        if ((VirtualAddress == PAGE_ALIGN(Wsle[i].u1.VirtualAddress)) &&
+            (Wsle[i].u1.e1.Valid == 1)) {
+            ASSERT (WorkingSetList->Wsle[i].u1.e1.Direct == 0);
             return i;
         }
-
-        if (VirtualAddress < PAGE_ALIGN(Wsle[i].u1.VirtualAddress)) {
-            i = Wsle[i].u2.s.LeftChild;
-        } else {
-            i = Wsle[i].u2.s.RightChild;
-        }
+        i += 1;
     }
 }
+
 
 #if 0
 
-USHORT
+ULONG
 MiLocateWsleAndParent (
     IN PVOID VirtualAddress,
-    OUT PUSHORT Parent,
+    OUT PULONG Parent,
     IN PMMWSL WorkingSetList,
     IN ULONG WsPfnIndex
     )
@@ -241,8 +350,8 @@ Environment:
 --*/
 
 {
-    USHORT Previous;
-    USHORT Entry;
+    ULONG Previous;
+    ULONG Entry;
     PMMWSLE Wsle;
 
     Wsle = WorkingSetList->Wsle;
@@ -268,7 +377,7 @@ Environment:
                 //
 
                 *Parent = WSLE_NULL_INDEX;
-                return (USHORT)WsPfnIndex;
+                return WsPfnIndex;
             }
         }
     }
@@ -306,7 +415,7 @@ Environment:
 VOID
 FASTCALL
 MiRemoveWsle (
-    USHORT Entry,
+    ULONG Entry,
     IN PMMWSL WorkingSetList
     )
 
@@ -332,11 +441,15 @@ Environment:
 
 --*/
 {
-    USHORT i;
-    USHORT Parent;
-    USHORT Pred;
-    USHORT PredParent;
+    ULONG i;
+    ULONG Parent;
+    ULONG Pred;
+    ULONG PredParent;
     PMMWSLE Wsle;
+    PVOID VirtualAddress;
+    PMMWSLE_HASH Table;
+    ULONG Hash;
+    ULONG Tries;
 
     Wsle = WorkingSetList->Wsle;
 
@@ -345,12 +458,11 @@ Environment:
     //
 
 #if DBG
-    if (MmDebug & 2) {
-        DbgPrint("removing wsle %lx root %lx left %lx right %lx %lx\n",
-            Entry,WorkingSetList->Root,Wsle[Entry].u2.s.LeftChild,Wsle[Entry].u2.s.RightChild,
-            Wsle[Entry].u1.Long);
+    if (MmDebug & MM_DBG_PTE_UPDATE) {
+        DbgPrint("removing wsle %lx   %lx\n",
+            Entry, Wsle[Entry].u1.Long);
     }
-    if (MmDebug & 4) {
+    if (MmDebug & MM_DBG_DUMP_WSL) {
         MiDumpWsl();
         DbgPrint(" \n");
     }
@@ -358,19 +470,10 @@ Environment:
 #endif //DBG
 
     ASSERT (Wsle[Entry].u1.e1.Valid == 1);
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGEFAULT) {
-        DbgPrint("$$$REMOVINGPAGE: %lx thread: %lx virtual address: %lx\n",
-            PsGetCurrentProcess(),
-            PsGetCurrentThread(),
-            ((ULONG)Wsle[Entry].u1.VirtualAddress & 0xfffff000));
-    }
-#endif //DBG
+
+    VirtualAddress = PAGE_ALIGN (Wsle[Entry].u1.VirtualAddress);
 
     if (WorkingSetList == MmSystemCacheWorkingSetList) {
-        PVOID VirtualAddress;
-
-        VirtualAddress = Wsle[Entry].u1.VirtualAddress;
 
         //
         // count system space inserts and removals.
@@ -389,256 +492,41 @@ Environment:
 
     Wsle[Entry].u1.e1.Valid = 0;
 
-    if (Wsle[Entry].u2.BothPointers == 0) {
+    if (Wsle[Entry].u1.e1.Direct == 0) {
 
-        //
-        // Entry is not in the tree, no need to deal with tree removal.
-        //
+        WorkingSetList->NonDirectCount -= 1;
 
-        return;
-    }
+        if (WorkingSetList->HashTable) {
+            Hash = (Wsle[Entry].u1.Long >> (PAGE_SHIFT - 2)) % (WorkingSetList->HashTableSize - 1);
+            Table = WorkingSetList->HashTable;
+            Tries = 0;
 
-    Parent = (USHORT)WorkingSetList->Root;
-
-    if (Entry == Parent) {
-
-        //
-        // Entry is the root.
-        //
-
-        if (Wsle[Entry].u2.s.LeftChild == WSLE_NULL_INDEX) {
-
-            //
-            // This entry does not have a left child.
-            //
-
-            if (Wsle[Entry].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                //
-                // The entry does not have any children, set the root
-                // to indicate no elements.
-                //
-
-                WorkingSetList->Root = WSLE_NULL_INDEX;
-
-
-            } else {
-
-                //
-                // The entry only has a right child, move the right
-                // child up to be the root.
-                //
-
-                WorkingSetList->Root = Wsle[Entry].u2.s.RightChild;
-
-            }
-        } else {
-
-            //
-            // The entry has a left child.
-            //
-
-            if (Wsle[Entry].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                //
-                // The entry only has a left child, move the left child
-                // up to be the root.
-                //
-
-                WorkingSetList->Root = Wsle[Entry].u2.s.LeftChild;
-
-            } else {
-
-                //
-                // The entry has both a left and a right child, find
-                // the predecessor of the entry and put it into the
-                // entries spot.
-                //
-
-                PredParent = Wsle[Entry].u2.s.LeftChild;
-
-                if (Wsle[PredParent].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                    //
-                    // No right child for the left child, move the left
-                    // child up to replace the entry.
-                    //
-
-                    Wsle[PredParent].u2.s.RightChild =
-                                            Wsle[Entry].u2.s.RightChild;
-                    WorkingSetList->Root = PredParent;
-
-                } else {
-
-                    Pred = Wsle[PredParent].u2.s.RightChild;
-
-                    while (Wsle[Pred].u2.s.RightChild != WSLE_NULL_INDEX) {
-                        PredParent = Pred;
-                        Pred = Wsle[PredParent].u2.s.RightChild;
+            while (Table[Hash].Key != (ULONG)VirtualAddress) {
+                Hash += 1;
+                if (Hash >= WorkingSetList->HashTableSize) {
+                    Hash = 0;
+                    if (Tries != 0) {
+                        KeBugCheckEx (MEMORY_MANAGEMENT,
+                                      0x41784,
+                                      (ULONG)VirtualAddress,
+                                      Entry,
+                                      (ULONG)WorkingSetList);
                     }
-
-                    //
-                    // Found the predescessor, move it up.
-                    //
-
-                    Wsle[PredParent].u2.s.RightChild = Wsle[Pred].u2.s.LeftChild;
-                    Wsle[Pred].u2.s.RightChild = Wsle[Entry].u2.s.RightChild;
-                    Wsle[Pred].u2.s.LeftChild = Wsle[Entry].u2.s.LeftChild;
-                    WorkingSetList->Root = Pred;
+                    Tries = 1;
                 }
             }
-        }
-
-    } else {
-
-        //
-        // Entry is not the root, find the entry and it's parent.
-        //
-
-        i = Parent;
-
-        for (;;) {
-
-            //
-            // Continue looking for the entry in the tree.
-            //
-
-            Parent = i;
-
-            if (Wsle[Entry].u1.Long < Wsle[i].u1.Long) {
-                i = Wsle[i].u2.s.LeftChild;
-            } else {
-                i = Wsle[i].u2.s.RightChild;
-            }
-
-            ASSERT (i != WSLE_NULL_INDEX);
-
-            if (Wsle[Entry].u1.Long == Wsle[i].u1.Long) {
-                break;
-            }
-        }
-
-        //
-        // The entry and it's parent have been located, remove the entry from
-        // the tree.
-        //
-
-        if (Wsle[Entry].u2.s.LeftChild == WSLE_NULL_INDEX) {
-
-            //
-            // This entry does not have a left child.
-            //
-
-            if (Wsle[Entry].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                //
-                // The entry does not have any children, eliminate
-                // it from it's parent.
-                //
-
-                if (Wsle[Parent].u2.s.LeftChild == Entry) {
-                     Wsle[Parent].u2.s.LeftChild = WSLE_NULL_INDEX;
-                } else {
-                     Wsle[Parent].u2.s.RightChild = WSLE_NULL_INDEX;
-                }
-            } else {
-
-                //
-                // The entry only has a right child, move the right
-                // child up the the parent.
-                //
-
-                if (Wsle[Parent].u2.s.LeftChild == Entry) {
-                     Wsle[Parent].u2.s.LeftChild =
-                                        Wsle[Entry].u2.s.RightChild;
-                } else {
-                     Wsle[Parent].u2.s.RightChild =
-                                        Wsle[Entry].u2.s.RightChild;
-                }
-            }
-        } else {
-
-            //
-            // The entry has a left child.
-            //
-
-            if (Wsle[Entry].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                //
-                // The entry only has a left child, move the right child
-                // up to the parent.
-                //
-
-                if (Wsle[Parent].u2.s.RightChild == Entry) {
-                     Wsle[Parent].u2.s.RightChild =
-                                        Wsle[Entry].u2.s.LeftChild;
-                } else {
-                     Wsle[Parent].u2.s.LeftChild =
-                                        Wsle[Entry].u2.s.LeftChild;
-                }
-            } else {
-
-                //
-                // The entry has both a left and a right child, find
-                // the predecessor of the entry and put it into the
-                // entries spot.
-                //
-
-                PredParent = Wsle[Entry].u2.s.LeftChild;
-
-                if (Wsle[PredParent].u2.s.RightChild == WSLE_NULL_INDEX) {
-
-                    //
-                    // No right child for the left child, move the left
-                    // child up to replace the entry.
-                    //
-
-                    Wsle[PredParent].u2.s.RightChild =
-                                            Wsle[Entry].u2.s.RightChild;
-                    if (Wsle[Parent].u2.s.RightChild == Entry) {
-                         Wsle[Parent].u2.s.RightChild = PredParent;
-                    } else {
-                         Wsle[Parent].u2.s.LeftChild = PredParent;
-                    }
-                } else {
-                    Pred = Wsle[PredParent].u2.s.RightChild;
-
-                    while (Wsle[Pred].u2.s.RightChild != WSLE_NULL_INDEX) {
-                        PredParent = Pred;
-                        Pred = Wsle[PredParent].u2.s.RightChild;
-                    }
-
-                    //
-                    // Found the predescessor, move it up.
-                    //
-
-                    Wsle[PredParent].u2.s.RightChild =
-                                                Wsle[Pred].u2.s.LeftChild;
-                    Wsle[Pred].u2.s.RightChild = Wsle[Entry].u2.s.RightChild;
-                    Wsle[Pred].u2.s.LeftChild = Wsle[Entry].u2.s.LeftChild;
-                    if (Wsle[Parent].u2.s.RightChild == Entry) {
-                         Wsle[Parent].u2.s.RightChild = Pred;
-                    } else {
-                         Wsle[Parent].u2.s.LeftChild = Pred;
-                    }
-                }
-            }
+            Table[Hash].Key = 0;
         }
     }
-#if DBG
-    if (MmDebug & 4) {
-        DbgPrint("done removing\n");
-        MiDumpWsl();
-    }
-#endif
+
     return;
 }
 
 
 VOID
 MiSwapWslEntries (
-    IN USHORT SwapEntry,
-    IN USHORT Entry,
+    IN ULONG SwapEntry,
+    IN ULONG Entry,
     IN PMMSUPPORT WsInfo
     )
 
@@ -671,12 +559,13 @@ Environment:
 --*/
 
 {
-    MMWSLE Wsle1;
-    MMWSLE Wsle2;
+    MMWSLE WsleEntry;
+    MMWSLE WsleSwap;
     PMMPTE PointerPte;
     PMMPFN Pfn1;
     PMMWSLE Wsle;
     PMMWSL WorkingSetList;
+    PMMWSLE_HASH Table;
 #if DBG
     ULONG CurrentSize = WsInfo->WorkingSetSize;
 #endif //DBG
@@ -684,58 +573,138 @@ Environment:
     WorkingSetList = WsInfo->VmWorkingSetList;
     Wsle = WorkingSetList->Wsle;
 
-    Wsle2 = Wsle[SwapEntry];
+    WsleSwap = Wsle[SwapEntry];
 
-    ASSERT (Wsle2.u1.e1.Valid != 0);
+    ASSERT (WsleSwap.u1.e1.Valid != 0);
 
-    MiRemoveWsle (SwapEntry, WorkingSetList);
+    WsleEntry = Wsle[Entry];
 
-    Wsle1 = Wsle[Entry];
+    Table = WorkingSetList->HashTable;
 
-    if (Wsle1.u1.e1.Valid == 0) {
+    if (WsleEntry.u1.e1.Valid == 0) {
 
         //
         // Entry is not on any list. Remove it from the free list.
         //
 
         MiRemoveWsleFromFreeList (Entry, Wsle, WorkingSetList);
-        MiReleaseWsle (SwapEntry, WsInfo);
-        WsInfo->WorkingSetSize += 1;
+
+        //
+        // Copy the Entry to this free one.
+        //
+
+        Wsle[Entry] = WsleSwap;
+
+        if (WsleSwap.u1.e1.Direct) {
+            PointerPte = MiGetPteAddress (WsleSwap.u1.VirtualAddress);
+            Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
+            Pfn1->u1.WsIndex = Entry;
+        } else {
+
+            //
+            // Update hash table.
+            //
+
+            if (Table) {
+                Table [ MiLookupWsleHashIndex (WsleSwap.u1.Long,
+                                           WorkingSetList)].Index = Entry;
+            }
+        }
+
+        //
+        // Put entry on free list.
+        //
+
+        ASSERT (WorkingSetList->FirstFree <= WorkingSetList->LastInitializedWsle);
+        Wsle[SwapEntry].u1.Long = WorkingSetList->FirstFree << MM_FREE_WSLE_SHIFT;
+        WorkingSetList->FirstFree = SwapEntry;
+        ASSERT ((WorkingSetList->FirstFree <= WorkingSetList->LastInitializedWsle) ||
+            (WorkingSetList->FirstFree == WSLE_NULL_INDEX));
 
     } else {
-        MiRemoveWsle (Entry, WorkingSetList);
-        Wsle[SwapEntry] = Wsle1;
 
-        if (Wsle1.u2.BothPointers == 0) {
+        //
+        // Both entries are valid.
+        //
+
+        Wsle[SwapEntry] = WsleEntry;
+
+        if (WsleEntry.u1.e1.Direct) {
 
             //
             // Swap the PFN WsIndex element to point to the new slot.
             //
 
-            PointerPte = MiGetPteAddress (Wsle1.u1.VirtualAddress);
+            PointerPte = MiGetPteAddress (WsleEntry.u1.VirtualAddress);
             Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
             Pfn1->u1.WsIndex = SwapEntry;
         } else {
-            MiInsertWsle (SwapEntry, WorkingSetList);
+
+            //
+            // Update hash table.
+            //
+
+            if (Table) {
+                Table[ MiLookupWsleHashIndex (WsleEntry.u1.Long,
+                                           WorkingSetList)].Index = SwapEntry;
+            }
         }
-    }
-    Wsle[Entry] = Wsle2;
 
-    if (Wsle2.u2.BothPointers == 0) {
+        Wsle[Entry] = WsleSwap;
 
-        PointerPte = MiGetPteAddress (Wsle2.u1.VirtualAddress);
-        Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
-        Pfn1->u1.WsIndex = Entry;
-    } else {
-        MiInsertWsle (Entry, WorkingSetList);
+        if (WsleSwap.u1.e1.Direct) {
+
+            PointerPte = MiGetPteAddress (WsleSwap.u1.VirtualAddress);
+            Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
+            Pfn1->u1.WsIndex = Entry;
+        } else {
+            if (Table) {
+                Table[ MiLookupWsleHashIndex (WsleSwap.u1.Long,
+                                           WorkingSetList)].Index = Entry;
+            }
+        }
     }
     ASSERT (CurrentSize == WsInfo->WorkingSetSize);
     return;
 }
+
+ULONG
+MiLookupWsleHashIndex (
+    IN ULONG WsleEntry,
+    IN PMMWSL WorkingSetList
+    )
+
+{
+    ULONG Hash;
+    ULONG VirtualAddress;
+    PMMWSLE_HASH Table;
+    ULONG Tries = 0;
+
+    Table = WorkingSetList->HashTable;
+    VirtualAddress = WsleEntry & ~(PAGE_SIZE - 1);
+
+    Hash = ((ULONG)VirtualAddress >> (PAGE_SHIFT - 2)) % (WorkingSetList->HashTableSize - 1);
+
+    while (Table[Hash].Key != (ULONG)VirtualAddress) {
+        Hash += 1;
+        if (Hash >= WorkingSetList->HashTableSize) {
+            Hash = 0;
+            if (Tries != 0) {
+                KeBugCheckEx (MEMORY_MANAGEMENT,
+                              0x41884,
+                              (ULONG)VirtualAddress,
+                              WsleEntry,
+                              (ULONG)WorkingSetList);
+            }
+            Tries = 1;
+        }
+    }
+    return Hash;
+}
 
 VOID
 MiRemoveWsleFromFreeList (
-    IN USHORT Entry,
+    IN ULONG Entry,
     IN PMMWSLE Wsle,
     IN PMMWSL WorkingSetList
     )
@@ -767,22 +736,26 @@ Environment:
 --*/
 
 {
-    USHORT Free;
-    USHORT ParentFree;
+    ULONG Free;
+    ULONG ParentFree;
 
-    Free = (USHORT)WorkingSetList->FirstFree;
+    Free = WorkingSetList->FirstFree;
 
     if (Entry == Free) {
-        WorkingSetList->FirstFree = Wsle[Entry].u2.s.LeftChild;
+        ASSERT ((Wsle[Entry].u1.Long >> MM_FREE_WSLE_SHIFT) <= WorkingSetList->LastInitializedWsle);
+        WorkingSetList->FirstFree = Wsle[Entry].u1.Long >> MM_FREE_WSLE_SHIFT;
 
     } else {
         do {
             ParentFree = Free;
-            Free = Wsle[Free].u2.s.LeftChild;
+            ASSERT (Wsle[Free].u1.e1.Valid == 0);
+            Free = Wsle[Free].u1.Long >> MM_FREE_WSLE_SHIFT;
         } while (Free != Entry);
 
-        Wsle[ParentFree].u2.s.LeftChild = Wsle[Entry].u2.s.LeftChild;
+        Wsle[ParentFree].u1.Long = Wsle[Entry].u1.Long;
     }
+    ASSERT ((WorkingSetList->FirstFree <= WorkingSetList->LastInitializedWsle) ||
+            (WorkingSetList->FirstFree == WSLE_NULL_INDEX));
     return;
 }
 
@@ -791,9 +764,9 @@ Environment:
 
 VOID
 MiSwapWslEntries (
-    IN USHORT Entry,
-    IN USHORT Parent,
-    IN USHORT SwapEntry,
+    IN ULONG Entry,
+    IN ULONG Parent,
+    IN ULONG SwapEntry,
     IN PMMWSL WorkingSetList
     )
 
@@ -827,11 +800,11 @@ Environment:
 
 {
 
-    USHORT SwapParent;
-    USHORT SavedRight;
-    USHORT SavedLeft;
-    USHORT Free;
-    USHORT ParentFree;
+    ULONG SwapParent;
+    ULONG SavedRight;
+    ULONG SavedLeft;
+    ULONG Free;
+    ULONG ParentFree;
     ULONG SavedLong;
     PVOID VirtualAddress;
     PMMWSLE Wsle;
@@ -847,10 +820,12 @@ Environment:
         // the free list.
         //
 
-        Free = (USHORT)WorkingSetList->FirstFree;
+        Free = WorkingSetList->FirstFree;
 
         if (SwapEntry == Free) {
             WorkingSetList->FirstFree = Entry;
+            ASSERT ((WorkingSetList->FirstFree <= WorkingSetList->LastInitializedWsle) ||
+                (WorkingSetList->FirstFree == WSLE_NULL_INDEX));
 
         } else {
 

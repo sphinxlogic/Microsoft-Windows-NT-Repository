@@ -23,11 +23,16 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_EXCHANGE)
 
 #ifdef ALLOC_PRAGMA
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, SynchronousResponseCallback )
 #pragma alloc_text( PAGE1, AsynchResponseCallback )
 #endif
+#endif
 
 #if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 
@@ -77,7 +82,7 @@ Return Value:
         pIrpContext->DebugValue = 0x103;
 #endif
         pIrpContext->pOriginalIrp->IoStatus.Status = STATUS_REMOTE_NOT_LISTENING;
-        KeSetEvent( &pIrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( pIrpContext );
 
         return STATUS_REMOTE_NOT_LISTENING;
     }
@@ -114,7 +119,7 @@ Return Value:
     pIrpContext->pOriginalIrp->IoStatus.Status = STATUS_SUCCESS;
     pIrpContext->pOriginalIrp->IoStatus.Information = BytesAvailable;
 
-    KeSetEvent( &pIrpContext->Event, 0, FALSE );
+    NwSetIrpContextEvent( pIrpContext );
     return STATUS_SUCCESS;
 }
 

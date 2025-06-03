@@ -69,8 +69,7 @@ Return :
 	     pChild->IsArray() ||
          pChild->IsUnion() ||
          (pChild->GetCGID() == ID_CG_INTERFACE_PTR) ||
-         (pChild->GetCGID() == ID_CG_TRANSMIT_AS)  ||
-         (pChild->GetCGID() == ID_CG_REPRESENT_AS) )
+         pChild->IsXmitRepOrUserMarshal() )
         {
 		pChild->GenNdrFormat( pCCB );
         }
@@ -101,7 +100,7 @@ Return :
 	//
 	// Check if this is a complex array.
 	//
-	if ( IsComplex( pCCB ) ) 
+	if ( IsComplex() ) 
 		{
 		GenNdrFormatComplex( pCCB );
 		return FALSE;
@@ -130,7 +129,9 @@ Return :
 	// Push the correct alignment value.
 	//
 	pFormatString->PushByte(
-		CvtAlignPropertyToAlign( pChild->GetWireAlignment() ) - 1 );
+		CvtAlignPropertyToAlign( pChild->IsUnion()
+                                    ? AL_1
+                                    : pChild->GetWireAlignment() ) - 1 );
 
 	return TRUE;
 }
@@ -157,30 +158,33 @@ CG_ARRAY::GenNdrFormatArrayLayout( CCB * pCCB )
 		//   1. The array is a top level parameter.
 		//   2. The array is really a fabrication of a size or size length
 		//      pointer (of structures which contain pointers).
-		//	 3. The array is imbeded in a complex struct.
+		//	 3. The array is embedded in a complex or hard struct.
 		// Otherwise the array's pointer description will be in its structure's
 		// pointer layout.
 		//
 		// We also never generate a pointer layout for complex arrays.
 		//
-		// We know if it was fabricated from a size or size length pointer
-		// if GetType() is null (since the array constructor is passed a null
-		// type pointer).
+		// We know if it was fabricated from a size or size-length pointer
+		// if IsDupedSizePtr() is TRUE.
 		//
 		CG_NDR * pParent;
 
 		pParent = pCCB->GetCGNodeContext();
 		
-		if ( pParent->IsProc()                           ||
+		if ( pParent->IsProc() ||
 			 (pParent->GetCGID() == ID_CG_COMPLEX_STRUCT) ||
-			 GetType() == NULL
+			 (pParent->IsStruct() && 
+              ((CG_STRUCT *)pParent)->IsHardStruct()) ||
+			 IsDupedSizePtr()
            )
 			{
-			if ( ! IsComplex( pCCB ) )
+			if ( ! IsComplex() )
 				GenNdrFormatArrayPointerLayout( pCCB,
 												FALSE );
 			}
 		}
+
+    SetElementDescriptionOffset( pFormatString->GetCurrentOffset() );
 
 	//
 	// Now generate the element description.
@@ -188,14 +192,30 @@ CG_ARRAY::GenNdrFormatArrayLayout( CCB * pCCB )
 	if ( pChild->IsStruct() || 
          pChild->IsArray() ||
          pChild->IsUnion() ||
-	     (pChild->GetCGID() == ID_CG_TRANSMIT_AS) ||
-		 (pChild->GetCGID() == ID_CG_REPRESENT_AS) ||
-         (pChild->GetCGID() == ID_CG_INTERFACE_PTR) )
+	     (pChild->GetCGID() == ID_CG_INTERFACE_PTR) ||
+		 pChild->IsXmitRepOrUserMarshal() )
 		{
 		pFormatString->PushFormatChar( FC_EMBEDDED_COMPLEX );
 
 		// Not used.
 		pFormatString->PushByte( 0 );
+
+        // if embedded complex member has an offset zero, it
+        // almost certainly means that it is in a recursion  
+        // that is not resolved yet. See structs for a solution.
+        //
+        // BUGBUG: this should work like for structs but
+        //         I have no time to setup arrays correctly for the
+        //         method fixing all such places.
+        //         So, it needs to wait for better times.
+        //
+//        if ( pMember->GetFormatStringOffset() == 0 )
+//            {
+//            RegisterComplexEmbeddedForFixup(
+//                pMember,
+//                pFormatString->GetCurrentOffset() - GetInitialOffset() );
+//            }
+//
 
 		pFormatString->PushShortOffset( pChild->GetFormatStringOffset() -
 							  	  		pFormatString->GetCurrentOffset() );
@@ -207,7 +227,7 @@ CG_ARRAY::GenNdrFormatArrayLayout( CCB * pCCB )
 		// For complex arrays of pointers we put the actual pointer description
 		// in the layout, otherwise we put a long.
 		//
-		if ( IsComplex( pCCB ) )
+		if ( IsComplex() )
 			{
 			((CG_POINTER *)pChild)->GenNdrFormatAlways( pCCB );
 			}
@@ -278,35 +298,35 @@ Arguments :
 			}
 		else // GetCGID() == ID_CG_ARRAY || ID_CG_VAR_ARRAY
 			{
-			ITERATOR		Iterator;
 			CG_FIELD *		pField;
 
 			//
-			// If we're imbeded in a complex struct then we do nothing - our
+			// If we're embedded in a complex struct then we do nothing - our
 			// offset will end up being 0.
 			//
 			if ( pStruct->GetCGID() != ID_CG_COMPLEX_STRUCT )
 				{
-				//
-				// We have to search the imbeding struct's member list to
-				// find the array field, so we can get it's offsets.
-				//
-				pStruct->GetMembers( Iterator );
+                pField = pStruct->GetArrayField( this );
 
-				while ( ITERATOR_GETNEXT( Iterator, pField ) )
-					if ( pField->GetChild()->GetType() == this->GetType() )
-						break;
-
-				//
-				// What has to be done here is to actually subract the
-				// difference between the struct's sizes and the field's
-				// offsets, since the array appears somewhere inside the struct
-				// whose size has already been added to the imbeding sizes.
-				//
-				MemOffsetToArray -= pStruct->GetMemorySize() -
-									pField->GetMemOffset();
-				BufOffsetToArray -= pStruct->GetWireSize() -
-									pField->GetWireOffset();
+                //
+                // If we don't find the array's field, that's because the 
+                // array must have been contained within a union which was
+                // part of a Hard Structure.
+                //
+                if ( pField )
+                    {
+				    //
+				    // What has to be done here is to actually subract the
+				    // difference between the struct's sizes and the field's
+				    // offsets, since the array appears somewhere inside the 
+                    // struct whose size has already been added to the 
+                    // imbeding sizes.
+				    //
+				    MemOffsetToArray -= pStruct->GetMemorySize() -
+									    pField->GetMemOffset();
+				    BufOffsetToArray -= pStruct->GetWireSize() -
+									    pField->GetWireOffset();
+                    }
 				}
 			}
 		}
@@ -424,7 +444,9 @@ CG_ARRAY::GenNdrFormatComplex( CCB * pCCB )
 
 	// Alignment.
 	pFormatString->PushByte(
-		CvtAlignPropertyToAlign( pChild->GetWireAlignment() ) - 1 );
+		CvtAlignPropertyToAlign( pChild->IsUnion()
+                                    ? AL_1
+                                    : pChild->GetWireAlignment() ) - 1 );
 
 	//
 	// Number of elements - 0 if conformant.
@@ -452,13 +474,13 @@ CG_ARRAY::GenNdrFormatComplex( CCB * pCCB )
 		case ID_CG_CONF_ARRAY :
 			((CG_CONFORMANT_ARRAY *)this)->
 			  GenFormatStringConformanceDescription( pCCB, 
-                                                     GetType() == NULL,
+                                                     IsDupedSizePtr(),
                                                      IsInMultiDim() );
 			break;
 		case ID_CG_CONF_VAR_ARRAY :
 			((CG_CONFORMANT_VARYING_ARRAY *)this)->
 			  GenFormatStringConformanceDescription( pCCB, 
-                                                     GetType() == NULL,
+                                                     IsDupedSizePtr(),
                                                      IsInMultiDim() );
 			break;
 		default :
@@ -474,14 +496,14 @@ CG_ARRAY::GenNdrFormatComplex( CCB * pCCB )
 		case ID_CG_CONF_VAR_ARRAY :
 			((CG_CONFORMANT_VARYING_ARRAY *)this)->
 			  GenFormatStringVarianceDescription( pCCB, 
-												  GetType() == NULL,
+												  IsDupedSizePtr(),
 												  FALSE,
                                                   IsInMultiDim() );
 			break;
 		case ID_CG_VAR_ARRAY :
 			((CG_VARYING_ARRAY *)this)->
 			  GenFormatStringVarianceDescription( pCCB, 
-												  GetType() == NULL,
+												  FALSE,
 												  TRUE,
                                                   IsInMultiDim() );
 			break;
@@ -494,6 +516,9 @@ CG_ARRAY::GenNdrFormatComplex( CCB * pCCB )
     
 	// optimize away duplicates
 	pFormatString->OptimizeFragment( this );
+
+    // This call needs some preparation that I have no time for.
+//    FixupEmbeddedComplex( pCCB );
 }
 
 long
@@ -533,7 +558,7 @@ CG_ARRAY::GetElementSize()
 }
 
 BOOL                    
-CG_ARRAY::IsComplex( CCB * pCCB )
+CG_ARRAY::IsComplex()
 {
     //
     // If this is a conformant and/or varying array, then it becomes
@@ -544,14 +569,14 @@ CG_ARRAY::IsComplex( CCB * pCCB )
          (GetCGID() == ID_CG_CONF_VAR_ARRAY) ||
          (GetCGID() == ID_CG_VAR_ARRAY) )
         {
-        if ( IsInMultiDim() && (GetType() != 0) )
+        if ( IsInMultiDim() && ! IsDupedSizePtr() )
             return TRUE;
         }
 
     //
     // Is the array complex by Ndr Engine standards.  Any array of complex
-    // struct's, encapsulated unions, transmit_as or represent_as, enums,
-    // ref pointers, or another complex array, is complex.
+    // or hard structs, encapsulated unions, transmit_as or represent_as, 
+    // enums, ref pointers, or another complex array, is complex.
 	//
     // Any multidimensional array with at least one dimension with conformance 
     // or variance is complex as well.
@@ -559,8 +584,9 @@ CG_ARRAY::IsComplex( CCB * pCCB )
     switch ( ((CG_NDR *)GetChild())->GetCGID() )
         {
 		case ID_CG_STRUCT :
-			return ( ((CG_STRUCT *)GetChild())->IsPackedStruct() ||
-					 (GetMemorySize() < GetWireSize()) );
+            return( ((CG_STRUCT *)GetChild())->IsComplexStruct() ||
+                    ((CG_STRUCT *)GetChild())->IsHardStruct()    ||
+                    GetWireSize() != GetMemorySize() ); 
 
         case ID_CG_ARRAY :
             switch ( GetCGID() )
@@ -574,7 +600,7 @@ CG_ARRAY::IsComplex( CCB * pCCB )
 					// The array is complex if the next lower fixed array 
 					// dimension is complex.
 					//
-                    return ((CG_ARRAY *) GetChild())->IsComplex( pCCB );
+                    return ((CG_ARRAY *) GetChild())->IsComplex();
                 }
 
         case ID_CG_COMPLEX_STRUCT :
@@ -586,6 +612,7 @@ CG_ARRAY::IsComplex( CCB * pCCB )
         case ID_CG_CONF_STRING_ARRAY :
         case ID_CG_TRANSMIT_AS :
         case ID_CG_REPRESENT_AS :
+        case ID_CG_USER_MARSHAL :
         case ID_CG_INTERFACE_PTR :
             return TRUE;
 
@@ -662,7 +689,7 @@ CG_ARRAY::ShouldFreeOffline()
 				return FALSE;
 
 			if ( pChild->IsStruct() )
-				return ((CG_STRUCT *)pChild)->HasPointer();
+				return ((CG_STRUCT *)pChild)->ShouldFreeOffline();
 
 			if ( pChild->IsArray() )
 				return ((CG_ARRAY *)pChild)->ShouldFreeOffline();
@@ -687,7 +714,7 @@ CG_ARRAY::GenFreeInline( CCB * pCCB )
     if ( GetPtrType() != PTR_REF )
         return;
 
-    if ( IsComplex( pCCB ) )
+    if ( IsComplex() )
         {
     	//
     	// If the array is complex then we must free it unless it is a
@@ -794,6 +821,57 @@ Arguments :
 
 }
 
+long
+CG_FIXED_ARRAY::FixedBufferSize( CCB * pCCB )
+{
+    CG_NDR *    pNdr;
+    long        BufSize;
+    long        TotalSize;
+
+    pNdr = (CG_NDR *)GetChild();
+
+    // skip these nodes to get to the transmitted element type.
+
+    if ( pNdr->IsXmitRepOrUserMarshal() )
+        pNdr = (CG_NDR *)pNdr->GetChild();
+
+    if ( pNdr->IsPointer() && ((CG_POINTER *)pNdr)->IsPointerToBaseType() )
+        {
+        CG_POINTER * pPointer;
+
+        //
+        // Special case arrays of pointers to base types so that we 
+        // don't grossly overestimate the buffer size.
+        //
+
+        pPointer = (CG_POINTER *) pNdr;
+        pNdr = (CG_NDR *) pNdr->GetChild();
+
+        BufSize = (pPointer->GetPtrType() == PTR_REF) ? 0 : 4;
+        BufSize += pNdr->GetWireSize(); 
+
+        return 8 + (GetNumOfElements() * BufSize);
+        }
+
+    if ( pNdr->IsStruct() || pNdr->IsArray() || pNdr->IsPointer() )
+        {
+        BufSize = pNdr->FixedBufferSize( pCCB );
+
+        if ( BufSize == -1 ) 
+            return -1;
+
+        // Success!
+        TotalSize = GetNumOfElements() * BufSize;
+        }
+    else
+        {
+        // Fixed array of basetypes.
+        TotalSize = 8 + GetWireSize();
+        }
+
+    return TotalSize;
+}
+
 //*************************************************************************
 // CG_CONFORMANT_ARRAY
 //*************************************************************************
@@ -830,7 +908,7 @@ Arguments :
 	pFormatString->PushShort( ElementSize );
 
 	GenFormatStringConformanceDescription( pCCB, 
-                                           GetType() == NULL, 
+                                           IsDupedSizePtr(),
                                            IsInMultiDim() );
 
 	GenNdrFormatArrayLayout( pCCB );
@@ -875,11 +953,11 @@ Arguments :
 	pFormatString->PushShort( ElementSize );
 
 	GenFormatStringConformanceDescription( pCCB, 
-                                           GetType() == NULL, 
+                                           IsDupedSizePtr(),
                                            IsInMultiDim() );
 
 	GenFormatStringVarianceDescription( pCCB,
-										GetType() == NULL,
+										IsDupedSizePtr(),
 										FALSE,
                                         IsInMultiDim() );
 
@@ -943,7 +1021,7 @@ Arguments :
 	pFormatString->PushShort( ElementSize );
 
 	GenFormatStringVarianceDescription( pCCB,
-										GetType() == NULL,
+										FALSE,
 										TRUE,
                                         FALSE );
 
@@ -1091,7 +1169,7 @@ CG_ARRAY::SetNextNdrAlignment( CCB * pCCB )
 {
     CG_NDR * pChild;
 
-    if ( IsComplex( pCCB ) ) 
+    if ( IsComplex() ) 
         {
         pCCB->SetNdrAlignment( NDR_ALWC1 );
         return;
@@ -1199,8 +1277,8 @@ Arguments :
 
 void
 GenNdrFormatAttributeDescription( CCB *			pCCB,
-								  _expr_node *	pMinExpr,
-								  _expr_node *	pSizeExpr,
+								  expr_node *	pMinExpr,
+								  expr_node *	pSizeExpr,
 								  BOOL			IsPointer,
 								  BOOL			IsUnion,
 								  BOOL			IsVaryingArray,
@@ -1242,7 +1320,7 @@ Arguments :
 		if ( ! pMinExpr->IsConstant() ) 
 			goto ComplexAttribute;
 		else
-			if ( ((_expr_constant *)pMinExpr)->GetValue() != 0 )  
+			if ( ((expr_constant *)pMinExpr)->GetValue() != 0 )  
 				goto ComplexAttribute;
 		}
 
@@ -1252,7 +1330,7 @@ Arguments :
 
 		pFormatString->PushByte( FC_CONSTANT_CONFORMANCE );
 
-		Size = ((_expr_constant *)pSizeExpr)->GetValue();
+		Size = ((expr_constant *)pSizeExpr)->GetValue();
 
 		//
 		// We push the lower 24 bits of the constant size.
@@ -1269,28 +1347,28 @@ Arguments :
 		}
 	else
 		{
-		_expr_node *	pLeftExpr;
-		_expr_node *	pRightExpr;
+		expr_node *	pLeftExpr;
+		expr_node *	pRightExpr;
 		OPERATOR		Operator;
 
 		if ( pSizeExpr->IsBinaryOperator() )
 			{
-			pLeftExpr = ((_expr_op_binary *)pSizeExpr)->GetLeft();
-			pRightExpr = ((_expr_op_binary *)pSizeExpr)->GetRight();
+			pLeftExpr = ((expr_op_binary *)pSizeExpr)->GetLeft();
+			pRightExpr = ((expr_op_binary *)pSizeExpr)->GetRight();
 			}
 		else
 			if ( pSizeExpr->IsUnaryOperator() )
-				pLeftExpr = ((_expr_op_unary *)pSizeExpr)->GetLeft();
+				pLeftExpr = ((expr_op_unary *)pSizeExpr)->GetLeft();
 			else
 				goto ComplexAttribute;
 
-		switch ( Operator = ((_expr_operator *)pSizeExpr)->GetOperator() )
+		switch ( Operator = ((expr_operator *)pSizeExpr)->GetOperator() )
 			{
 			case OP_SLASH :
 			case OP_STAR :
 				if ( pLeftExpr->IsAVariable() &&
 					 pRightExpr->IsConstant() &&
-					 ((_expr_constant *)pRightExpr)->GetValue() == 2 )
+					 ((expr_constant *)pRightExpr)->GetValue() == 2 )
 					{
 					Op = ((Operator == OP_SLASH) ? FC_DIV_2 : FC_MULT_2);
 
@@ -1306,10 +1384,10 @@ Arguments :
 			case OP_MINUS :
 				if ( ( pLeftExpr->IsAVariable() &&
 					   pRightExpr->IsConstant() &&
-					   ((_expr_constant *)pRightExpr)->GetValue() == 1 ) ||
+					   ((expr_constant *)pRightExpr)->GetValue() == 1 ) ||
 				     ( pRightExpr->IsAVariable() &&
 					   pLeftExpr->IsConstant() &&
-					   ((_expr_constant *)pLeftExpr)->GetValue() == 1 ) )
+					   ((expr_constant *)pLeftExpr)->GetValue() == 1 ) )
 					{
 					Op = ((Operator == OP_PLUS) ? FC_ADD_1 : FC_SUB_1);
 
@@ -1346,7 +1424,7 @@ Arguments :
 		{
 		CG_PROC *		pProc;
 		CG_PARAM *		pParam;
-		ITERATOR		Iterator;
+		CG_ITERATOR		Iterator;
 
 		pProc = (CG_PROC *) pCCB->GetCGNodeContext();
 
@@ -1382,24 +1460,8 @@ Arguments :
 					break;
 					}
 
-				switch ( ((CG_BASETYPE *)pSwitchNode)->GetFormatChar() )
-					{
-					case FC_SMALL :
-					case FC_CHAR :
-					case FC_BYTE :
-						Type |= FC_SMALL;
-						break;
-					case FC_SHORT :
-					case FC_ENUM16 :
-						Type |= FC_SHORT;
-						break;
-					case FC_LONG :
-					case FC_ENUM32 :
-						Type |= FC_LONG;
-						break;
-					default :
-						assert(0);
-					}
+                Type |= ((CG_BASETYPE *)pSwitchNode)->GetSignedFormatChar();
+
 				break;
 				}
 			}
@@ -1420,16 +1482,19 @@ Arguments :
 	        pFormatString->PushByte( Type );
 	        pFormatString->PushFormatChar( Op );
 	        pFormatString->PushShortStackOffset( 
-                    (short) pParam->GetStackOffset( pCCB, FALSE ),
-                    (short) pParam->GetStackOffset( pCCB, TRUE ),
-                    (short) pParam->GetStackOffset( pCCB, FALSE, TRUE ) );
+                    (short) pParam->GetStackOffset( pCCB, I386_STACK_SIZING ),
+                    (short) pParam->GetStackOffset( pCCB, ALPHA_STACK_SIZING ),
+                    (short) pParam->GetStackOffset( pCCB, MIPS_STACK_SIZING ), 
+                    (short) pParam->GetStackOffset( pCCB, PPC_STACK_SIZING ), 
+                    (short) pParam->GetStackOffset( pCCB, MAC_STACK_SIZING ) 
+                    );
             }
 		}
 	else // structure cg class
 		{
 		CG_STRUCT *			pStruct;
 		CG_FIELD *			pField;
-		ITERATOR			Iterator;
+		CG_ITERATOR			Iterator;
 
 		if ( IsPointer )
 			Type = FC_POINTER_CONFORMANCE;
@@ -1464,24 +1529,8 @@ Arguments :
 					break;
 					}
 
-				switch ( ((CG_BASETYPE *)pSwitchNode)->GetFormatChar() )
-					{
-					case FC_SMALL :
-					case FC_CHAR :
-					case FC_BYTE :
-						Type |= FC_SMALL;
-						break;
-					case FC_SHORT :
-					case FC_ENUM16 :
-						Type |= FC_SHORT;
-						break;
-					case FC_LONG :
-					case FC_ENUM32 :
-						Type |= FC_LONG;
-						break;
-					default :
-						assert(0);
-					}
+                Type |= ((CG_BASETYPE *)pSwitchNode)->GetSignedFormatChar();
+
 				break;
 				}
 			}
@@ -1606,8 +1655,8 @@ ComplexAttribute:
 
 void
 GenNdrFormatComplexAttributeDescription( CCB *			pCCB,
-									 	 _expr_node *	pMinExpr,
-									 	 _expr_node *	pSizeExpr,
+									 	 expr_node *	pMinExpr,
+									 	 expr_node *	pSizeExpr,
 										 long			StackTopDisplacement,
 										 char *			PrintPrefix,
 										 BOOL			IsPointer )
@@ -1629,7 +1678,7 @@ Routine description:
 
     The naming convention for the routine is currently as follows
 
-        <name> is  <proc_or_struct_name>_ExprEval_<routine_index>
+        <name> is  <proc_or_struct_name>exprEval_<routine_index>
 
     Routine generation is postponed by using a Registry object.
 
@@ -1681,11 +1730,11 @@ Returns:
     char * pName = new char[ strlen(pCCB->GetInterfaceName()) +
                              1 +  // "_"
                              strlen(pContainerName) +
-                             sizeof("_ExprEval_0000") + 1 ];
+                             sizeof("ExprEval_0000") + 1 ];
     strcpy( pName, pCCB->GetInterfaceName() );
     strcat( pName, "_" );
     strcat( pName, pContainerName );
-    strcat( pName, "_ExprEval_" );
+    strcat( pName, "ExprEval_" );
 
     char * pBuf = pName + strlen(pName);
     sprintf( pBuf, "%04x", Index );
@@ -1722,4 +1771,4 @@ Returns:
 
 
 
-
+

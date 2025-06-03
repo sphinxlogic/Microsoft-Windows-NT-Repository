@@ -36,14 +36,10 @@ extern BOOLEAN MctadrRev2;
 
 
 //
-// BUGBUG Temporarily, we use counter to do the timeout
+// Temporarily, we use counter to do the timeout
 //
 
 #define TIMEOUT_COUNT 1024*512
-
-//
-// BUGBUG Temp until we have a configuration manager.
-//
 
 PUCHAR KdComPortInUse=NULL;
 

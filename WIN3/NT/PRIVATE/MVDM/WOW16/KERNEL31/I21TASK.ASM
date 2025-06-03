@@ -23,7 +23,7 @@ externFP GetProcAddress                  ; WIN32S
 externFP ISetErrorMode                   ; WIN32S
 externFP ISetHandleCount
 
-externFP ExitKernel
+externFP ExitKernelThunk
 externNP DPMIProc
 
 extrn   BUNNY_351:FAR
@@ -739,7 +739,7 @@ ENDIF
 ifndef WOW				; For WOW ex just want to get out of here - no need to call USER16 or GDI16
 	cCall	pExitProc,<si,si>	; this does not return
 endif
-        cCall   ExitKernel,<si>
+        cCall   ExitKernelThunk,<si>
 
         assumes es, nothing
 not_the_last_task:
@@ -1097,9 +1097,26 @@ cBegin nogen
 
 ; Check if file extension is .COM, .BAT, .PIF, if so it needs emulation...
 
-	cld
-	les	di,User_DSDX
-	mov	cx,-1
+        cld
+        les     di,User_DSDX
+
+
+ifdef WOW
+;
+;  Wow LoadModule handles all forms of exec including
+;  pe images, com, bat, pif files etc.
+;
+        lds     si,User_ESBX
+	regptr	esdx,es,dx
+	regptr	dssi,ds,si
+        cCall   LoadModule,<esdx,dssi>
+        cmp     ax, LME_MAXERR          ; check for error...
+        jae     ex8
+        jmp short ex7                     ; no, return error
+
+else
+
+        mov     cx,-1
 	xor	al,al
 	repnz	scasb			; scan to end of string
 	neg	cx
@@ -1122,15 +1139,15 @@ ex1b:	cmp	ax,'b.' 		; check for .BAT extension...
 ex1c:	cmp	ax,'p.' 		; check for .PIF extension...
 	jnz	ex2
 	cmp	bx,'fi'
-	jz	ex4
+        jz      ex4
 
-ex2:	lds	si,User_ESBX
+ex2:    lds     si,User_ESBX
 	regptr	esdx,es,dx
 	regptr	dssi,ds,si
-	push	cx			; save length of string
+        push    cx                      ; save length of string
 	cCall	LoadModule,<esdx,dssi>
-	pop	cx
-	cmp     ax, LME_MAXERR		; check for error...
+        pop     cx
+        cmp     ax, LME_MAXERR          ; check for error...
 	jb	ex3
 	jmp	ex8
 ex3:    cmp     ax, LME_INVEXE		; wrong format?
@@ -1143,7 +1160,6 @@ ex3:    cmp     ax, LME_INVEXE		; wrong format?
 	jmp	ex7			; no, return error
 @@:
 
-; FOR WOW Win32S should NOT be enabled - Mattfe
 
 ifdef WIN32S
 	push    cx
@@ -1194,9 +1210,9 @@ ex4:
 	xor	cx,cx
 	mov	cl,ds:[si]
 	inc	cx
-	movsb
-	stosb
-	rep	movsb
+        movsb
+        stosb
+        rep     movsb
 	mov	cx,dx
 	lds	si,User_DSDX
 	rep	movsb
@@ -1210,9 +1226,8 @@ ex4:
 	smov	es, ds
 	pop	ds
         ReSetKernelDS es
-ifndef WOW
-    ; WOW doesn't use a grabber.
-	test	Kernel_flags[2],KF2_DOSX ; DOSX winoldap doesn't need special
+
+        test    Kernel_flags[2],KF2_DOSX ; DOSX winoldap doesn't need special
 	jnz	@F			 ;  special handling
 	mov	ax,dataOffset grab_name
 	push	bx
@@ -1227,9 +1242,9 @@ ifndef WOW
 	add	sp, 256			; undo damage to stack
 	jmps	ex7
 @@:
-endif
-	or	Kernel_flags[1],KF1_WINOLDAP
-	lds	si,User_ESBX
+
+        or      Kernel_flags[1],KF1_WINOLDAP
+        lds     si,User_ESBX
 	mov	ds:[si].lpcmdline.off,di
 	mov	ds:[si].lpcmdline.sel,bx
 	mov	dx,dataOffset WOAName
@@ -1242,7 +1257,10 @@ endif
 	jae	ex8
 	cmp	ax,2			; file not found?
 	jnz	ex7			; no, return error
-	mov	al,23			; flag WINOLDAP error
+        mov     al,23                   ; flag WINOLDAP error
+
+;; ndef wow
+endif
 
 ex7:    or      User_FL,1               ; set carry flag
 	or	ax,ax			; out of memory?

@@ -18,7 +18,7 @@ int _CRTAPI1 main( int, char ** );
 
 
 char *rgstrUsage[] = {
-    "Usage: ECHOTIME [/t] [/WODHMSCYb] [/v] [/n] text",
+    "Usage: ECHOTIME [/t] [/WODHMSCYb] [/v] [/n] [/N] [;] text",
     " /t  current day, time and year",
     " /WODHMSCYb",
     "     Weekday, mOnth, Day, Hour, Min, Sec, Century, Yr, blank",
@@ -27,10 +27,13 @@ char *rgstrUsage[] = {
     "     e.g. echotime /ObDbY this becomes Jan 02 86",
     " /v  volume id of C:",
     " /n  no newline after outputting text",
+    " /N  no trailing blank at end of lines",
     " a semicolon surrounded by white space is replaced by a newline",
     0};
 
 int     fNewline = TRUE;
+int     fTrailingBlank = TRUE;
+
 
 void Usage( void )
 {
@@ -49,17 +52,22 @@ char *v[];
 {
     // struct  findType findBuf;
     long    now;
-    char    *p, *strTime, *p2, *p3;
+    char    *p, *strTime, *p2, *p3, *printstring;
     char    ch;
     int     i, len;
+    int     fFirstWord = TRUE;
+    char    timestring[1000];           //plenty of room for formatted time string
 
     ConvertAppToOem( c, v );
     SHIFT( c, v );
     while ( c ) {
+        printstring="";                 //default no text for this arg
         if ( !strcmp( *v, "/?" ))
             Usage ();
         if ( !strcmp( *v, "/n" ))
             fNewline = FALSE;
+        else if ( !strcmp( *v, "/N" ))
+            fTrailingBlank = FALSE;
         else if ( !strcmp( *v, "/v" )) {
             //
             //  It would make more sense to replace by the volume id of the
@@ -78,18 +86,18 @@ char *v[];
                                              NULL,
                                              0 );
             if (!StatusOk) {
-                p = "NO_VOL_ID";
+                printstring = "NO_VOL_ID";
             } else {
-                p = VolumeName;
+                printstring = VolumeName;
             }
-            printf("%s ", p);
 
 
             }
         else if (**v == '/') {
+            *timestring='\0';
             p2 = *v;
             time( &now );
-            strTime = strdup( ctime( &now ) );
+            strTime = _strdup( ctime( &now ) );
             p = strend( strTime );
             *--p = '\0';
             while ((ch = *++p2)) {
@@ -139,21 +147,36 @@ char *v[];
                 p3 = p + len;
                 ch = *p3;
                 *p3 = '\0';
-                printf( "%s", p);   /* N.B. no trailing blanks */
+                strcat(timestring, p);  /* N.B. no trailing blanks */
                 *p3 = ch;
                 strTime[3] = ' ';
                 }
-            printf( " ");
+            printstring = timestring;
             }
-        else if (!strcmp( *v, ";" ))
+        else if (!strcmp( *v, ";" )) {
+            if (fTrailingBlank)
+               printf(" ");
             printf ("\n" );
+            fFirstWord = TRUE;
+            // printstring remains pointing to empty string
+        }
         else
-            printf( "%s ", *v);
+            printstring= *v;
+
+        if (*printstring) {
+            if (!fFirstWord)
+               printf( " ");
+            else
+               fFirstWord=FALSE;
+            printf("%s", printstring);
+        }
+
         SHIFT( c, v );
         }
+    if (fTrailingBlank)
+        printf( " ");
     if ( fNewline )
-        printf(" \n" );
+        printf("\n" );
 
     return 0;
 }
-

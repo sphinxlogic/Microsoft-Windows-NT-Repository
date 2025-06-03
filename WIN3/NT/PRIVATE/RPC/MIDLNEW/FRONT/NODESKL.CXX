@@ -2665,4 +2665,3 @@ node_skl::Has8ByteElementWithZp8()
 	delete pTNList;
 	return fIsDouble;
 	}
-

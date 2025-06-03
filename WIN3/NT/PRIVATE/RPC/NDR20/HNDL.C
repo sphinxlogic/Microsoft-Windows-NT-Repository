@@ -24,53 +24,61 @@ Revision History :
 #include "ndrp.h"
 #include "hndl.h"
 
-#include "ndrdbg.h"
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_2" )
+#endif
 
 handle_t
 GenericHandleMgr(
-    PMIDL_STUB_DESC                 pStubDesc,
-    unsigned char __RPC_FAR *       ArgPtr,
-    PFORMAT_STRING                  FmtString,
-    unsigned int                    Flags,
-    handle_t __RPC_FAR            * pSavedGenericHandle
+    PMIDL_STUB_DESC     pStubDesc,
+    uchar *             ArgPtr,
+    PFORMAT_STRING      pFormat,
+    uint                Flags,
+    handle_t *          pGenericHandle
     )
 /*++
 
-Description:
+Description :
 
     Provides a filter for generic binding handle management issues.
     Deals with implicit or explicit generic binding handles calling
     user functions as appropriate.
 
-    To be called in the following cases:
-    1) if handle is generic (implicit or explicit).
-
-Arguments:
+Arguments :
 
     pStubDesc - pointer to current StubDescriptor.
     ArgPtr    - pointer to handle.
-    FmtString - pointer to Format string such that *FmtString is a
-                  handle descriptor.
+    pFormat   - pointer to Format string such that *pFormat is a
+                handle descriptor.
     Flag      - flag indicating either binding or unbinding.
 
-Returns:     valid binding handle.
+Returns :     
+
+    Valid binding handle.
 
 */
 {
-    unsigned char                   GHandleSize;
-    const GENERIC_BINDING_ROUTINE_PAIR * Table  = pStubDesc->aGenericBindingRoutinePairs;
-    GENERIC_BINDING_ROUTINE         pBindFunc   = NULL;
-    GENERIC_UNBIND_ROUTINE          pUnBindFunc = NULL;
-    handle_t                        ReturnHandle= NULL;
-    BOOL                            Binding     = (Flags & BINDING_MASK);
+    uchar                                GHandleSize;
+    handle_t                             ReturnHandle;
+    BOOL                                 fBinding;
+    GENERIC_BINDING_ROUTINE              pBindFunc;
+    GENERIC_UNBIND_ROUTINE               pUnBindFunc;
+    const GENERIC_BINDING_ROUTINE_PAIR * Table;
 
-    HANDLE_DEBUG_BROADCAST;
+#ifdef _PPC_
+    // Remove picky PPC warnings.
+    ReturnHandle = 0;
+    pBindFunc = 0;
+    pUnBindFunc = 0;
+#endif
 
-    if ( ! Binding  &&  !*pSavedGenericHandle )
-            RpcRaiseException(RPC_S_INVALID_BINDING);
+    Table = pStubDesc->aGenericBindingRoutinePairs;
+
+    fBinding = (Flags & BINDING_MASK);
 
     if ( Flags & IMPLICIT_MASK )
         {
+        //
         // Implicit generic: All the info is taken from the implicit generic
         // handle info structure accessed via stub descriptor.
         //
@@ -79,157 +87,168 @@ Returns:     valid binding handle.
         pGenHandleInfo = pStubDesc->IMPLICIT_HANDLE_INFO.pGenericBindingInfo;
 
         GHandleSize = pGenHandleInfo->Size;
-        if ( Binding )
+
+        if ( fBinding )
             pBindFunc = pGenHandleInfo->pfnBind;
         else
             pUnBindFunc = pGenHandleInfo->pfnUnbind;
         }
     else
         {
-        // Explicit generic: get index into array of function ptrs and
+        //
+        // Explicit generic: Get index into array of function ptrs and
         // the gen handle size the format string.
         //
-        unsigned char TableIndex  = FmtString[4];
+        uchar TableIndex = pFormat[4];
 
-        GHandleSize = LOW_NIBBLE( FmtString[1] );
+        GHandleSize = LOW_NIBBLE(pFormat[1]);
 
-        if ( Binding )
-            pBindFunc = Table[ TableIndex ].pfnBind;
+        if ( fBinding )
+            pBindFunc = Table[TableIndex].pfnBind;
         else
-            pUnBindFunc = Table[ TableIndex ].pfnUnbind;
+            pUnBindFunc = Table[TableIndex].pfnUnbind;
         }
 
+    //
     // Call users routine on correctly dereferenced pointer.
     //
     switch (GHandleSize)
         {
-        default:
-            NDR_ASSERT(0,"Internal error");
-            break;
-
         case 1:
-            if ( Binding )
-                ReturnHandle = (handle_t)(ulong)
-                    (*(GENERIC_BIND_FUNC_ARGCHAR)pBindFunc)
-                                        ((unsigned char)(ulong)ArgPtr);
+            if ( fBinding )
+                ReturnHandle = 
+                    (handle_t)(ulong)
+                    (*(GENERIC_BIND_FUNC_ARGCHAR)pBindFunc)(
+                        (uchar)(ulong)ArgPtr );
             else
-                (*(GENERIC_UNBIND_FUNC_ARGCHAR)pUnBindFunc)
-                                        ((unsigned char)(ulong)ArgPtr,
-                                                            *pSavedGenericHandle);
+                (*(GENERIC_UNBIND_FUNC_ARGCHAR)pUnBindFunc)(
+                    (uchar)(ulong)ArgPtr,
+                    *pGenericHandle );
             break;
 
         case 2:
-            if ( Binding )
-                ReturnHandle = (handle_t)(ulong)
-                    (*(GENERIC_BIND_FUNC_ARGSHORT)pBindFunc)
-                                        ((unsigned short)(ulong)ArgPtr);
+            if ( fBinding )
+                ReturnHandle = 
+                    (handle_t)(ulong)
+                    (*(GENERIC_BIND_FUNC_ARGSHORT)pBindFunc)(
+                        (ushort)(ulong)ArgPtr );
             else
-                (*(GENERIC_UNBIND_FUNC_ARGSHORT)pUnBindFunc)
-                                        ((unsigned short)(ulong)ArgPtr,
-                                                             *pSavedGenericHandle);
+                (*(GENERIC_UNBIND_FUNC_ARGSHORT)pUnBindFunc)(
+                    (ushort)(ulong)ArgPtr,
+                    *pGenericHandle );
             break;
 
         case 4:
-            if ( Binding )
-                ReturnHandle = (handle_t)(ulong)
-                    (*(GENERIC_BIND_FUNC_ARGLONG)pBindFunc)((unsigned long)ArgPtr);
+            if ( fBinding )
+                ReturnHandle = 
+                    (handle_t)(ulong)
+                    (*(GENERIC_BIND_FUNC_ARGLONG)pBindFunc)(
+                        (ulong)ArgPtr );
             else
-                (*(GENERIC_UNBIND_FUNC_ARGLONG)pUnBindFunc)((unsigned long)ArgPtr,
-                                                            *pSavedGenericHandle);
+                (*(GENERIC_UNBIND_FUNC_ARGLONG)pUnBindFunc)(
+                    (ulong)ArgPtr,
+                    *pGenericHandle );
             break;
+
+        default:
+            NDR_ASSERT(0,"GenericHandleMgr : Handle size > 4");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
-    if ( Binding )
-        *pSavedGenericHandle = ReturnHandle;
+    if ( fBinding )
+        {
+        *pGenericHandle = ReturnHandle;
+        if ( ReturnHandle == NULL )
+            RpcRaiseException( RPC_S_INVALID_BINDING );
+        }
     else
-        *pSavedGenericHandle = NULL;
+        *pGenericHandle = NULL;
 
-    return (ReturnHandle);
-
+    return ReturnHandle;
 }
 
 
 void
 GenericHandleUnbind(
-    PMIDL_STUB_DESC                 pStubDesc,
-    unsigned char __RPC_FAR *       ArgPtr,
-    PFORMAT_STRING                  FmtString,
-    unsigned int                    Flags,
-    handle_t __RPC_FAR            * pSavedGenericHandle
+    PMIDL_STUB_DESC     pStubDesc,
+    uchar *             ArgPtr,
+    PFORMAT_STRING      pFormat,
+    uint                Flags,
+    handle_t *          pGenericHandle
     )
 /*++
 
-Description:
+Description :
 
     Unbinds a generic handle: checks if it is implicit or explicit,
     gets the handle and calls GenericHandleMgr.
 
-Arguments:
+Arguments :
 
     pStubDesc - pointer to current StubDescriptor.
     ArgPtr    - pointer to beginning of the stack.
-    FmtString - pointer to Format string such that *FmtString is a
+    pFormat   - pointer to Format string such that *pFormat is a
                   handle descriptor.
     Flag      - flag indicating implicit vs. explicit.
 
-*/
+ --*/
 {
     if ( Flags & IMPLICIT_MASK )
         {
-        PGENERIC_BINDING_INFO   BindInfo =
-                        pStubDesc->IMPLICIT_HANDLE_INFO.pGenericBindingInfo;
+        PGENERIC_BINDING_INFO BindInfo;
 
-        NDR_ASSERT( BindInfo != 0, "Internal error" );
+        BindInfo = pStubDesc->IMPLICIT_HANDLE_INFO.pGenericBindingInfo;
 
-        ArgPtr = (unsigned char __RPC_FAR *)BindInfo->pObj;
+        NDR_ASSERT( BindInfo != 0, "GenericHandleUnbind : null bind info" );
+
+        ArgPtr = (uchar *) BindInfo->pObj;
         }
     else
         {
-        ArgPtr += *(unsigned short __RPC_FAR *)(FmtString + 2);
+        ArgPtr += *(ushort *)(pFormat + 2);
 
-        ArgPtr = *(uchar __RPC_FAR * __RPC_FAR *)ArgPtr;
+        ArgPtr = *(uchar **)ArgPtr;
 
-        if ( IS_HANDLE_PTR(FmtString[1]) )
-            ArgPtr = *(unsigned char * __RPC_FAR *) ArgPtr;
+        if ( IS_HANDLE_PTR(pFormat[1]) )
+            ArgPtr = *(uchar **)ArgPtr;
         }
 
     (void) GenericHandleMgr( pStubDesc,
                              ArgPtr,
-                             FmtString,
+                             pFormat,
                              Flags,
-                             pSavedGenericHandle );  // unbinding mask: 0
+                             pGenericHandle );
 }
 
 
 handle_t
 ImplicitBindHandleMgr(
-    PMIDL_STUB_DESC         pStubDesc,
-    unsigned char           HandleType,
-    handle_t __RPC_FAR    * pSavedGenericHandle
+    PMIDL_STUB_DESC pStubDesc,
+    uchar           HandleType,
+    handle_t *      pSavedGenericHandle
     )
 /*++
 
-Description:
+Description :
+
     Provides a filter for implicit handle management issues. Deals
     with binding handles (generic, primitive or auto), extracting
-    a valid handle from via pStubDesc
+    a valid handle from pStubDesc.
 
-    To be called in the following cases:
-        1) if handle is implicit.
-
-Arguments:
+Arguments :
 
     pStubDesc  - pointer to current StubDescriptor.
     HandleType - handle format code.
 
-Return:     valid handle.
+Return :     
+    
+    Valid handle.
 
 --*/
 {
     handle_t                ReturnHandle;
     PGENERIC_BINDING_INFO   pBindInfo;
-
-    HANDLE_DEBUG_BROADCAST;
 
     switch ( HandleType )
         {
@@ -260,6 +279,8 @@ Return:     valid handle.
 
         default :
             NDR_ASSERT(0, "ImplicitBindHandleMgr : bad handle type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
     return ReturnHandle;
@@ -268,14 +289,14 @@ Return:     valid handle.
 
 handle_t
 ExplicitBindHandleMgr(
-    PMIDL_STUB_DESC             pStubDesc,
-    unsigned char   __RPC_FAR * ArgPtr,
-    PFORMAT_STRING              FmtString,
-    handle_t __RPC_FAR        * pSavedGenericHandle
+    PMIDL_STUB_DESC pStubDesc,
+    uchar *         ArgPtr,
+    PFORMAT_STRING  pFormat,
+    handle_t *      pSavedGenericHandle
     )
 /*
 
-Description:
+Description :
 
     Provides a filter for explicit binding handle management issues.
     Deals with binding handles (primitive, generic or context), calling
@@ -286,41 +307,42 @@ Description:
         a) before calling I_RpcGetBuffer (to bind).
         b) after unmarshalling (to unbind).
 
-Arguments:
+Arguments :
 
     pStubDesc - pointer to current StubDescriptor.
     ArgPtr    - Pointer to start of stack
-    FmtString - pointer to Format string such that *FmtString is a
+    pFormat   - pointer to Format string such that *pFormat is a
                   handle descriptor.
 
-Return:     valid binding handle.
+Return :     
+
+    Valid binding handle.
 
 */
 {
     handle_t    ReturnHandle;
 
-    HANDLE_DEBUG_BROADCAST;
-
-    DUMP_ARGPTR_AND_FMTCHRS(ArgPtr, FmtString);
-
+    //
     // We need to manage Explicit and Implicit handles.
     // Implicit handles are managed with info accessed via the StubMessage.
     // Explicit handles have their information stored in the format string.
     // We manage explicit handles for binding here.
     //
 
+    //
     // Get location in stack of handle referent.
     //
-    ArgPtr += *((ushort *)(FmtString + 2));
+    ArgPtr += *((ushort *)(pFormat + 2));
 
-    ArgPtr = *( uchar __RPC_FAR * __RPC_FAR *)ArgPtr;
+    ArgPtr = *(uchar **)ArgPtr;
 
-    if ( IS_HANDLE_PTR(FmtString[1]) )
-        ArgPtr = *(uchar * __RPC_FAR *)ArgPtr;
+    if ( IS_HANDLE_PTR(pFormat[1]) )
+        ArgPtr = *(uchar **)ArgPtr;
 
+    //
     // At this point ArgPtr is an address of the handle.
     //
-    switch ( *FmtString )
+    switch ( *pFormat )
         {
         case FC_BIND_PRIMITIVE :
             ReturnHandle = (handle_t)(ulong)ArgPtr;
@@ -329,24 +351,27 @@ Return:     valid binding handle.
         case FC_BIND_GENERIC :
             ReturnHandle = GenericHandleMgr( pStubDesc,
                                              ArgPtr,
-                                             FmtString,
+                                             pFormat,
                                              BINDING_MASK,
                                              pSavedGenericHandle );
             break;
     
         case FC_BIND_CONTEXT :
-            if ( (!(ArgPtr)) && (!IS_HANDLE_OUT(FmtString[1])) )
+            if ( (!(ArgPtr)) && (!IS_HANDLE_OUT(pFormat[1])) )
                  RpcRaiseException( RPC_X_SS_IN_NULL_CONTEXT );
 
-            DUMP_CCONTEXT(ArgPtr);
+            ReturnHandle = 0;    // covers NULL case below.
 
-            if ( ArgPtr && ! (ReturnHandle = NDRCContextBinding((NDR_CCONTEXT)ArgPtr)) )
+            if ( ArgPtr && ! 
+                 (ReturnHandle = NDRCContextBinding((NDR_CCONTEXT)ArgPtr)) )
                  RpcRaiseException( RPC_X_SS_CONTEXT_MISMATCH );
 
             break;
 
         default :
             NDR_ASSERT( 0, "ExplictBindHandleMgr : bad handle type" );
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
     return ReturnHandle;
@@ -355,9 +380,9 @@ Return:     valid binding handle.
 
 unsigned char * RPC_ENTRY
 NdrMarshallHandle(
-    PMIDL_STUB_MESSAGE          pStubMsg,
-    unsigned char __RPC_FAR *   pArg,
-    PFORMAT_STRING              FmtString
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pArg,
+    PFORMAT_STRING      pFormat
     )
 /*++
 
@@ -369,7 +394,7 @@ Arguments :
     
     pStubMsg    - Pointer to stub message.
     pArg        - Context handle to marshall (NDR_CCONTEXT or NDR_SCONTEXT).
-    FmtString   - Context handle's format string description.
+    pFormat     - Context handle's format string description.
 
 Return :
 
@@ -377,10 +402,10 @@ Return :
 
 --*/
 {
-    NDR_ASSERT( *FmtString == FC_BIND_CONTEXT, 
-                "NdrMarshallHandle : Expected a context handle" );
+    long    Index;
 
-    HANDLE_DEBUG_BROADCAST;
+    NDR_ASSERT( *pFormat == FC_BIND_CONTEXT, 
+                "NdrMarshallHandle : Expected a context handle" );
 
     ALIGN( pStubMsg->Buffer, 0x3 );
 
@@ -388,41 +413,75 @@ Return :
         {
         NDR_CCONTEXT Context;
 
+        //
         // Get the context handle.
         //
-        Context = IS_HANDLE_PTR(FmtString[1]) ? 
+        Context = IS_HANDLE_PTR(pFormat[1]) ? 
                         *((NDR_CCONTEXT *)pArg) : (NDR_CCONTEXT)pArg;
 
-        DUMP_CCONTEXT(Context);
-
+        //
         // An [in] only context handle must be non-zero.
         //
-        if ( ! Context && ! IS_HANDLE_OUT(FmtString[1]) )
+        if ( ! Context && ! IS_HANDLE_OUT(pFormat[1]) )
             RpcRaiseException( RPC_X_SS_IN_NULL_CONTEXT );
 
         NDRCContextMarshall( Context, (void *) pStubMsg->Buffer );
         }
-#if !defined(DOS) && !defined(WIN)
+#if defined( NDR_SERVER_SUPPORT )
     else    
         {
+        //
+        // The NT 3.5 Interpreter used the stub message to keep track of
+        // parameter number, newer Interpreters have the param number in the 
+        // context handle's description.
+        //
+        if ( pStubMsg->StubDesc->Version == NDR_VERSION_1_1 )
+            {
+            Index = pStubMsg->ParamNumber;
+            }
+        else
+            {
+            Index = (long) pFormat[3];
+
+            if ( IS_HANDLE_RETURN(pFormat[1]) )
+                {
+                NDR_SCONTEXT    SContext;
+
+                //
+                // Initialize the context handle.
+                //
+                SContext = NDRSContextUnmarshall(
+                                0,
+                                pStubMsg->RpcMsg->DataRepresentation );
+
+                //
+                // Put the user context that was returned into the context
+                // handle.
+                //
+                *((uchar **)NDRSContextValue(SContext)) = pArg;
+
+                pStubMsg->SavedContextHandles[Index] = SContext;
+                }
+            }
+
         NDRSContextMarshall( 
-            (NDR_SCONTEXT) pStubMsg->pSavedHContext->ArrayOfObjects[pStubMsg->ParamNumber],
+            pStubMsg->SavedContextHandles[Index],
             (void *) pStubMsg->Buffer,
-            pStubMsg->StubDesc->apfnNdrRundownRoutines[ FmtString[2] ] );
+            pStubMsg->StubDesc->apfnNdrRundownRoutines[pFormat[2]] );
         }
 #endif
 
     pStubMsg->Buffer += 20;
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
 unsigned char * RPC_ENTRY
 NdrUnmarshallHandle(
-    PMIDL_STUB_MESSAGE          pStubMsg,
-    unsigned char **            ppArg,
-    PFORMAT_STRING              FmtString,
-    unsigned char		        fIgnored
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar **            ppArg,
+    PFORMAT_STRING      pFormat,
+    uchar		        fIgnored
     )
 /*++
 
@@ -436,8 +495,8 @@ Arguments :
     ppArg       - Pointer to the context handle on the client/server stack.
                   On the client this is a NDR_CCONTEXT *.  On the server
                   side this is a NDR_SCONTEXT (regardless of direction).
-    FmtString   - Context handle's format string description.
-    fIgnored    - Ignored, but needed.
+    pFormat     - Context handle's format string description.
+    fIgnored    - Ignored, but needed to match necessary routine prototype.
 
 Return :
 
@@ -445,28 +504,29 @@ Return :
 
 --*/
 {
-    NDR_ASSERT( *FmtString == FC_BIND_CONTEXT, 
+    NDR_ASSERT( *pFormat == FC_BIND_CONTEXT, 
                 "NdrUnmarshallHHandle : Expected a context handle" );
-
-    HANDLE_DEBUG_BROADCAST;
 
     ALIGN( pStubMsg->Buffer, 0x3 );
 
     if ( pStubMsg->IsClient )
         {
+        //
         // Check if we have a pointer to a context handle
         // (the pointer can't be null).
         //
-        if ( IS_HANDLE_PTR( FmtString[1] ) )
+        if ( IS_HANDLE_PTR(pFormat[1]) )
             {
             ppArg = (uchar **) *ppArg;
             }
 
+        //
         // Zero an [out] only context handle before unmarshalling.
         //
-        if ( ! IS_HANDLE_IN( FmtString[1] ) )
+        if ( ! IS_HANDLE_IN(pFormat[1]) )
             *ppArg = 0;
 
+        //
         // We must use the original binding handle in this call.   
         //
         NDRCContextUnmarshall( (NDR_CCONTEXT *)ppArg,
@@ -474,97 +534,80 @@ Return :
                                (void *)pStubMsg->Buffer,
                                pStubMsg->RpcMsg->DataRepresentation );
         }
-#if !defined(DOS) && !defined(WIN)
+
+#if defined( NDR_SERVER_SUPPORT )
     else
         {
+        //
         // Get the start of the array of saved context handles.
         //
-        NDR_SCONTEXT TmpSContext;
+        NDR_SCONTEXT SContext;
 
-        TmpSContext = NDRSContextUnmarshall( (void *)pStubMsg->Buffer,
-                            pStubMsg->RpcMsg->DataRepresentation );
+        SContext = NDRSContextUnmarshall( 
+                        (void *)pStubMsg->Buffer,
+                        pStubMsg->RpcMsg->DataRepresentation );
 
-        if ( ! TmpSContext )
+        if ( ! SContext )
             RpcRaiseException( RPC_X_SS_CONTEXT_MISMATCH );
 
-        NdrSaveContextHandle(pStubMsg, TmpSContext, ppArg, FmtString);
+        NdrSaveContextHandle( pStubMsg, 
+                              SContext, 
+                              ppArg, 
+                              pFormat );
         }
 #endif
 
     pStubMsg->Buffer += 20;
 
-    return pStubMsg->Buffer;
+    return 0;
 }
 
 
-#if !defined(DOS) && !defined(WIN)
+#if defined( NDR_SERVER_SUPPORT )
 
+void 
+NdrSaveContextHandle (
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    NDR_SCONTEXT        CtxtHandle,
+    uchar **            ppArg,
+    PFORMAT_STRING      pFormat )
+/*++
 
-/*
-    Routine:        NdrSaveContextHandle
+Routine Description : 
 
-    Arguments:
-                    PMIDL_STUB_MESSAGE              pStubMsg
-                        The usual.
+    Saves a context handle's current value and then extracts the user's
+    context value.
 
-                    NDR_SCONTEXT                    CtxtHandle
-                        The usual.
+Arguments :
 
-                    uchar __RPC_FAR   * __RPC_FAR * ppArg
-                        Pointer to argument.
+    pStubMsg    - The stub message.
+    CtxtHandle  - The context handle.
+    ppArg       - Pointer to where user's context value should go.
 
-    Return:         Length of Queue.
+Return : 
 
-    Side issues:    This routine calls QueueObject, which has certain
-                    requirements on its arguments. See QueueObject and
-                    note the way LengthOfQueue and MaxLengthOfQueue
-                    are used to regulate when and how QueueObject is
-                    called.
+    None.
 
 */
-unsigned int
-NdrSaveContextHandle (
-    PMIDL_STUB_MESSAGE              pStubMsg,
-    NDR_SCONTEXT                    CtxtHandle,
-    uchar __RPC_FAR   * __RPC_FAR * ppArg,
-    PFORMAT_STRING                  pFormat
-    )
 {
-    NDR_SCONTEXT      * HandleArray      = pStubMsg->pSavedHContext->ArrayOfObjects;
-    BOOL                fShouldFree      = TRUE;
+    long    Index;
 
-    if ( pStubMsg->ParamNumber == (long)pStubMsg->MaxContextHandleNumber )
-        {
-        if ( pStubMsg->ParamNumber == DEFAULT_NUMBER_OF_CTXT_HANDLES )
-            fShouldFree      = FALSE;
+    //
+    // The NT 3.5 Interpreter used the stub message to keep track of
+    // parameter number, newer Interpreters have the param number in the 
+    // context handle's description.
+    //
+    if ( pStubMsg->StubDesc->Version == NDR_VERSION_1_1 )
+        Index = pStubMsg->ParamNumber;
+    else
+        Index = (long) pFormat[3];
 
-        pStubMsg->MaxContextHandleNumber *= 2;
-        QueueObject((void __RPC_FAR * __RPC_FAR * )&HandleArray,
-                    pStubMsg->MaxContextHandleNumber * sizeof(NDR_SCONTEXT),
-                    pStubMsg->ParamNumber * sizeof(NDR_SCONTEXT),
-                    fShouldFree);
-
-        pStubMsg->pSavedHContext->ArrayOfObjects = HandleArray;
-        }
-
-    HandleArray[pStubMsg->ParamNumber] = CtxtHandle;
+    pStubMsg->SavedContextHandles[Index] = CtxtHandle;
 
     if ( ! IS_HANDLE_PTR(pFormat[1]) )
         *ppArg = (uchar *) *(NDRSContextValue(CtxtHandle));
     else
         *ppArg = (uchar *) NDRSContextValue(CtxtHandle);
-
-    return 0;
-}
-
-void
-NdrContextHandleQueueFree(
-    PMIDL_STUB_MESSAGE          pStubMsg,
-    void *                      FixedArray
-    )
-{
-    if ( pStubMsg->pSavedHContext->ArrayOfObjects != FixedArray )
-        QUEUE_FREE(pStubMsg->pSavedHContext->ArrayOfObjects);
 }
 
 #endif

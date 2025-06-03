@@ -17,15 +17,18 @@
 ;*									    *
 ;*  WINMISC2.ASM -							    *
 ;*									    *
-;*	Random Shit							    *
+;*      Random stuff                                                        *
 ;*									    *
 ;****************************************************************************
 
 ifdef WOW
 SEGNAME equ <TEXT>
 endif
+
+.xlist
 include user.inc
 include vint.inc
+.list
 
 ExternFP <GlobalHandleNorip>
 ExternFP <MessageBox>
@@ -704,6 +707,83 @@ cEnd
 endif
 
 endif ;WOW
+
+
+;*--------------------------------------------------------------------------*
+;*									    *
+;*  mouse_event() -                                                         *
+;*									    *
+;*--------------------------------------------------------------------------*
+
+;       Mouse interrupt event routine
+;
+;       Entry:  (ax) = flags:
+;                 01h = mouse move
+;                 02h = left button down
+;                 04h = left button up
+;                 08h = right button down
+;                 10h = right button up
+;		  20h = middle button down
+;		  40h = middle button up
+;               8000h = absolute move
+;               (bx) = dX
+;               (cx) = dY
+;               (dx) = # of buttons, which is assumed to be 2.
+;               (si) = extra info loword (should be null if none)
+;		(di) = extra info hiword (should be null if none)
+;
+;       Exit:   None
+;
+;       Uses:   All registers
+;
+
+ExternFP <MouseEvent> ; Thunk in user4.asm
+
+LabelFP <PUBLIC, mouse_event>
+        push    si                          ; Preserve the same regs as Win3.1
+        regptr  disi,di,si
+        cCall   <FAR PTR MouseEvent>, <ax,bx,cx,dx,disi>
+        pop     si
+        retf
+
+LabelFP <PUBLIC, GetMouseEventProc>
+        mov     dx,cs
+        mov     ax,offset mouse_event
+        retf
+
+
+;*--------------------------------------------------------------------------*
+;*									    *
+;*  keybd_event() -                                                         *
+;*									    *
+;*--------------------------------------------------------------------------*
+
+; Keyboard interrupt handler.
+;
+; ENTRY: AL = Virtual Key Code, AH = 80 (up), 00 (down)
+;	 BL = Scan Code
+;	 BH = 0th bit is set if it is an enhanced key(Additional return etc.,).
+;        SI = LOWORD of ExtraInfo for the message
+;	 DI = HIWORD of ExtraInfo for the message
+;
+; NOTES: This routine must preserve all registers.
+
+ExternFP <KeybdEvent> ; Thunk in user4.asm
+
+LabelFP <PUBLIC, keybd_event>
+	    push    es			    ; Preserve the registers
+	    push    dx
+	    push    cx
+	    push    bx
+            push    ax
+            regptr  disi,di,si
+            cCall   <FAR PTR KeybdEvent>, <ax,bx,disi>
+            pop     ax
+            pop     bx
+            pop     cx
+            pop     dx
+            pop     es
+            retf
 
 sEnd %SEGNAME
 

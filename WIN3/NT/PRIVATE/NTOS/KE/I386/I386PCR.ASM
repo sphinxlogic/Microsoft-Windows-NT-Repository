@@ -118,7 +118,7 @@ stdENDP _KeGetPreviousMode
 
 cPublicProc _KeIsExecutingDpc   ,0
 
-        mov     eax,PCR[PcIsExecutingDpc]
+        mov     eax,PCR[PcPrcbData.PbDpcRoutineActive]
         stdRET    _KeIsExecutingDpc
 
 stdENDP _KeIsExecutingDpc

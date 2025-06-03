@@ -1,4 +1,3 @@
-\
 /*
  * standard table class.
  *
@@ -349,6 +348,8 @@ gtab_printjob(HWND hwnd, lpTable ptab, lpPrintContext pcontext)
         di.lpszDocName = "Table";
         di.cbSize = lstrlen(di.lpszDocName);
         di.lpszOutput = NULL;
+        di.lpszDatatype = NULL;
+        di.fwType = 0;
 
         StartDoc(hpr, &di);
 
@@ -363,6 +364,7 @@ gtab_printjob(HWND hwnd, lpTable ptab, lpPrintContext pcontext)
         SetCursor(hcurs);
 
 
+        status = 0;  /* kills a silly "used without init" diagnostic */
         for (npage = startpage; npage<=endpage; npage++) {
                 wsprintf(str, "Page %d of %d pages",  npage, pages);
                 SetDlgItemText(hAbortWnd, IDC_LPAGENR, str);
@@ -512,6 +514,8 @@ gtab_printhead(HWND hwnd, HDC hdc, lpTable ptab, lpTitle head, int page)
         DWORD fcol, bkcol;
         char str[256];
 
+        fcol = 0; bkcol = 0;  /* eliminate spurious diagnostic - generate worse code */
+
         rc.top = head->ypos.clipstart;
         rc.bottom = head->ypos.clipend;
         rc.left = head->xpos.clipstart;
@@ -566,7 +570,7 @@ gtab_printhead(HWND hwnd, HDC hdc, lpTable ptab, lpTitle head, int page)
         cx += head->xpos.start;
 
         /* expand tabs on output */
-        tab = ptab->avewidth * 8;
+        tab = ptab->avewidth * ptab->tabchars;
         x = 0;
         y = head->ypos.start;
 
@@ -602,3 +606,4 @@ gtab_printhead(HWND hwnd, HDC hdc, lpTable ptab, lpTitle head, int page)
                 }
         }
 }
+

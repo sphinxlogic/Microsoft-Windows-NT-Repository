@@ -31,6 +31,25 @@ ULONG g_UseCount = 0;
 
 CBasicBndCF *g_pcf = NULL;
 
+static const char *szFatalError = "OLEIMPL.DLL - Fatal Error";
+
+void MsgBox(char *pszMsg)
+{
+    MessageBoxA(NULL, pszMsg, szFatalError, MB_OK);
+}
+
+void HrMsgBox(char *pszMsg, HRESULT hr)
+{
+    char awcBuf[512];
+
+    // Build string for output
+    wsprintfA(awcBuf, "%s HRESULT = %lx", pszMsg, hr);
+
+    // Display message box
+    MessageBoxA(NULL, &awcBuf[0], szFatalError, MB_OK);
+}
+
+
 //+-------------------------------------------------------------------
 //
 //  Function:   LibMain
@@ -281,12 +300,18 @@ CBasicBnd::CBasicBnd(IUnknown *punk)
     SCODE sc = StgCreateDocfile(NULL,
 	STGM_DELETEONRELEASE|STGM_DFRALL|STGM_CREATE, 0, &_psStg1);
 
-    Win4Assert((sc == S_OK) && "Create of first storage failed");
+    if (sc != S_OK)
+    {
+        HrMsgBox("CBasicBnd::CBasicBnd Create of first storage failed", sc);
+    }
 
     sc = StgCreateDocfile(NULL,
 	STGM_DELETEONRELEASE|STGM_DFRALL|STGM_CREATE, 0, &_psStg2);
 
-    Win4Assert((sc == S_OK) && "Create of second storage failed");
+    if (sc != S_OK)
+    {
+        HrMsgBox("CBasicBnd::CBasicBnd Create of second storage failed", sc);
+    }
 }
 
 //+-------------------------------------------------------------------
@@ -656,21 +681,36 @@ STDMETHODIMP CBasicBnd::GetObject(
                psStorage,               // IStorage the server will use
 	       (void **) &poo);		// Pointer to the object
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CBasicBnd::GetObject OlCreate Failed!\n");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CBasicBnd::GetObject OlCreate Failed!", hresult);
+        return hresult;
+    }
 
     // Set the client site
     hresult = poo->SetClientSite(pocsObjCliSite);
 
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CBasicBnd::GetObject SetClientSite failed!", hresult);
+        return hresult;
+    }
+
     hresult = poo->QueryInterface(IID_IUnknown, (void **)&punk);
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CBasicBnd::GetObject QI to IUnknown failed!\n");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CBasicBnd::GetObject QI to IUnknown failed!", hresult);
+        return hresult;
+    }
 
     hresult = OleRun(punk);
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CBasicBnd::GetObject OleRun!\n");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CBasicBnd::GetObject OleRun failed!", hresult);
+        return hresult;
+    }
 
     punk->Release();
 
@@ -684,8 +724,11 @@ STDMETHODIMP CBasicBnd::GetObject(
 		 0,		    // hwndParent - ???
 		 lprPosRect);	    // lprcPosRect - rectangle wrt hwndParent
 
-    Win4Assert(SUCCEEDED(hresult)
-	&& "CBasicBnd::GetObject DoVerb failed!\n");
+    if (FAILED(hresult))
+    {
+        HrMsgBox("CBasicBnd::GetObject DoVerb  failed!", hresult);
+        return hresult;
+    }
 
     delete lprPosRect;
 

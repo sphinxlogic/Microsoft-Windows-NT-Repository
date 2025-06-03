@@ -33,14 +33,30 @@ Revision History:
 ///////////////////////////////////////////////////////////////////////////
 
 //
-// Generic ACE structure, to be used for casting ACE's of known types
+// Generic ACE structures, to be used for casting ACE's of known types
 //
 
 typedef struct _KNOWN_ACE {
-   ACE_HEADER Header;
-   ACCESS_MASK Mask;
-   ULONG SidStart;
-   } KNOWN_ACE, *PKNOWN_ACE;
+    ACE_HEADER Header;
+    ACCESS_MASK Mask;
+    ULONG SidStart;
+} KNOWN_ACE, *PKNOWN_ACE;
+
+typedef struct _KNOWN_COMPOUND_ACE {
+    ACE_HEADER Header;
+    ACCESS_MASK Mask;
+    USHORT CompoundAceType;
+    USHORT Reserved;
+    ULONG SidStart;
+} KNOWN_COMPOUND_ACE, *PKNOWN_COMPOUND_ACE;
+
+//typedef struct _KNOWN_IMPERSONATION_ACE {
+//    ACE_HEADER Header;
+//    ACCESS_MASK Mask;
+//    USHORT DataType;
+//    USHORT Argument;
+//    ULONG Operands;
+//} KNOWN_IMPERSONATION_ACE, *PKNOWN_IMPERSONATION_ACE;
 
 
 
@@ -107,13 +123,39 @@ typedef struct _KNOWN_ACE {
 //  Determine if an ace is a standard ace
 //
 
-#define IsKnownAceType(Ace) (                                      \
+#define IsCompoundAceType(Ace) (                                           \
+    (((PACE_HEADER)(Ace))->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE))
+
+//
+// A "known" ACE is one of the types that existed before the introduction of
+// compound ACEs.  While the name is no longer as accurate as it used to be,
+// it's convenient.
+//
+
+#define IsKnownAceType(Ace) (                                     \
     (((PACE_HEADER)(Ace))->AceType == ACCESS_ALLOWED_ACE_TYPE) || \
-    (((PACE_HEADER)(Ace))->AceType == ACCESS_DENIED_ACE_TYPE) ||  \
-    (((PACE_HEADER)(Ace))->AceType == SYSTEM_AUDIT_ACE_TYPE) ||   \
+    (((PACE_HEADER)(Ace))->AceType == ACCESS_DENIED_ACE_TYPE)  || \
+    (((PACE_HEADER)(Ace))->AceType == SYSTEM_AUDIT_ACE_TYPE)   || \
     (((PACE_HEADER)(Ace))->AceType == SYSTEM_ALARM_ACE_TYPE)      \
     )
 
+//
+// Update this macro as new MS-Defined ACE types are added.
+//
+
+#define IsMSAceType(Ace) (                                              \
+    (((PACE_HEADER)(Ace))->AceType == ACCESS_ALLOWED_ACE_TYPE) ||       \
+    (((PACE_HEADER)(Ace))->AceType == ACCESS_DENIED_ACE_TYPE)  ||       \
+    (((PACE_HEADER)(Ace))->AceType == SYSTEM_AUDIT_ACE_TYPE)   ||       \
+    (((PACE_HEADER)(Ace))->AceType == SYSTEM_ALARM_ACE_TYPE)   ||       \
+    (((PACE_HEADER)(Ace))->AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE) \
+    )
+
+//
+// Update this macro as new ACL revisions are defined.
+//
+
+#define ValidAclRevision(Acl) ((Acl)->AclRevision == ACL_REVISION2 || (Acl)->AclRevision == ACL_REVISION3)
 
 //
 //  Macro to determine if an ace is to be inherited by a subdirectory
@@ -144,40 +186,6 @@ typedef struct _KNOWN_ACE {
     )
 
 
-//
-//  Macro to make a known ACE type ready for applying to a specific object type.
-//  This is done by mapping any generic access types, and clearing
-//  the special access types field.
-//
-//  This routine should only be used on DSA define ACEs.
-//
-//  Parameters:
-//
-//      Ace - Points to an ACE to be applied.  Only ACEs that are not
-//          InheritOnly are mapped.
-//
-//      Mapping - Points to a generic mapping array for the type of
-//           object the ACE is being applied to.
-//
-
-                //
-                // Clear invalid bits.  Note that ACCESS_SYSTEM_SECURITY is
-                // valid in SACLs, but not in DACLs.  So, leave it in audit and
-                // alarm ACEs, but clear it in access allowed and denied ACEs.
-                //
-
-#define SepApplyAceToObject(Ace,Mapping) {                                                  \
-            if (!FlagOn((Ace)->AceFlags, INHERIT_ONLY_ACE) ) {                          \
-                RtlMapGenericMask( &((PKNOWN_ACE)(Ace))->Mask, (Mapping));                  \
-                                                                                            \
-                if ( (((PKNOWN_ACE)(Ace))->Header.AceType == ACCESS_ALLOWED_ACE_TYPE) ||    \
-                     (((PKNOWN_ACE)(Ace))->Header.AceType == ACCESS_DENIED_ACE_TYPE)  ) {   \
-                    ((PKNOWN_ACE)(Ace))->Mask &= (Mapping)->GenericAll;                     \
-                } else {                                                                    \
-                    ((PKNOWN_ACE)(Ace))->Mask &= ((Mapping)->GenericAll |                   \
-                                                  ACCESS_SYSTEM_SECURITY);                  \
-                }                                                                           \
-            } }
 
 
 #endif // _SEOPAQUE_

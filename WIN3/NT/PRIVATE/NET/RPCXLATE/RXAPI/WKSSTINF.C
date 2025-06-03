@@ -207,9 +207,9 @@ Return Value:
                 Both,                   // transmission mode
                 NativeToNative);        // conversion mode
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxNetWkstaSetInfo(all): equiv actual size (32) is "
-                    FORMAT_DWORD ".\n", EquivActualSize32 );
+                    FORMAT_DWORD ".\n", EquivActualSize32 ));
         }
         NetpAssert( EquivActualSize32 <= EquivMaxNativeSize );
 

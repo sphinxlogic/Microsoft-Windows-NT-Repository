@@ -26,6 +26,10 @@ Environment:
 
 #include "wintools.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //BUGBUG: make a function to do this.
 #define NUM_REPORT_ITEMS 13
 
@@ -64,6 +68,13 @@ _REPORT_LINE {
 
 }   REPORT_LINE, *LPREPORT_LINE;
 
+//
+// global abort report flag
+//
+
+extern BOOL bAbortReport;
+
+
 
 BOOL
 ReportDlgProc(
@@ -72,13 +83,17 @@ ReportDlgProc(
     IN WPARAM wParam,
     IN LPARAM lParam
     );
+
 
 BOOL
 GenerateReport(
     IN HWND hWnd,
-    IN UINT ReportType,
-    IN SELECT_REPORT  SelectReport []
+    IN UINT iDestination,
+    IN UINT iScope,
+    IN UINT iDetailLevel,
+    IN BOOL bCallFromCommandLine
     );
+
 
 BOOL
 GetReportFileName(
@@ -92,6 +107,13 @@ SaveReportToFile(
     IN LPREPORT_LINE lpReportHead,
     IN LPTSTR        RptFileName
     );
+
+BOOL
+CopyReportToClipboard(
+    IN HWND   hWnd,
+    IN LPREPORT_LINE lpReportHead
+    );
+
 
 BOOL
 InitializeReport(
@@ -131,5 +153,9 @@ UINT
 NumReportLines(
     IN LPREPORT_LINE lpReportHead
     );
+
+#ifdef __cplusplus
+}       // extern C
+#endif
 
 #endif // _REPORT_

@@ -682,7 +682,7 @@ Return Value:
     SYSTEMTIME systemTime;
 
     if (envVar = getenv(ACSLAN_DEBUG_ENV_VAR)) {
-        if (!strnicmp(envVar, "0x", 2)) {
+        if (!_strnicmp(envVar, "0x", 2)) {
             envVar += 2;
         }
         for (AcslanDebugFlags = 0; isxdigit(*envVar); ++envVar) {
@@ -1401,7 +1401,7 @@ DumpData(
             }
 
             if (Options & DD_UPPER_CASE) {
-                strupr(hexptr);
+                _strupr(hexptr);
             }
 
             if (!(Options & DD_NO_ASCII)) {
@@ -1650,8 +1650,8 @@ DumpDirOpenAdapterParms(
             pAdapterParms->auchNodeAddress[3],
             pAdapterParms->auchNodeAddress[4],
             pAdapterParms->auchNodeAddress[5],
-            *(LPDWORD)(&pAdapterParms->auchGroupAddress),
-            *(LPDWORD)(&pAdapterParms->auchFunctionalAddress),
+            *(DWORD UNALIGNED *)(&pAdapterParms->auchGroupAddress),
+            *(DWORD UNALIGNED *)(&pAdapterParms->auchFunctionalAddress),
             pAdapterParms->usReserved1,
             pAdapterParms->usReserved2,
             pAdapterParms->usMaxFrameSize,

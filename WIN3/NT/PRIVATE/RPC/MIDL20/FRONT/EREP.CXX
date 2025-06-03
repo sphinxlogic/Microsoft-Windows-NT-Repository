@@ -13,10 +13,6 @@ History				:
  *			include files
  ***************************************************************************/
 
-#ifdef DOS_OS2_BUILD
-#pragma data_seg( "errdb", "DATA" )
-#endif
-
 #include "nulldefs.h"
 extern	"C" {
 	#include <stdio.h>
@@ -339,10 +335,15 @@ GetExpectedSyntax(
 
 			while( pDB[ i ].State == state )
 				{
-				if( !fFirst )
-					strcat( pBuffer, " or ");
-				fFirst = 0;
-				strcat( pBuffer, pDB[ i ].pTranslated );
+				// make sure not to report the same translated string twice, when two non-terminals
+				// have the same translated string
+				if ( !strstr( pBuffer, pDB[ i ].pTranslated ) )
+					{
+					if( !fFirst )
+						strcat( pBuffer, " or ");
+					fFirst = 0;
+					strcat( pBuffer, pDB[ i ].pTranslated );
+					}
 				i++;
 				}
 			return pBuffer;

@@ -51,9 +51,9 @@ typedef long time_t;
 
 #ifndef _STAT_DEFINED
 
-#if defined(_M_IX86) || defined (_ALPHA_) || defined(_M_MRX000) || defined(_MIPS_)
-#pragma pack(4)
-#endif	/* _M_IX86 */
+#ifdef _MSC_VER
+#include "pshpack4.h"
+#endif
 
 struct _stat {
 	_dev_t st_dev;
@@ -69,9 +69,9 @@ struct _stat {
 	time_t st_ctime;
 	};
 
-#if defined(_M_IX86) || defined (_ALPHA_) || defined(_M_MRX000) || defined(_MIPS_)
-#pragma pack()
-#endif	/* _M_IX86 */
+#ifdef _MSC_VER
+#include "poppack.h"
+#endif
 
 #define _STAT_DEFINED
 #endif

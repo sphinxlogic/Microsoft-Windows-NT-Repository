@@ -207,4 +207,4 @@ BOOL fDelete)
     }
     return(pqiNext != pQ->pqiHead && pQ->cItems ? pqiNext : NULL);
 }
-
+

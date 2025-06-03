@@ -164,10 +164,10 @@ Return Value:
     FullResource    = ( PCM_FULL_RESOURCE_DESCRIPTOR )Data;
 
     TmpList = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ) {
-        DbgPrintf("REGEDT32: Out of memory" );
+        DebugPrintf("REGEDT32: Out of memory" );
         DELETE( TmpList );
         return( FALSE );
     }
@@ -203,7 +203,7 @@ Return Value:
                 //
                 if( ( ULONG )PartialResourceDescriptor >
                         ( ULONG )( Data + Size - sizeof( CM_PARTIAL_RESOURCE_DESCRIPTOR ) ) ) {
-                    DbgPrintf( "REGEDT32: Invalid CM_PARTIAL_RESOURCE_DESCRIPTOR, j = %d \n", j );
+                    DebugPrintf( "REGEDT32: Invalid CM_PARTIAL_RESOURCE_DESCRIPTOR, j = %d \n", j );
                     if( DescriptorSize != NULL ) {
                         *DescriptorSize = Size;
                     }
@@ -222,7 +222,7 @@ Return Value:
                                                        PartialResourceDescriptor->ShareDisposition,
                                                        PartialResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create PORT_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create PORT_DESCRIPTOR" );
                         DELETE( PortDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -241,7 +241,7 @@ Return Value:
                                                             PartialResourceDescriptor->ShareDisposition,
                                                             PartialResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create INTERRUPT_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create INTERRUPT_DESCRIPTOR" );
                         DELETE( InterruptDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -259,7 +259,7 @@ Return Value:
                                                          PartialResourceDescriptor->ShareDisposition,
                                                          PartialResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create MEMORY_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create MEMORY_DESCRIPTOR" );
                         DELETE( MemoryDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -278,7 +278,7 @@ Return Value:
                                                       PartialResourceDescriptor->ShareDisposition,
                                                       PartialResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create DMA_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create DMA_DESCRIPTOR" );
                         DELETE( DmaDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -302,7 +302,7 @@ Return Value:
                                                       PartialResourceDescriptor->ShareDisposition,
                                                       PartialResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create DEVICE_SPECIFIC_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create DEVICE_SPECIFIC_DESCRIPTOR" );
                         DELETE( DeviceSpecificDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -313,7 +313,7 @@ Return Value:
 
                 default:
 
-                    DbgPrintf( "REGEDT32: Unknown PartialResourceDescriptor->Type == %#x \n",
+                    DebugPrintf( "REGEDT32: Unknown PartialResourceDescriptor->Type == %#x \n",
                                 PartialResourceDescriptor->Type );
                     continue;
                 }
@@ -340,7 +340,7 @@ Return Value:
         *DescriptorSize = ( ULONG )( ( ULONG )FullResource - ( ULONG )Data );
 #if DBG
         if( *DescriptorSize > Size ) {
-            DbgPrintf( "REGEDT32: Invalid sizes, *DescriptorSize = %d, Size = %d \n", *DescriptorSize, Size );
+            DebugPrintf( "REGEDT32: Invalid sizes, *DescriptorSize = %d, Size = %d \n", *DescriptorSize, Size );
         }
 #endif
     }
@@ -372,10 +372,10 @@ Return Value:
     PITERATOR   Iterator;
     PPARTIAL_DESCRIPTOR Descriptor;
 
-    DbgPrintf( "\tInterfaceType = %d \n", _InterfaceType );
-    DbgPrintf( "\tBusNumber = %#lx \n", _BusNumber );
-    DbgPrintf( "\tVersion = %#x \n", _Version );
-    DbgPrintf( "\tRevision = %#x \n", _Revision );
+    DebugPrintf( "\tInterfaceType = %d \n", _InterfaceType );
+    DebugPrintf( "\tBusNumber = %#lx \n", _BusNumber );
+    DebugPrintf( "\tVersion = %#x \n", _Version );
+    DebugPrintf( "\tRevision = %#x \n", _Revision );
     if( _ResourceDescriptors != NULL ) {
         Iterator = _ResourceDescriptors->QueryIterator();
         while( Descriptor = ( PPARTIAL_DESCRIPTOR ) Iterator->GetNext() ) {
@@ -390,7 +390,7 @@ Return Value:
             } else if( Descriptor->IsDescriptorTypeDeviceSpecific() ) {
                 ( ( PDEVICE_SPECIFIC_DESCRIPTOR )Descriptor )->DbgDumpObject();
             } else {
-                DbgPrintf( "\tERROR: Unknown Descriptor \n\n" );
+                DebugPrintf( "\tERROR: Unknown Descriptor \n\n" );
             }
         }
         DELETE( Iterator );

@@ -1,30 +1,10 @@
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "slmck.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include "proto.h"
-#include "ckproto.h"
-#include <stdio.h>
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 /* This file contains non version-specific lower level functions used by the
  * version specific routines as well as general utility type stuff.
  */
-
-EnableAssert
-
 
 /* Checks to see if a vector of cchMac characters is a Nm */
 F
@@ -139,9 +119,6 @@ FIsFileNm(
     int *pfTrailZ)
 {
 #define szBad "\"/\\[]:|<>; "
-#if defined(DOS) || defined(OS2)
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#endif
 
 #define cchFnameMax 8           /* max number of charcters in file name */
 #define cchExtMax 3             /* max number of characters in extension */
@@ -418,13 +395,9 @@ FSameFile(
 
 
 F FReadOnly(pst)
-struct stat *pst;
+struct _stat *pst;
         {
-#if defined(DOS) || defined(OS2)
-        return ((pst->st_mode & 0600) == 0400);
-#elif defined(_WIN32)
         return ((pst->st_mode & (S_IREAD|S_IWRITE)) == S_IREAD);
-#endif
         }
 
 
@@ -433,7 +406,7 @@ F FCkWritePth(pth, pst)
  * write to a directory specified by pth.  Returns fFalse if error.
  */
 PTH pth[cchPthMax];
-register struct stat *pst;
+register struct _stat *pst;
         {
         char sz[cchPthMax];
 

@@ -40,7 +40,11 @@ struct LLIPBindInfo {
 	NDIS_STATUS (*lip_transfer)(void *, NDIS_HANDLE, uint, uint, uint, PNDIS_PACKET,
 				uint *);			// Pointer to transfer data routine.
 	void		(*lip_close)(void *);
+#ifndef	BUILD_FOR_1381
+	uint		(*lip_addaddr)(void *, uint, IPAddr, IPMask, void *);
+#else
 	uint		(*lip_addaddr)(void *, uint, IPAddr, IPMask);
+#endif
 	uint		(*lip_deladdr)(void *, uint, IPAddr, IPMask);
 	void		(*lip_invalidate)(void *, RouteCacheEntry *);
 	void		(*lip_open)(void *);
@@ -103,6 +107,24 @@ typedef struct LLIPAddrMTUChange LLIPAddrMTUChange;
 typedef struct llipif_registration_data {
 	LLIPRegRtn    RegistrationFunction;
 } LLIPIF_REGISTRATION_DATA;
+
+
+// Definiton for IPAddInterfacePtr and IPDelInterfacePtr routines
+//
+typedef IP_STATUS (*IPAddInterfacePtr)(PNDIS_STRING ConfigName,
+                                       void *PNPContext,
+                                       void *Context,
+                                       LLIPRegRtn  RegRtn,
+                                       LLIPBindInfo *BindInfo);
+
+typedef IP_STATUS (*IPDelInterfacePtr)(void *Context) ;
+
+//* Structure used in IOCTL_IP_GET_PNP_ARP_POINTERS ioctl sent to \device\ip by ARP modules
+//
+typedef struct ip_get_arp_pointers {
+    IPAddInterfacePtr   IPAddInterface ;    // Pointer to IP's add interface routine
+    IPDelInterfacePtr   IPDelInterface ; // Pointer to IP's del interface routine
+} IP_GET_PNP_ARP_POINTERS, *PIP_GET_PNP_ARP_POINTERS ;
 
 
 #define FSCTL_LLIPIF_BASE     FILE_DEVICE_NETWORK

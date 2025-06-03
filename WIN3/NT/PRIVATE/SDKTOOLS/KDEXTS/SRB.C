@@ -23,6 +23,8 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
 
 PCHAR SrbFunctionTable[] =
@@ -152,25 +154,40 @@ Return Value:
     dprintf("\n");
 
     if (srb.SrbStatus & SRB_STATUS_AUTOSENSE_VALID) {
+        ULONG length = srb.SenseInfoBufferLength;
 
-        dprintf("Autosense valid: ");
-        buffer = (PUCHAR)malloc(srb.SenseInfoBufferLength);
+        dprintf(" Autosense valid: ");
+
+        if (srb.SenseInfoBufferLength == 0) {
+            dprintf("Sense info length is zero\n");
+        } else if (srb.SenseInfoBufferLength > 64) {
+            dprintf("Length is too big 0x%x ", srb.SenseInfoBufferLength);
+            length = 64;
+        }
+
+        buffer = (PUCHAR)LocalAlloc(LPTR, length);
         if (buffer == NULL) {
             dprintf("Cannot alloc memory\n");
             return;
         }
 
         if (!ReadMemory((ULONG)srb.SenseInfoBuffer, buffer,
-                        srb.SenseInfoBufferLength, NULL )) {
+                        length, NULL )) {
             dprintf("%08lx: Could not read sense info\n", srb.SenseInfoBuffer);
-            free(buffer);
+            LocalFree(buffer);
             return;
         }
 
-        for (i = 0; srb.SenseInfoBufferLength; i++) {
+        for (i = 0; i < length; i++) {
+            if(CheckControlC()) {
+                dprintf("^C");
+                break;
+            }
+
             dprintf("%2x ", buffer[i]);
         }
+        dprintf("\n");
 
-        free(buffer);
+        LocalFree(buffer);
     }
 }

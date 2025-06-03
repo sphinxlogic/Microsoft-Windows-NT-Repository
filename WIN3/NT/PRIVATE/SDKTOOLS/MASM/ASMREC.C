@@ -409,7 +409,7 @@ nodecreate ()
 	node = (struct duprec FARSYM *)falloc (sizeof (*node), "nodecreate");
 	node->rptcnt = 1;
 	node->itemcnt = 0;
-	node->duptype.dupnext.dup = NULL;
+        node->duptype.dupnext.dup = NULL;
 	node->itemlst = NULL;
 	node->dupkind = NEST;
 	return (node);
@@ -571,7 +571,7 @@ strucbuild ()
 		    /* Make first node */
 		    strucprev = nodecreate ();
 		    recptr->symu.rsmsym.rsmtype.rsmstruc.strucbody->
-			    duptype.dupnext.dup = strucprev;
+                            duptype.dupnext.dup = strucprev;
 		}
 		else {
 			strucprev->itemlst = nodecreate ();
@@ -695,7 +695,7 @@ strucfill ()
 	pOver = datascan (&drT);    /* Get item */
 
 	optyp = svop;
-	pInit = pDUPCur->duptype.dupnext.dup;
+        pInit = pDUPCur->duptype.dupnext.dup;
 	cbCur = pInit->duptype.duplong.llen;
 
 	if (pOver->dupkind == NEST)
@@ -775,7 +775,7 @@ strucparse ()
 		error (E_EXP,"<");
 
 	/* 1st default field */
-	pDUPCur = recptr->symu.rsmsym.rsmtype.rsmstruc.strucbody->duptype.dupnext.dup;
+        pDUPCur = recptr->symu.rsmsym.rsmtype.rsmstruc.strucbody->duptype.dupnext.dup;
 	initflag = FALSE;
 	strucflag = FALSE;
 				      /* Build list of overrides */

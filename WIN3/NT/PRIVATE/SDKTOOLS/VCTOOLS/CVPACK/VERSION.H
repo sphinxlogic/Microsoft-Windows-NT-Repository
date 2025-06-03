@@ -1,5 +1,5 @@
 #define rmj		4
-#define rmm		27
-#define rup		4167
+#define rmm		28
+#define rup		6066
 #define szVerName	"NT"
-#define szVerUser	"NTRETAIL"
+#define szVerUser	"X86FRE"

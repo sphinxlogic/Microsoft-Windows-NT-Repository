@@ -20,6 +20,9 @@ Revision History:
     Who         When        What
     --------    --------    ----------------------------------------------
     mikemas     9-20-91     created
+    MuraliK     10-19-94    Fixing localization bug
+    MuraliK     06-27-95    on failure to connect it was sleeping for long time
+                       (due to 1000*1000 millisecs time to sleep). Fixed!
 
 Notes:
 
@@ -74,10 +77,13 @@ Notes:
 /**************************************************************************/
 
 #include "local.h"
+# include "sockutil.h"
+# include "nls.h"
 
 #define bcopy(x,y,z)    strncpy(y,x,z)
 
-#define sleep(time)  Sleep((time) * 1000)     // pick up windows sleep
+#define sleep(timeInMillisec)  Sleep((timeInMillisec)) // pick up windows sleep
+
 
 extern
 void
@@ -121,7 +127,11 @@ rexec(
 
         hp = gethostbyname(*ahost);
         if ( hp == NULL ) {
-            fprintf(stderr, "%s: unknown host\n", *ahost);
+            // fprintf(stderr, "%s: unknown host\n", *ahost);
+            //
+            //  NlsEnabled ( MuraliK) 10-19-94
+            //
+            NlsPutMsg( STDERR, IDS_UNKNOWN_HOST, *ahost);
             return (INVALID_SOCKET);
         }
 
@@ -143,10 +153,19 @@ retry:
     lsin.sin_family = (short) sin.sin_family;
 
     if (bind(s, (struct sockaddr *) &lsin, sizeof (lsin)) < 0) {
-        if (GetLastError() == WSAENETDOWN)
-            fprintf(stderr, "The network is down\n");
-        else
-            perror("rexec: bind");
+        if (GetLastError() == WSAENETDOWN) {
+            // fprintf(stderr, "The network is down\n");
+            //
+            //  Nls Enabled ( MuraliK)  10-19-94
+            //
+            NlsPutMsg( STDERR, IDS_NETWORK_IS_DOWN);
+        } else {
+            // perror("rexec: bind");
+            //
+            //  Nls Enabled ( MuraliK) 10-19-94
+            //
+            NlsPerror( IDS_BIND_FAILED, GetLastError() );
+        }
         return ( INVALID_SOCKET);
     }
 
@@ -181,10 +200,19 @@ retry:
         sin2.sin_family = (short) sin.sin_family;
         
         if (bind(s2, (struct sockaddr *)&sin2, sizeof (sin2)) < 0) {
-            if (GetLastError() == WSAENETDOWN)
-                fprintf(stderr, "The network is down\n");
-            else
-                perror("rexec: bind2");
+            if (GetLastError() == WSAENETDOWN) {
+                // fprintf(stderr, "The network is down\n");
+                //
+                //  Nls Enabled ( MuraliK)  10-19-94
+                //
+                NlsPutMsg( STDERR, IDS_NETWORK_IS_DOWN);
+            } else {
+                // perror("rexec: bind");
+                //
+                //  Nls Enabled ( MuraliK) 10-19-94
+                //
+                NlsPerror( IDS_BIND_FAILED, GetLastError());
+            }
             return ( INVALID_SOCKET);
         }
 
@@ -267,10 +295,10 @@ retry:
         goto bad;
     }
     if (c != 0) {
-        write(2, *ahost, strlen(*ahost));
-        write(2, ": ", 2);
+        _write(2, *ahost, strlen(*ahost));
+        _write(2, ": ", 2);
         while (recv(s, &c, 1, 0) == 1) {
-            (void) write(2, &c, 1);
+            (void) _write(2, &c, 1);
             if (c == '\n')
                 break;
         }

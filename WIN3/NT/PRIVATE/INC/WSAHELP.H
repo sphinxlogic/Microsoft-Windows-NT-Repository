@@ -20,7 +20,13 @@ Author:
 
 Revision History:
 
+    Keith Moore (keithmo)        08-Jan-1996
+        Added WinSock 2 entrypoints.
+
 --*/
+
+#ifndef _WSAHELP_H_
+#define _WSAHELP_H_
 
 //
 // Notification event definitions.  A helper DLL returns a mask of the
@@ -53,7 +59,7 @@ Revision History:
 
 typedef
 INT
-(* WINAPI PWSH_OPEN_SOCKET) (
+(WINAPI * PWSH_OPEN_SOCKET) (
     IN PINT AddressFamily,
     IN PINT SocketType,
     IN PINT Protocol,
@@ -75,7 +81,7 @@ WSHOpenSocket (
 
 typedef
 INT
-(* WINAPI PWSH_NOTIFY) (
+(WINAPI * PWSH_NOTIFY) (
     IN PVOID HelperDllSocketContext,
     IN SOCKET SocketHandle,
     IN HANDLE TdiAddressObjectHandle,
@@ -95,7 +101,7 @@ WSHNotify (
 
 typedef
 INT
-(* WINAPI PWSH_GET_SOCKET_INFORMATION) (
+(WINAPI * PWSH_GET_SOCKET_INFORMATION) (
     IN PVOID HelperDllSocketContext,
     IN SOCKET SocketHandle,
     IN HANDLE TdiAddressObjectHandle,
@@ -121,7 +127,7 @@ WSHGetSocketInformation (
 
 typedef
 INT
-(* WINAPI PWSH_SET_SOCKET_INFORMATION) (
+(WINAPI * PWSH_SET_SOCKET_INFORMATION) (
     IN PVOID HelperDllSocketContext,
     IN SOCKET SocketHandle,
     IN HANDLE TdiAddressObjectHandle,
@@ -165,7 +171,7 @@ typedef struct _WINSOCK_MAPPING {
 
 typedef
 DWORD
-(* WINAPI PWSH_GET_WINSOCK_MAPPING) (
+(WINAPI * PWSH_GET_WINSOCK_MAPPING) (
     OUT PWINSOCK_MAPPING Mapping,
     IN DWORD MappingLength
     );
@@ -201,7 +207,7 @@ typedef struct _SOCKADDR_INFO {
 
 typedef
 INT
-(* WINAPI PWSH_GET_SOCKADDR_TYPE) (
+(WINAPI * PWSH_GET_SOCKADDR_TYPE) (
     IN PSOCKADDR Sockaddr,
     IN DWORD SockaddrLength,
     OUT PSOCKADDR_INFO SockaddrInfo
@@ -217,7 +223,7 @@ WSHGetSockaddrType (
 
 typedef
 INT
-(* WINAPI PWSH_GET_WILDCARD_SOCKADDR) (
+(WINAPI * PWSH_GET_WILDCARD_SOCKADDR) (
     IN PVOID HelperDllSocketContext,
     OUT PSOCKADDR Sockaddr,
     OUT PINT SockaddrLength
@@ -233,7 +239,7 @@ WSHGetWildcardSockaddr (
 
 typedef
 INT
-(* WINAPI PWSH_ENUM_PROTOCOLS) (
+(WINAPI * PWSH_ENUM_PROTOCOLS) (
     IN LPINT lpiProtocols,
     IN LPTSTR lpTransportKeyName,
     IN OUT LPVOID lpProtocolBuffer,
@@ -248,3 +254,198 @@ WSHEnumProtocols (
     IN OUT LPVOID lpProtocolBuffer,
     IN OUT LPDWORD lpdwBufferLength
     );
+
+#ifdef _WINSOCK2API_
+
+//
+// New WinSock 2 Entrypoints.
+//
+
+typedef
+INT
+(WINAPI * PWSH_OPEN_SOCKET2) (
+    IN PINT AddressFamily,
+    IN PINT SocketType,
+    IN PINT Protocol,
+    IN GROUP Group,
+    IN DWORD Flags,
+    OUT PUNICODE_STRING TransportDeviceName,
+    OUT PVOID *HelperDllSocketContext,
+    OUT PDWORD NotificationEvents
+    );
+
+INT
+WINAPI
+WSHOpenSocket2 (
+    IN OUT PINT AddressFamily,
+    IN OUT PINT SocketType,
+    IN OUT PINT Protocol,
+    IN GROUP Group,
+    IN DWORD Flags,
+    OUT PUNICODE_STRING TransportDeviceName,
+    OUT PVOID *HelperDllSocketContext,
+    OUT PDWORD NotificationEvents
+    );
+
+typedef
+INT
+(WINAPI * PWSH_JOIN_LEAF) (
+    IN PVOID HelperDllSocketContext,
+    IN SOCKET SocketHandle,
+    IN HANDLE TdiAddressObjectHandle,
+    IN HANDLE TdiConnectionObjectHandle,
+    IN PVOID LeafHelperDllSocketContext,
+    IN SOCKET LeafSocketHandle,
+    IN PSOCKADDR Sockaddr,
+    IN DWORD SockaddrLength,
+    IN LPWSABUF CallerData,
+    IN LPWSABUF CalleeData,
+    IN LPQOS SocketQOS,
+    IN LPQOS GroupQOS,
+    IN DWORD Flags
+    );
+
+INT
+WINAPI
+WSHJoinLeaf (
+    IN PVOID HelperDllSocketContext,
+    IN SOCKET SocketHandle,
+    IN HANDLE TdiAddressObjectHandle,
+    IN HANDLE TdiConnectionObjectHandle,
+    IN PVOID LeafHelperDllSocketContext,
+    IN SOCKET LeafSocketHandle,
+    IN PSOCKADDR Sockaddr,
+    IN DWORD SockaddrLength,
+    IN LPWSABUF CallerData,
+    IN LPWSABUF CalleeData,
+    IN LPQOS SocketQOS,
+    IN LPQOS GroupQOS,
+    IN DWORD Flags
+    );
+
+INT
+WINAPI
+WSHAddressToString (
+    IN LPSOCKADDR Address,
+    IN INT AddressLength,
+    IN LPWSAPROTOCOL_INFOW ProtocolInfo,
+    OUT LPWSTR AddressString,
+    IN OUT LPDWORD AddressStringLength
+    );
+
+typedef
+INT
+(WINAPI * PWSH_ADDRESS_TO_STRING) (
+    IN LPSOCKADDR Address,
+    IN INT AddressLength,
+    IN LPWSAPROTOCOL_INFOW ProtocolInfo,
+    OUT LPWSTR AddressString,
+    IN OUT LPDWORD AddressStringLength
+    );
+
+INT
+WINAPI
+WSHStringToAddress (
+    IN LPWSTR AddressString,
+    IN DWORD AddressFamily,
+    IN LPWSAPROTOCOL_INFOW ProtocolInfo,
+    OUT LPSOCKADDR Address,
+    IN OUT LPINT AddressLength
+    );
+
+typedef
+INT
+(WINAPI * PWSH_STRING_TO_ADDRESS) (
+    IN LPWSTR AddressString,
+    IN DWORD AddressFamily,
+    IN LPWSAPROTOCOL_INFOW ProtocolInfo,
+    OUT LPSOCKADDR Address,
+    IN OUT LPINT AddressLength
+    );
+
+typedef
+INT
+(WINAPI * PWSH_GET_BROADCAST_SOCKADDR) (
+    IN PVOID HelperDllSocketContext,
+    OUT PSOCKADDR Sockaddr,
+    OUT PINT SockaddrLength
+    );
+
+INT
+WINAPI
+WSHGetBroadcastSockaddr (
+    IN PVOID HelperDllSocketContext,
+    OUT PSOCKADDR Sockaddr,
+    OUT PINT SockaddrLength
+    );
+
+typedef
+INT
+(WINAPI * PWSH_GET_PROVIDER_GUID) (
+    IN LPWSTR ProviderName,
+    OUT LPGUID ProviderGuid
+    );
+
+INT
+WINAPI
+WSHGetProviderGuid (
+    IN LPWSTR ProviderName,
+    OUT LPGUID ProviderGuid
+    );
+
+typedef
+INT
+(WINAPI * PWSH_GET_WSAPROTOCOL_INFO) (
+    IN LPWSTR ProviderName,
+    OUT LPWSAPROTOCOL_INFOW * ProtocolInfo,
+    OUT LPDWORD ProtocolInfoEntries
+    );
+
+INT
+WINAPI
+WSHGetWSAProtocolInfo (
+    IN LPWSTR ProviderName,
+    OUT LPWSAPROTOCOL_INFOW * ProtocolInfo,
+    OUT LPDWORD ProtocolInfoEntries
+    );
+
+typedef
+INT
+(WINAPI * PWSH_IOCTL) (
+    IN PVOID HelperDllSocketContext,
+    IN SOCKET SocketHandle,
+    IN HANDLE TdiAddressObjectHandle,
+    IN HANDLE TdiConnectionObjectHandle,
+    IN DWORD IoControlCode,
+    IN LPVOID InputBuffer,
+    IN DWORD InputBufferLength,
+    IN LPVOID OutputBuffer,
+    IN DWORD OutputBufferLength,
+    OUT LPDWORD NumberOfBytesReturned,
+    IN LPWSAOVERLAPPED Overlapped,
+    IN LPWSAOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine,
+    OUT LPBOOL NeedsCompletion
+    );
+
+INT
+WINAPI
+WSHIoctl (
+    IN PVOID HelperDllSocketContext,
+    IN SOCKET SocketHandle,
+    IN HANDLE TdiAddressObjectHandle,
+    IN HANDLE TdiConnectionObjectHandle,
+    IN DWORD IoControlCode,
+    IN LPVOID InputBuffer,
+    IN DWORD InputBufferLength,
+    IN LPVOID OutputBuffer,
+    IN DWORD OutputBufferLength,
+    OUT LPDWORD NumberOfBytesReturned,
+    IN LPWSAOVERLAPPED Overlapped,
+    IN LPWSAOVERLAPPED_COMPLETION_ROUTINE CompletionRoutine,
+    OUT LPBOOL NeedsCompletion
+    );
+
+#endif  // _WINSOCK2API_
+
+#endif  // _WSAHELP_H_
+

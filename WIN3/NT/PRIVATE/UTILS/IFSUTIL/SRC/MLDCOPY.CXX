@@ -1,6 +1,7 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 extern "C" {
 #include "ntlsa.h"
@@ -8,6 +9,8 @@ extern "C" {
 }
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "ifssys.hxx"
 #include "wstring.hxx"
 #include "drive.hxx"
@@ -25,6 +28,7 @@ extern "C" {
 #define DmfPath TEXT("System\\CurrentControlSet\\Control\\Windows")
 #define DmfVal  TEXT("DmfEnabled")
 
+#define MAX_DISK_SIZE_ALLOWED    (3)   // in Megabytes
 
 BOOLEAN
 GetWidget(
@@ -98,7 +102,7 @@ Return Value:
                      PolicyAccountDomainInformation,
                      (PVOID*) &DomainInfo
                      );
-        
+
         if (NT_SUCCESS(Status)) {
 
             ASSERT(DomainInfo != NULL);
@@ -133,6 +137,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 ULONG
 QueryMachineUniqueToken(
     )
@@ -314,6 +319,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 INT
 DiskCopyMainLoop(
     IN      PCWSTRING    SrcNtDriveName,
@@ -373,6 +379,12 @@ Return Value:
     DWORD               OldErrorMode;
     BOOLEAN             dmf;
     UCHAR               saved_char;
+    BOOLEAN             cancel;
+    BOOLEAN             done = FALSE;
+    MSGID               msg;
+    BIG_INT             src_drive_Sectors;
+    BIG_INT             src_drive_Tracks;
+    MEDIA_TYPE          src_drive_MediaType;
 
     one_drive = (*SrcDosDriveName == *DstDosDriveName);
 
@@ -386,7 +398,7 @@ Return Value:
 
     Message->Set(MSG_PRESS_ENTER_WHEN_READY);
     Message->Display();
-	Message->WaitForUserSignal();
+    Message->WaitForUserSignal();
 
 
     if (!(src_drive = NEW LOG_IO_DP_DRIVE) ||
@@ -414,6 +426,17 @@ Return Value:
         return 4;
     }
 
+    DebugPrintf("Try to lock source drive\n");
+    if (!src_drive->Lock()) {
+        Message->Set(MSG_CANT_LOCK_THE_DRIVE);
+        Message->Display("");
+        DELETE(src_drive);
+        return 3;
+    }
+    src_drive_Sectors = src_drive->QuerySectors();
+    src_drive_MediaType = src_drive->QueryMediaType();
+    src_drive_Tracks = src_drive->QueryTracks();
+
     if (src_drive->QueryMediaType() == Unknown) {
         Message->Set(MSG_DCOPY_BAD_SOURCE);
         Message->Display();
@@ -427,7 +450,7 @@ Return Value:
         if (!src_hmem.Initialize() ||
             !src_secrun.Initialize(&src_hmem, src_drive, 0, 1) ||
             !src_secrun.Read()) {
-    
+
             Message->Set(MSG_DCOPY_BAD_SOURCE);
             Message->Display();
             DELETE(src_drive);
@@ -558,6 +581,14 @@ Return Value:
         // Restore the error mode.
         SetErrorMode( OldErrorMode );
 
+        DebugPrintf("Try to lock destination drive\n");
+        if (!dst_drive.Lock()) {
+            Message->Set(MSG_CANT_LOCK_THE_DRIVE);
+            Message->Display("");
+            DELETE(src_drive);
+            return 4;
+        }
+
         // Make sure that the destination floppy will support the same media
         // as the source floppy.
 
@@ -569,19 +600,25 @@ Return Value:
         }
     }
 
-    Message->Set(MSG_DCOPY_COPYING);
-    Message->Display("%d%d%d", src_drive->QueryCylinders().GetLowPart(),
-                               src_drive->QuerySectorsPerTrack(),
-                               src_drive->QueryHeads());
-
     sec_per_track = src_drive->QuerySectorsPerTrack();
     sector_size = src_drive->QuerySectorSize();
     total_tracks = src_drive->QueryTracks().GetLowPart();
     heads = src_drive->QueryHeads();
 
-    DbgAssert(src_drive->QuerySectors().GetHighPart() == 0);
+    if (total_tracks*sec_per_track*sector_size >
+        MAX_DISK_SIZE_ALLOWED*1024*1024) {
+        Message->Set(MSG_DCOPY_DISK_TOO_LARGE);
+        Message->Display("%d", MAX_DISK_SIZE_ALLOWED);
+        DELETE(src_drive);
+        return 3;
+    }
 
-    src_top = 0;
+    Message->Set(MSG_DCOPY_COPYING);
+    Message->Display("%d%d%d", src_drive->QueryCylinders().GetLowPart(),
+                               sec_per_track,
+                               heads);
+
+    DebugAssert(src_drive->QuerySectors().GetHighPart() == 0);
 
     if (!dst_hmem.Initialize()) {
         DELETE(src_drive);
@@ -599,33 +636,53 @@ Return Value:
         }
     }
 
-    for (dst_top = 0; dst_top < total_tracks; dst_top++) {
+    for (src_top = dst_top = 0; dst_top < total_tracks; dst_top++) {
 
         if (src_top == dst_top) {
 
             if (src_top && one_drive) {
+
+                // Gets here because diskcopy is doing multiple passes
+
+                ASSERT(FALSE); // shouldn't get here anymore
+
+                DebugPrintf("Try to unlock destination drive\n");
+                if (!dst_drive.Unlock()) {
+                    Message->Set(MSG_CANT_UNLOCK_THE_DRIVE);
+                    Message->Display("");
+                    DELETE(src_drive);
+                    return 3;
+                }
+
                 Message->Set(MSG_DCOPY_INSERT_SOURCE);
                 Message->Display("%W", SrcDosDriveName);
                 Message->Set(MSG_PRESS_ENTER_WHEN_READY);
                 Message->Display();
                 Message->WaitForUserSignal();
+
+                DebugPrintf("Try to lock source drive\n");
+                if (!src_drive->Lock()) {
+                    Message->Set(MSG_CANT_LOCK_THE_DRIVE);
+                    Message->Display("");
+                    DELETE(src_drive);
+                    return 3;
+                }
             }
 
 
             // Allocate memory for read.
-
             for (grab = total_tracks - src_top;
                  !src_hmem.Initialize() ||
                  !(mem_ptr = src_hmem.Acquire(grab*sector_size*sec_per_track,
                                               src_drive->QueryAlignmentMask()));
                  grab /= 2) {
 
-                if (grab < 2) {
+//                if (grab < 2) {
                     Message->Set(MSG_CHK_NO_MEMORY);
                     Message->Display();
                     DELETE(src_drive);
                     return 4;
-                }
+//                }
             }
 
             if (!src_cmem.Initialize(mem_ptr, grab*sector_size*sec_per_track)) {
@@ -644,10 +701,20 @@ Return Value:
                     return 4;
                 }
 
+              ReadAgain:
+
                 if (!src_secrun.Read()) {
 
                     if (src_drive->QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE ||
                         src_drive->QueryLastNtStatus() == STATUS_UNRECOGNIZED_MEDIA) {
+                        if (src_drive->QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE)
+                            msg = MSG_DCOPY_NO_MEDIA_IN_DEVICE;
+                        else
+                            msg = MSG_DCOPY_UNRECOGNIZED_MEDIA;
+                        Message->Set(msg, NORMAL_MESSAGE, GUI_MESSAGE);
+                        cancel = Message->Display("%W", SrcDosDriveName);
+                        if (!cancel) // if not cancel that means the user want to retry
+                            goto ReadAgain;
                         DELETE(src_drive);
                         return 3;
                     }
@@ -655,7 +722,6 @@ Return Value:
                     Message->Set(MSG_DCOPY_READ_ERROR);
                     Message->Display("%W%d%d", SrcDosDriveName,
                                                src_top%heads, src_top/heads);
-
                     io_error = TRUE;
                 }
 
@@ -679,14 +745,37 @@ Return Value:
             }
 
             if (one_drive) {
+
+                DebugPrintf("Try to unlock source drive\n");
+                if (!src_drive->Unlock()) {
+                    Message->Set(MSG_CANT_UNLOCK_THE_DRIVE);
+                    Message->Display("");
+                    DELETE(src_drive);
+                    return 4;
+                } else {
+                   DELETE(src_drive);
+                   src_drive = NULL;
+                }
+
                 Message->Set(MSG_DCOPY_INSERT_TARGET);
                 Message->Display("%W", DstDosDriveName);
                 Message->Set(MSG_PRESS_ENTER_WHEN_READY);
                 Message->Display();
                 Message->WaitForUserSignal();
+
+                if (dst_top) DebugPrintf("Try to lock destination drive\n");
+                if (dst_top && !dst_drive.Lock()) {
+                    Message->Set(MSG_CANT_LOCK_THE_DRIVE);
+                    Message->Display("");
+                    DELETE(src_drive);
+                    return 3;
+                }
+
             }
 
-            if (!dst_top) {
+            if (!dst_top) { // first time
+
+              DstInitializeAgain:
 
                 // Disable popups while we determine the drive type.
                 OldErrorMode = SetErrorMode( SEM_FAILCRITICALERRORS );
@@ -703,6 +792,18 @@ Return Value:
                         Message->Display();
                         DELETE(src_drive);
                         return 4;
+                    }
+
+                    if (dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE ||
+                        dst_drive.QueryLastNtStatus() == STATUS_UNRECOGNIZED_MEDIA) {
+                        if (dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE)
+                            msg = MSG_DCOPY_NO_MEDIA_IN_DEVICE;
+                        else
+                            msg = MSG_DCOPY_UNRECOGNIZED_MEDIA;
+                        Message->Set(msg, NORMAL_MESSAGE, GUI_MESSAGE);
+                        cancel = Message->Display("%W", DstDosDriveName);
+                        if (!cancel) // if not cancel that means the user want to retry
+                            goto DstInitializeAgain;
                     }
 
                     Message->Set(MSG_DCOPY_BAD_DEST);
@@ -735,13 +836,12 @@ Return Value:
                     src_volume_id = 0;
                 }
 
-                if (src_volume_id && !one_drive) {
-                    if (!dst_drive.Lock()) {
-                        Message->Set(MSG_CANT_LOCK_THE_DRIVE);
-                        Message->Display("");
-                        DELETE(src_drive);
-                        return 4;
-                    }
+                DebugPrintf("Try to lock destination drive\n");
+                if (!dst_drive.Lock()) {
+                    Message->Set(MSG_CANT_LOCK_THE_DRIVE);
+                    Message->Display("");
+                    DELETE(src_drive);
+                    return 3;
                 }
 
                 // Only format the target if it isn't formatted.
@@ -749,10 +849,10 @@ Return Value:
                 // media type.
 
                 if (dst_drive.QueryMediaType() == Unknown ||
-                    (dst_drive.QueryMediaType() == src_drive->QueryMediaType() &&
-                     (dmf || dst_drive.QuerySectors() != src_drive->QuerySectors()))) {
+                    (dst_drive.QueryMediaType() == src_drive_MediaType &&
+                     (dmf || dst_drive.QuerySectors() != src_drive_Sectors))) {
 
-                    if (!dst_drive.IsSupported(src_drive->QueryMediaType())) {
+                    if (!dst_drive.IsSupported(src_drive_MediaType)) {
                         Message->Set(MSG_DCOPY_BAD_DEST);
                         Message->Display();
                         DELETE(src_drive);
@@ -763,7 +863,7 @@ Return Value:
                     Message->Display();
 
                     if (!dst_drive.FormatVerifyFloppy(
-                                src_drive->QueryMediaType(), NULL, NULL, dmf)) {
+                                src_drive_MediaType, NULL, NULL, dmf)) {
 
                         Message->Set(MSG_DCOPY_BAD_DEST);
                         Message->Display("");
@@ -771,15 +871,20 @@ Return Value:
                         return 3;
                     }
                 } else if (dst_drive.QueryMediaType() !=
-                                   src_drive->QueryMediaType()) {
+                                   src_drive_MediaType) {
 
+                    dst_drive.Unlock();
                     Message->Set(MSG_DCOPY_NON_COMPAT_DISKS);
-                    Message->Display();
+                    cancel = Message->Display();
+                    if (!cancel)
+                        goto DstInitializeAgain;
                     DELETE(src_drive);
                     return 4;
                 }
             }
         }
+
+      FinalWrite:
 
         if (!dst_secrun.Initialize(&src_cmem, &dst_drive,
                                    dst_top*sec_per_track, sec_per_track)) {
@@ -787,7 +892,7 @@ Return Value:
             return 4;
         }
 
-        if (!dst_top) {
+        if (!dst_top && !done) {
             if (src_volume_id) {
 
                 while (!(volume_id = SUPERAREA::ComputeVolId())) {
@@ -796,13 +901,41 @@ Return Value:
                 pchar = (PCHAR) dst_secrun.GetBuf();
                 memcpy(pchar + 0x27, &volume_id, sizeof(ULONG));
             }
+            continue;
         }
+
+      WriteAgain:
 
         if (!dst_secrun.Write()) {
 
             if (dst_drive.QueryLastNtStatus() == STATUS_MEDIA_WRITE_PROTECTED  ||
                 dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE ||
                 dst_drive.QueryLastNtStatus() == STATUS_UNRECOGNIZED_MEDIA) {
+                if (dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE)
+                    msg = MSG_DCOPY_NO_MEDIA_IN_DEVICE;
+                else if (dst_drive.QueryLastNtStatus() == STATUS_UNRECOGNIZED_MEDIA)
+                    msg = MSG_DCOPY_UNRECOGNIZED_MEDIA;
+                else {
+                    msg = MSG_DCOPY_MEDIA_WRITE_PROTECTED;
+                    // Assuming this is the first write.  That means the user has
+                    // to either unprotect the disk or put in a different disk.
+                    // If the user puts in a different disk, we will have to start
+                    // over again.  That's why we should unlock first.
+                    dst_drive.Unlock();
+                }
+                Message->Set(msg, NORMAL_MESSAGE, GUI_MESSAGE);
+                cancel = Message->Display("%W", DstDosDriveName);
+                if (!cancel) // if not cancel that means the user want to retry
+                    if (msg == MSG_DCOPY_MEDIA_WRITE_PROTECTED) {
+                        if (!src_cmem.Initialize(mem_ptr, grab*sector_size*sec_per_track)) {
+                            DELETE(src_drive);
+                            return 4;
+                        }
+                        done = FALSE;
+                        dst_top = 0;
+                        goto DstInitializeAgain;
+                    } else
+                        goto WriteAgain;
                 DELETE(src_drive);
                 return 3;
             }
@@ -822,12 +955,22 @@ Return Value:
                 return 4;
             }
 
+          VerifyReadAgain:
+
             if (!dst_secrun.Read() ||
                 memcmp(dst_secrun.GetBuf(), pchar,
                        (UINT) (sec_per_track*sector_size))) {
 
                 if (dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE ||
                     dst_drive.QueryLastNtStatus() == STATUS_UNRECOGNIZED_MEDIA) {
+                    if (dst_drive.QueryLastNtStatus() == STATUS_NO_MEDIA_IN_DEVICE)
+                        msg = MSG_DCOPY_NO_MEDIA_IN_DEVICE;
+                    else
+                        msg = MSG_DCOPY_UNRECOGNIZED_MEDIA;
+                    Message->Set(msg, NORMAL_MESSAGE, GUI_MESSAGE);
+                    cancel = Message->Display("%W", DstDosDriveName);
+                    if (!cancel) // if not cancel that means the user want to retry
+                        goto VerifyReadAgain;
                     DELETE(src_drive);
                     return 3;
                 }
@@ -840,8 +983,21 @@ Return Value:
             }
         }
 
-        newp = (100*(src_top + dst_top)/
-               (2*src_drive->QueryTracks())).GetLowPart();
+        if (dst_top == total_tracks-1) {
+            dst_top = 0;
+            done = TRUE;
+            if (!src_cmem.Initialize(mem_ptr, grab*sector_size*sec_per_track)) {
+                DELETE(src_drive);
+                return 4;
+            }
+            goto FinalWrite;
+        }
+
+        if (done)
+           dst_top = total_tracks;
+
+        newp = (100*(src_top + dst_top-1)/
+               (2*src_drive_Tracks)).GetLowPart();
         if (newp != percent_complete && PercentMessage) {
             PercentMessage->Set(MSG_PERCENT_COMPLETE);
             if (!PercentMessage->Display("%d", newp)) {
@@ -862,7 +1018,7 @@ Return Value:
             !dst_secrun.Read() ||
             (((PUCHAR) dst_secrun.GetBuf())[3] = saved_char) != saved_char ||
             !dst_secrun.Write()) {
-    
+
             Message->Set(MSG_DCOPY_WRITE_ERROR);
             Message->Display("%W%d%d", DstDosDriveName, 0, 0);
             io_error = TRUE;
@@ -873,7 +1029,7 @@ Return Value:
         pus = (PUSHORT) &volume_id;
         Message->Set(MSG_VOLUME_SERIAL_NUMBER);
         Message->Display("%04X%04X", pus[1], pus[0]);
-    } 
+    }
 
     // In that we didn't lock the
     // volume previously.  We need to do this so
@@ -881,6 +1037,7 @@ Return Value:
     // thus be able to see the new label if any.
     // We shouldn't fail if we can't do this though.
 
+    DebugPrintf("Try to lock destination drive\n");
     dst_drive.Lock();
 
     return io_error ? 1 : 0;

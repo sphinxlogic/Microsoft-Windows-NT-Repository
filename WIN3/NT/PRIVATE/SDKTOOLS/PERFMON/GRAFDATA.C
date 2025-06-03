@@ -159,6 +159,18 @@ FLOAT   eMin,
       {
       pLineStruct->lnAveValue = (FLOAT) 0.0 ;
       }
+
+   //clean up bogus (negative)values
+   if (pLineStruct->lnMinValue < (FLOAT)0.0) {
+      pLineStruct->lnMinValue = (FLOAT)0.0;
+   }
+   if (pLineStruct->lnMaxValue < (FLOAT)0.0) {
+      pLineStruct->lnMaxValue = (FLOAT)0.0;
+   }
+   if (pLineStruct->lnAveValue < (FLOAT) 0.0) {
+      pLineStruct->lnAveValue = (FLOAT) 0.0 ;
+   }
+    
 }
 
 
@@ -356,12 +368,18 @@ BOOL InsertGraph (HWND hWnd)
    GetGraphConfig(pGraph);
    pGraph->bManualRefresh = FALSE ;
 
+// there's at least one place where the [DEFAULT_MAX_VALUES] entry is 
+// accessed when the index should stop at [DEFAULT_MAX_VALUES -1]. 
+// rather than try to find all the places this index is used it's easier
+// and safer just to make the array large enough to accomodate this 
+// "oversight"
+
    pGraph->gMaxValues = DEFAULT_MAX_VALUES;
    pGraph->pptDataPoints = 
-      (PPOINT) MemoryAllocate (sizeof (POINT) * pGraph->gMaxValues) ;
+      (PPOINT) MemoryAllocate (sizeof (POINT) * (pGraph->gMaxValues + 1)) ;
 
    pGraph->pDataTime =
-      (SYSTEMTIME *) MemoryAllocate (sizeof(SYSTEMTIME) * pGraph->gMaxValues) ;
+      (SYSTEMTIME *) MemoryAllocate (sizeof(SYSTEMTIME) * (pGraph->gMaxValues + 1)) ;
 
    pGraph->hWnd = hWnd ;
    pGraph->bModified = FALSE ;
@@ -423,66 +441,67 @@ BOOL ChartInsertLine (PGRAPHSTRUCT pGraph,
 
    pLineEquivalent = FindEquivalentLine (pLine, pGraph->pLineFirst) ;
    if (pLineEquivalent)
-      {
-      pLineEquivalent->Visual = pLine->Visual ;
-      pLineEquivalent->iScaleIndex = pLine->iScaleIndex ;
-      pLineEquivalent->eScale = pLine->eScale ;
+    {
+      if (bMonitorDuplicateInstances) {
+          pLine->dwInstanceIndex = pLineEquivalent->dwInstanceIndex + 1;
+      } else {
+        pLineEquivalent->Visual = pLine->Visual ;
+        pLineEquivalent->iScaleIndex = pLine->iScaleIndex ;
+        pLineEquivalent->eScale = pLine->eScale ;
 
-      tempPen = pLineEquivalent->hPen ;
-      pLineEquivalent->hPen =  pLine->hPen ;
-      pLine->hPen = tempPen ;
-      return FALSE ;
-      }
-   else
-      {
-      if (!pGraph->pLineFirst && !PlayingBackLog())
-         {
-         SetGraphTimer (pGraph) ;
-         }
+        tempPen = pLineEquivalent->hPen ;
+        pLineEquivalent->hPen =  pLine->hPen ;
+        pLine->hPen = tempPen ;
+        return FALSE ;
+      }  
+    }
 
-      if (!SystemAdd (&pGraph->pSystemFirst, pLine->lnSystemName))
-        return FALSE;
+    if (!pGraph->pLineFirst && !PlayingBackLog())
+        {
+        SetGraphTimer (pGraph) ;
+        }
 
-      LineAppend (&pGraph->pLineFirst, pLine) ;
+    if (!SystemAdd (&pGraph->pSystemFirst, pLine->lnSystemName,pGraph->hWnd))
+    return FALSE;
 
-      pLine->lnMinValue = FLT_MAX ;
-      pLine->lnMaxValue = - FLT_MAX ;
-      pLine->lnAveValue = 0.0F ;
-      pLine->lnValidValues = 0 ;
+    LineAppend (&pGraph->pLineFirst, pLine) ;
 
-      pLine->lnValues = 
-         (FLOAT *) MemoryAllocate (sizeof (FLOAT) * pGraph->gMaxValues) ;
-      
-      for (i = pGraph->gMaxValues, pTempPts = pLine->lnValues ;
-           i > 0 ;
-           i-- )
-         {
-         *pTempPts++ = (FLOAT) 0.0 ;
-         }
+    pLine->lnMinValue = FLT_MAX ;
+    pLine->lnMaxValue = - FLT_MAX ;
+    pLine->lnAveValue = 0.0F ;
+    pLine->lnValidValues = 0 ;
 
-      if (PlayingBackLog ())
-         {
-         pLine->aiLogIndexes =
-            (int *) MemoryAllocate (sizeof (LONG) * pGraph->gMaxValues) ;
-         }
+    pLine->lnValues = 
+        (FLOAT *) MemoryAllocate (sizeof (FLOAT) * (pGraph->gMaxValues + 1)) ;
+    
+    for (i = pGraph->gMaxValues, pTempPts = pLine->lnValues ;
+        i > 0 ;
+        i-- )
+        {
+        *pTempPts++ = (FLOAT) 0.0 ;
+        }
 
-      // Add the line to the legend, resize the legend window, and then
-      // select the new line as the current legend item. Do it in this 
-      // sequence to avoid the legend scroll bar momentarily appearing and
-      // then disappearing, since the resize will obviate the scroll bar.
+    if (PlayingBackLog ())
+        {
+        pLine->aiLogIndexes =
+        (int *) MemoryAllocate (sizeof (LONG) * (pGraph->gMaxValues + 1)) ;
+        }
 
-      LegendAddItem (hWndGraphLegend, pLine) ;
+    // Add the line to the legend, resize the legend window, and then
+    // select the new line as the current legend item. Do it in this 
+    // sequence to avoid the legend scroll bar momentarily appearing and
+    // then disappearing, since the resize will obviate the scroll bar.
 
-      if (!bDelayAddAction)
-         {
-         SizeGraphComponents (hWndGraph) ;
-         LegendSetSelection (hWndGraphLegend, 
-                          LegendNumItems (hWndGraphLegend) - 1) ;
+    LegendAddItem (hWndGraphLegend, pLine) ;
 
-         if (PlayingBackLog ())
-            PlaybackChart (pGraph->hWnd) ;
-         }
-      }
+    if (!bDelayAddAction)
+        {
+        SizeGraphComponents (hWndGraph) ;
+        LegendSetSelection (hWndGraphLegend, 
+                        LegendNumItems (hWndGraphLegend) - 1) ;
+
+        if (PlayingBackLog ()) PlaybackChart (pGraph->hWnd) ;
+        }
 
    return (TRUE) ;
    }  // ChartInsertLine
@@ -530,15 +549,6 @@ VOID ChartDeleteLine (PGRAPHSTRUCT pGraph,
 
    }
 
-
-FLOAT Counter_Queuelen(PLINESTRUCT pLine)
-{
-
-    return((FLOAT)0.0);
-//    pLine;
-}
-
-
 void ClearGraphDisplay (PGRAPHSTRUCT pGraph)
    {
    PLINESTRUCT    pLine;
@@ -548,7 +558,7 @@ void ClearGraphDisplay (PGRAPHSTRUCT pGraph)
    pGraph->gKnownValue = 0 ;
    pGraph->gTimeLine.iValidValues = 0 ;
    pGraph->gTimeLine.xLastTime = 0 ;
-   memset (pGraph->pDataTime, 0, sizeof(SYSTEMTIME) * pGraph->gMaxValues) ;
+   memset (pGraph->pDataTime, 0, sizeof(SYSTEMTIME) * (pGraph->gMaxValues + 1)) ;
 
    // loop through lines,
    // If one of the lines is highlighted then do the calculations
@@ -562,7 +572,7 @@ void ClearGraphDisplay (PGRAPHSTRUCT pGraph)
       pLine->lnMaxValue = - FLT_MAX ;
       pLine->lnAveValue = 0.0F ;
       pLine->lnValidValues = 0 ;
-      memset (pLine->lnValues, 0, sizeof(FLOAT) * pGraph->gMaxValues) ;
+      memset (pLine->lnValues, 0, sizeof(FLOAT) * (pGraph->gMaxValues + 1)) ;
       }
 
    StatusTimer (hWndGraphStatus, TRUE) ;
@@ -614,7 +624,7 @@ void ResetGraph (PGRAPHSTRUCT pGraph)
    pGraph->Visual.iWidthIndex = 0 ;
    pGraph->Visual.iStyleIndex = 0 ;
 
-   memset (pGraph->pDataTime, 0, sizeof(SYSTEMTIME) * pGraph->gMaxValues) ;
+   memset (pGraph->pDataTime, 0, sizeof(SYSTEMTIME) * (pGraph->gMaxValues + 1)) ;
 
    SizeGraphComponents (hWndGraph) ;
    InvalidateRect(hWndGraph, NULL, TRUE) ;
@@ -948,7 +958,7 @@ BOOL ExportChartLabels (HANDLE hFile, PGRAPHSTRUCT pGraph)
    PLINESTRUCT    pLine;
    int            TimeToWriteFile ;
    int            iIndex ;
-   LPTSTR         lpItem ;
+   LPTSTR         lpItem = NULL;
 
    for (iIndex = 0 ; iIndex < 5 ; iIndex++)
       {
@@ -1466,4 +1476,4 @@ void PlaybackChartDataPoint (PCHARTDATAPOINT pChartDataPoint)
       }  // while
 
    }  // PlaybackChartDataPoint
-
+

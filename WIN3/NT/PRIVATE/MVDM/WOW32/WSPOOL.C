@@ -24,6 +24,38 @@ extern WORD gUser16hInstance;
 
 MODNAME(wspool.c);
 
+LPDEVMODE GetDefaultDevMode32(LPSTR szDriver)
+{
+    LONG        cbDevMode;
+    LPDEVMODE   lpDevMode = NULL;
+
+    if (szDriver != NULL) {
+
+        if (!(*spoolerapis[WOW_EXTDEVICEMODE].lpfn)) {
+            if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", spoolerapis, WOW_SPOOLERAPI_COUNT)) {
+                goto LeaveGetDefaultDevMode32;
+            }
+        }
+
+        if ((cbDevMode = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL, NULL, NULL, szDriver, NULL, NULL, NULL, 0)) > 0) {
+            if ((lpDevMode = (LPDEVMODE) malloc_w(cbDevMode)) != NULL) {
+                if ((*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL, NULL, lpDevMode, szDriver, NULL, NULL, NULL, DM_COPY) != IDOK) {
+                    free_w(lpDevMode);
+                    lpDevMode = NULL;
+                }
+            }
+        }
+
+LeaveGetDefaultDevMode32:
+
+        if (!lpDevMode) {
+                LOGDEBUG(0,("WOW::GetDefaultDevMode32: Unable to get default DevMode\n"));
+        }
+    }
+
+    return(lpDevMode);
+}
+
 ULONG FASTCALL   WG32OpenJob (PVDMFRAME pFrame)
 {
     PSZ         psz1;
@@ -33,6 +65,8 @@ ULONG FASTCALL   WG32OpenJob (PVDMFRAME pFrame)
     DOC_INFO_1  DocInfo1;
     HANDLE      hnd;
     register    POPENJOB16 parg16;
+    PRINTER_DEFAULTS  PrinterDefault;
+    PPRINTER_DEFAULTS pPrinterDefault = NULL;
 
     GETARGPTR(pFrame, sizeof(OPENJOB16), parg16);
     GETPSZPTR(parg16->f1, psz1);
@@ -45,7 +79,13 @@ ULONG FASTCALL   WG32OpenJob (PVDMFRAME pFrame)
     }
 
     if (GetDriverName(psz1, szDriver)) {
-        if ((*spoolerapis[WOW_OpenPrinterA].lpfn) (szDriver, &hnd, NULL)) {
+        if ((PrinterDefault.pDevMode = GetDefaultDevMode32(szDriver)) != NULL) {
+            PrinterDefault.pDatatype = NULL;
+            PrinterDefault.DesiredAccess  = 0;
+            pPrinterDefault = &PrinterDefault;
+        }
+
+        if ((*spoolerapis[WOW_OpenPrinterA].lpfn) (szDriver, &hnd, pPrinterDefault)) {
 
             DocInfo1.pDocName = psz2;
             DocInfo1.pOutputFile = psz1;
@@ -65,6 +105,10 @@ ULONG FASTCALL   WG32OpenJob (PVDMFRAME pFrame)
     }
 
     LOGDEBUG(0,("WOW::WG32OpenJob: ul = %x\n", ul));
+
+    if (pPrinterDefault) {
+        free_w(PrinterDefault.pDevMode);
+    }
 
     FREEPSZPTR(psz1);
     FREEPSZPTR(psz2);
@@ -255,7 +299,7 @@ BOOL GetDriverName (char *psz, char *szDriver)
                     szOutput++;
                 }
 
-                if (!stricmp(psz, szOutput)) {
+                if (!_stricmp(psz, szOutput)) {
                     break;
                 }
             }

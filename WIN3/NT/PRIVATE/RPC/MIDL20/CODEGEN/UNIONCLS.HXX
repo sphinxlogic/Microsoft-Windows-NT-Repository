@@ -55,7 +55,7 @@ private:
 	long				NdrSizeAndArmDescriptionOffset;
 
 	//
-	// Store the CCB in the union so that we can fix this fucking CG_UNION
+	// Store the CCB in the union so that we can fix CG_UNION
 	// node sharing problem with format string offsets.
 	//
 	CCB *				pCCB;
@@ -71,6 +71,8 @@ private:
 	//
 	unsigned short		UnionFlavor					: 2;
 
+    void * _pCTI;
+
 public:
 	
 	//
@@ -79,18 +81,16 @@ public:
 
 							CG_UNION(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned short	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned short MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size
 									 unsigned short HP	// Has pointer
 									 ) : 
-								CG_COMP( pBT, ZP, WS, WA, MS, HP )
+								CG_COMP( pBT, Info, HP )
 								{
 								SetUnionFlavor( UNION_UNKNOWN );
 								SetNdrSizeAndArmDescriptionOffset(-1);
 								SetCCB(0);
 								SetSwitchType( NULL );
+                                _pCTI = NULL;
 								}
 
 	virtual
@@ -103,6 +103,12 @@ public:
                                 {
                                 return TRUE;
                                 }
+
+    //
+    // Generate typeinfo
+    //          
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
 
 	//
 	// Get and set methods.
@@ -130,7 +136,7 @@ public:
 
 	long					GetNumberOfArms()
 								{
-								ITERATOR 	Iterator;
+								CG_ITERATOR Iterator;
 								CG_CASE *	pCase;
 								long		Arms;
 

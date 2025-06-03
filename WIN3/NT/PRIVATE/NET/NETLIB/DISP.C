@@ -101,7 +101,7 @@ NetpDbgDisplayAnyStringType(
     if (Value == BAD_ADDRESS) {
 
         NetpDbgDisplayTag( Tag );
-        NetpDbgPrint( BAD_ADDRESS_STRING );
+        NetpKdPrint(( BAD_ADDRESS_STRING ));
 
     } else if (Value != NULL) {
 
@@ -116,7 +116,7 @@ NetpDbgDisplayAnyStringType(
         if ( ValueLength < PARTIAL_NAME_LIST_LEN ) {   // normal
 
             NetpDbgDisplayTag( Tag );
-            NetpDbgPrint( Format, Value );
+            NetpKdPrint(( Format, Value ));
 
         } else {  // string too long; just display partial...
 
@@ -128,14 +128,14 @@ NetpDbgDisplayAnyStringType(
                 Format = PARTIAL_NAME_LIST_FORMAT_A;
             }
 
-            NetpDbgPrint( Format, Value );  // print truncated version
+            NetpKdPrint(( Format, Value ));  // print truncated version
         }
     } else {
 
         NetpDbgDisplayTag( Tag );
-        NetpDbgPrint( EMPTY_STRING );
+        NetpKdPrint(( EMPTY_STRING ));
     }
-    NetpDbgPrint( "\n" );
+    NetpKdPrint(( "\n" ));
 
 } // NetpDbgDisplayAnyStringType
 
@@ -147,8 +147,8 @@ NetpDbgDisplayBool(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(Value ? "Yes" : "No");
-    NetpDbgPrint("\n");
+    NetpKdPrint((Value ? "Yes" : "No"));
+    NetpKdPrint(("\n"));
 
 }
 
@@ -160,8 +160,8 @@ NetpDbgDisplayDword(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(FORMAT_DWORD, Value);
-    NetpDbgPrint("\n");
+    NetpKdPrint((FORMAT_DWORD, Value));
+    NetpKdPrint(("\n"));
 
 } // NetpDbgDisplayDword
 
@@ -173,8 +173,8 @@ NetpDbgDisplayDwordHex(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(FORMAT_HEX_DWORD, Value);
-    NetpDbgPrint("\n");
+    NetpKdPrint((FORMAT_HEX_DWORD, Value));
+    NetpKdPrint(("\n"));
 
 } // NetpDbgDisplayDwordHex
 
@@ -186,8 +186,8 @@ NetpDbgDisplayLong(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(FORMAT_LONG, Value);
-    NetpDbgPrint("\n");
+    NetpKdPrint((FORMAT_LONG, Value));
+    NetpKdPrint(("\n"));
 
 } // NetpDbgDisplayLong
 
@@ -231,7 +231,7 @@ NetpDbgDisplayTag(
     )
 {
     NetpAssert( Tag != NULL );
-    NetpDbgPrint(INDENT FIXED_WIDTH_STRING, Tag);
+    NetpKdPrint((INDENT FIXED_WIDTH_STRING, Tag));
 
 } // NetpDbgDisplayTag
 
@@ -242,7 +242,7 @@ NetpDbgDisplayTagForPartial(
     )
 {
     NetpAssert( Tag != NULL );
-    NetpDbgPrint( INDENT PARTIAL_FIXED_WIDTH_STRING, Tag );
+    NetpKdPrint(( INDENT PARTIAL_FIXED_WIDTH_STRING, Tag ));
 
 } // NetpDbgDisplayTagForPartial
 
@@ -272,8 +272,8 @@ NetpDbgDisplayWord(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(FORMAT_WORD_ONLY, Value);
-    NetpDbgPrint("\n");
+    NetpKdPrint((FORMAT_WORD_ONLY, Value));
+    NetpKdPrint(("\n"));
 
 } // NetpDbgDisplayWord
 
@@ -285,8 +285,8 @@ NetpDbgDisplayWordHex(
     )
 {
     NetpDbgDisplayTag( Tag );
-    NetpDbgPrint(FORMAT_HEX_WORD, Value);
-    NetpDbgPrint("\n");
+    NetpKdPrint((FORMAT_HEX_WORD, Value));
+    NetpKdPrint(("\n"));
 
 } // NetpDbgDisplayWordHex
 

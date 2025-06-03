@@ -45,7 +45,7 @@ DEFINE_GUID(GUID_SIMPLE, 0x9fb878d0, 0x6f88, 0x101b, 0xbc, 0x65, 0x00, 0x00, 0x0
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      SetRectEmpty                Windows API
 //
 // Comments:
@@ -55,7 +55,7 @@ DEFINE_GUID(GUID_SIMPLE, 0x9fb878d0, 0x6f88, 0x101b, 0xbc, 0x65, 0x00, 0x00, 0x0
 
 CSimpSvrApp::CSimpSvrApp()
 {
-        OutputDebugString("In CSimpSvrApp's Constructor \r\n");
+        TestDebugOut("In CSimpSvrApp's Constructor \r\n");
 
         // Set Ref Count
         m_nCount = 0;
@@ -91,7 +91,7 @@ CSimpSvrApp::CSimpSvrApp()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DestroyWindow               Windows API
 //      CSimpSvrApp::IsInitialized  APP.H
 //      OleUninitialize             OLE API
@@ -102,7 +102,7 @@ CSimpSvrApp::CSimpSvrApp()
 
 CSimpSvrApp::~CSimpSvrApp()
 {
-        OutputDebugString("In CSimpSvrApp's Destructor\r\n");
+        TestDebugOut("In CSimpSvrApp's Destructor\r\n");
 
         // need to uninit the library...
         if (IsInitialized())
@@ -136,7 +136,7 @@ CSimpSvrApp::~CSimpSvrApp()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IUnknown::AddRef            APP.CPP
 //
@@ -147,7 +147,7 @@ CSimpSvrApp::~CSimpSvrApp()
 
 STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-        OutputDebugString("In CSimpSvrApp::QueryInterface\r\n");
+        TestDebugOut("In CSimpSvrApp::QueryInterface\r\n");
 
         SCODE sc = S_OK;
 
@@ -185,7 +185,7 @@ STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -198,7 +198,7 @@ STDMETHODIMP CSimpSvrApp::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 {
-        OutputDebugString("In CSimpSvrApp::AddRef\r\n");
+        TestDebugOut("In CSimpSvrApp::AddRef\r\n");
         return ++m_nCount;
 }
 
@@ -221,7 +221,7 @@ STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -234,7 +234,7 @@ STDMETHODIMP_(ULONG) CSimpSvrApp::AddRef()
 
 STDMETHODIMP_(ULONG) CSimpSvrApp::Release()
 {
-        OutputDebugString("In CSimpSvrApp::Release\r\n");
+        TestDebugOut("In CSimpSvrApp::Release\r\n");
 
         if (--m_nCount == 0) {
                 delete this;
@@ -363,7 +363,7 @@ BOOL CSimpSvrApp::fInitInstance (HANDLE hInstance, int nCmdShow, CClassFactory F
 
         // check to see if we are compatible with this version of the libraries
         if (HIWORD(dwVer) != rmm || LOWORD(dwVer) < rup)
-                OutputDebugString("*** WARNING:  Not compatible with current libs ***\r\n");
+                TestDebugOut("*** WARNING:  Not compatible with current libs ***\r\n");
 
         // initialize the libraries
         if (OleInitialize(NULL) == NOERROR)

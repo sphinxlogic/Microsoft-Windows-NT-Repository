@@ -30,7 +30,7 @@ VOID SetHelpFileName (VOID)
 
     /* brings in malloc code unnecessarily  */
 
-    getcwd(szHelpFileName,sizeof(szHelpFileName));
+    _getcwd(szHelpFileName,sizeof(szHelpFileName));
     strcat(szHelpFileName,"\\");
     strcat(szHelpFileName,szHelp);
 

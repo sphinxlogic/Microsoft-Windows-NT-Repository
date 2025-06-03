@@ -52,7 +52,7 @@ private:
 	//
 	BOOL				fHasMovedFields	: 1;
 
-	_expr_node		*	pSizeExpression;
+	expr_node		*	pSizeExpression;
 
 
 public:
@@ -63,17 +63,12 @@ public:
 
 							CG_COMP(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// packing and size info
 									 unsigned short HP
 									 ) : 
-								CG_NDR( pBT, WA )
+								CG_NDR( pBT, Info )
 								{
-								SetZp( ZP );
-								SetWireSize( WS );
-								SetMemorySize(MS);
+								SetZp( Info.GetZeePee() );
 								ResetOffline();
 								SetHasPointer(HP);
 								ResetHasMovedFields();
@@ -83,12 +78,20 @@ public:
 	// Get and set methods.
 	//
 
-	_expr_node			*	SetSizeExpression( _expr_node * pE )
+	//	make sure the ZP gets set along the way
+	virtual
+	void					SetSizesAndAlignments( XLAT_SIZE_INFO & Info )
+								{
+								CG_NDR::SetSizesAndAlignments( Info );
+								SetZp( Info.GetZeePee() );
+								}
+
+	expr_node			*	SetSizeExpression( expr_node * pE )
 								{
 								return (pSizeExpression	= pE);
 								}
 
-	_expr_node			*	GetSizeExpression()
+	expr_node			*	GetSizeExpression()
 								{
 								return pSizeExpression;
 								}
@@ -180,6 +183,8 @@ public:
 // the structure code generation classes.
 /////////////////////////////////////////////////////////////////////////////
 
+class CG_COMPLEX_STRUCT;
+
 //
 // This class corresponds to a vanilla structure type. 
 //
@@ -187,7 +192,11 @@ public:
 class CG_STRUCT	: public CG_COMP
 	{
 private:
+    void *                  _pCTI;
 
+    // This is needed for recursive embedded complex fixups.
+
+    CG_COMPLEX_STRUCT *     pDuplicatingComplex;
 
 public:
 	
@@ -197,28 +206,29 @@ public:
 
 							CG_STRUCT(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size, etc
 									 unsigned short HP	// Has pointer
 									 ) : 
-								CG_COMP( pBT, ZP, WS, WA, MS, HP )
+								CG_COMP( pBT, Info, HP )
 								{
+                                _pCTI = NULL;
+                                pDuplicatingComplex = NULL;
 								}
 
 							CG_STRUCT( CG_STRUCT * pStruct ) :
 								CG_COMP( pStruct->GetType(),
-										 pStruct->GetZp(),
-										 pStruct->GetWireSize(),
-										 CvtAlignPropertyToAlign(
-										 				pStruct->GetWireAlignment()),
-										 pStruct->GetMemorySize(),
+										 XLAT_SIZE_INFO(),	// overwritten by copy below
 										 pStruct->HasPointer() )
 								{
 								// Make sure we copy everything.
 								*this = *pStruct;
 								}
+
+    //
+    // Generate typeinfo
+    //          
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
 
 	virtual
 	ID_CG					GetCGID()
@@ -241,9 +251,33 @@ public:
 								return TRUE;
 								}
 
-	BOOL					IsPackedStruct();
+	BOOL					IsComplexStruct();
+
+    CG_COMPLEX_STRUCT *     GetDuplicatingComplex()
+                                {
+                                return( pDuplicatingComplex );
+                                }
+
+    void                    SetDuplicatingComplex( CG_COMPLEX_STRUCT * pC )
+                                {
+                                pDuplicatingComplex = pC;
+                                }
+
+    BOOL                    IsHardStruct();
+
+    BOOL                    IsHardStructOld();
 
 	long					GetNumberOfPointers();
+
+    long                    GetNumberOfEnum16s();
+
+    long                    GetNumberOfUnions();
+
+    CG_FIELD *              GetFinalField();
+
+    CG_FIELD *              GetArrayField( CG_ARRAY * pArray );
+
+    long                    GetEnum16Offset();
 
 	//
 	// Generate the Ndr format string for the type.
@@ -251,9 +285,13 @@ public:
 	virtual
 	void					GenNdrFormat( CCB * pCCB );
 
+    //
+    // Generate the description for a "hard" structure.
+    //
+	void					GenNdrFormatHard( CCB * pCCB );
+
 	//
-	// Generate the complex structure description for this struct.  Used if
-	// the structure is packed.
+	// Generate the description for a "complex" structure.
 	//
 	void					GenNdrFormatComplex( CCB * pCCB );
 
@@ -282,6 +320,11 @@ public:
 	//
 
 	void					GenNdrStructurePointees( CCB * pCCB );
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB );
+
+    BOOL                    InterpreterMustFree( CCB * pCCB ) { return TRUE; }
 
     CG_FIELD  *             GetPreviousField( CG_FIELD * pField );
 
@@ -329,6 +372,9 @@ public:
 
     virtual 
     void                    SetNextNdrAlignment( CCB * pCCB );
+
+    virtual
+    BOOL                    HasAFixedBufferSize();
 	};
 
 //
@@ -347,13 +393,10 @@ public:
 
 							CG_ENCAPSULATED_STRUCT(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size, etc
 									 unsigned short HP	// Has pointer
 									 ) : 
-								CG_STRUCT( pBT, ZP, WS, WA, MS, HP )
+								CG_STRUCT( pBT, Info, HP )
 								{
 								}
 
@@ -398,10 +441,7 @@ public:
 	void					GenNdrFormat( CCB * pCCB );
 
     virtual
-    BOOL                    ShouldFreeOffline()
-								{
-								return HasPointer();
-								}
+    BOOL                    ShouldFreeOffline();
 
     virtual
     void                    GenFreeInline( CCB * pCCB )
@@ -417,6 +457,16 @@ public:
     virtual
     void                    GenNdrPointerFixUp( CCB *       pCCB,
                                                 CG_STRUCT * pStruct );
+
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return -1;
+                                }
+	virtual
+    BOOL                    HasAFixedBufferSize()
+                                {
+                                return FALSE;
+                                }
 	};
 
 //
@@ -444,14 +494,11 @@ public:
 
 							CG_CONFORMANT_STRUCT(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size
 									 unsigned short HP,	// Has pointer
 									 CG_CLASS * pCF		// conformant field
 									 ) : 
-								CG_STRUCT( pBT, ZP, WS, WA, MS, HP )
+								CG_STRUCT( pBT, Info, HP )
 								{
 								SetConformantField( pCF );
 								}
@@ -516,14 +563,11 @@ public:
 
 							CG_CONFORMANT_VARYING_STRUCT(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size, etc
 									 unsigned short HP,	// Has pointer
 									 CG_CLASS * pCF		// conformant field
 									 ) : 
-								CG_CONFORMANT_STRUCT( pBT, ZP, WS, WA, MS, HP, pCF )
+								CG_CONFORMANT_STRUCT( pBT, Info, HP, pCF )
 								{
 								}
 
@@ -533,6 +577,11 @@ public:
 								return ID_CG_CONF_VAR_STRUCT;
 								}
 
+    virtual
+    BOOL                    HasAFixedBufferSize()
+                                {
+                                return FALSE;
+                                }
     virtual 
     void                    SetNextNdrAlignment( CCB * pCCB );
 	};
@@ -560,14 +609,11 @@ public:
 
 							CG_COMPLEX_STRUCT(
 									 node_skl * pBT,	// base type
-									 unsigned short ZP,	// packing
-									 unsigned long	WS,	// wire size
-									 unsigned short WA,	// wire alignment
-									 unsigned long MS,	// memory size
+									 XLAT_SIZE_INFO & Info,	// memory size, etc
 									 unsigned short HP,	// Has pointer
 									 CG_CLASS * pCF		// conformant field
 									 ) : 
-								CG_CONFORMANT_STRUCT( pBT, ZP, WS, WA, MS, HP, pCF )
+								CG_CONFORMANT_STRUCT( pBT, Info, HP, pCF )
 								{
 								pDuplicatedStruct = 0;
 								}

@@ -37,7 +37,7 @@ Revision History:
 
 
 #ifdef ALLOC_PRAGMA
-                                                      
+
 #pragma alloc_text(PAGE,SepAdtCopyToLsaSharedMemory)
 #pragma alloc_text(PAGE,SepAdtLogAuditRecord)
 #pragma alloc_text(PAGE,SepAdtMarshallAuditRecord)
@@ -45,7 +45,7 @@ Revision History:
 #pragma alloc_text(PAGE,SepDequeueWorkItem)
 #pragma alloc_text(PAGE,SepQueueWorkItem)
 
-#endif 
+#endif
 
 VOID
 SepAdtLogAuditRecord(
@@ -152,31 +152,33 @@ VOID
 SepAuditFailed(
     VOID
     )
-    
+
 /*++
-    
+
 Routine Description:
-    
+
     Bugchecks the system due to a missed audit (optional requirement
     for C2 compliance).
-    
+
 Arguments:
-    
+
     None.
-    
+
 Return Value:
-    
+
     None.
-    
+
 --*/
-    
+
 {
     NTSTATUS Status;
     OBJECT_ATTRIBUTES Obja;
     HANDLE KeyHandle;
     UNICODE_STRING KeyName;
     UNICODE_STRING ValueName;
-    BOOLEAN NewValue;
+    UCHAR NewValue;
+
+    ASSERT(sizeof(UCHAR) == sizeof(BOOLEAN));
 
     if (!SepCrashOnAuditFail) {
         return;
@@ -196,8 +198,8 @@ Return Value:
                                 );
     do {
 
-        Status = ZwOpenKey(                                 
-                     &KeyHandle,                 
+        Status = ZwOpenKey(
+                     &KeyHandle,
                      KEY_SET_VALUE,
                      &Obja
                      );
@@ -214,12 +216,12 @@ Return Value:
     }
 
     if (!NT_SUCCESS( Status )) {
-        goto bugcheck;        
+        goto bugcheck;
     }
 
     RtlInitUnicodeString( &ValueName, CRASH_ON_AUDIT_FAIL_VALUE );
 
-    NewValue = FALSE;
+    NewValue = LSAP_ALLOW_ADIMIN_LOGONS_ONLY;
 
     do {
 
@@ -228,20 +230,20 @@ Return Value:
                                 0,
                                 REG_NONE,
                                 &NewValue,
-                                sizeof(BOOLEAN)
+                                sizeof(UCHAR)
                                 );
 
     } while ((Status == STATUS_INSUFFICIENT_RESOURCES) || (Status == STATUS_NO_MEMORY));
     ASSERT(NT_SUCCESS(Status));
 
     if (!NT_SUCCESS( Status )) {
-        goto bugcheck;        
+        goto bugcheck;
     }
 
     do {
 
         Status = ZwFlushKey( KeyHandle );
-                                
+
     } while ((Status == STATUS_INSUFFICIENT_RESOURCES) || (Status == STATUS_NO_MEMORY));
     ASSERT(NT_SUCCESS(Status));
 

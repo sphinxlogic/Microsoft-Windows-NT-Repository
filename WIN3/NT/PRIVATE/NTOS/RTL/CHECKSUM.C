@@ -143,6 +143,21 @@ Return Value:
     NtHeaders = RtlImageNtHeader(BaseAddress);
     if (NtHeaders != NULL) {
         HeaderSum = NtHeaders->OptionalHeader.CheckSum;
+
+#ifndef NTOS_KERNEL_RUNTIME
+        //
+        // On Nt 3.1 and 3.5, we allowed printer drivers with 0 checksums into
+        // csrss unintentionally. This means that we must allow this forever.
+        // I don't want to allow this for kernel mode drivers, so I will only
+        // allow 0 checksums of the high order bit is clear ?
+        //
+
+
+        if ( HeaderSum == 0 ) {
+            return TRUE;
+        }
+#endif // NTOS_KERNEL_RUNTIME
+
         AdjustSum = (PUSHORT)(&NtHeaders->OptionalHeader.CheckSum);
         PartialSum -= (PartialSum < AdjustSum[0]);
         PartialSum -= AdjustSum[0];

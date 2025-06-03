@@ -17,6 +17,6 @@
 #include "simpsvr.h"
 #include "resource.h"
 #include <ole2ver.h>
-
+extern "C" void TestDebugOut(LPSTR psz);
 
 #endif

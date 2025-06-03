@@ -75,4 +75,4 @@ BOOL APIENTRY RefreshRateDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
 
 
 
-
+

@@ -54,18 +54,19 @@ AfdGetReceiveBuffer (
 NTSTATUS
 AfdBReceive (
     IN PIRP Irp,
-    IN PIO_STACK_LOCATION IrpSp
+    IN PIO_STACK_LOCATION IrpSp,
+    IN ULONG RecvFlags,
+    IN ULONG AfdFlags,
+    IN ULONG RecvLength
     )
 {
     NTSTATUS status;
     KIRQL oldIrql;
     PAFD_ENDPOINT endpoint;
     PAFD_CONNECTION connection;
-    ULONG receiveLength;
     ULONG bytesReceived;
     BOOLEAN peek;
     PAFD_BUFFER afdBuffer;
-    ULONG receiveFlags;
     BOOLEAN completeMessage;
     BOOLEAN partialReceivePossible;
     PAFD_BUFFER newAfdBuffer;
@@ -82,35 +83,17 @@ AfdBReceive (
     ASSERT( connection->Type == AfdBlockTypeConnection );
 
     //
-    // Grab the input parameters from the IRP.  If a too-small input 
-    // buffer was used, assume that the user wanted a default receive.  
+    // Determine if this is a peek operation.
     //
 
-    peek = FALSE;
-    receiveFlags = 0;
+    ASSERT( ( RecvFlags & TDI_RECEIVE_EITHER ) != 0 );
+    ASSERT( ( RecvFlags & TDI_RECEIVE_EITHER ) != TDI_RECEIVE_EITHER );
 
-    if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength >=
-             sizeof(TDI_REQUEST_RECEIVE) ) {
-
-        PTDI_REQUEST_RECEIVE receiveRequest;
-
-        receiveRequest = Irp->AssociatedIrp.SystemBuffer;
-
-        if ( (receiveRequest->ReceiveFlags & TDI_RECEIVE_EXPEDITED) != 0 ) {
-            receiveFlags = TDI_RECEIVE_EXPEDITED;
-        } else {
-            receiveFlags = 0;
-        }
-
-        if ( (receiveRequest->ReceiveFlags & TDI_RECEIVE_PEEK) != 0 ) {
-            peek = TRUE;
-            receiveFlags |= TDI_RECEIVE_PEEK;
-        }
-    }
+    peek = ( RecvFlags & TDI_RECEIVE_PEEK ) != 0;
 
     //
-    // Determine whether it is legal to complete this receive with a 
-    // partial message.  
+    // Determine whether it is legal to complete this receive with a
+    // partial message.
     //
 
     if ( endpoint->EndpointType == AfdEndpointTypeStream ) {
@@ -119,7 +102,7 @@ AfdBReceive (
 
     } else {
 
-        if ( (receiveFlags & TDI_RECEIVE_PARTIAL) != 0 ) {
+        if ( (RecvFlags & TDI_RECEIVE_PARTIAL) != 0 ) {
             partialReceivePossible = TRUE;
         } else {
             partialReceivePossible = FALSE;
@@ -127,15 +110,9 @@ AfdBReceive (
     }
 
     //
-    // Determine the length of the output data buffer for the receive.
-    //
-
-    receiveLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
-
-    //
-    // Reset the InputBufferLength field of our stack location.  We'll 
-    // use this to keep track of how much data we've placed into the IRP 
-    // so far.  
+    // Reset the InputBufferLength field of our stack location.  We'll
+    // use this to keep track of how much data we've placed into the IRP
+    // so far.
     //
 
     IrpSp->Parameters.DeviceIoControl.InputBufferLength = 0;
@@ -146,12 +123,12 @@ AfdBReceive (
     //
 
     if ( endpoint->InLine ) {
-        receiveFlags |= TDI_RECEIVE_EXPEDITED | TDI_RECEIVE_NORMAL;
+        RecvFlags |= TDI_RECEIVE_EITHER;
     }
 
     //
-    // Check whether the remote end has aborted the connection, in which 
-    // case we should complete the receive.  
+    // Check whether the remote end has aborted the connection, in which
+    // case we should complete the receive.
     //
 
     if ( connection->AbortIndicated ) {
@@ -160,33 +137,49 @@ AfdBReceive (
     }
 
     //
-    // Try to get data already bufferred on the connection to satisfy 
+    // Try to get data already bufferred on the connection to satisfy
     // this receive.
     //
 
     IoAcquireCancelSpinLock( &Irp->CancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+
+    if( RecvFlags & TDI_RECEIVE_EXPEDITED ) {
+        endpoint->EventsActive &= ~AFD_POLL_RECEIVE_EXPEDITED;
+    }
+
+    if( RecvFlags & TDI_RECEIVE_NORMAL ) {
+        endpoint->EventsActive &= ~AFD_POLL_RECEIVE;
+    }
+
+    IF_DEBUG(EVENT_SELECT) {
+        KdPrint((
+            "AfdBReceive: Endp %08lX, Active %08lX\n",
+            endpoint,
+            endpoint->EventsActive
+            ));
+    }
 
     newAfdBuffer = NULL;
     afdBuffer = NULL;
-    afdBuffer = AfdGetReceiveBuffer( connection, receiveFlags, afdBuffer );
+    afdBuffer = AfdGetReceiveBuffer( connection, RecvFlags, afdBuffer );
 
     while ( afdBuffer != NULL ) {
 
         //
-        // Copy the data to the MDL in the IRP.  Note that we do not 
-        // handle the case where, for a stream type endpoint, the 
-        // receive IRP is large enough to take multiple data buffers 
-        // worth of information.  Our method works fine, albeit a little 
-        // slower.  The faster, where the output buffer is filled up as 
-        // much as possible, is done in the fast path.  We should only 
-        // be here if we hit a timing window between a fast path attempt 
-        // and a receive indication.  
+        // Copy the data to the MDL in the IRP.  Note that we do not
+        // handle the case where, for a stream type endpoint, the
+        // receive IRP is large enough to take multiple data buffers
+        // worth of information.  Our method works fine, albeit a little
+        // slower.  The faster, where the output buffer is filled up as
+        // much as possible, is done in the fast path.  We should only
+        // be here if we hit a timing window between a fast path attempt
+        // and a receive indication.
         //
 
 
         if ( Irp->MdlAddress != NULL ) {
-            
+
             status = TdiCopyBufferToMdl(
                          afdBuffer->Buffer,
                          afdBuffer->DataOffset,
@@ -209,24 +202,14 @@ AfdBReceive (
 
         ASSERT( status == STATUS_SUCCESS || status == STATUS_BUFFER_OVERFLOW );
 
-        //
-        // For stream type endpoints, it does not make sense to return 
-        // STATUS_BUFFER_OVERFLOW.  That status is only sensible for 
-        // message-oriented transports.  
-        //
-
-        if ( endpoint->EndpointType == AfdEndpointTypeStream ) {
-            status = STATUS_SUCCESS;
-        }
-
         ASSERT( afdBuffer->PartialMessage == TRUE || afdBuffer->PartialMessage == FALSE );
 
         completeMessage = !afdBuffer->PartialMessage;
 
         //
-        // If this wasn't a peek IRP, update information on the 
-        // connection based on whether the entire buffer of data was 
-        // taken.  
+        // If this wasn't a peek IRP, update information on the
+        // connection based on whether the entire buffer of data was
+        // taken.
         //
 
         if ( !peek ) {
@@ -236,29 +219,31 @@ AfdBReceive (
             // from the connection's list and return it to the buffer pool.
             //
 
-            if ( receiveLength >= afdBuffer->DataLength ) {
+            if (status == STATUS_SUCCESS) {
+
+                ASSERT(afdBuffer->DataLength == bytesReceived);
 
                 //
                 // Update the counts of bytes bufferred on the connection.
                 //
-    
+
                 if ( afdBuffer->ExpeditedData ) {
-    
+
                     ASSERT( connection->VcBufferredExpeditedBytes >= bytesReceived );
                     ASSERT( connection->VcBufferredExpeditedCount > 0 );
-    
+
                     connection->VcBufferredExpeditedBytes -= bytesReceived;
                     connection->VcBufferredExpeditedCount -= 1;
-    
+
                 } else {
-    
+
                     ASSERT( connection->VcBufferredReceiveBytes >= bytesReceived );
                     ASSERT( connection->VcBufferredReceiveCount > 0 );
-    
+
                     connection->VcBufferredReceiveBytes -= bytesReceived;
                     connection->VcBufferredReceiveCount -= 1;
                 }
-    
+
                 RemoveEntryList( &afdBuffer->BufferListEntry );
 
                 afdBuffer->DataOffset = 0;
@@ -274,11 +259,11 @@ AfdBReceive (
                 afdBuffer = NULL;
 
             } else {
-                
+
                 //
                 // Update the counts of bytes bufferred on the connection.
                 //
-    
+
                 if ( afdBuffer->ExpeditedData ) {
                     ASSERT( connection->VcBufferredExpeditedBytes >= bytesReceived );
                     connection->VcBufferredExpeditedBytes -= bytesReceived;
@@ -286,14 +271,13 @@ AfdBReceive (
                     ASSERT( connection->VcBufferredReceiveBytes >= bytesReceived );
                     connection->VcBufferredReceiveBytes -= bytesReceived;
                 }
-    
-                //
-                // Not all of the buffer's data was taken.  Update the 
-                // counters in the AFD buffer structure to reflect the 
-                // amount of data that was actually received.  
-                //
 
-                ASSERT( afdBuffer->DataLength > bytesReceived );
+                //
+                // Not all of the buffer's data was taken. Update the
+                // counters in the AFD buffer structure to reflect the
+                // amount of data that was actually received.
+                //
+                ASSERT(afdBuffer->DataLength > bytesReceived);
 
                 afdBuffer->DataOffset += bytesReceived;
                 afdBuffer->DataLength -= bytesReceived;
@@ -302,71 +286,74 @@ AfdBReceive (
             }
 
             //
-            // If there is indicated but unreceived data in the TDI 
-            // provider, and we have available buffer space, fire off an 
-            // IRP to receive the data.  
+            // If there is indicated but unreceived data in the TDI
+            // provider, and we have available buffer space, fire off an
+            // IRP to receive the data.
             //
-    
+
             if ( connection->VcReceiveCountInTransport > 0
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveBytes <
                    connection->MaxBufferredReceiveBytes
-    
+
                  &&
-    
+
                  connection->VcBufferredReceiveCount <
                      connection->MaxBufferredReceiveCount ) {
 
                 CLONG bytesToReceive;
 
                 //
-                // Remember the count of data that we're going to 
-                // receive, then reset the fields in the connection 
-                // where we keep track of how much data is available in 
-                // the transport.  We reset it here before releasing the 
-                // lock so that another thread doesn't try to receive 
-                // the data at the same time as us.  
+                // Remember the count of data that we're going to
+                // receive, then reset the fields in the connection
+                // where we keep track of how much data is available in
+                // the transport.  We reset it here before releasing the
+                // lock so that another thread doesn't try to receive
+                // the data at the same time as us.
                 //
-    
+
                 if ( connection->VcReceiveBytesInTransport > AfdLargeBufferSize ) {
                     bytesToReceive = connection->VcReceiveBytesInTransport;
                 } else {
                     bytesToReceive = AfdLargeBufferSize;
                 }
-    
+
                 ASSERT( connection->VcReceiveCountInTransport == 1 );
                 connection->VcReceiveBytesInTransport = 0;
                 connection->VcReceiveCountInTransport = 0;
-    
+
                 //
                 // Get an AFD buffer structure to hold the data.
                 //
-    
+
                 newAfdBuffer = AfdGetBuffer( bytesToReceive, 0 );
                 if ( newAfdBuffer == NULL ) {
+                    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+                    IoReleaseCancelSpinLock( Irp->CancelIrql );
+
                     AfdBeginAbort( connection );
                     status = STATUS_LOCAL_DISCONNECT;
                     goto complete;
                 }
-    
+
                 //
-                // We need to remember the connection in the AFD buffer 
-                // because we'll need to access it in the completion 
-                // routine.  
+                // We need to remember the connection in the AFD buffer
+                // because we'll need to access it in the completion
+                // routine.
                 //
-            
+
                 newAfdBuffer->Context = connection;
-            
+
                 //
-                // Finish building the receive IRP to give to the TDI 
-                // provider.  
+                // Finish building the receive IRP to give to the TDI
+                // provider.
                 //
-            
+
                 TdiBuildReceive(
                     newAfdBuffer->Irp,
-                    connection->FileObject->DeviceObject,
+                    connection->DeviceObject,
                     connection->FileObject,
                     AfdRestartBufferReceive,
                     newAfdBuffer,
@@ -374,24 +361,58 @@ AfdBReceive (
                     TDI_RECEIVE_NORMAL,
                     bytesToReceive
                     );
-    
+
                 //
-                // Wait to hand off the IRP until we can safely release 
-                // the endpoint lock.  
+                // Wait to hand off the IRP until we can safely release
+                // the endpoint lock.
                 //
             }
         }
 
         //
-        // We've set up all return information.  If we got a full 
-        // message OR if we can complete with a partial message OR if 
-        // the IRP is full of data, clean up and complete the IRP.  
+        // For stream type endpoints, it does not make sense to return
+        // STATUS_BUFFER_OVERFLOW.  That status is only sensible for
+        // message-oriented transports.
+        //
+
+        if ( endpoint->EndpointType == AfdEndpointTypeStream ) {
+            status = STATUS_SUCCESS;
+        }
+
+        //
+        // We've set up all return information.  If we got a full
+        // message OR if we can complete with a partial message OR if
+        // the IRP is full of data, clean up and complete the IRP.
         //
 
         if ( completeMessage || partialReceivePossible ||
                  status == STATUS_BUFFER_OVERFLOW ) {
-        
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+            if( ( RecvFlags & TDI_RECEIVE_NORMAL ) &&
+                IS_DATA_ON_CONNECTION( connection ) ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
+
+            if( ( RecvFlags & TDI_RECEIVE_EXPEDITED ) &&
+                IS_EXPEDITED_DATA_ON_CONNECTION( connection ) ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    endpoint->InLine
+                        ? AFD_POLL_RECEIVE_BIT
+                        : AFD_POLL_RECEIVE_EXPEDITED_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             IoReleaseCancelSpinLock( Irp->CancelIrql );
 
             //
@@ -400,34 +421,31 @@ AfdBReceive (
             //
 
             if ( newAfdBuffer != NULL ) {
-                (VOID)IoCallDriver( 
-                         connection->FileObject->DeviceObject,
-                         newAfdBuffer->Irp
-                         );
+                (VOID)IoCallDriver( connection->DeviceObject, newAfdBuffer->Irp );
             }
 
             Irp->IoStatus.Status = status;
             Irp->IoStatus.Information = bytesReceived +
                           IrpSp->Parameters.DeviceIoControl.InputBufferLength;
-                    
-    
+
+
             IoCompleteRequest( Irp, 0 );
-    
+
             return status;
         }
 
         //
-        // Update the count of bytes we've received so far into the IRP, 
-        // get another buffer of data, and continue.  
+        // Update the count of bytes we've received so far into the IRP,
+        // get another buffer of data, and continue.
         //
 
         IrpSp->Parameters.DeviceIoControl.InputBufferLength += bytesReceived;
-        afdBuffer = AfdGetReceiveBuffer( connection, receiveFlags, afdBuffer );
+        afdBuffer = AfdGetReceiveBuffer( connection, RecvFlags, afdBuffer );
     }
 
     //
-    // If there was no data bufferred on the endpoint and the connection 
-    // has been disconnected by the remote end, complete the receive 
+    // If there was no data bufferred on the endpoint and the connection
+    // has been disconnected by the remote end, complete the receive
     // with 0 bytes read if this is a stream endpoint, or a failure
     // code if this is a message endpoint.
     //
@@ -435,29 +453,29 @@ AfdBReceive (
     if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength == 0 &&
              connection->DisconnectIndicated ) {
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( Irp->CancelIrql );
 
         if ( endpoint->EndpointType == AfdEndpointTypeStream ) {
             status = STATUS_SUCCESS;
         } else {
-            status = STATUS_CONNECTION_DISCONNECTED;
+            status = STATUS_GRACEFUL_DISCONNECT;
         }
 
         goto complete;
     }
 
     //
-    // If this is a nonblocking endpoint and the request was a normal 
-    // receive (as opposed to a read IRP), fail the request.  We don't 
-    // fail reads under the asumption that if the application is doing 
-    // reads they don't want nonblocking behavior.  
+    // If this is a nonblocking endpoint and the request was a normal
+    // receive (as opposed to a read IRP), fail the request.  We don't
+    // fail reads under the asumption that if the application is doing
+    // reads they don't want nonblocking behavior.
     //
 
     if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength == 0 &&
-             endpoint->NonBlocking && IrpSp->MajorFunction != IRP_MJ_READ ) {
+             endpoint->NonBlocking && !( AfdFlags & AFD_OVERLAPPED ) ) {
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( Irp->CancelIrql );
 
         status = STATUS_DEVICE_NOT_READY;
@@ -469,7 +487,7 @@ AfdBReceive (
     // Type3InputBuffer field of our IO stack location.
     //
 
-    IrpSp->Parameters.DeviceIoControl.Type3InputBuffer = (PVOID)receiveFlags;
+    IrpSp->Parameters.DeviceIoControl.Type3InputBuffer = (PVOID)RecvFlags;
 
     //
     // Place the IRP on the connection's list of pended receive IRPs and
@@ -482,7 +500,7 @@ AfdBReceive (
         );
 
     IoMarkIrpPending( Irp );
-    Irp->IoStatus.Status == STATUS_SUCCESS;
+    Irp->IoStatus.Status = STATUS_SUCCESS;
 
     //
     // Set up the cancellation routine in the IRP.  If the IRP has already
@@ -490,27 +508,24 @@ AfdBReceive (
     //
 
     if ( Irp->Cancel ) {
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-        AfdCancelReceive( IrpSp->FileObject->DeviceObject, Irp );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdCancelReceive( IrpSp->DeviceObject, Irp );
         return STATUS_CANCELLED;
     }
 
     IoSetCancelRoutine( Irp, AfdCancelReceive );
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( Irp->CancelIrql );
 
     //
-    // If there was data bufferred in the transport, fire off the IRP to 
+    // If there was data bufferred in the transport, fire off the IRP to
     // receive it.  We have to wait until here because it is not legal
     // to do an IoCallDriver() while holding a spin lock.
     //
 
     if ( newAfdBuffer != NULL ) {
-        (VOID)IoCallDriver( 
-                 connection->FileObject->DeviceObject,
-                 newAfdBuffer->Irp
-                 );
+        (VOID)IoCallDriver( connection->DeviceObject, newAfdBuffer->Irp );
     }
 
     return STATUS_PENDING;
@@ -571,7 +586,11 @@ Return Value:
     DEBUG receiveLength = 0xFFFFFFFF;
 
     connection = (PAFD_CONNECTION)ConnectionContext;
+    ASSERT( connection != NULL );
+
     endpoint = connection->Endpoint;
+    ASSERT( endpoint != NULL );
+    *BytesTaken = 0;
 
     ASSERT( connection->Type == AfdBlockTypeConnection );
     ASSERT( endpoint->Type == AfdBlockTypeVcConnecting ||
@@ -598,7 +617,11 @@ Return Value:
     // the transport.
     //
 
-    if ( (endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_RECEIVE) != 0 ) {
+    IoAcquireCancelSpinLock( &cancelIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+
+    if ( (endpoint->DisconnectMode & AFD_PARTIAL_DISCONNECT_RECEIVE) != 0 ||
+         endpoint->EndpointCleanedUp ) {
 
 #if DBG
         DbgPrint( "AfdBReceiveEventHandler: receive shutdown, "
@@ -612,6 +635,9 @@ Return Value:
         // Abort the connection.  Note that if the abort attempt fails
         // we can't do anything about it.
         //
+
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        IoReleaseCancelSpinLock( cancelIrql );
 
         (VOID)AfdBeginAbort( connection );
 
@@ -631,13 +657,10 @@ Return Value:
     completeMessage = (BOOLEAN)((ReceiveFlags & TDI_RECEIVE_ENTIRE_MESSAGE) != 0);
 
     //
-    // Check whether there are any IRPs waiting on the connection.  If 
-    // there is such an IRP and normal data is being indicated, use the 
-    // IRP to receive the data.  
+    // Check whether there are any IRPs waiting on the connection.  If
+    // there is such an IRP and normal data is being indicated, use the
+    // IRP to receive the data.
     //
-
-    IoAcquireCancelSpinLock( &cancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
     if ( !IsListEmpty( &connection->VcReceiveIrpListHead ) && !expedited ) {
 
@@ -658,11 +681,11 @@ Return Value:
         irpSp = IoGetCurrentIrpStackLocation( irp );
 
         //
-        // If the IRP is not large enough to hold the available data, or 
-        // if it is a peek or expedited receive IRP, or if we've already 
-        // placed some data into the IRP, then we'll just buffer the 
-        // data manually and complete the IRP in the receive completion 
-        // routine.  
+        // If the IRP is not large enough to hold the available data, or
+        // if it is a peek or expedited receive IRP, or if we've already
+        // placed some data into the IRP, then we'll just buffer the
+        // data manually and complete the IRP in the receive completion
+        // routine.
         //
 
         if ( irpSp->Parameters.DeviceIoControl.OutputBufferLength >=
@@ -670,39 +693,38 @@ Return Value:
              irpSp->Parameters.DeviceIoControl.InputBufferLength == 0 &&
              (ULONG)irpSp->Parameters.DeviceIoControl.Type3InputBuffer == 0 &&
              !endpoint->TdiMessageMode ) {
-    
+
             //
-            // If all of the data was indicated to us here AND this is a 
-            // complete message in and of itself, then just copy the 
-            // data to the IRP and complete the IRP.  
+            // If all of the data was indicated to us here AND this is a
+            // complete message in and of itself, then just copy the
+            // data to the IRP and complete the IRP.
             //
-    
+
             if ( completeMessage && BytesIndicated == BytesAvailable ) {
-                
+
                 //
-                // The IRP is off the endpoint's list and is no longer 
-                // cancellable.  We can release the locks we hold.  
+                // The IRP is off the endpoint's list and is no longer
+                // cancellable.  We can release the locks we hold.
                 //
-    
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
                 IoReleaseCancelSpinLock( cancelIrql );
-        
+
                 //
                 // Set BytesTaken to indicate that we've taken all the
                 // data.  We do it here because we already have
                 // BytesAvailable in a register, which probably won't
                 // be true after making function calls.
                 //
-    
+
                 *BytesTaken = BytesAvailable;
-    
+
                 //
-                // Copy the datagram and source address to the IRP.  This 
-                // prepares the IRP to be completed.  
+                // Copy the data to the IRP.
                 //
-    
+
                 if ( irp->MdlAddress != NULL ) {
-    
+
                     status = TdiCopyBufferToMdl(
                                  Tsdu,
                                  0,
@@ -734,36 +756,40 @@ Return Value:
                 //
 
                 ASSERT( irp->IoStatus.Status == STATUS_SUCCESS );
-        
+
                 //
                 // Complete the IRP.  We've already set BytesTaken
                 // to tell the provider that we have taken all the data.
                 //
-    
+
                 IoCompleteRequest( irp, AfdPriorityBoost );
-    
+
                 return STATUS_SUCCESS;
             }
-    
+
             //
-            // Some of the data was not indicated, so remember that we 
-            // want to pass back this IRP to the TDI provider.  Passing 
-            // back this IRP directly is good because it avoids having 
-            // to copy the data from one of our buffers into the user's 
-            // buffer.  
+            // Some of the data was not indicated, so remember that we
+            // want to pass back this IRP to the TDI provider.  Passing
+            // back this IRP directly is good because it avoids having
+            // to copy the data from one of our buffers into the user's
+            // buffer.
             //
-    
+
             userIrp = TRUE;
             requiredAfdBufferSize = 0;
-            receiveLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+            receiveLength =
+                AfdIgnorePushBitOnReceives
+                    ? BytesAvailable
+                    : irpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
         } else {
 
             //
-            // The first pended IRP is too tiny to hold all the 
-            // available data or else it is a peek or expedited receive 
-            // IRP.  Put the IRP back on the head of the list and buffer 
-            // the data and complete the IRP in the restart routine.  
+            // The first pended IRP is too tiny to hold all the
+            // available data or else it is a peek or expedited receive
+            // IRP.  Put the IRP back on the head of the list and buffer
+            // the data and complete the IRP in the restart routine.
             //
 
             InsertHeadList(
@@ -775,21 +801,21 @@ Return Value:
             requiredAfdBufferSize = BytesAvailable;
             receiveLength = BytesAvailable;
         }
-    
+
     } else if ( !expedited ) {
 
         ASSERT( IsListEmpty( &connection->VcReceiveIrpListHead ) );
 
         //
-        // Check whether we've already bufferred the maximum amount of 
-        // data that we'll allow ourselves to buffer for this 
-        // connection.  If we're at the limit, then we need to exert 
-        // back pressure by not accepting this indicated data (flow 
-        // control).  
+        // Check whether we've already bufferred the maximum amount of
+        // data that we'll allow ourselves to buffer for this
+        // connection.  If we're at the limit, then we need to exert
+        // back pressure by not accepting this indicated data (flow
+        // control).
         //
-        // Note that we have no flow control mechanisms for expedited 
-        // data.  We always accept any expedited data that is indicated 
-        // to us.  
+        // Note that we have no flow control mechanisms for expedited
+        // data.  We always accept any expedited data that is indicated
+        // to us.
         //
 
         if ( connection->VcBufferredReceiveBytes >=
@@ -804,47 +830,47 @@ Return Value:
             ASSERT( connection->VcReceiveCountInTransport == 0 );
 
             //
-            // Just remember the amount of data that is available.  When 
-            // buffer space frees up, we'll actually receive this data.  
+            // Just remember the amount of data that is available.  When
+            // buffer space frees up, we'll actually receive this data.
             //
 
             connection->VcReceiveBytesInTransport = BytesAvailable;
             connection->VcReceiveCountInTransport = 1;
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
             IoReleaseCancelSpinLock( cancelIrql );
 
             return STATUS_DATA_NOT_ACCEPTED;
         }
-    
+
         //
-        // There were no prepended IRPs.  We'll have to buffer the data 
-        // here in AFD.  If all of the available data is being indicated 
-        // to us AND this is a complete message, just copy the data 
-        // here.  
+        // There were no prepended IRPs.  We'll have to buffer the data
+        // here in AFD.  If all of the available data is being indicated
+        // to us AND this is a complete message, just copy the data
+        // here.
         //
-    
+
         if ( completeMessage && BytesIndicated == BytesAvailable ) {
-    
+
             //
-            // We don't need the cancel spin lock any more, so we can 
-            // release it.  However, since we acquired the cancel spin lock 
-            // after the endpoint spin lock and we still need the endpoint 
-            // spin lock, be careful to switch the IRQLs.  
+            // We don't need the cancel spin lock any more, so we can
+            // release it.  However, since we acquired the cancel spin lock
+            // after the endpoint spin lock and we still need the endpoint
+            // spin lock, be careful to switch the IRQLs.
             //
-    
+
             IoReleaseCancelSpinLock( oldIrql );
             oldIrql = cancelIrql;
-        
+
             //
             // Get an AFD buffer to hold the data.
             //
-    
+
             afdBuffer = AfdGetBuffer( BytesAvailable, 0 );
 
             if ( afdBuffer == NULL ) {
 
-                KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
                 //
                 // If we couldn't get a buffer, abort the connection.
@@ -857,24 +883,24 @@ Return Value:
                 *BytesTaken = BytesAvailable;
                 return STATUS_SUCCESS;
             }
-        
+
             //
-            // Use the special function to copy the data instead of 
-            // RtlCopyMemory in case the data is coming from a special 
-            // place (DMA, etc.) which cannot work with RtlCopyMemory.  
+            // Use the special function to copy the data instead of
+            // RtlCopyMemory in case the data is coming from a special
+            // place (DMA, etc.) which cannot work with RtlCopyMemory.
             //
-    
+
             TdiCopyLookaheadData(
                 afdBuffer->Buffer,
                 Tsdu,
                 BytesAvailable,
                 ReceiveFlags
                 );
-    
+
             //
             // Store the data length and set the offset to 0.
             //
-    
+
             afdBuffer->DataLength = BytesAvailable;
             ASSERT( afdBuffer->DataOffset == 0 );
 
@@ -884,46 +910,50 @@ Return Value:
             // Place the buffer on this connection's list of bufferred data
             // and update the count of data bytes on the connection.
             //
-    
+
             InsertTailList(
                 &connection->VcReceiveBufferListHead,
                 &afdBuffer->BufferListEntry
                 );
-    
+
             connection->VcBufferredReceiveBytes += BytesAvailable;
             connection->VcBufferredReceiveCount += 1;
-    
+
             //
-            // All done.  Release the lock and tell the provider that we 
-            // took all the data.  
+            // All done.  Release the lock and tell the provider that we
+            // took all the data.
             //
-    
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-    
+
             *BytesTaken = BytesAvailable;
-    
+
             //
             // Indicate that it is possible to receive on the endpoint now.
             //
-    
-            AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE, STATUS_SUCCESS );
-    
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+
+            AfdIndicatePollEvent(
+                endpoint,
+                AFD_POLL_RECEIVE_BIT,
+                STATUS_SUCCESS
+                );
+
             return STATUS_SUCCESS;
         }
 
         //
-        // There were no prepended IRPs and not all of the data was 
-        // indicated to us.  We'll have to buffer it by handing an IRP 
+        // There were no prepended IRPs and not all of the data was
+        // indicated to us.  We'll have to buffer it by handing an IRP
         // back to the TDI privider.
         //
-        // Note that in this case we sometimes hand a large buffer to 
-        // the TDI provider.  We do this so that it can hold off 
-        // completion of our IRP until it gets EOM or the buffer is 
-        // filled.  This reduces the number of receive indications that 
-        // the TDI provider has to perform and also reduces the number 
-        // of kernel/user transitions the application will perform 
-        // because we'll tend to complete receives with larger amounts 
-        // of data.  
+        // Note that in this case we sometimes hand a large buffer to
+        // the TDI provider.  We do this so that it can hold off
+        // completion of our IRP until it gets EOM or the buffer is
+        // filled.  This reduces the number of receive indications that
+        // the TDI provider has to perform and also reduces the number
+        // of kernel/user transitions the application will perform
+        // because we'll tend to complete receives with larger amounts
+        // of data.
         //
         // We do not hand back a "large" AFD buffer if the indicated data
         // is greater than the large buffer size or if the TDI provider
@@ -935,7 +965,9 @@ Return Value:
 
         userIrp = FALSE;
 
-        if ( AfdLargeBufferSize >= BytesAvailable && !endpoint->TdiMessageMode ) {
+        if ( AfdLargeBufferSize >= BytesAvailable &&
+            !AfdIgnorePushBitOnReceives &&
+            !endpoint->TdiMessageMode ) {
             requiredAfdBufferSize = AfdLargeBufferSize;
             receiveLength = AfdLargeBufferSize;
         } else {
@@ -960,22 +992,22 @@ Return Value:
     }
 
     //
-    // We're able to buffer the data.  First acquire a buffer of 
-    // appropriate size.  
+    // We're able to buffer the data.  First acquire a buffer of
+    // appropriate size.
     //
 
     afdBuffer = AfdGetBuffer( requiredAfdBufferSize, 0 );
 
     if ( afdBuffer == NULL ) {
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( cancelIrql );
 
         //
-        // If we couldn't get a buffer, abort the connection.  This is 
-        // pretty brutal, but the only alternative is to attempt to 
-        // receive the data sometime later, which is very complicated to 
-        // implement.  
+        // If we couldn't get a buffer, abort the connection.  This is
+        // pretty brutal, but the only alternative is to attempt to
+        // receive the data sometime later, which is very complicated to
+        // implement.
         //
 
         AfdBeginAbort( connection );
@@ -985,18 +1017,18 @@ Return Value:
     }
 
     //
-    // We'll have to format up an IRP and give it to the provider to 
-    // handle.  We don't need any locks to do this--the restart routine 
-    // will check whether new receive IRPs were pended on the endpoint.  
+    // We'll have to format up an IRP and give it to the provider to
+    // handle.  We don't need any locks to do this--the restart routine
+    // will check whether new receive IRPs were pended on the endpoint.
     //
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( cancelIrql );
 
     //
-    // Use the IRP in the AFD buffer if appropriate.  If userIrp is 
-    // TRUE, then the local variable irp will already point to the 
-    // user's IRP which we'll use for this IO.  
+    // Use the IRP in the AFD buffer if appropriate.  If userIrp is
+    // TRUE, then the local variable irp will already point to the
+    // user's IRP which we'll use for this IO.
     //
 
     if ( !userIrp ) {
@@ -1005,8 +1037,8 @@ Return Value:
     }
 
     //
-    // We need to remember the connection in the AFD buffer because 
-    // we'll need to access it in the completion routine.  
+    // We need to remember the connection in the AFD buffer because
+    // we'll need to access it in the completion routine.
     //
 
     afdBuffer->Context = connection;
@@ -1026,12 +1058,12 @@ Return Value:
 
     TdiBuildReceive(
         irp,
-        connection->FileObject->DeviceObject,
+        connection->DeviceObject,
         connection->FileObject,
         AfdRestartBufferReceive,
         afdBuffer,
         irp->MdlAddress,
-        ReceiveFlags & (TDI_RECEIVE_EXPEDITED | TDI_RECEIVE_NORMAL),
+        ReceiveFlags & TDI_RECEIVE_EITHER,
         receiveLength
         );
 
@@ -1102,8 +1134,8 @@ AfdRestartBufferReceive (
 
 Routine Description:
 
-    Handles completion of bufferred receives that were started in the 
-    receive indication handler.  
+    Handles completion of bufferred receives that were started in the
+    receive indication handler.
 
 Arguments:
 
@@ -1115,8 +1147,8 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS - if this is our IRP, then always 
-    STATUS_MORE_PROCESSING_REQUIRED to indicate to the IO system that we 
+    NTSTATUS - if this is our IRP, then always
+    STATUS_MORE_PROCESSING_REQUIRED to indicate to the IO system that we
     own the IRP and the IO system should stop processing the it.
 
     If this is a user's IRP, then STATUS_SUCCESS to indicate that
@@ -1165,10 +1197,10 @@ Return Value:
         AfdReturnBuffer( afdBuffer );
 
         //
-        // If pending has be returned for this IRP then mark the current 
-        // stack as pending.  
+        // If pending has be returned for this IRP then mark the current
+        // stack as pending.
         //
-    
+
         if ( Irp->PendingReturned ) {
             IoMarkIrpPending( Irp );
         }
@@ -1192,7 +1224,7 @@ Return Value:
         //
         // We treat STATUS_BUFFER_OVERFLOW just like STATUS_RECEIVE_PARTIAL.
         //
-    
+
         if ( irpStatus == STATUS_BUFFER_OVERFLOW ) {
 
             irpStatus = STATUS_RECEIVE_PARTIAL;
@@ -1201,10 +1233,10 @@ Return Value:
 
             afdBuffer->Mdl->ByteCount = afdBuffer->BufferLength;
             AfdReturnBuffer( afdBuffer );
-    
+
             //
-            // !!! We can't abort the connection if the connection has 
-            //     not yet been accepted because we'll still be pointing 
+            // !!! We can't abort the connection if the connection has
+            //     not yet been accepted because we'll still be pointing
             //     at the listening endpoint.  We should do something,
             //     however.  How common is this failure?
             //
@@ -1239,7 +1271,7 @@ Return Value:
     //
 
     IoAcquireCancelSpinLock( &cancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
     expedited = afdBuffer->ExpeditedData;
 
@@ -1250,7 +1282,7 @@ Return Value:
 
         PIO_STACK_LOCATION irpSp;
         ULONG receiveFlags;
-        ULONG bytesCopied;
+        ULONG bytesCopied = 0;
         BOOLEAN peek;
         BOOLEAN partialReceivePossible;
 
@@ -1282,7 +1314,7 @@ Return Value:
         //
 
         if ( userIrp->MdlAddress != NULL ) {
-    
+
             status = TdiCopyBufferToMdl(
                          afdBuffer->Buffer,
                          afdBuffer->DataOffset,
@@ -1292,7 +1324,7 @@ Return Value:
                          &bytesCopied
                          );
 
-            userIrp->IoStatus.Information = 
+            userIrp->IoStatus.Information =
                 irpSp->Parameters.DeviceIoControl.InputBufferLength + bytesCopied;
 
         } else {
@@ -1309,20 +1341,23 @@ Return Value:
         ASSERT( status == STATUS_SUCCESS || status == STATUS_BUFFER_OVERFLOW );
 
         //
-        // If the IRP was not a peek IRP, update the AFD buffer 
-        // accordingly.  If it was a peek IRP then the data should be 
-        // reread, so keep it around.  
+        // If the IRP was not a peek IRP, update the AFD buffer
+        // accordingly.  If it was a peek IRP then the data should be
+        // reread, so keep it around.
         //
 
         if ( !peek ) {
-        
+
             //
             // If we copied all of the data from the buffer to the IRP,
             // free the AFD buffer structure.
             //
-    
+
             if ( status == STATUS_SUCCESS ) {
-    
+
+                ASSERT(afdBuffer->DataLength == bytesCopied);
+
+                afdBuffer->DataOffset = 0;
                 afdBuffer->ExpeditedData = FALSE;
 
                 AfdReturnBuffer( afdBuffer );
@@ -1332,24 +1367,26 @@ Return Value:
                 // *** NOTE THAT AFTER THIS POINT WE CANNOT TOUCH EITHER
                 //     THE AFD BUFFER OR THE IRP!
                 //
-    
+
             } else {
-    
-                ASSERT( userIrp->IoStatus.Information < afdBuffer->DataLength );
-    
+
                 //
                 // There is more data left in the buffer.  Update counts in
                 // the AFD buffer structure.
                 //
-    
-                afdBuffer->DataOffset += userIrp->IoStatus.Information;
-                afdBuffer->DataLength -= userIrp->IoStatus.Information;
+
+                ASSERT(afdBuffer->DataLength > bytesCopied);
+
+                afdBuffer->DataOffset += bytesCopied;
+                afdBuffer->DataLength -= bytesCopied;
+
+                ASSERT(afdBuffer->DataOffset < afdBuffer->BufferLength);
             }
         }
 
         //
-        // For stream type endpoints, it does not make sense to return 
-        // STATUS_BUFFER_OVERFLOW.  That status is only sensible for 
+        // For stream type endpoints, it does not make sense to return
+        // STATUS_BUFFER_OVERFLOW.  That status is only sensible for
         // message-oriented transports.  We have already set up the
         // status field of the IRP when we pended it, so we don't
         // need to do it again here.
@@ -1362,14 +1399,14 @@ Return Value:
         }
 
         //
-        // We can complete the IRP under any of the following 
+        // We can complete the IRP under any of the following
         // conditions:
         //
         //    - the buffer contains a complete message of data.
         //
         //    - it is OK to complete the IRP with a partial message.
         //
-        //    - the IRP is already full of data.     
+        //    - the IRP is already full of data.
         //
 
         if ( irpStatus == STATUS_SUCCESS
@@ -1381,12 +1418,12 @@ Return Value:
                  ||
 
              status == STATUS_BUFFER_OVERFLOW ) {
-        
+
             //
             // Add the IRP to the list of IRPs we'll need to complete once we
             // can release locks.
             //
-    
+
             InsertTailList(
                 &completeIrpListHead,
                 &userIrp->Tail.Overlay.ListEntry
@@ -1413,9 +1450,9 @@ Return Value:
             //
             // Stop processing this buffer for now.
             //
-            // !!! This could cause a problem if there is a regular 
-            //     receive pended behind a peek IRP!  But that is a 
-            //     pretty unlikely scenario.  
+            // !!! This could cause a problem if there is a regular
+            //     receive pended behind a peek IRP!  But that is a
+            //     pretty unlikely scenario.
             //
 
             break;
@@ -1423,9 +1460,9 @@ Return Value:
     }
 
     //
-    // If there is any data left, place the buffer at the end of the 
-    // connection's list of bufferred data and update counts of data on 
-    // the connection.  
+    // If there is any data left, place the buffer at the end of the
+    // connection's list of bufferred data and update counts of data on
+    // the connection.
     //
 
     if ( afdBuffer != NULL ) {
@@ -1457,11 +1494,11 @@ Return Value:
     }
 
     //
-    // Release locks and indicate that there is bufferred data on the 
-    // endpoint.  
+    // Release locks and indicate that there is bufferred data on the
+    // endpoint.
     //
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( cancelIrql );
 
     //
@@ -1471,11 +1508,25 @@ Return Value:
     //
 
     if ( afdBuffer != NULL ) {
+
         if ( expedited && !endpoint->InLine ) {
-            AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE_EXPEDITED, STATUS_SUCCESS );
+
+            AfdIndicatePollEvent(
+                endpoint,
+                AFD_POLL_RECEIVE_EXPEDITED_BIT,
+                STATUS_SUCCESS
+                );
+
         } else {
-            AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE, STATUS_SUCCESS );
+
+            AfdIndicatePollEvent(
+                endpoint,
+                AFD_POLL_RECEIVE_BIT,
+                STATUS_SUCCESS
+                );
+
         }
+
     }
 
     //
@@ -1491,8 +1542,8 @@ Return Value:
     }
 
     //
-    // Tell the IO system to stop processing the AFD IRP, since we now 
-    // own it as part of the AFD buffer.  
+    // Tell the IO system to stop processing the AFD IRP, since we now
+    // own it as part of the AFD buffer.
     //
 
     return STATUS_MORE_PROCESSING_REQUIRED;
@@ -1531,8 +1582,8 @@ Return Value:
     KIRQL oldIrql;
 
     //
-    // Get the endpoint pointer from our IRP stack location and the 
-    // connection pointer from the endpoint.  
+    // Get the endpoint pointer from our IRP stack location and the
+    // connection pointer from the endpoint.
     //
 
     irpSp = IoGetCurrentIrpStackLocation( Irp );
@@ -1544,17 +1595,17 @@ Return Value:
     ASSERT( connection->Type == AfdBlockTypeConnection );
 
     //
-    // Remove the IRP from the connection's IRP list, synchronizing with 
-    // the endpoint lock which protects the lists.  Note that the IRP 
-    // *must* be on one of the connection's lists if we are getting 
-    // called here--anybody that removes the IRP from the list must do 
-    // so while holding the cancel spin lock and reset the cancel 
-    // routine to NULL before releasing the cancel spin lock.  
+    // Remove the IRP from the connection's IRP list, synchronizing with
+    // the endpoint lock which protects the lists.  Note that the IRP
+    // *must* be on one of the connection's lists if we are getting
+    // called here--anybody that removes the IRP from the list must do
+    // so while holding the cancel spin lock and reset the cancel
+    // routine to NULL before releasing the cancel spin lock.
     //
 
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
     RemoveEntryList( &Irp->Tail.Overlay.ListEntry );
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
     //
     // Reset the cancel routine in the IRP.
@@ -1590,12 +1641,12 @@ AfdGetReceiveBuffer (
 
 Routine Description:
 
-    Returns a pointer to a receive data buffer that contains the 
+    Returns a pointer to a receive data buffer that contains the
     appropriate type of data.  Note that this routine DOES NOT remove
     the buffer structure from the list it is on.
 
-    This routine MUST be called with the connection's endpoint lock 
-    held!  
+    This routine MUST be called with the connection's endpoint lock
+    held!
 
 Arguments:
 
@@ -1652,13 +1703,13 @@ Return Value:
     // Act based on the type of data we're trying to get.
     //
 
-    switch ( ReceiveFlags & (TDI_RECEIVE_NORMAL | TDI_RECEIVE_EXPEDITED) ) {
+    switch ( ReceiveFlags & TDI_RECEIVE_EITHER ) {
 
-    case 0:
+    case TDI_RECEIVE_NORMAL:
 
         //
-        // Walk the connection's list of data buffers until we find the 
-        // first data buffer that is of the appropriate type.  
+        // Walk the connection's list of data buffers until we find the
+        // first data buffer that is of the appropriate type.
         //
 
         while ( listEntry != &Connection->VcReceiveBufferListHead &&
@@ -1674,7 +1725,7 @@ Return Value:
             return NULL;
         }
 
-    case TDI_RECEIVE_NORMAL | TDI_RECEIVE_EXPEDITED:
+    case TDI_RECEIVE_EITHER :
 
         //
         // Just return the first buffer, if there is one.
@@ -1693,8 +1744,8 @@ Return Value:
         }
 
         //
-        // Walk the connection's list of data buffers until we find the 
-        // first data buffer that is of the appropriate type.  
+        // Walk the connection's list of data buffers until we find the
+        // first data buffer that is of the appropriate type.
         //
 
         while ( listEntry != &Connection->VcReceiveBufferListHead &&
@@ -1710,10 +1761,10 @@ Return Value:
             return NULL;
         }
 
-    case TDI_RECEIVE_NORMAL:
     default:
 
-        ASSERT( FALSE );
+        ASSERT( !"Invalid ReceiveFlags" );
+        return NULL;
     }
 
 } // AfdGetReceiveBuffer
@@ -1734,8 +1785,8 @@ Routine Description:
     data, normal or expedited.  If there are no IRPs pended or only
     IRPs of the wrong type, returns NULL.
 
-    This routine MUST be called with the connection's endpoint lock 
-    held!  
+    This routine MUST be called with the connection's endpoint lock
+    held!
 
 Arguments:
 
@@ -1781,9 +1832,10 @@ Return Value:
         //
 
         receiveFlags = (ULONG)irpSp->Parameters.DeviceIoControl.Type3InputBuffer;
-        receiveFlags &= TDI_RECEIVE_NORMAL | TDI_RECEIVE_EXPEDITED;
+        receiveFlags &= TDI_RECEIVE_EITHER;
+        ASSERT( receiveFlags != 0 );
 
-        if ( receiveFlags == 0 && !Expedited ) {
+        if ( receiveFlags == TDI_RECEIVE_NORMAL && !Expedited ) {
 
             //
             // We have a normal receive and normal data.  Remove this
@@ -1794,11 +1846,11 @@ Return Value:
             return irp;
         }
 
-        if ( receiveFlags == (TDI_RECEIVE_NORMAL | TDI_RECEIVE_EXPEDITED) ) {
+        if ( receiveFlags == TDI_RECEIVE_EITHER ) {
 
             //
-            // This is an "either" receive.  It can take the data 
-            // regardless of the data type.  
+            // This is an "either" receive.  It can take the data
+            // regardless of the data type.
             //
 
             RemoveEntryList( listEntry );
@@ -1808,8 +1860,8 @@ Return Value:
         if ( receiveFlags == TDI_RECEIVE_EXPEDITED && Expedited ) {
 
             //
-            // We have an expedited receive and expedited data.  Remove 
-            // this IRP from the connection's list and return it.  
+            // We have an expedited receive and expedited data.  Remove
+            // this IRP from the connection's list and return it.
             //
 
             RemoveEntryList( listEntry );

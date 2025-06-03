@@ -18,13 +18,13 @@ interface CDropSource : public IDropSource
 	CSimpleDoc FAR * m_pDoc;
 
 	CDropSource(CSimpleDoc FAR * pDoc) {
-		OutputDebugString("In IDS's constructor\r\n");
+		TestDebugOut("In IDS's constructor\r\n");
 		m_pDoc = pDoc;
 		m_nCount = 0;
 		};
 
 	~CDropSource() {
-		OutputDebugString("In IDS's destructor\r\n");
+		TestDebugOut("In IDS's destructor\r\n");
 		} ;
 
 	STDMETHODIMP QueryInterface (REFIID riid, LPVOID FAR* ppv);

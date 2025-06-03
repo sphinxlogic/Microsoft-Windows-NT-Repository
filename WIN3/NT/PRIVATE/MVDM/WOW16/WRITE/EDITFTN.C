@@ -239,4 +239,3 @@ while ((cw -= cwSector) > 0)
 return hfntb;
 }
 #endif  /* FOOTNOTES */
-

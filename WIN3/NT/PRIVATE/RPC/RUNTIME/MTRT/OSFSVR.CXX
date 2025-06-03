@@ -19,23 +19,9 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
+#include <precomp.hxx>
 #include <rpctran.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
 #include <thrdctx.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
 #include <hndlsvr.hxx>
 #include <osfpcket.hxx>
 #include <secsvr.hxx>
@@ -47,6 +33,7 @@ Revision History:
 
 #define MINIMUM_CALL_THREADS 3
 
+extern long GroupIdCounter;
 
 
 inline void
@@ -64,6 +51,7 @@ RecvDirectWrapper(
         IN  OSF_SCONNECTION PAPI * SConnection
         )
 {
+   ASSERT(SConnection->InvalidHandle(SCONNECTION_TYPE) == 0) ;
    SConnection->ReceiveDirect();
 }
 
@@ -146,18 +134,18 @@ Routine Description:
     void PAPI * Buffer;
     unsigned int BufferLength;
     RPC_STATUS RpcStatus;
-    THREAD * ThisThread = ThreadSelf();
 
     for (;;)
         {
         RpcStatus = TransReceive(&SConnection, &Buffer, &BufferLength);
-        ASSERT(   (RpcStatus == RPC_S_OK)
-               || (RpcStatus == RPC_P_CONNECTION_CLOSED));
+
+     ASSERT(   (RpcStatus == RPC_S_OK)
+            || (RpcStatus == RPC_P_CONNECTION_CLOSED));
 
         if ( RpcStatus == RPC_P_CONNECTION_CLOSED )
             {
             ASSERT( SConnection != 0 );
-            delete SConnection;
+            SConnection->Delete() ;
             continue;
             }
 
@@ -181,8 +169,19 @@ Routine Description:
                 {
                 ActiveCallCount -= 1;
                 AddressMutex.Clear();
-                SConnection->SendFault(RPC_S_SERVER_TOO_BUSY, 1);
-                SConnection->Delete();
+
+                // BUGBUG: We might have a similar problem with
+                // alter context PDUs
+                if (((rpcconn_common *) Buffer)->PTYPE == rpc_bind)
+                    {
+                    SConnection->SendBindNak(temporary_congestion) ;
+                    }
+                else
+                    {
+                    SConnection->SetCallId(((rpcconn_common *)Buffer)->call_id);
+                    SConnection->SendFault(RPC_S_OUT_OF_MEMORY, 1);
+                    SConnection->Delete();
+                    }
                 continue;
                 }
             }
@@ -191,18 +190,23 @@ Routine Description:
 
         for (;;)
             {
+            ASSERT(SConnection->InvalidHandle(SCONNECTION_TYPE) == 0) ;
+
             if (SConnection->DispatchPacket((rpcconn_common *) Buffer,
                     BufferLength, this) != 0)
                 {
                 break;
                 }
-            if ( TransMarkReceiveAny(SConnection) == 0 )
-                break;
 
-            RpcStatus = SConnection->TransReceive(&Buffer, &BufferLength);
+            if ( TransMarkReceiveAny(SConnection) == 0 )
+                {
+                break;
+                }
+
+            RpcStatus = SConnection->TransReceive(&Buffer, &BufferLength, 0);
             if ( RpcStatus == RPC_P_CONNECTION_CLOSED )
                 {
-                delete SConnection;
+                SConnection->Delete() ;
                 break;
                 }
             ASSERT( RpcStatus == RPC_S_OK );
@@ -232,7 +236,8 @@ Routine Description:
 RPC_STATUS
 OSF_ADDRESS::ServerStartingToListen (
     IN unsigned int MinimumCallThreads,
-    IN unsigned int MaximumConcurrentCalls
+    IN unsigned int MaximumConcurrentCalls,
+    IN int ServerThreadsStarted
     )
 /*++
 
@@ -263,20 +268,32 @@ Return Value:
 
     this->MinimumCallThreads = MinimumCallThreads;
 
-    AddressMutex.Request();
-    while (   ( CallThreadCount < this->MinimumCallThreads )
-           && ( CallThreadCount < MINIMUM_CALL_THREADS ) )
+    if (ServerThreadsStarted == 0)
         {
-        RpcStatus = RPCSTATUS_GET_CREATETHREAD(this);
-        if ( RpcStatus != RPC_S_OK )
+        AddressMutex.Request();
+
+#if defined(NTENV) || defined(WIN96)
+        if(CreateThread)
+           {
+#endif
+        while (   ( CallThreadCount < this->MinimumCallThreads )
+               && ( CallThreadCount < MINIMUM_CALL_THREADS ) )
             {
-            AddressMutex.Clear();
-            ASSERT( RpcStatus == RPC_S_OUT_OF_THREADS );
-            return(RpcStatus);
+            RpcStatus = RPCSTATUS_GET_CREATETHREAD(this);
+            if ( RpcStatus != RPC_S_OK )
+                {
+                AddressMutex.Clear();
+                ASSERT( RpcStatus == RPC_S_OUT_OF_THREADS );
+                return(RpcStatus);
+                }
+            CallThreadCount += 1;
             }
-        CallThreadCount += 1;
+#if defined(NTENV) || defined(WIN96)
+           }
+#endif
+        AddressMutex.Clear();
         }
-    AddressMutex.Clear();
+
     ServerListeningFlag = 1;
     return(RPC_S_OK);
 }
@@ -344,13 +361,14 @@ Return Value:
     // We will go ahead and create one thread right now.
 
     AddressMutex.Request();
+
     RpcStatus = RPCSTATUS_GET_CREATETHREAD(this);
     if ( RpcStatus != RPC_S_OK )
-        {
-        AddressMutex.Clear();
-        ASSERT( RpcStatus == RPC_S_OUT_OF_THREADS );
-        return(RpcStatus);
-        }
+       {
+       AddressMutex.Clear();
+       ASSERT( RpcStatus == RPC_S_OUT_OF_THREADS );
+       return(RpcStatus);
+       }
     CallThreadCount += 1;
     AddressMutex.Clear();
 
@@ -392,6 +410,7 @@ OSF_ADDRESS::FindAssociation (
         if ( Association->IsMyAssocGroupId(AssociationGroupId,
                     ClientProcess) != 0 )
             {
+            Association->AddConnection();
             return(Association);
             }
         }
@@ -480,7 +499,8 @@ Arguments:
 
 OSF_SCONNECTION::OSF_SCONNECTION (
     IN OUT RPC_STATUS PAPI * RpcStatus
-    ) : CachedBufferMutex(RpcStatus)
+    )
+    : CachedBufferMutex(RpcStatus)
 {
 #ifndef NTENV
 
@@ -497,7 +517,8 @@ OSF_SCONNECTION::OSF_SCONNECTION (
     AuthContextId = 0;
     Thread = 0;
     CallOrphaned = 0;
-    AuthenticationLevel = RPC_C_AUTHN_LEVEL_NONE;
+    CancelPending = 0;
+
     AdditionalSpaceForSecurity = 0;
 
     ImpersonatedClientFlag = 0;
@@ -510,8 +531,6 @@ OSF_SCONNECTION::OSF_SCONNECTION (
 
     CachedBufferLength = CACHED_BUFFER_LENGTH;
     CurrentSecurityContext = 0;
-    OriginalSecurityContext = 0;
-    SavedPac = 0;
     RpcSecurityBeingUsed = 0;
     SecurityContextAltered = 0;
 #ifdef NTENV
@@ -537,8 +556,7 @@ OSF_SCONNECTION::OSF_SCONNECTION (
 
         ASSERT( (((long) FirstCachedBuffer) % sizeof(int)) == 0 );
 
-        AmountOfPad = (int) (ALIGN_REQUIRED
-                - ((long) FirstCachedBuffer & (ALIGN_REQUIRED - 1)));
+        AmountOfPad = Pad((char PAPI *)FirstCachedBuffer + 1, ALIGN_REQUIRED) + 1;
         FirstCachedBuffer = (void PAPI *)
                 (((char PAPI *) FirstCachedBuffer) + AmountOfPad);
         ((int PAPI *) FirstCachedBuffer)[-1] = AmountOfPad;
@@ -552,11 +570,13 @@ OSF_SCONNECTION::OSF_SCONNECTION (
         BufferCacheFlags = FIRST_CACHED_BUFFER_AVAILABLE
                 | SECOND_CACHED_BUFFER_AVAILABLE
                 | THIRD_CACHED_BUFFER_AVAILABLE | CACHED_BUFFERS_ALLOCATED;
+
+        ASSERT(Pad8(ThirdCachedBuffer) == 0);
         }
 
         SavedHeader = 0;
         SavedHeaderSize = 0;
-
+        BufferComplete = 0;
 }
 
 OSF_SCONNECTION::~OSF_SCONNECTION (
@@ -572,12 +592,13 @@ OSF_SCONNECTION::~OSF_SCONNECTION (
     if (Association)
         Association->RemoveConnection();
 
-    ASSERT( SavedPac == 0 );
-    if ( (CurrentSecurityContext != 0) && (SavedPac != 0) )
+    ASSERT( AuthInfo.AuthIdentity == 0 );
+    if ( CurrentSecurityContext && AuthInfo.AuthIdentity )
        {
-       CurrentSecurityContext->DeletePac( SavedPac );
+       CurrentSecurityContext->DeletePac( AuthInfo.AuthIdentity );
        }
 
+    SecurityContextDict.Reset();
     while ( (SecurityContext = SecurityContextDict.Next()) != 0 )
         delete SecurityContext;
 
@@ -588,7 +609,7 @@ OSF_SCONNECTION::~OSF_SCONNECTION (
 
     if (SavedHeader != 0)
        {
-       ASSERT(AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE);
+       ASSERT(AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE);
        ASSERT(SavedHeaderSize != 0) ;
        RpcpFarFree(SavedHeader);
        }
@@ -617,6 +638,9 @@ Return Value:
 {
     RPC_STATUS RpcStatus, ExceptionCode;
     unsigned int RemoteFaultOccured = 0;
+    RPC_MESSAGE RpcMessage ;
+    RPC_RUNTIME_INFO RuntimeInfo ;
+
 
     CallStack += 1;
     Association->TheAddress()->Server->OutgoingCallback();
@@ -632,17 +656,23 @@ Return Value:
             }
         Message->TransferSyntax = CurrentBinding->TransferSyntax();
 
+        RuntimeInfo.Length = sizeof(RPC_RUNTIME_INFO) ;
+        RpcMessage = *Message ;
+        RpcMessage.ReservedForRuntime = &RuntimeInfo ;
+
         if ( ObjectUuidSpecified != 0 )
             {
             RpcStatus = CurrentBinding->GetInterface()
-                    ->DispatchToStubWithObject(Message, &ObjectUuid, 1,
+                    ->DispatchToStubWithObject(&RpcMessage, &ObjectUuid, 1,
                             &ExceptionCode);
             }
         else
             {
             RpcStatus = CurrentBinding->GetInterface()->DispatchToStub(
-                    Message, 1, &ExceptionCode);
+                    &RpcMessage, 1, &ExceptionCode);
             }
+
+        *Message = RpcMessage ;
 
         if ( RpcStatus != RPC_S_OK )
             {
@@ -651,7 +681,7 @@ Return Value:
 
             if ( RpcStatus == RPC_S_PROCNUM_OUT_OF_RANGE )
                 {
-                SendFault(RPC_S_PROCNUM_OUT_OF_RANGE, 0);
+                SendFault(RPC_S_PROCNUM_OUT_OF_RANGE, 1);
                 }
             else
                 {
@@ -659,7 +689,7 @@ Return Value:
                 }
 
             RpcStatus = TransReceive(&(Message->Buffer),
-                    &(Message->BufferLength));
+                    &(Message->BufferLength), 0);
             if ( RpcStatus != RPC_S_OK )
                 {
                 if (   ( RpcStatus == RPC_P_RECEIVE_FAILED )
@@ -701,12 +731,25 @@ OSF_SCONNECTION::GetBuffer (
 {
     Message->Handle = (RPC_BINDING_HANDLE) this;
 
+    if (Message->RpcFlags & RPC_BUFFER_PARTIAL &&
+        Message->BufferLength < MaxFrag)
+        {
+        CurrentBufferLength = MaxFrag ;
+        }
+    else
+        {
+        CurrentBufferLength = Message->BufferLength ;
+        }
+
     // In addition to saving space for the request (or response) header,
     // we want to save space for security information if necessary.
 
-    if (TransGetBuffer(&Message->Buffer,Message->BufferLength
+    if (TransGetBuffer(&Message->Buffer,CurrentBufferLength
                 + sizeof(rpcconn_request) + (2*AdditionalSpaceForSecurity)))
+        {
+        CurrentBufferLength = 0 ;
         return(RPC_S_OUT_OF_MEMORY);
+        }
 
     Message->Buffer = (unsigned char *) Message->Buffer
             + sizeof(rpcconn_request);
@@ -716,14 +759,23 @@ OSF_SCONNECTION::GetBuffer (
 
 RPC_STATUS
 OSF_SCONNECTION::GetBufferDo (
+    IN PRPC_MESSAGE Message,
     IN unsigned int culRequiredLength,
-    OUT void ** ppBuffer
+    OUT void ** ppBuffer,
+    IN unsigned long Extra
     )
 {
     if (TransGetBuffer(ppBuffer,culRequiredLength + sizeof(rpcconn_request)))
         return(RPC_S_OUT_OF_MEMORY);
 
     *ppBuffer = (((unsigned char *) (*ppBuffer)) + sizeof(rpcconn_request));
+
+    if (Extra)
+        {
+        ASSERT(Message->ReservedForRuntime) ;
+        ((PRPC_RUNTIME_INFO)Message->ReservedForRuntime)->OldBuffer = *ppBuffer;
+        }
+
     return(RPC_S_OK);
 }
 
@@ -734,6 +786,56 @@ OSF_SCONNECTION::FreeBuffer (
 {
     TransFreeBuffer((unsigned char *) Message->Buffer
             - sizeof(rpcconn_request));
+    CurrentBufferLength = 0;
+}
+
+void
+OSF_SCONNECTION::FreePipeBuffer (
+    IN PRPC_MESSAGE Message
+    )
+{
+    TransFreeBuffer((unsigned char *) Message->Buffer
+            - sizeof(rpcconn_request));
+}
+
+
+RPC_STATUS
+OSF_SCONNECTION::ReallocPipeBuffer (
+    IN PRPC_MESSAGE Message,
+    IN unsigned int NewSize
+    )
+{
+    void *TempBuffer ;
+    RPC_STATUS RpcStatus ;
+    unsigned int SizeToAlloc ;
+
+    if (NewSize > CurrentBufferLength)
+        {
+        SizeToAlloc = (NewSize > MaxFrag) ? NewSize:MaxFrag ;
+
+        RpcStatus = TransGetBuffer(&TempBuffer,
+                SizeToAlloc + sizeof(rpcconn_request) + sizeof(UUID)
+                + (2*AdditionalSpaceForSecurity) );
+        if ( RpcStatus != RPC_S_OK )
+            {
+            ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
+            return(RPC_S_OUT_OF_MEMORY);
+            }
+
+        if (CurrentBufferLength > 0)
+            {
+            RpcpMemoryCopy((char PAPI *) TempBuffer+sizeof(rpcconn_request),
+                                        Message->Buffer, Message->BufferLength) ;
+            FreePipeBuffer(Message) ;
+            }
+        //BUGBUG: Think about changing this to return CurrentBufferLength
+        Message->Buffer = (char PAPI *) TempBuffer + sizeof(rpcconn_request);
+        CurrentBufferLength = SizeToAlloc ;
+        }
+
+    Message->BufferLength = NewSize ;
+
+    return (RPC_S_OK) ;
 }
 
 RPC_STATUS
@@ -777,40 +879,40 @@ OSF_SCONNECTION::ImpersonateClient (
 // security, if there is not, we let the transport try and impersonate
 // the client, and if there is, we let the GSSAPI deal with it.
 {
-    RPC_STATUS RpcStatus;
+    RPC_STATUS Status;
 
-    if ( RpcSecurityBeingUsed )
+    if ( !RpcSecurityBeingUsed )
         {
-        if (CurrentSecurityContext != 0)
-           {
-           RpcStatus = CurrentSecurityContext->ImpersonateClient();
-           }
-        else
-           {
-           if (SecurityContextAltered)
-              {
-#if DBG
-             DbgPrint("RPC:Unable to determine which context to impersonate\n");
-#endif
-              RpcStatus = RPC_S_NO_CONTEXT_AVAILABLE;
-              }
-           else
-              {
-              ASSERT(OriginalSecurityContext != 0);
-              RpcStatus =  OriginalSecurityContext->ImpersonateClient();
-              }
-           }
-        }
-    else
-        {
-        RpcStatus = TransImpersonateClient();
+        Status = SetThreadSecurityContext((SSECURITY_CONTEXT *) ~0UL, &CachedBufferMutex);
+        if (RPC_S_OK != Status)
+            {
+            return Status;
+            }
+
+        return TransImpersonateClient();
         }
 
-    if ( RpcStatus == RPC_S_OK )
+    SSECURITY_CONTEXT * SecurityContext = CurrentSecurityContext;
+
+    if (!SecurityContext)
         {
-        ImpersonatedClientFlag = 1;
+        ASSERT(SecurityContextAltered);
+        return RPC_S_NO_CONTEXT_AVAILABLE;
         }
-    return(RpcStatus);
+
+    Status = SetThreadSecurityContext(SecurityContext, &CachedBufferMutex);
+    if (RPC_S_OK != Status)
+        {
+        return Status;
+        }
+
+    Status = SecurityContext->ImpersonateClient();
+    if (RPC_S_OK != Status)
+        {
+        ClearThreadSecurityContext(&CachedBufferMutex);
+        }
+
+    return Status;
 }
 
 RPC_STATUS
@@ -820,26 +922,23 @@ OSF_SCONNECTION::RevertToSelf (
 // to see if we should let the RPC protocol level security deal with
 // it or the transport.
 {
-    if ( ImpersonatedClientFlag != 0 )
+    SSECURITY_CONTEXT * SecurityContext = ClearThreadSecurityContext(&CachedBufferMutex);
+
+    if (!RpcSecurityBeingUsed)
         {
-        if ( RpcSecurityBeingUsed )
+        if (SecurityContext)
             {
-            if (CurrentSecurityContext != 0)
-               CurrentSecurityContext->RevertToSelf();
-            else
-               {
-               ASSERT( (OriginalSecurityContext != 0) 
-                     &&(SecurityContextAltered == 0) );
-               OriginalSecurityContext->RevertToSelf();
-               }
-            ImpersonatedClientFlag = 0;
-            }
-        else
-            {
+            ASSERT(SecurityContext == (SSECURITY_CONTEXT *) ~0UL);
             TransRevertToSelf();
-            ImpersonatedClientFlag = 0;
             }
+        return RPC_S_OK;
         }
+
+    if (SecurityContext)
+        {
+        SecurityContext->RevertToSelf();
+        }
+
     return(RPC_S_OK);
 }
 
@@ -874,7 +973,10 @@ Return Value:
 
     if ( ClientProcess.FirstPart == 0 )
         {
-        *ClientLocalFlag = 1;
+        if(ClientProcess.SecondPart == 0)
+             return (RPC_S_CANNOT_SUPPORT) ;
+        else
+             *ClientLocalFlag = 1;
         }
     else
         {
@@ -1017,7 +1119,7 @@ Return Value:
             return(RPC_S_OK);
             }
 
-      
+
         CachedBufferMutex.Clear();
 
         }
@@ -1053,10 +1155,10 @@ Return Value:
 
     ASSERT( (((long) Memory) % sizeof(int)) == 0 );
 
-    AmountOfPad = (int)
-            (ALIGN_REQUIRED - ((long) Memory & (ALIGN_REQUIRED - 1)));
+    AmountOfPad = Pad((char PAPI *)Memory + 1, ALIGN_REQUIRED) + 1;
     Memory = (int PAPI *) (((char PAPI *) Memory) + AmountOfPad);
     Memory[-1] = AmountOfPad;
+    ASSERT(Pad8(Memory) == 0);
 #endif // NTENV
 
     *Buffer = Memory;
@@ -1081,7 +1183,7 @@ Routine Description:
 --*/
 {
 
-    
+
     CachedBufferMutex.Request();
 
     if ( Buffer == FirstCachedBuffer )
@@ -1126,6 +1228,7 @@ OSF_SCONNECTION::SendBindNak (
     pBindNak->versions.p_protocols[0].major = OSF_RPC_V20_VERS;
     pBindNak->versions.p_protocols[0].minor = OSF_RPC_V20_VERS_MINOR;
     pBindNak->common.call_id = CallId;
+    pBindNak->common.pfc_flags = PFC_FIRST_FRAG | PFC_LAST_FRAG ;
 
     if (TransSend(pBindNak,cBindNak))
         {
@@ -1372,41 +1475,51 @@ Return Value:
         SecurityTrailer = (sec_trailer PAPI *)
                 (((unsigned char PAPI *) BindPacket) + BindPacketLength
                 - BindPacket->common.auth_length - sizeof(sec_trailer));
-        AuthenticationLevel = SecurityTrailer->auth_level;
+
+
+        AuthInfo.AuthenticationLevel = SecurityTrailer->auth_level;
+
         //Hack for OSF Clients
         //If Level is CALL .. bump it ip to CONNECT
-        if (AuthenticationLevel == RPC_C_AUTHN_LEVEL_CALL)
+        if (AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_CALL)
            {
-           AuthenticationLevel = RPC_C_AUTHN_LEVEL_PKT;
+           AuthInfo.AuthenticationLevel = RPC_C_AUTHN_LEVEL_PKT;
            }
-        if (   (AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY) )
+        if (   (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY) )
             {
             SendBindNak(reason_not_specified_reject);
             return(1);
             }
-        AuthenticationService = SecurityTrailer->auth_type;
+        AuthInfo.AuthenticationService = SecurityTrailer->auth_type;
         AuthContextId = SecurityTrailer->auth_context_id;
- 
+
+        if ( DataConvertEndian(BindPacket->common.drep) != 0 )
+            {
+            ByteSwapLong(AuthContextId);
+            }
+
+        RPC_STATUS Status = RPC_S_OK;
         CurrentSecurityContext = new SSECURITY_CONTEXT(
+                                             &AuthInfo,
                                              AuthContextId,
-                                             AuthenticationLevel,
-                                             AuthenticationService
+                                             FALSE,
+                                             &Status
                                              );
 
         if ( (CurrentSecurityContext == 0)
+           || RPC_S_OK != Status
            ||(SecurityContextDict.Insert(CurrentSecurityContext) == -1) )
             {
             SendBindNak(local_limit_exceeded_reject);
             return(1);
             }
 
-        OriginalSecurityContext = CurrentSecurityContext;
         RpcSecurityBeingUsed = 1;
         RpcStatus = Address->Server->AcquireCredentials(
-                AuthenticationService, AuthenticationLevel,
+                AuthInfo.AuthenticationService, AuthInfo.AuthenticationLevel,
                 &SecurityCredentials);
         if ( RpcStatus == RPC_S_OUT_OF_MEMORY )
             {
@@ -1427,10 +1540,8 @@ Return Value:
 
     SecondaryAddressLength = Address->TransSecondarySize();
     BindAckLength = sizeof(rpcconn_bind_ack) + SecondaryAddressLength
-            + Align4[(SecondaryAddressLength + 2) % 4] + sizeof(p_result_list_t)
-            + sizeof(p_result_t) * (PContextList->n_context_elem - 1);
-//    if ( SecondaryAddressLength == 0 )
-//        BindAckLength += 2;
+                    + Pad4(SecondaryAddressLength + 2) + sizeof(p_result_list_t)
+                    + sizeof(p_result_t) * (PContextList->n_context_elem - 1);
 
     // Ok, we need to save some space for authentication information if
     // necessary.  This includes space for the token, the security trailer,
@@ -1438,7 +1549,7 @@ Return Value:
 
     if ( SecurityCredentials != 0 )
         {
-        AuthPadLength = Align4[BindAckLength % 4];
+        AuthPadLength = Pad4(BindAckLength);
         BindAckLength += SecurityCredentials->MaximumTokenLength()
                 + sizeof(sec_trailer) + AuthPadLength;
         }
@@ -1482,7 +1593,7 @@ Return Value:
         InputBuffers[1].cbBuffer = BindPacket->common.frag_length
                 - sizeof(rpcconn_bind) - BindPacket->common.auth_length;
         InputBuffers[1].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
-        InputBuffers[1].pvBuffer = (char PAPI*)SavedHeader + 
+        InputBuffers[1].pvBuffer = (char PAPI*)SavedHeader +
                                             sizeof(rpcconn_bind);
 
         InputBuffers[2].cbBuffer = BindPacket->common.auth_length;
@@ -1548,19 +1659,33 @@ Return Value:
             NewSecurityTrailer->auth_level = SecurityTrailer->auth_level;
             NewSecurityTrailer->auth_pad_length = AuthPadLength;
             NewSecurityTrailer->auth_reserved = 0;
-            AuthContextId = SecurityTrailer->auth_context_id;
             NewSecurityTrailer->auth_context_id = AuthContextId;
 
             Address->Server->FreeCredentials(SecurityCredentials);
             }
         else
             {
-            ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
+            ASSERT  ( ( RpcStatus == RPC_S_OUT_OF_MEMORY )
+                || ( RpcStatus == RPC_S_ACCESS_DENIED )
+                || ( RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE) );
 
             TransFreeBuffer(BindPacket);
             TransFreeBuffer(BindAck);
             Address->Server->FreeCredentials(SecurityCredentials);
-            SendBindNak(local_limit_exceeded_reject);
+
+            if (RpcStatus == RPC_S_OUT_OF_MEMORY)
+                {
+                SendBindNak(local_limit_exceeded_reject);
+                }
+            else
+            if (RpcStatus == RPC_S_UNKNOWN_AUTHN_SERVICE)
+                {
+                SendBindNak(authentication_type_not_recognized);
+                }
+            else
+                {
+                SendBindNak(invalid_checksum);
+                }
             return(1);
             }
         }
@@ -1587,9 +1712,10 @@ Return Value:
         }
     if ( Association == 0 )
         {
-        Association = new OSF_ASSOCIATION(Address, &ClientProcess);
-        if ( Association == 0 )
+        Association = new OSF_ASSOCIATION(Address, &ClientProcess, &RpcStatus);
+        if ( (Association == 0) || (RpcStatus != RPC_S_OK) )
             {
+            delete Association;
             Association = Nil;
             TransFreeBuffer(BindPacket);
             TransFreeBuffer(BindAck);
@@ -1598,13 +1724,10 @@ Return Value:
             }
         }
 
-    Association->AddConnection();
-
     BindPacketLength -= sizeof(rpcconn_bind);
     if ( ProcessPContextList(Address, PContextList, &BindPacketLength,
-            (p_result_list_t *) (((unsigned char *) BindAck) +
-                sizeof(rpcconn_bind_ack) + SecondaryAddressLength +
-                Align4[(SecondaryAddressLength + 2) % 4] )) != 0 )
+            (p_result_list_t *) (((unsigned char *) BindAck) + sizeof(rpcconn_bind_ack)
+            + SecondaryAddressLength + Pad4(SecondaryAddressLength + 2))) != 0 )
         {
         TransFreeBuffer(BindPacket);
         TransFreeBuffer(BindAck);
@@ -1615,6 +1738,7 @@ Return Value:
     // Fill in the header of the rpc_bind_ack packet.
 
     ConstructPacket((rpcconn_common *) BindAck, rpc_bind_ack, BindAckLength);
+
     MaxFrag = MinOf(BindPacket->max_xmit_frag, BindPacket->max_recv_frag,
             TransMaximumSend());
     if ( MaxFrag < MUST_RECV_FRAG_SIZE )
@@ -1624,13 +1748,15 @@ Return Value:
     BindAck->assoc_group_id = Association->AssocGroupId();
     BindAck->sec_addr_length = (unsigned short) SecondaryAddressLength;
     BindAck->common.call_id = CallId;
+    ((rpcconn_common PAPI *) BindAck)->pfc_flags |=
+                                 (PFC_FIRST_FRAG | PFC_LAST_FRAG);
 
     DceSecurityInfo.ReceiveSequenceNumber += 1;
 
     if ( SecondaryAddressLength != 0 )
         {
         RpcStatus = Address->TransSecondary((unsigned char *) (BindAck + 1),
-                                            SecondaryAddressLength);
+                                 SecondaryAddressLength);
         if (RpcStatus != RPC_S_OK)
             {
             ASSERT(RpcStatus == RPC_S_OUT_OF_MEMORY);
@@ -1652,7 +1778,14 @@ Return Value:
 
     if ( CompleteNeeded != 0 )
         {
-        CurrentSecurityContext->CompleteSecurityToken(&OutputBufferDescriptor);
+        RpcStatus = CurrentSecurityContext->CompleteSecurityToken(
+                                              &OutputBufferDescriptor);
+        if (RpcStatus != RPC_S_OK)
+            {
+            TransFreeBuffer(BindAck);
+            SendBindNak(invalid_checksum);
+            return(1);
+            }
         }
 
     RpcStatus = TransSend(BindAck, BindAckLength);
@@ -1662,22 +1795,22 @@ Return Value:
         return(1);
         }
 
-    // We may need to do third leg authentication.
+    // We may need to do third leg AuthInfo.Authentication.
 
     if ( AuthContinueNeeded != 0 )
         {
         // This means that the client is sending us back a third leg
-        // authentication packet.
+        // AuthInfo.Authentication packet.
 
         RpcStatus = TransReceive((void **) &AuthThirdLegPacket,
-                &AuthThirdLegPacketLength);
+                &AuthThirdLegPacketLength, 0);
         if ( RpcStatus != RPC_S_OK )
             {
             return(1);
             }
- 
+
         // Save the unbyteswapped header
-        ASSERT(AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE);
+        ASSERT(AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE);
 
         if (SavedHeaderSize < AuthThirdLegPacketLength)
           {
@@ -1695,13 +1828,13 @@ Return Value:
              return(1);
              }
           SavedHeaderSize = AuthThirdLegPacketLength;
-          RpcpMemoryCopy(SavedHeader, AuthThirdLegPacket, 
+          RpcpMemoryCopy(SavedHeader, AuthThirdLegPacket,
                                       AuthThirdLegPacketLength);
 
           }
         else
           {
-          RpcpMemoryCopy(SavedHeader, AuthThirdLegPacket, 
+          RpcpMemoryCopy(SavedHeader, AuthThirdLegPacket,
                                       AuthThirdLegPacketLength);
           }
 
@@ -1724,8 +1857,8 @@ Return Value:
                 + AuthThirdLegPacket->common.frag_length - sizeof(sec_trailer)
                 - AuthThirdLegPacket->common.auth_length);
 
-        if (   (NewSecurityTrailer->auth_type != AuthenticationService)
-            || (NewSecurityTrailer->auth_level != AuthenticationLevel) )
+        if (   (NewSecurityTrailer->auth_type != AuthInfo.AuthenticationService)
+            || (NewSecurityTrailer->auth_level != AuthInfo.AuthenticationLevel) )
             {
             TransFreeBuffer(AuthThirdLegPacket);
             return(1);
@@ -1743,7 +1876,7 @@ Return Value:
                 - sizeof(rpcconn_auth3)
                 - AuthThirdLegPacket->common.auth_length;
         InputBuffers[1].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
-        InputBuffers[1].pvBuffer = (char PAPI *)SavedHeader + 
+        InputBuffers[1].pvBuffer = (char PAPI *)SavedHeader +
                                                  sizeof(rpcconn_auth3);
 
         InputBuffers[2].cbBuffer = AuthThirdLegPacket->common.auth_length;
@@ -1771,16 +1904,16 @@ Return Value:
     // we need space to pad the packet to a multiple of the maximum
     // security block size as well as for the security trailer.
 
-    if ( (AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
-       ||(AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT)
-       ||(AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT) )
-       
+    if ( (AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
+       ||(AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT)
+       ||(AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT) )
+
         {
         AdditionalSpaceForSecurity = MAXIMUM_SECURITY_BLOCK_SIZE
                 + CurrentSecurityContext->MaximumSignatureLength()
                 + sizeof(sec_trailer);
         }
-    else if ( AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_PRIVACY )
+    else if ( AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_PRIVACY )
         {
         AdditionalSpaceForSecurity = MAXIMUM_SECURITY_BLOCK_SIZE
                 + CurrentSecurityContext->MaximumHeaderLength()
@@ -1833,7 +1966,8 @@ Return Value:
     unsigned long SecureAlterContext = 0;
     unsigned int AuthPadLength;
     unsigned long NewContextRequired = 0;
-    unsigned long Id, Service, Level;
+    CLIENT_AUTH_INFO NewClientInfo;
+    unsigned NewId;
     SSECURITY_CONTEXT * SecId;
 
     // The packet has already been validate by whoever called this method.
@@ -1857,29 +1991,39 @@ Return Value:
         //
         SecureAlterContext = 1;
         SecurityTrailer = (sec_trailer PAPI *)
-                (((unsigned char PAPI *) AlterContext) + AlterContextLength - 
+                (((unsigned char PAPI *) AlterContext) + AlterContextLength -
                 AlterContext->common.auth_length - sizeof(sec_trailer));
 
-        Id = SecurityTrailer->auth_context_id;
-        Level = SecurityTrailer->auth_level;
-        Service = SecurityTrailer->auth_type;
-   
-        if (Level ==  RPC_C_AUTHN_LEVEL_CALL)
+        NewId = SecurityTrailer->auth_context_id;
+        NewClientInfo.AuthenticationLevel = SecurityTrailer->auth_level;
+        NewClientInfo.AuthenticationService = SecurityTrailer->auth_type;
+        if (DataConvertEndian(((unsigned char *)&DataRep)) != 0)
+            {
+            ByteSwapLong(NewId);
+            }
+
+        if (NewClientInfo.AuthenticationLevel ==  RPC_C_AUTHN_LEVEL_CALL)
            {
-           Level = RPC_C_AUTHN_LEVEL_PKT;
-           } 
+           NewClientInfo.AuthenticationLevel = RPC_C_AUTHN_LEVEL_PKT;
+           }
         //
         //Check to see if a new context is being added..
         //
-        SecId = FindSecurityContext(Id, Level, Service);
-        
+        SecId = FindSecurityContext(NewId,
+                                    NewClientInfo.AuthenticationLevel,
+                                    NewClientInfo.AuthenticationService
+                                    );
+
         if (SecId == 0)
            {
-           SecId = new SSECURITY_CONTEXT(Id, Level, Service);
+           RPC_STATUS Status = RPC_S_OK;
+
+           SecId = new SSECURITY_CONTEXT(&NewClientInfo, NewId, FALSE, &Status);
            if ( (SecId == 0)
+              || RPC_S_OK != Status
               ||(SecurityContextDict.Insert(SecId) == -1) )
               {
-              SendFault(RPC_S_OUT_OF_MEMORY, 0);
+              SendFault(RPC_S_OUT_OF_MEMORY, 1);
               return (1);
               }
            NewContextRequired = 1;
@@ -1888,39 +2032,35 @@ Return Value:
            //set original sec. context
            //else, mark this connection to indicate
            //security context is altered ..
-           if (RpcSecurityBeingUsed == 0)
+           if (RpcSecurityBeingUsed)
               {
-              OriginalSecurityContext = SecId;
-              }
-           else
-              {
-              ASSERT(OriginalSecurityContext != 0);
               SecurityContextAltered = 1;
               }
            }
- 
-        AuthContextId = Id;
-        AuthenticationLevel = Level;
-        AuthenticationService = Service;
+
+        AuthInfo = NewClientInfo;
+        AuthContextId = NewId;
         CurrentSecurityContext = SecId;
         RpcSecurityBeingUsed = 1;
 
-        if (   (AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
-            && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY) )
+        if (   (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_INTEGRITY)
+            && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY) )
             {
-            SendFault(RPC_S_ACCESS_DENIED, 0);
+            SendFault(RPC_S_ACCESS_DENIED, 1);
             return(1);
             }
 
         RpcStatus = Address->Server->AcquireCredentials(
-                AuthenticationService, AuthenticationLevel,
-                &SecurityCredentials);
+                AuthInfo.AuthenticationService,
+                AuthInfo.AuthenticationLevel,
+                &SecurityCredentials
+                );
 
         if ( RpcStatus == RPC_S_OUT_OF_MEMORY )
             {
-            SendFault(RPC_S_OUT_OF_MEMORY, 0);
+            SendFault(RPC_S_OUT_OF_MEMORY, 1);
             return(1);
             }
         if ( RpcStatus != RPC_S_OK )
@@ -1929,7 +2069,7 @@ Return Value:
                {
                Address->Server->FreeCredentials(SecurityCredentials);
                }
-            SendFault(RPC_S_ACCESS_DENIED, 0);
+            SendFault(RPC_S_ACCESS_DENIED, 1);
             return(1);
             }
         ASSERT( SecurityCredentials != 0 );
@@ -1949,10 +2089,10 @@ Return Value:
     if (SecureAlterContext != 0)
        {
        ASSERT(SecurityCredentials != 0);
-       AuthPadLength = Align4[AlterContextRespLength % 4];
-       AlterContextRespLength += AuthPadLength + 
-                        SecurityCredentials->MaximumTokenLength() + 
-                        sizeof(sec_trailer); 
+       AuthPadLength = Pad4(AlterContextRespLength);
+       AlterContextRespLength += AuthPadLength +
+                        SecurityCredentials->MaximumTokenLength() +
+                        sizeof(sec_trailer);
        }
 
     RpcStatus = TransGetBuffer((void **) &AlterContextResp,
@@ -1965,7 +2105,7 @@ Return Value:
            {
            Address->Server->FreeCredentials(SecurityCredentials);
            }
-        SendFault(RPC_S_SERVER_TOO_BUSY, 0);
+        SendFault(RPC_S_OUT_OF_MEMORY, 1);
         return(1);
         }
 
@@ -1979,7 +2119,7 @@ Return Value:
            {
            Address->Server->FreeCredentials(SecurityCredentials);
            }
-        SendFault(RPC_S_PROTOCOL_ERROR, 0);
+        SendFault(RPC_S_PROTOCOL_ERROR, 1);
         return(1);
         }
 
@@ -1987,9 +2127,9 @@ Return Value:
         {
         ASSERT(SecurityCredentials != 0);
         NewSecurityTrailer = (sec_trailer PAPI *)
-                (((unsigned char PAPI *) AlterContextResp) + 
-                              AlterContextRespLength - 
-                              SecurityCredentials->MaximumTokenLength() - 
+                (((unsigned char PAPI *) AlterContextResp) +
+                              AlterContextRespLength -
+                              SecurityCredentials->MaximumTokenLength() -
                               sizeof(sec_trailer));
 
         InitSecurityInfo.DceSecurityInfo = DceSecurityInfo;
@@ -2003,10 +2143,10 @@ Return Value:
         InputBuffers[0].pvBuffer = SavedHeader;
 
         InputBuffers[1].cbBuffer = AlterContext->common.frag_length -
-                                   sizeof(rpcconn_alter_context) - 
+                                   sizeof(rpcconn_alter_context) -
                                    AlterContext->common.auth_length;
         InputBuffers[1].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
-        InputBuffers[1].pvBuffer = (char PAPI *)SavedHeader + 
+        InputBuffers[1].pvBuffer = (char PAPI *)SavedHeader +
                                           sizeof(rpcconn_alter_context);
 
         InputBuffers[2].cbBuffer = AlterContext->common.auth_length;
@@ -2027,7 +2167,7 @@ Return Value:
                 - sizeof(rpcconn_alter_context_resp);
         OutputBuffers[1].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
         OutputBuffers[1].pvBuffer = ((unsigned char *) AlterContextResp)
-            + sizeof(rpcconn_alter_context_resp); 
+            + sizeof(rpcconn_alter_context_resp);
         OutputBuffers[2].cbBuffer = SecurityCredentials->MaximumTokenLength();
         OutputBuffers[2].BufferType = SECBUFFER_TOKEN;
         OutputBuffers[2].pvBuffer = NewSecurityTrailer + 1;
@@ -2046,10 +2186,10 @@ Return Value:
                                NewContextRequired
                                );
             //
-            // Since we have (potentially) a new security context we 
-            // need to figure out 
+            // Since we have (potentially) a new security context we
+            // need to figure out
             // additional security related information at this stage..
-            // 
+            //
 
             switch (SecurityTrailer->auth_level)
 
@@ -2074,11 +2214,11 @@ Return Value:
                      ASSERT(!"Unknown Security Level\n");
                 }
             }
-        else   
+        else
             {
             RpcStatus = CurrentSecurityContext->AcceptThirdLeg(
                          *((unsigned long PAPI *) AlterContext->common.drep),
-                         &InputBufferDescriptor, 
+                         &InputBufferDescriptor,
                          &OutputBufferDescriptor
                          );
             }
@@ -2092,25 +2232,21 @@ Return Value:
                 CompleteNeeded = 1;
                 }
 
-            AlterContextRespLength = AlterContextRespLength + 
-                                    TokenLength - 
+            AlterContextRespLength = AlterContextRespLength +
+                                    TokenLength -
                                     SecurityCredentials->MaximumTokenLength();
 
             NewSecurityTrailer->auth_type = SecurityTrailer->auth_type;
             NewSecurityTrailer->auth_level = SecurityTrailer->auth_level;
             NewSecurityTrailer->auth_pad_length = AuthPadLength;
             NewSecurityTrailer->auth_reserved = 0;
-            NewSecurityTrailer->auth_context_id = 
-                                    SecurityTrailer->auth_context_id;
+            NewSecurityTrailer->auth_context_id = AuthContextId;
+                                    /*SecurityTrailer->auth_context_id */
             if (SecurityCredentials != 0)
                {
                Address->Server->FreeCredentials(SecurityCredentials);
                }
 
-            if (NewContextRequired != 0)
-               {
-               AuthContextId = SecurityTrailer->auth_context_id;
-               }
             }
         else
             {
@@ -2123,7 +2259,7 @@ Return Value:
                ASSERT(NewContextRequired != 0);
                Address->Server->FreeCredentials(SecurityCredentials);
                }
-            SendFault(RPC_S_ACCESS_DENIED, 0);
+            SendFault(RPC_S_ACCESS_DENIED, 1);
             return(1);
             }
         SecurityCredentials = 0;
@@ -2137,7 +2273,7 @@ Return Value:
     if ( Association == 0 )
         {
         TransFreeBuffer(AlterContextResp);
-        SendFault(RPC_S_PROTOCOL_ERROR, 0);
+        SendFault(RPC_S_PROTOCOL_ERROR, 1);
         return(1);
         }
     AlterContextResp->assoc_group_id = Association->AssocGroupId();
@@ -2159,11 +2295,39 @@ Return Value:
     return(0);
 }
 
+
 unsigned int
 OSF_SCONNECTION::GuessBufferSize (
     )
 {
     return(MaxFrag/2);
+}
+
+
+RPC_STATUS
+OSF_SCONNECTION::Receive (
+    IN OUT PRPC_MESSAGE Message,
+    IN unsigned int Size
+    )
+{
+    RPC_STATUS RpcStatus ;
+
+    if (BufferComplete)
+        {
+        Message->RpcFlags |= RPC_BUFFER_COMPLETE ;
+        return (RPC_S_OK) ;
+        }
+
+    RpcStatus = ReceiveNextChunk(Message, Size) ;
+
+    if (RpcStatus == RPC_S_OK
+        && NOT_MULTIPLE_OF_EIGHT(Message->BufferLength)
+        && (Message->RpcFlags & RPC_BUFFER_COMPLETE) == 0)
+        {
+        SaveRemainingData(Message) ;
+        }
+
+    return RpcStatus ;
 }
 
 
@@ -2196,27 +2360,38 @@ Return Value:
 {
     RPC_STATUS RpcStatus, ExceptionCode;
     RPC_MESSAGE Message;
+    RPC_RUNTIME_INFO RuntimeInfo ;
+
+    RuntimeInfo.Length = sizeof(RPC_RUNTIME_INFO) ;
 
     Message.Buffer = Packet;
     Message.BufferLength = PacketLength;
+    Message.RpcFlags = 0 ;
+    Message.ReservedForRuntime = &RuntimeInfo ;
+
     CallStack = 1;
     ObjectUuidSpecified = 0;
     AlertCount = 0;
     CallOrphaned = 0;
+    ExtendedError = RPC_S_ACCESS_DENIED;
+    CurrentBufferLength = 0 ;
 
-    RpcStatus = ReceiveRequestOrResponse(&Message);
-    
+    RpcStatus = ReceiveFirstFrag(&Message, 0);
+
     if ( RpcStatus != RPC_S_OK )
         {
-        if ( (RpcStatus == RPC_S_PROTOCOL_ERROR) || 
-                               (RpcStatus == RPC_S_ACCESS_DENIED) )
+        if (RpcStatus == RPC_S_PROTOCOL_ERROR)
             {
-            SendFault(RpcStatus, 0);
+            SendFault(RPC_S_PROTOCOL_ERROR,1);
+            }
+        else if (RpcStatus == RPC_S_ACCESS_DENIED)
+            {
+            SendFault(ExtendedError, 1);
             }
         else if (   (RpcStatus == RPC_S_OUT_OF_MEMORY)
                  || (RpcStatus == RPC_S_OUT_OF_RESOURCES))
             {
-            SendFault(RPC_S_SERVER_TOO_BUSY, 0);
+            SendFault(RPC_S_OUT_OF_MEMORY, 1);
             }
         else if ( RpcStatus == RPC_S_CALL_FAILED_DNE )
             {
@@ -2238,6 +2413,46 @@ Return Value:
     ASSERT(Thread == 0);
     Thread = ThreadSelf();
     Message.TransferSyntax = CurrentBinding->TransferSyntax();
+    //
+    // Check the security callback on this connection
+    // If IF does not require a security callback, just dispatch
+    // If IF requires a callback and current call is insecure - send a fault
+    // and fail the call
+    // If IF requires a callback, have the binding confirm that for this id
+    // we did callback once before
+    // If we never did callback.. ever, SBinding->CheckSecurity will force
+    // a security callback
+
+    if (CurrentBinding->GetInterface()->IsSecurityCallbackReqd() != 0)
+        {
+        if (CurrentSecurityContext == 0)
+            {
+            SendFault(RPC_S_ACCESS_DENIED, 1);
+            RpcpSetThreadContext(0) ;
+            //Thread = 0;
+
+            this->Delete() ;
+
+            return (1);
+            }
+
+        RpcStatus = CurrentBinding->CheckSecurity(
+                        this, CurrentSecurityContext->AuthContextId
+                        );
+
+        if (RpcStatus != RPC_S_OK)
+            {
+            SendFault(RPC_S_ACCESS_DENIED, 1);
+            RpcpSetThreadContext(0) ;
+            //Thread = 0;
+
+            this->Delete() ;
+
+            return (1);
+            }
+        }
+
+    FirstFrag = 1;
     if ( ObjectUuidSpecified != 0 )
         {
         RpcStatus = CurrentBinding->GetInterface()->DispatchToStubWithObject(
@@ -2250,11 +2465,12 @@ Return Value:
         }
     RpcpSetThreadContext(0);
     Thread = 0;
+    BufferComplete = 0;
 
-    if ( (CurrentSecurityContext != 0) && (SavedPac != 0) )
+    if ( (CurrentSecurityContext != 0) && (AuthInfo.AuthIdentity != 0) )
        {
-       CurrentSecurityContext->DeletePac( SavedPac );
-       SavedPac = 0;
+       CurrentSecurityContext->DeletePac( AuthInfo.AuthIdentity );
+       AuthInfo.AuthIdentity = 0;
        }
 
     // We need to insure that the server thread stops impersonating
@@ -2280,32 +2496,33 @@ Return Value:
             }
         else if ( RpcStatus == RPC_S_PROCNUM_OUT_OF_RANGE )
             {
-            SendFault(RPC_S_PROCNUM_OUT_OF_RANGE,0);
+            SendFault(RPC_S_PROCNUM_OUT_OF_RANGE,1);
             }
         else if ( RpcStatus == RPC_S_UNKNOWN_IF )
             {
-            SendFault(RPC_S_UNKNOWN_IF,0);
+            SendFault(RPC_S_UNKNOWN_IF,1);
             }
         else if ( RpcStatus == RPC_S_UNSUPPORTED_TYPE )
             {
-            SendFault(RPC_S_UNSUPPORTED_TYPE, 0);
+            SendFault(RPC_S_UNSUPPORTED_TYPE, 1);
             }
         else
             {
             ASSERT(   ( RpcStatus == RPC_S_NOT_LISTENING )
                    || ( RpcStatus == RPC_S_SERVER_TOO_BUSY ) );
-            SendFault(RPC_S_SERVER_TOO_BUSY,0);
+            SendFault(RPC_S_SERVER_TOO_BUSY,1);
             }
         return(0);
         }
 
     ASSERT( Message.Buffer != 0 );
 
-    if (CallOrphaned) {
+    if ( CallOrphaned )
+        {
         CallOrphaned = 0;
         RpcTestCancel(); // clear cancel if thread didn\'t notice it.
         return (0);
-    }
+        }
 
     RpcStatus = SendRequestOrResponse(&Message, rpc_response);
     if ( RpcStatus != RPC_S_OK )
@@ -2347,21 +2564,22 @@ Return Value:
 {
     RPC_STATUS RpcStatus;
     unsigned long SizeofHeaderToSave = 0;
+    int retval ;
 
     //Save the unbyteswapped header for the security related stuff
     //Especially if SECURITY is on.
     //For Bind and AlterContext we save entire packet [we can do better though]
     //For Request/Resonse we save just the greater of rpc_req or rpc_resp
-    
+
     //We havent byteswapped anything.. but if auth_length is 0, byteswapping
-    //is irrelevant.. 
+    //is irrelevant..
     if (Packet->auth_length != 0)
        {
        if ( (Packet->PTYPE == rpc_bind)||(Packet->PTYPE == rpc_alter_context) )
           {
           SizeofHeaderToSave = PacketLength;
           }
-       else 
+       else
        if ( (Packet->PTYPE == rpc_request) || (Packet->PTYPE == rpc_response) )
             {
             SizeofHeaderToSave = sizeof(rpcconn_request);
@@ -2400,7 +2618,7 @@ Return Value:
           RpcpMemoryCopy(SavedHeader, Packet, SizeofHeaderToSave);
 
           }
-        else 
+        else
         if (SizeofHeaderToSave != 0)
           {
           RpcpMemoryCopy(SavedHeader, Packet, SizeofHeaderToSave);
@@ -2479,6 +2697,19 @@ Return Value:
                 if (CurrentBinding->GetPresentationContext() ==
                         ((rpcconn_request *)Packet)->p_cont_id)
                     {
+                    if (CurrentBinding->GetInterface()->IsAutoListenInterface())
+                        {
+                        CurrentBinding->GetInterface()->BeginAutoListenCall() ;
+                        Address->BeginAutoListenCall() ;
+
+                        retval = ReceiveOriginalCall(Packet, PacketLength) ;
+
+                        CurrentBinding->GetInterface()->EndAutoListenCall() ;
+                        Address->EndAutoListenCall() ;
+
+                        return retval ;
+                        }
+
                     return(ReceiveOriginalCall(Packet, PacketLength));
                     }
                 }
@@ -2486,13 +2717,13 @@ Return Value:
             // We did not find a binding, which indicates the client tried
             // to make a remote procedure call on an unknown interface.
 
-            SendFault(RPC_S_UNKNOWN_IF,0);
+            SendFault(RPC_S_UNKNOWN_IF,1);
             TransFreeBuffer(Packet);
             this->Delete();
             return(1);
 
         default :
-            SendFault(RPC_S_PROTOCOL_ERROR,0);
+            SendFault(RPC_S_PROTOCOL_ERROR,1);
             this->Delete();
             return(1);
         }
@@ -2513,6 +2744,11 @@ OSF_SCONNECTION::SendFault (
     memset(&Fault, 0, sizeof(Fault));
     ConstructPacket((rpcconn_common *) &Fault,rpc_fault, sizeof(rpcconn_fault));
 
+    if (DidNotExecute != 0)
+        {
+        DidNotExecute = PFC_DID_NOT_EXECUTE;
+        }
+
     Fault.common.pfc_flags |= PFC_FIRST_FRAG | PFC_LAST_FRAG | DidNotExecute;
     Fault.status = MapToNcaStatusCode(Status);
     Fault.common.call_id = CallId;
@@ -2522,31 +2758,6 @@ OSF_SCONNECTION::SendFault (
                 CurrentBinding->GetPresentationContext();
 
     TransSend(&Fault, sizeof(rpcconn_fault));
-}
-
-
-void
-OSF_SCONNECTION::ServerTooBusy (
-    )
-/*++
-
-Routine Description:
-
-    The server is not listening, so we can not handle the call or the
-    bind request.  If it is a call, we will just fault it, otherwise,
-    we need to send a bind nak.
-
---*/
-{
-    if ( Association == 0 )
-        {
-        SendBindNak(local_limit_exceeded_reject);
-        this->Delete();
-        }
-    else
-        {
-        SendFault(RPC_S_SERVER_TOO_BUSY, 1);
-        }
 }
 
 
@@ -2612,7 +2823,7 @@ Return Value:
                 SendFault(RPC_S_UNKNOWN_IF, 0);
 
                 RpcStatus = TransReceive(&(Message->Buffer),
-                        &(Message->BufferLength));
+                        &(Message->BufferLength), 0);
                 if ( RpcStatus != RPC_S_OK )
                     {
                     if (   ( RpcStatus == RPC_P_RECEIVE_FAILED )
@@ -2678,7 +2889,8 @@ Return Value:
 
             TransFreeBuffer(Message->Buffer);
             Message->Buffer = 0;
-            RpcStatus = TransReceive(&Message->Buffer, &Message->BufferLength);
+            RpcStatus = TransReceive(&Message->Buffer,
+                                                   &Message->BufferLength, 0) ;
             if ( RpcStatus != RPC_S_OK )
                 {
                 if (   ( RpcStatus == RPC_P_RECEIVE_FAILED )
@@ -2702,11 +2914,29 @@ Return Value:
     return(RPC_S_INTERNAL_ERROR);
 }
 
+
+RPC_STATUS
+OSF_SCONNECTION::Send (
+    IN OUT PRPC_MESSAGE Message
+    )
+/*++
+Routine Description:
+    Used by pipes, this is always a partial send.
+
+Arguments:
+    Message - Supplies the buffer containing the request or response to be
+        sent, and returns the first fragment received from the server.
+--*/
+{
+    return SendRequestOrResponse(Message, rpc_response, 1) ;
+}
+
 
 RPC_STATUS
 OSF_SCONNECTION::SendRequestOrResponse (
     IN OUT PRPC_MESSAGE Message,
-    IN unsigned char PacketType
+    IN unsigned char PacketType,
+    IN int IsPartial
     )
 /*++
 
@@ -2748,14 +2978,9 @@ Return Value:
     void PAPI * ReceiveBuffer = 0;
     unsigned int ReceiveBufferLength;
     unsigned int MaxSecuritySize = 0;
-    unsigned char PAPI * ReservedForSecurity;
+    unsigned char PAPI * ReservedForSecurity = NULL ;
     unsigned int MaximumFragmentLength = MaxFrag;
-    sec_trailer PAPI * SecurityTrailer;
-    unsigned int SecurityLength;
-    unsigned int AuthPadLength;
-    SECURITY_BUFFER_DESCRIPTOR BufferDescriptor;
-    SECURITY_BUFFER SecurityBuffers[5];
-    DCE_MSG_SECURITY_INFO MsgSecurityInfo;
+    unsigned int tocopy, leftover ;
 
     ASSERT( sizeof(rpcconn_response) == sizeof(rpcconn_request) );
     ASSERT(   (PacketType == rpc_request)
@@ -2773,7 +2998,7 @@ Return Value:
     // overwritten with authentication information (for all but the last
     // fragment).
 
-    if ( AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE )
+    if ( AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE )
         {
         MaxSecuritySize = AdditionalSpaceForSecurity
                 - MAXIMUM_SECURITY_BLOCK_SIZE;
@@ -2784,7 +3009,7 @@ Return Value:
            }
         else
            {
-      
+
            ReservedForSecurity = ((unsigned char PAPI *) Message->Buffer)
                 + Message->BufferLength + AdditionalSpaceForSecurity;
 
@@ -2797,8 +3022,14 @@ Return Value:
            }
         }
 
+    if (IsPartial && (LengthLeft + HeaderSize + MaxSecuritySize
+        <= MaximumFragmentLength))
+        {
+        return (RPC_S_SEND_INCOMPLETE) ;
+        }
+
     pFragment = (rpcconn_common PAPI *)
-            ((char PAPI *) Message->Buffer - HeaderSize);
+                ((char PAPI *) Message->Buffer - HeaderSize);
 
     for (;;)
         {
@@ -2808,19 +3039,37 @@ Return Value:
         if ( LengthLeft + HeaderSize + MaxSecuritySize
                     <= MaximumFragmentLength )
             {
-            LastFragmentFlag = 1;
+            if (IsPartial)
+                {
+                ASSERT(PacketType == rpc_response) ;
+
+                Message->BufferLength = LengthLeft ;
+                RpcpMemoryCopy(Message->Buffer,
+                                          (unsigned char PAPI *) pFragment+HeaderSize,
+                                          LengthLeft) ;
+
+                return (RPC_S_SEND_INCOMPLETE) ;
+                }
+            else
+                {
+                LastFragmentFlag = 1;
+                }
             }
 
         ConstructPacket(pFragment, PacketType,
                 (LastFragmentFlag != 0 ? LengthLeft + HeaderSize
                         + MaxSecuritySize : MaximumFragmentLength));
 
-        if ( LengthLeft == Message->BufferLength )
+        if ( (LengthLeft == Message->BufferLength) )
             {
-            pFragment->pfc_flags |= PFC_FIRST_FRAG;
-            if (RpcTestCancel() == RPC_S_OK)
+            if (IsPartial == 0 || FirstFrag)
                 {
-                pFragment->pfc_flags |= PFC_PENDING_ALERT;
+                FirstFrag = 0;
+                pFragment->pfc_flags |= PFC_FIRST_FRAG;
+                if (RpcTestCancel() == RPC_S_OK)
+                    {
+                    pFragment->pfc_flags |= PFC_PENDING_ALERT;
+                    }
                 }
             }
 
@@ -2843,174 +3092,26 @@ Return Value:
 
         pFragment->call_id = CallId;
 
-        if (   ((AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE) 
-               && (AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT))
-            || ((AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT) 
-               &&(MaxSecuritySize != 0))  )
-            {
-            if ( LastFragmentFlag == 0 )
-                {
-                SecurityTrailer = (sec_trailer PAPI *)
-                        (((unsigned char PAPI *) pFragment)
-                        + MaximumFragmentLength - MaxSecuritySize);
+        RpcStatus = SendFragment(pFragment, LastFragmentFlag, HeaderSize,
+                     MaxSecuritySize, LengthLeft, MaximumFragmentLength,
+                     ReservedForSecurity, &ReceiveBuffer, &ReceiveBufferLength) ;
 
-                // It is not the last fragment, so we need to save away the
-                // part of the buffer which could get overwritten with
-                // authentication information.  We can not use memcpy,
-                // because the source and destination regions may overlap.
-
-                RpcpMemoryMove(ReservedForSecurity, SecurityTrailer,
-                        MaxSecuritySize);
-                AuthPadLength = 0;
-                }
-            else
-                {
-                ASSERT( MAXIMUM_SECURITY_BLOCK_SIZE == 16 );
-                AuthPadLength = Align16[(HeaderSize+LengthLeft) % 16];
-                LengthLeft += AuthPadLength;
-                ASSERT( ((LengthLeft + HeaderSize)
-                           % MAXIMUM_SECURITY_BLOCK_SIZE) == 0 );
-                SecurityTrailer = (sec_trailer PAPI *)
-                        (((unsigned char PAPI *) pFragment) + LengthLeft
-                        + HeaderSize);
-                pFragment->pfc_flags |= PFC_LAST_FRAG;
-                }
-
-            SecurityTrailer->auth_type = (unsigned char) AuthenticationService;
-            SecurityTrailer->auth_level = (unsigned char) AuthenticationLevel;
-            SecurityTrailer->auth_pad_length = AuthPadLength;
-            SecurityTrailer->auth_reserved = 0;
-            SecurityTrailer->auth_context_id = AuthContextId;
-
-            BufferDescriptor.ulVersion = 0;
-            BufferDescriptor.cBuffers = 5;
-            BufferDescriptor.pBuffers = SecurityBuffers;
-
-            SecurityBuffers[0].cbBuffer = HeaderSize;
-            SecurityBuffers[0].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
-            SecurityBuffers[0].pvBuffer = ((unsigned char PAPI *) pFragment);
-
-            SecurityBuffers[1].cbBuffer = (LastFragmentFlag != 0 ? 
-                    LengthLeft
-                    : (MaximumFragmentLength - HeaderSize 
-                      - MaxSecuritySize ));
-            SecurityBuffers[1].BufferType = SECBUFFER_DATA;
-            SecurityBuffers[1].pvBuffer = ((unsigned char PAPI *) pFragment)
-                    + HeaderSize;
-
-            SecurityBuffers[2].cbBuffer = sizeof(sec_trailer);
-            SecurityBuffers[2].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
-            SecurityBuffers[2].pvBuffer = SecurityTrailer;
-
-            SecurityBuffers[3].cbBuffer = MaxSecuritySize - sizeof(sec_trailer);
-            SecurityBuffers[3].BufferType = SECBUFFER_TOKEN;
-            SecurityBuffers[3].pvBuffer = SecurityTrailer + 1;
-
-            SecurityBuffers[4].cbBuffer = sizeof(DCE_MSG_SECURITY_INFO);
-            SecurityBuffers[4].BufferType = SECBUFFER_PKG_PARAMS
-                    | SECBUFFER_READONLY;
-
-            SecurityBuffers[4].pvBuffer = &MsgSecurityInfo;
-
-            MsgSecurityInfo.SendSequenceNumber =
-                    DceSecurityInfo.SendSequenceNumber;
-            MsgSecurityInfo.ReceiveSequenceNumber =
-                    DceSecurityInfo.ReceiveSequenceNumber;
-            MsgSecurityInfo.PacketType = PacketType;
-
-            pFragment->auth_length = SecurityLength = (unsigned short)
-                    SecurityBuffers[3].cbBuffer;
-            SecurityLength += sizeof(sec_trailer);
-            if ( LastFragmentFlag != 0 )
-                {
-                pFragment->frag_length = HeaderSize + LengthLeft
-                        + SecurityLength;
-                }
-            else
-                {
-                pFragment->frag_length += SecurityLength - MaxSecuritySize;
-                }
-
-            RpcStatus = CurrentSecurityContext->SignOrSeal(
-                    AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
-                    &BufferDescriptor);
-            ASSERT( RpcStatus == RPC_S_OK );
-            ASSERT( pFragment->auth_length == SecurityBuffers[3].cbBuffer);
-
-            }
-        else
-            {
-            SecurityLength = 0;
-            }
-
-        if ( LastFragmentFlag != 0 )
-            {
-            pFragment->pfc_flags |= PFC_LAST_FRAG;
-
-            if ( CallStack == 0 )
-                {
-                // If this is the response to the original call; we
-                // just send it, rather than doing a TransSendReceive.
-
-                ASSERT( PacketType == rpc_response );
-
-                RpcStatus = TransSend(pFragment, LengthLeft + HeaderSize
-                        + SecurityLength);
-                }
-            else
-                {
-                RpcStatus = TransSendReceive(pFragment, LengthLeft + HeaderSize
-                        + SecurityLength, &ReceiveBuffer, &ReceiveBufferLength);
-
-                Message->Buffer = ReceiveBuffer;
-                Message->BufferLength = ReceiveBufferLength;
-                }
-            if ( RpcStatus != RPC_S_OK )
-                {
-                FreeBuffer(&SendBuffer);
-                if (   (RpcStatus == RPC_P_CONNECTION_CLOSED)
-                    || (RpcStatus == RPC_P_SEND_FAILED))
-                    {
-                    return(RPC_S_CALL_FAILED_DNE);
-                    }
-                if ( RpcStatus == RPC_P_RECEIVE_FAILED)
-                    {
-                    return(RPC_S_CALL_FAILED);
-                    }
-                ASSERT(   (RpcStatus == RPC_S_OUT_OF_MEMORY)
-                       || (RpcStatus == RPC_S_OUT_OF_RESOURCES));
-                return(RpcStatus);
-                }
-
-            FreeBuffer(&SendBuffer);
-            return(RPC_S_OK);
-            }
-
-
-        RpcStatus = TransSend(pFragment, MaximumFragmentLength
-                - MaxSecuritySize + SecurityLength);
-
-        // We need to restore the part of the buffer which we overwrote
-        // with authentication information.
-
-        if ( (AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE)
-           &&(MaxSecuritySize != 0) )
-            {
-            RpcpMemoryCopy(SecurityTrailer, ReservedForSecurity,
-                    MaxSecuritySize);
-            }
-
-        if ( RpcStatus != RPC_S_OK )
+        if (RpcStatus != RPC_S_OK)
             {
             FreeBuffer(&SendBuffer);
-            if (   (RpcStatus == RPC_P_CONNECTION_CLOSED)
-                || (RpcStatus == RPC_P_SEND_FAILED))
+            return (RpcStatus) ;
+            }
+
+        if (LastFragmentFlag)
+            {
+            if (CallStack != 0)
                 {
-                return(RPC_S_CALL_FAILED_DNE);
+                Message->Buffer = ReceiveBuffer ;
+                Message->BufferLength = ReceiveBufferLength ;
                 }
-            ASSERT(   (RpcStatus == RPC_S_OUT_OF_MEMORY)
-                   || (RpcStatus == RPC_S_OUT_OF_RESOURCES));
-            return(RpcStatus);
+
+            FreeBuffer(&SendBuffer) ;
+            return (RpcStatus) ;
             }
 
         pFragment = (rpcconn_common PAPI *)
@@ -3019,6 +3120,210 @@ Return Value:
 
         LengthLeft -= (MaximumFragmentLength - (HeaderSize + MaxSecuritySize));
         }
+}
+
+
+inline RPC_STATUS
+OSF_SCONNECTION::SendFragment(
+    IN OUT rpcconn_common PAPI *pFragment,
+    IN unsigned int LastFragmentFlag,
+    IN unsigned int HeaderSize,
+    IN unsigned int MaxSecuritySize,
+    IN unsigned int DataLength,
+    IN unsigned int MaximumFragmentLength,
+    IN unsigned char PAPI *ReservedForSecurity,
+    OUT void PAPI * PAPI *ReceiveBuffer,
+    OUT unsigned int *ReceiveBufferLength
+    )
+{
+    sec_trailer PAPI * SecurityTrailer;
+    unsigned int SecurityLength;
+    unsigned int AuthPadLength;
+    SECURITY_BUFFER_DESCRIPTOR BufferDescriptor;
+    SECURITY_BUFFER SecurityBuffers[5];
+    DCE_MSG_SECURITY_INFO MsgSecurityInfo;
+    RPC_STATUS RpcStatus;
+
+    if (   ((AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE)
+           && (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_CONNECT))
+        || ((AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT)
+           &&(MaxSecuritySize != 0))  )
+        {
+        if ( LastFragmentFlag == 0 )
+            {
+            SecurityTrailer = (sec_trailer PAPI *)
+                    (((unsigned char PAPI *) pFragment)
+                    + MaximumFragmentLength - MaxSecuritySize);
+
+            // It is not the last fragment, so we need to save away the
+            // part of the buffer which could get overwritten with
+            // authentication information.  We can not use memcpy,
+            // because the source and destination regions may overlap.
+
+            RpcpMemoryMove(ReservedForSecurity, SecurityTrailer,
+                    MaxSecuritySize);
+            AuthPadLength = 0;
+            }
+        else
+            {
+            ASSERT( MAXIMUM_SECURITY_BLOCK_SIZE == 16 );
+            AuthPadLength = Pad16(HeaderSize+DataLength+sizeof(sec_trailer));
+            DataLength += AuthPadLength;
+            ASSERT( ((DataLength + HeaderSize+sizeof(sec_trailer))
+                       % MAXIMUM_SECURITY_BLOCK_SIZE) == 0 );
+            SecurityTrailer = (sec_trailer PAPI *)
+                    (((unsigned char PAPI *) pFragment) + DataLength
+                    + HeaderSize);
+            pFragment->pfc_flags |= PFC_LAST_FRAG;
+            }
+
+        SecurityTrailer->auth_type = (unsigned char) AuthInfo.AuthenticationService;
+        SecurityTrailer->auth_level = (unsigned char) AuthInfo.AuthenticationLevel;
+        SecurityTrailer->auth_pad_length = AuthPadLength;
+        SecurityTrailer->auth_reserved = 0;
+        SecurityTrailer->auth_context_id = AuthContextId;
+
+        BufferDescriptor.ulVersion = 0;
+        BufferDescriptor.cBuffers = 5;
+        BufferDescriptor.pBuffers = SecurityBuffers;
+
+        SecurityBuffers[0].cbBuffer = HeaderSize;
+        SecurityBuffers[0].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
+        SecurityBuffers[0].pvBuffer = ((unsigned char PAPI *) pFragment);
+
+        SecurityBuffers[1].cbBuffer = (LastFragmentFlag != 0 ?
+                DataLength
+                : (MaximumFragmentLength - HeaderSize
+                  - MaxSecuritySize ));
+        SecurityBuffers[1].BufferType = SECBUFFER_DATA;
+        SecurityBuffers[1].pvBuffer = ((unsigned char PAPI *) pFragment)
+                + HeaderSize;
+
+        SecurityBuffers[2].cbBuffer = sizeof(sec_trailer);
+        SecurityBuffers[2].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
+        SecurityBuffers[2].pvBuffer = SecurityTrailer;
+
+        SecurityBuffers[3].cbBuffer = MaxSecuritySize - sizeof(sec_trailer);
+        SecurityBuffers[3].BufferType = SECBUFFER_TOKEN;
+        SecurityBuffers[3].pvBuffer = SecurityTrailer + 1;
+
+        SecurityBuffers[4].cbBuffer = sizeof(DCE_MSG_SECURITY_INFO);
+        SecurityBuffers[4].BufferType = SECBUFFER_PKG_PARAMS
+                | SECBUFFER_READONLY;
+
+        SecurityBuffers[4].pvBuffer = &MsgSecurityInfo;
+
+        MsgSecurityInfo.SendSequenceNumber =
+                DceSecurityInfo.SendSequenceNumber;
+        MsgSecurityInfo.ReceiveSequenceNumber =
+                DceSecurityInfo.ReceiveSequenceNumber;
+        MsgSecurityInfo.PacketType = pFragment->PTYPE;
+
+        pFragment->auth_length = SecurityLength = (unsigned short)
+                SecurityBuffers[3].cbBuffer;
+        SecurityLength += sizeof(sec_trailer);
+
+        if ( LastFragmentFlag != 0 )
+            {
+            pFragment->frag_length = HeaderSize + DataLength
+                    + SecurityLength;
+            }
+        else
+            {
+            pFragment->frag_length += SecurityLength - MaxSecuritySize;
+            }
+
+        RpcStatus = CurrentSecurityContext->SignOrSeal(
+                MsgSecurityInfo.SendSequenceNumber,
+                AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                &BufferDescriptor);
+        ASSERT( pFragment->auth_length == SecurityBuffers[3].cbBuffer);
+        if (RpcStatus != RPC_S_OK)
+            {
+            if ( LastFragmentFlag == 0 )
+                {
+                RpcpMemoryCopy(SecurityTrailer, ReservedForSecurity,
+                                      MaxSecuritySize);
+                }
+            if ( (RpcStatus == SEC_E_CONTEXT_EXPIRED)
+               || (RpcStatus == SEC_E_QOP_NOT_SUPPORTED) )
+                  {
+                  return (RPC_S_SEC_PKG_ERROR);
+                  }
+            return (RPC_S_ACCESS_DENIED);
+            }
+        }
+    else
+        {
+        SecurityLength = 0;
+        }
+
+    if ( LastFragmentFlag != 0 )
+        {
+        pFragment->pfc_flags |= PFC_LAST_FRAG;
+
+        if ( CallStack == 0)
+            {
+            // If this is the response to the original call; we
+            // just send it, rather than doing a TransSendReceive.
+
+            ASSERT( pFragment->PTYPE == rpc_response );
+
+            RpcStatus = TransSend(pFragment, DataLength + HeaderSize
+                    + SecurityLength);
+            }
+        else
+            {
+            RpcStatus = TransSendReceive(pFragment, DataLength + HeaderSize
+                    + SecurityLength, ReceiveBuffer, ReceiveBufferLength);
+            }
+
+        if ( RpcStatus != RPC_S_OK )
+            {
+            if (   (RpcStatus == RPC_P_CONNECTION_CLOSED)
+                || (RpcStatus == RPC_P_SEND_FAILED))
+                {
+                return(RPC_S_CALL_FAILED_DNE);
+                }
+            if ( RpcStatus == RPC_P_RECEIVE_FAILED)
+                {
+                return(RPC_S_CALL_FAILED);
+                }
+            ASSERT(   (RpcStatus == RPC_S_OUT_OF_MEMORY)
+                   || (RpcStatus == RPC_S_OUT_OF_RESOURCES));
+            return(RpcStatus);
+            }
+
+        return(RPC_S_OK);
+        }
+
+
+    RpcStatus = TransSend(pFragment, MaximumFragmentLength
+            - MaxSecuritySize + SecurityLength);
+
+    // We need to restore the part of the buffer which we overwrote
+    // with authentication information.
+
+    if ( (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE)
+       &&(MaxSecuritySize != 0) )
+        {
+        RpcpMemoryCopy(SecurityTrailer, ReservedForSecurity,
+                MaxSecuritySize);
+        }
+
+    if ( RpcStatus != RPC_S_OK )
+        {
+        if (   (RpcStatus == RPC_P_CONNECTION_CLOSED)
+            || (RpcStatus == RPC_P_SEND_FAILED))
+            {
+            return(RPC_S_CALL_FAILED_DNE);
+            }
+        ASSERT(   (RpcStatus == RPC_S_OUT_OF_MEMORY)
+               || (RpcStatus == RPC_S_OUT_OF_RESOURCES));
+        return(RpcStatus);
+        }
+
+    return RpcStatus ;
 }
 
 
@@ -3069,17 +3374,24 @@ Return Value:
         SecurityTrailer = (sec_trailer PAPI *) (((unsigned char PAPI *)
                 Request) + Request->common.frag_length
                 - Request->common.auth_length - sizeof(sec_trailer));
-        if (AuthenticationLevel == RPC_C_AUTHN_LEVEL_NONE)
+
+        if (RpcSecurityBeingUsed == 0)
             {
             return(RPC_S_PROTOCOL_ERROR);
             }
 
+
         //
         //Find the appropriate security context..
         //
+
         Id = SecurityTrailer->auth_context_id;
         Level = SecurityTrailer->auth_level;
         Service = SecurityTrailer->auth_type;
+        if (DataConvertEndian(((unsigned char *)&DataRep)) != 0)
+            {
+            ByteSwapLong(Id);
+            }
 
         //
         // Osf Hack
@@ -3087,11 +3399,12 @@ Return Value:
         if (Level ==  RPC_C_AUTHN_LEVEL_CALL)
            {
            Level = RPC_C_AUTHN_LEVEL_PKT;
-           } 
+           }
 
-        if ( (CurrentSecurityContext->AuthContextId != Id)
+        if ( (CurrentSecurityContext == 0)
+           ||(CurrentSecurityContext->AuthContextId != Id)
            ||(CurrentSecurityContext->AuthenticationLevel != Level)
-           ||(CurrentSecurityContext->AuthenticationSvc != Service) )
+           ||(CurrentSecurityContext->AuthenticationService != Service) )
            {
            SecId = FindSecurityContext(Id, Level, Service);
            if (SecId == 0)
@@ -3099,24 +3412,45 @@ Return Value:
               return (RPC_S_PROTOCOL_ERROR);
               }
            CurrentSecurityContext = SecId;
-           AuthenticationLevel =  Level;
-           AuthenticationService = Service;
+           AuthInfo.AuthenticationLevel =  Level;
+           AuthInfo.AuthenticationService = Service;
            AuthContextId = Id;
+
+            switch (Level)
+                {
+                case RPC_C_AUTHN_LEVEL_CONNECT:
+                case RPC_C_AUTHN_LEVEL_CALL:
+                case RPC_C_AUTHN_LEVEL_PKT:
+                case RPC_C_AUTHN_LEVEL_PKT_INTEGRITY:
+
+                     AdditionalSpaceForSecurity = MAXIMUM_SECURITY_BLOCK_SIZE +
+                            CurrentSecurityContext->MaximumSignatureLength() +
+                            sizeof (sec_trailer);
+                     break;
+                case RPC_C_AUTHN_LEVEL_PKT_PRIVACY:
+                     AdditionalSpaceForSecurity = MAXIMUM_SECURITY_BLOCK_SIZE +
+                               CurrentSecurityContext->MaximumHeaderLength() +
+                               sizeof (sec_trailer);
+                     break;
+
+                default:
+                     ASSERT(!"Unknown Security Level\n");
+                }
            }
 
         *RequestLength -=  Request->common.auth_length;
 
         MsgSecurityInfo.SendSequenceNumber =
-                DceSecurityInfo.SendSequenceNumber;
+               DceSecurityInfo.SendSequenceNumber;
         MsgSecurityInfo.ReceiveSequenceNumber =
-                DceSecurityInfo.ReceiveSequenceNumber;
+               DceSecurityInfo.ReceiveSequenceNumber;
         MsgSecurityInfo.PacketType = Request->common.PTYPE;
 
         BufferDescriptor.ulVersion = 0;
         BufferDescriptor.cBuffers = 5;
         BufferDescriptor.pBuffers = SecurityBuffers;
-   
-       if ( (Request->common.pfc_flags & PFC_OBJECT_UUID) != 0 )
+
+        if ( (Request->common.pfc_flags & PFC_OBJECT_UUID) != 0 )
            {
            HeaderSize += sizeof(UUID);
            }
@@ -3125,7 +3459,7 @@ Return Value:
         SecurityBuffers[0].BufferType = SECBUFFER_DATA | SECBUFFER_READONLY;
         SecurityBuffers[0].pvBuffer = (unsigned char PAPI *) SavedHeader;
 
-        SecurityBuffers[1].cbBuffer = *RequestLength - HeaderSize - 
+        SecurityBuffers[1].cbBuffer = *RequestLength - HeaderSize -
                                        sizeof(sec_trailer);
         SecurityBuffers[1].BufferType = SECBUFFER_DATA;
         SecurityBuffers[1].pvBuffer = ((unsigned char PAPI *) Request)
@@ -3145,7 +3479,8 @@ Return Value:
         SecurityBuffers[4].pvBuffer = &MsgSecurityInfo;
 
         RpcStatus = CurrentSecurityContext->VerifyOrUnseal(
-                AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
+                MsgSecurityInfo.ReceiveSequenceNumber,
+                AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_PKT_PRIVACY,
                 &BufferDescriptor);
 
         if ( RpcStatus != RPC_S_OK )
@@ -3162,7 +3497,7 @@ Return Value:
         // We are doing a nonsecure rpc -
         // it doesnt matter that previously we did a secure rpc..
         //
-        AuthenticationLevel = RPC_C_AUTHN_LEVEL_NONE;
+        AuthInfo.AuthenticationLevel = RPC_C_AUTHN_LEVEL_NONE;
         CurrentSecurityContext = 0;
         if (SavedHeader != 0)
            {
@@ -3216,15 +3551,52 @@ Notes:
 
 --*/
 {
+    return ReceiveFirstFrag(Message, 1) ;
+}
+
+
+inline RPC_STATUS
+OSF_SCONNECTION::ReceiveFirstFrag(
+    IN OUT PRPC_MESSAGE Message,
+    IN int Callback
+    )
+/*++
+
+Routine Description:
+
+Arguments:
+
+    Message - Supplies the first fragment of a request or a response, and
+        returns either the complete message or a buffer equal to alloc hint
+
+Return Value:
+
+    RPC_S_OK - We successfully received the entire message.
+
+    RPC_S_PROTOCOL_ERROR - A protocol error occured; this is typically
+        because of a protocol version mismatch between the client and
+        the server.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to receive
+        all of the message.
+
+    RPC_S_CALL_FAILED - The receive operation failed part way through.
+
+    RPC_S_OUT_OF_RESOURCES - Insufficient resources are available to
+        receive all of the message.
+
+    RPC_S_ACCESS_DENIED - The security check of one of the received packets
+        failed.
+
+--*/
+{
     rpcconn_request PAPI * Request = (rpcconn_request PAPI *) Message->Buffer;
     unsigned char PacketType = Request->common.PTYPE;
-    unsigned int FragmentLength;
     RPC_STATUS RpcStatus;
     unsigned int BufferLengthUsed = 0;
     void PAPI * NewBuffer;
     int SecurityFailureOccured = 0;
-
-    Message->Buffer = 0;
+    unsigned long size = Request->alloc_hint ;
 
     // Upon entry, the packet will have already been validated (and data
     // converted) by whomever called us.
@@ -3246,10 +3618,10 @@ Notes:
 
 
     RpcStatus = EatAuthInfoFromPacket(Request, &(Message->BufferLength));
-    
+
     if ( RpcStatus != RPC_S_OK )
         {
-        
+
         ASSERT(   (RpcStatus == RPC_S_PROTOCOL_ERROR)
                || (RpcStatus == RPC_S_ACCESS_DENIED) );
 
@@ -3257,6 +3629,16 @@ Notes:
         TransFreeBuffer(Request);
         return(RpcStatus);
         */
+
+        if (RpcStatus == RPC_S_ACCESS_DENIED)
+            {
+            ExtendedError = GetLastError();
+            }
+        if (ExtendedError == 0)
+            {
+            ExtendedError = RPC_S_ACCESS_DENIED;
+            }
+
         SecurityFailureOccured = 1;
         }
 
@@ -3275,6 +3657,11 @@ Notes:
 
         ObjectUuidSpecified = 1;
         RpcpMemoryCopy(&ObjectUuid, Request + 1, sizeof(UUID));
+        if ( DataConvertEndian(((unsigned char *) &DataRep)) != 0 )
+            {
+            ByteSwapUuid(&ObjectUuid);
+            }
+
 
         // Now shift the stub data so that the packet is as if there is
         // no object UUID in the packet.
@@ -3294,31 +3681,175 @@ Notes:
            }
         else
            {
+           Message->RpcFlags |= RPC_BUFFER_COMPLETE ;
+
            Message->Buffer = (void PAPI *) (Request + 1);
            Message->BufferLength -= sizeof(rpcconn_request);
-           return(RPC_S_OK);
+
+           // I am adding this to get around the problem that
+           // Message->RpcFlags might be whacked before
+           // NdrServerInitialize is called
+           BufferComplete = 1 ;
+
+           return (RPC_S_OK) ;
            }
         }
 
-    FragmentLength = Message->BufferLength;
 
-    // If the client specified an allocation hint, we will go ahead and
-    // use it.
-
-    Message->BufferLength = (unsigned int) Request->alloc_hint;
-    if ( Message->BufferLength != 0 )
+    if ((Callback == 0) && CurrentBinding->GetInterface()->IsPipeInterface())
         {
-        RpcStatus = GetBufferDo(Message->BufferLength, &Message->Buffer);
-        if ( RpcStatus != RPC_S_OK )
+        Message->RpcFlags = RPC_BUFFER_PARTIAL ;
+        }
+
+    RpcStatus = ReceiveNextChunk(Message, size, 1, SecurityFailureOccured) ;
+    Message->RpcFlags &= ~RPC_BUFFER_PARTIAL ;
+
+    if (((Message->RpcFlags & RPC_BUFFER_COMPLETE) == 0)
+        && RpcStatus == RPC_S_OK
+        && NOT_MULTIPLE_OF_EIGHT(Message->BufferLength))
+        {
+        SaveRemainingData(Message) ;
+        }
+
+    return RpcStatus ;
+}
+
+
+RPC_STATUS
+OSF_SCONNECTION::ReceiveNextChunk (
+    IN OUT PRPC_MESSAGE Message,
+    IN unsigned int Size,
+    IN int FirstReceive,
+    IN int SecurityFailureOccured
+    )
+/*++
+
+Routine Description:
+
+Arguments:
+
+    Message - Supplies the first fragment or more of a request or a response, and
+    based on Message->RpcFlags, returns the requested number of bytes, or the
+    complete message.
+
+Return Value:
+
+    RPC_S_OK - We successfully received the entire message.
+
+    RPC_S_PROTOCOL_ERROR - A protocol error occured; this is typically
+        because of a protocol version mismatch between the client and
+        the server.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to receive
+        all of the message.
+
+    RPC_S_CALL_FAILED - The receive operation failed part way through.
+
+    RPC_S_OUT_OF_RESOURCES - Insufficient resources are available to
+        receive all of the message.
+
+    RPC_S_ACCESS_DENIED - The security check of one of the received packets
+        failed.
+
+Notes:
+
+    This method is very similar to OSF_CCONNECTION::ReceiveRequestOrResponse
+    in osfclnt.cxx.
+
+--*/
+{
+    rpcconn_request PAPI * Request ;
+    unsigned char PacketType ;
+    unsigned int BufferLengthUsed;
+    RPC_STATUS RpcStatus;
+    void PAPI * NewBuffer;
+    unsigned long Extra = Message->RpcFlags & RPC_BUFFER_EXTRA ;
+    unsigned long Partial = Message->RpcFlags & RPC_BUFFER_PARTIAL ;
+
+    if (FirstReceive)
+        {
+        Request = (rpcconn_request PAPI *) Message->Buffer ;
+        PacketType = Request->common.PTYPE;
+        Message->Buffer = 0;
+
+        BufferLengthUsed = 0 ;
+
+        FragmentLength = Message->BufferLength;
+        Message->BufferLength = (unsigned int) Request->alloc_hint ;
+
+        // use the alloc hint to allocate the buffer so that even in the
+        // pipe case, after the first receive, we have at least all the
+        // non pipe data
+
+        if ( Request->alloc_hint != 0 )
             {
-            ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
+            RpcStatus = GetBufferDo(Message, Request->alloc_hint,
+                                &Message->Buffer, Extra);
+            if ( RpcStatus != RPC_S_OK )
+                {
+                ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
 
-            // Oops, we cant allocate a buffer as large as the allocation
-            // hint, so we will just not bother allocating one.
+                // Oops, we cant allocate a buffer as large as the allocation
+                // hint, so we will just not bother allocating one.
 
-            Message->BufferLength = 0;
+                Message->BufferLength = 0;
+                }
             }
         }
+    else
+        {
+        Request = 0;
+        PacketType = rpc_request ; //BUGBUG
+        if (Extra == 0)
+            {
+            BufferLengthUsed = 0 ;
+            if (Message->Buffer == 0)
+                {
+                Message->BufferLength = MaxFrag ;
+                RpcStatus = GetBufferDo(Message, MaxFrag, &Message->Buffer, Extra) ;
+                if (RpcStatus !=  RPC_S_OK)
+                    {
+                    Message->BufferLength = 0;
+
+                    return (RPC_S_OUT_OF_MEMORY) ;
+                    }
+                }
+            }
+        else
+            {
+            BufferLengthUsed = Message->BufferLength ;
+            }
+
+        if (RemainingData[0])
+            {
+            if (Message->BufferLength < BufferLengthUsed + RemainingData[0])
+                {
+                RpcStatus = GetBufferDo(Message, BufferLengthUsed+MaxFrag,
+                                                    &NewBuffer, Extra) ;
+                if (RpcStatus != RPC_S_OK)
+                    {
+                    FreeBuffer(Message) ;
+
+                    Message->Buffer = 0;
+                    return (RPC_S_OUT_OF_MEMORY) ;
+                    }
+
+                if (BufferLengthUsed)
+                    {
+                    RpcpMemoryCopy(NewBuffer, Message->Buffer, BufferLengthUsed) ;
+                    }
+
+                FreeBuffer(Message) ;
+                Message->Buffer = NewBuffer ;
+                }
+
+            RpcpMemoryCopy((char PAPI *) Message->Buffer+BufferLengthUsed,
+                                      &RemainingData[1], RemainingData[0]) ;
+            BufferLengthUsed += RemainingData[0] ;
+            RemainingData[0] = 0 ;
+            }
+        }
+
 
     for (;;)
         {
@@ -3329,14 +3860,17 @@ Notes:
             // to hold the new fragment as well as those that we have
             // already received.
 
-            RpcStatus = GetBufferDo(FragmentLength + Message->BufferLength,
-                    &NewBuffer);
+            RpcStatus = GetBufferDo(Message, FragmentLength + Message->BufferLength,
+                                &NewBuffer, Extra);
             if ( RpcStatus != RPC_S_OK )
                 {
                 ASSERT( RpcStatus == RPC_S_OUT_OF_MEMORY );
                 TransFreeBuffer(Request);
-                FreeBuffer(Message);
-                Message->Buffer = 0;
+                if (Message->Buffer != 0)
+                    {
+                    FreeBuffer(Message);
+                    Message->Buffer = 0;
+                    }
                 return(RpcStatus);
                 }
 
@@ -3353,38 +3887,54 @@ Notes:
         // We have enough space in the buffer for the next fragment; all we
         // have got to do is to copy it in.
 
-        RpcpMemoryCopy((unsigned char PAPI *)
-                        Message->Buffer + BufferLengthUsed,
-                ((unsigned char PAPI *) Request) + sizeof(rpcconn_request),
-                FragmentLength - sizeof(rpcconn_request));
-
-        BufferLengthUsed += FragmentLength - sizeof(rpcconn_request);
-
-        // If this is the last fragment, then we are all done receiving
-        // the request or response.  We just need to free the last fragment
-        // and then return.
-
-        if ( (Request->common.pfc_flags & PFC_LAST_FRAG) != 0 )
+        if (Request)
             {
-            TransFreeBuffer(Request);
-            if (SecurityFailureOccured != 0)
-               {
-               FreeBuffer(Message);
-               Message->Buffer = 0;
-               return (RPC_S_ACCESS_DENIED);
-               }
+            RpcpMemoryCopy((unsigned char PAPI *)
+                            Message->Buffer + BufferLengthUsed,
+                    ((unsigned char PAPI *) Request) + sizeof(rpcconn_request),
+                    FragmentLength - sizeof(rpcconn_request));
 
-            Message->BufferLength = BufferLengthUsed;
-            return(RPC_S_OK);
+            BufferLengthUsed += FragmentLength - sizeof(rpcconn_request);
+
+            // If this is the last fragment, then we are all done receiving
+            // the request or response.  We just need to free the last fragment
+            // and then return.
+
+            if ( (Request->common.pfc_flags & PFC_LAST_FRAG) != 0 )
+                {
+                TransFreeBuffer(Request);
+                if (SecurityFailureOccured != 0)
+                   {
+                   FreeBuffer(Message);
+                   Message->Buffer = 0;
+                   return (RPC_S_ACCESS_DENIED);
+                   }
+
+                Message->BufferLength = BufferLengthUsed;
+                Message->RpcFlags |= RPC_BUFFER_COMPLETE ;
+
+                // I am adding this to get around the problem that
+                // Message->RpcFlags might be whacked before
+                // NdrServerInitialize is called
+                BufferComplete = 1 ;
+
+                return(RPC_S_OK);
+                }
+
+            // Otherwise, we need to try and receive another fragment.
+            TransFreeBuffer(Request);
+
+            Request = 0;
+
+            if (Partial && (BufferLengthUsed >= Size))
+                {
+                Message->BufferLength = BufferLengthUsed ;
+                return (RPC_S_OK) ;
+                }
             }
 
-        // Otherwise, we need to try and receive another fragment.
-
-        TransFreeBuffer(Request);
-        Request = 0;
-
         RpcStatus = TransReceive((void PAPI * PAPI *) &Request,
-                &FragmentLength);
+                            &FragmentLength, 0);
         if ( RpcStatus != RPC_S_OK )
             {
             FreeBuffer(Message);
@@ -3403,10 +3953,10 @@ Notes:
         //save the maximum of req/resonse size [i.e. sizeof request]
         //also, we are not saving the first frag. here .. hence
         //the approp. memory is already set aside
-        
-        ASSERT( (AuthenticationLevel == RPC_C_AUTHN_LEVEL_NONE) 
+
+        ASSERT( (AuthInfo.AuthenticationLevel == RPC_C_AUTHN_LEVEL_NONE)
                || (SavedHeaderSize >= sizeof(rpcconn_request)) );
-        if (AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE)
+        if (AuthInfo.AuthenticationLevel != RPC_C_AUTHN_LEVEL_NONE)
            {
            RpcpMemoryCopy(SavedHeader, Request, sizeof(rpcconn_request));
            }
@@ -3443,7 +3993,7 @@ Notes:
             {
             ASSERT(   (RpcStatus == RPC_S_PROTOCOL_ERROR)
                    || (RpcStatus == RPC_S_ACCESS_DENIED) );
-           
+
             /*
             TransFreeBuffer(Request);
             FreeBuffer(Message);
@@ -3475,8 +4025,9 @@ Notes:
 
         }
 
-    // This will never be reached.
+    return (RPC_S_PROTOCOL_ERROR) ;
 }
+
 
 int
 OSF_SCONNECTION::fCanDiscard (
@@ -3491,44 +4042,63 @@ OSF_SCONNECTION::fCanDiscard (
 
 OSF_ASSOCIATION::OSF_ASSOCIATION (
     IN OSF_ADDRESS *TheAddress,
-    IN RPC_CLIENT_PROCESS_IDENTIFIER * ClientProcess
+    IN RPC_CLIENT_PROCESS_IDENTIFIER * ClientProcess,
+    OUT RPC_STATUS * Status
     )
 {
-    static unsigned long GroupIdCounter = 1;
-
-    ALLOCATE_THIS(OSF_ASSOCIATION);
-
-    ConnectionCount = 0;
+    *Status = RPC_S_OK;
+    ConnectionCount = 1;
     Address = TheAddress;
+
     this->ClientProcess.FirstPart = ClientProcess->FirstPart;
     this->ClientProcess.SecondPart = ClientProcess->SecondPart;
 
+#ifdef NTENV
+    AssociationGroupId = InterlockedExchangeAdd(&GroupIdCounter, 1);
+#else
     RequestGlobalMutex();
     AssociationGroupId = GroupIdCounter;
     GroupIdCounter += 1;
     ClearGlobalMutex();
+#endif
 
     Address->AddressMutex.Request();
     AssociationDictKey = Address->AddAssociation(this);
     Address->AddressMutex.Clear();
+
+    if (AssociationDictKey == -1)
+        {
+        *Status = RPC_S_OUT_OF_MEMORY;
+        }
+
 }
 
 OSF_ASSOCIATION::~OSF_ASSOCIATION (
     )
 {
-    Address->AddressMutex.Request();
-    Address->RemoveAssociation(AssociationDictKey);
-    Address->AddressMutex.Clear();
+    ASSERT(AssociationDictKey == -1);
+
+    if (AssociationDictKey != -1)
+        {
+        Address->AddressMutex.Request();
+        Address->RemoveAssociation(AssociationDictKey);
+        Address->AddressMutex.Clear();
+        }
 }
 
-int
+inline void
 OSF_ASSOCIATION::AddConnection (
     )
 {
-    Address->AddressMutex.Request();
+/*
+
+  Bumps up a refcount, indicating another connection has a reference to
+  this Association.
+  Previously this method acquires AddressMutex. Now - the caller needs to
+  ensure that is true.
+
+*/
     ConnectionCount += 1;
-    Address->AddressMutex.Clear();
-    return(0);
 }
 
 int
@@ -3540,6 +4110,9 @@ OSF_ASSOCIATION::RemoveConnection (
 
     if (ConnectionCount == 0)
         {
+        Address->RemoveAssociation(AssociationDictKey);
+        AssociationDictKey = -1;
+
         Address->AddressMutex.Clear();
         delete this;
         }
@@ -3606,7 +4179,7 @@ Return Value:
     BindingHandle = Association->TheAddress()->InquireBinding();
     if (BindingHandle == 0)
         return(RPC_S_OUT_OF_MEMORY);
-    if ( ObjectUuidSpecified != 0) 
+    if ( ObjectUuidSpecified != 0)
         {
         Status = RpcBindingSetObject(BindingHandle, (UUID *) &ObjectUuid);
         }
@@ -3664,34 +4237,36 @@ Return Value:
 --*/
 {
     RPC_STATUS RpcStatus;
+    SSECURITY_CONTEXT * SecurityContext;
 
-    if ( this->AuthenticationLevel == RPC_C_AUTHN_LEVEL_NONE )
+    SecurityContext = CurrentSecurityContext;
+
+    if ( !SecurityContext )
         {
         return(RPC_S_BINDING_HAS_NO_AUTH);
         }
 
-    *AuthenticationLevel = this->AuthenticationLevel;
-    *AuthenticationService = this->AuthenticationService;
+    *AuthenticationLevel = SecurityContext->AuthenticationLevel;
+    *AuthenticationService = SecurityContext->AuthenticationService;
 
-    /*
-    *AuthorizationService =
-            CurrentSecurityContext->InquireAuthorizationService();
-    *Privileges = CurrentSecurityContext->InquirePrivileges();
-    */
+    if (AuthInfo.AuthIdentity == 0)
+        {
+        SecurityContext->GetDceInfo(
+                 &AuthInfo.AuthIdentity,
+                 &AuthInfo.AuthorizationService
+                 );
+        }
 
-    if (SavedPac == 0)
-       {
-       CurrentSecurityContext->GetDceInfo(Privileges, AuthorizationService);
-       SavedPac = *Privileges;
-       AuthzSvc = *AuthorizationService;
-       }
-    else
-       {
-       *Privileges = SavedPac;
-       *AuthorizationService = AuthzSvc;
-       }
-    
-    if (ARGUMENT_PRESENT(ServerPrincipalName))
+    if ( ARGUMENT_PRESENT(Privileges) )
+        {
+        *Privileges = AuthInfo.AuthIdentity;
+        }
+    if ( ARGUMENT_PRESENT(AuthorizationService) )
+        {
+        *AuthorizationService = AuthInfo.AuthorizationService;
+        }
+
+    if ( ARGUMENT_PRESENT(ServerPrincipalName) )
         {
         RpcStatus = Association->TheAddress()->Server->InquirePrincipalName(
                 *AuthenticationService, ServerPrincipalName);
@@ -3737,6 +4312,7 @@ Routine Description:
     void PAPI * Buffer;
     unsigned int BufferLength;
     OSF_ADDRESS * Address = this->ReceiveDirectAddress;
+    int flag  ;
 #ifndef NTENV
     int AmountOfPad;
 #endif
@@ -3768,8 +4344,7 @@ Routine Description:
 
             ASSERT( (((long) FirstCachedBuffer) % sizeof(int)) == 0 );
 
-            AmountOfPad = (int) (ALIGN_REQUIRED
-                    - ((long) FirstCachedBuffer & (ALIGN_REQUIRED - 1)));
+            AmountOfPad = Pad((char PAPI *)FirstCachedBuffer + 1, ALIGN_REQUIRED) + 1;
             FirstCachedBuffer = (void PAPI *)
                     (((char PAPI *) FirstCachedBuffer) + AmountOfPad);
             ((int PAPI *) FirstCachedBuffer)[-1] = AmountOfPad;
@@ -3780,6 +4355,8 @@ Routine Description:
                     (((char PAPI *) FirstCachedBuffer) + CachedBufferLength);
             BufferCacheFlags = FIRST_CACHED_BUFFER_AVAILABLE
                 | SECOND_CACHED_BUFFER_AVAILABLE | CACHED_BUFFERS_ALLOCATED;
+
+            ASSERT(Pad8(SecondCachedBuffer) == 0);
             }
         ThirdCachedBuffer = 0;
         }
@@ -3791,21 +4368,35 @@ Routine Description:
 
     for (;;)
         {
-        RpcStatus = TransReceive(&Buffer, &BufferLength);
+        RpcStatus = TransReceive(&Buffer, &BufferLength, 1);
         if ( RpcStatus == RPC_P_CONNECTION_CLOSED )
             {
-            delete this;
             break;
             }
 
-        if ( DispatchPacket((rpcconn_common *) Buffer, BufferLength, Address)
-                    != 0 )
+#if defined(NTENV) || defined(WIN96)
+        if( RpcStatus == RPC_P_TIMEOUT)
             {
             break;
             }
+#endif
+        Address->BeginCall() ;
+
+        if ( DispatchPacket((rpcconn_common *) Buffer, BufferLength, Address) != 0)
+            {
+            Address->EndCall() ;
+            break;
+            }
+
+        Address->EndCall() ;
         }
 
     Address->NotifyReceiveDirectClosed();
+
+    if (RpcStatus == RPC_P_CONNECTION_CLOSED)
+        {
+        delete this ;
+        }
 }
 
 
@@ -3824,6 +4415,22 @@ Routine Description:
 {
     ReceiveDirectReady = 1;
 }
+
+#if defined(NTENV) || defined(WIN96)
+
+void
+OSF_SCONNECTION::NotifyReceiveDirectCancelled(
+ )
+/*++
+   When the transport times out on a ReceiveDirect, it needs to revert back to
+   doing a receive any on that connection. The transport will call this routine to
+   notify the runtime about that
+--*/
+{
+   ReceiveDirectReady = 0 ;
+}
+#endif
+
 
 
 void PAPI *
@@ -3914,5 +4521,23 @@ Arguments:
         return(0);
         }
     return(RpcAddress);
+}
+
+
+RPC_STATUS
+OSF_SCONNECTION::Cancel(
+    void * ThreadHandle
+    )
+{
+    InterlockedIncrement(&CancelPending);
+
+    return RPC_S_OK;
+}
+
+unsigned
+OSF_SCONNECTION::TestCancel(
+    )
+{
+    return InterlockedExchange(&CancelPending, 0);
 }
 

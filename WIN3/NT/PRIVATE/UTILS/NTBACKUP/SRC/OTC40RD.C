@@ -384,6 +384,11 @@ INT16 OTC_RdSSET(
      gvcb_data.short_m_name = NULL ;
      gvcb_data.short_m_name_size = 0 ;
 
+     gvcb_data.set_cat_num_dirs  = (UINT16)sm_entry->num_dirs ;
+     gvcb_data.set_cat_num_files = (UINT16)sm_entry->num_files ;
+     gvcb_data.set_cat_num_corrupt = (UINT16)sm_entry->num_corrupt_files ;
+
+
      /* Tape Name */
      gvcb_data.tape_name = (CHAR_PTR)dest_ptr ;
      if( cur_env->tape_name_size != 0 ) {
@@ -574,10 +579,12 @@ INT16 OTC_RdDIR(
      UNALIGNED MTF_FDD_HDR_PTR     fdd_hdr ;
      UNALIGNED MTF_FDD_DIR_V1_PTR  fdd_dir_v1 ;
      UNALIGNED MTF_FDD_DIR_V2_PTR  fdd_dir_v2 ;
+     UNALIGNED F40_FDD_DBDB_PTR    fdd_dbdb ;
      DATE_TIME                     create_date ;
      DATE_TIME                     last_mod_date ;
      DATE_TIME                     backup_date  ;
      DATE_TIME                     last_access_date ;
+     DATE_TIME                     dummy_date ;
      MTF_DATE_TIME                 temp_date ;
 
      /* Note: We know we have at least the FDD header, or the block type
@@ -589,12 +596,6 @@ INT16 OTC_RdDIR(
                return( ret_val ) ;
           }
           fdd_hdr = (UNALIGNED MTF_FDD_HDR_PTR)cur_env->otc_buff_ptr ;
-     }
-
-     if( cur_env->otc_ver == 1 ) {
-          fdd_dir_v1 = (UNALIGNED MTF_FDD_DIR_V1_PTR)(void *)( fdd_hdr + 1 ) ;
-     } else {
-          fdd_dir_v2 = (UNALIGNED MTF_FDD_DIR_V2_PTR)(void *)( fdd_hdr + 1 ) ;
      }
 
      cur_env->otc_buff_ptr += fdd_hdr->length ;
@@ -615,51 +616,90 @@ INT16 OTC_RdDIR(
      std_data->disp_size      = fdd_hdr->disp_size ;
      std_data->string_type    = fdd_hdr->string_type ;
 
-     /* Set the DIR attributes.  Note that if this is an "old" tape,
-        the attibute bits were being set wrong, and need to be translated.
-     */
-     if( cur_env->otc_ver == 1 ) {
+     if( memcmp( fdd_hdr->type, "DBDB", 4 ) == 0 ) {
+          /* This is a Database DBLK, but the boys upstairs don't want to
+             know about such silly things!  So we lie and call it a DDB to
+             get it passed on to the File System.  The File System can tell
+             what it really is too, and will deal with it appropriatly.
+          */
+          fdd_dbdb = (UNALIGNED F40_FDD_DBDB_PTR)(void *)( fdd_hdr + 1 ) ;
 
-          std_data->attrib = fdd_dir_v1->dir_attribs &
+          std_data->attrib = fdd_dbdb->database_attribs ;
+
+          /* Clear all vendor specific bits */
+          std_data->attrib &= 0x00FFFFFF ;
+
+          /* Set our vendor specific bit that says this is a DBDB */
+          std_data->attrib |= DIR_IS_REALLY_DB ;
+
+          gddb_data.path_name = (CHAR_PTR)( (INT8_PTR)fdd_hdr + fdd_dbdb->database_name.data_offset ) ;
+          gddb_data.path_size = fdd_dbdb->database_name.data_size ;
+
+          TapeDateToDate( &backup_date, &fdd_dbdb->backup_date ) ;
+          gddb_data.backup_date = &backup_date  ;
+
+          /* DBDBs don't have the following date fields */
+          memset( &dummy_date, 0, sizeof( dummy_date ) ) ;
+          gddb_data.creat_date = &dummy_date ;
+          gddb_data.mod_date = &dummy_date ;
+          gddb_data.access_date = &dummy_date ;
+
+     } else {
+
+          /* Standard DDB structure stuffing */
+
+          if( cur_env->otc_ver == 1 ) {
+               fdd_dir_v1 = (UNALIGNED MTF_FDD_DIR_V1_PTR)(void *)( fdd_hdr + 1 ) ;
+          } else {
+               fdd_dir_v2 = (UNALIGNED MTF_FDD_DIR_V2_PTR)(void *)( fdd_hdr + 1 ) ;
+          }
+
+          /* Set the DIR attributes.  Note that if this is an "old" tape,
+             the attibute bits were being set wrong, and need to be translated.
+          */
+          if( cur_env->otc_ver == 1 ) {
+
+               std_data->attrib = fdd_dir_v1->dir_attribs &
                         ~( OLD_DIR_EMPTY_BIT | OLD_DIR_PATH_IN_STREAM_BIT ) ;
 
-          std_data->attrib |= ( fdd_dir_v1->dir_attribs & OLD_DIR_EMPTY_BIT )
+               std_data->attrib |= ( fdd_dir_v1->dir_attribs & OLD_DIR_EMPTY_BIT )
                                         ? DIR_EMPTY_BIT : 0 ;
-          std_data->attrib |= ( fdd_dir_v1->dir_attribs & OLD_DIR_PATH_IN_STREAM_BIT )
+               std_data->attrib |= ( fdd_dir_v1->dir_attribs & OLD_DIR_PATH_IN_STREAM_BIT )
                                         ? DIR_PATH_IN_STREAM_BIT : 0 ;
-     } else {
-          std_data->attrib = fdd_dir_v2->dir_attribs ;
+          } else {
+               std_data->attrib = fdd_dir_v2->dir_attribs ;
+          }
+
+          if( cur_env->otc_ver == 1 ) {
+               gddb_data.path_name = (CHAR_PTR)( (INT8_PTR)fdd_hdr + fdd_dir_v1->dir_name.data_offset ) ;
+               gddb_data.path_size = fdd_dir_v1->dir_name.data_size ;
+
+               temp_date = fdd_dir_v1->create_date ;
+               TapeDateToDate( &create_date, &temp_date ) ;
+               temp_date = fdd_dir_v1->last_mod_date ;
+               TapeDateToDate( &last_mod_date, &temp_date ) ;
+               temp_date = fdd_dir_v1->backup_date ;
+               TapeDateToDate( &backup_date, &temp_date ) ;
+               temp_date = fdd_dir_v1->last_access_date ;
+               TapeDateToDate( &last_access_date, &temp_date ) ;
+          } else {
+               gddb_data.path_name = (CHAR_PTR)( (INT8_PTR)fdd_hdr + fdd_dir_v2->dir_name.data_offset ) ;
+               gddb_data.path_size = fdd_dir_v2->dir_name.data_size ;
+
+               temp_date = fdd_dir_v2->create_date ;
+               TapeDateToDate( &create_date, &temp_date ) ;
+               temp_date = fdd_dir_v2->last_mod_date ;
+               TapeDateToDate( &last_mod_date, &temp_date ) ;
+               temp_date = fdd_dir_v2->backup_date ;
+               TapeDateToDate( &backup_date, &temp_date ) ;
+               temp_date = fdd_dir_v2->last_access_date ;
+               TapeDateToDate( &last_access_date, &temp_date ) ;
+          }
+          gddb_data.creat_date = &create_date ;
+          gddb_data.mod_date = &last_mod_date ;
+          gddb_data.backup_date = &backup_date  ;
+          gddb_data.access_date = &last_access_date ;
      }
-
-     if( cur_env->otc_ver == 1 ) {
-          gddb_data.path_name = (CHAR_PTR)( (INT8_PTR)fdd_hdr + fdd_dir_v1->dir_name.data_offset ) ;
-          gddb_data.path_size = fdd_dir_v1->dir_name.data_size ;
-
-          temp_date = fdd_dir_v1->create_date ;
-          TapeDateToDate( &create_date, &temp_date ) ;
-          temp_date = fdd_dir_v1->last_mod_date ;
-          TapeDateToDate( &last_mod_date, &temp_date ) ;
-          temp_date = fdd_dir_v1->backup_date ;
-          TapeDateToDate( &backup_date, &temp_date ) ;
-          temp_date = fdd_dir_v1->last_access_date ;
-          TapeDateToDate( &last_access_date, &temp_date ) ;
-     } else {
-          gddb_data.path_name = (CHAR_PTR)( (INT8_PTR)fdd_hdr + fdd_dir_v2->dir_name.data_offset ) ;
-          gddb_data.path_size = fdd_dir_v2->dir_name.data_size ;
-
-          temp_date = fdd_dir_v2->create_date ;
-          TapeDateToDate( &create_date, &temp_date ) ;
-          temp_date = fdd_dir_v2->last_mod_date ;
-          TapeDateToDate( &last_mod_date, &temp_date ) ;
-          temp_date = fdd_dir_v2->backup_date ;
-          TapeDateToDate( &backup_date, &temp_date ) ;
-          temp_date = fdd_dir_v2->last_access_date ;
-          TapeDateToDate( &last_access_date, &temp_date ) ;
-     }
-     gddb_data.creat_date = &create_date ;
-     gddb_data.mod_date = &last_mod_date ;
-     gddb_data.backup_date = &backup_date  ;
-     gddb_data.access_date = &last_access_date ;
 
      /* Tell the file system to do its thing.  It returns a data filter
         which we have no use for.
@@ -915,7 +955,8 @@ INT16 OTC_GetFDDType(
      if( memcmp( fdd_hdr->type, "VOLB", 4 ) == 0 ) {
           *blk_type = FDD_VOL_BLK ;
 
-     } else if( memcmp( fdd_hdr->type, "DIRB", 4 ) == 0 ) {
+     } else if( memcmp( fdd_hdr->type, "DIRB", 4 ) == 0 ||
+                memcmp( fdd_hdr->type, "DBDB", 4 ) == 0 ) {
           *blk_type = FDD_DIR_BLK ;
 
      } else if( memcmp( fdd_hdr->type, "FILE", 4 ) == 0 ) {

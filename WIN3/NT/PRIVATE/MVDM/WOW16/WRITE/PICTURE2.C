@@ -547,4 +547,3 @@ int fPrinter;
     return MultDiv( dyp, czaInch, dypLogInch );
 }
 
-

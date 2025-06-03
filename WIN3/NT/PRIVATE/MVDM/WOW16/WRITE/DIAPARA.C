@@ -456,4 +456,3 @@ HANDLE hDlg = *phDlg;
 
 } /* CancelSpecialDialog */
 #endif /* RULERALSO -- no need to bring up ruler when tab or indent dialog box is invoked */
-

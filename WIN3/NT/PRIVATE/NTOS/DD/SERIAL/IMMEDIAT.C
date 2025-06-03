@@ -137,17 +137,9 @@ Return Value:
 
         TotalTime.QuadPart = (LONGLONG)((ULONG)Timeouts.WriteTotalTimeoutMultiplier);
 
-        TotalTime = RtlLargeIntegerAdd(
-                        TotalTime,
-                        RtlConvertUlongToLargeInteger(
-                            Timeouts.WriteTotalTimeoutConstant
-                            )
-                        );
+        TotalTime.QuadPart += Timeouts.WriteTotalTimeoutConstant;
 
-        TotalTime = RtlExtendedIntegerMultiply(
-                        TotalTime,
-                        -10000
-                        );
+        TotalTime.QuadPart *= -10000;
 
     }
 

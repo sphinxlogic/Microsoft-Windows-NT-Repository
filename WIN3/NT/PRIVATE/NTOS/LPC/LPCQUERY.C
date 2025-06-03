@@ -39,6 +39,8 @@ NtQueryInformationPort(
     NTSTATUS Status;
     PLPCP_PORT_OBJECT PortObject;
 
+    PAGED_CODE();
+
     //
     // Get previous processor mode and probe output argument if necessary.
     //

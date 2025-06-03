@@ -375,7 +375,7 @@ Return Value:
     LargeDueTime.HighPart = 0;
     LargeDueTime.LowPart = DueTime;
     LargeDueTime = CTEConvertMillisecondsTo100ns(LargeDueTime);
-    LargeDueTime = RtlLargeIntegerNegate(LargeDueTime);
+    LargeDueTime.QuadPart = -LargeDueTime.QuadPart;
 
     Timer->t_handler = Handler;
     Timer->t_arg = Context;
@@ -561,7 +561,7 @@ Return Value:
     }
 
     String->Length = 0;
-    String->MaximumLength = MaximumLength;
+    String->MaximumLength = MaximumLength + sizeof(UNICODE_NULL);
 
     return(TRUE);
 }
@@ -721,4 +721,3 @@ Notes:
     return(TDI_SUCCESS);
 }
 
-

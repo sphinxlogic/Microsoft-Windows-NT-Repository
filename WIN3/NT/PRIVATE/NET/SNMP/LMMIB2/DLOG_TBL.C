@@ -1,81 +1,37 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//  
-//  dlog_tbl.c
-//  
-//  Copyright 1992 Technology Dynamics, Inc.
-//  
-//  All Rights Reserved!!!
-//  
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology 
-//	Dynamics. Unauthorized distribution, adaptation or use may be 
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//  
-//  All routines to perform operations on the Domain Logon Table.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.5  $
-//  $Date:   30 Jun 1992 13:34:32  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/dlog_tbl.c_v  $
-//  
-//     Rev 1.5   30 Jun 1992 13:34:32   mlk
-//  Removed some openissue comments
-//  
-//     Rev 1.4   12 Jun 1992 19:19:14   todd
-//  Added support to initialize table variable
-//  
-//     Rev 1.3   07 Jun 1992 15:26:26   todd
-//  Correct MIB prefixes for tables due to new alert mib
-//  
-//     Rev 1.2   01 Jun 1992 12:35:44   todd
-//  Added 'dynamic' field to octet string
-//  
-//     Rev 1.1   22 May 1992 17:38:38   todd
-//  Added return codes to _lmget() functions
-//  
-//     Rev 1.0   20 May 1992 15:10:22   mlk
-//  Initial revision.
-//  
-//     Rev 1.5   02 May 1992 19:09:50   todd
-//  code cleanup
-//  
-//     Rev 1.4   27 Apr 1992 17:33:58   todd
-//  Added functionality to NULL functions to perform operations on the Domain
-//  Logon table.
-//  
-//     Rev 1.3   26 Apr 1992 18:03:46   Chip
-//  Fixed error in table declaration and included new dlog_tbl.h
-//  
-//     Rev 1.2   25 Apr 1992 17:22:24   todd
-//  
-//     Rev 1.1   24 Apr 1992 14:33:42   todd
-//  
-//     Rev 1.0   24 Apr 1992 13:39:50   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/dlog_tbl.c_v  $ $Revision:   1.5  $";
+Module Name:
 
+    dlog_tbl.c
+
+Abstract:
+
+    All routines to perform operations on the Domain Logon Table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
 #include <memory.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
+#include <snmputil.h>
 
 #include "mibfuncs.h"
 
@@ -181,11 +137,11 @@ UINT    ErrStat;
          AsnObjectIdentifier FieldOid = { 1, temp_subs };
 
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomLogonPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomLogonTable.Table[0].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomLogonPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomLogonTable.Table[0].Oid );
          }
 
          //
@@ -214,17 +170,17 @@ UINT    ErrStat;
          if ( Found == MIB_TBL_POS_END )
             {
             // Index not found in table, get next from field
-            Field ++;
+//            Field ++;
 
             // Make sure not past last field
-            if ( Field > DLOG_LAST_FIELD )
-               {
+//            if ( Field > DLOG_LAST_FIELD )
+//               {
                // Get next VAR in MIB
                ErrStat = (*MibPtr->MibNext->MibFunc)( MIB_ACTION_GETFIRST,
                                                       MibPtr->MibNext,
                                                       VarBind );
                break;
-               }
+//               }
             }
 
          // Get next TABLE entry
@@ -257,11 +213,11 @@ UINT    ErrStat;
          FieldOid.idLength = 1;
          FieldOid.ids      = temp_subs;
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomLogonPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomLogonTable.Table[Entry].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomLogonPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomLogonTable.Table[Entry].Oid );
          }
 
          ErrStat = MIB_dlogons_copyfromtable( Entry, Field, VarBind );
@@ -360,7 +316,7 @@ int                 nResult;
    *Pos = 0;
    while ( *Pos < MIB_DomLogonTable.Len )
       {
-      nResult = SNMP_oidcmp( &TempOid, &MIB_DomLogonTable.Table[*Pos].Oid );
+      nResult = SnmpUtilOidCmp( &TempOid, &MIB_DomLogonTable.Table[*Pos].Oid );
       if ( !nResult )
          {
          nResult = MIB_TBL_POS_FOUND;
@@ -413,7 +369,7 @@ UINT ErrStat;
       {
       case DLOG_USER_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_DomLogonTable.Table[Entry].domLogonUser.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -437,7 +393,7 @@ UINT ErrStat;
 
       case DLOG_MACHINE_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                       * MIB_DomLogonTable.Table[Entry].domLogonMachine.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -460,7 +416,7 @@ UINT ErrStat;
          break;
 
       default:
-         printf( "Internal Error Domain Logon Table\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Domain Logon Table.\n" ));
          ErrStat = SNMP_ERRORSTATUS_GENERR;
 
          goto Exit;
@@ -473,4 +429,3 @@ Exit:
 } // MIB_dlogons_copyfromtable
 
 //-------------------------------- END --------------------------------------
-

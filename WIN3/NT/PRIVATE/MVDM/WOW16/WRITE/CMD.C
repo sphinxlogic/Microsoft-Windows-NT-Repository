@@ -46,7 +46,7 @@
 #include "obj.h"
 #endif
 
-#ifdef	KOREA
+#ifdef  KOREA
 #include <ime.h>
 #endif
 
@@ -108,6 +108,10 @@ SetShiftFlags()
 extern int vfShiftKey;     /* Whether shift is down */
 extern int vfCommandKey;   /* Whether ctrl key is down */
 
+MSG msg;
+
+PeekMessage(&msg, (HWND)NULL, NULL, NULL, PM_NOREMOVE);
+
 vfShiftKey = GetKeyState( VK_SHIFT ) < 0;
 vfCommandKey  = GetKeyState( VK_CONTROL ) < 0;
 vfAltKey  = GetKeyState( VK_MENU ) < 0;
@@ -152,7 +156,7 @@ register MSG *pmsg;
     CommSz(rgch);
     }
 #endif
-    
+
     if (vfAltKey)
         return kcAlphaVirtual;
 
@@ -194,10 +198,10 @@ register MSG *pmsg;
                 return (selCur.cpFirst < selCur.cpLim) ? kcNil : kcDelNext;
 
             case kcDelPrev & ~wKcCommandMask:
-                /* New standard for Win 3.0... Backspace key deletes 
-                   the selection if there is one (implemented by faking 
+                /* New standard for Win 3.0... Backspace key deletes
+                   the selection if there is one (implemented by faking
                    a Delete keypress) ..pault 6/20/89 */
-                if (selCur.cpFirst < selCur.cpLim) 
+                if (selCur.cpFirst < selCur.cpLim)
                     {
                     pmsg->wParam = (kcDelNext & ~wKcCommandMask);
                     return(kcNil);
@@ -211,7 +215,7 @@ register MSG *pmsg;
         }
     break;
 
-#ifdef KOREA	/* interim support by sangl 90.12.23 */
+#ifdef KOREA    /* interim support by sangl 90.12.23 */
  case WM_INTERIM:
 #endif
  case WM_CHAR:
@@ -241,7 +245,7 @@ register MSG *pmsg;
 #endif
  return kcNil;
 }
-#ifdef	KOREA
+#ifdef  KOREA
 CHAR chDelete;
 typeCP cpConversion;
 extern int docCur;
@@ -402,7 +406,7 @@ CtrlKey:
     case kcCopy:
     case kcNewCopy:
         if (fAct)
-            PhonyMenuAccelerator( EDIT, imiCopy, fnCopyEdit ); 
+            PhonyMenuAccelerator( EDIT, imiCopy, fnCopyEdit );
         break;
 
     case kcNewPaste:
@@ -447,7 +451,7 @@ CtrlKey:
             _beep();
         break;
 
-#ifdef	KOREA
+#ifdef  KOREA
     case VK_HANJA | wKcCommandMask:
 
         if(IsInterim)   break;
@@ -479,7 +483,7 @@ CtrlKey:
           GlobalFree(hKs);
         }
         break;
-#endif	     /* KOREA */
+#endif       /* KOREA */
 
 #if 0
 #ifdef DEBUG
@@ -712,4 +716,3 @@ CmdShowMemory(cwFree);
 #endif
 }
 #endif  /* DEBUG */
-

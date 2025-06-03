@@ -26,8 +26,16 @@ Notes:
 
 #include "cluster.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( EA_SET );
@@ -76,15 +84,18 @@ CONST UCHAR     NeedFlag        = 0x80;
 
 class EA_SET : public CLUSTER_CHAIN {
 
-	public:
+        public:
 
- 		DECLARE_CONSTRUCTOR( EA_SET );
+                UFAT_EXPORT
+                DECLARE_CONSTRUCTOR( EA_SET );
 
         VIRTUAL
+        UFAT_EXPORT
         ~EA_SET(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PMEM                Mem,
@@ -96,6 +107,7 @@ class EA_SET : public CLUSTER_CHAIN {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Read(
             );
@@ -111,6 +123,7 @@ class EA_SET : public CLUSTER_CHAIN {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         PEA
         GetEa(
             IN  ULONG       Index,
@@ -130,8 +143,8 @@ class EA_SET : public CLUSTER_CHAIN {
         Construct(
             );
 
-		NONVIRTUAL
-		VOID
+                NONVIRTUAL
+                VOID
         Destroy(
             );
 

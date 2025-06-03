@@ -49,12 +49,12 @@ BOOL EstablishConnection(LPSTR);
 
 /**********************************************************************/
 
-char * LOADDS t_itoa(int a, char * b, int c) {
-    return itoa(a, b, c);
+char *  t_itoa(int a, char * b, int c) {
+    return _itoa(a, b, c);
 }
 
 
-int _CRTAPI1 CDECL LOADDS d_sprintf(char NEAR * a, const char FAR * b, char * c)
+int __cdecl CDECL  d_sprintf(char * a, const char * b, ...)
 {
     char rgch[100];
 
@@ -69,7 +69,7 @@ int _CRTAPI1 CDECL LOADDS d_sprintf(char NEAR * a, const char FAR * b, char * c)
     return returnvalue;
 }                                       /* d_sprintf() */
 
-int CDECL d_eprintf(const char FAR * a, char FAR * b, char FAR * c, int d)
+int CDECL d_eprintf(const char * a, char * b, char * c, int d)
 {
     char rgch1[100];
     char rgch2[100];
@@ -85,13 +85,13 @@ int CDECL d_eprintf(const char FAR * a, char FAR * b, char FAR * c, int d)
     return( strlen(rgch4) );
 }                                       /* d_eprintf() */
 
-int LOADDS PASCAL
+int
 LBQuit(UINT ui)
 {
     return 0;
 }                               /* LBQuit() */
 
-int LOADDS PASCAL
+int
 AssertOut(
     LPCH lszMsg,
     LPCH lszFile,
@@ -115,7 +115,7 @@ DLoadedSymbols(
     DWORD   len;
 
 
-    emi = SHGethExeFromName((char FAR *)s);
+    emi = SHGethExeFromName((char *)s);
     Assert(emi != 0);
     OSDRegisterEmi( hpid, 0, (HEMI)emi, s);
 
@@ -144,7 +144,7 @@ BOOL SYGetDefaultShe( LSZ Name, SHE *She)
     return ModListGetDefaultShe( Name, She );
 }
 
-void LOADDS PASCAL LBLog(LSZ lsz)
+void   LBLog(LSZ lsz)
 {
     OutputDebugString(lsz);
     return;
@@ -152,20 +152,7 @@ void LOADDS PASCAL LBLog(LSZ lsz)
 
 /**********************************************************************/
 
-HPID LOADDS PASCAL HpidCurrent()
-{
-    return LppdCur->hpid;
-}
-
-HTID LOADDS PASCAL HtidCurrent()
-{
-    return LptdCur->htid;
-}
-
-
-/**********************************************************************/
-
-void FAR * PASCAL LOADDS MHAlloc(size_t cb)
+void *   MHAlloc(size_t cb)
 {
     return malloc(cb);
 }                                       /* MHAlloc() */
@@ -175,12 +162,12 @@ void _HUGE_ * MHAllocHuge( LONG l, UINT ui)
     return MHAlloc(l * ui );
 }                                       /* MHAllocHuge() */
 
-void FAR * PASCAL MHRealloc(void FAR * lpv, size_t cb)
+void *  MHRealloc(void * lpv, size_t cb)
 {
     return realloc(lpv, cb);
 }                                       /* MHRealloc() */
 
-void       PASCAL MHFree(void FAR * lpv)
+void        MHFree(void * lpv)
 {
     free(lpv);
     return;
@@ -188,10 +175,10 @@ void       PASCAL MHFree(void FAR * lpv)
 
 /**********************************************************************/
 
-int PASCAL LOADDS
+int
 DHGetNumber(
-    char FAR * lpv,
-    int FAR * result
+    char * lpv,
+    int * result
     )
 /*++
 
@@ -218,12 +205,12 @@ Returns:
                           radix,
                           fCaseSensitive,
                           &CxfIp,
-                          (char FAR *) result,
+                          (char *) result,
                           NULL);
 
 }
 
-HDEP PASCAL
+HDEP
 MMAllocHmem(
     size_t cb
     )
@@ -231,7 +218,7 @@ MMAllocHmem(
     return (HDEP) calloc(1, cb);
 }                                       /* MMAllocHmem() */
 
-HDEP PASCAL
+HDEP
 MMReallocHmem(
     HDEP hmem,
     size_t cb
@@ -249,7 +236,7 @@ MMReallocHmem(
     return (HDEP)p;
 }                                       /* MMReallocHmem() */
 
-VOID PASCAL
+VOID
 MMFreeHmem(
     HDEP hmem
     )
@@ -257,7 +244,7 @@ MMFreeHmem(
     free((LPVOID)hmem);
 }                                       /* MMFreeHmem() */
 
-LPVOID PASCAL
+LPVOID
 MMLpvLockMb(
     HDEP hmem
     )
@@ -265,7 +252,7 @@ MMLpvLockMb(
     return (LPVOID)hmem;
 }                                       /* MMLpvLockMb() */
 
-void PASCAL
+void
 MMbUnlockMb(
     HDEP hmem
     )
@@ -275,31 +262,39 @@ MMbUnlockMb(
 
 /**********************************************************************/
 
-UINT       LOADDS PASCAL SYOpen(LSZ lsz)
+UINT SYOpen(LSZ lsz)
 {
-    EstablishConnection( lsz );
-    return _lopen(lsz, OF_READ);
+    EstablishConnection(lsz);
+    return((UINT) CreateFile(lsz,
+                      GENERIC_READ,
+                      FILE_SHARE_READ,
+                      NULL,
+                      OPEN_EXISTING,
+                      FILE_ATTRIBUTE_NORMAL,
+                      NULL));
 }                                       /* SYOpen() */
 
-VOID LOADDS PASCAL SYClose(UINT hFile)
+VOID SYClose(UINT hFile)
 {
-    _lclose(hFile);
+    CloseHandle((HANDLE) hFile);
     return;
 }                                       /* SYClose() */
 
-UINT LOADDS PASCAL SYRead(UINT hFile, LPB pch, UINT cb)
+UINT SYRead(UINT hFile, LPB pch, UINT cb)
 {
-    return _lread(hFile, pch, cb);
+    DWORD dwBytesRead;
+    ReadFile((HANDLE) hFile, pch, cb, &dwBytesRead, NULL);
+    return(dwBytesRead);
 }                                       /* SYRead() */
 
-long LOADDS PASCAL SYLseek(UINT hFile, LONG cbOff, UINT iOrigin)
+long SYLseek(UINT hFile, LONG cbOff, UINT iOrigin)
 {
-    return _llseek(hFile, cbOff, iOrigin);
+    return SetFilePointer((HANDLE) hFile, cbOff, NULL, iOrigin);
 }                                       /* SYLseek() */
 
-long LOADDS PASCAL SYTell(UINT hFile)
+long SYTell(UINT hFile)
 {
-    return _llseek(hFile, 0, SEEK_CUR);
+    return SetFilePointer((HANDLE) hFile, 0, NULL, FILE_CURRENT);
 }                                       /* SYTell() */
 
 
@@ -321,9 +316,15 @@ SetFindExeBaseName(
         // search from tail for '\\'
         if ( p = strrchr(lpName, '\\') ) {
             if (p == lpName || (p == (lpName + 2) && lpName[1] == ':')) {
+#ifdef DBCS
+              if (!IsDBCSLeadByte(*lpName))
+#endif
                 p += 1;
             }
         } else if ( lpName[0] != '\0' && lpName[1] == ':' ) {
+#ifdef DBCS
+          if (!IsDBCSLeadByte(*lpName))
+#endif
             p = lpName + 2;
         }
         if (p) {
@@ -374,7 +375,7 @@ IsExistingConnection(
             break;
         }
         for (i=0; i<Entries; i++) {
-            if (stricmp( nrr[i].lpRemoteName, RemoteName ) == 0) {
+            if (_stricmp( nrr[i].lpRemoteName, RemoteName ) == 0) {
                 rval = TRUE;
                 break;
             }
@@ -449,7 +450,7 @@ UINT
 SYFindExeFile(
     LSZ               lpFile,
     LSZ               lpFound,
-    int               cchFound,
+    UINT              cchFound,
     LPVOID            lpv,
     PFNVALIDATEEXE    pfn
     )
@@ -485,7 +486,7 @@ SYFindExeFile(
 
     cSP = ModListGetSearchPath(NULL, 0) + strlen(szDrive) + strlen(szDir) + 2;
     if (!cSP) {
-        lpSearchPath = strdup("");
+        lpSearchPath = _strdup("");
     } else {
         lpSearchPath = malloc(cSP);
 
@@ -512,11 +513,12 @@ SYFindExeFile(
 
         hFile = (UINT)FindExecutableImage( szFileName, lpSearchPath, rgch );
         if (!hFile) {
+            sprintf( szFileName, "%s.dbg", szFname );
+            hFile = (UINT)FindExecutableImage( szFileName, lpSearchPath, rgch );
+        }
+        if (!hFile) {
+            sprintf( szFileName, "%s.%s", szFname, szExt);
             hFile = (UINT)FindDebugInfoFile( szFileName, lpSearchPath, rgch );
-            if (!hFile) {
-                sprintf( szFileName, "%s.dbg", szFname );
-                hFile = (UINT)FindExecutableImage( szFileName, lpSearchPath, rgch );
-            }
         }
         if (hFile) {
             strcpy( szFileName, rgch );
@@ -584,7 +586,7 @@ done:
 
 /**********************************************************************/
 
-XOSD LOADDS PASCAL
+XOSD
 SYUnFixupAddr(
     LPADDR lpaddr
     )
@@ -601,7 +603,7 @@ SYUnFixupAddr(
 
 }
 
-XOSD LOADDS PASCAL
+XOSD
 SYFixupAddr(
     LPADDR paddr
     )
@@ -617,7 +619,20 @@ SYFixupAddr(
 #endif
 }
 
-UINT LOADDS PASCAL SYProcessor(VOID)
+XOSD
+SYSanitizeAddr(
+    LPADDR paddr
+    )
+{
+    XOSD xosd;
+    emiAddr(*paddr) = 0;
+    if ((xosd = SYUnFixupAddr(paddr)) != xosdNone) {
+        return xosd;
+    }
+    return SYFixupAddr(paddr);
+}
+
+UINT SYProcessor(VOID)
 {
     long l = 0;
 
@@ -628,7 +643,7 @@ UINT LOADDS PASCAL SYProcessor(VOID)
     return (int) l;
 }                                       /* SYProcessor() */
 
-void PASCAL
+void
 SYSetEmi (
     HPID hpid,
     HTID htid,
@@ -646,7 +661,7 @@ SYSetEmi (
     return;
 }                                       /* SYSetEmi() */
 
-BOOL LOADDS PASCAL SYGetAddr(LPADDR lpaddr, int addrType)
+BOOL SYGetAddr(LPADDR lpaddr, int addrType)
 {
     if ((LppdCur == NULL) || (LptdCur == NULL)) {
         return FALSE;
@@ -674,7 +689,7 @@ BOOL LOADDS PASCAL SYGetAddr(LPADDR lpaddr, int addrType)
  *************************************************************************/
 
 #ifndef OSDEBUG4
-SHFLAG LOADDS PASCAL
+SHFLAG
 SYFIsOverlayLoaded (
     LPADDR paddr
     )
@@ -692,7 +707,7 @@ SYFIsOverlayLoaded (
     return ( xosd == xosdContinue );
 }                                       /* SYFIsOverlayLoaded() */
 
-XOSD PASCAL SYIsStackSetup( HPID hpid, HTID htid, LPADDR lpaddr )
+XOSD  SYIsStackSetup( HPID hpid, HTID htid, LPADDR lpaddr )
 {
     XOSD xosd;
 
@@ -706,7 +721,7 @@ XOSD PASCAL SYIsStackSetup( HPID hpid, HTID htid, LPADDR lpaddr )
 }
 #endif
 
-XOSD PASCAL
+XOSD
 SYGetMemInfo(
     LPMEMINFO lpmi
     )
@@ -716,11 +731,11 @@ SYGetMemInfo(
 
 /**********************************************************************/
 
-DWORD PASCAL LOADDS
+DWORD
 DHGetDebuggeeBytes(
     ADDR addr,
     UINT cb,
-    void FAR * lpb
+    void * lpb
     )
 {
     int         terrno = errno;
@@ -774,11 +789,11 @@ DHGetDebuggeeBytes(
  */
 
 
-DWORD PASCAL LOADDS
+DWORD
 DHSetDebuggeeBytes(
     ADDR addr,
     UINT cb,
-    void FAR * lpb
+    void * lpb
     )
 {
     int         terrno = errno;
@@ -834,20 +849,20 @@ DHSetDebuggeeBytes(
  **
  */
 
-PSHREG  LOADDS PASCAL DHGetReg(PSHREG pShreg, PCXT pCxt)
+PSHREG DHGetReg(PSHREG pShreg, PCXT pCxt)
 {
     if ( LppdCur && LptdCur ) {
 
         if (pShreg->hReg >= CV_REG_PSEUDO1 && pShreg->hReg <= CV_REG_PSEUDO9) {
 
-            pShreg->u.b.Byte4 = ulPseudo[pShreg->hReg - CV_REG_PSEUDO1];
+            pShreg->Byte4 = ulPseudo[pShreg->hReg - CV_REG_PSEUDO1];
 
         } else if ( fUseFrameContext == TRUE ) {
 
             OSDFrameReadReg( LppdCur->hpid,
                              LptdCur->htid,
                              pShreg->hReg,
-                             &pShreg->u.Byte1 );
+                             &pShreg->Byte1 );
         } else {
             //
             // use the current frame
@@ -855,7 +870,7 @@ PSHREG  LOADDS PASCAL DHGetReg(PSHREG pShreg, PCXT pCxt)
             OSDReadReg(      LppdCur->hpid,
                              LptdCur->htid,
                              pShreg->hReg,
-                             &pShreg->u.Byte1 );
+                             &pShreg->Byte1 );
         }
         return ( pShreg );
     } else {
@@ -879,7 +894,7 @@ PSHREG  LOADDS PASCAL DHGetReg(PSHREG pShreg, PCXT pCxt)
  **
  */
 
-PSHREG LOADDS PASCAL DHSetReg ( PSHREG  pReg, PCXT  pCxt )
+PSHREG DHSetReg ( PSHREG  pReg, PCXT  pCxt )
 {
     Unreferenced( pCxt );
 
@@ -887,7 +902,7 @@ PSHREG LOADDS PASCAL DHSetReg ( PSHREG  pReg, PCXT  pCxt )
 
         if (pReg->hReg >= CV_REG_PSEUDO1 && pReg->hReg <= CV_REG_PSEUDO9) {
 
-            ulPseudo[pReg->hReg - CV_REG_PSEUDO1] = pReg->u.b.Byte4;
+            ulPseudo[pReg->hReg - CV_REG_PSEUDO1] = pReg->Byte4;
             return ( pReg );
 
         }
@@ -897,7 +912,7 @@ PSHREG LOADDS PASCAL DHSetReg ( PSHREG  pReg, PCXT  pCxt )
             if (OSDFrameWriteReg( LppdCur->hpid,
                                   LptdCur->htid,
                                   pReg->hReg,
-                                  (void far *) &pReg->u.Byte1 ) == xosdNone) {
+                                  (void *) &pReg->Byte1 ) == xosdNone) {
                return ( pReg );
             }  else {
                return NULL;
@@ -905,7 +920,7 @@ PSHREG LOADDS PASCAL DHSetReg ( PSHREG  pReg, PCXT  pCxt )
         }
 
         if (OSDWriteReg (LppdCur->hpid, LptdCur->htid, pReg->hReg,
-                         (void far *) &pReg->u.Byte1 ) == xosdNone) {
+                         (void *) &pReg->Byte1 ) == xosdNone) {
             return ( pReg );
         } else {
             return NULL;
@@ -919,7 +934,7 @@ PSHREG LOADDS PASCAL DHSetReg ( PSHREG  pReg, PCXT  pCxt )
 
 
 
-BOOL LOADDS PASCAL
+BOOL
 DHSetupExecute(
                LPHDEP lphdep
                )
@@ -954,7 +969,7 @@ Return Value:
 
 
 
-BOOL LOADDS PASCAL
+BOOL
 DHStartExecute(
                HDEP     hdep,
                LPADDR   lpaddr,
@@ -975,7 +990,7 @@ Arguments:
     hdep        - Supplies the handle to the Execute Function object
     lpaddr      - Supplies the address to start execution at
     fIgnoreEvents - Supplies
-    fFarRet     - Supplies TRUE if a far return should be executed
+    fFarRet     - Supplies TRUE if a return should be executed
 
 Return Value:
 
@@ -1020,7 +1035,7 @@ Return Value:
 
 
 
-BOOL LOADDS PASCAL
+BOOL
 DHCleanUpExecute(
                  HDEP   hdep
                  )
@@ -1052,7 +1067,7 @@ Return Value:
 
 /**********************************************************************/
 
-LSZ FAR LOADDS PASCAL
+LSZ
 FullPath(
     LSZ  lszBuf,
     LSZ  lszRel,
@@ -1064,14 +1079,14 @@ FullPath(
     char *  szRet;
 
     _fstrcpy( szRel, lszRel );
-    if ( szRet = _fullpath( (char NEAR *) szBuf, szRel, (size_t)cbBuf ) ) {
+    if ( szRet = _fullpath( (char *) szBuf, szRel, (size_t)cbBuf ) ) {
         _fstrcpy( lszBuf, szBuf );
     }
     return (LSZ)szRet;
 }
 
-void FAR LOADDS PASCAL MakePath( LSZ  lszPath, LSZ  lszDrive, LSZ  lszDir,
-                                LSZ  lszFName, LSZ  lszExt )
+void MakePath( LSZ  lszPath, LSZ  lszDrive, LSZ  lszDir,
+               LSZ  lszFName, LSZ  lszExt )
 {
     char    szPath[500];
     char    szDrive[256];
@@ -1088,19 +1103,19 @@ void FAR LOADDS PASCAL MakePath( LSZ  lszPath, LSZ  lszDrive, LSZ  lszDir,
     _fstrcpy( lszPath, szPath );
 }
 
-int FAR LOADDS PASCAL LOADDS OurStat( LSZ  lsz, LPCH lpstat )
+int OurStat( LSZ  lsz, LPCH lpstat )
 {
-    char        sz[ 256 ];
-    struct stat statT;
-    int         wRet;
+    char            sz[ 256 ];
+    struct _stat    statT;
+    int             wRet;
 
-    _fstrcpy( sz, lsz );
-    wRet = stat( sz, &statT );
-    *(struct stat FAR *)lpstat = statT;
+    strcpy( sz, lsz );
+    wRet = _stat( sz, &statT );
+    *(struct _stat *)lpstat = statT;
     return wRet;
 }
 
-UINT FAR CDECL LOADDS OurSprintf( LSZ  lszBuf, LSZ  lszFmt, ... ) {
+UINT CDECL  OurSprintf( LSZ  lszBuf, LSZ  lszFmt, ... ) {
     va_list val;
     WORD    wRet;
     char    szBuf[256];
@@ -1116,7 +1131,7 @@ UINT FAR CDECL LOADDS OurSprintf( LSZ  lszBuf, LSZ  lszFmt, ... ) {
     return wRet;
 }
 
-void FAR LOADDS PASCAL SearchEnv( LSZ  lszFile, LSZ  lszVar, LSZ  lszPath )
+void SearchEnv( LSZ  lszFile, LSZ  lszVar, LSZ  lszPath )
 {
     char    szFile[ 256 ];
     char    szVar[ 256 ];
@@ -1129,7 +1144,7 @@ void FAR LOADDS PASCAL SearchEnv( LSZ  lszFile, LSZ  lszVar, LSZ  lszPath )
 }
 
 
-void FAR LOADDS PASCAL SplitPath( LSZ  lsz1, LSZ  lsz2, LSZ  lsz3, LSZ  lsz4, LSZ  lsz5 ) {
+void SplitPath( LSZ  lsz1, LSZ  lsz2, LSZ  lsz3, LSZ  lsz4, LSZ  lsz5 ) {
     char    sz1[ _MAX_CVPATH ];
     char    sz2[ _MAX_CVDRIVE ];
     char    sz3[ _MAX_CVDIR ];
@@ -1195,7 +1210,7 @@ FormatSymbol(
         strcat(szContext,szStr);
     }
 
-    return strdup(szContext);
+    return _strdup(szContext);
 }
 
 BOOL
@@ -1279,7 +1294,8 @@ GetNearestSymbolInfo(
 
 LPSTR
 GetNearestSymbolFromAddr(
-    LPADDR lpaddr
+    LPADDR lpaddr,
+    LPADDR lpAddrRet
     )
 {
     NEARESTSYM      nsym;
@@ -1294,6 +1310,9 @@ GetNearestSymbolFromAddr(
     if (!nsym.hsymP) {
         return NULL;
     }
+
+    *lpAddrRet = nsym.addrP;
+    SYFixupAddr(lpAddrRet);
 
     return FormatSymbol( nsym.hsymP, &nsym.cxt );
 }
@@ -1317,20 +1336,34 @@ DBF     Dbf = {
     MMLpvLockMb,                        /* MMLock                       */
     MMbUnlockMb,                        /* MMUnlock                     */
 
-    LLHlliInit,                         /* LLInit                       */
-    LLHlleCreate,                       /* LLCreate                     */
-    LLAddHlleToLl,                      /* LLAdd                        */
-    LLInsertHlleInLl,                   /* LLInsert                     */
-    LLFDeleteHlleFromLl,                /* LLDelete                     */
-    LLHlleFindNext,                     /* LLNext                       */
+(HLLI (WINAPI *)( UINT, LLF, LPFNKILLNODE, LPFNFCMPNODE ))
+    LLPlliInit,                         /* LLInit                       */
+(HLLE (WINAPI *)( HLLI ))
+    LLPlleCreate,                       /* LLCreate                     */
+(VOID (WINAPI *)( HLLI, HLLE ))
+    LLAddPlleToLl,                      /* LLAdd                        */
+(VOID (WINAPI *)( HLLI, HLLE, DWORD ))
+    LLInsertPlleInLl,                   /* LLInsert                     */
+(BOOL (WINAPI *)( HLLI, HLLE ))
+    LLFDeletePlleFromLl,                /* LLDelete                     */
+(HLLE (WINAPI *)( HLLI, HLLE ))
+    LLPlleFindNext,                     /* LLNext                       */
+(LONG (WINAPI *)( HLLI ))
     LLChlleDestroyLl,                   /* LLDestroy                    */
-    LLHlleFindLpv,                      /* LLFind                       */
+(HLLE (WINAPI *)( HLLI, HLLE, LPV, DWORD ))
+    LLPlleFindLpv,                      /* LLFind                       */
+(DWORD (WINAPI *)( HLLI ))
     LLChlleInLl,                        /* LLSize                       */
-    LLLpvFromHlle,                      /* LLLock                       */
-    LLUnlockHlle,                       /* LLUnlock                     */
-    LLHlleGetLast,                      /* LLLast                       */
-    LLHlleAddToHeadOfLI,                /* LLAddHead                    */
-    LLFRemoveHlleFromLl,                /* LLRemove                     */
+(LPVOID (WINAPI *)( HLLE ))
+    LLLpvFromPlle,                      /* LLLock                       */
+(VOID (WINAPI *)( HLLE ))
+    LLUnlockPlle,                       /* LLUnlock                     */
+(HLLE (WINAPI *)( HLLI ))
+    LLPlleGetLast,                      /* LLLast                       */
+(VOID (WINAPI *)( HLLI, HLLE ))
+    LLPlleAddToHeadOfLI,                /* LLAddHead                    */
+(BOOL (WINAPI *)( HLLI, HLLE ))
+    LLFRemovePlleFromLl,                /* LLRemove                     */
 
     NULL,                               /* SHModelFromADDR              */
     NULL,                               /* SHPublicNameTOADDR           */
@@ -1370,25 +1403,39 @@ KNF     Knf = {
     MMFreeHmem,                         /* MMFreeHmem                   */
     MMLpvLockMb,                        /* MMLock                       */
     MMbUnlockMb,                        /* MMUnlock                     */
-    LLHlliInit,                         /* LLInit                       */
-    LLHlleCreate,                       /* LLCreate                     */
-    LLAddHlleToLl,                      /* LLAdd                        */
-    LLHlleAddToHeadOfLI,                /* LLAddHead                    */
-    LLInsertHlleInLl,                   /* LLInsert                     */
-    LLFDeleteHlleFromLl,                /* LLDelete                     */
-    LLFRemoveHlleFromLl,                /* LLRemove                     */
+(HLLI (WINAPI *)( UINT, LLF, LPFNKILLNODE, LPFNFCMPNODE ))
+    LLPlliInit,                         /* LLInit                       */
+(HLLE (WINAPI *)( HLLI ))
+    LLPlleCreate,                       /* LLCreate                     */
+(VOID (WINAPI *)( HLLI, HLLE ))
+    LLAddPlleToLl,                      /* LLAdd                        */
+(VOID (WINAPI *)( HLLI, HLLE ))
+    LLPlleAddToHeadOfLI,                /* LLAddHead                    */
+(VOID (WINAPI *)( HLLI, HLLE, DWORD ))
+    LLInsertPlleInLl,                   /* LLInsert                     */
+(BOOL (WINAPI *)( HLLI, HLLE ))
+    LLFDeletePlleFromLl,                /* LLDelete                     */
+(BOOL (WINAPI *)( HLLI, HLLE ))
+    LLFRemovePlleFromLl,                /* LLRemove                     */
+(LONG (WINAPI *)( HLLI ))
     LLChlleDestroyLl,                   /* LLDestroy                    */
-    LLHlleFindNext,                     /* LLNext                       */
-    LLHlleFindLpv,                      /* LLFind                       */
-    LLHlleGetLast,                      /* LLLast                       */
+(HLLE (WINAPI *)( HLLI, HLLE ))
+    LLPlleFindNext,                     /* LLNext                       */
+(HLLE (WINAPI *)( HLLI, HLLE, LPV, DWORD ))
+    LLPlleFindLpv,                      /* LLFind                       */
+(HLLE (WINAPI *)( HLLI ))
+    LLPlleGetLast,                      /* LLLast                       */
+(DWORD (WINAPI *)( HLLI ))
     LLChlleInLl,                        /* LLSize                       */
-    LLLpvFromHlle,                      /* LLLock                       */
-    LLUnlockHlle,                       /* LLUnlock                     */
+(LPVOID (WINAPI *)( HLLE ))
+    LLLpvFromPlle,                      /* LLLock                       */
+(VOID (WINAPI *)( HLLE ))
+    LLUnlockPlle,                       /* LLUnlock                     */
     AssertOut,                          /* LPPrintf                     */
     LBQuit,                             /* LPQuit                       */
     SYOpen,                             /* SYOpen                       */
     SYClose,                            /* SYClose                      */
-    SYRead,                             /* SYReadFar                    */
+    SYRead,                             /* SYRead                   */
     SYLseek,                            /* SYSeek                       */
     SYFixupAddr,                        /* SYFixupAddr                  */
     SYUnFixupAddr,                      /* SYUnFixupAddr                */
@@ -1396,14 +1443,14 @@ KNF     Knf = {
     //SYProcessor,                        /* SYProcessor                  */
     NULL,
 
-    SYFIsOverlayLoaded,                 /* SYFIsOverlayLoaded           */
-    SearchEnv,                          /* searchenv                    */
-    OurSprintf,                         /* sprintf                      */
-    SplitPath,                          /* splitpath                    */
-    FullPath,                           /* fullpath                     */
-    MakePath,                           /* makepath                     */
-    OurStat,                            /* stat                         */
-    LBLog,                              /* LBLog                        */
+    // SYFIsOverlayLoaded,                 /* SYFIsOverlayLoaded           */
+    // SearchEnv,                          /* searchenv                    */
+    // OurSprintf,                         /* sprintf                      */
+    // SplitPath,                          /* splitpath                    */
+    // FullPath,                           /* fullpath                     */
+    // MakePath,                           /* makepath                     */
+    // OurStat,                            /* stat                         */
+    // LBLog,                              /* LBLog                        */
     SYTell,                             /* SYTell                       */
     SYFindExeFile,                      /* SYFindExeFile                */
     DLoadedSymbols,                     /* LoadedSymbols                */
@@ -1411,12 +1458,12 @@ KNF     Knf = {
 };    /* End of structure             */
 
 CRF Crf = {
-    NULL,                               /* intLoadDS                    */
+    NULL,                               /* int                    */
     NULL,                               /* ultoa                        */
-    t_itoa,                             /* itoa                         */
+    t_itoa,                             /* _itoa                         */
     NULL,                               /* ltoa                         */
     d_eprintf,                          /* eprintf                      */
-    d_sprintf,                          /* sprintf                      */
+    d_sprintf                           /* sprintf                      */
 };                                      /* End of structure             */
 
 CVF Cvf = {
@@ -1461,8 +1508,6 @@ CVF Cvf = {
     MMLpvLockMb,                        /* MHMemLock                    */
     MMbUnlockMb,                        /* MHMemUnLock                  */
     NULL,                               /* MHIsMemLocked                */
-    NULL,                               /* MHOmfLock                 (1)*/
-    NULL,                               /* MHOmfUnLock               (1)*/
     DHGetDebuggeeBytes,                 /* DHGetDebuggeeBytes           */
     DHSetDebuggeeBytes,                 /* DHPutDebuggeeBytes           */
     DHGetReg,                           /* DHGetReg                     */
@@ -1527,8 +1572,6 @@ void CopyShToEe()
     Cvf.pSLHsfFromFile            = Lpshf->pSLHsfFromFile;
     Cvf.pPHFindNameInPublics      = Lpshf->pPHFindNameInPublics;
     Cvf.pTHGetTypeFromIndex       = Lpshf->pTHGetTypeFromIndex;
-    Cvf.pMHOmfLock                = Lpshf->pMHOmfLock;
-    Cvf.pMHOmfUnLock              = Lpshf->pMHOmfUnLock;
     Cvf.pSHCompareRE              = Lpshf->pSHCompareRE;
     Cvf.pSHGetExeName             = Lpshf->pSHGetExeName;
     Cvf.pSHGetModNameFromHexe     = Lpshf->pSHGetModNameFromHexe;

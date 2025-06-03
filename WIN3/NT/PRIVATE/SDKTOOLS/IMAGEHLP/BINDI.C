@@ -15,282 +15,681 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <memory.h>
-#include <malloc.h>
-#include <ctype.h>
-#define _NTSYSTEM_     // So RtlImageDirectoryEntryToData will not be imported
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#define _IMAGEHLP_SOURCE_
-#include <imagehlp.h>
+#include <private.h>
 
-#ifdef BIND_EXE
-#define RtlImageNtHeader ImageNtHeader
-#define RtlImageDirectoryEntryToData ImageDirectoryEntryToData
-#endif
+typedef struct _BOUND_FORWARDER_REFS {
+    struct _BOUND_FORWARDER_REFS *Next;
+    ULONG TimeDateStamp;
+    LPSTR ModuleName;
+} BOUND_FORWARDER_REFS, *PBOUND_FORWARDER_REFS;
 
-#define BIND_ERR 99
-#define BIND_OK  0
+typedef struct _IMPORT_DESCRIPTOR {
+    struct _IMPORT_DESCRIPTOR *Next;
+    LPSTR ModuleName;
+    ULONG TimeDateStamp;
+    USHORT NumberOfModuleForwarderRefs;
+    PBOUND_FORWARDER_REFS Forwarders;
+} IMPORT_DESCRIPTOR, *PIMPORT_DESCRIPTOR;
 
-BOOL fVerbose;
-CHAR DebugFileName[ MAX_PATH ];
-CHAR DebugFilePath[ MAX_PATH ];
+typedef struct _BINDP_PARAMETERS {
+    DWORD Flags;
+    BOOLEAN fNoUpdate;
+    BOOLEAN fNewImports;
+    LPSTR ImageName;
+    LPSTR DllPath;
+    LPSTR SymbolPath;
+    PIMAGEHLP_STATUS_ROUTINE StatusRoutine;
+} BINDP_PARAMETERS, *PBINDP_PARAMETERS;
 
-LIST_ENTRY LoadedDllList;
-static LOADED_IMAGE CurrentImage;
-
-static BOOL
-LookupThunk(
+BOOL
+BindpLookupThunk(
+    PBINDP_PARAMETERS Parms,
     PIMAGE_THUNK_DATA ThunkName,
     PLOADED_IMAGE Image,
     PIMAGE_THUNK_DATA SnappedThunks,
     PIMAGE_THUNK_DATA FunctionAddress,
     PLOADED_IMAGE Dll,
     PIMAGE_EXPORT_DIRECTORY Exports,
+    PIMPORT_DESCRIPTOR NewImport,
+    LPSTR DllPath,
     PULONG *ForwarderChain
-#ifdef BIND_EXE
-    ,
-    BOOL fDisplayImports
-#endif  // BIND_EXE
     );
 
-static BOOL
-BindImagep(
-    IN LPSTR ImageName,
-    IN LPSTR DllPath,
-    IN LPSTR SymbolPath,
-    IN BOOL  fNoUpdate,
-    IN BOOL  fBindSysImages
-#ifdef BIND_EXE
-    ,
-    IN BOOL  fDisplayImports,
-    IN BOOL  fDisplayIATWrites,
-    IN BOOL  fVerbose
-#endif  // BIND_EXE
-    );
-
-static PLOADED_IMAGE
-LoadDll(
-    LPSTR DllName,
-    LPSTR DllPath
-    );
-
-static PVOID
-RvaToVa(
+PVOID
+BindpRvaToVa(
+    PBINDP_PARAMETERS Parms,
     PVOID Rva,
     PLOADED_IMAGE Image
     );
 
-static VOID
-WalkAndProcessImports(
+VOID
+BindpWalkAndProcessImports(
+    PBINDP_PARAMETERS Parms,
     PLOADED_IMAGE Image,
     LPSTR DllPath,
-    BOOL  fNoUpdate
-#ifdef BIND_EXE
-    ,
-    BOOL  fDisplayImports,
-    BOOL  fDisplayIATWrites
-#endif  // BIND_EXE
+    PBOOL ImageModified
     );
 
-#ifndef BIND_EXE
-    BOOL
-    BindImage(
-        IN LPSTR ImageName,
-        IN LPSTR DllPath,
-        IN LPSTR SymbolPath
-        )
-    {
-        return( BindImagep( ImageName,
-                            DllPath,
-                            SymbolPath,
-                            FALSE,
-                            TRUE
-                            ) );
+BOOL
+BindImage(
+    IN LPSTR ImageName,
+    IN LPSTR DllPath,
+    IN LPSTR SymbolPath
+    )
+{
+    return BindImageEx( 0,
+                        ImageName,
+                        DllPath,
+                        SymbolPath,
+                        NULL
+                      );
+}
+
+UCHAR BindpCapturedModuleNames[4096];
+LPSTR BindpEndCapturedModuleNames;
+
+LPSTR
+BindpCaptureImportModuleName(
+    LPSTR DllName
+    )
+{
+    LPSTR s;
+
+    s = (LPSTR) BindpCapturedModuleNames;
+    if (BindpEndCapturedModuleNames == NULL) {
+        *s = '\0';
+        BindpEndCapturedModuleNames = s;
+        }
+
+    while (*s) {
+        if (!_stricmp(s, DllName)) {
+            return s;
+            }
+
+        s += strlen(s)+1;
+        }
+
+    strcpy(s, DllName);
+    BindpEndCapturedModuleNames = s + strlen(s) + 1;
+    *BindpEndCapturedModuleNames = '\0';
+    return s;
+}
+
+PIMPORT_DESCRIPTOR
+BindpAddImportDescriptor(
+    PBINDP_PARAMETERS Parms,
+    PIMPORT_DESCRIPTOR *NewImportDescriptor,
+    PIMAGE_IMPORT_DESCRIPTOR ImportDescriptor,
+    LPSTR ModuleName,
+    PLOADED_IMAGE Dll
+    )
+{
+    PIMPORT_DESCRIPTOR p, *pp;
+
+    if (!Parms->fNewImports) {
+        return NULL;
+        }
+
+    pp = NewImportDescriptor;
+    while (p = *pp) {
+        if (!_stricmp( p->ModuleName, ModuleName )) {
+            return p;
+            }
+
+        pp = &p->Next;
+        }
+
+    p = (PIMPORT_DESCRIPTOR) MemAlloc( sizeof( *p ) );
+    if (p != NULL) {
+        if (Dll != NULL) {
+            p->TimeDateStamp = Dll->FileHeader->FileHeader.TimeDateStamp;
+            }
+        p->ModuleName = BindpCaptureImportModuleName( ModuleName );
+        *pp = p;
+        }
+    else
+    if (Parms->StatusRoutine != NULL) {
+        (Parms->StatusRoutine)( BindOutOfMemory, NULL, NULL, 0, sizeof( *p ) );
+        }
+
+    return p;
+}
+
+
+PUCHAR
+BindpAddForwarderReference(
+    PBINDP_PARAMETERS Parms,
+    LPSTR ImageName,
+    LPSTR ImportName,
+    PIMPORT_DESCRIPTOR NewImportDescriptor,
+    LPSTR DllPath,
+    PUCHAR ForwarderString,
+    PBOOL BoundForwarder
+    )
+{
+    CHAR DllName[ MAX_PATH ];
+    PUCHAR s;
+    PLOADED_IMAGE Dll;
+    ULONG cb;
+    USHORT OrdinalNumber;
+    USHORT HintIndex;
+    ULONG ExportSize;
+    PIMAGE_EXPORT_DIRECTORY Exports;
+    PULONG NameTableBase;
+    PUSHORT NameOrdinalTableBase;
+    PULONG FunctionTableBase;
+    LPSTR NameTableName;
+    ULONG ForwardedAddress;
+    PBOUND_FORWARDER_REFS p, *pp;
+
+    *BoundForwarder = FALSE;
+BindAnotherForwarder:
+    s = ForwarderString;
+    while (*s && *s != '.') {
+        s++;
+        }
+    if (*s != '.') {
+        return ForwarderString;
+        }
+    cb = s - ForwarderString;
+    if (cb >= MAX_PATH) {
+        return ForwarderString;
+        }
+    strncpy( DllName, (LPSTR) ForwarderString, cb );
+    DllName[ cb ] = '\0';
+    strcat( DllName, ".DLL" );
+
+    Dll = ImageLoad( DllName, DllPath );
+    if (!Dll) {
+        return ForwarderString;
+        }
+    s += 1;
+
+    Exports = (PIMAGE_EXPORT_DIRECTORY)ImageDirectoryEntryToData(
+                                         (PVOID)Dll->MappedAddress,
+                                         FALSE,
+                                         IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                         &ExportSize
+                                         );
+    if (!Exports) {
+        return ForwarderString;
     }
-#endif  // BIND_EXE
+
+    NameTableBase = (PULONG) BindpRvaToVa( Parms, Exports->AddressOfNames, Dll );
+    NameOrdinalTableBase = (PUSHORT) BindpRvaToVa( Parms, Exports->AddressOfNameOrdinals, Dll );
+    FunctionTableBase = (PULONG) BindpRvaToVa( Parms, Exports->AddressOfFunctions, Dll );
+
+    for ( HintIndex = 0; HintIndex < Exports->NumberOfNames; HintIndex++){
+        NameTableName = (LPSTR) BindpRvaToVa( Parms, (PVOID)NameTableBase[HintIndex], Dll );
+        if ( NameTableName ) {
+            if ( !strcmp((PCHAR)s, NameTableName) ) {
+                OrdinalNumber = NameOrdinalTableBase[HintIndex];
+                ForwardedAddress = FunctionTableBase[OrdinalNumber] +
+                    Dll->FileHeader->OptionalHeader.ImageBase;
+
+                pp = &NewImportDescriptor->Forwarders;
+                while (p = *pp) {
+                    if (!_stricmp(DllName, p->ModuleName)) {
+                        break;
+                    }
+
+                    pp = &p->Next;
+                }
+
+                if (p == NULL) {
+                    p = (PBOUND_FORWARDER_REFS) MemAlloc( sizeof( *p ) );
+                    if (p == NULL) {
+                        if (Parms->StatusRoutine != NULL) {
+                            (Parms->StatusRoutine)( BindOutOfMemory, NULL, NULL, 0, sizeof( *p ) );
+                        }
+
+                        break;
+                    }
+
+                    p->ModuleName = BindpCaptureImportModuleName( DllName );
+                    *pp = p;
+                    NewImportDescriptor->NumberOfModuleForwarderRefs += 1;
+                }
+
+                p->TimeDateStamp = Dll->FileHeader->FileHeader.TimeDateStamp;
+                if (Parms->StatusRoutine != NULL)
+                {
+                    (Parms->StatusRoutine)( BindForwarder,
+                                            ImageName,
+                                            ImportName,
+                                            ForwardedAddress,
+                                            (ULONG)ForwarderString
+                                          );
+                }
+
+                Exports = (PIMAGE_EXPORT_DIRECTORY)ImageDirectoryEntryToData(
+                                                     (PVOID)Dll->MappedAddress,
+                                                     TRUE,
+                                                     IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                     &ExportSize
+                                                     );
+
+                Exports = (PIMAGE_EXPORT_DIRECTORY) ((ULONG)Exports -
+                              (ULONG) Dll->MappedAddress +
+                              (ULONG) Dll->FileHeader->OptionalHeader.ImageBase);
+
+                if ((ForwardedAddress >= (ULONG)Exports) &&
+                    (ForwardedAddress <= ((ULONG)Exports + ExportSize)))
+                {
+                    ForwarderString = BindpRvaToVa(Parms,
+                                                   (PVOID)(FunctionTableBase[OrdinalNumber]),
+                                                   Dll);
+                    goto BindAnotherForwarder;
+                } else {
+                    ForwarderString = (PUCHAR)ForwardedAddress;
+                    *BoundForwarder = TRUE;
+                    break;
+                }
+            }
+        }
+    }
+
+    return ForwarderString;
+}
+
+PIMAGE_BOUND_IMPORT_DESCRIPTOR
+BindpCreateNewImportSection(
+    PBINDP_PARAMETERS Parms,
+    PIMPORT_DESCRIPTOR *NewImportDescriptor,
+    PULONG NewImportsSize
+    )
+{
+    ULONG cbString, cbStruct;
+    PIMPORT_DESCRIPTOR p, *pp;
+    PBOUND_FORWARDER_REFS p1, *pp1;
+    LPSTR CapturedStrings;
+    PIMAGE_BOUND_IMPORT_DESCRIPTOR NewImports, NewImport;
+    PIMAGE_BOUND_FORWARDER_REF NewForwarder;
+
+
+    *NewImportsSize = 0;
+    cbString = 0;
+    cbStruct = 0;
+    pp = NewImportDescriptor;
+    while (p = *pp) {
+        cbStruct += sizeof( IMAGE_BOUND_IMPORT_DESCRIPTOR );
+        pp1 = &p->Forwarders;
+        while (p1 = *pp1) {
+            cbStruct += sizeof( IMAGE_BOUND_FORWARDER_REF );
+            pp1 = &p1->Next;
+            }
+
+        pp = &p->Next;
+        }
+    if (cbStruct == 0) {
+        BindpEndCapturedModuleNames = NULL;
+        return NULL;
+        }
+    cbStruct += sizeof(IMAGE_BOUND_IMPORT_DESCRIPTOR);    // Room for terminating zero entry
+    cbString = BindpEndCapturedModuleNames - (LPSTR) BindpCapturedModuleNames;
+    BindpEndCapturedModuleNames = NULL;
+    *NewImportsSize = cbStruct+((cbString + sizeof(ULONG) - 1) & ~(sizeof(ULONG)-1));
+    NewImports = (PIMAGE_BOUND_IMPORT_DESCRIPTOR) MemAlloc( *NewImportsSize );
+    if (NewImports != NULL) {
+        CapturedStrings = (LPSTR)NewImports + cbStruct;
+        memcpy(CapturedStrings, BindpCapturedModuleNames, cbString);
+
+        NewImport = NewImports;
+        pp = NewImportDescriptor;
+        while (p = *pp) {
+            NewImport->TimeDateStamp = p->TimeDateStamp;
+            NewImport->OffsetModuleName = (USHORT)(cbStruct + (p->ModuleName - (LPSTR) BindpCapturedModuleNames));
+            NewImport->NumberOfModuleForwarderRefs = p->NumberOfModuleForwarderRefs;
+
+            NewForwarder = (PIMAGE_BOUND_FORWARDER_REF)(NewImport+1);
+            pp1 = &p->Forwarders;
+            while (p1 = *pp1) {
+                NewForwarder->TimeDateStamp = p1->TimeDateStamp;
+                NewForwarder->OffsetModuleName = (USHORT)(cbStruct + (p1->ModuleName - (LPSTR) BindpCapturedModuleNames));
+                NewForwarder += 1;
+                pp1 = &p1->Next;
+                }
+            NewImport = (PIMAGE_BOUND_IMPORT_DESCRIPTOR)NewForwarder;
+
+            pp = &p->Next;
+            }
+        }
+    else
+    if (Parms->StatusRoutine != NULL) {
+        (Parms->StatusRoutine)( BindOutOfMemory, NULL, NULL, 0, *NewImportsSize );
+        }
+
+    pp = NewImportDescriptor;
+    while ((p = *pp) != NULL) {
+        *pp = p->Next;
+        pp1 = &p->Forwarders;
+        while ((p1 = *pp1) != NULL) {
+            *pp1 = p1->Next;
+            MemFree(p1);
+            }
+
+        MemFree(p);
+        }
+
+    return NewImports;
+}
 
 BOOL
-BindImagep(
+BindpExpandImageFileHeaders(
+    PBINDP_PARAMETERS Parms,
+    PLOADED_IMAGE Dll,
+    ULONG NewSizeOfHeaders
+    )
+{
+    HANDLE hMappedFile;
+    LPVOID lpMappedAddress;
+    DWORD dwFileSizeLow, dwOldFileSize;
+    DWORD dwFileSizeHigh;
+    DWORD dwSizeDelta;
+    PIMAGE_SECTION_HEADER Section;
+    ULONG SectionNumber;
+    PIMAGE_DEBUG_DIRECTORY DebugDirectories;
+    ULONG DebugDirectoriesSize;
+    ULONG OldSizeOfHeaders;
+    PVOID SecurityDir;
+    ULONG SecuritySize;
+
+    dwFileSizeLow = GetFileSize( Dll->hFile, &dwFileSizeHigh );
+    if (dwFileSizeLow == 0xFFFFFFFF || dwFileSizeHigh != 0) {
+        return FALSE;
+    }
+
+    SecurityDir = ImageDirectoryEntryToData((PVOID)Dll->MappedAddress,
+                                            FALSE,
+                                            IMAGE_DIRECTORY_ENTRY_SECURITY,
+                                            &SecuritySize
+                                            );
+
+    if (SecurityDir) {
+        // Image has Certificates.  We can't grow the header space w/o invalidating them.
+        return(FALSE);
+    }
+
+    OldSizeOfHeaders = Dll->FileHeader->OptionalHeader.SizeOfHeaders;
+    dwOldFileSize = dwFileSizeLow;
+    dwSizeDelta = NewSizeOfHeaders - OldSizeOfHeaders;
+    dwFileSizeLow += dwSizeDelta;
+
+    hMappedFile = CreateFileMapping(Dll->hFile,
+                                    NULL,
+                                    PAGE_READWRITE,
+                                    dwFileSizeHigh,
+                                    dwFileSizeLow,
+                                    NULL
+                                   );
+    if (!hMappedFile) {
+        return FALSE;
+    }
+
+
+    FlushViewOfFile(Dll->MappedAddress, Dll->SizeOfImage);
+    UnmapViewOfFile(Dll->MappedAddress);
+    lpMappedAddress = MapViewOfFileEx(hMappedFile,
+                                      FILE_MAP_WRITE,
+                                      0,
+                                      0,
+                                      0,
+                                      Dll->MappedAddress
+                                     );
+    if (!lpMappedAddress) {
+        lpMappedAddress = MapViewOfFileEx(hMappedFile,
+                                          FILE_MAP_WRITE,
+                                          0,
+                                          0,
+                                          0,
+                                          0
+                                         );
+    }
+
+    CloseHandle(hMappedFile);
+
+    if (lpMappedAddress != Dll->MappedAddress) {
+        Dll->MappedAddress = (PUCHAR) lpMappedAddress;
+        CalculateImagePtrs(Dll);
+    }
+
+    if (Dll->SizeOfImage != dwFileSizeLow) {
+        Dll->SizeOfImage = dwFileSizeLow;
+    }
+
+    DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)ImageDirectoryEntryToData(
+                                            (PVOID)Dll->MappedAddress,
+                                            FALSE,
+                                            IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                            &DebugDirectoriesSize
+                                            );
+
+    if (DebugDirectoryIsUseful(DebugDirectories, DebugDirectoriesSize)) {
+        while (DebugDirectoriesSize != 0) {
+            DebugDirectories->PointerToRawData += dwSizeDelta;
+            DebugDirectories += 1;
+            DebugDirectoriesSize -= sizeof( *DebugDirectories );
+        }
+    }
+
+    Dll->FileHeader->OptionalHeader.SizeOfHeaders = NewSizeOfHeaders;
+    if (Dll->FileHeader->FileHeader.PointerToSymbolTable != 0) {
+        // Only adjust if it's already set
+
+        Dll->FileHeader->FileHeader.PointerToSymbolTable += dwSizeDelta;
+    }
+    Section = Dll->Sections;
+    for (SectionNumber=0; SectionNumber<Dll->FileHeader->FileHeader.NumberOfSections; SectionNumber++) {
+        if (Section->PointerToRawData != 0) {
+            Section->PointerToRawData += dwSizeDelta;
+        }
+        if (Section->PointerToRelocations != 0) {
+            Section->PointerToRelocations += dwSizeDelta;
+        }
+        if (Section->PointerToLinenumbers != 0) {
+            Section->PointerToLinenumbers += dwSizeDelta;
+        }
+        Section += 1;
+    }
+
+    memmove((LPSTR)lpMappedAddress + NewSizeOfHeaders,
+            (LPSTR)lpMappedAddress + OldSizeOfHeaders,
+            dwOldFileSize - OldSizeOfHeaders
+           );
+
+    if (Parms->StatusRoutine != NULL) {
+        (Parms->StatusRoutine)( BindExpandFileHeaders, Dll->ModuleName, NULL, 0, NewSizeOfHeaders );
+    }
+
+    return TRUE;
+}
+
+BOOL
+BindImageEx(
+    IN DWORD Flags,
     IN LPSTR ImageName,
     IN LPSTR DllPath,
     IN LPSTR SymbolPath,
-    IN BOOL  fNoUpdate,
-    IN BOOL  fBindSysImages
-#ifdef BIND_EXE
-    ,
-    IN BOOL  fDisplayImports,
-    IN BOOL  fDisplayIATWrites,
-    IN BOOL  Verbose
-#endif  // BIND_EXE
+    IN PIMAGEHLP_STATUS_ROUTINE StatusRoutine
     )
 {
-    static BOOLEAN fInit = FALSE;
-    PIMAGE_NT_HEADERS NtHeaders;
+    BINDP_PARAMETERS Parms;
+    LOADED_IMAGE LoadedImageBuffer;
+    PLOADED_IMAGE LoadedImage;
     ULONG CheckSum;
     ULONG HeaderSum;
     BOOL fSymbolsAlreadySplit;
+    SYSTEMTIME SystemTime;
+    FILETIME LastWriteTime;
+    BOOL ImageModified;
+    DWORD OldChecksum;
+    CHAR DebugFileName[ MAX_PATH ];
+    CHAR DebugFilePath[ MAX_PATH ];
 
-    if (!fInit) {
-
-        // Keep list of previously scanned dll's
-
-        InitializeListHead(&LoadedDllList);
-        fInit = TRUE;
+    Parms.Flags         = Flags;
+    if (Flags & BIND_NO_BOUND_IMPORTS) {
+        Parms.fNewImports = FALSE;
+    } else {
+        Parms.fNewImports = TRUE;
     }
-
-#ifdef BIND_EXE
-    fVerbose = Verbose;
-#endif  // BIND_EXE
+    if (Flags & BIND_NO_UPDATE) {
+        Parms.fNoUpdate = TRUE;
+    } else {
+        Parms.fNoUpdate = FALSE;
+    }
+    Parms.ImageName     = ImageName;
+    Parms.DllPath       = DllPath;
+    Parms.SymbolPath    = SymbolPath;
+    Parms.StatusRoutine = StatusRoutine;
 
     //
     // Map and load the image
     //
 
-    if ( MapAndLoad(ImageName, DllPath, &CurrentImage, FALSE, fNoUpdate ? TRUE : FALSE) ) {
+    LoadedImage = &LoadedImageBuffer;
+    memset( LoadedImage, 0, sizeof( *LoadedImage ) );
+    if (MapAndLoad( ImageName, DllPath, LoadedImage, TRUE, Parms.fNoUpdate )) {
+        LoadedImage->ModuleName = ImageName;
 
         //
         // Now locate and walk through and process the images imports
         //
-
-        CurrentImage.ModuleName = (PCHAR) LocalAlloc(LMEM_ZEROINIT, strlen(ImageName)+1);
-        strcpy(CurrentImage.ModuleName, ImageName);
-
-        NtHeaders = RtlImageNtHeader(
-                    (PVOID)CurrentImage.MappedAddress
-                    );
-
-        if (NtHeaders != NULL &&
-            (NtHeaders->OptionalHeader.ImageBase < 0x80000000 || fBindSysImages) ) {
-
-            WalkAndProcessImports(
-                            &CurrentImage,
+        if (LoadedImage->FileHeader != NULL &&
+            ((Flags & BIND_ALL_IMAGES) || (!LoadedImage->fSystemImage)) ) {
+            BindpWalkAndProcessImports(
+                            &Parms,
+                            LoadedImage,
                             DllPath,
-                            fNoUpdate
-#ifdef BIND_EXE
-                            ,
-                            fDisplayImports,
-                            fDisplayIATWrites
-#endif  // BIND_EXE
+                            &ImageModified
                             );
-
-            if ( (NtHeaders->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED) &&
-                 (SymbolPath != NULL) ) {
-                PIMAGE_DEBUG_DIRECTORY DebugDirectories;
-                ULONG DebugDirectoriesSize;
-                PIMAGE_DEBUG_MISC MiscDebug;
-
-                fSymbolsAlreadySplit = TRUE;
-                strcpy( DebugFileName, ImageName );
-                DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)RtlImageDirectoryEntryToData(
-                                                        CurrentImage.MappedAddress,
-                                                        FALSE,
-                                                        IMAGE_DIRECTORY_ENTRY_DEBUG,
-                                                        &DebugDirectoriesSize
-                                                        );
-                if (DebugDirectories != NULL) {
-                    while (DebugDirectoriesSize != 0) {
-                        if (DebugDirectories->Type == IMAGE_DEBUG_TYPE_MISC) {
-                            MiscDebug = (PIMAGE_DEBUG_MISC)
-                                ((PCHAR)CurrentImage.MappedAddress +
-                                 DebugDirectories->PointerToRawData
-                                );
-                            strcpy( DebugFileName, (PCHAR) MiscDebug->Data );
-                            break;
-                        }
-                        else {
-                            DebugDirectories += 1;
-                            DebugDirectoriesSize -= sizeof( *DebugDirectories );
-                        }
-                    }
-                }
-            }
-            else {
-                fSymbolsAlreadySplit = FALSE;
-            }
 
             //
             // If the file is being updated, then recompute the checksum.
+            // and update image and possibly stripped symbol file.
             //
 
-            if ((fNoUpdate == FALSE) &&
-                (CurrentImage.hFile != INVALID_HANDLE_VALUE)) {
-                NtHeaders->OptionalHeader.CheckSum = 0;
+            if (!Parms.fNoUpdate && ImageModified &&
+                (LoadedImage->hFile != INVALID_HANDLE_VALUE)) {
+                if ( (LoadedImage->FileHeader->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED) &&
+                     (SymbolPath != NULL) ) {
+                    PIMAGE_DEBUG_DIRECTORY DebugDirectories;
+                    ULONG DebugDirectoriesSize;
+                    PIMAGE_DEBUG_MISC MiscDebug;
+
+                    fSymbolsAlreadySplit = TRUE;
+                    strcpy( DebugFileName, ImageName );
+                    DebugDirectories = (PIMAGE_DEBUG_DIRECTORY)ImageDirectoryEntryToData(
+                                                            LoadedImage->MappedAddress,
+                                                            FALSE,
+                                                            IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                                            &DebugDirectoriesSize
+                                                            );
+                    if (DebugDirectoryIsUseful(DebugDirectories, DebugDirectoriesSize)) {
+                        while (DebugDirectoriesSize != 0) {
+                            if (DebugDirectories->Type == IMAGE_DEBUG_TYPE_MISC) {
+                                MiscDebug = (PIMAGE_DEBUG_MISC)
+                                    ((PCHAR)LoadedImage->MappedAddress +
+                                     DebugDirectories->PointerToRawData
+                                    );
+                                strcpy( DebugFileName, (PCHAR) MiscDebug->Data );
+                                break;
+                            } else {
+                                DebugDirectories += 1;
+                                DebugDirectoriesSize -= sizeof( *DebugDirectories );
+                            }
+                        }
+                    }
+                } else {
+                    fSymbolsAlreadySplit = FALSE;
+                }
+
+                OldChecksum = LoadedImage->FileHeader->OptionalHeader.CheckSum;
                 CheckSumMappedFile(
-                            (PVOID)CurrentImage.MappedAddress,
-                            GetFileSize(CurrentImage.hFile, NULL),
+                            (PVOID)LoadedImage->MappedAddress,
+                            GetFileSize(LoadedImage->hFile, NULL),
                             &HeaderSum,
                             &CheckSum
                             );
 
-                NtHeaders->OptionalHeader.CheckSum = CheckSum;
+                LoadedImage->FileHeader->OptionalHeader.CheckSum = CheckSum;
+                FlushViewOfFile(LoadedImage->MappedAddress, LoadedImage->SizeOfImage);
 
-                if ( fSymbolsAlreadySplit ) {
-                    UpdateDebugInfoFile(DebugFileName, SymbolPath, DebugFilePath, NtHeaders);
+                if (fSymbolsAlreadySplit) {
+                    if ( UpdateDebugInfoFileEx(DebugFileName,
+                                               SymbolPath,
+                                               DebugFilePath,
+                                               LoadedImage->FileHeader,
+                                               OldChecksum)) {
+                        if (GetLastError() == ERROR_INVALID_DATA) {
+                            if (Parms.StatusRoutine != NULL) {
+                                (Parms.StatusRoutine)( BindMismatchedSymbols,
+                                                       LoadedImage->ModuleName,
+                                                       NULL,
+                                                       0,
+                                                       (ULONG)DebugFileName
+                                                     );
+                            }
+                        }
+                    } else {
+                        if (Parms.StatusRoutine != NULL) {
+                            (Parms.StatusRoutine)( BindSymbolsNotUpdated,
+                                                   LoadedImage->ModuleName,
+                                                   NULL,
+                                                   0,
+                                                   (ULONG)DebugFileName
+                                                 );
+                        }
+                    }
+                }
+
+                GetSystemTime(&SystemTime);
+                if (SystemTimeToFileTime( &SystemTime, &LastWriteTime )) {
+                    SetFileTime( LoadedImage->hFile, NULL, NULL, &LastWriteTime );
                 }
             }
         }
-#ifdef BIND_EXE
-        else
-        if (fVerbose && NtHeaders->OptionalHeader.ImageBase >= 0x80000000 && !fBindSysImages) {
-            fprintf(stdout, "%s - Based at %d and BindSysImages not enabled\n",
-                        ImageName, NtHeaders->OptionalHeader.ImageBase);
-        }
-#endif
 
-        UnmapViewOfFile(CurrentImage.MappedAddress);
-        if ( CurrentImage.hFile != INVALID_HANDLE_VALUE ) {
-            CloseHandle(CurrentImage.hFile);
+        UnmapViewOfFile( LoadedImage->MappedAddress );
+        if (LoadedImage->hFile != INVALID_HANDLE_VALUE) {
+            CloseHandle( LoadedImage->hFile );
         }
-        LocalFree(CurrentImage.ModuleName);
-        ZeroMemory(&CurrentImage, sizeof(CurrentImage));
-    }
-    else {
-        return(FALSE);
-    }
 
-    return(TRUE);
+        return TRUE;
+    } else {
+        return FALSE;
+    }
 }
 
 
 BOOL
-LookupThunk(
+BindpLookupThunk(
+    PBINDP_PARAMETERS Parms,
     PIMAGE_THUNK_DATA ThunkName,
     PLOADED_IMAGE Image,
     PIMAGE_THUNK_DATA SnappedThunks,
     PIMAGE_THUNK_DATA FunctionAddress,
     PLOADED_IMAGE Dll,
     PIMAGE_EXPORT_DIRECTORY Exports,
+    PIMPORT_DESCRIPTOR NewImport,
+    LPSTR DllPath,
     PULONG *ForwarderChain
-#ifdef BIND_EXE
-    ,
-    BOOL fDisplayImports
-#endif  // BIND_EXE
     )
 {
     BOOL Ordinal;
     USHORT OrdinalNumber;
-
     PULONG NameTableBase;
     PUSHORT NameOrdinalTableBase;
     PULONG FunctionTableBase;
     PIMAGE_IMPORT_BY_NAME ImportName;
     USHORT HintIndex;
     LPSTR NameTableName;
-#ifdef BIND_EXE
-    UCHAR NameBuffer[ 32 ];
-#endif
     ULONG ExportsBase;
     ULONG ExportSize;
+    UCHAR NameBuffer[ 32 ];
 
-    NameTableBase = (PULONG) RvaToVa(Exports->AddressOfNames,Dll);
-    NameOrdinalTableBase = (PUSHORT) RvaToVa(Exports->AddressOfNameOrdinals,Dll);
-    FunctionTableBase = (PULONG) RvaToVa(Exports->AddressOfFunctions,Dll);
+    NameTableBase = (PULONG) BindpRvaToVa( Parms, Exports->AddressOfNames, Dll );
+    NameOrdinalTableBase = (PUSHORT) BindpRvaToVa( Parms, Exports->AddressOfNameOrdinals, Dll );
+    FunctionTableBase = (PULONG) BindpRvaToVa( Parms, Exports->AddressOfFunctions, Dll );
 
     //
     // Determine if snap is by name, or by ordinal
@@ -299,22 +698,25 @@ LookupThunk(
     Ordinal = (BOOL)IMAGE_SNAP_BY_ORDINAL(ThunkName->u1.Ordinal);
 
     if (Ordinal) {
+        UCHAR szOrdinal[8];
         OrdinalNumber = (USHORT)(IMAGE_ORDINAL(ThunkName->u1.Ordinal) - Exports->Base);
         if ( (ULONG)OrdinalNumber >= Exports->NumberOfFunctions ) {
             return FALSE;
-        }
-#ifdef BIND_EXE
+            }
         ImportName = (PIMAGE_IMPORT_BY_NAME)NameBuffer;
-        sprintf( (PCHAR) ImportName->Name, "Ordinal%x", OrdinalNumber );
-#endif
-    } else {
-        ImportName = (PIMAGE_IMPORT_BY_NAME)RvaToVa(
+        // Can't use sprintf w/o dragging in more CRT support than we want...  Must run on Win95.
+        strcpy((PCHAR) ImportName->Name, "Ordinal");
+        strcat((PCHAR) ImportName->Name, _ultoa((ULONG) OrdinalNumber, (LPSTR) szOrdinal, 16));
+        }
+    else {
+        ImportName = (PIMAGE_IMPORT_BY_NAME)BindpRvaToVa(
+                                                Parms,
                                                 ThunkName->u1.AddressOfData,
                                                 Image
                                                 );
-        if ( !ImportName ) {
+        if (!ImportName) {
             return FALSE;
-        }
+            }
 
         //
         // now check to see if the hint index is in range. If it
@@ -326,162 +728,110 @@ LookupThunk(
         OrdinalNumber = (USHORT)(Exports->NumberOfFunctions+1);
         HintIndex = ImportName->Hint;
         if ((ULONG)HintIndex < Exports->NumberOfNames ) {
-            NameTableName = (LPSTR) RvaToVa((PVOID)NameTableBase[HintIndex],Dll);
+            NameTableName = (LPSTR) BindpRvaToVa( Parms, (PVOID)NameTableBase[HintIndex], Dll );
             if ( NameTableName ) {
-                if ( !strcmp((PCHAR) ImportName->Name,NameTableName) ) {
+                if ( !strcmp((PCHAR)ImportName->Name, NameTableName) ) {
                     OrdinalNumber = NameOrdinalTableBase[HintIndex];
-                }
-            }
-        }
-
-#ifdef BIND_EXE
-        if ( fDisplayImports ) {
-            if ( (ULONG)OrdinalNumber < Exports->NumberOfFunctions ) {
-                fprintf(stdout,"%s -> %s . (h %4x -> o %4x) %s -> ",Image->ModuleName,Dll->ModuleName,ImportName->Hint,OrdinalNumber,ImportName->Name);
-            }
-        }
-#endif  // BIND_EXE
-
-        if ( (ULONG)OrdinalNumber >= Exports->NumberOfFunctions ) {
-
-            for ( HintIndex = 0; HintIndex < Exports->NumberOfNames; HintIndex++){
-                NameTableName = (LPSTR) RvaToVa((PVOID)NameTableBase[HintIndex],Dll);
-                if ( NameTableName ) {
-                    if ( !strcmp((PCHAR) ImportName->Name,NameTableName) ) {
-                        OrdinalNumber = NameOrdinalTableBase[HintIndex];
-#ifdef BIND_EXE
-                        if ( fDisplayImports ) {
-                            fprintf(stdout,"%s -> %s . (ho %4x -> hn %4x -> o %4x) %s -> ",Image->ModuleName,Dll->ModuleName,ImportName->Hint,HintIndex,OrdinalNumber,ImportName->Name);
-                        }
-#endif  // BIND_EXE
-
-                        break;
                     }
                 }
             }
 
-            if ( (ULONG)OrdinalNumber >= Exports->NumberOfFunctions ) {
+        if ((ULONG)OrdinalNumber >= Exports->NumberOfFunctions) {
+            for (HintIndex = 0; HintIndex < Exports->NumberOfNames; HintIndex++) {
+                NameTableName = (LPSTR) BindpRvaToVa( Parms, (PVOID)NameTableBase[HintIndex], Dll );
+                if (NameTableName) {
+                    if (!strcmp( (PCHAR)ImportName->Name, NameTableName )) {
+                        OrdinalNumber = NameOrdinalTableBase[HintIndex];
+                        break;
+                        }
+                    }
+                }
+
+            if ((ULONG)OrdinalNumber >= Exports->NumberOfFunctions) {
                 return FALSE;
+                }
             }
         }
-    }
 
     FunctionAddress->u1.Function = (PULONG)(FunctionTableBase[OrdinalNumber] +
-        Dll->FileHeader->OptionalHeader.ImageBase);
-
-#ifdef BIND_EXE
-    if ( fDisplayImports ) {
-        fprintf(stdout,"%8x\n",FunctionAddress->u1.Function);
-        }
-#endif  // BIND_EXE
-
-    ExportsBase = (ULONG)RtlImageDirectoryEntryToData(
+                                            Dll->FileHeader->OptionalHeader.ImageBase
+                                           );
+    ExportsBase = (ULONG)ImageDirectoryEntryToData(
                           (PVOID)Dll->MappedAddress,
                           TRUE,
                           IMAGE_DIRECTORY_ENTRY_EXPORT,
                           &ExportSize
                           ) - (ULONG)Dll->MappedAddress;
     ExportsBase += Dll->FileHeader->OptionalHeader.ImageBase;
-#ifdef BIND_EXE
-    if ( fVerbose ) {
-        fprintf(stdout,"BIND: %s @ %08x MappedBase: %08x  Exports: %08x  ImageBase: %08x  ExportsBase: %08x  Size: %04x\n",
-                ImportName->Name,
-                FunctionAddress->u1.Function,
-                Dll->MappedAddress,
-                Exports,
-                Dll->FileHeader->OptionalHeader.ImageBase,
-                ExportsBase,
-                ExportSize
-               );
-        }
-#endif  // BIND_EXE
 
     if ((ULONG)FunctionAddress->u1.Function > (ULONG)ExportsBase &&
         (ULONG)FunctionAddress->u1.Function < ((ULONG)ExportsBase + ExportSize)
        ) {
-        **ForwarderChain = FunctionAddress - SnappedThunks;
-        *ForwarderChain = &FunctionAddress->u1.Ordinal;
-#ifdef BIND_EXE
-        if ( fVerbose ) {
-            fprintf(stdout, "BIND: Hint %lx Forwarder %s not snapped [%lx]\n", HintIndex, ImportName->Name, FunctionAddress->u1.Function);
+        BOOL BoundForwarder;
+
+        BoundForwarder = FALSE;
+        if (NewImport != NULL) {
+            FunctionAddress->u1.ForwarderString = BindpAddForwarderReference(Parms,
+                                           Image->ModuleName,
+                                           (LPSTR) ImportName->Name,
+                                           NewImport,
+                                           DllPath,
+                                           (PUCHAR) BindpRvaToVa( Parms, (PVOID)(FunctionTableBase[OrdinalNumber]), Dll ),
+                                           &BoundForwarder
+                                          );
+            }
+
+        if (!BoundForwarder) {
+            **ForwarderChain = FunctionAddress - SnappedThunks;
+            *ForwarderChain = &FunctionAddress->u1.Ordinal;
+
+            if (Parms->StatusRoutine != NULL) {
+                (Parms->StatusRoutine)( BindForwarderNOT,
+                                        Image->ModuleName,
+                                        Dll->ModuleName,
+                                        (ULONG)FunctionAddress->u1.Function,
+                                        (ULONG)(ImportName->Name)
+                                      );
+                }
             }
         }
     else {
-        if ( fVerbose ) {
-            fprintf(stdout, "BIND: Hint %lx Name %s Bound to %lx\n", HintIndex, ImportName->Name, FunctionAddress->u1.Function);
+        if (Parms->StatusRoutine != NULL) {
+            (Parms->StatusRoutine)( BindImportProcedure,
+                                    Image->ModuleName,
+                                    Dll->ModuleName,
+                                    (ULONG)FunctionAddress->u1.Function,
+                                    (ULONG)(ImportName->Name)
+                                  );
             }
-#endif  // BIND_EXE
         }
 
     return TRUE;
 }
 
-PLOADED_IMAGE
-LoadDll(
-    LPSTR DllName,
-    LPSTR DllPath
-    )
-{
-    PLIST_ENTRY Head,Next;
-    PLOADED_IMAGE CheckDll;
-
-    Head = &LoadedDllList;
-    Next = Head->Flink;
-
-    while ( Next != Head ) {
-        CheckDll = CONTAINING_RECORD(Next,LOADED_IMAGE,Links);
-        if ( !stricmp(DllName,CheckDll->ModuleName) ) {
-            return CheckDll;
-            }
-        Next = Next->Flink;
-        }
-    CheckDll = (PLOADED_IMAGE) LocalAlloc(LMEM_ZEROINIT,sizeof(*CheckDll));
-    if ( !CheckDll ) {
-        return NULL;
-        }
-    CheckDll->ModuleName = (PCHAR) LocalAlloc(LMEM_ZEROINIT,strlen(DllName)+1);
-    if ( !CheckDll->ModuleName ) {
-        return NULL;
-        }
-    strcpy(CheckDll->ModuleName,DllName);
-    if ( !MapAndLoad(DllName, DllPath, CheckDll, TRUE, TRUE) ) {
-        return NULL;
-        }
-    InsertTailList(&LoadedDllList,&CheckDll->Links);
-    return CheckDll;
-}
-
-static PVOID
-RvaToVa(
+PVOID
+BindpRvaToVa(
+    PBINDP_PARAMETERS Parms,
     PVOID Rva,
     PLOADED_IMAGE Image
     )
 {
-    PIMAGE_SECTION_HEADER Section;
-    ULONG i;
     PVOID Va;
 
-    Va = NULL;
-    Section = Image->LastRvaSection;
-    if ( (ULONG)Rva >= Section->VirtualAddress &&
-         (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
-        Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
+    Va = ImageRvaToVa( Image->FileHeader,
+                       Image->MappedAddress,
+                       (ULONG)Rva,
+                       &Image->LastRvaSection
+                     );
+    if (!Va && Parms->StatusRoutine != NULL) {
+        (Parms->StatusRoutine)( BindRvaToVaFailed,
+                                Image->ModuleName,
+                                NULL,
+                                (ULONG)Rva,
+                                0
+                              );
         }
-    else {
-        for(Section = Image->Sections,i=0; i<Image->NumberOfSections; i++,Section++) {
-            if ( (ULONG)Rva >= Section->VirtualAddress &&
-                 (ULONG)Rva < Section->VirtualAddress + Section->SizeOfRawData ) {
-                Va = (PVOID)((ULONG)Rva - Section->VirtualAddress + Section->PointerToRawData + Image->MappedAddress);
-                Image->LastRvaSection = Section;
-                break;
-                }
-            }
-        }
-#ifdef BIND_EXE
-    if ( !Va ) {
-        fprintf(stderr, "BIND: RvaToVa %lx in image %lx failed\n", Rva, Image);
-        }
-#endif  // BIND_EXE
+
     return Va;
 }
 
@@ -494,24 +844,23 @@ SetIdataToRo(
     ULONG i;
 
     for(Section = Image->Sections,i=0; i<Image->NumberOfSections; i++,Section++) {
-        if (!stricmp((PCHAR) Section->Name, ".idata")) {
-            Section->Characteristics &= ~(IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
-            Section->Characteristics |= IMAGE_SCN_MEM_READ;
+        if (!_stricmp((PCHAR) Section->Name, ".idata")) {
+            if (Section->Characteristics & IMAGE_SCN_MEM_WRITE) {
+                Section->Characteristics &= ~IMAGE_SCN_MEM_WRITE;
+                Section->Characteristics |= IMAGE_SCN_MEM_READ;
+                }
+
             break;
             }
         }
 }
 
 VOID
-WalkAndProcessImports(
+BindpWalkAndProcessImports(
+    PBINDP_PARAMETERS Parms,
     PLOADED_IMAGE Image,
     LPSTR DllPath,
-    BOOL fNoUpdate
-#ifdef BIND_EXE
-    ,
-    BOOL fDisplayImports,
-    BOOL fDisplayIATWrites
-#endif  // BIND_EXE
+    PBOOL ImageModified
     )
 {
 
@@ -519,6 +868,9 @@ WalkAndProcessImports(
     PULONG ForwarderChain;
     ULONG ImportSize;
     ULONG ExportSize;
+    PIMPORT_DESCRIPTOR NewImportDescriptorHead, NewImportDescriptor;
+    PIMAGE_BOUND_IMPORT_DESCRIPTOR PrevNewImports, NewImports;
+    ULONG PrevNewImportsSize, NewImportsSize;
     PIMAGE_IMPORT_DESCRIPTOR Imports;
     PIMAGE_EXPORT_DIRECTORY Exports;
     LPSTR ImportModule;
@@ -526,22 +878,40 @@ WalkAndProcessImports(
     PIMAGE_THUNK_DATA tname,tsnap;
     PIMAGE_THUNK_DATA ThunkNames;
     PIMAGE_THUNK_DATA SnappedThunks;
+    PIMAGE_IMPORT_BY_NAME ImportName;
     ULONG NumberOfThunks;
-    ULONG i;
-    BOOL NoErrors;
-    SYSTEMTIME SystemTime;
-    FILETIME LastWriteTime;
+    ULONG i, cb;
+    BOOL Ordinal, BindThunkFailed, NoErrors;
+    USHORT OrdinalNumber;
+    UCHAR NameBuffer[ 32 ];
+
+    *ImageModified = FALSE;
 
     //
     // Locate the import array for this image/dll
     //
 
-    Imports = (PIMAGE_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(
+    NewImportDescriptorHead = NULL;
+    Imports = (PIMAGE_IMPORT_DESCRIPTOR)ImageDirectoryEntryToData(
                                             (PVOID)Image->MappedAddress,
                                             FALSE,
                                             IMAGE_DIRECTORY_ENTRY_IMPORT,
                                             &ImportSize
                                             );
+    if (Imports == NULL) {
+        //
+        // Nothing to bind if no imports
+        //
+
+        return;
+    }
+
+    PrevNewImports = (PIMAGE_BOUND_IMPORT_DESCRIPTOR)ImageDirectoryEntryToData(
+                                                (PVOID)Image->MappedAddress,
+                                                FALSE,
+                                                IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT,
+                                                &PrevNewImportsSize
+                                                );
     //
     // For each import record
     //
@@ -549,31 +919,53 @@ WalkAndProcessImports(
     for(;Imports;Imports++) {
         if ( !Imports->Name ) {
             break;
-            }
+        }
 
         //
         // Locate the module being imported and load the dll
         //
 
-        ImportModule = (LPSTR)RvaToVa((PVOID)Imports->Name,Image);
+        ImportModule = (LPSTR)BindpRvaToVa( Parms, (PVOID)Imports->Name, Image );
 
-        if ( ImportModule ) {
-#ifdef BIND_EXE
-            if ( fVerbose ) {
-                fprintf(stdout,"BIND: Import %s\n",ImportModule);
+        if (ImportModule) {
+            Dll = ImageLoad( ImportModule, DllPath );
+            if (!Dll) {
+                if (Parms->StatusRoutine != NULL) {
+                    (Parms->StatusRoutine)( BindImportModuleFailed,
+                                            Image->ModuleName,
+                                            ImportModule,
+                                            0,
+                                            0
+                                          );
                 }
-#endif  // BIND_EXE
-            Dll = LoadDll(ImportModule, DllPath);
-            if ( !Dll ) {
+                //
+                // Unless specifically told not to, generate the new style
+                // import descriptor.
+                //
+
+                BindpAddImportDescriptor(Parms,
+                                         &NewImportDescriptorHead,
+                                         Imports,
+                                         ImportModule,
+                                         Dll
+                                        );
                 continue;
-                }
+            }
 
+            if (Parms->StatusRoutine != NULL) {
+                (Parms->StatusRoutine)( BindImportModule,
+                                        Image->ModuleName,
+                                        ImportModule,
+                                        0,
+                                        0
+                                      );
+            }
             //
             // If we can load the DLL, locate the export section and
             // start snapping the thunks
             //
 
-            Exports = (PIMAGE_EXPORT_DIRECTORY)RtlImageDirectoryEntryToData(
+            Exports = (PIMAGE_EXPORT_DIRECTORY)ImageDirectoryEntryToData(
                                                     (PVOID)Dll->MappedAddress,
                                                     FALSE,
                                                     IMAGE_DIRECTORY_ENTRY_EXPORT,
@@ -581,38 +973,34 @@ WalkAndProcessImports(
                                                     );
             if ( !Exports ) {
                 continue;
-                }
+            }
 
             //
             // assert that the export directory addresses can be translated
             //
 
-            if ( !RvaToVa(Exports->AddressOfNames,Dll) ) {
+            if ( !BindpRvaToVa( Parms, Exports->AddressOfNames, Dll ) ) {
                 continue;
-                }
+            }
 
-            if ( !RvaToVa(Exports->AddressOfNameOrdinals,Dll) ) {
+            if ( !BindpRvaToVa( Parms, Exports->AddressOfNameOrdinals, Dll ) ) {
                 continue;
-                }
+            }
 
-            if ( !RvaToVa(Exports->AddressOfFunctions,Dll) ) {
+            if ( !BindpRvaToVa( Parms, Exports->AddressOfFunctions, Dll ) ) {
                 continue;
-                }
+            }
 
             //
-            // Is this one already done ?
+            // For old style bind, bypass the bind if it's already bound.
+            // New style binds s/b looked up in PrevNewImport.
             //
 
-            if ( Imports->TimeDateStamp &&
+            if ( Parms->fNewImports == FALSE &&
+                 Imports->TimeDateStamp &&
                  Imports->TimeDateStamp == Dll->FileHeader->FileHeader.TimeDateStamp ) {
-#ifdef BIND_EXE
-                if ( !fDisplayImports ) {
                     continue;
-                    }
-#else
-                    continue;
-#endif  // BIND_EXE
-                }
+            }
 
             //
             // Now we need to size our thunk table and
@@ -621,96 +1009,106 @@ WalkAndProcessImports(
             // thunks are only updated if we find all the entry points
             //
 
-            ThunkNames = (PIMAGE_THUNK_DATA) RvaToVa((PVOID)Imports->Characteristics,Image);
+            ThunkNames = (PIMAGE_THUNK_DATA) BindpRvaToVa( Parms, (PVOID)Imports->OriginalFirstThunk, Image );
 
-            if ( !ThunkNames ) {
+            if (!ThunkNames || ThunkNames->u1.Function == 0) {
+                //
+                // Skip this one if no thunks or first thunk is the terminating null thunk
+                //
                 continue;
-                }
+            }
+
+            //
+            // Unless specifically told not to, generate the new style
+            // import descriptor.
+            //
+
+            NewImportDescriptor = BindpAddImportDescriptor(Parms,
+                                                           &NewImportDescriptorHead,
+                                                           Imports,
+                                                           ImportModule,
+                                                           Dll
+                                                          );
             NumberOfThunks = 0;
             tname = ThunkNames;
             while (tname->u1.AddressOfData) {
                 NumberOfThunks++;
                 tname++;
-                }
-            SnappedThunks = (PIMAGE_THUNK_DATA) LocalAlloc(LMEM_ZEROINIT,NumberOfThunks*sizeof(*SnappedThunks));
+            }
+            SnappedThunks = (PIMAGE_THUNK_DATA) MemAlloc( NumberOfThunks*sizeof(*SnappedThunks) );
             if ( !SnappedThunks ) {
                 continue;
-                }
+            }
+
             tname = ThunkNames;
             tsnap = SnappedThunks;
             NoErrors = TRUE;
+            ForwarderChainHead = (ULONG)-1;
             ForwarderChain = &ForwarderChainHead;
             for(i=0;i<NumberOfThunks;i++) {
-                try {
-                    NoErrors = LookupThunk( tname,
-                                            Image,
-                                            SnappedThunks,
-                                            tsnap,
-                                            Dll,
-                                            Exports,
-                                            &ForwarderChain
-#ifdef BIND_EXE
-                                            ,
-                                            fDisplayImports
-#endif  // BIND_EXE
-                                          );
+                BindThunkFailed = FALSE;
+                __try {
+                    if (!BindpLookupThunk( Parms,
+                                           tname,
+                                           Image,
+                                           SnappedThunks,
+                                           tsnap,
+                                           Dll,
+                                           Exports,
+                                           NewImportDescriptor,
+                                           DllPath,
+                                           &ForwarderChain
+                                         )
+                       ) {
+                        BindThunkFailed = TRUE;
                     }
-                except ( EXCEPTION_EXECUTE_HANDLER ) {
-                    NoErrors = FALSE;
+                } __except ( EXCEPTION_EXECUTE_HANDLER ) {
+                    BindThunkFailed = TRUE;
+                }
+
+                if (BindThunkFailed) {
+                    if (NewImportDescriptor != NULL) {
+                        NewImportDescriptor->TimeDateStamp = 0;
                     }
-                if ( !NoErrors ) {
+
+                    if (Parms->StatusRoutine != NULL) {
+                        Ordinal = (BOOL)IMAGE_SNAP_BY_ORDINAL(tname->u1.Ordinal);
+                        if (Ordinal) {
+                            UCHAR szOrdinal[8];
+
+                            OrdinalNumber = (USHORT)(IMAGE_ORDINAL(tname->u1.Ordinal) - Exports->Base);
+                            ImportName = (PIMAGE_IMPORT_BY_NAME)NameBuffer;
+                            // Can't use sprintf w/o dragging in more CRT support than we want...  Must run on Win95.
+                            strcpy((PCHAR) ImportName->Name, "Ordinal");
+                            strcat((PCHAR) ImportName->Name, _ultoa((ULONG) OrdinalNumber, (LPSTR)szOrdinal, 16));
+                        }
+                        else {
+                            ImportName = (PIMAGE_IMPORT_BY_NAME)BindpRvaToVa(
+                                                                    Parms,
+                                                                    tname->u1.AddressOfData,
+                                                                    Image
+                                                                    );
+                        }
+
+                        (Parms->StatusRoutine)( BindImportProcedureFailed,
+                                                Image->ModuleName,
+                                                Dll->ModuleName,
+                                                (ULONG)tsnap->u1.Function,
+                                                (ULONG)(ImportName->Name)
+                                              );
+                    }
+
                     break;
-                    }
+                }
+
                 tname++;
                 tsnap++;
-                }
+            }
 
-            tname = (PIMAGE_THUNK_DATA) RvaToVa((PVOID)Imports->FirstThunk,Image);
+            tname = (PIMAGE_THUNK_DATA) BindpRvaToVa( Parms, (PVOID)Imports->FirstThunk, Image );
             if ( !tname ) {
                 NoErrors = FALSE;
-                }
-
-#ifdef BIND_EXE
-
-            //
-            // conditionally show the IAT writes
-            //
-            if ( fDisplayIATWrites ) {
-                PIMAGE_THUNK_DATA IatAddr,SnappedData,OriginalData;
-
-                IatAddr = tname;
-                SnappedData = SnappedThunks;
-                OriginalData = ThunkNames;
-
-                fprintf(stdout,"\nIAT Rva %8x (mva %8x va %8x)\n",
-                    Imports->FirstThunk,
-                    IatAddr,
-                    Imports->FirstThunk + Image->FileHeader->OptionalHeader.ImageBase
-                    );
-
-                for(i=0;i<NumberOfThunks;i++) {
-                    if ( *(PULONG)IatAddr == *(PULONG)ThunkNames ) {
-                        fprintf(stdout,"%4x %08x\n",
-                            i*sizeof(*IatAddr),
-                            *SnappedData
-                            );
-                        }
-                    else {
-                        fprintf(stdout,"%4x %08x (%8x vs %8x) BADBADBAD\n",
-                            i*sizeof(*IatAddr),
-                            *SnappedData,
-                            *IatAddr,
-                            *ThunkNames
-                            );
-                        }
-                    SnappedData++;
-                    IatAddr++;
-                    ThunkNames++;
-                    }
-
-                }
-
-#endif   // BIND_EXE
+            }
 
             //
             // If we were able to locate all of the entrypoints in the
@@ -719,22 +1117,155 @@ WalkAndProcessImports(
             // disk
             //
 
-            if ( NoErrors && fNoUpdate == FALSE ) {
-                SetIdataToRo(Image);
-                *ForwarderChain = (ULONG)-1;
-                Imports->ForwarderChain = ForwarderChainHead;
-                MoveMemory(tname,SnappedThunks,NumberOfThunks*sizeof(*SnappedThunks));
-                Imports->TimeDateStamp = Dll->FileHeader->FileHeader.TimeDateStamp;
-                FlushViewOfFile(Image,0);
-
-                GetSystemTime(&SystemTime);
-                if ( SystemTimeToFileTime(&SystemTime,&LastWriteTime) ) {
-                    SetFileTime(Image->hFile,NULL,NULL,&LastWriteTime);
+            if ( NoErrors && Parms->fNoUpdate == FALSE ) {
+                if (ForwarderChainHead != -1) {
+                    *ImageModified = TRUE;
+                    *ForwarderChain = (ULONG)-1;
+                }
+                if (Imports->ForwarderChain != ForwarderChainHead) {
+                    Imports->ForwarderChain = ForwarderChainHead;
+                    *ImageModified = TRUE;
+                }
+                cb = NumberOfThunks*sizeof(*SnappedThunks);
+                if (memcmp(tname,SnappedThunks,cb)) {
+                    MoveMemory(tname,SnappedThunks,cb);
+                    *ImageModified = TRUE;
+                }
+                if (NewImportDescriptorHead == NULL) {
+                    if (Imports->TimeDateStamp != Dll->FileHeader->FileHeader.TimeDateStamp) {
+                        Imports->TimeDateStamp = Dll->FileHeader->FileHeader.TimeDateStamp;
+                        *ImageModified = TRUE;
                     }
                 }
+                else
+                if (Imports->TimeDateStamp != 0xFFFFFFFF) {
+                    Imports->TimeDateStamp = 0xFFFFFFFF;
+                    *ImageModified = TRUE;
+                }
+            }
 
-            LocalFree(SnappedThunks);
+            MemFree(SnappedThunks);
+        }
+    }
+
+    NewImports = BindpCreateNewImportSection(Parms, &NewImportDescriptorHead, &NewImportsSize);
+    if (PrevNewImportsSize != NewImportsSize ||
+        memcmp( PrevNewImports, NewImports, NewImportsSize )
+       ) {
+        *ImageModified = TRUE;
+    }
+
+    if (!*ImageModified) {
+        return;
+    }
+
+    if (Parms->StatusRoutine != NULL) {
+        (Parms->StatusRoutine)( BindImageModified,
+                                Image->ModuleName,
+                                NULL,
+                                0,
+                                0
+                              );
+    }
+
+    if (NewImports != NULL) {
+        ULONG cbFreeFile, cbFreeHeaders, OffsetHeaderFreeSpace;
+
+        if (NoErrors && Parms->fNoUpdate == FALSE) {
+            Image->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT ].VirtualAddress = 0;
+            Image->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT ].Size = 0;
+        }
+        OffsetHeaderFreeSpace = GetImageUnusedHeaderBytes( Image, &cbFreeFile );
+        cbFreeHeaders = Image->Sections->VirtualAddress -
+                        Image->FileHeader->OptionalHeader.SizeOfHeaders +
+                        cbFreeFile;
+
+        if (NewImportsSize > cbFreeFile) {
+            if (NewImportsSize > cbFreeHeaders) {
+                if (Parms->StatusRoutine != NULL) {
+                    (Parms->StatusRoutine)( BindNoRoomInImage,
+                                            Image->ModuleName,
+                                            NULL,
+                                            0,
+                                            0
+                                          );
+                }
+                NoErrors = FALSE;
+            }
+            else
+            if (NoErrors && Parms->fNoUpdate == FALSE) {
+                NoErrors = BindpExpandImageFileHeaders( Parms,
+                                                        Image,
+                                                        (Image->FileHeader->OptionalHeader.SizeOfHeaders -
+                                                         cbFreeFile +
+                                                         NewImportsSize +
+                                                         (Image->FileHeader->OptionalHeader.FileAlignment-1)
+                                                        ) &
+                                                         ~(Image->FileHeader->OptionalHeader.FileAlignment-1)
+                                                      );
             }
         }
+
+        if (Parms->StatusRoutine != NULL) {
+            (Parms->StatusRoutine)( BindImageComplete,
+                                    Image->ModuleName,
+                                    NULL,
+                                    (ULONG)NewImports,
+                                    NoErrors
+                                  );
+        }
+
+        if (NoErrors && Parms->fNoUpdate == FALSE) {
+            Image->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT ].VirtualAddress = OffsetHeaderFreeSpace;
+            Image->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT ].Size = NewImportsSize;
+            memcpy( (LPSTR)(Image->MappedAddress) + OffsetHeaderFreeSpace,
+                    NewImports,
+                    NewImportsSize
+                  );
+        }
+
+        MemFree(NewImports);
+    }
+
+    if (NoErrors && Parms->fNoUpdate == FALSE) {
+        SetIdataToRo( Image );
+    }
 }
 
+
+DWORD
+GetImageUnusedHeaderBytes(
+    PLOADED_IMAGE LoadedImage,
+    LPDWORD SizeUnusedHeaderBytes
+    )
+{
+    PIMAGE_NT_HEADERS NtHeaders;
+    DWORD OffsetFirstUnusedHeaderByte;
+    DWORD i;
+    DWORD OffsetHeader;
+
+    NtHeaders = LoadedImage->FileHeader;
+    OffsetFirstUnusedHeaderByte =
+        ((LPSTR)NtHeaders - (LPSTR)LoadedImage->MappedAddress) +
+        (FIELD_OFFSET( IMAGE_NT_HEADERS, OptionalHeader ) +
+         NtHeaders->FileHeader.SizeOfOptionalHeader +
+         (NtHeaders->FileHeader.NumberOfSections *
+          sizeof(IMAGE_SECTION_HEADER)
+         )
+        );
+
+    for ( i=0; i<NtHeaders->OptionalHeader.NumberOfRvaAndSizes; i++ ) {
+        OffsetHeader = NtHeaders->OptionalHeader.DataDirectory[i].VirtualAddress;
+        if (OffsetHeader < NtHeaders->OptionalHeader.SizeOfHeaders) {
+            if (OffsetHeader >= OffsetFirstUnusedHeaderByte) {
+                OffsetFirstUnusedHeaderByte = OffsetHeader +
+                    NtHeaders->OptionalHeader.DataDirectory[i].Size;
+                }
+            }
+        }
+
+    *SizeUnusedHeaderBytes = NtHeaders->OptionalHeader.SizeOfHeaders -
+                             OffsetFirstUnusedHeaderByte;
+
+    return OffsetFirstUnusedHeaderByte;
+}

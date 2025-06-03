@@ -33,4 +33,4 @@ void PrintGraphDisplay (HDC hDC,
 
 void ChartHighlight (void) ;
 
-
+

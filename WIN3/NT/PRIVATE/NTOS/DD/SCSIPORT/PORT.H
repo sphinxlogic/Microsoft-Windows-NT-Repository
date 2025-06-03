@@ -29,8 +29,19 @@ Revision History:
 #include <string.h>
 #include "stdio.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'IscS')
+#endif
+
 struct _SRB_DATA;
 extern ULONG ScsiDebug;
+
+
+#define NUMBER_LOGICAL_UNIT_BINS 8
+#define SP_NORMAL_PHYSICAL_BREAK_VALUE 17
 
 //
 // Define a pointer to the synchonize execution routine.
@@ -43,6 +54,11 @@ BOOLEAN
     IN PKSYNCHRONIZE_ROUTINE SynchronizeRoutine,
     IN PVOID SynchronizeContext
     );
+
+typedef struct _RESET_COMPLETION_CONTEXT {
+    PSCSI_REQUEST_BLOCK Srb;
+    PIRP RequestIrp;
+} RESET_COMPLETION_CONTEXT, *PRESET_COMPLETION_CONTEXT;
 
 //
 // SCSI Get Configuration Information
@@ -208,10 +224,6 @@ typedef struct _INTERRUPT_DATA {
 
 typedef struct _DEVICE_EXTENSION {
 
-    //
-    // Adapter device object
-    //
-
     PDEVICE_OBJECT  DeviceObject;   // offset 0x00
 
     //
@@ -225,11 +237,6 @@ typedef struct _DEVICE_EXTENSION {
     //
 
     PVOID NonCachedExtension;       // offset 0x08
-
-    //
-    // Port number
-    //
-
     ULONG PortNumber;               // offset 0x0C
 
     //
@@ -250,11 +257,6 @@ typedef struct _DEVICE_EXTENSION {
     //
 
     ULONG SrbFlags;                 // offset 0x18
-
-    //
-    // Port timing count.
-    //
-
     LONG PortTimeoutCounter;        // offset 0x1C
 
     //
@@ -262,30 +264,16 @@ typedef struct _DEVICE_EXTENSION {
     //
 
     UCHAR NumberOfBuses;            // offset 0x20
-
-    //
-    // Maximum targets per bus
-    //
-
     UCHAR MaximumTargetIds;         // offset 0x21
-
-    //
-    // Maximum number of logical units per target controller.
-    //
-
     UCHAR MaxLuCount;               // offset 0x22
-
-    //
-    // Host bus SCSI id
-    //
-
-    UCHAR InitiatorBusId;          // offset 0x23
-
-    //
-    // Interrupt object
-    //
-
+    UCHAR InitiatorBusId;           // offset 0x23
     PKINTERRUPT InterruptObject;    // offset 0x24
+
+    //
+    // Second Interrupt object (PCI IDE work-around)
+    //
+
+    PKINTERRUPT InterruptObject2;
 
     //
     // Routine to call to synchronize execution for the miniport.
@@ -297,155 +285,112 @@ typedef struct _DEVICE_EXTENSION {
     // Global device sequence number.
     //
 
-    ULONG SequenceNumber;           // offset 0x2C
+    ULONG SequenceNumber;           // offset 0x30
+    KSPIN_LOCK SpinLock;            // offset 0x34
 
     //
-    // Spinlock
+    // Second spin lock (PCI IDE work-around)
     //
 
-    KSPIN_LOCK SpinLock;            // offset 0x30
+    KSPIN_LOCK MultipleIrqSpinLock;
 
     //
     // Dummy interrupt spin lock.
     //
 
-    KSPIN_LOCK InterruptSpinLock;   // offset 0x34
+    KSPIN_LOCK InterruptSpinLock;
 
     //
     // Dma Adapter information.
     //
 
-    PVOID MapRegisterBase;          // offset 0x38
-    PADAPTER_OBJECT DmaAdapterObject; // offset 0x3C
-    ADAPTER_TRANSFER FlushAdapterParameters; // offset 0x40
+    PVOID MapRegisterBase;
+    PADAPTER_OBJECT DmaAdapterObject;
+    ADAPTER_TRANSFER FlushAdapterParameters;
 
     //
     // miniport's copy of the configuraiton informaiton.
     // Used only during initialization.
     //
 
-    PPORT_CONFIGURATION_INFORMATION ConfigurationInformation; // offset 0x50
+    PPORT_CONFIGURATION_INFORMATION ConfigurationInformation;
 
     //
     // SCSI configuration information from inquiries.
     //
 
-    PSCSI_CONFIGURATION_INFO ScsiInfo; // offset 0x54
+    PSCSI_CONFIGURATION_INFO ScsiInfo;
 
     //
     // Common buffer size.  Used for HalFreeCommonBuffer.
     //
 
-    ULONG CommonBufferSize;         // offset 0x58
-
-    //
-    // Srb Extension Size
-    //
-
-    ULONG SrbExtensionSize;         // offset 0x5C
+    ULONG CommonBufferSize;
+    ULONG SrbExtensionSize;
 
     //
     // SrbExtension and non-cached common buffer
     //
 
-    PVOID SrbExtensionBuffer;       // offset 0x60
+    PVOID SrbExtensionBuffer;
 
     //
     // List head of free SRB extentions.
     //
 
-    PVOID SrbExtensionListHeader;   // offset 0x64
+    PVOID SrbExtensionListHeader;
 
     //
     // Logical Unit Extensions
     //
 
-    ULONG HwLogicalUnitExtensionSize; // offset 0x68
+    ULONG HwLogicalUnitExtensionSize;
 
     //
     // Anchor of forward linked list of mapped addresses
     // for unmapping
     //
 
-    PMAPPED_ADDRESS MappedAddressList; // offset 0x6C
+    PMAPPED_ADDRESS MappedAddressList;
 
     //
     // Pointer to the per SRB data array.
     //
 
-    PSRB_DATA SrbData;              // offset 0x70
+    PSRB_DATA SrbData;
 
     //
     // Pointer to the per SRB free list.
     //
 
-    PSRB_DATA FreeSrbData;          // offset 0x74
+    PSRB_DATA FreeSrbData;
 
     //
     // Number of SRB data elements which have been allocated.
     //
 
-    ULONG SrbDataCount;             // offset 0x78
+    ULONG SrbDataCount;
 
     //
-    // Miniport Initialization Routine
+    // Miniport service routine pointers.
     //
 
-    PHW_INITIALIZE HwInitialize;    // offset 0x7C
+    PHW_INITIALIZE HwInitialize;
+    PHW_STARTIO HwStartIo;
+    PHW_INTERRUPT HwInterrupt;
+    PHW_RESET_BUS HwResetBus;
+    PHW_DMA_STARTED HwDmaStarted;
+    PHW_INTERRUPT HwRequestInterrupt;
+    PHW_INTERRUPT HwTimerRequest;
 
-    //
-    // Miniport Start IO Routine
-    //
-
-    PHW_STARTIO HwStartIo;          // offset 0x80
-
-    //
-    // Miniport Interrupt Service Routine
-    //
-
-    PHW_INTERRUPT HwInterrupt;      // offset 0x84
-
-    //
-    // Miniport Reset Bus Routine
-    //
-
-    PHW_RESET_BUS HwResetBus;       // offset 0x88
-
-    //
-    // Miniport DMA started Routine
-    //
-
-    PHW_DMA_STARTED HwDmaStarted;   // offset 0x8C
-
-    //
-    // Miniport request interrupt enabled/disable routine.
-    //
-
-    PHW_INTERRUPT HwRequestInterrupt; // offset 0x90
-
-    //
-    // Miniport timer request routine.
-    //
-
-    PHW_INTERRUPT HwTimerRequest;   // offset 0x94
-
-    //
-    // Interrupt level
-    //
-
-    ULONG InterruptLevel;           // offset 0x98
-
-    //
-    // IO Base address
-    //
-
-    ULONG IoAddress;                // offset 0x9C
+    ULONG InterruptLevel;
+    ULONG IoAddress;
 
     //
     // Array of logical unit extensions.
     //
 
-    PLOGICAL_UNIT_EXTENSION LogicalUnitList[SCSI_MAXIMUM_TARGETS_PER_BUS];
+    PLOGICAL_UNIT_EXTENSION LogicalUnitList[NUMBER_LOGICAL_UNIT_BINS];
 
     //
     // Interrupt level data storage.
@@ -530,6 +475,20 @@ typedef struct _DEVICE_EXTENSION {
     //
 
     BOOLEAN CachesData;
+
+    //
+    // Indicates that the controller was a pcmcia based controller.
+    //
+
+    BOOLEAN PCCard;
+    UCHAR   Reserved[2];
+
+    //
+    // Placeholder for the minimum number of requests to allocate for.
+    // This can be a registry parameter.
+    //
+
+    ULONG NumberOfRequests;
 
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 
@@ -787,6 +746,15 @@ typedef struct _RESET_CONTEXT {
 #define PD_PENDING_LU_REQUEST        0x0020
 
 //
+// Indicates that the LogicalUnit has been allocated for a rescan request.
+// This flag prevents IOCTL_SCSI_MINIPORT requests from attaching to this
+// logical unit, since the possibility exists that it could be freed before
+// the IOCTL request is complete.
+//
+
+#define PD_RESCAN_ACTIVE             0x8000
+
+//
 // Port Timeout Counter values.
 //
 
@@ -794,10 +762,11 @@ typedef struct _RESET_CONTEXT {
 #define PD_TIMER_RESET_HOLD_TIME     4
 
 //
-// Define the mimimum number of srb extensions which will be allocated.
+// Define the mimimum and maximum number of srb extensions which will be allocated.
 //
 
-#define MINIMUM_SRB_EXTENSIONS       16
+#define MINIMUM_SRB_EXTENSIONS        16
+#define MAXIMUM_SRB_EXTENSIONS       512
 
 //
 // Size of the buffer used for registry operations.
@@ -1113,8 +1082,15 @@ GetPciConfiguration(
     PDEVICE_OBJECT DeviceObject,
     PHW_INITIALIZATION_DATA HwInitializationData,
     PPORT_CONFIGURATION_INFORMATION ConfigInformation,
-    PVOID RegistryPath,
-    ULONG BusNumber,
+    PVOID  RegistryPath,
+    ULONG  BusNumber,
     PULONG SlotNumber,
-    PULONG Function);
+    PULONG Function
+    );
 
+BOOLEAN
+GetPcmciaConfiguration(
+    IN PVOID RegistryPath,
+    PHW_INITIALIZATION_DATA         HwInitializationData,
+    PPORT_CONFIGURATION_INFORMATION ConfigInformation
+    );

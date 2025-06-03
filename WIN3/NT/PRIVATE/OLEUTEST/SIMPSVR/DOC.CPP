@@ -111,7 +111,7 @@ error:
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      GetMenu                     Windows API
 //      GetSubMenu                  Windows API
 //
@@ -121,7 +121,7 @@ error:
 
 CSimpSvrDoc::CSimpSvrDoc(CSimpSvrApp FAR * lpApp,HWND hWnd)
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc's Constructor\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc's Constructor\r\n"));
     m_lpApp = lpApp;
     m_nCount = 0;
     m_lpObj = NULL;
@@ -153,7 +153,7 @@ CSimpSvrDoc::CSimpSvrDoc(CSimpSvrApp FAR * lpApp,HWND hWnd)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DestroyWindow               Windows API
 //      CSimpSvrApp::ClearDoc       APP.CPP
 //
@@ -163,7 +163,7 @@ CSimpSvrDoc::CSimpSvrDoc(CSimpSvrApp FAR * lpApp,HWND hWnd)
 
 CSimpSvrDoc::~CSimpSvrDoc()
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc's Destructor\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc's Destructor\r\n"));
 
     // Clear the Doc object pointer so that the SimpSvrApp won't be able
     // to access invalid objects. (same for the SimpSvrObj)
@@ -198,7 +198,7 @@ CSimpSvrDoc::~CSimpSvrDoc()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrApp::QueryInterface APP.CPP
 //
 // Comments:
@@ -212,7 +212,7 @@ CSimpSvrDoc::~CSimpSvrDoc()
 
 STDMETHODIMP CSimpSvrDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc::QueryInterface\r\n"));
 
     SCODE sc = E_NOINTERFACE;
 
@@ -245,7 +245,7 @@ STDMETHODIMP CSimpSvrDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrApp::AddRef         APP.CPP
 //
 // Comments:
@@ -259,7 +259,7 @@ STDMETHODIMP CSimpSvrDoc::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CSimpSvrDoc::AddRef()
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc::AddRef\r\n"));
     // AddRef the app, but return the doc count
     m_lpApp->AddRef();
 
@@ -285,7 +285,7 @@ STDMETHODIMP_(ULONG) CSimpSvrDoc::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrApp::Release         APP.CPP
 //
 // Comments:
@@ -299,7 +299,7 @@ STDMETHODIMP_(ULONG) CSimpSvrDoc::AddRef()
 
 STDMETHODIMP_(ULONG) CSimpSvrDoc::Release()
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc::Release\r\n"));
     // Release the app, but return the app count
     m_lpApp->Release();
 
@@ -445,7 +445,7 @@ HRESULT CSimpSvrDoc::CreateObject(REFIID riid, LPVOID FAR *ppvObject)
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      CSimpSvrObj::AddRef                     OBJ.CPP
 //      CSimpSvrObj::Release                    OBJ.CPP
 //      CSimpSvrObj::IsInPlaceActive            OBJ.H
@@ -470,7 +470,7 @@ HRESULT CSimpSvrDoc::CreateObject(REFIID riid, LPVOID FAR *ppvObject)
 
 void CSimpSvrDoc::Close()
 {
-    OutputDebugString(TEXT("In CSimpSvrDoc::Close() \r\n"));
+    TestDebugOut(TEXT("In CSimpSvrDoc::Close() \r\n"));
 
     m_lpObj->AddRef(); // hold object alive
 
@@ -517,11 +517,11 @@ void CSimpSvrDoc::Close()
     // Disconnect the object.  NOTE: This call should not do anything
     // unless the container has cause a GP Fault or some other problem
     // has occured...
-    OutputDebugString(TEXT("*** Before CoDisconnectObject *** \r\n"));
+    TestDebugOut(TEXT("*** Before CoDisconnectObject *** \r\n"));
 
     CoDisconnectObject((LPUNKNOWN)m_lpObj, 0);
 
-    OutputDebugString(TEXT("*** After CoDisconnectObject *** \r\n"));
+    TestDebugOut(TEXT("*** After CoDisconnectObject *** \r\n"));
 
     m_lpObj->Release(); // let object close
 
@@ -686,4 +686,3 @@ void CSimpSvrDoc::HideHatchWnd()
 {
     ShowWindow(m_hHatchWnd, SW_HIDE);
 }
-

@@ -163,6 +163,11 @@ cBegin
 	cCall	genter
 cEnd
 
+externNP gleave
+cProc   Far_gleave,<PUBLIC,FAR,NODATA,ATOMIC>
+cBegin
+    cCall   gleave
+cEnd
 
 externNP lalign
 cProc	Far_lalign,<PUBLIC,FAR,NODATA,ATOMIC>

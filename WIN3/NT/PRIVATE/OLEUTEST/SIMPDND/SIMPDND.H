@@ -35,12 +35,11 @@ BOOL FAR PASCAL EXPORT About(HWND hDlg, UINT message, WPARAM wParam, LONG lParam
 
 #ifdef WIN32
 
-// Macro for OutputDebugString
+// Macro for TestDebugOut
 #ifdef UNICODE
-#undef OutputDebugString
-#define OutputDebugString(A); OutputDebugStringW(TEXT(A));
+#undef TestDebugOut
+#define TestDebugOut(A); TestDebugOutW(TEXT(A));
 #endif
 
 #endif
 
-

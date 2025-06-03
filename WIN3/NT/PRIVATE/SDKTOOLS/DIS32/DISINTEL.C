@@ -497,6 +497,9 @@ DWORDlabel:
                     pchOpcodeBuf = OutputString(pchOpcodeBuf, dszJECXZ);
                     }
                 tmp = (long)*(char *)pMem++; /* get the 8-bit rel offset */
+
+                Adjust = -2;
+
                 goto DoRelDispl;
 
             case REL16:                 /* relative address 16-/32-bit */

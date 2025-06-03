@@ -24,8 +24,6 @@ MODNAME(wmsg16.c);
 #define WIN30_EM_LINESCROLL  0x406    // WM_USER+6
 #define WIN30_EM_GETTHUMB    0x40e    // WM_USER+14
 
-WORD GetMenuIndex(LONG lParamNew, HMENU hMenu);  // turn off compiler warning
-
 // See WARNING below!
 LPFNTHUNKMSG16 apfnThunkMsg16[] = {
     ThunkWMMsg16,   // WOWCLASS_WIN16
@@ -67,207 +65,54 @@ LPFNUNTHUNKMSG16 apfnUnThunkMsg16[] = {
 // #defines in WALIAS.H must be changed.  Same goes for table in WALIAS.C.
 //
 
+
 #ifdef DEBUG
 
-MSGINFO amiWM[] = {
-   {0x00000000, "WM_NULL"},
-   {0x00000001, "WM_CREATE"},
-   {0x00000002, "WM_DESTROY"},
-   {0x00000003, "WM_MOVE"},
-   {0x00000005, "WM_SIZE"},
-   {0x00000006, "WM_ACTIVATE"},
-   {0x00000007, "WM_SETFOCUS"},
-   {0x00000008, "WM_KILLFOCUS"},
-   {0x00010009, "WM_SETVISIBLE"},
-   {0x0000000A, "WM_ENABLE"},
-   {0x0000000B, "WM_SETREDRAW"},
-   {0x0000000C, "WM_SETTEXT"},
-   {0x0000000D, "WM_GETTEXT"},
-   {0x0000000E, "WM_GETTEXTLENGTH"},
-   {0x0000000F, "WM_PAINT"},
-   {0x00000010, "WM_CLOSE"},
-   {0x00000011, "WM_QUERYENDSESSION"},
-   {0x00000012, "WM_QUIT"},
-   {0x00000013, "WM_QUERYOPEN"},
-   {0x00000014, "WM_ERASEBKGND"},
-   {0x00000015, "WM_SYSCOLORCHANGE"},
-   {0x00000016, "WM_ENDSESSION"},
-   {0x00000018, "WM_SHOWWINDOW"},
-   {0x00000019, "WM_CTLCOLOR"},
-   {0x0000001A, "WM_WININICHANGE"},
-   {0x0000001B, "WM_DEVMODECHANGE"},
-   {0x0000001C, "WM_ACTIVATEAPP"},
-   {0x0000001D, "WM_FONTCHANGE"},
-   {0x0000001E, "WM_TIMECHANGE"},
-   {0x0000001F, "WM_CANCELMODE"},
-   {0x00000020, "WM_SETCURSOR"},
-   {0x00000021, "WM_MOUSEACTIVATE"},
-   {0x00000022, "WM_CHILDACTIVATE"},
-   {0x00000023, "WM_QUEUESYNC"},
-   {0x00000024, "WM_GETMINMAXINFO"},
-   {0x00000026, "WM_PAINTICON"},
-   {0x00000027, "WM_ICONERASEBKGND"},
-   {0x00000028, "WM_NEXTDLGCTL"},
-   {0x00010029, "WM_ALTTABACTIVE"},
-   {0x0000002A, "WM_SPOOLERSTATUS"},
-   {0x0000002B, "WM_DRAWITEM"},
-   {0x0000002C, "WM_MEASUREITEM"},
-   {0x0000002D, "WM_DELETEITEM"},
-   {0x0000002E, "WM_VKEYTOITEM"},
-   {0x0000002F, "WM_CHARTOITEM"},
-   {0x00000030, "WM_SETFONT"},
-   {0x00000031, "WM_GETFONT"},
-   {0x0000003F, "MM_CALCSCROLL"},
-   {0x00010035, "WM_ISACTIVEICON"},
-   {0x00010036, "WM_QUERYPARKICON"},
-   {0x00000037, "WM_QUERYDRAGICON"},
-   {0x00000039, "WM_COMPAREITEM"},
-   {0x00000041, "WM_COMPACTING"},
-   {0x00000081, "WM_NCCREATE"},
-   {0x00000082, "WM_NCDESTROY"},
-   {0x00000083, "WM_NCCALCSIZE"},
-   {0x00000084, "WM_NCHITTEST"},
-   {0x00000085, "WM_NCPAINT"},
-   {0x00000086, "WM_NCACTIVATE"},
-   {0x00000087, "WM_GETDLGCODE"},
-   {0x00010088, "WM_SYNCPAINT"},
-   {0x000000A0, "WM_NCMOUSEMOVE"},
-   {0x000000A1, "WM_NCLBUTTONDOWN"},
-   {0x000000A2, "WM_NCLBUTTONUP"},
-   {0x000000A3, "WM_NCLBUTTONDBLCLK"},
-   {0x000000A4, "WM_NCRBUTTONDOWN"},
-   {0x000000A5, "WM_NCRBUTTONUP"},
-   {0x000000A6, "WM_NCRBUTTONDBLCLK"},
-   {0x000000A7, "WM_NCMBUTTONDOWN"},
-   {0x000000A8, "WM_NCMBUTTONUP"},
-   {0x000000A9, "WM_NCMBUTTONDBLCLK"},
- //{0x00000100, "WM_KEYFIRST"},
-   {0x00000100, "WM_KEYDOWN"},
-   {0x00000101, "WM_KEYUP"},
-   {0x00000102, "WM_CHAR"},
-   {0x00000103, "WM_DEADCHAR"},
-   {0x00000104, "WM_SYSKEYDOWN"},
-   {0x00000105, "WM_SYSKEYUP"},
-   {0x00000106, "WM_SYSCHAR"},
-   {0x00000107, "WM_SYSDEADCHAR"},
-   {0x00000108, "WM_KEYLAST"},
-   {0x00000110, "WM_INITDIALOG"},
-   {0x00000111, "WM_COMMAND"},
-   {0x00000112, "WM_SYSCOMMAND"},
-   {0x00000113, "WM_TIMER"},
-   {0x00000114, "WM_HSCROLL"},
-   {0x00000115, "WM_VSCROLL"},
-   {0x00000116, "WM_INITMENU"},
-   {0x00000117, "WM_INITMENUPOPUP"},
-   {0x00010118, "WM_SYSTIMER"},
-   {0x0000011F, "WM_MENUSELECT"},
-   {0x00000120, "WM_MENUCHAR"},
-   {0x00000121, "WM_ENTERIDLE"},
-   {0x00010131, "WM_LBTRACKPOINT"},
-   {0x00020132, "WM_CTLCOLORMSGBOX"},
-   {0x00020133, "WM_CTLCOLOREDIT"},
-   {0x00020134, "WM_CTLCOLORLISTBOX"},
-   {0x00020135, "WM_CTLCOLORBTN"},
-   {0x00020136, "WM_CTLCOLORDLG"},
-   {0x00020137, "WM_CTLCOLORSCROLLBAR"},
-   {0x00020138, "WM_CTLCOLORSTATIC"},
-   {0x00020140, "CB_GETEDITSEL"},
-   {0x00020141, "CB_LIMITTEXT"},
-   {0x00020142, "CB_SETEDITSEL"},
-   {0x00020143, "CB_ADDSTRING"},
-   {0x00020144, "CB_DELETESTRING"},
-   {0x00020145, "CB_DIR"},
-   {0x00020146, "CB_GETCOUNT"},
-   {0x00020147, "CB_GETCURSEL"},
-   {0x00020148, "CB_GETLBTEXT"},
-   {0x00020149, "CB_GETLBTEXTLEN"},
-   {0x0002014A, "CB_INSERTSTRING"},
-   {0x0002014B, "CB_RESETCONTENT"},
-   {0x0002014C, "CB_FINDSTRING"},
-   {0x0002014D, "CB_SELECTSTRING"},
-   {0x0002014E, "CB_SETCURSEL"},
-   {0x0002014F, "CB_SHOWDROPDOWN"},
-   {0x00020150, "CB_GETITEMDATA"},
-   {0x00020151, "CB_SETITEMDATA"},
-   {0x00020152, "CB_GETDROPPEDCONTROLRECT"},
-   {0x00020153, "CB_SETITEMHEIGHT"},
-   {0x00020154, "CB_GETITEMHEIGHT"},
-   {0x00020155, "CB_SETEXTENDEDUI"},
-   {0x00020156, "CB_GETEXTENDEDUI"},
-   {0x00020157, "CB_GETDROPPEDSTATE"},
-   {0x00020158, "CB_MSGMAX"},
- //{0x00000200, "WM_MOUSEFIRST"},
-   {0x00000200, "WM_MOUSEMOVE"},
-   {0x00000201, "WM_LBUTTONDOWN"},
-   {0x00000202, "WM_LBUTTONUP"},
-   {0x00000203, "WM_LBUTTONDBLCLK"},
-   {0x00000204, "WM_RBUTTONDOWN"},
-   {0x00000205, "WM_RBUTTONUP"},
-   {0x00000206, "WM_RBUTTONDBLCLK"},
-   {0x00000207, "WM_MBUTTONDOWN"},
-   {0x00000208, "WM_MBUTTONUP"},
-   {0x00000209, "WM_MBUTTONDBLCLK"},
- //{0x00000209, "WM_MOUSELAST"},
-   {0x00000210, "WM_PARENTNOTIFY"},
-   {0x00010211, "WM_ENTERMENULOOP"},
-   {0x00010212, "WM_EXITMENULOOP"},
-   {0x00010213, "WM_NEXTMENU"},
-   {0x00000220, "WM_MDICREATE"},
-   {0x00000221, "WM_MDIDESTROY"},
-   {0x00000222, "WM_MDIACTIVATE"},
-   {0x00000223, "WM_MDIRESTORE"},
-   {0x00000224, "WM_MDINEXT"},
-   {0x00000225, "WM_MDIMAXIMIZE"},
-   {0x00000226, "WM_MDITILE"},
-   {0x00000227, "WM_MDICASCADE"},
-   {0x00000228, "WM_MDIICONARRANGE"},
-   {0x00000229, "WM_MDIGETACTIVE"},
-   {0x0001022A, "WM_DROPOBJECT"},
-   {0x0001022B, "WM_QUERYDROPOBJECT"},
-   {0x0001022C, "WM_BEGINDRAG"},
-   {0x0001022D, "WM_DRAGLOOP"},
-   {0x0001022E, "WM_DRAGSELECT"},
-   {0x0001022F, "WM_DRAGMOVE"},
-   {0x00000230, "WM_MDISETMENU"},
-   {0x00010231, "WM_ENTERSIZEMOVE"},
-   {0x00010232, "WM_EXITSIZEMOVE"},
-   {0x00000300, "WM_CUT"},
-   {0x00000301, "WM_COPY"},
-   {0x00000302, "WM_PASTE"},
-   {0x00000303, "WM_CLEAR"},
-   {0x00000304, "WM_UNDO"},
-   {0x00000305, "WM_RENDERFORMAT"},
-   {0x00000306, "WM_RENDERALLFORMATS"},
-   {0x00000307, "WM_DESTROYCLIPBOARD"},
-   {0x00000308, "WM_DRAWCLIPBOARD"},
-   {0x00000309, "WM_PAINTCLIPBOARD"},
-   {0x0000030A, "WM_VSCROLLCLIPBOARD"},
-   {0x0000030B, "WM_SIZECLIPBOARD"},
-   {0x0000030C, "WM_ASKCBFORMATNAME"},
-   {0x0000030D, "WM_CHANGECBCHAIN"},
-   {0x0000030E, "WM_HSCROLLCLIPBOARD"},
-   {0x0000030F, "WM_QUERYNEWPALETTE"},
-   {0x00000310, "WM_PALETTEISCHANGING"},
-   {0x00000311, "WM_PALETTECHANGED"},
-   {0x00020312, "WM_HOTKEY"},
-   {0x000010AC, "MM_CALCSCROLL"},
-   {0x00000038, "WM_WINHELP"},
-};
+//
+// This function returns a pointer to a static buffer containing a generated
+// string.  If the function is called twice and generates a string in both
+// cases, the second call will overwrite the buffer of the first call.  If
+// this becomes a problem for us it would be easy to use an array of N
+// static buffers which are cycled through.
+//
 
 PSZ GetWMMsgName(UINT uMsg)
 {
-    INT i;
-    register PMSGINFO pmi;
+    static char szStaticBuf[128];
+    PSZ pszMsgName;
 
-    for (pmi=amiWM,i=NUMEL(amiWM); i>0; i--,pmi++)
-        if ((pmi->uMsg & 0xFFFF) == uMsg)
-        return pmi->pszMsgName;
-    return "UNKNOWN";
+    uMsg = LOWORD(uMsg);
+
+    pszMsgName = (uMsg < (unsigned)iMsgMax) ? aw32Msg[uMsg].lpszW32 : NULL;
+
+    if (!pszMsgName) {
+
+        if (uMsg < WM_USER) {
+            sprintf(szStaticBuf, "(Unknown 0x%x)", uMsg);
+        } else if (uMsg < 0xc000) {
+            sprintf(szStaticBuf, "(WM_USER+0x%x)", uMsg - WM_USER);
+        } else {
+            char szAtomName[100];
+
+            if ( ! GlobalGetAtomName((ATOM)uMsg, szAtomName, sizeof szAtomName) &&
+                 !       GetAtomName((ATOM)uMsg, szAtomName, sizeof szAtomName) ) {
+                szAtomName[0] = 0;
+            }
+
+            sprintf(szStaticBuf, "(Atom 0x%x '%s')", uMsg, szAtomName);
+        }
+
+        pszMsgName = szStaticBuf;
+    }
+
+    return pszMsgName;
 }
 
 #endif
 
 
+// WARNING: This function may cause 16-bit memory movement, invalidating
+//	    flat pointers.
 HWND FASTCALL ThunkMsg16(LPMSGPARAMEX lpmpex)
 {
     BOOL f;
@@ -307,12 +152,7 @@ HWND FASTCALL ThunkMsg16(LPMSGPARAMEX lpmpex)
         f = (apfnThunkMsg16[iClass])(lpmpex);
     }
 
-#ifdef DEBUG
-    if (!f) {
-        LOGDEBUG(0,("    WARNING Will Robinson: 16-bit message thunk failure\n"));
-        WOW32ASSERT (FALSE);
-    }
-#endif
+    WOW32ASSERTMSG(f, "    WARNING Will Robinson: 16-bit message thunk failure\n");
 
     return (f) ? lpmpex->hwnd : (HWND)NULL;
 
@@ -374,12 +214,21 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
     case WM_SETTEXT:    // 00Ch, <SLPre,SLPost   >
     case WM_WININICHANGE:   // 01Ah, <SLPre,       LS>
     case WM_DEVMODECHANGE:  // 01Bh, <SLPre,       LS>
-        GETPSZPTR(lParam, (LPSZ)*plParamNew);
+        {
+            LONG lParamMap;
+
+            GETPSZPTR(lParam, (LPSZ)lParamMap);
+            *plParamNew = (LONG)AddParamMap(lParamMap, lParam);
+            if (lParamMap != *plParamNew) {
+                FREEPSZPTR((LPSZ)lParamMap);
+            }
+
+        }
         break;
 
     case WM_ACTIVATEAPP:    // 01Ch
         if (lParam) {
-            *plParamNew = (LONG)THREADID32(LOWORD(lParam));
+            *plParamNew = (LONG)HTASK32(LOWORD(lParam));
         }
         break;
 
@@ -415,6 +264,8 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         break;
 
     case WM_GETDLGCODE:
+        // NTRaid1 #9949 - Excel passes ptr to msg struct in lparam
+        //                 Approach 3.1 also does this              a-craigj
         if (lParam) {
             *plParamNew = (LONG)lpmpex->MsgBuffer;
             W32CopyMsgStruct( (VPMSG16)lParam,(LPMSG)*plParamNew, TRUE);
@@ -665,8 +516,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
                 if (pww = (PWW)GetWindowLong(hwnd32, GWL_WOWWORDS)) {
                     if ((pww->iClass == WOWCLASS_WIN16 ||
                             pww->iClass == WOWCLASS_DIALOG)
-                            && (!(GetWindowLong(hwnd32, GWL_EXSTYLE) &
-                            WS_EX_MDICHILD))) {
+                            && (!(pww->dwExStyle & WS_EX_MDICHILD))) {
                         lpmpex->uMsg = WM_MDIACTIVATE | WOWPRIVATEMSG;
                         break;
                     }
@@ -680,7 +530,23 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
             //
 
             if (lParam) {
-                fHwndIsMdiChild = TRUE;
+                
+                //
+                // Corel Chart doesn't set lParam to zero.
+                // Instead HIWORD(lParam) = 0 and LOWORD(lParam) = wParam
+                // If we do the normal child window processing, focus won't
+                // change, because the wrong window handle will be in the
+                // wParam for the 32 bit message.  This would not be a problem,
+                // except that win32 swapped the positions of the activate and
+                // deactivate handles for the WM_MDIACTIVATE messages sent 
+                // to the child window.  Under win31, the non-zero lParam is
+                // ignored.
+                //
+                if ((CURRENTPTD()->dwWOWCompatFlags & WOWCF_WMMDIACTIVATEBUG) && (HIWORD(lParam) == 0) && (wParam == LOWORD(lParam))){
+                    fHwndIsMdiChild = FALSE;
+                } else {
+                    fHwndIsMdiChild = TRUE;
+                }
             }
             else {
                 if (wParam && (lpmpex->Parm16.WndProc.hwnd == (HWND16)wParam)) {
@@ -693,12 +559,12 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
             }
 
             if (fHwndIsMdiChild) {
-                lpmpex->uParam = (UINT)HWND32(HIWORD(lParam));
-                *plParamNew = (UINT)HWND32(LOWORD(lParam));
+                lpmpex->uParam = (UINT)FULLHWND32(HIWORD(lParam));
+                *plParamNew = (UINT)FULLHWND32(LOWORD(lParam));
 
             }
             else {
-                lpmpex->uParam = (UINT)HWND32(wParam);
+                lpmpex->uParam = (UINT)FULLHWND32(wParam);
                 *plParamNew = (UINT)0;
             }
         }
@@ -748,6 +614,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         // us the value returned by the app when it processed this message.
 
         if (HIWORD(lParam) <= (WORD)(WM_CTLCOLORSTATIC -  WM_CTLCOLORMSGBOX)) {
+            lpmpex->hwnd   = (HWND)FULLHWND32(GETHWND16(lpmpex->hwnd));
             lpmpex->uMsg   = WM_CTLCOLORMSGBOX + HIWORD(lParam);
             lpmpex->uParam = (UINT)HDC32(wParam);
             *plParamNew = (LONG)HWND32(LOWORD(lParam));
@@ -771,7 +638,10 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         register    LPCREATESTRUCT  lpCreateStruct;
         register    PCREATESTRUCT16 lpCreateStruct16;
 
-        if (lParam) {
+        if (HIWORD(lParam)) {
+
+            HWND hwnd32;
+            PWW  pww = NULL;
 
             lpCreateStruct = (LPCREATESTRUCT) lpmpex->MsgBuffer;
             // ChandanC check the return value !!!
@@ -795,7 +665,9 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
 
             FREEVDMPTR(lpCreateStruct16);
 
-            if (lpCreateStruct->lpCreateParams && (lpCreateStruct->dwExStyle & WS_EX_MDICHILD)) {
+            hwnd32 = HWND32(lpmpex->Parm16.WndProc.hwnd);
+            pww = (PWW)GetWindowLong(hwnd32, GWL_WOWWORDS);
+            if (lpCreateStruct->lpCreateParams && pww && (pww->dwExStyle & WS_EX_MDICHILD)) {
                 FinishThunkingWMCreateMDIChild16(*plParamNew,
                                         (LPMDICREATESTRUCT)(lpCreateStruct+1));
             }
@@ -825,7 +697,9 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         if (LOWORD(lParam) == 0xFFFF || !(LOWORD(lParam) & MF_POPUP)) {
             LOW(lpmpex->uParam) = wParam;      // copy ID
         } else {
-            LOW(lpmpex->uParam) = GetMenuIndex(*plParamNew, HMENU32(wParam));      // convert menu to index
+            // convert menu to index
+            LOW(lpmpex->uParam) =
+                    (WORD)(pfnOut.pfnGetMenuIndex)((HMENU)*plParamNew, HMENU32(wParam));
         }
         break;
 
@@ -868,7 +742,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
                     }
                 }
                 else {
-                    if (fFreeDDElParam) {
+                    if (fThunkDDEmsg) {
                         if (h32 = DDEFindPair32(wParam, hwnd16, (HAND16) HIWORD(lParam))) {
                             *plParamNew = PackDDElParam(wMsg, (LONG) (DWORD) LOWORD(lParam), (LONG) h32);
                         }
@@ -900,14 +774,15 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
                 GlobalFree(h32);
             }
             DdeInfo.Msg = wMsg;
-            h32 = DDECopyhData32(hwnd16, wParam, (HAND16) LOWORD(lParam), &DdeInfo);
+	    h32 = DDECopyhData32(hwnd16, wParam, (HAND16) LOWORD(lParam), &DdeInfo);
+	    // WARNING: 16-bit memory may have moved
             DdeInfo.Flags = DDE_PACKET;
             DdeInfo.h16 = 0;
             DDEAddhandle(hwnd16, wParam, (HAND16)LOWORD(lParam), h32, &DdeInfo);
             *plParamNew = PackDDElParam(wMsg, (LONG) h32, (LONG) HIWORD(lParam));
         }
         else {
-            if (fFreeDDElParam) {
+            if (fThunkDDEmsg) {
                 if (!(h32 = DDEFindPair32(hwnd16, wParam, (HAND16) LOWORD(lParam)))) {
                     LOGDEBUG (0, ("WOW::WMSG16: WM_DDE_POKE : Can't find h32 !\n"));
                 }
@@ -959,7 +834,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
             *plParamNew = PackDDElParam(wMsg, (LONG) h32, (LONG) HIWORD(lParam));
         }
         else {
-            if (fFreeDDElParam) {
+            if (fThunkDDEmsg) {
                 if (!(h32 = DDEFindPair32(hwnd16, wParam, (HAND16) LOWORD(lParam)))) {
                     LOGDEBUG (0, ("WOW::WMSG16: WM_DDE_ADVISE : Can't find h32 !\n"));
                 }
@@ -993,6 +868,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
             else {
                 DdeInfo.Msg = wMsg;
                 h32 = DDECopyhData32(hwnd16, wParam, (HAND16) LOWORD(lParam), &DdeInfo);
+		// WARNING: 16-bit memory may have moved
                 DdeInfo.Flags = DDE_PACKET;
                 DdeInfo.h16 = 0;
                 DDEAddhandle(hwnd16, wParam, (HAND16)LOWORD(lParam), h32, &DdeInfo);
@@ -1001,7 +877,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
             *plParamNew = PackDDElParam(wMsg, (LONG) h32, (LONG) HIWORD(lParam));
         }
         else {
-            if (fFreeDDElParam) {
+            if (fThunkDDEmsg) {
                 if (!LOWORD(lParam)) {
                     h32 = 0;
                 }
@@ -1036,6 +912,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
 
         if (fWhoCalled == WOWDDE_POSTMESSAGE) {
             vp = GlobalLock16(HIWORD(lParam), &cb);
+
             GETMISCPTR(vp, lpMem16);
             h32 = GlobalAlloc(GMEM_DDESHARE, cb);
             if (h32) {
@@ -1051,10 +928,12 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
                 // We get around this problem by generating a unique h16-h32
                 // pairing each time. And freeing h16 when the WM_DDE_ACK comes.
                 // In WM32DDEAck, we need to free this h16 because we allocated
-                // this one.
+                // this one. Apply this hack only if the h16 is valid. Caere
+                // OmniPage passes hard coded constants in HIWORD(lParam).
+                //
                 // SunilP, ChandanC 4-30-93
                 //
-                if (DDEFindPair32(hwnd16, wParam, (HAND16) HIWORD(lParam))) {
+                if (vp && DDEFindPair32(hwnd16, wParam, (HAND16) HIWORD(lParam))) {
                     vp1 = GlobalAllocLock16(GMEM_DDESHARE, cb, &h16);
                     if (vp1) {
                         GETMISCPTR(vp1, lpMem16);
@@ -1135,10 +1014,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         else {
             pTemp = CopyDataFindData32 (hwnd16, wParam, lParam);
             lpCDS32 = (PCOPYDATASTRUCT) pTemp->Mem32;
-            if (!lpCDS32) {
-                LOGDEBUG (LOG_ALWAYS, ("WOW::WM_COPYDATA:Cann't locate lpCDS32\n"));
-                WOW32ASSERT (lpCDS32);
-            }
+            WOW32ASSERTMSGF(lpCDS32, ("WOW::WM_COPYDATA:Can't locate lpCDS32\n"));
         }
 
         *plParamNew = (LONG)lpCDS32;
@@ -1204,7 +1080,7 @@ BOOL FASTCALL ThunkWMMsg16(LPMSGPARAMEX lpmpex)
         htask16  = CURRENTPTD()->htask16;
         wIDEvent = wParam;
 
-        ptmr = IsDuplicateTimer16( lpmpex->Parm16.WndProc.hwnd, htask16, wIDEvent );
+        ptmr = FindTimer16( lpmpex->Parm16.WndProc.hwnd, htask16, wIDEvent );
 
         if ( !ptmr ) {
             if ( lParam == 0L ) {
@@ -1290,8 +1166,13 @@ VOID FASTCALL UnThunkWMMsg16(LPMSGPARAMEX lpmpex)
     case WM_SETTEXT:        // 00Ch, <SLPre,SLPost   >
     case WM_WININICHANGE:   // 01Ah, <SLPre,       LS>
     case WM_DEVMODECHANGE:  // 01Bh, <SLPre,       LS>
-        // BUGBUG 11-Apr-91 JeffPar -- Must we do a flush for SETTEXT?
-        FREEPSZPTR((LPSZ)lpmpex->lParam);
+        {
+            BOOL fFreePtr;
+            DeleteParamMap(lpmpex->lParam, PARAM_32, &fFreePtr);
+            if (fFreePtr) {
+                FREEPSZPTR((LPSZ)lpmpex->lParam);
+            }
+        }
         break;
 
     case WM_GETTEXT:        // 00Dh, <SLPre,SLPost,LS>
@@ -1620,6 +1501,10 @@ BOOL FASTCALL ThunkMNMsg16(LPMSGPARAMEX lpmpex)
 
     switch(wMsg) {
 
+    case WIN30_MN_GETHMENU:
+        lpmpex->uMsg = MN_GETHMENU;
+        break;
+	    
     case WIN30_MN_FINDMENUWINDOWFROMPOINT:
         lpmpex->uMsg = MN_FINDMENUWINDOWFROMPOINT;
         lpmpex->uParam = (UINT)lpmpex->MsgBuffer; // enough room for UINT
@@ -1638,14 +1523,12 @@ VOID FASTCALL UnThunkMNMsg16(LPMSGPARAMEX lpmpex)
     LOGDEBUG(9,("    UnThunking 16-bit MN_ window message %s(%04x)\n", (LPSZ)GetWMMsgName(wMsg), wMsg));
 
     switch(wMsg) {
-
+	    
     case WIN30_MN_FINDMENUWINDOWFROMPOINT:
         if (lpmpex->uParam) {
-            lpmpex->lReturn = MAKELONG((HWND16)lpmpex->lParam,
+            lpmpex->lReturn = MAKELONG((HWND16)lpmpex->lReturn,
                                               LOWORD(*(PUINT)lpmpex->uParam));
         }
         break;
     }
 }
-
-

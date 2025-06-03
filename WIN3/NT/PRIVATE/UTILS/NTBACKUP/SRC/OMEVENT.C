@@ -283,3 +283,47 @@ void OMEVENT_LogEndVerify ( CHAR_PTR pszDrive,
                                        : EVENTLOG_INFORMATION_TYPE),
                         1, mwBkpSet.szDrive );
 }
+void OMEVENT_LogEMSError (
+                  CHAR_PTR  function_name,
+                  INT       status,
+                  CHAR_PTR  additional_info )  //Did an error occur?
+{
+CHAR stat_str [30] ;
+
+   sprintf( stat_str, TEXT("%x"), status ) ;
+   OMEVENT_LogEvent (  (DWORD)EVENT_BKUP_EMS_ERROR,
+                       (WORD) EVENTLOG_ERROR_TYPE,
+                        3,
+                        stat_str,
+                        function_name,
+                        additional_info );
+}
+void OMEVENT_LogEMSErrorText (
+                  CHAR_PTR  function_name,
+                  CHAR_PTR  status,
+                  CHAR_PTR  additional_info )  //Did an error occur?
+{
+   OMEVENT_LogEvent (  (DWORD)EVENT_BKUP_EMS_ERROR,
+                       (WORD) EVENTLOG_ERROR_TYPE,
+                        3,
+                        status,
+                        function_name,
+                        additional_info );
+}
+
+void OMEVENT_LogEMSToFewDbError (
+                  INT  num_found,
+                  INT  num_needed ) 
+{
+CHAR found_str [30] ;
+CHAR needed_str [30] ;
+
+   sprintf( found_str, TEXT("%x"), num_found ) ;
+   sprintf( needed_str, TEXT("%x"), num_needed ) ;
+
+   OMEVENT_LogEvent (  (DWORD)EVENT_BKUP_EMS_DB_ERROR,
+                       (WORD) EVENTLOG_ERROR_TYPE,
+                        2,
+                        found_str,
+                        needed_str ) ;
+}

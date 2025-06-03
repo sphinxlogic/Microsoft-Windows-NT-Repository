@@ -1,84 +1,37 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//  
-//  odom_tbl.c
-//  
-//  Copyright 1992 Technology Dynamics, Inc.
-//  
-//  All Rights Reserved!!!
-//  
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology 
-//	Dynamics. Unauthorized distribution, adaptation or use may be 
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//  
-//  Routines supporting operations on the Other Domain Table.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.6  $
-//  $Date:   30 Jun 1992 13:34:28  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/odom_tbl.c_v  $
-//  
-//     Rev 1.6   30 Jun 1992 13:34:28   mlk
-//  Removed some openissue comments
-//  
-//     Rev 1.5   12 Jun 1992 19:19:38   todd
-//  Added support to initialize table variable
-//  
-//     Rev 1.4   07 Jun 1992 15:26:36   todd
-//  Correct MIB prefixes for tables due to new alert mib
-//  
-//     Rev 1.3   01 Jun 1992 12:35:54   todd
-//  Added 'dynamic' field to octet string
-//  
-//     Rev 1.2   01 Jun 1992 10:36:22   todd
-//  Added set functionality
-//  
-//     Rev 1.1   22 May 1992 17:38:28   todd
-//  Added return codes to _lmget() functions
-//  
-//     Rev 1.0   20 May 1992 15:10:36   mlk
-//  Initial revision.
-//  
-//     Rev 1.5   02 May 1992 19:09:48   todd
-//  code cleanup
-//  
-//     Rev 1.4   27 Apr 1992 15:04:48   todd
-//  Added functionality to the apporpriate functions to make work
-//  
-//     Rev 1.3   26 Apr 1992 18:03:08   Chip
-//  Fixed error in table declaration and included new odom_tbl.h
-//  
-//     Rev 1.2   25 Apr 1992 17:22:36   todd
-//  
-//     Rev 1.1   24 Apr 1992 14:36:40   todd
-//  
-//     Rev 1.0   24 Apr 1992 13:39:22   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/odom_tbl.c_v  $ $Revision:   1.6  $";
+Module Name:
 
+    odom_tbl.c
+
+Abstract:
+
+    Routines supporting operations on the Other Domain Table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
 #include <memory.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
+#include <snmputil.h>
 
 #include "mibfuncs.h"
 
@@ -180,11 +133,11 @@ UINT    ErrStat;
          AsnObjectIdentifier FieldOid = { 1, temp_subs };
 
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomOtherDomainPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomOtherDomainTable.Table[0].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomOtherDomainPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomOtherDomainTable.Table[0].Oid );
          }
 
          //
@@ -213,17 +166,17 @@ UINT    ErrStat;
          if ( Found == MIB_TBL_POS_END )
             {
             // Index not found in table, get next from field
-            Field ++;
+//            Field ++;
 
             // Make sure not past last field
-            if ( Field > ODOM_LAST_FIELD )
-               {
+//            if ( Field > ODOM_LAST_FIELD )
+//               {
                // Get next VAR in MIB
                ErrStat = (*MibPtr->MibNext->MibFunc)( MIB_ACTION_GETFIRST,
                                                       MibPtr->MibNext,
                                                       VarBind );
                break;
-               }
+//               }
             }
 
          // Get next TABLE entry
@@ -256,11 +209,11 @@ UINT    ErrStat;
          FieldOid.idLength = 1;
          FieldOid.ids      = temp_subs;
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomOtherDomainPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomOtherDomainTable.Table[Entry].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomOtherDomainPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomOtherDomainTable.Table[Entry].Oid );
          }
 
          ErrStat = MIB_odoms_copyfromtable( Entry, Field, VarBind );
@@ -386,7 +339,7 @@ int                 nResult;
    *Pos = 0;
    while ( *Pos < MIB_DomOtherDomainTable.Len )
       {
-      nResult = SNMP_oidcmp( &TempOid, &MIB_DomOtherDomainTable.Table[*Pos].Oid );
+      nResult = SnmpUtilOidCmp( &TempOid, &MIB_DomOtherDomainTable.Table[*Pos].Oid );
       if ( !nResult )
          {
          nResult = MIB_TBL_POS_FOUND;
@@ -439,7 +392,7 @@ UINT ErrStat;
       {
       case ODOM_NAME_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_DomOtherDomainTable.Table[Entry].domOtherName.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -462,7 +415,7 @@ UINT ErrStat;
          break;
 
       default:
-         printf( "Internal Error Other Domain Table\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Other Domain Table\n" ));
          ErrStat = SNMP_ERRORSTATUS_GENERR;
 
          goto Exit;
@@ -475,4 +428,3 @@ Exit:
 } // MIB_odoms_copyfromtable
 
 //-------------------------------- END --------------------------------------
-

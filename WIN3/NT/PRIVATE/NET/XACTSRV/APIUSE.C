@@ -104,8 +104,8 @@ Return Value:
     IF_DEBUG(CONVERT) {
 
         if ( !NT_SUCCESS(status) ) {
-            NetpDbgPrint( "XsNetUseEnumVerify: sharename too long: "
-                          "discarding entry\n" );
+            NetpKdPrint(( "XsNetUseEnumVerify: sharename too long: "
+                          "discarding entry\n" ));
         }
     }
 
@@ -148,8 +148,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseAdd: header at %lx, params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+        NetpKdPrint(( "XsNetUseAdd: header at %lx, params at %lx, level %ld\n",
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -176,7 +176,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetUseAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -203,15 +203,15 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetUseAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
     }
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseAdd: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetUseAdd: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -237,8 +237,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseAdd: RapConvertSingleEntry failed: "
-                      "%X\n", status );
+            NetpKdPrint(( "XsNetUseAdd: RapConvertSingleEntry failed: "
+                      "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -271,7 +271,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseAdd: NetUseAdd failed: %X\n", status );
+            NetpKdPrint(( "XsNetUseAdd: NetUseAdd failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -321,8 +321,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseDel: header at %lx, params at %lx, device %s\n",
-                      Header, parameters, SmbGetUlong( &parameters->UseName ));
+        NetpKdPrint(( "XsNetUseDel: header at %lx, params at %lx, device %s\n",
+                      Header, parameters, SmbGetUlong( &parameters->UseName )));
     }
 
     //
@@ -346,7 +346,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseDel: NetUseDel failed: %X\n", status );
+            NetpKdPrint(( "XsNetUseDel: NetUseDel failed: %X\n", status ));
         }
     }
 
@@ -403,10 +403,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseEnum: header at %lx, params at %lx, level %ld, "
+        NetpKdPrint(( "XsNetUseEnum: header at %lx, params at %lx, level %ld, "
                       "buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -435,15 +435,15 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUseEnum: NetUseEnum failed: %X\n", status );
+            NetpKdPrint(( "XsNetUseEnum: NetUseEnum failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetUseEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -487,10 +487,10 @@ Return Value:
         );
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -579,9 +579,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "XsNetUseGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetUseGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -606,8 +606,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetUseGetInfo: NetUseGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetUseGetInfo: NetUseGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -662,8 +662,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseGetInfo: RapConvertSingleEntry failed: "
-                      "%X\n", status );
+            NetpKdPrint(( "XsNetUseGetInfo: RapConvertSingleEntry failed: "
+                      "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -671,9 +671,9 @@ Return Value:
     }
 
     IF_DEBUG(USE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -687,14 +687,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetUseGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetUseGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetUseGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetUseGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 

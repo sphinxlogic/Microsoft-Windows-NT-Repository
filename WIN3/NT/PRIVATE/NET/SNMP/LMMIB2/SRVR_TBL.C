@@ -1,71 +1,25 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  srvr_tbl.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Routines to perform operations on the Domain Server Table.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.5  $
-//  $Date:   30 Jun 1992 13:34:30  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/srvr_tbl.c_v  $
-//  
-//     Rev 1.5   30 Jun 1992 13:34:30   mlk
-//  Removed some openissue comments
-//  
-//     Rev 1.4   12 Jun 1992 19:19:10   todd
-//  Added support to initialize table variable
-//  
-//     Rev 1.3   07 Jun 1992 15:26:24   todd
-//  Correct MIB prefixes for tables due to new alert mib
-//  
-//     Rev 1.2   01 Jun 1992 12:35:42   todd
-//  Added 'dynamic' field to octet string
-//  
-//     Rev 1.1   22 May 1992 17:38:26   todd
-//  Added return codes to _lmget() functions
-//  
-//     Rev 1.0   20 May 1992 15:11:02   mlk
-//  Initial revision.
-//
-//     Rev 1.6   02 May 1992 19:07:36   todd
-//  code cleanup
-//
-//     Rev 1.5   27 Apr 1992 17:35:12   todd
-//  Removed function and prototype for MIB_srvr_set
-//
-//     Rev 1.4   27 Apr 1992 14:04:18   todd
-//  Made table prefix correct
-//
-//     Rev 1.3   26 Apr 1992 18:03:20   Chip
-//  Fixed error in table declaration and included new srvr_tbl.h
-//
-//     Rev 1.2   25 Apr 1992 17:23:00   todd
-//
-//     Rev 1.1   24 Apr 1992 14:36:34   todd
-//
-//     Rev 1.0   24 Apr 1992 13:37:34   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_tbl.c_v  $ $Revision:   1.5  $";
+Module Name:
+
+    srvr_tbl.c
+
+Abstract:
+
+    Routines to perform operations on the Domain Server Table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
@@ -73,11 +27,11 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/srvr_tbl.c_v  $ $Revision: 
 
 #include <stdio.h>
 #include <memory.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
+#include <snmputil.h>
 
 #include "mibfuncs.h"
 
@@ -184,11 +138,11 @@ UINT    ErrStat;
          AsnObjectIdentifier FieldOid = { 1, temp_subs };
 
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomServerPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomServerTable.Table[0].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomServerPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomServerTable.Table[0].Oid );
          }
 
          //
@@ -217,11 +171,11 @@ UINT    ErrStat;
          if ( Found == MIB_TBL_POS_END )
             {
             // Index not found in table, get next from field
-            Field ++;
+//            Field ++;
 
             // Make sure not past last field
-            if ( Field > SRVR_LAST_FIELD )
-               {
+//            if ( Field > SRVR_LAST_FIELD )
+//               {
                 if ( MibPtr->MibNext == NULL )
                    {
                    ErrStat = SNMP_ERRORSTATUS_NOSUCHNAME;
@@ -232,7 +186,7 @@ UINT    ErrStat;
                                                       MibPtr->MibNext,
                                                       VarBind );
                break;
-               }
+//               }
             }
 
          // Get next TABLE entry
@@ -270,11 +224,11 @@ UINT    ErrStat;
          FieldOid.idLength = 1;
          FieldOid.ids      = temp_subs;
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_DomServerPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_DomServerTable.Table[Entry].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomServerPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_DomServerTable.Table[Entry].Oid );
          }
 
          ErrStat = MIB_svsond_copyfromtable( Entry, Field, VarBind );
@@ -371,7 +325,7 @@ int                 nResult;
    *Pos = 0;
    while ( *Pos < MIB_DomServerTable.Len )
       {
-      nResult = SNMP_oidcmp( &TempOid, &MIB_DomServerTable.Table[*Pos].Oid );
+      nResult = SnmpUtilOidCmp( &TempOid, &MIB_DomServerTable.Table[*Pos].Oid );
       if ( !nResult )
          {
          nResult = MIB_TBL_POS_FOUND;
@@ -412,7 +366,7 @@ UINT ErrStat;
       {
       case SRVR_NAME_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_DomServerTable.Table[Entry].domServerName.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -435,7 +389,7 @@ UINT ErrStat;
          break;
 
       default:
-         printf( "Internal Error Domain Server Table\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Domain Server Table\n" ));
          ErrStat = SNMP_ERRORSTATUS_GENERR;
 
          goto Exit;
@@ -448,4 +402,3 @@ Exit:
 } // MIB_svsond_copyfromtable
 
 //-------------------------------- END --------------------------------------
-

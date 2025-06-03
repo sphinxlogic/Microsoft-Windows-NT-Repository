@@ -29,6 +29,13 @@ Revision History:
 #include "ntddk.h"
 #include "ftdisk.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' MtF')
+#endif
+
 #define THIS_MIRROR_FROM_CONTEXT(CONTEXT) \
                                   CONTEXT->Extensions[CONTEXT->IoExtensionIndex]
 
@@ -704,7 +711,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT irpCount;
+    LONG irpCount;
     PDEVICE_EXTENSION  primaryExtension;
     PDEVICE_EXTENSION  deviceExtension = (PDEVICE_EXTENSION) Context;
     PIO_STACK_LOCATION irpStack        = IoGetCurrentIrpStackLocation(Irp);
@@ -724,11 +731,9 @@ Return Value:
         ftIrpStack->FtOrgIrpCount,
         Irp->IoStatus.Status));
 
-    irpCount = ExInterlockedDecrementLong(
-                          (PLONG)&ftIrpStack->FtOrgIrpCount,
-                          &primaryExtension->IrpCountSpinLock);
+    irpCount = InterlockedDecrement((PLONG)&ftIrpStack->FtOrgIrpCount);
 
-    if (irpCount == ResultZero) {
+    if (irpCount == 0) {
 
         //
         // I/O processing is complete.  Return the master IRP.
@@ -969,9 +974,11 @@ Return Value:
     LARGE_INTEGER      offset;
     ULONG              passCount;
     NTSTATUS           finalStatus = STATUS_FT_READ_RECOVERY_FROM_BACKUP;
-    LARGE_INTEGER      delayTime  = RtlConvertUlongToLargeInteger(2000);
+    LARGE_INTEGER      delayTime;
     PIO_STACK_LOCATION irpStack   = IoGetCurrentIrpStackLocation(MasterIrp);
     PIO_STACK_LOCATION ftIrpStack = IoGetNextIrpStackLocation(MasterIrp);
+
+    delayTime.QuadPart = -2000;
 
     FtpLogError(FailingExtension,
                 FT_SECTOR_FAILURE,
@@ -1027,8 +1034,8 @@ Return Value:
     //
 
     offsetInBuffer = IoStatus->Information;
-    offset = LiAdd(irpStack->Parameters.Read.ByteOffset,
-                                LiFromUlong(offsetInBuffer));
+    offset.QuadPart = irpStack->Parameters.Read.ByteOffset.QuadPart +
+                      offsetInBuffer;
 
     if (irpStack->MajorFunction == IRP_MJ_READ) {
 
@@ -1657,6 +1664,8 @@ Return Value:
     PFT_SPECIAL_READ   specialRead =
                              (PFT_SPECIAL_READ) Irp->AssociatedIrp.SystemBuffer;
     UCHAR             member;
+
+    IoMarkIrpPending(Irp);
 
     member =
         IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.IoControlCode ==

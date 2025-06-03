@@ -62,9 +62,9 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetConfigGet (
-    IN LPTSTR UncServerName OPTIONAL,
-    IN LPTSTR Component,
-    IN LPTSTR Parameter,
+    IN LPCWSTR UncServerName OPTIONAL,
+    IN LPCWSTR Component,
+    IN LPCWSTR Parameter,
 #ifdef REVISED_CONFIG_APIS
     OUT LPBYTE *BufPtr
 #else
@@ -86,8 +86,8 @@ NetConfigGet (
 
     Status = NetpOpenConfigData(
             & ConfigHandle,
-            UncServerName,
-            Component,
+            (LPWSTR)UncServerName,
+            (LPWSTR)Component,
             TRUE);              // just want read-only access
 
     if (Status != NERR_Success) {
@@ -95,14 +95,14 @@ NetConfigGet (
         Status = NetpHandleConfigFailure(
                 "NetConfigGet",  // debug name
                 Status,          // result of NetpOpenConfigData
-                UncServerName,
+                (LPWSTR)UncServerName,
                 & TryDownLevel);
 
         if (TryDownLevel) {
             return (RxNetConfigGet(
-                    UncServerName,
-                    Component,
-                    Parameter,
+                    (LPWSTR)UncServerName,
+                    (LPWSTR)Component,
+                    (LPWSTR)Parameter,
                     BufPtr));
         } else {
             return (Status);    // result of NetpHandleConfigFailure
@@ -111,7 +111,7 @@ NetConfigGet (
 
     Status = NetpGetConfigValue(
             ConfigHandle,
-            Parameter,          // keyword
+            (LPWSTR)Parameter,          // keyword
             (LPTSTR *) (LPVOID) BufPtr);     // alloc and set ptr
 
     if (Status == NERR_Success) {
@@ -130,8 +130,8 @@ NetConfigGet (
 
 NET_API_STATUS NET_API_FUNCTION
 NetConfigGetAll (
-    IN LPTSTR UncServerName OPTIONAL,
-    IN LPTSTR Component,
+    IN LPCWSTR UncServerName OPTIONAL,
+    IN LPCWSTR Component,
 #ifdef REVISED_CONFIG_APIS
     OUT LPBYTE *BufPtr
 #else
@@ -157,8 +157,8 @@ NetConfigGetAll (
 
     Status = NetpOpenConfigData(
             & ConfigHandle,
-            UncServerName,
-            Component,
+            (LPWSTR)UncServerName,
+            (LPWSTR)Component,
             TRUE);                      // just want read-only access
 
     if (Status != NERR_Success) {
@@ -166,13 +166,13 @@ NetConfigGetAll (
         Status = NetpHandleConfigFailure(
                 "NetConfigGetAll",      // debug name
                 Status,                 // result of NetpOpenConfigData
-                UncServerName,
+                (LPWSTR)UncServerName,
                 & TryDownLevel);
 
         if (TryDownLevel) {
             return (RxNetConfigGetAll(
-                    UncServerName,
-                    Component,
+                    (LPWSTR)UncServerName,
+                    (LPWSTR)Component,
                     BufPtr));
 
         } else {
@@ -231,7 +231,6 @@ NetConfigGetAll (
 #define AddString( lptstrSrc, CharCount ) \
             { \
                 LPTSTR lptstrDest; \
-                NetpAssert( lptstrSrc != NULL ); \
                 NetpAssert( CharCount > 0 ); \
                 lptstrDest = (LPTSTR)NetpPointerPlusSomeBytes( *BufPtr, BufUsed); \
                 NetpAssert( lptstrDest != NULL ); \
@@ -279,9 +278,9 @@ NetConfigGetAll (
 
 NET_API_STATUS NET_API_FUNCTION
 NetConfigSet (
-    IN LPTSTR UncServerName OPTIONAL,
-    IN LPTSTR Reserved1 OPTIONAL,
-    IN LPTSTR Component,
+    IN LPCWSTR UncServerName OPTIONAL,
+    IN LPCWSTR Reserved1 OPTIONAL,
+    IN LPCWSTR Component,
     IN DWORD Level,
     IN DWORD Reserved2,
     IN LPBYTE Buf,
@@ -311,23 +310,23 @@ NetConfigSet (
 
     Status = NetpOpenConfigData(
             & ConfigHandle,
-            UncServerName,
-            Component,
-            FALSE);             // don't want read-only access
+            (LPWSTR)UncServerName,
+            (LPWSTR)Component,
+            FALSE);             // don't want _read-only _access
 
     if (Status != NERR_Success) {
 
         Status = NetpHandleConfigFailure(
                 "NetConfigSet",  // debug name
                 Status,          // result of NetpOpenConfigData
-                UncServerName,
+                (LPWSTR)UncServerName,
                 & TryDownLevel);
 
         if (TryDownLevel) {
             return (RxNetConfigSet(
-                    UncServerName,
-                    Reserved1,
-                    Component,
+                    (LPWSTR)UncServerName,
+                    (LPWSTR)Reserved1,
+                    (LPWSTR)Component,
                     Level,
                     Reserved2,
                     Buf,

@@ -127,6 +127,11 @@ MapNtStatus(
     const NCP_CLASS ncpclass
 );
 
+DWORD 
+SetWin32ErrorFromNtStatus(
+    NTSTATUS NtStatus
+) ;
+
 DWORD
 szToWide( 
     LPWSTR lpszW, 
@@ -137,6 +142,220 @@ szToWide(
 //
 // Static functions used internally
 //
+
+LPSTR
+NwDupStringA(
+    const LPSTR       lpszA,
+    WORD              length
+)
+{
+    LPSTR lpRet;
+
+    //
+    // Allocate memory
+    //
+    lpRet = LocalAlloc( LMEM_FIXED|LMEM_ZEROINIT , length );
+
+    if(lpRet == NULL) return(NULL);
+
+    //
+    // Dupulicate string
+    //
+    memcpy( (LPVOID)lpRet, (LPVOID)lpszA, length );
+
+    return(lpRet);
+}
+
+
+VOID
+MapSpecialJapaneseChars(
+    LPSTR       lpszA,
+    WORD        length
+)
+{
+    LCID lcid;
+//
+// Netware Japanese version The following character is replaced with another one
+// if the string is for File Name only when sendding from Client to Server.
+//
+// any char, even DBCS trailByte. 
+//
+//  SJIS+0xBF     -> 0x10
+//  SJIS+0xAE     -> 0x11
+//  SJIS+0xAA     -> 0x12
+//
+// DBCS TrailByte only.
+//
+//  SJIS+0x5C     -> 0x13
+//
+
+// Get system locale and language ID in Kernel mode in order to  
+// distinguish the currently running system.
+
+    NtQueryDefaultLocale( TRUE, &lcid );
+
+    if (! (PRIMARYLANGID(lcid) == LANG_JAPANESE ||
+           PRIMARYLANGID(lcid) == LANG_KOREAN ||
+           PRIMARYLANGID(lcid) == LANG_CHINESE) ) {
+
+	    return;
+    }
+
+    if(lpszA == NULL)
+        return;
+
+    if( PRIMARYLANGID(lcid) == LANG_JAPANESE ) {
+
+	    while( length ) {
+
+	        if( IsDBCSLeadByte(*lpszA) ) {
+
+		        //
+		        // This is a DBCS character, check trailbyte is 0x5C or not.
+		        //
+
+		        lpszA++;
+		        length--;
+		        if( *lpszA == 0x5C ) {
+		            *lpszA = (UCHAR)0x13;
+		        }
+
+	        }
+
+	        switch( (UCHAR) *lpszA ) {
+		    case 0xBF :
+		        *lpszA = (UCHAR)0x10;
+		        break;
+		    case 0xAE :
+		        *lpszA = (UCHAR)0x11;
+		        break;
+		    case 0xAA :
+		        *lpszA = (UCHAR)0x12;
+		        break;
+	        }
+
+	        //
+	        // next char
+	        //
+	        lpszA++;
+	        length--;
+	    }
+    }
+    else if (PRIMARYLANGID(lcid) == LANG_CHINESE ||
+             PRIMARYLANGID(lcid) == LANG_KOREAN) {
+
+	    while( length ) {
+	        if( IsDBCSLeadByte(*lpszA) && *(lpszA+1) == 0x5C ) {
+		        *(lpszA+1) = (UCHAR)0x13;
+	        }
+
+	        switch( (UCHAR) *lpszA ) {
+
+		    case 0xBF :
+		        *lpszA = (UCHAR)0x10;
+		        break;
+
+		    case 0xAE :
+		        *lpszA = (UCHAR)0x11;
+		        break;
+
+		    case 0xAA :
+		        *lpszA = (UCHAR)0x12;
+		        break;
+	        }
+
+	        //
+	        // next char
+	        //
+	        lpszA++;
+	        length--;
+	    }
+    }
+}
+
+VOID
+UnmapSpecialJapaneseChars(
+    LPSTR       lpszA,
+    WORD        length
+)
+{
+    LCID lcid;
+
+    //
+    // Get system locale and language ID in Kernel mode in order to  
+    // distinguish the currently running system.
+    //
+
+    NtQueryDefaultLocale( TRUE, &lcid );
+
+    if (! (PRIMARYLANGID(lcid) == LANG_JAPANESE ||
+           PRIMARYLANGID(lcid) == LANG_KOREAN ||
+           PRIMARYLANGID(lcid) == LANG_CHINESE) ) {
+
+	    return;
+    }
+
+    if (lpszA == NULL)
+        return;
+
+    if( PRIMARYLANGID(lcid) == LANG_JAPANESE ) {
+	    while( length ) {
+	        if( IsDBCSLeadByte(*lpszA) ) {
+		        //
+		        // This is a DBCS character, check trailbyte is 0x5C or not.
+		        //
+		        lpszA++;
+		        length--;
+		        if( *lpszA == 0x13 ) {
+		            *lpszA = (UCHAR)0x5C;
+		        }
+	        }
+
+	        switch( (UCHAR) *lpszA ) {
+		    case 0x10 :
+		        *lpszA = (UCHAR)0xBF;
+		        break;
+		    case 0x11 :
+		        *lpszA = (UCHAR)0xAE;
+		        break;
+		    case 0x12 :
+		        *lpszA = (UCHAR)0xAA;
+		        break;
+	        }
+	        //
+	        // next char
+	        //
+	        lpszA++;
+	        length--;
+	    }
+    }
+    else if (PRIMARYLANGID(lcid) == LANG_CHINESE ||
+             PRIMARYLANGID(lcid) == LANG_KOREAN) {
+
+	    while( length ) {
+	        switch( (UCHAR) *lpszA ) {
+		    case 0x10 :
+		        *lpszA = (UCHAR)0xBF;
+		        break;
+		    case 0x11 :
+		        *lpszA = (UCHAR)0xAE;
+		        break;
+		    case 0x12 :
+		        *lpszA = (UCHAR)0xAA;
+		        break;
+	        }
+	        // have to check after restoring leadbyte values
+	        if( IsDBCSLeadByte(*lpszA) && *(lpszA+1) == 0x13 ) {
+		        *(lpszA+1) = (UCHAR)0x5C;
+	        }
+	        //
+	        // next char
+	        //
+	        lpszA++;
+	        length--;
+	    }
+    }
+}
 
 DWORD
 szToWide( 
@@ -195,6 +414,32 @@ MapNtStatus(
     return 0xFFFF ;
 }
 
+DWORD 
+SetWin32ErrorFromNtStatus(
+    NTSTATUS NtStatus
+) 
+{
+    DWORD Status ;
+
+    if (NtStatus & 0xC0010000) {            // netware specific
+ 
+        Status = ERROR_EXTENDED_ERROR ;
+
+    } else if (NtStatus == NWRDR_PASSWORD_HAS_EXPIRED) {
+
+        Status = 0 ;  // note this is not an error (the operation suceeded!)
+
+    } else {
+
+        Status = RtlNtStatusToDosError(NtStatus) ;
+
+    }
+
+    SetLastError(Status) ;
+
+    return Status ;
+}
+
 //
 //  FormatString - Supplies an ANSI string which describes how to
 //     convert from the input arguments into NCP request fields, and
@@ -209,9 +454,11 @@ MapNtStatus(
 //          '='      zero/skip word    ( void )
 //          ._.      zero/skip string  ( word )
 //          'p'      pstring           ( char* )
+//          'P'      DBCS pstring      ( char* )
 //          'c'      cstring           ( char* )
 //          'C'      cstring followed skip word ( char*, word ) 
 //          'r'      raw bytes         ( byte*, word )
+//          'R'      DBCS raw bytes    ( byte*, word )
 //          'u'      p unicode string  ( UNICODE_STRING * )
 //          'U'      p uppercase string( UNICODE_STRING * )
 //          'W'      word n followed by an array of word[n] ( word, word* )
@@ -264,17 +511,18 @@ NWAddTrusteeToDirectory(
                     FSCTL_NWR_NCP_E2H,      // Directory function
                     265,                    // Max request packet size
                     2,                      // Max response packet size
-                    "bbrbp|",               // Format string
+                    "bbrbP|",               // Format string
                     // === REQUEST ================================
                     0x0d,                   // b Add trustee to directory
                     dirHandle,              // b 0xffffffff to start or last returned ID when enumerating  HI-LO
                     &dwTrusteeID,DW_SIZE,   // r Object ID to assigned to directory
                     rightsMask,             // b User rights for directory
-                    pszPath,                // p Directory (if dirHandle = 0 then vol:directory)
+                    pszPath,                // P Directory (if dirHandle = 0 then vol:directory)
                     // === REPLY ==================================
                     &reply                  // Not used
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 
 }
@@ -295,17 +543,18 @@ NWAllocPermanentDirectoryHandle(
                     FSCTL_NWR_NCP_E2H,      // E2 Function function
                     261,                    // Max request packet size
                     4,                      // Max response packet size
-                    "bbbp|bb",              // Format string
+                    "bbbP|bb",              // Format string
                     // === REQUEST ================================
                     0x12,                   // b Function Alloc Perm Dir
                     dirHandle,              // b 0 for new
                     0,                      // b Drive Letter
-                    pszDirPath,             // p Volume Name (SYS: or SYS:\PUBLIC)
+                    pszDirPath,             // P Volume Name (SYS: or SYS:\PUBLIC)
                     // === REPLY ==================================
                     pbNewDirHandle,         // b Dir Handle
                     pbRightsMask            // b Rights
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 }
 
@@ -326,17 +575,18 @@ NWAllocTemporaryDirectoryHandle(
                     FSCTL_NWR_NCP_E2H,      // E2 Function function
                     261,                    // Max request packet size
                     4,                      // Max response packet size
-                    "bbbp|bb",              // Format string
+                    "bbbP|bb",              // Format string
                     // === REQUEST ================================
                     0x13,                   // b Function Alloc Temp Dir
                     dirHandle,              // b 0 for new
                     0,                      // b Drive Letter
-                    pszDirPath,             // p Volume Name (SYS: or SYS:\PUBLIC)
+                    pszDirPath,             // P Volume Name (SYS: or SYS:\PUBLIC)
                     // === REPLY ==================================
                     pbNewDirHandle,         // b Dir Handle
                     pbRightsMask            // b Rights
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 }
 
@@ -409,7 +659,7 @@ NWAttachToFileServerW(
     NWCONN_HANDLE   NWFAR   *phNewConn
     )
 {
-    DWORD            dwRes;
+    DWORD            NtStatus;
     NWCCODE          nwRes;
     LPWSTR           lpwszServerName;   // Pointer to buffer for WIDE servername
     int              nSize;
@@ -455,15 +705,16 @@ NWAttachToFileServerW(
     //
     // Call createfile to get a handle for the redirector calls
     //
-    dwRes = NwAttachToServer( lpwszServerName, &pServerInfo->hConn );
+    NtStatus = NwAttachToServer( lpwszServerName, &pServerInfo->hConn );
 
-    if(NT_SUCCESS(dwRes))
+    if(NT_SUCCESS(NtStatus))
     {
         nwRes = SUCCESSFUL;
     } 
     else 
     {
-        nwRes = MapNtStatus( dwRes, NcpClassConnect );
+        (void) SetWin32ErrorFromNtStatus( NtStatus );
+        nwRes = MapNtStatus( NtStatus, NcpClassConnect );
     }
 
 ExitPoint: 
@@ -508,6 +759,7 @@ NWCheckConsolePrivileges(
                     &wDummy,W_SIZE          // r Dummy Response
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );     
 }
 
@@ -534,6 +786,7 @@ NWDeallocateDirectoryHandle(
                     &wDummy
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 }
 
@@ -587,6 +840,8 @@ NWGetFileServerVersionInfo(
     lpVerInfo->connsInUse     = wSWAP( lpVerInfo->connsInUse );
     lpVerInfo->maxVolumes     = wSWAP( lpVerInfo->maxVolumes );
     lpVerInfo->PeakConns      = wSWAP( lpVerInfo->PeakConns );
+
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -613,6 +868,7 @@ NWGetInternetAddress(
                     pIntAddr,12             // r File Version Structure
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -628,21 +884,23 @@ NWGetObjectName(
     NTSTATUS           NtStatus ;
     PNWC_SERVER_INFO   pServerInfo = (PNWC_SERVER_INFO)hConn ; 
 
+
     NtStatus = NwlibMakeNcp(
                     pServerInfo->hConn,     // Connection Handle
                     FSCTL_NWR_NCP_E3H,      // Bindery function
                     7,                      // Max request packet size
                     56,                     // Max response packet size
-                    "br|rrr",               // Format string
+                    "br|rrR",               // Format string
                     // === REQUEST ================================
                     0x36,                   // b Get Bindery Object Name
                     &dwObjectID,DW_SIZE,    // r Object ID    HI-LO
                     // === REPLY ==================================
                     &dwRetID,DW_SIZE,       // r Object ID HI-LO
                     pwObjType,W_SIZE,       // r Object Type
-                    pszObjName,48           // r Object Name
+                    pszObjName,48           // R Object Name
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -699,6 +957,7 @@ NWGetVolumeInfoWithNumber(
                     pszVolName,16           // r Volume Name
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -737,6 +996,7 @@ NWGetVolumeInfoWithHandle(
                     pfVolRemovable          // b Volume is removable
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 }
 
@@ -763,6 +1023,7 @@ NWGetVolumeName(
                     pszVolName             // Return Volume name
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassDir );
 }
 
@@ -785,18 +1046,19 @@ NWIsObjectInSet(
 					FSCTL_NWR_NCP_E3H,    // Bindery function
 					122,                  // Max request packet size
 					2,                    // Max response packet size
-					"brpprp|r",           // Format string
+					"brPPrP|",            // Format string
 					// === REQUEST ================================
-					0x43,                 // Read Property Value
-					&wObjType,W_SIZE,      // OT_???  HI-LO
-					lpszObjectName,       // Object Name
-					lpszPropertyName,
-					&wMemberType,W_SIZE,
-					lpszMemberName, 
+					0x43,                 // b Read Property Value
+					&wObjType,W_SIZE,     // r OT_???  HI-LO
+					lpszObjectName,       // P Object Name
+					lpszPropertyName,     // P Prop Name
+					&wMemberType,W_SIZE,  // r Member Type
+					lpszMemberName,       // P Member Name
 					// === REPLY ==================================
 					&Dummy,W_SIZE
 					);
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 
 } // NWIsObjectInSet
@@ -905,7 +1167,7 @@ ExitPoint:
     if (pszUserNameW)
         (void) LocalFree((HLOCAL) pszUserNameW) ;
     if (pszPasswordW)
-        (void) LocalFree((HLOCAL) pszPassword) ;
+        (void) LocalFree((HLOCAL) pszPasswordW) ;
 
     return( nwRes );
 }
@@ -975,19 +1237,20 @@ NWReadPropertyValue(
                     FSCTL_NWR_NCP_E3H,      // Bindery function
                     70,                     // Max request packet size
                     132,                    // Max response packet size
-                    "brpbp|rbb",            // Format string
+                    "brPbP|rbb",            // Format string
                     // === REQUEST ================================
                     0x3D,                   // b Read Property Value
                     &wObjType,W_SIZE,       // r Object Type    HI-LO
-                    pszObjName,             // p Object Name
+                    pszObjName,             // P Object Name
                     ucSegment,              // b Segment Number
-                    pszPropName,            // p Property Name
+                    pszPropName,            // P Property Name
                     // === REPLY ==================================
                     pValue,128,             // r Property value
                     pucMoreFlag,            // b More Flag
                     pucPropFlag             // b Prop Flag
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -1012,21 +1275,22 @@ NWScanObject(
                     FSCTL_NWR_NCP_E3H,      // Bindery function
                     57,                     // Max request packet size
                     59,                     // Max response packet size
-                    "brrp|rrrbbb",          // Format string
+                    "brrP|rrRbbb",          // Format string
                     // === REQUEST ================================
                     0x37,                   // b Scan bindery object
                     pdwObjectID,DW_SIZE,    // r 0xffffffff to start or last returned ID when enumerating  HI-LO
                     &wObjSearchType,W_SIZE, // r Use OT_??? Defines HI-LO
-                    pszSearchName,          // p Search Name. (use "*") for all
+                    pszSearchName,          // P Search Name. (use "*") for all
                     // === REPLY ==================================
                     pdwObjectID,DW_SIZE,    // r Returned ID    HI-LO
                     pwObjType,W_SIZE,       // r rObject Type    HI-LO
-                    pszObjectName,48,       // r Found Name
+                    pszObjectName,48,       // R Found Name
                     pucObjectFlags,         // b Object Flag
                     pucObjSecurity,         // b Object Security
                     pucHasProperties        // b Has Properties
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
 
@@ -1052,15 +1316,15 @@ NWScanProperty(
                     FSCTL_NWR_NCP_E3H,      // Bindery function
                     73,                     // Max request packet size
                     26,                     // Max response packet size
-                    "brprp|rbbrbb",         // Format string
+                    "brPrP|Rbbrbb",         // Format string
                     // === REQUEST ================================
                     0x3C,                   // b Scan Prop function
                     &wObjType,W_SIZE,       // r Type of Object
-                    pszObjectName,          // p Object Name
+                    pszObjectName,          // P Object Name
                     pdwSequence,DW_SIZE,    // r Sequence HI-LO
-                    pszSearchName,          // p Property Name to Search for
+                    pszSearchName,          // P Property Name to Search for
                     // === REPLY ==================================
-                    pszPropName,16,         // r Returned Property Name
+                    pszPropName,16,         // R Returned Property Name
                     pucPropFlags,           // b Property Flags
                     pucPropSecurity,        // b Property Security
                     pdwSequence,DW_SIZE,    // r Sequence HI-LO
@@ -1068,8 +1332,50 @@ NWScanProperty(
                     pucMore                 // b More Properties
                     );
 
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
     return MapNtStatus( NtStatus, NcpClassBindery );
 }
+
+
+
+
+NWCCODE NWAPI DLLEXPORT
+NWGetFileServerDateAndTime(
+    NWCONN_HANDLE           hConn,
+    BYTE            NWFAR   *year,
+    BYTE            NWFAR   *month,
+    BYTE            NWFAR   *day,
+    BYTE            NWFAR   *hour,
+    BYTE            NWFAR   *minute,
+    BYTE            NWFAR   *second,
+    BYTE            NWFAR   *dayofweek
+    )
+{
+    NTSTATUS           NtStatus ;
+    PNWC_SERVER_INFO   pServerInfo = (PNWC_SERVER_INFO)hConn ;
+
+    NtStatus = NwlibMakeNcp(
+                    pServerInfo->hConn,     // Connection Handle
+                    FSCTL_NWR_NCP_E0H,      // Server function
+                    0,                      // Max request packet size
+                    9,                      // Max response packet size
+                    "|bbbbbbb",             // Format string
+                    // === REQUEST ================================
+                    // === REPLY ==================================
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                    dayofweek
+                    );
+
+
+    (void) SetWin32ErrorFromNtStatus( NtStatus );
+    return MapNtStatus( NtStatus, NcpClassConnect );
+    
+} // NWGetFileServerDateAndTime
 
 
 //
@@ -1273,7 +1579,7 @@ Return Value:
                 if (pszTmp = wcschr(pszTmp, L'\\'))
                     *pszTmp = 0 ;
 
-                if (wcsicmp(TmpPtr->lpRemoteName, pszServer) == 0)
+                if (_wcsicmp(TmpPtr->lpRemoteName, pszServer) == 0)
                 {
                     //
                     // Aha, it matches. Restore the '\' and nuke it with force.
@@ -1353,4 +1659,3 @@ CleanExit:
 
     return status;
 }
-

@@ -41,7 +41,7 @@ SetConfirmDiskString (
 /*++
 
 Routine Description:
-    
+
     Formats and outputs information for display in confirmation dialog box
 
 Arguments:
@@ -50,7 +50,7 @@ Arguments:
         handle to dialog box that will display the information.
 
 Return Value:
-    
+
     None
 
 --*/
@@ -65,8 +65,8 @@ Return Value:
             GetStringResource (
                 (pAppInfo->mtBootDriveType == F3_1Pt44_512) ?
                     CSZ_35_HD : CSZ_525_HD),
-            pAppInfo->szBootFilesPath);    
-    
+            pAppInfo->szBootFilesPath);
+
         SetDlgItemText (hwndDlg, NCDU_CONFIRM_DISK_FORMAT, szTextString);
         FREE_IF_ALLOC (szTextString);
     }
@@ -80,7 +80,7 @@ SetConfirmTargetString (
 /*++
 
 Routine Description:
-    
+
     Formats and outputs information for display in confirmation dialog box
 
 Arguments:
@@ -151,7 +151,7 @@ SetConfirmProtocolString (
 /*++
 
 Routine Description:
-    
+
     Formats and outputs information for display in confirmation dialog box
 
 Arguments:
@@ -198,7 +198,7 @@ ConfirmSettingsDlg_WM_INITDIALOG (
 /*++
 
 Routine Description:
-    
+
     Dialog Box initialization routine:
         calls routines that format the currently selected options
         for display in the static text fields of the dialog box
@@ -215,7 +215,7 @@ Arguments:
         Not Used
 
 Return Value:
-    
+
     FALSE  because focus is set in this routin to the OK button
 
 --*/
@@ -223,7 +223,7 @@ Return Value:
     // prepare menu and locate window
     RemoveMaximizeFromSysMenu (hwndDlg);
     PositionWindow  (hwndDlg);
-    
+
     //build display strings
     SetConfirmDiskString(hwndDlg);
     SetConfirmTargetString(hwndDlg);
@@ -247,7 +247,7 @@ ConfirmSettingsDlg_IDOK (
 /*++
 
 Routine Description:
-    
+
     Called when user selects the OK button in the dialog box.
         Validates the destination path is a bootable floppy and
         presents message box to user if it's not.
@@ -269,6 +269,19 @@ Return Value:
 {
     int         nMbResult;
     MEDIA_TYPE  mtDest;
+
+    // make sure the target media is present
+    if (!MediaPresent (pAppInfo->szBootFilesPath, TRUE)) {
+        // media is NOT present so display message and return to dialog message
+        DisplayMessageBox (
+            hwndDlg,
+            NCDU_NO_MEDIA,
+            0,
+            MB_OK_TASK_EXCL);
+
+        return TRUE; // message processed and return to dialog
+    }
+
 
     // check destination boot disk one last time before copying files
     if (!IsBootDisk (pAppInfo->szBootFilesPath)) {
@@ -323,7 +336,7 @@ ConfirmSettingsDlg_WM_COMMAND (
 /*++
 
 Routine Description:
-    
+
     WM_COMMAND message dispatching routine.
         Dispatches IDCANCEL and IDOK button messages, sends all others
         to the DefDlgProc.
@@ -359,7 +372,7 @@ Return Value:
                     return FALSE;
             }
 
-        case IDOK:  
+        case IDOK:
             switch (HIWORD(wParam)) {
                 case BN_CLICKED:
                     return ConfirmSettingsDlg_IDOK (hwndDlg);
@@ -383,7 +396,7 @@ ConfirmSettingsDlgProc (
 /*++
 
 Routine Description:
-    
+
     main dialog proc for this dialog box.
         Processes the following messages:
 
@@ -425,4 +438,3 @@ Return Value:
 }
 
 
-

@@ -72,8 +72,8 @@ void NEAR PASCAL WatchDefPushButton(HWND hDlg, int Id)
         PostMessage(ITEM(IDCANCEL), BM_SETSTYLE, BS_PUSHBUTTON, TRUE);
     }
 
-    if ( Id != IDHELP && STYLE(IDHELP) == (WORD)BS_DEFPUSHBUTTON) {
-        PostMessage(ITEM(IDHELP), BM_SETSTYLE, BS_PUSHBUTTON, TRUE);
+    if ( Id != IDWINDBGHELP && STYLE(IDWINDBGHELP) == (WORD)BS_DEFPUSHBUTTON) {
+        PostMessage(ITEM(IDWINDBGHELP), BM_SETSTYLE, BS_PUSHBUTTON, TRUE);
     }
 
     if ( Id != ID_WATCH_ADD && STYLE(ID_WATCH_ADD) == BS_DEFPUSHBUTTON) {
@@ -458,7 +458,7 @@ BOOL FAR PASCAL EXPORT DlgWatch(HWND hDlg, UINT message, WPARAM wParam, LONG lPa
                     EndDialog(hDlg, FALSE);
                     return TRUE;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                   Dbg(WinHelp(hDlg,szHelpFileName,HELP_CONTEXT,ID_WATCH_HELP));
                   return (TRUE);
           }
@@ -701,4 +701,4 @@ VOID OkButtonHandler( HWND hDlg, WPARAM wParam, LPARAM lParam)
     return;
 }
 
-
+

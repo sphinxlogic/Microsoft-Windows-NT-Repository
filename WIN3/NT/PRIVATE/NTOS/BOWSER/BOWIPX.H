@@ -65,4 +65,11 @@ BowserIpxDatagramHandler (
     OUT PIRP *IoRequestPacket
     );
 
+//
+// IPX packet types used by the browser
+//
+
+#define IPX_BROADCAST_PACKET 0x14
+#define IPX_DIRECTED_PACKET 0x4
+
 #endif  // _BOWIPX_

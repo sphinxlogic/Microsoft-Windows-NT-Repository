@@ -227,7 +227,7 @@ Return Value:
 
 
 {
-    DbgPtrAssert( Data );
+    DebugPtrAssert( Data );
 
     return( _ValueEntry->GetData( Data ) );
 }

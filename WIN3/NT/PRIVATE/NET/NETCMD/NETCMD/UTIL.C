@@ -299,7 +299,9 @@ VOID DOSNEAR FASTCALL KillConnections(VOID)
                           1,
                           (LPBYTE*)&pBuffer,
                           &num_read))
-        ErrorExit(err);
+    {
+        ErrorExit((USHORT)((err == RPC_S_UNKNOWN_IF) ? NERR_WkstaNotStarted : err));
+    }
 
     NetISort(pBuffer, num_read, sizeof(struct use_info_1), CmpUseInfo1);
 
@@ -321,12 +323,12 @@ VOID DOSNEAR FASTCALL KillConnections(VOID)
         for (i = 0, use_entry = (struct use_info_1 FAR *) pBuffer;
             i < num_read; i++, use_entry++)
             if (use_entry->ui1_local[0] != NULLC)
-                WriteToCon(TEXT("    %-15.15Fws %Fws\n"), use_entry->ui1_local,
+                WriteToCon(TEXT("    %-15.15Fws %Fws\r\n"), use_entry->ui1_local,
                                               use_entry->ui1_remote);
             else if ((use_entry->ui1_local[0] == NULLC) &&
                 ((use_entry->ui1_usecount != 0) ||
                 (use_entry->ui1_refcount != 0)))
-                WriteToCon(TEXT("    %-15.15Fws %Fws\n"), use_entry->ui1_local,
+                WriteToCon(TEXT("    %-15.15Fws %Fws\r\n"), use_entry->ui1_local,
                                               use_entry->ui1_remote);
 
         InfoPrint(APE_KillCancel);
@@ -635,7 +637,7 @@ USHORT  FASTCALL GetLogonDCName(TCHAR FAR * buf, USHORT bufSize)
     TCHAR FAR *                          pBuffer;
     struct wksta_info_10 FAR *          wksta;
 
-    if( bufSize < CNLEN+1 )
+    if( bufSize < MAX_PATH )
         return NERR_BufTooSmall;
 
     /* retrieve wksta info to find domain name */
@@ -697,7 +699,7 @@ USHORT  FASTCALL GetSAMLocation(TCHAR   *controllerbuf,
     //
     // check and initialize the return data
     //
-    if( controllerbufSize < CNLEN+1 )
+    if( controllerbufSize < MAX_PATH )
         return NERR_BufTooSmall;
     *controllerbuf = NULLC ;
 

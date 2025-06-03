@@ -112,4 +112,3 @@ Return Value:
     CmpUnlockRegistry();
     return status;
 }
-

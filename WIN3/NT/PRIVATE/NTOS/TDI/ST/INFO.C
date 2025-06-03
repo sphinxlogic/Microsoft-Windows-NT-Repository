@@ -370,11 +370,11 @@ Return Value:
         //
 
         if ((query->RequestConnectionInformation != NULL) &&
-             (RtlCompareMemory(
+             (!RtlEqualMemory(
                  ((PTA_NETBIOS_ADDRESS)(query->RequestConnectionInformation->RemoteAddress))->
                      Address[0].Address[0].NetbiosName,
                  DeviceContext->ReservedNetBIOSAddress,
-                 NETBIOS_NAME_LENGTH) != NETBIOS_NAME_LENGTH)) {
+                 NETBIOS_NAME_LENGTH))) {
 
             //
             // Remote, not supported here.
@@ -716,10 +716,10 @@ Return Value:
         //
 
         if ((address->NetworkName->NetbiosName[0] == 0) &&
-            (RtlCompareMemory(
+            (RtlEqualMemory(
                  address->NetworkName->NetbiosName,
                  DeviceContext->ReservedNetBIOSAddress,
-                 NETBIOS_NAME_LENGTH) == NETBIOS_NAME_LENGTH)) {
+                 NETBIOS_NAME_LENGTH))) {
 
             continue;
         }
@@ -808,10 +808,10 @@ Return Value:
                 //
 
                 if ((address->NetworkName->NetbiosName[0] == 0) &&
-                    (RtlCompareMemory(
+                    (RtlEqualMemory(
                          address->NetworkName->NetbiosName,
                          DeviceContext->ReservedNetBIOSAddress,
-                         NETBIOS_NAME_LENGTH) == NETBIOS_NAME_LENGTH)) {
+                         NETBIOS_NAME_LENGTH))) {
 
                     continue;
                 }

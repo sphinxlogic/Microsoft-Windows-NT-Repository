@@ -13,7 +13,21 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11040.c  $
-*	
+*
+*	   Rev 1.6   15 May 1995 10:47:52   GaryKiwi
+*	Phoenix merge from CBW95s
+*
+*	   Rev 1.5.1.0   11 Apr 1995 18:04:28   garykiwi
+*	PHOENIX pass #1
+*
+*	   Rev 1.6   30 Jan 1995 14:23:32   BOBLEHMA
+*	Changed vendors to VENDOR_ARCHIVE_CONNER and VENDOR_MOUNTAIN_SUMMIT.
+*
+*	   Rev 1.5   08 Dec 1994 11:34:44   BOBLEHMA
+*	Added a check for seld to the if statement.  This allows seld selects to send
+*	step pulses to the FDC (if a CMS drive is connected).  This changed was added
+*	to support the Machete chips set used in Zeos computers.
+*
 *	   Rev 1.4   11 Jan 1994 14:44:24   KEVINKES
 *	Changed kdi_wt004ms to INTERVAL_CMD.
 *
@@ -37,6 +51,7 @@
 #define FCT_ID 0x11040
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -73,11 +88,17 @@ dStatus cqd_CmdSelectDevice
 			cqd_context->controller_data.fdc_addr.dor,
 			cqd_context->device_cfg.select_byte);
 
-      if ((cqd_context->device_cfg.select_byte == selu ||
-            cqd_context->device_cfg.select_byte == selub) &&
+      if ((cqd_context->device_cfg.select_byte == seld ||
+           cqd_context->device_cfg.select_byte == selu ||
+           cqd_context->device_cfg.select_byte == selub) &&
             cqd_context->device_cfg.drive_select != curb) {
 
-            if (cqd_context->device_descriptor.vendor == VENDOR_CMS) {
+            //
+            // the new Iomega uses the CMS drive select scheme
+            //
+            if ((cqd_context->device_descriptor.vendor == VENDOR_IOMEGA &&
+                cqd_context->device_descriptor.model == MODEL_IOMEGA_QIC3020) ||
+                cqd_context->device_descriptor.vendor == VENDOR_CMS) {
 
                if ((status = cqd_SendByte(cqd_context, FW_CMD_SELECT_DRIVE)) == DONT_PANIC) {
 
@@ -90,8 +111,8 @@ dStatus cqd_CmdSelectDevice
             }
 
             if ((status == DONT_PANIC) &&
-					(cqd_context->device_descriptor.vendor == VENDOR_SUMMIT ||
-               cqd_context->device_descriptor.vendor == VENDOR_CONNER ||
+					(cqd_context->device_descriptor.vendor == VENDOR_MOUNTAIN_SUMMIT ||
+               cqd_context->device_descriptor.vendor == VENDOR_ARCHIVE_CONNER ||
                cqd_context->device_descriptor.vendor == VENDOR_CORE)) {
 
                status = cqd_ConnerPreamble(cqd_context, dTRUE);

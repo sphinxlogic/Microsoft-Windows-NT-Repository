@@ -1,4 +1,6 @@
-#ifdef AD_INCLUDED
+#ifndef SADPROTO_H
+#define SADPROTO_H
+
 F	FAdEdDir(AD *);
 F	FAdEdInit(AD *);
 F	FComDir(AD *);
@@ -45,4 +47,5 @@ F	FUnlkInit(AD *);
 F	FTidyDir(AD *);
 F	FTidyInit(AD *);
 void	PurgeFi(P2(AD *, IFI));
-#endif /* AD_INCLUDED */
+
+#endif

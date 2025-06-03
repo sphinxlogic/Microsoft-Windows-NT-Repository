@@ -31,6 +31,15 @@ Revision History may be found at the end of this file.
 #define IC_DIV4     0xa40000l
 
 //
+// These values are used to program custom frequencies
+// and to select a custom frequency.
+//
+#define ICD2061_EXTSEL9100     (0x03)
+#define ICD2061_DATA9100       (0x02)
+#define ICD2061_DATASHIFT9100  (0x01)
+#define ICD2061_CLOCK9100      (0x01)
+
+//
 // Define macros to access the ICD register. These macros take advantage
 // of the fact that the synth bits are the same for the Weitek, Viper, and
 // Ajax boards. The only difference is that the Ajax board's ICD register
@@ -40,14 +49,3 @@ Revision History may be found at the end of this file.
 #define WR_ICD(value)   VGA_WR_REG(MISCOUT, (value))
 
 #define RD_ICD()        VGA_RD_REG(MISCIN)
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/clock.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:58   robk
- * Initial revision.
-
---*/

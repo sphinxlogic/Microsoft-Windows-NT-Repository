@@ -18,7 +18,11 @@ Notes:
 #include "precomp.h"
 #pragma hdrstop
 
-
+#ifdef DBCS
+#include <mbstring.h>
+#define strpbrk _mbspbrk
+#define strchr  _mbschr
+#endif
 
 
 /************************** Data declaration    *************************/
@@ -131,6 +135,9 @@ LocateFunction(
 
                 } else {
 
+#ifdef DBCS
+                  if (!IsDBCSLeadByte(*p)) {
+#endif
                     p++;
                     while ( *p == ' ' && *p == '\t' ) {
                         p++;
@@ -140,6 +147,9 @@ LocateFunction(
                         *p  = '\0';
                         Ok  = TRUE;
                     }
+#ifdef DBCS
+                  }
+#endif
                 }
 
                 if ( Ok ) {
@@ -272,7 +282,7 @@ DlgFuncResolve(
                     EndDialog(hDlg, TRUE);
                     return TRUE;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT,
                                                             ID_FUNCRES_HELP) );
                     return TRUE;
@@ -399,7 +409,7 @@ DlgFunction(
             EndDialog(hDlg, FALSE);
             return (TRUE);
             
-          case IDHELP :
+          case IDWINDBGHELP :
             Dbg(WinHelp(hDlg,szHelpFileName,HELP_CONTEXT,ID_FUNCTION_HELP));
             return (TRUE);
         }

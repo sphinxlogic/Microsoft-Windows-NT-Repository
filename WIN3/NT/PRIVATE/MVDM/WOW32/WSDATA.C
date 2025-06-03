@@ -119,6 +119,13 @@ NOTE:
 
   Also, never update structures in 16 bit land if the 32 bit call fails.
 
+  Be aware that the GETxxxPTR macros return the CURRENT selector-to-flat_memory
+  mapping.  Calls to some 32-bit functions may indirectly cause callbacks into
+  16-bit code.  These may cause 16-bit memory to move due to allocations
+  made in 16-bit land.  If the 16-bit memory does move, the corresponding 32-bit
+  ptr in WOW32 needs to be refreshed to reflect the NEW selector-to-flat_memory
+  mapping.
+
 --*/
 
 ULONG FASTCALL WWS32gethostbyaddr(PVDMFRAME pFrame)
@@ -129,6 +136,7 @@ ULONG FASTCALL WWS32gethostbyaddr(PVDMFRAME pFrame)
     PHOSTENT hostent32;
     PHOSTENT16 hostent16;
     DWORD bytesRequired;
+    DWORD addr32;    // address must be in PF_INET format (length == 4 bytes)
 
     if ( !WWS32IsThreadInitialized ) {
         SetLastError( WSANOTINITIALISED );
@@ -138,7 +146,15 @@ ULONG FASTCALL WWS32gethostbyaddr(PVDMFRAME pFrame)
     GETARGPTR( pFrame, sizeof(GETHOSTBYADDR16), parg16 );
     GETVDMPTR( parg16->Address, sizeof(DWORD), paddr16 );
 
-    hostent32 = (PHOSTENT) (*wsockapis[WOW_GETHOSTBYADDR].lpfn)( (char *)paddr16, parg16->Length, parg16->Type );
+    addr32 = *paddr16;  // copy the 4-byte address
+
+    hostent32 = (PHOSTENT) (*wsockapis[WOW_GETHOSTBYADDR].lpfn)((CHAR *)&addr32,
+                                                                parg16->Length, 
+                                                                parg16->Type);
+    // Note: 16-bit callbacks resulting from above function
+    //       call may have caused 16-bit memory movement
+    FREEVDMPTR(paddr16);
+    FREEARGPTR(parg16);
 
     if ( hostent32 != NULL ) {
 
@@ -173,7 +189,8 @@ ULONG FASTCALL WWS32gethostbyname(PVDMFRAME pFrame)
     register PGETHOSTBYNAME16 parg16;
     PHOSTENT hostent32;
     PHOSTENT16 hostent16;
-    PSZ name32;
+    PSZ name32 = NULL;
+    PSZ name16;
     DWORD bytesRequired;
 
     if ( !WWS32IsThreadInitialized ) {
@@ -183,9 +200,23 @@ ULONG FASTCALL WWS32gethostbyname(PVDMFRAME pFrame)
 
     GETARGPTR( pFrame, sizeof(GETHOSTBYNAME16), parg16 );
 
-    GETVDMPTR( parg16->Name, 32, name32 );
+    GETVDMPTR( parg16->Name, 32, name16 );
+    
+    if(name16) {
+        name32 = malloc_w(strlen(name16)+1);
+        strcpy(name32, name16);
+    }
 
     hostent32 = (PHOSTENT) (*wsockapis[WOW_GETHOSTBYNAME].lpfn)( name32 );
+
+    // Note: 16-bit callbacks resulting from above function
+    //       call may have caused 16-bit memory movement
+    FREEVDMPTR(name16);
+    FREEARGPTR(parg16);
+
+    if(name32) {
+        free_w(name32);
+    }
 
     if ( hostent32 != NULL ) {
 
@@ -218,7 +249,10 @@ ULONG FASTCALL WWS32gethostname(PVDMFRAME pFrame)
 {
     ULONG ul;
     register PGETHOSTNAME16 parg16;
-    PCHAR name;
+    PCHAR name32 = NULL;
+    PCHAR name16;
+    INT   NameLength;
+    VPSZ  vpszName;
 
     if ( !WWS32IsThreadInitialized ) {
         SetLastError( WSANOTINITIALISED );
@@ -226,12 +260,28 @@ ULONG FASTCALL WWS32gethostname(PVDMFRAME pFrame)
     }
 
     GETARGPTR( pFrame, sizeof(GETHOSTNAME16), parg16 );
-    GETVDMPTR( parg16->Name, parg16->NameLength, name );
 
-    ul = GETWORD16( (*wsockapis[WOW_GETHOSTNAME].lpfn)( name, parg16->NameLength ) );
+    vpszName = FETCHDWORD(parg16->Name);
+    NameLength = INT32(parg16->NameLength);
 
-    FLUSHVDMPTR( parg16->Name, parg16->NameLength, name );
-    FREEVDMPTR( name );
+    if(vpszName) {
+        name32 = malloc_w(NameLength);
+    }
+
+    ul = GETWORD16( (*wsockapis[WOW_GETHOSTNAME].lpfn)( name32, NameLength ) );
+
+    // Note: 16-bit callbacks resulting from above function
+    //       call may have caused 16-bit memory movement
+    FREEVDMPTR(name16);
+    FREEARGPTR(parg16);
+
+    GETVDMPTR( vpszName, NameLength, name16 );
+    if(name16 && name32) {
+        strcpy(name16, name32);
+    }
+    FLUSHVDMPTR( vpszName, NameLength, name16 );
+
+    FREEVDMPTR( name16 );
     FREEARGPTR(parg16);
 
     RETURN(ul);
@@ -266,13 +316,13 @@ ULONG FASTCALL WWS32WSAAsyncGetHostByAddr(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -327,11 +377,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -370,13 +420,13 @@ ULONG FASTCALL WWS32WSAAsyncGetHostByName(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -430,11 +480,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -507,8 +557,8 @@ WWS32PostAsyncGetHost (
     // Free resources and return.
     //
 
-    RtlFreeHeap( RtlProcessHeap( ), 0, context->Buffer32 );
-    RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+    free_w( context->Buffer32 );
+    free_w( (PVOID)context );
 
     return ret;
 
@@ -704,7 +754,8 @@ ULONG FASTCALL WWS32getprotobyname(PVDMFRAME pFrame)
     register PGETPROTOBYNAME16 parg16;
     PPROTOENT protoent32;
     PPROTOENT16 protoent16;
-    PSZ name32;
+    PSZ name32 = NULL;
+    PBYTE name16;
     DWORD bytesRequired;
 
     if ( !WWS32IsThreadInitialized ) {
@@ -713,10 +764,23 @@ ULONG FASTCALL WWS32getprotobyname(PVDMFRAME pFrame)
     }
 
     GETARGPTR( pFrame, sizeof(GETPROTOBYNAME16), parg16 );
+    GETVDMPTR( parg16->Name, 32, name16 );
 
-    GETVDMPTR( parg16->Name, 32, name32 );
+    if(name16) {
+        name32 = malloc_w(strlen(name16)+1);
+        strcpy(name32, name16);
+    }
 
     protoent32 = (PPROTOENT) (*wsockapis[WOW_GETPROTOBYNAME].lpfn)( name32 );
+
+    // Note: 16-bit callbacks resulting from above function
+    //       call may have caused 16-bit memory movement
+    FREEVDMPTR(name16);
+    FREEARGPTR(parg16);
+
+    if(name32) {
+        free_w( name32 );
+    }
 
     if ( protoent32 != NULL ) {
 
@@ -738,7 +802,7 @@ ULONG FASTCALL WWS32getprotobyname(PVDMFRAME pFrame)
         ul = 0;
     }
 
-    FREEVDMPTR( name32 );
+    FREEVDMPTR(name16);
     FREEARGPTR(parg16);
 
     RETURN(ul);
@@ -816,13 +880,13 @@ ULONG FASTCALL WWS32WSAAsyncGetProtoByName(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -876,11 +940,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -917,13 +981,13 @@ ULONG FASTCALL WWS32WSAAsyncGetProtoByNumber(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -977,11 +1041,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -1053,8 +1117,8 @@ WWS32PostAsyncGetProto (
     // Free resources and return.
     //
 
-    RtlFreeHeap( RtlProcessHeap( ), 0, context->Buffer32 );
-    RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+    free_w( context->Buffer32 );
+    free_w( (PVOID)context );
 
     return ret;
 
@@ -1311,13 +1375,13 @@ ULONG FASTCALL WWS32WSAAsyncGetServByPort(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -1372,11 +1436,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -1417,13 +1481,13 @@ ULONG FASTCALL WWS32WSAAsyncGetServByName(PVDMFRAME pFrame)
     // Allocate a context block and 32-bit buffer to use for the request.
     //
 
-    context = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*context) );
+    context = malloc_w( sizeof(*context) );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
     }
 
-    buffer32 = RtlAllocateHeap( RtlProcessHeap( ), 0, MAXGETHOSTSTRUCT );
+    buffer32 = malloc_w( MAXGETHOSTSTRUCT );
     if ( context == NULL ) {
         (*wsockapis[WOW_WSASETLASTERROR].lpfn)( WSAENOBUFS );
         goto exit;
@@ -1478,11 +1542,11 @@ exit:
     if ( ul == 0 ) {
 
         if ( context != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+            free_w( (PVOID)context );
         }
 
         if ( buffer32 != NULL ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, buffer32 );
+            free_w( buffer32 );
         }
     }
 
@@ -1556,8 +1620,8 @@ WWS32PostAsyncGetServ (
     // Free resources and return.
     //
 
-    RtlFreeHeap( RtlProcessHeap( ), 0, context->Buffer32 );
-    RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)context );
+    free_w( context->Buffer32 );
+    free_w( (PVOID)context );
 
     return ret;
 

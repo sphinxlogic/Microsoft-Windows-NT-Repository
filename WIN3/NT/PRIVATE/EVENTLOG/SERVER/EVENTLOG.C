@@ -48,10 +48,13 @@ Revision History:
 #include <elfcfg.h>
 #include <string.h>
 #include <stdlib.h>   // getenv()
-#include <wcstr.h>    // wcsicmp
 #include <tstr.h>     // WCSSIZE
 #include <alertmsg.h> // ALERT_ELF manifests
 #include <stdio.h>    // printf
+
+#ifdef _CAIRO_
+#include <elfextrn.h>
+#endif // _CAIRO_
 
 //
 // Bit Flags used for Progress Reporting in SetupDataStruct().
@@ -114,6 +117,7 @@ SetUpDataStruct (
         PUNICODE_STRING     LogFileName,
         ULONG               MaxFileSize,
         ULONG               Retention,
+        ULONG               GuestAccessRestriction,
         PUNICODE_STRING     ModuleName,
         HANDLE              hLogFile,
         ELF_LOG_TYPE        LogType
@@ -170,6 +174,17 @@ Note:
     DWORD           StringLength;
     PLOGMODULE      OldDefaultLogModule=NULL;
     DWORD           Progress = 0L;
+
+    //
+    // Argument check.
+    //
+
+    if ((LogFileName == NULL)         ||
+        (LogFileName->Buffer == NULL) ||
+        (ModuleName == NULL))
+    {
+        return(STATUS_INVALID_PARAMETER);
+    }
 
     // If the default log file for a module is also being used by another
     // module, then we just link that same file structure with the other
@@ -290,13 +305,13 @@ Note:
     }
 
     //
-    // Add the atom for this module name
+    // Link the new module in.
     //
 
-    pModule->ModuleAtom = AddAtomA (ModuleNameA.Buffer);
+    LinkLogModule(pModule, &ModuleNameA);
+
     RtlFreeAnsiString (&ModuleNameA);
 
-    LinkLogModule(pModule); // Link it in
     Progress |= MODULE_LINKED;
 
     //
@@ -329,7 +344,7 @@ Note:
     // to use if a module doesn't have an entry in the registry
     //
 
-    if (!wcsicmp(ModuleName->Buffer, ELF_DEFAULT_MODULE_NAME)) {
+    if (!_wcsicmp(ModuleName->Buffer, ELF_DEFAULT_MODULE_NAME)) {
         OldDefaultLogModule = ElfDefaultLogModule;
         ElfDefaultLogModule = pModule;
     }
@@ -340,10 +355,10 @@ Note:
     // reads and writes by world.
     //
 
-    if (!wcsicmp(ModuleName->Buffer, ELF_SYSTEM_MODULE_NAME)) {
+    if (!_wcsicmp(ModuleName->Buffer, ELF_SYSTEM_MODULE_NAME)) {
         Type = ELF_LOGFILE_SYSTEM;
     }
-    else if (!wcsicmp(ModuleName->Buffer, ELF_SECURITY_MODULE_NAME)) {
+    else if (!_wcsicmp(ModuleName->Buffer, ELF_SECURITY_MODULE_NAME)) {
         Type = ELF_LOGFILE_SECURITY;
     }
     else {
@@ -355,7 +370,7 @@ Note:
     //   (RtlDeleteSecurityObject() can be used to free
     //    pLogFile->Sd).
     //
-    Status = ElfpCreateLogFileObject(pLogFile, Type);
+    Status = ElfpCreateLogFileObject(pLogFile, Type, GuestAccessRestriction);
     if (!NT_SUCCESS(Status)) {
         ElfDbgPrintNC(("[ELF] Could not create the security "
             "descriptor for logfile %ws\n", ModuleName->Buffer));
@@ -474,6 +489,10 @@ Note:
     UNICODE_STRING ListName;
     BOOLEAN     ListChanged = FALSE;
     PLIST_ENTRY  pListEntry;
+#ifdef _CAIRO_
+    SHORT       sCategory;
+    SHORT       sSeverity;
+#endif // _CAIRO_
 
     //
     // Create the module structures for all modules under this logfile.  We
@@ -527,13 +546,17 @@ Note:
                 break;
             }
 
-            Atom = AddAtomA (ModuleNameA.Buffer);
+            Atom = FindAtomA (ModuleNameA.Buffer);
 
             //
             // Make sure we've not already added one by this name
             //
 
+#ifdef _CAIRO_
+            if (pModule = FindModuleStrucFromAtom(Atom)) {
+#else
             if (FindModuleStrucFromAtom(Atom)) {
+#endif // _CAIRO_
 
                 //
                 // We've already encountered a module by this name.  If
@@ -541,12 +564,28 @@ Note:
                 // it and move on.  If we're processing a change notify
                 // from the registry, this is ok, so just press on
                 //
+                //              ** NEW FOR CAIRO **
+                //
+                // Update the module alert category & severity values. i.e.,
+                // only upon registry change notify.
+                //
 
                 if (!bAllowDupes) {
 
                     ElfDbgPrint(("[ELF] Same module exists in two log files - "
                         "%ws\n", SubKeyString));
                 }
+
+#ifdef _CAIRO_
+                if (GetSourceAlertFilterFromRegistry(hLogFile,
+                                                     &NewModule,
+                                                     &sCategory,
+                                                     &sSeverity))
+                {
+                    pModule->AlertCategory = sCategory;
+                    pModule->AlertSeverity = sSeverity;
+                }
+#endif // _CAIRO_
 
                 RtlFreeAnsiString (&ModuleNameA);
                 ElfpFreeBuffer(SubKeyString);
@@ -569,12 +608,30 @@ Note:
             pModule->LogFile = pLogFile;
             pModule->ModuleName = SubKeyString;
 
+#ifdef _CAIRO_
+            if (GetSourceAlertFilterFromRegistry(hLogFile,
+                                                 &NewModule,
+                                                 &sCategory,
+                                                 &sSeverity))
+            {
+                pModule->AlertCategory = sCategory;
+                pModule->AlertSeverity = sSeverity;
+            }
+            else
+            {
+                pModule->AlertCategory = pModule->AlertSeverity = 0;
+            }
+#endif // _CAIRO_
+
             if (NT_SUCCESS(Status)) {
 
-                pModule->ModuleAtom = Atom;
-                RtlFreeAnsiString (&ModuleNameA);
+                //
+                // Link the new module in.
+                //
 
-                LinkLogModule(pModule); // Link it in
+                LinkLogModule(pModule, &ModuleNameA);
+
+                RtlFreeAnsiString (&ModuleNameA);
             }
         }
     }
@@ -811,6 +868,7 @@ Note:
                     SetUpDataStruct(LogFileInfo.LogFileName,
                                     LogFileInfo.MaxFileSize,
                                     LogFileInfo.Retention,
+                                    LogFileInfo.GuestAccessRestriction,
                                     & SubKeyName,
                                     hLogFile,
                                     ElfNormalLog
@@ -841,6 +899,7 @@ Note:
         SetUpDataStruct(pLogFileName,
             ELF_DEFAULT_MAX_FILE_SIZE,
             ELF_DEFAULT_RETENTION_PERIOD,
+            ELF_GUEST_ACCESS_UNRESTRICTED,
             pModuleName,
             NULL,
             ElfNormalLog
@@ -858,6 +917,7 @@ Note:
         SetUpDataStruct(pLogFileName,
             ELF_DEFAULT_MAX_FILE_SIZE,
             ELF_DEFAULT_RETENTION_PERIOD,
+            ELF_GUEST_ACCESS_UNRESTRICTED,
             pModuleName,
             NULL,
             ElfNormalLog
@@ -875,6 +935,7 @@ Note:
         SetUpDataStruct(pLogFileName,
             ELF_DEFAULT_MAX_FILE_SIZE,
             ELF_DEFAULT_RETENTION_PERIOD,
+            ELF_GUEST_ACCESS_UNRESTRICTED,
             pModuleName,
             NULL,
             ElfNormalLog
@@ -986,6 +1047,7 @@ Note:
     BYTE Buffer[ELF_MAX_REG_KEY_INFO_SIZE];
     PKEY_VALUE_FULL_INFORMATION ValueBuffer =
         (PKEY_VALUE_FULL_INFORMATION) Buffer;
+    SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
 
     UNREFERENCED_PARAMETER(argc);
     UNREFERENCED_PARAMETER(argv);
@@ -1142,6 +1204,23 @@ Note:
     EventFlags |= ELF_INIT_QUEUED_MESSAGE_CRIT_SEC;
 
     //
+    // Initialize global anonymous logon sid for use in log ACL's.
+    //
+
+    Status = RtlAllocateAndInitializeSid(
+                &NtAuthority,
+                1,
+                SECURITY_ANONYMOUS_LOGON_RID,
+                0, 0, 0, 0, 0, 0, 0,
+                &AnonymousLogonSid);
+
+    if ( !NT_SUCCESS(Status) ) {
+        ElfDbgPrintNC(("ELF anonymous log sid creation failed: %X\n",
+                    Status ));
+        goto cleanupandexit;
+    }
+
+    //
     // Set up the data structures for the Logfiles and Modules.
     //
 
@@ -1213,6 +1292,52 @@ Note:
     //  *** UPDATE STATUS ***
     ElfStatusUpdate(STARTING);
 
+#ifdef _CAIRO_
+    //
+    // The eventlog service links to ALERTSYS.DLL by hand (eventlog.c) after
+    // eventlog initialization, since this dll's initialization code requires
+    // a running eventlog service.
+    //
+    // By no means, fail to start this service if something fails here.
+    // It just won't be possible to raise NT events as Cairo alerts.
+    //
+    // BUGBUG : Should probably at least log an error.
+    //          Should the service state be STARTING while this
+    //          initialization is in progress?
+    //
+
+    if ((ghAlertSysDll = LoadLibrary(L"ALERTSYS.DLL")) != NULL)
+    {
+        //
+        // Get ReportAlert API address.
+        //
+
+        if ((gpfReportAlert = (PREPORTALERT)GetProcAddress(
+                                                (HMODULE)ghAlertSysDll,
+                                                "ReportAlert")) == NULL)
+        {
+            FreeLibrary(ghAlertSysDll);
+            ghAlertSysDll = NULL;
+            ElfDbgPrintNC((
+                "[ELF] ReportAlert GetProAddress failed, WIN32 error(%x)\n",
+                GetLastError()));
+        }
+    }
+    else
+    {
+        ElfDbgPrintNC((
+            "[ELF] LoadLibrary of ALERTSYS.DLL failed, WIN32 error(%x)\n",
+            GetLastError()));
+    }
+
+    //
+    // Tell service controller of that we are making progress
+    //
+    //  *** UPDATE STATUS ***
+    ElfStatusUpdate(STARTING);
+
+#endif // _CAIRO_
+
     // Create a thread for watching for changes in the registry.
     //
 
@@ -1221,14 +1346,6 @@ Note:
         goto cleanupandexit;
     }
     EventFlags |= ELF_STARTED_REGISTRY_MONITOR;
-
-    //
-    // Tell service controller of that we are making progress
-    //
-
-    if (ElfStatusUpdate(RUNNING) == RUNNING) {
-        ElfDbgPrint(("[ELF] Service Started Successfully\n"));
-    }
 
     //
     // Write out an event that says we started
@@ -1253,6 +1370,12 @@ Note:
     ElfPerformRequest(&FlushRequest);
 
     //
+    // Tell service controller of that we are making progress
+    //
+    //  *** UPDATE STATUS ***
+    ElfStatusUpdate(STARTING);
+
+    //
     // Finish setting up the RPC server
     //
     // NOTE:  Now all RPC servers in services.exe share the same pipe name.
@@ -1268,6 +1391,14 @@ Note:
     if (Status != NO_ERROR) {
         ElfDbgPrint(("[ELF]StartRpcServer Failed %d\n",Status));
         goto cleanupandexit;
+    }
+
+    //
+    // Tell service controller of that we are making progress
+    //
+
+    if (ElfStatusUpdate(RUNNING) == RUNNING) {
+        ElfDbgPrint(("[ELF] Service Started Successfully\n"));
     }
 
     EventFlags |= ELF_STARTED_RPC_SERVER;
@@ -1372,7 +1503,6 @@ Return Value:
     }
 
     FreeLibrary(hModule);
-    CloseHandle(hModule);
     return;
 }
 

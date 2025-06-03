@@ -44,6 +44,12 @@ public:
 						}
 					};
 
+				// really lightweight constructor
+				tracked_node( node_skl * dummy)
+					{
+					UNUSED( dummy );
+					}
+
 				// clear constructor -- extra param just to force different
 				tracked_node( void * dummy )
 					{

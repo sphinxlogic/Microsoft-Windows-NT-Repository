@@ -71,7 +71,7 @@ typedef struct _COMPRESSED_CONFIGURATION_PACKET {
 #define LENGTH_OF_EISA_DATA         2044
 
 #define MAXIMUM_ENVIRONMENT_VALUE 256
-#define MAX_NUMBER_OF_ENVIRONMENT_VARIABLES 28
+#define MAX_NUMBER_OF_ENVIRONMENT_VARIABLES 40
 
 //
 // The non-volatile configuration table structure.

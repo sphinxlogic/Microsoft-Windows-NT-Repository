@@ -12,8 +12,10 @@
 //  Functions:  HandleTestEnd
 //              RunAllTests
 //              RunApp
+//              RunTestOnThread
 //
 //  History:    dd-mmm-yy Author    Comment
+//              06-Jan-95 t-scotth  added apartment thread test and RunTestOnThread
 //              06-Feb-94 alexgo    author
 //
 //  Notes:
@@ -23,7 +25,9 @@
 //--------------------------------------------------------------------------
 
 #include "oletest.h"
+#include "cotest.h"
 #include "letest.h"
+#include "attest.h"
 
 // global, zero'ed task item
 TaskItem vzTaskItem;
@@ -42,8 +46,9 @@ const TaskItem vrgTaskList[] =
         // the constant below should be the index at which individual
         // upper layer unit tests exist.  All tests at that index and
         // beyond will be run
-        { "Run All Upper Layer Tests", RunAllTests, (void *)4 },
+        { "Run All Upper Layer Tests", RunAllTests, (void *)5 },
         { "OleBind", RunApp, (void *)"olebind.exe"},
+        { "Threads", RunApi, (void *) ThreadUnitTest },
         { "Storage DRT", RunApp, (void *)"stgdrt.exe"},
         { "LE: Insert Object Test 1", LETest1, &letiInsertObjectTest1 },
         { "LE: Clipboard Test 1", RunApi, (void *)LEClipTest1},
@@ -56,6 +61,9 @@ const TaskItem vrgTaskList[] =
 	{ "LE: OLE1 Clipboard Test 1", RunApi, (void *)LEOle1ClipTest1},
         { "LE: Insert Object Test 2", LETest1, &letiInsertObjectTest2 },
 	{ "LE: OLE1 Clipboard Test 2", LEOle1ClipTest2, NULL },
+	{ "LE: OleQueryCreateFromData Test 1", RunApi,
+		(void *)TestOleQueryCreateFromDataMFCHack },
+        { "LE: Apartment Thread Test", RunTestOnThread, (void *)ATTest },
 	{ 0, 0, 0 }
 };
 
@@ -63,7 +71,7 @@ const TaskItem vrgTaskList[] =
 
 // Win16 tests
 
-const TaskItem vrgTaskList[] = 
+const TaskItem vrgTaskList[] =
 {
         // the constant should be the index at which individual tests
         // begin.  RunAllTests will run every test in this list after
@@ -73,7 +81,7 @@ const TaskItem vrgTaskList[] =
         { "LE: Clipboard Test 2 (clipboard data object)", RunApi,
                 (void *)LEClipTest2 },
 	{ "LE: OLE1 Clipboard Test 1", RunApi, (void *)LEOle1ClipTest1},
-	{ 0, 0, 0 } 
+	{ 0, 0, 0 }
 };
 
 #endif
@@ -103,6 +111,7 @@ const TaskItem vrgTaskList[] =
 //
 //  History:    dd-mmm-yy Author    Comment
 //              06-Feb-94 alexgo    author
+//              13-Dec-94 MikeW     Allow testing to continue after failures
 //
 //  Notes:      vApp must be initialized correctly for this function to
 //              work properly.
@@ -124,48 +133,62 @@ void HandleTestEnd( void )
 
                         if( vApp.m_lparam != 0 )
                         {
-                                //presumably an error, so cleanup
-                                vApp.m_TaskStack.Empty();
+                                //presumably an error
                                 OutputString("Test End, Status Unknown "
-                                        "( %lx )\r\n", vApp.m_lparam);
+                                        "( %lx )\r\n\r\n", vApp.m_lparam);
 
-                                PostMessage(vApp.m_hwndMain,
-                                        WM_TESTSCOMPLETED, vApp.m_wparam,
-                                        vApp.m_lparam);
+                                vApp.m_fGotErrors = TRUE;
                                 break;
                         }
                         // otherwise we fall through to the success case.
                 case TEST_SUCCESS:
-                        vApp.Reset();   //tests are not allowed to
-                                        //pass information between themselves
-
-                        OutputString("Test Success ( %lx )!\r\n",
+                        OutputString("Test Success ( %lx )!\r\n\r\n",
                                 vApp.m_lparam);
-
-                        if (vApp.m_TaskStack.IsEmpty())
-                        {
-                                PostMessage(vApp.m_hwndMain,
-                                        WM_TESTSCOMPLETED,
-                                        vApp.m_wparam, vApp.m_lparam);
-                        }
-                        else
-                        {
-                                //if the stack is not empty, run
-                                //the next task
-                                vApp.m_TaskStack.PopAndExecute(NULL);
-                        }
                         break;
+
                 case TEST_FAILURE:
-
-                        OutputString("Test FAILED! ( %lx )\r\n", vApp.m_lparam);
-
-                        vApp.m_TaskStack.Empty();
-                        PostMessage(vApp.m_hwndMain, WM_TESTSCOMPLETED,
-                                vApp.m_wparam, vApp.m_lparam);
+                        OutputString("Test FAILED! ( %lx )\r\n\r\n", vApp.m_lparam);
+                        vApp.m_fGotErrors = TRUE;
                         break;
+
                 default:
                         assert(0);      //we should never get here
                         break;
+        }
+
+        vApp.Reset();
+
+        //
+        // Now check to see if there are any more tests
+        //
+
+        while (!vApp.m_TaskStack.IsEmpty())
+        {
+            TaskItem    ti;
+
+            vApp.m_TaskStack.Pop(&ti);
+
+            if (ti.szName != (LPSTR) 0)
+            {
+                vApp.m_TaskStack.Push(&ti);
+                break;
+            }
+        }
+
+
+        if (vApp.m_TaskStack.IsEmpty())
+        {
+                PostMessage(vApp.m_hwndMain,
+                        WM_TESTSCOMPLETED,
+                        vApp.m_wparam, vApp.m_lparam);
+        }
+        else
+        {
+                //if the stack is not empty, run
+                //the next task
+                PostMessage(vApp.m_hwndMain,
+                        WM_TESTSTART,
+                        0, 0);
         }
 
         return;
@@ -208,14 +231,12 @@ void HandleTestsCompleted( void )
 
         //temporary output
 
-        switch(vApp.m_wparam)
+        switch(vApp.m_fGotErrors)
         {
-                case TEST_SUCCESS:
-                        MessageBox(vApp.m_hwndMain, "Tests PASSED!!",
-                                "Ole Test Driver",
-                                MB_ICONEXCLAMATION | MB_OK);
+                case FALSE:
+                        OutputString("Tests PASSED!!\n");
                         break;
-                case TEST_FAILURE:
+                case TRUE:
                         sprintf(szBuf, "Tests FAILED, code %lx",
                                 vApp.m_lparam);
                         MessageBox(vApp.m_hwndMain, szBuf, "Ole Test Driver",
@@ -224,6 +245,12 @@ void HandleTestsCompleted( void )
                 default:
                         assert(0);
         }
+
+        //
+        // Reset the got error status
+        //
+
+        vApp.m_fGotErrors = FALSE;
 
         return;
 }
@@ -366,8 +393,10 @@ void RunApp( void *pvArg )
 
        	PROCESS_INFORMATION     procinfo;
         static STARTUPINFO      startinfo;      //to make it all zero
-        
+
         assert(pvArg);  //should be a valid ANSI string.
+
+        startinfo.cb = sizeof(startinfo);
 
         if( CreateProcess(NULL, (LPTSTR)pvArg, NULL, NULL, NULL, NULL, NULL,
                 NULL, &startinfo, &procinfo) )
@@ -400,4 +429,51 @@ void RunApp( void *pvArg )
 
         return;
 }
+
+//+-------------------------------------------------------------------------
+//
+//  Function:   RunTestOnThread
+//
+//  Synopsis:   creates a thread to run a test function
+//
+//  Effects:    creates a new thread
+//
+//  Arguments:  [pvArg] -- a function pointer to the test function
+//
+//  Requires:
+//
+//  Returns:    void
+//
+//  Signals:
+//
+//  Modifies:
+//
+//  Algorithm:
+//
+//  History:    dd-mmm-yy Author    Comment
+//              04-Jan-95 t-ScottH  author
+//
+//  Notes:
+//
+//--------------------------------------------------------------------------
+void RunTestOnThread(void *pvArg)
+{
+    HANDLE      hMainTestThread;
+    DWORD       dwThreadId = 0;
+
+    hMainTestThread = CreateThread(
+                NULL,                                   // security attributes
+                0,                                      // stack size (default)
+                (LPTHREAD_START_ROUTINE)pvArg,          // address of thread function
+                NULL,                                   // arguments of thread function
+                0,                                      // creation flags
+                &dwThreadId );                          // address of new thread ID
+
+    assert(hMainTestThread);
+
+    CloseHandle(hMainTestThread);
+
+    return;
+}
+
 

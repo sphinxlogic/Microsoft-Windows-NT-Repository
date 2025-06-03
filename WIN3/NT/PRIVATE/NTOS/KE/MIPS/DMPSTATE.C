@@ -25,7 +25,6 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include "stdio.h"
 
 //
 // Define forward referenced prototypes.
@@ -113,9 +112,9 @@ Return Value:
     PLIST_ENTRY ModuleListHead;
     PLIST_ENTRY NextEntry;
     ULONG NextPc;
-    PIMAGE_NT_HEADERS NtHeaders;
     ULONG StackLimit;
     UCHAR AnsiBuffer[ 32 ];
+    ULONG DateStamp;
 
     //
     // Query display parameters.
@@ -154,12 +153,12 @@ Return Value:
     //
 
     ContextRecord = &ProcessorState->ContextFrame;
-    LastStack = ContextRecord->IntSp;
-    ControlPc = ContextRecord->IntRa - 4;
+    LastStack = (ULONG)ContextRecord->XIntSp;
+    ControlPc = (ULONG)(ContextRecord->XIntRa - 4);
     NextPc = ControlPc;
     FunctionEntry = KiLookupFunctionEntry(ControlPc);
     if (FunctionEntry != NULL) {
-        NextPc = RtlVirtualUnwind(ControlPc,
+        NextPc = RtlVirtualUnwind(ControlPc | 1,
                                   FunctionEntry,
                                   ContextRecord,
                                   &InFunction,
@@ -176,7 +175,7 @@ Return Value:
 
     sprintf(Buffer,
             "\nMachine State at Call to Bug Check PC : %08lX PSR : %08lX\n\n",
-            ContextRecord->IntRa,
+            (ULONG)ContextRecord->XIntRa,
             ContextRecord->Psr);
 
     HalDisplayString(Buffer);
@@ -187,73 +186,73 @@ Return Value:
 
     sprintf(Buffer,
             "AT :%8lX  V0 :%8lX  V1 :%8lX  A0 :%8lX\n",
-            ContextRecord->IntAt,
-            ContextRecord->IntV0,
-            ContextRecord->IntV1,
-            ContextRecord->IntA0);
+            (ULONG)ContextRecord->XIntAt,
+            (ULONG)ContextRecord->XIntV0,
+            (ULONG)ContextRecord->XIntV1,
+            (ULONG)ContextRecord->XIntA0);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "A1 :%8lX  A2 :%8lX  A3 :%8lX  T0 :%8lX\n",
-            ContextRecord->IntA1,
-            ContextRecord->IntA2,
-            ContextRecord->IntA3,
-            ContextRecord->IntT0);
+            (ULONG)ContextRecord->XIntA1,
+            (ULONG)ContextRecord->XIntA2,
+            (ULONG)ContextRecord->XIntA3,
+            (ULONG)ContextRecord->XIntT0);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "T1 :%8lX  T2 :%8lX  T3 :%8lX  T4 :%8lX\n",
-            ContextRecord->IntT1,
-            ContextRecord->IntT2,
-            ContextRecord->IntT3,
-            ContextRecord->IntT4);
+            (ULONG)ContextRecord->XIntT1,
+            (ULONG)ContextRecord->XIntT2,
+            (ULONG)ContextRecord->XIntT3,
+            (ULONG)ContextRecord->XIntT4);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "T5 :%8lX  T6 :%8lX  T7 :%8lX  T8 :%8lX\n",
-            ContextRecord->IntT5,
-            ContextRecord->IntT6,
-            ContextRecord->IntT7,
-            ContextRecord->IntT8);
+            (ULONG)ContextRecord->XIntT5,
+            (ULONG)ContextRecord->XIntT6,
+            (ULONG)ContextRecord->XIntT7,
+            (ULONG)ContextRecord->XIntT8);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "T9 :%8lX  S0 :%8lX  S1 :%8lX  S2 :%8lX\n",
-            ContextRecord->IntT9,
-            ContextRecord->IntS0,
-            ContextRecord->IntS1,
-            ContextRecord->IntS2);
+            (ULONG)ContextRecord->XIntT9,
+            (ULONG)ContextRecord->XIntS0,
+            (ULONG)ContextRecord->XIntS1,
+            (ULONG)ContextRecord->XIntS2);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "S3 :%8lX  S4 :%8lX  S5 :%8lX  S6 :%8lX\n",
-            ContextRecord->IntS3,
-            ContextRecord->IntS4,
-            ContextRecord->IntS5,
-            ContextRecord->IntS6);
+            (ULONG)ContextRecord->XIntS3,
+            (ULONG)ContextRecord->XIntS4,
+            (ULONG)ContextRecord->XIntS5,
+            (ULONG)ContextRecord->XIntS6);
 
     HalDisplayString(Buffer);
 
     sprintf(Buffer,
             "S7 :%8lX  S8 :%8lX  GP :%8lX  SP :%8lX\n",
-            ContextRecord->IntS7,
-            ContextRecord->IntS8,
-            ContextRecord->IntGp,
-            ContextRecord->IntSp);
+            (ULONG)ContextRecord->XIntS7,
+            (ULONG)ContextRecord->XIntS8,
+            (ULONG)ContextRecord->XIntGp,
+            (ULONG)ContextRecord->XIntSp);
 
      HalDisplayString(Buffer);
 
      sprintf(Buffer,
             "RA :%8lX  LO :%8lX  HI :%8lX  FSR:%8lX\n",
-            ContextRecord->IntRa,
-            ContextRecord->IntLo,
-            ContextRecord->IntHi,
-            ContextRecord->Fsr);
+            (ULONG)ContextRecord->XIntRa,
+            (ULONG)ContextRecord->XIntLo,
+            (ULONG)ContextRecord->XIntHi,
+            (ULONG)ContextRecord->Fsr);
 
     HalDisplayString(Buffer);
 
@@ -262,7 +261,7 @@ Return Value:
     //
 
     sprintf(Buffer,
-            "F0 :%8lX  F1 :%8lX  F2 :%8lX  F3 :%8lX\n\n",
+            "F0 :%8lX  F1 :%8lX  F2 :%8lX  F3 :%8lX\n",
             ContextRecord->FltF0,
             ContextRecord->FltF1,
             ContextRecord->FltF2,
@@ -340,7 +339,7 @@ Return Value:
     DllName.Length = 0;
     DllName.Buffer = L"";
     if (FunctionEntry != NULL) {
-        StackLimit = KeGetCurrentThread()->KernelStack;
+        StackLimit = (ULONG)KeGetCurrentThread()->KernelStack;
         HalDisplayString("Callee-Sp Return-Ra  Dll Base - Name\n");
         for (Index = 0; Index < 8; Index += 1) {
             ImageBase = KiPcToFileHeader((PVOID)ControlPc,
@@ -349,26 +348,26 @@ Return Value:
 
             sprintf(Buffer,
                     " %08lX %08lX : %08lX - %s\n",
-                    ContextRecord->IntSp,
+                    (ULONG)ContextRecord->XIntSp,
                     NextPc + 4,
                     ImageBase,
                     (*UnicodeToAnsiRoutine)( (ImageBase != NULL) ? &DataTableEntry->BaseDllName : &DllName,
                                              AnsiBuffer, sizeof( AnsiBuffer )));
 
             HalDisplayString(Buffer);
-            if ((NextPc != ControlPc) || (ContextRecord->IntSp != LastStack)) {
+            if ((NextPc != ControlPc) || ((ULONG)ContextRecord->XIntSp != LastStack)) {
                 ControlPc = NextPc;
-                LastStack = ContextRecord->IntSp;
+                LastStack = (ULONG)ContextRecord->XIntSp;
                 FunctionEntry = KiLookupFunctionEntry(ControlPc);
                 if ((FunctionEntry != NULL) && (LastStack < StackLimit)) {
-                    NextPc = RtlVirtualUnwind(ControlPc,
+                    NextPc = RtlVirtualUnwind(ControlPc | 1,
                                               FunctionEntry,
                                               ContextRecord,
                                               &InFunction,
                                               &EstablisherFrame,
                                               NULL);
                 } else {
-                    NextPc = ContextRecord->IntRa;
+                    NextPc = (ULONG)ContextRecord->XIntRa;
                 }
 
             } else {
@@ -441,11 +440,19 @@ Return Value:
                                                    LDR_DATA_TABLE_ENTRY,
                                                    InLoadOrderLinks);
 
-                NtHeaders = RtlImageNtHeader(DataTableEntry->DllBase);
+                if (MmDbgReadCheck(DataTableEntry->DllBase) != NULL) {
+                    PIMAGE_NT_HEADERS NtHeaders;
+
+                    NtHeaders = RtlImageNtHeader(DataTableEntry->DllBase);
+                    DateStamp = NtHeaders->FileHeader.TimeDateStamp;
+
+                } else {
+                    DateStamp = 0;
+                }
                 sprintf(Buffer,
                         "%08lX %08lx - %s",
                         DataTableEntry->DllBase,
-                        NtHeaders->FileHeader.TimeDateStamp,
+                        DateStamp,
                         (*UnicodeToAnsiRoutine)( &DataTableEntry->BaseDllName, AnsiBuffer, sizeof( AnsiBuffer )));
 
                 KiDisplayString(80, Index, Buffer);
@@ -669,7 +676,6 @@ Return Value:
     PLIST_ENTRY Next;
     ULONG Bounds;
     PVOID ReturnBase, Base;
-    PIMAGE_NT_HEADERS NtHeaders;
 
     //
     // If the module list has been initialized, then scan the list to
@@ -693,8 +699,7 @@ Return Value:
 
             Next = Next->Flink;
             Base = Entry->DllBase;
-            NtHeaders = RtlImageNtHeader(Base);
-            Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
+            Bounds = (ULONG)Base + Entry->SizeOfImage;
             if ((ULONG)PcValue >= (ULONG)Base && (ULONG)PcValue < Bounds) {
                 *DataTableEntry = Entry;
                 ReturnBase = Base;

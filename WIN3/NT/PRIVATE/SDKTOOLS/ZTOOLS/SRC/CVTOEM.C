@@ -25,9 +25,43 @@ Return Value:
 
 {
     unsigned i;
+    LPSTR pSrc;
+    LPSTR pDst;
+    WCHAR Wide;
 
     for( i=0; i<argc; i++ ) {
-        CharToOem( argv[i], argv[i] );
+        pSrc = argv[i];
+        pDst = argv[i];
+
+        do {
+
+            //
+            // Convert ansi to Unicode and then
+            // Unicode to OEM
+            //
+
+            MultiByteToWideChar(
+                CP_ACP,
+                MB_PRECOMPOSED,
+                pSrc++,
+                1,
+                &Wide,
+                1
+                );
+
+            WideCharToMultiByte(
+                CP_OEMCP,
+                0,
+                &Wide,
+                1,
+                pDst++,
+                1,
+                "_",
+                NULL
+                );
+
+        } while (*pSrc);
+
     }
     SetFileApisToOEM();
 }
@@ -63,7 +97,7 @@ Return Value:
     AnsiValue = getenv( p );
 
     if( AnsiValue != NULL ) {
-        OemBuffer = strdup( AnsiValue );
+        OemBuffer = _strdup( AnsiValue );
         if( OemBuffer != NULL ) {
             CharToOem( OemBuffer, OemBuffer );
         }
@@ -99,14 +133,14 @@ Return Value:
     int   rc;
 
     if( p == NULL ) {
-        return( putenv( p ) );
+        return( _putenv( p ) );
     }
 
-    AnsiBuffer = strdup( p );
+    AnsiBuffer = _strdup( p );
     if( AnsiBuffer != NULL ) {
         OemToChar( AnsiBuffer, AnsiBuffer );
     }
-    rc = putenv( AnsiBuffer );
+    rc = _putenv( AnsiBuffer );
     if( AnsiBuffer != NULL ) {
         free( AnsiBuffer );
     }

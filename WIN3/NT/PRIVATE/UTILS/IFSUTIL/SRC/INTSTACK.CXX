@@ -1,17 +1,20 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "error.hxx"
 #include "intstack.hxx"
 
 
-DEFINE_CONSTRUCTOR( INTSTACK, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( INTSTACK, OBJECT, IFSUTIL_EXPORT );
 
 VOID
 INTSTACK::Construct (
- 	)
+        )
 /*++
 
 Routine Description:
@@ -33,6 +36,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 INTSTACK::~INTSTACK(
     )
 /*++
@@ -55,6 +59,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 INTSTACK::Initialize(
     )
@@ -80,6 +85,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 INTSTACK::Push(
     IN  BIG_INT Data
@@ -104,7 +110,7 @@ Return Value:
     PINTNODE    p;
 
     p = _stack;
- 	if (!(_stack = NEW INTNODE)) {
+        if (!(_stack = NEW INTNODE)) {
         _stack = p;
         return FALSE;
     }
@@ -117,6 +123,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 VOID
 INTSTACK::Pop(
     IN  ULONG   HowMany
@@ -144,16 +151,17 @@ Return Value:
 
     for (; HowMany; HowMany--) {
 
-        DbgAssert(_stack);
+        DebugAssert(_stack);
 
         p = _stack->Next;
- 		DELETE( _stack );
+                DELETE( _stack );
         _stack = p;
         _size--;
     }
 }
 
 
+IFSUTIL_EXPORT
 BIG_INT
 INTSTACK::Look(
     IN  ULONG   Index
@@ -250,7 +258,7 @@ Return Value:
 
     while (_stack) {
         p = _stack->Next;
- 		DELETE( _stack );
+                DELETE( _stack );
         _stack = p;
     }
     _size = 0;

@@ -113,6 +113,15 @@ class PAGER : public OBJECT {
             IN  ULONG   TabExp
 			);
 
+#ifdef DBCS // v-junm - 09/24/93
+
+        BOOLEAN
+        IsLeadByte(
+            IN  BYTE   c
+            );
+
+#endif
+
 	private:
 
 		VOID
@@ -198,3 +207,4 @@ Return Value:
 }
 
 #endif // __PAGER__
+

@@ -40,7 +40,18 @@
 
 #ifndef _POSIX_
 
-extern struct _timeb __itimeb;
+void __cdecl __inittime(void);
+
+#ifdef	_MSC_VER
+
+#pragma data_seg(".CRT$XIC")
+static void (__cdecl *pinit)(void) = __inittime;
+
+#pragma data_seg()
+
+#endif	/* _MSC_VER */
+
+struct _timeb __itimeb = { 0, 0, 0, 0 };
 
 /***
 *clock_t clock() - Return the processor time used by this process.

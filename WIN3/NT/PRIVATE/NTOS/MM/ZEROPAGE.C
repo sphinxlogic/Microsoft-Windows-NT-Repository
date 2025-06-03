@@ -56,6 +56,7 @@ Environment:
     PVOID StartVa;
     PKTHREAD Thread;
     PVOID ZeroBase;
+    ULONG i;
 
     //
     // Before this becomes the zero page thread, free the kernel
@@ -109,9 +110,19 @@ Environment:
 
             } else {
 
-#if defined(_MIPS_) || defined(COLORED_PAGES)
-
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+                for (i = 0; i < MM_MAXIMUM_NUMBER_OF_COLORS; i++) {
+                    PageFrame = MmFreePagesByPrimaryColor[FreePageList][i].Flink;
+                    if (PageFrame != MM_EMPTY_LIST) {
+                        break;
+                    }
+                }
+#else  //MM_MAXIMUM_NUMBER_OF_COLORS > 1
                 PageFrame = MmFreePageListHead.Flink;
+#endif //MM_MAXIMUM_NUMBER_OF_COLORS > 1
+                Pfn1 = MI_PFN_ELEMENT(PageFrame);
+
+                ASSERT (PageFrame != MM_EMPTY_LIST);
                 Pfn1 = MI_PFN_ELEMENT(PageFrame);
                 MiRemoveAnyPage (MI_GET_SECONDARY_COLOR (PageFrame, Pfn1));
 
@@ -119,11 +130,16 @@ Environment:
                 // Zero the page using the last color used to map the page.
                 //
 
-#if defined(_X86_) || defined(_PPC_)
+#if defined(_X86_)
 
                 ZeroBase = MiMapPageToZeroInHyperSpace (PageFrame);
                 UNLOCK_PFN (OldIrql);
                 RtlZeroMemory (ZeroBase, PAGE_SIZE);
+
+#elif defined(_PPC_)
+
+                UNLOCK_PFN (OldIrql);
+                KeZeroPage(PageFrame);
 
 #else
 
@@ -131,22 +147,7 @@ Environment:
                 UNLOCK_PFN (OldIrql);
                 HalZeroPage(ZeroBase, ZeroBase, PageFrame);
 
-#endif
-
-#else
-
-                PageFrame = MiRemoveAnyPage (0);
-
-                //
-                // Map the page in hyperspace using the spot reserved for
-                // zeroing.
-                //
-
-                ZeroBase = MiMapPageToZeroInHyperSpace (PageFrame);
-                UNLOCK_PFN (OldIrql);
-                RtlZeroMemory (ZeroBase, PAGE_SIZE);
-
-#endif
+#endif //X86
 
                 LOCK_PFN_WITH_TRY (OldIrql);
                 MiInsertPageInList (MmPageLocationList[ZeroedPageList],

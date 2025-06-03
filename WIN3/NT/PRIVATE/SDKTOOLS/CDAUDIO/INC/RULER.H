@@ -10,4 +10,3 @@ RulerInit(
     VOID
     );
 
-

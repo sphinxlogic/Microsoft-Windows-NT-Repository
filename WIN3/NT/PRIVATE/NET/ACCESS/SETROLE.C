@@ -29,7 +29,6 @@
 #include        <lmaccess.h>
 #include        <lmerr.h>
 #include <ntsam.h>
-#include        <wcstr.h>
 
 #include "accessp.h"
 #include "netlogon.h"
@@ -103,11 +102,11 @@ char    **argv;
         return;
     }
 
-    if(stricmp( argv[1], "Primary" ) == 0) {
+    if(_stricmp( argv[1], "Primary" ) == 0) {
 
         Role = UAS_ROLE_PRIMARY;
 
-    } else if( stricmp(argv[1], "Backup") == 0) {
+    } else if( _stricmp(argv[1], "Backup") == 0) {
 
         Role = UAS_ROLE_BACKUP;
 

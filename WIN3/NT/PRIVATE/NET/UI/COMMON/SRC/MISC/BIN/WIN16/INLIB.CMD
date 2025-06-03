@@ -1,1 +1,0 @@
-in ..\..\..\..\lib\uimiscw.lib

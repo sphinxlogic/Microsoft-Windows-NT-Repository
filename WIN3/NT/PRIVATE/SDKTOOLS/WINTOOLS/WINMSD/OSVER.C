@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module contains support for the OS Version dialog.
+    This module contains support for the Version Tab.
 
 Author:
 
@@ -34,352 +34,39 @@ Environment:
 #include <tchar.h>
 
 //
-// Names of Registry values that are to be displayed by the OS Version dialog.
+// Version Tab Data Structure
 //
 
-VALUE
-Values[ ] = {
+typedef
+struct
+_VERSION_INFO {
 
-    MakeValue( InstallDate,             DWORD ),
-    MakeValue( RegisteredOwner,         SZ ),
-    MakeValue( RegisteredOrganization,  SZ ),
-    MakeValue( CurrentVersion,          SZ ),
-    MakeValue( SystemRoot,              SZ ),
-    MakeValue( CurrentType,             SZ )
+    TCHAR       ProductType[128];
+    TCHAR       VersionNumber[128];
+    TCHAR       Platform[128];
+    TCHAR       RegisteredUser[128];
+    TCHAR       RegisteredOrg[128];
+    TCHAR       Id[64];
+    TCHAR       ServerComment[256];
+    BOOL        ValidDetails;
 
-};
+}   VERSION_INFO, *LPVERSION_INFO;
 
-//
-// String Id's and Control Id's Table
-//
-
-DIALOGTEXT OsVerData[ ] = {
-
-    DIALOG_TABLE_ENTRY( INSTALL_DATE            ),
-    DIALOG_TABLE_ENTRY( REGISTERED_OWNER        ),
-    DIALOG_TABLE_ENTRY( REGISTERED_ORGANIZATION ),
-    DIALOG_TABLE_ENTRY( VERSION_NUMBER          ),
-    DIALOG_TABLE_ENTRY( SYSTEM_ROOT             ),
-    DIALOG_TABLE_ENTRY( BUILD_TYPE              ),
-    DIALOG_TABLE_ENTRY( START_OPTIONS           ),
-    DIALOG_TABLE_ENTRY( PRODUCT_TYPE            ),
-    DIALOG_TABLE_ENTRY( BUILD_NUMBER            ),
-    DIALOG_LAST__ENTRY( CSD_NUMBER              )
-
-};
 
 //
-// Location of values to be displayed by the OS Version dialog.
+// internal function prototypes
 //
 
-MakeKey(
-    Key,
-    HKEY_LOCAL_MACHINE,
-    TEXT( "Software\\Microsoft\\Windows Nt\\CurrentVersion" ),
-    NumberOfEntries( Values ),
-    Values
-    );
-
-//
-// Name of Registry value that's to be displayed by the OS Version dialog.
-//
-
-VALUE
-SSOValue[ ] = {
-
-    MakeValue( SystemStartOptions,        SZ )
-
-};
-
-//
-// Location of value to be displayed by the OS Version dialog.
-//
-
-MakeKey(
-    SSOKey,
-    HKEY_LOCAL_MACHINE,
-    TEXT( "System\\CurrentControlSet\\Control" ),
-    NumberOfEntries( SSOValue ),
-    SSOValue
-    );
-
-//
-// Name of Registry value that's to be displayed by the OS Version dialog.
-//
-
-VALUE
-PTValue[ ] = {
-
-    MakeValue( ProductType,        SZ )
-
-};
-
-//
-// Location of value to be displayed by the OS Version dialog.
-//
-
-MakeKey(
-    PTKey,
-    HKEY_LOCAL_MACHINE,
-    TEXT( "System\\CurrentControlSet\\Control\\ProductOptions" ),
-    NumberOfEntries( PTValue ),
-    PTValue
-    );
-
 BOOL
-GetOsVersionData(
-    IN OUT LPDIALOGTEXT OsVerData
-    )
+GetVersionTabData(
+    IN LPVERSION_INFO lpvi
+    );
 
-/*++
+void 
+ConfigureProductID( LPTSTR lpPid );
 
-Routine Description:
-
-    GetOsVersionData queries the registry for the data required
-    for the OSVersion Dialog.
-
-Arguments:
-
-    LPDIALOGTEXT OsVerData.
-
-Return Value:
-
-    BOOL - Returns TRUE if function succeeds, FALSE otherwise.
-
---*/
-
-{
-    BOOL        Success;
-    HREGKEY     hRegKey;
-    UINT        i;
-
-    //
-    // Open the registry key that contains the OS Version data.
-    //
-
-    hRegKey = OpenRegistryKey( &Key );
-    DbgHandleAssert( hRegKey );
-    if( hRegKey == NULL ) {
-        return FALSE;
-    }
-
-    //
-    // For each value of interest, query the Registry, determine its
-    // type and display it in its associated edit field.
-    //
-
-    for( i = 0; i <= GetDlgIndex( IDC_EDIT_BUILD_TYPE, OsVerData ); i++ ) {
-
-        //
-        // Get the next value of interest.
-        //
-
-        Success = QueryNextValue( hRegKey );
-        DbgAssert( Success );
-        if( Success == FALSE ) {
-            continue;
-        }
-
-        //
-        // BUGBUG No Unicode ctime() so use ANSI type and APIs.
-        //
-
-        if( OsVerData[ i ].ControlDataId == IDC_EDIT_INSTALL_DATE ) {
-
-            LPSTR   Ctime;
-            TCHAR   szBuffer [ 50 ];
-            int     iNumChars;
-
-            //
-            // Convert the time to a string, overwrite the newline
-            // character and display the installation date.
-            //
-
-            Ctime = ctime(( const time_t* ) hRegKey->Data );
-            Ctime[ 24 ] = '\0';
-
-            //
-            // Convert the ANSI time string to UNICODE
-            //
-
-            iNumChars = MultiByteToWideChar ( CP_ACP,
-                                      MB_PRECOMPOSED,
-                                      Ctime,
-                                      -1,
-                                      szBuffer,
-                                      50
-                                      );
-
-            DbgAssert( iNumChars );
-
-            //
-            // Copy the registry data in the OsVerData structure
-            //
-
-            OsVerData[ i ].ControlData = (LPTSTR) _tcsdup ( szBuffer );
-
-        } else {
-
-            //
-            // Copy the registry data in the OsVerData structure
-            //
-
-            OsVerData[ i ].ControlData = (LPTSTR) _tcsdup ((LPTSTR) hRegKey->Data);
-        }
-
-        //
-        // Fill in the Control Label in the OsVerData structure
-        //
-
-        OsVerData[ i ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( OsVerData[ i ].ControlLabelStringId ));
-
-    }
-
-    //
-    // Close the registry key.
-    //
-
-    Success = CloseRegistryKey( hRegKey );
-    DbgAssert( Success );
-
-    //
-    // Ensure that the SystemStartOptions data structure is synchronized.
-    //
-
-    DbgAssert(
-           SSOKey.CountOfValues
-           == 1
-        );
-
-    //
-    // Open the registry key that contains the SystemStartInfo.
-    //
-
-    hRegKey = OpenRegistryKey( &SSOKey );
-    DbgHandleAssert( hRegKey );
-    if( hRegKey == NULL ) {
-        return FALSE;
-    }
-
-    //
-    // Query the Registry for the StartOptions.
-    //
-
-    Success = QueryNextValue( hRegKey );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        return FALSE;
-    }
-
-    //
-    // Copy the registry data (StartOptions) in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_START_OPTIONS, OsVerData ) ].ControlData =
-        (LPTSTR) _tcsdup ((LPTSTR) hRegKey->Data);
-
-    //
-    // Fill in the Control Label in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_START_OPTIONS, OsVerData ) ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( OsVerData[
-            GetDlgIndex( IDC_EDIT_START_OPTIONS, OsVerData ) ].ControlLabelStringId ));
-
-    //
-    // Close the StartOptions registry key.
-    //
-
-    Success = CloseRegistryKey( hRegKey );
-    DbgAssert( Success );
-
-    //
-    // Ensure that the ProductType data structure is synchronized.
-    //
-
-    DbgAssert(
-            PTKey.CountOfValues
-            == 1
-        );
-
-    //
-    // Open the registry key that contains the ProductType.
-    //
-
-    hRegKey = OpenRegistryKey( &PTKey );
-    DbgHandleAssert( hRegKey );
-    if( hRegKey == NULL ) {
-        return FALSE;
-    }
-
-    //
-    // Query the Registry for the ProductType.
-    //
-
-    Success = QueryNextValue( hRegKey );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
-        return FALSE;
-    }
-    //
-    // Copy the registry data (ProductType) in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_PRODUCT_TYPE, OsVerData ) ].ControlData =
-        (LPTSTR) _tcsdup ((LPTSTR) hRegKey->Data);
-
-    //
-    // Fill in the Control Label in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_PRODUCT_TYPE, OsVerData ) ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( OsVerData[
-            GetDlgIndex( IDC_EDIT_PRODUCT_TYPE, OsVerData ) ].ControlLabelStringId ));
-
-    //
-    // Close the ProductType registry key.
-    //
-
-    Success = CloseRegistryKey( hRegKey );
-    DbgAssert( Success );
-
-    //
-    // Copy the Current Build Number into the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_BUILD_NUMBER, OsVerData ) ].ControlData =
-        (LPTSTR) _tcsdup ( FormatBigInteger( GetBuildNumber( ), FALSE ));
-
-    //
-    // Fill in the Build Number Control Label in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_BUILD_NUMBER, OsVerData ) ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( OsVerData[
-            GetDlgIndex( IDC_EDIT_BUILD_NUMBER, OsVerData ) ].ControlLabelStringId ));
-
-    //
-    // Copy the Current CSDVersion into the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_CSD_NUMBER, OsVerData ) ].ControlData =
-        (LPTSTR) _tcsdup ( FormatBigInteger( GetCSDVersion( ), FALSE ));
-
-    //
-    // Fill in the CSD Version Control Label in the OsVerData structure
-    //
-
-    OsVerData[ GetDlgIndex( IDC_EDIT_CSD_NUMBER, OsVerData ) ].ControlLabel =
-            (LPTSTR) _tcsdup ( GetString ( OsVerData[
-            GetDlgIndex( IDC_EDIT_CSD_NUMBER, OsVerData ) ].ControlLabelStringId ));
-
-    return TRUE;
-}
-
-
 BOOL
-OsVersionDlgProc(
+VersionTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -404,315 +91,363 @@ Return Value:
 --*/
 
 {
-    UINT    i;
-    BOOL    Success;
 
     switch( message ) {
 
-    CASE_WM_CTLCOLOR_DIALOG;
-
     case WM_INITDIALOG:
         {
-            //
-            // Call GetOsVerData and collect the data in the OsVerData struct
-            //
-
-            Success = GetOsVersionData ( OsVerData );
-            DbgAssert( Success );
-
-            for( i = 0; i < NumDlgEntries( OsVerData ); i++ ) {
-
-                //
-                // Set Label the control
-                //
-
-                Success = SetDlgItemText(
-                            hWnd,
-                            OsVerData[ i ].ControlLabelId,
-                            OsVerData[ i ].ControlLabel
-                            );
-                DbgAssert( Success );
-
-                //
-                // Put the data in the edit box.
-                //
-
-                Success = SetDlgItemText(
-                            hWnd,
-                            OsVerData[ i ].ControlDataId,
-                            OsVerData[ i ].ControlData
-                            );
-                DbgAssert( Success );
-
-            }
-
-            //
-            // Free the DlgData strings
-            //
-
-            for( i = 0; i < NumDlgEntries( OsVerData ) - 1; i++ ) {
-
-                FreeMemory( OsVerData[ i ].ControlData  );
-                FreeMemory( OsVerData[ i ].ControlLabel );
-
-            }
-
-            return TRUE;
+            InitializeVersionTab(hWnd);
+            return(FALSE);
         }
 
-    case WM_COMMAND:
-
-        switch( LOWORD( wParam )) {
-
-        case IDOK:
-        case IDCANCEL:
-
-            EndDialog( hWnd, 1 );
-            return TRUE;
-        }
-        break;
     }
 
     return FALSE;
+
 }
 
-
-DWORD
-GetBuildNumber (
-                void
-               )
 
+BOOL
+GetVersionTabData(
+    IN LPVERSION_INFO lpvi
+    )
 /*++
 
 Routine Description:
 
-    GetBuildNumber queries the registry for the current build number.  If this value
-    does not exits, the build number is set to 0.  The build number cannot be retrieved
-    by conventional means (i.e. QueryNextValue) because it's location changed in 584.
+    Fills out the VERSION_INFO structure with the current version data
 
 Arguments:
 
-    None.
+    lpvi - pointer to a VERSION_INFO structure that will be filled out
 
 Return Value:
 
-    DWORD Current CSDVersion.
+    BOOL - TRUE if report is build successfully, FALSE otherwise.
 
 --*/
 {
-    LPTSTR  lpszRegName = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-    HKEY    hsubkey = NULL;
-    HKEY    hRemoteKey;
-    DWORD   dwZero = 0;
-    DWORD   dwRegValueType;
-    WCHAR   chRegValue[ 128 ];
-    DWORD   cbRegValue;
-    DWORD   dwBuildNumber;
-    LONG    lSuccess;
+      WCHAR szBuffer[64];
+      WCHAR szBuffer2[64];
+      WCHAR szBuffer3[64];
+      WCHAR szTitle[128];
+      WCHAR szNumBuf1[32];
+      LPWSTR lpRegInfoValue = NULL;
+      WCHAR szRegInfo[MAX_PATH];
+      DWORD cb;
+      HKEY hkey;
+      DWORD err;
+      OSVERSIONINFO Win32VersionInformation;
 
-    cbRegValue = sizeof(chRegValue);
+      //
+      // initialize the structure
+      //
+
+      ZeroMemory( lpvi, sizeof( VERSION_INFO ) );
+      lpvi->ValidDetails = TRUE;
+
+      //
+      // Get the product type string
+      //
+      if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_PRODUCTOPTIONSKEY, 0, KEY_READ, &hkey)) {
+
+           //
+           // Get the product type
+           //
+           err = QueryValue(hkey, SZ_PRODUCT_TYPE, (LPBYTE *) &lpRegInfoValue);
+
+           if (!err) {
+
+               switch ( lstrlen( lpRegInfoValue ) ) {
+
+                  case 5:  // "winnt"
+                      lstrcpy( lpvi->ProductType, L"Microsoft (R) Windows NT (TM) Workstation" );
+                      break;
+
+                  case 8:  // "LanmanNT" or "ServerNT"
+                      lstrcpy( lpvi->ProductType, L"Microsoft (R) Windows NT (TM) Server" );
+                      break;
+
+                  default: // if not one of those, just use raw text
+                      lstrcpy( lpvi->ProductType, lpRegInfoValue );
+               }
+
+           if ( lpRegInfoValue )
+              LocalFree( lpRegInfoValue );
+           }
+
+           // Remember to close key
+           RegCloseKey(hkey);
+      }
+      else
+         lpvi->ValidDetails = FALSE;
 
 
-    if ( _fIsRemote ) {
+      //
+      // get the platform and build type.
+      //
 
-        //
-        // Attempt to connect to the remote registry...
-        //
+      // first get the PROCESSOR_ARCHITECTURE
+      if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_ENVIRONMENTKEY, 0, KEY_READ, &hkey)) {
+         if (ERROR_SUCCESS == QueryValue(hkey, SZ_PROCESSOR_ARCH, (LPBYTE *) &lpRegInfoValue))
+            lstrcpy( szBuffer, lpRegInfoValue );
+         else
+            szBuffer[0] = UNICODE_NULL;
 
-        lSuccess = RegConnectRegistry(
-                           _lpszSelectedComputer,
-                           HKEY_LOCAL_MACHINE,
-                           &hRemoteKey
-                           );
+         if ( lpRegInfoValue )
+              LocalFree( lpRegInfoValue );
 
-        if( lSuccess != ERROR_SUCCESS ) {
+         RegCloseKey(hkey);
+      }
+      else
+         lpvi->ValidDetails = FALSE;
 
-            return 0;
-        }
+      // now get build type
+      if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_LICENCEINFOKEY, 0, KEY_READ, &hkey)) {
 
-    } else {
+         if (ERROR_SUCCESS == QueryValue(hkey, SZ_CURRENTTYPE, (LPBYTE *) &lpRegInfoValue)){
+               wsprintf( lpvi->Platform, L"%s %s", szBuffer, lpRegInfoValue );
+         }
+         if ( lpRegInfoValue )
+              LocalFree( lpRegInfoValue );
 
-        hRemoteKey = HKEY_LOCAL_MACHINE;
-    }
+         RegCloseKey(hkey);
+      }
+      else
+         lpvi->ValidDetails = FALSE;
 
-    //
-    // Attempt to open the supplied key.
-    //
 
-    lSuccess = RegOpenKeyEx(
-                    hRemoteKey,
-                    lpszRegName,
-                    dwZero,
-                    KEY_QUERY_VALUE,
-                    &hsubkey
-                    );
+      //
+      // Get registration info
+      //
 
-    if ( lSuccess == ERROR_SUCCESS ) {
+      if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_LICENCEINFOKEY, 0, KEY_READ, &hkey)) {
 
-        lSuccess = RegQueryValueEx( hsubkey,
-                                   L"CurrentBuildNumber",
-                                   NULL,
-                                   &dwRegValueType,
-                                   (LPBYTE)&chRegValue,
-                                   &cbRegValue
-                                   );
+           // get user name
+           cb = sizeof( lpvi->RegisteredUser );
+           if (RegQueryValueEx(hkey,
+                               SZ_REGUSER,
+                               NULL,
+                               NULL,
+                               (LPBYTE)lpvi->RegisteredUser,
+                               &cb) != ERROR_SUCCESS) {
 
-        if ( lSuccess != ERROR_SUCCESS ) {
-            lSuccess = RegQueryValueEx( hsubkey,
-                                       L"CurrentBuild",
-                                       NULL,
-                                       &dwRegValueType,
-                                       (LPBYTE)&chRegValue,
-                                       &cbRegValue
-                                       );
-            if ( lSuccess == ERROR_SUCCESS ) {
-                if ( chRegValue[0] == L'1' && chRegValue[1] == L'.' ) {
-                    PWSTR s;
+               lstrcpy( lpvi->RegisteredUser, GetString( IDS_NOT_AVAILABLE ) );
 
-                    s = wcsstr( &chRegValue[2], L"." );
-                    if (s != NULL) {
-                        *s = 0;
-                    }
-                    wcscpy (chRegValue, chRegValue+2);
-                }
-            }
-        }
-    }
-    if ( lSuccess != ERROR_SUCCESS || dwRegValueType != REG_SZ ) {
+           }
 
-        dwBuildNumber = 0;
+           // get the organization name
+           cb = sizeof( lpvi->RegisteredOrg );
+           if (RegQueryValueEx(hkey,
+                               SZ_REGORGANIZATION,
+                               NULL,
+                               NULL,
+                               (LPBYTE)lpvi->RegisteredOrg,
+                               &cb) != ERROR_SUCCESS) {
 
-    } else {
+               lstrcpy( lpvi->RegisteredOrg, GetString( IDS_NOT_AVAILABLE ) );
 
-        if ( !swscanf (chRegValue, L"%d", &dwBuildNumber)) {
-            dwBuildNumber = 0;
+           }
 
-        }
+           // get the OEM or Product ID.
 
-    }
-    if (hsubkey != NULL) {
+           cb = sizeof( lpvi->Id );
+           if (RegQueryValueEx(hkey,
+                               SZ_OEMID,
+                               NULL,
+                               NULL,
+                               (LPBYTE)lpvi->Id,
+                               &cb) != ERROR_SUCCESS) {
 
-        RegCloseKey (hsubkey);
-    }
-    if (hRemoteKey != NULL) {
+              cb = sizeof( lpvi->Id );
+              if (RegQueryValueEx(hkey,
+                                  SZ_PRODUCTID,
+                                  NULL,
+                                  NULL,
+                                  (LPBYTE)lpvi->Id,
+                                  &cb) != ERROR_SUCCESS) {
 
-        RegCloseKey (hRemoteKey);
-    }
+              }
 
-    return dwBuildNumber ;
+           }
+
+           //
+           // Format ID
+           //
+
+           ConfigureProductID( (LPTSTR) lpvi->Id );
+
+
+           //
+           // If we are remote get the product version from registry
+           // If we are not remote call GetVersionEx()
+           //
+           if (_fIsRemote) {
+
+              // Get Version Number
+              if( ERROR_SUCCESS == QueryValue(hkey, SZ_CURRENTVERSION, (LPBYTE *) &lpRegInfoValue) ){
+                 lstrcpy(szBuffer, lpRegInfoValue);
+                 if ( lpRegInfoValue )
+                      LocalFree( lpRegInfoValue );
+              }
+
+              // Get Build Number
+              if( ERROR_SUCCESS == QueryValue(hkey, SZ_CURRENTBUILDNUMBER, (LPBYTE *) &lpRegInfoValue) ){
+                 lstrcpy(szBuffer2, lpRegInfoValue);
+                 if ( lpRegInfoValue )
+                      LocalFree( lpRegInfoValue );
+              }
+
+              // Get Service Pack
+              if( ERROR_SUCCESS == QueryValue(hkey, SZ_CSD_VERSION, (LPBYTE *) &lpRegInfoValue) ){
+                 wsprintf(szBuffer3, L": %s", lpRegInfoValue);
+                 if ( lpRegInfoValue )
+                      LocalFree( lpRegInfoValue );
+              }
+              else
+                 szBuffer3[0] = UNICODE_NULL;
+
+              //string it all together and put it in the structure
+              wsprintf( lpvi->VersionNumber,
+                        GetString( IDS_VERSIONMSG2 ),
+                        szBuffer, szBuffer2, szBuffer3 );
+
+          }
+          else {
+
+               // If we are not remote, use GetVersionEx.
+
+               Win32VersionInformation.dwOSVersionInfoSize = sizeof(Win32VersionInformation);
+
+               if (!GetVersionEx(&Win32VersionInformation)) {
+                   Win32VersionInformation.dwMajorVersion = 0;
+                   Win32VersionInformation.dwMinorVersion = 0;
+                   Win32VersionInformation.dwBuildNumber  = 0;
+                   Win32VersionInformation.szCSDVersion[0] = UNICODE_NULL;
+                   lpvi->ValidDetails = FALSE;
+               }
+
+               szTitle[0] = L'\0';
+               if (Win32VersionInformation.szCSDVersion[0] != 0) {
+                   wsprintf(szTitle, L": %s", Win32VersionInformation.szCSDVersion);
+               }
+               if (GetSystemMetrics(SM_DEBUG)) {
+                   szNumBuf1[0] = L' ';
+                   LoadString(_hModule, IDS_DEBUG, &szNumBuf1[1], cchSizeof(szNumBuf1));
+               } else {
+                   szNumBuf1[0] = L'\0';
+               }
+               wsprintf(lpvi->VersionNumber, GetString ( IDS_VERSIONMSG ),
+                        Win32VersionInformation.dwMajorVersion,
+                        Win32VersionInformation.dwMinorVersion,
+                        Win32VersionInformation.dwBuildNumber,
+                        (LPWSTR)szTitle,
+                        (LPWSTR)szNumBuf1
+                       );
+
+             }
+
+          RegCloseKey(hkey);
+      }
+      else
+         lpvi->ValidDetails = FALSE;
+
+      // Get the server comment, if it exists
+      if (!RegOpenKeyEx(_hKeyLocalMachine, SZ_LANMANPARAMKEY, 0, KEY_READ, &hkey)) {
+
+         // get svrcomment
+         cb = sizeof( lpvi->ServerComment );
+         if (RegQueryValueEx(hkey,
+                            SZ_SRVCOMMENT,
+                            NULL,
+                            NULL,
+                            (LPBYTE)lpvi->ServerComment,
+                            &cb) != ERROR_SUCCESS) {
+
+              // if we fail, we don't display anything
+         }
+
+         RegCloseKey(hkey);
+      }
+
+      return(TRUE);
+
 }
 
-
-DWORD
-GetCSDVersion (
-               void
-              )
 
-/*++
 
-Routine Description:
+//*************************************************************
+//
+//  ConfigureProductID()
+//
+//  Purpose:    Hyphenates the product id in this format:
+//
+//                    12345-123-1234567-12345
+//
+//  Parameters: lpPid    -  Product ID
+//
+//  Return:     void
+//
+//  Comments:
+//
+//  History:    Date        Author     Comment
+//              11/20/95    ericflo    Created
+//
+//*************************************************************
 
-    GetCSDVersion queries the registry for the current CSDVersion.  If this value
-    does not exits, the CSDVersion is set to zero.  CSDVersion cannot be retrieved
-    by conventional means (i.e. QueryNextValue) because this Value did not exist in
-    the first release of Windows NT (Build 511).  Calling QueryNextValue on a non -
-    existant value causes an assertion.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    DWORD Current CSDVersion.
-
---*/
+void 
+ConfigureProductID( LPTSTR lpPid )
 {
-    LPTSTR  lpszRegName = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-    HKEY    hsubkey = NULL;
-    HKEY    hRemoteKey;
-    DWORD   dwZero = 0;
-    DWORD   dwRegValueType;
-    DWORD   dwRegValue;
-    DWORD   cbRegValue;
-    DWORD   dwCSDVersion;
-    LONG    lSuccess;
-
-    cbRegValue = sizeof(dwRegValue);
+    TCHAR szBuf[64];
 
 
-    if ( _fIsRemote ) {
-
-        //
-        // Attempt to connect to the remote registry...
-        //
-
-        lSuccess = RegConnectRegistry(
-                           _lpszSelectedComputer,
-                           HKEY_LOCAL_MACHINE,
-                           &hRemoteKey
-                           );
-
-        if( lSuccess != ERROR_SUCCESS ) {
-
-            return 0;
-        }
-
-    } else {
-
-        hRemoteKey = HKEY_LOCAL_MACHINE;
+    if (!lpPid || !(*lpPid) || (lstrlen(lpPid) < 20) ) {
+        return;
     }
 
-    //
-    // Attempt to open the supplied key.
-    //
+    szBuf[0] = lpPid[0];
+    szBuf[1] = lpPid[1];
+    szBuf[2] = lpPid[2];
+    szBuf[3] = lpPid[3];
+    szBuf[4] = lpPid[4];
 
-    lSuccess = RegOpenKeyEx(
-                    hRemoteKey,
-                    lpszRegName,
-                    dwZero,
-                    KEY_QUERY_VALUE,
-                    &hsubkey
-                    );
+    szBuf[5] = TEXT('-');
 
-    if ( lSuccess == ERROR_SUCCESS ) {
+    szBuf[6] = lpPid[5];
+    szBuf[7] = lpPid[6];
+    szBuf[8] = lpPid[7];
 
-        lSuccess = RegQueryValueEx( hsubkey,
-                                   L"CSDVersion",
-                                   NULL,
-                                   &dwRegValueType,
-                                   (LPBYTE)&dwRegValue,
-                                   &cbRegValue
-                                   );
+    szBuf[9] = TEXT('-');
 
-    }
-    if ( lSuccess != ERROR_SUCCESS || dwRegValueType != REG_DWORD ) {
+    szBuf[10] = lpPid[8];
+    szBuf[11] = lpPid[9];
+    szBuf[12] = lpPid[10];
+    szBuf[13] = lpPid[11];
+    szBuf[14] = lpPid[12];
+    szBuf[15] = lpPid[13];
+    szBuf[16] = lpPid[14];
 
-        dwCSDVersion = 0;
+    szBuf[17] = TEXT('-');
 
-    } else {
+    szBuf[18] = lpPid[15];
+    szBuf[19] = lpPid[16];
+    szBuf[20] = lpPid[17];
+    szBuf[21] = lpPid[18];
+    szBuf[22] = lpPid[19];
 
-        dwCSDVersion = dwRegValue;
+    szBuf[23] = TEXT('\0');
 
-    }
-    if (hsubkey != NULL) {
+    lstrcpy (lpPid, szBuf);
 
-        RegCloseKey (hsubkey);
-    }
-    if (hRemoteKey != NULL) {
-
-        RegCloseKey (hRemoteKey);
-    }
-
-    return dwCSDVersion ;
 }
 
-
+
+
 BOOL
 BuildOsVerReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     )
-
 
 /*++
 
@@ -722,8 +457,8 @@ Routine Description:
 
 Arguments:
 
-    ReportBuffer - Array of pointers to lines that make up the report.
-    NumReportLines - Running count of the number of lines in the report..
+    hWnd - Main window handle
+    iDetailLevel - summary or complete details?
 
 Return Value:
 
@@ -734,35 +469,134 @@ Return Value:
 
     BOOL Success;
     UINT i;
+    VERSION_INFO vi;
+    TCHAR szBuffer[MAX_PATH];
+
+    GetVersionTabData( &vi );
 
     AddLineToReport( 1, RFO_SKIPLINE, NULL, NULL );
     AddLineToReport( 0, RFO_SINGLELINE, (LPTSTR) GetString( IDS_OSVER_REPORT ), NULL );
     AddLineToReport( 0, RFO_SEPARATOR,  NULL, NULL );
 
-    Success = GetOsVersionData ( OsVerData );
-    DbgAssert( Success );
+    AddLineToReport( 0,  RFO_SINGLELINE, vi.ProductType, NULL );
 
-    for( i = 0; i < NumDlgEntries( OsVerData ); i++ ) {
+    AddLineToReport( 0,  RFO_RPTLINE, vi.VersionNumber, vi.Platform );
 
-        //
-        // Set Label the control
-        //
 
-        AddLineToReport( 0,
-                         RFO_RPTLINE,
-                         OsVerData[ i ].ControlLabel,
-                         OsVerData[ i ].ControlData );
+    lstrcpy(szBuffer, vi.RegisteredUser);
 
-        //
-        // Free the Data strings
-        //
-
-        FreeMemory( OsVerData[ i ].ControlData  );
-        FreeMemory( OsVerData[ i ].ControlLabel );
+    if(lstrlen(vi.RegisteredOrg)){
+       lstrcat(szBuffer, L", ");
+       lstrcat(szBuffer, vi.RegisteredOrg);
     }
 
-    // AddLineToReport( 0, RFO_SEPARATOR,  NULL, NULL );
+    AddLineToReport( 0,  RFO_RPTLINE,
+                         (LPTSTR) GetString( IDS_IDC_TEXT_REGISTERED_OWNER_DLG ),
+                         szBuffer );
+
+    if(lstrlen(vi.Id)){
+    AddLineToReport( 0,  RFO_RPTLINE,
+                         (LPTSTR) GetString( IDS_IDC_TEXT_PRODUCT_TYPE_DLG ),
+                         vi.Id );
+    }
+    AddLineToReport( 0, RFO_SEPARATOR,  NULL, NULL );
 
     return TRUE;
 
 }
+
+
+BOOL
+InitializeVersionTab(
+    HWND hWnd
+    )
+/*++
+
+Routine Description:
+
+    Sizes the Tab and positions the controls.
+
+Arguments:
+
+    hWnd - to the child dialog
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+   RECT rcTab;     // dimensions of tab dialog
+   BOOL    Success;
+   int     i;
+   HBITMAP hBitmap;
+   HICON hIcon;
+   VERSION_INFO vi;
+   HCURSOR          hSaveCursor;
+   DLGHDR *pHdr = (DLGHDR *) GetWindowLong(
+        GetParent(hWnd), GWL_USERDATA);
+
+   //
+   // Set the pointer to an hourglass
+   //
+
+   hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
+   DbgHandleAssert( hSaveCursor ) ;
+
+
+   //
+   // set state of global buttons
+   //
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_PROPERTIES,
+                  FALSE);
+
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_REFRESH,
+                  FALSE);
+
+   //
+   // Size and position the child dialog
+   //
+
+   SetWindowPos(hWnd, HWND_TOP,
+                pHdr->rcDisplay.left,
+                pHdr->rcDisplay.top,
+                pHdr->rcDisplay.right - pHdr->rcDisplay.left,
+                pHdr->rcDisplay.bottom - pHdr->rcDisplay.top,
+                SWP_SHOWWINDOW | SWP_NOACTIVATE	 );
+
+   //
+   // Set the appropriate Icon
+   //
+   hIcon = ImageList_ExtractIcon(_hModule, _hSystemImage, 0);
+   if (hIcon )
+   {
+       hIcon = (HICON)SendDlgItemMessage(hWnd, IDC_SYSTEM_BMP, STM_SETICON, (WPARAM)hIcon, 0L);
+       if (hIcon)
+           DestroyIcon(hIcon);
+   }
+
+   UpdateWindow( hWnd );
+
+
+   //
+   // Fill out the fields
+   //
+   GetVersionTabData( &vi );
+
+   SetDlgItemText(hWnd, IDC_EDIT_PRODUCT_TYPE, vi.ProductType);
+   SetDlgItemText(hWnd, IDC_EDIT_VERSION_NUMBER, vi.VersionNumber);
+   SetDlgItemText(hWnd, IDC_EDIT_BUILD_TYPE, vi.Platform);
+   SetDlgItemText(hWnd, IDC_EDIT_REGISTERED_OWNER, vi.RegisteredUser);
+   SetDlgItemText(hWnd, IDC_EDIT_REGISTERED_ORGANIZATION, vi.RegisteredOrg);
+   SetDlgItemText(hWnd, IDC_EDIT_PRODUCTID, vi.Id);
+   SetDlgItemText(hWnd, IDC_EDIT_SERVER_COMMENT, vi.ServerComment);
+
+   SetCursor( hSaveCursor );
+
+   return( TRUE );
+
+}
+
+

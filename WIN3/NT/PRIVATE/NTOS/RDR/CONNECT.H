@@ -73,15 +73,17 @@ Revision History:
 #define DF_OPLOCK_LVL2  0x00200000      // Server supports level 2 oplocks.
 #define DF_TIME_IS_UTC  0x00400000      // Server time is in UTC.
 #define DF_WFW          0x00800000      // Server is Windows for workgroups.
+#define DF_LARGE_READX  0x01000000      // Server supports oversized ReadAndX requests
 
 #ifdef _CAIRO_
 
 #define DF_KERBEROS     0x01000000      // Server does kerberos authentication
-#define DF_TRANS2_FSCTL 0x02000000      // Server accepts remoted fsctls in tran2s
-#define DF_DFS_TRANS2   0x04000000      // Server accepts Dfs related trans2
-                                        // functions. Can this be merged with
-                                        // DF_TRANS2_FSCTL?
 #endif // _CAIRO_
+
+#define DF_TRANS2_FSCTL 0x02000000      // Server accepts remoted fsctls in tran2s
+#define DF_DFSAWARE     0x04000000      // Server is Dfs aware
+#define DF_NT_FIND      0x08000000      // Server supports NT infolevels
+#define DF_NT_40        0x10000000      // Server is NT 4.0
 
 //
 //  Timeout for failed connects.  If a new connect attempt comes in within
@@ -100,6 +102,7 @@ Revision History:
 
 #define SLE_PAGING_FILE 0x00000001      // There is a paging file on this server
 #define SLE_PINGING     0x00000002      // Ping outstanding on TC.
+#define SLE_HAS_IP_ADDR 0x00000004      // SLE has IP and NB address info
 
 //
 //
@@ -137,20 +140,40 @@ typedef struct _SERVERLISTENTRY {
     ULONG Capabilities;                 //3 Server capabilities mask.
     UNICODE_STRING Text;                //* Name of serverlist (LOTHAIR)
 
+    //
+    // The rdr allows connecting to servers via its NetBIOS name, DNS name,
+    // or \\IP-Address name. We need to set the VcNumber field correctly when
+    // we have connected to the same server via its different names, or the
+    // server will only keep one VC alive. So, we capture the server's
+    // NetBIOS name and IPAddress. The NetBIOS name will be the same as
+    // the 'Text' field only if 'Text' is the NetBIOS name and we connected
+    // to the server via NetBT.
+    //
+
+    UNICODE_STRING NBName;              //* The NetBIOS name of server
+    WCHAR NBNameBuffer[16];             //* The buffer for NBName
+    TDI_ADDRESS_IP IPAddress;           //* IP Address of server
+
     NTSTATUS LastConnectStatus;
     ULONG LastConnectTime;
 
 #ifdef _CAIRO_
     UNICODE_STRING Principal;           //3 Name of principal (fully qualified name)
-#endif // _CAIRO_RDR
+#endif // _CAIRO_
+
+    UNICODE_STRING DomainName;          // name of remote domain
 
     LIST_ENTRY GlobalNext;              //1 Next ServerList structure.
     LIST_ENTRY CLEHead;                 //1 Pointer to ConnectList chain.
     LIST_ENTRY DefaultSeList;           //5 List of default security entries
     LIST_ENTRY ActiveSecurityList;      //3 Security Entries on this connection.
     LIST_ENTRY PotentialSecurityList;   //2 Security Entries on this connection.
+    LIST_ENTRY ScavengerList;           // scavenging list.
 
     PTRANSPORT SpecificTransportProvider;
+
+    BOOLEAN IsLoopback;                 // is this a loopback connection?
+    BOOLEAN InCancel;                   //7 True if MPX entries are being scavenged
 
     LARGE_INTEGER TimeZoneBias;         //3 NT Time bias to convert to server time
 
@@ -234,7 +257,18 @@ typedef struct _SERVERLISTENTRY {
 
     ERESOURCE  OutstandingRequestResource;// Resource to prevent disconnect
                                         // while there are outstanding operations
+
     ERESOURCE  RawResource;             // Resource protecting raw operations.
+
+    //
+    // Calculated maximum number of bytes for RawReads
+    //
+    ULONG   RawReadMaximum;
+
+    //
+    // Calculated maximum number of bytes for RawWrites
+    //
+    ULONG   RawWriteMaximum;
 
     //
     //  Transport provided performance data.
@@ -305,6 +339,7 @@ VOID ReleaseRequestResourceForThread( PSERVERLISTENTRY Server, ERESOURCE_THREAD 
 #define CLE_DORMANT             0x00000002  // Connection is dormant.
 #define CLE_TREECONNECTED       0x00000008  // Connection has a tree connection.
 #define CLE_DOESNT_NOTIFY       0x00000010  // ChangeNotify not supported (NT only).
+#define CLE_IS_A_DFS_SHARE      0x00000020  // Share is in Dfs
 
 #ifdef  PAGING_OVER_THE_NET
 #define CLE_PAGING_FILE         0x00000010  // Indicates there may be a paging file on this connection.
@@ -370,11 +405,45 @@ typedef struct _CONNECTLISTENTRY {
     ULONG  FileSystemAttributes;        //5 Attributes of file system
     LONG   MaximumComponentLength;      //5 Name length of file name components
 
+    //
+    // The next 2 fields are used to cache filesystem information, so we don't
+    //  hammer the server too much requesting information again and again
+    //
+    FILE_FS_SIZE_INFORMATION FsSizeInformation;
+    LARGE_INTEGER   FsSizeInformationExpiration;// The above data expires at this time.
+
     USHORT FileSystemTypeLength;        //3 Length of file system type.
     USHORT TreeId;                      //3 Tree Id returned from server.
     BOOLEAN HasTreeId;                  //3
     BOOLEAN Deleted;                    //  True if NetUseDel performed on connection.
     WCHAR  FileSystemType[LM20_DEVLEN+1]; //3 Lanman 2.1 Supplied File System.
+
+    //
+    // This holds the name of the last successful CHECK_DIRECTORY request to the server.
+    //  Observation shows that NTW tends to repeat requests quite often -- this cache
+    //  is used to locally satisfy the request.  'RdrServerStateUpdated'
+    //  incremented every time this client changes state on the server -- it's value
+    //  is placed in CheckPathServerState when the CHECK_DIRECTORY succeeded.  We
+    //  only use this cache if the expiration time has not passed, and if
+    //  CheckPathServerState is still equal to RdrServerStateUpdated.
+    //
+    union {
+        UNICODE_STRING CachedValidCheckPath;
+        WCHAR _buf[ MAX_PATH + sizeof(UNICODE_STRING) ];
+    };
+    LARGE_INTEGER CachedValidCheckPathExpiration;  // The above data expires at this time
+    LONG  CheckPathServerState;                    // Snapshotted value of RdrServerStateUpdated
+
+    //
+    // This may hold the name of a file or directory which we know does not exist on the server
+    //
+    union {
+        UNICODE_STRING CachedInvalidPath;
+        WCHAR _buf2[ MAX_PATH + sizeof( UNICODE_STRING) ];
+    };
+    LARGE_INTEGER CachedInvalidPathExpiration;      // The above data expires at this time
+    ULONG          CachedInvalidSmbCount;            // Snapshotted value RdrStatistics.SmbsTransmitted
+
 
 } CONNECTLISTENTRY, *PCONNECTLISTENTRY;
 

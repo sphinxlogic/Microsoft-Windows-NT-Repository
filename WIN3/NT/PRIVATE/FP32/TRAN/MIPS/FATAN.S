@@ -30,13 +30,13 @@
 #define  sqrt3m1  0.73205080756887729353
 #define  pi       3.14159265358979323846
 
-.text
 
+.text .text$fatan
 .globl atan2f
 .ent atan2f
 atan2f:
 	.frame sp, 0, t3
-    .prologue 0
+	.prologue 0
 	cvt.d.s	$f12
 	cvt.d.s	$f14
 	abs.d	$f0, $f12
@@ -72,12 +72,14 @@ fatan2z:
 .end atan2f
 
 
+.text .text$fatan
 .globl atanf
 .ent atanf
-fatan:
+.aent fatan
 atanf:
+fatan:
 	.frame sp, 0, t3
-    .prologue 0
+	.prologue 0
 	mfc1	t0, $f12
 	move	t3, ra
 	abs.s	$f0, $f12
@@ -122,6 +124,5 @@ atan2:	mul.d	$f6, $f0, $f0
 	cvt.s.d	$f0
 	bge	t4, 0, atan4
 	neg.s	$f0
-	j	ra
 atan4:	j	ra
 .end atanf

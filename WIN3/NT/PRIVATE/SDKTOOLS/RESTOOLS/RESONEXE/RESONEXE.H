@@ -48,4 +48,4 @@ ReadRes(
     IN ULONG cbInFile,
     IN HANDLE hupd
     );
-
+

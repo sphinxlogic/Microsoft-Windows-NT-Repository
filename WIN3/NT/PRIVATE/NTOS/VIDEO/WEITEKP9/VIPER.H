@@ -57,19 +57,15 @@ extern  VIDEO_ACCESS_RANGE VLDefDACRegRange[];
 #define VGA_VIDEO_DIS     ~VGA_VIDEO_ENB
 
 //
-// This enumerated type represents the values to be written to the
+// These defines represents the values to be written to the
 // VGA sequencer control register for the possible memory mappings for
 // the Diamond Viper board. Whew!
 //
 
-typedef enum
-{
-    MEM_DISABLED,
-    MEM_AXXX,
-    MEM_2XXX,
-    MEM_8XXX,
-    NUM_MEM_RANGES
-}MEM_MAPPING;
+#define MEM_DISABLED 0x00
+#define MEM_AXXX     0x01
+#define MEM_2XXX     0x02
+#define MEM_8XXX     0x03
 
 //
 // Value to mask off the memory address select bits in the sequencer
@@ -79,27 +75,10 @@ typedef enum
 #define ADDR_SLCT_MASK ~0x03
 
 //
-// Value to disable VGA output.
-//
-
-#define VGA_VIDEO_DIS   ~0x80
-
-//
 // Defines used to scan the VGA ROM in order to auto-detect a Viper card.
 //
 
 #define VIPER_VL_ID_STR    "VIPER"
 #define VIPER_ID_STR    "VIPER"
-#define VGA_BIOS_ADDR   0xC0000l
-#define VGA_BIOS_LEN   0x8000l
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/viper.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:42:44   robk
- * Initial revision.
-
---*/
+#define VGA_BIOS_ADDR   0xC0000L
+#define VGA_BIOS_LEN   0x8000L

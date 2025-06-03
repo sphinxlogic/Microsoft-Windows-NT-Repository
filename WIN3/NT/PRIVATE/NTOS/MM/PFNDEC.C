@@ -20,12 +20,14 @@ Revision History:
 --*/
 
 #include "mi.h"
+
+ULONG MmFrontOfList;
+
 
 VOID
 FASTCALL
 MiDecrementShareCount2 (
-    IN ULONG PageFrameIndex,
-    IN MMSHARE_TYPE Operation
+    IN ULONG PageFrameIndex
     )
 
 /*++
@@ -42,17 +44,6 @@ Arguments:
 
     PageFrameIndex - Supplies the physical page number of which to decrement
                      the share count.
-
-    Operation - Supplies the type of share count decrement to perform:
-
-                 Normal -  decrement share count and containing page valid
-                           PTE count
-
-                 ShareCountOnly - decrement only the share count
-
-                 AndValid - decrement the share count and the valid PTE
-                            count for the specified PFN, don't do anything
-                            to the containing page's counts.
 
 Return Value:
 
@@ -78,12 +69,6 @@ Environment:
     Pfn1->u2.ShareCount -= 1;
 
     ASSERT (Pfn1->u2.ShareCount < 0xF000000);
-
-    if (Operation == AndValid) {
-        ASSERT (Pfn1->ValidPteCount != 0);
-        Pfn1->ValidPteCount -= 1;
-        ASSERT (Pfn1->ValidPteCount <= (2 * PTE_PER_PAGE));
-    }
 
     if (Pfn1->u2.ShareCount == 0) {
 
@@ -114,7 +99,7 @@ Environment:
                 // hyperspace so it can be operated upon.
                 //
 
-                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame,
+                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->PteFrame,
                                                            &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                         MiGetByteOffset(Pfn1->PteAddress));
@@ -141,23 +126,6 @@ Environment:
         //
 
         Pfn1->u3.e1.PageLocation = TransitionPage;
-
-        if (Operation == Normal) {
-
-            //
-            // Decrement the valid pte count for the PteFrame page.
-            //
-
-            PfnX = MI_PFN_ELEMENT (Pfn1->u3.e1.PteFrame);
-
-            ASSERT (PfnX->ValidPteCount != 0);
-            ASSERT (PfnX->u2.ShareCount != 0);
-
-            PfnX->ValidPteCount -= 1;
-
-            ASSERT (PfnX->ValidPteCount <= (2 * PTE_PER_PAGE));
-        }
-
 
         //
         // Decrement the reference count as the share count is now zero.
@@ -245,7 +213,7 @@ Environment:
                 // hyperspace so it can be operated upon.
                 //
 
-                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame,
+                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->PteFrame,
                                                            &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                         MiGetByteOffset(Pfn1->PteAddress));
@@ -277,14 +245,11 @@ Environment:
         // Decrement the valid pte count for the PteFrame page.
         //
 
-        PfnX = MI_PFN_ELEMENT (Pfn1->u3.e1.PteFrame);
+#if DBG
+        PfnX = MI_PFN_ELEMENT (Pfn1->PteFrame);
 
-        ASSERT (PfnX->ValidPteCount != 0);
         ASSERT (PfnX->u2.ShareCount != 0);
-
-        PfnX->ValidPteCount -= 1;
-
-        ASSERT (PfnX->ValidPteCount <= (2 * PTE_PER_PAGE));
+#endif //DBG
 
         //
         // Decrement the reference count as the share count is now zero.
@@ -370,7 +335,7 @@ Environment:
                 // hyperspace so it can be operated upon.
                 //
 
-                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame,
+                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->PteFrame,
                                                            &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                         MiGetByteOffset(Pfn1->PteAddress));
@@ -451,12 +416,7 @@ Environment:
     ASSERT ((PageFrameIndex <= MmHighestPhysicalPage) &&
             (PageFrameIndex > 0));
 
-    ASSERT (Pfn1->ValidPteCount != 0);
     ASSERT (Pfn1->u2.ShareCount != 0);
-
-    Pfn1->ValidPteCount -= 1;
-
-    ASSERT (Pfn1->ValidPteCount <= (2 * PTE_PER_PAGE));
 
     Pfn1->u2.ShareCount -= 1;
 
@@ -491,7 +451,7 @@ Environment:
                 // hyperspace so it can be operated upon.
                 //
 
-                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->u3.e1.PteFrame,
+                PointerPte = (PMMPTE)MiMapPageInHyperSpace(Pfn1->PteFrame,
                                                            &OldIrql);
                 PointerPte = (PMMPTE)((ULONG)PointerPte +
                                         MiGetByteOffset(Pfn1->PteAddress));
@@ -524,7 +484,7 @@ Environment:
         //
 
         KdPrint(("MM:shareandvalid decremented share to 0 pteframe = %lx\n",
-                    Pfn1->u3.e1.PteFrame));
+                    Pfn1->PteFrame));
 
         MiDecrementReferenceCount (PageFrameIndex);
     }
@@ -575,11 +535,11 @@ Environment:
             (PageFrameIndex > 0));
 
     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-    Pfn1->ReferenceCount -= 1;
+    ASSERT (Pfn1->u3.e2.ReferenceCount != 0);
+    Pfn1->u3.e2.ReferenceCount -= 1;
 
-    ASSERT (Pfn1->ReferenceCount != (USHORT)0xFFFF);
 
-    if (Pfn1->ReferenceCount != 0) {
+    if (Pfn1->u3.e2.ReferenceCount != 0) {
 
         //
         // The reference count is not zero, return.
@@ -594,19 +554,19 @@ Environment:
     //
 
 
-    if ((Pfn1->u2.ShareCount != 0) ||
-        (Pfn1->ValidPteCount != 0)) {
+    if (Pfn1->u2.ShareCount != 0) {
 
         KeBugCheckEx (PFN_LIST_CORRUPT,
                       7,
                       PageFrameIndex,
                       Pfn1->u2.ShareCount,
-                      Pfn1->ValidPteCount);
+                      0);
         return;
     }
 
     ASSERT (Pfn1->u3.e1.PageLocation != ActiveAndValid);
 
+#ifdef PARITY
     if (Pfn1->u3.e1.ParityError == 1) {
 
         //
@@ -617,6 +577,7 @@ Environment:
         MiInsertPageInList (MmPageLocationList[BadPageList], PageFrameIndex);
         return;
     }
+#endif
 
     if (MI_IS_PFN_DELETED (Pfn1)) {
 
@@ -640,7 +601,12 @@ Environment:
     if (Pfn1->u3.e1.Modified == 1) {
         MiInsertPageInList (MmPageLocationList[ModifiedPageList], PageFrameIndex);
     } else {
-        MiInsertPageInList (MmPageLocationList[StandbyPageList], PageFrameIndex);
+        if (!MmFrontOfList) {
+            MiInsertPageInList (MmPageLocationList[StandbyPageList],
+                                PageFrameIndex);
+        } else {
+            MiInsertStandbyListAtFront (PageFrameIndex);
+        }
     }
 
     return;

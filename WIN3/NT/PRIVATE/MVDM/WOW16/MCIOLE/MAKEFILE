@@ -8,11 +8,12 @@
 #       24-Jan-1994 Lee Hart (LeeHart) - Added Version Resources
 #
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
 INCS    = -I. -I..\inc -I..\..\inc
 DEFINES = -DWOW $(MVDMFLAGS)
@@ -23,16 +24,10 @@ LPATH   = ..\..\tools.os2
 LINK    = /map /nod
 W16LIBS = ..\lib\libw.lib ..\lib\snocrt.lib olecli.lib
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
-!endif
 !endif
 
 .SUFFIXES:
@@ -59,14 +54,10 @@ LINK    = $(LINK) /LI
 
 OBJ1= libinit.obj mciole.obj
 
-
-!IFDEF NTVDM_BASED_BUILD
 LINKER=link16
 RESCOMP=rc16
-!ELSE
-LINKER=$(LPATH)\link
-RESCOMP=$(LPATH)\rc
-!ENDIF
+
+all: mciole16.dll
 
 mciole16.dll: $(OBJ1) mciole16.res
         $(LINKER) $(LINK) @<<
@@ -78,12 +69,13 @@ mciole.def
 <<
         $(RESCOMP) -t mciole16.res mciole16.dll
         mapsym mciole16.map
-        -binplace mciole16.dll
-        -binplace mciole16.sym
+        -binplace mciole16.dll mciole16.map mciole16.sym
 
 mciole16.res: $*.rc $*.rcv ..\inc\common.ver
 
-clean:
+clean: cleanup all
+
+cleanup:
     if exist *.lrf del *.lrf
     if exist *.obj del *.obj
     if exist *.exe del *.exe

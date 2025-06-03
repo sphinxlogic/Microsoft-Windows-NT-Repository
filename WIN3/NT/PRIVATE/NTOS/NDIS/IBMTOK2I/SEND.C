@@ -647,6 +647,14 @@ Return Value:
 
 
     //
+    // Make sure the card and the system are in sync.
+    //
+    // The following was removed on 1/26/95 because it causes a hang
+    // on MIPs machines.
+    //
+    // NdisFlushBuffer(CommandBlock->FlushBuffer,TRUE);
+
+    //
     // Log that we are leaving TOK162ConstrainPacket
     //
     IF_LOG('V');
@@ -696,4 +704,3 @@ Return Value:
 
 }
 #endif
-

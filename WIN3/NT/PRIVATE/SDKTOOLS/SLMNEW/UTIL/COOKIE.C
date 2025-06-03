@@ -12,8 +12,8 @@
 *
 *       ARGUMENTS:
 *               none    -> list entire lock file
-*               -r      -> claim a read lock
-*               -w      -> claim a write lock
+*               -r      -> claim a _read lock
+*               -w      -> claim a _write lock
 *               -b      -> claim a Read-Block lock
 *               -f      -> free a cookie lock
 *               -u      -> list single workstation status
@@ -25,12 +25,7 @@
 *   cookie [-rwblvdh] [-c comment] [-f [NAME]] [-s SLMroot] [-p project]
 *
 */
-#if defined(_WIN32)
 #include <windows.h>
-#elif defined(DOS) || defined(OS2)
-#define INCL_DOS
-#include <os2.h>
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,11 +43,6 @@
 #include "getopt.h"
 #include "cookie.h"
 #include "version.h"
-
-#if defined(DOS)
-#include <dos.h>
-#endif
-
 
 /*    global declarations    */
 
@@ -100,126 +90,129 @@ char  CookieComment[CMLEN] = "" ;
 void main(int argc, char *argv[])
 {
 #define NAMELEN  32
-        int             c, cnf_err;
-        enum func       op = C_LIST;
-        char            UnlockName[NAMELEN+1];
-        char            StatusName[NAMELEN+1];
+    int             c, cnf_err;
+    enum func       op = C_LIST;
+    char            UnlockName[NAMELEN+1];
+    char            StatusName[NAMELEN+1];
 
-        /* initialize */
-        cnf_err = 999;          /* <--- unknown syserr to switch */
-        UnlockName[0] = '\0';
-        StatusName[0] = '\0';
-        SLMdev[0] = '\0';       /* initialize temp network drive */
+    /* initialize */
+    cnf_err = 999;          /* <--- unknown syserr to switch */
+    UnlockName[0] = '\0';
+    StatusName[0] = '\0';
+    SLMdev[0] = '\0';       /* initialize temp network drive */
 
-        pszBase    = NULL ;
-        pszProject = NULL ;
-
-
-
+    pszBase    = NULL ;
+    pszProject = NULL ;
 
 /* parse arguments- */
 
+    while ((c = getopt(argc, argv, "rwbf:u:vs:p:dc:h?")) != EOF) {
+        switch (c) {
+            case 'r':
+                op = C_READ;
+                break;
 
-        while ((c = getopt(argc, argv, "rwbf:u:vs:p:dc:h?")) != EOF) {
-                switch (c) {
-                case 'r':
-                        op = C_READ;
-                        break;
-                case 'w':
-                        op = C_WRITE;
-                        break;
-                case 'f':
-                        op = C_FREE;
-                        if (optarg != NULL && *optarg != '-' && *optarg != '/')
-                        {
-                            strncpy(UnlockName,optarg,NAMELEN);
-                            UnlockName[NAMELEN] = '\0';
-                            strlwr(UnlockName);
-                        }
-                        break;
-                case 'c':
-                        if (optarg != NULL && *optarg != '-' && *optarg != '/') {
-                            if (strlen(optarg) >= CMLEN) optarg[CMLEN] = '\0';
-                            strcpy(CookieComment,optarg);
-                        }
-                        break;
-                case 'u':
-                        op = C_STATUS;
-                        if (optarg != NULL && *optarg != '-' && *optarg != '/')
-                        {
-                            strncpy(StatusName,optarg,NAMELEN);
-                            StatusName[NAMELEN] = '\0';
-                            strlwr(StatusName);
-                        }
-                        break;
-                case 'b':
-                        op = C_RB;
-                        break;
-                case 'v':
-                        verbose = TRUE;
-                        break;
-                case '?':
-                case 'h':
-                        op = C_HELP;
-                        break;
-                case 's':
-                        if (optarg != NULL) {
-                            pszBase = strdup(optarg);
-                            if (pszBase == NULL) {
-                                fprintf(stderr,"SLM-root not found with '-s', stop.\n");
-                                exit(CEXIT_ERR);
-                            }
-                            strlwr(pszBase);
-                        } else {
-                            fprintf(stderr, "%s\n",CUSAGE);
-                            exit(CEXIT_ERR);
-                        }
-                        break;
-                case 'p':
-                        if (optarg != NULL) {
-                            pszProject = strdup(optarg);
-                            if (pszProject == NULL) {
-                                fprintf(stderr,"SLM-proj not found with '-p', stop.\n");
-                                exit(CEXIT_ERR);
-                            }
-                            strlwr(pszBase);
-                        } else {
-                            fprintf(stderr, "%s\n",CUSAGE);
-                            exit(CEXIT_ERR);
-                        }
-                        break;
-                default:
-                        fprintf(stderr, "%s\n",CUSAGE);
-                        exit(CEXIT_ERR);
+            case 'w':
+                op = C_WRITE;
+                break;
+
+            case 'f':
+                op = C_FREE;
+                if (optarg != NULL && *optarg != '-' && *optarg != '/') {
+                    strncpy(UnlockName,optarg,NAMELEN);
+                    UnlockName[NAMELEN] = '\0';
+                    _strlwr(UnlockName);
                 }
+                break;
+
+            case 'c':
+                if (optarg != NULL && *optarg != '-' && *optarg != '/') {
+                    if (strlen(optarg) >= CMLEN) optarg[CMLEN] = '\0';
+                    strcpy(CookieComment,optarg);
+                }
+                break;
+
+            case 'u':
+                op = C_STATUS;
+                if (optarg != NULL && *optarg != '-' && *optarg != '/') {
+                    strncpy(StatusName,optarg,NAMELEN);
+                    StatusName[NAMELEN] = '\0';
+                    _strlwr(StatusName);
+                }
+                break;
+
+            case 'b':
+                op = C_RB;
+                break;
+
+            case 'v':
+                verbose = TRUE;
+                break;
+
+            case '?':
+            case 'h':
+                op = C_HELP;
+                break;
+
+            case 's':
+                if (optarg != NULL) {
+                    pszBase = _strdup(optarg);
+                    if (pszBase == NULL) {
+                        fprintf(stderr,"SLM-root not found with '-s', stop.\n");
+                        exit(CEXIT_ERR);
+                    }
+                    _strlwr(pszBase);
+                } else {
+                    fprintf(stderr, "%s\n",CUSAGE);
+                    exit(CEXIT_ERR);
+                }
+                break;
+
+            case 'p':
+                if (optarg != NULL) {
+                    pszProject = _strdup(optarg);
+                    if (pszProject == NULL) {
+                        fprintf(stderr,"SLM-proj not found with '-p', stop.\n");
+                        exit(CEXIT_ERR);
+                    }
+                    _strlwr(pszBase);
+                } else {
+                    fprintf(stderr, "%s\n",CUSAGE);
+                    exit(CEXIT_ERR);
+                }
+                break;
+
+            default:
+                fprintf(stderr, "%s\n",CUSAGE);
+                exit(CEXIT_ERR);
         }
+    }
 
-/* read and setup the master cookie configuration for given project */
+    /* read and setup the master cookie configuration for given project */
 
-        if (op == C_HELP) {
-                cookie_help();
-                exit(CEXIT_OK);
+    if (op == C_HELP) {
+        cookie_help();
+        exit(CEXIT_OK);
+    }
 
-        }
+    if (verbose)
+        fprintf(stderr, COOKIE_VERSION, rmj, rmm, rup);
 
-        if (verbose)
-            fprintf(stderr, COOKIE_VERSION, rmj, rmm, rup);
-
-        cnf_retries = 0 ;
+    cnf_retries = 0 ;
 cnf_start:
 
-        cnf_err = set_cookie_config();
+    cnf_err = set_cookie_config();
 
-        switch (cnf_err) {
+    switch (cnf_err) {
         case C_COOKIESET:
-                    if (verbose) fprintf(stderr,"%s: %s level locking active\n",
-                                        pszProject,lock_level);
-                    break;
+            if (verbose) fprintf(stderr,"%s: %s level locking active\n",
+                                pszProject,lock_level);
+            break;
 
         case C_NOLOCKING:
-                    fprintf(stderr,"%s: cookie locking not enabled\n",pszProject);
-                    /* exit(CEXIT_OK); */
-                    break;
+            fprintf(stderr,"%s: cookie locking not enabled\n",pszProject);
+            /* exit(CEXIT_OK); */
+            break;
 
         case C_BADSLMINI:
             fprintf(stderr,"'-p' missing before <project> or bad slm.ini file, stop.\n");
@@ -257,15 +250,15 @@ cnf_start:
 
         case C_SYSERR:
         default:
-                    fprintf(stderr,"%s: System Error (%d) during Cookie setup, stop.\n",
-                                pszProject, cnf_err);
+            fprintf(stderr,"%s: System Error (%d) during Cookie setup, stop.\n",
+                        pszProject, cnf_err);
 Disconnect:
-                    if (SLMdev[0] != '\0') {
-                        SLM_endredir(SLMdev);
-                    }
-                    exit(CEXIT_ERR);
-                    break;
-        }
+            if (SLMdev[0] != '\0') {
+                SLM_endredir(SLMdev);
+            }
+            exit(CEXIT_ERR);
+            break;
+    }
 
 
     {
@@ -285,7 +278,7 @@ Disconnect:
                 SLM_endredir(SLMdev);
             }
             exit(CEXIT_OK);
-         }
+        }
 
         if (strlen(CookieComment) == 0 &&
             ((op == C_READ) || (op == C_WRITE) || (op == C_RB)))
@@ -293,28 +286,26 @@ Disconnect:
 
         FixComment();
 
-        if (C_RB == op || C_READ == op || C_WRITE == op)
-            {
+        if (C_RB == op || C_READ == op || C_WRITE == op) {
             int hf;
-            if ((hf = open_cookie()) == -1)
-                {
+            if ((hf = open_cookie()) == -1) {
                 fprintf(stderr, "cannot open cookie lock file %s\n",
                         pszCookieFile);
                 exit(CEXIT_ERR);
-                }
-            if ((unsigned long)filelength(hf) >
+            }
+            if ((unsigned long)_filelength(hf) >
                     (unsigned long)(cbCookieMax-LINE_LEN))
                 {
                 close_cookie(hf);
                 fprintf(stderr, "Cookie lock file %s is too big\n",
                         pszCookieFile);
                 exit(CEXIT_ERR);
-                }
-            close_cookie(hf);
             }
+            close_cookie(hf);
+        }
 
         switch(op) {
-        case C_STATUS:
+            case C_STATUS:
                 fprintf(stderr,"%s: list project locks owned by %s-\n",pszProject,
                             (*StatusName) != '\0' ? StatusName : pszStation);
                 if (*StatusName) cookie_exit_stat = cookie_status(StatusName);
@@ -323,7 +314,7 @@ Disconnect:
                 }
                 break;
 
-        case C_LIST:
+            case C_LIST:
                 if (lock_control != 0) {
                         fprintf(stderr,"%s: list ALL project locks-\n",pszProject);
                         cookie_list();
@@ -332,23 +323,23 @@ Disconnect:
                 cookie_exit_stat = CEXIT_OK;
                 break;
 
-        case C_RB:
+            case C_RB:
                 fprintf(stderr,"%s: claim read-block lock-\n",pszProject);
                 cookie_exit_stat = cookie_lock_RB(pszStation,CookieComment);
                 break;
-        case C_READ:
+            case C_READ:
                 fprintf(stderr,"%s: claim read lock-\n",pszProject);
                 cookie_exit_stat = \
                         cookie_lock_read(pszStation,CookieComment,FALSE);
                 break;
 
-        case C_WRITE:
+            case C_WRITE:
                 fprintf(stderr,"%s: claim write lock-\n",pszProject);
                 cookie_exit_stat =
                         cookie_lock_write(pszStation,CookieComment,FALSE);
                 break;
 
-        case C_FREE:
+            case C_FREE:
                 fprintf(stderr,"%s: release locks for %s-\n", pszProject,
                             (*UnlockName) != '\0' ? UnlockName : pszStation);
                 if (*UnlockName)
@@ -357,7 +348,7 @@ Disconnect:
                         cookie_exit_stat = cookie_free(pszStation,FALSE);
                 break;
 
-        default:
+            default:
                 break;
         }
 
@@ -405,8 +396,7 @@ int cookie_status(char *lockname)
     if ((hfCookieFile = open_cookie()) == -1)
         return (OP_SYSERR);
 
-    while ((bufbytes=read(hfCookieFile, cbuf, LINE_LEN-1)) > 0)
-        {
+    while ((bufbytes=_read(hfCookieFile, cbuf, LINE_LEN-1)) > 0) {
         cbuf[bufbytes] = '\0';
         cp = cbuf;
         while ((c = *cp) != '\0') {
@@ -465,18 +455,16 @@ void cookie_list(void)
 
 
     TotLocks = 0;
-    if ((hfCookieFile = open_cookie()) != -1)
-        {
-        while ((bufbytes=read(hfCookieFile,cbuf, LINE_LEN-1)) > 0)
-            {
+    if ((hfCookieFile = open_cookie()) != -1) {
+        while ((bufbytes=_read(hfCookieFile,cbuf, LINE_LEN-1)) > 0) {
             cbuf[bufbytes] = '\0';
             fprintf(stderr,"%s",cbuf);
             TotLocks++;
-            }
+        }
         close_cookie(hfCookieFile);
         if (TotLocks == 0)
             fprintf(stderr,"%s: no locks.\n",pszProject);
-        }
+    }
     fprintf(stderr,"\n");
 }
 
@@ -508,8 +496,8 @@ void local_cookie_status()
     if (pszCookieLocal != NULL) {
         if ((fplocal=fopen(pszCookieLocal,"r")) != (FILE *)NULL) {
             if (verbose) {
-                struct stat sbuf;
-                if (fstat(fileno(fplocal),&sbuf) == 0) {
+                struct _stat sbuf;
+                if (_fstat(_fileno(fplocal),&sbuf) == 0) {
                     fprintf(stderr,"local workstation lock existing since %s\n",
                             ctime(&sbuf.st_mtime));
                 }
@@ -545,29 +533,30 @@ void local_cookie_status()
 
 void cookie_help()
 {
-    fprintf(stderr, COOKIE_VERSION, rmj, rmm, rup);
-    fprintf(stderr,"%s\n", CUSAGE);
+    fprintf (stderr, COOKIE_VERSION, rmj, rmm, rup);
+    fputs (CUSAGE, stderr);
 
-    fprintf(stderr,"cookie status commands:\n");
+    fputs ("\ncookie status commands:\n"
 
-    fprintf(stderr,"cookie          -> list ALL project locks and disk free space\n");
-    fprintf(stderr,"cookie -u       -> display project locks for workstation\n");
-    fprintf(stderr,"cookie -u NAME  -> display project locks for alternate NAME\n");
+           "cookie          -> list ALL project locks and disk free space\n"
+           "cookie -u       -> display project locks for workstation\n"
+           "cookie -u NAME  -> display project locks for alternate NAME\n\n"
 
-    fprintf(stderr,"\ncookie lock commands:\n");
-    fprintf(stderr,"cookie -r       -> claim project Read lock\n");
-    fprintf(stderr,"cookie -w       -> claim project Write lock\n");
-    fprintf(stderr,"cookie -b       -> claim project Read/Block lock\n");
-    fprintf(stderr,"cookie -f       -> free project locks for workstation name\n");
-    fprintf(stderr,"cookie -f NAME  -> free project locks for alternate NAME\n");
-    fprintf(stderr,"\ncookie -? or -h -> print this help message\n");
+           "cookie lock commands:\n"
+           "cookie -r       -> claim project Read lock\n"
+           "cookie -w       -> claim project Write lock\n"
+           "cookie -b       -> claim project Read/Block lock\n"
+           "cookie -f       -> free project locks for workstation name\n"
+           "cookie -f NAME  -> free project locks for alternate NAME\n\n"
 
-    fprintf(stderr,"\nauxilary cookie arguments:\n");
-    fprintf(stderr," -v             -> verbose mode\n");
-    fprintf(stderr," -c <comment>   -> use <comment> for cookie user comment\n");
-    fprintf(stderr," -s SLMroot     -> use auxilary SLM root directory\n");
-    fprintf(stderr," -p project     -> use auxilary SLM project\n");
-    /* fprintf(stderr,"\n\n"); */
+           "cookie -? or -h -> print this help message\n\n"
+
+           "auxilary cookie arguments:\n"
+           " -v             -> verbose mode\n"
+           " -c <comment>   -> use <comment> for cookie user comment\n"
+           " -s SLMroot     -> use auxilary SLM root directory\n"
+           " -p project     -> use auxilary SLM project\n",
+           stderr);
 }
 
  /**************************************************************************
@@ -586,58 +575,29 @@ void cookie_help()
 void Report_Free_Space(void)
 {
     ULONG Bfree;
-#if defined(DOS) || defined(OS2)
     int drive_no;
-    USHORT Qres;
-#if defined(OS2)
-    char FSsize[LINE_LEN/2];
-    struct _FSALLOCATE *FSinfo1;
-#elif defined(DOS)
-    struct diskfree_t diskinfo;
-#endif
+    BOOL fLocal = TRUE;
 
-    /* fprintf(stderr,"SLM Localdrive = %d\n",SLM_Localdrive); */
     if (SLM_Localdrive > 0) {
         drive_no = SLM_Localdrive - (int) 'a' + 1 ;
-    } else if ((drive_no = Check_SLM_Redir(pszBase)) <= 0 || drive_no >26) {
+    } else {
         drive_no = Make_SLM_Redir(pszBase);
+        if (drive_no != -1) {
+            fLocal = FALSE;
+        }
     }
-    /* fprintf(stderr,"drive_no = %d\n",drive_no ); */
 
     if (drive_no <= 0 || drive_no > 26) {
         if (verbose) fprintf(stderr,"%s: cannot stat disk, check net connects and slm.ini\n",pszProject);
         return;
     }
-    /* fprintf(stderr,"Free space check: drive no is %d\n",drive_no); */
 
-#if defined(OS2)
-    if ((Qres = DosQFSInfo(drive_no, 1, FSsize, sizeof(FSsize))) != 0)
-        {
-        if (verbose)
-            fprintf(stderr,"Local drive info failure (%hd)\n",Qres);
-        return;
-        }
-    else
-        {
-        FSinfo1 = (struct _FSALLOCATE *)FSsize;
-        Bfree = (ULONG) (FSinfo1->cbSector) * (ULONG) (FSinfo1->cSectorUnit)*
-                         (ULONG) (FSinfo1->cUnitAvail);
-        }
-#elif defined(DOS)
-    if ((Qres = _dos_getdiskfree(drive_no, &diskinfo)) != 0)
-        {
-        if (verbose)
-            fprintf(stderr, "Local drive info failure (%hd)\n", Qres);
-        return;
-        }
-    else
-        Bfree=(ULONG)((ULONG)diskinfo.sectors_per_cluster*
-                      (ULONG)diskinfo.bytes_per_sector*
-                      (ULONG)diskinfo.avail_clusters);
-#endif
-#elif defined(_WIN32)
-    Bfree = Query_Free_Space();
-#endif
+    Bfree = Query_Free_Space(drive_no);
+
+    if (!fLocal) {
+        SLM_endredir(SLMdev);
+    }
+
     fprintf(stderr,"%s: %lu Kilobytes free \n",pszProject, Bfree/1024);
 }
 
@@ -661,57 +621,43 @@ void Report_Free_Space(void)
 
 void QuizComment()
 {
+    char QpassBuf[CMLEN];
+    char *pchNext = QpassBuf;
+    char chInput;
 
-/*
-  -- Get comment string into szInput, return true if entered
-  -- return fFalse if empty password, ^C aborted, or no tty stream available
-  -- note : ^U restarts, BACKSPACE deletes last character
+    fprintf(stderr,"Enter cookie comment: ");
+    for (;;) {                  /* forever */
+        chInput = (char) _getch();
 
-  -- stolen from nc from enabftp/disabftp
-*/
-        {
-        char QpassBuf[CMLEN];
-        char *pchNext = QpassBuf;
-        char chInput;
-
-        fprintf(stderr,"Enter cookie comment: ");
-        for (;;)                    /* forever */
-                {
-                chInput = (char) getch();
-
-                switch(chInput)
-                        {
-                default:
-                        /* password limit is eight characters */
-                        if (pchNext - QpassBuf < CMLEN-1 ) {
-                            fprintf(stderr,"%c",chInput);
-                            *pchNext++ = chInput;
-                        }
-                        break;
-                case '\003':    /* ^C */
-                        fprintf(stderr,"^C\n");
-                        return ;
-                case '\r':
-                case '\n':      /* Enter */
-                        *pchNext = '\0';        /* terminate string */
-                        fputc('\n', stderr);
-                        strcpy(CookieComment,QpassBuf);
-                        return;
-                case '\025':    /* ^U */
-                        pchNext = QpassBuf;
-                        fprintf(stderr,"\nEnter cookie comment: ");
-                        break;
-                case '\b':      /* BACKSPACE */
-                        if (pchNext != QpassBuf) {
-                            fprintf(stderr,"\b \b");
-                            pchNext--;
-                        }
-                        break;
-                        }
+        switch(chInput) {
+            default:
+                /* password limit is eight characters */
+                if (pchNext - QpassBuf < CMLEN-1 ) {
+                    fprintf(stderr,"%c",chInput);
+                    *pchNext++ = chInput;
                 }
-        /*NOTREACHED*/
+                break;
+            case '\003':    /* ^C */
+                fprintf(stderr,"^C\n");
+                return ;
+            case '\r':
+            case '\n':      /* Enter */
+                *pchNext = '\0';        /* terminate string */
+                fputc('\n', stderr);
+                strcpy(CookieComment,QpassBuf);
+                return;
+            case '\025':    /* ^U */
+                pchNext = QpassBuf;
+                fprintf(stderr,"\nEnter cookie comment: ");
+                break;
+            case '\b':      /* BACKSPACE */
+                if (pchNext != QpassBuf) {
+                    fprintf(stderr,"\b \b");
+                    pchNext--;
+                }
+                break;
         }
-
+    }
 }
 
 

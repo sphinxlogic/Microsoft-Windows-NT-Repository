@@ -207,26 +207,33 @@ CHAR *IfOidStr[NO_OF_IF_OIDS] =
 //
 //  Snmp "Backdoor" routine defitions
 //
+#ifdef LOAD_INETMIB1
 
+// load DLL & get function addresses from it
 // typedef FARPROC (*SNMP_INIT_PROC) (DWORD, HANDLE *, AsnObjectIdentifier *);
 // typedef FARPROC (*SNMP_QUERY_PROC) (BYTE, RFC1157VarBindList *, AsnInteger *, AsnInteger *);
 FARPROC SnmpExtensionInit;
 FARPROC SnmpExtensionQuery;
 
-// extern SNMP_INIT_PROC SnmpExtensionInit;
-//    DWORD timeZeroReference,
-//    HANDLE *hPollForTrapEvent,
-//    AsnObjectIdentifier *supportedView);
+#else
+// link to DLL & load it automatically
 
-// extern SNMP_QUERY_PROC SnmpExtensionQuery;
-//    IN OUT  BYTE requestType,
-//    IN OUT RFC1157VarBindList *variableBindings,
-//    OUT AsnInteger *errorStatus,
-//    OUT AsnInteger *errorIndex);
+extern SNMPAPI SnmpExtensionInit (
+   DWORD timeZeroReference,
+   HANDLE *hPollForTrapEvent,
+   AsnObjectIdentifier *supportedView);
+
+extern SNMPAPI SnmpExtensionQuery (
+   IN OUT  BYTE requestType,
+   IN OUT RFC1157VarBindList *variableBindings,
+   OUT AsnInteger *errorStatus,
+   OUT AsnInteger *errorIndex);
+
+#endif
 
 SNMPAPI SnmpMgrText2Oid (
     IN LPSTR string,
     OUT AsnObjectIdentifier *oid);
 
 #endif //_PERFTCP_H_
-
+

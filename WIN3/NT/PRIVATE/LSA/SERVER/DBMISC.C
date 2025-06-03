@@ -74,12 +74,22 @@ Return Value:
     // Validate and close the object handle, dereference its container (if any).
     //
 
-    Status = LsapDbCloseObject(
-                 ObjectHandle,
-                 LSAP_DB_VALIDATE_HANDLE |
-                 LSAP_DB_DEREFERENCE_CONTR |
-                 LSAP_DB_ADMIT_DELETED_OBJECT_HANDLES
-                 );
+    if (*ObjectHandle == LsapPolicyHandle)
+    {
+#ifdef TRACK_HANDLE_CLOSE
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+#endif // TRACK_HANDLE_CLOSE
+        Status = STATUS_INVALID_HANDLE; 
+    } else {
+        Status = LsapDbCloseObject(
+                     ObjectHandle,
+                     LSAP_DB_VALIDATE_HANDLE |
+                     LSAP_DB_DEREFERENCE_CONTR |
+                     LSAP_DB_ADMIT_DELETED_OBJECT_HANDLES
+                     );
+
+    }
 
     LsapDbReleaseLock();
     return Status;
@@ -175,6 +185,9 @@ Return Value:
 
     case PolicyObject:
 
+            Status = STATUS_INVALID_PARAMETER;
+            break;
+
     case TrustedDomainObject:
 
         if (LsapAdtAuditingPolicyChanges()) {
@@ -212,30 +225,30 @@ Return Value:
             LSAPR_HANDLE AccountHandle;
             PLSAPR_SID AccountSid = NULL;
             ULONG AuditEventId;
-    
+
             AccountHandle = *ObjectHandle;
-    
+
             AccountSid = LsapDbSidFromHandle( AccountHandle );
-        
+
             if (LsapAdtAuditingPolicyChanges()) {
-    
-                Status = LsarEnumeratePrivilegesAccount(          
-                             AccountHandle,       
-                             &Privileges 
+
+                Status = LsarEnumeratePrivilegesAccount(
+                             AccountHandle,
+                             &Privileges
                              );
-    
+
                 if (!NT_SUCCESS( Status )) {
                     DbgPrint("LsarEnumeratePrivilegesAccount ret'd %x\n",Status);
                     break;
                 }
-        
-        
+
+
                 AuditEventId = SE_AUDITID_USER_RIGHT_REMOVED;
-        
+
                 //
                 // Audit the privilege set change.  Ignore failures from Auditing.
                 //
-        
+
                 IgnoreStatus = LsapAdtGenerateLsaAuditEvent(
                                    AccountHandle,
                                    SE_CATEGID_POLICY_CHANGE,
@@ -247,7 +260,7 @@ Return Value:
                                    NULL,
                                    NULL
                                    );
-    
+
                 MIDL_user_free( Privileges );
             }
         }
@@ -348,6 +361,16 @@ Return Value:
             }
         }
     }
+
+    //
+    // Audit the deletion
+    //
+
+    IgnoreStatus = NtDeleteObjectAuditAlarm(
+                        &LsapState.SubsystemName,
+                        *ObjectHandle,
+                        InternalHandle->GenerateOnClose
+                        );
 
 DeleteObjectFinish:
 

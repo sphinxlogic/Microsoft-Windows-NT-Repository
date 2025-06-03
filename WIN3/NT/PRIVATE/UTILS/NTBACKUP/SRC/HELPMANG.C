@@ -178,6 +178,9 @@ HELPID_MENUID_TABLE HelpIdMenuIdTable[] =  {
           {     IDM_OPERATIONSEJECT      ,HELPID_OPERATIONSEJECT       } ,
           {     IDM_OPERATIONSHARDWARE   ,HELPID_OPERATIONSHARDWARE    } ,
           {     IDM_OPERATIONSEXIT       ,HELPID_OPERATIONSEXIT        } ,
+#ifdef OEM_EMS
+          {     IDM_OPERATIONSEXCHANGE   ,HELPID_OPERATIONSEXCHANGE    } ,
+#endif
 
           {     IDM_TREEEXPANDONE        ,HELPID_TREEEXPANDONE         } ,
           {     IDM_TREEEXPANDBRANCH     ,HELPID_TREEEXPANDBRANCH      } ,
@@ -382,7 +385,7 @@ INT APIENTRY HM_DialogFilter(
      */
 
      if ( nCode < 0 ) {
-          dwResult = DefHookProc ( nCode, (DWORD)mp1, (LONG)mp2, (HOOKPROC FAR*)mwlpfnNextHook ) ;
+          dwResult = DefHookProc ( nCode, (DWORD)mp1, (LONG)mp2, (VOID **)mwlpfnNextHook ) ;
           return ( TRUE ) ;
      }
 
@@ -646,7 +649,8 @@ BOOL HM_WMCommandProcessing (
                HM_WinHelp ( hWnd, HELP_CONTEXT, dwHelpContextId );
           }
           else {
-               HM_WinHelp ( hWnd, HELP_INDEX, 0L );
+//               HM_WinHelp ( hWnd, HELP_INDEX, 0L );
+               HM_WinHelp ( hWnd, HELP_FINDER, 0L );
           }
 
      }
@@ -739,7 +743,8 @@ VOID HM_MenuCommands (
 
      case IDM_HELPINDEX :
 
-          HM_WinHelp ( hWnd, HELP_INDEX, 0L);
+//          HM_WinHelp ( hWnd, HELP_INDEX, 0L);
+          HM_WinHelp ( hWnd, HELP_FINDER, 0L);
           break;
 
 
@@ -1203,7 +1208,8 @@ MP1  mp1 )        /* I - Additional information of message */
 
      if (mp1 == VK_F1) {
           wMsgProcessed = TRUE ;
-          HM_WinHelp(hWnd,HELP_INDEX,0L);
+//          HM_WinHelp(hWnd,HELP_INDEX,0L);
+          HM_WinHelp(hWnd,HELP_FINDER,0L);
           }
 
 #    else

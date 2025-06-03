@@ -2,4 +2,4 @@
 
 BOOL AddLog (HWND hWndParent) ;
 
-
+

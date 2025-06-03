@@ -644,9 +644,9 @@ BowserIsLegalBackupBrowser(
     //  actually became the master.
     //
 
-    if (RtlCompareMemory(Announcement->ServerName,
-                         ComputerName->Name.Buffer,
-                         ComputerName->Name.Length) == ComputerName->Name.Length) {
+    if (RtlEqualMemory(Announcement->ServerName,
+                       ComputerName->Name.Buffer,
+                       ComputerName->Name.Length)) {
         return FALSE;
     }
 
@@ -1229,7 +1229,7 @@ BowserIsValidPotentialBrowser(
     //  a master, don't promote ourselves.
     //
 
-    if (!wcsicmp(Announcement->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)) {
+    if (!_wcsicmp(Announcement->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)) {
         return FALSE;
     }
 
@@ -1306,9 +1306,9 @@ Return Value:
     //  And this isn't ourselves.
     //
 
-    if (RtlCompareMemory(Announcement->ServerName,
-                         PagedComputerName->Name->Name.Buffer,
-                         PagedComputerName->Name->Name.Length) == PagedComputerName->Name->Name.Length) {
+    if (RtlEqualMemory(Announcement->ServerName,
+                       PagedComputerName->Name->Name.Buffer,
+                       PagedComputerName->Name->Name.Length)) {
         return FALSE;
     }
 

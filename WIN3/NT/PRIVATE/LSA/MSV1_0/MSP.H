@@ -110,6 +110,46 @@ Revision History:
     }
 
 
+//
+// RELOCATE_ONE_ENCODED - Relocate a unicode string pointer in a client
+//   buffer.  The upper byte of the length field may be an encryption seed
+//   and should not be used for error checking.
+//
+// Note: this macro is dependent on parameter names as indicated in the
+//       description below.  On error, this macro goes to 'Cleanup' with
+//       'Status' set to the NT Status code.
+//
+// The MaximumLength is forced to be Length & 0x00ff.
+//
+// Define a macro to relocate a pointer in the buffer the client passed in
+// to be relative to 'ProtocolSubmitBuffer' rather than being relative to
+// 'ClientBufferBase'.  The result is checked to ensure the pointer and
+// the data pointed to is within the first 'SubmitBufferSize' of the
+// 'ProtocolSubmitBuffer'.
+//
+// The relocated field must be aligned to a WCHAR boundary.
+//
+//  _q - Address of UNICODE_STRING structure which points to data to be
+//       relocated
+//
+
+#define RELOCATE_ONE_ENCODED( _q ) \
+    {                                                                       \
+        ULONG Offset;                                                       \
+                                                                            \
+        Offset = ((PUCHAR)((_q)->Buffer)) - ((PUCHAR)ClientBufferBase);     \
+        if ( Offset >= SubmitBufferSize ||                                  \
+             Offset + ((_q)->Length & 0x00ff) > SubmitBufferSize ||                    \
+             !COUNT_IS_ALIGNED( Offset, ALIGN_WCHAR) ) {                    \
+                                                                            \
+            Status = STATUS_INVALID_PARAMETER;                              \
+            goto Cleanup;                                                   \
+        }                                                                   \
+                                                                            \
+        (_q)->Buffer = (PWSTR)(((PUCHAR)ProtocolSubmitBuffer) + Offset);    \
+        (_q)->MaximumLength = (_q)->Length & 0x00ff;                                \
+    }
+
 
 ///////////////////////////////////////////////////////////////////////
 //                                                                   //

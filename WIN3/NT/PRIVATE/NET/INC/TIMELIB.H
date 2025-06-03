@@ -108,6 +108,7 @@ typedef struct _NET_TIME_FORMAT {
     LPSTR       AMString;           // May be NULL if we couldn't allocate
     LPSTR       PMString;           // May be NULL if we couldn't allocate
     BOOL        TwelveHour;
+    BOOL	    TimePrefix;         // For new time prefix
     BOOL        LeadingZero;
     LPSTR       DateFormat;         // May be NULL if we couldn't allocate
     LPSTR       TimeSeparator;      // May be NULL if we couldn't allocate

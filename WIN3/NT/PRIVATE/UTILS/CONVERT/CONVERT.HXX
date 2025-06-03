@@ -119,6 +119,7 @@ class CONVERT : public PROGRAM {
         DSTRING     _NameTable; //  Name of file for Name Table
         BOOLEAN     _Verbose;   //  Verbose flag
         BOOLEAN     _Help;      //  Help flag
+        BOOLEAN     _Restart;   //  Restart flag
 #ifdef DBLSPACE_ENABLED
         BOOLEAN     _Uncompress;//  Set if we're converting a cvf
         DSTRING     _CvfName;   //  If uncompress, the name of the cvf

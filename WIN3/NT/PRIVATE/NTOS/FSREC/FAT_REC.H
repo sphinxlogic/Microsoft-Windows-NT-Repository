@@ -144,4 +144,3 @@ UnpackBiosParameterBlock(
     IN PPACKED_BIOS_PARAMETER_BLOCK Bios,
     OUT PBIOS_PARAMETER_BLOCK UnpackedBios
     );
-

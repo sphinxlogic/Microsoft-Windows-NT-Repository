@@ -316,7 +316,7 @@ Return Value:
     }
 
     if (CaseInsensitive) {
-        return stricmp(oemName1, oemName2);
+        return _stricmp(oemName1, oemName2);
         }
     else {
         return strcmp(oemName1, oemName2);

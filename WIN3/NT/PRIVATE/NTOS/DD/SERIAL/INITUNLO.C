@@ -54,7 +54,8 @@ BOOLEAN
 SerialDoesPortExist(
     IN PSERIAL_DEVICE_EXTENSION Extension,
     PUNICODE_STRING InsertString,
-    IN ULONG ForceFifo
+    IN ULONG ForceFifo,
+    IN ULONG LogFifo
     );
 
 VOID
@@ -70,6 +71,8 @@ SerialGetConfigInfo(
     ULONG ForceFifoEnableDefault,
     ULONG RxFifoDefault,
     ULONG TxFifoDefault,
+    ULONG PermitShareDefault,
+    ULONG LogFifoDefault,
     OUT PLIST_ENTRY ConfigList
     );
 
@@ -207,6 +210,11 @@ SerialReportResourcesDevice(
     OUT BOOLEAN *ConflictDetected
     );
 
+ULONG
+SerialCheckForShare(
+    IN PUNICODE_STRING PathName
+    );
+
 //
 // This is exported from the kernel.  It is used to point
 // to the address that the kernel debugger is using.
@@ -227,6 +235,7 @@ extern PUCHAR *KdComPortInUse;
 #pragma alloc_text(INIT,SerialGetMappedAddress)
 #pragma alloc_text(INIT,SerialSetupExternalNaming)
 #pragma alloc_text(INIT,SerialReportResourcesDevice)
+#pragma alloc_text(INIT,SerialCheckForShare)
 #pragma alloc_text(PAGESER,SerialMemCompare)
 #pragma alloc_text(PAGESER,SerialGetDivisorFromBaud)
 #pragma alloc_text(PAGESER,SerialUnload)
@@ -303,18 +312,20 @@ Return Value:
     // We use this to query into the registry as to whether we
     // should break at driver entry.
     //
-    RTL_QUERY_REGISTRY_TABLE paramTable[6];
+    RTL_QUERY_REGISTRY_TABLE paramTable[8];
     ULONG zero = 0;
     ULONG debugLevel = 0;
     ULONG shouldBreak = 0;
     ULONG forceFifoEnableDefault;
     ULONG rxFIFODefault;
     ULONG txFIFODefault;
+    ULONG permitShareDefault;
+    ULONG logFifoDefault;
     ULONG notThereDefault = 1234567;
     PWCHAR path;
     PVOID lockPtr;
 
-    lockPtr = MmLockPagableImageSection(SerialUnload);
+    lockPtr = MmLockPagableCodeSection(SerialUnload);
 
     //
     // Since the registry path parameter is a "counted" UNICODE string, it
@@ -375,6 +386,18 @@ Return Value:
         paramTable[4].DefaultType = REG_DWORD;
         paramTable[4].DefaultData = &notThereDefault;
         paramTable[4].DefaultLength = sizeof(ULONG);
+        paramTable[5].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[5].Name = L"PermitShare";
+        paramTable[5].EntryContext = &permitShareDefault;
+        paramTable[5].DefaultType = REG_DWORD;
+        paramTable[5].DefaultData = &notThereDefault;
+        paramTable[5].DefaultLength = sizeof(ULONG);
+        paramTable[6].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[6].Name = L"LogFifo";
+        paramTable[6].EntryContext = &logFifoDefault;
+        paramTable[6].DefaultType = REG_DWORD;
+        paramTable[6].DefaultData = &notThereDefault;
+        paramTable[6].DefaultLength = sizeof(ULONG);
 
         if (!NT_SUCCESS(RtlQueryRegistryValues(
                             RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
@@ -450,6 +473,50 @@ Return Value:
     }
 
 
+    if (permitShareDefault == notThereDefault) {
+
+        permitShareDefault = 0;
+
+        //
+        // Only share if the user actual changes switch.
+        //
+
+        RtlWriteRegistryValue(
+            RTL_REGISTRY_ABSOLUTE,
+            path,
+            L"PermitShare",
+            REG_DWORD,
+            &permitShareDefault,
+            sizeof(ULONG)
+            );
+
+    }
+
+
+    if (logFifoDefault == notThereDefault) {
+
+        //
+        // Wasn't there.  After this load don't log
+        // the message anymore.  However this first
+        // time log the message.
+        //
+
+        logFifoDefault = 0;
+
+        RtlWriteRegistryValue(
+            RTL_REGISTRY_ABSOLUTE,
+            path,
+            L"LogFifo",
+            REG_DWORD,
+            &logFifoDefault,
+            sizeof(ULONG)
+            );
+
+        logFifoDefault = 1;
+
+    }
+
+
 
     //
     // We don't need that path anymore.
@@ -480,6 +547,8 @@ Return Value:
         forceFifoEnableDefault,
         rxFIFODefault,
         txFIFODefault,
+        permitShareDefault,
+        logFifoDefault,
         &configList
         );
 
@@ -689,7 +758,6 @@ Return Value:
             currentDevice->DeviceExtension
             );
 
-
         currentDevice = nextDevice;
 
     }
@@ -776,7 +844,7 @@ Return Value:
         SERDIAG3,
         ("SERIAL: In SerialPropagateDeleteSharers\n"
          "------- Extension: %x CountSoFar: %d Interrupt: %x\n",
-         Extension,*CountSoFar,Interrupt)
+         Extension,CountSoFar?*CountSoFar:0,Interrupt)
         );
 
     if (Interrupt) {
@@ -2289,15 +2357,8 @@ Return Value:
 
     }
 
-    //
-    // For now, assume that unless we are on a MicroChannel
-    // machine the interrupt isn't shareable.
-    //
-    // BUG BUG Is there some EISA data out there that will
-    // BUG BUG tell us whether the card is a true EISA card?
-    //
 
-    if (ConfigData->InterfaceType == MicroChannel) {
+    if (ConfigData->PermitSystemWideShare) {
 
         extension->InterruptShareable = TRUE;
 
@@ -2329,6 +2390,12 @@ Return Value:
                             &extension->Irql,
                             &extension->ProcessorAffinity
                             );
+
+    //
+    // If the user said to permit sharing within the device, propagate this
+    // through.
+    //
+    extension->PermitShare = ConfigData->PermitShare;
 
     //
     // Report it's resources.  We do this now because we are just
@@ -2426,7 +2493,8 @@ Return Value:
     if (!SerialDoesPortExist(
              extension,
              &ConfigData->SymbolicLinkName,
-             ConfigData->ForceFifoEnable
+             ConfigData->ForceFifoEnable,
+             ConfigData->LogFifo
              )) {
 
         //
@@ -2764,18 +2832,9 @@ Return Value:
     // For large (> then 2 seconds) use a 1 second poller.
     //
 
-    extension->ShortIntervalAmount.LowPart = 1;
-    extension->ShortIntervalAmount.HighPart = 0;
-    extension->ShortIntervalAmount = RtlLargeIntegerNegate(
-                                         extension->ShortIntervalAmount
-                                         );
-    extension->LongIntervalAmount.LowPart = 10000000;
-    extension->LongIntervalAmount.HighPart = 0;
-    extension->LongIntervalAmount = RtlLargeIntegerNegate(
-                                         extension->LongIntervalAmount
-                                         );
-    extension->CutOverAmount.LowPart = 200000000;
-    extension->CutOverAmount.HighPart = 0;
+    extension->ShortIntervalAmount.QuadPart = -1;
+    extension->LongIntervalAmount.QuadPart = -10000000;
+    extension->CutOverAmount.QuadPart = 200000000;
 
 
     //
@@ -2819,7 +2878,8 @@ BOOLEAN
 SerialDoesPortExist(
     IN PSERIAL_DEVICE_EXTENSION Extension,
     IN PUNICODE_STRING InsertString,
-    IN ULONG ForceFifo
+    IN ULONG ForceFifo,
+    IN ULONG LogFifo
     )
 
 /*++
@@ -2852,6 +2912,7 @@ Arguments:
     Extension - A pointer to a serial device extension.
     InsertString - String to place in an error log entry.
     ForceFifo - !0 forces the fifo to be left on if found.
+    LogFifo - !0 forces a log message if fifo found.
 
 Return Value:
 
@@ -3063,22 +3124,26 @@ AllDone: ;
 
         if (Extension->FifoPresent) {
 
-            SerialLogError(
-                Extension->DeviceObject->DriverObject,
-                Extension->DeviceObject,
-                Extension->OriginalController,
-                SerialPhysicalZero,
-                0,
-                0,
-                0,
-                15,
-                STATUS_SUCCESS,
-                SERIAL_FIFO_PRESENT,
-                InsertString->Length+sizeof(WCHAR),
-                InsertString->Buffer,
-                0,
-                NULL
-                );
+            if (LogFifo) {
+
+                SerialLogError(
+                    Extension->DeviceObject->DriverObject,
+                    Extension->DeviceObject,
+                    Extension->OriginalController,
+                    SerialPhysicalZero,
+                    0,
+                    0,
+                    0,
+                    15,
+                    STATUS_SUCCESS,
+                    SERIAL_FIFO_PRESENT,
+                    InsertString->Length+sizeof(WCHAR),
+                    InsertString->Buffer,
+                    0,
+                    NULL
+                    );
+
+            }
 
             SerialDump(
                 SERDIAG1,
@@ -3529,7 +3594,7 @@ Return Value:
     PDEVICE_OBJECT currentDevice = DriverObject->DeviceObject;
     PVOID lockPtr;
 
-    lockPtr = MmLockPagableImageSection(SerialUnload);
+    lockPtr = MmLockPagableCodeSection(SerialUnload);
 
     SerialDump(
         SERDIAG3,
@@ -3571,6 +3636,115 @@ Return Value:
 
     MmUnlockPagableImageSection(lockPtr);
 
+}
+
+ULONG
+SerialCheckForShare(
+    IN PUNICODE_STRING PathName
+    )
+
+/*++
+
+Routine Description:
+
+    This routine checks the firmware registry location, passed as an
+    argument, to see if system wide sharing of the interrupt is supposed
+    to be honored for this device.
+
+Arguments:
+
+    PathName - registry path location to check.
+
+Return Value:
+
+    TRUE - if the registry value is present and non-zero
+    FALSE otherwise
+
+--*/
+
+{
+    ULONG zero = 0;
+    ULONG share;
+    NTSTATUS status;
+    PRTL_QUERY_REGISTRY_TABLE parms;
+    PWSTR name;
+
+    //
+    // Setup the query for sharing interrupt
+    //
+
+    parms = ExAllocatePool(
+                NonPagedPool,
+                sizeof(RTL_QUERY_REGISTRY_TABLE)*2
+                );
+
+    if (!parms) {
+        return FALSE;
+    }
+
+    //
+    // Allocate sufficient space for null terminating name
+    //
+
+    name = ExAllocatePool(
+               NonPagedPool,
+               PathName->Length+4
+               );
+
+    if (!name) {
+        ExFreePool(parms);
+        return FALSE;
+    }
+
+    //
+    // Set all structures to zeros
+    //
+
+    RtlZeroMemory(
+        parms,
+        sizeof(RTL_QUERY_REGISTRY_TABLE)*2
+        );
+    RtlZeroMemory(
+        name,
+        PathName->Length + 4
+        );
+
+    //
+    // Initialize query structure
+    //
+
+    parms[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
+    parms[0].Name = L"Share System Interrupt";
+    parms[0].EntryContext = &share;
+    parms[0].DefaultType = REG_DWORD;
+    parms[0].DefaultData = &zero;
+    parms[0].DefaultLength = sizeof(ULONG);
+
+    //
+    // Set up registry path name.  It will now be null terminated.
+    //
+
+    RtlCopyMemory(
+        name,
+        PathName->Buffer,
+        PathName->Length
+        );
+
+    //
+    // Perform the query
+    //
+
+    status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
+                 name,
+                 parms,
+                 NULL,
+                 NULL
+                 );
+
+    ExFreePool(parms);
+    ExFreePool(name);
+
+    return share ? (ULONG) TRUE : (ULONG) FALSE;
 }
 
 VOID
@@ -3773,6 +3947,9 @@ typedef struct SERIAL_FIRMWARE_DATA {
     ULONG ForceFifoEnableDefault;
     ULONG RxFIFODefault;
     ULONG TxFIFODefault;
+    ULONG PermitShareDefault;
+    ULONG PermitSystemWideShare;
+    ULONG LogFifoDefault;
     UNICODE_STRING Directory;
     UNICODE_STRING NtNameSuffix;
     UNICODE_STRING DirectorySymbolicName;
@@ -3968,6 +4145,22 @@ Return Value:
     controller->ForceFifoEnable = config->ForceFifoEnableDefault;
     controller->RxFIFO = config->RxFIFODefault;
     controller->TxFIFO = config->TxFIFODefault;
+    controller->PermitShare = config->PermitShareDefault;
+    controller->LogFifo = config->LogFifoDefault;
+    if (controller->InterfaceType == MicroChannel) {
+        controller->PermitSystemWideShare = TRUE;
+    } else {
+
+        controller->PermitSystemWideShare = config->PermitSystemWideShare;
+
+        if (SerialCheckForShare(PathName)) {
+
+            controller->PermitSystemWideShare = TRUE;
+
+        }
+    }
+
+
 
     //
     // We need to get the following information out of the partial
@@ -4430,6 +4623,8 @@ SerialGetConfigInfo(
     ULONG ForceFifoEnableDefault,
     ULONG RxFIFODefault,
     ULONG TxFIFODefault,
+    ULONG PermitShareDefault,
+    ULONG LogFifoDefault,
     OUT PLIST_ENTRY ConfigList
     )
 
@@ -4469,6 +4664,10 @@ Arguments:
     RxFifoDefault - Gotten from the services node.
 
     TxFifoDefault - Gotten from the services node.
+
+    PermitShareDefault - Gotten from the services node.
+
+    LogFifoDefault - Gotten from services node.
 
     ConfigList - Listhead (which will be intialized) for a list
                  of configuration records for ports to control.
@@ -4520,6 +4719,7 @@ Return Value:
     ULONG rxFIFO;
     ULONG txFIFO;
     ULONG maskInverted;
+    ULONG defaultPermitSystemWideShare = FALSE;
     UNICODE_STRING userSymbolicLink;
 
     UNICODE_STRING parametersPath;
@@ -4631,6 +4831,9 @@ Return Value:
     firmware.ForceFifoEnableDefault = ForceFifoEnableDefault;
     firmware.RxFIFODefault = RxFIFODefault;
     firmware.TxFIFODefault = TxFIFODefault;
+    firmware.PermitShareDefault = PermitShareDefault;
+    firmware.PermitSystemWideShare = defaultPermitSystemWideShare;
+    firmware.LogFifoDefault = LogFifoDefault;
     InitializeListHead(&firmware.ConfigList);
     RtlInitUnicodeString(
         &firmware.Directory,
@@ -4712,6 +4915,13 @@ Return Value:
                 if (defaultInterfaceType == MicroChannel) {
 
                     defaultInterruptMode = CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE;
+
+                    //
+                    // Microchannel machines can permit the interrupt to be
+                    // shared system wide.
+                    //
+
+                    defaultPermitSystemWideShare = TRUE;
 
                 }
 
@@ -5871,6 +6081,9 @@ Return Value:
             newConfig->RxFIFO = rxFIFO;
             newConfig->TxFIFO = txFIFO;
             newConfig->MaskInverted = maskInverted;
+            newConfig->PermitShare = PermitShareDefault;
+            newConfig->LogFifo = LogFifoDefault;
+            newConfig->PermitSystemWideShare = defaultPermitSystemWideShare;
             if (!userLevel) {
                 newConfig->OriginalIrql = userVector;
             } else {
@@ -6149,13 +6362,15 @@ Return Value:
          "------- Interrupt Status is %x\n"
          "------- BusNumber is %d\n"
          "------- BusType is %d\n"
-         "------- AddressSpace is %d\n",
+         "------- AddressSpace is %d\n"
+         "------- Interrupt Mode is %d\n",
          &New->NtNameForPort,
          New->Controller.LowPart,
          New->InterruptStatus.LowPart,
          New->BusNumber,
          New->InterfaceType,
-         New->AddressSpace
+         New->AddressSpace,
+         New->InterruptMode
          )
         );
 
@@ -6803,13 +7018,17 @@ Return Value:
     PHYSICAL_ADDRESS cardAddress;
     PVOID address;
 
-    HalTranslateBusAddress(
-            BusType,
-            BusNumber,
-            IoAddress,
-            &AddressSpace,
-            &cardAddress
-            );
+    if (!HalTranslateBusAddress(
+             BusType,
+             BusNumber,
+             IoAddress,
+             &AddressSpace,
+             &cardAddress
+             )) {
+
+        return NULL;
+
+    }
 
     //
     // Map the device base address into the virtual address space
@@ -7253,24 +7472,16 @@ Return Value:
     ULONG lowerSpan;
     LARGE_INTEGER higher;
 
-    a.LowPart = A.LowPart;
-    a.HighPart = A.HighPart;
-    b.LowPart = B.LowPart;
-    b.HighPart = B.HighPart;
+    a = A;
+    b = B;
 
-    if (RtlLargeIntegerEqualTo(
-            a,
-            b
-            )) {
+    if (a.QuadPart == b.QuadPart) {
 
         return AddressesAreEqual;
 
     }
 
-    if (RtlLargeIntegerGreaterThan(
-            a,
-            b
-            )) {
+    if (a.QuadPart > b.QuadPart) {
 
         higher = a;
         lower = b;
@@ -7284,13 +7495,7 @@ Return Value:
 
     }
 
-    if (RtlLargeIntegerGreaterThanOrEqualTo(
-            RtlLargeIntegerSubtract(
-                higher,
-                lower
-                ),
-            RtlConvertUlongToLargeInteger(lowerSpan)
-            )) {
+    if ((higher.QuadPart - lower.QuadPart) >= lowerSpan) {
 
         return AddressesAreDisjoint;
 

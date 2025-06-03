@@ -97,14 +97,14 @@ _CRTAPI1 main(
         }
 
     if (argc == 8) {
-        sprintf( slmpath, "%s\src\%s%s\%s",
+        sprintf( slmpath, "%s\\src\\%s%s\\%s",
                           argv[ 2 ],    // SLM root
                           argv[ 3 ],    // SLM project
                           argv[ 4 ],    // SLM subdir
                           argv[ 1 ]     // File name
                );
 
-        sprintf( usrpath, "%s%s\%s",
+        sprintf( usrpath, "%s%s\\%s",
                           argv[ 7 ],
                           argv[ 4 ],
                           argv[ 1 ]
@@ -115,5 +115,5 @@ _CRTAPI1 main(
         }
 
     exit( CheckInAllowed );
+    return( 0 );
 }
-

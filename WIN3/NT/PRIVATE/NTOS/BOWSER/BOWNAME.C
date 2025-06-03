@@ -131,9 +131,35 @@ Return Value:
 
     PAGED_CODE();
 
+    //
+    // Names fit into two categories: those added per transport and those added
+    //  on all transports.  Check here that the caller doesn't violate that
+    //  axiom.  Below, we set the AddedOnAllTransports flag as a function
+    //  of whether a transport was specified when the name structure was first
+    //  added.  We can't change the flag value on future name adds.
+    //
+
+    if ( NameType == ComputerName ||
+         NameType == PrimaryDomain ||
+         NameType == OtherDomain ||
+         NameType == BrowserServer ||
+         NameType == PrimaryDomainBrowser ||
+         NameType == DomainName ) {
+
+        if ( Transport != NULL ) {
+            return STATUS_INVALID_PARAMETER;
+        }
+    } else {
+
+        if ( Transport == NULL ) {
+            return STATUS_INVALID_PARAMETER;
+        }
+    }
+
     ExAcquireResourceExclusive(&BowserTransportDatabaseResource, TRUE);
 
     ResourceLocked = TRUE;
+
 
     //
     // If the name doesn't already exist,
@@ -161,7 +187,26 @@ Return Value:
 
         // This reference matches the one FindName would have done
         // above had it succeeded.
+        //
         NewName->ReferenceCount = 1;
+
+        //
+        // If this name is being added on all transports,
+        //      Increment the reference count again.
+        //
+        // This reference is designed to ensure the name remains around
+        // even though there are no transports.  This is especially
+        // important for PNP where there are times that no transports exist
+        // but we want the names around so we can automatically add them when
+        // a new transport comes into existence.
+        //
+
+        if ( Transport == NULL ) {
+            NewName->ReferenceCount++;
+            NewName->AddedOnAllTransports = TRUE;
+        } else {
+            NewName->AddedOnAllTransports = FALSE;
+        }
 
         InitializeListHead(&NewName->NameChain);
 
@@ -241,6 +286,7 @@ ReturnStatus:
 
                 //
                 //  Clean out any other names that are there.
+                //  Decrement global reference to this name.
                 //
 
                 BowserDeleteNameAddresses(NewName);
@@ -654,7 +700,9 @@ BowserDeleteNameAddresses(
 
 Routine Description:
 
-    This routine deletes all the transport names associated with a browser name
+    This routine deletes all the transport names associated with a browser name.
+    Plus, this routine removes the global reference to the BOWSER_NAME which
+    keep the name around even though there are no transports at all.
 
 Arguments:
 
@@ -715,6 +763,16 @@ Return Value:
             }
         }
 
+    }
+
+    //
+    // If the name was added on all transports,
+    //  the name is now being deleted on all transports.
+    //  Remove the original reference.
+    //
+
+    if ( Name->AddedOnAllTransports ) {
+        BowserDereferenceName(Name);
     }
 
     ExReleaseResource(&BowserTransportDatabaseResource);

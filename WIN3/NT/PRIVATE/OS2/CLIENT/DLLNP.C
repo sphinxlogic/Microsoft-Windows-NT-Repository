@@ -31,6 +31,11 @@ Revision History:
 #define INCL_DOSNMPIPES
 #include "os2dll16.h"
 
+NTSTATUS
+Od2AlertableWaitForSingleObject(
+        IN HANDLE handle
+        );
+
 POS21X_SEM
 Od2LookupSem (
         HSEM hsem
@@ -201,6 +206,7 @@ DosConnectNPipe(
     NTSTATUS Status;
     PFILE_HANDLE hFileRecord;
     IO_STATUS_BLOCK IoStatusBlock;
+    FILE_PIPE_INFORMATION PipeInfoBuf;
     #if DBG
     PSZ RoutineName;
     RoutineName = "DosConnentNPipe";
@@ -242,6 +248,26 @@ DosConnectNPipe(
 //        return ERROR_INVALID_PARAMETER;
     }
 
+    //
+    // Query with FilePipeInformationFile to get blocking mode.
+    //
+    Status = NtQueryInformationFile(hFileRecord->NtHandle,
+                                    &IoStatusBlock,
+                                    &PipeInfoBuf,
+                                    sizeof(FILE_PIPE_INFORMATION),
+                                    FilePipeInformation);
+    if (!NT_SUCCESS(Status)) {
+#if DBG
+        IF_OD2_DEBUG( PIPES ) {
+            DbgPrint("DosConnectNPipe: NtQueryInformationFile() error: Status %lx\n", Status);
+        }
+#endif
+        return ERROR_BAD_PIPE;
+    }
+
+    //
+    // Try to connect to the client end.
+    //
     Status = NtFsControlFile(hFileRecord->NtHandle,
                               0,
                               0,
@@ -253,12 +279,18 @@ DosConnectNPipe(
                               0,
                               0);
 
+    if ((Status == STATUS_PENDING) &&
+        (PipeInfoBuf.CompletionMode == FILE_PIPE_COMPLETE_OPERATION)) {
+#if DBG
+        IF_OD2_DEBUG( PIPES ) {
+            DbgPrint("DosConnect, Pipe %d, ERROR_PIPE_NOT_CONNECTED\n", hpipe);
+        }
+#endif
+        return(ERROR_PIPE_NOT_CONNECTED);
+    }
+
     if (Status == STATUS_PENDING) {
-        Status = NtWaitForSingleObject (
-                        hFileRecord->NtHandle,
-                        TRUE,   // Alertable
-                        NULL    // Forever
-                        );
+        Status = Od2AlertableWaitForSingleObject(hFileRecord->NtHandle);
     }
 
     if (Status == STATUS_PIPE_LISTENING) {
@@ -605,7 +637,6 @@ Return Value:
                                );
 
     CreateFlags  = (fsOpenMode & NP_NOWRITEBEHIND ? FILE_WRITE_THROUGH : 0 );
-    CreateFlags |= (FILE_SYNCHRONOUS_IO_ALERT);
 
     //
     //  Determine the timeout. Convert from milliseconds to an Nt delta time
@@ -1111,7 +1142,9 @@ DosQueryNPHState(
     if (hFileRecord->FileType != FILE_TYPE_NMPIPE) {
 #if DBG
         IF_OD2_DEBUG( PIPES ) {
-            DbgPrint("DosQueryPNHState: File Type != NMPIPE hpipe %d\n",
+            DbgPrint("[%d,%d] DosQueryNPHState: File Type != NMPIPE hpipe %d\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
                         hpipe);
         }
 #endif
@@ -1126,7 +1159,7 @@ DosQueryNPHState(
     if (!NT_SUCCESS(Status)) {
 #if DBG
         IF_OD2_DEBUG( PIPES ) {
-            DbgPrint("DosQueryPNHState: NtqueryInformation error: Status %lx\n",
+            DbgPrint("DosQueryNPHState: NtqueryInformation error: Status %lx\n",
                         Status);
         }
 #endif
@@ -1168,7 +1201,7 @@ DosQueryNPHState(
     if (!NT_SUCCESS(Status)) {
 #if DBG
         IF_OD2_DEBUG( PIPES ) {
-            DbgPrint("DosQueryPNHState: NtqueryInformation error: Status %lx\n",
+            DbgPrint("DosQueryNPHState: NtqueryInformation error: Status %lx\n",
                         Status);
         }
 #endif
@@ -1183,7 +1216,11 @@ DosQueryNPHState(
 
 #if DBG
     IF_OD2_DEBUG( PIPES ) {
-        DbgPrint("DosQueryPNHState called Pipe %d State %x\n", hpipe, *pState);
+        DbgPrint("[%d,%d] DosQueryNPHState called Pipe %d State %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    hpipe,
+                    *pState);
     }
 #endif
     return (NO_ERROR);
@@ -1834,7 +1871,11 @@ DosSetNPHState(
 
 #if DBG
     IF_OD2_DEBUG( PIPES ) {
-        DbgPrint("DosSetNPHState: hpipe %d state %x\n", hpipe, state);
+        DbgPrint("[%d,%d] DosSetNPHState: hpipe %d state %x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hpipe,
+                state);
     }
 #endif
 
@@ -1938,7 +1979,7 @@ DosSetNPHState(
     if (!NT_SUCCESS(Status)) {
 #if DBG
         IF_OD2_DEBUG( PIPES ) {
-            DbgPrint("DosSetNPHState: NtSetInformation error: Status %lx\n",
+            DbgPrint("DosSetNPHState: NtSetInformationFile error: Status %lx\n",
                         Status);
         }
 #endif
@@ -2168,20 +2209,21 @@ Arguments:
     }
 
     DosQueryNPHState(hNamedPipe, &ReadMode);
-
         //
         //  if readmode byte stream- change to message mode.
-        //
-    if (~(ReadMode & NP_READMODE_MESSAGE)) {
+        //  This is not according to the spec, or native os/2, but
+        //  it is a special hack for sql setup.
+    if (!(ReadMode & NP_READMODE_MESSAGE)) {
         RetCode = DosSetNPHState( hNamedPipe, (ReadMode & NP_NOWAIT) | NP_READMODE_MESSAGE);
-#if DBG
         if (RetCode != NO_ERROR) {
-                IF_OD2_DEBUG( PIPES ) {
-                    DbgPrint("DosTransactNpipe, hPipe=%d, rc at DosSetNPHState=%d\n",
-                            hNamedPipe, RetCode);
-                }
-        }
+#if DBG
+            IF_OD2_DEBUG( PIPES ) {
+                DbgPrint("DosTransactNpipe, hPipe=%d, ReadMode %x not NP_READMODE_MESSAGE\n",
+                        hNamedPipe, ReadMode);
+            }
 #endif
+            return ERROR_BAD_FORMAT;
+        }
     }
 
     Status = NtFsControlFile(hFileRecord->NtHandle,
@@ -2198,11 +2240,7 @@ Arguments:
 
     if ( Status == STATUS_PENDING) {
             // Operation must complete before return & Iosb destroyed
-            Status = NtWaitForSingleObject(
-                        hFileRecord->NtHandle,
-                        TRUE,   // Alertable
-                        NULL    // Forever
-                               );
+            Status = Od2AlertableWaitForSingleObject(hFileRecord->NtHandle);
             if ( NT_SUCCESS(Status)) {
                 Status = Iosb.Status;
             }
@@ -2236,7 +2274,6 @@ Arguments:
     return (NO_ERROR);
 }
 
-
 APIRET
 DosWaitNPipe(
     PSZ pszName,
@@ -2247,31 +2284,16 @@ DosWaitNPipe(
     OBJECT_ATTRIBUTES Obja;
     NTSTATUS Status;
     ULONG WaitPipeLength;
-    PFILE_PIPE_WAIT_FOR_BUFFER WaitPipe;
-    UNICODE_STRING PipeName;
+    PFILE_PIPE_WAIT_FOR_BUFFER WaitPipe = NULL;
+    UNICODE_STRING PipeName = {0, 0, NULL };
     ANSI_STRING APipeName;
-    HANDLE Handle;
+    PCHAR APipeNameBuffer;
+    HANDLE Handle = NULL;
     APIRET rc;
     ULONG FileType;
     ULONG FileFlags;
-    PCHAR RootName, TmpName;
     STRING RootNameString;
-    UNICODE_STRING RootNameString_U;
-
-
-    try {
-        if ( ((pszName[0] != '\\') && (pszName[0] != '/')) ||
-            ((pszName[1] != 'p') && (pszName[1] != 'P')) ||
-            ((pszName[2] != 'i') && (pszName[2] != 'I')) ||
-            ((pszName[3] != 'p') && (pszName[3] != 'P')) ||
-            ((pszName[4] != 'e') && (pszName[4] != 'E')) ||
-            ((pszName[5] != '\\')  && (pszName[5] != '/'))) {
-            return ERROR_INVALID_NAME;
-        }
-    }
-    except( EXCEPTION_EXECUTE_HANDLER ) {
-        Od2ExitGP();
-    }
+    UNICODE_STRING RootNameString_U = {0, 0, NULL };
 
     rc = Od2Canonicalize(pszName,
                          CANONICALIZE_FILE_DEV_OR_PIPE,
@@ -2292,149 +2314,175 @@ DosWaitNPipe(
         return rc;
     }
 
-    if (FileFlags & CANONICALIZE_META_CHARS_FOUND) {
-            RtlFreeHeap(Od2Heap, 0,APipeName.Buffer);
+    APipeNameBuffer = APipeName.Buffer;
+
+    __try {
+        if (FileFlags & CANONICALIZE_META_CHARS_FOUND) {
             rc = ERROR_INVALID_PARAMETER;
-    }
+            __leave;
+        }
+
+        Od2InitMBString(&RootNameString, APipeName.Buffer);
+        RtlUpperString(&APipeName, &APipeName);
 
         //
-        // Remember the allocated memory so we can free later
+        // Local:
+        // APipeName == \OS2SS\PIPE\<pipename>
+        // Remote:
+        // APipeName == \OS2SS\UNC\<servername>\PIPE\<pipename>
         //
-    TmpName = APipeName.Buffer;
 
-    if (FileType == FILE_TYPE_UNC)
-    {
-        //
-        // A redirected pipe name - we will open the redir filesystem
-        // The PipeName need to start at server\\pipe\name
-        //
-        RootName = "\\OS2SS\\UNC\\";
-        APipeName.Buffer+=11; // skip "\\os2ss\\unc\\"
-        APipeName.Length-=11*sizeof(CHAR);
-    }
-    else {
-        /*
-           A local pipe name - we will open the NPFS filesystem
-           The PipeName need to start after \os2ss\pipe\
-        */
-        RootName = "\\OS2SS\\PIPE\\";
-        APipeName.Buffer+=12;
-        APipeName.Length-=12*sizeof(CHAR);
-    }
+        if (FileType == FILE_TYPE_UNC)
+        {
+            //
+            // A redirected pipe name - we will open the redir filesystem
+            // The root = \OS2SS\UNC\<servername>\PIPE\...
+            // The pipe = <pipename>
+            //
+            RootNameString.Length = 11 * sizeof(CHAR);      // size of \OS2SS\UNC\...
+            APipeName.Buffer += 11;
+            APipeName.Length -= 11 * sizeof(CHAR);
+            while (APipeName.Length && !(ISSLASH(APipeName.Buffer[0]))) {
+                RootNameString.Length += sizeof(CHAR);
+                APipeName.Buffer++;
+                APipeName.Length -= sizeof(CHAR);
+            }
 
-    Od2InitMBString(&RootNameString,RootName);
+            if (
+                (APipeName.Length < 6 * sizeof(CHAR)) ||    // size of \PIPE\...
+                (APipeName.Buffer[1] != 'P') ||
+                (APipeName.Buffer[2] != 'I') ||
+                (APipeName.Buffer[3] != 'P') ||
+                (APipeName.Buffer[4] != 'E') ||
+                (!ISSLASH(APipeName.Buffer[5]))
+               ) {
+                rc = ERROR_INVALID_NAME;
+                __leave;
+            }
+
+            RootNameString.Length += 5 * sizeof(CHAR);
+            APipeName.Buffer += 6;
+            APipeName.Length -= 6 * sizeof(CHAR);
+        }
+        else {
+            //
+            // A local pipe name - we will open the NPFS filesystem
+            // The root = \OS2SS\PIPE\...
+            // The pipe = <pipename>
+            //
+            APipeName.Buffer += 12;                         // size of \OS2SS\PIPE
+            APipeName.Length -= 12 * sizeof(CHAR);
+            RootNameString.Length = 12 * sizeof(CHAR);
+        }
 
         //
         // UNICODE conversion - File System Name
         //
 
-    rc = Od2MBStringToUnicodeString(
+        rc = Od2MBStringToUnicodeString(
                     &RootNameString_U,
                     &RootNameString,
-                    TRUE);
+                    TRUE
+                    );
 
-    if (rc)
-    {
+        if (rc) {
 #if DBG
-        IF_OD2_DEBUG( PIPES )
-        {
-            DbgPrint("DosWaitNmPipe: no memory for Unicode Conversion\n");
-        }
+            IF_OD2_DEBUG( PIPES ) {
+                DbgPrint("DosWaitNmPipe: no memory for Unicode Conversion\n");
+            }
 #endif
-        return rc;
-    }
+            __leave;
+        }
 
         //
         // UNICODE conversion - Pipe name
         //
 
-    rc = Od2MBStringToUnicodeString(
+        rc = Od2MBStringToUnicodeString(
                     &PipeName,
                     &APipeName,
-                    TRUE);
+                    TRUE
+                    );
 
-    if (rc)
-    {
+        if (rc) {
 #if DBG
-        IF_OD2_DEBUG( PIPES )
-        {
-            DbgPrint("DosWaitNmPipe: no memory for Unicode Conversion-2\n");
-        }
+            IF_OD2_DEBUG( PIPES ) {
+                DbgPrint("DosWaitNmPipe: no memory for Unicode Conversion-2\n");
+            }
 #endif
-        RtlFreeUnicodeString(&RootNameString_U);
-        return rc;
-    }
+            __leave;
+        }
 
-    InitializeObjectAttributes(&Obja,
+        InitializeObjectAttributes(
+                               &Obja,
                                &RootNameString_U,
                                OBJ_CASE_INSENSITIVE,
                                NULL,
-                               NULL);
-    Status = NtOpenFile(
-                &Handle,
-                (ACCESS_MASK)FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-                &Obja,
-                &Iosb,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                FILE_SYNCHRONOUS_IO_ALERT | FILE_DIRECTORY_FILE
-                );
+                               NULL
+                               );
 
-    if ( !NT_SUCCESS(Status) ) {
+        Status = NtOpenFile(
+                    &Handle,
+                    (ACCESS_MASK)FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                    &Obja,
+                    &Iosb,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    FILE_SYNCHRONOUS_IO_ALERT /*| FILE_DIRECTORY_FILE */
+                    );
+
+        if ( !NT_SUCCESS(Status) ) {
 #if DBG
-        IF_OD2_DEBUG( PIPES ) {
-           DbgPrint ("DosWaitNmPipe: error Opening filesystem %s %lx\n",
-                RootName, Status);
-        }
+            IF_OD2_DEBUG( PIPES ) {
+                DbgPrint ("DosWaitNmPipe: error opening root, status=%lx\n", Status);
+            }
 #endif
-        RtlFreeUnicodeString(&PipeName);
-        RtlFreeUnicodeString(&RootNameString_U);
-        switch (Status) {
-            case STATUS_INVALID_PARAMETER:
-                return (ERROR_INVALID_PARAMETER);
-                break;
-            default:
-            return ERROR_ACCESS_DENIED;
+            switch (Status) {
+                case STATUS_INVALID_PARAMETER:
+                    rc = ERROR_INVALID_PARAMETER;
+                    break;
+                default:
+                    rc = ERROR_ACCESS_DENIED;
+            }
+            __leave;
         }
-    }
 
-    WaitPipeLength =
-        FIELD_OFFSET(FILE_PIPE_WAIT_FOR_BUFFER, Name[0]) + PipeName.Length;
-    WaitPipe = RtlAllocateHeap(Od2Heap, 0, WaitPipeLength);
-    if (WaitPipe == NULL) {
+        WaitPipeLength = FIELD_OFFSET(FILE_PIPE_WAIT_FOR_BUFFER, Name[0]) + PipeName.Length;
+        WaitPipe = RtlAllocateHeap(Od2Heap, 0, WaitPipeLength);
+        if (WaitPipe == NULL) {
 #if DBG
-        IF_OD2_DEBUG( PIPES ) {
-            DbgPrint ("DosWaitNPipe: No memory to alloc from heap\n");
-        }
+            IF_OD2_DEBUG( PIPES ) {
+                DbgPrint ("DosWaitNPipe: No memory to alloc from heap\n");
+            }
 #endif
-        return(ERROR_NOT_ENOUGH_MEMORY);
-    }
+            rc = ERROR_NOT_ENOUGH_MEMORY;
+            __leave;
+        }
 
-    if ( ulTimeOut == 0 ) {
+        if ( ulTimeOut == 0 ) {
             //
             // OS/2 convention to wait the default timeout specified
             // to DosCreateNPipe
             //
-        WaitPipe->TimeoutSpecified = FALSE;
-    }
-    else {
-        if (ulTimeOut != 0xFFFFFFFF)
-            WaitPipe->Timeout = RtlEnlargedIntegerMultiply( -10 * 1000, ulTimeOut );
-        else
-            WaitPipe->Timeout = RtlConvertLongToLargeInteger(0x80000000);
-        WaitPipe->TimeoutSpecified = TRUE;
-    }
+            WaitPipe->TimeoutSpecified = FALSE;
+        }
+        else {
+            if (ulTimeOut != 0xFFFFFFFF)
+                WaitPipe->Timeout = RtlEnlargedIntegerMultiply( -10 * 1000, ulTimeOut );
+            else
+                WaitPipe->Timeout = RtlConvertLongToLargeInteger(0x80000000);
+            WaitPipe->TimeoutSpecified = TRUE;
+        }
 
-    WaitPipe->NameLength = PipeName.Length;
+        WaitPipe->NameLength = PipeName.Length;
 
-    RtlMoveMemory(
-        WaitPipe->Name,
-        PipeName.Buffer,
-        PipeName.Length
-    );
+        RtlMoveMemory(
+            WaitPipe->Name,
+            PipeName.Buffer,
+            PipeName.Length
+        );
 
-    RtlFreeHeap(Od2Heap, 0,TmpName);
-
-    Status = NtFsControlFile(Handle,
+        Status = NtFsControlFile(
+                        Handle,
                         NULL,
                         NULL,           // APC routine
                         NULL,           // APC Context
@@ -2446,23 +2494,32 @@ DosWaitNPipe(
                         0               // OutputBuffer Length
                         );
 
-    if (Status == STATUS_PENDING) {
-        Status = NtWaitForSingleObject (
-                        Handle,
-                        TRUE,   // Alertable
-                        NULL    // Forever
-                        );
-        if ( NT_SUCCESS(Status)) {
-            Status = Iosb.Status;
+        if (Status == STATUS_PENDING) {
+            Status = Od2AlertableWaitForSingleObject(Handle);
+            if ( NT_SUCCESS(Status)) {
+                Status = Iosb.Status;
+            }
         }
     }
+    __finally {
+        if (Handle) {
+            NtClose(Handle);
+        }
+        if (WaitPipe) {
+            RtlFreeHeap(Od2Heap, 0,WaitPipe);
+        }
+        if (PipeName.Buffer) {
+            RtlFreeUnicodeString(&PipeName);
+        }
+        if (RootNameString_U.Buffer) {
+            RtlFreeUnicodeString(&RootNameString_U);
+        }
+        RtlFreeHeap(Od2Heap, 0, APipeNameBuffer);
+    }
 
-    RtlFreeHeap(Od2Heap, 0,WaitPipe);
-
-    NtClose(Handle);
-
-    RtlFreeUnicodeString(&PipeName);
-    RtlFreeUnicodeString(&RootNameString_U);
+    if (rc != NO_ERROR) {
+        return rc;
+    }
 
     if ( !NT_SUCCESS(Status) ) {
         switch ( Status) {
@@ -2490,9 +2547,11 @@ DosWaitNPipe(
 #endif
         return rc;
     }
-        //
-        // Success
-        //
+
+    //
+    // Success
+    //
+
 #if DBG
     IF_OD2_DEBUG( PIPES ) {
         DbgPrint ("DosWaitNmPipe: Success. Status %lx PipeName %s\n",

@@ -111,7 +111,7 @@ void complist_freedescription(COMPLIST cl, LPSTR path);
 #define COPY_FROMRIGHT      0x200           /* copy files from right tree */
 #define COPY_HITREADONLY    0x400           /* overwrite read only files */
 
-void complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options, HFILE hfLog);
+void complist_copyfiles(COMPLIST cl, LPSTR newroot, UINT options);
 
 
 /* return time last operation took in milliseconds */
@@ -144,4 +144,5 @@ complist_itemcount(COMPLIST cl);
  * returns TRUE if any states changed
  */
 BOOL complist_markpattern(COMPLIST cl);
+
 

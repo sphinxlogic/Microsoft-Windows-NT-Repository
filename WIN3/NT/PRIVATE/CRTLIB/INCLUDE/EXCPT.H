@@ -70,10 +70,10 @@ EXCEPTION_DISPOSITION _CRTAPI2 _except_handler (
 	void * DispatcherContext
 	);
 
-#elif defined(_M_MRX000) || defined(_M_ALPHA)
+#elif   defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 
 /*
- * Declarations to keep MIPS and ALPHA compiler happy
+ * Declarations to keep MIPS, ALPHA, and PPC compiler happy
  */
 typedef struct _EXCEPTION_POINTERS *Exception_info_ptr;
 struct _EXCEPTION_RECORD;
@@ -95,14 +95,14 @@ EXCEPTION_DISPOSITION __C_specific_handler (
  * Keywords and intrinsics for SEH
  */
 
-#if	( _MSC_VER >= 800 )
-/*
- * MS C8-32 (386/486)
- */
+#ifdef	_MSC_VER
+
+#if !defined(__cplusplus)
 #define try				__try
 #define except				__except
 #define finally 			__finally
 #define leave				__leave
+#endif
 #define GetExceptionCode() (_exception_code())
 #define exception_code()   (_exception_code())
 #define GetExceptionInformation() ((struct _EXCEPTION_POINTERS *)_exception_info())
@@ -113,25 +113,6 @@ EXCEPTION_DISPOSITION __C_specific_handler (
 unsigned long _CRTAPI1 _exception_code(void);
 void *	      _CRTAPI1 _exception_info(void);
 int	      _CRTAPI1 _abnormal_termination(void);
-
-#elif defined(_M_MRX000) || defined(_M_ALPHA)
-/*
- * MIPS or ALPHA compiler
- */
-#define try				__builtin_try
-#define except				__builtin_except
-#define finally 			__builtin_finally
-#define leave				__builtin_leave
-#define GetExceptionCode()		__exception_code
-#define exception_code()		__exception_code
-#define GetExceptionInformation()       (struct _EXCEPTION_POINTERS *)__exception_info
-#define exception_info()                (struct _EXCEPTION_POINTERS *)__exception_info
-#define AbnormalTermination()		__abnormal_termination
-#define abnormal_termination()		__abnormal_termination
-
-extern unsigned long __exception_code;
-extern int	     __exception_info;
-extern int	     __abnormal_termination;
 
 #endif
 

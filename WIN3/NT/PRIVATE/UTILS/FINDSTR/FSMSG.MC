@@ -48,6 +48,7 @@ FINDSTR [/B] [/E] [/L] [/R] [/S] [/I] [/X] [/V] [/N] [/M] [/O] [/F:file]
   /N        Prints the line number before each line that matches.
   /M        Prints only the filename if a file contains a match.
   /O        Prints character offset before each matching line.
+  /P        Skip files with non-printable characters
   /F:file   Reads file list from the specified file(/ stands for console).
   /C:string Uses specified string as a literal search string.
   /G:file   Gets search strings from the specified file(/ stands for console).
@@ -123,3 +124,10 @@ MessageId=15 SymbolicName=MSG_FINDSTR_READ_ERROR
 Language=English
 %1: Error reading file %2.
 .
+
+MessageId=16 SymbolicName=MSG_FINDSTR_SEARCH_STRING_TOO_LONG
+Language=English
+%1: Search string too long.
+.
+
+

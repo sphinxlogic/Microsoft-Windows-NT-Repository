@@ -147,7 +147,8 @@ Return Value:
     //  33% overhead).
     //
 
-    pDlcObject = (PDLC_OBJECT)AllocatePacket(pFileContext->hLinkStationPool);
+    pDlcObject = (PDLC_OBJECT)ALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool);
+
     if (pDlcObject) {
         pFileContext->SapStationTable[SapIndex] = pDlcObject;
     } else {
@@ -277,7 +278,8 @@ Return Value:
     pDlcObject->pLinkStationList = NULL;
 #endif
 
-    DeallocatePacket(pFileContext->hLinkStationPool, pDlcObject);
+    DEALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool, pDlcObject);
+
     pFileContext->SapStationTable[SapIndex] = NULL;
     return Status;
 }
@@ -336,7 +338,7 @@ Return Value:
     //  optimized pool (the std binary buddy has ave. 33% overhead).
     //
 
-    pDlcObject = pFileContext->SapStationTable[0] = (PDLC_OBJECT)AllocatePacket(pFileContext->hLinkStationPool);
+    pDlcObject = pFileContext->SapStationTable[0] = (PDLC_OBJECT)ALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool);
 
     if (pDlcObject == NULL) {
         return DLC_STATUS_NO_MEMORY;
@@ -417,7 +419,8 @@ Return Value:
         pDlcObject->pLinkStationList = NULL;
 #endif
 
-        DeallocatePacket(pFileContext->hLinkStationPool, pDlcObject);
+        DEALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool, pDlcObject);
+
     }
     return Status;
 }
@@ -590,8 +593,7 @@ Return Value:
     // Allocate the link station and initialize the station id field
     //
 
-    pLinkStation = AllocatePacket(pFileContext->hLinkStationPool);
-
+    pLinkStation = ALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool);
 
     if (pLinkStation == NULL) {
         return DLC_STATUS_NO_MEMORY;
@@ -604,14 +606,16 @@ Return Value:
     // The status is reset when its read from the event queue.
     //
 
-    pLinkStation->u.Link.pStatusEvent = AllocatePacket(pFileContext->hPacketPool);
+    pLinkStation->u.Link.pStatusEvent = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pLinkStation->u.Link.pStatusEvent == NULL) {
 
 #if LLC_DBG
         pLinkStation->pLinkStationList = NULL;
 #endif
 
-        DeallocatePacket(pFileContext->hLinkStationPool, pLinkStation);
+        DEALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool, pLinkStation);
+
         return DLC_STATUS_NO_MEMORY;
     }
     *ppLinkStation = pLinkStation;
@@ -647,13 +651,14 @@ Return Value:
             // Free the slot in the link station table.
             //
 
-            DeallocatePacket(pFileContext->hPacketPool, pLinkStation->u.Link.pStatusEvent);
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pLinkStation->u.Link.pStatusEvent);
 
 #if LLC_DBG
             pLinkStation->pLinkStationList = NULL;
 #endif
 
-            DeallocatePacket(pFileContext->hLinkStationPool, pLinkStation);
+            DEALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool, pLinkStation);
+
             pFileContext->LinkStationTable[LinkIndex] = NULL;
             pSap->u.Sap.LinkStationCount--;
             return Status;
@@ -774,10 +779,13 @@ Return Value:
     // have been closed.
     //
 
-    if (pDlcObject->Type == DLC_SAP_OBJECT && pDlcObject->u.Sap.LinkStationCount != 0) {
+    if ((pDlcObject->Type == DLC_SAP_OBJECT)
+    && (pDlcObject->u.Sap.LinkStationCount != 0)) {
         return DLC_STATUS_LINK_STATIONS_OPEN;
     }
-    pClosingInfo = AllocatePacket(pFileContext->hPacketPool);
+
+    pClosingInfo = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pClosingInfo == NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -799,6 +807,7 @@ Return Value:
     }
 
     CloseAnyStation(pDlcObject, pClosingInfo, FALSE);
+
     return STATUS_PENDING;
 }
 
@@ -912,7 +921,7 @@ completed and the link stations disconnected).
 --*/
 
 
-VOID
+BOOLEAN
 CloseAllStations(
     IN PDLC_FILE_CONTEXT pFileContext,
     IN PIRP pIrp OPTIONAL,
@@ -938,6 +947,7 @@ Arguments:
     pfCloseComplete - completion appendage used when the DLC driver (or its
                       process context) is closed.
     pDlcParms       - DLC parameters from original system call
+    pClosingInfo    - pointer to DLC_CLOSE_WAIT_INFO structure
 
 Return Value:
 
@@ -1023,7 +1033,8 @@ Return Value:
         // that to fail the whole DIR.INITIALIZE command.
         //
 
-        pPacket = AllocatePacket(pFileContext->hPacketPool);
+        pPacket = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pPacket != NULL) {
             pClosingInfo->CloseCounter++;
 
@@ -1039,6 +1050,7 @@ Return Value:
             LlcNdisReset(pFileContext->pBindingContext, &pPacket->LlcPacket);
 
             ENTER_DLC(pFileContext);
+
         }
     }
     if (pFileContext->DlcObjectCount != 0) {
@@ -1057,7 +1069,7 @@ Return Value:
     // of the close information
     //
 
-    DecrementCloseCounters(pFileContext, pClosingInfo);
+    return DecrementCloseCounters(pFileContext, pClosingInfo);
 }
 
 
@@ -1278,7 +1290,8 @@ Return Value:
         // pending transmits and then does the actual close.
         //
 
-        pClosePacket = AllocatePacket(pFileContext->hPacketPool);
+        pClosePacket = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
         if (pClosePacket == NULL) {
 
             //
@@ -1401,6 +1414,7 @@ Return Value:
         } else {
 
             PDLC_OBJECT pSapObject = NULL;
+            PDLC_CLOSE_WAIT_INFO pClosingInfo;
 
             DLC_TRACE('N');
 
@@ -1412,6 +1426,7 @@ Return Value:
             //
 
             if (pDlcObject->Type == DLC_LINK_OBJECT) {
+
                 DLC_TRACE('c');
 
                 //
@@ -1433,9 +1448,11 @@ Return Value:
                 //
 
                 if (pDlcObject->u.Link.pStatusEvent->LlcPacket.pNext == NULL) {
-                    DeallocatePacket(pFileContext->hPacketPool,
-                                     pDlcObject->u.Link.pStatusEvent
-                                     );
+
+                    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool,
+                                              pDlcObject->u.Link.pStatusEvent
+                                              );
+
                 }
 
                 //
@@ -1514,7 +1531,7 @@ Return Value:
             //  link list,  We must decrement and notify all dlc objects
             //
 
-            DecrementCloseCounters(pFileContext, pDlcObject->pClosingInfo);
+//            DecrementCloseCounters(pFileContext, pDlcObject->pClosingInfo);
 
             //
             //  It's best to deallocate event packet after the
@@ -1526,7 +1543,15 @@ Return Value:
             pDlcObject->State = DLC_OBJECT_INVALID_TYPE;
 #endif
 
-            DeallocatePacket(pFileContext->hLinkStationPool, pDlcObject);
+            //
+            // RLF 08/17/94
+            //
+            // grab the pointer to the closing info structure before deallocating
+            // the DLC object
+            //
+
+            pClosingInfo = pDlcObject->pClosingInfo;
+            DEALLOCATE_PACKET_DLC_OBJ(pFileContext->hLinkStationPool, pDlcObject);
 
             //
             //  the close completion of the last link station closes
@@ -1543,6 +1568,25 @@ Return Value:
                                                     //
 
             }
+
+            //
+            // RLF 08/17/94
+            //
+            // Moved this call to DecrementCloseCounters from its previous
+            // place above. Once again, we find that things are happening out
+            // of sequence: this time, if we decrement the close counters,
+            // causing them to go to zero before we have freed the DLC object
+            // then the file context structure and its buffer pools are
+            // deallocated. But the DLC object was allocated from the now
+            // deleted pool, meaning sooner or later we corrupt non-paged pool
+            //
+
+            //
+            //  The parallel close/reset commands have been queued in a
+            //  link list,  We must decrement and notify all dlc objects
+            //
+
+            DecrementCloseCounters(pFileContext, pClosingInfo);
         }
     }
 }
@@ -1584,6 +1628,8 @@ Return Value:
 
 {
     BOOLEAN completeRead = FALSE;
+    BOOLEAN deallocatePacket = FALSE;
+    BOOLEAN derefFileContext = FALSE;
 
     //
     // Now we can cancel and chain all commands, that are still left,
@@ -1686,7 +1732,8 @@ Return Value:
                 pCompletionInfo,
                 0
                 );
-            DeallocatePacket(pFileContext->hPacketPool, pClosingInfo->pReadCommand);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pClosingInfo->pReadCommand);
 
             */
 
@@ -1706,7 +1753,8 @@ Return Value:
                          pCompletionInfo->StationId,
                          NULL,
                          pCompletionInfo,
-                         0
+                         0,
+                         pClosingInfo->FreeCompletionInfo
                          );
         }
     } else if (pFileContext->hBufferPool != NULL) {
@@ -1728,6 +1776,12 @@ Return Value:
     // Note: the close adapter packet is not allocated from packet pool!
     //
 
+    /*
+
+    //
+    // RLF 08/17/94
+    //
+
     if (pClosingInfo->pfCloseComplete != NULL) {
         pClosingInfo->pfCloseComplete(pFileContext,
                                       pClosingInfo,
@@ -1735,6 +1789,10 @@ Return Value:
                                       );
 
     } else {
+
+    */
+
+    if (pClosingInfo->pfCloseComplete == NULL) {
         if (pClosingInfo->pIrp != NULL) {
             CompleteDirectOutIrp(pClosingInfo->pIrp,
                                  STATUS_SUCCESS,
@@ -1779,9 +1837,59 @@ Return Value:
                 pClosingInfo->pCompletionInfo,
                 0
                 );
-            DeallocatePacket(pFileContext->hPacketPool, pClosingInfo->pReadCommand);
+
+            DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pClosingInfo->pReadCommand);
+
         }
-        DeallocatePacket(pFileContext->hPacketPool, pClosingInfo);
+
+        //
+        // RLF 08/17/94
+        //
+        // don't deallocate the packet now - we may need to use it if we call
+        // the close completion handler below
+        //
+
+        deallocatePacket = TRUE;
+
+        /*
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pClosingInfo);
+        */
+
+    }
+
+    //
+    // RLF 08/17/94
+    //
+    // Moved the DirCloseAdapter processing here to give the client chance to
+    // receive the event before we close the adapter and maybe kill the file
+    // context
+    //
+
+    if (pClosingInfo->pfCloseComplete) {
+
+        //
+        // RLF 08/17/94
+        //
+        // This is bad: this close complete call may cause the file context to
+        // become completely dereferenced, and hence free it and its buffer
+        // pools. But we still have the closing info packet allocated, so
+        // increase the reference count, free up the packet below, then deref
+        // the file context again, and cause it to be deleted (if that would
+        // have happened anyway)
+        //
+
+        ReferenceFileContext(pFileContext);
+        derefFileContext = TRUE;
+
+        pClosingInfo->pfCloseComplete(pFileContext, pClosingInfo, pClosingInfo->pCcbLink);
+    }
+
+    if (deallocatePacket) {
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pClosingInfo);
+    }
+
+    if (derefFileContext) {
+        DereferenceFileContext(pFileContext);
     }
 }
 
@@ -1912,13 +2020,15 @@ Return Value:
                     PDLC_COMPLETION_EVENT_INFO pCompletionInfo;
 
                     pCompletionInfo = (PDLC_COMPLETION_EVENT_INFO)
-                                        AllocatePacket(pFileContext->hPacketPool);
+                                        ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
                     if (pCompletionInfo != NULL) {
                         pCompletionInfo->CcbCount = pDlcObject->ChainedTransmitCount;
                         pCompletionInfo->pCcbAddress = pDlcObject->pPrevXmitCcbAddress;
                         pCompletionInfo->CommandCompletionFlag = pEvent->SecondaryInfo;
                         pEvent->SecondaryInfo = 0;
                         pEvent->pEventInformation = pCompletionInfo;
+                        pEvent->bFreeEventInfo = TRUE;
                         RemoveNextPacket = FALSE;
                     }
                 }
@@ -1948,7 +2058,9 @@ Return Value:
             };
             if (RemoveNextPacket) {
                 LlcRemoveEntryList(pEvent);
-                DeallocatePacket(pFileContext->hPacketPool, pEvent);
+
+                DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pEvent);
+
             } else {
 
                 //
@@ -1988,6 +2100,7 @@ Return Value:
     //
 
     for (;;) {
+
         NTSTATUS Status;
 
         Status = AbortCommand(pFileContext,
@@ -2053,7 +2166,7 @@ Arguments:
 
 Return Value:
 
-    STATUS_SUCCESS
+    None.
 
 --*/
 
@@ -2065,9 +2178,11 @@ Return Value:
     //
 
     pClosingInfo->pCompletionInfo = (PDLC_COMPLETION_EVENT_INFO)
-                                        AllocatePacket(pFileContext->hPacketPool);
+                                        ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
 
     if (pClosingInfo->pCompletionInfo != NULL) {
+
+        pClosingInfo->FreeCompletionInfo = TRUE;
 
         //
         // We must link all commands given to the deleted objects

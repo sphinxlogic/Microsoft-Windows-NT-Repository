@@ -49,7 +49,7 @@ private:
 	long					UnionFormatStringOffset;
 
 	//
-	// All this crap is used to help fixed imbeded struct's with pointers.
+	// All this is used to help fixed imbeded struct's with pointers.
 	//
 	BOOL					fClonedField 			: 1;
 	BOOL					fSizeIsDone 			: 1;
@@ -60,7 +60,7 @@ private:
 
 	RPC_BUF_SIZE_PROPERTY	fRpcBufferSize;
 	RPC_BUFFER_SIZE			RpcBufferSize;
-	_expr_node			*	pSizeExpression;
+	expr_node			*	pSizeExpression;
 
 public:
 	
@@ -70,14 +70,12 @@ public:
 
 							CG_FIELD(
 									 node_skl * pBT,	// base type
-									 unsigned long	MO,	// memory offset
-									 unsigned long	WO,	// wire offset
-									 unsigned short WA	// wire alignment
+									 XLAT_SIZE_INFO & Info	// memory offset etc
 									 ) : 
-								CG_NDR( pBT, WA)
+								CG_NDR( pBT, Info )
 								{
-								MemOffset	= MO;
-								WireOffset	= WO;
+								MemOffset	= Info.GetMemOffset();
+								WireOffset	= Info.GetWireOffset();
 								pSwitchExpr = NULL;
 								UnionFormatStringOffset = -1;
 								SetRpcBufferSize( 0 );
@@ -89,10 +87,9 @@ public:
 
 							CG_FIELD( CG_FIELD * pField ) : 
 								CG_NDR( pField->GetType(), 
-										CvtAlignPropertyToAlign( 
-												pField->GetWireAlignment() ) )
+										XLAT_SIZE_INFO() )
 								{
-								*this = *pField;
+								*this = *pField;	// also copies all the CG_NDR stuff over
 								fClonedField = TRUE;
 								fSizeIsDone = FALSE;
 
@@ -114,9 +111,24 @@ public:
 								return ID_CG_FIELD;
 								}
 
+    //
+    // Generate typeinfo
+    //          
+    virtual
+    CG_STATUS               GenTypeInfo( CCB * pCCB);
+
 	//
 	// Get and set methods.
 	//
+
+	//	make sure the ZP gets set along the way
+	virtual
+	void					SetSizesAndAlignments( XLAT_SIZE_INFO & Info )
+								{
+								CG_NDR::SetSizesAndAlignments( Info );
+								MemOffset	= Info.GetMemOffset();
+								WireOffset	= Info.GetWireOffset();
+								}
 
 	RPC_BUF_SIZE_PROPERTY	SetRpcBufSizeProperty( RPC_BUF_SIZE_PROPERTY BP )
 								{
@@ -245,15 +257,21 @@ public:
 	virtual
 	CG_STATUS				GenSizing( CCB * pCCB );
 
-	_expr_node		*		SetSizeExpression( _expr_node * pE )
+	expr_node		*		SetSizeExpression( expr_node * pE )
 								{
 								return (pSizeExpression = pE);
 								}
 
-	_expr_node		*		GetSizeExpression()
+	expr_node		*		GetSizeExpression()
 								{
 								return pSizeExpression;
 								}
+
+    virtual
+    BOOL                    HasAFixedBufferSize()
+                                {
+                                return (GetChild()->HasAFixedBufferSize());
+                                }
 	};
 
 
@@ -272,9 +290,9 @@ public:
 
 							CG_UNION_FIELD(
 									 node_skl * pBT,	// base type
-									 unsigned short WA
+									 XLAT_SIZE_INFO & Info
 									 ) : 
-								CG_FIELD( pBT, 0, 0, WA )
+								CG_FIELD( pBT, Info )
 								{
 								}
 
@@ -310,11 +328,14 @@ public:
 									 node_skl * pBT,	// expression type
 									 expr_node * pE		// expression
 									 ) : 
-								CG_NDR( pBT, 1 )
+								CG_NDR( pBT, XLAT_SIZE_INFO() )
 								{
 								SetExpr( pE );
 								fLastCase = FALSE;
 								}
+    
+    virtual
+    CG_STATUS               GenTypeInfo(CCB *pCCB);
 
 	virtual
 	ID_CG					GetCGID()
@@ -345,7 +366,6 @@ public:
 								{
 								return fLastCase;
 								}
-
 
 	};
 

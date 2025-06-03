@@ -2,6 +2,17 @@
  *
  */
 
+#define STRICT
+
+#define NOMINMAX		       // windef.h
+#define NOGDI			       // wingdi.h
+#define NOIME			       // ime.h
+#define NOUSER			       // winuser.h
+#define NOHELP
+#define NOPROFILER
+#define NOSYSPARAMSINFO
+#define NONLS			       // winnls.h
+#define NOSERVICE		       // winsvc.h
 #include "windows.h"
 
 #if __cplusplus
@@ -10,20 +21,30 @@
 #define INLINE __inline
 #endif
 
+#include <assert.h>
+#include <fcntl.h>
+#include <io.h>
+#include <limits.h>
+#include <malloc.h>
+#include <process.h>
+#include <share.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include <assert.h>
 #include <string.h>
-#include <io.h>
-#include <malloc.h>
-#include <limits.h>
+#include <tchar.h>
+#include <sys\stat.h>
+#include <sys\types.h>
+
+#include "bufio.h"
+#include "fileio.h"
 
 #define _vmhnd_t unsigned char *
 
 // ddbdumps.c
 
-#ifdef DEBUGVER //{
+#if DBG //{
 extern char DbArray[50];
 void DDHeapUsage(char *);
 void * __cdecl TrapMalloc(size_t);
@@ -38,11 +59,10 @@ void * __cdecl TrapMalloc(size_t);
 #include "vbuf.h"
 #include "defines.h"
 #include "padmacro.h"
-#include "fileio.h"
 
 
 // define DASSERT macro
-#if defined (DEBUGVER)
+#if DBG
 #define DASSERT(ex) assert(ex)
 #else
 #define DASSERT(ex)
@@ -75,7 +95,7 @@ typedef ushort (*LPFNHASH) (SYMPTR, ulong *, ushort *, ushort *, ulong *, ushort
 #define RECURSE_INC 	  5
 #define ZEROARGTYPE  0xFFFF // Magic type index that causes a LF_ARGLIST
 
-#if defined (DEBUGVER)
+#if DBG
 #define BreakOnIndex(a) IndexBreak (a)
 #else
 #define BreakOnIndex(a)
@@ -171,7 +191,7 @@ typedef enum GPS_t {
 
 /* get the length of a type string */
 
-#define 	LENGTH(type)		(*(ushort *)(type + 1))
+#define 	LENGTH(type)		(*(ushort UNALIGNED *)(type + 1))
 #define 	C7LENGTH(type)		(*(ushort *)(type))
 #define 	LNGTHSZ 2				// The size of the length field
 #define 	RECTYPSZ 2				// The size of the record type field
@@ -212,66 +232,65 @@ typedef struct PACKDATA {
 
 // externs for global variables
 
-extern int	exefile;				// the .exe file
-bool_t		verifyDebug;			// verify debug data correctness
-bool_t		logo;					// print logo and compression numbers
-bool_t		verbose;			// print packer stats at end of pack
-bool_t		strip;					// just strip the cv info
-bool_t		delete; 				// delete symbols and types
-bool_t		NeedsBanner;			// false if banner already printed
-bool_t		PackingPreComp; 		// true if packing a precompiled types file
-bool_t		IsMFCobol;				// True if packing MF COBOL
+extern int		exefile;			   // the .exe file
+extern bool_t	verifyDebug;		   // verify debug data correctness
+extern bool_t	logo;				   // print logo and compression numbers
+extern bool_t	verbose;			   // print packer stats at end of pack
+extern bool_t	strip;				   // just strip the cv info
+extern bool_t	fDelete;			   // delete symbols and types
+extern bool_t	NeedsBanner;		   // false if banner already printed
+extern bool_t	PackingPreComp; 	   // true if packing a precompiled types file
+extern bool_t	IsMFCobol;			   // True if packing MF COBOL
 
-ulong		InitialTypeInfoSize;
-ulong		InitialSymInfoSize;
-ulong		FinalSymInfoSize;
-ulong		cSST;					// count of subsection tables
-uchar		fLinearExe;
-ushort		cMod;					// count of number of modules in file
-ushort		cTypeSeg;				// count of number of type segments
-ushort		iTypeSeg;				// index into type segment pointer array
-uchar	  **pTypeSeg;				// pointer to array of type segment pointers
-size_t		maxPublicsSub;			// maximum publics subsection size
-size_t		maxSymbolsSub;			// maximum symbols subsection size
-size_t		maxSrcLnSub;			// maximum symbols subsection size
-size_t		maxModSub;				// maximum symbols subsection size
-ulong		maxTypes;				// maximum types subsection size
-ulong		maxPublics; 			// maximum publics subsection size
-ulong		maxSymbols; 			// maximum symbols subsection size
-ulong		maxSrcLn;				// maximum SrcLnSeg/sstModule subsection size
-ulong		maxMod; 				// maximum publics subsection size
-uchar	   *pTypes; 				// pointer to types table read buffer
-uchar	   *pPublics;				// pointer to publics table read buffer
-uchar	   *pSymbols;				// pointer to symbols table read buffer
-uchar	   *pSrcLn; 				// pointer to sourcelins table read buffer
-oldsmd	   *pSSTMOD;				// pointer to sourcelins table read buffer
-uchar	   **pGType[];				// array of pointers to global type pointers
-PMOD		pCurMod;				// pointer to current module being packed
-PMOD		pRefMod;				// pointer to referenced module
+extern ulong	InitialTypeInfoSize;
+extern ulong	InitialSymInfoSize;
+extern ulong	FinalSymInfoSize;
+	   ulong	cSST;				   // count of subsection tables
+extern uchar	fLinearExe;
+extern ushort	cMod;				   // count of number of modules in file
+	   ushort	cTypeSeg;			   // count of number of type segments
+	   ushort	iTypeSeg;			   // index into type segment pointer array
+	   uchar	**pTypeSeg; 		   // pointer to array of type segment pointers
+	   size_t	maxPublicsSub;		   // maximum publics subsection size
+	   size_t	maxSymbolsSub;		   // maximum symbols subsection size
+	   size_t	maxSrcLnSub;		   // maximum symbols subsection size
+	   size_t	maxModSub;			   // maximum symbols subsection size
+	   ulong	maxTypes;			   // maximum types subsection size
+	   ulong	maxPublics; 		   // maximum publics subsection size
+	   ulong	maxSymbols; 		   // maximum symbols subsection size
+	   ulong	maxSrcLn;			   // maximum SrcLnSeg/sstModule subsection size
+	   ulong	maxMod; 			   // maximum publics subsection size
+	   uchar	*pTypes;			   // pointer to types table read buffer
+	   uchar	*pPublics;			   // pointer to publics table read buffer
+	   uchar	*pSymbols;			   // pointer to symbols table read buffer
+	   uchar	*pSrcLn;			   // pointer to sourcelins table read buffer
+	   oldsmd	*pSSTMOD;			   // pointer to sourcelins table read buffer
+extern uchar	**pGType[]; 		   // array of pointers to global type pointers
+	   PMOD 	pCurMod;			   // pointer to current module being packed
+	   PMOD 	pRefMod;			   // pointer to referenced module
 
-VBuf		SymBuf;
-VBuf		TypeBuf;
-OMFDirEntry *pDir;					// directory read from exe
-_vmhnd_t	Libraries;
-_vmhnd_t	SegMap;
-_vmhnd_t	SegName;
-_vmhnd_t	FileIndex;
-ulong		LibSize;
-ulong		SegMapSize;
-ulong		SegNameSize;
-ulong		FileIndexSize;
-ushort		errIndex;
-long		filepos;
-long		lfoDir;
-long		lfoBase;
-char	   *ModAddr;
-ushort		cSeg;
-ushort		segnum[MAXCDF];
-OMFDirHeader DirHead;
-PACKDATA   *PackOrder;
-CV_typ_t	maxPreComp; 			// maximum precompiled type for this module
-PMOD		ModuleList;
-char		*pDbgFile;
+extern VBuf 		 SymBuf;
+extern VBuf 		 TypeBuf;
+extern OMFDirEntry	 *pDir; 		   // directory read from exe
+extern _vmhnd_t 	 Libraries;
+extern _vmhnd_t 	 SegMap;
+extern _vmhnd_t 	 SegName;
+	   _vmhnd_t 	 FileIndex;
+extern ulong		 LibSize;
+extern ulong		 SegMapSize;
+extern ulong		 SegNameSize;
+       ulong		 FileIndexSize;
+	   long 		 filepos;
+	   long 		 lfoDir;
+	   long 		 lfoBase;
+extern char 		 *ModAddr;
+extern ushort		 cSeg;
+extern ushort		 segnum[MAXCDF];
+extern OMFDirHeader  DirHead;
+extern PACKDATA 	 *PackOrder;
+extern CV_typ_t 	 maxPreComp;	   // maximum precompiled type for this module
+extern PMOD 		 ModuleList;
+extern char 		 *pDbgFile;
 
 /*	link_* - define i/o thunks for the case when cvpack is embedded in linker.
  */
@@ -312,10 +331,9 @@ void _fastcall PickUpFwdRefs(void);
 
 //			error.c
 
-void		ErrorExit (int, char *, char *);
-char	   *FormatMod (PMOD);
-char	   *FormatIndex (CV_typ_t);
-void		Warn (int, char *, char *);
+void		ErrorExit(unsigned, const char *, const char *);
+const char *FormatMod(PMOD);
+void		Warn(unsigned, const char *, const char *);
 
 
 
@@ -331,7 +349,6 @@ extern		ushort		usCurFirstNonPrim; // The current first non primitive type index
 //			module.c
 
 void		FixupExeFile (void);
-PMOD		GetModule (ushort, bool_t);
 OMFDirEntry *GetNextModuleEntry (OMFDirEntry *);
 void		ReadDir (void);
 
@@ -371,11 +388,9 @@ void		C6ReadTypes (uchar *, ulong);
 void		DoDerivationList (CV_typ_t, CV_typ_t);
 FWD_t		_fastcall FindFwdRef (TENTRY *, HSFWD **, bool_t);
 void		ClearHashFwdLocal();
-#ifndef NO_TDB
 void		ReadTDB(char *szTdbToRead);
 extern		int TDBStayedResident;
 extern		int NeedToClearTDB;
-#endif
 extern	void	InitModTypeTable (void);
 
 #if 1 // { GTW: inline FreeAllocStrings guard.
@@ -406,9 +421,6 @@ void		WriteStaticSym (OMFDirEntry *, long);
 #define HASHFUNC DWordXorShift
 void		WriteGlobalSym (OMFDirEntry *, long);
 void		WritePublics (OMFDirEntry *, long);
-#if defined (INCREMENTAL)
-void		RestoreIndex (ushort);
-#endif
 extern		CV_typ_t MaxIndex;				// Maximum index for module
 extern		CV_typ_t PreviousMaxIndex;
 extern		HSFWD **HTLocalFwd;
@@ -471,8 +483,6 @@ ushort		ConvertNumeric (uchar **, uchar **);
 
 void		C6CalcNewSizeOfSymbols (uchar *, ulong);
 void		C6RewriteAndFixupSymbols (uchar *, OMFDirEntry *, char *, PMOD);
-void		FixupPublicsC6 (uchar *, ulong);
-void		RewritePublicsC6 (uchar *, OMFDirEntry *);
 ushort		C6CnvtSymbol (uchar *pC7Sym, uchar *pC6Sym);
 
 //			symbols7.c
@@ -510,3 +520,5 @@ void DumpFullType (ushort, TYPPTR, bool_t);
 #define _HEAP_MAXREQ	0xFFE8
 
 #include "inlines.h"
+
+#pragma warning(4:4124)  // __fastcall with stack checking is inefficient

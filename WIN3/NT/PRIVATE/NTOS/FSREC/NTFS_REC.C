@@ -68,6 +68,7 @@ Return Value:
     PPACKED_BOOT_SECTOR buffer;
     LARGE_INTEGER byteOffset;
     LARGE_INTEGER secondByteOffset;
+    LARGE_INTEGER lastByteOffset;
     UNICODE_STRING driverName;
     ULONG bytesPerSector;
     LARGE_INTEGER numberOfSectors;
@@ -115,24 +116,40 @@ Return Value:
         if (GetDeviceValues( targetDevice,
                              &bytesPerSector,
                              &numberOfSectors )) {
-            byteOffset = LiFromUlong( 0 );
+            byteOffset.QuadPart = 0;
             buffer = NULL;
-            secondByteOffset = LiShr( numberOfSectors, 1 );
-            secondByteOffset = RtlExtendedIntegerMultiply( secondByteOffset,
-                                                           (LONG) bytesPerSector );
+            secondByteOffset.QuadPart = numberOfSectors.QuadPart >> 1;
+            secondByteOffset.QuadPart *= (LONG) bytesPerSector;
+            lastByteOffset.QuadPart = (numberOfSectors.QuadPart - 1) * (LONG) bytesPerSector;
 
             if (NtfsReadBlock( targetDevice,
-                           &byteOffset,
-                           sizeof( PACKED_BOOT_SECTOR ),
-                           bytesPerSector,
-                           (PVOID *)&buffer ) ||
-                NtfsReadBlock( targetDevice,
-                           &secondByteOffset,
-                           sizeof( PACKED_BOOT_SECTOR ),
-                           bytesPerSector,
-                           (PVOID *)&buffer)) {
+                               &byteOffset,
+                               sizeof( PACKED_BOOT_SECTOR ),
+                               bytesPerSector,
+                               (PVOID *)&buffer )) {
+
                 if (IsNtfsVolume( buffer, bytesPerSector, &numberOfSectors )) {
                     status = STATUS_FS_DRIVER_REQUIRED;
+                }
+
+            } else {
+
+                if (NtfsReadBlock( targetDevice,
+                                   &secondByteOffset,
+                                   sizeof( PACKED_BOOT_SECTOR ),
+                                   bytesPerSector,
+                                   (PVOID *)&buffer) &&
+                    IsNtfsVolume( buffer, bytesPerSector, &numberOfSectors )) {
+                    status = STATUS_FS_DRIVER_REQUIRED;
+                } else {
+                    if (NtfsReadBlock( targetDevice,
+                                       &lastByteOffset,
+                                       sizeof( PACKED_BOOT_SECTOR ),
+                                       bytesPerSector,
+                                       (PVOID *)&buffer) &&
+                        IsNtfsVolume( buffer, bytesPerSector, &numberOfSectors )) {
+                        status = STATUS_FS_DRIVER_REQUIRED;
+                    }
                 }
             }
             if (buffer != NULL) {
@@ -285,7 +302,7 @@ Return Value:
         //  on the partition.
         //
 
-        !LiGtr( BootSector->NumberSectors, *NumberOfSectors )
+        !( BootSector->NumberSectors.QuadPart > NumberOfSectors->QuadPart )
 
             &&
 
@@ -293,42 +310,45 @@ Return Value:
         //  Check that both Lcn values are for sectors within the partition.
         //
 
-        !LiGtr( LiXMul( BootSector->MftStartLcn,
-                        (ULONG)BootSector->PackedBpb.SectorsPerCluster[0] ),
-                *NumberOfSectors )
+        !( BootSector->MftStartLcn.QuadPart *
+                    BootSector->PackedBpb.SectorsPerCluster[0] >
+                NumberOfSectors->QuadPart )
 
             &&
 
-        !LiGtr( LiXMul( BootSector->Mft2StartLcn,
-                        (ULONG)BootSector->PackedBpb.SectorsPerCluster[0] ),
-                *NumberOfSectors )
+        !( BootSector->Mft2StartLcn.QuadPart *
+                    BootSector->PackedBpb.SectorsPerCluster[0] >
+                NumberOfSectors->QuadPart )
 
             &&
 
         //
         //  Clusters per file record segment and default clusters for Index
-        //  Allocation Buffers must be a power of 2.
+        //  Allocation Buffers must be a power of 2.  A negative number indicates
+        //  a shift value to get the actual size of the structure.
         //
 
-        (BootSector->ClustersPerFileRecordSegment == 0x1 ||
+        ((BootSector->ClustersPerFileRecordSegment >= -31 &&
+          BootSector->ClustersPerFileRecordSegment <= -9) ||
+         BootSector->ClustersPerFileRecordSegment == 0x1 ||
          BootSector->ClustersPerFileRecordSegment == 0x2 ||
          BootSector->ClustersPerFileRecordSegment == 0x4 ||
          BootSector->ClustersPerFileRecordSegment == 0x8 ||
          BootSector->ClustersPerFileRecordSegment == 0x10 ||
          BootSector->ClustersPerFileRecordSegment == 0x20 ||
-         BootSector->ClustersPerFileRecordSegment == 0x40 ||
-         BootSector->ClustersPerFileRecordSegment == 0x80)
+         BootSector->ClustersPerFileRecordSegment == 0x40)
 
             &&
 
-        (BootSector->DefaultClustersPerIndexAllocationBuffer == 0x1 ||
+        ((BootSector->DefaultClustersPerIndexAllocationBuffer >= -31 &&
+          BootSector->DefaultClustersPerIndexAllocationBuffer <= -9) ||
+         BootSector->DefaultClustersPerIndexAllocationBuffer == 0x1 ||
          BootSector->DefaultClustersPerIndexAllocationBuffer == 0x2 ||
          BootSector->DefaultClustersPerIndexAllocationBuffer == 0x4 ||
          BootSector->DefaultClustersPerIndexAllocationBuffer == 0x8 ||
          BootSector->DefaultClustersPerIndexAllocationBuffer == 0x10 ||
          BootSector->DefaultClustersPerIndexAllocationBuffer == 0x20 ||
-         BootSector->DefaultClustersPerIndexAllocationBuffer == 0x40 ||
-         BootSector->DefaultClustersPerIndexAllocationBuffer == 0x80)) {
+         BootSector->DefaultClustersPerIndexAllocationBuffer == 0x40)) {
 
         return TRUE;
 

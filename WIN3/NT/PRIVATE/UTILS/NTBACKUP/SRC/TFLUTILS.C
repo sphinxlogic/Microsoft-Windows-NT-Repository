@@ -560,10 +560,8 @@ INT16 ReadABuff(
                                                        channel->cur_buff,
                                                        lw_blk_size_list[size_index],
                                                        resized_buff ) ;
-                              if( ret_val == TFLE_NO_ERR ) {
-                                   size_index++ ;
-                                   done = FALSE ;
-                              }
+                               size_index++ ;
+                               done = FALSE ;
                          }
                     }
                }

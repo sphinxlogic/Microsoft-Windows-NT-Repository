@@ -136,6 +136,11 @@ GetServerDateAndTime(
     );
 
 VOID
+GetShellVersion(
+    IN USHORT Command
+    );
+
+VOID
 TTS(
     VOID
     );
@@ -459,56 +464,6 @@ LoadLocal:
     NwPrint(("Nw16Register: End\n"));
 }
 
-
-#if 0
-PCHAR
-GetProviderName(
-    VOID
-    )
-{
-    PCHAR providerName;
-    HKEY Key;
-    LONG error;
-    LONG valueLength;
-
-#if 0
-    error = RegOpenKeyExA(
-                HKEY_LOCAL_MACHINE,
-                "System\\CurrentControlSet\\Services\\NWCWorkstation\\networkprovider",
-                0,
-                KEY_QUERY_VALUE,
-                &Key );
-
-    if ( error !=  0 ) {
-        return( NULL );
-    }
-
-    error = RegQueryValueA( Key, "Name", NULL, &valueLength );
-    if ( error != ERROR_MORE_DATA ) {
-        RegCloseKey( Key );
-        return( NULL );
-    }
-
-    providerName = (PCHAR) LocalAlloc( LMEM_FIXED, valueLength );
-    if ( providerName == NULL) {
-        RegCloseKey( Key );
-        return( NULL );
-    }
-
-    error = RegQueryValueA( Key, "Name", providerName, &valueLength );
-    if ( error != 0) {
-        RegCloseKey( Key );
-        LocalFree( providerName );
-        return( NULL );
-    }
-#endif
-
-    providerName = "NetWare(R) Network";
-
-    return( providerName );
-}
-#endif
-
 VOID
 LoadPreferredServerName(
     VOID
@@ -623,7 +578,7 @@ ProcessResource(
 
     for (Connection = 0; Connection < MC ; Connection++ ) {
         if ((pNwDosTable->ConnectionIdTable[Connection].ci_InUse == IN_USE) &&
-            (!memcmp( pNwDosTable->ServerNameTable[Connection], ServerName, ServerNameLength))) {
+            (!memcmp( pNwDosTable->ServerNameTable[Connection], ServerName, SERVERNAME_LENGTH))) {
             Found = TRUE;
             break;
         }
@@ -1026,20 +981,7 @@ Return Value:
         break;
 
     case 0xEA00:
-        if ( (Command & 0x00ff) != 0) {
-            PUCHAR Reply = GetVDMPointer (
-                                    (ULONG)((getES() << 16)|getDI()),
-                                    40,
-                                    CpuInProtectMode
-                                    );
-
-            ASSERT( sizeof(CLIENT_ID_STRING) <= 40 );
-
-            RtlMoveMemory( Reply, CLIENT_ID_STRING, sizeof(CLIENT_ID_STRING) );
-        }
-        setAX(0);       // MSDOS, PC
-        setBX(0x031a);  // Shell version
-        setCX(0);
+        GetShellVersion(Command);
         break;
 
     case 0xEB00:
@@ -1647,6 +1589,8 @@ Return Value:
 --*/
 {
     if (ServerHandles[Connection]) {
+
+        NwPrint(("CloseConnection: %d\n",Connection));
 
         NtClose(ServerHandles[Connection]);
 
@@ -2328,6 +2272,12 @@ Return Value:
         }
     }
 
+    //
+    //  Set flags so that GetDirectory2 will open handle
+    //
+    pNwDosTable->DriveIdTable[ Drive ] = SelectConnection()+1;
+    pNwDosTable->DriveFlagTable[ Drive ] = PERMANENT_NETWORK_DRIVE;
+
     Handle = GetDirectoryHandle2( Drive );
 
     if (Handle == 0xffffffff) {
@@ -2338,8 +2288,6 @@ Return Value:
 
     } else {
 
-        pNwDosTable->DriveIdTable[ Drive ] = SelectConnection()+1;
-        pNwDosTable->DriveFlagTable[ Drive ] = PERMANENT_NETWORK_DRIVE;
         setAL(0);    // Successful
 
     }
@@ -2520,6 +2468,80 @@ Return Value:
 
 }
 
+VOID
+GetShellVersion(
+    IN USHORT Command
+    )
+/*++
+
+Routine Description:
+
+    Get the environment variables. Needs to be configurable for
+    Japanese machines.
+
+Arguments:
+
+    Command supplies the callers AX.
+
+Return Value:
+
+    none.
+
+--*/
+{
+
+    setAX(0);       // MSDOS, PC
+    setBX(0x031a);  // Shell version
+    setCX(0);
+
+    if ( (Command & 0x00ff) != 0) {
+
+        LONG tmp;
+        HKEY Key = NULL;
+        PUCHAR Reply = GetVDMPointer (
+                                (ULONG)((getES() << 16)|getDI()),
+                                40,
+                                CpuInProtectMode
+                                );
+
+        ASSERT( sizeof(CLIENT_ID_STRING) <= 40 );
+
+        RtlMoveMemory( Reply, CLIENT_ID_STRING, sizeof(CLIENT_ID_STRING) );
+
+
+        //
+        // Open HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services
+        // \NWCWorkstation\Parameters
+        //
+        tmp = RegOpenKeyExW(
+                       HKEY_LOCAL_MACHINE,
+                       NW_WORKSTATION_REGKEY,
+                       REG_OPTION_NON_VOLATILE,   // options
+                       KEY_READ,                  // desired access
+                       &Key
+                       );
+
+        if (tmp != ERROR_SUCCESS) {
+            return;
+        }
+
+        tmp = 40;   //  Max size for the string.
+
+        RegQueryValueExA(
+            Key,
+            "ShellVersion",
+            NULL,
+            NULL,
+            Reply,
+            &tmp);
+
+        ASSERT( tmp <= 40 );
+
+        RegCloseKey( Key );
+
+    }
+}
+
 #include <packon.h>
 
 typedef struct _TTSOUTPACKETTYPE {
@@ -2569,8 +2591,8 @@ Return Value:
             bOutput = 0;
             SendNCP2( NWR_ANY_F2_NCP(0x22), &bOutput, sizeof(UCHAR), NULL, 0);
 
-            if ((pNwDosTable->SavedAx & 0x00ff)== 0xFF) {
-                pNwDosTable->SavedAx = 0xc701;
+            if (getAL() == 0xFF) {
+                setAL(01);
             }
             break;
 

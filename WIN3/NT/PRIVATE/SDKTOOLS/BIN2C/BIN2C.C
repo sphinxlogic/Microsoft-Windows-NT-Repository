@@ -1,9 +1,4 @@
-// extract boot com from .com file.
-//
-// The boot code is assembled at org 600h but the generated
-// .com file starts at 100h.  So we have to extract the last
-// 512 (actually only want 0x1be) bytes from the file.
-
+#include <windows.h>
 #include <fcntl.h>
 #include <io.h>
 #include <sys\types.h>
@@ -19,6 +14,15 @@ dump(
     FILE     *Out,
     char     *VarName
     );
+
+int
+DumpAscii(
+    LPSTR   FileNameIn,
+    LPSTR   FileNameOut,
+    LPSTR   VarName
+    );
+
+
 
 
 // argv:
@@ -43,6 +47,12 @@ main(
     unsigned ReqLen,RegStart,RegLen,FileLen;
 
 
+    if (argc == 5 &&
+        (argv[1][0] == '-' || argv[1][0] == '/') &&
+        tolower(argv[1][1]) == 'a') {
+            return DumpAscii( argv[2], argv[3], argv[4] );
+    }
+
     if(argc != 7) {
         printf("Usage: %s <src file> <src file len> <region offset>\n",argv[0]);
         printf("       <region length> <dst file> <var name>\n");
@@ -53,41 +63,41 @@ main(
     RegStart = atoi(argv[3]);
     RegLen = atoi(argv[4]);
 
-    In = open(argv[1],O_RDONLY | O_BINARY);
+    In = _open(argv[1],O_RDONLY | O_BINARY);
     if(In == -1) {
         printf("%s: Unable to open file %s\n",argv[0],argv[1]);
         return(2);
     }
 
-    FileLen = lseek(In,0,SEEK_END);
+    FileLen = _lseek(In,0,SEEK_END);
 
     if(RegStart > FileLen) {
-        close(In);
+        _close(In);
         printf("%s: Desired region is out of range\n",argv[0]);
         return(2);
     }
 
-    if((unsigned)lseek(In,RegStart,SEEK_SET) != RegStart) {
-        close(In);
+    if((unsigned)_lseek(In,RegStart,SEEK_SET) != RegStart) {
+        _close(In);
         printf("%s: Unable to seek in file %s\n",argv[0],argv[1]);
         return(2);
     }
 
     if((buffer = malloc(RegLen)) == NULL) {
-        close(In);
+        _close(In);
         printf("%s: Out of memory\n",argv[0]);
         return(2);
     }
 
     memset(buffer, 0, RegLen);
 
-    if((unsigned)read(In,buffer,RegLen) > RegLen) {
-        close(In);
+    if((unsigned)_read(In,buffer,RegLen) > RegLen) {
+        _close(In);
         printf("%s: Unable to read file %s\n",argv[0],argv[1]);
         return(2);
     }
 
-    close(In);
+    _close(In);
 
     Out = fopen(argv[5],"wb");
     if(Out == NULL) {
@@ -129,7 +139,7 @@ dump(
         return(2);
     }
     strcpy(DefName,VarName);
-    strupr(DefName);
+    _strupr(DefName);
     strcat(DefName,"_SIZE");
 
     bw = fprintf(Out,"#define %s %u\n\n\n",DefName,buflen);
@@ -196,4 +206,173 @@ dump(
         return(2);
     }
     return(0);
+}
+
+int
+DumpAscii(
+    LPSTR   FileNameIn,
+    LPSTR   FileNameOut,
+    LPSTR   VarName
+    )
+{
+    HANDLE  hFileIn;
+    HANDLE  hFileOut;
+    HANDLE  hMapIn;
+    HANDLE  hMapOut;
+    LPVOID  DataIn;
+    LPVOID  DataOut;
+    LPSTR   din;
+    LPSTR   dout;
+    DWORD   FileSize;
+    DWORD   Bytes;
+    BOOL    LineBegin = TRUE;
+
+
+    //
+    // open the input file
+    //
+
+    hFileIn = CreateFile(
+        FileNameIn,
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        0,
+        NULL
+        );
+    if (hFileIn == INVALID_HANDLE_VALUE) {
+        return 1;
+    }
+
+    FileSize = GetFileSize( hFileIn, NULL );
+
+    hMapIn = CreateFileMapping(
+        hFileIn,
+        NULL,
+        PAGE_READONLY,
+        0,
+        0,
+        NULL
+        );
+    if (!hMapIn) {
+        return 1;
+    }
+
+    DataIn = (LPSTR) MapViewOfFile(
+        hMapIn,
+        FILE_MAP_READ,
+        0,
+        0,
+        0
+        );
+    if (!DataIn) {
+        return 1;
+    }
+
+    //
+    // open the output file
+    //
+
+    hFileOut = CreateFile(
+        FileNameOut,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        NULL,
+        CREATE_ALWAYS,
+        0,
+        NULL
+        );
+    if (hFileOut == INVALID_HANDLE_VALUE) {
+        return 1;
+    }
+
+    hMapOut = CreateFileMapping(
+        hFileOut,
+        NULL,
+        PAGE_READWRITE,
+        0,
+        FileSize * 2,
+        NULL
+        );
+    if (!hMapOut) {
+        return 1;
+    }
+
+    DataOut = (LPSTR) MapViewOfFile(
+        hMapOut,
+        FILE_MAP_WRITE,
+        0,
+        0,
+        0
+        );
+    if (!DataOut) {
+        return 1;
+    }
+
+    din = DataIn;
+    dout = DataOut;
+
+    sprintf( dout, "char %s[] =\r\n", VarName );
+    Bytes = strlen(dout);
+    dout += Bytes;
+
+    while( FileSize ) {
+        if (LineBegin) {
+            if (*din == ';') {
+                while (*din != '\n') {
+                    FileSize -= 1;
+                    din += 1;
+                }
+                FileSize -= 1;
+                din += 1;
+                continue;
+            }
+            *dout++ = '\"';
+            Bytes += 1;
+            LineBegin = FALSE;
+        }
+
+        FileSize -= 1;
+
+        if (*din == '\r') {
+            din += 1;
+            *dout++ = '\\';
+            *dout++ = 'r';
+            Bytes += 2;
+            continue;
+        }
+
+        if (*din == '\n') {
+            din += 1;
+            *dout++ = '\\';
+            *dout++ = 'n';
+            *dout++ = '\"';
+            *dout++ = '\r';
+            *dout++ = '\n';
+            Bytes += 5;
+            LineBegin = TRUE;
+            continue;
+        }
+
+        *dout++ = *din++;
+        Bytes += 1;
+    }
+
+    *dout++ = ';';
+    *dout++ = '\r';
+    *dout++ = '\n';
+    Bytes += 3;
+
+    UnmapViewOfFile( DataIn );
+    CloseHandle( hMapIn );
+    CloseHandle( hFileIn );
+
+    UnmapViewOfFile( DataOut );
+    CloseHandle( hMapOut );
+    SetFilePointer( hFileOut, Bytes, NULL, FILE_BEGIN );
+    SetEndOfFile( hFileOut );
+    CloseHandle( hFileOut );
+
+    return 0;
 }

@@ -28,7 +28,7 @@ Revision History:
 #include <eventp.h>
 #include <ntiolog.h>       // For IO_ERROR_LOG_[MESSAGE/PACKET]
 #include <elflpc.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <memory.h>
 #include <elfextrn.h> // Computername
 

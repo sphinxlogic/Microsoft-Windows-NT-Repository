@@ -162,6 +162,7 @@ SendSecondaryPacket(
 #pragma alloc_text( PAGE, BuildBurstWriteFirstReq )
 #pragma alloc_text( PAGE, BuildBurstWriteNextReq )
 
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, WriteNcpCallback )
 #pragma alloc_text( PAGE1, BurstWriteCompletionSend )
 #pragma alloc_text( PAGE1, BurstWriteCallback )
@@ -169,6 +170,13 @@ SendSecondaryPacket(
 #pragma alloc_text( PAGE1, FlushBuffersCallback )
 #pragma alloc_text( PAGE1, SendSecondaryPacket )
 #pragma alloc_text( PAGE1, BurstWriteReconnect )
+#endif
+
+#endif
+
+#if 0  // Not pageable
+
+// see ifndef QFE_BUILD above
 
 #endif
 
@@ -198,7 +206,7 @@ Return Value:
 --*/
 
 {
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     NTSTATUS status;
     BOOLEAN TopLevel;
 
@@ -220,21 +228,40 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+       }
+
     }
 
-    if ( status != STATUS_PENDING ) {
-        NwDequeueIrpContext( pIrpContext, FALSE );
-    }
+    if ( pIrpContext ) {
 
-    NwCompleteRequest( pIrpContext, status );
+        if ( status != STATUS_PENDING ) {
+            NwDequeueIrpContext( pIrpContext, FALSE );
+        }
+
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -283,11 +310,17 @@ Return Value:
     NODE_TYPE_CODE nodeTypeCode;
     PICB icb;
     PFCB fcb;
+    PNONPAGED_FCB pNpFcb;
     PVOID fsContext;
 
     BOOLEAN WroteToCache;
     LARGE_INTEGER ByteOffset;
+    LARGE_INTEGER PreviousByteOffset;
     ULONG BufferLength;
+
+    PULONG pFileSize;
+
+    // ULONG FileLength;
 
     PAGED_CODE();
 
@@ -335,6 +368,7 @@ Return Value:
         IrpContext->pScb = fcb->Scb;
         IrpContext->pNpScb = IrpContext->pScb->pNpScb;
         IrpContext->Icb = icb;
+        pFileSize = &icb->NpFcb->Header.FileSize.LowPart;
 
     } else if ( fcb->NodeTypeCode == NW_NTC_SCB ) {
 
@@ -342,6 +376,7 @@ Return Value:
         IrpContext->pNpScb = IrpContext->pScb->pNpScb;
         IrpContext->Icb = icb;
         fcb = NULL;
+        pFileSize = &icb->FileSize;
 
     } else {
 
@@ -368,6 +403,54 @@ Return Value:
             return( STATUS_INVALID_PARAMETER );
         }
     }
+
+    if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
+        !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+
+        PreviousByteOffset.QuadPart = irpSp->FileObject->CurrentByteOffset.QuadPart;
+        irpSp->FileObject->CurrentByteOffset.QuadPart = ByteOffset.QuadPart;
+    }
+
+    //
+    //  Paging I/O is not allowed to extend the file
+    //
+
+    if ((FlagOn(Irp->Flags, IRP_PAGING_IO)) &&
+        (ByteOffset.LowPart + BufferLength > *pFileSize )) {
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        if ( ByteOffset.LowPart + BufferLength <= *pFileSize ) {
+
+            //
+            //  Someone else extended the file. Do nothing.
+            //
+
+            // continue;
+
+        } else if ( ByteOffset.LowPart > *pFileSize ) {
+
+            //
+            //  Whole write is off the end of the buffer
+            //
+
+            NwDequeueIrpContext( IrpContext, FALSE );
+            Irp->IoStatus.Information = 0;
+            return( STATUS_SUCCESS );
+
+        } else {
+
+            //
+            //  Truncate request to size of file
+            //
+
+            BufferLength = *pFileSize - ByteOffset.LowPart;
+
+        }
+
+        NwDequeueIrpContext( IrpContext, FALSE );
+    }
+
 
     //
     //  Special case 0 length write.
@@ -412,9 +495,7 @@ Return Value:
             if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
                 !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
 
-                irpSp->FileObject->CurrentByteOffset = LiAdd (
-                          irpSp->FileObject->CurrentByteOffset,
-                          LiFromUlong (BufferLength));
+                irpSp->FileObject->CurrentByteOffset.QuadPart += BufferLength;
             }
 
             //
@@ -450,6 +531,56 @@ Return Value:
 
     if ( NT_SUCCESS( status ) ) {
 
+        //
+        // We actually wrote something out to the wire.  If there was a read
+        // cache and this write overlapped it, invalidate the read cache data
+        // so that we get good data on future reads.
+        //
+
+        if ( fcb != NULL ) {
+
+            pNpFcb = fcb->NonPagedFcb;
+
+            if ( ( pNpFcb->CacheBuffer != NULL ) &&
+                 ( pNpFcb->CacheSize != 0 ) &&
+                 ( pNpFcb->CacheType == ReadAhead ) ) {
+
+                //
+                // Two cases: (1) offset is less than cache offset
+                //            (2) offset is inside cached region
+                //
+
+                if ( ByteOffset.LowPart < pNpFcb->CacheFileOffset ) {
+
+                    //
+                    // Did we run into the read cache?
+                    //
+
+                    if ( BufferLength >
+                        (pNpFcb->CacheFileOffset - ByteOffset.LowPart) ) {
+
+                        DebugTrace( 0, Dbg, "Invalidated read cache for %08lx.\n", pNpFcb );
+                        pNpFcb->CacheDataSize = 0;
+
+                    }
+
+                } else {
+
+                    //
+                    // Did we write over any of the cached region.
+                    //
+
+                    if ( ByteOffset.LowPart <= ( pNpFcb->CacheFileOffset + pNpFcb->CacheDataSize ) ) {
+
+                        DebugTrace( 0, Dbg, "Invalidated read cache for %08lx.\n", pNpFcb );
+                        pNpFcb->CacheDataSize = 0;
+
+                    }
+                }
+            }
+
+        }
+
         Irp->IoStatus.Information = IrpContext->Specific.Write.WriteOffset;
 
         //
@@ -460,10 +591,28 @@ Return Value:
         if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
             !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
 
-            irpSp->FileObject->CurrentByteOffset = LiAdd (
-                      irpSp->FileObject->CurrentByteOffset,
-                      LiFromUlong (BufferLength));
+            irpSp->FileObject->CurrentByteOffset.QuadPart += BufferLength;
         }
+
+        NwAppendToQueueAndWait( IrpContext );
+
+        if (ByteOffset.LowPart + BufferLength > *pFileSize ) {
+
+            *pFileSize = ByteOffset.LowPart + BufferLength;
+
+        }
+
+    } else {
+
+       //
+       // The request failed, don't move the file pointer.
+       //
+
+       if (FlagOn(irpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
+           !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+
+           irpSp->FileObject->CurrentByteOffset.QuadPart = PreviousByteOffset.QuadPart;
+       }
 
     }
 
@@ -509,7 +658,7 @@ Return Value:
 
     PAGED_CODE();
 
-    if ( IrpContext->pNpScb->BurstModeEnabled &&
+    if ( IrpContext->pNpScb->SendBurstModeEnabled &&
          BufferLength > IrpContext->pNpScb->BufferSize ) {
         status = BurstWrite( IrpContext, ByteOffset, BufferLength, WriteBuffer, WriteMdl );
     } else {
@@ -523,7 +672,8 @@ Return Value:
     IrpContext->TxMdl->Next = NULL;
     IrpContext->CompletionSendRoutine = NULL;
     IrpContext->TimeoutRoutine = NULL;
-    IrpContext->Flags &= ~(IRP_FLAG_RETRY_SEND | IRP_FLAG_BURST_REQUEST | IRP_FLAG_BURST_PACKET | IRP_FLAG_BURST_WRITE );
+    IrpContext->Flags &= ~(IRP_FLAG_RETRY_SEND | IRP_FLAG_BURST_REQUEST | IRP_FLAG_BURST_PACKET |
+                             IRP_FLAG_BURST_WRITE | IRP_FLAG_NOT_SYSTEM_PACKET );
     IrpContext->pTdiStruct = NULL;
 
     IrpContext->pOriginalIrp->MdlAddress = IrpContext->pOriginalMdlAddress;
@@ -607,7 +757,7 @@ Return Value:
                      IrpContext,
                      SynchronousResponseCallback,
                      "F-r",
-                     NCP_WRITE_FILE,
+                     NCP_GET_FILE_SIZE,
                      &Icb->Handle, sizeof( Icb->Handle ) );
 
         if ( NT_SUCCESS( status ) ) {
@@ -617,6 +767,11 @@ Return Value:
                          IrpContext->ResponseLength,
                          "Nd",
                          &FileLength );
+
+            if ( !NT_SUCCESS( status ) ) {
+                return status;
+            }
+
         }
 
         IrpContext->Specific.Write.FileOffset = FileLength;
@@ -659,7 +814,8 @@ Return Value:
         //
 
         DataMdl = ALLOCATE_MDL(
-                      (PCHAR)IrpContext->Specific.Write.Buffer,
+                      (PCHAR)IrpContext->Specific.Write.Buffer +
+                           IrpContext->Specific.Write.WriteOffset,
                       IrpContext->Specific.Write.BurstLength,
                       FALSE, // Secondary Buffer
                       FALSE, // Charge Quota
@@ -771,6 +927,27 @@ Return Value:
         }
 
         FREE_MDL( DataMdl );
+
+        //
+        // If we had a failure, we need to terminate this loop.
+        // The only status that is set is the Specific->Write
+        // status.  We can not trust what comes back from the
+        // ExchangeWithWait by design.
+        //
+
+        if ( !NT_SUCCESS( IrpContext->Specific.Write.Status ) ) {
+            Done = TRUE;
+        }
+
+        //
+        // Reset the packet length since we may have less than
+        // a packet to send.
+        //
+
+        Length = MIN( (ULONG)IrpContext->pNpScb->BufferSize,
+                      IrpContext->Specific.Write.RemainingLength );
+        IrpContext->Specific.Write.LastWriteLength = Length;
+
     }
 
     status = IrpContext->Specific.Write.Status;
@@ -817,7 +994,7 @@ Return Value:
 
         IrpContext->Specific.Write.Status = STATUS_REMOTE_NOT_LISTENING;
 
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
         return STATUS_REMOTE_NOT_LISTENING;
     }
 
@@ -847,7 +1024,7 @@ Return Value:
         //
 
         IrpContext->Specific.Write.Status = Status;
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
         DebugTrace( 0, Dbg, "WriteNcpCallback -> %08lx\n", Status );
         return Status;
     }
@@ -919,7 +1096,7 @@ Return Value:
             //
 
             IrpContext->Specific.Write.Status = Status;
-            KeSetEvent( &IrpContext->Event, 0, FALSE );
+            NwSetIrpContextEvent( IrpContext );
             DebugTrace( 0, Dbg, "WriteNcpCallback -> %08lx\n", Status );
             return Status;
         }
@@ -932,7 +1109,7 @@ Return Value:
         //
 
         IrpContext->Specific.Write.Status = STATUS_SUCCESS;
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
     }
 
     DebugTrace( 0, Dbg, "WriteNcpCallback -> %08lx\n", Status );
@@ -1040,11 +1217,6 @@ Return Value:
     Length = MIN( (ULONG)pNpScb->MaxSendSize, BufferLength );
     DebugTrace( 0, Dbg, "Length  = %ld\n", Length);
 
-    IrpContext->CompletionSendRoutine = BurstWriteCompletionSend;
-    IrpContext->TimeoutRoutine = BurstWriteTimeout;
-    IrpContext->Specific.Write.LastWriteLength = Length;
-    IrpContext->Destination = pNpScb->RemoteAddress;
-
     if ( ByteOffset.HighPart == 0xFFFFFFFF &&
          ByteOffset.LowPart == FILE_WRITE_TO_END_OF_FILE ) {
 
@@ -1086,10 +1258,8 @@ Return Value:
     //  Setup context parameters for burst write.
     //
 
-    IrpContext->CompletionSendRoutine = BurstWriteCompletionSend;
-    IrpContext->pTdiStruct = &IrpContext->pNpScb->Burst;
-    IrpContext->PacketType = NCP_BURST;
-    IrpContext->pEx = BurstWriteCallback;
+    IrpContext->Specific.Write.LastWriteLength = Length;
+    IrpContext->Destination = pNpScb->RemoteAddress;
 
     IrpContext->Specific.Write.Buffer = WriteBuffer;
 
@@ -1101,7 +1271,19 @@ Return Value:
     TimeInNwUnits = pNpScb->NwSingleBurstPacketTime * ((Length / IrpContext->pNpScb->MaxPacketSize) + 1) +
         IrpContext->pNpScb->NwLoopTime;
 
-    IrpContext->pNpScb->SendTimeout = (SHORT)(TimeInNwUnits / 555) + 18;
+    IrpContext->pNpScb->SendTimeout =
+        (SHORT)(((TimeInNwUnits / 555) *
+                 (ULONG)WriteTimeoutMultiplier) / 100 + 1)  ;
+
+    if (IrpContext->pNpScb->SendTimeout < 2)
+    {
+        IrpContext->pNpScb->SendTimeout = 2 ;
+    }
+
+    if (IrpContext->pNpScb->SendTimeout > (SHORT)MaxWriteTimeout)
+    {
+        IrpContext->pNpScb->SendTimeout = (SHORT)MaxWriteTimeout ;
+    }
 
     IrpContext->pNpScb->TimeOut = IrpContext->pNpScb->SendTimeout;
 
@@ -1163,6 +1345,56 @@ Return Value:
                 Length );
         }
 
+        pNpScb->BurstDataWritten += Length;
+
+        if (( SendExtraNcp ) &&
+            ( pNpScb->BurstDataWritten >= 0x0000ffff )) {
+
+
+            ULONG Flags;
+
+            //
+            //  VLM client sends an NCP when starting a burst mode request
+            //  if the last request was not a write. It also does this every
+            //  0xfe00 bytes written
+            //
+            //  When going to a queue we will use handle 2. This is what the vlm
+            //  client always seems to do.
+            //
+
+            Flags = IrpContext->Flags;
+
+            //
+            //  Reset IrpContext parameters
+            //
+
+            IrpContext->TxMdl->Next = NULL;
+            IrpContext->CompletionSendRoutine = NULL;
+            IrpContext->TimeoutRoutine = NULL;
+            IrpContext->Flags &= ~(IRP_FLAG_RETRY_SEND | IRP_FLAG_BURST_REQUEST | IRP_FLAG_BURST_PACKET |
+                                     IRP_FLAG_BURST_WRITE | IRP_FLAG_NOT_SYSTEM_PACKET );
+            IrpContext->pTdiStruct = NULL;
+
+            ExchangeWithWait (
+                IrpContext,
+                SynchronousResponseCallback,
+                "Sb",   // NCP Get Directory Path
+                NCP_DIR_FUNCTION, NCP_GET_DIRECTORY_PATH,
+                (Icb->SuperType.Fcb->NodeTypeCode == NW_NTC_FCB)?
+                    Icb->SuperType.Fcb->Vcb->Specific.Disk.Handle : 2 );
+
+            pNpScb->BurstDataWritten = Length;
+
+            IrpContext->Flags = Flags;
+            SetFlag( IrpContext->Flags, IRP_FLAG_ON_SCB_QUEUE );
+        }
+
+        IrpContext->TimeoutRoutine = BurstWriteTimeout;
+        IrpContext->CompletionSendRoutine = BurstWriteCompletionSend;
+        IrpContext->pTdiStruct = &IrpContext->pNpScb->Burst;
+        IrpContext->PacketType = NCP_BURST;
+        IrpContext->pEx = BurstWriteCallback;
+
         IrpContext->Specific.Write.FullMdl = DataMdl;
 
         MmGetSystemAddressForMdl( DataMdl );
@@ -1211,6 +1443,8 @@ Return Value:
                 //
                 //  This burst has timed out, simply resend the burst.
                 //
+
+                NwProcessSendBurstFailure( pNpScb, 1 );
 
                 status = SendWriteBurst(
                              IrpContext,
@@ -1470,6 +1704,7 @@ Return Value:
     PIRP_CONTEXT pIrpContext = (PIRP_CONTEXT) Context;
     INTERLOCKED_RESULT Result;
     KIRQL OldIrql;
+    NTSTATUS Status;
 
     //
     //  Avoid completing the Irp because the Mdl etc. do not contain
@@ -1480,8 +1715,16 @@ Return Value:
     DebugTrace( +0, Dbg, "Irp   %X\n", Irp);
     DebugTrace( +0, Dbg, "pIrpC %X\n", pIrpContext);
 
-    if ( !NT_SUCCESS(Irp->IoStatus.Status)) {
-        DebugTrace( 0, Dbg, "Burst Write Send failed= %08lx\n", Irp->IoStatus.Status );
+    if ( Irp != NULL ) {
+
+        DebugTrace( 0, Dbg, "Burst Write Send = %08lx\n", Irp->IoStatus.Status );
+
+        Status = Irp->IoStatus.Status;
+
+    } else {
+
+        Status = STATUS_SUCCESS;
+
     }
 
     //
@@ -1510,6 +1753,19 @@ Return Value:
 
     if ( Result != RESULT_ZERO ) {
         DebugTrace( 0, Dbg, "Packets to go = %d\n", pIrpContext->Specific.Write.PacketCount );
+
+        if (Status == STATUS_BAD_NETWORK_PATH) {
+
+            //
+            //  IPX has ripped for the destination but failed to find the net. Minimise the
+            //  difference between this case and sending a normal burst by completing the
+            //  transmission as soon as possible.
+            //
+
+            pIrpContext->pNpScb->NwSendDelay = 0;
+
+        }
+
         return STATUS_MORE_PROCESSING_REQUIRED;
     }
 
@@ -1525,17 +1781,18 @@ Return Value:
 
     if ( BooleanFlagOn( pIrpContext->Flags, IRP_FLAG_SIGNAL_EVENT ) ) {
         ClearFlag( pIrpContext->Flags, IRP_FLAG_SIGNAL_EVENT );
-        KeSetEvent( &pIrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( pIrpContext );
     }
 
     //
-    //  If we got a processed a receive indication while waiting for send
+    //  If we processed a receive while waiting for send
     //  completion call the receive handler routine now.
     //
 
-    if ( pIrpContext->pNpScb->Receiving ) {
+    if ( pIrpContext->pNpScb->Received ) {
 
         pIrpContext->pNpScb->Receiving = FALSE;
+        pIrpContext->pNpScb->Received  = FALSE;
 
         KeReleaseSpinLock( &pIrpContext->pNpScb->NpScbSpinLock, OldIrql );
 
@@ -1545,6 +1802,22 @@ Return Value:
             pIrpContext->rsp );
 
     } else {
+        if ((Status == STATUS_BAD_NETWORK_PATH) &&
+            (pIrpContext->pNpScb->Receiving == FALSE)) {
+
+            //
+            //  Usually means a ras connection has gone down during the burst.
+            //  Go through the timeout logic now because the ras timeouts take
+            //  a long time and unless we re rip things won't get better.
+            //
+
+            pIrpContext->Specific.Write.Status = STATUS_REMOTE_NOT_LISTENING;
+            ClearFlag( pIrpContext->Flags, IRP_FLAG_RETRY_SEND );
+
+            NwSetIrpContextEvent( pIrpContext );
+
+        }
+
         KeReleaseSpinLock( &pIrpContext->pNpScb->NpScbSpinLock, OldIrql );
     }
 
@@ -1595,14 +1868,14 @@ Return Value:
         IrpContext->Specific.Write.Status = STATUS_REMOTE_NOT_LISTENING;
         ClearFlag( IrpContext->Flags, IRP_FLAG_RETRY_SEND );
 
-        KeSetEvent( &IrpContext->Event, 0, FALSE );
+        NwSetIrpContextEvent( IrpContext );
 
         DebugTrace(-1, Dbg, "BurstWriteCallback -> %X\n", STATUS_REMOTE_NOT_LISTENING );
         return STATUS_REMOTE_NOT_LISTENING;
     }
 
     IrpContext->Specific.Write.Status = STATUS_SUCCESS;
-    ASSERT( BytesAvailable < MAX_DATA );
+    ASSERT( BytesAvailable < MAX_RECV_DATA );
     ++Stats.PacketBurstWriteNcps;
 
     //
@@ -1619,13 +1892,13 @@ Return Value:
     TdiCopyLookaheadData(
         IrpContext->rsp,
         Response,
-        BytesAvailable < MAX_DATA ? BytesAvailable : MAX_DATA,
+        BytesAvailable < MAX_RECV_DATA ? BytesAvailable : MAX_RECV_DATA,
         0
         );
 
     IrpContext->ResponseLength = BytesAvailable;
 
-    KeSetEvent( &IrpContext->Event, 0, FALSE );
+    NwSetIrpContextEvent( IrpContext );
     return STATUS_SUCCESS;
 }
 
@@ -1807,23 +2080,12 @@ Return Value:
 
         MiniIrpContext = AllocateMiniIrpContext( IrpContext );
 
-        //
-        //  If we can't allocate a mini irp context to send the packet,
-        //  just skip it and wait for the server to ask a retranmit.  At
-        //  this point performance isn't exactly stellar, so don't worry
-        //  about having to wait for a timeout.
-        //
-
-        if ( MiniIrpContext == NULL ) {
-            BurstWriteCompletionSend( NULL, NULL, IrpContext );
-        }
-
-        SendIrp = MiniIrpContext->Irp;
-
         DebugTrace( 0, Dbg, "Allocated mini IrpContext = %X\n", MiniIrpContext );
 
         //
-        //  Calculate the total number of bytes to send during this burst.
+        //  Calculate the total number of bytes to send during this burst. Do this before
+        //  checking to see if MiniIrpContext is NULL so that we skip the packet rather
+        //  than sitting in a tight loop.
         //
 
         BurstOffset += IrpContext->Specific.Write.BurstLength;
@@ -1840,6 +2102,22 @@ Return Value:
             MIN( IrpContext->pNpScb->MaxPacketSize, (ULONG)Length );
 
         DebugTrace( +0, Dbg, "More data, sending %d bytes\n", IrpContext->Specific.Write.BurstLength );
+
+        //
+        //  If we can't allocate a mini irp context to send the packet,
+        //  just skip it and wait for the server to ask a retranmit.  At
+        //  this point performance isn't exactly stellar, so don't worry
+        //  about having to wait for a timeout.
+        //
+
+        if ( MiniIrpContext == NULL ) {
+
+            ExInterlockedDecrementLong(
+                &IrpContext->Specific.Write.PacketCount,
+                &IrpContext->pNpScb->NpScbInterLock );
+
+            continue;
+        }
 
 #ifdef NWDBG
 
@@ -1905,6 +2183,9 @@ Return Value:
             );
 
         ++Stats.PacketBurstWriteNcps;
+
+        SendIrp = MiniIrpContext->Irp;
+
         PreparePacket( IrpContext, SendIrp, MiniIrpContext->Mdl1 );
 
         // BUGBUG Clean this up
@@ -1966,7 +2247,7 @@ Return Value:
     //  Signal the write thread to wakeup and resend the burst.
     //
 
-    KeSetEvent( &IrpContext->Event, 0, FALSE );
+    NwSetIrpContextEvent( IrpContext );
 
     Stats.PacketBurstWriteTimeouts++;
 
@@ -2016,18 +2297,19 @@ Return Value:
     //  Crank the delay times down so we give the new connection a chance.
     //
 
-    pNpScb->NwGoodSendDelay = pNpScb->NwBadSendDelay = pNpScb->NwSendDelay = 0;
-    pNpScb->NwGoodReceiveDelay = pNpScb->NwBadReceiveDelay = pNpScb->NwReceiveDelay = 0;
+    pNpScb->NwGoodSendDelay = pNpScb->NwBadSendDelay = pNpScb->NwSendDelay = MinSendDelay;
+    pNpScb->NwGoodReceiveDelay = pNpScb->NwBadReceiveDelay = pNpScb->NwReceiveDelay = MinReceiveDelay;
 
-    pNpScb->BurstSuccessCount = 0;
+    pNpScb->SendBurstSuccessCount = 0;
+    pNpScb->ReceiveBurstSuccessCount = 0;
 
-    pNpScb->NtSendDelay = LiFromLong( 0 );
+    pNpScb->NtSendDelay.QuadPart = MinSendDelay;
 
     //
     //  Signal the write thread to wakeup and resend the burst.
     //
 
-    KeSetEvent( &IrpContext->Event, 0, FALSE );
+    NwSetIrpContextEvent( IrpContext );
 
     return( STATUS_PENDING );
 }
@@ -2055,6 +2337,7 @@ Return Value:
 {
     PIRP_CONTEXT pNewIrpContext;
     PNONPAGED_SCB pNpScb = IrpContext->pNpScb;
+    BOOLEAN LIPNegotiated ;
 
     PAGED_CODE();
 
@@ -2090,7 +2373,7 @@ Return Value:
     //  the burst connection.
     //
 
-    NegotiateBurstMode( pNewIrpContext, pNpScb );
+    NegotiateBurstMode( pNewIrpContext, pNpScb, &LIPNegotiated );
 
     //
     //  Reset the sequence numbers.
@@ -2141,7 +2424,7 @@ Return Value:
 --*/
 
 {
-    PIRP_CONTEXT pIrpContext;
+    PIRP_CONTEXT pIrpContext = NULL;
     NTSTATUS status;
     BOOLEAN TopLevel;
 
@@ -2163,17 +2446,35 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( pIrpContext == NULL ) {
 
-        status = NwProcessException( pIrpContext, GetExceptionCode() );
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
+
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            //  We had some trouble trying to perform the requested
+            //  operation, so we'll abort the I/O request with
+            //  the error Status that we get back from the
+            //  execption code
+            //
+
+            status = NwProcessException( pIrpContext, GetExceptionCode() );
+      }
+
     }
 
-    NwCompleteRequest( pIrpContext, status );
+    if ( pIrpContext ) {
+        NwCompleteRequest( pIrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -2278,10 +2579,17 @@ Return Value:
     IrpContext->Icb = Icb;
 
     //
-    //  First flush our dirty data.
+    //  Send any user data to the server. Note we must not be on the
+    //  queue when we do this.
     //
 
-    Status = FlushCache( IrpContext, Fcb->NonPagedFcb );
+    MmFlushImageSection(&Icb->NpFcb->SegmentObject, MmFlushForWrite);
+
+    //
+    //  Flush our dirty data.
+    //
+
+    Status = AcquireFcbAndFlushCache( IrpContext, Fcb->NonPagedFcb );
     if ( !NT_SUCCESS( Status )) {
         return( Status  );
     }
@@ -2399,7 +2707,61 @@ BuildBurstWriteFirstReq(
     BurstWrite->BurstHeader.StreamType = 0x02;
     BurstWrite->BurstHeader.SourceConnection = pNpScb->SourceConnectionId;
     BurstWrite->BurstHeader.DestinationConnection = pNpScb->DestinationConnectionId;
-    LongByteSwap( BurstWrite->BurstHeader.SendDelayTime, pNpScb->NwSendDelay );
+
+
+    if ( !BooleanFlagOn( IrpContext->Flags, IRP_FLAG_RETRY_SEND ) ) {
+
+        //
+        //  Use the same delay on all retransmissions of the burst. Save
+        //  the current time.
+        //
+
+        pNpScb->CurrentBurstDelay = pNpScb->NwSendDelay;
+
+        //
+        //  Send system packet next retransmission.
+        //
+
+        ClearFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+    } else {
+
+        //
+        //  This is a retransmission. Alternate between sending a system
+        //  packet and the first write.
+        //
+
+        if ( !BooleanFlagOn( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET ) ) {
+
+
+            SetFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+            BurstWrite->BurstHeader.Flags = BURST_FLAG_SYSTEM_PACKET;
+
+            LongByteSwap( BurstWrite->BurstHeader.SendDelayTime, pNpScb->CurrentBurstDelay );
+
+            BurstWrite->BurstHeader.DataSize = 0;
+            BurstWrite->BurstHeader.BurstOffset = 0;
+            BurstWrite->BurstHeader.BurstLength = 0;
+            BurstWrite->BurstHeader.MissingFragmentCount = 0;
+
+            IrpContext->TxMdl->ByteCount = sizeof( NCP_BURST_HEADER );
+            IrpContext->TxMdl->Next = NULL;
+
+            return;
+
+        }
+
+        //
+        //  Send system packet next retransmission.
+        //
+
+        ClearFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+    }
+
+    LongByteSwap( BurstWrite->BurstHeader.SendDelayTime, pNpScb->CurrentBurstDelay );
+
     LongByteSwap( BurstWrite->BurstHeader.DataSize, RealDataLength );
     BurstWrite->BurstHeader.BurstOffset = 0;
     ShortByteSwap( BurstWrite->BurstHeader.BurstLength, RealBurstLength );
@@ -2445,7 +2807,53 @@ BuildBurstWriteNextReq(
     BurstHeader->StreamType = 0x02;
     BurstHeader->SourceConnection = pNpScb->SourceConnectionId;
     BurstHeader->DestinationConnection = pNpScb->DestinationConnectionId;
-    BurstHeader->SendDelayTime = 0;
+
+    LongByteSwap( BurstHeader->SendDelayTime, pNpScb->CurrentBurstDelay );
+
+    if ( BooleanFlagOn( IrpContext->Flags, IRP_FLAG_RETRY_SEND ) ) {
+
+        //
+        //  This is a retransmission. Alternate between sending a system
+        //  packet and the first write.
+        //
+
+        if ( !BooleanFlagOn( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET ) ) {
+
+
+            SetFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+            BurstHeader->Flags = BURST_FLAG_SYSTEM_PACKET;
+
+            LongByteSwap( BurstHeader->SendDelayTime, pNpScb->CurrentBurstDelay );
+
+            BurstHeader->DataSize = 0;
+            BurstHeader->BurstOffset = 0;
+            BurstHeader->BurstLength = 0;
+            BurstHeader->MissingFragmentCount = 0;
+
+            IrpContext->TxMdl->ByteCount = sizeof( NCP_BURST_HEADER );
+            IrpContext->TxMdl->Next = NULL;
+
+            return;
+
+        }
+
+        //
+        //  Send system packet next retransmission.
+        //
+
+        ClearFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+    } else {
+
+        //
+        //  Send system packet next retransmission.
+        //
+
+        ClearFlag( IrpContext->Flags, IRP_FLAG_NOT_SYSTEM_PACKET );
+
+    }
+
     LongByteSwap( BurstHeader->DataSize, DataSize );
     LongByteSwap( BurstHeader->BurstOffset, BurstOffset );
     ShortByteSwap( BurstHeader->BurstLength, BurstLength );
@@ -2508,8 +2916,8 @@ Return Value:
     dumpMdl( Dbg, IrpContext->TxMdl);
 #endif
 
-    Stats.BytesTransmitted = LiAdd( Stats.BytesTransmitted, LiFromUlong( MdlLength( Irp->MdlAddress ) ));
-    Stats.NcpsTransmitted = LiAdd(Stats.NcpsTransmitted, NwLargeOne );
+    Stats.BytesTransmitted.QuadPart += MdlLength( Irp->MdlAddress );
+    Stats.NcpsTransmitted.QuadPart += 1;
 
     Status = IoCallDriver( pNpScb->Server.pDeviceObject, Irp );
     DebugTrace( -1, Dbg, "      %X\n", Status );
@@ -2623,7 +3031,33 @@ Return Value:
                        Buffer );
 
     DebugTrace(-1, Dbg, "NwFastWrite -> %s\n", wroteToCache ? "TRUE" : "FALSE" );
-    return( wroteToCache );
-}
+
+    if ( wroteToCache ) {
+
+        //
+        //  If the file was extended, record the new file size.
+        //
+
+        if ( ( offset + Length )  > fcb->NonPagedFcb->Header.FileSize.LowPart ) {
+            fcb->NonPagedFcb->Header.FileSize.LowPart = ( offset + Length );
+        }
+    }
+
+#ifndef NT1057
+
+    //
+    //  Update the file object if we succeeded.  We know that this
+    //  is synchronous and not paging io because it's coming in through
+    //  the cache.
+    //
+
+    if ( wroteToCache ) {
+        FileObject->CurrentByteOffset.QuadPart += Length;
+    }
+
 #endif
 
+    return( wroteToCache );
+
+}
+#endif

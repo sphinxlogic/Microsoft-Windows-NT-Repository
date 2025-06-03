@@ -35,6 +35,7 @@ typedef struct _BOWSER_NAME {
     LIST_ENTRY NameChain;
     UNICODE_STRING Name;                // Text version of this name
     DGRECEIVER_NAME_TYPE NameType;      // Type of this name.
+    BOOLEAN AddedOnAllTransports;
 } BOWSER_NAME, *PBOWSER_NAME;
 
 

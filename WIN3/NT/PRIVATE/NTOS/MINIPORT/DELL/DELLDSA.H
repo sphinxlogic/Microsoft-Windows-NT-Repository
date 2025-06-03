@@ -5,6 +5,7 @@
 #define DELLDSA_MINOR_VERSION 0
 
 #define MAXIMUM_SG_DESCRIPTORS 16
+#define MAXIMUM_DDA_SG_DESCRIPTORS 8
 #define MAXIMUM_XFER_SIZE 0x8000
 
 #define DDA_ID 0x0040ac10       // Least significant nibble will be masked.

@@ -23,6 +23,8 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
 DECLARE_API( time )
 
@@ -72,7 +74,6 @@ Return Value:
         return;
     }
 
-    ASSERT(rate.High == 0L);
     TicksPerNs = 1000000000L / rate.Low;
 
     if (diff.High == 0L) {
@@ -118,27 +119,34 @@ Return Value:
     PLIST_ENTRY     NextEntry;
     PKTIMER         NextTimer;
     ULONG           KeTickCount;
-    ULONG           KiInterruptTime;
     ULONG           KiMaximumSearchCount;
-    ULONG           KiMaximumTimerCount;
     ULONG           Result;
     ULONG           TickCount;
     PLIST_ENTRY     TimerTable;
     ULONG           TotalTimers;
+    KUSER_SHARED_DATA   SharedData;
+    KDPC            Dpc;
+    PCHAR           DpcRoutineSymbol;
+    CHAR            Buff[256];
+    ULONG           Displacement;
 
     //
     // Get the system time and print the header banner.
     //
-
-    KiInterruptTime = GetExpression( "KiInterruptTime" );
-    if ( !KiInterruptTime ||
-         !ReadMemory( (DWORD)KiInterruptTime,
-                      &InterruptTime,
-                      sizeof(LARGE_INTEGER),
-                      &Result) ) {
-        dprintf("%08lx: Unable to get interrupt time\n",KiInterruptTime);
+    if (!ReadMemory( (DWORD)SharedUserData,
+                     &SharedData,
+                     sizeof(SharedData),
+                     &Result) ) {
+        dprintf("%08lx: Unable to get shared data\n",SharedUserData);
         return;
     }
+
+#ifdef TARGET_ALPHA
+    InterruptTime.QuadPart = SharedData.InterruptTime;
+#else
+    InterruptTime.HighPart = SharedData.InterruptTime.High1Time;
+    InterruptTime.LowPart = SharedData.InterruptTime.LowPart;
+#endif
 
     dprintf("Dump system timers\n\n");
     dprintf("Interrupt time: %08lx %08lx\n\n",
@@ -150,7 +158,7 @@ Return Value:
     // list for timers.
     //
 
-    dprintf("Timer     List Interrupt Low/High Time\n");
+    dprintf("Timer     List Interrupt Low/High Time  DPC routine\n");
     MaximumList = 0;
 
     TimerTable = (PLIST_ENTRY)GetExpression( "KiTimerTableListHead" );
@@ -191,11 +199,34 @@ Return Value:
                 return;
             }
 
-            dprintf("%08lx (%3ld) %08lx  %08lx\n",
+            if (CurrentTimer.Dpc == NULL) {
+                DpcRoutineSymbol = "(none)";
+                Displacement = 0;
+            } else {
+                if (!ReadMemory((DWORD)(CurrentTimer.Dpc),
+                                &Dpc,
+                                sizeof(KDPC),
+                                &Result)) {
+                    dprintf("Unable to get contents of DPC @ %lx\n", CurrentTimer.Dpc);
+                    return;
+                }
+                GetSymbol(Dpc.DeferredRoutine,
+                          Buff,
+                          &Displacement);
+                DpcRoutineSymbol = Buff;
+            }
+
+            dprintf("%08lx (%3ld) %08lx  %08lx      %s",
                     NextTimer,
                     Index,
                     CurrentTimer.DueTime.LowPart,
-                    CurrentTimer.DueTime.HighPart);
+                    CurrentTimer.DueTime.HighPart,
+                    DpcRoutineSymbol);
+            if (Displacement != 0) {
+                dprintf("+%lx\n", Displacement);
+            } else {
+                dprintf("\n");
+            }
 
             NextEntry = CurrentTimer.TimerListEntry.Flink;
         }
@@ -224,20 +255,6 @@ Return Value:
     }
 
     //
-    // Get the maximum timer count if the target system is a checked
-    // build and display the count.
-    //
-
-    KiMaximumTimerCount = GetExpression( "KiMaximumTimerCount" );
-    if ( KiMaximumTimerCount &&
-         ReadMemory( (DWORD)KiMaximumTimerCount,
-                     &MaximumTimerCount,
-                     sizeof(ULONG),
-                     &Result) ) {
-        dprintf(", Maximum Timers: %d", MaximumTimerCount);
-    }
-
-    //
     // Get the maximum search count if the target system is a checked
     // build and display the count.
     //
@@ -253,4 +270,31 @@ Return Value:
 
     dprintf("\n");
     return;
+}
+
+// BUGBUG: In order to avoid any references to ntdll (even those that will
+// later be discarded, define ZwQuerySystemInformation below so the reference
+// in ntos\rtl\time.c will be resolved.
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQuerySystemInformation (
+    IN SYSTEM_INFORMATION_CLASS SystemInformationClass,
+    OUT PVOID SystemInformation,
+    IN ULONG SystemInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+    ) {
+        return((NTSTATUS)-1);
+}
+
+// BUGBUG: Similarly, implement RtlRaiseStatus for the largeint code on X86.  Make
+// it call through Kernel32..
+
+VOID
+RtlRaiseStatus (
+    IN NTSTATUS Status
+    )
+{
+    RaiseException((DWORD) Status, EXCEPTION_NONCONTINUABLE, (DWORD) 0, (DWORD *) NULL);
 }

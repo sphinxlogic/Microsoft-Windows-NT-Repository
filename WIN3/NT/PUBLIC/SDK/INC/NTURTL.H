@@ -40,8 +40,7 @@ typedef struct _RTL_CRITICAL_SECTION_DEBUG {
     LIST_ENTRY ProcessLocksList;
     ULONG EntryCount;
     ULONG ContentionCount;
-    ULONG Depth;
-    PVOID OwnerBackTrace[ 5 ];
+    ULONG Spare[ 2 ];
 } RTL_CRITICAL_SECTION_DEBUG, *PRTL_CRITICAL_SECTION_DEBUG;
 
 #define RTL_CRITSECT_TYPE 0
@@ -71,8 +70,7 @@ typedef struct _RTL_RESOURCE_DEBUG {
     ULONG Reserved[ 5 ];    // Make it the same length as RTL_CRITICAL_SECTION_DEBUG
 
     ULONG ContentionCount;
-    ULONG Depth;
-    PVOID ExclOwnerBackTrace[ 5 ];
+    ULONG Spare[ 2 ];
 } RTL_RESOURCE_DEBUG, *PRTL_RESOURCE_DEBUG;
 
 typedef struct _RTL_RESOURCE {
@@ -115,10 +113,7 @@ typedef struct _RTL_RESOURCE {
     PRTL_RESOURCE_DEBUG DebugInfo;
 } RTL_RESOURCE, *PRTL_RESOURCE;
 
-
-#if DEVL
 #define RTL_RESOURCE_FLAG_LONG_TERM     ((ULONG) 0x00000001)
-#endif // DEVL
 
 NTSYSAPI
 NTSTATUS
@@ -131,6 +126,13 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 RtlLeaveCriticalSection(
+    PRTL_CRITICAL_SECTION CriticalSection
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlTryEnterCriticalSection(
     PRTL_CRITICAL_SECTION CriticalSection
     );
 
@@ -463,53 +465,433 @@ typedef struct _RTL_PERTHREAD_CURDIR {
     ((PRTL_PERTHREAD_CURDIR)(NtCurrentTeb()->NtTib.SubSystemTib))
 
 
-#if DEVL
+//
+// See NTRTL.H for heap functions availble to both kernel and user mode code.
+//
+
+#define RtlProcessHeap() (NtCurrentPeb()->ProcessHeap)
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlLockHeap(
+    IN PVOID HeapHandle
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlUnlockHeap(
+    IN PVOID HeapHandle
+    );
+
+NTSYSAPI
+PVOID
+NTAPI
+RtlReAllocateHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress,
+    IN ULONG Size
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlGetUserInfoHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress,
+    OUT PVOID *UserValue OPTIONAL,
+    OUT PULONG UserFlags OPTIONAL
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlSetUserValueHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress,
+    IN PVOID UserValue
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlSetUserFlagsHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress,
+    IN ULONG UserFlagsReset,
+    IN ULONG UserFlagsSet
+    );
+
+typedef struct _RTL_HEAP_TAG_INFO {
+    ULONG NumberOfAllocations;
+    ULONG NumberOfFrees;
+    ULONG BytesAllocated;
+} RTL_HEAP_TAG_INFO, *PRTL_HEAP_TAG_INFO;
+
+
+NTSYSAPI
+ULONG
+NTAPI
+RtlCreateTagHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PWSTR TagPrefix OPTIONAL,
+    IN PWSTR TagNames
+    );
+
+#define RTL_HEAP_MAKE_TAG HEAP_MAKE_TAG_FLAGS
+
+NTSYSAPI
+PWSTR
+NTAPI
+RtlQueryTagHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN USHORT TagIndex,
+    IN BOOLEAN ResetCounters,
+    OUT PRTL_HEAP_TAG_INFO TagInfo OPTIONAL
+    );
+
+NTSYSAPI
+ULONG
+NTAPI
+RtlSizeHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlExtendHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID Base,
+    IN ULONG Size
+    );
+
+NTSYSAPI
+ULONG
+NTAPI
+RtlCompactHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlZeroHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlValidateHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN PVOID BaseAddress
+    );
+
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlValidateProcessHeaps( VOID );
+
+NTSYSAPI
+ULONG
+NTAPI
+RtlGetProcessHeaps(
+    ULONG NumberOfHeaps,
+    PVOID *ProcessHeaps
+    );
+
+
+typedef
+NTSTATUS (*PRTL_ENUM_HEAPS_ROUTINE)(
+    PVOID HeapHandle,
+    PVOID Parameter
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlEnumProcessHeaps(
+    PRTL_ENUM_HEAPS_ROUTINE EnumRoutine,
+    PVOID Parameter
+    );
+
+typedef struct _RTL_HEAP_USAGE_ENTRY {
+    struct _RTL_HEAP_USAGE_ENTRY *Next;
+    PVOID Address;
+    ULONG Size;
+    USHORT AllocatorBackTraceIndex;
+    USHORT TagIndex;
+} RTL_HEAP_USAGE_ENTRY, *PRTL_HEAP_USAGE_ENTRY;
+
+typedef struct _RTL_HEAP_USAGE {
+    ULONG Length;
+    ULONG BytesAllocated;
+    ULONG BytesCommitted;
+    ULONG BytesReserved;
+    ULONG BytesReservedMaximum;
+    PRTL_HEAP_USAGE_ENTRY Entries;
+    PRTL_HEAP_USAGE_ENTRY AddedEntries;
+    PRTL_HEAP_USAGE_ENTRY RemovedEntries;
+    ULONG Reserved[ 8 ];
+} RTL_HEAP_USAGE, *PRTL_HEAP_USAGE;
+
+#define HEAP_USAGE_ALLOCATED_BLOCKS HEAP_REALLOC_IN_PLACE_ONLY
+#define HEAP_USAGE_FREE_BUFFER      HEAP_ZERO_MEMORY
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlUsageHeap(
+    IN PVOID HeapHandle,
+    IN ULONG Flags,
+    IN OUT PRTL_HEAP_USAGE Usage
+    );
+
+typedef struct _RTL_HEAP_WALK_ENTRY {
+    PVOID   DataAddress;
+    ULONG   DataSize;
+    UCHAR   OverheadBytes;
+    UCHAR   SegmentIndex;
+    USHORT  Flags;
+    union   {
+        struct {
+            ULONG Settable;
+            USHORT TagIndex;
+            USHORT AllocatorBackTraceIndex;
+            ULONG Reserved[ 2 ];
+        } Block;
+        struct {
+            ULONG CommittedSize;
+            ULONG UnCommittedSize;
+            PVOID FirstEntry;
+            PVOID LastEntry;
+        } Segment;
+    };
+} RTL_HEAP_WALK_ENTRY, *PRTL_HEAP_WALK_ENTRY;
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlWalkHeap(
+    IN PVOID HeapHandle,
+    IN OUT PRTL_HEAP_WALK_ENTRY Entry
+    );
+
+typedef struct _RTL_HEAP_ENTRY {
+    ULONG Size;
+    USHORT Flags;
+    USHORT AllocatorBackTraceIndex;
+    union {
+        struct {
+            ULONG Settable;
+            ULONG Tag;
+        } s1;   // All other heap entries
+        struct {
+            ULONG CommittedSize;
+            PVOID FirstBlock;
+        } s2;   // RTL_SEGMENT
+    } u;
+} RTL_HEAP_ENTRY, *PRTL_HEAP_ENTRY;
+
+#define RTL_HEAP_BUSY               (USHORT)0x0001
+#define RTL_HEAP_SEGMENT            (USHORT)0x0002
+#define RTL_HEAP_SETTABLE_VALUE     (USHORT)0x0010
+#define RTL_HEAP_SETTABLE_FLAG1     (USHORT)0x0020
+#define RTL_HEAP_SETTABLE_FLAG2     (USHORT)0x0040
+#define RTL_HEAP_SETTABLE_FLAG3     (USHORT)0x0080
+#define RTL_HEAP_SETTABLE_FLAGS     (USHORT)0x00E0
+#define RTL_HEAP_UNCOMMITTED_RANGE  (USHORT)0x0100
+#define RTL_HEAP_PROTECTED_ENTRY    (USHORT)0x0200
+
+typedef struct _RTL_HEAP_TAG {
+    ULONG NumberOfAllocations;
+    ULONG NumberOfFrees;
+    ULONG BytesAllocated;
+    USHORT TagIndex;
+    USHORT CreatorBackTraceIndex;
+    WCHAR TagName[ 24 ];
+} RTL_HEAP_TAG, *PRTL_HEAP_TAG;
+
+typedef struct _RTL_HEAP_INFORMATION {
+    PVOID BaseAddress;
+    ULONG Flags;
+    USHORT EntryOverhead;
+    USHORT CreatorBackTraceIndex;
+    ULONG BytesAllocated;
+    ULONG BytesCommitted;
+    ULONG NumberOfTags;
+    ULONG NumberOfEntries;
+    ULONG NumberOfPseudoTags;
+    ULONG PseudoTagGranularity;
+    ULONG Reserved[ 5 ];
+    PRTL_HEAP_TAG Tags;
+    PRTL_HEAP_ENTRY Entries;
+} RTL_HEAP_INFORMATION, *PRTL_HEAP_INFORMATION;
+
+typedef struct _RTL_PROCESS_HEAPS {
+    ULONG NumberOfHeaps;
+    RTL_HEAP_INFORMATION Heaps[ 1 ];
+} RTL_PROCESS_HEAPS, *PRTL_PROCESS_HEAPS;
+
 //
 // Debugging support
 //
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlQueryProcessLockInformation(
-    OUT PRTL_PROCESS_LOCKS LockInformation,
-    IN ULONG LockInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
-    );
-
-
-typedef struct _RTL_PROCESS_INFORMATION {
+typedef struct _RTL_DEBUG_INFORMATION {
+    HANDLE SectionHandleClient;
+    PVOID ViewBaseClient;
+    PVOID ViewBaseTarget;
+    ULONG ViewBaseDelta;
+    HANDLE EventPairClient;
+    HANDLE EventPairTarget;
+    HANDLE TargetProcessId;
+    HANDLE TargetThreadHandle;
     ULONG Flags;
     ULONG OffsetFree;
-    ULONG CurrentCommit;
-    ULONG CommitLimit;
-    CLIENT_ID ClientId;
+    ULONG CommitSize;
+    ULONG ViewSize;
     PRTL_PROCESS_MODULES Modules;
     PRTL_PROCESS_BACKTRACES BackTraces;
     PRTL_PROCESS_HEAPS Heaps;
     PRTL_PROCESS_LOCKS Locks;
-    PVOID Reserved[ 12 ];
-} RTL_PROCESS_INFORMATION, *PRTL_PROCESS_INFORMATION;
+    PVOID SpecificHeap;
+    HANDLE TargetProcessHandle;
+    PVOID Reserved[ 6 ];
+} RTL_DEBUG_INFORMATION, *PRTL_DEBUG_INFORMATION;
 
-#define RTL_QUERY_PROCESS_MODULES       0x00000001
-#define RTL_QUERY_PROCESS_BACKTRACES    0x00000002
-#define RTL_QUERY_PROCESS_HEAPS         0x00000004
-#define RTL_QUERY_PROCESS_LOCKS         0x00000008
+NTSYSAPI
+PRTL_DEBUG_INFORMATION
+NTAPI
+RtlCreateQueryDebugBuffer(
+    IN ULONG MaximumCommit OPTIONAL,
+    IN BOOLEAN UseEventPair
+    );
 
 NTSYSAPI
 NTSTATUS
 NTAPI
-RtlQueryProcessDebugInformationRemote(
-    IN HANDLE SectionHandle
+RtlDestroyQueryDebugBuffer(
+    IN PRTL_DEBUG_INFORMATION Buffer
     );
 
 NTSYSAPI
 NTSTATUS
 NTAPI
 RtlQueryProcessDebugInformation(
-    IN OUT PRTL_PROCESS_INFORMATION ProcessInformation
+    IN HANDLE UniqueProcessId,
+    IN ULONG Flags,
+    IN OUT PRTL_DEBUG_INFORMATION Buffer
     );
 
-#endif // DEVL
+#define RTL_QUERY_PROCESS_MODULES       0x00000001
+#define RTL_QUERY_PROCESS_BACKTRACES    0x00000002
+#define RTL_QUERY_PROCESS_HEAP_SUMMARY  0x00000004
+#define RTL_QUERY_PROCESS_HEAP_TAGS     0x00000008
+#define RTL_QUERY_PROCESS_HEAP_ENTRIES  0x00000010
+#define RTL_QUERY_PROCESS_LOCKS         0x00000020
+
+NTSTATUS
+NTAPI
+RtlQueryProcessModuleInformation(
+    IN OUT PRTL_DEBUG_INFORMATION Buffer
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlQueryProcessBackTraceInformation(
+    IN OUT PRTL_DEBUG_INFORMATION Buffer
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlQueryProcessHeapInformation(
+    IN OUT PRTL_DEBUG_INFORMATION Buffer
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlQueryProcessLockInformation(
+    IN OUT PRTL_DEBUG_INFORMATION Buffer
+    );
+
+
+
+//
+// Routines for manipulating user mode handle tables.  Used for Atoms
+// and Local/Global memory allocations.
+//
+
+typedef struct _RTL_HANDLE_TABLE_ENTRY {
+    union {
+        ULONG Flags;                                // Allocated entries have low bit set
+        struct _RTL_HANDLE_TABLE_ENTRY *NextFree;   // Free entries use this word for free list
+    };
+} RTL_HANDLE_TABLE_ENTRY, *PRTL_HANDLE_TABLE_ENTRY;
+
+#define RTL_HANDLE_ALLOCATED    (USHORT)0x0001
+
+typedef struct _RTL_HANDLE_TABLE {
+    ULONG MaximumNumberOfHandles;
+    ULONG SizeOfHandleTableEntry;
+    ULONG Reserved[ 2 ];
+    PRTL_HANDLE_TABLE_ENTRY FreeHandles;
+    PRTL_HANDLE_TABLE_ENTRY CommittedHandles;
+    PRTL_HANDLE_TABLE_ENTRY UnCommittedHandles;
+    PRTL_HANDLE_TABLE_ENTRY MaxReservedHandles;
+} RTL_HANDLE_TABLE, *PRTL_HANDLE_TABLE;
+
+void
+RtlInitializeHandleTable(
+    IN ULONG MaximumNumberOfHandles,
+    IN ULONG SizeOfHandleTableEntry,
+    OUT PRTL_HANDLE_TABLE HandleTable
+    );
+
+NTSTATUS
+RtlDestroyHandleTable(
+    IN OUT PRTL_HANDLE_TABLE HandleTable
+    );
+
+PRTL_HANDLE_TABLE_ENTRY
+RtlAllocateHandle(
+    IN PRTL_HANDLE_TABLE HandleTable,
+    OUT PULONG HandleIndex OPTIONAL
+    );
+
+BOOLEAN
+RtlFreeHandle(
+    IN PRTL_HANDLE_TABLE HandleTable,
+    IN PRTL_HANDLE_TABLE_ENTRY Handle
+    );
+
+BOOLEAN
+RtlIsValidHandle(
+    IN PRTL_HANDLE_TABLE HandleTable,
+    IN PRTL_HANDLE_TABLE_ENTRY Handle
+    );
+
+BOOLEAN
+RtlIsValidIndexHandle(
+    IN PRTL_HANDLE_TABLE HandleTable,
+    IN ULONG HandleIndex,
+    OUT PRTL_HANDLE_TABLE_ENTRY *Handle
+    );
 
 #endif  // _NTURTL_

@@ -244,7 +244,7 @@ Return Value:
 
     LOCK_SPINLOCK( pfcb, OldIrql );
 
-    ppcb = FindCb( pfcb, pdncb);
+    ppcb = FindCb( pfcb, pdncb, FALSE);
 
     if (( ppcb == NULL ) ||
         ( (*ppcb)->Status == HANGUP_PENDING )) {
@@ -491,7 +491,7 @@ Return Value:
 
     LOCK_SPINLOCK( pfcb, OldIrql );
 
-    ppcb = FindCb( pfcb, pdncb );
+    ppcb = FindCb( pfcb, pdncb, FALSE );
 
     if (( ppcb == NULL ) ||
         ( (*ppcb)->Status == HANGUP_PENDING )) {
@@ -761,7 +761,7 @@ Return Value:
 
     pdncb->pfcb = pfcb;
     pdncb->irp = Irp;
-    ppcb = FindCb( pfcb, pdncb );
+    ppcb = FindCb( pfcb, pdncb, FALSE );
 
     if ( ppcb == NULL ) {
         NCB_COMPLETE( pdncb, NRC_GOODRET );
@@ -1466,10 +1466,6 @@ Return Value:
 
             DisconnectTimeout.QuadPart = Int32x32To64( 20 * 1000, -10000 );
 
-            // Remove reference put on in NbOpenConnection
-
-            ObDereferenceObject( pcb->ConnectionObject );
-
             Irp = IoAllocateIrp( pcb->DeviceObject->StackSize, FALSE);
 
             //
@@ -1494,6 +1490,10 @@ Return Value:
                 IoFreeIrp(Irp);
             }
 
+            // Remove reference put on in NbOpenConnection
+
+            ObDereferenceObject( pcb->ConnectionObject );
+
             pcb->DeviceObject = NULL;
             pcb->ConnectionObject = NULL;
         }
@@ -1514,7 +1514,8 @@ Return Value:
 PPCB
 FindCb(
     IN PFCB pfcb,
-    IN PDNCB pdncb
+    IN PDNCB pdncb,
+    IN BOOLEAN IgnoreState
     )
 /*++
 
@@ -1527,6 +1528,8 @@ Arguments:
     pfcb - Supplies a pointer to the Fcb that Cb is chained onto.
 
     pdncb - Supplies the connection id from the applications point of view.
+
+    IgnoreState - Return even if connection in error.
 
 Return Value:
 
@@ -1573,10 +1576,13 @@ Return Value:
     //  the Status so they are allowed also.
     //
 
-    if ( Status != SESSION_ESTABLISHED ) {
+    if (( Status != SESSION_ESTABLISHED ) &&
+        ( !IgnoreState )) {
+
         IF_NBDBG (NB_DEBUG_CALL) {
             NbPrint( ("FindCb Status %x\n", Status));
         }
+
         if (( pdncb->ncb_retcode == NRC_PENDING ) &&
             (( pdncb->ncb_command & ~ASYNCH) != NCBHANGUP ) &&
             (( pdncb->ncb_command & ~ASYNCH) != NCBSSTAT ) &&

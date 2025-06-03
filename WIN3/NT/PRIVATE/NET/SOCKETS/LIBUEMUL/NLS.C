@@ -66,7 +66,7 @@ unsigned DisplayNlsMsg(unsigned Handle, unsigned usMsgNum, ... )
 		  &arglist)))
 	return(0);
 
-    msglen = write(Handle, vp, msglen);
+    msglen = _write(Handle, vp, msglen);
     LocalFree(vp);
 
     return(msglen);

@@ -217,6 +217,7 @@ typedef ULONG DISPLAY_RULE;
 //
 
 #define NTFS_CHUNK_SIZE                  (0x1000)
+#define NTFS_CHUNK_SHIFT                 (12)
 
 //
 //  This number is actually the log of the number of clusters per compression
@@ -288,8 +289,8 @@ typedef struct _MFT_SEGMENT_REFERENCE {
     //  First a 48 bit segment number.
     //
 
-    ULONG LowPart;                                                  //  offset = 0x000
-    USHORT HighPart;                                                //  offset = 0x004
+    ULONG SegmentNumberLowPart;                                    //  offset = 0x000
+    USHORT SegmentNumberHighPart;                                  //  offset = 0x004
 
     //
     //  Now a 16 bit nonzero sequence number.  A value of 0 is
@@ -309,29 +310,30 @@ typedef struct _MFT_SEGMENT_REFERENCE {
 
 typedef MFT_SEGMENT_REFERENCE FILE_REFERENCE, *PFILE_REFERENCE;
 
-#define NtfsEqualMftRef(X,Y) (                                         \
-    ((X)->LowPart == (Y)->LowPart) && ((X)->HighPart == (Y)->HighPart) \
-)
+//
+//  While the format allows 48 bits worth of segment number, the current
+//  implementation restricts this to 32 bits.  Using NtfsUnsafeSegmentNumber
+//  results in a performance win.  When the implementation changes, the
+//  unsafe segment numbers must be cleaned up.  NtfsFullSegmentNumber is
+//  used in a few spots to guarantee integrity of the disk.
+//
 
-#define NtfsLtrMftRef(X,Y) (                                                \
-     (((X)->HighPart == (Y)->HighPart) && ((X)->LowPart < (Y)->LowPart)) || \
-      ((X)->HighPart < (Y)->HighPart)                                       \
-)
+#define NtfsSegmentNumber(fr)       NtfsUnsafeSegmentNumber( fr )
+#define NtfsFullSegmentNumber(fr)   ( (*(ULONGLONG UNALIGNED *)(fr)) & 0xFFFFFFFFFFFF )
+#define NtfsUnsafeSegmentNumber(fr) ((fr)->SegmentNumberLowPart)
 
-#define NtfsGtrMftRef(X,Y) (                                                \
-     (((X)->HighPart == (Y)->HighPart) && ((X)->LowPart > (Y)->LowPart)) || \
-      ((X)->HighPart > (Y)->HighPart)                                       \
-)
+#define NtfsSetSegmentNumber(fr,high,low)   \
+    ((fr)->SegmentNumberHighPart = (high), (fr)->SegmentNumberLowPart = (low))
 
-#define NtfsLeqMftRef(X,Y) (                                                    \
-     (((X)->HighPart == (Y)->HighPart) && ((X)->LowPart <= (Y)->LowPart)) ||    \
-      ((X)->HighPart < (Y)->HighPart)                                           \
-)
+#define NtfsEqualMftRef(X,Y)    ( NtfsSegmentNumber( X ) == NtfsSegmentNumber( Y ) )
 
-#define NtfsGeqMftRef(X,Y) (                                                    \
-     (((X)->HighPart == (Y)->HighPart) && ((X)->LowPart >= (Y)->LowPart)) ||    \
-      ((X)->HighPart > (Y)->HighPart)                                           \
-)
+#define NtfsLtrMftRef(X,Y)      ( NtfsSegmentNumber( X ) <  NtfsSegmentNumber( Y ) )
+
+#define NtfsGtrMftRef(X,Y)      ( NtfsSegmentNumber( X ) >  NtfsSegmentNumber( Y ) )                                               \
+
+#define NtfsLeqMftRef(X,Y)      ( NtfsSegmentNumber( X ) <= NtfsSegmentNumber( Y ) )
+
+#define NtfsGeqMftRef(X,Y)      ( NtfsSegmentNumber( X ) >= NtfsSegmentNumber( Y ) )
 
 //
 //  System File Numbers.  The following file numbers are a fixed
@@ -372,10 +374,13 @@ typedef MFT_SEGMENT_REFERENCE FILE_REFERENCE, *PFILE_REFERENCE;
 
 #define UPCASE_TABLE_NUMBER              (10)  //  $UpCase
 
+#define CAIRO_NUMBER                     (11)  //  $Cairo
+
 #define FIRST_USER_FILE_NUMBER           (16)
 
 //
-//  The number of bits to extend the Mft and bitmap.
+//  The number of bits to extend the Mft and bitmap.  We round these up to a
+//  cluster boundary for a large cluster volume
 //
 
 #define BITMAP_EXTEND_GRANULARITY               (64)
@@ -424,7 +429,7 @@ typedef ATTRIBUTE_TYPE_CODE *PATTRIBUTE_TYPE_CODE;
 #define $STANDARD_INFORMATION            (0x10)
 #define $ATTRIBUTE_LIST                  (0x20)
 #define $FILE_NAME                       (0x30)
-#define $VOLUME_VERSION                  (0x40)
+#define $OBJECT_ID                       (0x40)
 #define $SECURITY_DESCRIPTOR             (0x50)
 #define $VOLUME_NAME                     (0x60)
 #define $VOLUME_INFORMATION              (0x70)
@@ -435,6 +440,9 @@ typedef ATTRIBUTE_TYPE_CODE *PATTRIBUTE_TYPE_CODE;
 #define $SYMBOLIC_LINK                   (0xC0)
 #define $EA_INFORMATION                  (0xD0)
 #define $EA                              (0xE0)
+#ifdef _CAIRO_
+#define $PROPERTY_SET                    (0xF0)
+#endif  //  _CAIRO_
 #define $FIRST_USER_DEFINED_ATTRIBUTE    (0x100)
 #define $END                             (0xFFFFFFFF)
 
@@ -543,8 +551,10 @@ typedef struct _PACKED_BOOT_SECTOR {
     LONGLONG NumberSectors;                                         //  offset = 0x028
     LCN MftStartLcn;                                                //  offset = 0x030
     LCN Mft2StartLcn;                                               //  offset = 0x038
-    ULONG ClustersPerFileRecordSegment;                             //  offset = 0x040
-    ULONG DefaultClustersPerIndexAllocationBuffer;                  //  offset = 0x044
+    CHAR ClustersPerFileRecordSegment;                              //  offset = 0x040
+    UCHAR Reserved0[3];
+    CHAR DefaultClustersPerIndexAllocationBuffer;                   //  offset = 0x044
+    UCHAR Reserved1[3];
     LONGLONG SerialNumber;                                          //  offset = 0x048
     ULONG Checksum;                                                 //  offset = 0x050
     UCHAR BootStrap[0x200-0x044];                                   //  offset = 0x054
@@ -862,6 +872,15 @@ typedef struct _ATTRIBUTE_RECORD_HEADER {
             LONGLONG ValidDataLength;                               //  offset = 0x038
 
             //
+            //  Totally allocated.  This field is only present for the first
+            //  file record of a compressed stream.  It represents the sum of
+            //  the allocated clusters for a file.
+            //
+
+            LONGLONG TotalAllocated;                                //  offset = 0x040
+
+            //
+            //
             //  Mapping Pairs Array, starting at the offset stored
             //  above.
             //
@@ -1000,6 +1019,7 @@ typedef ATTRIBUTE_RECORD_HEADER *PATTRIBUTE_RECORD_HEADER;
 //
 
 #define ATTRIBUTE_FLAG_COMPRESSION_MASK  (0x00FF)
+#define ATTRIBUTE_FLAG_SPARSE            (0x8000)
 
 //
 //  RESIDENT_FORM_xxx flags
@@ -1025,8 +1045,12 @@ typedef ATTRIBUTE_RECORD_HEADER *PATTRIBUTE_RECORD_HEADER;
     FIELD_OFFSET(ATTRIBUTE_RECORD_HEADER,Form.Resident.Reserved)+1 \
 )
 
-#define SIZEOF_NONRESIDENT_ATTRIBUTE_HEADER ( \
-    sizeof(ATTRIBUTE_RECORD_HEADER)           \
+#define SIZEOF_FULL_NONRES_ATTR_HEADER (    \
+    sizeof(ATTRIBUTE_RECORD_HEADER)         \
+)
+
+#define SIZEOF_PARTIAL_NONRES_ATTR_HEADER (                                 \
+    FIELD_OFFSET(ATTRIBUTE_RECORD_HEADER,Form.Nonresident.TotalAllocated)   \
 )
 
 
@@ -1089,14 +1113,133 @@ typedef struct _STANDARD_INFORMATION {
 
     ULONG VersionNumber;                                            //  offset = 0x028
 
+#ifdef _CAIRO_
+
     //
-    //  Reserved for quad word alignment.
+    //  Class Id from the bidirectional Class Id index
     //
+
+    ULONG ClassId;                                                  //  offset = 0x02c
+
+    //
+    //  Id for file owner, from bidir security index
+    //
+
+    ULONG OwnerId;                                                  //  offset = 0x030
+
+    //
+    //  SecurityId for the file - translates via bidir index to
+    //  granted access Acl.
+    //
+
+    ULONG SecurityId;                                               //  offset = 0x034
+
+    //
+    //  Current amount of quota that has been charged for all the
+    //  streams of this file.  Changed in same transaction with the
+    //  quota file itself.
+    //
+
+    ULONGLONG QuotaCharged;                                         //  offset = 0x038
+
+    //
+    //  Update sequence number for this file.
+    //
+
+    ULONGLONG Usn;                                                  //  offset = 0x040
+
+#else _CAIRO_
 
     ULONG Reserved;                                                 //  offset = 0x02c
 
-} STANDARD_INFORMATION;                                             //  sizeof = 0x030
+#endif _CAIRO_
+
+
+} STANDARD_INFORMATION;                                             //  sizeof = 0x048
 typedef STANDARD_INFORMATION *PSTANDARD_INFORMATION;
+
+//
+//  Large Standard Information Attribute.  We use this to find the
+//  security ID field.
+//
+
+typedef struct LARGE_STANDARD_INFORMATION {
+
+    //
+    //  File creation time.
+    //
+
+    LONGLONG CreationTime;                                          //  offset = 0x000
+
+    //
+    //  Last time the DATA attribute was modified.
+    //
+
+    LONGLONG LastModificationTime;                                  //  offset = 0x008
+
+    //
+    //  Last time any attribute was modified.
+    //
+
+    LONGLONG LastChangeTime;                                        //  offset = 0x010
+
+    //
+    //  Last time the file was accessed.  This field may not always
+    //  be updated (write-protected media), and even when it is
+    //  updated, it may only be updated if the time would change by
+    //  a certain delta.  It is meant to tell someone approximately
+    //  when the file was last accessed, for purposes of possible
+    //  file migration.
+    //
+
+    LONGLONG LastAccessTime;                                        //  offset = 0x018
+
+    //
+    //  File attributes.  The first byte is the standard "Fat"
+    //  flags for this file.
+    //
+
+    ULONG FileAttributes;                                           //  offset = 0x020
+
+    //
+    //  Maximum file versions allowed for this file.  If this field
+    //  is 0, then versioning is not enabled for this file.  If
+    //  there are multiple files with the same version, then the
+    //  value of Maximum file versions in the file with the highest
+    //  version is the correct one.
+    //
+
+    ULONG MaximumVersions;                                          //  offset = 0x024
+
+    //
+    //  Version number for this file.
+    //
+
+    ULONG VersionNumber;                                            //  offset = 0x028
+
+    ULONG UnusedUlong;
+
+    //
+    //  Id for file owner, from bidir security index
+    //
+
+    ULONG OwnerId;                                                  //  offset = 0x030
+
+    //
+    //  SecurityId for the file - translates via bidir index to
+    //  granted access Acl.
+    //
+
+    ULONG SecurityId;                                               //  offset = 0x034
+
+} LARGE_STANDARD_INFORMATION;
+typedef LARGE_STANDARD_INFORMATION *PLARGE_STANDARD_INFORMATION;
+
+//
+//  This was the size of standard information prior to NT4.0
+//
+
+#define SIZEOF_OLD_STANDARD_INFORMATION  (0x30)
 
 //
 //  Define the file attributes, starting with the Fat attributes.
@@ -1387,28 +1530,6 @@ typedef FILE_NAME *PFILE_NAME;
 
 
 //
-//  Volume Version attribute.
-//
-
-typedef struct _VOLUME_VERSION {
-
-    //
-    //  Current file version.
-    //
-
-    ULONG CurrentVersion;                                           //  offset = 0x000
-
-    //
-    //  Maximum allowed versions.
-    //
-
-    ULONG MaximumVersions;                                          //  offset = 0x004
-
-} VOLUME_VERSION;                                                   //  sizeof = 0x008
-typedef VOLUME_VERSION *PVOLUME_VERSION;
-
-
-//
 //  Security Descriptor attribute.  This is just a normal attribute
 //  stream containing a security descriptor as defined by NT
 //  security and is really treated pretty opaque by NTFS.
@@ -1541,7 +1662,7 @@ typedef INDEX_HEADER *PINDEX_HEADER;
 //
 //  This Index or Index Allocation buffer is an intermediate node,
 //  as opposed to a leaf in the Btree.  All Index Entries will have
-//  a Vcn down pointer.
+//  a block down pointer.
 //
 
 #define INDEX_NODE                       (0x01)
@@ -1572,10 +1693,13 @@ typedef struct _INDEX_ROOT {
     ULONG BytesPerIndexBuffer;                                      //  offset = 0x008
 
     //
-    //  Size of Index Allocation Buffers in units of clusters
+    //  Size of Index Allocation Buffers in units of blocks.
+    //  Blocks will be clusters when index buffer is equal or
+    //  larger than clusters and log blocks for large
+    //  cluster systems.
     //
 
-    UCHAR ClustersPerIndexBuffer;                                   //  offset = 0x00C
+    UCHAR BlocksPerIndexBuffer;                                     //  offset = 0x00C
 
     //
     //  Reserved to round to quad word boundary.
@@ -1619,11 +1743,11 @@ typedef struct _INDEX_ALLOCATION_BUFFER {
     LSN Lsn;                                                        //  offset = 0x008
 
     //
-    //  We store the Vcn of this Index Allocation buffer for
+    //  We store the index block of this Index Allocation buffer for
     //  convenience and possible consistency checking.
     //
 
-    VCN ThisVcn;                                                    //  offset = 0x010
+    VCN ThisBlock;                                                  //  offset = 0x010
 
     //
     //  Index Header to describe the Index Entries which follow
@@ -1642,6 +1766,13 @@ typedef struct _INDEX_ALLOCATION_BUFFER {
 typedef INDEX_ALLOCATION_BUFFER *PINDEX_ALLOCATION_BUFFER;
 
 //
+//  Default size of index buffer and index blocks.
+//
+
+#define DEFAULT_INDEX_BLOCK_SIZE        (0x200)
+#define DEFAULT_INDEX_BLOCK_BYTE_SHIFT  (9)
+
+//
 //  Index Entry.  This structure is common to both the resident
 //  index list attribute and the Index Allocation records
 //
@@ -1649,11 +1780,29 @@ typedef INDEX_ALLOCATION_BUFFER *PINDEX_ALLOCATION_BUFFER;
 typedef struct _INDEX_ENTRY {
 
     //
-    //  Reference to file containing the attribute with this
-    //  attribute value.
+    //  Define a union to distinguish directory indices from view indices
     //
 
-    FILE_REFERENCE FileReference;                                   //  offset = 0x000
+    union {
+
+        //
+        //  Reference to file containing the attribute with this
+        //  attribute value.
+        //
+
+        FILE_REFERENCE FileReference;                               //  offset = 0x000
+
+        //
+        //  For views, describe the Data Offset and Length in bytes
+        //
+
+        struct {
+
+            USHORT DataOffset;                                      //  offset = 0x000
+            USHORT DataLength;                                      //  offset = 0x001
+            ULONG ReservedForZero;                                  //  offset = 0x002
+        };
+    };
 
     //
     //  Length of this index entry, in bytes.
@@ -1715,12 +1864,12 @@ typedef INDEX_ENTRY *PINDEX_ENTRY;
 
 #define INDEX_ENTRY_POINTER_FORM         (0x8000)
 
-#define NtfsIndexEntryVcn(IE) (                              \
-    *(PVCN)((PCHAR)(IE) + (ULONG)(IE)->Length - sizeof(VCN)) \
+#define NtfsIndexEntryBlock(IE) (                                       \
+    *(PLONGLONG)((PCHAR)(IE) + (ULONG)(IE)->Length - sizeof(LONGLONG))  \
     )
 
-#define NtfsSetIndexEntryVcn(IE,VC) {                              \
-    *(PVCN)((PCHAR)(IE) + (ULONG)(IE)->Length - sizeof(VCN)) = VC; \
+#define NtfsSetIndexEntryBlock(IE,IB) {                                         \
+    *(PLONGLONG)((PCHAR)(IE) + (ULONG)(IE)->Length - sizeof(LONGLONG)) = (IB);  \
     }
 
 #define NtfsFirstIndexEntry(IH) (                       \
@@ -1730,6 +1879,13 @@ typedef INDEX_ENTRY *PINDEX_ENTRY;
 #define NtfsNextIndexEntry(IE) (                        \
     (PINDEX_ENTRY)((PCHAR)(IE) + (ULONG)(IE)->Length)   \
     )
+
+#define NtfsCheckIndexBound(IE, IH) {                                           \
+    if (((PCHAR)(IE) < (PCHAR)(IH)) ||                                          \
+        ((PCHAR)(IE) >= ((PCHAR)Add2Ptr((IH), (IH)->BytesAvailable)))) {        \
+        NtfsRaiseStatus(IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );    \
+    }                                                                           \
+}
 
 
 //
@@ -1909,6 +2065,148 @@ typedef ATTRIBUTE_DEFINITION_COLUMNS *PATTRIBUTE_DEFINITION_COLUMNS;
 #define ATTRIBUTE_DEF_LOG_NONRESIDENT    (0X00000080)
 
 
+#ifdef _CAIRO_
+
+//
+//  Define the struture of the quota data in the quota index.  The key for
+//  the quota index is the 32 bit owner id.
+//
+
+typedef struct _QUOTA_USER_DATA {
+    ULONG QuotaVersion;
+    ULONG QuotaFlags;
+    ULONGLONG QuotaThreshold;
+    ULONGLONG QuotaLimit;
+    ULONGLONG QuotaUsed;
+    ULONGLONG QuotaChangeTime;
+    ULONGLONG QuotaExceededTime;
+    SID QuotaSid;
+} QUOTA_USER_DATA, *PQUOTA_USER_DATA;
+
+//
+//  Define the size of the quota user data structure without the quota SID.
+//
+
+#define SIZEOF_QUOTA_USER_DATA FIELD_OFFSET(QUOTA_USER_DATA, QuotaSid)
+
+//
+//  Define the current version of the quote user data.
+//
+
+#define QUOTA_USER_VERSION 1
+
+//
+//  Define the quota flags.
+//
+
+#define QUOTA_FLAG_DEFAULT_LIMITS           (0x00000001)
+#define QUOTA_FLAG_LIMIT_REACHED            (0x00000002)
+#define QUOTA_FLAG_ID_DELETED               (0x00000004)
+#define QUOTA_FLAG_USER_MASK                (0x00000007)
+
+//
+//  The following flags are only stored in the quota defaults index entry.
+//
+
+#define QUOTA_FLAG_TRACKING_ENABLED         (0x00000010)
+#define QUOTA_FLAG_ENFORCEMENT_ENABLED      (0x00000020)
+#define QUOTA_FLAG_TRACKING_REQUESTED       (0x00000040)
+#define QUOTA_FLAG_LOG_THRESHOLD            (0x00000080)
+#define QUOTA_FLAG_LOG_LIMIT                (0x00000100)
+#define QUOTA_FLAG_OUT_OF_DATE              (0x00000200)
+#define QUOTA_FLAG_CORRUPT                  (0x00000400)
+#define QUOTA_FLAG_PENDING_DELETES          (0x00000800)
+
+//
+//  Define special quota owner ids.
+//
+
+#define QUOTA_INVALID_ID        0x00000000
+#define QUOTA_DEFAULTS_ID       0x00000001
+#define QUOTA_FISRT_USER_ID     0x00000100
+
+#else
+
+//
+//  The following typedef is used in a function prototype.
+//
+
+typedef struct _QUOTA_USER_DATA *PQUOTA_USER_DATA;
+
+#endif // _CAIRO_
+
+//
+//  Security definitions
+//
+//  Security descriptors are stored only once on a volume since there may be
+//  many files that share the same descriptor bits.  Typically each principal
+//  will create files with a single descriptor.
+//
+//  The descriptors themselves are stored in a stream, packed on DWORD boundaries.
+//  No descriptor will span a 256K cache boundary.  The descriptors are assigned
+//  a ULONG Id each time a unique descriptor is stored.  Prefixing each descriptor
+//  in the stream is the hash of the descriptor, the assigned security ID, the
+//  length, and the offset within the stream to the beginning of the structure.
+//
+//  An index is used to map from a security Id to offset within the stream.  This
+//  is used to retrieve the security descriptor bits for access validation.  The key
+//  format is simply the ULONG security Id.  The data portion of the index record
+//  is the header of the security descriptor in the stream (see above paragraph).
+//
+//  Another index is used to map from a hash to offset within the stream.  To
+//  simplify the job of the indexing package, the key used in this index is the
+//  hash followed by the assigned Id.  When a security descriptor is stored,
+//  a hash is computed and an approximate seek is made on this index.  As entries
+//  are enumerated in the index, the descriptor stream is mapped and the security
+//  descriptor bits are compared.  The key format is a structure that contains
+//  the hash and then the Id.  The collation routine tests the hash before the Id.
+//  The data portion of the index record is the header of the security descriptor.
+//
+
+#if defined (_CAIRO_)
+
+//
+//  Key structure for Security Hash index
+//
+
+typedef struct _SECURITY_HASH_KEY
+{
+    ULONG   Hash;                           //  Hash value for descriptor
+    ULONG   SecurityId;                     //  Security Id (guaranteed unique)
+} SECURITY_HASH_KEY, *PSECURITY_HASH_KEY;
+
+//
+//  Key structure for Security Id index is simply the SECURITY_ID itself
+//
+
+//
+//  Header for security descriptors in the security descriptor stream.  This
+//  is the data format for all indexes and is part of SharedSecurity
+//
+
+typedef struct _SECURITY_DESCRIPTOR_HEADER
+{
+    SECURITY_HASH_KEY HashKey;              //  Hash value for the descriptor
+    ULONGLONG Offset;                       //  offset to beginning of header
+    ULONG   Length;                         //  Length in bytes
+} SECURITY_DESCRIPTOR_HEADER, *PSECURITY_DESCRIPTOR_HEADER;
+
+#define GETSECURITYDESCRIPTORLENGTH(HEADER)         \
+    ((HEADER)->Length - sizeof( SECURITY_DESCRIPTOR_HEADER ))
+
+#define SetSecurityDescriptorLength(HEADER,LENGTH)  \
+    ((HEADER)->Length = (LENGTH) + sizeof( SECURITY_DESCRIPTOR_HEADER ))
+
+#endif  //  defined (_CAIRO_)
+
+//
+//  Define standard values for well-known security IDs
+//
+
+#define SECURITY_ID_INVALID              (0x00000000)
+#define SECURITY_ID_FIRST                (0x00000100)
+
+
 //
 //  MACROS
 //
@@ -2025,10 +2323,10 @@ typedef ATTRIBUTE_DEFINITION_COLUMNS *PATTRIBUTE_DEFINITION_COLUMNS;
     (C) == (A)->TypeCode                  \
 )
 
-#define NtfsEqualAttributeValue(A,V,L) (             \
-    NtfsIsAttributeResident(A) &&                    \
-    (A)->Form.Resident.ValueLength == (L) &&         \
-    RtlCompareMemory(NtfsGetValue(A),(V),(L)) == (L) \
+#define NtfsEqualAttributeValue(A,V,L) (     \
+    NtfsIsAttributeResident(A) &&            \
+    (A)->Form.Resident.ValueLength == (L) && \
+    RtlEqualMemory(NtfsGetValue(A),(V),(L))  \
 )
 
 #pragma pack()

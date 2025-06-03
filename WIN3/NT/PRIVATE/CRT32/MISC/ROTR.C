@@ -25,9 +25,9 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#if	defined(_CRUISER_) || defined(i386) || defined(_M_MRX000)
+#ifdef _MSC_VER
 #pragma function(_lrotr,_rotr)
-#endif  /* ndef _CRUISER_ */
+#endif
 
 #if UINT_MAX != 0xffffffff
 #error This module assumes 32-bit integers

@@ -106,7 +106,7 @@ reiterate:
 		pBuf = pGType[(NextIndex - CV_FIRST_NONPRIM) / GTYPE_INC];
 		NextString = (TYPPTR)pBuf[(NextIndex - CV_FIRST_NONPRIM) % GTYPE_INC];
 		COUNT (cnt_IdenticalTree2);
-#ifdef DEBUGVER
+#if DBG
 		if (DbArray[5]) {
 			printf("Local index: 0x%4.4x, Global Index: 0x%4.4x\n",
 				*(CV_typ_t *)((uchar *)pType1 + index), NextIndex);
@@ -129,6 +129,7 @@ leave_false:
 	return (FALSE);
 }
 
+#pragma intrinsic(memcmp)
 #pragma optimize("a", off)
 
 

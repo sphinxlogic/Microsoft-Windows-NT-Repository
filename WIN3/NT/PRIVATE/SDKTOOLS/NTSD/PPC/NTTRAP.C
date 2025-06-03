@@ -99,8 +99,8 @@ Return Value:
     // Return the physical address for the request virtual address.
     //
 
-    PhysicalAddress->LowPart  = ((PteContents >> 9) << 12) | (Address & 0xFFF);
+    PhysicalAddress->LowPart  = (PteContents & ~(0xFFF)) | (Address & 0xFFF);
     PhysicalAddress->HighPart = 0;
     return TRUE;
 }
-
+

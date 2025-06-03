@@ -4,7 +4,7 @@ BOOL IsCounterSupported ( DWORD dwCounterType );
 FLOAT Counter_Counter(PLINESTRUCT pline);
 FLOAT Counter_Bulk(PLINESTRUCT pline);
 FLOAT Counter_Timer(PLINESTRUCT pline);
-FLOAT Counter_Queuelen(PLINESTRUCT pline);
+FLOAT Counter_Queuelen(PLINESTRUCT pLine, BOOL bLargeData);
 FLOAT Counter_Text(PLINESTRUCT pline);
 FLOAT Counter_Rawcount(PLINESTRUCT pline);
 FLOAT Sample_Fraction(PLINESTRUCT pline);
@@ -20,8 +20,9 @@ FLOAT Counter_Average_Timer(PLINESTRUCT pLineStruct) ;
 FLOAT Counter_Average_Bulk(PLINESTRUCT pLineStruct) ;
 FLOAT Counter_Raw_Fraction(PLINESTRUCT pLineStruct) ;
 FLOAT Counter_Elapsed_Time (PLINESTRUCT pLineStruct);
+FLOAT Counter_Delta(PLINESTRUCT pLineStruct, BOOL bLargeData);
 
 FLOAT Counter_Null(PLINESTRUCT pline);
 
-
-
+
+

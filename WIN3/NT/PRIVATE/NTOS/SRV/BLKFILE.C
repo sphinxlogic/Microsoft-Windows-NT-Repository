@@ -39,8 +39,20 @@ Revision History:
 #define BugCheckFileId SRV_FILE_BLKFILE
 
 //
+// Get the address of the SRV_LOCK which corresponds to FileNameHashValue bucket
+//
+#define MFCB_LOCK_ADDR( _hash ) SrvMfcbHashTable[ HASH_TO_MFCB_INDEX( _hash ) ].Lock
+
+//
 // Forward declarations of local functions.
 //
+VOID
+AllocateMfcb(
+    OUT PMFCB *Mfcb,
+    IN PUNICODE_STRING FileName,
+    IN ULONG FileNameHashValue,
+    IN PWORK_CONTEXT WorkContext
+    );
 
 STATIC
 VOID
@@ -76,7 +88,7 @@ UnlinkRfcbFromLfcb (
     );
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text( PAGE, SrvAllocateMfcb )
+#pragma alloc_text( PAGE, AllocateMfcb )
 #pragma alloc_text( PAGE, SrvCreateMfcb )
 #pragma alloc_text( PAGE, SrvFindMfcb )
 #pragma alloc_text( PAGE, SrvFreeMfcb )
@@ -107,22 +119,24 @@ UnlinkRfcbFromLfcb (
 #pragma alloc_text( PAGECONN, SrvFindCachedRfcb )
 #endif
 
-
 //
 // Master File Control Block (MFCB) routines.
 //
-
 VOID
-SrvAllocateMfcb (
+AllocateMfcb (
     OUT PMFCB *Mfcb,
-    IN PUNICODE_STRING FileName
+    IN PUNICODE_STRING FileName,
+    IN ULONG FileNameHashValue,
+    IN PWORK_CONTEXT WorkContext
     )
 
 /*++
 
 Routine Description:
 
-    This function allocates an MFCB from pool.
+    This function allocates an MFCB from pool and places it in the hash table.
+
+    The bucket's Lock must be held exclusive when this is called!!
 
 Arguments:
 
@@ -138,15 +152,19 @@ Return Value:
 {
     CLONG blockLength;
     PMFCB mfcb;
-    PNONPAGED_MFCB nonpagedMfcb;
+    PNONPAGED_MFCB nonpagedMfcb = NULL;
+    PWORK_QUEUE queue = WorkContext->CurrentWorkQueue;
+    PLIST_ENTRY listHead;
+    PSINGLE_LIST_ENTRY listEntry;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Attempt to allocate from pool.
     //
 
     blockLength = sizeof(MFCB) + FileName->Length + sizeof(WCHAR);
+
     mfcb = ALLOCATE_HEAP( blockLength, BlockTypeMfcb );
     *Mfcb = mfcb;
 
@@ -154,7 +172,7 @@ Return Value:
 
         INTERNAL_ERROR(
             ERROR_LEVEL_EXPECTED,
-            "SrvAllocateMfcb: Unable to allocate %d bytes from pool\n",
+            "AllocateMfcb: Unable to allocate %d bytes from pool\n",
             blockLength,
             NULL
             );
@@ -164,31 +182,52 @@ Return Value:
         return;
     }
 
-    nonpagedMfcb = ALLOCATE_NONPAGED_POOL(
-                            sizeof(NONPAGED_MFCB),
-                            BlockTypeNonpagedMfcb );
+    nonpagedMfcb = (PNONPAGED_MFCB)InterlockedExchange(
+                                    (PLONG)&queue->CachedFreeMfcb,
+                                    (LONG)nonpagedMfcb );
 
-    if ( nonpagedMfcb == NULL ) {
+    if( nonpagedMfcb == NULL ) {
 
-        INTERNAL_ERROR(
-            ERROR_LEVEL_EXPECTED,
-            "SrvAllocateMfcb: Unable to allocate %d bytes from pool\n",
-            sizeof(NONPAGED_MFCB),
-            NULL
-            );
+        listEntry = ExInterlockedPopEntrySList( 
+                        &queue->MfcbFreeList,
+                        &queue->SpinLock
+                        );
 
-        // The caller will log the error
+        if( listEntry != NULL ) {
 
-        FREE_HEAP( mfcb );
-        *Mfcb = NULL;
-        return;
+            InterlockedDecrement( &queue->FreeMfcbs );
+            nonpagedMfcb = CONTAINING_RECORD( listEntry, NONPAGED_MFCB, SingleListEntry );
+
+        } else {
+
+            nonpagedMfcb = ALLOCATE_NONPAGED_POOL(
+                                    sizeof(NONPAGED_MFCB),
+                                    BlockTypeNonpagedMfcb );
+
+            if ( nonpagedMfcb == NULL ) {
+
+                INTERNAL_ERROR(
+                    ERROR_LEVEL_EXPECTED,
+                    "AllocateMfcb: Unable to allocate %d bytes from pool\n",
+                    sizeof(NONPAGED_MFCB),
+                    NULL
+                    );
+
+                // The caller will log the error
+
+                FREE_HEAP( mfcb );
+                *Mfcb = NULL;
+                return;
+            }
+
+            IF_DEBUG(HEAP) {
+                KdPrint(( "AllocateMfcb: Allocated MFCB at 0x%lx\n", mfcb ));
+            }
+
+            nonpagedMfcb->Type = BlockTypeNonpagedMfcb;
+        }
     }
 
-    IF_DEBUG(HEAP) {
-        KdPrint(( "SrvAllocateMfcb: Allocated MFCB at 0x%lx\n", mfcb ));
-    }
-
-    nonpagedMfcb->Type = BlockTypeNonpagedMfcb;
     nonpagedMfcb->PagedBlock = mfcb;
 
     RtlZeroMemory( mfcb, blockLength );
@@ -199,32 +238,44 @@ Return Value:
     // Initialize the MFCB.
     //
 
-    SET_BLOCK_TYPE( mfcb, BlockTypeMfcb );
-    SET_BLOCK_STATE( mfcb, BlockStateClosing );  // temporary object
-    SET_BLOCK_SIZE( mfcb, blockLength );
+    SET_BLOCK_TYPE_STATE_SIZE( mfcb, BlockTypeMfcb, BlockStateClosing, blockLength );
     mfcb->BlockHeader.ReferenceCount = 1;
 
     InitializeListHead( &mfcb->LfcbList );
     INITIALIZE_LOCK( &nonpagedMfcb->Lock, MFCB_LOCK_LEVEL, "MfcbLock" );
 
+    //
+    // Store the filename as it was passed into us
+    //
     mfcb->FileName.Length = FileName->Length;
     mfcb->FileName.MaximumLength = (SHORT)(FileName->Length + sizeof(WCHAR));
     mfcb->FileName.Buffer = (PWCH)(mfcb + 1);
+    RtlCopyMemory( mfcb->FileName.Buffer, FileName->Buffer, FileName->Length );
 
-    RtlCopyUnicodeString( &mfcb->FileName, FileName );
+    //
+    // Store the hash value for the filename
+    //
+    mfcb->FileNameHashValue = FileNameHashValue;
 
     INITIALIZE_REFERENCE_HISTORY( mfcb );
+
+    //
+    // Add it to the hash table
+    //
+    listHead = &SrvMfcbHashTable[ HASH_TO_MFCB_INDEX( FileNameHashValue ) ].List;
+    InsertHeadList( listHead, &mfcb->MfcbHashTableEntry );
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.MfcbInfo.Allocations );
 
     return;
 
-} // SrvAllocateMfcb
+} // AllocateMfcb
 
 
 PMFCB
 SrvCreateMfcb(
-    IN PUNICODE_STRING FileName
+    IN PUNICODE_STRING FileName,
+    IN PWORK_CONTEXT WorkContext
     )
 
 /*++
@@ -258,80 +309,47 @@ Return Value:
 --*/
 
 {
-    PUNICODE_PREFIX_TABLE_ENTRY mftEntry;
     PMFCB mfcb;
+    ULONG hashValue;
+    PLIST_ENTRY listEntryRoot, listEntry;
 
     PAGED_CODE( );
 
-    ASSERT( ExIsResourceAcquiredExclusive(&RESOURCE_OF(SrvMfcbListLock)) );
 
     //
-    // Search the Master File List to determine whether the named file
+    // Search the Hash File List to determine whether the named file
     // is already open.
     //
 
-    mftEntry = RtlFindUnicodePrefix(
-                    &SrvMasterFileTable,
-                    FileName,
-                    FileName->Length     // case-sensitive search
-                    );
+    COMPUTE_STRING_HASH( FileName, &hashValue );
 
-    if ( mftEntry != NULL ) {
+    ASSERT( ExIsResourceAcquiredExclusive( MFCB_LOCK_ADDR( hashValue )) );
 
-        //
-        // A matching prefix was found.  If it's not an exact, full
-        // match, throw it away.
-        //
+    listEntryRoot = &SrvMfcbHashTable[ HASH_TO_MFCB_INDEX( hashValue ) ].List;
 
-        mfcb = CONTAINING_RECORD( mftEntry, MFCB, MftEntry );
+    for( listEntry = listEntryRoot->Flink;
+         listEntry != listEntryRoot;
+         listEntry = listEntry->Flink ) {
 
-        if ( mfcb->FileName.Length != FileName->Length ) {
+        mfcb = CONTAINING_RECORD( listEntry, MFCB, MfcbHashTableEntry );
 
-            //
-            // This MFCB doesn't have the right name.  Forget that it
-            // was found.
-            //
-
-            mftEntry = NULL;
-
-        } else {
-
-            //
-            // This is the right MFCB.
-            //
-
-            ASSERT( !mfcb->CompatibilityOpen );
-
+        if( mfcb->FileNameHashValue == hashValue &&
+            mfcb->FileName.Length == FileName->Length &&
+            RtlEqualMemory( mfcb->FileName.Buffer,
+                            FileName->Buffer,
+                            FileName->Length ) ) {
+                //
+                // We've found a matching entry!
+                //
+                return mfcb;
         }
-
     }
 
-    if ( mftEntry == NULL ) {
+    //
+    // The named file is not yet open.  Allocate an MFCB
+    //
 
-        //
-        // The named file is not yet open.  Allocate an MFCB and add it
-        // to the Master File Table.
-        //
-
-        SrvAllocateMfcb( &mfcb, FileName );
-
-        if ( mfcb == NULL ) {
-
-            //
-            // Unable to allocate master file block.  Return a NULL
-            // pointer.
-            //
-
-            return NULL;
-        }
-
-        (VOID)RtlInsertUnicodePrefix(
-                &SrvMasterFileTable,
-                &mfcb->FileName,
-                &mfcb->MftEntry
-                );
-
-    }
+    AllocateMfcb( &mfcb, FileName, hashValue, WorkContext );
 
     return mfcb;
 
@@ -341,7 +359,8 @@ Return Value:
 PMFCB
 SrvFindMfcb(
     IN PUNICODE_STRING FileName,
-    IN BOOLEAN CaseInsensitive
+    IN BOOLEAN CaseInsensitive,
+    OUT PSRV_LOCK *Lock
     )
 
 /*++
@@ -351,8 +370,8 @@ Routine Description:
     Searches the Master File Table to see if the named file is already
     open, returning the address of an MFCB if it is.
 
-    *** The MFCB list lock must be held when this routine is called.  It
-        remains held on exit.
+    *** The MFCB list lock will be acquire exclusively whether or not
+        this routine succeeds.  The address of the lock is placed in *Lock
 
 Arguments:
 
@@ -368,12 +387,11 @@ Return Value:
 --*/
 
 {
-    PUNICODE_PREFIX_TABLE_ENTRY mftEntry;
+    PLIST_ENTRY listEntry, listEntryRoot;
+    ULONG hashValue;
     PMFCB mfcb;
 
     PAGED_CODE( );
-
-    ASSERT( ExIsResourceAcquiredExclusive(&RESOURCE_OF(SrvMfcbListLock)) );
 
     //
     // Search the Master File List to determine whether the named file
@@ -386,56 +404,52 @@ Return Value:
     //     directories?
 
     if ( FileName->Length == 0 ) {
-
-        mftEntry = NULL;
-
-    } else {
-
-        mftEntry = RtlFindUnicodePrefix(
-                       &SrvMasterFileTable,
-                       FileName,
-                       CaseInsensitive ? 0 : FileName->Length
-                       );
+        return NULL;
     }
 
-    if ( mftEntry != NULL ) {
+    COMPUTE_STRING_HASH( FileName, &hashValue );
+    listEntryRoot = &SrvMfcbHashTable[ HASH_TO_MFCB_INDEX( hashValue ) ].List;
 
-        //
-        // A matching prefix was found.  If it's not an exact, full
-        // match, throw it away.
-        //
+    *Lock = MFCB_LOCK_ADDR( hashValue );
+    ACQUIRE_LOCK( *Lock );
 
-        mfcb = CONTAINING_RECORD( mftEntry, MFCB, MftEntry );
+    //
+    // Search the Hash File List to determine whether the named file
+    // is already open.
+    //
+    for( listEntry = listEntryRoot->Flink;
+         listEntry != listEntryRoot;
+         listEntry = listEntry->Flink ) {
 
-        ASSERT( GET_BLOCK_TYPE(mfcb) == BlockTypeMfcb );
-        ASSERT( GET_BLOCK_STATE(mfcb) == BlockStateClosing );
+        mfcb = CONTAINING_RECORD( listEntry, MFCB, MfcbHashTableEntry );
 
-        if ( mfcb->FileName.Length == FileName->Length ) {
+        if( mfcb->FileNameHashValue == hashValue &&
+            mfcb->FileName.Length == FileName->Length &&
+            RtlEqualUnicodeString( &mfcb->FileName, FileName,CaseInsensitive)) {
+                //
+                // We've found a matching entry!
+                //
+                ASSERT( GET_BLOCK_TYPE(mfcb) == BlockTypeMfcb );
+                ASSERT( GET_BLOCK_STATE(mfcb) == BlockStateClosing );
 
-            //
-            // This is the right MFCB.  Bump the reference count and return
-            // its address.
-            //
+                mfcb->BlockHeader.ReferenceCount++;
 
-            mfcb->BlockHeader.ReferenceCount++;
+                UPDATE_REFERENCE_HISTORY( mfcb, FALSE );
 
-            UPDATE_REFERENCE_HISTORY( mfcb, FALSE );
+                IF_DEBUG(REFCNT) {
+                    KdPrint(( "Referencing MFCB %lx; new refcnt %lx\n",
+                                mfcb, mfcb->BlockHeader.ReferenceCount ));
+                }
 
-            IF_DEBUG(REFCNT) {
-                KdPrint(( "Referencing MFCB %lx; new refcnt %lx\n",
-                            mfcb, mfcb->BlockHeader.ReferenceCount ));
-            }
-
-            return mfcb;
+                return mfcb;
         }
-
     }
 
     //
-    // The named file isn't open.  Return a NULL pointer.
+    // We didn't find the entry!  The file is not open
     //
-
     return NULL;
+
 
 } // SrvFindMfcb
 
@@ -450,6 +464,8 @@ SrvFreeMfcb (
 Routine Description:
 
     This function returns an MFCB to the FSP heap.
+    If you change this code, you should also look in FreeIdleWorkItems
+        in scavengr.c
 
 Arguments:
 
@@ -462,22 +478,48 @@ Return Value:
 --*/
 
 {
-    PAGED_CODE( );
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
+    PNONPAGED_MFCB nonpagedMfcb = Mfcb->NonpagedMfcb;
 
-    DEBUG SET_BLOCK_TYPE( Mfcb, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Mfcb, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Mfcb, -1 );
-    DEBUG Mfcb->BlockHeader.ReferenceCount = (ULONG)-1;
+    PAGED_CODE();
+
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Mfcb, BlockTypeGarbage, BlockStateDead, -1 );
     TERMINATE_REFERENCE_HISTORY( Mfcb );
 
     //
     // Delete the lock on the MFCB.  The lock must not be held.
     //
 
-    ASSERT( RESOURCE_OF(Mfcb->NonpagedMfcb->Lock).ActiveCount == 0 );
-    DELETE_LOCK( &Mfcb->NonpagedMfcb->Lock );
+    ASSERT( RESOURCE_OF(nonpagedMfcb->Lock).ActiveCount == 0 );
+    DELETE_LOCK( &nonpagedMfcb->Lock );
 
-    DEALLOCATE_NONPAGED_POOL( Mfcb->NonpagedMfcb );
+    nonpagedMfcb = (PNONPAGED_MFCB)InterlockedExchange(
+                            (PLONG)&queue->CachedFreeMfcb,
+                            (LONG)nonpagedMfcb );
+
+    if( nonpagedMfcb != NULL ) {
+        //
+        // This check allows for the possibility that FreeMfcbs might exceed
+        // MaxFreeMfcbs, but it's fairly unlikely given the operation of kernel
+        // queue objects.  But even so, it probably won't exceed it by much and
+        // is really only advisory anyway.
+        //
+        if( queue->FreeMfcbs < queue->MaxFreeMfcbs ) {
+
+            ExInterlockedPushEntrySList(
+                &queue->MfcbFreeList,
+                &nonpagedMfcb->SingleListEntry,
+                &queue->SpinLock
+            );
+
+            InterlockedIncrement( &queue->FreeMfcbs );
+
+        } else {
+
+            DEALLOCATE_NONPAGED_POOL( nonpagedMfcb );
+        }
+    }
+
     FREE_HEAP( Mfcb );
     IF_DEBUG(HEAP) KdPrint(( "SrvFreeMfcb: Freed MFCB at 0x%lx\n", Mfcb ));
 
@@ -571,6 +613,8 @@ Return Value:
 --*/
 
 {
+    PSRV_LOCK lock = MFCB_LOCK_ADDR( Mfcb->FileNameHashValue );
+
     PAGED_CODE( );
 
     IF_DEBUG(REFCNT) {
@@ -583,7 +627,7 @@ Return Value:
     // count on the MFCB.
     //
 
-    ACQUIRE_LOCK( &SrvMfcbListLock );
+    ACQUIRE_LOCK( lock );
 
     ASSERT( GET_BLOCK_TYPE( Mfcb ) == BlockTypeMfcb );
     ASSERT( (LONG)Mfcb->BlockHeader.ReferenceCount > 0 );
@@ -595,15 +639,11 @@ Return Value:
         // This is the last reference to the MFCB.  Delete the block.
         // Unlink the MFCB from the Master File Table.
         //
-
         ASSERT( Mfcb->LfcbList.Flink == &Mfcb->LfcbList );
 
-        RtlRemoveUnicodePrefix(
-                    &SrvMasterFileTable,
-                    &Mfcb->MftEntry
-                    );
+        RemoveEntryList( &Mfcb->MfcbHashTableEntry );
 
-        RELEASE_LOCK( &SrvMfcbListLock );
+        RELEASE_LOCK( lock );
 
         //
         // Free the MFCB.  Note that SrvFreeMfcb deletes the MFCB's
@@ -614,7 +654,7 @@ Return Value:
 
     } else {
 
-        RELEASE_LOCK( &SrvMfcbListLock );
+        RELEASE_LOCK( lock );
 
     }
 
@@ -627,7 +667,8 @@ Return Value:
 
 VOID
 SrvAllocateLfcb (
-    OUT PLFCB *Lfcb
+    OUT PLFCB *Lfcb,
+    IN PWORK_CONTEXT WorkContext
     )
 
 /*++
@@ -648,9 +689,10 @@ Return Value:
 --*/
 
 {
-    PLFCB lfcb;
+    PLFCB lfcb = NULL;
+    PWORK_QUEUE queue = WorkContext->CurrentWorkQueue;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
     // Attempt to allocate from pool.
@@ -665,7 +707,7 @@ Return Value:
 
         INTERNAL_ERROR(
             ERROR_LEVEL_EXPECTED,
-            "SrvAllocateLfcb: Unable to allocate %d bytes from nonpaged pool.",
+            "SrvAllocateLfcb: Unable to allocate %d bytes from paged pool.",
             sizeof( LFCB ),
             NULL
             );
@@ -689,9 +731,7 @@ Return Value:
     // Initialize the LFCB.
     //
 
-    SET_BLOCK_TYPE( lfcb, BlockTypeLfcb );
-    SET_BLOCK_STATE( lfcb, BlockStateClosing );  // temporary object
-    SET_BLOCK_SIZE( lfcb, sizeof(LFCB) );
+    SET_BLOCK_TYPE_STATE_SIZE( lfcb, BlockTypeLfcb, BlockStateClosing, sizeof( LFCB ) );
 
     //
     // !!! Note that the block's reference count is set to 1 to account
@@ -804,7 +844,7 @@ Return Value:
         // Free the LFCB.
         //
 
-        SrvFreeLfcb( Lfcb );
+        SrvFreeLfcb( Lfcb, PROCESSOR_TO_QUEUE() );
 
     } else {
 
@@ -817,7 +857,8 @@ Return Value:
 
 VOID
 SrvFreeLfcb (
-    IN PLFCB Lfcb
+    IN PLFCB Lfcb,
+    IN PWORK_QUEUE queue
     )
 
 /*++
@@ -825,6 +866,7 @@ SrvFreeLfcb (
 Routine Description:
 
     This function returns an LFCB to the system nonpaged pool.
+    If you change this routine, look also in FreeIdleWorkItems in scavengr.c
 
 Arguments:
 
@@ -837,13 +879,11 @@ Return Value:
 --*/
 
 {
-    PAGED_CODE( );
+    PAGED_CODE();
 
     ASSERT ( Lfcb->HandleCount == 0 );
 
-    DEBUG SET_BLOCK_TYPE( Lfcb, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Lfcb, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Lfcb, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Lfcb, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Lfcb->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Lfcb );
 
@@ -891,6 +931,13 @@ Return Value:
     UpdateRfcbHistory( Rfcb, 'klnu' );
 
     ASSERT( lfcb != NULL );
+
+    if( Rfcb->PagedRfcb->IpxSmartCardContext ) {
+        IF_DEBUG( SIPX ) {
+            KdPrint(("Calling Smart Card Close for Rfcb %X\n", Rfcb ));
+        }
+        SrvIpxSmartCard.Close( Rfcb->PagedRfcb->IpxSmartCardContext );
+    }
 
     //
     // Acquire the lock that guards access to the LFCB's RFCB list.
@@ -1024,10 +1071,10 @@ Return Value:
 // Remote File Control Block (RFCB) routines.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvAllocateRfcb (
     OUT PRFCB *Rfcb,
-    IN BOOLEAN AllocateWriteMpx
+    IN PWORK_CONTEXT WorkContext
     )
 
 /*++
@@ -1042,11 +1089,6 @@ Arguments:
     Rfcb - Returns a pointer to the RFCB, or NULL if no space was
         available.
 
-    AllocateWriteMpx - Indicates whether a WRITE_MPX structure should be
-        allocated.  This should be set when the client is using
-        connectionless SMBs and therefore may send Write Multiplexed
-        SMBs.
-
 Return Value:
 
     None.
@@ -1054,63 +1096,91 @@ Return Value:
 --*/
 
 {
-    ULONG rfcbSize;
-    PRFCB rfcb;
+    PRFCB rfcb = NULL;
     PPAGED_RFCB pagedRfcb;
+    PWORK_QUEUE queue = WorkContext->CurrentWorkQueue;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
     //
-    // Attempt to allocate from nonpaged pool.
+    // Attempt to grab an rfcb structure off the per-queue free list
     //
+    rfcb = (PRFCB)InterlockedExchange( (PLONG)&queue->CachedFreeRfcb, (LONG)rfcb );
 
-    rfcbSize = sizeof(RFCB) + (AllocateWriteMpx ? sizeof(WRITE_MPX_CONTEXT) : 0);
+    if( rfcb != NULL ) {
 
-    rfcb = ALLOCATE_NONPAGED_POOL( rfcbSize, BlockTypeRfcb );
-    *Rfcb = rfcb;
+        *Rfcb = rfcb;
+        pagedRfcb = rfcb->PagedRfcb;
 
-    if ( rfcb == NULL ) {
-        INTERNAL_ERROR (
-            ERROR_LEVEL_EXPECTED,
-            "SrvAllocateRfcb: Unable to allocate %d bytes from nonpaged pool.",
-            sizeof( RFCB ),
-            NULL
-            );
-        return;
-    }
+    } else {
 
-    pagedRfcb = ALLOCATE_HEAP( sizeof(PAGED_RFCB), BlockTypePagedRfcb );
+        if( queue->FreeRfcbs ) {
 
-    if ( pagedRfcb == NULL ) {
-        INTERNAL_ERROR (
-            ERROR_LEVEL_EXPECTED,
-            "SrvAllocateRfcb: Unable to allocate %d bytes from paged pool.",
-            sizeof( PAGED_RFCB ),
-            NULL
-            );
-        DEALLOCATE_NONPAGED_POOL( rfcb );
-        *Rfcb = NULL;
-        return;
-    }
+            PSINGLE_LIST_ENTRY listEntry;
 
-    IF_DEBUG(HEAP) {
-        KdPrint(( "SrvAllocateRfcb: Allocated RFCB at 0x%lx\n", rfcb ));
+            listEntry = ExInterlockedPopEntrySList(
+                                    &queue->RfcbFreeList,
+                                    &queue->SpinLock
+                                    );
+
+            if( listEntry != NULL ) {
+                InterlockedIncrement( &queue->FreeRfcbs );
+                rfcb = CONTAINING_RECORD( listEntry, RFCB, SingleListEntry );
+                *Rfcb= rfcb;
+                pagedRfcb = rfcb->PagedRfcb;
+            }
+        }
+
+        if( rfcb == NULL ) {
+            //
+            // Attempt to allocate from nonpaged pool.
+            //
+
+            rfcb = ALLOCATE_NONPAGED_POOL( sizeof(RFCB), BlockTypeRfcb );
+            *Rfcb = rfcb;
+
+            if ( rfcb == NULL ) {
+                INTERNAL_ERROR (
+                    ERROR_LEVEL_EXPECTED,
+                    "SrvAllocateRfcb: Unable to allocate %d bytes from nonpaged pool.",
+                    sizeof( RFCB ),
+                    NULL
+                    );
+                return;
+            }
+
+            pagedRfcb = ALLOCATE_HEAP( sizeof(PAGED_RFCB), BlockTypePagedRfcb );
+
+            if ( pagedRfcb == NULL ) {
+                INTERNAL_ERROR (
+                    ERROR_LEVEL_EXPECTED,
+                    "SrvAllocateRfcb: Unable to allocate %d bytes from paged pool.",
+                    sizeof( PAGED_RFCB ),
+                    NULL
+                    );
+                DEALLOCATE_NONPAGED_POOL( rfcb );
+                *Rfcb = NULL;
+                return;
+            }
+
+            IF_DEBUG(HEAP) {
+                KdPrint(( "SrvAllocateRfcb: Allocated RFCB at 0x%lx\n", rfcb ));
+            }
+        }
     }
 
     //
     // Initialize the RFCB.  Zero it first.
     //
 
-    RtlZeroMemory( rfcb, rfcbSize );
+    RtlZeroMemory( rfcb, sizeof( RFCB ));
     RtlZeroMemory( pagedRfcb, sizeof(PAGED_RFCB) );
 
     rfcb->PagedRfcb = pagedRfcb;
     pagedRfcb->PagedHeader.NonPagedBlock = rfcb;
     pagedRfcb->PagedHeader.Type = BlockTypePagedRfcb;
 
-    SET_BLOCK_TYPE( rfcb, BlockTypeRfcb );
-    SET_BLOCK_STATE( rfcb, BlockStateActive );
-    SET_BLOCK_SIZE( rfcb, sizeof(RFCB) );
+    SET_BLOCK_TYPE_STATE_SIZE( rfcb, BlockTypeRfcb, BlockStateActive, sizeof(RFCB) );
     rfcb->BlockHeader.ReferenceCount = 2;       // allow for Active status
                                                 //  and caller's pointer
 
@@ -1120,11 +1190,10 @@ Return Value:
 
     rfcb->NewOplockLevel = NO_OPLOCK_BREAK_IN_PROGRESS;
     pagedRfcb->LastFailingLockOffset.QuadPart = -1;
-    rfcb->IsCacheable = TRUE;
+    rfcb->IsCacheable = ( SrvCachedOpenLimit > 0 );
 
-    ExInterlockedIncrementLong(
-        (PLONG)&SrvStatistics.CurrentNumberOfOpenFiles,
-        &GLOBAL_SPIN_LOCK(Statistics)
+    InterlockedIncrement(
+        (PLONG)&SrvStatistics.CurrentNumberOfOpenFiles
         );
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.RfcbInfo.Allocations );
@@ -1137,17 +1206,14 @@ Return Value:
 
     InitializeListHead( &rfcb->RawWriteSerializationList );
 
-    if ( AllocateWriteMpx ) {
-        rfcb->WriteMpx = (PWRITE_MPX_CONTEXT)(rfcb + 1);
-        InitializeListHead( &rfcb->WriteMpx->GlomDelayList );
-    }
+    InitializeListHead( &rfcb->WriteMpx.GlomDelayList );
 
     return;
 
 } // SrvAllocateRfcb
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceRfcb (
     PRFCB Rfcb
     )
@@ -1204,7 +1270,7 @@ Return Value:
 } // SrvCheckAndReferenceRfcb
 
 
-VOID
+VOID SRVFASTCALL
 SrvCloseRfcb (
     PRFCB Rfcb
     )
@@ -1279,10 +1345,14 @@ Return Value:
 
 {
     KIRQL oldIrql = OldIrql;
-    PWRITE_MPX_CONTEXT writeMpx;
     LARGE_INTEGER cacheOffset;
     PMDL mdlChain;
     PCONNECTION connection = Rfcb->Connection;
+    PWORK_CONTEXT workContext;
+    ULONG i;
+    ULONG writeLength;
+    BOOLEAN WriteBulkPending;
+    NTSTATUS status;
 
     UNLOCKABLE_CODE( 8FIL );
 
@@ -1324,59 +1394,112 @@ Return Value:
         }
 
         //
+        // Do we have any write bulks outstanding?
+        //
+
+        WriteBulkPending = FALSE;
+
+        for ( i = 0; i < MAX_CONCURRENT_WRITE_BULK; i++ ) {
+
+            if ( Rfcb->WriteBulk[i] != NULL ) {
+
+                workContext = Rfcb->WriteBulk[i];
+                ASSERT( Rfcb == workContext->Rfcb );
+
+                WriteBulkPending = TRUE;
+
+                if ( !workContext->Parameters.WriteBulk.Complete ) {
+
+                    workContext->Parameters.WriteBulk.Complete = TRUE;
+
+                    //
+                    // Make the cleanup routine finish...
+                    //
+
+                    workContext->Parameters.WriteBulk.RemainingCount = 0;
+
+                    //
+                    // Queue work item to FSP for cleanup.
+                    //
+
+                    workContext->FspRestartRoutine = SrvSmbWriteBulkData;
+                    SrvQueueWorkToFsp( workContext );
+                }
+            }
+        }
+
+        if ( WriteBulkPending ) {
+
+            //
+            // Cleanup will happen in SrvSmbWriteBulkData.
+            //
+
+            RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+            return;
+
+        }
+
+        //
         // Do we have write mpx outstanding?
         //
 
-        writeMpx = Rfcb->WriteMpx;
-        if ( writeMpx != NULL ) {
+        if ( Rfcb->WriteMpx.ReferenceCount != 0 ) {
 
-            if ( writeMpx->ReferenceCount != 0 ) {
+            //
+            // Cleanup will happen when the ref count drops to 0
+            //
 
-                //
-                // Cleanup will happen when the ref count drops to 0
-                //
+            RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+            return;
 
-                RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
-                return;
+        } else if ( Rfcb->WriteMpx.Glomming ) {
 
-            } else if ( writeMpx->Glomming ) {
+            //
+            // We need to complete this write mdl
+            //
 
-                //
-                // We need to complete this write mdl
-                //
+            Rfcb->WriteMpx.Glomming = FALSE;
+            Rfcb->WriteMpx.GlomComplete = FALSE;
 
-                writeMpx->Glomming = FALSE;
-                writeMpx->GlomComplete = FALSE;
+            //
+            // Save the offset and MDL address.
+            //
 
-                //
-                // Save the offset and MDL address.
-                //
+            cacheOffset.QuadPart = Rfcb->WriteMpx.StartOffset;
+            mdlChain = Rfcb->WriteMpx.MdlChain;
+            writeLength = Rfcb->WriteMpx.Length;
 
-                cacheOffset.QuadPart = writeMpx->StartOffset;
-                mdlChain = writeMpx->MdlChain;
+            DEBUG Rfcb->WriteMpx.MdlChain = NULL;
+            DEBUG Rfcb->WriteMpx.StartOffset = 0;
+            DEBUG Rfcb->WriteMpx.Length = 0;
 
-                DEBUG writeMpx->MdlChain = NULL;
-                DEBUG writeMpx->StartOffset = 0;
-                DEBUG writeMpx->Length = 0;
+            //
+            // Now we can release the lock.
+            //
 
-                //
-                // Now we can release the lock.
-                //
+            RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
 
-                RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+            //
+            // Tell the cache manager that we're done with this MDL write.
+            //
 
-                //
-                // Tell the cache manager that we're done with this MDL write.
-                //
-
-                FsRtlMdlWriteComplete(
-                    writeMpx->FileObject,
+            if( Rfcb->Lfcb->MdlWriteComplete == NULL ||
+                Rfcb->Lfcb->MdlWriteComplete(
+                    Rfcb->WriteMpx.FileObject,
                     &cacheOffset,
-                    mdlChain
-                    );
-            } else {
+                    mdlChain,
+                    Rfcb->Lfcb->DeviceObject ) == FALSE ) {
 
-                RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+                status = SrvIssueMdlCompleteRequest( NULL, Rfcb->WriteMpx.FileObject,
+                                            mdlChain,
+                                            IRP_MJ_WRITE,
+                                            &cacheOffset,
+                                            writeLength
+                                           );
+
+                if( !NT_SUCCESS( status ) ) {
+                    SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+                }
             }
 
         } else {
@@ -1506,6 +1629,9 @@ Routine Description:
     connection that owns the specified session, closing all RFCBs whose
     owning session and PID are equal to the PID passed to this routine.
 
+    Each session has a unique UID, so we can compare Uid's instead of comparing
+    the actual session pointer.
+
 Arguments:
 
     Session - Supplies a pointer to the session block corresponding to
@@ -1526,6 +1652,8 @@ Return Value:
     PRFCB rfcb;
     CSHORT i;
     KIRQL oldIrql;
+    USHORT Uid;
+    PLIST_ENTRY listEntry;
 
     //UNLOCKABLE_CODE( CONN );
 
@@ -1535,6 +1663,7 @@ Return Value:
 
     connection = Session->Connection;
     tableHeader = &connection->FileTable;
+    Uid = Session->Uid;
 
     //
     // Acquire the lock that guards the file table.  This lock is held
@@ -1553,39 +1682,49 @@ Return Value:
 
         rfcb = (PRFCB)tableHeader->Table[i].Owner;
 
-        if ( rfcb != NULL ) {
+        if((rfcb != NULL) &&
+          (GET_BLOCK_STATE(rfcb) == BlockStateActive) &&
+          (rfcb->Uid == Uid) &&
+          (!ARGUMENT_PRESENT( Pid ) || (rfcb->Pid == *Pid)) ) {
 
             //
-            // ReferenceRfcbInternal releases the spinlock
+            // A file owned by the specified session/process has
+            // been found.  Close the RFCB, and make sure it doesn't
+            // end up in the RFCB cache.
             //
 
-            if ( GET_BLOCK_STATE(rfcb) == BlockStateActive ) {
-
-                ReferenceRfcbInternal( rfcb, oldIrql );
-
-            } else {
-
-                continue;
-            }
-
-            //
-            // We don't have the spinlock held at this point.
-            //
-
-            if ( (rfcb->Lfcb->Session == Session) &&
-                 ( !ARGUMENT_PRESENT( Pid ) ||
-                   (ARGUMENT_PRESENT( Pid ) && (rfcb->Pid == *Pid)) ) ) {
-
-                //
-                // A file owned by the specified session/process has
-                // been found.  Close the RFCB.
-                //
-
-                SrvCloseRfcb( rfcb );
-            }
-
-            SrvDereferenceRfcb( rfcb );
+            rfcb->IsCacheable = FALSE;
+            CloseRfcbInternal( rfcb, oldIrql );
             ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+        }
+    }
+
+    //
+    // Now walk the RFCB cache to see if we have cached files that refer
+    //  to this session that need to be closed.
+    //
+
+again:
+
+    IF_DEBUG(FILE_CACHE) KdPrint(( "SrvCloseRfcbsOnSessionOrPid: "
+                                    "checking for cached RFCBS\n" ));
+
+    for ( listEntry = connection->CachedOpenList.Flink;
+          listEntry != &connection->CachedOpenList;
+          listEntry = listEntry->Flink ) {
+
+        rfcb = CONTAINING_RECORD( listEntry, RFCB, CachedOpenListEntry );
+
+        if( (rfcb->Uid == Uid) &&
+            ( !ARGUMENT_PRESENT( Pid ) || rfcb->Pid == *Pid) ) {
+
+            //
+            // This cached file is owned by session and/or process.
+            // Close the RFCB.
+            //
+            SrvCloseCachedRfcb( rfcb, oldIrql );
+            ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+            goto again;
         }
     }
 
@@ -1631,6 +1770,8 @@ Return Value:
     PCONNECTION connection;
     CSHORT i;
     KIRQL oldIrql;
+    PLIST_ENTRY listEntry;
+    USHORT Tid;
 
     //UNLOCKABLE_CODE( CONN );
 
@@ -1640,6 +1781,7 @@ Return Value:
 
     connection = TreeConnect->Connection;
     tableHeader = &connection->FileTable;
+    Tid = TreeConnect->Tid;
 
     //
     // Acquire the lock that guards the file table.  This lock is held
@@ -1651,44 +1793,51 @@ Return Value:
 
     //
     // Walk the file table, looking for files owned by the specified
-    // session and PID.
+    // tree and PID.
     //
 
     for ( i = 0; i < tableHeader->TableSize; i++ ) {
 
         rfcb = (PRFCB)tableHeader->Table[i].Owner;
 
-        if ( rfcb != NULL ) {
+        if((rfcb != NULL) &&
+           (GET_BLOCK_STATE(rfcb) == BlockStateActive) &&
+           (rfcb->Tid == Tid )) {
 
+             //
+             // A file owned by the specified tree connect has been found.
+             // Close the RFCB and make sure it doesn't get cached
+             //
+
+             rfcb->IsCacheable = FALSE;
+             CloseRfcbInternal( rfcb, oldIrql );
+             ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+        }
+    }
+
+    //
+    // Walk the cached open list, looking for files open on this tree
+    //  Close any that we find.
+    //
+
+again:
+
+    IF_DEBUG(FILE_CACHE) KdPrint(( "SrvCloseRfcbsOnTree: checking for cached RFCBS\n" ));
+
+    for ( listEntry = connection->CachedOpenList.Flink;
+          listEntry != &connection->CachedOpenList;
+          listEntry = listEntry->Flink ) {
+
+        rfcb = CONTAINING_RECORD( listEntry, RFCB, CachedOpenListEntry );
+
+        if( rfcb->Tid == Tid ) {
             //
-            // ReferenceRfcbInternal releases the spinlock
+            // This cached file is owned by the specifiec tree connect.
+            // Close the RFCB.
             //
-
-            if ( GET_BLOCK_STATE(rfcb) == BlockStateActive ) {
-
-                ReferenceRfcbInternal( rfcb, oldIrql );
-
-            } else {
-
-                continue;
-            }
-
-            //
-            // We don't have the spinlock held at this point.
-            //
-
-            if ( rfcb->Lfcb->TreeConnect == TreeConnect ) {
-
-                //
-                // A file owned by the specified tree connect has been found.
-                // Close the RFCB.
-                //
-
-                SrvCloseRfcb( rfcb );
-            }
-
-            SrvDereferenceRfcb( rfcb );
+            SrvCloseCachedRfcb( rfcb, oldIrql );
             ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+            goto again;
         }
     }
 
@@ -1773,16 +1922,17 @@ Return Value:
     // If this RFCB has a batch oplock, then it is eligible for caching.
     //
 
-    if ( ((Rfcb->OplockState == OplockStateOwnBatch) ||
+    if ( Rfcb->IsCacheable && Rfcb->NumberOfLocks == 0 &&
+         ((Rfcb->OplockState == OplockStateOwnBatch) ||
           (Rfcb->OplockState == OplockStateOwnServerBatch)) &&
          (Rfcb->PagedRfcb->FcbOpenCount == 0) &&
-         !Rfcb->Mfcb->CompatibilityOpen &&
-         Rfcb->IsCacheable ) {
+          !Rfcb->Mfcb->CompatibilityOpen ) {
 
         ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
 
-        if ( ((Rfcb->OplockState == OplockStateOwnBatch) ||
-              (Rfcb->OplockState == OplockStateOwnServerBatch)) &&
+        if ( Rfcb->IsCacheable &&
+             ((Rfcb->OplockState == OplockStateOwnBatch) ||
+             (Rfcb->OplockState == OplockStateOwnServerBatch)) &&
              (GET_BLOCK_STATE(connection) == BlockStateActive) ) {
 
             //
@@ -1824,10 +1974,19 @@ Return Value:
                 RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
             }
 
+            if( Rfcb->PagedRfcb->IpxSmartCardContext ) {
+                IF_DEBUG( SIPX ) {
+                    KdPrint(("Calling Smart Card Close for Rfcb %X\n", Rfcb ));
+                }
+                SrvIpxSmartCard.Close( Rfcb->PagedRfcb->IpxSmartCardContext );
+                Rfcb->PagedRfcb->IpxSmartCardContext = NULL;
+            }
+
             return;
         }
 
         RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+
 
     }
     IF_DEBUG(FILE_CACHE) KdPrint(( "SrvCompleteRfcbClose: can't cache rfcb %x\n", Rfcb ));
@@ -1856,7 +2015,7 @@ Return Value:
 } // SrvCompleteRfcbClose
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceRfcb (
     IN PRFCB Rfcb
     )
@@ -1941,6 +2100,7 @@ Return Value:
     PLFCB lfcb;
     PPAGED_RFCB pagedRfcb;
     PCONNECTION connection;
+    PWORK_QUEUE queue;
 
     UNLOCKABLE_CODE( 8FIL );
 
@@ -1968,6 +2128,7 @@ Return Value:
     }
 
     connection = Rfcb->Connection;
+    queue = connection->CurrentWorkQueue;
     Rfcb->BlockHeader.ReferenceCount--;
     UPDATE_REFERENCE_HISTORY( Rfcb, TRUE );
 
@@ -2035,7 +2196,7 @@ Return Value:
         // Free the RFCB.
         //
 
-        SrvFreeRfcb( Rfcb );
+        SrvFreeRfcb( Rfcb, queue );
 
     }
 
@@ -2044,16 +2205,18 @@ Return Value:
 } // DereferenceRfcbInternal
 
 
-VOID
+VOID SRVFASTCALL
 SrvFreeRfcb (
-    IN PRFCB Rfcb
+    IN PRFCB Rfcb,
+    PWORK_QUEUE queue
     )
 
 /*++
 
 Routine Description:
 
-    This function returns an RFCB to the system nonpaged pool.
+    This function returns an RFCB to the system nonpaged pool.  If changes are
+    made here, check out FreeIdleWorkItems in scavengr.c!
 
 Arguments:
 
@@ -2066,7 +2229,7 @@ Return Value:
 --*/
 
 {
-    PAGED_CODE( );
+    PAGED_CODE();
 
     IF_DEBUG(FILE_CACHE) KdPrint(( "SrvFreeRfcb: called for %x\n", Rfcb ));
     ASSERT( Rfcb->RawWriteCount == 0 );
@@ -2074,17 +2237,42 @@ Return Value:
     UpdateRfcbHistory( Rfcb, 'eerf' );
 
     //
-    // Free the storage used by the RFCB.
+    // Free the the RFCB.
     //
 
-    DEBUG SET_BLOCK_TYPE( Rfcb, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Rfcb, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Rfcb, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Rfcb, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Rfcb->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Rfcb );
 
-    FREE_HEAP( Rfcb->PagedRfcb );
-    DEALLOCATE_NONPAGED_POOL( Rfcb );
+    Rfcb = (PRFCB)InterlockedExchange( (PLONG)&queue->CachedFreeRfcb, (LONG)Rfcb );
+
+    if( Rfcb != NULL ) {
+        //
+        // This check allows for the possibility that FreeRfcbs might exceed
+        // MaxFreeRfcbs, but it's fairly unlikely given the operation of kernel
+        // queue objects.  But even so, it probably won't exceed it by much and
+        // is really only advisory anyway.
+        //
+        if( queue->FreeRfcbs < queue->MaxFreeRfcbs ) {
+
+            ExInterlockedPushEntrySList(
+                &queue->RfcbFreeList,
+                &Rfcb->SingleListEntry,
+                &queue->SpinLock
+            );
+
+            InterlockedIncrement( &queue->FreeRfcbs );
+
+        } else {
+
+            FREE_HEAP( Rfcb->PagedRfcb );
+            DEALLOCATE_NONPAGED_POOL( Rfcb );
+            IF_DEBUG(HEAP) KdPrint(( "SrvFreeRfcb: Freed RFCB at 0x%lx\n", Rfcb ));
+
+            INCREMENT_DEBUG_STAT( SrvDbgStatistics.RfcbInfo.Frees );
+
+        }
+    }
 
     //
     // Unlock the file-based code section.
@@ -2092,21 +2280,18 @@ Return Value:
 
     DEREFERENCE_UNLOCKABLE_CODE( 8FIL );
 
-    ExInterlockedDecrementLong(
-        (PLONG)&SrvStatistics.CurrentNumberOfOpenFiles,
-        &GLOBAL_SPIN_LOCK(Statistics)
+    InterlockedDecrement(
+        (PLONG)&SrvStatistics.CurrentNumberOfOpenFiles
         );
 
-    INCREMENT_DEBUG_STAT( SrvDbgStatistics.RfcbInfo.Frees );
 
-    IF_DEBUG(HEAP) KdPrint(( "SrvFreeRfcb: Freed RFCB at 0x%lx\n", Rfcb ));
 
     return;
 
 } // SrvFreeRfcb
 
 
-VOID
+VOID SRVFASTCALL
 SrvReferenceRfcb (
     PRFCB Rfcb
     )
@@ -2451,6 +2636,7 @@ Return Value:
             }
 
             INCREMENT_DEBUG_STAT( SrvDbgStatistics.OpensSatisfiedWithCachedRfcb );
+
             *Status = STATUS_SUCCESS;
             return TRUE;
 
@@ -2466,6 +2652,93 @@ Return Value:
     return FALSE;
 
 } // SrvFindCachedRfcb
+
+ULONG
+SrvCountCachedRfcbsForTid(
+    PCONNECTION connection,
+    USHORT Tid
+)
+/*++
+
+Routine Description:
+
+    This returns the number of RFCBS in the cache that are associated with Tid
+
+Arguments:
+
+    connection - Address of the CONNECTION structure of interest
+
+Return Value:
+
+    Count of cached RFCBs
+
+--*/
+{
+    PLIST_ENTRY listEntry;
+    PRFCB rfcb;
+    KIRQL oldIrql;
+    USHORT count = 0;
+
+    ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+
+    for ( listEntry = connection->CachedOpenList.Flink;
+          listEntry != &connection->CachedOpenList;
+          listEntry = listEntry->Flink ) {
+
+        rfcb = CONTAINING_RECORD( listEntry, RFCB, CachedOpenListEntry );
+
+        if( rfcb->Tid == Tid ) {
+            ++count;
+        }
+    }
+
+    RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+
+    return count;
+}
+
+ULONG
+SrvCountCachedRfcbsForUid(
+    PCONNECTION connection,
+    USHORT Uid
+)
+/*++
+
+Routine Description:
+
+    This returns the number of RFCBS in the cache that are associated with Uid
+
+Arguments:
+
+    connection - Address of the CONNECTION structure of interest
+
+Return Value:
+
+    Count of cached RFCBs
+
+--*/
+{
+    PLIST_ENTRY listEntry;
+    PRFCB rfcb;
+    KIRQL oldIrql;
+    ULONG count = 0;
+
+    ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
+
+    for ( listEntry = connection->CachedOpenList.Flink;
+          listEntry != &connection->CachedOpenList;
+          listEntry = listEntry->Flink ) {
+
+        rfcb = CONTAINING_RECORD( listEntry, RFCB, CachedOpenListEntry );
+
+        if( rfcb->Uid == Uid ) {
+            ++count;
+        }
+    }
+
+    RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
+    return count;
+}
 
 
 VOID
@@ -2580,9 +2853,8 @@ Return Value:
     PAGED_CODE( );
 
     IF_DEBUG(FILE_CACHE) {
-        KdPrint(( "SrvCloseCachedRfcbsOnConnection called for connection %x", Connection ));
+        KdPrint(( "SrvCloseCachedRfcbsOnConnection called for connection %x\n", Connection ));
     }
-    ASSERT( GET_BLOCK_STATE(Connection) == BlockStateClosing );
 
     //
     // Remove all RFCBs from the connection's open file cache.
@@ -2600,7 +2872,7 @@ Return Value:
         // Remove the RFCB from the connection's cache.
         //
 
-        Connection->CachedOpenCount--;
+        ExInterlockedAddUlong( &Connection->CachedOpenCount, (ULONG)-1, &Connection->SpinLock );
 
         ASSERT( rfcb->CachedOpen );
         rfcb->CachedOpen = FALSE;
@@ -2721,9 +2993,10 @@ Return Value:
 
     for ( listEntry = rfcbsToClose.Flink;
           listEntry != &rfcbsToClose;
-          listEntry = listEntry->Flink ) {
+          listEntry = nextListEntry ) {
 
         rfcb = CONTAINING_RECORD( listEntry, RFCB, CachedOpenListEntry );
+        nextListEntry = listEntry->Flink;
 
         IF_DEBUG(FILE_CACHE) {
             KdPrint(( "SrvCloseCachedRfcbsOnConnection; closing rfcb %x file %wZ\n",

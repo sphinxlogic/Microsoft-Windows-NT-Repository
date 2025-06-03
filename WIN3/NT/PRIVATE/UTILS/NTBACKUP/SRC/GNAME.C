@@ -143,11 +143,7 @@ CHAR_PTR buffer ;
           strcpy( buffer, dle->info.user->vol_name ) ;
 
      } else {
-#        ifdef UNICODE
-            sprintf( buffer, TEXT("%ws"), dle->device_name ) ;
-#        else
             sprintf( buffer, TEXT("%s"), dle->device_name ) ;
-#        endif
      }
 }
 

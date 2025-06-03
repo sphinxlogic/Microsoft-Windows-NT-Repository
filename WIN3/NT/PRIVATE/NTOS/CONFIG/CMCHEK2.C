@@ -62,7 +62,6 @@ Return Value:
     HCELL_INDEX ListAnchor;
     HCELL_INDEX NextCell;
     HCELL_INDEX LastCell;
-    BOOLEAN ValidHive = TRUE;
 
     CMLOG(CML_FLOW, CMS_SEC) {
         KdPrint(("CmpValidateHiveSecurityDescriptor: Hive = %lx\n",(ULONG)Hive));
@@ -95,7 +94,7 @@ Return Value:
                     KdPrint(("  Invalid Blink (%ld) on security cell %ld\n",SecurityCell->Blink, NextCell));
                     KdPrint(("  should point to %ld\n", LastCell));
                 }
-                ValidHive = FALSE;
+                return(FALSE);
             }
         }
         CMLOG(CML_MINOR, CMS_SEC) {
@@ -105,11 +104,11 @@ Return Value:
             CMLOG(CML_MAJOR, CMS_SEC) {
                 CmpDumpSecurityDescriptor(&SecurityCell->Descriptor,"INVALID DESCRIPTOR");
             }
-            ValidHive = FALSE;
+            return(FALSE);
         }
         SetUsed(Hive, NextCell);
         LastCell = NextCell;
         NextCell = SecurityCell->Flink;
     } while ( NextCell != ListAnchor );
-    return(ValidHive);
+    return(TRUE);
 }

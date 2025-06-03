@@ -26,6 +26,7 @@ PUBLIC  MDICLIENTWNDPROC
 PUBLIC  TITLEWNDPROC
 PUBLIC  MENUWINDOWPROC
 PUBLIC  DEFDLGPROCTHUNK
+PUBLIC  DESKTOPWNDPROC
 
 SUBCLASS_MAGIC  equ 0534C4353h          ; "SCLS" Sub-Class magic value */
 
@@ -354,6 +355,41 @@ DEFDLGPROCTHUNK     PROC FAR
         ret     10
 
 DEFDLGPROCTHUNK     ENDP
+
+align 16
+
+        dd  SUBCLASS_MAGIC
+        dd  9
+        dd  0
+
+
+DESKTOPWNDPROC     PROC FAR
+        inc     bp
+        push    bp
+        mov     bp,sp
+        push    ds
+        mov     ax,DGROUP
+        mov     ds,ax
+        mov     ax,OFFSET DESKTOPWNDPROC
+        mov     dx,SEG DESKTOPWNDPROC
+        push    dx
+        push    ax
+        push    WORD PTR [bp+14]        ;hwnd
+        push    WORD PTR [bp+12]        ;message
+        push    WORD PTR [bp+10]        ;wParam
+        push    WORD PTR [bp+8]
+        push    WORD PTR [bp+6]         ;lParam
+        call    FAR PTR CALLWINDOWPROC
+        dec     bp
+        dec     bp
+        mov     sp,bp
+        pop     ds
+        pop     bp
+        dec     bp
+        ret     10
+
+DESKTOPWNDPROC     ENDP
+
 
 _TEXT   ENDS
 

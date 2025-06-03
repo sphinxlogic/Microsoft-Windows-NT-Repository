@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 /* shared strings */
 WCHAR   Union_str[] = L"union";
@@ -26,8 +25,7 @@ WCHAR   PPifel_str[] = L"#if/#elif";
 WCHAR   Syntax_str[] = L"syntax error";
 
 
-FILE    *Errfl;                 /* files errors written to */
-FILE    *OUTPUTFILE;            /* File for output of program */
+PFILE   OUTPUTFILE;            /* File for output of program */
 
 WCHAR   *A_string;                              /* model encoding */
 WCHAR   *Debug;                                 /* debugging switches */
@@ -35,6 +33,7 @@ WCHAR   *Input_file;                    /* the input .rc file */
 WCHAR   *Output_file;                   /* the output .res file */
 WCHAR   *Q_string;                              /* hardware characteristics */
 WCHAR   *Version;
+UINT    uiDefaultCodePage;
 UINT    uiCodePage;
 
 int     In_alloc_text;
@@ -76,6 +75,7 @@ WCHAR   Reuse_Include[MED_BUFFER+1];
 
 token_t Basic_token = L_NOTOKEN;
 LIST    Defs = {MAXLIST};                       /* -D list */
+LIST    UnDefs = {MAXLIST};                       /* -U list */
 LIST    Includes = {MAXLIST, {0}};      /* for include file names */
 WCHAR   *Path_chars = L"/";                     /* path delimiter chars */
 WCHAR   *Basename = L"";                         /* base IL file name */

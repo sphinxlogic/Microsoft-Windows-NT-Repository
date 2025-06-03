@@ -22,11 +22,11 @@ Revision History:
     24-Apr-1992 JohnRo
         Created.
     05-May-1992 JohnRo
-        Fixed desired access parm to SamConnect() and SamOpenAlias().
+        Fixed desired _access parm to SamConnect() and SamOpenAlias().
         Fixed misleading msg when SamOpenDomain() fails.
         Call NetpGetLocalDomainId() instead of NetpGetDomainId() so we can get
         the kind that SamOpenDomain() wants.
-        Only open aliases for this product type.
+        Only _open aliases for this product type.
     09-Jun-1992 JohnRo
         RAID 10139: PortUAS should add to admin group/alias.
         Fixed PortUasAliasSetup's error handling.

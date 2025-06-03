@@ -691,7 +691,7 @@ Return Value:
     //
 
     dataQueue = &Fcb->DataQueue;
-    Buffer->AllocationSize = LiFromUlong( dataQueue->Quota );
+    Buffer->AllocationSize.QuadPart = dataQueue->Quota;
 
     //
     // The EOF is the number of written bytes ready to be read from the
@@ -699,7 +699,7 @@ Return Value:
     //
 
     if (MsIsDataQueueWriters( dataQueue )) {
-        Buffer->EndOfFile = LiFromUlong( dataQueue->BytesInQueue );
+        Buffer->EndOfFile.QuadPart = dataQueue->BytesInQueue;
     }
 
     Buffer->NumberOfLinks = 1;
@@ -907,7 +907,7 @@ Return Value:
 
     if (MsIsDataQueueWriters( dataQueue )) {
 
-        Buffer->CurrentByteOffset = LiFromUlong( dataQueue->BytesInQueue );
+        Buffer->CurrentByteOffset.QuadPart = dataQueue->BytesInQueue;
     }
 
     return;
@@ -999,7 +999,7 @@ Return Value:
     PAGED_CODE();
     DebugTrace(0, Dbg, "SetBasicInfo...\n", 0);
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->CreationTime)) {
+    if (((PLARGE_INTEGER)&Buffer->CreationTime)->QuadPart != 0) {
 
         //
         //  Modify the creation time
@@ -1008,7 +1008,7 @@ Return Value:
         Fcb->Specific.Fcb.CreationTime = Buffer->CreationTime;
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastAccessTime)) {
+    if (((PLARGE_INTEGER)&Buffer->LastAccessTime)->QuadPart != 0) {
 
         //
         //  Modify the last access time
@@ -1017,7 +1017,7 @@ Return Value:
         Fcb->Specific.Fcb.LastAccessTime = Buffer->LastAccessTime;
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->LastWriteTime)) {
+    if (((PLARGE_INTEGER)&Buffer->LastWriteTime)->QuadPart != 0) {
 
         //
         //  Modify the last write time
@@ -1026,7 +1026,7 @@ Return Value:
         Fcb->Specific.Fcb.LastModificationTime = Buffer->LastWriteTime;
     }
 
-    if (LiNeqZero(*(PLARGE_INTEGER)&Buffer->ChangeTime)) {
+    if (((PLARGE_INTEGER)&Buffer->ChangeTime)->QuadPart != 0) {
 
         //
         //  Modify the change time

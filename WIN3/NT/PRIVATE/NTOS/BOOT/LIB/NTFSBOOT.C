@@ -53,21 +53,17 @@ BOOTFS_INFO NtfsBootFsInfo={L"ntfs"};
 
 #include "ntfs.h"
 
-//
-//  Conditional debug print routine
-//
+VOID NtfsPrint( IN PCHAR FormatString, ... )
+{   va_list arglist; CHAR text[78+1]; ULONG Count,Length;
 
-#ifdef NTFSBOOTDBG
-
-#define NtfsDebugOutput(X,Y,Z) { \
-    BlPrint(X,Y,Z);              \
+    va_start(arglist,FormatString);
+    Length = _vsnprintf(text,sizeof(text),FormatString,arglist);
+    text[78] = 0;
+    ArcWrite(ARC_CONSOLE_OUTPUT,text,Length,&Count);
+    va_end(arglist);
 }
 
-#else
-
-#define NtfsDebugOutput(X,Y,Z) {NOTHING;}
-
-#endif // NTFSBOOTDBG
+VOID NtfsGetChar(VOID) { UCHAR c; ULONG count; ArcRead(ARC_CONSOLE_INPUT,&c,1,&count); }
 
 #define ReadConsole(c) {                                             \
     UCHAR Key=0; ULONG Count;                                        \
@@ -130,7 +126,7 @@ NtfsReadDisk (
 //  ReadAndDecodeFileRecord (
 //      IN PNTFS_STRUCTURE_CONTEXT StructureContext,
 //      IN LONGLONG FileRecord,
-//      IN PVOID Buffer
+//      OUT PULONG Index
 //      );
 //
 //  VOID
@@ -168,6 +164,13 @@ NtfsReadNonresidentAttribute (
     );
 
 ARC_STATUS
+NtfsReadAndDecodeFileRecord (
+    IN PNTFS_STRUCTURE_CONTEXT StructureContext,
+    IN LONGLONG FileRecord,
+    OUT PULONG Index
+    );
+
+ARC_STATUS
 NtfsDecodeUsa (
     IN PVOID UsaBuffer,
     IN ULONG Length
@@ -185,18 +188,8 @@ NtfsDecodeUsa (
     }                                                                                \
 }
 
-#define ReadAndDecodeFileRecord(A,B,C) { ARC_STATUS _s;                                 \
-    if ((C) == NtfsFileRecordBuffer && /*xxEql*/((B) == NtfsFileRecordBufferVbo)) {           \
-        NOTHING;                                                                        \
-    } else {                                                                            \
-        if ((_s = NtfsReadNonresidentAttribute( (A),                                    \
-                                                &(A)->MftAttributeContext,              \
-                                                /*xxXMul*/( (B) * (A)->BytesPerFileRecord ), \
-                                                (A)->BytesPerFileRecord,                \
-                                                (C) )) != ESUCCESS) { return _s; }      \
-        if ((_s = NtfsDecodeUsa((C),(A)->BytesPerFileRecord)) != ESUCCESS) {return _s;} \
-        if ((C) == NtfsFileRecordBuffer) { NtfsFileRecordBufferVbo = (B); }             \
-    }                                                                                   \
+#define ReadAndDecodeFileRecord(A,B,C) { ARC_STATUS _s;                       \
+    if ((_s = NtfsReadAndDecodeFileRecord(A,B,C)) != ESUCCESS) { return _s; } \
 }
 
 #define DecodeUsa(A,B) { ARC_STATUS _s;                     \
@@ -375,12 +368,12 @@ NtfsAreNamesEqual (
     (AC)->FileRecord = (FR);                                                 \
     (AC)->FileRecordOffset = (USHORT)PtrOffset((FRB),(AH));                  \
     if ((AC)->IsAttributeResident = ((AH)->FormCode == RESIDENT_FORM)) {     \
-        (AC)->DataSize = /*xxFromUlong*/((AH)->Form.Resident.ValueLength);       \
+        (AC)->DataSize = /*xxFromUlong*/((AH)->Form.Resident.ValueLength);   \
     } else {                                                                 \
         (AC)->DataSize = (AH)->Form.Nonresident.FileSize;                    \
     }                                                                        \
     (AC)->CompressionFormat = COMPRESSION_FORMAT_NONE;                       \
-    if ((AH)->Flags & ATTRIBUTE_FLAG_COMPRESSED) {                           \
+    if ((AH)->Flags & ATTRIBUTE_FLAG_COMPRESSION_MASK) {                     \
         ULONG _i;                                                            \
         (AC)->CompressionFormat = COMPRESSION_FORMAT_LZNT1;                  \
         (AC)->CompressionUnit = (SC)->BytesPerCluster;                       \
@@ -440,6 +433,9 @@ typedef union _UCHAR4 { UCHAR  Uchar[4]; ULONG  ForceAlignment; } UCHAR4, *PUCHA
 //  Define global data.
 //
 
+ULONG LastMcb = 0;
+BOOLEAN FirstTime = TRUE;
+
 //
 //  File entry table - This is a structure that provides entry to the NTFS
 //      file system procedures. It is exported when a NTFS file structure
@@ -454,12 +450,13 @@ BL_DEVICE_ENTRY_TABLE NtfsDeviceEntryTable;
 //  current file record by its Vbo within the mft.
 //
 
-VBO NtfsFileRecordBufferVbo;
-PFILE_RECORD_SEGMENT_HEADER NtfsFileRecordBuffer;
-UCHAR NtfsBuffer1[MAXIMUM_FILE_RECORD_SIZE+256];
+#define BUFFER_COUNT (64)
+
+USHORT NtfsFileRecordBufferPinned[BUFFER_COUNT];
+VBO NtfsFileRecordBufferVbo[BUFFER_COUNT];
+PFILE_RECORD_SEGMENT_HEADER NtfsFileRecordBuffer[BUFFER_COUNT];
 
 PINDEX_ALLOCATION_BUFFER NtfsIndexAllocationBuffer;
-UCHAR NtfsBuffer2[MAXIMUM_INDEX_ALLOCATION_SIZE+256];
 
 //
 //  The following field are used to identify and store the cached
@@ -475,9 +472,12 @@ USHORT        NtfsCompressedOffset;
 ULONG         NtfsCompressedVbo;
 
 PUCHAR NtfsCompressedBuffer;
-UCHAR NtfsBuffer3[MAXIMUM_COMPRESSION_UNIT_SIZE+256];
-
 PUCHAR NtfsUncompressedBuffer;
+
+UCHAR NtfsBuffer0[MAXIMUM_FILE_RECORD_SIZE+256];
+UCHAR NtfsBuffer1[MAXIMUM_FILE_RECORD_SIZE+256];
+UCHAR NtfsBuffer2[MAXIMUM_INDEX_ALLOCATION_SIZE+256];
+UCHAR NtfsBuffer3[MAXIMUM_COMPRESSION_UNIT_SIZE+256];
 UCHAR NtfsBuffer4[MAXIMUM_COMPRESSION_UNIT_SIZE+256];
 
 
@@ -519,7 +519,7 @@ Return Value:
 
     PATTRIBUTE_RECORD_HEADER AttributeHeader;
 
-    NtfsDebugOutput("IsNtfsFileStructure\r\n", 0, 0);
+    ULONG i;
 
     //
     //  Clear the file system context block for the specified channel and initialize
@@ -528,22 +528,24 @@ Return Value:
 
     RtlZeroMemory(StructureContext, sizeof(NTFS_STRUCTURE_CONTEXT));
 
-    NtfsFileRecordBufferVbo = 0;
-    NtfsFileRecordBuffer = ALIGN_BUFFER( &NtfsBuffer1[0] );
-    NtfsIndexAllocationBuffer = ALIGN_BUFFER( &NtfsBuffer2[0] );
+    //
+    //  Zero out the pinned buffer array because we start with nothing pinned
+    //  Also negate the vbo array to not let us get spooked with stale data
+    //
+
+    RtlZeroMemory( NtfsFileRecordBufferPinned, sizeof(NtfsFileRecordBufferPinned));
+    for (i = 0; i < BUFFER_COUNT; i += 1) { NtfsFileRecordBufferVbo[i] = -1; }
 
     NtfsCompressedFileRecord = 0;
     NtfsCompressedOffset     = 0;
     NtfsCompressedVbo        = 0;
-    NtfsCompressedBuffer     = ALIGN_BUFFER( &NtfsBuffer3[0] );
-    NtfsUncompressedBuffer   = ALIGN_BUFFER( &NtfsBuffer4[0] );
 
     //
     //  Set up a local pointer that we will use to read in the boot sector and check
     //  for an Ntfs partition.  We will temporarily use the global file record buffer
     //
 
-    BootSector = (PPACKED_BOOT_SECTOR)NtfsFileRecordBuffer;
+    BootSector = (PPACKED_BOOT_SECTOR)NtfsFileRecordBuffer[0];
 
     //
     //  Now read in the boot sector and return null if we can't do the read
@@ -605,16 +607,25 @@ Return Value:
         (Bpb.SectorsPerCluster !=  4) &&
         (Bpb.SectorsPerCluster !=  8) &&
         (Bpb.SectorsPerCluster != 16) &&
-        (Bpb.SectorsPerCluster != 32)) {
+        (Bpb.SectorsPerCluster != 32) &&
+        (Bpb.SectorsPerCluster != 64) &&
+        (Bpb.SectorsPerCluster != 128)) {
 
         return NULL;
     }
 
-    if ((/*xxEqlZero*/(BootSector->NumberSectors == 0)) ||
-        (/*xxEqlZero*/(BootSector->MftStartLcn == 0)) ||
-        (/*xxEqlZero*/(BootSector->Mft2StartLcn == 0)) ||
+    if ((BootSector->NumberSectors == 0) ||
+        (BootSector->MftStartLcn == 0) ||
+        (BootSector->Mft2StartLcn == 0) ||
         (BootSector->ClustersPerFileRecordSegment == 0) ||
         (BootSector->DefaultClustersPerIndexAllocationBuffer == 0)) {
+
+        return NULL;
+    }
+
+    if ((BootSector->ClustersPerFileRecordSegment < 0) &&
+        ((BootSector->ClustersPerFileRecordSegment > -9) ||
+         (BootSector->ClustersPerFileRecordSegment < -31))) {
 
         return NULL;
     }
@@ -629,8 +640,21 @@ Return Value:
     StructureContext->BytesPerCluster    =
     ClusterSize                          = Bpb.SectorsPerCluster * Bpb.BytesPerSector;
 
-    StructureContext->BytesPerFileRecord =
-    FileRecordSize                       = BootSector->ClustersPerFileRecordSegment * ClusterSize;
+    //
+    //  If the number of clusters per file record is less than zero then the file record
+    //  size computed by using the negative of this number as a shift value.
+    //
+
+    if (BootSector->ClustersPerFileRecordSegment > 0) {
+
+        StructureContext->BytesPerFileRecord =
+        FileRecordSize                       = BootSector->ClustersPerFileRecordSegment * ClusterSize;
+
+    } else {
+
+        StructureContext->BytesPerFileRecord =
+        FileRecordSize                       = 1 << (-1 * BootSector->ClustersPerFileRecordSegment);
+    }
 
     //
     //  Read in the base file record for the mft
@@ -639,7 +663,7 @@ Return Value:
     if (NtfsReadDisk( DeviceId,
                       /*xxXMul*/(BootSector->MftStartLcn * ClusterSize),
                       FileRecordSize,
-                      NtfsFileRecordBuffer) != ESUCCESS) {
+                      NtfsFileRecordBuffer[0]) != ESUCCESS) {
 
         return NULL;
     }
@@ -648,7 +672,7 @@ Return Value:
     //  Decode Usa for the file record
     //
 
-    if (NtfsDecodeUsa(NtfsFileRecordBuffer, FileRecordSize) != ESUCCESS) {
+    if (NtfsDecodeUsa(NtfsFileRecordBuffer[0], FileRecordSize) != ESUCCESS) {
 
         return NULL;
     }
@@ -657,7 +681,7 @@ Return Value:
     //  Make sure the file record is in use
     //
 
-    if (!FlagOn(NtfsFileRecordBuffer->Flags, FILE_RECORD_SEGMENT_IN_USE)) {
+    if (!FlagOn(NtfsFileRecordBuffer[0]->Flags, FILE_RECORD_SEGMENT_IN_USE)) {
 
         return NULL;
     }
@@ -667,7 +691,7 @@ Return Value:
     //  an error
     //
 
-    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer );
+    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer[0] );
          (AttributeHeader->TypeCode != $DATA) || (AttributeHeader->NameLength != 0);
          AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
 
@@ -691,7 +715,7 @@ Return Value:
     //
 
     InitializeAttributeContext( StructureContext,
-                                NtfsFileRecordBuffer,
+                                NtfsFileRecordBuffer[0],
                                 AttributeHeader,
                                 0,
                                 &StructureContext->MftAttributeContext );
@@ -748,8 +772,6 @@ Return Value:
 --*/
 
 {
-    NtfsDebugOutput("NtfsClose\r\n", 0, 0);
-
     //
     //  Indicate that the file isn't open any longer
     //
@@ -801,8 +823,6 @@ Return Value:
     STANDARD_INFORMATION StandardInformation;
 
     ULONG i;
-
-    NtfsDebugOutput("NtfsGetFileInformation\r\n", 0, 0);
 
     //
     //  Setup some local references
@@ -940,8 +960,7 @@ Return Value:
     PNTFS_ATTRIBUTE_CONTEXT IndexAllocation;
     PNTFS_ATTRIBUTE_CONTEXT AllocationBitmap;
 
-    NtfsDebugOutput("NtfsOpen\r\n", 0, 0);
-    //BlPrint("NtfsOpen(\"%s\")\n", FileName);
+    //NtfsPrint("%d NtfsOpen(\"%s\")\n\r", __LINE__, FileName);
 
     //
     //  Load our local variables
@@ -1180,8 +1199,6 @@ Return Value:
 
     LONGLONG AmountLeft;
 
-    NtfsDebugOutput("NtfsRead\r\n", 0, 0);
-
     //
     //  Setup some local references
     //
@@ -1258,8 +1275,6 @@ Return Value:
     PBL_FILE_TABLE FileTableEntry;
     LONGLONG NewPosition;
 
-    NtfsDebugOutput("NtfsSeek\r\n", 0, 0);
-
     //
     //  Load our local variables
     //
@@ -1328,8 +1343,6 @@ Return Value:
 --*/
 
 {
-    NtfsDebugOutput("NtfsSetFileInformation\r\n", 0, 0);
-
     return EROFS;
 }
 
@@ -1368,8 +1381,6 @@ Return Value:
 --*/
 
 {
-    NtfsDebugOutput("NtfsWrite\r\n", 0, 0);
-
     return EROFS;
 }
 
@@ -1397,6 +1408,19 @@ Return Value:
 --*/
 
 {
+    //
+    //  The first time we will zero out the file record buffer and allocate
+    //  a few buffers for read in data.
+    //
+
+    RtlZeroMemory( NtfsFileRecordBuffer, sizeof(NtfsFileRecordBuffer));
+
+    NtfsFileRecordBuffer[0]   = ALIGN_BUFFER(NtfsBuffer0);
+    NtfsFileRecordBuffer[1]   = ALIGN_BUFFER(NtfsBuffer1);
+    NtfsIndexAllocationBuffer = ALIGN_BUFFER(NtfsBuffer2);
+    NtfsCompressedBuffer      = ALIGN_BUFFER(NtfsBuffer3);
+    NtfsUncompressedBuffer    = ALIGN_BUFFER(NtfsBuffer4);
+
     return ESUCCESS;
 }
 
@@ -1439,8 +1463,6 @@ Return Value:
 {
     ARC_STATUS Status;
     ULONG i;
-
-    NtfsDebugOutput("NtfsReadDisk\r\n", 0, 0);
 
     //
     //  Special case the zero byte read request
@@ -1539,7 +1561,7 @@ Return Value:
     LONGLONG li;
     ATTRIBUTE_LIST_ENTRY AttributeListEntry;
 
-    NtfsDebugOutput("NtfsLookupAttribute\r\n", 0, 0);
+    ULONG BufferIndex;
 
     //
     //  Unless other noted we will assume we haven't found the attribute
@@ -1554,21 +1576,23 @@ Return Value:
 
     ReadAndDecodeFileRecord( StructureContext,
                              FileRecord,
-                             NtfsFileRecordBuffer );
+                             &BufferIndex );
 
-    if (/*!xxEqlZero*/(*((PLONGLONG)&(NtfsFileRecordBuffer->BaseFileRecordSegment)) != 0)) {
+    if (/*!xxEqlZero*/(*((PLONGLONG)&(NtfsFileRecordBuffer[BufferIndex]->BaseFileRecordSegment)) != 0)) {
 
         //
         //  This isn't the base file record so now extract the base file record
         //  number and read it in
         //
 
-        FileReferenceToLargeInteger( NtfsFileRecordBuffer->BaseFileRecordSegment,
+        FileReferenceToLargeInteger( NtfsFileRecordBuffer[BufferIndex]->BaseFileRecordSegment,
                                      &FileRecord );
+
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
         ReadAndDecodeFileRecord( StructureContext,
                                  FileRecord,
-                                 NtfsFileRecordBuffer );
+                                 &BufferIndex );
     }
 
     //
@@ -1578,7 +1602,7 @@ Return Value:
 
     AttributeList = NULL;
 
-    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer );
+    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer[BufferIndex] );
          AttributeHeader->TypeCode != $END;
          AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
 
@@ -1603,10 +1627,12 @@ Return Value:
             *FoundAttribute = TRUE;
 
             InitializeAttributeContext( StructureContext,
-                                        NtfsFileRecordBuffer,
+                                        NtfsFileRecordBuffer[BufferIndex],
                                         AttributeHeader,
                                         FileRecord,
                                         AttributeContext );
+
+            NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
             return ESUCCESS;
         }
@@ -1620,7 +1646,7 @@ Return Value:
         if (AttributeHeader->TypeCode == $ATTRIBUTE_LIST) {
 
             InitializeAttributeContext( StructureContext,
-                                        NtfsFileRecordBuffer,
+                                        NtfsFileRecordBuffer[BufferIndex],
                                         AttributeHeader,
                                         FileRecord,
                                         AttributeList = &AttributeContext1 );
@@ -1634,6 +1660,8 @@ Return Value:
     //
 
     if (AttributeList == NULL) {
+
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
         return ESUCCESS;
     }
@@ -1683,16 +1711,18 @@ Return Value:
             FileReferenceToLargeInteger( AttributeListEntry.SegmentReference,
                                          &FileRecord );
 
+            NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+
             ReadAndDecodeFileRecord( StructureContext,
                                      FileRecord,
-                                     NtfsFileRecordBuffer );
+                                     &BufferIndex );
 
             //
             //  Now search down the file record for our matching attribute, and it
             //  better be there otherwise the attribute list is wrong.
             //
 
-            for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer );
+            for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer[BufferIndex] );
                  AttributeHeader->TypeCode != $END;
                  AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
 
@@ -1717,14 +1747,18 @@ Return Value:
                     *FoundAttribute = TRUE;
 
                     InitializeAttributeContext( StructureContext,
-                                                NtfsFileRecordBuffer,
+                                                NtfsFileRecordBuffer[BufferIndex],
                                                 AttributeHeader,
                                                 FileRecord,
                                                 AttributeContext );
 
+                    NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+
                     return ESUCCESS;
                 }
             }
+
+            NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
             return EBADF;
         }
@@ -1734,6 +1768,8 @@ Return Value:
     //  If we reach this point we've exhausted the attribute list without finding the
     //  attribute
     //
+
+    NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
     return ESUCCESS;
 }
@@ -1781,7 +1817,7 @@ Return Value:
 {
     PATTRIBUTE_RECORD_HEADER AttributeHeader;
 
-    NtfsDebugOutput("NtfsReadResidentAttribute\r\n", 0, 0);
+    ULONG BufferIndex;
 
     //
     //  Read in the file record containing the resident attribute
@@ -1789,13 +1825,13 @@ Return Value:
 
     ReadAndDecodeFileRecord( StructureContext,
                              AttributeContext->FileRecord,
-                             NtfsFileRecordBuffer );
+                             &BufferIndex );
 
     //
     //  Get a pointer to the attribute header
     //
 
-    AttributeHeader = Add2Ptr( NtfsFileRecordBuffer,
+    AttributeHeader = Add2Ptr( NtfsFileRecordBuffer[BufferIndex],
                                AttributeContext->FileRecordOffset );
 
     //
@@ -1808,6 +1844,9 @@ Return Value:
 
     //
     //  And return to our caller
+    //
+
+    NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
     return ESUCCESS;
 }
@@ -1853,8 +1892,6 @@ Return Value:
 --*/
 
 {
-    NtfsDebugOutput("NtfsReadNonresidentAttribute\r\n", 0, 0);
-
     //
     //  Check if we are reading a compressed attribute
     //
@@ -1911,6 +1948,16 @@ Return Value:
 
                     if (/*xxEqlZero*/(Lbo == 0)) { break; }
 
+                    //
+                    //  Trim the byte count down to a compression unit and we'll catch the
+                    //  excess the next time through the loop
+                    //
+
+                    if ((i + ByteCount) > AttributeContext->CompressionUnit) {
+
+                        ByteCount = AttributeContext->CompressionUnit - i;
+                    }
+
                     ReadDisk( StructureContext->DeviceId, Lbo, ByteCount, &NtfsCompressedBuffer[i] );
                 }
 
@@ -1922,8 +1969,6 @@ Return Value:
 
                 if (i == 0) {
 
-                    //BlPrint("Zero Buffer, NtfsCompressedVbo = %lx\n", NtfsCompressedVbo);
-
                     RtlZeroMemory( NtfsUncompressedBuffer, AttributeContext->CompressionUnit );
 
                 //
@@ -1932,8 +1977,6 @@ Return Value:
                 //
 
                 } else if (i >= AttributeContext->CompressionUnit) {
-
-                    //BlPrint("Buffer Not Compressed NtfsCompressedVbo = %lx\n", NtfsCompressedVbo);
 
                     RtlMoveMemory( NtfsUncompressedBuffer,
                                    NtfsCompressedBuffer,
@@ -1959,7 +2002,6 @@ Return Value:
 
                     if (!NT_SUCCESS(Status)) {
 
-                        //BlPrint("Decompress Error, i = %lx, NtfsCompressedVbo = %lx\n", i, NtfsCompressedVbo);
                         return EINVAL;
                     }
 
@@ -2106,6 +2148,120 @@ Return Value:
 //  Local support routine
 //
 
+
+ARC_STATUS
+NtfsReadAndDecodeFileRecord (
+    IN PNTFS_STRUCTURE_CONTEXT StructureContext,
+    IN LONGLONG FileRecord,
+    OUT PULONG Index
+    )
+
+/*++
+
+Routine Description:
+
+    This routine reads in the specified file record into the indicated
+    ntfs file record buffer index provided that the buffer is not pinned.
+    It will also look at the current buffers and see if any will already
+    satisfy the request or assign an unused buffer if necessary and
+    fix Index to point to the right buffer
+
+Arguments:
+
+    StructureContext - Supplies the volume structure for this operation
+
+    FileRecord - Supplies the file record number being read
+
+    Index - Receives the index of where we put the buffer.  After this
+        call the buffer is pinned and will need to be unpinned if it is
+        to be reused.
+
+Return Value:
+
+    ESUCCESS is returned if the operation is successful.  Otherwise,
+    an unsuccessful status is returned that describes the reason for failure.
+
+--*/
+
+{
+    ARC_STATUS Status;
+
+    //
+    //  For each buffer that is not null check if we have a hit on the
+    //  file record and if so then increment the pin count and return
+    //  that index
+    //
+
+    for (*Index = 0; (*Index < BUFFER_COUNT) && (NtfsFileRecordBuffer[*Index] != NULL); *Index += 1) {
+
+        if (NtfsFileRecordBufferVbo[*Index] == FileRecord) {
+
+            NtfsFileRecordBufferPinned[*Index] += 1;
+            return ESUCCESS;
+        }
+    }
+
+    //
+    //  Check for the first unpinned buffer and make sure we haven't exhausted the
+    //  array
+    //
+
+    for (*Index = 0; (*Index < BUFFER_COUNT) && (NtfsFileRecordBufferPinned[*Index] != 0); *Index += 1) {
+
+        NOTHING;
+    }
+
+    if (*Index == BUFFER_COUNT) { return E2BIG; }
+
+    //
+    //  We have an unpinned buffer that we want to use, check if we need to
+    //  allocate a buffer to actually hold the data
+    //
+
+    if (NtfsFileRecordBuffer[*Index] == NULL) {
+
+        NtfsFileRecordBuffer[*Index] = BlAllocateHeapAligned(MAXIMUM_FILE_RECORD_SIZE);
+    }
+
+    //
+    //  Pin the buffer and then read in the data
+    //
+
+    NtfsFileRecordBufferPinned[*Index] += 1;
+
+    if ((Status = NtfsReadNonresidentAttribute( StructureContext,
+                                                &StructureContext->MftAttributeContext,
+                                                FileRecord * StructureContext->BytesPerFileRecord,
+                                                StructureContext->BytesPerFileRecord,
+                                                NtfsFileRecordBuffer[*Index] )) != ESUCCESS) {
+
+        return Status;
+    }
+
+    //
+    //  Decode the usa
+    //
+
+    if ((Status = NtfsDecodeUsa( NtfsFileRecordBuffer[*Index],
+                                 StructureContext->BytesPerFileRecord )) != ESUCCESS) {
+
+        return Status;
+    }
+
+    //
+    //  And set the file record so that we know where it came from
+    //
+
+    NtfsFileRecordBufferVbo[*Index] = FileRecord;
+
+    return ESUCCESS;
+}
+
+
+//
+//  Local support routine
+//
+
 ARC_STATUS
 NtfsDecodeUsa (
     IN PVOID UsaBuffer,
@@ -2140,8 +2296,6 @@ Return Value:
 
     ULONG i;
     PUSHORT ProtectedUshort;
-
-    NtfsDebugOutput("NtfsDecodeUsa\r\n", 0, 0);
 
     //
     //  Setup our local variables
@@ -2242,7 +2396,7 @@ Return Value:
     ULONG NextIndexBuffer;
     ULONG BytesPerIndexBuffer;
 
-    NtfsDebugOutput("NtfsSearchForFileName\r\n", 0, 0);
+    ULONG BufferIndex;
 
     //
     //  unless otherwise set we will assume that our search has failed
@@ -2258,9 +2412,9 @@ Return Value:
 
     ReadAndDecodeFileRecord( StructureContext,
                              IndexRoot->FileRecord,
-                             NtfsFileRecordBuffer );
+                             &BufferIndex );
 
-    IndexAttributeHeader = Add2Ptr( NtfsFileRecordBuffer,
+    IndexAttributeHeader = Add2Ptr( NtfsFileRecordBuffer[BufferIndex],
                                     IndexRoot->FileRecordOffset );
 
     IndexRootValue = NtfsGetValue( IndexAttributeHeader );
@@ -2322,6 +2476,8 @@ Return Value:
                 *IsDirectory = FlagOn( FileNameEntry->Info.FileAttributes,
                                        DUP_FILE_NAME_INDEX_PRESENT);
 
+                NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+
                 return ESUCCESS;
             }
         }
@@ -2333,6 +2489,8 @@ Return Value:
 
         if (!ARGUMENT_PRESENT(IndexAllocation) ||
             !ARGUMENT_PRESENT(AllocationBitmap)) {
+
+            NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
             return ESUCCESS;
         }
@@ -2430,8 +2588,6 @@ Return Value:
     ULONG BitIndex;
     UCHAR LocalByte;
 
-    NtfsDebugOutput("NtfsIsRecordAllocated\r\n", 0, 0);
-
     //
     //  This routine is rather dumb in that it only reads in the byte that contains
     //  the bit we're interested in and doesn't keep any state information between
@@ -2524,11 +2680,13 @@ Return Value:
     PNTFS_ATTRIBUTE_CONTEXT AttributeList;
 
     LONGLONG li;
+    LONGLONG Previousli;
     ATTRIBUTE_LIST_ENTRY AttributeListEntry;
 
     ATTRIBUTE_TYPE_CODE TypeCode;
 
-    NtfsDebugOutput("NtfsLoadMcb\r\n", 0, 0);
+    ULONG BufferIndex;
+    ULONG SavedBufferIndex;
 
     //
     //  Load our local variables
@@ -2550,9 +2708,9 @@ Return Value:
 
     ReadAndDecodeFileRecord( StructureContext,
                              AttributeContext->FileRecord,
-                             NtfsFileRecordBuffer );
+                             &BufferIndex );
 
-    AttributeHeader = Add2Ptr( NtfsFileRecordBuffer,
+    AttributeHeader = Add2Ptr( NtfsFileRecordBuffer[BufferIndex],
                                AttributeContext->FileRecordOffset );
 
     //
@@ -2574,6 +2732,8 @@ Return Value:
 
         DecodeRetrievalInformation( StructureContext, Mcb, Vbo, AttributeHeader );
 
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+
         return ESUCCESS;
     }
 
@@ -2583,14 +2743,16 @@ Return Value:
     //  header that we need.
     //
 
-    //****if (!xxEqlZero(NtfsFileRecordBuffer->BaseFileRecordSegment)) {
+    //****if (!xxEqlZero(NtfsFileRecordBuffer[BufferIndex]->BaseFileRecordSegment)) {
 
-        FileReferenceToLargeInteger( NtfsFileRecordBuffer->BaseFileRecordSegment,
+        FileReferenceToLargeInteger( NtfsFileRecordBuffer[BufferIndex]->BaseFileRecordSegment,
                                      &FileRecord );
+
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
         ReadAndDecodeFileRecord( StructureContext,
                                  FileRecord,
-                                 NtfsFileRecordBuffer );
+                                 &BufferIndex );
     //****}
 
     //
@@ -2600,7 +2762,7 @@ Return Value:
 
     AttributeList = NULL;
 
-    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer );
+    for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer[BufferIndex] );
          AttributeHeader->TypeCode != $END;
          AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
 
@@ -2612,7 +2774,7 @@ Return Value:
         if (AttributeHeader->TypeCode == $ATTRIBUTE_LIST) {
 
             InitializeAttributeContext( StructureContext,
-                                        NtfsFileRecordBuffer,
+                                        NtfsFileRecordBuffer[BufferIndex],
                                         AttributeHeader,
                                         FileRecord,
                                         AttributeList = &AttributeContext1 );
@@ -2624,6 +2786,8 @@ Return Value:
     //
 
     if (AttributeList == NULL) {
+
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
 
         return EINVAL;
     }
@@ -2640,7 +2804,9 @@ Return Value:
     //  match.
     //
 
-    for (li = 0;
+    NtfsFileRecordBufferPinned[SavedBufferIndex = BufferIndex] += 1;
+
+    for (Previousli = li = 0;
          /*xxLtr*/(li < AttributeList->DataSize);
          li = /*xxAdd*/(li + /*xxFromUlong*/(AttributeListEntry.RecordLength))) {
 
@@ -2668,76 +2834,113 @@ Return Value:
              ((TypeCode == $DATA) && (AttributeListEntry.AttributeNameLength == 0)))) {
 
             //
-            //  We found a match so now compute the file record containing this
-            //  attribute and read in the file record
+            //  If the lowest vcn is is greater than the vbo we've after then
+            //  we are done and can use previous li otherwise set previous li accordingly.
+
+            if (Vbo < AttributeListEntry.LowestVcn * BytesPerCluster) {
+
+                break;
+            }
+
+            Previousli = li;
+        }
+    }
+
+    //
+    //  Now we should have found the offset for the attribute list entry
+    //  so read it in and verify that it is correct
+    //
+
+    ReadAttribute( StructureContext,
+                   AttributeList,
+                   Previousli,
+                   sizeof(ATTRIBUTE_LIST_ENTRY),
+                   &AttributeListEntry );
+
+    if ((AttributeListEntry.AttributeTypeCode == TypeCode)
+
+                &&
+
+        ((TypeCode != $DATA) ||
+         ((TypeCode == $DATA) && (AttributeListEntry.AttributeNameLength == 0)))) {
+
+        //
+        //  We found a match so now compute the file record containing this
+        //  attribute and read in the file record
+        //
+
+        FileReferenceToLargeInteger( AttributeListEntry.SegmentReference, &FileRecord );
+
+        NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+
+        ReadAndDecodeFileRecord( StructureContext,
+                                 FileRecord,
+                                 &BufferIndex );
+
+        //
+        //  Now search down the file record for our matching attribute, and it
+        //  better be there otherwise the attribute list is wrong.
+        //
+
+        for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer[BufferIndex] );
+             AttributeHeader->TypeCode != $END;
+             AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
+
+            //
+            //  As a quick check make sure that this attribute is non resident
             //
 
-            FileReferenceToLargeInteger( AttributeListEntry.SegmentReference,
-                                         &FileRecord );
-
-            ReadAndDecodeFileRecord( StructureContext,
-                                     FileRecord,
-                                     NtfsFileRecordBuffer );
-
-            //
-            //  Now search down the file record for our matching attribute, and it
-            //  better be there otherwise the attribute list is wrong.
-            //
-
-            for (AttributeHeader = NtfsFirstAttribute( NtfsFileRecordBuffer );
-                 AttributeHeader->TypeCode != $END;
-                 AttributeHeader = NtfsGetNextRecord( AttributeHeader )) {
+            if (AttributeHeader->FormCode == NONRESIDENT_FORM) {
 
                 //
-                //  As a quick check make sure that this attribute is non resident
+                //  Compute the range of this attribute header
                 //
 
-                if (AttributeHeader->FormCode == NONRESIDENT_FORM) {
+                LowestVbo  = /*xxXMul*/( AttributeHeader->Form.Nonresident.LowestVcn *
+                                     BytesPerCluster );
+
+                HighestVbo = /*xxXMul*/( AttributeHeader->Form.Nonresident.HighestVcn *
+                                     BytesPerCluster);
+
+                //
+                //  We have located the attribute in question if the type code
+                //  match, it is within the proper range, and if it is either not
+                //  the data attribute or if it is the data attribute then it is
+                //  also unnamed
+                //
+
+                if ((AttributeHeader->TypeCode == TypeCode)
+
+                            &&
+
+                    /*xxLeq*/(LowestVbo <= Vbo) && /*xxLeq*/(Vbo <= HighestVbo)
+
+                            &&
+
+                    ((TypeCode != $DATA) ||
+                     ((TypeCode == $DATA) && (AttributeHeader->NameLength == 0)))) {
 
                     //
-                    //  Compute the range of this attribute header
+                    //  We've located the attribute so now it is time to decode
+                    //  the retrieval information and return to our caller
                     //
 
-                    LowestVbo  = /*xxXMul*/( AttributeHeader->Form.Nonresident.LowestVcn *
-                                         BytesPerCluster );
+                    DecodeRetrievalInformation( StructureContext,
+                                                Mcb,
+                                                Vbo,
+                                                AttributeHeader );
 
-                    HighestVbo = /*xxXMul*/( AttributeHeader->Form.Nonresident.HighestVcn *
-                                         BytesPerCluster);
+                    NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+                    NtfsFileRecordBufferPinned[SavedBufferIndex] -= 1;
 
-                    //
-                    //  We have located the attribute in question if the type code
-                    //  match, it is within the proper range, and if it is either not
-                    //  the data attribute or if it is the data attribute then it is
-                    //  also unnamed
-                    //
-
-                    if ((AttributeHeader->TypeCode == TypeCode)
-
-                                &&
-
-                        /*xxLeq*/(LowestVbo <= Vbo) && /*xxLeq*/(Vbo <= HighestVbo)
-
-                                &&
-
-                        ((TypeCode != $DATA) ||
-                         ((TypeCode == $DATA) && (AttributeHeader->NameLength == 0)))) {
-
-                        //
-                        //  We've located the attribute so now it is time to decode
-                        //  the retrieval information and return to our caller
-                        //
-
-                        DecodeRetrievalInformation( StructureContext,
-                                                    Mcb,
-                                                    Vbo,
-                                                    AttributeHeader );
-
-                        return ESUCCESS;
-                    }
+                    return ESUCCESS;
                 }
             }
         }
     }
+
+    NtfsFileRecordBufferPinned[BufferIndex] -= 1;
+    NtfsFileRecordBufferPinned[SavedBufferIndex] -= 1;
 
     return EINVAL;
 }
@@ -2746,6 +2949,7 @@ Return Value:
 //
 //  Local support routine
 //
+
 
 ARC_STATUS
 NtfsVboToLbo (
@@ -2787,8 +2991,6 @@ Return Value:
     PNTFS_MCB Mcb;
     ULONG i;
 
-    NtfsDebugOutput("NtfsVboToLbo\r\n", 0, 0);
-
     //
     //  Check if we are doing the mft or some other attribute
     //
@@ -2817,7 +3019,7 @@ Return Value:
 
     if (Mcb == NULL) {
 
-        for (i = 0; i < 8; i += 1) {
+        for (i = 0; i < 16; i += 1) {
 
             //
             //  check if we have a hit, on the same attribute and range
@@ -2842,11 +3044,10 @@ Return Value:
 
         if (Mcb == NULL) {
 
-            static ULONG LastMcb = 0;
 
-            Mcb = &StructureContext->CachedMcb[LastMcb % 8];
-            StructureContext->CachedMcbFileRecord[LastMcb % 8]       = AttributeContext->FileRecord;
-            StructureContext->CachedMcbFileRecordOffset[LastMcb % 8] = AttributeContext->FileRecordOffset;
+            Mcb = &StructureContext->CachedMcb[LastMcb % 16];
+            StructureContext->CachedMcbFileRecord[LastMcb % 16]       = AttributeContext->FileRecord;
+            StructureContext->CachedMcbFileRecordOffset[LastMcb % 16] = AttributeContext->FileRecordOffset;
 
             LastMcb += 1;
 
@@ -2861,6 +3062,7 @@ Return Value:
     //
 
     for (i = 0; i < Mcb->InUse; i += 1) {
+
 
         //
         //  We found our slot if the vbo we're after is less than the next mcb's vbo
@@ -2885,12 +3087,6 @@ Return Value:
             }
 
             *ByteCount = ((ULONG)/*xxSub*/(Mcb->Vbo[i+1] - Vbo));
-
-            //if ((AttributeContext->CompressionFormat != 0)) {
-            //    for (i = 0; i <= Mcb->InUse; i += 1) {
-            //        BlPrint("[%d], Vbo = %lx, Lbo = %lx\n", i, Mcb->Vbo[i].LowPart, Mcb->Lbo[i].LowPart);
-            //    }
-            //}
 
             //
             //  And return to our caller
@@ -2959,8 +3155,6 @@ Return Value:
     ULONG VboBytes;
     ULONG LboBytes;
 
-    NtfsDebugOutput("NtfsDecodeRetrievalInformation\r\n", 0, 0);
-
     //
     //  Initialize our locals
     //
@@ -2978,6 +3172,8 @@ Return Value:
 
     ch = Add2Ptr( AttributeHeader,
                   AttributeHeader->Form.Nonresident.MappingPairsOffset );
+
+    Mcb->InUse = 0;
 
     //
     //  Loop to process mapping pairs
@@ -3107,8 +3303,6 @@ Return Value:
 {
     ULONG Index;
 
-    NtfsDebugOutput("NtfsFirstComponent\r\n", 0, 0);
-
     //
     //  Copy over the string variable into the first component variable
     //
@@ -3189,8 +3383,6 @@ Return Value:
 
 {
     ULONG i;
-
-    NtfsDebugOutput("NtfsAreNamesEqual\r\n", 0, 0);
 
     //
     //  First check if the two strings are of equivalent lengths

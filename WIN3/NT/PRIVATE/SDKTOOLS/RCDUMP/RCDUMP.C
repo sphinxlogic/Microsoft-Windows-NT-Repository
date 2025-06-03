@@ -18,10 +18,14 @@ Revision History:
 
 --*/
 
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+
+#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <windows.h>
 
 void
 Usage( void );
@@ -44,7 +48,7 @@ _CRTAPI1 main(
     VerboseOutput = FALSE;
     if (argc > 1) {
         for (i=1; i<argc; i++) {
-            s = strupr( argv[i] );
+            s = _strupr( argv[i] );
             if (*s == '-' || *s == '/') {
                 while (*++s)
                     switch( *s ) {
@@ -114,7 +118,7 @@ DumpResources( char *FileName )
     if (FileName != NULL) {
 	int i;
 	i = SetErrorMode(SEM_FAILCRITICALERRORS);
-        hModule = LoadLibraryEx( FileName, NULL, DONT_RESOLVE_DLL_REFERENCES );
+        hModule = LoadLibraryEx( FileName, NULL, DONT_RESOLVE_DLL_REFERENCES|LOAD_LIBRARY_AS_DATAFILE );
 	SetErrorMode(i);
         }
     else {
@@ -261,17 +265,63 @@ EnumLangsFunc(
     printf( "%08x", language );
     hResInfo = FindResourceEx( hModule, lpType, lpName, language );
     if (hResInfo == NULL) {
-        printf( " - FindResourceEx failed, rc == %u\n", GetLastError() );
-        }
+	printf( " - FindResourceEx failed, rc == %u\n", GetLastError() );
+	}
     else {
 	hr = LoadResource(hModule, hResInfo);
 	pv = LockResource(hr);
-        printf( " - hResInfo == %lx,\n\t\tAddress == %lx - Size == %lu\n",
-                hResInfo,
-		pv, SizeofResource( hModule, hResInfo )
 
-              );
-        }
+	if (VerboseOutput) {
+	    if (lpType == RT_MESSAGETABLE) {
+		PMESSAGE_RESOURCE_DATA pmrd;
+		PMESSAGE_RESOURCE_BLOCK pmrb;
+		PMESSAGE_RESOURCE_ENTRY pmre;
+		ULONG i, j;
+		ULONG cb;
+
+		printf("\n");
+		pmrd = pv;
+		pmrb = &(pmrd->Blocks[0]);
+		for (i=pmrd->NumberOfBlocks ; i>0 ; i--,pmrb++) {
+		    pmre = (PMESSAGE_RESOURCE_ENTRY)(((char*)pv)+pmrb->OffsetToEntries);
+		    for (j=pmrb->LowId ; j<=pmrb->HighId ; j++) {
+			if (pmre->Flags & MESSAGE_RESOURCE_UNICODE) {
+			    printf("%d - \"%ws\"\n", j, &(pmre->Text));
+			}
+			else {
+			    printf("%d - \"%s\"\n", j, &(pmre->Text));
+			}
+			pmre = (PMESSAGE_RESOURCE_ENTRY)(((char*)pmre) + pmre->Length);
+		    }
+		}
+	    }
+	    else if (lpType == RT_STRING) {
+		int i;
+		PWCHAR pw;
+
+		printf("\n");
+		pw = pv;
+		for (i=0 ; i<16 ; i++,pw++) {
+		    if (*pw) {
+			printf("%d - \"%-.*ws\"\n", i+((USHORT)lpName)*16, *pw, pw+1);
+			pw += *pw;
+			}
+		    }
+		}
+	    else {
+		printf( " - hResInfo == %lx,\n\t\tAddress == %lx - Size == %lu\n",
+			hResInfo, pv, SizeofResource( hModule, hResInfo )
+		      );
+		}
+	    }
+	else {
+	    printf( " - hResInfo == %lx,\n\t\tAddress == %lx - Size == %lu\n",
+		    hResInfo,
+		    pv, SizeofResource( hModule, hResInfo )
+
+		  );
+	    }
+	}
 
     return TRUE;
 }

@@ -33,17 +33,15 @@
 #define p1	-0.1666665668e+0
 #define half	 0.5
 
-.text
-
+.text .text$fsincos
 .globl fcos
 .globl cosf
-
 .ent fcos
 .aent cosf
 fcos:
 cosf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	li.s	$f6, ymax
 	abs.s	$f12			// COS(-X) = COS(X)
 	cfc1	t1, $31
@@ -65,6 +63,7 @@ cosf:
 	b	sincos
 .end fcos
 
+.text .text$fsincos
 .globl fsin
 .globl sinf
 .ent fsin
@@ -72,7 +71,7 @@ cosf:
 fsin:
 sinf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	li.s	$f8, pio2
 	abs.s	$f0, $f12
 	c.olt.s	$f0, $f8

@@ -4,7 +4,7 @@
 #define uint    unsigned int
 
 #define ARRAYSIZE       20
-#define STRLISTSIZE     32
+#define STRLISTSIZE     128
 #define SYMBOLSIZE      256
 
 #ifdef  KERNEL
@@ -74,9 +74,9 @@
 #define UNOP_BY         501
 #define UNOP_WO         502
 #define UNOP_DW         503
-#define UNOP_POI        503
-#define UNOP_LOW        504
-#define UNOP_HI         505
+#define UNOP_POI        504
+#define UNOP_LOW        505
+#define UNOP_HI         506
 #define LPAREN_CLASS    6
 #define RPAREN_CLASS    7
 #define LBRACK_CLASS    8
@@ -113,5 +113,6 @@
 #define NTINI_SXD                   19
 #define NTINI_SXE                   20
 #define NTINI_INIFILE               21
-#define NTINI_INVALID               22
-#define NTINI_END                   23
+#define NTINI_DEFAULTEXT            22
+#define NTINI_INVALID               23
+#define NTINI_END                   24

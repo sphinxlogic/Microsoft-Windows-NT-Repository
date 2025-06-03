@@ -90,19 +90,18 @@ MupDereferenceVcb(
     PVCB Vcb
     )
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE();
     DebugTrace( +1, Dbg, "MupDereferenceVcb\n", 0 );
 
-    result = ExInterlockedDecrementLong(
-                 &Vcb->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &Vcb->BlockHeader.ReferenceCount
                  );
 
     DebugTrace( 0, Dbg, "ReferenceCount = %d\n", Vcb->BlockHeader.ReferenceCount );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         KeBugCheck( FILE_SYSTEM );
     }
@@ -167,21 +166,20 @@ MupDereferenceFcb(
     PFCB Fcb
     )
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE();
     ASSERT( Fcb->BlockHeader.BlockType == BlockTypeFcb );
 
     DebugTrace( +1, Dbg, "MupDereferenceFcb\n", 0 );
 
-    result = ExInterlockedDecrementLong(
-                 &Fcb->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &Fcb->BlockHeader.ReferenceCount
                  );
 
     DebugTrace( 0, Dbg, "ReferenceCount = %d\n", Fcb->BlockHeader.ReferenceCount);
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         ASSERT( IsListEmpty( &Fcb->CcbList ) );
 
@@ -278,31 +276,29 @@ MupDereferenceCcb(
     PCCB Ccb
     )
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE();
     DebugTrace( +1, Dbg, "MupDereferenceCcb\n", 0 );
 
     ASSERT( Ccb->BlockHeader.BlockType == BlockTypeCcb );
 
-    result = ExInterlockedDecrementLong(
-                 &Ccb->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &Ccb->BlockHeader.ReferenceCount
                  );
 
     DebugTrace( 0, Dbg, "ReferenceCount = %d\n", Ccb->BlockHeader.ReferenceCount );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         ACQUIRE_LOCK( &MupCcbListLock );
         RemoveEntryList( &Ccb->ListEntry );
         RELEASE_LOCK( &MupCcbListLock );
 
         //
-        // Close our handle and release our references.  Then free the CCB.
+        // Release our references then free the CCB.
         //
 
-        ZwClose( Ccb->Handle );
         ObDereferenceObject( Ccb->FileObject );
 
         MupDereferenceFcb( Ccb->Fcb );
@@ -420,21 +416,20 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE();
     DebugTrace(+1, Dbg, "MupDereferenceProvider\n", 0);
 
     ASSERT( UncProvider->BlockHeader.BlockType == BlockTypeUncProvider );
 
-    result = ExInterlockedDecrementLong(
-                 &UncProvider->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &UncProvider->BlockHeader.ReferenceCount
                  );
 
     DebugTrace(0, Dbg, "ReferenceCount = %d\n", UncProvider->BlockHeader.ReferenceCount);
 
-    ASSERT( result != ResultNegative );
+    ASSERT( result >= 0 );
 
     //
     // Do not free this block, even if the result is zero.  This
@@ -598,23 +593,22 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE();
     DebugTrace(+1, Dbg, "MupDereferenceKnownPrefix\n", 0);
 
     ASSERT( KnownPrefix->BlockHeader.BlockType == BlockTypeKnownPrefix );
 
-    result = ExInterlockedDecrementLong(
-                 &KnownPrefix->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &KnownPrefix->BlockHeader.ReferenceCount
                  );
 
     DebugTrace(0, Dbg, "ReferenceCount = %d\n", KnownPrefix->BlockHeader.ReferenceCount);
 
-    ASSERT( result != ResultNegative );
+    ASSERT( result >= 0 );
 
-    if ( result == ResultZero ) {
+    if ( result == 0 ) {
 
         //
         // Remove the table entry
@@ -738,6 +732,8 @@ Return Value:
     return masterContext;
 }
 
+
+
 NTSTATUS
 MupDereferenceMasterIoContext(
     PMASTER_FORWARDED_IO_CONTEXT MasterContext,
@@ -774,6 +770,7 @@ Return Value:
     DebugTrace(+1, Dbg, "MupDereferenceMasterIoContext\n", 0);
     DebugTrace( 0, Dbg, "MasterContext = 0x%08lx\n", MasterContext );
 
+
     ASSERT( MasterContext->BlockHeader.BlockType == BlockTypeMasterIoContext );
 
     //
@@ -789,12 +786,11 @@ Return Value:
         //  we write 32 bits which is atomic.
         //
 
-        if (NT_SUCCESS(Status)) {
+        if (NT_SUCCESS(*Status)) {
 
             MasterContext->SuccessStatus = STATUS_SUCCESS;
 
         } else {
-
             MasterContext->ErrorStatus = *Status;
 
         }
@@ -802,17 +798,16 @@ Return Value:
     }
 
     DebugTrace(0, Dbg, "ReferenceCount        = %d\n", MasterContext->BlockHeader.ReferenceCount);
-    DebugTrace(0, Dbg, "MasterContext->Status = %8lx\n", MasterContext->Status);
+    DebugTrace(0, Dbg, "MasterContext->Status = %8lx\n", MasterContext->ErrorStatus);
 
 
-    result = ExInterlockedDecrementLong(
-                 &MasterContext->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &MasterContext->BlockHeader.ReferenceCount
                  );
 
-    ASSERT( result != ResultNegative );
+    ASSERT( result >= 0 );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         //
         // Complete the original IRP
@@ -832,7 +827,7 @@ Return Value:
         //  success. If they all fail then use the last errorcode.
         //
 
-        if (!NT_SUCCESS(MasterContext->SuccessStatus)) {
+        if (NT_SUCCESS(MasterContext->SuccessStatus)) {
 
             status = STATUS_SUCCESS;
 
@@ -986,7 +981,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
     NTSTATUS status;
 
     PAGED_CODE();
@@ -997,16 +992,15 @@ Return Value:
 
     status = STATUS_PENDING;
 
-    result = ExInterlockedDecrementLong(
-                 &MasterContext->BlockHeader.ReferenceCount,
-                 &MupInterlock
+    result = InterlockedDecrement(
+                 &MasterContext->BlockHeader.ReferenceCount
                  );
 
     DebugTrace(0, Dbg, "ReferenceCount = %d\n", MasterContext->BlockHeader.ReferenceCount);
 
-    ASSERT( result != ResultNegative );
+    ASSERT( result >= 0 );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         ACQUIRE_LOCK( &MupPrefixTableLock );
 
@@ -1033,7 +1027,7 @@ Return Value:
 
             MupDereferenceKnownPrefix( MasterContext->KnownPrefix );
             RELEASE_LOCK( &MupPrefixTableLock );
-            status = STATUS_NO_SUCH_FILE;
+            status = MasterContext->ErrorStatus;
         }
 
         FsRtlCompleteRequest( MasterContext->OriginalIrp, status );
@@ -1106,7 +1100,7 @@ Return Value:
 
     PAGED_CODE();
     KeQuerySystemTime( &now );
-    *Time = RtlLargeIntegerAdd( now, MupKnownPrefixTimeout );
+    Time->QuadPart = now.QuadPart + MupKnownPrefixTimeout.QuadPart;
 
     return;
 }

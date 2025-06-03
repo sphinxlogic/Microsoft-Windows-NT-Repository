@@ -75,7 +75,7 @@ DLLENTRYPOINTS  wsockapis[WOW_WSOCKAPI_COUNT] = {
 
 
 
-DWORD WWS32TlsSlot;
+DWORD WWS32TlsSlot = 0xFFFFFFFF;
 RTL_CRITICAL_SECTION WWS32CriticalSection;
 BOOL WWS32Initialized = FALSE;
 LIST_ENTRY WWS32AsyncContextBlockListHead;
@@ -149,6 +149,13 @@ NOTE:
 
   Also, never update structures in 16 bit land if the 32 bit call fails.
 
+  Be aware that the GETxxxPTR macros return the CURRENT selector-to-flat_memory
+  mapping.  Calls to some 32-bit functions may indirectly cause callbacks into 
+  16-bit code.  These may cause 16-bit memory to move due to allocations 
+  made in 16-bit land.  If the 16-bit memory does move, the corresponding 32-bit
+  ptr in WOW32 needs to be refreshed to reflect the NEW selector-to-flat_memory
+  mapping.
+
 --*/
 
 ULONG FASTCALL WWS32WSAAsyncSelect(PVDMFRAME pFrame)
@@ -194,8 +201,13 @@ ULONG FASTCALL WWS32WSAAsyncSelect(PVDMFRAME pFrame)
 ULONG FASTCALL WWS32WSASetBlockingHook(PVDMFRAME pFrame)
 {
     ULONG ul;
+    VPWNDPROC  vpBlockFunc;
+
     //FARPROC previousHook;
     register PWSASETBLOCKINGHOOK16 parg16;
+
+    GETARGPTR(pFrame, sizeof(WSASETBLOCKINGHOOK16), parg16);
+    vpBlockFunc = parg16->lpBlockFunc;
 
     if ( !WWS32IsThreadInitialized ) {
         SetLastError( WSANOTINITIALISED );
@@ -207,10 +219,8 @@ ULONG FASTCALL WWS32WSASetBlockingHook(PVDMFRAME pFrame)
         RETURN((ULONG)NULL);
     }
 
-    GETARGPTR(pFrame, sizeof(WSASETBLOCKINGHOOK16), parg16);
-
     ul = WWS32vBlockingHook;
-    WWS32vBlockingHook = parg16->lpBlockFunc;
+    WWS32vBlockingHook = vpBlockFunc;
 
     FREEARGPTR( parg16 );
 
@@ -302,8 +312,13 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
     PSZ description;
     PSZ systemStatus;
     WORD versionRequested;
+    VPWSADATA16 vpwsaData16;
 
     GETARGPTR(pFrame, sizeof(WSASTARTUP16), parg16);
+
+    vpwsaData16 = parg16->lpWSAData;
+
+    versionRequested = INT32(parg16->wVersionRequired);
 
     //
     // If winsock has not yet been initialized, initialize data structures
@@ -319,6 +334,7 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
 
         WWS32AsyncTaskHandleCounter = 1;
         WWS32SocketHandleCounter = 1;
+        WWS32SocketHandleCounterWrapped = FALSE;
         WWS32ThreadSerialNumberCounter = 1;
 
         //
@@ -379,8 +395,6 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
     // and initialize per-thread data.
     //
 
-    versionRequested = INT32(parg16->wVersionRequired);
-
     if ( !WWS32IsThreadInitialized ) {
 
         //
@@ -400,13 +414,13 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
         // in the TLS slot if we couldn't properly allocate the storage.
         //
 
-        data = RtlAllocateHeap( RtlProcessHeap( ), 0, sizeof(*data) );
+        data = malloc_w( sizeof(*data) );
 
         if ( !TlsSetValue( WWS32TlsSlot, (LPVOID)data ) || data == NULL ) {
 
             ul = GETWORD16(WSAENOBUFS);
             if ( data != NULL ) {
-                RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
+                free_w( (PVOID)data );
             }
             FREEARGPTR( parg16 );
             RETURN(ul);
@@ -424,7 +438,7 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
 
         data->vIpAddress = GlobalAllocLock16( GMEM_MOVEABLE, 256, NULL );
         if ( data->vIpAddress == 0 ) {
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
+            free_w( (PVOID)data );
             TlsSetValue( WWS32TlsSlot, NULL );
             FREEARGPTR( parg16 );
             RETURN(ul);
@@ -433,7 +447,7 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
         data->vHostent = GlobalAllocLock16( GMEM_MOVEABLE, MAXGETHOSTSTRUCT, NULL );
         if ( data->vHostent == 0 ) {
             GlobalUnlockFree16( data->vIpAddress );
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
+            free_w( (PVOID)data );
             TlsSetValue( WWS32TlsSlot, NULL );
             FREEARGPTR( parg16 );
             RETURN(ul);
@@ -443,7 +457,7 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
         if ( data->vServent == 0 ) {
             GlobalUnlockFree16( data->vIpAddress );
             GlobalUnlockFree16( data->vHostent );
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
+            free_w( (PVOID)data );
             TlsSetValue( WWS32TlsSlot, NULL );
             FREEARGPTR( parg16 );
             RETURN(ul);
@@ -454,7 +468,7 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
             GlobalUnlockFree16( data->vIpAddress );
             GlobalUnlockFree16( data->vHostent );
             GlobalUnlockFree16( data->vServent );
-            RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
+            free_w( (PVOID)data );
             TlsSetValue( WWS32TlsSlot, NULL );
             FREEARGPTR( parg16 );
             RETURN(ul);
@@ -521,22 +535,26 @@ ULONG FASTCALL WWS32WSAStartup(PVDMFRAME pFrame)
     // initialize the caller's WSAData structure.
     //
 
-    GETVDMPTR( parg16->lpWSAData, sizeof(WSADATA16), wsaData16 );
+    GETVDMPTR( vpwsaData16, sizeof(WSADATA16), wsaData16 );
 
     STOREWORD( wsaData16->wVersion, WWS32ThreadVersion );
     STOREWORD( wsaData16->wHighVersion, MAKEWORD(1, 1) );
 
     description = "Windows NT 16-bit Windows Sockets";
-    RtlCopyMemory( wsaData16->szDescription, description, strlen(description) );
+    RtlCopyMemory( wsaData16->szDescription, 
+                   description, 
+                   strlen(description) + 1 );
 
     systemStatus = "Running.";
-    RtlCopyMemory( wsaData16->szSystemStatus, systemStatus, strlen(systemStatus) );
+    RtlCopyMemory( wsaData16->szSystemStatus, 
+                   systemStatus, 
+                   strlen(systemStatus) + 1 );
 
     STOREWORD( wsaData16->iMaxSockets, 0xFFFF );
     STOREWORD( wsaData16->iMaxUdpDg, 8096 );
     STOREDWORD( wsaData16->lpVendorInfo, 0 );
 
-    FLUSHVDMPTR( parg16->lpWSAData, sizeof(WSADATA16), wsaData16 );
+    FLUSHVDMPTR( vpwsaData16, sizeof(WSADATA16), wsaData16 );
     FREEVDMPTR( wsaData16 );
 
     FREEARGPTR( parg16 );
@@ -563,110 +581,153 @@ ULONG FASTCALL WWS32WSACleanup(PVDMFRAME pFrame)
 
     if ( WWS32ThreadStartupCount == 0 ) {
 
-        PWINSOCK_THREAD_DATA data;
-        PLIST_ENTRY listEntry;
-        PWINSOCK_SOCKET_INFO socketInfo;
-        struct linger lingerInfo;
-        int err;
-
-        //
-        // Get a pointer to the thread's data and set the TLS slot for
-        // this thread to NULL so that we know that the thread is no
-        // longer initialized.
-        //
-
-        data = TlsGetValue( WWS32TlsSlot );
-
-        TlsSetValue( WWS32TlsSlot, NULL );
-
-        //
-        // Free thread data user for the database calls.
-        //
-
-        GlobalUnlockFree16( data->vIpAddress );
-        GlobalUnlockFree16( data->vHostent );
-        GlobalUnlockFree16( data->vServent );
-        GlobalUnlockFree16( data->vProtoent );
-
-        //
-        // Close all sockets that the thread has opened.
-        //
-
-        RtlEnterCriticalSection( &WWS32CriticalSection );
-
-        for ( listEntry = WWS32SocketHandleListHead.Flink;
-              listEntry != &WWS32SocketHandleListHead;
-              listEntry = listEntry->Flink ) {
-
-            socketInfo = CONTAINING_RECORD(
-                             listEntry,
-                             WINSOCK_SOCKET_INFO,
-                             GlobalSocketListEntry
-                             );
-
-            if ( socketInfo->ThreadSerialNumber == data->ThreadSerialNumber ) {
-
-                //
-                // The socket was opened by this thread.  Close it
-                // abortively and free the handle.
-                //
-
-                lingerInfo.l_onoff = 1;
-                lingerInfo.l_linger = 0;
-
-                err = (*wsockapis[WOW_SETSOCKOPT].lpfn)(
-                          socketInfo->SocketHandle32,
-                          SOL_SOCKET,
-                          SO_LINGER,
-                          (char *)&lingerInfo,
-                          sizeof(lingerInfo)
-                          );
-                //ASSERT( err == NO_ERROR );
-
-                err = (*wsockapis[WOW_CLOSESOCKET].lpfn)( socketInfo->SocketHandle32 );
-                ASSERT( err == NO_ERROR );
-
-                //
-                // When we free the handle the socketInfo structure will
-                // also be freed.  Set the list pointer to the entry
-                // prior to this one so that we can successfully walk
-                // the list.
-                //
-
-                listEntry = socketInfo->GlobalSocketListEntry.Blink;
-
-                RemoveEntryList( &socketInfo->GlobalSocketListEntry );
-                RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)socketInfo );
-            }
-        }
-
-        RtlLeaveCriticalSection( &WWS32CriticalSection );
-
-        //
-        // Set the TLS slot for this thread to NULL so that we know
-        // that the thread is not initialized.
-        //
-
-        err = TlsSetValue( WWS32TlsSlot, NULL );
-        ASSERT( err );
-
-        //
-        // Free the structure that holds thread information.
-        //
-
-        RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)data );
-
-    } else {
-
-        //
-        // There are other outstanding WSAStartup() calls.  Just return.
-        //
+        WWS32TaskCleanup( );
 
     }
 
     RETURN(ul);
 
 } // WWS32WSACleanup
+
+VOID
+WWS32TaskCleanup(
+    VOID
+    )
+{
+    LIST_ENTRY listHead;
+    PWINSOCK_THREAD_DATA data;
+    PLIST_ENTRY listEntry;
+    PWINSOCK_SOCKET_INFO socketInfo;
+    struct linger lingerInfo;
+    int err;
+
+    //
+    // Get a pointer to the thread's data and set the TLS slot for
+    // this thread to NULL so that we know that the thread is no
+    // longer initialized.
+    //
+
+    data = TlsGetValue( WWS32TlsSlot );
+    ASSERT( data != NULL );
+
+    TlsSetValue( WWS32TlsSlot, NULL );
+
+    //
+    // Free thread data user for the database calls.
+    //
+
+    GlobalUnlockFree16( data->vIpAddress );
+    GlobalUnlockFree16( data->vHostent );
+    GlobalUnlockFree16( data->vServent );
+    GlobalUnlockFree16( data->vProtoent );
+
+    //
+    // Close all sockets that the thread has opened.  We first find
+    // all the sockets for this thread, remove them from the global
+    // list, and place them onto a local list.  Then we close each
+    // socket.  We do this as two steps because we can't hold the
+    // critical section while calling wsock32 in order to avoid
+    // deadlocks.
+    //
+
+    RtlEnterCriticalSection( &WWS32CriticalSection );
+
+    InitializeListHead( &listHead );
+
+    for ( listEntry = WWS32SocketHandleListHead.Flink;
+          listEntry != &WWS32SocketHandleListHead;
+          listEntry = listEntry->Flink ) {
+
+        socketInfo = CONTAINING_RECORD(
+                         listEntry,
+                         WINSOCK_SOCKET_INFO,
+                         GlobalSocketListEntry
+                         );
+
+        if ( socketInfo->ThreadSerialNumber == data->ThreadSerialNumber ) {
+
+            //
+            // The socket was opened by this thread.  We need to
+            // first remove the entry from the global list, but
+            // maintain the listEntry local variable so that we can
+            // still walk the list.
+            //
+
+            listEntry = socketInfo->GlobalSocketListEntry.Blink;
+            RemoveEntryList( &socketInfo->GlobalSocketListEntry );
+
+            //
+            // Now insert the entry on our local list.
+            //
+
+            InsertTailList( &listHead, &socketInfo->GlobalSocketListEntry );
+        }
+    }
+
+    RtlLeaveCriticalSection( &WWS32CriticalSection );
+
+    //
+    // Walk through the sockets opened by this thread and close them
+    // abortively.
+    //
+
+    for ( listEntry = listHead.Flink;
+          listEntry != &listHead;
+          listEntry = listEntry->Flink ) {
+
+        //
+        // Close it abortively and free the handle.
+        //
+
+        socketInfo = CONTAINING_RECORD(
+                         listEntry,
+                         WINSOCK_SOCKET_INFO,
+                         GlobalSocketListEntry
+                         );
+
+        lingerInfo.l_onoff = 1;
+        lingerInfo.l_linger = 0;
+
+        err = (*wsockapis[WOW_SETSOCKOPT].lpfn)(
+                  socketInfo->SocketHandle32,
+                  SOL_SOCKET,
+                  SO_LINGER,
+                  (char *)&lingerInfo,
+                  sizeof(lingerInfo)
+                  );
+        //ASSERT( err == NO_ERROR );
+
+        err = (*wsockapis[WOW_CLOSESOCKET].lpfn)( socketInfo->SocketHandle32 );
+        ASSERT( err == NO_ERROR );
+
+        //
+        // When we free the handle the socketInfo structure will
+        // also be freed.  Set the list pointer to the entry
+        // prior to this one so that we can successfully walk
+        // the list.
+        //
+
+        listEntry = socketInfo->GlobalSocketListEntry.Blink;
+
+        RemoveEntryList( &socketInfo->GlobalSocketListEntry );
+        free_w( (PVOID)socketInfo );
+    }
+
+    //
+    // Set the TLS slot for this thread to NULL so that we know
+    // that the thread is not initialized.
+    //
+
+    err = TlsSetValue( WWS32TlsSlot, NULL );
+    ASSERT( err );
+
+    //
+    // Free the structure that holds thread information.
+    //
+
+    free_w( (PVOID)data );
+
+} // WWS32TaskCleanup
 
 ULONG FASTCALL WWS32__WSAFDIsSet(PVDMFRAME pFrame)
 {
@@ -692,7 +753,7 @@ ULONG FASTCALL WWS32__WSAFDIsSet(PVDMFRAME pFrame)
 
         ul = (*wsockapis[WOW_WSAFDISSET].lpfn)( GetWinsock32( parg16->hSocket ), fdSet32 );
 
-        RtlFreeHeap( RtlProcessHeap( ), 0, (PVOID)fdSet32 );
+        free_w( (PVOID)fdSet32 );
 
     } else {
 
@@ -758,10 +819,18 @@ WWS32PostAsyncSelect (
     )
 {
 
+    HAND16 h16;
+
+    h16 = GetWinsock16( wParam, 0 );
+
+    if( h16 == 0 ) {
+        return TRUE;
+    }
+
     return PostMessage(
                hWnd,
                Msg >> 16,
-               GetWinsock16( wParam, 0 ),
+               h16,
                lParam
                );
 

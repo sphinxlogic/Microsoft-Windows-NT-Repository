@@ -197,7 +197,9 @@ void _CRTAPI1 _tzset (
 	/*
 	 * Update lastTZ
 	 */
-	free(lastTZ);
+        if (lastTZ != NULL) {
+            free(lastTZ);
+        }
 	lastTZ = strdup(TZ);
 
 	_munlock(_ENV_LOCK);

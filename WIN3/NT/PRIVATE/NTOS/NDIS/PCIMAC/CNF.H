@@ -11,4 +11,3 @@ BOOL        cnf_get_multi_str(CHAR* path, CHAR* key,
                                CHAR* store_buf, ULONG store_len,
                                CHAR** str_vec, ULONG str_max, ULONG* str_num,
                                CHAR** def_vec, ULONG def_num); 
-

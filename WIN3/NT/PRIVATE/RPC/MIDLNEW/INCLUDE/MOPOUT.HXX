@@ -92,4 +92,3 @@ public:
 
 #endif // __MOPOUT_HXX__
 
-

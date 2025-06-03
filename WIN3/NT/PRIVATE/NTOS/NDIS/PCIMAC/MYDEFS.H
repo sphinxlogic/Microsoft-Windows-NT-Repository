@@ -70,6 +70,11 @@
 //
 #define		MAX_LTERMS_PER_IDD	2
 
+#define		MAX_WANPACKET_XMITS			3
+#define		MAX_WANPACKET_BUFFERSIZE	1500
+#define		MAX_WANPACKET_HEADERPADDING	14
+#define		MAX_WANPACKET_TAILPADDING	0
+
 //
 // connection data type's
 //
@@ -87,6 +92,7 @@
 #define		IDD_BT_PCIMAC		0				/* - ISA, single channel */
 #define		IDD_BT_PCIMAC4		1				/* - ISA, four channel */
 #define		IDD_BT_MCIMAC		2				/* - MCA, single channel */
+#define		IDD_BT_DATAFIREU	3				/* - ISA/U, single channel */
 
 //
 // Send window size
@@ -120,7 +126,7 @@
 //
 // mtl polling timer
 //
-#define		MTL_POLL_T		100				// 100ms timer
+#define		MTL_POLL_T		25				// 25 ms timer
 
 //
 // flag to indicate this is not a beginning buffer
@@ -167,6 +173,15 @@
 #define		RX_MIDDLE			1
 #define		RX_END				2
 
+#ifdef	DBG
+//
+// states for tx ppp state machine
+//
+#define		TX_BEGIN			0
+#define		TX_MIDDLE			1
+#define		TX_END				2
+#endif
+
 //
 // idp tx and rx lengths
 //
@@ -181,6 +196,159 @@
 #define	IDD_FRAME_DONTCARE		4		/* No data can pass yet */
 #define	IDD_FRAME_DETECT		8		/* detect bchannel framing */
 
+//
+// ADP Stuff
+//
+
+//
+// ADP Register Defines
+//
+#define	ADP_REG_ID			0
+#define	ADP_REG_CTRL		1
+#define	ADP_REG_ADDR_LO		2
+#define	ADP_REG_ADDR_MID	3
+#define	ADP_REG_ADDR_HI		4
+#define	ADP_REG_DATA		5
+#define	ADP_REG_DATA_INC	6
+
+//
+// ADP_REG_ID Bits
+//
+#define	ADP_BT_ADP1			0xA1
+
+//
+// ADP_REG_CTRL Bits
+//
+#define	ADP_RESET_BIT		0x80	// R/W 1 - Holds Adapter in reset
+#define	ADP_PIRQ_BIT		0x40	// R   1 - Adapter to PC Interrupt Active
+									// W   1 - Clear Adapter to PC Interrupt
+#define ADP_AIRQ_BIT		0x20	// W   1 - PC to Adapter Interrupt Active
+									// R   0 - PC to Adapter Interrupt seen
+#define	ADP_HLT_BIT			0x10	// R/W 1 - Holds Adapter in halt
+#define	ADP_PIRQEN_BIT		0x08	// R/W 1 - Enables Adapter to PC Interrupt
+#define	ADP_INT_SEL_BITS	0x07	// R/W Adapter to PC Interrupt select
+									// Code    IRQ
+									// 000      0  (Disabled)
+									// 001      3
+									// 010      5
+									// 011      7
+									// 100      10
+									// 101      11
+									// 110      12
+									// 111      15
+
+//
+// ADP_REG_ADDR_LO Bits
+//
+// R/W Adapter Memory Address Bits A0..A7
+
+//
+// ADP_REG_ADDR_MID Bits
+//
+// R/W Adapter Memory Address Bits A8..A15
+
+//
+// ADP_REG_ADDR_HI Bits
+//
+// R/W Adapter Memory Address Bits A16..A23
+
+//
+// ADP_REG_DATA Bits
+//
+// R/W Adapter Memory Data Bits D0..D7
+// The 24 bit adapter memory address pointer remains constant
+// after each access to the data register.
+
+//
+// ADP_REG_DATA_INC Bits
+//
+// R/W Adapter Memory Data Bits D0..D7
+// The 24 bit adapter memory address pointer increments by one
+// after each access to the data register.
+
+//
+// Maxium Adapter RAM Size
+//
+#define ADP_RAM_SIZE	0x40000L
+
+//
+// Offset to message to PC pending status windows
+//
+#define	ADP_STS_WINDOW	0x500L
+
+//
+// Offset to PC to adapter command window
+//
+#define	ADP_CMD_WINDOW	0x510L
+
+//
+// Offset to adapter enviornment window
+//
+#define	ADP_ENV_WINDOW	0x540L
+
+//
+// Offset to adapter NVRAM window (copy in adapter memory)
+//
+#define ADP_NVRAM_WINDOW	0x940L
+
+//
+// some Adp bin file stuff
+//
+#define ADP_BIN_BLOCK_SIZE	256
+#define	ADP_BIN_FORMAT		1
+
+//
+// Adp Status
+//
+typedef struct
+{
+	UCHAR	ReceiveStatus;			// 0
+	UCHAR	Reserved1;				// 1
+	UCHAR	MajorVersion;			// 2
+	UCHAR	MinorVersion;			// 3
+	ULONG	HeartBeat;				// 4
+	ULONG	IdleCount;				// 8
+	USHORT	AbortReason;			// 12
+	USHORT	SpuriousInterrupt;		// 14
+} ADP_STATUS;
+
+//
+// Adp bin file header
+//
+typedef struct
+{
+	USHORT	Format;
+	USHORT	BlockCount;
+	ULONG	ImageSize;
+}ADP_BIN_HEADER;
+
+//
+// Adp bin file data block
+//
+typedef struct
+{
+	ULONG	Address;
+	UCHAR	Data[ADP_BIN_BLOCK_SIZE];
+}ADP_BIN_BLOCK;
+
+//
+// NVRAM stuff
+//
+#define	ADP_NVRAM_MAX	64
+
+typedef struct
+{
+	USHORT	NVRamImage[ADP_NVRAM_MAX];
+}ADP_NVRAM;
+
+//
+// IDP Stuff
+//
+
+#define	IDP_STS_WINDOW		0x800
+#define	IDP_CMD_WINDOW		0x810
+#define	IDP_ENV_WINDOW		0x910
+#define	IDP_RAM_PAGE_SIZE	0x4000
+
 #endif		/* _MYTYPES_ */
 
-

@@ -131,6 +131,8 @@ LPCTSTR cszCopyClients = TEXT("CopyClients");
 LPCTSTR csz_ClientTree_ = TEXT("_ClientTree_");
 LPCTSTR csz_ToolsTree_ = TEXT("_ToolsTree_");
 LPCTSTR csz_SystemFileSize_ = TEXT("_SystemFileSize_");
+LPCTSTR cszWarningClients = TEXT("WarningClients");
+LPCTSTR cszCaption = TEXT("caption");
 //
 //  "hardcoded" filenames
 //
@@ -142,7 +144,7 @@ LPCTSTR cszAutoexecBat = TEXT("autoexec.bat");
 LPCTSTR cszSystemIni = TEXT("system.ini");
 LPCTSTR cszProtocolIni = TEXT("protocol.ini");
 LPCTSTR cszNetUtils = TEXT("netutils");
-LPCTSTR cszSrvToolSigFile = TEXT("windows\\netadm.inf");
+LPCTSTR cszSrvToolSigFile = TEXT("srvtools.inf");
 LPCTSTR cszNetMsgDll = TEXT("netmsg.dll");
 LPCTSTR fmtDiskNumber = TEXT("DISK%d");
 
@@ -203,10 +205,14 @@ LPCTSTR cszTcpIpDriver = TEXT("DriverName=TCPIP$");
 LPCTSTR cszBindings = TEXT("BINDINGS");
 LPCTSTR cszHelpFile = TEXT("NCADMIN.HLP");
 LPCTSTR cszWfwDir = TEXT("wfw");
+LPCTSTR cszWin95Dir = TEXT("win95");
 LPCTSTR cszDebug = TEXT("Debug");
 LPCTSTR cszDefaultLocalizer = TEXT("LOCALIZER'S NAME");
+LPCTSTR cszFrame = TEXT("FRAME");
+LPCTSTR cszTokenRing = TEXT("tokenring");
+LPCTSTR cszTokenRingEntry = TEXT("TOKENRING");
 //
-//  characters 
+//  characters
 //
 LPCTSTR cszEmptyString = TEXT("\0");
 LPCTSTR cszCR = TEXT("\r");
@@ -230,4 +236,3 @@ LPCTSTR cszDotDot = TEXT("..");
 LPCTSTR cszDoubleBackslash = TEXT("\\\\");
 LPCTSTR cszADriveRoot = TEXT("A:\\");
 LPCTSTR cszBDriveRoot = TEXT("B:\\");
-

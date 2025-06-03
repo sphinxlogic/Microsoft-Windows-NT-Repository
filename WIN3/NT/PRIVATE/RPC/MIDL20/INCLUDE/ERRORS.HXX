@@ -25,11 +25,15 @@ History				:
 
 // define the data structures needed for the error handler
 
-typedef unsigned short E_MASK;
-
+typedef struct _e_mask
+	{
+	unsigned char		ucSwitchConfig;
+	unsigned char		ucWarningLevel;
+	unsigned char		ucErrorClass;
+	char				cMessageType;
+	} E_MASK;
 
 // definition of mode switch configuration combinations
-
 
 #define ZZZ		(0)
 #define ZZM		(1 << 1)
@@ -42,65 +46,29 @@ typedef unsigned short E_MASK;
 
 // message type
 
-#define C_MSG			(0)
-#define D_MSG			(1)
+#define C_MSG			('C')
+#define D_MSG			('D')
+#define A_MSG			('A')
 
 // error class
 
 #define CLASS_ERROR		(0)
 #define CLASS_WARN		(1)
+#define CLASS_ADVICE	(2)
 
-
-#if 0
-
-	This is the error reporting mask. Basically an 8-bit mask which has the
-	fields relating to the mode configuration switches needed for the error
-	to not be reported. It also has 3 bits indicating if a warning is emitted
-	and if so at what level, and 1 bit for indicating if it is a command line
-	error (D-error) or a compilation related error(C-error).
-
-	Bits 0-7	: switch configuration where this is not an error
-	Bits 8-10	: warning level 
-	Bit  11		: Message class
-	Bit  12		: message type.
-
-#endif // 0
-
-// macros to generate the mask and extract info out of it.
-
-#define OFFSET_SC		(0)
-#define SIZE_SC			(8)
-#define MASK_SC			(0xff)
-
-#define SIZE_WL			(3)
-#define OFFSET_WL		(SIZE_SC + OFFSET_SC)
-#define MASK_WL			(0x7)
-
-#define SIZE_ECLASS		(1)
-#define OFFSET_ECLASS	(OFFSET_WL + SIZE_WL)
-#define MASK_ECLASS		(1)
-
-#define SIZE_MT			(1)
-#define OFFSET_MT		(OFFSET_ECLASS + SIZE_ECLASS)
-#define MASK_MT			(1)
-
-#define SET_SC(x)		((x & MASK_SC) << OFFSET_SC )
-#define SET_WL(x)		((x & MASK_WL) << OFFSET_WL )
-#define SET_ECLASS(x)	((x & MASK_ECLASS) << OFFSET_ECLASS )
-#define SET_MT(x)		((x & MASK_MT) << OFFSET_MT )
-
-#define GET_SC(x)		((x >> OFFSET_SC) & MASK_SC)
-#define GET_WL(x)		((x >> OFFSET_WL) & MASK_WL)
-#define GET_ECLASS(x)	((x >> OFFSET_ECLASS) & MASK_ECLASS)
-#define GET_MT(x)		((x >> OFFSET_MT) & MASK_MT)
-
+// extraction macros
+#define GET_ECLASS(x)	((x).ucErrorClass)		
+#define GET_WL(x)		((x).ucWarningLevel)
+#define GET_SC(x)		((x).ucSwitchConfig)
+#define GET_MT(x)		((x).cMessageType)
 
 #define MAKE_E_MASK( sc, mt, ec, wl )		\
-					(SET_SC(sc) + SET_MT(mt) + SET_ECLASS(ec) + SET_WL(wl) )
+					{ sc, wl, ec, mt }
 
 #define D_ERROR_BASE	1000
 #define C_ERROR_BASE	2000
-#define H_ERROR_BASE	3000
+#define A_ERROR_BASE	3000
+#define I_ERROR_BASE	9000
 
 enum _status_t
 	{
@@ -151,6 +119,14 @@ enum _status_t
 	,WCHAR_CONSTANT_NOT_OSF
 	,WCHAR_STRING_NOT_OSF
 	,WCHAR_T_ILLEGAL							
+    ,TYPELIB_NOT_LOADED
+    ,TWO_LIBRARIES
+    ,NO_IDISPATCH
+    ,ERR_TYPELIB       
+    ,ERR_TYPEINFO
+    ,ERR_TYPELIB_GENERATION
+    ,DUPLICATE_IID
+    ,BAD_ENTRY_VALUE
 
 	// syntax related errors
 
@@ -199,11 +175,13 @@ enum _status_t
 	,HANDLE_NOT_FIRST							
 	,PROC_PARAM_COMM_STATUS					
 	,LOCAL_ATTR_ON_PROC
+    ,ILLEGAL_USE_OF_PROPERTY_ATTRIBUTE
+    ,MULTIPLE_PROPERTY_ATTRIBUTES
 
 	// structure semantic errors
 
 	,CONFORMANT_ARRAY_NOT_LAST						
-
+    
 	// union semantic errors
 
 	,DUPLICATE_CASE							
@@ -243,6 +221,9 @@ enum _status_t
 	,TRANSMIT_TYPE_CONF
 	,UUID_FORMAT								
 	,UUID_NOT_HEX								
+    ,OPTIONAL_PARAMS_MUST_BE_LAST
+    ,DLLNAME_REQUIRED
+    ,INVALID_USE_OF_BINDABLE
 
 	// acf semantic errors
 
@@ -259,7 +240,9 @@ enum _status_t
 	,ARRAY_BOUNDS_CONSTRUCT_BAD
 	,ILLEGAL_ARRAY_BOUNDS						
 	,ILLEGAL_CONFORMANT_ARRAY					
-	,UNSIZED_ARRAY							
+	,UNSIZED_ARRAY	
+	,NOT_FIXED_ARRAY						
+    ,SAFEARRAY_USE
 
 	// lex errors
 
@@ -269,16 +252,19 @@ enum _status_t
 	,ID_TRUNCATED
 	,NEWLINE_IN_STRING
 	,STRING_TOO_LONG
+    ,IDENTIFIER_TOO_LONG
 	,CONSTANT_TOO_BIG
 
 	// backend related errors
 
 	,ERROR_OPENING_FILE
+    ,ERR_BIND       // couldn't bind to a function
+    ,ERR_INIT       // couldn't initialize OLE
+    ,ERR_LOAD       // couldn't load a library
 
 	// more errors
 
 	,UNIQUE_FULL_PTR_OUT_ONLY
-
 	,BAD_ATTR_NON_RPC_UNION
 	,SIZE_SPECIFIER_CANT_BE_OUT
 	,LENGTH_SPECIFIER_CANT_BE_OUT
@@ -329,6 +315,7 @@ enum _status_t
 	,RECURSION_THRU_REF
 	,BAD_CON_FIELD_VOID_PTR
 	,INVALID_OSF_ATTRIBUTE
+    ,INVALID_NEWTLB_ATTRIBUTE
 	,WCHAR_T_INVALID_OSF
 	,BAD_CON_UNNAMED_FIELD
 	,BAD_CON_UNNAMED_FIELD_NO_STRUCT
@@ -381,6 +368,7 @@ enum _status_t
 	,PARAM_ALREADY_CTXT_HDL
 	,CTXT_HDL_HANDLE_T
 	,ARRAY_SIZE_EXCEEDS_64K
+	,STRUCT_SIZE_EXCEEDS_64K
 	,NE_UNION_FIELD_NE_UNION
 	,PTR_ATTRS_ON_EMBEDDED_ARRAY
 	,ALLOCATE_ON_TRANSMIT_AS
@@ -393,6 +381,8 @@ enum _status_t
 	,NOCODE_WITH_SERVER_STUBS
 	,NO_REMOTE_PROCS_NO_STUBS
 	,TWO_DEFAULT_CASES
+    ,TWO_DEFAULT_INTERFACES
+    ,DEFAULTVTABLE_REQUIRES_SOURCE
 	,UNION_NO_FIELDS
 	,VALUE_OUT_OF_RANGE
 	,CTXT_HDL_NON_PTR
@@ -430,6 +420,7 @@ enum _status_t
 	,OBJECT_PROC_NON_HRESULT_RETURN
 	,DUPLICATE_UUID
 	,ILLEGAL_INTERFACE_DERIVATION
+    ,ILLEGAL_BASE_INTERFACE
 	,IID_IS_EXPR_NON_POINTER
 	,CALL_AS_NON_LOCAL_PROC
 	,CALL_AS_UNSPEC_IN_OBJECT
@@ -438,10 +429,11 @@ enum _status_t
 	,ENCODE_CONF_OR_VAR
 	,CONST_ON_OUT_PARAM
 	,CONST_ON_RETVAL
+    ,INVALID_USE_OF_RETVAL
 	,MULTIPLE_CALLING_CONVENTIONS
 	,INAPPROPRIATE_ON_OBJECT_PROC
 	,NON_INTF_PTR_PTR_OUT
-	,CALL_AS_USED_MULTIPLE_TIMES
+    ,CALL_AS_USED_MULTIPLE_TIMES
 	,OBJECT_CALL_AS_LOCAL
 	,CODE_NOCODE_CONFLICT
 	,MAYBE_NO_OUT_RETVALS
@@ -458,48 +450,65 @@ enum _status_t
 	,SIZING_ON_FIXED_ARRAYS
 	,PICKLING_INVALID_IN_OBJECT
 	,TYPE_PICKLING_INVALID_IN_OSF
-	,C_ERR_MAX
+	,INT_NOT_SUPPORTED_ON_INT16
+	,BSTRING_NOT_ON_PLAIN_PTR
+	,INVALID_ON_OBJECT_PROC
+	,INVALID_ON_OBJECT_INTF
+    ,STACK_TOO_BIG
+	,NO_ATTRS_ON_ACF_TYPEDEF
+	,NON_OI_WRONG_CALL_CONV
+	,TOO_MANY_DELEGATED_PROCS
+	,NO_MAC_AUTO_HANDLES
+    ,ILLEGAL_IN_MKTYPLIB_MODE
+    ,ILLEGAL_USE_OF_MKTYPLIB_SYNTAX
+	,ILLEGAL_SU_DEFINITION
+    ,INTF_EXPLICIT_PTR_ATTR
+    ,NO_OI_ON_MPPC
+    ,ILLEGAL_EXPRESSION_TYPE
+    ,ILLEGAL_PIPE_TYPE
+    ,REQUIRES_OI2
+    ,CONFLICTING_OPTIMIZATION_REQUIREMENTS
+    ,ILLEGAL_PIPE_EMBEDDING
+    ,ILLEGAL_PIPE_CONTEXT
+    ,CMD_REQUIRES_I2
+    ,REQUIRES_I2
+#if defined(TARGET_RKK)
+    ,CMD_REQUIRES_NT40
+    ,CMD_REQUIRES_NT351
+    ,REQUIRES_NT40
+    ,REQUIRES_NT351
+#endif
+    ,CMD_OI1_PHASED_OUT
+    ,CMD_OI2_OBSOLETE
+    ,OI1_PHASED_OUT
+    ,OI2_OBSOLETE
+    ,ILLEGAL_ARG_VALUE
+    ,CONSTANT_TYPE_MISMATCH
+    ,ENUM_TYPE_MISMATCH
+    ,UNSATISFIED_FORWARD
+    ,CONTRADICTORY_SWITCHES
+    ,NO_SWITCH_IS_HOOKOLE
+    ,NO_CASE_EXPR
+    ,USER_MARSHAL_IN_OI
+    ,PIPES_WITH_PICKLING
+    ,C_ERR_MAX
 	
-	,H_ERR_START	= H_ERROR_BASE
+	// advice messages
+	,A_ERR_START	= A_ERROR_BASE
 
-	,H_ERR_MAX
+	,A_ERR_MAX
 
-	,I_ERR_START = H_ERR_MAX
+	// internal errors
+	,I_ERR_START = I_ERROR_BASE
 
-	,I_ERR_NO_CHILD = I_ERR_START					// no child
-	,I_ERR_NO_SIBLING								// no sibling
-	,I_ERR_NO_PEER									// no more peers(siblings)
+	,I_ERR_NO_PEER = I_ERR_START					// no more peers(siblings)
 	,I_ERR_NO_MEMBER								// no more members(children)
-	,I_ERR_CANNOT_SET_BASIC_TYPE					// cant set basic type
-	,I_ERR_CANNOT_GET_BASIC_TYPE					// cant get basic type
-    ,I_ERR_NO_RETURN_TYPE                           // no return type
-    ,I_ERR_NO_SUCH_PARAMETER                        // No parameter of the given name
-	,I_ERR_NO_LIST									// no list available
 	,I_ERR_SYMTABLE_UNDERFLOW						// symbol table underflow
-	,I_ERR_GRAPHTABLE_UNDERFLOW						// graph table underflow
-    ,I_ERR_NO_NEXT_PARAM                            // No next parameter
-    ,I_ERR_NO_PARAMETERS                            // No parameters for proc
-	,I_ERR_INCOMPLETE_GRAPH							// graph building aborted
 	,I_ERR_NULL_OUT_PARAM
 	,I_ERR_SYMBOL_NOT_FOUND
 	,I_ERR_NO_NEXT_SCOPE
 	,I_ERR_NO_PREV_SCOPE
-	,I_ERR_UNKNOWN_ACTION
 	,I_ERR_INVALID_NODE_TYPE
-	,I_ERR_INVALID_EDGE_TYPE
-	,I_ERR_UNKNOWN_ERROR
-	,I_ERR_NO_UNION_FOR_SWITCH
-	,I_ERR_CANNOT_GET_SWITCH_TYPE
-	,I_ERR_CANNOT_GET_XMIT_TYPE
-
-	,I_ERR_DERIVES_FROM_INT
-	,I_ERR_DERIVES_FROM_VOID
-	,I_ERR_DERIVES_FROM_VOID_PTR
-	,I_ERR_DERIVES_FROM_BIT_FIELDS
-	,I_ERR_DERIVES_FROM_NRPC_UNION
-	,I_ERR_DERIVES_FROM_FUNC_PTR
-	,I_ERR_PARAM_IS_ELIPSIS
-	,I_ERR_NOT_SUITABLE_FOR_MOPS
     };
 
 typedef enum _status_t  STATUS_T;
@@ -507,17 +516,32 @@ typedef enum _status_t  STATUS_T;
 #define NOWARN			(0)
 #define WARN_LEVEL_MAX	(4)
 
+
 #ifdef RPCDEBUG
-
 #define CHECK_ERR(n)	n,
-
 #else // RPCDEBUG
-
 #define CHECK_ERR(n)
-
 #endif // RPCDEBUG
 
+
 extern void 		RpcError(char *, short, STATUS_T , char *);
-void				ParseError( STATUS_T , char *);
+extern void			ParseError( STATUS_T , char *);
+
+// semi-digested error information
+class ErrorInfo	
+	{
+public:
+	struct errdb *	pErrorRecord;
+	STATUS_T		ErrVal;
+
+					ErrorInfo( STATUS_T ErrVal );
+
+	int				IsRelevant();
+
+	void			ReportError( char * pszFileName, short Line, char * suffix );
+
+	};
+
 
 #endif // __ERRORS_HXX__
+

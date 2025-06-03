@@ -302,12 +302,6 @@ Return Value:
     ConfigInfo->VdmPhysicalVideoMemoryLength = 0x00000000;
 
     //
-    // Frame buffer information NULL until we really need it.
-    //
-
-    hwDeviceExtension->FrameLength = 0;
-
-    //
     // Initialize the current mode number.
     //
 
@@ -426,33 +420,15 @@ Return Value:
         memoryInformation = RequestPacket->OutputBuffer;
 
         hwDeviceExtension->VideoRamLength =
-        hwDeviceExtension->FrameLength =
             SimModes[hwDeviceExtension->CurrentModeNumber].VisScreenHeight *
             SimModes[hwDeviceExtension->CurrentModeNumber].ScreenStride;
 
-        //
-        // Here we define Base of FrameBuffer == Base of VideoRam
-        //
+        hwDeviceExtension->VideoRamBase =
+            ExAllocatePoolWithTag(PagedPool,
+                                  hwDeviceExtension->VideoRamLength,
+                                  'misV');
 
-        hwDeviceExtension->VideoRamBase = ((PVIDEO_MEMORY)
-                (RequestPacket->InputBuffer))->RequestedVirtualAddress;
-
-        //
-        // Create the section we are going to map
-        //
-
-        largeAddress.LowPart = hwDeviceExtension->VideoRamLength * 2;
-        largeAddress.HighPart = 0x00000000;
-
-        ntStatus = ZwCreateSection(&hwDeviceExtension->SectionHandle,
-                                   SECTION_ALL_ACCESS,
-                                   NULL,
-                                   &largeAddress,
-                                   PAGE_READWRITE,
-                                   SEC_COMMIT,
-                                   NULL);
-
-        if (!NT_SUCCESS(ntStatus)) {
+        if (hwDeviceExtension->VideoRamBase == NULL) {
 
             VideoDebugPrint((0, "VideoSIM: memory allocation for the frame buffer failed\n"));
             status = ERROR_INSUFFICIENT_BUFFER;
@@ -460,32 +436,11 @@ Return Value:
 
         }
 
-        ntStatus = ZwMapViewOfSection(hwDeviceExtension->SectionHandle,
-                                      NtCurrentProcess(),
-                                      &hwDeviceExtension->VideoRamBase,
-                                      0L,
-                                      hwDeviceExtension->VideoRamLength,
-                                      NULL,
-                                      &hwDeviceExtension->VideoRamLength,
-                                      ViewUnmap,
-                                      MEM_LARGE_PAGES,
-                                      PAGE_READWRITE | PAGE_NOCACHE);
-
-        if (!NT_SUCCESS(ntStatus)) {
-
-            VideoDebugPrint((0, "Video port: Map view failed status = %08lx\n", status));
-            ZwClose(hwDeviceExtension->SectionHandle);
-            status = ERROR_INSUFFICIENT_BUFFER;
-            break;
-
-        }
-
-
         memoryInformation->VideoRamBase =
         memoryInformation->FrameBufferBase = hwDeviceExtension->VideoRamBase;
 
-        memoryInformation->VideoRamLength = hwDeviceExtension->VideoRamLength;
-        memoryInformation->FrameBufferLength = hwDeviceExtension->FrameLength;
+        memoryInformation->VideoRamLength =
+        memoryInformation->FrameBufferLength = hwDeviceExtension->VideoRamLength;
 
         VideoDebugPrint((0, "VideoSim: RamBase = %08lx, RamLength = %08lx\n",
                          hwDeviceExtension->VideoRamBase,
@@ -505,12 +460,8 @@ Return Value:
             status = ERROR_INSUFFICIENT_BUFFER;
         }
 
-        ulTemp = hwDeviceExtension->FrameLength;
-
-        ZwUnmapViewOfSection(hwDeviceExtension->SectionHandle,
-                             hwDeviceExtension->VideoRamBase);
-
-        ZwClose(hwDeviceExtension->SectionHandle);
+        ExFreePool(((PVIDEO_MEMORY)(RequestPacket->InputBuffer))->
+                                        RequestedVirtualAddress);
 
         status = NO_ERROR;
 

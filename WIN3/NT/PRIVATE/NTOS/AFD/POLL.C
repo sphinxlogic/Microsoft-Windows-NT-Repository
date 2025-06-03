@@ -106,10 +106,14 @@ AfdPoll (
     pollInfoInternalSize = sizeof(AFD_POLL_INFO_INTERNAL) +
         (pollInfo->NumberOfHandles + 1) * sizeof(AFD_POLL_ENDPOINT_INFO);
 
-    pollInfoInternal = AFD_ALLOCATE_POOL( NonPagedPool, pollInfoInternalSize );
+    pollInfoInternal = AFD_ALLOCATE_POOL(
+                           NonPagedPool,
+                           pollInfoInternalSize,
+                           AFD_POLL_POOL_TAG
+                           );
 
     if ( pollInfoInternal == NULL ) {
-        status = STATUS_NO_MEMORY;
+        status = STATUS_INSUFFICIENT_RESOURCES;
         goto complete;
     }
 
@@ -157,6 +161,16 @@ AfdPoll (
         pollEndpointInfo->Handle = pollHandleInfo->Handle;
         pollEndpointInfo->Endpoint = pollEndpointInfo->FileObject->FsContext;
 
+        ASSERT( InterlockedIncrement( &pollEndpointInfo->Endpoint->ObReferenceBias ) > 0 );
+
+        //
+        // Remember that there has been a poll on this endpoint.  This flag
+        // allows us to optimize AfdIndicatePollEvent() for endpoints that have
+        // never been polled, which is a common case.
+        //
+
+        pollEndpointInfo->Endpoint->PollCalled = TRUE;
+
         IF_DEBUG(POLL) {
             KdPrint(( "AfdPoll: event %lx, endp %lx, conn %lx, handle %lx, "
                       "info %lx\n",
@@ -167,7 +181,7 @@ AfdPoll (
                         pollEndpointInfo ));
         }
 
-        AfdReferenceEndpoint( pollEndpointInfo->Endpoint, FALSE );
+        REFERENCE_ENDPOINT( pollEndpointInfo->Endpoint );
 
         //
         // Increment pointers in the poll info structures.
@@ -220,7 +234,7 @@ AfdPoll (
     // the IO would never get cancelled.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql2 );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql2 );
 
     //
     // If this is a unique poll, determine whether there is another
@@ -290,13 +304,13 @@ AfdPoll (
                 IoCompleteRequest( testInfo->Irp, AfdPriorityBoost );
 
                 //
-                // Remember the poll info structure so that we'll free 
-                // before we exit.  We cannot free it now because we're 
-                // holding the AfdSpinLock.  Note that if cancelling the 
-                // timer failed, then the timer is already running and 
-                // it will free the poll info structure, but not 
-                // complete the IRP since we complete it and NULL it 
-                // here.  
+                // Remember the poll info structure so that we'll free
+                // before we exit.  We cannot free it now because we're
+                // holding the AfdSpinLock.  Note that if cancelling the
+                // timer failed, then the timer is already running and
+                // it will free the poll info structure, but not
+                // complete the IRP since we complete it and NULL it
+                // here.
                 //
 
                 if ( timerCancelSucceeded ) {
@@ -364,7 +378,7 @@ AfdPoll (
                 if ( (connection != NULL &&
                          IS_DATA_ON_CONNECTION( connection )) ||
 
-                     (endpoint->EndpointType == AfdEndpointTypeDatagram &&
+                     (IS_DGRAM_ENDPOINT(endpoint) &&
                          ARE_DATAGRAMS_ON_ENDPOINT( endpoint )) ) {
 
                     pollHandleInfo->Handle = pollEndpointInfo->Handle;
@@ -401,8 +415,8 @@ AfdPoll (
         if ( (pollEndpointInfo->PollEvents & AFD_POLL_RECEIVE_EXPEDITED) != 0 ) {
 
             //
-            // If the endpoint is set up for inline reception of 
-            // expedited data, do not indicate as expedited data.  
+            // If the endpoint is set up for inline reception of
+            // expedited data, do not indicate as expedited data.
             //
 
             if ( connection != NULL && !endpoint->InLine &&
@@ -424,22 +438,22 @@ AfdPoll (
             //
 
             if ( endpoint->State == AfdEndpointStateConnected ||
-                     endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+                     IS_DGRAM_ENDPOINT(endpoint) ) {
 
                 //
-                // It should always be possible to do a nonblocking send 
-                // on a datagram endpoint.  For nonbufferring VC 
-                // endpoints, check whether a blocking error has 
-                // occurred.  If so, it will not be possible to do a 
-                // nonblocking send until a send possible indication 
+                // It should always be possible to do a nonblocking send
+                // on a datagram endpoint.  For nonbufferring VC
+                // endpoints, check whether a blocking error has
+                // occurred.  If so, it will not be possible to do a
+                // nonblocking send until a send possible indication
                 // arrives.
                 //
-                // For bufferring endpoints (TDI provider does not 
-                // buffer), check whether we have too much send data 
-                // outstanding.  
+                // For bufferring endpoints (TDI provider does not
+                // buffer), check whether we have too much send data
+                // outstanding.
                 //
 
-                if ( endpoint->EndpointType == AfdEndpointTypeDatagram
+                if ( IS_DGRAM_ENDPOINT(endpoint)
 
                      ||
 
@@ -492,16 +506,16 @@ AfdPoll (
         }
 
         if ( (pollEndpointInfo->PollEvents & AFD_POLL_CONNECT_FAIL) != 0 ) {
-  
+
             //
             // This is a poll to see whether a connect has failed
             // recently.  If the connect status indicates an error,
             // then complete the poll.
             //
-  
+
             if ( endpoint->State == AfdEndpointStateBound &&
                      !NT_SUCCESS(endpoint->Common.VcConnecting.ConnectStatus) ) {
-  
+
                 pollHandleInfo->Handle = pollEndpointInfo->Handle;
                 pollHandleInfo->PollEvents |= AFD_POLL_CONNECT_FAIL;
                 pollHandleInfo->Status =
@@ -509,7 +523,7 @@ AfdPoll (
                 found = TRUE;
             }
         }
-  
+
         if ( (pollEndpointInfo->PollEvents & AFD_POLL_DISCONNECT) != 0 ) {
 
             if ( connection != NULL && connection->DisconnectIndicated ) {
@@ -550,7 +564,7 @@ AfdPoll (
 
     if ( pollInfo->NumberOfHandles > 0 ) {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql2 );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
         IoReleaseCancelSpinLock( oldIrql1 );
         AfdFreePollInfo( pollInfoInternal );
 
@@ -608,9 +622,9 @@ AfdPoll (
                 AfdTimeoutPoll,
                 pollInfoInternal
                 );
-    
+
             KeInitializeTimer( &pollInfoInternal->Timer );
-    
+
             KeSetTimer(
                 &pollInfoInternal->Timer,
                 pollInfo->Timeout,
@@ -635,7 +649,7 @@ AfdPoll (
                       "current events--completing.\n", Irp ));
         }
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql2 );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
         IoReleaseCancelSpinLock( oldIrql1 );
         AfdFreePollInfo( pollInfoInternal );
 
@@ -645,18 +659,13 @@ AfdPoll (
     }
 
     //
-    // Release the AFD spin lock now that the timer has been initialized
-    // and the internal poll info structure is on the global list.
-    //
-
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql2 );
-
-    //
-    // Mark the IRP pending and release the cancel spin lock.  At this
-    // point the IRP may get cancelled.
+    // Mark the IRP pending and release the spin locks.  At this
+    // point the IRP may get completed or cancelled.
     //
 
     IoMarkIrpPending( Irp );
+
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql2 );
     IoReleaseCancelSpinLock( oldIrql1 );
 
     //
@@ -732,7 +741,7 @@ AfdCancelPoll (
     // the list of outstanding polls.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     for ( listEntry = AfdPollListHead.Flink;
           listEntry != &AfdPollListHead;
@@ -760,7 +769,7 @@ AfdCancelPoll (
     //
 
     if ( !found ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         IF_DEBUG(POLL) {
             KdPrint(( "AfdCancelPoll: poll info %lx not found on list.\n",
                           pollInfoInternal ));
@@ -793,7 +802,7 @@ AfdCancelPoll (
 
     pollInfoInternal->Irp = NULL;
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
     // Complete the IRP with STATUS_CANCELLED as the status.
@@ -845,7 +854,9 @@ AfdFreePollInfo (
     pollEndpointInfo = PollInfoInternal->EndpointInfo;
 
     for ( i = 0; i < PollInfoInternal->NumberOfEndpoints; i++ ) {
-        AfdDereferenceEndpoint( pollEndpointInfo->Endpoint );
+        ASSERT( InterlockedDecrement( &pollEndpointInfo->Endpoint->ObReferenceBias ) >= 0 );
+
+        DEREFERENCE_ENDPOINT( pollEndpointInfo->Endpoint );
         ObDereferenceObject( pollEndpointInfo->FileObject );
         pollEndpointInfo++;
     }
@@ -854,7 +865,10 @@ AfdFreePollInfo (
     // Free the structure itself and return.
     //
 
-    AFD_FREE_POOL( PollInfoInternal );
+    AFD_FREE_POOL(
+        PollInfoInternal,
+        AFD_POLL_POOL_TAG
+        );
 
     return;
 
@@ -864,7 +878,7 @@ AfdFreePollInfo (
 VOID
 AfdIndicatePollEvent (
     IN PAFD_ENDPOINT Endpoint,
-    IN ULONG PollEvent,
+    IN ULONG PollEventBit,
     IN NTSTATUS Status
     )
 
@@ -878,8 +892,8 @@ Arguments:
 
     Endpoint - the endpoint on which the action occurred.
 
-    PollEvent - the event or events which occurred.  Note that it is
-        legal to specify multiple events in a single call.
+    PollEventBit - the event which occurred.  Note that this is one of
+        the AFD_POLL_*_BIT values, and therefore specifies exactly one event.
 
     Status - the status of the event, if any.
 
@@ -897,204 +911,245 @@ Return Value:
     PAFD_POLL_INFO pollInfo;
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
+    ULONG eventSelectEvent;
+    ULONG pollEvent;
 
     //
-    // Initialize the list of poll info structures that we'll be
-    // completing for this event.
+    // Compute the actual poll event bitmask.
+    //
+    // Note that AFD_POLL_ABORT_BIT implies AFD_POLL_SEND_BIT.
     //
 
-    InitializeListHead( &completePollListHead );
+    pollEvent = 1 << PollEventBit;
+    eventSelectEvent = pollEvent;
+
+    if( PollEventBit == AFD_POLL_ABORT_BIT ) {
+        pollEvent |= AFD_POLL_SEND;
+    }
 
     //
-    // Walk the global list of polls, searching for any the are waiting
-    // for the specified event on the specified endpoint.
+    // If we have never had a poll IRP on this endpoint, skip over the
+    // expensive looping below.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
-
-    for ( listEntry = AfdPollListHead.Flink;
-          listEntry != &AfdPollListHead;
-          listEntry = listEntry->Flink ) {
-
-        PAFD_POLL_ENDPOINT_INFO pollEndpointInfo;
-        ULONG i;
-        ULONG foundCount = 0;
-
-        pollInfoInternal = CONTAINING_RECORD(
-                               listEntry,
-                               AFD_POLL_INFO_INTERNAL,
-                               PollListEntry
-                               );
-
-        pollInfo = pollInfoInternal->Irp->AssociatedIrp.SystemBuffer;
-
-        IF_DEBUG(POLL) {
-            KdPrint(( "AfdIndicatePollEvent: pollInfoInt %lx "
-                      "IRP %lx pollInfo %lx event %lx status %lx\n",
-                          pollInfoInternal, pollInfoInternal->Irp, pollInfo,
-                          PollEvent, Status ));
-        }
+    if ( Endpoint->PollCalled ) {
 
         //
-        // Walk the poll structure looking for matching endpoints.
+        // Initialize the list of poll info structures that we'll be
+        // completing for this event.
         //
 
-        pollEndpointInfo = pollInfoInternal->EndpointInfo;
+        InitializeListHead( &completePollListHead );
 
-        for ( i = 0; i < pollInfoInternal->NumberOfEndpoints; i++ ) {
+        //
+        // Walk the global list of polls, searching for any the are waiting
+        // for the specified event on the specified endpoint.
+        //
+
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
+
+        for ( listEntry = AfdPollListHead.Flink;
+              listEntry != &AfdPollListHead;
+              listEntry = listEntry->Flink ) {
+
+            PAFD_POLL_ENDPOINT_INFO pollEndpointInfo;
+            ULONG i;
+            ULONG foundCount = 0;
+
+            pollInfoInternal = CONTAINING_RECORD(
+                                   listEntry,
+                                   AFD_POLL_INFO_INTERNAL,
+                                   PollListEntry
+                                   );
+
+            pollInfo = pollInfoInternal->Irp->AssociatedIrp.SystemBuffer;
 
             IF_DEBUG(POLL) {
-                KdPrint(( "AfdIndicatePollEvent: pollEndpointInfo = %lx, "
-                          "comparing %lx, %lx\n",
-                              pollEndpointInfo, pollEndpointInfo->Endpoint,
-                              Endpoint ));
+                KdPrint(( "AfdIndicatePollEvent: pollInfoInt %lx "
+                          "IRP %lx pollInfo %lx event %lx status %lx\n",
+                              pollInfoInternal, pollInfoInternal->Irp, pollInfo,
+                              pollEvent, Status ));
             }
 
             //
-            // Regardless of whether the caller requested to be told about
-            // local closes, we'll complete the IRP if an endpoint
-            // is being closed.  When they close an endpoint, all IO on
-            // the endpoint must be completed.
+            // Walk the poll structure looking for matching endpoints.
             //
 
-            if ( Endpoint == pollEndpointInfo->Endpoint &&
-                     ( (PollEvent & pollEndpointInfo->PollEvents) != 0
-                       ||
-                       PollEvent == AFD_POLL_LOCAL_CLOSE ) ) {
+            pollEndpointInfo = pollInfoInternal->EndpointInfo;
 
-                ASSERT( pollInfo->NumberOfHandles == foundCount );
+            for ( i = 0; i < pollInfoInternal->NumberOfEndpoints; i++ ) {
 
                 IF_DEBUG(POLL) {
-                    KdPrint(( "AfdIndicatePollEvent: endpoint %lx found "
-                              " for event %lx\n",
-                                  pollEndpointInfo->Endpoint, PollEvent ));
+                    KdPrint(( "AfdIndicatePollEvent: pollEndpointInfo = %lx, "
+                              "comparing %lx, %lx\n",
+                                  pollEndpointInfo, pollEndpointInfo->Endpoint,
+                                  Endpoint ));
                 }
 
-                pollInfo->NumberOfHandles++;
+                //
+                // Regardless of whether the caller requested to be told about
+                // local closes, we'll complete the IRP if an endpoint
+                // is being closed.  When they close an endpoint, all IO on
+                // the endpoint must be completed.
+                //
 
-                pollInfo->Handles[foundCount].Handle = pollEndpointInfo->Handle;
-                pollInfo->Handles[foundCount].PollEvents = 
-                    (PollEvent &
-                        (pollEndpointInfo->PollEvents | AFD_POLL_LOCAL_CLOSE));
-                pollInfo->Handles[foundCount].Status = Status;
+                if ( Endpoint == pollEndpointInfo->Endpoint &&
+                         ( (pollEvent & pollEndpointInfo->PollEvents) != 0
+                           ||
+                           PollEventBit == AFD_POLL_LOCAL_CLOSE_BIT ) ) {
 
-                foundCount++;
+                    ASSERT( pollInfo->NumberOfHandles == foundCount );
+
+                    IF_DEBUG(POLL) {
+                        KdPrint(( "AfdIndicatePollEvent: endpoint %lx found "
+                                  " for event %lx\n",
+                                      pollEndpointInfo->Endpoint, pollEvent ));
+                    }
+
+                    pollInfo->NumberOfHandles++;
+
+                    pollInfo->Handles[foundCount].Handle = pollEndpointInfo->Handle;
+                    pollInfo->Handles[foundCount].PollEvents =
+                        (pollEvent &
+                            (pollEndpointInfo->PollEvents | AFD_POLL_LOCAL_CLOSE));
+                    pollInfo->Handles[foundCount].Status = Status;
+
+                    foundCount++;
+                }
+
+                pollEndpointInfo++;
             }
 
-            pollEndpointInfo++;
+            //
+            // If we found any matching endpoints, remove the poll information
+            // structure from the global list, complete the IRP, and free the
+            // poll information structure.
+            //
+
+            if ( foundCount != 0 ) {
+
+                BOOLEAN timerCancelSucceeded;
+
+                //
+                // We need to release the spin lock to call AfdFreePollInfo,
+                // since it calls AfdDereferenceEndpoint which in turn needs
+                // to acquire the spin lock, and recursive spin lock
+                // acquisitions result in deadlock.  However, we can't
+                // release the lock of else the state of the poll list could
+                // change, e.g.  the next entry could get freed.  Remove
+                // this entry from the global list and place it on a local
+                // list.  We'll complete all the poll IRPs after walking
+                // the entire list.
+                //
+
+                RemoveEntryList( &pollInfoInternal->PollListEntry );
+
+                irp = pollInfoInternal->Irp;
+                irpSp = IoGetCurrentIrpStackLocation( irp );
+
+                InsertTailList(
+                    &completePollListHead,
+                    &irp->Tail.Overlay.ListEntry
+                    );
+
+                //
+                // Cancel the timer on the poll so that it does not fire.
+                //
+
+                if ( pollInfoInternal->TimerStarted ) {
+                    timerCancelSucceeded = KeCancelTimer( &pollInfoInternal->Timer );
+                } else {
+                    timerCancelSucceeded = TRUE;
+                }
+
+                //
+                // If the cancel of the timer failed, then we don't want to
+                // free this structure since the timer routine is running.
+                // Let the timer routine free the structure.
+                //
+
+                if ( timerCancelSucceeded ) {
+                    irpSp->Parameters.DeviceIoControl.IoControlCode =
+                        (ULONG)pollInfoInternal;
+                } else {
+                    irpSp->Parameters.DeviceIoControl.IoControlCode = (ULONG)NULL;
+                }
+
+                //
+                // Also reset the IRP field of the internal poll info
+                // structure so that the timer routine will not attempt to
+                // complete the IRP.
+                //
+
+                pollInfoInternal->Irp = NULL;
+
+                //
+                // Set up the IRP for completion now, since we have all needed
+                // information here.
+                //
+
+                irp->IoStatus.Information =
+                    (ULONG)&pollInfo->Handles[foundCount] - (ULONG)pollInfo;
+
+                irp->IoStatus.Status = STATUS_SUCCESS;
+            }
         }
 
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+
         //
-        // If we found any matching endpoints, remove the poll information
-        // structure from the global list, complete the IRP, and free the
-        // poll information structure.
+        // Now walk the list of polls we need to actually complete.  Free
+        // the poll info structures as we go.
         //
 
-        if ( foundCount != 0 ) {
+        while ( !IsListEmpty( &completePollListHead ) ) {
 
-            BOOLEAN timerCancelSucceeded;
+            listEntry = RemoveHeadList( &completePollListHead );
+            ASSERT( listEntry != &completePollListHead );
 
-            //
-            // We need to release the spin lock to call AfdFreePollInfo,
-            // since it calls AfdDereferenceEndpoint which in turn needs
-            // to acquire the spin lock, and recursive spin lock
-            // acquisitions result in deadlock.  However, we can't
-            // release the lock of else the state of the poll list could
-            // change, e.g.  the next entry could get freed.  Remove
-            // this entry from the global list and place it on a local
-            // list.  We'll complete all the poll IRPs after walking
-            // the entire list.
-            //
-
-            RemoveEntryList( &pollInfoInternal->PollListEntry );
-
-            irp = pollInfoInternal->Irp;
+            irp = CONTAINING_RECORD(
+                      listEntry,
+                      IRP,
+                      Tail.Overlay.ListEntry
+                      );
             irpSp = IoGetCurrentIrpStackLocation( irp );
 
-            InsertTailList(
-                &completePollListHead,
-                &irp->Tail.Overlay.ListEntry
-                );
+            pollInfoInternal =
+                (PAFD_POLL_INFO_INTERNAL)irpSp->Parameters.DeviceIoControl.IoControlCode;
+
+            IoAcquireCancelSpinLock( &oldIrql );
+            IoSetCancelRoutine( irp, NULL );
+            IoReleaseCancelSpinLock( oldIrql );
+
+            IoCompleteRequest( irp, AfdPriorityBoost );
 
             //
-            // Cancel the timer on the poll so that it does not fire.
+            // Free the poll info structure, if necessary.
             //
 
-            if ( pollInfoInternal->TimerStarted ) {
-                timerCancelSucceeded = KeCancelTimer( &pollInfoInternal->Timer );
-            } else {
-                timerCancelSucceeded = TRUE;
+            if ( pollInfoInternal != NULL ) {
+                AfdFreePollInfo( pollInfoInternal );
             }
-
-            //
-            // If the cancel of the timer failed, then we don't want to
-            // free this structure since the timer routine is running.
-            // Let the timer routine free the structure.
-            //
-
-            if ( timerCancelSucceeded ) {
-                irpSp->Parameters.DeviceIoControl.IoControlCode =
-                    (ULONG)pollInfoInternal;
-            } else {
-                irpSp->Parameters.DeviceIoControl.IoControlCode = (ULONG)NULL;
-            }
-
-            //
-            // Also reset the IRP field of the internal poll info 
-            // structure so that the timer routine will not attempt to 
-            // complete the IRP.  
-            //
-
-            pollInfoInternal->Irp = NULL;
-
-            //
-            // Set up the IRP for completion now, since we have all needed
-            // information here.
-            //
-
-            irp->IoStatus.Information =
-                (ULONG)&pollInfo->Handles[foundCount] - (ULONG)pollInfo;
-
-            irp->IoStatus.Status = STATUS_SUCCESS;
         }
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-
     //
-    // Now walk the list of polls we need to actually complete.  Free
-    // the poll info structures as we go.
+    // Acquire the lock protecting the endpoint.
     //
 
-    while ( !IsListEmpty( &completePollListHead ) ) {
+    AfdAcquireSpinLock( &Endpoint->SpinLock, &oldIrql );
 
-        listEntry = RemoveHeadList( &completePollListHead );
-        ASSERT( listEntry != &completePollListHead );
+    //
+    // Signal the associated event object.
+    //
 
-        irp = CONTAINING_RECORD(
-                  listEntry,
-                  IRP,
-                  Tail.Overlay.ListEntry
-                  );
-        irpSp = IoGetCurrentIrpStackLocation( irp );
+    AfdIndicateEventSelectEvent(
+        Endpoint,
+        PollEventBit,
+        Status
+        );
 
-        pollInfoInternal =
-            (PAFD_POLL_INFO_INTERNAL)irpSp->Parameters.DeviceIoControl.IoControlCode;
-
-        IoAcquireCancelSpinLock( &oldIrql );
-        IoSetCancelRoutine( irp, NULL );
-        IoReleaseCancelSpinLock( oldIrql );
-
-        IoCompleteRequest( irp, AfdPriorityBoost );
-
-        //
-        // Free the poll info structure, if necessary.
-        //
-
-        if ( pollInfoInternal != NULL ) {
-            AfdFreePollInfo( pollInfoInternal );
-        }
-    }
+    AfdReleaseSpinLock( &Endpoint->SpinLock, oldIrql );
 
     return;
 
@@ -1120,7 +1175,7 @@ AfdTimeoutPoll (
     // the list of outstanding polls.
     //
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     for ( listEntry = AfdPollListHead.Flink;
           listEntry != &AfdPollListHead;
@@ -1156,7 +1211,7 @@ AfdTimeoutPoll (
     //
 
     if ( !found ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
         IF_DEBUG(POLL) {
             KdPrint(( "AfdTimeoutPoll: poll info %lx not found on list.\n",
                           pollInfoInternal ));
@@ -1184,7 +1239,7 @@ AfdTimeoutPoll (
 
     RemoveEntryList( &pollInfoInternal->PollListEntry );
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     //
     // Complete the IRP pointed to in the poll structure.  The

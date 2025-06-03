@@ -11,10 +11,6 @@ Abstract:
     This module contains initialization and termination routines for
     server FSP heap, as well as debug routines for memory tracking.
 
-Author:
-
-    Chuck Lenzmeier (chuckl)    3-Oct-1989
-
 --*/
 
 #include "precomp.h"
@@ -47,13 +43,19 @@ ULONG SrvPoolTags[BlockTypeMax-1] = {
         'iwSL',     // BlockTypeWorkContextInitial
         'nwSL',     // BlockTypeWorkContextNormal
         'rwSL',     // BlockTypeWorkContextRaw
+        'swSL',     // BlockTypeWorkContextSpecial
+        'dcSL',     // BlockTypeCachedDirectory
         'bdSL',     // BlockTypeDataBuffer
         'btSL',     // BlockTypeTable
         'hnSL',     // BlockTypeNonpagedHeader
         'cpSL',     // BlockTypePagedConnection
         'rpSL',     // BlockTypePagedRfcb
         'mpSL',     // BlockTypePagedMfcb
-        'itSL'      // BlockTypeTimer
+        'itSL',     // BlockTypeTimer
+        'caSL',     // BlockTypeAdminCheck
+        'qwSL',     // BlockTypeWorkQueue
+        'fsSL',     // BlockTypeDfs
+        'rlSL'      // BlockTypeLargeReadX
         };
 
 //
@@ -68,61 +70,141 @@ ULONG SrvPoolTags[BlockTypeMax-1] = {
 
 #endif // def POOL_TAGGING
 
-#ifdef BUILD_FOR_511
-#define ExAllocatePoolWithTag(a,b,c) ExAllocatePool(a,b)
-#endif
-
-typedef struct _POOL_HEADER {
-    ULONG RequestedSize;
-    USHORT BlockType;
-    UCHAR Reserved;
-    BOOLEAN Paged;
-#if SRVDBG_HEAP
-#if 0
-    ULONG RequestedSizeCopy1;
-    ULONG RequestedSizeCopy2;
-    ULONG RequestedSizeCopy3;
-    ULONG RequestedSizeCopy4;
-#endif
-    LIST_ENTRY ListEntry;
-    PVOID Caller;
-    PVOID CallersCaller;
-#endif
-} POOL_HEADER, *PPOOL_HEADER;
-
-#if SRVDBG_HEAP
-VOID
-SrvDumpHeap (
-    IN CLONG Level
-    );
-
-VOID
-SrvDumpPool (
-    IN CLONG Level
-    );
-#endif
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvAllocatePagedPool )
 #pragma alloc_text( PAGE, SrvFreePagedPool )
-#if SRVDBG_HEAP
-#pragma alloc_text( PAGE, SrvDumpHeap )
-#pragma alloc_text( PAGE, SrvDumpPool )
-#endif
+#pragma alloc_text( PAGE, SrvClearLookAsideList )
 #endif
 #if 0
 NOT PAGEABLE -- SrvAllocateNonPagedPool
 NOT PAGEABLE -- SrvFreeNonPagedPool
-#if SRVDBG_HEAP
-NOT PAGEABLE -- SrvAllocateHeapDebug
-NOT PAGEABLE -- SrvFreeHeapDebug
-NOT PAGEABLE -- SrvAllocateNonPagedPoolDebug
-NOT PAGEABLE -- SrvFreeNonPagedPoolDebug
-#endif
 #endif
 
+PVOID SRVFASTCALL
+SrvInterlockedAllocate( PLOOK_ASIDE_LIST l, ULONG NumberOfBytes, PLONG statistics )
+{
+    PPOOL_HEADER newPool;
+    PPOOL_HEADER *pentry = NumberOfBytes > LOOK_ASIDE_SWITCHOVER ?
+                                            l->LargeFreeList : l->SmallFreeList;
+
+    PPOOL_HEADER *pend   = pentry + LOOK_ASIDE_MAX_ELEMENTS;
+
+    do {
+        //
+        // Exchange with the lookaside spot and see if we get anything 
+        //
+
+        newPool = NULL;
+        newPool = (PPOOL_HEADER)InterlockedExchange( (PLONG)pentry, (LONG)newPool );
+
+        if( newPool == NULL ) {
+            continue;
+        }
+
+        if( newPool->RequestedSize >= NumberOfBytes ) {
+            //
+            // The one we got is big enough!  Return it.
+            //
+            ++(l->AllocHit);
+            return newPool + 1;
+        }
+
+        //
+        // It wasn't big enough, so put it back.
+        //
+        newPool = (PPOOL_HEADER)InterlockedExchange( (PLONG)pentry, (LONG)newPool );
+        if( newPool == NULL ) {
+            continue;
+        }
+
+        //
+        // Oops, somebody else freed some memory to this spot.  Can we use it?
+        //
+        if( newPool->RequestedSize >= NumberOfBytes ) {
+            //
+            // We can use it!
+            //
+            ++(l->AllocHit);
+            return newPool + 1;
+        }
+
+        //
+        // Can't use the memory -- so really free it and keep looking
+        //
+        if( statistics ) {
+            InterlockedExchangeAdd(
+                statistics,
+                -(LONG)newPool->RequestedSize
+                );
+        }
+
+        ExFreePool( newPool );
+
+    } while( ++pentry < pend );
+
+    ++(l->AllocMiss);
+    return NULL;
+}
+
+PPOOL_HEADER SRVFASTCALL
+SrvInterlockedFree( PPOOL_HEADER block )
+{
+    PPOOL_HEADER *pentry = block->FreeList;
+    PPOOL_HEADER *pend   = pentry + LOOK_ASIDE_MAX_ELEMENTS;
+
+    do {
+
+        block = (PPOOL_HEADER)InterlockedExchange( (PLONG)pentry, (LONG)block );
+
+    } while( block != NULL && ++pentry < pend );
+
+    return block;
+}
+
+VOID SRVFASTCALL
+SrvClearLookAsideList( PLOOK_ASIDE_LIST l, VOID (SRVFASTCALL *FreeRoutine )( PVOID ) )
+{
+    PPOOL_HEADER *pentry, *pend, block;
+
+    PAGED_CODE();
+
+    //
+    // Clear out the list of large chunks
+    //
+    pentry = l->LargeFreeList;
+    pend   = pentry + LOOK_ASIDE_MAX_ELEMENTS;
+
+    do {
+        block = NULL;
+        block = (PPOOL_HEADER)InterlockedExchange( (PLONG)pentry, (LONG)block );
+
+        if( block != NULL ) {
+            block->FreeList = NULL;
+            FreeRoutine( block + 1 );
+        }
+
+    } while( ++pentry < pend );
+
+    //
+    // Clear out the list of small chunks
+    //
+    pentry = l->SmallFreeList;
+    pend   = pentry + LOOK_ASIDE_MAX_ELEMENTS;
+
+    do {
+        block = NULL;
+        block = (PPOOL_HEADER)InterlockedExchange( (PLONG)pentry, (LONG)block );
+
+        if( block != NULL ) {
+            block->FreeList = NULL;
+            FreeRoutine( block + 1 );
+        }
+
+    } while( ++pentry < pend );
+}
+
 
-PVOID
+PVOID SRVFASTCALL
 SrvAllocateNonPagedPool (
     IN CLONG NumberOfBytes
 #ifdef POOL_TAGGING
@@ -154,46 +236,70 @@ Return Value:
 {
     PPOOL_HEADER newPool;
     ULONG newUsage;
+    PPOOL_HEADER *FreeList = NULL;
+    PLONG pCurrentPoolUsage = SrvMaxNonPagedPoolUsage != 0xFFFFFFFF ? 
+                              (PLONG)&SrvStatistics.CurrentNonPagedPoolUsage : NULL;
 
 #ifdef POOL_TAGGING
     ASSERT( BlockType > 0 && BlockType < BlockTypeMax );
 #endif
 
     //
-    // Account for this allocation in the statistics database and make
-    // sure that this allocation will not put us over the limit of
-    // nonpaged pool that we can allocate.
+    // Pull this allocation off the per-processor free list if we can
     //
+    if( SrvWorkQueues ) {
 
-    newUsage = ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentNonPagedPoolUsage,
-                    NumberOfBytes,
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    ) + NumberOfBytes;
+        PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
-    if ( newUsage > SrvMaxNonPagedPoolUsage ) {
+        if( NumberOfBytes <= queue->NonPagedPoolLookAsideList.MaxSize ) {
 
-        //
-        // Count the failure, but do NOT log an event.  The scavenger
-        // will log an event when it next wakes up.  This keeps us from
-        // flooding the event log.
-        //
+            newPool = SrvInterlockedAllocate(
+                                &queue->NonPagedPoolLookAsideList,
+                                NumberOfBytes,
+                                pCurrentPoolUsage
+                                );
 
-        SrvNonPagedPoolLimitHitCount++;
-        SrvStatistics.NonPagedPoolFailures++;
+            if( newPool != NULL ) {
+                return newPool;
+            }
 
-        ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentNonPagedPoolUsage,
-                    (ULONG)(-(LONG)NumberOfBytes),
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    );
-
-        return NULL;
-
+            FreeList = NumberOfBytes > LOOK_ASIDE_SWITCHOVER ?
+                                    queue->NonPagedPoolLookAsideList.LargeFreeList :
+                                    queue->NonPagedPoolLookAsideList.SmallFreeList ;
+        }
     }
 
-    if (SrvStatistics.CurrentNonPagedPoolUsage > SrvStatistics.PeakNonPagedPoolUsage) {
-        SrvStatistics.PeakNonPagedPoolUsage = SrvStatistics.CurrentNonPagedPoolUsage;
+    if( pCurrentPoolUsage ) {
+
+        //
+        // Account for this allocation in the statistics database and make
+        // sure that this allocation will not put us over the limit of
+        // nonpaged pool that we can allocate.
+        //
+
+        newUsage = InterlockedExchangeAdd( pCurrentPoolUsage, (LONG)NumberOfBytes );
+        newUsage += NumberOfBytes;
+
+        if ( newUsage > SrvMaxNonPagedPoolUsage ) {
+
+            //
+            // Count the failure, but do NOT log an event.  The scavenger
+            // will log an event when it next wakes up.  This keeps us from
+            // flooding the event log.
+            //
+
+            SrvNonPagedPoolLimitHitCount++;
+            SrvStatistics.NonPagedPoolFailures++;
+
+            InterlockedExchangeAdd( pCurrentPoolUsage, -(LONG)NumberOfBytes );
+
+            return NULL;
+
+        }
+
+        if (SrvStatistics.CurrentNonPagedPoolUsage > SrvStatistics.PeakNonPagedPoolUsage) {
+            SrvStatistics.PeakNonPagedPoolUsage = SrvStatistics.CurrentNonPagedPoolUsage;
+        }
     }
 
     //
@@ -211,44 +317,39 @@ Return Value:
     // If the system couldn't satisfy the request, return NULL.
     //
 
-    if ( newPool == NULL ) {
-
+    if ( newPool != NULL ) {
         //
-        // Count the failure, but do NOT log an event.  The scavenger
-        // will log an event when it next wakes up.  This keeps us from
-        // flooding the event log.
+        // Save the size of this block in the extra space we allocated.
         //
 
-        SrvStatistics.NonPagedPoolFailures++;
+        newPool->RequestedSize = NumberOfBytes;
+        newPool->FreeList = FreeList;
 
-        ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentNonPagedPoolUsage,
-                    (ULONG)(-(LONG)NumberOfBytes),
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    );
+        //
+        // Return a pointer to the memory after the size longword.
+        //
 
-        return NULL;
-
+        return (PVOID)( newPool + 1 );
     }
 
     //
-    // Save the size of this block in the extra space we allocated.
+    // Count the failure, but do NOT log an event.  The scavenger
+    // will log an event when it next wakes up.  This keeps us from
+    // flooding the event log.
     //
 
-    newPool->RequestedSize = NumberOfBytes;
-#if DBG
-    newPool->Paged = FALSE;
-#endif
+    SrvStatistics.NonPagedPoolFailures++;
 
-    //
-    // Return a pointer to the memory after the size longword.
-    //
+    if( pCurrentPoolUsage ) {
 
-    return (PVOID)( newPool + 1 );
+        InterlockedExchangeAdd( pCurrentPoolUsage, -(LONG)NumberOfBytes );
+     }
+
+    return NULL;
 
 } // SrvAllocateNonPagedPool
 
-VOID
+VOID SRVFASTCALL
 SrvFreeNonPagedPool (
     IN PVOID Address
     )
@@ -273,38 +374,42 @@ Return Value:
 --*/
 
 {
-    PPOOL_HEADER actualBlock;
+    PPOOL_HEADER actualBlock = (PPOOL_HEADER)Address - 1;
 
     //
-    // Get a pointer to the block allocated by ExAllocatePool.
+    // See if we can stash this bit of memory away in the NonPagedPoolFreeList
     //
+    if( actualBlock->FreeList ) {
 
-    actualBlock = (PPOOL_HEADER)Address - 1;
+        actualBlock = SrvInterlockedFree( actualBlock );
+    }
 
-    ASSERT( !actualBlock->Paged );
+    if( actualBlock != NULL ) {
 
-    //
-    // Update the nonpaged pool usage statistic.
-    //
+        if( SrvMaxNonPagedPoolUsage != 0xFFFFFFFF ) {
 
-    ExInterlockedAddUlong(
-        &SrvStatistics.CurrentNonPagedPoolUsage,
-        (ULONG)(-(LONG)actualBlock->RequestedSize),
-        &GLOBAL_SPIN_LOCK(Statistics)
-        );
+            //
+            // Update the nonpaged pool usage statistic.
+            //
+            InterlockedExchangeAdd(
+                (PLONG)&SrvStatistics.CurrentNonPagedPoolUsage,
+                -(LONG)actualBlock->RequestedSize
+                );
+        }
 
-    //
-    // Free the pool and return.
-    //
+        //
+        // Free the pool and return.
+        //
 
-    ExFreePool( actualBlock );
+        ExFreePool( actualBlock );
+    }
 
     return;
 
 } // SrvFreeNonPagedPool
 
 
-PVOID
+PVOID SRVFASTCALL
 SrvAllocatePagedPool (
     IN CLONG NumberOfBytes
 #ifdef POOL_TAGGING
@@ -335,52 +440,73 @@ Return Value:
 
 {
     PPOOL_HEADER newPool;
-    ULONG newUsage;
+    PPOOL_HEADER *FreeList = NULL;
+    PLONG pCurrentPoolUsage = SrvMaxPagedPoolUsage != 0xFFFFFFFF ? 
+                              (PLONG)&SrvStatistics.CurrentPagedPoolUsage : NULL;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
 #ifdef POOL_TAGGING
     ASSERT( BlockType > 0 && BlockType < BlockTypeMax );
 #endif
 
     //
-    // Account for this allocation in the statistics database and make
-    // sure that this allocation will not put us over the limit of
-    // nonpaged pool that we can allocate.
+    // Pull this allocation off the per-processor free list if we can
     //
+    if( SrvWorkQueues ) {
 
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-    newUsage = ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentPagedPoolUsage,
-                    NumberOfBytes,
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    ) + NumberOfBytes;
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+        PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
-    if ( newUsage > SrvMaxPagedPoolUsage ) {
+        if( NumberOfBytes <= queue->PagedPoolLookAsideList.MaxSize ) {
 
-        //
-        // Count the failure, but do NOT log an event.  The scavenger
-        // will log an event when it next wakes up.  This keeps us from
-        // flooding the event log.
-        //
+            newPool = SrvInterlockedAllocate(
+                                &queue->PagedPoolLookAsideList,
+                                NumberOfBytes,
+                                pCurrentPoolUsage
+                              );
 
-        SrvPagedPoolLimitHitCount++;
-        SrvStatistics.PagedPoolFailures++;
+            if( newPool != NULL ) {
+                return newPool;
+            }
 
-        ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentPagedPoolUsage,
-                    (ULONG)(-(LONG)NumberOfBytes),
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    );
-        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-
-        return NULL;
-
+            FreeList = NumberOfBytes > LOOK_ASIDE_SWITCHOVER ?
+                                    queue->PagedPoolLookAsideList.LargeFreeList :
+                                    queue->PagedPoolLookAsideList.SmallFreeList ;
+        }
     }
 
-    if (SrvStatistics.CurrentPagedPoolUsage > SrvStatistics.PeakPagedPoolUsage ) {
-        SrvStatistics.PeakPagedPoolUsage = SrvStatistics.CurrentPagedPoolUsage;
+    if( pCurrentPoolUsage ) {
+        //
+        // Account for this allocation in the statistics database and make
+        // sure that this allocation will not put us over the limit of
+        // nonpaged pool that we can allocate.
+        //
+
+        ULONG newUsage;
+
+        newUsage = InterlockedExchangeAdd( pCurrentPoolUsage, (LONG)NumberOfBytes );
+        newUsage += NumberOfBytes;
+
+        if ( newUsage > SrvMaxPagedPoolUsage ) {
+
+            //
+            // Count the failure, but do NOT log an event.  The scavenger
+            // will log an event when it next wakes up.  This keeps us from
+            // flooding the event log.
+            //
+
+            SrvPagedPoolLimitHitCount++;
+            SrvStatistics.PagedPoolFailures++;
+
+            InterlockedExchangeAdd( pCurrentPoolUsage,  -(LONG)NumberOfBytes );
+
+            return NULL;
+
+        }
+
+        if (SrvStatistics.CurrentPagedPoolUsage > SrvStatistics.PeakPagedPoolUsage ) {
+            SrvStatistics.PeakPagedPoolUsage = SrvStatistics.CurrentPagedPoolUsage;
+        }
     }
 
     //
@@ -394,50 +520,39 @@ Return Value:
                 TAG_FROM_TYPE(BlockType)
                 );
 
+    if( newPool != NULL ) {
+
+        newPool->FreeList = FreeList;
+        newPool->RequestedSize = NumberOfBytes;
+
+        //
+        // Return a pointer to the memory after the POOL_HEADER
+        //
+
+        return newPool + 1;
+    }
+
     //
     // If the system couldn't satisfy the request, return NULL.
     //
+    // Count the failure, but do NOT log an event.  The scavenger
+    // will log an event when it next wakes up.  This keeps us from
+    // flooding the event log.
+    //
 
-    if ( newPool == NULL ) {
+    SrvStatistics.PagedPoolFailures++;
 
-        //
-        // Count the failure, but do NOT log an event.  The scavenger
-        // will log an event when it next wakes up.  This keeps us from
-        // flooding the event log.
-        //
-
-        SrvStatistics.PagedPoolFailures++;
-
-        ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentPagedPoolUsage,
-                    (ULONG)(-(LONG)NumberOfBytes),
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    );
-        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-
-        return NULL;
+    if( pCurrentPoolUsage ) {
+        InterlockedExchangeAdd( pCurrentPoolUsage,  -(LONG)NumberOfBytes );
 
     }
 
+    return NULL;
 
-    //
-    // Save the size of this block in the extra space we allocated.
-    //
-
-    newPool->RequestedSize = NumberOfBytes;
-#if DBG
-    newPool->Paged = TRUE;
-#endif
-
-    //
-    // Return a pointer to the memory after the size longword.
-    //
-
-    return (PVOID)( newPool + 1 );
 
 } // SrvAllocatePagedPool
 
-VOID
+VOID SRVFASTCALL
 SrvFreePagedPool (
     IN PVOID Address
     )
@@ -448,7 +563,7 @@ Routine Description:
 
     Frees the memory allocated by a call to SrvAllocatePagedPool.
     The statistics database is updated to reflect the current Paged
-    pool usage.
+    pool usage.  If this routine is change, look at scavengr.c
 
 Arguments:
 
@@ -462,404 +577,44 @@ Return Value:
 --*/
 
 {
-    PPOOL_HEADER actualBlock;
+    PPOOL_HEADER actualBlock = (PPOOL_HEADER)Address - 1;
 
-    PAGED_CODE( );
+    PAGED_CODE();
 
-    //
-    // Get a pointer to the block allocated by ExAllocatePool.
-    //
-
-    actualBlock = (PPOOL_HEADER)Address - 1;
-
-    ASSERT( actualBlock->Paged );
+    ASSERT( actualBlock != NULL );
 
     //
-    // Update the Paged pool usage statistic.
+    // See if we can stash this bit of memory away in the PagedPoolFreeList
     //
+    if( actualBlock->FreeList ) {
 
-    ExInterlockedAddUlong(
-        &SrvStatistics.CurrentPagedPoolUsage,
-        (ULONG)(-(LONG)actualBlock->RequestedSize),
-        &GLOBAL_SPIN_LOCK(Statistics)
-        );
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+        actualBlock = SrvInterlockedFree( actualBlock );
+    }
 
-    //
-    // Free the pool and return.
-    //
+    if( actualBlock != NULL ) {
 
-    ExFreePool( actualBlock );
+        if( SrvMaxPagedPoolUsage != 0xFFFFFFFF ) {
+            //
+            // Update the Paged pool usage statistic.
+            //
+
+            ASSERT( SrvStatistics.CurrentPagedPoolUsage >= actualBlock->RequestedSize );
+
+            InterlockedExchangeAdd(
+                (PLONG)&SrvStatistics.CurrentPagedPoolUsage,
+                -(LONG)actualBlock->RequestedSize
+                );
+
+            ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+        }
+
+        //
+        // Free the pool and return.
+        //
+
+        ExFreePool( actualBlock );
+    }
 
     return;
 
 } // SrvFreePagedPool
-
-
-#if SRVDBG_HEAP
-
-//
-// *** This rest of this module is conditionalized away when SRVDBG_HEAP
-//     is off.
-//
-
-//
-// Globals needed for statistics and debug.
-//
-
-#if 0
-#define PAGED_HISTORY_SIZE 1024
-struct {
-    PVOID Address;
-    ULONG Size;
-    ULONG Type;
-    ULONG Usage;
-} PagedHistory[PAGED_HISTORY_SIZE] = {0};
-ULONG PagedHistoryIndex = 0;
-#endif
-
-STATIC LIST_ENTRY HeapList = { &HeapList, &HeapList };
-
-STATIC CLONG BlocksFree = 0;
-STATIC CLONG BytesFree = 0;
-
-STATIC CLONG MaxBlocksFree = 0;
-STATIC CLONG MaxBytesFree = 0;
-
-PVOID
-SrvAllocateHeapDebug (
-    IN CLONG BlockSize,
-    IN UCHAR BlockType
-    )
-{
-    PVOID block;
-    PPOOL_HEADER header;
-    KIRQL oldIrql;
-
-    block = SrvAllocatePagedPool(
-                BlockSize
-#ifdef POOL_TAGGING
-                , BlockType
-#endif
-                );
-    if ( block == NULL ) {
-        return NULL;
-    }
-    header = (PPOOL_HEADER)block - 1;
-
-#if 0
-    header->RequestedSizeCopy1 = BlockSize;
-    header->RequestedSizeCopy2 = BlockSize;
-    header->RequestedSizeCopy3 = BlockSize;
-    header->RequestedSizeCopy4 = BlockSize;
-#endif
-    header->BlockType = BlockType;
-    RtlGetCallersAddress( &header->Caller, &header->CallersCaller );
-
-    ACQUIRE_LOCK( &SrvDebugLock );
-    SrvInsertTailList( &HeapList, &header->ListEntry );
-    RELEASE_LOCK( &SrvDebugLock );
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Statistics, &oldIrql );
-
-    SrvInternalStatistics.Paged.TotalBlocksAllocated += 1;
-    SrvInternalStatistics.Paged.BlocksInUse += 1;
-    SrvInternalStatistics.Paged.TotalBytesAllocated += BlockSize;
-    SrvInternalStatistics.Paged.BytesInUse += BlockSize;
-    if ( SrvInternalStatistics.Paged.BlocksInUse > SrvInternalStatistics.Paged.MaxBlocksInUse ) {
-        SrvInternalStatistics.Paged.MaxBlocksInUse = SrvInternalStatistics.Paged.BlocksInUse;
-    }
-    if ( SrvInternalStatistics.Paged.BytesInUse > SrvInternalStatistics.Paged.MaxBytesInUse ) {
-        SrvInternalStatistics.Paged.MaxBytesInUse = SrvInternalStatistics.Paged.BytesInUse;
-    }
-
-#if 0
-    PagedHistory[PagedHistoryIndex].Address = header;
-    PagedHistory[PagedHistoryIndex].Size = BlockSize;
-    PagedHistory[PagedHistoryIndex].Type = BlockType;
-    PagedHistory[PagedHistoryIndex].Usage = SrvStatistics.CurrentPagedPoolUsage;
-    PagedHistoryIndex = ++PagedHistoryIndex % PAGED_HISTORY_SIZE;
-#endif
-
-    RELEASE_GLOBAL_SPIN_LOCK( Statistics, oldIrql );
-
-    return block;
-
-} // SrvAllocateHeapDebug
-
-
-VOID
-SrvFreeHeapDebug (
-    IN PVOID P
-    )
-{
-    PPOOL_HEADER header;
-    KIRQL oldIrql;
-    ULONG requestedSize;
-    ULONG blockType;
-
-    header = (PPOOL_HEADER)P - 1;
-    requestedSize = header->RequestedSize;
-    blockType = header->BlockType;
-
-#if 0
-    ASSERT( header->RequestedSizeCopy1 == requestedSize );
-    ASSERT( header->RequestedSizeCopy2 == requestedSize );
-    ASSERT( header->RequestedSizeCopy3 == requestedSize );
-    ASSERT( header->RequestedSizeCopy4 == requestedSize );
-#endif
-
-    ACQUIRE_LOCK( &SrvDebugLock );
-    SrvRemoveEntryList( &HeapList, &header->ListEntry );
-    RELEASE_LOCK( &SrvDebugLock );
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Statistics, &oldIrql );
-
-    SrvInternalStatistics.Paged.TotalBlocksFreed += 1;
-    SrvInternalStatistics.Paged.BlocksInUse -= 1;
-    SrvInternalStatistics.Paged.TotalBytesFreed += requestedSize;
-    SrvInternalStatistics.Paged.BytesInUse -= requestedSize;
-
-#if 0
-    PagedHistory[PagedHistoryIndex].Address = header;
-    PagedHistory[PagedHistoryIndex].Size = requestedSize;
-    PagedHistory[PagedHistoryIndex].Type = blockType;
-    PagedHistory[PagedHistoryIndex].Usage = SrvStatistics.CurrentPagedPoolUsage;
-    PagedHistoryIndex = ++PagedHistoryIndex % PAGED_HISTORY_SIZE;
-#endif
-
-    RELEASE_GLOBAL_SPIN_LOCK( Statistics, oldIrql );
-
-    SrvFreePagedPool( P );
-
-} // SrvFreeHeapDebug
-
-VOID
-SrvDumpHeap (
-    IN CLONG Level
-    )
-{
-    PAGED_CODE( );
-
-    KdPrint(( "Server paged heap usage:\n" ));
-
-    KdPrint(( "    Current: %ld/%ld blocks/bytes in use\n",
-            SrvInternalStatistics.Paged.BlocksInUse, SrvInternalStatistics.Paged.BytesInUse ));
-    KdPrint(( "        Max: %ld/%ld blocks/bytes in use\n",
-            SrvInternalStatistics.Paged.MaxBlocksInUse,
-            SrvInternalStatistics.Paged.MaxBytesInUse ));
-    KdPrint(( "      Total: %ld/%ld blocks/bytes allocated, %ld/%ld freed\n",
-            SrvInternalStatistics.Paged.TotalBlocksAllocated,
-            SrvInternalStatistics.NonPaged.TotalBytesAllocated,
-            SrvInternalStatistics.Paged.TotalBlocksFreed,
-            SrvInternalStatistics.Paged.TotalBytesFreed ));
-
-    if ( Level >= 1 ) {
-
-        PLIST_ENTRY listEntry = HeapList.Flink;
-
-        KdPrint(( "\n" ));
-
-        if ( listEntry == &HeapList ) {
-
-            KdPrint(( "    Server allocation list is empty.\n" ));
-
-        } else {
-
-            CLONG smallestBlock = 0x10000f;
-            CLONG largestBlock = 0;
-            CLONG smallBlockCount = 0;
-
-            if ( Level >= 2 ) KdPrint(( "    Free list:\n" ));
-
-            while ( listEntry != &HeapList ) {
-
-                PPOOL_HEADER header =
-                    CONTAINING_RECORD( listEntry, POOL_HEADER, ListEntry );
-                CLONG blockSize = header->RequestedSize;
-
-                if ( Level >= 2 ) {
-                    ULONG blockType = header->BlockType;
-                    if ( (blockType < 0) || (blockType > BlockTypeMax) ) {
-                        blockType = BlockTypeMax;
-                    }
-                    KdPrint(( "        %ld bytes at %lx  type %ld\n",
-                                blockSize, header, blockType ));
-                }
-
-                if ( blockSize < smallestBlock )
-                    smallestBlock = blockSize;
-                if ( blockSize > largestBlock )
-                    largestBlock = blockSize;
-                if ( blockSize <= 32 )
-                    smallBlockCount++;
-
-                listEntry = listEntry->Flink;
-            }
-
-            KdPrint(( "    Smallest block: %ld  Largest block: %ld\n",
-                        smallestBlock, largestBlock ));
-            KdPrint(( "    Small block count: %ld  Average block: %ld\n",
-                        smallBlockCount,
-                        SrvInternalStatistics.Paged.BytesInUse /
-                            SrvInternalStatistics.Paged.BlocksInUse ));
-
-        }
-
-    }
-
-    return;
-
-} // SrvDumpHeap
-
-STATIC LIST_ENTRY NonPagedPoolList = { &NonPagedPoolList, &NonPagedPoolList };
-
-PVOID
-SrvAllocateNonPagedPoolDebug (
-    IN CLONG BlockSize,
-    IN UCHAR BlockType
-    )
-{
-    PVOID block;
-    PPOOL_HEADER header;
-    KIRQL oldIrql;
-
-    block = SrvAllocateNonPagedPool(
-                BlockSize
-#ifdef POOL_TAGGING
-                , BlockType
-#endif
-                );
-    if ( block == NULL ) {
-        return NULL;
-    }
-    header = (PPOOL_HEADER)block - 1;
-    header->BlockType = BlockType;
-    RtlGetCallersAddress( &header->Caller, &header->CallersCaller );
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Debug, &oldIrql );
-    SrvInsertTailList( &NonPagedPoolList, &header->ListEntry );
-    RELEASE_GLOBAL_SPIN_LOCK( Debug, oldIrql );
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Statistics, &oldIrql );
-    SrvInternalStatistics.NonPaged.TotalBlocksAllocated += 1;
-    SrvInternalStatistics.NonPaged.BlocksInUse += 1;
-    SrvInternalStatistics.NonPaged.TotalBytesAllocated += BlockSize;
-    SrvInternalStatistics.NonPaged.BytesInUse += BlockSize;
-    if ( SrvInternalStatistics.NonPaged.BlocksInUse > SrvInternalStatistics.NonPaged.MaxBlocksInUse ) {
-        SrvInternalStatistics.NonPaged.MaxBlocksInUse = SrvInternalStatistics.NonPaged.BlocksInUse;
-    }
-    if ( SrvInternalStatistics.NonPaged.BytesInUse > SrvInternalStatistics.NonPaged.MaxBytesInUse ) {
-        SrvInternalStatistics.NonPaged.MaxBytesInUse = SrvInternalStatistics.NonPaged.BytesInUse;
-    }
-    RELEASE_GLOBAL_SPIN_LOCK( Statistics, oldIrql );
-
-    return block;
-
-} // SrvAllocateNonPagedPoolDebug
-
-VOID
-SrvFreeNonPagedPoolDebug (
-    IN PVOID P
-    )
-{
-    PPOOL_HEADER header;
-    KIRQL oldIrql;
-
-    header = (PPOOL_HEADER)P - 1;
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Debug, &oldIrql );
-    SrvRemoveEntryList( &NonPagedPoolList, &header->ListEntry );
-    RELEASE_GLOBAL_SPIN_LOCK( Debug, oldIrql );
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Statistics, &oldIrql );
-    SrvInternalStatistics.NonPaged.TotalBlocksFreed += 1;
-    SrvInternalStatistics.NonPaged.BlocksInUse -= 1;
-    SrvInternalStatistics.NonPaged.TotalBytesFreed += header->RequestedSize;
-    SrvInternalStatistics.NonPaged.BytesInUse -= header->RequestedSize;
-    RELEASE_GLOBAL_SPIN_LOCK( Statistics, oldIrql );
-
-    SrvFreeNonPagedPool( P );
-
-} // SrvFreeNonPagedPoolDebug
-
-VOID
-SrvDumpPool (
-    IN CLONG Level
-    )
-{
-    PAGED_CODE( );
-
-    KdPrint(( "Server nonpaged pool usage:\n" ));
-
-    KdPrint(( "    Current: %ld/%ld blocks/bytes in use\n",
-            SrvInternalStatistics.NonPaged.BlocksInUse,
-            SrvInternalStatistics.NonPaged.BytesInUse ));
-    KdPrint(( "        Max: %ld/%ld blocks/bytes in use\n",
-            SrvInternalStatistics.NonPaged.MaxBlocksInUse, SrvInternalStatistics.NonPaged.MaxBytesInUse ));
-    KdPrint(( "      Total: %ld/%ld blocks/bytes allocated, %ld/%ld freed\n",
-            SrvInternalStatistics.NonPaged.TotalBlocksAllocated,
-            SrvInternalStatistics.NonPaged.TotalBytesAllocated,
-            SrvInternalStatistics.NonPaged.TotalBlocksFreed,
-            SrvInternalStatistics.NonPaged.TotalBytesFreed ));
-
-    if ( Level >= 1 ) {
-
-        PLIST_ENTRY listEntry = NonPagedPoolList.Flink;
-
-        KdPrint(( "\n" ));
-
-        if ( listEntry == &NonPagedPoolList ) {
-
-            KdPrint(( "    Server allocation list is empty.\n" ));
-
-        } else {
-
-            CLONG smallestBlock = 0x10000f;
-            CLONG largestBlock = 0;
-            CLONG smallBlockCount = 0;
-
-            if ( Level >= 2 ) KdPrint(( "    Free list:\n" ));
-
-            while ( listEntry != &NonPagedPoolList ) {
-
-                PPOOL_HEADER header =
-                    CONTAINING_RECORD( listEntry, POOL_HEADER, ListEntry );
-                CLONG blockSize = header->RequestedSize;
-
-                if ( Level >= 2 ) {
-                    ULONG blockType = header->BlockType;
-                    if ( (blockType < 0) || (blockType > BlockTypeMax) ) {
-                        blockType = BlockTypeMax;
-                    }
-                    KdPrint(( "        %ld bytes at %lx  type %ld\n",
-                                blockSize, header, blockType ));
-                }
-
-                if ( blockSize < smallestBlock )
-                    smallestBlock = blockSize;
-                if ( blockSize > largestBlock )
-                    largestBlock = blockSize;
-                if ( blockSize <= 32 )
-                    smallBlockCount++;
-
-                listEntry = listEntry->Flink;
-            }
-
-            KdPrint(( "    Smallest block: %ld  Largest block: %ld\n",
-                        smallestBlock, largestBlock ));
-            KdPrint(( "    Small block count: %ld  Average block: %ld\n",
-                        smallBlockCount,
-                        SrvInternalStatistics.NonPaged.BytesInUse /
-                            SrvInternalStatistics.NonPaged.BlocksInUse ));
-
-        }
-
-    }
-
-    return;
-
-} // SrvDumpPool
-
-#endif // SRVDBG_HEAP
-

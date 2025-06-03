@@ -1,91 +1,37 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  uses_tbl.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Routines to perform operations on the Workstation Uses table.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.5  $
-//  $Date:   30 Jun 1992 13:34:40  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/uses_tbl.c_v  $
-//
-//     Rev 1.5   30 Jun 1992 13:34:40   mlk
-//  Removed some openissue comments
-//
-//     Rev 1.4   12 Jun 1992 19:19:34   todd
-//  Added support to initialize table variable
-//
-//     Rev 1.3   07 Jun 1992 15:26:34   todd
-//  Correct MIB prefixes for tables due to new alert mib
-//
-//     Rev 1.2   01 Jun 1992 12:35:50   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.1   22 May 1992 17:38:22   todd
-//  Added return codes to _lmget() functions
-//
-//     Rev 1.0   20 May 1992 15:11:18   mlk
-//  Initial revision.
-//
-//     Rev 1.9   02 May 1992 19:08:08   todd
-//  code cleanup
-//
-//     Rev 1.8   27 Apr 1992 17:36:12   todd
-//  Removed function and prototype for MIB_wsuses_set
-//
-//     Rev 1.7   27 Apr 1992 14:05:48   todd
-//  Changed table prefix to be correct
-//
-//     Rev 1.6   27 Apr 1992 14:21:18   Chip
-//  Fixed comment problem on l# 371
-//
-//     Rev 1.5   27 Apr 1992 12:25:48   todd
-//
-//     Rev 1.4   27 Apr 1992 12:21:36   todd
-//  Added routines to support operations on the workstation uses table
-//
-//     Rev 1.3   26 Apr 1992 18:02:54   Chip
-//  Fixed error in table declaratino and included new uses_tbl.h
-//
-//     Rev 1.2   25 Apr 1992 17:21:30   todd
-//
-//     Rev 1.1   24 Apr 1992 14:34:52   todd
-//
-//     Rev 1.0   24 Apr 1992 13:38:44   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/uses_tbl.c_v  $ $Revision:   1.5  $";
+Module Name:
+
+    uses_tbl.c
+
+Abstract:
+
+    Routines to perform operations on the Workstation Uses table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
-#include <malloc.h>
 #include <memory.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
+#include <snmputil.h>
 
 #include "mibfuncs.h"
 
@@ -193,11 +139,11 @@ UINT    ErrStat;
          AsnObjectIdentifier FieldOid = { 1, temp_subs };
 
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_UsesPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_WkstaUsesTable.Table[0].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_UsesPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_WkstaUsesTable.Table[0].Oid );
          }
 
          //
@@ -226,17 +172,17 @@ UINT    ErrStat;
          if ( Found == MIB_TBL_POS_END )
             {
             // Index not found in table, get next from field
-            Field ++;
+//            Field ++;
 
             // Make sure not past last field
-            if ( Field > USES_LAST_FIELD )
-               {
+//            if ( Field > USES_LAST_FIELD )
+//               {
                // Get next VAR in MIB
                ErrStat = (*MibPtr->MibNext->MibFunc)( MIB_ACTION_GETFIRST,
                                                       MibPtr->MibNext,
                                                       VarBind );
                break;
-               }
+//               }
             }
 
          // Get next TABLE entry
@@ -269,11 +215,11 @@ UINT    ErrStat;
          FieldOid.idLength = 1;
          FieldOid.ids      = temp_subs;
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_UsesPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_WkstaUsesTable.Table[Entry].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_UsesPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_WkstaUsesTable.Table[Entry].Oid );
          }
 
          ErrStat = MIB_wsuses_copyfromtable( Entry, Field, VarBind );
@@ -372,13 +318,13 @@ int                 nResult;
    *Pos = 0;
    while ( *Pos < MIB_WkstaUsesTable.Len )
       {
-      nResult = SNMP_oidcmp( &TempOid, &MIB_WkstaUsesTable.Table[*Pos].Oid );
+      nResult = SnmpUtilOidCmp( &TempOid, &MIB_WkstaUsesTable.Table[*Pos].Oid );
       if ( !nResult )
          {
          nResult = MIB_TBL_POS_FOUND;
          if (Next) {
              while ( ( (*Pos) + 1 < MIB_WkstaUsesTable.Len ) &&
-                     !SNMP_oidcmp( &TempOid, &MIB_WkstaUsesTable.Table[(*Pos)+1].Oid)) {
+                     !SnmpUtilOidCmp( &TempOid, &MIB_WkstaUsesTable.Table[(*Pos)+1].Oid)) {
                  (*Pos)++;
              }
          }
@@ -431,7 +377,7 @@ UINT ErrStat;
       {
       case USES_LOCAL_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_WkstaUsesTable.Table[Entry].useLocalName.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -455,7 +401,7 @@ UINT ErrStat;
 
       case USES_REMOTE_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_WkstaUsesTable.Table[Entry].useRemote.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -484,7 +430,7 @@ UINT ErrStat;
          break;
 
       default:
-         printf( "Internal Error WorkstationUses Table\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error WorkstationUses Table\n" ));
          ErrStat = SNMP_ERRORSTATUS_GENERR;
 
          goto Exit;
@@ -497,4 +443,3 @@ Exit:
 } // MIB_wsuses_copyfromtable
 
 //-------------------------------- END --------------------------------------
-

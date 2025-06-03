@@ -511,7 +511,7 @@ Notes:
 
 	} else {
 
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 
 	}
 
@@ -1938,7 +1938,7 @@ Notes:
 
 	StatusOk = PatternString.Initialize( Pattern );
 
-	DbgAssert( StatusOk );
+	DebugAssert( StatusOk );
 
 	if ( StatusOk ) {
 
@@ -1946,7 +1946,7 @@ Notes:
 
 	} else {
 
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 
 	}
 	//NOTREACHED
@@ -1992,7 +1992,7 @@ Notes:
 	WCHAR	PatternChar;	//	Character in pattern
 	WCHAR	CmdChar;		//	Character in command line;
 
-	DbgPtrAssert( Pattern );
+	DebugPtrAssert( Pattern );
 
 	CmdIndex		= CharIndex;
 	PatternIndex	= 0;
@@ -2219,7 +2219,7 @@ Return Value:
 
 	DisplayMessageAndExit( MODE_ERROR_INVALID_PARAMETER,
 						   &Parameter,
-						   EXIT_ERROR );
+						   (ULONG)EXIT_ERROR );
 
 }
 
@@ -2256,14 +2256,14 @@ Notes:
 
 	PREQUEST_HEADER Request;
 
-	DbgAssert( Size >= sizeof( REQUEST_HEADER )) ;
+	DebugAssert( Size >= sizeof( REQUEST_HEADER )) ;
 
 	Request = (PREQUEST_HEADER)MALLOC( (unsigned int)Size );
 
-	DbgPtrAssert( Request );
+	DebugPtrAssert( Request );
 
 	if ( !Request ) {
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 	}
 
 	Request->DeviceType 	=	DeviceType;
@@ -2301,7 +2301,7 @@ Return Value:
 	LONG	Number;
 
 
-	DbgAssert( MatchEnd >= MatchBegin );
+	DebugAssert( MatchEnd >= MatchBegin );
 
     if ( !CmdLine->QueryNumber( &Number, MatchBegin, (MatchEnd-MatchBegin)+1 ) ) {
 		ParseError();

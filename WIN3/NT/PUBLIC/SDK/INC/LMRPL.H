@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1991-1993  Microsoft Corporation
+Copyright (c) 1991-1995  Microsoft Corporation
 
 Module Name:
 
@@ -10,10 +10,6 @@ Abstract:
 
     This file contains structures, function prototypes, and definitions
     for the Remote (Initial) Program Load service.
-
-Author:
-
-    Vladimir Z. Vulovic     (vladimv)       27-July-1993
 
 Environment:
 
@@ -28,6 +24,10 @@ Revision History:
         header files and specs.
 --*/
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define RPL_MAX_WKSTA_NAME_LENGTH       MAX_COMPUTERNAME_LENGTH
 #define RPL_MAX_PROFILE_NAME_LENGTH     16
@@ -536,6 +536,6 @@ NetRplSetSecurity(
     IN      DWORD           RplUserRid
     );
 
-
-
-
+#ifdef __cplusplus
+}
+#endif

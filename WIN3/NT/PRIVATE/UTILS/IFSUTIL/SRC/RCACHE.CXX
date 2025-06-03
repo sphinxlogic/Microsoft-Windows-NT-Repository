@@ -1,12 +1,15 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "rcache.hxx"
 
 
-DEFINE_CONSTRUCTOR( READ_CACHE, DRIVE_CACHE );
+DEFINE_EXPORTED_CONSTRUCTOR( READ_CACHE, DRIVE_CACHE, IFSUTIL_EXPORT );
 
 
 READ_CACHE::~READ_CACHE(
@@ -33,7 +36,7 @@ Return Value:
 
 VOID
 READ_CACHE::Construct (
-	)
+        )
 /*++
 
 Routine Description:
@@ -75,6 +78,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 READ_CACHE::Initialize(
     IN OUT  PIO_DP_DRIVE    Drive,

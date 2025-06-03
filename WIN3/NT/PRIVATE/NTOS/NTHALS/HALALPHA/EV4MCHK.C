@@ -25,6 +25,14 @@ Revision History:
 
 #include "halp.h"
 #include "axp21064.h"
+#include "stdio.h"
+
+
+// 
+// Declare the extern variable UncorrectableError declared in 
+// inithal.c.
+//
+extern PERROR_FRAME PUncorrectableError;
 
 VOID
 HalpDisplayLogout21064( 
@@ -199,6 +207,10 @@ Return Value:
     MCES Mces;
     BOOLEAN UnhandledPlatformError = FALSE;
 
+    PUNCORRECTABLE_ERROR  uncorrerr = NULL;
+    PPROCESSOR_EV4_UNCORRECTABLE  ev4uncorr = NULL;
+
+
     //
     // This is a parity machine.  If we receive a machine check it
     // is uncorrectable.  We will print the logout frame and then we
@@ -267,9 +279,7 @@ Return Value:
 
 #if (DBG) || (HALDBG)
 
-        if( (RetryableErrors % 32) == 0 ){
-            DbgPrint( "HAL Retryable Errors = %d\n", RetryableErrors );
-        }
+        DbgPrint( "HAL Retryable Errors = %d\n", RetryableErrors );
 
 #endif //DBG || HALDBG
 
@@ -297,6 +307,52 @@ Return Value:
     LogoutFrame = 
         (PLOGOUT_FRAME_21064)ExceptionRecord->ExceptionInformation[1];
 
+    if(PUncorrectableError) {
+
+        // 
+        // Fill in the processor specific uncorrectable error frame
+        //
+        uncorrerr = (PUNCORRECTABLE_ERROR)
+                        &PUncorrectableError->UncorrectableFrame;
+
+        // 
+        // first fill in some generic processor Information.
+        // For the Current (Reporting) Processor.
+        //
+        HalpGetProcessorInfo(&uncorrerr->ReportingProcessor);
+        uncorrerr->Flags.ProcessorInformationValid = 1;
+
+        ev4uncorr = (PPROCESSOR_EV4_UNCORRECTABLE)
+                        uncorrerr->RawProcessorInformation;
+    }
+    if(ev4uncorr) {
+    
+        ev4uncorr->BiuStat = ((ULONGLONG)LogoutFrame->BiuStat.all.HighPart << 
+                                    32) | LogoutFrame->BiuStat.all.LowPart;
+
+        ev4uncorr->BiuAddr = ((ULONGLONG)LogoutFrame->BiuAddr.HighPart << 32) | 
+                                LogoutFrame->BiuAddr.LowPart;
+
+        ev4uncorr->AboxCtl = ((ULONGLONG)LogoutFrame->AboxCtl.all.HighPart << 
+                                    32) | LogoutFrame->AboxCtl.all.LowPart;
+
+        ev4uncorr->BiuCtl = ((ULONGLONG)LogoutFrame->BiuCtl.HighPart << 32) |
+                                LogoutFrame->BiuCtl.LowPart;
+
+        ev4uncorr->CStat = ((ULONGLONG)LogoutFrame->DcStat.all.HighPart << 
+                                    32) | LogoutFrame->DcStat.all.LowPart;
+
+        ev4uncorr->BcTag = ((ULONGLONG)LogoutFrame->BcTag.all.HighPart << 
+                                    32 ) | LogoutFrame->BcTag.all.LowPart;
+
+        ev4uncorr->FillAddr = ((ULONGLONG)LogoutFrame->FillAddr.HighPart << 
+                                    32) | LogoutFrame->FillAddr.LowPart;
+
+        ev4uncorr->FillSyndrome = 
+                    ((ULONGLONG)LogoutFrame->FillSyndrome.all.HighPart << 32) | 
+                        LogoutFrame->FillSyndrome.all.LowPart;
+    }
+
     //
     // Check for any hard errors that cannot be dismissed.
     // They are:
@@ -316,6 +372,14 @@ Return Value:
         (BiuStat->bits.FillEcc == 1)   ||
         (BiuStat->bits.FillDperr == 1) ||
         (BiuStat->bits.Fatal2 == 1) )     { 
+
+        //
+        // set the flag to indicate that the processor information is valid.
+        //
+        uncorrerr->Flags.ProcessorInformationValid =  1;
+        uncorrerr->Flags.ErrorStringValid =  1;
+        sprintf(uncorrerr->ErrorString,"Uncorrectable Error From " 
+                                       "Processor Detected");
 
         //
         // A serious, uncorrectable error has occured, under no circumstances
@@ -404,7 +468,7 @@ FatalError:
                   (ULONG)MachineCheckStatus->Correctable,
                   (ULONG)MachineCheckStatus->Retryable,
                   (ULONG)0,
-                  (ULONG)0 );
+                  (ULONG)PUncorrectableError );
 
 }
 
@@ -433,6 +497,9 @@ Return Value:
 
 {
     UCHAR OutBuffer[ MAX_ERROR_STRING ];
+    ULONG Index;
+    PKPRCB Prcb;
+    extern HalpLogicalToPhysicalProcessor[HAL_MAXIMUM_PROCESSOR+1];
 
     sprintf( OutBuffer, "BIU_STAT : %016Lx BIU_ADDR: %016Lx\n",
                        BIUSTAT_ALL_21064( LogoutFrame->BiuStat ),
@@ -473,6 +540,12 @@ Return Value:
 
     HalDisplayString( OutBuffer );
 
+    sprintf( OutBuffer, "Waiting 15 seconds...\n");
+    HalDisplayString( OutBuffer );
+
+    for( Index=0; Index<1500; Index++)
+        KeStallExecutionProcessor( 10000 ); // ~15 second delay
+
     sprintf( OutBuffer, "PAL_BASE : %016Lx  \n",
                        LogoutFrame->PalBase.QuadPart );
     HalDisplayString( OutBuffer );
@@ -481,8 +554,23 @@ Return Value:
     // Print out interpretation of the error.
     //
 
+    //
+    // First print the processor on which we saw the error
+    //
 
-    HalDisplayString( "\n" );
+    Prcb = PCR->Prcb;
+    sprintf( OutBuffer, "Error on processor number: %d\n", 
+                    HalpLogicalToPhysicalProcessor[Prcb->Number] );
+    HalDisplayString( OutBuffer );
+
+    //
+    // If we got a Data Cache Parity Error print a message on screen.
+    //
+
+    if( DCSTAT_DCPARITY_ERROR_21064(LogoutFrame->DcStat) ){
+        sprintf( OutBuffer, "Data Cache Parity Error.\n" );
+        HalDisplayString( OutBuffer );
+    }
 
     //
     // Check for tag control parity error.

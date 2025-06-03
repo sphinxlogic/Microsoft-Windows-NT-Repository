@@ -204,6 +204,11 @@ main(
         "VtEIBopNumber",
         OFFSET(VDM_TIB,EventInfo) + OFFSET(VDMEVENTINFO, BopNumber)
         );
+    p2(
+        "VtEIIntAckInfo",
+        OFFSET(VDM_TIB,EventInfo) + OFFSET(VDMEVENTINFO, IntAckInfo)
+        );
+    p2("VtPmStackInfo",OFFSET(VDM_TIB,PmStackInfo));
     p2("EiEvent",OFFSET(VDMEVENTINFO,Event));
     p2("EiInstructionSize",OFFSET(VDMEVENTINFO,InstructionSize));
     p2("EiBopNumber",OFFSET(VDMEVENTINFO,BopNumber));
@@ -229,6 +234,21 @@ main(
     p2("VfEsp",OFFSET(VDM_FAULTHANDLER,Esp));
     p2("VfFlags",OFFSET(VDM_FAULTHANDLER,Flags));
     p2("VDM_FAULT_HANDLER_SIZE",sizeof(VDM_FAULTHANDLER));
+
+    p1("; \n");
+    p1("; VdmPmStackInfo offsets\n");
+    p1("; \n");
+
+    p2("VpLockCount",OFFSET(VDM_PMSTACKINFO,LockCount));
+    p2("VpFlags",OFFSET(VDM_PMSTACKINFO,Flags));
+    p2("VpSsSelector",OFFSET(VDM_PMSTACKINFO,SsSelector));
+    p2("VpSaveSsSelector",OFFSET(VDM_PMSTACKINFO,SaveSsSelector));
+    p2("VpSaveEsp",OFFSET(VDM_PMSTACKINFO,SaveEsp));
+    p2("VpSaveEip",OFFSET(VDM_PMSTACKINFO,SaveEip));
+    p2("VpDosxIntIret",OFFSET(VDM_PMSTACKINFO,DosxIntIret));
+    p2("VpDosxIntIretD",OFFSET(VDM_PMSTACKINFO,DosxIntIretD));
+    p2("VpDosxFaultIret",OFFSET(VDM_PMSTACKINFO,DosxFaultIret));
+    p2("VpDosxFaultIretD",OFFSET(VDM_PMSTACKINFO,DosxFaultIretD));
 
     return 0;
 }

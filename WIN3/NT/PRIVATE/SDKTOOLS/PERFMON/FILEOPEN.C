@@ -12,11 +12,13 @@
 #include <dlgs.h>       // for pshHelp
 
 #define OptionsOFNStyle \
-   (OFN_HIDEREADONLY | OFN_SHOWHELP | OFN_OVERWRITEPROMPT | OFN_ENABLEHOOK)
+   (OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT | OFN_ENABLEHOOK | OFN_EXPLORER)
+//   (OFN_HIDEREADONLY | OFN_SHOWHELP | OFN_OVERWRITEPROMPT | OFN_ENABLEHOOK)
 
 #define ExportOptionsOFNStyle                   \
    (OFN_ENABLETEMPLATE | OFN_HIDEREADONLY |     \
-    OFN_SHOWHELP | OFN_ENABLEHOOK | OFN_OVERWRITEPROMPT)
+    OFN_ENABLEHOOK | OFN_OVERWRITEPROMPT | OFN_EXPLORER)
+//    OFN_SHOWHELP | OFN_ENABLEHOOK | OFN_OVERWRITEPROMPT)
 
 extern BOOL APIENTRY ExportOptionsHookProc (HWND hDlg, UINT iMessage, 
                                             WPARAM wParam, LPARAM lParam) ;
@@ -39,6 +41,23 @@ BOOL APIENTRY FileOpenHookProc (HWND hDlg,
       WindowCenter (hDlg) ;
       bHandled = TRUE ;
       }
+
+#if WINVER >= 0x0400
+    else if (iMessage == WM_NOTIFY)
+      {
+      LPOFNOTIFY  pOfn;
+      pOfn = (LPOFNOTIFY)lParam;
+
+      switch (pOfn->hdr.code) {
+        case CDN_INITDONE:
+            WindowCenter (pOfn->hdr.hwndFrom) ;
+            break;
+
+        default:
+            break;
+        }
+      }
+#endif
 
    return (bHandled) ;
 }
@@ -114,7 +133,8 @@ BOOL FileOpen (HWND hWndParent, int nStringResourceID, LPTSTR lpInputFileName)
       ofn.nMaxFile = sizeof(szFileSpec);
       ofn.lpstrFileTitle = szFileTitle;
       ofn.nMaxFileTitle = sizeof(szFileTitle);
-      ofn.Flags = OFN_HIDEREADONLY | OFN_SHOWHELP | OFN_FILEMUSTEXIST | OFN_ENABLEHOOK ;
+//      ofn.Flags = OFN_HIDEREADONLY | OFN_SHOWHELP | OFN_FILEMUSTEXIST | OFN_ENABLEHOOK ;
+      ofn.Flags = OFN_HIDEREADONLY | OFN_FILEMUSTEXIST | OFN_ENABLEHOOK | OFN_EXPLORER;
       ofn.lpfnHook = (LPOFNHOOKPROC) FileOpenHookProc ;
 
       if (!GetOpenFileName(&ofn))
@@ -296,7 +316,9 @@ BOOL FileGetName (HWND hWndParent, int nStringResourceID, LPTSTR lpFileName)
    TCHAR          szFileTitle [FilePathLen] ;
    TCHAR          szDialogTitle [FilePathLen] ;
    TCHAR          aszOpenFilter[LongTextLen] ;
+   TCHAR          aszDefaultExt[FileExtLen];
    int            StringLength ;
+   int            nExportExtId = 0;
 
    if (lpFileName)
       {
@@ -331,11 +353,13 @@ BOOL FileGetName (HWND hWndParent, int nStringResourceID, LPTSTR lpFileName)
             {
             FirstExtensionID = IDS_EXPORTFILETSV ;
             SecondExtensionID = IDS_EXPORTFILE ;
+            nExportExtId = IDS_DEF_EXPORT_TSV;
             }
          else
             {
             FirstExtensionID = IDS_EXPORTFILE ;
             SecondExtensionID = IDS_EXPORTFILETSV ;
+            nExportExtId = IDS_DEF_EXPORT_CSV;
             }
 
          LoadString (hInstance, FirstExtensionID,
@@ -396,12 +420,28 @@ BOOL FileGetName (HWND hWndParent, int nStringResourceID, LPTSTR lpFileName)
 
       if (nStringResourceID == IDS_EXPORTFILE)
          {
+         // get default file extension 
+         if (LoadString (hInstance, nExportExtId,
+            aszDefaultExt,
+            sizeof(aszDefaultExt) / sizeof(TCHAR)) > 0) {
+            ofn.lpstrDefExt = aszDefaultExt;
+         } else {
+            ofn.lpstrDefExt = NULL; // no default extenstion
+         }
          ofn.Flags = ExportOptionsOFNStyle ;
          ofn.lpfnHook = (LPOFNHOOKPROC) ExportOptionsHookProc ;
          ofn.lpTemplateName = idDlgExportOptions ;
          }
       else
          {
+         // get default file extension 
+         if (LoadString (hInstance, nStringResourceID+2,
+            aszDefaultExt,
+            sizeof(aszDefaultExt) / sizeof(TCHAR)) > 0) {
+            ofn.lpstrDefExt = aszDefaultExt;
+         } else {
+            ofn.lpstrDefExt = NULL; // no default extenstion
+         }
          ofn.Flags = OptionsOFNStyle ;
          ofn.lpfnHook = (LPOFNHOOKPROC) FileOpenHookProc ;
          }
@@ -424,4 +464,4 @@ BOOL FileGetName (HWND hWndParent, int nStringResourceID, LPTSTR lpFileName)
    } // FileGetName
 
 
-
+

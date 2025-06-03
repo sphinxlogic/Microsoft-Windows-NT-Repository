@@ -23,5 +23,4 @@ int  FAR RegMakeFilterSpec(LPSTR lpstrClass, LPSTR lpstrExt, HANDLE *hFilterSpec
 void FAR RegTerm(void);
 
 extern char             szClassName[CBPATHMAX];
-
-
+

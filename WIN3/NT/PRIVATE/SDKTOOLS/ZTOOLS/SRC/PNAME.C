@@ -48,7 +48,7 @@
 char *pname (char *pszName)
 {
     if (!IsMixedCaseSupported (pszName))
-	return strlwr (pszName);
+	return _strlwr (pszName);
 
     /*	The underlying file system supports mixed case.  Iterate through
      *	the path doing find-firsts to elicit the correct case from the

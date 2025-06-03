@@ -542,6 +542,10 @@ BOOL _CRTAPI1 _get_qualified_locale(
     LPLC_STRINGS lpOutStr
     )
 {
+#if defined _POSIX_
+    return FALSE;
+#else /* _POSIX_ */
+
    LC_ID Id;
    WCHAR wcsTemp[MAX_TEMP_STR_LEN];
 
@@ -687,6 +691,7 @@ BOOL _CRTAPI1 _get_qualified_locale(
       _itoa((int)Id.wCodePage, (char *)lpOutStr->szCodePage, 10);
    }
    return TRUE;
+#endif /* _POSIX_ */
 }
 
 
@@ -729,4 +734,3 @@ VOID _CRTAPI1 test_ctry_table(VOID)
 }
 
 #endif
-

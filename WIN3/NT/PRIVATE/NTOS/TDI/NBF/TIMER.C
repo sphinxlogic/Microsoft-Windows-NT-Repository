@@ -127,7 +127,8 @@ Return Value:
     // Determine the difference between now and then.
     //
 
-    Interval = RtlLargeIntegerSubtract (CurrentTick, Link->CurrentTimerStart);
+    Interval.QuadPart = CurrentTick.QuadPart -
+	                        (Link->CurrentTimerStart).QuadPart;
 
     //
     // If the gap is too big, return 1 minute.
@@ -1604,9 +1605,8 @@ Return Value:
 
     KeQueryTickCount (&CurrentTick);
 
-    TickDifference = RtlLargeIntegerSubtract(
-                          CurrentTick,
-                          DeviceContext->ShortTimerStart);
+    TickDifference.QuadPart = CurrentTick.QuadPart -
+                          (DeviceContext->ShortTimerStart).QuadPart;
 
     TickDelta = TickDifference.LowPart / NbfShortTimerDeltaTicks;
     if (TickDelta == 0) {
@@ -1782,9 +1782,8 @@ Return Value:
             continue;
         }
 
-        TickDifference = RtlLargeIntegerSubtract(
-                              CurrentTick,
-                              Connection->ConnectStartTime);
+        TickDifference.QuadPart = CurrentTick.QuadPart -
+                                      (Connection->ConnectStartTime).QuadPart;
 
         if ((TickDifference.HighPart == 0) &&
             (TickDifference.LowPart <= NbfTwentyMillisecondsTicks)) {
@@ -2220,7 +2219,8 @@ Return Value:
 
     p = DeviceContext->DataAckQueue.Flink;
 
-    while (p != &DeviceContext->DataAckQueue) {
+    while (p != &DeviceContext->DataAckQueue && 
+           !DeviceContext->DataAckQueueChanged) {
 
         Connection = CONTAINING_RECORD (DeviceContext->DataAckQueue.Flink, TP_CONNECTION, DataAckLinkage);
 

@@ -871,7 +871,7 @@ Return Value:
         //
 
         default:
-            NetpDbgPrint("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, level);
+            NetpKdPrint(("%s.%u Unknown Level parameter: %u\n", __FILE__, __LINE__, level));
 #endif
     }
 

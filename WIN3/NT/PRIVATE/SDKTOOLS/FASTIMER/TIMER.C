@@ -1,7 +1,7 @@
 /*     OS/2 Version
 *      Timer.c       -    Source file for a statistical
 *                         dll package that exports four
-*                         entry points:  
+*                         entry points:
 *                         a) TimerOpen
 *                         b) TimerInit
 *                         c) TimerRead
@@ -22,7 +22,7 @@
 *                         The units of the time returned by TimerRead
 *                         is also made available as a parameter to
 *                         this call.
-*                         
+*
 *                         Entry point b) is called by the application
 *                         before commencing a timing operation.  This
 *                         function is called with a handle to a timer
@@ -56,7 +56,7 @@
 *
 *                         Entry point g) accepts Elapsed Tics as ULONG,
 *                         Frequency as a ULONG and returns the time in
-*                         microsecs. as  a ULONG.  
+*                         microsecs. as  a ULONG.
 *
 *                         The dll initialization routine does the
 *                         following:
@@ -71,7 +71,7 @@
 *                         TimerRead uses an external asm routine to perform
 *                         its computation for elapsed time.
 *
-*     Created         -   Paramesh Vaidyanathan  (vaidy) 
+*     Created         -   Paramesh Vaidyanathan  (vaidy)
 *     Initial Version -              October 18, '90
 *
 *     Modified to include f).  -     Feb. 14, 1992. (vaidy).
@@ -154,7 +154,7 @@ ULONG  CalibrateTimerForOverhead (VOID);
     SHORT  GetTimerFreq (VOID);
     #define BIT0  0x1L                   /* for the division of 64 by 32 */
     #define BIT31 0x80000000L            /*        -  do  -              */
-    int Div64By32 (QWORD, ULONG, PQWORD); 
+    int Div64By32 (QWORD, ULONG, PQWORD);
     int Sub64_64  (PQWORD, QWORD, QWORD);
 #endif
 
@@ -183,12 +183,12 @@ ULONG  CalibrateTimerForOverhead (VOID);
                                            in tenths of milliseconds */
     #define TIME_INTERVAL_LOW    40
     #define TIME_INTERVAL_HIGH  48
-  
+
     ULONG        ulMilliSecStart = 0;
     ULONG        ulCurrentMilliSec = 0L;
-    ULONG        ulPrevSysTime;  
+    ULONG        ulPrevSysTime;
     /* previous time, to keep from falling back */
-    ULONG        ulPrevRetTime;  
+    ULONG        ulPrevRetTime;
     /* previous time, to keep from falling back */
     BOOL         bInitialized = FALSE;
     ULONG        ulOverhead;
@@ -205,21 +205,24 @@ ULONG  CalibrateTimerForOverhead (VOID);
     VOID PASCAL FAR IntOff( void );
     VOID PASCAL FAR Int3( void );
     VOID FAR PASCAL ReSynchronize( VOID );
-#endif    
+#endif
 
 #if (defined (NTNAT) || defined (OS2SS) || defined (WIN32))
 
+#if !defined(WIN32)
     NTSTATUS
     NtQueryPerformanceCounter (
         OUT PLARGE_INTEGER PerformanceCount,
         OUT PLARGE_INTEGER PerformanceFrequency OPTIONAL
     );
+#endif
 
     LARGE_INTEGER      PerfFreq;
     LARGE_INTEGER      CountCurrent;
 
     SHORT  GetTimerFreq (VOID);
 #endif
+
 
 #ifdef WIN16
     int FAR PASCAL  LibMain(HANDLE, WORD, WORD, LPSTR);
@@ -246,7 +249,7 @@ ULONG  CalibrateTimerForOverhead (VOID);
 
 /*
 *     Function  - TimerOpen            (EXPORTED)
-*     Arguments - 
+*     Arguments -
 *               (a) SHORT far * -     address to which to return handle of
 *                                the timer object.
 *               (b) TimerUnits - units in which to return time from
@@ -262,7 +265,7 @@ ULONG  CalibrateTimerForOverhead (VOID);
 *
 *     Obtains the handle to a timer object after opening it.
 *     Should precede any calls to timer manipulation.  Checks
-*     for validity of timer units. 
+*     for validity of timer units.
 */
 
 SHORT  FAR PASCAL TimerOpen (phTimerHandle, TimerUnits)
@@ -274,8 +277,8 @@ _TimerUnits TimerUnits;
 
 #ifdef WIN16
     /* Perform DLL initialization if hasn't been done */
-  
-    if (!fWinDllInitDone) 
+
+    if (!fWinDllInitDone)
         WinDllInit();
 
 #endif
@@ -354,26 +357,30 @@ NTSTATUS NtStatus;
     }
 #endif
 
-#ifdef SLOOP  
+#ifdef SLOOP
      /* issue a DosDevIOCtl to read the time */
      DosDevIOCtl (&qwTemp, &qwTemp, 0x40, 0x88, hDevHandle);
 #endif
 
 #if (defined (OS2286) || defined (OS2386) || defined (WIN16) || defined (SLOOP))
-    pTimer [hTimerHandle].ulLo = qwTemp.ulLo;  // get it into the timer 
+    pTimer [hTimerHandle].ulLo = qwTemp.ulLo;  // get it into the timer
     pTimer [hTimerHandle].ulHi = qwTemp.ulHi;  // structure
     /* this timer structure has all the information needed to compute
        the elapsed time.  So return success, if there was no problem */
 #endif
 
 #if (defined (OS2SS) || defined (NTNAT) || defined (WIN32))
+#if !defined(WIN32)
     NtStatus = NtQueryPerformanceCounter (&CountCurrent, NULL);
+#else
+    QueryPerformanceCounter( &CountCurrent ) ;
+#endif
     pTimer [hTimerHandle].ulLo = CountCurrent.LowPart;
     pTimer [hTimerHandle].ulHi = CountCurrent.HighPart;
     /* this timer structure has all the information needed to compute
        the elapsed time.  So return success, if there was no problem */
 #endif
-    
+
     return (SUCCESS_OK);
 }
 
@@ -443,7 +450,7 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
         qwCurrent.ulHi = 0L;
     }
     ulFreq = TIMER_FREQ;
-    
+
 #elif (defined (SLOOP))
     /* issue a DosDevIOCtl to read the time */
     DosDevIOCtl (&qwCurrent, &qwCurrent, 0x40, 0x88, hDevHandle);
@@ -461,27 +468,27 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
 #if (defined (OS2386) || defined (WIN16))
     /* call the asm routine ReturnElapsedTime */
 
-    if (!bCalibrated) 
+    if (!bCalibrated)
         ulTimerOverhead = 0;   /* so that overhead will not
                                   be used while calibrating */
 #ifdef WIN16
     if (fUseApiTimer)  /* just subtract the prev. time from the current */
         ulElapsedTime = qwCurrent. ulLo - qwPrev.ulLo;
 
-    else 
-	    
-#endif	    
- 
+    else
+	
+#endif	
+
     /* MICROSECOND_INDEX = 3, i.e.  The units is MICRO_SECONDS */
-        
+
         ReturnElapsedTime (&qwPrev, &qwCurrent, &ulFreq,
                            MICROSECOND_INDEX,
                            &ulTimerOverhead, &qwResult);
-           
+
     /* the 386 model allows the difference of the 2 quad words
           to be divided by the freq. and scaled approproiately */
 
-    if (!bCalibrated)  
+    if (!bCalibrated)
         ulTimerOverhead = 50000L;  /* set this back to the old high.  This
                                       is basically for OS/2 386. */
 
@@ -503,7 +510,7 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
         qwResult.ulLo /= aScaleValues [pTimer [hTimerHandle].TUnits];
     else
         qwResult.ulLo *= aScaleValues [pTimer [hTimerHandle].TUnits];
-    
+
     ulElapsedTime = qwResult.ulLo;  // this is used by TimerReport.  So stuff
                                 // it in.
     if ((ULONG) qwResult.ulLo > 0L)
@@ -533,13 +540,13 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
 
     /* divide this result by the frequency */
     /* in this case, call the Div64by32 routine to do the division */
-    
+
     Div64By32 (qwResult, ulFreq, &qwTemp);
 
     /* the result of this division should fit into 32 bits */
-    
+
     ulElapsedTime = qwTemp.ulLo;
-    
+
     /* OK, we now have the result of dividing the clock tics by
        frequency, in ulElapsedTime */
 
@@ -548,28 +555,30 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
 
 #if (defined (NTNAT) || defined (WIN32) || defined (OS2SS))
 
+#if !defined(WIN32)
     NtStatus = NtQueryPerformanceCounter (&CountCurrent, NULL);
+#else
+    QueryPerformanceCounter( &CountCurrent ) ;
+#endif
     CountPrev.LowPart  = pTimer [hTimerHandle].ulLo;
     CountPrev.HighPart = (LONG) pTimer [hTimerHandle].ulHi;
     ElapsedTime.LowPart = CountCurrent.LowPart;
     ElapsedTime.HighPart = (LONG) CountCurrent.HighPart;
 
-    /* everything is just fine, convert to double, subtract the times, 
-       divide by the frequency, convert to MICROSECONDS and return 
+    /* everything is just fine, convert to double, subtract the times,
+       divide by the frequency, convert to MICROSECONDS and return
        the elapsed time as a ULONG */
-    /* convert to us., divide the count by the clock frequency that 
+    /* convert to us., divide the count by the clock frequency that
        has already been obtained */
 	
-    ElapsedTime = RtlLargeIntegerSubtract (ElapsedTime, CountPrev);
+      ElapsedTime.QuadPart -= CountPrev.QuadPart ;
 
-    ElapsedTime = RtlExtendedIntegerMultiply (ElapsedTime, MICROSEC_FACTOR);
+   ElapsedTime.QuadPart *= MICROSEC_FACTOR ;
 
-    ElapsedTime = RtlExtendedLargeIntegerDivide (ElapsedTime,
-                                            PerfFreq.LowPart,
-                                            NULL);
+   ElapsedTime.QuadPart /= PerfFreq.LowPart ;
 
 	// if the timer is not calibrated, set ulElapsedTime to be the
-    // low part of ElapsedTime.  This is because, we do not have to 
+    // low part of ElapsedTime.  This is because, we do not have to
     // do to any arithmetic to this before returning the value.
 
     if (!bCalibrated)										
@@ -581,7 +590,7 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
     /* this code is common for all platforms but OS2386.  For Win3.x
        if VTD.386 has been installed, the code below should not matter,
        since we should have returned the time by now.
-      	       
+      	
        The elapsed time will be scaled, overhead subtracted
        and the time returned */
 
@@ -596,8 +605,8 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
               // without calling TimerInit, for more than 70 minutes.  This
               // screws up things.  So treat everything as 64 bit numbers
               // until the very end.
-				  
-        if ((ElapsedTime.LowPart < ulTimerOverhead) && 
+				
+        if ((ElapsedTime.LowPart < ulTimerOverhead) &&
             (!ElapsedTime.HighPart)) { // low part is lower than overhead
                                        // and high part is zero..then make
                                        // elapsed time 0.  We don't want
@@ -606,31 +615,23 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
             ElapsedTime.LowPart = 0L;
         }
 
-        else { // subtract the overhead in tics before converting 
+        else { // subtract the overhead in tics before converting
                // to time units
             LargeOverhead.HighPart = 0L;
             LargeOverhead.LowPart = ulTimerOverhead;
-            ElapsedTime = RtlLargeIntegerSubtract (ElapsedTime, 
-                                                   LargeOverhead);
+            ElapsedTime.QuadPart -= LargeOverhead.QuadPart ;
 
         }
 
 
         if (pTimer [hTimerHandle].TUnits <= MICROSECONDS)  {
 			
-            ElapsedTime = RtlExtendedLargeIntegerDivide (
-                                 ElapsedTime,
-                                 aScaleValues [pTimer [hTimerHandle].TUnits],
-                                 NULL
-                                 );
+            ElapsedTime.QuadPart /= aScaleValues [pTimer [hTimerHandle].TUnits] ;
         }
 
         else  {
 
-            ElapsedTime = RtlExtendedIntegerMultiply (
-                                 ElapsedTime,   
-                                 aScaleValues [pTimer [hTimerHandle].TUnits]
-                                 );
+            ElapsedTime.QuadPart *= aScaleValues [pTimer [hTimerHandle].TUnits] ;
         }
 
         // scaling is done.  Now get the time back into 32 bits.  This
@@ -640,18 +641,18 @@ ULONG  FAR PASCAL TimerRead (SHORT hTimerHandle)
 
 
 #else   // for non WIN32 platforms and non OS2386 platforms
-    
+
         // subtract the overhead before converting tics to time units.
 
         if (ulElapsedTime > ulTimerOverhead)
-            ulElapsedTime -= ulTimerOverhead; 
+            ulElapsedTime -= ulTimerOverhead;
         else
             ulElapsedTime = 0L;
 
-        if (pTimer [hTimerHandle].TUnits <= MICROSECONDS)  
+        if (pTimer [hTimerHandle].TUnits <= MICROSECONDS)
             ulElapsedTime /= aScaleValues [pTimer [hTimerHandle].TUnits];
 
-        else  
+        else
             ulElapsedTime *= aScaleValues [pTimer [hTimerHandle].TUnits];
 #endif
 
@@ -693,7 +694,7 @@ SHORT  FAR PASCAL TimerClose (SHORT hTimerHandle)
     if (!fWinDllInitDone) {
         WinDllInit();
     }
-    
+
 #endif
 
     if ((hTimerHandle > MAX_TIMERS - 1) ||
@@ -711,7 +712,7 @@ SHORT  FAR PASCAL TimerClose (SHORT hTimerHandle)
 }
 
 /*******************************************************************
-            
+
      Added this routine TimerReport to report individual
      times.  Bob Day requested that such a routine be
      created.  It just maintains the time from the last
@@ -741,51 +742,51 @@ BOOL FAR PASCAL  TimerReport (PSZ pszReportString, SHORT hTimerHandle)
       return (FALSE);
 
    /* stored value is in pTimer[hTimerHandle].ulLo and .ulHi */
- 
+
 #if (defined (OS2286) || defined (SLOOP))
-    sprintf (pszReportString, 
-        "Init Count (tics) %lx:%lx Current Count (tics) %lx:%lx Returned Time %lu ", 
+    sprintf (pszReportString,
+        "Init Count (tics) %lx:%lx Current Count (tics) %lx:%lx Returned Time %lu ",
             pTimer [hTimerHandle].ulHi,
             pTimer [hTimerHandle].ulLo, qwCurrent.ulLo, qwCurrent.ulHi,
             ulElapsedTime);
-        
+
 #elif (defined (OS2386))
-    sprintf (pszReportString, 
-        "Init Count (tics) %lu:%lu Current Count (tics) %lu:%lu Returned Time %lu ", 
+    sprintf (pszReportString,
+        "Init Count (tics) %lu:%lu Current Count (tics) %lu:%lu Returned Time %lu ",
             pTimer [hTimerHandle].ulHi,
             pTimer [hTimerHandle].ulLo, qwResult.ulLo, qwResult.ulHi,
             qwResult.ulLo);
-        
+
 #elif (defined (WIN32))
-    wsprintf (pszReportString, 
-        "Init Count (tics) %lu:%lu Current Count (tics) %lu:%lu Returned Time %lu ", 
+    wsprintf (pszReportString,
+        "Init Count (tics) %lu:%lu Current Count (tics) %lu:%lu Returned Time %lu ",
             pTimer [hTimerHandle].ulHi,
-            pTimer [hTimerHandle].ulLo, CountCurrent.HighPart, 
+            pTimer [hTimerHandle].ulLo, CountCurrent.HighPart,
             CountCurrent.LowPart,
             ulElapsedTime);
-        
+
 #elif (defined (WIN16))
-    wsprintf ((LPSTR) pszReportString, 
-        (LPSTR) "Init Count (tics) %lu Current Count (tics) %lu Returned Time %lu ", 
-            pTimer [hTimerHandle].ulLo, 
+    wsprintf ((LPSTR) pszReportString,
+        (LPSTR) "Init Count (tics) %lu Current Count (tics) %lu Returned Time %lu ",
+            pTimer [hTimerHandle].ulLo,
             qwCurrent.ulLo,
             ulElapsedTime);
-#endif        
+#endif
         return (TRUE);
 
 }
 
 /*******************************************************************
-            
-     Added this routine TimerQueryPerformanceCounter to report 
-     current tic count at behest of NT GDI folks.
-     
 
-     Accepts - PQWORD   - a pointer to a 64 bit struct. that will 
+     Added this routine TimerQueryPerformanceCounter to report
+     current tic count at behest of NT GDI folks.
+
+
+     Accepts - PQWORD   - a pointer to a 64 bit struct. that will
                           contain tic count on return.
-							  
-               PQWORD [OPTIONAL) - a pointer to a 64 bit struct. that will 
-                          contain frequency on return.			   
+							
+               PQWORD [OPTIONAL) - a pointer to a 64 bit struct. that will
+                          contain frequency on return.			
 
      Returns - None.
 
@@ -797,7 +798,12 @@ VOID FAR PASCAL TimerQueryPerformanceCounter (PQWORD pqTic, PQWORD pqFreq OPTION
 #ifdef WIN32
 
     // call the NT API to do the needful and return.
+#if defined (OLD)
     NtQueryPerformanceCounter ((PQWORD) pqTic, (PQWORD) pqFreq);
+#else
+   QueryPerformanceCounter( pqTic ) ;
+   QueryPerformanceFrequency( pqFreq);
+#endif
     return;
 	
 #elif (defined (WIN16))
@@ -808,7 +814,7 @@ VOID FAR PASCAL TimerQueryPerformanceCounter (PQWORD pqTic, PQWORD pqFreq OPTION
 		pqFreq->ulLo = TIMER_FREQ;
 		pqFreq->ulHi = 0L;
 	}
-    WinVTDTime (pqTic);  
+    WinVTDTime (pqTic);
 	return;
 
 #elif (defined(OS2286) || defined(OS2386))
@@ -820,10 +826,10 @@ VOID FAR PASCAL TimerQueryPerformanceCounter (PQWORD pqTic, PQWORD pqFreq OPTION
 		pqFreq->ulHi = 0L;
 	}
 	
-    DosTmrQueryTime (pqTic);  
+    DosTmrQueryTime (pqTic);
 	return;
 	
-#elif (defined (SLOOP))    
+#elif (defined (SLOOP))
 
     // If freq. is desired, give it, else just give the tic count back.
 
@@ -839,14 +845,14 @@ VOID FAR PASCAL TimerQueryPerformanceCounter (PQWORD pqTic, PQWORD pqFreq OPTION
 }
 
 /*******************************************************************
-            
-     Added this routine TimerConvertTicsToUSec to return 
+
+     Added this routine TimerConvertTicsToUSec to return
      time in usecs. for a given elapsed tic count and freq.
-     
+
 
      Accepts - ULONG    - Elapsed Tic Count.
-							  
-               ULONG    - Frequency.			   
+							
+               ULONG    - Frequency.			
 
      Returns - Elapsed Time in usecs. as a ULONG.
 		     - Zero if input freq. is zero.
@@ -854,7 +860,7 @@ VOID FAR PASCAL TimerQueryPerformanceCounter (PQWORD pqTic, PQWORD pqFreq OPTION
 *******************************************************************/
 
 ULONG FAR PASCAL TimerConvertTicsToUSec (
-                                         ULONG ulElapsedTics, 
+                                         ULONG ulElapsedTics,
                                          ULONG ulInputFreq
                                         )
 {
@@ -862,21 +868,24 @@ ULONG FAR PASCAL TimerConvertTicsToUSec (
 #ifdef WIN32
 
     LARGE_INTEGER ElapsedTime;
+    LARGE_INTEGER Temp ;
     ULONG ulRemainder = 0L;
 
     // if the bozo gives me a zero freq, return him a zero.
     // Let him tear his hair.
-    
+
 	if (!ulInputFreq)
 		return 0L;
 
     // multiply tics by a million and divide by the frequency.
 		
-    ElapsedTime = RtlEnlargedIntegerMultiply (ulElapsedTics, MICROSEC_FACTOR);
+   ElapsedTime.QuadPart = ulElapsedTics * MICROSEC_FACTOR ;
 
-    ElapsedTime = RtlExtendedLargeIntegerDivide (ElapsedTime,
-                                                 ulInputFreq,
-                                                 &ulRemainder);
+      Temp = ElapsedTime ;
+
+      ElapsedTime.QuadPart /= ulInputFreq ;
+
+      ulRemainder = (ULONG)(Temp.QuadPart - (ElapsedTime.QuadPart * ulInputFreq)) ;
 
     ElapsedTime.LowPart += (ulRemainder > (ulInputFreq / 2L));
 	
@@ -897,13 +906,13 @@ ULONG FAR PASCAL TimerConvertTicsToUSec (
     ReturnElapsedTime (&qwOld, &qwNew, &ulInputFreq,
                        MICROSECOND_INDEX,
                        &ulDummy, &qwElapsed);
-           
+
 	return (qwElapsed.ulLo);
 
 #elif (defined(OS2286) || defined(SLOOP))
 
     QWORD qwDiff, qwElapsed;
- 
+
     qwDiff.ulLo = ulElapsedTics;
 	qwDiff.ulHi = 0L;
 
@@ -914,9 +923,9 @@ ULONG FAR PASCAL TimerConvertTicsToUSec (
     Div64By32 (qwResult, ulInputFreq, &qwElapsed);
 
     /* the result of this division should fit into 32 bits */
-    
+
     return (qwElapsed.ulLo + (qwElapsed.ulLo > (ulInputFreq /2L));
-    
+
 #endif
 }
 
@@ -941,10 +950,10 @@ ULONG  CalibrateTimerForOverhead (VOID)
     SHORT csIter;
     SHORT csNoOfSamples = ITER_FOR_OVERHEAD;
     SHORT hTimerHandle;
-    
+
     if (TimerOpen (&hTimerHandle, MICROSECONDS)) /* open failed.  Return 0 */
         return (0L);
-    
+
     for (csIter = 0; csIter < 5; csIter++) {
         TimerInit (hTimerHandle);
         ulOverhead [csIter] = TimerRead (hTimerHandle);
@@ -958,7 +967,7 @@ ULONG  CalibrateTimerForOverhead (VOID)
        that are 15% larger than this mean.  This would give a
        really good overhead time */
 
-    for (csIter = 0; csIter < 5; csIter++ ) 
+    for (csIter = 0; csIter < 5; csIter++ )
         ulTempTotal += ulOverhead [csIter];
 
     ulExpectedValue = ulTempTotal / 5;
@@ -983,7 +992,7 @@ ULONG  CalibrateTimerForOverhead (VOID)
     TimerClose (hTimerHandle);
 
     if (csNoOfSamples == 0)  /* no valid times.  Return a 0 for overhead */
-        return (0L);   
+        return (0L);
 
     return (ulTempTotal/csNoOfSamples);
 }
@@ -1010,8 +1019,8 @@ int  TIMING_INIT (VOID)
         pTimer [csTempCtr].ulHi = 0L;
         pTimer [csTempCtr].TUnits = TIMER_FREE;
     }
-    bTimerInit = TRUE;    
-#if (defined (OS2286) || defined (OS2386) || defined (OS2SS))    
+    bTimerInit = TRUE;
+#if (defined (OS2286) || defined (OS2386) || defined (OS2SS))
     GetTimerFreq ();          /* get the timer freq. into ulFreq */
 #endif
 
@@ -1029,7 +1038,7 @@ int  TIMING_INIT (VOID)
     ulTimerOverhead = CalibrateTimerForOverhead ();
     /* the timer overhead will be placed in a global variable */
     bCalibrated = TRUE;
-    return 1;     
+    return 1;
 }
 #endif
 
@@ -1054,8 +1063,13 @@ SHORT  GetTimerFreq (VOID)
 LARGE_INTEGER PerfCount, Freq;
 NTSTATUS NtStatus;
 
+#if defined (OLD)
     NtStatus = NtQueryPerformanceCounter (&PerfCount, &Freq);
-    
+#else
+   QueryPerformanceCounter( &PerfCount ) ;
+   QueryPerformanceFrequency( &Freq);
+#endif
+
     if ((Freq.LowPart == 0L)  && (Freq.HighPart == 0L))
         /* frequency of zero implies timer not available */
         return (TIMERERR_NOT_AVAILABLE);
@@ -1066,7 +1080,7 @@ NTSTATUS NtStatus;
 #endif
     return 0;
 }
-#endif 
+#endif
 
 #ifdef WIN16
 
@@ -1079,17 +1093,17 @@ NTSTATUS NtStatus;
    PURPOSE:  Is called by LibEntry.  LibEntry is called by Windows when
              the DLL is loaded.  The LibEntry routine is provided in
              the LIBENTRY.OBJ in the SDK Link Libraries disk.  (The
-             source LIBENTRY.ASM is also provided.)  
+             source LIBENTRY.ASM is also provided.)
 
              LibEntry initializes the DLL's heap, if a HEAPSIZE value is
              specified in the DLL's DEF file.  Then LibEntry calls
              LibMain.  The LibMain function below satisfies that call.
-             
+
              The LibMain function should perform additional initialization
              tasks required by the DLL.  In this example, no initialization
              tasks are required.  LibMain should return a value of 1 if
              the initialization is successful.
-*/           
+*/
 /*********************************************************************/
 
 int FAR PASCAL LibMain(hModule, wDataSeg, cbHeapSize, lpszCmdLine)
@@ -1108,7 +1122,7 @@ int FAR PASCAL LibMain(hModule, wDataSeg, cbHeapSize, lpszCmdLine)
      applications such as Excel and WinWord due to their self loading
      capability.  These apps use kernel calls before DLLs LibMains
      are called.
-    
+
      This feature was added by RezaB when faced with a problem
      during API profiling */
 
@@ -1132,7 +1146,7 @@ int FAR PASCAL LibMain(hModule, wDataSeg, cbHeapSize, lpszCmdLine)
              applications such as Excel and WinWord due to their self loading
              capability.  These apps use kernel calls before DLLs LibMains
              are called.
-*/           
+*/
 /*********************************************************************/
 
 void WinDllInit ()
@@ -1155,7 +1169,7 @@ void WinDllInit ()
 
     /* if not enhanced mode or if the VTDAddr routine returns a non-zero
        do not use the VTD.386 */
-    
+
     if (!(GetWinFlags() & WF_ENHANCED) || (WinVTDAddr ())) {
         fUseApiTimer = TRUE;
         PerfStartTime ();       /* start the timer */
@@ -1278,10 +1292,10 @@ USHORT FAR PASCAL PerfStartTime( ){
         ulPrevRetTime = 0;    /* reset previous returned time */
         /* get current system time, milliseconds*/
         ulMilliSecStart = GetCurrentTime ();
-        ulLastMilliSec = ulMilliSecStart; 
+        ulLastMilliSec = ulMilliSecStart;
 
         /* wait for system time to change */
-        
+
         /* ChrishSh of Win 3.0 had made some modifications to the
            original code so that the do loop had been commented.
            The micro and millisecond timer synch was causing
@@ -1404,7 +1418,7 @@ ULONG FAR PASCAL PerfGetTime( ){
     ulPrevRetTime = ulMicroSecs;
 
     return(ulMicroSecs);
-}   
+}
 
 /**********************************************************************/
 
@@ -1443,7 +1457,7 @@ VOID FAR PASCAL ReSynchronize( ) {
 
 #if (defined (OS2286) || defined (SLOOP))
 /*********************************************************************
- *  Divide QWORD by ULONG 
+ *  Divide QWORD by ULONG
  *  Input:
  *      qwDividend -- 64bit dividend in QWORD struct
  *      ulDivisor  -- 32bit divisor
@@ -1500,7 +1514,7 @@ int Div64By32 (QWORD qwDividend, ULONG ulDivisor, PQWORD pqwQuot)
     }
     /* check if shifted division is possible */
     if (qwDividend.ulLo  &&  ulDivisor > qwDividend.ulLo)
-        return 2;    
+        return 2;
 
     /* do "shifted" divide
      * again remainder stays in dividend for next divide */
@@ -1532,7 +1546,7 @@ int Div64By32 (QWORD qwDividend, ULONG ulDivisor, PQWORD pqwQuot)
  *      puts result *pqwResult qword
  *      returns 0 if completed successfully, 1 if overflow
  *
- * 
+ *
  */
 
 
@@ -1614,12 +1628,12 @@ int Sub64_64 (PQWORD pqwResult, QWORD qwFrom, QWORD qwSub)
 #if (defined (NTNAT) || defined (WIN32))
 /***************************************************
 
-NT native dll init routine 
+NT native dll init routine
 
 ****************************************************/
 SHORT csTempCtr;    /* a counter - had to make this global..compile fails */
 ULONG culTemp;      /*    - do -    */
- 
+
 NTSTATUS
 TimerDllInitialize (
     IN PVOID DllHandle,
@@ -1628,23 +1642,23 @@ TimerDllInitialize (
     )
 {
     DllHandle, Context;     // avoid compiler warnings
- 
+
     if (Reason != DLL_PROCESS_ATTACH) { // if detaching return immediately
         return TRUE;
     }
-    
+
     for (csTempCtr = 0; csTempCtr < MAX_TIMERS; csTempCtr++) {
         pTimer [csTempCtr].ulLo = 0L;
         pTimer [csTempCtr].ulHi = 0L;
         pTimer [csTempCtr].TUnits = TIMER_FREE;
     }
-    
-    bTimerInit = TRUE;    
+
+    bTimerInit = TRUE;
     GetTimerFreq ();
-    ulTimerOverhead = CalibrateTimerForOverhead ();    
+    ulTimerOverhead = CalibrateTimerForOverhead ();
     /* the timer overhead will be placed in a global variable */
     bCalibrated = TRUE;
-    return TRUE;     
+    return TRUE;
 
 }
 #endif

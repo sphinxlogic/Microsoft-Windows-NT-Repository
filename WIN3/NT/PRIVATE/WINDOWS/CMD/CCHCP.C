@@ -1,5 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 
 int Chcp( command_line )

@@ -92,7 +92,7 @@ Revision History:
 // may be specified to this adapter (the list is global for
 // all protocols).
 
-#define DEFAULT_MULTICASTLISTMAX 16
+#define DEFAULT_MULTICASTLISTMAX 8
 
 
 //

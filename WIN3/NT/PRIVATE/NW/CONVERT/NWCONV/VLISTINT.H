@@ -15,7 +15,7 @@ typedef struct tagVLISTBox
       LONG      styleSave;        // Save the Style Bits
       WORD      VLBoxStyle;       // List Box Style
       HANDLE    hFont;            // Font for List box
-      LONG      lToplIndex;      // Top logical record number;
+      LONG      lToplIndex;       // Top logical record number;
       int       nCountInBox;      // Number of Items in box.
       LONG      lNumLogicalRecs;  // Number of logical records
       VLBSTRUCT vlbStruct;        // Buffer to communicate to app

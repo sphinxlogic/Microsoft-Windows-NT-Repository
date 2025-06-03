@@ -32,7 +32,7 @@ VOID HierFile_DrawSetTextHeight (HWND hwnd, HFONT hFont, LPHEIRDRAWSTRUCT lpHier
 
 BOOL HierFile_DrawInit(HINSTANCE hInstance,
                        int  nBitmap1,
-							  int  nBitmap2,
+                       int  nBitmap2,
                        int  nRows,
                        int  nColumns,
                        BOOL bLines,

@@ -2,6 +2,9 @@
  * TopHook.h
  *
  * To be used by TopDesk for accessing exported parts of TopHook.dll
+ *
+ * History:
+ * 5/16/95 SanfordS - Added support for MrShadow.
  */
 
 #ifdef WIN16
@@ -25,7 +28,8 @@ BOOL FAR PASCAL RegisterHotKey(HWND hwnd, int id,
     // lParam = fJumpDesktop
 
 BOOL FAR PASCAL SetTopDeskHooks(HWND hwnd);
+BOOL FAR PASCAL SetMrShadowHooks(HWND hwnd);
+BOOL FAR PASCAL ClearMrShadowHooks(HWND hwnd);
 
 HHOOK FAR PASCAL SetWndProcHook(HWND hwnd);
 BOOL FAR PASCAL ClearWndProcHook(HHOOK hhk);
-

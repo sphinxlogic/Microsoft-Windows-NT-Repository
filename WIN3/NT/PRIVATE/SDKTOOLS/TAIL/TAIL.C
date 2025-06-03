@@ -85,7 +85,7 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
 
     if ( pszFile )
     {
-        if ( (fd = open(pszFile, O_RDONLY | O_TEXT, 0)) == -1 )
+        if ( (fd = _open(pszFile, O_RDONLY | O_TEXT, 0)) == -1 )
 	{
             fprintf(stderr, "TAIL: can't open %s\n", pszFile);
             return 1;
@@ -105,7 +105,7 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
         fprintf(stdout, "==> %s <==\n", pszFile);
     }
 
-	if ( (offset = lseek(fd, (long)0, 1)) == -1L )
+	if ( (offset = _lseek(fd, (long)0, 1)) == -1L )
 	{
 	    fprintf(stderr, "TAIL: lseek() failed %d\n", errno);
 	    nErr++;
@@ -115,11 +115,15 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
 
     // Backup BUFSZ bytes from end of file and see how many lines we have
 
-    if ( fstat(fd, &fileStat) == -1 )
+    if ( _fstat(fd, &fileStat) == -1 )
     {
         fprintf(stderr, "TAIL: fstat() failed\n");
         nErr++;
         goto CloseOut;
+    }
+
+    if (fileStat.st_size == 0) {
+        fileStat.st_size = BUFSZ;
     }
 
     offset = 0L;
@@ -137,14 +141,14 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
 	    offset = fileStat.st_size;
 	}
 
-	if ( lseek(fd, -offset, SEEK_END) == -1L )
+	if ( _lseek(fd, -offset, SEEK_END) == -1L )
 	{
 	    fprintf(stderr, "TAIL: lseek() failed\n");
 	    nErr++;
 	    goto CloseOut;
 	}
 
-	if ( (cRead = read(fd, buff, BUFSZ)) == -1 )
+	if ( (cRead = _read(fd, buff, BUFSZ)) == -1 )
 	{
 	    fprintf(stderr, "TAIL: read() failed\n");
 	    nErr++;
@@ -174,7 +178,7 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
 
     while ( cRead != 0 )
     {
-	if ( write(1, &buff[i], cRead - i) == -1 )
+	if ( _write(1, &buff[i], cRead - i) == -1 )
 	{
 	    fprintf(stderr, "TAIL: write() failed\n");
 	    nErr++;
@@ -183,7 +187,7 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
 
 	i = 0; // after first buff, all buffers are of cRead bytes
 
-	if ( (cRead = read(fd, buff, BUFSZ)) == -1 )
+	if ( (cRead = _read(fd, buff, BUFSZ)) == -1 )
 	{
 	    fprintf(stderr, "TAIL: read() failed\n");
 	    nErr++;
@@ -197,7 +201,7 @@ int Tail(char *pszFile, int nLines, BOOL fBanner)
     }
 
 CloseOut:
-    if ( close(fd) == -1 )
+    if ( _close(fd) == -1 )
     {
 	fprintf(stderr, "TAIL: close() failed\n");
     }

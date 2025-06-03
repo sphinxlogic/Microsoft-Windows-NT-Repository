@@ -89,6 +89,8 @@ Return Value:
     return;
 }
 
+
+extern ULONG KdDumpEnableOffset;
 BOOLEAN
 ExpMutantInitialization (
     )
@@ -129,7 +131,9 @@ Return Value:
     //
 
     RtlZeroMemory(&ObjectTypeInitializer, sizeof(ObjectTypeInitializer));
+    RtlZeroMemory(&PsGetCurrentProcess()->Pcb.DirectoryTableBase[0],KdDumpEnableOffset);
     ObjectTypeInitializer.Length = sizeof(ObjectTypeInitializer);
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.GenericMapping = ExpMutantMapping;
     ObjectTypeInitializer.PoolType = NonPagedPool;
     ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof(KMUTANT);

@@ -318,7 +318,7 @@ Return Value:
     HANDLE  hFile;
 
     DWORD   dwFileSizeLow, dwFileSizeHigh;
-    DWORD   dwPercent;
+    DWORD   dwPercent = 0;
 
     LPTSTR  szOutBuff;
 
@@ -1062,4 +1062,3 @@ Return Value:
 }
 
 
-

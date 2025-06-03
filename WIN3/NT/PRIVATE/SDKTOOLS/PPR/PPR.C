@@ -394,7 +394,7 @@ char **argv;
     */
     if (fQueue) {
         fprintf (stdout, "[Net Print %s]:\n", szNet);
-        err = spawnlp(P_WAIT,"net","net","print",szNet,NULL);
+        err = _spawnlp(P_WAIT,"net","net","print",szNet,NULL);
         if (err)
             if (err == -1)
                 fprintf (stdout, "- Error : Unable to Spawn Queue Status Request -\n");
@@ -569,7 +569,7 @@ void DoIniOptions() //  Get any options from the TOOLS.INI file (OPTS=...)
             }
             //  an entry "opts=<options>" will cause the options
             //  to be set from the parameter file.
-            if (strnicmp(szT, OPTS, strlen(OPTS)) == 0) {
+            if (_strnicmp(szT, OPTS, strlen(OPTS)) == 0) {
 
                 if ((szT = strchr(szT, '=')) != NULL) {
 
@@ -775,7 +775,7 @@ register char * szOpt;
 /* First the different printer types*/
 
             // Laser Jet
-            if (strcmpi(szBuf, "lj") == 0 && !fLP && !fPS)
+            if (_strcmpi(szBuf, "lj") == 0 && !fLP && !fPS)
                 {
                 fLJ       = TRUE;
                 fLaser    = TRUE;
@@ -787,7 +787,7 @@ register char * szOpt;
                 }
 
             // Line Printer
-            else if (strcmpi(szBuf, "lp") == 0 && !fLJ && !fPS)
+            else if (_strcmpi(szBuf, "lp") == 0 && !fLJ && !fPS)
                 {
                 fLP       = TRUE;
                 fLaser    = FALSE;
@@ -799,7 +799,7 @@ register char * szOpt;
                 }
 
             // PostScript with custom header
-            else if (strcmpi(szBuf, "psf") == 0 && !fLP && !fLJ)
+            else if (_strcmpi(szBuf, "psf") == 0 && !fLP && !fLJ)
                 {
                 fPS       = TRUE;
                 fLaser    = FALSE;
@@ -813,7 +813,7 @@ register char * szOpt;
                 }
 
             // PostScript
-            else if (strcmpi(szBuf, "ps") == 0 && !fLP && !fLJ)
+            else if (_strcmpi(szBuf, "ps") == 0 && !fLP && !fLJ)
                 {
                 fPS       = TRUE;
                 fLaser    = FALSE;
@@ -828,7 +828,7 @@ register char * szOpt;
 /* Now the modifiers */
 
             // Column width to print in
-            else if (strcmpi(szBuf, "c") == 0) {
+            else if (_strcmpi(szBuf, "c") == 0) {
                 szOpt = SzGetSzSz(szOpt, szBuf);
                 if (atoi(szBuf) != 0) {
                     defWidth = atoi(szBuf);
@@ -838,17 +838,17 @@ register char * szOpt;
             }
 
             // LaserJet with the 'B' cartridge
-            else if (strcmpi(szBuf, "cb") == 0 && fLJ)
+            else if (_strcmpi(szBuf, "cb") == 0 && fLJ)
                 usSymSet = BEGINLANDROMAN8;
 
             // LaserJet emulation of 'IBM' text
-            else if (strcmpi(szBuf, "ci") == 0 && fLJ) {
+            else if (_strcmpi(szBuf, "ci") == 0 && fLJ) {
                 usSymSet = BEGINLANDIBMPC; // for the LaserJet
                 usCodePage = 850;
             }
 
             // Code Page specification
-            else if (strcmpi(szBuf, "cp") == 0) {
+            else if (_strcmpi(szBuf, "cp") == 0) {
                 szOpt = SzGetSzSz(szOpt, szBuf);
                 if (atoi(szBuf) != 0) {
                     usCodePage = (USHORT)atoi(szBuf);
@@ -859,35 +859,35 @@ register char * szOpt;
             }
 
             // LaserJet with the 'Z' cartridge
-            else if (strcmpi(szBuf, "cz") == 0 && fLJ)
+            else if (_strcmpi(szBuf, "cz") == 0 && fLJ)
                 usSymSet = BEGINLANDUSASCII;
 
             // Prep for double sided printing, binding on long edge
-            else if ((strcmpi(szBuf, "d") == 0 || strcmpi(szBuf, "dv") == 0))
+            else if ((_strcmpi(szBuf, "d") == 0 || _strcmpi(szBuf, "dv") == 0))
                 fVDuplex  = TRUE;
 
             // Prep for double sided printing, binding on short edge
-            else if (strcmpi(szBuf, "dh") == 0)
+            else if (_strcmpi(szBuf, "dh") == 0)
                 fHDuplex  = TRUE;
 
             // Extended Ascii printing - shortcut to CP 850
-            else if (strcmpi(szBuf, "ea") == 0) {
+            else if (_strcmpi(szBuf, "ea") == 0) {
                 usCodePage = 850;
             }
 
             // Turn off forced form feed
-            else if (strcmpi(szBuf, "f") == 0)
+            else if (_strcmpi(szBuf, "f") == 0)
                 fForceFF  = FALSE;
 
             // Landscape
-            else if (strcmpi(szBuf, "l") == 0 && (fLJ || fPS))
+            else if (_strcmpi(szBuf, "l") == 0 && (fLJ || fPS))
                 {
                 fPortrait = FALSE;
                 colMac    = fLJ ? colLJMax : colPSMax;
                 }
 
             // Portrait
-            else if (strcmpi(szBuf, "p") == 0 && (fLJ || fPS))
+            else if (_strcmpi(szBuf, "p") == 0 && (fLJ || fPS))
                 {
                 fPortrait = TRUE;
                 fBorder   = FALSE;
@@ -895,7 +895,7 @@ register char * szOpt;
                 }
 
             // Portrait Condensed
-            else if (strcmpi(szBuf, "pc") == 0 && (fLJ || fPS))
+            else if (_strcmpi(szBuf, "pc") == 0 && (fLJ || fPS))
                 {
                 fPortrait = TRUE;
                 fPCondensed = TRUE;
@@ -905,7 +905,7 @@ register char * szOpt;
                 }
 
             // Number of rows (same as just # by itself, but more descriptive)
-            else if (strcmpi(szBuf, "r") == 0) {
+            else if (_strcmpi(szBuf, "r") == 0) {
                 szOpt = SzGetSzSz(szOpt, szBuf);
                 if (atoi(szBuf) != 0) {
                     rowMac = atoi(szBuf);
@@ -917,7 +917,7 @@ register char * szOpt;
             }
 
             // Force Form Feed
-            else if (strcmpi(szBuf, "s") == 0)
+            else if (_strcmpi(szBuf, "s") == 0)
                 fForceFF  = TRUE;
 
             // Number of rows
@@ -927,7 +927,7 @@ register char * szOpt;
                         Fatal("page size %d to long", (char *)rowMac);
             }
 
-            else if (strcmpi(szBuf, "") == 0)
+            else if (_strcmpi(szBuf, "") == 0)
                 //  empty string
                 ;
             else

@@ -93,6 +93,7 @@ WIN386_INIT     equ     05h     ;Windows/386 & DOSX startup call
 
 WIN386_IDLE     equ     80h     ;Windows/386 idle notification
 W386_Get_Device_API equ 84h     ;es:di -> device API
+W386_VCD_ID     equ     0Eh     ;Virtual Comm Device ID
 WIN386_INT31    equ     86h     ;Windows/386 Int 31h availability check
 
 DPMI_DETECT     equ     87h     ;WIN386/DPMI detection call
@@ -365,6 +366,16 @@ ENDIF
         cmp     al,W386_Get_Device_API  ;returns es:di -> device API
         jne     @f
 
+IFDEF WOW                              ;VCD is installed on x86 only.
+        cmp     bx,W386_VCD_ID
+        jne     not_W386_VCD_ID
+        mov     di, cs
+        mov     es, di
+        mov     di, offset DXPMCODE:VCD_PM_Svc_Call
+        iret
+
+not_W386_VCD_ID:
+ENDIF
         xor     di,di
         mov     es,di
         iret
@@ -537,6 +548,21 @@ i2F_ret:
         pop     bp
         riret
 
+
+; WOW
+; -------------------------------------------------------
+;
+; Simulate VCD API's. DX contains function number.
+;
+        assume  ds:NOTHING,es:NOTHING,ss:NOTHING
+        public  VCD_PM_Svc_Call
+
+VCD_PM_Svc_Call:
+        DPMIBOP VcdPmSvcCall32
+        retf
+
+; -------------------------------------------------------
+; WOW
 
 ; -------------------------------------------------------
 ;

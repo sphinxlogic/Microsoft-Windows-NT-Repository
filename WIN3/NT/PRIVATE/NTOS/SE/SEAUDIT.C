@@ -43,6 +43,7 @@ SepFreeCapturedString(
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtAccessCheckAndAuditAlarm)
 #pragma alloc_text(PAGE,NtCloseObjectAuditAlarm)
+#pragma alloc_text(PAGE,NtDeleteObjectAuditAlarm)
 #pragma alloc_text(PAGE,NtOpenObjectAuditAlarm)
 #pragma alloc_text(PAGE,NtPrivilegeObjectAuditAlarm)
 #pragma alloc_text(PAGE,NtPrivilegedServiceAuditAlarm)
@@ -50,6 +51,7 @@ SepFreeCapturedString(
 #pragma alloc_text(PAGE,SeAuditingFileEvents)
 #pragma alloc_text(PAGE,SeCheckAuditPrivilege)
 #pragma alloc_text(PAGE,SeCloseObjectAuditAlarm)
+#pragma alloc_text(PAGE,SeDeleteObjectAuditAlarm)
 #pragma alloc_text(PAGE,SeCreateObjectAuditAlarm)
 #pragma alloc_text(PAGE,SeObjectReferenceAuditAlarm)
 #pragma alloc_text(PAGE,SeOpenObjectAuditAlarm)
@@ -122,7 +124,8 @@ Return Value:
    // Don't let anyone call this to test for SeTcbPrivilege
    //
 
-   ASSERT(!RtlLargeIntegerEqualTo(DesiredPrivilege,SeTcbPrivilege));
+   ASSERT(!((DesiredPrivilege.LowPart == SeTcbPrivilege.LowPart) &&
+            (DesiredPrivilege.HighPart == SeTcbPrivilege.HighPart)));
 
    Privilege.Luid = DesiredPrivilege;
    Privilege.Attributes = 0;
@@ -188,7 +191,7 @@ Return Value:
     if ( PreviousMode != KernelMode ) {
 
         SePrivilegedServiceAuditAlarm (
-            NULL,                              // BUGBUG need service name
+            NULL,                              // BUGWARNING need service name
             SubjectSecurityContext,
             &RequiredPrivileges,
             AccessGranted
@@ -227,11 +230,11 @@ Return Value:
 
 --*/
 {
-    PUNICODE_STRING UnicodeString;
-
     PAGED_CODE();
 
     ProbeForRead( SourceString, sizeof( UNICODE_STRING ), sizeof( ULONG ) );
+
+    *DestString = NULL;
 
     //
     // Probe the pointer to the buffer to ensure that the
@@ -244,25 +247,24 @@ Return Value:
                  SourceString->Length,
                  sizeof(WCHAR));
 
-    UnicodeString = ExAllocatePoolWithTag( PagedPool,
-                                           sizeof( UNICODE_STRING ) + SourceString->MaximumLength,
-                                           'sUeS'
-                                          );
 
-    if ( UnicodeString == NULL ) {
-        *DestString = NULL;
+    *DestString = ExAllocatePoolWithTag( PagedPool,
+                                         sizeof( UNICODE_STRING ) + SourceString->MaximumLength,
+                                         'sUeS'
+                                        );
+
+    if ( *DestString == NULL ) {
         return;
     }
 
-    UnicodeString->Buffer        = (PWSTR)((PCHAR)UnicodeString + sizeof( UNICODE_STRING ));
-    UnicodeString->MaximumLength = SourceString->MaximumLength;
+    (*DestString)->Buffer        = (PWSTR)((PCHAR)(*DestString) + sizeof( UNICODE_STRING ));
+    (*DestString)->MaximumLength = SourceString->MaximumLength;
 
     RtlCopyUnicodeString(
-        UnicodeString,
+        *DestString,
         SourceString
         );
 
-    *DestString = UnicodeString;
     return;
 }
 
@@ -325,7 +327,7 @@ Routine Description:
     into account.  This may have an impact on the approach taken for data
     structure mutex locking, for example.
 
-    This API requires the caller have SeTcbPrivilege privilege.  The test
+    This API requires the caller have SeAuditPrivilege privilege.  The test
     for this privilege is always against the primary token of the calling
     process, allowing the caller to be impersonating a client during the
     call with no ill effects.
@@ -384,6 +386,10 @@ Return value:
          (PVOID *)&Token,         // Object
          NULL                     // GrantedAccess
          );
+
+    if (!NT_SUCCESS( Status )) {
+        return( Status );
+    }
 
     //
     // If the passed token is an impersonation token, make sure
@@ -466,7 +472,7 @@ Return value:
             );
 
         CapturedPrivileges = ExAllocatePoolWithTag( PagedPool,
-                                                    PrivilegeParameterLength + sizeof( PRIVILEGE_SET ),
+                                                    PrivilegeParameterLength,
                                                     'rPeS'
                                                   );
 
@@ -474,7 +480,7 @@ Return value:
 
             RtlMoveMemory ( CapturedPrivileges,
                             Privileges,
-                            sizeof(PRIVILEGE_SET) + PrivilegeParameterLength );
+                            PrivilegeParameterLength );
         }
 
     } except (EXCEPTION_EXECUTE_HANDLER) {
@@ -505,16 +511,16 @@ Return value:
     // to determine if we're supposed to be auditing here.
     //
 
-    AuditPerformed = SepAdtPrivilegeObjectAuditAlarm (                                                       
-                         CapturedSubsystemName,                                                              
-                         HandleId,                                                                           
-                         Token,                                // ClientToken                                
-                         SubjectSecurityContext.PrimaryToken,  // PrimaryToken                               
-                         SubjectSecurityContext.ProcessAuditId,                                              
-                         DesiredAccess,                                                                      
-                         CapturedPrivileges,                                                                 
-                         AccessGranted                                                                       
-                         );                                                    
+    AuditPerformed = SepAdtPrivilegeObjectAuditAlarm (
+                         CapturedSubsystemName,
+                         HandleId,
+                         Token,                                // ClientToken
+                         SubjectSecurityContext.PrimaryToken,  // PrimaryToken
+                         SubjectSecurityContext.ProcessAuditId,
+                         DesiredAccess,
+                         CapturedPrivileges,
+                         AccessGranted
+                         );
 
     if (CapturedPrivileges != NULL) {
         ExFreePool( CapturedPrivileges );
@@ -634,7 +640,7 @@ Routine Description:
     latency into account.  This may have an impact on the approach taken
     for data structure mutex locking, for example.
 
-    This API requires the caller have SeTcbPrivilege privilege.  The test
+    This API requires the caller have SeAuditPrivilege privilege.  The test
     for this privilege is always against the primary token of the calling
     process, allowing the caller to be impersonating a client during the
     call with no ill effects
@@ -788,7 +794,7 @@ Return value:
             );
 
         CapturedPrivileges = ExAllocatePoolWithTag( PagedPool,
-                                                    PrivilegeParameterLength + sizeof( PRIVILEGE_SET ),
+                                                    PrivilegeParameterLength,
                                                     'rPeS'
                                                   );
 
@@ -801,7 +807,7 @@ Return value:
 
             RtlMoveMemory ( CapturedPrivileges,
                             Privileges,
-                            sizeof(PRIVILEGE_SET) + PrivilegeParameterLength );
+                            PrivilegeParameterLength );
 
         }
 
@@ -1183,7 +1189,7 @@ Return Value:
         SepProbeAndCaptureString_U ( SubsystemName, &CapturedSubsystemName );
 
         SepProbeAndCaptureString_U ( ObjectTypeName, &CapturedObjectTypeName );
-        
+
         SepProbeAndCaptureString_U ( ObjectName, &CapturedObjectName );
 
     } except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1237,40 +1243,40 @@ Return Value:
         // these bits are turned off, we don't have to do any more
         // access checking (ref section 4, DSA ACL Arch)
         //
-    
+
         if ( DesiredAccess & (WRITE_DAC | READ_CONTROL | MAXIMUM_ALLOWED) ) {
-    
+
             if (SepTokenIsOwner( SubjectSecurityContext.ClientToken, CapturedSecurityDescriptor, TRUE )) {
-    
+
                 if ( DesiredAccess & MAXIMUM_ALLOWED ) {
-    
+
                     PreviouslyGrantedAccess |= ( WRITE_DAC | READ_CONTROL );
-    
+
                 } else {
-    
+
                     PreviouslyGrantedAccess |= (DesiredAccess & (WRITE_DAC | READ_CONTROL));
                 }
-    
+
                 DesiredAccess &= ~(WRITE_DAC | READ_CONTROL);
             }
-    
+
         }
-    
+
         if (DesiredAccess == 0) {
-    
+
             LocalGrantedAccess = PreviouslyGrantedAccess;
             AccessGranted = TRUE;
             Status = STATUS_SUCCESS;
-    
+
         } else {
-    
+
             //
             // Finally, do the access check
             //
-    
+
             AccessGranted = SepAccessCheck ( CapturedSecurityDescriptor,
+                                             SubjectSecurityContext.PrimaryToken,
                                              SubjectSecurityContext.ClientToken,
-                                             TRUE,         // Token is locked
                                              DesiredAccess,
                                              &LocalGenericMapping,
                                              PreviouslyGrantedAccess,
@@ -1279,7 +1285,7 @@ Return Value:
                                              NULL,
                                              &Status
                                              );
-    
+
         }
     }
 
@@ -1292,32 +1298,12 @@ Return Value:
         SepExamineSacl(
             SepSaclAddrSecurityDescriptor( (PISECURITY_DESCRIPTOR)CapturedSecurityDescriptor ),
             EffectiveToken( &SubjectSecurityContext ),
-            DesiredAccess | PreviouslyGrantedAccess,
+            (AccessGranted ? LocalGrantedAccess : (DesiredAccess | PreviouslyGrantedAccess)),
             AccessGranted,
             &GenerateAudit,
             &GenerateAlarm
             );
 
-    }
-
-    //
-    // If we don't generate an audit via the SACL, see if we need to generate
-    // one for privilege use.
-    //
-    // Note that we only audit privileges successfully used to open objects,
-    // so we don't care about a failed privilege use here.  Therefore, only
-    // do this test of access has been granted.
-    //
-
-    if ( !GenerateAudit && (AccessGranted == TRUE) ) {
-
-        if ((PrivilegeSet != NULL) && (PrivilegeSet->PrivilegeCount > 0) ) {
-
-            if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted )) {
-
-                 GenerateAudit = TRUE;
-            }
-        }
     }
 
     if (GenerateAudit || GenerateAlarm) {
@@ -1344,7 +1330,7 @@ Return Value:
 
         AuditPerformed = SepAdtOpenObjectAuditAlarm (
                              CapturedSubsystemName,
-                             &HandleId,
+                             AccessGranted ? &HandleId : NULL, // Don't audit handle if failure
                              CapturedObjectTypeName,
                              0,                            // IN PVOID Object OPTIONAL,
                              CapturedObjectName,
@@ -1360,23 +1346,34 @@ Return Value:
                              GenerateAlarm,
                              PsProcessAuditId( PsGetCurrentProcess() )
                              );
+    } else {
 
-//
-//
-//            SepAdtAccessCheckAuditAlarm ( CapturedSubsystemName,
-//                                       HandleId,
-//                                       CapturedObjectTypeName,
-//                                       CapturedObjectName,
-//                                       SepTokenUserSid(SubjectSecurityContext.ClientToken),
-//                                       DesiredAccess,
-//                                       ObjectCreation,
-//                                       AccessGranted,
-//                                       LocalGrantedAccess,
-//                                       PrivilegeSet,
-//                                       GenerateAudit,
-//                                       GenerateAlarm
-//                                       );
+        //
+        // We didn't generate an audit due to the SACL.  If privileges were used, we need
+        // to audit that.
+        //
 
+        if ( PrivilegeSet != NULL ) {
+
+            if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted) ) {
+
+                AuditPerformed = SepAdtPrivilegeObjectAuditAlarm ( CapturedSubsystemName,
+                                                                   &HandleId,
+                                                                   SubjectSecurityContext.ClientToken,
+                                                                   SubjectSecurityContext.PrimaryToken,
+                                                                   PsProcessAuditId( PsGetCurrentProcess() ),
+                                                                   DesiredAccess,
+                                                                   PrivilegeSet,
+                                                                   AccessGranted
+                                                                   );
+
+                //
+                // We don't want close audits to be generated.  May need to revisit this.
+                //
+
+                LocalGenerateOnClose = FALSE;
+            }
+        }
     }
 
     SeUnlockSubjectContext( &SubjectSecurityContext );
@@ -1453,7 +1450,7 @@ NtOpenObjectAuditAlarm (
     This routine may not be able to generate a complete audit record
     due to memory restrictions.
 
-    This API requires the caller have SeTcbPrivilege privilege.  The test
+    This API requires the caller have SeAuditPrivilege privilege.  The test
     for this privilege is always against the primary token of the calling
     process, not the impersonation token of the thread.
 
@@ -1629,7 +1626,7 @@ Return Value:
                 );
 
             CapturedPrivileges = ExAllocatePoolWithTag( PagedPool,
-                                                        PrivilegeParameterLength + sizeof( PRIVILEGE_SET ),
+                                                        PrivilegeParameterLength,
                                                         'rPeS'
                                                       );
 
@@ -1637,20 +1634,25 @@ Return Value:
 
                 RtlMoveMemory ( CapturedPrivileges,
                                 Privileges,
-                                sizeof(PRIVILEGE_SET) + PrivilegeParameterLength );
+                                PrivilegeParameterLength );
             } else {
+
+                SeReleaseSecurityDescriptor ( CapturedSecurityDescriptor,
+                                              PreviousMode,
+                                              FALSE );
 
                 ObDereferenceObject( (PVOID)Token );
                 SeReleaseSubjectContext ( &SubjectSecurityContext );
                 return( STATUS_INSUFFICIENT_RESOURCES );
             }
 
-            if (ARGUMENT_PRESENT( HandleId )) {
 
-                ProbeForRead( *(PHANDLE)HandleId, sizeof(PVOID), sizeof(PVOID) );
-                CapturedHandleId = *(PHANDLE)HandleId;
-            }
+        }
 
+        if (ARGUMENT_PRESENT( HandleId )) {
+
+            ProbeForRead( (PHANDLE)HandleId, sizeof(PVOID), sizeof(PVOID) );
+            CapturedHandleId = *(PHANDLE)HandleId;
         }
 
         ProbeForWriteBoolean(GenerateOnClose);
@@ -1756,7 +1758,7 @@ Return Value:
         if ( ARGUMENT_PRESENT(Privileges) ) {
 
             if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted) ) {
-    
+
                 AuditPerformed = SepAdtPrivilegeObjectAuditAlarm ( CapturedSubsystemName,
                                                                    CapturedHandleId,
                                                                    Token,
@@ -1766,7 +1768,12 @@ Return Value:
                                                                    CapturedPrivileges,
                                                                    AccessGranted
                                                                    );
-                LocalGenerateOnClose = AuditPerformed;
+                //
+                // If we generate an audit due to use of privilege, don't set generate on close,
+                // because then we'll have a close audit without a corresponding open audit.
+                //
+
+                LocalGenerateOnClose = FALSE;
             }
         }
     }
@@ -1810,6 +1817,7 @@ Return Value:
     return(STATUS_SUCCESS);
 }
 
+
 
 NTSTATUS
 NtCloseObjectAuditAlarm (
@@ -1830,7 +1838,7 @@ Routine Description:
     account.  This may have an impact on the approach taken for data
     structure mutex locking, for example.
 
-    This API requires the caller have SeTcbPrivilege privilege.  The test
+    This API requires the caller have SeAuditPrivilege privilege.  The test
     for this privilege is always against the primary token of the calling
     process, allowing the caller to be impersonating a client during the
     call with no ill effects.
@@ -1917,6 +1925,10 @@ Return value:
 
     } except (EXCEPTION_EXECUTE_HANDLER) {
 
+        if ( CapturedSubsystemName != NULL ) {
+            SepFreeCapturedString( CapturedSubsystemName );
+        }
+
         ExFreePool( CapturedUserSid );
         return GetExceptionCode();
 
@@ -1927,6 +1939,140 @@ Return value:
     //
 
     SepAdtCloseObjectAuditAlarm ( CapturedSubsystemName,
+                               HandleId,
+                               NULL,
+                               CapturedUserSid,
+                               SepTokenAuthenticationId( EffectiveToken( &SubjectSecurityContext ))
+                               );
+
+    SepFreeCapturedString( CapturedSubsystemName );
+
+    ExFreePool( CapturedUserSid );
+
+    return(STATUS_SUCCESS);
+}
+
+
+NTSTATUS
+NtDeleteObjectAuditAlarm (
+    IN PUNICODE_STRING SubsystemName,
+    IN PVOID HandleId,
+    IN BOOLEAN GenerateOnClose
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used to generate audit and alarm messages when an object
+    in a protected subsystem object is deleted.  This routine may result in
+    several messages being generated and sent to Port objects.  This may
+    result in a significant latency before returning.  Design of routines
+    that must call this routine must take this potential latency into
+    account.  This may have an impact on the approach taken for data
+    structure mutex locking, for example.
+
+    This API requires the caller have SeAuditPrivilege privilege.  The test
+    for this privilege is always against the primary token of the calling
+    process, allowing the caller to be impersonating a client during the
+    call with no ill effects.
+
+Arguments:
+
+    SubsystemName - Supplies a name string identifying the subsystem
+        calling the routine.
+
+    HandleId - A unique value representing the client's handle to the
+        object.
+
+    GenerateOnClose - Is a boolean value returned from a corresponding
+        NtAccessCheckAndAuditAlarm() call or NtOpenObjectAuditAlarm() call
+        when the object handle was created.
+
+Return value:
+
+--*/
+
+{
+    BOOLEAN Result;
+    SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
+    KPROCESSOR_MODE PreviousMode;
+    PUNICODE_STRING CapturedSubsystemName = NULL;
+    PSID UserSid;
+    PSID CapturedUserSid;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    PreviousMode = KeGetPreviousMode();
+
+    ASSERT(PreviousMode != KernelMode);
+
+    if (!GenerateOnClose) {
+        return( STATUS_SUCCESS );
+    }
+
+    //
+    // Check for SeAuditPrivilege
+    //
+
+    SeCaptureSubjectContext ( &SubjectSecurityContext );
+
+    Result = SeCheckAuditPrivilege (
+                 &SubjectSecurityContext,
+                 PreviousMode
+                 );
+
+    if (!Result) {
+
+        SeReleaseSubjectContext ( &SubjectSecurityContext );
+        return(STATUS_PRIVILEGE_NOT_HELD);
+    }
+
+    UserSid = SepTokenUserSid( EffectiveToken (&SubjectSecurityContext));
+
+    CapturedUserSid = ExAllocatePoolWithTag(
+                          PagedPool,
+                          SeLengthSid( UserSid ),
+                          'iSeS'
+                          );
+
+    if ( CapturedUserSid == NULL ) {
+        SeReleaseSubjectContext ( &SubjectSecurityContext );
+        return( STATUS_INSUFFICIENT_RESOURCES );
+    }
+
+    Status =  RtlCopySid (
+                  SeLengthSid( UserSid ),
+                  CapturedUserSid,
+                  UserSid
+                  );
+
+    ASSERT( NT_SUCCESS( Status ));
+
+    SeReleaseSubjectContext ( &SubjectSecurityContext );
+
+    try {
+
+        SepProbeAndCaptureString_U ( SubsystemName,
+                                   &CapturedSubsystemName );
+
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+
+        if ( CapturedSubsystemName != NULL ) {
+            SepFreeCapturedString( CapturedSubsystemName );
+        }
+
+        ExFreePool( CapturedUserSid );
+        return GetExceptionCode();
+
+    }
+
+    //
+    // This routine will check to see if auditing is enabled
+    //
+
+    SepAdtDeleteObjectAuditAlarm ( CapturedSubsystemName,
                                HandleId,
                                NULL,
                                CapturedUserSid,
@@ -2026,11 +2172,36 @@ Return value:
     PLUID ClientAuthenticationId = NULL;
     BOOLEAN AuditPrivileges = FALSE;
     BOOLEAN AuditPerformed;
+    PTOKEN Token;
+    ACCESS_MASK MappedGrantMask = (ACCESS_MASK)0;
+    ACCESS_MASK MappedDenyMask = (ACCESS_MASK)0;
+    PAUX_ACCESS_DATA AuxData;
 
     PAGED_CODE();
 
     if ( AccessMode == KernelMode ) {
         return;
+    }
+
+    AuxData = (PAUX_ACCESS_DATA)AccessState->AuxData;
+
+    Token = EffectiveToken( &AccessState->SubjectSecurityContext );
+
+    if (ARGUMENT_PRESENT(Token->AuditData)) {
+
+        MappedGrantMask = Token->AuditData->GrantMask;
+
+        RtlMapGenericMask(
+            &MappedGrantMask,
+            &AuxData->GenericMapping
+            );
+
+        MappedDenyMask = Token->AuditData->DenyMask;
+
+        RtlMapGenericMask(
+            &MappedDenyMask,
+            &AuxData->GenericMapping
+            );
     }
 
     if (SecurityDescriptor != NULL) {
@@ -2040,14 +2211,21 @@ Return value:
 
         if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted )) {
 
-            SepExamineSacl(
-                SepSaclAddrSecurityDescriptor( (PISECURITY_DESCRIPTOR)SecurityDescriptor ),
-                EffectiveToken( &AccessState->SubjectSecurityContext ),
-                RequestedAccess,
-                AccessGranted,
-                &GenerateAudit,
-                &GenerateAlarm
-                );
+            if ( RequestedAccess & (AccessGranted ? MappedGrantMask : MappedDenyMask)) {
+
+                GenerateAudit = TRUE;
+
+            } else {
+
+                SepExamineSacl(
+                    SepSaclAddrSecurityDescriptor( (PISECURITY_DESCRIPTOR)SecurityDescriptor ),
+                    Token,
+                    RequestedAccess,
+                    AccessGranted,
+                    &GenerateAudit,
+                    &GenerateAlarm
+                    );
+            }
 
             //
             // Only generate an audit on close of we're auditing from SACL
@@ -2073,23 +2251,23 @@ Return value:
 
         if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted )) {
 
-            if ((AccessState->PrivilegesUsed != NULL) &&
-                (AccessState->PrivilegesUsed->PrivilegeCount > 0) ) {
+            if ((AuxData->PrivilegesUsed != NULL) &&
+                (AuxData->PrivilegesUsed->PrivilegeCount > 0) ) {
 
                 //
                 // Make sure these are actually privileges that we want to audit
                 //
 
-                if (SepFilterPrivilegeAudits( AccessState->PrivilegesUsed )) {
+                if (SepFilterPrivilegeAudits( AuxData->PrivilegesUsed )) {
 
                     GenerateAudit = TRUE;
-    
+
                     //
                     // When we finally try to generate this audit, this flag
                     // will tell us that we need to audit the fact that we
                     // used a privilege, as opposed to audit due to the SACL.
                     //
-    
+
                     AccessState->AuditPrivileges = TRUE;
                 }
             }
@@ -2162,7 +2340,7 @@ Return value:
                                                           AccessState->OriginalDesiredAccess,
                                                           AccessState->PreviouslyGrantedAccess,
                                                           &AccessState->OperationID,
-                                                          AccessState->PrivilegesUsed,
+                                                          AuxData->PrivilegesUsed,
                                                           FALSE,
                                                           FALSE,
                                                           TRUE,
@@ -2178,17 +2356,21 @@ Return value:
             if ( ObjectName != NULL ) {
 
                 AccessState->ObjectName.Buffer = ExAllocatePool( PagedPool,ObjectName->MaximumLength );
-                AccessState->ObjectName.MaximumLength = ObjectName->MaximumLength;
+                if (AccessState->ObjectName.Buffer != NULL) {
 
-                RtlCopyUnicodeString( &AccessState->ObjectName, ObjectName );
+                    AccessState->ObjectName.MaximumLength = ObjectName->MaximumLength;
+                    RtlCopyUnicodeString( &AccessState->ObjectName, ObjectName );
+                }
             }
 
             if ( LocalObjectTypeName != NULL ) {
 
                 AccessState->ObjectTypeName.Buffer = ExAllocatePool( PagedPool, LocalObjectTypeName->MaximumLength );
-                AccessState->ObjectTypeName.MaximumLength = LocalObjectTypeName->MaximumLength;
+                if (AccessState->ObjectTypeName.Buffer != NULL) {
 
-                RtlCopyUnicodeString( &AccessState->ObjectTypeName, LocalObjectTypeName );
+                    AccessState->ObjectTypeName.MaximumLength = LocalObjectTypeName->MaximumLength;
+                    RtlCopyUnicodeString( &AccessState->ObjectTypeName, LocalObjectTypeName );
+                }
             }
         }
 
@@ -2205,6 +2387,606 @@ Return value:
 
     return;
 }
+
+
+VOID
+SeOpenObjectForDeleteAuditAlarm (
+    IN PUNICODE_STRING ObjectTypeName,
+    IN PVOID Object OPTIONAL,
+    IN PUNICODE_STRING AbsoluteObjectName OPTIONAL,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PACCESS_STATE AccessState,
+    IN BOOLEAN ObjectCreated,
+    IN BOOLEAN AccessGranted,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PBOOLEAN GenerateOnClose
+    )
+/*++
+
+Routine Description:
+
+    SeOpenObjectForDeleteAuditAlarm is used by the object manager that open
+    objects to generate any necessary audit or alarm messages.  The open may
+    be to existing objects or for newly created objects.  No messages will be
+    generated for Kernel mode accesses.
+
+    This routine is used to generate audit and alarm messages when an
+    attempt is made to open an object with the intent to delete it.
+    Specifically, this is used by file systems when the flag
+    FILE_DELETE_ON_CLOSE is specified.
+
+    This routine may result in several messages being generated and sent to
+    Port objects.  This may result in a significant latency before
+    returning.  Design of routines that must call this routine must take
+    this potential latency into account.  This may have an impact on the
+    approach taken for data structure mutex locking, for example.
+
+Arguments:
+
+    ObjectTypeName - Supplies the name of the type of object being
+        accessed.  This must be the same name provided to the
+        ObCreateObjectType service when the object type was created.
+
+    Object - Address of the object accessed.  This value will not be used
+        as a pointer (referenced).  It is necessary only to enter into log
+        messages.  If the open was not successful, then this argument is
+        ignored.  Otherwise, it must be provided.
+
+    AbsoluteObjectName - Supplies the name of the object being accessed.
+        If the object doesn't have a name, then this field is left null.
+        Otherwise, it must be provided.
+
+    SecurityDescriptor - A pointer to the security descriptor of the
+        object being accessed.
+
+    AccessState - A pointer to an access state structure containing the
+        subject context, the remaining desired access types, the granted
+        access types, and optionally a privilege set to indicate which
+        privileges were used to permit the access.
+
+    ObjectCreated - A boolean flag indicating whether the access resulted
+        in a new object being created.  A value of TRUE indicates an object
+        was created, FALSE indicates an existing object was opened.
+
+    AccessGranted - Indicates if the access was granted or denied based on
+        the access check or privilege check.
+
+    AccessMode - Indicates the access mode used for the access check.  One
+        of UserMode or KernelMode.  Messages will not be generated by
+        kernel mode accesses.
+
+    GenerateOnClose - Points to a boolean that is set by the audit
+        generation routine and must be passed to SeCloseObjectAuditAlarm()
+        when the object handle is closed.
+
+Return value:
+
+    None.
+
+--*/
+{
+    BOOLEAN GenerateAudit = FALSE;
+    BOOLEAN GenerateAlarm = FALSE;
+    ACCESS_MASK RequestedAccess;
+    POBJECT_NAME_INFORMATION ObjectNameInfo = NULL;
+    PUNICODE_STRING ObjectTypeNameInfo = NULL;
+    PUNICODE_STRING ObjectName = NULL;
+    PUNICODE_STRING LocalObjectTypeName = NULL;
+    PLUID PrimaryAuthenticationId = NULL;
+    PLUID ClientAuthenticationId = NULL;
+    BOOLEAN AuditPrivileges = FALSE;
+    BOOLEAN AuditPerformed;
+    PTOKEN Token;
+    ACCESS_MASK MappedGrantMask = (ACCESS_MASK)0;
+    ACCESS_MASK MappedDenyMask = (ACCESS_MASK)0;
+    PAUX_ACCESS_DATA AuxData;
+
+    PAGED_CODE();
+
+    if ( AccessMode == KernelMode ) {
+        return;
+    }
+
+    AuxData = (PAUX_ACCESS_DATA)AccessState->AuxData;
+
+    Token = EffectiveToken( &AccessState->SubjectSecurityContext );
+
+    if (ARGUMENT_PRESENT(Token->AuditData)) {
+
+        MappedGrantMask = Token->AuditData->GrantMask;
+
+        RtlMapGenericMask(
+            &MappedGrantMask,
+            &AuxData->GenericMapping
+            );
+
+        MappedDenyMask = Token->AuditData->DenyMask;
+
+        RtlMapGenericMask(
+            &MappedDenyMask,
+            &AuxData->GenericMapping
+            );
+    }
+
+    if (SecurityDescriptor != NULL) {
+
+        RequestedAccess = AccessState->RemainingDesiredAccess |
+                          AccessState->PreviouslyGrantedAccess;
+
+        if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted )) {
+
+            if ( RequestedAccess & (AccessGranted ? MappedGrantMask : MappedDenyMask)) {
+
+                GenerateAudit = TRUE;
+
+            } else {
+
+                SepExamineSacl(
+                    SepSaclAddrSecurityDescriptor( (PISECURITY_DESCRIPTOR)SecurityDescriptor ),
+                    Token,
+                    RequestedAccess,
+                    AccessGranted,
+                    &GenerateAudit,
+                    &GenerateAlarm
+                    );
+            }
+
+            //
+            // Only generate an audit on close of we're auditing from SACL
+            // settings.
+            //
+
+            if (GenerateAudit) {
+                *GenerateOnClose = TRUE;
+            }
+        }
+    }
+
+    //
+    // If we don't generate an audit via the SACL, see if we need to generate
+    // one for privilege use.
+    //
+    // Note that we only audit privileges successfully used to open objects,
+    // so we don't care about a failed privilege use here.  Therefore, only
+    // do this test of access has been granted.
+    //
+
+    if (!GenerateAudit && (AccessGranted == TRUE)) {
+
+        if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted )) {
+
+            if ((AuxData->PrivilegesUsed != NULL) &&
+                (AuxData->PrivilegesUsed->PrivilegeCount > 0) ) {
+
+                //
+                // Make sure these are actually privileges that we want to audit
+                //
+
+                if (SepFilterPrivilegeAudits( AuxData->PrivilegesUsed )) {
+
+                    GenerateAudit = TRUE;
+
+                    //
+                    // When we finally try to generate this audit, this flag
+                    // will tell us that we need to audit the fact that we
+                    // used a privilege, as opposed to audit due to the SACL.
+                    //
+
+                    AccessState->AuditPrivileges = TRUE;
+                }
+            }
+        }
+    }
+
+    //
+    // Set up either to generate an audit (if the access check has failed), or save
+    // the stuff that we're going to audit later into the AccessState structure.
+    //
+
+    if (GenerateAudit || GenerateAlarm) {
+
+        AccessState->GenerateAudit = TRUE;
+
+        //
+        // Figure out what we've been passed, and obtain as much
+        // missing information as possible.
+        //
+
+        if ( !ARGUMENT_PRESENT( AbsoluteObjectName )) {
+
+            if ( ARGUMENT_PRESENT( Object )) {
+
+                ObjectNameInfo = SepQueryNameString( Object  );
+
+                if ( ObjectNameInfo != NULL ) {
+
+                    ObjectName = &ObjectNameInfo->Name;
+                }
+            }
+
+        } else {
+
+            ObjectName = AbsoluteObjectName;
+        }
+
+        if ( !ARGUMENT_PRESENT( ObjectTypeName )) {
+
+            if ( ARGUMENT_PRESENT( Object )) {
+
+                ObjectTypeNameInfo = SepQueryTypeString( Object );
+
+                if ( ObjectTypeNameInfo != NULL ) {
+
+                    LocalObjectTypeName = ObjectTypeNameInfo;
+                }
+            }
+
+        } else {
+
+            LocalObjectTypeName = ObjectTypeName;
+        }
+
+        //
+        // If the access attempt failed, do the audit here.  If it succeeded,
+        // we'll do the audit later, when the handle is allocated.
+        //
+        //
+
+        if (!AccessGranted) {
+
+            AuditPerformed = SepAdtOpenObjectAuditAlarm ( &SeSubsystemName,
+                                                          NULL,
+                                                          LocalObjectTypeName,
+                                                          NULL,
+                                                          ObjectName,
+                                                          AccessState->SubjectSecurityContext.ClientToken,
+                                                          AccessState->SubjectSecurityContext.PrimaryToken,
+                                                          AccessState->OriginalDesiredAccess,
+                                                          AccessState->PreviouslyGrantedAccess,
+                                                          &AccessState->OperationID,
+                                                          AuxData->PrivilegesUsed,
+                                                          FALSE,
+                                                          FALSE,
+                                                          TRUE,
+                                                          FALSE,
+                                                          AccessState->SubjectSecurityContext.ProcessAuditId );
+        } else {
+
+            //
+            // Generate the delete audit first
+            //
+
+            SepAdtOpenObjectForDeleteAuditAlarm ( &SeSubsystemName,
+                                                  NULL,
+                                                  LocalObjectTypeName,
+                                                  NULL,
+                                                  ObjectName,
+                                                  AccessState->SubjectSecurityContext.ClientToken,
+                                                  AccessState->SubjectSecurityContext.PrimaryToken,
+                                                  AccessState->OriginalDesiredAccess,
+                                                  AccessState->PreviouslyGrantedAccess,
+                                                  &AccessState->OperationID,
+                                                  AuxData->PrivilegesUsed,
+                                                  FALSE,
+                                                  TRUE,
+                                                  TRUE,
+                                                  FALSE,
+                                                  AccessState->SubjectSecurityContext.ProcessAuditId );
+
+            //
+            // Copy all the stuff we're going to need into the
+            // AccessState and return.
+            //
+
+            if ( ObjectName != NULL ) {
+
+                AccessState->ObjectName.Buffer = ExAllocatePool( PagedPool,ObjectName->MaximumLength );
+                if (AccessState->ObjectName.Buffer != NULL) {
+
+                    AccessState->ObjectName.MaximumLength = ObjectName->MaximumLength;
+                    RtlCopyUnicodeString( &AccessState->ObjectName, ObjectName );
+                }
+            }
+
+            if ( LocalObjectTypeName != NULL ) {
+
+                AccessState->ObjectTypeName.Buffer = ExAllocatePool( PagedPool, LocalObjectTypeName->MaximumLength );
+                if (AccessState->ObjectTypeName.Buffer != NULL) {
+
+                    AccessState->ObjectTypeName.MaximumLength = LocalObjectTypeName->MaximumLength;
+                    RtlCopyUnicodeString( &AccessState->ObjectTypeName, LocalObjectTypeName );
+                }
+            }
+        }
+
+        if ( ObjectNameInfo != NULL ) {
+
+            ExFreePool( ObjectNameInfo );
+        }
+
+        if ( ObjectTypeNameInfo != NULL ) {
+
+            ExFreePool( ObjectTypeNameInfo );
+        }
+    }
+
+    return;
+}
+
+#if 0
+
+VOID
+SeOpenObjectForDeleteAuditAlarm (
+    IN PUNICODE_STRING ObjectTypeName,
+    IN PVOID Object OPTIONAL,
+    IN PUNICODE_STRING AbsoluteObjectName OPTIONAL,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PACCESS_STATE AccessState,
+    IN BOOLEAN ObjectCreated,
+    IN BOOLEAN AccessGranted,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PBOOLEAN GenerateOnClose
+    )
+/*++
+
+Routine Description:
+
+    SeOpenObjectAuditForDeleteAlarm is used by the file systems for files
+    that are opened with the FILE_DELETE_ON_CLOSE bit specified. Since a
+    handle may not be created, it is important to generate the deletiong
+    audit when the file is opened.  No messages will be
+    generated for Kernel mode accesses.
+
+    This routine may result in several messages being generated and sent to
+    Port objects.  This may result in a significant latency before
+    returning.  Design of routines that must call this routine must take
+    this potential latency into account.  This may have an impact on the
+    approach taken for data structure mutex locking, for example.
+
+Arguments:
+
+    ObjectTypeName - Supplies the name of the type of object being
+        accessed.  This must be the same name provided to the
+        ObCreateObjectType service when the object type was created.
+
+    Object - Address of the object accessed.  This value will not be used
+        as a pointer (referenced).  It is necessary only to enter into log
+        messages.  If the open was not successful, then this argument is
+        ignored.  Otherwise, it must be provided.
+
+    AbsoluteObjectName - Supplies the name of the object being accessed.
+        If the object doesn't have a name, then this field is left null.
+        Otherwise, it must be provided.
+
+    SecurityDescriptor - A pointer to the security descriptor of the
+        object being accessed.
+
+    AccessState - A pointer to an access state structure containing the
+        subject context, the remaining desired access types, the granted
+        access types, and optionally a privilege set to indicate which
+        privileges were used to permit the access.
+
+    ObjectCreated - A boolean flag indicating whether the access resulted
+        in a new object being created.  A value of TRUE indicates an object
+        was created, FALSE indicates an existing object was opened.
+
+    AccessGranted - Indicates if the access was granted or denied based on
+        the access check or privilege check.
+
+    AccessMode - Indicates the access mode used for the access check.  One
+        of UserMode or KernelMode.  Messages will not be generated by
+        kernel mode accesses.
+
+    GenerateOnClose - Points to a boolean that is set by the audit
+        generation routine and must be passed to SeCloseObjectAuditAlarm()
+        when the object handle is closed.
+
+Return value:
+
+    None.
+
+--*/
+{
+    BOOLEAN GenerateAudit = FALSE;
+    BOOLEAN GenerateAlarm = FALSE;
+    ACCESS_MASK RequestedAccess;
+    POBJECT_NAME_INFORMATION ObjectNameInfo = NULL;
+    PUNICODE_STRING ObjectTypeNameInfo = NULL;
+    PUNICODE_STRING ObjectName = NULL;
+    PUNICODE_STRING LocalObjectTypeName = NULL;
+    PLUID PrimaryAuthenticationId = NULL;
+    PLUID ClientAuthenticationId = NULL;
+    BOOLEAN AuditPrivileges = FALSE;
+    PTOKEN Token;
+    ACCESS_MASK MappedGrantMask = (ACCESS_MASK)0;
+    ACCESS_MASK MappedDenyMask = (ACCESS_MASK)0;
+    PAUX_ACCESS_DATA AuxData;
+
+    PAGED_CODE();
+
+    if ( AccessMode == KernelMode ) {
+        return;
+    }
+
+    AuxData = (PAUX_ACCESS_DATA)AccessState->AuxData;
+
+    Token = EffectiveToken( &AccessState->SubjectSecurityContext );
+
+    if (ARGUMENT_PRESENT(Token->AuditData)) {
+
+        MappedGrantMask = Token->AuditData->GrantMask;
+
+        RtlMapGenericMask(
+            &MappedGrantMask,
+            &AuxData->GenericMapping
+            );
+
+        MappedDenyMask = Token->AuditData->DenyMask;
+
+        RtlMapGenericMask(
+            &MappedDenyMask,
+            &AuxData->GenericMapping
+            );
+    }
+
+    if (SecurityDescriptor != NULL) {
+
+        RequestedAccess = AccessState->RemainingDesiredAccess |
+                          AccessState->PreviouslyGrantedAccess;
+
+        if ( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted )) {
+
+            if ( RequestedAccess & (AccessGranted ? MappedGrantMask : MappedDenyMask)) {
+
+                GenerateAudit = TRUE;
+
+            } else {
+
+                SepExamineSacl(
+                    SepSaclAddrSecurityDescriptor( (PISECURITY_DESCRIPTOR)SecurityDescriptor ),
+                    Token,
+                    RequestedAccess,
+                    AccessGranted,
+                    &GenerateAudit,
+                    &GenerateAlarm
+                    );
+            }
+
+            //
+            // Only generate an audit on close of we're auditing from SACL
+            // settings.
+            //
+
+            if (GenerateAudit) {
+                *GenerateOnClose = TRUE;
+            }
+        }
+    }
+
+    //
+    // If we don't generate an audit via the SACL, see if we need to generate
+    // one for privilege use.
+    //
+    // Note that we only audit privileges successfully used to open objects,
+    // so we don't care about a failed privilege use here.  Therefore, only
+    // do this test of access has been granted.
+    //
+
+    if (!GenerateAudit && (AccessGranted == TRUE)) {
+
+        if ( SepAdtAuditThisEvent( AuditCategoryPrivilegeUse, &AccessGranted )) {
+
+            if ((AuxData->PrivilegesUsed != NULL) &&
+                (AuxData->PrivilegesUsed->PrivilegeCount > 0) ) {
+
+                //
+                // Make sure these are actually privileges that we want to audit
+                //
+
+                if (SepFilterPrivilegeAudits( AuxData->PrivilegesUsed )) {
+
+                    GenerateAudit = TRUE;
+
+                    //
+                    // When we finally try to generate this audit, this flag
+                    // will tell us that we need to audit the fact that we
+                    // used a privilege, as opposed to audit due to the SACL.
+                    //
+
+                    AccessState->AuditPrivileges = TRUE;
+                }
+            }
+        }
+    }
+
+    //
+    // Set up either to generate an audit (if the access check has failed), or save
+    // the stuff that we're going to audit later into the AccessState structure.
+    //
+
+    if (GenerateAudit || GenerateAlarm) {
+
+        AccessState->GenerateAudit = TRUE;
+
+        //
+        // Figure out what we've been passed, and obtain as much
+        // missing information as possible.
+        //
+
+        if ( !ARGUMENT_PRESENT( AbsoluteObjectName )) {
+
+            if ( ARGUMENT_PRESENT( Object )) {
+
+                ObjectNameInfo = SepQueryNameString( Object  );
+
+                if ( ObjectNameInfo != NULL ) {
+
+                    ObjectName = &ObjectNameInfo->Name;
+                }
+            }
+
+        } else {
+
+            ObjectName = AbsoluteObjectName;
+        }
+
+        if ( !ARGUMENT_PRESENT( ObjectTypeName )) {
+
+            if ( ARGUMENT_PRESENT( Object )) {
+
+                ObjectTypeNameInfo = SepQueryTypeString( Object );
+
+                if ( ObjectTypeNameInfo != NULL ) {
+
+                    LocalObjectTypeName = ObjectTypeNameInfo;
+                }
+            }
+
+        } else {
+
+            LocalObjectTypeName = ObjectTypeName;
+        }
+
+        //
+        // Do the audit here.
+        //
+
+        //
+        // BUGBUG: call SepAdtOpenObjectForDeleteAuditAlarm here
+        // instead.
+        //
+
+        SepAdtOpenObjectAuditAlarm (    &SeSubsystemName,
+                                        NULL,
+                                        LocalObjectTypeName,
+                                        NULL,
+                                        ObjectName,
+                                        AccessState->SubjectSecurityContext.ClientToken,
+                                        AccessState->SubjectSecurityContext.PrimaryToken,
+                                        AccessState->OriginalDesiredAccess,
+                                        AccessState->PreviouslyGrantedAccess,
+                                        &AccessState->OperationID,
+                                        AuxData->PrivilegesUsed,
+                                        FALSE,
+                                        FALSE,
+                                        TRUE,
+                                        FALSE,
+                                        AccessState->SubjectSecurityContext.ProcessAuditId );
+
+        if ( ObjectNameInfo != NULL ) {
+
+            ExFreePool( ObjectNameInfo );
+        }
+
+        if ( ObjectTypeNameInfo != NULL ) {
+
+            ExFreePool( ObjectTypeNameInfo );
+        }
+    }
+
+    return;
+}
+#endif
 
 
 VOID
@@ -2726,22 +3508,25 @@ Return Value:
 
 {
     BOOLEAN AuditPerformed;
+    PAUX_ACCESS_DATA AuxData;
 
     PAGED_CODE();
+
+    AuxData = (PAUX_ACCESS_DATA)AccessState->AuxData;
 
     if ( AccessState->GenerateAudit ) {
 
         if ( AccessState->AuditPrivileges ) {
 
-            AuditPerformed = SepAdtPrivilegeObjectAuditAlarm (                                                           
-                                 &SeSubsystemName,                                                                       
-                                 Handle,                                                                                 
-                                 (PTOKEN)AccessState->SubjectSecurityContext.ClientToken,                                
-                                 (PTOKEN)AccessState->SubjectSecurityContext.PrimaryToken,                               
-                                 &AccessState->SubjectSecurityContext.ProcessAuditId,                                    
-                                 AccessState->PreviouslyGrantedAccess,                                                   
-                                 AccessState->PrivilegesUsed,                                                            
-                                 TRUE                                                                                    
+            AuditPerformed = SepAdtPrivilegeObjectAuditAlarm (
+                                 &SeSubsystemName,
+                                 Handle,
+                                 (PTOKEN)AccessState->SubjectSecurityContext.ClientToken,
+                                 (PTOKEN)AccessState->SubjectSecurityContext.PrimaryToken,
+                                 &AccessState->SubjectSecurityContext.ProcessAuditId,
+                                 AccessState->PreviouslyGrantedAccess,
+                                 AuxData->PrivilegesUsed,
+                                 TRUE
                                  );
         } else {
 
@@ -2755,7 +3540,7 @@ Return Value:
                                                           AccessState->OriginalDesiredAccess,
                                                           AccessState->PreviouslyGrantedAccess,
                                                           &AccessState->OperationID,
-                                                          AccessState->PrivilegesUsed,
+                                                          AuxData->PrivilegesUsed,
                                                           FALSE,
                                                           TRUE,
                                                           TRUE,
@@ -2813,7 +3598,6 @@ Return Value:
 
 {
     SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
-    PSID CapturedUserSid;
     PSID UserSid;
     NTSTATUS Status;
 
@@ -2825,36 +3609,77 @@ Return Value:
 
         UserSid = SepTokenUserSid( EffectiveToken (&SubjectSecurityContext));
 
-        CapturedUserSid = ExAllocatePoolWithTag(
-                              PagedPool,
-                              SeLengthSid( UserSid ),
-                              'iSeS'
-                              );
 
-        if ( CapturedUserSid != NULL ) {
-
-            Status =  RtlCopySid (
-                          SeLengthSid( UserSid ),
-                          CapturedUserSid,
-                          UserSid
-                          );
-
-            if ( NT_SUCCESS( Status )) {
-
-                SepAdtCloseObjectAuditAlarm (
-                    &SeSubsystemName,
-                    (PVOID)Handle,
-                    Object,
-                    CapturedUserSid,
-                    SepTokenAuthenticationId( EffectiveToken (&SubjectSecurityContext))
-                    );
-            }
-
-            ExFreePool( CapturedUserSid );
-        }
+        SepAdtCloseObjectAuditAlarm (
+            &SeSubsystemName,
+            (PVOID)Handle,
+            Object,
+            UserSid,
+            SepTokenAuthenticationId( EffectiveToken (&SubjectSecurityContext))
+            );
 
         SeReleaseSubjectContext ( &SubjectSecurityContext );
     }
+
+    return;
+}
+
+
+VOID
+SeDeleteObjectAuditAlarm(
+    IN PVOID Object,
+    IN HANDLE Handle
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used to generate audit and alarm messages when an object
+    is marked for deletion.
+
+    This routine may result in several messages being generated and sent to
+    Port objects.  This may result in a significant latency before
+    returning.  Design of routines that must call this routine must take
+    this potential latency into account.  This may have an impact on the
+    approach taken for data structure mutex locking, for example.
+
+Arguments:
+
+    Object - Address of the object being accessed.  This value will not be
+        used as a pointer (referenced).  It is necessary only to enter into
+        log messages.
+
+    Handle - Supplies the handle value assigned to the open.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
+    PSID UserSid;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    SeCaptureSubjectContext ( &SubjectSecurityContext );
+
+    UserSid = SepTokenUserSid( EffectiveToken (&SubjectSecurityContext));
+
+
+
+    SepAdtDeleteObjectAuditAlarm (
+        &SeSubsystemName,
+        (PVOID)Handle,
+        Object,
+        UserSid,
+        SepTokenAuthenticationId( EffectiveToken (&SubjectSecurityContext))
+        );
+
+    SeReleaseSubjectContext ( &SubjectSecurityContext );
 
     return;
 }
@@ -2909,11 +3734,23 @@ Return Value:
     ULONG AceCount;
     ACCESS_MASK AccessMask;
     UCHAR AceFlags;
+    BOOLEAN FailedMaximumAllowed;
 
     PAGED_CODE();
 
     *GenerateAudit = FALSE;
     *GenerateAlarm = FALSE;
+
+    //
+    // If we failed an attempt to open an object for ONLY maximumum allowed,
+    // then we generate an audit if ANY ACCESS_DENIED audit matching this
+    // user's list of sids is found
+    //
+
+    FailedMaximumAllowed = FALSE;
+    if (!AccessGranted && (DesiredAccess & MAXIMUM_ALLOWED)) {
+        FailedMaximumAllowed = TRUE;
+    }
 
     //
     // If the Sacl is null, do nothing and return
@@ -2940,8 +3777,6 @@ Return Value:
           (i < AceCount) && !(*GenerateAudit && *GenerateAlarm);
           i++, Ace = NextAce( Ace ) ) {
 
-        SepValidateAce( Ace, Sacl );
-
         if ( !(((PACE_HEADER)Ace)->AceFlags & INHERIT_ONLY_ACE)) {
 
              if ( (((PACE_HEADER)Ace)->AceType == SYSTEM_AUDIT_ACE_TYPE) ) {
@@ -2949,16 +3784,17 @@ Return Value:
                 if ( SepSidInToken( (PACCESS_TOKEN)Token, &((PSYSTEM_AUDIT_ACE)Ace)->SidStart ) ) {
 
                     AccessMask = ((PSYSTEM_AUDIT_ACE)Ace)->Mask;
+                    AceFlags   = ((PACE_HEADER)Ace)->AceFlags;
 
                     if ( AccessMask & DesiredAccess ) {
-
-                        AceFlags   = ((PACE_HEADER)Ace)->AceFlags;
 
                         if (((AceFlags & SUCCESSFUL_ACCESS_ACE_FLAG) && AccessGranted) ||
                               ((AceFlags & FAILED_ACCESS_ACE_FLAG) && !AccessGranted)) {
 
                             *GenerateAudit = TRUE;
                         }
+                    } else if ( FailedMaximumAllowed && (AceFlags & FAILED_ACCESS_ACE_FLAG) ) {
+                            *GenerateAudit = TRUE;
                     }
                 }
 
@@ -3046,20 +3882,20 @@ SepInitializePrivilegeFilter(
     BOOLEAN Verbose
     )
 /*++
-    
+
 Routine Description:
-    
+
     Initializes SepFilterPrivileges for either normal or verbose auditing.
-    
+
 Arguments:
-    
+
     Verbose - Whether we want to filter by the short or long privileges
     list.  Verbose == TRUE means use the short list.
-    
+
 Return Value:
-    
+
     TRUE for success, FALSE for failure
-    
+
 --*/
 {
     if (Verbose) {
@@ -3102,7 +3938,8 @@ Return Value:
 
     PAGED_CODE();
 
-    if ( PrivilegeSet->PrivilegeCount == 0 ) {
+    if ( !ARGUMENT_PRESENT(PrivilegeSet) ||
+        (PrivilegeSet->PrivilegeCount == 0) ) {
         return( FALSE );
     }
 
@@ -3133,9 +3970,10 @@ Return Value:
 
 
 BOOLEAN
-SeAuditingFileEvents(
+SeAuditingFileOrGlobalEvents(
     IN BOOLEAN AccessGranted,
-    IN PSECURITY_DESCRIPTOR SecurityDescriptor
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN PSECURITY_SUBJECT_CONTEXT SubjectSecurityContext
     )
 
 /*++
@@ -3163,10 +4001,49 @@ Return Value:
 
     PAGED_CODE();
 
+    if ( ((PTOKEN)EffectiveToken( SubjectSecurityContext ))->AuditData != NULL) {
+        return( TRUE );
+    }
+
     if ( SepSaclAddrSecurityDescriptor( ISecurityDescriptor ) == NULL ) {
 
         return( FALSE );
     }
+
+    return( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted ) );
+}
+
+
+BOOLEAN
+SeAuditingFileEvents(
+    IN BOOLEAN AccessGranted,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is to be called by a file system to quickly determine
+    if we are auditing file open events.  This allows the file system
+    to avoid the often considerable setup involved in generating an audit.
+
+Arguments:
+
+    AccessGranted - Supplies whether the access attempt was successful
+        or a failure.
+
+Return Value:
+
+    Boolean - TRUE if events of type AccessGranted are being audited, FALSE
+        otherwise.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    UNREFERENCED_PARAMETER( SecurityDescriptor );
 
     return( SepAdtAuditThisEvent( AuditCategoryObjectAccess, &AccessGranted ) );
 }

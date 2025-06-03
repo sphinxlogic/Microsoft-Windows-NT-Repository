@@ -60,11 +60,18 @@ ReleaseNameOnNet(
     PCHAR               pScope,
     PVOID               pClientContext,
     PVOID               pClientCompletion,
-    ULONG               NodeType
+    ULONG               NodeType,
+    tDEVICECONTEXT      *pDeviceContext
     );
 
 VOID
 NameReleaseDone(
+    PVOID               pContext,
+    NTSTATUS            status
+    );
+
+VOID
+NameReleaseDoneOnDynIf(
     PVOID               pContext,
     NTSTATUS            status
     );
@@ -153,6 +160,16 @@ SaveBcastNameResolved(
 //---------------------------------------------------------------------
 //  FROM NAME.C
 
+VOID
+FreeRcvBuffers(
+    tCONNECTELE     *pConnEle,
+    CTELockHandle   *pOldIrq
+    );
+VOID
+LockedDereferenceName(
+    IN  tNAMEADDR    *pNameAddr
+    );
+
 NTSTATUS
 NbtRegisterCompletion(
     IN  tCLIENTELE *pClientEle,
@@ -160,12 +177,12 @@ NbtRegisterCompletion(
 
 NTSTATUS
 NbtOpenAddress(
-    IN  TDI_REQUEST         *pRequest,
-    IN  TDI_ADDRESS_NETBIOS *pAddressName,
-    IN  ULONG               IpAddress,
-    IN  PVOID               pSecurityDescriptor,
-    IN  tDEVICECONTEXT      *pContext,
-    IN  PVOID               pIrp);
+    IN  TDI_REQUEST          *pRequest,
+    IN  TA_ADDRESS UNALIGNED *pTaAddress,
+    IN  ULONG                IpAddress,
+    IN  PVOID                pSecurityDescriptor,
+    IN  tDEVICECONTEXT       *pContext,
+    IN  PVOID                pIrp);
 
 NTSTATUS
 NbtOpenConnection(
@@ -302,20 +319,27 @@ NTSTATUS
 BuildSendDgramHdr(
         IN  ULONG           SendLength,
         IN  tDEVICECONTEXT  *pDeviceContext,
-        IN  PVOID           pRemoteAddress,
-        IN  tCLIENTELE      *pClientEle,
-        IN  PCHAR           pName,
+        IN  PCHAR           pSourceName,
+        IN  PCHAR           pDestinationName,
         IN  PVOID           pBuffer,
         OUT tDGRAMHDR       **ppDgramHdr,
         OUT tDGRAM_SEND_TRACKING    **ppTracker
         );
 
+VOID
+NodeStatusDone(
+        IN  PVOID       pContext,
+        IN  NTSTATUS    status
+        );
+
 NTSTATUS
 NbtSendNodeStatus(
-    IN  PTDI_CONNECTION_INFORMATION     pInfo,
     IN  tDEVICECONTEXT                  *pDeviceContext,
+    IN  PCHAR                           pName,
     IN  PIRP                            pIrp,
-    IN  ULONG                           IpAddress
+    IN  PULONG                          pIpAddrsList,
+    IN  PVOID                           ClientContext,
+    IN  PVOID                           CompletionRoutine
     );
 
 NTSTATUS
@@ -460,6 +484,14 @@ NbtDeleteLowerConn(
     IN tLOWERCONNECTION   *pLowerConn
     );
 
+USHORT
+GetTransactId(
+        );
+
+USHORT
+GetTransactIdLocked(
+        );
+
 //---------------------------------------------------------------------
 //
 // FROM TDICNCT.C
@@ -519,14 +551,6 @@ CompletionRoutine(
 NTSTATUS
 NbtTdiOpenControl (
     IN  tDEVICECONTEXT      *pDeviceContext
-    );
-
-NTSTATUS
-QueryProviderInfo (
-    IN PDEVICE_OBJECT       DeviceObject,
-    IN PFILE_OBJECT         FileObject,
-    IN ULONG                QueryType,
-    OUT PVOID               pProviderInfo
     );
 
 //---------------------------------------------------------------------
@@ -601,6 +625,7 @@ NTSTATUS
 GetNetBiosNameFromTransportAddress(
         IN  PTA_NETBIOS_ADDRESS pTransAddr,
         OUT PCHAR               *pName,
+        OUT PULONG              pNameLen,
         OUT PULONG              pNameType
         );
 
@@ -621,18 +646,9 @@ ConvertToHalfAscii(
     IN  ULONG            ScopeSize
     );
 
-PCHAR
-DnsStoreName(
-    OUT PCHAR            pDest,
+ULONG
+Nbt_inet_addr(
     IN  PCHAR            pName
-    );
-
-NTSTATUS
-DnsExtractName(
-    IN  PCHAR            pNameHdr,
-    IN  LONG             NumBytes,
-    OUT PCHAR            pName,
-    OUT PULONG           pNameSize
     );
 
 NTSTATUS
@@ -844,7 +860,8 @@ NameSrvHndlrNotOs (
     IN tDEVICECONTEXT     *pDeviceContext,
     IN PVOID              pSrcAddress,
     IN tNAMEHDR UNALIGNED *pNameSrv,
-    IN ULONG              uNumBytes
+    IN ULONG              uNumBytes,
+    IN BOOLEAN            fBroadcast
     );
 
 //---------------------------------------------------------------------
@@ -1076,7 +1093,8 @@ UdpSendNSBcast(
     IN PVOID                 pClientCompletion,
     IN ULONG                 Retries,
     IN ULONG                 Timeout,
-    IN enum eNSTYPE          eNsType
+    IN enum eNSTYPE          eNsType,
+	IN BOOL					 SendFlag
     );
 
 VOID
@@ -1236,7 +1254,8 @@ QueryFromNet(
     IN  PVOID               pSrcAddress,
     IN  tNAMEHDR UNALIGNED  *pNameHdr,
     IN  LONG                lNumBytes,
-    IN  USHORT              OpCodeFlags
+    IN  USHORT              OpCodeFlags,
+    IN  BOOLEAN             fBroadcast
     );
 
 NTSTATUS
@@ -1295,20 +1314,12 @@ SrcIsUs(
     IN  ULONG                SrcAddress
     );
 
-VOID
-ProcessDnsResponse(
-    IN  tDEVICECONTEXT      *pDeviceContext,
-    IN  PVOID               pSrcAddress,
-    IN  tNAMEHDR UNALIGNED  *pNameHdr,
-    IN  LONG                lNumBytes,
-    IN  USHORT              OpCodeFlags
-    );
-
 NTSTATUS
 FindOnPendingList(
     IN  PUCHAR                  pName,
     IN  tNAMEHDR UNALIGNED      *pNameHdr,
     IN  BOOLEAN                 DontCheckTransactionId,
+    IN  ULONG                   BytesToCompare,
     OUT tNAMEADDR               **ppNameAddr
     );
 
@@ -1382,11 +1393,45 @@ NtDnsNameResolve (
     );
 
 NTSTATUS
+NtCheckForIPAddr (
+    IN  tDEVICECONTEXT  *pDeviceContext,
+    IN  PVOID           *pBuffer,
+    IN  LONG            Size,
+    IN  PCTE_IRP        pIrp
+    );
+
+VOID
+StartIpAddrToSrvName(
+    IN  NBT_WORK_ITEM_CONTEXT   *Context,
+    IN  ULONG                   *IpAddrsList,
+    IN  BOOLEAN                  IpAddrResolved
+    );
+
+VOID
+StartConnWithBestAddr(
+    IN  NBT_WORK_ITEM_CONTEXT   *Context,
+    IN  ULONG                   *IpAddrsList,
+    IN  BOOLEAN                  IpAddrResolved
+    );
+
+NTSTATUS
+DoDnsResolve (
+    IN  NBT_WORK_ITEM_CONTEXT   *Context
+    );
+
+NTSTATUS
+DoCheckAddr (
+    IN  NBT_WORK_ITEM_CONTEXT   *Context
+    );
+
+NTSTATUS
 LmHostQueueRequest(
     IN  tDGRAM_SEND_TRACKING    *pTracker,
     IN  PVOID                   pClientContext,
     IN  PVOID                   ClientCompletion,
-    IN  PVOID                   CallBackRoutine
+    IN  PVOID                   CallBackRoutine,
+    IN  PVOID                   pDeviceContext,
+    IN  CTELockHandle           OldIrq
     );
 
 tNAMEADDR *
@@ -1400,6 +1445,7 @@ ScanLmHostFile (
     IN PVOID    Context
     );
 
+#define MIN(x,y)    (((x) < (y)) ? (x) : (y))
+#define MAX(x,y)    (((x) > (y)) ? (x) : (y))
 
 #endif // _NBTPROCS_H_
-

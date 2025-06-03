@@ -16,7 +16,7 @@
 ****************************************************************************/
 
 
-#define IDHELP                      8
+#define ID_IMAGE_HELP                      8
 
 #define DID_ABOUT                   100
 #define DID_ABOUTVERSION            101

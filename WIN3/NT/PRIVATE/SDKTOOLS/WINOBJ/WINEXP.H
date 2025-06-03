@@ -13,26 +13,26 @@ typedef struct {
     int     numEntries;
     PATOM   pAtom[ 1 ];
 } ATOMTABLE;
-ATOMTABLE * PASCAL pAtomTable;
+ATOMTABLE * pAtomTable;
 #endif
 
-LPSTR FAR PASCAL lstrbscan(LPSTR, LPSTR);
-LPSTR FAR PASCAL lstrbskip(LPSTR, LPSTR);
+LPSTR lstrbscan(LPSTR, LPSTR);
+LPSTR lstrbskip(LPSTR, LPSTR);
 
-int  FAR PASCAL OpenPathName(LPSTR, int);
-int  FAR PASCAL DeletePathName(LPSTR);
-WORD FAR PASCAL _ldup(int);
+int  OpenPathName(LPSTR, int);
+int  DeletePathName(LPSTR);
+WORD _ldup(int);
 
 
 /* scheduler things that the world knows not */
-BOOL        far PASCAL WaitEvent( HANDLE );
-BOOL        far PASCAL PostEvent( HANDLE );
-BOOL        far PASCAL KillTask( HANDLE );
+BOOL        WaitEvent( HANDLE );
+BOOL        PostEvent( HANDLE );
+BOOL        KillTask( HANDLE );
 
 /* print screen hooks */
-BOOL        FAR PASCAL SetPrtScHook(FARPROC);
-FARPROC     FAR PASCAL GetPrtScHook(void);
+BOOL        SetPrtScHook(FARPROC);
+FARPROC     GetPrtScHook(void);
 
 /* module stuff */
-HANDLE  FAR PASCAL GetDSModule( WORD );
-HANDLE  FAR PASCAL GetDSInstance( WORD );
+HANDLE  GetDSModule( WORD );
+HANDLE  GetDSInstance( WORD );

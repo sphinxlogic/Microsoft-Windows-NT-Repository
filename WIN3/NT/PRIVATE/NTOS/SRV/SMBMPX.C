@@ -36,21 +36,18 @@ BOOLEAN MpxDelay = TRUE;
 #endif
 
 //
-// Stack overflow threshhold.  This is used to determine when we are
+// Stack overflow threshold.  This is used to determine when we are
 // getting close to the end of our stack and need to stop recursing
 // in SendCopy/MdlReadMpxFragment.
 //
 
-#define STACK_THRESHHOLD 0xE00
-
-#define REMAINING_STACK_SPACE(_s) \
-    ((ULONG)((_s)) - ((ULONG)(KeGetCurrentThread()->InitialStack) - KERNEL_STACK_SIZE))
+#define STACK_THRESHOLD 0xE00
 
 //
 // Forward declarations
 //
 
-VOID
+VOID SRVFASTCALL
 RestartReadMpx (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -62,7 +59,7 @@ SendCopyReadMpxFragment (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SendCopyReadMpxFragment2 (
     IN OUT PWORK_CONTEXT
     );
@@ -74,17 +71,17 @@ SendMdlReadMpxFragment (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SendMdlReadMpxFragment2 (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartMdlReadMpxComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartWriteMpx (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -94,28 +91,33 @@ CheckForWriteMpxComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartPrepareMpxMdlWrite (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 AddPacketToGlom (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartAfterGlomDelay (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartCompleteGlommingInIndication(
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 RestartWriteMpxCompleteRfcbClose (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+VOID SRVFASTCALL
+WriteMpxMdlWriteComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
@@ -137,6 +139,7 @@ NOT PAGEABLE -- RestartWriteMpx
 NOT PAGEABLE -- CheckForWriteMpxComplete
 NOT PAGEABLE -- RestartCompleteGlommingInIndication
 NOT PAGEABLE -- RestartWriteMpxCompleteRfcbClose
+NOT PAGEABLE -- WriteMpxMdlWriteComplete
 #endif
 
 #if DBG
@@ -250,28 +253,33 @@ Return Value:
     // specified handle.
     //
 
-    if ( !rfcb->ReadAccessGranted ) {
-        CHECK_PAGING_IO_ACCESS(
-                        WorkContext,
-                        rfcb->GrantedAccess,
-                        &status );
-        if ( !NT_SUCCESS( status ) ) {
-            SrvStatistics.GrantedAccessErrors++;
-            IF_DEBUG(ERRORS) {
-                KdPrint(( "SrvSmbReadMpx: Read access not granted.\n"));
+    if( rfcb->MpxReadsOk == FALSE ) {
+
+        if ( !rfcb->ReadAccessGranted ) {
+            CHECK_PAGING_IO_ACCESS(
+                            WorkContext,
+                            rfcb->GrantedAccess,
+                            &status );
+            if ( !NT_SUCCESS( status ) ) {
+                SrvStatistics.GrantedAccessErrors++;
+                IF_DEBUG(ERRORS) {
+                    KdPrint(( "SrvSmbReadMpx: Read access not granted.\n"));
+                }
+                SrvSetSmbError( WorkContext, status );
+                return SmbStatusSendResponse;
             }
-            SrvSetSmbError( WorkContext, status );
+        }
+
+        //
+        // If this is not a disk file, tell the client to use core read.
+        //
+
+        if ( rfcb->ShareType != ShareTypeDisk ) {
+            SrvSetSmbError( WorkContext, STATUS_SMB_USE_STANDARD );
             return SmbStatusSendResponse;
         }
-    }
 
-    //
-    // If this is not a disk file, tell the client to use core read.
-    //
-
-    if ( rfcb->ShareType != ShareTypeDisk ) {
-        SrvSetSmbError( WorkContext, STATUS_SMB_USE_STANDARD );
-        return SmbStatusSendResponse;
+        rfcb->MpxReadsOk = TRUE;
     }
 
     //
@@ -283,6 +291,37 @@ Return Value:
     //
 
     key = rfcb->ShiftedFid | SmbGetAlignedUshort( &header->Pid );
+
+    //
+    // See if the direct host IPX smart card can handle this read.  If so,
+    //  return immediately, and the card will call our restart routine at
+    //  SrvIpxSmartCardReadComplete
+    //
+    if( rfcb->PagedRfcb->IpxSmartCardContext ) {
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "SrvSmbReadMpx: calling SmartCard Read for context %X\n",
+                        WorkContext ));
+        }
+
+        WorkContext->Parameters.SmartCardRead.MdlReadComplete = lfcb->MdlReadComplete;
+        WorkContext->Parameters.SmartCardRead.DeviceObject = lfcb->DeviceObject;
+
+        if( SrvIpxSmartCard.Read( WorkContext->RequestBuffer->Buffer,
+                                  rfcb->PagedRfcb->IpxSmartCardContext,
+                                  key,
+                                  WorkContext ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "  SrvSmbReadMpx:  SmartCard Read returns TRUE\n" ));
+            }
+
+            return SmbStatusInProgress;
+        }
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "  SrvSmbReadMpx:  SmartCard Read returns FALSE\n" ));
+        }
+    }
 
     //
     // Get the file offset.
@@ -297,7 +336,7 @@ Return Value:
     // because sizeof(RESP_READ_MPX) includes one byte of Buffer.)
     //
 
-    bufferOffset = (sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1 + 3) & ~3;
+    bufferOffset = (sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX, Buffer) + 3) & ~3;
 
     //
     // Calculate how much data we can send back in each fragment.  This
@@ -357,9 +396,7 @@ do_copy_read:
 
                 RestartReadMpx( WorkContext );
                 return SmbStatusInProgress;
-
             }
-
             INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsFailed );
 
         }
@@ -399,16 +436,18 @@ do_copy_read:
 
             WorkContext->Irp->MdlAddress = NULL;
             WorkContext->Irp->IoStatus.Information = 0;
+            WorkContext->Parameters.ReadMpx.ReadLength = readLength;
 
             INCREMENT_DEBUG_STAT2( SrvDbgStatistics.FastReadsAttempted );
 
-            if ( FsRtlMdlRead(
+            if ( lfcb->MdlRead(
                     lfcb->FileObject,
                     &offset,
                     readLength,
                     key,
                     &WorkContext->Irp->MdlAddress,
-                    &WorkContext->Irp->IoStatus
+                    &WorkContext->Irp->IoStatus,
+                    lfcb->DeviceObject
                     ) ) {
 
                 //
@@ -560,7 +599,7 @@ do_copy_read:
 } // SrvSmbReadMpx
 
 
-VOID
+VOID SRVFASTCALL
 RestartReadMpx (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -593,7 +632,6 @@ Return Value:
     PMDL mdl;
     BOOLEAN mdlRead;
     PIRP irp = WorkContext->Irp;
-    PRFCB rfcb;
 
     UNLOCKABLE_CODE( 8FIL );
 
@@ -693,17 +731,13 @@ respond:
 
     offset = WorkContext->Parameters.ReadMpx.Offset;
 
-    position.QuadPart = offset + readLength;
-    rfcb = WorkContext->Rfcb;
-    ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
-    rfcb->CurrentPosition = position;
-    RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
+    WorkContext->Rfcb->CurrentPosition =  offset + readLength;
 
     //
     // Update statistics.
     //
 
-    UPDATE_READ_STATS( readLength );
+    UPDATE_READ_STATS( WorkContext, readLength );
 
     //
     // Special-case 0 bytes read.
@@ -738,7 +772,7 @@ respond:
     SmbPutUshort( &response->Count, readLength );
     SmbPutUshort(
         &response->DataOffset,
-        (sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) + 2) & ~3
+        (sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX, Buffer) + 3) & ~3
         );
 
     //
@@ -751,7 +785,7 @@ respond:
     // copy read or an MDL read.
     //
 
-    ASSERT( ((sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1) & 3) == 3 ); // -1 for UCHAR Buffer[1]
+    ASSERT( ((sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX,Buffer)) & 3) == 3 );
     WorkContext->ResponseParameters = NEXT_LOCATION(
                                         response,
                                         RESP_READ_MPX,
@@ -788,7 +822,7 @@ respond:
 
 } // RestartReadMpx
 
-VOID
+VOID SRVFASTCALL
 SendCopyReadMpxFragment2 (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -891,7 +925,7 @@ Return Value:
     SmbPutUshort( &response->Remaining, remainingLength );
     SmbPutUlong( &response->Offset, offset );
     SmbPutUshort( &response->DataLength, fragmentSize );
-    ASSERT( ((sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1) & 3) == 3 ); // -1 for UCHAR Buffer[1]
+    ASSERT( ((sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX, Buffer)) & 3) == 3 );
     SmbPutUshort( &response->ByteCount, fragmentSize + 1 ); // account for padding
 
     //
@@ -924,7 +958,7 @@ Return Value:
         WorkContext->Parameters.ReadMpx.Offset += fragmentSize;
         WorkContext->Parameters.ReadMpx.NextFragmentAddress += fragmentSize;
 
-        if ( REMAINING_STACK_SPACE(&fragmentSize) >= STACK_THRESHHOLD ) {
+        if ( IoGetRemainingStackSize() >= STACK_THRESHOLD ) {
             DEBUG WorkContext->FsdRestartRoutine = NULL;
             sendCompletionRoutine = SendCopyReadMpxFragment;
         } else {
@@ -948,8 +982,8 @@ Return Value:
     // Send the fragment.
     //
 
-    WorkContext->ResponseBuffer->DataLength =  // -1 for Buffer[1], +1 for pad
-        sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1 + 1 + fragmentSize;
+    WorkContext->ResponseBuffer->DataLength =  // +1 for pad
+        sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX,Buffer) + 1 + fragmentSize;
 
     if ( WorkContext->Endpoint->IsConnectionless ) {
         SrvIpxStartSend( WorkContext, sendCompletionRoutine );
@@ -961,7 +995,7 @@ Return Value:
 
 } // SendCopyReadMpxFragment
 
-VOID
+VOID SRVFASTCALL
 SendMdlReadMpxFragment2 (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1068,7 +1102,7 @@ Return Value:
     SmbPutUshort( &response->Remaining, remainingLength );
     SmbPutUlong( &response->Offset, offset );
     SmbPutUshort( &response->DataLength, fragmentSize );
-    ASSERT( ((sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1) & 3) == 3 ); // -1 for UCHAR Buffer[1]
+    ASSERT( ((sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX,Buffer)) & 3) == 3 );
     SmbPutUshort( &response->ByteCount, fragmentSize + 1 ); // account for padding
 
     //
@@ -1121,7 +1155,7 @@ Return Value:
         //
 
         fragmentAddress = (PCHAR)WorkContext->ResponseBuffer->Buffer +
-                            sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1 + 1;
+                            sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX,Buffer) + 1;
 
         IoBuildPartialMdl(
             WorkContext->ResponseBuffer->Mdl,
@@ -1216,7 +1250,7 @@ Return Value:
         WorkContext->Parameters.ReadMpx.RemainingLength = remainingLength;
         WorkContext->Parameters.ReadMpx.Offset += fragmentSize;
 
-        if ( REMAINING_STACK_SPACE(&fragmentSize) >= STACK_THRESHHOLD ) {
+        if ( IoGetRemainingStackSize() >= STACK_THRESHOLD ) {
             DEBUG WorkContext->FsdRestartRoutine = NULL;
             sendCompletionRoutine = SendMdlReadMpxFragment;
         } else {
@@ -1240,8 +1274,8 @@ Return Value:
     // Send the fragment.
     //
 
-    WorkContext->ResponseBuffer->DataLength =  // -1 for Buffer[1], +1 for pad
-        sizeof(SMB_HEADER) + sizeof(RESP_READ_MPX) - 1 + 1 + fragmentSize;
+    WorkContext->ResponseBuffer->DataLength =  // +1 for pad
+        sizeof(SMB_HEADER) + FIELD_OFFSET(RESP_READ_MPX,Buffer) + 1 + fragmentSize;
 
     if ( WorkContext->Endpoint->IsConnectionless ) {
         SrvIpxStartSend( WorkContext, sendCompletionRoutine );
@@ -1326,7 +1360,7 @@ Return Value:
 } // RestartCopyReadMpxComplete
 
 
-VOID
+VOID SRVFASTCALL
 RestartMdlReadMpxComplete (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1350,6 +1384,9 @@ Return Value:
 --*/
 
 {
+    NTSTATUS status;
+    LARGE_INTEGER offset;
+
     PAGED_CODE( );
 
     ASSERT( WorkContext->Parameters.ReadMpx.MdlRead );
@@ -1364,10 +1401,33 @@ Return Value:
     if ( WorkContext->Parameters.ReadMpx.FirstMdl != NULL ) {
         //KdPrint(( "Freeing MDL chain:\n" ));
         //DumpMdlChain( WorkContext->Parameters.ReadMpx.FirstMdl );
-        FsRtlMdlReadComplete(
-            WorkContext->Rfcb->Lfcb->FileObject,
-            WorkContext->Parameters.ReadMpx.FirstMdl
-            );
+
+        if( WorkContext->Rfcb->Lfcb->MdlReadComplete == NULL ||
+
+            WorkContext->Rfcb->Lfcb->MdlReadComplete(
+                WorkContext->Rfcb->Lfcb->FileObject,
+                WorkContext->Parameters.ReadMpx.FirstMdl,
+                WorkContext->Rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+            offset.QuadPart = WorkContext->Parameters.ReadMpx.Offset;
+
+            //
+            // Fast path didn't work, try an IRP...
+            //
+            status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                                 WorkContext->Parameters.ReadMpx.FirstMdl,
+                                                 IRP_MJ_READ,
+                                                 &offset,
+                                                 WorkContext->Parameters.ReadMpx.ReadLength
+                                               );
+            if( !NT_SUCCESS( status ) ) {
+                //
+                // All we can do is complain now!
+                //
+                SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+            }
+
+        }
     }
 
     WorkContext->ResponseBuffer->Mdl->Next = NULL;
@@ -1381,7 +1441,7 @@ Return Value:
 
 } // RestartMdlReadMpxComplete
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReceiveWriteMpx (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1426,7 +1486,7 @@ Return Value:
 
     length = irp->IoStatus.Information;
     WorkContext->RequestBuffer->DataLength = length;
-    SrvStatisticsShadow.BytesReceived += length;
+    WorkContext->CurrentWorkQueue->stats.BytesReceived += length;
 
     //
     // Store in the work context block the time at which processing
@@ -1522,6 +1582,14 @@ Return Value:
     ASSERT( smbStatus != SmbStatusMoreCommands );
 
     if ( smbStatus != SmbStatusInProgress ) {
+        //
+        // Return the TransportContext
+        //
+        if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+            TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                      1
+                                      );
+        }
         SrvEndSmbProcessing( WorkContext, smbStatus );
     }
 
@@ -1538,6 +1606,15 @@ cleanup:
     //     SMB, the completion of the Write Mpx overrides the sending
     //     of an error response.
     //
+
+    //
+    // Return the TransportContext
+    //
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                      1
+                                      );
+    }
 
     if ( CheckForWriteMpxComplete( WorkContext ) ) {
         SrvFsdSendResponse( WorkContext );
@@ -1601,6 +1678,7 @@ Return Value:
     USHORT writeMode;
     BOOLEAN writeThrough;
     KIRQL oldIrql;
+    PMDL mdl;
 
     header = WorkContext->RequestHeader;
     request = (PREQ_WRITE_MPX)WorkContext->RequestParameters;
@@ -1621,6 +1699,13 @@ Return Value:
     //
 
     writeMode = SmbGetUshort( &request->WriteMode );
+
+    if( (writeMode & SMB_WMODE_DATAGRAM) == 0 ||
+        !WorkContext->Endpoint->IsConnectionless ) {
+
+        SrvFsdBuildWriteCompleteResponse( WorkContext, STATUS_SMB_USE_STANDARD, 0 );
+        return SmbStatusSendResponse;
+    }
 
     rfcb = SrvVerifyFid(
                 WorkContext,
@@ -1663,28 +1748,32 @@ Return Value:
     // specified handle.
     //
 
-    if ( !rfcb->WriteAccessGranted ) {
-        SrvStatistics.GrantedAccessErrors++;
-        IF_DEBUG(ERRORS) {
-            KdPrint(( "SrvSmbWriteMpx: Write access not granted.\n"));
+    if( !rfcb->MpxWritesOk ) {
+
+        if ( !rfcb->WriteAccessGranted ) {
+            SrvStatistics.GrantedAccessErrors++;
+            IF_DEBUG(ERRORS) {
+                KdPrint(( "SrvSmbWriteMpx: Write access not granted.\n"));
+            }
+            status = STATUS_ACCESS_DENIED;
+            goto error;
         }
-        status = STATUS_ACCESS_DENIED;
-        goto error;
+
+        //
+        // If this is not a disk or a print file tell the client to use core write.
+        //
+
+        if ( rfcb->ShareType != ShareTypeDisk &&
+              rfcb->ShareType != ShareTypePrint ) {
+
+            status = STATUS_SMB_USE_STANDARD;
+            goto error;
+        }
+
+        rfcb->MpxWritesOk = TRUE;
     }
 
     rfcb->WrittenTo = TRUE;
-
-    //
-    // If this is not a disk or a print file, or if the client has not
-    // set the IPX datagram bit, tell the client to use core write.
-    //
-
-    if ( ((rfcb->ShareType != ShareTypeDisk) &&
-          (rfcb->ShareType != ShareTypePrint) ) ||
-         ((writeMode & SMB_WMODE_DATAGRAM) == 0) ) {
-        status = STATUS_SMB_USE_STANDARD;
-        goto error;
-    }
 
     //
     // If this a stale packet, ignore it.  Stale here means that the MID
@@ -1693,7 +1782,7 @@ Return Value:
     // previous write mux is delivered after a new write mux starts.
     //
 
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
 
     mid = SmbGetAlignedUshort( &header->Mid );
 
@@ -1722,7 +1811,21 @@ Return Value:
 
     bufferOffset = SmbGetUshort( &request->DataOffset );
 
-    writeAddress = (PCHAR)header + bufferOffset;
+    //
+    // If we have the transport context, then setup WriteAddress accordingly.
+    //
+
+    WorkContext->Parameters.WriteMpx.DataMdl = NULL;
+
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+
+        writeAddress = (PCHAR)WorkContext->Parameters.WriteMpx.Buffer + bufferOffset;
+
+    } else {
+
+        writeAddress = (PCHAR)header + bufferOffset;
+
+    }
 
     writeLength =
         (USHORT)(MIN( (CLONG)SmbGetUshort( &request->DataLength ),
@@ -1769,13 +1872,14 @@ Return Value:
         writeMpx->StartOffset = offset.LowPart;
         writeMpx->Length = writeLength;
 
-        if ( FsRtlPrepareMdlWrite(
+        if ( lfcb->PrepareMdlWrite(
                 lfcb->FileObject,
                 &offset,
                 writeLength,
                 key,
                 &WorkContext->Irp->MdlAddress,
-                &WorkContext->Irp->IoStatus
+                &WorkContext->Irp->IoStatus,
+                lfcb->DeviceObject
                 ) ) {
 
             //
@@ -1936,12 +2040,41 @@ Return Value:
     //     valid full MDL from which a partial MDL can be built.
     //
 
-    IoBuildPartialMdl(
-        WorkContext->RequestBuffer->Mdl,
-        WorkContext->RequestBuffer->PartialMdl,
-        writeAddress,
-        writeLength
-        );
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+
+        mdl = IoAllocateMdl(
+                    writeAddress,
+                    writeLength,
+                    FALSE,
+                    FALSE,
+                    NULL
+                    );
+
+        if ( mdl == NULL ) {
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            goto error;
+        }
+
+        //
+        // Build the mdl.
+        //
+
+        MmBuildMdlForNonPagedPool( mdl );
+
+        WorkContext->Parameters.WriteMpx.DataMdl = mdl;
+
+    } else {
+
+        mdl = WorkContext->RequestBuffer->PartialMdl;
+
+        IoBuildPartialMdl(
+            WorkContext->RequestBuffer->Mdl,
+            mdl,
+            writeAddress,
+            writeLength
+            );
+
+    }
 
     //
     // Build the IRP.
@@ -1955,7 +2088,7 @@ Return Value:
             0,                              // minor function code
             writeAddress,                   // buffer address
             writeLength,                    // buffer length
-            WorkContext->RequestBuffer->PartialMdl,   // MDL address
+            mdl,                            // MDL address
             offset,                         // byte offset
             key                             // lock key
             );
@@ -1989,9 +2122,13 @@ error:
     // didn't bump the Write Mpx refcount.
     //
 
-    if ( (writeMode & SMB_WMODE_DATAGRAM) == 0 ) {
-        SrvFsdBuildWriteCompleteResponse( WorkContext, status, 0 );
-        return SmbStatusSendResponse;
+    //
+    // Return the TransportContext
+    //
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                      1
+                                      );
     }
 
     if ( CheckForWriteMpxComplete( WorkContext ) ) {
@@ -2017,7 +2154,7 @@ error:
 } // SrvSmbWriteMpx
 
 
-VOID
+VOID SRVFASTCALL
 RestartWriteMpx (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2065,6 +2202,23 @@ Return Value:
 
     status = WorkContext->Irp->IoStatus.Status;
 
+    //
+    // Return the TransportContext
+    //
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                      1
+                                      );
+    }
+
+    //
+    // Free the data Mdl.
+    //
+
+    if ( WorkContext->Parameters.WriteMpx.DataMdl ) {
+        IoFreeMdl( WorkContext->Parameters.WriteMpx.DataMdl );
+    }
+
     KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
     ACQUIRE_DPC_SPIN_LOCK( &connection->SpinLock );
 
@@ -2091,7 +2245,7 @@ Return Value:
     // started while we were doing this write), toss this request.
     //
 
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
 
     if ( WorkContext->Parameters.WriteMpx.Mid != writeMpx->Mid ) {
         goto check_for_mux_end;
@@ -2137,7 +2291,7 @@ Return Value:
     //
 
     writeLength = (USHORT)WorkContext->Irp->IoStatus.Information;
-    UPDATE_WRITE_STATS( writeLength );
+    UPDATE_WRITE_STATS( WorkContext, writeLength );
 
     IF_SMB_DEBUG(MPX1) {
         KdPrint(( "RestartWriteMpx:  Fid 0x%lx, wrote %ld bytes\n",
@@ -2162,11 +2316,8 @@ Return Value:
 
     writeMpx->SequenceNumber = sequenceNumber;
 
-    position.QuadPart = WorkContext->Parameters.WriteMpx.Offset + writeLength;
+    rfcb->CurrentPosition =  WorkContext->Parameters.WriteMpx.Offset + writeLength;
 
-    ACQUIRE_DPC_SPIN_LOCK( &rfcb->SpinLock );
-    rfcb->CurrentPosition = position;
-    RELEASE_DPC_SPIN_LOCK( &rfcb->SpinLock );
 
 check_for_mux_end:
 
@@ -2202,7 +2353,13 @@ check_for_mux_end:
         if ( rfcbClosing ) {
             RestartWriteMpxCompleteRfcbClose( WorkContext );
         }
-        SrvRestartFsdComplete( WorkContext );
+
+        if( oldIrql >= DISPATCH_LEVEL ) {
+            SrvFsdRestartSmbComplete( WorkContext );
+        } else {
+            SrvRestartFsdComplete( WorkContext );
+        }
+
         return;
     }
 
@@ -2280,7 +2437,7 @@ CheckForWriteMpxComplete (
 
     NTSTATUS status;
     PRFCB rfcb = WorkContext->Rfcb;
-    PWRITE_MPX_CONTEXT writeMpx = rfcb->WriteMpx;
+    PWRITE_MPX_CONTEXT writeMpx = &rfcb->WriteMpx;
     PCONNECTION connection = WorkContext->Connection;
     KIRQL oldIrql;
 
@@ -2377,7 +2534,7 @@ CheckForWriteMpxComplete (
 
 } // CheckForWriteMpxComplete
 
-VOID
+VOID SRVFASTCALL
 RestartPrepareMpxMdlWrite (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2401,7 +2558,7 @@ RestartPrepareMpxMdlWrite (
     request = (PREQ_WRITE_MPX)WorkContext->RequestParameters;
 
     rfcb = WorkContext->Rfcb;
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
     connection = WorkContext->Connection;
 
     //
@@ -2409,7 +2566,7 @@ RestartPrepareMpxMdlWrite (
     // packet into the cache.  If it failed, toss this packet.
     //
 
-    if ( NT_SUCCESS(WorkContext->Irp->IoStatus.Status) ) {
+    if( NT_SUCCESS(WorkContext->Irp->IoStatus.Status) ) {
 
         mdl = WorkContext->Irp->MdlAddress;
 #if DBG
@@ -2423,8 +2580,20 @@ RestartPrepareMpxMdlWrite (
         writeMpx->RunList[0].Offset = 0;
         writeLength = WorkContext->Parameters.WriteMpx.WriteLength;
         writeMpx->RunList[0].Length = writeLength;
-        writeAddress = (PCHAR)WorkContext->ResponseHeader +
+
+        //
+        // If we have the transport context, setup writeAddress accordingly.
+        //
+
+        if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+
+            writeAddress = (PCHAR)WorkContext->Parameters.WriteMpx.Buffer +
                                     SmbGetUshort( &request->DataOffset );
+        } else {
+
+            writeAddress = (PCHAR)WorkContext->ResponseHeader +
+                                    SmbGetUshort( &request->DataOffset );
+        }
 
         status = TdiCopyBufferToMdl(
                     writeAddress,
@@ -2452,8 +2621,21 @@ RestartPrepareMpxMdlWrite (
         KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
         ACQUIRE_DPC_SPIN_LOCK( &connection->SpinLock );
 
+        if ( rfcb->SavedError == STATUS_SUCCESS ) {
+            rfcb->SavedError = WorkContext->Irp->IoStatus.Status;
+        }
+
         --writeMpx->ReferenceCount;
         writeMpx->Glomming = FALSE;
+    }
+
+    //
+    // Return the TransportContext
+    //
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                  1
+                                  );
     }
 
     writeMpx->GlomPending = FALSE;
@@ -2461,7 +2643,7 @@ RestartPrepareMpxMdlWrite (
     while ( !IsListEmpty( &writeMpx->GlomDelayList ) ) {
         listEntry = RemoveHeadList( &writeMpx->GlomDelayList );
         workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, ListEntry );
-        workContext->FspRestartRoutine = RestartAfterGlomDelay;
+        workContext->FspRestartRoutine = AddPacketToGlom;
         QUEUE_WORK_TO_FSP( workContext );
     }
 
@@ -2488,7 +2670,7 @@ RestartPrepareMpxMdlWrite (
 } // RestartPrepareMpxMdlWrite
 
 
-VOID
+VOID SRVFASTCALL
 AddPacketToGlom (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2525,7 +2707,19 @@ AddPacketToGlom (
 
     rfcb = WorkContext->Rfcb;
     connection = WorkContext->Connection;
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
+    cacheMdl = writeMpx->MdlChain;
+
+    if( writeMpx->Glomming == FALSE ) {
+        //
+        // We must have encountered an error in RestartPrepareMpxMdlWrite(), but
+        // we call through this routine to ensure we send a response back to the
+        // client.
+        //
+        KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
+        ACQUIRE_DPC_SPIN_LOCK( &connection->SpinLock );
+        goto check;
+    }
 
     ASSERT( writeMpx->Glomming );
     ASSERT( !writeMpx->GlomPending );
@@ -2545,7 +2739,16 @@ AddPacketToGlom (
 
     bufferOffset = SmbGetUshort( &request->DataOffset );
 
-    writeAddress = (PCHAR)header + bufferOffset;
+    //
+    // If we have the transport context, setup writeAddress accordingly.
+    //
+
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        writeAddress = (PCHAR)WorkContext->Parameters.WriteMpx.Buffer +
+                       bufferOffset;
+    } else {
+        writeAddress = (PCHAR)header + bufferOffset;
+    }
 
     writeLength = WorkContext->Parameters.WriteMpx.WriteLength;
     ASSERT( writeLength <= 0xffff );
@@ -2573,13 +2776,12 @@ AddPacketToGlom (
     }
     ASSERT( fileOffset <= 0xffff );
     ASSERT( fileOffset + writeLength <= 0xffff );
+
     glomOffset = (USHORT)fileOffset;
 
     //
     // Copy the packet data into the glom.
     //
-
-    cacheMdl = writeMpx->MdlChain;
 
     status = TdiCopyBufferToMdl(
                 writeAddress,
@@ -2591,6 +2793,15 @@ AddPacketToGlom (
                 );
     ASSERT( status == STATUS_SUCCESS );
     ASSERT( bytesCopied == writeLength );
+
+    //
+    // Return the TransportContext
+    //
+    if ( WorkContext->Parameters.WriteMpx.TransportContext ) {
+        TdiReturnChainedReceives( &WorkContext->Parameters.WriteMpx.TransportContext,
+                                      1
+                                      );
+    }
 
     ACQUIRE_DPC_SPIN_LOCK( &connection->SpinLock );
 
@@ -2734,12 +2945,14 @@ coalesce:
 check:
 
     if (0) IF_SMB_DEBUG(MPX2) {
-        ULONG i;
-        PWRITE_MPX_RUN runi;
-        for ( i = 0, runi = &writeMpx->RunList[0];
-              i < writeMpx->NumberOfRuns;
-              i++, runi++ ) {
-            KdPrint(( "  run %d: offset %lx, length %lx\n", i, runi->Offset, runi->Length ));
+        if( writeMpx->Glomming ) {
+            ULONG i;
+            PWRITE_MPX_RUN runi;
+            for ( i = 0, runi = &writeMpx->RunList[0];
+                  i < writeMpx->NumberOfRuns;
+                  i++, runi++ ) {
+                KdPrint(( "  run %d: offset %lx, length %lx\n", i, runi->Offset, runi->Length ));
+            }
         }
     }
 
@@ -2824,7 +3037,9 @@ discard:
     // information related to the glom first.
     //
 
-    if ( writeMpx->GlomComplete ) {
+    if ( writeMpx->Glomming && writeMpx->GlomComplete ) {
+
+        PWORK_CONTEXT newContext;
 
         //
         // Save and clear information about the active glom.
@@ -2834,6 +3049,7 @@ discard:
         writeMpx->GlomComplete = FALSE;
 
         cacheOffset.QuadPart = writeMpx->StartOffset;
+        writeLength = writeMpx->Length;
 
         DEBUG writeMpx->MdlChain = NULL;
         DEBUG writeMpx->StartOffset = 0;
@@ -2853,9 +3069,7 @@ discard:
         RELEASE_DPC_SPIN_LOCK( &connection->SpinLock );
         KeLowerIrql( oldIrql );
 
-        //
-        // Tell the cache manager that we're done with this MDL write.
-        //
+        ALLOCATE_WORK_CONTEXT( WorkContext->CurrentWorkQueue, &newContext );
 
 #if DBG
         IF_SMB_DEBUG(MPX2) {
@@ -2863,13 +3077,53 @@ discard:
             DumpMdlChain( cacheMdl );
         }
 #endif
-        FsRtlMdlWriteComplete(
-            rfcb->Lfcb->FileObject,
-            &cacheOffset,
-            cacheMdl
-            );
+
+        if( newContext == NULL ) {
+
+            //
+            // Tell the cache manager that we're done with this MDL write.
+            //
+
+            if( rfcb->Lfcb->MdlWriteComplete == NULL ||
+                rfcb->Lfcb->MdlWriteComplete(
+                    rfcb->Lfcb->FileObject,
+                    &cacheOffset,
+                    cacheMdl,
+                    rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+                status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                                     cacheMdl,
+                                                     IRP_MJ_WRITE,
+                                                     &cacheOffset,
+                                                     writeLength
+                                                    );
+
+                if( !NT_SUCCESS( status ) ) {
+                    SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+                }
+            }
+
+        } else {
+            //
+            // Send the FsRtlMdlWriteComplete off on its way, and go ahead and send
+            //  the response to the client now.
+            //
+            newContext->Rfcb = WorkContext->Rfcb;
+            SrvReferenceRfcb( newContext->Rfcb );
+
+            newContext->Parameters.WriteMpxMdlWriteComplete.CacheOffset = cacheOffset;
+            newContext->Parameters.WriteMpxMdlWriteComplete.WriteLength = writeLength;
+            newContext->Parameters.WriteMpxMdlWriteComplete.CacheMdl = cacheMdl;
+            newContext->FspRestartRoutine = WriteMpxMdlWriteComplete;
+            SrvQueueWorkToFsp( newContext );
+        }
 
     } else {
+
+        if( writeMpx->Glomming == FALSE ) {
+            status = rfcb->SavedError;
+            rfcb->SavedError = STATUS_SUCCESS;
+        }
 
         //
         // Now we can release the lock.
@@ -2944,7 +3198,7 @@ Return Value:
 {
     PREQ_WRITE_MPX request;
     PRESP_WRITE_MPX_DATAGRAM response;
-    PWRITE_MPX_CONTEXT writeMpx = Rfcb->WriteMpx;
+    PWRITE_MPX_CONTEXT writeMpx = &Rfcb->WriteMpx;
 
     PCONNECTION connection = WorkContext->Connection;
     ULONG fileOffset;
@@ -2969,7 +3223,7 @@ Return Value:
     // copied from SrvRestartReceive.
     //
 
-    SrvStatisticsShadow.BytesReceived += BytesAvailable;
+    WorkContext->CurrentWorkQueue->stats.BytesReceived += BytesAvailable;
     connection->BreakIIToNoneJustSent = FALSE;
     SrvUpdateErrorCount( &SrvNetworkErrorRecord, FALSE );
 
@@ -3330,25 +3584,6 @@ discard:
 
 } // AddPacketToGlomInIndication
 
-VOID
-RestartAfterGlomDelay (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-{
-    PAGED_CODE( );
-
-    if ( WorkContext->Rfcb->WriteMpx->Glomming ) {
-        AddPacketToGlom( WorkContext );
-        return;
-    }
-
-    // !!! need to check mpx complete
-    SrvRestartFsdComplete( WorkContext );
-    return;
-
-} // RestartAfterGlomDelay
-
-
 SMB_PROCESSOR_RETURN_TYPE
 SrvSmbWriteMpxSecondary (
     SMB_PROCESSOR_PARAMETERS
@@ -3395,7 +3630,7 @@ Return Value:
 
 } // SrvSmbWriteMpxSecondary
 
-VOID
+VOID SRVFASTCALL
 RestartCompleteGlommingInIndication(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3405,8 +3640,9 @@ RestartCompleteGlommingInIndication(
     PMDL cacheMdl;
     NTSTATUS status;
     PRFCB rfcb = WorkContext->Rfcb;
-    PWRITE_MPX_CONTEXT writeMpx = rfcb->WriteMpx;
+    PWRITE_MPX_CONTEXT writeMpx = &rfcb->WriteMpx;
     PCONNECTION connection = WorkContext->Connection;
+    ULONG writeLength;
 
     ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
 
@@ -3423,10 +3659,13 @@ RestartCompleteGlommingInIndication(
 
     if ( GET_BLOCK_STATE(rfcb) == BlockStateActive ) {
 
+        PWORK_CONTEXT newContext;
+
         writeMpx->GlomComplete = FALSE;
         writeMpx->Glomming = FALSE;
         cacheOffset.QuadPart = writeMpx->StartOffset;
         cacheMdl = writeMpx->MdlChain;
+        writeLength = writeMpx->Length;
 
         DEBUG writeMpx->MdlChain = NULL;
         DEBUG writeMpx->StartOffset = 0;
@@ -3434,15 +3673,50 @@ RestartCompleteGlommingInIndication(
 
         RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
 
-        //
-        // Tell the cache manager that we're done with this MDL write.
-        //
 
-        FsRtlMdlWriteComplete(
-            rfcb->Lfcb->FileObject,
-            &cacheOffset,
-            cacheMdl
-            );
+        KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
+        ALLOCATE_WORK_CONTEXT( WorkContext->CurrentWorkQueue, &newContext );
+        KeLowerIrql( oldIrql );
+
+        if( newContext == NULL ) {
+
+            //
+            // Tell the cache manager that we're done with this MDL write.
+            //
+
+            if( rfcb->Lfcb->MdlWriteComplete == NULL ||
+                rfcb->Lfcb->MdlWriteComplete(
+                    rfcb->Lfcb->FileObject,
+                    &cacheOffset,
+                    cacheMdl,
+                    rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+                status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                                     cacheMdl,
+                                                     IRP_MJ_WRITE,
+                                                     &cacheOffset,
+                                                     writeLength
+                                                    );
+
+                if( !NT_SUCCESS( status ) ) {
+                    SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+                }
+            }
+
+        } else {
+            //
+            // Send the FsRtlMdlWriteComplete off on its way, and go ahead and send
+            //  the response to the client now.
+            //
+            newContext->Rfcb = WorkContext->Rfcb;
+            WorkContext->Rfcb = NULL;
+
+            newContext->Parameters.WriteMpxMdlWriteComplete.CacheOffset = cacheOffset;
+            newContext->Parameters.WriteMpxMdlWriteComplete.WriteLength = writeLength;
+            newContext->Parameters.WriteMpxMdlWriteComplete.CacheMdl = cacheMdl;
+            newContext->FspRestartRoutine = WriteMpxMdlWriteComplete;
+            SrvQueueWorkToFsp( newContext );
+        }
 
     } else {
 
@@ -3463,7 +3737,44 @@ RestartCompleteGlommingInIndication(
 
 } // RestartCompleteGlommingInIndication
 
-VOID
+VOID SRVFASTCALL
+WriteMpxMdlWriteComplete (
+    IN OUT PWORK_CONTEXT WorkContext
+    )
+{
+    NTSTATUS status;
+
+    if( WorkContext->Rfcb->Lfcb->MdlWriteComplete == NULL ||
+
+        WorkContext->Rfcb->Lfcb->MdlWriteComplete(
+            WorkContext->Rfcb->Lfcb->FileObject,
+            &WorkContext->Parameters.WriteMpxMdlWriteComplete.CacheOffset,
+            WorkContext->Parameters.WriteMpxMdlWriteComplete.CacheMdl,
+            WorkContext->Rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+        status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                             WorkContext->Parameters.WriteMpxMdlWriteComplete.CacheMdl,
+                                             IRP_MJ_WRITE,
+                                             &WorkContext->Parameters.WriteMpxMdlWriteComplete.CacheOffset,
+                                             WorkContext->Parameters.WriteMpxMdlWriteComplete.WriteLength );
+
+        if( !NT_SUCCESS( status ) ) {
+            SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+        }
+    }
+
+    SrvDereferenceRfcb( WorkContext->Rfcb );
+    WorkContext->Rfcb = NULL;
+    WorkContext->FspRestartRoutine = SrvRestartReceive;
+    ASSERT( WorkContext->BlockHeader.ReferenceCount == 1 );
+#if DBG
+    WorkContext->BlockHeader.ReferenceCount = 0;
+#endif
+    RETURN_FREE_WORKITEM( WorkContext );
+}
+
+
+VOID SRVFASTCALL
 RestartWriteMpxCompleteRfcbClose (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -3488,10 +3799,12 @@ Return Value:
 {
     PCONNECTION connection = WorkContext->Connection;
     PRFCB rfcb = WorkContext->Rfcb;
-    PWRITE_MPX_CONTEXT writeMpx = rfcb->WriteMpx;
+    PWRITE_MPX_CONTEXT writeMpx = &rfcb->WriteMpx;
     LARGE_INTEGER cacheOffset;
     PMDL mdlChain;
     KIRQL oldIrql;
+    ULONG writeLength;
+    NTSTATUS status;
 
     //
     // This rfcb is closing.
@@ -3501,7 +3814,7 @@ Return Value:
 
     ASSERT ( GET_BLOCK_STATE(rfcb) != BlockStateActive );
 
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
 
     if ( writeMpx->Glomming ) {
 
@@ -3518,6 +3831,7 @@ Return Value:
 
          cacheOffset.QuadPart = writeMpx->StartOffset;
          mdlChain = writeMpx->MdlChain;
+         writeLength = writeMpx->Length;
 
          DEBUG writeMpx->MdlChain = NULL;
          DEBUG writeMpx->StartOffset = 0;
@@ -3533,11 +3847,23 @@ Return Value:
          // Tell the cache manager that we're done with this MDL write.
          //
 
-         FsRtlMdlWriteComplete(
-             writeMpx->FileObject,
-             &cacheOffset,
-             mdlChain
-             );
+         if( rfcb->Lfcb->MdlWriteComplete == NULL ||
+             rfcb->Lfcb->MdlWriteComplete(
+                 writeMpx->FileObject,
+                 &cacheOffset,
+                 mdlChain,
+                 rfcb->Lfcb->DeviceObject ) == FALSE ) {
+
+            status = SrvIssueMdlCompleteRequest( WorkContext, NULL,
+                                                 mdlChain,
+                                                 IRP_MJ_WRITE,
+                                                 &cacheOffset,
+                                                 writeLength );
+
+            if( !NT_SUCCESS( status ) ) {
+                SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+            }
+        }
 
     } else {
 

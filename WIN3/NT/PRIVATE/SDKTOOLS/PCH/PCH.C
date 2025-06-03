@@ -993,13 +993,13 @@ Return Value:
     char        ext[20];
 
     _splitpath( fname, NULL, NULL, NULL, ext );
-    if (stricmp(ext,".c")==0) {
+    if (_stricmp(ext,".c")==0) {
         return TRUE;
     } else
-    if (stricmp(ext,".cxx")==0) {
+    if (_stricmp(ext,".cxx")==0) {
         return TRUE;
     } else
-    if (stricmp(ext,".cpp")==0) {
+    if (_stricmp(ext,".cpp")==0) {
         return TRUE;
     } else {
         return FALSE;

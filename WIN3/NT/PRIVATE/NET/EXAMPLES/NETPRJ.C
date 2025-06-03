@@ -5,7 +5,7 @@
    execute the Print Job API functions on a remote server.
 
    DosPrintJobGetId is called to demonstrate that a Print Job ID can
-   be returned for those applications that use Open to access a printer.
+   be returned for those applications that use Open to _access a printer.
    This print job ID can then be used as an input parameter for the other
    Print Job API functions.
 
@@ -140,7 +140,7 @@ void main(int argc, char *argv[])
       FarStrcat((PSZ)szPath, pszQueueName);   // Queuename
 
       //  Open the file on the remote queue to obtain the handle.
-      hFile = sopen(szPath,     // Remote printer queue: \\server\queue
+      hFile = _sopen(szPath,     // Remote printer queue: \\server\queue
                     O_RDONLY,   // Open read-only
                     SH_DENYNO); // Share deny-none
 
@@ -172,7 +172,7 @@ void main(int argc, char *argv[])
              */
             }
          _ffree((PVOID)pprid);     
-         close(hFile);       // Close handle
+         _close(hFile);       // Close handle
       }  // End successful sopen
    } // End if remote server
 

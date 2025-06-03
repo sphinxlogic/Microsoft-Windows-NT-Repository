@@ -2239,11 +2239,10 @@ Return Value:
             RawFrame->Header,
             &DestinationAddress);
 
-        if (RtlCompareMemory(
+        if (RtlEqualMemory(
                 DestinationAddress,
                 DeviceContext->LocalAddress.Address,
-                DeviceContext->MacInfo.AddressLength)
-                    == DeviceContext->MacInfo.AddressLength) {
+                DeviceContext->MacInfo.AddressLength)) {
 
             NbfInsertInLoopbackQueue(
                 DeviceContext,
@@ -2349,11 +2348,10 @@ Return Value:
         Address->UIFrame->Header,
         &DestinationAddress);
 
-    if (RtlCompareMemory(
+    if (RtlEqualMemory(
             DestinationAddress,
             DeviceContext->LocalAddress.Address,
-            DeviceContext->MacInfo.AddressLength)
-                == DeviceContext->MacInfo.AddressLength) {
+            DeviceContext->MacInfo.AddressLength)) {
 
         //
         // This packet is sent to ourselves; we should loop it

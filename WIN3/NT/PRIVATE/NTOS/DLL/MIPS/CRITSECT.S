@@ -1,4 +1,4 @@
-//      TITLE("Eenter and Leave Critical Section")
+//      TITLE("Enter and Leave Critical Section")
 //++
 //
 //  Copyright (c) 1991 Microsoft Corporation
@@ -68,40 +68,21 @@ EcA1:   .space  4                       // saved unique thread id
 // Attempt to enter the critical section.
 //
 
-#if defined(R4000)
-
 10:     ll      v0,CsLockCount(a0)      // get addend value
         addu    v0,v0,1                 // increment addend value
         move    t0,v0                   // copy updated value
         sc      t0,CsLockCount(a0)      // store conditionally
         beq     zero,t0,10b             // if eq, store failed
 
-#else
-
-        sw      a0,EcA0(sp)             // save address of critical section
-        addu    a0,a0,CsLockCount       // compute lock count address
-        jal     RtlpEnterCritSecHelper  // interlocked increment lock count
-        lw      a0,EcA0(sp)             // restore address of critical section
-
-#endif
-
 //
 // If the critical section is not already owned, then initialize the owner
 // thread id, initialize the recursion count, and return a success status.
 //
 
-        lw      t0,UsPcr + PcTeb        // get address of current TEB
+        li      t0,UsPcr                // get user PCR page address
+        lw      t0,PcTeb(t0)            // get address of current TEB
         lw      a1,TeClientId + 4(t0)   // get current thread unique id
         bne     zero,v0,20f             // if ne, lock already owned
-
-#if DBG
-
-        lw      v0,CsOwningThread(a0)   // get current owning thread
-        beq     zero,v0,15f             // if eq, thread id is correct
-        jal     DbgBreakPoint           // break into debugger
-15:                                     //
-
-#endif
 
         sw      a1,CsOwningThread(a0)   // set critical section owner
         li      v0,STATUS_SUCCESS       // set return status
@@ -187,7 +168,8 @@ LcA0:   .space  4                       // saved critical section address
 
 #if DBG
 
-        lw      t0,UsPcr + PcTeb        // get address of current TEB
+        li      t0,UsPcr                // get user PCR page address
+        lw      t0,PcTeb(t0)            // get address of current TEB
         lw      t1,CsOwningThread(a0)   // get owning thread unique id
         lw      a1,TeClientId + 4(t0)   // get current thread unique id
         beq     a1,t1,10f               // if eq, current thread is owner
@@ -213,23 +195,11 @@ LcA0:   .space  4                       // saved critical section address
 // Decrement the lock count and check if a waiter should be continued.
 //
 
-#if defined(R4000)
-
 20:     ll      v0,CsLockCount(a0)      // get addend value
         subu    v0,v0,1                 // decrement addend value
         move    t0,v0                   // copy updated value
         sc      t0,CsLockCount(a0)      // store conditionally
         beq     zero,t0,20b             // if eq, store failed
-
-#else
-
-        sw      a0,LcA0(sp)             // save address of critical section
-        addu    a0,a0,CsLockCount       // compute lock count address
-        jal     RtlpLeaveCritSecHelper  // interlocked decrement lock count
-        lw      a0,LcA0(sp)             // restore address of critical section
-
-#endif
-
         bltz    v0,50f                  // if ltz, no waiter present
         jal     RtlpUnWaitCriticalSection // unwait thread
         li      v0,STATUS_SUCCESS       // set completion status
@@ -243,24 +213,95 @@ LcA0:   .space  4                       // saved critical section address
 //
 
 30:     sw      t0,CsRecursionCount(a0) //
-
-#if defined(R4000)
-
 40:     ll      v0,CsLockCount(a0)      // get addend value
         subu    v0,v0,1                 // decrement addend value
         sc      v0,CsLockCount(a0)      // store conditionally
         beq     zero,v0,40b             // if eq, store failed
-
-#else
-
-        addu    a0,a0,CsLockCount       // compute lock count address
-        jal     RtlpLeaveCritSecHelper  // interlocked decrement lock count
-
-#endif
-
 50:     li      v0,STATUS_SUCCESS       // set completion status
         lw      ra,LcRa(sp)             // restore return address
         addu    sp,sp,LcFrameLength     // deallocate stack frame
         j       ra                      // return
 
         .end    RtlLeaveCriticalSection
+
+
+        SBTTL("Try to Enter Critical Section")
+//++
+//
+// BOOL
+// RtlTryEnterCriticalSection(
+//    IN PRTL_CRITICAL_SECTION CriticalSection
+//    )
+//
+// Routine Description:
+//
+//    This function attempts to enter a critical section without blocking.
+//
+// Arguments:
+//
+//    CriticalSection (a0) - Supplies a pointer to a critical section.
+//
+// Return Value:
+//
+//    If the critical section was successfully entered, then a value of TRUE
+//    is returned as the function value. Otherwise, a value of FALSE is returned.
+//
+//--
+
+        LEAF_ENTRY(RtlTryEnterCriticalSection)
+
+        li      v0,UsPcr                // get user PCR page address
+        lw      v0,PcTeb(v0)            // get address of current TEB
+        lw      a1,TeClientId + 4(v0)   // get current thread unique id
+
+//
+// Attempt to enter the critical section.
+//
+
+10:     ll      t0,CsLockCount(a0)      // get addend value - locked
+        addu    t1,t0,1                 // increment addend value
+        bne     zero,t1,20f             // critical section owned
+        sc      t1,CsLockCount(a0)      // store conditionally
+        beq     zero,t1,10b             // if lock-flag eq zero, store failed
+
+//
+// The critical section is now owned by this thread. Initialize the owner
+// thread id and return a successful status.
+//
+        sw      a1,CsOwningThread(a0)   // set critical section owner
+        li      v0,TRUE                 // set success status
+        j       ra                      // return
+
+//
+// The critical section is already owned. If it is owned by another thread,
+// return FALSE immediately. If it is owned by this thread, we must increment
+// the lock count here.
+//
+
+20:     lw      t2,CsOwningThread(a0)   // get current owner
+        beq     t2,a1,30f               // if eq, this thread is already the owner
+        li      v0,FALSE                // set failure status
+        j       ra                      // return
+
+//
+// This thread is already the owner of the critical section. Perform an atomic
+// increment of the LockCount and a normal increment of the RecursionCount and
+// return success.
+//
+
+30:     ll      t0,CsLockCount(a0)      // get addend value - locked
+        addu    t1,t0,1                 // increment addend value
+        sc      t1,CsLockCount(a0)      // store conditionally
+        beq     zero,t1,30b             // if eqz, store failed
+
+//
+// Increment the recursion count
+//
+
+        lw      t0,CsRecursionCount(a0) //
+        addu    t1,t0,1                 //
+        sw      t1,CsRecursionCount(a0) //
+        li      v0,TRUE                 // set success status
+        j       ra                      // return
+
+        .end    RtlTryEnterCriticalSection

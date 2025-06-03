@@ -44,7 +44,7 @@
 //
 // Arguments:
 //
-//    TrapFrame (fp/s6) - Supplies a ppointer to a trap frame.
+//    TrapFrame (fp/s6) - Supplies a pointer to a trap frame.
 //
 // Return Value:
 //
@@ -198,14 +198,13 @@ PrFrameLength:
 
         and     s0, IPI_PACKET_READY, t2 // check for packet ready
         beq     t2, 20f                 // if eq, no packet ready
-        ldl     t1, 0(a0)               // get sender's PRCB address
-        ldl     t2, PbWorkerRoutine(t1) // get address of worker function
-        ldl     a1, PbCurrentPacket(t1) // get request parameters
-        ldl     a2, PbCurrentPacket +4(t1)
-        ldl     a3, PbCurrentPacket +8(t1)
+        ldl     t2, PbWorkerRoutine(a0) // get address of worker function
+        ldl     a1, PbCurrentPacket(a0) // get request parameters
+        ldl     a2, PbCurrentPacket +4(a0)
+        ldl     a3, PbCurrentPacket +8(a0)
         jsr     ra, (t2)                // call worker routine
 
-        wmb
+        mb
 
 #if NT_INST
 
@@ -249,7 +248,7 @@ PrFrameLength:
         beq     t1, 40f                 // if eq, no DPC interrupt requested
         ldil    a0, DISPATCH_LEVEL      // set interrupt request level
 
-        REQUEST_SOFTWARE_INTERRUPT      // request DPC interrupt
+        REQUEST_SOFTWARE_INTERRUPT
 
 #if NT_INST
 
@@ -347,7 +346,7 @@ PrFrameLength:
         lda     t1, 4(t1)               // get next processor block element
         bne     t0, 10b                 // if ne, more targets requested
 
-        wmb
+        mb
 
         ldl     t0, __imp_HalRequestIpi
         jmp     zero, (t0)              // request IPI interrupt on targets
@@ -368,7 +367,7 @@ PrFrameLength:
 //
 // VOID
 // KiIpiSendPacket (
-//    IN KAFINITY TargetProcessors,
+//    IN KAFFINITY TargetProcessors,
 //    IN PKIPI_WORKER WorkerFunction,
 //    IN PVOID Parameter1,
 //    IN PVOID Parameter2,
@@ -395,26 +394,30 @@ PrFrameLength:
 //
 //--
 
+
         LEAF_ENTRY(KiIpiSendPacket)
 
 #if !defined(NT_UP)
-
-        GET_PROCESSOR_CONTROL_REGION_BASE // v0 = Pcr base address
-        ldl     t5, PcPrcb(v0)          // get current processor block address
+        GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = Prcb base address
 
         bis     a0, zero, t1            // copy target processor set
         lda     t2, KiProcessorBlock    // get processor block array address
-        lda     t0, PbRequestPacket(t5) // compute address of packet array
 
 //
 // Store function address and parameters in the packet area of the PRCB on
 // the current processor.
 //
-        stl     a1, PbWorkerRoutine(t5) // set worker function address
-        stl     a2, PbCurrentPacket(t5) // store worker function parameters
-        stl     a3, PbCurrentPacket +4(t5)
-        stl     a4, PbCurrentPacket +8(t5)
+        stl     a0, PbTargetSet(v0)  // set target processor set
+        stl     a1, PbWorkerRoutine(v0) // set worker function address
+        stl     a2, PbCurrentPacket(v0) // store worker function parameters
+        stl     a3, PbCurrentPacket +4(v0)
+        stl     a4, PbCurrentPacket +8(v0)
 
+//
+// Ensure the packet area writes get to memory before any
+// request summary is indicated
+//
+        mb
 
 //
 // Loop through the target processors and send the packet to the specified
@@ -423,21 +426,19 @@ PrFrameLength:
 
 10:
         blbc    t1, 30f                 // if eq, target not specified
-        ldl     v0, 0(t2)               // get target processor block address
-        stl     t5, 0(t0)               // store source PRCB in entry
+        ldl     t0, 0(t2)               // get target processor block address
 
-        sll     t0, 32, t3              // shift packet address to upper 32 bits
+        sll     v0, 32, t3              // shift packet address to upper 32 bits
         bis     t3, IPI_PACKET_READY, t3    // set packet ready in low 32 bits
 20:
-        ldq_l   t4, PbRequestSummary(v0)    // get request summary of target
+        ldq_l   t4, PbRequestSummary(t0)    // get request summary of target
         and     t4, IPI_PACKET_READY, t6    // check if target packet busy
         bne     t6, 25f                     // if ne, target packet busy
         bis     t4, t3, t4                  // set entry address in request summary
-        stq_c   t4, PbRequestSummary(v0)    // store request summary and address
+        stq_c   t4, PbRequestSummary(t0)    // store request summary and address
         beq     t4, 20b                 // if eq, store conditional failed
 
 30:
-        lda     t0, 4(t0)               // advance to next packet entry
         lda     t2, 4(t2)               // advance to next array element
         srl     t1, 1, t1               // shift to next target
         bne     t1, 10b                 // if ne, more targets to process
@@ -445,27 +446,22 @@ PrFrameLength:
 //
 // Ensure writes get to memory
 //
-        wmb
+        mb
 
         ldl     t0, __imp_HalRequestIpi
         jmp     zero, (t0)              // request IPI interrupt on targets
-
-#else
-
-        ret     zero, (ra)              // simply return for uni-processor
-
-#endif
-
-#if !defined(NT_UP)
 
 25:
 //
 // Packet not ready, spin in cache until it looks available.
 //
-        ldq     t4, PbRequestSummary(v0)    // get request summary of target
+        ldq     t4, PbRequestSummary(t0)    // get request summary of target
         and     t4, IPI_PACKET_READY, t6    // check if target packet busy
         beq     t6, 20b                     // looks available, try again
         br      zero, 25b                   // spin again
+
+#else
+        ret     zero, (ra)
 
 #endif //!NT_UP
 
@@ -498,3 +494,53 @@ PrFrameLength:
         ret     zero, (ra)              // return
 
         .end    KiSaveProcessorControlState
+
+#if !defined(NT_UP)
+
+
+        SBTTL("Signal Packet Done")
+//++
+//
+// VOID
+// KiIpiSignalPacketDone (
+//    IN PVOID SignalDone
+//    );
+//
+// Routine Description:
+//
+//    This routine signals that a processor has completed a packet by
+//    clearing the calling processor's set member of the requesting
+//    processor's packet.
+//
+// Arguments:
+//
+//    SignalDone (a0) - Supplies a pointer to the processor block of the
+//        sending processor.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        LEAF_ENTRY(KiIpiSignalPacketDone)
+
+        GET_PROCESSOR_CONTROL_REGION_BASE
+        ldl     a1, PcSetMember(v0)     // get processor set member
+        mb
+
+10:
+        ldl_l   a2, PbTargetSet(a0)     // get request target set
+        bic     a2, a1, a2              // clear processor set member
+        stl_c   a2, PbTargetSet(a0)     // store target set
+        beq     a2, 15f                 // if eq, store conditional failed
+
+
+
+        ret     zero, (ra)              // return
+
+15:
+        br      zero, 10b               // store conditional failed, retry
+
+        .end    KiIpiSignalPacketDone
+#endif

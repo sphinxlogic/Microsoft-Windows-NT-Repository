@@ -20,17 +20,32 @@ Revision History:
 
 #include<rpcperf.h>
 
+#ifndef WIN32
+#include<time.h>
+#include<malloc.h>
+#endif
+
+#ifdef WIN32
 void FlushProcessWorkingSet()
 {
     SetProcessWorkingSetSize(GetCurrentProcess(), ~0UL, ~0UL);
     return;
 }
+#endif
 
+#ifdef WIN32
 LARGE_INTEGER _StartTime;
+#else
+clock_t _StartTime;
+#endif
 
 void StartTime(void)
 {
+#ifdef WIN32
     QueryPerformanceCounter(&_StartTime);
+#else
+    _StartTime = clock();
+#endif
 
     return;
 }
@@ -52,11 +67,11 @@ void EndTime(char *string)
 
 unsigned long FinishTiming()
 {
+#ifdef WIN32
     LARGE_INTEGER liDiff;
     LARGE_INTEGER liFreq;
-    unsigned long lMSeconds;
 
-    (void)QueryPerformanceCounter(&liDiff);
+    QueryPerformanceCounter(&liDiff);
 
     liDiff.LowPart -= _StartTime.LowPart;
     liDiff.HighPart -= _StartTime.HighPart;
@@ -74,26 +89,33 @@ unsigned long FinishTiming()
     (void)QueryPerformanceFrequency(&liFreq);
 
     return (liDiff.LowPart / (liFreq.LowPart / 1000));
-
-    // BUGBUG
-    // lMSeconds += ((liDiff.LowPart % liFreq.LowPart) / (liFreq.LowPart / 1000));
-    //
-    // return lMSeconds;
+#else
+    unsigned long Diff = clock() - _StartTime;
+    if (Diff)
+        return( ( (Diff / CLOCKS_PER_SEC) * 1000 ) +
+                ( ( (Diff % CLOCKS_PER_SEC) * 1000) / CLOCKS_PER_SEC) );
+    else
+        return(0);
+#endif
 }
 
-void *MIDL_user_allocate(size_t size)
+#ifndef MAC
+
+void __RPC_FAR * __RPC_USER MIDL_user_allocate(size_t size)
 {
     return(malloc(size));
 }
 
-void MIDL_user_free(void *p)
+void __RPC_USER MIDL_user_free(void __RPC_FAR * p)
 {
     free(p);
 }
 
-void ApiError(char *string, ULONG status)
+#endif
+
+void ApiError(char *string, unsigned long status)
 {
     printf("%s failed - %lu (%08lX)\n", string, status, status);
-    exit(status);
+    exit((int)status);
 }
 

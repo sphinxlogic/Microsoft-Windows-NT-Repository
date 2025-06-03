@@ -20,6 +20,8 @@ Revision History:
 
 #ifndef _NULL_
 #define _NULL_
+#include <stdio.h>
+#include <windows.h>
 
 typedef enum _NULLAPINUMBER {
     Null1Api,

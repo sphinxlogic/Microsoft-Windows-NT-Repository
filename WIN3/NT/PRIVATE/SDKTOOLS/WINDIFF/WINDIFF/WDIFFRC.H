@@ -14,6 +14,7 @@
 #define IDM_SETEDIT   126
 #define IDM_COPYFILES 127
 
+#define IDM_CONTENTS  130
 #define IDM_ABOUT     131
 
 #define IDD_ICON      132
@@ -58,6 +59,7 @@
 #define IDM_INCRIGHT  203
 #define IDM_INCDIFFER 204
 #define IDM_MONOCOLS  210
+#define IDM_RESCAN    211
 
 #define IDC_RCDISP1   501
 #define IDC_BAR       510
@@ -82,3 +84,6 @@
 #define IDM_TOGGLEMARK      303
 #define IDD_IGNOREMARK      304
 #define IDD_ATTRIBUTES      305
+
+#define IDM_TOMOVED         310
+

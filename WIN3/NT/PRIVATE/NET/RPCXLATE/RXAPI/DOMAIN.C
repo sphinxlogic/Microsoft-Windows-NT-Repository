@@ -57,7 +57,7 @@ Revision History:
 #include <rxdomain.h>           // My prototypes.
 
 
-#define MAX_DCNAME_BYTE_COUNT ( (UNCLEN+1) * sizeof(TCHAR) )
+#define MAX_DCNAME_BYTE_COUNT ( MAX_PATH * sizeof(TCHAR) )
 
 
 NET_API_STATUS
@@ -114,16 +114,16 @@ Return Value:
                 );
         if (Status != NERR_Success) {
             IF_DEBUG(DOMAIN) {
-                NetpDbgPrint( PREFIX_NETAPI
+                NetpKdPrint(( PREFIX_NETAPI
                         "RxNetGetDCName: wksta get info failed, stat="
-                        FORMAT_API_STATUS ".\n", Status);
+                        FORMAT_API_STATUS ".\n", Status));
             }
             goto Done;
         }
         NetpAssert( WkstaInfo->wki100_langroup != NULL );
         IF_DEBUG(DOMAIN) {
-            NetpDbgPrint( PREFIX_NETAPI
-                    "RxNetGetDCName: wksta says domain is:\n" );
+            NetpKdPrint(( PREFIX_NETAPI
+                    "RxNetGetDCName: wksta says domain is:\n" ));
             NetpDbgHexDump( (LPVOID) WkstaInfo->wki100_langroup, UNLEN+1 );
         }
         Domain = WkstaInfo->wki100_langroup;

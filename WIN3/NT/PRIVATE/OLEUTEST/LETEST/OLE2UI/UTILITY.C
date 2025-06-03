@@ -1036,4 +1036,4 @@ error:
     lpOpenBuf->nErrCode = 0x0002;   // File not found
     return HFILE_ERROR;
 }
-
+

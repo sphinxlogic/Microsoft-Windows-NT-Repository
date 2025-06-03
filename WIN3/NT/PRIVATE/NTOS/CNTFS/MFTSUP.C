@@ -36,19 +36,17 @@ NtfsTruncateMft (
     IN PVCB Vcb
     );
 
-VOID
-NtfsLogMftFileRecord (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
-    IN PBCB Bcb,
-    IN BOOLEAN Redo
-    );
-
 BOOLEAN
 NtfsDefragMftPriv (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
+    );
+
+LONG
+NtfsReadMftExceptionFilter (
+    IN PIRP_CONTEXT IrpContext,
+    IN PEXCEPTION_POINTERS ExceptionPointer,
+    IN NTSTATUS Status
     );
 
 #ifdef ALLOC_PRAGMA
@@ -65,6 +63,7 @@ NtfsDefragMftPriv (
 #pragma alloc_text(PAGE, NtfsReadFileRecord)
 #pragma alloc_text(PAGE, NtfsReadMftRecord)
 #pragma alloc_text(PAGE, NtfsTruncateMft)
+#pragma alloc_text(PAGE, NtfsIterateMft)
 #endif
 
 
@@ -119,7 +118,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReadFileRecord\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsReadFileRecord\n") );
 
     NtfsReadMftRecord( IrpContext,
                        Vcb,
@@ -141,10 +140,10 @@ Return Value:
         //  For now accept either sequence number 0 or 1 for the Mft.
         //
 
-        !((FileReference->LowPart == 0) && (FileReference->HighPart == 0) &&
+        !(NtfsSegmentNumber( FileReference ) == 0 &&
           ((*BaseFileRecord)->SequenceNumber != SequenceNumber))) {
 
-        NtfsUnpinBcb( IrpContext, Bcb );
+        NtfsUnpinBcb( Bcb );
 
         NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, FileReference, NULL );
     }
@@ -152,7 +151,7 @@ Return Value:
     *FirstAttribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)*BaseFileRecord +
                       (*BaseFileRecord)->FirstAttributeOffset);
 
-    DebugTrace(-1, Dbg, "NtfsReadFileRecord -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsReadFileRecord -> VOID\n") );
 
     return;
 }
@@ -197,8 +196,11 @@ Return Value:
 --*/
 
 {
+    PFILE_RECORD_SEGMENT_HEADER FileRecord2;
     LONGLONG FileOffset;
     PBCB Bcb2 = NULL;
+    NTSTATUS Status = STATUS_SUCCESS;
+    BOOLEAN ErrorPath = FALSE;
 
     LONGLONG LlTemp1;
 
@@ -207,11 +209,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReadMftRecord\n", 0 );
-    DebugTrace( 0, Dbg, "Vcb = %08lx\n", Vcb );
-    DebugTrace2(0, Dbg, "SegmentReference = %08lx, %08lx\n", SegmentReference->LowPart,
-                                           ((PLARGE_INTEGER)SegmentReference)->HighPart );
-
+    DebugTrace( +1, Dbg, ("NtfsReadMftRecord\n") );
+    DebugTrace( 0, Dbg, ("Vcb = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("SegmentReference = %08lx\n", NtfsSegmentNumber( SegmentReference )) );
     *Bcb = NULL;
 
     try {
@@ -220,15 +220,13 @@ Return Value:
         //  Capture the Segment Reference and make sure the Sequence Number is 0.
         //
 
-        (ULONG)FileOffset = SegmentReference->LowPart;
-        ((PLARGE_INTEGER)&FileOffset)->HighPart = (ULONG)SegmentReference->HighPart;
-        ((PMFT_SEGMENT_REFERENCE)&FileOffset)->SequenceNumber = 0;
+        FileOffset = NtfsFullSegmentNumber( SegmentReference );
 
         //
         //  Calculate the file offset in the Mft to the file record segment.
         //
 
-        FileOffset = FileOffset <<  Vcb->MftShift;
+        FileOffset = LlBytesFromFileRecords( Vcb, FileOffset );
 
         //
         //  Pass back the file offset within the Mft.
@@ -273,13 +271,24 @@ Return Value:
         //  which cause one of our caller's try-except's to initiate an unwind.
         //
 
-        } except(((!FsRtlIsNtstatusExpected(GetExceptionCode())) || (*Bcb == NULL)) ?
-                            EXCEPTION_CONTINUE_SEARCH :
-                            ( FileOffset < Vcb->Mft2Scb->Header.FileSize.QuadPart ) ?
-                                EXCEPTION_EXECUTE_HANDLER :
-                                EXCEPTION_CONTINUE_SEARCH ) {
+        } except (NtfsReadMftExceptionFilter( IrpContext, GetExceptionInformation(), Status = GetExceptionCode() )) {
 
-            PFILE_RECORD_SEGMENT_HEADER FileRecord2;
+            ErrorPath = TRUE;
+        }
+
+        //
+        //  If the status is expected or the Bcb is NULL or this is beyond the
+        //  mirrorred portion of the Mft then raise the status
+        //  and let a top level handler take care of this.
+        //
+
+        if (ErrorPath) {
+
+            if ((*Bcb == NULL) ||
+                (FileOffset >= Vcb->Mft2Scb->Header.FileSize.QuadPart )) {
+
+                NtfsRaiseStatus( IrpContext, Status, SegmentReference, NULL );
+            }
 
             //
             //  Try to read from Mft2.  If this fails with an expected status,
@@ -308,9 +317,9 @@ Return Value:
             //  Now copy the entire page.
             //
 
-            RtlCopyMemory( (PVOID)((ULONG)*FileRecord & ~(PAGE_SIZE - 1)),
-                           (PVOID)((ULONG)FileRecord2 & ~(PAGE_SIZE - 1)),
-                           PAGE_SIZE );
+            RtlCopyMemory( *FileRecord,
+                           FileRecord2,
+                           Vcb->BytesPerFileRecordSegment );
 
             //
             //  Set it dirty with the largest Lsn, so that whoever is doing Restart
@@ -319,12 +328,10 @@ Return Value:
 
             LlTemp1 = MAXLONGLONG;
 
-            NtfsSetDirtyBcb( IrpContext,
-                             *Bcb,
-                             (PLARGE_INTEGER)&LlTemp1, //*** xxMax,
-                             Vcb );
+            CcSetDirtyPinnedData( *Bcb,
+                                  (PLARGE_INTEGER)&LlTemp1 );
 
-            NtfsUnpinBcb( IrpContext, &Bcb2 );
+            NtfsUnpinBcb( &Bcb2 );
         }
 
         if (*(PULONG)(*FileRecord)->MultiSectorHeader.Signature != *(PULONG)FileSignature) {
@@ -336,14 +343,14 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            NtfsUnpinBcb( IrpContext, Bcb );
-            NtfsUnpinBcb( IrpContext, &Bcb2 );
+            NtfsUnpinBcb( Bcb );
+            NtfsUnpinBcb( &Bcb2 );
         }
     }
 
-    DebugTrace( 0, Dbg, "Bcb > %08lx\n", Bcb );
-    DebugTrace( 0, Dbg, "FileRecord > %08lx\n", *FileRecord );
-    DebugTrace(-1, Dbg, "NtfsReadMftRecord -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Bcb > %08lx\n", Bcb) );
+    DebugTrace( 0, Dbg, ("FileRecord > %08lx\n", *FileRecord) );
+    DebugTrace( -1, Dbg, ("NtfsReadMftRecord -> VOID\n") );
 
     return;
 }
@@ -399,24 +406,21 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReadMftRecord\n", 0 );
-    DebugTrace( 0, Dbg, "Vcb = %08lx\n", Vcb );
-    DebugTrace2(0, Dbg, "SegmentReference = %08lx, %08lx\n", SegmentReference->LowPart,
-                                           ((PLARGE_INTEGER)SegmentReference)->HighPart );
+    DebugTrace( +1, Dbg, ("NtfsReadMftRecord\n") );
+    DebugTrace( 0, Dbg, ("Vcb = %08lx\n", Vcb) );
+    DebugTrace( 0, Dbg, ("SegmentReference = %08lx\n", NtfsSegmentNumber( SegmentReference )) );
 
     //
     //  Capture the Segment Reference and make sure the Sequence Number is 0.
     //
 
-    (ULONG)FileOffset = SegmentReference->LowPart;
-    ((PLARGE_INTEGER)&FileOffset)->HighPart = (ULONG)SegmentReference->HighPart;
-    ((PMFT_SEGMENT_REFERENCE)&FileOffset)->SequenceNumber = 0;
+    FileOffset = NtfsFullSegmentNumber( SegmentReference );
 
     //
     //  Calculate the file offset in the Mft to the file record segment.
     //
 
-    FileOffset = FileOffset << Vcb->MftShift;
+    FileOffset = LlBytesFromFileRecords( Vcb, FileOffset );
 
     //
     //  Pass back the file offset within the Mft.
@@ -476,9 +480,9 @@ Return Value:
         NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, SegmentReference, NULL );
     }
 
-    DebugTrace( 0, Dbg, "Bcb > %08lx\n", Bcb );
-    DebugTrace( 0, Dbg, "FileRecord > %08lx\n", *FileRecord );
-    DebugTrace(-1, Dbg, "NtfsReadMftRecord -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Bcb > %08lx\n", Bcb) );
+    DebugTrace( 0, Dbg, ("FileRecord > %08lx\n", *FileRecord) );
+    DebugTrace( -1, Dbg, ("NtfsReadMftRecord -> VOID\n") );
 
     return;
 }
@@ -488,7 +492,6 @@ MFT_SEGMENT_REFERENCE
 NtfsAllocateMftRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN MFT_SEGMENT_REFERENCE HintLocation,
     IN BOOLEAN MftData
     )
 
@@ -503,8 +506,6 @@ Routine Description:
 Arguments:
 
     Vcb - Vcb for volume on which Mft is to be read
-
-    HintLocation - This is a hint location used by the bitmap package.
 
     MftData - TRUE if the file record is being allocated to describe the
               $DATA attribute for the Mft.
@@ -524,11 +525,9 @@ Return Value:
 
     BOOLEAN FoundAttribute;
 
-    UNREFERENCED_PARAMETER(HintLocation);
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsAllocateMftRecord:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsAllocateMftRecord:  Entered\n") );
 
     //
     //  Synchronize the lookup by acquiring the Mft.
@@ -564,7 +563,7 @@ Return Value:
 
         if (!FoundAttribute) {
 
-            DebugTrace( 0, Dbg, "Should find bitmap attribute\n", 0 );
+            DebugTrace( 0, Dbg, ("Should find bitmap attribute\n") );
 
             NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
         }
@@ -584,18 +583,20 @@ Return Value:
 
         if (MftData) {
 
-            NewMftRecord.LowPart = NtfsAllocateMftReservedRecord( IrpContext,
-                                                                  Vcb,
-                                                                  &AttrContext );
+            NtfsSetSegmentNumber( &NewMftRecord,
+                                  0,
+                                  NtfsAllocateMftReservedRecord( IrpContext,
+                                                                 Vcb,
+                                                                 &AttrContext ) );
 
             //
             //  Never let use get file record zero for this or we could lose a
             //  disk.
             //
 
-            ASSERT( NewMftRecord.LowPart != 0 );
+            ASSERT( NtfsUnsafeSegmentNumber( &NewMftRecord ) != 0 );
 
-            if (NewMftRecord.LowPart == 0) {
+            if (NtfsUnsafeSegmentNumber( &NewMftRecord ) == 0) {
 
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
@@ -606,23 +607,24 @@ Return Value:
 
         } else {
 
-            NewMftRecord.LowPart = NtfsAllocateRecord( IrpContext,
-                                                       &Vcb->MftBitmapAllocationContext,
-                                                       FIRST_USER_FILE_NUMBER,
-                                                       &AttrContext );
+            NtfsSetSegmentNumber( &NewMftRecord,
+                                  0,
+                                  NtfsAllocateRecord( IrpContext,
+                                                      &Vcb->MftBitmapAllocationContext,
+                                                      FIRST_USER_FILE_NUMBER,
+                                                      &AttrContext ) );
         }
 
-        NewMftRecord.HighPart = 0;
 
     } finally {
 
         DebugUnwind( NtfsAllocateMftRecord );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
         NtfsReleaseScb( IrpContext, Vcb->MftScb );
 
-        DebugTrace( -1, Dbg, "NtfsAllocateMftRecord:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsAllocateMftRecord:  Exit\n") );
     }
 
     return NewMftRecord;
@@ -671,17 +673,14 @@ Return Value:
 
 {
     LONGLONG FileRecordOffset;
-    VCN Cluster;
 
     PUSHORT UsaSequenceNumber;
 
     PATTRIBUTE_RECORD_HEADER AttributeHeader;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsInitializeMftRecord:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsInitializeMftRecord:  Entered\n") );
 
     //
     //  Write a log record to uninitialize the structure in case we abort.
@@ -694,20 +693,12 @@ Return Value:
     //  Capture the Segment Reference and make sure the Sequence Number is 0.
     //
 
-    (ULONG)FileRecordOffset = MftSegment->LowPart;
-    ((PLARGE_INTEGER)&FileRecordOffset)->HighPart = (ULONG)MftSegment->HighPart;
-    ((PMFT_SEGMENT_REFERENCE)&FileRecordOffset)->SequenceNumber = 0;
+    FileRecordOffset = NtfsFullSegmentNumber(MftSegment);
 
-    FileRecordOffset = FileRecordOffset << Vcb->MftShift;
+    FileRecordOffset = LlBytesFromFileRecords( Vcb, FileRecordOffset );
 
     //
     //  We now log the new Mft record.
-    //
-
-    Cluster = LlClustersFromBytes( Vcb, FileRecordOffset );
-
-    //
-    //  Log the file record.
     //
 
     FileRecord->Lsn = NtfsWriteLog( IrpContext,
@@ -719,10 +710,10 @@ Return Value:
                                     DeallocateFileRecordSegment,
                                     NULL,
                                     0,
-                                    Cluster,
+                                    FileRecordOffset,
                                     0,
                                     0,
-                                    Vcb->ClustersPerFileRecordSegment );
+                                    Vcb->BytesPerFileRecordSegment );
 
     RtlZeroMemory( &FileRecord->ReferenceCount,
                    Vcb->BytesPerFileRecordSegment - FIELD_OFFSET( FILE_RECORD_SEGMENT_HEADER, ReferenceCount ));
@@ -783,8 +774,8 @@ Return Value:
     //  the name index present.
     //
 
-    FileRecord->Flags = (USHORT)(FILE_RECORD_SEGMENT_IN_USE
-                                 | (Directory ? FILE_FILE_NAME_INDEX_PRESENT : 0));
+    FileRecord->Flags = (USHORT)(FILE_RECORD_SEGMENT_IN_USE |
+                                 (Directory ? FILE_FILE_NAME_INDEX_PRESENT : 0));
 
     //
     //  The size is given in the Vcb.
@@ -807,17 +798,17 @@ Return Value:
 
     AttributeHeader->TypeCode = $END;
 
-    DebugTrace( -1, Dbg, "NtfsInitializeMftRecord:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsInitializeMftRecord:  Exit\n") );
 
     return;
 }
+
 
 VOID
 NtfsDeallocateMftRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN ULONG FileNumber,
-    IN BOOLEAN MftData
+    IN ULONG FileNumber
     )
 
 /*++
@@ -832,9 +823,6 @@ Arguments:
     Vcb - Vcb for volume.
 
     FileNumber - This is the low 32 bits for the file number.
-
-    MftData - TRUE if the file record being deallocated is describe the
-              $DATA attribute for the Mft.
 
 Return Value:
 
@@ -854,10 +842,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsDeallocateMftRecord:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsDeallocateMftRecord:  Entered\n") );
 
-    Reference.LowPart = FileNumber;
-    Reference.HighPart = 0;
+    NtfsSetSegmentNumber( &Reference, 0, FileNumber );
     Reference.SequenceNumber = 0;
 
     //
@@ -891,10 +878,10 @@ Return Value:
                                             InitializeFileRecordSegment,
                                             FileRecord,
                                             PtrOffset(FileRecord, &FileRecord->Flags) + 4,
-                                            FileOffset >> Vcb->ClusterShift,
+                                            FileOffset,
                                             0,
                                             0,
-                                            Vcb->ClustersPerFileRecordSegment );
+                                            Vcb->BytesPerFileRecordSegment );
 
             //
             //  We increment the sequence count in the file record and clear
@@ -905,7 +892,7 @@ Return Value:
 
             FileRecord->SequenceNumber += 1;
 
-            NtfsUnpinBcb( IrpContext, &MftBcb );
+            NtfsUnpinBcb( &MftBcb );
 
             //
             //  Synchronize the lookup by acquiring the Mft.
@@ -929,7 +916,7 @@ Return Value:
 
             if (!FoundAttribute) {
 
-                DebugTrace( 0, Dbg, "Should find bitmap attribute\n", 0 );
+                DebugTrace( 0, Dbg, ("Should find bitmap attribute\n") );
 
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
@@ -965,16 +952,16 @@ Return Value:
 
         DebugUnwind( NtfsDeallocateMftRecord );
 
-        NtfsUnpinBcb( IrpContext, &MftBcb );
+        NtfsUnpinBcb( &MftBcb );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
         if (AcquiredMft) {
 
             NtfsReleaseScb( IrpContext, Vcb->MftScb );
         }
 
-        DebugTrace( -1, Dbg, "NtfsDeallocateMftRecord:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsDeallocateMftRecord:  Exit\n") );
     }
 }
 
@@ -1023,22 +1010,30 @@ Return Value:
     //  to be in a hole.
     //
 
-    if (Index < (ULONG)(Vcb->MftScb->Header.FileSize.QuadPart >>  Vcb->MftShift)) {
+    if (Index < (ULONG) LlFileRecordsFromBytes( Vcb, Vcb->MftScb->Header.FileSize.QuadPart )) {
 
-        Vcn = Index << Vcb->MftToClusterShift;
+        if (Vcb->FileRecordsPerCluster == 0) {
+
+            Vcn = Index << Vcb->MftToClusterShift;
+
+        } else {
+
+            Vcn = Index >> Vcb->MftToClusterShift;
+        }
 
         //
         //  Now look this up the Mcb for the Mft.  This Vcn had better be
         //  in the Mcb or there is some problem.
         //
 
-        if (!FsRtlLookupLargeMcbEntry( &Vcb->MftScb->Mcb,
-                                       Vcn,
-                                       &Lcn,
-                                       &Clusters,
-                                       NULL,
-                                       NULL,
-                                       NULL )) {
+        if (!NtfsLookupNtfsMcbEntry( &Vcb->MftScb->Mcb,
+                                     Vcn,
+                                     &Lcn,
+                                     &Clusters,
+                                     NULL,
+                                     NULL,
+                                     NULL,
+                                     NULL )) {
 
             ASSERT( FALSE );
             NtfsRaiseStatus( IrpContext,
@@ -1059,7 +1054,14 @@ Return Value:
 
             if (ARGUMENT_PRESENT( HoleLength )) {
 
-                *HoleLength = ((ULONG)Clusters) >> Vcb->MftToClusterShift;
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    *HoleLength = ((ULONG)Clusters) >> Vcb->MftToClusterShift;
+
+                } else {
+
+                    *HoleLength = ((ULONG)Clusters) << Vcb->MftToClusterShift;
+                }
             }
         }
     }
@@ -1083,7 +1085,8 @@ Routine Description:
     the beginning of the hole and then allocate the clusters to fill the
     hole.  We will try to fill a hole with the HoleGranularity in the Vcb.
     If the hole containing this index is not that large we will truncate
-    the size being added.
+    the size being added.  We always guarantee to allocate the clusters on
+    file record boundaries.
 
 Arguments:
 
@@ -1099,98 +1102,108 @@ Return Value:
 --*/
 
 {
-    ULONG HoleSize;
-
-    VCN StartOfHole;
-    VCN StartOfRun;
-    LONGLONG HoleClusters;
+    ULONG FileRecords;
+    ULONG BaseIndex;
 
     VCN IndexVcn;
+    VCN HoleStartVcn;
+    VCN StartingVcn;
+
+    LCN Lcn;
     LONGLONG ClusterCount;
     LONGLONG RunClusterCount;
 
     PAGED_CODE();
 
     //
-    //  Convert the Index to a Vcn in the file.  Also compute the starting Vcn
-    //  and cluster count for the hole we want to create.
+    //  Convert the Index to a Vcn in the file.  Find the cluster that would
+    //  be the start of this hole if the hole is fully deallocated.
     //
 
-    IndexVcn = Index << Vcb->MftToClusterShift;
-    StartOfHole = (Index & Vcb->MftHoleInverseMask) << Vcb->MftToClusterShift;
+    if (Vcb->FileRecordsPerCluster == 0) {
 
-    HoleClusters = Vcb->MftClustersPerHole;
+        IndexVcn = Index << Vcb->MftToClusterShift;
+        HoleStartVcn = (Index & Vcb->MftHoleInverseMask) << Vcb->MftToClusterShift;
+
+    } else {
+
+        IndexVcn = Index >> Vcb->MftToClusterShift;
+        HoleStartVcn = (Index & Vcb->MftHoleInverseMask) >> Vcb->MftToClusterShift;
+    }
 
     //
     //  Lookup the run containing this index.
     //
 
-    FsRtlLookupLargeMcbEntry( &Vcb->MftScb->Mcb,
-                              IndexVcn,
-                              NULL,
-                              &ClusterCount,
-                              NULL,
-                              &RunClusterCount,
-                              NULL );
-
-    StartOfRun = IndexVcn - (RunClusterCount - ClusterCount);
+    NtfsLookupNtfsMcbEntry( &Vcb->MftScb->Mcb,
+                            IndexVcn,
+                            &Lcn,
+                            &ClusterCount,
+                            NULL,
+                            &RunClusterCount,
+                            NULL,
+                            NULL );
 
     //
-    //  If the current run begins after the desired start of the hole then
-    //  adjust the starting Vcn for the hole and reduce the count of clusters
-    //  in the hole.
+    //  This had better be a hole.
     //
 
-    if (StartOfHole < StartOfRun) {
+    if (Lcn != UNUSED_LCN) {
 
-        HoleClusters = HoleClusters - (StartOfRun - StartOfHole);
+        NtfsAcquireCheckpoint( IrpContext, Vcb );
+        ClearFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
+        NtfsReleaseCheckpoint( IrpContext, Vcb );
+        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Vcb->MftScb->Fcb );
+    }
 
-        StartOfHole = StartOfRun;
+    //
+    //  Take the start of the deallocated space and round up to a hole boundary.
+    //
 
-        //
-        //  The hole better start on a file record boundary.  Otherwise
-        //  we will halt defragging and mark the volume dirty.
-        //
+    StartingVcn = IndexVcn - (RunClusterCount - ClusterCount);
 
-        if (((ULONG)StartOfHole) & (Vcb->ClustersPerFileRecordSegment - 1)) {
+    if (StartingVcn <= HoleStartVcn) {
+
+        StartingVcn = HoleStartVcn;
+        RunClusterCount -= (HoleStartVcn - StartingVcn);
+        StartingVcn = HoleStartVcn;
+
+    //
+    //  We can go to the beginning of a hole.  Just use the Vcn for the file
+    //  record we want to reallocate.
+    //
+
+    } else {
+
+        RunClusterCount = ClusterCount;
+        StartingVcn = IndexVcn;
+    }
+
+    //
+    //  Trim the cluster count back to a hole if necessary.
+    //
+
+    if ((ULONG) RunClusterCount >= Vcb->MftClustersPerHole) {
+
+        RunClusterCount = Vcb->MftClustersPerHole;
+
+    //
+    //  We don't have enough clusters for a full hole.  Make sure
+    //  we end on a file record boundary however.  We must end up
+    //  with enough clusters for the file record we are reallocating.
+    //
+
+    } else if (Vcb->FileRecordsPerCluster == 0) {
+
+        ((PLARGE_INTEGER) &ClusterCount)->LowPart &= (Vcb->ClustersPerFileRecordSegment - 1);
+
+        if (StartingVcn + ClusterCount < IndexVcn + Vcb->ClustersPerFileRecordSegment) {
 
             NtfsAcquireCheckpoint( IrpContext, Vcb );
             ClearFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
             NtfsReleaseCheckpoint( IrpContext, Vcb );
             NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Vcb->MftScb->Fcb );
         }
-
-    //
-    //  Otherwise reduce the number of clusters in the run by the offset of
-    //  the start of the hole.
-    //
-
-    } else {
-
-        RunClusterCount = RunClusterCount - (StartOfHole - StartOfRun);
-    }
-
-    //
-    //  If the remaining clusters in this run are less than the hole we
-    //  are trying to fill then reduce the clusters to allocate.
-    //
-
-    if (RunClusterCount < HoleClusters) {
-
-        HoleClusters = RunClusterCount;
-    }
-
-    //
-    //  The hole size better be an integral number of file records.  Otherwise
-    //  we will halt defragging and mark the volume dirty.
-    //
-
-    if (((ULONG)HoleClusters) & (Vcb->ClustersPerFileRecordSegment - 1)) {
-
-        NtfsAcquireCheckpoint( IrpContext, Vcb );
-        ClearFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED );
-        NtfsReleaseCheckpoint( IrpContext, Vcb );
-        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Vcb->MftScb->Fcb );
     }
 
     //
@@ -1200,28 +1213,33 @@ Return Value:
     NtfsAddAllocation( IrpContext,
                        Vcb->MftScb->FileObject,
                        Vcb->MftScb,
-                       StartOfHole,
-                       HoleClusters,
+                       StartingVcn,
+                       ClusterCount,
                        FALSE );
 
     //
-    //  We now want to record the change in the number of holes.
+    //  Compute the number of file records reallocated and then
+    //  initialize and deallocate each file record.
     //
 
-    HoleSize = ((ULONG)HoleClusters) >> Vcb->MftToClusterShift;
-    Index = ((ULONG)StartOfHole) >> Vcb->MftToClusterShift;
+    if (Vcb->FileRecordsPerCluster == 0) {
 
-    //
-    //  Initialize and deallocate each file record.
-    //
+        FileRecords = (ULONG) ClusterCount >> Vcb->MftToClusterShift;
+        BaseIndex = (ULONG) StartingVcn >> Vcb->MftToClusterShift;
+
+    } else {
+
+        FileRecords = (ULONG) ClusterCount << Vcb->MftToClusterShift;
+        BaseIndex = (ULONG) StartingVcn << Vcb->MftToClusterShift;
+    }
 
     NtfsInitializeMftHoleRecords( IrpContext,
                                   Vcb,
-                                  Index,
-                                  HoleSize );
+                                  BaseIndex,
+                                  FileRecords );
 
-    Vcb->MftHoleRecords -= HoleSize;
-    Vcb->MftScb->ScbType.Mft.HoleRecordChange -= HoleSize;
+    Vcb->MftHoleRecords -= FileRecords;
+    Vcb->MftScb->ScbType.Mft.HoleRecordChange -= FileRecords;
 
     return;
 }
@@ -1232,6 +1250,7 @@ NtfsLogMftFileRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
+    IN LONGLONG MftOffset,
     IN PBCB Bcb,
     IN BOOLEAN Redo
     )
@@ -1250,6 +1269,8 @@ Arguments:
     Vcb - This is the Vcb for the volume being logged.
 
     FileRecord - This is the file record being logged.
+
+    MftOffset - This is the offset of this file record in the Mft stream.
 
     Bcb - This is the Bcb for the pinned file record.
 
@@ -1302,12 +1323,6 @@ Return Value:
     }
 
     //
-    //  Get the Vcn from the Vcb.
-    //
-
-    NtfsVcnFromBcb( Vcb, *(PLARGE_INTEGER)&Vcn, FileRecord, Bcb );
-
-    //
     //  Now that we have calculated all the values, call the logging
     //  routine.
     //
@@ -1321,10 +1336,10 @@ Return Value:
                   UndoOperation,
                   UndoBuffer,
                   UndoLength,
-                  Vcn,
+                  MftOffset,
                   0,
                   0,
-                  Vcb->ClustersPerFileRecordSegment );
+                  Vcb->BytesPerFileRecordSegment );
 
     return;
 }
@@ -1361,7 +1376,7 @@ Return Value:
 
     BOOLEAN DefragStepTaken = FALSE;
 
-    DebugTrace( +1, Dbg, "NtfsDefragMft:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsDefragMft:  Entered\n") );
 
     FsRtlEnterFileSystem();
 
@@ -1382,7 +1397,7 @@ Return Value:
 
         if (DefragMft->DeallocateWorkItem) {
 
-            ExFreePool( DefragMft );
+            NtfsFreePool( DefragMft );
         }
 
         //
@@ -1437,7 +1452,7 @@ Return Value:
 
     FsRtlExitFileSystem();
 
-    DebugTrace( -1, Dbg, "NtfsDefragMft:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDefragMft:  Exit\n") );
 
     return DefragStepTaken;
 }
@@ -1445,7 +1460,6 @@ Return Value:
 
 VOID
 NtfsCheckForDefrag (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PVCB Vcb
     )
 
@@ -1478,8 +1492,16 @@ Return Value:
     //  Convert the available Mft records to clusters.
     //
 
-    RecordsToClusters =
-        ((LONGLONG)(Vcb->MftFreeRecords - Vcb->MftHoleRecords)) << Vcb->MftToClusterShift;
+    if (Vcb->FileRecordsPerCluster) {
+
+        RecordsToClusters = Int64ShllMod32(((LONGLONG)(Vcb->MftFreeRecords - Vcb->MftHoleRecords)),
+                                           Vcb->MftToClusterShift);
+
+    } else {
+
+        RecordsToClusters = Int64ShraMod32(((LONGLONG)(Vcb->MftFreeRecords - Vcb->MftHoleRecords)),
+                                           Vcb->MftToClusterShift);
+    }
 
     //
     //  If we have already triggered the defrag then check if we are below
@@ -1488,7 +1510,7 @@ Return Value:
 
     if (FlagOn( Vcb->MftDefragState, VCB_MFT_DEFRAG_TRIGGERED )) {
 
-        AdjClusters = Vcb->FreeClusters >> Vcb->MftDefragLowerThreshold;
+        AdjClusters = Vcb->FreeClusters >> MFT_DEFRAG_LOWER_THRESHOLD;
 
         if (AdjClusters >= RecordsToClusters) {
 
@@ -1501,7 +1523,7 @@ Return Value:
 
     } else {
 
-        AdjClusters = Vcb->FreeClusters >> Vcb->MftDefragUpperThreshold ;
+        AdjClusters = Vcb->FreeClusters >> MFT_DEFRAG_UPPER_THRESHOLD;
 
         if (AdjClusters < RecordsToClusters) {
 
@@ -1655,10 +1677,11 @@ Return Value:
             NtfsLogMftFileRecord( IrpContext,
                                   Vcb,
                                   FileRecord,
+                                  LlBytesFromFileRecords( Vcb, FirstIndex ),
                                   Bcb,
                                   TRUE );
 
-            NtfsUnpinBcb( IrpContext, &Bcb );
+            NtfsUnpinBcb( &Bcb );
 
             //
             //  Move to the next record.
@@ -1671,7 +1694,7 @@ Return Value:
 
         DebugUnwind( NtfsInitializeMftHoleRecords );
 
-        NtfsUnpinBcb( IrpContext, &Bcb );
+        NtfsUnpinBcb( &Bcb );
     }
 
     return;
@@ -1706,12 +1729,12 @@ Return Value:
 --*/
 
 {
+    PVOID RangePtr;
     ULONG Index;
     VCN StartingVcn;
     VCN NextVcn;
     LCN NextLcn;
     LONGLONG ClusterCount;
-    LONGLONG ThisFileOffset;
     LONGLONG FileOffset;
 
     ULONG FreeRecordChange;
@@ -1729,8 +1752,7 @@ Return Value:
         return FALSE;
     }
 
-    FreeRecordChange =
-        (ULONG)((Vcb->MftScb->Header.FileSize.QuadPart - FileOffset) >> Vcb->MftShift);
+    FreeRecordChange = (ULONG) LlFileRecordsFromBytes( Vcb, Vcb->MftScb->Header.FileSize.QuadPart - FileOffset );
 
     Vcb->MftFreeRecords -= FreeRecordChange;
     Vcb->MftScb->ScbType.Mft.FreeRecordChange -= FreeRecordChange;
@@ -1742,13 +1764,14 @@ Return Value:
 
     StartingVcn = LlClustersFromBytes( Vcb, FileOffset );
 
-    FsRtlLookupLargeMcbEntry( &Vcb->MftScb->Mcb,
-                              StartingVcn,
-                              &NextLcn,
-                              &ClusterCount,
-                              NULL,
-                              NULL,
-                              &Index );
+    NtfsLookupNtfsMcbEntry( &Vcb->MftScb->Mcb,
+                            StartingVcn,
+                            &NextLcn,
+                            &ClusterCount,
+                            NULL,
+                            NULL,
+                            &RangePtr,
+                            &Index );
 
     do {
 
@@ -1761,7 +1784,14 @@ Return Value:
 
             ULONG HoleChange;
 
-            HoleChange = ((ULONG)ClusterCount) >> Vcb->MftToClusterShift;
+            if (Vcb->FileRecordsPerCluster == 0) {
+
+                HoleChange = ((ULONG)ClusterCount) >> Vcb->MftToClusterShift;
+
+            } else {
+
+                HoleChange = ((ULONG)ClusterCount) << Vcb->MftToClusterShift;
+            }
 
             Vcb->MftHoleRecords -= HoleChange;
             Vcb->MftScb->ScbType.Mft.HoleRecordChange -= HoleChange;
@@ -1769,7 +1799,8 @@ Return Value:
 
         Index += 1;
 
-    } while (FsRtlGetNextLargeMcbEntry( &Vcb->MftScb->Mcb,
+    } while (NtfsGetSequentialMcbEntry( &Vcb->MftScb->Mcb,
+                                        &RangePtr,
                                         Index,
                                         &NextVcn,
                                         &NextLcn,
@@ -1781,11 +1812,9 @@ Return Value:
     //  removed the allocation but before a possible abort.
     //
 
-    ThisFileOffset = StartingVcn << Vcb->ClusterShift;
-
     CcFlushCache( &Vcb->MftScb->NonpagedScb->SegmentObject,
-                  (PLARGE_INTEGER)&ThisFileOffset,
-                  FreeRecordChange << Vcb->MftShift,
+                  (PLARGE_INTEGER)&FileOffset,
+                  BytesFromFileRecords( Vcb, FreeRecordChange ),
                   &IoStatus );
 
     ASSERT( IoStatus.Status == STATUS_SUCCESS );
@@ -1802,64 +1831,171 @@ Return Value:
                           TRUE,
                           FALSE );
 
-    //
-    //  We also want to reduce the size of the Mft bitmap stream.
-    //  Since it is legal for fewer bits to be in the bitmap than in the
-    //  Mft this may become a noop.  This size is always a multiple of
-    //  8 bytes due to an extend granularity of 64 bits.  We don't worry
-    //  about reducing the allocation size of the Mft bitmap.
-    //
-
-    ThisFileOffset = (FileOffset >> Vcb->MftShift ) + (BITMAP_EXTEND_GRANULARITY - 1);
-
-    ((ULONG)ThisFileOffset) &= ~(BITMAP_EXTEND_GRANULARITY - 1);
-
-    ThisFileOffset = ThisFileOffset >> 3;
-
-    if (ThisFileOffset < Vcb->MftBitmapScb->Header.FileSize.QuadPart) {
-
-        //
-        //  We need to snapshot the Bitmap Scb, make any changes
-        //  there and then call our routine to modify the file
-        //  record.
-        //
-
-        NtfsSnapshotScb( IrpContext, Vcb->MftBitmapScb );
-
-        //
-        //  Make sure there is a file object for the Mft bitmap.
-        //
-
-        if (Vcb->MftBitmapScb->FileObject == NULL) {
-
-            NtfsCreateInternalAttributeStream( IrpContext,
-                                               Vcb->MftBitmapScb,
-                                               FALSE );
-        }
-
-        Vcb->MftBitmapScb->Header.FileSize.QuadPart =
-        Vcb->MftBitmapScb->Header.ValidDataLength.QuadPart = ThisFileOffset;
-
-        CcSetFileSizes( Vcb->MftBitmapScb->FileObject,
-                        (PCC_FILE_SIZES) &Vcb->MftBitmapScb->Header.AllocationSize );
-
-        NtfsWriteFileSizes( IrpContext,
-                            Vcb->MftBitmapScb,
-                            Vcb->MftBitmapScb->Header.FileSize.QuadPart,
-                            Vcb->MftBitmapScb->Header.ValidDataLength.QuadPart,
-                            FALSE,
-                            TRUE );
-
-        //
-        //  Uninitialize the bitmap record context.  We won't worry about any
-        //  reserved record because it can't be part of the truncated space.
-        //
-
-        Vcb->MftBitmapAllocationContext.CurrentBitmapSize = MAXULONG;
-    }
-
     return TRUE;
 }
+
+#ifdef _CAIRO_
+
+NTSTATUS
+NtfsIterateMft (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN OUT PFILE_REFERENCE FileReference,
+    IN FILE_RECORD_WALK FileRecordFunction,
+    IN PVOID Context
+    )
+
+/*++
+
+Routine Description:
+
+    This routine interates over the MFT.  It calls the FileRecordFunction
+    with an Fcb for each existing file on the volume.  The Fcb is owned
+    exclusive and Vcb is owned shared.  The starting FileReference number
+    is passed in so that iterate can be restarted where is left off.
+
+Arguments:
+
+    Vcb - Pointer to the volume to control for the MFT
+
+    FileReference - Suplies a pointer to the starting file reference number
+                    This value is updated as the interator progresses.
+
+    FileRecordFunction - Suplies a pointer to function to be called with
+                          each file found in the MFT.
+
+    Context - Passed along to the FileRecordFunction.
+
+Return Value:
+
+    Returns back status of the entire operation.
+
+--*/
+
+{
+
+    ULONG LogFileFullCount = 0;
+    NTSTATUS Status = STATUS_SUCCESS;
+    PFCB CurrentFcb = NULL;
+    BOOLEAN DecrementReferenceCount = FALSE;
+
+    PAGED_CODE();
+
+    while (NT_SUCCESS(Status)) {
+
+        NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
+
+        try {
+
+            //
+            //  Acquire the VCB shared and check whether we should
+            //  continue.
+            //
+
+            if (!NtfsIsVcbAvailable( Vcb )) {
+
+                //
+                //  The volume is going away, bail out.
+                //
+
+                Status = STATUS_VOLUME_DISMOUNTED;
+                leave;
+            }
+
+            //
+            //  Set the irp context flags to indicate that we are in the
+            //  fsp and that the irp context should not be deleted when
+            //  complete request or process exception are called. The in
+            //  fsp flag keeps us from raising in a few places.  These
+            //  flags must be set inside the loop since they are cleared
+            //  under certain conditions.
+            //
+
+            SetFlag( IrpContext->Flags,
+                     IRP_CONTEXT_FLAG_DONT_DELETE | IRP_CONTEXT_FLAG_IN_FSP);
+
+            DecrementReferenceCount = TRUE;
+
+            Status = NtfsTryOpenFcb( IrpContext,
+                                     Vcb,
+                                     &CurrentFcb,
+                                     *FileReference );
+
+            if (!NT_SUCCESS( Status )) {
+                leave;
+            }
+
+            //
+            //  Call the worker function.
+            //
+
+            FileRecordFunction( IrpContext,
+                                CurrentFcb,
+                                Context );
+
+            //
+            //  Complete the request which commits the pending
+            //  transaction if there is one and releases of the
+            //  acquired resources.  The IrpContext will not
+            //  be deleted because the no delete flag is set.
+            //
+
+            NtfsCheckpointCurrentTransaction( IrpContext );
+
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            ASSERT(CurrentFcb->ReferenceCount > 0);
+            CurrentFcb->ReferenceCount--;
+            NtfsReleaseFcbTable( IrpContext, Vcb );
+            DecrementReferenceCount = FALSE;
+            NtfsTeardownStructures( IrpContext,
+                                    CurrentFcb,
+                                    NULL,
+                                    FALSE,
+                                    FALSE,
+                                    NULL );
+
+            NtfsCompleteRequest( &IrpContext, NULL, Status );
+
+        } finally {
+
+            if (CurrentFcb != NULL) {
+
+                if (DecrementReferenceCount) {
+
+
+                    NtfsAcquireFcbTable( IrpContext, Vcb );
+                    ASSERT(CurrentFcb->ReferenceCount > 0);
+                    CurrentFcb->ReferenceCount--;
+                    NtfsReleaseFcbTable( IrpContext, Vcb );
+                    DecrementReferenceCount = FALSE;
+                }
+
+                CurrentFcb = NULL;
+            }
+
+            NtfsReleaseVcb( IrpContext, Vcb );
+
+        }
+
+        //
+        //  If a status of not found was return then just continue to
+        //  the next file record.
+        //
+
+        if (Status == STATUS_NOT_FOUND) {
+            Status = STATUS_SUCCESS;
+        }
+
+        //
+        //  Advance to the next file record.
+        //
+
+        (*((LONGLONG UNALIGNED *) FileReference))++;
+    }
+
+    return Status;
+}
+#endif // _CAIRO_
 
 
 //
@@ -1941,7 +2077,7 @@ Return Value:
                                         Vcb,
                                         &AttrContext );
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+            NtfsCleanupAttributeContext( &AttrContext );
             CleanupAttributeContext = FALSE;
         }
 
@@ -1955,7 +2091,7 @@ Return Value:
         //
 
         NtfsAcquireCheckpoint( IrpContext, Vcb );
-        NtfsCheckForDefrag( IrpContext, Vcb );
+        NtfsCheckForDefrag( Vcb );
         NtfsReleaseCheckpoint( IrpContext, Vcb );
 
         //
@@ -2017,7 +2153,7 @@ Return Value:
 
         if (CleanupAttributeContext) {
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+            NtfsCleanupAttributeContext( &AttrContext );
         }
 
         NtfsReleaseScb( IrpContext, Vcb->MftScb );
@@ -2026,3 +2162,34 @@ Return Value:
     return DefragStepTaken;
 }
 
+
+//
+//  Local support routine
+//
+
+LONG
+NtfsReadMftExceptionFilter (
+    IN PIRP_CONTEXT IrpContext,
+    IN PEXCEPTION_POINTERS ExceptionPointer,
+    IN NTSTATUS Status
+    )
+{
+    UNREFERENCED_PARAMETER( ExceptionPointer );
+
+    //
+    //  Check if we support this error.
+    //
+
+    if (!FsRtlIsNtstatusExpected( Status )) {
+
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    //
+    //  Clear the status field in the IrpContext.
+    //
+
+    IrpContext->ExceptionStatus = STATUS_SUCCESS;
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}

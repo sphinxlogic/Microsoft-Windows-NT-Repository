@@ -104,7 +104,10 @@ void i_stream(void)
     LISet32(liSeek, 0);
     IllResult("Seek with invalid origin",
              pstm->Seek(liSeek, (DWORD)(~STREAM_SEEK_SET), NULL));
-    LISet32(liSeek, (ULONG)-1);
+#pragma warning(disable:4245)
+    // LISet32 in objbase.h has a bug that issues warning for negative values
+    LISet32(liSeek, -1);
+#pragma warning(default:4245)
     IllResult("Seek before beginning",
              pstm->Seek(liSeek, STREAM_SEEK_CUR, NULL));
 

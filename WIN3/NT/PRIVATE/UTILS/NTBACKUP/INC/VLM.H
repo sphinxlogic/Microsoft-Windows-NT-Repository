@@ -160,6 +160,26 @@ Changes to move Format tape to the Operations menu
 #define VLM_NET_READONLY   0x08     // One or more of the connections is readonly
 #define VLM_BACKUP_ABORTED 0x10     // The backup was aborted prior to completion
 
+#ifdef OEM_EMS
+// ... MSNET specific
+
+#define NET_NONE           0x0000
+
+#define MAIL_TYPE_UNKNOWN    0x0000
+
+#define VLM_XCHG_ROOT        0x0001
+#define VLM_XCHG_ENTERPRISE  0x0002
+#define VLM_XCHG_SITE        0x0003
+#define VLM_XCHG_SERVER      0x0004
+#define VLM_XCHG_DSA         0x0005
+#define VLM_XCHG_MDB         0x0006
+
+// Mail family values
+
+#define VIEWXCHG_UNKNOWN     0
+#define VIEWXCHG_EXCHANGE    1
+
+#endif
 
 // A fast way to get at the Primary windows
 
@@ -168,6 +188,9 @@ extern HWND gb_disks_win;
 extern HWND gb_servers_win;
 extern HWND gb_search_win;
 
+#ifdef OEM_EMS
+extern Q_HEADER gq_exchange_win;
+#endif
 
 // VLM Macros
 
@@ -207,6 +230,26 @@ extern HWND gb_search_win;
 #define SLM_SetXtraBytes( x, y )      ( ( x )->XtraBytes = ( y ) )
 #define SLM_SetBrothers( x, y, n )    ( memcpy( ( x )->brothers, ( y ), ( n ) )
 #define SLM_SetNextBrother( x, y )    ( ( x )->next_brother = ( y ) )
+
+#ifdef OEM_EMS
+
+// Added to support the Exchange hierarchical window.
+
+#define SLM_GetFlags( x )             ( ( x )->flags )
+#define SLM_GetMailType( x )           ( ( x )->type )
+#define SLM_GetLabel( x )             ( ( x )->label )
+#define SLM_GetParent( x )            ( ( x )->parent )
+#define SLM_GetChildren( x )          ( ( x )->children )
+#define SLM_GetDle( x )               ( ( x )->dle )
+
+#define SLM_SetFlags( x, y )          ( ( x )->flags = ( y ) )
+#define SLM_SetMailType( x, y )       ( ( x )->type =   ( y ) )
+#define SLM_SetLabel( x, y )          ( strcpy( ( x )->label, ( y ) ) )
+#define SLM_SetParent( x, y )         ( ( x )->parent = ( y ) )
+#define SLM_SetChildren( x, y )       ( ( x )->children = ( y ) )
+#define SLM_SetDle( x, y )            ( ( x )->dle = ( y ) )
+
+#endif // OEM_EMS
 
 // FLM Macros
 
@@ -376,6 +419,7 @@ typedef struct vlm_object {
 
 } VLM_OBJECT, *VLM_OBJECT_PTR;
 
+
 //
 // The structure for a subdirectory in the hierarchical tree
 //
@@ -394,6 +438,13 @@ typedef struct slm_object {
    WININFO_PTR       XtraBytes;        // pointer to xtrabytes
 
    struct slm_object *next_brother;
+
+#ifdef OEM_EMS // Info used by Exchange
+   UINT16           type;             // Type of exchange object.
+   UINT16           flags;            // Attribute bits of network object.
+   struct slm_object *parent;
+   GENERIC_DLE_PTR  dle ;
+#endif // OEM_EMS
 
 } SLM_OBJECT, *SLM_OBJECT_PTR;
 
@@ -509,6 +560,12 @@ typedef struct bset_object {
    CHAR         bset_num_str[ BSET_MAX_NUM_SIZE ];
 
    INT          otc;            // Is OTC available for this set
+   
+   INT          os_id;
+   INT          os_ver ;
+   INT          num_files ;
+   INT          num_corrupt ;
+   INT          num_dirs ;
 
    UINT64       total_bytes;    // bytes in set
 
@@ -635,6 +692,9 @@ VLM_OBJECT_PTR VLM_FindVLMByName( Q_HEADER_PTR, CHAR_PTR );
 VOID     VLM_FlmFillInDLM( VOID_PTR );
 VOID     VLM_FontCaseChange( VOID );
 VOID     VLM_FreeVLMList( Q_HEADER_PTR );
+#ifdef OEM_EMS
+VOID	 SLM_EMSFreeSLMList( Q_HEADER_PTR );
+#endif
 INT      VLM_GetDriveLabel( GENERIC_DLE_PTR, CHAR_PTR, INT );
 INT      VLM_GetDriveStatus( DBLK_PTR * );
 VOID     VLM_AddTapeIfUnknown( BOOLEAN );
@@ -717,5 +777,29 @@ VOID     VLM_UpdateTapeStatus( TAPE_OBJECT_PTR, BOOLEAN );
 VOID     VLM_UpOneDir( HWND );
 INT      VLM_ValidatePath( CHAR_PTR, BOOLEAN, BOOLEAN );
 INT16    VLM_VlmCompare( Q_ELEM_PTR, Q_ELEM_PTR );
+
+#ifdef OEM_EMS
+VOID     SLM_EMSExpandTree( HWND );
+VOID     SLM_EMSExpandOne( HWND );
+VOID     SLM_EMSExpandBranch( HWND );
+VOID     SLM_EMSCollapseBranch( HWND );
+VOID     SLM_EMSPrevBrotherDir( HWND );
+VOID     SLM_EMSNextBrotherDir( HWND win ) ;
+VOID     SLM_EMSDownOneDir( HWND win ) ;
+VOID     SLM_EMSUpOneDir( HWND );
+
+BOOLEAN  VLM_ExchangeInit ( VOID );
+VOID     VLM_ExchangeSync( VOID );
+VOID     VLM_UpdateExchange( HWND );
+VOID     VLM_ClearAllExchangeSelections( VOID );
+BOOLEAN  VLM_ExchangeListCreate( CHAR_PTR );
+BOOLEAN  SLM_DisplayExchangeDLE( GENERIC_DLE_PTR );
+VOID     VLM_SelectExchangeShares( BYTE, WININFO_PTR );
+GENERIC_DLE_PTR DLE_GetEnterpriseDLE( GENERIC_DLE_PTR );
+#endif //OEM_EMS
+
+// General functions for processing the endless queues in the SLM
+
+SLM_OBJECT_PTR VLM_CreateSlm( INT, INT, BOOLEAN, BOOLEAN );
 
 #endif

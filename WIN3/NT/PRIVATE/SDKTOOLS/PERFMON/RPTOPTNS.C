@@ -158,5 +158,5 @@ BOOL DisplayReportOptions (HWND hWndParent,
 
    return (TRUE) ;
    }  // DisplayReportOptions
-
-
+
+

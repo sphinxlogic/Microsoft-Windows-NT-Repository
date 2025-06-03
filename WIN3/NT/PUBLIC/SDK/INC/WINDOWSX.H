@@ -4,7 +4,7 @@
 *                                                                             *
 *               Version Win32 / Windows NT                                    *
 *                                                                             *
-*               Copyright (c) 1992-1993, Microsoft Corp.  All rights reserved.*
+*               Copyright (c) 1992-1996, Microsoft Corp.  All rights reserved.*
 *                                                                             *
 \*****************************************************************************/
 
@@ -590,7 +590,7 @@ extern "C" {            /* Assume C declarations for C++ */
 /* void Cls_OnMenuSelect(HWND hwnd, HMENU hmenu, int item, HMENU hmenuPopup, UINT flags) */
 #define HANDLE_WM_MENUSELECT(hwnd, wParam, lParam, fn)                  \
     ((fn)((hwnd), (HMENU)(lParam),  \
-    (HIWORD(wParam) & MF_POPUP) ? 0L : (int)(LOWORD(wParam)),           \
+    (int)(LOWORD(wParam)),          \
     (HIWORD(wParam) & MF_POPUP) ? GetSubMenu((HMENU)lParam, LOWORD(wParam)) : 0L, \
     (UINT)(((short)HIWORD(wParam) == -1) ? 0xFFFFFFFF : HIWORD(wParam))), 0L)
 #define FORWARD_WM_MENUSELECT(hwnd, hmenu, item, hmenuPopup, flags, fn) \
@@ -618,7 +618,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define HANDLE_WM_VSCROLL(hwnd, wParam, lParam, fn) \
     ((fn)((hwnd), (HWND)(lParam), (UINT)(LOWORD(wParam)),  (int)(short)HIWORD(wParam)), 0L)
 #define FORWARD_WM_VSCROLL(hwnd, hwndCtl, code, pos, fn) \
-    (void)(fn)((hwnd), WM_VSCROLL, MAKEWPARAM((UINT)(int)(code), (UINT)(int)(pos)), (LPARAM)(HWND)(hwndCtl))
+    (void)(fn)((hwnd), WM_VSCROLL, MAKEWPARAM((UINT)(int)(code),(UINT)(int)(pos)), (LPARAM)(HWND)(hwndCtl))
 
 /* void Cls_OnCut(HWND hwnd) */
 #define HANDLE_WM_CUT(hwnd, wParam, lParam, fn) \
@@ -678,13 +678,13 @@ extern "C" {            /* Assume C declarations for C++ */
 #define HANDLE_WM_PAINTCLIPBOARD(hwnd, wParam, lParam, fn) \
     ((fn)((hwnd), (HWND)(wParam), (const LPPAINTSTRUCT)GlobalLock((HGLOBAL)(lParam))), GlobalUnlock((HGLOBAL)(lParam)), 0L)
 #define FORWARD_WM_PAINTCLIPBOARD(hwnd, hwndCBViewer, lpPaintStruct, fn) \
-    (void)(fn)((hwnd), WM_PAINTCLIPBOARD, (WPARAM)(HWND)(hwndCBViewer), (LPARAM)(lpPaintStruct))
+    (void)(fn)((hwnd), WM_PAINTCLIPBOARD, (WPARAM)(HWND)(hwndCBViewer), (LPARAM)(LPPAINTSTRUCT)(lpPaintStruct))
 
 /* void Cls_OnSizeClipboard(HWND hwnd, HWND hwndCBViewer, const LPRECT lprc) */
 #define HANDLE_WM_SIZECLIPBOARD(hwnd, wParam, lParam, fn) \
     ((fn)((hwnd), (HWND)(wParam), (const LPRECT)GlobalLock((HGLOBAL)(lParam))), GlobalUnlock((HGLOBAL)(lParam)), 0L)
 #define FORWARD_WM_SIZECLIPBOARD(hwnd, hwndCBViewer, lprc, fn) \
-    (void)(fn)((hwnd), WM_SIZECLIPBOARD, (WPARAM)(HWND)(hwndCBViewer), (LPARAM)(lprc))
+    (void)(fn)((hwnd), WM_SIZECLIPBOARD, (WPARAM)(HWND)(hwndCBViewer), (LPARAM)(LPRECT)(lprc))
 
 /* void Cls_OnVScrollClipboard(HWND hwnd, HWND hwndCBViewer, UINT code, int pos) */
 #define HANDLE_WM_VSCROLLCLIPBOARD(hwnd, wParam, lParam, fn) \
@@ -726,7 +726,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define HANDLE_WM_MDICREATE(hwnd, wParam, lParam, fn) \
     (LRESULT)(DWORD)(UINT)(fn)((hwnd), (LPMDICREATESTRUCT)(lParam))
 #define FORWARD_WM_MDICREATE(hwnd, lpmcs, fn) \
-    (HWND)(UINT)(DWORD)(fn)((hwnd), WM_MDICREATE, 0L, (LPARAM)(lpmcs))
+    (HWND)(UINT)(DWORD)(fn)((hwnd), WM_MDICREATE, 0L, (LPARAM)(LPMDICREATESTRUCT)(lpmcs))
 
 /* void Cls_MDIDestroy(HWND hwnd, HWND hwndDestroy) */
 #define HANDLE_WM_MDIDESTROY(hwnd, wParam, lParam, fn) \
@@ -823,7 +823,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define HANDLE_WM_GETDLGCODE(hwnd, wParam, lParam, fn) \
     (LRESULT)(DWORD)(UINT)(fn)(hwnd, (LPMSG)(lParam))
 #define FORWARD_WM_GETDLGCODE(hwnd, lpmsg, fn) \
-    (UINT)(DWORD)(fn)((hwnd), WM_GETDLGCODE, (lpmsg ? lpmsg->wParam : 0), (LPARAM)(lpmsg))
+    (UINT)(DWORD)(fn)((hwnd), WM_GETDLGCODE, (lpmsg ? lpmsg->wParam : 0), (LPARAM)(LPMSG)(lpmsg))
 
 /* HBRUSH Cls_OnCtlColor(HWND hwnd, HDC hdc, HWND hwndChild, int type) */
 #define HANDLE_WM_CTLCOLORMSGBOX(hwnd, wParam, lParam, fn) \
@@ -907,7 +907,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define HANDLE_WM_CHARTOITEM(hwnd, wParam, lParam, fn) \
     (LRESULT)(DWORD)(int)(fn)((hwnd), (UINT)LOWORD(wParam), (HWND)(lParam), (int)(short)HIWORD(wParam))
 #define FORWARD_WM_CHARTOITEM(hwnd, ch, hwndListBox, iCaret, fn) \
-    (int)(DWORD)(fn)((hwnd), WM_CHARTOITEM, MAKEWPARAM((UINT)(iCaret), (UINT)(ch)), (LPARAM)(hwndListBox))
+    (int)(DWORD)(fn)((hwnd), WM_CHARTOITEM, MAKEWPARAM((UINT)(ch), (UINT)(iCaret)), (LPARAM)(hwndListBox))
 
 /* void Cls_OnQueueSync(HWND hwnd) */
 #define HANDLE_WM_QUEUESYNC(hwnd, wParam, lParam, fn) \
@@ -1127,7 +1127,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define ComboBox_GetDroppedControlRect(hwndCtl, lprc) ((void)SendMessage((hwndCtl), CB_GETDROPPEDCONTROLRECT, 0L, (LPARAM)(RECT *)(lprc)))
 
 #define ComboBox_GetItemHeight(hwndCtl)             ((int)(DWORD)SendMessage((hwndCtl), CB_GETITEMHEIGHT, 0L, 0L))
-#define ComboBox_SetItemHeight(hwndCtl, cyItem)     ((int)(DWORD)SendMessage((hwndCtl), CB_SETITEMHEIGHT, (WPARAM)(int)(index), 0L))
+#define ComboBox_SetItemHeight(hwndCtl, index, cyItem) ((int)(DWORD)SendMessage((hwndCtl), CB_SETITEMHEIGHT, (WPARAM)(int)(index), (LPARAM)(int)cyItem))
 
 #define ComboBox_GetExtendedUI(hwndCtl)             ((UINT)(DWORD)SendMessage((hwndCtl), CB_GETEXTENDEDUI, 0L, 0L))
 #define ComboBox_SetExtendedUI(hwndCtl, flags)      ((int)(DWORD)SendMessage((hwndCtl), CB_SETEXTENDEDUI, (WPARAM)(UINT)(flags), 0L))
@@ -1139,6 +1139,9 @@ extern "C" {            /* Assume C declarations for C++ */
 
 #define GET_WPARAM(wp, lp)                      (wp)
 #define GET_LPARAM(wp, lp)                      (lp)
+
+#define GET_X_LPARAM(lp)                        ((int)(short)LOWORD(lp))
+#define GET_Y_LPARAM(lp)                        ((int)(short)HIWORD(lp))
 
 #define GET_WM_ACTIVATE_STATE(wp, lp)           LOWORD(wp)
 #define GET_WM_ACTIVATE_FMINIMIZED(wp, lp)      (BOOL)HIWORD(wp)
@@ -1270,7 +1273,7 @@ extern "C" {            /* Assume C declarations for C++ */
 #define _nmsize     _msize
 #define _nrealloc   realloc
 #define _nstrdup    _strdup
-#define hmemcpy     memcpy
+#define hmemcpy     MoveMemory
 
 #define DECLARE_HANDLE32    DECLARE_HANDLE
 
@@ -1279,4 +1282,3 @@ extern "C" {            /* Assume C declarations for C++ */
 #endif       /* __cplusplus */
 
 #endif  /* !_INC_WINDOWSX */
-

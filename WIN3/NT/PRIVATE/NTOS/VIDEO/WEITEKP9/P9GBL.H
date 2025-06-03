@@ -23,22 +23,16 @@ Revision History may be found at the end of this file.
 // Number of adapter types that this driver supports.
 //
 
-#define NUM_OEM_ADAPTERS    3
-
-//
-// Adapter Description data strutures for all adapters supported by this
-// driver.
-//
-
-extern  ADAPTER_DESC    WtkVLDesc;
-extern  ADAPTER_DESC    ViperVLDesc;
-extern  ADAPTER_DESC    WtkPciDesc;
+#define NUM_OEM_ADAPTERS    8
 
 //
 // DAC data structures for all DACs supported by this driver.
 //
 
 extern  DAC Bt485;
+extern  DAC P91Bt485;
+extern  DAC P91Bt489;
+extern  DAC Ibm525;
 
 //
 // P9 Coprocessor Info structures for all P9 family coprocessors supported
@@ -46,6 +40,7 @@ extern  DAC Bt485;
 //
 
 extern  P9_COPROC   P9000Info;
+extern  P9_COPROC   P9100Info;
 
 //
 // DriverAccessRanges are used to verify access to the P9 coprocessor and
@@ -54,21 +49,17 @@ extern  P9_COPROC   P9000Info;
 
 #define NUM_DRIVER_ACCESS_RANGES    2
 #define NUM_DAC_ACCESS_RANGES       16
+#define NUM_MISC_ACCESS_RANGES      1
 
 extern VIDEO_ACCESS_RANGE DriverAccessRanges[NUM_DRIVER_ACCESS_RANGES +
-                                                NUM_DAC_ACCESS_RANGES];
+                                                NUM_DAC_ACCESS_RANGES +
+                                                NUM_MISC_ACCESS_RANGES];
 
 //
 // P9 mode information Tables.
 //
 
 extern P9INITDATA P9Modes[mP9ModeCount];
-
-//
-// The table of registry data values which are of interest to this driver.
-//
-
-extern REGISTRY_DATA_INFO  P9RegistryInfo[];
 
 //
 // The structure containing Access Ranges for the DAC registers.
@@ -86,7 +77,6 @@ extern P9ADAPTER    OEMAdapter[NUM_OEM_ADAPTERS];
 // Global data defined in P9GBL.C.
 //
 
-extern  ULONG   ulDummyDst;
 extern  ULONG   ulStrtScan;
 extern  ULONG   ulCurScan;
 
@@ -108,25 +98,6 @@ int div32(
     long op1,
     short op2
     );
-
-BOOLEAN
-P9TestMem(
-    PHW_DEVICE_EXTENSION HwDeviceExtension
-    );
-
-//
-// General P9 function prototypes defined in P9.C.
-//
-
-VP_STATUS
-P9QueryNamedValueCallback(
-    PVOID HwDeviceExtension,
-    PVOID Context,
-    PWSTR ValueName,
-    PVOID ValueData,
-    ULONG ValueLength
-    );
-
 
 //
 // P9000 specific function prototypes defined in P9000.C.
@@ -152,6 +123,15 @@ P9000SizeMem(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
+//
+// P9100 specific function prototypes defined in P91supp.c
+//
+
+VOID
+P91SizeVideoMemory(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
 
 //
 // VGA specific function prototypes defined in VGA.C.
@@ -168,24 +148,16 @@ UnlockVGARegs(
      );
 
 //
-// Clock generator function prototypes defined in CLOCK.C.
+// Clock generator function prototype.
 //
 
-BOOLEAN
+VOID
 DevSetClock(
-    PHW_DEVICE_EXTENSION HwDeviceExtension,
-    USHORT  freq
-    );
-
-
-VOID WriteICD(
-    PHW_DEVICE_EXTENSION HwDeviceExtension,
-    ULONG data
-    );
-
-//
-// OEM Specific Function Prototypes.
-//
+        PHW_DEVICE_EXTENSION HwDeviceExtension,
+        USHORT usFrequency,
+        BOOLEAN bSetMemclk,
+        BOOLEAN bUseClockDoubler
+        );
 
 //
 // PCI function prototypes defined in PCI.C.
@@ -206,7 +178,7 @@ ViperPciP9Enable(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
-VOID
+BOOLEAN
 ViperPciP9Disable(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
@@ -225,7 +197,7 @@ VLEnableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
-VOID
+BOOLEAN
 VLDisableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
@@ -260,7 +232,7 @@ ViperEnableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
-VOID
+BOOLEAN
 ViperDisableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
@@ -270,14 +242,27 @@ ViperEnableMem(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
+//
+// Weitek P9100 VL specific function prototypes defined in WTKP91VL.C
+//
 
-/*++
+VOID
+VLSetModeP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
 
-Revision History:
 
-    $Log:   N:/ntdrv.vcs/miniport.new/p9gbl.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:42:24   robk
- * Initial revision.
+VOID VLEnableP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
 
---*/
+BOOLEAN
+VLDisableP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+
+BOOLEAN
+VLGetBaseAddrP91(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );

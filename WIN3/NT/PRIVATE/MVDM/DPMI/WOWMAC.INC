@@ -18,7 +18,7 @@
 ; in building a dosx stack frame from a 32 bit frame and from a 16 bit frame
 ;
 EnterInt macro
-ifdef I386
+ifdef WOW_x86
         call [pfnEnterIntHandler]
 else
         call EnterIntHandler
@@ -26,7 +26,7 @@ endif
         endm
 
 LeaveInt macro
-ifdef I386
+ifdef WOW_x86
         call [pfnLeaveIntHandler]
 else
         call LeaveIntHandler
@@ -39,7 +39,7 @@ endif
 ;
 
 pushaw macro
-ifdef I386
+ifdef WOW_x86
 .386p
         pushad
 .286p
@@ -49,7 +49,7 @@ endif
         endm
 
 popaw macro
-ifdef I386
+ifdef WOW_x86
 .386p
         popad
 .286p

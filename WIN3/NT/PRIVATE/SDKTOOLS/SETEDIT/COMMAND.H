@@ -19,4 +19,4 @@ void ViewAlert (HWND hWnd) ;
 
 void ViewReport (HWND hWnd) ;
 
-
+

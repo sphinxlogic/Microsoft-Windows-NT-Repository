@@ -144,5 +144,4 @@ getusername(
 
     return(ubuf);
 }
-
-
+

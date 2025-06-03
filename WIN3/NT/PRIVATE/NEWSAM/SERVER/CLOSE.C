@@ -140,7 +140,7 @@ Return Value:
 
     if ( ( NT_SUCCESS( NtStatus ) ) &&
         ( FoundType == SampServerObjectType ) &&
-        ( !RtlLargeIntegerEqualTo(LastUnflushedChange, SampHasNeverTime) ) ) {
+        ( !(LastUnflushedChange.QuadPart == SampHasNeverTime.QuadPart) ) ) {
 
         //
         // Some app is closing the server object after having made
@@ -155,9 +155,7 @@ Return Value:
 
         if ( NT_SUCCESS( NtStatus ) ) {
 
-            if ( !RtlLargeIntegerEqualTo(
-                    LastUnflushedChange,
-                    SampHasNeverTime) ) {
+            if ( !(LastUnflushedChange.QuadPart ==SampHasNeverTime.QuadPart) ) {
 
                 //
                 // Nobody flushed while we were waiting for the

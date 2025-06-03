@@ -39,6 +39,9 @@ Revision History:
 
     Steve Jenness   10-Nov 93
     Joe Notarangelo 10-Nov 93
+    Matthew Buchman 09-May 96   Stall instead of polling for Write complete.
+    Scott Lee       23-Sept-96  Use original write algorithm and add a check
+                                for the last write.
 
 --*/
 
@@ -156,6 +159,19 @@ Routine Description:
     N.B. - This routine assumes that the base address of the 256 byte
            page buffer is on a 256 byte boundary.
 
+    N.B. - With the increase in processor speed and compiler technology,
+           we seem to violate a time increment that must occur between
+           Writes followed by Reads. This results in invaliding the 
+           last write of the page.  By first waiting the amount of a 
+           write cycle, (specified in the Data Sheet as 5ms) after the last
+           write before reading,  we don't run into this problem.
+
+    N.B. - The last write algorithm used did not worked with the 120 nsec part.
+           We have reverted back to the original algorithm and added a
+	   modification. On the last write, if it is on a 256 byte page
+           boundary, do not increment and write the page select. Doing so will
+	   cause the verification of the last write to fail.
+
 Arguments:
 
     NvRamPtr	- Pointer (qva) to EEPROM location to write data into
@@ -248,8 +264,7 @@ Return Value:
         if (EepromPageOffset >= EEPROM_PAGE_SIZE) {
             if (ByteWritten == TRUE) {
                 while((READ_CONFIG_RAM_DATA(LastWrittenByteAddress) & 0xff) !=
-				 (UCHAR)(LastWrittenByteValue & 0xff))
-	            ;
+				 (UCHAR)(LastWrittenByteValue & 0xff));
                 ByteWritten = FALSE;
             }
             EepromPageDataValid = FALSE;
@@ -257,10 +272,12 @@ Return Value:
 
         //
         // If we are stepping into the next NVRAM 256 byte page, switch
-        // the NVRAM page select.
+        // the NVRAM page select. Don't step into the next page on the 
+        // last write, however.
         //
 
-        if ( ((ULONG)NvRamPtr & CONFIG_RAM_BYTE_MASK) == 0 ) {
+        if ((Length != 0) && 
+            (((ULONG)NvRamPtr & CONFIG_RAM_BYTE_MASK) == 0 ) ) {
             PageSelect++;
             WRITE_CONFIG_RAM_PAGE_SELECT(PageSelect);
 	}
@@ -272,8 +289,7 @@ Return Value:
 
     if (ByteWritten == TRUE) {
         while((READ_CONFIG_RAM_DATA(LastWrittenByteAddress) & 0xff) !=
-				 (UCHAR)(LastWrittenByteValue & 0xff))
-	    ;
+				 (UCHAR)(LastWrittenByteValue & 0xff));
     }
 
     return(ESUCCESS);

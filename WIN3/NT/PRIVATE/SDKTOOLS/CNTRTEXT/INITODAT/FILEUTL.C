@@ -487,4 +487,3 @@ OutputIniData (
    return bSuccess;
 }
 
-

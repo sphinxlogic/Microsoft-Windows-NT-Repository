@@ -43,62 +43,6 @@ Revision History:
 #include "keywords.h"
 
 
-
-
-BOOLEAN
-ReadStationAddress(
-    OUT PELNK3_ADAPTER pNewAdapt
-    );
-
-
-USHORT
-CardSetMulticast(
-    PELNK3_ADAPTER pAdapter
-    );
-
-
-BOOLEAN
-CardInit(
-    IN PELNK3_ADAPTER pAdapter
-    );
-
-VOID
-ELNK3WriteIDSequence(
-    IN PVOID   IdPort
-    );
-
-USHORT
-ELNK3ContentionTest(
-    IN PVOID IdPort,
-    IN UCHAR EEPromWord
-    );
-
-USHORT
-ELNK3ReadEEProm(
-    IN PELNK3_ADAPTER Adapter,
-    IN UCHAR EEPromWord
-    );
-
-VOID
-Elnk3ProgramEEProm(
-    PELNK3_ADAPTER  Adapter,
-    USHORT          AddressConfig,
-    USHORT          ResourceConfig
-    );
-
-VOID
-Elnk3WriteEEProm(
-    IN PELNK3_ADAPTER   Adatper,
-    IN UCHAR            EEPromWord,
-    IN USHORT           Value
-    );
-
-VOID
-Elnk3WaitEEPromNotBusy(
-    PELNK3_ADAPTER   pAdapter
-    );
-
-
 #pragma NDIS_INIT_FUNCTION(Elnk3FindIsaBoards)
 #pragma NDIS_INIT_FUNCTION(Elnk3ActivateIsaBoard)
 #pragma NDIS_INIT_FUNCTION(ReadStationAddress)
@@ -111,7 +55,6 @@ Elnk3WaitEEPromNotBusy(
 #pragma NDIS_INIT_FUNCTION(Elnk3ProgramEEProm)
 #pragma NDIS_INIT_FUNCTION(Elnk3WriteEEProm)
 #pragma NDIS_INIT_FUNCTION(Elnk3WaitEEPromNotBusy)
-
 
 
 BOOLEAN
@@ -211,14 +154,24 @@ Note:
 
     IF_INIT_LOUD(DbgPrint("ELNK3: Address config register is %04x\n",AddressConfig);)
 
-
     if ((AddressConfig >> 14) == 0) {
         //
         //  Enable link beat on TP
         //
-        IF_INIT_LOUD(DbgPrint("ELNK3: CardEnable: Enabling link beat on 10 Base-T\n");)
+        if (pAdapter->EEpromSoftwareInfo & LINK_BEAT_DISABLED) {
 
-        ELNK3WriteAdapterUshort(pAdapter,PORT_MEDIA_TYPE,MEDIA_LINK_BEAT | MEDIA_JABBER);
+            IF_INIT_LOUD(DbgPrint("ELNK3: CardEnable: NOT Enabling link beat on 10 Base-T\n");)
+
+            ELNK3WriteAdapterUshort(pAdapter,PORT_MEDIA_TYPE, MEDIA_JABBER);
+
+        } else {
+
+            IF_INIT_LOUD(DbgPrint("ELNK3: CardEnable: Enabling link beat on 10 Base-T\n");)
+
+            ELNK3WriteAdapterUshort(pAdapter,PORT_MEDIA_TYPE,MEDIA_LINK_BEAT | MEDIA_JABBER);
+
+        }
+
     }
 
     ELNK3ReadAdapterUshort(pAdapter,PORT_NET_DIAG,&RevisionLevel);
@@ -286,9 +239,9 @@ Note:
                                    EC_INT_ADAPTER_FAILURE    |
                                    EC_INT_INTERRUPT_REQUESTED;
 
-    ELNK3_COMMAND(pAdapter,EC_SET_INTERRUPT_MASK,pAdapter->CurrentInterruptMask);
+	ELNK3_COMMAND(pAdapter,EC_SET_INTERRUPT_MASK,pAdapter->CurrentInterruptMask);
+	ELNK3_COMMAND(pAdapter,EC_SET_READ_ZERO_MASK,pAdapter->CurrentInterruptMask);
 
-    ELNK3_COMMAND(pAdapter,EC_SET_READ_ZERO_MASK,0xff);
 
     IF_INIT_LOUD(DbgPrint("ELNK3: Adapter initialized correctly\n");)
     return TRUE;
@@ -403,9 +356,6 @@ CardReStart(
 
     pAdapter->TransContext[1].BytesAlreadyRead=0;
     pAdapter->TransContext[1].PacketLength=0;
-
-
-    return;
 }
 
 
@@ -498,6 +448,14 @@ ReadStationAddress(
     ELNK3_SELECT_WINDOW(pAdapter,0);
 
 
+    //
+    //  Read the eeprom software info to see if we need
+    //  to enable link beat of not
+    //
+    pAdapter->EEpromSoftwareInfo=ELNK3ReadEEProm(
+                                     pAdapter,
+                                     (UCHAR)EEPROM_SOFTWARE_INFO
+                                     );
 
 
 
@@ -514,6 +472,17 @@ ReadStationAddress(
     }
 
     //
+    //   Put the product id value back in the eeprom data register
+    //
+    ELNK3ReadEEProm(
+        pAdapter,
+        (UCHAR)EEPROM_PRODUCT_ID
+        );
+
+
+
+
+    //
     // Copy in permanent address if necessary
     //
 
@@ -528,7 +497,6 @@ ReadStationAddress(
                                  pAdapter->PermanentAddress
                                 );
     }
-
 
 
     IF_INIT_LOUD( DbgPrint("\n");)
@@ -1025,25 +993,38 @@ Elnk3ActivateIsaBoard(
                     NDIS_STATUS Status;
                     NDIS_STRING IrqKeyword = INTERRUPT;
                     NDIS_STRING TransceiverKeyword = TRANSCEIVER;
+					NDIS_HANDLE ConfigHandle = NULL;
+
+					//
+					//	Open the configuration database.
+					//
+					NdisOpenConfiguration(
+						&Status,
+						&ConfigHandle,
+						ConfigurationHandle);
+					if (Status != NDIS_STATUS_SUCCESS)
+					{
+						return(FALSE);
+					}
 
                     Value.ParameterType = NdisParameterInteger;
                     Value.ParameterData.IntegerData = *Irq;
                     NdisWriteConfiguration(
                         &Status,
-                        ConfigurationHandle,
+                        ConfigHandle,
                         &IrqKeyword,
-                        &Value
-                        );
+                        &Value);
 
                     Value.ParameterType = NdisParameterInteger;
                     Value.ParameterData.IntegerData =
                             pMacBlock->IsaCards[i].AddressConfigRegister>>14;
                     NdisWriteConfiguration(
                         &Status,
-                        ConfigurationHandle,
+                        ConfigHandle,
                         &TransceiverKeyword,
-                        &Value
-                        );
+                        &Value);
+
+					NdisCloseConfiguration(ConfigHandle);
                 }
 
                 return TRUE;
@@ -1310,7 +1291,7 @@ Elnk3GetEisaResources(
 {
     USHORT             Config;
 
-    ELNK3_SELECT_WINDOW(pAdapter,WNO_SETUP);
+    ELNK3_SELECT_WINDOW(pAdapter, WNO_SETUP);
 
     ELNK3ReadAdapterUshort(pAdapter,PORT_CfgResource,&Config);
 
@@ -1319,3 +1300,22 @@ Elnk3GetEisaResources(
     *Irq=Config>>12;
 
 }
+
+
+#ifdef IO_DBG
+USHORT ELNK3_READ_PORT_USHORT( PVOID Adapter, ULONG Offset )
+{
+    USHORT data;
+    data = READ_PORT_USHORT((PUSHORT)((PELNK3_ADAPTER)Adapter)->PortOffsets[Offset]);
+    IF_IO_LOUD(DbgPrint("read ushort %x from port %x\n", data, Offset );)
+    return data;
+}
+USHORT ELNK3_READ_PORT_USHORT_DIRECT( PVOID Offset )
+{
+    USHORT data;
+    data = READ_PORT_USHORT((PUSHORT)Offset);
+    IF_IO_LOUD(DbgPrint("read ushort %x from port %x\n", data, Offset );)
+    return data;
+}
+#endif
+

@@ -70,6 +70,19 @@ BOOL FASTCALL ThunkCBMsg16(LPMSGPARAMEX lpmpex)
 
     LOGDEBUG(7,("    Thunking 16-bit combo box message %s(%04x)\n", (LPSZ)GetCBMsgName(wMsg), wMsg));
 
+    // Sudeepb - 04-Mar-1996
+    // Fix the broken thunking for CBEC_SETCOMBOFOCUS and CBEC_KILLCOMBOFOCUS.
+    // It was broken when NT user merged with Win95 where CB_MAX has changed.
+    // the following code is written in such a manner that the only dependency
+    // we have is that CBEC_SETCOMBOFOCUS precedes CBEC_KILLCOMBOFOCUS which
+    // will always be true.
+
+
+    if (wMsg == OLDCBEC_SETCOMBOFOCUS || wMsg == OLDCBEC_KILLCOMBOFOCUS) {
+        lpmpex->uMsg = (WORD)(wMsg - OLDCBEC_SETCOMBOFOCUS + CBEC_SETCOMBOFOCUS);
+        return  TRUE;
+    }
+
     wMsg -= WM_USER;
 
     //
@@ -97,34 +110,40 @@ BOOL FASTCALL ThunkCBMsg16(LPMSGPARAMEX lpmpex)
                 break;
         
         
-            case CB_DIR:
             case CB_GETLBTEXT:
+                if (NULL != (pww = lpmpex->pww)) {
+	                register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+
+	                //  see comments in the file wmsglb.c 
+                    //
+
+	                pthkdword->fDWORD = (pww->dwStyle & (CBS_OWNERDRAWFIXED|CBS_OWNERDRAWVARIABLE)) &&
+	                                    !(pww->dwStyle & (CBS_HASSTRINGS));
+	
+	                if (pthkdword->fDWORD) {
+	                    lpmpex->lParam = (LPARAM)(LPVOID)&pthkdword->dwDataItem;
+                        break;
+	                }
+	            }
+                else {
+                    register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+                    pthkdword->fDWORD = FALSE;
+                }
+                
                 GETPSZPTR(lpmpex->Parm16.WndProc.lParam, (LPSZ)lpmpex->lParam);
                 break;
-        
+	 
+            case CB_DIR:
+                GETPSZPTR(lpmpex->Parm16.WndProc.lParam, (LPSZ)lpmpex->lParam);
+
+                if (W32CheckThunkParamFlag()) {
+                    AddParamMap(lpmpex->lParam, lpmpex->Parm16.WndProc.lParam);
+                }
+                break;
+
             case CB_GETDROPPEDCONTROLRECT:
                 lpmpex->lParam = (LONG)lpmpex->MsgBuffer;
                 break;
-
-//
-// Warning these are undocumented messages, which are used by Excel 5.0
-//
-// On Win 3.1 CB_MSGMAX is (WM_USER + 0x19)
-//            CBEC_SETCOMBOFOCUS is (WM_USER + 0x19 + 1)
-//            CBEC_KILLCOMBOFOCUS is (WM_USER + 0x19 + 2)
-//
-// On NT      CB_MSGMAX is 0x015B
-//            CBEC_SETCOMBOFOCUS is (CB_MSGMAX + 1)
-//            CBEC_KILLCOMBOFOCUS is (CB_MSGMAX + 2)
-//
-//  -ChandanC Feb 9th '94.
-//
-
-            case CBEC_SETCOMBOFOCUS-2:
-            case CBEC_KILLCOMBOFOCUS-2:
-                lpmpex->uMsg = wMsg + CB_GETEDITSEL + 2;
-                break;
-
         }
     }
     return TRUE;
@@ -134,13 +153,39 @@ BOOL FASTCALL ThunkCBMsg16(LPMSGPARAMEX lpmpex)
 VOID FASTCALL UnThunkCBMsg16(LPMSGPARAMEX lpmpex)
 {
     switch(lpmpex->uMsg) {
+
+        case CB_GETLBTEXT:
+	        {
+	           register PTHUNKTEXTDWORD pthkdword = (PTHUNKTEXTDWORD)lpmpex->MsgBuffer;
+	
+	           if (pthkdword->fDWORD) { 
+	                // this is a dword, not a string
+	                // assign the dword as unaligned
+	                UNALIGNED DWORD *lpdwDataItem;
+	
+	                GETVDMPTR((lpmpex->Parm16.WndProc.lParam), sizeof(DWORD), lpdwDataItem);
+	                *lpdwDataItem = pthkdword->dwDataItem;
+	                FREEVDMPTR(lpdwDataItem);
+	                break;
+	           }
+	 
+	        }
+	
+	        // fall through to the common code
+
         case CB_ADDSTRING:
-        case CB_DIR:
         case CB_FINDSTRING:
         case CB_FINDSTRINGEXACT:
-        case CB_GETLBTEXT:
         case CB_INSERTSTRING:
         case CB_SELECTSTRING:
+            FREEPSZPTR((LPSZ)lpmpex->lParam);
+            break;
+
+        case CB_DIR:
+            if (W32CheckThunkParamFlag()) {
+                DeleteParamMap(lpmpex->lParam, PARAM_32, NULL);
+            }
+
             FREEPSZPTR((LPSZ)lpmpex->lParam);
             break;
 

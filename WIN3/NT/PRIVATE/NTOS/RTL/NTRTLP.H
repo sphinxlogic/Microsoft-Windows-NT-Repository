@@ -174,15 +174,13 @@ extern PUSHORT Nls844UnicodeLowercaseTable;
 // Macros for Upper Casing a Unicode Code Point.
 //
 
-#define LONIBBLE(b)         ((UCHAR)((UCHAR)((b)) & 0xF))
-#define HINIBBLE(b)         ((UCHAR)(((UCHAR)((b)) >> 4) & 0xF))
 
 #define LOBYTE(w)           ((UCHAR)((w)))
 #define HIBYTE(w)           ((UCHAR)(((USHORT)((w)) >> 8) & 0xFF))
 
-#define GET8(w)             (HIBYTE((w)))
-#define GETHI4(w)           (HINIBBLE(LOBYTE((w))))
-#define GETLO4(w)           (LONIBBLE(LOBYTE((w))))
+#define GET8(w)             ((ULONG)(((w) >> 8) & 0xff))
+#define GETHI4(w)           ((ULONG)(((w) >> 4) & 0xf))
+#define GETLO4(w)           ((ULONG)((w) & 0xf))
 
 /***************************************************************************\
 * TRAVERSE844W
@@ -238,11 +236,6 @@ extern PUSHORT Nls844UnicodeLowercaseTable;
     )                                                                       \
 )
 
-#if DBG
-VOID
-RtlpBreakPointHeap( void );
-#endif // DBG
-
 #if DBG && defined(NTOS_KERNEL_RUNTIME)
 #define RTL_PAGED_CODE() PAGED_CODE()
 #else
@@ -291,6 +284,20 @@ typedef NTSTATUS (*PRTL_DECOMPRESS_FRAGMENT) (
     IN PVOID WorkSpace
     );
 
+typedef NTSTATUS (*PRTL_DESCRIBE_CHUNK) (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    OUT PULONG ChunkSize
+    );
+
+typedef NTSTATUS (*PRTL_RESERVE_CHUNK) (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    IN ULONG ChunkSize
+    );
+
 //
 // Here is the declarations of the LZNT1 routines
 //
@@ -334,4 +341,69 @@ RtlDecompressFragmentLZNT1 (
     IN PVOID WorkSpace
     );
 
+NTSTATUS
+RtlDescribeChunkLZNT1 (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    OUT PULONG ChunkSize
+    );
+
+NTSTATUS
+RtlReserveChunkLZNT1 (
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    IN ULONG ChunkSize
+    );
+
+//
+// Define procedure prototypes for architecture specific debug support routines.
+//
+
+NTSTATUS
+DebugPrint(
+    IN PSTRING Output
+    );
+
+ULONG
+DebugPrompt(
+    IN PSTRING Output,
+    IN PSTRING Input
+    );
+
+#if defined(NTOS_KERNEL_RUNTIME)
+
+VOID
+DebugLoadImageSymbols(
+    IN PSTRING FileName,
+    IN PKD_SYMBOLS_INFO SymbolInfo
+    );
+
+VOID
+DebugUnLoadImageSymbols(
+    IN PSTRING FileName,
+    IN PKD_SYMBOLS_INFO SymbolInfo
+    );
+
+#endif // defined(NTOS_KERNEL_RUNTIME)
+
 #endif  // _NTRTLP_
+
+//
+// Procedure prototype for exception logging routines.
+
+ULONG
+RtlpLogExceptionHandler(
+    IN PEXCEPTION_RECORD ExceptionRecord,
+    IN PCONTEXT ContextRecord,
+    IN ULONG ControlPc,
+    IN PVOID HandlerData,
+    IN ULONG Size
+    );
+
+VOID
+RtlpLogLastExceptionDisposition(
+    IN ULONG LogIndex,
+    IN EXCEPTION_DISPOSITION Disposition
+    );

@@ -22,7 +22,7 @@ Notes:
 
 Revision History:
 
-    28-Jul-1992     Chuckc	Created
+    28-Jul-1992     Chuckc  Created
 
 --*/
 
@@ -38,6 +38,22 @@ typedef DWORD (*PF_WNetDisconnectDialog2) (
     DWORD dwType,
     WCHAR *lpHelpFile,
     DWORD nHelpContext
+    ) ;
+
+typedef DWORD (*PF_WNetConnectionDialog1A) (
+    LPCONNECTDLGSTRUCTA lpConnDlgStruct
+    ) ;
+
+typedef DWORD (*PF_WNetConnectionDialog1W) (
+    LPCONNECTDLGSTRUCTW lpConnDlgStruct
+    ) ;
+
+typedef DWORD (*PF_WNetDisconnectDialog1A) (
+    LPDISCDLGSTRUCTA lpDiscDlgStruct
+    ) ;
+
+typedef DWORD (*PF_WNetDisconnectDialog1W) (
+    LPDISCDLGSTRUCTW lpDiscDlgStruct
     ) ;
 
 typedef DWORD (*PF_WNetClearConnections) (

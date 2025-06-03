@@ -34,7 +34,7 @@ Revision History:
 
 #define UNICODE
 
-#include <wcstr.h>
+#include <stdlib.h>
 
 #include <nt.h>
 #include <ntrtl.h>
@@ -50,6 +50,7 @@ Revision History:
 #include <nwxchg.h>
 #include <ntddnwfs.h>
 #include <npapi.h>
+#include <nwrnames.h>
 
 #include <vddsvc.h>
 #include <nwdos.h>
@@ -107,6 +108,7 @@ GetDirectoryHandle2(
 #endif
 
 #undef getMSW       // BUGBUG: there's no c_getMSW in the lib!!!
+extern  WORD getMSW(VOID);
 
 #define IS_PROTECT_MODE()   (UCHAR)((getMSW() & MSW_PE)? TRUE : FALSE)
 

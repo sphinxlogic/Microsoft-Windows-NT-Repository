@@ -742,7 +742,7 @@ Return Value:
     //
     // Is the descriptor in use by the sonic.
     //
-    ULONG InUse;
+    USHORT InUse;
 
     //
     // Used tempoerarily to determine PacketPhysical.
@@ -789,12 +789,11 @@ Return Value:
         // we don't then simply return to the caller.
         //
 
-        NdisReadRegisterUlong(&CurrentDescriptor->InUse, &InUse);
+        NdisReadRegisterUshort(&CurrentDescriptor->InUse, &InUse);
 
         if (InUse != SONIC_OWNED_BY_SYSTEM) {
 
             return TRUE;
-
         }
 
         //

@@ -22,9 +22,9 @@
 #include <cruntime.h>
 #include <stdlib.h>
 
-#if	defined(_CRUISER_) || defined(i386) || defined(_M_MRX000)
+#ifdef _MSC_VER
 #pragma function(abs)
-#endif  /* ndef _CRUISER_ */
+#endif
 
 /***
 *int abs(number) - find absolute value of number

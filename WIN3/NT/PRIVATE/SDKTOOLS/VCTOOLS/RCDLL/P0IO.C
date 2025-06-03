@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /************************************************************************/
@@ -71,6 +70,8 @@ static struct s_filelist        {       /* list of input files (nested) */
     int         fl_numread;     /* # of characters read from the file */
     int         fl_fFileType;   //- Added for 16-bit file support.
                                 //- return from DetermineFileType.
+    long        fl_seek;	//- Added for restart - contains seek
+				//  address of last read.
 } Fstack[LIMIT_NESTED_INCLUDES];
 
 static  FILE *Fp = NULL;
@@ -124,11 +125,12 @@ int newinput (WCHAR *newname, int m_open)
     /* now push it onto the file stack */
     ++Findex;
     if(Findex >= LIMIT_NESTED_INCLUDES) {
-        strcpy (Msg_Text, GET_MSG (1014));
+        Msg_Temp = GET_MSG (1014);
+        SET_MSG (Msg_Text, sizeof(Msg_Text), Msg_Temp, LIMIT_NESTED_INCLUDES);
         fatal(1014);
     }
     pF = &Fstack[Findex];
-    p = malloc((IO_BLOCK + PUSHBACK_BYTES) * sizeof(WCHAR));
+    p = MyAlloc((IO_BLOCK + PUSHBACK_BYTES) * sizeof(WCHAR));
     if (!p) {
         strcpy (Msg_Text, GET_MSG (1002));
         fatal(1002);                  /* no memory */
@@ -141,6 +143,7 @@ int newinput (WCHAR *newname, int m_open)
     pF->fl_file = Fp;                /*  the new file descriptor      */
     pF->fl_buffer = p;
     pF->fl_numread = 0;
+    pF->fl_seek = 0;
 
     pF->fl_fFileType = DetermineFileType (Fp);
 
@@ -168,7 +171,7 @@ int newinput (WCHAR *newname, int m_open)
     if(Eflag) {
         emit_line();
         // must manually write '\r' with '\n' when writing 16-bit strings
-        fwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);  /* this line is inserted */
+        myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);  /* this line is inserted */
     }
 
     {
@@ -229,7 +232,8 @@ WCHAR fpop(void)
     if(Findex == -1) {          /* no files left */
         return(FALSE);
     }
-    fclose(Fp);
+    if (Fp)
+        fclose(Fp);
 
     {
         defn_t d;
@@ -251,7 +255,7 @@ WCHAR fpop(void)
     Old_line = Linenumber;
     Linenumber = (int)Fstack[Findex].fl_lineno;
     Current_char = Fstack[Findex].fl_currc;
-    free(Fstack[Findex].fl_buffer);
+    MyFree(Fstack[Findex].fl_buffer);
     if(--Findex < 0) {                  /* popped the last file */
         Linenumber = Old_line;
         return(FALSE);
@@ -259,6 +263,10 @@ WCHAR fpop(void)
     Fp = Fstack[Findex].fl_file;
     vfCurrFileType = Fstack[Findex].fl_fFileType;
     if(Eflag) {
+        // If the last file didn't end in a \r\n, the #line from emit_line could
+        // end up in whatever data structure it ended in... Emit a dummy newline
+        // just in case.
+        myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);  /* this line is inserted */
         emit_line();
     }
     return(TRUE);
@@ -341,10 +349,10 @@ void   emit_line(void)
     PWCHAR   p;
 
     swprintf(Reuse_W, L"#line %d ", Linenumber+1);
-    fwrite(Reuse_W, wcslen(Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+    myfwrite(Reuse_W, wcslen(Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
 
     p = esc_sequence(Reuse_W, Filename);
-    fwrite(Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+    myfwrite(Reuse_W, (size_t)(p - Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
 }
 
 /************************************************************************
@@ -392,11 +400,12 @@ int io_eob(void)
         REG PUCHAR  lpb;
         PUCHAR      Buf;
 
-        Buf = LocalAlloc (LPTR, Fstack[Findex].fl_bufsiz + 1);
+        Buf = MyAlloc(Fstack[Findex].fl_bufsiz + 1);
         if (Buf == NULL) {
             strcpy (Msg_Text, GET_MSG (1002));
             fatal(1002);                  /* no memory */
         }
+	Fstack[Findex].fl_seek = fseek(Fp, 0, SEEK_CUR);
         n = fread (Buf, sizeof(char), Fstack[Findex].fl_bufsiz, Fp);
 
         //-
@@ -404,7 +413,7 @@ int io_eob(void)
         //-     if YES (i will be greater than n), backup one byte
         //-
         for (i = 0, lpb = Buf; i < n; i++, lpb++) {
-            if (IsDBCSLeadByte(*lpb)) {
+            if (IsDBCSLeadByteEx(uiCodePage, *lpb)) {
                 i++;
                 lpb++;
             }
@@ -420,7 +429,7 @@ int io_eob(void)
         //-
         Fstack[Findex].fl_numread = MultiByteToWideChar (uiCodePage, MB_PRECOMPOSED,
                                           Buf, n, p, Fstack[Findex].fl_bufsiz);
-        LocalFree (Buf);
+        MyFree (Buf);
     } else {
 
         Fstack[Findex].fl_numread = n =
@@ -458,6 +467,47 @@ int io_eob(void)
 
 
 /************************************************************************
+** io_restart :	restarts the current file with a new codepage
+**	Method:	figure out where the current character came from
+**		using WideCharToMultiByte(...cch up to current char...)
+**		Note that this assumes that roundtrip conversion to/from
+**		Unicode results in the same # of characters out as in.
+**		fseek to the right place, then read a new buffer
+**
+**		Note that uiCodePage controls the seek, so it must
+**		remain set to the value used to do the translation
+**		from multi-byte to Unicode until after io_restart returns.
+**
+************************************************************************/
+int io_restart(unsigned long int cp)
+{
+    int         n;
+    TEXT_TYPE   p;
+
+    // If it's a Unicode file, nothing to do, so just return.
+    if (Fstack[Findex].fl_fFileType != DFT_FILE_IS_8_BIT)
+	return TRUE;
+
+    p = Fstack[Findex].fl_buffer;
+    n = Fstack[Findex].fl_numread - (Current_char - p);
+
+    if (n != 0) {
+	if (Fstack[Findex].fl_fFileType == DFT_FILE_IS_8_BIT) {
+	    n = WideCharToMultiByte(uiCodePage, 0, Current_char, n, NULL, 0, NULL, NULL);
+	    if (n == 0)
+		return TRUE;
+	}
+	else
+	    n *= sizeof(WCHAR);
+
+	fseek(Fp, -n, SEEK_CUR);
+    }
+    Fstack[Findex].fl_numread = 0;
+    return io_eob();
+}
+
+
+/************************************************************************
 **  p0_init : inits for prepocessing.
 **              Input : ptr to file name to use as input.
 **                      ptr to LIST containing predefined values.
@@ -467,7 +517,7 @@ int io_eob(void)
 **                it gives a fatal msg and exits.
 **
 ************************************************************************/
-void p0_init(WCHAR *p_fname, WCHAR *p_outname, LIST *p_defns)
+void p0_init(WCHAR *p_fname, WCHAR *p_outname, LIST *p_defns, LIST *p_undefns)
 {
     REG WCHAR  *p_dstr;
     REG WCHAR  *p_eq;
@@ -525,6 +575,50 @@ void p0_init(WCHAR *p_fname, WCHAR *p_outname, LIST *p_defns)
             Reuse_W_hash = local_c_hash(Reuse_W);
             Reuse_W_length = wcslen(Reuse_W) + 1;
             definstall(L"1\000", 3, FROM_COMMAND);   /* value of string is 1 */
+        }
+    }
+
+    /* undefine */
+    for(ntop = p_undefns->li_top; ntop < MAXLIST; ++ntop) {
+        p_dstr = p_undefns->li_defns[ntop];
+        p_eq = Reuse_W;
+        while ((*p_eq = *p_dstr++) != 0)  {  /* copy the name to Reuse_W */
+            if(*p_eq == L'=') {     /* we're told what the value is */
+                break;
+            }
+            p_eq++;
+        }
+        if(*p_eq == L'=') {
+            WCHAR      *p_tmp;
+            WCHAR      *last_space = NULL;
+
+            *p_eq = L'\0';               /* null the = */
+            for(p_tmp = p_dstr; *p_tmp; p_tmp++) {      /* find the end of it */
+                if(iswspace(*p_tmp)) {
+                    if(last_space == NULL) {
+                        last_space = p_tmp;
+                    }
+                }
+                else {
+                    last_space = NULL;
+                }
+            }
+            if(last_space != NULL) {
+                *last_space = L'\0';
+            }
+            Reuse_W_hash = local_c_hash(Reuse_W);
+            Reuse_W_length = wcslen(Reuse_W) + 1;
+            if( *p_dstr ) {     /* non-empty string */
+                undefine();
+            }
+            else {
+                undefine();
+            }
+        }
+        else {
+            Reuse_W_hash = local_c_hash(Reuse_W);
+            Reuse_W_length = wcslen(Reuse_W) + 1;
+            undefine();   /* value of string is 1 */
         }
     }
 

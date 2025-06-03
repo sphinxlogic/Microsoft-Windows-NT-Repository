@@ -3,7 +3,7 @@
 *   Copyright <C> 1988, Microsoft Corporation
 *
 *   Revision History:
-*	26-Nov-1991 mz	Strip off near/far
+*       26-Nov-1991 mz  Strip off near/far
 *
 *************************************************************************/
 #include "mep.h"
@@ -13,7 +13,7 @@
 /*** showasg - construct the <assign> file
 *
 * Input:
-*  pFile	= pFile to contruct it in
+*  pFile        = pFile to contruct it in
 *
 * Output:
 *  Returns nothing
@@ -73,12 +73,12 @@ showasg (
      * section specfic to each extension
      */
     for (i = 1; i < cCmdTab; i++) {
-	zprintf (pFile, pFile->cLines, "[%s-%s]", pNameEditor, pExtName[i]);
-	AppFile ((char *)rgchEmpty, pFile);
+        zprintf (pFile, pFile->cLines, "[%s-%s]", pNameEditor, pExtName[i]);
+        AppFile ((char *)rgchEmpty, pFile);
         for (j = 0; cmdSet[i][j].name; j++) {
             FuncOut (&cmdSet[i][j], pFile);
         }
-	AppFile ((char *)rgchEmpty, pFile);
+        AppFile ((char *)rgchEmpty, pFile);
     }
 
     /*
@@ -97,21 +97,21 @@ showasg (
     for (i = 0; i < cCmdTab; i++) {
 
         if (i) {
-	        zprintf (pFile, pFile->cLines, "[%s-%s]", pNameEditor, pExtName[i]);
+                zprintf (pFile, pFile->cLines, "[%s-%s]", pNameEditor, pExtName[i]);
         } else {
             zprintf (pFile, pFile->cLines, "[%s]", pNameEditor);
         }
 
-	    AppFile (GetMsg(MSG_ASG_NUMER, tempbuf), pFile);
-	    AppFile ((char *)rgchEmpty, pFile);
+            AppFile (GetMsg(MSG_ASG_NUMER, tempbuf), pFile);
+            AppFile ((char *)rgchEmpty, pFile);
 
         for (pSwi = swiSet[i]; pSwi->name != NULL; pSwi++) {
 
-	        if ((pSwi->type & 0xFF) == SWI_NUMERIC ||
-		        (pSwi->type & 0xFF) == SWI_SCREEN) {
+                if ((pSwi->type & 0xFF) == SWI_NUMERIC ||
+                        (pSwi->type & 0xFF) == SWI_SCREEN) {
 
                 if ((pSwi->type & 0xFF00) == RADIX16) {
-		            zprintf (pFile, pFile->cLines, "%20Fs:%x", pSwi->name, *pSwi->act.ival);
+                            zprintf (pFile, pFile->cLines, "%20Fs:%x", pSwi->name, *pSwi->act.ival);
                 } else {
                     zprintf (pFile, pFile->cLines, "%20Fs:%d", pSwi->name, *pSwi->act.ival);
                 }
@@ -121,23 +121,23 @@ showasg (
                 if (pSwi->act.pFunc2 == SetFileTab) {
                     j = fileTab;
                 } else if (pSwi->act.pFunc == SetTabDisp) {
-		            j = (unsigned char)tabDisp;
+                            j = (unsigned char)tabDisp;
                 } else if (pSwi->act.pFunc == SetTrailDisp) {
-		            j = (unsigned char)trailDisp;
+                            j = (unsigned char)trailDisp;
                 } else if (pSwi->act.pFunc == (PIF)SetCursorSizeSw ) {
                     j = CursorSize;
                 } else {
                     continue;
                 }
 
-		        zprintf (pFile, pFile->cLines, "%20Fs:%ld", pSwi->name, (long)(unsigned)j);
+                        zprintf (pFile, pFile->cLines, "%20Fs:%ld", pSwi->name, (long)(unsigned)j);
             }
         }
 
-	    AppFile ((char *)rgchEmpty, pFile);
+            AppFile ((char *)rgchEmpty, pFile);
 
-	    AppFile (GetMsg(MSG_ASG_BOOL,tempbuf), pFile);
-	    AppFile ((char *)rgchEmpty, pFile);
+            AppFile (GetMsg(MSG_ASG_BOOL,tempbuf), pFile);
+            AppFile ((char *)rgchEmpty, pFile);
 
         for (pSwi = swiSet[i]; pSwi->name != NULL; pSwi++) {
             if ((pSwi->type & 0xFF) == SWI_BOOLEAN) {
@@ -145,22 +145,22 @@ showasg (
             }
         }
 
-	    AppFile ((char *)rgchEmpty, pFile);
+            AppFile ((char *)rgchEmpty, pFile);
 
-	    if (i == 0) {
-	        AppFile (GetMsg(MSG_ASG_TEXT,tempbuf), pFile);
-	        AppFile ((char *)rgchEmpty, pFile);
+            if (i == 0) {
+                AppFile (GetMsg(MSG_ASG_TEXT,tempbuf), pFile);
+                AppFile ((char *)rgchEmpty, pFile);
 
-	        zprintf (pFile, pFile->cLines, "%11s:%s", "backup",
-			        backupType == B_BAK ? "bak" : backupType == B_UNDEL ? "undel" : "none");
+                zprintf (pFile, pFile->cLines, "%11s:%s", "backup",
+                                backupType == B_BAK ? "bak" : backupType == B_UNDEL ? "undel" : "none");
 
-	        ShowMake (pFile);
+                ShowMake (pFile);
             if (pFileMark) {
                 zprintf (pFile, pFile->cLines, "%11s:%s", "markfile", pFileMark->pName);
             }
             zprintf (pFile, pFile->cLines, "%11s:%s", "printcmd", pPrintCmd ? pPrintCmd : "");
             zprintf (pFile, pFile->cLines, "%11s:%s", "readonly", ronlypgm ? ronlypgm : "");
-	        AppFile ((char *)rgchEmpty, pFile);
+                AppFile ((char *)rgchEmpty, pFile);
 
         }
     }
@@ -176,8 +176,8 @@ showasg (
 *  Appends a series of text strings to the passed pFile
 *
 * Input:
-*  iMsg 	- Starting message number
-*  pFile	- pFile to append to
+*  iMsg         - Starting message number
+*  pFile        - pFile to append to
 *
 * Output:
 *  Returns
@@ -201,12 +201,13 @@ appmsgs (
 }
 
 
+static char szEmptyClipboard[] = "The clipboard is empty";
 
 
 /*** showinf - construct <information-file>
 *
 * Input:
-*  pFile	- pFile to construct in
+*  pFile        - pFile to construct in
 *
 * Output:
 *  Returns nothing
@@ -230,11 +231,11 @@ showinf (
     }
     AppFile ((char *)rgchEmpty, pFile);
     if (pFilePick->cLines == 0) {
-	AppFile ("The clipboard is empty", pFile);
+        AppFile (szEmptyClipboard, pFile);
     } else {
-	zprintf (pFile, pFile->cLines, "%ld line%s in %s clipboard", pFilePick->cLines,
-		 pFilePick->cLines == 1 ? (char *)rgchEmpty : "s",
-		 kindpick == STREAMARG ? "stream" : kindpick == LINEARG ? "line" :
+        zprintf (pFile, pFile->cLines, "%ld line%s in %s clipboard", pFilePick->cLines,
+                 pFilePick->cLines == 1 ? (char *)rgchEmpty : "s",
+                 kindpick == STREAMARG ? "stream" : kindpick == LINEARG ? "line" :
                  kindpick == BOXARG ? "box" : "?");
     }
     AppFile ((char *)rgchEmpty, pFile);
@@ -250,7 +251,7 @@ showinf (
 *  Appends to the information file the info on 1 file
 *
 * Input:
-*  pFile	- pFile of interest
+*  pFile        - pFile of interest
 *  pFileDisplay - pFile to display in
 *
 * Output:
@@ -264,9 +265,9 @@ infprint (
     )
 {
     if (TESTFLAG(FLAGS(pFile),REAL)) {
-	zprintf (pFileDisplay, pFileDisplay->cLines, "%-30s %c%ld lines", pFile->pName,
-		       TESTFLAG(FLAGS(pFile),DIRTY) ? '*' : ' ',
-		       pFile->cLines);
+        zprintf (pFileDisplay, pFileDisplay->cLines, "%-30s %c%ld lines", pFile->pName,
+                       TESTFLAG(FLAGS(pFile),DIRTY) ? '*' : ' ',
+                       pFile->cLines);
     } else {
         zprintf (pFileDisplay, pFileDisplay->cLines, "%-20s", pFile->pName);
     }

@@ -12,6 +12,7 @@
  *      20-Aug-1993 bens    Use MemStrDup to simplify VarCreate, VarSet
  *      21-Aug-1993 bens    Support multiple lists (no static data!)
  *      08-Feb-1994 bens    Set var.pvlist!  Fix error cleanup in VarCreate.
+ *      03-Jun-1994 bens    Add vflDEFINE support; Get/SetFlags
  *
  *  Exported Functions:
  *    VarCloneList   - Create an exact copy of a variable list
@@ -20,15 +21,22 @@
  *    VarDelete      - Delete existing variable
  *    VarDestroyList - Destroy a list of variables
  *    VarFind        - See if variable exists
+ *    VarFirstVar    - Get first variable from list
  *    VarGetBool     - Get value of boolean variable
+ *    VarGetFlags    - Get variable flags
  *    VarGetInt      - Get value of int variable
  *    VarGetLong     - Get value of long variable
+ *    VarGetName     - Get name of variable
  *    VarGetString   - Get value of string variable
+ *    VarNextVar     - Get next variable
  *    VarSet         - Set value of a variable (create if necessary)
+ *    VarSetLong     - Set long variable value (create if necessary)
+ *    VarSetFlags    - Set variable flags
  *
  *  Internal Functions:
- *    findVar - See if variable exists
- *    setVarValue - Validate value, then update variable
+ *    findVar        - See if variable exists
+ *    isValidVarName - Checks validity of variable name
+ *    setVarValue    - Validate value, then update variable
  */
 
 #include <string.h>
@@ -125,7 +133,7 @@ HVARIABLE VarCreate(HVARLIST      hvlist,
 
     pvlist = PVLfromHVL(hvlist);
     AssertVList(pvlist);
-        
+
     //** Make sure variable name is legal
     if (!isValidVarName(pszName,perr)) {
         // Use error message from isValidVarName
@@ -137,7 +145,7 @@ HVARIABLE VarCreate(HVARLIST      hvlist,
         ErrSet(perr,pszPARERR_ALREADY_CREATED,"%s",pszName);
         return NULL;
     }
-    
+
     //** Create VARIABLE
     ErrClear(perr); // Reset error state caused by findVar() failing above!
     if (!(pvar = MemAlloc(sizeof(VARIABLE))))
@@ -156,12 +164,12 @@ HVARIABLE VarCreate(HVARLIST      hvlist,
 
     //** Validate and copy value
     if (!setVarValue(pvar,pszValue,perr))
-        goto error;    
+        goto error;
 
     //** Link variable into list
     pvar->pvarNext = NULL;      // Always last on list
     pvar->pvarPrev = pvlist->pvarTail;  // Always points to last variable on list
-    
+
     if (pvlist->pvarHead == NULL) {
         pvlist->pvarHead = pvar;
         pvlist->pvarTail = pvar;
@@ -170,14 +178,14 @@ HVARIABLE VarCreate(HVARLIST      hvlist,
         AssertVar(pvlist->pvarTail);
         pvlist->pvarTail->pvarNext = pvar;  // Add to end of list
         pvlist->pvarTail = pvar;            // New tail
-    }        
+    }
 
     //** Remember which list we are on!
     pvar->pvlist = pvlist;
-    
+
     //** Success
     return HVARfromPVAR(pvar);
-    
+
 error:
     if (!pvar) {
         if (!(pvar->pszName))
@@ -203,7 +211,7 @@ void VarDelete(HVARIABLE hvar)
 {
     PVARIABLE   pvar;
     PVARLIST    pvlist;
-    
+
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
 
@@ -211,11 +219,11 @@ void VarDelete(HVARIABLE hvar)
     AssertVList(pvlist);
     AssertVar(pvlist->pvarHead);
     AssertVar(pvlist->pvarTail);
-    
+
     //** Free memory for variable name and value
     if (pvar->pszName)
         MemFree(pvar->pszName);
-    
+
     if (pvar->pszValue)
         MemFree(pvar->pszValue);
 
@@ -226,7 +234,7 @@ void VarDelete(HVARIABLE hvar)
     else {                          // At middle or end of list
         AssertVar(pvar->pvarPrev);
         pvar->pvarPrev->pvarNext = pvar->pvarNext; // Remove from forward chain
-    }        
+    }
 
     //** Adjust backward list pointers
     if (pvar->pvarNext == NULL) {   // At tail of list
@@ -236,7 +244,7 @@ void VarDelete(HVARIABLE hvar)
         AssertVar(pvar->pvarNext);
         pvar->pvarNext->pvarPrev = pvar->pvarPrev; // Remove from backward chain
     }
-    
+
     ClearAssertSignature(pvar);
     MemFree(pvar);
 } /* VarDelete *
@@ -273,7 +281,7 @@ HVARLIST VarCloneList(HVARLIST hvlist, PERROR perr)
     PVARLIST    pvlistClone;
     PVARLIST    pvlist;
     ERROR       errDummy;                       // Don't care about result
-    
+
     pvlist = PVLfromHVL(hvlist);
     AssertVList(pvlist);
 
@@ -347,10 +355,10 @@ BOOL VarDestroyList(HVARLIST hvlist, PERROR perr)
  *
  *  NOTE: See variable.h for entry/exit conditions.
  */
-BOOL VarSet(HVARLIST  hvlist,
-            char     *pszName,
-            char     *pszValue,
-            PERROR    perr)
+HVARIABLE VarSet(HVARLIST  hvlist,
+                 char     *pszName,
+                 char     *pszValue,
+                 PERROR    perr)
 {
     HVARIABLE   hvar;
     PVARIABLE   pvar;
@@ -373,9 +381,14 @@ BOOL VarSet(HVARLIST  hvlist,
     //** Set new value
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
-    return setVarValue(pvar,pszValue,perr);
+    if (!setVarValue(pvar,pszValue,perr)) {
+        return FALSE;
+    }
+
+    //** Success
+    return HVARfromPVAR(pvar);          // Success, return hvar
 } /* VarSet */
-            
+
 
 /***    VarSetLong - Set long variable value (create if necessary)
  *
@@ -390,7 +403,7 @@ BOOL VarSetLong(HVARLIST  hvlist,
                                         //                  -1234567890.
 
     _ltoa(lValue,ach,10);               // Create a string version
-    return VarSet(hvlist,pszName,ach,perr);
+    return VarSet(hvlist,pszName,ach,perr) != NULL;
 } /* VarSetLong() */
 
 
@@ -424,10 +437,10 @@ HVARIABLE VarFind(HVARLIST hvlist,
 BOOL VarGetBool(HVARIABLE hvar)
 {
     PVARIABLE   pvar;
-    
+
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
-    
+
     return atoi(pvar->pszValue);
 } /* VarFind */
 
@@ -439,10 +452,10 @@ BOOL VarGetBool(HVARIABLE hvar)
 int VarGetInt(HVARIABLE hvar)
 {
     PVARIABLE   pvar;
-    
+
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
-    
+
     return atoi(pvar->pszValue);
 }
 
@@ -454,10 +467,10 @@ int VarGetInt(HVARIABLE hvar)
 long VarGetLong(HVARIABLE hvar)
 {
     PVARIABLE   pvar;
-    
+
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
-    
+
     return atol(pvar->pszValue);
 }
 
@@ -469,12 +482,88 @@ long VarGetLong(HVARIABLE hvar)
 char *VarGetString(HVARIABLE hvar)
 {
     PVARIABLE   pvar;
-    
+
     pvar = PVARfromHVAR(hvar);
     AssertVar(pvar);
-    
+
     return pvar->pszValue;
 }
+
+
+/***    VarSetFlags - Set variable flags
+ *
+ *  NOTE: See variable.h for entry/exit conditions.
+ */
+void VarSetFlags(HVARIABLE hvar,
+                 VARFLAGS  vfl)
+{
+    PVARIABLE   pvar;
+
+    pvar = PVARfromHVAR(hvar);
+    AssertVar(pvar);
+
+    pvar->vfl = vfl;
+} /* VarSetFlags() */
+
+
+/***    VarGetFlags - Get variable flags
+ *
+ *  NOTE: See variable.h for entry/exit conditions.
+ */
+VARFLAGS VarGetFlags(HVARIABLE hvar)
+{
+    PVARIABLE   pvar;
+
+    pvar = PVARfromHVAR(hvar);
+    AssertVar(pvar);
+
+    return pvar->vfl;
+} /* VarGetFlags() */
+
+
+/***    VarFirstVar - Get first variable from list
+ *
+ *  NOTE: See variable.h for entry/exit conditions.
+ */
+HVARIABLE VarFirstVar(HVARLIST hvlist)
+{
+    PVARLIST    pvlist;
+
+    pvlist = PVLfromHVL(hvlist);
+    AssertVList(pvlist);
+
+    return HVARfromPVAR(pvlist->pvarHead);
+} /* VarFirstVar() */
+
+
+/***    VarNextVar - Get next variable
+ *
+ *  NOTE: See variable.h for entry/exit conditions.
+ */
+HVARIABLE VarNextVar(HVARIABLE hvar)
+{
+    PVARIABLE   pvar;
+
+    pvar = PVARfromHVAR(hvar);
+    AssertVar(pvar);
+
+    return HVARfromPVAR(pvar->pvarNext);
+} /* VarNextVar() */
+
+
+/***    VarGetName - Get name of variable
+ *
+ *  NOTE: See variable.h for entry/exit conditions.
+ */
+char *VarGetName(HVARIABLE hvar)
+{
+    PVARIABLE   pvar;
+
+    pvar = PVARfromHVAR(hvar);
+    AssertVar(pvar);
+
+    return pvar->pszName;
+} /* VarGetName() */
 
 
 //*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
@@ -515,7 +604,7 @@ BOOL isValidVarName(char *pszName, PERROR perr)
  *      pvlist  - Variable list
  *      pszName - Variable name to look for
  *      perr    - ERROR structure
- *      
+ *
  *  Exit-Success:
  *      Returns PVARIABLE, if variable exists.
  *
@@ -528,27 +617,27 @@ PVARIABLE findVar(PVARLIST pvlist, char *pszName, PERROR perr)
     PVARIABLE   pvar;
 
     AssertVList(pvlist);
-    
+
     for (pvar=pvlist->pvarHead; pvar != NULL; pvar = pvar->pvarNext) {
         AssertVar(pvar);
-        if (!stricmp(pvar->pszName,pszName)) {    // Got a match!
-            return pvar;                // Return variable pointer        
-        }            
+        if (!_stricmp(pvar->pszName,pszName)) {    // Got a match!
+            return pvar;                // Return variable pointer
+        }
     }
-    
+
     //** Did not find variable
     ErrSet(perr,pszPARERR_VARIABLE_NOT_FOUND,"%s",pszName);
-    return NULL;        
+    return NULL;
 }
 
-    
+
 /***    setVarValue - Validate value, then update variable
  *
  *  Entry:
  *      pvar     - Variable to update
  *      pszValue - New value
  *      perr     - ERROR structure
- *      
+ *
  *  Exit-Success:
  *      Returns TRUE; variable updated
  *
@@ -560,17 +649,17 @@ BOOL setVarValue(PVARIABLE pvar, char *pszValue, PERROR perr)
 {
     char    achValue[cbVAR_VALUE_MAX];
     char    achMsg[cbMSG_MAX];
-    char   *psz; 
+    char   *psz;
 
     AssertVar(pvar);
 
-    //** Check value length    
+    //** Check value length
     if (strlen(pszValue) >= cbVAR_VALUE_MAX) {
         ErrSet(perr,pszPARERR_VALUE_TOO_LONG,"%d%s",
                                               cbVAR_VALUE_MAX,pvar->pszName);
         return FALSE;
-    }        
-    
+    }
+
     //** Check if new value is OK
     if (pvar->pfnvcv == NULL) {     // No validation function
         strcpy(achValue,pszValue);  //  Value is fine
@@ -583,7 +672,7 @@ BOOL setVarValue(PVARIABLE pvar, char *pszValue, PERROR perr)
         //** Something wrong with value; validation function set perr
         return FALSE;
     }
-            
+
     //** Set new value
     psz = pvar->pszValue;               // Remember original value
     if (!(pvar->pszValue = MemStrDup(achValue))) {
@@ -592,10 +681,10 @@ BOOL setVarValue(PVARIABLE pvar, char *pszValue, PERROR perr)
         ErrSet(perr,pszPARERR_OUT_OF_MEMORY,"%s",achMsg);
         return FALSE;
     }
-    
+
     //** Free old value
     if (psz != NULL)                    // If old value exists
         MemFree(psz);                   //  Free old value
 
     return TRUE;
-}
+} /* setVarValue() */

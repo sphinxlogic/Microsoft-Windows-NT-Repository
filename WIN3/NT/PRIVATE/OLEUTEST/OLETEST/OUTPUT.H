@@ -25,4 +25,3 @@ void SaveToFile( void );
 
 #endif // !_OUTPUT_H
 
-

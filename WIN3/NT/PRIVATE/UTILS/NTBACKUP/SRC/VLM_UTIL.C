@@ -246,7 +246,11 @@ VOID VLM_Deinit()
 
       wininfo = WM_GetInfoPtr( win );
       if ( ( wininfo->wType == WMTYPE_DISKTREE ) ||
-           ( wininfo->wType == WMTYPE_TAPETREE ) ) {
+           ( wininfo->wType == WMTYPE_TAPETREE ) 
+#ifdef OEM_EMS
+           || ( wininfo->wType == WMTYPE_EXCHANGE )
+#endif     
+           ) {
          close_win = win;
       }
 
@@ -266,8 +270,12 @@ VOID VLM_Deinit()
 
       if ( ( wininfo->wType == WMTYPE_DISKS ) ||
            ( wininfo->wType == WMTYPE_SERVERS ) ||
-           ( wininfo->wType == WMTYPE_TAPES ) ) {
-         close_win = win;
+           ( wininfo->wType == WMTYPE_TAPES )
+#ifdef OEM_EMS
+           || ( wininfo->wType ==  WMTYPE_EXCHANGE )
+#endif
+           ) {
+           close_win = win;
       }
 
       switch ( wininfo->wType ) {
@@ -275,6 +283,11 @@ VOID VLM_Deinit()
       case WMTYPE_DISKS:
            CDS_WriteDiskWinSize ( win );
            break;
+
+#ifdef OEM_EMS
+      case WMTYPE_EXCHANGE:
+           break;
+#endif
 
       case WMTYPE_SERVERS:
            CDS_WriteServerWinSize ( win );
@@ -640,7 +653,7 @@ BOOLEAN VLM_GetTapeOwnersName( UINT32 tape_fid, CHAR_PTR buffer )
 
 
    if ( bset == NULL ) {
-      strcpy( buffer, TEXT("No owner name available") );
+      strcpy( buffer, TEXT("   ") );
    }
 
    return( FAILURE );
@@ -686,7 +699,7 @@ BOOLEAN VLM_GetSetOwnersName( UINT32 tape_fid, INT16 bset_num, CHAR_PTR buffer )
       tape = VLM_GetNextTAPE( tape );
    }
 
-   strcpy( buffer, TEXT("No owner name available") );
+   strcpy( buffer, TEXT("   ") );
    return( FAILURE );
 }
 
@@ -995,6 +1008,12 @@ VOID VLM_UpdateDisks( )
    QTC_BSET_PTR qtc_bset;
    QTC_HEADER_PTR header;
 
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( qtc_bset );
+   UNREFERENCED_PARAMETER( header );
+   UNREFERENCED_PARAMETER( bset_num );
+#endif
+
    wininfo = WM_GetInfoPtr( gb_disks_win );
 
    if ( wininfo != NULL ) {
@@ -1065,6 +1084,12 @@ VOID VLM_UpdateVolumes( VLM_OBJECT_PTR server_vlm )
    INT16 bset_num;
    QTC_BSET_PTR qtc_bset;
    QTC_HEADER_PTR header;
+
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( qtc_bset );
+   UNREFERENCED_PARAMETER( header );
+   UNREFERENCED_PARAMETER( bset_num );
+#endif
 
    child_vlm = VLM_GetFirstVLM( &server_vlm->children );
 
@@ -1191,6 +1216,7 @@ HWND win )     // I - window to close
    Q_ELEM_PTR q_elem;
    Q_ELEM_PTR q_elem2;
    DLM_LOGITEM_PTR dlm_ptr;
+   GENERIC_DLE_PTR enterprise_dle;
 
    /* Now get the list so that it can be free'd */
 
@@ -1250,8 +1276,30 @@ HWND win )     // I - window to close
 
    case WMTYPE_DISKS:
         VLM_FreeVLMList( wininfo->pFlatList );
-        free( wininfo->pFlatList );
+        free( wininfo->pFlatList ); 
         break;
+
+#ifdef OEM_EMS
+   case WMTYPE_EXCHANGE:
+   
+        // Check for closable because we may change this window type to MDISECONDARY later
+        if ( wininfo->wClosable ) {
+
+           if ( ( NULL != WMDS_GetTreeList( wininfo ) ) &&
+                ( NULL != VLM_GetFirstSLM( WMDS_GetTreeList( wininfo ) ) ) ) {
+
+               enterprise_dle = SLM_GetDle( VLM_GetFirstSLM( WMDS_GetTreeList( wininfo ) ) );
+           }
+              
+           SLM_EMSFreeSLMList( wininfo->pTreeList );
+           free( wininfo->pFlatList );
+           SLM_EMSFreeSLMList( wininfo->pFlatList );
+           free( wininfo->pFlatList );
+
+           
+        }
+        break;
+#endif //OEM_EMS
 
    case WMTYPE_SERVERS:
         VLM_FreeVLMList( wininfo->pTreeList );
@@ -1388,6 +1436,12 @@ UINT64_PTR total_bytes_ptr )
    SLM_OBJECT_PTR parent_slm;
    SLM_OBJECT_PTR orig_slm;
 
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( u64_stat );
+   UNREFERENCED_PARAMETER( parent_slm );
+   UNREFERENCED_PARAMETER( new_bytes );
+   UNREFERENCED_PARAMETER( new_files );
+#endif
 
    window = slm->XtraBytes->hWnd;
    all_subdirs = CDS_GetIncludeSubdirs( CDS_GetPerm() );
@@ -1544,6 +1598,9 @@ VOID VLM_ClearAllSelections( )
    VLM_ClearAllDiskSelections();
    VLM_ClearAllSearchSelections();
    VLM_ClearAllServerSelections();
+#ifdef OEM_EMS
+   VLM_ClearAllExchangeSelections();
+#endif //OEM_EMS
 }
 
 
@@ -1751,7 +1808,10 @@ BOOLEAN display )       //I - update display flag
    DATE_TIME mod_date;
    SLM_OBJECT_PTR parent_slm;
 
-
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( parent_slm );
+#endif   
+   
    slm = VLM_GetFirstSLM( wininfo->pTreeList );
 
    if ( display && ( slm != NULL ) ) {
@@ -1952,6 +2012,12 @@ VOID VLM_RematchAllLists( )
          case WMTYPE_DISKS:
               VLM_UpdateDisks();
               break;
+
+#ifdef OEM_EMS
+         case WMTYPE_EXCHANGE:
+              // VLM_UpdateExchange( win ); - Function doesn't do what is needed.
+              break;
+#endif //OEM_EMS
 
          case WMTYPE_SERVERS:
               VLM_UpdateServers();

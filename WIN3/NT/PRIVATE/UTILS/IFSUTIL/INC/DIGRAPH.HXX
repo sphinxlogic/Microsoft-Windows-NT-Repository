@@ -22,6 +22,15 @@ Author:
 
 #include "membmgr.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 DECLARE_CLASS( NUMBER_SET );
 DECLARE_CLASS( BITVECTOR );
 DECLARE_CLASS( INTSTACK );
@@ -33,24 +42,27 @@ class DIGRAPH_EDGE : public OBJECT {
 
     public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( DIGRAPH_EDGE );
 
         ULONG   Parent;
         ULONG   Child;
-
 };
 
 
 struct CHILD_ENTRY {
     CHILD_ENTRY*    Next;
-    ULONG           Child;
+    ULONG           Child;                  // first child described this node
+    ULONG           ChildBits[1];           // 0 bit is same as "Child"
 };
 DEFINE_POINTER_TYPES(CHILD_ENTRY);
 
+#define BITS_PER_CHILD_ENTRY (32)           // 1 * (bits per ulong)
+
 struct PARENT_ENTRY {
-    PARENT_ENTRY*   Next;
-    ULONG           Parent;
-    PCHILD_ENTRY    Children;
+    PARENT_ENTRY*       Next;
+    ULONG               Parent;
+    RTL_GENERIC_TABLE   Children;
 };
 DEFINE_POINTER_TYPES(PARENT_ENTRY);
 
@@ -61,19 +73,23 @@ class DIGRAPH : public OBJECT {
 
     public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( DIGRAPH );
 
+        IFSUTIL_EXPORT
         VIRTUAL
         ~DIGRAPH(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             IN  ULONG   NumberOfNodes
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         AddEdge(
             IN  ULONG   Parent,
@@ -100,6 +116,7 @@ class DIGRAPH : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryChildren(
             IN  ULONG       Parent,
@@ -107,6 +124,7 @@ class DIGRAPH : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryParents(
             IN  ULONG       Child,
@@ -114,6 +132,7 @@ class DIGRAPH : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryParentsWithChildren(
             OUT PNUMBER_SET Parents,
@@ -121,6 +140,7 @@ class DIGRAPH : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         EliminateCycles(
             IN OUT  PCONTAINER  RemovedEdges
@@ -144,9 +164,9 @@ class DIGRAPH : public OBJECT {
             );
 
         NONVIRTUAL
-		VOID
- 		Construct (
- 			);
+                VOID
+                Construct (
+                        );
 
         NONVIRTUAL
         VOID
@@ -155,7 +175,6 @@ class DIGRAPH : public OBJECT {
 
         PPARENT_ENTRY*  _parent_head;
         ULONG           _num_nodes;
-        MEM_BLOCK_MGR   _child_mgr;
         MEM_BLOCK_MGR   _parent_mgr;
 
 };

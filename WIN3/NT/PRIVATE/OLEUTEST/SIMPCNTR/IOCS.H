@@ -18,13 +18,13 @@ interface COleClientSite : public IOleClientSite
 
     COleClientSite(CSimpleSite FAR * pSite)
        {
-        OutputDebugString(TEXT("In IOCS's constructor\r\n"));
+        TestDebugOut(TEXT("In IOCS's constructor\r\n"));
         m_pSite = pSite;
        }
 
     ~COleClientSite()
        {
-        OutputDebugString(TEXT("In IOCS's destructor\r\n"));
+        TestDebugOut(TEXT("In IOCS's destructor\r\n"));
        }
 
     STDMETHODIMP QueryInterface(REFIID riid, LPVOID FAR* ppvObj);
@@ -42,4 +42,3 @@ interface COleClientSite : public IOleClientSite
 };
 
 #endif
-

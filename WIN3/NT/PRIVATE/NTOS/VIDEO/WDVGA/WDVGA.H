@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 Copyright (c) 1993  Western Digital Corporation
 
 Module Name:
@@ -34,14 +34,26 @@ Revision History:
 // Define type of WD boards
 //
 
-typedef enum _BOARD_TYPE {
-    WD90C00 = 1,
-    WD90C30,
-    SPEEDSTAR30,
-    WD90C31,
-    SPEEDSTAR31,
-    OTHER
-} BOARD_TYPE;
+typedef ULONG BOARD_TYPE;
+
+#define WD90C00     0x00000001
+#define WD90C30     0x00000002
+#define SPEEDSTAR30 0x00000004
+#define WD90C31     0x00000008
+#define SPEEDSTAR31 0x00000010
+#define WD90C24A    0x00000020
+
+#define OTHER       0x80000000
+
+#define ALL (WD90C00 | WD90C30 | SPEEDSTAR30 | WD90C31 | SPEEDSTAR31 | WD90C24A)
+#define NOT_WD90C24A (ALL & ~WD90C24A)
+
+#define MONITOR        0x01
+#define IBM_F8515      0x02
+#define IBM_F8532      0x04
+#define TOSHIBA_DSTNC  0x08
+#define STN_MONO_LCD   0x10
+#define UNKNOWN_LCD    0x20
 
 
 //
@@ -258,6 +270,16 @@ typedef enum _BANK_TYPE {
     PlanarHCBanking
 } BANK_TYPE, *PBANK_TYPE;
 
+
+#define  LCD_ENABLE        1
+#define  LCD_DISABLE       4
+#define  CRT_ENABLE        2
+#define  CRT_DISABLE       0
+
+#define  NO_SVGA_BIOS      0
+#define  LIMITED_SVGA_BIOS 1
+#define  FULL_SVGA_BIOS    2
+
 //
 // Structure used to describe each video mode in ModesVGA[].
 //
@@ -278,12 +300,15 @@ typedef struct {
     BANK_TYPE banktype; // NoBanking, NormalBanking, PlanarHCBanking
     VIDEO_MEMORY_MAP   MemMap; // index from VIDEO_MEMORY_MAP of memory
                                //  mapping used by this mode
+    ULONG   LCDtype;           // LCD types to be supported by this mode
     BOOLEAN ValidMode;         //Determines which modes are valid.
 #ifdef INT10_MODE_SET
     UCHAR   FrequencyMask;     // value used to mask the mode frequency
     UCHAR   FrequencySetting;  // value used to set the mode frequency
     ULONG   Int10ModeNumber;   // Mode number via Int 10
+    PUSHORT ModeTable;
 #endif
+
     PUSHORT CmdStrings;   // pointer to array of register-setting commands
 } VIDEOMODE, *PVIDEOMODE;
 
@@ -453,6 +478,12 @@ typedef struct _VGA_VALIDATOR_DATA {
 
 typedef struct _HW_DEVICE_EXTENSION {
 
+    PHYSICAL_ADDRESS PhysicalVideoMemoryBase; // physical memory address and
+    PHYSICAL_ADDRESS PhysicalFrameBase;       // physical memory address and
+    ULONG PhysicalVideoMemoryLength;          // length of display memory
+    ULONG PhysicalFrameLength;                // length of display memory for
+                                              // the current mode.
+
     PUCHAR  IOAddress;             // base I/O address of VGA ports
     PVOID   VideoMemoryAddress;    // base virtual memory address of VGA memory
     ULONG   AdapterMemorySize;     // size, in bytes, of the memory on the
@@ -474,14 +505,12 @@ typedef struct _HW_DEVICE_EXTENSION {
     UCHAR BoardID;                 // Used to identify different boards
                                    // supported.
 
-    BOOLEAN ExtendedRegisters;     // Determines if extended registers have
-                                   // been claimed.
+    UCHAR DisplayType;             // type of attached LCD display
+    ULONG SVGABios;                // Indicates range of SVGA support
+    BOOLEAN IsIBM;                 // True if this is an IBM machine
 
-    PHYSICAL_ADDRESS PhysicalVideoMemoryBase; // physical memory address and
-    ULONG PhysicalVideoMemoryLength;          // length of display memory
-    PHYSICAL_ADDRESS PhysicalFrameBase;       // physical memory address and
-    ULONG PhysicalFrameLength;                // length of display memory for
-                                              // the current mode.
+    ULONG ExtendedRegisters;       // Determines if extended registers have
+                                   // been claimed.
 
     //
     // These 4 fields must be at the end of the device extension and must be
@@ -547,6 +576,9 @@ VgaPlaybackValidatorData (
     PVOID Context
     );
 
+extern USHORT m640[];
+extern USHORT Reset[];
+
 //
 // Bank switch code start and end labels, define in HARDWARE.ASM
 //
@@ -565,9 +597,19 @@ extern MEMORYMAPS MemoryMaps[];
 extern VIDEOMODE ModesVGA[];
 extern ULONG NumVideoModes;
 
+//
+// Defines used to determine the number of access ranges which are
+// Verified.  Stored in HwDeviceExtension->ExtendedRegisters
+//
 
+#define EXTENDED_AND_FLAT_PANEL_REGISTERS    2
+#define EXTENDED_REGISTERS                   1
+#define NO_EXTENDED_REGISTERS                0
+
+#define NUM_IBM_ACCESS_RANGES 7
+#define NUM_ALL_ACCESS_RANGES 6
 #define NUM_WD_ACCESS_RANGES  4
-#define NUM_VGA_ACCESS_RANGES  3
+#define NUM_VGA_ACCESS_RANGES 3
 extern VIDEO_ACCESS_RANGE VgaAccessRange[];
 
 #define VGA_NUM_EMULATOR_ACCESS_ENTRIES     6
@@ -578,3 +620,16 @@ extern VIDEO_ACCESS_RANGE MinimalVgaValidatorAccessRange[];
 
 #define NUM_FULL_VGA_VALIDATOR_ACCESS_RANGE 2
 extern VIDEO_ACCESS_RANGE FullVgaValidatorAccessRange[];
+
+//
+// Prototypes for IBM SMAPI routines
+//
+
+void LCDInit(void);
+void LCDDisplay(int);
+int LCDIsMonitorPresent(void);
+
+BOOLEAN
+ExternalMonitorPresent(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );

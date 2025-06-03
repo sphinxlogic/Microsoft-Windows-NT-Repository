@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   07-July-1995
 
 Revision History:
 
@@ -27,14 +27,27 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_PREFXSUP)
 
 //
-//  The debug trace level for this module
+//  Local support routines.
 //
 
-#define Dbg                              (DEBUG_TRACE_PREFXSUP)
+PNAME_LINK
+CdFindNameLink (
+    IN PIRP_CONTEXT IrpContext,
+    IN PRTL_SPLAY_LINKS *RootNode,
+    IN PUNICODE_STRING Name
+    );
+
+BOOLEAN
+CdInsertNameLink (
+    IN PIRP_CONTEXT IrpContext,
+    IN PRTL_SPLAY_LINKS *RootNode,
+    IN PNAME_LINK NameLink
+    );
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, CdFindNameLink)
 #pragma alloc_text(PAGE, CdFindPrefix)
-#pragma alloc_text(PAGE, CdFindRelativePrefix)
+#pragma alloc_text(PAGE, CdInsertNameLink)
 #pragma alloc_text(PAGE, CdInsertPrefix)
 #pragma alloc_text(PAGE, CdRemovePrefix)
 #endif
@@ -43,23 +56,32 @@ Revision History:
 VOID
 CdInsertPrefix (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PFCB Fcb
+    IN PFCB Fcb,
+    IN PCD_NAME Name,
+    IN BOOLEAN IgnoreCase,
+    IN BOOLEAN ShortNameMatch,
+    IN PFCB ParentFcb
     )
 
 /*++
 
 Routine Description:
 
-    This routine inserts the FCBs/DCBs into the prefix table for the
-    indicated volume.  It also normalizes the name in the fcb to not
-    contain trailing dots.
+    This routine inserts the names in the given Lcb into the links for the
+    parent.
 
 Arguments:
 
-    Vcb - Supplies the Vcb whose prefix table is being modified
+    Fcb - This is the Fcb whose name is being inserted into the tree.
 
-    Fcb - Supplies the Fcb/Dcb to insert in the prefix table
+    Name - This is the name for the component.  The IgnoreCase flag tells
+        us which entry this belongs to.
+
+    IgnoreCase - Indicates if we should insert the case-insensitive name.
+
+    ShortNameMatch - Indicates if this is the short name.
+
+    ParentFcb - This is the ParentFcb.  The prefix tree is attached to this.
 
 Return Value:
 
@@ -68,34 +90,121 @@ Return Value:
 --*/
 
 {
+    ULONG PrefixFlags;
+    PNAME_LINK NameLink;
+    PPREFIX_ENTRY PrefixEntry;
+    PRTL_SPLAY_LINKS *TreeRoot;
+
+    PWCHAR NameBuffer;
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdInsertPrefix:  Fcb = %08lx\n", Fcb);
-    DebugTrace( 0, Dbg, "CdInsertPrefix:  Prefix -> %Z\n", &Fcb->FullFileName);
-
     //
-    //  Search for a trailing dot/space and remove it if present.
+    //  Check if we need to allocate a prefix entry for the short name.
+    //  If we can't allocate one then fail quietly.  We don't have to
+    //  insert the name.
     //
 
-    while ((Fcb->FullFileName.Buffer[Fcb->FullFileName.Length-1] == '.') ||
-           (Fcb->FullFileName.Buffer[Fcb->FullFileName.Length-1] == ' ')) {
+    PrefixEntry = &Fcb->FileNamePrefix;
 
-        Fcb->FullFileName.Length -= 1;
+    if (ShortNameMatch) {
+
+        if (Fcb->ShortNamePrefix == NULL) {
+
+            Fcb->ShortNamePrefix = ExAllocatePoolWithTag( CdPagedPool,
+                                                          sizeof( PREFIX_ENTRY ),
+                                                          TAG_PREFIX_ENTRY );
+
+            if (Fcb->ShortNamePrefix == NULL) { return; }
+
+            RtlZeroMemory( Fcb->ShortNamePrefix, sizeof( PREFIX_ENTRY ));
+        }
+
+        PrefixEntry = Fcb->ShortNamePrefix;
     }
 
-    if (!PfxInsertPrefix( &Vcb->PrefixTable,
-                          &Fcb->FullFileName,
-                          &Fcb->PrefixTableEntry )) {
+    //
+    //  Capture the local variables for the separate cases.
+    //
 
-        DebugTrace( 0, 0, "PrefixError trying to insert name into prefix table\n", 0 );
-        CdBugCheck( 0, 0, 0 );
+    if (IgnoreCase) {
+
+        PrefixFlags = PREFIX_FLAG_IGNORE_CASE_IN_TREE;
+        NameLink = &PrefixEntry->IgnoreCaseName;
+        TreeRoot = &ParentFcb->IgnoreCaseRoot;
+
+    } else {
+
+        PrefixFlags = PREFIX_FLAG_EXACT_CASE_IN_TREE;
+        NameLink = &PrefixEntry->ExactCaseName;
+        TreeRoot = &ParentFcb->ExactCaseRoot;
     }
 
-    DebugTrace(-1, Dbg, "CdInsertPrefix:  Exit\n", 0);
+    //
+    //  If neither name is in the tree then check whether we have a buffer for this
+    //  name
+    //
+
+    if (!FlagOn( PrefixEntry->PrefixFlags,
+                 PREFIX_FLAG_EXACT_CASE_IN_TREE | PREFIX_FLAG_IGNORE_CASE_IN_TREE )) {
+
+        //
+        //  Allocate a new buffer if the embedded buffer is too small.
+        //
+
+        NameBuffer = PrefixEntry->FileNameBuffer;
+
+        if (Name->FileName.Length > BYTE_COUNT_EMBEDDED_NAME) {
+
+            NameBuffer = ExAllocatePoolWithTag( CdPagedPool,
+                                                Name->FileName.Length * 2,
+                                                TAG_PREFIX_NAME );
+
+            //
+            //  Exit if no name buffer.
+            //
+
+            if (NameBuffer == NULL) { return; }
+        }
+
+        //
+        //  Split the buffer and fill in the separate components.
+        //
+
+        PrefixEntry->ExactCaseName.FileName.Buffer = NameBuffer;
+        PrefixEntry->IgnoreCaseName.FileName.Buffer = Add2Ptr( NameBuffer,
+                                                               Name->FileName.Length,
+                                                               PWCHAR );
+
+        PrefixEntry->IgnoreCaseName.FileName.MaximumLength =
+        PrefixEntry->IgnoreCaseName.FileName.Length =
+        PrefixEntry->ExactCaseName.FileName.MaximumLength =
+        PrefixEntry->ExactCaseName.FileName.Length = Name->FileName.Length;
+    }
+
+    //
+    //  Only insert the name if not already present.
+    //
+
+    if (!FlagOn( PrefixEntry->PrefixFlags, PrefixFlags )) {
+
+        //
+        //  Initialize the name in the prefix entry.
+        //
+
+        RtlCopyMemory( NameLink->FileName.Buffer,
+                       Name->FileName.Buffer,
+                       Name->FileName.Length );
+
+        CdInsertNameLink( IrpContext,
+                          TreeRoot,
+                          NameLink );
+
+        PrefixEntry->Fcb = Fcb;
+        SetFlag( PrefixEntry->PrefixFlags, PrefixFlags );
+    }
 
     return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
 }
 
 
@@ -109,265 +218,498 @@ CdRemovePrefix (
 
 Routine Description:
 
-    This routine deletes the FCBs/DCBs from the prefix table for the
-    indicated volume.
+    This routine is called to remove all of the previx entries of a
+    given Fcb from its parent Fcb.
 
 Arguments:
 
-    Fcb - Supplies the Fcb/Dcb to delete from the prefix table
+    Fcb - Fcb whose entries are to be removed.
 
 Return Value:
 
-    None.
+    None
 
 --*/
 
 {
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdRemovePrefix:  Fcb = %08lx\n", Fcb);
-    DebugTrace( 0, Dbg, "CdRemovePrefix:  Prefix -> %Z\n", &Fcb->FullFileName);
+    //
+    //  Start with the short name prefix entry.
+    //
 
-    PfxRemovePrefix( &Fcb->Vcb->PrefixTable, &Fcb->PrefixTableEntry );
+    if (Fcb->ShortNamePrefix != NULL) {
 
-    DebugTrace(-1, Dbg, "CdRemovePrefix:  Exit\n", 0);
+        if (FlagOn( Fcb->ShortNamePrefix->PrefixFlags, PREFIX_FLAG_IGNORE_CASE_IN_TREE )) {
+
+            Fcb->ParentFcb->IgnoreCaseRoot = RtlDelete( &Fcb->ShortNamePrefix->IgnoreCaseName.Links );
+        }
+
+        if (FlagOn( Fcb->ShortNamePrefix->PrefixFlags, PREFIX_FLAG_EXACT_CASE_IN_TREE )) {
+
+            Fcb->ParentFcb->ExactCaseRoot = RtlDelete( &Fcb->ShortNamePrefix->ExactCaseName.Links );
+        }
+
+        ClearFlag( Fcb->ShortNamePrefix->PrefixFlags,
+                   PREFIX_FLAG_IGNORE_CASE_IN_TREE | PREFIX_FLAG_EXACT_CASE_IN_TREE );
+    }
+
+    //
+    //  Now do the long name prefix entries.
+    //
+
+    if (FlagOn( Fcb->FileNamePrefix.PrefixFlags, PREFIX_FLAG_IGNORE_CASE_IN_TREE )) {
+
+        Fcb->ParentFcb->IgnoreCaseRoot = RtlDelete( &Fcb->FileNamePrefix.IgnoreCaseName.Links );
+    }
+
+    if (FlagOn( Fcb->FileNamePrefix.PrefixFlags, PREFIX_FLAG_EXACT_CASE_IN_TREE )) {
+
+        Fcb->ParentFcb->ExactCaseRoot = RtlDelete( &Fcb->FileNamePrefix.ExactCaseName.Links );
+    }
+
+    ClearFlag( Fcb->FileNamePrefix.PrefixFlags,
+               PREFIX_FLAG_IGNORE_CASE_IN_TREE | PREFIX_FLAG_EXACT_CASE_IN_TREE );
+
+    //
+    //  Deallocate any buffer we may have allocated.
+    //
+
+    if ((Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer != (PWCHAR) &Fcb->FileNamePrefix.FileNameBuffer) &&
+        (Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer != NULL)) {
+
+        ExFreePool( Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer );
+        Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer = NULL;
+    }
 
     return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
 }
 
 
-PFCB
+VOID
 CdFindPrefix (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PSTRING String,
-    OUT PSTRING RemainingPart
+    IN OUT PFCB *CurrentFcb,
+    IN OUT PUNICODE_STRING RemainingName,
+    IN BOOLEAN IgnoreCase
     )
 
 /*++
 
 Routine Description:
 
-    This routine searches the FCBs/DCBs of a volume and locates the
-    FCB/DCB with longest matching prefix for the given input string.  The
-    search is relative to the root of the volume.  So all names must start
-    with a "\".  All searching is done case insensitive.
+    This routine begins from the given CurrentFcb and walks through all of
+    components of the name looking for the longest match in the prefix
+    splay trees.  The search is relative to the starting Fcb so the
+    full name may not begin with a '\'.  On return this routine will
+    update Current Fcb with the lowest point it has travelled in the
+    tree.  It will also hold only that resource on return and it must
+    hold that resource.
 
 Arguments:
 
-    Vcb - Supplies the Vcb to search
+    CurrentFcb - Address to store the lowest Fcb we find on this search.
+        On return we will have acquired this Fcb.  On entry this is the
+        Fcb to examine.
 
-    String - Supplies the input string to search for
+    RemainingName - Supplies a buffer to store the exact case of the name being
+        searched for.  Initially will contain the upcase name based on the
+        IgnoreCase flag.
 
-    RemainingPart - Returns the string when the prefix no longer matches.
-        For example, if the input string is "\alpha\beta" only matches the
-        root directory then the remaining string is "alpha\beta".  If the
-        same string matches a DCB for "\alpha" then the remaining string is
-        "beta".
+    IgnoreCase - Indicates if we are doing a case-insensitive compare.
 
 Return Value:
 
-    PFCB - Returns a pointer to either an FCB or a DCB whichever is the
-        longest matching prefix.
+    None
 
 --*/
 
 {
-    PPREFIX_TABLE_ENTRY PrefixTableEntry;
-    PFCB Fcb;
+    UNICODE_STRING LocalRemainingName;
+
+    UNICODE_STRING FinalName;
+
+    PNAME_LINK NameLink;
+    PPREFIX_ENTRY PrefixEntry;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdFindPrefix:  Entered -> Vcb = %08lx\n", Vcb);
-    DebugTrace( 0, Dbg, "CdFindPrefix:  String -> %Z\n", String);
-
     //
-    //  Find the longest matching prefix
+    //  Make a local copy of the input strings.
     //
 
-    PrefixTableEntry = PfxFindPrefix( &Vcb->PrefixTable, String );
+    LocalRemainingName = *RemainingName;
 
     //
-    //  If we didn't find one then it's an error
+    //  Loop until we find the longest matching prefix.
     //
 
-    if (PrefixTableEntry == NULL) {
-
-        DebugTrace( 0, 0, "CdFindPrefix:  Error looking up a prefix", 0 );
-        CdBugCheck( 0, 0, 0 );
-    }
-
-    //
-    //  Get a pointer to the Fcb containing the prefix table entry
-    //
-
-    Fcb = CONTAINING_RECORD( PrefixTableEntry, FCB, PrefixTableEntry );
-
-    //
-    //  Tell the caller how many characters we were able to match.  We first
-    //  set the remaining part to the original string minus the matched
-    //  prefix, then we check if the remaining part starts with a backslash
-    //  and if it does then we remove the backslash from the remaining string.
-    //
-
-    RemainingPart->Length        = String->Length - Fcb->FullFileName.Length;
-    RemainingPart->MaximumLength = RemainingPart->Length;
-    RemainingPart->Buffer        = &String->Buffer[ Fcb->FullFileName.Length ];
-
-    if (RemainingPart->Length > 0
-        && RemainingPart->Buffer[0] == '\\') {
-
-        RemainingPart->Length        -= 1;
-        RemainingPart->MaximumLength -= 1;
-        RemainingPart->Buffer        += 1;
-    }
-
-    DebugTrace(0, Dbg, "CdFindPrefix:  RemainingPart set to %Z\n", RemainingPart);
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFindPrefix:  Exit -> %08lx\n", Fcb);
-
-    return Fcb;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-
-PFCB
-CdFindRelativePrefix (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN PSTRING String,
-    OUT PSTRING RemainingPart
-    )
-
-/*++
-
-Routine Description:
-
-    This routine searches the FCBs/DCBs of a volume and locates the
-    FCB/DCB with longest matching prefix for the given input string.  The
-    search is relative to a input DCB, and must not start with a leading "\"
-    All searching is done case insensitive.
-
-Arguments:
-
-    Dcb - Supplies the Dcb to start searching from
-
-    String - Supplies the input string to search for
-
-    RemainingPart - Returns the index into the string when the prefix no
-        longer matches.  For example, if the input string is "beta\gamma"
-        and the input Dcb is for "\alpha" and we only match beta then
-        the remaining string is "gamma".
-
-Return Value:
-
-    PFCB - Returns a pointer to either an FCB or a DCB whichever is the
-        longest matching prefix.
-
---*/
-
-{
-    ULONG DcbNameLength;
-    PCHAR DcbName;
-    ULONG NameLength;
-    PCHAR Name;
-
-    STRING FullString;
-    PCHAR Temp;
-
-    PFCB Fcb;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFindRelativePrefix:  Entered -> Dcb = %08lx\n", Dcb);
-    DebugTrace( 0, Dbg, "CdFindRelativePrefix:  Base   = %08lx\n", &Dcb->FullFileName);
-    DebugTrace( 0, Dbg, "CdFindRelativePrefix:  String = %08lx\n", String);
-
-    //
-    //  Initialize the Temp buffer to null so in our termination handler
-    //  we'll know to release pool
-    //
-
-    Temp = NULL;
-
-    try {
+    while (TRUE) {
 
         //
-        //  We first need to build the complete name and then do a relative
-        //  search from the root
+        //  If there are no characters left or we are not at an IndexFcb then
+        //  return immediately.
         //
 
-        DcbNameLength = Dcb->FullFileName.Length;
-        DcbName       = Dcb->FullFileName.Buffer;
-        NameLength    = String->Length;
-        Name          = String->Buffer;
+        if ((LocalRemainingName.Length == 0) ||
+            (SafeNodeType( *CurrentFcb ) != CDFS_NTC_FCB_INDEX)) {
 
-        if (Dcb->NodeTypeCode == CDFS_NTC_ROOT_DCB) {
+            return;
+        }
 
-            Temp = FsRtlAllocatePool( PagedPool, NameLength + 2 );
+        //
+        //  Split off the next component from the name.
+        //
 
-            Temp[0] = '\\';
-            strncpy( &Temp[1], Name, NameLength );
-            Temp[NameLength + 1] = '\0';
+        CdDissectName( IrpContext,
+                       &LocalRemainingName,
+                       &FinalName );
+
+        //
+        //  Check if this name is in the splay tree for this Scb.
+        //
+
+        if (IgnoreCase) {
+
+            NameLink = CdFindNameLink( IrpContext,
+                                       &(*CurrentFcb)->IgnoreCaseRoot,
+                                       &FinalName );
+
+            //
+            //  Get the prefix entry from this NameLink.  Don't access any
+            //  fields within it until we verify we have a name link.
+            //
+
+            PrefixEntry = (PPREFIX_ENTRY) CONTAINING_RECORD( NameLink,
+                                                             PREFIX_ENTRY,
+                                                             IgnoreCaseName );
 
         } else {
 
-            Temp = FsRtlAllocatePool( PagedPool, DcbNameLength + NameLength + 2 );
+            NameLink = CdFindNameLink( IrpContext,
+                                       &(*CurrentFcb)->ExactCaseRoot,
+                                       &FinalName );
 
-            strncpy( &Temp[0], DcbName, DcbNameLength );
-            Temp[DcbNameLength] = '\\';
-            strncpy( &Temp[DcbNameLength+1], Name, NameLength );
-            Temp[DcbNameLength+1+NameLength] = '\0';
-        }
-
-        RtlInitString( &FullString, Temp );
-
-        //
-        //  Find the prefix relative to the volume
-        //
-
-        DebugTrace( 0, Dbg, "CdFindRelativePrefix:  FullString = %08lx\n", &FullString);
-
-        Fcb = CdFindPrefix( IrpContext,
-                            Dcb->Vcb,
-                            &FullString,
-                            RemainingPart );
-
-        //
-        //  Now adjust the remaining part to take care of the relative
-        //  volume prefix.
-        //
-
-        RemainingPart->Buffer = &String->Buffer[String->Length - RemainingPart->Length];
-
-        DebugTrace(0, Dbg, "CdFindRelativePrefix:  RemainingPart set to %Z\n", RemainingPart);
-
-    } finally {
-
-        //
-        //  Release the pool if we it was allocated
-        //
-
-        if (Temp != NULL) {
-
-            ExFreePool( Temp );
+            PrefixEntry = (PPREFIX_ENTRY) CONTAINING_RECORD( NameLink,
+                                                             PREFIX_ENTRY,
+                                                             ExactCaseName );
         }
 
         //
-        //  And return to our caller
+        //  If we didn't find a match then exit.
         //
 
-        DebugTrace(-1, Dbg, "CdFindRelativePrefix:  Exit -> %08lx\n", Fcb);
+        if (NameLink == NULL) { return; }
+
+        //
+        //  If this is a case-insensitive match then copy the exact case of the name into
+        //  the input buffer.
+        //
+
+        if (IgnoreCase) {
+
+            RtlCopyMemory( FinalName.Buffer,
+                           PrefixEntry->ExactCaseName.FileName.Buffer,
+                           PrefixEntry->ExactCaseName.FileName.Length );
+        }
+
+        //
+        //  Update the caller's remaining name string to reflect the fact that we found
+        //  a match.
+        //
+
+        *RemainingName = LocalRemainingName;
+
+        //
+        //  Move down to the next component in the tree.  Acquire without waiting.
+        //  If this fails then lock the Fcb to reference this Fcb and then drop
+        //  the parent and acquire the child.
+        //
+
+        if (!CdAcquireFcbExclusive( IrpContext, PrefixEntry->Fcb, TRUE )) {
+
+            //
+            //  If we can't wait then raise CANT_WAIT.
+            //
+
+            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
+
+                CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
+            }
+
+            CdLockVcb( IrpContext, IrpContext->Vcb );
+            PrefixEntry->Fcb->FcbReference += 1;
+            CdUnlockVcb( IrpContext, IrpContext->Vcb );
+
+            CdReleaseFcb( IrpContext, *CurrentFcb );
+            CdAcquireFcbExclusive( IrpContext, PrefixEntry->Fcb, FALSE );
+
+            CdLockVcb( IrpContext, IrpContext->Vcb );
+            PrefixEntry->Fcb->FcbReference -= 1;
+            CdUnlockVcb( IrpContext, IrpContext->Vcb );
+
+        } else {
+
+            CdReleaseFcb( IrpContext, *CurrentFcb );
+        }
+
+        *CurrentFcb = PrefixEntry->Fcb;
+    }
+}
+
+
+//
+//  Local support routine
+//
+
+PNAME_LINK
+CdFindNameLink (
+    IN PIRP_CONTEXT IrpContext,
+    IN PRTL_SPLAY_LINKS *RootNode,
+    IN PUNICODE_STRING Name
+    )
+
+/*++
+
+Routine Description:
+
+    This routine searches through a splay link tree looking for a match for the
+    input name.  If we find the corresponding name we will rebalance the
+    tree.
+
+Arguments:
+
+    RootNode - Supplies the parent to search.
+
+    Name - This is the name to search for.  Note if we are doing a case
+        insensitive search the name would have been upcased already.
+
+Return Value:
+
+    PNAME_LINK - The name link found or NULL if there is no match.
+
+--*/
+
+{
+    FSRTL_COMPARISON_RESULT Comparison;
+    PNAME_LINK Node;
+    PRTL_SPLAY_LINKS Links;
+
+    PAGED_CODE();
+
+    Links = *RootNode;
+
+    while (Links != NULL) {
+
+        Node = CONTAINING_RECORD( Links, NAME_LINK, Links );
+
+        //
+        //  Compare the prefix in the tree with the full name
+        //
+
+        Comparison = CdFullCompareNames( IrpContext, &Node->FileName, Name );
+
+        //
+        //  See if they don't match
+        //
+
+        if (Comparison == GreaterThan) {
+
+            //
+            //  The prefix is greater than the full name
+            //  so we go down the left child
+            //
+
+            Links = RtlLeftChild( Links );
+
+            //
+            //  And continue searching down this tree
+            //
+
+        } else if (Comparison == LessThan) {
+
+            //
+            //  The prefix is less than the full name
+            //  so we go down the right child
+            //
+
+            Links = RtlRightChild( Links );
+
+            //
+            //  And continue searching down this tree
+            //
+
+        } else {
+
+            //
+            //  We found it.
+            //
+            //  Splay the tree and save the new root.
+            //
+
+            *RootNode = RtlSplay( Links );
+
+            return Node;
+        }
     }
 
-    return Fcb;
+    //
+    //  We didn't find the Link.
+    //
+
+    return NULL;
 }
-
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+CdInsertNameLink (
+    IN PIRP_CONTEXT IrpContext,
+    IN PRTL_SPLAY_LINKS *RootNode,
+    IN PNAME_LINK NameLink
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will insert a name in the splay tree pointed to
+    by RootNode.
+
+    The name could already exist in this tree for a case-insensitive tree.
+    In that case we simply return FALSE and do nothing.
+
+Arguments:
+
+    RootNode - Supplies a pointer to the table.
+
+    NameLink - Contains the new link to enter.
+
+Return Value:
+
+    BOOLEAN - TRUE if the name is inserted, FALSE otherwise.
+
+--*/
+
+{
+    FSRTL_COMPARISON_RESULT Comparison;
+    PNAME_LINK Node;
+
+    PAGED_CODE();
+
+    RtlInitializeSplayLinks( &NameLink->Links );
+
+    //
+    //  If we are the first entry in the tree, just become the root.
+    //
+
+    if (*RootNode == NULL) {
+
+        *RootNode = &NameLink->Links;
+
+        return TRUE;
+    }
+
+    Node = CONTAINING_RECORD( *RootNode, NAME_LINK, Links );
+
+    while (TRUE) {
+
+        //
+        //  Compare the prefix in the tree with the prefix we want
+        //  to insert.
+        //
+
+        Comparison = CdFullCompareNames( IrpContext, &Node->FileName, &NameLink->FileName );
+
+        //
+        //  If we found the entry, return immediately.
+        //
+
+        if (Comparison == EqualTo) { return FALSE; }
+
+        //
+        //  If the tree prefix is greater than the new prefix then
+        //  we go down the left subtree
+        //
+
+        if (Comparison == GreaterThan) {
+
+            //
+            //  We want to go down the left subtree, first check to see
+            //  if we have a left subtree
+            //
+
+            if (RtlLeftChild( &Node->Links ) == NULL) {
+
+                //
+                //  there isn't a left child so we insert ourselves as the
+                //  new left child
+                //
+
+                RtlInsertAsLeftChild( &Node->Links, &NameLink->Links );
+
+                //
+                //  and exit the while loop
+                //
+
+                break;
+
+            } else {
+
+                //
+                //  there is a left child so simply go down that path, and
+                //  go back to the top of the loop
+                //
+
+                Node = CONTAINING_RECORD( RtlLeftChild( &Node->Links ),
+                                          NAME_LINK,
+                                          Links );
+            }
+
+        } else {
+
+            //
+            //  The tree prefix is either less than or a proper prefix
+            //  of the new string.  We treat both cases as less than when
+            //  we do insert.  So we want to go down the right subtree,
+            //  first check to see if we have a right subtree
+            //
+
+            if (RtlRightChild( &Node->Links ) == NULL) {
+
+                //
+                //  These isn't a right child so we insert ourselves as the
+                //  new right child
+                //
+
+                RtlInsertAsRightChild( &Node->Links, &NameLink->Links );
+
+                //
+                //  and exit the while loop
+                //
+
+                break;
+
+            } else {
+
+                //
+                //  there is a right child so simply go down that path, and
+                //  go back to the top of the loop
+                //
+
+                Node = CONTAINING_RECORD( RtlRightChild( &Node->Links ),
+                                          NAME_LINK,
+                                          Links );
+            }
+        }
+    }
+
+    return TRUE;
+}
+
+
+
+

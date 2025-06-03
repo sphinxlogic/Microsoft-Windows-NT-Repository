@@ -91,11 +91,19 @@ Return Value:
     PAGED_CODE();
     DebugTrace(+1, Dbg, "MupForwardIrp\n", 0);
 
+    if (MupEnableDfs &&
+            MupDeviceObject->DeviceObject.DeviceType == FILE_DEVICE_DFS) {
+        status = DfsVolumePassThrough((PDEVICE_OBJECT)MupDeviceObject, Irp);
+        return( status );
+    }
+
     irpSp = IoGetCurrentIrpStackLocation( Irp );
 
     //
     // Find the FCB for this file object
     //
+
+    FsRtlEnterFileSystem();
 
     MupDecodeFileObject(
         irpSp->FileObject,
@@ -112,6 +120,8 @@ Return Value:
             //
 
             DebugTrace(0, Dbg, "The fail is closing\n", 0);
+
+            FsRtlExitFileSystem();
 
             MupCompleteRequest( Irp, STATUS_INVALID_DEVICE_REQUEST );
             status = STATUS_INVALID_DEVICE_REQUEST;
@@ -184,6 +194,8 @@ Return Value:
     //
     // Return to the caller.
     //
+
+    FsRtlExitFileSystem();
 
     DebugTrace(-1, Dbg, "MupForwardIrp -> %08lx\n", status);
     return status;

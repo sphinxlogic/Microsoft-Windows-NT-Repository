@@ -63,9 +63,12 @@ BOOL		bMsvcBookOverride = fFalse;
 	#if defined(_M_IX86) || defined(_M_ALPHA)
 	#define RISC_DUMMY_ARGS
 	#define RISC_DUMMY_PUSH
-    #elif defined(_M_RX000)
+    #elif defined(_M_MRX000)
 	#define RISC_DUMMY_ARGS		int,int,int,int,
 	#define RISC_DUMMY_PUSH		0,0,0,0,
+    #elif defined(_M_PPC)
+	#define RISC_DUMMY_ARGS		int,int,int,int,int,int,int,int,
+	#define RISC_DUMMY_PUSH		0,0,0,0,0,0,0,0,
 	#else
 	#pragma message("WARNING:Review RISC_DUMMY_ARGS for this processor")
 	#define RISC_DUMMY_ARGS
@@ -768,7 +771,7 @@ HelpFileSearch::HelpFileSearch ( LPCTSTR szFile ) : FileSearch()
 			pchNumber = _tcschr (szValueName, '\0');
 
 			do	{
-				ultoa (ixValue++, szNumber, 10);
+				_ultoa (ixValue++, szNumber, 10);
 				_tcscpy (pchNumber, szNumber);
 
 				rvalue.SetName ( rkHelp, szValueName );
@@ -1072,14 +1075,14 @@ HashValue::HashValue (
 LPCTSTR	szOriginal
 ) {
 	m_dwValue = HashFromSz (szOriginal);
-	ultoa (m_dwValue, m_szValue, 10);
+	_ultoa (m_dwValue, m_szValue, 10);
 }
 
 
 HashValue::HashValue (
 DWORD	dwValue
 ) : m_dwValue(dwValue) {
-	ultoa (dwValue, m_szValue, 10);
+	_ultoa (dwValue, m_szValue, 10);
 }
 
 //////////////////////////////////////////////////////////////////////////////

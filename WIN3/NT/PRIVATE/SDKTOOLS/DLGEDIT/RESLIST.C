@@ -304,7 +304,7 @@ LPWSTR itoaw(
 {
     CHAR szAnsi[17];
 
-    itoa(value, szAnsi, radix);
+    _itoa(value, szAnsi, radix);
 
     MultiByteToWideChar(CP_ACP, 0, szAnsi, -1, string, 17);
 

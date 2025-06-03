@@ -242,6 +242,7 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
      BOOLEAN        block_skipped_flag = TRUE ;
      BOOLEAN        temp_renamed_dir = FALSE ;
      DBLK           temp_new_dir ;
+     UINT32         last_stream_id = STRM_INVALID ;
 
      
 
@@ -279,7 +280,7 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
 #endif
 
      /* if the current directory is invalid AND it is a file ... */
-     if( lp->ddb_create_error && FS_GetBlockType( tape_dblk_ptr ) == BT_FDB ) {
+     if( lp->ddb_create_error && FS_GetBlockType( tape_dblk_ptr ) == BT_FDB) {
 
           switch( lp->ddb_create_error ) {
           case FS_OUT_OF_SPACE:
@@ -501,7 +502,10 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
                LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, res_id, lp->curr_ddb, tape_dblk_ptr, -1L ) ;
           }
 
-          if( FS_GetBlockType( tape_dblk_ptr ) == BT_IDB ) {
+          if ( DLE_GetDeviceType(BSD_GetDLE(bsd_ptr)) == FS_EMS_DRV ) {
+               return (error ) ;
+
+          } else if( FS_GetBlockType( tape_dblk_ptr ) == BT_IDB ) {
                LP_FinishedOper( lp ) ;
 
                return( error ) ;
@@ -531,6 +535,24 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
 #else
      error = FS_OpenObj( fsh, &hdl, tape_dblk_ptr, FS_WRITE ) ;
 #endif
+
+     if(( error == FS_COMPRES_RESET_FAIL )||
+        ( error == FS_EMS_NO_PUBLIC ) ||
+        ( error == FS_EMS_NO_PRIVATE ) ) {
+          LP_MsgError( pid, 
+                       bsd_ptr, 
+                       fsh,
+                       &lp->tpos,
+                       error,
+                       lp->curr_ddb,
+                       tape_dblk_ptr,
+                       0L ) ;
+
+     }
+
+     if( error == FS_COMPRES_RESET_FAIL ) {
+          error = SUCCESS ;
+     }
 
      if( error == SUCCESS ) {
 
@@ -580,6 +602,21 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
                     }
                }
 
+               if (lp->rr.stream.id != STRM_INVALID ) {
+                    if ( (last_stream_id == STRM_EMS_MONO_DB) ||
+                         (last_stream_id == STRM_EMS_MONO_LOG) ) {
+
+                         CHAR  strm_name[256] ;
+                         INT16 size = sizeof(strm_name) ;
+
+                         EMS_GetStreamName( hdl, (BYTE_PTR)strm_name, &size ) ;
+                         LP_MsgLogStream( pid, bsd_ptr, fsh, &lp->tpos, strm_name ) ;
+
+                    }
+               
+                    last_stream_id = lp->rr.stream.id ;
+               }
+
                atempt_size = write_size ;
 
 #ifdef TDEMO
@@ -590,11 +627,11 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
 #else
                error       = FS_WriteObj( hdl, tape_data_buf, &write_size, &blk_size, &lp->rr.stream ) ;
 #endif
-
                switch( error ) {
 
                case FS_DONT_WANT_STREAM:
                     LP_SkipStream( lp ) ;
+                    last_stream_id = STRM_INVALID ;
                     skippedStream = TRUE;
                     error = SUCCESS ;
                     break ;
@@ -678,11 +715,11 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
                     error = SUCCESS ;
                     break ;
 
+               case FS_DEVICE_ERROR:
                case FS_COMM_FAILURE:
-                    LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, FS_COMM_FAILURE, lp->curr_ddb, tape_dblk_ptr, lp->current_stream_id ) ;
+                    LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, error, lp->curr_ddb, tape_dblk_ptr, lp->current_stream_id ) ;
                     break;
 
-               case FS_DEVICE_ERROR:
                default:
                     LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, LP_FILE_WRITE_ERROR, lp->curr_ddb, tape_dblk_ptr, lp->current_stream_id ) ;
                     break ;
@@ -786,6 +823,19 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
           }
 
           return_status = error ;
+
+
+          if ( (last_stream_id == STRM_EMS_MONO_DB) ||
+               (last_stream_id == STRM_EMS_MONO_LOG) ) {
+
+               CHAR  strm_name[256] ;
+               INT16 size = sizeof(strm_name) ;
+
+               EMS_GetStreamName( hdl, (BYTE_PTR)strm_name, &size ) ;
+               LP_MsgLogStream( pid, bsd_ptr, fsh, &lp->tpos, strm_name ) ;
+
+          }
+
 #ifdef TDEMO
           error = SUCCESS ;
 #else
@@ -822,6 +872,11 @@ DATA_FRAGMENT_PTR    frag_ptr )      /* I - Buffer to use for fragments */
 
           if ( error == FS_ACCESS_DENIED ) {
                LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, LP_PRIVILEGE_ERROR, lp->curr_ddb, tape_dblk_ptr, lp->current_stream_id ) ;
+          } else if ( ( error == FS_COMM_FAILURE ) &&
+               ( DLE_GetDeviceType(BSD_GetDLE(bsd_ptr)) == FS_EMS_DRV ) ) {
+               LP_MsgError( pid, bsd_ptr, fsh, &lp->tpos, error, lp->curr_ddb, tape_dblk_ptr, 0L ) ;
+               return_status = SUCCESS ;
+
           } else if ( return_status == error ) {
                return_status = SUCCESS ;
           }

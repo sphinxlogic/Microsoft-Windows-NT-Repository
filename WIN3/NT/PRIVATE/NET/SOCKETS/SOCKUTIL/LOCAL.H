@@ -73,4 +73,3 @@ setnetent(
     );
 
 #endif // _LOCAL_
-

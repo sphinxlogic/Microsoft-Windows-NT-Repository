@@ -102,7 +102,7 @@ Return Value:
     //
 
     WaitStateChange->NewState = DbgKdExceptionStateChange;
-    WaitStateChange->ProcessorType = (USHORT)KeProcessorType;
+    WaitStateChange->ProcessorLevel = KeProcessorLevel;
     WaitStateChange->Processor = (USHORT)KdpGetCurrentPrcb()->Number;
     WaitStateChange->NumberProcessors = (ULONG)KeNumberProcessors;
     WaitStateChange->Thread = (PVOID)KdpGetCurrentThread();
@@ -305,7 +305,7 @@ Return Value:
 
     case DEBUG_CONTROL_SPACE_DPCACTIVE:
 
-        *(BOOLEAN *)Buffer = KdpIsExecutingDpc();
+        *(BOOLEAN *)Buffer = KeIsExecutingDpc();
         AdditionalData->Length = sizeof( ULONG );
         a->ActualBytesRead = AdditionalData->Length;
         m->ReturnStatus = STATUS_SUCCESS;

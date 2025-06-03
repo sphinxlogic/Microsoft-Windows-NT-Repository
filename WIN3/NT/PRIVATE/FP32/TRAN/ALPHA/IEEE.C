@@ -13,6 +13,7 @@
 *   10-30-92  GDP   fpreset now modifies the saved fp context if called
 *                   from a signal handler
 *   07-14-93  TVB   Adapted for Alpha AXP.
+*   04-20-95  haslock   Modifications to support EV4.5 and EV5
 *
 */
 
@@ -48,13 +49,26 @@ extern void _set_softfpcr(unsigned int);
 #define FPCR_ROUND_NEAR                 ((__int64)0x0800000000000000)
 #define FPCR_ROUND_UP                   ((__int64)0x0c00000000000000)
 
+#define FPCR_ROUND_MASK                 ((__int64)0x0c00000000000000)
+
 #define FPCR_DISABLE_INVALID            ((__int64)0x0002000000000000)
 #define FPCR_DISABLE_DIVISION_BY_ZERO   ((__int64)0x0004000000000000)
 #define FPCR_DISABLE_OVERFLOW           ((__int64)0x0008000000000000)
-#define FPCR_ROUND_MASK                 ((__int64)0x0c00000000000000)
-#define FPCR_UNDERFLOW_TO_ZERO_ENABLE   ((__int64)0x1000000000000000)
+
 #define FPCR_DISABLE_UNDERFLOW          ((__int64)0x2000000000000000)
 #define FPCR_DISABLE_INEXACT            ((__int64)0x4000000000000000)
+
+#define FPCR_UNDERFLOW_TO_ZERO_ENABLE   ((__int64)0x1000000000000000)
+
+#define FPCR_STATUS_INVALID             ((__int64)0x0010000000000000)
+#define FPCR_STATUS_DIVISION_BY_ZERO    ((__int64)0x0020000000000000)
+#define FPCR_STATUS_OVERFLOW            ((__int64)0x0040000000000000)
+#define FPCR_STATUS_UNDERFLOW           ((__int64)0x0080000000000000)
+#define FPCR_STATUS_INEXACT             ((__int64)0x0100000000000000)
+#define FPCR_STATUS_SUMMARY             ((__int64)0x8000000000000000)
+
+#define FPCR_STATUS_MASK                ((__int64)0x81f0000000000000)
+#define FPCR_DISABLE_MASK               ((__int64)0x700c000000000000)
 
 //
 // Define Alpha AXP Software FPCR bits (NT version).
@@ -117,11 +131,15 @@ unsigned int _statusfp()
 
 unsigned int _clearfp()
 {
+    unsigned __int64 oldFpcr;
     unsigned int newstatus;
     unsigned int oldstatus;
 
     oldstatus = _get_softfpcr();
     newstatus = oldstatus & (~SW_FPCR_STATUS_MASK);
+
+    oldFpcr = _get_fpcr() & (FPCR_ROUND_MASK|FPCR_UNDERFLOW_TO_ZERO_ENABLE);
+    _set_fpcr (oldFpcr);
     _set_softfpcr(newstatus);
 
     return _abstract_sw(oldstatus);
@@ -163,8 +181,35 @@ unsigned int _controlfp(unsigned int newctrl, unsigned int mask)
         newCw = _soft_cw(newabs);
         _set_softfpcr(newCw);
     }
-    if (mask & (_MCW_RC | _MCW_EM)) {
+
+    if (mask & (_MCW_RC | _MCW_EM | _MCW_DN)) {
         newFpcr = _hw_cw(newabs);
+
+// Fix hardware denormal control to match software bit
+	if ((newCw & SW_FPCR_DENORMAL_RESULT_ENABLE) == 0 )
+	    newFpcr |= FPCR_UNDERFLOW_TO_ZERO_ENABLE;
+	else
+	    newFpcr &= ~FPCR_UNDERFLOW_TO_ZERO_ENABLE;
+	
+// Only disable a trap if the trap is signaled in the status bit
+// and the trap is not enabled.
+	if (newabs & _MCW_EM) {
+	    if ((newCw & SW_FPCR_STATUS_INVALID) &&
+		(newCw & SW_FPCR_ENABLE_INVALID == 0 ))
+	        newFpcr |= FPCR_DISABLE_INVALID;
+	    if ((newCw & SW_FPCR_STATUS_DIVISION_BY_ZERO) &&
+		(newCw & SW_FPCR_ENABLE_DIVISION_BY_ZERO == 0 ))
+	        newFpcr |= FPCR_DISABLE_DIVISION_BY_ZERO;
+	    if ((newCw & SW_FPCR_STATUS_OVERFLOW) &&
+		(newCw & SW_FPCR_ENABLE_OVERFLOW == 0 ))
+	        newFpcr |= FPCR_DISABLE_OVERFLOW;
+	    if ((newCw & SW_FPCR_STATUS_UNDERFLOW) &&
+		(newCw & SW_FPCR_ENABLE_UNDERFLOW == 0 ))
+	        newFpcr |= FPCR_DISABLE_UNDERFLOW;
+	    if ((newCw & SW_FPCR_STATUS_INEXACT) &&
+		(newCw & SW_FPCR_ENABLE_INEXACT == 0 ))
+	        newFpcr |= FPCR_DISABLE_INEXACT;
+	}
         _set_fpcr(newFpcr);
     }
 
@@ -190,27 +235,28 @@ void _fpreset()
 {
     PEXCEPTION_POINTERS excptrs = (PEXCEPTION_POINTERS) _pxcptinfoptrs;
     unsigned int status;
+    unsigned __int64 newFpcr;
 
     //
     // Clear IEEE status bits. Clear software IEEE trap enable bits.
+    // Clear denormal enable bit.
     //
 
     status = _get_softfpcr();
-    status &= ~(SW_FPCR_STATUS_MASK | SW_FPCR_ENABLE_MASK);
+    status &= ~(SW_FPCR_STATUS_MASK | SW_FPCR_ENABLE_MASK |
+		SW_FPCR_DENORMAL_RESULT_ENABLE);
     _set_softfpcr(status);
 
     //
-    // Set round to nearest mode. Clear FPCR status bits. Set hardware IEEE
-    // trap disable bits (future chip support).
+    // Set round to nearest mode. Clear FPCR status bits.
+    // Set Denormal Flush to Zero
     //
 
-    _set_fpcr(FPCR_ROUND_NEAR |
-              FPCR_DISABLE_INVALID |
-              FPCR_DISABLE_DIVISION_BY_ZERO |
-              FPCR_DISABLE_OVERFLOW |
-              FPCR_DISABLE_UNDERFLOW |
-              FPCR_DISABLE_INEXACT |
-              FPCR_UNDERFLOW_TO_ZERO_ENABLE);
+    // Exceptions enabled so first instance can set the status bit
+    // Exception handler will disable further exceptions if the
+    // exceptions mask bit is set.
+
+    _set_fpcr(FPCR_ROUND_NEAR | FPCR_UNDERFLOW_TO_ZERO_ENABLE);
 
     if (excptrs &&
         excptrs->ContextRecord->ContextFlags & CONTEXT_FLOATING_POINT) {
@@ -450,3 +496,11 @@ unsigned int _abstract_sw(unsigned int sw)
 
     return abstr;
 }
+
+
+
+
+
+
+
+

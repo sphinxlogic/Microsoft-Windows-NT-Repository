@@ -139,7 +139,7 @@ CreateSprofWindow(
 BOOL
 PrintToSprofWindow(
     HANDLE Window,
-    PUCHAR String,
+    PUCHAR String
     );
 
 HANDLE
@@ -220,6 +220,3 @@ ProfilerDialog(
     LPARAM lParam
     );
 #endif
-
-
-

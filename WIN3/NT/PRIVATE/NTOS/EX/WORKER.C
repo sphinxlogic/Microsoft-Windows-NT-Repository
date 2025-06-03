@@ -21,7 +21,6 @@ Revision History:
 --*/
 
 #include "exp.h"
-#include <zwapi.h>
 
 //
 // Define priorities for delayed and critical worker threads. Note that these do not run
@@ -108,7 +107,11 @@ ExpWorkerInitialization(
     switch (MmQuerySystemSize()) {
     case MmSmallSystem:
         NumberOfDelayedThreads = MEDIUM_NUMBER_OF_THREADS;
-        NumberOfCriticalThreads = SMALL_NUMBER_OF_THREADS;
+        if (MmNumberOfPhysicalPages > ((12*1024*1024)/PAGE_SIZE) ) {
+            NumberOfCriticalThreads = MEDIUM_NUMBER_OF_THREADS;
+        } else {
+            NumberOfCriticalThreads = SMALL_NUMBER_OF_THREADS;
+        }
         break;
 
     case MmMediumSystem:
@@ -286,7 +289,10 @@ ExpWorkerThread(
     switch ( QueueType ) {
 
         case HyperCriticalWorkQueue:
-            WaitMode = KernelMode;
+            if ( MmIsThisAnNtAsSystem() ) {
+                WaitMode = KernelMode;
+                }
+
             KeSetBasePriorityThread(KeGetCurrentThread(), HYPER_CRITICAL_WORK_QUEUE_PRIORITY);
             //KeSetPriorityThread(KeGetCurrentThread(), 23);
             break;
@@ -391,3 +397,4 @@ ExpWorkerThreadFilter(
 }
 
 #endif
+

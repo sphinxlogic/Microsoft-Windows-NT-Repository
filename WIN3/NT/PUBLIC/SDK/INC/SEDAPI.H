@@ -21,6 +21,10 @@
 #ifndef _SEDAPI_H_
 #define _SEDAPI_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //
 // The following are status codes indicating the state of the permissions on
 // the resource we are setting permissions for.
@@ -732,5 +736,8 @@ SedTakeOwnership(
         DWORD                        Flags
 	);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif //_SEDAPI_H_

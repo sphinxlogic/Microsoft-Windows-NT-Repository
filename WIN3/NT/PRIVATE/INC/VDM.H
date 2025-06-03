@@ -21,6 +21,8 @@ Revision History:
 #ifndef _VDM_H_
 #define _VDM_H_
 
+
+
 typedef enum _VdmServiceClass {
     VdmStartExecution,         // is also defined in ntos\ke\i386\biosa.asm
     VdmQueueInterrupt,
@@ -28,7 +30,9 @@ typedef enum _VdmServiceClass {
     VdmInitialize,
     VdmFeatures,
     VdmSetInt21Handler,
-    VdmQueryDir
+    VdmQueryDir,
+    VdmPrinterDirectIoOpen,
+    VdmPrinterDirectIoClose,
 } VDMSERVICECLASS, *PVDMSERVICECLASS;
 
 
@@ -49,8 +53,6 @@ typedef struct _VdmQueryDirInfo {
 } VDMQUERYDIRINFO, *PVDMQUERYDIRINFO;
 
 #endif
-
-
 
 
 /*
@@ -98,14 +100,33 @@ typedef struct _VdmVirtualIca{
 
 // VDM state which was earlier in vdmtib->flags has been moved to
 // dos arena at following fixed address.
+#ifdef _VDMNTOS_
+
+#define  FIXED_NTVDMSTATE_LINEAR    VdmFixedStateLinear
+#define  FIXED_NTVDMSTATE_SIZE      4
+
+#else  // _VDMNTOS_
+
+/* XLATON */
+#if defined(_PC98_)
+#define  FIXED_NTVDMSTATE_SEGMENT   0x60
+#else  // !_PC98_
 #define  FIXED_NTVDMSTATE_SEGMENT   0x70
+#endif // _PC98_
+
 #define  FIXED_NTVDMSTATE_OFFSET    0x14
 #define  FIXED_NTVDMSTATE_LINEAR    ((FIXED_NTVDMSTATE_SEGMENT << 4) + FIXED_NTVDMSTATE_OFFSET)
+#define  FIXED_NTVDMSTATE_SIZE      4
+/* XLATOFF */
+
+#endif // _VDMNTOS_
+
 #if defined (i386)
   // defined on x86 only since on mips we must reference thru sas
 #define  pNtVDMState                ((PULONG)FIXED_NTVDMSTATE_LINEAR)
 #endif
 
+/* XLATON */
 //
 // Vdm State Flags
 //
@@ -129,10 +150,48 @@ typedef struct _VdmVirtualIca{
 #define VDM_WOWBLOCKED          0x00100000
 #define VDM_IDLEACTIVITY        0x00200000
 #define VDM_TIMECHANGE          0x00400000
+#define VDM_WOWHUNGAPP          0x00800000
 
 #define VDM_PE_MASK             0x80000000
 
+/* XLATOFF */
 
+//
+// If the size of the structure is changed, ke\i386\instemul.asm must
+// be modified too.  If not, it will fail to build
+//
+#pragma pack(1)
+typedef struct _Vdm_InterruptHandler {
+    USHORT  CsSelector;
+    USHORT  Flags;
+    ULONG   Eip;
+} VDM_INTERRUPTHANDLER, *PVDM_INTERRUPTHANDLER;
+#pragma pack()
+
+typedef struct _Vdm_FaultHandler {
+    USHORT  CsSelector;
+    USHORT  SsSelector;
+    ULONG   Eip;
+    ULONG   Esp;
+    ULONG   Flags;
+} VDM_FAULTHANDLER, *PVDM_FAULTHANDLER;
+
+#pragma pack(1)
+/* XLATON */
+typedef struct _VdmPmStackInfo {        /* VDMTIB */
+    USHORT LockCount;
+    USHORT Flags;
+    USHORT SsSelector;
+    USHORT SaveSsSelector;
+    ULONG  SaveEsp;
+    ULONG  SaveEip;
+    ULONG  DosxIntIret;
+    ULONG  DosxIntIretD;
+    ULONG  DosxFaultIret;
+    ULONG  DosxFaultIretD;
+} VDM_PMSTACKINFO, *PVDM_PMSTACKINFO;
+/* XLATOFF */
+#pragma pack()
 
 
 #if defined(i386)
@@ -191,16 +250,26 @@ typedef enum _VdmEventClass {
 
 // VdmPrinterInfo
 
-#define PRINTER_INITITAL_STATE      0
-#define PRINTER_EMULATE_IN_KERNEL   1
-#define PRINTER_EMULATE_IN_VDM      2
+#define VDM_NUMBER_OF_LPT		3
+
+#define PRT_MODE_NO_SIMULATION		1
+#define PRT_MODE_SIMULATE_STATUS_PORT	2
+#define PRT_MODE_DIRECT_IO		3
+#define PRT_MODE_VDD_CONNECTED		4
+
+#define PRT_DATA_BUFFER_SIZE	16
 
 typedef struct _Vdm_Printer_Info {
     PUCHAR prt_State;
     PUCHAR prt_Control;
     PUCHAR prt_Status;
     PUCHAR prt_HostState;
-    ULONG  fReflect;
+    USHORT prt_PortAddr[VDM_NUMBER_OF_LPT];
+    HANDLE prt_Handle[VDM_NUMBER_OF_LPT];
+    UCHAR  prt_Mode[VDM_NUMBER_OF_LPT];
+    USHORT prt_BytesInBuffer[VDM_NUMBER_OF_LPT];
+    UCHAR  prt_Buffer[VDM_NUMBER_OF_LPT][PRT_DATA_BUFFER_SIZE];
+    ULONG  prt_Scratch;
 } VDM_PRINTER_INFO, *PVDM_PRINTER_INFO;
 
 
@@ -219,6 +288,7 @@ typedef struct _VdmFaultInfo{
 typedef struct _VdmStringIoInfo {
     USHORT PortNumber;
     USHORT Size;
+    BOOLEAN Rep;
     BOOLEAN Read;
     ULONG Count;
     ULONG Address;
@@ -248,37 +318,6 @@ typedef struct _VdmEventInfo {
     };
 } VDMEVENTINFO, *PVDMEVENTINFO;
 
-//
-// If the size of the structure is changed, ke\i386\instemul.asm must
-// be modified too.  If not, it will fail to build
-//
-#pragma pack(1)
-typedef struct _Vdm_InterruptHandler {
-    USHORT  CsSelector;
-    USHORT  Flags;
-    ULONG   Eip;
-} VDM_INTERRUPTHANDLER, *PVDM_INTERRUPTHANDLER;
-#pragma pack()
-
-typedef struct _Vdm_FaultHandler {
-    USHORT  CsSelector;
-    USHORT  SsSelector;
-    ULONG   Eip;
-    ULONG   Esp;
-    ULONG   Flags;
-} VDM_FAULTHANDLER, *PVDM_FAULTHANDLER;
-
-#pragma pack(1)
-/* XLATON */
-typedef struct _VdmPmStackInfo {        /* VDMTIB */
-    USHORT LockCount;
-    USHORT SsSelector;
-    USHORT SaveSsSelector;
-    ULONG  Esp;
-    ULONG  SaveEsp;
-} VDM_PMSTACKINFO, *PVDM_PMSTACKINFO;
-/* XLATOFF */
-#pragma pack()
 
 // Sudeepb 12-Mar-1993
 // Scratch areas are used from VDMTib to get user space while

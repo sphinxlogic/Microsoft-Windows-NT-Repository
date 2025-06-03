@@ -1439,7 +1439,7 @@ GetInterfacePtrDefaultAttribute()
 	}
 /****************************************************************************
  These functions should be inlined virtuals but are not because the MIPS
- compiler is stupid.
+ compiler is wrong.
  ****************************************************************************/
 node_state
 node_wchar_t::SCheck(

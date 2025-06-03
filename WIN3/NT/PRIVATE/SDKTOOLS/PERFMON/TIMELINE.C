@@ -738,5 +738,5 @@ int TLineStop (HWND hWnd)
    return (ILineStop (pTLine->hWndILine)) ;
    }
 
-
-
+
+

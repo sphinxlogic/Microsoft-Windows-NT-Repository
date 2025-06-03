@@ -135,6 +135,102 @@ endif
 
 stdENDP _ExInterlockedAddLargeInteger
 
+        page ,132
+        subttl  "ExInterlocked Exchange Add Large Integer"
+;++
+;
+; LARGE_INTEGER
+; ExInterlockedExchangeAddLargeInteger (
+;    IN PLARGE_INTEGER Addend,
+;    IN LARGE_INTEGER Increment,
+;    IN PKSPIN_LOCK Lock
+;    )
+;
+; Routine Description:
+;
+;    This function performs an interlocked add of an increment value to an
+;    addend variable of type unsigned large integer. The initial value of
+;    the addend variable is returned as the function value.
+;
+;    N.B. The cmpxchg8b instruction is only supported on some processors.
+;         If the host processor does not support this instruction, then
+;         then following code is patched to contain a jump to the normal
+;         add large integer code which has a compatible calling sequence
+;         and data structure.
+;
+; Arguments:
+;
+;    (TOS + 4) = Addend - Supplies a pointer to the addend variable.
+;
+;    (TOS + 8) = Increment - Supplies the increment value.
+;
+;    (TOS + 16) = Lock - Supplies a pointer a spin lock.
+;
+;    N.B. This routine does not use the spin lock.
+;
+; Return Value:
+;
+;    The initial value of the addend variable is stored in eax:edx.
+;
+;--
+
+XaAddend      equ     [esp + 12]
+XaIncrement   equ     [esp + 16]
+XaLock        equ     [esp + 24]
+
+cPublicProc _ExInterlockedExchangeAddLargeInteger, 4
+
+cPublicFpo 0,2
+
+;
+; Save nonvolatile registers and get the addend value.
+;
+
+        push    ebx                     ; save nonvolatile registers
+        push    ebp                     ;
+        mov     ebp, XaAddend           ; get the addend variable address
+        mov     eax,[ebp] + 0           ; get low part of addend value
+        mov     edx,[ebp] + 4           ; get high part of addend value
+
+;
+; Add the increment value to the addend value.
+;
+
+Xa10:   mov     ebx, eax                ; copy low part of addend value
+        mov     ecx, edx                ; copy high part of addend value
+        add     ebx, XaIncrement        ; add low part of increment value
+        adc     ecx, XaIncrement + 4    ; add high part of increment value
+
+;
+; Exchange the updated addend value with the previous addend value.
+;
+
+.586
+ifndef NT_UP
+
+   lock cmpxchg8b qword ptr [ebp]       ; compare and exchange
+
+else
+
+        cmpxchg8b qword ptr [ebp]       ; compare and exchange
+
+endif
+.386
+
+        jnz     short Xa10              ; if z clear, exchange failed
+
+;
+; Restore nonvolatile registers and return result.
+;
+
+cPublicFpo 0,0
+
+        pop     ebp                     ;
+        pop     ebx                     ;
+
+        stdRET    _ExInterlockedExchangeAddLargeInteger
+
+stdENDP _ExInterlockedExchangeAddLargeInteger
 
         page , 132
         subttl  "Interlocked Add Unsigned Long"

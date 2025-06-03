@@ -516,9 +516,8 @@ void DumpDataLinePrint ( HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
    wsprintf ( OutBuf + 22, L"%10lu", NumOfOps );
    OutBuf[32] = TEXT('|');
 
-   wsprintf ( OutBuf + 33, L"%10lu",
-		(RtlExtendedLargeIntegerDivide (TimeOfOps, NumOfOps,
-						      (PULONG) NULL)).LowPart );
+   a.QuadPart = TimeOfOps.QuadPart / NumOfOps ;
+   wsprintf ( OutBuf + 33, L"%10lu", a.LowPart ) ;
    OutBuf[43] = TEXT('|');
 
    if ( PrintBytes )
@@ -528,7 +527,7 @@ void DumpDataLinePrint ( HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
    OutBuf[54] = TEXT('|');
 
    if ( PrintBytes ) {
-	a = RtlExtendedLargeIntegerDivide (SumOfBytes, NumOfOps, (PULONG) NULL);
+	a.QuadPart = SumOfBytes.QuadPart / NumOfOps ;
 	wsprintf ( OutBuf + 55, L"%10lu", a.LowPart );
    }
    else {
@@ -537,10 +536,8 @@ void DumpDataLinePrint ( HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
    OutBuf[65] = TEXT('|');
 
    if ( PrintBytes ) {
-	a = RtlEnlargedUnsignedMultiply ( a.LowPart, a.LowPart );
-	a = RtlLargeIntegerSubtract (
-		RtlExtendedLargeIntegerDivide (SumOfSquareBytes, NumOfOps,
-							   (PULONG) NULL), a );
+	a.QuadPart = a.LowPart * a.LowPart ;
+	a.QuadPart = (SumOfSquareBytes.QuadPart / NumOfOps) - a.QuadPart ;
 	RtlLargeIntegerPrint ( a, OutBuf + 66 );
    }
    else
@@ -573,7 +570,7 @@ void DumpDataLinePrint ( HANDLE hFile, LPTSTR NameOfOp, LARGE_INTEGER TimeOfOps,
 void FAR PASCAL RtlLargeIntegerPrint (LARGE_INTEGER Argument, LPTSTR lptsBuffer)
 {
 
-	LARGE_INTEGER Arg;
+	LARGE_INTEGER Arg, Temp ;
 	TCHAR tsTempBuffer[15];
 	register SHORT i = 0, j = 0;
 	ULONG Divisor = (ULONG) 10;
@@ -588,7 +585,8 @@ void FAR PASCAL RtlLargeIntegerPrint (LARGE_INTEGER Argument, LPTSTR lptsBuffer)
     }
 
     while ( Arg.HighPart != 0 )  {
-	Arg = RtlExtendedLargeIntegerDivide(Arg, Divisor, &Remainder);
+	Arg.QuadPart = Arg.QuadPart / Divisor ;
+	Remainder = (ULONG)(Temp.QuadPart - (Arg.QuadPart * Divisor )) ;
 	*(tsTempBuffer + (i++)) = TEXT('0' + (UCHAR)Remainder);
     }
 
@@ -636,47 +634,52 @@ void AccumulateAllHandleData (PFP_Handle phHandle)
 	ulNumOfFiles++;
 
    pfAll->Overall.nNumOfOps += pfHData->Overall.nNumOfOps;
-   pfAll->Overall.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Overall.nTimeOfOps, pfHData->Overall.nTimeOfOps );
+   pfAll->Overall.nTimeOfOps.QuadPart += pfHData->Overall.nTimeOfOps.QuadPart ;
    pfAll->Writef.nNumOfOps += pfHData->Writef.nNumOfOps;
-   pfAll->Writef.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Writef.nTimeOfOps, pfHData->Writef.nTimeOfOps );
-   pfAll->Writef.nNumOfBytes = RtlLargeIntegerAdd ( pfAll->Writef.nNumOfBytes,pfHData->Writef.nNumOfBytes );
-   pfAll->Writef.nSumOfSquareBytes = RtlLargeIntegerAdd ( pfAll->Writef.nSumOfSquareBytes, pfHData->Writef.nSumOfSquareBytes );
+   pfAll->Writef.nTimeOfOps.QuadPart += pfHData->Writef.nTimeOfOps.QuadPart ;
+   pfAll->Writef.nNumOfBytes.QuadPart += pfHData->Writef.nNumOfBytes.QuadPart ;
+   pfAll->Writef.nSumOfSquareBytes.QuadPart += 
+         pfHData->Writef.nSumOfSquareBytes.QuadPart;
    pfAll->Readf.nNumOfOps += pfHData->Readf.nNumOfOps;
-   pfAll->Readf.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Readf.nTimeOfOps, pfHData->Readf.nTimeOfOps );
-   pfAll->Readf.nNumOfBytes = RtlLargeIntegerAdd ( pfAll->Readf.nNumOfBytes, pfHData->Readf.nNumOfBytes );
-   pfAll->Readf.nSumOfSquareBytes = RtlLargeIntegerAdd ( pfAll->Readf.nSumOfSquareBytes, pfHData->Readf.nSumOfSquareBytes );
+   pfAll->Readf.nTimeOfOps.QuadPart += pfHData->Readf.nTimeOfOps.QuadPart ;
+   pfAll->Readf.nNumOfBytes.QuadPart += pfHData->Readf.nNumOfBytes.QuadPart ;
+   pfAll->Readf.nSumOfSquareBytes.QuadPart += 
+         pfHData->Readf.nSumOfSquareBytes.QuadPart ;
    pfAll->Flushf.nNumOfOps += pfHData->Flushf.nNumOfOps;
-   pfAll->Flushf.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Flushf.nTimeOfOps, pfHData->Flushf.nTimeOfOps );
+   pfAll->Flushf.nTimeOfOps.QuadPart += pfHData->Flushf.nTimeOfOps.QuadPart ;
    pfAll->Seekf.nNumOfOps += pfHData->Seekf.nNumOfOps;
-   pfAll->Seekf.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Seekf.nTimeOfOps, pfHData->Seekf.nTimeOfOps );
+   pfAll->Seekf.nTimeOfOps.QuadPart += pfHData->Seekf.nTimeOfOps.QuadPart ;
    pfAll->Infof.nNumOfOps += pfHData->Infof.nNumOfOps;
-   pfAll->Infof.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Infof.nTimeOfOps, pfHData->Infof.nTimeOfOps );
+   pfAll->Infof.nTimeOfOps.QuadPart += pfHData->Infof.nTimeOfOps.QuadPart ;
    pfAll->Lockf.nNumOfLockOps += pfHData->Lockf.nNumOfLockOps;
-   pfAll->Lockf.nTimeOfLockOps = RtlLargeIntegerAdd ( pfAll->Lockf.nTimeOfLockOps, pfHData->Lockf.nTimeOfLockOps );
+   pfAll->Lockf.nTimeOfLockOps.QuadPart += 
+         pfHData->Lockf.nTimeOfLockOps.QuadPart ;
    pfAll->Lockf.nNumOfUnlockOps += pfHData->Lockf.nNumOfUnlockOps;
-   pfAll->Lockf.nTimeOfUnlockOps = RtlLargeIntegerAdd ( pfAll->Lockf.nTimeOfUnlockOps, pfHData->Lockf.nTimeOfUnlockOps );
-   pfAll->Lockf.nNumOfBytes = RtlLargeIntegerAdd ( pfAll->Lockf.nNumOfBytes, pfHData->Lockf.nNumOfBytes );
-   pfAll->Lockf.nSumOfSquareBytes = RtlLargeIntegerAdd ( pfAll->Lockf.nSumOfSquareBytes, pfHData->Lockf.nSumOfSquareBytes );
+   pfAll->Lockf.nTimeOfUnlockOps.QuadPart += 
+         pfHData->Lockf.nTimeOfUnlockOps.QuadPart ;
+   pfAll->Lockf.nNumOfBytes.QuadPart += pfHData->Lockf.nNumOfBytes.QuadPart ;
+   pfAll->Lockf.nSumOfSquareBytes.QuadPart += 
+         pfHData->Lockf.nSumOfSquareBytes.QuadPart ;
    pfAll->Seteof.nNumOfOps += pfHData->Seteof.nNumOfOps;
-   pfAll->Seteof.nTimeOfOps = RtlLargeIntegerAdd ( pfAll->Seteof.nTimeOfOps, pfHData->Seteof.nTimeOfOps );
+   pfAll->Seteof.nTimeOfOps.QuadPart += pfHData->Seteof.nTimeOfOps.QuadPart ;
 
    if (phHandle != phDuplicated) {
 	if ( (pfHData->Openf.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllOpenOps++;
-	    pfAll->Openf.nTimeOfOp = RtlLargeIntegerAdd ( pfAll->Openf.nTimeOfOp, pfHData->Openf.nTimeOfOp );
+	    pfAll->Openf.nTimeOfOp.QuadPart += pfHData->Openf.nTimeOfOp.QuadPart ;
 	}
 	if ( (pfHData->Createf.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllCreateOps++;
-	    pfAll->Createf.nTimeOfOp = RtlLargeIntegerAdd ( pfAll->Createf.nTimeOfOp, pfHData->Createf.nTimeOfOp );
+	    pfAll->Createf.nTimeOfOp.QuadPart += pfHData->Createf.nTimeOfOp.QuadPart ;
 	}
 	if ( (pfHData->Closef.nTimeOfOp.LowPart) != (ULONG) 0 ) {
 	    ulNumOfAllCloseOps++;
-	    pfAll->Closef.nTimeOfOp = RtlLargeIntegerAdd ( pfAll->Closef.nTimeOfOp, pfHData->Closef.nTimeOfOp );
+	    pfAll->Closef.nTimeOfOp.QuadPart = pfHData->Closef.nTimeOfOp.QuadPart ;
 	}
    }
    else {
 	ulNumOfAllCloseOps += pfHData->Createf.nTimeOfOp.LowPart;
-	pfAll->Closef.nTimeOfOp = RtlLargeIntegerAdd ( pfAll->Closef.nTimeOfOp, pfHData->Closef.nTimeOfOp );
+	pfAll->Closef.nTimeOfOp.QuadPart = pfHData->Closef.nTimeOfOp.QuadPart ;
    }
 }
 
@@ -1098,10 +1101,12 @@ void FreeMemoryOfHandle (PFP_Handle phHandle)
 BOOL OpenfAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfOpen     *pfpoOpen;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1109,7 +1114,7 @@ BOOL OpenfAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpoOpen = &(pfHData->Openf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     pfpoOpen->nTimeOfOp.LowPart = liTime.LowPart;
     pfpoOpen->nTimeOfOp.HighPart = liTime.HighPart;
@@ -1128,10 +1133,12 @@ BOOL OpenfAccounting (PFP_FileH pfHData, ULONG nTime)
 BOOL CreatefAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfCreate   *pfpcCreate;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1139,7 +1146,7 @@ BOOL CreatefAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpcCreate = &(pfHData->Createf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     pfpcCreate->nTimeOfOp.LowPart = liTime.LowPart;
     pfpcCreate->nTimeOfOp.HighPart = liTime.HighPart;
@@ -1159,10 +1166,13 @@ BOOL CreatefAccounting (PFP_FileH pfHData, ULONG nTime)
 BOOL WritefAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
-	LARGE_INTEGER liBytes = RtlConvertUlongToLargeInteger ( nBytes );
+	LARGE_INTEGER liTime ;
+	LARGE_INTEGER liBytes ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfWrite     *pfpwWrite;
+   
+   liTime.QuadPart = nTime ;
+   liBytes.QuadPart = nBytes ;
 
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
@@ -1171,13 +1181,13 @@ BOOL WritefAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
     pfpwWrite = &(pfHData->Writef);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfpwWrite->nNumOfOps)++;
-    pfpwWrite->nTimeOfOps = RtlLargeIntegerAdd ( pfpwWrite->nTimeOfOps, liTime );
-    pfpwWrite->nNumOfBytes = RtlLargeIntegerAdd ( pfpwWrite->nNumOfBytes, liBytes );
-    liBytes = RtlEnlargedUnsignedMultiply ( nBytes, nBytes );
-    pfpwWrite->nSumOfSquareBytes = RtlLargeIntegerAdd ( pfpwWrite->nSumOfSquareBytes, liBytes );
+    pfpwWrite->nTimeOfOps.QuadPart += liTime.QuadPart ;
+    pfpwWrite->nNumOfBytes.QuadPart += liBytes.QuadPart ;
+    liBytes.QuadPart = nBytes * nBytes ;
+    pfpwWrite->nSumOfSquareBytes.QuadPart += liBytes.QuadPart ;
 
     return TRUE;
 
@@ -1194,10 +1204,13 @@ BOOL WritefAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
 BOOL ReadfAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
-	LARGE_INTEGER liBytes = RtlConvertUlongToLargeInteger ( nBytes );
+	LARGE_INTEGER liTime ;
+	LARGE_INTEGER liBytes ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfRead     *pfprRead;
+   
+   liTime.QuadPart = nTime ;
+   liBytes.QuadPart = nBytes ;
 
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
@@ -1206,13 +1219,13 @@ BOOL ReadfAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
     pfprRead = &(pfHData->Readf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfprRead->nNumOfOps)++;
-    pfprRead->nTimeOfOps = RtlLargeIntegerAdd ( pfprRead->nTimeOfOps, liTime );
-    pfprRead->nNumOfBytes = RtlLargeIntegerAdd ( pfprRead->nNumOfBytes, liBytes );
-    liBytes = RtlEnlargedUnsignedMultiply ( nBytes, nBytes );
-    pfprRead->nSumOfSquareBytes = RtlLargeIntegerAdd ( pfprRead->nSumOfSquareBytes, liBytes );
+    pfprRead->nTimeOfOps.QuadPart += liTime.QuadPart ;
+    pfprRead->nNumOfBytes.QuadPart += liBytes.QuadPart ;
+    liBytes.QuadPart = nBytes * nBytes ;
+    pfprRead->nSumOfSquareBytes.QuadPart += liBytes.QuadPart ;
 
     return TRUE;
 
@@ -1228,10 +1241,12 @@ BOOL ReadfAccounting (PFP_FileH pfHData, ULONG nTime, ULONG nBytes)
 BOOL FlushfAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfFlush     *pfpfFlush;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1239,10 +1254,10 @@ BOOL FlushfAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpfFlush = &(pfHData->Flushf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfpfFlush->nNumOfOps)++;
-    pfpfFlush->nTimeOfOps = RtlLargeIntegerAdd ( pfpfFlush->nTimeOfOps, liTime );
+    pfpfFlush->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1259,10 +1274,12 @@ BOOL FlushfAccounting (PFP_FileH pfHData, ULONG nTime)
 BOOL SeekfAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfSeek     *pfpsSeek;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1270,10 +1287,10 @@ BOOL SeekfAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpsSeek = &(pfHData->Seekf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfpsSeek->nNumOfOps)++;
-    pfpsSeek->nTimeOfOps = RtlLargeIntegerAdd ( pfpsSeek->nTimeOfOps, liTime );
+    pfpsSeek->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1290,10 +1307,12 @@ BOOL SeekfAccounting (PFP_FileH pfHData, ULONG nTime)
 BOOL InfofAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfInfo     *pfpiInfo;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1301,10 +1320,10 @@ BOOL InfofAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpiInfo = &(pfHData->Infof);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfpiInfo->nNumOfOps)++;
-    pfpiInfo->nTimeOfOps = RtlLargeIntegerAdd ( pfpiInfo->nTimeOfOps, liTime );
+    pfpiInfo->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1321,10 +1340,12 @@ BOOL LockfAccounting (PFP_FileH pfHData, ULONG nTime, BOOL Success,
 							 LARGE_INTEGER nBytes)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfLock     *pfplLock;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1332,14 +1353,14 @@ BOOL LockfAccounting (PFP_FileH pfHData, ULONG nTime, BOOL Success,
     pfplLock = &(pfHData->Lockf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfplLock->nNumOfLockOps)++;
-    pfplLock->nTimeOfLockOps = RtlLargeIntegerAdd ( pfplLock->nTimeOfLockOps, liTime );
+    pfplLock->nTimeOfLockOps.QuadPart += liTime.QuadPart ;
     if ( Success )  {
-      pfplLock->nNumOfBytes = RtlLargeIntegerAdd ( pfplLock->nNumOfBytes, nBytes );
-      nBytes = RtlEnlargedUnsignedMultiply ( nBytes.LowPart, nBytes.LowPart );
-      pfplLock->nSumOfSquareBytes = RtlLargeIntegerAdd ( pfplLock->nSumOfSquareBytes, nBytes );
+      pfplLock->nNumOfBytes.QuadPart += nBytes.QuadPart ;
+      nBytes.QuadPart = nBytes.LowPart * nBytes.LowPart ;
+      pfplLock->nSumOfSquareBytes.QuadPart += nBytes.QuadPart ;
     }
 
     return TRUE;
@@ -1356,21 +1377,23 @@ BOOL LockfAccounting (PFP_FileH pfHData, ULONG nTime, BOOL Success,
 BOOL UnlockfAccounting (PFP_FileH pfHData, ULONG nTime, BOOL Success )
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfLock     *pfplLock;
 
-    if ( pfHData == (PFP_FileH) NULL )
+   liTime.QuadPart = nTime ;
+   
+   if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
     pfpoOverall = &(pfHData->Overall);
     pfplLock = &(pfHData->Lockf);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfplLock->nNumOfUnlockOps)++;
-    pfplLock->nTimeOfUnlockOps = RtlLargeIntegerAdd ( pfplLock->nTimeOfUnlockOps, liTime );
+    pfplLock->nTimeOfUnlockOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1386,10 +1409,12 @@ BOOL UnlockfAccounting (PFP_FileH pfHData, ULONG nTime, BOOL Success )
 BOOL SeteofAccounting (PFP_FileH pfHData, ULONG nTime)
 {
 
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime  ;
 	register FileProfOverall  *pfpoOverall;
 	register FileProfSetEOF   *pfpsSeteof;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1397,10 +1422,10 @@ BOOL SeteofAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpsSeteof = &(pfHData->Seteof);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     (pfpsSeteof->nNumOfOps)++;
-    pfpsSeteof->nTimeOfOps = RtlLargeIntegerAdd ( pfpsSeteof->nTimeOfOps, liTime );
+    pfpsSeteof->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1416,10 +1441,12 @@ BOOL SeteofAccounting (PFP_FileH pfHData, ULONG nTime)
 
 BOOL ClosefAccounting (PFP_FileH pfHData, ULONG nTime)
 {
-	LARGE_INTEGER liTime = RtlConvertUlongToLargeInteger ( nTime );
+	LARGE_INTEGER liTime ;
 	register FileProfOverall *pfpoOverall;
 	register FileProfClose   *pfpcClose;
 
+   liTime.QuadPart = nTime ;
+   
     if ( pfHData == (PFP_FileH) NULL )
 	return FALSE;
 
@@ -1427,9 +1454,9 @@ BOOL ClosefAccounting (PFP_FileH pfHData, ULONG nTime)
     pfpcClose = &(pfHData->Closef);
 
     (pfpoOverall->nNumOfOps)++;
-    pfpoOverall->nTimeOfOps = RtlLargeIntegerAdd ( pfpoOverall->nTimeOfOps, liTime );
+    pfpoOverall->nTimeOfOps.QuadPart += liTime.QuadPart ;
 
-    pfpcClose->nTimeOfOp = RtlLargeIntegerAdd ( pfpcClose->nTimeOfOp, liTime );
+    pfpcClose->nTimeOfOp.QuadPart += liTime.QuadPart ;
 
     return TRUE;
 
@@ -1554,4 +1581,4 @@ PrintSCache ()
 }
 #endif
 
-
+

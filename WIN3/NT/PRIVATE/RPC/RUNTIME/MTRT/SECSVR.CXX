@@ -19,15 +19,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcerrp.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <binding.hxx>
-#include <handle.hxx>
-#include <secclnt.hxx>
+#include <precomp.hxx>
 #include <secsvr.hxx>
 
 
@@ -92,41 +84,43 @@ Return Value:
     switch ( AuthenticationLevel )
         {
         case RPC_C_AUTHN_LEVEL_CONNECT :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH;
             break;
 
         case RPC_C_AUTHN_LEVEL_PKT :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT;
             break;
 
         case RPC_C_AUTHN_LEVEL_PKT_INTEGRITY :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT;
             break;
 
-        case RPC_C_AUTHN_LEVEL_CALL :
-            ContextRequirements = ASC_REQ_CALL_LEVEL | ISC_REQ_CONNECTION
-                    | ISC_REQ_USE_DCE_STYLE;
-            break;
-
         case RPC_C_AUTHN_LEVEL_PKT_PRIVACY :
-            ContextRequirements = ISC_REQ_USE_DCE_STYLE | ISC_REQ_CONNECTION
+            ContextRequirements = ISC_REQ_USE_DCE_STYLE
                     | ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH
                     | ISC_REQ_REPLAY_DETECT | ISC_REQ_SEQUENCE_DETECT
                     | ISC_REQ_CONFIDENTIALITY;
             break;
 
         default :
-            ASSERT(   ( AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT )
-                   || ( AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT )
-                   || ( AuthenticationLevel ==
-                           RPC_C_AUTHN_LEVEL_PKT_INTEGRITY )
-                   || ( AuthenticationLevel ==
-                           RPC_C_AUTHN_LEVEL_PKT_PRIVACY ) );
+            ASSERT(AuthenticationLevel == RPC_C_AUTHN_LEVEL_CONNECT ||
+                   AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT ||
+                   AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_INTEGRITY ||
+                   AuthenticationLevel == RPC_C_AUTHN_LEVEL_PKT_PRIVACY );
+        }
+
+    if (UseDatagram)
+        {
+        ContextRequirements |= ISC_REQ_DATAGRAM;
+        }
+    else
+        {
+        ContextRequirements |= ISC_REQ_CONNECTION;
         }
 
     SecurityStatus = (*RpcSecurityInterface->AcceptSecurityContext)(
@@ -138,12 +132,16 @@ Return Value:
         && ( SecurityStatus != SEC_I_COMPLETE_NEEDED )
         && ( SecurityStatus != SEC_I_COMPLETE_AND_CONTINUE ) )
         {
-        if (   (SecurityStatus == SEC_E_SECPKG_NOT_FOUND)
-            || (SecurityStatus == SEC_E_NO_CREDENTIALS)
+        if (  (SecurityStatus == SEC_E_NO_CREDENTIALS)
             || (SecurityStatus == SEC_E_LOGON_DENIED)
+                        || (SecurityStatus == SEC_E_INVALID_TOKEN)
             || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) )
             {
             return(RPC_S_ACCESS_DENIED);
+            }
+        if (SecurityStatus == SEC_E_SECPKG_NOT_FOUND)
+            {
+            return (RPC_S_UNKNOWN_AUTHN_SERVICE);
             }
         ASSERT( SecurityStatus == SEC_E_INSUFFICIENT_MEMORY );
         return(RPC_S_OUT_OF_MEMORY);
@@ -209,6 +207,7 @@ Return Value:
     ASSERT(   (SecuritySupportLoaded != 0)
            && (FailedToLoad == 0) );
 
+    SetLastError ( 0 );
     SecurityStatus = (*RpcSecurityInterface->AcceptSecurityContext)(
             0, &SecurityContext, BufferDescriptor, 0, DataRepresentation,
             &SecurityContext, OutBufferDescriptor, &ContextAttributes,
@@ -217,17 +216,29 @@ Return Value:
     //
     //If 3rd Leg Failed Bit is set.. Map all errors other than out of memory
     //to SUCCESS
-    if ( ( ( SecurityStatus != SEC_E_OK ) )
-       &&( ( SecurityStatus != SEC_I_COMPLETE_NEEDED) )
-       &&( ( SecurityStatus != SEC_I_CONTINUE_NEEDED) )
-       &&( ( SecurityStatus != SEC_I_COMPLETE_AND_CONTINUE) )
-       &&( ( SecurityStatus != SEC_E_INSUFFICIENT_MEMORY ) ) 
-       &&( ContextAttributes | ASC_RET_THIRD_LEG_FAILED ) )
+    if ( ( ( SecurityStatus != SEC_E_OK ) 
+         &&( SecurityStatus != SEC_I_COMPLETE_NEEDED) 
+         &&( SecurityStatus != SEC_I_CONTINUE_NEEDED) 
+         &&( SecurityStatus != SEC_I_COMPLETE_AND_CONTINUE) 
+         &&( SecurityStatus != SEC_E_INSUFFICIENT_MEMORY ) 
+         &&( ContextAttributes & ASC_RET_THIRD_LEG_FAILED ) )
+       || ( ( SecurityStatus == SEC_E_LOGON_DENIED )
+          ||( SecurityStatus == SEC_E_NO_CREDENTIALS )
+          ||( SecurityStatus == SEC_E_INVALID_TOKEN )
+          ||( SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS ) ) )
        {
        SecurityStatus = SEC_E_OK;
-       FailedContext  = 1;
-       }
- 
+       FailedContext  = GetLastError();
+
+       if ( (FailedContext != ERROR_PASSWORD_MUST_CHANGE)
+          &&(FailedContext != ERROR_PASSWORD_EXPIRED)
+          &&(FailedContext != ERROR_ACCOUNT_DISABLED)
+          &&(FailedContext != ERROR_INVALID_LOGON_HOURS) )
+           {
+           FailedContext = RPC_S_ACCESS_DENIED;
+           } 
+       }   
+
     if (   ( SecurityStatus != SEC_E_OK )
         && ( SecurityStatus != SEC_I_COMPLETE_NEEDED ) )
         {
@@ -235,6 +246,7 @@ Return Value:
         if (   (SecurityStatus == SEC_E_SECPKG_NOT_FOUND)
             || (SecurityStatus == SEC_E_NO_CREDENTIALS)
             || (SecurityStatus == SEC_E_LOGON_DENIED)
+            || (SecurityStatus == SEC_E_INVALID_TOKEN)
             || (SecurityStatus == SEC_E_UNKNOWN_CREDENTIALS) )
             {
             return(RPC_S_ACCESS_DENIED);
@@ -328,7 +340,8 @@ Return Value:
             &SecurityContext, SECPKG_ATTR_DCE_INFO, &DceInfo);
 
     ASSERT( (SecurityStatus == SEC_E_OK)
-           ||  (SecurityStatus == SEC_E_UNSUPPORTED_FUNCTION) );
+           ||  (SecurityStatus == SEC_E_UNSUPPORTED_FUNCTION)
+           ||  (SecurityStatus == SEC_E_INVALID_HANDLE));
 
     if (SecurityStatus != SEC_E_OK)
         {

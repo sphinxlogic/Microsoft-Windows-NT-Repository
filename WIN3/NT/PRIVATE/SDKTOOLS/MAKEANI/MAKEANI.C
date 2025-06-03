@@ -173,7 +173,7 @@ BOOL AddFrame(char *pszFile, JIF jifRate)
     // adding a new frame.
 
     for (ifrm = 0; ifrm < gcfrm; ifrm++) {
-        if (strcmpi(pszFile, gafrm[ifrm].pszFile) == 0)
+        if (_strcmpi(pszFile, gafrm[ifrm].pszFile) == 0)
             break;
     }
 
@@ -359,7 +359,7 @@ BOOL WriteAniFile(char *pszOutFile, char *pszTitle, char *pszAuthor)
         }
         printf("\r");
 
-        cbIn = filelength(fileno(hfIn));
+        cbIn = _filelength(_fileno(hfIn));
 
         // Allocate buffer to read the mouse pointer images into.
 

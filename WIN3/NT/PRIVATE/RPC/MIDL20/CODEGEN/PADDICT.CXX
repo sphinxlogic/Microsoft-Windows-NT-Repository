@@ -7,14 +7,18 @@
 
  Abstract:
 
+    Implement a counted dictionary class.
+
     Implements a dictionary for handling padding expressions for unknown
     represent as data types.
 
     Implements a dictionary for handling sizing macro for unknown
     represent as data types.
 
-    Implements a dictionary for registering all type names for both
+    Implements Quintuple dictionary for registering all type names for both
     transmit_as and represent_as.
+
+    Implements Quadruple dictionary for handling usr_marshal.
 
  Notes:
 
@@ -29,6 +33,116 @@
 #pragma hdrstop
 
 #include "typecls.hxx"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//  CountedDictionary class.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+unsigned short
+CountedDictionary::GetListOfItems(
+    ITERATOR&    ListIter )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+     Get a list of dict items into the specified iterator.
+
+ Arguments:
+    
+    ListIter    - A reference to the iterator class where the list is
+                  accumulated.
+
+ Return Value:
+    
+    A count of the number of dictionary elements.
+
+ Notes:
+
+----------------------------------------------------------------------------*/
+{
+    Dict_Status     Status;
+    void *          pR;
+    short           Count = 0;
+    
+    //
+    // Get to the top of the dictionary.
+    //
+
+    Status = Dict_Next( (pUserType) 0 );
+
+    //
+    // Iterate till the entire dictionary is done.
+    //
+
+    while( SUCCESS == Status )
+        {
+        pR = Dict_Curr_Item();
+        ITERATOR_INSERT( ListIter, pR );
+        Count++;
+        Status = Dict_Next( pR );
+        }
+
+    return Count;
+}
+
+void *
+CountedDictionary::GetFirst()
+{
+    Dict_Status     Status;
+    void *          pFirst = 0;
+
+    Status = Dict_Next( 0 );
+
+    if ( Status == SUCCESS )
+        pFirst = Dict_Curr_Item();
+
+    return( pFirst );
+}
+
+void *
+CountedDictionary::GetNext()
+{
+    Dict_Status     Status;
+    void            *pCurr, *pNext = 0;
+
+    pCurr = Dict_Curr_Item();
+
+    if ( pCurr )
+        {
+        Status = Dict_Next( pCurr );
+        if ( Status == SUCCESS )
+            pNext = Dict_Curr_Item();
+        }
+
+    return( pNext );
+}
+
+
+int
+CountedDictionary::Compare(
+    pUserType   pE1,
+    pUserType   pE2
+    )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+     Compare two Counted types. Defaults to string comparison.
+
+ Arguments:
+
+ Return Value:
+    
+----------------------------------------------------------------------------*/
+{
+    return( strcmp( (char *)pE1, (char *)pE2) );
+}
+
+//===========================================================================
 
 
 void 
@@ -111,7 +225,7 @@ RepAsPadExprDict::Compare(
     else
     if( ((REP_AS_PAD_EXPR_DESC *)pE1)->KeyOffset >
                                 ((REP_AS_PAD_EXPR_DESC *)pE2)->KeyOffset )
-        return( -1 );
+        return( 1 );
     else
         return( 0 );
 }
@@ -172,11 +286,11 @@ Arguments:
         {
         pStream->Write( "(unsigned char)("FC_FIELD_PAD_MACRO"(" );
         pCurr->pStructType->PrintType( PRT_TYPE_SPECIFIER, pStream );
-        pStream->Write( "," );
+        pStream->Write( ',' );
         pStream->Write( pCurr->pFieldName );
-        pStream->Write( "," );
+        pStream->Write( ',' );
         pStream->Write( pCurr->pPrevFieldType->GetSymName() );
-        pStream->Write( "," );
+        pStream->Write( ',' );
         pCurr->pPrevFieldType->GetChild()->
                                 PrintType( PRT_TYPE_SPECIFIER, pStream );
         pStream->Write( "))," );
@@ -198,7 +312,7 @@ RepAsSizeDict::Register(
 
 Routine Description:
 
-    Adds a padding expression description to the dictionary
+    Adds a sizing macro description to the dictionary
 
 Arguments:
 
@@ -250,7 +364,7 @@ RepAsSizeDict::Compare(
 
  Routine Description:
 
-     Compare pad expr descriptors.
+     Compare size descriptors.
      KeyOffset is the key that orders the entries.
 
  Arguments:
@@ -265,7 +379,7 @@ RepAsSizeDict::Compare(
     else
     if( ((REP_AS_SIZE_DESC *)pE1)->KeyOffset >
                                 ((REP_AS_SIZE_DESC *)pE2)->KeyOffset )
-        return( -1 );
+        return( 1 );
     else
         return( 0 );
 }
@@ -344,7 +458,7 @@ QuintupleDict::Add(
 
 Routine Description:
 
-    Adds a padding expression description to the dictionary
+    Adds a Quintuple description to the dictionary.
 
 Arguments:
 
@@ -449,5 +563,74 @@ QuintupleDict::GetNext()
 
     return( pNext );
 }
+
+//========================================================================
+
+
+BOOL 
+QuadrupleDict::Add(
+    void *          pContext
+    )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+Routine Description:
+
+    Adds a Quadruple description to the dictionary.
+
+Arguments:
+
+Returns:
+
+    TRUE    - when a new entry has been registered,
+    FALSE   - otherwise entry exist already
+
+    Index field gets set to appropriate index.
+
+    
+----------------------------------------------------------------------------*/
+{
+    Dict_Status             Status;
+    USER_MARSHAL_CONTEXT *  pEntry = (USER_MARSHAL_CONTEXT *) pContext;
+
+    Status = Dict_Find( pEntry );
+
+    if( Status == EMPTY_DICTIONARY  ||  Status == ITEM_NOT_FOUND )
+        {
+        pEntry->Index = GetCount();
+        Dict_Insert( pEntry );
+        IncrementCount();
+        return TRUE;
+        }
+    else
+        {
+        pEntry->Index = ((USER_MARSHAL_CONTEXT *)Dict_Curr_Item())->Index;
+        return FALSE;
+        }
+}
+
+
+int
+QuadrupleDict::Compare(
+    pUserType   pE1,
+    pUserType   pE2
+    )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+     Compare two Quadruple types.
+     For usr_marshall we compare the types.
+
+ Arguments:
+
+ Return Value:
+    
+----------------------------------------------------------------------------*/
+{
+    return( strcmp( ((USER_MARSHAL_CONTEXT *)pE1)->pTypeName,
+                    ((USER_MARSHAL_CONTEXT *)pE2)->pTypeName ) );
+}
+
+
 
 

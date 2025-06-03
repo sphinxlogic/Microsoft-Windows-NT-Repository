@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module implements functions to access the parsed INF.
+    This module implements functions to _access the parsed INF.
 
 Author:
 
@@ -53,12 +53,12 @@ Revision History:
 typedef struct _value {
     struct _value *pNext;
     PCHAR  pName;
-    } VALUE, *PVALUE;
+    } INFVALUE, *PINFVALUE;
 
 typedef struct _line {
     struct _line *pNext;
     PCHAR   pName;
-    PVALUE  pValue;
+    PINFVALUE  pValue;
     } LINE, *PLINE;
 
 typedef struct _section {
@@ -166,7 +166,7 @@ FreeLineList (
 
 VOID
 FreeValueList (
-   IN PVALUE pValue
+   IN PINFVALUE pValue
    );
 
 
@@ -175,7 +175,7 @@ FreeValueList (
 //
 
 
-PVALUE
+PINFVALUE
 SearchValueInLine(
    IN PLINE pLine,
    IN ULONG ValueIndex
@@ -335,10 +335,10 @@ FreeLineList (
 
 VOID
 FreeValueList (
-   IN PVALUE pValue
+   IN PINFVALUE pValue
    )
 {
-    PVALUE pNext;
+    PINFVALUE pNext;
 
     while(pValue) {
 
@@ -427,7 +427,7 @@ Return Value:
 {
    PSECTION pSection;
    PLINE    pLine;
-   PVALUE   pValue;
+   PINFVALUE   pValue;
 
    if((pSection = SearchSectionByName(
               (PINF)INFHandle,
@@ -447,7 +447,7 @@ Return Value:
               pLine,
               ValueIndex
               ))
-              == (PVALUE)NULL)
+              == (PINFVALUE)NULL)
        return((PCHAR)NULL);
 
    return (pValue->pName);
@@ -546,7 +546,7 @@ Return Value:
 {
    PSECTION pSection;
    PLINE    pLine;
-   PVALUE   pValue;
+   PINFVALUE   pValue;
 
    if((pSection = SearchSectionByName(
               (PINF)INFHandle,
@@ -566,7 +566,7 @@ Return Value:
               pLine,
               ValueIndex
               ))
-              == (PVALUE)NULL)
+              == (PINFVALUE)NULL)
        return((PCHAR)NULL);
 
    return (pValue->pName);
@@ -576,7 +576,7 @@ Return Value:
 
 
 
-PVALUE
+PINFVALUE
 SearchValueInLine(
    IN PLINE pLine,
    IN ULONG ValueIndex
@@ -596,14 +596,14 @@ Return Value:
 --*/
 
 {
-   PVALUE pValue;
+   PINFVALUE pValue;
    ULONG  i;
 
    if (pLine == (PLINE)NULL)
-       return ((PVALUE)NULL);
+       return ((PINFVALUE)NULL);
 
    pValue = pLine->pValue;
-   for (i = 0; i < ValueIndex && ((pValue = pValue->pNext) != (PVALUE)NULL); i++)
+   for (i = 0; i < ValueIndex && ((pValue = pValue->pNext) != (PINFVALUE)NULL); i++)
       ;
 
    return pValue;
@@ -637,7 +637,7 @@ Return Value:
    }
 
    pLine = pSection->pLine;
-   while ((pLine != (PLINE)NULL) && (pLine->pName == NULL || strcmpi(pLine->pName, Key))) {
+   while ((pLine != (PLINE)NULL) && (pLine->pName == NULL || _strcmpi(pLine->pName, Key))) {
        pLine = pLine->pNext;
    }
 
@@ -740,7 +740,7 @@ Return Value:
    // name mentioned
    //
 
-   while ((pSection != (PSECTION)NULL) && strcmpi(pSection->pName, SectionName)) {
+   while ((pSection != (PSECTION)NULL) && _strcmpi(pSection->pName, SectionName)) {
        pSection = pSection->pNext;
    }
 
@@ -764,7 +764,7 @@ Return Value:
 PINF     pINF;
 PSECTION pSectionRecord;
 PLINE    pLineRecord;
-PVALUE   pValueRecord;
+PINFVALUE   pValueRecord;
 
 
 //
@@ -838,7 +838,7 @@ Return Value:
     pINF            = (PINF)NULL;
     pSectionRecord  = (PSECTION)NULL;
     pLineRecord     = (PLINE)NULL;
-    pValueRecord    = (PVALUE)NULL;
+    pValueRecord    = (PINFVALUE)NULL;
 
     //
     // Get INF record
@@ -1354,7 +1354,7 @@ Return Value:
     //
 
     pLineRecord    = (PLINE)NULL;
-    pValueRecord   = (PVALUE)NULL;
+    pValueRecord   = (PINFVALUE)NULL;
 
     return ESUCCESS;
 
@@ -1413,7 +1413,7 @@ Return Value:
     // Link it in
     //
     pNewLine->pNext  = (PLINE)NULL;
-    pNewLine->pValue = (PVALUE)NULL;
+    pNewLine->pValue = (PINFVALUE)NULL;
     pNewLine->pName  = pLineKey;
 
     if (pLineRecord == (PLINE)NULL) {
@@ -1429,7 +1429,7 @@ Return Value:
     // Reset the current value record
     //
 
-    pValueRecord = (PVALUE)NULL;
+    pValueRecord = (PINFVALUE)NULL;
 
     return ESUCCESS;
 }
@@ -1461,7 +1461,7 @@ Return Value:
 --*/
 
 {
-    PVALUE pNewValue;
+    PINFVALUE pNewValue;
 
     //
     // Check to see if current line record has been initialised and
@@ -1476,7 +1476,7 @@ Return Value:
     // Allocate memory for the new value record
     //
 
-    if ((pNewValue = (PVALUE)SpMalloc(sizeof(VALUE))) == (PVALUE)NULL) {
+    if ((pNewValue = (PINFVALUE)SpMalloc(sizeof(INFVALUE))) == (PINFVALUE)NULL) {
         SetMemoryError();
         return ENOMEM;
     }
@@ -1485,10 +1485,10 @@ Return Value:
     // Link it in.
     //
 
-    pNewValue->pNext  = (PVALUE)NULL;
+    pNewValue->pNext  = (PINFVALUE)NULL;
     pNewValue->pName  = pValueString;
 
-    if (pValueRecord == (PVALUE)NULL)
+    if (pValueRecord == (PINFVALUE)NULL)
         pLineRecord->pValue = pNewValue;
     else
         pValueRecord->pNext = pNewValue;
@@ -1758,5 +1758,3 @@ Return Value:
     return(strchr(szQStrTerms, ch ) != NULL);
 
 }
-
-

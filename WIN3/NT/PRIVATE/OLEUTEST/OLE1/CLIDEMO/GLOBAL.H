@@ -106,4 +106,3 @@ extern CHAR          szAppName[];      //* application name
 extern BOOL          fLoadFile;        //* load file flag
 extern CHAR          szFileName[];     //* open file name
 extern FARPROC       lpfnTimerProc;    //* pointer to timer callback function
-

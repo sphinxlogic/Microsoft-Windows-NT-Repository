@@ -60,7 +60,7 @@ more:
 
             {
             if( pstate[i+1]-pstate[i] <= p-wsets ) tystate[i] = MUSTLOOKAHEAD;
-            continue;
+            continue;
             }
          /* do a goto on c */
          WSLOOP(p,q)

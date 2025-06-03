@@ -31,7 +31,7 @@ typedef struct _apidatastack {\n\
 /* Prototypes */\n\
 BOOL WINAPI _WrapperDLLInit( HINSTANCE hInst, DWORD dwReason, LPVOID lpRes ) ;\n\
 FARPROC\t _prelude( DWORD dwId, PCALLSTACK pStack ) ;\n\
-DWORD\t\t_postlude( DWORD dwRet, PDWORD pdwReturnAddress ) ;\n\
+RETVAL\t\t_postlude( RETVAL Ret, PDWORD pdwReturnAddress ) ;\n\
 BOOL WINAPI WrapperNothing(void) ;\n\
 \n\
 /* Stack routine prototypes */\n\
@@ -81,12 +81,7 @@ BOOL WINAPI _WrapperDLLInit( HINSTANCE hInst, DWORD dwReason, LPVOID lpRes ) {\n
 \t\t break ;\n\
 \n\
 \t  case DLL_THREAD_DETACH:\n\
-\t  case DLL_PROCESS_DETACH:\n\
 \t\t FreeStack() ;\n\
-\t\t FreeLibrary( hMod ) ;\n\
-\t\t hMod = NULL ;\n\
-\t\t break;\n\
-\t}\n\
-\treturn WrapperInit( hInst, dwReason, lpRes ) ;\n\
-}\n\
+\t\t break ;\n\
 \n"
+

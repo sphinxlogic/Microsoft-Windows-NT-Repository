@@ -1,43 +1,5 @@
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "da.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <signal.h>
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/locking.h>
-#include <direct.h>
-
-#if defined(OS2)
-#include <doscalls.h>
-#endif
-
-#include <io.h>
-#include <fcntl.h>
-#include <process.h>
-
-#include <errno.h>              //errno is defined within
-
-#if defined(DOS) || defined(OS2)
-#define INCL_ERRORS
-#include <bseerr.h>
-#endif
-
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 /* sys.c - provides access to system calls and a consistent error handling
@@ -50,12 +12,6 @@ int eaCur;
 
 int enPrev = -1; /* used to save state so we don't */
 int eaPrev = -1; /* retry the same error too many times */
-
-#if defined(DOS) || defined(OS2)
-/* these are set by the int24 handler and used if we get FailOnInt24 */
-int enInt24;
-int eaInt24;
-#endif
 
 void    geterr(void);
 int WRetryErr(int, char *, MF *, char *);
@@ -126,7 +82,7 @@ CreateMf(
 
     SzPhysPath(szTemp, (PTH *)szTemp);
 
-    while ((pmf->fdWrite = creat(szTemp, mode)) < 0 &&
+    while ((pmf->fdWrite = _creat(szTemp, mode)) < 0 &&
         (wRetErr = WRetryErr(0, "creating", (MF *)0, szTemp)) != 0);
 
     if (pmf->fdWrite < 0)
@@ -134,7 +90,6 @@ CreateMf(
 
     pmf->pos = 0L;
 }
-
 
 /* opens the file and returns a pointer to a new mf; we abort if the file
    cannot be opened and the abort bit of the om is set.  We return an MF with
@@ -158,6 +113,7 @@ PmfOpen(
     register MF *pmf;
     char sz[cchPthMax];
     int wRetErr;
+    F fNetPth;
 
     fAbort = (om&ooAbort) != 0;
     om &= omMask;
@@ -179,8 +135,121 @@ PmfOpen(
             pmf = PmfAlloc(pth, (char *)0, fx);
             SzPhysPath(sz, pth);
 
-            while ((pmf->fdRead = open(sz, om)) < 0 && (wRetErr = WRetryErr(0, "opening", 0, sz)) != 0)
+            while ((pmf->fdRead = _open(sz, om)) < 0 && (wRetErr = WRetryErr(0, "opening", 0, sz)) != 0)
                 ;
+
+            if (pmf->fdRead < 0)
+            {
+                FreeMf(pmf);
+
+                if (fAbort)
+                    FatalError("cannot open %s (%s)\n", sz, SzForEn(enCur));
+
+                return (MF *)0;
+            }
+
+            if (om == omReadWrite)
+                pmf->fdWrite = pmf->fdRead;
+
+            pmf->pos = 0L;
+            break;
+    }
+
+    return pmf;
+}
+
+
+/* Same as PmfOpen, except opens the file with FILE_FLAG_NO_BUFFERING.
+*/
+MF *
+PmfOpenNoBuffering(
+    PTH *pth,
+    OM   om,
+    FX   fx)
+{
+    int fAbort;
+    register MF *pmf;
+    char sz[cchPthMax];
+    int wRetErr;
+    F fNetPth;
+    HANDLE hf;
+    DWORD fileaccess;
+    int fd;
+
+    fAbort = (om&ooAbort) != 0;
+    om &= omMask;
+
+    switch(om)
+    {
+        default: AssertF(fFalse);
+
+        case omAppend:
+            /* create temp file for writing */
+            AssertF(fAbort);
+            pmf = PmfMkTemp(pth, permSysFiles, fx); /* assume mode for log file */
+            pmf->mm = mmAppToReal;
+            break;
+
+        case omReadOnly:
+        case omReadWrite:
+            /* open existing file; no temp name */
+            pmf = PmfAlloc(pth, (char *)0, fx);
+            fNetPth = FNetPth(pth) ? pth[3] != ':' : fFalse;
+            SzPhysPath(sz, pth);
+
+            while (TRUE) {
+                if (!fNetPth)
+                    fd = _open(sz, om);
+                else {
+                    fd = -1;    // Assume failure
+
+                    /*
+                     * decode the access flags
+                     */
+                    switch( om & (_O_RDONLY | _O_WRONLY | _O_RDWR) ) {
+
+                            case _O_WRONLY:         /* write access */
+                                    fileaccess = GENERIC_WRITE;
+                                    break;
+
+                            case _O_RDWR:           /* read and write access */
+                                    fileaccess = GENERIC_READ | GENERIC_WRITE;
+                                    break;
+
+                            case _O_RDONLY:         /* read access */
+                            default:                /* error, bad oflag */
+                                    fileaccess = GENERIC_READ;
+                                    break;
+                    }
+
+                    /*
+                     * try to open/create the file
+                     */
+                    hf = CreateFile(sz,
+                                    fileaccess,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    NULL,
+                                    OPEN_EXISTING,
+                                    FILE_FLAG_NO_BUFFERING | FILE_ATTRIBUTE_NORMAL,
+                                    NULL
+                                   );
+                    if (hf == INVALID_HANDLE_VALUE)
+                        _doserrno = GetLastError();
+                    else {
+                        fd = _open_osfhandle((long)hf, 0);
+                        if (fd >= 0)
+                            pmf->fNoBuffering = fTrue;
+                    }
+                }
+
+                if (fd < 0) {
+                    if ((wRetErr = WRetryErr(0, "opening", 0, sz)) == 0)
+                        break;
+                } else {
+                    pmf->fdRead = fd;
+                    break;
+                }
+            }
 
             if (pmf->fdRead < 0)
             {
@@ -220,7 +289,7 @@ CheckAppendMf(
     MF *pmfAppend,
     F   fPrVerbose)
 {
-    struct stat st;
+    struct _stat st;
     MF *pmf;
     long cbPad;
     int cb;
@@ -450,7 +519,7 @@ PmfReopen(
     pmf = PmfAlloc(pth, szTemp, fx);
 
     SzPhysTMf(sz, pmf);
-    while ((pmf->fdWrite = pmf->fdRead = open(sz, om)) < 0 &&
+    while ((pmf->fdWrite = pmf->fdRead = _open(sz, om)) < 0 &&
            (wRetErr = WRetryErr(0, "opening", 0, sz)) != 0)
         ;
 
@@ -542,7 +611,7 @@ CloseOnly(
     pmf->fdRead = pmf->fdWrite = fdNil;
     pmf->pos  = -1L;
 
-    while ((w = close(fd)) != 0 && (wRetErr = WRetryErr(0, "closing", pmf, 0)) != 0)
+    while ((w = _close(fd)) != 0 && (wRetErr = WRetryErr(0, "closing", pmf, 0)) != 0)
         ;
 
     if (w != 0)
@@ -588,6 +657,7 @@ ReadMf(
     }
 }
 
+extern DWORD dwPageSize;
 
 /* read up to cb bytes and return amount read */
 unsigned
@@ -602,8 +672,9 @@ CbReadMf(
     AssertF(FIsOpenMf(pmf));
     AssertF(pmf->fdRead >= 0);
     AssertF(cb != (unsigned)-1);
+    AssertF(!pmf->fNoBuffering || ((DWORD)lpb & (dwPageSize-1)) == 0);
 
-    while ((cbT = ReadLpbCb(pmf->fdRead, lpb, cb)) == (unsigned)-1 &&
+    while ((cbT = _read(pmf->fdRead, lpb, cb)) == (unsigned)-1 &&
            (wRetErr = WRetryErr(0, "reading", pmf, 0)) != 0)
         /* we DON'T assume that the file position has not changed!
          * The system call may have been interrupted; if so, reset the
@@ -611,7 +682,7 @@ CbReadMf(
          */
     {
         if (wRetErr == enInterruptSysCall)
-            AssertF(lseek(pmf->fdRead, pmf->pos, 0) == pmf->pos);
+            AssertF(_lseek(pmf->fdRead, pmf->pos, 0) == pmf->pos);
     }
 
     if (cbT == (unsigned)-1)
@@ -638,6 +709,7 @@ FWriteMf(
     AssertF(FIsOpenMf(pmf));
     AssertF(pmf->fdWrite >= 0);
     AssertF(cb != (unsigned)-1);
+    AssertF(!pmf->fNoBuffering || ((DWORD)lpb & (dwPageSize-1)) == 0);
 
     if (pmf == &mfStdout && lpb[cb-1] == chCtrlZ)
         cb--;
@@ -658,6 +730,7 @@ FWriteMf(
         cb -= cbT;
         lpb += cbT;
         pmf->pos += cbT;
+        pmf->fWritten = fTrue;
     }
 
     return fTrue;
@@ -707,7 +780,7 @@ SeekMf(
         */
         return posSet;
 
-    while ((posRet = lseek(fd, (long)posSet, (int)mode)) == -1L && (wRetErr = WRetryErr(0, "moving within", pmf, 0)) != 0)
+    while ((posRet = _lseek(fd, (long)posSet, (int)mode)) == -1L && (wRetErr = WRetryErr(0, "moving within", pmf, 0)) != 0)
         ;
 
     if (mode == 0 && posRet != posSet)
@@ -825,9 +898,7 @@ RenameMf(
             /* if szTo now exists, and szFrom is gone, then assume
              * successful!
              */
-            struct stat st;
-
-            if ((wRetErr = stat(szFrom, &st) != 0) && (wRetErr = stat(szTo, &st) == 0))
+            if (!FExistSz(szFrom) && FExistSz(szTo))
                 break;
         }
     }
@@ -844,7 +915,7 @@ RenameMf(
 F
 FStatPth(
     PTH pth[],
-    struct stat *pst)
+    struct _stat *pst)
 {
     int w;
     int wRetErr;
@@ -852,10 +923,10 @@ FStatPth(
 
     SzPhysPath(sz, pth);
 
-    while ((w = stat(sz, pst)) != 0 &&
+    while ((w = _stat(sz, pst)) != 0 &&
            (wRetErr = WRetryErr(0, "accessing", 0, sz)) != 0)
         ;
-
+		
     return w == 0;
 }
 
@@ -863,102 +934,23 @@ FStatPth(
 void
 StatPth(
     PTH pth[],
-    struct stat *pst)
+    struct _stat *pst)
 {
     if (!FStatPth(pth, pst))
         FatalError("cannot access %!s\n", pth);
 }
 
-#if defined(DOS) || defined(OS2)
-/* we define our own stat for DOS so it is correct and streamlined.  For
-   instance, we can assume that there are no wild cards in the name.  Also,
-   we do not care about Xenix errors as we use the dos errors as returned
-   from GetExtendedErr.  One more thing, we know that only forward slashes
-   appear in the name; all backward slashes have been converted.
 
-   NOTE: the following fields are always 0:
-        st_ino;
-        st_uid;
-        st_gid;
 
-   i.e. we set the following fields:
-        st_dev;         (drive id)
-        st_rdev;        (same as st_dev)
-        st_nlink;       (this is always 1)
-        st_mode;        (no executable bits)
-        st_size;        (0 for top level directories)
-        st_mtime;
-        st_atime;       (same as st_mtime)
-        st_ctime;       (same as st_mtime)
-
-   This routine does not set the executable bit(s) for any names.
-*/
-int
-stat(
-    char *sz,
-    struct stat *pst)
+F
+FExistSz(char *sz)
 {
-    int dn;
-    DE de;
-
-    /* clear all fields not set */
-    ClearPbCb((char *)pst, sizeof(struct stat));
-    pst->st_nlink = 1;
-
-    /* scan for all but volume because apparently DOS will create a
-       top level directory named the same as the volume name.  If the
-       search failed, see if it is the top level directory.
-    */
-    if (findfirst(&de, sz, faAll&~faVolume) != 0)
-    {
-        CloseDir(&de);
-        if (FDriveId(sz, &dn) && *(sz+2) == '/' && *(sz+3) == '\0')
-        {
-            /* have d:/. Set dir and r/w for all.  Note: for any
-               of the real SLM calls (I have not determined if
-               any of the library routines call stat()) we will
-               have called SzPhysPath before calling this routine
-               which will guarentee that the disk is inserted
-               because we would have read a volume name.
-            */
-            pst->st_mode = S_IFDIR|0666;
-            pst->st_dev = pst->st_rdev = dn;
-
-            /* size and times are all 0 */
-            return 0;
-        }
-        else
-            /* some error; return non-zero */
-            return -1;
-    }
-    else
-    {
-        unsigned mode;
-
-        CloseDir(&de);
-
-        /* have a particular file on DOS */
-        if (!FDriveId(sz, &dn))
-            dn = DnGetCur();
-
-        pst->st_dev = pst->st_rdev = dn;
-
-        /* set directory bit if one */
-        mode =  (FaFromPde(&de) & faDir) ? (unsigned)S_IFDIR
-                                         : (unsigned)S_IFREG;
-
-        /* 0444 = all read only; 0666 = all read/write */
-        mode |= (FaFromPde(&de)&(faSystem|faReadonly)) ? 0444 : 0666;
-
-        pst->st_mode = mode;
-        pst->st_size = CbFromPde(&de);
-        pst->st_atime = pst->st_mtime = pst->st_ctime =
-                    XTIME(DateFromPde(&de), TimeFromPde(&de));
-        return 0;
-    }
+        struct _stat st;
+	
+        if (_stat(sz, &st) != 0)
+		return (fFalse);
+	return (fTrue);
 }
-#endif /* DOS || OS2 */
-
 
 /* returns fTrue if sz exists according to fDir. */
 F
@@ -999,12 +991,12 @@ CbFile(
     int             hf;
     unsigned long   cb;
 
-    hf = open(SzPhysPath(szPhys, szFile), omReadOnly);
+    hf = _open(SzPhysPath(szPhys, szFile), omReadOnly);
     if (-1 == hf)
         return (0);
 
-    cb = lseek(hf, 0, SEEK_END);
-    close(hf);
+    cb = _lseek(hf, 0, SEEK_END);
+    _close(hf);
 
     return (-1L == cb ? 0L : cb);
 }
@@ -1115,7 +1107,7 @@ FEnsurSz(
     char *pchMac)
 {
     PTH pth[cchPthMax];
-    struct stat st;
+    struct _stat st;
     char chSav;
 
     AssertF(sz != 0);
@@ -1159,7 +1151,7 @@ FMkPth(
     int  fErrOk)
 {
     char sz[cchPthMax];
-    struct stat st;
+    struct _stat st;
     int w;
     int wRetErr;
 
@@ -1182,14 +1174,14 @@ FMkPth(
             /* continue to make directory */
         }
         else
-            /* must be dir; on DOS we can always write to a directory */
+            /* must be dir */
             return fTrue;
     }
 
     if (fVerbose)
         PrErr("Mkdir %s\n", sz);
 
-    while ((w = mkdir(sz)) != 0 && (wRetErr = WRetryErr(0, "making directory", 0, sz)) != 0)
+    while ((w = _mkdir(sz)) != 0 && (wRetErr = WRetryErr(0, "making directory", 0, sz)) != 0)
         ;
 
     if (w != 0)
@@ -1254,7 +1246,7 @@ RmPth(
     if (fVerbose)
         PrErr("Rmdir %s\n", pthSub);
 
-    while ((w = rmdir((char *)pthSub)) != 0 && (wRetErr = WRetryErr(0, "removing directory", 0, pthSub)) != 0)
+    while ((w = _rmdir((char *)pthSub)) != 0 && (wRetErr = WRetryErr(0, "removing directory", 0, pthSub)) != 0)
         ;
 
     if (w == -1 && enCur != ERROR_PATH_NOT_FOUND)
@@ -1268,76 +1260,9 @@ void
 ChngErrToOut(
     void)
 {
-    close(2);
-    dup(1);
+    _close(2);
+    _dup(1);
 }
-
-#if 0
-#if defined(_WIN32)
-#include <stdarg.h>
-#include <stddef.h>
-
-/*VARARGS*/
-/* Execute the given program szCmd with the given arguments.
-   The argument string which gets built is in the form
-        prog_name\0arg_list\0\0
-   being the program name, a null character, the program parameters
-   (each seperated by spaces), and two null characters.
-   Uses the variable argument routines to handle the args passed.
-   Returns the resulting resc.ExitCode (shifted for error checking)..
-*/
-int
-ExecExe(
-    char *szCmd,
-    ...)
-{
-    char                CmndLine[MAX_PATH];    // Command Line
-    va_list             va;
-    char                *Argument;
-    PROCESS_INFORMATION processInfo;
-    STARTUPINFO         StartupInfo;
-    DWORD               retcode;
-    BOOL                Created;
-
-    // first get the program name
-    strcpy(CmndLine, szCmd);
-    strcat(CmndLine, ".exe");
-
-    // set argument pointer to beginning of list of optional arguments
-    va_start(va, szCmd);
-
-    //  Add the arguments
-    while (Argument = va_arg(va, char *))
-    {
-        strcat(CmndLine, " ");
-        strcat(CmndLine, Argument);
-    }
-
-    // reset the argument pointer
-    va_end(va);
-
-    // now execute the program
-    memset(&StartupInfo, '\0', sizeof(STARTUPINFO));
-    StartupInfo.cb = sizeof(STARTUPINFO);
-
-    Created = CreateProcess(NULL, CmndLine, NULL, NULL, TRUE, 0, NULL, NULL,
-                            &StartupInfo, &processInfo);
-
-    if (!Created)
-        return -1;
-
-    WaitForSingleObject(processInfo.hProcess, (unsigned)-1);
-
-    GetExitCodeProcess(processInfo.hProcess, &retcode);
-
-    //  Close the handles to process and thread
-    CloseHandle(processInfo.hProcess);
-    CloseHandle(processInfo.hThread);
-
-    return ((int)retcode << 8);
-}
-#endif /* _WIN32 */
-#endif
 
 
 /*VARARGS3*/
@@ -1364,7 +1289,8 @@ RunSz(
     char *sz6,
     char *sz7,
     char *sz8,
-    char *sz9)
+    char *sz9
+    )
 {
     int fdOutSav;                   /* where stdout fd is saved. */
     int status;
@@ -1381,15 +1307,15 @@ RunSz(
          * so that writes to it are actually sent to our file.
          * First we save the old fd 1 away by duping it onto fdOutSav.
          */
-        if ((fdOutSav = dup(1)) < 0)
+        if ((fdOutSav = _dup(1)) < 0)
             FatalError("cannot dup stdout for redirection\n");
 
         /* Close fd 1 so that the next open/create will get it. */
-        close(1);
+        _close(1);
 
         /* Dup existing stream onto fd 1. */
         AssertF(pmfOut->fdWrite > 0);
-        VerifyF(dup(pmfOut->fdWrite) == 1);
+        VerifyF(_dup(pmfOut->fdWrite) == 1);
     }
 
     if (fVerbose)
@@ -1409,16 +1335,16 @@ PrStdOut:
             PrErr("> %!@T", pmfOut);
         PrErr("\n");
     }
-    status = spawnlp(P_WAIT,szCmd,szCmd, sz1, sz2, sz3, sz4, sz5, sz6, sz7, sz8, sz9);
+    status = _spawnlp(P_WAIT,szCmd,szCmd, sz1, sz2, sz3, sz4, sz5, sz6, sz7, sz8, sz9);
     if (status != -1)
         status <<= 8;
 
     if (fdOutSav != 1)
     {
         /* Restore fd 1 to previous stdout stream. */
-        close(1);
-        VerifyF(dup(fdOutSav) == 1);
-        close(fdOutSav);
+        _close(1);
+        VerifyF(_dup(fdOutSav) == 1);
+        _close(fdOutSav);
     }
     return status;
 }
@@ -1573,7 +1499,7 @@ CopyNow(
    standard out if pthTo is 0.  Mode and fCopyTime are only referenced if pthTo
    is non-zero, so the calls to this procedure are in two forms:
 
-        FCopyFile(0, pth);
+        FCopyFile(0, pth, NULL, NULL. NULL);
         FCopyFile(pth1, pth2, mode, fCopyTime, fx);
 */
 F
@@ -1636,30 +1562,12 @@ CopyFile(
 
 #define ctixSec 18
 
-void
+F
 SleepTicks(
     int cTicks)
 {
-#if defined(OS2)
-    DOSSLEEP((long)cTicks * (1000/ctixSec)); //18 ticks per 1000 milliseconds
-#elif defined(DOS)
-    typedef int TIX;
-    TIX tixLast = *(TIX far * volatile)0x46C;
-
-    /* C5.0 has a bug with pointers to volatile data, so we have to
-     * use the casts shown below.
-     */
-
-    while (cTicks-- > 0) {
-        /* Busy wait until the tick changes. */
-        while (*(TIX far * volatile)0x46C == tixLast)
-            ;
-        tixLast = *(TIX far * volatile)0x46C;
-    }
-#elif defined(_WIN32)
     Sleep(cTicks * (1000/ctixSec));
-    CheckForBreak();
-#endif
+    return CheckForBreak();
 }
 
 
@@ -1678,7 +1586,8 @@ SleepCsecs(
     while (cSecs-- > 0)
     {
         /* A timer tick occurs 18.2 times per second. */
-        SleepTicks(ctixSec);
+        if (SleepTicks(ctixSec))
+            break;
         PrErr(".");
     }
 
@@ -1799,9 +1708,6 @@ WRetryErr(
             break;
 
         case eaAbort:
-#if defined(DOS)
-            FiniInt24();            /* the only thing we do... */
-#endif
             /* try to let the user know */
             Error("PANIC: an unrecoverable operating system error has occurred.\n");
             exit(1);
@@ -1814,14 +1720,12 @@ WRetryErr(
         enPrev = enCur;
         eaPrev = eaCur;
 
-#if defined(OS2) || defined(_WIN32)
         /* return special code if we were interrupted during a system
          * call.  This way we can restore the state before retrying.
          */
         if (_doserrno == enInterruptSysCall && fRetry == fTrue)
             return enInterruptSysCall;
         else
-#endif
             return fRetry;
 }
 
@@ -1960,9 +1864,6 @@ MaybeRetry:
             break;
 
         case eaAbort:
-#if defined(DOS)
-            FiniInt24();    /* the only thing we do... */
-#endif
             /* try to let the user know */
             Error("PANIC: an unrecoverable operating system error has occurred.\n");
             exit(1);
@@ -1975,116 +1876,8 @@ MaybeRetry:
     enPrev = enCur;
     eaPrev = eaCur;
 
-#ifdef OS2
-    // return special code if we were interrupted during a system
-    // call.  This way we can restore the state before retrying.
-    if (_doserrno == enInterruptSysCall && fRetry == fTrue)
-        return enInterruptSysCall;
-    else
-#endif
-        return fRetry;
+    return fRetry;
 }
-
-
-#if defined(DOS)
-/* Structures for checking DOS versus cmos time & date.
- */
-
-typedef char BYTE;
-typedef int  WORD;
-
-typedef struct
-{
-    BYTE bHour;     /* hour (0-23)   */
-    BYTE bMin;      /* minute (0-59) */
-    BYTE bSec;      /* second (0-59) */
-} TME;
-
-typedef struct
-{
-    WORD wYear;     /* year (1980-2099) */
-    BYTE bMonth;    /* month (0-11)     */
-    BYTE bDay;      /* day (0-31)       */
-} DTE;
-
-/* mpmnday - mapping from month to number of days since beginning of year */
-static int mpmnday[] = {0,31,59,90,120,151,181,212,243,273,304,334};
-
-F FCmosPtme(TME *);
-void CmosPdte(DTE *);
-void DosPtme(TME *);
-void DosPdte(DTE *);
-int setclock(void);
-
-#define cdayFutureMax 7
-#define csecPastMax   10
-
-#define cdayYear    365
-#define csecMin     60
-#define csecHour    3600
-#define csecDay     86400
-
-/* Check the times & dates on the DOS and Cmos clocks and return fFalse
- * if:
- *      1.) the DOS clock is more than a week behind the cmos clock.
- * or   2.) the DOS clock is more than 10 seconds ahead of the cmos clock.
- *
- * Otherwise, set the dos clock from the cmos clock and return fTrue.
- */
-void
-CheckClock(
-    void)
-{
-    DTE dteCmos, dteDos;
-    TME tmeCmos, tmeDos;
-    long cday;
-    long csec;
-
-    if (!FCmosPtme(&tmeCmos))       /* if error getting cmos time return */
-        return;
-
-    DosPtme(&tmeDos);
-
-    DosPdte(&dteDos);
-    CmosPdte(&dteCmos);
-
-    /* calculate # of days difference between two dates */
-    cday  = (dteCmos.wYear - dteDos.wYear) * cdayYear;
-    cday += mpmnday[dteCmos.bMonth] - mpmnday[dteDos.bMonth];
-    cday += dteCmos.bDay - dteDos.bDay;
-
-    /* DOS clock is more than a week behind */
-    if (cday > cdayFutureMax)
-    {
-        Warn("not setting DOS clock;\nCMOS clock is more than a week ahead\n\n");
-        return;
-    }
-
-    if (cday < -2)
-    {
-        Warn("not setting DOS clock;\nCMOS clock is more than ten seconds behind\n\n");
-        return;
-    }
-    else if (cday == 0 || cday == -1)
-    {
-        /* calculate number of seconds difference between two times */
-        csec = cday * csecDay;
-        csec += (tmeCmos.bHour - tmeDos.bHour) * csecHour;
-        csec += (tmeCmos.bMin - tmeDos.bMin) * csecMin;
-        csec += tmeCmos.bSec - tmeDos.bSec;
-
-        /* DOS clock is more than ten seconds ahead */
-        if (csec < -csecPastMax)
-        {
-            Warn("not setting DOS clock;\nCMOS clock is more than ten seconds behind\n\n");
-            return;
-        }
-    }
-
-    setclock();
-}
-
-#endif /* DOS */
 
 char szResvd[] = "reserved";
 
@@ -2140,7 +1933,7 @@ char *mpensz[] = {
 /*48*/  szResvd,
 /*49*/  szResvd,
 /*50*/  "network request not support",
-/*51*/  "remove computer not listening",
+/*51*/  "remote computer not listening",
 /*52*/  "duplicate name on network",
 /*53*/  "network name not found",
 /*54*/  "network busy",

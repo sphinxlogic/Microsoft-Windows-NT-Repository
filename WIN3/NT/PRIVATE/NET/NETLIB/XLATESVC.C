@@ -45,7 +45,7 @@ Revision History:
 #include <lmapibuf.h>   // NetApiBufferAllocate(), etc.
 #include <lmsname.h>    // SERVICE_ and SERVICE_LM20_ equates.
 #include <lmsvc.h>      // LPSERVER_INFO_2, etc.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>     // My prototypes, NetpIsServiceLevelValid().
 #include <prefix.h>     // PREFIX_ equates.
 #include <strucinf.h>   // NetpServiceStructureInfo().
@@ -347,9 +347,9 @@ Return Value:
 Done:
 
     IF_DEBUG( XLATESVC ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpTranslateServiceName: "
+        NetpKdPrint(( PREFIX_NETLIB "NetpTranslateServiceName: "
                 " translated " FORMAT_LPTSTR " to " FORMAT_LPTSTR ".\n",
-                GivenServiceName, *TranslatedName );
+                GivenServiceName, *TranslatedName ));
     }
 
     return (NO_ERROR);

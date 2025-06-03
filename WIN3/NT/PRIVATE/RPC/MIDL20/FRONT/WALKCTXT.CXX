@@ -2,19 +2,19 @@
  Copyright (c) 1989 Microsoft Corporation
 
  Module Name:
-	
-	walkctxt.cxx
+
+    walkctxt.cxx
 
  Abstract:
 
-	typegraph walk context block routines
+        typegraph walk context block routines
 
  Notes:
 
 
  Author:
 
-	GregJen	Oct-27-1993	Created.
+        GregJen Oct-27-1993     Created.
 
  Notes:
 
@@ -22,7 +22,7 @@
  ----------------------------------------------------------------------------*/
 
 /****************************************************************************
- *	include files
+ *      include files
  ***************************************************************************/
 
 #include "allnodes.hxx"
@@ -32,20 +32,20 @@
 #include "control.hxx"
 
 /****************************************************************************
- *	local data
+ *      local data
  ***************************************************************************/
 
 /****************************************************************************
- *	externs
+ *      externs
  ***************************************************************************/
 
-extern ATTR_SUMMARY				FieldAttrs;
-extern CMD_ARG				*	pCommand;
-extern ccontrol				*	pCompiler;
-extern ATTR_SUMMARY				RedundantsOk;
+extern ATTR_SUMMARY                             FieldAttrs;
+extern CMD_ARG                          *       pCommand;
+extern ccontrol                         *       pCompiler;
+extern ATTR_SUMMARY                             RedundantsOk;
 
 /****************************************************************************
- *	definitions
+ *      definitions
  ***************************************************************************/
 
 
@@ -58,23 +58,7 @@ extern ATTR_SUMMARY				RedundantsOk;
 node_base_attr *
 ATTR_ITERATOR::GetAttribute( ATTR_T Attr )
 {
-	// if not set, return NULL
-	if ( !IS_ATTR( Summary, Attr ) )
-		return NULL;
-
-	node_base_attr	*		pAttrNode;
-	struct	_gplist	*		pCur	= pFirst;
-	
-	while ( pCur )
-		{
-		pAttrNode = (node_base_attr *) pCur->pElement;
-		if ( pAttrNode->GetAttrID() == Attr )
-			{
-			return pAttrNode;
-			}
-		pCur = pCur->pNext;
-		}
-	return NULL; 
+    return AllAttrs[ Attr ];
 }
 
 // Extract a single attribute from the attribute list (and remove from
@@ -83,423 +67,303 @@ ATTR_ITERATOR::GetAttribute( ATTR_T Attr )
 node_base_attr *
 ATTR_ITERATOR::ExtractAttribute( ATTR_T Attr )
 {
-	// if not set, return NULL
-	if ( !IS_ATTR( Summary, Attr ) )
-		return NULL;
+    node_base_attr  *   pResult = AllAttrs[ Attr ];
 
-	node_base_attr	*		pAttrNode;
-	node_base_attr	*		retval;
-	struct	_gplist	*		pPrev	= NULL;
-	struct	_gplist	*		pCur	= pFirst;
-	
-	RESET_ATTR( Summary, Attr );
-	while ( pCur )
-		{
-		pAttrNode = (node_base_attr *) pCur->pElement;
-		if ( pAttrNode->GetAttrID() == Attr )
-			{
-			retval = pAttrNode;
-			Delete( pPrev, pCur );
-			pCurrent = pFirst;
-			return retval;
-			}
-		pPrev = pCur;
-		pCur = pCur->pNext;
-		}
-	return NULL; 
+    if ( !pResult )
+        {
+        return pResult;
+        }
+
+    // if there were extras of a redundant attr, get the next one from the list
+    if ( ( Attr <= REDUNDANT_ATTR_END ) && RedundantAttrExtras[ Attr ].NonNull() )
+        {
+        RedundantAttrExtras[ Attr ].GetCurrent( (void **)&AllAttrs[Attr] );
+        RedundantAttrExtras[ Attr ].RemoveHead();
+        }
+    else    // no more of this attribute
+        {
+        AllAttrs[Attr] = NULL;
+        RESET_ATTR( Summary, Attr );
+        }
+
+    return pResult;
 }
 
-void				
+void
 ATTR_ITERATOR::ExtractFieldAttributes( FIELD_ATTR_INFO * FACtxt )
 {
-	ATTR_VECTOR				MyFieldAttrs;
+    node_base_attr  *   pAttrNode;
+    expr_node       *   pExpr;
 
-	MASKED_COPY_ATTR( MyFieldAttrs, Summary, FieldAttrs );
-	if ( IS_CLEAR_ATTR( MyFieldAttrs ) )
-		return;
+    if ( pAttrNode = ExtractAttribute( ATTR_FIRST ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetFirstIs( pExpr );
+        }
 
-	node_base_attr		*	pAttrNode;
-	struct	_gplist		* 	pCur	= pFirst;	// from gplistmgr
-	struct	_gplist		* 	pPrev	= NULL;
-	ATTR_T					Attr;
-	expr_node			*	pExpr;	
-	BOOL					fFirstIs	= FALSE;
-	BOOL					fLastIs		= FALSE;
-	BOOL					fLengthIs	= FALSE;
-	BOOL					fMinIs		= FALSE;
-	BOOL					fMaxIs		= FALSE;
-	BOOL					fSizeIs		= FALSE;
-	BOOL					fIIDIs		= FALSE;
-	BOOL					fArrayStyle	= (FACtxt->Control & FA_STYLE_MASK) == FA_ARRAY_STYLE;
-	
-	
-	// gaj - tbd - for pointers, pick up last of multiple attrs, not first
-	while ( pCur )
-		{
-		pAttrNode = (node_base_attr *) pCur->pElement;
-		switch ( Attr = pAttrNode->GetAttrID() )
-			{
-			case ATTR_FIRST:
-				{
-				if (!fFirstIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetFirstIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fFirstIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
-					
-				break;
-				}
-			case ATTR_LAST:
-				{
-				if (!fLastIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetLastIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fLastIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+    if ( pAttrNode = ExtractAttribute( ATTR_LAST ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetLastIs( pExpr );
+        }
 
-				break;
-				}
-			case ATTR_LENGTH:
-				{
-				if (!fLengthIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetLengthIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fLengthIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+    if ( pAttrNode = ExtractAttribute( ATTR_LENGTH ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetLengthIs( pExpr );
+        }
 
-				break;
-				}
-			case ATTR_MIN:
-				{
-				if (!fMinIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetMinIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fMinIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+    if ( pAttrNode = ExtractAttribute( ATTR_MIN ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetMinIs( pExpr );
+        }
 
-				break;
-				}
-			case ATTR_MAX:
-				{
-				if (!fMaxIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetMaxIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fMaxIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+    if ( pAttrNode = ExtractAttribute( ATTR_MAX ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetMaxIs( pExpr );
+        }
 
-				break;
-				}
-			case ATTR_SIZE:
-				{
-				if (!fSizeIs )	// only get first occurrence
-					{
-					pExpr = pAttrNode->GetExpr();
-					if ( pExpr || fArrayStyle )
-						FACtxt->SetSizeIs( pExpr );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fSizeIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+    if ( pAttrNode = ExtractAttribute( ATTR_SIZE ) )
+        {
+        pExpr = pAttrNode->GetExpr();
+        if ( pExpr )
+            FACtxt->SetSizeIs( pExpr );
+        }
 
-				break;
-				}
-			case ATTR_IID_IS:
-				{
-				if (FACtxt->Control & FA_CHILD_IS_ARRAY_OR_PTR)
-					break;			// pass iid_is on to child
+    // pass iid_is and string attrs on to child
+    if ( (FACtxt->Control & FA_CHILD_IS_ARRAY_OR_PTR) == 0 )
+        {
 
-				if (!fIIDIs )	// only get first occurrence
-					{
-					FACtxt->SetIIDIs( pAttrNode->GetExpr() );
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					fIIDIs = TRUE;
-					}
-				else
-					SET_ATTR( Summary, Attr );
+        if ( pAttrNode = ExtractAttribute( ATTR_IID_IS ) )
+            {
+            FACtxt->SetIIDIs( pAttrNode->GetExpr() );
+            }
 
-				break;
-				}
-			case ATTR_STRING:
-				{
-				if (FACtxt->Control & FA_CHILD_IS_ARRAY_OR_PTR)
-					break;			// pass string on to child
+        if ( pAttrNode = ExtractAttribute( ATTR_STRING ) )
+            {
+            FACtxt->SetString();
+            }
 
-				if (FACtxt->StringKind == STR_NO_STRING )	// only get first
-					{
-					FACtxt->SetString();
-					Delete( pPrev, pCur );
-					RESET_ATTR( Summary, Attr );
-					}
-				else
-					SET_ATTR( Summary, Attr );
+        if ( pAttrNode = ExtractAttribute( ATTR_BSTRING ) )
+            {
+            FACtxt->SetBString();
+            }
 
-				break;
-				}
-			default:
-				{
-				// non-field-attribute; skip
-				}
+        }
 
-			}	// switch
-
-			pPrev = pCur;
-			pCur = (pCur) ? pCur->pNext : pFirst;
-		}  // while
-		 
-	pCurrent = pFirst;
-}
-
-
-void				
-ATTR_ITERATOR::Delete( struct _gplist * & pPrev,
-					   struct _gplist * & pCur )
-{
-	struct _gplist	*	pDel = pCur;
-	
-	if (pFirst != pDel)
-		{
-		pPrev->pNext = pDel->pNext;
-		}
-	else	// first element
-		{
-		pFirst = pDel->pNext;
-		}
-	
-	// last element
-	if (pTail == pDel)
-		{
-		pTail = pPrev;
-		}
-
-	pCur = pPrev;
-	delete pDel;
 }
 
 
 
 
-// this routine searches up the context stack looking for a 
+// this routine searches up the context stack looking for a
 // matching node
 
-WALK_CTXT	*		
+WALK_CTXT   *
 WALK_CTXT::FindAncestorContext( NODE_T Kind )
-	{
-	WALK_CTXT	*	pCur	= this;
+{
+    WALK_CTXT   *   pCur    = this;
 
-	while ( pCur )
-		{
-		if ( (pCur->GetParent())->NodeKind() == Kind )
-			return pCur;
-		pCur	= pCur->GetParentContext();
-		}
-	
-	return NULL;	
-	}
+    while ( pCur )
+        {
+        if ( (pCur->GetParent())->NodeKind() == Kind )
+            return pCur;
+        pCur    = pCur->GetParentContext();
+        }
 
-// this routine searches up the context stack looking for a 
+    return NULL;
+}
+
+// this routine searches up the context stack looking for a
 // matching node
 
-WALK_CTXT	*		
+WALK_CTXT   *
 WALK_CTXT::FindRecursiveContext( node_skl * self )
-	{
-	WALK_CTXT	*	pCur	= this;
+{
+    WALK_CTXT   *   pCur    = this;
 
-	while ( pCur )
-		{
-		if ( pCur->GetParent() == self )
-			return pCur;
-		pCur	= pCur->GetParentContext();
-		}
-	
-	return NULL;	
-	}
+    while ( pCur )
+        {
+        if ( pCur->GetParent() == self )
+            return pCur;
+        pCur    = pCur->GetParentContext();
+        }
 
-// this routine searches up the context stack looking for a 
+    return NULL;
+}
+
+// this routine searches up the context stack looking for a
 // node other than a typedef
 
-WALK_CTXT	*		
+WALK_CTXT   *
 WALK_CTXT::FindNonDefAncestorContext( )
-	{
-	WALK_CTXT	*	pCur	= this->GetParentContext();
+{
+    WALK_CTXT   *   pCur    = this->GetParentContext();
 
-	while ( pCur )
-		{
-		if ( (pCur->GetParent())->NodeKind() != NODE_DEF )
-			return pCur;
-		pCur	= pCur->GetParentContext();
-		}
-	
-	return NULL;	
-	}
+    while ( pCur )
+        {
+        if ( (pCur->GetParent())->NodeKind() != NODE_DEF )
+            return pCur;
+        pCur    = pCur->GetParentContext();
+        }
+
+    return NULL;
+}
 
 
 // for my context, find the appropriate pointer kind ( and extract it if needed )
-PTRTYPE				
-WALK_CTXT::GetPtrKind()
+PTRTYPE
+WALK_CTXT::GetPtrKind( BOOL * pfExplicitPtrAttr )
 {
-	PTRTYPE				PtrKind	=	PTR_UNKNOWN;
-	node_ptr_attr	*	pPtrAttr;
-	node_interface	*	pIntf;
-	BOOL				fMsExt	=	pCommand->IsSwitchDefined( SWITCH_MS_EXT );
-	WALK_CTXT		*	pImportantCtxt = ( fMsExt ) ? FindNonDefAncestorContext() : 
-													  GetParentContext();
-	BOOL				fBelowParam = (pImportantCtxt->GetParent()->NodeKind()) 
-													== NODE_PARAM;
-	node_interface	*	pItsIntf	= GetParent()->GetMyInterfaceNode();
+    PTRTYPE             PtrKind =   PTR_UNKNOWN;
+    node_ptr_attr   *   pPtrAttr;
+    node_interface  *   pIntf;
+    BOOL                fMsExt  =   pCommand->IsSwitchDefined( SWITCH_MS_EXT );
+    WALK_CTXT       *   pImportantCtxt = ( fMsExt ) ? FindNonDefAncestorContext() :
+                                                                                                          GetParentContext();
+    BOOL                fBelowParam = (pImportantCtxt->GetParent()->NodeKind())
+                                                                                                        == NODE_PARAM;
+    node_interface  *   pItsIntf = GetParent()->GetMyInterfaceNode();
 
-	////////////////////////////////////////////////////////////////////////
-	// process pointer attributes
+    ////////////////////////////////////////////////////////////////////////
+    // process pointer attributes
 
-	if ( FInSummary( ATTR_PTR_KIND ) ) 
-		{
-		pPtrAttr = (node_ptr_attr *) ExtractAttribute( ATTR_PTR_KIND );
+    if ( pfExplicitPtrAttr )
+        *pfExplicitPtrAttr = FALSE;
 
-		PtrKind = pPtrAttr->GetPtrKind();
-		}
-	// top level pointer under param is ref ptr unless explicitly changed
-	else if ( fBelowParam )
-		{
-		PtrKind = PTR_REF;
-		}
-	// pointer default on defining interface
-	else if ( pItsIntf->FInSummary( ATTR_PTR_KIND ) )
-		{
-		pPtrAttr = (node_ptr_attr *) pItsIntf->GetAttribute( ATTR_PTR_KIND );
+    if ( FInSummary( ATTR_PTR_KIND ) )
+        {
+        pPtrAttr = (node_ptr_attr *) ExtractAttribute( ATTR_PTR_KIND );
 
-		PtrKind = pPtrAttr->GetPtrKind();
-		}
-	// pointer default on using interface
-	else if ( (pIntf=GetInterfaceNode()) ->FInSummary( ATTR_PTR_KIND ) )
-		{
-		pPtrAttr = (node_ptr_attr *) pIntf->GetAttribute( ATTR_PTR_KIND );
+        PtrKind = pPtrAttr->GetPtrKind();
 
-		// semantics verifies that there is exactly one here...
-		// ...and adds REF if needed
-		PtrKind = pPtrAttr->GetPtrKind();
-		}
-	else	// global default -- full for DCE, unique for MS_EXT
-		{
-		if ( fMsExt )
-			{
-			PtrKind	= PTR_UNIQUE;
-			}
-		else
-			{
-			PtrKind	= PTR_FULL;
-			}			
-		}
-	
-	return PtrKind;
+        if ( pfExplicitPtrAttr  &&
+            ( PtrKind == PTR_REF  ||  PtrKind == PTR_FULL ) )
+            {
+            *pfExplicitPtrAttr = TRUE;
+            }
+        }
+    // top level pointer under param is ref ptr unless explicitly changed
+    else if ( fBelowParam )
+        {
+        PtrKind = PTR_REF;
+        }
+    // pointer default on defining interface
+    else if ( pItsIntf->FInSummary( ATTR_PTR_KIND ) )
+        {
+        pPtrAttr = (node_ptr_attr *) pItsIntf->GetAttribute( ATTR_PTR_KIND );
+
+        PtrKind = pPtrAttr->GetPtrKind();
+        }
+    // pointer default on using interface
+    else if ( (pIntf=GetInterfaceNode()) ->FInSummary( ATTR_PTR_KIND ) )
+        {
+        pPtrAttr = (node_ptr_attr *) pIntf->GetAttribute( ATTR_PTR_KIND );
+
+        // semantics verifies that there is exactly one here...
+        // ...and adds REF if needed
+        PtrKind = pPtrAttr->GetPtrKind();
+        }
+    else    // global default -- full for DCE, unique for MS_EXT
+        {
+        if ( fMsExt )
+            {
+            PtrKind = PTR_UNIQUE;
+            }
+        else
+            {
+            PtrKind = PTR_FULL;
+            }
+        }
+
+    return PtrKind;
 
 }
 
 // get all the operation bits (MAYBE, IDEMPOTENT, BROADCAST, etc.
-unsigned short		
+unsigned short
 WALK_CTXT::GetOperationBits()
 {
-	unsigned short		Bits = 0;
+    unsigned short  Bits = 0;
 
-	if ( ExtractAttribute( ATTR_MAYBE ))
-		Bits |= OPERATION_MAYBE;
+    if ( ExtractAttribute( ATTR_MAYBE ))
+        Bits |= OPERATION_MAYBE;
 
-	if ( ExtractAttribute( ATTR_BROADCAST ))
-		Bits |= OPERATION_BROADCAST;
+    if ( ExtractAttribute( ATTR_BROADCAST ))
+        Bits |= OPERATION_BROADCAST;
 
-	if ( ExtractAttribute( ATTR_IDEMPOTENT ))
-		Bits |= OPERATION_IDEMPOTENT;
-	
-	if ( ExtractAttribute( ATTR_ASYNC ))
-		Bits |= OPERATION_ASYNC;
+    if ( ExtractAttribute( ATTR_IDEMPOTENT ))
+        Bits |= OPERATION_IDEMPOTENT;
 
-	if ( ExtractAttribute( ATTR_INPUTSYNC ))
-		Bits |= OPERATION_INPUT_SYNC;
+    if ( ExtractAttribute( ATTR_ASYNC ))
+        Bits |= OPERATION_ASYNC;
 
-	return Bits;
+    if ( ExtractAttribute( ATTR_INPUTSYNC ))
+        Bits |= OPERATION_INPUT_SYNC;
+
+    return Bits;
 }
 
 // add all the attributes to the attribute list; for duplicates, report the duplicate
 void
 WALK_CTXT::AddAttributes( named_node * pNode )
 {
-	ATTRLIST			MyAttrs;	
-	node_base_attr	*	pCurAttr;
-	ATTR_T				CurAttrKind;
+    ATTRLIST            MyAttrs;
+    node_base_attr  *   pCurAttr;
+    ATTR_T              CurAttrKind;
 
-	pNode->GetAttributeList( MyAttrs );
+    pNode->GetAttributeList( MyAttrs );
 
-	pCurAttr	=	MyAttrs.GetFirst();
-	while ( pCurAttr )
-		{
-		CurAttrKind = pCurAttr->GetAttrID();
+    pCurAttr    =   MyAttrs.GetFirst();
+    while ( pCurAttr )
+        {
+        CurAttrKind = pCurAttr->GetAttrID();
 
-		if (   ( pDownAttrList->FInSummary( CurAttrKind ) ) 
-			&& ( !IS_ATTR( RedundantsOk , CurAttrKind ) )	)
-			{
-			ProcessDuplicates( pCurAttr );
-			}
-		else
-			pDownAttrList->Add( pCurAttr );
-		
-		pCurAttr	= pCurAttr->GetNext();
-		}
+        if (   ( pDownAttrList->FInSummary( CurAttrKind ) )
+                && ( !IS_ATTR( RedundantsOk , CurAttrKind ) )   )
+            {
+            ProcessDuplicates( pCurAttr );
+            }
+        else
+            pDownAttrList->Add( pCurAttr );
+
+        pCurAttr        = pCurAttr->GetNext();
+        }
 }
 
 
-void					
+void
 WALK_CTXT::ProcessDuplicates( node_base_attr * pAttr )
 {
-	if ( pCompiler->GetPassNumber() == SEMANTIC_PASS )
-		{
-		// it is safe to use SemError on us, since it only uses parts of OUR
-		// context that are ready, even though this is called during the constructor
-		if ( pAttr->IsAcfAttr() )
-			{
-			AcfError( (acf_attr *)pAttr, 
-						NULL, 
-						*((SEM_ANALYSIS_CTXT *)this), 
-						REDUNDANT_ATTRIBUTE, 
-						NULL);	
-			}
-		else
-			{
-			char	*	pAttrName = pAttr->GetNodeNameString();
-			SemError( NULL, *((SEM_ANALYSIS_CTXT *)this), REDUNDANT_ATTRIBUTE ,pAttrName);	
-			}
-		}
+    if ( pCompiler->GetPassNumber() == SEMANTIC_PASS )
+        {
+        STATUS_T errnum = ((pAttr->GetAttrID() > NO_DUPLICATES_END)? REDUNDANT_ATTRIBUTE : CONFLICTING_ATTR);
+
+        // it is safe to use SemError on us, since it only uses parts of OUR
+        // context that are ready, even though this is called during the constructor
+        if ( pAttr->IsAcfAttr() )
+            {
+            AcfError( (acf_attr *)pAttr,
+                NULL,
+                *((SEM_ANALYSIS_CTXT *)this),
+                errnum,
+                NULL);
+            }
+        else
+            {
+            char    *   pAttrName = pAttr->GetNodeNameString();
+            SemError( NULL, *((SEM_ANALYSIS_CTXT *)this), errnum ,pAttrName);
+            }
+        }
 }
+
 
 
 

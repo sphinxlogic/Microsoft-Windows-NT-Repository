@@ -59,9 +59,30 @@ ULONG QueryFileInformation[] = {
          FileNameInformation,
          FileAllocationInformation,
          FileEndOfFileInformation,
-         0,
+         0,                        // FileAllInformation
          FileAlternateNameInformation,
-         FileStreamInformation
+         FileStreamInformation,
+         FileOleAllInformation,
+         FileCompressionInformation,
+         FileOleInformation
+};
+
+STATIC
+ULONG QueryFileInformationSize[] = {
+        SMB_QUERY_FILE_BASIC_INFO,// Base level
+        FileBasicInformation,     // Mapping for base level
+        sizeof( FILE_BASIC_INFORMATION),
+        sizeof( FILE_STANDARD_INFORMATION ),
+        sizeof( FILE_EA_INFORMATION ),
+        sizeof( FILE_NAME_INFORMATION ),
+        sizeof( FILE_ALLOCATION_INFORMATION ),
+        sizeof( FILE_END_OF_FILE_INFORMATION ),
+        sizeof( FILE_ALL_INFORMATION ),
+        sizeof( FILE_NAME_INFORMATION ),
+        sizeof( FILE_STREAM_INFORMATION ),
+        sizeof( FILE_OLE_ALL_INFORMATION ),
+        sizeof( FILE_COMPRESSION_INFORMATION ),
+        sizeof( FILE_OLE_INFORMATION )
 };
 
 STATIC
@@ -70,7 +91,29 @@ ULONG SetFileInformation[] = {
          FileBasicInformation,     // Mapping for base level
          FileDispositionInformation,
          FileAllocationInformation,
-         FileEndOfFileInformation
+         FileEndOfFileInformation,
+         FileOleClassIdInformation,
+         FileOleStateBitsInformation,
+         FileObjectIdInformation,
+         FileContentIndexInformation,
+         FileInheritContentIndexInformation,
+         FileOleInformation
+};
+
+STATIC
+ULONG SetFileInformationSize[] = {
+        SMB_SET_FILE_BASIC_INFO, // Base level
+        FileBasicInformation,    // Mapping for base level
+        sizeof( FILE_BASIC_INFORMATION ),
+        sizeof( FILE_DISPOSITION_INFORMATION ),
+        sizeof( FILE_ALLOCATION_INFORMATION ),
+        sizeof( FILE_END_OF_FILE_INFORMATION ),
+        sizeof( FILE_OLE_CLASSID_INFORMATION ),
+        sizeof( FILE_OLE_STATE_BITS_INFORMATION ),
+        sizeof( FILE_OBJECTID_INFORMATION ),
+        sizeof( BOOLEAN ),
+        sizeof( BOOLEAN ),
+        sizeof( FILE_OLE_INFORMATION )
 };
 
 STATIC
@@ -92,101 +135,24 @@ SetPathOrFileInformation (
     OUT PRESP_SET_PATH_INFORMATION Response
     );
 
-VOID
-RestartQueryInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-SMB_PROCESSOR_RETURN_TYPE
-GenerateQueryInformationResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    );
-
-VOID
-RestartSetInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-SMB_PROCESSOR_RETURN_TYPE
-GenerateSetInformationResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    );
-
-VOID
-BlockingQueryPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-SMB_TRANS_STATUS
-DoQueryPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-#if 0
-VOID
-RestartQueryPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-#endif
-
 SMB_TRANS_STATUS
 GenerateQueryPathInfoResponse (
     IN PWORK_CONTEXT WorkContext,
     IN NTSTATUS OpenStatus
     );
 
-VOID
-BlockingSetPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-SMB_TRANS_STATUS
-DoSetPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-
-#if 0
-VOID
-RestartSetPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    );
-#endif
-
-SMB_TRANS_STATUS
-GenerateSetPathInfoResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    );
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvSmbQueryInformation )
-#pragma alloc_text( PAGE, RestartQueryInformation )
-#pragma alloc_text( PAGE, GenerateQueryInformationResponse )
 #pragma alloc_text( PAGE, SrvSmbSetInformation )
-#pragma alloc_text( PAGE, RestartSetInformation )
-#pragma alloc_text( PAGE, GenerateSetInformationResponse )
 #pragma alloc_text( PAGE, SrvSmbQueryInformation2 )
 #pragma alloc_text( PAGE, SrvSmbSetInformation2 )
 #pragma alloc_text( PAGE, QueryPathOrFileInformation )
 #pragma alloc_text( PAGE, SrvSmbQueryFileInformation )
 #pragma alloc_text( PAGE, SrvSmbQueryPathInformation )
-#pragma alloc_text( PAGE, BlockingQueryPathInformation )
-#pragma alloc_text( PAGE, DoQueryPathInformation )
-#if 0
-#pragma alloc_text( PAGE, RestartQueryPathInformation )
-#endif
 #pragma alloc_text( PAGE, GenerateQueryPathInfoResponse )
 #pragma alloc_text( PAGE, SetPathOrFileInformation )
 #pragma alloc_text( PAGE, SrvSmbSetFileInformation )
 #pragma alloc_text( PAGE, SrvSmbSetPathInformation )
-#pragma alloc_text( PAGE, BlockingSetPathInformation )
-#pragma alloc_text( PAGE, DoSetPathInformation )
-#if 0
-#pragma alloc_text( PAGE, RestartSetPathInformation )
-#endif
-#pragma alloc_text( PAGE, GenerateSetPathInfoResponse )
 #endif
 
 
@@ -219,11 +185,11 @@ Return Value:
     NTSTATUS status;
     PSESSION session;
     PTREE_CONNECT treeConnect;
-    HANDLE fileHandle;
     OBJECT_ATTRIBUTES objectAttributes;
     UNICODE_STRING objectName;
     IO_STATUS_BLOCK ioStatusBlock;
     BOOLEAN isUnicode;
+    FILE_NETWORK_OPEN_INFORMATION fileInformation;
 
     PAGED_CODE( );
 
@@ -255,7 +221,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -272,21 +239,25 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            treeConnect->Share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &objectName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "SrvSmbQueryInformation: bad path name: %s\n",
                         (PSZ)request->Buffer + 1 ));
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
@@ -303,256 +274,95 @@ Return Value:
         NULL
         );
 
-    IF_SMB_DEBUG(QUERY_SET2) KdPrint(( "Opening file %wZ\n", &objectName ));
 
     //
-    // Open the file--must be opened in order to have a handle to pass
-    // to NtQueryInformationFile.  We will close it after getting the
-    // necessary information.
+    // "Be the client" for access checking
     //
+    IMPERSONATE( WorkContext );
 
-    INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
-    INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
+    status = SrvGetShareRootHandle( treeConnect->Share );
 
-    //
-    // *** We ask for share delete because this call will not break an
-    //     oplock.  Otherwise, it would fail if the file is open for
-    //     delete access (as is the case for a compatibility mode open).
-    //
+    if( NT_SUCCESS( status ) ) {
 
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &fileHandle,
-                 FILE_READ_ATTRIBUTES,                      // DesiredAccess
-                 &objectAttributes,
-                 &ioStatusBlock,
-                 NULL,                                      // AllocationSize
-                 0,                                         // FileAttributes
-                 FILE_SHARE_READ | FILE_SHARE_WRITE |
-                     FILE_SHARE_DELETE,                     // ShareAccess
-                 FILE_OPEN,                                 // Disposition
-                 FILE_COMPLETE_IF_OPLOCKED,                 // CreateOptions
-                 NULL,                                      // EaBuffer
-                 0,                                         // EaLength
-                 CreateFileTypeNone,
-                 NULL,                                      // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,                     // Options
-                 treeConnect->Share
-                 );
+        //
+        // The file name is always relative to the share root
+        //
+        objectAttributes.RootDirectory = treeConnect->Share->RootDirectoryHandle;
 
+        //
+        // Get the information
+        //
+        if( IoFastQueryNetworkAttributes(
+            &objectAttributes,
+            FILE_READ_ATTRIBUTES,
+            0,
+            &ioStatusBlock,
+            &fileInformation
+            ) == FALSE ) {
 
-    if ( NT_SUCCESS(status) ) {
-        SRVDBG_CLAIM_HANDLE( fileHandle, "FIL", 19, 0 );
-        SrvStatistics.TotalFilesOpened++;
+                SrvLogServiceFailure( SRV_SVC_IO_FAST_QUERY_NW_ATTRS, 0 );
+                ioStatusBlock.Status = STATUS_OBJECT_PATH_NOT_FOUND;
+        }
+
+        status = ioStatusBlock.Status;
+
+        SrvReleaseShareRootHandle( treeConnect->Share );
     }
+
+    REVERT();
 
     if ( !isUnicode ) {
         RtlFreeUnicodeString( &objectName );
     }
 
     //
-    // Save a copy of the file handle for the restart routine.
-    //
-
-    WorkContext->Parameters2.FileInformation.FileHandle = fileHandle;
-
-    if ( status == STATUS_OPLOCK_BREAK_IN_PROGRESS ) {
-
-        status = SrvStartWaitForOplockBreak(
-                    WorkContext,
-                    RestartQueryInformation,
-                    fileHandle,
-                    NULL
-                    );
-
-        if ( NT_SUCCESS( status ) ) {
-            return SmbStatusInProgress;
-        }
-
-    }
-
-    return GenerateQueryInformationResponse( WorkContext, status );
-
-
-} // SrvSmbQueryInformation
-
-
-VOID
-RestartQueryInformation (
-    IN PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing of a query information SMB.
-
-Arguments:
-
-    WorkContext -  A pointer to the work context block for this SMB.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    SMB_PROCESSOR_RETURN_TYPE smbStatus;
-    NTSTATUS openStatus;
-
-    PAGED_CODE( );
-
-    openStatus = SrvCheckOplockWaitState( WorkContext->WaitForOplockBreak );
-
-    if ( NT_SUCCESS( openStatus ) ) {
-
-        openStatus = WorkContext->Irp->IoStatus.Status;
-
-    } else {
-
-        //
-        // This open was waiting for an oplock break to occur, but
-        // timed out.  Close our handle to this file, then fail the open.
-        //
-
-        SRVDBG_RELEASE_HANDLE( WorkContext->Parameters2.FileInformation.FileHandle, "FIL", 27, 0 );
-        SrvNtClose( WorkContext->Parameters2.FileInformation.FileHandle, TRUE );
-
-    }
-
-    smbStatus = GenerateQueryInformationResponse(
-                    WorkContext,
-                    openStatus
-                    );
-
-    SrvEndSmbProcessing( WorkContext, smbStatus );
-
-    return;
-
-} // RestartQueryInformation
-
-
-SMB_PROCESSOR_RETURN_TYPE
-GenerateQueryInformationResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing for and generates a response to a
-    query information response SMB.
-
-Arguments:
-
-    WorkContext - A pointer to the work context block for this SMB
-    OpenStatus - The completion status of the open.
-
-Return Value:
-
-    The status of the SMB processing.
-
---*/
-
-{
-    NTSTATUS status;
-    SRV_FILE_INFORMATION fileInformation;
-    PRESP_QUERY_INFORMATION response;
-    HANDLE fileHandle;
-
-    PAGED_CODE( );
-
-    response = (PRESP_QUERY_INFORMATION)WorkContext->ResponseParameters;
-
-    fileHandle = WorkContext->Parameters2.FileInformation.FileHandle;
-
-    //
-    // If the user didn't have this permission, update the
-    // statistics database.
-    //
-
-    if ( OpenStatus == STATUS_ACCESS_DENIED ) {
-        SrvStatistics.AccessPermissionErrors++;
-    }
-
-    if ( !NT_SUCCESS( OpenStatus ) ) {
-
-        IF_DEBUG(ERRORS) {
-            KdPrint(( "GenerateQueryInformationResponse: SrvIoCreateFile "
-                        "failed: %X\n", OpenStatus ));
-        }
-
-        SrvSetSmbError( WorkContext, OpenStatus );
-        return SmbStatusSendResponse;
-
-    }
-
-    IF_SMB_DEBUG(QUERY_SET2) {
-        KdPrint(( "SrvIoCreateFile succeeded, handle = 0x%lx\n", fileHandle ));
-    }
-
-    //
-    // Get the necessary information about the file.
-    //
-
-    status = SrvQueryInformationFile(
-                    fileHandle,
-                    NULL,
-                    &fileInformation,
-                    (SHARE_TYPE) -1,  // Don't care
-                    FALSE );
-
-    //
-    // Close the file--it was only opened to read the attributes.
-    //
-
-    SRVDBG_RELEASE_HANDLE( fileHandle, "FIL", 28, 0 );
-    SrvNtClose( fileHandle, TRUE );
-
-    //
-    // If an error occurred, indicate so in the response.
+    // Build the response SMB.
     //
 
     if ( !NT_SUCCESS(status) ) {
 
+        if ( status == STATUS_ACCESS_DENIED ) {
+            SrvStatistics.AccessPermissionErrors++;
+        }
+
         IF_DEBUG(ERRORS) {
-            KdPrint(( "GenerateQueryInformationResponse: "
-                        "SrvQueryInformationFile failed: %X\n", status ));
+            KdPrint(( "SrvSmbQueryInformation: "
+                        "SrvQueryInformationFileAbbreviated failed: %X\n", status ));
         }
 
         SrvSetSmbError( WorkContext, status );
-        return SmbStatusSendResponse;
 
+    } else {
+
+        USHORT smbFileAttributes;
+
+        response->WordCount = 10;
+
+        SRV_NT_ATTRIBUTES_TO_SMB(
+            fileInformation.FileAttributes,
+            fileInformation.FileAttributes & FILE_ATTRIBUTE_DIRECTORY,
+            &smbFileAttributes
+        );
+        
+        SmbPutUshort( &response->FileAttributes, smbFileAttributes );
+        SmbPutUlong(
+            &response->LastWriteTimeInSeconds,
+            fileInformation.LastWriteTime.LowPart
+            );
+        SmbPutUlong( &response->FileSize, fileInformation.EndOfFile.LowPart );
+        RtlZeroMemory( (PVOID)&response->Reserved[0], sizeof(response->Reserved) );
+        SmbPutUshort( &response->ByteCount, 0 );
+
+        WorkContext->ResponseParameters = NEXT_LOCATION(
+                                            response,
+                                            RESP_QUERY_INFORMATION,
+                                            0
+                                            );
     }
 
-    //
-    // Build the response SMB.
-    //
-
-    response->WordCount = 10;
-    SmbPutUshort( &response->FileAttributes, fileInformation.Attributes );
-    SmbPutUlong(
-        &response->LastWriteTimeInSeconds,
-        fileInformation.LastWriteTimeInSeconds
-        );
-    SmbPutUlong( &response->FileSize, fileInformation.DataSize );
-    RtlZeroMemory( (PVOID)&response->Reserved[0], sizeof(response->Reserved) );
-    SmbPutUshort( &response->ByteCount, 0 );
-
-    WorkContext->ResponseParameters = NEXT_LOCATION(
-                                        response,
-                                        RESP_QUERY_INFORMATION,
-                                        0
-                                        );
-
-    IF_DEBUG(TRACE2) KdPrint(( "GenerateQueryInformationResponse complete.\n" ));
     return SmbStatusSendResponse;
 
-} // GenerateQueryInformation
+} // SrvSmbQueryInformation
 
 
 SMB_PROCESSOR_RETURN_TYPE
@@ -579,6 +389,7 @@ Return Value:
 
 {
     PREQ_SET_INFORMATION request;
+    PRESP_SET_INFORMATION response;
 
     NTSTATUS status;
     PSESSION session;
@@ -588,6 +399,8 @@ Return Value:
     UNICODE_STRING objectName;
     IO_STATUS_BLOCK ioStatusBlock;
     BOOLEAN isUnicode;
+    FILE_BASIC_INFORMATION fileBasicInformation;
+    ULONG lastWriteTimeInSeconds;
 
     PAGED_CODE( );
 
@@ -603,6 +416,7 @@ Return Value:
     }
 
     request = (PREQ_SET_INFORMATION)WorkContext->RequestParameters;
+    response = (PRESP_SET_INFORMATION)WorkContext->ResponseParameters;
 
     //
     // If a session block has not already been assigned to the current
@@ -618,7 +432,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                   WorkContext,
                   &session,
-                  &treeConnect
+                  &treeConnect,
+                  ShareTypeDisk
                   );
 
     if ( !NT_SUCCESS(status) ) {
@@ -648,21 +463,25 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            treeConnect->Share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &objectName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "SrvSmbSetInformation: bad path name: %s\n",
                         (PSZ)request->Buffer + 1 ));
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
@@ -702,17 +521,14 @@ Return Value:
 
     //
     // Open the file--must be opened in order to have a handle to pass
-    // to NtQueryInformationFile.  We will close it after getting the
+    // to NtSetInformationFile.  We will close it after setting the
     // necessary information.
     //
-
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
 
     //
-    // *** We ask for share delete because this call will not break an
-    //     oplock.  Otherwise, it would fail if the file is open for
-    //     delete access (as is the case for a compatibility mode open).
+    // *** FILE_WRITE_ATTRIBUTES does not cause oplock breaks!
     //
 
     status = SrvIoCreateFile(
@@ -726,7 +542,7 @@ Return Value:
                  FILE_SHARE_READ | FILE_SHARE_WRITE |
                     FILE_SHARE_DELETE,                      // ShareAccess
                  FILE_OPEN,                                 // Disposition
-                 FILE_COMPLETE_IF_OPLOCKED,                 // CreateOptions
+                 0,                                         // CreateOptions
                  NULL,                                      // EaBuffer
                  0,                                         // EaLength
                  CreateFileTypeNone,
@@ -734,156 +550,38 @@ Return Value:
                  IO_FORCE_ACCESS_CHECK,                     // Options
                  treeConnect->Share
                  );
-    if ( NT_SUCCESS(status) ) {
-        SRVDBG_CLAIM_HANDLE( fileHandle, "FIL", 20, 0 );
-    }
+
+    ASSERT( status != STATUS_OPLOCK_BREAK_IN_PROGRESS );
 
     if ( !isUnicode ) {
         RtlFreeUnicodeString( &objectName );
     }
 
-    //
-    // Save a copy of the file handle for the restart routine.
-    //
+    if ( NT_SUCCESS(status) ) {
 
-    WorkContext->Parameters2.FileInformation.FileHandle = fileHandle;
+        SRVDBG_CLAIM_HANDLE( fileHandle, "FIL", 20, 0 );
 
-    if ( status == STATUS_OPLOCK_BREAK_IN_PROGRESS ) {
-
-        status = SrvStartWaitForOplockBreak(
-                    WorkContext,
-                    RestartSetInformation,
-                    fileHandle,
-                    NULL
-                    );
-
-        if ( NT_SUCCESS( status ) ) {
-            return SmbStatusInProgress;
-        }
-
-    }
-
-    return GenerateSetInformationResponse( WorkContext, status );
-
-
-} // SrvSmbSetInformation
-
-
-VOID
-RestartSetInformation (
-    IN PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing of a set information SMB.
-
-Arguments:
-
-    WorkContext -  A pointer to the work context block for this SMB.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    SMB_PROCESSOR_RETURN_TYPE smbStatus;
-    NTSTATUS openStatus;
-
-    PAGED_CODE( );
-
-    openStatus = SrvCheckOplockWaitState( WorkContext->WaitForOplockBreak );
-
-    if ( NT_SUCCESS( openStatus ) ) {
-
-        openStatus = WorkContext->Irp->IoStatus.Status;
+        //
+        // Ensure this client's RFCB cache is empty.  This covers the case
+        //  where a client opened a file for writing, closed it, set the
+        //  attributes to readonly, and then tried to reopen the file for
+        //  writing.  This sequence should fail, but it will succeed if the
+        //  file was in the RFCB cache.
+        //
+        SrvCloseCachedRfcbsOnConnection( WorkContext->Connection );
 
     } else {
 
-        //
-        // This open was waiting for an oplock break to occur, but
-        // timed out.  Close our handle to this file, then fail the open.
-        //
-
-        SRVDBG_RELEASE_HANDLE( WorkContext->Parameters2.FileInformation.FileHandle, "FIL", 29, 0 );
-        SrvNtClose( WorkContext->Parameters2.FileInformation.FileHandle, TRUE );
-
-    }
-
-    smbStatus = GenerateSetInformationResponse(
-                WorkContext,
-                openStatus
-                );
-
-    SrvEndSmbProcessing( WorkContext, smbStatus );
-
-    return;
-
-} // RestartSetInformation
-
-
-SMB_PROCESSOR_RETURN_TYPE
-GenerateSetInformationResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing for and generates a response to a
-    query information response SMB.
-
-Arguments:
-
-    WorkContext - A pointer to the work context block for this SMB
-    OpenStatus - The completion status of the open.
-
-Return Value:
-
-    The status of the SMB processing.
-
---*/
-
-{
-    PRESP_SET_INFORMATION response;
-    PREQ_SET_INFORMATION request;
-
-    NTSTATUS status;
-    HANDLE fileHandle;
-    FILE_BASIC_INFORMATION fileBasicInformation;
-    ULONG lastWriteTimeInSeconds;
-    IO_STATUS_BLOCK ioStatusBlock;
-
-    PAGED_CODE( );
-
-    request = (PREQ_SET_INFORMATION)WorkContext->RequestParameters;
-    response = (PRESP_SET_INFORMATION)WorkContext->ResponseParameters;
-
-    fileHandle = WorkContext->Parameters2.FileInformation.FileHandle;
-
-    //
-    // If the user didn't have this permission, update the
-    // statistics database.
-    //
-
-    if ( OpenStatus == STATUS_ACCESS_DENIED ) {
-        SrvStatistics.AccessPermissionErrors++;
-    }
-
-    if ( !NT_SUCCESS( OpenStatus) ) {
-
-        IF_DEBUG(ERRORS) {
-            KdPrint(( "GenerateSetInformationResponse: SrvIoCreateFile "
-                        "failed: %X\n", OpenStatus ));
+        if ( status == STATUS_ACCESS_DENIED ) {
+            SrvStatistics.AccessPermissionErrors++;
         }
 
-        SrvSetSmbError( WorkContext, OpenStatus );
+        IF_DEBUG(ERRORS) {
+            KdPrint(( "SrvSmbSetInformation: SrvIoCreateFile "
+                        "failed: %X\n", status ));
+        }
+
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
@@ -919,7 +617,7 @@ Return Value:
     // assume that the remote redirector filters such requests.
     //
 
-    SrvSmbAttributesToNt(
+    SRV_SMB_ATTRIBUTES_TO_NT(
         SmbGetUshort( &request->FileAttributes ),
         NULL,
         &fileBasicInformation.FileAttributes
@@ -948,7 +646,7 @@ Return Value:
 
         INTERNAL_ERROR(
             ERROR_LEVEL_UNEXPECTED,
-            "GenerateSetInformationResponse: NtSetInformationFile returned %X",
+            "SrvSmbSetInformation: NtSetInformationFile returned %X",
             status,
             NULL
             );
@@ -972,10 +670,10 @@ Return Value:
                                         0
                                         );
 
-    IF_DEBUG(TRACE2) KdPrint(( "GenerateSetInformationResponse complete.\n" ));
+    IF_DEBUG(TRACE2) KdPrint(( "SrvSmbSetInformation complete.\n" ));
     return SmbStatusSendResponse;
 
-} // GenerateSetInformationResponse
+} // SrvSmbSetInformation
 
 
 SMB_PROCESSOR_RETURN_TYPE
@@ -1134,10 +832,10 @@ Return Value:
     SmbPutTime( &response->LastAccessTime, fileInformation.LastAccessTime );
     SmbPutDate( &response->LastWriteDate, fileInformation.LastWriteDate );
     SmbPutTime( &response->LastWriteTime, fileInformation.LastWriteTime );
-    SmbPutUlong( &response->FileDataSize, fileInformation.DataSize );
+    SmbPutUlong( &response->FileDataSize, fileInformation.DataSize.LowPart );
     SmbPutUlong(
         &response->FileAllocationSize,
-        fileInformation.AllocationSize
+        fileInformation.AllocationSize.LowPart
         );
     SmbPutUshort( &response->FileAttributes, fileInformation.Attributes );
     SmbPutUshort( &response->ByteCount, 0 );
@@ -1305,6 +1003,7 @@ Return Value:
     // Call NtSetInformationFile to set the information from the SMB.
     //
 
+
     status = NtSetInformationFile(
                  rfcb->Lfcb->FileHandle,
                  &ioStatusBlock,
@@ -1445,10 +1144,10 @@ QueryPathOrFileInformation (
                 fileInformation.LastWriteTime
                 );
 
-            SmbPutUlong( &fileStatus->DataSize, fileInformation.DataSize );
+            SmbPutUlong( &fileStatus->DataSize, fileInformation.DataSize.LowPart );
             SmbPutUlong(
                 &fileStatus->AllocationSize,
-                fileInformation.AllocationSize
+                fileInformation.AllocationSize.LowPart
                 );
 
             SmbPutUshort(
@@ -1520,7 +1219,7 @@ QueryPathOrFileInformation (
             //
 
             if ( (Transaction->DataCount == 4) &&
-                 Transaction->Connection->SmbDialect == SmbDialectNtLanMan ) {
+                 IS_NT_DIALECT( Transaction->Connection->SmbDialect ) ) {
 
                 status = STATUS_NO_EAS_ON_FILE;
             }
@@ -1589,28 +1288,42 @@ QueryPathOrFileInformation (
     case SMB_QUERY_FILE_EA_INFO:
     case SMB_QUERY_FILE_ALT_NAME_INFO:
     case SMB_QUERY_FILE_STREAM_INFO:
+    case SMB_QUERY_FILE_OLE_ALL_INFO:
+    case SMB_QUERY_FILE_COMPRESSION_INFO:
+    case SMB_QUERY_FILE_OLE_INFO:
 
         //
         // Pass the data buffer directly to the file system as it
         // is already in NT format.
         //
 
-        status = NtQueryInformationFile(
-                     FileHandle,
-                     &ioStatusBlock,
-                     Transaction->OutData,
-                     Transaction->MaxDataCount,
-                     MAP_SMB_INFO_TYPE_TO_NT(
-                         QueryFileInformation,
-                         InformationLevel
-                         )
-                     );
+        if( Transaction->MaxDataCount <
+            MAP_SMB_INFO_TO_MIN_NT_SIZE(QueryFileInformationSize, InformationLevel ) ) {
+
+            //
+            // The buffer is too small.  Return an error.
+            //
+            status = STATUS_INFO_LENGTH_MISMATCH;
+
+        } else {
+
+            status = NtQueryInformationFile(
+                         FileHandle,
+                         &ioStatusBlock,
+                         Transaction->OutData,
+                         Transaction->MaxDataCount,
+                         MAP_SMB_INFO_TYPE_TO_NT(
+                             QueryFileInformation,
+                             InformationLevel
+                             )
+                         );
+        }
 
         SmbPutUshort( &Response->EaErrorOffset, 0 );
 
         Transaction->ParameterCount = sizeof( RESP_QUERY_FILE_INFORMATION );
 
-        if ( NT_SUCCESS( status ) ) {
+        if (NT_SUCCESS( status) || (status == STATUS_BUFFER_OVERFLOW)) {
             Transaction->DataCount = ioStatusBlock.Information;
         } else {
             Transaction->DataCount = 0;
@@ -2107,6 +1820,25 @@ Return Value:
 
         break;
 
+    case SMB_QUERY_FILE_OLE_ALL_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            grantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileOleAllInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, grantedAccess ));
+            }
+        }
+
+        break;
+
     case SMB_QUERY_FILE_STANDARD_INFO:
 
         CHECK_FILE_INFORMATION_ACCESS(
@@ -2221,6 +1953,44 @@ Return Value:
 
         break;
 
+    case SMB_QUERY_FILE_COMPRESSION_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            grantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileCompressionInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, grantedAccess ));
+            }
+        }
+
+        break;
+
+    case SMB_QUERY_FILE_OLE_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            grantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileOleInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, grantedAccess ));
+            }
+        }
+
+        break;
+
     default:
 
         IF_DEBUG(SMB_ERRORS) {
@@ -2254,7 +2024,7 @@ Return Value:
     //
 
     if ( status == STATUS_BUFFER_OVERFLOW &&
-         WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+         !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
 
         status = STATUS_BUFFER_TOO_SMALL;
 
@@ -2285,7 +2055,6 @@ SMB_TRANS_STATUS
 SrvSmbQueryPathInformation (
     IN OUT PWORK_CONTEXT WorkContext
     )
-
 /*++
 
 Routine Description:
@@ -2307,132 +2076,54 @@ Return Value:
         for a more complete description.
 
 --*/
-
 {
     PTRANSACTION transaction;
-    PREQ_QUERY_PATH_INFORMATION request;
-    USHORT informationLevel;
-
-    PAGED_CODE( );
-
-    //
-    // If the information level is not SMB_INFO_STANDARD, requeue the
-    // request to a blocking thread.
-    //
-    // We can't process the SMB in a nonblocking thread because this
-    // info level requires opening the file, which may be oplocked, so
-    // the open operation may block.
-    //
-
-    transaction = WorkContext->Parameters.Transaction;
-    request = (PREQ_QUERY_PATH_INFORMATION)transaction->InParameters;
-    informationLevel = SmbGetUshort( &request->InformationLevel );
-
-    if ( informationLevel != SMB_INFO_STANDARD ) {
-
-        WorkContext->FspRestartRoutine = BlockingQueryPathInformation;
-        SrvQueueWorkToBlockingThread( WorkContext );
-        return SmbTransStatusInProgress;
-
-    }
-
-    //
-    // It's OK to process this SMB in a nonblocking thread.  Do so now.
-    //
-
-    return DoQueryPathInformation( WorkContext );
-
-} // SrvSmbQueryPathInformation
-
-
-VOID
-BlockingQueryPathInformation (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    Processes the Query Path Information request.  This request arrives
-    in a Transaction2 SMB.  Query Path Information corresponds to the
-    OS/2 DosQPathInfo service.
-
-Arguments:
-
-    WorkContext - Supplies the address of a Work Context Block
-        describing the current request.  See smbtypes.h for a more
-        complete description of the valid fields.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    SMB_TRANS_STATUS smbStatus;
-
-    PAGED_CODE( );
-
-    smbStatus = DoQueryPathInformation( WorkContext );
-    if ( smbStatus != SmbTransStatusInProgress ) {
-        SrvCompleteExecuteTransaction( WorkContext, smbStatus );
-    }
-
-    return;
-
-} // BlockingQueryPathInformation
-
-
-SMB_TRANS_STATUS
-DoQueryPathInformation (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    Processes the Query Path Information request.  This request arrives
-    in a Transaction2 SMB.  Query Path Information corresponds to the
-    OS/2 DosQPathInfo service.
-
-Arguments:
-
-    WorkContext - Supplies the address of a Work Context Block
-        describing the current request.  See smbtypes.h for a more
-        complete description of the valid fields.
-
-Return Value:
-
-    SMB_TRANS_STATUS - Indicates whether an error occurred, and, if so,
-        whether data should be returned to the client.  See smbtypes.h
-        for a more complete description.
-
---*/
-
-{
     PREQ_QUERY_PATH_INFORMATION request;
     PRESP_QUERY_PATH_INFORMATION response;
-
+    USHORT informationLevel;
     NTSTATUS status;
-    PTRANSACTION transaction;
     HANDLE fileHandle;
     IO_STATUS_BLOCK ioStatusBlock;
     OBJECT_ATTRIBUTES objectAttributes;
     UNICODE_STRING objectName;
-    USHORT informationLevel;
     BOOLEAN isUnicode;
 
     SMB_TRANS_STATUS smbStatus;
+    ACCESS_MASK desiredAccess;
 
     PAGED_CODE( );
 
+
     transaction = WorkContext->Parameters.Transaction;
+
     IF_SMB_DEBUG(QUERY_SET1) {
         KdPrint(( "Query Path Information entered; transaction 0x%lx\n",
                     transaction ));
+    }
+
+    request = (PREQ_QUERY_PATH_INFORMATION)transaction->InParameters;
+    informationLevel = SmbGetUshort( &request->InformationLevel );
+
+    switch( informationLevel ) {
+    case SMB_INFO_QUERY_EA_SIZE:
+    case SMB_INFO_QUERY_EAS_FROM_LIST:
+    case SMB_INFO_QUERY_ALL_EAS:
+
+        //
+        // For these info levels, we must be in a blocking thread because we
+        // might end up waiting for an oplock break.
+        //
+        if( WorkContext->UsingBlockingThread == 0 ) {
+            WorkContext->FspRestartRoutine = SrvRestartExecuteTransaction;
+            SrvQueueWorkToBlockingThread( WorkContext );
+            return SmbTransStatusInProgress;
+        }
+        desiredAccess = FILE_READ_EA;
+        break;
+
+    default:
+        desiredAccess = FILE_READ_ATTRIBUTES;
+        break;
     }
 
     //
@@ -2440,9 +2131,7 @@ Return Value:
     // so just use the RESP_QUERY_PATH_INFORMATION structure for both.
     // The request formats differ, so conditionalize access to them.
     //
-
     response = (PRESP_QUERY_PATH_INFORMATION)transaction->OutParameters;
-    request = (PREQ_QUERY_PATH_INFORMATION)transaction->InParameters;
 
     //
     // Verify that enough parameter bytes were sent and that we're allowed
@@ -2459,7 +2148,7 @@ Return Value:
         //
 
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "DoQueryPathInformation: bad parameter byte "
+            KdPrint(( "SrvSmbQueryPathInformation: bad parameter byte "
                         "counts: %ld %ld\n",
                         transaction->ParameterCount,
                         transaction->MaxParameterCount ));
@@ -2470,26 +2159,39 @@ Return Value:
     }
 
     //
+    // Make sure the client is allowed to do this, if we have an Admin share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, WorkContext->TreeConnect->Share );
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
     // Get the path name of the file to open relative to the share.
     //
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            WorkContext->TreeConnect->Share,
+            NULL,
             request->Buffer,
             END_OF_TRANSACTION_PARAMETERS( transaction ),
             TRUE,
             isUnicode,
             &objectName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "DoQueryPathInformation: bad path name: %s\n",
+            KdPrint(( "SrvSmbQueryPathInformation: bad path name: %s\n",
                         request->Buffer ));
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbTransStatusErrorWithoutData;
     }
 
@@ -2514,7 +2216,7 @@ Return Value:
         if ( !NT_SUCCESS(smbStatus) ) {
 
             IF_DEBUG(ERRORS) {
-                KdPrint(( "DoQueryPathInformation: SrvGetShareRootHandle failed %x.\n",
+                KdPrint(( "SrvSmbQueryPathInformation: SrvGetShareRootHandle failed %x.\n",
                             smbStatus ));
             }
 
@@ -2561,6 +2263,93 @@ Return Value:
         NULL
         );
 
+    //
+    // Take the fast path for this if we can
+    //
+    if( informationLevel == SMB_QUERY_FILE_BASIC_INFO ) {
+
+        FILE_NETWORK_OPEN_INFORMATION fileInformation;
+        UNALIGNED FILE_BASIC_INFORMATION *pbInfo = (PFILE_BASIC_INFORMATION)transaction->OutData;
+
+        if( transaction->MaxDataCount < sizeof( FILE_BASIC_INFORMATION ) ) {
+            SrvSetSmbError( WorkContext, STATUS_INFO_LENGTH_MISMATCH );
+            return SmbTransStatusErrorWithoutData;
+        }
+
+        IMPERSONATE( WorkContext );
+
+        status = SrvGetShareRootHandle( transaction->TreeConnect->Share );
+
+        if( NT_SUCCESS( status ) ) {
+            //
+            // The file name is always relative to the share root
+            //
+            objectAttributes.RootDirectory = transaction->TreeConnect->Share->RootDirectoryHandle;
+
+            //
+            // Get the information
+            //
+            if( IoFastQueryNetworkAttributes(
+                    &objectAttributes,
+                    FILE_READ_ATTRIBUTES,
+                    0,
+                    &ioStatusBlock,
+                    &fileInformation
+                    ) == FALSE ) {
+
+                        SrvLogServiceFailure( SRV_SVC_IO_FAST_QUERY_NW_ATTRS, 0 );
+                        ioStatusBlock.Status = STATUS_OBJECT_PATH_NOT_FOUND;
+            }
+
+            status = ioStatusBlock.Status;
+
+            SrvReleaseShareRootHandle( transaction->TreeConnect->Share );
+        }
+
+        REVERT();
+
+        if( status == STATUS_BUFFER_OVERFLOW ) {
+            goto hard_way;
+        }
+
+        if ( !isUnicode ) {
+            RtlFreeUnicodeString( &objectName );
+        }
+
+        if ( !NT_SUCCESS( status ) ) {
+            if ( status == STATUS_ACCESS_DENIED ) {
+                SrvStatistics.AccessPermissionErrors++;
+            }
+
+            IF_DEBUG(ERRORS) {
+                KdPrint(( "SrvSmbQueryPathInformation: IoFastQueryNetworkAttributes "
+                    "failed: %X\n", status ));
+            }
+
+            SrvSetSmbError( WorkContext, status );
+
+            return SmbTransStatusErrorWithoutData;
+        }
+
+        // FORMULATE THE RESPONSE
+
+        transaction->SetupCount = 0;
+        transaction->DataCount = sizeof( *pbInfo );
+        transaction->ParameterCount = sizeof( RESP_QUERY_FILE_INFORMATION );
+
+        SmbPutUshort( &response->EaErrorOffset, 0 );
+
+        pbInfo->CreationTime =   fileInformation.CreationTime;
+        pbInfo->LastAccessTime = fileInformation.LastAccessTime;
+        pbInfo->LastWriteTime =  fileInformation.LastWriteTime;
+        pbInfo->ChangeTime =     fileInformation.ChangeTime;
+        pbInfo->FileAttributes = fileInformation.FileAttributes;
+
+        return SmbTransStatusSuccess;
+    }
+
+hard_way:
+
     IF_SMB_DEBUG(QUERY_SET2) KdPrint(( "Opening file %wZ\n", &objectName ));
 
     //
@@ -2568,12 +2357,11 @@ Return Value:
     // to NtQueryInformationFile.  We will close it after getting the
     // necessary information.
     //
-
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
 
     //
-    // !!! We block if the file is oplocked.  We must do this, because
+    // !!! We may block if the file is oplocked.  We must do this, because
     //     it is required to get the FS to break a batch oplock.
     //     We should figure out a way to do this without blocking.
     //
@@ -2581,8 +2369,7 @@ Return Value:
     status = SrvIoCreateFile(
                  WorkContext,
                  &fileHandle,
-                 informationLevel == SMB_INFO_STANDARD ?    // DesiredAccess
-                     FILE_READ_ATTRIBUTES : FILE_READ_EA,
+                 desiredAccess,
                  &objectAttributes,
                  &ioStatusBlock,
                  NULL,                                      // AllocationSize
@@ -2590,7 +2377,7 @@ Return Value:
                  FILE_SHARE_READ | FILE_SHARE_WRITE |
                     FILE_SHARE_DELETE,                      // ShareAccess
                  FILE_OPEN,                                 // Disposition
-                 0, // FILE_COMPLETE_IF_OPLOCKED,                 // CreateOptions
+                 0,                                         // CreateOptions
                  NULL,                                      // EaBuffer
                  0,                                         // EaLength
                  CreateFileTypeNone,
@@ -2598,6 +2385,7 @@ Return Value:
                  IO_FORCE_ACCESS_CHECK,                     // Options
                  transaction->TreeConnect->Share
                  );
+
     if ( NT_SUCCESS(status) ) {
         SRVDBG_CLAIM_HANDLE( fileHandle, "FIL", 21, 0 );
     }
@@ -2612,86 +2400,13 @@ Return Value:
 
     WorkContext->Parameters2.FileInformation.FileHandle = fileHandle;
 
-#if 1 // no need to check for this -- no COMPLETE_IF_OPLOCKED above
     ASSERT( status != STATUS_OPLOCK_BREAK_IN_PROGRESS );
-#else
-    if ( status == STATUS_OPLOCK_BREAK_IN_PROGRESS ) {
 
-        status = SrvStartWaitForOplockBreak(
-                    WorkContext,
-                    RestartQueryPathInformation,
-                    fileHandle,
-                    NULL
-                    );
-        if ( NT_SUCCESS( status ) ) {
-            return SmbTransStatusInProgress;
-        }
+    smbStatus = GenerateQueryPathInfoResponse( WorkContext, status );
 
-    }
-#endif
+    return smbStatus;
 
-    return GenerateQueryPathInfoResponse( WorkContext, status );
-
-} // DoQueryPathInformation
-
-
-#if 0
-VOID
-RestartQueryPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing of a query path information SMB.
-
-Arguments:
-
-    WorkContext -  A pointer to the work context block for this SMB.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    SMB_TRANS_STATUS smbStatus;
-    NTSTATUS openStatus;
-
-    PAGED_CODE( );
-
-    openStatus = SrvCheckOplockWaitState( WorkContext->WaitForOplockBreak );
-
-    if ( NT_SUCCESS( openStatus ) ) {
-
-        openStatus = WorkContext->Irp->IoStatus.Status;
-
-    } else {
-
-        //
-        // This open was waiting for an oplock break to occur, but
-        // timed out.  Close our handle to this file, then fail the open.
-        //
-
-        SRVDBG_RELEASE_HANDLE( WorkContext->Parameters2.FileInformation.FileHandle, "FIL", 31, 0 );
-        SrvNtClose( WorkContext->Parameters2.FileInformation.FileHandle, TRUE );
-
-    }
-
-    smbStatus = GenerateQueryPathInfoResponse(
-                    WorkContext,
-                    openStatus
-                    );
-
-    SrvCompleteExecuteTransaction( WorkContext, smbStatus );
-
-    return;
-
-} // RestartQueryPathInformation
-#endif
+} // SrvSmbQueryPathInformation
 
 
 SMB_TRANS_STATUS
@@ -2868,6 +2583,25 @@ Return Value:
 
         break;
 
+    case SMB_QUERY_FILE_OLE_ALL_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            handleInformation.GrantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileOleAllInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, handleInformation.GrantedAccess ));
+            }
+        }
+
+        break;
+
     case SMB_QUERY_FILE_STANDARD_INFO:
 
         CHECK_FILE_INFORMATION_ACCESS(
@@ -2982,6 +2716,44 @@ Return Value:
 
         break;
 
+    case SMB_QUERY_FILE_COMPRESSION_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            handleInformation.GrantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileCompressionInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, handleInformation.GrantedAccess ));
+            }
+        }
+
+        break;
+
+    case SMB_QUERY_FILE_OLE_INFO:
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            handleInformation.GrantedAccess,
+            IRP_MJ_QUERY_INFORMATION,
+            FileOleInformation,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbQueryFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, handleInformation.GrantedAccess ));
+            }
+        }
+
+        break;
+
     default:
         IF_DEBUG(SMB_ERRORS) {
             KdPrint(( "GenerateQueryPathInfoResponse: invalid info level"
@@ -3015,7 +2787,7 @@ Return Value:
     //
 
     if ( status == STATUS_BUFFER_OVERFLOW &&
-         WorkContext->Connection->SmbDialect > SmbDialectNtLanMan ) {
+         !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
 
         status = STATUS_BUFFER_TOO_SMALL;
 
@@ -3180,22 +2952,39 @@ SetPathOrFileInformation (
     case SMB_SET_FILE_DISPOSITION_INFO:
     case SMB_SET_FILE_ALLOCATION_INFO:
     case SMB_SET_FILE_END_OF_FILE_INFO:
+    case SMB_SET_FILE_OLE_CLASSID_INFO:
+    case SMB_SET_FILE_OLE_STATE_BITS_INFO:
+    case SMB_SET_FILE_OBJECTID_INFO:
+    case SMB_SET_FILE_CONTENT_INDEX_INFO:
+    case SMB_SET_FILE_INHERIT_CONTENT_INDEX_INFO:
+    case SMB_SET_FILE_OLE_INFO:
 
         //
         // The data buffer is in NT format.  Pass it directly to the
         // filesystem.
         //
+        if( Transaction->DataCount <
+            MAP_SMB_INFO_TO_MIN_NT_SIZE(SetFileInformationSize, InformationLevel ) ) {
 
-        status = NtSetInformationFile(
-                     FileHandle,
-                     &ioStatusBlock,
-                     Transaction->InData,
-                     Transaction->DataCount,
-                     MAP_SMB_INFO_TYPE_TO_NT(
-                         SetFileInformation,
-                         InformationLevel
-                         )
-                     );
+            //
+            // The buffer is too small.  Return an error.
+            //
+            status = STATUS_INFO_LENGTH_MISMATCH;
+
+        } else {
+
+            status = NtSetInformationFile(
+                         FileHandle,
+                         &ioStatusBlock,
+                         Transaction->InData,
+                         Transaction->DataCount,
+                         MAP_SMB_INFO_TYPE_TO_NT(
+                             SetFileInformation,
+                             InformationLevel
+                             )
+                         );
+
+        }
 
         //
         // No EAs to deal with.  Set EA error offset to zero.
@@ -3259,8 +3048,10 @@ Return Value:
     PTRANSACTION transaction;
     PRFCB rfcb;
     USHORT informationLevel;
+    USHORT NtInformationLevel;
+    ULONG cbData = 0;
     ACCESS_MASK grantedAccess;
-    BOOLEAN resetWrittenTo = FALSE;
+    BOOLEAN TurnOffCaching = FALSE;
 
     PAGED_CODE( );
 
@@ -3384,7 +3175,7 @@ Return Value:
             }
         }
 
-        resetWrittenTo = TRUE;
+        TurnOffCaching = TRUE;
         break;
 
     case SMB_INFO_QUERY_EA_SIZE:
@@ -3450,7 +3241,7 @@ Return Value:
             }
         }
 
-        resetWrittenTo = TRUE;
+        TurnOffCaching = TRUE;
         break;
 
 #if 0 // No longer supported
@@ -3495,13 +3286,6 @@ Return Value:
 
     case SMB_SET_FILE_DISPOSITION_INFO:
 
-        //
-        // The client is trying to delete this file.  Don't cache the
-        // rfcb.
-        //
-
-        rfcb->IsCacheable = FALSE;
-
         if ( transaction->DataCount !=
                         sizeof( FILE_DISPOSITION_INFORMATION ) ){
             IF_DEBUG(SMB_ERRORS) {
@@ -3530,6 +3314,12 @@ Return Value:
                             status, grantedAccess ));
             }
         }
+
+        //
+        // The client is trying to delete this file.  Don't cache the
+        // rfcb.
+        //
+        TurnOffCaching = TRUE;
 
         break;
 
@@ -3596,7 +3386,36 @@ Return Value:
                             status, grantedAccess ));
             }
         }
+        break;
 
+    case SMB_SET_FILE_OLE_CLASSID_INFO:
+        cbData = sizeof(FILE_OLE_CLASSID_INFORMATION);
+        NtInformationLevel = FileOleClassIdInformation;
+        break;
+
+    case SMB_SET_FILE_OLE_STATE_BITS_INFO:
+        cbData = sizeof(FILE_OLE_STATE_BITS_INFORMATION);
+        NtInformationLevel = FileOleStateBitsInformation;
+        break;
+
+    case SMB_SET_FILE_OBJECTID_INFO:
+        cbData = sizeof(FILE_OBJECTID_INFORMATION);
+        NtInformationLevel = FileObjectIdInformation;
+        break;
+
+    case SMB_SET_FILE_CONTENT_INDEX_INFO:
+        cbData = sizeof(BOOLEAN);
+        NtInformationLevel = FileContentIndexInformation;
+        break;
+
+    case SMB_SET_FILE_INHERIT_CONTENT_INDEX_INFO:
+        cbData = sizeof(BOOLEAN);
+        NtInformationLevel = FileInheritContentIndexInformation;
+        break;
+
+    case SMB_SET_FILE_OLE_INFO:
+        cbData = sizeof(FILE_OLE_INFORMATION);
+        NtInformationLevel = FileOleInformation;
         break;
 
     default:
@@ -3608,6 +3427,37 @@ Return Value:
         status = STATUS_OS2_INVALID_LEVEL;
 
     }
+
+    if (cbData != 0) {
+        if (transaction->DataCount != cbData) {
+            IF_DEBUG(SMB_ERRORS) {
+                KdPrint(("SrvSmbSetFileInformation: invalid DataCount %ld\n",
+                            transaction->DataCount));
+            }
+            status = STATUS_INVALID_SMB;
+        }
+
+        //
+        // Verify that the client has write attributes access to the
+        // file via the specified handle.
+        //
+
+        CHECK_FILE_INFORMATION_ACCESS(
+            grantedAccess,
+            IRP_MJ_SET_INFORMATION,
+            NtInformationLevel,
+            &status
+            );
+
+        IF_DEBUG(ERRORS) {
+            if ( !NT_SUCCESS(status) ) {
+                KdPrint(( "SrvSmbSetFileInformation: IoCheckFunctionAccess "
+                            "failed: 0x%X, GrantedAccess: %lx\n",
+                            status, grantedAccess ));
+            }
+        }
+    }
+
 
     if ( !NT_SUCCESS(status) ) {
 
@@ -3642,13 +3492,13 @@ Return Value:
         SrvSetSmbError2( WorkContext, status, TRUE );
         return SmbTransStatusErrorWithData;
 
-    } else if ( resetWrittenTo ) {
+    } else if ( TurnOffCaching ) {
 
         //
         // reset this boolean so that the rfcb can be cached.
         //
 
-        rfcb->WrittenTo = FALSE;
+        rfcb->IsCacheable = FALSE;
     }
 
     IF_DEBUG(TRACE2) KdPrint(( "SrvSmbSetFileInformation complete.\n" ));
@@ -3688,126 +3538,58 @@ Return Value:
     PTRANSACTION transaction;
     PREQ_SET_PATH_INFORMATION request;
     USHORT informationLevel;
-
-    PAGED_CODE( );
-
-    //
-    // If the information level is not SMB_INFO_STANDARD, requeue the
-    // request to a blocking thread.
-    //
-    // We can't process the SMB in a nonblocking thread because this
-    // info level requires opening the file, which may be oplocked, so
-    // the open operation may block.
-    //
-
-    transaction = WorkContext->Parameters.Transaction;
-    request = (PREQ_SET_PATH_INFORMATION)transaction->InParameters;
-    informationLevel = SmbGetUshort( &request->InformationLevel );
-
-    if ( informationLevel != SMB_INFO_STANDARD ) {
-
-        WorkContext->FspRestartRoutine = BlockingSetPathInformation;
-        SrvQueueWorkToBlockingThread( WorkContext );
-        return SmbTransStatusInProgress;
-
-    }
-
-    //
-    // It's OK to process this SMB in a nonblocking thread.  Do so now.
-    //
-
-    return DoSetPathInformation( WorkContext );
-
-} // SrvSmbSetPathInformation
-
-
-VOID
-BlockingSetPathInformation (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    Processes the Set Path Information request.  This request arrives
-    in a Transaction2 SMB.  Set Path Information corresponds to the
-    OS/2 DosSetPathInfo service.
-
-Arguments:
-
-    WorkContext - Supplies the address of a Work Context Block
-        describing the current request.  See smbtypes.h for a more
-        complete description of the valid fields.
-
-Return Value:
-
-    SMB_TRANS_STATUS - Indicates whether an error occurred, and, if so,
-        whether data should be returned to the client.  See smbtypes.h
-        for a more complete description.
-
---*/
-
-{
-    SMB_TRANS_STATUS smbStatus;
-
-    PAGED_CODE( );
-
-    smbStatus = DoSetPathInformation( WorkContext );
-    if ( smbStatus != SmbTransStatusInProgress ) {
-        SrvCompleteExecuteTransaction( WorkContext, smbStatus );
-    }
-
-    return;
-
-} // BlockingSetPathInformation
-
-
-SMB_TRANS_STATUS
-DoSetPathInformation (
-    IN OUT PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    Processes the Set Path Information request.  This request arrives
-    in a Transaction2 SMB.  Set Path Information corresponds to the
-    OS/2 DosSetPathInfo service.
-
-Arguments:
-
-    WorkContext - Supplies the address of a Work Context Block
-        describing the current request.  See smbtypes.h for a more
-        complete description of the valid fields.
-
-Return Value:
-
-    SMB_TRANS_STATUS - Indicates whether an error occurred, and, if so,
-        whether data should be returned to the client.  See smbtypes.h
-        for a more complete description.
-
---*/
-
-{
-    PREQ_SET_PATH_INFORMATION request;
-
     NTSTATUS status;
     IO_STATUS_BLOCK ioStatusBlock;
-    PTRANSACTION transaction;
     HANDLE fileHandle;
     OBJECT_ATTRIBUTES objectAttributes;
     UNICODE_STRING objectName;
-    USHORT informationLevel;
     BOOLEAN isUnicode;
+    ACCESS_MASK desiredAccess;
+    BOOLEAN error;
 
     PAGED_CODE( );
 
     transaction = WorkContext->Parameters.Transaction;
+
     IF_SMB_DEBUG(QUERY_SET1) {
-        KdPrint(( "Set Path Information entered; transaction 0x%lx\n",
+        KdPrint(( "SrvSmbSetPathInformation entered; transaction 0x%lx\n",
                     transaction ));
+    }
+
+    request = (PREQ_SET_PATH_INFORMATION)transaction->InParameters;
+    informationLevel = SmbGetUshort( &request->InformationLevel );
+
+    switch( informationLevel ) {
+    case SMB_SET_FILE_ALLOCATION_INFO:
+    case SMB_SET_FILE_END_OF_FILE_INFO:
+        desiredAccess = FILE_WRITE_DATA;
+        break;
+
+    case SMB_SET_FILE_DISPOSITION_INFO:
+        desiredAccess = DELETE;
+        break;
+
+    case SMB_INFO_SET_EAS:
+        desiredAccess = FILE_WRITE_EA;
+        break;
+
+    default:
+        desiredAccess = FILE_WRITE_ATTRIBUTES;
+        break;
+    }
+
+    if( desiredAccess != FILE_WRITE_ATTRIBUTES &&
+        WorkContext->UsingBlockingThread == 0 ) {
+
+        //
+        // We can't process the SMB in a nonblocking thread because this
+        // info level requires opening the file, which may be oplocked, so
+        // the open operation may block.
+        //
+
+        WorkContext->FspRestartRoutine = SrvRestartExecuteTransaction;
+        SrvQueueWorkToBlockingThread( WorkContext );
+        return SmbTransStatusInProgress;
     }
 
     //
@@ -3827,7 +3609,7 @@ Return Value:
         //
 
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "DoSetPathInformation: bad parameter byte "
+            KdPrint(( "SrvSmbSetPathInformation: bad parameter byte "
                         "counts: %ld %ld\n",
                         transaction->ParameterCount,
                         transaction->MaxParameterCount ));
@@ -3838,26 +3620,39 @@ Return Value:
     }
 
     //
+    // Make sure the client is allowed to do this, if we have an Admin share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, transaction->TreeConnect->Share );
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
     // Get the path name of the file to open relative to the share.
     //
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            transaction->TreeConnect->Share,
+            NULL,
             request->Buffer,
             END_OF_TRANSACTION_PARAMETERS( transaction ),
             TRUE,
             isUnicode,
             &objectName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "DoSetPathInformation: bad path name: %s\n",
+            KdPrint(( "SrvSmbSetPathInformation: bad path name: %s\n",
                         request->Buffer ));
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbTransStatusErrorWithoutData;
     }
 
@@ -3869,7 +3664,7 @@ Return Value:
     if ( objectName.Length < sizeof(WCHAR) ) {
 
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "DoSetPathInformation: attempting to set info on "
+            KdPrint(( "SrvSmbSetPathInformation: attempting to set info on "
                           "share root\n" ));
         }
 
@@ -3908,23 +3703,13 @@ Return Value:
     // with FILE_WRITE_THROUGH.  See OS/2 1.2 DCR 581 for more
     // information.
     //
-
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
-
-    //
-    // !!! We block if the file is oplocked.  We must do this, because
-    //     it is required to get the FS to break a batch oplock.
-    //     We should figure out a way to do this without blocking.
-    //
-
-    informationLevel = SmbGetUshort( &request->InformationLevel );
 
     status = SrvIoCreateFile(
                  WorkContext,
                  &fileHandle,
-                 informationLevel == SMB_INFO_STANDARD ?    // DesiredAccess
-                     FILE_WRITE_ATTRIBUTES : FILE_WRITE_EA,
+                 desiredAccess,
                  &objectAttributes,
                  &ioStatusBlock,
                  NULL,                                      // AllocationSize
@@ -3932,7 +3717,7 @@ Return Value:
                  FILE_SHARE_READ | FILE_SHARE_WRITE |
                      FILE_SHARE_DELETE,                     // ShareAccess
                  FILE_OPEN,                                 // Disposition
-                 0, // FILE_COMPLETE_IF_OPLOCKED,                 // CreateOptions
+                 0,                                         // CreateOptions
                  NULL,                                      // EaBuffer
                  0,                                         // EaLength
                  CreateFileTypeNone,
@@ -3940,6 +3725,9 @@ Return Value:
                  IO_FORCE_ACCESS_CHECK,                     // Options
                  transaction->TreeConnect->Share
                  );
+
+    ASSERT( status != STATUS_OPLOCK_BREAK_IN_PROGRESS );
+
     if ( NT_SUCCESS(status) ) {
         SRVDBG_CLAIM_HANDLE( fileHandle, "FIL", 22, 0 );
     }
@@ -3948,160 +3736,22 @@ Return Value:
         RtlFreeUnicodeString( &objectName );
     }
 
-    //
-    // Save a copy of the file handle for the restart routine.
-    //
+    if ( !NT_SUCCESS( status ) ) {
 
-    WorkContext->Parameters2.FileInformation.FileHandle = fileHandle;
-
-#if 1 // no need to check for this -- no COMPLETE_IF_OPLOCKED above
-    ASSERT( status != STATUS_OPLOCK_BREAK_IN_PROGRESS );
-#else
-    if ( status == STATUS_OPLOCK_BREAK_IN_PROGRESS ) {
-
-        status = SrvStartWaitForOplockBreak(
-                    WorkContext,
-                    RestartSetPathInformation,
-                    fileHandle,
-                    NULL
-                    );
-        if ( NT_SUCCESS( status ) ) {
-            return SmbTransStatusInProgress;
+        //
+        // If the user didn't have this permission, update the
+        // statistics database.
+        //
+        if ( status == STATUS_ACCESS_DENIED ) {
+            SrvStatistics.AccessPermissionErrors++;
         }
-
-    }
-#endif
-
-    return GenerateSetPathInfoResponse( WorkContext, status );
-
-} // DoSetPathInformation
-
-
-#if 0
-VOID
-RestartSetPathInformation (
-    IN PWORK_CONTEXT WorkContext
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing of a set path information SMB.
-
-Arguments:
-
-    WorkContext -  A pointer to the work context block for this SMB.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    SMB_TRANS_STATUS smbStatus;
-    NTSTATUS openStatus;
-
-    PAGED_CODE( );
-
-    openStatus = SrvCheckOplockWaitState( WorkContext->WaitForOplockBreak );
-
-    if ( NT_SUCCESS( openStatus ) ) {
-
-        openStatus = WorkContext->Irp->IoStatus.Status;
-
-    } else {
-
-        //
-        // This open was waiting for an oplock break to occur, but
-        // timed out.  Close our handle to this file, then fail the open.
-        //
-
-        SRVDBG_RELEASE_HANDLE( WorkContext->Parameters2.FileInformation.FileHandle, "FIL", 34, 0 );
-        SrvNtClose( WorkContext->Parameters2.FileInformation.FileHandle, TRUE );
-
-    }
-
-    smbStatus = GenerateSetPathInfoResponse(
-                    WorkContext,
-                    openStatus
-                    );
-
-    SrvCompleteExecuteTransaction( WorkContext, smbStatus );
-
-    return;
-
-} // RestartSetPathInformation
-#endif
-
-
-SMB_TRANS_STATUS
-GenerateSetPathInfoResponse (
-    IN PWORK_CONTEXT WorkContext,
-    IN NTSTATUS OpenStatus
-    )
-
-/*++
-
-Routine Description:
-
-    This function completes processing for and generates a response to a
-    set path information response SMB.
-
-Arguments:
-
-    WorkContext - A pointer to the work context block for this SMB
-    OpenStatus - The completion status of the open.
-
-Return Value:
-
-    The status of the SMB processing.
-
---*/
-
-{
-    PREQ_SET_PATH_INFORMATION request;
-    PRESP_SET_PATH_INFORMATION response;
-    PTRANSACTION transaction;
-
-    NTSTATUS status;
-    HANDLE fileHandle;
-    BOOLEAN error;
-    USHORT informationLevel;
-
-    PAGED_CODE( );
-
-    transaction = WorkContext->Parameters.Transaction;
-    IF_SMB_DEBUG(QUERY_SET1) {
-        KdPrint(( "Set Path Information entered; transaction 0x%lx\n",
-                    transaction ));
-    }
-
-    response = (PRESP_SET_PATH_INFORMATION)transaction->OutParameters;
-    request = (PREQ_SET_PATH_INFORMATION)transaction->InParameters;
-
-    fileHandle = WorkContext->Parameters2.FileInformation.FileHandle;
-
-    informationLevel = SmbGetUshort( &request->InformationLevel );
-
-    //
-    // If the user didn't have this permission, update the
-    // statistics database.
-    //
-
-    if ( OpenStatus == STATUS_ACCESS_DENIED ) {
-        SrvStatistics.AccessPermissionErrors++;
-    }
-
-    if ( !NT_SUCCESS( OpenStatus ) ) {
 
         IF_DEBUG(ERRORS) {
-            KdPrint(( "GenerateSetPathInfoResponse: SrvIoCreateFile failed: "
-                        "%X\n", OpenStatus ));
+            KdPrint(( "SrvSmbSetPathInformation: SrvIoCreateFile failed: "
+                        "%X\n", status ));
         }
 
-        SrvSetSmbError( WorkContext, OpenStatus );
+        SrvSetSmbError( WorkContext, status );
         return SmbTransStatusErrorWithoutData;
 
     }
@@ -4122,7 +3772,7 @@ Return Value:
     case SMB_INFO_STANDARD:
         if ( transaction->DataCount < 22 ) {
             IF_DEBUG(SMB_ERRORS) {
-                KdPrint(( "GenerateSetPathInfoResponse: invalid DataCount %ld\n",
+                KdPrint(( "SrvSmbSetPathInformation: invalid DataCount %ld\n",
                             transaction->DataCount ));
             }
             error = TRUE;
@@ -4133,7 +3783,7 @@ Return Value:
     case SMB_INFO_QUERY_ALL_EAS:
         if ( transaction->DataCount < 4 ) {
             IF_DEBUG(SMB_ERRORS) {
-                KdPrint(( "GenerateSetPathInfoResponse: invalid DataCount %ld\n",
+                KdPrint(( "SrvSmbSetPathInformation: invalid DataCount %ld\n",
                             transaction->MaxParameterCount ));
             }
             error = TRUE;
@@ -4142,7 +3792,7 @@ Return Value:
 
     default:
         IF_DEBUG(SMB_ERRORS) {
-            KdPrint(( "GenerateSetPathInfoResponse: invalid info level %ld\n",
+            KdPrint(( "SrvSmbSetPathInformation: invalid info level %ld\n",
                         informationLevel ));
         }
         error = TRUE;
@@ -4169,7 +3819,7 @@ Return Value:
                  transaction,
                  informationLevel,
                  fileHandle,
-                 (PRESP_SET_PATH_INFORMATION)response
+                 (PRESP_SET_PATH_INFORMATION)transaction->OutParameters
                  );
 
     //
@@ -4194,8 +3844,8 @@ Return Value:
         return SmbTransStatusErrorWithData;
     }
 
-    IF_DEBUG(TRACE2) KdPrint(( "GenerateSetPathInfoResponse complete.\n" ));
+    IF_DEBUG(TRACE2) KdPrint(( "SrvSmbSetPathInformation complete.\n" ));
+
     return SmbTransStatusSuccess;
 
-} // GenerateSetPathInfoResponse
-
+} // SrvSmbSetPathInformation

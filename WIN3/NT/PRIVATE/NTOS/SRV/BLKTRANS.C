@@ -49,10 +49,10 @@ Revision History:
 #pragma alloc_text( PAGE, SrvCloseTransactionsOnSession )
 #pragma alloc_text( PAGE, SrvCloseTransactionsOnTree )
 #pragma alloc_text( PAGE, SrvDereferenceTransaction )
+#pragma alloc_text( PAGE, SrvAllocateTransaction )
+#pragma alloc_text( PAGE, SrvFreeTransaction )
 #endif
 #if 0
-NOT PAGEABLE -- SrvAllocateTransaction
-NOT PAGEABLE -- SrvFreeTransaction
 #endif
 
 
@@ -115,7 +115,8 @@ Return Value:
     PSINGLE_LIST_ENTRY listEntry;
     PNONPAGED_HEADER header;
     PTRANSACTION transaction;
-    KIRQL oldIrql;
+
+    PAGED_CODE();
 
     //
     // Get the length of the name (in bytes) including the null terminator.
@@ -173,16 +174,12 @@ Return Value:
 
         if ( blockSize == CACHED_TRANSACTION_BLOCK_SIZE ) {
 
-            ACQUIRE_SPIN_LOCK( &Connection->SpinLock, &oldIrql );
-
-            listEntry = PopEntryList( &Connection->CachedTransactionList );
+            listEntry = ExInterlockedPopEntrySList( &Connection->CachedTransactionList, &Connection->SpinLock );
 
             if ( listEntry != NULL ) {
 
                 ASSERT( Connection->CachedTransactionCount > 0 );
-                Connection->CachedTransactionCount--;
-
-                RELEASE_SPIN_LOCK( &Connection->SpinLock, oldIrql );
+                InterlockedDecrement( &Connection->CachedTransactionCount );
 
                 header = CONTAINING_RECORD(
                             listEntry,
@@ -199,12 +196,7 @@ Return Value:
                 *Transaction = transaction;
                 goto got_cached_transaction;
 
-            } else {
-
-                RELEASE_SPIN_LOCK( &Connection->SpinLock, oldIrql );
-
             }
-
         }
 
         transaction = ALLOCATE_HEAP( blockSize, BlockTypeTransaction );
@@ -275,9 +267,7 @@ got_cached_transaction:
 
     transaction->NonpagedHeader = header;
 
-    SET_BLOCK_TYPE( transaction, BlockTypeTransaction );
-    SET_BLOCK_STATE( transaction, BlockStateActive );
-    SET_BLOCK_SIZE( transaction, blockSize );
+    SET_BLOCK_TYPE_STATE_SIZE( transaction, BlockTypeTransaction, BlockStateActive, blockSize );
     header->ReferenceCount = 2; // allow for Active status and caller's pointer
 
     transaction->RemoteApiRequest = RemoteApiRequest;
@@ -763,7 +753,7 @@ Return Value:
 
 {
     PCONNECTION connection;
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE( );
 
@@ -782,12 +772,11 @@ Return Value:
     ASSERT( Transaction->NonpagedHeader->ReferenceCount > 0 );
     UPDATE_REFERENCE_HISTORY( Transaction, TRUE );
 
-    result = ExInterlockedDecrementLong(
-                &Transaction->NonpagedHeader->ReferenceCount,
-                &connection->Interlock
+    result = InterlockedDecrement(
+                &Transaction->NonpagedHeader->ReferenceCount
                 );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         //
         // The new reference count is 0, meaning that it's time to
@@ -873,13 +862,12 @@ Return Value:
     ULONG blockSize;
     PCONNECTION connection;
     PNONPAGED_HEADER header;
-    KIRQL oldIrql;
+
+    PAGED_CODE();
 
     blockSize = GET_BLOCK_SIZE( Transaction );
 
-    DEBUG SET_BLOCK_TYPE( Transaction, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Transaction, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Transaction, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Transaction, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Transaction->NonpagedHeader->ReferenceCount = -1;
     TERMINATE_REFERENCE_HISTORY( Transaction );
 
@@ -896,7 +884,6 @@ Return Value:
     if ( !Transaction->RemoteApiRequest ) {
 
         if ( blockSize == CACHED_TRANSACTION_BLOCK_SIZE ) {
-
             //
             // Check the count of cached transactions on the connection.
             // If there aren't already enough transactions cached, link
@@ -906,25 +893,18 @@ Return Value:
 
             if ( connection->CachedTransactionCount < CACHED_TRANSACTION_LIMIT ) {
 
-                ACQUIRE_SPIN_LOCK( &connection->SpinLock, &oldIrql );
-
                 if ( connection->CachedTransactionCount < CACHED_TRANSACTION_LIMIT ) {
 
-                    connection->CachedTransactionCount++;
-                    PushEntryList(
+                    ExInterlockedPushEntrySList(
                         &connection->CachedTransactionList,
-                        &header->ListEntry
+                        &header->ListEntry,
+                        &connection->SpinLock
                         );
+                    InterlockedIncrement( &connection->CachedTransactionCount );
 
-                    RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
                     return;
-
                 }
-
-                RELEASE_SPIN_LOCK( &connection->SpinLock, oldIrql );
-
             }
-
         }
 
         FREE_HEAP( Transaction );

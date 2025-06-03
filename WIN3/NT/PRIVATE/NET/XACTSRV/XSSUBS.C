@@ -176,8 +176,8 @@ Return Value:
 
     if ( outParams == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsCaptureParameters: unable to allocate %ld bytes\n",
-                          outParamsLength );
+            NetpKdPrint(( "XsCaptureParameters: unable to allocate %ld bytes\n",
+                          outParamsLength ));
         }
         return NULL;
     }
@@ -324,8 +324,8 @@ Return Value:
             if ( rcvBufferLength > (WORD)Transaction->MaxDataCount ) {
 
                 IF_DEBUG(ERRORS) {
-                    NetpDbgPrint( "XsCaptureParameters: OutBufLen %lx greater than MaxDataCount %lx.\n",
-                    rcvBufferLength, Transaction->MaxDataCount );
+                    NetpKdPrint(( "XsCaptureParameters: OutBufLen %lx greater than MaxDataCount %lx.\n",
+                    rcvBufferLength, Transaction->MaxDataCount ));
                 }
 
                 rcvBufferLength = (WORD)Transaction->MaxDataCount;
@@ -435,8 +435,8 @@ Return Value:
         default:
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsCaptureParameters: unsupported character at %lx: "
-                                "%c\n", descriptor - 1, *( descriptor - 1 ) );
+                NetpKdPrint(( "XsCaptureParameters: unsupported character at %lx: "
+                                "%c\n", descriptor - 1, *( descriptor - 1 ) ));
                 NetpBreakPoint( );
             }
         }
@@ -758,7 +758,7 @@ Return Value:
             }
             stringLength = strlen( InBuffer ) + 1;
             subDesc[0] = REM_BYTE;
-            ltoa( stringLength, &subDesc[1], 10 );
+            _ltoa( stringLength, &subDesc[1], 10 );
             InStructureDesc = subDesc;
 
         }
@@ -790,7 +790,7 @@ Return Value:
                 goto cleanup;
             }
             subDesc2[0] = REM_BYTE;
-            ltoa( STRING_SPACE_REQD( stringLength ), &subDesc2[1], 10 ) ;
+            _ltoa( STRING_SPACE_REQD( stringLength ), &subDesc2[1], 10 ) ;
             OutStructureDesc = subDesc2;
         }
 
@@ -851,8 +851,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsConvertSetInfoBuffer: RapConvertSingleEntry "
-                          "failed %X\n", status );
+            NetpKdPrint(( "XsConvertSetInfoBuffer: RapConvertSingleEntry "
+                          "failed %X\n", status ));
         }
 
         status = NERR_InternalError;
@@ -1868,8 +1868,8 @@ Return Value:
         default:
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsSetParameters: unsupported character at %lx: %c\n",
-                                descriptor - 1, *( descriptor - 1 ));
+                NetpKdPrint(( "XsSetParameters: unsupported character at %lx: %c\n",
+                                descriptor - 1, *( descriptor - 1 )));
                 NetpBreakPoint( );
             }
         }
@@ -1944,7 +1944,7 @@ Return Value:
     }
 
     if (( *ShareName == '\0' ) ||
-            ( componentLength < 1 ) || ( componentLength > LM20_CNLEN )) {
+            ( componentLength < 1 ) || ( componentLength > MAX_PATH )) {
         status = ERROR_INVALID_PARAMETER;
         goto cleanup;
     }
@@ -1967,7 +1967,7 @@ Return Value:
     }
 
     if (( *ShareName == '\\' ) ||
-            ( componentLength < 1 ) || ( componentLength > LM20_CNLEN )) {
+            ( componentLength < 1 ) || ( componentLength > MAX_PATH )) {
         status = ERROR_INVALID_PARAMETER;
         goto cleanup;
     }

@@ -107,7 +107,7 @@ Notes:
 
                 DisplayMessageAndExit( MODE_ERROR_INCORRECT_OS_VERSION,
                                                            NULL,
-                                                           EXIT_ERROR );
+                                                           (ULONG)EXIT_ERROR );
         }
 
         //
@@ -115,14 +115,14 @@ Notes:
         //      first field of the request is the device type.
         //
         Request = GetRequest();
-        DbgPtrAssert( Request );
-        DbgAssert( Request->DeviceType <= DEVICE_TYPE_ALL );
+        DebugPtrAssert( Request );
+        DebugAssert( Request->DeviceType <= DEVICE_TYPE_ALL );
 
         //
         //      Let the device handler for the specified type take care of the
         //      request.
         //
-        DbgPtrAssert( DeviceHandler[ Request->DeviceType ] );
+        DebugPtrAssert( DeviceHandler[ Request->DeviceType ] );
         DeviceHandler[ Request->DeviceType ]( Request );
 
         //
@@ -211,4 +211,3 @@ Notes:
         ComDeAllocateStuff();
 
 }
-

@@ -45,19 +45,11 @@ RdrWorkerDispatch (
     PVOID Context
     );
 
-NTSTATUS
-UnsupportedFunction (
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PIRP Irp
-    );
-
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrFsdPostToFsp)
 #pragma alloc_text(PAGE, RdrFspDispatch)
 #pragma alloc_text(PAGE, RdrWorkerDispatch)
-#pragma alloc_text(PAGE, UnsupportedFunction)
 #pragma alloc_text(INIT, RdrpInitializeFsp)
-#pragma alloc_text(PAGE, RdrpUninitializeFsp)
 #endif
 
 
@@ -329,7 +321,7 @@ Return Value:
         PWORK_ITEM Entry;
         PWORK_HEADER WorkHeader;
 
-        Entry = RdrDequeueInWorkerThread(WorkQueue,&FirstCall);
+        Entry = RdrDequeueInWorkerThread(WorkQueue, &FirstCall);
         WorkHeader = CONTAINING_RECORD( Entry, WORK_HEADER, WorkItem );
 
         dprintf(DPRT_FSPDISP, ("Process work item %08lx\n", WorkHeader));
@@ -365,37 +357,23 @@ Return Value:
 
 }
 
-
-NTSTATUS
-UnsupportedFunction (
-    IN PDEVICE_OBJECT DeviceObject,
+NTSTATUS
+RdrNotSupported (
+    IN PFS_DEVICE_OBJECT DeviceObject,
     IN PIRP Irp
     )
-
 /*++
 
 Routine Description:
 
-    This routine is the driver dispatch routine for IRP major function
-    codes that the redirector doesn't support.
-
-Arguments:
-
-    DeviceObject - Supplies a pointer to the device object.
-    Irp          - Supplies a pointer to the IRP to be processed.
-
-Return Value:
-
-    STATUS_NOT_SUPPORTED.
-
+    This catch all routine returns STATUS_NOT_SUPPORTED for the requested operation
 --*/
-
 {
-    PAGED_CODE();
+    RdrCompleteRequest(Irp, STATUS_NOT_SUPPORTED );
 
-    RdrCompleteRequest(Irp, STATUS_NOT_SUPPORTED);
     return STATUS_NOT_SUPPORTED;
 }
+
 
 NTSTATUS
 RdrpInitializeFsp (
@@ -432,13 +410,6 @@ Return Value:
     //
     //  Initialize the driver object with this driver's entry points.
     //
-    //  First, load the address of the unsupported function routine
-    //  into all locations.
-    //
-
-    for (i = 0; i < IRP_MJ_MAXIMUM_FUNCTION; i++) {
-        RdrDriverObject->MajorFunction[i] = UnsupportedFunction;
-    }
 
     RdrDriverObject->MajorFunction[IRP_MJ_CREATE] =
             (PDRIVER_DISPATCH )RdrFsdCreate;
@@ -469,6 +440,9 @@ Return Value:
 
     RdrDriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION] =
             (PDRIVER_DISPATCH )RdrFsdQueryVolumeInformationFile;
+
+    RdrDriverObject->MajorFunction[IRP_MJ_SET_VOLUME_INFORMATION] =
+            (PDRIVER_DISPATCH)RdrNotSupported;
 
     RdrDriverObject->MajorFunction[IRP_MJ_DIRECTORY_CONTROL] =
             (PDRIVER_DISPATCH )RdrFsdDirectoryControl;
@@ -547,33 +521,3 @@ Return Value:
 
 }
 
-VOID
-RdrpUninitializeFsp (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine uninitializes the FSP specific components and dispatch
-    routines.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    RdrUninitializeWorkQueue(&RdrDeviceObject->IrpWorkQueue);
-
-    RdrUninitializeIrpContext();
-
-}

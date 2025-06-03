@@ -112,7 +112,7 @@ SHORT * pusVal ;
         return(-1) ;
     while (slist->s_str)
     {
-        if (stricmp(pszStr,slist->s_str) == 0)
+        if (_stricmp(pszStr,slist->s_str) == 0)
         {
             *pusVal = slist->val ;
             return(0) ;

@@ -825,4 +825,3 @@ WD33c93_ISR (ADAPTER_PTR HA)
   }
   AcceptReq(HA);
 }
-

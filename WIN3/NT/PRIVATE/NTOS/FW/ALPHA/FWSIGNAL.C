@@ -18,7 +18,7 @@ Author:
 
 Revision History:
 
-    22-May-1992		John DeRosa [DEC]
+    22-May-1992         John DeRosa [DEC]
 
     Modified this for Alpha.  The vestigal interrupt and signal
     support was removed, and keyboard input is done by polling.
@@ -151,7 +151,7 @@ Return Value:
 
         case KEY_CONTROL:
             FwControl = MakeCode;
-	    Scan0xE0 = FALSE;
+            Scan0xE0 = FALSE;
             return;
 
         case KEY_ALT:
@@ -224,9 +224,6 @@ Return Value:
 
             case KEY_CAPS_LOCK:
                 FwCapsLock = !FwCapsLock;
-                //
-                // BUGBUG Need to turn on capslock led.
-                //
                 return;
 
             case KEY_F1:
@@ -291,71 +288,71 @@ Return Value:
 
             default:
 
-		//
-		// Some kind of character.
-		//
+                //
+                // Some kind of character.
+                //
 
                 Char = 0;
 
-		//
-		// Check for keypad + or -.  This is done here because we only
-		// recognize a two keypad keys.  Full keypad support should be
-		// done by a lookup table.
-		//
+                //
+                // Check for keypad + or -.  This is done here because we only
+                // recognize a two keypad keys.  Full keypad support should be
+                // done by a lookup table.
+                //
 
-		if (Scan == KEY_KEYPAD_MINUS) {
+                if (Scan == KEY_KEYPAD_MINUS) {
 
-		    Char = '-';
+                    Char = '-';
 
-		} else if (Scan == KEY_KEYPAD_PLUS) {
+                } else if (Scan == KEY_KEYPAD_PLUS) {
 
-		    Char = '+';
+                    Char = '+';
 
-		} else if (((Scan >= 16) && (Scan <= 25)) ||
-			   ((Scan >= 30) && (Scan <= 38)) ||
-			   ((Scan >= 44) && (Scan <= 50))) {
+                } else if (((Scan >= 16) && (Scan <= 25)) ||
+                           ((Scan >= 30) && (Scan <= 38)) ||
+                           ((Scan >= 44) && (Scan <= 50))) {
 
-		    //
-		    // Alphabetic character
-		    //
+                    //
+                    // Alphabetic character
+                    //
 
-		    if (FwControl) {
+                    if (FwControl) {
 
-			//
-			// Control character.
-			//
-			// This works for ^A -- ^Z.
-			//
+                        //
+                        // Control character.
+                        //
+                        // This works for ^A -- ^Z.
+                        //
 
-			Char = NormalLookup[Scan - 2] - 'A';
+                        Char = NormalLookup[Scan - 2] - 'A';
 
-		    } else {
+                    } else {
 
-			//
-			// ASCII alphanumeric character.   Set up to store
-			// either the main key or shifted key character.
-			//
+                        //
+                        // ASCII alphanumeric character.   Set up to store
+                        // either the main key or shifted key character.
+                        //
 
-			if (((FwLeftShift || FwRightShift) && !FwCapsLock) ||
-			    (!(FwLeftShift || FwRightShift) && FwCapsLock)) {
-			    Char = ShiftedLookup[Scan - 2];
-			} else {
-			    Char = NormalLookup[Scan - 2];
-			}
-		    }
+                        if (((FwLeftShift || FwRightShift) && !FwCapsLock) ||
+                            (!(FwLeftShift || FwRightShift) && FwCapsLock)) {
+                            Char = ShiftedLookup[Scan - 2];
+                        } else {
+                            Char = NormalLookup[Scan - 2];
+                        }
+                    }
 
                 } else if ((Scan > 1) && (Scan < 58)) {
 
-		    //
-		    // It is ASCII but not alpha, so do not shift on CapsLock.
+                    //
+                    // It is ASCII but not alpha, so do not shift on CapsLock.
                     //
 
-		    if (FwLeftShift || FwRightShift) {
-			Char = ShiftedLookup[Scan - 2];
-		    } else {
-			Char = NormalLookup[Scan - 2];
-		    }
-		}
+                    if (FwLeftShift || FwRightShift) {
+                        Char = ShiftedLookup[Scan - 2];
+                    } else {
+                        Char = NormalLookup[Scan - 2];
+                    }
+                }
 
                 //
                 // If a character, store it in buffer.
@@ -368,9 +365,9 @@ Return Value:
                 break;
         }
 
-	//
-	// This is for ASCII_CSI sequences, not normal control characters.
-	//
+        //
+        // This is for ASCII_CSI sequences, not normal control characters.
+        //
 
         if (FwControlCharacter) {
             StoreKeyboardChar(ASCII_CSI);

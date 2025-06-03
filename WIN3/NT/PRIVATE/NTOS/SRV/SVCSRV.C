@@ -38,11 +38,17 @@ MinutesToTime (
     IN BOOLEAN MakeNegative
     );
 
+ULONG
+MultipleOfProcessors (
+    IN ULONG value
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvNetServerDiskEnum )
 #pragma alloc_text( PAGE, SrvNetServerSetInfo )
 #pragma alloc_text( PAGE, SecondsToTime )
 #pragma alloc_text( PAGE, MinutesToTime )
+#pragma alloc_text( PAGE, MultipleOfProcessors )
 #endif
 
 
@@ -190,10 +196,14 @@ Return Value:
     SrvMaxNumberVcs = sv599->sv599_sessvcs;
     SrvMaxSearchTableSize = (CSHORT)sv599->sv599_opensearch;
     SrvReceiveBufferLength = sv599->sv599_sizreqbuf;
+    SrvReceiveBufferSize = (SrvReceiveBufferLength + SrvCacheLineSize) & ~SrvCacheLineSize;
+    SrvReceiveMdlSize = (MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), SrvReceiveBufferSize ) + 7) & ~7;
+    SrvMaxMdlSize = (MmSizeOfMdl( (PVOID)(PAGE_SIZE-1), MAX_PARTIAL_BUFFER_SIZE ) + 7) & ~7;
     SrvInitialReceiveWorkItemCount = sv599->sv599_initworkitems;
     SrvMaxReceiveWorkItemCount = sv599->sv599_maxworkitems;
     SrvInitialRawModeWorkItemCount = sv599->sv599_rawworkitems;
     SrvReceiveIrpStackSize = (CCHAR)sv599->sv599_irpstacksize;
+    SrvReceiveIrpSize = (IoSizeOfIrp( SrvReceiveIrpStackSize ) + 7) & ~7;
     SrvMaxSessionTableSize = (CSHORT)sv599->sv599_sessusers;
     SrvMaxTreeTableSize = (CSHORT)sv599->sv599_sessconns;
     SrvMaxPagedPoolUsage = sv599->sv599_maxpagedmemoryusage;
@@ -245,12 +255,7 @@ Return Value:
         SrvServerSize = sv598->sv598_serversize;
 
         SrvMaxRawModeWorkItemCount = sv598->sv598_maxrawworkitems;
-        SrvNonblockingThreads = sv598->sv598_nonblockingthreads;
-        if ( SrvNonblockingThreads <= 0 ) SrvNonblockingThreads = 1;
-        SrvBlockingThreads = sv598->sv598_blockingthreads;
-        if ( SrvBlockingThreads <= 0 ) SrvBlockingThreads = 1;
-        SrvCriticalThreads = sv598->sv598_criticalthreads;
-        if ( SrvCriticalThreads <= 0 ) SrvCriticalThreads = 1;
+        SrvMaxThreadsPerQueue = sv598->sv598_maxthreadsperqueue;
         ipxdisc = sv598->sv598_connectionlessautodisc;
 
         SrvRemoveDuplicateSearches =
@@ -259,8 +264,11 @@ Return Value:
         SrvSharingViolationRetryCount = sv598->sv598_sharingviolationretries;
         SrvSharingViolationDelay.QuadPart =
             Int32x32To64( sv598->sv598_sharingviolationdelay, -1*10*1000 );
+
         SrvLockViolationDelay = sv598->sv598_lockviolationdelay;
+
         SrvLockViolationOffset = sv598->sv598_lockviolationoffset;
+
         SrvCachedOpenLimit = sv598->sv598_cachedopenlimit;
         SrvMdlReadSwitchover = sv598->sv598_mdlreadswitchover;
         SrvEnableWfW311DirectIpx =
@@ -268,25 +276,74 @@ Return Value:
         SrvRestrictNullSessionAccess =
                     (BOOLEAN)sv598->sv598_restrictnullsessaccess;
 
+        SrvQueueCalc = SecondsToTime( sv598->sv598_queuesamplesecs, FALSE );
+        SrvPreferredAffinity = sv598->sv598_preferredaffinity;
+        SrvOtherQueueAffinity = sv598->sv598_otherqueueaffinity;
+        SrvBalanceCount = sv598->sv598_balancecount;
+        
+        SrvMaxFreeRfcbs = sv598->sv598_maxfreerfcbs;
+        SrvMaxFreeMfcbs = sv598->sv598_maxfreemfcbs;
+        SrvMaxPagedPoolChunkSize = sv598->sv598_maxpagedpoolchunksize;
+
+        SrvMaxCachedDirectory = sv598->sv598_cacheddirectorylimit;
+
+        SrvMaxCopyLength = sv598->sv598_maxcopylength;
+
+        //
+        // See if a Kerberos realm is given
+        //
+
+        if(Srp->Name1.Length
+                 &&
+           Srp->Name1.Buffer[0] == L'\\')
+        {
+            //
+            // it appears to be a Kerberos realm. So let's
+            // take it
+            //
+
+            KerberosRealm.Buffer = ExAllocatePool(PagedPool,
+                                                  Srp->Name1.MaximumLength);
+            if(KerberosRealm.Buffer)
+            {
+
+                KerberosRealm.Length = Srp->Name1.Length;
+                KerberosRealm.MaximumLength = Srp->Name1.MaximumLength;
+                RtlMoveMemory(KerberosRealm.Buffer,
+                              Srp->Name1.Buffer,
+                              KerberosRealm.MaximumLength);
+            }
+        }
+
+        SrvSupportsBulkTransfer = sv598->sv598_enablebulktransfer;
+        SrvSupportsCompression  = sv598->sv598_enablecompression;
+                
     } else {
 
         SrvServerSize = 0;
 
         SrvMaxRawModeWorkItemCount = SrvInitialRawModeWorkItemCount;
-        SrvNonblockingThreads = 3;
-        SrvBlockingThreads = 3;
-        SrvCriticalThreads = 1;
+        SrvMaxThreadsPerQueue = 25;
         ipxdisc = 0;
 
         SrvRemoveDuplicateSearches = TRUE;
         SrvMaxOpenSearches = 4096;
         SrvSharingViolationRetryCount = 5;
         SrvSharingViolationDelay.QuadPart = -200 * 10 * 1000;   // 200 ms
-        SrvLockViolationDelay = 200;
+
+        SrvLockViolationDelay = 250;
+
         SrvLockViolationOffset = 0xef000000;
         SrvCachedOpenLimit = 0;
-        SrvEnableWfW311DirectIpx = FALSE;
+        SrvEnableWfW311DirectIpx = TRUE;
         SrvRestrictNullSessionAccess = TRUE;
+
+        SrvMaxFreeRfcbs = 5;
+        SrvMaxFreeMfcbs = 5;
+        SrvMaxPagedPoolChunkSize = 512;
+
+        SrvMaxCachedDirectory = 5;
+
 
         //
         // Mdl switchover length should not exceed the receive buffer length.
@@ -294,6 +351,12 @@ Return Value:
 
         SrvMdlReadSwitchover = MIN(SrvReceiveBufferLength, 1024);
     }
+
+    SrvMaxNonPagedPoolChunkSize = 512;
+    SrvMaxPagedPoolChunkSize = 512;
+
+    SrvLockViolationDelayRelative.QuadPart =
+        Int32x32To64( sv598->sv598_lockviolationdelay, -1*10*1000 );
 
     //
     // Calculate switchover number for mpx
@@ -335,7 +398,6 @@ Return Value:
     SrvNetworkErrorRecord.ErrorThreshold =
                         sv599->sv599_networkerrorthreshold;
     SrvFreeDiskSpaceThreshold = sv599->sv599_diskspacethreshold;
-    SrvDiskConfiguration = sv599->sv599_diskconfiguration;
 
     SrvCaptureScavengerTimeout( &scavengerTimeout, &alerterTimeout );
 
@@ -368,122 +430,42 @@ Return Value:
         //
         // On WinNT, the maximum value of certain parameters is fixed at
         // build time.  These include: concurrent users, SMB buffers,
-        // and threads.
         //
 
 #define MINIMIZE(_param,_max) _param = MIN( _param, _max );
 
         MINIMIZE( SrvMaxUsers, MAX_USERS_WKSTA );
         MINIMIZE( SrvMaxReceiveWorkItemCount, MAX_MAXWORKITEMS_WKSTA );
-        MINIMIZE( SrvNonblockingThreads, MAX_NONBLOCKINGTHREADS_WKSTA );
-        MINIMIZE( SrvBlockingThreads, MAX_BLOCKINGTHREADS_WKSTA );
-        MINIMIZE( SrvCriticalThreads, MAX_CRITICALTHREADS_WKSTA );
+        MINIMIZE( SrvMaxThreadsPerQueue, MAX_THREADS_WKSTA );
 
         //
-        // On WinNT, we do not cache closed RFCBs.
+        // On WinNT, we do not cache the following:
         //
 
-        SrvCachedOpenLimit = 0;
-
+        SrvCachedOpenLimit = 0;         // don't cache close'd files
+        SrvMaxCachedDirectory = 0;      // don't cache directory names
+        SrvMaxFreeRfcbs = 0;            // don't cache free'd RFCB structs
+        SrvMaxFreeMfcbs = 0;            // don't cache free'd NONPAGED_MFCB structs
     }
 
     //
-    // Get the domain name and the computer name.
+    // The following items are generally per-processor.  Ensure they
+    // are a multiple of the number of processors in the system.
     //
+    SrvMaxReceiveWorkItemCount =
+        MultipleOfProcessors( SrvMaxReceiveWorkItemCount );
 
-    if ( Srp->Name1.Buffer != NULL ) {
+    SrvInitialReceiveWorkItemCount =
+        MultipleOfProcessors( SrvInitialReceiveWorkItemCount );
 
-        USHORT unicodeLength, oemLength;
+    SrvMinReceiveQueueLength =
+        MultipleOfProcessors( SrvMinReceiveQueueLength );
 
-        unicodeLength = Srp->Name1.Length + sizeof(UNICODE_NULL);
-        oemLength = (USHORT)RtlUnicodeStringToOemSize( &Srp->Name1 );
+    SrvMaxRawModeWorkItemCount =
+        MultipleOfProcessors( SrvMaxRawModeWorkItemCount );
 
-        //
-        // Free the old buffers first if necessary
-        //
-
-        if ( SrvPrimaryDomain.Buffer != NULL ) {
-            ASSERT( SrvOemPrimaryDomain.Buffer != NULL );
-
-            DEALLOCATE_NONPAGED_POOL( SrvPrimaryDomain.Buffer );
-            DEALLOCATE_NONPAGED_POOL( SrvOemPrimaryDomain.Buffer );
-        }
-
-        SrvPrimaryDomain.Buffer =
-            ALLOCATE_NONPAGED_POOL( unicodeLength, BlockTypeDataBuffer );
-        if ( SrvPrimaryDomain.Buffer == NULL ) {
-            SrvOemPrimaryDomain.Buffer = NULL;
-            RELEASE_LOCK( &SrvConfigurationLock );
-            return STATUS_INSUFF_SERVER_RESOURCES;
-        }
-
-        SrvOemPrimaryDomain.Buffer =
-            ALLOCATE_NONPAGED_POOL( oemLength, BlockTypeDataBuffer );
-        if ( SrvOemPrimaryDomain.Buffer == NULL ) {
-            DEALLOCATE_NONPAGED_POOL( SrvPrimaryDomain.Buffer );
-            SrvPrimaryDomain.Buffer = NULL;
-            RELEASE_LOCK( &SrvConfigurationLock );
-            return STATUS_INSUFF_SERVER_RESOURCES;
-        }
-
-        RtlCopyMemory(
-            SrvPrimaryDomain.Buffer,
-            Srp->Name1.Buffer,
-            unicodeLength
-            );
-
-        SrvPrimaryDomain.Length = unicodeLength - sizeof(UNICODE_NULL);
-        SrvPrimaryDomain.MaximumLength = unicodeLength;
-
-        //
-        // Ensure that the server's name is null terminated.
-        //
-
-        SrvPrimaryDomain.Buffer[ Srp->Name1.Length / sizeof(WCHAR) ] = UNICODE_NULL;
-
-        SrvOemPrimaryDomain.Length = oemLength - sizeof(CHAR);
-        SrvOemPrimaryDomain.MaximumLength = oemLength;
-
-        status = RtlUnicodeStringToOemString(
-                     &SrvOemPrimaryDomain,
-                     &SrvPrimaryDomain,
-                     FALSE   // Do not allocate the OEM string
-                     );
-        ASSERT( NT_SUCCESS(status) );
-
-    }
-
-    if ( Srp->Name2.Buffer != NULL ) {
-
-        USHORT oemLength;
-
-        oemLength = (USHORT)RtlUnicodeStringToOemSize( &Srp->Name2 );
-
-        //
-        // Free the old buffer first if necessary
-        //
-
-        if ( SrvOemServerName.Buffer != NULL ) {
-            DEALLOCATE_NONPAGED_POOL( SrvOemServerName.Buffer );
-        }
-
-        SrvOemServerName.Buffer =
-            ALLOCATE_NONPAGED_POOL( oemLength, BlockTypeDataBuffer );
-        if ( SrvOemServerName.Buffer == NULL ) {
-            RELEASE_LOCK( &SrvConfigurationLock );
-            return STATUS_INSUFF_SERVER_RESOURCES;
-        }
-
-        SrvOemServerName.MaximumLength = oemLength;
-
-        status = RtlUnicodeStringToOemString(
-                     &SrvOemServerName,
-                     &Srp->Name2,
-                     FALSE   // Do not allocate the OEM string
-                     );
-        ASSERT( NT_SUCCESS(status) );
-
-    }
+    SrvInitialRawModeWorkItemCount =
+        MultipleOfProcessors( SrvInitialRawModeWorkItemCount );
 
     RELEASE_LOCK( &SrvConfigurationLock );
 
@@ -567,3 +549,31 @@ Return Value:
 
 } // MinutesToTime
 
+ULONG
+MultipleOfProcessors(
+    IN ULONG value
+    )
+/*++
+
+Routine Description:
+
+    This routine ensures the passed in value is a multiple of the number
+    of processors in the system.  The value will be adjusted upward if
+    necessary.
+
+Arguments:
+
+    value - the value to be adjusted
+
+Return Value:
+
+    the adjusted value
+
+--*/
+{
+    value += SrvNumberOfProcessors - 1;
+    value /= SrvNumberOfProcessors;
+    value *= SrvNumberOfProcessors;
+
+    return value;
+}

@@ -58,7 +58,7 @@ Revision History:
 
 
 NTSTATUS
-SamrConnect(
+SamrConnect2(
     IN PSAMPR_SERVER_NAME ServerName,
     OUT SAMPR_HANDLE * ServerHandle,
     IN ACCESS_MASK DesiredAccess
@@ -70,7 +70,9 @@ Routine Description:
 
     This service is the dispatch routine for SamConnect.  It performs
     an access validation to determine whether the caller may connect
-    to SAM for the access specified.  If so, a context block is established
+    to SAM for the access specified.  If so, a context block is established.
+    This is different from the SamConnect call in that the entire server
+    name is passed instead of just the first character.
 
 
 Arguments:
@@ -104,6 +106,57 @@ Return Value:
     TrustedClient = FALSE;
 
     return SamIConnect(ServerName, ServerHandle, DesiredAccess, TrustedClient );
+
+}
+
+
+NTSTATUS
+SamrConnect(
+    IN PSAMPR_SERVER_NAME ServerName,
+    OUT SAMPR_HANDLE * ServerHandle,
+    IN ACCESS_MASK DesiredAccess
+    )
+
+/*++
+
+Routine Description:
+
+    This service is the dispatch routine for SamConnect.  It performs
+    an access validation to determine whether the caller may connect
+    to SAM for the access specified.  If so, a context block is established
+
+
+Arguments:
+
+    ServerName - Name of the node this SAM reside on.  Ignored by this
+        routine. The name contains only a single character.
+
+    ServerHandle - If the connection is successful, the value returned
+        via this parameter serves as a context handle to the openned
+        SERVER object.
+
+    DesiredAccess - Specifies the accesses desired to the SERVER object.
+
+
+Return Value:
+
+    Status values returned by SamIConnect().
+
+
+--*/
+{
+    BOOLEAN TrustedClient;
+
+
+    //
+    // If we ever want to support trusted remote clients, then the test
+    // for whether or not the client is trusted can be made here and
+    // TrustedClient set appropriately.  For now, all remote clients are
+    // considered untrusted.
+
+    TrustedClient = FALSE;
+
+    return SamIConnect(NULL, ServerHandle, DesiredAccess, TrustedClient );
 
 }
 
@@ -384,6 +437,10 @@ Return Value:
 
 
 
+    ASSERT( Name != NULL );
+    if (Name->Buffer == NULL) {
+        return(STATUS_INVALID_PARAMETER);
+    }
 
 
 
@@ -745,14 +802,12 @@ Return Value:
 
             //
             // If we are returning the last of the names, then change our
-            // status code to indicate this condition.  Also change our
-            // enumeration context so that it starts at the beginning again.
+            // status code to indicate this condition.
             //
 
             if ( ((*EnumerationContext) >= SampDefinedDomainsCount) ) {
 
                 NtStatus = STATUS_SUCCESS;
-                (*EnumerationContext) = 0;
             }
 
 

@@ -17,6 +17,11 @@ Author:
 
 
 Revision History:
+    30-Jan-1995         MarkBl
+        Backup operators are allowed to _open the security log, but are only
+        allowed to perform backup operations on it; all other operations are
+        disallowed.
+
     13-Oct-1993         Danl
         ElfrOpenELA:  Fixed Memory Leak bug where it was not calling
         RtlFreeUnicodeString for pRegModuleNameU and PModuleNameU.
@@ -30,28 +35,10 @@ Revision History:
 //#include <rpcutil.h>
 
 #include <eventp.h>
+#include <elfcfg.h>
 #include <stdio.h>  // sprintf
-#include <wcstr.h>
+#include <stdlib.h>
 #include <memory.h>
-
-//
-// Macro to make sure the handle is valid, and return the appropriate
-// error code if it is not
-//
-
-#define CHECK_VALID_HANDLE(Handle)
-
-#if 0
-#define CHECK_VALID_HANDLE(Handle) \
-    try { \
-        if ((Handle)->Signature != ELF_CONTEXTHANDLE_SIGN) { \
-            return(STATUS_INVALID_HANDLE); \
-        } \
-    } \
-    except (EXCEPTION_EXECUTE_HANDLER) { \
-        return(STATUS_INVALID_HANDLE); \
-    }
-#endif
 
 //
 //  PROTOTYPES
@@ -77,6 +64,13 @@ ElfpOpenELA (
     OUT PIELF_HANDLE        LogHandle,
     IN  ULONG               DesiredAccess
     );
+
+VOID
+FreePUStringArray (
+    IN  PUNICODE_STRING  * pUStringArray,
+    IN  USHORT             NumStrings
+    );
+
 
 //
 // These APIs only have one interface, since they don't take or return strings
@@ -109,9 +103,18 @@ Return Value:
 {
 
     PLOGMODULE Module;
-    NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS Status = STATUS_SUCCESS;
 
-    CHECK_VALID_HANDLE(LogHandle);
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
+
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
+    }
 
     //
     // If the OldestRecordNumber is 0, that means we have an empty
@@ -126,10 +129,10 @@ Return Value:
             Module->LogFile->OldestRecordNumber;
     }
     else {
-        status = STATUS_INVALID_HANDLE;
+        Status = STATUS_INVALID_HANDLE;
     }
 
-    return (status);
+    return (Status);
 
 }
 
@@ -140,22 +143,29 @@ ElfrOldestRecord(
     OUT PULONG          OldestRecordNumber
     )
 {
-
     PLOGMODULE Module;
-    NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS Status = STATUS_SUCCESS;
 
-    CHECK_VALID_HANDLE(LogHandle);
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
 
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
+    }
 
     Module = FindModuleStrucFromAtom (LogHandle->Atom);
     if (Module != NULL) {
         *OldestRecordNumber = Module->LogFile->OldestRecordNumber;
     }
     else {
-        status = STATUS_INVALID_HANDLE;
+        Status = STATUS_INVALID_HANDLE;
     }
 
-    return (status);
+    return (Status);
 }
 
 NTSTATUS
@@ -166,7 +176,7 @@ ElfrChangeNotify(
     )
 {
 
-    NTSTATUS status;
+    NTSTATUS Status;
     OBJECT_ATTRIBUTES ObjectAttributes;
     HANDLE ProcessHandle = NULL;
     HANDLE EventHandle;
@@ -178,13 +188,21 @@ ElfrChangeNotify(
     // handle that was created for a backup log file
     //
 
-    CHECK_VALID_HANDLE(LogHandle);
     if (LogHandle->Flags & ELF_LOG_HANDLE_REMOTE_HANDLE ||
         LogHandle->Flags & ELF_LOG_HANDLE_BACKUP_LOG) {
             return(STATUS_INVALID_HANDLE);
     }
 
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
 
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
+    }
 
     //
     // First get a handle to the process using the passed in ClientId
@@ -197,19 +215,19 @@ ElfrChangeNotify(
         NULL,                   // Root directory
         NULL);                  // Security descriptor
 
-    status = NtOpenProcess(
+    Status = NtOpenProcess(
         &ProcessHandle,
         PROCESS_DUP_HANDLE,
         &ObjectAttributes,
         (PCLIENT_ID) &ClientId);
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
         //
         // Now dupe the handle they passed in for the event
         //
 
-        status = NtDuplicateObject(
+        Status = NtDuplicateObject(
             ProcessHandle,
             (HANDLE) Event,
             NtCurrentProcess(),
@@ -218,7 +236,7 @@ ElfrChangeNotify(
             0,
             DUPLICATE_SAME_ACCESS);
 
-         if (NT_SUCCESS(status)) {
+         if (NT_SUCCESS(Status)) {
 
              //
              // Create a new NOTIFIEE control block to link in
@@ -261,13 +279,13 @@ ElfrChangeNotify(
                  RtlReleaseResource ( &Module->LogFile->Resource );
              }
              else {
-                 status = STATUS_NO_MEMORY;
+                 Status = STATUS_NO_MEMORY;
              }
          }
     }
     else {
-        if (status == STATUS_INVALID_CID) {
-            status = STATUS_INVALID_HANDLE;
+        if (Status == STATUS_INVALID_CID) {
+            Status = STATUS_INVALID_HANDLE;
         }
     }
 
@@ -275,7 +293,7 @@ ElfrChangeNotify(
         NtClose(ProcessHandle);
     }
 
-    return (status);
+    return (Status);
 }
 
 
@@ -320,14 +338,23 @@ Return Value:
     CLEAR_PKT           ClearPkt;
     DWORD               status=NO_ERROR;
 
-    CHECK_VALID_HANDLE(LogHandle);
-
     //
     // Can't clear a backup log
     //
 
     if (LogHandle->Flags & ELF_LOG_HANDLE_BACKUP_LOG) {
         return(STATUS_INVALID_HANDLE);
+    }
+
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
+
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
     }
 
     //
@@ -382,7 +409,7 @@ Return Value:
             // successful, then generate an audit.
             //
             if ((NT_SUCCESS(Status) &&
-                (wcsicmp(ELF_SECURITY_MODULE_NAME, Module->LogFile->LogModuleName->Buffer) == 0))) {
+                (_wcsicmp(ELF_SECURITY_MODULE_NAME, Module->LogFile->LogModuleName->Buffer) == 0))) {
 
                 //
                 // We just cleared the security log.  Now we want to add
@@ -438,12 +465,10 @@ Return Value:
 
 --*/
 {
-    NTSTATUS            status;
+    NTSTATUS            Status;
     PLOGMODULE          Module;
     ELF_REQUEST_RECORD  Request;
     BACKUP_PKT           BackupPkt;
-
-    CHECK_VALID_HANDLE(LogHandle);
 
     if (BackupFileName->Length == 0) {
         return(STATUS_INVALID_PARAMETER);
@@ -480,13 +505,13 @@ Return Value:
         // Extract status of operation from the request packet
         //
 
-        status = Request.Status;
+        Status = Request.Status;
 
     } else {
-        status = STATUS_INVALID_HANDLE;
+        Status = STATUS_INVALID_HANDLE;
     }
 
-    return (status);
+    return (Status);
 
 }
 
@@ -512,8 +537,7 @@ Return Value:
 
 --*/
 {
-
-    CHECK_VALID_HANDLE(*LogHandle);
+    NTSTATUS Status;
 
     //
     // Call the rundown routine to do all the work
@@ -548,16 +572,17 @@ Return Value:
 
 --*/
 {
-
-    CHECK_VALID_HANDLE(*LogHandle);
+    NTSTATUS Status;
 
     //
-    // Make sure it's a valid handle
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
     //
 
-    if ((*LogHandle)->Signature != ELF_CONTEXTHANDLE_SIGN) {
-        ElfDbgPrintNC(("[ELF] Invalid context handle passed to Close.\n"));
-        return(STATUS_INVALID_HANDLE);
+    if ((*LogHandle)->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
     }
 
     //
@@ -616,6 +641,7 @@ Return Value:
     UNICODE_STRING  BackupStringW;
     LPWSTR          BackupModuleName;
     PLOGMODULE      pModule;
+    DWORD           dwModuleNumber;
 
 //
 // Size of buffer (in bytes) required for a UNICODE string of $BACKUPnnn
@@ -633,7 +659,21 @@ Return Value:
     if (BackupModuleName == NULL) {
         return(STATUS_NO_MEMORY);
     }
-    swprintf(BackupModuleName, L"$BACKUP%06d", BackupModuleNumber++);
+
+    //
+    // Serialize read, increment of the global backup module number.
+    // Note: double-timing the log file list critical section so as to not
+    // require another critical section specifically dedicated to this
+    // operation.
+    //
+
+    RtlEnterCriticalSection ((PRTL_CRITICAL_SECTION)&LogFileCritSec);
+
+    dwModuleNumber = BackupModuleNumber++;
+
+    RtlLeaveCriticalSection ((PRTL_CRITICAL_SECTION)&LogFileCritSec);
+
+    swprintf(BackupModuleName, L"$BACKUP%06d", dwModuleNumber);
     RtlInitUnicodeString(&BackupStringW, BackupModuleName);
 
     //
@@ -650,6 +690,8 @@ Return Value:
                     BackupFileName,  // Filename
                     0,               // Max size, it will use actual
                     0,               // retention period, not used for bkup
+                    ELF_GUEST_ACCESS_UNRESTRICTED,  // restrict guest
+                                     // access flag, inapplicable for bkup
                     &BackupStringW,  // Module name
                     NULL,            // Handle to registry, not used
                     ElfBackupLog     // Log type
@@ -758,7 +800,6 @@ Note:
 --*/
 {
     PLOGMODULE Module;
-
 
     Module = GetModuleStruc ((PUNICODE_STRING)ModuleName);
 
@@ -887,7 +928,7 @@ Return Value:
         // Validate the caller has appropriate access to this logfile.
         // If this is the security log, then check privilege instead.
         //
-        if (wcsicmp(ELF_SECURITY_MODULE_NAME, Module->LogFile->LogModuleName->Buffer) == 0) {
+        if (_wcsicmp(ELF_SECURITY_MODULE_NAME, Module->LogFile->LogModuleName->Buffer) == 0) {
             ForSecurityLog = TRUE;
         }
         Status = ElfpAccessCheckAndAudit(
@@ -983,9 +1024,10 @@ NOTES:
     We assume that the client-side has validated the flags to ensure that
     only one type of each bit is set. No checking is done at the server end.
 
+
 --*/
 {
-    NTSTATUS            status;
+    NTSTATUS            Status;
     PLOGMODULE          Module;
     ELF_REQUEST_RECORD  Request;
     READ_PKT            ReadPkt;
@@ -997,6 +1039,17 @@ NOTES:
 
     if (LogHandle->Flags & ELF_LOG_HANDLE_INVALID_FOR_READ) {
        return(STATUS_EVENTLOG_FILE_CHANGED);
+    }
+
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
+
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
     }
 
     Request.Pkt.ReadPkt = &ReadPkt; // Set up read packet in request packet
@@ -1064,10 +1117,10 @@ NOTES:
         *NumberOfBytesRead = Request.Pkt.ReadPkt->BytesRead;
         *MinNumberOfBytesNeeded = Request.Pkt.ReadPkt->MinimumBytesNeeded;
 
-        status = Request.Status;
+        Status = Request.Status;
 
     } else {
-        status = STATUS_INVALID_HANDLE;
+        Status = STATUS_INVALID_HANDLE;
         //
         // Set the NumberOfBytesNeeded to zero since there are no bytes to
         // transfer.
@@ -1076,7 +1129,7 @@ NOTES:
         *MinNumberOfBytesNeeded = 0;
     }
 
-    return (status);
+    return (Status);
 }
 
 
@@ -1109,7 +1162,7 @@ Return Value:
 
 --*/
 {
-    CHECK_VALID_HANDLE(LogHandle);
+    NTSTATUS Status;
 
     //
     // Call the worker with the UNICODE flag
@@ -1164,7 +1217,7 @@ Return Value:
 
 --*/
 {
-    NTSTATUS            status;
+    NTSTATUS            Status;
     PLOGMODULE          Module;
     ELF_REQUEST_RECORD  Request;
     WRITE_PKT           WritePkt;
@@ -1195,8 +1248,16 @@ Return Value:
     UNREFERENCED_PARAMETER(RecordNumber);
     UNREFERENCED_PARAMETER(TimeWritten);
 
+    //
+    // This condition is TRUE iff a backup operator has opened the security
+    // log. In this case deny access, since backup operators are allowed
+    // only backup operation on the security log.
+    //
 
-    CHECK_VALID_HANDLE(LogHandle);
+    if (LogHandle->GrantedAccess & ELF_LOGFILE_BACKUP)
+    {
+        return(STATUS_ACCESS_DENIED);
+    }
 
     //
     // Make sure the SID passed in is valid
@@ -1500,17 +1561,17 @@ Return Value:
 
             ElfpFreeBuffer(EventBuffer);
 
-            status = Request.Status;                // Set status of WRITE
+            Status = Request.Status;                // Set status of WRITE
 
         } else {
-            status = STATUS_NO_MEMORY;
+            Status = STATUS_NO_MEMORY;
         }
 
     } else {
-        status = STATUS_INVALID_HANDLE;
+        Status = STATUS_INVALID_HANDLE;
     }
 
-    return (status);
+    return (Status);
 }
 
 
@@ -1546,24 +1607,22 @@ Return Value:
 
 --*/
 {
-    NTSTATUS        status;
+    NTSTATUS        Status;
     UNICODE_STRING  BackupFileNameU;
-
-    CHECK_VALID_HANDLE(LogHandle);
 
     //
     // Convert the BackupFileName to a UNICODE STRING and call the
     // UNICODE API to do the work.
     //
-    status = RtlAnsiStringToUnicodeString (
+    Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING)&BackupFileNameU,
                     (PANSI_STRING)BackupFileName,
                     TRUE
                     );
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
-        status = ElfrClearELFW (
+        Status = ElfrClearELFW (
                 LogHandle,
                 (PRPC_UNICODE_STRING)&BackupFileNameU
                 );
@@ -1571,7 +1630,7 @@ Return Value:
         RtlFreeUnicodeString (&BackupFileNameU);
     }
 
-    return (status);
+    return (Status);
 
 }
 
@@ -1603,24 +1662,22 @@ Return Value:
 
 --*/
 {
-    NTSTATUS        status;
+    NTSTATUS        Status;
     UNICODE_STRING  BackupFileNameU;
-
-    CHECK_VALID_HANDLE(LogHandle);
 
     //
     // Convert the BackupFileName to a UNICODE STRING and call the
     // UNICODE API to do the work.
     //
-    status = RtlAnsiStringToUnicodeString (
+    Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING)&BackupFileNameU,
                     (PANSI_STRING)BackupFileName,
                     TRUE
                     );
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
-        status = ElfrBackupELFW (
+        Status = ElfrBackupELFW (
                 LogHandle,
                 (PRPC_UNICODE_STRING)&BackupFileNameU
                 );
@@ -1628,7 +1685,7 @@ Return Value:
         RtlFreeUnicodeString (&BackupFileNameU);
     }
 
-    return (status);
+    return (Status);
 
 }
 
@@ -1682,7 +1739,6 @@ Note:
     NTSTATUS Status;
     PLOGMODULE Module;
     UNICODE_STRING ModuleNameU;
-
 
     Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING) &ModuleNameU,
@@ -1790,57 +1846,44 @@ Return Value:
 
     Returns an NTSTATUS code and, if no error, a "handle".
 
-
 --*/
 {
-    NTSTATUS    status;
+    NTSTATUS    Status;
     UNICODE_STRING     ModuleNameU;
-    UNICODE_STRING     RegModuleNameU;
 
     //
     // Convert the ModuleName and RegModulename to UNICODE STRINGs and call
     // the UNICODE API to do the work.
     //
 
-    status = RtlAnsiStringToUnicodeString (
+    Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING)&ModuleNameU,
                     (PANSI_STRING)ModuleName,
                     TRUE
                     );
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
-        status = RtlAnsiStringToUnicodeString (
-                    (PUNICODE_STRING)&RegModuleNameU,
-                    (PANSI_STRING)RegModuleName,
-                    TRUE
-                    );
+        //
+        // We *KNOW* that the UNCServerName is not used
+        // by ElfpOpenELW so we save ourselves some work
+        // and just pass in a NULL.
+        //
+        Status = ElfpOpenELW (
+                     (EVENTLOG_HANDLE_W) NULL,
+                     (PRPC_UNICODE_STRING)&ModuleNameU,
+                     NULL,
+                     MajorVersion,
+                     MinorVersion,
+                     LogHandle,
+                     DesiredAccess
+                     );
 
-        if (NT_SUCCESS(status)) {
-
-            //
-            // We *KNOW* that the UNCServerName is not used
-            // by ElfpOpenELW so we save ourselves some work
-            // and just pass in a NULL.
-            //
-            status = ElfpOpenELW (
-                        (EVENTLOG_HANDLE_W) NULL,
-                        (PRPC_UNICODE_STRING)&ModuleNameU,
-                        (PRPC_UNICODE_STRING)&RegModuleNameU,
-                        MajorVersion,
-                        MinorVersion,
-                        LogHandle,
-                        DesiredAccess
-                        );
-
-            RtlFreeUnicodeString(&RegModuleNameU);
-        }
         RtlFreeUnicodeString(&ModuleNameU);
     }
 
-    return (status);
+    return (Status);
     UNREFERENCED_PARAMETER(UNCServerName);
-
 }
 
 
@@ -1884,7 +1927,7 @@ Return Value:
 
 --*/
 {
-    NTSTATUS        status;
+    NTSTATUS        Status;
     UNICODE_STRING  FileNameU;
 
     //
@@ -1892,13 +1935,13 @@ Return Value:
     // the UNICODE API to do the work.
     //
 
-    status = RtlAnsiStringToUnicodeString (
+    Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING) &FileNameU,
                     (PANSI_STRING) FileName,
                     TRUE
                     );
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
         //
         // We *KNOW* that the UNCServerName is not used
@@ -1906,7 +1949,7 @@ Return Value:
         // and just pass in a NULL.
         //
 
-        status = ElfrOpenBELW (
+        Status = ElfrOpenBELW (
                     (EVENTLOG_HANDLE_W) NULL,
                     (PRPC_UNICODE_STRING)&FileNameU,
                     MajorVersion,
@@ -1917,7 +1960,7 @@ Return Value:
         RtlFreeUnicodeString(&FileNameU);
     }
 
-    return (status);
+    return (Status);
     UNREFERENCED_PARAMETER(UNCServerName);
 
 }
@@ -1953,7 +1996,7 @@ Return Value:
 
 --*/
 {
-    CHECK_VALID_HANDLE(LogHandle);
+    NTSTATUS Status;
 
     //
     // Call the worker with the UNICODE flag
@@ -2001,7 +2044,7 @@ Return Value:
 
 --*/
 {
-    NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS Status = STATUS_SUCCESS;
     USHORT      i;
 
     //
@@ -2010,22 +2053,36 @@ Return Value:
     //
     for (i=0; i<NumStrings; i++) {
 
-        pUStringArray[i] = ElfpAllocateBuffer (sizeof (UNICODE_STRING));
+        if (Strings[i]) {
 
-        if (pUStringArray[i]) {
+            pUStringArray[i] = ElfpAllocateBuffer (sizeof (UNICODE_STRING));
 
-            status = RtlAnsiStringToUnicodeString (
-                                    pUStringArray[i],
-                                    (PANSI_STRING)Strings[i],
-                                    TRUE
-                                    );
+            if (pUStringArray[i]) {
+
+                Status = RtlAnsiStringToUnicodeString (
+                                        pUStringArray[i],
+                                        (PANSI_STRING)Strings[i],
+                                        TRUE
+                                        );
+            } else {
+                Status = STATUS_NO_MEMORY;
+            }
         } else {
-            status = STATUS_NO_MEMORY;
+            pUStringArray[i] = NULL;
         }
-        if (!NT_SUCCESS(status))
+        if (!NT_SUCCESS(Status))
             break;                  // Jump out of loop and return status
     }
-    return (status);
+
+    //
+    // Free any allocations on failure.
+    //
+
+    if (!NT_SUCCESS(Status)) {
+        FreePUStringArray(pUStringArray, (USHORT)(i + 1));
+    }
+
+    return (Status);
 }
 
 
@@ -2107,24 +2164,22 @@ Return Value:
 
 --*/
 {
-    NTSTATUS            status;
+    NTSTATUS            Status;
     UNICODE_STRING      ComputerNameU;
     PUNICODE_STRING     *pUStringArray;
-
-    CHECK_VALID_HANDLE(LogHandle);
 
     //
     // Convert the ComputerName to a UNICODE STRING and call the
     // UNICODE API.
     //
 
-    status = RtlAnsiStringToUnicodeString (
+    Status = RtlAnsiStringToUnicodeString (
                     (PUNICODE_STRING)&ComputerNameU,
                     (PANSI_STRING)ComputerName,
                     TRUE
                     );
 
-    if (NT_SUCCESS(status)) {
+    if (NT_SUCCESS(Status)) {
 
         if (NumStrings) {
 
@@ -2138,7 +2193,7 @@ Return Value:
             // We can just use the array of Strings passed in since we
             // don't need to use it anywhere else.
             //
-            status = ConvertStringArrayToUnicode (
+            Status = ConvertStringArrayToUnicode (
                                 pUStringArray,
                                 (PANSI_STRING *)Strings,
                                 NumStrings
@@ -2148,9 +2203,9 @@ Return Value:
             pUStringArray = NULL;           // No strings passed in
         }
 
-        if (NT_SUCCESS(status)) {
+        if (NT_SUCCESS(Status)) {
 
-            status = ElfrReportEventW (
+            Status = ElfrReportEventW (
                         LogHandle,
                         Time,
                         EventType,
@@ -2176,5 +2231,5 @@ Return Value:
     if (pUStringArray)
         ElfpFreeBuffer (pUStringArray);
 
-    return (status);
+    return (Status);
 }

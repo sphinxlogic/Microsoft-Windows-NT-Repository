@@ -31,6 +31,7 @@ Revision History:
 #define FCT_ID 0x0115
 
 dStatus
+
 q117ReconstructSegment(
     IN PIO_REQUEST IoReq,
     IN PQ117_CONTEXT Context
@@ -69,10 +70,12 @@ Return Value:
         //
 
         req.x.adi_hdr.cmd_buffer_ptr = IoReq->x.adi_hdr.cmd_buffer_ptr;
+        req.x.adi_hdr.driver_cmd = CMD_READ_HEROIC;
         req.x.ioDeviceIO.starting_sector = IoReq->x.ioDeviceIO.starting_sector;
         req.x.ioDeviceIO.bsm = mapbits;
-        req.x.adi_hdr.driver_cmd = CMD_READ_HEROIC;
         req.x.ioDeviceIO.number = BLOCKS_PER_SEGMENT;
+        req.x.ioDeviceIO.retrys = 0;
+        req.x.ioDeviceIO.crc = 0;
 
         ret = q117DoIO((PIO_REQUEST)&req, IoReq->BufferInfo,Context);
 
@@ -184,13 +187,13 @@ Return Value:
     if ( q117RdsCorrect(DataBuffer,(UCHAR)(BLOCKS_PER_SEGMENT-num_map),
             num_bad,s[0],s[1],s[2]) == ERR_NO_ERR ) {
 
-        CheckedDump(QIC117INFO,("OK"));
+        CheckedDump(QIC117INFO,("OK\n"));
 
         return(ERR_NO_ERR);
 
     } else {
 
-        CheckedDump(QIC117INFO,("failed"));
+        CheckedDump(QIC117DBGP,("DoCorrect: ecc correction failed\n"));
 
         return ERROR_ENCODE(ERR_ECC_FAILED, FCT_ID, 2);
 
@@ -293,13 +296,16 @@ Return Value:
 
 {
     ULONG  listEntry=0l;
+    BOOLEAN hiBitSet;
     USHORT  listIndex = 0;
     ULONG  startSector;
     ULONG  endSector;
     ULONG  badSectorMap = 0l;
     ULONG  mapFlag;
+    ULONG  BadMapEnd;
 
-    if (Context->CurrentTape.TapeFormatCode == QIC_FORMAT) {
+    if (Context->CurrentTape.BadSectorMapFormat == BadMap4ByteArray) {
+
 
         badSectorMap = Context->CurrentTape.BadMapPtr->BadSectors[Segment];
 
@@ -309,7 +315,8 @@ Return Value:
 
         listEntry =
             q117BadListEntryToSector(
-                Context->CurrentTape.BadMapPtr->BadList[listIndex].ListEntry
+                Context->CurrentTape.BadMapPtr->BadList[listIndex].ListEntry,
+                &hiBitSet
             );
 
         //
@@ -320,6 +327,8 @@ Return Value:
             badSectorMap = 0l;
 
         } else {
+
+            ASSERT(listEntry != 0);
 
             //
             // get the start and end sectors for the segment we are looking
@@ -343,26 +352,36 @@ Return Value:
 
                 listEntry =
                     q117BadListEntryToSector(
-                        Context->CurrentTape.BadMapPtr->BadList[listIndex].ListEntry
+                        Context->CurrentTape.BadMapPtr->BadList[listIndex].ListEntry,
+                        &hiBitSet
                     );
 
             }
+
+            // Calculate bad map size to insure not walking into neverland
+            BadMapEnd = (USHORT)(Context->CurrentTape.BadSectorMapSize / LIST_ENTRY_SIZE);
 
             //
             // Now look forward for sectors within the range.
             //
             while (listEntry &&
                     (listEntry <= endSector) &&
-                    (listIndex < MAX_BAD_LIST)) {
+                    (listIndex < BadMapEnd)) {
+
+                // set all of the bits if the entry has the high bit set
 
                 if (listEntry >= startSector && listEntry <= endSector) {
 
-                    mapFlag = 1l << (listEntry - startSector);
-                    badSectorMap |= mapFlag;
+                    if (hiBitSet) badSectorMap |= 0xffffffff;
+                    else {
+                        mapFlag = 1l << (listEntry - startSector);
+                        badSectorMap |= mapFlag;
+                    }
 
                 }
 
-                listEntry = q117BadListEntryToSector(Context->CurrentTape.BadMapPtr->BadList[listIndex++].ListEntry);
+                listEntry = q117BadListEntryToSector(Context->CurrentTape.BadMapPtr->BadList[++listIndex].ListEntry,&hiBitSet);
+
 
             }
 
@@ -370,7 +389,7 @@ Return Value:
             // If we walked off the end of the list (listEntry = 0),
             // put us back on.
             //
-            if (listEntry == 0) {
+            if (listEntry == 0 && listIndex > 0) {
                 listIndex--;
             }
 

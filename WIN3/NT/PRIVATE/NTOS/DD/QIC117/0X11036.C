@@ -21,34 +21,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11036.c  $
-*	
-*	   Rev 1.7   04 Feb 1994 14:28:36   KURTGODW
-*	Changed ifdef dbg to if dbg
 *
-*	   Rev 1.6   27 Jan 1994 15:48:08   KEVINKES
-*	Modified debug code.
-*
-*	   Rev 1.5   18 Jan 1994 16:19:02   KEVINKES
-*	Updated debug code.
-*
-*	   Rev 1.4   11 Jan 1994 15:21:06   KEVINKES
-*	Cleaned up the DBG_ARRAY code.
-*
-*	   Rev 1.3   23 Nov 1993 18:54:22   KEVINKES
-*	Modified debug define to be DBG_ARRAY.
-*
-*	   Rev 1.2   11 Nov 1993 15:20:40   KEVINKES
-*	Changed calls to cqd_inp and cqd_outp to kdi_ReadPort and kdi_WritePort.
-*	Modified the parameters to these calls.  Changed FDC commands to be
-*	defines.
-*
-*	   Rev 1.1   08 Nov 1993 14:05:12   KEVINKES
-*	Removed all bit-field structures, removed all enumerated types, changed
-*	all defines to uppercase, and removed all signed data types wherever
-*	possible.
-*
-*	   Rev 1.0   18 Oct 1993 17:25:06   KEVINKES
-*	Initial Revision.
 *
 *****************************************************************************/
 #define FCT_ID 0x11036
@@ -82,9 +55,9 @@ dStatus cqd_ReadFDC
 /* DATA: ********************************************************************/
 
 	dStatus status=DONT_PANIC;	/* dStatus or error condition.*/
-   dUWord main_status_register;
-	dUWord wait_count;
-	dUWord status_count;
+   dUDWord main_status_register;
+	dUDWord wait_count;
+	dUDWord status_count;
 
 /* CODE: ********************************************************************/
 
@@ -117,7 +90,9 @@ dStatus cqd_ReadFDC
 
 			if ((main_status_register & MSR_RQM) == 0) {
 
-   	      kdi_ShortTimer(kdi_wt12us);
+#ifndef WIN95
+                kdi_ShortTimer(kdi_wt12us);
+#endif
 
 			}
 
@@ -151,7 +126,9 @@ dStatus cqd_ReadFDC
 				} else {
 
 					drv_status++;
-   	      	kdi_ShortTimer(kdi_wt12us);
+#ifndef WIN95
+                    kdi_ShortTimer(kdi_wt12us);
+#endif
 
 				}
 

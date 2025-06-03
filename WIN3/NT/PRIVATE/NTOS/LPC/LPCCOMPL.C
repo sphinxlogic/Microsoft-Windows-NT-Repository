@@ -20,11 +20,6 @@ Revision History:
 
 #include "lpcp.h"
 
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,NtAcceptConnectPort)
-#pragma alloc_text(PAGE,NtCompleteConnectPort)
-#endif
-
 PLPCP_MESSAGE
 LpcpRemoveConMsg(
     IN PETHREAD ClientThread,
@@ -46,6 +41,13 @@ PVOID
 LpcpCheckSectionToMap(
     IN PLPCP_CONNECTION_MESSAGE ConnectMsg
     );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,NtAcceptConnectPort)
+#pragma alloc_text(PAGE,NtCompleteConnectPort)
+#pragma alloc_text(PAGE,LpcpPrepareToWakeClient)
+#endif
+
 
 NTSTATUS
 NtAcceptConnectPort(
@@ -299,12 +301,37 @@ Return Value:
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
     // the thread and get the pointer to the message that the thread
     // is waiting for a reply to.
     //
 
-    Msg = LpcpRemoveConMsg( ClientThread, CapturedReplyMessage.MessageId );
+    ExAcquireFastMutex( &LpcpLock );
+
+    //
+    // See if the thread is waiting for a reply to the connection request
+    // specified on this call.  If not then a bogus connection request
+    // has been specified, so release the mutex, dereference the thread
+    // and return failure.
+    //
+
+    if (ClientThread->LpcReplyMessage == NULL ||
+        ClientThread->LpcReplyMessageId != CapturedReplyMessage.MessageId
+       ) {
+        Msg = NULL;
+        }
+    else {
+        Msg = ClientThread->LpcReplyMessage;
+        ClientThread->LpcReplyMessage = NULL;
+        }
+
+    //
+    // Release the mutex that guards the field.
+    //
+
+    ClientThread->LpcReplyMessageId = 0;
+    ExReleaseFastMutex( &LpcpLock );
+
     if ( !Msg ) {
         LpcpPrint(( "%s Attempted AcceptConnectPort to Thread %lx (%s)\n",
                     PsGetCurrentProcess()->ImageFileName,
@@ -405,12 +432,9 @@ Return Value:
         // ports have been closed.
         //
 
-        ObReferenceObjectByPointer( ConnectionPort,
-                                    0,
-                                    LpcPortObjectType,
-                                    KernelMode
-                                  );
+        ObReferenceObject( ConnectionPort );
         ServerPort->ConnectionPort = ConnectionPort;
+        ServerPort->MaxMessageLength = ConnectionPort->MaxMessageLength;
 
         //
         // Connect the client and server communication ports together
@@ -433,7 +457,10 @@ Return Value:
         // for the server process to see.
         //
 
-        ClientSectionToMap = LpcpCheckSectionToMap( ConnectMsg );
+        ExAcquireFastMutex( &LpcpLock );
+        ClientSectionToMap = ConnectMsg->SectionToMap;
+        ConnectMsg->SectionToMap = NULL;
+        ExReleaseFastMutex( &LpcpLock );
         if (ClientSectionToMap) {
 
             LARGE_INTEGER LargeSectionOffset;
@@ -575,7 +602,9 @@ Return Value:
                         ServerPort->PortContext = Handle;
                         }
                     ServerPort->ClientThread = ClientThread;
-                    LpcpRestoreConMsg( ClientThread, Msg );
+                    ExAcquireFastMutex( &LpcpLock );
+                    ClientThread->LpcReplyMessage = Msg;
+                    ExReleaseFastMutex( &LpcpLock );
                     ClientThread = NULL;
                     }
                 except( EXCEPTION_EXECUTE_HANDLER ) {
@@ -598,7 +627,9 @@ bailout:
         }
 
     if (ClientThread != NULL) {
-        LpcpRestoreConMsg( ClientThread, Msg );
+        ExAcquireFastMutex( &LpcpLock );
+        ClientThread->LpcReplyMessage = Msg;
+        ExReleaseFastMutex( &LpcpLock );
 
         if (AcceptConnection) {
             LpcpPrint(( "LPC: Failing AcceptConnection with Status == %x\n", Status ));
@@ -639,6 +670,7 @@ NtCompleteConnectPort(
     NTSTATUS Status;
     PETHREAD ClientThread;
 
+    PAGED_CODE();
     //
     // Get previous processor mode
     //
@@ -699,112 +731,22 @@ NtCompleteConnectPort(
 
 
 
-
-PLPCP_MESSAGE
-LpcpRemoveConMsg(
-    IN PETHREAD ClientThread,
-    IN ULONG CapturedMessageId
-    )
-{
-    KIRQL OldIrql;
-    PLPCP_MESSAGE Msg;
-
-    //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
-    // the thread and get the pointer to the message that the thread
-    // is waiting for a reply to.
-    //
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-
-    //
-    // See if the thread is waiting for a reply to the connection request
-    // specified on this call.  If not then a bogus connection request
-    // has been specified, so release the spin lock, dereference the thread
-    // and return failure.
-    //
-
-    if (ClientThread->LpcReplyMessage == NULL ||
-        ClientThread->LpcReplyMessageId != CapturedMessageId
-       ) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
-        return NULL;
-        }
-
-    Msg = ClientThread->LpcReplyMessage;
-    ClientThread->LpcReplyMessage = NULL;
-
-    //
-    // Release the spin lock that guards the field.
-    //
-
-    ClientThread->LpcReplyMessageId = 0;
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
-    return Msg;
-}
-
-
-VOID
-LpcpRestoreConMsg(
-    IN PETHREAD ClientThread,
-    IN PLPCP_MESSAGE Msg
-    )
-{
-    KIRQL OldIrql;
-
-    //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
-    // the thread and get the pointer to the message that the thread
-    // is waiting for a reply to.
-    //
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-
-    ClientThread->LpcReplyMessage = Msg;
-
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
-    return;
-}
-
 VOID
 LpcpPrepareToWakeClient(
     IN PETHREAD ClientThread
     )
 {
-    KIRQL OldIrql;
-
+    PAGED_CODE();
     //
     // Remove thread from rundown list as we are sending a reply
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
     if (!ClientThread->LpcExitThreadCalled && !IsListEmpty( &ClientThread->LpcReplyChain )) {
         RemoveEntryList( &ClientThread->LpcReplyChain );
         InitializeListHead( &ClientThread->LpcReplyChain );
         }
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
     return;
-}
-
-PVOID
-LpcpCheckSectionToMap(
-    IN PLPCP_CONNECTION_MESSAGE ConnectMsg
-    )
-{
-    KIRQL OldIrql;
-    PVOID ClientSectionToMap;
-
-    //
-    // If the client has allocated a port memory section that is mapped
-    // into the client's address space, then map a view of the same section
-    // for the server process to see.
-    //
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    ClientSectionToMap = ConnectMsg->SectionToMap;
-    ConnectMsg->SectionToMap = NULL;
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
-
-    return ClientSectionToMap;
 }

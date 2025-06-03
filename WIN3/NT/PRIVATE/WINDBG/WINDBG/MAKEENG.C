@@ -43,6 +43,8 @@ BOOL NEAR PASCAL MkEngStartDebuggee(void)
     if (argv[0] == NULL) {
         if (runDebugParams.fKernelDebugger) {
             argv[0] = "ntoskrnl.exe";
+        } else if (runDebugParams.fUserCrashDump) {
+            argv[0] = runDebugParams.szUserCrashDump;
         } else {
             ErrorBox(ERR_No_DLL_Caller);
             return FALSE;

@@ -138,6 +138,57 @@ enum ResetStates{InitialInit,
 //
 struct _TOK162_ADAPTER;
 
+
+//
+// TOK162 Configuration Block
+//
+// This structure contains configuration data for the TOK162. This
+// structure is filled in based on the switches.
+//
+typedef struct _TOK162_CONFIGURATION_BLOCK {
+
+    //
+    // This is the adapter mode;
+    //
+    USHORT AdapterMode;
+
+    //
+    // This field contains the wait state
+    //
+    USHORT WaitState;
+
+    //
+    // This field contains the RPL
+    //
+    BOOLEAN RPL;
+
+    //
+    // This field contains the RPL Address
+    //
+    UINT RPLAddress;
+
+    //
+    // This field contains the DMA Channel
+    //
+    USHORT DMAChannel;
+
+    //
+    // This field contains the Ring Speed
+    //
+    USHORT RingSpeed;
+
+    //
+    // Interrupt level
+    //
+    USHORT  InterruptLevel;
+
+    //
+    // This field contains the connector type
+    //
+    USHORT UTPorSTP;
+
+} TOK162_CONFIGURATION_BLOCK, *PTOK162_CONFIGURATION_BLOCK;
+
 //
 // In addition to the Command Block fields which the TOK162HW.H
 // defines, we need some additional fields for our own purposes.
@@ -213,6 +264,11 @@ typedef struct _TOK162_SUPER_COMMAND_BLOCK {
     // Count of the number of times we have retried a command.
     //
     UCHAR                       TimeoutCount;
+
+    //
+    // Points to an Mdl which points to this buffer
+    //
+    PNDIS_BUFFER                FlushBuffer;
 
 } TOK162_SUPER_COMMAND_BLOCK, *PTOK162_SUPER_COMMAND_BLOCK;
 
@@ -485,6 +541,11 @@ typedef struct _TOK162_ADAPTER {
     BOOLEAN                     InitialReceiveSent;
 
     //
+    //  Last open error code.
+    //
+    USHORT                      OpenErrorCode;
+
+    //
     // Reset State
     //
     USHORT                      ResetState;
@@ -575,6 +636,11 @@ typedef struct _TOK162_ADAPTER {
     // Current state of the ring.
     //
     NDIS_802_5_RING_STATE       CurrentRingState;
+
+    //
+    //  Last ring status indicated to protocols.
+    //
+    NDIS_STATUS                 LastNotifyStatus;
 
     //
     // This is a pointer to the Configuration Block for this

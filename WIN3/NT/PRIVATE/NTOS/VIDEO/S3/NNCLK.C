@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1990-1993  Microsoft Corporation
+Copyright (c) 1990-1995  Microsoft Corporation
 
 Module Name:
 
@@ -21,9 +21,18 @@ Revision History:
 #include "s3.h"
 
 #if defined(ALLOC_PRAGMA)
-#pragma alloc_text(PAGE,calc_clock)
-#pragma alloc_text(PAGE,gcd)
-#pragma alloc_text(PAGE,set_clock)
+/*****************************************************************************
+ *
+ * Note: All of the routines in this module can be called indirectly
+ *       from SetHWMode.  SetHWMode can be called while paging is
+ *       disabled.  Because of this, SetHWMode is non-pageable, and
+ *       thus none of the routines it calls can be either.
+ *
+ ****************************************************************************/
+
+// #pragma alloc_text(PAGE, calc_clock)
+// #pragma alloc_text(PAGE, gcd)
+// #pragma alloc_text(PAGE, set_clock)
 #endif
 
 #define PROM_WRITE_INDEX        0x51
@@ -53,7 +62,6 @@ Revision History:
 #define MAX(a, b)               (((a) > (b)) ? (a) : (b))
 #define CRYSTAL_FREQUENCY       (14318180 * 2)
 #define MIN_VCO_FREQUENCY       50000000
-#define MAX_POST_SCALE          285000000
 #define MAX_NUMERATOR           130
 #define MAX_DENOMINATOR         MIN(129, CRYSTAL_FREQUENCY / 400000)
 #define MIN_DENOMINATOR         MAX(3, CRYSTAL_FREQUENCY / 2000000)
@@ -65,27 +73,6 @@ Revision History:
 #define C_CLK   1
 #define C_BOTH  3
 #define C_NONE  0
-
-/* Index register frequency ranges for ICD2061A chip */
-
-static long     vclk_range[16] = {
-                0, /* should be MIN_VCO_FREQUENCY, but that causes problems. */
-         51000000,
-         53200000,
-         58500000,
-         60700000,
-         64400000,
-         66800000,
-         73500000,
-         75600000,
-         80900000,
-         83200000,
-         91500000,
-        100000000,
-        120000000,
-        MAX_POST_SCALE,
-                0,
-        };
 
 /****************************************************************************
  * calc_clock

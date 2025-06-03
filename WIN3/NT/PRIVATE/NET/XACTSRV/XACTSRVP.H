@@ -48,7 +48,6 @@ Revision History:
 #include <windef.h>
 #include <winbase.h>
 #include <string.h>
-#include <wcstr.h>
 //!!UNICODE!! - Include tstring.h TSTR type-independent functions
 #include <tstring.h>
 
@@ -101,4 +100,4 @@ Revision History:
 #include <WkstaDef.h>
 
 #endif // ndef _XACTSRVP_
-
+

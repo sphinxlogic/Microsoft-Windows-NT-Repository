@@ -64,12 +64,13 @@ NTSTATUS
     );
 
 typedef
-PMDL
+NTSTATUS
 (*PRECEIVE_ROUTINE) (
     IN struct _IRP_CONTEXT *IrpContext,
     IN ULONG BytesAvailable,
     IN PULONG BytesAccepted,
-    IN PUCHAR Response
+    IN PUCHAR Response,
+    OUT PMDL *pReceiveMdl
     );
 
 //
@@ -121,7 +122,7 @@ typedef struct _SCB {
 
     LIST_ENTRY  IcbList;
     ULONG IcbCount;
-
+    ULONG OpenNdsStreams;
 
     //
     //  User credentials that this Scb relates to.
@@ -144,6 +145,12 @@ typedef struct _SCB {
 
     UNICODE_STRING UidServerName;   // L"3e7\mars312
     UNICODE_STRING UnicodeUid;      // L"3e7"
+
+    //
+    //  The name of nds tree that this server belongs to, if any.
+    //
+
+    UNICODE_STRING NdsTreeName;     // L"MARS"
 
     //
     //  The username / password to use for auto-reconnect.
@@ -169,6 +176,9 @@ typedef struct _SCB {
     //
 
     ULONG AttachCount;
+
+    RTL_BITMAP DriveMapHeader;
+    ULONG DriveMap[ (MAX_DRIVES + 1) / 32 ];
 
 } SCB, *PSCB;
 
@@ -206,6 +216,13 @@ typedef struct _SCB {
 //
 
 #define SCB_STATE_LOGIN_REQUIRED         (0x0007)
+
+//
+//  The SCB is a fake SCB used to find a dir
+//  server for a tree.
+//
+
+#define SCB_STATE_TREE_SCB               (0x0008)
 
 //
 //  The NONPAGED_SCB (Server control Block) contains all the data required
@@ -251,6 +268,14 @@ typedef struct _NONPAGED_SCB {
     //
 
     BOOLEAN Receiving;
+
+    //
+    //  Received is true when the rx data is valid. If a receive Irp is
+    //  put down when Receiving is set to true then Received is set to
+    //  true when the receive Irp completes.
+    //
+
+    BOOLEAN Received;
 
     //
     //  OkToReceive is true iff pEx should be called
@@ -332,11 +357,13 @@ typedef struct _NONPAGED_SCB {
     ULONG MaxPacketSize;
     ULONG MaxSendSize;
     ULONG MaxReceiveSize;
-    BOOLEAN BurstModeEnabled;
+    BOOLEAN SendBurstModeEnabled;
+    BOOLEAN ReceiveBurstModeEnabled;
     BOOLEAN BurstRenegotiateReqd;
     ULONG BurstSequenceNo;          //  Counts # of burst packets sent
     USHORT BurstRequestNo;          //  Counts # of burst requests sent
-    ULONG BurstSuccessCount;        //  The number of consecutive successful bursts
+    LONG SendBurstSuccessCount;     //  The number of consecutive successful bursts
+    LONG ReceiveBurstSuccessCount;  //  The number of consecutive successful bursts
 
     //
     //  Send delays and timeouts
@@ -348,13 +375,18 @@ typedef struct _NONPAGED_SCB {
     LONG  NwLoopTime;               //  Time for a small packet to reach the server and return
     LONG  NwSingleBurstPacketTime;  //  Time for a burst packet to go to the server
 
+    LONG NwMaxSendDelay;            //  Burst send delay time, in 100us units
     LONG NwSendDelay;               //  Burst send delay time, in 100us units
     LONG NwGoodSendDelay;           //  Burst send delay time, in 100us units
     LONG NwBadSendDelay;            //  Burst send delay time, in 100us units
+    LONG BurstDataWritten;          //  Bytes written, used for dummy NCP in write.c
 
+    LONG NwMaxReceiveDelay;         //  Burst delay time, in 100us units
     LONG NwReceiveDelay;            //  Burst delay time, in 100us units
     LONG NwGoodReceiveDelay;        //  Burst delay time, in 100us units
     LONG NwBadReceiveDelay;         //  Burst delay time, in 100us units
+
+    LONG CurrentBurstDelay;         //  All requests in the current burst need the same value
 
     LARGE_INTEGER NtSendDelay;      //  Burst send delay time, in 100ns units
 
@@ -366,9 +398,26 @@ typedef struct _NONPAGED_SCB {
     KSPIN_LOCK  NpScbSpinLock;
     KSPIN_LOCK  NpScbInterLock;
 
+    //
+    //  This field records the last time a time-out event was written to
+    //  the event log for this server.
+    //
+
+    LARGE_INTEGER NwNextEventTime;
+
+    //
+    // LIP estimation of speed in 100bps units.
+    //
+
+    ULONG LipDataSpeed;
+
 #ifdef MSWDBG
+    BOOL RequestQueued;
+    BOOL RequestDequeued;
+
     ULONG SequenceNumber;
 #endif
+
 } NONPAGED_SCB, *PNONPAGED_SCB;
 
 //
@@ -404,13 +453,25 @@ typedef struct _VCB {
     ULONG SequenceNumber;
 
     //
-    //  The volume name in the form \SERVER\VOLUME\PATH
+    //  The requested volume name in the following form:
+    //
+    //  \{Server | Tree}\{Share | Volume.Object}\Path
     //
 
     UNICODE_STRING Name;
 
     //
-    //  The share name in Netware compatible form
+    //  If the above name refers to an nds volume, this
+    //  contains the resolved server and share name in
+    //  the following form:
+    //
+    //  \Server\Share\Path
+    //
+
+    UNICODE_STRING ConnectName;
+
+    //
+    //  The share name in Netware compatible form.
     //
 
     UNICODE_STRING ShareName;
@@ -447,6 +508,14 @@ typedef struct _VCB {
             //
 
             CHAR Handle;
+
+            //
+            //  The Drive Letter we told the server we were mapping. Portable
+            //  NetWare needs this to be different for each permanent handle
+            //  we create.
+            //
+
+            CHAR DriveNumber;
 
         } Disk;
 
@@ -693,6 +762,7 @@ typedef NONPAGED_DCB *PNONPAGED_DCB;
 #define FCB_FLAGS_FORCE_MISS_IN_PROGRESS 0x00000010
 #define FCB_FLAGS_ATTRIBUTES_ARE_VALID   0x00000020
 #define FCB_FLAGS_LONG_NAME              0x00000040
+#define FCB_FLAGS_LAZY_SET_SHAREABLE     0x00000100
 
 //
 //  The Icb record is allocated for every file object
@@ -730,8 +800,9 @@ typedef struct _ICB {
     // The remote handle;
     //
 
+    UCHAR Handle[6];           //  Keep  WORD aligned.
+
     BOOLEAN HasRemoteHandle;   //  TRUE if we have a remote handle for this ICB
-    UCHAR Handle[6];
 
     //
     //  The file object for this ICB.
@@ -772,6 +843,15 @@ typedef struct _ICB {
     ULONG SearchIndexHigh;
 
     //
+    //  SVR to avoid rescanning from end of dir all
+    //  the way through the directory again.
+    //
+
+    ULONG LastSearchIndexLow;
+
+    //  SVR end
+
+    //
     //  Print parametres;
     //
 
@@ -780,16 +860,22 @@ typedef struct _ICB {
     BOOLEAN ActuallyPrinted;
 
     //
-    //  This flag prevents cleanup from updating the modify time.
+    //  This flag prevents cleanup from updating the access time.
     //
 
-    BOOLEAN UserSetLastModifyTime;
+    BOOLEAN UserSetLastAccessTime;
 
     //
     //  The current file position.
     //
 
     ULONG FilePosition;
+
+    //
+    //  The size of the file if its ICB_SCB
+    //
+
+    ULONG FileSize;
 
     //
     //  The Next dirent offset is used by directory enumeration.  It is
@@ -806,6 +892,11 @@ typedef struct _ICB {
     BOOLEAN IsAFile;
     BOOLEAN Exists;
     BOOLEAN FailedFindNotify;
+
+    //
+    // Is this a tree handle?  We need to know for delete.
+    //
+    BOOLEAN IsTreeHandle;
 
 } ICB, *PICB;
 
@@ -942,6 +1033,8 @@ typedef struct _RCB {
 #define IRP_FLAG_BURST_WRITE          0x00001000  //  We are processsing a burst write request
 #define IRP_FLAG_SEND_ALWAYS          0x00002000  //  Okay to send this packet, even if RCB State is shutdown
 #define IRP_FLAG_FREE_RECEIVE_MDL     0x00004000  //  Free the receive irp's MDL when the irp completes
+#define IRP_FLAG_NOT_SYSTEM_PACKET    0x00008000  //  Used in burst writes to alternate system packet and normal
+#define IRP_FLAG_NOCONNECT            0x00010000  //  Used to inspect server list
 
 typedef struct _IRP_CONTEXT {
 
@@ -991,7 +1084,7 @@ typedef struct _IRP_CONTEXT {
     //  Used for processing synchronous IRPs.
     //
 
-    KEVENT Event;
+    KEVENT Event;   //  4 words
 
     //
     //  A pointer to the originating Irp and its original contents when
@@ -1066,11 +1159,11 @@ typedef struct _IRP_CONTEXT {
 
     ULONG Signature1;
 
-    UCHAR req[MAX_DATA];
+    UCHAR req[MAX_SEND_DATA];
     ULONG Signature2;
 
     ULONG ResponseLength;
-    UCHAR rsp[MAX_DATA];
+    UCHAR rsp[MAX_RECV_DATA];
     ULONG Signature3;
 
     //
@@ -1096,30 +1189,27 @@ typedef struct _IRP_CONTEXT {
             UNICODE_STRING FullPathName;
             UNICODE_STRING VolumeName;
             UNICODE_STRING PathName;
+            UNICODE_STRING FileName;
+            BOOLEAN        NdsCreate;
+            BOOLEAN        NeedNdsData;
+            DWORD          dwNdsOid;
+            DWORD          dwNdsObjectType;
+            DWORD          dwNdsShareLength;
+            UNICODE_STRING UidConnectName;
             WCHAR   DriveLetter;
             ULONG   ShareType;
+            BOOLEAN fExCredentialCreate;
+            PUNICODE_STRING puCredentialName;
             PCHAR   FindNearestResponse[4];
             ULONG   FindNearestResponseCount;
             LARGE_INTEGER UserUid;
         } Create;
 
         struct {
-            ULONG   InformationClass;
             PVOID   Buffer;
             ULONG   Length;
-            ULONG   SavedStatus;
-            PVOID   Buffer2;
-            BOOLEAN LongFileName;
-        } QueryFileInformation;
-
-        struct {
-            PVOID   Buffer;
-            PFCB    Fcb;
-        } SetFileInformation;
-
-        struct {
-            PVOID   Buffer;
-            ULONG   Length;
+            PVCB    Vcb;
+            CHAR VolumeNumber;
         } QueryVolumeInformation;
 
         struct {
@@ -1128,6 +1218,7 @@ typedef struct _IRP_CONTEXT {
             PMDL    InputMdl;
             UCHAR   Function;     //  Used for special case post-processing
             UCHAR   Subfunction;  //  during UserNcpCallback
+
         } FileSystemControl;
 
         struct {
@@ -1179,7 +1270,6 @@ typedef struct _IRP_CONTEXT {
             BOOLEAN Wait;
             BOOLEAN ByKey;
             PLIST_ENTRY LastLock;
-            ERESOURCE_THREAD Thread;
         } Lock;
 
     } Specific;
@@ -1203,20 +1293,32 @@ typedef struct _BURST_READ_ENTRY {
 typedef struct _LOGON {
 
     //
-    //  The type and size of this record (must be NW_NTC_LOGIN)
+    // The type and size of this record.
     //
 
     NODE_TYPE_CODE NodeTypeCode;
     NODE_BYTE_SIZE NodeByteSize;
 
-    LIST_ENTRY     Next;        //  List of Login records
+    //
+    // List of Login records.
+    //
+
+    LIST_ENTRY     Next;
+
     UNICODE_STRING UserName;
     UNICODE_STRING PassWord;
     UNICODE_STRING ServerName;
     LARGE_INTEGER  UserUid;
 
-} LOGON, *PLOGON;
+    //
+    // The NDS credential list, default tree,
+    // and default context for this user.
+    //
 
+    ERESOURCE CredentialListResource;
+    LIST_ENTRY NdsCredentialList;
+
+} LOGON, *PLOGON;
 
 typedef struct _MINI_IRP_CONTEXT {
 
@@ -1252,3 +1354,4 @@ typedef struct _SECTION_DESCRIPTOR {
 } SECTION_DESCRIPTOR, *PSECTION_DESCRIPTOR;
 
 #endif // _NWSTRUC_
+

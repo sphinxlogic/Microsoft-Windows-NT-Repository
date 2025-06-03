@@ -164,9 +164,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetUserPriv: SamGetGroupsForUser returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -230,9 +230,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetUserPriv: SamGetAliasMembership returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -326,9 +326,9 @@ Return Value:
 
     if ( ! NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetDacl: SamQuerySecurityObject returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NetpNtStatusToApiStatus( Status );
         goto Cleanup;
@@ -343,9 +343,9 @@ Return Value:
 
     if ( ! NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetDacl: RtlGetDaclSecurityObject returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NERR_InternalError;
         goto Cleanup;
@@ -377,9 +377,9 @@ Return Value:
 
     if ( ! NT_SUCCESS( Status ) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpGetDacl: RtlQueryInformationAcl returns %lX\n",
-                Status );
+                Status ));
         }
         NetStatus = NERR_InternalError;
         goto Cleanup;
@@ -457,9 +457,9 @@ Return Value:
 
     if (!NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpSetDacl: RtlCreateSecurityDescriptor rets %lX\n",
-                Status );
+                Status ));
         }
         return NetpNtStatusToApiStatus( Status );
     }
@@ -472,9 +472,9 @@ Return Value:
 
     if (!NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpSetDacl: RtlSetDaclSecurityDescriptor rets %lX\n",
-                Status );
+                Status ));
         }
         return NetpNtStatusToApiStatus( Status );
     }
@@ -491,8 +491,8 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "NetUserAdd: SamSetSecurityObject rets %lX\n",
-                      Status );
+            NetpKdPrint(( "NetUserAdd: SamSetSecurityObject rets %lX\n",
+                      Status ));
         }
         return NetpNtStatusToApiStatus( Status );
     }
@@ -508,7 +508,7 @@ NET_API_STATUS
 UserpOpenUser(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR UserName,
+    IN LPCWSTR UserName,
     OUT PSAM_HANDLE UserHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     )
@@ -617,8 +617,8 @@ Cleanup:
         NetpAssert( NT_SUCCESS(Status) );
     }
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "UserpOpenUser: %wZ: returns %ld\n",
-                  &NameString, NetStatus );
+        NetpKdPrint(( "UserpOpenUser: %wZ: returns %ld\n",
+                  &NameString, NetStatus ));
     }
 
     return NetStatus;
@@ -662,7 +662,7 @@ Return Value:
     DWORD EntryNumber;
     DWORD FixedSize;
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "UserpRelocationRoutine: entering\n" );
+        NetpKdPrint(( "UserpRelocationRoutine: entering\n" ));
     }
 
     //
@@ -1024,8 +1024,8 @@ Return Value:
 
         if ( !NT_SUCCESS(Status) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint( "UserpGetInfo: SamOpenUser returns %lX\n",
-                          Status );
+                NetpKdPrint(( "UserpGetInfo: SamOpenUser returns %lX\n",
+                          Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1045,9 +1045,9 @@ Return Value:
 
         if ( ! NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "UserpGetInfo: SamQueryInformationUser returns %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -1055,9 +1055,9 @@ Return Value:
 
         if ( (UserAll->WhichFields & RequiredFields) != RequiredFields ) {
 #if DBG
-            NetpDbgPrint( "UserpGetInfo: WhichFields: %lX RequireFields: %lX\n",
+            NetpKdPrint(( "UserpGetInfo: WhichFields: %lX RequireFields: %lX\n",
                           UserAll->WhichFields,
-                          RequiredFields );
+                          RequiredFields ));
 #endif // DBG
             NetStatus = ERROR_ACCESS_DENIED;
             goto Cleanup;
@@ -1072,7 +1072,7 @@ Return Value:
                 ((UserAll->UserAccountControl & SamFilter) == 0)) {
 
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint( "UserpGetInfo: %wZ is skipped \n", &UserName );
+                NetpKdPrint(( "UserpGetInfo: %wZ is skipped \n", &UserName ));
             }
 
             NetStatus = NERR_Success ;
@@ -1095,9 +1095,9 @@ Return Value:
 
         if ( NetStatus != NERR_Success ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "UserpGetInfo: UserpGetDacl returns %ld\n",
-                    NetStatus );
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -1219,8 +1219,8 @@ Return Value:
         //
 
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "UserpGetInfo: NetpAllocateEnumBuffer returns %ld\n",
-                NetStatus );
+            NetpKdPrint(( "UserpGetInfo: NetpAllocateEnumBuffer returns %ld\n",
+                NetStatus ));
         }
 
         goto Cleanup;
@@ -1242,8 +1242,8 @@ Return Value:
     \
         NetStatus = NERR_InternalError; \
         IF_DEBUG( UAS_DEBUG_USER ) { \
-            NetpDbgPrint( "UserpGetInfo: NetpCopyData returns %ld\n", \
-                NetStatus ); \
+            NetpKdPrint(( "UserpGetInfo: NetpCopyData returns %ld\n", \
+                NetStatus )); \
         } \
         goto Cleanup; \
     }
@@ -1259,8 +1259,8 @@ Return Value:
     \
         NetStatus = NERR_InternalError; \
         IF_DEBUG( UAS_DEBUG_USER ) { \
-            NetpDbgPrint( "UserpGetInfo: NetpCopyString returns %ld\n", \
-                NetStatus ); \
+            NetpKdPrint(( "UserpGetInfo: NetpCopyString returns %ld\n", \
+                NetStatus )); \
         } \
         goto Cleanup; \
     }
@@ -1307,9 +1307,8 @@ Return Value:
             //
             (VOID) NtQuerySystemTime( &CurrentTime );
 
-            if ( RtlLargeIntegerGreaterThanOrEqualTo(
-                    CurrentTime,
-                    UserAll->PasswordMustChange ) ) {
+            if ( CurrentTime.QuadPart
+                 >= UserAll->PasswordMustChange.QuadPart ) {
                 usri3->usri3_password_expired = TRUE;
             } else {
                 usri3->usri3_password_expired = FALSE;
@@ -1361,10 +1360,10 @@ Return Value:
             }
 
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint( "UserpGetInfo: Account Expries %lx %lx %lx\n",
+                NetpKdPrint(( "UserpGetInfo: Account Expries %lx %lx %lx\n",
                             UserAll->AccountExpires.HighPart,
                             UserAll->AccountExpires.LowPart,
-                            usri2->usri2_acct_expires);
+                            usri2->usri2_acct_expires));
             }
 
 
@@ -1376,18 +1375,18 @@ Return Value:
                 DWORD k;
                 NetpDbgDisplayDword( "UserpGetInfo: units_per_week",
                                       usri2->usri2_units_per_week );
-                NetpDbgPrint( "UserpGetInfo: LogonHours %lx\n",
-                              UserAll->LogonHours.LogonHours);
+                NetpKdPrint(( "UserpGetInfo: LogonHours %lx\n",
+                              UserAll->LogonHours.LogonHours));
 
 
                 for ( k=0;
                       k<UserpSizeOfLogonHours(
                         UserAll->LogonHours.UnitsPerWeek);
                       k++ ) {
-                    NetpDbgPrint( "%d ",
-                        UserAll->LogonHours.LogonHours[k] );
+                    NetpKdPrint(( "%d ",
+                        UserAll->LogonHours.LogonHours[k] ));
                 }
-                NetpDbgPrint( "\n" );
+                NetpKdPrint(( "\n" ));
             }
 
 
@@ -1567,7 +1566,7 @@ Cleanup:
     }
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "UserpGetInfo: returning %ld\n", NetStatus );
+        NetpKdPrint(( "UserpGetInfo: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;
@@ -2110,7 +2109,7 @@ UserpSetInfo(
     IN SAM_HANDLE UserHandle OPTIONAL,
     IN SAM_HANDLE BuiltinDomainHandle OPTIONAL,
     IN ULONG UserRelativeId,
-    IN LPWSTR UserName,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN ULONG WhichFieldsMask,
@@ -2192,6 +2191,8 @@ Return Value:
 
     BOOL UserDaclChanged = FALSE;
     BOOL HandleUserDacl = FALSE;
+    USHORT AceIndex;
+    PSID UserSid = NULL;
 
 
     //
@@ -2224,7 +2225,7 @@ Return Value:
     //
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "UserpSetInfo: entered \n" );
+        NetpKdPrint(( "UserpSetInfo: entered \n" ));
     }
 
     NetpSetParmError( PARM_ERROR_NONE );
@@ -2331,10 +2332,10 @@ Return Value:
                 NetpSetParmError( SAM_FIELD(UasSamIndex).UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "UserpSetInfo: Ushort too big Index:%ld Value:%ld\n",
                         UasSamIndex,
-                        UasUnitsPerWeek );
+                        UasUnitsPerWeek ));
                 }
                 goto Cleanup;
             }
@@ -2372,7 +2373,7 @@ Return Value:
                 NetpSetParmError( USER_MAX_STORAGE_PARMNUM );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint( "UserpSetInfo: Max storage is invalid\n" );
+                    NetpKdPrint(( "UserpSetInfo: Max storage is invalid\n" ));
                 }
                 goto Cleanup;
             }
@@ -2398,8 +2399,8 @@ Return Value:
                 NetpSetParmError( USER_FLAGS_PARMNUM );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
-                        "UserpSetInfo: Invalid account control bits (1) \n" );
+                    NetpKdPrint((
+                        "UserpSetInfo: Invalid account control bits (1) \n" ));
                 }
                 goto Cleanup;
             }
@@ -2423,8 +2424,8 @@ Return Value:
                     NetpSetParmError( USER_FLAGS_PARMNUM );
                     NetStatus = ERROR_INVALID_PARAMETER;
                     IF_DEBUG( UAS_DEBUG_USER ) {
-                        NetpDbgPrint(
-                            "UserpSetInfo: Invalid account control bits (2) \n" );
+                        NetpKdPrint((
+                            "UserpSetInfo: Invalid account control bits (2) \n" ));
                     }
                     goto Cleanup;
                 }
@@ -2474,10 +2475,10 @@ Return Value:
                 NetpSetParmError( SAM_FIELD(UasSamIndex).UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "UserpSetInfo: Ushort too big Index:%ld Value:%ld\n",
                         UasSamIndex,
-                        GET_UAS_DWORD(UasSamIndex) );
+                        GET_UAS_DWORD(UasSamIndex) ));
                 }
                 goto Cleanup;
             }
@@ -2512,11 +2513,11 @@ Return Value:
             }
 
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint( "UserpSetInfo: Index: %ld Time %lx %lx %lx\n",
+                NetpKdPrint(( "UserpSetInfo: Index: %ld Time %lx %lx %lx\n",
                             UasSamIndex,
                             ((PLARGE_INTEGER) SamField)->HighPart,
                             ((PLARGE_INTEGER) SamField)->LowPart,
-                            GET_UAS_DWORD(UasSamIndex) );
+                            GET_UAS_DWORD(UasSamIndex) ));
             }
 
             break;
@@ -2558,7 +2559,7 @@ Return Value:
                 NetpSetParmError( SAM_FIELD(UasSamIndex).UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint( "UserpSetInfo: Invalid priv %ld\n", NewPriv );
+                    NetpKdPrint(( "UserpSetInfo: Invalid priv %ld\n", NewPriv ));
                 }
                 goto Cleanup;
             }
@@ -2577,8 +2578,8 @@ Return Value:
                 NetpSetParmError( SAM_FIELD(UasSamIndex).UasParmNum );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint( "UserpSetInfo: Invalid auth_flag %lx\n",
-                                  NewAuthFlags );
+                    NetpKdPrint(( "UserpSetInfo: Invalid auth_flag %lx\n",
+                                  NewAuthFlags ));
                 }
                 goto Cleanup;
             }
@@ -2591,9 +2592,9 @@ Return Value:
 
         default:
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "UserpSetInfo: Invalid field type on initial scan."
-                    " Index:%ld\n", UasSamIndex );
+                    " Index:%ld\n", UasSamIndex ));
             }
 
             NetStatus = NERR_InternalError;
@@ -2625,7 +2626,7 @@ Return Value:
         NetpSetParmError( PARM_ERROR_UNKNOWN );
         NetStatus = ERROR_INVALID_PARAMETER;
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "UserpSetInfo: Desired Access == 0\n" );
+            NetpKdPrint(( "UserpSetInfo: Desired Access == 0\n" ));
         }
         goto Cleanup;
     }
@@ -2641,7 +2642,7 @@ Return Value:
     } else {
 
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint( "UserpSetInfo: Desired Access %lX\n", DesiredAccess );
+            NetpKdPrint(( "UserpSetInfo: Desired Access %lX\n", DesiredAccess ));
         }
 
         NetStatus = UserpOpenUser( DomainHandle,
@@ -2652,8 +2653,8 @@ Return Value:
 
         if ( NetStatus != NERR_Success ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint( "UserpSetInfo: UserpOpenUser returns %ld\n",
-                    NetStatus );
+                NetpKdPrint(( "UserpSetInfo: UserpOpenUser returns %ld\n",
+                    NetStatus ));
             }
             goto Cleanup;
         }
@@ -2689,9 +2690,9 @@ Return Value:
 
         if ( ! NT_SUCCESS( Status ) ) {
             IF_DEBUG( UAS_DEBUG_USER ) {
-                NetpDbgPrint(
+                NetpKdPrint((
                     "UserpGetInfo: SamQueryInformationUser returns %lX\n",
-                    Status );
+                    Status ));
             }
             NetStatus = NetpNtStatusToApiStatus( Status );
             goto Cleanup;
@@ -2711,7 +2712,8 @@ Return Value:
                         USER_HOME_DIRECTORY_REQUIRED |
                         USER_PASSWORD_NOT_REQUIRED |
                         USER_DONT_EXPIRE_PASSWORD |
-                        USER_ACCOUNT_AUTO_LOCKED);
+                        USER_ACCOUNT_AUTO_LOCKED |
+                        USER_MNS_LOGON_ACCOUNT );
 
         if (UasUserFlags & UF_ACCOUNTDISABLE) {
             UserAll.UserAccountControl |= USER_ACCOUNT_DISABLED;
@@ -2731,6 +2733,10 @@ Return Value:
 
         if (UasUserFlags & UF_LOCKOUT) {
             UserAll.UserAccountControl |= USER_ACCOUNT_AUTO_LOCKED;
+        }
+
+        if (UasUserFlags & UF_MNS_LOGON_ACCOUNT) {
+            UserAll.UserAccountControl |= USER_MNS_LOGON_ACCOUNT;
         }
 
         //
@@ -2770,8 +2776,8 @@ Return Value:
             } else {
 
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
-                        "UserpSetInfo: Invalid account type (3)\n");
+                    NetpKdPrint((
+                        "UserpSetInfo: Invalid account type (3)\n"));
                 }
 
                 NetStatus = NERR_InternalError;
@@ -2793,11 +2799,11 @@ Return Value:
                 NetpSetParmError( USER_FLAGS_PARMNUM );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "UserpSetInfo: Attempt to change account "
                         " type Old: %lx New: %lx\n",
                         OldSamAccountType,
-                        NewSamAccountType );
+                        NewSamAccountType ));
                 }
                 goto Cleanup;
             }
@@ -2870,10 +2876,10 @@ Return Value:
                 NetpSetParmError( USER_AUTH_FLAGS_PARMNUM );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "UserpSetInfo: Old AuthFlag %ld New AuthFlag %ld\n",
                         OldAuthFlags,
-                        NewAuthFlags );
+                        NewAuthFlags ));
                 }
                 goto Cleanup;
             }
@@ -2889,10 +2895,10 @@ Return Value:
                 NetpSetParmError( USER_PRIV_PARMNUM );
                 NetStatus = ERROR_INVALID_PARAMETER;
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint(
+                    NetpKdPrint((
                         "UserpSetInfo: Old Priv %ld New Priv %ld\n",
                         OldPriv,
-                        NewPriv );
+                        NewPriv ));
                 }
                 goto Cleanup;
             }
@@ -2909,6 +2915,21 @@ Return Value:
     if ( HandleUserDacl ) {
         DWORD DaclSize;
         PACCESS_ALLOWED_ACE Ace;
+        SID_IDENTIFIER_AUTHORITY WorldAuthority = SECURITY_WORLD_SID_AUTHORITY;
+
+        //
+        // Build the sid for the user
+        //
+
+        NetStatus = NetpDomainIdToSid(
+                        DomainId,
+                        UserRelativeId,
+                        &UserSid
+                        );
+
+        if (NetStatus != NERR_Success) {
+            goto Cleanup;
+        }
 
 
         //
@@ -2928,6 +2949,16 @@ Return Value:
         //
 
         if ( OldUserDacl != NULL ) {
+            SID_IDENTIFIER_AUTHORITY WorldSidAuthority = SECURITY_WORLD_SID_AUTHORITY;
+            DWORD WorldSid[sizeof(SID)/sizeof(DWORD) + SID_MAX_SUB_AUTHORITIES ];
+
+            //
+            // Build a copy of the world SID for later comparison.
+            //
+
+            RtlInitializeSid( (PSID) WorldSid, &WorldSidAuthority, 1 );
+            *(RtlSubAuthoritySid( (PSID)WorldSid,  0 )) = SECURITY_WORLD_RID;
+
 
             //
             //  Make a copy of the DACL that reflect the new UAS field.
@@ -2936,8 +2967,8 @@ Return Value:
 
             if ( NewUserDacl == NULL ) {
                 IF_DEBUG( UAS_DEBUG_USER ) {
-                    NetpDbgPrint( "UserpSetInfo: no DACL memory %ld\n",
-                        DaclSize );
+                    NetpKdPrint(( "UserpSetInfo: no DACL memory %ld\n",
+                        DaclSize ));
                 }
                 NetStatus = ERROR_NOT_ENOUGH_MEMORY;
                 goto Cleanup;
@@ -2950,15 +2981,8 @@ Return Value:
             // ACL on the user object in SAM.  When
             // UF_PASSWD_CANT_CHANGE is on, the ACL doesn't allow
             // World or the user himself USER_CHANGE_PASSWORD access.
-            // The ACL has three or four ACEs, each one an
-            // ACCESS_ALLOWED ACE.  They are, in order, for
-            // World, Administrators alias, optionally the Account
-            // Operators alias, and finally the user himself.
-            // The Account Operators ACE is present only if the
-            // system is LanManNT, and then only if the user in
-            // question is not a member of the Administrators
-            // alias.  We set/clear the USER_CHANGE_PASSWORD access
-            // bit in the first and last ACE.  This leaves
+            // We set/clear the USER_CHANGE_PASSWORD access
+            // bit in the ACEs for the user and for World. This leaves
             // Administrators and Account Operators with
             // USER_ALL_ACCESS access.
             //
@@ -2974,58 +2998,47 @@ Return Value:
             // Point Ace to the first ACE.
             //
 
-            Status = RtlGetAce(
-                         NewUserDacl,
-                         0,
-                         (PVOID) &Ace
-                         );
+            for (   AceIndex = 0;
+                    AceIndex < NewUserDacl->AceCount;
+                    AceIndex++ ) {
 
-            //
-            // Twiddle the USER_CHANGE_PASSWORD access bit.
-            // This code is copied verbatim below.
-            //
-
-            if ( NT_SUCCESS(Status) ) {
-                if ( Ace->Mask & USER_CHANGE_PASSWORD ) {
-                    if ( UasUserFlags & UF_PASSWD_CANT_CHANGE ) {
-                        Ace->Mask &= ~USER_CHANGE_PASSWORD;
-                        UserDaclChanged = TRUE;
-                    }
-                } else {
-                    if ( (UasUserFlags & UF_PASSWD_CANT_CHANGE) == 0 ) {
-                        Ace->Mask |= USER_CHANGE_PASSWORD;
-                        UserDaclChanged = TRUE;
-                    }
+                Status = RtlGetAce(
+                            NewUserDacl,
+                            AceIndex,
+                            (PVOID) &Ace
+                            );
+                if ( !NT_SUCCESS(Status) ) {
+                    break;
                 }
 
-            }
+                //
+                // If the sid in the ACE matches either the world SID
+                // or the User's SID, modify the access mask.
+                //
 
-            //
-            // Do the same for the last ACE.
-            //
+                if ( RtlEqualSid(
+                        &Ace->SidStart,
+                        (PSID)WorldSid) ||
+                     RtlEqualSid(
+                        &Ace->SidStart,
+                        UserSid) ) {
 
-            Status = RtlGetAce(
-                         NewUserDacl,
-                         NewUserDacl->AceCount - 1,
-                         (PVOID) &Ace
-                         );
+                    //
+                    // Twiddle the USER_CHANGE_PASSWORD access bit.
+                    //
 
-            //
-            // Twiddle the USER_CHANGE_PASSWORD access bit.
-            // This code is copied verbatim from above.
-            //
-
-            if ( NT_SUCCESS(Status) ) {
-                if ( Ace->Mask & USER_CHANGE_PASSWORD ) {
-                    if ( UasUserFlags & UF_PASSWD_CANT_CHANGE ) {
-                        Ace->Mask &= ~USER_CHANGE_PASSWORD;
-                        UserDaclChanged = TRUE;
+                    if ( Ace->Mask & USER_CHANGE_PASSWORD ) {
+                        if ( UasUserFlags & UF_PASSWD_CANT_CHANGE ) {
+                            Ace->Mask &= ~USER_CHANGE_PASSWORD;
+                            UserDaclChanged = TRUE;
+                        }
+                    } else {
+                        if ( (UasUserFlags & UF_PASSWD_CANT_CHANGE) == 0 ) {
+                            Ace->Mask |= USER_CHANGE_PASSWORD;
+                            UserDaclChanged = TRUE;
+                        }
                     }
-                } else {
-                    if ( (UasUserFlags & UF_PASSWD_CANT_CHANGE) == 0 ) {
-                        Ace->Mask |= USER_CHANGE_PASSWORD;
-                        UserDaclChanged = TRUE;
-                    }
+
                 }
 
             }
@@ -3063,9 +3076,9 @@ Return Value:
 
     if ( !NT_SUCCESS(Status) ) {
         IF_DEBUG( UAS_DEBUG_USER ) {
-            NetpDbgPrint(
+            NetpKdPrint((
                 "UserpSetInfo: SamSetInformationUser returns %lX\n",
-                Status );
+                Status ));
         }
         NetpSetParmError( PARM_ERROR_UNKNOWN );
         NetStatus = NetpNtStatusToApiStatus( Status );
@@ -3117,9 +3130,13 @@ Cleanup:
         NetpMemoryFree( OldUserDacl );
     }
 
+    if ( UserSid != NULL ) {
+        NetpMemoryFree( UserSid );
+
+    }
 
     IF_DEBUG( UAS_DEBUG_USER ) {
-        NetpDbgPrint( "UserpSetInfo: returning %ld\n", NetStatus );
+        NetpKdPrint(( "UserpSetInfo: returning %ld\n", NetStatus ));
     }
 
     return NetStatus;

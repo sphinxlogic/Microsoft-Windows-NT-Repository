@@ -252,53 +252,52 @@ Return Value:
 --*/
 
 {
-
     //
     // Holds the status that should be returned to the caller.
     //
     NDIS_STATUS StatusToReturn = NDIS_STATUS_PENDING;
 
     PELNK_ADAPTER Adapter =
-        PELNK_ADAPTER_FROM_BINDING_HANDLE(MacBindingHandle);
+                        PELNK_ADAPTER_FROM_BINDING_HANDLE(MacBindingHandle);
 
     //
     // Hold the locks while we update the reference counts on the
     // adapter and the open.
     //
-
     NdisAcquireSpinLock(&Adapter->Lock);
     Adapter->References++;
 
-    if (!Adapter->ResetInProgress) {
+    if (!Adapter->ResetInProgress)
+    {
+        PELNK_OPEN  Open = PELNK_OPEN_FROM_BINDING_HANDLE(MacBindingHandle);
 
-        PELNK_OPEN Open;
-
-        Open = PELNK_OPEN_FROM_BINDING_HANDLE(MacBindingHandle);
-
-        if (!Open->BindingShuttingDown) {
-
+        if (!Open->BindingShuttingDown)
+        {
             Open->References++;
+
             SetupForReset(
                 Adapter,
                 PELNK_OPEN_FROM_BINDING_HANDLE(MacBindingHandle)
-                );
+            );
+
             Open->References--;
-
-        } else {
-
-            StatusToReturn = NDIS_STATUS_CLOSING;
-
         }
+        else
+        {
+            StatusToReturn = NDIS_STATUS_CLOSING;
+        }
+    }
+    else
+    {
+        Adapter->References--;
+        NdisReleaseSpinLock(&Adapter->Lock);
 
-    } else {
-
-        StatusToReturn = NDIS_STATUS_RESET_IN_PROGRESS;
-        return StatusToReturn;
+        return(NDIS_STATUS_RESET_IN_PROGRESS);
     }
 
     ELNK_DO_DEFERRED(Adapter);
-    return StatusToReturn;
 
+    return(StatusToReturn);
 }
 
 
@@ -333,10 +332,11 @@ Return Value:
 --*/
 
 {
-    PCONFIG_CB Configuration;
 
     UINT PacketFilters;
     UINT i;
+
+    PCONFIG_CB Configuration;
 
     Configuration = &Adapter->MulticastBlock->Parm.Config;
 
@@ -356,12 +356,17 @@ Return Value:
     //
     // First get hold of the combined packet filter.
     //
-
     if (Adapter->FilterDB != NULL) {
         PacketFilters = ETH_QUERY_FILTER_CLASSES(Adapter->FilterDB);
     } else {
         PacketFilters = 0;
     }
+
+//
+// this code was removed as it isn't necessary and causes the cards to
+// not be able to send packets unless the packet filter is changed.
+//
+#if 0
 
     if (PacketFilters & NDIS_PACKET_TYPE_PROMISCUOUS) {
 
@@ -417,7 +422,7 @@ Return Value:
     NdisWriteRegisterUshort(&Adapter->MulticastBlock->NextCbOffset, ELNK_NULL);
 
     ElnkSubmitCommandBlockAndWait(Adapter);
-
+#endif
     //
     // Do Individual Address Setup
     //
@@ -797,6 +802,30 @@ Return Value:
         Adapter
         );
 
+	//
+	// Check for validity of the address
+	//
+	if (((Adapter->NetworkAddress[0] == 0xFF) &&
+		 (Adapter->NetworkAddress[1] == 0xFF) &&
+		 (Adapter->NetworkAddress[2] == 0xFF) &&
+		 (Adapter->NetworkAddress[3] == 0xFF) &&
+		 (Adapter->NetworkAddress[4] == 0xFF) &&
+		 (Adapter->NetworkAddress[5] == 0xFF)) ||
+        ((Adapter->NetworkAddress[0] == 0x00) &&
+		 (Adapter->NetworkAddress[1] == 0x00) &&
+		 (Adapter->NetworkAddress[2] == 0x00) &&
+		 (Adapter->NetworkAddress[3] == 0x00) &&
+		 (Adapter->NetworkAddress[4] == 0x00) &&
+		 (Adapter->NetworkAddress[5] == 0x00)))
+	{
+            ElnkLogError(
+                    Adapter,
+                    startChip,
+                    NDIS_ERROR_CODE_INVALID_VALUE_FROM_ADAPTER,
+                    0);
+
+            return(FALSE);
+	}
     //
     // Do Memory Mapping
     //
@@ -2298,3 +2327,5 @@ Return Value:
 }
 
 #endif // !ELNKMC
+
+

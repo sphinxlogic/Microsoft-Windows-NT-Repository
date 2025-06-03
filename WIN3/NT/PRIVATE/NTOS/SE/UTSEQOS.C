@@ -48,4 +48,3 @@ main()
 {
     return Test();
 }
-

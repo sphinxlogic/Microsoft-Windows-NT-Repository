@@ -21,6 +21,7 @@ Revision History:
 --*/
 
 #include "nticanon.h"
+#include <winnls.h>
 
 
 NET_API_STATUS
@@ -64,6 +65,7 @@ Return Value:
     DWORD   min_name_len = 1;
     LPTSTR  illegal_chars = szStandardIllegalChars;
     BOOL    fNoDotSpaceOnly = TRUE;
+    DWORD   oem_name_len;
 
 #ifdef CANONDBG
     DbgPrint("NetpwNameValidate\n");
@@ -80,6 +82,27 @@ Return Value:
     name_len = STRLEN(Name);
 
     //
+    // oem_name_len : length in bytes in oem character set
+    // name_len     : ifdef UNICODE 
+    //                    character length in unicode
+    //                else
+    //                    length in bytes in oem character set
+    // 
+    {
+        BOOL fUsedDefault;
+
+        oem_name_len = WideCharToMultiByte( 
+                         CP_OEMCP,       // UINT CodePage
+                         0,              // DWORD dwFlags
+                         Name,           // LPWSTR lpWideChar
+                         name_len,       // int cchWideChar
+                         NULL,           // LPSTR lpMultiByteStr
+                         0,              // int cchMultiByte
+                         NULL,           // use system default char
+                         &fUsedDefault); // 
+    }
+
+    //
     // Determine the minimum and maximum allowable length of the name and
     // the set of illegal name characters.
     //
@@ -94,7 +117,7 @@ Return Value:
         break;
 
     case NAMETYPE_COMPUTER:
-        max_name_len = (Flags & LM2X_COMPATIBLE) ? LM20_CNLEN : CNLEN;
+        max_name_len = MAX_PATH;
         illegal_chars = szComputerIllegalChars;
 
         //
@@ -120,7 +143,7 @@ Return Value:
         break;
 
     case NAMETYPE_NET:
-        max_name_len = PATHLEN;
+        max_name_len = MAX_PATH;
         break;
 
     case NAMETYPE_SHARE:
@@ -142,11 +165,11 @@ Return Value:
         break;
 
     case NAMETYPE_MESSAGE:
-        max_name_len = NETBIOS_NAME_LEN - 1;
-        break;
+       max_name_len = MAX_PATH - 1;
+       break;
 
     case NAMETYPE_MESSAGEDEST:
-        max_name_len = NETBIOS_NAME_LEN;
+        max_name_len = MAX_PATH - 1;
         illegal_chars = szMsgdestIllegalChars;
         break;
 
@@ -167,7 +190,7 @@ Return Value:
     // Check the length of the name; return an error if it's out of range
     //
 
-    if ((name_len < min_name_len) || (name_len > max_name_len)) {
+    if ((oem_name_len < min_name_len) || (oem_name_len > max_name_len)) {
         return ERROR_INVALID_NAME;
     }
 
@@ -175,7 +198,7 @@ Return Value:
     // Check for illegal characters; return an error if one is found
     //
 
-    if (STRCSPN(Name, illegal_chars) < name_len) {
+    if (NameType != NAMETYPE_NET && STRCSPN(Name, illegal_chars) < name_len) {
         return ERROR_INVALID_NAME;
     }
 
@@ -203,7 +226,7 @@ Return Value:
                 return ERROR_INVALID_NAME;
             }
         } else {
-            if (name_len == max_name_len) {
+            if (oem_name_len == max_name_len) {
                 return ERROR_INVALID_NAME;
             }
         }

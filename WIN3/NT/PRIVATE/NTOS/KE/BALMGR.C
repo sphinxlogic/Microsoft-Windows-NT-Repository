@@ -76,11 +76,14 @@ typedef enum _BALANCE_OBJECT {
 #define READY_WITHOUT_RUNNING  (4 * 75)
 
 //
-// Define kernel stack protect time in clock ticks (approximate 10 seconds).
+// Define kernel stack protect time. For small systems the protect time
+// is 3 seconds. For all other systems, the protect time is 7 seconds.
 //
 
-#define STACK_PROTECT_TIME (10 * 75)
+#define SMALL_SYSTEM_STACK_PROTECT_TIME (3 * 75)
+#define STACK_PROTECT_TIME              (7 * 75)
 #define STACK_SCAN_PERIOD 4
+ULONG KiStackProtectTime;
 
 //
 // Define number of threads to scan each period and the priority boost bias.
@@ -241,7 +244,13 @@ Return Value:
             }
 
             //
-            // Scan the the table and boost thread priorities as appropriate.
+            // Adjust the depth of lookaside lists.
+            //
+
+            ExAdjustLookasideDepth();
+
+            //
+            // Scan ready queues and boost thread priorities as appropriate.
             //
 
             KiScanReadyQueues();
@@ -323,6 +332,12 @@ Return Value:
     //
 
     KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY + 7);
+
+    if (MmQuerySystemSize() == MmSmallSystem) {
+        KiStackProtectTime = SMALL_SYSTEM_STACK_PROTECT_TIME;
+    } else {
+        KiStackProtectTime = STACK_PROTECT_TIME;
+    }
 
     //
     // Loop for ever processing swap events.
@@ -544,43 +559,39 @@ Return Value:
     ULONG WaitTime;
 
     //
-    // Scan the waiting in list and increment the wait time. If the wait
-    // time exceeds the stack protect time, then make the kernel stack
-    // of the waiting thread nonresident if the wait mode is user. If
-    // count of the number of stacks that are resident for the respective
-    // process reaches zero, then insert the process in the outswap list
-    // and set its state to transition.
+    // Scan the waiting in list and check if the wait time exceeds the
+    // stack protect time. If the protect time is exceeded, then make
+    // the kernel stack of the waiting thread nonresident. If the count
+    // of the number of stacks that are resident for the process reaches
+    // zero, then insert the process in the outswap list and set its state
+    // to transition.
     //
 
     CurrentTick = KiQueryLowTickCount();
     OldIrql = PreviousIrql;
     NextEntry = KiWaitInListHead.Flink;
     NumberOfThreads = 0;
-    while (NextEntry != &KiWaitInListHead) {
+    while ((NextEntry != &KiWaitInListHead) &&
+           (NumberOfThreads < MAXIMUM_THREAD_STACKS)) {
         Thread = CONTAINING_RECORD(NextEntry, KTHREAD, WaitListEntry);
+
+        ASSERT(Thread->WaitMode == UserMode);
+
         NextEntry = NextEntry->Flink;
         WaitTime = CurrentTick - Thread->WaitTime;
-        if (WaitTime >= STACK_PROTECT_TIME) {
-            if (Thread->WaitMode == UserMode) {
-                if (KiIsThreadNumericStateSaved(Thread) &&
-                    NumberOfThreads < MAXIMUM_THREAD_STACKS) {
-                    Thread->KernelStackResident = FALSE;
-                    ThreadObjects[NumberOfThreads] = Thread;
-                    NumberOfThreads += 1;
-                    RemoveEntryList(&Thread->WaitListEntry);
-                    InsertTailList(&KiWaitOutListHead, &Thread->WaitListEntry);
-                    Process = Thread->ApcState.Process;
-                    Process->StackCount -= 1;
-                    if (Process->StackCount == 0) {
-                        Process->State = ProcessInTransition;
-                        InsertTailList(&KiProcessOutSwapListHead,
-                                       &Process->SwapListEntry);
-                    }
-                }
-
-            } else {
-                RemoveEntryList(&Thread->WaitListEntry);
-                InsertTailList(&KiWaitOutListHead, &Thread->WaitListEntry);
+        if ((WaitTime >= KiStackProtectTime) &&
+             KiIsThreadNumericStateSaved(Thread)) {
+            Thread->KernelStackResident = FALSE;
+            ThreadObjects[NumberOfThreads] = Thread;
+            NumberOfThreads += 1;
+            RemoveEntryList(&Thread->WaitListEntry);
+            InsertTailList(&KiWaitOutListHead, &Thread->WaitListEntry);
+            Process = Thread->ApcState.Process;
+            Process->StackCount -= 1;
+            if (Process->StackCount == 0) {
+                Process->State = ProcessInTransition;
+                InsertTailList(&KiProcessOutSwapListHead,
+                               &Process->SwapListEntry);
             }
         }
     }
@@ -779,7 +790,7 @@ Return Value:
                         Thread->PriorityDecrement =
                                         THREAD_BOOST_PRIORITY - Thread->Priority;
 
-                        Thread->DecrementCount = KiDecrementCount;
+                        Thread->DecrementCount = ROUND_TRIP_DECREMENT_COUNT;
                         Thread->Priority = THREAD_BOOST_PRIORITY;
                         Process = Thread->ApcState.Process;
                         Thread->Quantum = Process->ThreadQuantum * 2;

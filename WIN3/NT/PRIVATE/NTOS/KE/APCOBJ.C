@@ -37,8 +37,8 @@ Revision History:
 
 VOID
 KeInitializeApc (
-    IN PKAPC Apc,
-    IN PKTHREAD Thread,
+    IN PRKAPC Apc,
+    IN PRKTHREAD Thread,
     IN KAPC_ENVIRONMENT Environment,
     IN PKKERNEL_ROUTINE KernelRoutine,
     IN PKRUNDOWN_ROUTINE RundownRoutine OPTIONAL,
@@ -171,13 +171,15 @@ Return Value:
     PLIST_ENTRY NextEntry;
     KIRQL OldIrql;
 
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+
     //
     // Raise IRQL to dispatcher level, lock dispatcher database, and
     // lock the APC queue.
     //
 
     KiLockDispatcherDatabase(&OldIrql);
-    KiLockApcQueueAtDpcLevel();
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
 
     //
     // Get address of first APC in the list and check if the list is
@@ -201,23 +203,19 @@ Return Value:
     }
 
     //
-    // Unlock the APC queue, unlock the dispatcher database, and lower IRQL
-    // to its previous value.
+    // Unlock the APC queue, unlock the dispatcher database, lower IRQL to
+    // its previous value, and return address of first entry in list of APC
+    // objects that were flushed.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return address of first entry in list of APC objects that were flushed.
-    //
-
     return FirstEntry;
 }
 
 BOOLEAN
 KeInsertQueueApc (
-    IN PKAPC Apc,
+    IN PRKAPC Apc,
     IN PVOID SystemArgument1,
     IN PVOID SystemArgument2,
     IN KPRIORITY Increment
@@ -254,9 +252,10 @@ Return Value:
 
     BOOLEAN Inserted;
     KIRQL OldIrql;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     ASSERT_APC(Apc);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -280,16 +279,11 @@ Return Value:
     }
 
     //
-    // Unlock the dispatcher database and lower IRQL to its previous
-    // value.
+    // Unlock the dispatcher database, lower IRQL to its previous value,
+    // and return whether APC object was inserted in APC queue.
     //
 
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return whether APC object was inserted in APC queue.
-    //
-
     return Inserted;
 }
 
@@ -323,17 +317,19 @@ Return Value:
     PKAPC_STATE ApcState;
     BOOLEAN Inserted;
     KIRQL OldIrql;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     ASSERT_APC(Apc);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level, lock dispatcher database, and
     // lock the APC queue.
     //
 
+    Thread = Apc->Thread;
     KiLockDispatcherDatabase(&OldIrql);
-    KiLockApcQueueAtDpcLevel();
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
 
     //
     // If the APC object is in an APC queue, then remove it from the queue
@@ -344,7 +340,6 @@ Return Value:
     Inserted = Apc->Inserted;
     if (Inserted != FALSE) {
         Apc->Inserted = FALSE;
-        Thread = Apc->Thread;
         ApcState = Thread->ApcStatePointer[Apc->ApcStateIndex];
         RemoveEntryList(&Apc->ApcListEntry);
         if (IsListEmpty(&ApcState->ApcListHead[Apc->ApcMode]) != FALSE) {
@@ -358,16 +353,12 @@ Return Value:
     }
 
     //
-    // Unlock the APC queue, unlock the dispatcher database, and lower IRQL
-    // to its previous value.
+    // Unlock the APC queue, unlock the dispatcher database, lower IRQL to
+    // its previous value, and return whether an APC object was removed from
+    // the APC queue.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
     KiUnlockDispatcherDatabase(OldIrql);
-
-    //
-    // Return whether APC object was removed from APC queue.
-    //
-
     return Inserted;
 }

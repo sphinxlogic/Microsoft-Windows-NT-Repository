@@ -2143,4 +2143,4 @@ VOID RefreshLinkLB(HWND hListBox, LPOLEUILINKCONTAINER lpOleUILinkCntr)
     } while (!bStop);
 }
 
-
+

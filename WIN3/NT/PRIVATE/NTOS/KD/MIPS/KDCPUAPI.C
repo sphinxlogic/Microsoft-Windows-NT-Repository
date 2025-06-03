@@ -93,7 +93,7 @@ Return Value:
     //
 
     WaitStateChange->NewState = DbgKdExceptionStateChange;
-    WaitStateChange->ProcessorType = (USHORT)KeProcessorType;
+    WaitStateChange->ProcessorLevel = KeProcessorLevel;
     WaitStateChange->Processor = (USHORT)KeGetCurrentPrcb()->Number;
     WaitStateChange->NumberProcessors = (ULONG)KeNumberProcessors;
     WaitStateChange->Thread = (PVOID)KeGetCurrentThread();

@@ -361,4 +361,3 @@ void TransparentBlt(HDC hDC, UINT x, UINT y, HBITMAP hBmp, UINT xOrg, UINT yOrg
 
     return;
     }
-

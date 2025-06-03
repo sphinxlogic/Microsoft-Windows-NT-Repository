@@ -37,11 +37,18 @@ extern UNICODE_STRING CmRegistryMachineHardwareDescriptionName;
 extern UNICODE_STRING CmRegistryMachineHardwareDescriptionSystemName;
 extern UNICODE_STRING CmRegistryMachineHardwareDeviceMapName;
 extern UNICODE_STRING CmRegistryMachineHardwareResourceMapName;
+extern UNICODE_STRING CmRegistryMachineHardwareOwnerMapName;
 extern UNICODE_STRING CmRegistryMachineSystemName;
 extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSet;
 extern UNICODE_STRING CmRegistryUserName;
 extern UNICODE_STRING CmRegistrySystemCloneName;
 extern UNICODE_STRING CmpSystemFileName;
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumName;
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumRootName;
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetServices;
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetHardwareProfilesCurrent;
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetControlClass;
+extern UNICODE_STRING CmSymbolicLinkValueName;
 
 extern PWCHAR CmpRegistryRootString;
 extern PWCHAR CmpRegistryMachineString;
@@ -50,12 +57,18 @@ extern PWCHAR CmpRegistryMachineHardwareDescriptionString;
 extern PWCHAR CmpRegistryMachineHardwareDescriptionSystemString;
 extern PWCHAR CmpRegistryMachineHardwareDeviceMapString;
 extern PWCHAR CmpRegistryMachineHardwareResourceMapString;
+extern PWCHAR CmpRegistryMachineHardwareOwnerMapString;
 extern PWCHAR CmpRegistryMachineSystemString;
 extern PWCHAR CmpRegistryMachineSystemCurrentControlSetString;
 extern PWCHAR CmpRegistryUserString;
 extern PWCHAR CmpRegistrySystemCloneString;
 extern PWCHAR CmpRegistrySystemFileNameString;
-
+extern PWCHAR CmpRegistryMachineSystemCurrentControlSetEnumString;
+extern PWCHAR CmpRegistryMachineSystemCurrentControlSetEnumRootString;
+extern PWCHAR CmpRegistryMachineSystemCurrentControlSetServicesString;
+extern PWCHAR CmpRegistryMachineSystemCurrentControlSetHardwareProfilesCurrentString;
+extern PWCHAR CmpRegistryMachineSystemCurrentControlSetControlClassString;
+extern PWCHAR CmpSymbolicLinkValueName;
 
 
 VOID
@@ -103,6 +116,9 @@ Returns:
     RtlInitUnicodeString( &CmRegistryMachineHardwareResourceMapName,
                           CmpRegistryMachineHardwareResourceMapString );
 
+    RtlInitUnicodeString( &CmRegistryMachineHardwareOwnerMapName,
+                          CmpRegistryMachineHardwareOwnerMapString );
+
     RtlInitUnicodeString( &CmRegistryMachineSystemName,
                           CmpRegistryMachineSystemString );
 
@@ -117,6 +133,25 @@ Returns:
 
     RtlInitUnicodeString( &CmpSystemFileName,
                           CmpRegistrySystemFileNameString );
+
+    RtlInitUnicodeString( &CmRegistryMachineSystemCurrentControlSetEnumName,
+                          CmpRegistryMachineSystemCurrentControlSetEnumString);
+
+    RtlInitUnicodeString( &CmRegistryMachineSystemCurrentControlSetEnumRootName,
+                          CmpRegistryMachineSystemCurrentControlSetEnumRootString);
+
+    RtlInitUnicodeString( &CmRegistryMachineSystemCurrentControlSetServices,
+                          CmpRegistryMachineSystemCurrentControlSetServicesString);
+
+    RtlInitUnicodeString( &CmRegistryMachineSystemCurrentControlSetHardwareProfilesCurrent,
+                          CmpRegistryMachineSystemCurrentControlSetHardwareProfilesCurrentString);
+
+    RtlInitUnicodeString( &CmRegistryMachineSystemCurrentControlSetControlClass,
+                          CmpRegistryMachineSystemCurrentControlSetControlClassString);
+
+    RtlInitUnicodeString( &CmSymbolicLinkValueName,
+                          CmpSymbolicLinkValueName);
+
 
     //
     // Initialize the type names for the hardware tree.
@@ -142,4 +177,3 @@ Returns:
 
     return;
 }
-

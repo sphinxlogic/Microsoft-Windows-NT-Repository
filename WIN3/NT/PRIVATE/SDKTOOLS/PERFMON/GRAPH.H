@@ -21,4 +21,4 @@ HWND CreateGraphWindow (HWND hWndParent) ;
 void SizeGraphComponents (HWND hWnd) ;
 
 
-
+

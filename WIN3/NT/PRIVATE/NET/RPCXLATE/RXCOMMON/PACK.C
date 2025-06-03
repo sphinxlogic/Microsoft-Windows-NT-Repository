@@ -262,8 +262,8 @@ Return Value:
     }
 
     IF_DEBUG(PACK) {
-        NetpDbgPrint( "RxpPackSendBuffer: initial (fixed) buffer at "
-                FORMAT_LPVOID ":\n", (LPVOID)c_send_buf);
+        NetpKdPrint(( "RxpPackSendBuffer: initial (fixed) buffer at "
+                FORMAT_LPVOID ":\n", (LPVOID)c_send_buf));
         NetpDbgHexDump(c_send_buf, to_send_len);
     }
 
@@ -318,9 +318,9 @@ Return Value:
         for (j = 0 , l_dsc = l_str; j < num_struct; j++, l_dsc = l_str) {
             for (; (c = *l_dsc) != '\0'; l_dsc++) {
                 IF_DEBUG(PACK) {
-                    NetpDbgPrint( "RxpPackSendBuffer: processing desc char '"
+                    NetpKdPrint(( "RxpPackSendBuffer: processing desc char '"
                             FORMAT_DESC_CHAR "', struct ptr="
-                            FORMAT_LPVOID ".\n", c, struct_ptr );
+                            FORMAT_LPVOID ".\n", c, struct_ptr ));
                 }
 
                 //
@@ -337,9 +337,9 @@ Return Value:
                     source_address =
                             (LPBYTE) RxpGetUnalignedPointer( struct_ptr );
                     IF_DEBUG(PACK) {
-                        NetpDbgPrint( "RxpPackSendBuffer: "
+                        NetpKdPrint(( "RxpPackSendBuffer: "
                                 "got source address " FORMAT_LPVOID "\n",
-                                (LPVOID) source_address );
+                                (LPVOID) source_address ));
                     }
 
                     //
@@ -351,8 +351,8 @@ Return Value:
                         struct_ptr += sizeof(LPBYTE *);
 
                         IF_DEBUG(PACK) {
-                            NetpDbgPrint( "RxpPackSendBuffer: "
-                                    "getting array len\n" );
+                            NetpKdPrint(( "RxpPackSendBuffer: "
+                                    "getting array len\n" ));
                         }
 
                         //
@@ -363,8 +363,8 @@ Return Value:
                         (void) RapArrayLength(l_dsc, &l_dsc, Both);
 
                         IF_DEBUG(PACK) {
-                            NetpDbgPrint( "RxpPackSendBuffer: "
-                                    "done getting array len\n" );
+                            NetpKdPrint(( "RxpPackSendBuffer: "
+                                    "done getting array len\n" ));
                         }
                     } else {
 
@@ -376,8 +376,8 @@ Return Value:
                         case REM_ASCIZ :
                         case REM_ASCIZ_TRUNCATABLE:
                             IF_DEBUG(PACK) {
-                                NetpDbgPrint( "RxpPackSendBuffer: "
-                                                "getting string len\n" );
+                                NetpKdPrint(( "RxpPackSendBuffer: "
+                                                "getting string len\n" ));
                             }
 
                             //
@@ -394,8 +394,8 @@ Return Value:
                             (void) RapArrayLength(l_dsc, &l_dsc, Both);
 
                             IF_DEBUG(PACK) {
-                                NetpDbgPrint( "RxpPackSendBuffer: "
-                                        "done getting string len\n" );
+                                NetpKdPrint(( "RxpPackSendBuffer: "
+                                        "done getting string len\n" ));
                             }
                             break;
 
@@ -432,9 +432,9 @@ Return Value:
                             // not need to re-allocate
                             //
 
-                            NetpDbgPrint("WARNING: attempting re-allocation of "
+                            NetpKdPrint(("WARNING: attempting re-allocation of "
                                         "data buffer. Shouldn't be doing this?\n"
-                                        );
+                                        ));
                             NetpBreakPoint();
 
                             //
@@ -482,13 +482,13 @@ Return Value:
                          */
 
                         IF_DEBUG(PACK) {
-                            NetpDbgPrint( "RxpPackSendBuffer: moving...\n");
+                            NetpKdPrint(( "RxpPackSendBuffer: moving...\n"));
                         }
 
                         NetpMoveMemory(data_ptr, source_address, len);
 
                         IF_DEBUG(PACK) {
-                            NetpDbgPrint( "RxpPackSendBuffer: moved.\n");
+                            NetpKdPrint(( "RxpPackSendBuffer: moved.\n"));
                         }
 
                         //
@@ -523,8 +523,8 @@ Return Value:
      */
 
     IF_DEBUG(PACK) {
-        NetpDbgPrint( "RxpPackSendBuffer: final buffer at "
-                FORMAT_LPVOID ":\n", (LPVOID) struct_ptr );
+        NetpKdPrint(( "RxpPackSendBuffer: final buffer at "
+                FORMAT_LPVOID ":\n", (LPVOID) struct_ptr ));
         NetpDbgHexDump(duplicate_buffer, to_send_len );
     }
 

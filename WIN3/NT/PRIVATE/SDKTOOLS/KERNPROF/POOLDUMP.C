@@ -1,20 +1,20 @@
 /*++
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1991  Microsoft Corporation
 
 Module Name:
 
-    pooldump.c
+    pooldump.c
 
 Abstract:
 
-    This module contains the implementation of the temporary routine
+    This module contains the implementation of the temporary routine
     to dump non-paged pool usage.
 
 Usage:
 
     Set TRACE_ALLOC to 1 in pool.c and rebuild the kernel.
-    When pooldump is run, the colllected pool counts are returned
+    When pooldump is run, the colllected pool counts are returned
     and analyzed.
 
 Author:
@@ -621,4 +621,4 @@ Return Value:
 
     return STATUS_SUCCESS;
 }
-
+

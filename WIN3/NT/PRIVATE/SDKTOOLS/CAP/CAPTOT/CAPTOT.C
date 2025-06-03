@@ -91,7 +91,7 @@ AddLine(
         }
         Token = strtok( NULL, DELIMITERS );
 
-        Function = strdup(Token);
+        Function = _strdup(Token);
 
         Token       = strtok( NULL, DELIMITERS );
         Calls       = atol(Token);

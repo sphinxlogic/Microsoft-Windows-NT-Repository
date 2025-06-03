@@ -131,7 +131,8 @@ Return Value:
     // PWR bit of the Cache Register (CAR).  For Pass 1 the bit is RAZ
     // while for Pass 2 the bit is read/write.
     //
-    // Read the current value of the CAR, set the PWR bit and write it back.
+    // Read the current value of the CAR. If it is 1, then we know that
+    // it is Pass 2.  Else, set the PWR bit and write it back.
     // Then read CAR again.  If PWR is still set then we are executing on
     // Pass 2.  Don't forget to reset the PWR bit before finishing.
     //
@@ -139,24 +140,32 @@ Return Value:
     Car.all.QuadPart = READ_MEMC_REGISTER( 
                            &((PLCA4_MEMC_CSRS)(0))->CacheControl );
 
-    Car.Pwr = 1;
+    if( Car.Pwr == 1 ) {
 
-    WRITE_MEMC_REGISTER( &((PLCA4_MEMC_CSRS)(0))->CacheControl,
-                         Car.all.QuadPart );
+        Revision = Lca4Pass2;
 
-    Car.all.QuadPart = READ_MEMC_REGISTER( 
+    } else {
+
+        Car.Pwr = 1;
+
+        WRITE_MEMC_REGISTER( &((PLCA4_MEMC_CSRS)(0))->CacheControl,
+                             Car.all.QuadPart );
+
+        Car.all.QuadPart = READ_MEMC_REGISTER( 
                            &((PLCA4_MEMC_CSRS)(0))->CacheControl );
 
-    if( Car.Pwr == 1 ){
-        Revision = Lca4Pass2;
-    } else {
-        Revision = Lca4Pass1;
+        if( Car.Pwr == 1 ){
+            Revision = Lca4Pass2;
+        } else {
+            Revision = Lca4Pass1;
+        }
+
+        Car.Pwr = 0;
+
+        WRITE_MEMC_REGISTER( &((PLCA4_MEMC_CSRS)(0))->CacheControl,
+                             Car.all.QuadPart );
+
     }
-
-    Car.Pwr = 0;
-
-    WRITE_MEMC_REGISTER( &((PLCA4_MEMC_CSRS)(0))->CacheControl,
-                         Car.all.QuadPart );
 
 
     return Revision; 

@@ -213,101 +213,111 @@ typedef struct _DBGSS_APIMSG {
 typedef enum _DBGUI_APINUMBER {
     DbgUiWaitStateChangeApi,
     DbgUiContinueApi,
-    DbgUiMaxApiNumber
-} DBGUI_APINUMBER;
+    DbgUiMaxI
+CsrGetProcessLuid(
+    HANDLE ProcessHandle,
+    PLUID LuidProcess
+    );
 
-typedef struct _DBGUI_CREATE_THREAD {
-    HANDLE HandleToThread;
-    DBGKM_CREATE_THREAD NewThread;
-} DBGUI_CREATE_THREAD, *PDBGUI_CREATE_THREAD;
-
-typedef struct _DBGUI_CREATE_PROCESS {
-    HANDLE HandleToProcess;
-    HANDLE HandleToThread;
-    DBGKM_CREATE_PROCESS NewProcess;
-} DBGUI_CREATE_PROCESS, *PDBGUI_CREATE_PROCESS;
-
-typedef struct _DBGUI_WAIT_STATE_CHANGE {
-    DBG_STATE NewState;
-    CLIENT_ID AppClientId;
+typedef struct _CSR_SERVER_DLL {
+    ULONG Length;
+    HANDLE CsrInitializationEvent;
+    STRING ModuleName;
+    HANDLE ModuleHandle;
+    ULONG ServerDllIndex;
+    ULONG ServerDllConnectInfoLength;
+    ULONG ApiNumberBase;
+    ULONG MaxApiNumber;
     union {
-        DBGKM_EXCEPTION Exception;
-        DBGUI_CREATE_THREAD CreateThread;
-        DBGUI_CREATE_PROCESS CreateProcessInfo;
-        DBGKM_EXIT_THREAD ExitThread;
-        DBGKM_EXIT_PROCESS ExitProcess;
-        DBGKM_LOAD_DLL LoadDll;
-        DBGKM_UNLOAD_DLL UnloadDll;
-    } StateInfo;
-} DBGUI_WAIT_STATE_CHANGE, *PDBGUI_WAIT_STATE_CHANGE;
-
-typedef struct _DBGUI_CONTINUE {
-    CLIENT_ID AppClientId;
-    NTSTATUS ContinueStatus;
-} DBGUI_CONTINUE, *PDBGUI_CONTINUE;
-
-typedef struct _DBGUI_APIMSG {
-    PORT_MESSAGE h;
-    union {
-        HANDLE DbgStateChangeSemaphore;
-        struct {
-            DBGKM_APINUMBER ApiNumber;
-            NTSTATUS ReturnedStatus;
-            union {
-                DBGUI_CONTINUE Continue;
-                DBGUI_WAIT_STATE_CHANGE WaitStateChange;
-            } u;
-        };
+        PCSR_API_ROUTINE *ApiDispatchTable;
+        PCSR_1P_API_ROUTINE *QuickApiDispatchTable;
     };
-} DBGUI_APIMSG, *PDBGUI_APIMSG;
-
+    PBOOLEAN ApiServerValidTable;
+    PSZ *ApiNameTable;
+    ULONG PerProcessDataLength;
+    ULONG PerThreadDataLength;
+    PCSR_SERVER_CONNECT_ROUTINE ConnectRoutine;
+    PCSR_SERVER_DISCONNECT_ROUTINE DisconnectRoutine;
+    PCSR_SERVER_ADDTHREAD_ROUTINE AddThreadRoutine;
+    PCSR_SERVER_DELETETHREAD_ROUTINE DeleteThreadRoutine;
+    PCSR_SERVER_INITTHREAD_ROUTINE InitThreadRoutine;
+    PCSR_SERVER_EXCEPTION_ROUTINE ExceptionRoutine;
+    PCSR_SERVER_HARDERROR_ROUTINE HardErrorRoutine;
+    PVOID SharedStaticServerData;
+    PCSR_SERVER_ADDPROCESS_ROUTINE AddProcessRoutine;
+    PCSR_SERVER_SHUTDOWNPROCESS_ROUTINE ShutdownProcessRoutine;
+    PCSR_API_DISPATCH_ROUTINE ApiDispatchRoutine;
+} CSR_SERVER_DLL, *PCSR_SERVER_DLL;
 
 typedef
 NTSTATUS
-(*PDBGSS_UI_LOOKUP) (
-    IN PCLIENT_ID AppClientId,
-    OUT PCLIENT_ID DebugUiClientId
+(*PCSR_SERVER_DLL_INIT_ROUTINE)(
+    IN PCSR_SERVER_DLL LoadedServerDll
     );
 
 typedef
-NTSTATUS
-(*PDBGSS_DBGKM_APIMSG_FILTER) (
-    IN OUT PDBGKM_APIMSG ApiMsg
+VOID
+(*PCSR_ATTACH_COMPLETE_ROUTINE)(
+    VOID
     );
 
-typedef
-NTSTATUS
-(*PDBGSS_SUBSYSTEMKEY_LOOKUP) (
-    IN PCLIENT_ID AppClientId,
-    OUT PULONG SubsystemKey,
-    IN BOOLEAN ProcessKey
-    );
-//
-// DbgSs APIs
-//
-
-NTSTATUS
-NTAPI
-DbgSsInitialize(
-    IN HANDLE KmReplyPort,
-    IN PDBGSS_UI_LOOKUP UiLookUpRoutine,
-    IN PDBGSS_SUBSYSTEMKEY_LOOKUP SubsystemKeyLookupRoutine OPTIONAL,
-    IN PDBGSS_DBGKM_APIMSG_FILTER KmApiMsgFilter OPTIONAL
-    );
-
+NTCSRAPI
 VOID
 NTAPI
-DbgSsHandleKmApiMsg(
-    IN PDBGKM_APIMSG ApiMsg,
-    IN HANDLE ReplyEvent OPTIONAL
+CsrReferenceThread(
+    PCSR_THREAD t
     );
 
-typedef
+NTCSRAPI
+VOID
+NTAPI
+CsrDereferenceThread(
+    PCSR_THREAD t
+    );
+
+NTCSRAPI
 NTSTATUS
-(*PDBGSS_INITIALIZE_ROUTINE)(
-    IN HANDLE KmReplyPort,
-    IN PDBGSS_UI_LOOKUP UiLookUpRoutine,
-    IN PDBGSS_SUBSYSTEMKEY_LOOKUP SubsystemKeyLookupRoutine OPTIONAL,
+NTAPI
+CsrCreateProcess(
+    IN HANDLE ProcessHandle,
+    IN HANDLE ThreadHandle,
+    IN PCLIENT_ID ClientId,
+    IN PCSR_NT_SESSION Session,
+    IN ULONG DebugFlags,
+    IN PCLIENT_ID DebugUserInterface OPTIONAL
+    );
+
+NTCSRAPI
+NTSTATUS
+NTAPI
+CsrDebugProcess(
+    IN ULONG TargetProcessId,
+    IN PCLIENT_ID DebugUserInterface,
+    IN PCSR_ATTACH_COMPLETE_ROUTINE AttachCompleteRoutine
+    );
+
+NTCSRAPI
+VOID
+NTAPI
+CsrDereferenceProcess(
+    PCSR_PROCESS p
+    );
+
+NTCSRAPI
+NTSTATUS
+NTAPI
+CsrDestroyProcess(
+    IN PCLIENT_ID ClientId,
+    IN NTSTATUS ExitStatus
+    );
+
+NTCSRAPI
+NTSTATUS
+NTAPI
+CsrLockProcessByClientId(
+    IN HANDLE UniqueProcessId,
+    OUT PCSR_PROCESS *Process
+    );	®‡NTCSoutine OPTIONAL,
     IN PDBGSS_DBGKM_APIMSG_FILTER KmApiMsgFilter OPTIONAL
     );
 
@@ -449,7 +459,7 @@ typedef struct _DBGKD_LOAD_SYMBOLS {
 
 typedef struct _DBGKD_WAIT_STATE_CHANGE {
     ULONG NewState;
-    USHORT ProcessorType;
+    USHORT ProcessorLevel;
     USHORT Processor;
     ULONG NumberProcessors;
     PVOID Thread;
@@ -469,33 +479,36 @@ typedef struct _DBGKD_WAIT_STATE_CHANGE {
 // Api Numbers for state manipulation
 //
 
-#define DbgKdReadVirtualMemoryApi     0x00003130L
-#define DbgKdWriteVirtualMemoryApi    0x00003131L
-#define DbgKdGetContextApi            0x00003132L
-#define DbgKdSetContextApi            0x00003133L
-#define DbgKdWriteBreakPointApi       0x00003134L
-#define DbgKdRestoreBreakPointApi     0x00003135L
-#define DbgKdContinueApi              0x00003136L
-#define DbgKdReadControlSpaceApi      0x00003137L
-#define DbgKdWriteControlSpaceApi     0x00003138L
-#define DbgKdReadIoSpaceApi           0x00003139L
-#define DbgKdWriteIoSpaceApi          0x0000313AL
-#define DbgKdRebootApi                0x0000313BL
-#define DbgKdContinueApi2             0x0000313CL
-#define DbgKdReadPhysicalMemoryApi    0x0000313DL
-#define DbgKdWritePhysicalMemoryApi   0x0000313EL
-#define DbgKdQuerySpecialCallsApi     0x0000313FL
-#define DbgKdSetSpecialCallApi        0x00003140L
-#define DbgKdClearSpecialCallsApi     0x00003141L
-#define DbgKdSetInternalBreakPointApi 0x00003142L
-#define DbgKdGetInternalBreakPointApi 0x00003143L
-#define DbgKdReadIoSpaceExtendedApi   0x00003144L
-#define DbgKdWriteIoSpaceExtendedApi  0x00003145L
-#define DbgKdGetVersionApi            0x00003146L
-#define DbgKdWriteBreakPointExApi     0x00003147L
-#define DbgKdRestoreBreakPointExApi   0x00003148L
-#define DbgKdCauseBugCheckApi         0x00003149L
-#define DbgKdSwitchProcessor          0x00003150L
+#define DbgKdReadVirtualMemoryApi           0x00003130L
+#define DbgKdWriteVirtualMemoryApi          0x00003131L
+#define DbgKdGetContextApi                  0x00003132L
+#define DbgKdSetContextApi                  0x00003133L
+#define DbgKdWriteBreakPointApi             0x00003134L
+#define DbgKdRestoreBreakPointApi           0x00003135L
+#define DbgKdContinueApi                    0x00003136L
+#define DbgKdReadControlSpaceApi            0x00003137L
+#define DbgKdWriteControlSpaceApi           0x00003138L
+#define DbgKdReadIoSpaceApi                 0x00003139L
+#define DbgKdWriteIoSpaceApi                0x0000313AL
+#define DbgKdRebootApi                      0x0000313BL
+#define DbgKdContinueApi2                   0x0000313CL
+#define DbgKdReadPhysicalMemoryApi          0x0000313DL
+#define DbgKdWritePhysicalMemoryApi         0x0000313EL
+#define DbgKdQuerySpecialCallsApi           0x0000313FL
+#define DbgKdSetSpecialCallApi              0x00003140L
+#define DbgKdClearSpecialCallsApi           0x00003141L
+#define DbgKdSetInternalBreakPointApi       0x00003142L
+#define DbgKdGetInternalBreakPointApi       0x00003143L
+#define DbgKdReadIoSpaceExtendedApi         0x00003144L
+#define DbgKdWriteIoSpaceExtendedApi        0x00003145L
+#define DbgKdGetVersionApi                  0x00003146L
+#define DbgKdWriteBreakPointExApi           0x00003147L
+#define DbgKdRestoreBreakPointExApi         0x00003148L
+#define DbgKdCauseBugCheckApi               0x00003149L
+#define DbgKdSwitchProcessor                0x00003150L
+#define DbgKdPageInApi                      0x00003151L
+#define DbgKdReadMachineSpecificRegister    0x00003152L
+#define DbgKdWriteMachineSpecificRegister   0x00003153L
 
 //
 // Response is a read memory message with data following
@@ -532,6 +545,8 @@ typedef struct _DBGKD_GET_CONTEXT {
 typedef struct _DBGKD_SET_CONTEXT {
     ULONG ContextFlags;
 } DBGKD_SET_CONTEXT, *PDBGKD_SET_CONTEXT;
+
+#define BREAKPOINT_TABLE_SIZE   32      // max number supported by kernel
 
 typedef struct _DBGKD_WRITE_BREAKPOINT {
     PVOID BreakPointAddress;
@@ -571,6 +586,13 @@ typedef struct _DBGKD_READ_WRITE_IO_EXTENDED {
     ULONG DataValue;
 } DBGKD_READ_WRITE_IO_EXTENDED, *PDBGKD_READ_WRITE_IO_EXTENDED;
 
+typedef struct _DBGKD_READ_WRITE_MSR {
+    ULONG Msr;
+    ULONG DataValueLow;
+    ULONG DataValueHigh;
+} DBGKD_READ_WRITE_MSR, *PDBGKD_READ_WRITE_MSR;
+
+
 typedef struct _DBGKD_QUERY_SPECIAL_CALLS {
     ULONG NumberOfSpecialCalls;
     // ULONG SpecialCalls[];
@@ -607,14 +629,63 @@ typedef struct _DBGKD_GET_VERSION {
     USHORT  Flags;
     ULONG   KernBase;
     ULONG   PsLoadedModuleList;
+    USHORT  MachineType;
+
+    //
+    // help for walking stacks with user callbacks:
+    //
+
+    //
+    // The address of the thread structure is provided in the
+    // WAIT_STATE_CHANGE packet.  This is the offset from the base of
+    // the thread structure to the pointer to the kernel stack frame
+    // for the currently active usermode callback.
+    //
+
+    USHORT  ThCallbackStack;            // offset in thread data
+
+    //
+    // these values are offsets into that frame:
+    //
+
+    USHORT  NextCallback;               // saved pointer to next callback frame
+    USHORT  FramePointer;               // saved frame pointer
+
+    //
+    // Address of the kernel callout routine.
+    //
+
+    ULONG   KiCallUserMode;             // kernel routine
+
+    //
+    // Address of the usermode entry point for callbacks.
+    //
+
+    ULONG   KeUserCallbackDispatcher;   // address in ntdll
+
+    //
+    // DbgBreakPointWithStatus is a function which takes an argument
+    // and hits a breakpoint.  This field contains the address of the
+    // breakpoint instruction.  When the debugger sees a breakpoint
+    // at this address, it may retrieve the argument from the first
+    // argument register, or on x86 the eax register.
+    //
+
+    ULONG   BreakpointWithStatus;       // address of breakpoint
+
+    ULONG   Reserved4;
 } DBGKD_GET_VERSION, *PDBGKD_GET_VERSION;
 
 #define DBGKD_VERS_FLAG_MP      0x0001      // kernel is MP built
 
+typedef struct _DBGKD_PAGEIN {
+    ULONG   Address;
+    ULONG   ContinueStatus;
+} DBGKD_PAGEIN, *PDBGKD_PAGEIN;
 
 typedef struct _DBGKD_MANIPULATE_STATE {
     ULONG ApiNumber;
-    USHORT ProcessorType;
+    USHORT ProcessorLevel;
     USHORT Processor;
     NTSTATUS ReturnStatus;
     union {
@@ -634,6 +705,8 @@ typedef struct _DBGKD_MANIPULATE_STATE {
         DBGKD_GET_INTERNAL_BREAKPOINT GetInternalBreakpoint;
         DBGKD_GET_VERSION GetVersion;
         DBGKD_BREAKPOINTEX BreakPointEx;
+        DBGKD_PAGEIN PageIn;
+        DBGKD_READ_WRITE_MSR ReadWriteMsr;
     } u;
 } DBGKD_MANIPULATE_STATE, *PDBGKD_MANIPULATE_STATE;
 
@@ -718,7 +791,7 @@ typedef struct _DBGKD_GET_STRING {
 
 typedef struct _DBGKD_DEBUG_IO {
     ULONG ApiNumber;
-    USHORT ProcessorType;
+    USHORT ProcessorLevel;
     USHORT Processor;
     union {
         DBGKD_PRINT_STRING PrintString;
@@ -843,6 +916,21 @@ DbgKdWriteIoSpace(
     IN ULONG DataValue,
     IN ULONG DataSize
     );
+
+NTSTATUS
+NTAPI
+DbgKdReadMsr(
+    IN ULONG MsrReg,
+    OUT PULONGLONG MsrValue
+    );
+
+NTSTATUS
+NTAPI
+DbgKdWriteMsr(
+    IN ULONG MsrReg,
+    IN ULONGLONG MsrValue
+    );
+
 
 NTSTATUS
 NTAPI

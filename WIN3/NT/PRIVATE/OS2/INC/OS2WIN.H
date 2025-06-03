@@ -56,6 +56,18 @@ typedef struct _OS2_TERMCMD {
 
 //  winbase.h
 
+#ifndef WAIT_FAILED
+#define WAIT_FAILED (DWORD)0xFFFFFFFF
+#endif
+
+#if PMNT
+ULONG
+SetThreadAffinityMask(
+    HANDLE hThread,
+    DWORD dwThreadAffinityMask
+    );
+#endif // PMNT
+
 ULONG
 GetCurrentProcessId(
     VOID
@@ -256,6 +268,11 @@ GetEnvironmentVariableA(
 
 BOOLEAN
 SetCurrentDirectoryA(
+    PSZ DirectoryName);
+
+DWORD
+GetCurrentDirectoryA(
+    DWORD nSize,
     PSZ DirectoryName);
 
 HANDLE
@@ -469,6 +486,9 @@ Ow2ExecPgm(
     IN  PSZ     Arguments OPTIONAL,
     IN  PSZ     Variables OPTIONAL,
     IN  PSZ     ImageFileName,
+#if PMNT
+    IN  ULONG   IsPMApp,
+#endif // PMNT
     IN  PVOID   SessionStartData OPTIONAL,
     IN  POS2_STDHANDLES StdStruc,
     OUT HANDLE  *pHandle,

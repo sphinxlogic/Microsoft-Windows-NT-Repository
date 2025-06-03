@@ -229,9 +229,11 @@ Return Value:
     PMMADDRESS_NODE *Root;
     PEPROCESS CurrentProcess;
     ULONG RealCharge;
+    PLIST_ENTRY Next;
+    PMMSECURE_ENTRY Entry;
 
     CurrentProcess = PsGetCurrentProcess();
-    //ASSERT (KeReadStateMutant (&CurrentProcess->WorkingSetLock) == 0);
+
 
     //
     // Commit charge of MAX_COMMIT means don't charge quota.
@@ -288,6 +290,25 @@ Return Value:
     Root = (PMMADDRESS_NODE *)&CurrentProcess->VadRoot;
 
     MiRemoveNode ( (PMMADDRESS_NODE)Vad, Root);
+
+    if (Vad->u.VadFlags.NoChange) {
+        if (Vad->u2.VadFlags2.MultipleSecured) {
+
+           //
+           // Free the oustanding pool allocations.
+           //
+
+            Next = Vad->u3.List.Flink;
+            do {
+                Entry = CONTAINING_RECORD( Next,
+                                           MMSECURE_ENTRY,
+                                           List);
+
+                Next = Entry->List.Flink;
+                ExFreePool (Entry);
+            } while (Next != &Vad->u3.List);
+        }
+    }
 
     //
     // If the VadHint was the removed Vad, change the Hint.
@@ -442,3 +463,4 @@ VadTreeWalk (
     return;
 }
 #endif //DBG
+

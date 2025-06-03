@@ -115,8 +115,8 @@ Return Value:
     // Set the speaker timer to the correct mode.
     //
 
-    WRITE_PORT_UCHAR(&controlBase->SpeakerTone, newCount);
-    WRITE_PORT_UCHAR(&controlBase->SpeakerTone, (newCount >> 8));
+    WRITE_PORT_UCHAR(&controlBase->SpeakerTone, (UCHAR)newCount);
+    WRITE_PORT_UCHAR(&controlBase->SpeakerTone, (UCHAR)(newCount >> 8));
 
     //
     // Start the speaker.

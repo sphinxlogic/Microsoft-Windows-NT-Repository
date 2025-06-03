@@ -33,6 +33,20 @@ SrvIpxServerDatagramHandler (
     );
 
 NTSTATUS
+SrvIpxServerChainedDatagramHandler (
+    IN PVOID TdiEventContext,
+    IN int SourceAddressLength,
+    IN PVOID SourceAddress,
+    IN int OptionsLength,
+    IN PVOID Options,
+    IN ULONG ReceiveDatagramFlags,
+    IN ULONG ReceiveDatagramLength,
+    IN ULONG StartingOffset,
+    IN PMDL Tsdu,
+    IN PVOID TransportContext
+    );
+
+NTSTATUS
 SrvIpxNameDatagramHandler (
     IN PVOID TdiEventContext,
     IN int SourceAddressLength,
@@ -56,4 +70,15 @@ SrvIpxStartSend (
     IN OUT PWORK_CONTEXT WorkContext,
     IN PIO_COMPLETION_ROUTINE SendCompletionRoutine
     );
+
+//
+// Routine called by IPX smart accelerator card when a read is complete
+//
+VOID
+SrvIpxSmartCardReadComplete(
+    IN PVOID    Context,
+    IN PFILE_OBJECT FileObject,
+    IN PMDL Mdl OPTIONAL,
+    IN ULONG Length
+);
 

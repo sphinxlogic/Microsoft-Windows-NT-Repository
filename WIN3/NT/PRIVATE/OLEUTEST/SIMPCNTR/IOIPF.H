@@ -17,13 +17,13 @@ interface COleInPlaceFrame : public IOleInPlaceFrame
 
     COleInPlaceFrame(CSimpleApp FAR * pApp)
        {
-        OutputDebugString(TEXT("In IOIPF's constructor\r\n"));
+        TestDebugOut(TEXT("In IOIPF's constructor\r\n"));
         m_pApp = pApp;
        };
 
     ~COleInPlaceFrame()
        {
-        OutputDebugString(TEXT("In IOIPFS's destructor\r\n"));
+        TestDebugOut(TEXT("In IOIPFS's destructor\r\n"));
        };
 
     STDMETHODIMP QueryInterface (REFIID riid, LPVOID FAR* ppv);
@@ -49,4 +49,3 @@ interface COleInPlaceFrame : public IOleInPlaceFrame
 };
 
 #endif
-

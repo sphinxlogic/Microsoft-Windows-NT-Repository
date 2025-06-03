@@ -13,7 +13,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -28,58 +28,168 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_STRUCSUP)
 
 //
-//  The debug trace level
+//  Local macros
 //
 
-#define Dbg                              (DEBUG_TRACE_STRUCSUP)
+//
+//  PFCB
+//  CdAllocateFcbData (
+//      IN PIRP_CONTEXT IrpContext
+//      );
+//
+//  VOID
+//  CdDeallocateFcbData (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb
+//      );
+//
+//  PFCB
+//  CdAllocateFcbIndex (
+//      IN PIRP_CONTEXT IrpContext
+//      );
+//
+//  VOID
+//  CdDeallocateFcbIndex (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb
+//      );
+//
+//  PFCB_NONPAGED
+//  CdAllocateFcbNonpaged (
+//      IN PIRP_CONTEXT IrpContext
+//      );
+//
+//  VOID
+//  CdDeallocateFcbNonpaged (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB_NONPAGED FcbNonpaged
+//      );
+//
+//  PCCB
+//  CdAllocateCcb (
+//      IN PIRP_CONTEXT IrpContext
+//      );
+//
+//  VOID
+//  CdDeallocateCcb (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PCCB Ccb
+//      );
+//
+//  PFILE_LOCK
+//  CdAllocateFileLock (
+//      IN PIRP_CONTEXT IrpContext
+//      );
+//
+//  VOID
+//  CdDeallocateFileLock (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFILE_LOCK FileLock
+//      );
+//
 
-#define IRP_CONTEXT_HEADER (sizeof( IRP_CONTEXT ) * 0x10000 + CDFS_NTC_IRP_CONTEXT)
+#define CdAllocateFcbData(IC) \
+    FsRtlAllocatePoolWithTag( CdPagedPool, SIZEOF_FCB_DATA, TAG_FCB_DATA )
 
-CCHAR
-CdLogOf (
-    IN ULONG Value
-    );
+#define CdDeallocateFcbData(IC,F) \
+    ExFreePool( F )
 
-
+#define CdAllocateFcbIndex(IC) \
+    FsRtlAllocatePoolWithTag( CdPagedPool, SIZEOF_FCB_INDEX, TAG_FCB_INDEX )
+
+#define CdDeallocateFcbIndex(IC,F) \
+    ExFreePool( F )
+
+#define CdAllocateFcbNonpaged(IC) \
+    ExAllocatePoolWithTag( CdNonPagedPool, sizeof( FCB_NONPAGED ), TAG_FCB_NONPAGED )
+
+#define CdDeallocateFcbNonpaged(IC,FNP) \
+    ExFreePool( FNP )
+
+#define CdAllocateCcb(IC) \
+    FsRtlAllocatePoolWithTag( CdPagedPool, sizeof( CCB ), TAG_CCB )
+
+#define CdDeallocateCcb(IC,C) \
+    ExFreePool( C )
+
+#define CdAllocateFileLock(IC) \
+    FsRtlAllocatePoolWithTag( CdPagedPool, sizeof( FILE_LOCK ), TAG_FILE_LOCK )
+
+#define CdDeallocateFileLock(IC,FL) \
+    ExFreePool( FL )
+
 //
-//  Some types and routines supporting the use of a Generic Table
-//  containing all the FCB/DCBs and indexed by their FileId.
+//  Local structures
 //
-//  For directories:
-//
-//      The HighPart contains the ordinal directory number of the
-//      directory in the PathEntry file.
-//
-//      The LowPart contains the byte offset of the "." dirent in
-//      directory file.
-//
-//  For files:
-//
-//      The HighPart contains the ordinal directory number of the
-//      directory in the PathEntry file.
-//
-//      The LowPart contains the byte offset of the dirent in the parent
-//      directory file.
-//
-//  A directory is always entered into the Fcb Table as if it's
-//  dirent offset was zero.  This enables any child to look in the FcbTable
-//  for it's parent by searching with the same HighPart but with zero
-//  as the value for LowPart.
-//
-//  CdSetFileIdDirentOffset must be used before CdSetFileIdIsDirectory().
 
 typedef struct _FCB_TABLE_ELEMENT {
 
+    FILE_ID FileId;
     PFCB Fcb;
-    LARGE_INTEGER FileId;
 
 } FCB_TABLE_ELEMENT, *PFCB_TABLE_ELEMENT;
+
+//
+//  Local macros
+//
+
+//
+//  VOID
+//  CdInsertFcbTable (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb
+//      );
+//
+//  VOID
+//  CdDeleteFcbTable (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb
+//      );
+//
+
+
+#define CdInsertFcbTable(IC,F) {                                    \
+    FCB_TABLE_ELEMENT _Key;                                         \
+    _Key.Fcb = (F);                                                 \
+    _Key.FileId = (F)->FileId;                                      \
+    RtlInsertElementGenericTable( &(F)->Vcb->FcbTable,              \
+                                  &_Key,                            \
+                                  sizeof( FCB_TABLE_ELEMENT ),      \
+                                  NULL );                           \
+}
+
+#define CdDeleteFcbTable(IC,F) {                                    \
+    FCB_TABLE_ELEMENT _Key;                                         \
+    _Key.FileId = (F)->FileId;                                      \
+    RtlDeleteElementGenericTable( &(F)->Vcb->FcbTable, &_Key );     \
+}
+
+//
+//  Local support routines
+//
+
+VOID
+CdDeleteFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    );
+
+PFCB_NONPAGED
+CdCreateFcbNonpaged (
+    IN PIRP_CONTEXT IrpContext
+    );
+
+VOID
+CdDeleteFcbNonpaged (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB_NONPAGED FcbNonpaged
+    );
 
 RTL_GENERIC_COMPARE_RESULTS
 CdFcbTableCompare (
     IN PRTL_GENERIC_TABLE FcbTable,
-    IN PVOID FirstStruct,
-    IN PVOID SecondStruct
+    IN PVOID Fid1,
+    IN PVOID Fid2
     );
 
 PVOID
@@ -94,71 +204,1389 @@ CdDeallocateFcbTable (
     IN PVOID Buffer
     );
 
-//
-//  VOID
-//  CdInsertFcbTableEntry (
-//      IN PIRP_CONTEXT IrpContext,
-//      IN PVCB Vcb,
-//      IN PFCB Fcb,
-//      IN LARGE_INTEGER FileId
-//      );
-//
-
-#define CdInsertFcbTableEntry(IC,V,F,ID) {                     \
-    FCB_TABLE_ELEMENT _Key;                                    \
-    _Key.Fcb = (F);                                            \
-    _Key.FileId = (ID);                                        \
-    RtlInsertElementGenericTable( &(V)->FcbTable,              \
-                                  &_Key,                       \
-                                  sizeof( FCB_TABLE_ELEMENT ), \
-                                  NULL );                      \
-}
-
-//
-//  VOID
-//  CdDeleteFcbTableEntry (
-//      IN PIRP_CONTEXT IrpContext,
-//      IN PVCB Vcb,
-//      IN LARGE_INTEGER FileId
-//      );
-//
-
-#define CdDeleteFcbTableEntry(IC,V,ID) {                        \
-    FCB_TABLE_ELEMENT _Key;                                     \
-    _Key.FileId = (ID);                                         \
-    RtlDeleteElementGenericTable( &(V)->FcbTable, &_Key );      \
-}
-
-VOID
-CdBuildFileId (
+ULONG
+CdTocSerial (
     IN PIRP_CONTEXT IrpContext,
-    IN BOOLEAN IsDirectory,
-    IN CD_VBO DirectoryNumber,
-    IN CD_VBO DirentOffset,
-    OUT PLARGE_INTEGER FileId
+    IN PCDROM_TOC CdromToc
     );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, CdAllocateFcbTable)
-#pragma alloc_text(PAGE, CdBuildFileId)
-#pragma alloc_text(PAGE, CdCleanupTreeLeaf)
+#pragma alloc_text(PAGE, CdCleanupIrpContext)
 #pragma alloc_text(PAGE, CdCreateCcb)
-#pragma alloc_text(PAGE, CdCreateDcb)
 #pragma alloc_text(PAGE, CdCreateFcb)
-#pragma alloc_text(PAGE, CdCreateRootDcb)
-#pragma alloc_text(PAGE, CdCreateSectObj)
-#pragma alloc_text(PAGE, CdCreateVcb)
+#pragma alloc_text(PAGE, CdCreateFcbNonpaged)
+#pragma alloc_text(PAGE, CdCreateFileLock)
+#pragma alloc_text(PAGE, CdCreateIrpContext)
 #pragma alloc_text(PAGE, CdDeallocateFcbTable)
-#pragma alloc_text(PAGE, CdDeleteCcb_Real)
-#pragma alloc_text(PAGE, CdDeleteFcb_Real)
-#pragma alloc_text(PAGE, CdDeleteMvcb_Real)
-#pragma alloc_text(PAGE, CdDeleteSectObj_Real)
-#pragma alloc_text(PAGE, CdDeleteVcb_Real)
+#pragma alloc_text(PAGE, CdDeleteCcb)
+#pragma alloc_text(PAGE, CdDeleteFcb)
+#pragma alloc_text(PAGE, CdDeleteFcbNonpaged)
+#pragma alloc_text(PAGE, CdDeleteFileLock)
+#pragma alloc_text(PAGE, CdDeleteVcb)
 #pragma alloc_text(PAGE, CdFcbTableCompare)
-#pragma alloc_text(PAGE, CdInitializeMvcb)
-#pragma alloc_text(PAGE, CdLogOf)
+#pragma alloc_text(PAGE, CdGetNextFcb)
+#pragma alloc_text(PAGE, CdInitializeFcbFromFileContext)
+#pragma alloc_text(PAGE, CdInitializeFcbFromPathEntry)
+#pragma alloc_text(PAGE, CdInitializeStackIrpContext)
+#pragma alloc_text(PAGE, CdInitializeVcb)
 #pragma alloc_text(PAGE, CdLookupFcbTable)
+#pragma alloc_text(PAGE, CdProcessToc)
+#pragma alloc_text(PAGE, CdTeardownStructures)
+#pragma alloc_text(PAGE, CdTocSerial)
+#pragma alloc_text(PAGE, CdUpdateVcbFromVolDescriptor)
 #endif
+
+
+VOID
+CdInitializeVcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PVCB Vcb,
+    IN PDEVICE_OBJECT TargetDeviceObject,
+    IN PVPB Vpb,
+    IN PCDROM_TOC CdromToc,
+    IN ULONG TocLength,
+    IN ULONG TocTrackCount,
+    IN ULONG TocDiskFlags,
+    IN ULONG BlockFactor,
+    IN ULONG MediaChangeCount
+    )
+
+/*++
+
+Routine Description:
+
+    This routine initializes and inserts a new Vcb record into the in-memory
+    data structure.  The Vcb record "hangs" off the end of the Volume device
+    object and must be allocated by our caller.
+
+Arguments:
+
+    Vcb - Supplies the address of the Vcb record being initialized.
+
+    TargetDeviceObject - Supplies the address of the target device object to
+        associate with the Vcb record.
+
+    Vpb - Supplies the address of the Vpb to associate with the Vcb record.
+
+    CdromToc - Buffer to hold table of contents.  NULL if TOC command not
+        supported.
+
+    TocLength - Byte count length of TOC.  We use this as the TOC length to
+        return on a user query.
+
+    TocTrackCount - Count of tracks in TOC.  Used to create pseudo files for
+        audio disks.
+
+    TocDiskFlags - Flag field to indicate the type of tracks on the disk.
+
+    BlockFactor - Used to decode any multi-session information.
+
+    MediaChangeCount - Initial media change count of the target device
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  We start by first zeroing out all of the VCB, this will guarantee
+    //  that any stale data is wiped clean.
+    //
+
+    RtlZeroMemory( Vcb, sizeof( VCB ));
+
+    //
+    //  Set the proper node type code and node byte size.
+    //
+
+    Vcb->NodeTypeCode = CDFS_NTC_VCB;
+    Vcb->NodeByteSize = sizeof( VCB );
+
+    //
+    //  Initialize the DirNotify structures.  Do this first so there is
+    //  no cleanup if it raises.  Nothing else below will fail with
+    //  a raise.
+    //
+
+    InitializeListHead( &Vcb->DirNotifyList );
+    FsRtlNotifyInitializeSync( &Vcb->NotifySync );
+
+    //
+    //  Initialize the resource variable for the Vcb and files.
+    //
+
+    ExInitializeResource( &Vcb->VcbResource );
+    ExInitializeResource( &Vcb->FileResource );
+    ExInitializeFastMutex( &Vcb->VcbMutex );
+
+    //
+    //  Insert this Vcb record on the CdData.VcbQueue.
+    //
+
+    InsertHeadList( &CdData.VcbQueue, &Vcb->VcbLinks );
+
+    //
+    //  Set the Target Device Object and Vpb fields.
+    //
+
+    Vcb->TargetDeviceObject = TargetDeviceObject;
+    Vcb->Vpb = Vpb;
+
+    //
+    //  Set the removable media flag based on the real device's
+    //  characteristics
+    //
+
+    if (FlagOn( Vpb->RealDevice->Characteristics, FILE_REMOVABLE_MEDIA )) {
+
+        SetFlag( Vcb->VcbState, VCB_STATE_REMOVABLE_MEDIA );
+    }
+
+    //
+    //  Initialize the generic Fcb Table.
+    //
+
+    RtlInitializeGenericTable( &Vcb->FcbTable,
+                               (PRTL_GENERIC_COMPARE_ROUTINE) CdFcbTableCompare,
+                               (PRTL_GENERIC_ALLOCATE_ROUTINE) CdAllocateFcbTable,
+                               (PRTL_GENERIC_FREE_ROUTINE) CdDeallocateFcbTable,
+                               NULL );
+
+    //
+    //  Show that we have a mount in progress.
+    //
+
+    Vcb->VcbCondition = VcbMountInProgress;
+
+    //
+    //  Refererence the Vcb for two reasons.  The first is a reference
+    //  that prevents the Vcb from going away on the last close unless
+    //  dismount has already occurred.  The second is to make sure
+    //  we don't go into the dismount path on any error during mount
+    //  until we get to the Mount cleanup.
+    //
+
+    Vcb->VcbReference = 1 + CDFS_RESIDUAL_REFERENCE;
+
+    //
+    //  Update the TOC information in the Vcb.
+    //
+
+    Vcb->CdromToc = CdromToc;
+    Vcb->TocLength = TocLength;
+    Vcb->TrackCount = TocTrackCount;
+    Vcb->DiskFlags = TocDiskFlags;
+
+    //
+    //  If this disk contains audio tracks only then set the audio flag.
+    //
+
+    if (TocDiskFlags == CDROM_DISK_AUDIO_TRACK) {
+
+        SetFlag( Vcb->VcbState, VCB_STATE_AUDIO_DISK | VCB_STATE_CDXA );
+    }
+
+    //
+    //  Set the block factor.
+    //
+
+    Vcb->BlockFactor = BlockFactor;
+
+    //
+    //  Set the media change count on the device
+    //
+
+    Vcb->MediaChangeCount = MediaChangeCount;
+
+    return;
+}
+
+
+VOID
+CdUpdateVcbFromVolDescriptor (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PVCB Vcb,
+    IN PCHAR RawIsoVd OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to perform the final initialization of a Vcb from the
+    volume descriptor on the disk.
+
+Arguments:
+
+    Vcb - Vcb for the volume being mounted.  We have already set the flags for the
+        type of descriptor.
+
+    RawIsoVd - If specified this is the volume descriptor to use to mount the
+        volume.  Not specified for a raw disk.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ULONG Shift;
+    ULONG StartingBlock;
+    ULONG ByteCount;
+
+    LONGLONG FileId = 0;
+
+    PRAW_DIRENT RawDirent;
+    PATH_ENTRY PathEntry;
+
+    BOOLEAN UnlockVcb = TRUE;
+
+    PAGED_CODE();
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Copy the block size and compute the various block masks.
+        //  Block size must not be larger than the sector size.  We will
+        //  use a default of the CD physical sector size if we are not
+        //  on a data-full disc.
+        //
+        //  This must always be set.
+        //
+
+        Vcb->BlockSize = ( ARGUMENT_PRESENT( RawIsoVd ) ?
+                            CdRvdBlkSz( RawIsoVd, Vcb->VcbState ) :
+                            SECTOR_SIZE );
+
+        if (Vcb->BlockSize > SECTOR_SIZE) {
+
+            CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
+        }
+
+        Vcb->BlocksPerSector = SECTOR_SIZE / Vcb->BlockSize;
+        Vcb->BlockMask = Vcb->BlockSize - 1;
+        Vcb->BlockInverseMask = ~Vcb->BlockMask;
+
+        //
+        //  Initialize the BlockToSectorShift and BlockToByte by assuming
+        //  the block size is the same as the sector size.  Shift the
+        //  blocks per sectors until it goes to zero.
+        //
+
+        Vcb->BlockToSectorShift = 0;
+        Vcb->BlockToByteShift = SECTOR_SHIFT;
+
+        Shift = Vcb->BlocksPerSector - 1;
+
+        while (Shift != 0) {
+
+            Vcb->BlockToSectorShift += 1;
+            Vcb->BlockToByteShift -= 1;
+
+            Shift >>= 1;
+        }
+
+        //
+        //  If there is a volume descriptor then do the internal Fcb's and
+        //  other Vcb fields.
+        //
+
+        if (ARGUMENT_PRESENT( RawIsoVd )) {
+
+            //
+            //  Create the path table Fcb and refererence it and the Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+
+            Vcb->PathTableFcb = CdCreateFcb( IrpContext,
+                                             *((PFILE_ID) &FileId),
+                                             CDFS_NTC_FCB_PATH_TABLE,
+                                             NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->PathTableFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  Compute the stream offset and size of this path table.
+            //
+
+            StartingBlock = CdRvdPtLoc( RawIsoVd, Vcb->VcbState );
+
+            ByteCount = CdRvdPtSz( RawIsoVd, Vcb->VcbState );
+
+            Vcb->PathTableFcb->StreamOffset = BytesFromBlocks( Vcb,
+                                                               SectorBlockOffset( Vcb, StartingBlock ));
+
+            Vcb->PathTableFcb->FileSize.QuadPart = (LONGLONG) (Vcb->PathTableFcb->StreamOffset +
+                                                               ByteCount);
+
+            Vcb->PathTableFcb->ValidDataLength.QuadPart = Vcb->PathTableFcb->FileSize.QuadPart;
+
+            Vcb->PathTableFcb->AllocationSize.QuadPart = LlSectorAlign( Vcb->PathTableFcb->FileSize.QuadPart );
+
+            //
+            //  Now add the mapping information.
+            //
+
+            CdLockFcb( IrpContext, Vcb->PathTableFcb );
+
+            CdAddAllocation( IrpContext,
+                             Vcb->PathTableFcb,
+                             StartingBlock,
+                             Vcb->PathTableFcb->AllocationSize.QuadPart );
+
+            CdUnlockFcb( IrpContext, Vcb->PathTableFcb );
+
+            //
+            //  Point to the file resource.
+            //
+
+            Vcb->PathTableFcb->Resource = &Vcb->FileResource;
+
+            //
+            //  Mark the Fcb as initialized and create the stream file for this.
+            //
+
+            SetFlag( Vcb->PathTableFcb->FcbState, FCB_STATE_INITIALIZED );
+
+            CdCreateInternalStream( IrpContext, Vcb, Vcb->PathTableFcb );
+
+            //
+            //  Create the root index and reference it in the Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+            Vcb->RootIndexFcb = CdCreateFcb( IrpContext,
+                                             *((PFILE_ID) &FileId),
+                                             CDFS_NTC_FCB_INDEX,
+                                             NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->RootIndexFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  Create the File id by hand for this Fcb.
+            //
+
+            CdSetFidPathTableOffset( Vcb->RootIndexFcb->FileId, Vcb->PathTableFcb->StreamOffset );
+            CdFidSetDirectory( Vcb->RootIndexFcb->FileId );
+
+            //
+            //  Create a pseudo path table entry so we can call the initialization
+            //  routine for the directory.
+            //
+
+            RawDirent = (PRAW_DIRENT) CdRvdDirent( RawIsoVd, Vcb->VcbState );
+
+            CopyUchar4( &PathEntry.DiskOffset, RawDirent->FileLoc );
+
+            PathEntry.DiskOffset += RawDirent->XarLen;
+            PathEntry.Ordinal = 1;
+            PathEntry.PathTableOffset = Vcb->PathTableFcb->StreamOffset;
+
+            CdInitializeFcbFromPathEntry( IrpContext,
+                                          Vcb->RootIndexFcb,
+                                          NULL,
+                                          &PathEntry );
+
+            //
+            //  Create the stream file for the root directory.
+            //
+
+            CdCreateInternalStream( IrpContext, Vcb, Vcb->RootIndexFcb );
+
+            //
+            //  Now do the volume dasd Fcb.  Create this and reference it in the
+            //  Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+
+            Vcb->VolumeDasdFcb = CdCreateFcb( IrpContext,
+                                              *((PFILE_ID) &FileId),
+                                              CDFS_NTC_FCB_DATA,
+                                              NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->VolumeDasdFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  The file size is the full disk.
+            //
+
+            StartingBlock = CdRvdVolSz( RawIsoVd, Vcb->VcbState );
+
+            Vcb->VolumeDasdFcb->FileSize.QuadPart = LlBytesFromBlocks( Vcb, StartingBlock );
+
+            Vcb->VolumeDasdFcb->AllocationSize.QuadPart =
+            Vcb->VolumeDasdFcb->ValidDataLength.QuadPart = Vcb->VolumeDasdFcb->FileSize.QuadPart;
+
+            //
+            //  Now add the mapping information.
+            //
+
+            CdLockFcb( IrpContext, Vcb->VolumeDasdFcb );
+            CdAddAllocation( IrpContext,
+                             Vcb->VolumeDasdFcb,
+                             0,
+                             Vcb->VolumeDasdFcb->AllocationSize.QuadPart );
+
+            CdUnlockFcb( IrpContext, Vcb->VolumeDasdFcb );
+
+            //
+            //  Point to the file resource.
+            //
+
+            Vcb->VolumeDasdFcb->Resource = &Vcb->FileResource;
+
+            Vcb->VolumeDasdFcb->FileAttributes = FILE_ATTRIBUTE_READONLY;
+
+            //
+            //  Mark the Fcb as initialized.
+            //
+
+            SetFlag( Vcb->VolumeDasdFcb->FcbState, FCB_STATE_INITIALIZED );
+
+            //
+            //  Check and see if this is an XA disk.
+            //
+
+            if (FlagOn( Vcb->VcbState, VCB_STATE_ISO )
+                && RtlEqualMemory( CdXaId,
+                                   Add2Ptr( RawIsoVd, 0x400, PCHAR ),
+                                   8 )) {
+
+                SetFlag( Vcb->VcbState, VCB_STATE_CDXA );
+            }
+
+        //
+        //  If this is a music disk then we want to mock this disk to make it
+        //  look like ISO disk.  We will create a pseudo root directory in
+        //  that case.
+        //
+
+        } else if (FlagOn( Vcb->VcbState, VCB_STATE_AUDIO_DISK )) {
+
+            ULONG RootDirectorySize;
+
+            //
+            //  Clear the raw disk and the additional references.
+            //
+
+            ClearFlag( Vcb->VcbState, VCB_STATE_RAW_DISK );
+            Vcb->VcbReference -= 4;
+
+            //
+            //  Create the path table Fcb and refererence it and the Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+
+            Vcb->PathTableFcb = CdCreateFcb( IrpContext,
+                                             *((PFILE_ID) &FileId),
+                                             CDFS_NTC_FCB_PATH_TABLE,
+                                             NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->PathTableFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  We only create a pseudo entry for the root.
+            //
+
+            Vcb->PathTableFcb->FileSize.QuadPart = (LONGLONG) (FIELD_OFFSET( RAW_PATH_ISO, DirId ) + 2);
+
+            Vcb->PathTableFcb->ValidDataLength.QuadPart = Vcb->PathTableFcb->FileSize.QuadPart;
+
+            Vcb->PathTableFcb->AllocationSize.QuadPart = LlSectorAlign( Vcb->PathTableFcb->FileSize.QuadPart );
+
+            //
+            //  Point to the file resource.
+            //
+
+            Vcb->PathTableFcb->Resource = &Vcb->FileResource;
+
+            //
+            //  Mark the Fcb as initialized and create the stream file for this.
+            //
+
+            SetFlag( Vcb->PathTableFcb->FcbState, FCB_STATE_INITIALIZED );
+
+            CdCreateInternalStream( IrpContext, Vcb, Vcb->PathTableFcb );
+
+            //
+            //  Create the root index and reference it in the Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+            Vcb->RootIndexFcb = CdCreateFcb( IrpContext,
+                                             *((PFILE_ID) &FileId),
+                                             CDFS_NTC_FCB_INDEX,
+                                             NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->RootIndexFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  Create the File id by hand for this Fcb.
+            //
+
+            CdSetFidPathTableOffset( Vcb->RootIndexFcb->FileId, Vcb->PathTableFcb->StreamOffset );
+            CdFidSetDirectory( Vcb->RootIndexFcb->FileId );
+
+            //
+            //  Create a pseudo path table entry so we can call the initialization
+            //  routine for the directory.
+            //
+
+            RtlZeroMemory( &PathEntry, sizeof( PATH_ENTRY ));
+
+
+            PathEntry.Ordinal = 1;
+            PathEntry.PathTableOffset = Vcb->PathTableFcb->StreamOffset;
+
+            CdInitializeFcbFromPathEntry( IrpContext,
+                                          Vcb->RootIndexFcb,
+                                          NULL,
+                                          &PathEntry );
+
+            //
+            //  Set the sizes by hand for this Fcb.  It should have an entry for each track plus an
+            //  entry for the root and parent.
+            //
+
+            RootDirectorySize = (Vcb->TrackCount + 2) * CdAudioDirentSize;
+            RootDirectorySize = SectorAlign( RootDirectorySize );
+
+            Vcb->RootIndexFcb->AllocationSize.QuadPart =
+            Vcb->RootIndexFcb->ValidDataLength.QuadPart =
+            Vcb->RootIndexFcb->FileSize.QuadPart = RootDirectorySize;
+
+            SetFlag( Vcb->RootIndexFcb->FcbState, FCB_STATE_INITIALIZED );
+
+            //
+            //  Create the stream file for the root directory.
+            //
+
+            CdCreateInternalStream( IrpContext, Vcb, Vcb->RootIndexFcb );
+
+            //
+            //  Now do the volume dasd Fcb.  Create this and reference it in the
+            //  Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+
+            Vcb->VolumeDasdFcb = CdCreateFcb( IrpContext,
+                                              *((PFILE_ID) &FileId),
+                                              CDFS_NTC_FCB_DATA,
+                                              NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->VolumeDasdFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  We won't allow raw reads on this Fcb so leave the size at
+            //  zero.
+            //
+
+            //
+            //  Point to the file resource.
+            //
+
+            Vcb->VolumeDasdFcb->Resource = &Vcb->FileResource;
+
+            Vcb->VolumeDasdFcb->FileAttributes = FILE_ATTRIBUTE_READONLY;
+
+            //
+            //  Mark the Fcb as initialized.
+            //
+
+            SetFlag( Vcb->VolumeDasdFcb->FcbState, FCB_STATE_INITIALIZED );
+
+            //
+            //  We will store a hard-coded name in the Vpb and use the toc as
+            //  the serial number.
+            //
+
+            Vcb->Vpb->VolumeLabelLength = CdAudioLabelLength;
+
+            RtlCopyMemory( Vcb->Vpb->VolumeLabel,
+                           CdAudioLabel,
+                           CdAudioLabelLength );
+
+            //
+            //  Find the serial number for the audio disk.
+            //
+
+            Vcb->Vpb->SerialNumber = CdTocSerial( IrpContext, Vcb->CdromToc );
+
+            //
+            //  Set the ISO bit so we know how to treat the names.
+            //
+
+            SetFlag( Vcb->VcbState, VCB_STATE_ISO );
+
+        //
+        //  There is no volume descriptor.  We will create a pseudo volume dasd
+        //  Fcb.  This will allow the user to perform IoCtl commands.
+        //
+
+        } else {
+
+            //
+            //  Now do the volume dasd Fcb.  Create this and reference it in the
+            //  Vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+            UnlockVcb = TRUE;
+
+            Vcb->VolumeDasdFcb = CdCreateFcb( IrpContext,
+                                              *((PFILE_ID) &FileId),
+                                              CDFS_NTC_FCB_DATA,
+                                              NULL );
+
+            CdIncrementReferenceCounts( IrpContext, Vcb->VolumeDasdFcb, 1, 1 );
+            CdUnlockVcb( IrpContext, Vcb );
+            UnlockVcb = FALSE;
+
+            //
+            //  Update the Vcb user reference count for the streams which
+            //  are missing.
+            //
+
+            Vcb->VcbUserReference += CDFS_RESIDUAL_USER_REFERENCE - 1;
+
+            //
+            //  Point to the file resource.
+            //
+
+            Vcb->VolumeDasdFcb->Resource = &Vcb->FileResource;
+
+            //
+            //  Mark the Fcb as initialized.
+            //
+
+            SetFlag( Vcb->VolumeDasdFcb->FcbState, FCB_STATE_INITIALIZED );
+        }
+
+    } finally {
+
+        if (UnlockVcb) { CdUnlockVcb( IrpContext, Vcb ); }
+    }
+
+    return;
+}
+
+
+VOID
+CdDeleteVcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PVCB Vcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to delete a Vcb which failed mount or has been
+    dismounted.  The dismount code should have already removed all of the
+    open Fcb's.  We do nothing here but clean up other auxilary structures.
+
+Arguments:
+
+    Vcb - Vcb to delete.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    ASSERT_EXCLUSIVE_CDDATA;
+    ASSERT_EXCLUSIVE_VCB( Vcb );
+
+    //
+    //  If there is a Vpb then we must delete it ourselves.
+    //
+
+    if (Vcb->Vpb != NULL) {
+
+        ExFreePool( Vcb->Vpb );
+    }
+
+    //
+    //  Delete the XA Sector if allocated.
+    //
+
+    if (Vcb->XASector != NULL) {
+
+        ExFreePool( Vcb->XASector );
+    }
+
+    //
+    //  Remove this entry from the global queue.
+    //
+
+    RemoveEntryList( &Vcb->VcbLinks );
+
+    //
+    //  Delete the Vcb and File resources.
+    //
+
+    ExDeleteResource( &Vcb->VcbResource );
+    ExDeleteResource( &Vcb->FileResource );
+
+    //
+    //  Delete the TOC if present.
+    //
+
+    if (Vcb->CdromToc != NULL) {
+
+        ExFreePool( Vcb->CdromToc );
+    }
+
+    //
+    //  Uninitialize the notify structures.
+    //
+
+    if (Vcb->NotifySync != NULL) {
+
+        FsRtlNotifyUninitializeSync( &Vcb->NotifySync );
+    }
+
+    //
+    //  Now delete the volume device object.
+    //
+
+    IoDeleteDevice( (PDEVICE_OBJECT) CONTAINING_RECORD( Vcb,
+                                                        VOLUME_DEVICE_OBJECT,
+                                                        Vcb ));
+
+    return;
+}
+
+
+PFCB
+CdCreateFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN FILE_ID FileId,
+    IN NODE_TYPE_CODE NodeTypeCode,
+    OUT PBOOLEAN FcbExisted OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to find the Fcb for the given FileId.  We will
+    look this up first in the Fcb table and if not found we will create
+    an Fcb.  We don't initialize it or insert it into the FcbTable in this
+    routine.
+
+    This routine is called while the Vcb is locked.
+
+Arguments:
+
+    FileId - This is the Id for the target Fcb.
+
+    NodeTypeCode - Node type for this Fcb if we need to create.
+
+    FcbExisted - If specified, we store whether the Fcb existed.
+
+Return Value:
+
+    PFCB - The Fcb found in the table or created if needed.
+
+--*/
+
+{
+    PFCB NewFcb;
+    BOOLEAN LocalFcbExisted;
+
+    PAGED_CODE();
+
+    //
+    //  Use the local boolean if one was not passed in.
+    //
+
+    if (!ARGUMENT_PRESENT( FcbExisted )) {
+
+        FcbExisted = &LocalFcbExisted;
+    }
+
+    //
+    //  Maybe this is already in the table.
+    //
+
+    NewFcb = CdLookupFcbTable( IrpContext, IrpContext->Vcb, FileId );
+
+    //
+    //  If not then create the Fcb is requested by our caller.
+    //
+
+    if (NewFcb == NULL) {
+
+        //
+        //  Allocate and initialize the structure depending on the
+        //  type code.
+        //
+
+        switch (NodeTypeCode) {
+
+        case CDFS_NTC_FCB_PATH_TABLE:
+        case CDFS_NTC_FCB_INDEX:
+
+            NewFcb = CdAllocateFcbIndex( IrpContext );
+
+            RtlZeroMemory( NewFcb, SIZEOF_FCB_INDEX );
+
+            NewFcb->NodeByteSize = SIZEOF_FCB_INDEX;
+
+            InitializeListHead( &NewFcb->FcbQueue );
+
+            break;
+
+        case CDFS_NTC_FCB_DATA :
+
+            NewFcb = CdAllocateFcbData( IrpContext );
+
+            RtlZeroMemory( NewFcb, SIZEOF_FCB_DATA );
+
+            NewFcb->NodeByteSize = SIZEOF_FCB_DATA;
+
+            break;
+
+        default:
+
+            CdBugCheck( 0, 0, 0 );
+        }
+
+        //
+        //  Now do the common initialization.
+        //
+
+        NewFcb->NodeTypeCode = NodeTypeCode;
+
+        NewFcb->Vcb = IrpContext->Vcb;
+        NewFcb->FileId = FileId;
+
+        CdInitializeMcb( IrpContext, NewFcb );
+
+        //
+        //  Now create the non-paged section object.
+        //
+
+        NewFcb->FcbNonpaged = CdCreateFcbNonpaged( IrpContext );
+
+        //
+        //  Deallocate the Fcb and raise if the allocation failed.
+        //
+
+        if (NewFcb->FcbNonpaged == NULL) {
+
+            ExFreePool( NewFcb );
+
+            CdRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
+        }
+
+        *FcbExisted = FALSE;
+
+    } else {
+
+        *FcbExisted = TRUE;
+    }
+
+    return NewFcb;
+}
+
+
+VOID
+CdInitializeFcbFromPathEntry (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PFCB ParentFcb OPTIONAL,
+    IN PPATH_ENTRY PathEntry
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to initialize an Fcb for a directory from
+    the path entry.  Since we only have a starting point for the directory,
+    not the length, we can only speculate on the sizes.
+
+    The general initialization is performed in CdCreateFcb.
+
+Arguments:
+
+    Fcb - Newly created Fcb for this stream.
+
+    ParentFcb - Parent Fcb for this stream.  It may not be present.
+
+    PathEntry - PathEntry for this Fcb in the Path Table.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Fill in the Index specific fields of the Fcb.
+    //
+
+    Fcb->StreamOffset = BytesFromBlocks( Fcb->Vcb,
+                                         SectorBlockOffset( Fcb->Vcb, PathEntry->DiskOffset ));
+
+    Fcb->Ordinal = PathEntry->Ordinal;
+
+    //
+    //  Initialize the common header in the Fcb.  The node type is already
+    //  present.
+    //
+
+    Fcb->Resource = &Fcb->Vcb->FileResource;
+
+    //
+    //  Always set the sizes to one sector until we read the self-entry.
+    //
+
+    Fcb->AllocationSize.QuadPart =
+    Fcb->FileSize.QuadPart =
+    Fcb->ValidDataLength.QuadPart = SECTOR_SIZE;
+
+    CdLockFcb( IrpContext, Fcb );
+    CdAddAllocation( IrpContext,
+                     Fcb,
+                     PathEntry->DiskOffset,
+                     SECTOR_SIZE );
+
+    CdUnlockFcb( IrpContext, Fcb );
+
+    //
+    //  State flags for this Fcb.
+    //
+
+    SetFlag( Fcb->FileAttributes,
+             FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_DIRECTORY );
+
+    //
+    //  Link into the other in-memory structures and into the Fcb table.
+    //
+
+    if (ParentFcb != NULL) {
+
+        Fcb->ParentFcb = ParentFcb;
+
+        InsertTailList( &ParentFcb->FcbQueue, &Fcb->FcbLinks );
+
+        CdIncrementReferenceCounts( IrpContext, ParentFcb, 1, 1 );
+    }
+
+    CdInsertFcbTable( IrpContext, Fcb );
+    SetFlag( Fcb->FcbState, FCB_STATE_IN_FCB_TABLE );
+
+    return;
+}
+
+
+VOID
+CdInitializeFcbFromFileContext (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PFCB ParentFcb,
+    IN PFILE_ENUM_CONTEXT FileContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to initialize an Fcb for a file from
+    the file context.  We have looked up all of the dirents for this
+    stream and have the full file size.  We will load the all of the allocation
+    for the file into the Mcb now.
+
+    The general initialization is performed in CdCreateFcb.
+
+Arguments:
+
+    Fcb - Newly created Fcb for this stream.
+
+    ParentFcb - Parent Fcb for this stream.
+
+    FileContext - FileContext for the file.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PDIRENT ThisDirent = &FileContext->InitialDirent->Dirent;
+    PCOMPOUND_DIRENT CurrentCompoundDirent;
+
+    LONGLONG CurrentFileOffset;
+    ULONG CurrentMcbEntryOffset;
+
+    PAGED_CODE();
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    CdLockFcb( IrpContext, Fcb );
+
+    try {
+
+        //
+        //  Initialize the common header in the Fcb.  The node type is already
+        //  present.
+        //
+
+        Fcb->Resource = &IrpContext->Vcb->FileResource;
+
+        //
+        //  Allocation occurs in block-sized units.
+        //
+
+        Fcb->FileSize.QuadPart =
+        Fcb->ValidDataLength.QuadPart = FileContext->FileSize;
+
+        Fcb->AllocationSize.QuadPart = LlBlockAlign( Fcb->Vcb, FileContext->FileSize );
+
+        //
+        //  Set the flags from the dirent.  We always start with the read-only bit.
+        //
+
+        SetFlag( Fcb->FileAttributes, FILE_ATTRIBUTE_READONLY );
+        if (FlagOn( ThisDirent->DirentFlags, CD_ATTRIBUTE_HIDDEN )) {
+
+            SetFlag( Fcb->FileAttributes, FILE_ATTRIBUTE_HIDDEN );
+        }
+
+        //
+        //  Convert the time to NT time.
+        //
+
+        CdConvertCdTimeToNtTime( IrpContext,
+                                 ThisDirent->CdTime,
+                                 (PLARGE_INTEGER) &Fcb->CreationTime );
+
+        //
+        //  Set the flag indicating the type of extent.
+        //
+
+        if (ThisDirent->ExtentType != Form1Data) {
+
+            if (ThisDirent->ExtentType == Mode2Form2Data) {
+
+                SetFlag( Fcb->FcbState, FCB_STATE_MODE2FORM2_FILE );
+
+            } else {
+
+                SetFlag( Fcb->FcbState, FCB_STATE_DA_FILE );
+            }
+
+            Fcb->XAAttributes = ThisDirent->XAAttributes;
+            Fcb->XAFileNumber = ThisDirent->XAFileNumber;
+        }
+
+        //
+        //  Read through all of the dirents for the file until we find the last
+        //  and add the allocation into the Mcb.
+        //
+
+        CurrentCompoundDirent = FileContext->InitialDirent;
+        CurrentFileOffset = 0;
+        CurrentMcbEntryOffset = 0;
+
+        while (TRUE) {
+
+            CdAddAllocationFromDirent( IrpContext,
+                                       Fcb,
+                                       CurrentMcbEntryOffset,
+                                       CurrentFileOffset,
+                                       &CurrentCompoundDirent->Dirent );
+
+            //
+            //  Break out if we are at the last dirent.
+            //
+
+            if (!FlagOn( CurrentCompoundDirent->Dirent.DirentFlags, CD_ATTRIBUTE_MULTI )) {
+
+                break;
+            }
+
+            CurrentFileOffset += CurrentCompoundDirent->Dirent.DataLength;
+            CurrentMcbEntryOffset += 1;
+
+            //
+            //  We better be able to find the next dirent.
+            //
+
+            if (!CdLookupNextDirent( IrpContext,
+				     ParentFcb,
+                                     &CurrentCompoundDirent->DirContext,
+                                     &FileContext->CurrentDirent->DirContext )) {
+
+                CdRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR );
+            }
+
+            CurrentCompoundDirent = FileContext->CurrentDirent;
+
+            CdUpdateDirentFromRawDirent( IrpContext,
+					 ParentFcb,
+                                         &CurrentCompoundDirent->DirContext,
+                                         &CurrentCompoundDirent->Dirent );
+        }
+
+        //
+        //  Show that the Fcb is initialized.
+        //
+
+        SetFlag( Fcb->FcbState, FCB_STATE_INITIALIZED );
+
+        //
+        //  Link into the other in-memory structures and into the Fcb table.
+        //
+
+        Fcb->ParentFcb = ParentFcb;
+
+        InsertTailList( &ParentFcb->FcbQueue, &Fcb->FcbLinks );
+
+        CdIncrementReferenceCounts( IrpContext, ParentFcb, 1, 1 );
+
+        CdInsertFcbTable( IrpContext, Fcb );
+        SetFlag( Fcb->FcbState, FCB_STATE_IN_FCB_TABLE );
+
+    } finally {
+
+        CdUnlockFcb( IrpContext, Fcb );
+    }
+
+    return;
+}
+
+
+PCCB
+CdCreateCcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN ULONG Flags
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to allocate and initialize the Ccb structure.
+
+Arguments:
+
+    Fcb - This is the Fcb for the file being opened.
+
+    Flags - User flags to set in this Ccb.
+
+Return Value:
+
+    PCCB - Pointer to the created Ccb.
+
+--*/
+
+{
+    PCCB NewCcb;
+    PAGED_CODE();
+
+    //
+    //  Allocate and initialize the structure.
+    //
+
+    NewCcb = CdAllocateCcb( IrpContext );
+
+    RtlZeroMemory( NewCcb, sizeof( CCB ));
+
+    //
+    //  Set the proper node type code and node byte size
+    //
+
+    NewCcb->NodeTypeCode = CDFS_NTC_CCB;
+    NewCcb->NodeByteSize = sizeof( CCB );
+
+    //
+    //  Set the initial value for the flags and Fcb
+    //
+
+    NewCcb->Flags = Flags;
+    NewCcb->Fcb = Fcb;
+
+    return NewCcb;
+}
+
+
+VOID
+CdDeleteCcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PCCB Ccb
+    )
+/*++
+
+Routine Description:
+
+    This routine is called to cleanup and deallocate a Ccb structure.
+
+Arguments:
+
+    Ccb - This is the Ccb to delete.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (Ccb->SearchExpression.FileName.Buffer != NULL) {
+
+        ExFreePool( Ccb->SearchExpression.FileName.Buffer );
+    }
+
+    CdDeallocateCcb( IrpContext, Ccb );
+    return;
+}
+
+
+BOOLEAN
+CdCreateFileLock (
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN PFCB Fcb,
+    IN BOOLEAN RaiseOnError
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when we want to attach a file lock structure to the
+    given Fcb.  It is possible the file lock is already attached.
+
+    This routine is sometimes called from the fast path and sometimes in the
+    Irp-based path.  We don't want to raise in the fast path, just return FALSE.
+
+Arguments:
+
+    Fcb - This is the Fcb to create the file lock for.
+
+    RaiseOnError - If TRUE, we will raise on an allocation failure.  Otherwise we
+        return FALSE on an allocation failure.
+
+Return Value:
+
+    BOOLEAN - TRUE if the Fcb has a filelock, FALSE otherwise.
+
+--*/
+
+{
+    BOOLEAN Result = TRUE;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PFILE_LOCK FileLock = NULL;
+
+    PAGED_CODE();
+
+    //
+    //  Lock the Fcb and check if there is really any work to do.
+    //
+
+    CdLockFcb( IrpContext, Fcb );
+
+    if (Fcb->FileLock != NULL) {
+
+        CdUnlockFcb( IrpContext, Fcb );
+        return TRUE;
+    }
+
+    //
+    //  Use a try-except to catch all errors.
+    //
+
+    try {
+
+        //
+        //  Allocate and initialize the file lock.
+        //
+
+        FileLock = CdAllocateFileLock( IrpContext );
+
+        FsRtlInitializeFileLock( FileLock, NULL, NULL );
+
+        Fcb->FileLock = FileLock;
+        FileLock = NULL;
+
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+
+        Status = GetExceptionCode();
+        Result = FALSE;
+    }
+
+    CdUnlockFcb( IrpContext, Fcb );
+
+    //
+    //  Deallocate the file lock if not part of the Fcb.
+    //
+
+    if (FileLock != NULL) {
+
+        CdDeallocateFileLock( IrpContext, FileLock );
+    }
+
+    //
+    //  Check if we should raise.
+    //
+
+    if ((Status != STATUS_SUCCESS) &&
+        (!FsRtlIsNtstatusExpected( Status ) || RaiseOnError)) {
+
+        ExRaiseStatus( Status );
+    }
+
+    return Result;
+}
 
 
 PIRP_CONTEXT
@@ -171,2054 +1599,135 @@ CdCreateIrpContext (
 
 Routine Description:
 
-    This routine creates a new IRP_CONTEXT record
+    This routine is called to initialize an IrpContext for the current
+    CDFS request.  We allocate the structure and then initialize it from
+    the given Irp.
 
 Arguments:
 
-    Irp - Supplies the originating Irp.
+    Irp - Irp for this request.
 
-    Wait - Supplies the wait value to store in the context
+    Wait - TRUE if this request is synchronous, FALSE otherwise.
 
 Return Value:
 
-    PIRP_CONTEXT - returns a pointer to the newly allocate IRP_CONTEXT Record
+    PIRP_CONTEXT - Allocated IrpContext.
 
 --*/
 
 {
-    KIRQL SavedIrql;
-    PIRP_CONTEXT IrpContext;
-    PIO_STACK_LOCATION IrpSp;
+    PIRP_CONTEXT NewIrpContext = NULL;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    PAGED_CODE();
 
     //
-    //  If we were called with our file system device object instead of a
-    //  volume device object and this is not a mount, the request is illegal.
+    //  Look in our lookaside list for an IrpContext.
     //
 
-    if ((IrpSp->DeviceObject->Size == (USHORT)sizeof(DEVICE_OBJECT)) &&
-        (IrpSp->FileObject != NULL)) {
+    if (CdData.IrpContextDepth) {
 
-        ExRaiseStatus( STATUS_INVALID_DEVICE_REQUEST );
+        CdLockCdData();
+        NewIrpContext = (PIRP_CONTEXT) PopEntryList( &CdData.IrpContextList );
+        if (NewIrpContext != NULL) {
+
+            CdData.IrpContextDepth--;
+        }
+
+        CdUnlockCdData();
     }
 
-    DebugTrace(+1, Dbg, "CdCreateIrpContext\n", 0);
-
-    //
-    //  Take out a spin lock and check if the zone is full.  If it is full
-    //  then we release the spinlock and allocate an irp context from
-    //  nonpaged pool.
-    //
-
-    KeAcquireSpinLock( &CdData.IrpContextSpinLock, &SavedIrql );
-
-    if (ExIsFullZone( &CdData.IrpContextZone )) {
-
-        KeReleaseSpinLock( &CdData.IrpContextSpinLock, SavedIrql );
-
-        IrpContext = FsRtlAllocatePool( NonPagedPool, sizeof(IRP_CONTEXT) );
+    if (NewIrpContext == NULL) {
 
         //
-        //  Zero out the irp context and indicate that it is from pool and
-        //  not zone allocated
+        //  We didn't get it from our private list so allocate it from pool.
         //
 
-        RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
-
-        IrpContext->AllocFromPool = TRUE;
-
-    } else {
-
-        //
-        //  At this point we now know that the zone has at least one more
-        //  IRP context record available.  So allocate from the zone and
-        //  then release the spin lock
-        //
-
-        IrpContext = ExAllocateFromZone( &CdData.IrpContextZone );
-
-        KeReleaseSpinLock( &CdData.IrpContextSpinLock, SavedIrql );
-
-        //
-        //  Zero out the irp context and indicate that it is from zone and
-        //  not pool allocated
-        //
-
-        RtlZeroMemory( IrpContext, sizeof(IRP_CONTEXT) );
+        NewIrpContext = FsRtlAllocatePoolWithTag( NonPagedPool, sizeof( IRP_CONTEXT ), TAG_IRP_CONTEXT );
     }
+
+    RtlZeroMemory( NewIrpContext, sizeof( IRP_CONTEXT ));
 
     //
     //  Set the proper node type code and node byte size
     //
 
-    IrpContext->NodeTypeCode = CDFS_NTC_IRP_CONTEXT;
-    IrpContext->NodeByteSize = sizeof( IRP_CONTEXT );
+    NewIrpContext->NodeTypeCode = CDFS_NTC_IRP_CONTEXT;
+    NewIrpContext->NodeByteSize = sizeof( IRP_CONTEXT );
 
     //
     //  Set the originating Irp field
     //
 
-    IrpContext->OriginatingIrp = Irp;
+    NewIrpContext->Irp = Irp;
 
     //
-    //  Copy RealDevice for workque algorithms
+    //  Copy RealDevice for workque algorithms.  We will update this in the Mount or
+    //  Verify since they have no file objects to use here.
     //
 
     if (IrpSp->FileObject != NULL) {
-        IrpContext->RealDevice = IrpSp->FileObject->DeviceObject;
+
+        NewIrpContext->RealDevice = IrpSp->FileObject->DeviceObject;
+    }
+
+    //
+    //  Locate the volume device object and Vcb that we are trying to access.
+    //  This may be our filesystem device object.  In that case don't initialize
+    //  the Vcb field.
+    //
+
+    if (IrpSp->DeviceObject != CdData.FileSystemDeviceObject) {
+
+        NewIrpContext->Vcb =  &((PVOLUME_DEVICE_OBJECT) IrpSp->DeviceObject)->Vcb;
     }
 
     //
     //  Major/Minor Function codes
     //
 
-    IrpContext->MajorFunction = IrpSp->MajorFunction;
-    IrpContext->MinorFunction = IrpSp->MinorFunction;
+    NewIrpContext->MajorFunction = IrpSp->MajorFunction;
+    NewIrpContext->MinorFunction = IrpSp->MinorFunction;
 
     //
     //  Set the wait parameter
     //
 
-    IrpContext->Wait = Wait;
+    if (Wait) {
 
-    //
-    //  Set the recursive file system call parameter.  We set it true if
-    //  the TopLevelIrp field in the thread local storage is not the current
-    //  irp, otherwise we leave it as FALSE.
-    //
-
-//  if ( PsGetCurrentThread()->TopLevelIrp != (ULONG)Irp ) {
-    if ( IoGetTopLevelIrp() != Irp ) {
-
-        IrpContext->RecursiveFileSystemCall = TRUE;
-    }
-
-    //
-    //  return and tell the caller
-    //
-
-    DebugTrace(-1, Dbg, "CdCreateIrpContext -> %08lx\n", IrpContext);
-
-    return IrpContext;
-}
-
-
-VOID
-CdDeleteIrpContext_Real (
-    IN PIRP_CONTEXT IrpContext
-    )
-
-/*++
-
-Routine Description:
-
-    This routine deallocates and removes the specified IRP_CONTEXT record
-    from the Cdfs in memory data structures.  It should only be called
-    by CdCompleteRequest.
-
-Arguments:
-
-    IrpContext - Supplies the IRP_CONTEXT to remove
-
-Return Value:
-
-    None
-
---*/
-
-{
-    KIRQL SavedIrql;
-
-    DebugTrace(+1, Dbg, "CdDeleteIrpContext, IrpContext = %08lx\n", IrpContext);
-
-    ASSERT( IrpContext->NodeTypeCode == CDFS_NTC_IRP_CONTEXT );
-
-    //
-    //  Return the Irp context record to the zone or to pool depending on its flag
-    //
-
-    if (IrpContext->AllocFromPool) {
-
-        ExFreePool( IrpContext );
+        SetFlag( NewIrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
 
     } else {
 
-        KeAcquireSpinLock( &CdData.IrpContextSpinLock, &SavedIrql );
-
-        ExFreeToZone( &CdData.IrpContextZone, IrpContext );
-
-        KeReleaseSpinLock( &CdData.IrpContextSpinLock, SavedIrql );
+        SetFlag( NewIrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
     }
 
     //
     //  return and tell the caller
     //
 
-    DebugTrace(-1, Dbg, "CdDeleteIrpContext -> VOID\n", 0);
-
-    return;
+    return NewIrpContext;
 }
 
 
 VOID
-CdInitializeMvcb (
+CdCleanupIrpContext (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN PDEVICE_OBJECT TargetDeviceObject,
-    IN PVPB Vpb
+    IN BOOLEAN Post
     )
 
 /*++
 
 Routine Description:
 
-    This routine initializes and inserts a new Mvcb record into the in-memory
-    data structure.  The Mvcb record "hangs" off the end of the Volume device
-    object and must be allocated by our caller.
+    This routine is called to cleanup and possibly deallocate the Irp Context.
+    If the request is being posted or this Irp Context is possibly on the
+    stack then we only cleanup any auxilary structures.
 
 Arguments:
 
-    Mvcb - Supplies the address of the Mvcb record being initialized.
-
-    TargetDeviceObject - Supplies the address of the target device object to
-        associate with the Vcb record.
-
-    Vpb - Supplies the address of the Vpb to associate with the Vcb record.
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdInitializeMvcb: Mvcb = %08lx\n", Mvcb);
-
-    //
-    //  We start by first zeroing out all of the MVCB, this will guarantee
-    //  that any stale data is wiped clean.
-    //
-
-    RtlZeroMemory( Mvcb, sizeof( MVCB ));
-
-    //
-    //  Set the proper node type code and node byte size.
-    //
-
-    Mvcb->NodeTypeCode = CDFS_NTC_MVCB;
-    Mvcb->NodeByteSize = sizeof( MVCB );
-
-    //
-    //  Initialize the resource variable for the Mvcb.
-    //
-
-    ExInitializeResource( &Mvcb->Resource );
-
-    //
-    //  Insert this Mvcb record on the CdData.MvcbLinks
-    //
-
-    (VOID)CdAcquireExclusiveGlobal( IrpContext );
-    InsertHeadList( &CdData.MvcbLinks, &Mvcb->MvcbLinks );
-    CdReleaseGlobal( IrpContext );
-
-    //
-    //  Initialize the list link for Vcbs.
-    //
-
-    InitializeListHead( &Mvcb->VcbLinks );
-
-    //
-    //  Set the Target Device Object and Vpb fields.
-    //
-
-    Mvcb->TargetDeviceObject = TargetDeviceObject;
-    Mvcb->Vpb = Vpb;
-
-    InitializeListHead( &Mvcb->DirNotifyList );
-    FsRtlNotifyInitializeSync( &Mvcb->NotifySync );
-
-    //
-    //  Set the removable media flag based on the real device's
-    //  characteristics
-    //
-
-    if (FlagOn( Vpb->RealDevice->Characteristics, FILE_REMOVABLE_MEDIA )) {
-
-        SetFlag( Mvcb->MvcbState, MVCB_STATE_FLAG_REMOVABLE_MEDIA );
-    }
-
-    Mvcb->MvcbCondition = MvcbGood;
-
-    //
-    //  return and tell the caller
-    //
-
-    DebugTrace(-1, Dbg, "CdInitializeMvcb:  Complete\n", 0);
-
-    return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-VOID
-CdDeleteMvcb_Real (
-    IN PIRP_CONTEXT IrpContext,
-    IN PMVCB Mvcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine removes the Mvcb record from CDFS's in-memory data
-    structures.  It also will remove all associated underlings
-    (i.e., FCB records).
-
-Arguments:
-
-    Mvcb - Supplies the Mvcb to be removed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PLIST_ENTRY Link;
-    PLIST_ENTRY NextLink;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdDeleteMvcb:  Entered\n", 0);
-
-    //
-    //  Remove this record from the global list of all Mvcb records
-    //
-
-    (VOID)CdAcquireExclusiveGlobal( IrpContext );
-    RemoveEntryList( &Mvcb->MvcbLinks );
-    CdReleaseGlobal( IrpContext );
-
-    //
-    //  If direct access count or open count isn't zero then bugcheck.
-    //
-
-    if( Mvcb->DirectAccessOpenCount != 0
-        || Mvcb->OpenFileCount != 0) {
-
-        DebugTrace( 0, 0, "CdDeleteMvcb:  Invalid open count\n", 0 );
-        CdBugCheck( 0, 0, 0 );
-    }
-
-    //
-    //  Delete each Vcb in the Vcb link chain.
-    //
-
-    for( Link = Mvcb->VcbLinks.Flink;
-         Link != &Mvcb->VcbLinks;
-         Link = NextLink ) {
-
-        PVCB Vcb;
-
-        NextLink = Link->Flink;
-        Vcb = CONTAINING_RECORD( Link, VCB, VcbLinks );
-        CdDeleteVcb( IrpContext, Vcb );
-    }
-
-    //
-    //  Uninitialize the notify synchronization.
-    //
-
-    FsRtlNotifyUninitializeSync( &Mvcb->NotifySync );
-
-    //
-    //  Free the resource variable.
-    //
-
-    ExDeleteResource( &Mvcb->Resource );
-
-    //
-    //  Zero out the memory.
-    //
-
-    RtlZeroMemory( Mvcb, sizeof( MVCB ));
-
-    DebugTrace(-1, Dbg, "CdDeleteMvcb:  Exit\n", 0);
-    return;
-}
-
-
-VOID
-CdCreateVcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PMVCB Mvcb,
-    IN PRAW_ISO_VD RawIsoVd,
-    IN PCODEPAGE CodePage
-    )
-
-/*++
-
-Routine Description:
-
-    This routine creates a VCB and links it into the Mvcb.  It doesn't need
-    to know if this is for the primary or a secondary.  The information
-    it pulls out of the volume descriptor is the same in these cases.
-
-    This routine completes its task by taking the following steps.
-
-        1 - Allocate a VCB structure from paged-pool.  Zero out the
-            structure initially.  Allocate a non-paged section pointer
-            for the path table stream file.
-
-        2 - Initialize the Vcb links to the parent and point to the parent.
-
-        3 - Recover the logical block size and path table information
-            from the volume descriptor.
-
-        4 - Create the stream file for the Path Table.
-
-        5 - Initialize the Path Table cache.
-
-        6 - Initialize the FcbTable.
-
-        7 - Get the root directory information from the Path Table.
-
-        8 - Create the root DCB for the volume.
-
-    If any of these steps fail, the correct status code will be raised and
-    error handling will take care of cleanup.
-
-Arguments:
-
-    Mvcb -  The Mvcb for the volume in question.
-
-    RawIsoVd - The sector containing the volume descriptor in credit.
-
-    CodePage -  The code page to use in conjuction with the FsRtl
-                package.
-
-Return Value:
-
-    None
-
---*/
-
-
-{
-    PVCB Vcb;
-    BOOLEAN InsertNewVcb;
-    BOOLEAN IsoVol;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateVcb:  Entered\n", 0);
-
-    //
-    //  Initialize the local variables.
-    //
-
-    IsoVol = BooleanFlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
-    InsertNewVcb = FALSE;
-
-    //
-    //  Attempt to allocate the VCB structure from paged pool.
-    //
-
-    Vcb = FsRtlAllocatePool( PagedPool, sizeof( VCB ));
-
-    try {
-
-        //
-        //  Zero out the memory to remove stale data.
-        //
-
-        RtlZeroMemory( Vcb, sizeof( VCB ));
-
-        //
-        //  Set the proper node type code and node byte size.
-        //
-
-        Vcb->NodeTypeCode = CDFS_NTC_VCB;
-        Vcb->NodeByteSize = sizeof( VCB );
-
-        //
-        //  Initialize the prefix table.
-        //
-
-        PfxInitialize( &Vcb->PrefixTable );
-
-        //
-        //  Initilize the Fcb Table.
-        //
-
-        RtlInitializeGenericTable( &Vcb->FcbTable,
-                                   (PRTL_GENERIC_COMPARE_ROUTINE) CdFcbTableCompare,
-                                   (PRTL_GENERIC_ALLOCATE_ROUTINE) CdAllocateFcbTable,
-                                   (PRTL_GENERIC_FREE_ROUTINE) CdDeallocateFcbTable,
-                                   NULL );
-
-        //
-        //  Allocate the non-paged section object for the path table stream
-        //  file.
-        //
-
-        Vcb->NonPagedPt = CdCreateSectObj( IrpContext );
-
-        //
-        //  Initialize the code page information.
-        //
-
-        Vcb->CodePageNumber = CodePage->CodePageId;
-        Vcb->CodePage = CodePage;
-
-        //
-        //  Copy the logical block size and path table information
-        //  out of the volume descriptor.
-        //
-
-        Vcb->LogOfBlockSize = CdLogOf( RVD_LB_SIZE( RawIsoVd, IsoVol ));
-
-        Vcb->PtStartOffset = (RVD_PATH_LOC( RawIsoVd, IsoVol )) << Vcb->LogOfBlockSize;
-
-        Vcb->PtSectorOffset = Vcb->PtStartOffset & (CD_SECTOR_SIZE - 1);
-
-        Vcb->PtStartOffset = CD_ROUND_DOWN_TO_SECTOR( Vcb->PtStartOffset );
-
-        Vcb->PtSize = Vcb->PtSectorOffset + RVD_PATH_SIZE( RawIsoVd, IsoVol );
-
-        DebugTrace(0, Dbg, "CdCreateVcb:  PtStartOffset.LowPart   -> %08lx\n", Vcb->PtStartOffset);
-        DebugTrace(0, Dbg, "CdCreateVcb:  PtSize                  -> %08lx\n", Vcb->PtSize);
-
-        //
-        //  Create and initialize the path table stream file.
-        //
-
-        if ((Vcb->PathTableFile = IoCreateStreamFileObject( NULL,
-                                                            Mvcb->Vpb->RealDevice )) == NULL ) {
-
-            DebugTrace(0, 0, "CdCreateVcb:  PT Stream file failedx\n", 0);
-
-            CdRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
-        }
-
-        DebugTrace(0,
-                   Dbg,
-                   "CdCreateVcb:  Created Path Table stream file -> %08lx\n",
-                   Vcb->PathTableFile );
-
-        Vcb->PathTableFile->SectionObjectPointer = &Vcb->NonPagedPt->SegmentObject;
-
-        Vcb->PathTableFile->ReadAccess = Vcb->PathTableFile->WriteAccess
-                                       = Vcb->PathTableFile->DeleteAccess
-                                       = TRUE;
-
-        //
-        //  Set the pointer to the Mvcb before calling CdSetFileObject
-        //
-
-        Vcb->Mvcb = Mvcb;
-
-        CdSetFileObject( Vcb->PathTableFile, PathTableFile, Vcb, NULL );
-
-        DebugTrace(0, Dbg, "CdCreateVcb:  Set file object\n", 0);
-
-        //
-        //  Initialize the path table cache.
-        //
-
-        {
-            CC_FILE_SIZES FileSizes;
-
-            FileSizes.AllocationSize =
-            FileSizes.FileSize = LiFromUlong(CD_ROUND_UP_TO_SECTOR( Vcb->PtSize));
-            FileSizes.ValidDataLength = CdMaxLarge;
-
-            CcInitializeCacheMap( Vcb->PathTableFile,
-                                  &FileSizes,
-                                  TRUE,
-                                  &CdData.CacheManagerCallbacks,
-                                  NULL );
-        }
-
-        DebugTrace(0, Dbg, "CdCreateVcb:  Initialized cache map\n", 0);
-
-        //
-        //  Initialize the Vcb links with the master Vcb
-        //
-
-        (VOID)CdAcquireExclusiveGlobal( IrpContext );
-        InsertTailList( &Mvcb->VcbLinks, &Vcb->VcbLinks );
-        CdReleaseGlobal( IrpContext );
-
-        InsertNewVcb = TRUE;
-
-        //
-        //  Create the root directory for this Vcb.
-        //
-
-        CdCreateRootDcb( IrpContext, Vcb, RawIsoVd );
-
-    } finally {
-
-        //
-        //  If we did not get to the point where the Vcb was inserted into
-        //  the list of Vcbs for the Mvcb, then we back out any changes.
-        //
-
-        if (!InsertNewVcb) {
-
-            DebugTrace(0, 0, "CdCreateVcb:  Operation failed\n", 0);
-
-            //
-            //  Check if the stream file was created.
-            //
-
-            if (Vcb->PathTableFile != NULL) {
-
-                ObDereferenceObject( Vcb->PathTableFile );
-            }
-
-            //
-            //  Check if the section object was allocated
-            //
-
-            if (Vcb->NonPagedPt != NULL) {
-
-                ExFreePool( Vcb->NonPagedPt );
-            }
-
-            //
-            //  Deallocate the Vcb
-            //
-
-            ExFreePool( Vcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdCreateVcb:  Exit\n", 0);
-    }
-
-    return;
-}
-
-
-VOID
-CdDeleteVcb_Real (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine removes the Vcb record from CDFS's in-memory data
-    structures.  It also will remove all associated underlings
-    (i.e., FCB records).
-
-Arguments:
-
-    Vcb - Supplies the Vcb to be removed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdDeleteVcb:  Vcb = %08lx\n", Vcb);
-
-    //
-    //  Delete the root DCB if it exists.
-    //
-
-    if ( Vcb->RootDcb != NULL ) {
-
-        ASSERT( IsListEmpty( &Vcb->RootDcb->Specific.Dcb.ParentDcbLinks ));
-        ASSERT( Vcb->RootDcb->OpenCount == 0 );
-
-        //
-        //  Remove the stream file if present.
-        //
-
-        if (Vcb->RootDcb->Specific.Dcb.StreamFile != NULL) {
-
-            PFILE_OBJECT FileObject;
-
-            FileObject = Vcb->RootDcb->Specific.Dcb.StreamFile;
-
-            Vcb->RootDcb->Specific.Dcb.StreamFile = NULL;
-            Vcb->RootDcb->Specific.Dcb.StreamFileOpenCount = 0;
-
-            CdSyncUninitializeCacheMap( IrpContext, FileObject );
-
-            CdSetFileObject( FileObject,
-                             UnopenedFileObject,
-                             NULL,
-                             NULL );
-
-            ObDereferenceObject( FileObject );
-        }
-
-        CdDeleteFcb( IrpContext, Vcb->RootDcb );
-    }
-
-    //
-    //  If there is a path table file, then uninitialize and dereference
-    //  it.
-    //
-
-    if (Vcb->PathTableFile) {
-
-        PFILE_OBJECT FileObject;
-
-        FileObject = Vcb->PathTableFile;
-
-        Vcb->PathTableFile = NULL;
-
-        CdSyncUninitializeCacheMap( IrpContext, FileObject );
-
-        CdSetFileObject( FileObject, UnopenedFileObject, NULL, NULL );
-        ObDereferenceObject( FileObject );
-
-        //
-        //  Delete the non-paged section object.
-        //
-
-        CdDeleteSectObj( IrpContext, Vcb->NonPagedPt );
-    }
-
-    //
-    //  Zero out the data and deallocate the memory.
-    //
-
-    RtlZeroMemory( Vcb, sizeof( VCB ));
-    ExFreePool( Vcb );
-
-    DebugTrace(-1, Dbg, "CdDeleteVcb:  Exit\n", 0);
-
-    return;
-}
-
-
-VOID
-CdCreateRootDcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PVCB Vcb,
-    IN PRAW_ISO_VD RawIsoVd
-    )
-
-/*++
-
-Routine Description:
-
-    This routine allocates, initializes, and inserts a new root DCB record
-    into the in memory data structure.
-
-Arguments:
-
-    Vcb - Supplies the Vcb to associate the new DCB under
-
-    RawIsoVd - Supplies a pointer to the raw volume descriptor for this
-               directory tree.
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PDCB Dcb;
-    PBCB Bcb;
-
-    BOOLEAN AllocationSuccess;
-    BOOLEAN CacheFileInit;
-    BOOLEAN IsoVol;
-
-    PCHAR Name;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateRootDcb, Vcb = %08lx\n", Vcb);
-
-    //
-    //  Initialize the local variables.
-    //
-
-    CacheFileInit = FALSE;
-    AllocationSuccess = FALSE;
-    Name = NULL;
-    Bcb = NULL;
-    IsoVol = BooleanFlagOn( Vcb->Mvcb->MvcbState, MVCB_STATE_FLAG_ISO_VOLUME );
-
-    //
-    //  Make sure we don't already have a root dcb for this vcb
-    //
-
-    if (Vcb->RootDcb != NULL) {
-
-        DebugTrace( 0, 0, "Error trying to create multiple root dcbs\n", 0 );
-        CdBugCheck( 0, 0, 0 );
-    }
-
-    //
-    //  Allocate a new DCB and zero it out, we use Dcb locally so we don't
-    //  have to continually reference through the Vcb
-    //
-
-    Dcb = FsRtlAllocatePool( PagedPool, sizeof( DCB ));
-
-    RtlZeroMemory( Dcb, sizeof( DCB ));
-
-    //
-    //  Set the proper node type code and node byte size
-    //
-
-    Dcb->NodeTypeCode = CDFS_NTC_ROOT_DCB;
-    Dcb->NodeByteSize = sizeof( DCB );
-
-    //
-    //  Use a try finally to facilitate cleanup.
-    //
-
-    try {
-
-        PATH_ENTRY PathEntry;
-        DIRENT Dirent;
-
-        //
-        //  Allocate and store the root directory name.
-        //
-
-        Name = FsRtlAllocatePool( PagedPool, 2 );
-
-        strcpy( &Name[0], "\\" );
-        RtlInitString( &Dcb->FullFileName, Name );
-        RtlInitString( &Dcb->LastFileName, Name );
-
-        //
-        //  Insert this dcb into the prefix table
-        //
-
-        CdInsertPrefix( IrpContext, Vcb, (PFCB) Dcb );
-
-        //
-        //  The root Dcb has an empty parent dcb links field but may
-        //  have children
-        //
-
-        InitializeListHead( &Dcb->ParentDcbLinks );
-        InitializeListHead( &Dcb->Specific.Dcb.ParentDcbLinks );
-
-        //
-        //  At this point we have initialized the Dcb to the point where
-        //  if later errors occur we can clean up as the Mvcb is performing
-        //  cleanup.
-        //
-
-        AllocationSuccess = TRUE;
-
-        //
-        //  Attach this Dcb to the Vcb.
-        //
-
-        Vcb->RootDcb = Dcb;
-        Dcb->Vcb = Vcb;
-
-        //
-        //  Allocate the non-paged block for the section object and
-        //  the Dcb resource.
-        //
-
-        Dcb->NonPagedFcb = CdCreateSectObj( IrpContext );
-        Dcb->NonPagedFcb->Fcb = (PFCB) Dcb;
-
-        //
-        //  We now need to determine the location and size of the
-        //  root directory on the disk.  We will look up the root
-        //  in the path table and then verify the results with the
-        //  copy of the root directory in the volume descriptor.
-        //  We will determine the complete allocation for this
-        //  and update the Mcb's as needed.
-        //
-
-        if(!CdPathByNumber( IrpContext,
-                            Vcb,
-                            PT_ROOT_DIR,
-                            PT_ROOT_DIR,
-                            Vcb->PtSectorOffset,
-                            &PathEntry,
-                            &Bcb )) {
-
-            DebugTrace(0, Dbg, "CdCreateRootDcb:  Path entry for root not found\n", 0);
-            CdRaiseStatus( IrpContext, STATUS_OBJECT_PATH_NOT_FOUND );
-        }
-
-        Dcb->Specific.Dcb.DirectoryNumber = PathEntry.DirectoryNumber;
-
-        Dcb->Specific.Dcb.ChildSearchOffset = PathEntry.PathTableOffset;
-        Dcb->Specific.Dcb.ChildStartDirNumber = PathEntry.DirectoryNumber;
-
-        //
-        //  Verify that this is the root directory.
-        //
-        //
-        //  if (PathEntry.ParentNumber != PT_ROOT_DIR
-        //      || PathEntry.DirName.Length != 1
-        //      || (*PathEntry.DirName.Buffer != '\\'
-        //          && *PathEntry.DirName.Buffer != '/')) {
-        //
-        //      DebugTrace(0, Dbg, "CdCreateRootDcb:  Path Table has bad entry for root\n", 0);
-        //      CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
-        //  }
-        //
-
-        //
-        //  Get the dirent for the root directory from the volume descriptor,
-        //  then compare it with the path table information.
-        //
-
-        CdCopyRawDirentToDirent( IrpContext,
-                                 IsoVol,
-                                 (PRAW_DIR_REC) (RVD_ROOT_DE( RawIsoVd, IsoVol )),
-                                 0,
-                                 &Dirent );
-
-        if (Dirent.LogicalBlock != PathEntry.LogicalBlock
-            || Dirent.XarBlocks != PathEntry.XarBlocks ) {
-
-            DebugTrace(0, Dbg, "CdCreateRootDcb:  Root DE in vol de is bad\n", 0);
-            CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
-        }
-
-        //
-        //  Verify that the dirent describes a directory.
-        //  ****  NOOP this because of HSG sierra disk with incorrect flag
-        //  field.
-        //
-        //
-        //  if (!CdCheckDiskDirentForDir( IrpContext, Dirent )) {
-        //
-        //      DebugTrace(0, Dbg, "CdCreateRootDcb:  Root DE describes non-dir\n", 0);
-        //      CdRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
-        //  }
-        //
-
-        //
-        //  Update the Dcb with the information from the disk dirent.
-        //
-
-        CdConvertCdTimeToNtTime( IrpContext, Dirent.CdTime, Dcb->NtTime );
-
-        Dcb->Flags = Dirent.Flags;
-
-        //
-        //  Compute the directory size and location.
-        //
-
-        Dcb->DiskOffset = (Dirent.LogicalBlock + Dirent.XarBlocks)
-                          << Vcb->LogOfBlockSize;
-
-        Dcb->Specific.Dcb.DirSectorOffset = Dcb->DiskOffset & (CD_SECTOR_SIZE - 1);
-        Dcb->DirentOffset = Dcb->Specific.Dcb.DirSectorOffset;
-
-        Dcb->FileSize = Dirent.DataLength + Dcb->Specific.Dcb.DirSectorOffset;
-
-        Dcb->DiskOffset = CD_ROUND_DOWN_TO_SECTOR( Dcb->DiskOffset );
-
-        //
-        //  Now we update the fields in the common fsrtl header.
-        //
-
-        Dcb->NonPagedFcb->Header.FileSize = LiFromUlong( Dcb->FileSize );
-        Dcb->NonPagedFcb->Header.ValidDataLength = CdMaxLarge;
-        Dcb->NonPagedFcb->Header.AllocationSize =
-            LiFromUlong( CD_ROUND_UP_TO_SECTOR( Dcb->FileSize ));
-
-
-        //
-        //  We're now ready to create the directory stream file.
-        //
-
-        if ((Dcb->Specific.Dcb.StreamFile = IoCreateStreamFileObject( NULL, Vcb->Mvcb->Vpb->RealDevice )) == NULL ) {
-
-            DebugTrace(0, Dbg, "CdCreateRootDcb:  Unable to create stream file\n", 0);
-            CdRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
-        }
-
-        CacheFileInit = TRUE;
-
-        Dcb->Specific.Dcb.StreamFileOpenCount = 1;
-        Dcb->Specific.Dcb.StreamFile->SectionObjectPointer = &Dcb->NonPagedFcb->SegmentObject;
-
-        Dcb->Specific.Dcb.StreamFile->ReadAccess = TRUE;
-        Dcb->Specific.Dcb.StreamFile->WriteAccess = TRUE;
-        Dcb->Specific.Dcb.StreamFile->DeleteAccess = TRUE;
-
-        CdSetFileObject( Dcb->Specific.Dcb.StreamFile,
-                         StreamFile,
-                         Dcb,
-                         NULL );
-
-        {
-            CcInitializeCacheMap( Dcb->Specific.Dcb.StreamFile,
-                                  (PCC_FILE_SIZES)&Dcb->NonPagedFcb->Header.AllocationSize,
-                                  TRUE,
-                                  &CdData.CacheManagerCallbacks,
-                                  NULL );
-        }
-
-        CdBuildFileId( IrpContext,
-                       TRUE,
-                       PT_ROOT_DIR,
-                       0,
-                       &Dcb->FileId );
-
-        try_return( NOTHING );
-
-    try_exit: NOTHING;
-    } finally {
-
-        if (AbnormalTermination()) {
-
-            //
-            //  If we allocated the stream file but failed on cache
-            //  initialization.  We dereference the stream file object.
-            //
-
-            if (AllocationSuccess) {
-
-                if (CacheFileInit) {
-
-                    ObDereferenceObject( Dcb->Specific.Dcb.StreamFile );
-                }
-
-            } else {
-
-                //
-                //  Discard the buffer for the file name.
-                //
-
-                if (Name != NULL) {
-
-                    ExFreePool( Name );
-                }
-
-                //
-                //  Discard the Dcb itself.
-                //
-
-                ExFreePool( Dcb );
-            }
-        }
-
-        //
-        //  Unpin the Bcb for the path table.
-        //
-
-        if (Bcb != NULL) {
-
-            CdUnpinBcb( IrpContext, Bcb );
-        }
-
-        DebugTrace(-1, Dbg, "CdCreateRootDcb -> %8lx\n", Dcb);
-    }
-
-    return;
-}
-
-
-PFCB
-CdCreateFcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PDCB ParentDcb,
-    IN PDIRENT Dirent,
-    IN BOOLEAN MatchedVersion,
-    OUT PBOOLEAN ReturnedExistingFcb OPTIONAL,
-    IN BOOLEAN OpenedByFileId
-    )
-
-/*++
-
-Routine Description:
-
-    This routine allocates, initializes, and inserts a new FCB record
-    into the in memory data structure.
-
-Arguments:
-
-    Vcb - Supplies the Vcb to associate the new Fcb under
-
-    ParentDcb - Supplies the Dcb for the parent of the new Fcb.
-
-    Dirent - Supplies a pointer to the dirent structure for the Fcb.
-
-    MatchedVersion - Indicates whether base name or entire name needed
-                     for match.
-
-    ReturnedExistingFcb - Address to return whether we returned an existing Fcb.
-
-    OpenedByFileFileId - Indicates that we are to treat this open as though
-                         it was opened by file Id.  Indicates that it is
-                         relative to some other open by file Id.
-
-Return Value:
-
-    PFCB - Pointer to the newly created and initialized Fcb.
-
---*/
-
-{
-    LARGE_INTEGER FileId;
-    PFCB Fcb;
-    BOOLEAN UnwindFcb = FALSE;
-    POPLOCK UnwindOplock = NULL;
-    PFILE_LOCK UnwindFileLock = NULL;
-    PNONPAGED_SECT_OBJ UnwindNonPagedSectObj = NULL;
-    PCHAR UnwindFullName = NULL;
-    BOOLEAN UnwindInsertTableEntry = FALSE;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateFcb:  Entered\n", 0);
-
-    //
-    // Before creating a new Fcb, first lookup this file by FileId.
-    // If we find a match, just give it a name (and as a side effect,
-    // enter into the prefix table)...
-    //
-
-    CdBuildFileId( IrpContext,
-                   FALSE,
-                   ParentDcb->Specific.Dcb.DirectoryNumber,
-                   Dirent->DirentOffset,
-                   &FileId );
-
-    Fcb = CdLookupFcbTable( IrpContext, &Vcb->FcbTable, FileId );
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  If we didn't find the Fcb, we need to go through the process of creating
-        //  and initializing it.
-        //
-
-        if (Fcb == NULL) {
-
-            //
-            //  Allocate a new Fcb and zero it out.
-            //
-
-            Fcb = FsRtlAllocatePool( PagedPool, sizeof( FCB ));
-            UnwindFcb = TRUE;
-
-            RtlZeroMemory( Fcb, sizeof( FCB ));
-
-            //
-            //  Set the proper node type code and node byte size
-            //
-
-            Fcb->NodeTypeCode = CDFS_NTC_FCB;
-            Fcb->NodeByteSize = sizeof( FCB );
-
-            //
-            //  Store the Fcb in the parent's queue.
-            //
-
-            InsertTailList( &ParentDcb->Specific.Dcb.ParentDcbLinks,
-                            &Fcb->ParentDcbLinks );
-
-            //
-            //  Initialize the Fcb's file lock record
-            //
-
-            FsRtlInitializeFileLock( &Fcb->Specific.Fcb.FileLock, NULL, NULL );
-            UnwindFileLock = &Fcb->Specific.Fcb.FileLock;
-
-            //
-            //  Initialize the oplock structure.
-            //
-
-            FsRtlInitializeOplock( &Fcb->Specific.Fcb.Oplock );
-            UnwindOplock = &Fcb->Specific.Fcb.Oplock;
-
-            //
-            //  Allocate the non-paged pool section object.
-            //
-
-            UnwindNonPagedSectObj = CdCreateSectObj( IrpContext );
-            UnwindNonPagedSectObj->Fcb = Fcb;
-
-            //
-            //  Indicate that Fast I/O is possible
-            //
-
-            UnwindNonPagedSectObj->Header.IsFastIoPossible = TRUE;
-
-            //
-            //  Update the values in the Fcb.
-            //
-
-            Fcb->NonPagedFcb = UnwindNonPagedSectObj;
-
-            Fcb->Vcb = Vcb;
-
-            //
-            //  Compute the file size and location.
-            //
-
-            Fcb->DiskOffset = (Dirent->LogicalBlock + Dirent->XarBlocks)
-                              << Vcb->LogOfBlockSize;
-
-            Fcb->DirentOffset = Dirent->DirentOffset;
-
-            Fcb->FileSize = Dirent->DataLength;
-
-            UnwindNonPagedSectObj->Header.FileSize = LiFromUlong( Fcb->FileSize );
-            UnwindNonPagedSectObj->Header.ValidDataLength = UnwindNonPagedSectObj->Header.FileSize;
-            UnwindNonPagedSectObj->Header.AllocationSize =
-                LiFromUlong( CD_ROUND_UP_TO_SECTOR (Fcb->FileSize ));
-
-            //
-            //  Do the flags and time fields.
-            //
-
-            CdConvertCdTimeToNtTime( IrpContext, Dirent->CdTime, Fcb->NtTime );
-
-            Fcb->Flags = Dirent->Flags;
-
-            Fcb->FileId = FileId;
-
-            CdInsertFcbTableEntry( IrpContext, Vcb, Fcb, FileId );
-            UnwindInsertTableEntry = TRUE;
-
-            if (ARGUMENT_PRESENT( ReturnedExistingFcb )) {
-
-                *ReturnedExistingFcb = FALSE;
-            }
-
-        } else {
-
-            if (ARGUMENT_PRESENT( ReturnedExistingFcb )) {
-
-                *ReturnedExistingFcb = TRUE;
-            }
-        }
-
-        //
-        //  We are done if we are opening by file Id.  Otherwise
-        //  we need to check if we have to add the name into the
-        //  Fcb.
-        //
-
-        if (!OpenedByFileId
-            && Fcb->FullFileName.Length == 0) {
-
-            ULONG FileLength;
-            ULONG LastNameIndex;
-
-            //
-            //  Allocate a buffer to store the directory name.
-            //
-
-            FileLength = MatchedVersion ? Dirent->FullFilename.Length : Dirent->Filename.Length;
-
-            if (NodeType( ParentDcb ) != CDFS_NTC_ROOT_DCB) {
-
-                ULONG PrefixLength;
-
-                PrefixLength = ParentDcb->FullFileName.Length;
-
-                UnwindFullName = FsRtlAllocatePool( PagedPool, PrefixLength + FileLength + 2 );
-
-                strncpy( UnwindFullName,
-                         ParentDcb->FullFileName.Buffer,
-                         PrefixLength );
-
-                UnwindFullName[PrefixLength] = '\\';
-
-                LastNameIndex = PrefixLength + 1;
-
-            } else {
-
-                UnwindFullName = FsRtlAllocatePool( PagedPool, FileLength + 2 );
-
-                UnwindFullName[0] = '\\';
-
-                LastNameIndex = 1;
-            }
-
-            strncpy( &UnwindFullName[LastNameIndex],
-                     MatchedVersion ? Dirent->FullFilename.Buffer : Dirent->Filename.Buffer,
-                     FileLength );
-
-            UnwindFullName[LastNameIndex + FileLength] = '\0';
-
-            RtlInitString( &Fcb->FullFileName, UnwindFullName );
-            RtlInitString( &Fcb->LastFileName, &UnwindFullName[LastNameIndex] );
-
-            //
-            //  Insert this Fcb into the prefix table
-            //
-
-            CdInsertPrefix( IrpContext, Fcb->Vcb, Fcb );
-        }
-
-        //
-        //  Point at the parent Dcb.
-        //
-
-        Fcb->ParentDcb = (struct _DCB *) ParentDcb;
-
-    } finally {
-
-        DebugTrace( -1, Dbg, "CdCreateFcb -> %08lx\n", Fcb );
-
-        if (AbnormalTermination()) {
-
-            //
-            //  We may have to cleanup this Fcb.
-            //
-
-            if (UnwindFullName != NULL) {
-
-                ExFreePool( UnwindFullName );
-            }
-
-            if (UnwindFcb) {
-
-                //
-                //  We know that we need to remove this from the parent.
-                //
-
-                RemoveEntryList( &Fcb->ParentDcbLinks );
-
-                if (UnwindInsertTableEntry) {
-
-                    CdDeleteFcbTableEntry( IrpContext, Vcb, FileId );
-                }
-
-                if (UnwindNonPagedSectObj != NULL) {
-
-                    ExFreePool( UnwindNonPagedSectObj );
-                }
-
-                if (UnwindOplock) {
-
-                    FsRtlUninitializeOplock( &Fcb->Specific.Fcb.Oplock );
-                }
-
-                if (UnwindFileLock) {
-
-                    FsRtlUninitializeFileLock( &Fcb->Specific.Fcb.FileLock );
-                }
-
-                ExFreePool( Fcb );
-            }
-        }
-    }
-
-    return Fcb;
-}
-
-
-PDCB
-CdCreateDcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PDCB ParentDcb OPTIONAL,
-    IN PPATH_ENTRY PathEntry,
-    IN PDIRENT Dirent OPTIONAL,
-    OUT PBOOLEAN ReturnedExistingDcb OPTIONAL,
-    IN BOOLEAN OpenedByFileId
-    )
-
-/*++
-
-Routine Description:
-
-    This routine causes a path based DCB to generated.
-
-    This may involve allocating, initializing, and inserting a new DCB record
-    into the in memory data structure, or just giving a FileId based DCB
-    a name, and linking it into the Prefix table.
-
-    This routine may be called with only 'PathEntry' if the directory is
-    not being opened, or both 'PathEntry' and 'Dirent' if the directory
-    is being opened.
-
-Arguments:
-
-    Vcb - Supplies the Vcb to associate the new DCB under
-
-    ParentDcb - Supplies the Dcb for the parent of the new Dcb.  May not be here
-                for an open by file Id operation.
-
-    PathEntry - Supplies a pointer to the path entry for the Dcb if
-                this part of the ancestry of a subdirectory to open.
-
-    Dirent - Supplies a pointer to the dirent structure for the Dcb.
-
-    ReturnedExistingDcb - Address to return whether we returned an existing Dcb.
-
-    OpenedByFileFileId - Indicates that we are to treat this open as though
-                         it was opened by file Id.  Indicates that it is
-                         relative to some other open by file Id.
-
-Return Value:
-
-    PDCB - Pointer to the newly created and initialized Dcb.
-
---*/
-{
-    LARGE_INTEGER FileId;
-    PDCB Dcb;
-    BOOLEAN UnwindDcb = FALSE;
-    PNONPAGED_SECT_OBJ UnwindNonPagedSectObj = NULL;
-    PCHAR UnwindFullName = NULL;
-    BOOLEAN UnwindInsertTableEntry = FALSE;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateDcb:  Entered\n", 0);
-
-    //
-    // Before creating a new Dcb, first lookup this file by FileId.
-    // If we find a match, just give it a name (and as a side effect,
-    // enter into the prefix table)...
-    //
-
-    CdBuildFileId( IrpContext,
-                   TRUE,
-                   PathEntry->DirectoryNumber,
-                   0,
-                   &FileId );
-
-    Dcb = CdLookupFcbTable( IrpContext, &Vcb->FcbTable, FileId );
-
-    //
-    //  Use a try-finally to facilitate cleanup.
-    //
-
-    try {
-
-        //
-        //  If we didn't find the Dcb, we need to go through the process of creating
-        //  and initializing it.
-        //
-
-        if (Dcb == NULL) {
-
-            //
-            //  Allocate a new Dcb and zero it out.
-            //
-
-            Dcb = FsRtlAllocatePool( PagedPool, sizeof( DCB ));
-            UnwindDcb = TRUE;
-
-            RtlZeroMemory( Dcb, sizeof( DCB ));
-
-            //
-            //  Set the proper node type code and node byte size
-            //
-
-            Dcb->NodeTypeCode = CDFS_NTC_DCB;
-            Dcb->NodeByteSize = sizeof( DCB );
-
-            //
-            //  Store the Dcb in the parent's queue.
-            //
-
-            if (ARGUMENT_PRESENT( ParentDcb )) {
-
-                InsertTailList( &ParentDcb->Specific.Dcb.ParentDcbLinks,
-                                &Dcb->ParentDcbLinks );
-            }
-
-            //
-            //  Allocate the non-paged pool section object.
-            //
-
-            UnwindNonPagedSectObj = CdCreateSectObj( IrpContext );
-            UnwindNonPagedSectObj->Fcb = Dcb;
-
-            //
-            //  Update the values in the Dcb.
-            //
-
-            Dcb->NonPagedFcb = UnwindNonPagedSectObj;
-
-            Dcb->Vcb = Vcb;
-
-            //
-            //  Compute the directory size and location.
-            //
-
-            Dcb->DiskOffset = (PathEntry->LogicalBlock + PathEntry->XarBlocks)
-                             << Vcb->LogOfBlockSize;
-
-            Dcb->Specific.Dcb.DirSectorOffset = Dcb->DiskOffset & (CD_SECTOR_SIZE - 1);
-            Dcb->DirentOffset = Dcb->Specific.Dcb.DirSectorOffset;
-
-            Dcb->DiskOffset = CD_ROUND_DOWN_TO_SECTOR( Dcb->DiskOffset );
-
-            //
-            //  Compute the various cache and allocation sizes if a dirent
-            //  has been specified.
-            //
-
-            if (ARGUMENT_PRESENT( Dirent )) {
-
-                Dcb->FileSize = Dirent->DataLength + Dcb->Specific.Dcb.DirSectorOffset;
-
-                //
-                //  Now we update the fields in the common fsrtl header.
-                //
-
-                Dcb->NonPagedFcb->Header.FileSize = LiFromUlong( Dcb->FileSize );
-                Dcb->NonPagedFcb->Header.ValidDataLength = Dcb->NonPagedFcb->Header.FileSize;
-                Dcb->NonPagedFcb->Header.AllocationSize =
-                    LiFromUlong( CD_ROUND_UP_TO_SECTOR( Dcb->FileSize ));
-
-                //
-                //  Do the flags and time fields.
-                //
-
-                CdConvertCdTimeToNtTime( IrpContext, Dirent->CdTime, Dcb->NtTime );
-
-                Dcb->Flags = Dirent->Flags;
-            }
-
-
-            //
-            //  Update the Dcb specific fields.
-            //
-
-            Dcb->Specific.Dcb.DirectoryNumber = PathEntry->DirectoryNumber;
-            Dcb->Specific.Dcb.ChildStartDirNumber = PathEntry->DirectoryNumber;
-            Dcb->Specific.Dcb.ChildSearchOffset = PathEntry->PathTableOffset;
-
-            InitializeListHead( &Dcb->Specific.Dcb.ParentDcbLinks );
-
-            Dcb->FileId = FileId;
-
-            CdInsertFcbTableEntry( IrpContext, Vcb, Dcb, FileId );
-            UnwindInsertTableEntry = TRUE;
-
-            if (ARGUMENT_PRESENT( ReturnedExistingDcb )) {
-
-                *ReturnedExistingDcb = FALSE;
-            }
-
-        } else {
-
-            if (ARGUMENT_PRESENT( ReturnedExistingDcb )) {
-
-                *ReturnedExistingDcb = TRUE;
-            }
-        }
-
-        //
-        //  We are done if we are opening by file Id.  Otherwise
-        //  we need to check if we have to add the name into the
-        //  Dcb.
-        //
-
-        if (!OpenedByFileId
-            && Dcb->FullFileName.Length == 0) {
-
-            ULONG FileLength;
-            ULONG LastNameIndex;
-
-            //
-            //  Allocate a buffer to store the directory name.
-            //
-
-            FileLength = PathEntry->DirName.Length;
-
-            if (NodeType( ParentDcb ) != CDFS_NTC_ROOT_DCB) {
-
-                ULONG PrefixLength;
-
-                PrefixLength = ParentDcb->FullFileName.Length;
-
-                UnwindFullName = FsRtlAllocatePool( PagedPool, PrefixLength + FileLength + 2 );
-
-                strncpy( UnwindFullName,
-                         ParentDcb->FullFileName.Buffer,
-                         PrefixLength );
-
-                UnwindFullName[PrefixLength] = '\\';
-
-                LastNameIndex = PrefixLength + 1;
-
-            } else {
-
-                UnwindFullName = FsRtlAllocatePool( PagedPool, FileLength + 2 );
-
-                UnwindFullName[0] = '\\';
-
-                LastNameIndex = 1;
-            }
-
-            strncpy( &UnwindFullName[LastNameIndex],
-                     PathEntry->DirName.Buffer,
-                     FileLength );
-
-            UnwindFullName[LastNameIndex + FileLength] = '\0';
-
-            RtlInitString( &Dcb->FullFileName, UnwindFullName );
-            RtlInitString( &Dcb->LastFileName, &UnwindFullName[LastNameIndex] );
-
-            //
-            //  Insert this Dcb into the prefix table
-            //
-
-            CdInsertPrefix( IrpContext, Dcb->Vcb, Dcb );
-        }
-
-        //
-        //  Point at the parent Dcb.
-        //
-
-        Dcb->ParentDcb = (struct _DCB *) ParentDcb;
-
-    } finally {
-
-        DebugTrace( -1, Dbg, "CdCreateDcb -> %08lx\n", Dcb );
-
-        if (AbnormalTermination()) {
-
-            //
-            //  We may have to cleanup this Dcb.
-            //
-
-            if (UnwindFullName != NULL) {
-
-                ExFreePool( UnwindFullName );
-            }
-
-            if (UnwindDcb) {
-
-                //
-                //  We know that we need to remove this from the parent.
-                //
-
-                RemoveEntryList( &Dcb->ParentDcbLinks );
-
-                if (UnwindInsertTableEntry) {
-
-                    CdDeleteFcbTableEntry( IrpContext, Vcb, FileId );
-                }
-
-                if (UnwindNonPagedSectObj != NULL) {
-
-                    ExFreePool( UnwindNonPagedSectObj );
-                }
-
-                ExFreePool( Dcb );
-            }
-        }
-    }
-
-    return Dcb;
-}
-
-
-VOID
-CdDeleteFcb_Real (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine removes the Fcb record from CDFS's in-memory data
-    structures.  It also will remove all associated underlings.
-
-Arguments:
-
-    Fcb - Supplies the Fcb/Dcb to be removed
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdDeleteFcb:  Fcb = %08lx\n", Fcb);
-
-    //
-    //  Check that the open count is 0.
-    //
-
-    if (Fcb->OpenCount != 0) {
-
-        DebugTrace( 0, 0, "CdDeleteFcb:  Invalid open count\n", 0 );
-        CdBugCheck( 0, 0, 0 );
-    }
-
-    //
-    //  If this is a DCB then check that it has no stream file or children.
-    //
-
-    if ((Fcb->NodeTypeCode == CDFS_NTC_DCB) ||
-        (Fcb->NodeTypeCode == CDFS_NTC_ROOT_DCB)) {
-
-        ASSERT( Fcb->Specific.Dcb.StreamFileOpenCount == 0 );
-        ASSERT( IsListEmpty(&Fcb->Specific.Dcb.ParentDcbLinks) );
-
-    } else {
-
-        //
-        //  Uninitialize the byte range file locks and opportunistic locks
-        //
-
-        FsRtlUninitializeFileLock( &Fcb->Specific.Fcb.FileLock );
-        FsRtlUninitializeOplock( &Fcb->Specific.Fcb.Oplock );
-    }
-
-    //
-    //  Remove the entry from the prefix table, and then remove the full
-    //  file name
-    //
-
-    if (Fcb->FullFileName.Buffer) {
-
-
-        CdRemovePrefix( IrpContext, Fcb );
-        ExFreePool( Fcb->FullFileName.Buffer );
-    }
-
-    //
-    //  Remove the entry from the Fcb table.
-    //
-
-    CdDeleteFcbTableEntry( IrpContext, Fcb->Vcb, Fcb->FileId );
-
-    //
-    //  If not the root DCB, remove ourselves from our parents queue.
-    //
-
-    if (Fcb->NodeTypeCode != CDFS_NTC_ROOT_DCB) {
-
-        RemoveEntryList( &Fcb->ParentDcbLinks );
-    }
-
-    //
-    //  Deallocate the non-paged portion.
-    //
-
-    CdDeleteSectObj( IrpContext, Fcb->NonPagedFcb );
-
-    //
-    //  Zero out the structure and deallocate.
-    //
-
-    RtlZeroMemory( Fcb, sizeof( FCB ));
-    ExFreePool( Fcb );
-
-    DebugTrace(-1, Dbg, "CdDeleteFcb:  Exit\n", 0);
-
-    return;
-}
-
-
-PCCB
-CdCreateCcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN CD_VBO OffsetToStartSearchFrom,
-    IN ULONG Flags
-    )
-
-/*++
-
-Routine Description:
-
-    This routine creates a new CCB record
-
-Arguments:
-
-    OffsetToStartSearchFrom - Offset in the directory for the next dirent
-                              to examine with query directory.
-
-    Flags - Initial value for the Ccb flags.
-
-Return Value:
-
-    CCB - returns a pointer to the newly allocate CCB
-
---*/
-
-{
-    PCCB Ccb;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateCcb:  Entered\n", 0);
-
-    //
-    //  Allocate a new CCB Record
-    //
-
-    Ccb = FsRtlAllocatePool( PagedPool, sizeof(CCB) );
-
-    RtlZeroMemory( Ccb, sizeof(CCB) );
-
-    //
-    //  Set the proper node type code and node byte size
-    //
-
-    Ccb->NodeTypeCode = CDFS_NTC_CCB;
-    Ccb->NodeByteSize = sizeof(CCB);
-
-    //
-    //  Get the initial value for the flags.
-    //
-
-    Ccb->Flags = Flags;
-
-    //
-    //  Set the offset value.
-    //
-
-    Ccb->OffsetToStartSearchFrom = OffsetToStartSearchFrom;
-
-    SetFlag( Ccb->Flags, CCB_FLAGS_RETURN_FIRST_DIRENT );
-
-    //
-    //  return and tell the caller
-    //
-
-    DebugTrace(-1, Dbg, "CdCreateCcb:  Exit -> %08lx\n", Ccb);
-
-    return Ccb;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-VOID
-CdDeleteCcb_Real (
-    IN PIRP_CONTEXT IrpContext,
-    IN PCCB Ccb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine deallocates and removes the specified CCB record
-    from the Cdfs in memory data structures
-
-Arguments:
-
-    Ccb - Supplies the CCB to remove
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdDeleteCcb:  Entered -> Ccb = %08lx\n", Ccb);
-
-    //
-    //  If we allocated a query template buffer, deallocate it now.
-    //
-
-    if (FlagOn( Ccb->Flags, CCB_FLAGS_USE_RTL_FREE_ANSI )) {
-
-        ASSERT( Ccb->QueryTemplate.Buffer );
-
-        RtlFreeOemString( &Ccb->QueryTemplate );
-    }
-
-    //
-    //  Deallocate the Ccb record
-    //
-
-    ExFreePool( Ccb );
-
-    //
-    //  return and tell the caller
-    //
-
-    DebugTrace(-1, Dbg, "CdDeleteCcb:  Exit\n", 0);
-
-    return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-PNONPAGED_SECT_OBJ
-CdCreateSectObj (
-    IN PIRP_CONTEXT IrpContext
-    )
-
-/*++
-
-Routine Description:
-
-    This routine allocates and initializes this structure out of non-paged
-    pool.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    Pointer to the created structure.
-
---*/
-
-{
-    PNONPAGED_SECT_OBJ SectObj;
-    BOOLEAN InitializedResource;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCreateSectObj:  Entered\n", 0);
-
-    InitializedResource = FALSE;
-
-    SectObj = FsRtlAllocatePool( NonPagedPool, sizeof( NONPAGED_SECT_OBJ ));
-
-    RtlZeroMemory( SectObj, sizeof( NONPAGED_SECT_OBJ ));
-
-    try {
-
-        SectObj->Header.NodeTypeCode = CDFS_NTC_NONPAGED_SECT_OBJ;
-        SectObj->Header.NodeByteSize = sizeof( NONPAGED_SECT_OBJ );
-
-        SectObj->Header.Resource = FsRtlAllocatePool( NonPagedPool, sizeof( ERESOURCE ));
-        ExInitializeResource( SectObj->Header.Resource );
-
-#ifdef BRIAND_264
-
-        SectObj->Header.FastIoRead = CcCopyRead;
-        SectObj->Header.FastMdlRead = CcMdlRead;
-
-#endif
-
-        try_return( NOTHING );
-
-    try_exit: NOTHING;
-    } finally {
-
-        if (AbnormalTermination()) {
-
-            if (InitializedResource) {
-
-                ExDeleteResource( SectObj->Header.Resource );
-            }
-
-            ExFreePool( SectObj );
-        }
-
-        DebugTrace(-1, Dbg, "CdCreateSectObj:  Exit -> SectObj  %08lx\n", SectObj);
-    }
-
-    return SectObj;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-VOID
-CdDeleteSectObj_Real (
-    IN PIRP_CONTEXT IrpContext,
-    IN PNONPAGED_SECT_OBJ SectObj
-    )
-
-/*++
-
-Routine Description:
-
-    This routine removes and deallocates a non-paged section object
-    structure.
-
-Arguments:
-
-    SectObj - Supplies the section object to be deallocated.
-
-Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdDeleteSectObj:  SectObj = %08lx\n", SectObj);
-
-    //
-    //  Uninitialize the resource in the structure.
-    //
-
-    ExDeleteResource( SectObj->Header.Resource );
-    ExFreePool( SectObj->Header.Resource );
-
-    //
-    //  Zero out the structure and deallocate.
-    //
-
-    RtlZeroMemory( SectObj, sizeof( NONPAGED_SECT_OBJ ));
-    ExFreePool( SectObj );
-
-    DebugTrace(-1, Dbg, "CdDeleteSectObj:  Exit\n", 0);
-
-    return;
-
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-
-VOID
-CdCleanupTreeLeaf (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB LeafFcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine starts the pruning process for a directory at a Fcb/Dcb
-    leaf.  It will do nothing if the leaf can't be pruned.  If pruning
-    is allowed, it will remove the leaf node and check if the parent node
-    can be removed.  If the leaf node is a Dcb with a stream file, simply
-    dereferencing the leaf node is all that is required.  Otherwise we
-    manually remove the current node and examine the parent node.
-
-Arguments:
-
-    LeafFcb - This is the node to consider.
+    Post - TRUE if we are posting this request, FALSE if we are deleting
+        or retrying this in the current thread.
 
 Return Value:
 
@@ -2229,115 +1738,346 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "CdCleanupTreeLeaf:  Entered\n", 0 );
-    DebugTrace(  0, Dbg, "LeafFcb   -> %08lx\n", LeafFcb );
-
     //
-    //  We loop as long as the node can be removed.  The following describes
-    //  when a node can be removed.
-    //
-    //  RootDcb - Never
-    //
-    //  Dcb -   No children
-    //      -   Open count of zero
-    //      -   Open stream file count of zero
-    //
-    //  Fcb -   Open count of zero
+    //  If we aren't doing more processing then deallocate this as appropriate.
     //
 
-    while (LeafFcb != NULL) {
-
-        PFCB ParentDcb;
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING)) {
 
         //
-        //  Exit immediately if this is the root Dcb.
+        //  If this context is the top level CDFS context then we need to
+        //  restore the top level thread context.
         //
 
-        if (NodeType(LeafFcb) == CDFS_NTC_ROOT_DCB) {
+        if (IrpContext->ThreadContext != NULL) {
 
-            DebugTrace( 0, Dbg, "Leaf is root dcb\n", 0 );
-
-            break;
+            CdRestoreThreadContext( IrpContext );
         }
 
-        ParentDcb = (PFCB) LeafFcb->ParentDcb;
-
         //
-        //  If this is an Fcb and the open count is zero.  We delete the
-        //  Fcb and move to its parent.
+        //  Deallocate the Io context if allocated.
         //
 
-        if (NodeType(LeafFcb) == CDFS_NTC_FCB
-            && LeafFcb->OpenCount == 0) {
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_IO )) {
 
-            DebugTrace( 0, Dbg, "Removing Leaf Fcb\n", 0 );
-
-            CdDeleteFcb( IrpContext, LeafFcb );
-
-            LeafFcb = ParentDcb;
-            continue;
+            CdFreeIoContext( IrpContext->IoContext );
+        }
 
         //
-        //  Consider a Dcb.  If it has no children, it may be possible
-        //  to at least start the removal process.
+        //  Deallocate the IrpContext if not from the stack.
         //
 
-        } else if (NodeType( LeafFcb ) == CDFS_NTC_DCB
-                   && LeafFcb->OpenCount == 0
-                   && IsListEmpty( &LeafFcb->Specific.Dcb.ParentDcbLinks)) {
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ON_STACK )) {
 
-            DebugTrace( 0, Dbg, "Leaf is non-root Dcb\n", 0 );
+            if (CdData.IrpContextDepth < CdData.IrpContextMaxDepth) {
 
-            //
-            //  If there is a stream file, we dereference it and allow
-            //  that to eventually remove this Dcb.
-            //
+                CdLockCdData();
 
-            if (LeafFcb->Specific.Dcb.StreamFile != NULL) {
+                PushEntryList( &CdData.IrpContextList, (PSINGLE_LIST_ENTRY) IrpContext );
+                CdData.IrpContextDepth++;
 
-                PFILE_OBJECT FileObject;
+                CdUnlockCdData();
 
-                FileObject = LeafFcb->Specific.Dcb.StreamFile;
+            } else {
 
                 //
-                //  The following call can generate a close on one of
-                //  our other stream files which we have already
-                //  dereferenced.  We need to protect ourselves from
-                //  a recursive close.
+                //  We couldn't add this to our lookaside list so free it to
+                //  pool.
                 //
 
-                LeafFcb->Specific.Dcb.StreamFile = NULL;
-
-                CcUninitializeCacheMap( FileObject, NULL, NULL );
-
-                ObDereferenceObject( FileObject );
-
-                break;
-
-            //
-            //  Otherwise, we specifically delete this Dcb and consider
-            //  its parent it there are no outstanding directory files.
-            //
-
-            } else if (LeafFcb->Specific.Dcb.StreamFileOpenCount == 0) {
-
-                CdDeleteFcb( IrpContext, LeafFcb );
-
-                LeafFcb = ParentDcb;
-                continue;
+                ExFreePool( IrpContext );
             }
-
         }
 
+    //
+    //  Clear the appropriate flags.
+    //
+
+    } else if (Post) {
+
         //
-        //  Else there is no work to do.
+        //  If this context is the top level CDFS context then we need to
+        //  restore the top level thread context.
         //
 
-        break;
+        if (IrpContext->ThreadContext != NULL) {
+
+            CdRestoreThreadContext( IrpContext );
+        }
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAGS_CLEAR_ON_POST );
+
+    } else {
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAGS_CLEAR_ON_RETRY );
     }
 
-    DebugTrace( -1, Dbg, "CdCleanupTreeLeaf:  Exit\n", 0 );
+    return;
+}
 
+
+VOID
+CdInitializeStackIrpContext (
+    OUT PIRP_CONTEXT IrpContext,
+    IN PIRP_CONTEXT_LITE IrpContextLite
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to initialize an IrpContext for the current
+    CDFS request.  The IrpContext is on the stack and we need to initialize
+    it for the current request.  The request is a close operation.
+
+Arguments:
+
+    IrpContext - IrpContext to initialize.
+
+    IrpContextLite - Structure containing the details of this request.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Zero and then initialize the structure.
+    //
+
+    RtlZeroMemory( IrpContext, sizeof( IRP_CONTEXT ));
+
+    //
+    //  Set the proper node type code and node byte size
+    //
+
+    IrpContext->NodeTypeCode = CDFS_NTC_IRP_CONTEXT;
+    IrpContext->NodeByteSize = sizeof( IRP_CONTEXT );
+
+    //
+    //  Note that this is from the stack.
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ON_STACK );
+
+    //
+    //  Copy RealDevice for workque algorithms.
+    //
+
+    IrpContext->RealDevice = IrpContextLite->RealDevice;
+
+    //
+    //  The Vcb is found in the Fcb.
+    //
+
+    IrpContext->Vcb = IrpContextLite->Fcb->Vcb;
+
+    //
+    //  Major/Minor Function codes
+    //
+
+    IrpContext->MajorFunction = IRP_MJ_CLOSE;
+
+    //
+    //  Set the wait parameter
+    //
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+
+    return;
+}
+
+
+VOID
+CdTeardownStructures (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB StartingFcb,
+    OUT PBOOLEAN RemovedStartingFcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used to walk from some starting point in the Fcb tree towards
+    the root.  It will remove the Fcb and continue walking up the tree until
+    it finds a point where we can't remove an Fcb.
+
+    We look at the following fields in the Fcb to determine whether we can
+    remove this.
+
+        1 - Handle count must be zero.
+        2 - If directory then only the only reference can be for a stream file.
+        3 - Reference count must either be zero or go to zero here.
+
+    We return immediately if we are recursively entering this routine.
+
+Arguments:
+
+    StartingFcb - This is the Fcb node in the tree to begin with.  This Fcb
+        must currently be acquired exclusively.
+
+    RemovedStartingFcb - Address to store whether we removed the starting Fcb.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PVCB Vcb = StartingFcb->Vcb;
+    PFCB CurrentFcb = StartingFcb;
+    BOOLEAN AcquiredCurrentFcb = FALSE;
+    PFCB ParentFcb;
+
+    PAGED_CODE();
+
+    *RemovedStartingFcb = FALSE;
+
+    //
+    //  If this is a recursive call to TearDownStructures we return immediately
+    //  doing no operation.
+    //
+
+    if (FlagOn( IrpContext->TopLevel->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN )) {
+
+        return;
+    }
+
+    SetFlag( IrpContext->TopLevel->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN );
+
+    //
+    //  Use a try-finally to safely clear the top-level field.
+    //
+
+    try {
+
+        //
+        //  Loop until we find an Fcb we can't remove.
+        //
+
+        do {
+
+            //
+            //  See if there is an internal stream we should delete.
+            //  Only do this if it is the last reference on the Fcb.
+            //
+
+            if ((SafeNodeType( CurrentFcb ) != CDFS_NTC_FCB_DATA) &&
+                (CurrentFcb->FcbUserReference == 0) &&
+                (CurrentFcb->FileObject != NULL)) {
+
+                //
+                //  Go ahead and delete the stream file object.
+                //
+
+                CdDeleteInternalStream( IrpContext, CurrentFcb );
+            }
+
+            //
+            //  If the reference count is non-zero then break.
+            //
+
+            if (CurrentFcb->FcbReference != 0) {
+
+                break;
+            }
+
+            //
+            //  It looks like we have a candidate for removal here.  We
+            //  will need to acquire the parent, if present, in order to
+            //  remove this from the parent prefix table.
+            //
+
+            ParentFcb = CurrentFcb->ParentFcb;
+
+            if (ParentFcb != NULL) {
+
+                CdAcquireFcbExclusive( IrpContext, ParentFcb, FALSE );
+            }
+
+            //
+            //  Now lock the vcb.
+            //
+
+            CdLockVcb( IrpContext, Vcb );
+
+            //
+            //  Final check to see if the reference count is still zero.
+            //
+
+            if (CurrentFcb->FcbReference != 0) {
+
+                CdUnlockVcb( IrpContext, Vcb );
+
+                if (ParentFcb != NULL) {
+
+                    CdReleaseFcb( IrpContext, ParentFcb );
+                }
+
+                break;
+            }
+
+            //
+            //  If there is a parent then do the necessary cleanup for the parent.
+            //
+
+            if (ParentFcb != NULL) {
+
+                CdRemovePrefix( IrpContext, CurrentFcb );
+                RemoveEntryList( &CurrentFcb->FcbLinks );
+
+                CdDecrementReferenceCounts( IrpContext, ParentFcb, 1, 1 );
+            }
+
+            if (FlagOn( CurrentFcb->FcbState, FCB_STATE_IN_FCB_TABLE )) {
+
+                CdDeleteFcbTable( IrpContext, CurrentFcb );
+                ClearFlag( CurrentFcb->FcbState, FCB_STATE_IN_FCB_TABLE );
+
+            }
+
+            //
+            //  Unlock the Vcb but hold the parent in order to walk up
+            //  the tree.
+            //
+
+            CdUnlockVcb( IrpContext, Vcb );
+            CdDeleteFcb( IrpContext, CurrentFcb );
+
+            //
+            //  Move to the parent Fcb.
+            //
+
+            CurrentFcb = ParentFcb;
+            AcquiredCurrentFcb = TRUE;
+
+        } while (CurrentFcb != NULL);
+
+    } finally {
+
+        //
+        //  Release the current Fcb if we have acquired it.
+        //
+
+        if (AcquiredCurrentFcb && (CurrentFcb != NULL)) {
+
+            CdReleaseFcb( IrpContext, CurrentFcb );
+        }
+
+        //
+        //  Clear the teardown flag.
+        //
+
+        ClearFlag( IrpContext->TopLevel->Flags, IRP_CONTEXT_FLAG_IN_TEARDOWN );
+    }
+
+    *RemovedStartingFcb = (CurrentFcb != StartingFcb);
     return;
 }
 
@@ -2345,8 +2085,8 @@ Return Value:
 PFCB
 CdLookupFcbTable (
     IN PIRP_CONTEXT IrpContext,
-    IN PRTL_GENERIC_TABLE FcbTable,
-    IN LARGE_INTEGER FileId
+    IN PVCB Vcb,
+    IN FILE_ID FileId
     )
 
 /*++
@@ -2358,7 +2098,7 @@ Routine Description:
 
 Arguments:
 
-    FcbTable - This is the Fcb table to examine.
+    Vcb - Vcb for this volume.
 
     FileId - This is the key value to use for the search.
 
@@ -2375,18 +2115,14 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "CdLookupFcbTable:  Entered\n", 0 );
-
     Key.FileId = FileId;
 
-    Hit = (FCB_TABLE_ELEMENT *)RtlLookupElementGenericTable( FcbTable, &Key );
+    Hit = (PFCB_TABLE_ELEMENT) RtlLookupElementGenericTable( &Vcb->FcbTable, &Key );
 
     if (Hit != NULL) {
 
         ReturnFcb = Hit->Fcb;
     }
-
-    DebugTrace( -1, Dbg, "CdLookupFcbTable:  Exit\n", 0 );
 
     return ReturnFcb;
 
@@ -2394,65 +2130,462 @@ Return Value:
 }
 
 
-//
-//  Internal support routine
-//
-
-CCHAR
-CdLogOf(
-    IN ULONG Value
+PFCB
+CdGetNextFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PVOID *RestartKey
     )
 
 /*++
 
 Routine Description:
 
-    This routine just computes the base 2 log of an integer.  It is only used
-    on objects that are know to be powers of two.
+    This routine will enumerate through all of the Fcb's in the Fcb table.
 
 Arguments:
 
-    Value - The value to take the base 2 log of.
+    Vcb - Vcb for this volume.
+
+    RestartKey - This value is used by the table package to maintain
+        its position in the enumeration.  It is initialized to NULL
+        for the first search.
 
 Return Value:
 
-    CCHAR - The base 2 log of Value.
+    PFCB - A pointer to the next fcb or NULL if the enumeration is
+        completed
 
 --*/
 
 {
-    CCHAR Log = 0;
+    PFCB Fcb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "LogOf\n", 0);
-    DebugTrace( 0, Dbg, "  Value = %8lx\n", Value);
+    Fcb = (PFCB) RtlEnumerateGenericTableWithoutSplaying( &Vcb->FcbTable, RestartKey );
+
+    if (Fcb != NULL) {
+
+        Fcb = ((PFCB_TABLE_ELEMENT)(Fcb))->Fcb;
+    }
+
+    return Fcb;
+}
+
+
+NTSTATUS
+CdProcessToc (
+    IN PIRP_CONTEXT IrpContext,
+    IN PDEVICE_OBJECT TargetDeviceObject,
+    IN PCDROM_TOC CdromToc,
+    IN OUT PULONG Length,
+    OUT PULONG TrackCount,
+    OUT PULONG DiskFlags
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to verify and process the TOC for this disk.
+    We hide a data track for a CD+ volume.
+
+Arguments:
+
+    TargetDeviceObject - Device object to send TOC request to.
+
+    CdromToc - Pointer to TOC structure.
+
+    Length - On input this is the length of the TOC.  On return is the TOC
+        length we will show to the user.
+
+    TrackCount - This is the count of tracks for the TOC.  We use this
+        when creating a pseudo directory for a music disk.
+
+    DiskFlags - We return flags indicating what we know about this disk.
+
+Return Value:
+
+    NTSTATUS - The result of trying to read the TOC.
+
+--*/
+
+{
+    NTSTATUS Status;
+    IO_STATUS_BLOCK Iosb;
+
+    ULONG CurrentTrack;
+    ULONG LocalTrackCount;
+    ULONG LocalTocLength;
+
+    union {
+
+        UCHAR BigEndian[2];
+        USHORT Length;
+
+    } BiasedTocLength;
+
+    PTRACK_DATA Track;
+
+    PAGED_CODE();
 
     //
-    //  Knock bits off until we we get a one at position 0
+    //  Go ahead and read the table of contents
     //
 
-    while ((Value & 0xfffffffe) != 0) {
+    Status = CdPerformDevIoCtrl( IrpContext,
+                                 IOCTL_CDROM_READ_TOC,
+                                 TargetDeviceObject,
+                                 CdromToc,
+                                 sizeof( CDROM_TOC ),
+                                 FALSE,
+                                 TRUE,
+                                 &Iosb );
 
-        Log++;
-        Value >>= 1;
+    //
+    //  Nothing to process if this request fails.
+    //
+
+    if (Status != STATUS_SUCCESS) {
+
+        return Status;
     }
 
     //
-    //  If there was more than one bit set, the file system messed up,
-    //  Bug Check.
+    //  Get the number of tracks and stated size of this structure.
     //
 
-    if (Value != 0x1) {
+    CurrentTrack = 0;
+    LocalTrackCount = CdromToc->LastTrack - CdromToc->FirstTrack + 1;
+    LocalTocLength = PtrOffset( CdromToc, &CdromToc->TrackData[LocalTrackCount + 1] );
 
-        DebugTrace(0, Dbg, "Received non power of 2.\n", 0);
+    //
+    //  Get out if there is an immediate problem with the TOC.
+    //
 
-        CdBugCheck( Value, Log, 0 );
+    if ((LocalTocLength > Iosb.Information) ||
+        (CdromToc->FirstTrack > CdromToc->LastTrack)) {
+
+        Status = STATUS_DISK_CORRUPT_ERROR;
+        return Status;
     }
 
-    DebugTrace(-1, Dbg, "LogOf -> %8lx\n", Log);
+    //
+    //  Walk through the individual tracks.  Stop at the first data track after
+    //  any lead-in audio tracks.
+    //
 
-    return Log;
+    do {
+
+        //
+        //  Get the next track.
+        //
+
+        Track = &CdromToc->TrackData[CurrentTrack];
+
+        //
+        //  If this is a data track then check if we have only seen audio tracks
+        //  to this point.
+        //
+
+        if (FlagOn( Track->Control, TOC_DATA_TRACK )) {
+
+            //
+            //  If we have only seen audio tracks then assume this is a
+            //  CD+ disk.  Hide the current data track and only return
+            //  the previous audio tracks.  Set the disk type to be mixed
+            //  data/audio.
+            //
+
+            if (FlagOn( *DiskFlags, CDROM_DISK_AUDIO_TRACK ) &&
+                !FlagOn( *DiskFlags, CDROM_DISK_DATA_TRACK )) {
+
+                //
+                //  Remove one track from the TOC.
+                //
+
+                CdromToc->LastTrack -= 1;
+
+                //
+                //  Knock 2.5 minutes off the current track to
+                //  hide the final leadin.
+                //
+
+                Track->Address[1] -= 2;
+                Track->Address[2] += 30;
+
+                if (Track->Address[2] < 60) {
+
+                    Track->Address[1] -= 1;
+
+                } else {
+
+                    Track->Address[2] -= 60;
+                }
+
+                Track->TrackNumber = TOC_LAST_TRACK;
+
+                //
+                //  Set the disk type to mixed data/audio.
+                //
+
+                SetFlag( *DiskFlags, CDROM_DISK_DATA_TRACK );
+
+                break;
+            }
+
+            //
+            //  Set the flag to indicate data tracks present.
+            //
+
+            SetFlag( *DiskFlags, CDROM_DISK_DATA_TRACK );
+
+        //
+        //  If this is a audio track then set the flag indicating audio
+        //  tracks.
+        //
+
+        } else {
+
+            SetFlag( *DiskFlags, CDROM_DISK_AUDIO_TRACK );
+        }
+
+        //
+        //  Set our index for the next track.
+        //
+
+        CurrentTrack += 1;
+
+    } while (CurrentTrack < LocalTrackCount);
+
+    //
+    //  Set the length to point just past the last track we looked at.
+    //
+
+    *TrackCount = CurrentTrack;
+    *Length = PtrOffset( CdromToc, &CdromToc->TrackData[CurrentTrack + 1] );
+    BiasedTocLength.Length = (USHORT) *Length - 2;
+
+    CdromToc->Length[0] = BiasedTocLength.BigEndian[1];
+    CdromToc->Length[1] = BiasedTocLength.BigEndian[0];
+
+    return Status;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdDeleteFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to cleanup and deallocate an Fcb.  We know there
+    are no references remaining.  We cleanup any auxilary structures and
+    deallocate this Fcb.
+
+Arguments:
+
+    Fcb - This is the Fcb to deallcoate.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PVCB Vcb = NULL;
+    PAGED_CODE();
+
+    //
+    //  Sanity check the counts.
+    //
+
+    ASSERT( Fcb->FcbCleanup == 0 );
+    ASSERT( Fcb->FcbReference == 0 );
+
+    //
+    //  Start with the common structures.
+    //
+
+    CdUninitializeMcb( IrpContext, Fcb );
+
+    CdDeleteFcbNonpaged( IrpContext, Fcb->FcbNonpaged );
+
+    //
+    //  Check if we need to deallocate the prefix name buffer.
+    //
+
+    if ((Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer != (PWCHAR) Fcb->FileNamePrefix.FileNameBuffer) &&
+        (Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer != NULL)) {
+
+        ExFreePool( Fcb->FileNamePrefix.ExactCaseName.FileName.Buffer );
+    }
+
+    //
+    //  Now look at the short name prefix.
+    //
+
+    if (Fcb->ShortNamePrefix != NULL) {
+
+        ExFreePool( Fcb->ShortNamePrefix );
+    }
+
+    //
+    //  Now do the type specific structures.
+    //
+
+    switch (Fcb->NodeTypeCode) {
+
+    case CDFS_NTC_FCB_PATH_TABLE:
+    case CDFS_NTC_FCB_INDEX:
+
+        ASSERT( Fcb->FileObject == NULL );
+        ASSERT( IsListEmpty( &Fcb->FcbQueue ));
+
+        if (Fcb == Fcb->Vcb->RootIndexFcb) {
+
+            Vcb = Fcb->Vcb;
+            Vcb->RootIndexFcb = NULL;
+
+        } else if (Fcb == Fcb->Vcb->PathTableFcb) {
+
+            Vcb = Fcb->Vcb;
+            Vcb->PathTableFcb = NULL;
+        }
+
+        CdDeallocateFcbIndex( IrpContext, Fcb );
+        break;
+
+    case CDFS_NTC_FCB_DATA :
+
+        if (Fcb->FileLock != NULL) {
+
+            FsRtlUninitializeFileLock( Fcb->FileLock );
+
+            CdDeallocateFileLock( IrpContext, Fcb->FileLock );
+        }
+
+        FsRtlUninitializeOplock( &Fcb->Oplock );
+
+        if (Fcb == Fcb->Vcb->VolumeDasdFcb) {
+
+            Vcb = Fcb->Vcb;
+            Vcb->VolumeDasdFcb = NULL;
+        }
+
+        CdDeallocateFcbData( IrpContext, Fcb );
+    }
+
+    //
+    //  Decrement the Vcb reference count if this is a system
+    //  Fcb.
+    //
+
+    if (Vcb != NULL) {
+
+        InterlockedDecrement( &Vcb->VcbReference );
+        InterlockedDecrement( &Vcb->VcbUserReference );
+    }
+
+    return;
+}
+
+
+//
+//  Local support routine
+//
+
+PFCB_NONPAGED
+CdCreateFcbNonpaged (
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to create and initialize the non-paged portion
+    of an Fcb.
+
+Arguments:
+
+Return Value:
+
+    PFCB_NONPAGED - Pointer to the created nonpaged Fcb.  NULL if not created.
+
+--*/
+
+{
+    PFCB_NONPAGED FcbNonpaged;
+
+    PAGED_CODE();
+
+    //
+    //  Allocate the non-paged pool and initialize the various
+    //  synchronization objects.
+    //
+
+    FcbNonpaged = CdAllocateFcbNonpaged( IrpContext );
+
+    if (FcbNonpaged != NULL) {
+
+        RtlZeroMemory( FcbNonpaged, sizeof( FCB_NONPAGED ));
+
+        FcbNonpaged->NodeTypeCode = CDFS_NTC_FCB_NONPAGED;
+        FcbNonpaged->NodeByteSize = sizeof( FCB_NONPAGED );
+
+        ExInitializeResource( &FcbNonpaged->FcbResource );
+        ExInitializeFastMutex( &FcbNonpaged->FcbMutex );
+    }
+
+    return FcbNonpaged;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+CdDeleteFcbNonpaged (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB_NONPAGED FcbNonpaged
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to cleanup the non-paged portion of an Fcb.
+
+Arguments:
+
+    FcbNonpaged - Structure to clean up.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    ExDeleteResource( &FcbNonpaged->FcbResource );
+
+    CdDeallocateFcbNonpaged( IrpContext, FcbNonpaged );
+
+    return;
 }
 
 
@@ -2463,8 +2596,8 @@ Return Value:
 RTL_GENERIC_COMPARE_RESULTS
 CdFcbTableCompare (
     IN PRTL_GENERIC_TABLE FcbTable,
-    IN PVOID FirstStruct,
-    IN PVOID SecondStruct
+    IN PVOID Fid1,
+    IN PVOID Fid2
     )
 
 /*++
@@ -2478,9 +2611,9 @@ Arguments:
 
     FcbTable - This is the table being searched.
 
-    FirstStruct - This is the first key value.
+    Fid1 - First key value.
 
-    SecondStruct - This is the second key value.
+    Fid2 - Second key value.
 
 Return Value:
 
@@ -2490,42 +2623,23 @@ Return Value:
 --*/
 
 {
-    LARGE_INTEGER UNALIGNED *FileId1 = (PLARGE_INTEGER) &((PFCB_TABLE_ELEMENT)FirstStruct)->FileId;
-    LARGE_INTEGER UNALIGNED *FileId2 = (PLARGE_INTEGER) &((PFCB_TABLE_ELEMENT)SecondStruct)->FileId;
-
-    LARGE_INTEGER Id1, Id2;
+    FILE_ID Id1, Id2;
     PAGED_CODE();
 
-    Id1 = *FileId1;
-    Id2 = *FileId2;
+    Id1 = *((FILE_ID UNALIGNED *) Fid1);
+    Id2 = *((FILE_ID UNALIGNED *) Fid2);
 
-    //
-    // If this was a directory, then the dirent offset we compare against
-    // always has the value of 0, though on disk it can actually be different.
-    //
-
-    if (CdFileIdIsDirectory( Id1 )) {
-
-        CdSetFileIdDirentOffset( Id1, 0);
-    }
-
-    if (CdFileIdIsDirectory( Id2 )) {
-
-        CdSetFileIdDirentOffset( Id2, 0 );
-    }
-
-    if (LiLtr( Id1, Id2 )) {
+    if (Id1.QuadPart < Id2.QuadPart) {
 
         return GenericLessThan;
 
-    } else if (LiGtr( Id1, Id2 )) {
+    } else if (Id1.QuadPart > Id2.QuadPart) {
 
         return GenericGreaterThan;
 
     } else {
 
         return GenericEqual;
-
     }
 
     UNREFERENCED_PARAMETER( FcbTable );
@@ -2563,8 +2677,7 @@ Return Value:
 {
     PAGED_CODE();
 
-    return( FsRtlAllocatePool( PagedPool, ByteSize) );
-    UNREFERENCED_PARAMETER( FcbTable );
+    return( FsRtlAllocatePoolWithTag( CdPagedPool, ByteSize, TAG_FCB_TABLE ));
 }
 
 
@@ -2597,13 +2710,12 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER( FcbTable );
-
     PAGED_CODE();
 
     ExFreePool( Buffer );
 
     return;
+    UNREFERENCED_PARAMETER( FcbTable );
 }
 
 
@@ -2611,173 +2723,67 @@ Return Value:
 //  Local support routine
 //
 
-VOID
-CdBuildFileId (
+ULONG
+CdTocSerial (
     IN PIRP_CONTEXT IrpContext,
-    IN BOOLEAN IsDirectory,
-    IN CD_VBO DirectoryNumber,
-    IN CD_VBO DirentOffset,
-    OUT PLARGE_INTEGER FileId
+    IN PCDROM_TOC CdromToc
     )
 
 /*++
 
 Routine Description:
 
-    This routine will build a file Id for a file by looking at the
-    directory offset for this file, the directory number for the parent Id
-    and whether the parent is a directory.
+    This routine is called to generate a serial number for an audio disk.
+    The number is based on the starting positions of the tracks.
+    The following algorithm is used.
+
+    If the number of tracks is <= 2 then initialize the serial number to the
+    leadout block number.
+
+    Then add the starting address of each track (use 0x00mmssff format).
 
 Arguments:
 
-    IsDirectory - Indicates if this is a directory.  We always use a directory
-        offset of zero for a directory and set the most significant bit to
-        indicate a directory.
-
-    DirectoryNumber - This is the directory number for the parent.
-
-    DirentOffset - This is the offset of the dirent for this file in its directory.
-
-    FileId - We update this value with the File Id we generate.
+    CdromToc - Valid table of contents to use for track information.
 
 Return Value:
 
-    None.
+    ULONG - 32 bit serial number based on TOC.
 
 --*/
 
 {
+    ULONG SerialNumber = 0;
+    PTRACK_DATA ThisTrack;
+    PTRACK_DATA LastTrack;
+
     PAGED_CODE();
 
-    CdSetFileIdDirectoryNumber( *FileId, DirectoryNumber );
-
-    CdSetFileIdDirentOffset( *FileId, DirentOffset );
-
     //
-    // Mark the directories, since we treat them different...
+    //  Check if there are two tracks or fewer.
     //
 
-    if (IsDirectory) {
+    LastTrack = &CdromToc->TrackData[ CdromToc->LastTrack - CdromToc->FirstTrack + 1];
+    ThisTrack = &CdromToc->TrackData[0];
 
-        CdSetFileIdIsDirectory( *FileId );
-    }
+    if (CdromToc->LastTrack - CdromToc->FirstTrack <= 1) {
 
-    return;
+        SerialNumber = (((LastTrack->Address[1] * 60) + LastTrack->Address[2]) * 75) + LastTrack->Address[3];
 
-    UNREFERENCED_PARAMETER( IrpContext );
-}
-
-BOOLEAN
-CdCheckForDismount (
-    IN PIRP_CONTEXT IrpContext,
-    PMVCB Mvcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine determines if a volume is ready for deletion.  It
-    correctly synchronizes with creates en-route to the file system.
-
-Arguments:
-
-    Mvcb - Supplies the volue to examine
-
-Return Value:
-
-    BOOLEAN - TRUE if the volume was deleted, FALSE otherwise.
-
---*/
-
-{
-    KIRQL SavedIrql;
-    ULONG ResidualReferenceCount;
-
-    //
-    //  Compute if the volume is OK to tear down.  There should only be two
-    //  residual file objects, one for the path table and one for the root
-    //  directory.  If we are in the midst of a create (of an unmounted
-    //  volume that has failed verify) then there will be an additional
-    //  reference.
-    //
-
-    if ( IrpContext->MajorFunction == IRP_MJ_CREATE ) {
-
-        ResidualReferenceCount = 3;
-
-    } else {
-
-        ResidualReferenceCount = 2;
+        SerialNumber -= (((ThisTrack->Address[1] * 60) + ThisTrack->Address[2]) * 75) + ThisTrack->Address[3];
     }
 
     //
-    //  If this is a raw disk then decrement this value by two since it will have
-    //  neither of these file objects.
+    //  Now find the starting offset of each track and add to the serial number.
     //
 
-    if (FlagOn( Mvcb->MvcbState, MVCB_STATE_FLAG_RAW_DISK )) {
+    while (ThisTrack != LastTrack) {
 
-        ResidualReferenceCount -= 2;
+        SerialNumber += (ThisTrack->Address[1] << 16);
+        SerialNumber += (ThisTrack->Address[2] << 8);
+        SerialNumber += ThisTrack->Address[3];
+        ThisTrack += 1;
     }
 
-    //
-    //  Now check for a zero Vpb count on an unmounted volume.  These
-    //  volumes will be deleted as they now have no file objects and
-    //  there are no creates en route to this volume.
-    //
-
-    IoAcquireVpbSpinLock( &SavedIrql );
-
-    if ( Mvcb->Vpb->ReferenceCount == ResidualReferenceCount ) {
-
-        PVPB Vpb = Mvcb->Vpb;
-
-#if DBG
-        UNICODE_STRING VolumeLabel;
-
-        //
-        //  Setup the VolumeLabel string
-        //
-
-        VolumeLabel.Length = Mvcb->Vpb->VolumeLabelLength;
-        VolumeLabel.MaximumLength = MAXIMUM_VOLUME_LABEL_LENGTH;
-        VolumeLabel.Buffer = &Mvcb->Vpb->VolumeLabel[0];
-
-        KdPrint(("CDFS: Deleting Volume %Z\n", &VolumeLabel));
-#endif
-
-        //
-        //  Clear the VPB_MOUNTED bit so that new creates will not come
-        //  to this volume.  We must leave the Vpb->DeviceObject field
-        //  set until after the DeleteVcb call as two closes will
-        //  have to make their back to us.
-        //
-        //  Note also that if we were called from close, it will take care
-        //  of freeing the Vpb if it is not the primary one, otherwise
-        //  if we were called from Create->Verify, IopParseDevice will
-        //  take care of freeing the Vpb in its Reparse path.
-        //
-
-        ClearFlag( Vpb->Flags, VPB_MOUNTED );
-
-        IoReleaseVpbSpinLock( SavedIrql );
-
-        CdDeleteMvcb( IrpContext, Mvcb );
-
-        Vpb->DeviceObject = NULL;
-
-        IoDeleteDevice( (PDEVICE_OBJECT)
-                        CONTAINING_RECORD( Mvcb,
-                                           VOLUME_DEVICE_OBJECT,
-                                           Mvcb ) );
-
-        return TRUE;
-
-    } else {
-
-        IoReleaseVpbSpinLock( SavedIrql );
-
-        return FALSE;
-    }
+    return SerialNumber;
 }

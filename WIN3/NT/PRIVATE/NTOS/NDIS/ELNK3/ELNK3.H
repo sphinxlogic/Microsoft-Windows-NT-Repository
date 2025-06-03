@@ -90,6 +90,12 @@ Elnk3Halt(
     );
 
 
+VOID
+Elnk3Shutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    );
+
+
 NDIS_STATUS
 Elnk3Reset(
     OUT PBOOLEAN      AddressResetting,
@@ -328,3 +334,91 @@ VOID
 Elnk3AdjustMaxLookAhead(
     IN PELNK3_ADAPTER Adapter
     );
+
+BOOLEAN
+ReadStationAddress(
+    OUT PELNK3_ADAPTER pNewAdapt
+    );
+
+
+USHORT
+CardSetMulticast(
+    PELNK3_ADAPTER pAdapter
+    );
+
+
+BOOLEAN
+CardInit(
+    IN PELNK3_ADAPTER pAdapter
+    );
+
+VOID
+ELNK3WriteIDSequence(
+    IN PVOID   IdPort
+    );
+
+USHORT
+ELNK3ContentionTest(
+    IN PVOID IdPort,
+    IN UCHAR EEPromWord
+    );
+
+USHORT
+ELNK3ReadEEProm(
+    IN PELNK3_ADAPTER Adapter,
+    IN UCHAR EEPromWord
+    );
+
+VOID
+Elnk3ProgramEEProm(
+    PELNK3_ADAPTER  Adapter,
+    USHORT          AddressConfig,
+    USHORT          ResourceConfig
+    );
+
+VOID
+Elnk3WriteEEProm(
+    IN PELNK3_ADAPTER   Adatper,
+    IN UCHAR            EEPromWord,
+    IN USHORT           Value
+    );
+
+VOID
+Elnk3WaitEEPromNotBusy(
+    PELNK3_ADAPTER   pAdapter
+    );
+
+NDIS_STATUS
+Elnk3Init3C589(
+	IN OUT PELNK3_ADAPTER Adapter
+	);
+
+NDIS_STATUS
+Elnk3InitializeAdapter(
+    IN PMAC_BLOCK     pMac,
+    IN PELNK3_ADAPTER pAdapter,
+    IN NDIS_HANDLE ConfigurationHandle
+    );
+
+
+NDIS_STATUS
+Elnk3AllocateBuffers(
+    IN PELNK3_ADAPTER    pAdapter,
+    IN NDIS_HANDLE         NdisAdapterHandle,
+    BOOLEAN              Allocate
+    );
+
+
+VOID
+Elnk3InitAdapterBlock(
+    IN PELNK3_ADAPTER    pAdapter
+    );
+
+
+NTSTATUS
+DriverEntry(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PUNICODE_STRING RegistryPath
+    );
+
+

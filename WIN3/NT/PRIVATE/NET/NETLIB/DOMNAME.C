@@ -36,7 +36,13 @@ Revision History:
 #include <ntrtl.h>              // NT Rtl structure definitions (temporary)
 #include <ntlsa.h>
 
+#ifndef _CAIRO_
 #include <windef.h>             // Win32 type definitions
+#else // _CAIRO_
+#include <nturtl.h>
+#include <windows.h>
+#endif // _CAIRO_
+
 #include <lmcons.h>             // LAN Manager common definitions
 #include <lmerr.h>              // LAN Manager error code
 #include <lmapibuf.h>           // NetApiBufferAllocate()
@@ -46,9 +52,17 @@ Revision History:
 #include <confname.h>           // SECT_NT_ equates.
 #include <debuglib.h>           // IF_DEBUG().
 #include <netlib.h>             // My prototype.
+
+#ifdef _CAIRO_
+#include <dsapi.h>
+#include <security.h>
+#include <dsys.h>
+#else // _CAIRO_
 #include <winerror.h>           // ERROR_ equates, NO_ERROR.
+#endif // _CAIRO_
 
 
+#ifndef _CAIRO_
 NET_API_STATUS
 NetpGetDomainNameEx (
     OUT LPTSTR *DomainNamePtr, // alloc and set ptr (free with NetApiBufferFree)
@@ -109,8 +123,8 @@ Return Value:
                    );
 
     if (! NT_SUCCESS(ntstatus)) {
-        NetpDbgPrint("NetpGetDomainName: LsaOpenPolicy returned " FORMAT_NTSTATUS
-                     "\n", ntstatus);
+        NetpKdPrint(("NetpGetDomainName: LsaOpenPolicy returned " FORMAT_NTSTATUS
+                     "\n", ntstatus));
         return NERR_CfgCompNotFound;
     }
 
@@ -124,8 +138,8 @@ Return Value:
                    );
 
     if (! NT_SUCCESS(ntstatus)) {
-        NetpDbgPrint("NetpGetDomainName: LsaQueryInformationPolicy failed "
-               FORMAT_NTSTATUS "\n", ntstatus);
+        NetpKdPrint(("NetpGetDomainName: LsaQueryInformationPolicy failed "
+               FORMAT_NTSTATUS "\n", ntstatus));
         (void) LsaClose(PolicyHandle);
         return NERR_CfgCompNotFound;
     }
@@ -156,13 +170,104 @@ Return Value:
     (void) LsaFreeMemory((PVOID) PrimaryDomainInfo);
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint("NetpGetDomainName got " FORMAT_LPTSTR "\n",
-            *DomainNamePtr);
+        NetpKdPrint(("NetpGetDomainName got " FORMAT_LPTSTR "\n",
+            *DomainNamePtr));
     }
 
     return NO_ERROR;
 
 }
+
+
+#else // _CAIRO_
+
+NET_API_STATUS
+NetpGetDomainNameEx (
+    OUT LPTSTR *DomainNamePtr, // alloc and set ptr (free with NetApiBufferFree)
+    OUT PBOOLEAN IsWorkgroupName
+    )
+
+/*++
+
+Routine Description:
+
+    Returns the name of the domain or workgroup this machine belongs to.
+
+Arguments:
+
+    DomainNamePtr - The name of the domain or workgroup
+
+    IsWorkgroupName - Returns TRUE if the name is a workgroup name.
+        Returns FALSE if the name is a domain name.
+
+Return Value:
+
+   NERR_Success - Success.
+   NERR_CfgCompNotFound - There was an error determining the domain name
+
+--*/
+{
+    LPWSTR Buffer = NULL;
+    ULONG BufferSize = 0;
+    HRESULT hrRet;
+    NET_API_STATUS status;
+    WCHAR DomainName[DNLEN+1];
+    DS_MACHINE_STATE MachineState;
+
+    hrRet = DSGetDSState(&MachineState);
+    if (hrRet != S_OK)
+    {
+        return(NERR_CfgCompNotFound);
+    }
+
+    if ((MachineState == DS_NOCAIRO) || (MachineState == DS_STANDALONE))
+    {
+        //
+        // BUGBUG: in this case, we need the workgroup name, which is not stored
+        //
+
+        BufferSize = (wcslen(L"WORKGROUP") + 1) * sizeof(WCHAR);
+        if ((status = NetApiBufferAllocate(BufferSize, &Buffer ))
+                != NERR_Success)
+        {
+            return(status);
+        }
+        wcscpy(Buffer, L"WORKGROUP");
+        *IsWorkgroupName = TRUE;
+    }
+    else
+    {
+        hrRet = DSGetDownlevelDomainName(Buffer, &BufferSize);
+        if (hrRet != DS_E_BUFFER_TOO_SMALL)
+        {
+            return(NERR_CfgCompNotFound);
+        }
+        if ((status = NetApiBufferAllocate(BufferSize, &Buffer ))
+                != NERR_Success)
+        {
+            return(status);
+        }
+        hrRet = DSGetDownlevelDomainName(Buffer,&BufferSize);
+        if (hrRet != S_OK)
+        {
+            NetApiBufferFree(Buffer);
+            return(NERR_CfgCompNotFound);
+        }
+
+        *IsWorkgroupName = FALSE;
+    }
+
+
+    *DomainNamePtr = Buffer;
+
+
+
+    return(NERR_Success);
+
+
+}
+
+#endif // _CAIRO_
 
 NET_API_STATUS
 NetpGetDomainName (
@@ -174,3 +279,4 @@ NetpGetDomainName (
     return NetpGetDomainNameEx( DomainNamePtr, &IsWorkgroupName );
 
 }
+

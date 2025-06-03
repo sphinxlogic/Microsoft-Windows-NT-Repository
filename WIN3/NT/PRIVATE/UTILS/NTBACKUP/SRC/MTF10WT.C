@@ -6,7 +6,13 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 
         Description:    Contains the Code for writing Maynard 4.0 Format.
 
-  $Log:   T:\logfiles\mtf10wt.c_v  $
+  $Log:   T:/LOGFILES/MTF10WT.C_V  $
+
+   Rev 1.20.1.2   11 Jan 1995 21:05:08   GREGG
+Calculate OTC addrs from fmk instead of always asking (fixes Wangtek bug).
+
+   Rev 1.20.1.1   08 Jan 1995 21:51:06   GREGG
+Added database DBLK.
 
    Rev 1.20.1.0   13 Jan 1994 17:20:44   GREGG
 If backup was aborted, mark last file entry in OTC as corrupt.
@@ -332,7 +338,7 @@ VOID F40_ParseWrittenBuffer(
           rem_strm = sizeof( MTF_STREAM ) - cur_env->pstream_offset ;
           memcpy( (UINT8_PTR)( &cur_env->eom_stream ) +
                   cur_env->pstream_offset,
-                  BM_NextBytePtr( buffer ), rem_strm ) ;
+                  BM_XferBase( buffer ), rem_strm ) ;
           cur_env->pstream_offset = 0 ;
           cur_env->pstream_crosses = FALSE ;
      }
@@ -501,7 +507,7 @@ INT16 F40_WtCloseSet(
          !cur_env->fdd_aborted ) {
 
           if( abort ) {
-               if( ( ret_val = OTC_MarkFileEntryCorrupt( cur_env ) ) != TFLE_NO_ERR ) {
+               if( ( ret_val = OTC_MarkLastEntryCorrupt( cur_env ) ) != TFLE_NO_ERR ) {
                     OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ;
                     return( ret_val ) ;
                }
@@ -539,6 +545,18 @@ INT16 F40_WtCloseSet(
           return( ret_val ) ;
      }
 
+     /* Get base address for calculating OTC and ESET addresses. */
+     if( SupportBlkPos( curDRV ) ) {
+
+          DRIVER_CALL( drv_hdl, TpGetPosition( drv_hdl, FALSE ), myret,
+                  GEN_NO_ERR, GEN_NO_ERR,
+                  OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) )
+     } else {
+          curDRV->cur_pos.pba_vcb = 0 ;
+     }
+     cur_env->eset_base_addr = myret.misc ;
+
+
      /* Get a buffer */
      tmpBUF = BM_GetVCBBuff( &channel->buffer_list ) ;
 
@@ -549,6 +567,8 @@ INT16 F40_WtCloseSet(
      DRIVER_CALL( drv_hdl, TpWrite( drv_hdl, BM_XferBase( tmpBUF ), BM_NextByteOffset( tmpBUF ) ),
                   myret, GEN_NO_ERR, GEN_ERR_EOM,
                   { BM_Put( tmpBUF ) ; OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ; } )
+
+     cur_env->eset_base_addr += BM_NextByteOffset( tmpBUF ) / ChannelBlkSize( channel ) ;
 
      if( myret.gen_error == GEN_ERR_EOM ) {
 
@@ -591,12 +611,7 @@ INT16 F40_WtCloseSet(
           }
 
           /* Save the PBA in the environment (for EOM processing) */
-          DRIVER_CALL( drv_hdl, TpGetPosition( drv_hdl, FALSE ), myret,
-                       GEN_NO_ERR, GEN_NO_ERR,
-                       { BM_Put( tmpBUF ) ;
-                         OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ; } )
-
-          cur_env->eset_pba = myret.misc ;
+          cur_env->eset_pba = cur_env->eset_base_addr ;
 
           /* Write the second ESET */
           /*
@@ -1589,7 +1604,7 @@ INT16 F40_WriteInit(
      cur_env->sm_continuing        = FALSE ;
      cur_env->end_set_continuing   = FALSE ;
      cur_env->eotm_no_first_fmk    = FALSE ;
-     cur_env->corrupt_file_count   = 0 ;
+     cur_env->corrupt_obj_count    = 0 ;
      cur_env->dir_links[0]         = 0L ;
      cur_env->dir_level            = 0 ;
      cur_env->max_dir_level        = 0 ;

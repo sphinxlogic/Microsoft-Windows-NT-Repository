@@ -57,7 +57,7 @@ int defin( int t, char *s )
          default:
             error( "invalid escape" );
             }
-         }
+         }
       else if( s[2] <= '7' && s[2]>='0' )
          {
          /* \nnn sequence */

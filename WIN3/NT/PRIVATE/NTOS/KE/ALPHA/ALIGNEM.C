@@ -26,6 +26,56 @@ Revision History:
 --*/
 
 #include "ki.h"
+
+//
+// Function prototypes for emulation routines
+//
+ULONGLONG
+KiEmulateLoadLong(
+   IN PULONG UnalignedAddress
+   );
+
+ULONGLONG
+KiEmulateLoadQuad(
+   IN PUQUAD UnalignedAddress
+   );
+
+ULONGLONG
+KiEmulateLoadFloatIEEESingle(
+   IN PULONG UnalignedAddress
+   );
+
+ULONGLONG
+KiEmulateLoadFloatIEEEDouble(
+   IN PUQUAD UnalignedAddress
+   );
+
+VOID
+KiEmulateStoreLong(
+   IN PULONG UnalignedAddress,
+   IN ULONGLONG  Data
+   );
+
+VOID
+KiEmulateStoreQuad(
+   IN PUQUAD UnalignedAddress,
+   IN ULONGLONG Data
+   );
+
+VOID
+KiEmulateStoreFloatIEEESingle(
+   IN PULONG UnalignedAddress,
+   IN ULONGLONG  Data
+   );
+
+VOID
+KiEmulateStoreFloatIEEEDouble(
+   IN PUQUAD UnalignedAddress,
+   IN ULONGLONG  Data
+   );
+
+
+
 
 BOOLEAN
 KiEmulateReference (
@@ -70,6 +120,22 @@ Return Value:
     ULONG  Opcode;
     KPROCESSOR_MODE PreviousMode;
     ULONG  Ra;
+    KIRQL  OldIrql;
+
+    //
+    // Call out to profile interrupt if alignment profiling is active
+    //
+    if (KiProfileAlignmentFixup) {
+
+        if (++KiProfileAlignmentFixupCount >= KiProfileAlignmentFixupInterval) {
+
+            KeRaiseIrql(PROFILE_LEVEL, &OldIrql);
+            KiProfileAlignmentFixupCount = 0;
+            KeProfileInterruptWithSource(TrapFrame, ProfileAlignmentFixup);
+            KeLowerIrql(OldIrql);
+
+        }
+    }
 
     //
     // Save original exception address in case another exception occurs
@@ -95,7 +161,7 @@ Return Value:
     // Capture previous mode from trap frame not current thread.
     //
 
-    PreviousMode = ((PSR *)(&TrapFrame->Psr))->MODE;
+    PreviousMode = (KPROCESSOR_MODE)(((PSR *)(&TrapFrame->Psr))->MODE);
 
     //
     // Any exception that occurs during the attempted emulation will cause
@@ -188,6 +254,27 @@ Return Value:
             break;
 
         //
+        // Load word unsigned.
+        //
+
+        case LDWU_OP :
+            if (QuadwordOnly != FALSE) {
+                return FALSE;
+            }
+            if (PreviousMode != KernelMode) {
+                ProbeForRead(EffectiveAddress,
+                             sizeof(SHORT),
+                             sizeof(UCHAR));
+            }
+            Data = (ULONGLONG)*(UNALIGNED USHORT *)EffectiveAddress;
+            KiSetRegisterValue(Ra,
+                               Data,
+                               ExceptionFrame,
+                               TrapFrame);
+
+            break;
+
+        //
         // store longword
         //
 
@@ -203,7 +290,7 @@ Return Value:
             Data = KiGetRegisterValue( Ra,
                                        ExceptionFrame,
                                        TrapFrame );
-            KiEmulateStoreLong( EffectiveAddress, Data );
+            KiEmulateStoreLong( EffectiveAddress, (ULONG)Data );
 
             break;
 
@@ -258,6 +345,26 @@ Return Value:
                                        ExceptionFrame,
                                        TrapFrame );
             KiEmulateStoreFloatIEEEDouble( EffectiveAddress, Data );
+
+            break;
+
+        //
+        // Store word.
+        //
+
+        case STW_OP :
+            if (QuadwordOnly != FALSE) {
+                return FALSE;
+            }
+            if (PreviousMode != KernelMode) {
+                ProbeForWrite(EffectiveAddress,
+                              sizeof(SHORT),
+                              sizeof(UCHAR));
+            }
+            Data = KiGetRegisterValue(Ra,
+                                      ExceptionFrame,
+                                      TrapFrame);
+            *(UNALIGNED USHORT *)EffectiveAddress = (USHORT)Data;
 
             break;
 

@@ -807,7 +807,7 @@ MP2   mp2 )    // I - yet another message parameter
 
      } /* end switch () */
 
-     return CallWindowProc ( glpfnOldListProc, hWnd, msg, mp1, mp2 );
+     return CallWindowProc ( (VOID *)glpfnOldListProc, hWnd, msg, mp1, mp2 );
 
 } /* end WM_DocListWndProc() */
 
@@ -1201,6 +1201,12 @@ INT  nHeight )      // I - the height of the document
 
           case WM_SLIDERUNKNOWN:
 
+               if (nWidth == 0 ) {
+                    nSliderPos   = 0;
+                    nSliderWidth = 0;
+                    break ;
+               }
+
                pdsWinInfo->nSliderPos = ( dwWindowState & WMDOC_TREEANDFLAT ) ?
                                         ( nWidth - nSliderWidth ) / 2 : 0;
 
@@ -1313,7 +1319,12 @@ WORD wKey )              // I - key information parameter
 
      // Do this only if it is a Disk or Tape Tree.
 
-     if ( fTreeWindow && ( wType == WMTYPE_DISKTREE || wType == WMTYPE_TAPETREE ) ) {
+     if ( fTreeWindow && ( wType == WMTYPE_DISKTREE 
+                        || wType == WMTYPE_TAPETREE 
+#ifdef OEM_EMS
+                        || wType == WMTYPE_EXCHANGE
+#endif                        
+                        ) ) {
 
           switch ( wVirKey ) {
 

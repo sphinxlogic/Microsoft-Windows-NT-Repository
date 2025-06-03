@@ -115,15 +115,6 @@ Return Value:
         // system-wide handle to this file object the cleanup code will take
         // care of releasing any locks on the file rather than having to
         // send the file system two different packets to get them shut down.
-        //
-        // Begin by referencing the object so that it cannot go away during this
-        // operation.  Note that this operation cannot fail.
-        //
-
-        (VOID) ObReferenceObjectByPointer( fileObject,
-                                           0,
-                                           IoFileObjectType,
-                                           KernelMode );
 
         //
         // Get the address of the target device object and the Fast I/O dispatch
@@ -224,6 +215,12 @@ Return Value:
             irpSp->FileObject = fileObject;
 
             //
+            //  Reference the fileobject again for the IRP (cleared on completion)
+            //
+
+            ObReferenceObject( fileObject );
+
+            //
             // Insert the packet at the head of the IRP list for the thread.
             //
 
@@ -246,15 +243,15 @@ Return Value:
                                               FALSE,
                                               (PLARGE_INTEGER) NULL );
             }
+        }
 
-            //
-            // If this operation was a synchronous I/O operation, release the
-            // semaphore so that the file can be used by other threads.
-            //
+        //
+        // If this operation was a synchronous I/O operation, release the
+        // semaphore so that the file can be used by other threads.
+        //
 
-            if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
-                IopReleaseFileObjectLock( fileObject );
-            }
+        if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
+            IopReleaseFileObjectLock( fileObject );
         }
     }
 
@@ -697,16 +694,7 @@ Return Value:
         //
 
         if (!referenceCountDecremented) {
-            ExAcquireSpinLock( &IopDatabaseLock, &irql );
-            deviceObject->ReferenceCount--;
-
-            if (deviceObject->Flags & DO_UNLOAD_PENDING &&
-                !deviceObject->ReferenceCount &&
-                !deviceObject->AttachedDevice) {
-                IopCompleteDriverUnload( deviceObject, irql );
-            } else {
-                ExReleaseSpinLock( &IopDatabaseLock, irql );
-            }
+            IopDecrementDeviceObjectRef( deviceObject, FALSE );
         }
     }
 }
@@ -743,14 +731,84 @@ Return value:
     ASSERT( !driverObject->DeviceObject );
 
     //
-    // The only cleanup that is necessary is to free the pool associated
-    // with the name of the driver.
+    // Free the pool associated with the name of the driver.
     //
 
     if (driverObject->DriverName.Buffer) {
         ExFreePool( driverObject->DriverName.Buffer );
     }
+#if _PNP_POWER_
+
+    //
+    // When the driver object is deleted.  Delete the NtDevicePaths of the driver.
+    //
+
+    if (driverObject->DriverExtension->ServiceKeyName.Length != 0) {
+        HANDLE enumHandle;
+        UNICODE_STRING unicodeName;
+
+        if (NT_SUCCESS(IopOpenServiceEnumKeys(
+                                      &driverObject->DriverExtension->ServiceKeyName,
+                                      KEY_ALL_ACCESS,
+                                      NULL,
+                                      &enumHandle,
+                                      FALSE
+                                      ))) {
+
+            //
+            // Remove the NeDevicePaths under service enum key.
+            //
+
+            PiWstrToUnicodeString(&unicodeName, REGSTR_VALUE_NTDEVICEPATHS);
+            ZwDeleteValueKey(enumHandle, &unicodeName);
+            ZwClose(enumHandle);
+        }
+    }
+
+#endif
+
+    //
+    // Free the pool associated with the service key name of the driver.
+    //
+
+    if (driverObject->DriverExtension->ServiceKeyName.Buffer) {
+        ExFreePool( driverObject->DriverExtension->ServiceKeyName.Buffer );
+    }
 }
+
+#ifdef _PNP_POWER_
+VOID
+IopDeleteDevice(
+    IN PVOID Object
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is invoked when the reference count for a device object
+    becomes zero.  That is, the last reference for the device has gone away.
+    This routine ensures that the object is cleaned up.
+
+Arguments:
+
+    Object - Pointer to the driver object whose reference count has gone
+        to zero.
+
+Return value:
+
+    None.
+
+--*/
+
+{
+    PDEVICE_OBJECT deviceObject = (PDEVICE_OBJECT) Object;
+
+    PAGED_CODE();
+
+    PoRunDownDeviceObject (deviceObject);
+}
+#endif // _PNP_POWER_
 
 NTSTATUS
 IopGetSetSecurityObject(
@@ -813,6 +871,7 @@ Return Value:
     NTSTATUS status;
     PFILE_OBJECT fileObject;
     PDEVICE_OBJECT deviceObject;
+    BOOLEAN synchronousIo;
 
     UNREFERENCED_PARAMETER( ObjectsSecurityDescriptor );
     UNREFERENCED_PARAMETER( PoolType );
@@ -834,7 +893,8 @@ Return Value:
         deviceObject = fileObject->DeviceObject;
     }
 
-    if (fileObject == NULL || fileObject->FileName.Length == 0) {
+    if (!fileObject ||
+        (!fileObject->FileName.Length && !fileObject->RelatedFileObject)) {
 
         //
         // This security operation is for the device itself, either through
@@ -945,13 +1005,7 @@ Return Value:
         // standard I/O completion will dereference the object.
         //
 
-        status = ObReferenceObjectByPointer( fileObject,
-                                             0,
-                                             IoFileObjectType,
-                                             requestorMode );
-        if (!NT_SUCCESS( status )) {
-            return status;
-        }
+        ObReferenceObject( fileObject );
 
         //
         // Make a special check here to determine whether this is a synchronous
@@ -974,8 +1028,10 @@ Return Value:
                     return status;
                 }
             }
+            synchronousIo = TRUE;
         } else {
             KeInitializeEvent( &event, SynchronizationEvent, FALSE );
+            synchronousIo = FALSE;
         }
 
         //
@@ -1098,7 +1154,7 @@ Return Value:
         // completed and obtain the final status from the file object itself.
         //
 
-        if (fileObject->Flags & FO_SYNCHRONOUS_IO) {
+        if (synchronousIo) {
             if (status == STATUS_PENDING) {
                 (VOID) KeWaitForSingleObject( &fileObject->Event,
                                               Executive,

@@ -58,7 +58,7 @@ TestLocks(
 {
     LPNET_LOCK LockPtr = NULL;
 
-    NetpDbgPrint("\nTestLocks: Testing NetpCreateLock...\n" );
+    NetpKdPrint(("\nTestLocks: Testing NetpCreateLock...\n" ));
 
     LockPtr = NetpCreateLock (
             SAMPLE_LOCK_LEVEL,
@@ -66,53 +66,53 @@ TestLocks(
             );
     TestAssert( LockPtr != NULL );
 
-    NetpDbgPrint("TestLocks: allocated lock at " FORMAT_LPVOID ".\n",
-                (LPVOID) LockPtr);
+    NetpKdPrint(("TestLocks: allocated lock at " FORMAT_LPVOID ".\n",
+                (LPVOID) LockPtr));
 
 
-    NetpDbgPrint("TestLocks: acquiring excl (simple)...\n" );
+    NetpKdPrint(("TestLocks: acquiring excl (simple)...\n" ));
     if ( !NetpAcquireLock (
             LockPtr,
             TRUE,                 // yes wait
             TRUE) ) {                   // yes we want excl
-        NetpDbgPrint( "TestLocks: NetpAcquireLock failed!\n" );
+        NetpKdPrint(( "TestLocks: NetpAcquireLock failed!\n" ));
         goto Cleanup;
     }
 
-    NetpDbgPrint("TestLocks: converting to shared (simple)...\n" );
+    NetpKdPrint(("TestLocks: converting to shared (simple)...\n" ));
     NetpConvertExclusiveLockToShared( LockPtr );
 
-    NetpDbgPrint("TestLocks: releasing (simple)...\n" );
+    NetpKdPrint(("TestLocks: releasing (simple)...\n" ));
     NetpReleaseLock( LockPtr );
 
 
-    NetpDbgPrint("TestLocks: acquiring (outside)...\n" );
+    NetpKdPrint(("TestLocks: acquiring (outside)...\n" ));
     if ( !NetpAcquireLock (
             LockPtr,
             TRUE,                 // yes wait
             TRUE) ) {                   // yes we want excl
-        NetpDbgPrint( "TestLocks: NetpAcquireLock failed!\n" );
+        NetpKdPrint(( "TestLocks: NetpAcquireLock failed!\n" ));
         goto Cleanup;
     }
 
-    NetpDbgPrint("TestLocks: acquiring (inside)...\n" );
+    NetpKdPrint(("TestLocks: acquiring (inside)...\n" ));
     if ( !NetpAcquireLock (
             LockPtr,
             TRUE,                 // yes wait
             TRUE) ) {                   // yes we want excl
-        NetpDbgPrint( "TestLocks: NetpAcquireLock failed!\n" );
+        NetpKdPrint(( "TestLocks: NetpAcquireLock failed!\n" ));
         goto Cleanup;
     }
 
-    NetpDbgPrint("TestLocks: releasing (inside)...\n" );
+    NetpKdPrint(("TestLocks: releasing (inside)...\n" ));
     NetpReleaseLock( LockPtr );
 
-    NetpDbgPrint("TestLocks: releasing (outside)...\n" );
+    NetpKdPrint(("TestLocks: releasing (outside)...\n" ));
     NetpReleaseLock( LockPtr );
 
 
 Cleanup:
-    NetpDbgPrint("TestLocks: deleting (simple)...\n" );
+    NetpKdPrint(("TestLocks: deleting (simple)...\n" ));
     if (LockPtr != NULL) {
         NetpDeleteLock( LockPtr );
     }

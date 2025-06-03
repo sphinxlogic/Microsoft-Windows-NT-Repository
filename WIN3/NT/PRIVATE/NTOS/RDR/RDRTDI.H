@@ -39,7 +39,6 @@ typedef struct _TRANSPORT {
     USHORT Size;                        // Structure size
     PNONPAGED_TRANSPORT NonPagedTransport;
     LIST_ENTRY GlobalNext;              // Pointer to next transport.
-    LIST_ENTRY EnumNext;                // Pointer to next transport for Enum.
     ULONG QualityOfService;             // Quality of service of transport.
     ULONG ResumeKey;
     UNICODE_STRING TransportName;       // Name of transport

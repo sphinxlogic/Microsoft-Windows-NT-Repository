@@ -17,6 +17,7 @@
 *   6-16-92	GDP	merged changes from \\orville and \\vangogh trees
 *   9-05-92	GDP	included fltintrn.h, new calling convention macros
 *   07-16-93    SRW     ALPHA Merge
+*   10-02-94    BWT     PPC merge
 *
 *******************************************************************************/
 #ifndef _INC_CV
@@ -67,7 +68,7 @@ extern "C" {
  * fp register.
  */
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 #define DOUBLE double
 #endif
 #include <fltintrn.h>
@@ -81,7 +82,7 @@ extern "C" {
 #define L_END
 #endif
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 #define L_END
 #endif
 
@@ -251,8 +252,10 @@ STRFLT _CALLTYPE2 _lfltout(long double);
 	( (manhi)==MSB_ULONG && (manlo)==0x0 )
 
 
-/* i386 and Alpha use same NaN format */
-#if defined(i386) || defined(_ALPHA_)
+// i386 and Alpha use same NaN format
+
+#if defined(_M_IX86) || defined(_M_ALPHA)
+
 #define _IS_MAN_IND(signbit, manhi, manlo) \
 	((signbit) && (manhi)==0xc0000000 && (manlo)==0)
 
@@ -264,8 +267,8 @@ STRFLT _CALLTYPE2 _lfltout(long double);
 	   _IS_MAN_QNAN(signbit, manhi, manlo) ))
 
 
-#else
-#ifdef MIPS
+#elif defined(_M_MRX000) || defined(_M_PPC)
+
 #define _IS_MAN_IND(signbit, manhi, manlo) \
 	(!(signbit) && (manhi)==0xbfffffff && (manlo)==0xfffff800)
 
@@ -276,20 +279,19 @@ STRFLT _CALLTYPE2 _lfltout(long double);
 	(!( _IS_MAN_INF(signbit, manhi, manlo) || \
 	   _IS_MAN_SNAN(signbit, manhi, manlo) ))
 #endif
-#endif
 
 
 
-#if defined (L_END) && !( defined(MIPS) || defined(_ALPHA_) )
+#if defined (L_END) && !( defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC) )
 /* "little endian" memory */
 /* Note: MIPS and Alpha have alignment requirements and have different macros */
 /*
  * Manipulation of a 12-byte long double number (an ordinary
  * 10-byte long double plus two extra bytes of mantissa).
  */
-/* 
+/*
  * byte layout:
- *    
+ *
  *		+-----+--------+--------+-------+
  *		|XT(2)|MANLO(4)|MANHI(4)|EXP(2) |
  *              +-----+--------+--------+-------+
@@ -349,9 +351,9 @@ STRFLT _CALLTYPE2 _lfltout(long double);
 /* big endian */
 #if defined (B_END)
 
-/* 
+/*
  * byte layout:
- *    
+ *
  *		+------+-------+---------+------+
  *		|EXP(2)|MANHI(4)|MANLO(4)|XT(2) |
  *              +------+-------+---------+------+
@@ -387,7 +389,7 @@ STRFLT _CALLTYPE2 _lfltout(long double);
 
 #endif
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 
 #define ALIGN(x)  ( (unsigned long  __unaligned *) (x))
 

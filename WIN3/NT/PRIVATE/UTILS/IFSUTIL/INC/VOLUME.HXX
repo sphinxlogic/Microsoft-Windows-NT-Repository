@@ -26,14 +26,23 @@ Author:
 #include "drive.hxx"
 #include "numset.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( HMEM );
 DECLARE_CLASS( MESSAGE );
 DECLARE_CLASS( SUPERAREA );
-DECLARE_CLASS( VOL_LIODPDRV	);
+DECLARE_CLASS( VOL_LIODPDRV     );
 DECLARE_CLASS( WSTRING );
 DECLARE_CLASS( WSTRING );
 
@@ -47,18 +56,21 @@ typedef ULONG VOLID;
 
 enum FIX_LEVEL {
     CheckOnly,
-    TotalFix
+    TotalFix,
+    SetupSpecial
 };
 
 class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
 
     public:
 
-	    VIRTUAL
-	    ~VOL_LIODPDRV(
+        VIRTUAL
+        IFSUTIL_EXPORT
+        ~VOL_LIODPDRV(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Format(
             IN      PCWSTRING   Label           DEFAULT NULL,
@@ -68,18 +80,23 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         ChkDsk(
             IN      FIX_LEVEL   FixLevel,
-            IN OUT  PMESSAGE    Message         DEFAULT NULL,
-            IN      BOOLEAN     Verbose         DEFAULT FALSE,
-            IN      BOOLEAN     OnlyIfDirty     DEFAULT FALSE,
-            IN      BOOLEAN     RecoverFree     DEFAULT FALSE,
-            IN      BOOLEAN     RecoverAlloc    DEFAULT FALSE,
-            OUT     PULONG      ExitStatus      DEFAULT NULL
+            IN OUT  PMESSAGE    Message             DEFAULT NULL,
+            IN      BOOLEAN     Verbose             DEFAULT FALSE,
+            IN      BOOLEAN     OnlyIfDirty         DEFAULT FALSE,
+            IN      BOOLEAN     RecoverFree         DEFAULT FALSE,
+            IN      BOOLEAN     RecoverAlloc        DEFAULT FALSE,
+            IN      BOOLEAN     ResizeLogfile       DEFAULT FALSE,
+            IN      ULONG       DesiredLogfileSize  DEFAULT 0,
+            OUT     PULONG      ExitStatus          DEFAULT NULL,
+            IN      PCWSTRING   DriveLetter         DEFAULT NULL
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Recover(
             IN      PCWSTRING   FileName,
@@ -87,7 +104,7 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
             );
 
         NONVIRTUAL
-	    PSUPERAREA
+        PSUPERAREA
         GetSa(
             );
 
@@ -102,21 +119,26 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
             ) CONST PURE;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         ForceAutochk(
             IN  BOOLEAN     Recover,
+            IN  BOOLEAN     ResizeLogfile,
+            IN  ULONG       DesiredLogfileSize,
             IN  PCWSTRING   Name
-        );
+            );
 
 
     protected:
 
-		DECLARE_CONSTRUCTOR( VOL_LIODPDRV );
+        IFSUTIL_EXPORT
+        DECLARE_CONSTRUCTOR( VOL_LIODPDRV );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
-            IN      PCWSTRING    NtDriveName,
+            IN      PCWSTRING           NtDriveName,
             IN      PSUPERAREA          SuperArea,
             IN OUT  PMESSAGE            Message         DEFAULT NULL,
             IN      BOOLEAN             ExclusiveWrite  DEFAULT FALSE,
@@ -125,22 +147,23 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
             );
 
         NONVIRTUAL
-		BOOLEAN
-		Initialize(
+        IFSUTIL_EXPORT
+        BOOLEAN
+        Initialize(
             IN      PCWSTRING   NtDriveName,
             IN      PCWSTRING   HostFileName,
             IN      PSUPERAREA  SuperArea,
             IN OUT  PMESSAGE    Message         DEFAULT NULL,
             IN      BOOLEAN     ExclusiveWrite  DEFAULT FALSE
-			);
+            );
 
 
-	private:
+    private:
 
-		NONVIRTUAL
-		VOID
-		Construct (
-			);
+        NONVIRTUAL
+        VOID
+        Construct (
+            );
 
         NONVIRTUAL
         VOID
@@ -154,12 +177,11 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
             IN      LBN                 StartLbn,
             IN      SECTORCOUNT         NumSectors,
             IN OUT  PMESSAGE            Message         DEFAULT NULL,
-            IN      PCWSTRING    SrcDosDriveName DEFAULT NULL
+            IN      PCWSTRING           SrcDosDriveName DEFAULT NULL
             );
 
         PSUPERAREA  _sa;
         NUMBER_SET  _bad_sectors;
-
 };
 
 
@@ -183,7 +205,7 @@ Return Value:
 
 --*/
 {
-	return _sa;
+        return _sa;
 }
 
 #else // _SETUP_LOADER_ is defined
@@ -192,13 +214,13 @@ Return Value:
 #include "intstack.hxx"
 
 //
-//	Forward references
+//      Forward references
 //
 
 DECLARE_CLASS( HMEM );
 DECLARE_CLASS( MESSAGE );
 DECLARE_CLASS( SUPERAREA );
-DECLARE_CLASS( VOL_LIODPDRV	);
+DECLARE_CLASS( VOL_LIODPDRV     );
 DECLARE_CLASS( WSTRING );
 DECLARE_CLASS( WSTRING );
 
@@ -219,8 +241,8 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
 
     public:
 
-	    VIRTUAL
-	    ~VOL_LIODPDRV(
+        VIRTUAL
+        ~VOL_LIODPDRV(
             );
 
         NONVIRTUAL
@@ -228,12 +250,12 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
         ChkDsk(
             IN      FIX_LEVEL   FixLevel,
             IN OUT  PMESSAGE    Message     DEFAULT NULL,
-			IN		BOOLEAN 	Verbose     DEFAULT FALSE,
-			IN		BOOLEAN 	OnlyIfDirty DEFAULT FALSE
+            IN      BOOLEAN     Verbose     DEFAULT FALSE,
+            IN      BOOLEAN     OnlyIfDirty DEFAULT FALSE
             );
 
         NONVIRTUAL
-	    PSUPERAREA
+        PSUPERAREA
         GetSa(
             );
 
@@ -260,7 +282,7 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
 
     protected:
 
-		DECLARE_CONSTRUCTOR( VOL_LIODPDRV );
+        DECLARE_CONSTRUCTOR( VOL_LIODPDRV );
 
         NONVIRTUAL
         BOOLEAN
@@ -271,10 +293,10 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
 
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct (
-			);
+        NONVIRTUAL
+        VOID
+        Construct (
+            );
 
         NONVIRTUAL
         VOID
@@ -293,7 +315,6 @@ class VOL_LIODPDRV : public LOG_IO_DP_DRIVE {
 
         PSUPERAREA  _sa;
         INTSTACK    _bad_sectors;
-
 };
 
 
@@ -317,7 +338,7 @@ Return Value:
 
 --*/
 {
-	return _sa;
+        return _sa;
 }
 
 INLINE

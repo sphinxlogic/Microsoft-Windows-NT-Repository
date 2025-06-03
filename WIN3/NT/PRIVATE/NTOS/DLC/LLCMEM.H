@@ -48,6 +48,8 @@ Revision History:
 #ifndef _LLCMEM_H_
 #define _LLCMEM_H_
 
+#define DLC_POOL_TAG    ' CLD'
+
 //
 // the following types and defines are for the debug version of the driver, but
 // need to be defined for the non-debug version too (not used, just defined)
@@ -114,6 +116,9 @@ typedef struct {
 #define SIGNATURE_LLC_LINK  0x41544144  // "DATA"
 #define SIGNATURE_LLC_SAP   0x4C504153  // "SAPL"
 
+#define ZAP_DEALLOC_VALUE   0x5A5A5A5A  // "ZZZZ"
+#define ZAP_EX_FREE_VALUE   0x58585858  // "XXXX"
+
 //
 // we try to keep track of memory allocations by subdividing them into driver
 // and handle categories. The first charges memory allocated to the driver -
@@ -154,10 +159,27 @@ typedef struct _MEMORY_USAGE {
 //
 
 typedef struct {
+
     SINGLE_LIST_ENTRY FreeList; // list of available packets
     SINGLE_LIST_ENTRY BusyList; // list of in-use packets
     KSPIN_LOCK PoolLock;        // stops simultaneous accesses breaking list(s)
     ULONG PacketSize;           // size of individual packets
+
+    //
+    // the following 2 fields are here because DLC is a piece of garbage. It
+    // keeps hold of allocated packets even after the pool as been deleted.
+    // This leads to pool corruption. So if we determine packets are still
+    // allocated when the pool is deleted, we remove the pool from whatever
+    // 'object' it is currently stuck to, lamprey-like, and add it to the
+    // ZombieList. When we next deallocate packets from this pool (assuming that
+    // DLC at least bothers to do this), we check the zombie state. If ImAZombie
+    // is TRUE (actually its true to say for the whole DLC device driver) AND
+    // we are deallocating the last packet in the pool then we really delete
+    // the pool
+    //
+
+//    SINGLE_LIST_ENTRY UndeadList;
+//    BOOLEAN ImAZombie;
 
 #if DBG
 
@@ -166,7 +188,7 @@ typedef struct {
     // growing
     //
 
-    ULONG Signature;            // 0x504F4F4C "POOL"
+    ULONG Signature;            // 0x4C4F4F50 "POOL"
     ULONG Viable;               // !0 if this pool is valid
     ULONG OriginalPacketCount;  // number of packets requested
     ULONG CurrentPacketCount;   // total number in pool
@@ -183,6 +205,7 @@ typedef struct {
     ULONG BusyCount;            // number of entries on BusyList
     ULONG Pad1;
     ULONG Pad2;
+
 #endif
 
 } PACKET_POOL, *PPACKET_POOL;
@@ -191,7 +214,7 @@ typedef struct {
 // PACKET_POOL defines and flags
 //
 
-#define PACKET_POOL_SIGNATURE   0x504F4F4C  // "POOL"
+#define PACKET_POOL_SIGNATURE   0x4C4F4F50  // "POOL"
 
 #define POOL_FLAGS_IN_USE       0x00000001
 #define POOL_FLAGS_OBJECT       0x00000002
@@ -212,16 +235,19 @@ typedef struct {
 //
 
 typedef struct {
+
     SINGLE_LIST_ENTRY List;     // standard single-linked list
     ULONG Flags;
 
 #if DBG
-    ULONG Signature;            // 0x48454144 "HEAD"
+
+    ULONG Signature;            // 0x44414548 "HEAD"
     PVOID pPacketPool;          // owning pool
-    PVOID CallersAddress;
-    PVOID CallersCaller;
-    ULONG Pad1;
-    ULONG Pad2;
+    PVOID CallersAddress_A;     // caller - allocation
+    PVOID CallersCaller_A;
+    PVOID CallersAddress_D;     // caller - deallocation
+    PVOID CallersCaller_D;
+
 #endif
 
 } PACKET_HEAD, *PPACKET_HEAD;
@@ -230,7 +256,7 @@ typedef struct {
 // PACKET_HEAD defines and flags
 //
 
-#define PACKET_HEAD_SIGNATURE   0x48454144  // "HEAD"
+#define PACKET_HEAD_SIGNATURE   0x44414548  // "HEAD"
 
 #define PACKET_FLAGS_BUSY       0x00000001  // packet should be on BusyList
 #define PACKET_FLAGS_POST_ALLOC 0x00000002  // this packet was allocated because
@@ -248,6 +274,40 @@ typedef struct {
 
 
 #if DBG
+
+//
+// anything we allocate from non-paged pool gets the following header pre-pended
+// to it
+//
+
+typedef struct {
+    ULONG Size;                 // inclusive size of allocated block (inc head+tail)
+    ULONG OriginalSize;         // requested size
+    ULONG Flags;                // IN_USE flag
+    ULONG Signature;            // for checking validity of header
+    LIST_ENTRY GlobalList;      // all blocks allocated on one list
+    LIST_ENTRY PrivateList;     // blocks owned by MemoryUsage
+    PVOID Stack[4];             // stack of return addresses
+} PRIVATE_NON_PAGED_POOL_HEAD, *PPRIVATE_NON_PAGED_POOL_HEAD;
+
+#define MEM_FLAGS_IN_USE    0x00000001
+
+#define SIGNATURE1  0x41434C44  // "DLCA" when viewed via db/dc
+#define SIGNATURE2  0x434F4C4C  // "LLOC"  "      "    "  "
+
+//
+// anything we allocate from non-paged pool has the following tail appended to it
+//
+
+typedef struct {
+    ULONG Size;                 // inclusive size; must be same as in header
+    ULONG Signature;            // for checking validity of tail
+    ULONG Pattern1;
+    ULONG Pattern2;
+} PRIVATE_NON_PAGED_POOL_TAIL, *PPRIVATE_NON_PAGED_POOL_TAIL;
+
+#define PATTERN1    0x55AA6699
+#define PATTERN2    0x11EECC33
 
 //
 // standard object identifier. Expands to nothing on free build
@@ -288,7 +348,7 @@ UnlinkMemoryUsage(
     );
 
 //
-// the following 2 functions expand to be ExAllocatePool(NonPagedPool, ...)
+// the following 2 functions expand to be ExAllocatePoolWithTag(NonPagedPool, ...)
 // and ExFreePool(...) resp. in the retail/Free version of the driver
 //
 
@@ -476,6 +536,8 @@ CheckDriverMemoryUsage(
 // structure to the driver
 //
 
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_DRIVER(t, s, n) \
     CreatePacketPool(&DriverMemoryUsage,\
                     NULL,\
@@ -490,6 +552,8 @@ CheckDriverMemoryUsage(
 
 #define DELETE_PACKET_POOL_DRIVER(p) \
     DeletePacketPool(&DriverMemoryUsage, (PPACKET_POOL*)(p))
+
+#endif  // NO_POOLS
 
 //
 // memory allocators which charge memory usage to an ADAPTER_CONTEXT
@@ -531,6 +595,8 @@ CheckDriverMemoryUsage(
 // structure to the adapter structure
 //
 
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_ADAPTER(t, s, n) \
     CreatePacketPool(&pAdapterContext->MemoryUsage,\
                     (PVOID)pAdapterContext,\
@@ -545,6 +611,8 @@ CheckDriverMemoryUsage(
 
 #define DELETE_PACKET_POOL_ADAPTER(p) \
     DeletePacketPool(&pAdapterContext->MemoryUsage, (PPACKET_POOL*)(p))
+
+#endif  // NO_POOLS
 
 //
 // memory allocators which charge memory usage to a FILE_CONTEXT
@@ -578,6 +646,8 @@ CheckDriverMemoryUsage(
 // to the file handle
 //
 
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_FILE(t, s, n) \
     CreatePacketPool(&pFileContext->MemoryUsage,\
                     (PVOID)pFileContext,\
@@ -593,6 +663,8 @@ CheckDriverMemoryUsage(
 #define DELETE_PACKET_POOL_FILE(p) \
     DeletePacketPool(&pFileContext->MemoryUsage, (PPACKET_POOL*)(p))
 
+#endif  // NO_POOLS
+
 //
 // VALIDATE_OBJECT - check that an 'object' is really what it supposed to be.
 // Rudimentary check based on object signature and object type fields
@@ -604,7 +676,7 @@ CheckDriverMemoryUsage(
 #define UNLINK_MEMORY_USAGE(p)      UnlinkMemoryUsage(&(p)->MemoryUsage)
 #define UNLINK_STRING_USAGE(p)      UnlinkMemoryUsage(&(p)->StringUsage)
 
-#else
+#else   // !DBG
 
 //
 // DBG_OBJECT_ID in retail version structures is non-existent
@@ -613,10 +685,10 @@ CheckDriverMemoryUsage(
 #define DBG_OBJECT_ID
 
 //
-// the non-zero-initialized memory allocator is just a call to ExAllocatePool
+// the non-zero-initialized memory allocator is just a call to ExAllocatePoolWithTag
 //
 
-#define AllocateMemory(n)           ExAllocatePool(NonPagedPool, (n))
+#define AllocateMemory(n)           ExAllocatePoolWithTag(NonPagedPool, (n), DLC_POOL_TAG)
 
 //
 // AllocateZeroMemory doesn't count memory usage in non-debug version
@@ -684,21 +756,36 @@ DeletePacketPool(
 #define FREE_MEMORY_DRIVER(p)               DeallocateMemory((PVOID)(p))
 #define ALLOCATE_STRING_DRIVER(n)           AllocateZeroMemory((ULONG)(n))
 #define FREE_STRING_DRIVER(p)               DeallocateMemory((PVOID)(p))
+
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_DRIVER(t, s, n)  CreatePacketPool((ULONG)(s), (ULONG)(n))
 #define DELETE_PACKET_POOL_DRIVER(p)        DeletePacketPool((PPACKET_POOL*)(p))
+
+#endif  // NO_POOLS
 
 #define ALLOCATE_MEMORY_ADAPTER(n)          AllocateMemory((ULONG)(n))
 #define ALLOCATE_ZEROMEMORY_ADAPTER(n)      AllocateZeroMemory((ULONG)(n))
 #define FREE_MEMORY_ADAPTER(p)              DeallocateMemory((PVOID)(p))
 #define ALLOCATE_STRING_ADAPTER(n)          AllocateZeroMemory((ULONG)(n))
+
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_ADAPTER(t, s, n) CreatePacketPool((s), (n))
 #define DELETE_PACKET_POOL_ADAPTER(p)       DeletePacketPool((PPACKET_POOL*)(p))
+
+#endif  // NO_POOLS
 
 #define ALLOCATE_MEMORY_FILE(n)             AllocateMemory((ULONG)(n))
 #define ALLOCATE_ZEROMEMORY_FILE(n)         AllocateZeroMemory((ULONG)(n))
 #define FREE_MEMORY_FILE(p)                 DeallocateMemory((PVOID)(p))
+
+#if !defined(NO_POOLS)
+
 #define CREATE_PACKET_POOL_FILE(t, s, n)    CreatePacketPool((ULONG)(s), (ULONG)(n))
 #define DELETE_PACKET_POOL_FILE(p)          DeletePacketPool((PPACKET_POOL*)(p))
+
+#endif  // NO_POOLS
 
 #define VALIDATE_OBJECT(p, t)
 
@@ -706,7 +793,7 @@ DeletePacketPool(
 #define UNLINK_MEMORY_USAGE(p)
 #define UNLINK_STRING_USAGE(p)
 
-#endif // DBG
+#endif  // DBG
 
 //
 // Prototypes for memory allocators and pool and object functions
@@ -723,4 +810,99 @@ DeallocatePacket(
     IN PVOID pPacket
     );
 
-#endif // _LLCMEM_H_
+#if defined(NO_POOLS)
+
+#define CREATE_PACKET_POOL_DRIVER(t, s, n)  (PVOID)0x12345678
+#define CREATE_PACKET_POOL_ADAPTER(t, s, n) (PVOID)0x12345679
+#define CREATE_PACKET_POOL_FILE(t, s, n)    (PVOID)0x1234567A
+
+#define DELETE_PACKET_POOL_DRIVER(p)    *p = NULL
+#define DELETE_PACKET_POOL_ADAPTER(p)   *p = NULL
+#define DELETE_PACKET_POOL_FILE(p)      *p = NULL
+
+#if defined(BUF_USES_POOL)
+
+#if DBG
+
+#define CREATE_BUFFER_POOL_FILE(t, s, n) \
+    CreatePacketPool(&pFileContext->MemoryUsage,\
+                    (PVOID)pFileContext,\
+                    (t),\
+                    (ULONG)(s),\
+                    (ULONG)(n))
+
+#define DELETE_BUFFER_POOL_FILE(p) \
+    DeletePacketPool(&pFileContext->MemoryUsage, (PPACKET_POOL*)(p))
+
+#define ALLOCATE_PACKET_DLC_BUF(p)  AllocatePacket(p)
+#define DEALLOCATE_PACKET_DLC_BUF(pool, p)  DeallocatePacket(pool, p)
+
+#else   // !DBG
+
+#define CREATE_BUFFER_POOL_FILE(t, s, n)    CreatePacketPool((ULONG)(s), (ULONG)(n))
+#define DELETE_BUFFER_POOL_FILE(p)  DeletePacketPool((PPACKET_POOL*)(p))
+#define ALLOCATE_PACKET_DLC_BUF(p)  ALLOCATE_ZEROMEMORY_FILE(sizeof(DLC_BUFFER_HEADER))
+#define DEALLOCATE_PACKET_DLC_BUF(pool, p)  FREE_MEMORY_FILE(p)
+
+#endif  // DBG
+
+#else   // !BUF_USES_POOL
+
+#define CREATE_BUFFER_POOL_FILE(t, s, n)    (PVOID)0x1234567B
+#define DELETE_BUFFER_POOL_FILE(p)          *p = NULL
+#define ALLOCATE_PACKET_DLC_BUF(p)          AllocateZeroMemory(sizeof(DLC_BUFFER_HEADER))
+#define DEALLOCATE_PACKET_DLC_BUF(pool, p)  DeallocateMemory(p)
+
+#endif  // BUF_USES_POOL
+
+#if DBG
+
+#define ALLOCATE_PACKET_DLC_PKT(p)  ALLOCATE_ZEROMEMORY_FILE(sizeof(DLC_PACKET))
+#define ALLOCATE_PACKET_DLC_OBJ(p)  ALLOCATE_ZEROMEMORY_FILE(sizeof(DLC_OBJECT))
+#define ALLOCATE_PACKET_LLC_PKT(p)  ALLOCATE_ZEROMEMORY_ADAPTER(sizeof(UNITED_PACKETS))
+#define ALLOCATE_PACKET_LLC_LNK(p)  ALLOCATE_ZEROMEMORY_ADAPTER(sizeof(DATA_LINK) + 32)
+
+#define DEALLOCATE_PACKET_DLC_PKT(pool, p)  FREE_MEMORY_FILE(p)
+#define DEALLOCATE_PACKET_DLC_OBJ(pool, p)  FREE_MEMORY_FILE(p)
+#define DEALLOCATE_PACKET_LLC_PKT(pool, p)  FREE_MEMORY_ADAPTER(p)
+#define DEALLOCATE_PACKET_LLC_LNK(pool, p)  FREE_MEMORY_ADAPTER(p)
+
+#else   // !DBG
+
+#define CREATE_BUFFER_POOL_FILE(t, s, n)    CREATE_PACKET_POOL_FILE(t, s, n)
+#define DELETE_BUFFER_POOL_FILE(p)  DELETE_PACKET_POOL_FILE(p)
+
+#define ALLOCATE_PACKET_DLC_BUF(p)  AllocateZeroMemory(sizeof(DLC_BUFFER_HEADER))
+#define ALLOCATE_PACKET_DLC_PKT(p)  AllocateZeroMemory(sizeof(DLC_PACKET))
+#define ALLOCATE_PACKET_DLC_OBJ(p)  AllocateZeroMemory(sizeof(DLC_OBJECT))
+#define ALLOCATE_PACKET_LLC_PKT(p)  AllocateZeroMemory(sizeof(UNITED_PACKETS))
+#define ALLOCATE_PACKET_LLC_LNK(p)  AllocateZeroMemory(sizeof(DATA_LINK) + 32)
+
+#define DEALLOCATE_PACKET_DLC_BUF(pool, p)  DeallocateMemory(p)
+#define DEALLOCATE_PACKET_DLC_PKT(pool, p)  DeallocateMemory(p)
+#define DEALLOCATE_PACKET_DLC_OBJ(pool, p)  DeallocateMemory(p)
+#define DEALLOCATE_PACKET_LLC_PKT(pool, p)  DeallocateMemory(p)
+#define DEALLOCATE_PACKET_LLC_LNK(pool, p)  DeallocateMemory(p)
+
+#endif  // DBG
+
+#else   // !NO_POOLS
+
+#define CREATE_BUFFER_POOL_FILE(t, s, n)    CREATE_PACKET_POOL_FILE(t, s, n)
+#define DELETE_BUFFER_POOL_FILE(p)  DELETE_PACKET_POOL_FILE(p)
+
+#define ALLOCATE_PACKET_DLC_BUF(p)  AllocatePacket(p)
+#define ALLOCATE_PACKET_DLC_PKT(p)  AllocatePacket(p)
+#define ALLOCATE_PACKET_DLC_OBJ(p)  AllocatePacket(p)
+#define ALLOCATE_PACKET_LLC_PKT(p)  AllocatePacket(p)
+#define ALLOCATE_PACKET_LLC_LNK(p)  AllocatePacket(p)
+
+#define DEALLOCATE_PACKET_DLC_BUF(pool, p)  DeallocatePacket(pool, p)
+#define DEALLOCATE_PACKET_DLC_PKT(pool, p)  DeallocatePacket(pool, p)
+#define DEALLOCATE_PACKET_DLC_OBJ(pool, p)  DeallocatePacket(pool, p)
+#define DEALLOCATE_PACKET_LLC_PKT(pool, p)  DeallocatePacket(pool, p)
+#define DEALLOCATE_PACKET_LLC_LNK(pool, p)  DeallocatePacket(pool, p)
+
+#endif  // NO_POOLS
+
+#endif  // _LLCMEM_H_

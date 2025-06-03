@@ -33,9 +33,10 @@
 #define dtNil       0       /* no mapping                       */
 #define dtLocal     1       /* local drive                      */
 #define dtUserNet   2       /* previously assigned drive        */
-#define dtTempNet   3       /* temporarily assigned drive       */
-#define dtUnknown   4       /* mapping not yet initialized      */
-#define dtInvalid   5       /* invalid drive                    */
+#define dtPermNet   3       /* persistant drive letter          */
+#define dtTempNet   4       /* temporarily assigned drive       */
+#define dtUnknown   5       /* mapping not yet initialized      */
+#define dtInvalid   6       /* invalid drive                    */
 
 
 //
@@ -93,4 +94,3 @@ char *mpdnpth[dnMax];           /* for local drives:
                                    If 0, not retrieved yet.
                                 */
 #endif
-

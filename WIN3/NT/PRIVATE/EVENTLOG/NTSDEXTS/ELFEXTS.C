@@ -32,6 +32,7 @@ Revision History:
 #include <elfdef.h>
 #include <elfcommn.h>
 #include <elfproto.h>
+#include <svcs.h>
 #include <elfextrn.h>
 
 //#define DbgPrint(_x_) (lpOutputRoutine) _x_

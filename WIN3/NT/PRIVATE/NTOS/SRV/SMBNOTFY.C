@@ -27,7 +27,7 @@ Revision History:
 // Forward declarations
 //
 
-VOID
+VOID SRVFASTCALL
 RestartNtNotifyChange (
     PWORK_CONTEXT WorkContext
     );
@@ -148,6 +148,17 @@ Return Value:
         request->WatchTree
         );
 
+#if DBG_STUCK
+
+    //
+    // Since change notify can take an arbitrary amount of time, do
+    //  not include it in the "stuck detection & printout" code in the
+    //  scavenger
+    //
+    WorkContext->IsNotStuck = TRUE;
+
+#endif
+
     (PVOID)IoCallDriver(
                 IoGetRelatedDeviceObject( rfcb->Lfcb->FileObject ),
                 WorkContext->Irp
@@ -162,7 +173,7 @@ Return Value:
 }
 
 
-VOID
+VOID SRVFASTCALL
 RestartNtNotifyChange (
     PWORK_CONTEXT WorkContext
     )
@@ -186,6 +197,8 @@ Return Value:
 {
     NTSTATUS status;
     PTRANSACTION transaction;
+    PIRP irp;
+    ULONG length;
 
     PAGED_CODE( );
 
@@ -193,11 +206,13 @@ Return Value:
     // If we built an MDL for this IRP, free it now.
     //
 
-    if ( WorkContext->Irp->MdlAddress != NULL ) {
-        IoFreeMdl( WorkContext->Irp->MdlAddress );
+    irp = WorkContext->Irp;
+
+    if ( irp->MdlAddress != NULL ) {
+        IoFreeMdl( irp->MdlAddress );
     }
 
-    status = WorkContext->Irp->IoStatus.Status;
+    status = irp->IoStatus.Status;
 
     if ( !NT_SUCCESS( status ) ) {
 
@@ -215,10 +230,28 @@ Return Value:
     // response.
     //
 
+    length = irp->IoStatus.Information;
     transaction = WorkContext->Parameters.Transaction;
 
+    if ( irp->UserBuffer != NULL ) {
+
+        //
+        // The file system wanted "neither" I/O for this request.  This
+        // means that the file system will have allocated a system
+        // buffer for the returned data.  Normally this would be copied
+        // back to our user buffer during I/O completion, but we
+        // short-circuit I/O completion before the copy happens.  So we
+        // have to copy the data ourselves.
+        //
+
+        if ( irp->AssociatedIrp.SystemBuffer != NULL ) {
+            ASSERT( irp->UserBuffer == transaction->OutParameters );
+            RtlCopyMemory( irp->UserBuffer, irp->AssociatedIrp.SystemBuffer, length );
+        }
+    }
+
     transaction->SetupCount = 0;
-    transaction->ParameterCount = WorkContext->Irp->IoStatus.Information;
+    transaction->ParameterCount = length;
     transaction->DataCount = 0;
 
     //

@@ -61,13 +61,6 @@ extern ULONG DaveDebug;
 
 #endif
 
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, FsRtlAreNamesEqual)
-#pragma alloc_text(PAGE, FsRtlDissectName)
-#pragma alloc_text(PAGE, FsRtlDoesNameContainWildCards)
-#pragma alloc_text(PAGE, FsRtlIsNameInExpression)
-#endif
-
 //
 //  Local support routine prototypes
 //
@@ -79,6 +72,15 @@ FsRtlIsNameInExpressionPrivate (
     IN BOOLEAN IgnoreCase,
     IN PWCH UpcaseTable
     );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, FsRtlAreNamesEqual)
+#pragma alloc_text(PAGE, FsRtlDissectName)
+#pragma alloc_text(PAGE, FsRtlDoesNameContainWildCards)
+#pragma alloc_text(PAGE, FsRtlIsNameInExpression)
+#pragma alloc_text(PAGE, FsRtlIsNameInExpressionPrivate)
+#endif
+
 
 VOID
 FsRtlDissectName (
@@ -237,9 +239,8 @@ Return Value:
     BOOLEAN - TRUE if one or more wild card characters was found.
 
 --*/
-
 {
-    ULONG i;
+    PUSHORT p;
 
     PAGED_CODE();
 
@@ -248,19 +249,23 @@ Return Value:
     //  character.
     //
 
-    for (i = 0; i < Name->Length / sizeof(WCHAR); i += 1) {
-
-        //
-        //  check for a wild card character
-        //
-
-        if (FsRtlIsUnicodeCharacterWild( Name->Buffer[i] )) {
+    if( Name->Length ) {
+        for( p = Name->Buffer + (Name->Length / sizeof(WCHAR)) - 1;
+             p >= Name->Buffer && *p != L'\\' ;
+             p-- ) {
 
             //
-            //  Tell caller that this name contains wild cards
+            //  check for a wild card character
             //
 
-            return TRUE;
+            if (FsRtlIsUnicodeCharacterWild( *p )) {
+
+                //
+                //  Tell caller that this name contains wild cards
+                //
+
+                return TRUE;
+            }
         }
     }
 
@@ -364,11 +369,11 @@ Return Value:
 
     if ( !IgnoreCase ) {
 
-        ULONG BytesEqual;
+        BOOLEAN BytesEqual;
 
-        BytesEqual = RtlCompareMemory( ConstantNameA->Buffer,
-                                       ConstantNameB->Buffer,
-                                       ConstantNameA->Length );
+        BytesEqual = (BOOLEAN) RtlEqualMemory( ConstantNameA->Buffer,
+                                               ConstantNameB->Buffer,
+                                               ConstantNameA->Length );
 
         if ( FreeStrings ) {
 
@@ -376,7 +381,7 @@ Return Value:
             RtlFreeUnicodeString( &LocalNameB );
         }
 
-        return (BOOLEAN)(BytesEqual == (ULONG)ConstantNameA->Length);
+        return BytesEqual;
 
     } else {
 
@@ -526,17 +531,26 @@ Routine Description:
 
          where S is any single character
 
-               S-. is any single character except .
+               S-. is any single character except the final .
 
                e is a null character transition
 
                EOF is the end of the name string
 
+    In words:
 
-    The last construction, ~? (the DOS question mark), can either match any
-    single character, or upon encountering a period or end of input string,
-    advances the expression to the end of the set of contiguous ~?s.  This may
-    seem somewhat convoluted, but is what DOS needs.
+        * matches 0 or more characters.
+
+        ? matches exactly 1 character.
+
+        DOS_STAR matches 0 or more characters until encountering and matching
+            the final . in the name.
+
+        DOS_QM matches any single character, or upon encountering a period or
+            end of name string, advances the expression to the end of the
+            set of contiguous DOS_QMs.
+
+        DOS_DOT matches either a . or zero characters beyond name string.
 
 Arguments:
 
@@ -636,7 +650,6 @@ Return Value:
 
         if ( !FsRtlDoesNameContainWildCards( &LocalExpression ) ) {
 
-            ULONG BytesEqual;
             ULONG StartingNameOffset;
 
             if (Name->Length < (USHORT)(Expression->Length - sizeof(WCHAR))) {
@@ -654,11 +667,9 @@ Return Value:
 
             if ( !IgnoreCase ) {
 
-                BytesEqual = RtlCompareMemory( LocalExpression.Buffer,
-                                               Name->Buffer + StartingNameOffset,
-                                               LocalExpression.Length );
-
-                return (BOOLEAN)(BytesEqual == (ULONG)LocalExpression.Length);
+                return (BOOLEAN) RtlEqualMemory( LocalExpression.Buffer,
+                                                 Name->Buffer + StartingNameOffset,
+                                                 LocalExpression.Length );
 
             } else {
 
@@ -1009,7 +1020,7 @@ Return Value:
 
                 while (PreviousDestCount < DestCount) {
 
-                    if ( PreviousMatches[SrcCount] <
+                    while ( PreviousMatches[SrcCount] <
                          CurrentMatches[PreviousDestCount] ) {
 
                         SrcCount += 1;

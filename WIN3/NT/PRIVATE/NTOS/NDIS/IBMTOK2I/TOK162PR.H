@@ -59,6 +59,12 @@ TOK162Halt(
 
 extern
 VOID
+TOK162Shutdown(
+    IN  NDIS_HANDLE MiniportAdapterContext
+    );
+
+extern
+VOID
 TOK162HandleInterrupt(
     IN  NDIS_HANDLE MiniportAdapterContext
     );

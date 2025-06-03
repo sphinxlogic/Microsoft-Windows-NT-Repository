@@ -20,8 +20,6 @@ Revision History:
 --*/
 
 #include "psp.h"
-#include "ntdbg.h"
-#include "zwapi.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, PspTerminateThreadByPointer)
@@ -36,7 +34,22 @@ Revision History:
 #pragma alloc_text(PAGE, PspExitThread)
 #pragma alloc_text(PAGE, PsExitSpecialApc)
 #pragma alloc_text(PAGE, PsGetProcessExitTime)
+#pragma alloc_text(PAGE, PsSetLegoNotifyRoutine)
 #endif
+
+PLEGO_NOTIFY_ROUTINE PspLegoNotifyRoutine;
+
+ULONG
+PsSetLegoNotifyRoutine(
+    PLEGO_NOTIFY_ROUTINE LegoNotifyRoutine
+    )
+{
+    PAGED_CODE();
+
+    PspLegoNotifyRoutine = LegoNotifyRoutine;
+
+    return FIELD_OFFSET(KTHREAD,LegoData);
+}
 
 VOID
 PspReaper(
@@ -71,7 +84,7 @@ Return Value:
 {
 
     PLIST_ENTRY NextEntry;
-    KIRQL OldIrql;
+    KIRQL OldIrql, OldIrql2;
     PETHREAD Thread;
     PEPROCESS Process;
 
@@ -89,16 +102,23 @@ Return Value:
     while (NextEntry != &PsReaperListHead) {
 
         //
-        // Remove the next thread from the reaper list, release the reaper
-        // list lock, get the address of the executive thread object, and
-        // wait until the thread is completely terminated.
+        // Remove the next thread from the reaper list, get the address of
+        // the executive thread object, acquire the context swap lock, and
+        // then release the both the context swap dispatcher database locks.
         //
-        // N.B. It is only necessary to wait for termination on an MP system.
+        // N.B. The context swap lock is acquired and immediately released.
+        //    This is necessary to ensure that the respective thread has
+        //    completely passed through the context switch code before it
+        //    is terminated.
         //
 
         RemoveEntryList(NextEntry);
-        KiUnlockDispatcherDatabase(OldIrql);
         Thread = CONTAINING_RECORD(NextEntry, ETHREAD, TerminationPortList);
+
+        KiLockContextSwap(&OldIrql2);
+        KiUnlockContextSwap(OldIrql2);
+
+        KiUnlockDispatcherDatabase(OldIrql);
 
         //
         // Get the address of the executive process object, release the
@@ -109,13 +129,14 @@ Return Value:
         Process = THREAD_TO_PROCESS(Thread);
         KeEnterCriticalRegion();
         PsUnlockProcess(Process);
+
         ASSERT(Thread->Tcb.KernelApcDisable == 0);
 
         //
         // Delete the kernel stack and dereference the thread.
         //
 
-        MmDeleteKernelStack(Thread->Tcb.InitialStack);
+        MmDeleteKernelStack(Thread->Tcb.StackBase,(BOOLEAN)Thread->Tcb.LargeStack);
         Thread->Tcb.InitialStack = NULL;
         ObDereferenceObject(Thread);
 
@@ -266,13 +287,13 @@ Return Value:
     // kill debuggers and not debuggees reliably
     //
 
-    if ( ExitStatus == DBG_TERMINATE_PROCESS ) {
+    if ( ExitStatus == DBG_TERMINATE_PROCESS && Process != PsGetCurrentProcess() ) {
         if ( Process->DebugPort ) {
             ObDereferenceObject( Process );
             return STATUS_ACCESS_DENIED;
             }
         else {
-            ExitStatus == STATUS_SUCCESS;
+            ExitStatus = STATUS_SUCCESS;
             }
         }
 
@@ -331,7 +352,7 @@ Return Value:
 
     if ( Process == PsGetCurrentProcess() && ProcessHandleSpecified ) {
 
-        Thread->HasTerminated = TRUE;
+        Self->HasTerminated = TRUE;
 
         PsUnlockProcess(Process);
 
@@ -589,17 +610,11 @@ PspDereferenceEventPair(
 
 BOOLEAN
 PspMarkCidInvalid(
-    IN OUT PVOID TableEntry,
-    IN ULONG Parameter
-    );
-
-BOOLEAN
-PspMarkCidInvalid(
-    IN OUT PVOID TableEntry,
+    IN PHANDLE_ENTRY HandleEntry,
     IN ULONG Parameter
     )
 {
-    (*(PULONG)TableEntry) = Parameter;
+    HandleEntry->Object = (PVOID)Parameter;
     return TRUE;
 }
 
@@ -638,6 +653,7 @@ Return Value:
     PTERMINATION_PORT TerminationPort;
     LPC_CLIENT_DIED_MSG CdMsg;
     BOOLEAN LastThread;
+    PVOID W32ThreadToDelete;
 
     PAGED_CODE();
 
@@ -651,6 +667,23 @@ Return Value:
     }
 
     PsLockProcess(Process,KernelMode,PsLockWaitForever);
+
+    //
+    // Notify registered callout routines of thread deletion.
+    //
+
+    if (PspCreateThreadNotifyRoutineCount != 0) {
+        ULONG i;
+
+        for (i=0; i<PSP_MAX_CREATE_THREAD_NOTIFY; i++) {
+            if (PspCreateThreadNotifyRoutine[i] != NULL) {
+                (*PspCreateThreadNotifyRoutine[i])(Process->UniqueProcessId,
+                                                   Thread->Cid.UniqueThread,
+                                                     FALSE
+                                                   );
+            }
+        }
+    }
 
     LastThread = FALSE;
 
@@ -733,16 +766,136 @@ Return Value:
     }
 
     //
+    // rundown the Win32 structures
+    //
+
+    if ( W32ThreadToDelete = Thread->Tcb.Win32Thread ) {
+        (PspW32ThreadCallout)(Thread->Tcb.Win32Thread,PsW32ThreadCalloutExit);
+        }
+
+    if ( LastThread && Process->Win32Process ) {
+        (PspW32ProcessCallout)(Process->Win32Process,FALSE);
+        ExFreePool(Process->Win32Process);
+        Process->Win32Process = NULL;
+        }
+
+    if ( W32ThreadToDelete ) {
+        ObDereferenceObject(Thread);
+        }
+
+    //
+    // User/Gdi has been given a chance to clean up. Now make sure they didn't
+    // leave the kernel stack locked which would happen if data was still live on
+    // this stack, but was being used by another thread
+    //
+
+    if ( !Thread->Tcb.EnableStackSwap ) {
+        KeBugCheckEx(KERNEL_STACK_LOCKED_AT_EXIT,0,0,0,0);
+        }
+
+    //
     // Delete the thread's TEB.  If the address of the TEB is in user
     // space, then this is a real user mode TEB.  If the address is in
     // system space, then this is a special system thread TEB allocated
     // from paged or nonpaged pool.
     //
 
+
     if (Thread->Tcb.Teb) {
         if ( IS_SYSTEM_THREAD(Thread) ) {
             ExFreePool( Thread->Tcb.Teb );
         } else {
+
+            //
+            // The thread is a user-mode thread. Look to see if the thread
+            // owns the loader lock (and any other key peb-based critical
+            // sections. If so, do our best to release the locks.
+            //
+            // Since the LoaderLock used to be a mutant, releasing the lock
+            // like this is very similar to mutant abandonment and the loader
+            // never did anything with abandoned status anyway
+            //
+
+            try {
+                PTEB Teb;
+                PPEB Peb;
+                PRTL_CRITICAL_SECTION Cs;
+                int DecrementCount;
+
+                Teb = Thread->Tcb.Teb;
+                Peb = Process->Peb;
+                Cs = Peb->LoaderLock;
+                if ( Cs ) {
+                    if ( Cs->OwningThread == Thread->Cid.UniqueThread ) {
+
+                        //
+                        // x86 uses a 1 based recursion count
+                        //
+
+#if defined(_X86_)
+                        DecrementCount = Cs->RecursionCount;
+#else
+                        DecrementCount = Cs->RecursionCount + 1;
+#endif
+                        Cs->RecursionCount = 0;
+                        Cs->OwningThread = 0;
+
+                        //
+                        // undo lock count increments for recursion cases
+                        //
+
+                        while(DecrementCount > 1){
+                            InterlockedDecrement(&Cs->LockCount);
+                            DecrementCount--;
+                            }
+
+                        //
+                        // undo final lock count
+                        //
+
+                        if ( InterlockedDecrement(&Cs->LockCount) >= 0 ){
+                            ZwReleaseSemaphore(Cs->LockSemaphore,1,NULL);
+                            }
+                        }
+
+                    //
+                    // if the thread exited while waiting on the loader
+                    // lock clean it up. There is still a potential race
+                    // here since we can not safely know what happens to
+                    // a thread after it interlocked increments the lock count
+                    // but before it sets the waiting on loader lock flag. On the
+                    // release side, it it safe since we mark ownership of the lock
+                    // before clearing the flag. This triggers the first part of this
+                    // test. The only thing out of whack is the recursion count, but this
+                    // is also safe since in this state, recursion count is 0.
+                    //
+
+                    else if ( Teb->WaitingOnLoaderLock ) {
+                        if ( InterlockedDecrement(&Cs->LockCount) >= 0 ){
+                            ZwReleaseSemaphore(Cs->LockSemaphore,1,NULL);
+                            }
+                        }
+                    }
+#if 0
+                //
+                // debug code to see who is exiting while holding the PEB lock
+                //
+
+                Cs = Peb->FastPebLock;
+                if ( Cs ) {
+                    if ( Cs->OwningThread == Thread->Cid.UniqueThread ) {
+                        if ( !LastThread ) {
+                            DbgPrint("PS: Thread Exiting While Holding the PebLock\n");
+                            DbgBreakPoint();
+                            }
+                        }
+                    }
+#endif
+                }
+            except (EXCEPTION_EXECUTE_HANDLER) {
+                ;
+                }
+
             MmDeleteTeb(Process, Thread->Tcb.Teb);
             Thread->Tcb.Teb = NULL;
         }
@@ -773,7 +926,7 @@ Return Value:
     // delete the Client Id and decrement the reference count for it.
     //
 
-    if (!(ExChangeHandle(PspCidTable,Thread->Cid.UniqueThread, PspMarkCidInvalid, PSP_INVALID_ID))) {
+    if (!(ExChangeHandle(PspCidTable, Thread->Cid.UniqueThread, PspMarkCidInvalid, PSP_INVALID_ID))) {
         KeBugCheck(CID_HANDLE_DELETION);
     }
     ObDereferenceObject(Thread);
@@ -834,6 +987,10 @@ Return Value:
         MmCleanProcessAddressSpace();
     }
 
+    if ( Thread->Tcb.LegoData && PspLegoNotifyRoutine ) {
+        (PspLegoNotifyRoutine)(&Thread->Tcb);
+        }
+
     //
     // flush kernel-mode APC queue
     // There should never be any kernel mode APCs found this far
@@ -878,6 +1035,19 @@ PspExitProcess(
     ULONG ActualTime;
 
     PAGED_CODE();
+
+    if (!Process->ExitProcessCalled && PspCreateProcessNotifyRoutineCount != 0) {
+        ULONG i;
+
+        for (i=0; i<PSP_MAX_CREATE_PROCESS_NOTIFY; i++) {
+            if (PspCreateProcessNotifyRoutine[i] != NULL) {
+                (*PspCreateProcessNotifyRoutine[i])( Process->InheritedFromUniqueProcessId,
+                                                     Process->UniqueProcessId,
+                                                     FALSE
+                                                   );
+            }
+        }
+    }
 
     Process->ExitProcessCalled = TRUE;
 
@@ -1005,13 +1175,20 @@ PspThreadDelete(
     PAGED_CODE();
 
     Thread = (PETHREAD) Object;
+    if ( Thread->Tcb.Win32Thread ) {
+        (PspW32ThreadCallout)(Thread->Tcb.Win32Thread,PsW32ThreadCalloutDelete);
+        ExFreePool(Thread->Tcb.Win32Thread);
+        Thread->Tcb.Win32Thread = NULL;
+        }
     if ( Thread->Tcb.InitialStack ) {
-        MmDeleteKernelStack(Thread->Tcb.InitialStack);
+        MmDeleteKernelStack(Thread->Tcb.InitialStack,(BOOLEAN)Thread->Tcb.LargeStack);
         }
 
-    if (!(ExDestroyHandle(PspCidTable,Thread->Cid.UniqueThread,FALSE))) {
-        KeBugCheck(CID_HANDLE_DELETION);
-    }
+    if ( Thread->Cid.UniqueThread ) {
+        if (!(ExDestroyHandle(PspCidTable,Thread->Cid.UniqueThread,FALSE))) {
+            KeBugCheck(CID_HANDLE_DELETION);
+            }
+        }
 
     PspDeleteThreadSecurity( Thread );
 

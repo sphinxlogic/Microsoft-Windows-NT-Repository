@@ -82,8 +82,8 @@ typedef struct tagDISPLAYITEM
     struct  tagDISPLAYITEM  *CalcPercent[2];
     ULONG   CalcPercentId[2];
     ULONG   CalcId;
-    PUCHAR  PerfName[80];
-    PUCHAR  DispName[80];
+    UCHAR   PerfName[80];
+    UCHAR   DispName[80];
     ULONG   DispNameLen;
     VOID    (*SnapData)(struct tagDISPLAYITEM *pItem);
     ULONG   SnapParam1;
@@ -116,6 +116,11 @@ UpdatePerfInfo1(
    ULONG     NewDataValue
    );
 
+VOID
+UpdateInternalStats (
+    VOID
+);
+
 
 VOID
 InitListData(
@@ -124,4 +129,5 @@ InitListData(
    );
 
 #endif /* _CALCPERFH_INCLUDED */
-
+
+

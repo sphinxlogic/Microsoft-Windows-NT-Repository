@@ -222,7 +222,8 @@ typedef HWND FAR *LPHWND;
  */
 #define CLBTESTLINES            25
 
-#define CCHTEXTMAX              256
+#define CCHTEXTMAX              4097	    /* labels may be only 256, but  */
+					    /* text can be 4k		    */
 #define CCHFILEBUFFER           256
 
 #define CCHSYMMAX               192         /* Maximum symbol length        */
@@ -418,7 +419,11 @@ typedef HWND FAR *LPHWND;
  * Default point size for a new dialog's font.  The default face name
  * is in the string IDS_DEFFONTNAME.
  */
+#ifdef JAPAN
+#define DEFPOINTSIZE    12
+#else
 #define DEFPOINTSIZE    8
+#endif
 
 
 #define FILE_NOSHOW             0x0001  /* Save without prompting for name  */

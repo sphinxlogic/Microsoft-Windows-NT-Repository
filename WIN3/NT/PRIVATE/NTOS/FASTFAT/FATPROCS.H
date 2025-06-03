@@ -46,6 +46,8 @@ Revision History:
 
 #ifdef POOL_TAGGING
 
+#undef FsRtlAllocatePool
+#undef FsRtlAllocatePoolWithQuota
 #define FsRtlAllocatePool(a,b) FsRtlAllocatePoolWithTag(a,b,' taF')
 #define FsRtlAllocatePoolWithQuota(a,b) FsRtlAllocatePoolWithQuotaTag(a,b,' taF')
 
@@ -152,6 +154,14 @@ FatMergeAllocation (
     IN PVCB Vcb,
     IN OUT PMCB Mcb,
     IN PMCB SecondMcb
+    );
+
+VOID
+FatSetFatEntry (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN ULONG FatIndex,
+    IN FAT_ENTRY FatEntry
     );
 
 UCHAR
@@ -449,6 +459,17 @@ FatLowLevelDblsReadWrite (
 //  Dirent support routines, implemented in DirSup.c
 //
 
+//
+//  Tunneling is a deletion precursor (all tunneling cases do
+//  not involve deleting dirents, however)
+//
+
+VOID
+FatTunnelFcbOrDcb (
+    IN PFCB FcbOrDcb,
+    IN PCCB Ccb OPTIONAL
+    );
+
 ULONG
 FatCreateNewDirent (
     IN PIRP_CONTEXT IrpContext,
@@ -480,6 +501,7 @@ FatLocateDirent (
     OUT PDIRENT *Dirent,
     OUT PBCB *Bcb,
     OUT PVBO ByteOffset,
+    OUT PBOOLEAN FileNameDos OPTIONAL,
     OUT PUNICODE_STRING Lfn OPTIONAL
     );
 
@@ -491,6 +513,14 @@ FatLocateSimpleOemDirent (
     OUT PDIRENT *Dirent,
     OUT PBCB *Bcb,
     OUT PVBO ByteOffset
+    );
+
+BOOLEAN
+FatLfnDirentExists (
+    IN PIRP_CONTEXT IrpContext,
+    IN PDCB Dcb,
+    IN PUNICODE_STRING Lfn,
+    IN PUNICODE_STRING LfnTmp
     );
 
 VOID
@@ -525,7 +555,8 @@ FatConstructDirent (
     IN BOOLEAN ExtensionReallyLowercase,
     IN PUNICODE_STRING Lfn OPTIONAL,
     IN UCHAR Attributes,
-    IN BOOLEAN ZeroAndSetTimeFields
+    IN BOOLEAN ZeroAndSetTimeFields,
+    IN PLARGE_INTEGER SetCreationTime OPTIONAL
     );
 
 VOID
@@ -541,6 +572,15 @@ FatSetFileSizeInDirent (
     IN PFCB Fcb,
     IN PULONG AlternativeFileSize OPTIONAL
     );
+
+//
+//  Generate a relatively unique static 64bit ID from a FAT Fcb/Dcb
+//
+//  ULONGLONG
+//  FatDirectoryKey (FcbOrDcb);
+//
+
+#define FatDirectoryKey(FcbOrDcb)  ((ULONGLONG)((FcbOrDcb)->CreationTime.QuadPart ^ (FcbOrDcb)->FirstClusterOfFile))
 
 
 //
@@ -892,11 +932,11 @@ FatForceCacheMiss (
 //      BOOLEAN - TRUE if the two names are lexically equal.
 //
 
-#define FatAreNamesEqual(IRPCONTEXT,NAMEA,NAMEB) (                         \
-    ((ULONG)(NAMEA).Length == (ULONG)(NAMEB).Length) &&                    \
-    (RtlCompareMemory( &(NAMEA).Buffer[0],                                 \
-                       &(NAMEB).Buffer[0],                                 \
-                       (NAMEA).Length ) == (NAMEA).Length )                \
+#define FatAreNamesEqual(IRPCONTEXT,NAMEA,NAMEB) (      \
+    ((ULONG)(NAMEA).Length == (ULONG)(NAMEB).Length) && \
+    (RtlEqualMemory( &(NAMEA).Buffer[0],                \
+                     &(NAMEB).Buffer[0],                \
+                     (NAMEA).Length ))                  \
 )
 
 //
@@ -973,6 +1013,13 @@ FatSetFullFileNameInFcb (
     );
 
 VOID
+FatSetFullNameInFcb(
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PUNICODE_STRING FinalName
+    );
+
+VOID
 FatUnicodeToUpcaseOem (
     IN PIRP_CONTEXT IrpContext,
     IN POEM_STRING OemString,
@@ -986,6 +1033,7 @@ FatSelectNames (
     IN POEM_STRING OemName,
     IN PUNICODE_STRING UnicodeName,
     IN OUT POEM_STRING ShortName,
+    IN PUNICODE_STRING SuggestedShortName OPTIONAL,
     IN OUT BOOLEAN *AllLowerComponent,
     IN OUT BOOLEAN *AllLowerExtension,
     IN OUT BOOLEAN *CreateLfn
@@ -999,6 +1047,39 @@ FatEvaluateNameCase (
     IN OUT BOOLEAN *AllLowerExtension,
     IN OUT BOOLEAN *CreateLfn
     );
+
+BOOLEAN
+FatSpaceInName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PUNICODE_STRING UnicodeName
+    );
+
+NTSTATUS
+FatUpcaseUnicodeStringToCountedOemString (
+    OUT POEM_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    );
+
+VOID
+FatFreeOemString (
+    IN OUT POEM_STRING OemString
+    );
+
+NTSTATUS
+FatUpcaseUnicodeString (
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    );
+
+NTSTATUS
+FatDowncaseUnicodeString (
+    OUT PUNICODE_STRING DestinationString,
+    IN PUNICODE_STRING SourceString,
+    IN BOOLEAN AllocateDestinationString
+    );
+
 
 //
 //  Resources support routines/macros, implemented in ResrcSup.c
@@ -1470,7 +1551,8 @@ PFCB
 FatFindFcb (
     IN PIRP_CONTEXT IrpContext,
     IN OUT PRTL_SPLAY_LINKS *RootNode,
-    IN PSTRING Name
+    IN PSTRING Name,
+    OUT PBOOLEAN FileNameDos OPTIONAL
     );
 
 BOOLEAN
@@ -1486,8 +1568,10 @@ FatIsHandleCountZero (
 BOOLEAN
 FatNtTimeToFatTime (
     IN PIRP_CONTEXT IrpContext,
-    IN LARGE_INTEGER NtTime,
-    OUT PFAT_TIME_STAMP FatTime
+    IN PLARGE_INTEGER NtTime,
+    IN BOOLEAN Rounding,
+    OUT PFAT_TIME_STAMP FatTime,
+    OUT OPTIONAL PCHAR TenMsecs
     );
 
 LARGE_INTEGER
@@ -1632,7 +1716,6 @@ FatFsdPostRequest (
 //  flags
 //
 
-#define FlagOn(Flags,SingleFlag)        ((Flags) & (SingleFlag))
 #define BooleanFlagOn(Flags,SingleFlag) ((BOOLEAN)((((Flags) & (SingleFlag)) != 0)))
 
 #define SetFlag(Flags,SingleFlag) { \
@@ -1718,12 +1801,6 @@ typedef union _UCHAR4 {
 #define CopyU4char(Dst,Src) {                                \
     *((UNALIGNED UCHAR4 *)(Dst)) = *((UCHAR4 *)(Src)); \
     }
-
-//
-//  The following macro is used to tell the caller how much stack is available
-//
-
-#define GetRemainingStackSize(S) ((ULONG)(&(S)) - ((ULONG)(IoGetInitialStack()) - KERNEL_STACK_SIZE))
 
 //
 //  VOID
@@ -2040,6 +2117,28 @@ FatFlushVolume (
     IN PVCB Vcb
     );
 
+NTSTATUS
+FatHijackIrpAndFlushDevice (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp,
+    IN PDEVICE_OBJECT TargetDeviceObject
+    );
+
+VOID
+FatFlushFatEntries (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN ULONG Cluster,
+    IN ULONG Count
+);
+
+VOID
+FatFlushDirentForFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+);
+
+
 
 //
 //  The following procedure is used by the FSP and FSD routines to complete
@@ -2121,6 +2220,15 @@ FatFastQueryStdInfo (
     IN PFILE_OBJECT FileObject,
     IN BOOLEAN Wait,
     IN OUT PFILE_STANDARD_INFORMATION Buffer,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+BOOLEAN
+FatFastQueryNetworkOpenInfo (
+    IN PFILE_OBJECT FileObject,
+    IN BOOLEAN Wait,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
     OUT PIO_STATUS_BLOCK IoStatus,
     IN PDEVICE_OBJECT DeviceObject
     );
@@ -2345,4 +2453,3 @@ FatProcessException (
 #define try_return(S) { S; goto try_exit; }
 
 #endif // _FATPROCS_
-

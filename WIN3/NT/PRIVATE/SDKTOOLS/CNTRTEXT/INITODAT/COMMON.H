@@ -69,4 +69,3 @@ DisplaySummaryError (
 
 #endif  // _COMMON_H_
 
-

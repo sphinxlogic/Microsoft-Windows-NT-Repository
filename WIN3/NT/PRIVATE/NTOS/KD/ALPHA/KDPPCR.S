@@ -25,7 +25,7 @@
 //
 // *************************************************************************
 //
-//	Most of the functions in this file are cloned from ntos\ke\alpha\pcr.s.
+//      Most of the functions in this file are cloned from ntos\ke\alpha\pcr.s.
 //      Any changes to the common functions must be made in both places.
 //
 // *************************************************************************
@@ -48,8 +48,8 @@
 //
 // KIRQL
 // KdpGetCurrentIrql(
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -65,15 +65,15 @@
 //
 //--
 
-	LEAF_ENTRY(KdpGetCurrentIrql)
+        LEAF_ENTRY(KdpGetCurrentIrql)
 
 
-	GET_CURRENT_IRQL		// v0 = current irql
+        GET_CURRENT_IRQL                // v0 = current irql
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KdpGetCurrentIrql
+        .end KdpGetCurrentIrql
 
 
 
@@ -81,13 +81,13 @@
 //
 // PPRCB
 // KdpGetCurrentPrcb
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
 //    This function returns the current processor control block for this
-//	processor.
+//      processor.
 //
 // Arguments:
 //
@@ -99,15 +99,15 @@
 //
 //--
 
-	LEAF_ENTRY(KdpGetCurrentPrcb)
+        LEAF_ENTRY(KdpGetCurrentPrcb)
 
 
-	GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = prcb base
+        GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = prcb base
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KdpGetCurrentPrcb
+        .end KdpGetCurrentPrcb
 
 
 
@@ -115,8 +115,8 @@
 //
 // PKTHREAD
 // KdpGetCurrentThread
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -132,23 +132,23 @@
 //
 //--
 
-	LEAF_ENTRY(KdpGetCurrentThread)
+        LEAF_ENTRY(KdpGetCurrentThread)
 
 
-	GET_CURRENT_THREAD		// v0 = current thread address
+        GET_CURRENT_THREAD              // v0 = current thread address
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KdpGetCurrentThread
+        .end KdpGetCurrentThread
 
 
 //++
 //
 // PKPCR
 // KdpGetPcr(
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -165,46 +165,15 @@
 //
 //--
 
-	LEAF_ENTRY(KdpGetPcr)
+        LEAF_ENTRY(KdpGetPcr)
 
 
-	GET_PROCESSOR_CONTROL_REGION_BASE // v0 = pcr base address
+        GET_PROCESSOR_CONTROL_REGION_BASE // v0 = pcr base address
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
-	.end KdpGetPcr
+        .end KdpGetPcr
 
-
-
-//++
-//
-// BOOLEAN
-// KdpIsExecutingDpc(
-//     VOID
-//     )
-//
-// Routine Description:
-//
-//    This function returns the DPC Active flag on the current processor.
-//
-// Arguments:
-//
-//    None.
-//
-// Return Value:
-//
-//    Current DPC Active flag.  This flag indicates if a DPC routine is
-//    currently running on this processor.
-//
-//--
-
-        LEAF_ENTRY(KdpIsExecutingDpc)
-
-	GET_DPC_ACTIVE_FLAG		// v0 = DPC active flag
-
-	ret	zero, (ra)		// return
-
-	.end	KdpIsExecutingDpc
 
 //++
 //
@@ -238,12 +207,12 @@
 
         LEAF_ENTRY(KdpReadInternalProcessorState)
 
-        
-        call_pal rdstate		// read the internal processor state
 
-	ret	zero, (ra)		// return
+        call_pal rdstate                // read the internal processor state
 
-	.end	KdpReadInternalProcessorState
+        ret     zero, (ra)              // return
+
+        .end    KdpReadInternalProcessorState
 
 
 //++
@@ -278,10 +247,10 @@
 
         LEAF_ENTRY(KdpReadInternalProcessorCounters)
 
-        
-        call_pal rdcounters		// read the internal processor state
 
-	ret	zero, (ra)		// return
+        call_pal rdcounters             // read the internal processor state
 
-	.end	KdpReadInternalProcessorCounters
+        ret     zero, (ra)              // return
+
+        .end    KdpReadInternalProcessorCounters
 

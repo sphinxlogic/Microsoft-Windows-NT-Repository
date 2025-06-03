@@ -121,6 +121,8 @@ Revision History:
 extern DWORD VwDebugFlags;
 extern DWORD VwDebugFunctions;
 extern DWORD VwShow;
+extern DWORD DebugFlagsEx;
+
 
 #define IF_DEBUG(f)     if (VwDebugFlags & DEBUG_ ## f)
 #define IF_NOT_DEBUG(f) if (!(VwDebugFlags & DEBUG_ ## f))
@@ -137,6 +139,7 @@ extern DWORD VwShow;
 #define DUMPCONN(x)     VwDumpConnectionInfo(x)
 #define DUMPSTATS(x)    VwDumpConnectionStats(x)
 #define CHECK_INTERRUPTS(s) CheckInterrupts(s)
+#define DUMPALL()       VwDumpAll()
 
 #else
 
@@ -155,6 +158,7 @@ extern DWORD VwShow;
 #define DUMPCONN(x)
 #define DUMPSTATS(x)
 #define CHECK_INTERRUPTS(s)
+#define DUMPALL()      
 
 #endif
 
@@ -175,5 +179,6 @@ extern VOID VwDumpConnectionInfo(LPCONNECTION_INFO);
 extern VOID VwDumpConnectionStats(LPSPX_CONNECTION_STATS);
 extern VOID VwLog(LPSTR);
 extern VOID CheckInterrupts(LPSTR);
+extern VOID VwDumpAll(VOID);
 
 #endif  // _VWDEBUG_H_

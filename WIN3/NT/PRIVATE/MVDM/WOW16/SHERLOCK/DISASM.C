@@ -402,7 +402,7 @@ STATIC char *JRel(int jsize) {		/* Perform relative jump sizing */
     rel = GetDWord();
     s = "";
   }
-  rel += (word)code;
+  rel += (word)(long)code;
   sprintf(adr, adrSize ? "%s%08lx" : "%s%04lx", (FP)s, rel);
   return adr;
 } /* JRel */
@@ -416,7 +416,7 @@ enum {
 #define Reg2(r1, r2) (r1 | (r2 << 4))
 #define RegSS 8
 
-STATIC char rms[] = {			/* 16 bit addressing modes */
+STATIC byte rms[] = {			/* 16 bit addressing modes */
   Reg2(RegBX, RegSI),
   Reg2(RegBX, RegDI),
   Reg2(RegBP|RegSS, RegSI),		/* if base reg is BP, def seg is SS */

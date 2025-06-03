@@ -264,10 +264,13 @@ globalB fChkSum,0               ; Flag set if segment checksumming enabled
 globalB fCheckFree,1            ; Set to zero by slowboot
 globalB cdevat,0                ; Int 24 state
 globalB errcap,0                ; Int 24 error capabilities mask
+ifndef WOW
+; profile APIs are thunked
 globalB fProfileDirty,0         ; Profiles need writing
 globalB fProfileMaybeStale,0    ; Profiles MAY need to be reread
-globalB fPokeAtSegments,1       ; Idle time load of segments
 globalB fWriteOutProfilesReenter,0 ; Are we currently in WriteOutProfiles?
+endif
+globalB fPokeAtSegments,1       ; Idle time load of segments
 globalB fTaskSwitchCalled, 0    ; Local Reboot only works when task switching
 globalD WinAppHooks,0           ; winapps can hook this for std winoldap.
 
@@ -282,12 +285,21 @@ globalD lpSystemDir,0           ; -> to WFP of where kernel lives
 globalW cBytesWinDir,0          ; length of WFP for windows dir
 globalW cBytesSysDir,0          ; length of WFP for system dir
 ifdef WOW
+globalD lpSystemRootDir,0       ; -> value of SystemRoot environment var
 globalD lpSystem16Dir,0         ; -> to WFP of \windows\system
+globalD lpSystemWx86Dir,0       ; \windows\system32\Wx86
+globalW cBytesSystemRootDir,0   ; length of SystemrootEnvironment var
 globalW cBytesSys16Dir,0        ; in WOW lpSystemDir points to \windows\system32
+globalW cBytesSysWx86Dir,0      ; in WOW Windows\system32\Wx86
 public Sys16Suffix
 Sys16Suffix DB '\system'        ; append to WinDir to get lpSystem16Dir
 public cBytesSys16Suffix
 cBytesSys16Suffix DW ($ - dataoffset Sys16Suffix)
+public SysWx86Suffix
+SysWx86Suffix DB '\Wx86'        ; append to SystemDir to get lpSystemWx86Dir
+public cBytesSysWx86Suffix
+cBytesSysWx86Suffix DW ($ - dataoffset SysWx86Suffix)
+
 endif
 
 
@@ -302,6 +314,8 @@ if SHERLOCK
   globalW gpStack, 0            ; movement of stack by faulting insn
 endif
 
+ifndef WOW
+; The profile APIs are thunked for WOW
 globalB WinIniInfo,0,%(size PROINFO)
 globalB PrivateProInfo,0,%(size PROINFO)
 public szUserPro
@@ -309,6 +323,8 @@ szUserPro   DB 'WIN.INI',0
             DB  72 dup (0)      ; Room for a long path
 ;;;globalB      fUserPro,0              ; Current Profile is WIN.INI
 ;;;globalD lpszUserPro,0
+endif
+; ndef WOW
 
 globalW BufPos,0                ; buffer pointer with OutBuf
 globalB OutBuf,0,70             ; 70 character out buffer

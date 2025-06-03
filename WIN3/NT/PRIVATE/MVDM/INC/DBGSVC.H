@@ -48,3 +48,22 @@ dbgsvc	macro	func
 void ModuleLoad(LPSTR,LPSTR,WORD,DWORD);
 void ModuleFree(LPSTR,LPSTR);
 void ModuleSegmentMove(LPSTR,LPSTR,WORD,WORD);
+BOOL VdmDebugger(ULONG IntNumber);
+
+#define MAX_VDM_BREAKPOINTS 16
+typedef struct _VDM_BREAKPOINT {   /* VDMBP */
+    UCHAR  Flags;
+    UCHAR  Opcode;
+    USHORT Count;
+    USHORT Seg;
+    ULONG Offset;
+} VDM_BREAKPOINT;
+
+//
+// Bits defined in Flags
+//
+#define VDMBP_SET     0x01
+#define VDMBP_ENABLED 0x02
+#define VDMBP_FLUSH   0x04
+#define VDMBP_PENDING 0x08
+#define VDMBP_V86     0x10

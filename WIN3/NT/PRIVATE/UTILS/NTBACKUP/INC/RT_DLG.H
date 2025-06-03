@@ -38,11 +38,17 @@ Initial revision.
 
 
 #define IDD_JS_DP                      139
+#define IDD_JS_DP_LABEL                301
 #define IDD_JS_FP                      122
+#define IDD_JS_FP_LABEL                115
 #define IDD_JS_BP                      119
+#define IDD_JS_BP_LABEL                114
 #define IDD_JS_ET                      121
+#define IDD_JS_ET_LABEL                113
 #define IDD_JS_CF                      136
+#define IDD_JS_CF_LABEL                133
 #define IDD_JS_SF                      137
+#define IDD_JS_SF_LABEL                135
 #define IDD_JS_OK                      120
 #define IDD_JS_ABORT                   123
 #define IDD_JS_LISTBOX                 131

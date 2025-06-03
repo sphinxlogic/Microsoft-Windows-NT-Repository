@@ -24,7 +24,7 @@ private:
     int cDictSlots;
     void * InitialDictKeys[INITIALDICT2SLOTS];
     void * InitialDictItems[INITIALDICT2SLOTS];
-    
+
 public:
 
     SIMPLE_DICT2 ( // Constructor.
@@ -53,28 +53,28 @@ public:
 
 #define NEW_SDICT2(TYPE, KTYPE) NEW_NAMED_SDICT2(TYPE, TYPE, KTYPE)
 
-#define NEW_NAMED_SDICT2(CLASS, TYPE, KTYPE)				\
+#define NEW_NAMED_SDICT2(CLASS, TYPE, KTYPE)                \
                                                                         \
 class TYPE;                                                             \
                                                                         \
-class CLASS##_DICT : public SIMPLE_DICT2				\
+class CLASS##_DICT2 : public SIMPLE_DICT2               \
 {                                                                       \
 public:                                                                 \
                                                                         \
-    CLASS##_DICT () {}							\
-    ~CLASS##_DICT () {}							\
+    CLASS##_DICT2 () {}                         \
+    ~CLASS##_DICT2 () {}                            \
                                                                         \
     TYPE *                                                              \
-    Find (KTYPE Key)							\
-	 {return((TYPE *) SIMPLE_DICT2::Find((void *)Key));}		\
+    Find (KTYPE Key)                            \
+     {return((TYPE *) SIMPLE_DICT2::Find((void *)Key));}        \
                                                                         \
-    TYPE *								\
-    Delete (KTYPE Key)							\
-	 {return((TYPE *) SIMPLE_DICT2::Delete((void *)Key));}		\
+    TYPE *                              \
+    Delete (KTYPE Key)                          \
+     {return((TYPE *) SIMPLE_DICT2::Delete((void *)Key));}      \
                                                                         \
-    int 								\
-    Insert (KTYPE Key, TYPE * Item)					\
-	 {return(SIMPLE_DICT2::Insert((void *)Key, (void *)Item));}	\
+    int                                 \
+    Insert (KTYPE Key, TYPE * Item)                 \
+     {return(SIMPLE_DICT2::Insert((void *)Key, (void *)Item));} \
                                                                         \
 }
 

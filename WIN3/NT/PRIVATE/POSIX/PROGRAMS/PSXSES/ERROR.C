@@ -28,7 +28,7 @@ error(
 	if (0 == len) {
 		return;
 	}
-	_write(fileno(stderr), p, len);
+	_write(_fileno(stderr), p, len);
 	LocalFree(p);
 
 	return;

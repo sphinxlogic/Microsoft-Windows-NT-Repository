@@ -77,7 +77,11 @@ RxpFieldSize(
 
     if (*FieldDesc == REM_ASCIZ || *FieldDesc == REM_ASCIZ_TRUNCATABLE) {
         // Compute string len (assuming conversion to correct code page).
+#if defined(DBCS) && defined(UNICODE) // RxpFieldSize()
+        return ( NetpUnicodeToDBCSLen(Field) + 1 );
+#else
         return (STRLEN( (LPTSTR) Field ) + sizeof(char) );
+#endif // defined(DBCS) && defined(UNICODE)
     } else {
         LPDESC TempDescPtr = FieldDesc;
         return ( RapGetFieldSize(
@@ -111,8 +115,8 @@ RxpIsFieldSettable(
     // Check for errors detected by RapParmNumDescriptor().
     if (*FieldDesc == REM_UNSUPPORTED_FIELD) {
         IF_DEBUG(SETFIELD) {
-            NetpDbgPrint( "RxpIsFieldSettable: invalid parameter "
-                    "(ParmNumDesc).\n" );
+            NetpKdPrint(( "RxpIsFieldSettable: invalid parameter "
+                    "(ParmNumDesc).\n" ));
         }
         Status = ERROR_INVALID_PARAMETER;
     } else {
@@ -176,7 +180,7 @@ RxpSetField (
     NetpAssert(FieldIndex != PARMNUM_ALL);
     if (RapValueWouldBeTruncated(ParmNumToSend)) {
         IF_DEBUG(SETFIELD) {
-            NetpDbgPrint( "RxpSetField: invalid parameter (trunc).\n" );
+            NetpKdPrint(( "RxpSetField: invalid parameter (trunc).\n" ));
         }
         return (ERROR_INVALID_PARAMETER);
     }
@@ -194,9 +198,9 @@ RxpSetField (
         return (Status);
     }
 
-    NetpDbgPrint( "RxpSetField: ParmNumToSend=" FORMAT_DWORD ", Level="
+    NetpKdPrint(( "RxpSetField: ParmNumToSend=" FORMAT_DWORD ", Level="
             FORMAT_DWORD ", FieldIndex=" FORMAT_DWORD ".\n",
-            ParmNumToSend, Level, FieldIndex );
+            ParmNumToSend, Level, FieldIndex ));
 
     //
     // Analyze SMB version of descriptor to find data type for this ParmNum.
@@ -215,7 +219,7 @@ RxpSetField (
     if (*FieldDesc == REM_UNSUPPORTED_FIELD) {
         NetpMemoryFree( FieldDesc );
         IF_DEBUG(SETFIELD) {
-            NetpDbgPrint( "RxpSetField: invalid parameter (parmNumDesc).\n" );
+            NetpKdPrint(( "RxpSetField: invalid parameter (parmNumDesc).\n" ));
         }
         return (ERROR_INVALID_PARAMETER);
     }
@@ -232,15 +236,15 @@ RxpSetField (
         NetpMemoryFree( FieldDesc );
         return (ERROR_NOT_ENOUGH_MEMORY);
     }
-    NetpDbgPrint( "RxpSetField: allocated " FORMAT_DWORD " bytes at "
-            FORMAT_LPVOID ".\n", SendDataBufferSize, SendDataBuffer );
+    NetpKdPrint(( "RxpSetField: allocated " FORMAT_DWORD " bytes at "
+            FORMAT_LPVOID ".\n", SendDataBufferSize, SendDataBuffer ));
 
     // Convert this field (and copy it to the send data buffer while we're
     // at it).
     if ( (*FieldDesc != REM_ASCIZ) && (*FieldDesc != REM_ASCIZ_TRUNCATABLE) ) {
         DWORD BytesNeeded = 0;
         LPBYTE BogusStringEnd = SendDataBuffer + SendDataBufferSize;
-        NetpDbgPrint( "RxpSetField: converting...\n" );
+        NetpKdPrint(( "RxpSetField: converting...\n" ));
         Status = RapConvertSingleEntry (
                 NativeInfoBuffer,       // input data
                 FieldDesc,              // input descriptor
@@ -258,12 +262,23 @@ RxpSetField (
     } else {
         // Can't use RapConvertSingleEntry for setinfo strings, because
         // they're not sent with a pointer (or offset).  So, we just copy data.
+#if defined(DBCS) && defined(UNICODE) // RxpSetField()
         NetpAssert(
-                SendDataBufferSize >= (STRLEN(NativeInfoBuffer)+sizeof(char)) );
-        NetpDbgPrint( "RxpSetField: copying string...\n" );
+            SendDataBufferSize >=  NetpUnicodeToDBCSLen(NativeInfoBuffer)+1);
+#else
+        NetpAssert(
+            SendDataBufferSize >= (STRLEN(NativeInfoBuffer)+sizeof(char)) );
+#endif // defined(DBCS) && defined(UNICODE)
+        NetpKdPrint(( "RxpSetField: copying string...\n" ));
+#if defined(DBCS) && defined(UNICODE) // RxpSetField()
+        NetpCopyWStrToStrDBCS(
+                (LPSTR) SendDataBuffer,         // dest
+                NativeInfoBuffer );             // src
+#else
         NetpCopyTStrToStr(
                 (LPSTR) SendDataBuffer,         // dest
                 NativeInfoBuffer);              // src
+#endif // defined(DBCS) && defined(UNICODE)
     }
     NetpMemoryFree( FieldDesc );
 
@@ -372,12 +387,13 @@ RxpSetField (
             FALSE);             // not a null session API.
     // Don't process RxpTransactSmb status just yet...
     NetpMemoryFree(SendDataBuffer);
-    NetpMemoryFree(TransactSmbBuffer);
     if (Status != NERR_Success) {
+        NetpMemoryFree(TransactSmbBuffer);
         return (Status);  // status of transact, e.g. net not started.
     }
 
     Status = SmbGetUshort( (LPWORD) TransactSmbBuffer );
+    NetpMemoryFree(TransactSmbBuffer);
 
     return (Status);      // status of actual remote API.
 

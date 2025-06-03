@@ -208,7 +208,7 @@ Return Value:
     //  If the fscontext field is null then we been disconnected.
     //
 
-    if (FsContext == NULL) {
+    if ((FsContext == NULL) || ((ULONG)FsContext == 1)) {
 
         NodeTypeCode = 0;
 
@@ -270,4 +270,3 @@ Return Value:
     return NodeTypeCode;
 }
 
-

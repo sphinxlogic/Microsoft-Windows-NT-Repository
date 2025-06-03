@@ -284,6 +284,16 @@ Return Value:
         );
 
     //
+    // Register our shutdown handler.
+    //
+
+    NdisMRegisterAdapterShutdownHandler(
+        Adapter->MiniportAdapterHandle,     // miniport handle.
+        Adapter,                            // shutdown context.
+        TOK162Shutdown                      // shutdown handler.
+        );
+
+    //
     // Register our port usage
     //
     Status = NdisMRegisterIoPortRange(
@@ -1267,6 +1277,28 @@ Return Value:
     }
 
     //
+    // Allocate Flush Buffer Pool
+    //
+    VERY_LOUD_DEBUG(DbgPrint("Allocating Flush Buffer Pool\n");)
+
+    NdisAllocateBufferPool(
+        &Status,
+        (PVOID*)&Adapter->FlushBufferPoolHandle,
+        Adapter->NumberOfReceiveBuffers + Adapter->NumberOfTransmitLists
+        );
+
+    //
+    // If there was a problem allocating the flush buffer pool,
+    // write out an errorlog entry, delete the allocated adapter memory,
+    // and return FALSE
+    //
+    if (Status != NDIS_STATUS_SUCCESS) {
+
+        return FALSE;
+
+    }
+
+    //
     // Allocate the Transmit Command Queue.
     //
     VERY_LOUD_DEBUG(DbgPrint("Allocating Transmit Command Block Queue\n");)
@@ -1297,28 +1329,6 @@ Return Value:
     if (TOK162InitializeTransmitQueue(Adapter) == FALSE) {
 
         return FALSE;
-    }
-
-    //
-    // Allocate Flush Buffer Pool
-    //
-    VERY_LOUD_DEBUG(DbgPrint("Allocating Flush Buffer Pool\n");)
-
-    NdisAllocateBufferPool(
-        &Status,
-        (PVOID*)&Adapter->FlushBufferPoolHandle,
-        Adapter->NumberOfReceiveBuffers
-        );
-
-    //
-    // If there was a problem allocating the flush buffer pool,
-    // write out an errorlog entry, delete the allocated adapter memory,
-    // and return FALSE
-    //
-    if (Status != NDIS_STATUS_SUCCESS) {
-
-        return FALSE;
-
     }
 
     //
@@ -1660,7 +1670,7 @@ Return Value:
     }
 
     //
-    // Free the transmit command queue
+    // Free the transmit command queue, transmit buffers, and flush buffers
     //
     if (Adapter->TransmitQueue != NULL) {
 
@@ -1674,13 +1684,25 @@ Return Value:
              i++,CommandBlock++
              ) {
 
-            NdisMFreeSharedMemory(
-                Adapter->MiniportAdapterHandle,
-                Adapter->ReceiveBufferSize,
-                TRUE,
-                (PVOID)(CommandBlock->TOK162BufferAddress),
-                CommandBlock->TOK162BufferPhysicalAddress
-            );
+            if (CommandBlock->TOK162BufferAddress != ((ULONG)NULL)) {
+
+                NdisMFreeSharedMemory(
+                    Adapter->MiniportAdapterHandle,
+                    Adapter->ReceiveBufferSize,
+                    FALSE,
+                    (PVOID)(CommandBlock->TOK162BufferAddress),
+                    CommandBlock->TOK162BufferPhysicalAddress
+                );
+
+            }
+
+            if (CommandBlock->FlushBuffer != NULL) {
+
+                NdisFreeBuffer(
+                    CommandBlock->FlushBuffer
+                    );
+
+            }
 
 	}
 
@@ -1824,14 +1846,51 @@ Return Value:
     TOK162DeleteAdapterMemory(Adapter);
 
     //
-    // Remove ourselves from the list of adapters supported by this driver
-    //
-    RemoveEntryList(&Adapter->AdapterList);
-
-    //
     // Finally, free the allocated memory for the adapter structure itself
     //
     TOK162_FREE_PHYS(Adapter);
+
+}
+
+
+extern
+VOID
+TOK162Shutdown(
+    IN NDIS_HANDLE MiniportAdapterContext
+    )
+
+/*++
+
+Routine Description:
+
+    TOK162Shutdown--  removes an adapter previously initialized.
+
+Arguments:
+
+    MiniportAdapterContext - The context value that the Miniport returned
+                             from Tok162Initialize; actually is pointer to
+                             a TOK162_ADAPTER.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    //
+    // Pointer to an adapter structure. Makes Context (passed in value)
+    // a structure we can deal with.
+    //
+
+    PTOK162_ADAPTER Adapter =
+        PTOK162_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
+
+    //
+    // Simply remove ourselves from the ring by doing a reset of the
+    // adapter.
+    //
+    TOK162ResetAdapter(Adapter);
 
 }
 
@@ -2319,6 +2378,11 @@ Return Value:
     USHORT  i;
 
     //
+    // Status variable
+    //
+    NDIS_STATUS Status;
+
+    //
     // Initialize the Adapter structure fields associate with transmit lists
     //
     Adapter->NextTransmitBlock = 0;
@@ -2383,7 +2447,7 @@ Return Value:
         NdisMAllocateSharedMemory(
             Adapter->MiniportAdapterHandle,
             Adapter->ReceiveBufferSize + 8,
-            TRUE,
+            FALSE,
             &((PVOID)CurrentCommandBlock->TOK162BufferAddress),
             &CurrentCommandBlock->TOK162BufferPhysicalAddress
             );
@@ -2408,6 +2472,28 @@ Return Value:
 
 	}
 
+//
+// Remove the following section because it isn't needed. Flush buffers on
+// transmits appear to be causing hangs on mips machines.
+//
+#if 0
+        //
+        // Build flush buffers
+        //
+        NdisAllocateBuffer(
+            &Status,
+            &CurrentCommandBlock->FlushBuffer,
+            Adapter->FlushBufferPoolHandle,
+            (PVOID)CurrentCommandBlock->TOK162BufferAddress,
+            Adapter->ReceiveBufferSize
+            );
+
+        if (Status != NDIS_STATUS_SUCCESS) {
+
+            return FALSE;
+
+        }
+#endif
     }
 
     //

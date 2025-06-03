@@ -44,7 +44,7 @@ Revision History:
 
 #include <lmapibuf.h>           // NetApiBufferAllocate().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpPointerPlusSomeBytes, etc.
 #include <rxpdebug.h>           // IF_DEBUG().
 #include <rxsess.h>             // My prototype.
@@ -86,7 +86,7 @@ RxpCopyAndConvertSessions(
     NetpSetOptionalArg(OutEntryCountPtr, 0);
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "RxpCopyAndConvertSessions: starting...\n" );
+        NetpKdPrint(( "RxpCopyAndConvertSessions: starting...\n" ));
         NetpDbgDisplaySessionArray(
                 SESSION_SUPERSET_LEVEL,
                 (LPVOID) InStructureArray,
@@ -123,8 +123,8 @@ RxpCopyAndConvertSessions(
     }
     OutEntry = OutStructureArray;
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "RxpCopyAndConvertSessions: allocated output buffer at "
-                FORMAT_LPVOID "\n", (LPVOID) OutStructureArray );
+        NetpKdPrint(( "RxpCopyAndConvertSessions: allocated output buffer at "
+                FORMAT_LPVOID "\n", (LPVOID) OutStructureArray ));
     }
 
 
@@ -157,7 +157,7 @@ RxpCopyAndConvertSessions(
         InEntry = (LPVOID) NetpPointerPlusSomeBytes(InEntry, InFixedSize);
 
     }
-    
+
     if (AnyMatchFound == FALSE) {
 
         (void) NetApiBufferFree( OutStructureArray );
@@ -169,7 +169,7 @@ RxpCopyAndConvertSessions(
         Status = NERR_Success;
 
         IF_DEBUG(SESSION) {
-            NetpDbgPrint( "RxpCopyAndConvertSessions: ending...\n" );
+            NetpKdPrint(( "RxpCopyAndConvertSessions: ending...\n" ));
             NetpDbgDisplaySessionArray(
                     LevelWanted,
                     (LPVOID) OutStructureArray,

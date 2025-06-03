@@ -16,24 +16,36 @@
 #include <nbtprocs.h>
 #include <debug.h>
 
-uchar NCBHandler( NCB * pNCB, ULONG  Ipaddr ) ;
+#ifdef CHICAGO
 
-BOOL fNCBCompleted = 1 ;    // Wait NCB completed before returning to submitter
-BOOL fWaitingForNCB = 0 ;   // We are blocked waiting for a Wait NCB to complete
-CTEBlockStruc WaitNCBBlock ;// Wait on this until signaled in completion
+#include <shell.h>
+
+#include <netvxd.h>
+
+//
+// Do this so the VXDINLINE in the header file doesn't conflict
+// with the actual function declaration in this file.
+//
+#define VNBT_NCB_X VNBT_NCB_X_CALL
+#define VNBT_LANA_MASK VNBT_LANA_MASK_CALL
+#include <vnbt.h>
+#undef VNBT_LANA_MASK
+#undef VNBT_NCB_X
+
+#endif ;; CHICAGO
 
 LANA_ENTRY LanaTable[NBT_MAX_LANAS] ;
 
 /*******************************************************************
 
-    NAME:       NCBHandler
+    NAME:       VNBT_NCB_X
 
     SYNOPSIS:   All NCBs submitted by the VNetBios driver come through
                 here
 
     ENTRY:      pNCB - Pointer to submitted NCB
                 Ipaddr - this parm is used only by nbtstat -A, which directly
-                         calls into NCBHandler
+                         calls into VNBT_NCB_X
                          ipaddress to which to send AdapterStatus to
 
     RETURNS:    NCB Return code
@@ -45,12 +57,20 @@ LANA_ENTRY LanaTable[NBT_MAX_LANAS] ;
 
 ********************************************************************/
 
-uchar NCBHandler( NCB * pNCB, ULONG Ipaddr )
+ULONG
+_stdcall
+VNBT_NCB_X(       PNCB pNCB,
+                  PUCHAR pzDnsName,
+                  PULONG pIpAddress,
+                  PVOID pExtended,
+                  ULONG fFlag )
 {
-    BOOL             fAsync ;
-    tDEVICECONTEXT * pDeviceContext = NULL ;
-    NTSTATUS         status = STATUS_SUCCESS ;
-    uchar            errNCB = NRC_GOODRET ;
+    BOOL                   fAsync ;
+    tDEVICECONTEXT       * pDeviceContext = NULL ;
+    NTSTATUS               status = STATUS_SUCCESS ;
+    uchar                  errNCB = NRC_GOODRET ;
+    PBLOCKING_NCB_CONTEXT  pBlkNcbContext;
+    ULONG Ipaddr = pIpAddress ? pIpAddress[0] : 0;
 
     if ( !pNCB )
         return NRC_INVADDRESS ;
@@ -59,36 +79,72 @@ uchar NCBHandler( NCB * pNCB, ULONG Ipaddr )
     if ( pDeviceContext == NULL )
         return NRC_BRIDGE ;
 
+    if (!pDeviceContext->fDeviceUp)
+        return NRC_BRIDGE ;
+
     fAsync = !!(pNCB->ncb_command & ASYNCH) ;
 
-    DbgPrint("NCBHandler: NCB Commmand Rcvd: 0x") ;
-    DbgPrintNum( pNCB->ncb_command ) ; DbgPrint(", (") ;
-    DbgPrintNum( (ULONG) pNCB ) ; DbgPrint(")\r\n") ;
-
-    //
-    //  If we are still processing a Wait NCB, refuse all other requests
-    //  till it completes.  We allow cancels and resets through 'cause we
-    //  might be cancelling the wait NCB that is blocking.
-    //
-    if ( !fNCBCompleted &&
-         (pNCB->ncb_command & ~ASYNCH) != NCBCANCEL &&
-         (pNCB->ncb_command & ~ASYNCH) != NCBRESET    )
-    {
-        errNCB = NRC_IFBUSY ;
-        goto Exit ;
-    }
-
-    pNCB->ncb_retcode  = NRC_PENDING ;
-    pNCB->ncb_cmd_cplt = NRC_PENDING ;
+	if (
+		( pzDnsName != NULL )
+		&& ( pIpAddress != NULL )
+	)
+	{
+	    if ( fAsync )
+		{
+			return DoDnsResolveDirect( pNCB, pzDnsName, pIpAddress );
+		}
+		else
+		{
+			return (pNCB->ncb_retcode = pNCB->ncb_cmd_cplt = NRC_ILLCMD);
+		}
+	}
+	else if (
+		( pIpAddress != NULL )
+		&& ( Ipaddr != 0 )
+		&& ( ( pNCB->ncb_command & ~ASYNCH ) != NCBASTAT )
+	)
+	{
+		IpToAscii( Ipaddr, &pNCB->ncb_callname[0] );
+	}
 
     if ( !fAsync )
     {
+        pBlkNcbContext = CTEAllocMem( sizeof(BLOCKING_NCB_CONTEXT) );
+        if (!pBlkNcbContext)
+        {
+            DbgPrint("VNBT_NCB_X: couldn't alloc pBlkNcbContext 1") ;
+            return NRC_NORESOURCES;
+        }
+
+        pBlkNcbContext->Verify = NBT_VERIFY_BLOCKING_NCB;
+        InitializeListHead(&pBlkNcbContext->Linkage);
+        pBlkNcbContext->pNCB = pNCB;
+
+        pBlkNcbContext->pWaitNCBBlock = CTEAllocMem( sizeof(CTEBlockStruc) );
+        if (!pBlkNcbContext->pWaitNCBBlock)
+        {
+            CTEFreeMem(pBlkNcbContext);
+            DbgPrint("VNBT_NCB_X: couldn't alloc pBlkNcbContext 2") ;
+            return NRC_NORESOURCES;
+        }
+
+        pBlkNcbContext->fNCBCompleted = FALSE ;
+
         //
-        //  The completion routine resets this flag when the NCB completes.
-        //  If it completes before we return, we don't need to block
+        //  The completion routine uses this flag to know if the thread is
+        //  blocked and needs to be signaled.
         //
-        fNCBCompleted = FALSE ;
+        pBlkNcbContext->fBlocked = FALSE;
+
+        InsertTailList(&NbtConfig.BlockingNcbs,&pBlkNcbContext->Linkage);
     }
+
+    DbgPrint("VNBT_NCB_X: NCB Commmand Rcvd: 0x") ;
+    DbgPrintNum( pNCB->ncb_command ) ; DbgPrint(", (") ;
+    DbgPrintNum( (ULONG) pNCB ) ; DbgPrint(")\r\n") ;
+
+    pNCB->ncb_retcode  = NRC_PENDING ;
+    pNCB->ncb_cmd_cplt = NRC_PENDING ;
 
     switch ( pNCB->ncb_command & ~ASYNCH )
     {
@@ -120,7 +176,7 @@ uchar NCBHandler( NCB * pNCB, ULONG Ipaddr )
         break ;
 
     case NCBRECV:
-        errNCB = VxdReceive( pDeviceContext, pNCB ) ;
+        errNCB = VxdReceive( pDeviceContext, pNCB, TRUE ) ;
         break ;
 
     case NCBSEND:
@@ -162,7 +218,14 @@ uchar NCBHandler( NCB * pNCB, ULONG Ipaddr )
         break ;
 
     case NCBCANCEL:
-        errNCB = VxdCancel( pDeviceContext, pNCB ) ;
+		if ( DoDnsCancelDirect( pNCB ) )
+		{
+			errNCB = NRC_GOODRET;
+		}
+		else
+		{
+			errNCB = VxdCancel( pDeviceContext, pNCB ) ;
+		}
         break ;
 
     //
@@ -174,7 +237,7 @@ uchar NCBHandler( NCB * pNCB, ULONG Ipaddr )
         break ;
 
     default:
-        DbgPrint("NCBHandler - Unsupported command: ") ;
+        DbgPrint("VNBT_NCB_X - Unsupported command: ") ;
         DbgPrintNum( pNCB->ncb_command & ~ASYNCH ) ;
         DbgPrint("\n\r") ;
         errNCB = NRC_ILLCMD ;    // Bogus error for now
@@ -189,7 +252,7 @@ Exit:
          errNCB != NRC_GOODRET   )
     {
 #ifdef DEBUG
-        DbgPrint("NCBHandler - Returning ") ;
+        DbgPrint("VNBT_NCB_X - Returning ") ;
         DbgPrintNum( errNCB ) ;
         DbgPrint(" to NCB submitter\n\r") ;
 #endif
@@ -201,8 +264,11 @@ Exit:
         //  in essence, complete it here.  Note this will only set the
         //  state for the last Wait NCB (all others get NRC_IFBUSY).
         //
-        if ( !fAsync && errNCB != NRC_IFBUSY )
-            fNCBCompleted = TRUE ;
+        if ( !fAsync )
+        {
+            ASSERT(pBlkNcbContext->Verify == NBT_VERIFY_BLOCKING_NCB);
+            pBlkNcbContext->fNCBCompleted = TRUE ;
+        }
     }
     else
     {
@@ -218,12 +284,18 @@ Exit:
     //
     if ( !fAsync )
     {
-        if ( !fNCBCompleted )
+        ASSERT(pBlkNcbContext->Verify == NBT_VERIFY_BLOCKING_NCB);
+        if ( !pBlkNcbContext->fNCBCompleted )
         {
-            CTEInitBlockStruc( &WaitNCBBlock ) ;
-            fWaitingForNCB = TRUE ;
-            CTEBlock( &WaitNCBBlock ) ;
-            fWaitingForNCB = FALSE ;
+            pBlkNcbContext->fBlocked = TRUE;
+            CTEInitBlockStruc( pBlkNcbContext->pWaitNCBBlock ) ;
+            CTEBlock( pBlkNcbContext->pWaitNCBBlock ) ;
+        }
+        else
+        {
+            RemoveEntryList(&pBlkNcbContext->Linkage);
+            CTEFreeMem(pBlkNcbContext->pWaitNCBBlock);
+            CTEFreeMem(pBlkNcbContext);
         }
     }
 
@@ -263,6 +335,86 @@ tDEVICECONTEXT * GetDeviceContext( NCB * pNCB )
     }
 
     return NULL;
+}
+
+/*******************************************************************
+
+    NAME:       NbtWouldLoopback
+
+    SYNOPSIS:   Returns a BOOL that specifies whether the input
+				IP address would loop back to the local machine
+
+    ENTRY:      IpAddr
+
+    RETURNS:    TRUE if Nbt is bound to this address
+
+    NOTES:      It is assumed that LanaTable is filled sequentially
+                with no holes.
+
+    HISTORY:
+        EarleH  28-Mar-1996     Created
+
+********************************************************************/
+
+BOOL
+NbtWouldLoopback(
+	ULONG	IpAddr
+)
+{
+    int i ;
+
+    for ( i = 0; i < NBT_MAX_LANAS; i++)
+    {
+        if ( 
+			( LanaTable[i].pDeviceContext )
+        	&& ( LanaTable[i].pDeviceContext->IpAddress == IpAddr )
+		)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+/*******************************************************************
+
+    NAME:       VNBT_LANA_MASK
+
+    SYNOPSIS:   Returns a bit mask of LANA numbers being handled
+                by vnbt, with a DNS server configured
+
+    ENTRY:      none
+
+    RETURNS:    Bit mask of LANA numbers being handled by vnbt
+
+    NOTES:
+
+    HISTORY:
+        EarleH  26-Feb-1996 Created
+
+********************************************************************/
+
+ULONG
+_stdcall
+VNBT_LANA_MASK(
+    )
+{
+    int i;
+    ULONG mask = 0;
+
+    for ( i = 0 ; i < NBT_MAX_LANAS; i++)
+    {
+        if (
+			( LanaTable[i].pDeviceContext )
+        	&& ( LanaTable[i].pDeviceContext->fDeviceUp )
+			&& ( LanaTable[i].pDeviceContext->lDnsServerAddress )
+			&& ( LanaTable[i].pDeviceContext->lDnsServerAddress != LOOP_BACK )
+		)
+        {
+            mask |= 1 << LanaTable[i].pDeviceContext->iLana;
+        }
+    }
+
+    return mask;
 }
 
 /*******************************************************************
@@ -374,4 +526,4 @@ uchar MapTDIStatus2NCBErr( TDI_STATUS tdistatus )
     return errNCB ;
 }
 
-
+

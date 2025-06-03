@@ -379,6 +379,16 @@ Return Value:
             goto InitializeServerError;
         }
 
+        //
+        // Initialize the data for the new APIs (user rights)
+        //
+
+        Status = LsapDbInitializeRights();
+        if (!NT_SUCCESS(Status)) {
+
+            goto InitializeServerError;
+        }
+
     } else if (Pass == 2) {
 
         BOOLEAN ExpectTrue;
@@ -611,7 +621,7 @@ Return Value:
         //
         // Create the revision attribute
         //
-        
+
         LsapDbInitializeAttribute(
             NextAttribute,
             &LsapDbNames[PolRevision],
@@ -641,7 +651,7 @@ Return Value:
 
         NextAttribute++;
         AttributeCount++;
-             
+
         //
         // Revision is now 1.1
         //
@@ -684,8 +694,8 @@ Return Value:
                          Attributes,
                          AttributeCount
                          );
-        
-        
+
+
             Status = LsapDbDereferenceObject(
                          &LsapDbHandle,
                          PolicyObject,
@@ -696,7 +706,7 @@ Return Value:
                          );
         }
     }
-    
+
     return( Status );
 }
 
@@ -1898,21 +1908,21 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
 
     LsapCreateTokenPrivilege =
-        RtlConvertLongToLargeInteger(SE_CREATE_TOKEN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_CREATE_TOKEN_PRIVILEGE);
     LsapAssignPrimaryTokenPrivilege =
-        RtlConvertLongToLargeInteger(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
+        RtlConvertLongToLuid(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
     LsapLockMemoryPrivilege =
-        RtlConvertLongToLargeInteger(SE_LOCK_MEMORY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_LOCK_MEMORY_PRIVILEGE);
     LsapIncreaseQuotaPrivilege =
-        RtlConvertLongToLargeInteger(SE_INCREASE_QUOTA_PRIVILEGE);
+        RtlConvertLongToLuid(SE_INCREASE_QUOTA_PRIVILEGE);
     LsapUnsolicitedInputPrivilege =
-        RtlConvertLongToLargeInteger(SE_UNSOLICITED_INPUT_PRIVILEGE);
+        RtlConvertLongToLuid(SE_UNSOLICITED_INPUT_PRIVILEGE);
     LsapTcbPrivilege =
-        RtlConvertLongToLargeInteger(SE_TCB_PRIVILEGE);
+        RtlConvertLongToLuid(SE_TCB_PRIVILEGE);
     LsapSecurityPrivilege =
-        RtlConvertLongToLargeInteger(SE_SECURITY_PRIVILEGE);
+        RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
     LsapTakeOwnershipPrivilege =
-        RtlConvertLongToLargeInteger(SE_TAKE_OWNERSHIP_PRIVILEGE);
+        RtlConvertLongToLuid(SE_TAKE_OWNERSHIP_PRIVILEGE);
 
     return(Status);
 }
@@ -2110,6 +2120,54 @@ Return Value:
         goto InitializeWellKnownSidsError;
     }
 
+    Status = LsapGetMessageStrings(
+                StringsResource,
+                LSAP_SID_NAME_CREATOR_OWNER_SERVER,
+                &SidName,
+                0,
+                NULL
+                ); ASSERT(NT_SUCCESS(Status));
+
+    SubAuthorities[0] = SECURITY_CREATOR_OWNER_SERVER_RID;
+
+    if (!LsaIInitializeWellKnownSid(
+            OutputWellKnownSids,
+            LsapCreatorOwnerServerSidIndex,
+            &LsapCreatorSidAuthority,
+            1,
+            SubAuthorities,
+            SidName.Buffer,
+            L"",
+            SidTypeWellKnownGroup
+            )) {
+
+        goto InitializeWellKnownSidsError;
+    }
+    Status = LsapGetMessageStrings(
+                StringsResource,
+                LSAP_SID_NAME_CREATOR_GROUP_SERVER,
+                &SidName,
+                0,
+                NULL
+                ); ASSERT(NT_SUCCESS(Status));
+
+    SubAuthorities[0] = SECURITY_CREATOR_GROUP_SERVER_RID;
+
+    if (!LsaIInitializeWellKnownSid(
+            OutputWellKnownSids,
+            LsapCreatorGroupServerSidIndex,
+            &LsapCreatorSidAuthority,
+            1,
+            SubAuthorities,
+            SidName.Buffer,
+            L"",
+            SidTypeWellKnownGroup
+            )) {
+
+        goto InitializeWellKnownSidsError;
+    }
+
+
     //
     // Initialize the Nt well-known Sids
     //
@@ -2137,7 +2195,7 @@ Return Value:
     }
 
 
-    
+
     Status = LsapGetMessageStrings(
                 StringsResource,
                 LSAP_SID_NAME_DIALUP,
@@ -2271,6 +2329,30 @@ Return Value:
     if (!LsaIInitializeWellKnownSid(
             OutputWellKnownSids,
             LsapAnonymousSidIndex,
+            &LsapNtAuthority,
+            1,
+            SubAuthorities,
+            SidName.Buffer,
+            NtAuthorityName.Buffer,
+            SidTypeWellKnownGroup
+            )) {
+
+        goto InitializeWellKnownSidsError;
+    }
+
+    Status = LsapGetMessageStrings(
+                StringsResource,
+                LSAP_SID_NAME_SERVER,
+                &SidName,
+                0,
+                NULL
+                ); ASSERT(NT_SUCCESS(Status));
+
+    SubAuthorities[0] = SECURITY_SERVER_LOGON_RID;
+
+    if (!LsaIInitializeWellKnownSid(
+            OutputWellKnownSids,
+            LsapServerSidIndex,
             &LsapNtAuthority,
             1,
             SubAuthorities,

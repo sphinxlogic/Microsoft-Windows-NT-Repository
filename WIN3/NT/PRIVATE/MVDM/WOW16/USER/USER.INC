@@ -11,7 +11,10 @@
 ; LAYER_INCLUDE - Just define POINT, RECT, WND, and CLS structs, plus ICLS_*
 ; NOTEXT	- Blow off TEXTMETRICS and some other stuff
 ;
-;WORDEXSTYLE equ 1       ; only 16 bits of extended style stored in window
+
+ifdef WOW
+NOTEXT equ 1
+endif
 
 .286P
 
@@ -91,6 +94,7 @@ RECTL    struc
 RECTL    ends
 endif
 
+ifndef WOW
 ifdef WORDEXSTYLE
 WND	struc
     wndHwndNext     dw ?
@@ -142,6 +146,7 @@ WND	ends
 
 endif   ; WORDEXSTYLE
 
+
 ;
 ; Internal window class structure
 ;
@@ -191,6 +196,7 @@ ICLS_MDICLIENT	    equ 11
 ICLS_COMBOLISTBOX   equ 12
 
 ICLS_MAX	    equ 13	; Number of system classes
+endif   ; !WOW
 
 ;
 ; SetWindowPos() SMWP structure header
@@ -214,6 +220,7 @@ ifndef DEBUG
 include iuser.inc
 endif
 
+ifndef WOW
 ; Internal window class names
 ;
 MENUCLASS       equ     8000h
@@ -363,6 +370,7 @@ ST_HOTKEYLIST   equ     22
 ST_POPUPMENU    equ     23
 ST_HANDLETABLE  equ	32
 ST_FREE		equ	0ffh
+endif   ; !WOW
 
 ifdef DEBUG
 ifndef winmisc1
@@ -439,6 +447,7 @@ endif	; NOTEXT
 ANSI_CHARSET	    equ 0
 OEM_CHARSET	    equ 255
 
+ifndef WOW
 ;
 ; Styles for CombineRgn
 ;
@@ -460,7 +469,8 @@ IDC_ICON	    equ 10
 
 IDI_APPLICATION     equ 1
 IDI_NOTE	    equ 2
-IDI_ERROR	    equ 3
+IDI_ERROR           equ 3
+endif ; !WOW
 
 ;
 ; Memory manager flags
@@ -482,6 +492,7 @@ GHND		    equ GMEM_MOVEABLE+GMEM_ZEROINIT
 GPTR		    equ GMEM_FIXED+GMEM_ZEROINIT
 
 
+ifndef WOW
 ;*--------------------------------------------------------------------------*
 ;*									    *
 ;*  Miscellaneous structures & constants				    *
@@ -910,7 +921,10 @@ RDW_COPYRGN		equ 4000h   ; Copy the passed-in region
 
 ; WM_HOTKEYEVENT stuff
 
-WM_HOTKEYEVENT		equ 0045h
+WM_HOTKEYEVENT          equ 0045h
+
+endif ; !WOW
+
 ;
 ; SetWindowsHook() definitions
 ;
@@ -927,6 +941,8 @@ WH_HARDWARE	    equ  8
 WH_DEBUG	    equ  9
 WH_SHELL            equ 10
 
+ifndef WOW
+
 ;
 ; Standard hook code values
 ;
@@ -937,7 +953,9 @@ HC_ACTION	    equ  0
 HC_GETNEXT	    equ  1
 HC_SKIP 	    equ  2
 HC_SYSMODALON	    equ  4
-HC_SYSMODALOFF	    equ  5
+HC_SYSMODALOFF      equ  5
+
+endif ; !WOW
 
 ; Lowest and highest valued windows hook IDs
 
@@ -972,11 +990,7 @@ ifndef WOW
 ExternW rgphkSysHooks
 endif
 
-ifdef WOW
-ExternW fThunklstrcmp
-endif
-
-sEnd	DATA
+sEnd    DATA
 endif ;NOEXTERNS
 
 MAX_SEB_STYLES equ 8  ; number of SEB_* values
@@ -1233,7 +1247,7 @@ SYSMSG	ends
 INTERNALSYSMSG	struc
     ismExtraMsgInfo dd ?
     ismMsg	    db  size SYSMSG dup (?)
-INTERNALSYSMSG	ends
+INTERNALSYSMSG  ends
 
 ; GetQueueStatus bits.
 
@@ -1332,6 +1346,8 @@ CPUBLICTIMERS	    equ 32
 CSYSTEMTIMERS	    equ 2
 CTIMERSMAX	    equ CPUBLICTIMERS + CSYSTEMTIMERS
 
+ifndef WOW
+
 ; GetSystemMetrics() codes.
 SM_CXSCREEN	     equ 0
 SM_CYSCREEN	     equ 1
@@ -1426,7 +1442,8 @@ DF_CAPTIONTEXT	    equ (COLOR_CAPTIONTEXT * 8)
 DF_ACTIVEBORDER	    equ (COLOR_ACTIVEBORDER * 8)
 DF_INACTIVEBORDER   equ (COLOR_INACTIVEBORDER * 8)
 DF_APPWORKSPACE	    equ (COLOR_APPWORKSPACE * 8)
-DF_GRAY		    equ (DF_APPWORKSPACE + (1 * 8))
+DF_GRAY             equ (DF_APPWORKSPACE + (1 * 8))
+endif ; !WOW
 
 ifndef NOEXTERNS
 ;*--------------------------------------------------------------------------*
@@ -1441,6 +1458,7 @@ createSeg _INTDS, INTDS, BYTE, PUBLIC, DATA
 
 sBegin INTDS
 
+ifndef WOW
 ExternB fDontMakeAltUpASysKey
 ExternD hwEventHook
 ifdef userhimem
@@ -1458,16 +1476,20 @@ ExternW hqActive
 ExternW hqCapture
 ExternW hqMouse
 ExternW hqKeyboard
+endif ; !WOW
 ExternW hqList
 ExternW hqSysQueue
 ExternW hqSysModal
 ExternW cQEntries
+ifndef WOW
 ExternW fMouseMoved
 ;; ExternB fAltKeyUp
 ExternB rgbAsyncKeyState
 ExternW fEnableInput
 ExternW fSwapButtons
+endif ; !WOW
 ExternW hqCursor
+ifndef WOW
 ExternW cMsgRsrv
 ExternB vKeyDown
 ExternD timerInfo
@@ -1477,8 +1499,10 @@ ExternW hSysTimer
 ExternD tSysTimer
 ExternW dtSysTimer
 ExternB fInScanTimers
+endif ; !WOW
 ExternW szDivZero
 ExternW szSysError
+ifndef WOW
 ExternW x_mickey_rate
 ExternW y_mickey_rate
 ExternW cur_x_mickey
@@ -1498,12 +1522,14 @@ ExternW hqSysLock
 ExternW idSysLock
 
 ExternW fJournalPlayback
+endif ; !WOW
 
 sEnd INTDS
 
 endif
 
 
+ifndef WOW
 ;*--------------------------------------------------------------------------*
 ;*  OEM Inquire Structures for Timer, Keyboard, Mouse, and Cursor modules   *
 ;*--------------------------------------------------------------------------*
@@ -1597,6 +1623,7 @@ OEMSINFOMONO	struc
     oemcxbmpChk     dw ?
     oemcybmpChk     dw ?
 OEMSINFOMONO	ends
+endif ; !WOW
 
 
 ;*--------------------------------------------------------------------------*
@@ -1788,6 +1815,7 @@ xmov	macro	a,b
 	xchg	a,b
 	endm
 
+ifndef WOW
 ;----------------------------------------------------------------------------
 ; New set of Critical Region Macros
 ;     The necessity for new set of macros is
@@ -1839,6 +1867,7 @@ SkipSti:
 				 ;; entering NewLeaveCrit
 	endm
 
+endif ; !WOW
 
 ;
 ; Old Critical Region macros
@@ -1852,6 +1881,7 @@ LeaveCrit   macro
 	endm
 
 
+ifndef WOW
 ;
 ;   AllocP	Macro
 ;
@@ -1923,9 +1953,11 @@ LockH	macro	h, p
 ;
 UnlockH macro   h
 	dec	byte ptr [h+3]
-	endm
+        endm
+endif ; !WOW
 
 
+ifndef WOW
 ;----------------------------------------------------------------------------
 ;  GetES
 ;	This macro gets the current value of USER's data segment and loads it
@@ -1950,5 +1982,6 @@ WF_WIN286       =    0010h
 WF_WIN386       =    0020h
 WF_LARGEFRAME   =    0100h
 WF_SMALLFRAME   =    0200h
+endif ; !WOW
 
 endif	; LAYER_INCLUDE

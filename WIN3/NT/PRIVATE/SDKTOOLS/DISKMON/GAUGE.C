@@ -23,6 +23,7 @@ Revision History:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
+#include <windows.h>
 #include "gauge.h"
 
 #include <string.h>
@@ -452,5 +453,5 @@ DrawGaugeText(
 
     ReleaseDC (handle,DC);
 }
-
-
+
+

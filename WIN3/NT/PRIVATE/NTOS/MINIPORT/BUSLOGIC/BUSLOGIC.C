@@ -28,7 +28,12 @@ Revision History:
 // an adapter.  A zero entry terminates the search.
 //
 
-CONST ULONG AdapterAddresses[] = {0X330, 0X334, 0X234, 0X134, 0X130, 0X230, 0};
+ULONG AdapterAddresses[] = {0X330, 0X334, 0X234, 0X134, 0X130, 0X230, 0};
+ULONG PciAdapterAddresses[] = {0Xfff,0xfff,0xfff,0xfff,0xfff,0xfff,0}; /* dummy entry for PCI */
+
+UCHAR VendorId[4]={'1','0','4','b'};
+UCHAR NewDeviceId[4]={'1','0','4','0'};
+
 ULONG InittedEISABoards = 0;
 //
 // Function declarations
@@ -53,7 +58,7 @@ ULONG
 BLogicDetermineInstalled(
     IN PCARD_STRUC CardPtr,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
-    IN OUT PULONG AdapterCount,
+    IN OUT PBL_CONTEXT CurrContextPtr,
     OUT PBOOLEAN Again
     );
 
@@ -102,6 +107,13 @@ ResetBus(
     IN ULONG PathId
     );
 
+// Add the following function back in!
+
+BOOLEAN
+ReInitializeHBA(
+    IN PCARD_STRUC CardPtr,
+    IN ULONG PathId
+    );
 //
 // This function is called from BLogicStartIo.
 //
@@ -177,6 +189,11 @@ FinishHBACmd(
     IN PCARD_STRUC CardPtr
     );
 
+BOOLEAN
+CheckInvalid(
+    IN PCARD_STRUC CardPtr
+    );
+
 ULONG
 FindOurEISAId(
     IN PCARD_STRUC CardPtr,
@@ -238,11 +255,12 @@ Return Value:
 
 {
     HW_INITIALIZATION_DATA hwInitializationData;
-    ULONG adapterCount;
+    BL_CONTEXT CurrContext;
+    PBL_CONTEXT CurrContextPtr = &CurrContext;
     ULONG isaStatus;
     ULONG mcaStatus;
     ULONG EisaStatus;
-    ULONG i,LowStatus;
+    ULONG i,PCIStatus,LowStatus1,LowStatus2;
 
     DebugPrint((1,"\n\nBusLogic SCSI MiniPort Driver\n"));
 
@@ -286,12 +304,6 @@ Return Value:
 
     hwInitializationData.DeviceExtensionSize = sizeof(CARD_STRUC);
     hwInitializationData.SpecificLuExtensionSize = sizeof(DEV_STRUC);
-
-    //
-    // Specify the bus type.
-    //
-
-    hwInitializationData.AdapterInterfaceType = Eisa;
     hwInitializationData.NumberOfAccessRanges = 1;
 
     //
@@ -305,9 +317,31 @@ Return Value:
     // which adapter addresses have been tested.
     //
 
-    adapterCount = 0;
+    CurrContextPtr->AdapterCount = 0;
+    CurrContextPtr->PCIDevId = 0x1040;
 
-    EisaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &adapterCount);
+    //
+    // try to configure for the PCI bus, fully-compliant HBA.
+    // Specify the bus type.
+    //
+    hwInitializationData.AdapterInterfaceType = PCIBus;
+    hwInitializationData.VendorId = VendorId;
+    hwInitializationData.VendorIdLength = 4;
+    hwInitializationData.DeviceId = NewDeviceId;
+    hwInitializationData.DeviceIdLength = 4;
+         PCIStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, CurrContextPtr);
+
+    //
+    // Now try to configure for the EISA bus.
+    // Specify the bus type.
+    //
+
+    hwInitializationData.AdapterInterfaceType = Eisa;
+    
+    CurrContextPtr->AdapterCount = 0;
+    CurrContextPtr->PCIDevId = 0;
+    EisaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, CurrContextPtr);
+
 
     //
     // Now try to configure for the Mca bus.
@@ -315,8 +349,10 @@ Return Value:
     //
 
     hwInitializationData.AdapterInterfaceType = MicroChannel;
-    adapterCount = 0;
-    mcaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &adapterCount);
+    
+    CurrContextPtr->AdapterCount = 0;
+    CurrContextPtr->PCIDevId = 0;
+    mcaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, CurrContextPtr);
 
     //
     // Now try to configure for the ISA bus.
@@ -324,15 +360,19 @@ Return Value:
     //
 
     hwInitializationData.AdapterInterfaceType = Isa;
-    adapterCount = 0;
-    isaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, &adapterCount);
+    
+    CurrContextPtr->AdapterCount = 0;
+    CurrContextPtr->PCIDevId = 0;
+    isaStatus = ScsiPortInitialize(DriverObject, Argument2, &hwInitializationData, CurrContextPtr);
 
     //
-    // Return the smaller status.
+    // Return the smallest status.
     //
 
-    LowStatus = (mcaStatus < isaStatus ? mcaStatus : isaStatus);
-       return(LowStatus < EisaStatus ? LowStatus : EisaStatus);
+    LowStatus1 = (PCIStatus < EisaStatus ? PCIStatus : EisaStatus);
+    LowStatus2 = (mcaStatus < isaStatus ? mcaStatus : isaStatus);
+
+    return(LowStatus1 < LowStatus2 ? LowStatus1 : LowStatus2);
 
 } // end BLogicEntry()
 
@@ -370,11 +410,16 @@ Return Value:
 {
     ULONG length;
     ULONG status;
+    ULONG i;
     UCHAR adapterTid;
     UCHAR dmaChannel;
     UCHAR irq;
     UCHAR bit;
     UCHAR VesaCard = 0;
+    UCHAR  ThrowAway;
+    PBASE_REGISTER baseIoAddress;
+    BOOLEAN NoErrorOnWide = TRUE;
+    PBL_CONTEXT CurrContextPtr = (PBL_CONTEXT)Context;
 
     //
     // Determine if there are any adapters installed.  Determine installed
@@ -383,7 +428,7 @@ Return Value:
 
     status = BLogicDetermineInstalled(CardPtr,
                                       ConfigInfo,
-                                      Context,
+                                      (PBL_CONTEXT)CurrContextPtr,
                                       Again);
 
     //
@@ -393,6 +438,8 @@ Return Value:
     if ((status != SP_RETURN_FOUND) && (status != RETURN_FOUND_VESA)) {
         return(status);
     }
+
+                                baseIoAddress = CardPtr->BaseIoAddress;
 
     if (status == RETURN_FOUND_VESA) {
         VesaCard = 1;
@@ -425,9 +472,10 @@ Return Value:
     }
 
     /* EISA may have DMA channel disabled  or MCA byte is not valid */
-     /* also, vesa card always returns DMA channel 5 */
+    /* also, vesa card always returns DMA channel 5 */
 
-    if ((dmaChannel != 0) && (!VesaCard)){
+    if ((dmaChannel != 0) && (!VesaCard) 
+                          && (ConfigInfo->AdapterInterfaceType != PCIBus)){
         WHICH_BIT(dmaChannel,bit);
         ConfigInfo->DmaChannel = bit;
     }
@@ -446,8 +494,17 @@ Return Value:
 
     WHICH_BIT(irq, bit);
 
-    ConfigInfo->BusInterruptLevel = (UCHAR) 9 + bit;
+    // 
+    // BusInterruptLevel is already provided for us in the ConfigInfo
+    // structure on the fully-compliant 946C boards - otherwise, 
+    // IRQ assignment from the 0Bh HBA command
+    //
 
+    if (!((ConfigInfo->AdapterInterfaceType == PCIBus) &&
+              (CurrContextPtr->PCIDevId == 0x1040)))
+    {
+       ConfigInfo->BusInterruptLevel = (UCHAR) 9 + bit;
+    }
     //
     // Determine what SCSI bus id the adapter is on.
     //
@@ -515,8 +572,86 @@ Return Value:
 
     ASSERT(CardPtr->MailBoxArray->MailboxPA < 0x1000000);
 
+     // check for wide support ONLY if on NT 3.5 platform */
+
+    if (ConfigInfo->Length == CONFIG_INFO_VERSION_2)
+    {
+        CardPtr->Flags |= OS_SUPPORTS_WIDE;
+
+        // default to non-wide support
+
+        ConfigInfo->MaximumNumberOfTargets = 8;
+
+        // turn on wide support if available 
+        
+        NoErrorOnWide = TRUE;    
+
+        if (!WriteCommandRegister(CardPtr, AC_WIDE_SUPPORT)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+                NoErrorOnWide = FALSE;
+        }
+        else if (!CheckInvalid(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+               // DebugPrint((0,"BLogicFindAdapter: check invalid failed \n"));
+               NoErrorOnWide = FALSE;
+        }
+        else if (!WriteCommandRegister(CardPtr, 0x01)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+                NoErrorOnWide = FALSE;
+        }
+
+        if (!FinishHBACmd(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+                NoErrorOnWide = FALSE;
+        }
+        else if (NoErrorOnWide) {
+                CardPtr->Flags |= WIDE_ENABLED;
+                ConfigInfo->MaximumNumberOfTargets = 16;
+
+        }
+    } /* end if NT 3.5, then check for wide support */
+
     DebugPrint((3,"BLogicFindAdapter: Configuration completed\n"));
 
+
+    //
+    // enable generation on interrupts to the host on HBAs that support
+    // the 0x25 command used previously to disable generation of ints
+    // during this routine's call to DetermineInstalled
+    //
+
+
+    if (!WriteCommandRegister(CardPtr,AC_INT_GENERATION_STATE)){
+       DebugPrint((1,"BLogicFindAdapter: ints enable/disable cmd failed\n"));
+       }
+    else if (!CheckInvalid(CardPtr)) {
+       DebugPrint((1,"BLogicDetInstalled: ints enable/disable cmd failed\n"));     DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+        
+    }  
+    else{
+       ThrowAway = ENABLE_INTS;   
+       if (!WriteCommandRegister(CardPtr,ThrowAway)){
+          DebugPrint((1,"BLogicFindAdapter: ints enable/disable cmd failed\n"));   
+       }  
+    }
+
+    if (!FinishHBACmd(CardPtr)) {
+
+    // this cmd DOES NOT generate an interrupt - so
+    // just check for command complete!
+
+      if (!(ScsiPortReadPortUchar(&baseIoAddress->StatusRegister) 
+                       & (IOP_SCSI_HBA_IDLE))) {
+            DebugPrint((1,"BLogicFindAdapter: ints enable/disable cmd failed\n"));
+      }
+    } 
+
+    //
+    // Set up DMA type based on bus type
+    //
+
+    ConfigInfo->Dma32BitAddresses =
+                        (ConfigInfo->AdapterInterfaceType == Isa) ? FALSE : TRUE;
     return SP_RETURN_FOUND;
 
 } // end BLogicFindAdapter()
@@ -641,7 +776,7 @@ ULONG
 BLogicDetermineInstalled(
     IN PCARD_STRUC CardPtr,
     IN OUT PPORT_CONFIGURATION_INFORMATION ConfigInfo,
-    IN OUT PULONG AdapterCount,
+    IN OUT PBL_CONTEXT CurrContextPtr,
     OUT PBOOLEAN Again
     )
 
@@ -660,7 +795,8 @@ Arguments:
 
     ConfigInfo - Supplies the known configuraiton information.
 
-    AdapterCount - Supplies the count of adapter slots which have been tested.
+    CurrContextPtr - Supplies the count of adapter slots which have been 
+                                                  tested and, in the case of PCI, the Device ID.
 
     Again - Returns whehter the  OS specific driver should call again.
 
@@ -677,6 +813,10 @@ Return Value:
     UCHAR i;
     BOOLEAN configProvided = FALSE;
     UCHAR FoundVesaCard = 0;
+    ULONG *AdapterAddrPtr;    
+    ULONG length;
+    SCSI_PHYSICAL_ADDRESS PhysAddr;
+    
 
     if (ConfigInfo->AdapterInterfaceType == Eisa)
         InittedEISABoards = 1;
@@ -685,20 +825,26 @@ Return Value:
     // Get the system physical address for this card.  The card uses I/O space.
     //
 
-    ioSpace = ScsiPortGetDeviceBase(
-        CardPtr,                              // CardPtr
-        ConfigInfo->AdapterInterfaceType,   // AdapterInterfaceType
-        ConfigInfo->SystemIoBusNumber,      // SystemIoBusNumber
-        ScsiPortConvertUlongToPhysicalAddress(0),
-        0x400,                              // NumberOfBytes
-        TRUE                                // InIoSpace
-        );
+     AdapterAddrPtr = (ConfigInfo->AdapterInterfaceType == PCIBus) ? 
+                                                  PciAdapterAddresses : AdapterAddresses;
 
     //
     // Scan though the adapter address looking for adapters.
     //
 
-    while (AdapterAddresses[*AdapterCount] != 0) {
+    ioSpace = NULL;
+    while (AdapterAddrPtr[CurrContextPtr->AdapterCount] != 0) {
+
+        //
+        // Free any previously allocated ioSpace.
+        //
+
+        if (ioSpace) {
+            ScsiPortFreeDeviceBase(
+                CardPtr,
+                ioSpace
+                );
+        }
 
         //
         // If the calling operating system has configuration information
@@ -710,12 +856,32 @@ Return Value:
 
         configProvided = ((*ConfigInfo->AccessRanges)[0].RangeLength == 0) ? FALSE : TRUE;
         if (configProvided) {
-            baseIoAddress = (PBASE_REGISTER)(ioSpace +
-                            ScsiPortConvertPhysicalAddressToUlong
-                            ((*ConfigInfo->AccessRanges)[0].RangeStart));
+            ioSpace = ScsiPortGetDeviceBase(
+                CardPtr,                              // CardPtr
+                ConfigInfo->AdapterInterfaceType,   // AdapterInterfaceType
+                ConfigInfo->SystemIoBusNumber,      // SystemIoBusNumber
+                (*ConfigInfo->AccessRanges)[0].RangeStart,
+                0x16,                              // NumberOfBytes
+                TRUE                                // InIoSpace
+                );
+
+            if (!ioSpace) {
+                return SP_RETURN_NOT_FOUND;
+            }
         } else {
-            baseIoAddress = (PBASE_REGISTER)(ioSpace + AdapterAddresses[*AdapterCount]);
+            ioSpace = ScsiPortGetDeviceBase(
+                CardPtr,                              // CardPtr
+                ConfigInfo->AdapterInterfaceType,   // AdapterInterfaceType
+                ConfigInfo->SystemIoBusNumber,      // SystemIoBusNumber
+                ScsiPortConvertUlongToPhysicalAddress(AdapterAddrPtr[CurrContextPtr->AdapterCount]),
+                0x16,                              // NumberOfBytes
+                TRUE                                // InIoSpace
+                );
+            if (!ioSpace) {
+                continue;
+            }
         }
+        baseIoAddress = (PBASE_REGISTER)ioSpace;
 
         //
         // Check to see if adapter present in system.
@@ -728,9 +894,68 @@ Return Value:
         // Update the adapter count.
         //
 
-        (*AdapterCount)++;
+        (CurrContextPtr->AdapterCount)++;
+
+
+
+        //
+        // Check to make sure the I/O range is not already in use 
+        //
+        PhysAddr = ScsiPortConvertUlongToPhysicalAddress((ULONG)baseIoAddress);
+
+        if (!(ScsiPortValidateRange(
+                CardPtr,                              // CardPtr
+                ConfigInfo->AdapterInterfaceType,   // AdapterInterfaceType
+                ConfigInfo->SystemIoBusNumber,      // SystemIoBusNumber
+                PhysAddr,
+                4,                                  // NumberOfBytes
+                TRUE                                // InIoSpace
+                ))) {
+        
+                   continue;
+         }
+        
 
         if (((ScsiPortReadPortUchar((PUCHAR)baseIoAddress)) & (~0x2C)) == 0x10) {
+
+
+            //
+            // Before sending any other host adapter commands, try to disable 
+            // generation of interrupts to the host (HBA command 0x25).
+            // On f.w. that support this command, we will be able
+            // to initialize an HBA that is sharing an IRQ level with a 
+            // previously-initialized HBA on the same IRQ without winding up
+            // in the ISR for the first HBA in an endless "not our interrupt"
+            // loop due to level-triggered int generated by second HBA (not yet
+            // registered by the OS for any ISR). This should allow us to share
+            // interrupts on critical platforms such as PCI.
+            //
+
+
+            if (!WriteCommandRegister(CardPtr,AC_INT_GENERATION_STATE)){
+               DebugPrint((1,"BLogicDetInstalled: ints enable/disable cmd failed\n"));
+            }
+            else if (!CheckInvalid(CardPtr)) {
+               DebugPrint((1,"BLogicDetInstalled: ints enable/disable cmd failed\n"));     DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+            }  
+            else{
+               ThrowAway = DISABLE_INTS;   
+               if (!WriteCommandRegister(CardPtr,ThrowAway)){
+                  DebugPrint((1,"BLogicDetInstalled: ints enable/disable cmd failed\n"));   
+               }  
+            }
+
+            if (!FinishHBACmd(CardPtr)) {
+
+               // this cmd DOES NOT generate an interrupt - so
+               // just check for command complete!
+
+               if (!(ScsiPortReadPortUchar(&baseIoAddress->StatusRegister) 
+                          & (IOP_SCSI_HBA_IDLE))) {
+                  DebugPrint((1,"BLogicDetInstalled: ints enable/disable cmd failed\n"));
+               }
+            } 
+
 
             //
             // Check adapter inquiry to get rid of clones.
@@ -822,6 +1047,11 @@ Return Value:
                 break;
 
             case EISA_HBA:
+
+            // EISA, VESA, and PCI HBAs all , reporting back as bus type
+            // EISA, will always reflect accurate edge\level info in
+            // in "EISAConfigReg" below - I checked with FW group on this       
+
                 ConfigInfo->InterruptMode = EISAConfigReg & LEVEL_TRIG ? LevelSensitive : Latched;
 
                 if (ConfigInfo->AdapterInterfaceType == Eisa)
@@ -846,35 +1076,79 @@ Return Value:
                         break;
                     }
                 }
+                else if (ConfigInfo->AdapterInterfaceType == PCIBus)
+                   break; 
+
             case MCA_HBA:
                 if (ConfigInfo->AdapterInterfaceType != MicroChannel)
                     continue;
                 break;
 
-            }
+            } /* end switch */
 
-            //
-            // An adapter has been found.  Set the base address in the device
-            // extension, and request another call.
-            //
+       //
+       // turn off ISA-compatible I/O mapping on compliant PCI HBAs.
+       //
 
-            *Again = TRUE;
+       if (ConfigInfo->AdapterInterfaceType == PCIBus)
+                 {
+              //
+              // Turn off ISA-compatible I/O mapping for this HBA
+              //
 
-            //
-            // Fill in the access array information.
-            //
+              if (!WriteCommandRegister(CardPtr,AC_ISA_COMPATIBLE_SUPPORT)) {
+                DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+                continue;
+              }
+              else if (!CheckInvalid(CardPtr)) {
+                DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+                continue;
+              }  
+              else{
+                ThrowAway = DISABLE_ISA_MAPPING;   
+           if (!WriteCommandRegister(CardPtr,ThrowAway)){
+                  DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+                       continue;
+           }
+              }
 
-            if (!configProvided) {
-                (*ConfigInfo->AccessRanges)[0].RangeStart =
-                    ScsiPortConvertUlongToPhysicalAddress(
-                        AdapterAddresses[*AdapterCount - 1]);
-            }
-            (*ConfigInfo->AccessRanges)[0].RangeLength = 4;
-            (*ConfigInfo->AccessRanges)[0].RangeInMemory = FALSE;
+              if (!FinishHBACmd(CardPtr)) {
 
-            return(FoundVesaCard ? RETURN_FOUND_VESA : SP_RETURN_FOUND);
+               // this cmd DOES NOT generate an interrupt - so
+               // just check for command complete!
+
+                if (!(ScsiPortReadPortUchar(&baseIoAddress->StatusRegister) 
+                          & (IOP_SCSI_HBA_IDLE))) {
+                       DebugPrint((1,"BLogicDetermineInstalled: ISA Compatible Support Mode cmd failed\n"));
+                       continue;
+                }
+              }
+                 } // turn off ISA- compatible I/O mapping on PCI-compliant 946C cards
+
+       //
+       // An adapter has been found.  Set the base address in the device
+       // extension, and request another call.
+       //
+
+       *Again = TRUE;
+
+        //
+        // Fill in the access array information.
+        //
+
+        if (!configProvided) {
+            (*ConfigInfo->AccessRanges)[0].RangeStart =
+                ScsiPortConvertUlongToPhysicalAddress(
+                    AdapterAddresses[(CurrContextPtr->AdapterCount) - 1]);
         }
-    }
+        (*ConfigInfo->AccessRanges)[0].RangeLength = 4;
+        (*ConfigInfo->AccessRanges)[0].RangeInMemory = FALSE;
+
+
+     return(FoundVesaCard ? RETURN_FOUND_VESA : SP_RETURN_FOUND);
+
+     } /* end if ((baseIoAddress) & (~0x2C)) == 0x10)  */
+   } /* end adapter count loop */
 
     //
     // The entire table has been searched and no adapters have been found.
@@ -883,12 +1157,7 @@ Return Value:
     //
 
     *Again = FALSE;
-    *(AdapterCount) = 0;
-
-    ScsiPortFreeDeviceBase(
-        CardPtr,
-        ioSpace
-        );
+    CurrContextPtr->AdapterCount = 0;
 
      return(SP_RETURN_NOT_FOUND);
 
@@ -1165,7 +1434,7 @@ Return Value:
     CardPtr->LastMBI = ((PMBI)(&MailBoxArray->Mbi) + (MB_COUNT - 1));
 
 
-    DebugPrint((3,"ResetBus: Initialize mailbox\n"));
+    DebugPrint((3,"BLogicHwInitialize: Initialize mailbox\n"));
 
     if (!WriteCommandRegister(CardPtr,AC_MBOX_EXTENDED_INIT)) {
         DebugPrint((1,"BLogicHWInitialize: Couldn't initialize mailboxes\n"));
@@ -1227,6 +1496,28 @@ Return Value:
         return FALSE;
     }
 
+    /* turn on wide support if available */
+    if (CardPtr->Flags & OS_SUPPORTS_WIDE)
+    {
+        // DebugPrint((0,"BLogicHwInitialize: about to send wide cmd\n"));
+        
+        if (!WriteCommandRegister(CardPtr, AC_WIDE_SUPPORT)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        else if (!CheckInvalid(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        else if (!WriteCommandRegister(CardPtr, 0x01)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        if (!FinishHBACmd(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        else {
+                CardPtr->Flags |= WIDE_ENABLED;
+        }
+    } /* end if OS_SUPPORTS_WIDE */
+
     return TRUE;
 
 } // end BLogicHwInitialize()
@@ -1270,6 +1561,16 @@ Return Value:
     UCHAR j;
 
     DebugPrint((3,"BLogicStartIo: Enter routine\n"));
+
+    if (CardPtr->Flags & REINIT_REQUIRED)
+    {
+       if (!ReInitializeHBA(CardPtr,Srb->PathId)) 
+                 {
+           DebugPrint((1,"BLogicStartIo: HBA reinitialization failed\n"));
+           return FALSE;
+       }
+       CardPtr->Flags &= (~REINIT_REQUIRED);
+         }
 
     //
     // Check if command is an ABORT request.
@@ -1484,6 +1785,8 @@ Return Value:
     UCHAR mbox_compcode;
     UCHAR InterruptFlags;
          UCHAR MaxActive=0;
+    UCHAR TargID;
+    UCHAR Lun;
 
     InterruptFlags = ScsiPortReadPortUchar(&baseIoAddress->InterruptRegister);
 
@@ -1521,8 +1824,49 @@ Return Value:
         // Notify of reset.
         //
 
-        ScsiPortNotification(ResetDetected,CardPtr,NULL);
+       //
+       // Reset HBA because firmware may be in confused state with
+                 // respect to outstanding CCBs.
+       //
+
+       ScsiPortWritePortUchar(&baseIoAddress->StatusRegister, IOP_SOFT_RESET);
+
+       //
+       // Notify OS of SCSI bus reset.
+       //
+
+       ScsiPortNotification(ResetDetected,CardPtr,NULL);
+
+       // Complete all active requests for specified unit
+
+       ScsiPortCompleteRequest(CardPtr,
+                            (UCHAR) 0,
+                            (UCHAR) -1,
+                            (UCHAR) -1,
+                            SRB_STATUS_BUS_RESET);
+
+       //
+       // Reinitialize Active CCBS pointer and counter in LUN extensions
+       //
+
+       for (TargID= 0; TargID < 8; TargID++)
+         for (Lun = 0; Lun < 8; Lun++)
+         {
+           if (DevStruc=ScsiPortGetLogicalUnit(CardPtr,0,TargID,Lun))
+           {
+             DevStruc->CurrentCCB = 0;
+             DevStruc->NumActive = 0;
+           }
+         }
+
+       //
+            // Set flag indicating HBA reinitialization will be required before
+       // any new requests can be serviced (due to soft reset above).
+            //
+            
+       CardPtr->Flags |= REINIT_REQUIRED;
     }
+
     else if (InterruptFlags & IOP_MBI_FULL) {
         DebugPrint((3,"BLogicInterrupt: MBI Full\n"));
 
@@ -1793,7 +2137,10 @@ Return Value:
     if ((CardPtr->Flags & TAGGED_QUEUING) &&
        (Srb->SrbFlags & SRB_FLAGS_QUEUE_ACTION_ENABLE))
     {
-        ccb->Lun |= ENABLE_TQ;
+                if (CardPtr->Flags & WIDE_ENABLED) 
+                        ccb->ControlByte |= ENABLE_TQ;
+                else
+                        ccb->Lun |= ENABLE_TQ;
 
         switch (Srb->QueueAction) {
 
@@ -2106,6 +2453,52 @@ Return Value:
 
     ScsiPortWritePortUchar(&baseIoAddress->StatusRegister, IOP_HARD_RESET);
 
+         // Separated out the previously-removed routine ReInitializeHBA
+         // because it is now called by StartIO as well
+
+    if (!ReInitializeHBA(CardPtr,PathId)) {
+        DebugPrint((1,"ResetBus: Reset bus failed\n"));
+        return FALSE;
+    }
+    return TRUE;
+
+} // end ResetBus()
+
+
+BOOLEAN
+ReInitializeHBA(
+    IN PCARD_STRUC CardPtr,
+    IN ULONG PathId
+    )
+
+/*++
+
+Routine Description:
+
+    Wait for HBA to reinitialize.
+    Initialize adapter mailbox.
+
+Arguments:
+
+    CardPtr - HBA miniport driver's adapter data storage
+
+Return Value:
+
+    Nothing.
+
+
+--*/
+
+{
+    PNONCACHED_EXTENSION MailBoxArray =
+        CardPtr->MailBoxArray;
+    PBASE_REGISTER baseIoAddress = CardPtr->BaseIoAddress;
+    ULONG i;
+    PMBO mailboxOut;
+    PMBI mailboxIn;
+    UCHAR status;
+
+
     ScsiPortStallExecution(500 * 1000);
 
     //
@@ -2145,10 +2538,10 @@ Return Value:
     CardPtr->LastMBI = ((PMBI)(&MailBoxArray->Mbi) + (MB_COUNT - 1));
 
 
-    DebugPrint((3,"ResetBus: Initialize mailbox\n"));
+    DebugPrint((3,"ReInitializeHBA: Initialize mailbox\n"));
 
     if (!WriteCommandRegister(CardPtr,AC_MBOX_EXTENDED_INIT)) {
-        DebugPrint((1,"ResetBus: Couldn't initialize mailboxes\n"));
+        DebugPrint((1,"ReInitializeHBA: Couldn't initialize mailboxes\n"));
         return FALSE;
     }
 
@@ -2157,40 +2550,65 @@ Return Value:
     //
 
     if (!WriteCommandRegister(CardPtr,MB_COUNT)) {
-        DebugPrint((1,"ResetBus: Extended InitMboxes failed\n"));
+        DebugPrint((1,"ReInitializeHBA: Extended InitMboxes failed\n"));
         return FALSE;
     }
 
     if (!WriteCommandRegister(CardPtr,
         ((PFOUR_BYTE)&MailBoxArray->MailboxPA)->Byte0)) {
-        DebugPrint((1,"ResetBus: Extended InitMboxes failed\n"));
+        DebugPrint((1,"ReInitializeHBA: Extended InitMboxes failed\n"));
         return FALSE;
     }
 
     if (!WriteCommandRegister(CardPtr,
         ((PFOUR_BYTE)&MailBoxArray->MailboxPA)->Byte1)) {
-        DebugPrint((1,"ResetBus: Extended InitMboxes failed\n"));
+        DebugPrint((1,"ReInitializeHBA: Extended InitMboxes failed\n"));
         return FALSE;
     }
 
     if (!WriteCommandRegister(CardPtr,
         ((PFOUR_BYTE)&MailBoxArray->MailboxPA)->Byte2)) {
-        DebugPrint((1,"ResetBus: Extended InitMboxes failed\n"));
+        DebugPrint((1,"ReInitializeHBA: Extended InitMboxes failed\n"));
         return FALSE;
     }
 
     if (!WriteCommandRegister(CardPtr,
         ((PFOUR_BYTE)&MailBoxArray->MailboxPA)->Byte3)) {
-        DebugPrint((1,"ResetBus: Extended InitMboxes failed\n"));
+        DebugPrint((1,"ReInitializeHBA: Extended InitMboxes failed\n"));
         return FALSE;
     }
 
+    if (!FinishHBACmd(CardPtr)) {
+        DebugPrint((1,"BLogicHWInitialize: Extended InitMboxes failed\n"));
+        return FALSE;
+    }
 
-    return TRUE;
+    /* turn on wide support if available */
+    if (CardPtr->Flags & OS_SUPPORTS_WIDE)
+    {
 
-} // end ResetBus()
+        //  DebugPrint((0,"ReInitializeHBA: about to send wide cmd\n"));
+        
+        if (!WriteCommandRegister(CardPtr, AC_WIDE_SUPPORT)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        else if (!CheckInvalid(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+         else if (!WriteCommandRegister(CardPtr, 0x01)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        if (!FinishHBACmd(CardPtr)) {
+                CardPtr->Flags &= ~WIDE_ENABLED;
+        }
+        else {
+                CardPtr->Flags |= WIDE_ENABLED;
+        }
+    } /* end if OS_SUPPORTS_WIDE */
 
+   return TRUE;
 
+} // end ReInitializeHBA()
 
 UCHAR
 MapError(
@@ -2221,7 +2639,7 @@ Return Value:
 
 {
     UCHAR status;
-    ULONG logError;
+    ULONG logError = 0;
 
     switch (Ccb->HostStatus) {
 
@@ -2233,7 +2651,14 @@ Return Value:
 
         case CCB_DATA_OVER_UNDER_RUN:
             status = SRB_STATUS_DATA_OVERRUN;
-            logError = SP_PROTOCOL_ERROR;
+            
+            // 
+            // Don't log the protocol error anymore.  it floods the system
+            // for underruns as well
+            //
+            // logError = SP_PROTOCOL_ERROR;
+            //
+            
             break;
 
         case CCB_UNEXPECTED_BUS_FREE:
@@ -2262,15 +2687,19 @@ Return Value:
            break;
     }
 
-    ScsiPortLogError(
-        CardPtr,
-        Srb,
-        Srb->PathId,
-        Srb->TargetId,
-        Srb->Lun,
-        logError,
-        (2 << 8) | Ccb->HostStatus
-        );
+    if(logError) {
+
+        ScsiPortLogError(
+            CardPtr,
+            Srb,
+            Srb->PathId,
+            Srb->TargetId,
+            Srb->Lun,
+            logError,
+            (2 << 8) | Ccb->HostStatus
+            );
+
+    }
 
     return(status);
 
@@ -2454,8 +2883,9 @@ Return Value:
 --*/
 
 {
-    PBASE_REGISTER baseIoAddress = CardPtr->BaseIoAddress;
+    
     ULONG i;
+    PBASE_REGISTER baseIoAddress = CardPtr->BaseIoAddress;
 
     for (i=0; i<500; i++) {
 
@@ -2496,6 +2926,74 @@ Return Value:
     return TRUE;
 
 } // end FinishHBACmd()
+
+
+BOOLEAN
+CheckInvalid(
+    IN PCARD_STRUC CardPtr
+    )
+
+/*++
+
+Routine Description:
+
+    Read status register to check for invalid command.
+
+Arguments:
+
+    DeviceExtesion - Pointer to adapder extension
+    DataByte - Byte read from register
+
+Return Value:
+
+    FALSE if invalid command bit on or timed out waiting for adapter.
+    TRUE if everything's o.k.
+
+--*/
+
+{
+    PBASE_REGISTER baseIoAddress = CardPtr->BaseIoAddress;
+    ULONG i;
+
+    ScsiPortStallExecution(500 * 1000);
+
+    //
+    // Wait up to 500 microseconds for adapter to be ready.
+    //
+
+    for (i=0; i<500; i++) {
+        if (ScsiPortReadPortUchar(&baseIoAddress->InterruptRegister) &
+            IOP_COMMAND_COMPLETE) {
+            //
+            // Adapter command complete. Break out of loop.
+            //
+
+            break;
+
+        } else {
+
+            //
+            // Stall 1 microsecond before
+            // trying again.
+            //
+
+            ScsiPortStallExecution(1);
+        }
+    }
+
+    if (i==500) {
+        // if command not complete, must not be invalid 
+        return TRUE;
+    }
+
+    if (ScsiPortReadPortUchar(&baseIoAddress->StatusRegister) &
+       IOP_INVALID_COMMAND) 
+           return FALSE;
+   else
+          return TRUE;
+
+} // end CheckInvalid()
+
 
 
 BOOLEAN

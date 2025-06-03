@@ -14,11 +14,13 @@
 //
 // Dynamic memory macros
 //
-// On checked (debug) builds, malloc_w complains when it fails.
+// On checked (debug) builds, malloc_w and friends complain when they fail.
 //
 
-PVOID FASTCALL  malloc_w(ULONG size);
-VOID  FASTCALL  free_w(PVOID p);
+PVOID FASTCALL malloc_w(ULONG size);
+PVOID FASTCALL malloc_w_zero (ULONG size);
+PVOID FASTCALL realloc_w (PVOID p, ULONG size, DWORD dwFlags);
+VOID  FASTCALL free_w(PVOID p);
 
 PVOID FASTCALL malloc_w_or_die(ULONG size);
 

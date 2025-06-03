@@ -34,7 +34,7 @@ CACLS filename [/T] [/E] [/C] [/G user:perm] [/R user [...]]
                  Perm can be: R  Read
                               C  Change (write)
                               F  Full control
-   /R user       Revoke specified user's access rights.
+   /R user	 Revoke specified user's access rights (only valid with /E).
    /P user:perm  Replace specified user's access rights.
                  Perm can be: N  None
                               R  Read
@@ -49,7 +49,6 @@ MessageId=8004 SymbolicName=MSG_CACLS_ACCESS_DENIED
 Language=English
  ACCESS_DENIED%0
 .
-
 
 MessageId=8005 SymbolicName=MSG_CACLS_ARE_YOU_SURE
 Language=English
@@ -136,3 +135,7 @@ Language=English
 YES%0
 .
 
+MessageId=8022 SymbolicName=MSG_CACLS_SHARING_VIOLATION
+Language=English
+ SHARING_VIOLATION%0
+.

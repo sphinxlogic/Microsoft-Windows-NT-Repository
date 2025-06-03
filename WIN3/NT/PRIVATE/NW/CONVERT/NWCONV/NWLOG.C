@@ -29,7 +29,7 @@
 #include <string.h>
 
 #define VER_HI  1
-#define VER_LOW 0
+#define VER_LOW 1
 
 HANDLE hErr = NULL;
 HANDLE hLog = NULL;
@@ -60,16 +60,16 @@ static BOOL CategoryWritten;
 static BOOL ContextWritten;
 static BOOL CategorySet;
 static BOOL ItemSet;
-static BOOL CritError = FALSE;
 
 static BOOL VerboseULogging = TRUE;
 static BOOL VerboseFLogging = TRUE;
 static BOOL ErrorBreak = FALSE;
 
+static BOOL LogCancel = FALSE;
 
 /*+-------------------------------------------------------------------------+
-  | ErrorResetAll()                                                         |
-  |                                                                         |
+  | ErrorResetAll()
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorResetAll() {
    ErrorFlag = FALSE;
@@ -85,11 +85,11 @@ void ErrorResetAll() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorContextSet()                                                       |
-  |                                                                         |
-  |    Sets the context for the error message, generally this would be      |
-  |    the source and destination server pair.                              |
-  |                                                                         |
+  | ErrorContextSet()
+  |
+  |    Sets the context for the error message, generally this would be
+  |    the source and destination server pair.
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorContextSet(LPTSTR szFormat, ...) {
    va_list marker;
@@ -109,11 +109,11 @@ void ErrorContextSet(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorCategorySet()                                                      |
-  |                                                                         |
-  |    Sets the category for the error message, generally this would tell   |
-  |    what type of items is being converted: "Converting Users"            |
-  |                                                                         |
+  | ErrorCategorySet()
+  |
+  |    Sets the category for the error message, generally this would tell
+  |    what type of items is being converted: "Converting Users"
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorCategorySet(LPTSTR szFormat, ...) {
    va_list marker;
@@ -130,11 +130,11 @@ void ErrorCategorySet(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorItemSet()                                                          |
-  |                                                                         |
-  |    Defines the specific item that error'd.  This is usually a user,     |
-  |    group or file name.                                                  |
-  |                                                                         |
+  | ErrorItemSet()
+  |
+  |    Defines the specific item that error'd.  This is usually a user,
+  |    group or file name.
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorItemSet(LPTSTR szFormat, ...) {
    va_list marker;
@@ -148,8 +148,8 @@ void ErrorItemSet(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorReset()                                                            |
-  |                                                                         |
+  | ErrorReset()
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorReset() {
    ErrorFlag = FALSE;
@@ -159,8 +159,8 @@ void ErrorReset() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorSet()                                                              |
-  |                                                                         |
+  | ErrorSet()
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorSet(LPTSTR szFormat, ...) {
    va_list marker;
@@ -180,8 +180,8 @@ BOOL ErrorOccured() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorBox()                                                              |
-  |                                                                         |
+  | ErrorBox()
+  |
   +-------------------------------------------------------------------------+*/
 void ErrorBox(LPTSTR szFormat, ...) {
    va_list marker;
@@ -197,8 +197,8 @@ void ErrorBox(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ErrorBoxRetry()                                                         |
-  |                                                                         |
+  | ErrorBoxRetry()
+  |
   +-------------------------------------------------------------------------+*/
 int ErrorBoxRetry(LPTSTR szFormat, ...) {
    int ret;
@@ -209,7 +209,7 @@ int ErrorBoxRetry(LPTSTR szFormat, ...) {
    wvsprintf(ErrorText, szFormat, marker);
 
    FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-                  NULL, GetLastError(), MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+                  NULL, GetLastError(), 0,
                   (LPTSTR) &lpMessageBuffer, 0, NULL );
 
    MessageBeep(MB_ICONASTERISK);
@@ -224,20 +224,20 @@ int ErrorBoxRetry(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | FileOpenBackup()                                                        |
-  |                                                                         |
-  |    Tries to open a file, if it already exists then creates a backup     |
-  |    with the extension in the form (.001 to .999).  It tries .001 first  |
-  |    and if already used then tries .002, etc...                          |
-  |                                                                         |
+  | FileOpenBackup()
+  |
+  |    Tries to open a file, if it already exists then creates a backup
+  |    with the extension in the form (.001 to .999).  It tries .001 first
+  |    and if already used then tries .002, etc...
+  |
   +-------------------------------------------------------------------------+*/
 HANDLE FileOpenBackup(CHAR *FileRoot, CHAR *FileExt) {
    int ret;
    HANDLE hFile = NULL;
    DWORD dwFileNumber;
-   char FileName[MAX_PATH];
-   char buffer[MAX_PATH];
-   TCHAR FileNameW[MAX_PATH];
+   char FileName[MAX_PATH + 1];
+   char buffer[MAX_PATH + 1];
+   TCHAR FileNameW[MAX_PATH + 1];
 
    wsprintfA(FileName, "%s%s", FileRoot, FileExt);
 
@@ -289,7 +289,7 @@ HANDLE FileOpenBackup(CHAR *FileRoot, CHAR *FileExt) {
                            FILE_ATTRIBUTE_NORMAL, NULL );
 
       if (hFile == INVALID_HANDLE_VALUE) {
-         mbstowcs(FileNameW, FileName, lstrlenA(FileName)+1);
+         MultiByteToWideChar(CP_ACP, 0, FileName, -1, FileNameW, sizeof(FileNameW) );
          ret = ErrorBoxRetry(Lids(IDS_E_13), FileNameW);
       }
 
@@ -301,8 +301,8 @@ HANDLE FileOpenBackup(CHAR *FileRoot, CHAR *FileExt) {
 
 
 /*+-------------------------------------------------------------------------+
-  | GetTime()                                                               |
-  |                                                                         |
+  | GetTime()
+  |
   +-------------------------------------------------------------------------+*/
 void GetTime(TCHAR *str) {
    SYSTEMTIME st;
@@ -318,7 +318,7 @@ void GetTime(TCHAR *str) {
 
    GetLocalTime(&st);
 
-   wsprintf(str, TEXT("%s, %02u/%02u/%4u at %02u:%02u:%02u"),
+   wsprintf(str, TEXT("%s, %02u/%02u/%4u (%02u:%02u:%02u)"),
             aszDay[st.wDayOfWeek], st.wMonth,
             st.wDay, st.wYear,
             st.wHour, st.wMinute, st.wSecond);
@@ -326,8 +326,8 @@ void GetTime(TCHAR *str) {
 
 
 /*+-------------------------------------------------------------------------+
-  | WriteLog()                                                              |
-  |                                                                         |
+  | WriteLog()
+  |
   +-------------------------------------------------------------------------+*/
 DWORD WriteLog(HANDLE hFile, int Level, LPTSTR String) {
    int ret;
@@ -335,12 +335,16 @@ DWORD WriteLog(HANDLE hFile, int Level, LPTSTR String) {
    static char tmpStr[MAX_LOG_STR];
    static char LogStr[MAX_LOG_STR];
 
+   // If the user canceled writing to the log, then don't keep trying
+   if (LogCancel)
+      return 1;
+
    // Put ending NULL at correct place
    Spaces[Level * 3] = '\0';
 
    // Build up indented ANSI string to write out
    lstrcpyA(tmpStr, Spaces);
-   wcstombs(LogStr, String, lstrlen(String)+1);
+   WideCharToMultiByte(CP_ACP, 0, String, -1, LogStr, sizeof(LogStr), NULL, NULL);
    lstrcatA(tmpStr, LogStr);
 
    // reset for later writes
@@ -358,7 +362,7 @@ DWORD WriteLog(HANDLE hFile, int Level, LPTSTR String) {
    } while(ret == IDRETRY);
 
    if (ret == IDCANCEL) {
-      CritError = TRUE;
+      LogCancel = TRUE;
       return 1;
    }
    else
@@ -368,8 +372,8 @@ DWORD WriteLog(HANDLE hFile, int Level, LPTSTR String) {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogHeader()                                                             |
-  |                                                                         |
+  | LogHeader()
+  |
   +-------------------------------------------------------------------------+*/
 void LogHeader(HANDLE hFile, TCHAR *Title) {
    DWORD ret;
@@ -420,13 +424,15 @@ void LogHeader(HANDLE hFile, TCHAR *Title) {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogInit()                                                               |
-  |                                                                         |
+  | LogInit()
+  |
   +-------------------------------------------------------------------------+*/
 void LogInit() {
    lstrcpyA(LogFileName, FILENAME_LOG);
    lstrcpyA(ErrorLogFileName, FILENAME_ERROR);
    lstrcpyA(SummaryLogFileName, FILENAME_SUMMARY);
+
+   LogCancel = FALSE;
 
    hErr = FileOpenBackup(ERR_FILENAME, STD_EXT);
    hLog = FileOpenBackup(LOG_FILENAME, STD_EXT);
@@ -445,8 +451,8 @@ void LogInit() {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogWriteLog()                                                           |
-  |                                                                         |
+  | LogWriteLog()
+  |
   +-------------------------------------------------------------------------+*/
 void LogWriteLog(int Level, LPTSTR szFormat, ...) {
    va_list marker;
@@ -464,8 +470,8 @@ void LogWriteLog(int Level, LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogWritErr()                                                            |
-  |                                                                         |
+  | LogWritErr()
+  |
   +-------------------------------------------------------------------------+*/
 void LogWriteErr(LPTSTR szFormat, ...) {
    int Indent = 3;
@@ -481,7 +487,7 @@ void LogWriteErr(LPTSTR szFormat, ...) {
 
    if (!ContextWritten) {
       ContextWritten = TRUE;
-      wcstombs(LogStr, ErrorContext, lstrlen(ErrorContext)+1);
+      WideCharToMultiByte(CP_ACP, 0, ErrorContext, -1, LogStr, sizeof(LogStr), NULL, NULL);
       WriteFile(hErr, LogStr, strlen(LogStr), &wrote, NULL);
    }
    
@@ -489,7 +495,7 @@ void LogWriteErr(LPTSTR szFormat, ...) {
       CategoryWritten = TRUE;
       Spaces[3] = '\0';
       WriteFile(hLog, Spaces, strlen(Spaces), &wrote, NULL);
-      wcstombs(LogStr, ErrorCategory, lstrlen(ErrorCategory)+1);
+      WideCharToMultiByte(CP_ACP, 0, ErrorCategory, -1, LogStr, sizeof(LogStr), NULL, NULL);
       WriteFile(hErr, LogStr, strlen(LogStr), &wrote, NULL);
       Spaces[3] = ' ';
    }
@@ -497,7 +503,7 @@ void LogWriteErr(LPTSTR szFormat, ...) {
    if (ItemSet) {
       Spaces[6] = '\0';
       WriteFile(hLog, Spaces, strlen(Spaces), &wrote, NULL);
-      wcstombs(LogStr, ErrorItem, lstrlen(ErrorItem)+1);
+      WideCharToMultiByte(CP_ACP, 0, ErrorItem, -1, LogStr, sizeof(LogStr), NULL, NULL);
       WriteFile(hErr, LogStr, strlen(LogStr), &wrote, NULL);
       Spaces[6] = ' ';
    }
@@ -510,7 +516,7 @@ void LogWriteErr(LPTSTR szFormat, ...) {
 
    Spaces[Indent] = '\0';
    WriteFile(hLog, Spaces, strlen(Spaces), &wrote, NULL);
-   wcstombs(LogStr, tmpStr, lstrlen(tmpStr)+1);
+   WideCharToMultiByte(CP_ACP, 0, tmpStr, -1, LogStr, sizeof(LogStr), NULL, NULL);
    WriteFile(hErr, LogStr, strlen(LogStr), &wrote, NULL);
    Spaces[Indent] = ' ';
    CloseHandle(hErr);
@@ -520,8 +526,8 @@ void LogWriteErr(LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogWriteSummary()                                                       |
-  |                                                                         |
+  | LogWriteSummary()
+  |
   +-------------------------------------------------------------------------+*/
 void LogWriteSummary(int Level, LPTSTR szFormat, ...) {
    DWORD wrote;
@@ -531,7 +537,7 @@ void LogWriteSummary(int Level, LPTSTR szFormat, ...) {
    va_start(marker, szFormat);
    Spaces[Level * 3] = '\0';
    wvsprintf(tmpStr, szFormat, marker);
-   wcstombs(LogStr, tmpStr, lstrlen(tmpStr)+1);
+   WideCharToMultiByte(CP_ACP, 0, tmpStr, -1, LogStr, sizeof(LogStr), NULL, NULL);
 
    hSummary = CreateFileA( SummaryLogFileName, GENERIC_WRITE, 0,
                      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
@@ -547,8 +553,8 @@ void LogWriteSummary(int Level, LPTSTR szFormat, ...) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgLogging()                                                            |
-  |                                                                         |
+  | DlgLogging()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgLogging(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HANDLE hFile;
@@ -599,12 +605,6 @@ LRESULT CALLBACK DlgLogging(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
          return (TRUE);
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       case WM_COMMAND:
          wmId    = LOWORD(wParam);
          wmEvent = HIWORD(wParam);
@@ -622,7 +622,7 @@ LRESULT CALLBACK DlgLogging(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
             EndDialog(hDlg, 0);
             return (TRUE);
 
-         case IDC_HELP:
+         case IDHELP:
             WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_LOGGING);
             break;
 
@@ -659,8 +659,8 @@ LRESULT CALLBACK DlgLogging(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
 
 /*+-------------------------------------------------------------------------+
-  | LogOptionsInit()                                                        |
-  |                                                                         |
+  | LogOptionsInit()
+  |
   +-------------------------------------------------------------------------+*/
 void LogOptionsInit() {
    ErrorBreak = FALSE;
@@ -670,8 +670,8 @@ void LogOptionsInit() {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogOptionsSave()                                                        |
-  |                                                                         |
+  | LogOptionsSave()
+  |
   +-------------------------------------------------------------------------+*/
 void LogOptionsSave( HANDLE hFile ) {
    DWORD wrote;
@@ -683,8 +683,8 @@ void LogOptionsSave( HANDLE hFile ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | LogOptionsLoad()                                                        |
-  |                                                                         |
+  | LogOptionsLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void LogOptionsLoad( HANDLE hFile ) {
    DWORD wrote;
@@ -703,8 +703,8 @@ dprintf(TEXT("   Verbose User Logging: %lx\n\n"), VerboseULogging);
 
 
 /*+-------------------------------------------------------------------------+
-  | PopupOnError()                                                          |
-  |                                                                         |
+  | PopupOnError()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL PopupOnError() {
    return ErrorBreak;
@@ -713,8 +713,8 @@ BOOL PopupOnError() {
 
 
 /*+-------------------------------------------------------------------------+
-  | VerboseFileLogging()                                                    |
-  |                                                                         |
+  | VerboseFileLogging()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL VerboseFileLogging() {
    return VerboseFLogging;
@@ -723,8 +723,8 @@ BOOL VerboseFileLogging() {
 
 
 /*+-------------------------------------------------------------------------+
-  | VerboseUserLogging()                                                    |
-  |                                                                         |
+  | VerboseUserLogging()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL VerboseUserLogging() {
    return VerboseULogging;
@@ -733,8 +733,8 @@ BOOL VerboseUserLogging() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DoLoggingDlg()                                                          |
-  |                                                                         |
+  | DoLoggingDlg()
+  |
   +-------------------------------------------------------------------------+*/
 void DoLoggingDlg(HWND hDlg) {
    DLGPROC lpfnDlg;
@@ -744,6 +744,3 @@ void DoLoggingDlg(HWND hDlg) {
    FreeProcInstance(lpfnDlg);
 
 } // DoLoggingDlg
-
-
-

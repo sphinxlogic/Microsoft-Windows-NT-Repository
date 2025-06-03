@@ -56,14 +56,14 @@ NetpDbgDisplayService(
 {
     LPSERVICE_INFO_2 p = Info;
 
-    NetpDbgPrint( "service info (level " FORMAT_DWORD ") at "
-                FORMAT_LPVOID ":\n", Level, (LPVOID) Info );
+    NetpKdPrint(( "service info (level " FORMAT_DWORD ") at "
+                FORMAT_LPVOID ":\n", Level, (LPVOID) Info ));
 
     // Error check caller.
     NetpAssert( Info != NULL );
     if (Level > 2) {
-        NetpDbgPrint( "NetDbgDisplayService: invalid info level " FORMAT_DWORD
-                ".\n", Level );
+        NetpKdPrint(( "NetDbgDisplayService: invalid info level " FORMAT_DWORD
+                ".\n", Level ));
         NetpAssert( FALSE );
         return;
     }
@@ -109,8 +109,8 @@ NetpDbgDisplayServiceArray(
         );
 
     if (Status != NERR_Success) {
-        NetpDbgPrint( "NetpDbgDisplayServiceArray: "
-                "**INVALID INFO LEVEL**\n" );
+        NetpKdPrint(( "NetpDbgDisplayServiceArray: "
+                "**INVALID INFO LEVEL**\n" ));
         NetpAssert( FALSE );
     }
 
@@ -152,7 +152,7 @@ NetpDbgDisplayServicePid(
     )
 {
     NetpDbgDisplayTag( "pid (e.g. thread ID)" );
-    NetpDbgPrint( FORMAT_NET_THREAD_ID "\n", Pid );
+    NetpKdPrint(( FORMAT_NET_THREAD_ID "\n", Pid ));
 }
 
 

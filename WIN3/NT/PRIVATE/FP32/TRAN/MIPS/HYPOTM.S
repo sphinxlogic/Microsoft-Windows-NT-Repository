@@ -143,7 +143,6 @@ _hypot:
     bc1t    20b
     beq     t3, t7, 75f
     mov.d   $f0, $f12
-    addu    sp, FSIZE
     b       hypotx
 
 75:    /* Y NaN or Infinity */

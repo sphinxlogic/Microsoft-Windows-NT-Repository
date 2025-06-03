@@ -679,14 +679,15 @@ Return Value:
         //
 
         EstimatedClustersFree =
+            (ULONG)
+            ((((LONGLONG)(Dscb->CvfLayout.CvfHeap.Size / 512) *
+              (LONGLONG)(Dscb->SectorsRepresented)) /
 
-            ( LiXDiv(LiNMul(Dscb->CvfLayout.CvfHeap.Size / 512,
-                            Dscb->SectorsRepresented),
-                     Dscb->SectorsAllocated).LowPart
+             Dscb->SectorsAllocated)
 
-              -
+             -
 
-              Dscb->SectorsRepresented )
+             Dscb->SectorsRepresented)
 
             /
 
@@ -874,6 +875,16 @@ Return Value:
 
     Buffer->FileSystemAttributes = FILE_CASE_PRESERVED_NAMES |
                                    FILE_UNICODE_ON_DISK;
+
+#ifdef WE_WON_ON_APPEAL
+
+    if (FlagOn(Vcb->VcbState, VCB_STATE_FLAG_COMPRESSED_VOLUME)) {
+
+        SetFlag( Buffer->FileSystemAttributes, FILE_VOLUME_IS_COMPRESSED );
+    }
+
+#endif // WE_WON_ON_APPEAL
+
     Buffer->MaximumComponentNameLength = FatData.ChicagoMode ? 255 : 12;
     Buffer->FileSystemNameLength       = BytesToCopy;
 
@@ -959,7 +970,7 @@ Return Value:
     OemLabel.Length = 0;
     OemLabel.MaximumLength = 11;
 
-    Status = RtlUpcaseUnicodeStringToCountedOemString( &OemLabel,
+    Status = FatUpcaseUnicodeStringToCountedOemString( &OemLabel,
                                                        &UnicodeString,
                                                        FALSE );
 
@@ -1164,3 +1175,4 @@ Return Value:
 
     return Status;
 }
+

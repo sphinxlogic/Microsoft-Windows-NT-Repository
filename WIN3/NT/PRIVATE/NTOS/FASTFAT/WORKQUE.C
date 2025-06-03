@@ -185,6 +185,20 @@ Return Value:
                            Irp,
                            IoReadAccess,
                            IrpSp->Parameters.SetEa.Length );
+
+    //
+    //  These two FSCTLs use neither I/O, so check for them.
+    //
+
+    } else if ((IrpContext->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
+               (IrpContext->MinorFunction == IRP_MN_USER_FS_REQUEST) &&
+               ((IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_GET_VOLUME_BITMAP) ||
+                (IrpSp->Parameters.FileSystemControl.FsControlCode == FSCTL_GET_RETRIEVAL_POINTERS))) {
+
+        FatLockUserBuffer( IrpContext,
+                           Irp,
+                           IoWriteAccess,
+                           IrpSp->Parameters.FileSystemControl.OutputBufferLength );
     }
 
     //

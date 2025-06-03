@@ -113,7 +113,7 @@ Return Value:
     DWORD   typeOfPath;
 
 #ifdef CANONDBG
-    NetpDbgPrint("NetpwPathCanonicalize\n");
+    NetpKdPrint(("NetpwPathCanonicalize\n"));
 #endif
 
     typeOfPath = *PathType;

@@ -39,6 +39,7 @@ Revision History:
 //                                                                     //
 /////////////////////////////////////////////////////////////////////////
 
+// begin_ntsubauth
 
 #define CLEAR_BLOCK_LENGTH          8
 
@@ -47,14 +48,13 @@ typedef struct _CLEAR_BLOCK {
 }                                   CLEAR_BLOCK;
 typedef CLEAR_BLOCK *               PCLEAR_BLOCK;
 
-
 #define CYPHER_BLOCK_LENGTH         8
 
 typedef struct _CYPHER_BLOCK {
     CHAR    data[CYPHER_BLOCK_LENGTH];
 }                                   CYPHER_BLOCK;
 typedef CYPHER_BLOCK *              PCYPHER_BLOCK;
-
+// end_ntsubauth
 
 #define BLOCK_KEY_LENGTH            7
 
@@ -114,10 +114,12 @@ typedef CHAR *                      PLM_PASSWORD;
 
 #define LM_OWF_PASSWORD_LENGTH      (CYPHER_BLOCK_LENGTH * 2)
 
+// begin_ntsubauth
 typedef struct _LM_OWF_PASSWORD {
     CYPHER_BLOCK data[2];
 }                                   LM_OWF_PASSWORD;
 typedef LM_OWF_PASSWORD *           PLM_OWF_PASSWORD;
+// end_ntsubauth
 
 
 
@@ -127,8 +129,10 @@ typedef LM_OWF_PASSWORD *           PLM_OWF_PASSWORD;
 
 #define LM_CHALLENGE_LENGTH         CLEAR_BLOCK_LENGTH
 
+// begin_ntsubauth
 typedef CLEAR_BLOCK                 LM_CHALLENGE;
 typedef LM_CHALLENGE *              PLM_CHALLENGE;
+// end_ntsubauth
 
 
 
@@ -192,14 +196,18 @@ typedef NT_PASSWORD *               PNT_PASSWORD;
 
 #define NT_OWF_PASSWORD_LENGTH      LM_OWF_PASSWORD_LENGTH
 
+// begin_ntsubauth
 typedef LM_OWF_PASSWORD             NT_OWF_PASSWORD;
 typedef NT_OWF_PASSWORD *           PNT_OWF_PASSWORD;
+// end_ntsubauth
 
 
 #define NT_CHALLENGE_LENGTH         LM_CHALLENGE_LENGTH
 
+// begin_ntsubauth
 typedef LM_CHALLENGE                NT_CHALLENGE;
 typedef NT_CHALLENGE *              PNT_CHALLENGE;
+// end_ntsubauth
 
 
 #define NT_RESPONSE_LENGTH          LM_RESPONSE_LENGTH

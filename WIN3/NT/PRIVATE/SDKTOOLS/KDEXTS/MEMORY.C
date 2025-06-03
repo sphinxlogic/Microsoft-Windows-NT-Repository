@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Wesley Witt (wesw) 15-Aug-1993
+    Lou Perazzoli (loup)
 
 Environment:
 
@@ -20,26 +20,50 @@ Environment:
 
 Revision History:
 
+    Wesley Witt (wesw) 15-Aug-1993: WinDbg environment
+
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
 
 #define USAGE_ALLOC_SIZE 256*1024
 
+ULONG MmSubsectionBase;
+
 typedef struct _PFN_INFO {
     ULONG Master;
+    ULONG OriginalPte;
     ULONG ValidCount;
     ULONG StandbyCount;
     ULONG ModifiedCount;
     ULONG SharedCount;
     ULONG LockedCount;
+    ULONG PageTableCount;
     struct _PFN_INFO *Next;
 } PFN_INFO, *PPFN_INFO;
 
-#define PACKET_MAX_SIZE 4000
+typedef struct _KERN_MAP1 {
+    ULONG StartVa;
+    ULONG EndVa;
+    ULONG ValidCount;
+    ULONG StandbyCount;
+    ULONG ModifiedCount;
+    ULONG SharedCount;
+    ULONG LockedCount;
+    ULONG PageTableCount;
+    WCHAR Name[50];
+} KERN_MAP1, *PKERN_MAP1;
+
+typedef struct _KERN_MAP {
+    ULONG Count;
+    KERN_MAP1 Item[50];
+} KERN_MAP, *PKERN_MAP;
+
+KERN_MAP KernelMap;
+
+#define PACKET_MAX_SIZE 2048
 #define NUMBER_OF_PFN_TO_READ ((PACKET_MAX_SIZE/sizeof(MMPFN))-1)
-#ifndef MiGetVirtualAddressMappedByPte
-#define MiGetVirtualAddressMappedByPte(PTE) ((PVOID)((ULONG)(PTE) << 10))
-#endif
 
 UCHAR *PageLocationList[] = {
     "Zeroed  ",
@@ -75,6 +99,11 @@ DirbaseToImage(
 
 NTSTATUS
 BuildDirbaseList( VOID );
+
+VOID
+BuildKernelMap (
+    OUT PKERN_MAP KernelMap
+    );
 
 
 
@@ -116,9 +145,6 @@ Return Value:
     ULONG   WasTransitionPage;
     ULONG   WasUnknownPage;
     ULONG   KernelCode = 0;
-    ULONG   DriversAndStacks = 0;
-    ULONG   PagedPool = 0;
-    ULONG   NonPagedPool = 0;
     ULONG   NonPagedPoolStart;
     ULONG   NonPagedSystemStart;
     ULONG   NPPoolStart;
@@ -126,7 +152,6 @@ Return Value:
     PMMPFN  Pfn;
     PMMPFN  PfnStart;
     PMMPFN  PfnArray;
-    HANDLE  PfnHandle;
 
     LowPageAddr   = GetExpression( "MmLowestPhysicalPage" );
     HighPageAddr  = GetExpression( "MmHighestPhysicalPage" );
@@ -184,14 +209,15 @@ Return Value:
         NonPagedSystemStart = (ULONG)MiGetPteAddress (NonPagedSystemStart);
         NonPagedPoolStart   = (ULONG)MiGetPteAddress (NonPagedPoolStart);
 
-        PfnHandle = LocalAlloc(LMEM_MOVEABLE,
-                               (HighPage-LowPage+1) * sizeof (MMPFN));
-        if (!PfnHandle) {
+        PfnArray = VirtualAlloc (NULL,
+                               (HighPage-LowPage+1) * sizeof (MMPFN),
+                               MEM_RESERVE | MEM_COMMIT,
+                               PAGE_READWRITE);
+
+        if (!PfnArray) {
             dprintf("Unable to get allocate memory of %ld bytes\n",
                     (HighPage-LowPage+1) * sizeof (MMPFN));
         } else {
-            PfnArray = LocalLock(PfnHandle);
-
 
             //dprintf("basic parameters - "
             //        "LowPage %lx - HighPage %lu - NumToRead %lu\n",
@@ -206,8 +232,7 @@ Return Value:
                 //        Pfn, ReadCount, PageCount);
 
                 if ( CheckControlC() ) {
-                    LocalUnlock(PfnArray);
-                    LocalFree((void *)PfnHandle);
+                    VirtualFree (PfnArray,0,MEM_RELEASE);
                     return;
                 }
 
@@ -227,8 +252,7 @@ Return Value:
                     dprintf("Unable to get PFN table block - "
                             "address %lx - count %lu - page %lu\n",
                             Pfn, ReadCount, PageCount);
-                    LocalUnlock(PfnArray);
-                    LocalFree((void *)PfnHandle);
+                    VirtualFree (PfnArray,0,MEM_RELEASE);
                     return;
                 }
             }
@@ -251,9 +275,7 @@ Return Value:
                  PageCount++) {
 
                 if ( CheckControlC() ) {
-                    return;
-                    LocalUnlock(PfnArray);
-                    LocalFree((void *)PfnHandle);
+                    VirtualFree (PfnArray,0,MEM_RELEASE);
                     return;
                 }
                 Pfn = &PfnArray[PageCount];
@@ -265,8 +287,6 @@ Return Value:
                             (Pfn->u2.Blink == 0)) {
 
                             WasActiveAndValidPage++;
-                            NonPagedPool += 1;
-
                         } else {
                             WasZeroedPage++;
                         }
@@ -294,22 +314,7 @@ Return Value:
 
                     case ActiveAndValid:
                         WasActiveAndValidPage++;
-
-                        if (Pfn->PteAddress >= (PMMPTE)0xF0000000) {
-                            PagedPool += 1;
-                        } else if ((Pfn->PteAddress >= (PMMPTE)NonPagedPoolStart) &&
-                            (Pfn->PteAddress < (PMMPTE)0xC03ff000)) {
-                            NonPagedPool += 1;
-                        } else if ((Pfn->PteAddress >= (PMMPTE)NonPagedSystemStart) &&
-                            (Pfn->PteAddress < (PMMPTE)NonPagedPoolStart)) {
-                            DriversAndStacks += 1;
-                        } else if ((Pfn->PteAddress >= (PMMPTE)0xC0200000) &&
-                            (Pfn->PteAddress < (PMMPTE)0xc0240000)) {
-                            KernelCode += 1;
-                        }
-
                         break;
-
 
                     case TransitionPage:
                         WasTransitionPage++;
@@ -321,32 +326,23 @@ Return Value:
                 }
             }
 
-            dprintf( "             Zeroed: %lu (%lu kb)\n",
+            dprintf( "             Zeroed: %6lu (%6lu kb)\n",
                     WasZeroedPage, WasZeroedPage * (PAGE_SIZE / 1024));
-            dprintf( "               Free: %lu (%lu kb)\n",
+            dprintf( "               Free: %6lu (%6lu kb)\n",
                     WasFreePage, WasFreePage * (PAGE_SIZE / 1024));
-            dprintf( "            Standby: %lu (%lu kb)\n",
+            dprintf( "            Standby: %6lu (%6lu kb)\n",
                     WasStandbyPage, WasStandbyPage * (PAGE_SIZE / 1024));
-            dprintf( "           Modified: %lu (%lu kb)\n",
+            dprintf( "           Modified: %6lu (%6lu kb)\n",
                     WasModifiedPage,
                     WasModifiedPage * (PAGE_SIZE / 1024));
-            dprintf( "    ModifiedNoWrite: %lu (%lu kb)\n",
+            dprintf( "    ModifiedNoWrite: %6lu (%6lu kb)\n",
                     WasModifiedNoWritePage,WasModifiedNoWritePage * (PAGE_SIZE / 1024));
-            dprintf( "       Active/Valid: %lu (%lu kb)\n",
+            dprintf( "       Active/Valid: %6lu (%6lu kb)\n",
                     WasActiveAndValidPage, WasActiveAndValidPage * (PAGE_SIZE / 1024));
-            dprintf( "         Transition: %lu (%lu kb)\n",
+            dprintf( "         Transition: %6lu (%6lu kb)\n",
                     WasTransitionPage, WasTransitionPage * (PAGE_SIZE / 1024));
-            dprintf( "            Unknown: %lu (%lu kb)\n",
+            dprintf( "            Unknown: %6lu (%6lu kb)\n",
                     WasUnknownPage, WasUnknownPage * (PAGE_SIZE / 1024));
-
-            dprintf( "\n       NonPagedPool: %lu (%lu kb)\n",
-                    NonPagedPool,NonPagedPool * (PAGE_SIZE / 1024));
-            dprintf( "          PagedPool: %lu (%lu kb)\n",
-                    PagedPool, PagedPool * (PAGE_SIZE / 1024));
-            dprintf( "       System Code : %lu (%lu kb)\n",
-                    KernelCode, KernelCode * (PAGE_SIZE / 1024));
-            dprintf( "Drivers and Stacks : %lu (%lu kb)\n",
-                    DriversAndStacks, DriversAndStacks * (PAGE_SIZE / 1024));
 
             Total = WasZeroedPage +
                     WasFreePage +
@@ -357,12 +353,11 @@ Return Value:
                     WasTransitionPage +
                     WasUnknownPage +
                     WasUnknownPage;
-            dprintf( "              TOTAL: %lu (%lu kb)\n",
+            dprintf( "              TOTAL: %6lu (%6lu kb)\n",
                     Total, Total * (PAGE_SIZE / 1024));
         }
         MemoryUsage (PfnArray,LowPage,HighPage, 0);
-        LocalUnlock(PfnArray);
-        LocalFree((void *)PfnHandle);
+        VirtualFree (PfnArray,0,MEM_RELEASE);
     }
     return;
 }
@@ -472,11 +467,14 @@ Return Value:
     ULONG           result;
     ULONG           TotalPages;
     ULONG ExtendedCommit;
+    ULONG TotalProcessCommit;
+    PPROCESS_COMMIT_USAGE ProcessCommitUsage;
+    ULONG i, NumberOfProcesses;
 
 
     dprintf("\n*** Virtual Memory Usage ***\n");
     MemorySize = GetUlongValue ("MmNumberOfPhysicalPages");
-    dprintf ("\tPhysical Memory: %8ld\n",MemorySize);
+    dprintf ("\tPhysical Memory: %8ld   (%6ld Kb)\n",MemorySize,_KB*MemorySize);
     NumberOfPagingFiles = GetUlongValue ("MmNumberOfPagingFiles");
     if (NumberOfPagingFiles == 0) {
         dprintf("\n************ NO PAGING FILE *********************\n\n");
@@ -497,14 +495,14 @@ Return Value:
     ResidentAvailablePages  = GetUlongValue ("MmResidentAvailablePages");
     ExtendedCommit = GetUlongValue ("MmExtendedCommit");
 
-    dprintf ("\tAvailable Pages: %8ld\n",AvailablePages);
-    dprintf ("\tModified Pages:  %8ld\n",ModifiedPages);
+    dprintf ("\tAvailable Pages: %8ld   (%6ld Kb)\n",AvailablePages, AvailablePages*_KB);
+    dprintf ("\tModified Pages:  %8ld   (%6ld Kb)\n",ModifiedPages,ModifiedPages*_KB);
     if ((AvailablePages < 50) && (ModifiedPages > 200)) {
         dprintf("\t********** High Number Of Modified Pages ********\n");
     }
     if (ModifiedNoWrite > 50) {
         dprintf("\t********** High Number Of Modified No Write Pages ********\n");
-        dprintf("\tModified No Write Pages: %ld\n",ModifiedNoWrite);
+        dprintf("\tModified No Write Pages: %ld   (%6ld Kb)\n",ModifiedNoWrite,_KB*ModifiedNoWrite);
     }
 
     if (ResidentAvailablePages < 100) {
@@ -520,8 +518,11 @@ Return Value:
         dprintf("%08lx: Unable to get pool descriptor\n",PoolLoc);
         return;
     }
-    dprintf("\tNonPagedPool Usage: %5ld\n",PoolDesc.TotalPages + PoolDesc.TotalBigPages);
-
+    dprintf("\tNonPagedPool Usage: %5ld   (%6ld Kb)\n",PoolDesc.TotalPages + PoolDesc.TotalBigPages,
+                            _KB*(PoolDesc.TotalPages + PoolDesc.TotalBigPages));
+    if ((PoolDesc.TotalPages + PoolDesc.TotalBigPages) > (MemorySize / 5)) {
+        dprintf("\t********** Excessive NonPaged Pool Usage *****\n");
+    }
     TotalPages = 0;
     PoolLoc = GetUlongValue("ExpPagedPoolDescriptor");
     NumberOfPagedPools = GetUlongValue("ExpNumberOfPagedPools");
@@ -536,30 +537,43 @@ Return Value:
                 return;
             }
 
-            dprintf("\tPagedPool %1ld Usage:  %5ld\n",
+            dprintf("\tPagedPool %1ld Usage:  %5ld   (%6ld Kb)\n",
                     Index,
-                    PoolDesc.TotalPages + PoolDesc.TotalBigPages);
+                    PoolDesc.TotalPages + PoolDesc.TotalBigPages,
+                    _KB*(PoolDesc.TotalPages + PoolDesc.TotalBigPages));
 
             TotalPages += PoolDesc.TotalPages + PoolDesc.TotalBigPages;
             PoolLoc += sizeof(POOL_DESCRIPTOR);
         }
     }
 
-    dprintf("\tPagedPool Usage:    %5ld\n", TotalPages);
+    dprintf("\tPagedPool Usage:    %5ld   (%6ld Kb)\n", TotalPages,_KB*TotalPages);
 
-    dprintf("\tShared Commit:   %8ld\n", SharedCommit);
-    dprintf("\tProcess Commit:  %8ld\n", ProcessCommit);
-    dprintf("\tPagedPool Commit:%8ld\n", PagedPoolCommit);
-    dprintf("\tDriver Commit:   %8ld\n", DriverCommit);
-    dprintf("\tCommitted pages: %8ld\n", CommitTotal);
-    dprintf("\tCommit limit:    %8ld\n", CommitLimit);
+    dprintf("\tShared Commit:   %8ld   (%6ld Kb)\n",SharedCommit,_KB*SharedCommit   );
+    dprintf("\tShared Process:  %8ld   (%6ld Kb)\n",ProcessCommit,_KB*ProcessCommit  );
+
+    ProcessCommitUsage = GetProcessCommit( &TotalProcessCommit, &NumberOfProcesses );
+    if (TotalProcessCommit != 0) {
+        dprintf("\tTotal Private:   %8ld   (%6ld Kb)\n",TotalProcessCommit,_KB*TotalProcessCommit);
+    }
+    for (i=0; i<NumberOfProcesses; i++) {
+        dprintf( "            %-16s %6d (%6ld Kb)\n",
+                 ProcessCommitUsage[i].ImageFileName,
+                 ProcessCommitUsage[i].CommitCharge,
+                 _KB*(ProcessCommitUsage[i].CommitCharge)
+               );
+    }
+
+    dprintf("\tPagedPool Commit:%8ld   (%6ld Kb)\n",PagedPoolCommit,_KB*PagedPoolCommit);
+    dprintf("\tDriver Commit:   %8ld   (%6ld Kb)\n",DriverCommit, _KB*DriverCommit   );
+    dprintf("\tCommitted pages: %8ld   (%6ld Kb)\n",CommitTotal,  _KB*CommitTotal    );
+    dprintf("\tCommit limit:    %8ld   (%6ld Kb)\n",CommitLimit,  _KB*CommitLimit    );
     if ((CommitTotal + 100) > CommitLimit) {
         dprintf("\n\t********** Number of committed pages is near limit ********\n");
     }
-
     if (ExtendedCommit != 0) {
         dprintf("\n\t********** Commit has been extended with VM popup ********\n");
-        dprintf("\tExtended by:     %8ld\n", ExtendedCommit);
+        dprintf("\tExtended by:     %8ld   (%6ld Kb)\n", ExtendedCommit,_KB*ExtendedCommit);
     }
     dprintf("\n");
     return;
@@ -638,16 +652,15 @@ Return Value:
                 VirtualAddress = NULL;
             }
             if (PfnContents.u3.e1.PageLocation == MatchLocation) {
-                dprintf("%5lx %8lx %8lx%3lx%3lx %8lx %8lx %8lx%6lx %s %c%c%c%c%c%c\n",
+                dprintf("%5lx %8lx %8lx%6lx %8lx %8lx %8lx%6lx %s %c%c%c%c%c%c\n",
                     Address,
                     PfnContents.u1.Flink,
                     PfnContents.u2.Blink,
-                    PfnContents.ReferenceCount,
-                    PfnContents.ValidPteCount,
+                    PfnContents.u3.e2.ReferenceCount,
                     PfnContents.PteAddress,
                     VirtualAddress,
                     PfnContents.OriginalPte,
-                    PfnContents.u3.e1.PteFrame,
+                    PfnContents.PteFrame,
                     PageLocationList[PfnContents.u3.e1.PageLocation],
                     PfnContents.u3.e1.Modified ? 'M':' ',
                     PfnContents.u3.e1.PrototypePte ? 'P':' ',
@@ -666,12 +679,16 @@ Return Value:
                     Address = PfnContents.u1.Flink;
                 }
             }
+
+            if (CheckControlC()) {
+                return;
+            }
         } while (Address < HighPage);
         return;
 
     }
 
-    PfnArray = malloc((HighPage-LowPage+1) * sizeof (MMPFN));
+    PfnArray = LocalAlloc(LPTR, (HighPage-LowPage+1) * sizeof (MMPFN));
     if (!PfnArray) {
         dprintf("unable to get allocate memory of %ld bytes\n",
                 (HighPage-LowPage+1) * sizeof (MMPFN));
@@ -683,7 +700,7 @@ Return Value:
          PageCount += NUMBER_OF_PFN_TO_READ) {
 
         if (CheckControlC()) {
-            free((void *)PfnArray);
+            LocalFree((void *)PfnArray);
             return;
         }
 
@@ -701,7 +718,7 @@ Return Value:
             dprintf("unable to get PFN table block - "
                     "address %lx - count %lu - page %lu\n",
                     Pfn, ReadCount, PageCount);
-            free((void *)PfnArray);
+            LocalFree((void *)PfnArray);
             return;
         }
         for (i = PageCount;
@@ -713,16 +730,15 @@ Return Value:
             } else {
                 VirtualAddress = NULL;
             }
-            dprintf("%5lx %8lx %8lx%3lx%3lx %8lx %8lx %8lx%6lx %s %c%c%c%c%c%c\n",
+            dprintf("%5lx %8lx %8lx%6lx %8lx %8lx %8lx%6lx %s %c%c%c%c%c%c\n",
                     i,
                     PfnArray[i].u1.Flink,
                     PfnArray[i].u2.Blink,
-                    PfnArray[i].ReferenceCount,
-                    PfnArray[i].ValidPteCount,
+                    PfnArray[i].u3.e2.ReferenceCount,
                     PfnArray[i].PteAddress,
                     VirtualAddress,
                     PfnArray[i].OriginalPte,
-                    PfnArray[i].u3.e1.PteFrame,
+                    PfnArray[i].PteFrame,
                     PageLocationList[PfnArray[i].u3.e1.PageLocation],
                     PfnArray[i].u3.e1.Modified ? 'M':' ',
                     PfnArray[i].u3.e1.PrototypePte ? 'P':' ',
@@ -733,13 +749,13 @@ Return Value:
                     );
 
             if (CheckControlC()) {
-                free((void *)PfnArray);
+                LocalFree((void *)PfnArray);
                 return;
             }
         }
     }
 
-    free((void *)PfnArray);
+    LocalFree((void *)PfnArray);
 
     return;
 }
@@ -758,14 +774,13 @@ PrintPfn (
                 PfnContents->u2.Blink,
                 PfnContents->PteAddress);
 
-    dprintf("    reference count %04hX  valid pte count         %04hX  color %01hX\n",
-                PfnContents->ReferenceCount,
-                PfnContents->ValidPteCount,
+    dprintf("    reference count %04hX                                 color %01hX\n",
+                PfnContents->u3.e2.ReferenceCount,
                 PfnContents->u3.e1.PageColor);
 
     dprintf("    restore pte %08lX  containing page        %05lX  %s   %c%c%c%c%c%c\n",
                 PfnContents->OriginalPte,
-                PfnContents->u3.e1.PteFrame,
+                PfnContents->PteFrame,
                 PageLocationList[PfnContents->u3.e1.PageLocation],
                 PfnContents->u3.e1.Modified ? 'M':' ',
                 PfnContents->u3.e1.PrototypePte ? 'P':' ',
@@ -832,9 +847,17 @@ Return Value:
     PVOID ControlArea1;
     BOOLEAN Found;
     ULONG result;
-
+    KERN_MAP KernelMap;
+    ULONG i;
+    ULONG VirtualAddress;
+    ULONG PagedPoolStart;
 
     NameString.Buffer = Buffer;
+
+    PagedPoolStart = GetUlongValue("MmPagedPoolStart");
+    RtlZeroMemory (&KernelMap, sizeof (KernelMap));
+
+    BuildKernelMap (&KernelMap);
 
     RtlZeroMemory (&PagedPoolBlock, sizeof (PFN_INFO));
     InfoStart = VirtualAlloc (NULL,
@@ -849,6 +872,9 @@ Return Value:
 
     Pfn1 = &PfnArray[LowPage];
     LastPfn = &PfnArray[HighPage];
+    if (MmSubsectionBase == 0) {
+        MmSubsectionBase = GetUlongValue ("MmSubsectionBase");
+    }
 
     while (Pfn1 < LastPfn) {
         if (CheckControlC()) {
@@ -859,23 +885,59 @@ Return Value:
             (Pfn1->u3.e1.PageLocation != ZeroedPageList) &&
             (Pfn1->u3.e1.PageLocation != BadPageList)) {
 
-            Subsection1 = MiGetSubsectionAddress (Pfn1->OriginalPte.u.Long);
+            Subsection1 = MiGetSubsectionAddress ((PMMPTE)&Pfn1->OriginalPte.u.Long);
 
             if ((Subsection1) && (Subsection1 < (PVOID)0xffbff000)) {
                 Master = (ULONG)Subsection1;
             } else {
                 if (IgnoreInvalidFrames) {
-                    Master = Pfn1->u3.e1.PteFrame;
+                    Master = Pfn1->PteFrame;
                 } else {
-                    Pfn2 = &PfnArray[Pfn1->u3.e1.PteFrame];
-                    Master = Pfn2->u3.e1.PteFrame;
-                    if ((Master == 0) || (Master > HighPage)) {
-                        dprintf("Invalid PTE frame\n");
-                        PrintPfn((PVOID)(Pfn1-PfnArray),Pfn1);
-                        PrintPfn(NULL,Pfn2);
-                        dprintf("  subsection address: %lx\n",Subsection1);
-                        Pfn1++;
-                        continue;
+                    if ((ULONG)Pfn1->PteAddress > PagedPoolStart) {
+                        Master = Pfn1->PteFrame;
+                    } else {
+                        Pfn2 = &PfnArray[Pfn1->PteFrame];
+                        Master = Pfn2->PteFrame;
+                        if ((Master == 0) || (Master > HighPage)) {
+                            dprintf("Invalid PTE frame\n");
+                            PrintPfn((PVOID)(Pfn1-PfnArray),Pfn1);
+                            PrintPfn(NULL,Pfn2);
+                            dprintf("  subsection address: %lx\n",Subsection1);
+                            Pfn1++;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            VirtualAddress = (ULONG)MiGetVirtualAddressMappedByPte (Pfn1->PteAddress);
+            if (((ULONG)Pfn1->PteAddress < PagedPoolStart) && (VirtualAddress > 0x80000000)) {
+                for (i=0; i<KernelMap.Count; i++) {
+                    if ((VirtualAddress >= KernelMap.Item[i].StartVa) &&
+                        (VirtualAddress < KernelMap.Item[i].EndVa)) {
+                        if ((Pfn1->u3.e1.PageLocation == ModifiedPageList) ||
+                            (Pfn1->u3.e1.PageLocation == ModifiedNoWritePageList)) {
+                            KernelMap.Item[i].ModifiedCount += _KB;
+                            if (Pfn1->u3.e2.ReferenceCount > 0) {
+                                KernelMap.Item[i].LockedCount += _KB;
+                            }
+                        } else if ((Pfn1->u3.e1.PageLocation == StandbyPageList) ||
+                                  (Pfn1->u3.e1.PageLocation == TransitionPage)) {
+
+                            KernelMap.Item[i].StandbyCount += _KB;
+                            if (Pfn1->u3.e2.ReferenceCount > 0) {
+                                KernelMap.Item[i].LockedCount += _KB;
+                            }
+                        } else {
+                            KernelMap.Item[i].ValidCount += _KB;
+                            if (Pfn1->u2.ShareCount > 1) {
+                                KernelMap.Item[i].SharedCount += _KB;
+                                if (Pfn1->u3.e2.ReferenceCount > 1) {
+                                    KernelMap.Item[i].LockedCount += _KB;
+                                }
+                            }
+                        }
+                        goto NextPfn;
                     }
                 }
             }
@@ -917,34 +979,41 @@ Return Value:
                 RtlZeroMemory (Info, sizeof (PFN_INFO));
 
                 Info->Master = Master;
+                Info->OriginalPte = Pfn1->OriginalPte.u.Long;
             }
 
             if ((Pfn1->u3.e1.PageLocation == ModifiedPageList) ||
                 (Pfn1->u3.e1.PageLocation == ModifiedNoWritePageList)) {
-                Info->ModifiedCount += 1;
-                if (Pfn1->ReferenceCount > 0) {
-                    Info->LockedCount += 1;
+                Info->ModifiedCount += _KB;
+                if (Pfn1->u3.e2.ReferenceCount > 0) {
+                    Info->LockedCount += _KB;
                 }
             } else if ((Pfn1->u3.e1.PageLocation == StandbyPageList) ||
                       (Pfn1->u3.e1.PageLocation == TransitionPage)) {
 
-                Info->StandbyCount += 1;
-                if (Pfn1->ReferenceCount > 0) {
-                    Info->LockedCount += 1;
+                Info->StandbyCount += _KB;
+                if (Pfn1->u3.e2.ReferenceCount > 0) {
+                    Info->LockedCount += _KB;
                 }
             } else {
 
-                Info->ValidCount += 1;
+                Info->ValidCount += _KB;
                 if (Pfn1->u2.ShareCount > 1) {
-                    Info->SharedCount += 1;
-                    if (Pfn1->ReferenceCount > 1) {
-                        Info->LockedCount += 1;
+                    Info->SharedCount += _KB;
+                    if (Pfn1->u3.e2.ReferenceCount > 1) {
+                        Info->LockedCount += _KB;
                     }
                 }
             }
+            if ((Pfn1->PteAddress >= MiGetPdeAddress (0x0)) &&
+                (Pfn1->PteAddress <= MiGetPdeAddress (0xFFFFFFFF))) {
+                Info->PageTableCount += _KB;
+            }
         }
+NextPfn:
         Pfn1++;
     }
+
 
     //
     // dump the results.
@@ -961,7 +1030,8 @@ Return Value:
     dprintf("         - Modfified NoWrite Pages %ld\n", MmModifiedNoWritePageListHead.Total);
     dprintf("         - Bad Pages %ld\n", MmBadPageListHead.Total);
 #endif //0
-    dprintf(" Usage Summary:\n");
+
+    dprintf("\n\n  Usage Summary in KiloBytes (Kb):\n");
 
     Info = InfoStart;
     while (Info < InfoEnd) {
@@ -979,8 +1049,7 @@ Return Value:
                              &Subsection,
                              sizeof(Subsection),
                              &result)) || (result < sizeof(Subsection))) {
-                dprintf("unable to get subsection va %lx\n",Info->Master);
-                return;
+                dprintf("unable to get subsection va %lx %lx\n",Info->Master,Info->OriginalPte);
             }
 
             ControlArea1 = Subsection.ControlArea;
@@ -1001,6 +1070,7 @@ Return Value:
                     Info1->ModifiedCount += Info->ModifiedCount;
                     Info1->SharedCount += Info->SharedCount;
                     Info1->LockedCount += Info->LockedCount;
+                    Info1->PageTableCount += Info->PageTableCount;
                     Info->Master = 0;
                     break;
                 }
@@ -1014,7 +1084,7 @@ Return Value:
     }
 
     Info = InfoStart;
-    dprintf("Control Valid Standby Dirty Shared Locked    name\n");
+    dprintf("Control Valid Standby Dirty Shared Locked PageTables  name\n");
     while (Info < InfoEnd) {
 
         if (CheckControlC()) {
@@ -1032,23 +1102,27 @@ Return Value:
                              sizeof(ControlArea),
                              &result)) || (result < sizeof(ControlArea))) {
 
-                dprintf("%8lx %5ld, %5ld %5ld %5ld %5ld    Bad Control Area\n",
+                dprintf("%8lx %5ld  %5ld %5ld %5ld %5ld %5ld    Bad Control Area\n",
                                     Info->Master,
                                     Info->ValidCount,
                                     Info->StandbyCount,
                                     Info->ModifiedCount,
                                     Info->SharedCount,
-                                    Info->LockedCount);
+                                    Info->LockedCount,
+                                    Info->PageTableCount
+                                    );
 
             } else if (ControlArea.FilePointer == NULL)  {
 
-                dprintf("%8lx %5ld, %5ld %5ld %5ld %5ld    Page File Section\n",
+                dprintf("%8lx %5ld  %5ld %5ld %5ld %5ld %5ld   Page File Section\n",
                                     Info->Master,
                                     Info->ValidCount,
                                     Info->StandbyCount,
                                     Info->ModifiedCount,
                                     Info->SharedCount,
-                                    Info->LockedCount);
+                                    Info->LockedCount,
+                                    Info->PageTableCount
+                                    );
 
             } else {
 
@@ -1060,8 +1134,7 @@ Return Value:
                                  &FilePointer,
                                  sizeof(FilePointer),
                                  &result)) || (result < sizeof(FilePointer))) {
-                    dprintf("unable to get subsection\n");
-                    return;
+                    dprintf("unable to get subsection %lx\n",ControlArea.FilePointer);
                 }
 
                 if (FilePointer.FileName.Length != 0)  {
@@ -1076,13 +1149,15 @@ Return Value:
                                      NameString.Buffer,
                                      FilePointer.FileName.Length,
                                      &result)) || (result < FilePointer.FileName.Length)) {
-                        dprintf("%8lx %5ld, %5ld %5ld %5ld %5ld    Name Not Available\n",
+                        dprintf("%8lx %5ld  %5ld %5ld %5ld %5ld %5ld    Name Not Available\n",
                                     Info->Master,
                                     Info->ValidCount,
                                     Info->StandbyCount,
                                     Info->ModifiedCount,
                                     Info->SharedCount,
-                                    Info->LockedCount);
+                                    Info->LockedCount,
+                                    Info->PageTableCount
+                                    );
                     } else {
 
                         {
@@ -1100,24 +1175,27 @@ Return Value:
                             &FilePart
                             );
 
-                        dprintf("%8lx %5ld, %5ld %5ld %5ld %5ld   mapped_file( %ws )\n",
+                        dprintf("%8lx %5ld  %5ld %5ld %5ld %5ld %5ld  mapped_file( %ws )\n",
                                 Info->Master,
                                 Info->ValidCount,
                                 Info->StandbyCount,
                                 Info->ModifiedCount,
                                 Info->SharedCount,
                                 Info->LockedCount,
+                                Info->PageTableCount,
                                 FilePart);
                         }
                     }
                 } else {
-                    dprintf("%8lx %5ld, %5ld %5ld %5ld %5ld     Name Not Available\n",
+                    dprintf("%8lx %5ld  %5ld %5ld %5ld %5ld %5ld    No Name for File\n",
                                 Info->Master,
                                 Info->ValidCount,
                                 Info->StandbyCount,
                                 Info->ModifiedCount,
                                 Info->SharedCount,
-                                Info->LockedCount);
+                                Info->LockedCount,
+                                Info->PageTableCount
+                                );
                 }
             }
 
@@ -1126,12 +1204,19 @@ Return Value:
     }
 
     Info = &PagedPoolBlock;
-    dprintf("00000000  %4ld, %5ld %5ld %5ld %5ld   PagedPool\n",
+    if ((Info->ValidCount != 0) ||
+        (Info->StandbyCount != 0) ||
+        (Info->ModifiedCount != 0)) {
+
+        dprintf("00000000  %4ld  %5ld %5ld %5ld %5ld %5ld  PagedPool\n",
                         Info->ValidCount,
                         Info->StandbyCount,
                         Info->ModifiedCount,
                         Info->SharedCount,
-                        Info->LockedCount);
+                        Info->LockedCount,
+                        Info->PageTableCount
+                        );
+    }
 
     //
     // dump the process information.
@@ -1146,24 +1231,39 @@ Return Value:
             ImageName = DirbaseToImage(Info->Master);
 
             if ( ImageName ) {
-                dprintf("--------  %4ld, %5ld %5ld ----- -----   image_file ( %s )\n",
+                dprintf("--------  %4ld  %5ld %5ld ----- ----- %5ld  process ( %s )\n",
                             Info->ValidCount,
                             Info->StandbyCount,
                             Info->ModifiedCount,
+                            Info->PageTableCount,
                             ImageName
                             );
                 }
             else {
-                dprintf("--------  %4ld, %5ld %5ld ----- -----   unknown_dir(%lx )\n",
+                dprintf("--------  %4ld  %5ld %5ld ----- ----- %5ld  pagefile section (%lx)\n",
                             Info->ValidCount,
                             Info->StandbyCount,
                             Info->ModifiedCount,
+                            Info->PageTableCount,
                             Info->Master
                             );
                 }
 
         }
         Info = Info->Next;
+    }
+
+
+    if (!IgnoreInvalidFrames) {
+        for (i=0;i<KernelMap.Count ;i++) {
+          dprintf("--------  %4ld  %5ld %5ld ----- %5ld -----  driver ( %ws )\n",
+                    KernelMap.Item[i].ValidCount,
+                    KernelMap.Item[i].StandbyCount,
+                    KernelMap.Item[i].ModifiedCount,
+                    KernelMap.Item[i].LockedCount,
+                    KernelMap.Item[i].Name
+                    );
+        }
     }
 
     VirtualFree (InfoStart,0,MEM_RELEASE);
@@ -1180,6 +1280,7 @@ BuildDirbaseList( VOID )
     EPROCESS ProcessContents;
     NTSTATUS status=0;
     ULONG Result;
+    PHARDWARE_PTE HardPte;
 
     MaxDirbase = 0;
 
@@ -1219,7 +1320,8 @@ BuildDirbaseList( VOID )
             strcpy(&Names[MaxDirbase][0],"SystemProcess");
         }
 
-        DirBases[MaxDirbase++] = ProcessContents.Pcb.DirectoryTableBase[ 0 ] >> 12;
+        HardPte = (PHARDWARE_PTE)ProcessContents.Pcb.DirectoryTableBase;
+        DirBases[MaxDirbase++] = HardPte->PageFrameNumber;
 
         Next = ProcessContents.ActiveProcessLinks.Flink;
 
@@ -1244,4 +1346,111 @@ DirbaseToImage(
     }
     return NULL;
 }
-
+
+VOID
+BuildKernelMap (
+    OUT PKERN_MAP KernelMap
+    )
+
+{
+    LIST_ENTRY List;
+    PLIST_ENTRY Next;
+    ULONG ListHead;
+    NTSTATUS Status = 0;
+    ULONG Result;
+    PLDR_DATA_TABLE_ENTRY DataTable;
+    LDR_DATA_TABLE_ENTRY DataTableBuffer;
+    ULONG i = 0;
+
+    ListHead = GetExpression( "PsLoadedModuleList" );
+
+    if (!ListHead) {
+        dprintf("Couldn't get offset of PsLoadedModuleListHead\n");
+        return;
+    } else {
+        if ((!ReadMemory((DWORD)ListHead,
+                         &List,
+                         sizeof(LIST_ENTRY),
+                         &Result)) || (Result < sizeof(LIST_ENTRY))) {
+            dprintf("Unable to get value of PsLoadedModuleListHead\n");
+            return;
+        }
+    }
+
+    Next = List.Flink;
+    if (Next == NULL) {
+        dprintf("PsLoadedModuleList is NULL!\n");
+        return;
+    }
+
+    while ((ULONG)Next != ListHead) {
+        if (CheckControlC()) {
+            return;
+        }
+        DataTable = CONTAINING_RECORD(Next,
+                                      LDR_DATA_TABLE_ENTRY,
+                                      InLoadOrderLinks);
+        if ((!ReadMemory((DWORD)DataTable,
+                         &DataTableBuffer,
+                         sizeof(LDR_DATA_TABLE_ENTRY),
+                         &Result)) || (Result < sizeof(LDR_DATA_TABLE_ENTRY))) {
+            dprintf("Unable to read LDR_DATA_TABLE_ENTRY at %08lx - status %08lx\n",
+                    DataTable,
+                    Status);
+            return;
+        }
+
+        //
+        // Get the base DLL name.
+        //
+
+        if ((!ReadMemory((DWORD)DataTableBuffer.BaseDllName.Buffer,
+                         &KernelMap->Item[i].Name[0],
+                         DataTableBuffer.BaseDllName.Length,
+                         &Result)) || (Result < DataTableBuffer.BaseDllName.Length)) {
+            dprintf("Unable to read name string at %08lx - status %08lx\n",
+                    DataTable,
+                    Status);
+            return;
+        }
+
+        KernelMap->Item[i].Name[DataTableBuffer.BaseDllName.Length/2] = L'\0';
+        KernelMap->Item[i].StartVa = (ULONG)DataTableBuffer.DllBase;
+        KernelMap->Item[i].EndVa = KernelMap->Item[i].StartVa +
+                                            (ULONG)DataTableBuffer.SizeOfImage;
+        i += 1;
+        Next = DataTableBuffer.InLoadOrderLinks.Flink;
+    }
+
+    KernelMap->Item[i].StartVa = GetUlongValue("MmPagedPoolStart");
+    KernelMap->Item[i].EndVa = GetUlongValue("MmPagedPoolEnd");
+    wcscpy (&KernelMap->Item[i].Name[0], &L"Paged Pool");
+    i+= 1;
+
+#if 0
+    KernelMap->Item[i].StartVa = (ULONG)MiGetPteAddress (0x80000000);
+    KernelMap->Item[i].EndVa =   (ULONG)MiGetPteAddress (0xffffffff);
+    wcscpy (&KernelMap->Item[i].Name[0], &L"System Page Tables");
+    i+= 1;
+
+    KernelMap->Item[i].StartVa = (ULONG)MiGetPdeAddress (0x80000000);
+    KernelMap->Item[i].EndVa =   (ULONG)MiGetPdeAddress (0xffffffff);
+    wcscpy (&KernelMap->Item[i].Name[0], &L"System Page Tables");
+    i+= 1;
+#endif 0
+
+    KernelMap->Item[i].StartVa = (ULONG)MiGetVirtualAddressMappedByPte (
+                                        GetUlongValue ("MmSystemPtesStart"));
+    KernelMap->Item[i].EndVa =   (ULONG)MiGetVirtualAddressMappedByPte (
+                                        GetUlongValue ("MmSystemPtesEnd")) + 1;
+    wcscpy (&KernelMap->Item[i].Name[0], &L"Kernel Stacks");
+    i+= 1;
+
+    KernelMap->Item[i].StartVa = GetUlongValue("MmNonPagedPoolStart");
+    KernelMap->Item[i].EndVa = GetUlongValue("MmNonPagedPoolEnd");
+    wcscpy (&KernelMap->Item[i].Name[0], &L"NonPaged Pool");
+    i+= 1;
+
+    KernelMap->Count = i;
+}
+

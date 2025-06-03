@@ -14,6 +14,7 @@
 #include "system.h"     // for DeleteUnusedSystems
 #include "line.h"       // for LineFind???()
 #include "perfmops.h"   // for AppendObjectToValueList()
+#include "perfmsg.h"    // for event log messages
 
 //==========================================================================//
 //                                  Constants                               //
@@ -69,13 +70,13 @@ NTSTATUS  AddNamesToArray (LPTSTR pNames,
 
 
 void ObjectName (PPERFSYSTEM pSystem,
-                 PPERFOBJECT pObject, 
-                 LPTSTR lpszName, 
+                 PPERFOBJECT pObject,
+                 LPTSTR lpszName,
                  int iLen)
    {  // ObjectName
    strclr (lpszName) ;
-   QueryPerformanceName (pSystem, 
-                         pObject->ObjectNameTitleIndex, 
+   QueryPerformanceName (pSystem,
+                         pObject->ObjectNameTitleIndex,
                          0, iLen, lpszName, FALSE) ;
    }  // ObjectName
 
@@ -86,63 +87,116 @@ void ObjectName (PPERFSYSTEM pSystem,
 //======================================//
 
 
-PERF_INSTANCE_DEFINITION *
+PPERFINSTANCEDEF
 FirstInstance(
-    PERF_OBJECT_TYPE *pObjectDef)
+    PPERFOBJECT pObjectDef)
 {
-    return (PERF_INSTANCE_DEFINITION *)
+    return (PPERFINSTANCEDEF )
                ((PCHAR) pObjectDef + pObjectDef->DefinitionLength);
 }
 
 
-PERF_INSTANCE_DEFINITION *
+PPERFINSTANCEDEF
 NextInstance(
-    PERF_INSTANCE_DEFINITION *pInstDef)
+    PPERFINSTANCEDEF pInstDef)
 {
     PERF_COUNTER_BLOCK *pCounterBlock;
 
     pCounterBlock = (PERF_COUNTER_BLOCK *)
                         ((PCHAR) pInstDef + pInstDef->ByteLength);
 
-    return (PERF_INSTANCE_DEFINITION *)
+    return (PPERFINSTANCEDEF )
                ((PCHAR) pCounterBlock + pCounterBlock->ByteLength);
 }
 
 
 
 
-LPTSTR
+LPWSTR
 GetInstanceName(
 PPERFINSTANCEDEF  pInstDef)
 {
-    return (LPTSTR) ((PCHAR) pInstDef + pInstDef->NameOffset);
+    return (LPWSTR) ((PCHAR) pInstDef + pInstDef->NameOffset);
 }
 
+DWORD
+GetAnsiInstanceName (PPERFINSTANCEDEF pInstance,
+                    LPWSTR lpszInstance,
+                    DWORD dwCodePage)
+{
+    LPSTR   szSource;
+    DWORD   dwLength;
+
+    szSource = (LPSTR)GetInstanceName(pInstance);
+
+    // the locale should be set here
+
+    // pInstance->NameLength == the number of bytes (chars) in the string
+    dwLength = mbstowcs (lpszInstance, szSource, pInstance->NameLength);
+    lpszInstance[dwLength] = 0; // null terminate string buffer
+
+    return dwLength;
+}
+
+DWORD
+GetUnicodeInstanceName (PPERFINSTANCEDEF pInstance,
+                    LPWSTR lpszInstance)
+{
+   LPWSTR   wszSource;
+   DWORD    dwLength;
+
+   wszSource = GetInstanceName(pInstance) ;
+
+   // pInstance->NameLength == length of string in BYTES so adjust to
+   // number of wide characters here
+   dwLength = pInstance->NameLength / sizeof(WCHAR);
+
+   wcsncpy (lpszInstance,
+        (LPWSTR)wszSource,
+        dwLength);
+
+   lpszInstance[dwLength] = 0;
+
+   return (DWORD)(wcslen(lpszInstance)); // just incase there's null's in the string
+
+}
 
 void
 GetInstanceNameStr (PPERFINSTANCEDEF pInstance,
-                    LPTSTR lpszInstance)
-   {
-   LPSTR pSource;
+                    LPWSTR lpszInstance,
+                    DWORD dwCodePage)
+{
+   DWORD  dwCharSize;
+   DWORD  dwLength;
 
-   pSource = (LPSTR) GetInstanceName(pInstance) ;
-
-   if (pSource[1] == '\0' && pSource[2] != '\0')
-      {
-      // Must be Unicode
-      wcsncpy (lpszInstance,
-               (LPTSTR)pSource,
-               pInstance->NameLength);
-      }
-   else
-      {
-      // Must be ANSI (or a single Unicode character)
-      mbstowcs (lpszInstance,
-                pSource,
-                pInstance->NameLength);
-      }
-
+   if (dwCodePage > 0) {
+        dwCharSize = sizeof(CHAR);
+        dwLength = GetAnsiInstanceName (pInstance, lpszInstance, dwCodePage);
+   } else { // it's a UNICODE name
+        dwCharSize = sizeof(WCHAR);
+        dwLength = GetUnicodeInstanceName (pInstance, lpszInstance);
    }
+   // sanity check here...
+   // the returned string length (in characters) plus the terminating NULL
+   // should be the same as the specified length in bytes divided by the
+   // character size. If not then the codepage and instance data type
+   // don't line up so test that here
+
+   if ((dwLength + 1) != (pInstance->NameLength / dwCharSize)) {
+      // something isn't quite right so try the "other" type of string type
+      if (dwCharSize == sizeof(CHAR)) {
+        // then we tried to read it as an ASCII string and that didn't work
+        // so try it as a UNICODE (if that doesn't work give up and return
+        // it any way.
+        dwLength = GetUnicodeInstanceName (pInstance, lpszInstance);
+      } else if (dwCharSize == sizeof(WCHAR)) {
+        // then we tried to read it as a UNICODE string and that didn't work
+        // so try it as an ASCII string (if that doesn't work give up and return
+        // it any way.
+        dwLength = GetAnsiInstanceName (pInstance, lpszInstance, dwCodePage);
+      }
+   }
+}
 
 void
 GetPerfComputerName(PPERFDATA pPerfData,
@@ -182,7 +236,7 @@ int CounterIndex (PPERFCOUNTERDEF pCounterToFind,
         iCounter < pObject->NumCounters ;
         iCounter++, pCounter = NextCounter (pCounter))
       {  // for
-      if (pCounter->CounterNameTitleIndex == 
+      if (pCounter->CounterNameTitleIndex ==
           pCounterToFind->CounterNameTitleIndex)
          return (iCounter) ;
       }  // for
@@ -207,7 +261,7 @@ OpenSystemPerfData (
         bCloseLocalMachine = TRUE ;
         SetLastError (ERROR_SUCCESS);
         return HKEY_PERFORMANCE_DATA;
-    } else if (lstrlen (lpszSystem) < MAX_COMPUTERNAME_LENGTH+3) {
+    } else  {
         // Must be a remote system
         try {
             lStatus = RegConnectRegistry (
@@ -244,7 +298,7 @@ LPWSTR
     DWORD   dwArraySize;
     DWORD   dwBufferSize;
     DWORD   dwValueType;
-    LONG    lWin32Status;
+    LONG    lWin32Status = ERROR_SUCCESS;
     NTSTATUS    Status;
     DWORD   dwLastError;
 
@@ -271,7 +325,7 @@ LPWSTR
         &dwBufferSize);
 
     if (lWin32Status != ERROR_SUCCESS) goto ERROR_EXIT;
- 
+
     if (bExplainTextButtonHit) {
         dwBufferSize = dwHelpSize;
         lWin32Status = RegQueryValueEx (
@@ -281,7 +335,7 @@ LPWSTR
             &dwValueType,
             (LPVOID)lpHelpText,
             &dwBufferSize);
-                            
+
     if (lWin32Status != ERROR_SUCCESS) goto ERROR_EXIT;
     }
 
@@ -312,7 +366,7 @@ ERROR_EXIT:
     if (lpReturnValue) {
         MemoryFree ((LPVOID)lpReturnValue);
     }
-    
+
     return NULL;
 }
 
@@ -326,7 +380,7 @@ LPWSTR
     DWORD         dwLastId
 )
 /*++
-   
+
 BuildNewNameTable
 
 Arguments:
@@ -335,7 +389,7 @@ Arguments:
             The unicode id of the language to look up. (English is 0x409)
 
 Return Value:
-     
+
     pointer to an allocated table. (the caller must free it when finished!)
     the table is an array of pointers to zero terminated strings. NULL is
     returned if an error occured.
@@ -382,6 +436,14 @@ Return Value:
         &dwBufferSize);
 
     if (lWin32Status != ERROR_SUCCESS) {
+        // check for ACCESS_DENIED error first since if it's here
+        // it will be returned on all subsequent calls, we might as well
+        // bail out now.
+
+        if (lWin32Status == ERROR_ACCESS_DENIED) {
+            goto BNT_BAILOUT;
+        }
+
         // try take out the country ID
         LangIdUsed = MAKELANGID (LangIdUsed & 0x0ff, LANG_NEUTRAL);
         TSPRINTF (subLangId, TEXT("%03x"), LangIdUsed);
@@ -389,7 +451,7 @@ Return Value:
         lstrcat (CounterBuffer, subLangId);
 
         lstrcpy (ExplainBuffer, ExplainNameStr);
-        lstrcpy (ExplainBuffer, subLangId);
+        lstrcat (ExplainBuffer, subLangId);
 
         dwBufferSize = 0;
         lWin32Status = RegQueryValueEx (
@@ -402,14 +464,14 @@ Return Value:
     }
 
     if (lWin32Status != ERROR_SUCCESS) {
-        // try the EnglishLangId 
+        // try the EnglishLangId
         if (!strsame(EnglishLangId, subLangId)) {
 
             lstrcpy (CounterBuffer, CounterNameStr);
             lstrcat (CounterBuffer, EnglishLangId);
 
             lstrcpy (ExplainBuffer, ExplainNameStr);
-            lstrcpy (ExplainBuffer, EnglishLangId);
+            lstrcat (ExplainBuffer, EnglishLangId);
 
             LangIdUsed = iEnglishLanguage ;
 
@@ -433,7 +495,7 @@ Return Value:
 
     // If ExplainText is needed, then
     // get size of help text and add that to the arrays
-    
+
     if (bExplainTextButtonHit) {
         dwBufferSize = 0;
         lWin32Status = RegQueryValueEx (
@@ -445,7 +507,7 @@ Return Value:
               &dwBufferSize);
 
         if (lWin32Status != ERROR_SUCCESS) goto BNT_BAILOUT;
-   
+
         dwHelpSize = dwBufferSize;
      } else {
         dwHelpSize = 0;
@@ -465,6 +527,9 @@ Return Value:
 BNT_BAILOUT:
     if (lWin32Status != ERROR_SUCCESS) {
         dwLastError = GetLastError();
+        // set the LastError value since a null pointer will
+        // be returned which doesn't tell much to the caller
+        SetLastError (lWin32Status);
     }
 
     return NULL;
@@ -480,7 +545,7 @@ LPWSTR
     DWORD         dwLastId
 )
 /*++
-   
+
 BuildOldNameTable
 
 Arguments:
@@ -493,14 +558,14 @@ Arguments:
             The unicode id of the language to look up. (English is 0x409)
 
 Return Value:
-     
+
     pointer to an allocated table. (the caller must free it when finished!)
     the table is an array of pointers to zero terminated strings. NULL is
     returned if an error occured.
 
 --*/
 {
-    LPWSTR  *lpReturnValue;
+    LPWSTR  *lpReturnValue = NULL;
 
     LONG    lWin32Status;
     DWORD   dwValueType;
@@ -541,6 +606,14 @@ Return Value:
         &hKeyNames);
 
     if (lWin32Status != ERROR_SUCCESS) {
+        // check for ACCESS_DENIED error first since if it's here
+        // it will be returned on all subsequent calls, we might as well
+        // bail out now.
+
+        if (lWin32Status == ERROR_ACCESS_DENIED) {
+            goto BNT_BAILOUT;
+        }
+
         // try take out the country ID
         LangIdUsed = MAKELANGID (LangIdUsed & 0x0ff, LANG_NEUTRAL);
         TSPRINTF (subLangId, TEXT("%03x"), LangIdUsed);
@@ -557,7 +630,7 @@ Return Value:
     }
 
     if (lWin32Status != ERROR_SUCCESS) {
-        // try the EnglishLangId 
+        // try the EnglishLangId
         if (!strsame(EnglishLangId, subLangId)) {
 
             lstrcpy (lpValueNameString, NamesKey);
@@ -581,7 +654,7 @@ Return Value:
     }
 
     // get size of counter names and add that to the arrays
-    
+
 
     dwBufferSize = 0;
     lWin32Status = RegQueryValueEx (
@@ -598,7 +671,7 @@ Return Value:
 
     // If ExplainText is needed, then
     // get size of help text and add that to the arrays
-    
+
     if (bExplainTextButtonHit) {
         dwBufferSize = 0;
         lWin32Status = RegQueryValueEx (
@@ -610,7 +683,7 @@ Return Value:
               &dwBufferSize);
 
         if (lWin32Status != ERROR_SUCCESS) goto BNT_BAILOUT;
-   
+
         dwHelpSize = dwBufferSize;
      } else {
         dwHelpSize = 0;
@@ -633,12 +706,15 @@ Return Value:
 BNT_BAILOUT:
     if (lWin32Status != ERROR_SUCCESS) {
         dwLastError = GetLastError();
+        // set the LastError value since a null pointer will
+        // be returned which doesn't tell much to the caller
+        SetLastError (lWin32Status);
     }
 
     if (lpReturnValue) {
         MemoryFree ((LPVOID)lpReturnValue);
     }
-    
+
     if (hKeyNames) RegCloseKey (hKeyNames);
 
     return NULL;
@@ -654,7 +730,7 @@ LPWSTR
     LANGID        iLangId         // lang ID of the lpszLangId
 )
 /*++
-   
+
 BuildNameTable
 
 Arguments:
@@ -667,7 +743,7 @@ Arguments:
             The unicode id of the language to look up. (English is 0x409)
 
 Return Value:
-     
+
     pointer to an allocated table. (the caller must free it when finished!)
     the table is an array of pointers to zero terminated strings. NULL is
     returned if an error occured.
@@ -700,13 +776,13 @@ Return Value:
         RESERVED,
         KEY_READ,
         &hKeyValue);
-    
+
     if (lWin32Status != ERROR_SUCCESS) {
         goto BNT_BAILOUT;
     }
 
     // get number of items
-    
+
     dwBufferSize = sizeof (dwLastHelp);
     lWin32Status = RegQueryValueEx (
         hKeyValue,
@@ -738,7 +814,7 @@ Return Value:
     } else {
         dwLastId = dwLastHelp;
     }
-   
+
     // get system version
     dwBufferSize = sizeof (dwSystemVersion);
     lWin32Status = RegQueryValueEx (
@@ -750,7 +826,7 @@ Return Value:
         &dwBufferSize);
 
     if ((lWin32Status != ERROR_SUCCESS) || (dwValueType != REG_DWORD)) {
-        pSysInfo->SysVersion = 0x10000; 
+        pSysInfo->SysVersion = 0x10000;
     } else {
         pSysInfo->SysVersion = dwSystemVersion;
     }
@@ -777,6 +853,9 @@ Return Value:
 BNT_BAILOUT:
     if (lWin32Status != ERROR_SUCCESS) {
         dwLastError = GetLastError();
+        // set the LastError value since a null pointer will
+        // be returned which doesn't tell much to the caller
+        SetLastError (lWin32Status);
     }
     if (hKeyValue) RegCloseKey (hKeyValue);
     return NULL;
@@ -791,7 +870,7 @@ DWORD GetSystemKey (PPERFSYSTEM pSysInfo, HKEY *phKeyMachine)
     if (IsLocalComputer(pSysInfo->sysName) ||
        (PlayingBackLog() && PlaybackLog.pBaseCounterNames)) {
         *phKeyMachine = HKEY_LOCAL_MACHINE;
-    } else if (lstrlen(pSysInfo->sysName) < MAX_COMPUTERNAME_LENGTH+3) {
+    } else {
         try {
             dwStatus = RegConnectRegistry (
                 pSysInfo->sysName,
@@ -825,12 +904,12 @@ DWORD GetSystemNames(PPERFSYSTEM pSysInfo)
          return dwStatus;
     }
 
-    // if here, then hKeyMachine is an open key to the system's 
+    // if here, then hKeyMachine is an open key to the system's
     //  HKEY_LOCAL_MACHINE registry database
 
     // only one language is supported by this approach.
     // multiple language support would:
-    //  1.  enumerate language keys 
+    //  1.  enumerate language keys
     //       and for each key:
     //  2.  allocate memory for structures
     //  3.  call BuildNameTable for each lang key.
@@ -839,7 +918,7 @@ DWORD GetSystemNames(PPERFSYSTEM pSysInfo)
     pSysInfo->CounterInfo.dwLangId = iLanguage ;   // default Lang ID
 
     if (PlayingBackLog() && PlaybackLog.pBaseCounterNames) {
-        pSysInfo->CounterInfo.TextString = LogBuildNameTable (pSysInfo) ; 
+        pSysInfo->CounterInfo.TextString = LogBuildNameTable (pSysInfo) ;
     } else {
         pSysInfo->CounterInfo.TextString = BuildNameTable (
               pSysInfo,
@@ -875,9 +954,9 @@ BOOL  GetHelpText(
     NTSTATUS    Status;
     DWORD   dwLastId;
     TCHAR   Slash[2];
-     
+
     HKEY    hKeyNames;
-    
+
     TCHAR   SysLangId [ShortTextLen] ;
     TCHAR   ValueNameString [MiscTextLen] ;
     HKEY    hKeyMachine = 0;
@@ -900,7 +979,7 @@ BOOL  GetHelpText(
         if (dwStatus = GetSystemKey (pSysInfo, &hKeyMachine)) {
             goto ERROR_EXIT;
         }
-    
+
         lstrcpy (ValueNameString, NamesKey);
         lstrcat (ValueNameString, Slash);
         lstrcat (ValueNameString, SysLangId);
@@ -947,7 +1026,7 @@ BOOL  GetHelpText(
         &dwValueType,
         (LPVOID)lpHelpText,
         &dwBufferSize);
-                            
+
     if (lWin32Status != ERROR_SUCCESS) goto ERROR_EXIT;
 
     // setup the help text pointers
@@ -977,7 +1056,7 @@ ERROR_EXIT:
     if (lpHelpText) {
         MemoryFree ((LPVOID)lpHelpText);
     }
-    
+
     if (hKeyNames) {
         RegCloseKey (hKeyNames);
     }
@@ -1067,7 +1146,7 @@ LONG
 GetSystemPerfData (
     IN HKEY hKeySystem,
     IN LPTSTR lpszValue,
-    OUT PPERFDATA pPerfData, 
+    OUT PPERFDATA pPerfData,
     OUT PDWORD pdwPerfDataLen
 )
    {  // GetSystemPerfData
@@ -1081,7 +1160,7 @@ GetSystemPerfData (
    return (lError) ;
    }  // GetSystemPerfData
 
-            
+
 BOOL CloseSystemPerfData (HKEY hKeySystem)
    {  // CloseSystemPerfData
    return (TRUE) ;
@@ -1098,14 +1177,14 @@ int CBLoadObjects (HWND hWndCB,
 /*
    Effect:        Load into the combo box CB one item for each Object in
                   pPerfData. For each item, look up the object's name in
-                  the registry strings associated with pSysInfo, and 
+                  the registry strings associated with pSysInfo, and
                   attach the object to the data field of the CB item.
 
                   Dont add those objects that are more detailed than
-                  dwDetailLevel.      
+                  dwDetailLevel.
 
                   Set the current selected CB item to the object named
-                  lpszDefaultObject, or to the default object specified in 
+                  lpszDefaultObject, or to the default object specified in
                   pPerfData if lpszDefaultObject is NULL.
 */
    {  // CBLoadObjects
@@ -1127,7 +1206,7 @@ int CBLoadObjects (HWND hWndCB,
       if (pObject->DetailLevel <= dwDetailLevel)
          {  // if
          strclr (szObject) ;
-         QueryPerformanceName (pSysInfo, pObject->ObjectNameTitleIndex, 
+         QueryPerformanceName (pSysInfo, pObject->ObjectNameTitleIndex,
                                0, PerfObjectLen, szObject, FALSE) ;
 
          // if szObject not empty, add it to the Combo-box
@@ -1150,7 +1229,7 @@ int CBLoadObjects (HWND hWndCB,
       // assume "ALL" is default unless overridden
       lstrcpy (szDefaultObject, szObject) ;
       }
-      
+
    if (lpszDefaultObject)
       lstrcpy (szDefaultObject, lpszDefaultObject) ;
 
@@ -1159,7 +1238,7 @@ int CBLoadObjects (HWND hWndCB,
 
    return (i) ;
    }  // CBLoadObjects
-         
+
 
 int LBLoadObjects (HWND hWndLB,
                    PPERFDATA pPerfData,
@@ -1170,19 +1249,19 @@ int LBLoadObjects (HWND hWndLB,
 /*
    Effect:        Load into the list box LB one item for each Object in
                   pPerfData. For each item, look up the object's name in
-                  the registry strings associated with pSysInfo, and 
+                  the registry strings associated with pSysInfo, and
                   attach the object to the data field of the LB item.
 
                   Dont add those objects that are more detailed than
-                  dwDetailLevel.      
+                  dwDetailLevel.
 
                   Set the current selected LB item to the object named
-                  lpszDefaultObject, or to the default object specified in 
+                  lpszDefaultObject, or to the default object specified in
                   pPerfData if lpszDefaultObject is NULL.
 */
    {  // LBLoadObjects
    UINT           i ;
-   int            iIndex ;
+   int            iIndex = 0;
    PPERFOBJECT    pObject ;
    TCHAR          szObject [PerfObjectLen + 1] ;
    TCHAR          szDefaultObject [PerfObjectLen + 1] ;
@@ -1199,7 +1278,7 @@ int LBLoadObjects (HWND hWndLB,
       if (pObject->DetailLevel <= dwDetailLevel)
          {  // if
          strclr (szObject) ;
-         QueryPerformanceName (pSysInfo, pObject->ObjectNameTitleIndex, 
+         QueryPerformanceName (pSysInfo, pObject->ObjectNameTitleIndex,
                                0, PerfObjectLen, szObject, FALSE) ;
 
          // if szObject is not empty, add it to the listbox
@@ -1226,13 +1305,13 @@ int LBLoadObjects (HWND hWndLB,
 
    if (lpszDefaultObject)
       lstrcpy (szDefaultObject, lpszDefaultObject) ;
-      
+
    iIndex = LBFind (hWndLB, szDefaultObject) ;
    LBSetSelection (hWndLB, (iIndex != LB_ERR) ? iIndex : 0) ;
 
    return (i) ;
    }  // LBLoadObjects
-         
+
 
 /***************************************************************************\
 * GetObjectDef()
@@ -1242,13 +1321,13 @@ int LBLoadObjects (HWND hWndLB,
 *
 \***************************************************************************/
 
-PERF_OBJECT_TYPE *GetObjectDef(
-    PERF_DATA_BLOCK *pDataBlock,
+PPERFOBJECT GetObjectDef(
+    PPERFDATA pDataBlock,
     DWORD NumObjectType)
 {
     DWORD NumTypeDef;
 
-    PERF_OBJECT_TYPE *pObjectDef;
+    PPERFOBJECT pObjectDef;
 
     pObjectDef = FirstObject(pDataBlock);
 
@@ -1273,13 +1352,13 @@ PERF_OBJECT_TYPE *GetObjectDef(
 *
 \***************************************************************************/
 
-PERF_OBJECT_TYPE *GetObjectDefByTitleIndex(
-    PERF_DATA_BLOCK *pDataBlock,
+PPERFOBJECT GetObjectDefByTitleIndex(
+    PPERFDATA pDataBlock,
     DWORD ObjectTypeTitleIndex)
 {
     DWORD NumTypeDef;
 
-    PERF_OBJECT_TYPE *pObjectDef;
+    PPERFOBJECT pObjectDef;
 
     pObjectDef = FirstObject(pDataBlock);
 
@@ -1304,15 +1383,15 @@ PERF_OBJECT_TYPE *GetObjectDefByTitleIndex(
 *
 \***************************************************************************/
 
-PERF_OBJECT_TYPE *GetObjectDefByName(
+PPERFOBJECT GetObjectDefByName(
     PPERFSYSTEM pSystem,
-    PERF_DATA_BLOCK *pDataBlock,
+    PPERFDATA pDataBlock,
     LPTSTR pObjectName)
 {
     DWORD NumTypeDef;
     TCHAR szObjectName [PerfObjectLen + 1] ;
 
-    PERF_OBJECT_TYPE *pObjectDef;
+    PPERFOBJECT pObjectDef;
 
     pObjectDef = FirstObject(pDataBlock);
     for ( NumTypeDef = 0;
@@ -1339,13 +1418,13 @@ PERF_OBJECT_TYPE *GetObjectDefByName(
 
 DWORD GetObjectIdByName(
     PPERFSYSTEM pSystem,
-    PERF_DATA_BLOCK *pDataBlock,
+    PPERFDATA pDataBlock,
     LPTSTR pObjectName)
 {
     DWORD NumTypeDef;
     TCHAR szObjectName [PerfObjectLen + 1] ;
 
-    PERF_OBJECT_TYPE *pObjectDef;
+    PPERFOBJECT pObjectDef;
 
     pObjectDef = FirstObject(pDataBlock);
     for ( NumTypeDef = 0;
@@ -1372,13 +1451,13 @@ DWORD GetObjectIdByName(
 *
 \***************************************************************************/
 
-PERF_COUNTER_DEFINITION *GetCounterDef(
-    PERF_OBJECT_TYPE *pObjectDef,
+PPERFCOUNTERDEF GetCounterDef(
+    PPERFOBJECT pObjectDef,
     DWORD NumCounter)
 {
     DWORD NumCtrDef;
 
-    PERF_COUNTER_DEFINITION *pCounterDef;
+    PPERFCOUNTERDEF pCounterDef;
 
     pCounterDef = FirstCounter(pObjectDef);
 
@@ -1405,12 +1484,12 @@ PERF_COUNTER_DEFINITION *GetCounterDef(
 \***************************************************************************/
 
 LONG GetCounterNumByTitleIndex(
-    PERF_OBJECT_TYPE *pObjectDef,
+    PPERFOBJECT pObjectDef,
     DWORD CounterTitleIndex)
 {
     DWORD NumCtrDef;
 
-    PERF_COUNTER_DEFINITION *pCounterDef;
+    PPERFCOUNTERDEF pCounterDef;
 
     pCounterDef = FirstCounter(pObjectDef);
 
@@ -1437,8 +1516,8 @@ LONG GetCounterNumByTitleIndex(
 \***************************************************************************/
 
 PVOID GetCounterData(
-    PERF_OBJECT_TYPE *pObjectDef,
-    PERF_COUNTER_DEFINITION *pCounterDef)
+    PPERFOBJECT pObjectDef,
+    PPERFCOUNTERDEF pCounterDef)
 {
 
     PERF_COUNTER_BLOCK *pCtrBlock;
@@ -1459,9 +1538,9 @@ PVOID GetCounterData(
 \***************************************************************************/
 
 PVOID GetInstanceCounterData(
-    PERF_OBJECT_TYPE *pObjectDef,
-    PERF_INSTANCE_DEFINITION *pInstanceDef,
-    PERF_COUNTER_DEFINITION *pCounterDef)
+    PPERFOBJECT pObjectDef,
+    PPERFINSTANCEDEF pInstanceDef,
+    PPERFCOUNTERDEF pCounterDef)
 {
 
     PERF_COUNTER_BLOCK *pCtrBlock;
@@ -1481,15 +1560,15 @@ PVOID GetInstanceCounterData(
 *
 \***************************************************************************/
 
-PERF_INSTANCE_DEFINITION *GetNextInstance(
-    PERF_INSTANCE_DEFINITION *pInstDef)
+PPERFINSTANCEDEF GetNextInstance(
+    PPERFINSTANCEDEF pInstDef)
 {
     PERF_COUNTER_BLOCK *pCtrBlock;
 
     pCtrBlock = (PERF_COUNTER_BLOCK *)
                 ((PCHAR) pInstDef + pInstDef->ByteLength);
 
-    return (PERF_INSTANCE_DEFINITION *)
+    return (PPERFINSTANCEDEF )
            ((PCHAR) pCtrBlock + pCtrBlock->ByteLength);
 }
 
@@ -1503,12 +1582,12 @@ PERF_INSTANCE_DEFINITION *GetNextInstance(
 *
 \***************************************************************************/
 
-PERF_INSTANCE_DEFINITION *GetInstance(
-    PERF_OBJECT_TYPE *pObjectDef,
+PPERFINSTANCEDEF GetInstance(
+    PPERFOBJECT pObjectDef,
     LONG InstanceNumber)
 {
 
-   PERF_INSTANCE_DEFINITION *pInstanceDef;
+   PPERFINSTANCEDEF pInstanceDef;
    LONG NumInstance;
 
    if (!pObjectDef)
@@ -1517,7 +1596,7 @@ PERF_INSTANCE_DEFINITION *GetInstance(
       }
 
    pInstanceDef = FirstInstance(pObjectDef);
-   
+
    for ( NumInstance = 0;
       NumInstance < pObjectDef->NumInstances;
       NumInstance++ )
@@ -1541,27 +1620,33 @@ PERF_INSTANCE_DEFINITION *GetInstance(
 *
 \***************************************************************************/
 
-PERF_INSTANCE_DEFINITION *GetInstanceByUniqueID(
-    PERF_OBJECT_TYPE *pObjectDef,
-    LONG UniqueID)
+PPERFINSTANCEDEF GetInstanceByUniqueID(
+    PPERFOBJECT pObjectDef,
+    LONG UniqueID,
+    DWORD   dwIndex)
 {
 
-    PERF_INSTANCE_DEFINITION *pInstanceDef;
+    PPERFINSTANCEDEF pInstanceDef;
+    DWORD   dwLocalIndex;
 
     LONG NumInstance;
 
     pInstanceDef = FirstInstance(pObjectDef);
+    dwLocalIndex = dwIndex;
 
     for ( NumInstance = 0;
 	  NumInstance < pObjectDef->NumInstances;
 	  NumInstance++ ) {
 
         if ( pInstanceDef->UniqueID == UniqueID ) {
-
-	    return pInstanceDef;
-	}
+            if (dwLocalIndex == 0) {
+        	    return pInstanceDef;
+            } else {
+                --dwLocalIndex;
+            }
+        }
         pInstanceDef = GetNextInstance(pInstanceDef);
-    }
+	}
     return 0;
 }
 
@@ -1576,32 +1661,35 @@ PERF_INSTANCE_DEFINITION *GetInstanceByUniqueID(
 *
 \***************************************************************************/
 
-PERF_INSTANCE_DEFINITION *GetInstanceByNameUsingParentTitleIndex(
-    PERF_DATA_BLOCK *pDataBlock,
-    PERF_OBJECT_TYPE *pObjectDef,
+PPERFINSTANCEDEF GetInstanceByNameUsingParentTitleIndex(
+    PPERFDATA pDataBlock,
+    PPERFOBJECT pObjectDef,
     LPTSTR pInstanceName,
-    LPTSTR pParentName)
+    LPTSTR pParentName,
+    DWORD  dwIndex)
 {
    BOOL fHaveParent;
-   PERF_OBJECT_TYPE *pParentObj;
+   PPERFOBJECT pParentObj;
 
-    PERF_INSTANCE_DEFINITION  *pParentInst,
-			     *pInstanceDef;
+   PPERFINSTANCEDEF pParentInst,
+			     pInstanceDef;
 
    LONG   NumInstance;
    TCHAR  InstanceName[256];
-   
+   DWORD    dwLocalIndex;
+
 
    fHaveParent = FALSE;
    pInstanceDef = FirstInstance(pObjectDef);
+   dwLocalIndex = dwIndex;
 
    for ( NumInstance = 0;
       NumInstance < pObjectDef->NumInstances;
       NumInstance++ )
       {
 
-      GetInstanceNameStr(pInstanceDef,InstanceName);
-      if ( lstrcmp(InstanceName, pInstanceName) == 0 )
+      GetInstanceNameStr(pInstanceDef, InstanceName, pObjectDef->CodePage);
+      if ( lstrcmpi(InstanceName, pInstanceName) == 0 )
          {
 
          // Instance name matches
@@ -1609,9 +1697,13 @@ PERF_INSTANCE_DEFINITION *GetInstanceByNameUsingParentTitleIndex(
          if ( pParentName == NULL )
             {
 
-            // No parent, we're done
+            // No parent, we're done if this is the right "copy"
 
-            return pInstanceDef;
+                if (dwLocalIndex == 0) {
+        	        return pInstanceDef;
+                } else {
+                    --dwLocalIndex;
+                }
 
             }
          else
@@ -1641,13 +1733,16 @@ PERF_INSTANCE_DEFINITION *GetInstanceByNameUsingParentTitleIndex(
                break ;
                }
 
-            GetInstanceNameStr(pParentInst,InstanceName);
-            if ( lstrcmp(InstanceName, pParentName) == 0 )
+            GetInstanceNameStr(pParentInst,InstanceName, pParentObj->CodePage);
+            if ( lstrcmpi(InstanceName, pParentName) == 0 )
                {
 
                // Parent Instance Name matches that passed in
-
-               return pInstanceDef;
+                if (dwLocalIndex == 0) {
+        	        return pInstanceDef;
+                } else {
+                    --dwLocalIndex;
+                }
                }
             }
          }
@@ -1666,40 +1761,46 @@ PERF_INSTANCE_DEFINITION *GetInstanceByNameUsingParentTitleIndex(
 *
 \***************************************************************************/
 
-PERF_INSTANCE_DEFINITION *GetInstanceByName(
-    PERF_DATA_BLOCK *pDataBlock,
-    PERF_OBJECT_TYPE *pObjectDef,
+PPERFINSTANCEDEF GetInstanceByName(
+    PPERFDATA pDataBlock,
+    PPERFOBJECT pObjectDef,
     LPTSTR pInstanceName,
-    LPTSTR pParentName)
+    LPTSTR pParentName,
+    DWORD   dwIndex)
 {
     BOOL fHaveParent;
 
-    PERF_OBJECT_TYPE *pParentObj;
+    PPERFOBJECT pParentObj;
 
-    PERF_INSTANCE_DEFINITION *pParentInst,
-			     *pInstanceDef;
+    PPERFINSTANCEDEF pParentInst,
+			     pInstanceDef;
 
     LONG  NumInstance;
     TCHAR  InstanceName[256];
-
+    DWORD  dwLocalIndex;
 
     fHaveParent = FALSE;
     pInstanceDef = FirstInstance(pObjectDef);
+    dwLocalIndex = dwIndex;
 
     for ( NumInstance = 0;
 	  NumInstance < pObjectDef->NumInstances;
 	  NumInstance++ ) {
 
-        GetInstanceNameStr(pInstanceDef,InstanceName);
-        if ( lstrcmp(InstanceName, pInstanceName) == 0 ) {
+        GetInstanceNameStr(pInstanceDef,InstanceName, pObjectDef->CodePage);
+        if ( lstrcmpi(InstanceName, pInstanceName) == 0 ) {
 
 	    // Instance name matches
 
 	    if ( !pInstanceDef->ParentObjectTitleIndex ) {
 
-		// No parent, we're done
+    		// No parent, we're done
 
-		return pInstanceDef;
+            if (dwLocalIndex == 0) {
+        	    return pInstanceDef;
+            } else {
+                --dwLocalIndex;
+            }
 
 	    } else {
 
@@ -1715,13 +1816,16 @@ PERF_INSTANCE_DEFINITION *GetInstanceByName(
 		pParentInst = GetInstance(pParentObj,
 					  pInstanceDef->ParentObjectInstance);
 
-            GetInstanceNameStr(pParentInst,InstanceName);
-                if ( lstrcmp(InstanceName, pParentName) == 0 ) {
+            GetInstanceNameStr(pParentInst,InstanceName, pParentObj->CodePage);
+            if ( lstrcmpi(InstanceName, pParentName) == 0 ) {
+		        // Parent Instance Name matches that passed in
 
-		    // Parent Instance Name matches that passed in
-
-		    return pInstanceDef;
-		}
+                if (dwLocalIndex == 0) {
+        	        return pInstanceDef;
+                } else {
+                    --dwLocalIndex;
+                }
+	    	}
 	    }
 	}
         pInstanceDef = GetNextInstance(pInstanceDef);
@@ -1766,7 +1870,7 @@ BOOL FailedLineData (PPERFDATA pPerfData,
 }  // FailedLineData
 
 
-BOOL UpdateLineData (PPERFDATA pPerfData, 
+BOOL UpdateLineData (PPERFDATA pPerfData,
                      PLINE pLine,
                      PPERFSYSTEM pSystem)
 /*
@@ -1779,7 +1883,7 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
    PPERFCOUNTERDEF   pCounterDef ;
    PPERFCOUNTERDEF   pCounterDef2 ;
    PDWORD            pCounterValue ;
-   PDWORD            pCounterValue2 ;
+   PDWORD            pCounterValue2 = NULL;
    UINT              iCounterIndex ;
    LARGE_INTEGER     liDummy[2] ;
 
@@ -1842,7 +1946,7 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
                     pLine->lnObject.ObjectNameTitleIndex,
                     pSystem->lpszValue);
 
-      
+
    }
 
    pObject = GetObjectDefByTitleIndex(
@@ -1858,7 +1962,7 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
 
       pCounterValue =
       pCounterValue2 = (PDWORD) liDummy;
-      liDummy[0].LowPart = liDummy[0].HighPart = 0;
+      liDummy[0].QuadPart = 0;
 
 
       pLine->lnNewTime = pPerfData->PerfTime;
@@ -1888,13 +1992,13 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
    {
       pCounterDef = &pLine->lnCounterDef ;
 
-//      if (RtlLargeIntegerGreaterThanZero( pObject->PerfFreq )) {
+//      if (pObject->PerfFreq.QuadPart > 0) {
       if (pCounterDef->CounterType & PERF_OBJECT_TIMER) {
          pLine->lnNewTime = pObject->PerfTime;
       } else {
          pLine->lnNewTime = pPerfData->PerfTime;
       }
-    
+
       iCounterIndex = CounterIndex (pCounterDef, pObject) ;
 
       // Get second counter, only if we are not at
@@ -1912,7 +2016,8 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
 
           if ( pLine->lnUniqueID != PERF_NO_UNIQUE_ID ) {
               pInstanceDef = GetInstanceByUniqueID(pObject,
-                                               pLine->lnUniqueID);
+                                               pLine->lnUniqueID,
+                                               pLine->dwInstanceIndex);
           } else {
 
               pInstanceDef =
@@ -1920,7 +2025,8 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
                       pPerfData,
                       pObject,
                       pLine->lnInstanceName,
-                      pLine->lnPINName);
+                      pLine->lnPINName,
+                      pLine->dwInstanceIndex);
           }
 
           if (pInstanceDef) {
@@ -1936,8 +2042,8 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
           } else {
               pCounterValue =
               pCounterValue2 = (PDWORD) liDummy;
-              liDummy[0].LowPart = liDummy[0].HighPart = 0;
-              liDummy[1].LowPart = liDummy[1].HighPart = 0;
+              liDummy[0].QuadPart = 0;
+              liDummy[1].QuadPart = 0;
           }
 
           // Got everything...
@@ -1960,11 +2066,12 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
    if (pLine->lnCounterLength <= 4)
    {
        // HighPart was initialize to 0
+       pLine->lnaCounterValue[0].HighPart = 0;
        pLine->lnaCounterValue[0].LowPart = *pCounterValue;
    }
    else
    {
-       pLine->lnaCounterValue[0] = *(LARGE_INTEGER *) pCounterValue;
+       pLine->lnaCounterValue[0] = *(LARGE_INTEGER UNALIGNED *) pCounterValue;
    }
 
    // Get second counter, only if we are not at
@@ -1977,24 +2084,27 @@ BOOL UpdateLineData (PPERFDATA pPerfData,
        if (pCounterDef2->CounterSize <= 4)
        {
            // HighPart was initialize to 0
+           pLine->lnaCounterValue[1].HighPart = 0;
            pLine->lnaCounterValue[1].LowPart = *pCounterValue2;
        }
        else
            pLine->lnaCounterValue[1] =
-               *((LARGE_INTEGER *) pCounterValue2);
+               *((LARGE_INTEGER UNALIGNED *) pCounterValue2);
       }
    return (TRUE) ;
 }  // UpdateLineData
 
 
 
-BOOL UpdateSystemData (PPERFSYSTEM pSystem, 
+BOOL UpdateSystemData (PPERFSYSTEM pSystem,
                        PPERFDATA *ppPerfData)
    {  // UpdateSystemData
    #define        PERF_SYSTEM_TIMEOUT (60L * 1000L)
    long           lError ;
    DWORD          Status ;
    DWORD          Size;
+   BOOL           TimeToCheck = FALSE ;
+   LONGLONG       llLastTimeStamp;
 
    if (!ppPerfData)
       return (FALSE) ;
@@ -2003,7 +2113,6 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
       {
       if (pSystem->FailureTime)
          {
-         BOOL     TimeToCheck = FALSE ;
          DWORD    CurrentTickCount = GetTickCount() ;
 
          if (CurrentTickCount < pSystem->FailureTime) {
@@ -2029,7 +2138,7 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
             pSystem->sysDataKey = OpenSystemPerfData(pSystem->sysName) ;
 
             Status = !ERROR_SUCCESS ;
-            if (pSystem->sysDataKey) 
+            if (pSystem->sysDataKey)
                {
                Status = GetSystemNames(pSystem);
                }
@@ -2058,7 +2167,14 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
 
       if (pSystem->FailureTime == 0 )
          {
-         Size = MemorySize (*ppPerfData);
+         Size = MemorySize ((LPMEMORY)*ppPerfData);
+
+         // save the last sample timestamp for this system
+
+         if (pSystem->pSystemPerfData != NULL) {
+             llLastTimeStamp =
+                pSystem->pSystemPerfData->PerfTime.QuadPart;
+         }
 
          lError = GetSystemPerfData (pSystem->sysDataKey,
                                      pSystem->lpszValue,
@@ -2073,11 +2189,47 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
             {
             if (pSystem->dwSystemState == SYSTEM_OK)
                {
+               if (pSystem->pSystemPerfData != NULL)
+                   {
+                   if (pSystem->pSystemPerfData->PerfTime.QuadPart <
+                        llLastTimeStamp)
+                       {
+                       if (bReportEvents)
+                            {
+                            // then a system error occured, so log it
+                            dwMessageDataBytes = 0;
+                            szMessageArray[wMessageIndex++] = pSystem->sysName;
+                            ReportEvent (hEventLog,
+                                EVENTLOG_ERROR_TYPE,        // error type
+                                0,                          // category (not used)
+                                (DWORD)PERFMON_ERROR_TIMESTAMP, // event,
+                                NULL,                       // SID (not used),
+                                wMessageIndex,              // number of strings
+                                0,                          // sizeof raw data
+                                szMessageArray,             // message text array
+                                NULL);                       // raw data
+                            }
+                        }
+                   }
                return (TRUE) ;
                }
             else if (pSystem->dwSystemState == SYSTEM_DOWN ||
                pSystem->dwSystemState == SYSTEM_DOWN_RPT )
                {
+               if (TimeToCheck && bReportEvents) {
+                    // then the system just came back so display the message
+                    wMessageIndex = 0;
+                    szMessageArray[wMessageIndex++] = pSystem->sysName;
+                    ReportEvent (hEventLog,
+                        EVENTLOG_INFORMATION_TYPE,        // error type
+                        0,                          // category (not used)
+                        (DWORD)PERFMON_INFO_SYSTEM_RESTORED, // event,
+                        NULL,                       // SID (not used),
+                        wMessageIndex,             // number of strings
+                        0,                          // sizeof raw data
+                        szMessageArray,             // message text array
+                        NULL);                      // raw data
+               }
                pSystem->dwSystemState = SYSTEM_RECONNECT ;
                }
             else if (pSystem->dwSystemState == SYSTEM_RECONNECT_RPT)
@@ -2091,13 +2243,31 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
 
          if (lError == ERROR_MORE_DATA)
             {
-            *ppPerfData = MemoryResize (*ppPerfData, 
-                                        MemorySize (*ppPerfData) +
-                                        dwPerfDataIncrease) ;
+            Size = MemorySize ((LPMEMORY)*ppPerfData) + dwPerfDataIncrease;
+            *ppPerfData = MemoryResize ((LPMEMORY)*ppPerfData, Size);
+
             if (!*ppPerfData)
                {
                if (pSystem->dwSystemState != SYSTEM_DOWN_RPT)
                   {
+                    if (bReportEvents) {
+                        // then the system just came back so display the message
+                        wMessageIndex = 0;
+                        dwMessageDataBytes = 0;
+                        szMessageArray[wMessageIndex++] = pSystem->sysName;
+                        dwMessageData[dwMessageDataBytes++] = Size;
+                        dwMessageData[dwMessageDataBytes++] = GetLastError();
+                        dwMessageDataBytes *= sizeof(DWORD);
+                        ReportEvent (hEventLog,
+                            EVENTLOG_ERROR_TYPE,        // error type
+                            0,                          // category (not used)
+                            (DWORD)PERFMON_ERROR_PERF_DATA_ALLOC, // event,
+                            NULL,                       // SID (not used),
+                            wMessageIndex,              // number of strings
+                            dwMessageDataBytes,         // sizeof raw data
+                            szMessageArray,             // message text array
+                            (LPVOID)&dwMessageData[0]);  // raw data
+                    }
                   pSystem->dwSystemState = SYSTEM_DOWN ;
                   }
                pSystem->FailureTime = GetTickCount();
@@ -2108,6 +2278,23 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
             {
             if (pSystem->dwSystemState != SYSTEM_DOWN_RPT)
                {
+                if (bReportEvents) {
+                    // then the system just came back so display the message
+                    wMessageIndex = 0;
+                    dwMessageDataBytes = 0;
+                    szMessageArray[wMessageIndex++] = pSystem->sysName;
+                    dwMessageData[dwMessageDataBytes++] = lError;
+                    dwMessageDataBytes *= sizeof(DWORD);
+                    ReportEvent (hEventLog,
+                        EVENTLOG_WARNING_TYPE,      // error type
+                        0,                          // category (not used)
+                        (DWORD)PERFMON_ERROR_SYSTEM_OFFLINE, // event,
+                        NULL,                       // SID (not used),
+                        wMessageIndex,              // number of strings
+                        dwMessageDataBytes,         // sizeof raw data
+                        szMessageArray,             // message text array
+                        (LPVOID)&dwMessageData[0]); // raw data
+                }
                pSystem->dwSystemState = SYSTEM_DOWN ;
                }
             pSystem->FailureTime = GetTickCount();
@@ -2120,7 +2307,7 @@ BOOL UpdateSystemData (PPERFSYSTEM pSystem,
 
 
 BOOL FailedLinesForSystem (LPTSTR lpszSystem,
-                           PPERFDATA pPerfData, 
+                           PPERFDATA pPerfData,
                            PLINE pLineFirst)
    {  // FailedLinesForSystem
    PLINE          pLine ;
@@ -2145,8 +2332,8 @@ BOOL FailedLinesForSystem (LPTSTR lpszSystem,
    }
 
 
-BOOL UpdateLinesForSystem (LPTSTR lpszSystem, 
-                           PPERFDATA pPerfData, 
+BOOL UpdateLinesForSystem (LPTSTR lpszSystem,
+                           PPERFDATA pPerfData,
                            PLINE pLineFirst,
                            PPERFSYSTEM pSystem)
    {  // UpdateLinesForSystem
@@ -2187,7 +2374,7 @@ NTSTATUS  AddNamesToArray (LPTSTR lpNames,
    LPWSTR      lpStopString;
    DWORD       dwThisCounter;
    NTSTATUS    Status = ERROR_SUCCESS;
-   
+
    for (lpThisName = lpNames;
         *lpThisName;
        )
@@ -2233,7 +2420,7 @@ BOOL UpdateLines (PPPERFSYSTEM ppSystemFirst,
    int               NumberOfSystems = 0 ;
    DWORD             WaitStatus ;
    HANDLE            *lpPacketHandles ;
-   
+
    // allocate the handle array for multiple wait
    if (NumberOfHandles == 0)
       {
@@ -2252,8 +2439,8 @@ BOOL UpdateLines (PPPERFSYSTEM ppSystemFirst,
         pSystem ;
         pSystem = pSystem->pSystemNext)
       {  // for
-      
-      // lock the state data mutex, should be quick unless this thread 
+
+      // lock the state data mutex, should be quick unless this thread
       // is still getting data from last time
       if (pSystem->hStateDataMutex == 0)
          continue ;
@@ -2290,10 +2477,26 @@ BOOL UpdateLines (PPPERFSYSTEM ppSystemFirst,
             (LPARAM)0) ;
 
          ReleaseMutex(pSystem->hStateDataMutex);
-         }
-      }
-
-   // wait for all the data 
+         } else {
+            // wait timed out, report error
+            if (bReportEvents) {
+                wMessageIndex = 0;
+			    dwMessageDataBytes = 0;
+                szMessageArray[wMessageIndex++] = pSystem->sysName;
+                ReportEvent (hEventLog,
+                    EVENTLOG_ERROR_TYPE,        // error type
+                    0,                          // category (not used)
+                    (DWORD)PERFMON_ERROR_LOCK_TIMEOUT, // event,
+                    NULL,                       // SID (not used),
+                    wMessageIndex,              // number of strings
+                    0,                          // sizeof raw data
+                    szMessageArray,             // message text array
+                    NULL); // raw data
+            }
+         } 
+      } // end "for each system"
+    
+   // wait for all the data
    if (NumberOfSystems)
       {
       // increase timeout if we are monitoring lots of systems
@@ -2328,7 +2531,7 @@ BOOL UpdateLines (PPPERFSYSTEM ppSystemFirst,
 
          if (pSystem->hStateDataMutex == 0)
             continue ;
-      
+
          // lock the state data mutex
          WaitStatus = WaitForSingleObject(pSystem->hStateDataMutex, 100L);
          if (WaitStatus == WAIT_OBJECT_0)
@@ -2404,7 +2607,7 @@ void PerfDataThread (PPERFSYSTEM pSystem)
          {
 
          // this system has been marked as no long used,
-         // forget about getting data and continue until 
+         // forget about getting data and continue until
          // we get to the WM_FREE_SYSTEM msg
          if (pSystem->bSystemNoLongerNeeded)
             continue ;
@@ -2449,12 +2652,14 @@ void PerfDataThread (PPERFSYSTEM pSystem)
              CloseHandle (pSystem->hStateDataMutex) ;
 
          if (pSystem->pSystemPerfData)
-             MemoryFree (pSystem->pSystemPerfData);
+             MemoryFree ((LPMEMORY)pSystem->pSystemPerfData);
 
          if (pSystem->lpszValue) {
              MemoryFree (pSystem->lpszValue);
              pSystem->lpszValue = NULL ;
          }
+
+         CloseHandle (pSystem->hThread);
 
          MemoryFree (pSystem) ;
          break ;  // get out of message loop
@@ -2464,4 +2669,4 @@ void PerfDataThread (PPERFSYSTEM pSystem)
    ExitThread (TRUE) ;
    }  // PerfDataThread
 
-
+

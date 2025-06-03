@@ -23,7 +23,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
+#include "ki.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,KeFindConfigurationEntry)
@@ -161,7 +161,7 @@ Return Value:
                 // search with next entry
                 //
 
-                if (Child == *Resume) {
+                if (Sibling == *Resume) {
                     *Resume = NULL;
                 }
             } else {
@@ -184,10 +184,13 @@ Return Value:
             //
 
             if (Sibling->Child != NULL) {
-               Entry = KeFindConfigurationEntry(Sibling->Child,
-                                                Class,
-                                                Type,
-                                                Key);
+               Entry = KeFindConfigurationNextEntry (
+                                Sibling->Child,
+                                Class,
+                                Type,
+                                Key,
+                                Resume
+                                );
 
                if (Entry != NULL) {
                    return Entry;

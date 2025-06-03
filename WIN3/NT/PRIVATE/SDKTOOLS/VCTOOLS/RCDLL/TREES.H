@@ -113,7 +113,7 @@ struct  s_loopia        {
 typedef struct  s_liarray       {
         loopia_t        liar_left;
         loopia_t        liar_right;
-        };
+        } liarray;
 
 #define LIAR_LEFT(p)    (&((p)->liar_left))
 #define LIAR_RIGHT(p)   (&((p)->liar_right))
@@ -170,4 +170,3 @@ struct  s_stack {
 #define DEFAULT_LAB             (Default->stk_value.sv_tree)
 
 #define LOOPI(p)                ((p)->stk_value.sv_loopi)
-

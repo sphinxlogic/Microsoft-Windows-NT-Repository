@@ -744,7 +744,7 @@ Return Value:
     // time to initialize.
     //
 
-    Time = RtlEnlargedIntegerMultiply( -5 * 1000 * 1000 , 1);
+    Time.QuadPart = Int32x32To64( -5 * 1000 * 1000 , 1);
 
     if (KeDelayExecutionThread(
             KernelMode,
@@ -2420,7 +2420,7 @@ Return Value:
         NdisReleaseSpinLock(&Adapter->Lock);
 
         //
-        // bugbug --  Check for non-packet related errors.
+        // note -- need to check for non-packet related errors.
         //
         //
 

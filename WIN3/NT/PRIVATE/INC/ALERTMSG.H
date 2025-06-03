@@ -361,7 +361,7 @@ Revision History:
 
 #define ALERT_NetLogonDuplicatePDC         (ALERT2_BASE + 12)
     /*
-     * The server %1 and %2 both claim to be the primary domain 
+     * The server %1 and %2 both claim to be the primary domain
      * controller for the %3 domain. One of the servers should be
      * demoted or removed from the domain.
      */
@@ -389,6 +389,13 @@ Revision History:
      * %1.
      * %2
      * A dump was saved in: %3.
+     */
+
+#define ALERT_NetLogonSidConflict      (ALERT2_BASE + 16)
+    /*
+     * The computer or domain %1 trusts domain %2.  (This may be an indirect
+     * trust.)  However, %1 and %2 have the same machine security identifier
+     * (SID).  NT should be re-installed on either %1 or %2.
      */
 
 #endif // ifdef _ALERTMSG_

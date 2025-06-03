@@ -214,6 +214,7 @@ HalpGetCmosData(
     IN ULONG    ByteCount
     );
 #endif
+
 
 //
 // Routines start
@@ -415,7 +416,6 @@ CallAgain:
                                  &slotNumber,
                                  &functionNumber)) {
 
-
             DebugPrint((1,
                        "ScsiPortInitialize: GetPciConfiguration failed\n"));
             return foundOne ? ESUCCESS : EIO;
@@ -456,26 +456,11 @@ CallAgain:
     }
 
     //
-    // Allocate memory for the non cached extension if it has not already been
-    // allocated.
-    //
-
-    if (deviceExtension->SrbExtensionSize != 0 &&
-        deviceExtension->SrbExtensionZonePool == NULL) {
-
-        status = SpGetCommonBuffer(deviceExtension, 0);
-
-        if (status != ESUCCESS) {
-
-            return(status);
-        }
-    }
-
-    //
     // Get the adapter object for this card.
     //
 
-    if ((configInfo.Master || configInfo.DmaChannel != 0xFFFFFFFF)) {
+    if ( deviceExtension->DmaAdapterObject == NULL &&
+        (configInfo.Master || configInfo.DmaChannel != 0xFFFFFFFF) ) {
 
         deviceDescription.Version = DEVICE_DESCRIPTION_VERSION;
         deviceDescription.DmaChannel = configInfo.DmaChannel;
@@ -516,6 +501,22 @@ CallAgain:
             capabilities->MaximumPhysicalPages = numberOfPageBreaks;
         }
 
+    }
+
+    //
+    // Allocate memory for the non cached extension if it has not already been
+    // allocated.
+    //
+
+    if (deviceExtension->SrbExtensionSize != 0 &&
+        deviceExtension->SrbExtensionZonePool == NULL) {
+
+        status = SpGetCommonBuffer(deviceExtension, 0);
+
+        if (status != ESUCCESS) {
+
+            return(status);
+        }
     }
 
     capabilities->Length = sizeof(IO_SCSI_CAPABILITIES);
@@ -1513,6 +1514,19 @@ Return Value:
                 "ScsiPortCompletionDpc: Iocompletion IRP %lx\n",
                 Irp));
 
+    	    //
+    	    // Free SrbExtension if allocated.
+    	    //
+    
+    	    if (Srb->SrbExtension == (deviceExtension->SrbExtensionPointer -
+                                      deviceExtension->SrbExtensionSize) ) {
+    
+    	        Srb->SrbExtension = NULL;
+    
+    	        (PCCHAR) deviceExtension->SrbExtensionPointer -=
+        		                            deviceExtension->SrbExtensionSize;
+    	    }
+
             IoCompleteRequest(Irp, 2);
 
         } else {
@@ -1545,6 +1559,19 @@ Return Value:
                     3,
                     "ScsiPortCompletionDpc: Iocompletion IRP %lx\n",
                     Irp));
+
+           	    //
+           	    // Free SrbExtension if allocated.
+           	    //
+           
+      	        if (Srb->SrbExtension == (deviceExtension->SrbExtensionPointer -
+                                          deviceExtension->SrbExtensionSize) ) {
+           
+           	        Srb->SrbExtension = NULL;
+           
+           	        (PCCHAR) deviceExtension->SrbExtensionPointer -=
+           		                            deviceExtension->SrbExtensionSize;
+           	    }
 
                 IoCompleteRequest(Irp, 2);
             }
@@ -1841,7 +1868,7 @@ Return Value:
     //
     // Issue inquiry command to each target id to find devices.
     //
-    // BUGBUG: Does not handle multiple logical units per target id.
+    // NOTE: Does not handle multiple logical units per target id.
     //
 
     for (target = DeviceExtension->MaximumTargetIds; target > 0; target--) {
@@ -1881,6 +1908,22 @@ Return Value:
         DebugPrint((2,"ScsiBusScan: Try TargetId %d LUN 0\n", target-1));
 
         if (IssueInquiry(DeviceExtension, lunInfo) == ESUCCESS) {
+
+            PINQUIRYDATA inquiryData = (PINQUIRYDATA)lunInfo->InquiryData;
+
+            //
+            // Make sure we can use the device.
+            //
+
+            if (inquiryData->DeviceTypeQualifier & 0x04) {
+
+              //
+              // This device is not supported; continue looking for
+              // other devices.
+              //
+
+              continue;
+            }
 
             DebugPrint((1,
                        "ScsiBusScan: Found Device %d at TID %d LUN %d\n",
@@ -2702,7 +2745,6 @@ Return Value:
     //
 
     //
-    // BUGBUG:  Fix this hack.
     // Set a speical flags to indicate the logical unit queue should be by
     // passed and that no queue processing should be done when the request
     // completes.
@@ -2830,7 +2872,7 @@ Return Value:
     logicalUnit = deviceExtension->LogicalUnitList;
 
     //
-    // BUGBUG: The use of Current request needs to be synchronized with the
+    // NOTE: The use of Current request needs to be synchronized with the
     // clearing of current request.
     //
 
@@ -4201,8 +4243,7 @@ Return Value:
         mdl->MappedSystemVa = Buffer;
         mdl->MdlFlags = MDL_MAPPED_TO_SYSTEM_VA;
         pageFrame = (PULONG)(mdl + 1);
-        frameNumber = RtlLargeIntegerShiftRight(
-                        MmGetPhysicalAddress(mdl->StartVa), PAGE_SHIFT).LowPart;
+        frameNumber = (ULONG)(MmGetPhysicalAddress(mdl->StartVa).QuadPart >> PAGE_SHIFT);
         numberOfPages = (mdl->ByteCount +
                   mdl->ByteOffset + PAGE_SIZE - 1) >> PAGE_SHIFT;
         for (index = 0; index < numberOfPages; index += 1) {
@@ -4500,6 +4541,7 @@ Return Value:
 #elif defined(_ALPHA_)
       if ( (HwInitData->AdapterInterfaceType != Internal) &&
            (HwInitData->AdapterInterfaceType != Eisa) &&
+           (HwInitData->AdapterInterfaceType != PCIBus) &&
            (HwInitData->AdapterInterfaceType != Isa) ) {
           return(STATUS_DEVICE_DOES_NOT_EXIST);
       }
@@ -4547,6 +4589,7 @@ Return Value:
 --*/
 
 {
+    PHYSICAL_ADDRESS pAddress;
     PVOID buffer;
     ULONG length;
     ULONG blockSize;
@@ -4579,19 +4622,42 @@ Return Value:
     // and srbextension zoned pool.
     //
 
-    if (!(buffer = MmAllocateNonCachedMemory(length))) {
+    if (DeviceExtension->DmaAdapterObject == NULL) {
 
-        DebugPrint((1,
-            "ScsiPortInitialize: Could not allocate page of noncached pool\n"));
+        //
+        // Since there is no adapter just allocate from non-paged pool.
+        //
 
+        if (buffer = MmAllocateNonCachedMemory(length)) {
+            DeviceExtension->PhysicalZoneBase = MmGetPhysicalAddress(buffer).LowPart;
+        }
+
+    } else {
+#ifdef AXP_FIRMWARE
+        buffer = HalAllocateCommonBuffer(DeviceExtension->DmaAdapterObject,
+                                         length,
+                                         &pAddress,
+                                         FALSE );
+        DeviceExtension->PhysicalZoneBase = pAddress.LowPart;
+#else
+        if (buffer = MmAllocateNonCachedMemory(length)) {
+            DeviceExtension->PhysicalZoneBase = MmGetPhysicalAddress(buffer).LowPart;
+        }
+#endif
+    }
+
+    if (buffer == NULL) {
         return ENOMEM;
     }
 
+    //
+    // Truncate Physical address to 32 bits.
     //
     // Determine length and starting address of zone.
     // If noncached device extension required then
     // subtract size from page leaving rest for zone.
     //
+
 
     length -= NonCachedExtensionSize;
 
@@ -4613,13 +4679,6 @@ Return Value:
         DeviceExtension->SrbExtensionPointer = buffer;
         DeviceExtension->SrbExtensionSize = blockSize;
 
-
-        //
-        // Get physical address of zone.
-        //
-
-        DeviceExtension->PhysicalZoneBase =
-            MmGetPhysicalAddress(buffer).LowPart;
 
     } else {
         DeviceExtension->SrbExtensionZonePool = NULL;
@@ -4661,9 +4720,11 @@ Return Value:
 --*/
 
 {
+    DEVICE_DESCRIPTION deviceDescription;
     PDEVICE_EXTENSION deviceExtension =
         ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
     NTSTATUS status;
+    ULONG numberOfPageBreaks;
 
     //
     // Make sure that an common buffer  has not already been allocated.
@@ -4671,6 +4732,54 @@ Return Value:
 
     if (deviceExtension->SrbExtensionZonePool != NULL) {
         return(NULL);
+    }
+
+    if ( deviceExtension->DmaAdapterObject == NULL ) {
+
+        RtlZeroMemory( &deviceDescription, sizeof(DEVICE_DESCRIPTION) );
+
+        deviceDescription.Version = DEVICE_DESCRIPTION_VERSION;
+        deviceDescription.DmaChannel = ConfigInfo->DmaChannel;
+        deviceDescription.InterfaceType = ConfigInfo->AdapterInterfaceType;
+        deviceDescription.BusNumber = ConfigInfo->SystemIoBusNumber;
+        deviceDescription.DmaWidth = ConfigInfo->DmaWidth;
+        deviceDescription.DmaSpeed = ConfigInfo->DmaSpeed;
+        deviceDescription.DmaPort = ConfigInfo->DmaPort;
+        deviceDescription.Dma32BitAddresses = ConfigInfo->Dma32BitAddresses;
+        deviceDescription.MaximumLength = ConfigInfo->MaximumTransferLength;
+        deviceDescription.ScatterGather = ConfigInfo->ScatterGather;
+        deviceDescription.Master = ConfigInfo->Master;
+        deviceDescription.AutoInitialize = FALSE;
+        deviceDescription.DemandMode = FALSE;
+
+        // BugBug: Make the 0x11000 a define when there is one.
+        if (ConfigInfo->MaximumTransferLength > 0x11000) {
+
+            deviceDescription.MaximumLength = 0x11000;
+
+        } else {
+
+            deviceDescription.MaximumLength = ConfigInfo->MaximumTransferLength;
+
+        }
+
+        deviceExtension->DmaAdapterObject = HalGetAdapter(
+            &deviceDescription,
+            &numberOfPageBreaks
+            );
+
+        //
+        // Set maximum number of page breaks.
+        //
+
+        if (numberOfPageBreaks > ConfigInfo->NumberOfPhysicalBreaks) {
+            deviceExtension->Capabilities.MaximumPhysicalPages =
+                                        ConfigInfo->NumberOfPhysicalBreaks;
+        } else {
+            deviceExtension->Capabilities.MaximumPhysicalPages =
+                                        numberOfPageBreaks;
+        }
+
     }
 
     //
@@ -4720,7 +4829,6 @@ Return Value:
 {
     ULONG DataLength = 0;
 
-#ifdef i386
     PDEVICE_EXTENSION deviceExtension =
         (PDEVICE_EXTENSION) DeviceExtension - 1;
 
@@ -4822,7 +4930,6 @@ Return Value:
                                 Length
                                 );
 
-#endif
     return(DataLength);
 }
 
@@ -5185,7 +5292,7 @@ Return Value:
     // Search each PCI bus.
     //
 
-    for (pciBus = *BusNumber; moreSlots && pciBus < 1; pciBus++) {
+    for (pciBus = *BusNumber; moreSlots && pciBus < 256; pciBus++) {
 
         //
         // Look at each device.
@@ -5390,7 +5497,7 @@ Return Value:
                    // Check for DMA descriptor.
                    //
 
-                   if (resourceDescriptor->Type == CmResourceTypePort) {
+                   if (resourceDescriptor->Type == CmResourceTypeDma) {
                       ConfigInformation->DmaChannel =
                           resourceDescriptor->u.Dma.Channel;
                       ConfigInformation->DmaPort =
@@ -5409,6 +5516,9 @@ Return Value:
                 *SlotNumber = slotNumber;
                 *FunctionNumber = functionNumber + 1;
                 ConfigInformation->SystemIoBusNumber = pciBus;
+        		ConfigInformation->SlotNumber = slotData.u.AsULONG;
+
+                ConfigInformation->SlotNumber = slotData.u.AsULONG;
 
                 return TRUE;
 
@@ -5476,4 +5586,3 @@ Return Value:
 } // end ScsiPortSetBusDataByOffset()
 
 #endif /* DECSTATION */
-

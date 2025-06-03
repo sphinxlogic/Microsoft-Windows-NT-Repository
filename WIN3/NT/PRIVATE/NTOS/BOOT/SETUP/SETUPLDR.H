@@ -44,11 +44,6 @@ SlWriteString(
     );
 
 ARC_STATUS
-SlWriteChar(
-    IN UCHAR c
-    );
-
-ARC_STATUS
 SlPositionCursor(
     IN unsigned x,
     IN unsigned y
@@ -262,8 +257,6 @@ SlGetChar(
 #define SL_KEY_F5       0x05000000
 #define SL_KEY_F6       0x06000000
 
-#define ASCI_CSI 0x9b
-
 
 //
 // Standard error handling functions
@@ -325,6 +318,7 @@ SlFatalError(
 #define SIF_FILENAME_INDEX 0
 
 extern PVOID InfFile;
+extern PVOID WinntSifHandle;
 
 ARC_STATUS
 SlInitIniFile(
@@ -383,6 +377,12 @@ SlCountLinesInSection(
     IN PVOID INFHandle,
     IN PCHAR SectionName
     );
+
+BOOLEAN
+SpSearchINFSection (
+   IN PVOID INFHandle,
+   IN PCHAR SectionName
+   );
 
 //
 // functions for querying the ARC configuration tree
@@ -514,3 +514,37 @@ SlInsertScsiDevice(
     OUT PDETECTED_DEVICE *pScsiDevice
     );
 
+//
+// Variables dealing with pre-installation.
+//
+
+typedef struct _PREINSTALL_DRIVER_INFO {
+
+    struct _PREINSTALL_DRIVER_INFO *Next;
+
+    //
+    // String that describes the driver to preinstall
+    //
+    PCHAR DriverDescription;
+
+    //
+    // Name of the SCSI driver
+    //
+    BOOLEAN OemDriver;
+
+} PREINSTALL_DRIVER_INFO, *PPREINSTALL_DRIVER_INFO;
+
+
+
+extern BOOLEAN PreInstall;
+extern PCHAR   ComputerType;
+extern BOOLEAN OemHal;
+// extern PCHAR   OemBootPath;
+extern PPREINSTALL_DRIVER_INFO PreinstallDriverList;
+
+PCHAR
+SlPreInstallGetComponentName(
+    IN PVOID    Inf,
+    IN PCHAR    SectionName,
+    IN PCHAR    TargetName
+    );

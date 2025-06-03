@@ -77,8 +77,7 @@ Revision History:
 #include "smsg.hxx"
 #include "rtmsg.h"
 #include "find.hxx"
-
-
+#include "dir.hxx"
 
 extern "C" {
     #include <stdio.h>
@@ -149,7 +148,7 @@ Return Value:
         // - init the array that will contain the command-line args
         //
         if ( !ArgumentArray.Initialize() ) {
-                DbgAbort( "ArgumentArray.Initialize() failed \n" );
+                DebugAbort( "ArgumentArray.Initialize() failed \n" );
         }
 
         //
@@ -161,11 +160,11 @@ Return Value:
                 || !FlagCountLines.Initialize( "/C" )
                 || !FlagDisplayNumbers.Initialize( "/N" )
                 || !FlagDisplayHelp.Initialize( "/?" )
-                || !FlagInvalid.Initialize( "/*" )
+                || !FlagInvalid.Initialize( "/*" )          // comment */
                 || !StringPattern.Initialize( "\"*\"" )
         || !_PathArguments.Initialize( "*", FALSE, TRUE ) ) {
 
-                DbgAbort( "Unable to initialize flag or string arguments \n" );
+                DebugAbort( "Unable to initialize flag or string arguments \n" );
         }
 
         //
@@ -181,16 +180,16 @@ Return Value:
                 || !ArgumentArray.Put( &StringPattern )
                 || !ArgumentArray.Put( &_PathArguments ) ) {
 
-                DbgAbort( "ArgumentArray.Put() failed \n" );
+                DebugAbort( "ArgumentArray.Put() failed \n" );
         }
         //
         // - init the lexemizer
         //
         if ( !LexArray.Initialize() ) {
-                DbgAbort( "LexArray.Initialize() failed \n" );
+                DebugAbort( "LexArray.Initialize() failed \n" );
     }
         if ( !ArgLex.Initialize( &LexArray ) ) {
-                DbgAbort( "ArgLex.Initialize() failed \n" );
+                DebugAbort( "ArgLex.Initialize() failed \n" );
     }
 
         //
@@ -244,7 +243,7 @@ Return Value:
 
     } else {
 
-//              DbgPrint( "\nargs parsed ok\n" );
+//              DebugPrint( "\nargs parsed ok\n" );
         }
 
         if( FlagInvalid.QueryFlag() ) {
@@ -276,13 +275,13 @@ Return Value:
                 // - keep a copy of the pattern string
                 //
 
-                DbgAssert(StringPattern.GetString());
+                DebugAssert(StringPattern.GetString());
         _PatternString.Initialize(StringPattern.GetString());
 
 //      _PatternString.QuerySTR( 0, TO_END,  TmpBuf, sizeof( TmpBuf ));
-//              DbgPrint("pattern is ");
-//              DbgPrint(TmpBuf);
-//              DbgPrint("\n");
+//              DebugPrint("pattern is ");
+//              DebugPrint(TmpBuf);
+//              DebugPrint("\n");
         }
 
         _CaseSensitive = (BOOLEAN)!FlagCaseInsensitive.QueryFlag();
@@ -293,11 +292,11 @@ Return Value:
 
         _OutputLineNumbers = (BOOLEAN)FlagDisplayNumbers.QueryFlag();
 
-    DbgAssert(sprintf(TmpBuf,
+    DebugAssert(sprintf(TmpBuf,
                         "flags:caseSens %1d, +veSrch %1d, outLines %1d, line#'s %1d\n",
                         _CaseSensitive, _LinesContainingPattern, _OutputLines,
                         _OutputLineNumbers) > 0);
-//      DbgPrint(TmpBuf);
+//      DebugPrint(TmpBuf);
 
     return( TRUE );
 }
@@ -330,11 +329,11 @@ Return Value:
 
         PWSTRING        String;
 
-        DbgPtrAssert( Path );
+        DebugPtrAssert( Path );
 
         String = (PWSTRING)Path->GetPathString();
 
-        DbgPtrAssert( String );
+        DebugPtrAssert( String );
 
         if ( String->QueryChCount() > 0 ) {
 
@@ -394,7 +393,7 @@ Return Value:
     _PatternString.QueryWSTR(0,TO_END,PatternString,MAX_LINE_LEN,TRUE);
 
     if ( !_String.Initialize() ) {
-            DbgAbort( "memory alloc failed\n" );
+            DebugAbort( "memory alloc failed\n" );
     }
 
 
@@ -408,7 +407,7 @@ Return Value:
 
 
         if ( !StreamToSearch->ReadLine( &_String)) {
-            DbgAbort( "ReadLine failed\n" );
+            DebugAbort( "ReadLine failed\n" );
         }
         _String.QueryWSTR(0,TO_END,CurrentLine,MAX_LINE_LEN,TRUE);
         LineLen = min ( MAX_LINE_LEN - 1, _String.QueryChCount());
@@ -520,9 +519,9 @@ Return Value:
 
 
         if( !_PathArguments.IsValueSet() ) {
-//              DbgPrint( "no paths specified\n" );
+//              DebugPrint( "no paths specified\n" );
         } else {
-//              DbgPrint( "paths specified\n" );
+//              DebugPrint( "paths specified\n" );
         }
 
         //
@@ -530,7 +529,7 @@ Return Value:
         // - if more than one path set OutputName flag
         //
     if( (_PathArguments.QueryPathCount() == 0) ) {
-//              DbgPrint("PathCount == 0 so searching stdin\n");
+//              DebugPrint("PathCount == 0 so searching stdin\n");
                 // use stdin
                 LinesFound = SearchStream( Get_Standard_Input_Stream() );
                 if( !_OutputLines ) {
@@ -553,8 +552,8 @@ Return Value:
                 CurrentPathString.Strupr();
 
 //                      ->QuerySTR( 0,  TO_END, nameBuf, sizeof(nameBuf));
-//              DbgAssert(sprintf(TmpBuf, "path is <%s>\n", nameBuf) > 0);
-//              DbgPrint(TmpBuf);
+//              DebugAssert(sprintf(TmpBuf, "path is <%s>\n", nameBuf) > 0);
+//              DebugPrint(TmpBuf);
 
                 // if the system object can return a FSN_DIRECTORY for this
                 // path then the user is trying to 'find' on a dir so print
@@ -660,7 +659,7 @@ main()
                 perrstk = NEW ERRSTACK;
 
                 if( Find.Initialize() ) {
-        //              DbgPrint("done init\n" );
+        //              DebugPrint("done init\n" );
                         Find.SearchFiles();
                 }
                 Find.Terminate();

@@ -74,6 +74,11 @@ Revision History:
 #define FILE_DEVICE_WAVE_OUT            0x00000026
 #define FILE_DEVICE_8042_PORT           0x00000027
 #define FILE_DEVICE_NETWORK_REDIRECTOR  0x00000028
+#define FILE_DEVICE_BATTERY             0x00000029
+#define FILE_DEVICE_BUS_EXTENDER        0x0000002a
+#define FILE_DEVICE_MODEM               0x0000002b
+#define FILE_DEVICE_VDM                 0x0000002c
+#define FILE_DEVICE_MASS_STORAGE        0x0000002d
 
 //
 // Macro definition for defining IOCTL and FSCTL function control codes.  Note

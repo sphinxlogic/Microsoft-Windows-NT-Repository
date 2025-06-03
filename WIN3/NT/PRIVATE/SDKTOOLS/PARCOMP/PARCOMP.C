@@ -168,6 +168,7 @@ main( int argc, char **argv )
     HANDLE VolumeHandle;
     LARGE_INTEGER BigSectorsOnVolume;
     ULONG SectorsOnVolume, SectorOffset, SectorsToRead, i, Errors;
+    LONG k;
     BOOL PrimaryRead, SecondaryRead, DumpErrors = FALSE;
     ULONG BytesTransferred;
     ULONG StartSector = 0, EndSector = 0;
@@ -182,14 +183,14 @@ main( int argc, char **argv )
     strcat( DriveNameBuffer, "\\\\.\\" );
     strcat( DriveNameBuffer, argv[1] );
 
-    for( i = 2;
-         i < argc;
-         i++ ) {
+    for( k = 2;
+         k < argc;
+         k++ ) {
 
-        if( argv[i][0] == '-' ||
-            argv[i][0] == '/' ) {
+        if( argv[k][0] == '-' ||
+            argv[k][0] == '/' ) {
 
-            switch (argv[i][1]) {
+            switch (argv[k][1]) {
 
             case 'd':
 
@@ -204,7 +205,7 @@ main( int argc, char **argv )
                 //
                 // Specify beginning sector number.
                 //
-                sscanf( argv[i]+2, ":%x", &StartSector );
+                sscanf( argv[k]+2, ":%x", &StartSector );
                 break;
 
             case 'e':
@@ -212,7 +213,7 @@ main( int argc, char **argv )
                 //
                 // Specify beginning sector number.
                 //
-                sscanf( argv[i]+2, ":%x", &EndSector );
+                sscanf( argv[k]+2, ":%x", &EndSector );
                 break;
 
             default:
@@ -287,7 +288,7 @@ main( int argc, char **argv )
     SectorsToRead = 0;
     Errors = 0;
 
-    printf( "Sectors read %8x\b\b\b\b\b\b\b\b", SectorOffset );
+    printf( "Sectors read %8x\b\b\b\b\b\b\b\b", StartSector );
 
     for( SectorOffset = StartSector;
          SectorOffset < EndSector;

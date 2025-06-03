@@ -20,6 +20,10 @@ Revision History :
 
 #include "ndrp.h"
 
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_2" )
+#endif
+
 uchar *
 NdrpMemoryIncrement( 
 	PMIDL_STUB_MESSAGE 	pStubMsg,
@@ -57,6 +61,7 @@ Return :
 		//
 		case FC_STRUCT :
 		case FC_PSTRUCT :
+        case FC_HARD_STRUCT :
     		pMemory += *((ushort *)(pFormat + 2));
 			break;
 
@@ -118,7 +123,7 @@ Return :
 
         case FC_LGFARRAY :
         case FC_LGVARRAY :
-            pMemory += *((ulong UNALIGNED *)(pFormat + 4));
+            pMemory += *((ulong UNALIGNED *)(pFormat + 2));
             break;
 
         case FC_CARRAY:
@@ -179,7 +184,8 @@ Return :
 					pFormat += *((signed short *)pFormat);
 
                 	if ( (*pFormat == FC_TRANSMIT_AS) || 
-					 	 (*pFormat == FC_REPRESENT_AS) )
+					 	 (*pFormat == FC_REPRESENT_AS) ||
+					 	 (*pFormat == FC_USER_MARSHAL) )
 						{
 						//
                     	// Get the presented type size.
@@ -208,6 +214,8 @@ Return :
                         }
 
 			        NDR_ASSERT(0,"NdrpMemoryIncrement : bad format char");
+                    RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                    return 0;
 				}
 
             pMemory += Elements * ElementSize; 
@@ -286,10 +294,11 @@ Return :
             break;
 
 		//
-		// Transmit as and represent as.
+		// Transmit as, represent as, user marshal
 		//
 		case FC_TRANSMIT_AS :
 		case FC_REPRESENT_AS :
+		case FC_USER_MARSHAL :
             // Get the presented type size.
             pMemory += *((ushort *)(pFormat + 4));
 			break;
@@ -311,6 +320,8 @@ Return :
 
 		default :
 			NDR_ASSERT(0,"NdrpMemoryIncrement : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
 		}
 
 	return pMemory;
@@ -461,6 +472,8 @@ Return :
 
 		default :
 			NDR_ASSERT(0,"NdrpArrayElements : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
 		}
 
 	//
@@ -575,6 +588,8 @@ Return :
 
 		default :
 			NDR_ASSERT(0,"NdrpArrayVariance : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
 		}
 }
 
@@ -632,6 +647,8 @@ Return :
 
             default :
                 NDR_ASSERT( 0, "NdrpSkipPointerLayout : bad format char" );
+                RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                return 0;
             }
         }
 }
@@ -678,5 +695,54 @@ Return :
         }
 
     return Length;
+}
+
+void
+NdrpCheckBound(
+    ulong               Bound,
+    int                 Type
+    )
+{
+    ulong   Mask;
+
+    switch ( Type )
+        {
+        case FC_ULONG :
+            //
+            // We use a mask here which will raise an exception for counts
+            // of 2GB or more since this is the max NT allocation size.
+            //
+            Mask = 0x80000000UL;
+            break;
+        case FC_LONG :
+            Mask = 0x80000000UL;
+            break;
+        case FC_USHORT :
+            Mask = 0xffff0000UL;
+            break;
+        case FC_SHORT :
+            Mask = 0xffff8000UL;
+            break;
+        case FC_USMALL :
+            Mask = 0xffffff00UL;
+            break;
+        case FC_SMALL :
+            Mask = 0xffffff80UL;
+            break;
+        case 0 :
+            //
+            // For variance which requires calling an auxilary expression
+            // evaluation routine a type is not emitted in the format string.
+            // We have to just give up.
+            //
+            return;
+        default :
+            NDR_ASSERT( 0, "NdrpCheckBound : bad type" );
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
+        }
+
+    if ( Bound & Mask )
+        RpcRaiseException( RPC_X_INVALID_BOUND );
 }
 

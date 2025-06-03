@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        ACCACC.hxx
 //
 //  Contents:    class encapsulating NT security user ACCACC.

@@ -77,4 +77,3 @@ SHTOINC=$(TOOLS)\h2inc.sed
 
 {$(H)}.h{$(BLT)}.inc:
 	$(SED) -f $(SHTOINC) <$< >$(BLT)\$(@B).inc
-

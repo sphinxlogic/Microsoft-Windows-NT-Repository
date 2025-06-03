@@ -37,6 +37,7 @@ Revision History:
 #include <vdmredir.h>   // common Vdm Redir stuff
 #include <vrmisc.h>     // Vr miscellaneous prototypes
 #include <vrmslot.h>    // Vr mailslot prototypes
+#include <vrnmpipe.h>   // Vr named pipe prototypes
 #include "vrdebug.h"    // debugging stuff
 
 

@@ -31,30 +31,13 @@
  *      F       FExtractDiff(AD *pad, char *szFile, int idae, PTH *pthDiff);
  */
 
-#include <ctype.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "da.h"
-#include "rb.h"
-#include "proto.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private F FCpPmfPmfLcb(P4(MF *pmfDst, MF *pmfSrc, long lcb, DAE *pdae));
 private F FReadDae(P4(MF *pmfDA, PTH *pthDA, DAE *pdae, RB *prb));
 private F FParsDaeLine(P2(char *sz, DAE *pdae));
-
-long atol(P1(char *));
-int  atoi(P1(char *));
 
 static POS posNumberD;
 
@@ -69,7 +52,7 @@ void EnsureDA(pthDA)
 /* Ensure the diff archive exists; create an empty one if none exists. */
 PTH *pthDA;
         {
-        struct stat st;
+        struct _stat st;
 
         if (!FStatPth(pthDA, &st))
                 CreateNow(pthDA, permSysFiles, fxGlobal);

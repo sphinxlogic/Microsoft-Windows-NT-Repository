@@ -42,6 +42,23 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_DEVIOSUP)
 
+#define CollectDiskIoStats(VCB,FUNCTION,IS_USER_IO,COUNT) {                             \
+    PFILESYSTEM_STATISTICS Stats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()];   \
+    if (IS_USER_IO) {                                                                   \
+        if ((FUNCTION) == IRP_MJ_WRITE) {                                               \
+            Stats->UserDiskWrites += (COUNT);                                           \
+        } else {                                                                        \
+            Stats->UserDiskReads += (COUNT);                                            \
+        }                                                                               \
+    } else {                                                                            \
+        if ((FUNCTION) == IRP_MJ_WRITE) {                                               \
+            Stats->MetaDataDiskWrites += (COUNT);                                       \
+        } else {                                                                        \
+            Stats->MetaDataDiskReads += (COUNT);                                        \
+        }                                                                               \
+    }                                                                                   \
+}
+
 //
 // Completion Routine declarations
 //
@@ -125,7 +142,6 @@ FatSingleNonAlignedSync (
 #pragma alloc_text(PAGE, FatWaitSync)
 #pragma alloc_text(PAGE, FatLockUserBuffer)
 #pragma alloc_text(PAGE, FatMapUserBuffer)
-#pragma alloc_text(PAGE, FatToggleMediaEjectDisable)
 #pragma alloc_text(PAGE, FatNonCachedIo)
 #pragma alloc_text(PAGE, FatSingleNonAlignedSync)
 #pragma alloc_text(PAGE, FatNonCachedNonAlignedRead)
@@ -233,7 +249,7 @@ Return Value:
 
         NextIrpSp->MajorFunction = IrpSp->MajorFunction;
         NextIrpSp->Parameters.Read.Length = ByteCount;
-        NextIrpSp->Parameters.Read.ByteOffset = LiFromUlong( NextLbo );
+        NextIrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
 
         //
         //  Since this is Paging file IO, we'll just ignore the verify bit.
@@ -242,7 +258,7 @@ Return Value:
         if (FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE) ||
             (Fcb->Vcb->VerifyThread == KeGetCurrentThread())) {
 
-            SetFlag( IrpSp->Flags, SL_OVERRIDE_VERIFY_VOLUME );
+            SetFlag( NextIrpSp->Flags, SL_OVERRIDE_VERIFY_VOLUME );
         }
 
         //
@@ -413,7 +429,7 @@ Return Value:
 
         NextIrpSp->MajorFunction = IrpSp->MajorFunction;
         NextIrpSp->Parameters.Read.Length = NextByteCount;
-        NextIrpSp->Parameters.Read.ByteOffset = LiFromUlong( Vbo );
+        NextIrpSp->Parameters.Read.ByteOffset.QuadPart = Vbo;
 
         //
         //  We also need the VolumeDeviceObject in the Irp stack in case
@@ -429,7 +445,7 @@ Return Value:
         if (FlagOn(Fcb->FcbState, FCB_STATE_PAGING_FILE) ||
             (Fcb->Vcb->VerifyThread == KeGetCurrentThread())) {
 
-            SetFlag( IrpSp->Flags, SL_OVERRIDE_VERIFY_VOLUME );
+            SetFlag( NextIrpSp->Flags, SL_OVERRIDE_VERIFY_VOLUME );
         }
 
         //
@@ -462,7 +478,7 @@ Return Value:
 
         NextIrpSp->MajorFunction = IrpSp->MajorFunction;
         NextIrpSp->Parameters.Read.Length = NextByteCount;
-        NextIrpSp->Parameters.Read.ByteOffset = LiFromUlong( NextLbo );
+        NextIrpSp->Parameters.Read.ByteOffset.QuadPart = NextLbo;
 
         (VOID)IoCallDriver( DeviceObject, AssocIrp );
 
@@ -570,6 +586,20 @@ Return Value:
     DebugTrace( 0, Dbg, "ByteCount     = %08lx\n", ByteCount );
     DebugTrace( 0, Dbg, "Context       = %08lx\n", Context );
 
+    if (!FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+
+        PFILESYSTEM_STATISTICS Stats =
+            &FcbOrDcb->Vcb->Statistics[KeGetCurrentProcessorNumber()];
+
+        if (IrpContext->MajorFunction == IRP_MJ_READ) {
+            Stats->Fat.NonCachedReads += 1;
+            Stats->Fat.NonCachedReadBytes += ByteCount;
+        } else {
+            Stats->Fat.NonCachedWrites += 1;
+            Stats->Fat.NonCachedWriteBytes += ByteCount;
+        }
+    }
+
     //
     //  Initialize some locals.
     //
@@ -619,12 +649,12 @@ Return Value:
         if ( (StartingVbo == 0) &&
              (NodeType(FcbOrDcb) != FAT_NTC_ROOT_DCB) ) {
 
-            if ( (RtlCompareMemory( (PUCHAR)Dirent++,
+            if ( (!RtlEqualMemory( (PUCHAR)Dirent++,
                                    ".          ",
-                                   11 ) != 11) ||
-                 (RtlCompareMemory( (PUCHAR)Dirent,
+                                   11 )) ||
+                 (!RtlEqualMemory( (PUCHAR)Dirent,
                                    "..         ",
-                                   11 ) != 11) ) {
+                                   11 )) ) {
 
                 FatBugCheck( 0, 0, 0 );
             }
@@ -690,6 +720,21 @@ Return Value:
     //
 
     if ( NextByteCount >= ByteCount ) {
+
+        if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+            CollectDiskIoStats(FcbOrDcb->Vcb, IrpContext->MajorFunction,
+                               FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO), 1);
+        } else {
+
+            PFILESYSTEM_STATISTICS Stats =
+                &FcbOrDcb->Vcb->Statistics[KeGetCurrentProcessorNumber()];
+
+            if (IrpContext->MajorFunction == IRP_MJ_READ) {
+                Stats->Fat.NonCachedDiskReads += 1;
+            } else {
+                Stats->Fat.NonCachedDiskWrites += 1;
+            }
+        }
 
         DebugTrace( 0, Dbg, "Passing Irp on to Disk Driver\n", 0 );
 
@@ -817,6 +862,11 @@ Return Value:
     Irp->IoStatus.Status = STATUS_SUCCESS;
     Irp->IoStatus.Information = OriginalByteCount;
 
+    if (FlagOn(Irp->Flags, IRP_PAGING_IO)) {
+        CollectDiskIoStats(FcbOrDcb->Vcb, IrpContext->MajorFunction,
+                           FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO), NextRun);
+    }
+
     //
     //  OK, now do the I/O.
     //
@@ -906,6 +956,7 @@ Return Value:
 
     PMDL Mdl;
     PMDL SavedMdl;
+    PVOID SavedUserBuffer;
 
     DebugTrace(+1, Dbg, "FatNonCachedNonAlignedRead\n", 0);
     DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp );
@@ -1101,9 +1152,12 @@ Return Value:
         SavedMdl = Irp->MdlAddress;
         Irp->MdlAddress = NULL;
 
-        UserBuffer = MmGetMdlVirtualAddress( SavedMdl );
+        SavedUserBuffer = Irp->UserBuffer;
 
-        Mdl = IoAllocateMdl( UserBuffer + (StartingVbo - OriginalStartingVbo),
+        Irp->UserBuffer = (PUCHAR)MmGetMdlVirtualAddress( SavedMdl ) +
+                          (StartingVbo - OriginalStartingVbo);
+
+        Mdl = IoAllocateMdl( Irp->UserBuffer,
                              ByteCount,
                              FALSE,
                              FALSE,
@@ -1112,12 +1166,13 @@ Return Value:
         if (Mdl == NULL) {
 
             Irp->MdlAddress = SavedMdl;
+            Irp->UserBuffer = SavedUserBuffer;
             FatRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
         }
 
         IoBuildPartialMdl( SavedMdl,
                            Mdl,
-                           UserBuffer + (StartingVbo - OriginalStartingVbo),
+                           Irp->UserBuffer,
                            ByteCount );
 
         //
@@ -1137,6 +1192,7 @@ Return Value:
             IoFreeMdl( Irp->MdlAddress );
 
             Irp->MdlAddress = SavedMdl;
+            Irp->UserBuffer = SavedUserBuffer;
         }
 
     try_exit: NOTHING;
@@ -1333,7 +1389,7 @@ Return Value:
 
             IrpSp->MajorFunction = IrpContext->MajorFunction;
             IrpSp->Parameters.Read.Length = IoRuns[UnwindRunCount].ByteCount;
-            IrpSp->Parameters.Read.ByteOffset = LiFromUlong(IoRuns[UnwindRunCount].Vbo);
+            IrpSp->Parameters.Read.ByteOffset.QuadPart = IoRuns[UnwindRunCount].Vbo;
 
             //
             // Set up the completion routine address in our stack frame.
@@ -1361,7 +1417,7 @@ Return Value:
 
             IrpSp->MajorFunction = IrpContext->MajorFunction;
             IrpSp->Parameters.Read.Length = IoRuns[UnwindRunCount].ByteCount;
-            IrpSp->Parameters.Read.ByteOffset = LiFromUlong(IoRuns[UnwindRunCount].Lbo);
+            IrpSp->Parameters.Read.ByteOffset.QuadPart = IoRuns[UnwindRunCount].Lbo;
 
             //
             //  If this Irp is the result of a WriteThough operation,
@@ -1557,7 +1613,7 @@ Return Value:
 
     IrpSp->MajorFunction = IrpContext->MajorFunction;
     IrpSp->Parameters.Read.Length = ByteCount;
-    IrpSp->Parameters.Read.ByteOffset = LiFromUlong(Lbo);
+    IrpSp->Parameters.Read.ByteOffset.QuadPart = Lbo;
 
     //
     //  If this Irp is the result of a WriteThough operation,
@@ -1724,7 +1780,7 @@ Return Value:
 
     IrpSp->MajorFunction = IrpContext->MajorFunction;
     IrpSp->Parameters.Read.Length = ByteCount;
-    IrpSp->Parameters.Read.ByteOffset = LiFromUlong(Lbo);
+    IrpSp->Parameters.Read.ByteOffset.QuadPart = Lbo;
 
     //
     //  If this I/O originating during FatVerifyVolume, bypass the
@@ -1802,7 +1858,7 @@ Return Value:
     KeWaitForSingleObject( &IrpContext->FatIoContext->Wait.SyncEvent,
                            Executive, KernelMode, FALSE, NULL );
 
-    KeResetEvent( &IrpContext->FatIoContext->Wait.SyncEvent );
+    KeClearEvent( &IrpContext->FatIoContext->Wait.SyncEvent );
 
     DebugTrace(-1, Dbg, "FatWaitSync -> VOID\n", 0 );
 }
@@ -1884,12 +1940,7 @@ Return Value:
     IoFreeMdl( Irp->MdlAddress );
     IoFreeIrp( Irp );
 
-    //
-    //  Use a spin lock to synchronize access to Context->IrpCount.
-    //
-
-    if (ExInterlockedDecrementLong(&Context->IrpCount,
-                                   &FatData.StrucSupSpinLock) == RESULT_ZERO) {
+    if (InterlockedDecrement(&Context->IrpCount) == 0) {
 
         KeSetEvent( &Context->Wait.SyncEvent, 0, FALSE );
     }
@@ -1970,12 +2021,7 @@ Return Value:
         MasterIrp->IoStatus = Irp->IoStatus;
     }
 
-    //
-    //  Use a spin lock to synchronize access to Context->IrpCount.
-    //
-
-    if (ExInterlockedDecrementLong(&Context->IrpCount,
-                                   &FatData.StrucSupSpinLock) == RESULT_ZERO) {
+    if (InterlockedDecrement(&Context->IrpCount) == 0) {
 
         if (NT_SUCCESS(MasterIrp->IoStatus.Status)) {
 
@@ -2464,16 +2510,38 @@ Return Value:
 {
     PIRP Irp;
     KEVENT Event;
+    KIRQL SavedIrql;
     NTSTATUS Status;
     IO_STATUS_BLOCK Iosb;
     PREVENT_MEDIA_REMOVAL Prevent;
+
+    //
+    //  If PreventRemoval is the same as VCB_STATE_FLAG_REMOVAL_PREVENTED,
+    //  no-op this call, otherwise toggle the state of the flag.
+    //
+
+    KeAcquireSpinLock( &FatData.StrucSupSpinLock, &SavedIrql );
+
+    if ((PreventRemoval ^
+         BooleanFlagOn(Vcb->VcbState, VCB_STATE_FLAG_REMOVAL_PREVENTED)) == 0) {
+
+        KeReleaseSpinLock( &FatData.StrucSupSpinLock, SavedIrql );
+
+        return;
+
+    } else {
+
+        Vcb->VcbState ^= VCB_STATE_FLAG_REMOVAL_PREVENTED;
+
+        KeReleaseSpinLock( &FatData.StrucSupSpinLock, SavedIrql );
+    }
 
     Prevent.PreventMediaRemoval = PreventRemoval;
 
     KeInitializeEvent( &Event, NotificationEvent, FALSE );
 
     Irp = IoBuildDeviceIoControlRequest( IOCTL_DISK_MEDIA_REMOVAL,
-                                         Vcb->Vpb->RealDevice,
+                                         Vcb->TargetDeviceObject,
                                          &Prevent,
                                          sizeof(PREVENT_MEDIA_REMOVAL),
                                          NULL,

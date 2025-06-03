@@ -1,4 +1,4 @@
-@echo off
+@if "%_echo%"=="" echo off
 setlocal
 set _comment=%1
 if '%_comment%' == '' set _comment="NTLOCK command script"

@@ -70,7 +70,6 @@ DereferenceWriteBufferLocked(
 #pragma alloc_text(PAGE, RdrFlushWriteBufferForFile)
 #pragma alloc_text(PAGE, RdrTruncateWriteBufferForFcb)
 #pragma alloc_text(PAGE, RdrTruncateWriteBufferForIcb)
-#pragma alloc_text(PAGE, RdrWaitForWriteBehindOperation)
 #pragma alloc_text(PAGE, RdrFindOrAllocateWriteBuffer)
 #pragma alloc_text(PAGE, RdrDereferenceWriteBuffer)
 #pragma alloc_text(PAGE, DereferenceWriteBufferLocked)
@@ -127,32 +126,16 @@ FlushWriteBufferHead(
         // while flush is in progress.
         //
 
-#if RDRDBG_LOG
+#if 0 && RDRDBG_LOG
         {
             //LARGE_INTEGER tick;
             //KeQueryTickCount(&tick);
-            //RdrLog( "ritebhnd", &((PFCB)BufferHead->FileObject->FsContext)->FileName, tick.LowPart, tick.HighPart );
-            RdrLog( "ritebhnd", &((PFCB)BufferHead->FileObject->FsContext)->FileName, Buffer->ByteOffset.LowPart, Buffer->Length );
+            //RdrLog(( "ritebhnd", &((PFCB)BufferHead->FileObject->FsContext)->FileName, 2, tick.LowPart, tick.HighPart ));
+            //RdrLog(( "ritebhnd", &((PFCB)BufferHead->FileObject->FsContext)->FileName, 2, Buffer->ByteOffset.LowPart, Buffer->Length ));
         }
 #endif
 
-        Status = ObReferenceObjectByPointer(BufferHead->FileObject,
-                                                FILE_ALL_ACCESS,
-                                                *IoFileObjectType,
-                                                KernelMode);
-
-        if (!NT_SUCCESS( Status )) {
-            LOCK_WRITE_BUFFER_HEAD( BufferHead );
-
-            dprintf(DPRT_RITEBHND, ("FlushWriteBufferHead: obref failed; requeueing %lx\n", Buffer));
-            InsertHeadList(&BufferHead->FlushList, &Buffer->NextWbBuffer);
-
-            BufferHead->FlushInProgress = FALSE;
-
-            UNLOCK_WRITE_BUFFER_HEAD( BufferHead );
-
-            return Status;
-        }
+        ObReferenceObject(BufferHead->FileObject);
 
         RdrStartAndXBehindOperation(&BufferHead->AndXBehind);
 
@@ -302,17 +285,25 @@ CompleteBufferFlushOperation(
     // Decrement the file object so it can be cleaned up.
     //
 
-#if RDRDBG_LOG
+#if 0 && RDRDBG_LOG
     {
         //LARGE_INTEGER tick;
         //KeQueryTickCount(&tick);
-        //RdrLog( "ritebCMP", &((PFCB)WriteHeader->FileObject->FsContext)->FileName, tick.LowPart, tick.HighPart );
+        //RdrLog(( "ritebCMP", &((PFCB)WriteHeader->FileObject->FsContext)->FileName, 2, tick.LowPart, tick.HighPart ));
     }
 #endif
 
-    ObDereferenceObject( WriteHeader->FileObject );
+    //
+    // End the AndXBehind operation before dereferencing the file object.
+    // The dereference may cause the file object to be closed, and the
+    // processing of the close will need to acquire the FCB lock.  But
+    // RdrFlushCacheFile might be holding the FCB lock while waiting for
+    // AndXBehind operations to complete.
+    //
 
     RdrEndAndXBehindOperation(&WriteHeader->AndXBehind);
+
+    ObDereferenceObject( WriteHeader->FileObject );
 
     FREE_POOL(Context);
     FREE_POOL(Buffer);
@@ -524,18 +515,6 @@ RdrTruncateWriteBufferForIcb (
     dprintf(DPRT_RITEBHND, ("RdrTruncateWriteBufferForIcb %lx done.\n", Icb));
 
     return;
-}
-
-NTSTATUS
-RdrWaitForWriteBehindOperation(
-    IN PICB Icb
-    )
-{
-    PAGED_CODE();
-
-    RdrWaitForAndXBehindOperation(&Icb->u.f.WriteBufferHead.AndXBehind);
-
-    return STATUS_SUCCESS;
 }
 
 PWRITE_BUFFER
@@ -908,9 +887,11 @@ try_exit:NOTHING;
 
             if (!NT_SUCCESS(Status)) {
 #if MAGIC_BULLET
-                RdrSendMagicBullet(NULL);
-                DbgPrint( "RDR: About to raise write behind hard error for ICB %x\n", Icb );
-                DbgBreakPoint();
+                if ( RdrEnableMagic ) {
+                    RdrSendMagicBullet(NULL);
+                    DbgPrint( "RDR: About to raise write behind hard error for ICB %x\n", Icb );
+                    DbgBreakPoint();
+                }
 #endif
                 IoRaiseInformationalHardError(Status,
                                               NULL,
@@ -1021,9 +1002,11 @@ DereferenceWriteBufferLocked(
 
     if (!NT_SUCCESS(Status) && (EventNumber != 0)) {
 #if MAGIC_BULLET
-        RdrSendMagicBullet(NULL);
-        DbgPrint( "RDR: About to raise write behind hard error for write buffer %x\n", WriteBuffer );
-        DbgBreakPoint();
+        if ( RdrEnableMagic ) {
+            RdrSendMagicBullet(NULL);
+            DbgPrint( "RDR: About to raise write behind hard error for write buffer %x\n", WriteBuffer );
+            DbgBreakPoint();
+        }
 #endif
         IoRaiseInformationalHardError(Status,
                                           NULL,

@@ -415,7 +415,6 @@ Return Value:
     PSECURITY_DESCRIPTOR TmpSecurityDescriptor = (PSECURITY_DESCRIPTOR)(&SDBody[0]);
     // FIX, FIX - TEMPORARY ONLY.
 
-    extern POBJECT_TYPE *IoFileObjectType;
     IO_STATUS_BLOCK iosb;
     PFCB fcb;
 

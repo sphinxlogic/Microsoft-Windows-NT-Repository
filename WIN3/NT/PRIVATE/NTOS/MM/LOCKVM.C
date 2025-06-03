@@ -87,11 +87,11 @@ Return Value:
     NTSTATUS Status;
     BOOLEAN WasLocked = FALSE;
     KPROCESSOR_MODE PreviousMode;
-    USHORT Entry;
-    USHORT SwapEntry;
+    ULONG Entry;
+    ULONG SwapEntry;
     ULONG NumberOfAlreadyLocked;
     ULONG NumberToLock;
-    USHORT WorkingSetIndex;
+    ULONG WorkingSetIndex;
 
     PAGED_CODE();
 
@@ -258,7 +258,7 @@ Return Value:
 
             ASSERT (WorkingSetIndex != WSLE_NULL_INDEX);
 
-            if (WorkingSetIndex < (USHORT)MmWorkingSetList->FirstDynamic) {
+            if (WorkingSetIndex < MmWorkingSetList->FirstDynamic) {
 
                 //
                 // This page is locked in the working set.
@@ -385,35 +385,17 @@ Return Value:
         PointerPte1 = MiGetPteAddress (Va);
         Pfn1 = MI_PFN_ELEMENT (PointerPte1->u.Hard.PageFrameNumber);
 
-#if 0
-        Entry = MiLocateWsleAndParent (Va,
-                                       &Parent,
-                                       MmWorkingSetList,
-                                       Pfn1->u1.WsIndex);
-#endif //0
         Entry = MiLocateWsle (Va, MmWorkingSetList, Pfn1->u1.WsIndex);
 
-        if (Entry >= (USHORT)MmWorkingSetList->FirstDynamic) {
+        if (Entry >= MmWorkingSetList->FirstDynamic) {
 
-            SwapEntry = (USHORT)MmWorkingSetList->FirstDynamic;
+            SwapEntry = MmWorkingSetList->FirstDynamic;
 
-            if (Entry != (USHORT)MmWorkingSetList->FirstDynamic) {
+            if (Entry != MmWorkingSetList->FirstDynamic) {
 
                 //
                 // Swap this entry with the one at first dynamic.
                 //
-
-#if 0
-                MiSwapWslEntries (Entry,
-                                  Parent,
-                                  SwapEntry,
-                                  MmWorkingSetList);
-#if DBG
-                if (Parent == WSLE_NULL_INDEX) {
-                    ASSERT (Pfn1->u1.WsIndex == SwapEntry);
-                }
-#endif //DBG
-#endif //0
 
                 MiSwapWslEntries (Entry, SwapEntry, &TargetProcess->Vm);
             }
@@ -476,8 +458,6 @@ Return Value:
 
     return STATUS_SUCCESS;
 
-    {
-
 ErrorReturn:
         UNLOCK_WS (TargetProcess);
 ErrorReturn1:
@@ -485,7 +465,6 @@ ErrorReturn1:
         KeDetachProcess();
         ObDereferenceObject (TargetProcess);
         return Status;
-    }
 }
 
 NTSTATUS
@@ -546,7 +525,7 @@ Return Value:
     PEPROCESS TargetProcess;
     NTSTATUS Status;
     KPROCESSOR_MODE PreviousMode;
-    USHORT Entry;
+    ULONG Entry;
     PMMPTE PointerPte;
     PMMPFN Pfn1;
 
@@ -711,7 +690,7 @@ Return Value:
                 // set.
                 //
 
-                MiTakePageFromWorkingSet ((USHORT)Entry,
+                MiTakePageFromWorkingSet (Entry,
                                           &TargetProcess->Vm,
                                           PointerPte);
 
@@ -756,12 +735,6 @@ Return Value:
         PointerPte = MiGetPteAddress (Va);
         ASSERT (PointerPte->u.Hard.Valid == 1);
         Pfn1 = MI_PFN_ELEMENT (PointerPte->u.Hard.PageFrameNumber);
-#if 0
-        Entry = MiLocateWsleAndParent (Va,
-                                       &Parent,
-                                       MmWorkingSetList,
-                                       Pfn1->u1.WsIndex);
-#endif //0
         Entry = MiLocateWsle (Va, MmWorkingSetList, Pfn1->u1.WsIndex);
 
         if (MapType & MAP_PROCESS) {
@@ -782,27 +755,15 @@ Return Value:
 
             MmWorkingSetList->FirstDynamic -= 1;
 
-            if (Entry != (USHORT)MmWorkingSetList->FirstDynamic) {
+            if (Entry != MmWorkingSetList->FirstDynamic) {
 
                 //
                 // Swap this element with the last locked page, making
                 // this element the new first dynamic entry.
                 //
 
-#if 0
                 MiSwapWslEntries (Entry,
-                                  Parent,
-                                  (USHORT)MmWorkingSetList->FirstDynamic,
-                                  MmWorkingSetList);
-#if DBG
-                if (Parent == WSLE_NULL_INDEX) {
-                    ASSERT (Pfn1->u1.WsIndex == MmWorkingSetList->FirstDynamic);
-                }
-#endif //DBG
-#endif //0
-
-                MiSwapWslEntries (Entry,
-                                  (USHORT)MmWorkingSetList->FirstDynamic,
+                                  MmWorkingSetList->FirstDynamic,
                                   &TargetProcess->Vm);
             }
         }
@@ -837,7 +798,6 @@ Return Value:
 
     return STATUS_SUCCESS;
 
-    {
 ErrorReturn:
 
         UNLOCK_WS (TargetProcess);
@@ -845,7 +805,6 @@ ErrorReturn:
         KeDetachProcess();
         ObDereferenceObject (TargetProcess);
         return Status;
-    }
 }
 
 

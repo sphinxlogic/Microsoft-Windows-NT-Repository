@@ -787,5 +787,4 @@ void ContinueClipboardTest1( LPOUTLINEAPP lpOutlineApp );
 
 
 #endif // _OUTLINE_H_
-
-
+

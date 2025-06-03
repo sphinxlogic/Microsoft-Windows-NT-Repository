@@ -14,6 +14,9 @@ Revision History:
 
 --*/
 
+#ifndef _PCI_
+#define _PCI_
+
 // begin_ntddk
 
 //
@@ -70,7 +73,9 @@ typedef struct _PCI_COMMON_CONFIG {
     union {
         struct _PCI_HEADER_TYPE_0 {
             ULONG   BaseAddresses[PCI_TYPE0_ADDRESSES];
-            ULONG   Reserved1[2];
+            ULONG   CIS;
+            USHORT  SubVendorID;
+            USHORT  SubSystemID;
             ULONG   ROMBaseAddress;
             ULONG   Reserved2[2];
 
@@ -213,17 +218,17 @@ typedef struct _PCI_REGISTRY_INFO {
 } PCI_REGISTRY_INFO, *PPCI_REGISTRY_INFO;
 
 //
-// PCI definitations for IOBase & IOLimit
+// PCI definitions for IOBase & IOLimit
 // PCIBridgeIO2Base(a,b)  - convert IOBase  & IOBaseUpper16 to ULONG IOBase
 // PCIBridgeIO2Limit(a,b) - convert IOLimit & IOLimitUpper6 to ULONG IOLimit
 //
 
 #define PciBridgeIO2Base(a,b)   \
-        ( ((a >> 4) << 12) + (((a & 0xf) == 1) ? b : 0) )
+        ( ((a >> 4) << 12) + (((a & 0xf) == 1) ? (b << 16) : 0) )
 
 #define PciBridgeIO2Limit(a,b)  (PciBridgeIO2Base(a,b) | 0xfff)
 
-#define PciBridgeMemory2Base(a)  ((a & 0xfff0) << 16)
+#define PciBridgeMemory2Base(a)  (ULONG) ((a & 0xfff0) << 16)
 #define PciBridgeMemory2Limit(a) (PciBridgeMemory2Base(a) | 0xfffff)
 
 //
@@ -324,3 +329,51 @@ typedef struct _PCI_TYPE1_CFG_CYCLE_BITS {
         ULONG   AsULONG;
     } u;
 } PCI_TYPE1_CFG_CYCLE_BITS, *PPCI_TYPE1_CFG_CYCLE_BITS;
+
+
+//
+// Portable portion of HAL & HAL bus extender definitions for BUSHANDLER
+// BusData for installed PCI buses.
+//
+
+typedef VOID
+(*PciPin2Line) (
+    IN struct _BUS_HANDLER  *BusHandler,
+    IN struct _BUS_HANDLER  *RootHandler,
+    IN PCI_SLOT_NUMBER      SlotNumber,
+    IN PPCI_COMMON_CONFIG   PciData
+    );
+
+typedef VOID
+(*PciLine2Pin) (
+    IN struct _BUS_HANDLER  *BusHandler,
+    IN struct _BUS_HANDLER  *RootHandler,
+    IN PCI_SLOT_NUMBER      SlotNumber,
+    IN PPCI_COMMON_CONFIG   PciNewData,
+    IN PPCI_COMMON_CONFIG   PciOldData
+    );
+
+typedef VOID
+(*PciReadWriteConfig) (
+    IN struct _BUS_HANDLER *BusHandler,
+    IN PCI_SLOT_NUMBER Slot,
+    IN PVOID Buffer,
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+#define PCI_DATA_TAG            ' ICP'
+#define PCI_DATA_VERSION        1
+
+typedef struct _PCIBUSDATA {
+    ULONG                   Tag;
+    ULONG                   Version;
+    PciReadWriteConfig      ReadConfig;
+    PciReadWriteConfig      WriteConfig;
+    PciPin2Line             Pin2Line;
+    PciLine2Pin             Line2Pin;
+    PCI_SLOT_NUMBER         ParentSlot;
+    PVOID                   Reserved[4];
+} PCIBUSDATA, *PPCIBUSDATA;
+
+#endif

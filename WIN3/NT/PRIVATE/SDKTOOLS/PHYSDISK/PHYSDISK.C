@@ -96,7 +96,7 @@ int MyGetChr( void )
             ;
         return c;
     } else {
-        return getch();
+        return _getch();
     }
 }
 
@@ -398,7 +398,7 @@ _CRTAPI1 main(
         break;
 
     case 3:
-        if (strcmp(strupr(ArgS[2]), "/E") == 0) {
+        if (strcmp(_strupr(ArgS[2]), "/E") == 0) {
                 modify = TRUE;
             fprintf(stderr,
                 "Warning: Opening drive %s for write access!\n", ArgS[1]);
@@ -766,4 +766,3 @@ _CRTAPI1 main(
 
     exit(0);
 }
-

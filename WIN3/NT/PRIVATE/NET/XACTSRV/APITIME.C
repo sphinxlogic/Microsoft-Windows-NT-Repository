@@ -76,8 +76,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(TIME) {
-        NetpDbgPrint( "XsNetRemoteTOD: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsNetRemoteTOD: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -90,8 +90,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetRemoteTOD: NetRemoteTOD failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetRemoteTOD: NetRemoteTOD failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -123,8 +123,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetRemoteTOD: RapConvertSingleEntry failed: "
-                      "%X\n", status );
+            NetpKdPrint(( "XsNetRemoteTOD: RapConvertSingleEntry failed: "
+                      "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -132,9 +132,9 @@ Return Value:
     }
 
     IF_DEBUG(TIME) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       &timeOfDay, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -149,7 +149,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetRemoteTOD: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetRemoteTOD: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 

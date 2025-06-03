@@ -1,24 +1,25 @@
-/** 	DUMPTYPE.C
- *
- *		Everything concerning TYPES.
- */
+/***********************************************************************
+* Microsoft (R) Debugging Information Dumper
+*
+* Copyright (C) Microsoft Corp 1987-1995. All rights reserved.
+*
+* File: dumptyp6.c
+*
+* File Comments:
+*
+***********************************************************************/
 
 #include <stdio.h>
-#include <io.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <malloc.h>
-#include <memory.h>
-
-#include "port1632.h"
 
 #include "cvdef.h"
 #include "cvinfo.h"
 #include "cvexefmt.h"
 #include "cvdump.h" 		   // Miscellaneous definitions
 
-static char *nametype[] =		// The primitive types
-  {
+static const char * const nametype[] =               // The primitive types
+{
 	"CHAR", 	//	0	 8 bit signed
 	"SHORT",	//	1	16 bit signed
 	"LONG", 	//	2	32 bit signed
@@ -150,7 +151,7 @@ static char *nametype[] =		// The primitive types
 #define T_ABS		0x0001		// absolute symbol
 #define T_SEGMENT	0x0002		// segment symbol
 
-char *TypName (ushort typ)
+const char *SzNameType(ushort typ)
 {
     static char		buf[16];
 

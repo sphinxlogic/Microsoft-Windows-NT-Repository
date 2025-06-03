@@ -25,7 +25,18 @@ Revision History:
 
 --*/
 
+#if defined(NTOS_KERNEL_RUNTIME)
 #include "ntos.h"
+#else
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+#endif
+
+#if DBG && !defined(NTOS_KERNEL_RUNTIME)
+extern PVOID NtDllBase;             // defined in ntos\dll\ldrinit.c
+#endif
+
 
 PVOID
 RtlPcToFileHeader(
@@ -72,7 +83,6 @@ Return Value:
     ULONG Bounds;
     PLDR_DATA_TABLE_ENTRY Entry;
     PLIST_ENTRY Next;
-    PIMAGE_NT_HEADERS NtHeaders;
     KIRQL OldIrql;
 
     //
@@ -90,8 +100,7 @@ Return Value:
 
             Next = Next->Flink;
             Base = Entry->DllBase;
-            NtHeaders = RtlImageNtHeader(Base);
-            Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
+            Bounds = (ULONG)Base + Entry->SizeOfImage;
             if (((ULONG)PcValue >= (ULONG)Base) && ((ULONG)PcValue < Bounds)) {
                 ExReleaseSpinLock(&PsLoadedModuleSpinLock, OldIrql);
                 *BaseOfImage = Base;
@@ -118,14 +127,49 @@ Return Value:
     PIMAGE_NT_HEADERS NtHeaders;
     PPEB Peb;
     PTEB Teb;
+    MEMORY_BASIC_INFORMATION MemInfo;
+    NTSTATUS st;
 
     //
-    // Acquire the PEB lock for the current process and scan the loaded
+    // Acquire the Loader lock for the current process and scan the loaded
     // module list for the specified PC value if all the data structures
     // have been initialized.
     //
 
-    RtlAcquirePebLock();
+    if ( !RtlTryEnterCriticalSection((PRTL_CRITICAL_SECTION)NtCurrentPeb()->LoaderLock) ) {
+
+        //
+        // We could not get the loader lock, so call the system to find the image that
+        // contains this pc
+        //
+
+        st = NtQueryVirtualMemory(
+                NtCurrentProcess(),
+                PcValue,
+                MemoryBasicInformation,
+                (PVOID)&MemInfo,
+                sizeof(MemInfo),
+                NULL
+                );
+        if ( !NT_SUCCESS(st) ) {
+            MemInfo.AllocationBase = NULL;;
+            }
+        else {
+            if ( MemInfo.Type == MEM_IMAGE ) {
+                try {
+                    *BaseOfImage = MemInfo.AllocationBase;
+                    }
+                except (EXCEPTION_EXECUTE_HANDLER) {
+                    MemInfo.AllocationBase = NULL;
+                    }
+                }
+            else {
+                MemInfo.AllocationBase = NULL;;
+                }
+            }
+        return MemInfo.AllocationBase;
+        }
+
     try {
         Teb = NtCurrentTeb();
         if (Teb != NULL) {
@@ -144,12 +188,43 @@ Return Value:
                         NtHeaders = RtlImageNtHeader(Base);
                         Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
                         if (((ULONG)PcValue >= (ULONG)Base) && ((ULONG)PcValue < Bounds)) {
-                            RtlReleasePebLock();
+                            RtlLeaveCriticalSection((PRTL_CRITICAL_SECTION)NtCurrentPeb()->LoaderLock);
                             *BaseOfImage = Base;
                             return Base;
                         }
                     }
                 }
+
+#if DBG
+
+            } else {
+
+                //
+                //  ( Peb->Ldr == NULL )
+                //
+                //  If called during process intialization before the Ldr
+                //  module list has been setup, code executing must be in
+                //  NTDLL module.  If NtDllBase is non-NULL and the PcValue
+                //  falls into the NTDLL range, return a valid Base.  This
+                //  allows DbgPrint's during LdrpInitializeProcess to work
+                //  on RISC machines.  Since we really only need DbgPrints
+                //  on DBG builds, only defined this code for DBG to keep
+                //  retail code smaller.
+                //
+
+                if ( NtDllBase != NULL ) {
+                    Base = NtDllBase;
+                    NtHeaders = RtlImageNtHeader( Base );
+                    Bounds = (ULONG)Base + NtHeaders->OptionalHeader.SizeOfImage;
+                    if (((ULONG)PcValue >= (ULONG)Base) && ((ULONG)PcValue < Bounds)) {
+                        RtlLeaveCriticalSection((PRTL_CRITICAL_SECTION)NtCurrentPeb()->LoaderLock);
+                        *BaseOfImage = Base;
+                        return Base;
+                    }
+                }
+
+#endif // DBG
+
             }
         }
 
@@ -158,10 +233,10 @@ Return Value:
     }
 
     //
-    // Release the PEB lock for the current process a return NULL.
+    // Release the Loader lock for the current process a return NULL.
     //
 
-    RtlReleasePebLock();
+    RtlLeaveCriticalSection((PRTL_CRITICAL_SECTION)NtCurrentPeb()->LoaderLock);
     *BaseOfImage = NULL;
     return NULL;
 

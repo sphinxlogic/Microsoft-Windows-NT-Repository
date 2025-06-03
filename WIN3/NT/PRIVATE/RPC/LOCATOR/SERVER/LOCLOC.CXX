@@ -4,7 +4,7 @@ Copyright (c) 1992 Microsoft Corporation
 
 Module Name:
 
-   locloc.cxx 
+   locloc.cxx
 
 Abstract:
 
@@ -22,25 +22,23 @@ Author:
 extern NSI_INTERFACE_ID_T NilNsiIfIdOnWire;
 
 
-defModule
-
 extern "C" {
 #include "loctoloc.h"
 }
 #include "mailslot.hxx"
 
-void 
+void
 I_nsi_lookup_begin(
-	handle_t hrpcPrimaryLocatorHndl,
-	UNSIGNED32 EntryNameSyntax,
-	STRING_T EntryName,
-	NSI_SYNTAX_ID_T * Interface,
-	NSI_SYNTAX_ID_T * XferSyntax,
-	NSI_UUID_P_T Object,
-	UNSIGNED32 VectorSize,
-	UNSIGNED32 ignore,
-	NSI_NS_HANDLE_T *InqContext,
-	UNSIGNED16 *status)
+    handle_t hrpcPrimaryLocatorHndl,
+    UNSIGNED32 EntryNameSyntax,
+    STRING_T EntryName,
+    NSI_SYNTAX_ID_T * Interface,
+    NSI_SYNTAX_ID_T * XferSyntax,
+    NSI_UUID_P_T Object,
+    UNSIGNED32 VectorSize,
+    UNSIGNED32 ignore,
+    NSI_NS_HANDLE_T *InqContext,
+    UNSIGNED16 *status)
 /*++
 Routine Description:
 
@@ -57,7 +55,7 @@ Returns:
 
     if (hrpcPrimaryLocatorHndl) ;
 
-    if (EntryNameSyntax != RPC_C_NS_SYNTAX_DCE) 
+    if (EntryNameSyntax != RPC_C_NS_SYNTAX_DCE)
        {
         *status = NSI_S_UNSUPPORTED_NAME_SYNTAX;
         return;
@@ -74,7 +72,7 @@ Returns:
         (Interface)? (NS_SYNTAX_ID *) Interface: &NilSyntaxID,
         (XferSyntax)? (NS_SYNTAX_ID *) XferSyntax: &NilSyntaxID,
         (Object)? (NS_UUID *) Object: &NilGlobalID,
-        NS_PUBLIC_INTERFACE | NS_CACHED_ON_MASTER_INTERFACE, 
+        NS_PUBLIC_INTERFACE | NS_CACHED_ON_MASTER_INTERFACE,
         status);
 
     if (!TheQuery)
@@ -91,7 +89,7 @@ Returns:
     REPLY_SERVER_ITEM *ReplyServer = new
         REPLY_SERVER_ITEM(TheQuery, TRUE, VectorSize);
 
-    if (!ReplyServer) 
+    if (!ReplyServer)
        {
         delete TheQuery;
         *status = NSI_S_OUT_OF_MEMORY;
@@ -124,9 +122,9 @@ Returns:
 
 void
 I_nsi_lookup_done(
-	handle_t hrpcPrimaryLocatorHndl,
-	NSI_NS_HANDLE_T *InqContext,
-	UNSIGNED16 *status)
+    handle_t hrpcPrimaryLocatorHndl,
+    NSI_NS_HANDLE_T *InqContext,
+    UNSIGNED16 *status)
 /*++
 
 Routine Description:
@@ -165,10 +163,10 @@ Returns:
 
 void
 I_nsi_lookup_next(
-	handle_t hrpcPrimaryLocatorHndl,
-	NSI_NS_HANDLE_T InqContext,
-	NSI_BINDING_VECTOR_P_T *BindingVectorOut,
-	UNSIGNED16 *status)
+    handle_t hrpcPrimaryLocatorHndl,
+    NSI_NS_HANDLE_T InqContext,
+    NSI_BINDING_VECTOR_P_T *BindingVectorOut,
+    UNSIGNED16 *status)
 /*++
 
 Routine Description:
@@ -234,7 +232,7 @@ Returns:
     BindingVector->count = 0;
     *BindingVectorOut = BindingVector;
 
-    while ( BindingVector->count < ReplyServer->TheVectorSize()  
+    while ( BindingVector->count < ReplyServer->TheVectorSize()
            && (EntryServer = ReplyServer->NextBindingAndObject(&Object)) )
          {
 
@@ -242,7 +240,7 @@ Returns:
 
         SizeBinding = EntryServer->TheStringBinding().cCur();
 
-	BindingVector->binding[BindingVector->count].string =
+    BindingVector->binding[BindingVector->count].string =
             new UICHAR [SizeBinding];
 
         if (!BindingVector->binding[BindingVector->count].string) {
@@ -255,10 +253,10 @@ Returns:
         CatUZ(BindingVector->binding[BindingVector->count].string,
               EntryServer->TheStringBinding().pCur());
 
-	BindingVector->binding[BindingVector->count].entry_name =
+    BindingVector->binding[BindingVector->count].entry_name =
             EntryServer->TheEntry().CopyName();
 
-	if (!BindingVector->binding[BindingVector->count].entry_name) {
+    if (!BindingVector->binding[BindingVector->count].entry_name) {
             delete BindingVector->binding[BindingVector->count].string;
             *status = NSI_S_OUT_OF_MEMORY;
             return;
@@ -318,7 +316,7 @@ Returns:
 
     *status = NSI_S_OK;
     *uuid_vector = (NSI_UUID_VECTOR_P_T )
-                    new char [ 
+                    new char [
                      sizeof(NSI_UUID_VECTOR_T) +
                      MAX_OBJECT_SIZE * sizeof(NSI_UUID_P_T)
                      ];
@@ -353,7 +351,7 @@ I_nsi_ping_locator(
        error_status_t * Status
        )
 {
-   if (h); 
+   if (h);
 
    *Status = 0;
 }

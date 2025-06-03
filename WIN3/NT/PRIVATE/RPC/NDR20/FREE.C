@@ -25,7 +25,8 @@ Revision History :
 //
 // Free routine table.
 //
-PFREE_ROUTINE	pfnFreeRoutines[] = 
+const
+PFREE_ROUTINE	FreeRoutinesTable[] = 
 				{
 				NdrPointerFree,
 				NdrPointerFree,
@@ -69,8 +70,27 @@ PFREE_ROUTINE	pfnFreeRoutines[] =
 				NdrXmitOrRepAsFree,		    // represent as
 
 				NdrInterfacePointerFree,
-                0                           // Context handle
+
+                0,                          // Context handle
+
+                // New Post NT 3.5 token serviced from here on.
+
+                NdrHardStructFree,
+
+                NdrXmitOrRepAsFree,  // transmit as ptr
+                NdrXmitOrRepAsFree,  // represent as ptr
+
+                NdrUserMarshalFree
+
 				};
+
+const
+PFREE_ROUTINE * pfnFreeRoutines = &FreeRoutinesTable[-FC_RP];
+
+
+#if defined( DOS ) && !defined( WIN )
+#pragma code_seg( "NDR20_1" )
+#endif
 
 void RPC_ENTRY
 NdrPointerFree( 
@@ -81,7 +101,9 @@ NdrPointerFree(
 
 Routine Description :
 
-	Frees a pointer to anything.
+	Frees a top level or embedded pointer to anything.
+
+    Used for FC_RP, FC_UP, FC_FP, FC_OP.
 
 Arguments :
 
@@ -96,7 +118,9 @@ Return :
 --*/
 {
 	PFORMAT_STRING	pFormatPointee;
-	uchar *pMemoryPointee = pMemory;
+	uchar *         pMemoryPointee;
+
+    pMemoryPointee = pMemory;
 
     if ( ! pMemory )
         return;
@@ -111,12 +135,21 @@ Return :
 			return;
 		}
 
+    if ( pFormat[1] == 0 )
+        goto FreeEmbeddedPointers;
+
 	//
 	// Check if this pointer and any possible embedded pointers should not
 	// be freed.
 	//
 	if ( DONT_FREE(pFormat[1]) )
 		return;
+
+	// 
+	// Just go free a pointer to a simple type.
+	//
+	if ( SIMPLE_POINTER(pFormat[1]) ) 
+        goto FreeTopPointer;
 
 	// 
 	// Check if this is an allocate all nodes pointer.  
@@ -127,28 +160,23 @@ Return :
 	if ( ALLOCATE_ALL_NODES(pFormat[1]) )
 		goto FreeTopPointer;
 
-	// 
-	// Check if this is a pointer to a complex type.
+    if ( POINTER_DEREF(pFormat[1]) )
+        pMemoryPointee = *((uchar **)pMemory);
+
+FreeEmbeddedPointers:
+
+	pFormatPointee = pFormat + 2;
+	pFormatPointee += *((signed short *)pFormatPointee);
+
 	//
-	if ( ! SIMPLE_POINTER(pFormat[1]) ) 
+	// Call the correct free routine if one exists for this type.
+	//
+	if ( pfnFreeRoutines[ROUTINE_INDEX(*pFormatPointee)] )
 		{
-		pFormatPointee = pFormat + 2;
-
-		pFormatPointee += *((signed short *)pFormatPointee);
-
-        if ( POINTER_DEREF(pFormat[1]) )
-            pMemoryPointee = *((uchar **)pMemory);
-
-		//
-		// Call the correct free routine if one exists for this type.
-		//
-		if ( pfnFreeRoutines[ROUTINE_INDEX(*pFormatPointee)] )
-			{
-			(*pfnFreeRoutines[ROUTINE_INDEX(*pFormatPointee)])
-			( pStubMsg,
-		  	  pMemoryPointee,
-		  	  pFormatPointee );
-			}
+		(*pfnFreeRoutines[ROUTINE_INDEX(*pFormatPointee)])
+		( pStubMsg,
+	  	  pMemoryPointee,
+	  	  pFormatPointee );
 		}
 
 FreeTopPointer:
@@ -173,6 +201,7 @@ FreeTopPointer:
         }
 }
 
+
 void RPC_ENTRY
 NdrSimpleStructFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -184,6 +213,8 @@ Routine Description :
 
 	Frees a simple structure's embedded pointers which were allocated during 
 	a remote call.  
+
+    Used for FC_STRUCT and FC_PSTRUCT.
 
 Arguments :
 
@@ -205,6 +236,7 @@ Return :
 		}
 }
 
+
 void RPC_ENTRY
 NdrConformantStructFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -216,6 +248,8 @@ Routine Description :
 
 	Frees a conformant structure's embedded pointers which were allocated 
 	during a remote call.
+
+    Used for FC_CSTRUCT and FC_CPSTRUCT.
 
 Arguments :
 
@@ -252,6 +286,7 @@ Return :
 			  				 pFormat + 6 );
 }
 
+
 void RPC_ENTRY
 NdrConformantVaryingStructFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -263,6 +298,8 @@ Routine Description :
 
 	Frees a conformant varying structure's embedded pointers which were 
 	allocated during a remote call.  
+
+    Used for FC_CVSTRUCT.
 
 Arguments :
 
@@ -304,6 +341,48 @@ Return :
 			  				 pFormat + 6 );
 }
 
+
+void RPC_ENTRY
+NdrHardStructFree( 
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	uchar *				pMemory,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Frees a hard structure's embedded pointers which were allocated during 
+	a remote call.  
+
+    Used for FC_HARD_STRUCT.
+
+Arguments :
+
+	pStubMsg	- Pointer to the stub message.
+	pMemory		- Pointer to be freed.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	None.
+
+--*/
+{
+    if ( *((short *)&pFormat[14]) )
+        {
+        pFormat += 12;
+
+        pMemory += *((ushort *)pFormat)++;
+
+        pFormat += *((short *)pFormat);
+
+        (*pfnFreeRoutines[ROUTINE_INDEX(*pFormat)])( pStubMsg,
+                                                     pMemory,
+                                                     pFormat );
+        }
+}
+
+
 void RPC_ENTRY
 NdrComplexStructFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -315,6 +394,8 @@ Routine Description :
 
 	Frees a complex structure's embedded pointers which were allocated during 
 	a remote call.  
+
+    Used for FC_BOGUS_STRUCT.
 
 Arguments :
 
@@ -441,19 +522,19 @@ Return :
                 break;
 
             case FC_ALIGNM4 :
-                #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
-                    //
-                    // We have to play some tricks for the dos and win16
-                    // to handle the case when an 4 byte aligned structure
-                    // is passed by value.  The alignment of the struct on
-                    // the stack is not guaranteed to be on an 4 byte boundary.
-                    //
-                    pMemory -= Align4Mod;
-                    ALIGN( pMemory, 0x3 );
-                    pMemory += Align4Mod;
-                #else
-                    ALIGN( pMemory, 0x3 );
-                #endif
+#if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
+                //
+                // We have to play some tricks for the dos and win16
+                // to handle the case when an 4 byte aligned structure
+                // is passed by value.  The alignment of the struct on
+                // the stack is not guaranteed to be on an 4 byte boundary.
+                //
+                pMemory -= Align4Mod;
+                ALIGN( pMemory, 0x3 );
+                pMemory += Align4Mod;
+#else
+                ALIGN( pMemory, 0x3 );
+#endif
 
                 break;
 
@@ -494,7 +575,8 @@ Return :
 
             default :
                 NDR_ASSERT(0,"NdrComplexStructFree : bad format char");
-
+                RpcRaiseException( RPC_S_INTERNAL_ERROR );
+                return;
             } // switch
 		} // for
 
@@ -539,6 +621,7 @@ ComplexFreeEnd :
 	pStubMsg->Memory = pMemorySave;
 }
 
+
 void RPC_ENTRY
 NdrFixedArrayFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -550,6 +633,8 @@ Routine Description :
 
 	Frees a fixed array's embedded pointers which were allocated during 
 	a remote call.  
+
+    Used for FC_SMFARRAY and FC_LGFARRAY.
 
 Arguments :
 
@@ -581,6 +666,7 @@ Return :
 			  	  				 pFormat ); 
 }
 
+
 void RPC_ENTRY
 NdrConformantArrayFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -590,8 +676,11 @@ NdrConformantArrayFree(
 
 Routine Description :
 
-	Frees a conformant array's embedded pointers which were allocated during 
-	a remote call.  
+	Frees a one dimensional conformant array's embedded pointers which were 
+    allocated during a remote call.  Called for both top level and embedded
+    conformant arrays.
+
+    Used for FC_CARRAY.
 
 Arguments :
 
@@ -624,6 +713,7 @@ Return :
 		}
 }
 
+
 void RPC_ENTRY
 NdrConformantVaryingArrayFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -633,8 +723,11 @@ NdrConformantVaryingArrayFree(
 
 Routine Description :
 
-	Frees a conformant varying array's embedded pointers which were allocated 
-	during a remote call.  
+	Frees a one dimensional conformant varying array's embedded pointers which 
+    were allocated during a remote call.  Called for both top level and 
+    embedded conformant varying arrays.
+
+    Used for FC_CVARRAY.
 
 Arguments :
 
@@ -676,6 +769,7 @@ Return :
 		}
 }
 
+
 void RPC_ENTRY
 NdrVaryingArrayFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -686,7 +780,11 @@ NdrVaryingArrayFree(
 Routine Description :
 
 	Frees a varying array's embedded pointers which were allocated 
-	during a remote call.  
+	during a remote call.  Called for both top level and embedded varying
+    arrays.
+
+
+    Used for FC_SMVARRAY and FC_LGVARRAY.
 
 Arguments :
 
@@ -731,6 +829,7 @@ Return :
 		}
 }
 
+
 void RPC_ENTRY
 NdrComplexArrayFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -740,8 +839,11 @@ NdrComplexArrayFree(
 
 Routine Description :
 
-	Frees a varying array's embedded pointers which were allocated 
-	during a remote call.  
+	Frees a complex array's embedded pointers which were allocated 
+	during a remote call.  Called for both top level and embedded complex
+    arrays.
+
+    Used for FC_BOGUS_STRUCT.
 
 Arguments :
 
@@ -918,6 +1020,7 @@ ComplexArrayFreeEnd:
     pStubMsg->pArrayInfo = (Dimension == 0) ? 0 : pArrayInfo;
 }
 
+
 void RPC_ENTRY
 NdrEncapsulatedUnionFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -929,6 +1032,8 @@ Routine Description :
 
 	Frees an encapsulated union's embedded pointers which were allocated 
 	during a remote call.  
+
+    Used for FC_ENCAPSULATED_UNION.
 
 Arguments :
 
@@ -946,28 +1051,38 @@ Return :
 
     switch ( LOW_NIBBLE(pFormat[1]) )
         {
-		case FC_BYTE :
-        case FC_CHAR :
         case FC_SMALL :
+        case FC_CHAR :
             SwitchIs = (long) *((char *)pMemory);
             break;
         case FC_USMALL :
             SwitchIs = (long) *((uchar *)pMemory);
             break;
+
+        case FC_ENUM16 :
+            #if defined(__RPC_MAC__)
+                SwitchIs = (long) *((short *)(pMemory+2));
+                break;
+            #endif
+            // non-Mac: fall to short
+
         case FC_SHORT :
-		case FC_ENUM16 :
             SwitchIs = (long) *((short *)pMemory);
             break;
-		case FC_WCHAR :
+
 		case FC_USHORT :
+        case FC_WCHAR :
             SwitchIs = (long) *((ushort *)pMemory);
             break;
         case FC_LONG :
-		case FC_ENUM32 :
+		case FC_ULONG :
+        case FC_ENUM32 :
             SwitchIs = *((long *)pMemory);
             break;
 		default :
             NDR_ASSERT(0,"NdrEncapsulatedUnionFree : bad switch type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
         }
 
 	// Increment memory pointer to the union.
@@ -979,6 +1094,7 @@ Return :
                    SwitchIs );
 }
 
+
 void RPC_ENTRY
 NdrNonEncapsulatedUnionFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -990,6 +1106,8 @@ Routine Description :
 
 	Frees a non-encapsulated union's embedded pointers which were allocated 
 	during a remote call.  
+
+    Used for FC_NON_ENCAPSULATED_UNION.
 
 Arguments :
 
@@ -1021,6 +1139,7 @@ Return :
                    SwitchIs );
 }
 
+
 void 
 NdrpUnionFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -1031,8 +1150,9 @@ NdrpUnionFree(
 
 Routine Description :
 
-	Private routine for freeing a union's embedded pointers which were 
-	allocated during a remote call.  
+	Private routine shared by encapsulated and non-encapsulated unions for 
+    freeing a union's embedded pointers which were allocated during a remote 
+    call.  
 
 Arguments :
 
@@ -1092,10 +1212,10 @@ Return :
     // We need a real solution after beta for simple type arms.  This could
     // break if we have a format string larger than about 32K.
     //
-    if ( pFormat[1] != MAGIC_UNION_BYTE )
-        pFormat += *((signed short *)pFormat);
-    else
+    if ( IS_MAGIC_UNION_BYTE(pFormat) )
         return;
+
+    pFormat += *((signed short *)pFormat);
 
     //
     // If the union arm we take is a pointer, we have to dereference the
@@ -1114,6 +1234,7 @@ Return :
 		}
 }
 
+
 void RPC_ENTRY
 NdrByteCountPointerFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -1124,6 +1245,8 @@ NdrByteCountPointerFree(
 Routine Description :
 
 	Frees a byte count pointer.
+
+    Used for FC_BYTE_COUNT_POINTER.
 
 Arguments :
 
@@ -1147,6 +1270,7 @@ Return :
     	(*pStubMsg->pfnFree)(pMemory);
 }
 
+
 #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
 #pragma optimize( "", off )
 #endif
@@ -1189,7 +1313,6 @@ Return :
     // Skip the token itself and Oi flag. Fetch the QuintupleIndex.
 
     QIndex = *(unsigned short *)(pFormat + 2);
-    
     pQuintuple = pStubMsg->StubDesc->aXmitQuintuple;
 
     // Free the presented type instance unless forbidden explicitely.
@@ -1200,10 +1323,65 @@ Return :
         pQuintuple[ QIndex ].pfnFreeInst( pStubMsg );
         }
 }
+
 #if defined(__RPC_DOS__) || defined(__RPC_WIN16__)
 #pragma optimize( "", on )
 #endif
 
+
+void RPC_ENTRY
+NdrUserMarshalFree( 
+	PMIDL_STUB_MESSAGE	pStubMsg,
+	uchar *            	pMemory,
+	PFORMAT_STRING		pFormat )
+/*++
+
+Routine Description :
+
+	Frees the usr_marshal object and steps over the object.
+    See mrshl.c for the description of the layouts.
+
+Arguments :
+
+	pStubMsg	- Pointer to the stub message.
+	pMemory		- Pointer to be freed.
+	pFormat		- Pointer's format string description.
+
+Return :
+
+	None.
+
+--*/
+{
+    const USER_MARSHAL_ROUTINE_QUADRUPLE *  pQuadruple;
+    unsigned short                          QIndex;
+    USER_MARSHAL_CB                         UserMarshalCB;
+
+    QIndex = *(unsigned short *)(pFormat + 2);
+    pQuadruple = pStubMsg->StubDesc->aUserMarshalQuadruple;
+
+    // Call the user to free his stuff.
+
+    UserMarshalCB.Flags    = USER_CALL_CTXT_MASK( pStubMsg->dwDestContext );
+    UserMarshalCB.pStubMsg = pStubMsg;
+    if ( pFormat[1] & USER_MARSHAL_IID )
+        {
+        UserMarshalCB.pReserve = pFormat + 10;
+        }
+    else
+        {
+        UserMarshalCB.pReserve = 0;
+        }
+
+    // The user shouldn't ever free the top level object as we free it.
+    // He should free only pointees of his top level object.
+
+    pQuadruple[ QIndex ].pfnFree( (ulong*) &UserMarshalCB, pMemory );
+
+    // NdrpMemoryIncrement steps over the memory object.
+}
+
+
 void RPC_ENTRY
 NdrInterfacePointerFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -1227,7 +1405,8 @@ Return :
 
 --*/
 {
-#if !defined(__RPC_DOS__) && !defined (__RPC_WIN16__)
+#if defined( NDR_OLE_SUPPORT )
+
 	if(pMemory != 0)
 		{
 		((IUnknown *)pMemory)->lpVtbl->Release((IUnknown *)pMemory);
@@ -1236,6 +1415,7 @@ Return :
 #endif
 }
 
+
 void 
 NdrpEmbeddedPointerFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -1311,6 +1491,7 @@ Return :
 		} 
 }
 
+
 PFORMAT_STRING
 NdrpEmbeddedRepeatPointerFree( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -1375,7 +1556,8 @@ Return :
 
 		default :
 			NDR_ASSERT(0,"NdrEmbeddedRepeatPointerFree : bad format char");
-			break;
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
 		}
 
 	// Get the increment amount between successive pointers.
@@ -1428,3 +1610,5 @@ Return :
 	// Return format string pointer past the array's pointer layout.
 	return pFormatSave + PointersSave * 8;
 }
+
+

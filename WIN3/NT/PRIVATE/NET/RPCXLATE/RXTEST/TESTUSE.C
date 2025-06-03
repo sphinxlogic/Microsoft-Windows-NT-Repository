@@ -163,7 +163,7 @@ TestUse(
     // NetUseDel tests...
     //
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "\nTestUse: trying delete of that use.\n");
+        NetpKdPrint(( "\nTestUse: trying delete of that use.\n"));
     }
     TestNetUseDel(
                 UncServerName,                        // server name
@@ -171,7 +171,7 @@ TestUse(
                 USE_NOFORCE,                         // force level
                 MultipleCopy );
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestUse: back from TestNetUseDel.\n" );
+        NetpKdPrint(( "TestUse: back from TestNetUseDel.\n" ));
     }
 
 } // TestUse
@@ -202,7 +202,7 @@ TestNetUseAdd(
     // ui1_refcount and ui1_usecount are ignored by NetUseAdd.
 
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestNetUseAdd: trying NetUseAdd...\n" );
+        NetpKdPrint(( "TestNetUseAdd: trying NetUseAdd...\n" ));
     }
     Status = NetUseAdd(
             (LPTSTR) UncServerName,
@@ -210,9 +210,9 @@ TestNetUseAdd(
             (LPBYTE) (LPVOID) &ui1,
             &ParmErr);
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestNetUseAdd: back from NetUseAdd(" FORMAT_DWORD "), "
+        NetpKdPrint(( "TestNetUseAdd: back from NetUseAdd(" FORMAT_DWORD "), "
                 "stat=" FORMAT_API_STATUS ", ParmErr=" FORMAT_DWORD "\n",
-                Level, Status, ParmErr);
+                Level, Status, ParmErr));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
@@ -257,15 +257,15 @@ TestNetUseDel(
     NET_API_STATUS Status;
 
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestNetUseDel: about to call NetUseDel.\n");
+        NetpKdPrint(( "TestNetUseDel: about to call NetUseDel.\n"));
     }
     Status = NetUseDel(
             UncServerName,
             UseName,
             ForceCond);
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestNetUseDel: back from NetUseDel, Status="
-                FORMAT_API_STATUS ".\n", Status);
+        NetpKdPrint(( "TestNetUseDel: back from NetUseDel, Status="
+                FORMAT_API_STATUS ".\n", Status));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
@@ -294,8 +294,8 @@ TestUseEnum(
     DWORD TotalEntries;
 
     IF_DEBUG( USE ) {
-        NetpDbgPrint("\nTestUseEnum: trying enum (level " FORMAT_DWORD
-                    ").\n", Level );
+        NetpKdPrint(("\nTestUseEnum: trying enum (level " FORMAT_DWORD
+                    ").\n", Level ));
     }
     Status = NetUseEnum (
             UncServerName,
@@ -306,12 +306,12 @@ TestUseEnum(
             & TotalEntries,
             NULL);                      // no resume handle
     IF_DEBUG( USE ) {
-        NetpDbgPrint("TestUseEnum: back from enum, status="
-                FORMAT_API_STATUS, Status);
-        NetpDbgPrint(INDENT "alloc'ed buffer at " FORMAT_LPVOID ".\n",
-                (LPVOID) EnumArrayPtr);
-        NetpDbgPrint(INDENT "entries read=" FORMAT_DWORD
-                ", total=" FORMAT_DWORD "\n", EntriesRead, TotalEntries);
+        NetpKdPrint(("TestUseEnum: back from enum, status="
+                FORMAT_API_STATUS, Status));
+        NetpKdPrint((INDENT "alloc'ed buffer at " FORMAT_LPVOID ".\n",
+                (LPVOID) EnumArrayPtr));
+        NetpKdPrint((INDENT "entries _read=" FORMAT_DWORD
+                ", total=" FORMAT_DWORD "\n", EntriesRead, TotalEntries));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
@@ -352,8 +352,8 @@ TestNetUseGetInfo(
     LPVOID UseInfo = NULL;              // alloc'ed by NetUseGetInfo.
 
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "\nTestUseGetInfo: trying get-info (level "
-                FORMAT_DWORD ").\n", Level );
+        NetpKdPrint(( "\nTestUseGetInfo: trying get-info (level "
+                FORMAT_DWORD ").\n", Level ));
     }
     Status = NetUseGetInfo(
             UncServerName,              // server name
@@ -361,8 +361,8 @@ TestNetUseGetInfo(
             Level,                      // info level
             (LPBYTE *) & UseInfo);
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestUseGetInfo: back from NetUseGetInfo, Status="
-                FORMAT_API_STATUS ".\n", Status);
+        NetpKdPrint(( "TestUseGetInfo: back from NetUseGetInfo, Status="
+                FORMAT_API_STATUS ".\n", Status));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
@@ -374,8 +374,8 @@ TestNetUseGetInfo(
         goto Cleanup;
     }
     IF_DEBUG( USE ) {
-        NetpDbgPrint( "TestUseGetInfo: NetUseGetInfo alloc'ed buffer at "
-                FORMAT_LPVOID ".\n", (LPVOID) UseInfo );
+        NetpKdPrint(( "TestUseGetInfo: NetUseGetInfo alloc'ed buffer at "
+                FORMAT_LPVOID ".\n", (LPVOID) UseInfo ));
     }
     if (UseInfo != NULL) {
         IF_DEBUG( USE ) {
@@ -390,7 +390,7 @@ Cleanup:
 
     if (UseInfo != NULL) {
         IF_DEBUG( USE ) {
-            NetpDbgPrint( "TestUseGetInfo: Freeing buffer...\n");
+            NetpKdPrint(( "TestUseGetInfo: Freeing buffer...\n"));
         }
         Status = NetApiBufferFree( UseInfo );
         if (Status != NO_ERROR) {

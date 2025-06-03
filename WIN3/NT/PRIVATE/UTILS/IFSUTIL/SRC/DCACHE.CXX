@@ -98,7 +98,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(Drive);
+    DebugAssert(Drive);
 
     Destroy();
     _drive = Drive;
@@ -131,7 +131,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_drive);
+    DebugAssert(_drive);
     return _drive->HardRead(StartingSector, NumberOfSectors, Buffer);
 }
 
@@ -161,7 +161,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_drive);
+    DebugAssert(_drive);
     return _drive->HardWrite(StartingSector, NumberOfSectors, Buffer);
 }
 

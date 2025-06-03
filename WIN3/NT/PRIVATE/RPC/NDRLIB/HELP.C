@@ -1,4 +1,4 @@
-#ifdef NTENV
+#ifdef WIN32
 
 #include <memory.h>
 
@@ -12,7 +12,7 @@ NDRcopy (
     memcpy(pDest, pSrc, cb);
 }
 
-#else // NTENV
+#else // WIN32
 
 void * memcpy(void far *, void far *, int);
 #pragma intrinsic(memcpy)
@@ -22,4 +22,4 @@ void pascal NDRopy(void far *pDest, void far *pSrc, int cb)
     memcpy(pDest, pSrc, cb);
 }
 
-#endif // NTENV
+#endif // WIN32

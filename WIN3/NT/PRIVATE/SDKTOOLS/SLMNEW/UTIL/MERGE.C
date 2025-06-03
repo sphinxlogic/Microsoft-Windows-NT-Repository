@@ -165,6 +165,9 @@ main(
         fclose(pfArgs);
     }
 
+    if (getenv("MERGE_DEBUG") != NULL)
+        fDebug = fTrue;
+
     if (iszMac > 1 && *(sz = rgsz[1]) == '-') {
         while (*sz != '\0') {
             switch(*sz++) {
@@ -208,7 +211,7 @@ main(
             MergeFatalError( 2, "usage: merge [-bhld] <original> <new files> <result>\n" );
     }
 
-    pid = getpid();
+    pid = _getpid();
     Debug("pid = %d\n", pid);
 
     if (fOldSlmParams) {
@@ -288,6 +291,7 @@ SzDiffFlag(
     register char *sz = szFlag;
 
     *sz++ = '-';
+    *sz++ = 's';        // SLMDIFF gots to have this...
     if (fHalfAss)
         *sz++ = 'h';
     if (fIgnBlanks)
@@ -610,10 +614,10 @@ DumpConflict(
 
     SaveOrgPos();
 
-    PutLine("/------------------Merge Conflict------------------\\\n");
+    PutLine("/------------------Merge Conflict------------------\\\r\n");
 
     if (lnMin != lnLim) {
-        PutLine("+++++++++++++: %s\n", (fSlmParams || fOldSlmParams) ? "Original source": szOrg);
+        PutLine("+++++++++++++: %s\r\n", (fSlmParams || fOldSlmParams) ? "Original source": szOrg);
         CopyOrg(lnLim);
     }
 
@@ -627,12 +631,12 @@ DumpConflict(
 
             if (fSlmParams || fOldSlmParams) {
                 if (pmi == rgmi)
-                    PutLine("+++++++++++++: Current source\n");
+                    PutLine("+++++++++++++: Current source\r\n");
                 else
-                    PutLine("+++++++++++++: User's version\n");
+                    PutLine("+++++++++++++: User's version\r\n");
             }
             else
-                PutLine("+++++++++++++: %s\n", pmi->szMi);
+                PutLine("+++++++++++++: %s\r\n", pmi->szMi);
 
             do {
                 CopyOrg(pmi->lnStart);  /* lines before change*/
@@ -654,7 +658,7 @@ DumpConflict(
     if (lnLim != lnOrg)
         MergeFatalError( 2, "%s: original out of synch\n", (fSlmParams || fOldSlmParams) ? szName : szOrg );
 
-    PutLine("\\-------------------End Conflict-------------------/\n");
+    PutLine("\\-------------------End Conflict-------------------/\r\n");
     fConflict = fTrue;
 
     Debug("End conflict\n");
@@ -746,7 +750,7 @@ InitMi(
         sprintf(szCmd, "diff %s %s %s > %s", SzDiffFlag(), szOrg, szNew, pmi->szDiff);
         Debug("\tExecute: %s\n", szCmd);
 
-        if ((w = MergeRunDiff(szOrg, szNew, pmi->szDiff)) != 0 && w != 0x100)
+        if ((w = MergeRunDiff(szOrg, szNew, pmi->szDiff)) != 0 && w != 0x100 && w != 0xa00 && w != 0xb00)
             MergeFatalError( 2, "diff status: %d\n", w );
 
         Debug("\tdiff result: %d\n", w != 0);
@@ -781,7 +785,7 @@ RemoveTemp(
             fclose(pmi->pfDiff);
 
         if (pmi->fTemp)
-            unlink(pmi->szDiff);
+            _unlink(pmi->szDiff);
 
         pmi->pfDiff = 0;
         }
@@ -1036,7 +1040,7 @@ OpenOrgNew(
 
     if (strcmp(szNew, szOrg) == 0)
         MergeFatalError( 2, "%s: original and result are the same file\n", (fSlmParams || fOldSlmParams) ? szName : szOrg );
-    pfNew = strcmp(szNew, "-") == 0 ? fdopen(1, szWOBin) : fopen(szNew, szWOBin);
+    pfNew = strcmp(szNew, "-") == 0 ? _fdopen(1, szWOBin) : fopen(szNew, szWOBin);
     if (pfNew == 0) {
         perror("merge2:");
         MergeFatalError( 2, "cannot open %s\n", szNew );
@@ -1078,20 +1082,20 @@ MergeRunDiff(
     int status;
 
     /* set standard output to file passed */
-    fdOld = dup(1);
-    close(1);       /* next create will use fd == 1! */
-    fdNew = creat(szStdOut, 0660);
+    fdOld = _dup(1);
+    _close(1);       /* next create will use fd == 1! */
+    fdNew = _creat(szStdOut, 0660);
 
 /* REVIEW - this if statement was commented out in the old NT version */
     if (fdNew != 1)
         MergeFatalError( 2, "handle for stdout is not 1?\n" );
 
     /* << 8 to make the return value look like one from Xenix */
-    status = spawnlp(P_WAIT, "slmdiff.exe", "slmdiff", SzDiffFlag(), szFile1, szFile2, (char *)NULL) << 8;
+    status = _spawnlp(P_WAIT, "slmdiff.exe", "slmdiff", SzDiffFlag(), szFile1, szFile2, (char *)NULL) << 8;
 
     /* restore stdout */
-    dup2(fdOld, 1);
-    close(fdOld);
+    _dup2(fdOld, 1);
+    _close(fdOld);
     return status;
 }
 

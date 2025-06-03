@@ -82,7 +82,7 @@ NetpDbgDisplayUseInfo(
     IN LPVOID Buffer
     )
 {
-    NetpDbgPrint("use info (level %ld):\n", Level);
+    NetpKdPrint(("use info (level %ld):\n", Level));
     switch (Level) {
 
     case 0 :

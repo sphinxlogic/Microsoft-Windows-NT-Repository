@@ -30,10 +30,134 @@ Revision History:
 #include "seopaque.h"
 #include "tokenp.h"
 
+NTSTATUS
+SepCreateImpersonationTokenDacl(
+    IN PTOKEN Token,
+    IN PACCESS_TOKEN PrimaryToken,
+    OUT PACL *Acl
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtOpenProcessToken)
 #pragma alloc_text(PAGE,NtOpenThreadToken)
+#pragma alloc_text(PAGE,SepCreateImpersonationTokenDacl)
 #endif
+
+
+
+NTSTATUS
+SepCreateImpersonationTokenDacl(
+    IN PTOKEN Token,
+    IN PACCESS_TOKEN PrimaryToken,
+    OUT PACL *Acl
+    )
+/*++
+
+Routine Description:
+
+    This routine modifies the DACL protecting the passed token to allow
+    the current user (described by the PrimaryToken parameter) full access.
+    This permits callers of NtOpenThreadToken to call with OpenAsSelf==TRUE
+    and succeed.
+    
+    The new DACL placed on the token is as follows:                 
+    
+    ACE 0 - Server gets TOKEN_ALL_ACCESS
+
+    ACE 1 - Client gets TOKEN_ALL_ACCESS
+    
+    ACE 2 - Admins gets TOKEN_ALL_ACCESS
+
+    ACE 3 - System gets TOKEN_ALL_ACCESS
+
+Arguments:
+
+    Token - The token whose protection is to be modified.
+    
+    PrimaryToken - Token representing the subject to be granted access.
+    
+    Acl - Returns the modified ACL, allocated out of PagedPool.
+
+
+Return Value:
+
+
+--*/
+    
+{
+    PSID ServerUserSid;
+    PSID ClientUserSid;
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG AclLength;
+    PACL NewDacl;
+    PSECURITY_DESCRIPTOR OldDescriptor;
+    BOOLEAN MemoryAllocated;
+    PACL OldDacl;
+    BOOLEAN DaclPresent;
+    BOOLEAN DaclDefaulted;
+
+    PAGED_CODE();
+
+    ServerUserSid = ((PTOKEN)PrimaryToken)->UserAndGroups[0].Sid;
+
+    ClientUserSid = Token->UserAndGroups[0].Sid;
+    
+    //
+    // Compute how much space we'll need for the new DACL.
+    //
+    
+    AclLength = 4 * sizeof( ACCESS_ALLOWED_ACE ) - 4 * sizeof( ULONG ) +
+                SeLengthSid( ServerUserSid ) + SeLengthSid( SeLocalSystemSid ) +
+                SeLengthSid( ClientUserSid ) + SeLengthSid( SeAliasAdminsSid ) +
+                sizeof( ACL );
+                
+    NewDacl = ExAllocatePool( PagedPool, AclLength );
+
+    if (NewDacl == NULL) {
+
+        *Acl = NULL;
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Status = RtlCreateAcl( NewDacl, AclLength, ACL_REVISION2 );
+    ASSERT(NT_SUCCESS( Status ));
+
+    Status = RtlAddAccessAllowedAce (
+                 NewDacl,
+                 ACL_REVISION2,
+                 TOKEN_ALL_ACCESS,
+                 ServerUserSid
+                 );
+    ASSERT( NT_SUCCESS( Status ));
+
+    Status = RtlAddAccessAllowedAce (
+                 NewDacl,
+                 ACL_REVISION2,
+                 TOKEN_ALL_ACCESS,
+                 ClientUserSid
+                 );
+    ASSERT( NT_SUCCESS( Status ));
+
+    Status = RtlAddAccessAllowedAce (
+                 NewDacl,
+                 ACL_REVISION2,
+                 TOKEN_ALL_ACCESS,
+                 SeAliasAdminsSid
+                 );
+    ASSERT( NT_SUCCESS( Status ));
+    
+    Status = RtlAddAccessAllowedAce (
+                 NewDacl,
+                 ACL_REVISION2,
+                 TOKEN_ALL_ACCESS,
+                 SeLocalSystemSid
+                 );
+    ASSERT( NT_SUCCESS( Status ));
+
+    *Acl = NewDacl;
+    return STATUS_SUCCESS;
+}
+
 
 
 NTSTATUS
@@ -221,6 +345,12 @@ Return Value:
     BOOLEAN RestoreImpersonationState = FALSE;
 
     HANDLE LocalHandle;
+    SECURITY_DESCRIPTOR SecurityDescriptor;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    PACL NewAcl = NULL;
+    PETHREAD Thread;
+    PACCESS_TOKEN PrimaryToken;
+    SECURITY_SUBJECT_CONTEXT SubjectSecurityContext;
 
     PAGED_CODE();
 
@@ -280,47 +410,119 @@ Return Value:
                                          );
     }
 
-
     //
     //  If the CopyOnOpen flag is not set, then the token can be
-    //  openned directly.  Otherwise, the token must be duplicated,
+    //  opened directly.  Otherwise, the token must be duplicated,
     //  and a handle to the duplicate returned.
     //
 
     if (CopyOnOpen) {
-
+    
         //
-        // Open a copy of the token
+        // Create the new security descriptor for the token.
         //
-
-        Status = SepDuplicateToken(
-                     (PTOKEN)Token,        // ExistingToken
-                     0,                    // ObjectAttributes
-                     EffectiveOnly,        // EffectiveOnly
-                     TokenImpersonation,   // TokenType
-                     ImpersonationLevel,   // ImpersonationLevel
-                     PreviousMode,         // RequestorMode
-                     &NewToken
+        // We must obtain the correct SID to put into the Dacl.  Do this
+        // by finding the process associated with the passed thread
+        // and grabbing the User SID out of that process's token.
+        // If we just use the current SubjectContext, we'll get the
+        // SID of whoever is calling us, which isn't what we want.
+        //
+        
+        Status = ObReferenceObjectByHandle(                                    
+                     ThreadHandle,                                         
+                     THREAD_ALL_ACCESS,                             
+                     PsThreadType,                      
+                     KernelMode,                            
+                     (PVOID)&Thread,                                        
+                     NULL
                      );
+                     
+        ASSERT( NT_SUCCESS( Status ));
+        
+        PrimaryToken = PsReferencePrimaryToken(Thread->ThreadsProcess);
+        
+        Status = SepCreateImpersonationTokenDacl(
+                     (PTOKEN)Token,
+                     PrimaryToken,
+                     &NewAcl
+                     );
+                     
+        PsDereferencePrimaryToken( PrimaryToken );
+        
+        if (NT_SUCCESS( Status )) {
+        
+            if (NewAcl != NULL) {
+            
+                //
+                // There exist tokens that either do not have security descriptors at all,
+                // or have security descriptors, but do not have DACLs.  In either case, do
+                // nothing.
+                //
+            
+                Status = RtlCreateSecurityDescriptor ( &SecurityDescriptor, SECURITY_DESCRIPTOR_REVISION );
+                ASSERT( NT_SUCCESS( Status ));
+        
+                Status = RtlSetDaclSecurityDescriptor (
+                             &SecurityDescriptor,
+                             TRUE,
+                             NewAcl,
+                             FALSE
+                             );
+        
+                ASSERT( NT_SUCCESS( Status ));
+            }
 
-        if (NT_SUCCESS(Status)) {
-
+            InitializeObjectAttributes(
+                &ObjectAttributes,
+                NULL,
+                0L,
+                NULL,
+                NewAcl == NULL ? NULL : &SecurityDescriptor
+                );
 
             //
-            //  Insert the new token
+            // Open a copy of the token
             //
 
-            Status = ObInsertObject( NewToken,
-                                     NULL,
-                                     DesiredAccess,
-                                     0,
-                                     (PVOID *)NULL,
-                                     &LocalHandle
-                                     );
+            Status = SepDuplicateToken(
+                         (PTOKEN)Token,        // ExistingToken
+                         &ObjectAttributes,    // ObjectAttributes
+                         EffectiveOnly,        // EffectiveOnly
+                         TokenImpersonation,   // TokenType
+                         ImpersonationLevel,   // ImpersonationLevel
+                         KernelMode,           // RequestorMode must be kernel mode
+                         &NewToken
+                         );
+                         
+            if (NT_SUCCESS( Status )) {
 
-        }
+                //
+                //  Insert the new token
+                //
+
+                Status = ObInsertObject( NewToken,
+                                         NULL,
+                                         DesiredAccess,
+                                         0,
+                                         (PVOID *)NULL,
+                                         &LocalHandle
+                                         );
+            }
+        } 
 
     } else {
+
+        //
+        // We do not have to modify the security on the token in the static case,
+        // because in all the places in the system where impersonation takes place
+        // over a secure transport (e.g., LPC), CopyOnOpen is set.  The only reason
+        // we'be be here is if the impersonation is taking place because someone did
+        // an NtSetInformationThread and passed in a token.
+        //
+        // In that case, we absolutely do not want to give the caller guaranteed
+        // access, because that would allow anyone who has access to a thread to
+        // impersonate any of that thread's clients for any access.
+        //
 
         //
         //  Open the existing token
@@ -335,7 +537,10 @@ Return Value:
                      PreviousMode,         // AccessMode
                      &LocalHandle          // Handle
                      );
-
+    }
+    
+    if (NewAcl != NULL) {
+        ExFreePool( NewAcl );
     }
 
     if (RestoreImpersonationState) {
@@ -354,6 +559,26 @@ Return Value:
 
     ObDereferenceObject( Token );
 
+    if (NT_SUCCESS( Status ) && CopyOnOpen) {
+        
+        //
+        // Assign the newly duplicated token to the thread.
+        //
+    
+        PsImpersonateClient( Thread,                             
+                             NewToken,                              
+                             FALSE,  // turn off CopyOnOpen flag 
+                             EffectiveOnly,                      
+                             ImpersonationLevel                  
+                             );                                  
+    
+    }
+
+    if (CopyOnOpen) {
+
+        ObDereferenceObject( Thread );
+    }
+        
     //
     //  Return the new handle
     //

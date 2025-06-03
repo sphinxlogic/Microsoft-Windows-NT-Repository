@@ -163,9 +163,9 @@ Return Value:
     *FullConfigName = FullPath;
 
     IF_DEBUG( CONFIG ) {
-        NetpDbgPrint(  PREFIX_NETLIB
+        NetpKdPrint((  PREFIX_NETLIB
                 "NetpAllocConfigName: built name '" FORMAT_LPTSTR "'.\n",
-                FullPath );
+                FullPath ));
     }
 
     return (NO_ERROR);

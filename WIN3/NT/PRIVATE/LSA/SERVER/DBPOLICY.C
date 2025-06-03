@@ -74,6 +74,72 @@ Routine Description:
 
 Arguments:
 
+    SystemName - Name of the system to be administered.  This RPC call
+        only passes in a single character for system name, so it is not
+        passed along to the internal routine.
+
+    ObjectAttributes - Pointer to the set of attributes to use for this
+        connection.  The security Quality Of Service information is used and
+        normally should provide Security Identification Class of
+        impersonation.  Some operations, however, require Security
+        Impersonation Class of impersonation.
+
+    DesiredAccess - This is an access mask indicating accesses being
+        requested for the LSA Subsystem's LSA Database.  These access types
+        are reconciled with the Discretionary Access Control List of the
+        target Policy object to determine whether the accesses will be granted or denied.
+
+    PolicyHandle - Receives a handle to be used in future requests.
+
+
+Return Values:
+
+    NTSTATUS - Standard Nt Result Code
+
+        STATUS_ACCESS_DENIED - Caller does not have access to the target
+        system's LSA Database, or does not have other desired accesses.
+
+--*/
+
+{
+    return(LsapDbOpenPolicy(
+               NULL,
+               ObjectAttributes,
+               DesiredAccess,
+               PolicyHandle,
+               FALSE
+               ));
+}
+
+NTSTATUS
+LsarOpenPolicy2(
+    IN PLSAPR_SERVER_NAME SystemName OPTIONAL,
+    IN PLSAPR_OBJECT_ATTRIBUTES ObjectAttributes,
+    IN ACCESS_MASK DesiredAccess,
+    OUT PLSAPR_HANDLE PolicyHandle
+    )
+
+/*++
+
+Routine Description:
+
+    This function is the LSA server worker dispatch routine for the
+    LsaOpenPolicy API.
+
+    To administer the Local Security Policy of a local or remote system,
+    this API must be called to establish a session with that system's
+    Local Security Authority (LSA) subsystem.  This API connects to
+    the LSA of the target system and opens the Policy object
+    of the target system's Local Security Policy database.  A handle to
+    the Policy object is returned.  This handle must be used
+    on all subsequent API calls to administer the Local Security Policy
+    information for the target system.
+
+    The difference between this call and LsaOpenPolicy is that the entire
+    system name is passed in instead of the first character.
+
+Arguments:
+
     SystemName - Name of the system to be administered.  Administration of
         the local system is assumed if NULL is specified.
 
@@ -356,6 +422,13 @@ OpenPolicyFinish:
         LsapDbReleaseLock();
     }
 
+#ifdef TRACK_HANDLE_CLOSE
+    if (*PolicyHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
     return( Status );
 
 OpenPolicyError:
@@ -2052,6 +2125,7 @@ Return Value:
 
     PLSAPR_TRUST_INFORMATION TrustInformation = NULL;
     BOOLEAN BooleanStatus;
+    BOOLEAN WerePolicyChangesAuditedBefore = FALSE;
 
     //
     // Validate the Information Class and Policy Information provided and
@@ -2097,7 +2171,7 @@ Return Value:
 
     if (InformationClass == PolicyAuditLogInformation) {
 
-        ReferenceOptions |= LSAP_DB_ACQUIRE_LOG_QUEUE_LOCK;
+        ReferenceOptions |= (LSAP_DB_ACQUIRE_LOG_QUEUE_LOCK | LSAP_DB_OMIT_REPLICATOR_NOTIFICATION);
         DereferenceOptions |= LSAP_DB_RELEASE_LOG_QUEUE_LOCK;
     }
 
@@ -2186,6 +2260,8 @@ Return Value:
         // number the system supports.  This allows new events to be
         // added without the need to change calling code.
         //
+
+        WerePolicyChangesAuditedBefore = LsapAdtAuditingPolicyChanges();
 
         ModifyPolicyAuditEventsInfo = (PPOLICY_AUDIT_EVENTS_INFO) PolicyInformation;
 
@@ -2561,6 +2637,16 @@ Return Value:
         }
 
         //
+        // Make sure the role is valid (primary or backup)
+        //
+
+        if ((PolicyLsaServerRoleInfo->LsaServerRole != PolicyServerRoleBackup) &&
+            (PolicyLsaServerRoleInfo->LsaServerRole != PolicyServerRolePrimary)) {
+
+            Status = STATUS_INVALID_DOMAIN_ROLE;
+            break;
+        }
+        //
         // Only NTAS systems can be demoted.
         //
 
@@ -2745,7 +2831,7 @@ Return Value:
     // Generate an audit if necessary.
     //
 
-    if (LsapAdtAuditingPolicyChanges()) {
+    if (LsapAdtAuditingPolicyChanges() || WerePolicyChangesAuditedBefore) {
 
         SavedStatus = Status;
 
@@ -3483,7 +3569,7 @@ Return Value:
 {
     NTSTATUS Status;
     LARGE_INTEGER AdjustedModifiedId;
-    LARGE_INTEGER One;
+    LARGE_INTEGER One = {1,0};
     BOOLEAN ObjectReferenced = FALSE;
     POLICY_MODIFICATION_INFO OriginalPolicyModificationInfo;
     LARGE_INTEGER OriginalModifiedIdAtLastPromot;
@@ -3562,8 +3648,8 @@ Return Value:
         // therefore to set the Modified Id to the value specified.
         //
 
-        One = RtlConvertUlongToLargeInteger((ULONG) 1);
-        AdjustedModifiedId = RtlLargeIntegerSubtract( *ModifiedCount, One );
+        AdjustedModifiedId.QuadPart = ModifiedCount->QuadPart - One.QuadPart;
+
         //
         //
         // Set the Policy Modification Information local copy.  When we
@@ -3917,7 +4003,4 @@ UpdateInformationPolicyError:
 
     goto UpdateInformationPolicyFinish;
 }
-
-
-
 

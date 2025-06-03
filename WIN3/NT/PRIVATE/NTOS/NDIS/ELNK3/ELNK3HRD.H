@@ -28,8 +28,6 @@ Revision History:
 --*/
 
 
-
-
 #define ELNK3_ETHERNET_HEADER_SIZE     14
 #define ELNK3_MAX_FRAME_SIZE           1514
 
@@ -92,7 +90,8 @@ typedef struct _BUFFDESC {
 typedef enum _ELNK3_ADAPTER_TYPE {
             ELNK3_3C509,
             ELNK3_3C579,
-            ELNK3_3C529
+            ELNK3_3C529,
+			ELNK3_3C589
             } ELNK3_ADAPTER_TYPE, PELNK3_ADAPTER_TYPE;
 
 
@@ -195,6 +194,13 @@ typedef enum _ELNK3_ADAPTER_TYPE {
 
 #define EEPROM_NETWORK_MANAGEMENT_DATA_0 16
 
+//
+//  eeprom software info bits
+//
+#define LINK_BEAT_DISABLED    (1<<14)
+
+
+
 /*
  Address configuration register.
  */
@@ -296,14 +302,14 @@ typedef union ELNK3_Command{
 
 #define EC_REQUEST_INTERRUPT                    12
 
-#define EC_INT_LATCH    1
-#define EC_INT_ADAPTER_FAILURE   2
-#define EC_INT_TX_COMPLETE   4
-#define EC_INT_TX_AVAILABLE   8
-#define EC_INT_RX_COMPLETE  16
-#define EC_INT_RX_EARLY   32
-#define EC_INT_INTERRUPT_REQUESTED 64
-#define EC_INT_UPDATE_STATISTICS        128
+#define EC_INT_LATCH                0x01
+#define EC_INT_ADAPTER_FAILURE      0x02
+#define EC_INT_TX_COMPLETE          0x04
+#define EC_INT_TX_AVAILABLE         0x08
+#define EC_INT_RX_COMPLETE          0x10
+#define EC_INT_RX_EARLY             0x20
+#define EC_INT_INTERRUPT_REQUESTED  0x40
+#define EC_INT_UPDATE_STATISTICS    0x80
 
 #define EC_ACKNOWLEDGE_INTERRUPT                13
 #define EC_SET_INTERRUPT_MASK                   14
@@ -391,6 +397,7 @@ typedef union ELNK3_Command{
 #define ISAID_BNC    0x9050 // Product ID for ISA TP board
 #define ISAID_TP    0x9051 // Product ID for ISA coax board
 #define EISAID     0x9052 // Product ID for EISA board
+#define	PCMCIAID  0x9058 // Product ID for PCMCIA board (3C589)
 
 //...so far the list is 5090=ISA 3C509-TP (TP/AUI), 5091h=ISA 3C509 (BNC/AUI),
 //  5092h=EISA 3C579-TP (TP/AUI) and 5092h=EISA 3C579 (BNC/AUI).  other
@@ -472,11 +479,16 @@ typedef union ELNK3_Command{
 
 #ifdef NDIS_NT
 
+#ifndef IO_DBG
 #define ELNK3_READ_PORT_USHORT(_pAdapt,offset) \
             READ_PORT_USHORT((PUSHORT)(_pAdapt)->PortOffsets[(offset)]);
 
 #define ELNK3_READ_PORT_USHORT_DIRECT(offset) \
             READ_PORT_USHORT((PUSHORT)(offset));
+#else
+USHORT ELNK3_READ_PORT_USHORT( PVOID Adapter, ULONG Offset );
+USHORT ELNK3_READ_PORT_USHORT_DIRECT( PVOID Offset );
+#endif
 
 #else
 
@@ -489,6 +501,7 @@ typedef union ELNK3_Command{
 #endif
 
 #define ELNK3_COMMAND(_p,_c,_d) \
+            IF_IO_LOUD(DbgPrint("Writing command %d.%d\n", (USHORT)(_c), (USHORT)(_d));) \
             NdisRawWritePortUshort((_p)->PortOffsets[PORT_CmdStatus], ((USHORT)(_c)<<11) | (_d))
 
 
@@ -496,8 +509,8 @@ typedef union ELNK3_Command{
             ELNK3_COMMAND(_p,(EC_SELECT_WINDOW),_w)
 
 #define ELNK3_READ_STATUS(_pAdapt,_pData) \
-            NdisRawReadPortUshort((_pAdapt)->PortOffsets[PORT_CmdStatus],(_pData))
-
+            NdisRawReadPortUshort((_pAdapt)->PortOffsets[PORT_CmdStatus],(_pData)); \
+            IF_IO_LOUD(DbgPrint("Read status %x\n", *(PUSHORT)(_pData));)
 
 #define ELNK3_WAIT_NOT_BUSY(_pAdapt)  {                              \
                                                                      \
@@ -514,67 +527,23 @@ typedef union ELNK3_Command{
     }
 
 
-#define ELNK3_READ_DWORDS_INTO_BUFFER(_pAdapt,_pBuffer,_bytes) { \
-            NdisRawReadPortBufferUlong(              \
-                (_pAdapt)->PortOffsets[PORT_RxFIFO], \
-                (_pBuffer),                          \
-                (_bytes) >> 2                        \
-                );                                   \
-        }
-
-
-
-
 #define ELNK3WriteAdapterUchar(Adapter,PortOffset,UcharToWrite)\
+ IF_IO_LOUD(DbgPrint("Writing uchar %x to port %x\n", (UCHAR)(UcharToWrite), (PortOffset));) \
  NdisRawWritePortUchar((Adapter)->PortOffsets[PortOffset],(UcharToWrite))
 
 
 #define ELNK3WriteAdapterUshort(Adapter,PortOffset,UshortToWrite)\
+ IF_IO_LOUD(DbgPrint("Writing ushort %x to port %x\n", (USHORT)(UshortToWrite), (PortOffset));) \
  NdisRawWritePortUshort((Adapter)->PortOffsets[PortOffset],(UshortToWrite))
 
 
-#define ELNK3WriteAdapterUlong(Adapter,PortOffset,UlongToWrite)\
- NdisRawWritePortUlong((Adapter)->PortOffsets[PortOffset],(UlongToWrite))
-
-
 #define ELNK3ReadAdapterUchar(Adapter,PortOffset,PUcharToRead)\
- NdisRawReadPortUchar((Adapter)->PortOffsets[PortOffset],(PUcharToRead))
+ NdisRawReadPortUchar((Adapter)->PortOffsets[PortOffset],(PUcharToRead)); \
+ IF_IO_LOUD(DbgPrint("Read uchar %x from port %x\n", *(PUCHAR)(PUcharToRead), (PortOffset));) \
 
 
 #define ELNK3ReadAdapterUshort(Adapter,PortOffset,PUshortToRead)\
- NdisRawReadPortUshort((Adapter)->PortOffsets[PortOffset],(PUshortToRead))
+ NdisRawReadPortUshort((Adapter)->PortOffsets[PortOffset],(PUshortToRead)); \
+ IF_IO_LOUD(DbgPrint("Read ushort %x from port %x\n", *(PUSHORT)(PUshortToRead), (PortOffset));) \
 
 
-#define ELNK3ReadAdapterUlong(Adapter,PortOffset,PUlongToRead)\
- NdisRawReadPortUlong((Adapter)->PortOffsets[PortOffset],(PUlongToRead))
-
-
-#define ELNK3ReadAdapterBufferUchar(Adapter,PortOffset,PUcharToRead,Length)\
- NdisRawReadPortBufferUchar((Adapter)->PortOffsets[PortOffset],(PUcharToRead),(Length))
-
-
-#define ELNK3ReadAdapterBufferUshort(Adapter,PortOffset,PUshortToRead,Length)\
- NdisRawReadPortBufferUshort((Adapter)->PortOffsets[PortOffset],(PUshortToRead),(Length))
-
-
-#define ELNK3ReadAdapterBufferUlong(Adapter,PortOffset,PUlongToRead,Length)\
- NdisRawReadPortBufferUlong((Adapter)->PortOffsets[PortOffset],(PUlongToRead),(Length))
-
-
-#define ELNK3WriteAdapterBufferUchar(Adapter,PortOffset,PUcharToWrite,Length)\
- NdisRawWritePortBufferUchar((Adapter)->PortOffsets[PortOffset],(PUcharToWrite),(Length))
-
-
-#define ELNK3WriteAdapterBufferUshort(Adapter,PortOffset,PUshortToWrite,Length)\
- NdisRawWritePortBufferUshort((Adapter)->PortOffsets[PortOffset],(PUshortToWrite),(Length))
-
-
-#define ELNK3WriteAdapterBufferUlong(Adapter,PortOffset,PUlongToWrite,Length)\
- NdisRawWritePortBufferUlong((Adapter)->PortOffsets[PortOffset],(PUlongToWrite),(Length))
-
-
-#define ELNK3WriteIDPortUchar(Adapter,IDcommand)\
-  NdisRawWritePortUchar((Adapter)->ID_Port,(UCHAR)(IDcommand));
-
-#define ELNK3ReadIDPortUchar(Adapter,PUcharToRead)\
- NdisRawReadPortUchar((Adapter)->ID_Port,(PUcharToRead));

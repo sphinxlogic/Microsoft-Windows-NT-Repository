@@ -214,7 +214,7 @@ BOOL FAR PASCAL EXPORT DlgFind(HWND hDlg, UINT message, WPARAM wParam, LONG lPar
             return TRUE;
         }
             
-        case IDHELP :
+        case IDWINDBGHELP :
           Dbg(WinHelp(hDlg, szHelpFileName, HELP_CONTEXT, ID_FIND_HELP));
             return TRUE;
         }
@@ -224,4 +224,4 @@ BOOL FAR PASCAL EXPORT DlgFind(HWND hDlg, UINT message, WPARAM wParam, LONG lPar
     
     return (FALSE);
 }                                       /* DlgFind() */
-
+

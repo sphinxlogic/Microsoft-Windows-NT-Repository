@@ -1427,30 +1427,30 @@ typedef struct _FLOPPY_CONFIGURATION_DATA {
 //
 
 typedef enum _TYPE_OF_MEMORY {
-    LoaderExceptionBlock = MemoryExceptionBlock,
-    LoaderSystemBlock = MemorySystemBlock,
-    LoaderFree = MemoryFree,
-    LoaderBad = MemoryBad,
-    LoaderLoadedProgram = MemoryLoadedProgram,
-    LoaderFirmwareTemporary = MemoryFirmwareTemporary,
-    LoaderFirmwarePermanent = MemoryFirmwarePermanent,
-    LoaderOsloaderHeap,
-    LoaderOsloaderStack,
-    LoaderSystemCode,
-    LoaderHalCode,
-    LoaderBootDriver,
-    LoaderConsoleInDriver,
-    LoaderConsoleOutDriver,
-    LoaderStartupDpcStack,
-    LoaderStartupKernelStack,
-    LoaderStartupPanicStack,
-    LoaderStartupPcrPage,
-    LoaderStartupPdrPage,
-    LoaderRegistryData,
-    LoaderMemoryData,
-    LoaderNlsData,
-    LoaderSpecialMemory,
-    LoaderMaximum
+    LoaderExceptionBlock = MemoryExceptionBlock,            //  0
+    LoaderSystemBlock = MemorySystemBlock,                  //  1
+    LoaderFree = MemoryFree,                                //  2
+    LoaderBad = MemoryBad,                                  //  3
+    LoaderLoadedProgram = MemoryLoadedProgram,              //  4
+    LoaderFirmwareTemporary = MemoryFirmwareTemporary,      //  5
+    LoaderFirmwarePermanent = MemoryFirmwarePermanent,      //  6
+    LoaderOsloaderHeap,                                     //  7
+    LoaderOsloaderStack,                                    //  8
+    LoaderSystemCode,                                       //  9
+    LoaderHalCode,                                          //  a
+    LoaderBootDriver,                                       //  b
+    LoaderConsoleInDriver,                                  //  c
+    LoaderConsoleOutDriver,                                 //  d
+    LoaderStartupDpcStack,                                  //  e
+    LoaderStartupKernelStack,                               //  f
+    LoaderStartupPanicStack,                                // 10
+    LoaderStartupPcrPage,                                   // 11
+    LoaderStartupPdrPage,                                   // 12
+    LoaderRegistryData,                                     // 13
+    LoaderMemoryData,                                       // 14
+    LoaderNlsData,                                          // 15
+    LoaderSpecialMemory,                                    // 16
+    LoaderMaximum                                           // 17
     } TYPE_OF_MEMORY;
 
 typedef struct _MEMORY_ALLOCATION_DESCRIPTOR {
@@ -1542,6 +1542,18 @@ typedef struct _PPC_LOADER_BLOCK {
     ULONG SecondLevelIcacheSize;
     ULONG SecondLevelIcacheFillSize;
     ULONG PcrPage2;
+    UCHAR IcacheMode;
+    UCHAR DcacheMode;
+    USHORT NumberCongruenceClasses;
+    ULONG Kseg0Top;
+    UCHAR MajorVersion;
+    UCHAR MinorVersion;
+    USHORT Reserved;
+    ULONG HashedPageTableSize; // in pages
+    PVOID PcrPagesDescriptor;
+    PVOID KernelKseg0PagesDescriptor;
+    ULONG MinimumBlockLength;
+    ULONG MaximumBlockLength;
 
 #else
 

@@ -328,4 +328,4 @@ void SetContMap (WCHAR c, WCHAR val)
 
     Contmap[c] = val;
 }
-
+

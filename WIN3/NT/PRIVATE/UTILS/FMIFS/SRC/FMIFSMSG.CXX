@@ -168,19 +168,26 @@ Return Value:
                           &insert_info);
             break;
 
-        case MSG_HPFS_FORMAT_NO_FLOPPIES:
-        case MSG_HPFS_FORMAT_BAD_SECTOR_SIZE:
-            r = _callback(FmIfsIncompatibleFileSystem, 0, NULL);
-            break;
-
         case MSG_DCOPY_FORMATTING_WHILE_COPYING:
             r = _callback(FmIfsFormattingDestination, 0, NULL);
             break;
 
         case MSG_DCOPY_BAD_DEST:
+            r = _callback(FmIfsIncompatibleMedia, 0, NULL);
+            break;
+
+#if 1
         case MSG_DCOPY_NON_COMPAT_DISKS:
             r = _callback(FmIfsIncompatibleMedia, 0, NULL);
             break;
+#else
+        // MSG_DCOPY_BAD_DEST may need to call a different FmIfs....
+        case MSG_DCOPY_NON_COMPAT_DISKS:
+            // pop a dialog and ask for retry or cancel
+            // TRUE signals CANCEL selected instead of RETRY
+            break;
+#endif
+
 
         case MSG_TOTAL_DISK_SPACE:
             _kilobytes_total_disk_space = va_arg(VarPointer, ULONG)/1024;
@@ -224,6 +231,20 @@ Return Value:
             r = _callback(FmIfsCantLock, 0, NULL);
             break;
 
+        case MSG_CANT_UNLOCK_THE_DRIVE:
+            // similiar to FmIfsCantLock
+            break;
+
+        case MSG_DCOPY_NO_MEDIA_IN_DEVICE:
+            // pop a dialog and ask for retry or cancel
+            // TRUE signals CANCEL selected instead of RETRY
+            break;
+
+        case MSG_DCOPY_UNRECOGNIZED_MEDIA:
+            // pop a dialog and ask for retry or cancel
+            // TRUE signals CANCEL selected instead of RETRY
+            break;
+
         case MSG_DASD_ACCESS_DENIED:
             r = _callback(FmIfsAccessDenied, 0, NULL);
             break;
@@ -238,6 +259,10 @@ Return Value:
 
         case MSG_INVALID_LABEL_CHARACTERS:
             r = _callback(FmIfsBadLabel, 0, NULL);
+            break;
+
+        case MSG_HIDDEN_STATUS:
+            r = _callback(FmIfsHiddenStatus, 0, NULL);
             break;
 
 #if defined ( DBLSPACE_ENABLED )

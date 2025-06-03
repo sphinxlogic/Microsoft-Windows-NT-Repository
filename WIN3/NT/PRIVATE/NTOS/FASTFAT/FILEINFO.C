@@ -103,6 +103,16 @@ FatQueryCompressedFileSize (
 
 #endif // WE_WON_ON_APPEAL
 
+VOID
+FatQueryNetworkInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PCCB Ccb,
+    IN PFILE_OBJECT FileObject,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN OUT PLONG Length
+    );
+
 NTSTATUS
 FatSetBasicInfo (
     IN PIRP_CONTEXT IrpContext,
@@ -178,6 +188,7 @@ FatRenameEAs (
 #pragma alloc_text(PAGE, FatQueryEaInfo)
 #pragma alloc_text(PAGE, FatQueryInternalInfo)
 #pragma alloc_text(PAGE, FatQueryNameInfo)
+#pragma alloc_text(PAGE, FatQueryNetworkInfo)
 #pragma alloc_text(PAGE, FatQueryShortNameInfo)
 #pragma alloc_text(PAGE, FatQueryPositionInfo)
 #pragma alloc_text(PAGE, FatQueryStandardInfo)
@@ -187,6 +198,8 @@ FatRenameEAs (
 #pragma alloc_text(PAGE, FatSetEndOfFileInfo)
 #pragma alloc_text(PAGE, FatSetPositionInfo)
 #pragma alloc_text(PAGE, FatSetRenameInfo)
+#pragma alloc_text(PAGE, FatDeleteFile)
+#pragma alloc_text(PAGE, FatRenameEAs)
 #endif
 
 
@@ -384,6 +397,7 @@ Return Value:
     BOOLEAN FcbAcquired;
 
     PFILE_ALL_INFORMATION AllInfo;
+    PFILE_OLE_ALL_INFORMATION OleAllInfo;
 
     //
     //  Get the current stack location
@@ -501,6 +515,55 @@ Return Value:
 
                 break;
 
+            case FileOleAllInformation:
+
+                //
+                //  OleAllInformation is handled similarly to FileAllInfo, and we
+                //  zero the values that don't apply to us.
+                //
+
+                OleAllInfo = Buffer;
+
+                Length -= (sizeof(FILE_ACCESS_INFORMATION)
+                           + sizeof(FILE_MODE_INFORMATION)
+                           + sizeof(FILE_ALIGNMENT_INFORMATION));
+
+                FatQueryBasicInfo( IrpContext, Fcb, Ccb, FileObject, &OleAllInfo->BasicInformation, &Length );
+                FatQueryStandardInfo( IrpContext, Fcb, &OleAllInfo->StandardInformation, &Length );
+                FatQueryInternalInfo( IrpContext, Fcb, &OleAllInfo->InternalInformation, &Length );
+                FatQueryEaInfo( IrpContext, Fcb, &OleAllInfo->EaInformation, &Length );
+                FatQueryPositionInfo( IrpContext, FileObject, &OleAllInfo->PositionInformation, &Length );
+
+                //
+                //  Zero everything from the LastChangeUsn up to the NameInformation, then
+                //  go back and set the StorageType appropriately.  Note that this
+                //  depends on the location of the members in the OLE_ALL_INFO struct.
+                //
+
+                RtlZeroMemory( &OleAllInfo->LastChangeUsn,
+                    FIELD_OFFSET(FILE_OLE_ALL_INFORMATION, NameInformation) -
+                    FIELD_OFFSET(FILE_OLE_ALL_INFORMATION, LastChangeUsn) );
+
+                Length -= (FIELD_OFFSET(FILE_OLE_ALL_INFORMATION, NameInformation) -
+                            FIELD_OFFSET(FILE_OLE_ALL_INFORMATION, LastChangeUsn));
+
+                if (TypeOfOpen == UserFileOpen) {
+
+                    OleAllInfo->StorageType = StorageTypeFile;
+
+                } else if (TypeOfOpen == UserDirectoryOpen) {
+
+                    OleAllInfo->StorageType = StorageTypeDirectory;
+
+                } else {
+
+                    OleAllInfo->StorageType = 0;
+                }
+
+                FatQueryNameInfo( IrpContext, Fcb, &OleAllInfo->NameInformation, &Length );
+
+                break;
+
             case FileBasicInformation:
 
                 FatQueryBasicInfo( IrpContext, Fcb, Ccb, FileObject, Buffer, &Length );
@@ -556,6 +619,11 @@ Return Value:
                 break;
 #endif // WE_WON_ON_APPEAL
 
+            case FileNetworkOpenInformation:
+
+                FatQueryNetworkInfo( IrpContext, Fcb, Ccb, FileObject, Buffer, &Length );
+                break;
+
             default:
 
                 Status = STATUS_INVALID_PARAMETER;
@@ -564,16 +632,29 @@ Return Value:
 
             break;
 
+        case DirectoryFile:
+
+            switch (FileInformationClass) {
+
+            case FileNameInformation:
+
+                FatQueryNameInfo( IrpContext, Fcb, Buffer, &Length );
+                break;
+
+            default:
+
+                Status = STATUS_INVALID_PARAMETER;
+                break;
+            }
+
+            break;
+
+
         default:
 
-#if 0
-            DebugTrace(0,0, "QueryFile, Illegal TypeOfOpen = %08lx\n", TypeOfOpen);
-            FatBugCheck( TypeOfOpen, 0, 0 );
-#else
             KdPrint(("FATQueryFile, Illegal TypeOfOpen = %08lx\n", TypeOfOpen));
             Status = STATUS_INVALID_PARAMETER;
             break;
-#endif //0
         }
 
         //
@@ -702,7 +783,9 @@ Return Value:
 
         case UserFileOpen:
 
-            if (!FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )) {
+            if (!FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+                ((FileInformationClass == FileEndOfFileInformation) ||
+                 (FileInformationClass == FileAllocationInformation))) {
 
                 //
                 //  We check whether we can proceed
@@ -866,6 +949,16 @@ Return Value:
             } else {
 
                 Status = FatSetRenameInfo( IrpContext, Irp, Vcb, Fcb );
+
+                //
+                //  If STATUS_PENDING is returned it means the oplock
+                //  package has the Irp.  Don't complete the request here.
+                //
+
+                if (Status == STATUS_PENDING) {
+                    Irp = NULL;
+                    IrpContext = NULL;
+                }
             }
 
             break;
@@ -975,8 +1068,6 @@ Return Value:
 
     RtlZeroMemory( Buffer, sizeof(FILE_BASIC_INFORMATION) );
 
-    Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
-
     //
     //  If the fcb is not the root dcb then we will fill in the
     //  buffer otherwise it is all setup for us.
@@ -993,21 +1084,7 @@ Return Value:
         Buffer->CreationTime = Fcb->CreationTime;
         Buffer->LastAccessTime = Fcb->LastAccessTime;
 
-        //
-        //  Zero out the field we don't support.
-        //
-
-        Buffer->ChangeTime = FatLargeZero;
-
-        if (Fcb->DirentFatFlags != 0) {
-
-            Buffer->FileAttributes = Fcb->DirentFatFlags;
-
-        } else {
-
-            Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
-
-        }
+        Buffer->FileAttributes = Fcb->DirentFatFlags;
 
     } else {
 
@@ -1021,6 +1098,15 @@ Return Value:
     if (FlagOn( Fcb->FcbState, FCB_STATE_TEMPORARY )) {
 
         SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
+    }
+
+    //
+    //  If no attributes were set, set the normal bit.
+    //
+
+    if (Buffer->FileAttributes == 0) {
+
+        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
     }
 
     //
@@ -1701,6 +1787,127 @@ Return Value:
 
 
 //
+//  Internal Support Routine
+//
+
+VOID
+FatQueryNetworkInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PCCB Ccb,
+    IN PFILE_OBJECT FileObject,
+    IN OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN OUT PLONG Length
+    )
+
+/*++
+ Description:
+
+    This routine performs the query network open information function for fat.
+
+Arguments:
+
+    Fcb - Supplies the Fcb being queried, it has been verified
+
+    Ccb - Supplies the bit indicating that the user set the time.
+
+    FileObject - Supplies the flag bit that indicates the file was modified.
+
+    Buffer - Supplies a pointer to the buffer where the information is to
+        be returned
+
+    Length - Supplies the length of the buffer in bytes, and receives the
+        remaining bytes free in the buffer upon return.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    DebugTrace(+1, Dbg, "FatQueryNetworkInfo...\n", 0);
+
+    //
+    //  Zero out the output buffer, and set it to indicate that
+    //  the query is a normal file.  Later we might overwrite the
+    //  attribute.
+    //
+
+    RtlZeroMemory( Buffer, sizeof(FILE_NETWORK_OPEN_INFORMATION) );
+
+    //
+    //  If the fcb is not the root dcb then we will fill in the
+    //  buffer otherwise it is all setup for us.
+    //
+
+    if (NodeType(Fcb) != FAT_NTC_ROOT_DCB) {
+
+        //
+        //  Extract the data and fill in the non zero fields of the output
+        //  buffer
+        //
+
+        Buffer->LastWriteTime.QuadPart = Fcb->LastWriteTime.QuadPart;
+        Buffer->CreationTime.QuadPart = Fcb->CreationTime.QuadPart;
+        Buffer->LastAccessTime.QuadPart = Fcb->LastAccessTime.QuadPart;
+
+        Buffer->FileAttributes = Fcb->DirentFatFlags;
+
+    } else {
+
+        Buffer->FileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+    }
+
+    //
+    //  If the temporary flag is set, then set it in the buffer.
+    //
+
+    if (FlagOn( Fcb->FcbState, FCB_STATE_TEMPORARY )) {
+
+        SetFlag( Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
+    }
+
+    //
+    //  If no attributes were set, set the normal bit.
+    //
+
+    if (Buffer->FileAttributes == 0) {
+
+        Buffer->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+    }
+    //
+    //  Case on whether this is a file or a directory, and extract
+    //  the information and fill in the fcb/dcb specific parts
+    //  of the output buffer
+    //
+
+    if (NodeType(Fcb) == FAT_NTC_FCB) {
+
+        if (Fcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+            FatLookupFileAllocationSize( IrpContext, Fcb );
+        }
+
+        Buffer->AllocationSize.QuadPart = Fcb->Header.AllocationSize.QuadPart;
+        Buffer->EndOfFile.QuadPart = Fcb->Header.FileSize.QuadPart;
+    }
+
+    //
+    //  Update the length and status output variables
+    //
+
+    *Length -= sizeof( FILE_NETWORK_OPEN_INFORMATION );
+
+    DebugTrace( 0, Dbg, "*Length = %08lx\n", *Length);
+
+    DebugTrace(-1, Dbg, "FatQueryNetworkInfo -> VOID\n", 0);
+
+    return;
+}
+
+
+//
 //  Internal Support routine
 //
 
@@ -1747,12 +1954,18 @@ Return Value:
     FAT_TIME_STAMP CreationTime;
     UCHAR CreationMSec;
     FAT_TIME_STAMP LastWriteTime;
+    FAT_TIME_STAMP LastAccessTime;
     FAT_DATE LastAccessDate;
     UCHAR Attributes;
 
     BOOLEAN ModifyCreation = FALSE;
     BOOLEAN ModifyLastWrite = FALSE;
     BOOLEAN ModifyLastAccess = FALSE;
+
+    LARGE_INTEGER LargeCreationTime;
+    LARGE_INTEGER LargeLastWriteTime;
+    LARGE_INTEGER LargeLastAccessTime;
+
 
     ULONG NotifyFilter = 0;
 
@@ -1765,6 +1978,15 @@ Return Value:
     Status = STATUS_SUCCESS;
 
     try {
+
+        LARGE_INTEGER FatLocalDecThirtyOne1979;
+        LARGE_INTEGER FatLocalJanOne1980;
+
+        ExLocalTimeToSystemTime( &FatDecThirtyOne1979,
+                                 &FatLocalDecThirtyOne1979 );
+
+        ExLocalTimeToSystemTime( &FatJanOne1980,
+                                 &FatLocalJanOne1980 );
 
         //
         //  Get a pointer to the dirent
@@ -1779,40 +2001,43 @@ Return Value:
         //  Check if the user specified a non-zero creation time
         //
 
-        if (FatData.ChicagoMode &&
-            LiNeqZero( *(PLARGE_INTEGER)&Buffer->CreationTime )) {
+        if (FatData.ChicagoMode && (Buffer->CreationTime.QuadPart != 0)) {
+
+            LargeCreationTime = Buffer->CreationTime;
 
             //
             //  Convert the Nt time to a Fat time
             //
 
             if ( !FatNtTimeToFatTime( IrpContext,
-                                      Buffer->CreationTime,
-                                      &CreationTime ) ) {
+                                      &LargeCreationTime,
+                                      FALSE,
+                                      &CreationTime,
+                                      &CreationMSec )) {
 
                 //
                 //  Special case the value 12/31/79 and treat this as 1/1/80.
                 //  This '79 value can happen because of time zone issues.
                 //
 
-                if ((Buffer->CreationTime.QuadPart >= FatDecThirtyOne1979.QuadPart) &&
-                    (Buffer->CreationTime.QuadPart < FatJanOne1980.QuadPart)) {
+                if ((LargeCreationTime.QuadPart >= FatLocalDecThirtyOne1979.QuadPart) &&
+                    (LargeCreationTime.QuadPart < FatLocalJanOne1980.QuadPart)) {
 
-                    (VOID)FatNtTimeToFatTime( IrpContext,
-                                              FatJanOne1980,
-                                              &CreationTime );
+                    CreationTime = FatTimeJanOne1980;
+                    LargeCreationTime = FatLocalJanOne1980;
 
                 } else {
 
                     DebugTrace(0, Dbg, "Invalid CreationTime\n", 0);
-
                     try_return( Status = STATUS_INVALID_PARAMETER );
                 }
-            }
 
-            CreationMSec = (UCHAR)
-                (((Buffer->CreationTime.LowPart + AlmostTenMSec) % TwoSeconds)
-                 / TenMSec);
+                //
+                //  Don't worry about CreationMSec
+                //
+
+                CreationMSec = 0;
+            }
 
             ModifyCreation = TRUE;
         }
@@ -1821,41 +2046,39 @@ Return Value:
         //  Check if the user specified a non-zero last access time
         //
 
-        if (FatData.ChicagoMode &&
-            LiNeqZero( *(PLARGE_INTEGER)&Buffer->LastAccessTime )) {
+        if (FatData.ChicagoMode && (Buffer->LastAccessTime.QuadPart != 0)) {
 
-            FAT_TIME_STAMP LastAccessTime;
+            LargeLastAccessTime = Buffer->LastAccessTime;
 
             //
             //  Convert the Nt time to a Fat time
             //
 
             if ( !FatNtTimeToFatTime( IrpContext,
-                                      Buffer->LastAccessTime,
-                                      &LastAccessTime ) ) {
+                                      &LargeLastAccessTime,
+                                      TRUE,
+                                      &LastAccessTime,
+                                      NULL )) {
 
                 //
                 //  Special case the value 12/31/79 and treat this as 1/1/80.
                 //  This '79 value can happen because of time zone issues.
                 //
 
-                if ((Buffer->LastAccessTime.QuadPart >= FatDecThirtyOne1979.QuadPart) &&
-                    (Buffer->LastAccessTime.QuadPart < FatJanOne1980.QuadPart)) {
+                if ((LargeLastAccessTime.QuadPart >= FatLocalDecThirtyOne1979.QuadPart) &&
+                    (LargeLastAccessTime.QuadPart < FatLocalJanOne1980.QuadPart)) {
 
-                    (VOID)FatNtTimeToFatTime( IrpContext,
-                                              FatJanOne1980,
-                                              &LastAccessTime );
+                    LastAccessTime = FatTimeJanOne1980;
+                    LargeLastAccessTime = FatLocalJanOne1980;
 
                 } else {
 
                     DebugTrace(0, Dbg, "Invalid LastAccessTime\n", 0);
-
                     try_return( Status = STATUS_INVALID_PARAMETER );
                 }
             }
 
             LastAccessDate = LastAccessTime.Date;
-
             ModifyLastAccess = TRUE;
         }
 
@@ -1863,38 +2086,55 @@ Return Value:
         //  Check if the user specified a non-zero last write time
         //
 
-        if (LiNeqZero( *(PLARGE_INTEGER)&Buffer->LastWriteTime )) {
+        if (Buffer->LastWriteTime.QuadPart != 0) {
 
             //
-            //  Convert the Nt time to a Fat time
+            //  First do a quick check here if the this time is the same
+            //  time as LastAccessTime.
             //
 
-            if ( !FatNtTimeToFatTime( IrpContext,
-                                      Buffer->LastWriteTime,
-                                      &LastWriteTime ) ) {
+            if (ModifyLastAccess &&
+                (Buffer->LastWriteTime.QuadPart == Buffer->LastAccessTime.QuadPart)) {
 
+                ModifyLastWrite = TRUE;
+                LastWriteTime = LastAccessTime;
+                LargeLastWriteTime = LargeLastAccessTime;
+
+            } else {
+
+                LargeLastWriteTime = Buffer->LastWriteTime;
 
                 //
-                //  Special case the value 12/31/79 and treat this as 1/1/80.
-                //  This '79 value can happen because of time zone issues.
+                //  Convert the Nt time to a Fat time
                 //
 
-                if ((Buffer->LastWriteTime.QuadPart >= FatDecThirtyOne1979.QuadPart) &&
-                    (Buffer->LastWriteTime.QuadPart < FatJanOne1980.QuadPart)) {
+                if ( !FatNtTimeToFatTime( IrpContext,
+                                          &LargeLastWriteTime,
+                                          TRUE,
+                                          &LastWriteTime,
+                                          NULL )) {
 
-                    (VOID)FatNtTimeToFatTime( IrpContext,
-                                              FatJanOne1980,
-                                              &LastWriteTime );
 
-                } else {
+                    //
+                    //  Special case the value 12/31/79 and treat this as 1/1/80.
+                    //  This '79 value can happen because of time zone issues.
+                    //
 
-                    DebugTrace(0, Dbg, "Invalid LastWriteTime\n", 0);
+                    if ((LargeLastWriteTime.QuadPart >= FatLocalDecThirtyOne1979.QuadPart) &&
+                        (LargeLastWriteTime.QuadPart < FatLocalJanOne1980.QuadPart)) {
 
-                    try_return( Status = STATUS_INVALID_PARAMETER );
+                        LastWriteTime = FatTimeJanOne1980;
+                        LargeLastWriteTime = FatLocalJanOne1980;
+
+                    } else {
+
+                        DebugTrace(0, Dbg, "Invalid LastWriteTime\n", 0);
+                        try_return( Status = STATUS_INVALID_PARAMETER );
+                    }
                 }
-            }
 
-            ModifyLastWrite = TRUE;
+                ModifyLastWrite = TRUE;
+            }
         }
 
 
@@ -1912,12 +2152,16 @@ Return Value:
 
             //
             //  Make sure that for a file the directory bit is not set
-            //  and for a directory that the bit is set
+            //  and that for a directory the bit is set.
             //
 
             if (NodeType(Fcb) == FAT_NTC_FCB) {
 
-                Attributes &= ~FAT_DIRENT_ATTR_DIRECTORY;
+                if (FlagOn(Buffer->FileAttributes, FILE_ATTRIBUTE_DIRECTORY)) {
+
+                    DebugTrace(0, Dbg, "Attempt to set dir attribute on file\n", 0);
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
 
             } else {
 
@@ -1929,6 +2173,16 @@ Return Value:
             //
 
             if (FlagOn(Buffer->FileAttributes, FILE_ATTRIBUTE_TEMPORARY)) {
+
+                //
+                //  Don't allow the temporary bit to be set on directories.
+                //
+
+                if (NodeType(Fcb) == FAT_NTC_DCB) {
+
+                    DebugTrace(0, Dbg, "No temporary directories\n", 0);
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
 
                 SetFlag( Fcb->FcbState, FCB_STATE_TEMPORARY );
 
@@ -1961,7 +2215,7 @@ Return Value:
             //  the bcb dirty
             //
 
-            Fcb->CreationTime = Buffer->CreationTime;
+            Fcb->CreationTime = LargeCreationTime;
             Dirent->CreationTime = CreationTime;
             Dirent->CreationMSec = CreationMSec;
 
@@ -1992,7 +2246,7 @@ Return Value:
             //  the bcb dirty
             //
 
-            Fcb->LastAccessTime = Buffer->LastAccessTime;
+            Fcb->LastAccessTime = LargeLastAccessTime;
             Dirent->LastAccessDate = LastAccessDate;
 
             NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_ACCESS;
@@ -2029,7 +2283,7 @@ Return Value:
             //  the bcb dirty
             //
 
-            Fcb->LastWriteTime = Buffer->LastWriteTime;
+            Fcb->LastWriteTime = LargeLastWriteTime;
             Dirent->LastWriteTime = LastWriteTime;
 
             NotifyFilter |= FILE_NOTIFY_CHANGE_LAST_WRITE;
@@ -2307,6 +2561,24 @@ Return Value:
         Fcb->FcbState |= FCB_STATE_DELETE_ON_CLOSE;
         FileObject->DeletePending = TRUE;
 
+        //
+        //  If this is a directory then report this delete pending to
+        //  the dir notify package.
+        //
+
+        if (NodeType(Fcb) == FAT_NTC_DCB) {
+
+            FsRtlNotifyFullChangeDirectory( Fcb->Vcb->NotifySync,
+                                            &Fcb->Vcb->DirNotifyList,
+                                            FileObject->FsContext,
+                                            NULL,
+                                            FALSE,
+                                            FALSE,
+                                            0,
+                                            NULL,
+                                            NULL,
+                                            NULL );
+        }
     } else {
 
         //
@@ -2374,6 +2646,7 @@ Return Value:
     BOOLEAN ReplaceIfExists;
 
     CCB LocalCcb;
+    PCCB SourceCcb;
 
     DIRENT SourceDirent;
 
@@ -2390,6 +2663,7 @@ Return Value:
     PBCB TargetDirentBcb;
 
     PDCB TargetDcb;
+    PDCB OldParentDcb;
 
     PDIRENT DotDotDirent;
     PDIRENT FirstPageDirent;
@@ -2402,6 +2676,7 @@ Return Value:
     PFCB TempFcb;
 
     PFILE_OBJECT TargetFileObject;
+    PFILE_OBJECT FileObject;
 
     PIO_STACK_LOCATION IrpSp;
 
@@ -2424,6 +2699,15 @@ Return Value:
     UNICODE_STRING TargetLfn;
 
     PWCHAR UnicodeBuffer;
+
+    UNICODE_STRING UniTunneledShortName;
+    WCHAR UniTunneledShortNameBuffer[12];
+    UNICODE_STRING UniTunneledLongName;
+    WCHAR UniTunneledLongNameBuffer[26];
+    LARGE_INTEGER TunneledCreationTime;
+    ULONG TunneledDataSize;
+    BOOLEAN HaveTunneledInformation;
+    BOOLEAN UsingTunneledLfn = FALSE;
 
     DebugTrace(+1, Dbg, "FatSetRenameInfo...\n", 0);
 
@@ -2471,6 +2755,14 @@ Return Value:
     TargetLfn.MaximumLength = MAX_LFN_CHARACTERS * sizeof(WCHAR);
     TargetLfn.Buffer = &UnicodeBuffer[MAX_LFN_CHARACTERS * 3];
 
+    UniTunneledShortName.Length = 0;
+    UniTunneledShortName.MaximumLength = sizeof(UniTunneledShortNameBuffer);
+    UniTunneledShortName.Buffer = &UniTunneledShortNameBuffer[0];
+
+    UniTunneledLongName.Length = 0;
+    UniTunneledLongName.MaximumLength = sizeof(UniTunneledLongNameBuffer);
+    UniTunneledLongName.Buffer = &UniTunneledLongNameBuffer[0];
+
     //
     //  Remember the name in case we have to modify the name
     //  value in the ea.
@@ -2490,6 +2782,8 @@ Return Value:
     //  Extract information from the Irp to make our life easier
     //
 
+    FileObject = IrpSp->FileObject;
+    SourceCcb = FileObject->FsContext2;
     TargetFileObject = IrpSp->Parameters.SetFile.FileObject;
     ReplaceIfExists = IrpSp->Parameters.SetFile.ReplaceIfExists;
 
@@ -2498,7 +2792,7 @@ Return Value:
     //
     //  P H A S E  1:
     //
-    //  Test if rename is legal.  Only small side affects are not undone.
+    //  Test if rename is legal.  Only small side-effects are not undone.
     //
 
     try {
@@ -2516,24 +2810,100 @@ Return Value:
         //  Check that we were not given a dcb with open handles beneath
         //  it.  If there are only UncleanCount == 0 Fcbs beneath us, then
         //  remove them from the prefix table, and they will just close
-        //  and go away naturallly.
+        //  and go away naturally.
         //
 
         if (NodeType(Fcb) == FAT_NTC_DCB) {
 
+            PFCB BatchOplockFcb;
+            ULONG BatchOplockCount;
+
             //
-            //  First look for any UncleanCount != 0 Fcbs, and fail if we
-            //  find any.
+            //  Loop until there are no batch oplocks in the subtree below
+            //  this directory.
             //
 
-            for ( TempFcb = FatGetFirstChild(Fcb);
-                  TempFcb != NULL;
-                  TempFcb = FatGetNextFcb(IrpContext, TempFcb, Fcb) ) {
+            while (TRUE) {
 
-                 if ( TempFcb->UncleanCount != 0 ) {
+                BatchOplockFcb = NULL;
+                BatchOplockCount = 0;
 
-                     try_return( Status = STATUS_ACCESS_DENIED );
-                 }
+                //
+                //  First look for any UncleanCount != 0 Fcbs, and fail if we
+                //  find any.
+                //
+
+                for ( TempFcb = FatGetFirstChild(Fcb);
+                      TempFcb != NULL;
+                      TempFcb = FatGetNextFcb(IrpContext, TempFcb, Fcb) ) {
+
+                     if ( TempFcb->UncleanCount != 0 ) {
+
+                         //
+                         // If there is a batch oplock on this file then
+                         // increment our count and remember the Fcb if
+                         // this is the first.
+                         //
+
+                         if ( (NodeType(TempFcb) == FAT_NTC_FCB) &&
+                              FsRtlCurrentBatchOplock( &TempFcb->Specific.Fcb.Oplock ) ) {
+
+                             BatchOplockCount += 1;
+                             if ( BatchOplockFcb == NULL ) {
+
+                                 BatchOplockFcb = TempFcb;
+                             }
+
+                         } else {
+
+                            try_return( Status = STATUS_ACCESS_DENIED );
+                         }
+                     }
+                }
+
+                //
+                //  If this is not the first pass for rename and the number
+                //  of batch oplocks has not decreased then give up.
+                //
+
+                if ( BatchOplockFcb != NULL ) {
+
+                    if ( (Irp->IoStatus.Information != 0) &&
+                         (BatchOplockCount >= Irp->IoStatus.Information) ) {
+
+                        try_return( Status = STATUS_ACCESS_DENIED );
+                    }
+
+                    //
+                    //  Try to break this batch oplock.
+                    //
+
+                    Irp->IoStatus.Information = BatchOplockCount;
+                    Status = FsRtlCheckOplock( &BatchOplockFcb->Specific.Fcb.Oplock,
+                                               Irp,
+                                               IrpContext,
+                                               FatOplockComplete,
+                                               NULL );
+
+                    //
+                    //  If the oplock was already broken then look for more
+                    //  batch oplocks.
+                    //
+
+                    if (Status == STATUS_SUCCESS) {
+
+                        continue;
+                    }
+
+                    //
+                    //  Otherwise the oplock package will post or complete the
+                    //  request.
+                    //
+
+                    try_return( Status = STATUS_PENDING );
+                }
+
+                break;
             }
 
             //
@@ -2563,7 +2933,7 @@ Return Value:
         }
 
         //
-        //  Check if this is a simple rename or a fully qualified rename
+        //  Check if this is a simple rename or a fully-qualified rename
         //  In both cases we need to figure out what the TargetDcb, and
         //  NewName are.
         //
@@ -2597,7 +2967,7 @@ Return Value:
         } else {
 
             //
-            //  For a fully qualified rename the target dcb is taken from
+            //  For a fully-qualified rename the target dcb is taken from
             //  the target file object, which must be on the same vcb as
             //  the source.
             //
@@ -2626,7 +2996,7 @@ Return Value:
         //  old name as well.
         //
 
-        Status = RtlUpcaseUnicodeString( &NewUpcasedName, &NewName, FALSE );
+        Status = FatUpcaseUnicodeString( &NewUpcasedName, &NewName, FALSE );
 
         if (!NT_SUCCESS(Status)) {
 
@@ -2635,7 +3005,7 @@ Return Value:
 
         FatGetUnicodeNameFromFcb( IrpContext, Fcb, &OldName );
 
-        Status = RtlUpcaseUnicodeString( &OldUpcasedName, &OldName, FALSE );
+        Status = FatUpcaseUnicodeString( &OldUpcasedName, &OldName, FALSE );
 
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
@@ -2695,7 +3065,8 @@ Return Value:
             //  If the name is not valid 8.3, zero the length.
             //
 
-            if (!FatIsNameValid( IrpContext, NewOemName, FALSE, FALSE, FALSE)) {
+            if (FatSpaceInName( IrpContext, &NewName ) ||
+                !FatIsNameValid( IrpContext, NewOemName, FALSE, FALSE, FALSE)) {
 
                 NewOemName.Length = 0;
             }
@@ -2704,6 +3075,20 @@ Return Value:
 
             NewOemName.Length = 0;
         }
+
+        //
+        //  Look in the tunnel cache for names and timestamps to restore
+        //
+
+        TunneledDataSize = sizeof(LARGE_INTEGER);
+        HaveTunneledInformation = FsRtlFindInTunnelCache( &Vcb->Tunnel,
+                                                          FatDirectoryKey(TargetDcb),
+                                                          &NewName,
+                                                          &UniTunneledShortName,
+                                                          &UniTunneledLongName,
+                                                          &TunneledDataSize,
+                                                          &TunneledCreationTime );
+        ASSERT(TunneledDataSize == sizeof(LARGE_INTEGER));
 
         //
         //  Now we need to determine how many dirents this new name will
@@ -2718,20 +3103,29 @@ Return Value:
                                   &CreateLfn ),
              CreateLfn)) {
 
-            //
-            //  We will need to create an LFN
-            //
-
             DirentsRequired = FAT_LFN_DIRENTS_NEEDED(&NewName) + 1;
 
         } else {
 
             //
-            //  This is a simple dirent.  Note that the two AllLower BOOLEANs
-            //  are correctly set now.
+            //  The user-given name is a short name, but we might still have
+            //  a tunneled long name we want to use. See if we can.
             //
 
-            DirentsRequired = 1;
+            if (UniTunneledLongName.Length && !FatLfnDirentExists(IrpContext, TargetDcb, &UniTunneledLongName, &TargetLfn)) {
+
+                UsingTunneledLfn = CreateLfn = TRUE;
+                DirentsRequired = FAT_LFN_DIRENTS_NEEDED(&UniTunneledLongName) + 1;
+
+            } else {
+
+                //
+                //  This really is a simple dirent.  Note that the two AllLower BOOLEANs
+                //  are correctly set now.
+                //
+
+                DirentsRequired = 1;
+            }
         }
 
         //
@@ -2756,6 +3150,7 @@ Return Value:
             AllLowerComponent = FALSE;
             AllLowerExtension = FALSE;
             CreateLfn = FALSE;
+            UsingTunneledLfn = FALSE;
         }
 
         if (!CaseOnlyRename) {
@@ -2786,6 +3181,7 @@ Return Value:
                              &TargetDirent,
                              &TargetDirentBcb,
                              &TargetDirentOffset,
+                             NULL,
                              &TargetLfn );
 
             if (TargetDirent != NULL) {
@@ -2807,7 +3203,8 @@ Return Value:
                 //  Check that the file has no open user handles, if it does
                 //  then we will deny access.  We do the check by searching
                 //  down the list of fcbs opened under our parent Dcb, and making
-                //  sure none of the maching Fcbs have a non-zero unclean count.
+                //  sure none of the maching Fcbs have a non-zero unclean count or
+                //  outstanding image sections.
                 //
 
                 for (Links = TargetDcb->Specific.Dcb.ParentDcbQueue.Flink;
@@ -2817,9 +3214,40 @@ Return Value:
                     TempFcb = CONTAINING_RECORD( Links, FCB, ParentDcbLinks );
 
                     if ((TempFcb->DirentOffsetWithinDirectory == TargetDirentOffset) &&
-                        (TempFcb->UncleanCount != 0)) {
+                        ((TempFcb->UncleanCount != 0) ||
+                         !MmFlushImageSection( &TempFcb->NonPaged->SectionObjectPointers,
+                                               MmFlushForDelete))) {
 
-                        try_return( Status = STATUS_ACCESS_DENIED );
+                        //
+                        //  If there are batch oplocks on this file then break the
+                        //  oplocks before failing the rename.
+                        //
+
+                        Status = STATUS_ACCESS_DENIED;
+
+                        if ((NodeType(TempFcb) == FAT_NTC_FCB) &&
+                            FsRtlCurrentBatchOplock( &TempFcb->Specific.Fcb.Oplock )) {
+
+                            //
+                            //  Do all of our cleanup now since the IrpContext
+                            //  could go away when this request is posted.
+                            //
+
+                            FatUnpinBcb( IrpContext, TargetDirentBcb );
+
+                            Status = FsRtlCheckOplock( &TempFcb->Specific.Fcb.Oplock,
+                                                       Irp,
+                                                       IrpContext,
+                                                       FatOplockComplete,
+                                                       NULL );
+
+                            if (Status != STATUS_PENDING) {
+
+                                Status = STATUS_ACCESS_DENIED;
+                            }
+                        }
+
+                        try_return( NOTHING );
                     }
                 }
 
@@ -2865,7 +3293,7 @@ Return Value:
 
     } finally {
 
-        if (AbnormalTermination() || !NT_SUCCESS(Status)) {
+        if (!ContinueWithRename) {
 
             //
             //  Undo everything from above.
@@ -2925,6 +3353,13 @@ Return Value:
         try {
 
             //
+            //  Tunnel the source Fcb - the names are disappearing regardless of
+            //  whether the dirent allocation physically changed
+            //
+
+            FatTunnelFcbOrDcb( Fcb, SourceCcb );
+
+            //
             //  Delete our current dirent(s) if we got a new one.
             //
 
@@ -2951,15 +3386,34 @@ Return Value:
             //  We need to evaluate any short names required.  If there were any
             //  conflicts in existing short names, they would have been deleted above.
             //
+            //  It isn't neccesary to worry about the UsingTunneledLfn case. Since we
+            //  actually already know whether CreateLfn will be set either NewName is
+            //  an Lfn and !UsingTunneledLfn is implied or NewName is a short name and
+            //  we can handle that externally.
+            //
 
             FatSelectNames( IrpContext,
                             TargetDcb,
                             &NewOemName,
                             &NewName,
                             &NewOemName,
+                            (HaveTunneledInformation ? &UniTunneledShortName : NULL),
                             &AllLowerComponent,
                             &AllLowerExtension,
                             &CreateLfn );
+
+            if (!CreateLfn && UsingTunneledLfn) {
+
+                CreateLfn = TRUE;
+                NewName = UniTunneledLongName;
+
+                //
+                //  Short names are always upcase if an LFN exists
+                //
+
+                AllLowerComponent = FALSE;
+                AllLowerExtension = FALSE;
+            }
 
             //
             //  OK, now setup the new dirent(s) for the new name.
@@ -3029,10 +3483,24 @@ Return Value:
                                 AllLowerExtension,
                                 CreateLfn ? &NewName : NULL,
                                 SourceDirent.Attributes,
-                                FALSE );
+                                FALSE,
+                                (HaveTunneledInformation ? &TunneledCreationTime : NULL) );
+
+            if (HaveTunneledInformation) {
+
+                //
+                //  Need to go in and fix the timestamps in the FCB. Note that we can't use
+                //  the TunneledCreationTime since the conversions may have failed.
+                //
+
+                Fcb->CreationTime = FatFatTimeToNtTime(IrpContext, ShortDirent->CreationTime, ShortDirent->CreationMSec);
+                Fcb->LastWriteTime = FatFatTimeToNtTime(IrpContext, ShortDirent->LastWriteTime, 0);
+                Fcb->LastAccessTime = FatFatDateToNtTime(IrpContext, ShortDirent->LastAccessDate);
+            }
 
             //
-            //  If the dirent crossed pages, we have to do some real gross stuff.
+            //  If the dirent crossed pages, split the contents of the
+            //  temporary pool between the two pages.
             //
 
             if (NewDirentFromPool) {
@@ -3045,30 +3513,31 @@ Return Value:
 
                 FatSetDirtyBcb( IrpContext, SecondPageBcb, Vcb );
 
-                ShortDirent = FirstPageDirent + DirentsRequired - 1;
+                ShortDirent = SecondPageDirent +
+                              (DirentsRequired - DirentsInFirstPage) - 1;
             }
 
         } finally {
 
             //
             //  Remove the entry from the splay table, and then remove the
-            //  full file name.  It is important that we always remove the
-            //  name from the prefix table regardless of other errors.
+            //  full file name and exact case lfn. It is important that we
+            //  always remove the name from the prefix table regardless of
+            //  other errors.
             //
 
             FatRemoveNames( IrpContext, Fcb );
 
             if (Fcb->FullFileName.Buffer != NULL) {
 
-                VOID
-                FatSetFullNameInFcb(
-                    IN PIRP_CONTEXT IrpContext,
-                    IN PFCB Fcb,
-                    IN PUNICODE_STRING FinalName
-                    );
-
                 ExFreePool( Fcb->FullFileName.Buffer );
                 Fcb->FullFileName.Buffer = NULL;
+            }
+
+            if (Fcb->ExactCaseLongName.Buffer) {
+
+                ExFreePool( Fcb->ExactCaseLongName.Buffer );
+                Fcb->ExactCaseLongName.Buffer = NULL;
             }
 
             //
@@ -3096,6 +3565,7 @@ Return Value:
         InsertTailList( &TargetDcb->Specific.Dcb.ParentDcbQueue,
                         &Fcb->ParentDcbLinks );
 
+        OldParentDcb = Fcb->ParentDcb;
         Fcb->ParentDcb = TargetDcb;
 
         //
@@ -3197,6 +3667,29 @@ Return Value:
         }
 
         //
+        //  Now, if we renamed across directories, see if we need to
+        //  uninitialize the cachemap for the source directory.
+        //
+
+        if (RenamedAcrossDirectories &&
+            IsListEmpty(&OldParentDcb->Specific.Dcb.ParentDcbQueue) &&
+            (OldParentDcb->OpenCount == 0) &&
+            (OldParentDcb->Specific.Dcb.DirectoryFile != NULL)) {
+
+            PFILE_OBJECT DirectoryFileObject;
+
+            DirectoryFileObject = OldParentDcb->Specific.Dcb.DirectoryFile;
+
+            DebugTrace(0, Dbg, "Uninitialize our parent Stream Cache Map\n", 0);
+
+            CcUninitializeCacheMap( DirectoryFileObject, NULL, NULL );
+
+            OldParentDcb->Specific.Dcb.DirectoryFile = NULL;
+
+            ObDereferenceObject( DirectoryFileObject );
+        }
+
+        //
         //  Set our final status
         //
 
@@ -3207,6 +3700,15 @@ Return Value:
         DebugUnwind( FatSetRenameInfo );
 
         ExFreePool( UnicodeBuffer );
+
+        if (UniTunneledLongName.Buffer != UniTunneledLongNameBuffer) {
+
+            //
+            //  Free pool if the buffer was grown on tunneling lookup
+            //
+
+            ExFreePool(UniTunneledLongName.Buffer);
+        }
 
         FatUnpinBcb( IrpContext, OldDirentBcb );
         FatUnpinBcb( IrpContext, TargetDirentBcb );
@@ -3342,6 +3844,7 @@ Return Value:
     BOOLEAN CacheMapInitialized = FALSE;
     ULONG OriginalFileSize;
     ULONG OriginalValidDataLength;
+    ULONG OriginalValidDataToDisk;
 
     Buffer = Irp->AssociatedIrp.SystemBuffer;
 
@@ -3388,7 +3891,7 @@ Return Value:
 
     if ((FileObject->SectionObjectPointer->DataSectionObject != NULL) &&
         (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
-        (Irp->RequestorMode != KernelMode)) {
+        !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
 
         ASSERT( !FlagOn( FileObject->Flags, FO_CLEANUP_COMPLETE ) );
 
@@ -3420,7 +3923,7 @@ Return Value:
     try {
 
         //
-        //  Increase or descrease the allocation size.
+        //  Increase or decrease the allocation size.
         //
 
         if (NewAllocationSize > Fcb->Header.AllocationSize.LowPart) {
@@ -3451,6 +3954,7 @@ Return Value:
 
                 OriginalFileSize = Fcb->Header.FileSize.LowPart;
                 OriginalValidDataLength = Fcb->Header.ValidDataLength.LowPart;
+                OriginalValidDataToDisk = Fcb->ValidDataToDisk;
 
                 (VOID)ExAcquireResourceExclusive( Fcb->Header.PagingIoResource, TRUE );
 
@@ -3458,12 +3962,16 @@ Return Value:
 
                 //
                 //  If we reduced the file size to less than the ValidDataLength,
-                //  adjust the VDL.
+                //  adjust the VDL.  Likewise ValidDataToDisk.
                 //
 
                 if (Fcb->Header.ValidDataLength.LowPart > Fcb->Header.FileSize.LowPart) {
 
                     Fcb->Header.ValidDataLength.LowPart = Fcb->Header.FileSize.LowPart;
+                }
+                if (Fcb->ValidDataToDisk > Fcb->Header.FileSize.LowPart) {
+
+                    Fcb->ValidDataToDisk = Fcb->Header.FileSize.LowPart;
                 }
 
                 ExReleaseResource( Fcb->Header.PagingIoResource );
@@ -3512,6 +4020,7 @@ Return Value:
 
             Fcb->Header.FileSize.LowPart = OriginalFileSize;
             Fcb->Header.ValidDataLength.LowPart = OriginalValidDataLength;
+            Fcb->ValidDataToDisk = OriginalValidDataToDisk;
         }
 
         if (CacheMapInitialized) {
@@ -3620,7 +4129,7 @@ Return Value:
 
         if ((FileObject->SectionObjectPointer->DataSectionObject != NULL) &&
             (FileObject->SectionObjectPointer->SharedCacheMap == NULL) &&
-            (Irp->RequestorMode != KernelMode)) {
+            !FlagOn(Irp->Flags, IRP_PAGING_IO)) {
 
             ASSERT( !FlagOn( FileObject->Flags, FO_CLEANUP_COMPLETE ) );
 
@@ -3677,30 +4186,26 @@ Return Value:
                                           &Dirent,
                                           &DirentBcb );
 
-                if ( NewFileSize > Dirent->FileSize ) {
+                try {
 
-                    Dirent->FileSize = NewFileSize;
+                    if ( NewFileSize > Dirent->FileSize ) {
 
-                    try {
+                        Dirent->FileSize = NewFileSize;
 
                         FatSetDirtyBcb( IrpContext, DirentBcb, Fcb->Vcb );
 
-                    } finally {
+                        //
+                        //  Report that we just changed the file size.
+                        //
 
-                        FatUnpinBcb( IrpContext, DirentBcb );
+                        FatNotifyReportChange( IrpContext,
+                                               Vcb,
+                                               Fcb,
+                                               FILE_NOTIFY_CHANGE_SIZE,
+                                               FILE_ACTION_MODIFIED );
                     }
 
-                    //
-                    //  Report that we just changed the file size.
-                    //
-
-                    FatNotifyReportChange( IrpContext,
-                                           Vcb,
-                                           Fcb,
-                                           FILE_NOTIFY_CHANGE_SIZE,
-                                           FILE_ACTION_MODIFIED );
-
-                } else {
+                } finally {
 
                     FatUnpinBcb( IrpContext, DirentBcb );
                 }
@@ -3768,12 +4273,16 @@ Return Value:
 
             //
             //  If we reduced the file size to less than the ValidDataLength,
-            //  adjust the VDL.
+            //  adjust the VDL.  Likewise ValidDataToDisk.
             //
 
             if (Fcb->Header.ValidDataLength.LowPart > NewFileSize) {
 
                 Fcb->Header.ValidDataLength.LowPart = NewFileSize;
+            }
+            if (Fcb->ValidDataToDisk > NewFileSize) {
+
+                Fcb->ValidDataToDisk = NewFileSize;
             }
 
             if ( ResourceAcquired ) {
@@ -3910,7 +4419,9 @@ FatDeleteFile (
 
                 SetFlag(Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE);
 
-                Fcb->Header.FileSize = Fcb->Header.ValidDataLength = FatLargeZero;
+                Fcb->ValidDataToDisk =
+                Fcb->Header.FileSize.QuadPart =
+                Fcb->Header.ValidDataLength.QuadPart = 0;
 
                 Fcb->FirstClusterOfFile = 0;
 

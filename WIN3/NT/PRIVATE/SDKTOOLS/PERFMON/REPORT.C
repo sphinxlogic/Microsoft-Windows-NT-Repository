@@ -1575,87 +1575,87 @@ BOOL ReportInsertLine (HWND hWnd, PLINE pLine)
 
    pLineEquivalent = FindEquivalentLine (pLine, pReport->pLineFirst) ;
    if (pLineEquivalent) 
-      {
-      return (FALSE) ; 
+    {
+      if (bMonitorDuplicateInstances) {
+          pLine->dwInstanceIndex = pLineEquivalent->dwInstanceIndex + 1;
+      } else {
+          return (FALSE) ;
       }
-   else
-      {
-      //=============================//
-      // Add line, line's system     //
-      //=============================//
+    }
+    //=============================//
+    // Add line, line's system     //
+    //=============================//
 
-      LineAppend (&pReport->pLineFirst, pLine) ;
-      SystemAdd (&pReport->pSystemFirst, pLine->lnSystemName) ;
+    LineAppend (&pReport->pLineFirst, pLine) ;
+    SystemAdd (&pReport->pSystemFirst, pLine->lnSystemName, hWnd) ;
 
 
-      //=============================//
-      // Find correct spot; add line //
-      //=============================//
+    //=============================//
+    // Find correct spot; add line //
+    //=============================//
 
-      pSystemGroup = GetSystemGroup (pReport, pLine->lnSystemName) ;
-      pObjectGroup = GetObjectGroup (pSystemGroup, pLine->lnObjectName) ;
-      pCounterGroup = GetCounterGroup (pObjectGroup, 
-                                 pLine->lnCounterDef.CounterNameTitleIndex,
-                                 &bNewCounterGroup,
-                                 pLine->lnCounterName) ;
+    pSystemGroup = GetSystemGroup (pReport, pLine->lnSystemName) ;
+    pObjectGroup = GetObjectGroup (pSystemGroup, pLine->lnObjectName) ;
+    pCounterGroup = GetCounterGroup (pObjectGroup, 
+                                pLine->lnCounterDef.CounterNameTitleIndex,
+                                &bNewCounterGroup,
+                                pLine->lnCounterName);
 
-      if (!pCounterGroup)
-         return (FALSE) ;
+    if (!pCounterGroup)
+        return (FALSE) ;
 
-      LineCounterAppend (&pCounterGroup->pLineFirst, pLine) ;
-   
-      //=============================//
-      // Calculate report positions  //
-      //=============================//
-      hDC = GetDC (hWnd) ;
-      SelectFont (hDC, pReport->hFontHeaders) ;
+    LineCounterAppend (&pCounterGroup->pLineFirst, pLine) ;
 
-      if (bNewCounterGroup)
-         {
-         // re-calc. the max. counter group width 
-         OldCounterWidth = pReport->xMaxCounterWidth ;
-         pReport->xMaxCounterWidth = 
-            max (pReport->xMaxCounterWidth,
-                 TextWidth (hDC, pLine->lnCounterName)) ;
-         if (OldCounterWidth < pReport->xMaxCounterWidth)
-            {
-            // adjust the report width with the new counter width
-            pReport->xWidth +=
-               (pReport->xMaxCounterWidth - OldCounterWidth);
-            }
-         }
+    //=============================//
+    // Calculate report positions  //
+    //=============================//
+    hDC = GetDC (hWnd) ;
+    SelectFont (hDC, pReport->hFontHeaders) ;
 
-      if (pLine->lnCounterType == PERF_COUNTER_LARGE_RAWCOUNT_HEX)
-         {
-         SelectFont (hDC, pReport->hFont) ;
-         pReport->xValueWidth = TextWidth (hDC, szValueLargeHexPlaceholder) ;
-         }
+    if (bNewCounterGroup)
+        {
+        // re-calc. the max. counter group width 
+        OldCounterWidth = pReport->xMaxCounterWidth ;
+        pReport->xMaxCounterWidth = 
+        max (pReport->xMaxCounterWidth,
+                TextWidth (hDC, pLine->lnCounterName)) ;
+        if (OldCounterWidth < pReport->xMaxCounterWidth)
+        {
+        // adjust the report width with the new counter width
+        pReport->xWidth +=
+            (pReport->xMaxCounterWidth - OldCounterWidth);
+        }
+        }
 
-      if (!bDelayAddAction)
-         {
-         SetReportPositions (hDC, pReport) ;
-         }
-      ReleaseDC (hWnd, hDC) ;
+    if (pLine->lnCounterType == PERF_COUNTER_LARGE_RAWCOUNT_HEX)
+        {
+        SelectFont (hDC, pReport->hFont) ;
+        pReport->xValueWidth = TextWidth (hDC, szValueLargeHexPlaceholder) ;
+        }
 
-      pReport->CurrentItem.pLine = pLine ;
-      pReport->CurrentItemType = REPORT_TYPE_LINE ;
-      
-      if (!bDelayAddAction)
-         {
-         if (PlayingBackLog ())
-            {
-            PlaybackReport (hWndReport) ;
-            }
-         else if (pReport->iStatus == iPMStatusClosed)
-            {
-            SetReportTimer (pReport) ;
-            }
-         
-         WindowInvalidate (hWnd) ;
-         }
-      }  // else
+    if (!bDelayAddAction)
+        {
+        SetReportPositions (hDC, pReport) ;
+        }
+    ReleaseDC (hWnd, hDC) ;
 
-      return (TRUE) ;
+    pReport->CurrentItem.pLine = pLine ;
+    pReport->CurrentItemType = REPORT_TYPE_LINE ;
+    
+    if (!bDelayAddAction)
+        {
+        if (PlayingBackLog ())
+        {
+        PlaybackReport (hWndReport) ;
+        }
+        else if (pReport->iStatus == iPMStatusClosed)
+        {
+        SetReportTimer (pReport) ;
+        }
+        
+        WindowInvalidate (hWnd) ;
+        }
+     return (TRUE) ;
    }  // ReportInsertLine
 
 
@@ -2209,4 +2209,4 @@ Exit0:
 }  // ExportReport
 
 
-
+

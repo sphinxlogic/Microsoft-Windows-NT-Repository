@@ -30,6 +30,8 @@ Revision History:
 #pragma alloc_text(INIT,DriverEntry)
 #pragma alloc_text(INIT,FsRecCreateAndRegisterDO)
 
+#pragma alloc_text(PAGE,FsRecCleanupClose)
+#pragma alloc_text(PAGE,FsRecCreate)
 #pragma alloc_text(PAGE,FsRecFsControl)
 #pragma alloc_text(PAGE,FsRecUnload)
 #endif // ALLOC_PRAGMA
@@ -66,12 +68,23 @@ Return Value:
     NTSTATUS status;
     ULONG count = 0;
 
+    PAGED_CODE();
+
+    //
+    // Mark the entire driver as pagable.
+    //
+
+    MmPageEntireDriver ((PVOID)DriverEntry);
+
     //
     // Begin by initializing the driver object so that it the driver is
     // prepared to provide services.
     //
 
     DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL] = FsRecFsControl;
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = FsRecCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLEANUP] = FsRecCleanupClose;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = FsRecCleanupClose;
     DriverObject->DriverUnload = FsRecUnload;
 
     //
@@ -100,14 +113,6 @@ Return Value:
     }
 
     status = FsRecCreateAndRegisterDO( DriverObject,
-                                       L"\\Pinball",
-                                       L"\\FileSystem\\HpfsRecognizer",
-                                       HpfsFileSystem );
-    if (NT_SUCCESS( status )) {
-        count++;
-    }
-
-    status = FsRecCreateAndRegisterDO( DriverObject,
                                        L"\\Ntfs",
                                        L"\\FileSystem\\NtfsRecognizer",
                                        NtfsFileSystem );
@@ -120,6 +125,91 @@ Return Value:
     } else {
         return STATUS_IMAGE_ALREADY_LOADED;
     }
+}
+
+NTSTATUS
+FsRecCleanupClose(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is invoked when someone attempts to cleanup or close one of
+    the system recognizer's registered device objects.
+
+Arguments:
+
+    DeviceObject - Pointer to the device object being closed.
+
+    Irp - Pointer to the cleanup/close IRP.
+
+Return Value:
+
+    The final function value is STATUS_SUCCESS.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    // Simply complete the request successfully (note that IoStatus.Status in
+    // Irp is already initialized to STATUS_SUCCESS).
+    //
+
+    IoCompleteRequest( Irp, IO_NO_INCREMENT );
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+FsRecCreate(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is invoked when someone attempts to open one of the file
+    system recognizer's registered device objects.
+
+Arguments:
+
+    DeviceObject - Pointer to the device object being opened.
+
+    Irp - Pointer to the create IRP.
+
+Return Value:
+
+    The final function value indicates whether or not the open was successful.
+
+--*/
+
+{
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation( Irp );
+    NTSTATUS status;
+
+    PAGED_CODE();
+
+    //
+    // Simply ensure that the name of the "file" being opened is NULL, and
+    // complete the request accordingly.
+    //
+
+    if (irpSp->FileObject->FileName.Length) {
+        status = STATUS_OBJECT_PATH_NOT_FOUND;
+    } else {
+        status = STATUS_SUCCESS;
+    }
+
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = FILE_OPENED;
+    IoCompleteRequest( Irp, IO_NO_INCREMENT );
+    return status;
 }
 
 NTSTATUS
@@ -162,6 +252,8 @@ Return Value:
     HANDLE fsHandle;
     IO_STATUS_BLOCK ioStatus;
     PDEVICE_EXTENSION deviceExtension;
+
+    PAGED_CODE();
 
     //
     // Begin by attempting to open the file system driver's device object.  If
@@ -225,6 +317,10 @@ Return Value:
     deviceExtension = (PDEVICE_EXTENSION) deviceObject->DeviceExtension;
     deviceExtension->FileSystemType = FileSystemType;
 
+#if _PNP_POWER_
+    deviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
+
     //
     // Finally, register this driver as an active, loaded file system and
     // return to the caller.
@@ -279,11 +375,6 @@ Return Value:
         case FatFileSystem:
 
             status = FatRecFsControl( DeviceObject, Irp );
-            break;
-
-        case HpfsFileSystem:
-
-            status = HpfsRecFsControl( DeviceObject, Irp );
             break;
 
         case NtfsFileSystem:

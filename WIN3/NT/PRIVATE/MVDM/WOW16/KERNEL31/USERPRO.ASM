@@ -29,7 +29,9 @@ endif
 
 DataBegin
 
+ifndef WOW
 externB szUserPro
+endif
 externB fBooting
 externW cBytesWinDir
 externD lpWindowsDir
@@ -71,7 +73,8 @@ assumes ES,NOTHING
 
 externNP MISCMapDStoDATA
 
-if 0
+; WOW thunks most of these APIs.
+ifndef WOW
 
 SECT_LEFT	equ	byte ptr '['
 SECT_RIGHT	equ	byte ptr ']'
@@ -1619,6 +1622,7 @@ fpp_copy_name:
 cEnd
 
 endif
+; ndef WOW
 
 ;-----------------------------------------------------------------------;
 ; GetWindowsDirectory
@@ -1790,6 +1794,8 @@ cEnd
 sEnd	MISCCODE
 
 
+ifndef WOW
+
 sBegin	INITCODE
 assumes cs, CODE
 assumes ds, nothing
@@ -1859,5 +1865,8 @@ EndEnv:
 cEnd
 
 sEnd	INITCODE
+
+endif
+; ndef WOW
 
 end

@@ -492,4 +492,3 @@ public:
 	};
 
 #endif // __ACFATTR__HXX
-

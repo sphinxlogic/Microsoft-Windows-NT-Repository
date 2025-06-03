@@ -18,6 +18,12 @@
  *  06-June-1992 Chandan Chauhan (ChandanC)
  *  Fixed BITMAP and DeviceIndependentBitmap (DIB) issues
  *
+ *  22-May-1995  Craig Jones (a-craigj)
+ *  METAFILE NOTE: several 32-bit API's will return TRUE when GDI is in 
+ *                 "metafile" mode -- however, the POINT struct does not get
+ *                 updated by GDI32 even if the API returns successfully so
+ *                 we just return TRUE or FALSE as the point coors like W3.1.
+ *
 --*/
 
 
@@ -27,7 +33,8 @@
 #include "wdib.h"
 
 #include "stddef.h"    // these three are needed to include the
-#include "winp.h"      // definition of EXTTEXTMETRICS in wingdip.h
+#include "wingdip.h"
+                       // definition of EXTTEXTMETRICS in wingdip.h
                        // [bodind]
 
 
@@ -45,6 +52,34 @@ MODNAME(wgdi.c);
 
 INT  WINAPI SetRelAbs(HDC,INT);    /* definition not in gdi.h */
 INT  WINAPI GetRelAbs(HDC,INT);    /* definition not in gdi.h */
+
+LPDEVMODE GetDefaultDevMode32(LPSTR szDriver); // Implemented in wspool.c
+
+// Hack for apps which try to be their own printer driver & send form feeds to
+// the printer in Escape(PassThrough) calls.  This mechanism prevents an 
+// additional page being spit out of the printer when the app calls EndDoc()
+// because GDI32 EndDoc() does an implicit form feed.
+typedef struct _FormFeedHack {
+    struct _FormFeedHack UNALIGNED *next;
+    HAND16                hTask16;
+    HDC                   hdc;
+    LPBYTE                lpBytes;
+    int                   cbBytes;
+} FORMFEEDHACK;
+typedef FORMFEEDHACK UNALIGNED *PFORMFEEDHACK;
+
+PFORMFEEDHACK gpFormFeedHackList = NULL;  // start of global formfeed Hack list
+
+LONG          HandleFormFeedHack(HDC hdc, LPBYTE lpdata, int cb);
+LPBYTE        SendFrontEndOfDataStream(HDC hdc, LPBYTE lpData, int *cb, LONG *ul);
+void          FreeFormFeedHackNode(PFORMFEEDHACK pNode);
+void          FreeTaskFormFeedHacks(HAND16 hTask16);
+void          SendFormFeedHack(HDC hdc);
+PFORMFEEDHACK FindFormFeedHackNode(HDC hdc);
+PFORMFEEDHACK CreateFormFeedHackNode(HDC hdc, int cb, LPBYTE lpData);
+void          RemoveFormFeedHack(HDC hdc);
+
+
 
 ULONG FASTCALL WG32Arc(PVDMFRAME pFrame)
 {
@@ -75,6 +110,7 @@ ULONG FASTCALL WG32BitBlt(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(BITBLT16), parg16);
 
+
     ul = GETBOOL16(BitBlt(HDC32(parg16->f1),
                           INT32(parg16->f2),
                           INT32(parg16->f3),
@@ -85,7 +121,7 @@ ULONG FASTCALL WG32BitBlt(PVDMFRAME pFrame)
                           INT32(parg16->f8),
                           DWORD32(parg16->f9)));
 
-    WOW32ASSERTWARN (ul, "BitBlt");
+    WOW32APIWARN (ul, "BitBlt");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -98,13 +134,6 @@ ULONG FASTCALL WG32GetRelAbs(PVDMFRAME pFrame)
     register PGETRELABS16 parg16;
 
     GETARGPTR(pFrame, sizeof(GETRELABS16), parg16);
-
-    //
-    // BUGBUG John Vert (jvert) 3-Sep-1992 [a kernel guy out of his depth]
-    //      I have no idea what the second parameter to GetRelAbs
-    //      should be.  But I guess whatever I pick can't be worse
-    //      then not passing anything, which is what it used to do.
-    //
 
     ul = GETINT16(GetRelAbs(HDC32(parg16->f1), 0));
 
@@ -180,7 +209,7 @@ ULONG FASTCALL WG32CreateBitmap(PVDMFRAME pFrame)
                                    LOBYTE(parg16->f4),
                                    lpBitsOriginal));
 
-    WOW32ASSERTWARN(ul, "CreateBitmap");
+    WOW32APIWARN(ul, "CreateBitmap");
 
     FREEOPTPTR(lpBitsOriginal);
     FREEARGPTR(parg16);
@@ -212,7 +241,7 @@ ULONG FASTCALL WG32CreateBitmapIndirect(PVDMFRAME pFrame)
 
     ul = GETHBITMAP16(CreateBitmapIndirect(&bm));
 
-    WOW32ASSERTWARN(ul, "CreateBitmapIndirect");
+    WOW32APIWARN(ul, "CreateBitmapIndirect");
 
     FREEOPTPTR(lp);
     FREEARGPTR(parg16);
@@ -270,7 +299,12 @@ ULONG FASTCALL WG32CreateBrushIndirect(PVDMFRAME pFrame)
 
     ul = GETHBRUSH16(CreateBrushIndirect(&t1));
 
-    WOW32ASSERTWARN(ul, "CreateBrushIndirect");
+    if (hMem32)
+    {
+        GlobalFree(hMem32);
+    }
+
+    WOW32APIWARN(ul, "CreateBrushIndirect");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -288,7 +322,7 @@ ULONG FASTCALL WG32CreateCompatibleBitmap(PVDMFRAME pFrame)
                                              INT32(parg16->f2),
                                              INT32(parg16->f3)));
 
-    WOW32ASSERTWARN(ul, "CreateCompatibleBitmap");
+    WOW32APIWARN(ul, "CreateCompatibleBitmap");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -313,8 +347,22 @@ ULONG FASTCALL WG32CreateCompatibleDC(PVDMFRAME pFrame)
         hdc = NULL;
     }
     ul = GETHDC16(CreateCompatibleDC(hdc));
+//
+// Some apps such as MSWORKS and MS PUBLISHER use some wizard code that accepts
+// a hDC or a hWnd as a parameter and attempt to figure out what type of handle
+// it is by using the IsWindow() call. Since both handles come from different
+// handle spaces they may end up the same value and this wizard code will end
+// up writing to the DC for a random window. By ORing in a 1 we ensure that the
+// handle types will never share the same value since all hWnds are even. Note
+// that this hack is also made in WU32GetDC().
+//
+// Note that there are some apps that use the lower 2 bits of the hDC for their
+// own purposes.
+    if (ul && CURRENTPTD()->dwWOWCompatFlags & WOWCF_UNIQUEHDCHWND) {
+        ul = ul | 1;
+    }
 
-    WOW32ASSERTWARN(ul, "CreateCompatibleDC");
+    WOW32APIWARN(ul, "CreateCompatibleDC");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -324,43 +372,75 @@ ULONG FASTCALL WG32CreateCompatibleDC(PVDMFRAME pFrame)
 ULONG FASTCALL WG32CreateDC(PVDMFRAME pFrame)
 {
     ULONG ul;
-    PSZ psz1;
-    PSZ psz2;
-    PSZ psz3;
+    PSZ psz;
+    PSZ psz1 = NULL;
+    PSZ psz2 = NULL;
+    PSZ psz3 = NULL;
     PSZ pszDib;
-    LPDEVMODE t4;
+    LPDEVMODE t4 = NULL;
     register PCREATEDC16 parg16;
 
     GETARGPTR(pFrame, sizeof(CREATEDC16), parg16);
-    GETPSZPTR(parg16->f1, psz1);
-    GETPSZPTR(parg16->f2, psz2);
-    GETPSZPTR(parg16->f3, psz3);
-    GETDEVMODE32(parg16->f4, t4);
 
-    ul = GETHDC16(CreateDC(psz1, psz2, psz3, t4));
+    GETPSZPTR(parg16->f1, psz);
+    if(psz) {
+        psz1 = malloc_w(lstrlen(psz)+1);
+        if(psz1) {
+            lstrcpy(psz1, psz);
+        }
+    }
+    FREEPSZPTR(psz);
 
-    if (!ul) { // if the call failed test it for dib.drv
-        if ((pszDib = strstr (psz1, "DIB")) ||
-            (pszDib = strstr (psz1, "dib"))) {
-            if (stricmp (pszDib, "DIB") == 0 ||
-                stricmp (pszDib, "DIB.DRV") == 0) {
-#ifdef i386
-                ul = GETHDC16(W32HandleDibDrv ((PVPVOID)parg16->f4));
-#else
-                //putup some debug info so that its easy to figure out.
-                LOGDEBUG(LOG_ALWAYS,("\nCreateDC: DIB.DRV not supported\n"));
-#endif
-            }
+    GETPSZPTR(parg16->f2, psz);
+    if(psz) {
+        psz2 = malloc_w(lstrlen(psz)+1);
+        if(psz2) {
+            lstrcpy(psz2, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f3, psz);
+    if(psz) {
+        psz3 = malloc_w(lstrlen(psz)+1);
+        if(psz3) {
+            lstrcpy(psz3, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    // Note: parg16->f4 will usually be a lpDevMode, but it is documented
+    //       that it can also be a lpBitMapInfo if the driver name is "dib.drv"
+
+    // test for "dib.drv".  Director 4.0 uses "dirdib.drv"
+    if ((pszDib = strstr (psz1, "DIB")) || 
+        (pszDib = strstr (psz1, "dib"))) {
+        if (_stricmp (pszDib, "DIB") == 0 || 
+            _stricmp (pszDib, "DIB.DRV") == 0) {
+          ul = GETHDC16(W32HandleDibDrv ((PVPVOID)parg16->f4));
+          // Note: flat 16:16 ptrs should be considered invalid after this call
         }
     }
 
-    WOW32ASSERTWARN(ul, "CreateDC");
+    // handle normal non-dib.drv case
+    else {
+        if (FETCHDWORD(parg16->f4) == 0L) {
+            t4 = GetDefaultDevMode32(psz2);
+        }
+        else {
+            t4 = ThunkDevMode16to32(parg16->f4);
+        }
 
-    FREEPSZPTR(psz1);
-    FREEPSZPTR(psz2);
-    FREEPSZPTR(psz3);
+        // this can callback into a 16-bit fax driver!
+        ul = GETHDC16(CreateDC(psz1, psz2, psz3, t4));
+        // Note: flat 16:16 ptrs should be considered invalid after this call
+    }
+
+    WOW32APIWARN(ul, "CreateDC");
+
     FREEDEVMODE32(t4);
     FREEARGPTR(parg16);
+
     RETURN(ul);
 }
 
@@ -379,7 +459,7 @@ ULONG FASTCALL WG32CreateDIBPatternBrush(PVDMFRAME pFrame)
     logbr.lbHatch = (LONG) lpb16;
 
     ul = GETHBRUSH16(CreateBrushIndirect(&logbr));
-    WOW32ASSERTWARN(ul, "CreateDIBPatternBrush");
+    WOW32APIWARN(ul, "CreateDIBPatternBrush");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -406,6 +486,51 @@ ULONG FASTCALL WG32CreateDIBitmap(PVDMFRAME pFrame)
     lpbmi32 = CopyBMI16ToBMI32((PVPVOID)FETCHDWORD(parg16->f5),
                                (LPBITMAPINFO)&bmi32,
                                FETCHWORD(parg16->f6));
+    
+    // Code below fixes problems in Sounditoutland with rle-encoded 
+    // bitmaps which have biSizeImage == 0. On Win 3.1 they work since
+    // gdi is happy with decoding some piece of memory. NT GDI however 
+    // needs to know the size of bits passed. We remedy this by calculating
+    // size using RET_GETDIBSIZE (GetSelectorLimit). GDI won't copy the 
+    // memory, it will just use size as indication of accessibility
+    // Application: "Sound It Out Land", 
+
+    if (lpbmi32 && (lpbmi32->bmiHeader.biCompression == BI_RLE4 ||
+         lpbmi32->bmiHeader.biCompression == BI_RLE8) &&
+        lpbmi32->bmiHeader.biSizeImage == 0 &&
+        lpib4 != NULL &&
+        DWORD32(parg16->f3) == CBM_INIT) {
+
+        // we have to determine what the size is
+
+        PARM16 Parm16; // prepare to callback 
+        ULONG  SelectorLimit;
+        LONG   lSize;
+        LPBITMAPINFOHEADER lpbmi = &lpbmi32->bmiHeader;
+
+        // now what is this 16:16 ?
+
+        Parm16.WndProc.wParam = HIWORD((LPVOID)parg16->f4);
+        CallBack16(RET_GETDIBSIZE,
+                  &Parm16,
+                  0,
+                  (PVPVOID)&SelectorLimit);
+        if (SelectorLimit != 0 && SelectorLimit != 0xffffffff) {
+            // so sel is valid
+            // now see how much room we have in there
+            lSize = (LONG)SelectorLimit - LOWORD((LPVOID)parg16->f4);
+            // now we have size 
+            if (lSize > 0) {
+                lpbmi->biSizeImage = lSize;
+            }
+            else {
+                LOGDEBUG(LOG_ALWAYS, ("CreateDIBitmap: Bad size of the bits ptr\n"));
+            }
+        }
+        else {
+            LOGDEBUG(LOG_ALWAYS, ("CreateDIBitmap: Selector [ptr:%x] is invalid\n", (DWORD)parg16->f4));
+        }
+    } 
 
     ul = GETHBITMAP16(CreateDIBitmap(HDC32(parg16->f1),
                                      lpbmih32,
@@ -414,7 +539,7 @@ ULONG FASTCALL WG32CreateDIBitmap(PVDMFRAME pFrame)
                                      lpbmi32,
                                      WORD32(parg16->f6) ));
 
-    WOW32ASSERTWARN(ul, "CreateDIBitmap");
+    WOW32APIWARN(ul, "CreateDIBitmap");
 
     FREEMISCPTR(lpib4);
     FREEARGPTR(parg16);
@@ -433,7 +558,7 @@ ULONG FASTCALL WG32CreateDiscardableBitmap(PVDMFRAME pFrame)
                                               INT32(parg16->width),
                                               INT32(parg16->height)));
 
-    WOW32ASSERTWARN(ul, "CreateDiscardableBitmap");
+    WOW32APIWARN(ul, "CreateDiscardableBitmap");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -452,7 +577,7 @@ ULONG FASTCALL WG32CreateEllipticRgn(PVDMFRAME pFrame)
                                      INT32(parg16->f3),
                                      INT32(parg16->f4)));
 
-    WOW32ASSERTWARN(ul, "CreateEllipticRgn");
+    WOW32APIWARN(ul, "CreateEllipticRgn");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -470,7 +595,7 @@ ULONG FASTCALL WG32CreateEllipticRgnIndirect(PVDMFRAME pFrame)
 
     ul = GETHRGN16(CreateEllipticRgnIndirect(&t1));
 
-    WOW32ASSERTWARN(ul, "CreateEllipticRgnIndirect");
+    WOW32APIWARN(ul, "CreateEllipticRgnIndirect");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -486,7 +611,7 @@ ULONG FASTCALL WG32CreateHatchBrush(PVDMFRAME pFrame)
 
     ul = GETHBRUSH16(CreateHatchBrush(INT32(parg16->f1), DWORD32(parg16->f2)));
 
-    WOW32ASSERTWARN(ul, "CreateHatchBrush");
+    WOW32APIWARN(ul, "CreateHatchBrush");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -497,19 +622,53 @@ ULONG FASTCALL WG32CreateHatchBrush(PVDMFRAME pFrame)
 ULONG FASTCALL WG32CreateIC(PVDMFRAME pFrame)
 {
     ULONG ul;
-    PSZ psz1;
-    PSZ psz2, psz2t;
-    PSZ psz3;
+    PSZ psz;
+    PSZ psz1 = NULL;
+    PSZ psz2 = NULL, psz2t;
+    PSZ psz3 = NULL;
     LPDEVMODE t4;
     register PCREATEIC16 parg16;
     INT  len;
     PCHAR pch;
 
     GETARGPTR(pFrame, sizeof(CREATEIC16), parg16);
-    GETPSZPTR(parg16->f1, psz1);
-    GETPSZPTR(parg16->f2, psz2);
-    GETPSZPTR(parg16->f3, psz3);
-    GETDEVMODE32(parg16->f4, t4);
+
+    GETPSZPTR(parg16->f1, psz);
+    if(psz) {
+        psz1 = malloc_w(lstrlen(psz)+1);
+        if(psz1) {
+            lstrcpy(psz1, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f2, psz);
+    if(psz) {
+        psz2 = malloc_w(lstrlen(psz)+1);
+        if(psz2) {
+            lstrcpy(psz2, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f3, psz);
+    if(psz) {
+        psz3 = malloc_w(lstrlen(psz)+1);
+        if(psz3) {
+            lstrcpy(psz3, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    if (FETCHDWORD(parg16->f4) != 0L) {
+        t4 = ThunkDevMode16to32(parg16->f4);
+    }
+    else {
+        t4 = GetDefaultDevMode32(psz2);
+    }
+
+    // invalidate all flat ptrs to 16:16 memory now!
+    FREEARGPTR(parg16);
 
     psz2t = psz2;
 
@@ -535,14 +694,16 @@ ULONG FASTCALL WG32CreateIC(PVDMFRAME pFrame)
     // on NT the driver name should always be "winspool", although it's
     // completely ignored.
     //
+    // PageMaker 5.0a calls this with ("pscript","Postscript printer","LPT1:",0)
+    // when opening calibrat.pt5
 
-    len = psz1 ? lstrlen(psz1) : 0;
+    len = psz1 ? strlen(psz1) : 0;
     if (len >= 7) {
 #if 0
         static CHAR achPS[] = "PostScript Printer";
 #endif
 
-        if (!lstrcmpi(psz1+len-7, "pscript")
+        if (!_stricmp(psz1+len-7, "pscript")
 #if 0
             // let's see who else thinks they're using a pscript driver
             //
@@ -566,15 +727,13 @@ ULONG FASTCALL WG32CreateIC(PVDMFRAME pFrame)
         }
     }
 
+    // this can callback into a 16-bit fax driver!
     ul = GETHDC16(CreateIC(psz1, psz2t, psz3, t4));
 
-    WOW32ASSERTWARN(ul, "CreateIC");
+    WOW32APIWARN(ul, "CreateIC");
 
-    FREEPSZPTR(psz1);
-    FREEPSZPTR(psz2);
-    FREEPSZPTR(psz3);
     FREEDEVMODE32(t4);
-    FREEARGPTR(parg16);
+
     RETURN(ul);
 }
 
@@ -593,7 +752,7 @@ ULONG FASTCALL WG32CreatePatternBrush(PVDMFRAME pFrame)
 
     ul = GETHBRUSH16(CreateBrushIndirect(&logbr));
 
-    WOW32ASSERTWARN(ul, "CreatePatternBrush");
+    WOW32APIWARN(ul, "CreatePatternBrush");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -611,7 +770,7 @@ ULONG FASTCALL WG32CreatePen(PVDMFRAME pFrame)
                              INT32(parg16->f2),
                              DWORD32(parg16->f3)));
 
-    WOW32ASSERTWARN(ul, "CreatePen");
+    WOW32APIWARN(ul, "CreatePen");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -629,7 +788,7 @@ ULONG FASTCALL WG32CreatePenIndirect(PVDMFRAME pFrame)
 
     ul = GETHPEN16(CreatePenIndirect(&t1));
 
-    WOW32ASSERTWARN(ul, "CreatePenIndirect");
+    WOW32APIWARN(ul, "CreatePenIndirect");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -669,7 +828,7 @@ ULONG FASTCALL WG32CreatePolyPolygonRgn(PVDMFRAME pFrame)
                                         INT32(parg16->f3),
                                         INT32(parg16->f4)));
 
-    WOW32ASSERTWARN(ul, "CreatePolyPolygonRgn");
+    WOW32APIWARN(ul, "CreatePolyPolygonRgn");
 
     STACKORHEAPFREE(pPoints, BufferT + cInt16);
     STACKORHEAPFREE(pPolyCnt, BufferT);
@@ -691,7 +850,7 @@ ULONG FASTCALL WG32CreatePolygonRgn(PVDMFRAME pFrame)
 
     ul = GETHRGN16(CreatePolygonRgn(t1, INT32(parg16->f2), INT32(parg16->f3)));
 
-    WOW32ASSERTWARN(ul, "CreatePolygonRgn");
+    WOW32APIWARN(ul, "CreatePolygonRgn");
 
     STACKORHEAPFREE(t1, BufferT);
     FREEARGPTR(parg16);
@@ -711,7 +870,7 @@ ULONG FASTCALL WG32CreateRectRgn(PVDMFRAME pFrame)
                                  INT32(parg16->f3),
                                  INT32(parg16->f4)));
 
-    WOW32ASSERTWARN(ul, "CreateRectRgn");
+    WOW32APIWARN(ul, "CreateRectRgn");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -729,7 +888,7 @@ ULONG FASTCALL WG32CreateRectRgnIndirect(PVDMFRAME pFrame)
 
     ul = GETHRGN16(CreateRectRgnIndirect(&t1));
 
-    WOW32ASSERTWARN(ul, "CreateRectRgnIndirect");
+    WOW32APIWARN(ul, "CreateRectRgnIndirect");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -750,7 +909,7 @@ ULONG FASTCALL WG32CreateRoundRectRgn(PVDMFRAME pFrame)
                                       INT32(parg16->f5),
                                       INT32(parg16->f6)));
 
-    WOW32ASSERTWARN(ul, "CreateRoundRectRgn");
+    WOW32APIWARN(ul, "CreateRoundRectRgn");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -771,7 +930,7 @@ ULONG FASTCALL WG32CreateSolidBrush(PVDMFRAME pFrame)
             dwColor &= 0xffffff;
 
     ul = GETHBRUSH16(CreateSolidBrush(dwColor));
-    WOW32ASSERTWARN(ul, "CreateSolidBrush");
+    WOW32APIWARN(ul, "CreateSolidBrush");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -805,18 +964,14 @@ ULONG FASTCALL WG32DeleteDC(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(DELETEDC16), parg16);
 
-#ifdef i386
     if ((ul = W32CheckAndFreeDibInfo (HDC32(parg16->f1))) == FALSE) {
-#endif
         ul = GETBOOL16(DeleteDC(HDC32(parg16->f1)));
 
         // Free 16-bit handle alias if 32-bit handle successfully deleted
         if (ul) {
             FREEHOBJ16(parg16->f1);
         }
-#ifdef i386
     }
-#endif
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -830,10 +985,8 @@ ULONG FASTCALL WG32DeleteObject(PVDMFRAME pFrame)
 
     GETARGPTR(pFrame, sizeof(DELETEOBJECT16), parg16);
 
-#ifdef i386
     if ((pDibSectionInfoHead == NULL) ||
         (ul = W32CheckAndFreeDibSectionInfo (HBITMAP32(parg16->f1))) == FALSE) {
-#endif
 
         ul = GETBOOL16(DeleteObject(HOBJ32(parg16->f1)));
 
@@ -841,9 +994,7 @@ ULONG FASTCALL WG32DeleteObject(PVDMFRAME pFrame)
         if (ul) {
             FREEHOBJ16(parg16->f1);
         }
-#ifdef i386
     }
-#endif
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -868,6 +1019,7 @@ ULONG FASTCALL WG32Ellipse(PVDMFRAME pFrame)
 }
 
 
+// WARNING: This function may cause 16-bit memory movement
 INT W32EnumObjFunc(LPSTR lpLogObject, PENUMOBJDATA pEnumObjData)
 {
     PARM16  Parm16;
@@ -918,6 +1070,11 @@ ULONG FASTCALL WG32EnumObjects(PVDMFRAME pFrame)
             LOGDEBUG(LOG_ALWAYS,("WOW32 ERROR -- Illegal type %d passes to EnumObj\n",EnumObjData.ObjType));
             EnumObjData.vpObjData = (VPVOID)0;
     }
+    // malloc16 may have caused 16-bit memory movement - invalidate flat ptrs
+    FREEVDMPTR(pFrame);
+    FREEARGPTR(parg16);
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+    GETARGPTR(pFrame, sizeof(ENUMOBJECTS16), parg16);
 
     if( EnumObjData.vpObjData ) {
         EnumObjData.vpfnEnumObjProc = DWORD32(parg16->f3);
@@ -927,7 +1084,9 @@ ULONG FASTCALL WG32EnumObjects(PVDMFRAME pFrame)
                                           (int)INT32(parg16->f2),
                                           (GOBJENUMPROC)W32EnumObjFunc,
                                           (LPARAM)&EnumObjData)));
-
+	// 16-bit memory may have moved - invalidate flat pointers
+	FREEARGPTR(parg16);
+	FREEVDMPTR(pFrame);
         free16(EnumObjData.vpObjData);
 
     }
@@ -1053,6 +1212,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(ESCAPE16), parg16);
     GETOPTPTR(parg16->f4, 0, pin);
 
+    
     switch (INT32(parg16->f2)) {
         case GETPHYSPAGESIZE:
         case GETPRINTINGOFFSET:
@@ -1327,7 +1487,10 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                 DOCINFO16 *pout;
                 DOCINFO DocInfo;
 
-                DocInfo.cbSize = sizeof(DocInfo);
+                DocInfo.cbSize       = sizeof(DocInfo);
+                DocInfo.lpszDatatype = "RAW";
+                DocInfo.fwType       = 0;
+
 
                 GETOPTPTR(parg16->f5, 0, pout);
 
@@ -1379,7 +1542,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                                  sizeof(ach),
                                  ach));
 
-                    lstrcpy (pout, ach);
+                    strcpy (pout, ach);
                 }
                 else {
                     ul = GETINT16(ExtEscape(HDC32(parg16->f1),
@@ -1402,6 +1565,12 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                 ul = 0;
             }
             else {
+
+                // send any buffered data streams to the printer before EndDoc
+                if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FORMFEEDHACK) {
+                    SendFormFeedHack(HDC32(parg16->f1));
+                }
+
                 ul = EndDoc(HDC32(parg16->f1));
             }
             break;
@@ -1492,7 +1661,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                                 sizeof(szBuf),
                                 szBuf)) > 0) {
 
-                        if (!lstrcmpi(szBuf, "POSTSCRIPT")) {
+                        if (!_stricmp(szBuf, szPostscript)) {
                             l = ExtEscape(HDC32(parg16->f1),
                                 IGNORESTARTPGAE,
                                 0,
@@ -1544,11 +1713,22 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
 
         case PASSTHROUGH:
 
-            ul = GETINT16(Escape(HDC32(parg16->f1),
-                                 INT32(parg16->f2),
-                                 (FETCHWORD(*(PWORD)pin) + 2),
-                                 (LPCSTR)pin,
-                                 NULL));
+            // if this is a form feed hack app...
+            if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FORMFEEDHACK) {
+
+                ul = HandleFormFeedHack(HDC32(parg16->f1), 
+                                        pin,
+                                        FETCHWORD(*(PWORD)pin)); // cb only
+            }
+
+            else {
+
+                ul = GETINT16(Escape(HDC32(parg16->f1),
+                                     INT32(parg16->f2),
+                                     (FETCHWORD(*(PWORD)pin) + 2),
+                                     (LPCSTR)pin,
+                                     NULL));
+            }
             break;
 
 
@@ -1604,7 +1784,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
 
                     ExtEscape(HDC32(parg16->f1),
                         ADD_MSTT,
-                        NULL,
+                        0,
                         NULL,
                         60,
                         ach);
@@ -1619,7 +1799,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                                     60,
                                     ach));
 
-                lstrcpy (pout, ach);
+                strcpy (pout, ach);
 
                 FREEOPTPTR(pout);
 
@@ -1734,7 +1914,7 @@ ULONG FASTCALL WG32Escape(PVDMFRAME pFrame)
                                     sizeof(szBuf),
                                     szBuf)) > 0) {
 
-                        if (!lstrcmpi(szBuf, "POSTSCRIPT")) {
+                        if (!_stricmp(szBuf, szPostscript)) {
                             l = StartPage(HDC32(parg16->f1));
                         }
                     }
@@ -1799,7 +1979,7 @@ ULONG FASTCALL WG32ExtFloodFill(PVDMFRAME pFrame)
                                 DWORD32(parg16->f4),
                                 WORD32(parg16->f5)));
 
-    WOW32ASSERTWARN (ul, "ExtFloodFill");
+    WOW32APIWARN (ul, "ExtFloodFill");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1834,7 +2014,7 @@ ULONG FASTCALL WG32FloodFill(PVDMFRAME pFrame)
                              INT32(parg16->f3),
                              DWORD32(parg16->f4)));
 
-    WOW32ASSERTWARN (ul, "FloodFill");
+    WOW32APIWARN (ul, "FloodFill");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1885,7 +2065,7 @@ ULONG FASTCALL WG32GetBitmapBits(PVDMFRAME pFrame)
                                  LONG32(parg16->f2),
                                  pb3));
 
-    WOW32ASSERTWARN (ul, "GetBitmapBits");
+    WOW32APIWARN (ul, "GetBitmapBits");
 
     FLUSHVDMPTR(parg16->f3, (INT)parg16->f2, pb3);
     FREEVDMPTR(pb3);
@@ -1907,7 +2087,7 @@ ULONG FASTCALL WG32GetBitmapDimension(PVDMFRAME pFrame)
         ul = (WORD)size2.cx | (size2.cy << 16);
     }
     else {
-        WOW32ASSERTWARN (ul, "GetBitmapBits");
+        WOW32APIWARN (ul, "GetBitmapBits");
     }
 
     FREEARGPTR(parg16);
@@ -2147,18 +2327,38 @@ ULONG FASTCALL WG32GetEnvironment(PVDMFRAME pFrame)
     // if lpEnviron==NULL then the user is querying the size of device
     // data.  WinProj doesn't check the return value, calling the driver
     // with an undersized buffer, trashing the global heap.
-    //
-    // LATER - change to do an ExtDeviceMode() with wMode = 0
-    //
+    // WinFax passes a hard coded 0xA9 == 0x44+0x69 == sizeof(win3.0 DevMode) +
+    // known WinFax.DRV->dmDriverExtra. Beware also that WinFax calls this
+    // whenever an app calls any API that requires a DevMode.
+    
 
     ULONG ul=0;
     register PGETENVIRONMENT16 parg16;
-    PSZ psz1;
+    PSZ psz;
+    PSZ psz1 = NULL;
+    VPDEVMODE31 vpdm2;
     CHAR szDriver[40];
+    UINT cbT = 0;
+    WORD nMaxBytes;
 
     GETARGPTR(pFrame, sizeof(GETENVIRONMENT16), parg16);
-    GETPSZPTR(parg16->f1, psz1);
 
+    // save off the 16-bit params now since this could callback into a 16-bit
+    // fax driver & cause 16-bit memory to move.
+    GETPSZPTR(parg16->f1, psz);
+    if(psz) {
+        psz1 = malloc_w(lstrlen(psz)+1);
+        if(psz1) {
+            lstrcpy(psz1, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+    vpdm2 = FETCHDWORD(parg16->f2);
+
+    nMaxBytes = FETCHWORD(parg16->f3);
+
+    FREEARGPTR(parg16);
+    // invalidate all flat ptrs to 16:16 memory now
 
     if (!(*spoolerapis[WOW_EXTDEVICEMODE].lpfn)) {
         if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", spoolerapis, WOW_SPOOLERAPI_COUNT)) {
@@ -2166,57 +2366,68 @@ ULONG FASTCALL WG32GetEnvironment(PVDMFRAME pFrame)
         }
     }
 
-    if (FETCHDWORD(parg16->f2) == 0) {
-
-        // get required size for output buffer
-        if  (GetDriverName(psz1, szDriver)) {
-            ul = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL,
-                          NULL,
-                          NULL,
-                          szDriver,
-                          psz1,
-                          NULL,
-                          NULL,
-                          0);
-        }
-
+    // get required size for output buffer
+    // When WinFax calls this api, calls to GetDriverName for szDriver == 
+    // "FaxModem" seem to fail -- this is a good thing if the app called
+    // ExtDeviceMode() because we would get into an infinite loop here.  WinFax
+    // just fills in a DevMode with default values if this api fails.
+    if  (GetDriverName(psz1, szDriver)) {
+        ul = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL,
+                                                     NULL,
+                                                     NULL,
+                                                     szDriver,
+                                                     psz1,
+                                                     NULL,
+                                                     NULL,
+                                                     0);
         LOGDEBUG(6,("WOW::GetEnvironment returning ul = %d, for Device = %s, Port = %s \n", ul, szDriver, psz1));
 
-    } else if (GetDriverName(psz1, szDriver)) {
-        LPDEVMODE lpdmOutput;
-        register  PDEVMODE16 pdm16;
+        // adjust the size for our DEVMODE handling (see note in wstruc.c)
+        // (it won't hurt to allocate too much)
+        if(ul) {
+            ul += sizeof(WOWDM31);
+            cbT = (UINT)ul;
+        }
 
-        if (lpdmOutput = malloc_w(FETCHWORD(parg16->f3))) {
+        // if they also want us to fill in their environment structure...
+        if ((vpdm2 != 0) && (ul != 0)) {
+            LPDEVMODE lpdmOutput;
 
-            ul = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL,
-                          NULL,
-                          lpdmOutput,
-                          szDriver,
-                          psz1,
-                          NULL,
-                          NULL,
-                          DM_OUT_BUFFER);
+            if (lpdmOutput = malloc_w(ul)) {
 
-            if (ul > 0L) {
+                // this might be calling into a 16-bit fax driver!!
+                ul = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(NULL,
+                                                            NULL,
+                                                            lpdmOutput,
+                                                            szDriver,
+                                                            psz1,
+                                                            NULL,
+                                                            NULL,
+                                                            DM_OUT_BUFFER);
 
-                GETVDMPTR(parg16->f2, FETCHWORD(parg16->f3), pdm16);
+                // if a WinFax call to GetDriverName() succeeds & gets to here
+                // we may need to hack on the lpdmOutput->dmSize==0x40 
+                // (Win3.0 size) to account for the hard coded buffer size of 
+                // 0xa9 the app passes. So far I haven't seen WinFax get past 
+                // GetDriverName() call & it still seems to work OK.
+                if (ul > 0L) {
+                    // Use the min of nMaxBytes & what we calculated
+                    ThunkDevMode32to16(vpdm2, lpdmOutput, min(nMaxBytes, cbT));
+                }
 
-                RtlCopyMemory(pdm16, lpdmOutput, FETCHWORD(parg16->f3));
+                free_w(lpdmOutput);
 
-                FLUSHVDMPTR(parg16->f2, FETCHWORD(parg16->f3), pdm16);
-                FREEVDMPTR(pdm16);
+                LOGDEBUG(6,("WOW::GetEnvironment getting DEVMODE structure, ul = %d, for Device = %s, Port = %s \n", ul, szDriver, psz1));
             }
-
-            free_w(lpdmOutput);
-
-            LOGDEBUG(6,("WOW::GetEnvironment getting DEVMODE structure, ul = %d, for Device = %s, Port = %s \n", ul, szDriver, psz1));
         }
     }
 
+    free_w(psz1);
+
     RETURN(ul);
 
-
 }
+
 
 
 ULONG FASTCALL WG32GetMapMode(PVDMFRAME pFrame)
@@ -2343,7 +2554,7 @@ ULONG FASTCALL WG32GetObject(PVDMFRAME pFrame)
 
     }   // switch
 
-    WOW32ASSERTWARN(ul, "GetObject");
+    WOW32APIWARN(ul, "GetObject");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -2423,7 +2634,7 @@ ULONG FASTCALL WG32GetStockObject(PVDMFRAME pFrame)
 
     ul = GETHOBJ16(GetStockObject(INT32(parg16->f1)));
 
-    WOW32ASSERTWARN(ul, "GetStockObject");
+    WOW32APIWARN(ul, "GetStockObject");
     FREEARGPTR(parg16);
     RETURN(ul);
 }
@@ -2604,8 +2815,9 @@ ULONG FASTCALL WG32LineDDA(PVDMFRAME pFrame)
             INT32(parg16->f3),
             INT32(parg16->f4),
             (LINEDDAPROC)W32LineDDAFunc,
-            (LPARAM)&DDAData);
-
+	    (LPARAM)&DDAData);
+    // 16-bit memory may have moved - invalidate flat pointers now
+    FREEVDMPTR(pFrame);
     FREEARGPTR(parg16);
 
     RETURN(1L);
@@ -2637,6 +2849,8 @@ ULONG FASTCALL WG32MoveTo(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(MOVETO16), parg16);
 
     ul = 0;
+    pt.x = 1L; // see "METAFILE NOTE"
+    pt.y = 0L;
     if (MoveToEx(HDC32(parg16->f1),
                  INT32(parg16->f2),
                  INT32(parg16->f3),
@@ -2707,6 +2921,8 @@ ULONG FASTCALL WG32OffsetViewportOrg(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(OFFSETVIEWPORTORG16), parg16);
 
     ul = 0;
+    pt.x = 1L; // see "METAFILE NOTE"
+    pt.y = 0L;
     if (OffsetViewportOrgEx(HDC32(parg16->f1),
                             INT32(parg16->f2),
                             INT32(parg16->f3),
@@ -2729,6 +2945,8 @@ ULONG FASTCALL WG32OffsetWindowOrg(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(OFFSETWINDOWORG16), parg16);
 
     ul = 0;
+    pt.x = 1L; // see "METAFILE NOTE"
+    pt.y = 0L;
     if (OffsetWindowOrgEx(HDC32(parg16->f1),
                           INT32(parg16->f2),
                           INT32(parg16->f3),
@@ -2770,7 +2988,7 @@ ULONG FASTCALL WG32PatBlt(PVDMFRAME pFrame)
                           INT32(parg16->nHeight),
                           DWORD32(parg16->dwRop)));
 
-    WOW32ASSERTWARN(ul, "PatBlt");
+    WOW32APIWARN(ul, "PatBlt");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -3096,7 +3314,7 @@ ULONG FASTCALL WG32SelectClipRgn(PVDMFRAME pFrame)
 
     ul = GETINT16(SelectClipRgn(HDC32(parg16->f1), HRGN32(parg16->f2)));
 
-    WOW32ASSERTWARN(ul, "SelectClipRgn");
+    WOW32APIWARN(ul, "SelectClipRgn");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -3112,7 +3330,7 @@ ULONG FASTCALL WG32SelectObject(PVDMFRAME pFrame)
 
     ul = GETHOBJ16(SelectObject(HDC32(parg16->f1), HOBJ32(parg16->f2)));
 
-    WOW32ASSERTWARN(ul, "SelectObject");
+    WOW32APIWARN(ul, "SelectObject");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -3220,6 +3438,8 @@ ULONG FASTCALL WG32SetBitmapBits(PVDMFRAME pFrame)
     register PSETBITMAPBITS16 parg16;
     HBITMAP hbm;
     DWORD cj;
+    BITMAP bm;
+    BOOL   fValidObj;
 
     GETARGPTR(pFrame, sizeof(SETBITMAPBITS16), parg16);
     GETOPTPTR(parg16->f3, 0, pb3);
@@ -3227,12 +3447,12 @@ ULONG FASTCALL WG32SetBitmapBits(PVDMFRAME pFrame)
     hbm = HBITMAP32(parg16->f1);
     cj  = DWORD32(parg16->f2);
 
+    fValidObj = (GetObject(hbm,sizeof(BITMAP),&bm) == sizeof(BITMAP));
     if (CURRENTPTD()->dwWOWCompatFlags & WOWCF_4PLANECONVERSION) {
-        BITMAP bm;
 
     // Get the size of the destination bitmap
 
-        if ((GetObject(hbm,sizeof(BITMAP),&bm) == sizeof(BITMAP)) &&
+        if (fValidObj &&
             (bm.bmPlanes == 1) &&
             (bm.bmBitsPixel == 4))
         {
@@ -3247,11 +3467,15 @@ ULONG FASTCALL WG32SetBitmapBits(PVDMFRAME pFrame)
             hbm = 0;
         }
     }
+    else {
+        cj = min(cj, (DWORD)(bm.bmWidthBytes * bm.bmHeight));
+    }
+
 
     if (hbm != 0)
         ul = GETLONG16(SetBitmapBits(hbm,cj,pb3));
 
-    WOW32ASSERTWARN (ul, "SetBitmapBits");
+    WOW32APIWARN (ul, "SetBitmapBits");
 
     FREEMISCPTR(pb3);
     FREEARGPTR(parg16);
@@ -3291,8 +3515,11 @@ ULONG FASTCALL WG32SetBkColor(PVDMFRAME pFrame)
 
     color = DWORD32(parg16->f2);
 
-    if ((ULONG)color >= 0x03000000)
-            color &= 0xffffff;
+    if (((ULONG)color >= 0x03000000) &&
+        (HIWORD(color) != 0x10ff))
+    {
+        color &= 0xffffff;
+    }
 
     ul = GETDWORD16(SetBkColor(HDC32(parg16->f1), color));
 
@@ -3332,6 +3559,8 @@ ULONG FASTCALL WG32SetBrushOrg(PVDMFRAME pFrame)
     if (GetDCOrgEx(HDC32(parg16->f1),&pt))
     {
         ul = 0;
+        pt2.x = 1L; // see "METAFILE NOTE"
+        pt2.y = 0L;
         if (SetBrushOrgEx(HDC32(parg16->f1),
                           INT32(parg16->f2) - pt.x,
                           INT32(parg16->f3) - pt.y,
@@ -3373,7 +3602,7 @@ ULONG FASTCALL WG32SetDIBits(PVDMFRAME pFrame)
                             lpbmi32,
                             WORD32(parg16->f7)));
 
-    WOW32ASSERTWARN (ul, "WG32SetDIBits\n");
+    WOW32APIWARN (ul, "WG32SetDIBits\n");
 
     FREEMISCPTR(pb5);
     FREEARGPTR(parg16);
@@ -3397,10 +3626,10 @@ ULONG FASTCALL WG32SetDIBitsToDevice(PVDMFRAME pFrame)
                                FETCHWORD(parg16->f12));
 
     // these are doc'd as WORD in Win3.0, doc'd as INT in Win3.1
-    WOW32ASSERTEXP(((INT)parg16->f4 >= 0),("WOW:signed val - v-cjones\n"));
-    WOW32ASSERTEXP(((INT)parg16->f5 >= 0),("WOW:signed val - v-cjones\n"));
-    WOW32ASSERTEXP(((INT)parg16->f8 >= 0),("WOW:signed val - v-cjones\n"));
-    WOW32ASSERTEXP(((INT)parg16->f9 >= 0),("WOW:signed val - v-cjones\n"));
+    WOW32ASSERTMSG(((INT)parg16->f4 >= 0),("WOW:signed val - a-craigj\n"));
+    WOW32ASSERTMSG(((INT)parg16->f5 >= 0),("WOW:signed val - a-craigj\n"));
+    WOW32ASSERTMSG(((INT)parg16->f8 >= 0),("WOW:signed val - a-craigj\n"));
+    WOW32ASSERTMSG(((INT)parg16->f9 >= 0),("WOW:signed val - a-craigj\n"));
 
     ul = GETINT16(SetDIBitsToDevice(HDC32(parg16->f1),
                                     INT32(parg16->f2),
@@ -3415,7 +3644,7 @@ ULONG FASTCALL WG32SetDIBitsToDevice(PVDMFRAME pFrame)
                                     lpbmi32,
                                     WORD32(parg16->f12)));
 
-    WOW32ASSERTWARN (ul, "WG32SetDIBitsToDevice\n");
+    WOW32APIWARN (ul, "WG32SetDIBitsToDevice\n");
 
     FREEMISCPTR(p10);
     FREEARGPTR(parg16);
@@ -3526,7 +3755,7 @@ ULONG FASTCALL WG32SetStretchBltMode(PVDMFRAME pFrame)
 
     ul = GETINT16(SetStretchBltMode(HDC32(parg16->f1), INT32(parg16->f2)));
 
-    WOW32ASSERTWARN (ul, "SetStretchBltMode");
+    WOW32APIWARN (ul, "SetStretchBltMode");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -3565,6 +3794,8 @@ ULONG FASTCALL WG32SetViewportOrg(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(SETVIEWPORTORG16), parg16);
 
     ul = 0;
+    pt.x = 1L; // see "METAFILE NOTE"
+    pt.y = 0L;
     if (SetViewportOrgEx(HDC32(parg16->f1),
                          INT32(parg16->f2),
                          INT32(parg16->f3),
@@ -3609,6 +3840,8 @@ ULONG FASTCALL WG32SetWindowOrg(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(SETWINDOWORG16), parg16);
 
     ul = 0;
+    pt.x = 1L; // see "METAFILE NOTE"
+    pt.y = 0L;
     if (SetWindowOrgEx(HDC32(parg16->f1),
                        INT32(parg16->f2),
                        INT32(parg16->f3),
@@ -3640,7 +3873,7 @@ ULONG FASTCALL WG32StretchBlt(PVDMFRAME pFrame)
                               INT32(parg16->f10),
                               DWORD32(parg16->f11)));
 
-    WOW32ASSERTWARN (ul, "StretchBlt");
+    WOW32APIWARN (ul, "StretchBlt");
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -3727,7 +3960,7 @@ ULONG FASTCALL WG32StretchDIBits(PVDMFRAME pFrame)
                                 (DWORD)FETCHWORD(parg16->f12),
                                 DWORD32(parg16->f13)));
 
-    WOW32ASSERTWARN (ul, "WG32StretchDIBits\n");
+    WOW32APIWARN (ul, "WG32StretchDIBits\n");
 
     FREEMISCPTR(pb10);
     FREEARGPTR(parg16);
@@ -3848,4 +4081,416 @@ LONG W32AbortProc(HDC hPr, int code)
     }
 
     return (lReturn);
+}
+
+
+
+
+
+
+// note: cb is the number of data bytes in lpData NOT including the USHORT byte 
+//       count at the start of the data stream. In other words, lpData contains
+//       cb + sizeof(USHORT) bytes.
+LONG HandleFormFeedHack(HDC hdc, LPBYTE lpdata, int cb)
+{
+    int           cbBytes;
+    LONG          ul;
+    PFORMFEEDHACK pCur;
+
+    // look for a node with a pointer to a data stream buffer from the previous 
+    // call to Escape(,,PASSTHROUGH,,)...
+    pCur = FindFormFeedHackNode(hdc);
+
+    // if we found one, it's time to send the data stream to the printer...
+    if(pCur) {
+
+        // ...time to send it to the printer
+        ul = GETINT16(Escape(hdc, 
+                             PASSTHROUGH, 
+                             pCur->cbBytes + sizeof(USHORT), 
+                             pCur->lpBytes,
+                             NULL));
+
+        // free the current node
+        FreeFormFeedHackNode(pCur);
+
+        // if there was a problem we're done
+        if(ul <= 0) {
+            return(ul);
+        }
+    }
+
+    // send everything up to the last form feed in the new data stream
+    cbBytes = cb;
+    lpdata = SendFrontEndOfDataStream(hdc, lpdata, &cbBytes, &ul);
+
+    // if there was a problem 
+    // OR if the entire data stream got sent since it didn't contain a formfeed
+    // -- we're done
+    if(lpdata == NULL) {
+        return(ul);   // this will contain error code OR number of bytes sent
+    }
+
+    // else create a node for this data stream
+    else {
+
+        pCur = CreateFormFeedHackNode(hdc, cbBytes, lpdata);
+
+        // if we can't allocate a new node...
+        if(pCur == NULL) {
+
+            // Things are in pretty bad shape if we get to here...
+            // We need to write the byte count at the front of the data stream.
+            // Remember lpdata had a word size byte count at the front of it
+            // when it was sent to us.
+
+            // if any bytes got sent via SendFrontEndOfDataStream()...
+            if(cbBytes < cb) {
+
+                // ...first we need to word align this for Escape32()...
+                if((DWORD)lpdata & 0x00000001) {
+                    lpdata--;
+                    *lpdata = '\0'; // stick a harmless char in the stream
+                    cbBytes++;      // ...and account for it
+                }
+
+                // ...adjust the data stream ptr to accomodate the byte count...
+                lpdata -= sizeof(USHORT);  
+
+            }
+
+            // ...write in the byte count...
+            *(UNALIGNED USHORT *)lpdata = cbBytes;
+
+            // ...and send the remainder of the data stream to the printer.  
+            // If an extra page gets sent to the printer, too bad.
+            ul = GETINT16(Escape(hdc, 
+                                 PASSTHROUGH, 
+                                 cbBytes + sizeof(USHORT), 
+                                 lpdata, 
+                                 NULL));
+
+            // if the was an error, return it to the app
+            if(ul <= 0) {
+                return(ul);
+            }
+            // else we managed to get everything sent to the printer OK
+            else {
+                return(cb); // return the number of bytes the app sent
+            }
+        }
+    }
+
+    // return the number of bytes the app requested to send
+    return(cb);
+
+}
+
+
+
+
+
+
+LPBYTE SendFrontEndOfDataStream(HDC hdc, LPBYTE lpData, int *cb, LONG *ul)
+{
+    int    diff;
+    LPBYTE lpByte, lpStart;
+
+    // if there's no data or a bad cb, just send it so we can get the error code
+    if((lpData == NULL) || (*cb <= 0)) {
+        *ul = GETINT16(Escape(hdc, 
+                              PASSTHROUGH, 
+                              *cb + sizeof(USHORT), 
+                              lpData, 
+                              NULL));
+        return(NULL);
+    }
+
+    // find the start of the actual data after the byte count
+    lpStart = lpData + sizeof(USHORT);
+
+    // look for a formfeed char at or near the end of the data stream
+    lpByte = lpStart + ((*cb - 1) * sizeof(BYTE));
+    while(lpByte >= lpStart) {
+
+        // if we have found the odious formfeed char....
+        if((UCHAR)(*lpByte) == 0x0c) {
+
+            diff = lpByte - lpStart; 
+
+            // send everything in the stream up to (but not incl) the formfeed
+            if(diff) {
+
+                // adjust the byte count in the data stream
+                *(UNALIGNED USHORT *)lpData = (USHORT)diff;
+
+                // send it to the printer
+                *ul = GETINT16(Escape(hdc, 
+                                      PASSTHROUGH, 
+                                      diff + sizeof(USHORT), 
+                                      lpData, 
+                                      NULL));
+
+                // if there was a problem, return it to the app
+                if(*ul <= 0) {
+                    return(NULL);
+                }
+            }
+
+            // else formfeed is the first char in the data stream
+            else {
+                *ul = *cb; // just lie and say we sent it all
+            }
+
+            // adjust the remaining number of bytes
+            *cb -= diff;
+
+            // return ptr to the formfeed char as new start of data stream
+            return(lpByte);
+        }
+
+        lpByte--;
+    }
+
+    // if there are no formfeed's in the data stream just send the whole thing
+    *ul = GETINT16(Escape(hdc, 
+                          PASSTHROUGH, 
+                          *cb + sizeof(USHORT), 
+                          lpData, 
+                          NULL));
+
+    return(NULL);  // specify we sent the whole thing
+
+}
+
+
+            
+
+
+
+// note: this assumes that if there is a node, there is a list
+void FreeFormFeedHackNode(PFORMFEEDHACK pNode)
+{
+    PFORMFEEDHACK pCur, pPrev, pListStart;
+
+    pPrev = NULL;
+    pCur  = pListStart = gpFormFeedHackList;
+
+    // if there is a node, there must be a node list
+    WOW32ASSERT(pCur);
+
+    if(pNode) {
+
+        while(pCur) {
+
+            if(pCur == pNode) {
+
+                if(pNode->lpBytes) {
+                    free_w(pNode->lpBytes);
+                }
+
+                if(pPrev) {
+                   pPrev->next = pCur->next;
+                }
+                else {
+                   pListStart = pCur->next;
+                }
+               
+                free_w(pNode);
+                break;
+            }
+            else {
+                pPrev = pCur;
+                pCur  = pCur->next;
+            }
+        }
+    }
+
+    gpFormFeedHackList = pListStart;
+}
+
+
+
+
+
+void FreeTaskFormFeedHacks(HAND16 h16)
+{
+    PFORMFEEDHACK pNext, pCur;
+
+    pCur = gpFormFeedHackList;
+
+    while(pCur) {
+
+        if(pCur->hTask16 == h16) {
+
+            // we already told the app we sent this so give it one last try
+            Escape(pCur->hdc, 
+                   PASSTHROUGH, 
+                   pCur->cbBytes + sizeof(USHORT), 
+                   pCur->lpBytes, 
+                   NULL);
+
+            pNext = pCur->next;
+            if(pCur->lpBytes) {
+                free_w(pCur->lpBytes);
+            }
+
+            if(pCur == gpFormFeedHackList) {
+                gpFormFeedHackList = pNext;
+            }
+
+            free_w(pCur);
+           
+            pCur = pNext;
+        }
+    }
+}
+
+
+
+
+
+
+// this should only be called by Escape(,,ENDDOC,,)
+void SendFormFeedHack(HDC hdc)
+{
+    int           cb;
+    LPBYTE        pBytes = NULL;
+    PFORMFEEDHACK pCur;
+
+    pCur = gpFormFeedHackList;
+
+    while(pCur) {
+
+        if(pCur->hdc == hdc) {
+
+            if(pCur->lpBytes) {
+ 
+                cb = pCur->cbBytes;
+
+                // point to actual data after byte count
+                pBytes = pCur->lpBytes + sizeof(USHORT);
+
+                // strip the form feed from the buffered data stream...
+                if((UCHAR)(*pBytes) == 0x0c) {
+                    *pBytes = '\0';
+                    pBytes++;
+                    cb--;
+                }
+
+                // strip the carriage ret from the buffered data stream...
+                // (some apps put a carriage return after the last formfeed)
+                if((UCHAR)(*pBytes) == 0x0d) {
+                    *pBytes = '\0';
+                    cb--;
+                }
+
+                // ...and send it to the printer
+                if(cb > 0) {
+                    Escape(hdc, 
+                           PASSTHROUGH, 
+                           cb + sizeof(USHORT), 
+                           pCur->lpBytes, 
+                           NULL);
+                }
+            }
+
+            // free this node from the hack list now
+            FreeFormFeedHackNode(pCur);
+
+            break;
+        }
+        pCur = pCur->next;
+    }
+}
+
+
+
+
+
+PFORMFEEDHACK FindFormFeedHackNode(HDC hdc)
+{
+    PFORMFEEDHACK  pCur;
+
+
+    pCur = gpFormFeedHackList;
+
+    while(pCur) {
+
+        if(pCur->hdc == hdc) {
+            return(pCur); 
+        }
+
+        pCur = pCur->next;
+    }
+
+    return(NULL);
+}
+
+
+
+
+// this will only get called if PART of the data stream got sent to the printer
+PFORMFEEDHACK CreateFormFeedHackNode(HDC hdc, int cb, LPBYTE lpData)
+{
+    LPBYTE         pBytes;
+    PFORMFEEDHACK  pNode;
+
+    // allocate a new node
+    pNode = malloc_w(sizeof(FORMFEEDHACK));
+
+    // if we were able to get one...
+    if(pNode) {
+
+        // ...allocate a buffer for the data stream
+        pBytes = malloc_w(cb + sizeof(USHORT));
+        
+        // if we were able to get one...
+        if(pBytes) {
+
+            // ...fill in the node...
+            pNode->hdc     = hdc;
+            pNode->lpBytes = pBytes;
+            pNode->cbBytes = cb;
+            pNode->hTask16 = CURRENTPTD()->htask16;
+
+            // ...and stick the new node at the front of the node list
+            pNode->next        = gpFormFeedHackList;
+            gpFormFeedHackList = pNode;
+
+            // add the new size to the front of the data stream
+            *(UNALIGNED USHORT *)pBytes = (USHORT)cb;
+            pBytes += sizeof(USHORT);
+
+            // copy the the data stream into the node buffer
+            RtlCopyMemory(pBytes, lpData, cb);
+
+            return(pNode);
+        }
+
+        // else if we couldn't get a data stream buffer...
+        else {
+            free_w(pNode);
+        }
+    }
+
+    return(NULL);  // return NULL if either allocate failed
+}
+
+
+
+
+
+
+// this should only be called by Escape(,,AbortDOC,,) and AbortDoc()
+void RemoveFormFeedHack(HDC hdc)
+{
+    PFORMFEEDHACK  pNode;
+
+    pNode = FindFormFeedHackNode(hdc);
+
+    if(pNode) {
+
+        FreeFormFeedHackNode(pNode);
+    }
 }

@@ -40,9 +40,9 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetAuditClear (
-    IN  LPTSTR  UncServerName OPTIONAL,
-    IN  LPTSTR  backupfile OPTIONAL,
-    IN  LPTSTR  reserved OPTIONAL
+    IN  LPCWSTR UncServerName OPTIONAL,
+    IN  LPCWSTR backupfile OPTIONAL,
+    IN  LPCWSTR reserved OPTIONAL
     )
 
 {
@@ -51,9 +51,9 @@ NetAuditClear (
     }
 
     return (RxNetAuditClear(
-            UncServerName,
-            backupfile,
-            reserved));
+            (LPWSTR)UncServerName,
+            (LPWSTR)backupfile,
+            (LPWSTR)reserved));
 
 } // NetAuditClear
 
@@ -61,11 +61,11 @@ NetAuditClear (
 
 NET_API_STATUS NET_API_FUNCTION
 NetAuditRead (
-    IN  LPTSTR  UncServerName OPTIONAL,
-    IN  LPTSTR  reserved1 OPTIONAL,
-    IN  LPHLOG  auditloghandle,
-    IN  DWORD   offset,
-    IN  LPDWORD reserved2 OPTIONAL,
+    IN  LPCWSTR  UncServerName OPTIONAL,
+    IN  LPCWSTR  reserved1 OPTIONAL,
+    IN  LPHLOG   auditloghandle,
+    IN  DWORD    offset,
+    IN  LPDWORD  reserved2 OPTIONAL,
     IN  DWORD   reserved3,
     IN  DWORD   offsetflag,
     OUT LPBYTE  *bufptr,
@@ -79,8 +79,8 @@ NetAuditRead (
     }
 
     return (RxNetAuditRead(
-            UncServerName,
-            reserved1,
+            (LPWSTR)UncServerName,
+            (LPWSTR)reserved1,
             auditloghandle,
             offset,
             reserved2,
@@ -99,7 +99,7 @@ NetAuditWrite (
     IN  DWORD   type,
     IN  LPBYTE  buf,
     IN  DWORD   numbytes,
-    IN  LPTSTR  reserved1 OPTIONAL,
+    IN  LPCWSTR reserved1 OPTIONAL,
     IN  LPBYTE  reserved2 OPTIONAL
     )
 {

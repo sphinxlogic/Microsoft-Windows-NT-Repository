@@ -26,7 +26,6 @@ Revision History:
 #define INCLUDE_SMB_TRANSACTION
 
 #ifdef _CAIRO_
-#define INCLUDE_SMB_CAIRO
 #define INCLUDE_SMB_QUERY_SET
 #endif // _CAIRO_
 
@@ -107,18 +106,30 @@ STANDARD_CALLBACK_HEADER (
     );
 
 #ifdef _CAIRO_
+
+#ifdef _CAIRO_QUOTAS_
 DBGSTATIC
-STANDARD_CALLBACK_HEADER (
-    QueryDiskAttributesCallback
+BOOLEAN
+QueryQuotaInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_QUOTA_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
     );
 
-typedef struct _DSKATTRIBCONTEXT {
-    TRANCEIVE_HEADER Header;            // Standard NetTranceive context header
-    ULONG TotalAllocationUnits;         // Total Number of clusters
-    ULONG AvailableAllocationUnits;     // Available clusters
-    ULONG SectorsPerAllocationUnit;     // Sectors per cluster
-    ULONG BytesPerSector;               // Bytes per sector
-} DSKATTRIBCONTEXT, *PDSKATTRIBCONTEXT;
+DBGSTATIC
+BOOLEAN
+QueryControlInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_FS_CONTROL_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    );
+#endif // _CAIRO_QUOTAS_
 #endif // _CAIRO_
 
 #ifdef  ALLOC_PRAGMA
@@ -130,8 +141,13 @@ typedef struct _DSKATTRIBCONTEXT {
 #pragma alloc_text(PAGE, QueryAttributeInfo)
 #pragma alloc_text(PAGE, QuerySizeInfo)
 #ifdef _CAIRO_
-#pragma alloc_text(PAGE3FILE, QueryDiskAttributesCallback)
+#ifdef _CAIRO_QUOTAS_
+#pragma alloc_text(PAGE, QueryQuotaInfo)
+#pragma alloc_text(PAGE, QueryControlInfo)
+#endif // _CAIRO_QUOTAS_
 #endif // _CAIRO_
+#pragma alloc_text(PAGE, RdrQueryDiskQuota)
+#pragma alloc_text(PAGE, RdrQueryDiskControl)
 #pragma alloc_text(PAGE, ReadCoreLabel)
 #pragma alloc_text(PAGE3FILE, CoreLabelCallBack)
 #endif
@@ -321,6 +337,26 @@ Note:
                                         Wait);
             break;
 
+#ifdef _CAIRO_
+#ifdef _CAIRO_QUOTAS_
+        case FileFsQuotaQueryInformation:
+            QueueToFsp = QueryQuotaInfo(Irp, Icb,
+                                        UsersBuffer,
+                                        &BufferSize,
+                                        &Status,
+                                        Wait);
+            break;
+
+        case FileFsControlQueryInformation:
+            QueueToFsp = QueryControlInfo(Irp, Icb,
+                                        UsersBuffer,
+                                        &BufferSize,
+                                        &Status,
+                                        Wait);
+#endif // _CAIRO_QUOTAS_
+#endif // _CAIRO_
+            break;
+
         default:
             Status = STATUS_NOT_IMPLEMENTED;
 
@@ -353,90 +389,6 @@ try_exit:NOTHING;
 }
 
 
-#ifdef _CAIRO_
-
-DBGSTATIC
-VOID
-BuildTrans2QueryRequest(
-    IN PICB Icb,
-    IN USHORT NtInformationLevel,
-    IN USHORT InformationLevel,
-    OUT PUSHORT Setup,
-    OUT PUCHAR ParameterBuf,
-    OUT CLONG  *ParameterCount)
-{
-
-    if ( (Icb->Type == DiskFile || Icb->Type == Directory)
-
-            &&
-
-         Icb->Fcb->Connection->Server->Capabilities & DF_DFS_TRANS2) {
-
-        //
-        // The remote server supports Dfs shares, so pass the FID
-        //
-
-        PREQ_QUERY_FS_INFORMATION_FID Parameters =
-            (PREQ_QUERY_FS_INFORMATION_FID) ParameterBuf;
-
-        Setup[0] = TRANS2_QUERY_FS_INFORMATION_FID;
-
-        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
-
-            SmbPutAlignedUshort(&Parameters->InformationLevel, NtInformationLevel);
-
-        } else {
-
-            //
-            // Build and initialize the Parameters
-            //
-
-            SmbPutAlignedUshort(&Parameters->InformationLevel, InformationLevel);
-
-        }
-
-        //
-        // Put the Fid into the request SMB. Dfs needs this.
-        //
-
-        SmbPutAlignedUshort(&Parameters->Fid, Icb->FileId);
-
-        *ParameterCount = sizeof(REQ_QUERY_FS_INFORMATION_FID);
-
-    } else {
-
-        //
-        // The remote server does not support Dfs shares. Use NT
-        // REQ_QUERY_FS_INFORMATION
-        //
-
-        PREQ_QUERY_FS_INFORMATION Parameters =
-            (PREQ_QUERY_FS_INFORMATION) ParameterBuf;
-
-        Setup[0] = TRANS2_QUERY_FS_INFORMATION;
-
-        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
-
-            SmbPutAlignedUshort(&Parameters->InformationLevel, NtInformationLevel);
-
-        } else {
-
-            //
-            // Build and initialize the Parameters
-            //
-
-            SmbPutAlignedUshort(&Parameters->InformationLevel, InformationLevel);
-
-        }
-
-        *ParameterCount = sizeof(REQ_QUERY_FS_INFORMATION);
-    }
-
-}
-
-#endif
-
-
 DBGSTATIC
 BOOLEAN
 QueryVolumeInfo (
@@ -480,65 +432,11 @@ Return Value:
 --*/
 
 {
+
     PAGED_CODE();
 
     if (Icb->Fcb->Connection->Server->Capabilities & DF_LANMAN20) {
 
-#ifdef _CAIRO_
-        //
-        // Use TRANSACT2_QFSINFO to get the Label and serial number
-        // The other information is not available.
-
-        USHORT Setup[1];
-
-        UCHAR ParameterBuf[MAX(sizeof(REQ_QUERY_FS_INFORMATION),
-                               sizeof(REQ_QUERY_FS_INFORMATION_FID))];
-
-        CLONG OutParameterCount;
-
-        UCHAR Buffer[MAX(sizeof(QFSINFO), sizeof(FILE_FS_VOLUME_INFORMATION) + MAXIMUM_FILENAME_LENGTH)];
-
-        PQFSINFO FsInfo = (PQFSINFO)Buffer;
-
-        CLONG OutDataCount = sizeof(Buffer);
-
-        CLONG OutSetupCount = 0;
-
-        if (!Wait) {
-            return TRUE;    //  FSP must process this request- we always hit the
-                            //  network and must therefore block.
-        }
-
-        BuildTrans2QueryRequest(
-            Icb,
-            SMB_QUERY_FS_VOLUME_INFO,
-            SMB_INFO_VOLUME,
-            Setup,
-            ParameterBuf,
-            &OutParameterCount);
-
-        *FinalStatus = RdrTransact(Irp,           // Irp,
-            Icb->Fcb->Connection,
-            Icb->Se,
-            Setup,
-            (CLONG) sizeof(Setup),  // InSetupCount,
-            &OutSetupCount,
-            NULL,                   // Name,
-            ParameterBuf,
-            OutParameterCount,      // InParameterCount,
-            &OutParameterCount,
-            NULL,                   // InData,
-            0,                      // InDataCount,
-            Buffer,                 // OutData,
-            &OutDataCount,
-            NULL,                   // Fid
-            0,                      // Timeout
-            0,                      // Flags
-            0,
-            NULL,
-            NULL
-            );
-#else // _CAIRO_
         //
         // Use TRANSACT2_QFSINFO to get the Label and serial number
         // The other information is not available.
@@ -558,47 +456,45 @@ Return Value:
         CLONG OutSetupCount = 0;
 
         if (!Wait) {
-            return TRUE;    //  FSP must process this request- we always hit the
-                            //  network and must therefore block.
+          return TRUE;    //  FSP must process this request- we always hit the
+                          //  network and must therefore block.
         }
 
         if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
 
-            SmbPutAlignedUshort(&Parameters.InformationLevel, SMB_QUERY_FS_VOLUME_INFO);
+          SmbPutAlignedUshort(&Parameters.InformationLevel, SMB_QUERY_FS_VOLUME_INFO);
 
         } else {
 
-            //
-            // Build and initialize the Parameters
-            //
+          //
+          // Build and initialize the Parameters
+          //
 
-            SmbPutAlignedUshort(&Parameters.InformationLevel, SMB_INFO_VOLUME);
+          SmbPutAlignedUshort(&Parameters.InformationLevel, SMB_INFO_VOLUME);
 
         }
 
         *FinalStatus = RdrTransact(Irp,           // Irp,
-            Icb->Fcb->Connection,
-            Icb->Se,
-            Setup,
-            (CLONG) sizeof(Setup),  // InSetupCount,
-            &OutSetupCount,
-            NULL,                   // Name,
-            &Parameters,
-            sizeof(Parameters),     // InParameterCount,
-            &OutParameterCount,
-            NULL,                   // InData,
-            0,                      // InDataCount,
-            Buffer,                 // OutData,
-            &OutDataCount,
-            NULL,                   // Fid
-            0,                      // Timeout
-            0,                      // Flags
-            0,
-            NULL,
-            NULL
-            );
-#endif // _CAIRO_
-
+          Icb->Fcb->Connection,
+          Icb->Se,
+          Setup,
+          (CLONG) sizeof(Setup),  // InSetupCount,
+          &OutSetupCount,
+          NULL,                   // Name,
+          &Parameters,
+          sizeof(Parameters),     // InParameterCount,
+          &OutParameterCount,
+          NULL,                   // InData,
+          0,                      // InDataCount,
+          Buffer,                 // OutData,
+          &OutDataCount,
+          NULL,                   // Fid
+          0,                      // Timeout
+          (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
+          0,
+          NULL,
+          NULL
+          );
 
         if (NT_SUCCESS(*FinalStatus)) {
             if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
@@ -858,7 +754,7 @@ Arguments:
 
     IN PICB Icb - Supplies the Icb associated with this request.
 
-    OUT PFILE_FS_SIZE_INFORMATION UsersBuffer - Supplies the user's buffer
+    OUT PFILE_FS_DEVICE_INFORMATION UsersBuffer - Supplies the user's buffer
                                                 that is filled in with the
                                                 requested data.
     IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
@@ -882,10 +778,6 @@ Return Value:
     if (*BufferSize < sizeof(FILE_FS_DEVICE_INFORMATION)) {
         *FinalStatus = STATUS_BUFFER_OVERFLOW;
     } else {
-
-//  BUGBUG: Need a heuristic for removable media characteristic
-//  BUGBUG: Do we want to support FILE_FS_DEVICE_INFORMATION via an SMB?
-
 
         UsersBuffer->Characteristics = FILE_REMOTE_DEVICE;
         switch (Icb->Type) {
@@ -996,69 +888,10 @@ Return Value:
     if (*BufferSize < sizeof(FILE_FS_ATTRIBUTE_INFORMATION)) {
         *FinalStatus = STATUS_BUFFER_TOO_SMALL;
     } else {
-        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
+        if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_FIND) {
 
             if (Icb->Fcb->Connection->MaximumComponentLength == 0) {
 
-#ifdef _CAIRO_
-                //
-                // Use TRANSACT2_QFSINFO to get the Label and serial number
-                // The serial number is not used.
-
-                USHORT Setup[1];
-
-                UCHAR ParameterBuf[MAX(sizeof(REQ_QUERY_FS_INFORMATION),
-                                    sizeof(REQ_QUERY_FS_INFORMATION_FID))];
-
-                UCHAR Buffer[MAX(sizeof(QFSINFO), sizeof(FILE_FS_ATTRIBUTE_INFORMATION) + MAXIMUM_FILENAME_LENGTH)];
-
-                PQFSINFO FsInfo = (PQFSINFO)Buffer;
-
-                CLONG OutParameterCount;
-
-                CLONG OutDataCount = sizeof(Buffer);
-
-                CLONG OutSetupCount = 0;
-
-                if (!Wait) {
-                    return TRUE;    //  FSP must process this request- we always hit the
-                                //  network and must therefore block.
-                }
-
-                BuildTrans2QueryRequest(
-                    Icb,
-                    SMB_QUERY_FS_ATTRIBUTE_INFO,
-                    SMB_QUERY_FS_ATTRIBUTE_INFO,
-                    Setup,
-                    ParameterBuf,
-                    &OutParameterCount);
-
-                //
-                // Build and initialize the Parameters
-                //
-
-                *FinalStatus = RdrTransact(Irp,           // Irp,
-                    Icb->Fcb->Connection,
-                    Icb->Se,
-                    Setup,
-                    (CLONG) sizeof(Setup),  // InSetupCount,
-                    &OutSetupCount,
-                    NULL,                   // Name,
-                    ParameterBuf,
-                    OutParameterCount,      // InParameterCount,
-                    &OutParameterCount,
-                    NULL,                   // InData,
-                    0,                      // InDataCount,
-                    Buffer,                 // OutData,
-                    &OutDataCount,
-                    NULL,                   // Fid
-                    0,                      // Timeout
-                    0,                      // Flags
-                    0,
-                    NULL,
-                    NULL
-                    );
-#else // _CAIRO_
                 //
                 // Use TRANSACT2_QFSINFO to get the Label and serial number
                 // The serial number is not used.
@@ -1078,8 +911,8 @@ Return Value:
                 CLONG OutSetupCount = 0;
 
                 if (!Wait) {
-                    return TRUE;    //  FSP must process this request- we always hit the
-                                //  network and must therefore block.
+                  return TRUE;    //  FSP must process this request- we always hit the
+                              //  network and must therefore block.
                 }
 
                 SmbPutAlignedUshort(&Parameters.InformationLevel, SMB_QUERY_FS_ATTRIBUTE_INFO);
@@ -1089,27 +922,26 @@ Return Value:
                 //
 
                 *FinalStatus = RdrTransact(Irp,           // Irp,
-                    Icb->Fcb->Connection,
-                    Icb->Se,
-                    Setup,
-                    (CLONG) sizeof(Setup),  // InSetupCount,
-                    &OutSetupCount,
-                    NULL,                   // Name,
-                    &Parameters,
-                    sizeof(Parameters),     // InParameterCount,
-                    &OutParameterCount,
-                    NULL,                   // InData,
-                    0,                      // InDataCount,
-                    Buffer,                 // OutData,
-                    &OutDataCount,
-                    NULL,                   // Fid
-                    0,                      // Timeout
-                    0,                      // Flags
-                    0,
-                    NULL,
-                    NULL
-                    );
-#endif // _CAIRO_
+                  Icb->Fcb->Connection,
+                  Icb->Se,
+                  Setup,
+                  (CLONG) sizeof(Setup),  // InSetupCount,
+                  &OutSetupCount,
+                  NULL,                   // Name,
+                  &Parameters,
+                  sizeof(Parameters),     // InParameterCount,
+                  &OutParameterCount,
+                  NULL,                   // InData,
+                  0,                      // InDataCount,
+                  Buffer,                 // OutData,
+                  &OutDataCount,
+                  NULL,                   // Fid
+                  0,                      // Timeout
+                  (USHORT) (FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? SMB_TRANSACTION_DFSFILE : 0),
+                  0,
+                  NULL,
+                  NULL
+                  );
 
                 if (NT_SUCCESS(*FinalStatus)) {
                     PFILE_FS_ATTRIBUTE_INFORMATION AttribInfo = (PFILE_FS_ATTRIBUTE_INFORMATION)Buffer;
@@ -1307,11 +1139,30 @@ Return Value:
 --*/
 
 {
+    CONNECTLISTENTRY *connection = Icb->Fcb->Connection;
+    LARGE_INTEGER currentTime;
+
     PAGED_CODE();
+
+    KeQuerySystemTime( &currentTime );
 
     if (*BufferSize < sizeof(FILE_FS_SIZE_INFORMATION)) {
         *FinalStatus = STATUS_BUFFER_TOO_SMALL;
+
+    } else if( currentTime.QuadPart <= connection->FsSizeInformationExpiration.QuadPart ) {
+        //
+        // We have the information in our cache... use it!
+        //
+        RtlCopyMemory( UsersBuffer,
+                       &connection->FsSizeInformation,
+                       sizeof( FILE_FS_SIZE_INFORMATION ) );
+
+        *BufferSize -= sizeof(FILE_FS_SIZE_INFORMATION);
+
     } else {
+        //
+        // We can not use our cached information -- need to hit the server
+        //
 
         if (!Wait) {
             return TRUE;
@@ -1324,303 +1175,37 @@ Return Value:
                                                     &UsersBuffer->BytesPerSector);
 
         if (NT_SUCCESS(*FinalStatus)) {
-            Icb->Fcb->Connection->FileSystemGranularity =
+
+            connection->FileSystemGranularity =
                     UsersBuffer->SectorsPerAllocationUnit *
                         UsersBuffer->BytesPerSector;
 
-            Icb->Fcb->Connection->FileSystemSize.QuadPart =
+            connection->FileSystemSize.QuadPart =
                     UsersBuffer->TotalAllocationUnits.QuadPart *
                             UsersBuffer->SectorsPerAllocationUnit * UsersBuffer->BytesPerSector;
 
             *BufferSize -= sizeof(FILE_FS_SIZE_INFORMATION);
+
+            connection->FsSizeInformation.TotalAllocationUnits =
+                    UsersBuffer->TotalAllocationUnits;
+            connection->FsSizeInformation.AvailableAllocationUnits =
+                    UsersBuffer->AvailableAllocationUnits;
+            connection->FsSizeInformation.SectorsPerAllocationUnit =
+                    UsersBuffer->SectorsPerAllocationUnit;
+            connection->FsSizeInformation.BytesPerSector =
+                    UsersBuffer->BytesPerSector;
+
+            KeQuerySystemTime( &currentTime );
+            //
+            // Expires in 2 seconds
+            //
+            connection->FsSizeInformationExpiration.QuadPart = currentTime.QuadPart + 2*10*1000*1000;
         }
-
-        return FALSE;
     }
-
+    return FALSE;
 }
 
 
-#ifdef _CAIRO_
-
-//
-//
-//      RdrQueryDiskAttributes
-//
-//
-
-
-NTSTATUS
-RdrQueryDiskAttributes (
-    IN PIRP Irp OPTIONAL,
-    IN PICB Icb,
-    OUT PLARGE_INTEGER TotalAllocationUnits,
-    OUT PLARGE_INTEGER AvailableAllocationUnits,
-    OUT PULONG SectorsPerAllocationUnit,
-    OUT PULONG BytesPerSector
-    )
-
-/*++
-
-Routine Description:
-
-    This routine returns information about the file system backing a share
-on the specified remote server.
-
-
-Arguments:
-
-    IN PIRP Irp - Supplies an optional I/O Request packet to use for the
-                    SMBdskattr request.
-    IN PICB Icb - Supplies an ICB associated with the file to check.
-
-    OUT PULONG TotalAllocationUnits - Returns the total number of clusters on
-                                        the remote disk.
-    OUT PULONG AvailableAllocationUnits - Returns the number of free clusters
-                                        on the remote disk
-    OUT PULONG SectorsPerAllocationUnit - Returns the number of sectors per
-                                        cluster on the remote disk.
-    OUT PULONG BytesPerSector - Returns the number of bytes per sector on the
-                                        remote disk.
-
-Return Value:
-
-    NTSTATUS - SUCCESS if the file exists, status otherwise.
-
---*/
-
-{
-    PREQ_QUERY_INFORMATION_DISK DskAttr;
-    PSMB_BUFFER SmbBuffer;
-    PSMB_HEADER Smb;
-    DSKATTRIBCONTEXT Context;
-    NTSTATUS Status;
-
-    PAGED_CODE();
-
-    if (Icb->Fcb->Connection->Server->Capabilities & DF_LANMAN20) {
-
-        //
-        // Use TRANSACT2_QFSINFO to get the volume size information
-        //
-
-        USHORT Setup[1];
-
-        UCHAR ParameterBuf[MAX(sizeof(REQ_QUERY_FS_INFORMATION),
-                            sizeof(REQ_QUERY_FS_INFORMATION_FID))];
-
-        PCHAR Buffer[MAX(sizeof(QFSALLOCATE), sizeof(FILE_FS_SIZE_INFORMATION))];
-
-        PQFSALLOCATE FsInfo = (PQFSALLOCATE)Buffer;
-
-        CLONG OutParameterCount;
-
-        CLONG OutDataCount = sizeof(Buffer);
-
-        CLONG OutSetupCount = 0;
-
-        BuildTrans2QueryRequest(
-            Icb,
-            SMB_QUERY_FS_SIZE_INFO,
-            SMB_INFO_ALLOCATION,
-            Setup,
-            ParameterBuf,
-            &OutParameterCount);
-
-        Status = RdrTransact(Irp,           // Irp,PICB
-            Icb->Fcb->Connection,
-            Icb->Se,
-            Setup,
-            (CLONG) sizeof(Setup),  // InSetupCount,
-            &OutSetupCount,
-            NULL,                   // Name,
-            ParameterBuf,
-            OutParameterCount,      // InParameterCount,
-            &OutParameterCount,
-            NULL,                   // InData,
-            0,                      // InDataCount,
-            Buffer,                 // OutData,
-            &OutDataCount,
-            NULL,                   // Fid
-            0,                      // Timeout
-            0,                      // Flags
-            0,
-            NULL,
-            NULL
-            );
-
-        if (NT_SUCCESS(Status)) {
-            if (Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) {
-                PFILE_FS_SIZE_INFORMATION SizeInfo = (PFILE_FS_SIZE_INFORMATION)Buffer;
-
-                *TotalAllocationUnits = SizeInfo->TotalAllocationUnits;
-
-                *AvailableAllocationUnits = SizeInfo->AvailableAllocationUnits;
-
-                *SectorsPerAllocationUnit = SizeInfo->SectorsPerAllocationUnit;
-                *BytesPerSector = SizeInfo->BytesPerSector;
-
-                Icb->Fcb->Connection->FileSystemGranularity =
-                                SizeInfo->SectorsPerAllocationUnit * SizeInfo->BytesPerSector;
-
-                Icb->Fcb->Connection->FileSystemSize = LiXMul(SizeInfo->TotalAllocationUnits,
-                                                                  Icb->Fcb->Connection->FileSystemGranularity);
-
-                Status = STATUS_SUCCESS;
-            } else {
-                PQFSALLOCATE FsInfo = (PQFSALLOCATE)Buffer;
-
-                *TotalAllocationUnits = LiFromUlong(FsInfo->cUnit);
-
-                *AvailableAllocationUnits = LiFromUlong(FsInfo->cUnitAvail);
-
-                *SectorsPerAllocationUnit = FsInfo->cSectorUnit;
-
-                *BytesPerSector = FsInfo->cbSector;
-
-                Icb->Fcb->Connection->FileSystemGranularity =
-                                FsInfo->cSectorUnit * FsInfo->cbSector;
-
-                Icb->Fcb->Connection->FileSystemSize =
-                            LiFromUlong(FsInfo->cUnit * FsInfo->cSectorUnit * FsInfo->cbSector);
-
-                Status = STATUS_SUCCESS;
-            }
-        }
-
-    } else {
-        if ((SmbBuffer = RdrAllocateSMBBuffer()) == NULL) {
-
-            return STATUS_INSUFFICIENT_RESOURCES;
-        }
-
-        Smb = (PSMB_HEADER )SmbBuffer->Buffer;
-
-        Smb->Command = SMB_COM_QUERY_INFORMATION_DISK;
-
-        DskAttr = (PREQ_QUERY_INFORMATION_DISK)(Smb+1);
-
-        DskAttr->WordCount = 0;
-
-        SmbPutUshort(&DskAttr->ByteCount, 0);
-
-        SmbBuffer->Mdl->ByteCount = sizeof(SMB_HEADER) + FIELD_OFFSET(REQ_QUERY_INFORMATION, Buffer);
-
-        Context.Header.Type = CONTEXT_QDISKATTR;
-        Context.Header.TransferSize =
-             sizeof(PREQ_QUERY_INFORMATION_DISK) +
-             sizeof(PRESP_QUERY_INFORMATION_DISK);
-
-        Status = RdrNetTranceiveWithCallback(NT_NORMAL, Irp,
-                                Icb->Fcb->Connection,
-                                SmbBuffer->Mdl,
-                                &Context,
-                                QueryDiskAttributesCallback,
-                                Icb->Se,
-                                NULL);
-
-        if (NT_SUCCESS(Status)) {
-            *TotalAllocationUnits = LiFromUlong(Context.TotalAllocationUnits);
-            *AvailableAllocationUnits = LiFromUlong(Context.AvailableAllocationUnits);
-            *SectorsPerAllocationUnit = Context.SectorsPerAllocationUnit;
-            *BytesPerSector = Context.BytesPerSector;
-
-            Icb->Fcb->Connection->FileSystemGranularity =
-                                Context.BytesPerSector * Context.SectorsPerAllocationUnit;
-
-            Icb->Fcb->Connection->FileSystemSize =
-                            LiFromUlong(Context.TotalAllocationUnits * Context.SectorsPerAllocationUnit * Context.BytesPerSector);
-
-        }
-
-        RdrFreeSMBBuffer(SmbBuffer);
-
-    }
-    return Status;
-
-}
-
-DBGSTATIC
-STANDARD_CALLBACK_HEADER (
-    QueryDiskAttributesCallback
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is the callback routine for the processing of an Open&X SMB.
-
-    It copies the resulting information from the Open&X SMB into either
-    the context block or the ICB supplied directly.
-
-
-Arguments:
-
-
-    IN PSMB_HEADER Smb                  - SMB response from server.
-    IN PMPX_ENTRY MpxEntry              - MPX table entry for request.
-    IN PSTATCONTEXT Context             - Context from caller.
-    IN BOOLEAN ErrorIndicator           - TRUE if error indication
-    IN NTSTATUS NetworkErrorCode OPTIONAL   - Network error if error indication.
-    IN OUT PIRP *Irp                    - IRP from TDI
-
-Return Value:
-
-    NTSTATUS - STATUS_PENDING if we are to complete the request
-
---*/
-
-{
-    PDSKATTRIBCONTEXT Context = Ctx;
-    PRESP_QUERY_INFORMATION_DISK DskAttrResponse;
-    NTSTATUS Status;
-
-    DISCARDABLE_CODE(RdrFileDiscardableSection);
-
-    ASSERT(Context->Header.Type == CONTEXT_QDISKATTR);
-
-    dprintf(DPRT_FILEINFO, ("QueryDiskAttributesCallback"));
-
-    Context->Header.ErrorType = NoError;        // Assume no error at first.
-
-    //
-    //  If we are called because the VC dropped, indicate it in the response
-    //
-
-    if (ErrorIndicator) {
-        Context->Header.ErrorType = NetError;
-        Context->Header.ErrorCode = RdrMapNetworkError(NetworkErrorCode);
-        goto ReturnStatus;
-    }
-
-    if (!NT_SUCCESS(Status = RdrMapSmbError(Smb, Server))) {
-        Context->Header.ErrorType = SMBError;
-        Context->Header.ErrorCode = Status;
-        goto ReturnStatus;
-    }
-
-    DskAttrResponse = (PRESP_QUERY_INFORMATION_DISK )(Smb+1);
-
-    Context->TotalAllocationUnits = SmbGetUshort(&DskAttrResponse->TotalUnits);
-    Context->AvailableAllocationUnits =
-                                SmbGetUshort(&DskAttrResponse->FreeUnits);
-    Context->SectorsPerAllocationUnit =
-                                SmbGetUshort(&DskAttrResponse->BlocksPerUnit);
-    Context->BytesPerSector = SmbGetUshort(&DskAttrResponse->BlockSize);
-
-ReturnStatus:
-    KeSetEvent(&Context->Header.KernelEvent, IO_NETWORK_INCREMENT, FALSE);
-    return STATUS_SUCCESS;
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
-    UNREFERENCED_PARAMETER(Server);
-}
-
-#endif // _CAIRO_
-
 DBGSTATIC
 NTSTATUS
 ReadCoreLabel(
@@ -1687,7 +1272,7 @@ Return Value:
 
     *TrailingBytes++ = SMB_FORMAT_ASCII;
 
-    Status = RdrCopyUnicodeStringToAscii( &TrailingBytes, &RdrAll8dot3Files, TRUE, CCHMAXPATHCOMP);
+    Status = RdrCopyUnicodeStringToAscii( &TrailingBytes, &RdrAll8dot3Files, TRUE, MAXIMUM_FILENAME_LENGTH);
 
     if (!NT_SUCCESS(Status)) {
 
@@ -1830,7 +1415,294 @@ ReturnStatus:
     return STATUS_SUCCESS;
 
     if (SmbLength || MpxEntry || Irp || Server);
-
 }
 
 
+#ifdef _CAIRO_
+#ifdef _CAIRO_QUOTAS_
+DBGSTATIC
+BOOLEAN
+QueryQuotaInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_QUOTA_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the FileFsQuotaQueryInformation value of the
+NtQueryVolumeInformationFile api.  It returns the following information:
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies an Irp to use for this request.
+
+    IN PICB Icb - Supplies the Icb associated with this request.
+
+    OUT PFILE_QUOTA_INFORMATION UsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (*BufferSize < sizeof(FILE_QUOTA_INFORMATION)) {
+        *FinalStatus = STATUS_BUFFER_TOO_SMALL;
+    } else {
+
+        if (!Wait) {
+            return(TRUE);
+        }
+
+        *FinalStatus = RdrQueryDiskQuota(Irp, Icb, UsersBuffer, BufferSize);
+
+        if (NT_SUCCESS(*FinalStatus)) {
+            //*BufferSize -= sizeof(FILE_QUOTA_INFORMATION);
+        }
+    }
+    return(FALSE);
+}
+
+
+DBGSTATIC
+BOOLEAN
+QueryControlInfo(
+    PIRP Irp,
+    PICB Icb,
+    PFILE_FS_CONTROL_INFORMATION UsersBuffer,
+    PULONG BufferSize,
+    PNTSTATUS FinalStatus,
+    BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the FileFsControlQueryInformation value of the
+NtQueryVolumeInformationFile api.  It returns the following information:
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies an Irp to use for this request.
+
+    IN PICB Icb - Supplies the Icb associated with this request.
+
+    OUT PFILE_FS_CONTROL_INFORMATION UsersBuffer - Supplies the user's buffer
+                                                that is filled in with the
+                                                requested data.
+    IN OUT PULONG BufferSize - Supplies the size of the buffer, and is updated
+                                                with the amount used.
+    OUT PNTSTATUS FinalStatus - Status to be returned for this operation.
+
+    IN BOOLEAN Wait - True if FSP can wait for this request.
+
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+
+--*/
+
+{
+    PAGED_CODE();
+
+    if (*BufferSize < sizeof(FILE_FS_CONTROL_INFORMATION)) {
+        *FinalStatus = STATUS_BUFFER_TOO_SMALL;
+    } else {
+
+        if (!Wait) {
+            return(TRUE);
+        }
+
+        *FinalStatus = RdrQueryDiskControl(Irp, Icb, UsersBuffer);
+
+        if (NT_SUCCESS(*FinalStatus)) {
+            *BufferSize -= sizeof(FILE_FS_CONTROL_INFORMATION);
+        }
+    }
+    return(FALSE);
+}
+
+
+NTSTATUS
+RdrQueryDiskQuota(
+    IN PIRP Irp OPTIONAL,
+    IN PICB Icb,
+    PFILE_QUOTA_INFORMATION UsersBuffer,
+    PULONG BufferSize)
+
+/*++
+
+Routine Description:
+
+    This routine returns information about the file system backing a share
+on the specified remote server.
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies an optional I/O Request packet to use for the
+                    SMBdskattr request.
+    IN PICB Icb - Supplies an ICB associated with the file to check.
+
+    OUT PFILE_QUOTA_INFORMATION UsersBuffer - Returns the quota info
+
+    IN OUT PULONG BufferSize - Adjusted by the size returned
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+--*/
+
+{
+    NTSTATUS Status;
+    USHORT Setup[1];
+    REQ_QUERY_FS_INFORMATION_FID ParameterBuf;
+    CLONG OutParameterCount;
+    CLONG OutSetupCount = 0;
+
+    PAGED_CODE();
+
+    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) == 0) {
+        return(STATUS_INVALID_DEVICE_REQUEST);
+    }
+
+    //
+    // Use TRANSACT2_QFSINFO to get the volume size information
+    //
+
+    BuildTrans2QueryRequest(
+        Icb,
+        SMB_QUERY_QUOTA_INFO,
+        0,
+        Setup,
+        (UCHAR *) &ParameterBuf,
+        &OutParameterCount);
+
+    Status = RdrTransact(
+                    Irp,                    // Irp,PICB
+                    Icb->Fcb->Connection,
+                    Icb->Se,
+                    Setup,
+                    (CLONG) sizeof(Setup),  // InSetupCount,
+                    &OutSetupCount,
+                    NULL,                   // Name,
+                    &ParameterBuf,
+                    OutParameterCount,      // InParameterCount,
+                    &OutParameterCount,
+                    NULL,                   // InData,
+                    0,                      // InDataCount,
+                    UsersBuffer,            // OutData,
+                    BufferSize,
+                    NULL,                   // Fid
+                    0,                      // Timeout
+                    FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? (USHORT) SMB_TRANSACTION_DFSFILE : 0,
+                    0,
+                    NULL,
+                    NULL);
+    return(Status);
+}
+
+
+NTSTATUS
+RdrQueryDiskControl(
+    IN PIRP Irp OPTIONAL,
+    IN PICB Icb,
+    PFILE_FS_CONTROL_INFORMATION UsersBuffer)
+
+/*++
+
+Routine Description:
+
+    This routine returns information about the file system backing a share
+on the specified remote server.
+
+
+Arguments:
+
+    IN PIRP Irp - Supplies an optional I/O Request packet to use for the
+                    SMBdskattr request.
+    IN PICB Icb - Supplies an ICB associated with the file to check.
+
+    OUT PFILE_FS_CONTROL_INFORMATION UsersBuffer - Returns the quota info
+
+Return Value:
+
+    NTSTATUS - Status of operation performed.
+
+--*/
+
+{
+    NTSTATUS Status;
+    USHORT Setup[1];
+    REQ_QUERY_FS_INFORMATION_FID ParameterBuf;
+    CLONG OutParameterCount;
+    CLONG OutDataCount = sizeof(*UsersBuffer);
+    CLONG OutSetupCount = 0;
+
+    PAGED_CODE();
+
+    if ((Icb->Fcb->Connection->Server->Capabilities & DF_NT_SMBS) == 0) {
+        return(STATUS_INVALID_DEVICE_REQUEST);
+    }
+
+    //
+    // Use TRANSACT2_QFSINFO to get the volume size information
+    //
+
+    BuildTrans2QueryRequest(
+        Icb,
+        SMB_QUERY_FS_CONTROL_INFO,
+        0,
+        Setup,
+        (UCHAR *) &ParameterBuf,
+        &OutParameterCount);
+
+    Status = RdrTransact(
+                    Irp,                    // Irp,PICB
+                    Icb->Fcb->Connection,
+                    Icb->Se,
+                    Setup,
+                    (CLONG) sizeof(Setup),  // InSetupCount,
+                    &OutSetupCount,
+                    NULL,                   // Name,
+                    &ParameterBuf,
+                    OutParameterCount,      // InParameterCount,
+                    &OutParameterCount,
+                    NULL,                   // InData,
+                    0,                      // InDataCount,
+                    UsersBuffer,            // OutData,
+                    &OutDataCount,
+                    NULL,                   // Fid
+                    0,                      // Timeout
+                    FlagOn(Icb->NonPagedFcb->Flags, FCB_DFSFILE) ? (USHORT) SMB_TRANSACTION_DFSFILE : 0,
+                    0,
+                    NULL,
+                    NULL);
+    return(Status);
+}
+#endif // _CAIRO_QUOTAS_
+#endif // _CAIRO_

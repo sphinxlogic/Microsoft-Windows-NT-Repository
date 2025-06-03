@@ -1189,10 +1189,10 @@ Net16ServiceControl(
     // OS/2 services are limited to 15 chars
     // workaround an important NT service whose name is longer than 15 chars
 
-    if (!stricmp(pszService, N_Workstation)) {
+    if (!_stricmp(pszService, N_Workstation)) {
         ANSI2UTstrcpy(Service, N_LanmanWorkstation);
     }
-    if (!stricmp(pszService, N_Server)) {
+    if (!_stricmp(pszService, N_Server)) {
         ANSI2UTstrcpy(Service, N_LanmanServer);
     }
     else {
@@ -1214,10 +1214,10 @@ Net16ServiceControl(
     pOs2Info2 = (struct service_info_2 *)pbBuffer;
     UT2ANSIstrncpy(pOs2Info2->svci2_name, pInfo2->svci2_name, SNLEN_LM20);
     pOs2Info2->svci2_name[SNLEN_LM20] = '\0';
-    if (!stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
+    if (!_stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Workstation);
     }
-    else if (!stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
+    else if (!_stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Server);
     }
     UT2ANSIstrncpy(pOs2Info2->svci2_text, pInfo2->svci2_text, STXTLEN_LM20);
@@ -1306,10 +1306,10 @@ Net16ServiceEnum(
                 pInfo0 = (PSERVICE_INFO_0) BufPtr + i;
                 UT2ANSIstrncpy(pOs2Info0->svci0_name, pInfo0->svci0_name, SNLEN_LM20);
                 pOs2Info0->svci0_name[SNLEN_LM20] = '\0';
-                if (!stricmp(N_LanmanWorkstati, pOs2Info0->svci0_name)) {
+                if (!_stricmp(N_LanmanWorkstati, pOs2Info0->svci0_name)) {
                     strcpy(pOs2Info0->svci0_name, N_Workstation);
                 }
-                else if (!stricmp(N_LanmanServer, pOs2Info0->svci0_name)) {
+                else if (!_stricmp(N_LanmanServer, pOs2Info0->svci0_name)) {
                     strcpy(pOs2Info0->svci0_name, N_Server);
                 }
 
@@ -1325,10 +1325,10 @@ Net16ServiceEnum(
                 pInfo1 = (PSERVICE_INFO_1) BufPtr + i;
                 UT2ANSIstrncpy(pOs2Info1->svci1_name, pInfo1->svci1_name, SNLEN_LM20);
                 pOs2Info1->svci1_name[SNLEN_LM20] = '\0';
-                if (!stricmp(N_LanmanWorkstati, pOs2Info1->svci1_name)) {
+                if (!_stricmp(N_LanmanWorkstati, pOs2Info1->svci1_name)) {
                     strcpy(pOs2Info1->svci1_name, N_Workstation);
                 }
-                else if (!stricmp(N_LanmanServer, pOs2Info1->svci1_name)) {
+                else if (!_stricmp(N_LanmanServer, pOs2Info1->svci1_name)) {
                     strcpy(pOs2Info1->svci1_name, N_Server);
                 }
 
@@ -1348,10 +1348,10 @@ Net16ServiceEnum(
                 pInfo2 = (PSERVICE_INFO_2) BufPtr + i;
                 UT2ANSIstrncpy(pOs2Info2->svci2_name, pInfo2->svci2_name, SNLEN_LM20);
                 pOs2Info2->svci2_name[SNLEN_LM20] = '\0';
-                if (!stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
+                if (!_stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
                     strcpy(pOs2Info2->svci2_name, N_Workstation);
                 }
-                else if (!stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
+                else if (!_stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
                     strcpy(pOs2Info2->svci2_name, N_Server);
                 }
 
@@ -1409,10 +1409,10 @@ Net16ServiceGetInfo(
     // OS/2 services are limited to 15 chars
     // workaround an important NT service whose name is longer than 15 chars
 
-    if (!stricmp(pszService, N_Workstation)) {
+    if (!_stricmp(pszService, N_Workstation)) {
         ANSI2UTstrcpy(Service, N_LanmanWorkstation);
     }
-    if (!stricmp(pszService, N_Server)) {
+    if (!_stricmp(pszService, N_Server)) {
         ANSI2UTstrcpy(Service, N_LanmanServer);
     }
     else {
@@ -1449,10 +1449,10 @@ Net16ServiceGetInfo(
 
     UT2ANSIstrncpy(pOs2Info2->svci2_name, pInfo2->svci2_name, SNLEN_LM20);
     pOs2Info2->svci2_name[SNLEN_LM20] = '\0';
-    if (!stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
+    if (!_stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Workstation);
     }
-    else if (!stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
+    else if (!_stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Server);
     }
 
@@ -1556,10 +1556,10 @@ Net16ServiceInstall(
     // OS/2 services are limited to 15 chars
     // workaround an important NT service whose name is longer than 15 chars
 
-    if (!stricmp(pszService, N_Workstation)) {
+    if (!_stricmp(pszService, N_Workstation)) {
         ANSI2UTstrcpy(Service, N_LanmanWorkstation);
     }
-    if (!stricmp(pszService, N_Server)) {
+    if (!_stricmp(pszService, N_Server)) {
         ANSI2UTstrcpy(Service, N_LanmanServer);
     }
     else {
@@ -1588,10 +1588,10 @@ Net16ServiceInstall(
 
     UT2ANSIstrncpy(pOs2Info2->svci2_name, pInfo2->svci2_name, SNLEN_LM20);
     pOs2Info2->svci2_name[SNLEN_LM20] = '\0';
-    if (!stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
+    if (!_stricmp(N_LanmanWorkstati, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Workstation);
     }
-    else if (!stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
+    else if (!_stricmp(N_LanmanServer, pOs2Info2->svci2_name)) {
         strcpy(pOs2Info2->svci2_name, N_Server);
     }
     pOs2Info2->svci2_status = (unsigned short)pInfo2->svci2_status;
@@ -4611,12 +4611,12 @@ Net16BiosEnum(
         if (sLevel == 0) {
             RtlZeroMemory(&nb0, strucsiz);
             strcpy(nb0.nb0_net_name, "NET");
-            itoa((int)i+1, &nb0.nb0_net_name[3], 10);
+            _itoa((int)i+1, &nb0.nb0_net_name[3], 10);
             RtlMoveMemory(pbBuffer, &nb0, strucsiz);
         } else {           // sLevel == 1
             RtlZeroMemory(&nb1, strucsiz);
             strcpy(nb1.nb1_net_name, "NET");
-            itoa((int)i+1, &nb1.nb1_net_name[3], 10);
+            _itoa((int)i+1, &nb1.nb1_net_name[3], 10);
             strcpy(nb1.nb1_driver_name, "VrtWnNB$");
             nb1.nb1_lana_num = Od2LanaEnum.lana[i];
 
@@ -4705,7 +4705,7 @@ Net16BiosGetInfo(
     if (pszNetBiosName == NULL || *pszNetBiosName == '\0') {
         NetNumber = 0;
     } else {
-        if (strnicmp(pszNetBiosName, "NET", 3)) {
+        if (_strnicmp(pszNetBiosName, "NET", 3)) {
 #if DBG
             IF_OD2_DEBUG( NET ) {
                 KdPrint(("NetBiosGetInfo: Bad network name: %s\n", pszNetBiosName));
@@ -4818,7 +4818,7 @@ Net16BiosOpen(
     if (pszDevName == NULL || *pszDevName == '\0') {
         NetNumber = 0L;
     } else {
-        if (strnicmp(pszDevName, "NET", 3)) {
+        if (_strnicmp(pszDevName, "NET", 3)) {
 #if DBG
             IF_OD2_DEBUG( NET ) {
                 KdPrint(("NetBiosOpen: Bad network name: %s\n", pszDevName));

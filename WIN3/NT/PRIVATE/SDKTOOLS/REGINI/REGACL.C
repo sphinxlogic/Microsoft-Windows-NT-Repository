@@ -29,16 +29,14 @@ Revision History:
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
-
-#include <stdlib.h>
+#include <windows.h>
 #include <stdio.h>
 #include <wchar.h>
 
 #include <seopaque.h>
 #include <sertlp.h>
 
-#define RtlAllocateHeap(x,y,z) malloc(z)
-#define RtlFreeHeap(x,y,z) free(z)
+
 //
 // Private function prototypes
 //
@@ -53,6 +51,7 @@ RegpInitializeACEs(
 PSID SeNullSid;
 PSID SeWorldSid;
 PSID SeCreatorOwnerSid;
+PSID SeInteractiveUserSid;
 
 //
 // SIDs defined by NT
@@ -63,6 +62,8 @@ PSID SeLocalAdminSid;
 PSID SeAliasAdminsSid;
 PSID SeAliasSystemOpsSid;
 PSID SeAliasPowerUsersSid;
+PSID SeAliasUsersSid;
+
 
 SID_IDENTIFIER_AUTHORITY SepNullSidAuthority = SECURITY_NULL_SID_AUTHORITY;
 SID_IDENTIFIER_AUTHORITY SepWorldSidAuthority = SECURITY_WORLD_SID_AUTHORITY;
@@ -80,7 +81,7 @@ PSID SepPrimaryDomainAdminSid;
 // Number of ACEs currently defined
 //
 
-#define ACE_COUNT 21
+#define ACE_COUNT 26
 
 typedef struct _ACE_DATA {
     ACCESS_MASK AccessMask;
@@ -304,13 +305,62 @@ ACE_DATA AceDataTable[ACE_COUNT] = {
         &SeAliasAdminsSid,
         ACCESS_ALLOWED_ACE_TYPE,
         CONTAINER_INHERIT_ACE
-    }
+    },
+
+    //
+    // ACE 21 - Interactive User Full
+    //
+    {
+        KEY_ALL_ACCESS,
+        &SeInteractiveUserSid,
+        ACCESS_ALLOWED_ACE_TYPE,
+        CONTAINER_INHERIT_ACE
+    },
+
+    //
+    // ACE 22 - Interactive User Read
+    //
+    {
+        KEY_READ,
+        &SeInteractiveUserSid,
+        ACCESS_ALLOWED_ACE_TYPE,
+        CONTAINER_INHERIT_ACE
+    },
+
+    //
+    // ACE 23 - Interactive User Read Write
+    //
+    {
+        KEY_READ | KEY_WRITE,
+        &SeInteractiveUserSid,
+        ACCESS_ALLOWED_ACE_TYPE,
+        CONTAINER_INHERIT_ACE
+    },
+
+    //
+    // ACE 24 - Interactive User Read Write Delete
+    //
+    {
+        KEY_READ | KEY_WRITE | DELETE,
+        &SeInteractiveUserSid,
+        ACCESS_ALLOWED_ACE_TYPE,
+        CONTAINER_INHERIT_ACE
+    },
+
+    //
+    // ACE 25 - Normal Users Read / Write
+    //
+    {
+        KEY_READ | KEY_WRITE,
+        &SeAliasUsersSid,
+        ACCESS_ALLOWED_ACE_TYPE,
+        CONTAINER_INHERIT_ACE
+    },
 
 };
 
 PKNOWN_ACE Aces[ACE_COUNT];
 
-
 BOOLEAN
 RegInitializeSecurity(
     VOID
@@ -349,134 +399,116 @@ Return Value:
     CreatorSidAuthority = SepCreatorSidAuthority;
     SeNtAuthority = SepNtAuthority;
 
-    SeNullSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,RtlLengthRequiredSid(1));
-    SeWorldSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,RtlLengthRequiredSid(1));
-    SeCreatorOwnerSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,RtlLengthRequiredSid(1));
+    SeNullSid = (PSID)RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid(1) );
+    SeWorldSid = (PSID)RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid(1) );
+    SeCreatorOwnerSid = (PSID)RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid(1) );
+    SeInteractiveUserSid = (PSID)RtlAllocateHeap(RtlProcessHeap(), 0, RtlLengthRequiredSid(2) );
 
     //
     // Fail initialization if we didn't get enough memory for the universal
     // SIDs
     //
-    if ( (SeNullSid==NULL) ||
-         (SeWorldSid==NULL) ||
-         (SeCreatorOwnerSid==NULL)) {
-
-        fprintf(stderr,
-                "RiInitializeSecurity: allocation of universal SIDs failed\n");
-
-        return(FALSE);
+    if (SeNullSid==NULL ||
+        SeWorldSid==NULL ||
+        SeCreatorOwnerSid==NULL ||
+        SeInteractiveUserSid == NULL
+       ) {
+        return FALSE;
     }
 
     Status = RtlInitializeSid(SeNullSid, &NullSidAuthority, 1);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of Null SID failed %08lx\n",
-                Status);
-        return(FALSE);
-    }
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
 
     Status = RtlInitializeSid(SeWorldSid, &WorldSidAuthority, 1);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of World SID failed %08lx\n",
-                Status);
-        return(FALSE);
-    }
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
 
     Status = RtlInitializeSid(SeCreatorOwnerSid, &CreatorSidAuthority, 1);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of CreatorOwner SID failed %08lx\n",
-                Status);
-        return(FALSE);
-    }
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+
+    Status = RtlInitializeSid( SeInteractiveUserSid, &SeNtAuthority, 1 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
 
     *(RtlSubAuthoritySid(SeNullSid, 0)) = SECURITY_NULL_RID;
     *(RtlSubAuthoritySid(SeWorldSid, 0)) = SECURITY_WORLD_RID;
     *(RtlSubAuthoritySid(SeCreatorOwnerSid, 0)) = SECURITY_CREATOR_OWNER_RID;
+    *(RtlSubAuthoritySid(SeInteractiveUserSid, 0 )) = SECURITY_INTERACTIVE_RID;
 
     //
     // Allocate and initialize the NT defined SIDs
     //
-    SeNtAuthoritySid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,
-                                             RtlLengthRequiredSid(0));
-    SeLocalSystemSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,
-                                             RtlLengthRequiredSid(1));
-    SeAliasAdminsSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,
-                                             RtlLengthRequiredSid(2));
-    SeAliasSystemOpsSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,
-                                                RtlLengthRequiredSid(2));
-    SeAliasPowerUsersSid = (PSID)RtlAllocateHeap(RtlProcessHeap(),0,
-                                                 RtlLengthRequiredSid(2));
+    SeNtAuthoritySid = (PSID)RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid(0) );
+    SeLocalSystemSid = (PSID)RtlAllocateHeap( RtlProcessHeap(), 0, RtlLengthRequiredSid(1) );
+    SeAliasAdminsSid = (PSID)RtlAllocateHeap(RtlProcessHeap(), 0, RtlLengthRequiredSid(2) );
+    SeAliasSystemOpsSid = (PSID)RtlAllocateHeap(RtlProcessHeap(), 0, RtlLengthRequiredSid(2) );
+    SeAliasPowerUsersSid = (PSID)RtlAllocateHeap(RtlProcessHeap(), 0, RtlLengthRequiredSid(2) );
+    SeAliasUsersSid = (PSID)RtlAllocateHeap(RtlProcessHeap(), 0, RtlLengthRequiredSid(2) );
 
     //
     // fail initialization if we couldn't allocate memory for the NT SIDs
     //
 
-    if ((SeNtAuthoritySid == NULL) ||
-        (SeLocalSystemSid == NULL) ||
-        (SeAliasAdminsSid == NULL) ||
-        (SeAliasPowerUsersSid == NULL) ||
-        (SeAliasSystemOpsSid == NULL)) {
+    if (SeNtAuthoritySid == NULL ||
+        SeLocalSystemSid == NULL ||
+        SeAliasAdminsSid == NULL ||
+        SeAliasPowerUsersSid == NULL ||
+        SeAliasSystemOpsSid == NULL
+       ) {
+        return FALSE;
+        }
 
-        fprintf(stderr,"RiInitializeSecurity: allocation of NT SIDs failed\n");
-        return(FALSE);
-    }
+    Status = RtlInitializeSid( SeNtAuthoritySid, &SeNtAuthority, 0 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    Status = RtlInitializeSid( SeLocalSystemSid, &SeNtAuthority, 1 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    Status = RtlInitializeSid( SeAliasAdminsSid, &SeNtAuthority, 2 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    Status = RtlInitializeSid( SeAliasSystemOpsSid, &SeNtAuthority, 2 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    Status = RtlInitializeSid( SeAliasPowerUsersSid, &SeNtAuthority, 2 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    Status = RtlInitializeSid( SeAliasUsersSid, &SeNtAuthority, 2 );
+    if (!NT_SUCCESS( Status )) {
+        return FALSE;
+        }
+    *(RtlSubAuthoritySid( SeLocalSystemSid, 0 )) = SECURITY_LOCAL_SYSTEM_RID;
 
-    Status = RtlInitializeSid(SeNtAuthoritySid, &SeNtAuthority, 0);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of Nt Authority SID failed %08lx\n",
-                Status);
-        return( FALSE );
-    }
-    Status = RtlInitializeSid(SeLocalSystemSid, &SeNtAuthority, 1);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of LOCAL SYSTEM SID failed %08lx\n",
-                Status);
-    }
-    Status = RtlInitializeSid(SeAliasAdminsSid, &SeNtAuthority, 2);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of ADMIN SID failed %08lx\n",
-                Status);
-        return( FALSE );
-    }
-    Status = RtlInitializeSid(SeAliasSystemOpsSid, &SeNtAuthority, 2);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSecurity: initialization of SYSTEM OPS SID failed %08lx\n",
-                Status);
-        return( FALSE );
-    }
-    Status = RtlInitializeSid(SeAliasPowerUsersSid, &SeNtAuthority, 2);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RiInitializeSicurity: initialize of POWER USERS SID failed %08lx\n",
-                Status);
-        return(FALSE);
-    }
+    *(RtlSubAuthoritySid( SeAliasAdminsSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasAdminsSid, 1 )) = DOMAIN_ALIAS_RID_ADMINS;
 
-    *(RtlSubAuthoritySid(SeLocalSystemSid, 0)) = SECURITY_LOCAL_SYSTEM_RID;
+    *(RtlSubAuthoritySid( SeAliasSystemOpsSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasSystemOpsSid, 1 )) = DOMAIN_ALIAS_RID_SYSTEM_OPS;
 
-    *(RtlSubAuthoritySid(SeAliasAdminsSid, 0)) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid(SeAliasAdminsSid, 1)) = DOMAIN_ALIAS_RID_ADMINS;
+    *(RtlSubAuthoritySid( SeAliasPowerUsersSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasPowerUsersSid, 1 )) = DOMAIN_ALIAS_RID_POWER_USERS;
 
-    *(RtlSubAuthoritySid(SeAliasSystemOpsSid, 0)) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid(SeAliasSystemOpsSid, 1)) = DOMAIN_ALIAS_RID_SYSTEM_OPS;
-
-    *(RtlSubAuthoritySid(SeAliasPowerUsersSid, 0)) = SECURITY_BUILTIN_DOMAIN_RID;
-    *(RtlSubAuthoritySid(SeAliasPowerUsersSid, 1)) = DOMAIN_ALIAS_RID_POWER_USERS;
+    *(RtlSubAuthoritySid( SeAliasUsersSid, 0 )) = SECURITY_BUILTIN_DOMAIN_RID;
+    *(RtlSubAuthoritySid( SeAliasUsersSid, 1 )) = DOMAIN_ALIAS_RID_USERS;
 
     //
     // The SIDs have been successfully created.  Now create the table of ACEs
     //
 
-    return(RegpInitializeACEs());
+    return RegpInitializeACEs();
 }
 
-
 BOOLEAN
 RegpInitializeACEs(
     VOID
@@ -507,18 +539,13 @@ Return Value:
     NTSTATUS Status;
 
     for (i=1; i<ACE_COUNT; i++) {
+        LengthRequired = RtlLengthSid( *(AceDataTable[i].Sid) ) +
+                         sizeof( KNOWN_ACE ) - sizeof( ULONG );
 
-        LengthRequired = RtlLengthSid( *(AceDataTable[i].Sid) )
-                         + sizeof( KNOWN_ACE )
-                         - sizeof( ULONG );
-
-        Aces[i] = (PKNOWN_ACE)RtlAllocateHeap(RtlProcessHeap(), 0,LengthRequired);
+        Aces[i] = (PKNOWN_ACE)RtlAllocateHeap( RtlProcessHeap(), 0, LengthRequired );
         if (Aces[i] == NULL) {
-            fprintf(stderr,
-                    "RegpInitializeACEs: allocation of ACE %d failed\n",
-                    i);
-            return(FALSE);
-        }
+            return FALSE;
+            }
 
         Aces[i]->Header.AceType = AceDataTable[i].AceType;
         Aces[i]->Header.AceFlags = AceDataTable[i].AceFlags;
@@ -528,23 +555,135 @@ Return Value:
 
         Status = RtlCopySid( RtlLengthSid(*(AceDataTable[i].Sid)),
                              &Aces[i]->SidStart,
-                             *(AceDataTable[i].Sid) );
-        if (!NT_SUCCESS(Status)) {
-            fprintf(stderr,
-                    "RegpInitializeACEs: RtlCopySid failed on SID %d: %08lx\n",
-                    i,
-                    Status);
-            return(FALSE);
+                             *(AceDataTable[i].Sid)
+                           );
+        if (!NT_SUCCESS( Status )) {
+            return FALSE;
+            }
         }
-    }
 
-    return(TRUE);
+    return TRUE;
 }
 
-
-NTSTATUS
+
+BOOLEAN
+RegUnicodeToDWORD(
+    IN OUT PWSTR *String,
+    IN ULONG Base OPTIONAL,
+    OUT PULONG Value
+    )
+{
+    PCWSTR s;
+    WCHAR c, Sign;
+    ULONG nChars, Result, Digit, Shift;
+
+    s = *String;
+    Sign = UNICODE_NULL;
+    while (*s != UNICODE_NULL && *s <= ' ') {
+        s += 1;
+        }
+
+    c = *s;
+    if (c == L'-' || c == L'+') {
+        Sign = c;
+        c = *++s;
+        }
+
+    if (Base == 0) {
+        Base = 10;
+        Shift = 0;
+        if (c == L'0') {
+            c = *++s;
+            if (c == L'x') {
+                c = *++s;
+                Base = 16;
+                Shift = 4;
+                }
+            else
+            if (c == L'o') {
+                c = *++s;
+                Base = 8;
+                Shift = 3;
+                }
+            else
+            if (c == L'b') {
+                c = *++s;
+                Base = 2;
+                Shift = 1;
+                }
+            else {
+                c = *--s;
+                }
+            }
+        }
+    else {
+        switch( Base ) {
+            case 16:    Shift = 4;  break;
+            case  8:    Shift = 3;  break;
+            case  2:    Shift = 1;  break;
+            case 10:    Shift = 0;  break;
+            default:    return FALSE;
+            }
+        }
+
+    //
+    // Return an error if end of string before we start
+    //
+    if (c == UNICODE_NULL) {
+        return FALSE;
+        }
+
+    Result = 0;
+    while (c != UNICODE_NULL) {
+        if (c >= L'0' && c <= L'9') {
+            Digit = c - L'0';
+            }
+        else
+        if (c >= L'A' && c <= L'F') {
+            Digit = c - L'A' + 10;
+            }
+        else
+        if (c >= L'a' && c <= L'f') {
+            Digit = c - L'a' + 10;
+            }
+        else {
+            break;
+            }
+
+        if (Digit >= Base) {
+            break;
+            }
+
+        if (Shift == 0) {
+            Result = (Base * Result) + Digit;
+            }
+        else {
+            Result = (Result << Shift) | Digit;
+            }
+
+        c = *++s;
+        }
+
+    if (Sign == L'-') {
+        Result = (ULONG)(-(LONG)Result);
+        }
+
+    try {
+        *String = (PWSTR)s;
+        *Value = Result;
+        }
+    except( EXCEPTION_EXECUTE_HANDLER ) {
+        return FALSE;
+        }
+
+    return TRUE;
+}
+
+
+
+BOOLEAN
 RegCreateSecurity(
-    IN PUNICODE_STRING Description,
+    IN PWSTR AclStart,
     OUT PSECURITY_DESCRIPTOR SecurityDescriptor
     )
 
@@ -558,14 +697,14 @@ Routine Description:
 
 Arguments:
 
-    Description - Supplies a unicode string representing a list of ACEs
+    AclStart - Supplies a unicode string representing a list of ACEs
 
     SecurityDescriptor - Returns the initialized security descriptor
         that represents all the ACEs supplied
 
 Return Value:
 
-    NTSTATUS
+    TRUE if successful and FALSE if not.
 
 --*/
 
@@ -582,16 +721,15 @@ Return Value:
     // First we need to count the number of ACEs in the ACL.
     //
 
-    p=Description->Buffer;
-    StringEnd = Description->Buffer+(Description->Length/sizeof(WCHAR));
+    p=AclStart;
+    StringEnd = AclStart + wcslen( AclStart );
 
     //
     // strip leading white space
     //
-    while ( ((*p == L' ') || (*p == L'\t'))
-            && (p != StringEnd)) {
-        ++p;
-    }
+    while ((*p == L' ' || *p == L'\t') && p != StringEnd) {
+        p += 1;
+        }
 
     StringStart = p;
 
@@ -600,91 +738,129 @@ Return Value:
     //
 
     while (p != StringEnd) {
-        if (iswdigit(*p)) {
+        if (iswdigit( *p )) {
             ++AceCount;
             do {
-                ++p;
-            } while ( (iswdigit(*p)) &&
-                      (p != StringEnd));
-        } else {
-            ++p;
+                p += 1;
+                }
+            while (iswdigit( *p ) && p != StringEnd);
+            }
+        else {
+            p += 1;
+            }
         }
-    }
 
-    Acl = RtlAllocateHeap(RtlProcessHeap(), 0,256);
+    Acl = RtlAllocateHeap( RtlProcessHeap(), 0, 256 );
     if (Acl == NULL) {
-        fprintf(stderr,
-                "RegCreateSecurity: allocation for ACL failed\n");
-        return(FALSE);
-    }
+        return FALSE;
+        }
 
-    Status = RtlCreateAcl(Acl, 256, ACL_REVISION2);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RegCreateSecurity: RtlCreateAcl failed %08lx\n",
-                Status);
-        RtlFreeHeap(RtlProcessHeap(), 0, Acl);
-        return(FALSE);
-    }
+    Status = RtlCreateAcl( Acl, 256, ACL_REVISION2 );
+    if (!NT_SUCCESS( Status )) {
+        RtlFreeHeap( RtlProcessHeap(), 0, Acl );
+        return FALSE;
+        }
 
     p = StringStart;
     for (i=0; i<AceCount; i++) {
-
-        AceIndex = wcstoul(p, &p, 10);
+        AceIndex = wcstoul( p, &p, 10 );
         if (AceIndex == 0) {
             //
             // zero is not a valid index, so it must mean there is some
             // unexpected garbage in the ACE list
             //
             break;
-        }
+            }
 
-        Status = RtlAddAce(Acl,
-                           ACL_REVISION2,
-                           MAXULONG,
-                           Aces[AceIndex],
-                           Aces[AceIndex]->Header.AceSize);
-        if (!NT_SUCCESS(Status)) {
-            fprintf(stderr,
-                    "RegCreateSecurity: RtlAddAce failed on ACE %d (%08lx)\n",
-                    AceIndex,
-                    Status);
-            RtlFreeHeap(RtlProcessHeap(), 0, Acl);
-            return(FALSE);
+        Status = RtlAddAce( Acl,
+                            ACL_REVISION2,
+                            MAXULONG,
+                            Aces[AceIndex],
+                            Aces[AceIndex]->Header.AceSize
+                          );
+        if (!NT_SUCCESS( Status )) {
+            RtlFreeHeap( RtlProcessHeap(), 0, Acl );
+            return FALSE;
+            }
         }
-
-    }
 
     //
     // We now have an appropriately formed ACL, initialize the security
     // descriptor.
     //
-    Status = RtlCreateSecurityDescriptor(SecurityDescriptor,
-                                         SECURITY_DESCRIPTOR_REVISION);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RegCreateSecurity: RtlCreateSecurityDescriptor failed %08lx\n",
-                Status);
-        RtlFreeHeap(RtlProcessHeap(), 0, Acl);
-        return(FALSE);
-    }
+    Status = RtlCreateSecurityDescriptor( SecurityDescriptor,
+                                          SECURITY_DESCRIPTOR_REVISION
+                                        );
+    if (!NT_SUCCESS( Status )) {
+        RtlFreeHeap( RtlProcessHeap(), 0, Acl );
+        return FALSE;
+        }
 
-    Status = RtlSetDaclSecurityDescriptor(SecurityDescriptor,
-                                          TRUE,
-                                          Acl,
-                                          FALSE);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "RegCreateSecurity: RtlSetDaclSecurityDescriptor failed %08lx\n",
-                Status);
-        RtlFreeHeap(RtlProcessHeap(), 0, Acl);
-        return(FALSE);
-    }
+    Status = RtlSetDaclSecurityDescriptor( SecurityDescriptor,
+                                           TRUE,
+                                           Acl,
+                                           FALSE
+                                         );
+    if (!NT_SUCCESS( Status )) {
+        RtlFreeHeap( RtlProcessHeap(), 0, Acl );
+        return FALSE;
+        }
 
-    return(TRUE);
+    return TRUE;
 }
 
-
+
+BOOLEAN
+RegFormatSecurity(
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    OUT PWSTR AceList
+    )
+{
+    NTSTATUS Status;
+    BOOLEAN DaclPresent, DaclDefaulted;
+    PACL Acl;
+    PWSTR s;
+    ULONG AceIndex, MyAceIndex;
+    PKNOWN_ACE Ace;
+
+    s = AceList;
+    *s = UNICODE_NULL;
+    Acl = NULL;
+    Status = RtlGetDaclSecurityDescriptor( SecurityDescriptor,
+                                           &DaclPresent,
+                                           &Acl,
+                                           &DaclDefaulted
+                                         );
+    if (NT_SUCCESS( Status ) && DaclPresent && Acl != NULL) {
+        for (AceIndex=0; AceIndex<Acl->AceCount; AceIndex++) {
+            Status = RtlGetAce( Acl, AceIndex, &Ace );
+            if (!NT_SUCCESS( Status )) {
+                return FALSE;
+                }
+
+            for (MyAceIndex=1; MyAceIndex<ACE_COUNT; MyAceIndex++) {
+                if (Ace->Header.AceType == Aces[ MyAceIndex ]->Header.AceType &&
+                    Ace->Header.AceFlags == Aces[ MyAceIndex ]->Header.AceFlags &&
+                    Ace->Mask == Aces[ MyAceIndex ]->Mask
+                   ) {
+                    if (RtlEqualSid( (PSID)&Ace->SidStart, (PSID)&Aces[ MyAceIndex ]->SidStart )) {
+                        if (s != AceList) {
+                            *s++ = L' ';
+                            }
+
+                        s += swprintf( s, L"%d", MyAceIndex );
+                        break;
+                        }
+                    }
+                }
+            }
+        }
+
+    *s = UNICODE_NULL;
+    return s != AceList;
+}
+
+
 VOID
 RegDestroySecurity(
     IN PSECURITY_DESCRIPTOR SecurityDescriptor
@@ -709,8 +885,21 @@ Return Value:
 --*/
 
 {
-//    RtlFreeHeap(RtlProcessHeap(), 0, SecurityDescriptor->Dacl);
+    NTSTATUS Status;
+    BOOLEAN DaclPresent, DaclDefaulted;
+    PACL Acl;
+    ULONG AceIndex;
+    PKNOWN_ACE Ace;
 
+    Acl = NULL;
+    Status = RtlGetDaclSecurityDescriptor( SecurityDescriptor,
+                                           &DaclPresent,
+                                           &Acl,
+                                           &DaclDefaulted
+                                         );
+    if (NT_SUCCESS( Status ) && DaclPresent && Acl != NULL) {
+        RtlFreeHeap( RtlProcessHeap(), 0, Acl );
+        }
+
+    return;
 }
-
-

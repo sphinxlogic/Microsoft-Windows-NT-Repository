@@ -4,25 +4,24 @@ Copyright (c) 1991  Microsoft Corporation
 
 Module Name:
 
-	treevw.cxx
+        treevw.cxx
 
 Abstract:
 
-	Methods for TREE_STRUCTURE_VIEW class.
+        Methods for TREE_STRUCTURE_VIEW class.
 
 Author:
 
-	Bruce W. Wilson (w-wilson) 14-Aug-1991
+        Bruce W. Wilson (w-wilson) 14-Aug-1991
 
 Environment:
 
-	Ulib, Regedit, Windows, User Mode
+        Ulib, Regedit, Windows, User Mode
 
 --*/
-extern "C" {
-	#include <stdio.h>
-	#include <string.h>
-}
+
+#include <stdio.h>
+#include <string.h>
 
 #include "uapp.hxx"
 
@@ -183,7 +182,7 @@ SED_APPLICATION_ACCESS  TREE_STRUCTURE_VIEW::_SedAppAccessKeyAudits[] =
 
 
 #define EXPAND_TO_END       -1
-#define BRANCH_EXPAND		-1
+#define BRANCH_EXPAND           -1
 
 /* Indexes into the mondo bitmap */
 #define BM_IND_APP          0
@@ -219,40 +218,40 @@ INT dyFolder;
 
 VOID
 InitGlobs(
-	HDC hdc
-	)
+        HDC hdc
+        )
 
 /*++
 
 Routine Description:
 
-	Calculate and set some global (yuck) variables relating to border
-	width, font width, icon height.
+        Calculate and set some global (yuck) variables relating to border
+        width, font width, icon height.
 
 Arguments:
 
-	hdc				- handle to relevent device context.
+        hdc                             - handle to relevent device context.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
 {
-	SIZE	Size;
+        SIZE    Size;
 
     GetTextExtentPoint(hdc, (LPWSTR)L"M", 1, &Size );
     dxText = ( INT )Size.cx;
     dyText = ( INT )Size.cy;
 
-	dyBorder = GetSystemMetrics(SM_CYBORDER);
-	dyBorderx2 = dyBorder * 2;
-	dxFrame = GetSystemMetrics(SM_CXFRAME) - dyBorder;
+        dyBorder = GetSystemMetrics(SM_CYBORDER);
+        dyBorderx2 = dyBorder * 2;
+        dxFrame = GetSystemMetrics(SM_CXFRAME) - dyBorder;
 
-	dxFolder = FILES_WIDTH;
-	dyFolder = FILES_HEIGHT;
-	
+        dxFolder = FILES_WIDTH;
+        dyFolder = FILES_HEIGHT;
+
     WINDOWS_APPLICATION::LoadBitmaps( );
 }
 
@@ -296,11 +295,11 @@ Return Value:
     DSTRING     AuxString;
 
 
-    DbgAssert( COUNT_MSG_ID_KEY_PERM_NAMES == COUNT_KEY_PERMS_ARRAY );
-    DbgAssert( COUNT_MSG_ID_KEY_AUDIT_NAMES  ==   COUNT_KEY_AUDITS_ARRAY );
+    DebugAssert( COUNT_MSG_ID_KEY_PERM_NAMES == COUNT_KEY_PERMS_ARRAY );
+    DebugAssert( COUNT_MSG_ID_KEY_AUDIT_NAMES  ==   COUNT_KEY_AUDITS_ARRAY );
 
     if( !AuxString.Initialize( ( LPWSTR )( L"%1" ) ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
 
@@ -312,15 +311,15 @@ Return Value:
     for( Index = 0; Index < COUNT_MSG_ID_KEY_PERM_NAMES; Index++ ) {
         MsgPermTitle = REGEDIT_BASE_SYSTEM::QueryString( _MsgIdKeyPermNames[ Index ], "" );
         if( MsgPermTitle == NULL ) {
-            DbgPrintf( "Unable to retrieve MsgPermTitle, Index = %d \n", Index );
-            DbgPrint( "Unable to retrieve MsgPermTitle" );
+            DebugPrintf( "Unable to retrieve MsgPermTitle, Index = %d \n", Index );
+            DebugPrint( "Unable to retrieve MsgPermTitle" );
             return( FALSE );
         }
         MsgPermTitleString = MsgPermTitle->QueryWSTR();
         FREE( MsgPermTitle );
         if( MsgPermTitleString == NULL ) {
-        DbgPrintf( "MsgPermTitle->QueryWSTR() failed, Index = %d \n", Index );
-        DbgPrint( "MsgPermTitle->QueryWSTR() failed" );
+        DebugPrintf( "MsgPermTitle->QueryWSTR() failed, Index = %d \n", Index );
+        DebugPrint( "MsgPermTitle->QueryWSTR() failed" );
             return( FALSE );
         }
         _SedAppAccessKeyPerms[ Index ].PermissionTitle = MsgPermTitleString;
@@ -333,15 +332,15 @@ Return Value:
     for( Index = 0; Index < COUNT_MSG_ID_KEY_AUDIT_NAMES; Index++ ) {
         MsgPermTitle = REGEDIT_BASE_SYSTEM::QueryString( _MsgIdKeyAuditNames[ Index ], "" );
         if( MsgPermTitle == NULL ) {
-            DbgPrintf( "Unable to retrieve MsgPermTitle, Index = %d \n", Index );
-            DbgPrint( "Unable to retrieve MsgPermTitle" );
+            DebugPrintf( "Unable to retrieve MsgPermTitle, Index = %d \n", Index );
+            DebugPrint( "Unable to retrieve MsgPermTitle" );
             return( FALSE );
         }
         MsgPermTitleString = MsgPermTitle->QueryWSTR();
         FREE( MsgPermTitle );
         if( MsgPermTitleString == NULL ) {
-        DbgPrintf( "MsgPermTitle->QueryWSTR() failed, Index = %d \n", Index );
-        DbgPrint( "MsgPermTitle->QueryWSTR() failed" );
+        DebugPrintf( "MsgPermTitle->QueryWSTR() failed, Index = %d \n", Index );
+        DebugPrint( "MsgPermTitle->QueryWSTR() failed" );
             return( FALSE );
         }
         _SedAppAccessKeyAudits[ Index ].PermissionTitle = MsgPermTitleString;
@@ -358,9 +357,9 @@ Return Value:
     _MsgAuditPermissionOfSubKeys =
            REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_AUDIT_SUBKEYS, "" );
     _MsgConfirmApplyToSubKeys =
-	   REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_CONFIRM_APPLY_TO_SUBKEYS, "%W", AuxString.GetWSTR() );
+           REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_CONFIRM_APPLY_TO_SUBKEYS, "%W", AuxString.GetWSTR() );
     _MsgConfirmAuditSubKeys =
-	   REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_CONFIRM_AUDIT_SUBKEYS, "%W", AuxString.GetWSTR() );
+           REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_CONFIRM_AUDIT_SUBKEYS, "%W", AuxString.GetWSTR() );
     _MsgDefaultPermissionName =
            REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_DEFAULT_PERM_NAME, "" );
     if( ( _MsgSpecialAccessTitle == NULL ) ||
@@ -371,7 +370,7 @@ Return Value:
         ( _MsgConfirmApplyToSubKeys == NULL ) ||
         ( _MsgConfirmAuditSubKeys == NULL ) ||
         ( _MsgDefaultPermissionName == NULL ) ) {
-        DbgPrint( "Unable to retrieve strings" );
+        DebugPrint( "Unable to retrieve strings" );
         FREE( _MsgSpecialAccessTitle );
         FREE( _MsgObjectTypeName );
         FREE( _MsgHelpFileName );
@@ -393,15 +392,15 @@ BOOLEAN
 TREE_STRUCTURE_VIEW::Initialize (
     IN HWND                         ParentHandle,
     IN PREGEDIT_INTERNAL_REGISTRY   IR
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	Initialize a TREE_STRUCTURE_VIEW object by registering its window class,
-	creating its window. If each of these is successful, the
-	window is displayed and updated.
+        Initialize a TREE_STRUCTURE_VIEW object by registering its window class,
+        creating its window. If each of these is successful, the
+        window is displayed and updated.
 
 Arguments:
 
@@ -466,22 +465,22 @@ Return Value:
 
 VOID
 TREE_STRUCTURE_VIEW::CollapseCurrentItem(
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	Remove the descendents of the current node from the tree view
-	window.
+        Remove the descendents of the current node from the tree view
+        window.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
@@ -531,20 +530,20 @@ Return Value:
 
 VOID
 TREE_STRUCTURE_VIEW::DrawItem(
-	IN	LPDRAWITEMSTRUCT	lpLBItem
-	)
-	
+        IN      LPDRAWITEMSTRUCT        lpLBItem
+        )
+
 /*++
 
 Routine Description:
 
-	This routine gets called every time Windows needs to output one line
-	in the list box for the tree view.
+        This routine gets called every time Windows needs to output one line
+        in the list box for the tree view.
 
 Arguments:
 
-	lpLBItem		- contains all the information needed to actually draw
-					  the data - look in the SDK book, Vol2 for details
+        lpLBItem                - contains all the information needed to actually draw
+                                          the data - look in the SDK book, Vol2 for details
 
 Return Value:
 
@@ -553,53 +552,53 @@ Return Value:
 --*/
 
 {
-	INT             x, y, dx, dy;
-	INT             nLevel;
-	HDC             hdc;
+        INT             x, y, dx, dy;
+        INT             nLevel;
+        HDC             hdc;
     ULONG           len;
-	RECT            rc;
+        RECT            rc;
     BOOL            bDrawSelected, bFocus;
     PCREGEDIT_NODE  pNode;
     PCREGEDIT_NODE  pNTemp;
-	DWORD           rgbText;
-	DWORD           rgbBackground;
-	HBRUSH          hBrush, hOld;
-	INT				iBitmap;
-	INT				ItemID;
+        DWORD           rgbText;
+        DWORD           rgbBackground;
+        HBRUSH          hBrush, hOld;
+        INT                             iBitmap;
+        INT                             ItemID;
 
     PWSTR            NodeNameString;
     PCWSTRING       NodeName;
     LONG            Width;
 
     HFONT           hFont;
-    HFONT	    PreviousHFont;
+    HFONT           PreviousHFont;
     SIZE        Size;
 
 #if 0
-    DbgPrintf("TREE::DrawItem %s focus.\n", _HasFocus ? "has" : "does not have");
-    DbgPrintf("CtlType = %x\n", lpLBItem->CtlType);
-    DbgPrintf("CtlID = %x\n", lpLBItem->CtlID);
-    DbgPrintf("itemID = %x\n", lpLBItem->itemID);
-    DbgPrintf("itemAction = %x\n", lpLBItem->itemAction);
-    DbgPrintf("itemState = %x\n", lpLBItem->itemState);
-    DbgPrintf("hwndItem = %x\n", lpLBItem->hwndItem);
-    DbgPrintf("hDC = %x\n", lpLBItem->hDC);
-    DbgPrintf("rcItem = (%x, %x)\n", lpLBItem->rcItem.top, lpLBItem->rcItem.left);
-    DbgPrintf("itemData = %x\n\n", lpLBItem->itemData);
+    DebugPrintf("TREE::DrawItem %s focus.\n", _HasFocus ? "has" : "does not have");
+    DebugPrintf("CtlType = %x\n", lpLBItem->CtlType);
+    DebugPrintf("CtlID = %x\n", lpLBItem->CtlID);
+    DebugPrintf("itemID = %x\n", lpLBItem->itemID);
+    DebugPrintf("itemAction = %x\n", lpLBItem->itemAction);
+    DebugPrintf("itemState = %x\n", lpLBItem->itemState);
+    DebugPrintf("hwndItem = %x\n", lpLBItem->hwndItem);
+    DebugPrintf("hDC = %x\n", lpLBItem->hDC);
+    DebugPrintf("rcItem = (%x, %x)\n", lpLBItem->rcItem.top, lpLBItem->rcItem.left);
+    DebugPrintf("itemData = %x\n\n", lpLBItem->itemData);
 #endif
 
-	//
-	// itemID == -1 means empty list box so let defwndproc draw the dotted
-	// rectangle
-	//
-	if( (ItemID = lpLBItem->itemID) == (WORD)-1) {
+        //
+        // itemID == -1 means empty list box so let defwndproc draw the dotted
+        // rectangle
+        //
+        if( (ItemID = lpLBItem->itemID) == (WORD)-1) {
         return;
-	}
+        }
 
-	//
-	// extract DC and pointer to node into IR from DRAWITEM struct
-	//
-	hdc = lpLBItem->hDC;
+        //
+        // extract DC and pointer to node into IR from DRAWITEM struct
+        //
+        hdc = lpLBItem->hDC;
     pNode = (PCREGEDIT_NODE)lpLBItem->itemData;
 
 
@@ -620,7 +619,7 @@ Return Value:
 
 
     //
-	// determine length of name (in pixels?)
+        // determine length of name (in pixels?)
     //
 
 
@@ -629,10 +628,10 @@ Return Value:
         // This is the root node
         //
         NodeName = _IR->GetRootName();
-        DbgPtrAssert( NodeName );
+        DebugPtrAssert( NodeName );
     } else {
         NodeName = _IR->GetNodeName( pNode );
-        DbgPtrAssert( NodeName );
+        DebugPtrAssert( NodeName );
     }
     len = NodeName->QueryChCount();
     NodeNameString = NodeName->QueryWSTR();
@@ -651,17 +650,17 @@ Return Value:
 
 
     //
-	// do we have to draw any items?
-	//
+        // do we have to draw any items?
+        //
     if (lpLBItem->itemAction & (ODA_DRAWENTIRE | ODA_SELECT | ODA_FOCUS)) {
 
         bDrawSelected = (lpLBItem->itemState & ODS_SELECTED);
         bFocus = (lpLBItem->itemState & ODS_FOCUS);
 
-		//
-		// select the proper background or just a rect
-		// ACTION: look in datavw.cxx for more comments
-		//
+                //
+                // select the proper background or just a rect
+                // ACTION: look in datavw.cxx for more comments
+                //
         if (bDrawSelected) {
             if (bFocus) {
                 rgbBackground = SetBkColor(hdc, GetSysColor(COLOR_HIGHLIGHT));
@@ -689,70 +688,70 @@ Return Value:
 
 
         //
-		// first draw the preceding branch symbols for this node
-		//	- start with the symbol closest to the name then
-		//	  generate vertical lines if necessary (ie. work
-		//	  right to left -> from the leaf to the root)
-		//
+                // first draw the preceding branch symbols for this node
+                //      - start with the symbol closest to the name then
+                //        generate vertical lines if necessary (ie. work
+                //        right to left -> from the leaf to the root)
+                //
         nLevel = ( INT )_IR->GetNodeLevel(pNode);
 
-		x = (nLevel * dxText * 2) - dxText + dyBorderx2;
+                x = (nLevel * dxText * 2) - dxText + dyBorderx2;
         dy = ( INT )(lpLBItem->rcItem.bottom - lpLBItem->rcItem.top);
         y = ( INT )lpLBItem->rcItem.top + (dy/2);
 
         if (hBrush = CreateSolidBrush(GetSysColor(COLOR_WINDOWTEXT))) {
 
-			hOld = (HBRUSH)SelectObject(hdc, hBrush);
+                        hOld = (HBRUSH)SelectObject(hdc, hBrush);
 
-			if (_IR->GetParent(pNode)) {
-				/* Draw the horizontal line over to the (possible) folder. */
-				PatBlt(hdc, x, y, dyText, dyBorder, PATCOPY);
+                        if (_IR->GetParent(pNode)) {
+                                /* Draw the horizontal line over to the (possible) folder. */
+                                PatBlt(hdc, x, y, dyText, dyBorder, PATCOPY);
 
-				/* Draw the top part of the vertical line. */
+                                /* Draw the top part of the vertical line. */
                 PatBlt(hdc, x, lpLBItem->rcItem.top, dyBorder, dy/2, PATCOPY);
 
-				/* If not the end of a node, draw the bottom part... */
-				if( !_IR->IsLastChild( pNode ) )
-				  PatBlt(hdc, x, y+dyBorder, dyBorder, dy/2, PATCOPY);
+                                /* If not the end of a node, draw the bottom part... */
+                                if( !_IR->IsLastChild( pNode ) )
+                                  PatBlt(hdc, x, y+dyBorder, dyBorder, dy/2, PATCOPY);
 
-				/* Draw the verticals on the left connecting other nodes. */
-				pNTemp = _IR->GetParent(pNode);
-				while (pNTemp) {
-					nLevel--;
-					if( !_IR->IsLastChild( pNTemp ) ) {
-						//
-						// this ancestor isn't the last child of it's level
-						// so draw the vertical line
-						PatBlt(hdc, (nLevel * dxText * 2) - dxText + dyBorderx2,
-								lpLBItem->rcItem.top, dyBorder,dy, PATCOPY);
-					}
-					pNTemp = _IR->GetParent(pNTemp);
-				}
-			}
+                                /* Draw the verticals on the left connecting other nodes. */
+                                pNTemp = _IR->GetParent(pNode);
+                                while (pNTemp) {
+                                        nLevel--;
+                                        if( !_IR->IsLastChild( pNTemp ) ) {
+                                                //
+                                                // this ancestor isn't the last child of it's level
+                                                // so draw the vertical line
+                                                PatBlt(hdc, (nLevel * dxText * 2) - dxText + dyBorderx2,
+                                                                lpLBItem->rcItem.top, dyBorder,dy, PATCOPY);
+                                        }
+                                        pNTemp = _IR->GetParent(pNTemp);
+                                }
+                        }
 
-			if (hOld)
-				SelectObject(hdc, hOld);
+                        if (hOld)
+                                SelectObject(hdc, hOld);
 
-			DeleteObject(hBrush);
-		}
+                        DeleteObject(hBrush);
+                }
 
         //
-		// - we're done drawing the branch symbols
-		// - now determine if we this item is eligible to be drawn in
-		//   inverse
-		//
+                // - we're done drawing the branch symbols
+                // - now determine if we this item is eligible to be drawn in
+                //   inverse
+                //
 
-		//
-		// now draw the text
-		//
-		ExtTextOut(hdc, x + dxText + dxFolder + 2 * dyBorderx2,
-						y-(dyText/2), ETO_OPAQUE, &rc,
+                //
+                // now draw the text
+                //
+                ExtTextOut(hdc, x + dxText + dxFolder + 2 * dyBorderx2,
+                                                y-(dyText/2), ETO_OPAQUE, &rc,
                         NodeNameString, (INT)len, NULL);
 
-		//
-		// determine the correct folder icon to display
-		//
-		// 	- decide whether to put an empty folder or +/-
+                //
+                // determine the correct folder icon to display
+                //
+                //      - decide whether to put an empty folder or +/-
         //
 
         if( _IR->IsNodeViewable( pNode ) ) {
@@ -782,8 +781,8 @@ Return Value:
 
 
 
-		//
-		// actually Blt the bitmap from memory context to client area
+                //
+                // actually Blt the bitmap from memory context to client area
         //
 
         if( dy >= dyFolder ) {
@@ -799,10 +798,10 @@ Return Value:
         }
 
 
-		// set text color and draw a rect if required
-		// ACTION: look in datavw.cxx for more comments
+                // set text color and draw a rect if required
+                // ACTION: look in datavw.cxx for more comments
 
-		if (bDrawSelected) {
+                if (bDrawSelected) {
             HBRUSH hbr;
             if (hbr = CreateSolidBrush(GetSysColor(COLOR_HIGHLIGHT))) {
                 FrameRect(hdc, &rc, hbr);
@@ -842,39 +841,39 @@ Return Value:
 
 VOID
 TREE_STRUCTURE_VIEW::ExpandCurrentItem(
-	IN	INT		Depth
-	)
+        IN      INT             Depth
+        )
 
 /*++
 
 Routine Description:
 
-	Adds descendants of the current item to the list box.
+        Adds descendants of the current item to the list box.
 
 Arguments:
 
-	Depth			- determines the number of generations to include
-					  in the expansion.  0 means don't add children,
-					  1 means just immediate children, ...
-					  A depth of -1 will do a branch (all descendants)
-					  expansion.
+        Depth                   - determines the number of generations to include
+                                          in the expansion.  0 means don't add children,
+                                          1 means just immediate children, ...
+                                          A depth of -1 will do a branch (all descendants)
+                                          expansion.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 
 {
     HCURSOR Cursor;
 
-	// Disable redrawing.
-	SendMessage( _hwndList, WM_SETREDRAW, FALSE, 0L );
-	
-	//
-	// remove from list box
-	//
-	SendMessage( _hwndList, LB_DELETESTRING, _CurrentItem, 0 );
+        // Disable redrawing.
+        SendMessage( _hwndList, WM_SETREDRAW, FALSE, 0L );
+
+        //
+        // remove from list box
+        //
+        SendMessage( _hwndList, LB_DELETESTRING, _CurrentItem, 0 );
     if( ( _IR->AreChildrenInMemory( _CurrentNode ) ) &&
         ( ( UINT )Depth < 2 ) ) {
         InsertTreeToListBox( _CurrentNode, _CurrentItem, Depth );
@@ -885,41 +884,41 @@ Return Value:
     }
     _Items = ( INT )SendMessage( _hwndList, LB_GETCOUNT, 0, 0 );
 
-	// Re-enable redrawing and refresh the tree.
-	SendMessage( _hwndList, LB_SETCURSEL, _CurrentItem, 0 );
-	SendMessage( _hwndList, WM_SETREDRAW, TRUE, 0L );
-	InvalidateRect( _hwndList, NULL, TRUE );
+        // Re-enable redrawing and refresh the tree.
+        SendMessage( _hwndList, LB_SETCURSEL, _CurrentItem, 0 );
+        SendMessage( _hwndList, WM_SETREDRAW, TRUE, 0L );
+        InvalidateRect( _hwndList, NULL, TRUE );
 }
 
 
 VOID
 TREE_STRUCTURE_VIEW::InitMenu(
-	IN	HMENU	Menu,
-	IN	INT		PopupMenu
-	)
+        IN      HMENU   Menu,
+        IN      INT             PopupMenu
+        )
 
 /*++
 
 Routine Description:
 
-	Figures out which items of the pulldown menu which should be enabled
-	or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
-	pulldown menu is painted.
+        Figures out which items of the pulldown menu which should be enabled
+        or grayed.  Windows will generate a WM_INITMENUPOPUP just before a
+        pulldown menu is painted.
 
-	Passes the message along if it can't figure out the status of menu
-	items.
+        Passes the message along if it can't figure out the status of menu
+        items.
 
-	This routine handles the status of menu items in the Tree pulldown.
+        This routine handles the status of menu items in the Tree pulldown.
 
 Arguments:
 
-	Menu				- handle of the main menu
-	PopupMenu 			- the item number of the pulldown menu.  eg.
-						  File menu is 0, Edit is 1.
+        Menu                            - handle of the main menu
+        PopupMenu                       - the item number of the pulldown menu.  eg.
+                                                  File menu is 0, Edit is 1.
 
 Return Value:
 
-	None.
+        None.
 
 
 --*/
@@ -1034,7 +1033,7 @@ Return Value:
     PCREGEDIT_NODE  AuxNode;
 
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
     //
     //  Find out if the node is in the listbox
@@ -1079,7 +1078,7 @@ Return Value:
                              ( LONG )Node );
 
         if( Index == LB_ERR ) {
-            DbgPrint( "Desired node doesn't exist in the listbox" );
+            DebugPrint( "Desired node doesn't exist in the listbox" );
         }
         _CurrentItem = (INT)Index;
 
@@ -1161,7 +1160,7 @@ Return Value:
     ULONG               NextLine;
 
 
-    DbgPtrAssert( Root );
+    DebugPtrAssert( Root );
 
     //
     //  Insert the node in the listbox
@@ -1295,14 +1294,14 @@ TREE_STRUCTURE_VIEW::InsertTreeToListBox(
     IN  PCREGEDIT_NODE   root,
     IN  INT              InsertPoint,
     IN  INT              Depth
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	The recursive routine that traverses the IR, inserting nodes into
-	the list box.
+        The recursive routine that traverses the IR, inserting nodes into
+        the list box.
 
 Arguments:
 
@@ -1345,15 +1344,15 @@ Return Value:
         _IR->SetNodeExpansionState( root, TRUE );
     }
 
-	//
-	// loop through children, recursing on each
+        //
+        // loop through children, recursing on each
     //
     if( ( Children = _IR->GetChildren( root, &ErrorCode ) ) != NULL ) {
-		Iterator = Children->QueryIterator();
+                Iterator = Children->QueryIterator();
         while( ( CurrentChild = (PCREGEDIT_NODE)Iterator->GetNext() ) != NULL ) {
-			InsertPoint = InsertTreeToListBox( CurrentChild, InsertPoint,
-											   Depth - 1 );
-		}
+                        InsertPoint = InsertTreeToListBox( CurrentChild, InsertPoint,
+                                                                                           Depth - 1 );
+                }
         DELETE( Iterator );
     }
     return( InsertPoint );
@@ -1363,38 +1362,38 @@ Return Value:
 
 BOOL
 TREE_STRUCTURE_VIEW::IsItemAfterAChild(
-	IN	INT			Item
-	)
+        IN      INT                     Item
+        )
 
 /*++
 
 Routine Description:
 
-	Takes an item number of the listbox and returns whether the
-	item after it is one of it's descendents.
+        Takes an item number of the listbox and returns whether the
+        item after it is one of it's descendents.
 
 Arguments:
 
-	Item			- item to check
+        Item                    - item to check
 
 Return Value:
 
-	BOOL	- TRUE - there is an item after 'item' and it is 'item's descendent
-			- FALSE - either this is the last item or the item after is
-					  not a child
+        BOOL    - TRUE - there is an item after 'item' and it is 'item's descendent
+                        - FALSE - either this is the last item or the item after is
+                                          not a child
 
 --*/
 
 {
 
-	if( Item + 1 >= _Items ) {
-		return( FALSE );
-	}
+        if( Item + 1 >= _Items ) {
+                return( FALSE );
+        }
 
-	//
-	// if the next item's level is strictly greater than the current
-	// item's level then return true
-	//
+        //
+        // if the next item's level is strictly greater than the current
+        // item's level then return true
+        //
     return( _IR->GetNodeLevel( GetNode( Item + 1 ) ) > _IR->GetNodeLevel( GetNode( Item ) ) );
 }
 
@@ -1402,35 +1401,35 @@ Return Value:
 
 BOOL
 TREE_STRUCTURE_VIEW::IsItemAfterSibling(
-	IN	INT			Item
-	)
+        IN      INT                     Item
+        )
 
 /*++
 
 Routine Description:
 
-	
+
 
 Arguments:
 
-	
+
 
 Return Value:
 
-	
+
 
 --*/
 
 {
 
-	if( Item + 1 >= _Items ) {
-		return( FALSE );
-	}
+        if( Item + 1 >= _Items ) {
+                return( FALSE );
+        }
 
-	//
-	// if the next item's level is the same as the current
-	// item's level then return true
-	//
+        //
+        // if the next item's level is the same as the current
+        // item's level then return true
+        //
     return( _IR->GetNodeLevel( GetNode( Item + 1 ) ) == _IR->GetNodeLevel( GetNode( Item ) ) );
 }
 
@@ -1438,21 +1437,21 @@ Return Value:
 
 BOOLEAN
 TREE_STRUCTURE_VIEW::Register (
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	If required register the TREE_STRUCTURE_VIEW window class.
+        If required register the TREE_STRUCTURE_VIEW window class.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	BOOLEAN		- Returns TRUE if the TREE_STRUCTURE_VIEW window class is registered.
+        BOOLEAN         - Returns TRUE if the TREE_STRUCTURE_VIEW window class is registered.
 
 --*/
 
@@ -1486,44 +1485,44 @@ Return Value:
 
 VOID
 TREE_STRUCTURE_VIEW::ToggleCurrentItem(
-	)
+        )
 
 /*++
 
 Routine Description:
 
-	
+
 
 Arguments:
 
-	
+
 
 Return Value:
 
-	
+
 
 --*/
 
 {
-	//
-	// if the current node doesn't have any children then there isn't
-	// anything to toggle so just return
-	//
+        //
+        // if the current node doesn't have any children then there isn't
+        // anything to toggle so just return
+        //
     if( _IR->GetNumberOfChildren( _CurrentNode ) == 0 ) {
-		return;
-	}
+                return;
+        }
 
-	if( IsItemAfterAChild( _CurrentItem ) ) {
-		//
-		// the children are in listbox -> collapse node
-		//
-		CollapseCurrentItem();
-	} else {
-		//
-		// the children aren't in listbox -> expand node
-		//
-		ExpandCurrentItem();
-	}
+        if( IsItemAfterAChild( _CurrentItem ) ) {
+                //
+                // the children are in listbox -> collapse node
+                //
+                CollapseCurrentItem();
+        } else {
+                //
+                // the children aren't in listbox -> expand node
+                //
+                ExpandCurrentItem();
+        }
 }
 
 
@@ -1586,30 +1585,30 @@ LONG
 APIENTRY
 EXPORT
 TREE_STRUCTURE_VIEW::WndProc (
-	IN HWND 	hWnd,
-	IN WORD 	wMessage,
-	IN WPARAM wParam,
-	IN LONG 	lParam
-	)
+        IN HWND         hWnd,
+        IN WORD         wMessage,
+        IN WPARAM wParam,
+        IN LONG         lParam
+        )
 
 /*++
 
 Routine Description:
 
-	Handle all requests made of the TREE_STRUCTURE_VIEW window class.
+        Handle all requests made of the TREE_STRUCTURE_VIEW window class.
 
 Arguments:
 
-	Standard Window's exported function signature.
+        Standard Window's exported function signature.
 
 Return Value:
 
-	LONG	- Returns 0 if the message was handled.
+        LONG    - Returns 0 if the message was handled.
 
 --*/
 
 {
-	REGISTER PTREE_STRUCTURE_VIEW   pTreeView;
+        REGISTER PTREE_STRUCTURE_VIEW   pTreeView;
     HDC                             hdc;
     RECT                            rc;
 
@@ -1618,44 +1617,44 @@ Return Value:
     LONG                            SaveHelpContext;
     INT                             TmpItem;
 
-	//
-	// WM_CREATE is handled specially as it is when the connection between
-	// a Window and its associated object is established.
-	//
+        //
+        // WM_CREATE is handled specially as it is when the connection between
+        // a Window and its associated object is established.
+        //
 
-	if( wMessage == WM_CREATE ) {
+        if( wMessage == WM_CREATE ) {
 
-		//
-		// Save 'this' to owning WINDOW Class and initialize the _Handle
-		// member data.
-		//
+                //
+                // Save 'this' to owning WINDOW Class and initialize the _Handle
+                // member data.
+                //
 
-		pTreeView = ( PTREE_STRUCTURE_VIEW )
-			((( LPCREATESTRUCT ) lParam )->lpCreateParams );
-		SetObjectPointer( hWnd, pTreeView );
-		pTreeView->_Handle = hWnd;
+                pTreeView = ( PTREE_STRUCTURE_VIEW )
+                        ((( LPCREATESTRUCT ) lParam )->lpCreateParams );
+                SetObjectPointer( hWnd, pTreeView );
+                pTreeView->_Handle = hWnd;
 
-		hdc = GetDC(hWnd);
-		InitGlobs( hdc );
-		ReleaseDC(hWnd, hdc);
+                hdc = GetDC(hWnd);
+                InitGlobs( hdc );
+                ReleaseDC(hWnd, hdc);
 
-		//
-		// find out the size of the client area and make the treeview
-		// it's full size
-		//
-		GetClientRect(hWnd, &rc);
+                //
+                // find out the size of the client area and make the treeview
+                // it's full size
+                //
+                GetClientRect(hWnd, &rc);
 
 
 
         pTreeView->_hwndList = CreateWindow((LPWSTR)L"listbox", NULL,
-							WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL
-							| WS_HSCROLL | LBS_OWNERDRAWFIXED | WS_BORDER
-							| LBS_NOINTEGRALHEIGHT | LBS_WANTKEYBOARDINPUT,
-							CW_USEDEFAULT, 0,
-							CW_USEDEFAULT, 0,
-							hWnd, (HMENU)2,
-							(HINSTANCE)WINDOWS_APPLICATION::QueryInstance( ),
-							NULL);
+                                                        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL
+                                                        | WS_HSCROLL | LBS_OWNERDRAWFIXED | WS_BORDER
+                                                        | LBS_NOINTEGRALHEIGHT | LBS_WANTKEYBOARDINPUT,
+                                                        CW_USEDEFAULT, 0,
+                                                        CW_USEDEFAULT, 0,
+                                                        hWnd, (HMENU)2,
+                                                        (HINSTANCE)WINDOWS_APPLICATION::QueryInstance( ),
+                                                        NULL);
 
         pTreeView->ChangeItemHeight();
 
@@ -1663,33 +1662,33 @@ Return Value:
                              1 );
         pTreeView->_Items = ( INT )SendMessage( pTreeView->_hwndList, LB_GETCOUNT, 0, 0 );
         SendMessage( pTreeView->_hwndList, LB_SETCURSEL, 0, 0 );
-		pTreeView->_CurrentItem = (INT)SendMessage( pTreeView->_hwndList,
-													LB_GETCURSEL, 0, 0L);
-		return 0;
-	}
+                pTreeView->_CurrentItem = (INT)SendMessage( pTreeView->_hwndList,
+                                                                                                        LB_GETCURSEL, 0, 0L);
+                return 0;
+        }
 
-	//
-	// Retrieve 'this' pointer.
-	//
+        //
+        // Retrieve 'this' pointer.
+        //
 
-	pTreeView = ( PTREE_STRUCTURE_VIEW ) GetObjectPointer( hWnd );
+        pTreeView = ( PTREE_STRUCTURE_VIEW ) GetObjectPointer( hWnd );
 
-	//
-	// This 'if' clause is for all messages after WM_CREATE.
-	//
+        //
+        // This 'if' clause is for all messages after WM_CREATE.
+        //
 
-	if( pTreeView != NULL ) {
+        if( pTreeView != NULL ) {
 
-		//
-		// Check the 'this' wasn't trampled.
-		//
+                //
+                // Check the 'this' wasn't trampled.
+                //
 
-		DbgWinAssert( hWnd == pTreeView->_Handle );
+                DbgWinAssert( hWnd == pTreeView->_Handle );
 
         switch( wMessage ) {
         case WM_DRAWITEM:
             pTreeView->DrawItem( (LPDRAWITEMSTRUCT)lParam );
-			break;
+                        break;
 
         case LOAD_HIVE:
 
@@ -1847,10 +1846,10 @@ Return Value:
                 // This is the root node
                 //
                 NodeName = pTreeView->_IR->GetRootName();
-                DbgPtrAssert( NodeName );
+                DebugPtrAssert( NodeName );
             } else {
                 NodeName = pTreeView->_IR->GetNodeName( Node );
-                DbgPtrAssert( NodeName );
+                DebugPtrAssert( NodeName );
             }
             len = ( INT )NodeName->QueryChCount();
             String = NodeName->QueryWSTR();
@@ -1875,34 +1874,34 @@ Return Value:
           }
 
 
-		case WM_COMMAND:
-			{
+                case WM_COMMAND:
+                        {
 
-				if( HWND( lParam ) == 0 ) {
-					//
-					// this is a menu item command from above
-					//
+                                if( HWND( lParam ) == 0 ) {
+                                        //
+                                        // this is a menu item command from above
+                                        //
 
-					switch( LOWORD( wParam ) ) {
-					case IDM_EXPAND_ONE_LEVEL:
-						pTreeView->ExpandCurrentItem();
-						break;
-		
+                                        switch( LOWORD( wParam ) ) {
+                                        case IDM_EXPAND_ONE_LEVEL:
+                                                pTreeView->ExpandCurrentItem();
+                                                break;
+
                     case IDM_EXPAND_BRANCH:
                         pTreeView->CollapseCurrentItem();
-						pTreeView->ExpandCurrentItem( -1 );
-						break;
-		
-					case IDM_EXPAND_ALL:
-						pTreeView->_CurrentItem = 0;
-						pTreeView->_CurrentNode
-								 = (PREGEDIT_NODE) pTreeView->GetNode( pTreeView->_CurrentItem );
-						pTreeView->CollapseCurrentItem();
-						pTreeView->ExpandCurrentItem( -1 );
-						break;
-		
-					case IDM_COLLAPSE_BRANCH:
-						pTreeView->CollapseCurrentItem();
+                                                pTreeView->ExpandCurrentItem( -1 );
+                                                break;
+
+                                        case IDM_EXPAND_ALL:
+                                                pTreeView->_CurrentItem = 0;
+                                                pTreeView->_CurrentNode
+                                                                 = (PREGEDIT_NODE) pTreeView->GetNode( pTreeView->_CurrentItem );
+                                                pTreeView->CollapseCurrentItem();
+                                                pTreeView->ExpandCurrentItem( -1 );
+                                                break;
+
+                                        case IDM_COLLAPSE_BRANCH:
+                                                pTreeView->CollapseCurrentItem();
                         break;
 
                     case ID_ENTER_KEY:
@@ -1958,60 +1957,61 @@ Return Value:
                         break;
 
 
-					default:
-						return DefWindowProc( hWnd, wMessage, wParam, lParam );
-					}
-				} else {
-					//
-					// this is a notify from a child control (ie. the list box)
-					// so switch on the notification code
-					//
-					switch (HIWORD( wParam ) ) {
-					case LBN_DBLCLK:
-						pTreeView->ToggleCurrentItem();
-						break;
-		
+                                        default:
+                                                return DefWindowProc( hWnd, wMessage, wParam, lParam );
+                                        }
+                                } else {
+                                        //
+                                        // this is a notify from a child control (ie. the list box)
+                                        // so switch on the notification code
+                                        //
+                                        switch (HIWORD( wParam ) ) {
+                                        case LBN_DBLCLK:
+                                                pTreeView->ToggleCurrentItem();
+                                                break;
+
                     case LBN_SELCHANGE:
-                        TmpItem = (INT)SendMessage( pTreeView->_hwndList,
-                                                      LB_GETCURSEL, 0, 0L);
-                        if( TmpItem == pTreeView->_CurrentItem ) {
-                            //
-                            // If user clicked on the currently selected key
-                            // then move the focus to the tree view.
-                            // This ensures that if there is a value entry
-                            // selected on the data view, the selection on be lost.
-                            //
-                            SetFocus( pTreeView->_Handle );
-                        } else {
-                            pTreeView->_CurrentItem = TmpItem;
-                            pTreeView->_CurrentNode
-                                    = (PREGEDIT_NODE)pTreeView->GetNode( pTreeView->_CurrentItem );
-                            SendMessage( GetParent( pTreeView->_Handle), TR_NEWCURSEL, 0,
-                                         (LONG)pTreeView->_CurrentNode );
+                        if( ( TmpItem = (INT)SendMessage( pTreeView->_hwndList,
+                                                          LB_GETCURSEL, 0, 0L ) ) != LB_ERR ) {
+                            if( TmpItem == pTreeView->_CurrentItem ) {
+                                //
+                                // If user clicked on the currently selected key
+                                // then move the focus to the tree view.
+                                // This ensures that if there is a value entry
+                                // selected on the data view, the selection on be lost.
+                                //
+                                SetFocus( pTreeView->_Handle );
+                            } else {
+                                pTreeView->_CurrentItem = TmpItem;
+                                pTreeView->_CurrentNode
+                                        = (PREGEDIT_NODE)pTreeView->GetNode( pTreeView->_CurrentItem );
+                                SendMessage( GetParent( pTreeView->_Handle), TR_NEWCURSEL, 0,
+                                             (LONG)pTreeView->_CurrentNode );
+                            }
                         }
                         break;
-		
-					case LBN_SETFOCUS:
+
+                                        case LBN_SETFOCUS:
                         SendMessage(GetParent(hWnd), TREE_VIEW_FOCUS, 0, 0);
-						pTreeView->_HasFocus = TRUE;
-						break;
-		
-					case LBN_KILLFOCUS:
-						pTreeView->_HasFocus = FALSE;
-						break;
-		
-					default:
-		
-						//
-						// Let Windows handle this message.
-						//
-		
-						return DefWindowProc( hWnd, wMessage, wParam, lParam );
-		
-					} // end switch on cmd
-				} // end if
-			} // end case
-			break;
+                                                pTreeView->_HasFocus = TRUE;
+                                                break;
+
+                                        case LBN_KILLFOCUS:
+                                                pTreeView->_HasFocus = FALSE;
+                                                break;
+
+                                        default:
+
+                                                //
+                                                // Let Windows handle this message.
+                                                //
+
+                                                return DefWindowProc( hWnd, wMessage, wParam, lParam );
+
+                                        } // end switch on cmd
+                                } // end if
+                        } // end case
+                        break;
 
         case WM_CHARTOITEM:
             {
@@ -2050,7 +2050,7 @@ Return Value:
                 /* Do it this way to be case insensitive. */
                 w[0] = ch;
                 w[1] = ( WCHAR )'\0';
-                if (!wcsicmp( w, szB))
+                if (!_wcsicmp( w, szB))
                     break;
             }
 
@@ -2062,37 +2062,30 @@ Return Value:
         }
 
         default:
-			//
-			// Let Windows handle this message.
-			//
+                        //
+                        // Let Windows handle this message.
+                        //
 
-			return DefWindowProc( hWnd, wMessage, wParam, lParam );
-		}
+                        return DefWindowProc( hWnd, wMessage, wParam, lParam );
+                }
 
-	} else {
+        } else {
 
-		//
-		// No 'this' pointer (pTreeView == NULL). Handle messages before
-		// WM_CREATE.
-		//
+                //
+                // No 'this' pointer (pTreeView == NULL). Handle messages before
+                // WM_CREATE.
+                //
+                // Let Windows handle the message.
+                //
 
-		switch( wMessage ) {
+                return DefWindowProc( hWnd, wMessage, wParam, lParam );
+        }
 
-		default:
+        //
+        // Message handled...
+        //
 
-			//
-			// Let Windows handle the message.
-			//
-
-			return DefWindowProc( hWnd, wMessage, wParam, lParam );
-		}
-	}
-
-	//
-	// Message handled...
-	//
-
-	return 0 ;
+        return 0 ;
 }
 
 
@@ -2205,8 +2198,8 @@ Return Value:
                     TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                     CaptionMessage = MSG_SERVER_UNAVAILABLE;
                 } else {
-                    DbgPrint( "Unknown error code" );
-                    DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                    DebugPrint( "Unknown error code" );
+                    DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                     TextMessage = MSG_FAILED_OPERATION_EX;
                     CaptionMessage = 0;
                 }
@@ -2264,7 +2257,7 @@ Return Value:
 
 
     if( !_IR->QueryCompleteNodeName( _CurrentNode, &CompleteParentName ) ) {
-        DbgPrint( "_IR->QueryCompleteNodeName() failed" );
+        DebugPrint( "_IR->QueryCompleteNodeName() failed" );
         return( FALSE );
     }
 
@@ -2279,9 +2272,9 @@ Return Value:
         if( DialogBoxParam( (HINSTANCE)WINDOWS_APPLICATION::QueryInstance( ),
                             MAKEINTRESOURCE(ADD_KEY_DLG),
                             _Handle,
-			    ( DLGPROC )TREE_STRUCTURE_VIEW::GetKeyNameDialogProc,
+                            ( DLGPROC )TREE_STRUCTURE_VIEW::GetKeyNameDialogProc,
                             ( DWORD )&AddNodeInfo ) == -1 ) {
-            DbgPrint( "Unable to create dialog box" );
+            DebugPrint( "Unable to create dialog box" );
             return( FALSE );
         }
         if( ( AddNodeInfo.Name != NULL ) &&
@@ -2297,13 +2290,13 @@ Return Value:
 
             } else {
                 NewKeyInfo = ( PREGISTRY_KEY_INFO )NEW( REGISTRY_KEY_INFO );
-                DbgPtrAssert( NewKeyInfo );
+                DebugPtrAssert( NewKeyInfo );
 
                 if( !NewKeyInfo->Initialize( AddNodeInfo.Name,
                                              &CompleteParentName,
                                              0,                    // TitleIndex
                                              AddNodeInfo.Class ) ) {
-                    DbgPrint( "NewKeyInfo->Initialize() failed" );
+                    DebugPrint( "NewKeyInfo->Initialize() failed" );
                     DELETE( AddNodeInfo.Name );
                     DELETE( AddNodeInfo.Title );
                     DELETE( AddNodeInfo.Class );
@@ -2333,8 +2326,8 @@ Return Value:
                         TextMessage = MSG_ADD_KEY_VOLATILE_EX;
                         CaptionMessage = MSG_KEY_VOLATILE;
                     } else {
-                        DbgPrint( "Unknown error code" );
-                        DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                        DebugPrint( "Unknown error code" );
+                        DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                         TextMessage = MSG_FAILED_OPERATION_EX;
                         CaptionMessage = 0;
                     }
@@ -2562,7 +2555,7 @@ Return Value:
                                 SecDesc,
                                 &ErrorCode,
                                 ApplyToSubContainers ) ) {
-        DbgPrint( "SetKeySecurity() failed" );
+        DebugPrint( "SetKeySecurity() failed" );
         //
         //  Display error message indicating that the operation failed
         //
@@ -2593,8 +2586,8 @@ Return Value:
             CaptionMessage = MSG_SERVER_UNAVAILABLE;
             TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
         } else {
-            DbgPrint( "Unknown error code" );
-            DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+            DebugPrint( "Unknown error code" );
+            DebugPrintf( "ErrorCode = %d \n", ErrorCode );
             TextMessage = MSG_FAILED_OPERATION_EX;
             CaptionMessage = MSG_UNKNOWN_ERROR;
         }
@@ -2693,12 +2686,12 @@ Return Value:
                  _IR->GetRootName();
 
     if( NodeName ==NULL ) {
-        DbgPrint( "_IR->GetNodeName( _CurrentNode ) failed" );
+        DebugPrint( "_IR->GetNodeName( _CurrentNode ) failed" );
         return;
     }
     NodeNameString = NodeName->GetWSTR();
     if( NodeNameString == NULL ) {
-        DbgPrint( "NodeName->GetWSTR() failed" );
+        DebugPrint( "NodeName->GetWSTR() failed" );
         return;
     }
 
@@ -2718,9 +2711,9 @@ Return Value:
         ( HelpFileNameString == NULL ) ||
         ( ObjectTypeNameString == NULL ) ||
         ( ApplyToSubKeysString == NULL ) ||
-	( ConfirmApplyString == NULL )	||
+        ( ConfirmApplyString == NULL )  ||
         ( DefaultPermissionName == NULL ) ) {
-        DbgPrint( "Unable to initialize strings" );
+        DebugPrint( "Unable to initialize strings" );
         FREE( SpecialAccessString );
         FREE( HelpFileNameString );
         FREE( ObjectTypeNameString );
@@ -2731,7 +2724,7 @@ Return Value:
     }
 
 // DbgString = _MsgConfirmApplyToSubKeys->QuerySTR();
-// DbgPrintf( "Message = %s \n", DbgString );
+// DebugPrintf( "Message = %s \n", DbgString );
 
 
     //
@@ -2829,8 +2822,8 @@ Return Value:
             TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
             CaptionMessage = MSG_SERVER_UNAVAILABLE;
         } else {
-            DbgPrint( "Unknown error code" );
-            DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+            DebugPrint( "Unknown error code" );
+            DebugPrintf( "ErrorCode = %d \n", ErrorCode );
             TextMessage = MSG_FAILED_OPERATION_EX;
             CaptionMessage = 0;
         }
@@ -2995,12 +2988,12 @@ Return Value:
     //
     MsgRegistryKey = REGEDIT_BASE_SYSTEM::QueryString( MSG_SEC_EDITOR_REGISTRY_KEY, "" );
     if( MsgRegistryKey == NULL ) {
-        DbgPrint( "Unable to retrieve MsgRegistryKey" );
+        DebugPrint( "Unable to retrieve MsgRegistryKey" );
         return;
     }
     MsgRegistryKeyString = MsgRegistryKey->QueryWSTR();
     if( MsgRegistryKeyString == NULL ) {
-        DbgPrint( "Unable to retrieve MsgRegistryKey" );
+        DebugPrint( "Unable to retrieve MsgRegistryKey" );
         return;
     }
     FREE( MsgRegistryKey );
@@ -3038,8 +3031,8 @@ Return Value:
             TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
             CaptionMessage = MSG_SERVER_UNAVAILABLE;
         } else {
-            DbgPrint( "Unknown error code" );
-            DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+            DebugPrint( "Unknown error code" );
+            DebugPrintf( "ErrorCode = %d \n", ErrorCode );
             TextMessage = MSG_FAILED_OPERATION_EX;
             CaptionMessage = 0;
         }
@@ -3056,9 +3049,9 @@ Return Value:
 
 
     if( Name == NULL ) {
-        DbgPrint( "_CurrentNode->QueryWSTR() failed" );
+        DebugPrint( "_CurrentNode->QueryWSTR() failed" );
         FREE( SecurityDescriptor );
-        DbgPtrAssert( Name );
+        DebugPtrAssert( Name );
         FREE( MsgRegistryKeyString );
         return;
     }
@@ -3084,7 +3077,7 @@ Return Value:
         PointerToName = NULL;
     }
 
-    SED_HELP_INFO  SedHelpInfo;                              
+    SED_HELP_INFO  SedHelpInfo;
     SedHelpInfo.pszHelpFileName = (LPWSTR)_MsgHelpFileName->GetWSTR();
     SedHelpInfo.aulHelpContext[ HC_MAIN_DLG ] = IDH_DB_OWNER_REGED;
 
@@ -3151,7 +3144,7 @@ Return Value:
 
 
     if( !_IR->QueryCompleteNodeName( _CurrentNode, &CompleteParentName ) ) {
-        DbgPrint( "_IR->QueryCompleteNodeName() failed" );
+        DebugPrint( "_IR->QueryCompleteNodeName() failed" );
         return( FALSE );
     }
 
@@ -3167,7 +3160,7 @@ Return Value:
                             _Handle,
                             ( DLGPROC )TREE_STRUCTURE_VIEW::GetKeyNameDialogProc,
                             ( DWORD )&NodeInfo ) == -1 ) {
-            DbgPrint( "Unable to create dialog box" );
+            DebugPrint( "Unable to create dialog box" );
             return( FALSE );
         }
 
@@ -3182,13 +3175,13 @@ Return Value:
                 DELETE( NodeInfo.Class );
             } else {
                 NewKeyInfo = ( PREGISTRY_KEY_INFO )NEW( REGISTRY_KEY_INFO );
-                DbgPtrAssert( NewKeyInfo );
+                DebugPtrAssert( NewKeyInfo );
 
                 if( !NewKeyInfo->Initialize( NodeInfo.Name,
                                              &CompleteParentName,
                                              0,                    // TitleIndex
                                              NodeInfo.Class ) ) {
-                    DbgPrint( "NewKeyInfo->Initialize() failed" );
+                    DebugPrint( "NewKeyInfo->Initialize() failed" );
                     DELETE( NodeInfo.Name );
                     DELETE( NodeInfo.Title );
                     DELETE( NodeInfo.Class );
@@ -3212,8 +3205,8 @@ Return Value:
                         TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                         CaptionMessage = MSG_SERVER_UNAVAILABLE;
                     } else {
-                        DbgPrint( "Unknown error code" );
-                        DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                        DebugPrint( "Unknown error code" );
+                        DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                         TextMessage = MSG_FAILED_OPERATION_EX;
                         CaptionMessage = 0;
                     }
@@ -3361,8 +3354,8 @@ Return Value:
                     TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                     CaptionMessage = MSG_SERVER_UNAVAILABLE;
                 } else {
-                    DbgPrint( "Unknown error code" );
-                    DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                    DebugPrint( "Unknown error code" );
+                    DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                     TextMessage = MSG_FAILED_OPERATION_EX;
                     CaptionMessage = 0;
                 }
@@ -3444,8 +3437,8 @@ Return Value:
                 TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                 CaptionMessage = MSG_SERVER_UNAVAILABLE;
             } else {
-                DbgPrint( "Unknown error code" );
-                DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                DebugPrint( "Unknown error code" );
+                DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                 TextMessage = MSG_FAILED_OPERATION_EX;
                 CaptionMessage = 0;
             }
@@ -3544,8 +3537,8 @@ Return Value:
                     TextMessage = MSG_CANT_ACCESS_REMOTE_REGISTRY;
                     CaptionMessage = MSG_SERVER_UNAVAILABLE;
                 } else {
-                    DbgPrint( "Unknown error code" );
-                    DbgPrintf( "ErrorCode = %d \n", ErrorCode );
+                    DebugPrint( "Unknown error code" );
+                    DebugPrintf( "ErrorCode = %d \n", ErrorCode );
                     TextMessage = MSG_FAILED_OPERATION_EX;
                     CaptionMessage = 0;
                 }
@@ -3681,7 +3674,7 @@ Return Value:
             //
             NameSize = NameSize + 1;
             NodeName = ( LPWSTR )MALLOC( ( size_t )(NameSize*sizeof( WCHAR )) );
-            DbgPtrAssert( NodeName );
+            DebugPtrAssert( NodeName );
             SendDlgItemMessage( hDlg,
                                 IDD_ADD_KEY_NAME,
                                 ( UINT )WM_GETTEXT,
@@ -3726,12 +3719,12 @@ Return Value:
             }
 
             NodeNameString = ( PWSTRING ) NEW( DSTRING );
-            DbgPtrAssert( NodeNameString );
+            DebugPtrAssert( NodeNameString );
             NodeClassString = ( PWSTRING ) NEW( DSTRING );
-            DbgPtrAssert( NodeClassString );
+            DebugPtrAssert( NodeClassString );
 
             if( !NodeNameString->Initialize( NodeName ) ) {
-                DbgPrint( "NodeNameString.Initialize( NodeName ) failed \n" );
+                DebugPrint( "NodeNameString.Initialize( NodeName ) failed \n" );
                 EndDialog( hDlg, FALSE );
                 return( TRUE );
             }
@@ -3741,14 +3734,14 @@ Return Value:
                 ( ClassSize != 0 ) ) {
                 if( !NodeClassString->Initialize( Class, ClassSize ) ) {
                     FREE( Class );
-                    DbgPrint( "NodeClassString->Initialize( Class ) failed \n" );
+                    DebugPrint( "NodeClassString->Initialize( Class ) failed \n" );
                     EndDialog( hDlg, FALSE );
                     return( TRUE );
                 }
                     FREE( Class );
             } else {
                 if( !NodeClassString->Initialize( "" ) ) {
-                    DbgPrint( "NodeClassString->Initialize() failed \n" );
+                    DebugPrint( "NodeClassString->Initialize() failed \n" );
                     EndDialog( hDlg, FALSE );
                     return( TRUE );
                 }
@@ -3769,7 +3762,7 @@ Return Value:
             EndDialog( hDlg, FALSE );
             return( TRUE );
 
-        case IDHELP:
+        case IDB_HELP:
             //
             //  The user hit HELP
             //

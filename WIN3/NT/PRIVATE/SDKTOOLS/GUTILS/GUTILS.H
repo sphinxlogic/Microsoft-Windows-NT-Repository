@@ -92,6 +92,10 @@ LPSTR APIENTRY gmem_get(HANDLE hHeap, int len);
 void APIENTRY gmem_free(HANDLE hHeap, LPSTR ptr, int len);
 void APIENTRY gmem_freeall(HANDLE hHeap);
 
+
+/* return total time consumed doing gmem_get */
+LONG APIENTRY gmem_time(void);
+
 /* ---- file open/save common dialogs ---------------------------*/
 
 /*
@@ -285,6 +289,7 @@ void APIENTRY readfile_delete(FILEBUFFER fb);
 /* hash codes are unsigned longs */
 
 DWORD APIENTRY hash_string(LPSTR string, BOOL bIgnoreBlanks);
+void Format(char * a, char * b);
 
 /* return TRUE iff the string is blank.  Blank means the same as
  * the characters which are ignored in hash_string when ignore_blanks is set

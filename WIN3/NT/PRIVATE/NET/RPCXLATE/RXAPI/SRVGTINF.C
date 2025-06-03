@@ -57,7 +57,7 @@ Revision History:
 #include <lmerr.h>      // NERR_ and ERROR_ equates.
 #include <lmserver.h>   // Real API prototypes and #defines.
 #include <names.h>      // NetpIsComputerNameValid().
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <remdef.h>     // REM16_, REM32_, and REMSmb_ equates.
 #include <rx.h>         // RxRemoteApi().
 #include <rxp.h>        // RxpFatalErrorCode().
@@ -106,10 +106,10 @@ Return Value:
     DWORD TotalAvail;
 
     IF_DEBUG(SERVER) {
-        NetpDbgPrint(
+        NetpKdPrint((
                 "RxNetServerGetInfo: starting, server=" FORMAT_LPTSTR
                 ", lvl=" FORMAT_DWORD ".\n",
-                UncServerName, Level);
+                UncServerName, Level));
     }
     NetpAssert(UncServerName != NULL);
     NetpAssert(NetpIsUncComputerNameValid(UncServerName));
@@ -130,8 +130,8 @@ Return Value:
 
     if (! NetpIsNewServerInfoLevel(Level)) {
         IF_DEBUG(SERVER) {
-            NetpDbgPrint("RxNetServerGetInfo: "
-                    "caller didn't ask for new level.\n");
+            NetpKdPrint(("RxNetServerGetInfo: "
+                    "caller didn't ask for new level.\n"));
         }
         *BufPtr = NULL;
         return (ERROR_INVALID_LEVEL);
@@ -153,8 +153,8 @@ Return Value:
             NULL);               // don't need to know if this is incomplete
     if (Status == ERROR_INVALID_LEVEL) {
         IF_DEBUG(SERVER) {
-            NetpDbgPrint("RxNetServerGetInfo: "
-                    "RxGetServerInfoLevelEquivalent says bad level.\n");
+            NetpKdPrint(("RxNetServerGetInfo: "
+                    "RxGetServerInfoLevelEquivalent says bad level.\n"));
         }
         *BufPtr = NULL;
         return (ERROR_INVALID_LEVEL);
@@ -167,8 +167,8 @@ Return Value:
     // buffer for the get-info struct (for old info level).
     //
     IF_DEBUG(SERVER) {
-        NetpDbgPrint("RxNetServerGetInfo: old api buff size (32-bit) is "
-                    FORMAT_DWORD "\n", OldApiBufferSize);
+        NetpKdPrint(("RxNetServerGetInfo: old api buff size (32-bit) is "
+                    FORMAT_DWORD "\n", OldApiBufferSize));
     }
     Status = NetApiBufferAllocate( OldApiBufferSize, (LPVOID *)&OldApiBuffer );
     if (Status != NERR_Success) {
@@ -199,10 +199,10 @@ Return Value:
                 OldApiBufferSize,           // size of OldApiBuffer
                 & TotalAvail);              // total available (set)
     IF_DEBUG(SERVER) {
-        NetpDbgPrint("RxNetServerGetInfo(" FORMAT_DWORD
+        NetpKdPrint(("RxNetServerGetInfo(" FORMAT_DWORD
                 "): back from RxRemoteApi, status=" FORMAT_API_STATUS
                 ", total_avail=" FORMAT_DWORD ".\n",
-                Level, Status, TotalAvail);
+                Level, Status, TotalAvail));
     }
     if (RxpFatalErrorCode(Status)) {
         (void) NetApiBufferFree(OldApiBuffer);
@@ -231,8 +231,8 @@ Return Value:
         return (Status);
     }
     IF_DEBUG(SERVER) {
-        NetpDbgPrint("RxNetServerGetInfo: alloced new buf at "
-                        FORMAT_LPVOID ".\n", (LPVOID) NewApiBuffer);
+        NetpKdPrint(("RxNetServerGetInfo: alloced new buf at "
+                        FORMAT_LPVOID ".\n", (LPVOID) NewApiBuffer));
     }
 
     Status = NetpConvertServerInfo(

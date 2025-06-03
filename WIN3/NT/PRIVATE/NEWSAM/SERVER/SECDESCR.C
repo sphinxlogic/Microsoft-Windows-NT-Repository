@@ -226,7 +226,7 @@ Return Value:
     //                                                                                //
     ////////////////////////////////////////////////////////////////////////////////////
 
-    
+
     RtlInitializeSid( AdminsAliasSid,   &BuiltinAuthority, 2 );
     *(RtlSubAuthoritySid( AdminsAliasSid,  0 )) = SECURITY_BUILTIN_DOMAIN_RID;
     *(RtlSubAuthoritySid( AdminsAliasSid,  1 )) = DOMAIN_ALIAS_RID_ADMINS;
@@ -891,8 +891,8 @@ Return Value:
 
 {
     SID_IDENTIFIER_AUTHORITY BuiltinAuthority = SECURITY_NT_AUTHORITY;
-    ULONG                AdminsSidBuffer[8];
-    PSID                 AdminsAliasSid = &AdminsSidBuffer[0];
+    ULONG                AccountSidBuffer[8];
+    PSID                 AccountAliasSid = &AccountSidBuffer[0];
 
     SECURITY_DESCRIPTOR  DaclDescriptor;
     NTSTATUS             NtStatus = STATUS_SUCCESS;
@@ -910,6 +910,7 @@ Return Value:
     ULONG                AceLength = 0;
     ULONG                i;
     BOOLEAN              AdminAliasFound = FALSE;
+    BOOLEAN              AccountAliasFound = FALSE;
     BOOLEAN              DaclPresent, DaclDefaulted;
 
     GENERIC_MAPPING GenericMapping;
@@ -972,7 +973,7 @@ Return Value:
     case SampAliasObjectType:
 
         ASSERT(RestrictCreatorAccess == FALSE);
-        
+
         //
         // Admin and NewAccountRid parameters are ignored for aliases.
         //
@@ -1025,7 +1026,7 @@ Return Value:
 
         (*NewDescriptor) = NULL;
         (*DescriptorLength) = 0;
-        
+
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
 
@@ -1055,12 +1056,12 @@ Return Value:
         OldDacl->AceCount -= 1;  // Remove the last ACE from the ACL.
     }
 
-    
+
     //
     // If the caller is not a trusted client, see if the caller is an
-    // administrator.  If not, add an ACCESS_ALLOWED ACE to the DACL that
-    // gives full access to the creator (or restricted access, if so
-    // specified).
+    // administrator or an account operator.  If not, add an ACCESS_ALLOWED
+    // ACE to the DACL that gives full access to the creator (or restricted
+    // access, if so specified).
     //
 
     if ( !TrustedClient ) {
@@ -1087,12 +1088,13 @@ Return Value:
 
 
 
-            
+
                 //
-                // See if the caller is an administrator.  First, see how big
+                // See if the caller is an administrator or an account
+                // operator.  First, see how big
                 // a buffer we need to hold the caller's groups.
                 //
-                
+
                 NtStatus = NtQueryInformationToken(
                                ClientToken,
                                TokenGroups,
@@ -1100,22 +1102,22 @@ Return Value:
                                0,
                                &DataLength
                                );
-                
+
                 if ( ( NtStatus == STATUS_BUFFER_TOO_SMALL ) &&
                     ( DataLength > 0 ) ) {
-                
+
                     ClientGroups = MIDL_user_allocate( DataLength );
-                
+
                     if ( ClientGroups == NULL ) {
-                
+
                         NtStatus = STATUS_INSUFFICIENT_RESOURCES;
-                
+
                     } else {
-                
+
                         //
                         // Now get a list of the caller's groups.
                         //
-                
+
                         NtStatus = NtQueryInformationToken(
                                        ClientToken,
                                        TokenGroups,
@@ -1123,53 +1125,60 @@ Return Value:
                                        DataLength,
                                        &DataLength
                                        );
-                
+
                         if ( NT_SUCCESS( NtStatus ) ) {
-                
+
+
                             //
-                            // Build the SID of the ADMINS alias, so we can
-                            // see if the user is included in it.
+                            // Build the SID of the ACCOUNT_OPS alias, so we
+                            // can see if the user is included in it.
                             //
-                
+
                             RtlInitializeSid(
-                                AdminsAliasSid,
+                                AccountAliasSid,
                                 &BuiltinAuthority,
                                 2 );
-                
-                            *(RtlSubAuthoritySid( AdminsAliasSid,  0 )) =
+
+                            *(RtlSubAuthoritySid( AccountAliasSid,  0 )) =
                                 SECURITY_BUILTIN_DOMAIN_RID;
-                
-                            *(RtlSubAuthoritySid( AdminsAliasSid,  1 )) =
-                                DOMAIN_ALIAS_RID_ADMINS;
-                
+
+                            *(RtlSubAuthoritySid( AccountAliasSid,  1 )) =
+                                DOMAIN_ALIAS_RID_ACCOUNT_OPS;
+
                             //
-                            // See if the ADMIN alias is in the caller's groups
+                            // See if the ADMIN or ACCOUNT_OPS alias is in
+                            // the caller's groups.
                             //
-                
+
                             for ( i = 0; i < ClientGroups->GroupCount; i++ ) {
-                
+
                                 SubjectSid = ClientGroups->Groups[i].Sid;
                                 ASSERT( SubjectSid != NULL );
-                
-                                if ( RtlEqualSid( SubjectSid, AdminsAliasSid  ) ) {
-                
+
+                                if ( RtlEqualSid( SubjectSid, SampAdministratorsAliasSid  ) ) {
+
                                     AdminAliasFound = TRUE;
                                     break;
                                 }
+                                if ( RtlEqualSid( SubjectSid, AccountAliasSid ) ) {
+
+                                    AccountAliasFound = TRUE;
+                                    break;
+                                }
                             }
-                
+
                             //
                             // If the callers groups did not include the admins
                             // alias, add an ACCESS_ALLOWED ACE for the owner.
                             //
-                
-                            if ( !AdminAliasFound ) {
-                
+
+                            if ( !AdminAliasFound && !AccountAliasFound ) {
+
                                 //
                                 // First, find out what size buffer we need
                                 // to get the owner.
                                 //
-                
+
                                 NtStatus = NtQueryInformationToken(
                                                ClientToken,
                                                TokenOwner,
@@ -1177,24 +1186,24 @@ Return Value:
                                                0,
                                                &DataLength
                                                );
-                
+
                                 if ( ( NtStatus == STATUS_BUFFER_TOO_SMALL ) &&
                                     ( DataLength > 0 ) ) {
-                
+
                                     SubjectOwner = MIDL_user_allocate( DataLength );
-                
+
                                     if ( SubjectOwner == NULL ) {
-                
+
                                         NtStatus = STATUS_INSUFFICIENT_RESOURCES;
-                
+
                                     } else {
-                
+
                                         //
                                         // Now, query the owner that will be
                                         // given access to the object
                                         // created.
                                         //
-                
+
                                         NtStatus = NtQueryInformationToken(
                                                        ClientToken,
                                                        TokenOwner,
@@ -1202,59 +1211,59 @@ Return Value:
                                                        DataLength,
                                                        &DataLength
                                                        );
-                
+
                                         if ( NT_SUCCESS( NtStatus ) ) {
-                
+
                                             //
                                             // Create an ACE that gives the
                                             // owner full access.
                                             //
-                
+
                                             AceLength = sizeof( ACE_HEADER ) +
                                                         sizeof( ACCESS_MASK ) +
                                                         RtlLengthSid(
                                                             SubjectOwner->Owner );
-                
+
                                             NewAce = (ACCESS_ALLOWED_ACE *)
                                                     MIDL_user_allocate( AceLength );
-                
+
                                             if ( NewAce == NULL ) {
-                
+
                                                 NtStatus =
                                                     STATUS_INSUFFICIENT_RESOURCES;
-                
+
                                             } else {
-                
+
                                                 NewAce->Header.AceType =
                                                     ACCESS_ALLOWED_ACE_TYPE;
-                
+
                                                 NewAce->Header.AceSize = (USHORT) AceLength;
                                                 NewAce->Header.AceFlags = 0;
                                                 NewAce->Mask = USER_ALL_ACCESS;
-                
+
                                                 //
                                                 // If the creator's access is
                                                 // to be restricted, change the
                                                 // AccessMask.
                                                 //
-                
+
                                                 if (RestrictCreatorAccess) {
                                                     NewAce->Mask = DELETE     |
                                                                    USER_WRITE |
                                                                    USER_FORCE_PASSWORD_CHANGE;
                                                 }
-                
+
                                                 RtlCopySid(
                                                     RtlLengthSid(
                                                         SubjectOwner->Owner ),
                                                     (PSID)( &NewAce->SidStart ),
                                                     SubjectOwner->Owner );
-                
+
                                                 //
                                                 // Allocate a new, larger ACL and
                                                 // copy the old one into it.
                                                 //
-                
+
                                                 NtStatus =
                                                     RtlGetDaclSecurityDescriptor(
                                                         LocalDescriptor,
@@ -1262,38 +1271,38 @@ Return Value:
                                                         &OldDacl,
                                                         &DaclDefaulted
                                                         );
-                
+
                                                 if ( NT_SUCCESS( NtStatus ) ) {
-                
+
                                                     NewDacl = MIDL_user_allocate(
                                                                   OldDacl->AclSize +
                                                                   AceLength );
-                
+
                                                     if ( NewDacl == NULL ) {
-                
+
                                                         NtStatus = STATUS_INSUFFICIENT_RESOURCES;
-                
+
                                                     } else {
-                
+
                                                         RtlCopyMemory(
                                                             NewDacl,
                                                             OldDacl,
                                                             OldDacl->AclSize
                                                             );
-                
+
                                                         NewDacl->AclSize =
                                                             OldDacl->AclSize +
                                                             (USHORT) AceLength;
-                
+
                                                         //
                                                         // Add the new ACE
                                                         // to the new ACL.
                                                         //
-                
+
                                                         NtStatus = RtlAddAce(
                                                             NewDacl,
                                                             ACL_REVISION2,
-                                                            0,                      // add to very beginning
+                                                            1,                      // add after first ACE (world)
                                                             (PVOID)NewAce,
                                                             AceLength
                                                             );
@@ -1410,6 +1419,337 @@ Return Value:
 
     return( NtStatus );
 }
+
+
+NTSTATUS
+SampModifyAccountSecurity(
+    IN SAMP_OBJECT_TYPE ObjectType,
+    IN BOOLEAN Admin,
+    IN PSECURITY_DESCRIPTOR OldDescriptor,
+    OUT PSECURITY_DESCRIPTOR *NewDescriptor,
+    OUT PULONG DescriptorLength
+    )
+/*++
+
+Routine Description:
+
+    This service modifies a self-relative security descriptor
+    for a USER or GROUP to add or remove account operator access.
+
+
+Arguments:
+
+    ObjectType - Indicates the type of account for which a new security
+        descriptor is required.  This must be either SampGroupObjectType
+        or SampUserObjectType.
+
+    Admin - if TRUE, indicates the security descriptor will be protecting
+        an object that is an admin object (e.g., is a member, directly
+        or indirectly, of the ADMINISTRATORS or an operator alias).
+
+    NewDescriptor - Receives a pointer to the new account's self-relative
+        security descriptor.  Be sure to free this descriptor with
+        MIDL_user_free() when done.
+
+    DescriptorLength - Receives the length (in bytes) of the returned
+        security descriptor
+
+
+Return Value:
+
+    STATUS_SUCCESS - A new security descriptor has been produced.
+
+    STATUS_INSUFFICIENT_RESOURCES - Memory could not be allocated to
+        produce the security descriptor.
+
+
+
+--*/
+
+{
+    SID_IDENTIFIER_AUTHORITY BuiltinAuthority = SECURITY_NT_AUTHORITY;
+    ULONG                AccountSidBuffer[8];
+    PSID                 AccountAliasSid = &AccountSidBuffer[0];
+    NTSTATUS             NtStatus = STATUS_SUCCESS;
+    NTSTATUS             IgnoreStatus;
+    ULONG                Length;
+    ULONG                i,j;
+    ULONG                AccountOpAceIndex;
+    ULONG                AceCount;
+    PACL                 OldDacl;
+    PACL                 NewDacl = NULL;
+    BOOLEAN              DaclDefaulted;
+    BOOLEAN              DaclPresent;
+    ACL_SIZE_INFORMATION AclSizeInfo;
+    PACCESS_ALLOWED_ACE  Ace;
+    PGENERIC_MAPPING GenericMapping;
+    ACCESS_MASK          AccountOpAccess;
+    SECURITY_DESCRIPTOR  AbsoluteDescriptor;
+    PSECURITY_DESCRIPTOR  LocalDescriptor = NULL;
+
+    GENERIC_MAPPING GroupMap     =  {GROUP_READ,
+                                     GROUP_WRITE,
+                                     GROUP_EXECUTE,
+                                     GROUP_ALL_ACCESS
+                                     };
+
+    GENERIC_MAPPING UserMap      =  {USER_READ,
+                                     USER_WRITE,
+                                     USER_EXECUTE,
+                                     USER_ALL_ACCESS
+                                     };
+
+
+    NtStatus = RtlCopySecurityDescriptor(
+                    OldDescriptor,
+                    &LocalDescriptor
+                    );
+
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+
+    //
+    // Build the SID of the ACCOUNT_OPS alias, so we
+    // can see if is in the DACL or we can add it to the DACL.
+    //
+
+    RtlInitializeSid(
+        AccountAliasSid,
+        &BuiltinAuthority,
+        2
+        );
+
+    *(RtlSubAuthoritySid( AccountAliasSid,  0 )) =
+        SECURITY_BUILTIN_DOMAIN_RID;
+
+    *(RtlSubAuthoritySid( AccountAliasSid,  1 )) =
+        DOMAIN_ALIAS_RID_ACCOUNT_OPS;
+
+    //
+    // The approach is to set up an absolute security descriptor that
+    // contains the new DACL, and then merge that into the existing
+    // security descriptor.
+    //
+
+
+    IgnoreStatus = RtlCreateSecurityDescriptor(
+                        &AbsoluteDescriptor,
+                        SECURITY_DESCRIPTOR_REVISION1
+                        );
+    ASSERT( NT_SUCCESS(IgnoreStatus) );
+
+    //
+    // Figure out the access granted to account operators and the
+    // generic mask to use.
+    //
+
+    if (ObjectType == SampUserObjectType) {
+        AccountOpAccess = USER_ALL_ACCESS;
+        GenericMapping = &UserMap;
+    } else if (ObjectType == SampGroupObjectType) {
+        AccountOpAccess = GROUP_ALL_ACCESS;
+        GenericMapping = &GroupMap;
+    } else {
+        //
+        // This doesn't apply to aliases, domains, or servers.
+        //
+        return(STATUS_INVALID_PARAMETER);
+    }
+
+    //
+    // Get the old DACL off the passed in security descriptor.
+    //
+
+    IgnoreStatus = RtlGetDaclSecurityDescriptor(
+                        OldDescriptor,
+                        &DaclPresent,
+                        &OldDacl,
+                        &DaclDefaulted
+                        );
+
+    ASSERT(NT_SUCCESS(IgnoreStatus));
+
+    //
+    // We will only modify the DACL if it is present
+    //
+
+    if (!DaclPresent) {
+        *NewDescriptor = LocalDescriptor;
+        *DescriptorLength = RtlLengthSecurityDescriptor(LocalDescriptor);
+        return(STATUS_SUCCESS);
+    }
+
+    //
+    // Get the count of ACEs
+    //
+
+    IgnoreStatus = RtlQueryInformationAcl(
+                        OldDacl,
+                        &AclSizeInfo,
+                        sizeof(AclSizeInfo),
+                        AclSizeInformation
+                        );
+
+
+    ASSERT(NT_SUCCESS(IgnoreStatus));
+
+    //
+    // Calculate the lenght of the new ACL.
+    //
+
+    Length = (ULONG)sizeof(ACL);
+    AccountOpAceIndex = 0xffffffff;
+
+
+    for (i = 0; i < AclSizeInfo.AceCount; i++) {
+        IgnoreStatus = RtlGetAce(
+                            OldDacl,
+                            i,
+                            (PVOID *) &Ace
+                            );
+        ASSERT(NT_SUCCESS(IgnoreStatus));
+
+        //
+        // Check if this is an access allowed ACE, and the ACE is for
+        // the Account Operators alias.
+        //
+
+        if ( (Ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE) &&
+             RtlEqualSid( AccountAliasSid,
+                          &Ace->SidStart ) ) {
+
+            AccountOpAceIndex = i;
+            continue;
+        }
+        Length += Ace->Header.AceSize;
+    }
+
+
+    if (!Admin) {
+
+        //
+        // If we are making this account not be an admin account and it already
+        // has an account operator ace, we are done.
+        //
+
+        if ( AccountOpAceIndex != 0xffffffff ) {
+
+            *NewDescriptor = LocalDescriptor;
+            *DescriptorLength = RtlLengthSecurityDescriptor(LocalDescriptor);
+            return(STATUS_SUCCESS);
+        } else {
+
+            //
+            // Add the size of an account operator ace to the required length
+            //
+
+            Length += sizeof(ACCESS_ALLOWED_ACE) +
+                        RtlLengthSid(AccountAliasSid) -
+                        sizeof(ULONG);
+        }
+
+    }
+
+    NewDacl = RtlAllocateHeap( RtlProcessHeap(), 0, Length );
+
+    if (NewDacl == NULL) {
+        NtStatus = STATUS_INSUFFICIENT_RESOURCES;
+        goto Cleanup;
+    }
+
+    IgnoreStatus = RtlCreateAcl( NewDacl, Length, ACL_REVISION2);
+    ASSERT( NT_SUCCESS(IgnoreStatus) );
+
+    //
+    // Add the old ACEs back into this ACL.
+    //
+
+    for (i = 0, j = 0; i < AclSizeInfo.AceCount; i++) {
+        if (i == AccountOpAceIndex) {
+            ASSERT(Admin);
+            continue;
+        }
+        //
+        // Add back in the old ACEs
+        //
+
+        IgnoreStatus = RtlGetAce(
+                            OldDacl,
+                            i,
+                            (PVOID *) &Ace
+                            );
+        ASSERT(NT_SUCCESS(IgnoreStatus));
+
+        IgnoreStatus = RtlAddAce (
+                            NewDacl,
+                            ACL_REVISION2,
+                            j,
+                            Ace,
+                            Ace->Header.AceSize
+                            );
+        ASSERT( NT_SUCCESS(IgnoreStatus) );
+    }
+
+    //
+    // If we are making this account not be an administrator, add the
+    // access allowed ACE for the account operator. This ACE is always
+    // the second to last one.
+    //
+
+    if (!Admin) {
+        IgnoreStatus = RtlAddAccessAllowedAce(
+                            NewDacl,
+                            ACL_REVISION2,
+                            AccountOpAccess,
+                            AccountAliasSid
+                            );
+        ASSERT(NT_SUCCESS(IgnoreStatus));
+    }
+
+    //
+    // Insert this DACL into the security descriptor.
+    //
+
+    IgnoreStatus = RtlSetDaclSecurityDescriptor (
+                        &AbsoluteDescriptor,
+                        TRUE,                   // DACL present
+                        NewDacl,
+                        FALSE                   // DACL not defaulted
+                        );
+    ASSERT(NT_SUCCESS(IgnoreStatus));
+
+    //
+    // Now call RtlSetSecurityObject to merge the existing security descriptor
+    // with the new DACL we just created.
+    //
+
+
+    NtStatus = RtlSetSecurityObject(
+                    DACL_SECURITY_INFORMATION,
+                    &AbsoluteDescriptor,
+                    &LocalDescriptor,
+                    GenericMapping,
+                    NULL
+                    );
+    if (!NT_SUCCESS(NtStatus)) {
+        goto Cleanup;
+    }
+    *NewDescriptor = LocalDescriptor;
+    *DescriptorLength = RtlLengthSecurityDescriptor(LocalDescriptor);
+    LocalDescriptor = NULL;
+Cleanup:
+
+    if ( NewDacl != NULL ) {
+        RtlFreeHeap(RtlProcessHeap(),0, NewDacl );
+    }
+    if (LocalDescriptor != NULL) {
+        RtlDeleteSecurityObject(&LocalDescriptor);
+    }
+
+    return( NtStatus );
+}
+
 
 
 NTSTATUS
@@ -1556,7 +1896,7 @@ Return Values:
         SecurityInformation parameter is not present in the security descriptor.
 
     STATUS_INVALID_PARAMETER - Indicates no security information was specified.
-                         
+
     STATUS_LAST_ADMIN - Indicates the new SD could potentially lead
         to the administrator account being unusable and therefore
         the new protection is being rejected.
@@ -1778,10 +2118,10 @@ Return Values:
             //
             // copy the retrieved descriptor into process heap so we can use RTL routines.
             //
-            
+
             SetSD = NULL;
             if (NT_SUCCESS(NtStatus)) {
-            
+
                 SetSD = RtlAllocateHeap( RtlProcessHeap(), 0, RetrieveSDLength );
                 if ( SetSD == NULL) {
                     NtStatus = STATUS_INSUFFICIENT_RESOURCES;
@@ -1789,25 +2129,25 @@ Return Values:
                     RtlCopyMemory( SetSD, RetrieveSD, RetrieveSDLength );
                 }
             }
-            
+
             if (NT_SUCCESS(NtStatus)) {
-            
+
                 //
                 // if the caller is replacing the owner and he is not
                 // trusted, then a handle to the impersonation token is
                 // necessary. If the caller is trusted then take process
                 // token.
                 //
-            
+
                 ClientToken = 0;
                 if ( (SecurityInformation & OWNER_SECURITY_INFORMATION) ) {
-            
+
                     if(!Context->TrustedClient) {
-            
+
                         NtStatus = I_RpcMapWin32Status(RpcImpersonateClient( NULL ));
-            
+
                         if (NT_SUCCESS(NtStatus)) {
-            
+
                             NtStatus = NtOpenThreadToken(
                                            NtCurrentThread(),
                                            TOKEN_QUERY,
@@ -1815,44 +2155,44 @@ Return Values:
                                            &ClientToken
                                            );
                             ASSERT( (ClientToken == 0) || NT_SUCCESS(NtStatus) );
-            
-            
-            
+
+
+
                             //
                             // Stop impersonating the client
                             //
-            
+
                             IgnoreStatus = I_RpcMapWin32Status(RpcRevertToSelf());
                             ASSERT( NT_SUCCESS(IgnoreStatus) );
                         }
                     }
                     else {
-            
+
                         //
                         // trusted client
                         //
-            
+
                         NtStatus = NtOpenProcessToken(
                                         NtCurrentProcess(),
                                         TOKEN_QUERY,
                                         &ClientToken );
-            
+
                         ASSERT( (ClientToken == 0) || NT_SUCCESS(NtStatus) );
-            
+
                     }
-            
+
                 }
-            
+
                 if (NT_SUCCESS(NtStatus)) {
-            
-            
+
+
                     //
                     // Build the replacement security descriptor.
                     // This must be done in process heap to satisfy the needs of the RTL
                     // routine.
                     //
-            
-            
+
+
                     NtStatus = RtlSetSecurityObject(
                                    SecurityInformation,
                                    PassedSD,
@@ -1864,15 +2204,15 @@ Return Values:
                         IgnoreStatus = NtClose( ClientToken );
                         ASSERT(NT_SUCCESS(IgnoreStatus));
                     }
-            
-            
-            
+
+
+
                     if (NT_SUCCESS(NtStatus)) {
-            
+
                         //
                         // Apply the security descriptor back onto the object.
                         //
-            
+
                         NtStatus = SampSetAccessAttribute(
                                        Context,
                                        SecurityDescriptorIndex,
@@ -1880,40 +2220,40 @@ Return Values:
                                        RtlLengthSecurityDescriptor(SetSD)
                                        );
                     }
-            
+
                 }
-            
-            
-            
+
+
+
             }
-            
-            
-            
-            
+
+
+
+
             //
             // Free up allocated memory
             //
-            
+
             if (RetrieveSD != NULL) {
                 MIDL_user_free( RetrieveSD );
             }
             if (SetSD != NULL) {
                 RtlFreeHeap( RtlProcessHeap(), 0, SetSD );
             }
-            
-            
-            
-            
+
+
+
+
             //
             // De-reference the object
             //
-            
+
             if ( NT_SUCCESS( NtStatus ) ) {
-            
+
                 NtStatus = SampDeReferenceContext( Context, TRUE );
-            
+
             } else {
-            
+
                 IgnoreStatus = SampDeReferenceContext( Context, FALSE );
             }
         }
@@ -2250,7 +2590,7 @@ Return Values:
     STATUS_LAST_ADMIN - Indicates the new SD could potentially lead
         to the administrator account being unusable and therefore
         the new protection is being rejected.
-        
+
 
 
 --*/
@@ -2272,7 +2612,7 @@ Return Values:
         DaclInfo;
 
     PACCESS_ALLOWED_ACE
-        Ace;     
+        Ace;
 
     ACCESS_MASK
         Accesses,

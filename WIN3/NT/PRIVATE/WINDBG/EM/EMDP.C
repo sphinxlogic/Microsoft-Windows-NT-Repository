@@ -29,6 +29,10 @@ Notes:
 
 #include "strings.h"
 
+#ifdef FE_IME
+#include <ime.h>
+#endif
+
 /*************************** DEFINES  *****************************/
 
 #define CBBUFFERDEF 1024
@@ -65,6 +69,8 @@ HTID            htidCurr = 0;
 TID             tidCurr  = 0;
 
 HLLI            HllEo = (HLLI) NULL;
+
+API_VERSION     ApiVersionForImagehlp = { 3, 5, API_VERSION_NUMBER, 0 };
 
 #ifdef OSDEBUG4
 
@@ -271,6 +277,29 @@ MSGINFO MsgInfo[] = {
     WM_DDE_REQUEST          , "WM_DDE_REQUEST"          , MSG_TYPE_DDE ,
     WM_DDE_POKE             , "WM_DDE_POKE"             , MSG_TYPE_DDE ,
     WM_DDE_EXECUTE          , "WM_DDE_EXECUTE"          , MSG_TYPE_DDE ,
+#ifdef FE_IME
+// we had better create IME class(e.g. MSG_TYPE_IME)
+// for the following messages.
+    WM_CONVERTREQUEST       , "WM_CONVERTREQUEST"       , MSG_TYPE_INPUT ,
+//    WM_CONVERTREQUESTEX     , "WM_CONVERTREQUESTEX"     , MSG_TYPE_INPUT ,
+    WM_CONVERTRESULT        , "WM_CONVERTRESULT"        , MSG_TYPE_INPUT ,
+    WM_IME_REPORT           , "WM_IME_REPORT"           , MSG_TYPE_INPUT ,
+    WM_IMEKEYDOWN           , "WM_IMEKEYDOWN"           , MSG_TYPE_INPUT ,
+    WM_IMEKEYUP             , "WM_IMEKEYUP"             , MSG_TYPE_INPUT ,
+    WM_INTERIM              , "WM_INTERIM"              , MSG_TYPE_INPUT ,
+    WM_IME_CHAR             , "WM_IME_CHAR"             , MSG_TYPE_INPUT ,
+    WM_IME_COMPOSITION      , "WM_IME_COMPOSITION"      , MSG_TYPE_INPUT ,
+    WM_IME_COMPOSITIONFULL  , "WM_IME_COMPOSITIONFULL"  , MSG_TYPE_INPUT ,
+    WM_IME_CONTROL          , "WM_IME_CONTROL"          , MSG_TYPE_INPUT ,
+    WM_IME_ENDCOMPOSITION   , "WM_IME_ENDCOMPOSITION"   , MSG_TYPE_INPUT ,
+    WM_IME_KEYDOWN          , "WM_IME_KEYDOWN"          , MSG_TYPE_INPUT ,
+    WM_IME_KEYLAST          , "WM_IME_KEYLAST"          , MSG_TYPE_INPUT ,
+    WM_IME_KEYUP            , "WM_IME_KEYUP"            , MSG_TYPE_INPUT ,
+    WM_IME_NOTIFY           , "WM_IME_NOTIFY"           , MSG_TYPE_INPUT ,
+    WM_IME_SELECT           , "WM_IME_SELECT"           , MSG_TYPE_INPUT ,
+    WM_IME_SETCONTEXT       , "WM_IME_SETCONTEXT"       , MSG_TYPE_INPUT ,
+    WM_IME_STARTCOMPOSITION , "WM_IME_STARTCOMPOSITION" , MSG_TYPE_INPUT ,
+#endif
 
     0                       , NULL                         , 0
 };
@@ -704,9 +733,9 @@ ReadPhysical (
     lpdbb->hpid = hpid;
     lpdbb->htid = NULL;
 
-    if ( cb + sizeof(DWORD) + sizeof(XOSD) > CbDmMsg ) {
+    if ( cb + sizeof(DWORD) + FIELD_OFFSET(DM_MSG, rgb) > CbDmMsg ) {
         MHFree ( LpDmMsg );
-        CbDmMsg = cb + sizeof ( DWORD ) + sizeof( XOSD);
+        CbDmMsg = cb + sizeof ( DWORD ) + FIELD_OFFSET(DM_MSG, rgb);
         LpDmMsg = MHAlloc ( CbDmMsg );
         CallTL ( tlfSetBuffer, lpdbb->hpid, CbDmMsg, LpDmMsg );
     }
@@ -1101,6 +1130,12 @@ Return Value:
      *  Retrieve the address to start the read at from the address buffer
      *  location
      */
+    if (cb == 0) {
+        if (lpcbRead) {
+            *lpcbRead = 0;
+        }
+        return xosdNone;
+    }
 
 #ifdef OSDEBUG4
     addr = *lpaddr;
@@ -1795,6 +1830,11 @@ GetRegValue (
             case CV_ALPHA_Fir:
             case CV_ALPHA_IntSP:
 #endif
+
+#ifdef TARGET_PPC
+            case CV_PPC_PC:
+            case CV_PPC_GPR1:
+#endif
                 if (!(lpthd->drt & drtCntrlPresent)) {
                     UpdateRegisters( lpthd->hprc, hthd );
                 }
@@ -1893,27 +1933,26 @@ GetRegValue (
     LLUnlock( hprc );
     LLUnlock( hthd );
 
-    lpvRegValue = DoGetReg ( lpregs, ireg & 0xff, lpvRegValue );
+    if (lpregs) {
+        lpvRegValue = DoGetReg ( lpregs, ireg & 0xff, lpvRegValue );
+    } else {
+        lpvRegValue = NULL;
+    }
+
+    if ( lpvRegValue != NULL ) {
+        ireg = ireg >> 8;
+
+        if ( ireg != CV_REG_NONE ) {
+            lpvRegValue = DoGetReg ( lpregs, ireg, lpvRegValue );
+        }
+    }
 
     if ( lpvRegValue == NULL ) {
-        LLUnlock ( hthd );
 #ifdef OSDEBUG4
         return xosdInvalidParameter;
 #else
         return xosdInvalidRegister;
 #endif
-    }
-    ireg = ireg >> 8;
-
-    if ( ireg != CV_REG_NONE ) {
-        lpvRegValue = DoGetReg ( lpregs, ireg, lpvRegValue );
-        if ( lpvRegValue == NULL ) {
-#ifdef OSDEBUG4
-            return xosdInvalidParameter;
-#else
-            return xosdInvalidRegister;
-#endif
-        }
     }
 
     return xosdNone;
@@ -2257,6 +2296,7 @@ SetFlagValue (
     LPCONTEXT   lpregs;
     LONG        mask;
     LONG        l;
+    LONGLONG    ll;
 
     hprc = ValidHprcFromHpid(hpid);
     if (!hprc) {
@@ -2279,30 +2319,59 @@ SetFlagValue (
 
 #ifdef OSDEBUG4
 
-    if (DoGetReg ( lpregs, Rgfd[iFlag].fd.dwId, &l ) == NULL) {
-        LLUnlock( hthd );
-        return xosdInvalidParameter;
+    if (Rgrd[Rgfd[iFlag].fd.dwId].dwcbits > 32) {
+
+        if (DoGetReg ( lpregs, Rgfd[iFlag].fd.dwId, &ll ) == NULL) {
+            LLUnlock( hthd );
+            return xosdInvalidParameter;
+        }
+
+        mask = (1 << Rgfd[iFlag].fd.dwcbits) - 1;
+        mask <<= Rgfd[iFlag].iShift;
+        ll &= ~mask;
+        ll |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
+        DoSetReg(lpregs, Rgfd[iFlag].fd.dwId, &ll );
+
+    } else {
+
+        if (DoGetReg ( lpregs, Rgfd[iFlag].fd.dwId, &l ) == NULL) {
+            LLUnlock( hthd );
+            return xosdInvalidParameter;
+        }
+
+        mask = (1 << Rgfd[iFlag].fd.dwcbits) - 1;
+        mask <<= Rgfd[iFlag].iShift;
+        l &= ~mask;
+        l |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
+        DoSetReg(lpregs, Rgfd[iFlag].fd.dwId, &l );
     }
-
-    mask = (1 << Rgfd[iFlag].fd.dwcbits) - 1;
-    mask <<= Rgfd[iFlag].iShift;
-    l &= ~mask;
-    l |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
-    DoSetReg(lpregs, Rgfd[iFlag].fd.dwId, &l );
-
 #else
+    if (Rgrd[Rgfd[iFlag].fd.hReg].cbits > 32) {
 
-    if (DoGetReg ( lpregs, Rgfd[iFlag].fd.hReg, &l ) == NULL) {
-        LLUnlock( hthd );
-        return xosdInvalidRegister;
+        if (DoGetReg ( lpregs, Rgfd[iFlag].fd.hReg, &ll ) == NULL) {
+            LLUnlock( hthd );
+            return xosdInvalidRegister;
+        }
+
+        mask = (1 << Rgfd[iFlag].fd.cbits) - 1;
+        mask <<= Rgfd[iFlag].iShift;
+        ll &= ~mask;
+        ll |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
+        DoSetReg(lpregs, Rgfd[iFlag].fd.hReg, &ll );
+
+    } else {
+
+        if (DoGetReg ( lpregs, Rgfd[iFlag].fd.hReg, &l ) == NULL) {
+            LLUnlock( hthd );
+            return xosdInvalidRegister;
+        }
+
+        mask = (1 << Rgfd[iFlag].fd.cbits) - 1;
+        mask <<= Rgfd[iFlag].iShift;
+        l &= ~mask;
+        l |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
+        DoSetReg(lpregs, Rgfd[iFlag].fd.hReg, &l );
     }
-
-    mask = (1 << Rgfd[iFlag].fd.cbits) - 1;
-    mask <<= Rgfd[iFlag].iShift;
-    l &= ~mask;
-    l |= ((*((ULONG FAR *) lpvRegValue)) << Rgfd[iFlag].iShift) & mask;
-    DoSetReg(lpregs, Rgfd[iFlag].fd.hReg, &l );
-
 #endif
 
     lpthd->drt |= drtAllDirty;
@@ -2519,35 +2588,6 @@ GetPrevInst (
 }
 #endif // OSDEBUG4
 
-
-#ifdef UNUSED
-XOSD
-GetObjLength (
-    HPID  hpid,
-    LPGOL lpgol
-    )
-{
-    BYTE rgb [ sizeof ( DBB ) + sizeof ( WORD ) ];
-    LPDBB lpdbb = (LPDBB) rgb;
-
-    if ( emiAddr ( *(lpgol->lpaddr) ) == NULL ) {
-        SetEmi ( hpid, lpgol->lpaddr );
-    }
-
-    *(lpgol->lplBase) = 0L;
-    lpdbb->dmf = dmfSelLim;
-    lpdbb->hpid = hpid;
-    lpdbb->htid = NULL;
-    *( (WORD *) lpdbb->rgbVar) = GetAddrSeg ( *(lpgol->lpaddr) );
-
-    CallTL ( tlfRequest, hpid, sizeof ( DBB ) + sizeof ( WORD ), rgb );
-
-    *(lpgol->lplLen) = (LONG) * ( (WORD *) LpDmMsg->rgb );
-
-    return xosdNone;
-}
-
-#endif // UNUSED
 
 //
 // Return xosdContinue if overlay is loaded
@@ -2859,7 +2899,7 @@ DoCustomCommand(
     *p = '\0';
 
     //
-    // this is where you would stricmp() for your custom em command
+    // this is where you would _stricmp() for your custom em command
     // otherwise it is passed to the dm
     //
 
@@ -3342,6 +3382,8 @@ Other:
         LpDmMsg = MHAlloc ( CBBUFFERDEF );
         CbDmMsg = CBBUFFERDEF;
         CallTL ( tlfSetBuffer, hpid, CBBUFFERDEF, LpDmMsg );
+
+        ImagehlpApiVersionEx(&ApiVersionForImagehlp);
 
         break;
 

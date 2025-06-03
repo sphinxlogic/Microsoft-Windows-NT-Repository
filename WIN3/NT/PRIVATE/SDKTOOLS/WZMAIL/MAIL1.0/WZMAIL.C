@@ -224,23 +224,23 @@ COORD localScreenSize;
 //
 //  Screen attributes
 //
-#define     BLACK_FGD       0
-#define     BLUE_FGD        FOREGROUND_BLUE
-#define     GREEN_FGD       FOREGROUND_GREEN
-#define     CYAN_FGD        (FOREGROUND_BLUE | FOREGROUND_GREEN)
-#define     RED_FGD         FOREGROUND_RED
-#define     MAGENTA_FGD     (FOREGROUND_BLUE | FOREGROUND_RED)
-#define     YELLOW_FGD      (FOREGROUND_GREEN | FOREGROUND_RED)
-#define     WHITE_FGD       (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED)
+#define     BLACK_FGD       0
+#define     BLUE_FGD        FOREGROUND_BLUE
+#define     GREEN_FGD       FOREGROUND_GREEN
+#define     CYAN_FGD        (FOREGROUND_BLUE | FOREGROUND_GREEN)
+#define     RED_FGD         FOREGROUND_RED
+#define     MAGENTA_FGD     (FOREGROUND_BLUE | FOREGROUND_RED)
+#define     YELLOW_FGD      (FOREGROUND_GREEN | FOREGROUND_RED)
+#define     WHITE_FGD       (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED)
 
-#define     BLACK_BGD       0
-#define     BLUE_BGD        BACKGROUND_BLUE
-#define     GREEN_BGD       BACKGROUND_GREEN
-#define     CYAN_BGD        (BACKGROUND_BLUE | BACKGROUND_GREEN)
-#define     RED_BGD         BACKGROUND_RED
-#define     MAGENTA_BGD     (BACKGROUND_BLUE | BACKGROUND_RED)
-#define     YELLOW_BGD      (BACKGROUND_GREEN | BACKGROUND_RED)
-#define     WHITE_BGD       (BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED)
+#define     BLACK_BGD       0
+#define     BLUE_BGD        BACKGROUND_BLUE
+#define     GREEN_BGD       BACKGROUND_GREEN
+#define     CYAN_BGD        (BACKGROUND_BLUE | BACKGROUND_GREEN)
+#define     RED_BGD         BACKGROUND_RED
+#define     MAGENTA_BGD     (BACKGROUND_BLUE | BACKGROUND_RED)
+#define     YELLOW_BGD      (BACKGROUND_GREEN | BACKGROUND_RED)
+#define     WHITE_BGD       (BACKGROUND_BLUE | BACKGROUND_GREEN | BACKGROUND_RED)
 
 //
 //  The AttrBg and AttrFg arrays are used for mapping DOS attributes
@@ -1349,4 +1349,4 @@ void PASCAL INTERNAL SetMaxPasswordAge(void)
     if (lPasswordAge < 1 || lPasswordAge > 43200)   //incorrect time maps
         lPasswordAge = 21600;                       //to 6 hour default
 }
-
+

@@ -582,4 +582,3 @@ LONG lParam;
     EndLongOp(vhcArrow);
     return (TRUE);
     }
-

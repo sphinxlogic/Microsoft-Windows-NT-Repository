@@ -41,8 +41,12 @@ extern PCHAR SearchStrings[];
 extern PCHAR BiosBegin;
 extern PCHAR Start;
 extern PCHAR End;
+extern UCHAR CmpID1[];
+extern UCHAR CmpID2[];
 extern WCHAR CmpVendorID[];
 extern WCHAR CmpFeatureBits[];
+extern WCHAR CmpMHz[];
+extern WCHAR CmpUpdateSignature[];
 extern UCHAR CmpCyrixID[];
 
 //
@@ -74,15 +78,6 @@ CmpGetBiosDate (
     PCHAR SearchArea,
     ULONG SearchLength,
     PCHAR DateString
-    );
-
-VOID
-Ke386CpuID (
-    ULONG   InEax,
-    PULONG  OutEax,
-    PULONG  OutEbx,
-    PULONG  OutEcx,
-    PULONG  OutEdx
     );
 
 ULONG
@@ -390,7 +385,6 @@ Returns:
     UCHAR  Buffer[MAXIMUM_BIOS_VERSION_LENGTH];
     PKPRCB Prcb;
     ULONG  i, Junk;
-    ULONG  FeatureBits;
     ULONG VersionsLength = 0, Length;
     PCHAR VersionStrings, VersionPointer;
     UNICODE_STRING SectionName;
@@ -398,6 +392,11 @@ Returns:
     LARGE_INTEGER ViewBase;
     PVOID BaseAddress;
     HANDLE SectionHandle;
+    UCHAR DeviceIndexTable[NUMBER_TYPES];
+
+    for (i = 0; i < NUMBER_TYPES; i++) {
+        DeviceIndexTable[i] = 0;
+    }
 
     InitializeObjectAttributes( &ObjectAttributes,
                                 &CmRegistryMachineHardwareDescriptionSystemName,
@@ -479,7 +478,7 @@ Returns:
                 // Old style stepping format
                 //
 
-                sprintf (Buffer, "80%x86-%c%x",
+                sprintf (Buffer, CmpID1,
                     Prcb->CpuType,
                     (Prcb->CpuStep >> 8) + 'A',
                     Prcb->CpuStep & 0xff
@@ -491,7 +490,7 @@ Returns:
                 // New style stepping format
                 //
 
-                sprintf (Buffer, "x86 Family %x Model %x Stepping %x",
+                sprintf (Buffer, CmpID2,
                     Prcb->CpuType,
                     (Prcb->CpuStep >> 8),
                     Prcb->CpuStep & 0xff
@@ -506,7 +505,8 @@ Returns:
                 ParentHandle,
                 &BaseHandle,
                 -1,
-                (ULONG)-1
+                (ULONG)-1,
+                DeviceIndexTable
                 );
 
             if (!NT_SUCCESS(Status)) {
@@ -541,7 +541,8 @@ Returns:
                     ParentHandle,
                     &NpxHandle,
                     -1,
-                    (ULONG)-1
+                    (ULONG)-1,
+                    DeviceIndexTable
                     );
 
                 if (!NT_SUCCESS(Status)) {
@@ -557,28 +558,16 @@ Returns:
             // go obtain that information for the registry
             //
 
-            FeatureBits = 0;
-            VendorID = NULL;
+            VendorID = Prcb->CpuID ? Prcb->VendorString : NULL;
 
             //
-            // Move to target processor and get other releated
+            // Move to target processor and get other related
             // processor information for the registery
             //
 
-            KeSetAffinityThread(KeGetCurrentThread(), (KAFFINITY) 1 << i);
+            KeSetSystemAffinityThread(Prcb->SetMember);
 
-            if (Prcb->CpuID) {
-                //
-                // Get vendor string, and feature bits
-                //
-
-                Ke386CpuID (0, &Junk, Buffer+0, Buffer+8, Buffer+4);
-                Ke386CpuID (1, &Junk, &Junk, &Junk, &FeatureBits);
-
-                VendorID = Buffer;
-                Buffer[12] = 0;
-
-            } else {
+            if (!Prcb->CpuID) {
 
                 //
                 // Test for Cyrix processor
@@ -593,7 +582,7 @@ Returns:
             // Restore thread's affinity to all processors
             //
 
-            KeSetAffinityThread(KeGetCurrentThread(), KeActiveProcessors);
+            KeRevertToUserAffinityThread();
 
             if (VendorID) {
 
@@ -629,7 +618,7 @@ Returns:
                 RtlFreeUnicodeString(&ValueData);
             }
 
-            if (FeatureBits) {
+            if (Prcb->FeatureBits) {
                 //
                 // Add processor feature bits to the registery
                 //
@@ -644,8 +633,48 @@ Returns:
                             &ValueName,
                             TITLE_INDEX_VALUE,
                             REG_DWORD,
-                            &FeatureBits,
-                            sizeof (FeatureBits)
+                            &Prcb->FeatureBits,
+                            sizeof (Prcb->FeatureBits)
+                            );
+            }
+
+            if (Prcb->MHz) {
+                //
+                // Add processor MHz to the registery
+                //
+
+                RtlInitUnicodeString(
+                    &ValueName,
+                    CmpMHz
+                    );
+
+                Status = NtSetValueKey(
+                            BaseHandle,
+                            &ValueName,
+                            TITLE_INDEX_VALUE,
+                            REG_DWORD,
+                            &Prcb->MHz,
+                            sizeof (Prcb->MHz)
+                            );
+            }
+
+            if (Prcb->UpdateSignature.QuadPart) {
+                //
+                // Add processor MHz to the registery
+                //
+
+                RtlInitUnicodeString(
+                    &ValueName,
+                    CmpUpdateSignature
+                    );
+
+                Status = NtSetValueKey(
+                            BaseHandle,
+                            &ValueName,
+                            TITLE_INDEX_VALUE,
+                            REG_BINARY,
+                            &Prcb->UpdateSignature,
+                            sizeof (Prcb->UpdateSignature)
                             );
             }
 
@@ -980,127 +1009,4 @@ AllDone:
     //
 
     return STATUS_SUCCESS;
-}
-
-
-VOID
-CmpConfigureProcessors (
-    VOID
-    )
-{
-    OBJECT_ATTRIBUTES   objectAttributes;
-    HANDLE              hControl, hSession;
-    UNICODE_STRING      Name;
-    UCHAR               Buffer [sizeof(KEY_VALUE_PARTIAL_INFORMATION)+sizeof(ULONG)];
-
-    PAGED_CODE();
-
-    //
-    // Open CurrentControlSet
-    //
-
-    InitializeObjectAttributes (&objectAttibutes,
-                    CmpRegistryMachineSystemCurrentControlSetString
-                    OBJ_CASE_INSENSITIVE,
-                    NULL,
-                    NULL );
-
-    status = NtOpenKey (&hControl, KEY_READ | KEY_WRITE, &objectAttibutes);
-    if (!NT_SUCCESS(status)) {
-        return ;
-    }
-
-    //
-    // Open Control\Session Manager
-    //
-
-    RtlInitUnicodeString (&Name, L"Control\\Session Manager");
-    InitializeObjectAttributes (&objectAttibutes,
-                    &Name,
-                    OBJ_CASE_INSENSITIVE,
-                    hControl,
-                    NULL );
-
-    status = NtOpenKey (&hSession, KEY_READ | KEY_WRITE, &objectAttibutes );
-    NtClose (hControl);
-    if (!NT_SUCCESS(status)) {
-        return ;
-    }
-
-    //
-    // Determine if CPU control registers are to be altered
-    //
-
-    RtlInitUnicodeString (&Name, CmpControlRegisters);
-    status = NtQueryValueKey ( hSession,
-                            &Name,
-                            KeyValuePartialInformation,
-                            Buffer,
-                            sizeof (Buffer),
-                            &length );
-
-    Value = 0;
-    if (NT_SUCCESS(status)) {
-        Value = ((PKEY_VALUE_PARTIAL_INFORMATION)Buffer)->Data[1];
-    }
-
-    if (Value & 1) {
-        //
-        // If lowbit is set, do not alter control state
-        //
-
-        NtClose (hSession);
-        return ;
-    }
-
-    //
-    // Read & Alter processor control state
-    //
-
-    if (!(Value & 4)) {
-
-        //
-        // This is the first time trying this, first write a one
-        // into the registery in case we crash while alterting the
-        // processors control settings.  (so we won't do it again next time)
-        //
-
-        Value = 1;
-        NtSetValueKey (hSession, &Name, 0L, REG_DWORD, &Value, sizeof (Value));
-        NtFlushKey    (hSession);
-    }
-
-    //
-    // Run each processor, and set it's best NT configuration
-    //
-
-    for (i=0; i < (ULONG)KeNumberProcessors; i++) {
-        KeSetAffinityThread(KeGetCurrentThread(), (KAFFINITY) 1 << i);
-
-#if i386
-        // for now x86 only
-        KeOptimizeProcessorControlState ();
-#endif
-    }
-
-    //
-    // Restore threads affinity
-    //
-
-    KeSetAffinityThread(KeGetCurrentThread(), KeActiveProcessors);
-
-    if (!(Value & 4)) {
-        //
-        // Processor settings worked, set registry value for next boot
-        //
-
-        Value |= 2;     // busy work
-        NtSetValueKey (hSession, &Name, 0L, REG_DWORD, &Value, sizeof (Value));
-        NtFlushKey (hSession);
-
-        Value |= 4;     // it worked, assume we're safe
-        NtSetValueKey (hSession, &Name, 0L, REG_DWORD, &Value, sizeof (Value));
-    }
-
-    NtClose (hSession);
 }

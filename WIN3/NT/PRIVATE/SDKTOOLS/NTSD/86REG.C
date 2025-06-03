@@ -16,11 +16,11 @@
 #include <string.h>
 #include "ntsdp.h"
 #include "86reg.h"
-#ifdef KERNEL
+#if defined(KERNEL) && defined(i386)
 #include <ntos.h>
 #endif
 
-#ifdef KERNEL
+#if defined(KERNEL) && defined(i386)
 #include <ntos.h>
 extern USHORT NtsdCurrentProcessor;
 extern ULONG NumberProcessors;
@@ -44,22 +44,10 @@ extern  int     fControlC;
 
 extern  PUCHAR  UserRegs[10];
 
-ULONG   X86GetRegValue(ULONG);
-ULONG   X86GetRegFlagValue(ULONG);
-void    X86SetRegValue(ULONG, ULONG);
-void    X86SetRegFlagValue(ULONG, ULONG);
-ULONG   X86GetRegName(void);
-ULONG   X86GetRegString(PUCHAR);
-void    X86GetRegPCValue(PADDR);
-PADDR   X86GetRegFPValue(void);
-void    X86SetRegPCValue(PADDR);
-void    X86OutputAllRegs(void);
-void    X86OutputOneReg(ULONG);
 BOOLEAN X86fDelayInstruction(void);
 void    X86OutputHelp(void);
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 BOOLEAN fTraceFlag;
-void    ChangeKdRegContext(ULONG, PDBGKD_CONTROL_REPORT);
 void    InitFirCache(ULONG, PUCHAR);
 void    SaveProcessorState(void);
 void    RestoreProcessorState(void);
@@ -77,7 +65,7 @@ PUCHAR  X86RegNameFromIndex(ULONG);
 
 extern PUCHAR  pchCommand;    //  current pointer in command buffer
 
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 KSPECIAL_REGISTERS SpecialRegContext, SavedSpecialRegContext;
 ULONG   TerseLevel = 1;
 #endif
@@ -91,9 +79,7 @@ ULONG   VDMContextType = VDMCONTEXT_CONTROL | VDMCONTEXT_INTEGER | VDMCONTEXT_SE
 ULONG   VDMContextType = VDMCONTEXT_CONTROL | VDMCONTEXT_INTEGER | VDMCONTEXT_SEGMENTS;
 #endif
 
-#ifdef  KERNEL
-//ULONG   cbCacheValid;
-//UCHAR   bCacheValid[16];
+#if defined(KERNEL) && defined(i386)
 ULONG   contextState, SavedContextState;
 #define CONTEXTNONE     5       //  no context
 #define CONTEXTFIR      0       //  only unchanged FIR in context
@@ -122,7 +108,7 @@ char    szCsReg[]    = "cs";
 char    szEflReg[]   = "efl";
 char    szEspReg[]   = "esp";
 char    szSsReg[]    = "ss";
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 char    szCr0Reg[]   = "cr0";
 char    szCr2Reg[]   = "cr2";
 char    szCr3Reg[]   = "cr3";
@@ -203,7 +189,7 @@ struct Reg regname[] = {
         { szEflReg,   REGEFL   },
         { szEspReg,   REGESP   },
         { szSsReg,    REGSS    },
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
         { szCr0Reg,   REGCR0   },
         { szCr2Reg,   REGCR2   },
         { szCr3Reg,   REGCR3   },
@@ -318,17 +304,20 @@ struct SubReg X86subregname[] = {
 *
 *************************************************************************/
 
-ULONG X86GetRegFlagValue (ULONG regnum)
+ULONG
+X86GetRegFlagValue (
+    ULONG regnum
+    )
 {
     ULONG value;
 
-    if (regnum < FLAGBASE)
+    if (regnum < FLAGBASE) {
         value = X86GetRegValue(regnum);
-    else {
+    } else {
         regnum -= FLAGBASE;
         value = X86GetRegValue(X86subregname[regnum].regindex);
         value = (value >> X86subregname[regnum].shift) & X86subregname[regnum].mask;
-        }
+    }
     return value;
 }
 
@@ -346,9 +335,12 @@ ULONG X86GetRegFlagValue (ULONG regnum)
 *
 *************************************************************************/
 
-ULONG X86GetRegValue (ULONG regnum)
+ULONG
+X86GetRegValue (
+    ULONG regnum
+    )
 {
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     ULONG   cBytesRead;
     NTSTATUS NtStatus;
 
@@ -367,9 +359,7 @@ ULONG X86GetRegValue (ULONG regnum)
             // api we have)
             //
 
-            NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &VDMRegisterContext);
-
-            if (!NT_SUCCESS(NtStatus)) {
+            if (!DbgGetThreadContext(NtsdCurrentProcessor, &VDMRegisterContext)) {
                 dprintf("DbgKdGetContext failed\n");
                 exit(1);
             }
@@ -396,9 +386,7 @@ ULONG X86GetRegValue (ULONG regnum)
 
         case CONTEXTNONE:
             if (contextState < CONTEXTHALF || contextState == CONTEXTNONE) {
-                NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &VDMRegisterContext);
-
-                if (!NT_SUCCESS(NtStatus)) {
+                if (!DbgGetThreadContext(NtsdCurrentProcessor, &VDMRegisterContext)) {
                     dprintf("DbgKdGetContext failed\n");
                     exit(1);
                 }
@@ -501,7 +489,7 @@ ULONG X86GetRegValue (ULONG regnum)
                 ULONG   oldBP;
                 ULONG   retAddr;
                 } stackRead;
-            FormAddress(&stackBP, X86GetRegValue(REGSS), X86GetRegValue(REGEBP));
+            FormAddress(&stackBP, (ULONG)X86GetRegValue(REGSS), (ULONG)X86GetRegValue(REGEBP));
             GetMemString(&stackBP, (PUCHAR)&stackRead, sizeof(stackRead));
             return stackRead.retAddr;
             }
@@ -519,7 +507,7 @@ ULONG X86GetRegValue (ULONG regnum)
         case PREGU9:
             return (ULONG)UserRegs[regnum - PREGU0];
 
-#ifdef KERNEL
+#if defined(KERNEL) && defined(i386)
         case REGCR0:
             return SpecialRegContext.Cr0;
         case REGCR2:
@@ -554,7 +542,7 @@ ULONG X86GetRegValue (ULONG regnum)
             return (ULONG)SpecialRegContext.Ldtr;
 #endif
 
-#ifndef KERNEL
+#if !defined(KERNEL) && defined(i386)
         case REGDR0:
             return VDMRegisterContext.Dr0;
         case REGDR1:
@@ -649,18 +637,15 @@ void X86SetRegFlagValue (ULONG regnum, ULONG regvalue)
 
 void X86SetRegValue (ULONG regnum, ULONG regvalue)
 {
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     ULONG   cBytesRead;
     NTSTATUS NtStatus;
-
-    //fprintf (stdout, "X86SetRegValue %d to %x\n", regnum, regvalue);
 
     if ((regnum == REGEIP && regvalue != VDMRegisterContext.Eip)
                         || (regnum != REGEIP && regnum != REGDR7)) {
 
         if (!FullContextPresent[contextState]) {
-            NtStatus = DbgKdGetContext(NtsdCurrentProcessor,&VDMRegisterContext);
-            if (!NT_SUCCESS(NtStatus)) {
+            if (!DbgGetThreadContext(NtsdCurrentProcessor, &VDMRegisterContext)) {
                 dprintf("DbgKdGetContext failed\n");
                 exit(1);
                 }
@@ -722,7 +707,7 @@ void X86SetRegValue (ULONG regnum, ULONG regvalue)
             VDMRegisterContext.SegCs = regvalue;
             break;
         case REGEFL:
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
             VDMRegisterContext.EFlags = regvalue & ~0x100;  // leave TF clear
 #else
             VDMRegisterContext.EFlags = regvalue;           // allow TF set
@@ -734,7 +719,7 @@ void X86SetRegValue (ULONG regnum, ULONG regvalue)
         case REGSS:
             VDMRegisterContext.SegSs = regvalue;
             break;
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
         case REGCR0:
             SpecialRegContext.Cr0 = regvalue;
             break;
@@ -785,7 +770,7 @@ void X86SetRegValue (ULONG regnum, ULONG regvalue)
             break;
 #endif
 
-#ifndef KERNEL
+#if !defined(KERNEL) && defined(i386)
         case REGDR0:
             VDMRegisterContext.Dr0 = regvalue;
             break;
@@ -865,19 +850,29 @@ void X86GetRegPCValue (PADDR Address)
         }
     else {
         DESCRIPTOR_TABLE_ENTRY desc;
+        static USHORT MainCodeSeg = 0;
+        ULONG base;
+
         Address->seg  = (USHORT)(desc.Selector = X86GetRegValue(REGCS));
 #ifdef i386
-           DbgKdLookupSelector(NtsdCurrentProcessor, &desc);
-        if ( (Address->seg & 0x0004) == 0x0004 ) {
-           Address->type = desc.Descriptor.HighWord.Bits.Default_Big
-                                                  ? ADDR_1632 : ADDR_16;
-
-           } else {
-           Address->type = desc.Descriptor.HighWord.Bits.Default_Big
-                                                  ? ADDR_32 : ADDR_16;
-           }
+        DbgKdLookupSelector(NtsdCurrentProcessor, &desc);
+        Address->type = desc.Descriptor.HighWord.Bits.Default_Big
+                                                    ? ADDR_1632 : ADDR_16;
+        if ( Address->type == ADDR_1632 ) {
+            if ( MainCodeSeg == 0 ) {
+                base =   ((ULONG)desc.Descriptor.HighWord.Bytes.BaseHi << 24)
+                       + ((ULONG)desc.Descriptor.HighWord.Bytes.BaseMid << 16)
+                       + ((ULONG)desc.Descriptor.BaseLow);
+                if ( base == 0 ) {
+                    MainCodeSeg = Address->seg;
+                }
+            }
+            if ( Address->seg == MainCodeSeg ) {
+                Address->type = ADDR_32;
+            }
+        }
 #else
-           Address->type = ADDR_16;
+        Address->type = ADDR_16;
 #endif
         ComputeFlatAddress(Address, &desc);
         }
@@ -963,7 +958,7 @@ void X86OutputAllRegs(void)
         X86GetRegFlagValue(FLAGAF) ? "ac" : "na",
         X86GetRegFlagValue(FLAGPF) ? "po" : "pe",
         X86GetRegFlagValue(FLAGCF) ? "cy" : "nc");
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     if (TerseLevel >= 3)
         return ;
 #endif
@@ -976,7 +971,7 @@ void X86OutputAllRegs(void)
                 X86GetRegValue(REGFS),
                 X86GetRegValue(REGGS),
         X86GetRegFlagValue(REGEFL));
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     if (TerseLevel >= 2)
         return ;
 
@@ -1026,15 +1021,19 @@ void X86OutputAllRegs(void)
 *
 *************************************************************************/
 
-void X86OutputOneReg (ULONG regnum)
+VOID
+X86OutputOneReg(
+    ULONG regnum
+    )
 {
     ULONG value;
 
     value = X86GetRegFlagValue(regnum);
-    if (regnum < FLAGBASE)
+    if (regnum < FLAGBASE) {
         dprintf("%08lx\n", value);
-    else
+    } else{
         dprintf("%lx\n", value);
+    }
 }
 
 BOOLEAN X86fDelayInstruction (void)
@@ -1057,14 +1056,14 @@ BOOLEAN X86fDelayInstruction (void)
 
 void X86OutputHelp (void)
 {
-#ifndef KERNEL
+#if defined(KERNEL) && defined(i386)
 dprintf("A [<address>] - assemble              N [<radix>] - set / show radix\n");
 dprintf("BA[#] <e|r|w|i><1|2|4> <addr> - addr bp P[R] [=<addr>] [<value>] - program step\n");
 dprintf("BC[<bp>] - clear breakpoint(s)        Q - quit\n");
 dprintf("BD[<bp>] - disable breakpoint(s)      R[T] [[<reg> [= <value>]]] - reg/flag\n");
 dprintf("BE[<bp>] - enable breakpoint(s)       #R[T] - multiprocessor register dump\n");
 dprintf("BL[<bp>] - list breakpoint(s)         S <range> <list> - search\n");
-dprintf("BP[#] <address> - set breakpoint      S+/S&/S- - set source/mixed/assembly\n");
+dprintf("BP[#] <address> - set breakpoint\n");
 dprintf("C <range> <address> - compare         SS <n | a | w> - set symbol suffix\n");
 dprintf("D[type][<range>] - dump memory        T[R] [=<address>] [<value>] - trace\n");
 dprintf("E[type] <address> [<list>] - enter    U [<range>] - unassemble\n");
@@ -1081,7 +1080,6 @@ dprintf("| - list processes status             |#s - set default process\n");
 dprintf("|#<command> - default process override\n");
 dprintf("? <expr> - display expression\n");
 dprintf("#<string> [address] - search for a string in the dissasembly\n");
-pause();
 dprintf("$< <filename> - take input from a command file\n");
 dprintf("\n");
 dprintf("<expr> ops: + - * / not by wo dw poi mod(%) and(&) xor(^) or(|) hi low\n");
@@ -1104,7 +1102,7 @@ dprintf("BC[<bp>] - clear breakpoint(s)        Q - quit\n");
 dprintf("BD[<bp>] - disable breakpoint(s)      R[T] [[<reg> [= <value>]]] - reg/flag\n");
 dprintf("BE[<bp>] - enable breakpoint(s)       #R[T] - multiprocessor register dump\n");
 dprintf("BL[<bp>] - list breakpoint(s)         S <range> <list> - search\n");
-dprintf("BP[#] <address> - set breakpoint      S+/S&/S- - set source/mixed/assembly\n");
+dprintf("BP[#] <address> - set breakpoint\n");
 dprintf("C <range> <address> - compare         SS <n | a | w> - set symbol suffix\n");
 dprintf("D[type][<range>] - dump memory        T[R] [=<address>] [<value>] - trace\n");
 dprintf("E[type] <address> [<list>] - enter    U [<range>] - unassemble\n");
@@ -1122,7 +1120,6 @@ dprintf("$< <filename> - take input from a command file\n");
 dprintf("\n");
 dprintf("<expr> ops: + - * / not by wo dw poi mod(%) and(&) xor(^) or(|) hi low\n");
 dprintf("       operands: number in current radix, public symbol, <reg>\n");
-pause();
 dprintf("<type> : B (byte), W (word), D (doubleword), A (ascii)\n");
 dprintf("         U (unicode), L (list), O (object)\n");
 dprintf("<pattern> : [(nt | <dll-name>)!]<var-name> (<var-name> can include ? and *)\n");
@@ -1137,7 +1134,7 @@ dprintf("         &<V86-mode [seg:]address>\n");
 #endif
 }
 
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 BOOLEAN X86GetTraceFlag (void)
 {
     return fTraceFlag;
@@ -1146,7 +1143,7 @@ BOOLEAN X86GetTraceFlag (void)
 
 void X86ClearTraceFlag (void)
 {
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     fTraceFlag = FALSE;
 #else
     X86SetRegFlagValue(FLAGTF, 0);
@@ -1155,14 +1152,14 @@ void X86ClearTraceFlag (void)
 
 void X86SetTraceFlag (void)
 {
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
     fTraceFlag = TRUE;
 #else
     X86SetRegFlagValue(FLAGTF, 1);
 #endif
 }
 
-#ifdef KERNEL
+#if defined(KERNEL) && defined(i386)
 /*** GetRegContext - return register context pointer
 *
 *   Purpose:
@@ -1179,11 +1176,9 @@ void X86SetTraceFlag (void)
 
 PCONTEXT GetRegContext (void)
 {
-    NTSTATUS NtStatus;
 
     if (contextState == CONTEXTFIR) {
-        NtStatus = DbgKdGetContext(NtsdCurrentProcessor, &RegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
+        if (!DbgGetThreadContext(NtsdCurrentProcessor, &RegisterContext)) {
             dprintf("DbgKdGetContext failed\n");
             exit(1);
             }
@@ -1220,8 +1215,7 @@ void ChangeKdRegContext(ULONG pcValue, PDBGKD_CONTROL_REPORT pCtlReport)
         }
 
     } else if (contextState == CONTEXTDIRTY) {    //  write final context
-        NtStatus = DbgKdSetContext(NtsdCurrentProcessor,&VDMRegisterContext);
-        if (!NT_SUCCESS(NtStatus)) {
+        if (!DbgSetThreadContext(NtsdCurrentProcessor, &VDMRegisterContext)) {
             dprintf("DbgKdSetContext failed\n");
             exit(1);
             }
@@ -1272,7 +1266,7 @@ void ChangeKdRegContext(ULONG pcValue, PDBGKD_CONTROL_REPORT pCtlReport)
 }
 #endif
 
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 void InitFirCache (ULONG count, PUCHAR pstream)
 {
     //
@@ -1285,25 +1279,34 @@ void InitFirCache (ULONG count, PUCHAR pstream)
 }
 #endif
 
-ULONG   GetDregValue (ULONG index)
+ULONG
+GetDregValue (
+    ULONG index
+    )
 {
-    if (index < 4)
+    if (index < 4) {
         index += REGDR0;
-    else
+    } else {
         index += REGDR6 - 6;
+    }
     return X86GetRegValue(index);
 }
 
-void SetDregValue (ULONG index, ULONG value)
+VOID
+SetDregValue (
+    ULONG index,
+    ULONG value
+    )
 {
-    if (index < 4)
+    if (index < 4) {
         index += REGDR0;
-    else
+    } else {
         index += REGDR6 - 6;
+    }
     X86SetRegValue(index, value);
 }
 
-#ifdef  KERNEL
+#if defined(KERNEL) && defined(i386)
 void SaveProcessorState(void)
 {
     PreviousProcessor = NtsdCurrentProcessor;
@@ -1324,7 +1327,7 @@ void RestoreProcessorState(void)
 
 
 #ifdef i386
-ULONG STGetRegValue (ULONG regnum)
+ULONGLONG STGetRegValue (ULONG regnum)
 {
     if (!STtrace) {
         return X86GetRegValue(regnum);
@@ -1351,3 +1354,32 @@ PUCHAR X86RegNameFromIndex (ULONG index)
             return regname[count].psz;
     return NULL;
 }
+
+#if defined(i386)
+BOOL
+DbgGetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdGetContext(TorP, Context));
+#else  // KERNEL
+    return GetThreadContext(TorP, Context);
+#endif // KERNEL
+}
+
+
+BOOL
+DbgSetThreadContext(
+    THREADORPROCESSOR TorP,
+    PCONTEXT Context
+    )
+{
+#ifdef KERNEL
+    return NT_SUCCESS(DbgKdSetContext(TorP, Context));
+#else  // KERNEL
+    return SetThreadContext(TorP, Context);
+#endif // KERNEL
+}
+#endif // i386

@@ -42,7 +42,7 @@
 //
 // Arguments:
 //
-//    TrapFrame (s8) - Supplies a ppointer to a trap frame.
+//    TrapFrame (s8) - Supplies a pointer to a trap frame.
 //
 // Return Value:
 //
@@ -50,7 +50,7 @@
 //
 //--
 
-        NESTED_ENTRY_S(KeIpiInterrupt, ExceptionFrameLength, zero, _TEXT$01)
+        NESTED_ENTRY(KeIpiInterrupt, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate exception frame
         sw      ra,ExIntRa(sp)          // save return address
@@ -66,8 +66,7 @@
         beq     zero,v1,10f             // if eq, no freeze requested
 
 //
-// Save the volatile floating state, the nonvolatile floating state,
-// and the nonvolatile integer state.
+// Save the floating state.
 //
 
         SAVE_VOLATILE_FLOAT_STATE       // save volatile floating state
@@ -79,15 +78,6 @@
         sdc1    f28,ExFltF28(sp)        //
         sdc1    f30,ExFltF30(sp)        //
 
-        sw      s0,ExIntS0(sp)          // save nonvolatile integer state
-        sw      s1,ExIntS1(sp)          //
-        sw      s2,ExIntS2(sp)          //
-        sw      s3,ExIntS3(sp)          //
-        sw      s4,ExIntS4(sp)          //
-        sw      s5,ExIntS5(sp)          //
-        sw      s6,ExIntS6(sp)          //
-        sw      s7,ExIntS7(sp)          //
-
 //
 // Freeze the execution of the current processor.
 //
@@ -97,8 +87,7 @@
         jal     KiFreezeTargetExecution // freeze current processor execution
 
 //
-// Restore the volatile floating state, the nonvolatile floating state,
-// and the nonvolatile integer state.
+// Restore the volatile floating state.
 //
 
         RESTORE_VOLATILE_FLOAT_STATE    // restore volatile floating state
@@ -110,14 +99,6 @@
         ldc1    f28,ExFltF28(sp)        //
         ldc1    f30,ExFltF30(sp)        //
 
-        lw      s0,ExIntS0(sp)          // restore nonvolatile integer state
-        lw      s1,ExIntS1(sp)          //
-        lw      s2,ExIntS2(sp)          //
-        lw      s3,ExIntS3(sp)          //
-        lw      s4,ExIntS4(sp)          //
-        lw      s5,ExIntS5(sp)          //
-        lw      s6,ExIntS6(sp)          //
-        lw      s7,ExIntS7(sp)          //
 10:     lw      ra,ExIntRa(sp)          // restore return address
         addu    sp,sp,ExceptionFrameLength // deallocate exception frame
         j       ra                      // return
@@ -155,7 +136,7 @@ PrS1:   .space  4                       // saved integer register s1
 PrRa:   .space  4                       // saved return address
 PrFrameLength:                          // frame length
 
-        NESTED_ENTRY_S(KiIpiProcessRequests, PrFrameLength, zero, _TEXT$01)
+        NESTED_ENTRY(KiIpiProcessRequests, PrFrameLength, zero)
 
         subu    sp,sp,PrFrameLength     // allocate exception frame
         sw      s0,PrS0(sp)             // save integer register s0
@@ -175,28 +156,12 @@ PrFrameLength:                          // frame length
 //
 
         lw      t0,KiPcr + PcPrcb(zero) // get current processor block address
-
-#if NT_INST
-
-        lw      s1,PbIpiCounts(t0)      // get interrupt count structure
-
-#endif
-
-//
-// The following code is executed with interrupt disabled since the 64-bit
-// capabilities are used but no code saves and restores the upper 32-bits of
-// 64-bit registers.
-//
-
-        DISABLE_INTERRUPTS(t1)          // disable interrupts
-
-10:     lld     s0,PbRequestSummary(t0) // get request summary and entry address
+10:     lld     t1,PbRequestSummary(t0) // get request summary and entry address
         move    t2,zero                 // set zero value for store
         scd     t2,PbRequestSummary(t0) // zero request summary
         beq     zero,t2,10b             // if eq, store conditional failed
-        dsra    a0,s0,32                // shift entry address to low 32-bits
-
-        ENABLE_INTERRUPTS(t1)           // enable interrupts
+        dsra    a0,t1,32                // shift entry address to low 32-bits
+        move    s0,t1                   // copy request summary
 
 //
 // Check for Packet ready.
@@ -208,15 +173,15 @@ PrFrameLength:                          // frame length
 
         and     t1,s0,IPI_PACKET_READY  // check for packet ready
         beq     zero,t1,20f             // if eq, packet not ready
-        lw      t1,0(a0)                // get sender PRCB address
-        lw      t2,PbWorkerRoutine(t1)  // get address of worker function
-        lw      a1,PbCurrentPacket(t1)  // get request parameters
-        lw      a2,PbCurrentPacket + 4(t1) //
-        lw      a3,PbCurrentPacket + 8(t1) //
+        lw      t2,PbWorkerRoutine(a0)  // get address of worker function
+        lw      a1,PbCurrentPacket(a0)  // get request parameters
+        lw      a2,PbCurrentPacket + 4(a0) //
+        lw      a3,PbCurrentPacket + 8(a0) //
         jal     t2                      // call work routine
 
 #if NT_INST
 
+        lw      s1,PbIpiCounts(t0)      // get interrupt count structure
         lw      t1,IcPacket(s1)         // increment number of packet requests
         addu    t1,t1,1                 //
         sw      t1,IcPacket(s1)         //
@@ -334,35 +299,30 @@ PrFrameLength:                          // frame length
 //
 //--
 
-        LEAF_ENTRY_S(KiIpiSend, _TEXT$01)
+        LEAF_ENTRY(KiIpiSend)
 
 #if !defined(NT_UP)
 
         move    v0,a0                   // copy target processor set
         la      v1,KiProcessorBlock     // get processor block array address
+
+//
+// Loop through the target processors and send the request to the specified
+// recipients.
+//
+
 10:     and     t1,v0,1                 // check if target bit set
         srl     v0,v0,1                 // shift out target processor
         beq     zero,t1,30f             // if eq, target not specified
         lw      t1,0(v1)                // get target processor block address
-
-//
-// The following code is executed with interrupt disabled since the 64-bit
-// capabilities are used but no code saves and restores the upper 32-bits of
-// 64-bit registers.
-//
-
-        DISABLE_INTERRUPTS(t2)          // disable interrupts
-
 20:     lld     t3,PbRequestSummary(t1) // get request summary of target
         or      t3,t3,a1                // merge current request with summary
         scd     t3,PbRequestSummary(t1) // store request summary and entry address
         beq     zero,t3,20b             // if eq, store conditional failed
-
-        ENABLE_INTERRUPTS(t2)           // enable interrupts
-
 30:     add     v1,v1,4                 // advance to next array element
         bne     zero,v0,10b             // if ne, more targets requested
-        j       HalRequestIpi           // request IPI interrupt on targets
+        lw      t0,__imp_HalRequestIpi  // request IPI interrupt on targets
+        j       t0                      //
 #else
 
         j       ra                      // return
@@ -404,15 +364,13 @@ PrFrameLength:                          // frame length
 //
 //--
 
-        LEAF_ENTRY_S(KiIpiSendPacket, _TEXT$01)
+        LEAF_ENTRY(KiIpiSendPacket)
 
 #if !defined(NT_UP)
 
         lw      t0,KiPcr + PcPrcb(zero) // get current processor block address
         move    v0,a0                   // copy target processor set
         la      v1,KiProcessorBlock     // get processor block array address
-        move    t8,t0                   // save address of source PRCB
-        addu    t0,t0,PbRequestPacket   // compute address of packet array
 
 //
 // Store function address and parameters in the packet area of the PRCB on
@@ -420,10 +378,11 @@ PrFrameLength:                          // frame length
 //
 
         lw      t9,4 * 4(sp)            // get parameter3 value
-        sw      a1,PbWorkerRoutine(t8)  // set worker function address
-        sw      a2,PbCurrentPacket(t8)  // store worker function parameters
-        sw      a3,PbCurrentPacket + 4(t8) //
-        sw      t9,PbCurrentPacket + 8(t8) //
+        sw      a0,PbTargetSet(t0)      // set target processor set
+        sw      a1,PbWorkerRoutine(t0)  // set worker function address
+        sw      a2,PbCurrentPacket(t0)  // store worker function parameters
+        sw      a3,PbCurrentPacket + 4(t0) //
+        sw      t9,PbCurrentPacket + 8(t0) //
 
 //
 // Loop through the target processors and send the packet to the specified
@@ -434,32 +393,19 @@ PrFrameLength:                          // frame length
         srl     v0,v0,1                 // shift out target processor
         beq     zero,t1,30f             // if eq, target not specified
         lw      t1,0(v1)                // get target processor block address
-        sw      t8,0(t0)                // store source PRCB address in entry
-
-//
-// The following code is executed with interrupt disabled since the 64-bit
-// capabilities are used but no code saves and restores the upper 32-bits of
-// 64-bit registers.
-//
-
-        DISABLE_INTERRUPTS(t2)          // disable interrupts
-
         dsll    t3,t0,32                // shift entry address to upper 32-bits
         or      t3,t3,IPI_PACKET_READY  // set packet ready in lower 32-bits
 20:     lld     t4,PbRequestSummary(t1) // get request summary of target
         and     t5,t4,IPI_PACKET_READY  // check if target packet busy
-        bne     zero,t5,20b             // if ne, target packet busy
         or      t4,t4,t3                // set entry address in request summary
+        bne     zero,t5,20b             // if ne, target packet busy
         scd     t4,PbRequestSummary(t1) // store request summary and entry address
         beq     zero,t4,20b             // if eq, store conditional failed
-
-        ENABLE_INTERRUPTS(t2)           // enable interrupts
-
-30:     addu    t0,t0,4                 // advance to next packet entry
-        addu    v1,v1,4                 // advance to get array element
+30:     addu    v1,v1,4                 // advance to get array element
         bne     zero,v0,10b             // if ne, more targets requested
+        lw      t0,__imp_HalRequestIpi  // request IPI interrupt on targets
+        j       t0                      //
 
-        j       HalRequestIpi           // request IPI interrupt on targets
 #else
 
         j       ra                      // return
@@ -467,3 +413,39 @@ PrFrameLength:                          // frame length
 #endif
 
         .end    KiIpiSendPacket
+
+        SBTTL("Signal Packet Done")
+//++
+//
+// VOID
+// KeIpiSignalPacketDone (
+//    IN PVOID SignalDone
+//    );
+//
+// Routine Description:
+//
+//    This routine signals that a processor has completed a packet by
+//    clearing the calling processor's set member of the requesting
+//    processor's packet.
+//
+// Arguments:
+//
+//    SignalDone (a0) - Supplies a pointer to the processor block of the
+//        sending processor.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        LEAF_ENTRY(KiIpiSignalPacketDone)
+
+        lw      a1,KiPcr + PcNotMember(zero) // get processor set member
+10:     ll      a2,PbTargetSet(a0)      // get request target set
+        and     a2,a2,a1                // clear processor set member
+        sc      a2,PbTargetSet(a0)      // store target set
+        beq     zero,a2,10b             // if eq, store conditional failed
+        j       ra                      // return
+
+        .end    KiIpiSignalPacketDone

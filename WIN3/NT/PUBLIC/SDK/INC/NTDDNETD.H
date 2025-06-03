@@ -108,6 +108,24 @@ DetectWriteMappedMemory(
     );
 
 NTSTATUS
+DetectReadPciSlotInformation(
+    IN  ULONG BusNumber,
+    IN  ULONG SlotNumber,
+    IN  ULONG Offset,
+    IN  ULONG Length,
+    OUT PVOID Data
+    );
+
+NTSTATUS
+DetectWritePciSlotInformation(
+    IN  ULONG BusNumber,
+    IN  ULONG SlotNumber,
+    IN  ULONG Offset,
+    IN  ULONG Length,
+    IN  PVOID Data
+    );
+
+NTSTATUS
 DetectSetInterruptTrap(
     IN  INTERFACE_TYPE InterfaceType,
     IN  ULONG BusNumber,
@@ -171,4 +189,8 @@ NTSTATUS
 DetectFreeTemporaryResources(
     );
 
+NTSTATUS
+DetectFreeSpecificTemporaryResource(
+	IN	PNETDTECT_RESOURCE	Resource
+	);
 

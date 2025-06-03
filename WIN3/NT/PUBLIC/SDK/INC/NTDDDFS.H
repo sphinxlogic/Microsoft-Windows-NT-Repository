@@ -35,12 +35,9 @@ Revision History:
 // that should be passed to NtOpenFile when accessing the device.
 //
 
-extern PWSTR DD_DFS_DEVICE_DIR;
-extern PWSTR DD_DFS_ORG_DEVICE_NAME;
-extern PWSTR DD_DFS_DOM_DEVICE_NAME;
-extern PWSTR DD_DFS_MACH_DEVICE_NAME;
-extern PWSTR DD_DFS_UDOM_DEVICE_NAME;
-
+extern LPCWSTR DD_DFS_DEVICE_DIR;
+extern LPCWSTR DD_DFS_DLORG_DEVICE_NAME;  // Device for downlevel access
+extern LPCWSTR DD_DFS_ORG_DEVICE_NAME;    // Device pointing to root of dfs
 
 //
 // NtDeviceIoControlFile IoControlCode values for this device.
@@ -58,10 +55,6 @@ extern PWSTR DD_DFS_UDOM_DEVICE_NAME;
 #define FILE_OPEN_LOCAL_SCOPE   FILE_OPEN_BY_FILE_ID    //BUGBUG - need a real bit defn.
 
 
-// BUGBUG - status codes returned through the file server to indicate
-//          that the volume is not covered locally.
-
-#define STATUS_PATH_NOT_COVERED 0xc0000bad      // volume is not local
 #define STATUS_CHILD_VOLUME     STATUS_DFS_EXIT_PATH_FOUND      // vol. is child of local volume
 
 
@@ -83,36 +76,37 @@ extern PWSTR DD_DFS_UDOM_DEVICE_NAME;
 #define FSCTL_DFS_DELETE_LOGICAL_ROOT   CTL_CODE(IOCTL_DFS_BASE, 1, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_GET_LOGICAL_ROOT_PREFIX CTL_CODE(IOCTL_DFS_BASE, 2, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-//#define FSCTL_DFS_unused CTL_CODE(IOCTL_DFS_BASE, 3, METHOD_BUFFERED, FILE_ANY_ACCESS)
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 4, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_DSMACHINE         CTL_CODE(IOCTL_DFS_BASE, 3, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define FSCTL_DFS_GET_HANDLE_IDS        CTL_CODE(IOCTL_DFS_BASE, 4, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 #define FSCTL_DFS_DEFINE_PROVIDER       CTL_CODE(IOCTL_DFS_BASE, 5, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-// #define FSCTL_DFS_unused CTL_CODE(IOCTL_DFS_BASE, 6, METHOD_BUFFERED, FILE_ANY_ACCESS)
-// #define FSCTL_DFS_unused CTL_CODE(IOCTL_DFS_BASE, 7, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_REFERRAL          CTL_CODE(IOCTL_DFS_BASE, 6, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+#define FSCTL_DFS_INIT_LOCAL_PARTITIONS         CTL_CODE(IOCTL_DFS_BASE, 7, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_CREATE_LOCAL_PARTITION        CTL_CODE(IOCTL_DFS_BASE, 8, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_DELETE_LOCAL_PARTITION        CTL_CODE(IOCTL_DFS_BASE, 9, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_SET_LOCAL_VOLUME_STATE        CTL_CODE(IOCTL_DFS_BASE, 10, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_SET_SERVICE_STATE             CTL_CODE(IOCTL_DFS_BASE, 11, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_DC_SET_VOLUME_STATE           CTL_CODE(IOCTL_DFS_BASE, 12, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 10, METHOD_BUFFERED, FILE_ANY_ACCESS)
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 11, METHOD_BUFFERED, FILE_ANY_ACCESS)
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 12, METHOD_BUFFERED, FILE_ANY_ACCESS)
 //#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 13, METHOD_BUFFERED, FILE_ANY_ACCESS)
 //#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 14, METHOD_BUFFERED, FILE_ANY_ACCESS)
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 15, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define FSCTL_DFS_IS_CHILDNAME_LEGAL    CTL_CODE(IOCTL_DFS_BASE, 15, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 #define FSCTL_DFS_PKT_CREATE_ENTRY      CTL_CODE(IOCTL_DFS_BASE, 16, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_PKT_CREATE_SUBORDINATE_ENTRY  CTL_CODE(IOCTL_DFS_BASE, 17, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_DFS_SET_DOMAIN_SERVICE    CTL_CODE(IOCTL_DFS_BASE, 18, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_DFS_GET_DOMAIN_SERVICE    CTL_CODE(IOCTL_DFS_BASE, 19, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define FSCTL_DFS_CHECK_STGID_IN_USE    CTL_CODE(IOCTL_DFS_BASE, 18, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define FSCTL_DFS_UPDATE_MACHINE_ADDRESS CTL_CODE(IOCTL_DFS_BASE, 19, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_SET_DOMAIN_GLUON      CTL_CODE(IOCTL_DFS_BASE, 20, METHOD_BUFFERED, FILE_ANY_ACCESS)
-
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 21, METHOD_BUFFERED, FILE_ANY_ACCESS)
-
+#define FSCTL_DFS_UPDATE_SITE_COSTS     CTL_CODE(IOCTL_DFS_BASE, 21, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_PKT_SET_RELATION_INFO CTL_CODE(IOCTL_DFS_BASE, 22, METHOD_BUFFERED, FILE_ANY_ACCESS)
-
-//#define FSCTL_DFS_unused CTL_CODE(IOCTL_DFS_BASE, 23, METHOD_BUFFERED, FILE_ANY_ACCESS)
-//#define FSCTL_DFS_unused      CTL_CODE(IOCTL_DFS_BASE, 24, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_SERVER_INFO       CTL_CODE(IOCTL_DFS_BASE, 23, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_SET_SERVER_INFO       CTL_CODE(IOCTL_DFS_BASE, 24, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 #define FSCTL_DFS_NAME_RESOLVE          CTL_CODE(IOCTL_DFS_BASE, 25, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_PKT_DESTROY_ENTRY     CTL_CODE(IOCTL_DFS_BASE, 26, METHOD_BUFFERED, FILE_ANY_ACCESS)
@@ -140,9 +134,14 @@ extern PWSTR DD_DFS_UDOM_DEVICE_NAME;
 #define FSCTL_DFS_GET_SERVER_NAME       CTL_CODE(IOCTL_DFS_BASE, 48, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_DFS_GET_PATH_FROM_PREFIX  CTL_CODE(IOCTL_DFS_BASE, 49, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-
 #define FSCTL_DFS_READ_METERS           CTL_CODE(IOCTL_DFS_BASE, 50, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+#define FSCTL_DFS_SHUFFLE_ENTRY         CTL_CODE(IOCTL_DFS_BASE, 51, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_FIRST_SVC         CTL_CODE(IOCTL_DFS_BASE, 52, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_NEXT_SVC          CTL_CODE(IOCTL_DFS_BASE, 53, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_DFS_GET_ENTRY_TYPE        CTL_CODE(IOCTL_DFS_BASE, 54, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+#define FSCTL_DFS_GET_HANDLE_SERVER_INFO CTL_CODE(IOCTL_DFS_BASE, 55, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 //
 // Ea buffer name to open JPs
@@ -155,7 +154,41 @@ extern PWSTR DD_DFS_UDOM_DEVICE_NAME;
 // this device.
 //
 
-//[ dsfs_referral
+#ifndef GUID_DEFINED                             // BUGBUG - Should come
+#define GUID_DEFINED                             // from someplace more
+typedef struct _GUID {                           // global than ntdddfs.h
+        unsigned long   Data1;
+        unsigned short  Data2;
+        unsigned short  Data3;
+        unsigned char   Data4[8];
+} GUID;
+#endif // GUID_DEFINED
+
+
+//[ dfs_object_guids
+//
+// The following structure describes the guids that identify an object
+// anywhere on the network. This is returned by FSCTL_DFS_GET_HANDLE_IDS.
+//
+
+typedef struct _DFS_OBJECT_GUIDS {
+    GUID        guidDomain;
+    GUID        guidVolume;
+    GUID        guidObject;
+    ULONG       ulUniquifier;
+} DFS_OBJECT_GUIDS, *PDFS_OBJECT_GUIDS;
+
+//[ dfs_site_cost
+//
+//  The following structure describes a site cost.
+//
+
+typedef struct _DFS_SITE_COST {
+    GUID        guidSite;
+    unsigned long dwCost;
+} DFS_SITE_COST, *PDFS_SITE_COST;
+
+//[ dfs_referral
 //
 //  The following structures describe a set of referrals.
 //
@@ -171,15 +204,15 @@ typedef enum _DFS_REF_TYPE {
 //  Standardized provider IDs as given in eProviderId
 
 #define PROV_ID_LOCAL_FS        0x101   // generic local file system
-#define PROV_ID_CAIRO_RDR       0x201   // The standard Cairo redirector
+#define PROV_ID_DFS_RDR         0x201   // The standard Cairo redirector
 #define PROV_ID_LM_RDR          0x202   // The usual LanMan (downlevel) redir
 
 
 //  Provider capabilities as given in fRefCapability and fProvCapability
-#define PROV_OFS_API    1       // accepts OFS extension APIs
-#define PROV_CAIRO_RDR  2       // accepts NtCreateFile with EA Principal
+#define PROV_OFS_API      1     // accepts OFS extension APIs
+#define PROV_DFS_RDR      2     // accepts NtCreateFile with EA Principal
 #define PROV_STRIP_PREFIX 4     // strip file name prefix before redispatching
-//#define       PROV_UNC        8       // participates in MUP protocols
+#define PROV_UNAVAILABLE  8     // provider unavailable - try to reattach.
 
 
 typedef struct _DFS_REFERRAL {
@@ -212,7 +245,6 @@ typedef struct _FILE_DFS_DEF_LOGICAL_ROOT_BUFFER {
 } FILE_DFS_DEF_ROOT_BUFFER, *PFILE_DFS_DEF_ROOT_BUFFER;
 
 
-
 // Control structure for FSCTL_DFS_NAME_RESOLVE
 
 #define DFS_NAME_RES_TYPE_REFERRAL      0
@@ -225,16 +257,6 @@ typedef struct _FILE_DFS_NAME_RESOLVE_BUFFER {
                                                  // return referral for Prefix
 } FILE_DFS_NAME_RESOLVE_BUFFER, *PFILE_DFS_NAME_RESOLVE_BUFFER;
 
-
-#ifndef GUID_DEFINED                             // BUGBUG - Should come
-#define GUID_DEFINED                             // from someplace more
-typedef struct _GUID {                           // global than ntdddfs.h
-        unsigned long   Data1;
-        unsigned short  Data2;
-        unsigned short  Data3;
-        unsigned char   Data4[8];
-} GUID;
-#endif // GUID_DEFINED
 
 //  Control structure for FSCTL_DFS_UPD_REFERRAL
 

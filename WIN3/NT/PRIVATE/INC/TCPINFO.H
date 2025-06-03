@@ -121,13 +121,15 @@ typedef struct TCPSocketAMInfo {
 //  Address object identifies. All but AO_OPTION_MCASTIF take single boolean
 //  character value. That one expects a pointer to an IP address.
 
-#define AO_OPTION_TTL           1
-#define AO_OPTION_MCASTTTL      2
-#define AO_OPTION_MCASTIF       3
-#define AO_OPTION_XSUM          4
-#define AO_OPTION_IPOPTIONS     5
-#define AO_OPTION_ADD_MCAST     6
-#define AO_OPTION_DEL_MCAST     7
+#define AO_OPTION_TTL              1
+#define AO_OPTION_MCASTTTL         2
+#define AO_OPTION_MCASTIF          3
+#define AO_OPTION_XSUM             4
+#define AO_OPTION_IPOPTIONS        5
+#define AO_OPTION_ADD_MCAST        6
+#define AO_OPTION_DEL_MCAST        7
+#define AO_OPTION_TOS              8
+#define AO_OPTION_IP_DONTFRAGMENT  9
 
 
 //* Information relating to setting/deleting IP multicast addresses.
@@ -142,5 +144,43 @@ typedef struct UDPMCastIFReq {
 } UDPMCastIFReq;
 
 
+//
+// Structures used in security filter enumeration.
+//
+// All values are in HOST byte order!!!
+//
+typedef struct TCPSecurityFilterEntry {
+    ulong   tsf_address;        // IP interface address
+    ulong   tsf_protocol;       // Transport protocol number
+    ulong   tsf_value;          // Transport filter value (e.g. TCP port)
+} TCPSecurityFilterEntry;
+
+typedef struct TCPSecurityFilterEnum {
+    ULONG tfe_entries_returned;  // The number of TCPSecurityFilterEntry structs
+                                 // returned in the subsequent array.
+
+    ULONG tfe_entries_available; // The number of TCPSecurityFilterEntry structs
+                                 // currently available from the transport.
+} TCPSecurityFilterEnum;
+
+//
+// Structures used in connection list enumeration.
+//
+// All values are in HOST byte order!!!
+//
+
+typedef struct TCPConnectionListEntry {
+    IPAddr  tcf_address;        // IP address
+    uint    tcf_ticks;          // Tick Count remaining
+} TCPConnectionListEntry;
+
+typedef struct TCPConnectionListEnum {
+    ULONG tce_entries_returned;  // The number of TCPConnectionListEntry structs
+                                 // returned in the subsequent array.
+
+    ULONG tce_entries_available; // The number of TCPConnectionListEntry structs
+                                 // currently available from the transport.
+} TCPConnectionListEnum;
+
+
 #endif // TCP_INFO_INCLUDED
-

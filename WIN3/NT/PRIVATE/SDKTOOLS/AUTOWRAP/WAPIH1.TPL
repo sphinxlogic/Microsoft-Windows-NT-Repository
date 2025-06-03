@@ -31,7 +31,7 @@ extern PTCHAR apAPINames[] ;\n\
 */\n\
 BOOL WrapperInit( HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved) ;\n\
 BOOL APIPrelude( PAPICALLDATA pData ) ;\n\
-DWORD APIPostlude( PAPICALLDATA pData ) ;\n\
+RETVAL APIPostlude( PAPICALLDATA pData ) ;\n\
 /* AUTOWRAP EOF */\n\
 \n\
 "

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "disasm.h"	/* wsprintf() */
+#include "drwatson.h"
 
 #define _lread(h, adr, cnt) _lread(h, (LPSTR)(adr), cnt)
 
@@ -55,9 +56,10 @@ typedef struct tagMAPDEF {
 
 void cdecl Show(char *foo, ...);
 
+#define MAXSYM 64
 char *FindSym(unsigned segIndex, unsigned offset, int h) {
-  static char sym_name[32+5];
-  char name[35];
+  static char sym_name[MAXSYM+5];
+  char name[MAXSYM+3];
   int i;
   MAPDEF mod;
   SEGDEF seg;

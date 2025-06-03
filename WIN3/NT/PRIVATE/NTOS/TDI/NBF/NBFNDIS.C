@@ -111,10 +111,35 @@ NbfStatusComplete (
     );
 
 
+#ifdef _PNP_POWER
+VOID
+NbfProtocolBindAdapter(
+                OUT PNDIS_STATUS    NdisStatus,
+                IN NDIS_HANDLE      BindContext,
+                IN PNDIS_STRING     DeviceName,
+                IN PVOID            SystemSpecific1,
+                IN PVOID            SystemSpecific2
+                );
+VOID
+NbfProtocolUnbindAdapter(
+                OUT PNDIS_STATUS	NdisStatus,
+                IN NDIS_HANDLE		ProtocolBindContext,
+                IN PNDIS_HANDLE		UnbindContext
+                );
+#endif
+
 #ifdef ALLOC_PRAGMA
+#ifndef _PNP_POWER
 #pragma alloc_text(INIT,NbfRegisterProtocol)
 #pragma alloc_text(INIT,NbfSubmitNdisRequest)
 #pragma alloc_text(INIT,NbfInitializeNdis)
+#else  // PNP_POWER
+#pragma alloc_text(PAGE,NbfProtocolBindAdapter)
+#pragma alloc_text(PAGE,NbfProtocolUnbindAdapter)
+#pragma alloc_text(PAGE,NbfRegisterProtocol)
+#pragma alloc_text(PAGE,NbfSubmitNdisRequest)
+#pragma alloc_text(PAGE,NbfInitializeNdis)
+#endif
 #endif
 
 
@@ -149,7 +174,11 @@ Return Value:
 
     ProtChars = ExAllocatePoolWithTag(
                     NonPagedPool,
+#ifndef _PNP_POWER
                     sizeof(NDIS_PROTOCOL_CHARACTERISTICS) +
+#else
+                    sizeof(NDIS40_PROTOCOL_CHARACTERISTICS) +
+#endif
                         NameString->MaximumLength,
                     ' FBN');
 
@@ -161,8 +190,15 @@ Return Value:
     //
     // Set up the characteristics of this protocol
     //
-
+#ifndef _PNP_POWER
     ProtChars->MajorNdisVersion = 3;
+#else
+    ProtChars->MajorNdisVersion = 4;
+    ProtChars->ReceivePacketHandler = NULL;
+    ProtChars->TranslateHandler = NULL;
+    ProtChars->BindAdapterHandler = NbfProtocolBindAdapter;   // FIX ME!!!
+    ProtChars->UnbindAdapterHandler = NbfProtocolUnbindAdapter; // FIX ME!!!
+#endif
     ProtChars->MinorNdisVersion = 0;
 
     ProtChars->Name.Length = NameString->Length;
@@ -862,9 +898,26 @@ Return Value:
     }
 
 
+    // Allocate Packet pool descriptors for dynamic packet allocation.
+
+    DeviceContext->SendPacketPoolDesc = ExAllocatePoolWithTag(
+                    NonPagedPool,
+                    sizeof(NBF_POOL_LIST_DESC),
+                    ' FBN');
+
+    if (DeviceContext->SendPacketPoolDesc == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(DeviceContext->SendPacketPoolDesc,
+                  sizeof(NBF_POOL_LIST_DESC));
+
+    DeviceContext->SendPacketPoolDesc->NumElements =
+    DeviceContext->SendPacketPoolDesc->TotalElements = (USHORT)SendPacketPoolSize;
+
     NdisAllocatePacketPool (
         &NdisStatus,
-        &DeviceContext->SendPacketPoolHandle,
+        &DeviceContext->SendPacketPoolDesc->PoolHandle,
         SendPacketPoolSize,
         SendPacketReservedLength);
 
@@ -884,7 +937,8 @@ Return Value:
             109,
             SendPacketPoolSize,
             0);
-        DeviceContext->SendPacketPoolHandle = NULL;
+        ExFreePool (DeviceContext->SendPacketPoolDesc);
+        DeviceContext->SendPacketPoolDesc = NULL;
         NbfCloseNdis (DeviceContext);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
@@ -905,23 +959,43 @@ Return Value:
 #endif
 
 
+    // Allocate Packet pool descriptors for dynamic packet allocation.
+
+    DeviceContext->ReceivePacketPoolDesc = ExAllocatePoolWithTag(
+                    NonPagedPool,
+                    sizeof(NBF_POOL_LIST_DESC),
+                    ' FBN');
+
+    if (DeviceContext->ReceivePacketPoolDesc == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    RtlZeroMemory(DeviceContext->ReceivePacketPoolDesc,
+                  sizeof(NBF_POOL_LIST_DESC));
+
+    DeviceContext->ReceivePacketPoolDesc->NumElements =
+    DeviceContext->ReceivePacketPoolDesc->TotalElements = (USHORT)ReceivePacketPoolSize;
+
     NdisAllocatePacketPool(
         &NdisStatus,
-        &DeviceContext->ReceivePacketPoolHandle,
+        &DeviceContext->ReceivePacketPoolDesc->PoolHandle,
         ReceivePacketPoolSize,
         ReceivePacketReservedLen);
 
     if (NdisStatus == NDIS_STATUS_SUCCESS) {
         IF_NBFDBG (NBF_DEBUG_NDIS) {
             NbfPrint1 ("NdisInitializePacketPool successful, Pool: %lx\n",
-                DeviceContext->ReceivePacketPoolHandle);
+                DeviceContext->ReceivePacketPoolDesc->PoolHandle);
         }
     } else {
 #if DBG
         NbfPrint1 ("NbfInitialize: NdisInitializePacketPool failed, reason: %s.\n",
             NbfGetNdisStatus (NdisStatus));
 #endif
-        DeviceContext->ReceivePacketPoolHandle = NULL;
+        ExFreePool (DeviceContext->SendPacketPoolDesc);
+        ExFreePool(DeviceContext->ReceivePacketPoolDesc);
+        DeviceContext->SendPacketPoolDesc = NULL;
+        DeviceContext->ReceivePacketPoolDesc = NULL;
         NbfCloseNdis (DeviceContext);
         NbfWriteResourceErrorLog(
             DeviceContext,
@@ -955,7 +1029,7 @@ Return Value:
 
     NdisAllocateBufferPool (
         &NdisStatus,
-        &DeviceContext->NdisBufferPoolHandle,
+        &DeviceContext->NdisBufferPool,
         SendPacketPoolSize + ReceivePacketPoolSize);
 
     if (NdisStatus == NDIS_STATUS_SUCCESS) {
@@ -968,7 +1042,11 @@ Return Value:
         NbfPrint1 ("NbfInitialize: NdisAllocateBufferPool failed, reason: %s.\n",
             NbfGetNdisStatus (NdisStatus));
 #endif
-        DeviceContext->NdisBufferPoolHandle = NULL;
+        ExFreePool(DeviceContext->SendPacketPoolDesc);
+        ExFreePool(DeviceContext->ReceivePacketPoolDesc);
+        DeviceContext->SendPacketPoolDesc = NULL;
+        DeviceContext->ReceivePacketPoolDesc = NULL;
+        DeviceContext->NdisBufferPool = NULL;
         NbfCloseNdis (DeviceContext);
         NbfWriteResourceErrorLog(
             DeviceContext,
@@ -1114,16 +1192,22 @@ Return Value:
 
     }
 
-    if (DeviceContext->SendPacketPoolHandle != NULL) {
-        NdisFreePacketPool (DeviceContext->SendPacketPoolHandle);
+    if (DeviceContext->SendPacketPoolDesc != NULL &&
+        DeviceContext->SendPacketPoolDesc->PoolHandle != NULL) {
+        NdisFreePacketPool (DeviceContext->SendPacketPoolDesc->PoolHandle);
+        ExFreePool(DeviceContext->SendPacketPoolDesc);
+        DeviceContext->SendPacketPoolDesc = NULL;
     }
 
-    if (DeviceContext->ReceivePacketPoolHandle != NULL) {
-        NdisFreePacketPool (DeviceContext->ReceivePacketPoolHandle);
+    if (DeviceContext->ReceivePacketPoolDesc != NULL &&
+        DeviceContext->ReceivePacketPoolDesc->PoolHandle != NULL) {
+        NdisFreePacketPool (DeviceContext->ReceivePacketPoolDesc->PoolHandle);
+        ExFreePool(DeviceContext->ReceivePacketPoolDesc);
+        DeviceContext->ReceivePacketPoolDesc = NULL;
     }
 
-    if (DeviceContext->NdisBufferPoolHandle != NULL) {
-        NdisFreeBufferPool (DeviceContext->NdisBufferPoolHandle);
+    if (DeviceContext->NdisBufferPool != NULL) {
+        NdisFreeBufferPool (DeviceContext->NdisBufferPool);
     }
 
 }   /* NbfCloseNdis */
@@ -1356,58 +1440,78 @@ NbfStatusIndication (
 
             DeviceContext->MediumSpeedAccurate = TRUE;
 
-            //
-            // Calculate minimum link timeouts based on the speed,
-            // which is passed in StatusBuffer.
-            //
-            // The formula is (max_frame_size * 2) / speed + 0.4 sec.
-            // This expands to
-            //
-            //   MFS (bytes) * 2       8 bits
-            // -------------------  x  ------   == timeout (sec),
-            // speed (100 bits/sec)     byte
-            //
-            // which is (MFS * 16 / 100) / speed. We then convert it into
-            // the 50 ms units that NBF uses and add 8 (which is
-            // 0.4 seconds in 50 ms units).
-            //
-            // As a default timeout we use the min + 0.2 seconds
-            // unless the configured default is more.
-            //
+			LineUp = (PNDIS_WAN_LINE_UP)StatusBuffer;
 
-            LineUp = (PNDIS_WAN_LINE_UP)StatusBuffer;
+			//
+			// See if this is a new lineup for this protocol type
+			//
+			if (LineUp->ProtocolType == 0x80D5) {
+				NDIS_HANDLE	TransportHandle;
 
-            if (LineUp->LinkSpeed > 0) {
-                DeviceContext->MediumSpeed = LineUp->LinkSpeed;
-            }
+				*((ULONG UNALIGNED *)(&TransportHandle)) =
+				*((ULONG UNALIGNED *)(&LineUp->LocalAddress[2]));
 
-            if (LineUp->MaximumTotalSize > 0) {
+				//
+				// See if this is a new lineup
+				//
+				if (TransportHandle == NULL) {
+					*((ULONG UNALIGNED *)(&LineUp->LocalAddress[2])) = *((ULONG UNALIGNED *)(&DeviceContext));
+//					ETH_COPY_NETWORK_ADDRESS(DeviceContext->LocalAddress.Address, LineUp->LocalAddress);
+//					ETH_COPY_NETWORK_ADDRESS(&DeviceContext->ReservedNetBIOSAddress[10], DeviceContext->LocalAddress.Address);
+				}
+
+				//
+				// Calculate minimum link timeouts based on the speed,
+				// which is passed in StatusBuffer.
+				//
+				// The formula is (max_frame_size * 2) / speed + 0.4 sec.
+				// This expands to
+				//
+				//   MFS (bytes) * 2       8 bits
+				// -------------------  x  ------   == timeout (sec),
+				// speed (100 bits/sec)     byte
+				//
+				// which is (MFS * 16 / 100) / speed. We then convert it into
+				// the 50 ms units that NBF uses and add 8 (which is
+				// 0.4 seconds in 50 ms units).
+				//
+				// As a default timeout we use the min + 0.2 seconds
+				// unless the configured default is more.
+				//
+		
+				if (LineUp->LinkSpeed > 0) {
+					DeviceContext->MediumSpeed = LineUp->LinkSpeed;
+				}
+		
+				if (LineUp->MaximumTotalSize > 0) {
 #if DBG
-                if (LineUp->MaximumTotalSize > DeviceContext->MaxSendPacketSize) {
-                    DbgPrint ("Nbf: Bad LINE_UP size, %d (> %d)\n",
-                        LineUp->MaximumTotalSize, DeviceContext->MaxSendPacketSize);
-                }
-                if (LineUp->MaximumTotalSize < 128) {
-                    DbgPrint ("NBF: Bad LINE_UP size, %d (< 128)\n",
-                        LineUp->MaximumTotalSize);
-                }
+					if (LineUp->MaximumTotalSize > DeviceContext->MaxSendPacketSize) {
+						DbgPrint ("Nbf: Bad LINE_UP size, %d (> %d)\n",
+							LineUp->MaximumTotalSize, DeviceContext->MaxSendPacketSize);
+					}
+					if (LineUp->MaximumTotalSize < 128) {
+						DbgPrint ("NBF: Bad LINE_UP size, %d (< 128)\n",
+							LineUp->MaximumTotalSize);
+					}
 #endif
-                DeviceContext->CurSendPacketSize = LineUp->MaximumTotalSize;
-            }
+					DeviceContext->CurSendPacketSize = LineUp->MaximumTotalSize;
+				}
+		
+				if (LineUp->SendWindow == 0) {
+					DeviceContext->RecommendedSendWindow = 3;
+				} else {
+					DeviceContext->RecommendedSendWindow = LineUp->SendWindow + 1;
+				}
+		
+				DeviceContext->MinimumT1Timeout =
+					((((DeviceContext->CurSendPacketSize * 16) / 100) / DeviceContext->MediumSpeed) *
+					 ((1 * SECONDS) / (50 * MILLISECONDS))) + 8;
+		
+				if (DeviceContext->DefaultT1Timeout < DeviceContext->MinimumT1Timeout) {
+					DeviceContext->DefaultT1Timeout = DeviceContext->MinimumT1Timeout + 4;
+				}
 
-            if (LineUp->SendWindow == 0) {
-                DeviceContext->RecommendedSendWindow = 3;
-            } else {
-                DeviceContext->RecommendedSendWindow = LineUp->SendWindow + 1;
-            }
-
-            DeviceContext->MinimumT1Timeout =
-                ((((DeviceContext->CurSendPacketSize * 16) / 100) / DeviceContext->MediumSpeed) *
-                 ((1 * SECONDS) / (50 * MILLISECONDS))) + 8;
-
-            if (DeviceContext->DefaultT1Timeout < DeviceContext->MinimumT1Timeout) {
-                DeviceContext->DefaultT1Timeout = DeviceContext->MinimumT1Timeout + 4;
-            }
+			}
 
             RELEASE_DPC_SPIN_LOCK (&DeviceContext->SpinLock);
 

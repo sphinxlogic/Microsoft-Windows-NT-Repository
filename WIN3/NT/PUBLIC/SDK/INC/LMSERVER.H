@@ -1,6 +1,6 @@
 /*++ BUILD VERSION: 0007    // INCREMENT THIS IF A CHANGE HAS GLOBAL EFFECTS
 
-Copyright (c) 1990-1993  Microsoft Corporation
+Copyright (c) 1990-1996  Microsoft Corporation
 
 Module Name:
 
@@ -13,10 +13,6 @@ Abstract:
         Data Structures
         Definition of special values
 
-Author:
-
-    Dan Lafferty (danl)  24-Jan-1991
-
 Environment:
 
     User Mode - Win32
@@ -26,47 +22,16 @@ Notes:
     You must include NETCONS.H before this file, since this file depends
     on values defined in NETCONS.H.
 
-Revision History:
-
-    25-Jan-1991  Danl
-        Ported from LM2.0
-    12-Feb-1991  danl
-        Changed info levels to match current spec - no more info level 3.
-    14-Apr-1991  w-shanku
-        Changed parmnum constants to be more consistent with OS/2 parmnums.
-    19-Apr-1991 JohnRo
-        Added OPTIONAL keywords to APIs.  Added SV_MAX_SRV_HEUR_LEN from LM 2.x
-    09-May-1991 JohnRo
-        Implement UNICODE.
-    22-May-1991 JohnRo
-        Added three new SV_TYPE equates from LM 2.x source.
-    23-May-1991 JohnRo
-        Added sv403_autopath.
-    26-May-1991 JohnRo
-        Corrected value of SV_ERRORALERT_PARMNUM.
-    18-Jun-1991 JohnRo
-        Changed sv102_disc to be signed, and changed SV_NODISC to be 32-bits.
-        Added sv102_licenses.
-    03-May-1993 JohnRo
-        Added correct name of SV_TYPE_SERVER_UNIX as alias for
-        SV_TYPE_XENIX_SERVER (the name as someone accidentally defined for NT).
-    20-Apr-1994 ThomasPa
-        Added SV_TYPE_SERVER_NT
-    16-Jun-1994 ChuckC
-        Added SV_TYPE_SERVER_MFPN
-
-
-
 --*/
 
 #ifndef _LMSERVER_
 #define _LMSERVER_
 
+#include <winsvc.h>     // SERVICE_STATUS_HANDLE
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <winsvc.h>     // SERVICE_STATUS_HANDLE
 
 //
 // Function Prototypes - SERVER
@@ -74,15 +39,28 @@ extern "C" {
 
 NET_API_STATUS NET_API_FUNCTION
 NetServerEnum (
-    IN  LPTSTR      servername OPTIONAL,
+    IN  LPCWSTR     servername OPTIONAL,
     IN  DWORD       level,
     OUT LPBYTE      *bufptr,
     IN  DWORD       prefmaxlen,
     OUT LPDWORD     entriesread,
     OUT LPDWORD     totalentries,
     IN  DWORD       servertype,
-    IN  LPTSTR      domain OPTIONAL,
+    IN  LPCWSTR     domain OPTIONAL,
     IN OUT LPDWORD  resume_handle OPTIONAL
+    );
+
+NET_API_STATUS NET_API_FUNCTION
+NetServerEnumEx (
+    IN  LPCWSTR     ServerName OPTIONAL,
+    IN  DWORD       Level,
+    OUT LPBYTE      *Bufptr,
+    IN  DWORD       PrefMaxlen,
+    OUT LPDWORD     EntriesRead,
+    OUT LPDWORD     totalentries,
+    IN  DWORD       servertype,
+    IN  LPCWSTR     domain OPTIONAL,
+    IN  LPCWSTR     FirstNameToReturn OPTIONAL
     );
 
 NET_API_STATUS NET_API_FUNCTION
@@ -122,8 +100,28 @@ NetServerDiskEnum (
     );
 
 NET_API_STATUS NET_API_FUNCTION
+NetServerComputerNameAdd(
+    IN LPWSTR ServerName         OPTIONAL,
+    IN LPWSTR EmulatedDomainName OPTIONAL,
+    IN LPWSTR EmulatedServerName
+);
+
+NET_API_STATUS NET_API_FUNCTION
+NetServerComputerNameDel (
+    IN LPWSTR ServerName        OPTIONAL,
+    IN LPWSTR EmulatedServerName
+);
+
+NET_API_STATUS NET_API_FUNCTION
 NetServerTransportAdd (
     IN  LPTSTR  servername,
+    IN  DWORD   level,
+    IN  LPBYTE  bufptr
+    );
+
+NET_API_STATUS NET_API_FUNCTION
+NetServerTransportAddEx (
+    IN  LPTSTR  servername      OPTIONAL,
     IN  DWORD   level,
     IN  LPBYTE  bufptr
     );
@@ -382,7 +380,7 @@ typedef struct _SERVER_INFO_599 {
     DWORD           sv599_errorthreshold;
     DWORD           sv599_networkerrorthreshold;
     DWORD           sv599_diskspacethreshold;
-    DWORD           sv599_diskconfiguration;
+    DWORD           sv599_reserved;
     DWORD           sv599_maxlinkdelay;
     DWORD           sv599_minlinkthroughput;
     DWORD           sv599_linkinfovalidtime;
@@ -392,8 +390,7 @@ typedef struct _SERVER_INFO_599 {
 
 typedef struct _SERVER_INFO_598 {
     DWORD           sv598_maxrawworkitems;
-    DWORD           sv598_nonblockingthreads;
-    DWORD           sv598_blockingthreads;
+    DWORD           sv598_maxthreadsperqueue;
     DWORD           sv598_producttype;
     DWORD           sv598_serversize;
     DWORD           sv598_connectionlessautodisc;
@@ -405,12 +402,25 @@ typedef struct _SERVER_INFO_598 {
     DWORD           sv598_lockviolationdelay;
     DWORD           sv598_mdlreadswitchover;
     DWORD           sv598_cachedopenlimit;
-    DWORD           sv598_criticalthreads;
+    DWORD           sv598_otherqueueaffinity;
     BOOL            sv598_restrictnullsessaccess;
     BOOL            sv598_enablewfw311directipx;
-    DWORD           sv598_reserved8;
-    DWORD           sv598_reserved9;
-    DWORD           sv598_reserved10;
+    DWORD           sv598_queuesamplesecs;
+    DWORD           sv598_balancecount;
+    DWORD           sv598_preferredaffinity;
+    DWORD           sv598_maxfreerfcbs;
+    DWORD           sv598_maxfreemfcbs;
+    DWORD           sv598_maxfreelfcbs;
+    DWORD           sv598_maxfreepagedpoolchunks;
+    DWORD           sv598_minpagedpoolchunksize;
+    DWORD           sv598_maxpagedpoolchunksize;
+    BOOL            sv598_sendsfrompreferredprocessor;
+    DWORD           sv598_cacheddirectorylimit;
+    DWORD           sv598_maxcopylength;
+    BOOL            sv598_enablebulktransfer;
+    BOOL            sv598_enablecompression;
+    BOOL            sv598_autosharewks;
+    BOOL            sv598_autoshareserver;
 } SERVER_INFO_598, *PSERVER_INFO_598, *LPSERVER_INFO_598;
 
 typedef struct _SERVER_INFO_1005 {
@@ -621,14 +631,6 @@ typedef struct _SERVER_INFO_1557 {
     DWORD           sv1557_maxrawworkitems;
 } SERVER_INFO_1557, *PSERVER_INFO_1557, *LPSERVER_INFO_1557;
 
-typedef struct _SERVER_INFO_1558 {
-    DWORD           sv1558_nonblockingthreads;
-} SERVER_INFO_1558, *PSERVER_INFO_1558, *LPSERVER_INFO_1558;
-
-typedef struct _SERVER_INFO_1559 {
-    DWORD           sv1559_blockingthreads;
-} SERVER_INFO_1559, *PSERVER_INFO_1559, *LPSERVER_INFO_1559;
-
 typedef struct _SERVER_INFO_1560 {
     DWORD           sv1560_producttype;
 } SERVER_INFO_1560, *PSERVER_INFO_1560, *LPSERVER_INFO_1560;
@@ -689,6 +691,78 @@ typedef struct _SERVER_INFO_1574 {
     DWORD           sv1574_enablewfw311directipx;
 } SERVER_INFO_1574, *PSERVER_INFO_1574, *LPSERVER_INFO_1574;
 
+typedef struct _SERVER_INFO_1575 {
+    DWORD           sv1575_otherqueueaffinity;
+} SERVER_INFO_1575, *PSERVER_INFO_1575, *LPSERVER_INFO_1575;
+
+typedef struct _SERVER_INFO_1576 {
+    DWORD           sv1576_queuesamplesecs;
+} SERVER_INFO_1576, *PSERVER_INFO_1576, *LPSERVER_INFO_1576;
+
+typedef struct _SERVER_INFO_1577 {
+    DWORD           sv1577_balancecount;
+} SERVER_INFO_1577, *PSERVER_INFO_1577, *LPSERVER_INFO_1577;
+
+typedef struct _SERVER_INFO_1578 {
+    DWORD           sv1578_preferredaffinity;
+} SERVER_INFO_1578, *PSERVER_INFO_1578, *LPSERVER_INFO_1578;
+
+typedef struct _SERVER_INFO_1579 {
+    DWORD           sv1579_maxfreerfcbs;
+} SERVER_INFO_1579, *PSERVER_INFO_1579, *LPSERVER_INFO_1579;
+
+typedef struct _SERVER_INFO_1580 {
+    DWORD           sv1580_maxfreemfcbs;
+} SERVER_INFO_1580, *PSERVER_INFO_1580, *LPSERVER_INFO_1580;
+
+typedef struct _SERVER_INFO_1581 {
+    DWORD           sv1581_maxfreemlcbs;
+} SERVER_INFO_1581, *PSERVER_INFO_1581, *LPSERVER_INFO_1581;
+
+typedef struct _SERVER_INFO_1582 {
+    DWORD           sv1582_maxfreepagedpoolchunks;
+} SERVER_INFO_1582, *PSERVER_INFO_1582, *LPSERVER_INFO_1582;
+
+typedef struct _SERVER_INFO_1583 {
+    DWORD           sv1583_minpagedpoolchunksize;
+} SERVER_INFO_1583, *PSERVER_INFO_1583, *LPSERVER_INFO_1583;
+
+typedef struct _SERVER_INFO_1584 {
+    DWORD           sv1584_maxpagedpoolchunksize;
+} SERVER_INFO_1584, *PSERVER_INFO_1584, *LPSERVER_INFO_1584;
+
+typedef struct _SERVER_INFO_1585 {
+    BOOL           sv1585_sendsfrompreferredprocessor;
+} SERVER_INFO_1585, *PSERVER_INFO_1585, *LPSERVER_INFO_1585;
+
+typedef struct _SERVER_INFO_1586 {
+    DWORD          sv1586_maxthreadsperqueue;
+} SERVER_INFO_1586, *PSERVER_INFO_1586, *LPSERVER_INFO_1586;
+
+typedef struct _SERVER_INFO_1587 {
+    DWORD          sv1587_cacheddirectorylimit;
+} SERVER_INFO_1587, *PSERVER_INFO_1587, *LPSERVER_INFO_1587;
+
+typedef struct _SERVER_INFO_1588 {
+    DWORD          sv1588_maxcopylength;
+} SERVER_INFO_1588, *PSERVER_INFO_1588, *LPSERVER_INFO_1588;
+
+typedef struct _SERVER_INFO_1589 {
+    DWORD          sv1589_enablebulktransfer;
+} SERVER_INFO_1589, *PSERVER_INFO_1589, *LPSERVER_INFO_1589;
+
+typedef struct _SERVER_INFO_1590 {
+    DWORD          sv1590_enablecompression;
+} SERVER_INFO_1590, *PSERVER_INFO_1590, *LPSERVER_INFO_1590;
+
+typedef struct _SERVER_INFO_1591 {
+    DWORD          sv1591_autosharewks;
+} SERVER_INFO_1591, *PSERVER_INFO_1591, *LPSERVER_INFO_1591;
+
+typedef struct _SERVER_INFO_1592 {
+    DWORD          sv1592_autosharewks;
+} SERVER_INFO_1592, *PSERVER_INFO_1592, *LPSERVER_INFO_1592;
+
 //
 // A special structure definition is required in order for this
 // structure to work with RPC.  The problem is that having addresslength
@@ -706,6 +780,15 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
     LPTSTR          svti0_networkaddress;
 } SERVER_TRANSPORT_INFO_0, *PSERVER_TRANSPORT_INFO_0, *LPSERVER_TRANSPORT_INFO_0;
 
+typedef struct _SERVER_TRANSPORT_INFO_1 {
+    DWORD           svti1_numberofvcs;
+    LPTSTR          svti1_transportname;
+    [size_is(svti1_transportaddresslength)]  LPBYTE svti1_transportaddress;
+    DWORD           svti1_transportaddresslength;
+    LPTSTR          svti1_networkaddress;
+    LPTSTR          svti1_domain;
+} SERVER_TRANSPORT_INFO_1, *PSERVER_TRANSPORT_INFO_1, *LPSERVER_TRANSPORT_INFO_1;
+
 #else
 
 typedef struct _SERVER_TRANSPORT_INFO_0 {
@@ -715,6 +798,15 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
     DWORD           svti0_transportaddresslength;
     LPTSTR          svti0_networkaddress;
 } SERVER_TRANSPORT_INFO_0, *PSERVER_TRANSPORT_INFO_0, *LPSERVER_TRANSPORT_INFO_0;
+
+typedef struct _SERVER_TRANSPORT_INFO_1 {
+    DWORD           svti1_numberofvcs;
+    LPTSTR          svti1_transportname;
+    LPBYTE          svti1_transportaddress;
+    DWORD           svti1_transportaddresslength;
+    LPTSTR          svti1_networkaddress;
+    LPTSTR          svti1_domain;
+} SERVER_TRANSPORT_INFO_1, *PSERVER_TRANSPORT_INFO_1, *LPSERVER_TRANSPORT_INFO_1;
 
 #endif
 
@@ -764,6 +856,8 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
 #define SV_TYPE_DOMAIN_MASTER       0x00080000
 #define SV_TYPE_SERVER_OSF          0x00100000
 #define SV_TYPE_SERVER_VMS          0x00200000
+#define SV_TYPE_WINDOWS             0x00400000  /* Windows95 and above */
+#define SV_TYPE_DFS                 0x00800000  /* Root of a DFS tree */
 #define SV_TYPE_ALTERNATE_XPORT     0x20000000  /* return list for alternate transport */
 #define SV_TYPE_LOCAL_LIST_ONLY     0x40000000  /* Return local list only */
 #define SV_TYPE_DOMAIN_ENUM         0x80000000
@@ -884,15 +978,12 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
 #define SV_ERRORTHRESHOLD_PARMNUM           548
 #define SV_NETWORKERRORTHRESHOLD_PARMNUM    549
 #define SV_DISKSPACETHRESHOLD_PARMNUM       550
-#define SV_DISKCONFIGURATION_PARMNUM        551
 #define SV_MAXLINKDELAY_PARMNUM             552
 #define SV_MINLINKTHROUGHPUT_PARMNUM        553
 #define SV_LINKINFOVALIDTIME_PARMNUM        554
 #define SV_SCAVQOSINFOUPDATETIME_PARMNUM    555
 #define SV_MAXWORKITEMIDLETIME_PARMNUM      556
 #define SV_MAXRAWWORKITEMS_PARMNUM          557
-#define SV_NONBLOCKINGTHREADS_PARMNUM       558
-#define SV_BLOCKINGTHREADS_PARMNUM          559
 #define SV_PRODUCTTYPE_PARMNUM              560
 #define SV_SERVERSIZE_PARMNUM               561
 #define SV_CONNECTIONLESSAUTODISC_PARMNUM   562
@@ -908,6 +999,24 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
 #define SV_CRITICALTHREADS_PARMNUM          572
 #define SV_RESTRICTNULLSESSACCESS_PARMNUM   573
 #define SV_ENABLEWFW311DIRECTIPX_PARMNUM    574
+#define SV_OTHERQUEUEAFFINITY_PARMNUM       575
+#define SV_QUEUESAMPLESECS_PARMNUM          576
+#define SV_BALANCECOUNT_PARMNUM             577
+#define SV_PREFERREDAFFINITY_PARMNUM        578
+#define SV_MAXFREERFCBS_PARMNUM             579
+#define SV_MAXFREEMFCBS_PARMNUM             580
+#define SV_MAXFREELFCBS_PARMNUM             581
+#define SV_MAXFREEPAGEDPOOLCHUNKS_PARMNUM   582
+#define SV_MINPAGEDPOOLCHUNKSIZE_PARMNUM    583
+#define SV_MAXPAGEDPOOLCHUNKSIZE_PARMNUM    584
+#define SV_SENDSFROMPREFERREDPROCESSOR_PARMNUM    585
+#define SV_MAXTHREADSPERQUEUE_PARMNUM       586
+#define SV_CACHEDDIRECTORYLIMIT_PARMNUM     587
+#define SV_MAXCOPYLENGTH_PARMNUM            588
+#define SV_ENABLEBULKTRANSFER_PARMNUM       589
+#define SV_ENABLECOMPRESSION_PARMNUM        590
+#define SV_AUTOSHAREWKS_PARMNUM             591
+#define SV_AUTOSHARESERVER_PARMNUM          592
 
 //
 // Single-field infolevels for NetServerSetInfo.
@@ -1017,10 +1126,6 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
             (PARMNUM_BASE_INFOLEVEL + SV_MAXWORKITEMIDLETIME_PARMNUM)
 #define SV_MAXRAWWORKITEMS_INFOLOEVEL           \
             (PARMNUM_BASE_INFOLEVEL + SV_MAXRAWWORKITEMS_PARMNUM)
-#define SV_NONBLOCKINGTHREADS_INFOLOEVEL    \
-            (PARMNUM_BASE_INFOLEVEL + SV_NONBLOCKINGTHREADS_PARMNUM)
-#define SV_BLOCKINGTHREADS_INFOLOEVEL       \
-            (PARMNUM_BASE_INFOLEVEL + SV_BLOCKINGTHREADS_PARMNUM)
 #define SV_PRODUCTTYPE_INFOLOEVEL                \
             (PARMNUM_BASE_INFOLEVEL + SV_PRODUCTTYPE_PARMNUM)
 #define SV_SERVERSIZE_INFOLOEVEL                \
@@ -1051,6 +1156,42 @@ typedef struct _SERVER_TRANSPORT_INFO_0 {
             (PARMNUM_BASE_INFOLEVEL + SV_RESTRICTNULLSESSACCESS_PARMNUM)
 #define SV_ENABLEWFW311DIRECTIPX_INFOLOEVEL       \
             (PARMNUM_BASE_INFOLEVEL + SV_ENABLEWFW311DIRECTIPX_PARMNUM)
+#define SV_OTHERQUEUEAFFINITY_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_OTHERQUEUEAFFINITY_PARMNUM)
+#define SV_QUEUESAMPLESECS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_QUEUESAMPLESECS_PARMNUM)
+#define SV_BALANCECOUNT_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_BALANCECOUNT_PARMNUM)
+#define SV_PREFERREDAFFINITY_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_PREFERREDAFFINITY_PARMNUM)
+#define SV_MAXFREERFCBS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXFREERFCBS_PARMNUM)
+#define SV_MAXFREEMFCBS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXFREEMFCBS_PARMNUM)
+#define SV_MAXFREELFCBS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXFREELFCBS_PARMNUM)
+#define SV_MAXFREEPAGEDPOOLCHUNKS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXFREEPAGEDPOOLCHUNKS_PARMNUM)
+#define SV_MINPAGEDPOOLCHUNKSIZE_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MINPAGEDPOOLCHUNKSIZE_PARMNUM)
+#define SV_MAXPAGEDPOOLCHUNKSIZE_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXPAGEDPOOLCHUNKSIZE_PARMNUM)
+#define SV_SENDSFROMPREFERREDPROCESSOR_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_SENDSFROMPREFERREDPROCESSOR_PARMNUM)
+#define SV_MAXTHREADSPERQUEUE_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXTHREADSPERQUEUE_PARMNUM)
+#define SV_CACHEDDIRECTORYLIMIT_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_CACHEDDIRECTORYLIMIT_PARMNUM)
+#define SV_MAXCOPYLENGTH_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_MAXCOPYLENGTH_PARMNUM)
+#define SV_ENABLEBULKTRANSFER_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_ENABLEBULKTRANSFER_PARMNUM)
+#define SV_ENABLECOMPRESSION_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_ENABLECOMPRESSION_PARMNUM)
+#define SV_AUTOSHAREWKS_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_AUTOSHAREWKS_PARMNUM)
+#define SV_AUTOSHARESERVER_INFOLEVEL     \
+            (PARMNUM_BASE_INFOLEVEL + SV_AUTOSHARESERVER_PARMNUM)
 
 #define SVI1_NUM_ELEMENTS       5
 #define SVI2_NUM_ELEMENTS       40

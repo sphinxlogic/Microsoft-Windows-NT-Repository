@@ -298,6 +298,62 @@ gtab_rowtoline(HWND hwnd, lpTable ptab, long row)
         return(-1);
 }
 
+
+/*
+ * check if a given location is within the current selection.
+ * Returns true if it is inside the current selection, or false if
+ * either there is no selection, or the row, cell passed is outside it.
+ */
+BOOL
+gtab_insideselection(
+    lpTable ptab,
+    long row,
+    long cell)
+{
+    long startrow, endrow;
+    long startcell, endcell;
+
+    if (0 == ptab->select.nrows) {
+	// no selection
+	return FALSE;
+    }
+
+    // selection maintains anchor point as startrow,
+    // so the selection can extend forwards or backwards from there.
+    // need to convert to forward only for comparison
+    startrow = ptab->select.startrow;
+    if (ptab->select.nrows < 0) {
+	endrow = startrow;
+	startrow += ptab->select.nrows + 1;
+    } else {
+	endrow = startrow + ptab->select.nrows - 1;
+    }
+    if ((row < startrow) || (row > endrow)) {
+	return FALSE;
+    }
+
+    // if we are in row-select mode, then that's it - its inside
+    if (ptab->hdr.selectmode & TM_ROW) {
+	return TRUE;
+    }
+
+    // same calculation for cells
+    startcell = ptab->select.startcell;
+    if (ptab->select.ncells < 0) {
+	endcell = startcell;
+	startcell += ptab->select.ncells + 1;
+    } else {
+	endcell = startcell + ptab->select.ncells - 1;
+    }
+    if ((cell < startcell) || (cell > endcell)) {
+	return FALSE;
+    }
+
+    return TRUE;
+}
+
+
+
 /*
  * replace old selection with new. Notify owner if bNotify. Change
  * display to reflect new display.
@@ -489,6 +545,63 @@ gtab_trackcol(HWND hwnd, lpTable ptab, long col, long x)
 }
 
 
+/*
+ * called on right-click events. Select the cell clicked on, and if
+ * valid, send on to owner for any context-menu type operation
+ */
+void
+gtab_rightclick(HWND hwnd, lpTable ptab, int x, int y)
+{
+        long cell, ncells;
+        long row;
+        HWND hOwner;
+
+        /* find which col, row he selected */
+        cell = gtab_xtocol(hwnd, ptab, x);
+        if (cell == -1) {
+                return;
+        }
+        row = gtab_linetorow(hwnd, ptab, gtab_ytoline(hwnd, ptab, y));
+
+	/* is he selecting a disabled fixed area ? */
+        if ( (row < ptab->hdr.fixedrows) || (cell < ptab->hdr.fixedcols)) {
+                if (ptab->hdr.fixedselectable == FALSE) {
+                        return;
+                }
+        }
+
+	// ignore if beyond data
+	if ((row >= ptab->hdr.nrows) ||
+	    (cell >= ptab->hdr.ncols)) {
+		return;
+	}
+
+	/* is this within the already-selected area? */
+	if (!gtab_insideselection(ptab, row, cell)) {
+	    // no selection, or clicked outside the selection - make new selection
+	    // before sending the right-click
+
+	    // if shift is down, extend selection
+	    if (GetKeyState(VK_SHIFT) & 0x8000) {
+		gtab_extendsel(hwnd, ptab, row, cell, TRUE);
+	    } else {
+		/* record and paint new selection */
+		
+		if (ptab->hdr.selectmode & TM_ROW) {
+			cell = 0;
+			ncells = ptab->hdr.ncols;
+		} else {
+			ncells = 1;
+		}
+		gtab_select(hwnd, ptab, row, cell, 1, ncells, TRUE);
+	    }
+	}
+
+        // now we have sent the selection, pass the message onto him
+        hOwner = (HANDLE) GetWindowHandle(hwnd, WW_OWNER);
+        SendMessage(hOwner, WM_RBUTTONDOWN, 0, MAKELONG( (short)x, (short)y));
+}
+
 
 /*
  * called on mouse-down events. decide what to start tracking.
@@ -526,6 +639,13 @@ gtab_press(HWND hwnd, lpTable ptab, int x, int y)
                         return;
                 }
         }
+
+	// ignore if beyond data
+	if ((row >= ptab->hdr.nrows) ||
+	    (cell >= ptab->hdr.ncols)) {
+		return;
+	}
+
 
         /* ok, start cell selection */
         ptab->trackmode = TRACK_CELL;
@@ -592,27 +712,42 @@ gtab_release(HWND hwnd, lpTable ptab, int x, int y)
                 ReleaseCapture();
                 ptab->trackmode = TRACK_NONE;
 
-		/*
-		 * if the shift key is down, then extend to this new
-		 * selection end point
-		 */
-		if (GetKeyState(VK_SHIFT) & 0x8000) {
-		    gtab_extendsel(hwnd, ptab, row, cell, TRUE);
-		} else {
-		    /* keep the same selection. if the mouse is still
-		     * in the box, select it, otherwise de-select it
-		     */
-		    if ((row == ptab->select.startrow) &&
-		      ( (ptab->hdr.selectmode & TM_ROW) ||
-			(ptab->select.startcell == cell)) ) {
+		// ignore if before or beyond data
+                if ( (row < ptab->hdr.fixedrows) ||
+                     (cell < ptab->hdr.fixedcols)) {
+                    if (ptab->hdr.fixedselectable == FALSE) {
+                        gtab_select(
+                            hwnd,
+                            ptab,
+                            ptab->select.startrow,
+                            ptab->select.startcell,
+                            ptab->select.nrows,
+                            ptab->select.ncells,
+                            TRUE);
 
-			    gtab_select(hwnd, ptab, ptab->select.startrow,
-				    ptab->select.startcell,
-				    ptab->select.nrows, ptab->select.ncells, TRUE);
-    		    } else {
-                        gtab_select(hwnd, ptab, 0, 0, 0, 0, TRUE);
-		    }
+                        return;
+                    }
                 }
+
+		if ((row >= ptab->hdr.nrows) ||
+		    (cell >= ptab->hdr.ncols)) {
+                        gtab_select(
+                            hwnd,
+                            ptab,
+                            ptab->select.startrow,
+                            ptab->select.startcell,
+                            ptab->select.nrows,
+                            ptab->select.ncells,
+                            TRUE);
+		        return;
+		}
+
+		/*
+		 * Extend to this new selection end point
+		 * we used to only do this if shift key pressed, but that
+		 * is not a good UI.
+		 */
+		gtab_extendsel(hwnd, ptab, row, cell, TRUE);
                 return;
         }
 }
@@ -625,7 +760,6 @@ void
 gtab_move(HWND hwnd, lpTable ptab, int x, int y)
 {
         BOOL fOK;
-	BOOL bShift = FALSE;
 	int line;
         long row;
         int col;
@@ -652,52 +786,43 @@ gtab_move(HWND hwnd, lpTable ptab, int x, int y)
 
         case TRACK_CELL:
     		line = gtab_ytoline(hwnd, ptab, y);
-		if (GetKeyState(VK_SHIFT) & 0x8000) {
-		    bShift = TRUE;
 
-		    /* if shift for extend selection then
-		     * allow scrolling by dragging off window
-		     */
-		    if (line < 0) {
-			gtab_dovscroll(hwnd, ptab, -1);
-			line = gtab_ytoline(hwnd, ptab, y);
-		    } else if (line >=  ptab->nlines) {
-			gtab_dovscroll(hwnd, ptab, 1);
-    			line = gtab_ytoline(hwnd, ptab, y);
-		    }
+		// we used to only allow drag to extend
+		// the selection if the shift key was down.
+		// this doesn't seem to work as a UI - you expect
+		// to drag and extend.
+
+		/* if extending selection then
+		 * allow scrolling by dragging off window
+		 */
+		if (line < 0) {
+		    gtab_dovscroll(hwnd, ptab, -1);
+		    line = gtab_ytoline(hwnd, ptab, y);
+		} else if (line >=  ptab->nlines) {
+		    gtab_dovscroll(hwnd, ptab, 1);
+    		    line = gtab_ytoline(hwnd, ptab, y);
 		}
-		
+	
 
                 row = gtab_linetorow(hwnd, ptab, line);
 		col = gtab_xtocol(hwnd, ptab, x);
 
-		/*
-		 * if the shift key is down, then extend to this new
-		 * selection end point
-		 */
-		if (bShift) {
-		    gtab_extendsel(hwnd, ptab, row, col, FALSE);
-		} else {
-		    /* keep the same selection. if the mouse is still
-		     * in the box, select it, otherwise de-select it
-		     */
-		    if ((row == ptab->select.startrow) &&
-		      ( (ptab->hdr.selectmode & TM_ROW) ||
-			(ptab->select.startcell == col)) ) {
-
-			    if (!ptab->selvisible) {
-				    gtab_invertsel(hwnd, ptab, NULL);
-				    ptab->selvisible = TRUE;
-			    }
-		    } else {
-			    if (ptab->selvisible) {
-				    gtab_invertsel(hwnd, ptab, NULL);
-				    ptab->selvisible = FALSE;
-			    }
-		    }
-
+		// ignore if before or beyond data
+                if ( (row < ptab->hdr.fixedrows) || (col < ptab->hdr.fixedcols)) {
+                    if (ptab->hdr.fixedselectable == FALSE) {
+                        return;
+                    }
                 }
 
+		if ((row >= ptab->hdr.nrows) ||
+		    (col >= ptab->hdr.ncols)) {
+		    return;
+		}
+
+		/*
+		 * extend to this new selection end point
+		 */
+		gtab_extendsel(hwnd, ptab, row, col, FALSE);
                 return;
 
         case TRACK_COLUMN:
@@ -809,7 +934,7 @@ gtab_showsel_middle(HWND hwnd, lpTable ptab)
 
 
 /*
- * extend the selection to set the new anchor point as startrow, endrow.
+ * extend the selection to set the new anchor point as startrow, startcell.
  *
  * nrows and ncells will then be set to include the end row of the previous
  * selection. nrows, ncells < 0 indicate left and up. -1 and +1 both indicate
@@ -1231,4 +1356,3 @@ gtab_key(HWND hwnd, lpTable ptab, int vkey)
         }
 }
 
-

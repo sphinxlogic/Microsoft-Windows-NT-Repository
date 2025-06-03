@@ -20,6 +20,89 @@ Revision History:
 
 #include "psp.h"
 
+ULONGLONG
+PspGetSavedValue (
+    IN PVOID ContextPointer
+    )
+
+/*++
+
+Routine Description:
+
+    This function loads the context value specified by the argument
+    pointer.
+
+    N.B. The low bit of the pointer specifies the operand type.
+
+Arguments:
+
+    ContextPointer - Supplies a pointer to the context value that is
+        loaded.
+
+Return Value:
+
+    The value specified by the argument pointer.
+
+--*/
+
+{
+
+    //
+    // If the low bit of the argument pointer is zero, then the argument
+    // value is 32-bits. Otherwise, the argument value is 64-bits.
+    //
+
+    if (((ULONG)ContextPointer & 1) != 0) {
+        return *((PULONGLONG)((ULONG)ContextPointer & ~1));
+
+    } else {
+        return *((PLONG)ContextPointer);
+    }
+}
+
+VOID
+PspSetSavedValue (
+    IN ULONGLONG ContextValue,
+    IN PVOID ContextPointer
+    )
+
+/*++
+
+Routine Description:
+
+    This function stores the context value specified in the location
+    specified by the argument pointer.
+
+    N.B. The low bit of the pointer specifies the operand type.
+
+Arguments:
+
+    ContextValue - Supplies the context value to be stored.
+
+    ContextPointer - Supplies a pointer to the context value that is
+        stored.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    //
+    // If the low bit of the argument pointer is zero, then the argument
+    // value is 32-bits. Otherwise, the argument value is 64-bits.
+    //
+
+    if (((ULONG)ContextPointer & 1) != 0) {
+        *((PULONGLONG)((ULONG)ContextPointer & ~1)) = ContextValue;
+
+    } else {
+        *((PULONG)ContextPointer) = (ULONG)ContextValue;
+    }
+}
+
 VOID
 PspGetContext (
     IN PKTRAP_FRAME TrapFrame,
@@ -50,56 +133,126 @@ Return Value:
 
 {
 
-    if ((ContextRecord->ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
+    ULONG ContextFlags;
+    LONG Index;
+
+    //
+    // Get context.
+    //
+
+    ContextFlags = ContextRecord->ContextFlags;
+    if ((ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
 
         //
         // Get integer registers gp, sp, ra, FIR, and PSR.
         //
 
-        ContextRecord->IntGp = TrapFrame->IntGp;
-        ContextRecord->IntSp = TrapFrame->IntSp;
-        ContextRecord->IntRa = TrapFrame->IntRa;
         ContextRecord->Fir = TrapFrame->Fir;
         ContextRecord->Psr = TrapFrame->Psr;
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            ContextRecord->IntGp = (ULONG)TrapFrame->XIntGp;
+            ContextRecord->IntSp = (ULONG)TrapFrame->XIntSp;
+            ContextRecord->IntRa = (ULONG)TrapFrame->XIntRa;
+
+        } else {
+            ContextRecord->XIntGp = TrapFrame->XIntGp;
+            ContextRecord->XIntSp = TrapFrame->XIntSp;
+            ContextRecord->XIntRa = TrapFrame->XIntRa;
+        }
     }
 
-    if ((ContextRecord->ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
+    if ((ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
 
         //
-        // Get volatile integer registers zero, and, at - t7.
+        // Get integer registers zero, and, at - t9, k0, k1, lo, and hi.
         //
 
-        ContextRecord->IntZero = 0;
-        RtlMoveMemory(&ContextRecord->IntAt, &TrapFrame->IntAt,
-                     sizeof(ULONG) * (15));
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            ContextRecord->IntZero = 0;
+            ContextRecord->IntAt = (ULONG)TrapFrame->XIntAt;
+            ContextRecord->IntV0 = (ULONG)TrapFrame->XIntV0;
+            ContextRecord->IntV1 = (ULONG)TrapFrame->XIntV1;
+            ContextRecord->IntA0 = (ULONG)TrapFrame->XIntA0;
+            ContextRecord->IntA1 = (ULONG)TrapFrame->XIntA1;
+            ContextRecord->IntA2 = (ULONG)TrapFrame->XIntA2;
+            ContextRecord->IntA3 = (ULONG)TrapFrame->XIntA3;
+            ContextRecord->IntT0 = (ULONG)TrapFrame->XIntT0;
+            ContextRecord->IntT1 = (ULONG)TrapFrame->XIntT1;
+            ContextRecord->IntT2 = (ULONG)TrapFrame->XIntT2;
+            ContextRecord->IntT3 = (ULONG)TrapFrame->XIntT3;
+            ContextRecord->IntT4 = (ULONG)TrapFrame->XIntT4;
+            ContextRecord->IntT5 = (ULONG)TrapFrame->XIntT5;
+            ContextRecord->IntT6 = (ULONG)TrapFrame->XIntT6;
+            ContextRecord->IntT7 = (ULONG)TrapFrame->XIntT7;
+            ContextRecord->IntT8 = (ULONG)TrapFrame->XIntT8;
+            ContextRecord->IntT9 = (ULONG)TrapFrame->XIntT9;
+            ContextRecord->IntK0 = 0;
+            ContextRecord->IntK1 = 0;
+            ContextRecord->IntLo = (ULONG)TrapFrame->XIntLo;
+            ContextRecord->IntHi = (ULONG)TrapFrame->XIntHi;
+
+        } else {
+            ContextRecord->XIntZero = 0;
+            ContextRecord->XIntAt = TrapFrame->XIntAt;
+            ContextRecord->XIntV0 = TrapFrame->XIntV0;
+            ContextRecord->XIntV1 = TrapFrame->XIntV1;
+            ContextRecord->XIntA0 = TrapFrame->XIntA0;
+            ContextRecord->XIntA1 = TrapFrame->XIntA1;
+            ContextRecord->XIntA2 = TrapFrame->XIntA2;
+            ContextRecord->XIntA3 = TrapFrame->XIntA3;
+            ContextRecord->XIntT0 = TrapFrame->XIntT0;
+            ContextRecord->XIntT1 = TrapFrame->XIntT1;
+            ContextRecord->XIntT2 = TrapFrame->XIntT2;
+            ContextRecord->XIntT3 = TrapFrame->XIntT3;
+            ContextRecord->XIntT4 = TrapFrame->XIntT4;
+            ContextRecord->XIntT5 = TrapFrame->XIntT5;
+            ContextRecord->XIntT6 = TrapFrame->XIntT6;
+            ContextRecord->XIntT7 = TrapFrame->XIntT7;
+            ContextRecord->XIntT8 = TrapFrame->XIntT8;
+            ContextRecord->XIntT9 = TrapFrame->XIntT9;
+            ContextRecord->XIntK0 = 0;
+            ContextRecord->XIntK1 = 0;
+            ContextRecord->XIntLo = TrapFrame->XIntLo;
+            ContextRecord->XIntHi = TrapFrame->XIntHi;
+        }
 
         //
         // Get nonvolatile integer registers s0 - s7, and s8.
         //
 
-        ContextRecord->IntS0 = *ContextPointers->IntS0;
-        ContextRecord->IntS1 = *ContextPointers->IntS1;
-        ContextRecord->IntS2 = *ContextPointers->IntS2;
-        ContextRecord->IntS3 = *ContextPointers->IntS3;
-        ContextRecord->IntS4 = *ContextPointers->IntS4;
-        ContextRecord->IntS5 = *ContextPointers->IntS5;
-        ContextRecord->IntS6 = *ContextPointers->IntS6;
-        ContextRecord->IntS7 = *ContextPointers->IntS7;
-        ContextRecord->IntS8 = TrapFrame->IntS8;
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            Index = 7;
+            do {
+                if (TrapFrame->SavedFlag == 0) {
+                    (&ContextRecord->IntS0)[Index] =
+                        (ULONG)PspGetSavedValue((&ContextPointers->XIntS0)[Index]);
 
-        //
-        // Get volatile integer registers t8, t9, k0, k1, lo, and hi.
-        //
+                } else {
+                    (&ContextRecord->IntS0)[Index] = (ULONG)(&TrapFrame->XIntS0)[Index];
+                }
 
-        ContextRecord->IntT8 = TrapFrame->IntT8;
-        ContextRecord->IntT9 = TrapFrame->IntT9;
-        ContextRecord->IntK0 = 0;
-        ContextRecord->IntK1 = 0;
-        ContextRecord->IntLo = TrapFrame->IntLo;
-        ContextRecord->IntHi = TrapFrame->IntHi;
+                Index -= 1;
+            } while (Index >= 0);
+            ContextRecord->IntS8 = (ULONG)TrapFrame->XIntS8;
+
+        } else {
+            Index = 7;
+            do {
+                if (TrapFrame->SavedFlag == 0) {
+                    (&ContextRecord->XIntS0)[Index] =
+                        PspGetSavedValue((&ContextPointers->XIntS0)[Index]);
+
+                } else {
+                    (&ContextRecord->XIntS0)[Index] = (&TrapFrame->XIntS0)[Index];
+                }
+
+                Index -= 1;
+            } while (Index >= 0);
+            ContextRecord->XIntS8 = TrapFrame->XIntS8;
+        }
     }
 
-    if ((ContextRecord->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
+    if ((ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
 
         //
         // Get volatile floating registers f0 - f19.
@@ -169,53 +322,120 @@ Return Value:
 
 {
 
-    if ((ContextRecord->ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
+    ULONG ContextFlags;
+    LONG Index;
+
+    //
+    // Set context.
+    //
+
+    ContextFlags = ContextRecord->ContextFlags;
+    if ((ContextFlags & CONTEXT_CONTROL) == CONTEXT_CONTROL) {
 
         //
         // Set integer registers gp, sp, ra, FIR, and PSR.
         //
 
-        TrapFrame->IntGp = ContextRecord->IntGp;
-        TrapFrame->IntSp = ContextRecord->IntSp;
-        TrapFrame->IntRa = ContextRecord->IntRa;
         TrapFrame->Fir = ContextRecord->Fir;
         TrapFrame->Psr = SANITIZE_PSR(ContextRecord->Psr, ProcessorMode);
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            TrapFrame->XIntGp = (LONG)ContextRecord->IntGp;
+            TrapFrame->XIntSp = (LONG)ContextRecord->IntSp;
+            TrapFrame->XIntRa = (LONG)ContextRecord->IntRa;
+
+        } else {
+            TrapFrame->XIntGp = ContextRecord->XIntGp;
+            TrapFrame->XIntSp = ContextRecord->XIntSp;
+            TrapFrame->XIntRa = ContextRecord->XIntRa;
+        }
     }
 
-    if ((ContextRecord->ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
+    if ((ContextFlags & CONTEXT_INTEGER) == CONTEXT_INTEGER) {
 
         //
-        // Set volatile integer registers at - t7.
+        // Set integer registers at - t9, lo, and hi.
         //
 
-        RtlMoveMemory(&TrapFrame->IntAt, &ContextRecord->IntAt,
-                     sizeof(ULONG) * (15));
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            TrapFrame->XIntAt = (LONG)ContextRecord->IntAt;
+            TrapFrame->XIntV0 = (LONG)ContextRecord->IntV0;
+            TrapFrame->XIntV1 = (LONG)ContextRecord->IntV1;
+            TrapFrame->XIntA0 = (LONG)ContextRecord->IntA0;
+            TrapFrame->XIntA1 = (LONG)ContextRecord->IntA1;
+            TrapFrame->XIntA2 = (LONG)ContextRecord->IntA2;
+            TrapFrame->XIntA3 = (LONG)ContextRecord->IntA3;
+            TrapFrame->XIntT0 = (LONG)ContextRecord->IntT0;
+            TrapFrame->XIntT1 = (LONG)ContextRecord->IntT1;
+            TrapFrame->XIntT2 = (LONG)ContextRecord->IntT2;
+            TrapFrame->XIntT3 = (LONG)ContextRecord->IntT3;
+            TrapFrame->XIntT4 = (LONG)ContextRecord->IntT4;
+            TrapFrame->XIntT5 = (LONG)ContextRecord->IntT5;
+            TrapFrame->XIntT6 = (LONG)ContextRecord->IntT6;
+            TrapFrame->XIntT7 = (LONG)ContextRecord->IntT7;
+            TrapFrame->XIntT8 = (LONG)ContextRecord->IntT8;
+            TrapFrame->XIntT9 = (LONG)ContextRecord->IntT9;
+            TrapFrame->XIntLo = (LONG)ContextRecord->IntLo;
+            TrapFrame->XIntHi = (LONG)ContextRecord->IntHi;
+
+        } else {
+            TrapFrame->XIntAt = ContextRecord->XIntAt;
+            TrapFrame->XIntV0 = ContextRecord->XIntV0;
+            TrapFrame->XIntV1 = ContextRecord->XIntV1;
+            TrapFrame->XIntA0 = ContextRecord->XIntA0;
+            TrapFrame->XIntA1 = ContextRecord->XIntA1;
+            TrapFrame->XIntA2 = ContextRecord->XIntA2;
+            TrapFrame->XIntA3 = ContextRecord->XIntA3;
+            TrapFrame->XIntT0 = ContextRecord->XIntT0;
+            TrapFrame->XIntT1 = ContextRecord->XIntT1;
+            TrapFrame->XIntT2 = ContextRecord->XIntT2;
+            TrapFrame->XIntT3 = ContextRecord->XIntT3;
+            TrapFrame->XIntT4 = ContextRecord->XIntT4;
+            TrapFrame->XIntT5 = ContextRecord->XIntT5;
+            TrapFrame->XIntT6 = ContextRecord->XIntT6;
+            TrapFrame->XIntT7 = ContextRecord->XIntT7;
+            TrapFrame->XIntT8 = ContextRecord->XIntT8;
+            TrapFrame->XIntT9 = ContextRecord->XIntT9;
+            TrapFrame->XIntLo = ContextRecord->XIntLo;
+            TrapFrame->XIntHi = ContextRecord->XIntHi;
+        }
 
         //
         // Set nonvolatile integer registers s0 - s7, and s8.
         //
 
-        *ContextPointers->IntS0 = ContextRecord->IntS0;
-        *ContextPointers->IntS1 = ContextRecord->IntS1;
-        *ContextPointers->IntS2 = ContextRecord->IntS2;
-        *ContextPointers->IntS3 = ContextRecord->IntS3;
-        *ContextPointers->IntS4 = ContextRecord->IntS4;
-        *ContextPointers->IntS5 = ContextRecord->IntS5;
-        *ContextPointers->IntS6 = ContextRecord->IntS6;
-        *ContextPointers->IntS7 = ContextRecord->IntS7;
-        TrapFrame->IntS8 = ContextRecord->IntS8;
+        if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+            Index = 7;
+            do {
+                if (TrapFrame->SavedFlag == 0) {
+                    PspSetSavedValue((LONG)(&ContextRecord->IntS0)[Index],
+                                     (&ContextPointers->XIntS0)[Index]);
 
-        //
-        // Set volatile integer registers t8, t9, lo, and hi.
-        //
+                } else {
+                    (&TrapFrame->XIntS0)[Index] = (LONG)(&ContextRecord->IntS0)[Index];
+                }
 
-        TrapFrame->IntT8 = ContextRecord->IntT8;
-        TrapFrame->IntT9 = ContextRecord->IntT9;
-        TrapFrame->IntLo = ContextRecord->IntLo;
-        TrapFrame->IntHi = ContextRecord->IntHi;
+                Index -= 1;
+            } while (Index >= 0);
+            TrapFrame->XIntS8 = (LONG)ContextRecord->IntS8;
+
+        } else {
+            Index = 7;
+            do {
+                if (TrapFrame->SavedFlag == 0) {
+                    PspSetSavedValue((&ContextRecord->XIntS0)[Index],
+                                     (&ContextPointers->XIntS0)[Index]);
+
+                } else {
+                    (&TrapFrame->XIntS0)[Index] = (&ContextRecord->XIntS0)[Index];
+                }
+
+                Index -= 1;
+            } while (Index >= 0);
+            TrapFrame->XIntS8 = ContextRecord->XIntS8;
+        }
     }
 
-    if ((ContextRecord->ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
+    if ((ContextFlags & CONTEXT_FLOATING_POINT) == CONTEXT_FLOATING_POINT) {
 
         //
         // Set volatile floating registers f0 - f19.
@@ -321,21 +541,21 @@ Return Value:
     //
 
     RtlCaptureContext(&ContextRecord);
-    ControlPc = ContextRecord.IntRa;
+    ControlPc = (ULONG)ContextRecord.XIntRa;
 
     //
     // Initialize context pointers for the nonvolatile integer and floating
     // registers.
     //
 
-    ContextPointers.IntS0 = &ContextRecord.IntS0;
-    ContextPointers.IntS1 = &ContextRecord.IntS1;
-    ContextPointers.IntS2 = &ContextRecord.IntS2;
-    ContextPointers.IntS3 = &ContextRecord.IntS3;
-    ContextPointers.IntS4 = &ContextRecord.IntS4;
-    ContextPointers.IntS5 = &ContextRecord.IntS5;
-    ContextPointers.IntS6 = &ContextRecord.IntS6;
-    ContextPointers.IntS7 = &ContextRecord.IntS7;
+    ContextPointers.XIntS0 = &ContextRecord.XIntS0;
+    ContextPointers.XIntS1 = &ContextRecord.XIntS1;
+    ContextPointers.XIntS2 = &ContextRecord.XIntS2;
+    ContextPointers.XIntS3 = &ContextRecord.XIntS3;
+    ContextPointers.XIntS4 = &ContextRecord.XIntS4;
+    ContextPointers.XIntS5 = &ContextRecord.XIntS5;
+    ContextPointers.XIntS6 = &ContextRecord.XIntS6;
+    ContextPointers.XIntS7 = &ContextRecord.XIntS7;
 
     ContextPointers.FltF20 = &ContextRecord.FltF20;
     ContextPointers.FltF21 = &ContextRecord.FltF21;
@@ -373,7 +593,7 @@ Return Value:
         //
 
         if (FunctionEntry != NULL) {
-            ControlPc = RtlVirtualUnwind(ControlPc,
+            ControlPc = RtlVirtualUnwind(ControlPc | 1,
                                          FunctionEntry,
                                          &ContextRecord,
                                          &InFunction,
@@ -381,11 +601,11 @@ Return Value:
                                          &ContextPointers);
 
         } else {
-            ControlPc = ContextRecord.IntRa;
+            ControlPc = (ULONG)ContextRecord.XIntRa;
         }
 
-    } while ((ContextRecord.IntSp != TrapFrame1) &&
-             ((ContextRecord.IntSp != TrapFrame2) ||
+    } while (((ULONG)ContextRecord.XIntSp != TrapFrame1) &&
+             (((ULONG)ContextRecord.XIntSp != TrapFrame2) ||
              (ControlPc < PCR->SystemServiceDispatchStart) ||
              (ControlPc >= PCR->SystemServiceDispatchEnd)));
 

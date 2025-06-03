@@ -46,7 +46,8 @@ extern "C"
 class node_skl;
 class EXPR_CTXT;
 
-typedef char * PNAME;
+typedef char  * PNAME;
+typedef	long	EXPR_VALUE;
 
 /****************************************************************************
  *	extern references
@@ -127,6 +128,7 @@ expr_node
 #define _expr_u_not				expr_u_not
 #define _expr_u_complement		expr_u_complement
 #define _expr_u_deref			expr_u_deref
+#define _expr_u_address			expr_u_address
 #define _expr_cast				expr_cast
 #define _expr_sizeof			expr_sizeof
 #define _expr_pre_incr			expr_pre_incr
@@ -149,7 +151,7 @@ expr_node
 
 typedef node_skl *	ETYPE;
 
-class _expr_node
+class expr_node
 	{
 
 protected:
@@ -172,13 +174,13 @@ protected:
 
 public:
 
-						_expr_node()
+						expr_node()
 							{
 							SetType( (node_skl *)0 );
 							fConstant = TRUE;
 							}
 
-						_expr_node( node_skl * pT )
+						expr_node( node_skl * pT )
 							{
 							SetType( pT );
 							fConstant = TRUE;
@@ -202,6 +204,33 @@ public:
 							{
 							return pType;
 							}
+	
+	//
+	// get the type of the expression. Force it to be determined
+	// if it is unknown
+	//
+
+	node_skl		*	AlwaysGetType( void )
+							{
+							node_skl	*	pType = GetType();
+
+							if ( !pType )
+								{
+								DetermineType();
+								pType = GetType();
+								}
+							return pType;
+							}
+	
+	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType()
+							{
+							}
+
 	//
 	// set the "constness" of the expression.
 	//
@@ -279,13 +308,13 @@ public:
 	//
 
 	virtual
-	_expr_node		*	GetLeft()
+	expr_node		*	GetLeft()
 							{
 							return 0;
 							}
 
 	virtual
-	_expr_node		*	GetRight()
+	expr_node		*	GetRight()
 							{
 							return 0;
 							}
@@ -296,7 +325,7 @@ public:
 							}
 
 	virtual
-	long				GetValue()
+	EXPR_VALUE			GetValue()
 							{
 							return 0;
 							}
@@ -307,10 +336,16 @@ public:
     virtual
     short               MakeListOfVars( ITERATOR & pList );
 
+    virtual
+    short               MakeListOfDerefedVars( ITERATOR& List )
+                            {
+                            UNUSED( List );
+                            return 0;
+                            }
 
 // gaj - this is a dummy routine
 	virtual
-	long				Evaluate()
+	EXPR_VALUE			Evaluate()
 							{
 							return GetValue();
 							}
@@ -356,6 +391,14 @@ public:
 								AllocateOnceDelete( ptr );
 								}
 
+    //
+    // test if the expression is a string constant
+    //
+    virtual
+    BOOL                IsStringConstant (void)
+                            {
+                            return FALSE;
+                            }
 	
 	};
 
@@ -368,7 +411,7 @@ public:
 // variables in the stub routines.
 //
 
-class _expr_variable	: public _expr_node
+class expr_variable	: public expr_node
 	{
 private:
 
@@ -386,7 +429,7 @@ public:
 	// Sometimes one needs to instantiate a variable using the type too.
 	//
 
-						_expr_variable( PNAME p )
+						expr_variable( PNAME p )
 							{
 							SetName( p );
 							SetType( (node_skl *)0 );
@@ -394,7 +437,7 @@ public:
 							SetPrefix( NULL );
 							}
 
-						_expr_variable( PNAME p, node_skl * pT );
+						expr_variable( PNAME p, node_skl * pT );
 
 	
 	// get the type
@@ -452,6 +495,13 @@ public:
     short               MakeListOfVars( ITERATOR & pList );
 
 	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
+
+	//
 	// analyze the expression
 	//
 	virtual
@@ -467,7 +517,7 @@ public:
 // variables in the stub routines.
 //
 
-class expr_named_constant	: public _expr_variable
+class expr_named_constant	: public expr_variable
 	{
 public:
 
@@ -477,13 +527,13 @@ public:
 	//
 
 						expr_named_constant( PNAME p )
-								: _expr_variable( p )
+								: expr_variable( p )
 							{
 							SetConstant( TRUE );
 							}
 
 						expr_named_constant( PNAME p, node_skl * pT )
-								: _expr_variable( p, pT )
+								: expr_variable( p, pT )
 							{
 							SetConstant( TRUE );
 							}
@@ -500,7 +550,7 @@ public:
 	//
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE			GetValue();
 
 	// similarly for expression
 	expr_node	*		GetExpr();
@@ -510,6 +560,13 @@ public:
     //
     virtual
     short               MakeListOfVars( ITERATOR & pList );
+
+	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
 
 	//
 	// analyze the expression
@@ -570,7 +627,7 @@ typedef enum _pformat {
 #define VALUE_T_MASK_ULONG		(0x40)
 
 
-class _expr_constant	: public _expr_node
+class expr_constant	: public expr_node
 	{
 private:
 
@@ -617,70 +674,70 @@ public:
 	// that are possible.
 	//
 
-							_expr_constant( char C, 
+							expr_constant( char C, 
 											PFORMAT pF = VALUE_TYPE_CHAR )
 								{
 								SetFormat( pF );
 								Value.L = C;
 								}
 
-							_expr_constant( short S, 
+							expr_constant( short S, 
 											PFORMAT pF = VALUE_TYPE_NUMERIC )
 								{
 								SetFormat( pF );
 								Value.L = S;
 								}
 
-							_expr_constant( long L, 
+							expr_constant( long L, 
 											PFORMAT pF = VALUE_TYPE_NUMERIC )
 								{
 								SetFormat( pF );
 								Value.L = L;
 								}
 
-							_expr_constant( float F, 
+							expr_constant( float F, 
 											PFORMAT pF = VALUE_TYPE_FLOAT )
 								{
 								SetFormat( pF );
 								Value.F = F;
 								}
 
-							_expr_constant( double D, 
+							expr_constant( double D, 
 											PFORMAT pF = VALUE_TYPE_DOUBLE )
 								{
 								SetFormat( pF );
 								Value.D = D;
 								}
 
-							_expr_constant( unsigned char UC, 
+							expr_constant( unsigned char UC, 
 											PFORMAT pF = VALUE_TYPE_NUMERIC_U )
 								{
 								SetFormat( pF );
 								Value.L = UC;
 								}
 
-							_expr_constant( unsigned short US, 
+							expr_constant( unsigned short US, 
 											PFORMAT pF = VALUE_TYPE_NUMERIC_U )
 								{
 								SetFormat( pF );
 								Value.L = US;
 								}
 
-							_expr_constant( unsigned long UL, 
+							expr_constant( unsigned long UL, 
 											PFORMAT pF = VALUE_TYPE_NUMERIC )
 								{
 								SetFormat( pF );
 								Value.L = (long) UL;
 								}
 
-							_expr_constant( char *pC,  
+							expr_constant( char *pC,  
 											PFORMAT pF = VALUE_TYPE_STRING )
 								{
 								SetFormat( pF );
 								Value.pC = (unsigned char *)pC;
 								}
 
-							_expr_constant( wchar_t *pWC,  
+							expr_constant( wchar_t *pWC,  
 											PFORMAT pF = VALUE_TYPE_WSTRING )
 								{
 								SetFormat( pF );
@@ -693,10 +750,7 @@ public:
 
 // gaj - return constant value assuming it is long for now...
 	virtual
-	long					GetValue()
-								{
-								return Value.L;
-								}
+	EXPR_VALUE				GetValue();
 
 	//
 	// Given an output steam, output the expression.
@@ -706,11 +760,26 @@ public:
 	void				Print( ISTREAM * pS );
 
 	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
+
+	//
 	// analyze the expression
 	//
 	virtual
 	void				ExprAnalyze( EXPR_CTXT * pExprCtxt );
 
+    //
+    // test if the expression is a string constant
+    //
+    virtual
+    BOOL                IsStringConstant (void)
+                            {
+                            return (Format == VALUE_TYPE_STRING || Format == VALUE_TYPE_WSTRING);
+                            }
 	};
 
 //
@@ -728,7 +797,7 @@ extern	expr_constant	*  GetConstant1();
 // ternary expression classes. 
 //
 
-class _expr_operator	: public _expr_node
+class expr_operator	: public expr_node
 	{
 private:
 	OPERATOR				Operator;
@@ -738,7 +807,7 @@ public:
 	// the constructor of an abstract base class does nothing.
 	//
 
-							_expr_operator( OPERATOR Op)
+							expr_operator( OPERATOR Op)
 								{
 								SetOperator( Op );
 								}
@@ -774,10 +843,10 @@ public:
 // unary operator classes.
 //
 
-class _expr_op_unary	: public _expr_operator
+class expr_op_unary	: public expr_operator
 	{
 private:
-	_expr_node			*	pLeft;
+	expr_node			*	pLeft;
 
 public:
 
@@ -786,8 +855,8 @@ public:
 	// the left had side expression values.
 	//
 
-							_expr_op_unary( OPERATOR Op, _expr_node *pL ) : 
-												_expr_operator(Op)
+							expr_op_unary( OPERATOR Op, expr_node *pL ) : 
+												expr_operator(Op)
 								{
 								SetLeft( pL );
 								if ( pL ) SetConstant( pL->IsConstant() );
@@ -797,13 +866,13 @@ public:
 	// get and set routines.
 	//
 
-	_expr_node *			SetLeft( _expr_node * pL )
+	expr_node *			SetLeft( expr_node * pL )
 								{
 								return ( pLeft = pL );
 								}
 
 	virtual
-	_expr_node			*	GetLeft()
+	expr_node			*	GetLeft()
 								{
 								return pLeft;
 								}
@@ -832,10 +901,25 @@ public:
     short               MakeListOfVars( ITERATOR & pList );
 
 	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
+
+	//
 	// analyze the expression
 	//
 	virtual
 	void				ExprAnalyze( EXPR_CTXT * pExprCtxt );
+
+    virtual
+    short               MakeListOfDerefedVars( ITERATOR& List )
+                            {
+                            if( GetLeft() )
+                                return GetLeft()->MakeListOfDerefedVars( List );
+                            return 0;
+                            }
 
 	};
 
@@ -845,12 +929,12 @@ public:
 // expression connected by the binary operator.
 //
 
-class _expr_op_binary	: public _expr_operator
+class expr_op_binary	: public expr_operator
 	{
 private:
 
-	_expr_node			*	pLeft;
-	_expr_node			*	pRight;
+	expr_node			*	pLeft;
+	expr_node			*	pRight;
 
 public:
 
@@ -859,10 +943,10 @@ public:
 	// operator.
 	//
 
-							_expr_op_binary( OPERATOR		Op,
-											_expr_node	*	pL,
-											_expr_node	*	pR ) :
-												_expr_operator( Op )
+							expr_op_binary( OPERATOR		Op,
+											expr_node	*	pL,
+											expr_node	*	pR ) :
+												expr_operator( Op )
 								{
 								SetLeft( pL );
 								SetRight( pR );
@@ -875,25 +959,25 @@ public:
 	//
 
 	virtual
-	_expr_node 		*		SetLeft( _expr_node *p )
+	expr_node 		*		SetLeft( expr_node *p )
 								{
 								return (pLeft = p);
 								}
 
 	virtual
-	_expr_node		*		SetRight( _expr_node *p )
+	expr_node		*		SetRight( expr_node *p )
 								{
 								return (pRight = p);
 								}
 
 	virtual
-	_expr_node		*		GetLeft()
+	expr_node		*		GetLeft()
 								{
 								return pLeft;
 								}
 
 	virtual
-	_expr_node		*		GetRight()
+	expr_node		*		GetRight()
 								{
 								return pRight;
 								}
@@ -924,6 +1008,16 @@ public:
     virtual
     short               MakeListOfVars( ITERATOR & pList );
 
+    virtual
+    short               MakeListOfDerefedVars( ITERATOR& List );
+
+	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
+
 	//
 	// analyze the expression
 	//
@@ -938,12 +1032,12 @@ public:
 // operators + and -.
 //
 
-class _expr_u_arithmetic	: public _expr_op_unary
+class expr_u_arithmetic	: public expr_op_unary
 	{
 public:
-							_expr_u_arithmetic( OPERATOR	Op,
-									   		   _expr_node * pL ) : 
-													_expr_op_unary(Op, pL)
+							expr_u_arithmetic( OPERATOR	Op,
+									   		   expr_node * pL ) : 
+													expr_op_unary(Op, pL)
 								{
 								}
 	//
@@ -955,9 +1049,17 @@ public:
 								{
 								return TRUE;
 								}
+    //
+    // test if the expression is a string constant
+    //
+    virtual
+    BOOL                IsStringConstant (void)
+                            {
+                            return 	GetLeft()->IsStringConstant();
+                            }
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE			GetValue();
 
 	};
 
@@ -966,11 +1068,11 @@ public:
 // this is the unary not operator class.
 //
 
-class _expr_u_not	: public _expr_op_unary
+class expr_u_not	: public expr_op_unary
 	{
 public:
-							_expr_u_not( _expr_node * pL ) :
-											 _expr_op_unary(OP_UNARY_NOT, pL )
+							expr_u_not( expr_node * pL ) :
+											 expr_op_unary(OP_UNARY_NOT, pL )
 								{
 								}
 
@@ -985,10 +1087,7 @@ public:
 								}
 
 	virtual
-	long				GetValue()
-							{
-							return	!GetLeft()->GetValue();
-							}
+	EXPR_VALUE			GetValue();
 
 	};
 
@@ -997,11 +1096,11 @@ public:
 // the unary complement class.
 //
 
-class _expr_u_complement	: public _expr_op_unary
+class expr_u_complement	: public expr_op_unary
 	{
 public:
-						_expr_u_complement( _expr_node *pL ) :
-								_expr_op_unary(OP_UNARY_COMPLEMENT, pL)
+						expr_u_complement( expr_node *pL ) :
+								expr_op_unary(OP_UNARY_COMPLEMENT, pL)
 							{
 							}
 	//
@@ -1015,10 +1114,7 @@ public:
 							}
 
 	virtual
-	long				GetValue()
-							{
-							return	~ GetLeft()->GetValue();
-							}
+	EXPR_VALUE			GetValue();
 
 	};
 
@@ -1026,29 +1122,31 @@ public:
 // unary derefence operator 
 //
 
-class _expr_u_deref	: public _expr_op_unary
+class expr_u_deref	: public expr_op_unary
 	{
 public:
-							_expr_u_deref( _expr_node *pL ) :
+							expr_u_deref( expr_node *pL ) :
 									expr_op_unary(OP_UNARY_INDIRECTION, pL)
 								{
 								SetConstant( FALSE );
 								}
-							_expr_u_deref( OPERATOR op, _expr_node *pL ) :
+							expr_u_deref( OPERATOR op, expr_node *pL ) :
 									expr_op_unary(op, pL)
 								{
 								SetConstant( FALSE );
 								}
 
+    virtual
+    short               MakeListOfDerefedVars( ITERATOR& List );
 
 	};
 
 //
 //
-class _expr_u_address	: public _expr_op_unary
+class expr_u_address	: public expr_op_unary
 	{
 public:
-							_expr_u_address( _expr_node *pL ) :
+							expr_u_address( expr_node *pL ) :
 									expr_op_unary(OP_UNARY_AND, pL)
 								{
 								SetConstant( FALSE );
@@ -1061,12 +1159,12 @@ public:
 //
 // the unary cast operator
 //
-class _expr_cast	: public _expr_op_unary
+class expr_cast	: public expr_op_unary
 	{
 	node_skl	*			pCastType;
 
 public:
-							_expr_cast( node_skl * pT, _expr_node *pL ) : 
+							expr_cast( node_skl * pT, expr_node *pL ) : 
 											expr_op_unary(OP_UNARY_CAST, pL)
 								{
 								pCastType = pT;
@@ -1085,10 +1183,7 @@ public:
 							}
 	
 	virtual
-	long				GetValue()
-							{
-							return GetLeft()->GetValue();
-							}
+	EXPR_VALUE			GetValue();
 
 
 	};
@@ -1097,18 +1192,18 @@ public:
 // the unary sizeof operator.
 //
 
-class _expr_sizeof	: public _expr_op_unary
+class expr_sizeof	: public expr_op_unary
 	{
 	node_skl	*			pType;
 
 public:
-							_expr_sizeof( node_skl *pT) :
+							expr_sizeof( node_skl *pT) :
 										expr_op_unary( OP_UNARY_SIZEOF,NULL )
 								{
 								pType = pT;
 								}
 
-							_expr_sizeof( _expr_node *pL) :
+							expr_sizeof( expr_node *pL) :
 										expr_op_unary( OP_UNARY_SIZEOF,pL )
 								{
 								pType = pL->GetType();
@@ -1124,7 +1219,7 @@ public:
     short               MakeListOfVars( ITERATOR & pList );
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE			GetValue();
 
 
 	};
@@ -1132,10 +1227,10 @@ public:
 //
 // unary pre-increment operator.
 //
-class _expr_pre_incr	: public _expr_op_unary
+class expr_pre_incr	: public expr_op_unary
 	{
 public:
-							_expr_pre_incr( _expr_node *pL ) :
+							expr_pre_incr( expr_node *pL ) :
 										expr_op_unary(OP_PRE_INCR, pL)
 								{
 								SetType( pL->GetType());
@@ -1153,10 +1248,10 @@ public:
 //
 // unary pre-decrement operator.
 //
-class _expr_pre_decr	: public _expr_op_unary
+class expr_pre_decr	: public expr_op_unary
 	{
 public:
-							_expr_pre_decr( _expr_node *pL ):
+							expr_pre_decr( expr_node *pL ):
 										expr_op_unary(OP_PRE_DECR, pL)
 								{
 								SetType( pL->GetType());
@@ -1174,10 +1269,10 @@ public:
 //
 // unary post-increment operator.
 //
-class _expr_post_incr	: public _expr_op_unary
+class expr_post_incr	: public expr_op_unary
 	{
 public:
-							_expr_post_incr( _expr_node *pL ):
+							expr_post_incr( expr_node *pL ):
 										expr_op_unary(OP_POST_INCR, pL)
 								{
 								SetType( pL->GetType());
@@ -1195,10 +1290,10 @@ public:
 //
 // unary post-decrement operator.
 //
-class _expr_post_decr	: public _expr_op_unary
+class expr_post_decr	: public expr_op_unary
 	{
 public:
-							_expr_post_decr( _expr_node *pL ):
+							expr_post_decr( expr_node *pL ):
 										expr_op_unary(OP_POST_DECR, pL)
 								{
 								SetType( pL->GetType());
@@ -1217,13 +1312,13 @@ public:
 // binary arithmetic operators.
 //
 
-class _expr_b_arithmetic	: public _expr_op_binary
+class expr_b_arithmetic	: public expr_op_binary
 	{
 public:
 
-							_expr_b_arithmetic(	OPERATOR Op,
-												_expr_node *pL,
-												_expr_node *pR ):
+							expr_b_arithmetic(	OPERATOR Op,
+												expr_node *pL,
+												expr_node *pR ):
 										expr_op_binary( Op, pL, pR )
 								{
 								}
@@ -1239,7 +1334,7 @@ public:
 								}
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE				GetValue();
 
 
 	};
@@ -1248,13 +1343,13 @@ public:
 // binary logical operators.
 //
 
-class _expr_b_logical	: public _expr_op_binary
+class expr_b_logical	: public expr_op_binary
 	{
 public:
 
-							_expr_b_logical(	OPERATOR Op,
-												_expr_node *pL,
-												_expr_node *pR ):
+							expr_b_logical(	OPERATOR Op,
+												expr_node *pL,
+												expr_node *pR ):
 										expr_op_binary( Op, pL, pR )
 								{
 								}
@@ -1270,7 +1365,7 @@ public:
 								}
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE				GetValue();
 
 
 	};
@@ -1279,13 +1374,13 @@ public:
 // relational operators.
 //
 
-class _expr_relational	: public _expr_op_binary
+class expr_relational	: public expr_op_binary
 	{
 public:
 
-							_expr_relational(	OPERATOR Op,
-												_expr_node *pL,
-												_expr_node *pR ):
+							expr_relational(	OPERATOR Op,
+												expr_node *pL,
+												expr_node *pR ):
 										expr_op_binary( Op, pL, pR )
 								{
 								}
@@ -1301,7 +1396,7 @@ public:
 								}
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE			GetValue();
 
 
 	};
@@ -1310,13 +1405,13 @@ public:
 // shift operators.
 //
 
-class _expr_shift	: public _expr_op_binary
+class expr_shift	: public expr_op_binary
 	{
 public:
 
-							_expr_shift(	OPERATOR Op,
-												_expr_node *pL,
-												_expr_node *pR ):
+							expr_shift(	OPERATOR Op,
+												expr_node *pL,
+												expr_node *pR ):
 										expr_op_binary( Op, pL, pR )
 								{
 								}
@@ -1332,7 +1427,7 @@ public:
 								}
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE				GetValue();
 
 
 	};
@@ -1341,13 +1436,13 @@ public:
 // bitwise operators.
 //
 
-class _expr_bitwise	: public _expr_op_binary
+class expr_bitwise	: public expr_op_binary
 	{
 public:
 
-							_expr_bitwise(	OPERATOR Op,
-												_expr_node *pL,
-												_expr_node *pR ):
+							expr_bitwise(	OPERATOR Op,
+												expr_node *pL,
+												expr_node *pR ):
 										expr_op_binary( Op, pL, pR )
 								{
 								}
@@ -1363,7 +1458,7 @@ public:
 								}
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE				GetValue();
 
 
 	};
@@ -1372,11 +1467,11 @@ public:
 // dot operator.
 //
 
-class _expr_dot	: public _expr_op_binary
+class expr_dot	: public expr_op_binary
 	{
 public:
 
-							_expr_dot( _expr_node *pL, _expr_node *pR ):
+							expr_dot( expr_node *pL, expr_node *pR ):
 										expr_op_binary( OP_DOT, pL, pR )
 								{
 								}
@@ -1388,11 +1483,11 @@ public:
 // pointsto operator.
 //
 
-class _expr_pointsto	: public _expr_op_binary
+class expr_pointsto	: public expr_op_binary
 	{
 public:
 
-							_expr_pointsto( _expr_node *pL, _expr_node *pR ):
+							expr_pointsto( expr_node *pL, expr_node *pR ):
 										expr_op_binary( OP_POINTSTO, pL, pR )
 								{
 								}
@@ -1404,11 +1499,11 @@ public:
 // array element operator.
 //
 
-class _expr_index	: public _expr_op_binary
+class expr_index	: public expr_op_binary
 	{
 public:
 
-							_expr_index( _expr_node *pL, _expr_node *pR );
+							expr_index( expr_node *pL, expr_node *pR );
 
 	//
 	// Given an output steam, output the expression.
@@ -1429,11 +1524,11 @@ public:
 // comma operator.
 //
 
-class _expr_comma	: public _expr_op_binary
+class expr_comma	: public expr_op_binary
 	{
 public:
 
-							_expr_comma( _expr_node *pL, _expr_node *pR ):
+							expr_comma( expr_node *pL, expr_node *pR ):
 										expr_op_binary( OP_COMMA, pL, pR )
 								{
 								}
@@ -1445,11 +1540,11 @@ public:
 // assign operator.
 //
 
-class _expr_assign	: public _expr_op_binary
+class expr_assign	: public expr_op_binary
 	{
 public:
 
-							_expr_assign( _expr_node *pL, _expr_node *pR ):
+							expr_assign( expr_node *pL, expr_node *pR ):
 										expr_op_binary( OP_ASSIGN, pL, pR )
 								{
 								}
@@ -1465,7 +1560,7 @@ public:
 // proc operator.
 //
 
-class _expr_proc_call	: public _expr_op_unary
+class expr_proc_call	: public expr_op_unary
 	{
 private:
 	PNAME					pName;
@@ -1478,23 +1573,23 @@ private:
 	// parameter list.
 	//
 
-	class _expr_param	*	SetFirstParam( class _expr_param * p )
+	class expr_param	*	SetFirstParam( class expr_param * p )
 								{
-								return (class _expr_param *)SetLeft(
-												(class _expr_node *) p );
+								return (class expr_param *)SetLeft(
+												(class expr_node *) p );
 								}
 
 public:
 
-							_expr_proc_call(PNAME pN,
-									  _expr_node *pParamList):
+							expr_proc_call(PNAME pN,
+									  expr_node *pParamList):
 										expr_op_unary(OP_FUNCTION,pParamList)
 								{
 								SetName( pN );
 								SetNoOfParams( 0 );
 								}
 
-							_expr_proc_call( PNAME pN ) : 
+							expr_proc_call( PNAME pN ) : 
 										expr_op_unary(OP_FUNCTION, 0)
 								{
 								SetName( pN );
@@ -1533,9 +1628,9 @@ public:
 	// be our most frequent usage, eg in the printing of the expression.
 	//
 
-	class _expr_param	*	GetFirstParam()
+	class expr_param	*	GetFirstParam()
 								{
-								return (class _expr_param *)GetLeft();
+								return (class expr_param *)GetLeft();
 								}
 
 	//
@@ -1544,9 +1639,9 @@ public:
 	// can be created in the natural (left to right) order.
 	//
 
-	class _expr_param	*	SetParam( class _expr_param * pParam );
+	class expr_param	*	SetParam( class expr_param * pParam );
 
-    class _expr_param   *   SetParam( _expr_node * pExpr );
+    class expr_param   *   SetParam( expr_node * pExpr );
 
 	//
 	// Given an output steam, output the expression. This does not
@@ -1566,13 +1661,13 @@ public:
 
 	};
 
-class _expr_param	: public _expr_op_binary
+class expr_param	: public expr_op_binary
 	{
 private:
 	PNAME					pName;
 public:
 
-							_expr_param(_expr_node *pParamExpr ):
+							expr_param(expr_node *pParamExpr ):
 									expr_op_binary(OP_PARAM,pParamExpr, 0)
 								{
 								}
@@ -1584,13 +1679,13 @@ public:
 	//
 	// This method gets the next parameter in the parameter list. To emit the
 	// parameter expressions for a procedure, get the first parameter on the
-	// _expr_proc_call node and then make GetNextParam calls on the parameter
+	// expr_proc_call node and then make GetNextParam calls on the parameter
 	// till the call returns a null.
 	//
 
-	_expr_param	*			GetNextParam()
+	expr_param	*			GetNextParam()
 								{
-								return (_expr_param *)GetRight();
+								return (expr_param *)GetRight();
 								}
 	
 	//
@@ -1598,9 +1693,9 @@ public:
 	// method does not traverse the list of params and insert at the end !!.
 	//
 
-	_expr_param	*			SetNextParam( _expr_param * p )
+	expr_param	*			SetNextParam( expr_param * p )
 								{
-								return (_expr_param *)SetRight( p );
+								return (expr_param *)SetRight( p );
 								}
 
 	//
@@ -1613,7 +1708,7 @@ public:
 	// going to the end of the list.
 	//
 
-	_expr_param	*			SetLastPeerParam( _expr_param * pN );
+	expr_param	*			SetLastPeerParam( expr_param * pN );
 
 
 	// Given an output steam, output the expression.
@@ -1637,13 +1732,13 @@ public:
 // expression connected by the ternary operator.
 //
 
-class expr_ternary	: public _expr_operator
+class expr_ternary	: public expr_operator
 	{
 private:
 
-	_expr_node			*	pLeft;
-	_expr_node			*	pRight;
-	_expr_node			*	pRelational;
+	expr_node			*	pLeft;
+	expr_node			*	pRight;
+	expr_node			*	pRelational;
 
 public:
 
@@ -1653,9 +1748,9 @@ public:
 	//
 
 							expr_ternary( OPERATOR		Op,
-											_expr_node	*	pRel,
-											_expr_node	*	pL,
-											_expr_node	*	pR ) : 
+											expr_node	*	pRel,
+											expr_node	*	pL,
+											expr_node	*	pR ) : 
 													expr_operator( Op )
 								{
 								SetRelational( pRel );
@@ -1671,37 +1766,37 @@ public:
 	//
 
 	virtual
-	_expr_node 		*		SetRelational( _expr_node *p )
+	expr_node 		*		SetRelational( expr_node *p )
 								{
 								return (pRelational = p);
 								}
 
 	virtual
-	_expr_node 		*		SetLeft( _expr_node *p )
+	expr_node 		*		SetLeft( expr_node *p )
 								{
 								return (pLeft = p);
 								}
 
 	virtual
-	_expr_node		*		SetRight( _expr_node *p )
+	expr_node		*		SetRight( expr_node *p )
 								{
 								return (pRight = p);
 								}
 
 	virtual
-	_expr_node		*		GetRelational()
+	expr_node		*		GetRelational()
 								{
 								return pRelational;
 								}
 	virtual
-	_expr_node		*		GetLeft()
+	expr_node		*		GetLeft()
 								{
 								return pLeft;
 								}
 
 
 	virtual
-	_expr_node		*		GetRight()
+	expr_node		*		GetRight()
 								{
 								return pRight;
 								}
@@ -1722,8 +1817,15 @@ public:
 	void				Print( ISTREAM * pS );
 
 	virtual
-	long				GetValue();
+	EXPR_VALUE			GetValue();
 
+
+	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
 
 	//
 	// analyze the expression
@@ -1760,7 +1862,7 @@ public:
 
 	// assume only the first value here...
 	virtual
-	long					GetValue()
+	EXPR_VALUE				GetValue()
 								{
 								return pExpr->GetValue();
 								}
@@ -1774,6 +1876,13 @@ public:
 								{
 								pExpr->Print( pS );
 								}
+
+	//
+	// determine the type of the expression
+	//
+
+	virtual
+	void				DetermineType();
 
 	//
 	// analyze the expression
@@ -1790,4 +1899,4 @@ public:
 
 	};
 
-#endif // ___expr_HXX__
+#endif // __EXPR_HXX__

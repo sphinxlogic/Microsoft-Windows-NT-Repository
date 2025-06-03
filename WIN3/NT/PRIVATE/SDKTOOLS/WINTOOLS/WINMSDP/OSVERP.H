@@ -27,7 +27,7 @@ BOOL Os(void);
 
 DWORD 
 GetCSDVersion (
-               void
+	       IN DWORD dwCurrentBuildNumber
               );
 
 #endif // _OSVER_

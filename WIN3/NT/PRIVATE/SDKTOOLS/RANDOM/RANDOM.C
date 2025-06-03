@@ -237,7 +237,7 @@ void main ( int argc, char ** argv ) {
 
         GetCurrentDirectory ( BUFSZ, (LPSTR) strBuf );
 
-        if ( stricmp ( strBuf, sbSlmTop ) == 0 ) {
+        if ( _stricmp ( strBuf, sbSlmTop ) == 0 ) {
             bAtTop = TRUE;
             direction = 1;        // Force a move down.
         } else {
@@ -263,7 +263,7 @@ void main ( int argc, char ** argv ) {
 
             if (SetCurrentDirectory("..")) {
                 GetCurrentDirectory ( BUFSZ, (LPSTR) strBuf );
-                if ( stricmp ( strBuf, sbSlmTop ) == 0 ) {
+                if ( _stricmp ( strBuf, sbSlmTop ) == 0 ) {
                     printf("WARNING: at top of slm tree...going back down.\n");
                     continue;
                 } else {

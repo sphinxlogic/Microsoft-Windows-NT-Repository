@@ -28,6 +28,13 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_EA)
 
 //
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('EFtN')
+
+//
 //  Local definitions
 //
 
@@ -35,7 +42,7 @@ Revision History:
 //  The following gives us an empty name string.
 //
 
-UNICODE_STRING AttrNoName = { 0, 0, L"" };
+UNICODE_STRING AttrNoName = CONSTANT_UNICODE_STRING( L"" );
 
 #define MAXIMUM_EA_SIZE             0x0000ffff
 
@@ -72,28 +79,26 @@ UNICODE_STRING AttrNoName = { 0, 0, L"" };
 //      );
 //
 
-#define NtfsAreEaNamesEqual( IRPCONTEXT, NAMEA, NAMEB ) ((BOOLEAN)          \
-    ((NAMEA)->Length == (NAMEB)->Length                                     \
-     && RtlCompareMemory( (NAMEA)->Buffer,                                  \
-                          (NAMEB)->Buffer,                                  \
-                          (NAMEA)->Length ) == (ULONG)(NAMEA)->Length )     \
+#define NtfsAreEaNamesEqual(NAMEA, NAMEB ) ((BOOLEAN)              \
+    ((NAMEA)->Length == (NAMEB)->Length                            \
+     && RtlEqualMemory( (NAMEA)->Buffer,                           \
+                        (NAMEB)->Buffer,                           \
+                        (NAMEA)->Length ) )                        \
 )
 
 //
 //  VOID
 //  NtfsUpcaseEaName (
-//      IN PIRP_CONTEXT IrpContext,
 //      IN PSTRING EaName,
 //      OUT PSTRING UpcasedEaName
 //      );
 //
 
-#define NtfsUpcaseEaName( IRPCONTEXT, NAME, UPCASEDNAME ) \
+#define NtfsUpcaseEaName( NAME, UPCASEDNAME )   \
     RtlUpperString( UPCASEDNAME, NAME )
 
 BOOLEAN
 NtfsIsEaNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN STRING Name
     );
 
@@ -118,7 +123,6 @@ NtfsDeleteEa (
 
 BOOLEAN
 NtfsLocateEaByName (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_FULL_EA_INFORMATION FullEa,
     IN ULONG EaBufferLength,
     IN PSTRING EaName,
@@ -127,19 +131,16 @@ NtfsLocateEaByName (
 
 IO_STATUS_BLOCK
 NtfsQueryEaUserEaList (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
     OUT PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG UserBufferLength,
     IN PFILE_GET_EA_INFORMATION UserEaList,
-    IN ULONG UserEaListLength,
     IN BOOLEAN ReturnSingleEntry
     );
 
 IO_STATUS_BLOCK
 NtfsQueryEaIndexSpecified (
-    IN PIRP_CONTEXT IrpContext,
     OUT PCCB Ccb,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
@@ -151,7 +152,6 @@ NtfsQueryEaIndexSpecified (
 
 IO_STATUS_BLOCK
 NtfsQueryEaSimpleScan (
-    IN PIRP_CONTEXT IrpContext,
     OUT PCCB Ccb,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
@@ -163,7 +163,6 @@ NtfsQueryEaSimpleScan (
 
 BOOLEAN
 NtfsIsDuplicateGeaName (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_GET_EA_INFORMATION CurrentGea,
     IN PFILE_GET_EA_INFORMATION UserGeaBuffer
     );
@@ -219,12 +218,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdQueryEa\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdQueryEa\n") );
 
     //
     //  Call the common query Ea routine
@@ -280,7 +280,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdQueryEa -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdQueryEa -> %08lx\n", Status) );
 
     return Status;
 }
@@ -318,12 +318,13 @@ Return Value:
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
 
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
     ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( VolumeDeviceObject );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFsdSetEa\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdSetEa\n") );
 
     //
     //  Call the common set Ea routine
@@ -379,7 +380,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdSetEa -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdSetEa -> %08lx\n", Status) );
 
     return Status;
 }
@@ -448,17 +449,17 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonQueryEa\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext         = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "SystemBuffer       = %08lx\n", Irp->AssociatedIrp.SystemBuffer );
-    DebugTrace( 0, Dbg, "Length             = %08lx\n", IrpSp->Parameters.QueryEa.Length );
-    DebugTrace( 0, Dbg, "EaList             = %08lx\n", IrpSp->Parameters.QueryEa.EaList );
-    DebugTrace( 0, Dbg, "EaListLength       = %08lx\n", IrpSp->Parameters.QueryEa.EaListLength );
-    DebugTrace( 0, Dbg, "EaIndex            = %08lx\n", IrpSp->Parameters.QueryEa.EaIndex );
-    DebugTrace( 0, Dbg, "RestartScan        = %08lx\n", FlagOn(IrpSp->Flags, SL_RESTART_SCAN));
-    DebugTrace( 0, Dbg, "ReturnSingleEntry  = %08lx\n", FlagOn(IrpSp->Flags, SL_RETURN_SINGLE_ENTRY));
-    DebugTrace( 0, Dbg, "IndexSpecified     = %08lx\n", FlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED));
+    DebugTrace( +1, Dbg, ("NtfsCommonQueryEa\n") );
+    DebugTrace( 0, Dbg, ("IrpContext         = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("SystemBuffer       = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
+    DebugTrace( 0, Dbg, ("Length             = %08lx\n", IrpSp->Parameters.QueryEa.Length) );
+    DebugTrace( 0, Dbg, ("EaList             = %08lx\n", IrpSp->Parameters.QueryEa.EaList) );
+    DebugTrace( 0, Dbg, ("EaListLength       = %08lx\n", IrpSp->Parameters.QueryEa.EaListLength) );
+    DebugTrace( 0, Dbg, ("EaIndex            = %08lx\n", IrpSp->Parameters.QueryEa.EaIndex) );
+    DebugTrace( 0, Dbg, ("RestartScan        = %08lx\n", FlagOn(IrpSp->Flags, SL_RESTART_SCAN)) );
+    DebugTrace( 0, Dbg, ("ReturnSingleEntry  = %08lx\n", FlagOn(IrpSp->Flags, SL_RETURN_SINGLE_ENTRY)) );
+    DebugTrace( 0, Dbg, ("IndexSpecified     = %08lx\n", FlagOn(IrpSp->Flags, SL_INDEX_SPECIFIED)) );
 
     //
     //  Extract and decode the file object
@@ -475,13 +476,11 @@ Return Value:
     if (Ccb == NULL
         || !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )
         || (TypeOfOpen != UserFileOpen
-            && TypeOfOpen != UserDirectoryOpen
-            && TypeOfOpen != UserOpenFileById
-            && TypeOfOpen != UserOpenDirectoryById)) {
+            && TypeOfOpen != UserDirectoryOpen)) {
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace(-1, Dbg, "NtfsCommonQueryEa -> %08lx\n", STATUS_INVALID_PARAMETER );
+        DebugTrace( -1, Dbg, ("NtfsCommonQueryEa -> %08lx\n", STATUS_INVALID_PARAMETER) );
 
         return STATUS_INVALID_PARAMETER;
     }
@@ -522,7 +521,7 @@ Return Value:
         //  Map the user's buffer.
         //
 
-        EaBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+        EaBuffer = NtfsMapUserBuffer( Irp );
 
         //
         //  Verify that the Ea file is in a consistant state.  If the
@@ -538,8 +537,7 @@ Return Value:
             && !RestartScan
             && Fcb->EaModificationCount != Ccb->EaModificationCount) {
 
-            DebugTrace(0, Dbg,
-                      "NtfsCommonQueryEa:  Ea file in unknown state\n", 0);
+            DebugTrace( 0, Dbg, ("NtfsCommonQueryEa:  Ea file in unknown state\n") );
 
             Status = STATUS_EA_CORRUPT_ERROR;
 
@@ -629,13 +627,11 @@ Return Value:
 
         if (UserEaList != NULL) {
 
-            Irp->IoStatus = NtfsQueryEaUserEaList( IrpContext,
-                                                   CurrentEas,
+            Irp->IoStatus = NtfsQueryEaUserEaList( CurrentEas,
                                                    EaInformation,
                                                    EaBuffer,
                                                    UserBufferLength,
                                                    UserEaList,
-                                                   UserEaListLength,
                                                    ReturnSingleEntry );
 
         //
@@ -644,8 +640,7 @@ Return Value:
 
         } else if (IndexSpecified) {
 
-            Irp->IoStatus = NtfsQueryEaIndexSpecified( IrpContext,
-                                                       Ccb,
+            Irp->IoStatus = NtfsQueryEaIndexSpecified( Ccb,
                                                        CurrentEas,
                                                        EaInformation,
                                                        EaBuffer,
@@ -660,8 +655,7 @@ Return Value:
 
         } else {
 
-            Irp->IoStatus = NtfsQueryEaSimpleScan( IrpContext,
-                                                   Ccb,
+            Irp->IoStatus = NtfsQueryEaSimpleScan( Ccb,
                                                    CurrentEas,
                                                    EaInformation,
                                                    EaBuffer,
@@ -685,14 +679,14 @@ Return Value:
 
         if (CleanupEaInfoAttr) {
 
-            NtfsCleanupAttributeContext( IrpContext, &EaInfoAttr );
+            NtfsCleanupAttributeContext( &EaInfoAttr );
         }
 
         //
         //  Unpin the stream file if pinned.
         //
 
-        NtfsUnpinBcb( IrpContext, &EaBcb );
+        NtfsUnpinBcb( &EaBcb );
 
         //
         //  Release the Fcb.
@@ -709,7 +703,7 @@ Return Value:
         //  And return to our caller
         //
 
-        DebugTrace(-1, Dbg, "NtfsCommonQueryEa -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonQueryEa -> %08lx\n", Status) );
     }
 
     return Status;
@@ -774,9 +768,9 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonSetEa\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
+    DebugTrace( +1, Dbg, ("NtfsCommonSetEa\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
 
     //
     //  Extract and decode the file object
@@ -797,17 +791,14 @@ Return Value:
     //  user directory open or an open by file ID.
     //
 
-    if (Ccb == NULL
-        || !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE )
-        || (TypeOfOpen != UserFileOpen
-            && TypeOfOpen != UserDirectoryOpen
-            && TypeOfOpen != UserOpenFileById
-            && TypeOfOpen != UserOpenDirectoryById)) {
+    if ((Ccb == NULL) ||
+        !FlagOn( Ccb->Flags, CCB_FLAG_OPEN_AS_FILE ) ||
+        ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserDirectoryOpen))) {
 
-        DebugTrace( 0, Dbg, "Invalid file object\n", 0 );
+        DebugTrace( 0, Dbg, ("Invalid file object\n") );
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_PARAMETER );
 
-        DebugTrace( -1, Dbg, "NtfsCommonQueryEa -> %08lx\n", STATUS_INVALID_PARAMETER);
+        DebugTrace( -1, Dbg, ("NtfsCommonQueryEa -> %08lx\n", STATUS_INVALID_PARAMETER) );
 
         return STATUS_INVALID_PARAMETER;
     }
@@ -816,11 +807,11 @@ Return Value:
     //  We must be waitable.
     //
 
-    if (!FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT)) {
+    if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace( -1, Dbg, "NtfsCommonSetEa -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsCommonSetEa -> %08lx\n", Status) );
         return Status;
     }
 
@@ -856,7 +847,7 @@ Return Value:
         //  Map the user's Ea buffer.
         //
 
-        Buffer = NtfsMapUserBuffer( IrpContext, Irp );
+        Buffer = NtfsMapUserBuffer( Irp );
 
         //
         //  Check the user's buffer for validity.
@@ -925,7 +916,7 @@ Return Value:
             //  The allocated size of the Ea buffer is the Unpacked length.
             //
 
-            EaList.FullEa = NtfsAllocatePagedPool( EaList.BufferSize );
+            EaList.FullEa = NtfsAllocatePool(PagedPool, EaList.BufferSize );
 
             //
             //  Now copy the mapped Eas.
@@ -939,7 +930,7 @@ Return Value:
             //  Upin the stream file.
             //
 
-            NtfsUnpinBcb( IrpContext, &EaBcb );
+            NtfsUnpinBcb( &EaBcb );
 
         } else {
 
@@ -973,21 +964,7 @@ Return Value:
         //  Replace the existing Eas.
         //
 
-        NtfsReplaceFileEas( IrpContext,
-                            Fcb,
-                            &EaList );
-
-        //
-        //  Update the information in the duplicate information and mark
-        //  the Fcb as info modified.
-        //
-
-        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_CHANGE_TIME )) {
-
-            NtfsGetCurrentTime( IrpContext, Fcb->Info.LastChangeTime );
-            SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-            SetFlag( Fcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-        }
+        NtfsReplaceFileEas( IrpContext, Fcb, &EaList );
 
         //
         //  Increment the Modification count for the Eas.
@@ -1009,8 +986,6 @@ Return Value:
             Fcb->Info.PackedEaSize = (USHORT) EaList.PackedEaSize;
         }
 
-        SetFlag( Fcb->InfoFlags, FCB_INFO_CHANGED_EA_SIZE );
-
         //
         //  Update the caller's Iosb.
         //
@@ -1024,7 +999,15 @@ Return Value:
         //  Check if there are transactions to cleanup.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
+
+        //
+        //  Show that we changed the Ea's and also set the Ccb flag so we will
+        //  update the time stamps.
+        //
+
+        SetFlag( Ccb->Flags,
+                 CCB_FLAG_UPDATE_LAST_CHANGE | CCB_FLAG_SET_ARCHIVE );
 
     } finally {
 
@@ -1036,20 +1019,20 @@ Return Value:
 
         if (EaList.FullEa != NULL) {
 
-            NtfsFreePagedPool( EaList.FullEa );
+            NtfsFreePool( EaList.FullEa );
         }
 
         //
         //  Unpin the Bcb.
         //
 
-        NtfsUnpinBcb( IrpContext, &EaBcb );
+        NtfsUnpinBcb( &EaBcb );
 
         //
         //  Cleanup any attribute contexts used.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &EaInfoAttr );
+        NtfsCleanupAttributeContext( &EaInfoAttr );
 
         //
         //  Release the Fcb.
@@ -1066,7 +1049,7 @@ Return Value:
             NtfsCompleteRequest( &IrpContext, &Irp, Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonSetEa -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsCommonSetEa -> %08lx\n", Status) );
     }
 
     return Status;
@@ -1114,7 +1097,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAppendEa...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsAppendEa...\n") );
 
     UnpackedEaLength = AlignedUnpackedEaSize( FullEa );
 
@@ -1133,7 +1116,7 @@ Return Value:
         PVOID Temp;
         ULONG NewAllocationSize;
 
-        DebugTrace(0, Dbg, "Allocate a new ea list buffer\n", 0);
+        DebugTrace( 0, Dbg, ("Allocate a new ea list buffer\n") );
 
         //
         //  Compute a new size and allocate space.  Always increase the
@@ -1144,7 +1127,7 @@ Return Value:
                                           UnpackedEaLength
                                           + EaListHeader->UnpackedEaSize );
 
-        Temp = NtfsAllocatePagedPool( NewAllocationSize );
+        Temp = NtfsAllocatePool(PagedPool, NewAllocationSize );
 
         //
         //  Move over the existing ea list and zero the remaining space.
@@ -1163,7 +1146,7 @@ Return Value:
 
         if (EaListHeader->FullEa != NULL) {
 
-            NtfsFreePagedPool( EaListHeader->FullEa );
+            NtfsFreePool( EaListHeader->FullEa );
         }
 
         EaListHeader->FullEa = Temp;
@@ -1216,7 +1199,7 @@ Return Value:
     EaName.MaximumLength = EaName.Length = ThisEa->EaNameLength;
     EaName.Buffer = &ThisEa->EaName[0];
 
-    NtfsUpcaseEaName( IrpContext, &EaName, &EaName );
+    NtfsUpcaseEaName( &EaName, &EaName );
 
     //
     //  Increment the used size in the ea list structure
@@ -1229,7 +1212,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsAppendEa -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsAppendEa -> VOID\n") );
 
     return;
 
@@ -1273,7 +1256,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeletePackedEa, Offset = %08lx\n", Offset);
+    DebugTrace( +1, Dbg, ("NtfsDeletePackedEa, Offset = %08lx\n", Offset) );
 
     //
     //  Get a reference to the Ea to delete.
@@ -1333,7 +1316,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsDeleteEa -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeleteEa -> VOID\n") );
 
     return;
 
@@ -1347,7 +1330,6 @@ Return Value:
 
 BOOLEAN
 NtfsLocateEaByName (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_FULL_EA_INFORMATION FullEa,
     IN ULONG EaBufferLength,
     IN PSTRING EaName,
@@ -1383,11 +1365,9 @@ Return Value:
     PFILE_FULL_EA_INFORMATION ThisEa;
     STRING Name;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsLocateEaByName, EaName = %Z\n", EaName);
+    DebugTrace( +1, Dbg, ("NtfsLocateEaByName, EaName = %Z\n", EaName) );
 
     //
     //  If the Ea list is NULL, there is nothing to do.
@@ -1395,7 +1375,7 @@ Return Value:
 
     if (FullEa == NULL) {
 
-        DebugTrace( -1, Dbg, "NtfsLocateEaByName:  No work to do\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsLocateEaByName:  No work to do\n") );
         return FALSE;
     }
 
@@ -1423,7 +1403,7 @@ Return Value:
 
         if ( RtlCompareString( EaName, &Name, TRUE ) == 0 ) {
 
-            DebugTrace(-1, Dbg, "NtfsLocateEaByName -> TRUE, *Offset = %08lx\n", *Offset);
+            DebugTrace( -1, Dbg, ("NtfsLocateEaByName -> TRUE, *Offset = %08lx\n", *Offset) );
             return TRUE;
         }
 
@@ -1439,7 +1419,7 @@ Return Value:
     //  We've exhausted the ea list without finding a match so return false
     //
 
-    DebugTrace(-1, Dbg, "NtfsLocateEaByName -> FALSE\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsLocateEaByName -> FALSE\n") );
     return FALSE;
 }
 
@@ -1485,7 +1465,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsMapExistingEas:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsMapExistingEas:  Entered\n") );
 
     //
     //  We start by looking up the Ea attribute.  It better be there.
@@ -1503,7 +1483,7 @@ Return Value:
         //  This is a disk corrupt error.
         //
 
-        DebugTrace( -1, Dbg, "NtfsMapExistingEas:  Corrupt disk\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsMapExistingEas:  Corrupt disk\n") );
 
         NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Fcb );
     }
@@ -1519,10 +1499,10 @@ Return Value:
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
     }
 
-    DebugTrace( -1, Dbg, "NtfsMapExistingEas:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsMapExistingEas:  Exit\n") );
 
     return CurrentEas;
 }
@@ -1534,13 +1514,11 @@ Return Value:
 
 IO_STATUS_BLOCK
 NtfsQueryEaUserEaList (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
     OUT PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG UserBufferLength,
     IN PFILE_GET_EA_INFORMATION UserEaList,
-    IN ULONG UserEaListLength,
     IN BOOLEAN ReturnSingleEntry
     )
 
@@ -1562,8 +1540,6 @@ Arguments:
     UserBufferLength - Supplies the length, in bytes, of the user buffer
 
     UserEaList - Supplies the user specified ea name list
-
-    UserEaListLength - Supplies the length, in bytes, of the user ea list
 
     ReturnSingleEntry - Indicates if we are to return a single entry or not
 
@@ -1590,7 +1566,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsQueryEaUserEaList:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsQueryEaUserEaList:  Entered\n") );
 
     //
     //  Setup pointer in the output buffer so we can track the Ea being
@@ -1637,15 +1613,15 @@ Return Value:
         //  Upcase the name so we can do a case-insensitive compare.
         //
 
-        NtfsUpcaseEaName( IrpContext, &GeaName, &GeaName );
+        NtfsUpcaseEaName( &GeaName, &GeaName );
 
         //
         //  Check for a valid name.
         //
 
-        if (!NtfsIsEaNameValid( IrpContext, GeaName )) {
+        if (!NtfsIsEaNameValid( GeaName )) {
 
-            DebugTrace( -1, Dbg, "NtfsQueryEaUserEaList:  Invalid Ea Name\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsQueryEaUserEaList:  Invalid Ea Name\n") );
 
             Iosb.Information = GeaOffset;
             Iosb.Status = STATUS_INVALID_EA_NAME;
@@ -1658,7 +1634,7 @@ Return Value:
         //  If this is a duplicate name, then step over this entry.
         //
 
-        if (NtfsIsDuplicateGeaName( IrpContext, GetEa, UserEaList )) {
+        if (NtfsIsDuplicateGeaName( GetEa, UserEaList )) {
 
             continue;
         }
@@ -1674,8 +1650,7 @@ Return Value:
         //  If we couldn't, let's dummy up an Ea to give to the user.
         //
 
-        if (!NtfsLocateEaByName( IrpContext,
-                                 CurrentEas,
+        if (!NtfsLocateEaByName( CurrentEas,
                                  EaInformation->UnpackedEaSize,
                                  &GeaName,
                                  &FeaOffset )) {
@@ -1716,7 +1691,7 @@ Return Value:
             OutputEaName.MaximumLength = OutputEaName.Length = GeaName.Length;
             OutputEaName.Buffer = NextFullEa->EaName;
 
-            NtfsUpcaseEaName( IrpContext, &OutputEaName, &OutputEaName );
+            NtfsUpcaseEaName( &OutputEaName, &OutputEaName );
 
             NextFullEa->EaName[GetEa->EaNameLength] = 0;
 
@@ -1833,9 +1808,9 @@ Return Value:
         Iosb.Status = STATUS_SUCCESS;
     }
 
-    DebugTrace(  0, Dbg, "Status        -> %08lx\n", Iosb.Status );
-    DebugTrace(  0, Dbg, "Information   -> %08lx\n", Iosb.Information );
-    DebugTrace( -1, Dbg, "NtfsQueryEaUserEaList:  Exit\n", 0 );
+    DebugTrace( 0, Dbg, ("Status        -> %08lx\n", Iosb.Status) );
+    DebugTrace( 0, Dbg, ("Information   -> %08lx\n", Iosb.Information) );
+    DebugTrace( -1, Dbg, ("NtfsQueryEaUserEaList:  Exit\n") );
 
     return Iosb;
 }
@@ -1847,7 +1822,6 @@ Return Value:
 
 IO_STATUS_BLOCK
 NtfsQueryEaIndexSpecified (
-    IN PIRP_CONTEXT IrpContext,
     OUT PCCB Ccb,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
@@ -1895,7 +1869,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsQueryEaIndexSpecified:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsQueryEaIndexSpecified:  Entered\n") );
 
     i = 1;
     Offset = 0;
@@ -1908,7 +1882,7 @@ Return Value:
     if (UserEaIndex == 0
         || EaInformation->UnpackedEaSize == 0) {
 
-        DebugTrace( -1, Dbg, "NtfsQueryEaIndexSpecified: Non-existant entry\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsQueryEaIndexSpecified: Non-existant entry\n") );
 
         Iosb.Information = 0;
         Iosb.Status = STATUS_NONEXISTENT_EA_ENTRY;
@@ -1950,7 +1924,7 @@ Return Value:
             Iosb.Status = STATUS_NONEXISTENT_EA_ENTRY;
         }
 
-        DebugTrace(-1, Dbg, "NtfsQueryEaIndexSpecified -> %08lx\n", Iosb.Status);
+        DebugTrace( -1, Dbg, ("NtfsQueryEaIndexSpecified -> %08lx\n", Iosb.Status) );
         return Iosb;
     }
 
@@ -1959,8 +1933,7 @@ Return Value:
     //  We simply call our EaSimpleScan routine to do the actual work.
     //
 
-    Iosb = NtfsQueryEaSimpleScan( IrpContext,
-                                  Ccb,
+    Iosb = NtfsQueryEaSimpleScan( Ccb,
                                   CurrentEas,
                                   EaInformation,
                                   EaBuffer,
@@ -1968,7 +1941,7 @@ Return Value:
                                   ReturnSingleEntry,
                                   Offset );
 
-    DebugTrace( -1, Dbg, "NtfsQueryEaIndexSpecified:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsQueryEaIndexSpecified:  Exit\n") );
 
     return Iosb;
 }
@@ -1980,7 +1953,6 @@ Return Value:
 
 IO_STATUS_BLOCK
 NtfsQueryEaSimpleScan (
-    IN PIRP_CONTEXT IrpContext,
     OUT PCCB Ccb,
     IN PFILE_FULL_EA_INFORMATION CurrentEas,
     IN PEA_INFORMATION EaInformation,
@@ -2031,11 +2003,9 @@ Return Value:
     ULONG BufferOffset;
     ULONG PrevEaPadding;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsQueryEaSimpleScan:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsQueryEaSimpleScan:  Entered\n") );
 
     //
     //  Initialize our Ea pointers and the offsets into the user buffer
@@ -2178,7 +2148,7 @@ Return Value:
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsQueryEaSimpleScan:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsQueryEaSimpleScan:  Exit\n") );
 
     return Iosb;
 }
@@ -2190,7 +2160,6 @@ Return Value:
 
 BOOLEAN
 NtfsIsDuplicateGeaName (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_GET_EA_INFORMATION GetEa,
     IN PFILE_GET_EA_INFORMATION UserGeaBuffer
     )
@@ -2226,7 +2195,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsIsDuplicateGeaName:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsIsDuplicateGeaName:  Entered\n") );
 
     //
     //  Set up the string structure.
@@ -2258,8 +2227,7 @@ Return Value:
         //  Check if the Gea names match, exit if they do.
         //
 
-        if (NtfsAreEaNamesEqual( IrpContext,
-                                 &GeaString,
+        if (NtfsAreEaNamesEqual( &GeaString,
                                  &ThisGea )) {
 
                 DuplicateFound = TRUE;
@@ -2274,7 +2242,7 @@ Return Value:
                                                         ThisGetEa->NextEntryOffset );
     }
 
-    DebugTrace( -1, Dbg, "NtfsIsDuplicateGeaName:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsIsDuplicateGeaName:  Exit\n") );
 
     return DuplicateFound;
 }
@@ -2324,7 +2292,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsBuildEaList:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsBuildEaList:  Entered\n") );
 
     Status = STATUS_SUCCESS;
     Offset = 0;
@@ -2354,7 +2322,7 @@ Return Value:
         //  If the Ea isn't valid, return error offset to caller.
         //
 
-        if (!NtfsIsEaNameValid( IrpContext, EaName )) {
+        if (!NtfsIsEaNameValid( EaName )) {
 
             *ErrorOffset = Offset;
             Status = STATUS_INVALID_EA_NAME;
@@ -2379,8 +2347,7 @@ Return Value:
         //  If we can find the name in the Ea set, we remove it.
         //
 
-        if (NtfsLocateEaByName( IrpContext,
-                                EaListHeader->FullEa,
+        if (NtfsLocateEaByName( EaListHeader->FullEa,
                                 EaListHeader->UnpackedEaSize,
                                 &EaName,
                                 &EaOffset )) {
@@ -2427,7 +2394,7 @@ Return Value:
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsBuildEaList:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsBuildEaList:  Exit\n") );
 
     return Status;
 }
@@ -2473,7 +2440,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsReplaceFileEas:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsReplaceFileEas:  Entered\n") );
 
     ThisEaInformation.PackedEaSize = (USHORT) EaList->PackedEaSize;
     ThisEaInformation.UnpackedEaSize = EaList->UnpackedEaSize;
@@ -2501,9 +2468,9 @@ Return Value:
 
             if (EaList->UnpackedEaSize != 0) {
 
-                DebugTrace(0, Dbg, "Create a new $EA_INFORMATION attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Create a new $EA_INFORMATION attribute\n") );
 
-                NtfsCleanupAttributeContext( IrpContext, &Context );
+                NtfsCleanupAttributeContext( &Context );
                 NtfsInitializeAttributeContext( &Context );
 
                 NtfsCreateAttributeWithValue( IrpContext,
@@ -2526,7 +2493,7 @@ Return Value:
 
             if (EaList->UnpackedEaSize != 0) {
 
-                DebugTrace(0, Dbg, "Change an existing $EA_INFORMATION attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Change an existing $EA_INFORMATION attribute\n") );
 
                 NtfsChangeAttributeValue( IrpContext,
                                           Fcb,
@@ -2545,7 +2512,7 @@ Return Value:
 
             } else {
 
-                DebugTrace(0, Dbg, "Delete existing $EA_INFORMATION attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Delete existing $EA_INFORMATION attribute\n") );
 
                 NtfsDeleteAttributeRecord( IrpContext,
                                            Fcb,
@@ -2559,7 +2526,7 @@ Return Value:
         //  Now we will cleanup and reinitialize the context for reuse.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
         NtfsInitializeAttributeContext( &Context );
 
         //
@@ -2575,9 +2542,9 @@ Return Value:
 
             if (EaList->UnpackedEaSize != 0) {
 
-                DebugTrace(0, Dbg, "Create a new $EA attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Create a new $EA attribute\n") );
 
-                NtfsCleanupAttributeContext( IrpContext, &Context );
+                NtfsCleanupAttributeContext( &Context );
                 NtfsInitializeAttributeContext( &Context );
 
                 NtfsCreateAttributeWithValue( IrpContext,
@@ -2600,7 +2567,7 @@ Return Value:
 
             if (EaList->UnpackedEaSize != 0) {
 
-                DebugTrace(0, Dbg, "Change an existing $EA attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Change an existing $EA attribute\n") );
 
                 NtfsChangeAttributeValue( IrpContext,
                                           Fcb,
@@ -2619,7 +2586,7 @@ Return Value:
 
             } else {
 
-                DebugTrace(0, Dbg, "Delete existing $EA attribute\n", 0);
+                DebugTrace( 0, Dbg, ("Delete existing $EA attribute\n") );
 
                 //
                 //  If the stream is non-resident then get hold of an
@@ -2629,10 +2596,10 @@ Return Value:
                 if (!NtfsIsAttributeResident( NtfsFoundAttribute( &Context ))) {
 
                     EaScb = NtfsCreateScb( IrpContext,
-                                           Fcb->Vcb,
                                            Fcb,
                                            $EA,
-                                           NtfsEmptyString,
+                                           &NtfsEmptyString,
+                                           FALSE,
                                            NULL );
 
                     NtfsAcquireExclusiveScb( IrpContext, EaScb );
@@ -2691,10 +2658,10 @@ Return Value:
         //  Cleanup our attribute enumeration context
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
     }
 
-    DebugTrace( -1, Dbg, "NtfsReplaceFileEas:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsReplaceFileEas:  Exit\n") );
 
     return;
 }
@@ -2702,7 +2669,6 @@ Return Value:
 
 BOOLEAN
 NtfsIsEaNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN STRING Name
     )
 

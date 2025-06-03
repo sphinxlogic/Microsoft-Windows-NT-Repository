@@ -266,7 +266,16 @@ typedef struct _NE2000_ADAPTER {
     UCHAR InterruptType;
 
 
+    //
+    //  Type of ne2000 card.
+    //
+    UINT    CardType;
 
+    //
+    //  Address of the memory window.
+    //
+    ULONG   AttributeMemoryAddress;
+    ULONG   AttributeMemorySize;
 
     //
     // Transmit information.
@@ -699,7 +708,7 @@ CardInitialize(
     IN PNE2000_ADAPTER Adapter
     );
 
-VOID
+BOOLEAN
 CardReadEthernetAddress(
     IN PNE2000_ADAPTER Adapter
     );

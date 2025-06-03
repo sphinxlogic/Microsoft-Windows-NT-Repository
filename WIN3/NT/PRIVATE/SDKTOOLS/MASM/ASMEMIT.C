@@ -1602,7 +1602,7 @@ edump()
 # if defined MSDOS && !defined FLATMODEL
     farwrite( obj.fh, obj.buf, (SHORT)(obj.siz - obj.cnt) );
 # else
-    if (write( obj.fh, obj.buf, obj.siz - obj.cnt )
+    if (_write( obj.fh, obj.buf, obj.siz - obj.cnt )
             != obj.siz - obj.cnt)
             objerr = -1;
 # endif /* MSDOS */

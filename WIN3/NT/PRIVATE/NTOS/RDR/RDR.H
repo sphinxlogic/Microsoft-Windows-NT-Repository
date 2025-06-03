@@ -41,6 +41,20 @@ Revision History:
 #define RDRPOOLDBG 0
 #endif
 
+//BUGBUG: Temporary for debugging FCB reference count problems.
+#if DBG
+#define RDRDBG_FCBREF 1
+#endif
+
+#if !defined(MAGIC_BULLET)
+#if !DBG
+#define MAGIC_BULLET 0
+#else
+#define MAGIC_BULLET 1
+extern BOOLEAN RdrEnableMagic;
+#endif
+#endif
+
 #define NEWTDI 1
 
 
@@ -90,23 +104,12 @@ Revision History:
 //#include <ntiologc.h>
 #include <netevent.h>
 
-#ifdef _CAIRO_
-
-#ifndef SECURITY_WIN32
-#define SECURITY_WIN32
-#endif  // SECURITY_WIN32
 
 #ifndef SECURITY_KERNEL
 #define SECURITY_KERNEL
 #endif  // SECURITY_KERNEL
 
-#include <security.h>              // Cairo security kernel interface
-
-#endif // _CAIRO_
-
-extern
-POBJECT_TYPE
-*IoFileObjectType;
+#include <security.h>                   // SSP interface
 
 
 //

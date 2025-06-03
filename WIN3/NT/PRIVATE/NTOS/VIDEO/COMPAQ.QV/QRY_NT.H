@@ -54,6 +54,7 @@ Revision History:
 #define QRY_CONTROLLER_VICTORY          11      /* Victory controller        */
 #define QRY_CONTROLLER_V32              12      /* V32 controller            */
 #define QRY_CONTROLLER_V35              13      /* V35 controller            */
+#define QRY_CONTROLLER_V64              14      /* V64 controller            */
 
 /****************
 * QRY_DACType() *
@@ -65,6 +66,19 @@ Revision History:
 #define QRY_DAC_BT476                   QRY_DAC_MADONNA
 #define QRY_DAC_BT484                   4       /* Bt484 or compatible       */
 #define QRY_DAC_BT485                   5       /* Bt485 or compatible       */
+
+
+//
+// Publishable QVision names...
+//
+#define TRITON                L"QVGA G32E00"    // Victory
+#define ORION                 L"QVGA G32E02"    // V32
+#define ARIEL                 L"QVGA G32P04"    // V35
+#define OBERON                L"QVGA G64P10"    // V64
+#define KENOBEE               L"QVGA G64PV20"   // W64
+#define MUSTANG               L"QVGA G64PV21"   // Slayer
+
+#define QV_NEW                L"QVGA New"       // Generic Future QVision
 
 //
 // prototypes

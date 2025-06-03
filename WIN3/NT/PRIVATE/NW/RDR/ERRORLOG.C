@@ -27,7 +27,15 @@ ULONG
 SequenceNumber = 0;
 
 #ifdef ALLOC_PRAGMA
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, Error )
+#endif
+#endif
+
+#if 0   // Not pageable
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 VOID

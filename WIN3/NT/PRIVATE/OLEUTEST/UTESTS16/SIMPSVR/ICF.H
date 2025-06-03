@@ -20,13 +20,13 @@ private:
 public:
 	CClassFactory::CClassFactory(CSimpSvrApp FAR * lpApp)
 		{
-		OutputDebugString("In CClassFactory's Constructor\r\n");
+		TestDebugOut("In CClassFactory's Constructor\r\n");
 		m_lpApp = lpApp;
 		m_nCount = 0;
 		};
 	CClassFactory::~CClassFactory()
 	   {
-	   OutputDebugString("In CClassFactory's Destructor\r\n");
+	   TestDebugOut("In CClassFactory's Destructor\r\n");
 	   };
 
 	// IUnknown Methods

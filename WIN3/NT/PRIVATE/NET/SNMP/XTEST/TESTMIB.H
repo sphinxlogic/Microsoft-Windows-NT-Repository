@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -15,21 +15,12 @@ Abstract:
     the SNMP Extendible Agent for Windows NT.
 
     Extensive comments have been included to describe its structure and
-    operation.  See also "Microsoft Windows/NT SNMP Programmer's Reference".
-
-Created:
-
-    13-Jun-1991
-
-Revision History:
+    operation.  See also "Microsoft Windows NT SNMP Programmer's Reference".
 
 --*/
 
 #ifndef testmib_h
 #define testmib_h
-
-static char *testmib__h = "@(#) $Logfile:   N:/xtest/vcs/testmib.h_v  $ $Revision:   1.2  $";
-
 
 // Necessary includes.
 

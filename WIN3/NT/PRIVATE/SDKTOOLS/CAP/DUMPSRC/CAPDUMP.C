@@ -49,6 +49,7 @@ HANDLE  hClearEvent;
 HANDLE	hPauseEvent;
 HANDLE	hdll;
 
+SECURITY_ATTRIBUTES  SecAttributes;
 SECURITY_DESCRIPTOR  SecDescriptor;
 
 
@@ -93,169 +94,67 @@ int WinMain(HINSTANCE hInstance,HINSTANCE hPrevInst,LPSTR lpCmdLine,int nCmdShow
     // Create public share security descriptor for all the named objects
     //
 
-    Status = RtlCreateSecurityDescriptor (
-		&SecDescriptor,
-		SECURITY_DESCRIPTOR_REVISION1
-		);
-    if (!NT_SUCCESS(Status)) {
-	fprintf (pfLog, "CAPDUMP: main () - RtlCreateSecurityDescriptor() "
-		       "failed - %lx\n", Status);
-	exit (1);
+	SecAttributes.nLength = sizeof(SecAttributes);
+	SecAttributes.lpSecurityDescriptor = &SecDescriptor;
+	SecAttributes.bInheritHandle = FALSE;
+    if (!InitializeSecurityDescriptor(&SecDescriptor,
+    									SECURITY_DESCRIPTOR_REVISION1))
+    {
+		fprintf (pfLog, "CAPDUMP: main () - RtlCreateSecurityDescriptor() "
+		       "failed - %lx\n", GetLastError());
+		exit (1);
     }
 
-    Status = RtlSetDaclSecurityDescriptor (
-		&SecDescriptor,	   	// SecurityDescriptor
-		TRUE,		   		// DaclPresent
-		NULL,		   		// Dacl
-		FALSE		   		// DaclDefaulted
-		);
-    if (!NT_SUCCESS(Status)) {
-	fprintf (pfLog, "CAPDUMP: main () - RtlSetDaclSecurityDescriptor() "
-		       "failed - %lx\n", Status);
-	exit (1);
+    if (!SetSecurityDescriptorDacl(
+	                &SecDescriptor,     // SecurityDescriptor
+	                TRUE,               // DaclPresent
+	                NULL,               // Dacl
+	                FALSE               // DaclDefaulted
+	                ))
+    {
+		fprintf (pfLog, "CAPDUMP: main () - RtlSetDaclSecurityDescriptor() "
+		       "failed - %lx\n", GetLastError());
+		exit (1);
     }
 
 
-    // Initialization for DONE event creation
-    //
-    RtlInitString (&EventName, DONEEVENTNAME);
-
-    Status = RtlAnsiStringToUnicodeString (&EventUnicodeName,
-					   &EventName,
-                                           TRUE);
-    if (NT_SUCCESS(Status)) {
-	InitializeObjectAttributes (&EventAttributes,
-				    &EventUnicodeName,
-				    OBJ_OPENIF | OBJ_CASE_INSENSITIVE,
-				    NULL,
-				    &SecDescriptor);
-    }
-    else {
-       fprintf (pfLog, "CAPDUMP: main () - RtlAnsiStringToUnicodeString() "
-                       "failed for DUMP event name - %lx\n", Status);
-     exit (1);
-    }
     //
     // Create DONE event
     //
-    Status = NtCreateEvent (&hDoneEvent,
-                            EVENT_QUERY_STATE    |
-                              EVENT_MODIFY_STATE |
-                              SYNCHRONIZE,
-							&EventAttributes,
-                            NotificationEvent,
-                            TRUE);
-    if (!NT_SUCCESS(Status)) {
+    hDoneEvent = CreateEvent (&SecAttributes, TRUE, FALSE, DONEEVENTNAME);
+    if (hDoneEvent == NULL) {
         fprintf (pfLog, "CAPDUMP: main () - NtCreateEvent() "
-                        "failed to create DUMP event - %lx\n", Status);
+                        "failed to create DUMP event - %lx\n", GetLastError());
         exit (1);
     }
 
-
-    // Initialization for DUMP event creation
-    //
-    RtlInitString (&EventName, DUMPEVENTNAME);
-
-    Status = RtlAnsiStringToUnicodeString (&EventUnicodeName,
-					   &EventName,
-                                           TRUE);
-    if (NT_SUCCESS(Status)) {
-	InitializeObjectAttributes (&EventAttributes,
-				    &EventUnicodeName,
-				    OBJ_OPENIF | OBJ_CASE_INSENSITIVE,
-				    NULL,
-				    &SecDescriptor);
-    }
-    else {
-       fprintf (pfLog, "CAPDUMP: main () - RtlAnsiStringToUnicodeString() "
-                       "failed for DUMP event name - %lx\n", Status);
-     exit (1);
-    }
     //
     // Create DUMP event
     //
-    Status = NtCreateEvent (&hDumpEvent,
-                            EVENT_QUERY_STATE    |
-                              EVENT_MODIFY_STATE |
-                              SYNCHRONIZE,
-							&EventAttributes,
-                            NotificationEvent,
-                            FALSE);
-    if (!NT_SUCCESS(Status)) {
+    hDumpEvent = CreateEvent (&SecAttributes, TRUE, FALSE, DUMPEVENTNAME);
+    if (hDumpEvent == NULL) {
         fprintf (pfLog, "CAPDUMP: main () - NtCreateEvent() "
-                        "failed to create DUMP event - %lx\n", Status);
+                        "failed to create DUMP event - %lx\n", GetLastError());
         exit (1);
     }
 
-
-    // Initialization for CLEAR event creation
-    //
-    RtlInitString (&EventName, CLEAREVENTNAME);
-
-    Status = RtlAnsiStringToUnicodeString (&EventUnicodeName,
-					   &EventName,
-                                           TRUE);
-    if (NT_SUCCESS(Status)) {
-	InitializeObjectAttributes (&EventAttributes,
-				    &EventUnicodeName,
-				    OBJ_OPENIF | OBJ_CASE_INSENSITIVE,
-				    NULL,
-				    &SecDescriptor);
-    }
-    else {
-        fprintf (pfLog, "CAPDUMP: main () - RtlAnsiStringToUnicodeString() "
-                        "failed for CLEAR event name - %lx\n", Status);
-        exit (1);
-    }
     //
     // Create CLEAR event
     //
-    Status = NtCreateEvent (&hClearEvent,
-                            EVENT_QUERY_STATE    |
-                              EVENT_MODIFY_STATE |
-                              SYNCHRONIZE,
-							&EventAttributes,
-                            NotificationEvent,
-                            FALSE);
-    if (!NT_SUCCESS(Status)) {
+    hClearEvent = CreateEvent (&SecAttributes, TRUE, FALSE, CLEAREVENTNAME);
+    if (hClearEvent == NULL) {
         fprintf (pfLog, "CAPDUMP: main () - NtCreateEvent() "
-                        "failed to create CLEAR event - %lx\n", Status);
+                        "failed to create CLEAR event - %lx\n", GetLastError());
         exit (1);
     }
 
-
-    // Initialization for PAUSE event creation
-    //
-    RtlInitString (&EventName, PAUSEEVENTNAME);
-
-    Status = RtlAnsiStringToUnicodeString (&EventUnicodeName,
-					   &EventName,
-                                           TRUE);
-    if (NT_SUCCESS(Status)) {
-	InitializeObjectAttributes (&EventAttributes,
-				    &EventUnicodeName,
-				    OBJ_OPENIF | OBJ_CASE_INSENSITIVE,
-				    NULL,
-				    &SecDescriptor);
-    }
-    else {
-        fprintf (pfLog, "CAPDUMP: main () - RtlAnsiStringToUnicodeString() "
-			"failed for PAUSE event name - %lx\n", Status);
-        exit (1);
-    }
     //
     // Create PAUSE event
     //
-    Status = NtCreateEvent (&hPauseEvent,
-                            EVENT_QUERY_STATE    |
-                              EVENT_MODIFY_STATE |
-                              SYNCHRONIZE,
-							&EventAttributes,
-                            NotificationEvent,
-                            FALSE);
-    if (!NT_SUCCESS(Status)) {
+    hPauseEvent = CreateEvent (&SecAttributes, TRUE, FALSE, PAUSEEVENTNAME);
+    if (hPauseEvent == NULL) {
         fprintf (pfLog, "CAPDUMP: main () - NtCreateEvent() "
-			"failed to create PAUSE event - %lx\n", Status);
+			"failed to create PAUSE event - %lx\n", GetLastError());
         exit (1);
     }
 
@@ -284,17 +183,13 @@ int WinMain(HINSTANCE hInstance,HINSTANCE hPrevInst,LPSTR lpCmdLine,int nCmdShow
 
 void ClearDumpInfo (void)
 {
-    NTSTATUS   Status;
-
-
     //
     // Pause profiling?
     //
     if (fPause) {
-	Status = NtPulseEvent (hPauseEvent, NULL);
-        if (!NT_SUCCESS(Status)) {
+        if (!PulseEvent (hPauseEvent)) {
             fprintf (pfLog, "CAPDUMP: ClearDumpInfo () - NtPulseEvent() "
-			    "failed for PAUSE event - %lx\n", Status);
+			    "failed for PAUSE event - %lx\n", GetLastError());
             exit (1);
         }
     }
@@ -302,10 +197,9 @@ void ClearDumpInfo (void)
     // Dump data?
     //
     else if (fDump) {
-        Status = NtPulseEvent (hDumpEvent, NULL);
-        if (!NT_SUCCESS(Status)) {
+        if (!PulseEvent (hDumpEvent)) {
             fprintf (pfLog, "CAPDUMP: ClearDumpInfo () - NtPulseEvent() "
-                            "failed for DUMP event - %lx\n", Status);
+                            "failed for DUMP event - %lx\n", GetLastError());
             exit (1);
         }
     }
@@ -313,21 +207,19 @@ void ClearDumpInfo (void)
     // Clear data?
     //
     else if (fClear) {
-        Status = NtPulseEvent (hClearEvent, NULL);
-        if (!NT_SUCCESS(Status)) {
+        if (!PulseEvent (hClearEvent)) {
             fprintf (pfLog, "CAPDUMP: ClearDumpInfo () - NtPulseEvent() "
-                            "failed for CLEAR event - %lx\n", Status);
+                            "failed for CLEAR event - %lx\n", GetLastError());
             exit (1);
         }
     }
     //
 	// Wait for the DONE event..
     //
-	Sleep (500);
-	Status = NtWaitForSingleObject (hDoneEvent, FALSE, NULL);
-    if (!NT_SUCCESS(Status)) {
+	ResetEvent(hDoneEvent);
+    if (!WaitForSingleObject (hDoneEvent, NULL))  {
         fprintf (pfLog, "CAPDUMP: ClearDumpInfo () - NtWaitForSingleObject() "
-                        "failed for DONE event - %lx\n", Status);
+                        "failed for DONE event - %lx\n", GetLastError());
         exit (1);
     }
 
@@ -374,7 +266,7 @@ int APIENTRY DialogProc(HWND hDlg, WORD wMesg, LONG wParam, LONG lParam)
         case WM_INITDIALOG:
 
 	    CheckDlgButton(hDlg, ID_DUMP, fDump);
-            CheckDlgButton(hDlg, ID_CLEAR, fClear);
+        CheckDlgButton(hDlg, ID_CLEAR, fClear);
 	    CheckDlgButton(hDlg, ID_PAUSE, fPause);
 	    SetDlgItemText (hDlg, ID_FILE_EXT, szDumpExt);
             return TRUE;
@@ -385,19 +277,19 @@ int APIENTRY DialogProc(HWND hDlg, WORD wMesg, LONG wParam, LONG lParam)
             switch (wParam) {
 
                 case IDOK:
-		    if (fDump) {
+				    if (fDump) {
                         SetWindowText(hDlg, "Dumping Data..");
                     }
                     else if (fClear) {
                         SetWindowText(hDlg, "Clearing Data..");
                     }
-		    else if (fPause) {
-			SetWindowText(hDlg, "Stopping profiler..");
+				    else if (fPause) {
+						SetWindowText(hDlg, "Stopping profiler..");
                     }
 
                     GetDlgItemText (hDlg, ID_FILE_EXT, (LPSTR) szDumpExt, 4);
                     ClearDumpInfo();
-		    SetWindowText(hDlg, "Call Profiler Dump");
+				    SetWindowText(hDlg, "Call Profiler Dump");
                     return (TRUE);
 
                 case IDEXIT:
@@ -438,4 +330,3 @@ int APIENTRY DialogProc(HWND hDlg, WORD wMesg, LONG wParam, LONG lParam)
     return (FALSE);     /* did not process a message */
 
 } /* DialogProc() */
-

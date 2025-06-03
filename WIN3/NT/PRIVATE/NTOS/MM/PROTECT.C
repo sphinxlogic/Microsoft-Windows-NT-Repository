@@ -26,13 +26,6 @@ PEPROCESS MmWatchProcess;
 VOID MmFooBar(VOID);
 #endif // DBG
 
-BOOLEAN
-MiRemovePageFromWslNoPfn (
-    IN PMMPTE PointerPte,
-    IN PMMPFN Pfn1,
-    IN PMMSUPPORT WsInfo
-    );
-
 HARDWARE_PTE
 MiFlushTbAndCapture(
     IN PMMPTE PtePointer,
@@ -51,6 +44,9 @@ MiCaptureSystemPte (
     IN PMMPTE PointerProtoPte,
     IN PEPROCESS Process
     );
+
+
+extern CCHAR MmReadWrite[32];
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,NtProtectVirtualMemory)
@@ -171,7 +167,7 @@ Environment:
     PEPROCESS Process;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    BOOLEAN Attached = FALSE;
+    ULONG Attached = FALSE;
     PVOID CapturedBase;
     ULONG CapturedRegionSize;
     ULONG ProtectionMask;
@@ -233,7 +229,7 @@ Environment:
     }
 
 #if DBG
-    if (MmDebug & 0x10000000) {
+    if (MmDebug & MM_DBG_SHOW_NT_CALLS) {
         if ( !MmWatchProcess ) {
             DbgPrint("protectvm process handle %lx base address %lx size %lx protect %lx\n",
                 ProcessHandle, CapturedBase, CapturedRegionSize, NewProtect);
@@ -385,7 +381,7 @@ Environment:
     PVOID CapturedBase;
     ULONG CapturedRegionSize;
     NTSTATUS Status;
-    BOOLEAN Attached = FALSE;
+    ULONG Attached = FALSE;
     PMMPTE PointerPte;
     PMMPTE LastPte;
     PMMPTE PointerPde;
@@ -397,9 +393,9 @@ Environment:
     MMPTE TempPte;
     MMPTE PteContents;
     MMPTE PreviousPte;
-    BOOLEAN Locked = FALSE;
+    ULONG Locked = FALSE;
     PVOID Va;
-    BOOLEAN DoAgain;
+    ULONG DoAgain;
 
     //
     // Get the address creation mutex to block multiple threads from
@@ -466,6 +462,24 @@ Environment:
 
         Status = STATUS_CONFLICTING_ADDRESSES;
         goto ErrorFound;
+    }
+
+    if (FoundVad->u.VadFlags.NoChange == 1) {
+
+        //
+        // An attempt is made at changing the protection
+        // of a secured VAD, check to see if the address range
+        // to change allows the change.
+        //
+
+        Status = MiCheckSecuredVad (FoundVad,
+                                    CapturedBase,
+                                    CapturedRegionSize,
+                                    ProtectionMask);
+
+        if (!NT_SUCCESS (Status)) {
+            goto ErrorFound;
+        }
     }
 
     if (FoundVad->u.VadFlags.PrivateMemory == 0) {
@@ -705,9 +719,9 @@ Environment:
                         // Remove the page from the working set.
                         //
 
-                        Locked = MiRemovePageFromWslNoPfn (PointerPte,
-                                                           Pfn1,
-                                                           &Process->Vm);
+                        Locked = MiRemovePageFromWorkingSet (PointerPte,
+                                                             Pfn1,
+                                                             &Process->Vm);
 
 
                         continue;
@@ -724,8 +738,8 @@ Environment:
                         // of a valid PTE.
                         //
 
-                        PreviousPte.u.Hard = MiFlushTbAndCapture (PointerPte,
-                                                               TempPte.u.Hard,
+                        PreviousPte.u.Flush = MiFlushTbAndCapture (PointerPte,
+                                                               TempPte.u.Flush,
                                                                Pfn1);
                     }
                 }
@@ -774,6 +788,7 @@ Environment:
                                 //
 
                                 PointerPte += 1;
+                                LOCK_WS (Process);
                                 continue;
                             }
                         }
@@ -836,7 +851,7 @@ ErrorFoundNoWs:
     return Status;
 }
 
-BOOLEAN
+ULONG
 MiSetProtectionOnSection (
     IN PEPROCESS Process,
     IN PMMVAD FoundVad,
@@ -896,15 +911,15 @@ Environment:
     PMMPFN Pfn1;
     MMPTE TempPte;
     MMPTE PreviousPte;
-    BOOLEAN Locked = FALSE;
+    ULONG Locked = FALSE;
     ULONG ProtectionMask;
     ULONG ProtectionMaskNotCopy;
     ULONG NewProtectionMask;
     MMPTE PteContents;
-    USHORT Index;
+    ULONG Index;
     PULONG Va;
-    BOOLEAN WriteCopy = FALSE;
-    BOOLEAN DoAgain;
+    ULONG WriteCopy = FALSE;
+    ULONG DoAgain;
     ULONG QuotaCharge = 0;
 
     PAGED_CODE();
@@ -1029,7 +1044,7 @@ Environment:
                     PointerPte = MiGetVirtualAddressMappedByPte (PointerPde);
 
                     if (PointerPte > LastPte) {
-                        QuotaCharge += LastPte - PointerProtoPte;
+                        QuotaCharge += 1 + LastPte - PointerProtoPte;
                         goto Done;
                     }
                     QuotaCharge += PointerPte - PointerProtoPte;
@@ -1177,9 +1192,9 @@ Done:
             if ((NewProtect & PAGE_NOACCESS) ||
                 (NewProtect & PAGE_GUARD)) {
 
-                Locked = MiRemovePageFromWslNoPfn (PointerPte,
-                                                   Pfn1,
-                                                   &Process->Vm );
+                Locked = MiRemovePageFromWorkingSet (PointerPte,
+                                                     Pfn1,
+                                                     &Process->Vm );
                 continue;
 
             } else {
@@ -1272,9 +1287,9 @@ Done:
             // of a valid PTE.
             //
 
-            PreviousPte.u.Hard = MiFlushTbAndCapture (PointerPte,
-                                                      TempPte.u.Hard,
-                                                      Pfn1);
+            PreviousPte.u.Flush = MiFlushTbAndCapture (PointerPte,
+                                                       TempPte.u.Flush,
+                                                       Pfn1);
         } else {
 
             if (PteContents.u.Soft.Prototype == 1) {
@@ -1452,7 +1467,7 @@ Environment:
     PMMPFN Pfn1;
     PMMPTE ProtoPteAddress;
     PVOID Va;
-    USHORT Index;
+    ULONG Index;
 
     PAGED_CODE();
 
@@ -1567,7 +1582,7 @@ Environment:
 
 }
 
-BOOLEAN
+ULONG
 MiChangeNoAccessForkPte (
     IN PMMPTE PointerPte,
     IN ULONG ProtectionMask
@@ -1614,33 +1629,6 @@ Environment:
 }
 
 
-BOOLEAN
-MiRemovePageFromWslNoPfn (
-    IN PMMPTE PointerPte,
-    IN PMMPFN Pfn1,
-    IN PMMSUPPORT WsInfo
-    )
-
-// non pagable helper routine.
-
-{
-    BOOLEAN Locked;
-    KIRQL OldIrql;
-
-    //
-    // Acquire the PFN mutex, remove the page from
-    // the working set and loop again.
-    //
-
-    LOCK_PFN (OldIrql);
-    Locked = MiRemovePageFromWorkingSet (PointerPte,
-                                         Pfn1,
-                                         WsInfo);
-    UNLOCK_PFN (OldIrql);
-    return Locked;
-}
-
-
 HARDWARE_PTE
 MiFlushTbAndCapture(
     IN PMMPTE PointerPte,
@@ -1661,7 +1649,7 @@ MiFlushTbAndCapture(
 
     LOCK_PFN (OldIrql);
 
-    PreviousPte.u.Hard = KeFlushSingleTb (
+    PreviousPte.u.Flush = KeFlushSingleTb (
                             MiGetVirtualAddressMappedByPte (PointerPte),
                             FALSE,
                             FALSE,
@@ -1678,7 +1666,7 @@ MiFlushTbAndCapture(
 
     MI_CAPTURE_DIRTY_BIT_TO_PFN (&PreviousPte, Pfn1);
     UNLOCK_PFN (OldIrql);
-    return PreviousPte.u.Hard;
+    return PreviousPte.u.Flush;
 }
 
 ULONG
@@ -1747,4 +1735,127 @@ MiCaptureSystemPte (
     TempPte = *PointerProtoPte;
     UNLOCK_PFN (OldIrql);
     return TempPte;
+}
+
+NTSTATUS
+MiCheckSecuredVad (
+    IN PMMVAD Vad,
+    IN PVOID Base,
+    IN ULONG Size,
+    IN ULONG ProtectionMask
+    )
+
+/*++
+
+Routine Description:
+
+    This routine checks to see if the specified VAD is secured in such
+    a way as to conflick with the address range and protection mask
+    specified.
+
+Arguments:
+
+    Vad - Supplies a pointer to the VAD containing the address range.
+
+    Base - Supplies the base of the range the protection starts at.
+
+    Size - Supplies the size of the range.
+
+    ProtectionMask - Supplies the protection mask being set.
+
+Return Value:
+
+    Status value.
+
+Environment:
+
+    Kernel mode.
+
+--*/
+
+{
+    PVOID End;
+    PLIST_ENTRY Next;
+    PMMSECURE_ENTRY Entry;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    End = (PVOID)((PCHAR)Base + Size);
+
+    if (ProtectionMask < MM_SECURE_DELETE_CHECK) {
+        if ((Vad->u.VadFlags.NoChange == 1) &&
+            (Vad->u2.VadFlags2.SecNoChange == 1) &&
+            (Vad->u.VadFlags.Protection != ProtectionMask)) {
+
+            //
+            // An attempt is made at changing the protection
+            // of a SEC_NO_CHANGE section - return an error.
+            //
+
+            Status = STATUS_INVALID_PAGE_PROTECTION;
+            goto done;
+        }
+    } else {
+
+        //
+        // Deletion - set to no-access for check.  SEC_NOCHANGE allows
+        // deletion, but does not allow page protection changes.
+        //
+
+        ProtectionMask = 0;
+    }
+
+    if (Vad->u2.VadFlags2.OneSecured) {
+
+        if ((Base <= Vad->u3.Secured.EndVa) && (End >= Vad->u3.Secured.EndVa)) {
+
+            //
+            // This region conflicts, check the protections.
+            //
+
+            if (Vad->u2.VadFlags2.ReadOnly) {
+                if (MmReadWrite[ProtectionMask] < 10) {
+                    Status = STATUS_INVALID_PAGE_PROTECTION;
+                    goto done;
+                }
+            } else {
+                if (MmReadWrite[ProtectionMask] < 11) {
+                    Status = STATUS_INVALID_PAGE_PROTECTION;
+                    goto done;
+                }
+            }
+        }
+
+    } else if (Vad->u2.VadFlags2.MultipleSecured) {
+
+        Next = Vad->u3.List.Flink;
+        do {
+            Entry = CONTAINING_RECORD( Next,
+                                       MMSECURE_ENTRY,
+                                       List);
+
+            if ((Base <= Entry->EndVa) &&
+                (End >= Entry->EndVa)) {
+
+                //
+                // This region conflicts, check the protections.
+                //
+
+                if (Entry->u2.VadFlags2.ReadOnly) {
+                    if (MmReadWrite[ProtectionMask] < 10) {
+                        Status = STATUS_INVALID_PAGE_PROTECTION;
+                        goto done;
+                    }
+                } else {
+                    if (MmReadWrite[ProtectionMask] < 11) {
+                        Status = STATUS_INVALID_PAGE_PROTECTION;
+                        goto done;
+                    }
+                }
+            }
+            Next = Entry->List.Flink;
+        } while (Entry->List.Flink != &Vad->u3.List);
+    }
+
+done:
+    return Status;
 }

@@ -143,16 +143,27 @@ Return Value:
                     //
                     // Continue with the connection attempt.
                     //
+                    ULONG NameQueryTimeout;
 
                     ACQUIRE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
                     Connection->Flags2 &= ~CONNECTION_FLAGS2_W_ADDRESS;
                     RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
                     KeQueryTickCount (&Connection->ConnectStartTime);
 
+                    NameQueryTimeout = Connection->Provider->NameQueryTimeout;
+                    if (Connection->Provider->MacInfo.MediumAsync &&
+                        !Connection->Provider->MediumSpeedAccurate) {
+                        NameQueryTimeout = NAME_QUERY_TIMEOUT / 10;
+                    }
+
                     NbfSendNameQuery (
                         Connection,
                         TRUE);
 
+                    NbfStartConnectionTimer (
+                        Connection,
+                        ConnectionEstablishmentTimeout,
+                        NameQueryTimeout);
                 }
 
             }
@@ -348,10 +359,12 @@ Return Value:
             if ((addressName->AddressLength == 0) &&
                 BroadcastAddressOk) {
                 return (PVOID)-1;
-            } else if (addressName->AddressLength >= sizeof(TDI_ADDRESS_NETBIOS)) {
-                return ((TDI_ADDRESS_NETBIOS UNALIGNED *)(addressName->Address));
+            } else if (addressName->AddressLength == 
+                        sizeof(TDI_ADDRESS_NETBIOS)) {
+                return((TDI_ADDRESS_NETBIOS UNALIGNED *)(addressName->Address));
             }
         }
+
         addressName = (TA_ADDRESS UNALIGNED *)(addressName->Address +
                                                 addressName->AddressLength);
     }
@@ -696,9 +709,9 @@ Return Value:
                 //
 
                 if ((networkName != NULL) &&
-                    (RtlCompareMemory (networkName->NetbiosName,
-                                       DeviceContext->ReservedNetBIOSAddress,
-                                       NETBIOS_NAME_LENGTH) < NETBIOS_NAME_LENGTH) &&
+                    (!RtlEqualMemory (networkName->NetbiosName,
+                                      DeviceContext->ReservedNetBIOSAddress,
+                                      NETBIOS_NAME_LENGTH)) &&
                     (!QuickAdd)) {
 
                     NbfRegisterAddress (address);    // begin address registration.
@@ -1106,10 +1119,10 @@ Return Value:
     // Make the packet header known to the packet descriptor
     //
 
-    NdisAllocateBuffer(
+     NdisAllocateBuffer(
         &NdisStatus,
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         Address->UIFrame->Header,
         DeviceContext->UIFrameHeaderLength);
 
@@ -1643,9 +1656,7 @@ Return Value:
 
     ASSERT (Address->ReferenceCount > 0);    // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-            &Address->ReferenceCount,
-            &Address->Provider->Interlock);
+    (VOID)InterlockedIncrement (&Address->ReferenceCount);
 
 } /* NbfRefAddress */
 #endif
@@ -1676,11 +1687,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &Address->ReferenceCount,
-                &Address->Provider->Interlock);
+    result = InterlockedDecrement (&Address->ReferenceCount);
 
     //
     // If we have deleted all references to this address, then we can
@@ -1689,9 +1698,9 @@ Return Value:
     // stream of execution has access to the address any longer.
     //
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         ExInitializeWorkItem(
             &Address->u.DestroyAddressQueueItem,
@@ -2096,9 +2105,7 @@ Return Value:
 
     ASSERT (AddressFile->ReferenceCount > 0);   // not perfect, but...
 
-    (VOID)ExInterlockedIncrementLong (
-            &AddressFile->ReferenceCount,
-            &AddressFile->Provider->Interlock);
+    (VOID)InterlockedIncrement (&AddressFile->ReferenceCount);
 
 } /* NbfReferenceAddressFile */
 
@@ -2128,11 +2135,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &AddressFile->ReferenceCount,
-                &AddressFile->Provider->Interlock);
+    result = InterlockedDecrement (&AddressFile->ReferenceCount);
 
     //
     // If we have deleted all references to this address file, then we can
@@ -2141,9 +2146,9 @@ Return Value:
     // stream of execution has access to the address any longer.
     //
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
-    if (result == ResultZero) {
+    if (result == 0) {
         NbfDestroyAddressFile (AddressFile);
     }
 } /* NbfDerefAddressFile */
@@ -2208,10 +2213,10 @@ Return Value:
 
         if (address->NetworkName != NULL) {
             if (NetworkName != NULL) {
-                if (RtlCompareMemory (
+                if (!RtlEqualMemory (
                         address->NetworkName->NetbiosName,
                         NetworkName->NetbiosName,
-                        i) < i) {
+                        i)) {
                     continue;
                 }
             } else {
@@ -2323,8 +2328,7 @@ Return Value:
                 // connection, which will cause the NAME_QUERY to be ignored.
                 //
 
-                if ((RtlCompareMemory(RemoteName, connection->RemoteName, NETBIOS_NAME_LENGTH) ==
-                        NETBIOS_NAME_LENGTH) &&
+                if ((RtlEqualMemory(RemoteName, connection->RemoteName, NETBIOS_NAME_LENGTH)) &&
                     ((connection->Rsn == RemoteSessionNumber) || (connection->Rsn == 0))) {
 
                     RELEASE_SPIN_LOCK (&Address->SpinLock, oldirql);
@@ -2762,19 +2766,20 @@ Return Value:
     //
 
     while (!IsListEmpty (&localIrpList)) {
+        KIRQL cancelIrql;
 
         p = RemoveHeadList (&localIrpList);
         irp = CONTAINING_RECORD (p, IRP, Tail.Overlay.ListEntry);
 
-        irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+        IoAcquireCancelSpinLock(&cancelIrql);
+        IoSetCancelRoutine(irp, NULL);
+        IoReleaseCancelSpinLock(cancelIrql);
         irp->IoStatus.Information = 0;
         irp->IoStatus.Status = STATUS_NETWORK_NAME_DELETED;
         IoCompleteRequest (irp, IO_NETWORK_INCREMENT);
 
         NbfDereferenceAddress ("Datagram aborted", Address, AREF_REQUEST);
-
     }
-
 
 } /* NbfStopAddressFile */
 
@@ -2890,6 +2895,7 @@ Return Value:
     PUCHAR SingleSR;
     UINT SingleSRLength;
     UINT HeaderLength;
+    PUCHAR LocalName;
 
     IF_NBFDBG (NBF_DEBUG_ADDRESS) {
         NbfPrint1 ("NbfSendDatagramsOnAddress %lx:\n", Address);
@@ -2976,18 +2982,24 @@ Return Value:
         // Build the correct Netbios header.
         //
 
+        if (Address->NetworkName != NULL) {
+            LocalName = Address->NetworkName->NetbiosName;
+        } else {
+            LocalName = DeviceContext->ReservedNetBIOSAddress;
+        }
+
         if (remoteAddress == (PVOID)-1) {
 
             ConstructDatagramBroadcast (
                 (PNBF_HDR_CONNECTIONLESS)&(Address->UIFrame->Header[HeaderLength]),
-                Address->NetworkName->NetbiosName);
+                LocalName);
 
         } else {
 
             ConstructDatagram (
                 (PNBF_HDR_CONNECTIONLESS)&(Address->UIFrame->Header[HeaderLength]),
                 (PNAME)remoteAddress->NetbiosName,
-                Address->NetworkName->NetbiosName);
+                LocalName);
 
         }
 

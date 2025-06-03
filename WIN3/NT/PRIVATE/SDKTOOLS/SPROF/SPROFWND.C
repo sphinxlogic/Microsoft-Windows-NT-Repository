@@ -595,7 +595,7 @@ Return Value:
 BOOL
 PrintToSprofWindow(
     HANDLE Window,
-    PUCHAR String,
+    PUCHAR String
     )
 /*++
 

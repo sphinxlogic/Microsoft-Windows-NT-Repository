@@ -57,7 +57,7 @@ Values[ ] = {
     MakeValue( RegisteredOwner,         SZ ),
     MakeValue( RegisteredOrganization,  SZ ),
     MakeValue( CurrentVersion,          SZ ),
-    MakeValue( CurrentBuild,            SZ ),
+    MakeValue( CurrentBuildNumber,      SZ ),
     MakeValue( CurrentType,             SZ ),
     MakeValue( SystemRoot,              SZ )
 
@@ -106,6 +106,15 @@ BOOL OsVer(void){
     BOOL    Success;
     int         i;
     HREGKEY     hRegKey;
+
+    WCHAR szVersion[128];
+    WCHAR szVersionF1[] = L"CSD00%u";
+    WCHAR szVersionF2[] = L"%u%c";
+    LONG dwCSDVer;
+    LONG dwSPNum;
+    DWORD dwBuildNumber;
+    BYTE bSPRev;
+    WCHAR cSPRev;
 
 	    //
 	    // Ensure that data structures are synchronized.
@@ -184,7 +193,10 @@ BOOL OsVer(void){
 		 case IDC_EDIT_VERSION_NUMBER:
 			PrintToFile((LPCTSTR)hRegKey->Data,IDC_EDIT_VERSION_NUMBER,TRUE);
 			break;
-		 case IDC_EDIT_BUILD_NUMBER:
+         case IDC_EDIT_BUILD_NUMBER:
+            if ( !swscanf ((const unsigned short *)hRegKey->Data, L"%d", &dwBuildNumber)) {
+                 dwBuildNumber = 0;
+            }
 			PrintToFile((LPCTSTR)hRegKey->Data,IDC_EDIT_BUILD_NUMBER,TRUE);
 			break;
 		 case IDC_EDIT_BUILD_TYPE:
@@ -249,7 +261,20 @@ BOOL OsVer(void){
             // Get the Current CSDVersion and display it in the dialog box
             //
 
-            PrintDwordToFile( GetCSDVersion ( ), IDC_EDIT_CSD_NUMBER );
+            dwCSDVer = GetCSDVersion ( dwBuildNumber );
+
+            if ((dwSPNum = (dwCSDVer >> 8)) || (dwCSDVer == 0)){
+                if (bSPRev = (dwCSDVer & 0xFF)) {
+                    cSPRev = 'A' + (bSPRev-1);
+                } else {
+                    cSPRev = ' ';
+                }
+                wsprintf(szVersion, szVersionF2, dwSPNum, cSPRev);
+            } else {
+                wsprintf(szVersion, szVersionF1, dwCSDVer);
+            }
+
+        PrintToFile( szVersion, IDC_EDIT_CSD_NUMBER, TRUE );
 
 	    return TRUE;
 
@@ -257,7 +282,7 @@ BOOL OsVer(void){
 
 DWORD
 GetCSDVersion (
-               void
+	       IN DWORD dwCurrentBuildNumber
               )
 
 /*++
@@ -277,7 +302,9 @@ Return Value:
 
 --*/
 {
-    LPTSTR  lpszRegName = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    LPTSTR  lpsz31RegName = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    LPTSTR  lpsz35RegName = L"System\\ControlSet001\\Control\\ProductOptions";
+
     HKEY    hsubkey = NULL;
     DWORD   dwZero = 0;
     DWORD   dwRegValueType;
@@ -288,7 +315,10 @@ Return Value:
     cbRegValue = sizeof(dwRegValue);
 
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-            lpszRegName, dwZero, KEY_QUERY_VALUE, &hsubkey) ||
+		     dwCurrentBuildNumber >= 807 ? lpsz35RegName : lpsz31RegName,
+		     dwZero,
+		     KEY_QUERY_VALUE,
+		     &hsubkey) ||
         RegQueryValueEx(hsubkey, L"CSDVersion", NULL,
             &dwRegValueType, (LPBYTE)&dwRegValue, &cbRegValue) ||
         dwRegValueType != REG_DWORD
@@ -302,5 +332,3 @@ Return Value:
     }
     return dwCSDVersion ;
 }
-
-

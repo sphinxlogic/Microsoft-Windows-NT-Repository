@@ -1,12 +1,15 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "rwcache.hxx"
 
 
-DEFINE_CONSTRUCTOR( READ_WRITE_CACHE, DRIVE_CACHE );
+DEFINE_EXPORTED_CONSTRUCTOR( READ_WRITE_CACHE, DRIVE_CACHE, IFSUTIL_EXPORT );
 
 
 READ_WRITE_CACHE::~READ_WRITE_CACHE(
@@ -33,7 +36,7 @@ Return Value:
 
 VOID
 READ_WRITE_CACHE::Construct(
-	)
+        )
 /*++
 
 Routine Description:
@@ -93,6 +96,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 READ_WRITE_CACHE::Initialize(
     IN OUT  PIO_DP_DRIVE    Drive,
@@ -265,7 +269,7 @@ Return Value:
                 _sectors_cached.Add(p->SectorNumber);
 
             } else {
-                DbgAbort("This can't happen!");
+                DebugAbort("This can't happen!");
             }
         }
     }
@@ -310,7 +314,7 @@ Return Value:
         if (!(p = GetSectorCacheBlock(StartingSector + i))) {
 
             p = GetNextAvailbleCacheBlock();
-            // DbgAssert(p);
+            // DebugAssert(p);
 
             if (p->InUse) {
                 if (p->IsDirty) {
@@ -453,7 +457,7 @@ Return Value:
         }
     }
 
-    // DbgAssert(p);
+    // DebugAssert(p);
 
     return p;
 }

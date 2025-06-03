@@ -13,139 +13,87 @@
 #include <mvdm.h>
 #include <ctype.h>
 
+#define CMDREDIR_DEBUG	1
+
+PPIPE_INPUT   cmdPipeList = NULL;
 
 BOOL cmdCheckCopyForRedirection (pRdrInfo)
 PREDIRCOMPLETE_INFO pRdrInfo;
 {
-DWORD OutputThreadId;
-HANDLE hThreadOutput=0,hThreadErr=0;
-PREDIRECTION_INFO pRedirInfoStdOut=NULL,pRedirInfoStdErr=NULL;
+PPIPE_INPUT  pPipe, pPipePrev;
+PPIPE_OUTPUT pPipeOut;
 
     if (pRdrInfo == NULL)
         return TRUE;
+    if (pRdrInfo->ri_pPipeStdIn != NULL) {
 
-    if (pRdrInfo->ri_pszStdInFile) {
-        DeleteFile (pRdrInfo->ri_pszStdInFile);
-        free (pRdrInfo->ri_pszStdInFile);
-    }
+	//Piping and Pipe list is empty?
+	ASSERT(cmdPipeList != NULL);
 
-    if (pRdrInfo->ri_hStdOutFile) {
-	pRedirInfoStdOut = malloc (sizeof (REDIRECTION_INFO));
-	if(pRedirInfoStdOut == NULL){
-            RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
-            TerminateVDM();
-	    return FALSE;
+	// in most cases, we have only one pipe for stdin
+	if (pRdrInfo->ri_pPipeStdIn == cmdPipeList){
+	    pPipe = pRdrInfo->ri_pPipeStdIn;
+	    cmdPipeList = pPipe->Next;
 	}
-        pRedirInfoStdOut->hPipe = pRdrInfo->ri_hStdOut;
-        pRedirInfoStdOut->hFile = pRdrInfo->ri_hStdOutFileDup;
-        pRedirInfoStdOut->pszFile = pRdrInfo->ri_pszStdOutFile;
-	pRedirInfoStdOut->dwParameter = COPY_STD_OUT;
-
-	// Create a thread to copy the data from Stdout file to pipe
-	if ((hThreadOutput = CreateThread ((LPSECURITY_ATTRIBUTES)NULL,
-					   (DWORD)0,
-					   (LPTHREAD_START_ROUTINE)cmdCopyForRedirection,
-					   (LPVOID)pRedirInfoStdOut,
-					   CREATE_SUSPENDED,
-					   &OutputThreadId
-                                          )) == NULL){
-            RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
-            TerminateVDM();
-	    return FALSE;
+	// multiple piping
+	// search for the right one
+	else {
+	    pPipe = pPipePrev = cmdPipeList;
+	    while (pPipe != NULL && pPipe != pRdrInfo->ri_pPipeStdIn){
+		pPipePrev = pPipe;
+		pPipe = pPipe->Next;
+	    }
+	    if (pPipe != NULL)
+		// remove it from the list
+		pPipePrev->Next = pPipe->Next;
 	}
-    }
-
-    if (pRdrInfo->ri_hStdErrFile && pRdrInfo->ri_hStdErrFile !=
-                                          pRdrInfo->ri_hStdOutFile) {
-	pRedirInfoStdErr = malloc (sizeof (REDIRECTION_INFO));
-	if(pRedirInfoStdErr == NULL){
-            RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
-            TerminateVDM();
-	    return FALSE;
-	}
-	pRedirInfoStdErr->dwParameter = COPY_STD_ERR;
-        pRedirInfoStdErr->hPipe = pRdrInfo->ri_hStdErr;
-        pRedirInfoStdErr->hFile = pRdrInfo->ri_hStdErrFileDup;
-        pRedirInfoStdErr->pszFile = pRdrInfo->ri_pszStdErrFile;
-
-	// create another thread to copy the data from stderr file to pipe
-	if ((hThreadErr = CreateThread ((LPSECURITY_ATTRIBUTES)NULL,
-					(DWORD)0,
-					(LPTHREAD_START_ROUTINE)cmdCopyForRedirection,
-					(LPVOID)pRedirInfoStdErr,
-					0,
-					&OutputThreadId
-				       )) == NULL){
-            RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
-            TerminateVDM();
-	    return FALSE;
+	if (pPipe != NULL) {
+	    // grab the critical section. As soon as we have a
+	    // a hold on the critical section, it is safe to kill
+	    // the piping thread because it is in dormant unless
+	    // it has terminated which is also safe for us.
+	    EnterCriticalSection(&pPipe->CriticalSection);
+	    // if the thread is till running, kill it
+	    if (WaitForSingleObject(pPipe->hThread, 0)) {
+		TerminateThread(pPipe->hThread, 0);
+		WaitForSingleObject(pPipe->hThread, INFINITE);
+	    }
+	    LeaveCriticalSection(&pPipe->CriticalSection);
+	    CloseHandle(pPipe->hFileWrite);
+	    CloseHandle(pPipe->hPipe);
+	    CloseHandle(pPipe->hDataEvent);
+	    CloseHandle(pPipe->hThread);
+	    DeleteCriticalSection(&pPipe->CriticalSection);
+	    DeleteFile(pPipe->pFileName);
+	    free(pPipe->pFileName);
+	    free (pPipe);
 	}
     }
-
-    if (hThreadOutput)
-	ResumeThread (hThreadOutput);
-
-    if (hThreadOutput)
-        CloseHandle (hThreadOutput);
-
-    if (hThreadErr)
-        CloseHandle (hThreadErr);
-
+    // the application is terminating, let the output thread knows
+    // about it so it can exit appropriately.
+    // the output thread is responsible for clean up
+    if (pRdrInfo->ri_pPipeStdOut) {
+	// The output thread must wait for the event before
+	// it can exit.
+	SetEvent((pRdrInfo->ri_pPipeStdOut)->hExitEvent);
+	// wait 1 seconds for the thread to go away.
+	// this is done because our parent process may put up
+	// its prompt before our sibling process has a chance to
+	// completely display data on its display surface.
+	// note that we can not wait forever here because
+	// the sibling process could be the other dos application and
+	// we will be deadlock if it is the case
+	WaitForSingleObject(pRdrInfo->ri_hStdOutThread, 1000);
+	CloseHandle(pRdrInfo->ri_hStdOutThread);
+    }
+    if (pRdrInfo->ri_pPipeStdErr) {
+	SetEvent((pRdrInfo->ri_pPipeStdErr)->hExitEvent);
+	WaitForSingleObject(pRdrInfo->ri_hStdErrThread, 1000);
+	CloseHandle(pRdrInfo->ri_hStdErrThread);
+    }
     free (pRdrInfo);
 
     return TRUE;
-}
-
-VOID cmdCopyForRedirection (LPDWORD lpParameter)
-{
-CHAR buffer [DEFAULT_REDIRECTION_SIZE];
-HANDLE hSrc,hTarget;
-DWORD nBytesRead,nBytesWritten;
-PREDIRECTION_INFO pRedirInfo = (PREDIRECTION_INFO) lpParameter;
-
-    hSrc = pRedirInfo->hFile;
-    hTarget = pRedirInfo->hPipe;
-
-    SetFilePointer (hSrc,0,0,FILE_BEGIN);
-
-    while (TRUE) {
-	if (ReadFile(hSrc,
-		     buffer,
-		     DEFAULT_REDIRECTION_SIZE,
-		     &nBytesRead,
-		     NULL)) {
-
-	    if (nBytesRead == 0)
-		break;
-
-	    if(WriteFile (hTarget,buffer,nBytesRead,&nBytesWritten,NULL) == FALSE)
-		break;
-	}
-	else
-	    break;
-    }
-
-    cmdCloseRedirectionHandles (pRedirInfo);
-
-    ExitThread (0);
-}
-
-VOID cmdCloseRedirectionHandles (pRedirInfo)
-PREDIRECTION_INFO pRedirInfo;
-{
-    if(pRedirInfo->hFile)
-	CloseHandle (pRedirInfo->hFile);
-
-    if (pRedirInfo->hPipe)
-	CloseHandle (pRedirInfo->hPipe);
-
-    if (pRedirInfo->pszFile){
-	DeleteFile (pRedirInfo->pszFile);
-	free (pRedirInfo->pszFile);
-	free (pRedirInfo);
-    }
-
-    return;
 }
 
 BOOL cmdCreateTempFile (phTempFile,ppszTempFile)
@@ -221,131 +169,6 @@ SECURITY_ATTRIBUTES sa;
     return TRUE;
 }
 
-/* cmdGetStdHandle - Get the 32 bit NT standard handle for the VDM
- *
- *
- *  Entry - Client (CX) - 0,1 or 2 (stdin stdout stderr)
- *          Client (AX:BX) - redirinfo pointer
- *
- *  EXIT  - Client (BX:CX) - 32 bit handle
- *	    Client (DX:AX) - file size
- */
-
-VOID cmdGetStdHandle (VOID)
-{
-USHORT iStdHandle;
-PREDIRCOMPLETE_INFO pRdrInfo;
-DWORD	dwFileType;
-HANDLE	hStdHandle;
-
-    iStdHandle = getCX();
-    pRdrInfo = (PREDIRCOMPLETE_INFO) (((ULONG)getAX() << 16) + (ULONG)getBX());
-
-    switch (iStdHandle) {
-
-        case HANDLE_STDIN:
-
-	    if ((dwFileType = GetFileType(pRdrInfo->ri_hStdIn)) == FILE_TYPE_PIPE) {
-		if (cmdHandleStdinWithPipe (pRdrInfo) == FALSE) {
-		    setCF(1);
-		    return;
-		}
-	    }
-	    setCX ((USHORT)pRdrInfo->ri_hStdIn);
-	    setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdIn >> 16));
-	    hStdHandle = pRdrInfo->ri_hStdIn;
-	    break;
-
-	case HANDLE_STDOUT:
-	    hStdHandle = pRdrInfo->ri_hStdOut;
-	    if ((dwFileType = GetFileType (pRdrInfo->ri_hStdOut)) == FILE_TYPE_PIPE){
-                if(cmdCreateTempFile(&pRdrInfo->ri_hStdOutFile,
-                                     &pRdrInfo->ri_pszStdOutFile) == FALSE){
-		    setCF(1);
-		    return;
-		}
-
-		if (DuplicateHandle (GetCurrentProcess (),
-                                     pRdrInfo->ri_hStdOutFile,
-				     GetCurrentProcess (),
-                                     &pRdrInfo->ri_hStdOutFileDup,
-				     0,
-				     TRUE,
-				     DUPLICATE_SAME_ACCESS) == FALSE) {
-		    setCF(1);
-		    return;
-		}
-
-                setCX ((USHORT)pRdrInfo->ri_hStdOutFile);
-                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOutFile >> 16));
-		hStdHandle = pRdrInfo->ri_hStdOutFile;
-	    }
-	    else {
-	    // sudeepb 16-Mar-1992; This will be a compatibilty problem.
-	    // If the user gives the command "dosls > lpt1" we will
-	    // inherit the 32 bit handle of lpt1, so the ouput will
-	    // directly go to the LPT1 and a DOS TSR/APP hooking int17
-	    // wont see this printing. Is this a big deal???
-                setCX ((USHORT)pRdrInfo->ri_hStdOut);
-                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOut >> 16));
-	    }
-	    break;
-
-	case HANDLE_STDERR:
-
-	    hStdHandle = pRdrInfo->ri_hStdErr;
-
-            if (pRdrInfo->ri_hStdErr == pRdrInfo->ri_hStdOut
-                              && pRdrInfo->ri_hStdOutFile != 0) {
-                setCX ((USHORT)pRdrInfo->ri_hStdOutFile);
-                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOutFile >> 16));
-                pRdrInfo->ri_hStdErrFile = pRdrInfo->ri_hStdOutFile;
-		hStdHandle = pRdrInfo->ri_hStdOutFile;
-		break;
-	    }
-
-	    if ((dwFileType = GetFileType (pRdrInfo->ri_hStdErr)) == FILE_TYPE_PIPE){
-                if(cmdCreateTempFile(&pRdrInfo->ri_hStdErrFile,
-                                     &pRdrInfo->ri_pszStdErrFile) == FALSE){
-		    setCF(1);
-		    return;
-		}
-		if (DuplicateHandle (GetCurrentProcess (),
-                                     pRdrInfo->ri_hStdErrFile,
-				     GetCurrentProcess (),
-                                     &pRdrInfo->ri_hStdErrFileDup,
-				     0,
-				     TRUE,
-				     DUPLICATE_SAME_ACCESS) == FALSE) {
-		    setCF(1);
-		    return;
-		}
-
-                setCX ((USHORT)pRdrInfo->ri_hStdErrFile);
-                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdErrFile >> 16));
-		hStdHandle = pRdrInfo->ri_hStdOutFile;
-	    }
-	    else {
-                setCX ((USHORT)pRdrInfo->ri_hStdErr);
-                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdErr >> 16));
-	    }
-	    break;
-    }
-    // if the original file handle is a pipe(we have substituted it with a file)
-    // or a disk file
-    // get the file size so that lseek can be done.
-    // for character type standard handle, just set the size to 0
-    if (dwFileType == FILE_TYPE_PIPE || dwFileType == FILE_TYPE_DISK)
-	dwFileType = GetFileSize(hStdHandle, NULL);
-    else
-	dwFileType = 0;
-    setDX((USHORT)(dwFileType >> 16));
-    setAX((USHORT)dwFileType);
-    setCF(0);
-    return;
-}
-
-
 /* cmdCheckStandardHandles - Check if we have to do anything to support
  *			     standard io redirection, if so save away
  *			     pertaining information.
@@ -399,68 +222,443 @@ PREDIRCOMPLETE_INFO pRdrInfo;
     return pRdrInfo;
 }
 
-// bugbug williamh, Jan 13 1994. We shouldn't sit here to read from pipe
-// and write to file because the pipe may have nothing and the
-// process who owns the write handle to the pipe may not write anything
-// to the pipe. Creating another thread to do the job is a bad idea because
-// a race can happen between the new thread and the application.
-// Tagging the file handle(so the application see its STDIN as a pipe)
-// doesn't solve the problem either because a lseek call will make our life
-// miserable. This is a problem and I don't think we can solve it.
+/* cmdGetStdHandle - Get the 32 bit NT standard handle for the VDM
+ *
+ *
+ *  Entry - Client (CX) - 0,1 or 2 (stdin stdout stderr)
+ *          Client (AX:BX) - redirinfo pointer
+ *
+ *  EXIT  - Client (BX:CX) - 32 bit handle
+ *	    Client (DX:AX) - file size
+ */
 
+VOID cmdGetStdHandle (VOID)
+{
+USHORT iStdHandle;
+PREDIRCOMPLETE_INFO pRdrInfo;
 
+    iStdHandle = getCX();
+    pRdrInfo = (PREDIRCOMPLETE_INFO) (((ULONG)getAX() << 16) + (ULONG)getBX());
+
+    switch (iStdHandle) {
+
+        case HANDLE_STDIN:
+
+	    if (GetFileType(pRdrInfo->ri_hStdIn) == FILE_TYPE_PIPE) {
+		if (!cmdHandleStdinWithPipe (pRdrInfo)) {
+		    RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
+		    TerminateVDM();
+		    setCF(1);
+		    return;
+		}
+		setCX ((USHORT)pRdrInfo->ri_hStdInFile);
+		setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdInFile >> 16));
+	    }
+	    else {
+		setCX ((USHORT)pRdrInfo->ri_hStdIn);
+		setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdIn >> 16));
+	    }
+	    break;
+
+	case HANDLE_STDOUT:
+	    if (GetFileType (pRdrInfo->ri_hStdOut) == FILE_TYPE_PIPE){
+		if (!cmdHandleStdOutErrWithPipe(pRdrInfo, HANDLE_STDOUT)) {
+		    RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
+		    TerminateVDM();
+		    setCF(1);
+		    return;
+		}
+		setCX ((USHORT)pRdrInfo->ri_hStdOutFile);
+		setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOutFile >> 16));
+
+	    }
+	    else {
+		// sudeepb 16-Mar-1992; This will be a compatibilty problem.
+		// If the user gives the command "dosls > lpt1" we will
+		// inherit the 32 bit handle of lpt1, so the ouput will
+		// directly go to the LPT1 and a DOS TSR/APP hooking int17
+		// wont see this printing. Is this a big deal???
+		setCX ((USHORT)pRdrInfo->ri_hStdOut);
+		setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOut >> 16));
+	    }
+	    break;
+
+	case HANDLE_STDERR:
+
+            if (pRdrInfo->ri_hStdErr == pRdrInfo->ri_hStdOut
+                              && pRdrInfo->ri_hStdOutFile != 0) {
+                setCX ((USHORT)pRdrInfo->ri_hStdOutFile);
+                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdOutFile >> 16));
+                pRdrInfo->ri_hStdErrFile = pRdrInfo->ri_hStdOutFile;
+		break;
+	    }
+
+	    if (GetFileType (pRdrInfo->ri_hStdErr) == FILE_TYPE_PIPE){
+		if(!cmdHandleStdOutErrWithPipe(pRdrInfo, HANDLE_STDERR)) {
+		    RcErrorDialogBox(EG_MALLOC_FAILURE, NULL, NULL);
+		    TerminateVDM();
+		    setCF(1);
+		    return;
+		}
+                setCX ((USHORT)pRdrInfo->ri_hStdErrFile);
+                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdErrFile >> 16));
+	    }
+	    else {
+                setCX ((USHORT)pRdrInfo->ri_hStdErr);
+                setBX ((USHORT)((ULONG)pRdrInfo->ri_hStdErr >> 16));
+	    }
+	    break;
+    }
+    setAX(0);
+    setDX(0);
+    setCF(0);
+    return;
+}
+
+BOOL cmdHandleStdOutErrWithPipe(
+    PREDIRCOMPLETE_INFO pRdrInfo,
+    USHORT  HandleType
+    )
+{
+
+    HANDLE  hFile;
+    PCHAR   pFileName;
+    PPIPE_OUTPUT pPipe;
+    BYTE    *Buffer;
+    DWORD   ThreadId;
+    HANDLE  hEvent;
+    HANDLE  hFileWrite;
+    HANDLE  hThread;
+
+    if(!cmdCreateTempFile(&hFile,&pFileName))
+	return FALSE;
+    // must have a different handle so that writter(dos app) and reader(us)
+    // wont use the same handle object(especially, file position)
+    hFileWrite = CreateFile(pFileName,
+			    GENERIC_WRITE | GENERIC_READ,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE,
+			    NULL,
+			    OPEN_EXISTING,
+			    FILE_ATTRIBUTE_TEMPORARY,
+			    NULL
+			   );
+    if (hFileWrite == INVALID_HANDLE_VALUE) {
+	CloseHandle(hFile);
+	DeleteFile(pFileName);
+	return FALSE;
+    }
+    Buffer = malloc(sizeof(PIPE_OUTPUT) + PIPE_OUTPUT_BUFFER_SIZE);
+    if (Buffer == NULL) {
+	CloseHandle(hFile);
+	CloseHandle(hFileWrite);
+	DeleteFile(pFileName);
+	return FALSE;
+    }
+    pPipe = (PPIPE_OUTPUT)Buffer;
+    pPipe->Buffer = Buffer + sizeof(PIPE_OUTPUT);
+    pPipe->BufferSize = PIPE_OUTPUT_BUFFER_SIZE;
+    pPipe->hFile = hFileWrite;
+    pPipe->pFileName = pFileName;
+    pPipe->hExitEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (pPipe->hExitEvent == NULL) {
+	CloseHandle(hFile);
+	CloseHandle(hFileWrite);
+	DeleteFile(pFileName);
+	free(pPipe);
+	return FALSE;
+    }
+
+    if (HandleType == HANDLE_STDOUT) {
+	pPipe->hPipe = pRdrInfo->ri_hStdOut;
+	pRdrInfo->ri_pPipeStdOut = pPipe;
+	pRdrInfo->ri_hStdOutFile = hFile;
+
+    }
+    else {
+	pPipe->hPipe = pRdrInfo->ri_hStdErr;
+	pRdrInfo->ri_pPipeStdErr = pPipe;
+	pRdrInfo->ri_hStdErrFile = hFile;
+
+    }
+    hThread = CreateThread ((LPSECURITY_ATTRIBUTES)NULL,
+			    (DWORD)0,
+			    (LPTHREAD_START_ROUTINE)cmdPipeOutThread,
+			    (LPVOID)pPipe,
+			    0,
+			    &ThreadId
+			    );
+    if (hThread == NULL) {
+	CloseHandle(pPipe->hExitEvent);
+	CloseHandle(hFileWrite);
+	CloseHandle(hFile);
+	DeleteFile(pFileName);
+	free(Buffer);
+	return FALSE;
+    }
+    if (HandleType == HANDLE_STDOUT)
+	pRdrInfo->ri_hStdOutThread = hThread;
+    else
+	pRdrInfo->ri_hStdErrThread = hThread;
+    return TRUE;
+}
+
+/* independent thread to read application stdout(file) to NTVDM stdout(PIPE).
+   The CPU thread would notify us through hExitEvent when the application
+   is terminating(thus, we can detect EOF and exit
+ */
+
+VOID  cmdPipeOutThread(LPVOID lpParam)
+{
+    PPIPE_OUTPUT pPipe;
+    DWORD	 BytesRead;
+    DWORD	 BytesWritten;
+    BOOL	 ExitPending;
+
+    pPipe = (PPIPE_OUTPUT)lpParam;
+
+    ExitPending = FALSE;
+
+    while(ReadFile(pPipe->hFile, pPipe->Buffer, pPipe->BufferSize, &BytesRead, NULL) ) {
+	// go nothing doesn't mean it hits EOF!!!!!!
+	// we can not just exit now, instead, we have to wait and poll
+	// until the application is terminated.
+	//
+	if (BytesRead == 0) {
+	    // if read nothing and the application is gone, we can quit now
+	    if (ExitPending)
+		break;
+	    if (!WaitForSingleObject(pPipe->hExitEvent, PIPE_OUTPUT_TIMEOUT))
+		ExitPending = TRUE;
+	}
+	else {
+	    if (!WriteFile(pPipe->hPipe, pPipe->Buffer, BytesRead, &BytesWritten, NULL) ||
+		BytesWritten != BytesRead)
+		break;
+	}
+    }
+    // if we were out of loop because of errors, wait for the cpu thread.
+    if (!ExitPending)
+	WaitForSingleObject(pPipe->hExitEvent, INFINITE);
+
+    CloseHandle(pPipe->hFile);
+    CloseHandle(pPipe->hPipe);
+    CloseHandle(pPipe->hExitEvent);
+    DeleteFile(pPipe->pFileName);
+    free(pPipe->pFileName);
+    free(pPipe);
+    ExitThread(0);
+}
 
 BOOL cmdHandleStdinWithPipe (
     PREDIRCOMPLETE_INFO pRdrInfo
     )
 {
 
-HANDLE  hStdIn = pRdrInfo->ri_hStdIn;
-HANDLE  hStdinFile;
-PCHAR   pStdinFileName,lpBuf;
-DWORD   dwBytesRead, dwBytesWritten;
+    HANDLE  hStdinFile;
+    PCHAR   pStdinFileName;
+    PPIPE_INPUT pPipe;
+    BYTE    *Buffer;
+    DWORD   ThreadId;
+    HANDLE  hEvent;
+    HANDLE  hFileWrite;
+
+    if(!cmdCreateTempFile(&hStdinFile,&pStdinFileName))
+	return FALSE;
 
 
-        if(cmdCreateTempFile(&hStdinFile,
-                             &pStdinFileName) == FALSE)
-            return FALSE;
-	if ((lpBuf = malloc (STDIN_BUF_SIZE)) == NULL) {
-	    CloseHandle (hStdinFile);
-	    DeleteFile (pStdinFileName);
-	    free (pStdinFileName);
-	    return FALSE;
+    // must have a different handle so that reader(dos app) and writter(us)
+    // wont use the same handle object(especially, file position)
+    hFileWrite = CreateFile(pStdinFileName,
+			    GENERIC_WRITE | GENERIC_READ,
+			    FILE_SHARE_READ | FILE_SHARE_WRITE,
+			    NULL,
+			    OPEN_EXISTING,
+			    FILE_ATTRIBUTE_TEMPORARY,
+			    NULL
+			   );
+    if (hFileWrite == INVALID_HANDLE_VALUE) {
+	CloseHandle(hStdinFile);
+	DeleteFile(pStdinFileName);
+	return FALSE;
+    }
+    Buffer = malloc(sizeof(PIPE_INPUT) + PIPE_INPUT_BUFFER_SIZE);
+    if (Buffer == NULL) {
+	CloseHandle(hStdinFile);
+	CloseHandle(hFileWrite);
+	DeleteFile(pStdinFileName);
+	return FALSE;
+    }
+    hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (hEvent == NULL) {
+	CloseHandle(hStdinFile);
+	CloseHandle(hFileWrite);
+	DeleteFile(pStdinFileName);
+	free(Buffer);
+	return FALSE;
+    }
+    pPipe = (PPIPE_INPUT)Buffer;
+    pPipe->Buffer = Buffer + sizeof(PIPE_INPUT);
+    pPipe->BufferSize = PIPE_INPUT_BUFFER_SIZE;
+    pPipe->fEOF = FALSE;
+    pPipe->hFileWrite = hFileWrite;
+    pPipe->hFileRead  = hStdinFile;
+    pPipe->hDataEvent = hEvent;
+    pPipe->hPipe = pRdrInfo->ri_hStdIn;
+    pPipe->pFileName = pStdinFileName;
+    InitializeCriticalSection(&pPipe->CriticalSection);
+    pPipe->hThread = CreateThread ((LPSECURITY_ATTRIBUTES)NULL,
+			       (DWORD)0,
+			       (LPTHREAD_START_ROUTINE)cmdPipeInThread,
+			       (LPVOID)pPipe,
+			       0,
+			       &ThreadId
+			      );
+    if (pPipe->hThread == NULL) {
+	CloseHandle(hFileWrite);
+	CloseHandle(pPipe->hDataEvent);
+	CloseHandle(hStdinFile);
+	DeleteFile(pStdinFileName);
+	free(Buffer);
+	return FALSE;
+    }
+    // always have the new node in the head of the list because
+    // it is the node used by the top command.com running in the process.
+    // We may have multiple command.com instances running in the same
+    // ntvdm proecess and each command.com has a private PREDIRCOMPLETE_INFO
+    // associated with it if its stdin is redirected to a pipe.
+    pPipe->Next = cmdPipeList;
+    cmdPipeList = pPipe;
+    pRdrInfo->ri_hStdInFile = hStdinFile;
+    pRdrInfo->ri_pPipeStdIn = pPipe;
+    return TRUE;
+}
+
+/* Independent thread to read from pipe(NTVDM STDIN) and write to
+   file(DOS application STDIN) until either the pipe is broken or
+   there are some errors.
+   This thread may never terminate itself because it can block
+   in the ReadFile call to the pipe forever. If this is the case,
+   we have to rely on the CPU thread to kill it. To allow the CPU
+   thread safely launching the killing, this thread yields the
+   critical section when it is safe to be killed and the CPU thread
+   would claim the critical section first before going for kill.
+ */
+
+VOID cmdPipeInThread(LPVOID lpParam)
+{
+    PPIPE_INPUT pPipe;
+    DWORD	BytesRead, BytesWritten;
+    BOOL	ReadStatus, WriteStatus;
+    BOOL	ApplicationTerminated, fEOF;
+
+    pPipe = (PPIPE_INPUT)lpParam;
+    while (TRUE) {
+
+	// this read can take forever without getting back anything
+	ReadStatus = ReadFile(pPipe->hPipe, pPipe->Buffer,
+			      pPipe->BufferSize, &BytesRead, NULL);
+
+	// claim the critical section so we won't get killed
+	// by the CPU thread
+	EnterCriticalSection(&pPipe->CriticalSection);
+	if (ReadStatus) {
+	    if (BytesRead != 0) {
+		WriteStatus = WriteFile(pPipe->hFileWrite,
+					pPipe->Buffer,
+					BytesRead,
+					&BytesWritten,
+					NULL
+					);
+		if (pPipe->WaitData && WriteStatus && BytesWritten != 0)
+		    SetEvent(pPipe->hDataEvent);
+	    }
 	}
+	else {
+	    if (GetLastError() == ERROR_BROKEN_PIPE) {
 
-	while (TRUE) {
-	    if (ReadFile (hStdIn, lpBuf, STDIN_BUF_SIZE, &dwBytesRead,
-			  NULL) == FALSE){
-		if (GetLastError() != ERROR_BROKEN_PIPE) {
-		    CloseHandle (hStdinFile);
-		    DeleteFile (pStdinFileName);
-		    free (pStdinFileName);
-		    return FALSE;
-		}
+		// pipe is broken and more data to read?
+		ASSERT(BytesRead == 0);
+		pPipe->fEOF = TRUE;
+		LeaveCriticalSection(&pPipe->CriticalSection);
 		break;
 	    }
-
-	    if (WriteFile (hStdinFile, lpBuf, dwBytesRead, &dwBytesWritten,
-			   NULL) == FALSE){
-		CloseHandle (hStdinFile);
-		DeleteFile (pStdinFileName);
-		free (pStdinFileName);
-		return FALSE;
-	    }
 	}
+	// as soon as we leave the critical seciton, the CPU thread may
+	// step in and kill us
+	LeaveCriticalSection(&pPipe->CriticalSection);
+    }
+    ExitThread(0);
+}
 
-	if (SetFilePointer (hStdinFile, 0, 0, FILE_BEGIN) == -1) {
-	    CloseHandle (hStdinFile);
-	    DeleteFile (pStdinFileName);
-	    free (pStdinFileName);
-	    return FALSE;
+/* cmdPipeFileDataEOF - Check for new data or EOF
+ *
+ *
+ *  Entry - hFile, DOS application STDIN file handle(file)
+ *	    &fEOF, to return if the pipe is broken
+ *  EXIT  - TRUE if either there are new data or EOF is true
+ *	    *fEOF == TRUE if EOF
+ */
+
+BOOL cmdPipeFileDataEOF(HANDLE hFile, BOOL *fEOF)
+{
+    PPIPE_INPUT pPipe;
+    BOOL	NewData;
+    DWORD	WaitStatus;
+
+    pPipe = cmdPipeList;
+    while (pPipe != NULL && pPipe->hFileRead != hFile)
+	pPipe = pPipe->Next;
+
+    NewData = TRUE;
+    *fEOF = TRUE;
+
+    if (pPipe != NULL) {
+	EnterCriticalSection(&pPipe->CriticalSection);
+	*fEOF = pPipe->fEOF;
+	if (!(*fEOF)) {
+	    pPipe->WaitData = TRUE;
+	    LeaveCriticalSection(&pPipe->CriticalSection);
+	    WaitStatus = WaitForSingleObject(pPipe->hDataEvent, PIPE_INPUT_TIMEOUT);
+	    EnterCriticalSection(&pPipe->CriticalSection);
+	    *fEOF = pPipe->fEOF;
+	    pPipe->WaitData = FALSE;
+	    NewData = WaitStatus == 0 ? TRUE : FALSE;
 	}
-        CloseHandle (hStdIn);
-        pRdrInfo->ri_hStdIn = hStdinFile;
-        pRdrInfo->ri_pszStdInFile = pStdinFileName;
+	LeaveCriticalSection(&pPipe->CriticalSection);
+    }
+    return(NewData || *fEOF);
+}
 
-	return TRUE;
+/* cmdPipeFileEOF - Check if the pipe is broken
+ *
+ *
+ *  Entry - hFile, DOS application STDIN file handle(file)
+ *
+ *  EXIT  - TRUE if the write end of the pipe is closed
+ */
+
+
+BOOL cmdPipeFileEOF(HANDLE hFile)
+{
+    PPIPE_INPUT pPipe;
+    BOOL       fEOF;
+
+    pPipe = cmdPipeList;
+    while (pPipe != NULL && pPipe->hFileRead != hFile)
+	pPipe = pPipe->Next;
+
+    fEOF = TRUE;
+
+    if (pPipe != NULL) {
+	EnterCriticalSection(&pPipe->CriticalSection);
+	fEOF = pPipe->fEOF;
+	LeaveCriticalSection(&pPipe->CriticalSection);
+    }
+    if (!fEOF) {
+	Sleep(PIPE_INPUT_TIMEOUT);
+	EnterCriticalSection(&pPipe->CriticalSection);
+	fEOF = pPipe->fEOF;
+	LeaveCriticalSection(&pPipe->CriticalSection);
+    }
+    return (fEOF);
 }

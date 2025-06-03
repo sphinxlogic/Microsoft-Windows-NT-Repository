@@ -6,4 +6,3 @@
 #define _SEMA_
 
 #endif		/* _SEMA */
-

@@ -32,8 +32,11 @@ Author:
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "error.hxx"
 #include "ntrtl.h"
 #include "nturtl.h"
@@ -55,8 +58,9 @@ GENERIC_MAPPING IopFileMapping = {
 
 
 
-DEFINE_CONSTRUCTOR( CANNED_SECURITY, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( CANNED_SECURITY, OBJECT, IFSUTIL_EXPORT );
 
+IFSUTIL_EXPORT
 CANNED_SECURITY::~CANNED_SECURITY(
     )
 {
@@ -159,6 +163,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 CANNED_SECURITY::Initialize(
     )
@@ -222,7 +227,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: NtOpenProcessToken failed: status = 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: NtOpenProcessToken failed: status = 0x%x\n", Status );
         FREE( SystemSid );
         FREE( AdminsSid );
         Destroy();
@@ -294,6 +299,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 PVOID
 CANNED_SECURITY::GetCannedSecurityDescriptor(
     IN  CANNED_SECURITY_TYPE   Type,
@@ -319,7 +325,7 @@ Return Value:
 
 --*/
 {
-    DbgPtrAssert( Length );
+    DebugPtrAssert( Length );
 
     switch( Type ) {
 
@@ -392,7 +398,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
         return FALSE;
     }
 
@@ -452,7 +458,7 @@ Return Value:
 
     NewAce->Header.AceFlags = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
     NewAce->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
-    NewAce->Header.AceSize = AceSize;
+    NewAce->Header.AceSize = (USHORT)AceSize;
     NewAce->Mask = AccessMask;
     RtlCopySid( RtlLengthSid(Sid), (PSID)(&NewAce->SidStart), Sid );
 
@@ -515,7 +521,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -529,7 +535,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -547,7 +553,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -558,7 +564,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -614,7 +620,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
         return FALSE;
     }
 
@@ -672,7 +678,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: RtlInitializeSid failed--status 0x%x\n", Status );
         return FALSE;
     }
 
@@ -735,7 +741,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "RtlCreateSecurityDescriptor failed--status 0x%x.\n", Status );
+        DebugPrintf( "RtlCreateSecurityDescriptor failed--status 0x%x.\n", Status );
         return NULL;
     }
 
@@ -747,7 +753,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlSetOwnerSecurityDescriptor failed--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: RtlSetOwnerSecurityDescriptor failed--status 0x%x\n", Status );
         return NULL;
     }
 
@@ -757,7 +763,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlSetGroupSecurityDescriptor failed--status 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL: RtlSetGroupSecurityDescriptor failed--status 0x%x\n", Status );
         return NULL;
     }
 
@@ -787,7 +793,7 @@ Return Value:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "RtlSetDaclSecurityDescriptor failed--status 0x%x.\n", Status );
+            DebugPrintf( "RtlSetDaclSecurityDescriptor failed--status 0x%x.\n", Status );
             return NULL;
         }
 
@@ -816,7 +822,7 @@ Return Value:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "RtlSetDaclSecurityDescriptor failed--status 0x%x.\n", Status );
+            DebugPrintf( "RtlSetDaclSecurityDescriptor failed--status 0x%x.\n", Status );
             return NULL;
         }
     }
@@ -834,7 +840,7 @@ Return Value:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL:  RtlNewSecurityObject failed--status = 0x%x\n", Status );
+        DebugPrintf( "IFSUTIL:  RtlNewSecurityObject failed--status = 0x%x\n", Status );
         return NULL;
     }
 
@@ -842,7 +848,7 @@ Return Value:
     //
     if( !RtlValidSecurityDescriptor( SelfRelativeSd ) ) {
 
-        DbgPrint( "IFSUTIL: RtlNewSecurityObject did not return a valid security descriptor.\n" );
+        DebugPrint( "IFSUTIL: RtlNewSecurityObject did not return a valid security descriptor.\n" );
 
         RtlFreeHeap( RtlProcessHeap(), 0, SelfRelativeSd );
         return NULL;
@@ -894,7 +900,7 @@ Arguments:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -910,7 +916,7 @@ Arguments:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+            DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
             return FALSE;
         }
 
@@ -921,7 +927,7 @@ Arguments:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+            DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
             return FALSE;
         }
     }
@@ -939,7 +945,7 @@ Arguments:
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
+        DebugPrintf( "IFSUTIL: RtlCreateAcl failed--status 0x%x.\n", Status );
         return FALSE;
     }
 
@@ -955,7 +961,7 @@ Arguments:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+            DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
             return FALSE;
         }
 
@@ -966,7 +972,7 @@ Arguments:
 
         if( !NT_SUCCESS( Status ) ) {
 
-            DbgPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
+            DebugPrintf( "IFSUTIL: RtlAddAccessAllowedAce failed--status 0x%x.\n", Status );
             return FALSE;
         }
     }

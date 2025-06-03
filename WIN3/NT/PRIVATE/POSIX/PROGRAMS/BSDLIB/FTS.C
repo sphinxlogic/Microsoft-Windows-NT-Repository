@@ -52,6 +52,11 @@ static char sccsid[] = "@(#)fts.c	5.19 (Berkeley) 5/9/91";
 #include <string.h>
 #include <unistd.h>
 
+extern void bzero();
+extern void bcopy();
+extern char *rindex();
+extern int lstat();
+
 static FTSENT *fts_alloc(), *fts_build(), *fts_sort();
 static void fts_load(), fts_lfree();
 static u_short fts_stat();
@@ -75,7 +80,7 @@ FTS *
 fts_open(argv, options, compar)
 	char * const *argv;
 	register int options;
-	int (*compar)();
+	int (*compar)(const FTSENT *, const FTSENT *);
 {
 	register FTS *sp;
 	register FTSENT *p, *root;
@@ -619,7 +624,7 @@ fts_build(sp, type)
 #endif
 			goto mem1;
 #ifdef _POSIX_SOURCE
-		if (strlen (dp->d_name) > maxlen) {
+		if (strlen (dp->d_name) > (unsigned)maxlen) {
 #else
 		if (dp->d_namlen > maxlen) {
 #endif
@@ -803,7 +808,7 @@ fts_sort(sp, head, nitems)
 	}
 	for (ap = sp->fts_array, p = head; p; p = p->fts_link)
 		*ap++ = p;
-	qsort((void *)sp->fts_array, nitems, sizeof(FTSENT *), sp->fts_compar);
+	qsort(sp->fts_array, nitems, sizeof(FTSENT *), (int (*)(const void *, const void *))sp->fts_compar);
 	for (head = *(ap = sp->fts_array); --nitems; ++ap)
 		ap[0]->fts_link = ap[1];
 	ap[0]->fts_link = NULL;

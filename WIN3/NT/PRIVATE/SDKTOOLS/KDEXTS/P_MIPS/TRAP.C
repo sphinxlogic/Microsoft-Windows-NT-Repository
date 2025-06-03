@@ -191,13 +191,8 @@ Return Value:
 
 {
     ULONG           Address;
-    //PKTRAP_FRAME    TrapFrame;
     KTRAP_FRAME     TrapContents;
-    //NTSTATUS        status;
     ULONG           result;
-    //UCHAR           Buffer[200];
-    //DESCRIPTOR_TABLE_ENTRY Descriptor;
-    //ADDR            Addr;
     ULONG           j;
     PULONG          Register;
 
@@ -216,26 +211,43 @@ Return Value:
         return;
     }
 
-    Register = &TrapContents.IntAt;
+    //
+    // Display trap frame contexts.
+    //
 
-    for (j = 33; j < 48; j++) {
-
-        dprintf("%s=%08lx", pszReg[j], *Register++);
-        if ((j - 2) % 6 == 0)
-            dprintf("\n");
-        else
-            dprintf(" ");
-    }
-
-    dprintf("t8=%08lx ", *Register++);
-    dprintf("t9=%08lx ", *Register++);
-    dprintf("gp=%08lx\n", *Register++);
-    dprintf("sp=%08lx ", *Register++);
-    dprintf("s8=%08lx ", *Register++);
-    dprintf("lo=%08lx ", *Register++);
-    dprintf("hi=%08lx\n", *Register++);
-    dprintf("fsr=%08lx ", *Register++);
-    dprintf("fir=%08lx ", *Register++);
-    dprintf("psr=%08lx ", *Register++);
-    dprintf("ra=%08lx\n", TrapContents.IntRa);
+    dprintf("at=%08lx ", (ULONG)TrapContents.XIntAt);
+    dprintf("v0=%08lx ", (ULONG)TrapContents.XIntV0);
+    dprintf("v1=%08lx ", (ULONG)TrapContents.XIntV1);
+    dprintf("a0=%08lx ", (ULONG)TrapContents.XIntA0);
+    dprintf("a1=%08lx ", (ULONG)TrapContents.XIntA1);
+    dprintf("a2=%08lx\n", (ULONG)TrapContents.XIntA2);
+    dprintf("a3=%08lx ", (ULONG)TrapContents.XIntA3);
+    dprintf("t0=%08lx ", (ULONG)TrapContents.XIntT0);
+    dprintf("t1=%08lx ", (ULONG)TrapContents.XIntT1);
+    dprintf("t2=%08lx ", (ULONG)TrapContents.XIntT2);
+    dprintf("t3=%08lx ", (ULONG)TrapContents.XIntT3);
+    dprintf("t4=%08lx\n", (ULONG)TrapContents.XIntT4);
+    dprintf("t5=%08lx ", (ULONG)TrapContents.XIntT5);
+    dprintf("t6=%08lx ", (ULONG)TrapContents.XIntT6);
+    dprintf("t7=%08lx ", (ULONG)TrapContents.XIntT7);
+    dprintf("s0=%08lx ", (ULONG)TrapContents.XIntS0);
+    dprintf("s1=%08lx ", (ULONG)TrapContents.XIntS1);
+    dprintf("s2=%08lx\n", (ULONG)TrapContents.XIntS2);
+    dprintf("s3=%08lx ", (ULONG)TrapContents.XIntS3);
+    dprintf("s4=%08lx ", (ULONG)TrapContents.XIntS4);
+    dprintf("s5=%08lx ", (ULONG)TrapContents.XIntS5);
+    dprintf("s6=%08lx ", (ULONG)TrapContents.XIntS6);
+    dprintf("s7=%08lx ", (ULONG)TrapContents.XIntS7);
+    dprintf("t8=%08lx\n", (ULONG)TrapContents.XIntT8);
+    dprintf("t9=%08lx ", (ULONG)TrapContents.XIntT9);
+    dprintf("gp=%08lx ", (ULONG)TrapContents.XIntGp);
+    dprintf("sp=%08lx ", (ULONG)TrapContents.XIntSp);
+    dprintf("s8=%08lx ", (ULONG)TrapContents.XIntS8);
+    dprintf("lo=%08lx ", (ULONG)TrapContents.XIntLo);
+    dprintf("hi=%08lx\n", (ULONG)TrapContents.XIntHi);
+    dprintf("fsr=%08lx ", (ULONG)TrapContents.Fsr);
+    dprintf("fir=%08lx ", (ULONG)TrapContents.Fir);
+    dprintf("psr=%08lx ", (ULONG)TrapContents.Psr);
+    dprintf("ra=%08lx\n", (ULONG)TrapContents.XIntRa);
+    return;
 }

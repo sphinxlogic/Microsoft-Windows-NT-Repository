@@ -12,7 +12,7 @@
  *  01-Jul-87   danl    test idoc, inote against -1 not ERROR
  *  03-Jul-87   danl    Make local string for time display: CheckMail
  *  15-Jul-87   danl    Use fNotifyTools flags
- *  20-Jul-87   danl    Use ReadKey instead of getch
+ *  20-Jul-87   danl    Use ReadKey instead of _getch
  *  21-Aug-1987 mz      Change references from MAXARG to MAXLINELEN
  *                      Speed up BlankWindow
  *  24-Aug-1987 mz      Remove unneeded argument to DownloadMail

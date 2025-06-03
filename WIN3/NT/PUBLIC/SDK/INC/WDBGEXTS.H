@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992-1993  Microsoft Corporation
+Copyright (c) 1992-1995  Microsoft Corporation
 
 Module Name:
 
@@ -17,10 +17,6 @@ Abstract:
     Please see the NT DDK documentation for specific information about
     how to write your own debugger extension DLL.
 
-Author:
-
-    Wesley Witt (wesw) 1-july-1994
-
 Environment:
 
     Win32 only.
@@ -29,9 +25,6 @@ Revision History:
 
 --*/
 
-#include <imagehlp.h>
-
-
 #ifndef _WDBGEXTS_
 #define _WDBGEXTS_
 
@@ -39,123 +32,131 @@ Revision History:
 extern "C" {
 #endif
 
+#if !defined(WDBGAPI)
+#define WDBGAPI __stdcall
+#endif
+
+#ifndef _WINDEF_
+typedef CONST void far *LPCVOID;
+#endif
+
 
 typedef
 VOID
-(*PWINDBG_OUTPUT_ROUTINE)(
-    LPSTR lpFormat,
+(WDBGAPI*PWINDBG_OUTPUT_ROUTINE)(
+    PCSTR lpFormat,
     ...
     );
 
 typedef
-DWORD
-(*PWINDBG_GET_EXPRESSION)(
-    LPSTR lpExpression
+ULONG
+(WDBGAPI*PWINDBG_GET_EXPRESSION)(
+    PCSTR lpExpression
     );
 
 typedef
 VOID
-(*PWINDBG_GET_SYMBOL)(
-    LPVOID  offset,
+(WDBGAPI*PWINDBG_GET_SYMBOL)(
+    PVOID   offset,
     PUCHAR  pchBuffer,
-    LPDWORD pDisplacement
+    PULONG  pDisplacement
     );
 
 typedef
-DWORD
-(*PWINDBG_DISASM)(
-    LPDWORD lpOffset,
-    LPSTR   lpBuffer,
-    BOOL    fShowEfeectiveAddress
+ULONG
+(WDBGAPI*PWINDBG_DISASM)(
+    PULONG lpOffset,
+    PCSTR  lpBuffer,
+    ULONG  fShowEffectiveAddress
     );
 
 typedef
-BOOL
-(*PWINDBG_CHECK_CONTROL_C)(
+ULONG
+(WDBGAPI*PWINDBG_CHECK_CONTROL_C)(
     VOID
     );
 
 typedef
-BOOL
-(*PWINDBG_READ_PROCESS_MEMORY_ROUTINE)(
-    DWORD   offset,
-    LPVOID  lpBuffer,
-    DWORD   cb,
-    LPDWORD lpcbBytesRead
+ULONG
+(WDBGAPI*PWINDBG_READ_PROCESS_MEMORY_ROUTINE)(
+    ULONG  offset,
+    PVOID  lpBuffer,
+    ULONG  cb,
+    PULONG lpcbBytesRead
     );
 
 typedef
-BOOL
-(*PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE)(
-    DWORD   offset,
-    LPVOID  lpBuffer,
-    DWORD   cb,
-    LPDWORD lpcbBytesWritten
+ULONG
+(WDBGAPI*PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE)(
+    ULONG   offset,
+    LPCVOID lpBuffer,
+    ULONG   cb,
+    PULONG  lpcbBytesWritten
     );
 
 typedef
-BOOL
-(*PWINDBG_GET_THREAD_CONTEXT_ROUTINE)(
-    DWORD       Processor,
-    LPCONTEXT   lpContext,
-    DWORD       cbSizeOfContext
+ULONG
+(WDBGAPI*PWINDBG_GET_THREAD_CONTEXT_ROUTINE)(
+    ULONG       Processor,
+    PCONTEXT    lpContext,
+    ULONG       cbSizeOfContext
     );
 
 typedef
-BOOL
-(*PWINDBG_SET_THREAD_CONTEXT_ROUTINE)(
-    DWORD       Processor,
-    LPCONTEXT   lpContext,
-    DWORD       cbSizeOfContext
+ULONG
+(WDBGAPI*PWINDBG_SET_THREAD_CONTEXT_ROUTINE)(
+    ULONG       Processor,
+    PCONTEXT    lpContext,
+    ULONG       cbSizeOfContext
     );
 
 typedef
-BOOL
-(*PWINDBG_IOCTL_ROUTINE)(
+ULONG
+(WDBGAPI*PWINDBG_IOCTL_ROUTINE)(
     USHORT   IoctlType,
-    LPVOID   lpvData,
-    DWORD    cbSize
+    PVOID    lpvData,
+    ULONG    cbSize
     );
 
 typedef
-BOOL
-(*PWINDBG_OLDKD_READ_PHYSICAL_MEMORY)(
-    PHYSICAL_ADDRESS address,
-    LPVOID           buffer,
+ULONG
+(WDBGAPI*PWINDBG_OLDKD_READ_PHYSICAL_MEMORY)(
+    LARGE_INTEGER    address,
+    PVOID            buffer,
     ULONG            count,
     PULONG           bytesread
     );
 
 typedef
-BOOL
-(*PWINDBG_OLDKD_WRITE_PHYSICAL_MEMORY)(
-    PHYSICAL_ADDRESS address,
-    LPVOID           buffer,
+ULONG
+(WDBGAPI*PWINDBG_OLDKD_WRITE_PHYSICAL_MEMORY)(
+    LARGE_INTEGER    address,
+    PVOID            buffer,
     ULONG            length,
     PULONG           byteswritten
     );
 
 
 typedef struct _tagEXTSTACKTRACE {
-    DWORD       FramePointer;
-    DWORD       ProgramCounter;
-    DWORD       ReturnAddress;
-    DWORD       Args[4];
+    ULONG       FramePointer;
+    ULONG       ProgramCounter;
+    ULONG       ReturnAddress;
+    ULONG       Args[4];
 } EXTSTACKTRACE, *PEXTSTACKTRACE;
 
 
 typedef
-DWORD
+ULONG
 (*PWINDBG_STACKTRACE_ROUTINE)(
-    DWORD             FramePointer,
-    DWORD             StackPointer,
-    DWORD             ProgramCounter,
+    ULONG             FramePointer,
+    ULONG             StackPointer,
+    ULONG             ProgramCounter,
     PEXTSTACKTRACE    StackFrames,
-    DWORD             Frames
+    ULONG             Frames
     );
 
 typedef struct _WINDBG_EXTENSION_APIS {
-    DWORD                                  nSize;
+    ULONG                                  nSize;
     PWINDBG_OUTPUT_ROUTINE                 lpOutputRoutine;
     PWINDBG_GET_EXPRESSION                 lpGetExpressionRoutine;
     PWINDBG_GET_SYMBOL                     lpGetSymbolRoutine;
@@ -170,7 +171,7 @@ typedef struct _WINDBG_EXTENSION_APIS {
 } WINDBG_EXTENSION_APIS, *PWINDBG_EXTENSION_APIS;
 
 typedef struct _WINDBG_OLD_EXTENSION_APIS {
-    DWORD                                  nSize;
+    ULONG                                  nSize;
     PWINDBG_OUTPUT_ROUTINE                 lpOutputRoutine;
     PWINDBG_GET_EXPRESSION                 lpGetExpressionRoutine;
     PWINDBG_GET_SYMBOL                     lpGetSymbolRoutine;
@@ -179,7 +180,7 @@ typedef struct _WINDBG_OLD_EXTENSION_APIS {
 } WINDBG_OLD_EXTENSION_APIS, *PWINDBG_OLD_EXTENSION_APIS;
 
 typedef struct _WINDBG_OLDKD_EXTENSION_APIS {
-    DWORD                                  nSize;
+    ULONG                                  nSize;
     PWINDBG_OUTPUT_ROUTINE                 lpOutputRoutine;
     PWINDBG_GET_EXPRESSION                 lpGetExpressionRoutine;
     PWINDBG_GET_SYMBOL                     lpGetSymbolRoutine;
@@ -193,49 +194,58 @@ typedef struct _WINDBG_OLDKD_EXTENSION_APIS {
 
 typedef
 VOID
-(*PWINDBG_OLD_EXTENSION_ROUTINE)(
+(WDBGAPI*PWINDBG_OLD_EXTENSION_ROUTINE)(
     HANDLE                  hCurrentProcess,
     HANDLE                  hCurrentThread,
-    DWORD                   dwCurrentPc,
+    ULONG                   dwCurrentPc,
     PWINDBG_EXTENSION_APIS  lpExtensionApis,
-    LPSTR                   lpArgumentString
+    PCSTR                   lpArgumentString
     );
 
 typedef
 VOID
-(*PWINDBG_EXTENSION_ROUTINE)(
+(WDBGAPI*PWINDBG_EXTENSION_ROUTINE)(
     HANDLE                  hCurrentProcess,
     HANDLE                  hCurrentThread,
-    DWORD                   dwCurrentPc,
-    DWORD                   dwProcessor,
-    LPSTR                   lpArgumentString
+    ULONG                   dwCurrentPc,
+    ULONG                   dwProcessor,
+    PCSTR                   lpArgumentString
     );
 
 typedef
 VOID
-(*PWINDBG_OLDKD_EXTENSION_ROUTINE)(
-    DWORD                        dwCurrentPc,
+(WDBGAPI*PWINDBG_OLDKD_EXTENSION_ROUTINE)(
+    ULONG                        dwCurrentPc,
     PWINDBG_OLDKD_EXTENSION_APIS lpExtensionApis,
-    LPSTR                        lpArgumentString
+    PCSTR                        lpArgumentString
     );
 
 typedef
 VOID
-(*PWINDBG_EXTENSION_DLL_INIT)(
+(WDBGAPI*PWINDBG_EXTENSION_DLL_INIT)(
     PWINDBG_EXTENSION_APIS lpExtensionApis,
     USHORT                 MajorVersion,
     USHORT                 MinorVersion
     );
 
 typedef
-DWORD
-(*PWINDBG_CHECK_VERSION)(
+ULONG
+(WDBGAPI*PWINDBG_CHECK_VERSION)(
     VOID
     );
 
+#define EXT_API_VERSION_NUMBER 5
+
+typedef struct EXT_API_VERSION {
+    USHORT  MajorVersion;
+    USHORT  MinorVersion;
+    USHORT  Revision;
+    USHORT  Reserved;
+} EXT_API_VERSION, *LPEXT_API_VERSION;
+
 typedef
-LPAPI_VERSION
-(*PWINDBG_EXTENSION_API_VERSION)(
+LPEXT_API_VERSION
+(WDBGAPI*PWINDBG_EXTENSION_API_VERSION)(
     VOID
     );
 
@@ -248,6 +258,10 @@ LPAPI_VERSION
 #define IG_WRITE_PHYSICAL           7
 #define IG_READ_IO_SPACE_EX         8
 #define IG_WRITE_IO_SPACE_EX        9
+#define IG_KSTACK_HELP             10
+#define IG_SET_THREAD              11
+#define IG_READ_MSR                12
+#define IG_WRITE_MSR               13
 
 typedef struct _tagPROCESSORINFO {
     USHORT      Processor;                // current processor
@@ -255,10 +269,10 @@ typedef struct _tagPROCESSORINFO {
 } PROCESSORINFO, *PPROCESSORINFO;
 
 typedef struct _tagREADCONTROLSPACE {
-    ULONG       Processor;
+    USHORT      Processor;
     ULONG       Address;
     ULONG       BufLen;
-    BYTE        Buf[1];
+    UCHAR       Buf[1];
 } READCONTROLSPACE, *PREADCONTROLSPACE;
 
 typedef struct _tagIOSPACE {
@@ -277,11 +291,15 @@ typedef struct _tagIOSPACE_EX {
 } IOSPACE_EX, *PIOSPACE_EX;
 
 typedef struct _tagPHYSICAL {
-    PHYSICAL_ADDRESS       Address;
+    LARGE_INTEGER          Address;
     ULONG                  BufLen;
-    BYTE                   Buf[1];
+    UCHAR                  Buf[1];
 } PHYSICAL, *PPHYSICAL;
 
+typedef struct _tagREAD_WRITE_MSR {
+    ULONG       Msr;
+    LONGLONG    Value;
+} READ_WRITE_MSR, *PREAD_WRITE_MSR;
 
 #ifdef __cplusplus
 #define CPPMOD extern "C"
@@ -295,9 +313,9 @@ typedef struct _tagPHYSICAL {
     s(                                             \
         HANDLE                 hCurrentProcess,    \
         HANDLE                 hCurrentThread,     \
-        DWORD                  dwCurrentPc,        \
-        DWORD                  dwProcessor,        \
-        LPSTR                  args                \
+        ULONG                  dwCurrentPc,        \
+        ULONG                  dwProcessor,        \
+        PCSTR                  args                \
      )
 
 #ifndef NOEXTAPI
@@ -314,96 +332,183 @@ typedef struct _tagPHYSICAL {
 #define Ioctl            (ExtensionApis.lpIoctlRoutine)
 #define StackTrace       (ExtensionApis.lpStackTraceRoutine)
 
+
 #define GetKdContext(ppi) \
-    Ioctl( IG_KD_CONTEXT, (LPVOID)ppi, sizeof(*ppi) )
+    Ioctl( IG_KD_CONTEXT, (PVOID)ppi, sizeof(*ppi) )
 
-#define ReadControlSpace(processor,address,buf,size) \
-    { \
-        PREADCONTROLSPACE prc; \
-        prc = malloc( sizeof(*prc) + size ); \
-        ZeroMemory( prc->Buf, size ); \
-        prc->Processor = (DWORD)processor; \
-        prc->Address = (DWORD)address; \
-        prc->BufLen = size; \
-        Ioctl( IG_READ_CONTROL_SPACE, (LPVOID)prc, sizeof(*prc) + size ); \
-        memcpy( buf, prc->Buf, size ); \
-        free( prc ); \
-    }
+extern WINDBG_EXTENSION_APIS ExtensionApis;
 
-#define ReadIoSpace(address,data,size) \
-    { \
-        IOSPACE is; \
-        is.Address = (DWORD)address; \
-        is.Length = *size; \
-        is.Data = 0; \
-        Ioctl( IG_READ_IO_SPACE, (LPVOID)&is, sizeof(is) ); \
-        *data = is.Data; \
-        *size = is.Length; \
-    }
+__inline VOID
+ReadControlSpace(
+    USHORT  processor,
+    ULONG   address,
+    PVOID   buf,
+    ULONG   size
+    )
+{
+    PREADCONTROLSPACE prc;
+    prc = (PREADCONTROLSPACE)LocalAlloc(LPTR, sizeof(*prc) + size );
+    ZeroMemory( prc->Buf, size );
+    prc->Processor = processor;
+    prc->Address = (ULONG)address;
+    prc->BufLen = size;
+    Ioctl( IG_READ_CONTROL_SPACE, (PVOID)prc, sizeof(*prc) + size );
+    CopyMemory( buf, prc->Buf, size );
+    LocalFree( prc );
+}
 
-#define WriteIoSpace(address,data,size) \
-    { \
-        IOSPACE is; \
-        is.Address = (DWORD)address; \
-        is.Length = *size; \
-        is.Data = data; \
-        Ioctl( IG_WRITE_IO_SPACE, (LPVOID)&is, sizeof(is) ); \
-        *size = is.Length; \
-    }
+__inline VOID
+ReadIoSpace(
+    ULONG   address,
+    PULONG  data,
+    PULONG  size
+    )
+{
+    IOSPACE is;
+    is.Address = (ULONG)address;
+    is.Length = *size;
+    is.Data = 0;
+    Ioctl( IG_READ_IO_SPACE, (PVOID)&is, sizeof(is) );
+    *data = is.Data;
+    *size = is.Length;
+}
 
-#define ReadIoSpaceEx(address,data,size,interfacetype,busnumber,addressspace) \
-    { \
-        IOSPACE_EX is; \
-        is.Address = (DWORD)address; \
-        is.Length = *size; \
-        is.Data = 0; \
-        is.InterfaceType = interfacetype; \
-        is.BusNumber = busnumber; \
-        is.AddressSpace = addressspace; \
-        Ioctl( IG_READ_IO_SPACE_EX, (LPVOID)&is, sizeof(is) ); \
-        *data = is.Data; \
-        *size = is.Length; \
-    }
+__inline VOID
+WriteIoSpace(
+    ULONG   address,
+    ULONG   data,
+    PULONG  size
+    )
+{
+    IOSPACE is;
+    is.Address = (ULONG)address;
+    is.Length = *size;
+    is.Data = data;
+    Ioctl( IG_WRITE_IO_SPACE, (PVOID)&is, sizeof(is) );
+    *size = is.Length;
+}
 
-#define WriteIoSpaceEx(address,data,size,interfacetype,busnumber,addressspace) \
-    { \
-        IOSPACE_EX is; \
-        is.Address = (DWORD)address; \
-        is.Length = *size; \
-        is.Data = data; \
-        is.InterfaceType = interfacetype; \
-        is.BusNumber = busnumber; \
-        is.AddressSpace = addressspace; \
-        Ioctl( IG_WRITE_IO_SPACE_EX, (LPVOID)&is, sizeof(is) ); \
-        *size = is.Length; \
-    }
+__inline VOID
+ReadIoSpaceEx(
+    ULONG   address,
+    PULONG  data,
+    PULONG  size,
+    ULONG   interfacetype,
+    ULONG   busnumber,
+    ULONG   addressspace
+    )
+{
+    IOSPACE_EX is;
+    is.Address = (ULONG)address;
+    is.Length = *size;
+    is.Data = 0;
+    is.InterfaceType = interfacetype;
+    is.BusNumber = busnumber;
+    is.AddressSpace = addressspace;
+    Ioctl( IG_READ_IO_SPACE_EX, (PVOID)&is, sizeof(is) );
+    *data = is.Data;
+    *size = is.Length;
+}
 
+__inline VOID
+WriteIoSpaceEx(
+    ULONG   address,
+    ULONG   data,
+    PULONG  size,
+    ULONG   interfacetype,
+    ULONG   busnumber,
+    ULONG   addressspace
+    )
+{
+    IOSPACE_EX is;
+    is.Address = (ULONG)address;
+    is.Length = *size;
+    is.Data = data;
+    is.InterfaceType = interfacetype;
+    is.BusNumber = busnumber;
+    is.AddressSpace = addressspace;
+    Ioctl( IG_WRITE_IO_SPACE_EX, (PVOID)&is, sizeof(is) );
+    *size = is.Length;
+}
 
-#define ReadPhysical(address,buf,size,sizer) \
-    { \
-        PPHYSICAL phy; \
-        phy = malloc( sizeof(*phy) + size ); \
-        ZeroMemory( phy->Buf, size ); \
-        phy->Address = address; \
-        phy->BufLen = size; \
-        Ioctl( IG_READ_PHYSICAL, (LPVOID)phy, sizeof(*phy) + size ); \
-        *sizer = phy->BufLen; \
-        memcpy( buf, phy->Buf, *sizer ); \
-        free( phy ); \
-    }
+__inline VOID
+ReadPhysical(
+    LARGE_INTEGER       address,
+    PVOID               buf,
+    ULONG               size,
+    PULONG              sizer
+    )
+{
+    PPHYSICAL phy;
+    phy = (PPHYSICAL)LocalAlloc(LPTR,  sizeof(*phy) + size );
+    ZeroMemory( phy->Buf, size );
+    phy->Address = address;
+    phy->BufLen = size;
+    Ioctl( IG_READ_PHYSICAL, (PVOID)phy, sizeof(*phy) + size );
+    *sizer = phy->BufLen;
+    CopyMemory( buf, phy->Buf, *sizer );
+    LocalFree( phy );
+}
 
-#define WritePhysical(address,buf,size,sizew) \
-    { \
-        PPHYSICAL phy; \
-        phy = malloc( sizeof(*phy) + size ); \
-        ZeroMemory( phy->Buf, size ); \
-        phy->Address = address; \
-        phy->BufLen = size; \
-        memcpy( phy->Buf, buf, size ); \
-        Ioctl( IG_WRITE_PHYSICAL, (LPVOID)phy, sizeof(*phy) + size ); \
-        *sizew = phy->BufLen; \
-        free( phy ); \
-    }
+__inline VOID
+WritePhysical(
+    LARGE_INTEGER       address,
+    PVOID               buf,
+    ULONG               size,
+    PULONG              sizew
+    )
+{
+    PPHYSICAL phy;
+    phy = (PPHYSICAL)LocalAlloc(LPTR, sizeof(*phy) + size );
+    ZeroMemory( phy->Buf, size );
+    phy->Address = address;
+    phy->BufLen = size;
+    CopyMemory( phy->Buf, buf, size );
+    Ioctl( IG_WRITE_PHYSICAL, (PVOID)phy, sizeof(*phy) + size );
+    *sizew = phy->BufLen;
+    LocalFree( phy );
+}
+
+__inline VOID
+SetThreadForOperation(
+    PULONG Thread
+    )
+{
+    Ioctl(IG_SET_THREAD, (PVOID)Thread, sizeof(ULONG));
+}
+
+__inline VOID
+ReadMsr(
+    ULONG       MsrReg,
+    ULONGLONG   *MsrValue
+    )
+{
+    PREAD_WRITE_MSR msr;
+    LARGE_INTEGER li;
+
+    msr = (PREAD_WRITE_MSR)LocalAlloc(LPTR,  sizeof(*msr));
+    msr->Msr = MsrReg;
+    Ioctl( IG_READ_MSR, (PVOID)msr, sizeof(*msr) );
+
+    *MsrValue = msr->Value;
+    LocalFree( msr );
+}
+
+__inline VOID
+WriteMsr(
+    ULONG       MsrReg,
+    ULONGLONG   MsrValue
+    )
+{
+    PREAD_WRITE_MSR msr;
+
+    msr = (PREAD_WRITE_MSR)LocalAlloc(LPTR,  sizeof(*msr));
+    msr->Msr = MsrReg;
+    msr->Value = MsrValue;
+    Ioctl( IG_WRITE_MSR, (PVOID)msr, sizeof(*msr) );
+    LocalFree( msr );
+}
+
 #endif
 
 

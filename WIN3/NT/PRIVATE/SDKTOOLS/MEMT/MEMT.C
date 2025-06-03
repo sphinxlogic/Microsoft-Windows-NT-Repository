@@ -515,7 +515,7 @@ FinishBenchMark (
 
     NtQuerySystemTime((PLARGE_INTEGER)&PerfInfo->StopTime);
 
-    Duration = RtlLargeIntegerSubtract(PerfInfo->StopTime, PerfInfo->StartTime);
+    Duration.QuadPart = PerfInfo->StopTime.QuadPart - PerfInfo->StartTime.QuadPart;
     Length = Duration.LowPart / 10000;
     printf("%d (%s)\n", Length,PerfInfo->Title);
     return;

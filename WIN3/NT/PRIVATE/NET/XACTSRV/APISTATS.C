@@ -77,9 +77,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(STATISTICS) {
-        NetpDbgPrint( "XsNetStatisticsGet2: header at %lx, "
+        NetpKdPrint(( "XsNetStatisticsGet2: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -121,8 +121,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetStatisticsGet2: NetStatisticsGet failed: "
-                        "%X\n", status );
+            NetpKdPrint(( "XsNetStatisticsGet2: NetStatisticsGet failed: "
+                        "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -136,13 +136,13 @@ Return Value:
     // one supported in LM2.x, return ERROR_NOT_SUPPORTED now, as required.
     //
 
-    if ( !stricmp( (LPSTR)SmbGetUlong( &parameters->Service ), "SERVER" )) {
+    if ( !_stricmp( (LPSTR)SmbGetUlong( &parameters->Service ), "SERVER" )) {
 
         statBuffer = outBuffer;
         nativeStructureDesc = Desc32_stat_server_0;
         actualStructureDesc = Desc16_stat_server_0;
 
-    } else if ( !stricmp( (LPSTR)SmbGetUlong( &parameters->Service ),
+    } else if ( !_stricmp( (LPSTR)SmbGetUlong( &parameters->Service ),
                     "WORKSTATION" )) {
 
         //
@@ -220,8 +220,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetStatisticsGet2: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetStatisticsGet2: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -229,9 +229,9 @@ Return Value:
     }
 
     IF_DEBUG(STATISTICS) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -246,7 +246,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetStatisticsGet2: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetStatisticsGet2: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 

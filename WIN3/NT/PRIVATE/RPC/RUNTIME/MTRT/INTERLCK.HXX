@@ -154,4 +154,3 @@ Routine Description:
 }
 
 #endif // __INTERLCK_HXX__
-

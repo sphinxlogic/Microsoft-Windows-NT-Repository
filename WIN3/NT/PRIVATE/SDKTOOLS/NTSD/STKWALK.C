@@ -6,17 +6,24 @@
 
 extern ULONG  pageSize;
 
+#ifdef KERNEL
+extern PVOID  NtsdCurrentEThread;
+extern DBGKD_GET_VERSION vs;
+#endif
+
 #define SAVE_EBP(f)        f.Reserved[0]
 #define TRAP_TSS(f)        f.Reserved[1]
 #define TRAP_EDITED(f)     f.Reserved[1]
 #define SAVE_TRAP(f)       f.Reserved[2]
 
-#if defined(TARGET_i386)
+#if defined(TARGET_i386) || defined(CHICAGO)
 #define MachineType IMAGE_FILE_MACHINE_I386
 #elif defined(TARGET_MIPS)
 #define MachineType IMAGE_FILE_MACHINE_R4000
 #elif defined(TARGET_ALPHA)
 #define MachineType IMAGE_FILE_MACHINE_ALPHA
+#elif defined(TARGET_PPC)
+#define MachineType IMAGE_FILE_MACHINE_POWERPC
 #else
 #error( "unknown target machine" );
 #endif
@@ -33,11 +40,11 @@ SwFunctionTableAccess(
     DWORD   AddrBase
     )
 {
-#if defined(TARGET_i386)
+#if defined(TARGET_i386) || defined(CHICAGO)
     return (LPVOID)FindFpoDataForModule( AddrBase );
 #else
     static IMAGE_RUNTIME_FUNCTION_ENTRY irfe;
-    PIMAGE_FUNCTION_ENTRY pife = LookupFunctionEntry( AddrBase );
+    PIMAGE_FUNCTION_ENTRY pife = SymFunctionTableAccess( hProcess, AddrBase );
     if (pife) {
         irfe.BeginAddress     = pife->StartingAddress;
         irfe.EndAddress       = pife->EndingAddress;
@@ -84,7 +91,7 @@ SwReadMemory(
 
         Status = DbgKdReadControlSpace(
             NtsdCurrentProcessor,
-            lpBaseAddress,
+            (PVOID)lpBaseAddress,
             lpBuffer,
             nSize,
             &BytesRead );
@@ -174,14 +181,14 @@ EnsureModLoadedForAddress(
 }
 #endif
 
-
 DWORD
 StackTrace(
     ULONG           FramePointer,
     ULONG           StackPointer,
     ULONG           InstructionPointer,
     LPSTACKFRAME    StackFrames,
-    ULONG           NumFrames
+    ULONG           NumFrames,
+    ULONG           ExtThread
     )
 {
     CONTEXT       Context;
@@ -203,6 +210,25 @@ StackTrace(
     ZeroMemory( StackFrames, sizeof(STACKFRAME)*NumFrames );
     ZeroMemory( &VirtualFrame, sizeof(STACKFRAME) );
 
+#ifdef KERNEL
+
+    if (vs.KeUserCallbackDispatcher == 0) {
+        //
+        // if debugger was initialized at boot, usermode addresses
+        // were not available.  Try it now:
+        //
+
+        DbgKdGetVersion( &vs );
+    }
+    VirtualFrame.KdHelp.Thread = ExtThread ? ExtThread : (DWORD)NtsdCurrentEThread;
+    VirtualFrame.KdHelp.KiCallUserMode = vs.KiCallUserMode;
+    VirtualFrame.KdHelp.ThCallbackStack = vs.ThCallbackStack;
+    VirtualFrame.KdHelp.NextCallback = vs.NextCallback;
+    VirtualFrame.KdHelp.KeUserCallbackDispatcher = vs.KeUserCallbackDispatcher;
+    VirtualFrame.KdHelp.FramePointer = vs.FramePointer;
+
+#endif
+
     //
     // setup the program counter
     //
@@ -210,7 +236,7 @@ StackTrace(
     VirtualFrame.AddrPC.Mode = AddrModeFlat;
     VirtualFrame.AddrPC.Segment = (WORD)X86GetRegValue(REGCS);
     if (!InstructionPointer) {
-        VirtualFrame.AddrPC.Offset = X86GetRegValue(REGEIP);
+        VirtualFrame.AddrPC.Offset = (ULONG)X86GetRegValue(REGEIP);
     } else {
         VirtualFrame.AddrPC.Offset = InstructionPointer;
     }
@@ -221,7 +247,7 @@ StackTrace(
     VirtualFrame.AddrFrame.Mode = AddrModeFlat;
     VirtualFrame.AddrFrame.Segment = (WORD)X86GetRegValue(REGSS);
     if (!FramePointer) {
-        VirtualFrame.AddrFrame.Offset = X86GetRegValue(REGEBP);
+        VirtualFrame.AddrFrame.Offset = (ULONG)X86GetRegValue(REGEBP);
     } else {
         VirtualFrame.AddrFrame.Offset = FramePointer;
     }
@@ -232,13 +258,13 @@ StackTrace(
     VirtualFrame.AddrStack.Mode = AddrModeFlat;
     VirtualFrame.AddrStack.Segment = (WORD)X86GetRegValue(REGSS);
     if (!StackPointer) {
-        VirtualFrame.AddrStack.Offset = X86GetRegValue(REGESP);
+        VirtualFrame.AddrStack.Offset = (ULONG)X86GetRegValue(REGESP);
     } else {
         VirtualFrame.AddrStack.Offset = StackPointer;
     }
 #endif
 
-#if defined (TARGET_MIPS) || defined(TARGET_ALPHA)
+#if defined (TARGET_MIPS) || defined(TARGET_ALPHA) || defined(TARGET_PPC)
 
     if (InstructionPointer) {
         VirtualFrame.AddrPC.Offset = InstructionPointer;
@@ -260,14 +286,12 @@ StackTrace(
 
 #endif
 
-
     for (i=0; i<NumFrames; i++) {
         if (!StackWalk( MachineType,
+                   pProcessCurrent->hProcess,
 #ifdef KERNEL
-                   0,
                    (HANDLE)DefaultProcessor,
 #else
-                   pProcessCurrent->hProcess,
                    pProcessCurrent->pThreadCurrent->hThread,
 #endif
                    &VirtualFrame,
@@ -280,11 +304,6 @@ StackTrace(
             break;
         }
         StackFrames[i] = VirtualFrame;
-#ifdef KERNEL
-        if (VirtualFrame.AddrReturn.Offset) {
-            EnsureModLoadedForAddress(VirtualFrame.AddrReturn.Offset);
-        }
-#endif
     }
 
     return i;
@@ -305,6 +324,7 @@ DoStackTrace(
     DWORD         i;
     DWORD         displacement;
     CHAR          symbuf[512];
+    USHORT        StdCallArgs;
 
     if (NumFrames == 0) {
         NumFrames = 20;
@@ -320,7 +340,8 @@ DoStackTrace(
                              StackPointer,
                              InstructionPointer,
                              StackFrames,
-                             NumFrames
+                             NumFrames,
+                             0
                            );
 
     if (FrameCount == 0) {
@@ -344,7 +365,11 @@ DoStackTrace(
 
     for (i=0; i<FrameCount; i++) {
 
-        GetSymbol( StackFrames[i].AddrPC.Offset, symbuf, &displacement);
+        GetSymbolStdCall( StackFrames[i].AddrPC.Offset,
+                   symbuf,
+                   &displacement,
+                   &StdCallArgs
+                   );
 
 #if defined(TARGET_i386)
         dprintf( "%08x %08x ",
@@ -370,6 +395,11 @@ DoStackTrace(
             dprintf("0x%x", displacement);
         }
 
+        if (TraceType == 2 && !StackFrames[i].FuncTableEntry) {
+            if (StdCallArgs != 0xffff) {
+                dprintf(" [Stdcall: %d]", StdCallArgs);
+            }
+        } else
         if (TraceType == 2 && StackFrames[i].FuncTableEntry) {
             PFPO_DATA pFpoData = (PFPO_DATA)StackFrames[i].FuncTableEntry;
             switch (pFpoData->cbFrame) {
@@ -386,6 +416,11 @@ DoStackTrace(
                                                 pFpoData->cbRegs);
                     }
                     break;
+
+                case FRAME_NONFPO:
+                    dprintf("(FPO: [Non-Fpo]" );
+                    break;
+
 #ifdef KERNEL
                 case FRAME_TRAP:
                     dprintf(" (FPO: [%d,%d] TrapFrame%s @ %08lx)",
@@ -438,3 +473,27 @@ DoStackTrace(
 
     return;
 }
+
+#ifdef KERNEL
+PVOID
+GetCallbackStackHead(
+    PVOID Thread
+    )
+{
+    KTHREAD Tcb;
+    DWORD dwRead;
+    NTSTATUS Status;
+
+    Status = DbgKdReadVirtualMemory(
+                    Thread,
+                    &Tcb,
+                    sizeof(KTHREAD),
+                    &dwRead);
+
+    if (NT_SUCCESS(Status)) {
+        return Tcb.CallbackStack;
+    } else {
+        return 0;
+    }
+}
+#endif

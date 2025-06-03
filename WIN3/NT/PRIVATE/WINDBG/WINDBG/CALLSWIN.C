@@ -402,7 +402,7 @@ Return Value:
 
 {
     DWORD       i;
-    char        buf[256];
+    char        buf[1024*4];
     HFONT       hFont;
     HDC         hdc;
     TEXTMETRIC  tm;
@@ -837,7 +837,11 @@ Return Value:
     addr = *lpaddr;
     SYFixupAddr( &addr );
     SHGetModule( &addr, lpszModule );
-    strupr( lpszModule );
+#ifdef DBCS
+    CharUpper( lpszModule );
+#else
+    _strupr( lpszModule );
+#endif
 }
 
 
@@ -1213,7 +1217,8 @@ Return Value:
         return;
     }
 
-    fZoomed = IsZoomed(hwndActive) || IsZoomed(GetParent(hwndActive));
+    if (hwndActive)
+        fZoomed = IsZoomed(hwndActive) || IsZoomed(GetParent(hwndActive));
 
     //
     //  Determine which view index we are going to use
@@ -1761,7 +1766,7 @@ Return Value:
                     EndDialog( hDlg, TRUE );
                     return TRUE;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_CALLSOPT_HELP);
                     return (TRUE);
             }
@@ -2172,7 +2177,7 @@ Return Value:
 
 {
     ADDR    addr;
-    HBPT    hbpt = hbptNull;
+    HBPT    hbpt = NULL;
     CHAR    buf[256];
     CXF     cxf = CxfIp;
 
@@ -2248,9 +2253,10 @@ Return Value:
 {
     DWORD       i;
     STACKFRAME  stkFrame;
-    XOSD        xosd = xosdNone;
+    XOSD        xosd;
     DWORD       numFrames = *lpdwFrames;
-
+    BYTE        buf[sizeof(IOCTLGENERIC) + sizeof(KDHELP)];
+    PIOCTLGENERIC pig = (PIOCTLGENERIC)buf;
 
     *lpdwFrames = 0;
 
@@ -2259,6 +2265,21 @@ Return Value:
     }
 
     ZeroMemory( &stkFrame, sizeof(stkFrame) );
+
+    //
+    // If IG_KSTACK_HELP is recognized, fill in helper data
+    //
+
+    pig->ioctlSubType = IG_KSTACK_HELP;
+    pig->length = sizeof(KDHELP);
+    xosd = OSDIoctl( LppdCur->hpid,
+                     LptdCur->htid,
+                     ioctlGeneric,
+                     sizeof(buf),
+                     (LPV)buf );
+    if (xosd == xosdNone) {
+        stkFrame.KdHelp = *(PKDHELP)(buf + sizeof(IOCTLGENERIC));
+    }
 
     if (FramePointer) {
         stkFrame.AddrFrame.Offset    = FramePointer;
@@ -2371,15 +2392,15 @@ Return Value:
         goto exit;
     }
 
-    if (stricmp(StackInfo[dwFrames-1].ProcName,"BaseThreadStart")==0 ||
-        stricmp(StackInfo[dwFrames-1].ProcName,"_BaseThreadStart@8")==0) {
+    if (_stricmp(StackInfo[dwFrames-1].ProcName,"BaseThreadStart")==0 ||
+        _stricmp(StackInfo[dwFrames-1].ProcName,"_BaseThreadStart@8")==0) {
         if (dwFrames > 1) {
-            fname = strdup(StackInfo[dwFrames-2].ProcName);
+            fname = _strdup(StackInfo[dwFrames-2].ProcName);
             goto exit;
         }
     }
 
-    fname = strdup(StackInfo[dwFrames-1].ProcName);
+    fname = _strdup(StackInfo[dwFrames-1].ProcName);
 
 exit:
     if (StackInfo) {

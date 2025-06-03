@@ -50,7 +50,7 @@ Revision History:
 #include <apinums.h>            // API_ equates.
 #include <lmapibuf.h>           // NetApiBufferAllocate().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpPointerPlusSomeBytes, etc.
 #include <rap.h>                // LPDESC.
 #include <remdef.h>             // REMSmb_ equates.
@@ -109,8 +109,8 @@ Return Value:
     DWORD TotalAvail;
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint("RxNetSessionGetInfo: starting, server=" FORMAT_LPTSTR
-                ", lvl=" FORMAT_DWORD ".\n", UncServerName, LevelWanted);
+        NetpKdPrint(("RxNetSessionGetInfo: starting, server=" FORMAT_LPTSTR
+                ", lvl=" FORMAT_DWORD ".\n", UncServerName, LevelWanted));
     }
 
     //
@@ -159,8 +159,8 @@ Return Value:
         return (TempStatus);
     }
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "RxNetSessionGetInfo: allocated temp buffer at "
-                FORMAT_LPVOID "\n", (LPVOID) TempBuffer );
+        NetpKdPrint(( "RxNetSessionGetInfo: allocated temp buffer at "
+                FORMAT_LPVOID "\n", (LPVOID) TempBuffer ));
     }
 
     //

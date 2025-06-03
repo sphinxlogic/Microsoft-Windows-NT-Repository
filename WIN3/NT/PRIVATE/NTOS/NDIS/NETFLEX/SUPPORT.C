@@ -68,7 +68,6 @@ ULONG DebugLevel=1;
 //  Called By:      NetFlexInitialize
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexInitializeAcb)
 NDIS_STATUS
 NetFlexInitializeAcb(PACB acb)
 {
@@ -78,7 +77,6 @@ NetFlexInitializeAcb(PACB acb)
     PXMIT CurrentXmitEntry;
     PVOID start, next, current;
     ULONG next_phys, current_phys, temp;
-    PMULTI_TABLE mt, nextmt;
     PETH_OBJS ethobjs;
     NDIS_STATUS Status;
     PBUFFER_DESCRIPTOR OurBuf;
@@ -99,6 +97,7 @@ NetFlexInitializeAcb(PACB acb)
     //
     // Set up rest of general oid variables.
     //
+    acb->acb_smallbufsz = parms->utd_smallbufsz;
     acb->acb_maxmaps = parms->utd_maxtrans * MAX_BUFS_PER_XMIT;
     acb->acb_gen_objs.max_frame_size = parms->utd_maxframesz;
     acb->acb_lastringstate = NdisRingStateClosed;
@@ -124,7 +123,7 @@ NetFlexInitializeAcb(PACB acb)
     if (NdisMAllocateMapRegisters(
             acb->acb_handle,
             0,
-            FALSE,
+            TRUE,
             acb->acb_maxmaps,
             acb->acb_gen_objs.max_frame_size
             ) != NDIS_STATUS_SUCCESS)
@@ -167,33 +166,18 @@ NetFlexInitializeAcb(PACB acb)
         // Allocate and Zero out Memory for the Multicast table.
         //
         ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
-        NdisAllocateMemory( (PVOID *)&(start),
-                            (UINT) (sizeof (MULTI_TABLE) * parms->utd_maxmulticast),
+        ethobjs->MaxMulticast = parms->utd_maxmulticast;
+
+        NdisAllocateMemory( (PVOID *)&ethobjs->MulticastEntries,
+                            (UINT) (ethobjs->MaxMulticast * NET_ADDR_SIZE),
                             (UINT) 0,
                             NetFlexHighestAddress);
-        if (start == NULL)
+        if (ethobjs->MulticastEntries == NULL)
         {
             return(NDIS_STATUS_RESOURCES);
         }
-        NdisZeroMemory(start, sizeof (MULTI_TABLE) * parms->utd_maxmulticast);
-
-        //
-        // Initialize the multicast table entries.
-        //
-        ethobjs->multi_max = parms->utd_maxmulticast;
-        mt = (PMULTI_TABLE)start;
-        for (i = 1; i <= parms->utd_maxmulticast; i++)
-        {
-            nextmt = mt + 1;
-            mt->mt_next = nextmt;
-            if ( i < (USHORT)(parms->utd_maxmulticast))
-            {
-                mt++;
-            }
-        }
-        mt->mt_next = (PMULTI_TABLE) NULL;
-        ethobjs->multitable_lists = (PMULTI_TABLE)start;
-        ethobjs->multi_free = (PMULTI_TABLE)start;
+        NdisZeroMemory(ethobjs->MulticastEntries, ethobjs->MaxMulticast * NET_ADDR_SIZE);
+        ethobjs->NumberOfEntries = 0;
 
         //
         // Allocate Memory for sending multicast requests to the adapter.
@@ -269,14 +253,15 @@ NetFlexInitializeAcb(PACB acb)
     }
 
     acb->acb_maxinternalbufs = parms->utd_maxinternalbufs;
+    acb->acb_numsmallbufs    = parms->utd_numsmallbufs;
 
     //
     // Allocate Flush Buffer Pool for our InteralBuffers and the ReceiveBuffers
     //
     NdisAllocateBufferPool(
-                    &Status,
-                    (PVOID*)&acb->FlushBufferPoolHandle,
-                    acb->acb_gen_objs.max_frame_size * ( parms->utd_maxinternalbufs + acb->acb_maxrcvs));
+		&Status,
+		(PVOID*)&acb->FlushBufferPoolHandle,
+		acb->acb_gen_objs.max_frame_size * ( parms->utd_maxinternalbufs + acb->acb_maxrcvs + acb->acb_maxinternalbufs));
 
     if (Status != NDIS_STATUS_SUCCESS)
     {
@@ -288,78 +273,100 @@ NetFlexInitializeAcb(PACB acb)
     //
     // Now allocate our internal buffers, and their flush buffers...
     //
-    NdisAllocateMemory( (PVOID *) &acb->OurBuffersVirtPtr,
-                        sizeof(BUFFER_DESCRIPTOR) * acb->acb_maxinternalbufs,
-                        (UINT) 0,
-                        NetFlexHighestAddress);
+    NdisAllocateMemory(
+		(PVOID *) &acb->OurBuffersVirtPtr,
+		sizeof(BUFFER_DESCRIPTOR) * acb->acb_maxinternalbufs,
+		(UINT) 0,
+		NetFlexHighestAddress);
 
     //
     // Zero the memory of all the descriptors so that we can
     // know which buffers weren't allocated incase we can't allocate
     // them all.
     //
-
-    NdisZeroMemory(acb->OurBuffersVirtPtr,
-                   sizeof(BUFFER_DESCRIPTOR) * acb->acb_maxinternalbufs );
+    NdisZeroMemory(
+		acb->OurBuffersVirtPtr,
+		sizeof(BUFFER_DESCRIPTOR) * acb->acb_maxinternalbufs );
 
 
     //
     // Allocate each of the buffers and fill in the
     // buffer descriptor.
     //
-
     OurBuf = acb->OurBuffersVirtPtr;
 
     NdisMAllocateSharedMemory(
-                    acb->acb_handle,
-                    FrameSizeCacheAligned * acb->acb_maxinternalbufs,
-                    TRUE,
-                    &acb->MergeBufferPoolVirt,
-                    &acb->MergeBufferPoolPhys
-                    );
+		acb->acb_handle,
+		FrameSizeCacheAligned * acb->acb_maxinternalbufs,
+		TRUE,
+		&acb->MergeBufferPoolVirt,
+		&acb->MergeBufferPoolPhys);
 
-    if ( acb->MergeBufferPoolVirt == NULL )
-    {
-        DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating merge buffer failed.\n",acb->anum));
+    if ( acb->MergeBufferPoolVirt != NULL )
+	{
+        acb->MergeBuffersAreContiguous = TRUE;
 
-        return NDIS_STATUS_RESOURCES;
+        CurrentMergeBuffer = acb->MergeBufferPoolVirt;
+
+        LowPart = NdisGetPhysicalAddressLow(acb->MergeBufferPoolPhys);
+
+        //
+        //  If the high part is non-zero then this adapter is hosed anyway since
+        //  its a 32-bit busmaster device.
+        //
+        ASSERT( NdisGetPhysicalAddressHigh(acb->MergeBufferPoolPhys) == 0 );
     }
+	else
+	{
+        acb->MergeBuffersAreContiguous = FALSE;
 
-    CurrentMergeBuffer = acb->MergeBufferPoolVirt;
+        acb->MergeBufferPoolVirt = NULL;
 
-    LowPart = NdisGetPhysicalAddressLow(acb->MergeBufferPoolPhys);
-
-    //
-    //  If the high part is non-zero then this adapter is hosed anyway since
-    //  its a 32-bit busmaster device.
-    //
-
-    ASSERT( NdisGetPhysicalAddressHigh(acb->MergeBufferPoolPhys) == 0 );
+        CurrentMergeBuffer = NULL;
+    }
 
     for (i = 0;  i < acb->acb_maxinternalbufs; i++ )
     {
         //
         // Allocate a buffer
         //
+        if ( acb->MergeBuffersAreContiguous )
+		{
+            OurBuf->VirtualBuffer = CurrentMergeBuffer;
 
-        OurBuf->VirtualBuffer = CurrentMergeBuffer;
+            NdisSetPhysicalAddressLow(OurBuf->PhysicalBuffer, LowPart);
+            NdisSetPhysicalAddressHigh(OurBuf->PhysicalBuffer, 0);
 
-        NdisSetPhysicalAddressLow(OurBuf->PhysicalBuffer, LowPart);
-        NdisSetPhysicalAddressHigh(OurBuf->PhysicalBuffer, 0);
+            CurrentMergeBuffer += FrameSizeCacheAligned;
 
-        CurrentMergeBuffer += FrameSizeCacheAligned;
+            LowPart += FrameSizeCacheAligned;
+        }
+		else
+		{
+            NdisMAllocateSharedMemory(
+				acb->acb_handle,
+				parms->utd_maxframesz,
+				TRUE,
+				&OurBuf->VirtualBuffer,
+				&OurBuf->PhysicalBuffer);
 
-        LowPart += FrameSizeCacheAligned;
+            if ( OurBuf->VirtualBuffer == NULL )
+			{
+                DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating individual merge buffer failed.\n",acb->anum));
+
+                return NDIS_STATUS_RESOURCES;
+            }
+        }
 
         //
         // Build flush buffers
         //
-
-        NdisAllocateBuffer( &Status,
-                            &OurBuf->FlushBuffer,
-                            acb->FlushBufferPoolHandle,
-                            OurBuf->VirtualBuffer,
-                            acb->acb_gen_objs.max_frame_size );
+        NdisAllocateBuffer(
+			&Status,
+			&OurBuf->FlushBuffer,
+			acb->FlushBufferPoolHandle,
+			OurBuf->VirtualBuffer,
+			acb->acb_gen_objs.max_frame_size );
 
         if (Status != NDIS_STATUS_SUCCESS)
         {
@@ -381,6 +388,128 @@ NetFlexInitializeAcb(PACB acb)
     //
     (OurBuf - 1)->Next = NULL;
     acb->OurBuffersListHead = acb->OurBuffersVirtPtr;
+
+    //
+    // Now allocate our internal buffers, and their flush buffers...
+    //
+    NdisAllocateMemory(
+		(PVOID *) &acb->SmallBuffersVirtPtr,
+		sizeof(BUFFER_DESCRIPTOR) * parms->utd_numsmallbufs,
+		(UINT) 0,
+		NetFlexHighestAddress);
+
+    //
+    // Zero the memory of all the descriptors so that we can
+    // know which buffers weren't allocated incase we can't allocate
+    // them all.
+    //
+    NdisZeroMemory(
+		acb->SmallBuffersVirtPtr,
+		sizeof(BUFFER_DESCRIPTOR) * parms->utd_numsmallbufs);
+
+    //
+    // Allocate each of the buffers and fill in the
+    // buffer descriptor.
+    //
+    OurBuf = acb->SmallBuffersVirtPtr;
+
+    NdisMAllocateSharedMemory(
+		acb->acb_handle,
+		acb->acb_smallbufsz * parms->utd_numsmallbufs,
+		TRUE,
+		&acb->SmallBufferPoolVirt,
+		&acb->SmallBufferPoolPhys);
+
+    if ( acb->SmallBufferPoolVirt != NULL )
+	{
+        acb->SmallBuffersAreContiguous = TRUE;
+
+        CurrentMergeBuffer = acb->SmallBufferPoolVirt;
+
+        LowPart = NdisGetPhysicalAddressLow(acb->SmallBufferPoolPhys);
+
+        //
+        //  If the high part is non-zero then this adapter is hosed anyway since
+        //  its a 32-bit busmaster device.
+        //
+
+        ASSERT( NdisGetPhysicalAddressHigh(acb->SmallBufferPoolPhys) == 0 );
+
+    }
+	else
+	{
+        acb->SmallBuffersAreContiguous = FALSE;
+
+        acb->SmallBufferPoolVirt = NULL;
+
+        CurrentMergeBuffer = NULL;
+    }
+
+    for (i = 0;  i < parms->utd_numsmallbufs; i++ )
+    {
+        //
+        // Allocate a small buffer
+        //
+
+        if ( acb->SmallBuffersAreContiguous ) {
+
+            OurBuf->VirtualBuffer = CurrentMergeBuffer;
+
+            NdisSetPhysicalAddressLow(OurBuf->PhysicalBuffer, LowPart);
+            NdisSetPhysicalAddressHigh(OurBuf->PhysicalBuffer, 0);
+
+            CurrentMergeBuffer += acb->acb_smallbufsz;
+
+            LowPart += acb->acb_smallbufsz;
+
+        } else {
+
+            NdisMAllocateSharedMemory(
+                            acb->acb_handle,
+                            acb->acb_smallbufsz,
+                            TRUE,
+                            &OurBuf->VirtualBuffer,
+                            &OurBuf->PhysicalBuffer
+                            );
+
+            if ( OurBuf->VirtualBuffer == NULL ) {
+
+                DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating individual merge buffer failed.\n",acb->anum));
+
+                return NDIS_STATUS_RESOURCES;
+            }
+        }
+
+        //
+        // Build flush buffers
+        //
+
+        NdisAllocateBuffer( &Status,
+                            &OurBuf->FlushBuffer,
+                            acb->FlushBufferPoolHandle,
+                            OurBuf->VirtualBuffer,
+                            acb->acb_smallbufsz );
+
+        if (Status != NDIS_STATUS_SUCCESS)
+        {
+            DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating FLUSH buffer failed.\n",acb->anum));
+
+            return NDIS_STATUS_RESOURCES;
+        }
+
+        //
+        // Insert this buffer into the queue
+        //
+        OurBuf->Next = (OurBuf + 1);
+        OurBuf->BufferSize = acb->acb_smallbufsz;
+        OurBuf = OurBuf->Next;
+    }
+
+    //
+    // Make sure that the last buffer correctly terminates the free list.
+    //
+    (OurBuf - 1)->Next = NULL;
+    acb->SmallBuffersListHead = acb->SmallBuffersVirtPtr;
 
     //
     // Now, Allocate the transmit lists
@@ -429,9 +558,6 @@ NetFlexInitializeAcb(PACB acb)
         //
         CurrentXmitEntry->XMIT_FwdPtr = SWAPL(CTRL_ADDR((LONG)next_phys));
 
-#ifdef ODD_POINTER
-        MAKE_ODD(CurrentXmitEntry->XMIT_FwdPtr);
-#endif
         CurrentXmitEntry->XMIT_Next = (CurrentXmitEntry + 1);
         CurrentXmitEntry->XMIT_OurBufferPtr = NULL;
         current_phys = next_phys;
@@ -444,10 +570,6 @@ NetFlexInitializeAcb(PACB acb)
     (CurrentXmitEntry - 1)->XMIT_FwdPtr =
         SWAPL(CTRL_ADDR(NdisGetPhysicalAddressLow(acb->acb_xmit_physptr)));
 
-#ifdef ODD_POINTER
-    MAKE_ODD((CurrentXmitEntry - 1)->XMIT_FwdPtr);
-
-#endif
     acb->acb_avail_xmit = parms->utd_maxtrans;
 
     //
@@ -483,6 +605,8 @@ NetFlexInitializeAcb(PACB acb)
     acb->acb_maxrcvs = parms->utd_maxrcvs;
     current_phys = NdisGetPhysicalAddressLow(acb->acb_rcv_physptr);
 
+    CurrentReceiveEntry = acb->acb_rcv_virtptr;
+
     //
     //  Create the receive buffer pool.
     //
@@ -495,24 +619,29 @@ NetFlexInitializeAcb(PACB acb)
                     &acb->ReceiveBufferPoolPhys
                     );
 
-    if ( acb->ReceiveBufferPoolVirt == NULL ) {
+    if ( acb->ReceiveBufferPoolVirt != NULL ) {
 
-        DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating receive buffer pool failed.\n",acb->anum));
+        acb->RecvBuffersAreContiguous = TRUE;
 
-        return NDIS_STATUS_RESOURCES;
+        CurrentReceiveBuffer = acb->ReceiveBufferPoolVirt;
+
+        LowPart = NdisGetPhysicalAddressLow(acb->ReceiveBufferPoolPhys);
+
+        //
+        //  If the high part is non-zero then this adapter is hosed anyway since
+        //  its a 32-bit busmaster device.
+        //
+
+        ASSERT( NdisGetPhysicalAddressHigh(acb->ReceiveBufferPoolPhys) == 0 );
+
+    } else {
+
+        acb->RecvBuffersAreContiguous = FALSE;
+
+        acb->ReceiveBufferPoolVirt = NULL;
+
+        CurrentReceiveBuffer = NULL;
     }
-
-    CurrentReceiveEntry  = acb->acb_rcv_virtptr;
-    CurrentReceiveBuffer = acb->ReceiveBufferPoolVirt;
-
-    LowPart = NdisGetPhysicalAddressLow(acb->ReceiveBufferPoolPhys);
-
-    //
-    //  If the high part is non-zero then this adapter is hosed anyway since
-    //  its a 32-bit busmaster device.
-    //
-
-    ASSERT( NdisGetPhysicalAddressHigh(acb->ReceiveBufferPoolPhys) == 0 );
 
     for ( i = 0; i < parms->utd_maxrcvs; ++i, ++CurrentReceiveEntry )
     {
@@ -520,14 +649,34 @@ NetFlexInitializeAcb(PACB acb)
         // Allocate the actual receive frame buffers.
         //
 
-        CurrentReceiveEntry->RCV_Buf = CurrentReceiveBuffer;
+        if ( acb->RecvBuffersAreContiguous ) {
 
-        NdisSetPhysicalAddressLow(CurrentReceiveEntry->RCV_BufPhys, LowPart);
-        NdisSetPhysicalAddressHigh(CurrentReceiveEntry->RCV_BufPhys, 0);
+            CurrentReceiveEntry->RCV_Buf = CurrentReceiveBuffer;
 
-        CurrentReceiveBuffer += FrameSizeCacheAligned;
+            NdisSetPhysicalAddressLow(CurrentReceiveEntry->RCV_BufPhys, LowPart);
+            NdisSetPhysicalAddressHigh(CurrentReceiveEntry->RCV_BufPhys, 0);
 
-        LowPart += FrameSizeCacheAligned;
+            CurrentReceiveBuffer += FrameSizeCacheAligned;
+
+            LowPart += FrameSizeCacheAligned;
+
+        } else {
+
+            NdisMAllocateSharedMemory(
+                            acb->acb_handle,
+                            parms->utd_maxframesz,
+                            TRUE,
+                            &CurrentReceiveEntry->RCV_Buf,
+                            &CurrentReceiveEntry->RCV_BufPhys
+                            );
+
+            if ( CurrentReceiveEntry->RCV_Buf == NULL ) {
+
+                DebugPrint(1,("NF(%d): NetFlexInitializeAcb: Allocating individual receive buffer failed.\n",acb->anum));
+
+                return NDIS_STATUS_RESOURCES;
+            }
+        }
 
         //
         // Build flush buffers
@@ -573,9 +722,6 @@ NetFlexInitializeAcb(PACB acb)
         CurrentReceiveEntry->RCV_FwdPtr = SWAPL(CTRL_ADDR(next_phys));
         CurrentReceiveEntry->RCV_MyMoto = SWAPL(CTRL_ADDR(current_phys));
 
-#ifdef ODD_POINTER
-        CurrentReceiveEntry->RCV_Prev = (CurrentReceiveEntry - 1);
-#endif
         CurrentReceiveEntry->RCV_Next = (CurrentReceiveEntry + 1);
         current_phys = next_phys;
     }
@@ -586,12 +732,6 @@ NetFlexInitializeAcb(PACB acb)
     (CurrentReceiveEntry - 1)->RCV_Next = acb->acb_rcv_virtptr;
     (CurrentReceiveEntry - 1)->RCV_FwdPtr =
         SWAPL(CTRL_ADDR(NdisGetPhysicalAddressLow(acb->acb_rcv_physptr)));
-
-#ifdef ODD_POINTER
-    MAKE_ODD((CurrentReceiveEntry - 1)->RCV_FwdPtr);
-
-    acb->acb_rcv_tail = acb->acb_rcv_head->RCV_Prev = (CurrentReceiveEntry - 1);
-#endif
 
     //
     // Allocate and initialize the OPEN parameter block.
@@ -764,10 +904,10 @@ NetFlexDeallocateAcb(
             // If we have allocated the multicast table entries, free
             // the memory.
             //
-            if (ethobjs->multitable_lists)
+            if (ethobjs->MulticastEntries)
             {
-                NdisFreeMemory( (PVOID)(ethobjs->multitable_lists),
-                                (UINT) (sizeof (MULTI_TABLE) * ethobjs->multi_max),
+                NdisFreeMemory( (PVOID)(ethobjs->MulticastEntries),
+                                (UINT) (ethobjs->MaxMulticast * NET_ADDR_SIZE),
                                 (UINT) 0);
             }
             //
@@ -844,6 +984,17 @@ NetFlexDeallocateAcb(
             if (OurBuf->FlushBuffer)
             {
                 NdisFreeBuffer(OurBuf->FlushBuffer);
+
+                if ( !acb->MergeBuffersAreContiguous ) {
+
+                    NdisMFreeSharedMemory(
+                            acb->acb_handle,
+                            parms->utd_maxframesz,
+                            TRUE,
+                            OurBuf->VirtualBuffer,
+                            OurBuf->PhysicalBuffer
+                            );
+                }
             }
         }
 
@@ -851,15 +1002,17 @@ NetFlexDeallocateAcb(
         // Free the pool itself.
         //
 
-        NdisMFreeSharedMemory(
-                    acb->acb_handle,
-                    FrameSizeCacheAligned * acb->acb_maxinternalbufs,
-                    TRUE,
-                    acb->MergeBufferPoolVirt,
-                    acb->MergeBufferPoolPhys
-                    );
-    }
+        if ( acb->MergeBuffersAreContiguous ) {
 
+            NdisMFreeSharedMemory(
+                        acb->acb_handle,
+                        FrameSizeCacheAligned * acb->acb_maxinternalbufs,
+                        TRUE,
+                        acb->MergeBufferPoolVirt,
+                        acb->MergeBufferPoolPhys
+                        );
+        }
+    }
     //
     // Free our own transmit buffers.
     //
@@ -878,6 +1031,63 @@ NetFlexDeallocateAcb(
     }
 
     //
+    //  Free Small Merge buffer pool.
+    //
+    if (acb->SmallBufferPoolVirt)
+	{
+        OurBuf = acb->SmallBuffersVirtPtr;
+
+        //
+        // Free flush buffers
+        //
+        for (i = 0;  i < acb->acb_numsmallbufs; ++i, ++OurBuf)
+		{
+            if (OurBuf->FlushBuffer)
+            {
+                NdisFreeBuffer(OurBuf->FlushBuffer);
+
+                if ( !acb->SmallBuffersAreContiguous ) {
+
+                    NdisMFreeSharedMemory(
+                            acb->acb_handle,
+                            acb->acb_smallbufsz,
+                            TRUE,
+                            OurBuf->VirtualBuffer,
+                            OurBuf->PhysicalBuffer);
+                }
+            }
+        }
+
+        //
+        // Free the pool itself.
+        //
+        if ( acb->SmallBuffersAreContiguous )
+		{
+            NdisMFreeSharedMemory(
+                        acb->acb_handle,
+                        acb->acb_smallbufsz * acb->acb_numsmallbufs,
+                        TRUE,
+                        acb->SmallBufferPoolVirt,
+                        acb->SmallBufferPoolPhys);
+        }
+    }
+
+    //
+    //  Free our Small transmit buffers.
+    //
+    if (acb->SmallBuffersVirtPtr)
+    {
+        //
+        // Free Small Buffers
+        //
+
+        NdisFreeMemory(
+                acb->SmallBuffersVirtPtr,
+                sizeof(BUFFER_DESCRIPTOR) * acb->acb_numsmallbufs,
+                0
+                );
+    }
+    //
     // If we have allocated memory for the transmit lists, free it.
     //
     if (acb->acb_xmit_virtptr)
@@ -890,44 +1100,57 @@ NetFlexDeallocateAcb(
     }
 
     //
-    //  If we allocated the receive buffer pool, free it.
+    //  If we have allocated memory for the receive lists, free it.
     //
 
-    if ( acb->ReceiveBufferPoolVirt ) {
+    if ( acb->acb_rcv_virtptr ) {
 
+        //
+        //  If we allocated the receive buffer pool, free it.
+        //
         CurrentReceiveEntry = acb->acb_rcv_virtptr;
 
-        //
-        // Free flush buffers
-        //
-
         for (i = 0; i < parms->utd_maxrcvs; ++i, ++CurrentReceiveEntry) {
+            //
+            // Free flush buffers
+            //
 
             if ( CurrentReceiveEntry->RCV_FlushBuffer )
             {
                 NdisFreeBuffer(CurrentReceiveEntry->RCV_FlushBuffer);
+
+            }
+
+            //
+            //  Free individual buffer, if allocated.
+            //
+            if ((!acb->RecvBuffersAreContiguous) &&
+                (CurrentReceiveEntry->RCV_Buf))
+            {
+                NdisMFreeSharedMemory(
+                            acb->acb_handle,
+                            parms->utd_maxframesz,
+                            TRUE,
+                            CurrentReceiveEntry->RCV_Buf,
+                            CurrentReceiveEntry->RCV_BufPhys
+                            );
             }
         }
 
         //
-        // Free the pool itself.
+        // Free the pool itself, if it was allocated contiguously.
         //
-
-        NdisMFreeSharedMemory(
+        if ( acb->RecvBuffersAreContiguous && acb->ReceiveBufferPoolVirt)
+        {
+            NdisMFreeSharedMemory(
                         acb->acb_handle,
                         FrameSizeCacheAligned * parms->utd_maxrcvs,
                         TRUE,
                         acb->ReceiveBufferPoolVirt,
                         acb->ReceiveBufferPoolPhys
                         );
-    }
+        }
 
-    //
-    // If we have allocated memory for the receive lists, free it.
-    //
-
-    if (acb->acb_rcv_virtptr)
-    {
         //
         // Now Free the RCV Lists
         //
@@ -938,7 +1161,6 @@ NetFlexDeallocateAcb(
                                 (PVOID)acb->acb_rcv_virtptr,
                                 acb->acb_rcv_physptr);
     }
-
 
     //
     // Free the Flush Pool
@@ -1143,15 +1365,9 @@ NetFlexSendNextSCB(
             acb->acb_xmit_ahead = acb->acb_xmit_whead;
             acb->acb_xmit_atail = acb->acb_xmit_wtail;
         }
-        else
-        {
-            DebugPrint(0,("NF(%d) - Tried to issue tranmsit command, but Xmit isn't Valid!\n",acb->anum));
-        }
+
         acb->acb_xmit_whead = 0;
         acb->acb_xmit_wtail = 0;
-#ifdef ODD_POINTER
-        acb->XmitStalled = FALSE;
-#endif
     }
     //
     // If there is a Receive command waiting, issue it.
@@ -1176,97 +1392,24 @@ NetFlexSendNextSCB(
         //
         req = acb->acb_scbreq_next;
 
-        if (req->req_scb.SCB_Cmd == TMS_DUMMYCMD)
-        {
-            // While we have SCB requests and they continue to be
-            // dummy commands, stay in this loop.
-            //
-            while ( req && (req->req_scb.SCB_Cmd == TMS_DUMMYCMD) )
-            {
-                // If the dummy command is the first SCB on the Scb queue,
-                // take it off the queue.  Otherwise, just move the pointer
-                // pointing to the next SCB to be issued over to the
-                // next SCB.
-                //
-                if (req == acb->acb_scbreq_head)
-                {
-                    // Take the SCB request off the SCB queue and place
-                    // it on the free queue.  Also, take the MAC request
-                    // associated with this dummy SCB off the MAC queue
-                    // and place it on the confirm queue.
-                    //
-                    acb->acb_scbreq_next = acb->acb_scbreq_next->req_next;
-
-                    NetFlexDequeue_TwoPtrQ((PVOID *)(&acb->acb_scbreq_head),
-                                           (PVOID *)(&acb->acb_scbreq_tail),
-                                           (PVOID) req);
-
-                    macreq = req->req_macreq;
-
-                    NetFlexDequeue_TwoPtrQ((PVOID *)&(acb->acb_macreq_head),
-                                           (PVOID *)&(acb->acb_macreq_tail),
-                                           (PVOID)macreq);
-
-                    macreq->req_status = NDIS_STATUS_SUCCESS;
-
-                    NetFlexEnqueue_TwoPtrQ_Tail((PVOID *)&(acb->acb_confirm_qhead),
-                                                (PVOID *)&(acb->acb_confirm_qtail),
-                                                (PVOID)macreq);
-
-                    NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(acb->acb_scbreq_free),
-                                                (PVOID)req);
-                }
-                else
-                {
-                    acb->acb_scbreq_next = acb->acb_scbreq_next->req_next;
-                }
-
-                //
-                // Point to the next SCB to be issued.
-                //
-                req = acb->acb_scbreq_next;
-            }
-            //
-            // If there are not any more commands outstanding, then we
-            // need to have an SCB interrupt in order to service the
-            // confirm queue.  If one is outstanding, do not ask for
-            // another one.
-            //
-            if (!req)
-            {
-
-                if ( (acb->acb_scbreq_head == NULL) &&
-                     (!acb->acb_scbclearout) )
-                {
-                    sifint_reg = SIFINT_SCBREQST;
-                    acb->acb_scbclearout = TRUE;
-                    //
-                    // Send the SCB request to the adapter.
-                    //
-                    NdisRawWritePortUshort( acb->SifIntPort, (USHORT) sifint_reg);
-
-                }
-                return;
-            }
-        }
         //
-        // We have gone past the dummy command if there were any.  Now,
-        // fill in the real SCB with the first SCBReq on the SCBReq active
+        // Fill in the real SCB with the first SCBReq on the SCBReq active
         // queue.
         //
         acb->acb_scbreq_next = acb->acb_scbreq_next->req_next;
         acb->acb_scb_virtptr->SCB_Cmd = req->req_scb.SCB_Cmd;
+
         //
         // If this is a Multicast request, we have to fill in a Multicast
         // buffer.
         //
-        if (acb->acb_scb_virtptr->SCB_Cmd == TMS_MULTICAST)
+        if (req->req_scb.SCB_Cmd == TMS_MULTICAST)
         {
             acb->acb_scb_virtptr->SCB_Ptr = SWAPL(CTRL_ADDR((ULONG)(NdisGetPhysicalAddressLow(acb->acb_multiblk_physptr) +
-                                                     (acb->acb_multi_index*sizeof(MULTI_BLOCK)))) );
+                                                     (acb->acb_multi_index * sizeof(MULTI_BLOCK)))) );
 
-            tempmulti = (PMULTI_BLOCK) ((ULONG)(acb->acb_multiblk_virtptr) +
-                                                   (acb->acb_multi_index*sizeof(MULTI_BLOCK)));
+            tempmulti = (PMULTI_BLOCK)((ULONG)(acb->acb_multiblk_virtptr) +
+                                                   (acb->acb_multi_index * sizeof(MULTI_BLOCK)));
 
             acb->acb_multi_index = acb->acb_multi_index ^ (SHORT)1;
 
@@ -1288,12 +1431,14 @@ NetFlexSendNextSCB(
     }
 
     sifint_reg = SIFINT_CMD;
+
     //
     // If there are other requests to send and we are not waiting for
-    // an SCB clear interrupt, tell the adapter we want a SCB clear int.
+    // an SCB clear interrupt, tell the adapter we want an SCB clear int.
     //
-    if ( (!acb->acb_scbclearout) &&
-         ((acb->acb_scbreq_next) || (acb->acb_rcv_whead) ) )
+    if ((!acb->acb_scbclearout) &&
+        ((acb->acb_scbreq_next) || (acb->acb_rcv_whead))
+    )
     {
         sifint_reg |= SIFINT_SCBREQST;
         acb->acb_scbclearout = TRUE;
@@ -1304,7 +1449,6 @@ NetFlexSendNextSCB(
     //
     NdisRawWritePortUshort(acb->SifIntPort, (USHORT) sifint_reg);
 }
-
 
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1329,16 +1473,20 @@ NetFlexSendNextSCB(
 //      NetFlexAddMulticast
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-VOID
-NetFlexQueueSCB(
-    PACB acb,
-    PSCBREQ scbreq)
+VOID NetFlexQueueSCB(
+    PACB    acb,
+    PSCBREQ scbreq
+)
 {
+    //
     // Place the scbreq on the SCBReq active queue.
     //
-    NetFlexEnqueue_TwoPtrQ_Tail((PVOID *)&(acb->acb_scbreq_head),
-                                (PVOID *)&(acb->acb_scbreq_tail),
-                                (PVOID)scbreq);
+    NetFlexEnqueue_TwoPtrQ_Tail(
+        (PVOID *)&(acb->acb_scbreq_head),
+        (PVOID *)&(acb->acb_scbreq_tail),
+        (PVOID)scbreq
+    );
+
     //
     // If there are no requests waiting for the SCB to clear,
     // point the request waiting queue to this SCBReq.
@@ -1359,239 +1507,8 @@ NetFlexQueueSCB(
     else if (!acb->acb_scbclearout)
     {
         acb->acb_scbclearout = TRUE;
-        NdisRawWritePortUshort( acb->SifIntPort, (USHORT) SIFINT_SCBREQST);
+        NdisRawWritePortUshort(acb->SifIntPort, (USHORT)SIFINT_SCBREQST);
     }
-}
-
-
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//
-//  Routine Name:   NetFlexDeleteMulticast
-//
-//  Description:
-//      This routine removes the multicast address from the
-//      enabled multicast lists.
-//
-//  Input:
-//      acb - Our Driver Context for this adapter or head.
-//      mt  - Ptr to address's entry to delete
-//
-//  Output:
-//      RemovedOne - True if we queued up a command to remove one
-//      Status     - SUCCESS | FAILURE
-//
-//  Called By:
-//      NetFlexSetInformation
-//
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
-NetFlexDeleteMulticast(
-    PACB         acb,
-    PMULTI_TABLE mt,
-    PBOOLEAN     RemovedOne)
-{
-    PSCBREQ scbreq;
-    PETH_OBJS ethobjs;
-    NDIS_STATUS status;
-
-    //
-    // No one else needs this address so delete it at the hardware
-    // level.  First, get a scb in order to send the command to the
-    // Adapter.
-    //
-    if ( (status = NetFlexDequeue_OnePtrQ_Head((PVOID *)(&acb->acb_scbreq_free),
-                                               (PVOID *) &scbreq) )
-          != NDIS_STATUS_SUCCESS)
-    {
-        return NDIS_STATUS_FAILURE;
-    }
-
-
-    //
-    // We got a scb.  Now fill it in with the correct information.
-    //
-    scbreq->req_scb.SCB_Cmd = TMS_MULTICAST;
-
-    //
-    // Make sure we do not try to call the completion code for this
-    // command complete.
-    //
-    scbreq->req_macreq = NULL;
-
-    //
-    // Save the multicast information until we can fill in the
-    // real multicast parameter block.
-    //
-    scbreq->req_multi.MB_Option = MPB_DELETE_ADDRESS;
-    scbreq->req_multi.MB_Addr_Hi = *((PUSHORT) mt->mt_addr);
-    scbreq->req_multi.MB_Addr_Med = *((PUSHORT)(mt->mt_addr+2));
-    scbreq->req_multi.MB_Addr_Lo = *((PUSHORT)(mt->mt_addr+4));
-
-    //
-    // Remove the multicast table entry from the multicast enabled
-    // queue.
-    //
-    ethobjs = (PETH_OBJS)acb->acb_spec_objs;
-    NetFlexDequeue_OnePtrQ((PVOID *)(&(ethobjs->multi_enabled)),
-                               (PVOID) mt);
-    NetFlexEnqueue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_free)),
-                               (PVOID) mt);
-
-    NetFlexQueueSCB(acb, scbreq);
-    *RemovedOne = TRUE;
-    return NDIS_STATUS_SUCCESS;
-}
-
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//
-//  Routine Name:   NetFlexAddMulticast
-//
-//  Description:
-//      This routine adds a Multicast address to
-//      the adapter if it has not already been added.
-//
-//  Input:
-//      acb     - Our Driver Context for this adapter or head.
-//      addr    - Ptr to the multicast address to add
-//
-//  Output:
-//      AddedOne - True if we sent a command add the multicast address
-//      Status - NDIS_STATUS_SUCCESS | NDIS_STATUS_FAILURE
-//
-//  Called By:      NetFlexSetInformation
-//
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
-NetFlexAddMulticast(
-    PACB        acb,
-    PUCHAR      addr,
-    PBOOLEAN    AddedOne
-    )
-{
-    PSCBREQ scbreq;
-    PMULTI_TABLE mt;
-    PETH_OBJS ethobjs;
-    SHORT found;
-    NDIS_STATUS status;
-
-    ethobjs = (PETH_OBJS)acb->acb_spec_objs;
-
-    //
-    // First, let's see if we already have an entry for this multicast
-    // address.
-    //
-    mt = ethobjs->multi_enabled;
-
-    found = FALSE;
-    while (mt && !found)
-    {
-        ULONG result;
-        ETH_COMPARE_NETWORK_ADDRESSES_EQ(mt->mt_addr,addr,&result);
-        if (result == 0)
-            found = TRUE;
-        else
-            mt = mt->mt_next;
-    }
-
-    //
-    // Did we find one?
-    //
-    if (mt)
-    {
-        // Yes, already added!
-        //
-        return NDIS_STATUS_SUCCESS;
-    }
-
-    //
-    // We will have to create a new multicast table entry.  Go get
-    // a free entry.
-    //
-    if ((status = NetFlexDequeue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_free)),
-                                              (PVOID *)(&mt)    ) )
-         != NDIS_STATUS_SUCCESS)
-    {
-        return status;
-    }
-
-    //
-    // We were able to get a entry.  Now, fill it in and get a
-    // scb in order to send a command down to the adapter.
-    //
-    RtlCopyMemory(mt->mt_addr,addr,NET_ADDR_SIZE);
-
-    DebugPrint(1,("NF(%d): Adding %02x-%02x-%02x-%02x-%02x-%02x to Multicast\n",acb->anum,
-                     *(mt->mt_addr  ), *(mt->mt_addr+1), *(mt->mt_addr+2),
-                     *(mt->mt_addr+3), *(mt->mt_addr+4), *(mt->mt_addr+5)));
-
-
-    if ( (status = NetFlexDequeue_OnePtrQ_Head((PVOID *)(&acb->acb_scbreq_free),
-                                               (PVOID *) &scbreq) )
-          != NDIS_STATUS_SUCCESS)
-    {
-        NetFlexEnqueue_OnePtrQ_Head(    (PVOID *)(&(ethobjs->multi_free)),
-                                        (PVOID) mt );
-        return NDIS_STATUS_FAILURE;
-    }
-
-    NetFlexEnqueue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_enabled)),
-                                (PVOID) mt);
-
-    scbreq->req_scb.SCB_Cmd = TMS_MULTICAST;
-    scbreq->req_macreq = NULL;
-    scbreq->req_multi.MB_Option = MPB_ADD_ADDRESS;
-    scbreq->req_multi.MB_Addr_Hi = *((PUSHORT) addr);
-    scbreq->req_multi.MB_Addr_Med = *((PUSHORT)(addr+2));
-    scbreq->req_multi.MB_Addr_Lo = *((PUSHORT)(addr+4));
-
-    NetFlexQueueSCB(acb, scbreq);
-
-    *AddedOne = TRUE;
-
-    return NDIS_STATUS_SUCCESS;
-}
-
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-//
-//  Routine Name:   NetFlexValidateMulticasts
-//
-//  Description:
-//      This routine makes sure the multicast addresses given are valid.
-//
-//  Input:
-//      multicaddr   - Pointer to a list of multicasts
-//      multinumber  - Number of multicast addresses
-//
-//  Output:
-//      NDIS_STATUS_SUCCESS address is valid.
-//
-//  Calls:
-//      None.
-//
-//  Called By:
-//      NetFlexSetInformation
-//
-//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
-NetFlexValidateMulticasts(
-    PUCHAR multiaddrs,
-    USHORT multinumber)
-{
-    USHORT i;
-
-    for (i = 0; i < multinumber; i++)
-    {
-        if ( (!(*multiaddrs & 0x01))    ||
-             ( (*multiaddrs     == 0xff) && (*(multiaddrs+1) == 0xff) &&
-               (*(multiaddrs+2) == 0xff) && (*(multiaddrs+3) == 0xff) &&
-               (*(multiaddrs+4) == 0xff) && (*(multiaddrs+5) == 0xff)   ) )
-            return(NDIS_STATUS_INVALID_DATA);
-        multiaddrs += NET_ADDR_SIZE;
-    }
-
-    return NDIS_STATUS_SUCCESS;
 }
 
 
@@ -1612,7 +1529,6 @@ NetFlexValidateMulticasts(
 //      NetFlexBoardInitandReg
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#pragma NDIS_INIT_FUNCTION(NetFlexGetBIA)
 VOID
 NetFlexGetBIA(
     PACB acb
@@ -2067,64 +1983,4 @@ _DebugPrint(PCHAR DebugMessage,
 
 } // end _DebugPrint()
 
-#ifdef ODD_POINTER
-
-USHORT DisplayLists = 0;
-VOID _DisplayXmitList(PACB acb)
-{
-    PXMIT  xmitptr;
-    CHAR   chr = ' ';
-
-    xmitptr = acb->acb_xmit_virtptr;
-
-    do
-    {
-        if (xmitptr == acb->acb_xmit_ahead)
-            chr = 'A';
-        else if (xmitptr == acb->acb_xmit_atail)
-            chr = 'a';
-        else
-            chr = ' ';
-
-        DebugPrint(1,("|%c%c%c%c%c%c",chr,
-            ((xmitptr->XMIT_CSTAT & XCSTAT_COMPLETE) ? 'C' : ' '),
-            ((xmitptr->XMIT_CSTAT & XCSTAT_VALID   ) ? 'V' : ' '),
-            ((xmitptr->XMIT_CSTAT & XCSTAT_FINT    ) ? 'i' : ' '),
-            ((xmitptr->XMIT_CSTAT & XCSTAT_ERROR   ) ? 'E' : ' '),
-            ((xmitptr->XMIT_FwdPtr & 0x1000000 ) ? 'O' : ' ')
-            ));
-        xmitptr = xmitptr->XMIT_Next;
-    } while (xmitptr != acb->acb_xmit_virtptr);
-    DebugPrint(1,("|\n"));
-}
-
-VOID _DisplayRcvList(PACB acb)
-{
-    PRCV  rcvptr;
-    CHAR   chr = ' ';
-
-    rcvptr = acb->acb_rcv_virtptr;
-
-    do
-    {
-        if (rcvptr == acb->acb_rcv_head)
-            chr = 'h';
-        else if (rcvptr == acb->acb_rcv_tail)
-            chr = 't';
-        else
-            chr = ' ';
-
-        DebugPrint(0,("|%c%c%c%c%c",chr,
-            ((rcvptr->RCV_CSTAT & RCSTAT_COMPLETE) ? 'C' : ' '),
-            ((rcvptr->RCV_CSTAT & RCSTAT_VALID   ) ? 'V' : ' '),
-            ((rcvptr->RCV_CSTAT & RCSTAT_FINT    ) ? 'i' : ' '),
-            ((rcvptr->RCV_FwdPtr & 0x1000000 ) ? 'O' : ' ')
-            ));
-        rcvptr = rcvptr->RCV_Next;
-    } while (rcvptr != acb->acb_rcv_virtptr);
-    DebugPrint(0,("|\n"));
-}
-
-
-#endif
 #endif /* DBG */

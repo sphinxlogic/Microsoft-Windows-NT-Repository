@@ -23,9 +23,11 @@ Revision History:
 
     09-Apr-92	- BobRi - Added specific control over errors (read,map,etc).
     12-May-94	- Venkat- Added code to drop of writes to DISK (CHKDSK testing)
+    19-Nov-94   - KPeery- Added code to reset the system (restart testing)
 --*/
 
 #define MAXIMUM_SIMBAD_SECTORS 256
+
 
 //
 // This structure is used by the driver and application to
@@ -49,9 +51,10 @@ typedef struct _SIMBAD_SECTORS {
     BOOLEAN Enabled;
     BOOLEAN Orphaned;
     BOOLEAN RandomWriteDrop;
-    ULONG  Seed;
+    ULONG   Seed;
     BOOLEAN BugCheck;
-    ULONG Count;
+    BOOLEAN FirmwareReset;
+    ULONG   Count;
     BAD_SECTOR Sector[MAXIMUM_SIMBAD_SECTORS];
 } SIMBAD_SECTORS, *PSIMBAD_SECTORS;
 
@@ -59,14 +62,18 @@ typedef struct _SIMBAD_SECTORS {
 // This structure is passed from the application to the device
 // driver through the device control interface to add and remove
 // bad sectors.
+//
 // If the function is add or remove sectors then the Count field
 // specifies how many sectors to add or remove.
+//
 // If the function is list sectors then the Count field returns
 // the number of sectors marked bad.
 // The bad sector array contains the sectors to add or remove
 // from the driver's array of bad sectors.
+//
 // If the function is list then the array returns all sectors
 // marked bad.
+//
 // This facility does not allow mixed adds and removes in a
 // single device control call.
 //
@@ -74,7 +81,7 @@ typedef struct _SIMBAD_SECTORS {
 // the array limit (MAXIMUM_SIMBAD_SECTORS), then sectors will be
 // added to fill the array and the count field will be adjusted to
 // the number of sectors successfully added.
-//
+// 
 
 typedef struct _SIMBAD_DATA {
     ULONG Function;
@@ -120,16 +127,6 @@ typedef struct _SIMBAD_DATA {
 #define SIMBAD_CLEAR        0x00000006
 
 //
-// These are the access codes that will drive when simbad
-// returns failures on disks.
-//
-
-#define SIMBAD_ACCESS_READ    0x00000001
-#define SIMBAD_ACCESS_WRITE   0x00000002
-#define SIMBAD_ACCESS_VERIFY  0x00000004
-
-
-//
 //  Randomly drops of writes to the disk. Used for corrupting the DISK.
 //  These corrupt disk are used to test CHKDSK.
 //
@@ -138,10 +135,26 @@ typedef struct _SIMBAD_DATA {
 
 
 //
-//  Bug checks the system. Used for restart testing and crash dump
+//  Bug checks the system.  Used for crash dump
 //
 
 #define SIMBAD_BUG_CHECK	  0x00000008
+
+//
+//  Call HalReturnToFirmware() to reset the system.  Used for restart testing.
+//
+
+#define SIMBAD_FIRMWARE_RESET   0x00000009
+
+
+//
+// These are the access codes that will drive when simbad
+// returns failures on disks.
+//
+
+#define SIMBAD_ACCESS_READ    0x00000001
+#define SIMBAD_ACCESS_WRITE   0x00000002
+#define SIMBAD_ACCESS_VERIFY  0x00000004
 
 //
 // Error sector can be mapped via device control.

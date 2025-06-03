@@ -169,7 +169,7 @@ USHORT NlsPutMsg(USHORT Handle, USHORT usMsgNum, ... )
         goto Cleanup;
     }
 
-    // 
+    //
     // FormatMessageA() just walked the va_list.  We're going to walk it
     // again, looking for args to convert.  So, tell C runtime...
     //
@@ -469,11 +469,11 @@ Cleanup:
     }
     if (Verbose) {
         if (ApiStatus==NO_ERROR) {
-            NetpDbgPrint( PREFIX_PORTUAS "PortUasGetString: "
-                    " output string is '" FORMAT_LPWSTR "'.\n", BufferW );
+            NetpKdPrint(( PREFIX_PORTUAS "PortUasGetString: "
+                    " output string is '" FORMAT_LPWSTR "'.\n", BufferW ));
         }
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasGetString: "
-                " returning status " FORMAT_API_STATUS ".\n", ApiStatus );
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasGetString: "
+                " returning status " FORMAT_API_STATUS ".\n", ApiStatus ));
     }
     return (ApiStatus);
 
@@ -532,9 +532,9 @@ PortUasComplainAboutBadName(
         break;
 
     default:
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasComplainAboutBadName: "
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasComplainAboutBadName: "
                 "got invalid value " FORMAT_DWORD " for reason.\n",
-                Reason );
+                Reason ));
         ApiStatus = ERROR_INVALID_PARAMETER;
         goto Cleanup;
     }

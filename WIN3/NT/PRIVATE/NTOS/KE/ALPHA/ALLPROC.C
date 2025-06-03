@@ -269,7 +269,6 @@ Return Value:
 
     KIRQL OldIrql;
     LONG Count = 1;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
     ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
@@ -288,8 +287,7 @@ Return Value:
     // any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         Count = (LONG)KeNumberProcessors;
         KiIpiSendPacket(TargetProcessors,
@@ -315,7 +313,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -370,7 +368,7 @@ Return Value:
 #if !defined(NT_UP)
 
     HalCalibratePerformanceCounter((volatile PLONG)Count);
-    *SignalDone = 0;
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 

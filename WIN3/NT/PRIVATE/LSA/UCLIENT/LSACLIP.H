@@ -22,4 +22,4 @@ Revision History:
 
 #include <lsacomp.h>
 #include "lsarpc_c.h"
-
+#include <rpcndr.h>

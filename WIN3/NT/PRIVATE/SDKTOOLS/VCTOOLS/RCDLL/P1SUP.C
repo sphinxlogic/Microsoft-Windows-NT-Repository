@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 /* trees */
 #define LEFT                    1
@@ -52,7 +51,7 @@ ptype_t  hash_type(type_t  * p_type)
             return(&(p_tmp->te_type));
         }
     }
-    p_tmp = malloc(sizeof(type_entry_t));
+    p_tmp = MyAlloc(sizeof(type_entry_t));
     if (p_tmp == NULL) {
         strcpy (Msg_Text, GET_MSG (1002));
         error(1002);
@@ -91,7 +90,7 @@ ptree_t build_const(REG token_t type, value_t *value)
     ptype_t             p_type;
     btype_t             btype;
 
-    res = malloc(sizeof(tree_t));
+    res = MyAlloc(sizeof(tree_t));
     if (res == NULL) {
         strcpy (Msg_Text, GET_MSG (1002));
         error(1002);
@@ -130,7 +129,7 @@ ptree_t build_const(REG token_t type, value_t *value)
     default:
         break;
     }
-    p_type = malloc(sizeof(type_t));
+    p_type = MyAlloc(sizeof(type_t));
     if (p_type == NULL) {
         strcpy (Msg_Text, GET_MSG (1002));
         error(1002);

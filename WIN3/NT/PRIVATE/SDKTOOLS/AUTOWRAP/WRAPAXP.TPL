@@ -30,18 +30,18 @@ wrapit:\n\
 \t// See IMPORTANT NOTE in readme.txt\n\
 \n\
 \t// Make room to temporarily store RA and Arg regs\n\
-\tlda\t sp, -28(sp)\n\
+\tlda\t sp, -112(sp)\n\
 \n\
 \t// Store RA\n\
-\tstl\t ra, 0(sp)\n\
+\tstq\t ra, 0(sp)\n\
 \n\
 \t// Store arg regs continuos to anything else already on stack\n\
-\tstl\t a0,  4(sp)\n\
-\tstl\t a1,  8(sp)\n\
-\tstl\t a2, 12(sp)\n\
-\tstl\t a3, 16(sp)\n\
-\tstl\t a4, 20(sp)\n\
-\tstl\t a5, 24(sp)\n\
+\tstq\t a0, 16(sp)\n\
+\tstq\t a1, 32(sp)\n\
+\tstq\t a2, 48(sp)\n\
+\tstq\t a3, 64(sp)\n\
+\tstq\t a4, 80(sp)\n\
+\tstq\t a5, 96(sp)\n\
 \n\
 \t// Set up args for call to prelude()\n\
 \tmov\t t0, a0\n\
@@ -55,15 +55,15 @@ wrapit:\n\
 \tnop\n\
 \n\
 \t// restore the arg regs for API call\n\
-\tldl\t a0,  4(sp)\n\
-\tldl\t a1,  8(sp)\n\
-\tldl\t a2, 12(sp)\n\
-\tldl\t a3, 16(sp)\n\
-\tldl\t a4, 20(sp)\n\
-\tldl\t a5, 24(sp)\n\
+\tldq\t a0, 16(sp)\n\
+\tldq\t a1, 32(sp)\n\
+\tldq\t a2, 48(sp)\n\
+\tldq\t a3, 64(sp)\n\
+\tldq\t a4, 80(sp)\n\
+\tldq\t a5, 96(sp)\n\
 \n\
 \t// fix stack\n\
-\tlda\t sp, 28(sp)\n\
+\tlda\t sp, 112(sp)\n\
 \tnop\n\
 \n\
 \t// make API call\n\
@@ -76,13 +76,13 @@ wrapit:\n\
 skipcall:\n\
 \n\
 \t// fix stack (from RA store)\n\
-\tlda\tsp,28(sp)\n\
+\tlda\tsp,112(sp)\n\
 \tnop\n\
 \n\
 callpostlude:\n\
 \n\
 \t// make room for returned RA\n\
-\tlda\t sp, -4(sp)\n\
+\tlda\t sp, -16(sp)\n\
 \n\
 \t// Set up args for postlude\n\
 \tmov\tv0, a0\n\
@@ -97,7 +97,7 @@ callpostlude:\n\
 \tldl\t ra, 0(sp)\n\
 \n\
 \t// fixup stack\n\
-\tlda\t sp, 4(sp)\n\
+\tlda\t sp, 16(sp)\n\
 \tnop\n\
 \n\
 \t// return to caller of API\n\

@@ -2612,4 +2612,4 @@ static KEYSYM FARSYM *t_oc_words[567] = {
 KEYWORDS t_oc_table = {t_oc_words,567};
 
 
-
+

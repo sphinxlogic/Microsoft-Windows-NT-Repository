@@ -26,7 +26,7 @@ Revision History:
 
 #include "precomp.h"
 #pragma hdrstop
-
+//#pragma warning(error:4101)   // Unreferenced local variable
 
 //
 // This is a list of all the device contexts that NBF owns,
@@ -35,6 +35,22 @@ Revision History:
 
 LIST_ENTRY NbfDeviceList = {0,0};   // initialized for real at runtime.
 
+#ifdef _PNP_POWER
+
+//
+// Global variables this is a copy of the path in the registry for 
+// configuration data.
+//
+
+UNICODE_STRING NbfRegistryPath;
+
+//
+// We need the driver object to create device context structures.
+//
+
+PDRIVER_OBJECT NbfDriverObject;
+
+#endif
 
 
 #ifdef NBF_LOCKS                    // see spnlckdb.c
@@ -73,6 +89,7 @@ PVOID * NbfLinkTable;
 PVOID * NbfAddressFileTable;
 PVOID * NbfAddressTable;
 
+
 LIST_ENTRY NbfGlobalRequestList;
 LIST_ENTRY NbfGlobalLinkList;
 LIST_ENTRY NbfGlobalConnectionList;
@@ -93,6 +110,12 @@ KEVENT TdiReceiveEvent;
 KEVENT TdiServerEvent;
 
 #endif
+
+#if MAGIC
+
+BOOLEAN NbfEnableMagic = FALSE;   // Controls sending of magic bullets.
+
+#endif // MAGIC
 
 //
 // This prevents us from having a bss section
@@ -150,8 +173,19 @@ NbfDeallocateResources(
     IN PDEVICE_CONTEXT DeviceContext
     );
 
+#ifdef RASAUTODIAL
+VOID
+NbfAcdBind();
+
+VOID
+NbfAcdUnbind();
+#endif // RASAUTODIAL
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,DriverEntry)
+#ifdef _PNP_POWER
+#pragma alloc_text(PAGE,NbfInitializeOneDeviceContext)
+#endif
 #endif
 
 
@@ -182,24 +216,10 @@ Return Value:
 --*/
 
 {
-    ULONG i, j;
+    ULONG j;
     UNICODE_STRING nameString;
-    PDEVICE_CONTEXT DeviceContext;
-    PTP_REQUEST Request;
-    PTP_LINK Link;
-    PTP_CONNECTION Connection;
-    PTP_ADDRESS_FILE AddressFile;
-    PTP_ADDRESS Address;
-    PTP_UI_FRAME UIFrame;
-    PTP_PACKET Packet;
-    PNDIS_PACKET NdisPacket;
-    PRECEIVE_PACKET_TAG ReceiveTag;
-    PBUFFER_TAG BufferTag;
     NTSTATUS status;
     UINT SuccessfulOpens;
-    UINT MaxUserData;
-    ULONG InitReceivePackets;
-    BOOLEAN UniProcessor;
 
     PCONFIG_DATA NbfConfig = NULL;
 
@@ -223,6 +243,26 @@ Return Value:
     KeInitializeSpinLock (&NbfGlobalHistoryLock);
 #endif
 
+#ifdef _PNP_POWER
+
+    NbfRegistryPath = *RegistryPath;
+    NbfRegistryPath.Buffer = ExAllocatePoolWithTag(PagedPool, 
+                                                   RegistryPath->MaximumLength,
+                                                   ' FBN');
+
+    if (NbfRegistryPath.Buffer == NULL) {
+        PANIC(" Failed to allocate Registry Path!\n");
+        return(STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+    RtlCopyMemory(NbfRegistryPath.Buffer, RegistryPath->Buffer, 
+                                                RegistryPath->MaximumLength);
+    NbfDriverObject = DriverObject;
+    RtlInitUnicodeString( &nameString, NBF_NAME);
+    TdiInitialize();
+
+#else  // NOT _PNP_POWER
+
     //
     // This allocates the CONFIG_DATA structure and returns
     // it in NbfConfig.
@@ -240,12 +280,26 @@ Return Value:
     //
 
     RtlInitUnicodeString( &nameString, NBF_DEVICE_NAME );
+#endif
 
     status = NbfRegisterProtocol (&nameString);
 
     if (!NT_SUCCESS (status)) {
 
+#ifdef _PNP_POWER
+
+        //
+        // No configuration info read at startup when using PNP
+        //
+
+        ExFreePool(NbfRegistryPath.Buffer);
+#else
+        //
+        // Free up config info for non PNP mode operation.
+        //
+
         NbfFreeConfigurationInfo(NbfConfig);
+#endif
         PANIC ("NbfInitialize: RegisterProtocol failed!\n");
 
         NbfWriteGeneralErrorLog(
@@ -259,16 +313,6 @@ Return Value:
 
         return STATUS_INSUFFICIENT_RESOURCES;
 
-    }
-
-    //
-    // Determine if we are on a uniprocessor.
-    //
-
-    if (*KeNumberProcessors == 1) {
-        UniProcessor = TRUE;
-    } else {
-        UniProcessor = FALSE;
     }
 
 
@@ -290,10 +334,13 @@ Return Value:
 
     InitializeListHead (&NbfDeviceList);
 
+#ifndef _PNP_POWER
+
 #if DBG
 
     //
-    // Allocate the debugging tables.
+    // Allocate the debugging tables. In the PNP case we don't need these
+    // until we are activated by ProtocolBindAdapter
     //
 
     NbfConnectionTable = (PVOID *)ExAllocatePoolWithTag(NonPagedPool,
@@ -315,8 +362,8 @@ Return Value:
     NbfLinkTable = NbfSendPacketTable + (NbfConfig->InitPackets + 2);
     NbfAddressFileTable = NbfLinkTable + (NbfConfig->InitLinks + 2);
     NbfAddressTable = NbfAddressFileTable + (NbfConfig->InitAddressFiles + 2);
-
 #endif
+
 
     SuccessfulOpens = 0;
 
@@ -327,538 +374,28 @@ Return Value:
         // information structure. Allocate a device object for each
         // one that we find.
         //
+        SuccessfulOpens +=  NbfInitializeOneDeviceContext(&status,
+                                                          DriverObject,
+                                                          NbfConfig, j
+                                                         );
 
-        status = NbfCreateDeviceContext (DriverObject, &NbfConfig->Names[NbfConfig->DevicesOffset+j], &DeviceContext);
-
-        if (!NT_SUCCESS (status)) {
-            NbfWriteGeneralErrorLog(
-                (PVOID)DriverObject,
-                EVENT_TRANSPORT_BINDING_FAILED,
-                707,
-                status,
-                NbfConfig->Names[j].Buffer,
-                0,
-                NULL);
-            continue;
-        }
-
-        DeviceContext->UniProcessor = UniProcessor;
-
-        //
-        // Initialize the timer and retry values (note that the link timeouts
-        // are converted from NT ticks to NBF ticks). These values may
-        // be modified by NbfInitializeNdis.
-        //
-
-        DeviceContext->DefaultT1Timeout = NbfConfig->DefaultT1Timeout / SHORT_TIMER_DELTA;
-        DeviceContext->DefaultT2Timeout = NbfConfig->DefaultT2Timeout / SHORT_TIMER_DELTA;
-        DeviceContext->DefaultTiTimeout = NbfConfig->DefaultTiTimeout / LONG_TIMER_DELTA;
-        DeviceContext->LlcRetries = NbfConfig->LlcRetries;
-        DeviceContext->LlcMaxWindowSize = NbfConfig->LlcMaxWindowSize;
-        DeviceContext->MaxConsecutiveIFrames = (UCHAR)NbfConfig->MaximumIncomingFrames;
-        DeviceContext->NameQueryRetries = NbfConfig->NameQueryRetries;
-        DeviceContext->NameQueryTimeout = NbfConfig->NameQueryTimeout;
-        DeviceContext->AddNameQueryRetries = NbfConfig->AddNameQueryRetries;
-        DeviceContext->AddNameQueryTimeout = NbfConfig->AddNameQueryTimeout;
-        DeviceContext->GeneralRetries = NbfConfig->GeneralRetries;
-        DeviceContext->GeneralTimeout = NbfConfig->GeneralTimeout;
-        DeviceContext->MinimumSendWindowLimit = NbfConfig->MinimumSendWindowLimit;
-
-        //
-        // Initialize our counter that records memory usage.
-        //
-
-        DeviceContext->MemoryUsage = 0;
-        DeviceContext->MemoryLimit = NbfConfig->MaxMemoryUsage;
-
-        DeviceContext->MaxRequests = NbfConfig->MaxRequests;
-        DeviceContext->MaxLinks = NbfConfig->MaxLinks;
-        DeviceContext->MaxConnections = NbfConfig->MaxConnections;
-        DeviceContext->MaxAddressFiles = NbfConfig->MaxAddressFiles;
-        DeviceContext->MaxAddresses = NbfConfig->MaxAddresses;
-
-        //
-        // Now fire up NDIS so this adapter talks
-        //
-
-        status = NbfInitializeNdis (DeviceContext,
-                    NbfConfig,
-                    j);
-
-        if (!NT_SUCCESS (status)) {
-
-            //
-            // Log an error if we were failed to
-            // open this adapter.
-            //
-
-            NbfWriteGeneralErrorLog(
-                DeviceContext,
-                EVENT_TRANSPORT_BINDING_FAILED,
-                601,
-                status,
-                NbfConfig->Names[j].Buffer,
-                0,
-                NULL);
-
-            NbfDereferenceDeviceContext ("Initialize NDIS failed", DeviceContext, DCREF_CREATION);
-            continue;
-
-        }
-
-#if 0
-        DbgPrint("Opened %S as %S\n", &NbfConfig->Names[j], &nameString);
-#endif
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint6 ("NbfInitialize: NDIS returned: %x %x %x %x %x %x as local address.\n",
-                DeviceContext->LocalAddress.Address[0],
-                DeviceContext->LocalAddress.Address[1],
-                DeviceContext->LocalAddress.Address[2],
-                DeviceContext->LocalAddress.Address[3],
-                DeviceContext->LocalAddress.Address[4],
-                DeviceContext->LocalAddress.Address[5]);
-        }
-
-        //
-        // Initialize our provider information structure; since it
-        // doesn't change, we just keep it around and copy it to
-        // whoever requests it.
-        //
-
-
-        MacReturnMaxDataSize(
-            &DeviceContext->MacInfo,
-            NULL,
-            0,
-            DeviceContext->MaxSendPacketSize,
-            TRUE,
-            &MaxUserData);
-
-        DeviceContext->Information.Version = 0x0100;
-        DeviceContext->Information.MaxSendSize = 0x1fffe;   // 128k - 2
-        DeviceContext->Information.MaxConnectionUserData = 0;
-        DeviceContext->Information.MaxDatagramSize =
-            MaxUserData - (sizeof(DLC_FRAME) + sizeof(NBF_HDR_CONNECTIONLESS));
-        DeviceContext->Information.ServiceFlags = NBF_SERVICE_FLAGS;
-        if (DeviceContext->MacInfo.MediumAsync) {
-            DeviceContext->Information.ServiceFlags |= TDI_SERVICE_POINT_TO_POINT;
-        }
-        DeviceContext->Information.MinimumLookaheadData =
-            240 - (sizeof(DLC_FRAME) + sizeof(NBF_HDR_CONNECTIONLESS));
-        DeviceContext->Information.MaximumLookaheadData =
-            DeviceContext->MaxReceivePacketSize - (sizeof(DLC_I_FRAME) + sizeof(NBF_HDR_CONNECTION));
-        DeviceContext->Information.NumberOfResources = NBF_TDI_RESOURCES;
-        KeQuerySystemTime (&DeviceContext->Information.StartTime);
-
-
-        //
-        // Allocate various structures we will need.
-        //
-
-        ENTER_NBF;
-
-        //
-        // The TP_UI_FRAME structure has a CHAR[1] field at the end
-        // which we expand upon to include all the headers needed;
-        // the size of the MAC header depends on what the adapter
-        // told us about its max header size.
-        //
-
-        DeviceContext->UIFrameHeaderLength =
-            DeviceContext->MacInfo.MaxHeaderLength +
-            sizeof(DLC_FRAME) +
-            sizeof(NBF_HDR_CONNECTIONLESS);
-
-        DeviceContext->UIFrameLength =
-            FIELD_OFFSET(TP_UI_FRAME, Header[0]) +
-            DeviceContext->UIFrameHeaderLength;
-
-
-        //
-        // The TP_PACKET structure has a CHAR[1] field at the end
-        // which we expand upon to include all the headers needed;
-        // the size of the MAC header depends on what the adapter
-        // told us about its max header size. TP_PACKETs are used
-        // for connection-oriented frame as well as for
-        // control frames, but since DLC_I_FRAME and DLC_S_FRAME
-        // are the same size, the header is the same size.
-        //
-
-        ASSERT (sizeof(DLC_I_FRAME) == sizeof(DLC_S_FRAME));
-
-        DeviceContext->PacketHeaderLength =
-            DeviceContext->MacInfo.MaxHeaderLength +
-            sizeof(DLC_I_FRAME) +
-            sizeof(NBF_HDR_CONNECTION);
-
-        DeviceContext->PacketLength =
-            FIELD_OFFSET(TP_PACKET, Header[0]) +
-            DeviceContext->PacketHeaderLength;
-
-
-        //
-        // The BUFFER_TAG structure has a CHAR[1] field at the end
-        // which we expand upong to include all the frame data.
-        //
-
-        DeviceContext->ReceiveBufferLength =
-            DeviceContext->MaxReceivePacketSize +
-            FIELD_OFFSET(BUFFER_TAG, Buffer[0]);
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: pre-allocating requests.\n");
-        }
-        for (i=0; i<NbfConfig->InitRequests; i++) {
-
-            NbfAllocateRequest (DeviceContext, &Request);
-
-            if (Request == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate requests.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&DeviceContext->RequestPool, &Request->Linkage);
-#if DBG
-            NbfRequestTable[i+1] = (PVOID)Request;
-#endif
-        }
-#if DBG
-        NbfRequestTable[0] = (PVOID)NbfConfig->InitRequests;
-        NbfRequestTable[NbfConfig->InitRequests + 1] = (PVOID)
-                            ((NBF_REQUEST_SIGNATURE << 16) | sizeof (TP_REQUEST));
-        InitializeListHead (&NbfGlobalRequestList);
-#endif
-
-        DeviceContext->RequestInitAllocated = NbfConfig->InitRequests;
-        DeviceContext->RequestMaxAllocated = NbfConfig->MaxRequests;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d requests, %ld\n", NbfConfig->InitRequests, DeviceContext->MemoryUsage);
-        }
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating links.\n");
-        }
-        for (i=0; i<NbfConfig->InitLinks; i++) {
-
-            NbfAllocateLink (DeviceContext, &Link);
-
-            if (Link == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate links.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&DeviceContext->LinkPool, &Link->Linkage);
-#if DBG
-            NbfLinkTable[i+1] = (PVOID)Link;
-#endif
-        }
-#if DBG
-        NbfLinkTable[0] = (PVOID)NbfConfig->InitLinks;
-        NbfLinkTable[NbfConfig->InitLinks+1] = (PVOID)
-                    ((NBF_LINK_SIGNATURE << 16) | sizeof (TP_LINK));
-#endif
-
-        DeviceContext->LinkInitAllocated = NbfConfig->InitLinks;
-        DeviceContext->LinkMaxAllocated = NbfConfig->MaxLinks;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d links, %ld\n", NbfConfig->InitLinks, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating connections.\n");
-        }
-        for (i=0; i<NbfConfig->InitConnections; i++) {
-
-            NbfAllocateConnection (DeviceContext, &Connection);
-
-            if (Connection == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate connections.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&DeviceContext->ConnectionPool, &Connection->LinkList);
-#if DBG
-            NbfConnectionTable[i+1] = (PVOID)Connection;
-#endif
-        }
-#if DBG
-        NbfConnectionTable[0] = (PVOID)NbfConfig->InitConnections;
-        NbfConnectionTable[NbfConfig->InitConnections+1] = (PVOID)
-                    ((NBF_CONNECTION_SIGNATURE << 16) | sizeof (TP_CONNECTION));
-#endif
-
-        DeviceContext->ConnectionInitAllocated = NbfConfig->InitConnections;
-        DeviceContext->ConnectionMaxAllocated = NbfConfig->MaxConnections;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d connections, %ld\n", NbfConfig->InitConnections, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating AddressFiles.\n");
-        }
-        for (i=0; i<NbfConfig->InitAddressFiles; i++) {
-
-            NbfAllocateAddressFile (DeviceContext, &AddressFile);
-
-            if (AddressFile == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate Address Files.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&DeviceContext->AddressFilePool, &AddressFile->Linkage);
-#if DBG
-            NbfAddressFileTable[i+1] = (PVOID)AddressFile;
-#endif
-        }
-#if DBG
-        NbfAddressFileTable[0] = (PVOID)NbfConfig->InitAddressFiles;
-        NbfAddressFileTable[NbfConfig->InitAddressFiles + 1] = (PVOID)
-                                ((NBF_ADDRESSFILE_SIGNATURE << 16) |
-                                     sizeof (TP_ADDRESS_FILE));
-#endif
-
-        DeviceContext->AddressFileInitAllocated = NbfConfig->InitAddressFiles;
-        DeviceContext->AddressFileMaxAllocated = NbfConfig->MaxAddressFiles;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d address files, %ld\n", NbfConfig->InitAddressFiles, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating addresses.\n");
-        }
-        for (i=0; i<NbfConfig->InitAddresses; i++) {
-
-            NbfAllocateAddress (DeviceContext, &Address);
-            if (Address == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate addresses.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&DeviceContext->AddressPool, &Address->Linkage);
-#if DBG
-            NbfAddressTable[i+1] = (PVOID)Address;
-#endif
-        }
-#if DBG
-        NbfAddressTable[0] = (PVOID)NbfConfig->InitAddresses;
-        NbfAddressTable[NbfConfig->InitAddresses + 1] = (PVOID)
-                            ((NBF_ADDRESS_SIGNATURE << 16) | sizeof (TP_ADDRESS));
-#endif
-
-        DeviceContext->AddressInitAllocated = NbfConfig->InitAddresses;
-        DeviceContext->AddressMaxAllocated = NbfConfig->MaxAddresses;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d addresses, %ld\n", NbfConfig->InitAddresses, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating UI frames.\n");
-        }
-
-        for (i=0; i<NbfConfig->InitUIFrames; i++) {
-
-            NbfAllocateUIFrame (DeviceContext, &UIFrame);
-
-            if (UIFrame == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate UI frames.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            InsertTailList (&(DeviceContext->UIFramePool), &UIFrame->Linkage);
-#if DBG
-            NbfUiFrameTable[i+1] = UIFrame;
-#endif
-        }
-#if DBG
-            NbfUiFrameTable[0] = (PVOID)NbfConfig->InitUIFrames;
-#endif
-
-        DeviceContext->UIFrameInitAllocated = NbfConfig->InitUIFrames;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d UI frames, %ld\n", NbfConfig->InitUIFrames, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating I frames.\n");
-            NbfPrint1 ("NBFDRVR: Packet pool header: %lx\n",&DeviceContext->PacketPool);
-        }
-
-        for (i=0; i<NbfConfig->InitPackets; i++) {
-
-            NbfAllocateSendPacket (DeviceContext, &Packet);
-            if (Packet == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate packets.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            PushEntryList (&DeviceContext->PacketPool, (PSINGLE_LIST_ENTRY)&Packet->Linkage);
-#if DBG
-            NbfSendPacketTable[i+1] = Packet;
-#endif
-        }
-#if DBG
-            NbfSendPacketTable[0] = (PVOID)NbfConfig->InitPackets;
-            NbfSendPacketTable[NbfConfig->InitPackets+1] = (PVOID)
-                        ((NBF_PACKET_SIGNATURE << 16) | sizeof (TP_PACKET));
-#endif
-
-        DeviceContext->PacketInitAllocated = NbfConfig->InitPackets;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d send packets, %ld\n", NbfConfig->InitPackets, DeviceContext->MemoryUsage);
-        }
-
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating RR frames.\n");
-            NbfPrint1 ("NBFDRVR: Packet pool header: %lx\n",&DeviceContext->RrPacketPool);
-        }
-
-        for (i=0; i<10; i++) {
-
-            NbfAllocateSendPacket (DeviceContext, &Packet);
-            if (Packet == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate packets.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            Packet->Action = PACKET_ACTION_RR;
-            PushEntryList (&DeviceContext->RrPacketPool, (PSINGLE_LIST_ENTRY)&Packet->Linkage);
-        }
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d send packets, %ld\n", 10, DeviceContext->MemoryUsage);
-        }
-
-
-        // Allocate receive Ndis packets
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating Ndis Receive packets.\n");
-        }
-        if (DeviceContext->MacInfo.SingleReceive) {
-            InitReceivePackets = 2;
-        } else {
-            InitReceivePackets = NbfConfig->InitReceivePackets;
-        }
-        for (i=0; i<InitReceivePackets; i++) {
-
-            NbfAllocateReceivePacket (DeviceContext, &NdisPacket);
-
-            if (NdisPacket == NULL) {
-                PANIC ("NbfInitialize:  insufficient memory to allocate packet MDLs.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            ReceiveTag = (PRECEIVE_PACKET_TAG)NdisPacket->ProtocolReserved;
-            PushEntryList (&DeviceContext->ReceivePacketPool, &ReceiveTag->Linkage);
-
-            IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-                PNDIS_BUFFER NdisBuffer;
-                NdisQueryPacket(NdisPacket, NULL, NULL, &NdisBuffer, NULL);
-                NbfPrint2 ("NbfInitialize: Created NDIS Pkt: %x Buffer: %x\n",
-                    NdisPacket, NdisBuffer);
-            }
-        }
-
-        DeviceContext->ReceivePacketInitAllocated = InitReceivePackets;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d receive packets, %ld\n", InitReceivePackets, DeviceContext->MemoryUsage);
-        }
-
-        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
-            NbfPrint0 ("NBFDRVR: allocating Ndis Receive buffers.\n");
-        }
-
-        for (i=0; i<NbfConfig->InitReceiveBuffers; i++) {
-
-            NbfAllocateReceiveBuffer (DeviceContext, &BufferTag);
-
-            if (BufferTag == NULL) {
-                PANIC ("NbfInitialize: Unable to allocate receive packet.\n");
-                status = STATUS_INSUFFICIENT_RESOURCES;
-                goto cleanup;
-            }
-
-            PushEntryList (&DeviceContext->ReceiveBufferPool, (PSINGLE_LIST_ENTRY)&BufferTag->Linkage);
-
-        }
-
-        DeviceContext->ReceiveBufferInitAllocated = NbfConfig->InitReceiveBuffers;
-
-        IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
-            NbfPrint2 ("%d receive buffers, %ld\n", NbfConfig->InitReceiveBuffers, DeviceContext->MemoryUsage);
-        }
-
-
-        DeviceContext->State = DEVICECONTEXT_STATE_OPEN;
-
-        //
-        // Start the link-level timers running.
-        //
-
-        NbfInitializeTimerSystem (DeviceContext);
-
-
-        //
-        // Now link the device into the global list.
-        //
-
-        InsertTailList (&NbfDeviceList, &DeviceContext->Linkage);
-
-        ++SuccessfulOpens;
-
-        LEAVE_NBF
-        continue;
-
-cleanup:
-
-        NbfWriteResourceErrorLog(
-            DeviceContext,
-            EVENT_TRANSPORT_RESOURCE_POOL,
-            501,
-            DeviceContext->MemoryUsage,
-            0);
-
-        //
-        // Cleanup whatever device context we were initializing
-        // when we failed.
-        //
-
-        NbfFreeResources (DeviceContext);
-        NbfCloseNdis (DeviceContext);
-        NbfDereferenceDeviceContext ("Load failed", DeviceContext, DCREF_CREATION);
-
-
-        LEAVE_NBF;
     }
 
     NbfFreeConfigurationInfo(NbfConfig);
 
-    return ((SuccessfulOpens > 0) ? STATUS_SUCCESS : STATUS_DEVICE_DOES_NOT_EXIST);
+#ifdef RASAUTODIAL
+    //
+    // Get the automatic connection
+    // driver entry points.
+    //
+    if (SuccessfulOpens > 0)
+        NbfAcdBind();
+#endif // RASAUTODIAL
+
+    return ((SuccessfulOpens>0) ? STATUS_SUCCESS :STATUS_DEVICE_DOES_NOT_EXIST);
+#else  // _PNP_POWER
+    return(status);
+#endif
 
 }
 
@@ -895,6 +432,14 @@ Return Value:
     UNREFERENCED_PARAMETER (DriverObject);
 
 
+#ifdef RASAUTODIAL
+    //
+    // Unbind from the
+    // automatic connection driver.
+    //
+    NbfAcdUnbind();
+#endif // RASAUTODIAL
+
     //
     // Walk the list of device contexts.
     //
@@ -927,7 +472,6 @@ Return Value:
         NbfDereferenceDeviceContext ("Unload", DeviceContext, DCREF_CREATION);
 
     }
-
 
     //
     // Finally, remove ourselves as an NDIS protocol.
@@ -2302,3 +1846,648 @@ Return Value:
     }
 
 }   /* NbfWriteOidErrorLog */
+
+ULONG
+NbfInitializeOneDeviceContext(
+                                OUT PNDIS_STATUS NdisStatus,
+                                IN PDRIVER_OBJECT DriverObject,  
+                                IN PCONFIG_DATA NbfConfig,
+                                IN INT AdapterIndex
+                             )
+/*++
+
+Routine Description:
+
+    This routine creates and initializes one nbf device context.  In order to 
+    do this it must successfully open and bind to the adapter described by
+    nbfconfig->names[adapterindex].  
+
+Arguments:
+
+    NdisStatus   - The outputted status of the operations.
+
+    DriverObject - the nbf driver object.
+
+    NbfConfig    - the transport configuration information from the registry.
+
+    AdapterIndex - which adapter to bind with.
+
+Return Value:
+
+    The number of successful binds.
+
+--*/
+
+{
+    ULONG i, j;
+    PDEVICE_CONTEXT DeviceContext;
+    PTP_REQUEST Request;
+    PTP_LINK Link;
+    PTP_CONNECTION Connection;
+    PTP_ADDRESS_FILE AddressFile;
+    PTP_ADDRESS Address;
+    PTP_UI_FRAME UIFrame;
+    PTP_PACKET Packet;
+    PNDIS_PACKET NdisPacket;
+    PRECEIVE_PACKET_TAG ReceiveTag;
+    PBUFFER_TAG BufferTag;
+    NTSTATUS status;
+    UINT SuccessfulOpens;
+    UINT MaxUserData;
+    ULONG InitReceivePackets;
+    BOOLEAN UniProcessor;
+#ifdef _PNP_POWER
+    PDEVICE_OBJECT DeviceObject;
+    UNICODE_STRING DeviceString;
+    UCHAR PermAddr[sizeof(TA_ADDRESS)+TDI_ADDRESS_LENGTH_NETBIOS];
+    PTA_ADDRESS pAddress = (PTA_ADDRESS)PermAddr;
+    PTDI_ADDRESS_NETBIOS NetBIOSAddress = 
+                                    (PTDI_ADDRESS_NETBIOS)pAddress->Address;
+
+    pAddress->AddressLength = TDI_ADDRESS_LENGTH_NETBIOS;
+    pAddress->AddressType = TDI_ADDRESS_TYPE_NETBIOS;
+    NetBIOSAddress->NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
+#endif
+    //
+    // Determine if we are on a uniprocessor.
+    //
+
+    if (*KeNumberProcessors == 1) {
+        UniProcessor = TRUE;
+    } else {
+        UniProcessor = FALSE;
+    }
+
+    {
+    j = AdapterIndex;
+    //
+    // Loop through all the adapters that are in the configuration
+    // information structure. Allocate a device object for each
+    // one that we find.
+    //
+
+    status = NbfCreateDeviceContext(
+                                 DriverObject, 
+                                 &NbfConfig->Names[NbfConfig->DevicesOffset+j], 
+                                 &DeviceContext
+                                   );
+
+    if (!NT_SUCCESS (status)) {
+        NbfWriteGeneralErrorLog(
+            (PVOID)DriverObject,
+            EVENT_TRANSPORT_BINDING_FAILED,
+            707,
+            status,
+            NbfConfig->Names[j].Buffer,
+            0,
+            NULL);
+        *NdisStatus = status;
+        return(0);
+    }
+
+    DeviceContext->UniProcessor = UniProcessor;
+
+    //
+    // Initialize the timer and retry values (note that the link timeouts
+    // are converted from NT ticks to NBF ticks). These values may
+    // be modified by NbfInitializeNdis.
+    //
+
+    DeviceContext->DefaultT1Timeout = NbfConfig->DefaultT1Timeout / SHORT_TIMER_DELTA;
+    DeviceContext->DefaultT2Timeout = NbfConfig->DefaultT2Timeout / SHORT_TIMER_DELTA;
+    DeviceContext->DefaultTiTimeout = NbfConfig->DefaultTiTimeout / LONG_TIMER_DELTA;
+    DeviceContext->LlcRetries = NbfConfig->LlcRetries;
+    DeviceContext->LlcMaxWindowSize = NbfConfig->LlcMaxWindowSize;
+    DeviceContext->MaxConsecutiveIFrames = (UCHAR)NbfConfig->MaximumIncomingFrames;
+    DeviceContext->NameQueryRetries = NbfConfig->NameQueryRetries;
+    DeviceContext->NameQueryTimeout = NbfConfig->NameQueryTimeout;
+    DeviceContext->AddNameQueryRetries = NbfConfig->AddNameQueryRetries;
+    DeviceContext->AddNameQueryTimeout = NbfConfig->AddNameQueryTimeout;
+    DeviceContext->GeneralRetries = NbfConfig->GeneralRetries;
+    DeviceContext->GeneralTimeout = NbfConfig->GeneralTimeout;
+    DeviceContext->MinimumSendWindowLimit = NbfConfig->MinimumSendWindowLimit;
+
+    //
+    // Initialize our counter that records memory usage.
+    //
+
+    DeviceContext->MemoryUsage = 0;
+    DeviceContext->MemoryLimit = NbfConfig->MaxMemoryUsage;
+
+    DeviceContext->MaxRequests = NbfConfig->MaxRequests;
+    DeviceContext->MaxLinks = NbfConfig->MaxLinks;
+    DeviceContext->MaxConnections = NbfConfig->MaxConnections;
+    DeviceContext->MaxAddressFiles = NbfConfig->MaxAddressFiles;
+    DeviceContext->MaxAddresses = NbfConfig->MaxAddresses;
+
+    //
+    // Now fire up NDIS so this adapter talks
+    //
+
+    status = NbfInitializeNdis (DeviceContext,
+                NbfConfig,
+                j);
+
+    if (!NT_SUCCESS (status)) {
+
+        //
+        // Log an error if we were failed to
+        // open this adapter.
+        //
+
+        NbfWriteGeneralErrorLog(
+            DeviceContext,
+            EVENT_TRANSPORT_BINDING_FAILED,
+            601,
+            status,
+            NbfConfig->Names[j].Buffer,
+            0,
+            NULL);
+
+        NbfDereferenceDeviceContext ("Initialize NDIS failed", DeviceContext, DCREF_CREATION);
+        *NdisStatus = status;
+        return(0);
+
+    }
+
+#if 0
+    DbgPrint("Opened %S as %S\n", &NbfConfig->Names[j], &nameString);
+#endif
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint6 ("NbfInitialize: NDIS returned: %x %x %x %x %x %x as local address.\n",
+            DeviceContext->LocalAddress.Address[0],
+            DeviceContext->LocalAddress.Address[1],
+            DeviceContext->LocalAddress.Address[2],
+            DeviceContext->LocalAddress.Address[3],
+            DeviceContext->LocalAddress.Address[4],
+            DeviceContext->LocalAddress.Address[5]);
+    }
+
+    //
+    // Initialize our provider information structure; since it
+    // doesn't change, we just keep it around and copy it to
+    // whoever requests it.
+    //
+
+
+    MacReturnMaxDataSize(
+        &DeviceContext->MacInfo,
+        NULL,
+        0,
+        DeviceContext->MaxSendPacketSize,
+        TRUE,
+        &MaxUserData);
+
+    DeviceContext->Information.Version = 0x0100;
+    DeviceContext->Information.MaxSendSize = 0x1fffe;   // 128k - 2
+    DeviceContext->Information.MaxConnectionUserData = 0;
+    DeviceContext->Information.MaxDatagramSize =
+        MaxUserData - (sizeof(DLC_FRAME) + sizeof(NBF_HDR_CONNECTIONLESS));
+    DeviceContext->Information.ServiceFlags = NBF_SERVICE_FLAGS;
+    if (DeviceContext->MacInfo.MediumAsync) {
+        DeviceContext->Information.ServiceFlags |= TDI_SERVICE_POINT_TO_POINT;
+    }
+    DeviceContext->Information.MinimumLookaheadData =
+        240 - (sizeof(DLC_FRAME) + sizeof(NBF_HDR_CONNECTIONLESS));
+    DeviceContext->Information.MaximumLookaheadData =
+        DeviceContext->MaxReceivePacketSize - (sizeof(DLC_I_FRAME) + sizeof(NBF_HDR_CONNECTION));
+    DeviceContext->Information.NumberOfResources = NBF_TDI_RESOURCES;
+    KeQuerySystemTime (&DeviceContext->Information.StartTime);
+
+
+    //
+    // Allocate various structures we will need.
+    //
+
+    ENTER_NBF;
+
+    //
+    // The TP_UI_FRAME structure has a CHAR[1] field at the end
+    // which we expand upon to include all the headers needed;
+    // the size of the MAC header depends on what the adapter
+    // told us about its max header size.
+    //
+
+    DeviceContext->UIFrameHeaderLength =
+        DeviceContext->MacInfo.MaxHeaderLength +
+        sizeof(DLC_FRAME) +
+        sizeof(NBF_HDR_CONNECTIONLESS);
+
+    DeviceContext->UIFrameLength =
+        FIELD_OFFSET(TP_UI_FRAME, Header[0]) +
+        DeviceContext->UIFrameHeaderLength;
+
+
+    //
+    // The TP_PACKET structure has a CHAR[1] field at the end
+    // which we expand upon to include all the headers needed;
+    // the size of the MAC header depends on what the adapter
+    // told us about its max header size. TP_PACKETs are used
+    // for connection-oriented frame as well as for
+    // control frames, but since DLC_I_FRAME and DLC_S_FRAME
+    // are the same size, the header is the same size.
+    //
+
+    ASSERT (sizeof(DLC_I_FRAME) == sizeof(DLC_S_FRAME));
+
+    DeviceContext->PacketHeaderLength =
+        DeviceContext->MacInfo.MaxHeaderLength +
+        sizeof(DLC_I_FRAME) +
+        sizeof(NBF_HDR_CONNECTION);
+
+    DeviceContext->PacketLength =
+        FIELD_OFFSET(TP_PACKET, Header[0]) +
+        DeviceContext->PacketHeaderLength;
+
+
+    //
+    // The BUFFER_TAG structure has a CHAR[1] field at the end
+    // which we expand upong to include all the frame data.
+    //
+
+    DeviceContext->ReceiveBufferLength =
+        DeviceContext->MaxReceivePacketSize +
+        FIELD_OFFSET(BUFFER_TAG, Buffer[0]);
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: pre-allocating requests.\n");
+    }
+    for (i=0; i<NbfConfig->InitRequests; i++) {
+
+        NbfAllocateRequest (DeviceContext, &Request);
+
+        if (Request == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate requests.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&DeviceContext->RequestPool, &Request->Linkage);
+#if DBG
+        NbfRequestTable[i+1] = (PVOID)Request;
+#endif
+    }
+#if DBG
+    NbfRequestTable[0] = (PVOID)NbfConfig->InitRequests;
+    NbfRequestTable[NbfConfig->InitRequests + 1] = (PVOID)
+                        ((NBF_REQUEST_SIGNATURE << 16) | sizeof (TP_REQUEST));
+    InitializeListHead (&NbfGlobalRequestList);
+#endif
+
+    DeviceContext->RequestInitAllocated = NbfConfig->InitRequests;
+    DeviceContext->RequestMaxAllocated = NbfConfig->MaxRequests;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d requests, %ld\n", NbfConfig->InitRequests, DeviceContext->MemoryUsage);
+    }
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating links.\n");
+    }
+    for (i=0; i<NbfConfig->InitLinks; i++) {
+
+        NbfAllocateLink (DeviceContext, &Link);
+
+        if (Link == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate links.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&DeviceContext->LinkPool, &Link->Linkage);
+#if DBG
+        NbfLinkTable[i+1] = (PVOID)Link;
+#endif
+    }
+#if DBG
+    NbfLinkTable[0] = (PVOID)NbfConfig->InitLinks;
+    NbfLinkTable[NbfConfig->InitLinks+1] = (PVOID)
+                ((NBF_LINK_SIGNATURE << 16) | sizeof (TP_LINK));
+#endif
+
+    DeviceContext->LinkInitAllocated = NbfConfig->InitLinks;
+    DeviceContext->LinkMaxAllocated = NbfConfig->MaxLinks;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d links, %ld\n", NbfConfig->InitLinks, DeviceContext->MemoryUsage);
+    }
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating connections.\n");
+    }
+    for (i=0; i<NbfConfig->InitConnections; i++) {
+
+        NbfAllocateConnection (DeviceContext, &Connection);
+
+        if (Connection == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate connections.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&DeviceContext->ConnectionPool, &Connection->LinkList);
+#if DBG
+        NbfConnectionTable[i+1] = (PVOID)Connection;
+#endif
+    }
+#if DBG
+    NbfConnectionTable[0] = (PVOID)NbfConfig->InitConnections;
+    NbfConnectionTable[NbfConfig->InitConnections+1] = (PVOID)
+                ((NBF_CONNECTION_SIGNATURE << 16) | sizeof (TP_CONNECTION));
+#endif
+
+    DeviceContext->ConnectionInitAllocated = NbfConfig->InitConnections;
+    DeviceContext->ConnectionMaxAllocated = NbfConfig->MaxConnections;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d connections, %ld\n", NbfConfig->InitConnections, DeviceContext->MemoryUsage);
+    }
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating AddressFiles.\n");
+    }
+    for (i=0; i<NbfConfig->InitAddressFiles; i++) {
+
+        NbfAllocateAddressFile (DeviceContext, &AddressFile);
+
+        if (AddressFile == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate Address Files.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&DeviceContext->AddressFilePool, &AddressFile->Linkage);
+#if DBG
+        NbfAddressFileTable[i+1] = (PVOID)AddressFile;
+#endif
+    }
+#if DBG
+    NbfAddressFileTable[0] = (PVOID)NbfConfig->InitAddressFiles;
+    NbfAddressFileTable[NbfConfig->InitAddressFiles + 1] = (PVOID)
+                            ((NBF_ADDRESSFILE_SIGNATURE << 16) |
+                                 sizeof (TP_ADDRESS_FILE));
+#endif
+
+    DeviceContext->AddressFileInitAllocated = NbfConfig->InitAddressFiles;
+    DeviceContext->AddressFileMaxAllocated = NbfConfig->MaxAddressFiles;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d address files, %ld\n", NbfConfig->InitAddressFiles, DeviceContext->MemoryUsage);
+    }
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating addresses.\n");
+    }
+    for (i=0; i<NbfConfig->InitAddresses; i++) {
+
+        NbfAllocateAddress (DeviceContext, &Address);
+        if (Address == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate addresses.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&DeviceContext->AddressPool, &Address->Linkage);
+#if DBG
+        NbfAddressTable[i+1] = (PVOID)Address;
+#endif
+    }
+#if DBG
+    NbfAddressTable[0] = (PVOID)NbfConfig->InitAddresses;
+    NbfAddressTable[NbfConfig->InitAddresses + 1] = (PVOID)
+                        ((NBF_ADDRESS_SIGNATURE << 16) | sizeof (TP_ADDRESS));
+#endif
+
+    DeviceContext->AddressInitAllocated = NbfConfig->InitAddresses;
+    DeviceContext->AddressMaxAllocated = NbfConfig->MaxAddresses;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d addresses, %ld\n", NbfConfig->InitAddresses, DeviceContext->MemoryUsage);
+    }
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating UI frames.\n");
+    }
+
+    for (i=0; i<NbfConfig->InitUIFrames; i++) {
+
+        NbfAllocateUIFrame (DeviceContext, &UIFrame);
+
+        if (UIFrame == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate UI frames.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        InsertTailList (&(DeviceContext->UIFramePool), &UIFrame->Linkage);
+#if DBG
+        NbfUiFrameTable[i+1] = UIFrame;
+#endif
+    }
+#if DBG
+        NbfUiFrameTable[0] = (PVOID)NbfConfig->InitUIFrames;
+#endif
+
+    DeviceContext->UIFrameInitAllocated = NbfConfig->InitUIFrames;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d UI frames, %ld\n", NbfConfig->InitUIFrames, DeviceContext->MemoryUsage);
+    }
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating I frames.\n");
+        NbfPrint1 ("NBFDRVR: Packet pool header: %lx\n",&DeviceContext->PacketPool);
+    }
+
+    for (i=0; i<NbfConfig->InitPackets; i++) {
+
+        NbfAllocateSendPacket (DeviceContext, &Packet);
+        if (Packet == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate packets.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        PushEntryList (&DeviceContext->PacketPool, (PSINGLE_LIST_ENTRY)&Packet->Linkage);
+#if DBG
+        NbfSendPacketTable[i+1] = Packet;
+#endif
+    }
+#if DBG
+        NbfSendPacketTable[0] = (PVOID)NbfConfig->InitPackets;
+        NbfSendPacketTable[NbfConfig->InitPackets+1] = (PVOID)
+                    ((NBF_PACKET_SIGNATURE << 16) | sizeof (TP_PACKET));
+#endif
+
+    DeviceContext->PacketInitAllocated = NbfConfig->InitPackets;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d send packets, %ld\n", NbfConfig->InitPackets, DeviceContext->MemoryUsage);
+    }
+
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating RR frames.\n");
+        NbfPrint1 ("NBFDRVR: Packet pool header: %lx\n",&DeviceContext->RrPacketPool);
+    }
+
+    for (i=0; i<10; i++) {
+
+        NbfAllocateSendPacket (DeviceContext, &Packet);
+        if (Packet == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate packets.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        Packet->Action = PACKET_ACTION_RR;
+        PushEntryList (&DeviceContext->RrPacketPool, (PSINGLE_LIST_ENTRY)&Packet->Linkage);
+    }
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d send packets, %ld\n", 10, DeviceContext->MemoryUsage);
+    }
+
+
+    // Allocate receive Ndis packets
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating Ndis Receive packets.\n");
+    }
+    if (DeviceContext->MacInfo.SingleReceive) {
+        InitReceivePackets = 2;
+    } else {
+        InitReceivePackets = NbfConfig->InitReceivePackets;
+    }
+    for (i=0; i<InitReceivePackets; i++) {
+
+        NbfAllocateReceivePacket (DeviceContext, &NdisPacket);
+
+        if (NdisPacket == NULL) {
+            PANIC ("NbfInitialize:  insufficient memory to allocate packet MDLs.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        ReceiveTag = (PRECEIVE_PACKET_TAG)NdisPacket->ProtocolReserved;
+        PushEntryList (&DeviceContext->ReceivePacketPool, &ReceiveTag->Linkage);
+
+        IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+            PNDIS_BUFFER NdisBuffer;
+            NdisQueryPacket(NdisPacket, NULL, NULL, &NdisBuffer, NULL);
+            NbfPrint2 ("NbfInitialize: Created NDIS Pkt: %x Buffer: %x\n",
+                NdisPacket, NdisBuffer);
+        }
+    }
+
+    DeviceContext->ReceivePacketInitAllocated = InitReceivePackets;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d receive packets, %ld\n", InitReceivePackets, DeviceContext->MemoryUsage);
+    }
+
+    IF_NBFDBG (NBF_DEBUG_RESOURCE) {
+        NbfPrint0 ("NBFDRVR: allocating Ndis Receive buffers.\n");
+    }
+
+    for (i=0; i<NbfConfig->InitReceiveBuffers; i++) {
+
+        NbfAllocateReceiveBuffer (DeviceContext, &BufferTag);
+
+        if (BufferTag == NULL) {
+            PANIC ("NbfInitialize: Unable to allocate receive packet.\n");
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            goto cleanup;
+        }
+
+        PushEntryList (&DeviceContext->ReceiveBufferPool, (PSINGLE_LIST_ENTRY)&BufferTag->Linkage);
+
+    }
+
+    DeviceContext->ReceiveBufferInitAllocated = NbfConfig->InitReceiveBuffers;
+
+    IF_NBFDBG (NBF_DEBUG_DYNAMIC) {
+        NbfPrint2 ("%d receive buffers, %ld\n", NbfConfig->InitReceiveBuffers, DeviceContext->MemoryUsage);
+    }
+
+    DeviceContext->State = DEVICECONTEXT_STATE_OPEN;
+
+    //
+    // Start the link-level timers running.
+    //
+
+    NbfInitializeTimerSystem (DeviceContext);
+
+
+    //
+    // Now link the device into the global list.
+    //
+
+    InsertTailList (&NbfDeviceList, &DeviceContext->Linkage);
+
+    ++SuccessfulOpens;
+
+#ifdef _PNP_POWER
+    DeviceObject = (PDEVICE_OBJECT) DeviceContext;
+    DeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+
+    RtlInitUnicodeString(&DeviceString, DeviceContext->DeviceName);
+    status = TdiRegisterDeviceObject(&DeviceString, 
+                                     &DeviceContext->TdiDeviceHandle);
+
+    if (!NT_SUCCESS (status)) {
+        --SuccessfulOpens;
+        RemoveEntryList(&DeviceContext->Linkage);
+        goto cleanup;
+    }
+
+    RtlCopyMemory(NetBIOSAddress->NetbiosName, 
+                  DeviceContext->ReservedNetBIOSAddress, 16);
+
+    
+    status = TdiRegisterNetAddress(pAddress, 
+                                   &DeviceContext->ReservedAddressHandle);
+
+    if (!NT_SUCCESS (status)) {
+        --SuccessfulOpens;
+        RemoveEntryList(&DeviceContext->Linkage);
+        goto cleanup;
+    }
+#endif
+
+    LEAVE_NBF;
+    *NdisStatus = NDIS_STATUS_SUCCESS;
+    
+    return(1);;
+
+cleanup:
+
+    NbfWriteResourceErrorLog(
+        DeviceContext,
+        EVENT_TRANSPORT_RESOURCE_POOL,
+        501,
+        DeviceContext->MemoryUsage,
+        0);
+
+    //
+    // Cleanup whatever device context we were initializing
+    // when we failed.
+    //
+    *NdisStatus = status;
+    ASSERT(status != STATUS_SUCCESS);
+
+    NbfFreeResources (DeviceContext);
+    NbfCloseNdis (DeviceContext);
+    NbfDereferenceDeviceContext ("Load failed", DeviceContext, DCREF_CREATION);
+
+
+    LEAVE_NBF;
+    }
+    return(0);
+}

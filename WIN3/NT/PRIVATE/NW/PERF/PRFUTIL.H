@@ -40,4 +40,3 @@ extern TCHAR NULL_STRING[];
 
 
 #endif // _PRFUTIL_
-

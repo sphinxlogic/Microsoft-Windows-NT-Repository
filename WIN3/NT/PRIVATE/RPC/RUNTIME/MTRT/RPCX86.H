@@ -71,4 +71,3 @@ void RPC_ENTRY RpcLeaveException(void);
 #define RpcAbnormalTermination() _abnormal_termination
 
 #endif // __RPCx86_H__
-

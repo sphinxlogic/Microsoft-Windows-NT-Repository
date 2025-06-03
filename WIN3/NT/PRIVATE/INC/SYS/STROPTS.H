@@ -234,4 +234,3 @@ struct str_list {
 #define FLUSHRW		(FLUSHR | FLUSHW)
 
 #endif /* _SYS_STROPTS_ */
-

@@ -426,7 +426,7 @@ fDoReplace (
         }
 	flScan.col = c;
     } else {
-        if ( (*(fSrchCasePrev ? strncmp : strnicmp)) (srcbuf, p, srchlen)) {
+        if ( (*(fSrchCasePrev ? strncmp : _strnicmp)) (srcbuf, p, srchlen)) {
             return FALSE;
         }
         if (flScan.col + srchlen - 1 > scanlen) {

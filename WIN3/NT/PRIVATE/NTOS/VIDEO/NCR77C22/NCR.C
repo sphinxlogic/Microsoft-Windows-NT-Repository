@@ -1966,17 +1966,19 @@ Return Value:
 
     for (i = 0; i < ClutBuffer->NumEntries; i++) {
 
-        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                                DAC_ADDRESS_WRITE_PORT,
-                                (UCHAR)(i + ClutBuffer->FirstEntry));
+        VideoPortStallExecution(2);
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                                 DAC_DATA_REG_PORT,
                                 ClutBuffer->LookupTable[i].RgbArray.Red);
 
+        VideoPortStallExecution(2);
+
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                                 DAC_DATA_REG_PORT,
                                 ClutBuffer->LookupTable[i].RgbArray.Green);
+
+        VideoPortStallExecution(2);
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                                 DAC_DATA_REG_PORT,
@@ -2511,7 +2513,7 @@ Return Value:
     for (i = 0; i < VGA_NUM_ATTRIB_CONT_PORTS; i++) {
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                ATT_ADDRESS_PORT, i);
+                ATT_ADDRESS_PORT, (UCHAR)i);
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
                 ATT_DATA_WRITE_PORT, *portValue++);
 
@@ -3274,7 +3276,7 @@ Return Value:
     for (i = 0; i < VGA_NUM_SEQUENCER_PORTS; i++) {
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                SEQ_ADDRESS_PORT, i);
+                SEQ_ADDRESS_PORT, (UCHAR)i);
         *portValue++ = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                 SEQ_DATA_PORT);
 
@@ -3316,14 +3318,14 @@ Return Value:
         if (bIsColor) {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                    CRTC_ADDRESS_PORT_COLOR, i);
+                    CRTC_ADDRESS_PORT_COLOR, (UCHAR)i);
             *portValue++ =
                     VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                             CRTC_DATA_PORT_COLOR);
         } else {
 
             VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                    CRTC_ADDRESS_PORT_MONO, i);
+                    CRTC_ADDRESS_PORT_MONO, (UCHAR)i);
             *portValue++ =
                     VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                             CRTC_DATA_PORT_MONO);
@@ -3344,7 +3346,7 @@ Return Value:
     for (i = 0; i < VGA_NUM_GRAPH_CONT_PORTS; i++) {
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                GRAPH_ADDRESS_PORT, i);
+                GRAPH_ADDRESS_PORT, (UCHAR)i);
         *portValue++ = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                 GRAPH_DATA_PORT);
 
@@ -3374,7 +3376,7 @@ Return Value:
         }
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                ATT_ADDRESS_PORT, i);
+                ATT_ADDRESS_PORT, (UCHAR)i);
         *portValue++ = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
                 ATT_DATA_READ_PORT);
 
@@ -3487,7 +3489,7 @@ Return Value:
         //
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                GRAPH_DATA_PORT, i);
+                GRAPH_DATA_PORT, (UCHAR)i);
 
         //
         // Read the latched data we've written to memory.
@@ -3570,7 +3572,7 @@ Return Value:
         //
 
         VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-                GRAPH_DATA_PORT, i);
+                GRAPH_DATA_PORT, (UCHAR)i);
 
         //
         // Copy this plane into the buffer.
@@ -4833,7 +4835,6 @@ Return Value:
 
         default:
 
-            // BUGBUG
             VideoDebugPrint((0, "InvalidValidatorAccessType\n" ));
 
         }
@@ -4881,6 +4882,8 @@ Return Value:
     UCHAR   savedLockReg;
     UCHAR   savedTestReg;
     ULONG   loop;
+    PWSTR   pwszChip;
+    ULONG   cbChip;
 
     //
     // we already know that there is a vga in the system.  So there is no need
@@ -4973,53 +4976,75 @@ Return Value:
             // all chips do not support all modes we are handling.
 
             VideoPortWritePortUchar( HwDeviceExtension->IOAddress + SEQ_ADDRESS_PORT,
-               IND_NCR_VERSION_ID);
+                IND_NCR_VERSION_ID);
             HwDeviceExtension->AdapterType = VideoPortReadPortUchar(
-               HwDeviceExtension->IOAddress + SEQ_DATA_PORT);
+                HwDeviceExtension->IOAddress + SEQ_DATA_PORT);
 
             switch ((HwDeviceExtension->AdapterType & 0xf0) >> 4) {
 
-               //
-               // hack for Zeos machine. They use the 22E+, which we have not
-               // tested. It currently fails for some unknown reason. We will
-               // let MED fix it if they think it's important.
+            //
+            // AndreVa: re-enable since MTS has this chip and they work OK.
+            // 10/20/1995
+            //
+            // hack for Zeos machine. They use the 22E+, which we have not
+            // tested. It currently fails for some unknown reason. We will
+            // let MED fix it if they think it's important.
 
-               //
-               // for the version register (HwDeviceExtension->AdapterType)
-               // if bits 7-4 are NCR_VER_ID_77C22E, bits 0-3 are >= 8 when a 22e+, and
-               // <= 7 when a 22e, according to MED 77C22E+ Specification.
+            //
+            // for the version register (HwDeviceExtension->AdapterType)
+            // if bits 7-4 are NCR_VER_ID_77C22E, bits 0-3 are >= 8 when a 22e+, and
+            // <= 7 when a 22e, according to MED 77C22E+ Specification.
 
-               case NCR_VER_ID_77C22E:
-                  if ( ((HwDeviceExtension->AdapterType & 0x0f) & 0x0f) <= 7 ) {
-                     VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22E\n"));
-                     HwDeviceExtension->AdapterType = NCR77C22E;
-                     myreturn = TRUE;
-                  } else {
-                     VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22E Plus, so fail\n"));
-                  }
-                  break;
+            case NCR_VER_ID_77C22E:
+                if ( ((HwDeviceExtension->AdapterType & 0x0f) & 0x0f) <= 7 ) {
+                    VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22E\n"));
+                    HwDeviceExtension->AdapterType = NCR77C22E;
+                    pwszChip = L"NCR77C22E";
+                    cbChip = sizeof(L"NCR77C22E");
+                    myreturn = TRUE;
+                } else {
+                   VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22E Plus, so fail\n"));
+                    HwDeviceExtension->AdapterType = NCR77C22EPLUS;
+                    pwszChip = L"NCR77C22EPLUS";
+                    cbChip = sizeof(L"NCR77C22EPLUS");
+                    myreturn = TRUE;
+                }
+                break;
 
-               case NCR_VER_ID_77C21:
-                  VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C21\n"));
-                  HwDeviceExtension->AdapterType = NCR77C22E;
-                  break;
+            case NCR_VER_ID_77C21:
+                VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C21\n"));
+                HwDeviceExtension->AdapterType = NCR77C22E;
+                pwszChip = L"NCR77C22E";
+                cbChip = sizeof(L"NCR77C22E");
+                break;
 
-               case NCR_VER_ID_77C22:
-                  VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22\n"));
-                  HwDeviceExtension->AdapterType = NCR77C22;
-                  myreturn = TRUE;
-                  break;
+            case NCR_VER_ID_77C22:
+                VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C22\n"));
+                HwDeviceExtension->AdapterType = NCR77C22;
+                pwszChip = L"NCR77C22";
+                cbChip = sizeof(L"NCR77C22");
+                myreturn = TRUE;
+                break;
 
-                case NCR_VER_ID_77C32BLT:
-                  VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C32BLT\n"));
-                  HwDeviceExtension->AdapterType = NCR77C32BLT;
-                  myreturn = TRUE;
-                  break;
+             case NCR_VER_ID_77C32BLT:
+                VideoDebugPrint((2, "VgaIsNCR77C22: Video Chip is NCR 77C32BLT\n"));
+                HwDeviceExtension->AdapterType = NCR77C32BLT;
+                pwszChip = L"NCR77C32BLT";
+                cbChip = sizeof(L"NCR77C32BLT");
+                myreturn = TRUE;
+                break;
 
-               default:
-                  VideoDebugPrint((2, "VgaIsNCR77C22: Unrecognized NCR video product code, Defaulting to 77C22\n"));
-                  break;
+            default:
+                VideoDebugPrint((2, "VgaIsNCR77C22: Unrecognized NCR video product code, Defaulting to 77C22\n"));
+                pwszChip = L"Unknown NCR";
+                cbChip = sizeof(L"Unknown NCR");
+                break;
             }
+
+            VideoPortSetRegistryParameters(HwDeviceExtension,
+                                           L"HardwareInformation.ChipType",
+                                           pwszChip,
+                                           cbChip);
 
             VideoDebugPrint((3, "VgaIsNCR77C22: number of available modes -> %ld\n", NumVideoModes));
 
@@ -5029,27 +5054,27 @@ Return Value:
 
             if ( HwDeviceExtension->MemPresent < 512 ) {
 
-               NCRDisableMode(  640, 480, 8, 0, FALSE );
-               NCRDisableMode( 1024, 768, 1, 0, FALSE );
+                NCRDisableMode(  640, 480, 8, 0, FALSE );
+                NCRDisableMode( 1024, 768, 1, 0, FALSE );
 
             }
 
             if ( HwDeviceExtension->MemPresent < 1024 ) {
 
-               NCRDisableMode(  800, 600, 8, 0, FALSE );
-               NCRDisableMode( 1024, 768, 8, 0, FALSE );
+                NCRDisableMode(  800, 600, 8, 0, FALSE );
+                NCRDisableMode( 1024, 768, 8, 0, FALSE );
 
             }
 
             if ( HwDeviceExtension->MemPresent < 2048 ) {
 
-               NCRDisableMode( 1280,1024, 8, 0, FALSE );
+                NCRDisableMode( 1280,1024, 8, 0, FALSE );
 
             }
 
             if ( HwDeviceExtension->MemPresent < 3072 ) {
 
-               NCRDisableMode( 1600,1200, 8, 0, FALSE );
+                NCRDisableMode( 1600,1200, 8, 0, FALSE );
 
             }
 
@@ -5074,9 +5099,13 @@ Return Value:
             // clocks. Disable the 1280 and 1600 32blt modes on the 22E.
             //
 
-            if ( HwDeviceExtension->AdapterType == NCR77C22E ) {
+            if ((HwDeviceExtension->AdapterType == NCR77C22E) ||
+                (HwDeviceExtension->AdapterType == NCR77C22EPLUS)) {
 
-                NCRDisableMode( 1280,1024, 8, 0, FALSE );
+                if (HwDeviceExtension->AdapterType == NCR77C22E) {
+                    NCRDisableMode( 1280,1024, 8, 0, FALSE );
+                }
+
                 NCRDisableMode( 1600,1200, 8, 0, FALSE );
 
                 VideoPortWritePortUchar( HwDeviceExtension->IOAddress +
@@ -5339,8 +5368,8 @@ Return Value:
     // Print out the amount of video memory for easy debugging
     //
 
-    if ( BlockCount < 4 ) {
-
+    if ( BlockCount < 4 )
+    {
         //
         // We have less than 1 Megabyte of video memory
         //
@@ -5357,6 +5386,23 @@ Return Value:
         VideoDebugPrint(( 2, "The NCR video subsystem has %d MB of memory.\n",
             BlockCount / 4 ));
 
+    }
+
+    //
+    // This routine is only called if an NCR77c22 card is detected, and when
+    // we reach this point, we know the amound of memory.  Write this value
+    // to the registry.
+    //
+
+    {
+        ULONG MemSize;
+
+        MemSize = HwDeviceExtension->MemPresent << 10;
+
+        VideoPortSetRegistryParameters(HwDeviceExtension,
+                                       L"HardwareInformation.MemorySize",
+                                       &MemSize,
+                                       sizeof(ULONG));
     }
 
 } // end  NCRGetMemorySize

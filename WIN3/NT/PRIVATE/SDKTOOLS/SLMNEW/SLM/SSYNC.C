@@ -1,14 +1,7 @@
 /* ssync - sync the given files for the current directory */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "slmproto.h"
-#include "proto.h"
-#include "dir.h"
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 private F
@@ -21,6 +14,8 @@ MarkGhost(
     F fGhost);
 
 static  int     cfiChanged = 0;
+
+MF *mfSyncLog;
 
 F FSyncInit(
     AD *pad)
@@ -40,6 +35,12 @@ F FSyncInit(
         Usage(pad);
     }
 
+    if ((pad->flags & flagAll) == 0 && pad->flags & flagSyncBroken)
+    {
+        Error("may only specify -b with -a\n");
+        Usage(pad);
+    }
+
     if ((pad->flags & flagSyncDelDirs) != 0 && pad->pneArgs != NULL)
         {
         Error("can't specify -d with with specific file names\n");
@@ -53,6 +54,26 @@ F FSyncInit(
     pad->flags |= flagMappedIO;
 #endif
 
+    //
+    // IED Caching on by default for SSYNC, STATUS, LOG
+    //
+
+    if ((pad->flags & (flagGhost|flagUnghost)) == 0)
+        pad->flags |= flagCacheIed;
+
+    if (pad->flags&flagLogOutput)
+    {
+        mfSyncLog = OpenLocalMf(pad->sz1);
+        if (!mfSyncLog)
+        {
+            Error("can't create script file\n");
+            return fFalse;
+        }
+        SeekMf(mfSyncLog, (POS)0, 2);
+    }
+    else
+        mfSyncLog = NULL;
+
     return fTrue;
 }
 
@@ -65,10 +86,11 @@ F FSyncDir(
 
     if ((pad->flags & (flagGhost|flagUnghost)) == 0)
     {
-        if (!FLoadStatus(pad, lckNil, flsNone))
+        if (!pad->fStatusAlreadyLoaded &&
+            !FLoadStatus(pad, lckNil, flsNone))
         {
-            if (pad->flags&flagLogOutput)
-                PrLog("@REM Skipped %&P/C\n", pad);
+            if (mfSyncLog)
+                PrMf(mfSyncLog, "@REM Skipped %&P/C\n", pad);
             return (fTrue); /* keep trying other directories. */
         }
 
@@ -88,8 +110,8 @@ F FSyncDir(
 
     if (!FLoadStatus(pad, lckEd, flsNone))
     {
-        if (pad->flags&flagLogOutput)
-            PrLog("@REM Skipped %&P/C\n", pad);
+        if (mfSyncLog)
+            PrMf(mfSyncLog, "@REM Skipped %&P/C\n", pad);
         return (fTrue); /* keep trying other directories. */
     }
 
@@ -97,8 +119,8 @@ F FSyncDir(
         if (!FHaveCurDir(pad))
             return (fFalse);
 
-    if (pad->flags&flagLogOutput)
-        StatSEd(pad);
+    if (mfSyncLog)
+        StatSEd(pad, mfSyncLog, NULL);
 
     /* Mark selected files.  Here we just do a MarkAll if the user is
      * unghosting the whole directory to ensure that they get any
@@ -196,7 +218,43 @@ F FInSyncPad(
 
     AssertF( pad->iedCur != iedNil );
 
-    rgfs = pad->mpiedrgfs[pad->iedCur];
+    if (pad->fQuickIO)
+        rgfs = pad->rgfs;
+    else
+        rgfs = pad->mpiedrgfs[pad->iedCur];
+
+    //  Before getting into the expensive test, let's check for the
+    //  easy cases of not in ssync.
+
+    for (ifs = 0; ifs < pad->psh->ifiMac; ifs++)
+    {
+        switch (rgfs[ifs].fm)
+        {
+            case fmGhost:
+            case fmOut:
+            case fmNonExistent:
+            case fmIn:
+                continue;
+				
+            default:
+                return (fFalse);
+        }
+    }
+	
+    //
+    // Unless the user explicitly asks, dont check for broken files
+    // when checking to see if the directory is out of ssync.  Since
+    // the whole point of the out of ssync check is to speed up ssync -a
+    // avoiding the broken file check by default is the way to go.  If
+    // not doing a ssync -a then it does the broken file check by default
+    //
+
+    if ((pad->flags & flagAll) && !(pad->flags & flagSyncBroken))
+        return (fTrue);
+
+    //  Now we need to take a further look at the files marked as fmIn
+    //  before saying that this dir is in ssync.
+	
     for (ifs = 0; ifs < pad->psh->ifiMac; ifs++)
     {
         switch (rgfs[ifs].fm)

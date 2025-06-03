@@ -1,17 +1,13 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "dir.h"
-#include "console.h"
 
 extern   TCHAR CurDrvDir[] ;
 extern   TCHAR *SaveDir ;
 extern   DWORD DosErr ;
-extern   BOOLEAN CtrlCSeen;
+extern   BOOL CtrlCSeen;
 
 PTCHAR   SetWildCards( PTCHAR, BOOLEAN );
 BOOLEAN  IsFATDrive( PTCHAR );
 VOID     FreeStr( PTCHAR );
-STATUS   GetFS( PFS, ULONG, ULONG, ULONG, ULONG, PSCREEN, BOOLEAN (*) (STATUS, PTCHAR) );
 VOID     SortFileList( PFS, PSORTDESC, ULONG);
 BOOLEAN  FindFirstNt( PTCHAR, PWIN32_FIND_DATA, PHANDLE );
 BOOLEAN  FindNextNt ( PWIN32_FIND_DATA, HANDLE );
@@ -26,13 +22,13 @@ BuildFSFromPatterns (
 {
 
     struct cpyinfo *    pcisFile;
-    TCHAR	        szCurDir[MAX_PATH + 2];
-    TCHAR	        szFilePattern[MAX_PATH + 2];
+    TCHAR               szCurDir[MAX_PATH + 2];
+    TCHAR               szFilePattern[MAX_PATH + 2];
     PTCHAR              pszPatternCur;
     PPATDSC             ppatdscCur;
     PFS                 pfsFirst;
     PFS                 pfsCur;
-    ULONG	        cbPath;
+    ULONG               cbPath;
     BOOLEAN             fFatDrive;
     ULONG               i;
     PTCHAR              pszT;
@@ -155,9 +151,9 @@ BuildFSFromPatterns (
         //
         if (cbPath > 3) {
             if (fFatDrive && *penulc(szCurDir) == DOT) {
-        	szCurDir[cbPath-2] = NULLC;
+                szCurDir[cbPath-2] = NULLC;
             } else {
-        	szCurDir[cbPath-1] = NULLC;
+                szCurDir[cbPath-1] = NULLC;
             }
         }
 
@@ -269,7 +265,7 @@ DirWalkAndProcess(
     OUT PLARGE_INTEGER  pcbFileTotal,
     IN  PFS     pfsFiles,
     IN  PDRP    pdpr,
-    IN  BOOLEAN fMustExits,
+    IN  BOOLEAN fMustExist,
     IN  BOOLEAN (*pfctPrintErr) (STATUS, PTCHAR)
 )
 
@@ -295,6 +291,7 @@ Return Value:
     BOOLEAN fFatDrive;
     BOOLEAN fRecurse;
     STATUS  rc;
+    STATUS  (* pfctProcessFilesForGetFS) ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PFS, PFF );
 
     //
     // Turn the file name pattern into a list of files pointed to
@@ -320,18 +317,33 @@ Return Value:
     fRecurse = (BOOLEAN)(pdpr->rgfSwitchs & RECURSESWITCH);
 
     //
-    // Even though there is may be no function to process file list
+    // Even though there may be no function to process file list
     // still fetch to determine of any patterns qualify. In the case
     // of rmdir we are not to process of there is no pattern match
     // at the top level.
     //
+
+    pfctProcessFilesForGetFS = NULL;
+    if ((pdpr->rgfSwitchs & DELPROCESSEARLY)) {
+        pfctProcessFilesForGetFS = EraseFile;
+    }
+    else
+    if (!(pdpr->rgfSwitchs & (RECURSESWITCH | WIDEFORMATSWITCH | SORTDOWNFORMATSWITCH | SORTSWITCH)))
+        pfctProcessFilesForGetFS = DisplayFile;
+
     rc = GetFS(pfsFiles,
                pdpr->rgfSwitchs,
                pdpr->rgfAttribs,
                pdpr->rgfAttribsOnOff,
                pdpr->dwTimeType,
-			   pscr,
-               pfctPrintErr);
+               pscr,
+               pfctPrintErr,
+               pfctProcessFilesForGetFS
+               );
+
+    if (pfctProcessFilesForGetFS) {
+        *pcffTotal += pfsFiles->cffDisplayed;
+    }
 
     if (rc != SUCCESS) {
 
@@ -353,23 +365,11 @@ Return Value:
             // If we are not recursing then do not report error and
             // continue down tree. If not report error back to caller.
             // If are recursing and files must exist at top level then
-            //
-            //
             // removing all printing for cases where we do not
             // continue down tree.
             //
-            if ((!fRecurse) || (fMustExits) ) {
-            //
-            //     //
-            //     // If caller handling individual file not found errors
-            //     // then do not print this summary message for patterns
-            //     //
-            //     if (!pfctPrintErr) {
-            //
-            //         PutStdErr(MSG_FILE_NOT_FOUND, NOARGS);
-            //    }
+            if ((!fRecurse) || (fMustExist) ) {
                 return( rc );
-            //
             }
         }
 
@@ -397,9 +397,6 @@ Return Value:
     //
     // Free up buffer holding files since we no longer need these.
     // Move on to determine if we needed to go to another directory
-    //
-    //
-    // BUGBUG set these to NULL so later frees to refree
     //
     FreeStr((PTCHAR)(pfsFiles->pff));
     pfsFiles->pff = NULL;
@@ -431,9 +428,11 @@ Return Value:
                    pdpr->rgfSwitchs,
                    FILE_ATTRIBUTE_DIRECTORY,
                    FILE_ATTRIBUTE_DIRECTORY,
-				   pdpr->dwTimeType,
-				   pscr,
-                   NULL) != SUCCESS) {
+                   pdpr->dwTimeType,
+                   pscr,
+                   NULL,
+                   NULL
+                 ) != SUCCESS) {
 
             //
             // No directory below
@@ -442,14 +441,14 @@ Return Value:
 
         }
 
-		//
-		// Check for CtrlC again after calling GetFS because
-		// GetFS may have returned failure because CtrlC was hit
-		// inside the GetFS function call
-		//
-	    if (CtrlCSeen) {
-	        return( FAILURE );
-    	}
+                //
+                // Check for CtrlC again after calling GetFS because
+                // GetFS may have returned failure because CtrlC was hit
+                // inside the GetFS function call
+                //
+            if (CtrlCSeen) {
+                return( FAILURE );
+        }
 
         //
         // Increment though the list of directories processing each one
@@ -487,10 +486,6 @@ Return Value:
                 fsFilesNext.fIsFat = pfsFiles->fIsFat;
                 fsFilesNext.pfsNext = NULL;
 
-                //
-                // Note that once we decent 1 level the must exist flag
-                // will have no meaning
-                //
                 rc = DirWalkAndProcess( pfctProcessFiles,
                                         pfctProcessDir,
                                         pscr, pcffTotal, pcbFileTotal,
@@ -509,9 +504,11 @@ Return Value:
                           pdpr->rgfSwitchs,
                           pdpr->rgfAttribs,
                           pdpr->rgfAttribsOnOff,
-						  pdpr->dwTimeType,
-						  pscr,
-                          pfctPrintErr);
+                          pdpr->dwTimeType,
+                          pscr,
+                          pfctPrintErr,
+                          NULL
+                          );
 
                     if (rc != SUCCESS) {
 
@@ -566,25 +563,25 @@ GetFS(
     IN  ULONG   rgfSwitchs,
     IN  ULONG   rgfAttribs,
     IN  ULONG   rgfAttribsOnOff,
-    IN	ULONG   dwTimeType,
+    IN  ULONG   dwTimeType,
     IN  PSCREEN pscr,
-    IN  BOOLEAN (*pfctPrintPatternErr) (STATUS, PTCHAR)
+    IN  BOOLEAN (*pfctPrintPatternErr) (STATUS, PTCHAR),
+    IN  STATUS  (* pfctProcessFileEarly) ( PSCREEN, ULONG, ULONG, PLARGE_INTEGER, PFS, PFF )
     )
 {
 
 
     HANDLE  hndFirst;
     PFF     pffCur;
-    ULONG   cff	= 0;
+    ULONG   cff = 0;
     ULONG   cbfsLim;
-    ULONG   cbfsCur	= 0;
+    ULONG   cbfsCur     = 0;
     ULONG   irgpffCur;
     ULONG   cbT;
     PPATDSC ppatdscCur;
-    ULONG   i;
+    ULONG   i, rc;
     USHORT  cbFileName, cbAlternateFileName;
-    BOOLEAN printEarly;		// decide if filenames should be spit out
-				// early based on dir switches
+    BOOLEAN bPrintedErr;
 
     TCHAR   szSearchPath[MAX_PATH + 2];
 
@@ -596,61 +593,67 @@ GetFS(
     pfsCur->cff = 0;
     pfsCur->cffDisplayed = 0;
     pfsCur->cbFileTotal.QuadPart = 0;
-
-    //
-    // we can't print early for the different format switches because we
-    // don't know the max filename width apriori
-    //
-    printEarly = !(rgfSwitchs & (RECURSESWITCH | WIDEFORMATSWITCH | SORTDOWNFORMATSWITCH | SORTSWITCH));
-
-    //
-    // if we have no screen output, don't print early either
-    // probably a request from del.c
-    //
-    if (pscr == NULL) {
-            printEarly=FALSE;
-    }
-
-
+    bPrintedErr = FALSE;
     for(i = 1, ppatdscCur = pfsCur->ppatdsc;
         i <= pfsCur->cpatdsc;
         i++, ppatdscCur = ppatdscCur->ppatdscNext ) {
 
-		//
-		// Check immediately if a control-c was hit before
-		// doing file I/O (which may take a long time on a slow link)
-		//
-		if (CtrlCSeen) {
-			return(FAILURE);
-		}
+                //
+                // Check immediately if a control-c was hit before
+                // doing file I/O (which may take a long time on a slow link)
+                //
+                if (CtrlCSeen) {
+                        return(FAILURE);
+                }
 
+        if (mystrlen(pfsCur->pszDir) > (MAX_PATH + 2) ) {
+            return( ERROR_BUFFER_OVERFLOW );
+        }
+        
         mystrcpy(szSearchPath, pfsCur->pszDir);
 
         /* don't append '\' if we have a current dir is D:\ */
 
         if (mystrlen(pfsCur->pszDir) != mystrlen(TEXT("D:\\")) ||
             szSearchPath[1] != COLON) {
+
+            if ( (mystrlen(szSearchPath) + mystrlen(TEXT("\\") ) )
+                   > (MAX_PATH + 2) ) {
+                        return( ERROR_BUFFER_OVERFLOW );
+            }
+
+
             mystrcat(szSearchPath, TEXT("\\"));
         }
 //DbgPrint("GetFS: searching for %s in %s\n",ppatdscCur->pszPattern,szSearchPath);
+
+        if ( (mystrlen(szSearchPath) + mystrlen(ppatdscCur->pszPattern) )
+            > (MAX_PATH + 2) ) {
+                 return( ERROR_BUFFER_OVERFLOW );
+        }
+
         mystrcat(szSearchPath, ppatdscCur->pszPattern);
+
         if (SetSearchPath(pfsCur, ppatdscCur, szSearchPath, MAX_PATH + 2) != SUCCESS) {
 
             return( ERROR_BUFFER_OVERFLOW );
         }
 
-	    //
-	    // if it is not the bare format (no header, no tail)
-	    // then display which directory, volume etc.
-    	//
-    	if (printEarly && !(rgfSwitchs & BAREFORMATSWITCH) ) {
+        if (pfctProcessFileEarly) {
+            //
+            // Setting tabs to 0 forces single line output
+            //
+            if (pscr)
+                SetTab(pscr, 0);
 
-		    //
-    		// Setting tabs to 0 forces single line output
-    		//
-    		SetTab(pscr, 0);
-			CHECKSTATUS(DisplayFileListHeader(pscr, rgfSwitchs, pfsCur->pszDir ));
-	    }
+            if (!(rgfSwitchs & (BAREFORMATSWITCH|DELPROCESSEARLY))) {
+                //
+                // if it is not the bare format or del calling (no header, no tail)
+                // then display which directory, volume etc.
+                //
+                CHECKSTATUS(DisplayFileListHeader(pscr, rgfSwitchs, pfsCur->pszDir ));
+            }
+        }
 
         //
         // Fetch all files since we may looking for a file with a attribute that
@@ -669,6 +672,7 @@ GetFS(
 
                 //
                 if (pfctPrintPatternErr) {
+                    bPrintedErr = TRUE;
                     pfctPrintPatternErr(DosErr, szSearchPath);
 
                 }
@@ -699,15 +703,15 @@ GetFS(
 
             do {
 
-		//
-		// Check immediately if a control-c was hit before
-		// doing file I/O (which may take a long time on a slow link)
-		//
+                //
+                // Check immediately if a control-c was hit before
+                // doing file I/O (which may take a long time on a slow link)
+                //
 
-		if (CtrlCSeen) {
+                if (CtrlCSeen) {
                     findclose( hndFirst );
-		    return(FAILURE);
-		}
+                    return(FAILURE);
+                }
 
                 //
                 // Before allowing this entry to be put in the list check it
@@ -728,12 +732,12 @@ GetFS(
                     continue;
                 }
 
-            	//
-            	// Compute the true size of the ff entry and don't forget the zero
-            	// and the DWORD alignment factor.
-            	// Note that pffCur->cb is a USHORT to save space. The
-            	// assumption is that MAX_PATH is quite a bit less then 32k
-            	//
+                //
+                // Compute the true size of the ff entry and don't forget the zero
+                // and the DWORD alignment factor.
+                // Note that pffCur->cb is a USHORT to save space. The
+                // assumption is that MAX_PATH is quite a bit less then 32k
+                //
                 // To compute remove the size of the filename field since it is at MAX_PATH.
                 // also take out the size of the alternative name field
                 // then add back in the actual size of the field plus 1 byte termination
@@ -757,11 +761,11 @@ GetFS(
 
                     pffCur->obAlternate = 0;
                 }
-            	//
-            	// Adjust count to align on DWORD boundaries for mips and risc
-            	// machines
-            	//
-            	pffCur->cb = (USHORT)(((pffCur->cb + sizeof(DWORD)) / sizeof(DWORD)) * sizeof(DWORD));
+                //
+                // Adjust count to align on DWORD boundaries for mips and risc
+                // machines
+                //
+                pffCur->cb = (USHORT)(((pffCur->cb + sizeof(DWORD)) / sizeof(DWORD)) * sizeof(DWORD));
 
                 //
                 // Here we print out the filenames early if a 'dir'
@@ -769,17 +773,23 @@ GetFS(
                 // them out in any wide format.
                 //
 
-                if (printEarly) {
-                    DisplayFile(pscr, rgfSwitchs,
-                                      dwTimeType,
-                                      &pfsCur->cbFileTotal,
-                                      pfsCur->pszDir, // pfsFiles->pszDir,
-                                      pffCur);                // pfsFiles->prgpff[irgpff];
-
-                    pfsCur->cffDisplayed++;
+                if (pfctProcessFileEarly) {
+                    rc = (pfctProcessFileEarly)(pscr,
+                                                rgfSwitchs,
+                                                dwTimeType,
+                                                &pfsCur->cbFileTotal,
+                                                pfsCur,
+                                                pffCur
+                                               );
+                    if (rc == (FAILURE+1)) {
+                        findclose( hndFirst );
+                        return FAILURE;
+                    } else
+                    if (rc == FAILURE)
+                        bPrintedErr = TRUE;
                 }
 
-                if (!printEarly || (pffCur->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                if (!pfctProcessFileEarly || (pffCur->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
                     cff++;
 
                     //
@@ -859,7 +869,7 @@ GetFS(
     //
 
     if (cff || pfsCur->cffDisplayed) {
-        if (!printEarly) {
+        if (!pfctProcessFileEarly) {
             pfsCur->prgpff = (PPFF)gmkstr( sizeof(PFF) * (cff));
             pfsCur->cff = cff;
             pffCur = pfsCur->pff;
@@ -875,7 +885,14 @@ GetFS(
         return( SUCCESS);
 
     }
-    return( ERROR_FILE_NOT_FOUND );
+
+    if (!bPrintedErr) {
+        DosErr = ERROR_FILE_NOT_FOUND;
+        if (pfctPrintPatternErr) {
+            pfctPrintPatternErr(DosErr, szSearchPath);
+        }
+    }
+    return( DosErr );
 
 
 

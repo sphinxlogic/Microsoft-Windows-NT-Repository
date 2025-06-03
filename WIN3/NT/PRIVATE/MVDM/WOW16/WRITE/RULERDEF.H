@@ -50,4 +50,3 @@ ruler. */
 #define rmkDTAB 	4
 #define rmkMAX		5
 
-

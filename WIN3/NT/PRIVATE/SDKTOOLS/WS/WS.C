@@ -117,4 +117,4 @@ char *argv[];
     printf( "WS -w %d,%d -b %d,%d\n", MaxCols, MaxRows, BufferColumns, BufferRows );
     return( 0 );
 }
-
+

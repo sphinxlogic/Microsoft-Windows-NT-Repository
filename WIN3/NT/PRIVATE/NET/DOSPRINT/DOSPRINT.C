@@ -70,7 +70,7 @@ Revision History:
 #include <dosprint.h>   // My prototypes.
 #include <dosprtp.h>    // IF_DEBUG(), some of my prototypes.
 #include <lmapibuf.h>   // NetApiBufferFree(), etc.
-#include <netdebug.h>   // DBGSTATIC, NetpDbgPrint(), etc.
+#include <netdebug.h>   // DBGSTATIC, NetpKdPrint(()), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <stddef.h>     // offsetof().
 #include <string.h>     // memcpy(), strncpy().
@@ -98,14 +98,14 @@ SPLERR SPLENTRY DosPrintQGetInfoA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQGetInfoA(%s, %s, %d, %x, %d, %x)\n",
                 (pszServer!=NULL) ? pszServer : "(local)",
                 (pszQueueName!=NULL) ? pszQueueName : "(missing)",
                 uLevel,
                 pbBuf,
                 cbBuf,
-                pcbNeeded);
+                pcbNeeded));
     }
 
     QueueNameW = NetpAllocWStrFromStr( pszQueueName );
@@ -165,10 +165,10 @@ SPLERR SPLENTRY DosPrintQGetInfoA(
 
         if (rc == ERROR_MORE_DATA)
         {
-            *pcbNeeded = cbBufW ;   // Unicode call succeeded but no room to go
+            *pcbNeeded = (USHORT)cbBufW ; // Unicode call succeeded but no room to go
                                     // Ansi. we know the Unicode buffer size is
                                     // definitely good enough. This is temporary
-				    // fix. 
+				    // fix.
         }
     }
 
@@ -202,14 +202,14 @@ SPLERR SPLENTRY DosPrintJobGetInfoA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintJobGetInfoA(" FORMAT_LPSTR ", %d, %d, %x, %d, %x)\n",
                 pszServer ? pszServer : "(local)",
                 uJobId,
                 uLevel,
                 pbBuf,
                 cbBuf,
-                pcbNeeded);
+                pcbNeeded));
     }
 
     if (pszServer && *pszServer) {
@@ -283,7 +283,7 @@ SPLERR SPLENTRY DosPrintJobDelA(
     }
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT "DosPrintJobDelA...\n" );
+        NetpKdPrint((PREFIX_DOSPRINT "DosPrintJobDelA...\n" ));
     }
 
     rc = DosPrintJobDelW( ServerNameW, uJobId );
@@ -314,7 +314,7 @@ SPLERR SPLENTRY DosPrintJobContinueA(
     }
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT "DosPrintJobContinueA(%d)\n", uJobId);
+        NetpKdPrint((PREFIX_DOSPRINT "DosPrintJobContinueA(%d)\n", uJobId));
     }
 
     rc = DosPrintJobContinueW( ServerNameW, uJobId );
@@ -345,10 +345,10 @@ SPLERR SPLENTRY DosPrintJobPauseA(
     }
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint( PREFIX_DOSPRINT
+        NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintJobPauseA(" FORMAT_LPSTR ", %d)\n",
                 pszServer ? pszServer : "(local)",
-                uJobId);
+                uJobId));
     }
 
     rc = DosPrintJobPauseW( ServerNameW, uJobId );
@@ -378,10 +378,10 @@ SPLERR SPLENTRY DosPrintJobEnumA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintJobEnumA(" FORMAT_LPSTR ", %s, %d, %x, %d, %x, %x)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName, uLevel, pbBuf, cbBuf, pcReturned, pcTotal);
+                pszQueueName, uLevel, pbBuf, cbBuf, pcReturned, pcTotal));
     }
 
     QueueNameW = NetpAllocWStrFromStr( pszQueueName );
@@ -467,10 +467,10 @@ DosPrintDestEnumA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint( PREFIX_DOSPRINT
+        NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintDestEnumA(" FORMAT_LPSTR ", %d, %x, %d, %x, %x)\n",
                 (pszServer!=NULL) ? pszServer : "(local)",
-                uLevel, pbBuf, cbBuf, pcReturned, pcTotal);
+                uLevel, pbBuf, cbBuf, pcReturned, pcTotal));
     }
 
     if (pszServer && *pszServer) {
@@ -541,10 +541,10 @@ SPLERR SPLENTRY DosPrintDestControlA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintDestEnumA(" FORMAT_LPSTR ", %s, %d)\n",
                 pszServer ? pszServer : "(local)",
-                pszDevName, uControl);
+                pszDevName, uControl));
     }
 
     if (pszServer && *pszServer) {
@@ -591,14 +591,14 @@ SPLERR SPLENTRY DosPrintDestGetInfoA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintDestGetInfoA(" FORMAT_LPSTR ", %s, %d, %x, %d, %x)\n",
                 pszServer ? pszServer : "(local)",
                 pszName,
                 uLevel,
                 pbBuf,
                 cbBuf,
-                pcbNeeded);
+                pcbNeeded));
     }
     if (pszServer && *pszServer) {
         ServerNameW = NetpAllocWStrFromStr( pszServer );
@@ -676,10 +676,10 @@ SPLERR SPLENTRY DosPrintDestAddA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint( PREFIX_DOSPRINT
+        NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintDestAddA(" FORMAT_LPSTR ", %d, %x, %d)\n",
                 pszServer ? pszServer : "(local)",
-                uLevel, pbBuf, cbBuf);
+                uLevel, pbBuf, cbBuf));
     }
 
     if (pszServer && *pszServer) {
@@ -751,14 +751,14 @@ SPLERR SPLENTRY DosPrintDestSetInfoA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint( PREFIX_DOSPRINT
+        NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintDestSetInfoA(" FORMAT_LPSTR ", %s, %d, %x, %d, %d)\n",
                 pszServer ? pszServer : "(local)",
                 pszName,
                 uLevel,
                 pbBuf,
                 cbBuf,
-                uParmNum);
+                uParmNum));
     }
 
     if (pszServer && *pszServer) {
@@ -833,10 +833,10 @@ SPLERR SPLENTRY DosPrintDestDelA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintDestDelA(" FORMAT_LPSTR ", %s)\n",
                 pszServer ? pszServer : "(local)",
-                pszPrinterName);
+                pszPrinterName));
     }
 
     if (pszServer && *pszServer) {
@@ -882,10 +882,10 @@ SPLERR SPLENTRY DosPrintQEnumA(
     LPVOID  TempBufferW = NULL;  // queue structure with UNICODE strings.
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQEnumA(" FORMAT_LPSTR ", %d, %x, %d, %x, %x)\n",
                 pszServer ? pszServer : "(local)",
-                uLevel, pbBuf, cbBuf, pcReturned, pcTotal);
+                uLevel, pbBuf, cbBuf, pcReturned, pcTotal));
     }
 
     if (pszServer && *pszServer) {
@@ -938,7 +938,7 @@ Cleanup:
 #if DBG
     IF_DEBUG( DOSPRINT ) {
         if (rc == NO_ERROR) {
-            NetpDbgPrint(PREFIX_DOSPRINT "DosPrintQEnumA: returning array:\n" );
+            NetpKdPrint((PREFIX_DOSPRINT "DosPrintQEnumA: returning array:\n" ));
             NetpDbgDisplayPrintQArray(
                     uLevel,
                     pbBuf,
@@ -976,10 +976,10 @@ SPLERR SPLENTRY DosPrintQSetInfoA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQSetInfoA(" FORMAT_LPSTR ", %s, %d, %x, %d, %d)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName, uLevel, pbBuf, cbBuf, uParmNum);
+                pszQueueName, uLevel, pbBuf, cbBuf, uParmNum));
     }
 
     if (pszServer && *pszServer) {
@@ -1053,10 +1053,10 @@ SPLERR SPLENTRY DosPrintQPauseA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQPauseA(" FORMAT_LPSTR ", %s)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName);
+                pszQueueName));
     }
 
     if (pszServer && *pszServer) {
@@ -1095,10 +1095,10 @@ SPLERR SPLENTRY DosPrintQContinueA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQContinueA(" FORMAT_LPSTR ", %s)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName);
+                pszQueueName));
     }
 
     if (pszServer && *pszServer) {
@@ -1137,10 +1137,10 @@ SPLERR SPLENTRY DosPrintQPurgeA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQPurgeA(" FORMAT_LPSTR ", %s)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName);
+                pszQueueName));
     }
 
     if (pszServer && *pszServer) {
@@ -1183,10 +1183,10 @@ SPLERR SPLENTRY DosPrintQAddA(
     LPVOID  TempBufferW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQAddA(" FORMAT_LPSTR ", %d, %x, %d)\n",
                 pszServer ? pszServer : "(local)",
-                uLevel, pbBuf, cbBuf);
+                uLevel, pbBuf, cbBuf));
     }
 
     if (pszServer && *pszServer) {
@@ -1249,10 +1249,10 @@ SPLERR SPLENTRY DosPrintQDelA(
     LPWSTR  ServerNameW = NULL;
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint(PREFIX_DOSPRINT
+        NetpKdPrint((PREFIX_DOSPRINT
                 "DosPrintQDelA(" FORMAT_LPSTR " , %s)\n",
                 pszServer ? pszServer : "(local)",
-                pszQueueName);
+                pszQueueName));
     }
 
     if (pszServer && *pszServer) {
@@ -1297,14 +1297,14 @@ SPLERR SPLENTRY DosPrintJobSetInfoA(
     LPVOID  TempBufferW = NULL;  // job structure with UNICODE strings.
 
     IF_DEBUG( DOSPRINT ) {
-        NetpDbgPrint( PREFIX_DOSPRINT
+        NetpKdPrint(( PREFIX_DOSPRINT
                 "DosPrintJobSetInfoA(" FORMAT_LPSTR ":, %d, %d, %x, %d, %d)\n",
                 pszServer ? pszServer : "(local)",
                 uJobId,
                 uLevel,
                 pbBuf,
                 cbBuf,
-                uParmNum);
+                uParmNum));
     }
 
     if (pszServer && *pszServer) {

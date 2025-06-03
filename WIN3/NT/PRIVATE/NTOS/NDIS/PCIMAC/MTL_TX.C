@@ -1,9 +1,9 @@
-/*
+ /*
  * MTL_TX.C - trasmit side processing for MTL
  */
 
 #include	<ndis.h>
-#include	<ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -15,33 +15,59 @@
 #include    <mtl.h>
 #include	<cm.h>
 
-
-
+extern DRIVER_BLOCK	Pcimac;
 
 /* local prototypes */
-INT         	mtl__txq_empty(MTL* mtl);
-VOID        	mtl__txq_add(MTL* mtl, NDIS_WAN_PACKET* pkt);
-NDIS_WAN_PACKET *mtl__txq_get(MTL* mtl);
-VOID			mtl__tx_proc(MTL* mtl);
-INT         	mtl__tx_frags(MTL* mtl);
-VOID			FreeLocalPktDescriptor(MTL *mtl, MTL_TX_PKT *tx_pkt);
-MTL_TX_PKT*		GetLocalPktDescriptor(MTL *mtl);
+BOOLEAN			IsWanPacketTxFifoEmpty(MTL*);
+VOID			AddToWanPacketTxFifo(MTL*, NDIS_WAN_PACKET*);
+MTL_TX_PKT*		GetLocalTxDescriptor(MTL*);
+VOID			FreeLocalTxDescriptor(MTL*, MTL_TX_PKT*);
+VOID			TryToXmitFrags(MTL*);
+VOID			SetTxDescriptorInWanPacket(MTL*,NDIS_WAN_PACKET*,MTL_TX_PKT*);
+VOID			CheckWanPacketTimeToLive(MTL *mtl);
+VOID			ReleaseTxDescriptor(MTL *mtl, MTL_TX_PKT *MtlTxPacket);
 
-/* transmit a packet */
-VOID
-mtl_tx_packet(MTL *mtl, NDIS_WAN_PACKET *pkt)
-{
-	ADAPTER	*Adapter = mtl->Adapter;
-	CM	*cm = (CM*)mtl->cm;
+#define	IsWanPacketMarkedForCompletion(_WanPacket) \
+	((_WanPacket)->MacReserved2 == (PVOID)TRUE)
 
-    D_LOG(D_ENTRY, ("mtl_tx_packet: entry, mtl: 0x%p, pkt: 0x%p", mtl, pkt));
+#define ClearTxDescriptorInWanPacket(_WanPacket)	\
+	(_WanPacket)->MacReserved1 = (PVOID)NULL
 
-    /* first, the packet is queued */
-    mtl__txq_add(mtl, pkt);
+#define ClearReadyToCompleteInWanPacket(_WanPacket)	\
+	(_WanPacket)->MacReserved2 = (PVOID)NULL
 
-    /* next attempt to process tx queue */
-	mtl__tx_proc(mtl);
+#define SetTimeToLiveInWanPacket(_WanPacket, _TimeOut)	\
+	(_WanPacket)->MacReserved3 = (PVOID)_TimeOut
+
+#define DecrementTimeToLiveForWanPacket(_WanPacket, _Decrement) \
+	(ULONG)((_WanPacket)->MacReserved3) -= (ULONG)_Decrement
+
+#define GetWanPacketTimeToLive(_WanPacket)	\
+	(ULONG)((_WanPacket)->MacReserved3)
+
+#define GetTxDescriptorFromWanPacket(_WanPacket)	\
+	((MTL_TX_PKT*)((_WanPacket)->MacReserved1))
+
+#define	MarkWanPacketForCompletion(_WanPacket)	\
+	(_WanPacket)->MacReserved2 = (PVOID)TRUE
+
+#define	SetTxDescriptorInWanPacket(_WanPacket, _TxDescriptor)	\
+	(_WanPacket)->MacReserved1 = (PVOID)_TxDescriptor
+
+#define	IncrementGlobalCount(_Counter)		\
+{											\
+	NdisAcquireSpinLock(&Pcimac.lock);	\
+	_Counter++;									\
+	NdisReleaseSpinLock(&Pcimac.lock);	\
 }
+
+ULONG	GlobalSends = 0;
+ULONG	GlobalSendsCompleted = 0;
+ULONG	MtlSends1 = 0;
+ULONG	MtlSends2 = 0;
+ULONG	MtlSends3 = 0;
+ULONG	MtlSends4 = 0;
+ULONG	MtlSends5 = 0;
 
 /* trasmit side timer tick */
 VOID
@@ -49,480 +75,992 @@ mtl__tx_tick(MTL *mtl)
 {
     D_LOG(D_NEVER, ("mtl__tx_tick: entry, mtl: 0x%p", mtl));
 
-    /* call processing routine */
-    mtl__tx_proc(mtl);
+	NdisAcquireSpinLock(&mtl->lock);
+
+	//
+	// try to transmit frags to the adapter
+	//
+	TryToXmitFrags(mtl);
+
+	//
+	// Check time to live on wan packet tx fifo
+	//
+	CheckWanPacketTimeToLive(mtl);
+
+	NdisReleaseSpinLock(&mtl->lock);
+
 }
 
-/* tx side processing routine */
 VOID
-mtl__tx_proc(MTL *mtl)
+MtlSendCompleteFunction(
+	ADAPTER	*Adapter
+	)
 {
-    INT             msg_left;
-    NDIS_WAN_PACKET  *pkt;
-    UINT            pkt_len;
-    UCHAR           *ptr;
-    MTL_TX_PKT      *tx_pkt;
-    MTL_HDR         hdr;
-    UINT            bytes, left, frag_len, frag;
-    MTL_CHAN        *chan;
+	ULONG	n;
+		
+	for ( n = 0; n < MAX_MTL_PER_ADAPTER; n++)
+	{
+		MTL	*mtl = Adapter->MtlTbl[n] ;
+
+		if (mtl && !IsWanPacketTxFifoEmpty(mtl))
+		{
+			//
+			// try to complete any wan packets ready for completion
+			//
+			IndicateTxCompletionToWrapper(mtl);
+		}
+	}
+}
+
+//
+// process a wan packet for transmition to idd level
+//
+// all packets will stay on one queue and the MacReserved fields will be used
+// to indicate what state the packet is in
+//
+// we will use the MacReserved fields provided in the NdisWanPacket as follows:
+//
+// MacReserved1 - Store a pointer to our local tx descriptor
+// MacReserved2 - This will be a boolean flag that will be set when this packet
+//                can be completed (NdisMWanSendComplete)
+// MacReserved3 - This will be the time to live counter for the wanpacket.
+//                If it is not completed we will go ahead and complete it.
+//
+// MacReserved4
+//
+VOID
+mtl__tx_packet(
+	MTL *mtl,
+	NDIS_WAN_PACKET *WanPacket
+	)
+{
+	UINT			BytesLeftToTx, FragDataLength, FragNumber, FragSize;
+    UINT			TotalPacketLength;
+    UCHAR           *FragDataPtr;
+    MTL_TX_PKT      *MtlTxPacket;
+    MTL_HDR         MtlHeader;
 	USHORT			TxFlags;
 	ADAPTER			*Adapter = mtl->Adapter;
 	PUCHAR			MyStartBuffer;
 	CM				*cm = (CM*)mtl->cm;
 
-    /* get tx sema */
-    if ( !sema_get(&mtl->tx_sema) )
-        return;
+    D_LOG(D_ENTRY, ("mtl_tx_packet: entry, mtl: 0x%p, WanPacket: 0x%p", mtl, WanPacket));
 
-	NdisAcquireSpinLock (&mtl->lock);
+	NdisAcquireSpinLock(&mtl->lock);
 
-    D_LOG(D_RARE, ("mtl__tx_proc: entry, mtl: 0x%p", mtl));
+	IncrementGlobalCount(GlobalSends);
 
-    /* step 1: check if fragment messages waiting to be sent */
-    if ( msg_left = mtl__tx_frags(mtl) )
-    {
-        D_LOG(D_ALWAYS, ("mtl__tx_proc: %d message left to tx", msg_left));
-        goto exit_code;
-    }
+	//
+	// queue up the wanpacket
+	//
+	AddToWanPacketTxFifo(mtl, WanPacket);
 
-    /* step 2: loop while packets waiting on queue && a free packet exist */
-    while ( !IsListEmpty(&mtl->tx_fifo.head) )
-    {
+	//
+	// get a local packet descriptor
+	//
+	MtlTxPacket = GetLocalTxDescriptor(mtl);
 
-		//
-		// get a local packet descriptor
-		//
-		tx_pkt = GetLocalPktDescriptor(mtl);
-
-		//
-		// make sure this is a valid descriptor
-		//
-		if (!tx_pkt)
-		{
-            D_LOG(D_ALWAYS, ("mtl__tx_proc: Got a NULL Packet off of Local Descriptor Free List"));
-			goto exit_code;
-		}
-
-        /* step 3: get packet */
-        pkt = mtl__txq_get(mtl);
+	//
+	// make sure this is a valid descriptor
+	//
+	if (!MtlTxPacket)
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: Got a NULL Packet off of Local Descriptor Free List"));
 
 		//
-		// make sure this is a valid packet
+		// grab wan packet fifo lock
 		//
-		if (!pkt)
-		{
-            D_LOG(D_ALWAYS, ("mtl__tx_proc: Got a NULL Packet off of TxQ"));
+		NdisAcquireSpinLock(&mtl->WanPacketFifo.lock);
 
-			FreeLocalPktDescriptor(mtl, tx_pkt);
+		MarkWanPacketForCompletion(WanPacket);
 
-			continue;
-		}
+		//
+		// release the wan packet fifo lock
+		//
+		NdisReleaseSpinLock(&mtl->WanPacketFifo.lock);
 
-        /* if not connected, give up */
-        if ( !mtl->is_conn || cm->PPPToDKF)
-        {
-            D_LOG(D_ALWAYS, ("mtl__tx_proc: packet on non-connected mtl, ignored"));
+		goto exit_code;
+	}
 
-			FreeLocalPktDescriptor(mtl, tx_pkt);
+	//
+	// grab wan packet fifo lock
+	//
+	NdisAcquireSpinLock(&mtl->WanPacketFifo.lock);
 
-			//
-			// complete wan packet
-			//
-			NdisMWanSendComplete(Adapter->AdapterHandle, pkt, NDIS_STATUS_SUCCESS);
+	SetTxDescriptorInWanPacket(WanPacket, MtlTxPacket);
 
-			continue;
-        }
+	//
+	// release the wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&mtl->WanPacketFifo.lock);
 
-		D_LOG(D_ALWAYS, ("mtl__tx_proc: WanPkt: 0x%p, WanPktLen: %d", pkt, pkt->CurrentLength));
+	//
+	// grab the descriptor lock
+	//
+	NdisAcquireSpinLock(&MtlTxPacket->lock);
+
+	IncrementGlobalCount(MtlSends1);
+
+	/* if not connected, give up */
+	if ( !mtl->is_conn || cm->PPPToDKF)
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: packet on non-connected mtl, ignored"));
+	
+		IncrementGlobalCount(MtlSends2);
+
+		goto xmit_error;
+	}
+
+	D_LOG(D_ALWAYS, ("mtl__tx_proc: LocalPkt: 0x%p, WanPkt: 0x%p, WanPktLen: %d", MtlTxPacket, WanPacket, WanPacket->CurrentLength));
 		
+	//
+	// get length of wan packet
+	//
+	TotalPacketLength = WanPacket->CurrentLength;
+
+	//
+	// my start buffer is WanPacket->CurrentBuffer - 14
+	//
+	MyStartBuffer = WanPacket->CurrentBuffer - 14;
+
+	if (mtl->SendFramingBits & RAS_FRAMING)
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit WrapperFrameType: RAS"));
+
+		// add dest eaddr
+		// StartBuffer + 0
 		//
-		// get length of wan packet
+		NdisMoveMemory (MyStartBuffer + DST_ADDR_INDEX,
+						cm->DstAddr,
+						6);
+			
 		//
-		pkt_len = pkt->CurrentLength;
+		// add source eaddr
+		// StartBuffer + 6
+		//
+		NdisMoveMemory (MyStartBuffer + SRC_ADDR_INDEX,
+						cm->SrcAddr,
+						6);
+			
+		//
+		// add new length to buffer
+		// StartBuffer + 12
+		//
+		MyStartBuffer[12] = TotalPacketLength >> 8;
+		MyStartBuffer[13] = TotalPacketLength & 0xFF;
+			
+		//
+		// data now begins at MyStartBuffer
+		//
+		MtlTxPacket->frag_buf = MyStartBuffer;
 
 		//
-		// my start buffer is pkt->currentbuffer - 14
+		// new transmit length is a mac header larger
 		//
-		MyStartBuffer = pkt->CurrentBuffer - 14;
+		TotalPacketLength += 14;
+	}
+	else if (mtl->SendFramingBits & PPP_FRAMING)
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit WrapperFrameType: PPP"));
 
-		if (mtl->SendFramingBits & RAS_FRAMING)
+		//
+		// data now begins at CurrentBuffer
+		//
+		MtlTxPacket->frag_buf = WanPacket->CurrentBuffer;
+	}
+	else
+	{
+		//
+		// unknown framing - what to do what to do
+		//
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: Packet sent with uknown framing, ignored"));
+
+		IncrementGlobalCount(MtlSends3);
+
+		goto xmit_error;
+	}
+		
+		
+	if (TotalPacketLength > MTL_MAC_MTU)
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: packet too long, TotalPacketLength: %d", TotalPacketLength));
+
+		IncrementGlobalCount(MtlSends4);
+
+		goto xmit_error;
+	}
+		
+	/* step 4: calc number of fragments */
+	D_LOG(D_ALWAYS, ("mtl__tx_proc: calc frag num, TotalPacketLength: %d", TotalPacketLength));
+		
+	MtlTxPacket->NumberOfFrags = (USHORT)(TotalPacketLength / mtl->chan_tbl.num / mtl->idd_mtu);
+		
+	if ( TotalPacketLength != (USHORT)(MtlTxPacket->NumberOfFrags * mtl->chan_tbl.num * mtl->idd_mtu) )
+		MtlTxPacket->NumberOfFrags++;
+		
+	MtlTxPacket->NumberOfFrags *= mtl->chan_tbl.num;
+		
+	if ( MtlTxPacket->NumberOfFrags > MTL_MAX_FRAG )
+	{
+		D_LOG(D_ALWAYS, ("mtl__tx_proc: pkt has too many frags, NumberOfFrags: %d", \
+															MtlTxPacket->NumberOfFrags));
+
+		IncrementGlobalCount(MtlSends5);
+
+		goto xmit_error;
+	}
+
+	D_LOG(D_ALWAYS, ("mtl__tx_proc: NumberOfFrags: %d", MtlTxPacket->NumberOfFrags));
+
+	/* step 5: build generic header */
+	if (mtl->IddTxFrameType & IDD_FRAME_DKF)
+	{
+		MtlHeader.sig_tot = MtlTxPacket->NumberOfFrags | 0x50;
+		MtlHeader.seq = (UCHAR)(mtl->tx_tbl.seq++);
+		MtlHeader.ofs = 0;
+	}
+		
+	/* step 6: build fragments */
+
+	//
+	// bytes left to send is initially the packet size
+	//
+	BytesLeftToTx = TotalPacketLength;
+
+	//
+	// FragDataPtr initially points to begining of frag buffer
+	//
+	FragDataPtr = MtlTxPacket->frag_buf;
+
+	//
+	// initial txflags are for a complete frame
+	//
+	TxFlags = 0;
+
+	for ( FragNumber = 0 ; FragNumber < MtlTxPacket->NumberOfFrags ; FragNumber++ )
+	{
+		MTL_TX_FRAG	*FragPtr = &MtlTxPacket->frag_tbl[FragNumber];
+		IDD_MSG		*FragMsg = &FragPtr->frag_msg;
+		MTL_CHAN	*chan;
+
+		/* if it's first channel, establish next fragment size */
+		if ( !(FragNumber % mtl->chan_tbl.num) )
+			FragSize = MIN((BytesLeftToTx / mtl->chan_tbl.num), mtl->idd_mtu);
+
+		/* establish related channel */
+		chan = mtl->chan_tbl.tbl + (FragNumber % mtl->chan_tbl.num);
+		
+		/* calc size of this fragment */
+		if ( FragNumber == (USHORT)(MtlTxPacket->NumberOfFrags - 1) )
+			FragDataLength = BytesLeftToTx;
+		else
+			FragDataLength = FragSize;
+		
+		D_LOG(D_ALWAYS, ("mtl__proc_tx: FragNumber: %d, FragDataPtr: 0x%p, FragLength: %d", \
+										FragNumber, FragDataPtr, FragDataLength));
+
+		if (mtl->IddTxFrameType & IDD_FRAME_DKF)
 		{
-			D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit WrapperFrameType: RAS"));
+			DKF_FRAG	*DkfFrag = &FragPtr->DkfFrag;
+			IDD_FRAG	*IddFrag0 = &DkfFrag->IddFrag[0];
+			IDD_FRAG	*IddFrag1 = &DkfFrag->IddFrag[1];
 
-			// add dest eaddr
-			// StartBuffer + 0
-			//
-			NdisMoveMemory (MyStartBuffer + DST_ADDR_INDEX,
-							cm->DstAddr,
-							6);
-			
-			//
-			// add source eaddr
-			// StartBuffer + 6
-			//
-			NdisMoveMemory (MyStartBuffer + SRC_ADDR_INDEX,
-							cm->SrcAddr,
-							6);
-			
-			//
-			// add new length to buffer
-			// StartBuffer + 12
-			//
-			MyStartBuffer[12] = pkt_len >> 8;
-			MyStartBuffer[13] = pkt_len & 0xFF;
-			
-			//
-			// data now begins at MyStartBuffer
-			//
-			tx_pkt->frag_buf = MyStartBuffer;
+			D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit IddFrameType: DKF"));
 
 			//
-			// new transmit length is a mac header larger
+			// setup fragment descriptor for DKF data
 			//
-			pkt_len += 14;
-		}
-		else if (mtl->SendFramingBits & PPP_FRAMING)
-		{
-			D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit WrapperFrameType: PPP"));
+			/* setup fragment header */
+			DkfFrag->MtlHeader = MtlHeader;
+		
+			/* set pointer to header */
+			IddFrag0->len = sizeof(MTL_HDR);
+			IddFrag0->ptr = (CHAR*)(&DkfFrag->MtlHeader);
+		
+			/* set pointer to data */
+			IddFrag1->len = FragDataLength;
+			IddFrag1->ptr = FragDataPtr;
+
 			//
-			// data now begins at CurrentBuffer
+			// fill idd message
 			//
-			tx_pkt->frag_buf = pkt->CurrentBuffer;
+			FragMsg->buflen = sizeof(DKF_FRAG) | TX_FRAG_INDICATOR;
+
+			//
+			// this assumes that the DKF_FRAG structure is the first
+			// member of the MTL_TX_FRAG structure !!!!!
+			//
+			FragMsg->bufptr = (UCHAR*)FragPtr;
 		}
 		else
 		{
+			D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit IddFrameType: PPP"));
 			//
-			// unknown framing - what to do what to do
+			// setup fragment descriptor for ppp frame
 			//
-            D_LOG(D_ALWAYS, ("mtl__tx_proc: Packet sent with uknown framing, ignored"));
 
-			//
-			// return local packet descriptor to free list
-			//
-			FreeLocalPktDescriptor(mtl, tx_pkt);
-
-			//
-			// complete wan packet
-			//
-			NdisMWanSendComplete(Adapter->AdapterHandle, pkt, NDIS_STATUS_SUCCESS);
-
-			continue;
-		}
-		
-		
-		if (pkt_len > MTL_MAC_MTU)
-		{
-			D_LOG(D_ALWAYS, ("mtl__tx_proc: packet too long, pkt_len: 0x%x", pkt_len));
-		
-			/* complete packet */
-			give_up:
-
-			//
-			// return local packet descriptor to free list
-			//
-			FreeLocalPktDescriptor(mtl, tx_pkt);
-
-			NdisMWanSendComplete(Adapter->AdapterHandle, pkt, NDIS_STATUS_SUCCESS);
-		
-			/* go process next packet */
-			continue;
-		}
-		
-
-//
-// lets not do any padding for now
-//		/* step 3.5 - pad packet to 60 bytes */
-//		if ( pkt_len < 60 )
-//			pkt_len = 60;
-//		
-//		
-		/* step 4: calc number of fragments */
-		D_LOG(D_ALWAYS, ("mtl__tx_proc: calc frag num, pkt_len: %d", pkt_len));
-		
-		tx_pkt->frag_num = pkt_len / mtl->chan_tbl.num / mtl->idd_mtu;
-		
-		if ( pkt_len != (USHORT)(tx_pkt->frag_num * mtl->chan_tbl.num * mtl->idd_mtu) )
-			tx_pkt->frag_num++;
-		
-		tx_pkt->frag_num *= mtl->chan_tbl.num;
-		
-		if ( tx_pkt->frag_num > MTL_MAX_FRAG )
-		{
-			D_LOG(D_ALWAYS, ("mtl__tx_proc: pkt has too many frags, frag_num: %d", \
-																tx_pkt->frag_num));
-		
-			goto give_up;
-		}
-		D_LOG(D_ALWAYS, ("mtl__tx_proc: frag_num: %d", tx_pkt->frag_num));
-
-		/* step 5: build generic header */
-		if (mtl->IddTxFrameType & IDD_FRAME_DKF)
-		{
-			hdr.sig_tot = tx_pkt->frag_num | 0x50;
-			hdr.seq = (UCHAR)(mtl->tx_tbl.seq++);
-			hdr.ofs = 0;
-		}
-		
-		/* step 6: build fragments */
-
-		//
-		// bytes left to send is initially the packet size
-		//
-		left = pkt_len;
-
-		//
-		// ptr initially points to begining of frag buffer
-		//
-		ptr = tx_pkt->frag_buf;
-
-		//
-		// initial txflags are for a complete frame
-		//
-		TxFlags = 0;
-
-		for ( frag = 0 ; frag < tx_pkt->frag_num ; frag++ )
-		{
-			/* if it's fisrt channel, establish next fragment size */
-			if ( !(frag % mtl->chan_tbl.num) )
-				frag_len = MIN((left / mtl->chan_tbl.num), mtl->idd_mtu);
-
-			/* establish related channel */
-			chan = mtl->chan_tbl.tbl + (frag % mtl->chan_tbl.num);
-		
-			/* calc size of this fragment */
-			if ( frag == (USHORT)(tx_pkt->frag_num - 1) )
-				bytes = left;
-			else
-				bytes = frag_len;
-		
-			D_LOG(D_ALWAYS, ("mtl__proc_tx: frag: %d, ptr: 0x%p, bytes: %d", \
-											frag, ptr, bytes));
-
-			if (mtl->IddTxFrameType & IDD_FRAME_DKF)
+			if (BytesLeftToTx <= mtl->idd_mtu )
 			{
-				D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit IddFrameType: DKF"));
 				//
-				// setup fragment descriptor for DKF data
+				// if all that is left can be sent this is the end
 				//
-				/* setup fragment header */
-				tx_pkt->frag_tbl[frag].hdr = hdr;
-		
-				/* set pointer to header */
-				tx_pkt->frag_tbl[frag].frag[0].len = sizeof(MTL_HDR);
-				tx_pkt->frag_tbl[frag].frag[0].ptr = (CHAR*)(&tx_pkt->frag_tbl[frag].hdr);
-		
-				/* set pointer to data */
-				tx_pkt->frag_tbl[frag].frag[1].len = bytes;
-				tx_pkt->frag_tbl[frag].frag[1].ptr = ptr;
-
-				//
-				// fill idd message
-				//
-				mtl->tx_tbl.frag_msg[frag].buflen = sizeof(tx_pkt->frag_tbl[frag].frag) | TX_FRAG_INDICATOR;
-				mtl->tx_tbl.frag_msg[frag].bufptr = (CHAR*)(tx_pkt->frag_tbl[frag].frag);
+				FragMsg->buflen = FragDataLength | TxFlags;
 			}
 			else
 			{
-				D_LOG(D_ALWAYS, ("mtl__tx_proc: Transmit IddFrameType: PPP"));
 				//
-				// setup fragment descriptor for ppp frame
+				// if there is still more this is not end
 				//
-
-				if (left <= mtl->idd_mtu )
-				{
-					//
-					// if all that is left can be sent this is the end
-					//
-					mtl->tx_tbl.frag_msg[frag].buflen = bytes | TxFlags;
-				}
-				else
-				{
-					//
-					// if there is still more this is not end
-					//
-					mtl->tx_tbl.frag_msg[frag].buflen = bytes | TxFlags | H_TX_N_END;
-				}
-
-				//
-				// setup data pointer
-				//
-				mtl->tx_tbl.frag_msg[frag].bufptr = (CHAR*)ptr;
+				FragMsg->buflen = FragDataLength | TxFlags | H_TX_N_END;
 			}
 
-			mtl->tx_tbl.frag_idd[frag] = chan->idd;
-			mtl->tx_tbl.frag_bchan[frag] = chan->bchan;
-			mtl->tx_tbl.frag_arg[frag] = tx_pkt;
-		
-			/* update variables */
-			TxFlags = H_TX_N_BEG;
-			left -= bytes;
-			ptr += bytes;
-			hdr.ofs += bytes;
+			//
+			// setup data pointer
+			//
+			FragMsg->bufptr = (UCHAR*)FragDataPtr;
 		}
-		
-		/* step 7: setup more fields */
-		tx_pkt->pkt = pkt;
-		tx_pkt->ref_count = tx_pkt->frag_num;
-		tx_pkt->mtl = mtl;
-		
-		mtl->tx_tbl.frag_num = tx_pkt->frag_num;
-		mtl->tx_tbl.frag_sent = 0;
-		
-		/* step 8: make an attempt to sent this packet */
-		if ( msg_left = mtl__tx_frags(mtl) )
-		{
-			D_LOG(D_ALWAYS, ("mtl__tx_proc: %d messages left to tx", msg_left));
-			goto exit_code;
-		}
-	
-    }
 
-    /* exit code, release lock & return */
+		FragPtr->FragSent = 0;
+		FragPtr->frag_idd = chan->idd;
+		FragPtr->frag_bchan = chan->bchan;
+		FragPtr->frag_arg = MtlTxPacket;
+		
+		/* update variables */
+		TxFlags = H_TX_N_BEG;
+		BytesLeftToTx -= FragDataLength;
+		FragDataPtr += FragDataLength;
+		MtlHeader.ofs += FragDataLength;
+	}
+	/* step 7: setup more fields */
+	MtlTxPacket->WanPacket = WanPacket;
+	MtlTxPacket->FragReferenceCount = MtlTxPacket->NumberOfFrags;
+	MtlTxPacket->mtl = mtl;
+	MtlTxPacket->NumberOfFragsSent = 0;
+
+	mtl->FramesXmitted++;
+	mtl->BytesXmitted += TotalPacketLength;
+
+	//
+	// release the lock befor xmitting
+	//
+	NdisReleaseSpinLock(&MtlTxPacket->lock);
+
+	//
+	// put this tx descriptor on list for transmition
+	//
+	NdisAcquireSpinLock(&mtl->tx_tbl.lock);
+
+	InsertTailList(&mtl->tx_tbl.head, &MtlTxPacket->TxPacketQueue);
+
+	NdisReleaseSpinLock(&mtl->tx_tbl.lock);
+
+	//
+	// Try to xmit some frags
+	//
+	TryToXmitFrags(mtl);
+
+	goto exit_code;
+
+	//
+	// error while setting up for transmition
+	//
+	xmit_error:
+
+	ClearTxDescriptorInWanPacket(WanPacket);
+
+	//
+	// free tx descriptor
+	//
+	FreeLocalTxDescriptor(mtl, MtlTxPacket);
+
+	//
+	// free descriptors lock
+	//
+	NdisReleaseSpinLock(&MtlTxPacket->lock);
+
+	//
+	// grab wan packet fifo lock
+	//
+	NdisAcquireSpinLock(&mtl->WanPacketFifo.lock);
+
+	//
+	// mark wan packet for completion
+	//
+	MarkWanPacketForCompletion(WanPacket);
+
+	//
+	// release the wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&mtl->WanPacketFifo.lock);
+
+	//
+	// exit code
+	// release spinlock and return
+	//
     exit_code:
 
 	NdisReleaseSpinLock(&mtl->lock);
-
-    sema_free(&mtl->tx_sema);
-
-	return;
 }
 
-/* transmit fragment messages. return # of messages left */
-mtl__tx_frags(MTL *mtl)
+//
+// Try to transmit fragments to idd
+//
+VOID
+TryToXmitFrags(
+	MTL *mtl
+	)
 {
-    D_LOG(D_RARE, ("mtl__tx_frags: entry, mtl: 0x%p", mtl));
-    D_LOG(D_RARE, ("mtl__tx_frags: frag_num: %d, frag_sent: %d", \
-                                                mtl->tx_tbl.frag_num, mtl->tx_tbl.frag_sent));
+	LIST_ENTRY	*MtlTxPacketQueueHead;
+	MTL_TX_TBL	*MtlTxTbl = &mtl->tx_tbl;
+	MTL_TX_PKT	*MtlTxPacket;
+	ULONG	Ret = IDD_E_SUCC;
+	BOOLEAN	WeCanXmit = 1;
 
-    /* loop while more messages to send */
-    while ( mtl->tx_tbl.frag_sent < mtl->tx_tbl.frag_num )
-    {
-        /* send message, break if no room reported */
-        if ( idd_send_msg(mtl->tx_tbl.frag_idd[mtl->tx_tbl.frag_sent],
-                            &mtl->tx_tbl.frag_msg[mtl->tx_tbl.frag_sent],
-                            mtl->tx_tbl.frag_bchan[mtl->tx_tbl.frag_sent],
-                            (VOID*)mtl__tx_cmpl_handler,
-                            mtl->tx_tbl.frag_arg[mtl->tx_tbl.frag_sent]) == IDD_E_NOROOM )
-            break;
+	//
+	// get tx table spin lock
+	//
+	NdisAcquireSpinLock(&MtlTxTbl->lock);
 
-        /* message was queued, update sent count */
-        mtl->tx_tbl.frag_sent++;
-    }
-    /* return # of fragments left */
-    return( mtl->tx_tbl.frag_num - mtl->tx_tbl.frag_sent );
+	MtlTxPacketQueueHead = &MtlTxTbl->head;
+
+	//
+	// while we can still transmit and we are not at the end of the list
+	//
+	while (WeCanXmit && !IsListEmpty(MtlTxPacketQueueHead))
+	{
+		USHORT	n, NumberOfFragsToSend;
+
+		MtlTxPacket = (MTL_TX_PKT*)MtlTxPacketQueueHead->Flink;
+
+		//
+		// get the number of frags we will try to send
+		//
+		NdisAcquireSpinLock(&MtlTxPacket->lock);
+
+		NumberOfFragsToSend = MtlTxPacket->NumberOfFrags;
+
+		NdisReleaseSpinLock(&MtlTxPacket->lock);
+
+		for (n = 0; n < NumberOfFragsToSend; n++)
+		{
+			MTL_TX_FRAG	*FragToSend;
+
+			NdisAcquireSpinLock(&MtlTxPacket->lock);
+
+			FragToSend = &MtlTxPacket->frag_tbl[n];
+
+			NdisReleaseSpinLock(&MtlTxPacket->lock);
+
+			//
+			// if this frag has already been sent get the next one
+			//
+			if (FragToSend->FragSent)
+				continue;
+				
+			D_LOG(D_ALWAYS, ("TryToXmitFrag: mtl: 0x%x", mtl));
+			D_LOG(D_ALWAYS, ("Next Packet To Xmit: MtlTxPacket: 0x%x", MtlTxPacket));
+			D_LOG(D_ALWAYS, ("Xmitting Packet: MtlTxPacket: 0x%x", MtlTxPacket));
+			D_LOG(D_ALWAYS, ("TryToXmitFrag: FragToSend: 0x%x", FragToSend));
+			D_LOG(D_ALWAYS, ("TryToXmitFrag: Idd: 0x%x, Msg: 0x%x, Bchan: 0x%x, Arg: 0x%x", \
+							FragToSend->frag_idd, &FragToSend->frag_msg, FragToSend->frag_bchan, \
+							FragToSend->frag_arg));
+		
+			//
+			// Something was ready to send
+			// release all locks before sending
+			//
+			NdisReleaseSpinLock(&MtlTxTbl->lock);
+		
+			Ret = idd_send_msg(FragToSend->frag_idd,
+							   &FragToSend->frag_msg,
+							   FragToSend->frag_bchan,
+							   (VOID*)mtl__tx_cmpl_handler,
+							   FragToSend->frag_arg);
+		
+			//
+			// acquire Tx Tbl fifo lock
+			// exit code expects the lock to be held
+			//
+			NdisAcquireSpinLock(&MtlTxTbl->lock);
+		
+			if (Ret == IDD_E_SUCC)
+			{
+				//
+				// this means frag was sent to idd
+				// all locks will be released before next frag is sent
+				//
+		
+				//
+				// acquire descriptor lock
+				// exit code expects the lock to be held
+				//
+				NdisAcquireSpinLock(&MtlTxPacket->lock);
+
+				//
+				// message was queued or sent!
+				//
+				MtlTxPacket->NumberOfFragsSent++;
+
+				FragToSend->FragSent++;
+
+				if (MtlTxPacket->NumberOfFragsSent == MtlTxPacket->NumberOfFrags)
+				{
+					//
+					// if things are working ok this guy will be on top
+					//
+					ASSERT((PVOID)MtlTxPacketQueueHead->Flink == (PVOID)MtlTxPacket);
+		
+					//
+					// take a guy off of the to be transmitted list
+					//
+					RemoveEntryList(&MtlTxPacket->TxPacketQueue);
+				}
+
+				//
+				// release the lock for this descriptor
+				//
+				NdisReleaseSpinLock(&MtlTxPacket->lock);
+			}
+			else
+			{
+				//
+				// if this frag is not sent to idd
+				// then stop xmitting
+				//
+				WeCanXmit = 0;
+			}
+		}
+		
+	}
+
+	//
+	// release the tx tbl fifo lock
+	//
+	NdisReleaseSpinLock(&MtlTxTbl->lock);
 }
 
 /* trasmit completion routine */
 VOID
-mtl__tx_cmpl_handler(MTL_TX_PKT *tx_pkt, USHORT port, IDD_MSG *msg)
+mtl__tx_cmpl_handler(
+	MTL_TX_PKT *MtlTxPacket,
+	USHORT port,
+	IDD_MSG *msg
+	)
 {
     MTL	*mtl;
-	ADAPTER	*Adapter;
-	PNDIS_WAN_PACKET	tempPacket;
+	PNDIS_WAN_PACKET	WanPacket;
 
-    D_LOG(D_ENTRY, ("mtl__tx_cmpl_handler: entry, tx_pkt: 0x%p, port: %d, msg: 0x%p", \
-                                                                       tx_pkt, port, msg));
-    mtl = tx_pkt->mtl;
-	Adapter = mtl->Adapter;
+    D_LOG(D_ENTRY, ("mtl__tx_cmpl_handler: entry, MtlTxPacket: 0x%p, port: %d, msg: 0x%p", \
+								MtlTxPacket, port, msg));
 
-    /* dec refrence count, if not zero, escape here */
-    if ( --tx_pkt->ref_count )
-        return;
+	NdisAcquireSpinLock(&MtlTxPacket->lock);
 
-	D_LOG(D_ALWAYS, ("mtl__tx_cmpl_handler: ref_count==0, mtl: 0x%p", mtl));
+    mtl = MtlTxPacket->mtl;
 
 	//
-	// Get hold of PNDIS_WAN_PACKET because we are about to zero out and
-	// trash the pkt->pkt pointer.
+	// if this guy was set free from a disconnect while he was
+	// on the idd tx queue.  Just throw him away!
+	// if this is not the last reference to the packet get the hell out!!!
 	//
-	tempPacket=tx_pkt->pkt;
+    if (!MtlTxPacket->InUse || --MtlTxPacket->FragReferenceCount )
+	{
+		NdisReleaseSpinLock(&MtlTxPacket->lock);
+		return;
+	}
 
-	tx_pkt->pkt=NULL;
+	D_LOG(D_ALWAYS, ("mtl__tx_cmpl_handler: FragReferenceCount==0, mtl: 0x%p", mtl));
+
+	//
+	// Get hold of PNDIS_WAN_PACKET associated with this descriptor
+	//
+	WanPacket = MtlTxPacket->WanPacket;
+
+	if (!WanPacket)
+	{
+		ASSERT(WanPacket);
+		NdisReleaseSpinLock(&MtlTxPacket->lock);
+		return;
+	}
+
+	ClearTxDescriptorInWanPacket(WanPacket);
 
 	//
 	// return local packet descriptor to free list
 	//
-	FreeLocalPktDescriptor(mtl, tx_pkt);
+	FreeLocalTxDescriptor(mtl, MtlTxPacket);
 
-	/* if here, packet process done, call user */
-	if (!tempPacket)
-	{
-		D_LOG(D_ALWAYS, ("Was going to complete NULL packet!  Ref count = %d\n", tx_pkt->ref_count));
-	}
-	else
-	{
-		NdisMWanSendComplete(Adapter->AdapterHandle, tempPacket, NDIS_STATUS_SUCCESS);
-	}
-}
+	NdisReleaseSpinLock(&MtlTxPacket->lock);
 
-/* add a packet to txq */
-VOID
-mtl__txq_add(MTL *mtl, NDIS_WAN_PACKET *pkt)
-{
-    D_LOG(D_ENTRY, ("mtl__txq_add: mtl: 0x%p, head: 0x%p", mtl, mtl->tx_fifo.head));
-
-	NdisAcquireSpinLock (&mtl->tx_fifo.lock);
-
-	InsertTailList(&mtl->tx_fifo.head, &pkt->WanPacketQueue);
-
-	NdisReleaseSpinLock (&mtl->tx_fifo.lock);
-}
-
-//
-// return a local packet descriptor to free pool
-//
-VOID
-FreeLocalPktDescriptor(MTL *mtl, MTL_TX_PKT *tx_pkt)
-{
 	//
-	// return local packet descriptor to free list
+	// grab wan packet fifo lock
 	//
-	NdisAcquireSpinLock (&mtl->tx_tbl.lock);
-	InsertHeadList(&mtl->tx_tbl.pkt_free, &tx_pkt->link);
-	NdisReleaseSpinLock (&mtl->tx_tbl.lock);
-}
+	NdisAcquireSpinLock(&mtl->WanPacketFifo.lock);
 
-/* get a packet from txq */
-NDIS_WAN_PACKET*
-mtl__txq_get(MTL *mtl)
-{
-    NDIS_WAN_PACKET *pkt;
+	//
+	// mark wan packet as being ready for completion
+	//
+	MarkWanPacketForCompletion(WanPacket);
 
-    D_LOG(D_ENTRY, ("mtl__txq_get: entry, mtl: 0x%p", mtl));
-    D_LOG(D_ALWAYS, ("mtl__txq_get: head: 0x%p", mtl->tx_fifo.head));
-
-    if ( IsListEmpty(&mtl->tx_fifo.head) )
-        return(NULL);
-
-	NdisAcquireSpinLock (&mtl->tx_fifo.lock);
-
-	pkt = (PNDIS_WAN_PACKET)RemoveHeadList(&mtl->tx_fifo.head);
-
-	NdisReleaseSpinLock (&mtl->tx_fifo.lock);
-
-    return(pkt);
+	//
+	// release the wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&mtl->WanPacketFifo.lock);
 }
 
 //
 // get a local packet descriptor off of the free list
 //
 MTL_TX_PKT*
-GetLocalPktDescriptor(MTL *mtl)
+GetLocalTxDescriptor(
+	MTL *mtl
+	)
 {
-	MTL_TX_PKT* FreePkt;
+	MTL_TX_PKT* FreePkt = NULL;
+	MTL_TX_TBL*	TxTbl = &mtl->tx_tbl;
 
 	NdisAcquireSpinLock (&mtl->tx_tbl.lock);
 
 	//
-	// If no free local packet descriptors are available return NULL
+	// get next available freepkt
 	//
-	if (IsListEmpty(&mtl->tx_tbl.pkt_free))
-		return(NULL);
+	FreePkt = TxTbl->TxPacketTbl + (TxTbl->NextFree % MTL_TX_BUFS);
 
-	FreePkt = (MTL_TX_PKT*)RemoveHeadList(&mtl->tx_tbl.pkt_free);
-	
+	//
+	// if still in use we have a wrap
+	//
+	if (FreePkt->InUse)
+	{
+		ASSERT(!FreePkt->InUse);
+		NdisReleaseSpinLock (&mtl->tx_tbl.lock);
+		return(NULL);
+	}
+
+	//
+	// mark as being used
+	//
+	FreePkt->InUse = 1;
+
+	//
+	// bump pointer to next free
+	//
+	TxTbl->NextFree++;
+
 	NdisReleaseSpinLock (&mtl->tx_tbl.lock);
 
 	return(FreePkt);
 }
-
+
+//
+// return a local packet descriptor to free pool
+// assumes that the MtlTxPacket lock is held
+//
+VOID
+FreeLocalTxDescriptor(
+	MTL *mtl,
+	MTL_TX_PKT *MtlTxPacket
+	)
+{
+
+	ASSERT(MtlTxPacket->InUse);
+
+	MtlTxPacket->InUse = 0;
+
+	MtlTxPacket->WanPacket = NULL;
+}
+
+//
+// see if wan packet fifo is empty
+//
+BOOLEAN
+IsWanPacketTxFifoEmpty(
+	MTL	*mtl
+	)
+{
+	BOOLEAN	Result;
+
+	NdisAcquireSpinLock (&mtl->WanPacketFifo.lock);
+
+	Result = IsListEmpty(&mtl->WanPacketFifo.head);
+
+	NdisReleaseSpinLock (&mtl->WanPacketFifo.lock);
+
+	return(Result);
+}
+
+//
+// add a wan packet to the wan packet fifo
+//
+VOID
+AddToWanPacketTxFifo(
+	MTL *mtl,
+	NDIS_WAN_PACKET *WanPacket
+	)
+{
+	MTL_WANPACKET_FIFO	*WanPacketFifo = &mtl->WanPacketFifo;
+
+    D_LOG(D_ENTRY, ("AddToWanPacketTxFifo: mtl: 0x%x, head: 0x%x", mtl, WanPacketFifo->head));
+
+	NdisAcquireSpinLock (&WanPacketFifo->lock);
+
+	ClearReadyToCompleteInWanPacket(WanPacket);
+
+	SetTimeToLiveInWanPacket(WanPacket, 5000);
+
+	ClearTxDescriptorInWanPacket(WanPacket);
+
+	InsertTailList(&WanPacketFifo->head, &WanPacket->WanPacketQueue);
+
+	WanPacketFifo->Count++;
+
+	if (WanPacketFifo->Count > WanPacketFifo->Max)
+		WanPacketFifo->Max = WanPacketFifo->Count;
+
+	NdisReleaseSpinLock (&WanPacketFifo->lock);
+}
+
+//
+// indicate xmit completion of wan packet to wrapper
+//
+VOID
+IndicateTxCompletionToWrapper(
+	MTL	*mtl
+	)
+{
+	ADAPTER	*Adapter = (ADAPTER*)mtl->Adapter;
+	NDIS_WAN_PACKET	*WanPacket;
+	LIST_ENTRY	*WanPacketFifoHead;
+	MTL_WANPACKET_FIFO	*WanPacketFifo = &mtl->WanPacketFifo;
+
+	//
+	// acquire wan packet fifo lock
+	//
+	NdisAcquireSpinLock(&WanPacketFifo->lock);
+
+	//
+	// get head of wan packet fifo
+	//
+	WanPacketFifoHead = &WanPacketFifo->head;
+
+	//
+	// visit the first packet on the tx list
+	//
+	WanPacket = (NDIS_WAN_PACKET*)WanPacketFifoHead->Flink;
+
+	//
+	// if the list is not empty and this packet is ready to be completed
+	//
+	while (((PVOID)WanPacket != (PVOID)WanPacketFifoHead) &&
+		   IsWanPacketMarkedForCompletion(WanPacket))
+	{
+
+		WanPacket = (PNDIS_WAN_PACKET)RemoveHeadList(&WanPacketFifo->head);
+
+		WanPacketFifo->Count--;
+
+		if (!WanPacket)
+			break;
+
+		IncrementGlobalCount(GlobalSendsCompleted);
+
+		ClearReadyToCompleteInWanPacket(WanPacket);
+
+		//
+		// release wan packet fifo lock
+		//
+		NdisReleaseSpinLock(&WanPacketFifo->lock);
+
+		NdisMWanSendComplete(Adapter->Handle, WanPacket, NDIS_STATUS_SUCCESS);
+
+		//
+		// acquire wan packet fifo lock
+		//
+		NdisAcquireSpinLock(&WanPacketFifo->lock);
+
+		//
+		// visit the new head of the list
+		//
+		WanPacket = (NDIS_WAN_PACKET*)WanPacketFifoHead->Flink;
+	}
+
+	//
+	// release wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&WanPacketFifo->lock);
+}
+
+VOID
+MtlFlushWanPacketTxQueue(
+	MTL	*mtl
+	)
+{
+	LIST_ENTRY	*WanPacketFifoHead;
+	MTL_WANPACKET_FIFO	*WanPacketFifo = &mtl->WanPacketFifo;
+	NDIS_WAN_PACKET	*WanPacket;
+	MTL_TX_PKT	*MtlTxPacket;
+
+	//
+	// acquire wan packet fifo lock
+	//
+	NdisAcquireSpinLock(&WanPacketFifo->lock);
+
+	//
+	// get head of wan packet fifo
+	//
+	WanPacketFifoHead = &WanPacketFifo->head;
+
+	//
+	// visit the first packet on the tx list
+	//
+	WanPacket = (NDIS_WAN_PACKET*)WanPacketFifoHead->Flink;
+
+	//
+	// if the wan packet queue is not empty
+	// we need to drain it!
+	//
+	while ((PVOID)WanPacket != (PVOID)WanPacketFifoHead)
+	{
+		//
+		// get the associated MtlTxPacket
+		//
+		if (MtlTxPacket = GetTxDescriptorFromWanPacket(WanPacket))
+			ReleaseTxDescriptor(mtl, MtlTxPacket);
+
+		//
+		// mark wan packet for completion
+		//
+		MarkWanPacketForCompletion(WanPacket);
+
+		//
+		// get the next packet on the list
+		//
+		WanPacket = (NDIS_WAN_PACKET*)(WanPacket->WanPacketQueue).Flink;
+	}
+
+	//
+	// release wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&WanPacketFifo->lock);
+}
+
+//
+// walk through the WanPacketFifo and see if anyone has been sitting there
+// too long!  This could happen if there was some kind of xmit failure to
+// the adapter.
+//
+VOID
+CheckWanPacketTimeToLive(
+	MTL	*mtl
+	)
+{
+	LIST_ENTRY	*WanPacketFifoHead;
+	MTL_WANPACKET_FIFO	*WanPacketFifo = &mtl->WanPacketFifo;
+	NDIS_WAN_PACKET	*WanPacket;
+	MTL_TX_PKT	*MtlTxPacket;
+
+	//
+	// acquire wan packet fifo lock
+	//
+	NdisAcquireSpinLock(&WanPacketFifo->lock);
+
+	//
+	// get head of wan packet fifo
+	//
+	WanPacketFifoHead = &WanPacketFifo->head;
+
+	//
+	// visit the first packet on the tx list
+	//
+	WanPacket = (NDIS_WAN_PACKET*)WanPacketFifoHead->Flink;
+
+	//
+	// if the wan packet is not empty
+	//
+	while ((PVOID)WanPacket != (PVOID)WanPacketFifoHead)
+	{
+
+		//
+		// decrement the count by 25ms
+		//
+		DecrementTimeToLiveForWanPacket(WanPacket, 25);
+
+		//
+		// if the count has gone to zero this guy has
+		// been waiting for more then 1sec so complete him
+		//
+		if (!GetWanPacketTimeToLive(WanPacket))
+		{
+
+//			if (IsWanPacketMarkedForCompletion(WanPacket))
+//				DbgPrint("PCIMAC.SYS: WanPacket was already marked for completion!\n");
+//
+//			//
+//			// get the associated MtlTxPacket and free
+//			//
+//			if (MtlTxPacket = GetTxDescriptorFromWanPacket(WanPacket))
+//				ReleaseTxDescriptor(mtl, MtlTxPacket);
+//
+//			//
+//			// mark the packet for completion
+//			//
+//			MarkWanPacketForCompletion(WanPacket);
+		}
+
+		//
+		// get the next packet on the list
+		//
+		WanPacket = (NDIS_WAN_PACKET*)(WanPacket->WanPacketQueue).Flink;
+	}
+
+	//
+	// release wan packet fifo lock
+	//
+	NdisReleaseSpinLock(&WanPacketFifo->lock);
+}
+
+VOID
+ReleaseTxDescriptor(
+	MTL	*mtl,
+	MTL_TX_PKT	*MtlTxPacket
+	)
+{
+	LIST_ENTRY	*MtlTxPacketQueueHead;
+	MTL_TX_TBL	*MtlTxTbl = &mtl->tx_tbl;
+	MTL_TX_PKT	*NextMtlTxPacket;
+
+	//
+	// act like this local descriptor was sent
+	// keeps desriptor table pointers in line
+	//
+	NdisAcquireSpinLock(&MtlTxTbl->lock);
+
+	MtlTxPacketQueueHead = &MtlTxTbl->head;
+
+	//
+	// get the descriptor lock
+	//
+	NdisAcquireSpinLock(&MtlTxPacket->lock);
+
+	//
+	// visit the first packet on the list
+	//
+	NextMtlTxPacket = (MTL_TX_PKT*)MtlTxPacketQueueHead->Flink;
+
+	//
+	// break if the list has been traversed or if we find the packet
+	//
+	while (((PVOID)NextMtlTxPacket != MtlTxPacketQueueHead) && (NextMtlTxPacket != MtlTxPacket))
+		NextMtlTxPacket = (MTL_TX_PKT*)(NextMtlTxPacket->TxPacketQueue).Flink;
+
+	//
+	// if this descriptor is marked for transmition
+	// we should remove it from the tx descriptor list
+	//
+	if (NextMtlTxPacket == MtlTxPacket)
+		RemoveEntryList(&MtlTxPacket->TxPacketQueue);
+
+	FreeLocalTxDescriptor(mtl, MtlTxPacket);
+
+	NdisReleaseSpinLock(&MtlTxPacket->lock);
+
+	NdisReleaseSpinLock(&MtlTxTbl->lock);
+}

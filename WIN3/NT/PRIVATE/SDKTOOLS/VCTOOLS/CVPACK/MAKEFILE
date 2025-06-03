@@ -18,7 +18,7 @@
 
 !ELSE
 
-#	Makefile for NT/TNT version of cvpack
+#	Makefile for cvpack
 #
 #	The following arguments are passed in from the master makefile
 #
@@ -35,16 +35,12 @@
 LANGAPI = \langapi
 !endif
 
-!if	"$(PROCESSOR_ARCHITECTURE)" == "x86"
-
-CC	= cl
-OPTFLAG = -O2
-
-!elseif "$(PROCESSOR_ARCHITECTURE)" == "MIPS"
-
-CC	= mcl
-OPTFLAG = -Ox
-
+!ifndef ODIR
+!ifdef	RELEASE
+ODIR	= release
+!else
+ODIR	= debug
+!endif
 !endif
 
 !ifndef LOCALE
@@ -52,7 +48,7 @@ LOCALE=US
 !endif
 
 !if "$(LOCALE)" == "US"
-MSG=eng
+MSG=txt
 !elseif "$(LOCALE)" == "JAPAN"
 MSG=jap
 !elseif "$(LOCALE)" == "FRANCE"
@@ -65,49 +61,50 @@ MSG=itl
 !error Unknown value for LOCALE.  Use JAPAN, FRANCE, GERMANY, ITALY
 !endif
 
-!ifndef ZSWITCH
-ZSWITCH = -Zi -Fd$(ODIR)\cvpack.pdb
-!endif
-
-!ifndef TARGETNB09
-LINKPDB = -PDB:$(ODIR)\cvpack.pdb
-!else
-LINKPDB = -PDB:none
-!endif
-
-CFLAGS	= -Gf -Gy -I$(LANGAPI)\include -W3 -c -MD $(EXTRA_CFLAGS) 
+CFLAGS	= /c /Fd$(ODIR)\cvpack.pdb /GF /Gy /I$(LANGAPI)\include /W3 $(EXTRA_CFLAGS)
 
 !if "$(DBC)" != "0"
-CFLAGS	= $(CFLAGS) -D_MBCS
+CFLAGS	= $(CFLAGS) /D_MBCS
 !message --- building _MBCS version
 !endif
 
 !ifdef RELEASE
-EXE	= cvpack
-ODIR	= opckn
-LFLAGS	=
-LDEBUG	= none
-CFLAGS	= -DDBG=0 -DNDEBUG $(CFLAGS) $(OPTFLAG)
+LFLAGS	= /map
+CFLAGS	= /DDBG=0 /DNDEBUG $(CFLAGS) /MD /O2
+CRTLIB	= msvcrt.lib
 !else
-EXE	= cvpack
-ODIR	= opcknd
-LFLAGS	= $(LINKPDB)
-LDEBUG	= full
-CFLAGS	= -DDBG=1 -DDEBUGVER $(CFLAGS) -Od $(ZSWITCH)
+LFLAGS	= /debug /map /pdb:$(ODIR)\cvpack.pdb
+CFLAGS	= /DDBG=1 $(CFLAGS) /MDd /Od /Zi
+CRTLIB	= msvcrtd.lib
+!endif
+
+!if	"$(PROCESSOR_ARCHITECTURE)" == "PPC"
+
+NOBROWSER	= 1
+
 !endif
 
 !ifndef NOBROWSER
-CFLAGS	= $(CFLAGS) -FR$(ODIR)^\
+CFLAGS	= $(CFLAGS) /FR$(ODIR)^\
 !endif
 
-!if	"$(PROCESSOR_ARCHITECTURE)" != "x86"
-CFLAGS	= $(CFLAGS) -DNO_TDB
+!ifdef PDB20
+CFLAGS	= $(CFLAGS) /DPDB20 /DPDB_LIBRARY /D_VC_VER=200
+
+PDBLIB	= dbi.lib
+
+!else
+
+PDBLIB	= mspdb.lib
+
 !endif
 
 .c{$(ODIR)}.obj:
-		$(CC) @<< $<
-$(CFLAGS) -Fp$(ODIR)\precomp.pch -Fo$*.obj -Yucompact.h
-<<
+	$(CC) $(CFLAGS) /Fo$@ /Fp$(ODIR)\precomp.pch /Yucompact.h $<
+
+.rc{$(ODIR)}.res:
+	if exist $@ del $@
+	rc -I$(LANGAPI)\include -r -Fo$@ $<
 
 OBJS	= \
 	$(ODIR)\bufio.obj	\
@@ -121,7 +118,6 @@ OBJS	= \
 	$(ODIR)\module.obj	\
 	$(ODIR)\getmsg.obj 	\
 	$(ODIR)\obsolete.obj	\
-	$(ODIR)\pelines.obj 	\
 	$(ODIR)\precomp.obj	\
 	$(ODIR)\recurse.obj 	\
 	$(ODIR)\stack.obj	\
@@ -131,55 +127,35 @@ OBJS	= \
 	$(ODIR)\utils.obj	\
 	$(ODIR)\utils6.obj	\
 	$(ODIR)\vbuf.obj	\
-	$(ODIR)\writebuf.obj
+	$(ODIR)\writebuf.obj	\
+	$(ODIR)\cvpack.res
 
-!ifndef RELEASE
-OBJS =	$(OBJS) 		\
-	$(ODIR)\dmalloc.obj	\
-	$(ODIR)\pedump.obj
-!endif
-
-!if	"$(PROCESSOR_ARCHITECTURE)" == "x86"
-OBJS	=			\
-	$(OBJS) 		\
-	$(LANGAPI)\lib\instrapi.lib
-
-!endif
-
-all: $(ODIR)\$(EXE).exe	 $(ODIR)\$(EXE).err
-
-$(ODIR)\$(EXE).exe: $(ODIR) $(OBJS)
-	link @<<$(@R).lnk
-$(LFLAGS)
--out:$@
--debug:$(LDEBUG)
--stack:32768,4096
--map:$(@R).map
-$(OBJS: = ^
-)
-dbi.lib
-<<keep
-	rem rebind godosxnt.exe $@	// no longer license pharlap extender
-!ifndef NOBROWSER
-	bscmake /n /o cvpack $(ODIR)\*.sbr
-!endif
+all: $(ODIR) $(ODIR)\cvpack.exe $(ODIR)\cvpack.err
 
 $(ODIR):
 	@-mkdir $(ODIR)
+
+$(ODIR)\cvpack.exe: $(OBJS)
+	link @<<
+$(LFLAGS)
+-out:$@
+$(OBJS: = ^
+)
+$(PDBLIB)
+!if "$(PROCESSOR_ARCHITECTURE)" == "PPC"
+helper.lib
+$(CRTLIB)
+!endif
+<<
+!ifndef NOBROWSER
+	bscmake /n /o $(ODIR)\cvpack $(ODIR)\*.sbr
+!endif
 
 $(ODIR)\precomp.obj: precomp.c compact.h $(LANGAPI)\include\cvinfo.h cvtdef.h \
 	$(LANGAPI)\include\cvexefmt.h vbuf.h defines.h padmacro.h \
 	msg.h version.h inlines.h fileio.h
 	@-mkdir $(ODIR) > nul
-!ifdef SBR
-	$(CC) @<<
-$(CFLAGS) -Fp$(ODIR)\precomp.pch -Fo$(ODIR)\precomp.obj -Yccompact.h -FR$(ODIR)\precomp.sbr precomp.c
-<<
-!else
-	$(CC) @<<
-$(CFLAGS) -Fp$(ODIR)\precomp.pch -Fo$(ODIR)\precomp.obj -Yccompact.h precomp.c
-<<
-!endif
+	$(CC) $(CFLAGS) /Fo$@ /Fp$(ODIR)\precomp.pch /Yccompact.h precomp.c
 
 $(ODIR)\main.obj: main.c compact.h $(ODIR)\precomp.obj
 
@@ -193,8 +169,7 @@ $(ODIR)\engine.obj: engine.c compact.h $(ODIR)\precomp.obj
 
 $(ODIR)\error.obj: error.c compact.h $(ODIR)\precomp.obj
 
-$(ODIR)\module.obj: module.c compact.h exehdr.h writebuf.h \
-					$(ODIR)\precomp.obj
+$(ODIR)\module.obj: module.c compact.h exehdr.h writebuf.h $(ODIR)\precomp.obj
 
 $(ODIR)\recurse.obj: recurse.c compact.h $(ODIR)\precomp.obj
 
@@ -216,21 +191,15 @@ $(ODIR)\writebuf.obj: writebuf.c compact.h writebuf.h $(ODIR)\precomp.obj
 
 $(ODIR)\dbgdumps.obj: dbgdumps.c compact.h $(ODIR)\precomp.obj
 
-$(ODIR)\pelines.obj: pelines.c compact.h $(ODIR)\precomp.obj
-
 $(ODIR)\bufio.obj: bufio.c bufio.h fileio.h msg.h
-	$(CC) $(CFLAGS) -Fo$(ODIR)\bufio.obj bufio.c
-
-$(ODIR)\pedump.obj: pedump.c compact.h $(ODIR)\precomp.obj
-
-$(ODIR)\dmalloc.obj: dmalloc.c dmalloc.h dmalloc_.h compact.h $(ODIR)\precomp.obj
+	$(CC) $(CFLAGS) /Fo$@ bufio.c
 
 
 #
 # Message support
 #
 
-$(ODIR)\$(EXE).err: $(ODIR)\msg.inp
+$(ODIR)\cvpack.err: $(ODIR)\msg.inp
 	mkmsg -err $@ $?
 
 $(ODIR)\getmsg.obj: $(LANGAPI)\getmsg\getmsg.c

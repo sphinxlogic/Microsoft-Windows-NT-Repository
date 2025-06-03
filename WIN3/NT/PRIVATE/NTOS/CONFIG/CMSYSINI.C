@@ -64,6 +64,7 @@ extern  HIVE_LIST_ENTRY CmpMachineHiveList[];
 #define HKEY_PERFORMANCE_NLSTEXT    (( HANDLE ) 0x80000060 )
 
 extern UNICODE_STRING  CmpSystemFileName;
+extern UNICODE_STRING  CmSymbolicLinkValueName;
 extern UNICODE_STRING  CmpLoadOptions;         // sys options from FW or boot.ini
 extern PWCHAR CmpProcessorControl;
 extern PWCHAR CmpControlSessionManager;
@@ -228,6 +229,13 @@ CmpConfigureProcessors (
     VOID
     );
 
+#if i386
+VOID
+KeOptimizeProcessorControlState (
+    VOID
+    );
+#endif
+
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,CmInitSystem1)
@@ -326,6 +334,10 @@ Return Value:
     //
     CmpInitializeRegistryNames();
 
+    //
+    // Compute registry global quota
+    //
+    CmpComputeGlobalQuotaAllowed();
 
     //
     // Initialize the hive list head
@@ -858,17 +870,15 @@ Return Value:
                 // in memory images.  Call HvSyncHive to write changes
                 // out to disk.
                 //
-                Status = CmpOpenHiveFiles(
-                            &FileName,
-                            L".ALT",
-                            &PrimaryHandle,
-                            &LogHandle,
-                            &PrimaryDisposition,
-                            &SecondaryDisposition,
-                            TRUE,
-                            TRUE,
-                            &ClusterSize
-                            );
+                Status = CmpOpenHiveFiles(&FileName,
+                                          L".ALT",
+                                          &PrimaryHandle,
+                                          &LogHandle,
+                                          &PrimaryDisposition,
+                                          &SecondaryDisposition,
+                                          TRUE,
+                                          TRUE,
+                                          &ClusterSize);
 
                 if ( ( ! NT_SUCCESS(Status)) ||
                      (LogHandle == NULL) )
@@ -889,7 +899,7 @@ Return Value:
                     // like the SYSTEM hive, is hosed.  Don't try to run,
                     // we just risk destroying user data.  Punt.
                     //
-                    KeBugCheckEx(BAD_SYSTEM_CONFIG_INFO,5,3,i,0);
+                    KeBugCheckEx(BAD_SYSTEM_CONFIG_INFO,5,3,i,Status);
                 }
 
                 CmHive->FileHandles[HFILE_TYPE_ALTERNATE] = LogHandle;
@@ -901,10 +911,35 @@ Return Value:
                 // When an in-memory hive is opened with no backing
                 // file, ClusterSize is assumed to be 1.  When the file
                 // is opened later (for the SYSTEM hive) we need
-                // to update this field in the hive, in case we are
+                // to update this field in the hive if we are
                 // booting from media where the cluster size > 1
                 //
-                CmHive->Hive.Cluster = ClusterSize;
+                if (CmHive->Hive.Cluster != ClusterSize) {
+                    //
+                    // The cluster size is different than previous assumed.
+                    // Since a cluster in the dirty vector must be either
+                    // completely dirty or completely clean, go through the
+                    // dirty vector and mark all clusters that contain a dirty
+                    // logical sector as completely dirty.
+                    //
+                    PRTL_BITMAP  BitMap;
+                    ULONG        Index;
+
+                    BitMap = &(CmHive->Hive.DirtyVector);
+                    for (Index = 0;
+                         Index < CmHive->Hive.DirtyVector.SizeOfBitMap;
+                         Index += ClusterSize)
+                    {
+                        if (!RtlAreBitsClear (BitMap, Index, ClusterSize)) {
+                            RtlSetBits (BitMap, Index, ClusterSize);
+                        }
+                    }
+                    //
+                    // Update DirtyCount and Cluster
+                    //
+                    CmHive->Hive.DirtyCount = RtlNumberOfSetBits(&CmHive->Hive.DirtyVector);
+                    CmHive->Hive.Cluster = ClusterSize;
+                }
 
                 if (!CmpFileSetSize(
                         (PHHIVE)CmHive, HFILE_TYPE_PRIMARY, Length) ||
@@ -1156,6 +1191,7 @@ Return Value:
     kcb = CmpCreateKeyControlBlock(
             &(CmpMasterHive->Hive),
             RootCellIndex,
+            (PCM_KEY_NODE)HvGetCell(&CmpMasterHive->Hive,RootCellIndex),
             &NullString,
             &CmRegistryRootName
             );
@@ -1395,7 +1431,7 @@ Return Value:
         );
 
     Status = ObOpenObjectByName( &ObjectAttributes,
-                                 NULL,
+                                 CmpKeyObjectType,
                                  KernelMode,
                                  NULL,
                                  KEY_READ | KEY_WRITE,
@@ -1705,18 +1741,12 @@ Return Value:
     }
     RtlInitUnicodeString(&NameString,
                          L"SystemRoot");
-    ValueString.Buffer = ValueBuffer;
-    ValueString.Length = 0;
-    ValueString.MaximumLength = sizeof(ValueBuffer);
-    RtlAnsiStringToUnicodeString( &ValueString, &NtSystemPathString, FALSE);
-    ValueBuffer[ValueString.Length/sizeof(WCHAR)] = UNICODE_NULL;
-
     status = NtSetValueKey(key1,
                            &NameString,
                            0,
                            REG_SZ,
-                           ValueString.Buffer,
-                           ValueString.Length + sizeof(UNICODE_NULL));
+                           NtSystemRoot.Buffer,
+                           NtSystemRoot.Length + sizeof(UNICODE_NULL));
 #if DBG
     if (!NT_SUCCESS(status)) {
         DbgPrint("CMINIT: SetValueKey of %wZ failed - Status == %lx\n",
@@ -1896,11 +1926,11 @@ Routine Description:
     PAGED_CODE();
 
     //
-    // Set each processor into it's best NT conifuration
+    // Set each processor into its best NT configuration
     //
 
     for (i=0; i < (ULONG)KeNumberProcessors; i++) {
-        KeSetAffinityThread(KeGetCurrentThread(), (KAFFINITY) 1 << i);
+        KeSetSystemAffinityThread((KAFFINITY) 1 << i);
 
 #if i386
         // for now x86 only
@@ -1912,7 +1942,7 @@ Routine Description:
     // Restore threads affinity
     //
 
-    KeSetAffinityThread(KeGetCurrentThread(), KeActiveProcessors);
+    KeRevertToUserAffinityThread();
 }
 
 BOOLEAN
@@ -2374,8 +2404,7 @@ Return Value:
                               &SecondaryDisposition,
                               *Allocate,
                               FALSE,
-                              NULL
-                              );
+                              NULL);
 
     if (!NT_SUCCESS(Status)) {
         return(Status);
@@ -2428,12 +2457,16 @@ CmpCreateControlSet(
 
 Routine Description:
 
-    This routine sets up the symbolic link from
+    This routine sets up the symbolic links from
 
         \Registry\Machine\System\CurrentControlSet to
         \Registry\Machine\System\ControlSetNNN
 
-    based on the value of \Registry\Machine\System\Select:Current.
+        \Registry\Machine\System\CurrentControlSet\Hardware Profiles\Current to
+        \Registry\Machine\System\ControlSetNNN\Hardware Profiles\NNNN
+
+    based on the value of \Registry\Machine\System\Select:Current. and
+                          \Registry\Machine\System\ControlSetNNN\Control\IDConfigDB:CurrentConfig
 
 Arguments:
 
@@ -2446,16 +2479,18 @@ Return Value:
 --*/
 
 {
+    UNICODE_STRING IDConfigDBName;
     UNICODE_STRING SelectName;
     UNICODE_STRING CurrentName;
-    UNICODE_STRING LinkValueName;
     OBJECT_ATTRIBUTES Attributes;
     HANDLE SelectHandle;
     HANDLE CurrentHandle;
+    HANDLE IDConfigDB;
     CHAR AsciiBuffer[128];
     WCHAR UnicodeBuffer[128];
     UCHAR ValueBuffer[128];
     ULONG ControlSet;
+    ULONG HWProfile;
     PKEY_VALUE_FULL_INFORMATION Value;
     ANSI_STRING AnsiString;
     NTSTATUS Status;
@@ -2495,12 +2530,6 @@ Return Value:
     }
     Value = (PKEY_VALUE_FULL_INFORMATION)ValueBuffer;
     ControlSet = *(PULONG)((PUCHAR)Value + Value->DataOffset);
-    if (!NT_SUCCESS(Status)) {
-        CMLOG(CML_BUGCHECK, CMS_INIT) {
-            KdPrint(("CM: CmpCreateControlSet: Couldn't convert Ansi String %08lx\n",Status));
-        }
-        return(Status);
-    }
 
     RtlInitUnicodeString(&CurrentName, L"\\Registry\\Machine\\System\\CurrentControlSet");
     InitializeObjectAttributes(&Attributes,
@@ -2519,7 +2548,6 @@ Return Value:
         CMLOG(CML_BUGCHECK, CMS_INIT) {
             KdPrint(("CM: CmpCreateControlSet: couldn't create CurrentControlSet %08lx\n",Status));
         }
-        NtClose(SelectHandle);
         return(Status);
     }
 
@@ -2528,20 +2556,7 @@ Return Value:
     // this key is always created volatile, it should never be present in
     // the hive when we boot.
     //
-    if (Disposition != REG_CREATED_NEW_KEY) {
-        CMLOG(CML_BUGCHECK, CMS_INIT) {
-        //  KdPrint(("CM: CmpCreateControlSet: CurrentControlSet already exists!\n"));
-        }
-
-        //
-        // Since CurrentControlSet exists, it is either a symbolic link that
-        // was left lying around (this should never happen, since the key
-        // is volatile) or an actual real key.  In either case, just press
-        // on and hope it points to the right spot.
-        //
-        NtClose(CurrentHandle);
-        return(STATUS_SUCCESS);
-    }
+    ASSERT(Disposition == REG_CREATED_NEW_KEY);
 
     sprintf(AsciiBuffer, "\\Registry\\Machine\\System\\ControlSet%03d", ControlSet);
     RtlInitAnsiString(&AnsiString, AsciiBuffer);
@@ -2551,18 +2566,12 @@ Return Value:
     Status = RtlAnsiStringToUnicodeString(&CurrentName,
                                           &AnsiString,
                                           FALSE);
-    RtlInitUnicodeString(
-        &LinkValueName,
-        L"SymbolicLinkValue"
-        );
-
     Status = NtSetValueKey(CurrentHandle,
-                           &LinkValueName,
+                           &CmSymbolicLinkValueName,
                            0,
                            REG_LINK,
                            CurrentName.Buffer,
                            CurrentName.Length);
-    NtClose(CurrentHandle);
 
     if (!NT_SUCCESS(Status)) {
         CMLOG(CML_BUGCHECK, CMS_INIT) {
@@ -2570,9 +2579,79 @@ Return Value:
             KdPrint(("to %wZ\n",&CurrentName));
             KdPrint(("    Status=%08lx\n",Status));
         }
+        return(Status);
     }
 
-    return(Status);
+    //
+    // Create symbolic link for current hardware profile.
+    //
+    RtlInitUnicodeString(&IDConfigDBName, L"Control\\IDConfigDB");
+    InitializeObjectAttributes(&Attributes,
+                               &IDConfigDBName,
+                               OBJ_CASE_INSENSITIVE,
+                               CurrentHandle,
+                               NULL);
+    Status = NtOpenKey(&IDConfigDB,
+                       KEY_READ,
+                       &Attributes);
+    NtClose(CurrentHandle);
+
+    if (NT_SUCCESS(Status)) {
+        RtlInitUnicodeString(&IDConfigDBName, L"CurrentConfig");
+        Status = NtQueryValueKey(IDConfigDB,
+                                 &IDConfigDBName,
+                                 KeyValueFullInformation,
+                                 ValueBuffer,
+                                 sizeof(ValueBuffer),
+                                 &ResultLength);
+        NtClose(IDConfigDB);
+        if (NT_SUCCESS(Status) && (((PKEY_VALUE_FULL_INFORMATION)ValueBuffer)->Type == REG_DWORD)) {
+            Value = (PKEY_VALUE_FULL_INFORMATION)ValueBuffer;
+            HWProfile = *(PULONG)((PUCHAR)Value + Value->DataOffset);
+            RtlInitUnicodeString(&CurrentName, L"\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\Current");
+            InitializeObjectAttributes(&Attributes,
+                                       &CurrentName,
+                                       OBJ_CASE_INSENSITIVE,
+                                       NULL,
+                                       NULL);
+            Status = NtCreateKey(&CurrentHandle,
+                                 KEY_CREATE_LINK,
+                                 &Attributes,
+                                 0,
+                                 NULL,
+                                 REG_OPTION_VOLATILE | REG_OPTION_CREATE_LINK,
+                                 &Disposition);
+            if (!NT_SUCCESS(Status)) {
+                CMLOG(CML_BUGCHECK, CMS_INIT) {
+                    KdPrint(("CM: CmpCreateControlSet: couldn't create Hardware Profile\\Current %08lx\n",Status));
+                }
+            } else {
+                ASSERT(Disposition == REG_CREATED_NEW_KEY);
+                sprintf(AsciiBuffer, "\\Registry\\Machine\\System\\CurrentControlSet\\Hardware Profiles\\%04d",HWProfile);
+                RtlInitAnsiString(&AnsiString, AsciiBuffer);
+                CurrentName.MaximumLength = sizeof(UnicodeBuffer);
+                CurrentName.Buffer = UnicodeBuffer;
+                Status = RtlAnsiStringToUnicodeString(&CurrentName,
+                                                      &AnsiString,
+                                                      FALSE);
+                Status = NtSetValueKey(CurrentHandle,
+                                       &CmSymbolicLinkValueName,
+                                       0,
+                                       REG_LINK,
+                                       CurrentName.Buffer,
+                                       CurrentName.Length);
+                if (!NT_SUCCESS(Status)) {
+                    CMLOG(CML_BUGCHECK, CMS_INIT) {
+                        KdPrint(("CM: CmpCreateControlSet: couldn't create symbolic link "));
+                        KdPrint(("to %wZ\n",&CurrentName));
+                        KdPrint(("    Status=%08lx\n",Status));
+                    }
+                }
+            }
+        }
+    }
+
+    return(STATUS_SUCCESS);
 }
 
 
@@ -2707,7 +2786,7 @@ Return Value:
         //
         // WARNNOTE:
         //      If somebody somehow managed to create a key in our way,
-        //      they'll thwart last known good.  Tough shit.
+        //      they'll thwart last known good.  Tough luck.
         //      Claim it worked and go on.
         //
         Status = STATUS_SUCCESS;
@@ -3004,7 +3083,6 @@ Return Value:
 {
     UNICODE_STRING KeyName;
     UNICODE_STRING LinkName;
-    UNICODE_STRING LinkValueName;
     OBJECT_ATTRIBUTES Attributes;
     HANDLE LinkHandle;
     ULONG Disposition;
@@ -3052,10 +3130,8 @@ Return Value:
     }
 
     RtlInitUnicodeString(&LinkName, HivePath);
-    RtlInitUnicodeString(&LinkValueName, L"SymbolicLinkValue");
-
     Status = NtSetValueKey(LinkHandle,
-                           &LinkValueName,
+                           &CmSymbolicLinkValueName,
                            0,
                            REG_LINK,
                            LinkName.Buffer,
@@ -3125,8 +3201,8 @@ Return Value:
     // equal to ensure that SYSTEM and SYSTEM.ALT are really the same
     // hive.
     //
-    if (!RtlLargeIntegerEqualTo(CmHive->Hive.BaseBlock->TimeStamp,
-                                PrimaryHive->Hive.BaseBlock->TimeStamp)) {
+    if (CmHive->Hive.BaseBlock->TimeStamp.QuadPart !=
+        PrimaryHive->Hive.BaseBlock->TimeStamp.QuadPart) {
         CMLOG(CML_BUGCHECK,CMS_INIT) {
             KdPrint(("CmpValidateSecondary: timestamps don't match"));
         }

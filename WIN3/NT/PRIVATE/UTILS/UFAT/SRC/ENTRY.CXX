@@ -4,23 +4,23 @@ Copyright (c) 1990  Microsoft Corporation
 
 Module Name:
 
-	entry.cxx
+   entry.cxx
 
 Abstract:
 
-	This module contains the entry points for UFAT.DLL.	These
-	include:
+   This module contains the entry points for UFAT.DLL.  These
+   include:
 
-		Chkdsk
-		Format
+      Chkdsk
+      Format
 
 Author:
 
-	Bill McJohn (billmc) 31-05-91
+   Bill McJohn (billmc) 31-05-91
 
 Environment:
 
-	ULIB, User Mode
+   ULIB, User Mode
 
 --*/
 
@@ -73,31 +73,35 @@ Chkdsk(
     IN      BOOLEAN     OnlyIfDirty,
     IN      BOOLEAN     Recover,
     IN      PPATH       PathToCheck,
+    IN      BOOLEAN     Extend,
+    IN      BOOLEAN     ResizeLogFile,
+    IN      ULONG       LogFileSize,
     IN      PULONG      ExitStatus
-	)
+   )
 /*++
 
 Routine Description:
 
-	Check a FAT volume.
+   Check a FAT volume.
 
 Arguments:
 
-	DosDrivName 	supplies the name of the drive to check
-	Message 		supplies an outlet for messages
-	Fix 			TRUE if Chkdsk should fix errors
-	Verbose 		TRUE if Chkdsk should list every file it finds
-	OnlyIfDirty		TRUE if the drive should be checked only if
+   DosDrivName    supplies the name of the drive to check
+   Message     supplies an outlet for messages
+   Fix         TRUE if Chkdsk should fix errors
+   Verbose     TRUE if Chkdsk should list every file it finds
+   OnlyIfDirty    TRUE if the drive should be checked only if
                             it is dirty
     Recover         TRUE if Chkdsk should verify all of the sectors
                             on the disk.
-	PathToCheck 	Supplies a path to files Chkdsk should check
-						for contiguity
+   PathToCheck    Supplies a path to files Chkdsk should check
+                  for contiguity
+    Extend          Unused (should always be FALSE)
     ExitStatus      Returns exit status to chkdsk.exe
-    
+
 Return Value:
 
-	TRUE if successful.
+   TRUE if successful.
 
 --*/
 {
@@ -123,9 +127,9 @@ Return Value:
         ExitStatus = &exit_status;
     }
 
-    if (!FatVol.Initialize(NtDriveName, Message)) {
+    if (Extend || !FatVol.Initialize(NtDriveName, Message)) {
         *ExitStatus = CHKDSK_EXIT_COULD_NOT_CHK;
-		return FALSE;
+      return FALSE;
     }
 
     if (Fix && !FatVol.Lock()) {
@@ -145,7 +149,7 @@ Return Value:
 
             if( Message->IsYesResponse( FALSE ) ) {
 
-                if( FatVol.ForceAutochk( Recover, NtDriveName ) ) {
+                if( FatVol.ForceAutochk( Recover, FALSE, 0, NtDriveName ) ) {
 
                     Message->Set(MSG_CHKDSK_SCHEDULED);
                     Message->Display();
@@ -176,12 +180,14 @@ Return Value:
     }
 
 
-	r = FatVol.ChkDsk( Fix ? TotalFix : CheckOnly,
-						     Message,
-							 Verbose,
+   r = FatVol.ChkDsk( Fix ? TotalFix : CheckOnly,
+                       Message,
+                      Verbose,
                              OnlyIfDirty,
                              Recover,
                              Recover,
+                             FALSE,
+                             0,
                              ExitStatus );
 
     if (!r) {
@@ -318,12 +324,12 @@ BOOLEAN
 FAR APIENTRY
 Format(
     IN      PCWSTRING           NtDriveName,
-	IN OUT  PMESSAGE            Message,
-	IN      BOOLEAN		        Quick,
-	IN      MEDIA_TYPE	        MediaType,
+   IN OUT  PMESSAGE            Message,
+   IN      BOOLEAN              Quick,
+   IN      MEDIA_TYPE           MediaType,
     IN      PCWSTRING           LabelString,
     IN      ULONG               ClusterSize
-	)
+   )
 /*++
 
 Routine Description:
@@ -355,16 +361,12 @@ Return Value:
 
     // Make sure the cluster size switch wasn't specified.
     //
-    if (ClusterSize) {
+    if (ClusterSize > 0 && ClusterSize <= 4096) {
         Message->Set(MSG_FMT_VARIABLE_CLUSTERS_NOT_SUPPORTED);
         Message->Display("%s", "FAT");
         return FALSE;
     }
 
-
-    // Check to see if the volume is too large and determine
-    // whether it's compressed.
-    //
     if( !(DpDrive = NEW DP_DRIVE) ) {
 
         Message->Set( MSG_FMT_NO_MEMORY );
@@ -372,15 +374,20 @@ Return Value:
         return FALSE;
     }
 
-
     if (!DpDrive->Initialize(NtDriveName, Message, TRUE)) {
         DELETE( DpDrive );
         return FALSE;
     }
 
+    // Check to see if the volume is too large and determine
+    // whether it's compressed.  Volumes larger than 4GB are
+    // not supported by fastfat.
+    //
+
     Sectors = DpDrive->QuerySectors();
 
     if (Sectors.GetHighPart() != 0 ||
+        (Sectors * DpDrive->QuerySectorSize()).GetHighPart() != 0 ||
         FAT_SA::ComputeSecClus(Sectors.GetLowPart(),
                                LARGE, MediaType) > MaxSecPerClus) {
 
@@ -429,24 +436,24 @@ Return Value:
 BOOLEAN
 FAR APIENTRY
 Recover(
-	IN		PPATH		RecFilePath,
-	IN OUT	PMESSAGE	Message
-	)
+   IN    PPATH    RecFilePath,
+   IN OUT   PMESSAGE Message
+   )
 /*++
 
 Routine Description:
 
-	Recover a file on a FAT disk.
+   Recover a file on a FAT disk.
 
 Arguments:
 
 Return Value:
 
-	TRUE if successful.
+   TRUE if successful.
 
 --*/
 {
-	FAT_VOL 			FatVol;
+   FAT_VOL        FatVol;
     PWSTRING            fullpathfilename;
     PWSTRING            dosdrive;
     DSTRING             ntdrive;
@@ -454,7 +461,7 @@ Return Value:
     fullpathfilename = RecFilePath->QueryDirsAndName();
     dosdrive = RecFilePath->QueryDevice();
     if (!dosdrive ||
-	    !IFS_SYSTEM::DosDriveNameToNtDriveName(dosdrive, &ntdrive)) {
+       !IFS_SYSTEM::DosDriveNameToNtDriveName(dosdrive, &ntdrive)) {
         DELETE(dosdrive);
         DELETE(fullpathfilename);
         return FALSE;
@@ -486,3 +493,4 @@ Return Value:
     DELETE(fullpathfilename);
     return TRUE;
 }
+

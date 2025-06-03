@@ -3,7 +3,7 @@
 *   Copyright <C> 1988, Microsoft Corporation
 *
 *   Revision History:
-*	26-Nov-1991 mz	Strip off near/far
+*       26-Nov-1991 mz  Strip off near/far
 *
 *************************************************************************/
 #define INCL_DOSFILEMGR
@@ -19,42 +19,42 @@
 
 #define DEBFLAG ZINIT
 
-#define TSTACK		2048		/* Thread stack size		*/
+#define TSTACK          2048            /* Thread stack size            */
 
 /*
  * Data initializations
  */
-flagType    fAskExit	= FALSE;
-flagType    fAskRtn	= TRUE;
-flagType    fAutoSave	= TRUE;
-flagType    fBoxArg	= FALSE;
-flagType    fCgaSnow	= TRUE;
-flagType    fEditRO	= TRUE;
-flagType    fErrPrompt	= TRUE;
-flagType    fGlobalRO	= FALSE;
+flagType    fAskExit    = FALSE;
+flagType    fAskRtn     = TRUE;
+flagType    fAutoSave   = TRUE;
+flagType    fBoxArg     = FALSE;
+flagType    fCgaSnow    = TRUE;
+flagType    fEditRO     = TRUE;
+flagType    fErrPrompt  = TRUE;
+flagType    fGlobalRO   = FALSE;
 flagType    fInsert     = TRUE;
 flagType    fDisplayCursorLoc = FALSE;
 flagType    fMacroRecord= FALSE;
-flagType    fMsgflush	= TRUE;
-flagType    fNewassign	= TRUE;
-flagType    fRealTabs	= TRUE;
+flagType    fMsgflush   = TRUE;
+flagType    fNewassign  = TRUE;
+flagType    fRealTabs   = TRUE;
 flagType    fSaveScreen = TRUE;
 flagType    fShortNames = TRUE;
-flagType    fSoftCR	= TRUE;
-flagType    fTabAlign	= FALSE;
+flagType    fSoftCR     = TRUE;
+flagType    fTabAlign   = FALSE;
 flagType    fTrailSpace = FALSE;
-flagType    fWordWrap	= FALSE;
-flagType    fBreak	= FALSE;
+flagType    fWordWrap   = FALSE;
+flagType    fBreak      = FALSE;
 /*
  * Search/Replace globals
  */
-flagType fUnixRE	= FALSE;
-flagType fSrchAllPrev	= FALSE;
-flagType fSrchCaseSwit	= FALSE;
-flagType fSrchDirPrev	= TRUE;
-flagType fSrchRePrev	= FALSE;
+flagType fUnixRE        = FALSE;
+flagType fSrchAllPrev   = FALSE;
+flagType fSrchCaseSwit  = FALSE;
+flagType fSrchDirPrev   = TRUE;
+flagType fSrchRePrev    = FALSE;
 flagType fSrchWrapSwit  = FALSE;
-flagType fSrchWrapPrev	= FALSE;
+flagType fSrchWrapPrev  = FALSE;
 flagType fUseMouse      = FALSE;
 
 flagType fCtrlc;
@@ -67,62 +67,62 @@ flagType fRetVal;
 flagType fTextarg;
 flagType fSrchCasePrev;
 flagType fRplRePrev;
-buffer	 srchbuf;
-buffer	 srcbuf;
-buffer	 rplbuf;
+buffer   srchbuf;
+buffer   srcbuf;
+buffer   rplbuf;
 
 unsigned kbdHandle;
 
-int		   backupType  = B_BAK;
-int	    cUndelCount = 32767;	/* essentially, infinite	*/
-int	    cCmdTab	= 1;
-LINE	    cNoise	= 50;
-int	    cUndo	= 10;
+int                backupType  = B_BAK;
+int         cUndelCount = 32767;        /* essentially, infinite        */
+int         cCmdTab     = 1;
+LINE        cNoise      = 50;
+int         cUndo       = 10;
 int         EnTab       = 1;
-char *	    eolText	= "\r\n";	/* our definition of end of line*/
-int		fileTab	= 8;
-int 	CursorSize=0;
-int	    hike	= 4;
-int	    hscroll	= 10;
-unsigned    kindpick	= LINEARG;
-char	    tabDisp	= ' ';
-int	    tabstops	= 4;
-int	    tmpsav	= 20;
-char	    trailDisp	= 0;
-int	    vscroll	= 1;
-COL	    xMargin	= 72;
+char *      eolText     = "\r\n";       /* our definition of end of line*/
+int             fileTab = 8;
+int     CursorSize=0;
+int         hike        = 4;
+int         hscroll     = 10;
+unsigned    kindpick    = LINEARG;
+char        tabDisp     = ' ';
+int         tabstops    = 4;
+int         tmpsav      = 20;
+char        trailDisp   = 0;
+int         vscroll     = 1;
+COL         xMargin     = 72;
 
-PCMD *	rgMac	    = NULL;	    /* macro array		    */
+PCMD *  rgMac       = NULL;         /* macro array                  */
 
-int 	 cMac;
+int      cMac;
 
-int 	 ballevel;
-char	 *balopen, *balclose;
-unsigned getlsize	  = 0xFE00;
+int      ballevel;
+char     *balopen, *balclose;
+unsigned getlsize         = 0xFE00;
 
-char	 *Name;
-char	 *Version;
-char	 *CopyRight;
+char     Name[];
+char     Version[];
+char     CopyRight[];
 
 EDITOR_KEY keyCmd;
 
-int 	ColorTab[16];
+int     ColorTab[16];
 
-int 	 cArgs;
-char	 **pArgs;
+int      cArgs;
+char     **pArgs;
 
-char	 * pNameEditor;
-char	 * pNameTmp;
-char	 * pNameInit;
-char	 * pNameHome;
-char	*pComSpec;
+char     * pNameEditor;
+char     * pNameTmp;
+char     * pNameInit;
+char     * pNameHome;
+char    *pComSpec;
 
 int cMacUse;
 struct macroInstanceType mi[MAXUSE];
 
-PCMD	 cmdSet[MAXEXT];
-PSWI	 swiSet[MAXEXT];
-char	*pExtName[MAXEXT];
+PCMD     cmdSet[MAXEXT];
+PSWI     swiSet[MAXEXT];
+char    *pExtName[MAXEXT];
 
 
 
@@ -147,7 +147,7 @@ KBDMODE OriginalScreenMode;
 BTD    *pBTDComp  = NULL;
 BTD    *pBTDPrint = NULL;
 
-unsigned    LVBlength	= 0;		/* We use this to know if we're detached */
+unsigned    LVBlength   = 0;            /* We use this to know if we're detached */
 
 /*
  * String values.
@@ -166,47 +166,47 @@ char User[]       = "USER";
  */
 char rgchAutoLoad[]="m*.pxt";
 
-sl			slSize;
-PFILE	 pFilePick = NULL;
-PFILE	 pFileFileList = NULL;
-PFILE	 pFileAssign = NULL;
-PFILE	 pFileIni = NULL;
-struct	 windowType WinList[MAXWIN+1];
-int 	 iCurWin = 0;
-PINS	    pInsCur	= NULL;
-PWND	    pWinCur	= NULL;
-int			cWin	= 0;
-PFILE		pFileHead=NULL;
-COMP	 *pCompHead = NULL;
-MARK	 *pMarkHead = NULL;
-char	 *pMarkFile = NULL;
-char	 *pPrintCmd = NULL;
-PFILE	 pPrintFile = NULL;
-buffer	scanbuf;
-buffer	scanreal;
-int 	scanlen;
-fl		flScan;
-rn		rnScan;
+sl                      slSize;
+PFILE    pFilePick = NULL;
+PFILE    pFileFileList = NULL;
+PFILE    pFileAssign = NULL;
+PFILE    pFileIni = NULL;
+struct   windowType WinList[MAXWIN+1];
+int      iCurWin = 0;
+PINS        pInsCur     = NULL;
+PWND        pWinCur     = NULL;
+int                     cWin    = 0;
+PFILE           pFileHead=NULL;
+COMP     *pCompHead = NULL;
+MARK     *pMarkHead = NULL;
+char     *pMarkFile = NULL;
+char     *pPrintCmd = NULL;
+PFILE    pPrintFile = NULL;
+buffer  scanbuf;
+buffer  scanreal;
+int     scanlen;
+fl              flScan;
+rn              rnScan;
 
 #ifdef DEBUG
-int 	 debug, indent;
+int      debug, indent;
 FILEHANDLE debfh;
 #endif
 
-fl		 flArg;
-int 	 argcount;
+fl               flArg;
+int      argcount;
 
 flagType fInSelection = FALSE;
 
-fl		 flLow;
-fl		 flHigh;
-LINE	 lSwitches;
-int 	 cRepl;
-char	 *ronlypgm = NULL;
-buffer	 buf;
-buffer	 textbuf;
-int 	 Zvideo;
-int 	 DOSvideo;
+fl               flLow;
+fl               flHigh;
+LINE     lSwitches;
+int      cRepl;
+char     *ronlypgm = NULL;
+buffer   buf;
+buffer   textbuf;
+int      Zvideo;
+int      DOSvideo;
 
 flagType *fChange = NULL;
 unsigned fInit;
@@ -221,17 +221,17 @@ flagType    fDisplay    = RCURSOR | RTEXT | RSTATUS;
 flagType    fReDraw     = TRUE;
 HANDLE      semIdle     = 0;
 
-char	    IdleStack[TSTACK*2];	/* Idle thread stack		*/
+char        IdleStack[TSTACK*2];        /* Idle thread stack            */
 
 int         argcount    =  0;
 CRITICAL_SECTION    IOCriticalSection;
 CRITICAL_SECTION    UndoCriticalSection;
-CRITICAL_SECTION	ScreenCriticalSection;
+CRITICAL_SECTION        ScreenCriticalSection;
 
 /*
  * predefined args. Handy for invoking some set functions ourselves
  */
-ARG	NoArg		= {NOARG, 0};
+ARG     NoArg           = {NOARG, 0};
 
 
 /*
@@ -240,12 +240,12 @@ ARG	NoArg		= {NOARG, 0};
  */
 char * initTab[] = {
 /*  Default compilers */
-	     "extmake:c    cl /c /Zp %|F",
-	     "extmake:asm  masm -Mx %|F;",
-	     "extmake:pas  pl /c -Zz %|F",
-	     "extmake:for  fl /c %|F",
-	     "extmake:bas  bc /Z %|F;",
-	     "extmake:text nmake %s",
+             "extmake:c    cl /c /Zp %|F",
+             "extmake:asm  masm -Mx %|F;",
+             "extmake:pas  pl /c -Zz %|F",
+             "extmake:for  fl /c %|F",
+             "extmake:bas  bc /Z %|F;",
+             "extmake:text nmake %s",
 
 /*  Default macros */
 //
@@ -254,11 +254,11 @@ char * initTab[] = {
 // help extension IS loaded, it automatically makes new assignments to these
 // keystrokes, and all is well with the world.
 //
-	     "helpnl:=cancel arg \"OnLine Help Not Loaded\" message",
-	     "helpnl:f1",
-	     "helpnl:shift+f1",
-	     "helpnl:ctrl+f1",
-	     "helpnl:alt+f1",
+             "helpnl:=cancel arg \"OnLine Help Not Loaded\" message",
+             "helpnl:f1",
+             "helpnl:shift+f1",
+             "helpnl:ctrl+f1",
+             "helpnl:alt+f1",
     NULL
     };
 
@@ -266,15 +266,15 @@ char * initTab[] = {
  * exttab is a table used to keep track of cached extension-specific TOOLS.INI
  * sections.
  */
-#define MAXEXTS 10			/* max number of unique extensions*/
+#define MAXEXTS 10                      /* max number of unique extensions*/
 
 struct EXTINI {
-    LINE    linSrc;			/* TOOLS.INI line of the text	*/
-    char    ext[5];			/* the file extension (w/ ".")	*/
-    } exttab[10]	= {0};
+    LINE    linSrc;                     /* TOOLS.INI line of the text   */
+    char    ext[5];                     /* the file extension (w/ ".")  */
+    } exttab[10]        = {0};
 
 
-flagType	 fInCleanExit = FALSE;
+flagType         fInCleanExit = FALSE;
 
 char    ConsoleTitle[256];
 
@@ -286,16 +286,16 @@ char    ConsoleTitle[256];
 *  was invoked with. Called immediately on entry.
 *
 * Input:
-*  name 	= Pointer to name editor invoked as
+*  name         = Pointer to name editor invoked as
 *
 * Output:
 *  Returns nothing
 *
-*  pNameHome	= environment variable to use as "home" directory
-*  pNameEditor	= name editor invoked as
-*  pNameTmp	= name of state preservation file (M.TMP)
-*  pNameInit	= name of tools initialization file (TOOLS.INI)
-*  pComSpec	= name of command processor
+*  pNameHome    = environment variable to use as "home" directory
+*  pNameEditor  = name editor invoked as
+*  pNameTmp     = name of state preservation file (M.TMP)
+*  pNameInit    = name of tools initialization file (TOOLS.INI)
+*  pComSpec     = name of command processor
 *
 *************************************************************************/
 void
@@ -394,7 +394,7 @@ init (
     /*
      * Initialize VM, and bomb off if that didn't work.
      */
-	asserte( getlbuf = MALLOC( getlsize ));
+        asserte( getlbuf = MALLOC( getlsize ));
 
     //    fSaveScreen = FALSE;
     //    CleanExit (1, FALSE);
@@ -407,7 +407,7 @@ init (
      * understand, bomb off. Else, get the x and y sizes, for possible use later
      * as our editting mode, use postspawn to complete some initialization, and
      * set up our default colors.
-	 */
+         */
 
     //
     //  Create a new screen buffer and make it the active one.
@@ -420,7 +420,7 @@ init (
         exit(1);
     }
     consoleGetMode(&OriginalScreenMode);
-	asserte(consoleSetCurrentScreen(MepScreen));
+        asserte(consoleSetCurrentScreen(MepScreen));
     //
     //  Put the console in raw mode
     //
@@ -463,7 +463,7 @@ init (
     InitializeCriticalSection(&UndoCriticalSection);
 
     //
-    //	Create the semIdle event
+    //  Create the semIdle event
     //
 
     asserte(semIdle = CreateEvent(NULL, FALSE, FALSE, NULL));
@@ -495,12 +495,12 @@ init (
      */
     loadini (TRUE);
 
-	SetScreen ();
+        SetScreen ();
 
-	//
-	//	Set the cursor size
-	//
-	SetCursorSize( CursorSize );
+        //
+        //      Set the cursor size
+        //
+        SetCursorSize( CursorSize );
 
     //
     //  Make sure that hscroll is smaller than the window's width
@@ -526,7 +526,7 @@ init (
     pBTDComp  = BTCreate (rgchComp);
     pBTDPrint = BTCreate (rgchPrint);
 
-	assert(_pfilechk());
+        assert(_pfilechk());
     return TRUE;
 }
 
@@ -540,13 +540,13 @@ init (
 *  table. set ffound to true if we find the appropriate file
 *
 * Input:
-*  tag		= the name of the subsection to be read, or NULL for base
-*		  section
-*  pfFound	= Pointer to flag to be set TRUE if any assignment is actually
-*		  made. May also be NULL.
-*  linStart	= line number to start processing from if we already have
-*		  a tools.ini. This make re-reading a previously read
-*		  section faster.
+*  tag          = the name of the subsection to be read, or NULL for base
+*                 section
+*  pfFound      = Pointer to flag to be set TRUE if any assignment is actually
+*                 made. May also be NULL.
+*  linStart     = line number to start processing from if we already have
+*                 a tools.ini. This make re-reading a previously read
+*                 section faster.
 *
 * Output:
 *  Returns TOOLS.INI line number of matching section. Assignments may be made,
@@ -571,18 +571,18 @@ DoInit (
      */
     if (pFileIni == NULL) {
         linStart = 0;
-	pFileIni = (PFILE)-1;
+        pFileIni = (PFILE)-1;
         assert (pNameInit);
         if (findpath (pNameInit, buf, TRUE)) {
-	    pFileIni = FileNameToHandle (buf, NULL);
-	    if (pFileIni == NULL) {
-		pFileIni = AddFile (buf);
-		assert (pFileIni);
-		pFileIni->refCount++;
-		SETFLAG (FLAGS(pFileIni), DOSFILE);
+            pFileIni = FileNameToHandle (buf, NULL);
+            if (pFileIni == NULL) {
+                pFileIni = AddFile (buf);
+                assert (pFileIni);
+                pFileIni->refCount++;
+                SETFLAG (FLAGS(pFileIni), DOSFILE);
             }
-	    if (!TESTFLAG (FLAGS(pFileIni), REAL)) {
-		FileRead (buf, pFileIni, FALSE);
+            if (!TESTFLAG (FLAGS(pFileIni), REAL)) {
+                FileRead (buf, pFileIni, FALSE);
             }
         }
     }
@@ -592,14 +592,14 @@ DoInit (
          * If there is no starting line number, form the full tag name to be looked
          * for, and scan the file for it.
          */
-	if (!(cLine = linStart)) {
-	    strcpy( bufTag, pNameEditor );
-	    // strcpy (bufTag, "mepnt"); //pNameEditor);
+        if (!(cLine = linStart)) {
+            strcpy( bufTag, pNameEditor );
+            // strcpy (bufTag, "mepnt"); //pNameEditor);
             if (tag != NULL && *tag != '\0') {
                 strcat (strcat (bufTag, "-"), tag);
-		}
-            strlwr (bufTag);
-	    linStart = cLine = LocateTag(pFileIni, bufTag);
+                }
+            _strlwr (bufTag);
+            linStart = cLine = LocateTag(pFileIni, bufTag);
         }
 
         /*
@@ -608,7 +608,7 @@ DoInit (
          */
         if (cLine) {
             pTag = NULL;
-	    while (pTag = GetTagLine (&cLine, pTag, pFileIni)) {
+            while (pTag = GetTagLine (&cLine, pTag, pFileIni)) {
                 DoAssign (pTag);
                 if (pfFound) {
                     *pfFound = TRUE;
@@ -629,7 +629,7 @@ DoInit (
 *  Identify tag lines in TOOLS.INI
 *
 * Input:
-*  buf		= pointer to string to check
+*  buf          = pointer to string to check
 *
 * Output:
 *  Returns pointer to tag if line is marker; NULL otherwise
@@ -662,8 +662,8 @@ IsTag (
 *  Locates a specific tag
 *
 * Input:
-*  pFile	= pFile of file to be searched
-*  pText	= text of the tag (no brackets)
+*  pFile        = pFile of file to be searched
+*  pText        = text of the tag (no brackets)
 *
 * Output:
 *  Returns line number +1 of tag line
@@ -683,12 +683,12 @@ LocateTag (
 
     for (lCur = 0; lCur < pFile->cLines; lCur++) {
         GetLine (lCur, buf, pFile);
-	if (pTagEnd = pTag = IsTag (buf)) {
+        if (pTagEnd = pTag = IsTag (buf)) {
             while (*pTagEnd) {
                 pTagEnd = whitescan (pTag = whiteskip (pTagEnd));
                 c = *pTagEnd;
                 *pTagEnd = 0;
-                if (!stricmp (pText, pTag)) {
+                if (!_stricmp (pText, pTag)) {
                     return lCur+1;
                 }
                 *pTagEnd = c;
@@ -708,7 +708,7 @@ LocateTag (
 *  invalidated (and freed) on execution of the initialize command.
 *
 * Input:
-*  szExt	= Pointer to string containing extension. MAX 4 CHARACTERS!
+*  szExt        = Pointer to string containing extension. MAX 4 CHARACTERS!
 *
 * Output:
 *  Returns TRUE if section found & executed.
@@ -786,7 +786,7 @@ InitExt (
 *  Reads TOOLS.INI at startup, and when the initialize function is used.
 *
 * Input:
-*  fFirst	= true if call at startup
+*  fFirst       = true if call at startup
 *
 * Output:
 *  Returns
@@ -823,7 +823,7 @@ loadini (
      * to that in the TOOLS.INI file.
      */
     for (i = 0; initTab[i]; i++) {
-	DoAssign (strcpy((char *)buf, initTab[i]));
+        DoAssign (strcpy((char *)buf, initTab[i]));
     }
 
     /*
@@ -892,17 +892,17 @@ zinit (
     flagType fMeta
     )
 {
-    flagType	f;
-    buffer	ibuf;
+    flagType    f;
+    buffer      ibuf;
 
     /*
      * clear old version of tools.ini, and clear any cached extension-specific
      * tools.ini stuff
      */
     if (pFileIni != NULL && (pFileIni != (PFILE)-1)) {
-	RemoveFile (pFileIni);
-	pFileIni = NULL;
-	memset ((char *)exttab, '\0', sizeof (exttab));
+        RemoveFile (pFileIni);
+        pFileIni = NULL;
+        memset ((char *)exttab, '\0', sizeof (exttab));
     }
 
     ibuf[0] = 0;
@@ -910,13 +910,13 @@ zinit (
     switch (pArg->argType) {
 
     case NOARG:
-	f = (flagType)loadini (FALSE);
+        f = (flagType)loadini (FALSE);
         break;
 
     case TEXTARG:
-	strcpy (ibuf, pArg->arg.textarg.pText);
-	DoInit (ibuf, &f, 0L);
-	break;
+        strcpy (ibuf, pArg->arg.textarg.pText);
+        DoInit (ibuf, &f, 0L);
+        break;
     }
 
     if (!f) {
@@ -937,8 +937,8 @@ zinit (
 *
 *  The routine GetVideoState does the following:
 *
-*	Set up the fnMove/fnStore routine based upon screen capabilities
-*	Return a handle encoding the possible and current display modes.
+*       Set up the fnMove/fnStore routine based upon screen capabilities
+*       Return a handle encoding the possible and current display modes.
 *
 *  Once this is complete, the user will request a particular size. The
 *  request comes from either tools.ini or from the Z.TMP file. Tools.ini
@@ -957,7 +957,7 @@ zinit (
 *  indication so that Z.TMP read-in can be suitably modified.
 *
 * Input:
-*  xSizeNew	= new size for xSize
+*  xSizeNew     = new size for xSize
 *  ySizeNew    = new size for ySize
 *
 * OutPut:
@@ -971,21 +971,21 @@ fVideoAdjust (
     )
 {
     //int                 newState;
-	SCREEN_INFORMATION	ScrInfo;
+        SCREEN_INFORMATION      ScrInfo;
 
     if ( xSizeNew <= hscroll ) {
         return FALSE;
     }
-	if ( !SetScreenSize ( ySizeNew+2, xSizeNew ) ) {
+        if ( !SetScreenSize ( ySizeNew+2, xSizeNew ) ) {
         return FALSE;
     }
 
-	consoleGetScreenInformation( MepScreen, &ScrInfo );
+        consoleGetScreenInformation( MepScreen, &ScrInfo );
 
     //Zvideo = newState;
 
-	XSIZE = ScrInfo.NumberOfCols;
-	YSIZE = ScrInfo.NumberOfRows-2;
+        XSIZE = ScrInfo.NumberOfCols;
+        YSIZE = ScrInfo.NumberOfRows-2;
 
     SetScreen ();
     return TRUE;
@@ -1008,7 +1008,7 @@ consoleEnterCancelEvent (
 /*** CtrlC - Handler for Control-C signal.
 *
 *   Invalidate any type ahead and leave flag around.  If the user presses
-*	Ctrl-C or Ctrl-Break five times without getting the tfCtrlc flag
+*       Ctrl-C or Ctrl-Break five times without getting the tfCtrlc flag
 *   cleared, assume that the editor is hung and exit.
 *
 * Input:
@@ -1021,7 +1021,7 @@ consoleEnterCancelEvent (
 *************************************************************************/
 int
 CtrlC (
-	ULONG	CtrlType
+        ULONG   CtrlType
     )
 {
 
@@ -1066,7 +1066,7 @@ CtrlC (
 
             GetTextCursor( &oldx, &oldy );
             bell();
-        	consoleMoveTo( YSIZE, x = domessage ("**PANIC EXIT** Really exit and lose edits?", NULL));
+                consoleMoveTo( YSIZE, x = domessage ("**PANIC EXIT** Really exit and lose edits?", NULL));
             while ( c != 'Y' && c != 'N'  ) {
                 c = toupper(getch());
             }
@@ -1082,8 +1082,8 @@ CtrlC (
         }
         */
     } else {
-		fCtrlc = TRUE;
-		cCtrlC = 1;
+                fCtrlc = TRUE;
+                cCtrlC = 1;
         if ( consoleIsBusyReadingKeyboard() ) {
              consoleEnterCancelEvent();
         }
@@ -1113,29 +1113,29 @@ postspawn (
     flagType fAsk
     )
 {
-	if (!TESTFLAG(fInit, INIT_VIDEO)) {
-		GetScreenSize ( &YSIZE, &XSIZE);
-		//
-		//	We need at lesast 3 lines:
-		//		-	Status Line
-		//		-	Message Line
-		//		-	Edit line
-		//
-		if ( YSIZE < 3 ) {
-			YSIZE = 3;
-			SetScreenSize( YSIZE, XSIZE );
-		}
-		YSIZE -= 2;
-	}
-	SETFLAG (fInit, INIT_VIDEO);
+        if (!TESTFLAG(fInit, INIT_VIDEO)) {
+                GetScreenSize ( &YSIZE, &XSIZE);
+                //
+                //      We need at lesast 3 lines:
+                //              -       Status Line
+                //              -       Message Line
+                //              -       Edit line
+                //
+                if ( YSIZE < 3 ) {
+                        YSIZE = 3;
+                        SetScreenSize( YSIZE, XSIZE );
+                }
+                YSIZE -= 2;
+        }
+        SETFLAG (fInit, INIT_VIDEO);
 
 
     if (fAsk) {
-		printf ("Please strike any key to continue");
-		getch();
-		FlushInput ();
-		printf ("\n");
-	}
+                printf ("Please strike any key to continue");
+                _getch();
+                FlushInput ();
+                printf ("\n");
+        }
 
     //if (fSaveScreen) {
     SaveScreen();
@@ -1144,7 +1144,7 @@ postspawn (
     SetScreen ();
 
     dispmsg (0);
-	newscreen ();
+        newscreen ();
 
     fSpawned = FALSE;
 
@@ -1177,5 +1177,5 @@ VideoTag (
     void
     )
 {
-	return "vga";
+        return "vga";
 }

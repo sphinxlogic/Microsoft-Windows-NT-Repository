@@ -49,7 +49,6 @@ extern	"C"	{
  ****************************************************************************/
 
 extern void						initlex();
-extern void						AcfConflictInit( void );
 extern void						ParseError( STATUS_T, char * );
 
 /****************************************************************************
@@ -65,17 +64,11 @@ extern CMD_ARG				*	pCommand;
 	local data
  ****************************************************************************/
 
-ATTR_SUMMARY 		AcfConflicts[ ACF_ATTR_COUNT ][ ATTR_VECTOR_SIZE ];
-
 /****************************************************************************/
 
 
 _pass2::_pass2()
 	{
-	
-
-//	AcfConflictInit(); // done already in pass1 to prepare for -app_config
-
 	pCompiler->SetPassNumber( ACF_PASS );
 	}
 
@@ -156,49 +149,8 @@ _pass2::Go()
 
 		} // end of outer while loop
 
-	/**
-	 ** if interface node exists, and does not have any handle type, warn
-	 ** the user that midl will use auto_handle. The interface node pointer
-	 ** is to the last interface node, which is the base idl file
-	 **/
-
 	if( (Status == STATUS_OK) )
 		{
-		if(pBaseFileNode)
-			{
-			node_interface *pInterface;
-			
-			// iterate over the interface nodes
-			for(pInterface = (node_interface *)pBaseFileNode->GetFirstMember();
-				pInterface; 
-				pInterface = (node_interface *)pInterface->GetSibling())
-				{
-				/* if interface node exists, and does not have any handle type, warn
-	 			** the user that midl will use auto_handle.
-	 			*/
-				//BUGBUG: check if interface has any remote procedures before
-				//setting the auto handle attribute.
-				if( !pInterface->FInSummary( ATTR_IMPLICIT) &&
-					!pInterface->FInSummary( ATTR_OBJECT ) &&
-			   		!pInterface->FInSummary( ATTR_AUTO ) &&
-			   		!pInterface->FInSummary( ATTR_EXPLICIT ) )
-					{
-					if ( !pInterface->IsPickleInterface() )
-						{
-						node_auto	*	pAuto = new node_auto;
-
-						pInterface->SetAttribute( pAuto );
-						}
-					else
-						{
-						node_explicit *	pExplicit	= new node_explicit;
-
-						// pInterface->SetAttribute( pExplicit );
-						}
-					}
-				}
-			}
-
 		/**
 	 	 ** The acf pass may have created include file nodes They must translate
 	 	 ** into include statements in the generated stubs. We handle that by
@@ -215,34 +167,4 @@ _pass2::Go()
 
 	delete pImportCntrl;
 	return Status;
-	}
-void
-AcfConflictInit()
-	{
-
-	// Initialize conflicting attribute array
-
-#ifdef obsolete
-	SET_ATTR( AcfConflicts[ ATTR_IMPLICIT - ACF_ATTR_START ] , ATTR_AUTO);
-	SET_ATTR( AcfConflicts[ ATTR_IMPLICIT - ACF_ATTR_START ] , ATTR_EXPLICIT);
-
-	SET_ATTR( AcfConflicts[ ATTR_EXPLICIT - ACF_ATTR_START ] , ATTR_AUTO);
-	SET_ATTR( AcfConflicts[ ATTR_EXPLICIT - ACF_ATTR_START ] , ATTR_IMPLICIT);
-
-	SET_ATTR( AcfConflicts[ ATTR_AUTO - ACF_ATTR_START ] , ATTR_EXPLICIT);
-	SET_ATTR( AcfConflicts[ ATTR_AUTO - ACF_ATTR_START ] , ATTR_IMPLICIT);
-
-	SET_ATTR( AcfConflicts[ ATTR_INLINE - ACF_ATTR_START ], ATTR_OUTOFLINE );
-	SET_ATTR( AcfConflicts[ ATTR_OUTOFLINE - ACF_ATTR_START ], ATTR_INLINE );
-
-	SET_ATTR( AcfConflicts[ ATTR_CODE - ACF_ATTR_START ], ATTR_NOCODE );
-	SET_ATTR( AcfConflicts[ ATTR_NOCODE - ACF_ATTR_START ], ATTR_CODE );
-
-	SET_ATTR( AcfConflicts[ ATTR_SHORT_ENUM - ACF_ATTR_START ],ATTR_LONG_ENUM );
-	SET_ATTR( AcfConflicts[ ATTR_LONG_ENUM - ACF_ATTR_START ],ATTR_SHORT_ENUM );
-
-	SET_ATTR( AcfConflicts[ ATTR_INTERPRET - ACF_ATTR_START ],ATTR_NOINTERPRET );
-	SET_ATTR( AcfConflicts[ ATTR_NOINTERPRET - ACF_ATTR_START ],ATTR_INTERPRET );
-
-#endif // obsolete
 	}

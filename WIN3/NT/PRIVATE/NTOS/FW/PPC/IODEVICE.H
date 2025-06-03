@@ -376,4 +376,3 @@ typedef struct _EISA {
 #define EISA_CONTROL ((volatile PEISA_CONTROL) EISA_IO_VIRTUAL_BASE)
 
 #endif // _IODEVICE_
-

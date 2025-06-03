@@ -56,6 +56,88 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
+ULONG
+MiFlushRangeFilter (
+    IN PEXCEPTION_POINTERS ExceptionPointers,
+    IN PVOID *BaseAddress,
+    IN PULONG Length,
+    IN PBOOLEAN Retry
+    )
+
+/*++
+
+Routine Description:
+
+    This is the exception handler used by NtFlushInstructionCache to protect
+    against bad virtual addresses passed to KeSweepIcacheRange.  If an
+    access violation occurs, this routine causes NtFlushInstructionCache to
+    restart the sweep at the page following the failing page.
+
+Arguments:
+
+    ExceptionPointers - Supplies exception information.
+
+    BaseAddress - Supplies a pointer to address the base of the region
+        being flushed.  If the failing address is not in the last page
+        of the region, this routine updates BaseAddress to point to the
+        next page of the region.
+
+    Length - Supplies a pointer the length of the region being flushed.
+        If the failing address is not in the last page of the region,
+        this routine updates Length to reflect restarting the flush at
+        the next page of the region.
+
+    Retry - Supplies a pointer to a boolean that the caller has initialized
+        to FALSE.  This routine sets this boolean to TRUE if an access
+        violation occurs in a page before the last page of the flush region.
+
+Return Value:
+
+    EXCEPTION_EXECUTE_HANDLER.
+
+--*/
+
+{
+    PEXCEPTION_RECORD ExceptionRecord;
+    ULONG BadVa;
+    ULONG NextVa;
+    ULONG EndVa;
+
+    ExceptionRecord = ExceptionPointers->ExceptionRecord;
+
+    //
+    // If the exception was an access violation, skip the current page of the
+    // region and move to the next page.
+    //
+
+    if ( ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION ) {
+
+        //
+        // Get the failing address, calculate the base address of the next page,
+        // and calculate the address at the end of the region.
+        //
+
+        BadVa = ExceptionRecord->ExceptionInformation[1];
+        NextVa = ROUND_TO_PAGES( BadVa + 1 );
+        EndVa = *(PULONG)BaseAddress + *Length;
+
+        //
+        // If the next page didn't wrap, and the next page is below the end of
+        // the region, update Length and BaseAddress appropriately and set Retry
+        // to TRUE to indicate to NtFlushInstructionCache that it should call
+        // KeSweepIcacheRange again.
+        //
+
+        if ( (NextVa > BadVa) && (NextVa < EndVa) ) {
+            *Length = EndVa - NextVa;
+            *BaseAddress = (PVOID)NextVa;
+            *Retry = TRUE;
+        }
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 NTSTATUS
 NtFlushInstructionCache (
     IN HANDLE ProcessHandle,
@@ -92,8 +174,13 @@ Return Value:
     KPROCESSOR_MODE PreviousMode;
     PEPROCESS Process;
     NTSTATUS Status;
+    BOOLEAN Retry;
+    PVOID RangeBase;
+    ULONG RangeLength;
 
     PAGED_CODE();
+
+    PreviousMode = KeGetPreviousMode();
 
     //
     // If the base address is not specified, or the base address is specified
@@ -104,28 +191,31 @@ Return Value:
     if ((ARGUMENT_PRESENT(BaseAddress) == FALSE) || (Length != 0)) {
 
         //
-        // If the specified process is the current process, then no reference
-        // to the process is necessary and the flush can be done directly.
-        // Otherwise, the process must be referenced, attached to, the flush
-        // executed, and detached from.
+        // If previous mode is user and the range specified falls in kernel
+        // address space, return an error.
         //
 
-        if (ProcessHandle == NtCurrentProcess()) {
-            if (ARGUMENT_PRESENT(BaseAddress) == FALSE) {
-                KeSweepIcache(FALSE);
-
-            } else {
-                KeSweepIcacheRange(FALSE, BaseAddress, Length);
+        if ((ARGUMENT_PRESENT(BaseAddress) != FALSE) &&
+            (PreviousMode != KernelMode)) {
+            try {
+                ProbeForRead(BaseAddress, Length, sizeof(UCHAR));
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+                return GetExceptionCode();
             }
+        }
 
-        } else {
+        //
+        // If the specified process is not the current process, then
+        // the process must be attached to during the flush.
+        //
+
+        if (ProcessHandle != NtCurrentProcess()) {
 
             //
             // Reference the specified process checking for PROCESS_VM_WRITE
             // access.
             //
 
-            PreviousMode = KeGetPreviousMode();
             Status = ObReferenceObjectByHandle(ProcessHandle,
                                                PROCESS_VM_WRITE,
                                                PsProcessType,
@@ -138,19 +228,57 @@ Return Value:
             }
 
             //
-            // Attach to the specified process, flush the specified address
-            // range, detach from the specified process, and deference the
-            // process object.
+            // Attach to the process.
             //
 
             KeAttachProcess(&Process->Pcb);
-            if (ARGUMENT_PRESENT(BaseAddress) == FALSE) {
-                KeSweepIcache(FALSE);
+        }
 
-            } else {
-                KeSweepIcacheRange(FALSE, BaseAddress, Length);
-            }
+        //
+        // If the base address is not specified, sweep the entire instruction
+        // cache.  If the base address is specified, flush the specified range.
+        //
 
+        if (ARGUMENT_PRESENT(BaseAddress) == FALSE) {
+            KeSweepIcache(FALSE);
+
+        } else {
+
+            //
+            // Parts of the specified range may be invalid.  An exception
+            // handler is used to skip over those parts.  Before calling
+            // KeSweepIcacheRange, we set Retry to FALSE.  If an access
+            // violation occurs in KeSweepIcacheRange, the MiFlushRangeFilter
+            // exception filter is called.  It updates RangeBase and
+            // RangeLength to skip over the failing page, and sets Retry to
+            // TRUE.  As long as Retry is TRUE, we continue to call
+            // KeSweepIcacheRange.
+            //
+
+            RangeBase = BaseAddress;
+            RangeLength = Length;
+
+            do {
+                Retry = FALSE;
+                try {
+                    KeSweepIcacheRange(FALSE, RangeBase, RangeLength);
+                } except(MiFlushRangeFilter(GetExceptionInformation(),
+                                            &RangeBase,
+                                            &RangeLength,
+                                            &Retry)) {
+                    if (GetExceptionCode() != STATUS_ACCESS_VIOLATION) {
+                        Status = GetExceptionCode();
+                    }
+                }
+            } while (Retry != FALSE);
+        }
+
+        //
+        // If the specified process is not the current process, then
+        // detach from it and dereference it.
+        //
+
+        if (ProcessHandle != NtCurrentProcess()) {
             KeDetachProcess();
             ObDereferenceObject(Process);
         }

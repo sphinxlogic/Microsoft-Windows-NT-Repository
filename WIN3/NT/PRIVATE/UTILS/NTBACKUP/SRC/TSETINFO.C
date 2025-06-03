@@ -149,6 +149,7 @@ NTFS_DBLK_PTR ddblk ;  /* I - Data to write to disk      */
 
 
      if ( ddblk->b.f.handle != INVALID_HANDLE_VALUE ) {
+          DWORD attrib;
 
           SetFileTime( ddblk->b.f.handle,
                &(ddblk->dta.create_time), 
@@ -157,7 +158,12 @@ NTFS_DBLK_PTR ddblk ;  /* I - Data to write to disk      */
 
           CloseHandle( ddblk->b.f.handle ) ;
 
-          if ( !SetFileAttributes( path, ddblk->dta.os_attr ) ) {
+          attrib = ddblk->dta.os_attr ;
+          if (attrib == 0 ) {
+               attrib = FILE_ATTRIBUTE_NORMAL ;
+          }
+          
+          if ( !SetFileAttributes( path, attrib ) ) {
                ret_val = FS_ACCESS_DENIED ;
           }
 
@@ -199,6 +205,7 @@ NTFS_DBLK_PTR ddblk ;  /* I - Data to write to disk      */
 {
      INT16 ret_val = SUCCESS ;
      CHAR_PTR path ;
+     DWORD    attrib ;
 
      path = ddblk->full_name_ptr->name ;
 
@@ -208,7 +215,11 @@ NTFS_DBLK_PTR ddblk ;  /* I - Data to write to disk      */
 
      if ( path[3] != TEXT('\0') ) {
 
-          if ( !SetFileAttributes( path, ddblk->dta.os_attr ) ) {
+          attrib = ddblk->dta.os_attr ;
+          if ( attrib == 0 ) {
+               attrib = FILE_ATTRIBUTE_NORMAL ;
+          }
+          if ( !SetFileAttributes( path, attrib ) ) {
                ret_val = FS_ACCESS_DENIED ;
           }
 

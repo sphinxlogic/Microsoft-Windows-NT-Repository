@@ -13,7 +13,10 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1103a.c  $
-*	
+*
+*	   Rev 1.5   09 Feb 1995 12:33:06   kurtgodw
+*	final m8 fixes
+*
 *	   Rev 1.4   23 Feb 1994 17:16:12   KEVINKES
 *	Removed an unreferenced local variable.
 *
@@ -49,6 +52,7 @@ dStatus cqd_ClearInterrupt
 (
 /* INPUT PARAMETERS:  */
 
+
    dVoidPtr context,
    dBoolean expected_interrupt
 
@@ -64,34 +68,41 @@ dStatus cqd_ClearInterrupt
 
 /* DATA: ********************************************************************/
 
-	dStatus status=DONT_PANIC;	/* dStatus or error condition.*/
-   dUWord i;
+    dStatus status=DONT_PANIC;  /* dStatus or error condition.*/
+    dUDWord i;
 	CqdContextPtr cqd_context;
-   dUByte reset_byte;
+    dUByte reset_byte;
 
 /* CODE: ********************************************************************/
 
 	cqd_context = (CqdContextPtr)context;
 
-   if ( cqd_context->controller_data.command_has_result_phase ) {
+    if ( cqd_context->controller_data.command_has_result_phase ) {
 
-      /* Result phase of previous command.    (Note that we can't trust */
-      /* the CMD_BUSY bit in the status register to tell us whether */
-      /* there's result bytes or not; it's sometimes wrong). */
-      /* By reading the first result byte, we reset the interrupt. */
-      /* The other result bytes will be read by a thread. */
+        //
+        // Result phase of previous command.    (Note that we can't trust
+        // the CMD_BUSY bit in the status register to tell us whether
+        // there's result bytes or not; it's sometimes wrong).
+        // By reading the first result byte, we reset the interrupt.
+        // The other result bytes will be read by a thread.
+        //
 
-      if ( ( kdi_ReadPort(
+        if ( ( kdi_ReadPort(
 					cqd_context->kdi_context,
 					cqd_context->controller_data.fdc_addr.msr )
             		& (MSR_RQM | MSR_DIO) ) == (MSR_RQM | MSR_DIO) ) {
 
-         cqd_context->controller_data.fifo_byte =
-            kdi_ReadPort(
+            cqd_context->controller_data.fifo_byte =
+                kdi_ReadPort(
 					cqd_context->kdi_context,
 					cqd_context->controller_data.fdc_addr.dr );
+#if DBG
+            DBG_ADD_ENTRY(QIC117SHOWMCMDS, (CqdContextPtr)cqd_context, DBG_FIFO_FDC);
+            DBG_ADD_ENTRY(QIC117SHOWMCMDS, (CqdContextPtr)cqd_context, cqd_context->controller_data.fifo_byte);
+#endif
 
-      } else {
+
+        } else {
 
 			status = kdi_Error(ERR_CONTROLLER_STATE_ERROR, FCT_ID, ERR_SEQ_1);
 
@@ -99,97 +110,107 @@ dStatus cqd_ClearInterrupt
 
 	} else {
 
-      /* Previous command doesn't have a result phase. To read how it */
-      /* completed, issue a sense interrupt command.  Don't read */
-      /* the result bytes from the sense interrupt; that is the */
-      /* responsibility of the calling thread. */
+        //
+        // Previous command doesn't have a result phase. To read how it
+        // completed, issue a sense interrupt command.  Don't read
+        // the result bytes from the sense interrupt; that is the
+        // responsibility of the calling thread.
+        //
 
-      i = FDC_MSR_RETRIES;
+        i = FDC_MSR_RETRIES;
 
-      do {
+        do {
 
-         if ((kdi_ReadPort(
+            if ((kdi_ReadPort(
 						cqd_context->kdi_context,
 						cqd_context->controller_data.fdc_addr.msr) &
 							(MSR_RQM | MSR_DIO)) == MSR_RQM) {
 
  				break;
 
-         }
+            }
 
-         kdi_ShortTimer( kdi_wt12us );
+            kdi_ShortTimer( kdi_wt12us );
 
-      } while (--i > 0);
+        } while (--i > 0);
 
-      if (i != 0) {
+        if (i != 0) {
+#if DBG
+            DBG_ADD_ENTRY(QIC117SHOWMCMDS, (CqdContextPtr)cqd_context, DBG_PGM_FDC);
+            DBG_ADD_ENTRY(QIC117SHOWMCMDS, (CqdContextPtr)cqd_context, FDC_CMD_SENSE_INT);
+#endif
+
 
 			kdi_WritePort(
 				cqd_context->kdi_context,
-	         cqd_context->controller_data.fdc_addr.dr,
-   	      FDC_CMD_SENSE_INT );
+                cqd_context->controller_data.fdc_addr.dr,
+                FDC_CMD_SENSE_INT );
 
-         kdi_ShortTimer( kdi_wt12us );
+            kdi_ShortTimer( kdi_wt12us );
 
-         /* Wait for the controller to ACK the SenseInterrupt command, by */
-         /* showing busy.    On very fast machines we can end up running */
-         /* driver's system-thread before the controller has had time to */
-         /* set the busy bit. */
+            //
+            // Wait for the controller to ACK the SenseInterrupt command, by
+            // showing busy.    On very fast machines we can end up running
+            // driver's system-thread before the controller has had time to
+            // set the busy bit.
+            //
 
-         for (i = FDC_MSR_RETRIES; i; i--) {
+            for (i = FDC_MSR_RETRIES; i; i--) {
 
-            if (kdi_ReadPort(
+                if (kdi_ReadPort(
 						cqd_context->kdi_context,
 						cqd_context->controller_data.fdc_addr.msr) & MSR_CB) {
 
 					break;
 
-				}
+                }
 
-            kdi_ShortTimer( kdi_wt12us );
+                kdi_ShortTimer( kdi_wt12us );
 
-         }
+            }
 
-      }
+        }
 
-      if (i == 0) {
+        if (i == 0) {
 
 			status = kdi_Error(ERR_CONTROLLER_STATE_ERROR, FCT_ID, ERR_SEQ_1);
 
 		}
 
-   	if (!expected_interrupt && (status == DONT_PANIC)) {
 
-         /*
-          * This is an unexpected interrupt, so nobody's going to
-          * read the result bytes.  Read them now.
-         */
+        /* Code no longer valid - Kurt G. - due to ISR sharing
+        if (!expected_interrupt && (status == DONT_PANIC)) {
 
-         cqd_context->controller_data.fifo_byte =
-            kdi_ReadPort(
+            //
+            // This is an unexpected interrupt, so nobody's going to
+            // read the result bytes.  Read them now.
+            //
+
+            cqd_context->controller_data.fifo_byte =
+                kdi_ReadPort(
 					cqd_context->kdi_context,
 					cqd_context->controller_data.fdc_addr.dr );
 
-         cqd_context->controller_data.fifo_byte =
-            kdi_ReadPort(
+            cqd_context->controller_data.fifo_byte =
+                kdi_ReadPort(
 					cqd_context->kdi_context,
 					cqd_context->controller_data.fdc_addr.dr );
 
-			/* Let the interrupt settle */
 
-         kdi_ShortTimer( kdi_wt12us );
-
-      }
+        }
+        End of no longer functioning code */
 
 
-   }
+    }
 
+    /* Code no longer functioning - Kurt G. - Due to ISR sharing
 	if (status == DONT_PANIC) {
 
-      cqd_context->controller_data.isr_reentered = 0;
+        cqd_context->controller_data.isr_reentered = 0;
 
 	} else {
 
-      /*
+
        * Running the floppy (at least on R4000 boxes) we've seen
        * examples where the device interrupts, yet it never says
        * it *ISN'T* busy.  If this ever happens on non-MCA x86 boxes
@@ -215,13 +236,13 @@ dStatus cqd_ClearInterrupt
        * initialized when the device is first initialized.  It will
        * be set to zero in the other arm of this if, and it will be
        * reset to zero by the normal timeout logic.
-       */
+
 
       if (cqd_context->controller_data.isr_reentered > FDC_ISR_RESET_THRESHOLD) {
 
-         /*
-          * Reset the controller.  This could cause an interrupt
-          */
+         //
+         //  Reset the controller.  This could cause an interrupt
+         //
 
 	      cqd_context->controller_data.isr_reentered = 0;
 
@@ -298,10 +319,10 @@ dStatus cqd_ClearInterrupt
 
          	kdi_ShortTimer( kdi_wt12us );
 
-         	/* Wait for the controller to ACK the SenseInterrupt command, by */
-         	/* showing busy.    On very fast machines we can end up running */
-         	/* driver's system-thread before the controller has had time to */
-         	/* set the busy bit. */
+            // Wait for the controller to ACK the SenseInterrupt command, by
+            // showing busy.    On very fast machines we can end up running
+            // driver's system-thread before the controller has had time to
+            // set the busy bit.
 
          	for (i = FDC_MSR_RETRIES; i; i--) {
 
@@ -329,7 +350,7 @@ dStatus cqd_ClearInterrupt
 					cqd_context->kdi_context,
 					cqd_context->controller_data.fdc_addr.dr );
 
-			/* Let the interrupt settle */
+            // Let the interrupt settle
 
          kdi_ShortTimer( kdi_wt12us );
 
@@ -339,7 +360,8 @@ dStatus cqd_ClearInterrupt
 
       }
 
-	}
+   }
+    End of Non functioning code */
 
-   return status;
+    return status;
 }

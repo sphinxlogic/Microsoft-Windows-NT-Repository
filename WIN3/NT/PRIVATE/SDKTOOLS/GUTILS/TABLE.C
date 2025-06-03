@@ -180,6 +180,15 @@ gtab_wndproc(HWND hwnd, UINT msg, UINT wParam, long lParam)
                 }
                 break;
 
+        case TM_GETSELECTION:
+                ptab = (lpTable) GetWindowLong(hwnd, WL_TABLE);
+                if (ptab != NULL) {
+                    pselect = (lpTableSelection) lParam;
+
+                    *pselect = ptab->select;
+                }
+                break;
+
         case TM_PRINT:
                 ptab = (lpTable) GetWindowLong(hwnd, WL_TABLE);
                 hHeap = (HANDLE) GetWindowHandle(hwnd, WW_HEAP);
@@ -315,6 +324,13 @@ gtab_wndproc(HWND hwnd, UINT msg, UINT wParam, long lParam)
                 ptab = (lpTable) GetWindowLong(hwnd, WL_TABLE);
                 if (ptab != NULL) {
                         gtab_press(hwnd, ptab, (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam));
+                }
+                break;
+
+        case WM_RBUTTONDOWN:
+                ptab = (lpTable) GetWindowLong(hwnd, WL_TABLE);
+                if (ptab != NULL) {
+                        gtab_rightclick(hwnd, ptab, (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam));
                 }
                 break;
 
@@ -494,6 +510,11 @@ gtab_buildtable(HWND hwnd, DWORD id)
                 return(NULL);
         }
 
+        // get the tab width. most clients will not support this
+        if (gtab_sendtq(hwnd, TQ_TABS, (long) &ptab->tabchars) == FALSE) {
+                ptab->tabchars = 8;
+        }
+
         /* get the row/column count from owner window */
         ptab->hdr.id = id;
         ptab->hdr.props.valid = 0;
@@ -632,6 +653,7 @@ gtab_calcwidths(HWND hwnd, lpTable ptab)
         lpProps hdrprops, cellprops;
         HFONT hfont;
 
+        hfont = NULL;  /* eliminate spurious diagnostic, make code worse */
         hdrprops = &ptab->hdr.props;
         hdc = GetDC(hwnd);
         if (hdrprops->valid & P_FONT) {
@@ -802,6 +824,7 @@ gtab_append(HWND hwnd, lpTable ptab, int rows, DWORD id)
         /* force a repaint of the updated region */
         InvalidateRect(hwnd, &rc, TRUE);
 }
+
 
 
 

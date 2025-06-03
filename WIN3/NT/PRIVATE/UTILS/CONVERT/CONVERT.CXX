@@ -41,6 +41,8 @@ extern "C" {
 #include <stdio.h>
 }
 
+#include "fatofs.hxx"
+
 ERRSTACK* perrstk;
 
 
@@ -245,8 +247,66 @@ Notes:
     return FALSE;
 }
 
+BOOLEAN IsRestartFatToOfs( WSTRING const & CurrentFsName,
+                           WSTRING const & NtDriveName )
+/*++
 
+Routine Description:
 
+    Checks if a FAT->OFS convert is being restarted because of a failure
+    after the Phase1. So, the currrent file system will be OFS but it is not
+    fully converted/
+
+Arguments:
+
+    CurrentFsName   -   Name of the current file system
+    NtDriveName     -   NtStyle name of the drive to check.
+
+Return Value:
+
+    BOOLEAN -   TRUE if it is a restart of FAT->OFS. FALSE o/w
+
+History:
+
+    Created     Srikants    August 24, 1995 (WIN95 launch day!!)
+
+Notes:
+
+--*/
+
+{
+
+    DSTRING libraryName;
+    DSTRING entryPoint;
+    HANDLE  fsUtilityHandle;
+
+    DSTRING Ofs;
+    Ofs.Initialize("OFS");
+    if ( 0 != Ofs.Stricmp(&CurrentFsName) ) {
+        return FALSE;
+    }
+
+    libraryName.Initialize( FAT_TO_OFS_DLL_NAME );
+    entryPoint.Initialize( FAT_TO_OFS_RESTART_FUNCTION_NAME );
+
+    FAT_OFS_RESTART_FN  IsRestartFatOfs;
+
+    IsRestartFatOfs = (FAT_OFS_RESTART_FN)SYSTEM::QueryLibraryEntryPoint(
+        &libraryName, &entryPoint, &fsUtilityHandle );
+
+    if ( NULL == IsRestartFatOfs )
+    {
+        return FALSE;    
+    }
+
+    PWSTR pwszNtDriveName = NtDriveName.QueryWSTR();
+    BOOLEAN fResult= IsRestartFatOfs( pwszNtDriveName );
+
+    DELETE( pwszNtDriveName );
+    SYSTEM::FreeLibraryHandle( fsUtilityHandle );
+
+    return fResult;
+}
 
 
 INT
@@ -277,7 +337,7 @@ Notes:
     DSTRING         LibraryName;        //  Name of library to load
     DSTRING         EntryPoint;         //  Name of entry point in DLL
     FSTRING         NameTableFnName;    //  Name of Name-Table construction fn
-    INT             ExitCode;           //  CONVERT exit code
+    INT             ExitCode = EXIT_SUCCESS;           //  CONVERT exit code
     CONVERT_STATUS  ConvertStatus;      //  Conversion status
     NTSTATUS        Status;             //  NT API status
     HANDLE          FsUtilityHandle;    //  Handle to DLL
@@ -319,6 +379,17 @@ Notes:
     //  If the source and target file system are the same, there's
     //  nothing to do.  But if we're uncompressing, that's not true.
     //
+
+    if (_Restart) {
+        if ( IsRestartFatToOfs( CurrentFsName, _NtDrive ) ) {
+            CurrentFsName.Initialize("FAT");        
+        }
+        else {
+            //XXX.mjb: assume that we're restarting from NTFS to OFS.
+            CurrentFsName.Initialize("NTFS");
+        }
+    }
+
     if( CurrentFsName.Stricmp( &_FsName ) == 0) {
 #ifdef DBLSPACE_ENABLED
         if (!_Uncompress) {
@@ -404,7 +475,7 @@ Notes:
 #ifdef DBLSPACE_ENABLED
 
         if (_Uncompress) {
-            if (!LibraryName.Initialize("CUDBFS") ||
+            if (!LibraryName.Initialize("CNVDBFS") ||
                 !EntryPoint.Initialize("CheckFreeSpaceDBFS")) {
                 return EXIT_ERROR;
             }
@@ -430,13 +501,13 @@ Notes:
         //
         //  Depending on the current file system, form the name of the conversion
         //  DLL in charge of converting that file system. The name of the
-        //  conversion library is the name of the file system prefixed with "CU"
-        //  eg FAT->CUFAT, HPFS->CUHPFS
+        //  conversion library is the name of the file system prefixed with "CNV"
+        //  eg FAT->CNVFAT, HPFS->CNVHPFS
         //
         //  We also initialize the name of the conversion entry point in the DLL
         //  ("Convert")
         //
-        if ( !LibraryName.Initialize( "CU" )        ||
+        if ( !LibraryName.Initialize( "CNV" )       ||
              !LibraryName.Strcat( &CurrentFsName )  ||
              !EntryPoint.Initialize( "Convert" )    ||
              !EntryPoint.Strcat( &CurrentFsName )
@@ -465,6 +536,7 @@ Notes:
                       &_FsName,
                       &_Message,
                       _Verbose,
+                      FALSE,                /* Pause */
                       &ConvertStatus);
 
         SYSTEM::FreeLibraryHandle( FsUtilityHandle );
@@ -497,8 +569,8 @@ Notes:
                 //  This is an inconsistent state, Convert should return
                 //  TRUE if the conversion was successful!
                 //
-                DbgPrintf( "CONVERT Error: Conversion failed, but status is success!\n" );
-                DbgAssert( FALSE );
+                DebugPrintf( "CONVERT Error: Conversion failed, but status is success!\n" );
+                DebugAssert( FALSE );
                 ExitCode = EXIT_ERROR;
                 break;
         
@@ -585,7 +657,7 @@ Notes:
                 //
                 //  Invalid status code
                 //
-                DbgPrintf( "CONVERT Error: Convert status code %X invalid!\n",
+                DebugPrintf( "CONVERT Error: Convert status code %X invalid!\n",
                     ConvertStatus );
                 DisplayMessage( MSG_CONV_CONVERSION_FAILED, ERROR_MESSAGE,
                     "%W%W", &_DosDrive, &_FsName );
@@ -602,7 +674,7 @@ Notes:
     // Uncompress the cvf named by _CvfName.
     //
 
-    if (!LibraryName.Initialize("CUDBFS") ||
+    if (!LibraryName.Initialize("CNVDBFS") ||
         !EntryPoint.Initialize("CheckFreeSpaceDBFS")) {
         return EXIT_ERROR;
     }
@@ -773,7 +845,7 @@ Return Value:
     DSTRING     Colon;
     UCHAR       SequenceNumber;
 
-    DbgPtrAssert( ExitCode );
+    DebugPtrAssert( ExitCode );
 
     //
     //  Parse command line
@@ -936,6 +1008,7 @@ Return Value:
     STRING_ARGUMENT     NameTableArgument;      //  Name Table file name
     FLAG_ARGUMENT       HelpArgument;           //  Help flag argument
     FLAG_ARGUMENT       VerboseArgument;        //  Verbose flag argument
+    FLAG_ARGUMENT       RestartArgument;        //  Restart (/r) flag argument
 #ifdef DBLSPACE_ENABLED
     FLAG_ARGUMENT       UncompressArgument;     //  Uncompress flag argument
     FLAG_ARGUMENT       CompressArgument;       //  Compress flag argument
@@ -954,6 +1027,7 @@ Return Value:
         !ArgLex.Initialize( &LexArray )                 ||
         !DriveArgument.Initialize( "*:" )               ||
         !HelpArgument.Initialize( "/?" )                ||
+        !RestartArgument.Initialize( "/R" )             ||
         !VerboseArgument.Initialize( "/V" )             ||
 #ifdef DBLSPACE_ENABLED
         !CompressArgument.Initialize( "/C" )            ||
@@ -980,6 +1054,7 @@ Return Value:
     if( !ArgArray.Put( &DriveArgument )                 ||
         !ArgArray.Put( &HelpArgument )                  ||
         !ArgArray.Put( &VerboseArgument )               ||
+        !ArgArray.Put( &RestartArgument )               ||
 #ifdef DBLSPACE_ENABLED
         !ArgArray.Put( &CompressArgument )              ||
 #endif // DBLSPACE_ENABLED
@@ -1023,6 +1098,7 @@ Return Value:
 
     _Help       = HelpArgument.QueryFlag();
     _Verbose    = VerboseArgument.QueryFlag();
+    _Restart    = RestartArgument.QueryFlag();
 #ifdef DBLSPACE_ENABLED
     _Compress   = CompressArgument.QueryFlag();
 #endif // DBLSPACE_ENABLED

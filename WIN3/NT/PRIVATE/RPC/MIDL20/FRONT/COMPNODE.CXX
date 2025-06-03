@@ -36,27 +36,14 @@ extern  "C" {
  extern data
  ****************************************************************************/
 
-extern ATTR_SUMMARY         *   pPreAttrField;
-extern ATTR_SUMMARY         *   pPreAttrUnion;
-extern ATTR_SUMMARY         *   pPreAttrStruct;
 extern CMD_ARG              *   pCommand;
 
 /****************************************************************************
  extern procedures
  ****************************************************************************/
 
-extern  STATUS_T                DoSetAttributes( node_skl *,
-                                                 ATTR_SUMMARY *,
-                                                 ATTR_SUMMARY *,
-                                                 type_node_list *);
 extern void                     ParseError( STATUS_T, char * );
-extern int                      CompareCase( void *, void * );
-extern void                     PrintCase( void * );
-extern BOOL                     IsIntegralType( node_skl * );
-extern BOOL                     IsValueInRangeOfType( node_skl *, expr_node *);
-extern BOOL                     IsCompatibleIntegralType(node_skl *,node_skl *);
 extern BOOL                     IsTempName( char * );
-extern void                     ReportOutOfRange( STATUS_T, expr_node * );
 
 /****************************************************************************
  forward procedures
@@ -65,12 +52,6 @@ extern void                     ReportOutOfRange( STATUS_T, expr_node * );
 node_skl             *   StructOrUnionLargestElement( node_su_base *);
 node_skl             *   StructOrUnionLargestNdr( node_su_base *);
 /****************************************************************************/
-
-/****************************************************************************
-    node_field procedures
- ****************************************************************************/
-
-
 
 /****************************************************************************
  node_struct procedures
@@ -131,11 +112,19 @@ node_struct::IsStringableType()
 {
 	MEM_ITER	 			MemIter( this );
 	node_skl		*		pBasic;
-	node_field		*		pN;
+	node_skl		*		pN;
 
-	// make sure all the fields are BYTE!
-	while ( pN = (node_field *) MemIter.GetNext() )
+	// make sure all the fields are BYTE! with no attributes on the way
+	while ( pN = (node_skl *) MemIter.GetNext() )
 		{
+		pBasic = pN->GetBasicType();
+		do {
+			if ( pN->HasAttributes() )
+				return FALSE;
+			pN = pN->GetChild();
+			}
+		while ( pN != pBasic );
+
 		pBasic = pN->GetBasicType();
 
 		if ( pBasic &&

@@ -549,6 +549,7 @@ BYTE bMode )       // I - Mode of list.
 
      hWndNewList = CreateWindow ( WMCLASS_LISTBOX,
                                   NULL,
+                                  WS_BORDER | 
                                   ( fMultiCol ) ? WM_FLATLISTBOXMC : WM_FLATLISTBOXSC,
                                   Point.x,
                                   Point.y,

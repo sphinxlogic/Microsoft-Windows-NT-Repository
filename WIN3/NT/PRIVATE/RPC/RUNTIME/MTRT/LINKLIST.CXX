@@ -10,10 +10,7 @@
 -------------------------------------------------------------------- */
 
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
-#include <linklist.hxx>
+#include <precomp.hxx>
 
 
 // ** LinkItem class implementations ** //
@@ -140,4 +137,3 @@ void LinkItem::Assert(
 }
 
 #endif
-

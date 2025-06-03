@@ -1,6 +1,6 @@
-/*++ BUILD Version: 0001
+/*++
 
-Copyright (c) 1985-91, Microsoft Corporation
+Copyright (c) 1985-1995, Microsoft Corporation
 
 Module Name:
 
@@ -8,28 +8,28 @@ Module Name:
 
 Abstract:
 
-    Private entry points, defines and types for NTWIN DDI.
+    Private entry points, defines and types for Windows NT GDI device
+    driver interface.
 
 --*/
 
 #ifndef _WINDDI_
 #define _WINDDI_
 
+#include <ddrawint.h>
 
-typedef ULONG FLONG;
-typedef USHORT FSHORT;
-typedef BYTE    FBYTE;
+//
+// drivers and other components that include this should NOT include
+// windows.h  They should be system conponents that only use GDI internals
+// and therefore only include wingdi.h
+//
+
 typedef ptrdiff_t PTRDIFF;
 typedef PTRDIFF    *PPTRDIFF;
-typedef size_t SIZE_T;
-typedef int (*PFN)();
 typedef LONG FIX;
 typedef FIX     *PFIX;
 typedef ULONG ROP4;
 typedef ULONG MIX;
-
-typedef WCHAR *PWSZ;     // pwsz, 0x0000 terminated UNICODE strings only
-typedef CONST WCHAR *PCWSZ;      // pwsz, 0x0000 terminated UNICODE strings only
 
 typedef ULONG HGLYPH;
 typedef HGLYPH *PHGLYPH;
@@ -37,6 +37,17 @@ typedef HGLYPH *PHGLYPH;
 
 typedef ULONG           IDENT;
 
+//
+// handles for font file and font context objects
+//
+
+typedef ULONG HFF;
+typedef ULONG HFC;
+#define HFF_INVALID ((HFF) 0)
+#define HFC_INVALID ((HFC) 0)
+
+#define FD_ERROR  0xFFFFFFFF
+#define DDI_ERROR 0xFFFFFFFF
 
 typedef struct _POINTE      /* pte  */
 {
@@ -66,25 +77,29 @@ typedef struct _RECTFX
 
 
 DECLARE_HANDLE(HBM);
-DECLARE_HANDLE(HSEM);
 DECLARE_HANDLE(HDEV);
-DECLARE_HANDLE(HPDEV);
-DECLARE_HANDLE(HJNL);
 DECLARE_HANDLE(HSURF);
 DECLARE_HANDLE(DHSURF);
 DECLARE_HANDLE(DHPDEV);
 DECLARE_HANDLE(HDRVOBJ);
 
-typedef HSURF *PHSURF;
-
-
-#define BLTOFXOK(x)         (((x) < 0x07FFFFFF) && ((x) > -0x07FFFFFF))
 #define LTOFX(x)            ((x)<<4)
 
 #define FXTOL(x)            ((x)>>4)
 #define FXTOLFLOOR(x)       ((x)>>4)
 #define FXTOLCEILING(x)     ((x + 0x0F)>>4)
 #define FXTOLROUND(x)       ((((x) >> 3) + 1) >> 1)
+
+// context information
+
+typedef struct _FD_XFORM {
+        FLOAT eXX;
+        FLOAT eXY;
+        FLOAT eYX;
+        FLOAT eYY;
+} FD_XFORM, *PFD_XFORM;
+
+
 
 typedef struct _FD_DEVICEMETRICS {       // devm
     FLONG  flRealizedType;
@@ -98,11 +113,31 @@ typedef struct _FD_DEVICEMETRICS {       // devm
     POINTL ptlULThickness;
     POINTL ptlSOThickness;
     ULONG  cxMax;                      // max pel width of bitmaps
+
+// the fields formerly in REALIZE_EXTRA as well as some new fields:
+
+    ULONG cyMax;      // did not use to be here
+    ULONG cjGlyphMax; // (cxMax + 7)/8 * cyMax, or at least it should be
+
+    FD_XFORM  fdxQuantized;
+    LONG      lNonLinearExtLeading;
+    LONG      lNonLinearIntLeading;
+    LONG      lNonLinearMaxCharWidth;
+    LONG      lNonLinearAvgCharWidth;
+
+// some new fields
+
+    LONG      lMinA;
+    LONG      lMinC;
+    LONG      lMinD;
+
+    LONG      alReserved[1]; // just in case we need it.
+
 } FD_DEVICEMETRICS, *PFD_DEVICEMETRICS;
 
 typedef struct _LIGATURE { /* lig */
         ULONG culSize;
-        PWSZ pwsz;
+        LPWSTR pwsz;
         ULONG chglyph;
         HGLYPH ahglyph[1];
 } LIGATURE, *PLIGATURE;
@@ -122,14 +157,12 @@ typedef struct _FD_LIGATURE {
 
 typedef SHORT FWORD;
 
-typedef LARGE_INTEGER QFIX;      // qf
-
 // point in the 32.32 bit precission
 
 typedef struct _POINTQF    // ptq
 {
-    QFIX x;
-    QFIX y;
+    LARGE_INTEGER x;
+    LARGE_INTEGER y;
 } POINTQF, *PPOINTQF;
 
 //. Structures
@@ -175,13 +208,24 @@ typedef struct _FD_GLYPHSET {
     WCRUN    awcrun[1];        // an array of cRun WCRUN structures
 } FD_GLYPHSET, *PFD_GLYPHSET;
 
+// If GS_UNICODE_HANDLES  bit is set,
+// for ALL WCRUNS in this FD_GLYPHSET the handles are
+// obtained by zero extending unicode code points of
+// the corresponding supported glyphs, i.e. all gs.phg's are NULL
 
 #define GS_UNICODE_HANDLES      0x00000001
 
-//    If this bit is set, for ALL WCRUNS in this FD_GLYPHSET the
-//    handles are
-//    obtained by zero extending unicode code points of
-//    the corresponding supported glyphs, i.e. all gs.phg's are NULL
+// If GS_8BIT_HANDLES bit is set, all handles are in 0-255 range.
+// This is just an ansi font then and we are really making up all
+// the unicode stuff about this font.
+
+#define GS_8BIT_HANDLES         0x00000002
+
+// all handles fit in 16 bits.
+// to 8 bit handles as it should.
+
+#define GS_16BIT_HANDLES        0x00000004
+
 
 // ligatures
 
@@ -192,35 +236,16 @@ typedef struct _FD_KERNINGPAIR {
     FWORD  fwdKern;
 } FD_KERNINGPAIR;
 
-// context information
-
-typedef struct _FD_XFORM {
-        FLOAT eXX;
-        FLOAT eXY;
-        FLOAT eYX;
-        FLOAT eYY;
-} FD_XFORM, *PFD_XFORM;
-
-// An extra field passed to DrvQueryFontData with the DEVICEMETRICS.
-
-typedef struct _FD_REALIZEEXTRA
-{
-    FD_XFORM  fdxQuantized;
-    LONG      lExtLeading;
-    LONG      alReserved[4];
-} FD_REALIZEEXTRA;
-
-//
 // IFIMETRICS constants
-//
 
 #define FM_VERSION_NUMBER                   0x0
 
 //
 // IFIMETRICS::fsType flags
 //
-#define FM_TYPE_LICENSED                    0x1
-#define FM_READONLY_EMBED                   0x2
+#define FM_TYPE_LICENSED                    0x2
+#define FM_READONLY_EMBED                   0x4
+#define FM_EDITABLE_EMBED                   0x8
 #define FM_NO_EMBEDDING                     FM_TYPE_LICENSED
 
 //
@@ -257,6 +282,11 @@ typedef struct _FD_REALIZEEXTRA
 #define FM_INFO_DBCS_FIXED_PITCH            0x10000000
 #define FM_INFO_NONNEGATIVE_AC              0x20000000
 #define FM_INFO_IGNORE_TC_RA_ABLE           0x40000000
+#define FM_INFO_TECH_TYPE1                  0x80000000
+
+// max number of charsets supported in a tt font, 16 according to win95 guys
+
+#define MAXCHARSETS 16
 
 //
 // IFIMETRICS::ulPanoseCulture
@@ -297,11 +327,10 @@ typedef struct _FONTSIM {
     PTRDIFF  dpBoldItalic; // offset from beginning of FONTSIM to FONTDIFF
 } FONTSIM;
 
-#define IFI_RESERVED    1   // number of reserved longs in IFIMETRICS
 
 typedef struct _IFIMETRICS {
-    ULONG    cjThis;                // includes attached information
-    ULONG    ulVersion;
+    ULONG    cjThis;           // includes attached information
+    ULONG    cjIfiExtra;       // sizeof IFIEXTRA if any, formerly ulVersion
     PTRDIFF  dpwszFamilyName;
     PTRDIFF  dpwszStyleName;
     PTRDIFF  dpwszFaceName;
@@ -310,7 +339,12 @@ typedef struct _IFIMETRICS {
     LONG     lEmbedId;
     LONG     lItalicAngle;
     LONG     lCharBias;
-    LONG     alReserved[IFI_RESERVED];
+
+// dpCharSet field replaced alReserved[0].
+// If the 3.51 pcl minidrivers are still to work on NT 4.0 this field must not
+// move because they will have 0 at this position.
+
+    PTRDIFF  dpCharSets;
     BYTE     jWinCharSet;           // as in LOGFONT::lfCharSet
     BYTE     jWinPitchAndFamily;    // as in LOGFONT::lfPitchAndFamily
     USHORT   usWinWeight;           // as in LOGFONT::lfWeight
@@ -362,6 +396,21 @@ typedef struct _IFIMETRICS {
 } IFIMETRICS, *PIFIMETRICS;
 
 
+// rather than adding the fields of IFIEXTRA  to IFIMETRICS itself
+// we add them as a separate structure. This structure, if present at all,
+// lies below IFIMETRICS in memory.
+// If IFIEXTRA is present at all, ifi.cjIfiExtra (formerly ulVersion)
+// will contain size of IFIEXTRA including any reserved fields.
+// That way ulVersion = 0 (NT 3.51 or less) printer minidrivers
+// will work with NT 4.0.
+
+typedef struct _IFIEXTRA
+{
+    ULONG    ulIdentifier;   // used for Type 1 fonts only
+    PTRDIFF  dpFontSig;      // nontrivial for tt only, at least for now.
+    ULONG    cig;            // maxp->numGlyphs, # of distinct glyph indicies
+    ULONG    aulReserved[1]; // in case we need even more stuff in the future
+} IFIEXTRA, *PIFIEXTRA;
 
 
 /**************************************************************************\
@@ -374,8 +423,10 @@ typedef struct _IFIMETRICS {
 #define OPENGL_GETINFO  4353        /* for OpenGL ExtEscape */
 #define WNDOBJ_SETUP    4354        /* for live video ExtEscape */
 
-#define DDI_DRIVER_VERSION 0x00010002
-#define DDI_ERROR          0xFFFFFFFF
+#define DDI_DRIVER_VERSION 0x00020000
+#define GDI_DRIVER_VERSION 0x4000   /* for NT version 4.0.00 */
+
+typedef int (*PFN)();
 
 typedef struct  _DRVFN  /* drvfn */
 {
@@ -394,10 +445,7 @@ typedef struct  _DRVFN  /* drvfn */
 /* Other functions              */
 
 #define INDEX_DrvAssertMode              5L
-#define INDEX_DrvHookDriver              6L
 #define INDEX_DrvResetPDEV               7L
-#define INDEX_DrvRestartPDEV             8L
-#define INDEX_DrvGetResourceId           9L
 #define INDEX_DrvCreateDeviceBitmap     10L
 #define INDEX_DrvDeleteDeviceBitmap     11L
 #define INDEX_DrvRealizeBrush           12L
@@ -409,7 +457,6 @@ typedef struct  _DRVFN  /* drvfn */
 #define INDEX_DrvBitBlt                 18L
 #define INDEX_DrvCopyBits               19L
 #define INDEX_DrvStretchBlt             20L
-#define INDEX_DrvPlgBlt                 21L
 #define INDEX_DrvSetPalette             22L
 #define INDEX_DrvTextOut                23L
 #define INDEX_DrvEscape                 24L
@@ -419,15 +466,13 @@ typedef struct  _DRVFN  /* drvfn */
 #define INDEX_DrvQueryFontData          28L
 #define INDEX_DrvSetPointerShape        29L
 #define INDEX_DrvMovePointer            30L
-#define INDEX_DrvUNUSED2                31L
+#define INDEX_DrvLineTo                 31L
 #define INDEX_DrvSendPage               32L
 #define INDEX_DrvStartPage              33L
 #define INDEX_DrvEndDoc                 34L
 #define INDEX_DrvStartDoc               35L
-#define INDEX_DrvQueryObjectData        36L
 #define INDEX_DrvGetGlyphMode           37L
 #define INDEX_DrvSynchronize            38L
-#define INDEX_DrvUnhookDriver           39L
 #define INDEX_DrvSaveScreenBits         40L
 #define INDEX_DrvGetModes               41L
 #define INDEX_DrvFree                   42L
@@ -445,10 +490,16 @@ typedef struct  _DRVFN  /* drvfn */
 #define INDEX_DrvSetPixelFormat         54L
 #define INDEX_DrvDescribePixelFormat    55L
 #define INDEX_DrvSwapBuffers            56L
+#define INDEX_DrvStartBanding           57L
+#define INDEX_DrvNextBand               58L
+#define INDEX_DrvGetDirectDrawInfo      59L
+#define INDEX_DrvEnableDirectDraw       60L
+#define INDEX_DrvDisableDirectDraw      61L
+#define INDEX_DrvQuerySpoolType         62L
 
 /* The total number of dispatched functions */
 
-#define INDEX_LAST                      57L
+#define INDEX_LAST                      63L
 
 typedef struct  tagDRVENABLEDATA
 {
@@ -483,13 +534,16 @@ typedef struct  tagDEVINFO
 #define GCAPS_MONO_DITHER       0x00000400
 #define GCAPS_ASYNCCHANGE       0x00000800
 #define GCAPS_ASYNCMOVE         0x00001000
-
 #define GCAPS_DONTJOURNAL       0x00002000
-
+#define GCAPS_DIRECTDRAW        0x00004000
 #define GCAPS_ARBRUSHOPAQUE     0x00008000
+#define GCAPS_PANNING           0x00010000
 #define GCAPS_HIGHRESTEXT       0x00040000
 #define GCAPS_PALMANAGED        0x00080000
 #define GCAPS_DITHERONREALIZE   0x00200000
+#define GCAPS_NO64BITMEMACCESS  0x00400000
+#define GCAPS_FORCEDITHER       0x00800000
+#define GCAPS_GRAY16            0x01000000
 
 typedef struct  _LINEATTRS
 {
@@ -506,6 +560,7 @@ typedef struct  _LINEATTRS
 #define LA_GEOMETRIC        0x00000001
 #define LA_ALTERNATE        0x00000002
 #define LA_STARTGAP         0x00000004
+#define LA_STYLED           0x00000008
 
 #define JOIN_ROUND          0L
 #define JOIN_BEVEL          1L
@@ -635,12 +690,11 @@ typedef struct _GDIINFO
     ULONG     ulHTOutputFormat;
     ULONG     flHTFlags;
 
-// The following fields are new to Windows NT 3.5.
-
     ULONG ulVRefresh;
-    ULONG ulDesktopHorzRes;
-    ULONG ulDesktopVertRes;
     ULONG ulBltAlignment;
+
+    ULONG ulPanningHorzRes;
+    ULONG ulPanningVertRes;
 
 } GDIINFO, *PGDIINFO;
 
@@ -673,6 +727,7 @@ typedef struct _DRIVEROBJ
     PVOID       pvObj;
     FREEOBJPROC pFreeProc;
     HDEV        hdev;
+    DHPDEV      dhpdev;
 } DRIVEROBJ;
 
 typedef struct _FONTOBJ
@@ -689,12 +744,7 @@ typedef struct _FONTOBJ
     PVOID   pvProducer;
 } FONTOBJ;
 
-typedef struct _WNDOBJ
-{
-    CLIPOBJ coClient;
-    PVOID   pvConsumer;
-    RECTL   rclClient;
-} WNDOBJ, *PWNDOBJ;
+typedef BYTE GAMMA_TABLES[2][256];
 
 //
 // FONTOBJ::flFontType
@@ -705,6 +755,55 @@ typedef struct _WNDOBJ
 #define FO_SIM_BOLD      0x00002000
 #define FO_SIM_ITALIC    0x00004000
 #define FO_EM_HEIGHT     0x00008000
+#define FO_GRAY16        0x00010000          /* [1] */
+#define FO_NOGRAY16      0x00020000          /* [1] */
+#define FO_NOHINTS       0x00040000          /* [3] */
+#define FO_NO_CHOICE     0x00080000          /* [3] */
+
+/**************************************************************************\
+*
+*   [1]
+*
+*   If the FO_GRAY16 flag is set then the bitmaps of the font
+*   are 4-bit per pixel blending (alpha) values. A value of zero
+*   means that the the resulting pixel should be equal to the
+*   background color. If the value of the alpha value is k != 0
+*   then the resulting pixel must be:
+*
+*       c0 = background color
+*       c1 = foreground color
+*       b  = blending value = (k+1)/16  // {k = 1,2,..,15}
+*       b  = 0 (k = 0)
+*       d0 = gamma[c0], d1 = gamma[c1]  // luminance components
+*       d = (1 - b)*d0 + b*d1           // blended luminance
+*       c = lambda[d]                   // blended device voltage
+*
+*   where gamma[] takes a color component from application space
+*   to CIE space and labmda[] takes a color from CIE space to
+*   device color space
+*
+*   GDI will set this bit if it request a font be gray scaled
+*   to 16 values then GDI will set FO_GRAY16 upon entry to
+*   DrvQueryFontData().  If the font driver cannot (or will
+*   not) grayscale a particular realization of a font then the
+*   font provider will zero out FO_GRAY16  and set FO_NOGRAY16
+*   to inform GDI that
+*   the gray scaling request cannot (or should not) be
+*   satisfied.
+*
+*   [2]
+*
+*   The FO_NOHINTS indicates that hints were not used in the formation
+*   of the glyph images. GDI will set this bit to request that hinting
+*   be supressed. The font provider will set this bit accroding to the
+*   rendering scheme that it used in generating the glyph image.
+*
+*   [3]
+*
+*   The FO_NO_CHOICE flag indicates that the flags FO_GRAY16 and
+*   FO_NOHINTS must be obeyed if at all possible.
+*
+\**************************************************************************/
 
 typedef struct _PALOBJ
 {
@@ -733,6 +832,14 @@ typedef struct _SURFOBJ
     USHORT  iType;
     USHORT  fjBitmap;
 } SURFOBJ;
+
+typedef struct _WNDOBJ
+{
+    CLIPOBJ  coClient;
+    PVOID    pvConsumer;
+    RECTL    rclClient;
+    SURFOBJ *psoOwner;
+} WNDOBJ, *PWNDOBJ;
 
 typedef struct _XFORMOBJ
 {
@@ -850,16 +957,20 @@ typedef struct _GLYPHPOS    /* gp */
 // are recorded here.  Note that the high words of ptqD are also 28.4
 // device coordinates.  The low words provide extra accuracy.
 
+// THE STRUCTURE DIFFERS IN ORDERING FROM NT 3.51 VERSION OF THE STRUCTURE.
+// ptqD has been moved to the bottom.
+// This requires only recompile of all the drivers.
+
 typedef struct _GLYPHDATA {
         GLYPHDEF gdf;               // pointer to GLYPHBITS or to PATHOBJ
         HGLYPH   hg;                // glyhp handle
-        POINTQF  ptqD;              // Character increment vector: D=A+B+C.
         FIX      fxD;               // Character increment amount: D*r.
         FIX      fxA;               // Prebearing amount: A*r.
         FIX      fxAB;              // Advancing edge of character: (A+B)*r.
         FIX      fxInkTop;          // Baseline to inkbox top along s.
         FIX      fxInkBottom;       // Baseline to inkbox bottom along s.
         RECTL    rclInk;            // Ink box with sides parallel to x,y axes
+        POINTQF  ptqD;              // Character increment vector: D=A+B+C.
 } GLYPHDATA;
 
 
@@ -873,6 +984,11 @@ typedef struct _GLYPHDATA {
 // SO_CHAR_INC_EQUAL_BM_BASE // base == cx for horiz, == cy for vert.
 // SO_MAXEXT_EQUAL_BM_SIDE   // side == cy for horiz, == cx for vert.
 
+// do not substitute device font for tt font even if device font sub table
+// tells the driver this should be done
+
+// SO_DO_NOT_SUBSTITUTE_DEVICE_FONT
+
 #define SO_FLAG_DEFAULT_PLACEMENT        0x00000001
 #define SO_HORIZONTAL                    0x00000002
 #define SO_VERTICAL                      0x00000004
@@ -880,15 +996,18 @@ typedef struct _GLYPHDATA {
 #define SO_ZERO_BEARINGS                 0x00000010
 #define SO_CHAR_INC_EQUAL_BM_BASE        0x00000020
 #define SO_MAXEXT_EQUAL_BM_SIDE          0x00000040
+#define SO_DO_NOT_SUBSTITUTE_DEVICE_FONT 0x00000080
+#define SO_GLYPHINDEX_TEXTOUT            0x00000100
+#define SO_ESC_NOT_ORIENT                0x00000200
 
 typedef struct _STROBJ
 {
     ULONG     cGlyphs;     // # of glyphs to render
-    FLONG     flAccel;
+    FLONG     flAccel;     // accel flags
     ULONG     ulCharInc;   // non-zero only if fixed pitch font, equal to advanced width.
     RECTL     rclBkGround; // bk ground  rect of the string in device coords
     GLYPHPOS *pgp;         // If non-NULL then has all glyphs.
-    PWSTR     pwszOrg;     // pointer to original unicode string.
+    LPWSTR    pwszOrg;     // pointer to original unicode string.
 } STROBJ;
 
 typedef struct _FONTINFO /* fi */
@@ -917,6 +1036,8 @@ ULONG    iMode,
 ULONG    cGlyph,
 HGLYPH  *phg,
 PVOID   *ppvGlyph);
+
+GAMMA_TABLES* APIENTRY FONTOBJ_pGetGammaTables(FONTOBJ *pfo);
 
 XFORMOBJ * APIENTRY FONTOBJ_pxoGetXform(FONTOBJ *pfo);
 IFIMETRICS * APIENTRY FONTOBJ_pifi(FONTOBJ *pfo);
@@ -1031,6 +1152,9 @@ STROBJ    *pstro,
 ULONG     *pc,
 PGLYPHPOS *ppgpos);
 
+DWORD APIENTRY STROBJ_dwGetCodePage(
+STROBJ  *pstro);
+
 #define SGI_EXTRASPACE 0
 
 /*
@@ -1039,7 +1163,6 @@ PGLYPHPOS *ppgpos);
 
 #define STYPE_BITMAP    0L
 #define STYPE_DEVICE    1L
-#define STYPE_JOURNAL   2L
 #define STYPE_DEVBITMAP 3L
 
 #define BMF_1BPP       1L
@@ -1054,6 +1177,9 @@ PGLYPHPOS *ppgpos);
 #define BMF_TOPDOWN    0x0001
 #define BMF_NOZEROINIT 0x0002
 #define BMF_DONTCACHE  0x0004
+#define BMF_USERMEM    0x0008
+#define BMF_KMSECTION  0x0010
+
 
 /*
  * XFORMOBJ callbacks
@@ -1105,6 +1231,7 @@ ULONG    *pPal);
  */
 
 VOID APIENTRY EngSetLastError(ULONG);
+ULONG APIENTRY EngGetLastError();
 
 /*
  * Engine callbacks - Surfaces
@@ -1118,6 +1245,7 @@ VOID APIENTRY EngSetLastError(ULONG);
 #define HOOK_STROKEPATH                 0x00000020
 #define HOOK_FILLPATH                   0x00000040
 #define HOOK_STROKEANDFILLPATH          0x00000080
+#define HOOK_LINETO                     0x00000100
 #define HOOK_COPYBITS                   0x00000400
 #define HOOK_SYNCHRONIZE                0x00001000
 #define HOOK_SYNCHRONIZEACCESS          0x00004000
@@ -1145,14 +1273,7 @@ HSURF hsurf,
 HDEV  hdev,
 FLONG flHooks);
 
-BOOL APIENTRY EngPlayJournal(
-SURFOBJ *psoTarget,
-SURFOBJ *psoJournal,
-RECTL   *prclBand);
-
-BOOL APIENTRY EngStartBandPage(SURFOBJ *pso);
-
-HSURF APIENTRY EngCreateJournal(SIZEL sizl, ULONG iFormat);
+BOOL APIENTRY EngMarkBandingSurface( HSURF hsurf );
 
 BOOL APIENTRY EngCheckAbort(SURFOBJ *pso);
 
@@ -1195,44 +1316,24 @@ ULONG          iEngineVersion,
 ULONG          cj,
 DRVENABLEDATA *pded);
 
-VOID APIENTRY  DrvDisableDriver();
-
 /*
  * Driver functions
  */
 
-BOOL APIENTRY DrvHookDriver(
-PWSZ      pwszDriverName,
-ULONG     cb,
-PFN      *pfnTable);
-
-VOID APIENTRY DrvUnhookDriver(
-PWSZ      pwszDriverName);
-
 DHPDEV APIENTRY DrvEnablePDEV(
 DEVMODEW *pdm,
-PWSTR     pwszLogAddress,
+LPWSTR    pwszLogAddress,
 ULONG     cPat,
 HSURF    *phsurfPatterns,
 ULONG     cjCaps,
 ULONG    *pdevcaps,
 ULONG     cjDevInfo,
 DEVINFO  *pdi,
-PWSTR     pwszDataFile,
-PWSTR     pwszDeviceName,
+HDEV      hdev,
+LPWSTR    pwszDeviceName,
 HANDLE    hDriver);
 
 #define HS_DDI_MAX 6
-
-BOOL APIENTRY DrvRestartPDEV(
-DHPDEV    dhpdev,
-DEVMODEW *pdm,
-ULONG     cPat,
-HSURF    *phsurfPatterns,
-ULONG     cjCaps,
-ULONG    *pdevcaps,
-ULONG     cjDevInfo,
-DEVINFO  *pdi);
 
 BOOL  APIENTRY DrvResetPDEV(DHPDEV dhpdevOld, DHPDEV dhpdevNew);
 
@@ -1242,6 +1343,9 @@ HSURF APIENTRY DrvEnableSurface(DHPDEV dhpdev);
 VOID  APIENTRY DrvSynchronize(DHPDEV dhpdev,RECTL *prcl);
 VOID  APIENTRY DrvDisableSurface(DHPDEV dhpdev);
 VOID  APIENTRY DrvDisablePDEV(DHPDEV dhpdev);
+
+BOOL APIENTRY DrvStartBanding(SURFOBJ *pso, POINTL *pptl);
+BOOL APIENTRY DrvNextBand(SURFOBJ *pso, POINTL *pptl);
 
 /* DrvSaveScreenBits - iMode definitions */
 
@@ -1255,7 +1359,7 @@ ULONG APIENTRY DrvSaveScreenBits(SURFOBJ *pso,ULONG iMode,ULONG ident,RECTL *prc
  * Desktops
  */
 
-VOID  APIENTRY DrvAssertMode(
+BOOL  APIENTRY DrvAssertMode(
 DHPDEV dhpdev,
 BOOL   bEnable);
 
@@ -1263,14 +1367,6 @@ ULONG APIENTRY DrvGetModes(
 HANDLE    hDriver,
 ULONG     cjSize,
 DEVMODEW *pdm);
-
-/*
- * Driver Info
- */
-
-ULONG APIENTRY DrvGetResourceId(
-ULONG ulResId,
-ULONG ulResType);
 
 /*
  * Bitmaps
@@ -1344,10 +1440,16 @@ ULONG  iFace,
 ULONG  iMode,
 ULONG  *pid);
 
-#define QFD_GLYPHANDBITMAP  1L
-#define QFD_GLYPHANDOUTLINE 2L
-#define QFD_MAXEXTENTS      3L
-#define QFD_MAXGLYPHBITMAP  4L
+#define QFD_GLYPHANDBITMAP    1L
+#define QFD_GLYPHANDOUTLINE   2L
+#define QFD_MAXEXTENTS        3L
+#define QFD_TT_GLYPHANDBITMAP 4L
+#define QFD_TT_GRAY1_BITMAP   5L
+#define QFD_TT_GRAY2_BITMAP   6L
+#define QFD_TT_GRAY4_BITMAP   8L
+#define QFD_TT_GRAY8_BITMAP   9L
+
+#define QFD_TT_MONO_BITMAP QFD_TT_GRAY1_BITMAP
 
 LONG APIENTRY DrvQueryFontData(
 DHPDEV      dhpdev,
@@ -1366,22 +1468,33 @@ VOID APIENTRY DrvDestroyFont(
 FONTOBJ *pfo);
 
 // Capability flags for DrvQueryCaps.
+
 #define QC_OUTLINES             0x00000001
 #define QC_1BIT                 0x00000002
 #define QC_4BIT                 0x00000004
-#define QC_8BIT                 0x00000008
-#define QC_16BIT                0x00000010
-#define QC_24BIT                0x00000020
-#define QC_32BIT                0x00000040
-#define QC_2BIT                 0x00000080
+
+//
+// This is a mask of the capabilites of a font provider that can return more
+// than just glyph metrics (i.e., bitmaps and/or outlines).  If a driver has
+// one or more of these capabilities, then it is FONT DRIVER.
+//
+// Drivers should only set individual bits. GDI will check if any are turned on
+// using this define.
+//
+
+#define QC_FONTDRIVERCAPS   ( QC_OUTLINES | QC_1BIT | QC_4BIT )
+
+
 
 LONG APIENTRY DrvQueryFontCaps(
 ULONG   culCaps,
 ULONG  *pulCaps);
 
 ULONG APIENTRY DrvLoadFontFile(
-PWSTR   pwszFontFile,
-PWSTR   pwszScratchDir,
+ULONG   cFiles,  // number of font files associated with this font
+ULONG  *piFile,  // handles for individual files, cFiles of them
+PVOID  *ppvView, // array of cFiles views
+ULONG  *pcjView, // array of their sizes
 ULONG   ulLangID);
 
 BOOL APIENTRY DrvUnloadFontFile(
@@ -1462,19 +1575,6 @@ RECTL           *prclSrc,
 POINTL          *pptlMask,
 ULONG            iMode);
 
-BOOL APIENTRY DrvPlgBlt(
-SURFOBJ         *psoDest,
-SURFOBJ         *psoSrc,
-SURFOBJ         *psoMask,
-CLIPOBJ         *pco,
-XLATEOBJ        *pxlo,
-COLORADJUSTMENT *pca,
-POINTL          *pptlHTOrg,
-POINTFIX        *pptfxDest,
-RECTL           *prclSrc,
-POINTL          *pptlMask,
-ULONG            iMode);
-
 BOOL APIENTRY DrvCopyBits(
 SURFOBJ  *psoDest,
 SURFOBJ  *psoSrc,
@@ -1502,6 +1602,17 @@ MIX       mix);
 /*
  * Graphics Output
  */
+
+BOOL APIENTRY DrvLineTo(
+SURFOBJ   *pso,
+CLIPOBJ   *pco,
+BRUSHOBJ  *pbo,
+LONG       x1,
+LONG       y1,
+LONG       x2,
+LONG       y2,
+RECTL     *prclBounds,
+MIX        mix);
 
 BOOL APIENTRY DrvStrokePath(
 SURFOBJ   *pso,
@@ -1543,16 +1654,6 @@ CLIPOBJ  *pco,
 BRUSHOBJ *pbo,
 POINTL   *pptlBrushOrg,
 MIX       mix);
-
-/*
- * Object Data (LOGBRUSHs and LOGPENs)
- */
-
-ULONG APIENTRY DrvQueryObjectData(
-DHPDEV  dhpdev,
-ULONG   iObjectType,
-ULONG   cObjects,
-PVOID   pvObjects);
 
 /*
  * Pointers
@@ -1599,12 +1700,14 @@ PVOID    pvOut);
 
 BOOL  APIENTRY DrvStartDoc(
 SURFOBJ *pso,
-PWSTR    pwszDocName,
-DWORD   dwJobId);
+LPWSTR   pwszDocName,
+DWORD    dwJobId);
 
 #define ED_ABORTDOC    1
 
 BOOL  APIENTRY DrvEndDoc(SURFOBJ *pso, FLONG fl);
+
+BOOL  APIENTRY DrvQuerySpoolType(DHPDEV, LPWSTR);
 
 ULONG APIENTRY DrvDrawEscape(
 SURFOBJ *pso,
@@ -1624,6 +1727,27 @@ ULONG    cjIn,
 PVOID    pvIn,
 ULONG    cjOut,
 PVOID    pvOut);
+
+/*
+ * DirectDraw
+ */
+
+BOOL DrvEnableDirectDraw(
+DHPDEV                  dhpdev,
+DD_CALLBACKS           *pCallBacks,
+DD_SURFACECALLBACKS    *pSurfaceCallBacks,
+DD_PALETTECALLBACKS    *pPaletteCallBacks);
+
+VOID DrvDisableDirectDraw(
+DHPDEV  dhpdev);
+
+BOOL DrvGetDirectDrawInfo(
+DHPDEV        dhpdev,
+DD_HALINFO   *pHalInfo,
+DWORD        *pdwNumHeaps,
+VIDEOMEMORY  *pvmList,
+DWORD        *pdwNumFourCCCodes,
+DWORD        *pdwFourCC);
 
 /*
  * Engine callbacks - tracking clip region changes
@@ -1729,6 +1853,17 @@ BRUSHOBJ *pbo,
 POINTL   *pptlBrush,
 ROP4      rop4);
 
+BOOL APIENTRY EngLineTo(
+SURFOBJ   *pso,
+CLIPOBJ   *pco,
+BRUSHOBJ  *pbo,
+LONG       x1,
+LONG       y1,
+LONG       x2,
+LONG       y2,
+RECTL     *prclBounds,
+MIX        mix);
+
 BOOL APIENTRY EngStretchBlt(
 SURFOBJ         *psoDest,
 SURFOBJ         *psoSrc,
@@ -1738,19 +1873,6 @@ XLATEOBJ        *pxlo,
 COLORADJUSTMENT *pca,
 POINTL          *pptlHTOrg,
 RECTL           *prclDest,
-RECTL           *prclSrc,
-POINTL          *pptlMask,
-ULONG            iMode);
-
-BOOL APIENTRY EngPlgBlt(
-SURFOBJ         *psoDest,
-SURFOBJ         *psoSrc,
-SURFOBJ         *psoMask,
-CLIPOBJ         *pco,
-XLATEOBJ        *pxlo,
-COLORADJUSTMENT *pca,
-POINTL          *pptlHTOrg,
-POINTFIX        *pptfxDest,
 RECTL           *prclSrc,
 POINTL          *pptlMask,
 ULONG            iMode);
@@ -1867,5 +1989,551 @@ HTUI_DeviceColorAdjustment(
     PDEVHTADJDATA   pDevHTAdjData
     );
 
+
+//
+// General support APIS
+//
+
+VOID
+APIENTRY
+EngDebugBreak(
+    VOID
+    );
+
+VOID
+APIENTRY
+EngDebugPrint(
+    PCHAR StandardPrefix,
+    PCHAR DebugMessage,
+    va_list ap
+    );
+
+VOID
+APIENTRY
+EngQueryPerformanceCounter(
+    LONGLONG  *pPerformanceCount
+    );
+
+VOID
+APIENTRY
+EngQueryPerformanceFrequency(
+    LONGLONG  *pFrequency
+    );
+
+//
+// Kernel mode memory operations
+//
+
+#define FL_ZERO_MEMORY      0x00000001
+
+PVOID
+APIENTRY
+EngAllocMem(
+    ULONG Flags,
+    ULONG MemSize,
+    ULONG Tag
+    );
+
+VOID
+APIENTRY
+EngFreeMem(
+    PVOID Mem
+    );
+
+//
+// User mode memory Operations
+//
+
+VOID
+APIENTRY
+EngProbeForRead(
+    PVOID Address,
+    ULONG Length,
+    ULONG Alignment
+    );
+
+VOID
+APIENTRY
+EngProbeForReadAndWrite(
+    PVOID Address,
+    ULONG Length,
+    ULONG Alignment
+    );
+
+PVOID
+APIENTRY
+EngAllocUserMem(
+    ULONG cj,
+    ULONG tag
+    );
+
+HANDLE
+APIENTRY
+EngSecureMem(
+    PVOID Address,
+    ULONG Length
+    );
+
+VOID
+APIENTRY
+EngUnsecureMem(
+    HANDLE hSecure
+    );
+
+
+VOID
+APIENTRY
+EngFreeUserMem(
+    PVOID pv
+    );
+
+
+
+
+DWORD
+APIENTRY
+EngDeviceIoControl(
+    HANDLE hDevice,
+    DWORD dwIoControlCode,
+    LPVOID lpInBuffer,
+    DWORD nInBufferSize,
+    LPVOID lpOutBuffer,
+    DWORD nOutBufferSize,
+    LPDWORD lpBytesReturned
+    );
+
+int
+APIENTRY
+EngMulDiv(
+    int a,
+    int b,
+    int c);
+
+
+//
+// Loading drivers and gettings entry points from them
+//
+
+HANDLE
+APIENTRY
+EngLoadImage(
+    LPWSTR pwszDriver
+    );
+
+PVOID
+APIENTRY
+EngFindImageProcAddress(
+    HANDLE hModule,
+    LPSTR lpProcName
+    );
+
+VOID
+APIENTRY
+EngUnloadImage(
+    HANDLE hModule
+    );
+
+//
+// callback for extra PDEV information
+//
+
+LPWSTR
+APIENTRY
+EngGetPrinterDataFileName(
+    HDEV hdev
+    );
+
+LPWSTR
+APIENTRY
+EngGetDriverName(
+    HDEV hdev
+    );
+
+typedef struct _TYPE1_FONT
+{
+    HANDLE  hPFM;
+    HANDLE  hPFB;
+    ULONG   ulIdentifier;
+} TYPE1_FONT;
+
+
+BOOL
+APIENTRY
+EngGetType1FontList(
+    HDEV            hdev,
+    TYPE1_FONT      *pType1Buffer,
+    ULONG           cjType1Buffer,
+    PULONG          pulLocalFonts,
+    PULONG          pulRemoteFonts,
+    LARGE_INTEGER   *pLastModified
+    );
+
+
+//
+// Manipulating resource sections
+//
+
+HANDLE
+APIENTRY
+EngLoadModule(
+    LPWSTR pwsz
+    );
+
+PVOID
+APIENTRY
+EngMapModule(
+    HANDLE h,
+    PULONG pSize
+    );
+
+PVOID
+APIENTRY
+EngFindResource(
+    HANDLE h,
+    int    iName,
+    int    iType,
+    PULONG pulSize
+    );
+
+VOID
+APIENTRY
+EngFreeModule(
+    HANDLE h
+    );
+
+//
+// FontFile Callbacks
+//
+
+VOID
+APIENTRY
+EngUnmapFontFile(
+    ULONG iFile
+    );
+
+BOOL
+APIENTRY
+EngMapFontFile(
+    ULONG  iFile,
+    PULONG *ppjBuf,
+    ULONG  *pcjBuf
+    );
+
+//
+// Semaphores
+//
+
+DECLARE_HANDLE(HSEMAPHORE);
+
+HSEMAPHORE
+APIENTRY
+EngCreateSemaphore(
+    VOID
+    );
+
+VOID
+APIENTRY
+EngAcquireSemaphore(
+    HSEMAPHORE hsem
+    );
+
+VOID
+APIENTRY
+EngReleaseSemaphore(
+    HSEMAPHORE hsem
+    );
+
+VOID
+APIENTRY
+EngDeleteSemaphore(
+    HSEMAPHORE hsem
+    );
+
+VOID
+APIENTRY
+EngMultiByteToUnicodeN(
+    LPWSTR UnicodeString,
+    ULONG MaxBytesInUnicodeString,
+    PULONG BytesInUnicodeString,
+    PCHAR MultiByteString,
+    ULONG BytesInMultiByteString
+    );
+
+VOID
+APIENTRY
+EngUnicodeToMultiByteN(
+    PCHAR MultiByteString,
+    ULONG MaxBytesInMultiByteString,
+    PULONG BytesInMultiByteString,
+    PWSTR UnicodeString,
+    ULONG BytesInUnicodeString
+    );
+
+
+
+// for the spooler
+
+DWORD
+APIENTRY
+EngGetPrinterData(
+    HANDLE   hPrinter,
+    LPWSTR    pValueName,
+    LPDWORD  pType,
+    LPBYTE   pData,
+    DWORD    nSize,
+    LPDWORD  pcbNeeded
+    );
+
+
+DWORD
+APIENTRY
+EngSetPrinterData(
+   HANDLE   hPrinter,
+   LPWSTR   pType,
+   DWORD    dwType,
+   LPBYTE   lpbPrinterData,
+   DWORD    cjPrinterData
+);
+
+
+BOOL
+APIENTRY
+EngGetForm(
+    HANDLE  hPrinter,
+    LPWSTR   pFormName,
+    DWORD   Level,
+    LPBYTE  pForm,
+    DWORD   cbBuf,
+    LPDWORD pcbNeeded
+    );
+
+BOOL
+APIENTRY
+EngWritePrinter(
+    HANDLE  hPrinter,
+    LPVOID  pBuf,
+    DWORD   cbBuf,
+    LPDWORD pcWritten
+    );
+
+
+BOOL
+APIENTRY
+EngGetPrinter(
+    HANDLE  hPrinter,
+    DWORD   dwLevel,
+    LPBYTE  pPrinter,
+    DWORD   cbBuf,
+    LPDWORD pcbNeeded
+);
+
+
+BOOL
+APIENTRY
+EngEnumForms(
+    HANDLE  hPrinter,
+    DWORD   Level,
+    LPBYTE  pForm,
+    DWORD   cbBuf,
+    LPDWORD pcbNeeded,
+    LPDWORD pcReturned
+    );
+
+
+ULONG
+APIENTRY
+EngEscape(
+    HANDLE   hPrinter,
+    ULONG    iEsc,
+    ULONG    cjIn,
+    PVOID    pvIn,
+    ULONG    cjOut,
+    PVOID    pvOut
+    );
+
+
+#ifdef _X86_
+
+    typedef struct _FLOATOBJ
+    {
+        ULONG ul1;
+        ULONG ul2;
+    } FLOATOBJ, *PFLOATOBJ;
+
+    VOID  FLOATOBJ_SetFloat(PFLOATOBJ,FLOAT);
+    VOID  FLOATOBJ_SetLong(PFLOATOBJ,LONG);
+
+    LONG  FLOATOBJ_GetFloat(PFLOATOBJ);
+    LONG  FLOATOBJ_GetLong(PFLOATOBJ);
+
+    VOID  FLOATOBJ_AddFloat(PFLOATOBJ,FLOAT);
+    VOID  FLOATOBJ_AddLong(PFLOATOBJ,LONG);
+    VOID  FLOATOBJ_Add(PFLOATOBJ,PFLOATOBJ);
+
+    VOID  FLOATOBJ_SubFloat(PFLOATOBJ,FLOAT);
+    VOID  FLOATOBJ_SubLong(PFLOATOBJ,LONG);
+    VOID  FLOATOBJ_Sub(PFLOATOBJ,PFLOATOBJ);
+
+    VOID  FLOATOBJ_MulFloat(PFLOATOBJ,FLOAT);
+    VOID  FLOATOBJ_MulLong(PFLOATOBJ,LONG);
+    VOID  FLOATOBJ_Mul(PFLOATOBJ,PFLOATOBJ);
+
+    VOID  FLOATOBJ_DivFloat(PFLOATOBJ,FLOAT);
+    VOID  FLOATOBJ_DivLong(PFLOATOBJ,LONG);
+    VOID  FLOATOBJ_Div(PFLOATOBJ,PFLOATOBJ);
+
+    VOID  FLOATOBJ_Neg(PFLOATOBJ);
+
+    BOOL  FLOATOBJ_EqualLong(PFLOATOBJ,LONG);
+    BOOL  FLOATOBJ_GreaterThanLong(PFLOATOBJ,LONG);
+    BOOL  FLOATOBJ_LessThanLong(PFLOATOBJ,LONG);
+
+    BOOL  FLOATOBJ_Equal(PFLOATOBJ,PFLOATOBJ);
+    BOOL  FLOATOBJ_GreaterThan(PFLOATOBJ,PFLOATOBJ);
+    BOOL  FLOATOBJ_LessThan(PFLOATOBJ,PFLOATOBJ);
+
+
+#else
+
+    // any platform that has support for floats in the kernel
+
+    typedef FLOAT FLOATOBJ;
+    typedef FLOAT *PFLOATOBJ;
+
+    #define   FLOATOBJ_SetFloat(pf,f)       {*(pf) = (f);           }
+    #define   FLOATOBJ_SetLong(pf,l)        {*(pf) = (FLOAT)(l);    }
+
+    #define   FLOATOBJ_GetFloat(pf)         *((PULONG)pf)
+    #define   FLOATOBJ_GetLong(pf)          (LONG)*(pf)
+
+    #define   FLOATOBJ_AddFloat(pf,f)       {*(pf) += f;            }
+    #define   FLOATOBJ_AddLong(pf,l)        {*(pf) += (LONG)(l);    }
+    #define   FLOATOBJ_Add(pf,pf1)          {*(pf) += *(pf1);       }
+
+    #define   FLOATOBJ_SubFloat(pf,f)       {*(pf) -= f;            }
+    #define   FLOATOBJ_SubLong(pf,l)        {*(pf) -= (LONG)(l);    }
+    #define   FLOATOBJ_Sub(pf,pf1)          {*(pf) -= *(pf1);       }
+
+    #define   FLOATOBJ_MulFloat(pf,f)       {*(pf) *= f;            }
+    #define   FLOATOBJ_MulLong(pf,l)        {*(pf) *= (LONG)(l);    }
+    #define   FLOATOBJ_Mul(pf,pf1)          {*(pf) *= *(pf1);       }
+
+    #define   FLOATOBJ_DivFloat(pf,f)       {*(pf) /= f;            }
+    #define   FLOATOBJ_DivLong(pf,l)        {*(pf) /= (LONG)(l);    }
+    #define   FLOATOBJ_Div(pf,pf1)          {*(pf) /= *(pf1);       }
+
+    #define   FLOATOBJ_Neg(pf)              {*(pf) = -*(pf);        }
+
+    #define   FLOATOBJ_EqualLong(pf,l)          (*(pf) == (FLOAT)(l))
+    #define   FLOATOBJ_GreaterThanLong(pf,l)    (*(pf) >  (FLOAT)(l))
+    #define   FLOATOBJ_LessThanLong(pf,l)       (*(pf) <  (FLOAT)(l))
+
+    #define   FLOATOBJ_Equal(pf,pf1)            (*(pf) == *(pf1))
+    #define   FLOATOBJ_GreaterThan(pf,pf1)      (*(pf) >  *(pf1))
+    #define   FLOATOBJ_LessThan(pf,pf1)         (*(pf) <  *(pf1))
+
+
+#endif // _FLOATOBJ_
+
+typedef struct  tagFLOATOBJ_XFORM
+{
+    FLOATOBJ eM11;
+    FLOATOBJ eM12;
+    FLOATOBJ eM21;
+    FLOATOBJ eM22;
+    FLOATOBJ eDx;
+    FLOATOBJ eDy;
+} FLOATOBJ_XFORM, *PFLOATOBJ_XFORM, FAR *LPFLOATOBJ_XFORM;
+
+ULONG
+APIENTRY
+XFORMOBJ_iGetFloatObjXform(
+    XFORMOBJ *pxo,
+    FLOATOBJ_XFORM * pfxo);
+
+// SORT specific defines
+
+typedef int (__cdecl *SORTCOMP)(const void *pv1, const void *pv2);
+
+VOID
+APIENTRY
+EngSort(
+    PBYTE pjBuf,
+    ULONG c,
+    ULONG cjElem,
+    SORTCOMP pfnComp);
+
+typedef struct _ENG_TIME_FIELDS {
+    USHORT usYear;        // range [1601...]
+    USHORT usMonth;       // range [1..12]
+    USHORT usDay;         // range [1..31]
+    USHORT usHour;        // range [0..23]
+    USHORT usMinute;      // range [0..59]
+    USHORT usSecond;      // range [0..59]
+    USHORT usMilliseconds;// range [0..999]
+    USHORT usWeekday;     // range [0..6] == [Sunday..Saturday]
+} ENG_TIME_FIELDS, *PENG_TIME_FIELDS;
+
+VOID EngQueryLocalTime(
+    PENG_TIME_FIELDS);
+
+
+
+FD_GLYPHSET *
+APIENTRY
+EngComputeGlyphSet(
+    INT nCodePage,
+    INT nFirstChar,
+    INT cChars
+    );
+
+
+INT
+APIENTRY
+EngMultiByteToWideChar(
+    UINT CodePage,
+    LPWSTR WideCharString,
+    INT BytesInWideCharString,
+    LPSTR MultiByteString,
+    INT BytesInMultiByteString
+    );
+
+INT
+APIENTRY
+EngWideCharToMultiByte(
+    UINT CodePage,
+    LPWSTR WideCharString,
+    INT BytesInWideCharString,
+    LPSTR MultiByteString,
+    INT BytesInMultiByteString
+    );
+
+VOID
+APIENTRY
+EngGetCurrentCodePage(
+    PUSHORT OemCodePage,
+    PUSHORT AnsiCodePage
+    );
+
+
+HANDLE
+APIENTRY
+EngLoadModuleForWrite(
+    LPWSTR pwsz,
+    ULONG  cjSizeOfModule
+    );
+
+BOOL
+APIENTRY
+EngGetFileChangeTime(
+    HANDLE          h,
+    LARGE_INTEGER   *pChangeTime
+    );
+
+LPWSTR
+APIENTRY
+EngGetFilePath(
+    HANDLE h
+  );
 
 #endif  //  _WINDDI_

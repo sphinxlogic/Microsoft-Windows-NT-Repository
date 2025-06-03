@@ -1,13 +1,49 @@
-//
-// There are three pool types:
-//    1. nonpaged,
-//    2. paged, and
-//    3. nonpagedmustsucceed.
-//
-// There is only one of each the nonpaged and nonpagedmustsucced pools.
-//
-// There can be more than one paged pool.
-//
+/*++ BUILD Version: 0001    // Increment this if a change has global effects
+
+Copyright (c) 1989-1995  Microsoft Corporation
+
+Module Name:
+
+    pool.h
+
+Abstract:
+
+    Private executive data structures and procedure prototypes for pool
+    allocation.
+
+
+    There are three pool types:
+        1. nonpaged,
+        2. paged, and
+        3. nonpagedmustsucceed.
+
+    There is only one of each the nonpaged and nonpagedmustsucced pools.
+
+    There can be more than one paged pool.
+
+Author:
+
+    Lou Perazzoli (loup) 23-Feb-1989
+
+Revision History:
+
+--*/
+
+#ifndef _POOL_
+#define _POOL_
+
+#if defined(_MIPS_)
+#define POOL_CACHE_SUPPORTED 1
+#define POOL_CACHE_ALIGN PoolCacheAlignment
+#define POOL_CACHE_CHECK 0x8
+ULONG PoolCacheAlignment;
+ULONG PoolCacheOverhead;
+ULONG PoolCacheSize;
+ULONG PoolBuddyMax;
+#else
+#define POOL_CACHE_SUPPORTED 0
+#define POOL_CACHE_ALIGN 0
+#endif //MIPS
 
 #define NUMBER_OF_POOLS 3
 
@@ -23,25 +59,22 @@
 
 #define CACHE_ALIGNED_POOL_TYPE_MASK 4
 
+//
+// WARNING: POOL_QUOTA_MASK is overloaded by POOL_QUOTA_FAIL_INSTEAD_OF_RAISE
+//          which is exported from ex.h.
+//
+// WARNING: POOL_RAISE_IF_ALLOCATION_FAILURE is exported from ex.h with a
+//          value of 16.
+//
+// These defintions are used to control the rasing of exception as the result
+// of quota and allocation failures.
+//
+
 #define POOL_QUOTA_MASK 8
 
 #define POOL_TYPE_MASK (3)
 
 //#define POOL_TYPE_AND_QUOTA_MASK (15)
-
-#if DBG && defined(_X86_)
-#define MAX_LARGE_ALLOCS 180
-typedef struct _TRACE_LARGE_ALLOCS {
-    PVOID Va;
-    USHORT NumberOfPages;
-    USHORT AllocatorBackTraceIndex;
-#ifdef POOL_TAGGING
-    ULONG PoolTag;
-#endif
-} TRACE_LARGE_ALLOCS;
-
-TRACE_LARGE_ALLOCS TraceLargeAllocs[MAX_LARGE_ALLOCS+1];
-#endif // DBG && defined(_X86_)
 
 #if DBG
 
@@ -50,6 +83,7 @@ TRACE_LARGE_ALLOCS TraceLargeAllocs[MAX_LARGE_ALLOCS+1];
 #else
 #define DEADBEEF 0
 #endif // NO_DEAD_BEEF
+
 #define CHECK_POOL_TAIL 1
 
 #else
@@ -82,8 +116,11 @@ TRACE_LARGE_ALLOCS TraceLargeAllocs[MAX_LARGE_ALLOCS+1];
 #define LARGE_BLOCK_SHIFT 9
 #define SHIFT_OFFSET (LARGE_BLOCK_SHIFT - POOL_BLOCK_SHIFT)
 
-#define POOL_SMALL_LISTS 8
-#define SMALL_LIST_SIZE (POOL_SMALL_lISTS << POOL_BLOCK_SHIFT)
+//
+// N.B. The number of small lists is defined in ntosdef.h so single
+//      entry lookaside lists can be allocated in the processor control
+//      block of each processor.
+//
 
 #define POOL_LIST_HEADS ((POOL_PAGE_SIZE / (1 << LARGE_BLOCK_SHIFT)) + POOL_SMALL_LISTS + 1)
 
@@ -108,8 +145,6 @@ typedef struct _POOL_DESCRIPTOR {
     ULONG PoolIndex;
     ULONG RunningAllocs;
     ULONG RunningDeAllocs;
-    ULONG IntervalAllocs;
-    ULONG IntervalDeAllocs;
     ULONG TotalPages;
     ULONG TotalBigPages;
     ULONG Threshold;
@@ -154,10 +189,15 @@ typedef struct _POOL_DESCRIPTOR {
 //
 
 typedef struct _POOL_HEADER {
-    UCHAR PreviousSize;
-    UCHAR PoolIndex;
-    UCHAR PoolType;
-    UCHAR BlockSize;
+    union {
+        struct {
+            UCHAR PreviousSize;
+            UCHAR PoolIndex;
+            UCHAR PoolType;
+            UCHAR BlockSize;
+        };
+        ULONG Ulong1;                       // used for InterlockedCompareExchange required by Alpha
+    };
     union {
         EPROCESS *ProcessBilled;
         ULONG PoolTag;
@@ -222,19 +262,30 @@ typedef struct _POOL_TRACKER_TABLE {
     ULONG PagedBytes;
 } POOL_TRACKER_TABLE, *PPOOL_TRACKER_TABLE;
 
-typedef struct _POOL_TRACKER_BIG_PAGES {
-    PVOID Va;
-    ULONG Key;
-} POOL_TRACKER_BIG_PAGES, *PPOOL_TRACKER_BIG_PAGES;
+//
+// N.B. The last entry of the pool tracker table is used for all overflow
+//      table entries.
+//
 
-#define MAX_TRACKER_TABLE 512
+#define MAX_TRACKER_TABLE 513
 
 #define TRACKER_TABLE_MASK 0x1ff
 
 extern PPOOL_TRACKER_TABLE PoolTrackTable;
+
+typedef struct _POOL_TRACKER_BIG_PAGES {
+    PVOID Va;
+    ULONG Key;
+#if DBG || defined(i386) && !FPO
+    USHORT NumberOfPages;
+    USHORT AllocatorBackTraceIndex;
+#endif
+} POOL_TRACKER_BIG_PAGES, *PPOOL_TRACKER_BIG_PAGES;
 
 #define MAX_BIGPAGE_TABLE 2048
 
 #define BIGPAGE_TABLE_MASK (MAX_BIGPAGE_TABLE - 1)
 
 extern PPOOL_TRACKER_BIG_PAGES PoolBigPageTable;
+
+#endif

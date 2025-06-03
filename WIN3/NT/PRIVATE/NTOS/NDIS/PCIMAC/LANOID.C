@@ -1,8 +1,8 @@
-#include	<ntddk.h>
+//#include	<ntddk.h>
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
-#include	<ntddndis.h>
+//#include	<ntddndis.h>
 #include	<stdio.h>
 #include	<mytypes.h>
 #include	<mydefs.h>

@@ -103,7 +103,8 @@ class FAT_NTFS : public OBJECT	{
 		NONVIRTUAL
 		BOOLEAN
 		Convert(
-			OUT 	PCONVERT_STATUS	Status
+			OUT 	PCONVERT_STATUS	Status,
+			IN      BOOLEAN         Pause
 			);
 
 	private:
@@ -251,6 +252,7 @@ class FAT_NTFS : public OBJECT	{
         NONVIRTUAL
         BOOLEAN
         WriteBoot (
+            IN  BOOLEAN Pause
             );
 
 		//
@@ -266,8 +268,8 @@ class FAT_NTFS : public OBJECT	{
 		//
         NTFS_SA                 _NtfsSa;                //  NTFS SuperArea
         ULONG                   _ClusterFactor;         //  Cluster factor
-        ULONG                   _ClustersPerFrs;        //  Clusters per FRS
         ULONG                   _ClustersPerIndexBuffer;//  Default clusters per index buffer
+
         NTFS_BITMAP             _ReservedBitmap;        //  Bitmap of reserved sectors
         NTFS_BITMAP             _VolumeBitmap;          //  Volume Bitmap
         NTFS_UPCASE_TABLE       _UpcaseTable;           //  Volume upcase table.
@@ -275,6 +277,7 @@ class FAT_NTFS : public OBJECT	{
         ULONG                   _LogFileClusters;       //  Size of Log File
         NTFS_MFT_FILE           _Mft;                   //  Master File Table File
         DSTRING                 _RootIndexName;         //  Root index name
+        ULONG                   _FrsSize;
 
         //
         //  Other stuff
@@ -362,7 +365,7 @@ Return Value:
     ULONG   l = _Level;
 
     while ( l-- ) {
-        DbgPrintf( "  " );
+        DebugPrintf( "  " );
     }
 }
 

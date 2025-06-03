@@ -35,6 +35,13 @@ BOOLEAN NtfsDisableRestart = FALSE;
 #define Dbg                              (DEBUG_TRACE_LOGSUP)
 
 //
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('RFtN')
+
+//
 //  The following macro returns the length of the log record header of
 //  of log record.
 //
@@ -69,11 +76,10 @@ InitializeRestartState (
 
 VOID
 ReleaseRestartState (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PRESTART_POINTERS DirtyPageTable,
     IN PATTRIBUTE_NAME_ENTRY AttributeNames,
-    IN BOOLEAN Abnormal
+    IN BOOLEAN ReleaseVcbTables
     );
 
 VOID
@@ -135,6 +141,7 @@ PinAttributeForRestart (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PNTFS_LOG_RECORD_HEADER LogRecord,
+    IN ULONG Length OPTIONAL,
     OUT PBCB *Bcb,
     OUT PVOID *Buffer,
     OUT PSCB *Scb
@@ -142,7 +149,6 @@ PinAttributeForRestart (
 
 BOOLEAN
 FindDirtyPage (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS DirtyPageTable,
     IN ULONG TargetAttribute,
     IN VCN Vcn,
@@ -151,7 +157,6 @@ FindDirtyPage (
 
 VOID
 PageUpdateAnalysis (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN LSN Lsn,
     IN OUT PRESTART_POINTERS DirtyPageTable,
@@ -226,11 +231,12 @@ Return Value:
     LSN RedoLsn;
     PATTRIBUTE_NAME_ENTRY AttributeNames = NULL;
     BOOLEAN UpdatesApplied = FALSE;
+    BOOLEAN ReleaseVcbTables = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, 0, "NtfsRestartVolume:\n", 0 );
-    DebugTrace( 0, 0, "Vcb = %08lx\n", Vcb );
+    DebugTrace( +1, 0, ("NtfsRestartVolume:\n") );
+    DebugTrace( 0, 0, ("Vcb = %08lx\n", Vcb) );
 
     RtlZeroMemory( &DirtyPageTable, sizeof(RESTART_POINTERS) );
 
@@ -251,6 +257,8 @@ Return Value:
                                 &DirtyPageTable,
                                 &AttributeNames,
                                 &CheckpointLsn );
+
+        ReleaseVcbTables = TRUE;
 
         //
         //  If the CheckpointLsn is zero, then this is a freshly formattted
@@ -332,13 +340,12 @@ Return Value:
         //  Free up any resources tied down with the Restart State.
         //
 
-        ReleaseRestartState( IrpContext,
-                             Vcb,
+        ReleaseRestartState( Vcb,
                              &DirtyPageTable,
                              AttributeNames,
-                             (BOOLEAN)AbnormalTermination() );
+                             ReleaseVcbTables );
     }
-    DebugTrace(-1, 0, "NtfsRestartVolume -> %02lx\n", UpdatesApplied );
+    DebugTrace( -1, 0, ("NtfsRestartVolume -> %02lx\n", UpdatesApplied) );
 
     return UpdatesApplied;
 }
@@ -389,10 +396,8 @@ Return Value:
     LSN UndoNextLsn;
     LSN PreviousLsn;
     TRANSACTION_ID SavedTransaction = IrpContext->TransactionId;
-    PRESTART_POINTERS TransactionTable;
-    LFS_LOG_HANDLE LogHandle;
 
-    DebugTrace(+1, Dbg, "NtfsAbortTransaction:\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsAbortTransaction:\n") );
 
     //
     //  If a transaction was specified, then we have to set our transaction Id
@@ -400,12 +405,19 @@ Return Value:
     //  it.
     //
 
-    ASSERT( IrpContext == IrpContext->TopLevelIrpContext );
-
     if (ARGUMENT_PRESENT(Transaction)) {
 
         IrpContext->TransactionId = GetIndexFromRestartEntry( &Vcb->TransactionTable,
                                                               Transaction );
+
+        UndoNextLsn = Transaction->UndoNextLsn;
+
+        //
+        //  Set the flag in the IrpContext so we will always write the commit
+        //  record.
+        //
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WROTE_LOG );
 
     //
     //  Otherwise, we are aborting the current transaction, and we must get the
@@ -416,17 +428,26 @@ Return Value:
 
         if (IrpContext->TransactionId == 0) {
 
-            DebugTrace(-1, Dbg, "NtfsAbortTransaction->VOID (no transaction)\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsAbortTransaction->VOID (no transaction)\n") );
 
             return;
         }
 
+        //
+        //  Synchronize access to the transaction table in case the table
+        //  is growing.
+        //
+
+        NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
+                                          TRUE );
+
         Transaction = GetRestartEntryFromIndex( &Vcb->TransactionTable,
                                                 IrpContext->TransactionId );
-    }
 
-    TransactionTable = &Vcb->TransactionTable;
-    LogHandle = Vcb->LogHandle;
+        UndoNextLsn = Transaction->UndoNextLsn;
+
+        NtfsReleaseRestartTable( &Vcb->TransactionTable );
+    }
 
     //
     //  If we are aborting the current transaction (by default or explicit
@@ -438,14 +459,14 @@ Return Value:
         SavedTransaction = 0;
     }
 
-    DebugTrace( 0, Dbg, "Transaction = %08lx\n", Transaction );
+    DebugTrace( 0, Dbg, ("Transaction = %08lx\n", Transaction) );
 
     //
     //  We only have to do anything if the transaction has something in its
     //  UndoNextLsn field.
     //
 
-    if (Transaction->UndoNextLsn.QuadPart != 0) {
+    if (UndoNextLsn.QuadPart != 0) {
 
         PBCB PageBcb = NULL;
 
@@ -453,8 +474,8 @@ Return Value:
         //  Read the first record to be undone by this transaction.
         //
 
-        LfsReadLogRecord( LogHandle,
-                          Transaction->UndoNextLsn,
+        LfsReadLogRecord( Vcb->LogHandle,
+                          UndoNextLsn,
                           LfsContextUndoNext,
                           &LogContext,
                           &RecordType,
@@ -487,9 +508,8 @@ Return Value:
                     NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
                 }
 
-                DebugTrace( 0, Dbg, "Undo of Log Record at: %08lx\n", LogRecord );
-                DebugTrace2(0, Dbg, "Log Record Lsn = %08lx, %08lx\n",
-                                    LogRecordLsn.LowPart, LogRecordLsn.HighPart );
+                DebugTrace( 0, Dbg, ("Undo of Log Record at: %08lx\n", LogRecord) );
+                DebugTrace( 0, Dbg, ("Log Record Lsn = %016I64x\n", LogRecordLsn) );
 
                 //
                 //  Log the Undo operation as a CLR, i.e., it has no undo,
@@ -509,17 +529,29 @@ Return Value:
                     VCN Vcn;
                     LONGLONG Size;
 
+                    //
+                    //  Acquire and release the restart table.  We must synchronize
+                    //  even though our entry can't be removed because the table
+                    //  could be growing (or shrinking) and the table pointer
+                    //  could be changing.
+                    //
+
+                    NtfsAcquireExclusiveRestartTable( &Vcb->OpenAttributeTable,
+                                                      TRUE );
+
                     Scb = ((POPEN_ATTRIBUTE_ENTRY)GetRestartEntryFromIndex(
                           &Vcb->OpenAttributeTable,
                           LogRecord->TargetAttribute))->Overlay.Scb;
+
+                    NtfsReleaseRestartTable( &Vcb->OpenAttributeTable );
 
                     //
                     //  If we have Lcn's to process and restart is in progress,
                     //  then we need to check if this is part of a partial page.
                     //
 
-                    if (FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )
-                        && LogRecord->LcnsToFollow != 0) {
+                    if (FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ) &&
+                        (LogRecord->LcnsToFollow != 0)) {
 
                         LCN TargetLcn;
                         LONGLONG SectorCount, SectorsInRun;
@@ -532,16 +564,16 @@ Return Value:
                         //  in memory.
                         //
 
-                        if (!(MappingInMcb = FsRtlLookupLargeMcbEntry( &Scb->Mcb,
-                                                                       LogRecord->TargetVcn,
-                                                                       &TargetLcn,
-                                                                       &SectorCount,
-                                                                       NULL,
-                                                                       &SectorsInRun,
-                                                                       NULL ))
-
-                            || (TargetLcn == UNUSED_LCN)
-                            || ((ULONG)SectorCount) < LogRecord->LcnsToFollow) {
+                        if (!(MappingInMcb = NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                                                     LogRecord->TargetVcn,
+                                                                     &TargetLcn,
+                                                                     &SectorCount,
+                                                                     NULL,
+                                                                     &SectorsInRun,
+                                                                     NULL,
+                                                                     NULL )) ||
+                            (TargetLcn == UNUSED_LCN) ||
+                            ((ULONG)SectorCount) < LogRecord->LcnsToFollow) {
 
                             VCN StartingPageVcn;
                             ULONG ClusterOffset;
@@ -557,7 +589,7 @@ Return Value:
                             ClusterOffset = ((ULONG)LogRecord->TargetVcn) & (Vcb->ClustersPerPage - 1);
 
                             StartingPageVcn = LogRecord->TargetVcn;
-                            ((ULONG)StartingPageVcn) &= ~(Vcb->ClustersPerPage - 1);
+                            ((PLARGE_INTEGER) &StartingPageVcn)->LowPart &= ~(Vcb->ClustersPerPage - 1);
 
                             //
                             //  If this mapping was not in the Mcb, then if the
@@ -570,12 +602,11 @@ Return Value:
                                 LCN LastLcn;
                                 VCN LastVcn;
 
-                                if (ClusterOffset != 0
-                                    && FsRtlLookupLastLargeMcbEntry( &Scb->Mcb,
-                                                                     &LastVcn,
-                                                                     &LastLcn )
-
-                                    && (LastVcn >= StartingPageVcn)) {
+                                if ((ClusterOffset != 0) &&
+                                    NtfsLookupLastNtfsMcbEntry( &Scb->Mcb,
+                                                                &LastVcn,
+                                                                &LastLcn ) &&
+                                    (LastVcn >= StartingPageVcn)) {
 
                                     FlushAndPurge = TRUE;
                                 }
@@ -590,8 +621,8 @@ Return Value:
 
                             } else if (TargetLcn == UNUSED_LCN) {
 
-                                if ((ClusterOffset + ((ULONG)SectorCount)) < Vcb->ClustersPerPage
-                                    || (ClusterOffset + ((ULONG)SectorCount)) > ((ULONG)SectorsInRun)) {
+                                if (((ClusterOffset + (ULONG) SectorCount) < Vcb->ClustersPerPage) ||
+                                    ((ClusterOffset + (ULONG) SectorCount) > (ULONG) SectorsInRun)) {
 
                                     FlushAndPurge = TRUE;
                                 }
@@ -612,18 +643,17 @@ Return Value:
                                 IO_STATUS_BLOCK Iosb;
 
                                 StartingOffset = LlBytesFromClusters( Vcb, StartingPageVcn );
+                                StartingOffset += BytesFromLogBlocks( LogRecord->ClusterBlockOffset );
 
                                 CcFlushCache( &Scb->NonpagedScb->SegmentObject,
                                               (PLARGE_INTEGER)&StartingOffset,
                                               PAGE_SIZE,
                                               &Iosb );
 
-                                if (!NT_SUCCESS(Iosb.Status)) {
-
-                                    NtfsNormalizeAndRaiseStatus( IrpContext,
-                                                                 Iosb.Status,
-                                                                 STATUS_UNEXPECTED_IO_ERROR );
-                                }
+                                NtfsNormalizeAndCleanupTransaction( IrpContext,
+                                                                    &Iosb.Status,
+                                                                    TRUE,
+                                                                    STATUS_UNEXPECTED_IO_ERROR );
 
                                 if (!CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject,
                                                           (PLARGE_INTEGER)&StartingOffset,
@@ -658,9 +688,8 @@ Return Value:
 
                                 &&
 
-                            ((Scb->Fcb->FileReference.HighPart != 0) ||
-                             (Scb->Fcb->FileReference.LowPart > MASTER_FILE_TABLE2_NUMBER) ||
-                             (Vcn >= ((VOLUME_DASD_NUMBER + 1) * Vcb->ClustersPerFileRecordSegment)) ||
+                            (NtfsSegmentNumber( &Scb->Fcb->FileReference ) > MASTER_FILE_TABLE2_NUMBER ||
+                             (Size >= ((VOLUME_DASD_NUMBER + 1) * Vcb->BytesPerFileRecordSegment)) ||
                              (Scb->AttributeTypeCode != $DATA))) {
 
                             //
@@ -670,11 +699,16 @@ Return Value:
                             //  case we have zeroed any half pages.
                             //
 
+                            while (!NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                                                         Vcn,
+                                                         LogRecord->LcnsForPage[i],
+                                                         (LONGLONG)1,
+                                                         FALSE )) {
 
-                            FsRtlAddLargeMcbEntry( &Scb->Mcb,
-                                                   Vcn,
-                                                   LogRecord->LcnsForPage[i],
-                                                   (LONGLONG)1 );
+                                NtfsRemoveNtfsMcbEntry( &Scb->Mcb,
+                                                        Vcn,
+                                                        1 );
+                            }
                         }
 
                         if (Size > Scb->Header.AllocationSize.QuadPart) {
@@ -727,17 +761,17 @@ Return Value:
                                   Length,
                                   CompensationLogRecord,
                                   (PVOID)&UndoNextLsn,
-                                  0,
-                                  LogRecord->TargetVcn,
+                                  LogRecord->RedoLength,
+                                  LlBytesFromClusters( Vcb, LogRecord->TargetVcn ) + BytesFromLogBlocks( LogRecord->ClusterBlockOffset ),
                                   LogRecord->RecordOffset,
                                   LogRecord->AttributeOffset,
-                                  LogRecord->LcnsToFollow );
+                                  BytesFromClusters( Vcb, LogRecord->LcnsToFollow ));
 
                     if (PageLsn != NULL) {
                         *PageLsn = UndoRecordLsn;
                     }
 
-                    NtfsUnpinBcb( IrpContext, &PageBcb );
+                    NtfsUnpinBcb( &PageBcb );
                 }
 
             //
@@ -745,7 +779,7 @@ Return Value:
             //  for this transaction.
             //
 
-            } while (LfsReadNextLogRecord( LogHandle,
+            } while (LfsReadNextLogRecord( Vcb->LogHandle,
                                            LogContext,
                                            &RecordType,
                                            &TransactionId,
@@ -764,13 +798,13 @@ Return Value:
 
         } finally {
 
-            NtfsUnpinBcb( IrpContext, &PageBcb );
+            NtfsUnpinBcb( &PageBcb );
 
             //
             //  Finally we can kill the log handle.
             //
 
-            LfsTerminateLogQuery( LogHandle, LogContext );
+            LfsTerminateLogQuery( Vcb->LogHandle, LogContext );
 
             //
             //  If we raised out of this routine, we want to be sure to remove
@@ -784,8 +818,7 @@ Return Value:
                 NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
                                                   TRUE );
 
-                NtfsFreeRestartTableIndex( IrpContext,
-                                           &Vcb->TransactionTable,
+                NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
                                            IrpContext->TransactionId );
 
                 NtfsReleaseRestartTable( &Vcb->TransactionTable );
@@ -809,8 +842,7 @@ Return Value:
         NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
                                           TRUE );
 
-        NtfsFreeRestartTableIndex( IrpContext,
-                                   &Vcb->TransactionTable,
+        NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
                                    IrpContext->TransactionId );
 
         NtfsReleaseRestartTable( &Vcb->TransactionTable );
@@ -818,9 +850,8 @@ Return Value:
 
     IrpContext->TransactionId = SavedTransaction;
 
-    DebugTrace(-1, Dbg, "NtfsAbortTransaction->VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsAbortTransaction->VOID\n") );
 }
-
 
 
 //
@@ -886,19 +917,17 @@ Return Value:
     LSN PreviousLsn;
     ULONG RestartAreaLength = sizeof(RESTART_AREA);
     BOOLEAN CleanupLogContext = FALSE;
-
-    UNREFERENCED_PARAMETER(IrpContext);
+    BOOLEAN ReleaseTransactionTable = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "InitializeRestartState:\n", 0 );
-    DebugTrace( 0, Dbg, "DirtyPageTable = %08lx\n", DirtyPageTable );
+    DebugTrace( +1, Dbg, ("InitializeRestartState:\n") );
+    DebugTrace( 0, Dbg, ("DirtyPageTable = %08lx\n", DirtyPageTable) );
 
     *AttributeNames = NULL;
     *CheckpointLsn = Li0;
 
-    NtfsInitializeRestartTable( IrpContext,
-                                sizeof(DIRTY_PAGE_ENTRY)
+    NtfsInitializeRestartTable( sizeof(DIRTY_PAGE_ENTRY)
                                 + (Vcb->ClustersPerPage - 1) * sizeof( LCN ),
                                 32,
                                 DirtyPageTable );
@@ -912,7 +941,7 @@ Return Value:
                         &RestartArea,
                         &RestartAreaLsn );
 
-    DebugTrace( 0, Dbg, "RestartArea read at %08lx\n", &RestartArea );
+    DebugTrace( 0, Dbg, ("RestartArea read at %08lx\n", &RestartArea) );
 
     //
     //  If we get back zero for Restart Area Length, then zero it and procede.
@@ -941,8 +970,14 @@ Return Value:
 
         if (RestartArea.TransactionTableLength != 0) {
 
+            //
+            //  Workaround for compiler bug.
+            //
+
+            PreviousLsn = RestartArea.TransactionTableLsn;
+
             LfsReadLogRecord( Vcb->LogHandle,
-                              RestartArea.TransactionTableLsn,
+                              PreviousLsn,
                               LfsContextPrevious,
                               &LogContext,
                               &RecordType,
@@ -962,6 +997,16 @@ Return Value:
                                      LogRecord,
                                      RestartAreaLength,
                                      TransactionId )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
+            }
+
+            //
+            //  Now check that this is a valid restart table.
+            //
+
+            if (!NtfsCheckRestartTable( Add2Ptr( LogRecord, LogRecord->RedoOffset ),
+                                        RestartAreaLength - LogRecord->RedoOffset)) {
 
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
@@ -981,10 +1026,10 @@ Return Value:
             //  TEMPCODE    RESTART_DEBUG   There is already a buffer.
             //
 
-            NtfsFreePagedPool( Vcb->TransactionTable.Table );
+            NtfsFreePool( Vcb->TransactionTable.Table );
 
             Vcb->TransactionTable.Table =
-              FsRtlAllocatePool( NonPagedPool, RestartAreaLength  );
+              NtfsAllocatePool( NonPagedPool, RestartAreaLength  );
 
             RtlCopyMemory( Vcb->TransactionTable.Table,
                            Add2Ptr( LogRecord, LogHeaderLength ),
@@ -1003,6 +1048,7 @@ Return Value:
         //
 
         NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable, TRUE );
+        ReleaseTransactionTable = TRUE;
 
         //
         //  The next record back should be the Dirty Pages Table.
@@ -1010,8 +1056,14 @@ Return Value:
 
         if (RestartArea.DirtyPageTableLength != 0) {
 
+            //
+            //  Workaround for compiler bug.
+            //
+
+            PreviousLsn = RestartArea.DirtyPageTableLsn;
+
             LfsReadLogRecord( Vcb->LogHandle,
-                              RestartArea.DirtyPageTableLsn,
+                              PreviousLsn,
                               LfsContextPrevious,
                               &LogContext,
                               &RecordType,
@@ -1036,6 +1088,16 @@ Return Value:
             }
 
             //
+            //  Now check that this is a valid restart table.
+            //
+
+            if (!NtfsCheckRestartTable( Add2Ptr( LogRecord, LogRecord->RedoOffset ),
+                                        RestartAreaLength - LogRecord->RedoOffset)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
+            }
+
+            //
             //  Subtract the length of the log page header and increment the
             //  pointer for
             //
@@ -1047,7 +1109,7 @@ Return Value:
             ASSERT( RestartAreaLength >= RestartArea.DirtyPageTableLength );
 
             DirtyPageTable->Table =
-              FsRtlAllocatePool( NonPagedPool, RestartAreaLength );
+              NtfsAllocatePool( NonPagedPool, RestartAreaLength );
 
             RtlCopyMemory( DirtyPageTable->Table,
                            Add2Ptr( LogRecord, LogHeaderLength ),
@@ -1059,6 +1121,43 @@ Return Value:
 
             LfsTerminateLogQuery( Vcb->LogHandle, LogContext );
             CleanupLogContext = FALSE;
+
+            //
+            //  If the cluster size is larger than the page size we may have
+            //  multiple entries for the same Vcn.  Go through the table
+            //  and remove the duplicates, remembering the oldest Lsn values.
+            //
+
+            if (Vcb->BytesPerCluster > PAGE_SIZE) {
+
+                PDIRTY_PAGE_ENTRY CurrentEntry;
+                PDIRTY_PAGE_ENTRY NextEntry;
+
+                CurrentEntry = NtfsGetFirstRestartTable( DirtyPageTable );
+
+                while (CurrentEntry != NULL) {
+
+                    NextEntry = CurrentEntry;
+
+                    while ((NextEntry = NtfsGetNextRestartTable( DirtyPageTable, NextEntry )) != NULL) {
+
+                        if ((NextEntry->TargetAttribute == CurrentEntry->TargetAttribute) &&
+                            (NextEntry->Vcn == CurrentEntry->Vcn)) {
+
+                            if (NextEntry->OldestLsn.QuadPart < CurrentEntry->OldestLsn.QuadPart) {
+
+                                CurrentEntry->OldestLsn.QuadPart = NextEntry->OldestLsn.QuadPart;
+                            }
+
+                            NtfsFreeRestartTableIndex( DirtyPageTable,
+                                                       GetIndexFromRestartEntry( DirtyPageTable,
+                                                                                 NextEntry ));
+                        }
+                    }
+
+                    CurrentEntry = NtfsGetNextRestartTable( DirtyPageTable, CurrentEntry );
+                }
+            }
 
         //
         //  If there was no dirty page table, then just initialize an empty one.
@@ -1075,8 +1174,14 @@ Return Value:
 
         if (RestartArea.AttributeNamesLength != 0) {
 
+            //
+            //  Workaround for compiler bug.
+            //
+
+            PreviousLsn = RestartArea.AttributeNamesLsn;
+
             LfsReadLogRecord( Vcb->LogHandle,
-                              RestartArea.AttributeNamesLsn,
+                              PreviousLsn,
                               LfsContextPrevious,
                               &LogContext,
                               &RecordType,
@@ -1112,7 +1217,7 @@ Return Value:
             ASSERT( RestartAreaLength >= RestartArea.AttributeNamesLength );
 
             *AttributeNames =
-              FsRtlAllocatePool( NonPagedPool, RestartAreaLength );
+              NtfsAllocatePool( NonPagedPool, RestartAreaLength );
 
             RtlCopyMemory( *AttributeNames,
                            Add2Ptr( LogRecord, LogHeaderLength ),
@@ -1134,8 +1239,14 @@ Return Value:
 
             POPEN_ATTRIBUTE_ENTRY OpenEntry;
 
+            //
+            //  Workaround for compiler bug.
+            //
+
+            PreviousLsn = RestartArea.OpenAttributeTableLsn;
+
             LfsReadLogRecord( Vcb->LogHandle,
-                              RestartArea.OpenAttributeTableLsn,
+                              PreviousLsn,
                               LfsContextPrevious,
                               &LogContext,
                               &RecordType,
@@ -1160,6 +1271,16 @@ Return Value:
             }
 
             //
+            //  Now check that this is a valid restart table.
+            //
+
+            if (!NtfsCheckRestartTable( Add2Ptr( LogRecord, LogRecord->RedoOffset ),
+                                        RestartAreaLength - LogRecord->RedoOffset)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
+            }
+
+            //
             //  Subtract the length of the log page header and increment the
             //  pointer for
             //
@@ -1174,10 +1295,10 @@ Return Value:
             //  TEMPCODE    RESTART_DEBUG   There is already a buffer.
             //
 
-            NtfsFreePagedPool( Vcb->OpenAttributeTable.Table );
+            NtfsFreePool( Vcb->OpenAttributeTable.Table );
 
             Vcb->OpenAttributeTable.Table =
-              FsRtlAllocatePool( NonPagedPool, RestartAreaLength );
+              NtfsAllocatePool( NonPagedPool, RestartAreaLength );
 
             RtlCopyMemory( Vcb->OpenAttributeTable.Table,
                            Add2Ptr( LogRecord, LogHeaderLength ),
@@ -1197,6 +1318,7 @@ Return Value:
             while (OpenEntry != NULL) {
 
                 OpenEntry->Overlay.Scb = NULL;
+                OpenEntry->AttributeNamePresent = FALSE;
 
                 //
                 //  Point to next entry in table, or NULL.
@@ -1246,7 +1368,20 @@ Return Value:
                                                (ULONG)Name->NameLength );
             }
         }
+
+        ReleaseTransactionTable = FALSE;
+
     } finally {
+
+        //
+        //  Release the transaction table if we acquired it and then
+        //  raised during this routine.
+        //
+
+        if (ReleaseTransactionTable) {
+
+            NtfsReleaseRestartTable( &Vcb->TransactionTable );
+        }
 
         if (CleanupLogContext) {
 
@@ -1258,20 +1393,18 @@ Return Value:
         }
     }
 
-    DebugTrace( 0, Dbg, "AttributeNames > %08lx\n", *AttributeNames );
-    DebugTrace2(0, Dbg, "CheckpointLsn > %08lx, %08lx\n", CheckpointLsn->LowPart,
-                                                          CheckpointLsn->HighPart );
-    DebugTrace(-1, Dbg, "NtfsInitializeRestartState -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("AttributeNames > %08lx\n", *AttributeNames) );
+    DebugTrace( 0, Dbg, ("CheckpointLsn > %016I64x\n", *CheckpointLsn) );
+    DebugTrace( -1, Dbg, ("NtfsInitializeRestartState -> VOID\n") );
 }
 
 
 VOID
 ReleaseRestartState (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PRESTART_POINTERS DirtyPageTable,
     IN PATTRIBUTE_NAME_ENTRY AttributeNames,
-    IN BOOLEAN Abnormal
+    IN BOOLEAN ReleaseVcbTables
     )
 
 /*++
@@ -1288,10 +1421,8 @@ Arguments:
 
     AttributeNames - pointer to the attribute names buffer, if one was allocated.
 
-    Abnormal - TRUE if the caller did an abnormal termination.  In this case it
-               is not safe to free resources, because it can not be known what
-               state they are in.  They will be correctly deleted when the Vcb
-               is deallocated.
+    ReleaseVcbTables - TRUE if we are to release the restart tables in the Vcb,
+        FALSE otherwise.
 
 Return Value:
 
@@ -1307,7 +1438,7 @@ Return Value:
     //  the transaction and open attribute tables.
     //
 
-    if (!Abnormal) {
+    if (ReleaseVcbTables) {
         NtfsReleaseRestartTable( &Vcb->TransactionTable );
         NtfsReleaseRestartTable( &Vcb->OpenAttributeTable );
     }
@@ -1317,7 +1448,7 @@ Return Value:
     //
 
     if (DirtyPageTable != NULL) {
-        NtfsFreeRestartTable( IrpContext, DirtyPageTable );
+        NtfsFreeRestartTable( DirtyPageTable );
     }
 
     //
@@ -1325,7 +1456,7 @@ Return Value:
     //
 
     if (AttributeNames != NULL) {
-        NtfsFreePagedPool( AttributeNames );
+        NtfsFreePool( AttributeNames );
     }
 }
 
@@ -1407,9 +1538,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "AnalysisPass:\n", 0 );
-    DebugTrace2(0, Dbg, "CheckpointLsn = %08lx, %08lx\n", CheckpointLsn.LowPart,
-                                                          CheckpointLsn.HighPart );
+    DebugTrace( +1, Dbg, ("AnalysisPass:\n") );
+    DebugTrace( 0, Dbg, ("CheckpointLsn = %016I64x\n", CheckpointLsn) );
 
     *RedoLsn = Li0; //**** LfsZeroLsn;
 
@@ -1476,11 +1606,10 @@ Return Value:
                 continue;
             }
 
-            DebugTrace( 0, Dbg, "Analysis of LogRecord at: %08lx\n", LogRecord );
-            DebugTrace2(0, Dbg, "Log Record Lsn = %08lx, %08lx\n",
-                                LogRecordLsn.LowPart, LogRecordLsn.HighPart );
-            DebugTrace( 0, Dbg, "LogRecord->RedoOperation = %08lx\n", LogRecord->RedoOperation );
-            DebugTrace( 0, Dbg, "TransactionId = %08lx\n", TransactionId );
+            DebugTrace( 0, Dbg, ("Analysis of LogRecord at: %08lx\n", LogRecord) );
+            DebugTrace( 0, Dbg, ("Log Record Lsn = %016I64x\n", LogRecordLsn) );
+            DebugTrace( 0, Dbg, ("LogRecord->RedoOperation = %08lx\n", LogRecord->RedoOperation) );
+            DebugTrace( 0, Dbg, ("TransactionId = %08lx\n", TransactionId) );
 
             //
             //  Now update the Transaction Table for this transaction.  If there is no
@@ -1490,11 +1619,10 @@ Return Value:
             Transaction = (PTRANSACTION_ENTRY)GetRestartEntryFromIndex( &Vcb->TransactionTable,
                                                                         TransactionId );
 
-            if (!IsRestartIndexWithinTable( &Vcb->TransactionTable, TransactionId )
-                || !IsRestartTableEntryAllocated( Transaction )) {
+            if (!IsRestartIndexWithinTable( &Vcb->TransactionTable, TransactionId ) ||
+                !IsRestartTableEntryAllocated( Transaction )) {
 
-                Transaction = (PTRANSACTION_ENTRY) NtfsAllocateRestartTableFromIndex( IrpContext,
-                                                                                      &Vcb->TransactionTable,
+                Transaction = (PTRANSACTION_ENTRY) NtfsAllocateRestartTableFromIndex( &Vcb->TransactionTable,
                                                                                       TransactionId );
 
                 Transaction->TransactionState = TransactionActive;
@@ -1546,9 +1674,10 @@ Return Value:
             case UpdateFileNameAllocation:
             case SetBitsInNonresidentBitMap:
             case ClearBitsInNonresidentBitMap:
+            case UpdateRecordDataRoot:
+            case UpdateRecordDataAllocation:
 
-                PageUpdateAnalysis( IrpContext,
-                                    Vcb,
+                PageUpdateAnalysis( Vcb,
                                     LogRecordLsn,
                                     DirtyPageTable,
                                     LogRecord );
@@ -1607,10 +1736,10 @@ Return Value:
                         FirstLcn = LcnRange[i].StartLcn;
                         LastLcn = FirstLcn + (LcnRange[i].Count - 1);
 
-                        DebugTrace2( 0, Dbg, "Deleting from FirstLcn = %08lx, %08lx\n",
-                                              FirstLcn.LowPart, FirstLcn.HighPart );
-                        DebugTrace2( 0, Dbg, "Deleting to LastLcn =    %08lx, %08lx\n",
-                                              LastLcn.LowPart, LastLcn.HighPart );
+                        DebugTrace( 0, Dbg, ("Deleting from FirstLcn = %016I64x\n",
+                                              FirstLcn));
+                        DebugTrace( 0, Dbg, ("Deleting to LastLcn =    %016I64x\n",
+                                              LastLcn ));
 
                         //
                         //  Point to first Dirty Page Entry.
@@ -1666,7 +1795,7 @@ Return Value:
                     //
 
                     if (!IsRestartIndexWithinTable( &Vcb->OpenAttributeTable,
-                                                       (ULONG)LogRecord->TargetAttribute )) {
+                                                    (ULONG)LogRecord->TargetAttribute )) {
 
                         ULONG NeededEntries;
 
@@ -1678,8 +1807,7 @@ Return Value:
                         NeededEntries = (LogRecord->TargetAttribute / Vcb->OpenAttributeTable.Table->EntrySize);
                         NeededEntries = (NeededEntries + 10 - Vcb->OpenAttributeTable.Table->NumberEntries);
 
-                        NtfsExtendRestartTable( IrpContext,
-                                                &Vcb->OpenAttributeTable,
+                        NtfsExtendRestartTable( &Vcb->OpenAttributeTable,
                                                 NeededEntries,
                                                 MAXULONG );
                     }
@@ -1698,7 +1826,6 @@ Return Value:
                     //
 
                     AttributeEntry = (POPEN_ATTRIBUTE_ENTRY)NtfsAllocateRestartTableFromIndex(
-                                       IrpContext,
                                        &Vcb->OpenAttributeTable,
                                        LogRecord->TargetAttribute );
 
@@ -1734,12 +1861,14 @@ Return Value:
                     if (NameSize != 0) {
 
                         AttributeEntry->Overlay.AttributeName =
-                          FsRtlAllocatePool( NonPagedPool, NameSize );
+                          NtfsAllocatePool( NonPagedPool, NameSize );
                         RtlCopyMemory( AttributeEntry->Overlay.AttributeName,
                                        Add2Ptr(LogRecord, LogRecord->UndoOffset),
                                        NameSize );
                         AttributeEntry->AttributeName.Buffer =
                           AttributeEntry->Overlay.AttributeName;
+
+                        AttributeEntry->AttributeNamePresent = TRUE;
 
                     //
                     //  Otherwise, show there is no name.
@@ -1748,6 +1877,7 @@ Return Value:
                     } else {
                         AttributeEntry->Overlay.AttributeName = NULL;
                         AttributeEntry->AttributeName.Buffer = NULL;
+                        AttributeEntry->AttributeNamePresent = FALSE;
                     }
                 }
 
@@ -1768,8 +1898,7 @@ Return Value:
                     //  Table.  If not, there is nothing to do.
                     //
 
-                    if (FindDirtyPage( IrpContext,
-                                       DirtyPageTable,
+                    if (FindDirtyPage( DirtyPageTable,
                                        LogRecord->TargetAttribute,
                                        LogRecord->TargetVcn,
                                        &DirtyPage )) {
@@ -1862,8 +1991,7 @@ Return Value:
             case ForgetTransaction:
 
                 {
-                    NtfsFreeRestartTableIndex( IrpContext,
-                                               &Vcb->TransactionTable,
+                    NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
                                                TransactionId );
                 }
 
@@ -1888,9 +2016,9 @@ Return Value:
 
             default:
 
-                DebugTrace( 0, Dbg, "Unexpected Log Record Type: %04lx\n", LogRecord->RedoOperation );
-                DebugTrace( 0, Dbg, "Record address: %08lx\n", LogRecord );
-                DebugTrace( 0, Dbg, "Record length: %08lx\n", LogRecordLength );
+                DebugTrace( 0, Dbg, ("Unexpected Log Record Type: %04lx\n", LogRecord->RedoOperation) );
+                DebugTrace( 0, Dbg, ("Record address: %08lx\n", LogRecord) );
+                DebugTrace( 0, Dbg, ("Record length: %08lx\n", LogRecordLength) );
 
                 ASSERTMSG( "Unknown Action!\n", FALSE );
 
@@ -1980,9 +2108,8 @@ Return Value:
         }
     }
 
-    DebugTrace2(0, Dbg, "RedoLsn > %08lx, %08lx\n", RedoLsn->LowPart,
-                                                    RedoLsn->HighPart );
-    DebugTrace( 0, Dbg, "AnalysisPass -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("RedoLsn > %016I64x\n", *RedoLsn) );
+    DebugTrace( 0, Dbg, ("AnalysisPass -> VOID\n") );
 }
 
 
@@ -2046,10 +2173,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "RedoPass:\n", 0 );
-    DebugTrace2(0, Dbg, "RedoLsn = %08lx, %08lx\n", RedoLsn.LowPart,
-                                                    RedoLsn.HighPart );
-    DebugTrace( 0, Dbg, "DirtyPageTable = %08lx\n", DirtyPageTable );
+    DebugTrace( +1, Dbg, ("RedoPass:\n") );
+    DebugTrace( 0, Dbg, ("RedoLsn = %016I64x\n", RedoLsn) );
+    DebugTrace( 0, Dbg, ("DirtyPageTable = %08lx\n", DirtyPageTable) );
 
     //
     //  If the dirty page table is empty, then we can skip the entire Redo Pass.
@@ -2104,9 +2230,8 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
             }
 
-            DebugTrace( 0, Dbg, "Redo of LogRecord at: %08lx\n", LogRecord );
-            DebugTrace2(0, Dbg, "Log Record Lsn = %08lx, %08lx\n",
-                                LogRecordLsn.LowPart, LogRecordLsn.HighPart );
+            DebugTrace( 0, Dbg, ("Redo of LogRecord at: %08lx\n", LogRecord) );
+            DebugTrace( 0, Dbg, ("Log Record Lsn = %016I64x\n", LogRecordLsn) );
 
             //
             //  Ignore log records that do not update pages.
@@ -2114,7 +2239,7 @@ Return Value:
 
             if (LogRecord->LcnsToFollow == 0) {
 
-                DebugTrace( 0, Dbg, "Skipping log record (no update)\n", 0 );
+                DebugTrace( 0, Dbg, ("Skipping log record (no update)\n") );
 
                 continue;
             }
@@ -2126,8 +2251,7 @@ Return Value:
             //  to apply the update.
             //
 
-            FoundPage = FindDirtyPage( IrpContext,
-                                       DirtyPageTable,
+            FoundPage = FindDirtyPage( DirtyPageTable,
                                        LogRecord->TargetAttribute,
                                        LogRecord->TargetVcn,
                                        &DirtyPage );
@@ -2138,17 +2262,16 @@ Return Value:
 
                 (LogRecordLsn.QuadPart < DirtyPage->OldestLsn.QuadPart)) {
 
-                DebugDoit (
+                DebugDoit(
 
-                    DebugTrace( 0, Dbg, "Skipping log record operation %08lx\n",
-                                         LogRecord->RedoOperation );
+                    DebugTrace( 0, Dbg, ("Skipping log record operation %08lx\n",
+                                         LogRecord->RedoOperation ));
 
                     if (!FoundPage) {
-                        DebugTrace( 0, Dbg, "Page not in dirty page table\n", 0 );
+                        DebugTrace( 0, Dbg, ("Page not in dirty page table\n") );
                     } else {
-                        DebugTrace2( 0, Dbg, "Page Lsn more current: %08lx, %08lx\n",
-                                              DirtyPage->OldestLsn.LowPart,
-                                              DirtyPage->OldestLsn.HighPart );
+                        DebugTrace( 0, Dbg, ("Page Lsn more current: %016I64x\n",
+                                              DirtyPage->OldestLsn) );
                     }
                 );
 
@@ -2194,16 +2317,18 @@ Return Value:
                     NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
                 }
 
-                if (!FsRtlLookupLargeMcbEntry( &TargetScb->Mcb,
-                                               LogRecord->TargetVcn,
-                                               &TargetLcn,
-                                               NULL,
-                                               NULL,
-                                               NULL,
-                                               NULL )
-                    || (TargetLcn == UNUSED_LCN)) {
+                if (!NtfsLookupNtfsMcbEntry( &TargetScb->Mcb,
+                                             LogRecord->TargetVcn,
+                                             &TargetLcn,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             NULL ) ||
 
-                    DebugTrace( 0, Dbg, "Clusters removed from page entry\n", 0 );
+                    (TargetLcn == UNUSED_LCN)) {
+
+                    DebugTrace( 0, Dbg, ("Clusters removed from page entry\n") );
                     continue;
                 }
             }
@@ -2224,7 +2349,9 @@ Return Value:
             for (i = (ULONG)LogRecord->LcnsToFollow; i != 0; i--) {
 
                 ULONG AllocatedLength;
-                ULONG VcnOffset = LogRecord->RecordOffset + LogRecord->AttributeOffset;
+                ULONG VcnOffset;
+
+                VcnOffset = BytesFromLogBlocks( LogRecord->ClusterBlockOffset ) + LogRecord->RecordOffset + LogRecord->AttributeOffset;
 
                 //
                 //  If the Vcn in question is allocated, we can just get out.
@@ -2252,7 +2379,7 @@ Return Value:
                 //  after removing this unallocated Vcn.
                 //
 
-                AllocatedLength = ClustersFromBytes( Vcb, i - 1 );
+                AllocatedLength = BytesFromClusters( Vcb, i - 1 );
 
                 //
                 //  If the update described in this log record goes beyond the allocated
@@ -2311,9 +2438,9 @@ Return Value:
 
             if (PageBcb != NULL) {
 
-                NtfsSetDirtyBcb( IrpContext, PageBcb, &LogRecordLsn, NULL );
+                CcSetDirtyPinnedData( PageBcb, &LogRecordLsn );
 
-                NtfsUnpinBcb( IrpContext, &PageBcb );
+                NtfsUnpinBcb( &PageBcb );
             }
 
         //
@@ -2332,7 +2459,7 @@ Return Value:
 
     } finally {
 
-        NtfsUnpinBcb( IrpContext, &PageBcb );
+        NtfsUnpinBcb( &PageBcb );
 
         //
         //  Finally we can kill the log handle.
@@ -2341,7 +2468,7 @@ Return Value:
         LfsTerminateLogQuery( LogHandle, LogContext );
     }
 
-    DebugTrace(-1, Dbg, "RedoPass -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("RedoPass -> VOID\n") );
 }
 
 
@@ -2388,7 +2515,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "UndoPass:\n", 0 );
+    DebugTrace( +1, Dbg, ("UndoPass:\n") );
 
     //
     //  Point to first Transaction Entry.
@@ -2426,8 +2553,7 @@ Return Value:
             NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
                                               TRUE );
 
-            NtfsFreeRestartTableIndex( IrpContext,
-                                       &Vcb->TransactionTable,
+            NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
                                        TransactionId );
 
             NtfsReleaseRestartTable( &Vcb->TransactionTable );
@@ -2483,12 +2609,10 @@ Return Value:
             CcFlushCache( &Scb->NonpagedScb->SegmentObject, NULL, 0, &IoStatus );
             NtfsReleaseScbFromLazyWrite( (PVOID)Scb );
 
-            if (!NT_SUCCESS(IoStatus.Status)) {
-
-                NtfsNormalizeAndRaiseStatus( IrpContext,
-                                             IoStatus.Status,
-                                             STATUS_UNEXPECTED_IO_ERROR );
-            }
+            NtfsNormalizeAndCleanupTransaction( IrpContext,
+                                                &IoStatus.Status,
+                                                TRUE,
+                                                STATUS_UNEXPECTED_IO_ERROR );
 
             if (!CcPurgeCacheSection( &Scb->NonpagedScb->SegmentObject, NULL, 0, FALSE )) {
 
@@ -2506,7 +2630,7 @@ Return Value:
                                              OpenEntry );
     }
 
-    DebugTrace(-1, Dbg, "UndoPass -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("UndoPass -> VOID\n") );
 }
 
 
@@ -2529,7 +2653,7 @@ Return Value:
     if (*(PULONG)((PMULTI_SECTOR_HEADER)(PAGE))->Signature ==                       \
         *(PULONG)BaadSignature) {                                                   \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
                                                                                     \
@@ -2538,11 +2662,10 @@ Return Value:
         *(PULONG)HoleSignature) ||                                                  \
         (RedoLsn->QuadPart <= ((PFILE_RECORD_SEGMENT_HEADER)(PAGE))->Lsn.QuadPart))) {  \
                  /**** xxLeq(*RedoLsn,((PFILE_RECORD_SEGMENT_HEADER)(PAGE))->Lsn) ****/ \
-        DebugTrace2( 0, Dbg, "Skipping Page with Lsn: %08lx, %08lx\n",              \
-                             ((PFILE_RECORD_SEGMENT_HEADER)(PAGE))->Lsn.LowPart,    \
-                             ((PFILE_RECORD_SEGMENT_HEADER)(PAGE))->Lsn.HighPart ); \
+        DebugTrace( 0, Dbg, ("Skipping Page with Lsn: %016I64x\n",                    \
+                             ((PFILE_RECORD_SEGMENT_HEADER)(PAGE))->Lsn) );         \
                                                                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2556,7 +2679,7 @@ Return Value:
 #define CheckFileRecordBefore {                                     \
     if (!NtfsCheckFileRecord( IrpContext, Vcb, FileRecord )) {      \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                            \
+        NtfsUnpinBcb( Bcb );                                        \
         break;                                                      \
     }                                                               \
 }
@@ -2568,7 +2691,7 @@ Return Value:
 #define CheckIndexBufferBefore {                                    \
     if (!NtfsCheckIndexBuffer( IrpContext, Scb, IndexBuffer )) {    \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                            \
+        NtfsUnpinBcb( Bcb );                                        \
         break;                                                      \
     }                                                               \
 }
@@ -2584,7 +2707,7 @@ Return Value:
 #define CheckWriteFileRecord {                                                  \
     if (LogRecord->RecordOffset + Length > Vcb->BytesPerFileRecordSegment) {    \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2594,21 +2717,19 @@ Return Value:
 //
 
 #define CheckIfAttribute {                                                      \
-    PATTRIBUTE_RECORD_HEADER _CurrentAttribute;                                 \
-    ULONG _CurrentOffset;                                                       \
-    _CurrentOffset = FileRecord->FirstAttributeOffset;                          \
-    _CurrentAttribute = Add2Ptr( FileRecord, _CurrentOffset );                  \
-    while (_CurrentOffset < LogRecord->RecordOffset) {                          \
-        if (_CurrentAttribute->TypeCode == $END                                 \
-            || _CurrentAttribute->RecordLength == 0) {                          \
+    _Length = FileRecord->FirstAttributeOffset;                                 \
+    _AttrHeader = Add2Ptr( FileRecord, _Length );                               \
+    while (_Length < LogRecord->RecordOffset) {                                 \
+        if ((_AttrHeader->TypeCode == $END) ||                                  \
+            (_AttrHeader->RecordLength == 0)) {                                 \
             break;                                                              \
         }                                                                       \
-        _CurrentOffset += _CurrentAttribute->RecordLength;                      \
-        _CurrentAttribute = NtfsGetNextRecord( _CurrentAttribute );             \
+        _Length += _AttrHeader->RecordLength;                                   \
+        _AttrHeader = NtfsGetNextRecord( _AttrHeader );                         \
     }                                                                           \
-    if (_CurrentOffset != LogRecord->RecordOffset) {                            \
+    if (_Length != LogRecord->RecordOffset) {                                   \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2619,15 +2740,14 @@ Return Value:
 //
 
 #define CheckInsertAttribute {                                                  \
-    PATTRIBUTE_RECORD_HEADER _AttrHeader;                                       \
     _AttrHeader = (PATTRIBUTE_RECORD_HEADER) Data;                              \
-    if (Length < (ULONG) SIZEOF_RESIDENT_ATTRIBUTE_HEADER                       \
-        || _AttrHeader->RecordLength & 7                                        \
-        || (ULONG) Add2Ptr( Data, _AttrHeader->RecordLength )                   \
-           > (ULONG) Add2Ptr( LogRecord, LogRecordLength )                      \
-        || Length > FileRecord->BytesAvailable - FileRecord->FirstFreeByte) {   \
+    if ((Length < (ULONG) SIZEOF_RESIDENT_ATTRIBUTE_HEADER) ||                  \
+        (_AttrHeader->RecordLength & 7) ||                                      \
+        ((ULONG) Add2Ptr( Data, _AttrHeader->RecordLength )                     \
+           > (ULONG) Add2Ptr( LogRecord, LogRecordLength )) ||                  \
+        (Length > FileRecord->BytesAvailable - FileRecord->FirstFreeByte)) {    \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2638,17 +2758,15 @@ Return Value:
 //
 
 #define CheckResidentFits {                                                         \
-    PATTRIBUTE_RECORD_HEADER _AttrHeader;                                           \
-    ULONG _NewLength;                                                               \
     _AttrHeader = (PATTRIBUTE_RECORD_HEADER) Add2Ptr( FileRecord, LogRecord->RecordOffset ); \
-    _NewLength = LogRecord->AttributeOffset + Length;                               \
-    if (LogRecord->RedoLength == LogRecord->UndoLength                              \
-        ? LogRecord->AttributeOffset + Length > _AttrHeader->RecordLength           \
-        : (_NewLength > _AttrHeader->RecordLength                                   \
-           && (_NewLength - _AttrHeader->RecordLength)                              \
-              > (FileRecord->BytesAvailable - FileRecord->FirstFreeByte))) {        \
+    _Length = LogRecord->AttributeOffset + Length;                                  \
+    if ((LogRecord->RedoLength == LogRecord->UndoLength) ?                          \
+        (LogRecord->AttributeOffset + Length > _AttrHeader->RecordLength) :         \
+        ((_Length > _AttrHeader->RecordLength) &&                                   \
+         ((_Length - _AttrHeader->RecordLength) >                                   \
+          (FileRecord->BytesAvailable - FileRecord->FirstFreeByte)))) {             \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2660,9 +2778,9 @@ Return Value:
 
 #define CheckNonResidentFits {                                                  \
     if (BytesFromClusters( Vcb, LogRecord->LcnsToFollow )                       \
-        < LogRecord->RecordOffset + Length) {                                   \
+        < (BytesFromLogBlocks( LogRecord->ClusterBlockOffset ) + LogRecord->RecordOffset + Length)) { \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2676,18 +2794,16 @@ Return Value:
 //
 
 #define CheckMappingFits {                                                      \
-    PATTRIBUTE_RECORD_HEADER _AttrHeader;                                       \
-    ULONG _NewLength;                                                           \
     _AttrHeader = (PATTRIBUTE_RECORD_HEADER) Add2Ptr( FileRecord, LogRecord->RecordOffset );\
-    _NewLength = LogRecord->AttributeOffset + Length;                           \
-    if (NtfsIsAttributeResident( _AttrHeader )                                  \
-        || LogRecord->AttributeOffset < _AttrHeader->Form.Nonresident.MappingPairsOffset    \
-        || LogRecord->AttributeOffset > _AttrHeader->RecordLength               \
-        || (_NewLength > _AttrHeader->RecordLength                              \
-            && (_NewLength - _AttrHeader->RecordLength)                         \
-               > (FileRecord->BytesAvailable - FileRecord->FirstFreeByte))) {   \
+    _Length = LogRecord->AttributeOffset + Length;                              \
+    if (NtfsIsAttributeResident( _AttrHeader ) ||                               \
+        (LogRecord->AttributeOffset < _AttrHeader->Form.Nonresident.MappingPairsOffset) ||  \
+        (LogRecord->AttributeOffset > _AttrHeader->RecordLength) ||             \
+        ((_Length > _AttrHeader->RecordLength) &&                               \
+         ((_Length - _AttrHeader->RecordLength) >                               \
+          (FileRecord->BytesAvailable - FileRecord->FirstFreeByte)))) {         \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2700,7 +2816,7 @@ Return Value:
     if (NtfsIsAttributeResident( (PATTRIBUTE_RECORD_HEADER) Add2Ptr( FileRecord,    \
                                                                      LogRecord->RecordOffset ))) { \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2710,22 +2826,20 @@ Return Value:
 //
 
 #define CheckIfIndexRoot {                                                          \
-    PATTRIBUTE_RECORD_HEADER _CurrentAttribute;                                     \
-    ULONG _CurrentOffset;                                                           \
-    _CurrentOffset = FileRecord->FirstAttributeOffset;                              \
-    _CurrentAttribute = Add2Ptr( FileRecord, FileRecord->FirstAttributeOffset );    \
-    while (_CurrentOffset < LogRecord->RecordOffset) {                              \
-        if (_CurrentAttribute->TypeCode == $END                                     \
-            || _CurrentAttribute->RecordLength == 0) {                              \
+    _Length = FileRecord->FirstAttributeOffset;                                     \
+    _AttrHeader = Add2Ptr( FileRecord, FileRecord->FirstAttributeOffset );          \
+    while (_Length < LogRecord->RecordOffset) {                                     \
+        if ((_AttrHeader->TypeCode == $END) ||                                      \
+            (_AttrHeader->RecordLength == 0)) {                                     \
             break;                                                                  \
         }                                                                           \
-        _CurrentOffset += _CurrentAttribute->RecordLength;                          \
-        _CurrentAttribute = NtfsGetNextRecord( _CurrentAttribute );                 \
+        _Length += _AttrHeader->RecordLength;                                       \
+        _AttrHeader = NtfsGetNextRecord( _AttrHeader );                             \
     }                                                                               \
-    if (_CurrentOffset != LogRecord->RecordOffset                                   \
-        || _CurrentAttribute->TypeCode != $INDEX_ROOT) {                            \
+    if ((_Length != LogRecord->RecordOffset) ||                                     \
+        (_AttrHeader->TypeCode != $INDEX_ROOT)) {                                   \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2735,22 +2849,20 @@ Return Value:
 //
 
 #define CheckIfRootIndexEntry {                                                     \
-    PINDEX_ENTRY _CurrentEntry;                                                     \
-    ULONG _CurrentOffset;                                                           \
-    _CurrentOffset = PtrOffset( Attribute, IndexHeader )                            \
-                     + IndexHeader->FirstIndexEntry;                                \
+    _Length = PtrOffset( Attribute, IndexHeader ) +                                 \
+                     IndexHeader->FirstIndexEntry;                                  \
     _CurrentEntry = Add2Ptr( IndexHeader, IndexHeader->FirstIndexEntry );           \
-    while (_CurrentOffset < LogRecord->AttributeOffset) {                           \
-        if (_CurrentOffset >= Attribute->RecordLength                               \
-            || _CurrentEntry->Length == 0) {                                        \
+    while (_Length < LogRecord->AttributeOffset) {                                  \
+        if ((_Length >= Attribute->RecordLength) ||                                 \
+            (_CurrentEntry->Length == 0)) {                                         \
             break;                                                                  \
         }                                                                           \
-        _CurrentOffset += _CurrentEntry->Length;                                    \
+        _Length += _CurrentEntry->Length;                                           \
         _CurrentEntry = Add2Ptr( _CurrentEntry, _CurrentEntry->Length );            \
     }                                                                               \
-    if (_CurrentOffset != LogRecord->AttributeOffset) {                             \
+    if (_Length != LogRecord->AttributeOffset) {                                    \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2760,25 +2872,23 @@ Return Value:
 //
 
 #define CheckIfAllocationIndexEntry {                                               \
-    PINDEX_ENTRY _CurrentEntry;                                                     \
-    ULONG _CurrentOffset;                                                           \
     ULONG _AdjustedOffset;                                                          \
-    _CurrentOffset = IndexHeader->FirstIndexEntry;                                  \
+    _Length = IndexHeader->FirstIndexEntry;                                         \
     _AdjustedOffset = FIELD_OFFSET( INDEX_ALLOCATION_BUFFER, IndexHeader )          \
                       + IndexHeader->FirstIndexEntry;                               \
     _CurrentEntry = Add2Ptr( IndexHeader, IndexHeader->FirstIndexEntry );           \
     while (_AdjustedOffset < LogRecord->AttributeOffset) {                          \
-        if (_CurrentOffset >= IndexHeader->FirstFreeByte                            \
-            || _CurrentEntry->Length == 0) {                                        \
+        if ((_Length >= IndexHeader->FirstFreeByte) ||                              \
+            (_CurrentEntry->Length == 0)) {                                         \
             break;                                                                  \
         }                                                                           \
         _AdjustedOffset += _CurrentEntry->Length;                                   \
-        _CurrentOffset += _CurrentEntry->Length;                                    \
+        _Length += _CurrentEntry->Length;                                           \
         _CurrentEntry = Add2Ptr( _CurrentEntry, _CurrentEntry->Length );            \
     }                                                                               \
     if (_AdjustedOffset != LogRecord->AttributeOffset) {                            \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2790,12 +2900,10 @@ Return Value:
 //
 
 #define CheckIfRootEntryFits {                                                      \
-    if (((ULONG) Add2Ptr( Data, InsertIndexEntry->Length )                          \
-         > (ULONG) Add2Ptr( LogRecord, LogRecordLength ))                           \
-        || (InsertIndexEntry->Length                                                \
-            > FileRecord->BytesAvailable - FileRecord->FirstFreeByte)) {            \
+    if (((ULONG) Add2Ptr( Data, IndexEntry->Length ) > (ULONG) Add2Ptr( LogRecord, LogRecordLength )) || \
+        (IndexEntry->Length > FileRecord->BytesAvailable - FileRecord->FirstFreeByte)) {                 \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2807,12 +2915,11 @@ Return Value:
 //
 
 #define CheckIfAllocationEntryFits {                                                \
-    if (((ULONG) Add2Ptr( Data, InsertIndexEntry->Length )                          \
-         > (ULONG) Add2Ptr( LogRecord, LogRecordLength ))                           \
-        || InsertIndexEntry->Length                                                 \
-           > IndexHeader->BytesAvailable - IndexHeader->FirstFreeByte) {            \
+    if (((ULONG) Add2Ptr( Data, IndexEntry->Length ) >                              \
+         (ULONG) Add2Ptr( LogRecord, LogRecordLength )) ||                          \
+        (IndexEntry->Length > IndexHeader->BytesAvailable - IndexHeader->FirstFreeByte)) { \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                     \
-        NtfsUnpinBcb( IrpContext, Bcb );                                            \
+        NtfsUnpinBcb( Bcb );                                                        \
         break;                                                                      \
     }                                                                               \
 }
@@ -2822,11 +2929,11 @@ Return Value:
 //
 
 #define CheckWriteIndexBuffer {                                                 \
-    if (LogRecord->AttributeOffset + Length                                     \
-        > (FIELD_OFFSET( INDEX_ALLOCATION_BUFFER, IndexHeader )                 \
-           + IndexHeader->BytesAvailable)) {                                    \
+    if (LogRecord->AttributeOffset + Length >                                   \
+        (FIELD_OFFSET( INDEX_ALLOCATION_BUFFER, IndexHeader ) +                 \
+         IndexHeader->BytesAvailable)) {                                        \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2836,10 +2943,11 @@ Return Value:
 //
 
 #define CheckBitmapRange {                                                      \
-    if (((BitMapRange->BitMapOffset + BitMapRange->NumberOfBits + 7) / 8)       \
-        > BytesFromClusters( Vcb, LogRecord->LcnsToFollow )) {                  \
+    if ((BytesFromLogBlocks( LogRecord->ClusterBlockOffset ) +                  \
+         ((BitMapRange->BitMapOffset + BitMapRange->NumberOfBits + 7) / 8)) >   \
+        BytesFromClusters( Vcb, LogRecord->LcnsToFollow )) {                    \
         NtfsMarkVolumeDirty( IrpContext, Vcb );                                 \
-        NtfsUnpinBcb( IrpContext, Bcb );                                        \
+        NtfsUnpinBcb( Bcb );                                                    \
         break;                                                                  \
     }                                                                           \
 }
@@ -2903,12 +3011,28 @@ Return Value:
 --*/
 
 {
+    PFILE_RECORD_SEGMENT_HEADER FileRecord;
+    PATTRIBUTE_RECORD_HEADER Attribute;
+
+    PSCB Scb;
+    PINDEX_HEADER IndexHeader;
+    PINDEX_ALLOCATION_BUFFER IndexBuffer;
+    PINDEX_ENTRY IndexEntry;
+
+    //
+    //  The following are used in the Check macros
+    //
+
+    PATTRIBUTE_RECORD_HEADER _AttrHeader;                                       \
+    PINDEX_ENTRY _CurrentEntry;                                                     \
+    ULONG _Length;
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "DoAction:\n", 0 );
-    DebugTrace( 0, Dbg, "Operation = %08lx\n", Operation );
-    DebugTrace( 0, Dbg, "Data = %08lx\n", Data );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("DoAction:\n") );
+    DebugTrace( 0, Dbg, ("Operation = %08lx\n", Operation) );
+    DebugTrace( 0, Dbg, ("Data = %08lx\n", Data) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
 
     //
     //  Initially clear outputs.
@@ -2930,29 +3054,25 @@ Return Value:
 
     case InitializeFileRecordSegment:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Check the log record and that the data is a valid file record.
+        //
 
-            //
-            //  Check the log record and that the data is a valid file record.
-            //
+        CheckWriteFileRecord;
 
-            CheckWriteFileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        RtlCopyMemory( FileRecord, Data, Length );
 
-            RtlCopyMemory( FileRecord, Data, Length );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To deallocate a file record segment, we do a prepare write (no need to read it
@@ -2961,26 +3081,22 @@ Return Value:
 
     case DeallocateFileRecordSegment:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        ASSERT( FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )
+                || FlagOn( FileRecord->Flags, FILE_RECORD_SEGMENT_IN_USE ));
 
-            ASSERT( FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )
-                    || FlagOn( FileRecord->Flags, FILE_RECORD_SEGMENT_IN_USE ));
+        ClearFlag(FileRecord->Flags, FILE_RECORD_SEGMENT_IN_USE);
 
-            ClearFlag(FileRecord->Flags, FILE_RECORD_SEGMENT_IN_USE);
+        FileRecord->SequenceNumber += 1;
 
-            FileRecord->SequenceNumber += 1;
-
-            break;
-        }
+        break;
 
     //
     //  To write the end of a file record segment, we calculate a pointer to the
@@ -2990,34 +3106,28 @@ Return Value:
 
     case WriteEndOfFileRecordSegment:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER OldAttribute;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfAttribute;
+        CheckWriteFileRecord;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfAttribute;
-            CheckWriteFileRecord;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        Attribute = Add2Ptr( FileRecord, LogRecord->RecordOffset );
 
-            OldAttribute = Add2Ptr( FileRecord, LogRecord->RecordOffset );
+        NtfsRestartWriteEndOfFileRecord( FileRecord,
+                                         Attribute,
+                                         (PATTRIBUTE_RECORD_HEADER)Data,
+                                         Length );
+        CheckFileRecordAfter;
 
-            NtfsRestartWriteEndOfFileRecord( IrpContext,
-                                             FileRecord,
-                                             OldAttribute,
-                                             (PATTRIBUTE_RECORD_HEADER)Data,
-                                             Length );
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  For Create Attribute, we read in the designated Mft record, and
@@ -3026,34 +3136,30 @@ Return Value:
 
     case CreateAttribute:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfAttribute;
+        CheckInsertAttribute;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfAttribute;
-            CheckInsertAttribute;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        NtfsRestartInsertAttribute( IrpContext,
+                                    FileRecord,
+                                    LogRecord->RecordOffset,
+                                    (PATTRIBUTE_RECORD_HEADER)Data,
+                                    NULL,
+                                    NULL,
+                                    0 );
 
-            NtfsRestartInsertAttribute( IrpContext,
-                                        FileRecord,
-                                        LogRecord->RecordOffset,
-                                        (PATTRIBUTE_RECORD_HEADER)Data,
-                                        NULL,
-                                        NULL,
-                                        0 );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To Delete an attribute, we read the designated Mft record and make
@@ -3062,29 +3168,25 @@ Return Value:
 
     case DeleteAttribute:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfAttribute;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfAttribute;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        NtfsRestartRemoveAttribute( IrpContext,
+                                    FileRecord,
+                                    LogRecord->RecordOffset );
 
-            NtfsRestartRemoveAttribute( IrpContext,
-                                        FileRecord,
-                                        LogRecord->RecordOffset );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To update a resident attribute, we read the designated Mft record and
@@ -3093,53 +3195,56 @@ Return Value:
 
     case UpdateResidentValue:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfAttribute;
+        CheckResidentFits;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfAttribute;
-            CheckResidentFits;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        NtfsRestartChangeValue( IrpContext,
+                                FileRecord,
+                                LogRecord->RecordOffset,
+                                LogRecord->AttributeOffset,
+                                Data,
+                                Length,
+                                (BOOLEAN)((LogRecord->RedoLength !=
+                                           LogRecord->UndoLength) ?
+                                             TRUE : FALSE) );
 
-            NtfsRestartChangeValue( IrpContext,
-                                    FileRecord,
-                                    LogRecord->RecordOffset,
-                                    LogRecord->AttributeOffset,
-                                    Data,
-                                    Length,
-                                    (BOOLEAN)((LogRecord->RedoLength !=
-                                               LogRecord->UndoLength) ?
-                                                 TRUE : FALSE) );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To update a nonresident value, we simply pin the attribute and copy
-    //  the data in.  *** Bug - we really need to go a page at a time.
+    //  the data in.  Log record will limit us to a page at a time.
     //
 
     case UpdateNonresidentValue:
 
         {
-            PSCB Scb;
             PVOID Buffer;
 
             //
             //  Pin the desired index buffer, and check the Lsn.
             //
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, &Buffer, &Scb );
+            ASSERT( Length <= PAGE_SIZE );
+
+            PinAttributeForRestart( IrpContext,
+                                    Vcb,
+                                    LogRecord,
+                                    Length,
+                                    Bcb,
+                                    &Buffer,
+                                    &Scb );
 
             CheckNonResidentFits;
 
@@ -3159,34 +3264,30 @@ Return Value:
 
     case UpdateMappingPairs:
 
-        {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfAttribute;
+        CheckMappingFits;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfAttribute;
-            CheckMappingFits;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        NtfsRestartChangeMapping( IrpContext,
+                                  Vcb,
+                                  FileRecord,
+                                  LogRecord->RecordOffset,
+                                  LogRecord->AttributeOffset,
+                                  Data,
+                                  Length );
 
-            NtfsRestartChangeMapping( IrpContext,
-                                      Vcb,
-                                      FileRecord,
-                                      LogRecord->RecordOffset,
-                                      LogRecord->AttributeOffset,
-                                      Data,
-                                      Length );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To set new attribute sizes, we read the designated Mft record, point
@@ -3196,8 +3297,6 @@ Return Value:
     case SetNewAttributeSizes:
 
         {
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER Attribute;
             PNEW_ATTRIBUTE_SIZES Sizes;
 
             //
@@ -3218,14 +3317,16 @@ Return Value:
             Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
                           LogRecord->RecordOffset);
 
-            Attribute->Form.Nonresident.AllocatedLength =
-              Sizes->AllocationSize;
+            Attribute->Form.Nonresident.AllocatedLength = Sizes->AllocationSize;
 
-            Attribute->Form.Nonresident.FileSize =
-              Sizes->FileSize;
+            Attribute->Form.Nonresident.FileSize = Sizes->FileSize;
 
-            Attribute->Form.Nonresident.ValidDataLength =
-              Sizes->ValidDataLength;
+            Attribute->Form.Nonresident.ValidDataLength = Sizes->ValidDataLength;
+
+            if (Length >= SIZEOF_FULL_ATTRIBUTE_SIZES) {
+
+                Attribute->Form.Nonresident.TotalAllocated = Sizes->TotalAllocated;
+            }
 
             CheckFileRecordAfter;
 
@@ -3240,47 +3341,36 @@ Return Value:
 
     case AddIndexEntryRoot:
 
-        {
-            PINDEX_ENTRY InsertIndexEntry;
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER Attribute;
-            PINDEX_ENTRY BeforeIndexEntry;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfIndexRoot;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfIndexRoot;
+        Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
+                      LogRecord->RecordOffset);
 
-            Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
-                          LogRecord->RecordOffset);
+        IndexEntry = (PINDEX_ENTRY)Data;
+        IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
 
-            InsertIndexEntry = (PINDEX_ENTRY)Data;
-            IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
+        CheckIfRootIndexEntry;
+        CheckIfRootEntryFits;
 
-            CheckIfRootIndexEntry;
-            CheckIfRootEntryFits;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        NtfsRestartInsertSimpleRoot( IrpContext,
+                                     IndexEntry,
+                                     FileRecord,
+                                     Attribute,
+                                     Add2Ptr( Attribute, LogRecord->AttributeOffset ));
 
-            BeforeIndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
-                                 LogRecord->AttributeOffset);
+        CheckFileRecordAfter;
 
-            NtfsRestartInsertSimpleRoot( IrpContext,
-                                         InsertIndexEntry,
-                                         FileRecord,
-                                         Attribute,
-                                         BeforeIndexEntry );
-
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To insert a new index entry in the root, we read the designated Mft
@@ -3290,42 +3380,35 @@ Return Value:
 
     case DeleteIndexEntryRoot:
 
-        {
-            PINDEX_ENTRY IndexEntry;
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER Attribute;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfIndexRoot;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfIndexRoot;
+        Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
+                      LogRecord->RecordOffset);
 
-            Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
-                          LogRecord->RecordOffset);
+        IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
+        CheckIfRootIndexEntry;
 
-            IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
-            CheckIfRootIndexEntry;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        IndexEntry = (PINDEX_ENTRY) Add2Ptr( Attribute,
+                                             LogRecord->AttributeOffset);
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
-                           LogRecord->AttributeOffset);
+        NtfsRestartDeleteSimpleRoot( IrpContext,
+                                     IndexEntry,
+                                     FileRecord,
+                                     Attribute );
 
-            NtfsRestartDeleteSimpleRoot( IrpContext,
-                                         IndexEntry,
-                                         FileRecord,
-                                         Attribute );
+        CheckFileRecordAfter;
 
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To insert a new index entry in the allocation, we read the designated index
@@ -3335,42 +3418,32 @@ Return Value:
 
     case AddIndexEntryAllocation:
 
-        {
-            PINDEX_ENTRY InsertIndexEntry;
-            PINDEX_ALLOCATION_BUFFER IndexBuffer;
-            PINDEX_ENTRY BeforeIndexEntry;
-            PSCB Scb;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
 
-            //
-            //  Pin the desired index buffer, and check the Lsn.
-            //
+        ASSERT( Length <= PAGE_SIZE );
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, (PVOID *)&IndexBuffer, &Scb );
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
 
-            CheckLsn( IndexBuffer );
-            CheckIndexBufferBefore;
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
 
-            InsertIndexEntry = (PINDEX_ENTRY)Data;
-            IndexHeader = &IndexBuffer->IndexHeader;
+        IndexEntry = (PINDEX_ENTRY)Data;
+        IndexHeader = &IndexBuffer->IndexHeader;
 
-            CheckIfAllocationIndexEntry;
-            CheckIfAllocationEntryFits;
+        CheckIfAllocationIndexEntry;
+        CheckIfAllocationEntryFits;
 
-            *PageLsn = &IndexBuffer->Lsn;
+        *PageLsn = &IndexBuffer->Lsn;
 
-            BeforeIndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
-                                 LogRecord->AttributeOffset);
+        NtfsRestartInsertSimpleAllocation( IndexEntry,
+                                           IndexBuffer,
+                                           Add2Ptr( IndexBuffer, LogRecord->AttributeOffset ));
 
-            NtfsRestartInsertSimpleAllocation( IrpContext,
-                                               InsertIndexEntry,
-                                               IndexBuffer,
-                                               BeforeIndexEntry );
+        CheckIndexBufferAfter;
 
-            CheckIndexBufferAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To delete an index entry in the allocation, we read the designated index
@@ -3380,71 +3453,58 @@ Return Value:
 
     case DeleteIndexEntryAllocation:
 
-        {
-            PINDEX_ALLOCATION_BUFFER IndexBuffer;
-            PINDEX_ENTRY IndexEntry;
-            PSCB Scb;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
 
-            //
-            //  Pin the desired index buffer, and check the Lsn.
-            //
+        ASSERT( Length <= PAGE_SIZE );
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, (PVOID *)&IndexBuffer, &Scb );
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
 
-            CheckLsn( IndexBuffer );
-            CheckIndexBufferBefore;
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
 
-            IndexHeader = &IndexBuffer->IndexHeader;
-            CheckIfAllocationIndexEntry;
+        IndexHeader = &IndexBuffer->IndexHeader;
+        CheckIfAllocationIndexEntry;
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
-                           LogRecord->AttributeOffset);
+        IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer + LogRecord->AttributeOffset);
 
-            *PageLsn = &IndexBuffer->Lsn;
+        *PageLsn = &IndexBuffer->Lsn;
 
-            NtfsRestartDeleteSimpleAllocation( IrpContext, IndexEntry, IndexBuffer );
+        NtfsRestartDeleteSimpleAllocation( IndexEntry, IndexBuffer );
 
-            CheckIndexBufferAfter;
+        CheckIndexBufferAfter;
 
-            break;
-        }
+        break;
 
     case WriteEndOfIndexBuffer:
 
-        {
-            PINDEX_ALLOCATION_BUFFER IndexBuffer;
-            PINDEX_HEADER IndexHeader;
-            PINDEX_ENTRY AtIndexEntry;
-            PSCB Scb;
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
 
-            //
-            //  Pin the desired index buffer, and check the Lsn.
-            //
+        ASSERT( Length <= PAGE_SIZE );
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, (PVOID *)&IndexBuffer, &Scb );
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
 
-            CheckLsn( IndexBuffer );
-            CheckIndexBufferBefore;
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
 
-            IndexHeader = &IndexBuffer->IndexHeader;
-            CheckIfAllocationIndexEntry;
-            CheckWriteIndexBuffer;
+        IndexHeader = &IndexBuffer->IndexHeader;
+        CheckIfAllocationIndexEntry;
+        CheckWriteIndexBuffer;
 
-            *PageLsn = &IndexBuffer->Lsn;
+        *PageLsn = &IndexBuffer->Lsn;
 
-            AtIndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
-                             LogRecord->AttributeOffset);
+        IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer + LogRecord->AttributeOffset);
 
-            NtfsRestartWriteEndOfIndex( IrpContext,
-                                        IndexHeader,
-                                        AtIndexEntry,
-                                        (PINDEX_ENTRY)Data,
-                                        Length );
-            CheckIndexBufferAfter;
+        NtfsRestartWriteEndOfIndex( IndexHeader,
+                                    IndexEntry,
+                                    (PINDEX_ENTRY)Data,
+                                    Length );
+        CheckIndexBufferAfter;
 
-            break;
-        }
+        break;
 
     //
     //  To set a new index entry Vcn in the root, we read the designated Mft
@@ -3454,44 +3514,32 @@ Return Value:
 
     case SetIndexEntryVcnRoot:
 
-        {
-            PVCN Vcn;
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER Attribute;
-            PINDEX_ENTRY IndexEntry;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfIndexRoot;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfIndexRoot;
+        Attribute = (PATTRIBUTE_RECORD_HEADER) Add2Ptr( FileRecord, LogRecord->RecordOffset );
 
-            Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
-                          LogRecord->RecordOffset);
+        IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
 
-            IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
+        CheckIfRootIndexEntry;
 
-            CheckIfRootIndexEntry;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        IndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
+                       LogRecord->AttributeOffset);
 
-            Vcn = (PVCN)Data;
+        NtfsRestartSetIndexBlock( IndexEntry,
+                                  *((PLONGLONG) Data) );
+        CheckFileRecordAfter;
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
-                           LogRecord->AttributeOffset);
-
-            NtfsRestartSetIndexVcn( IrpContext,
-                                    IndexEntry,
-                                    *Vcn );
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To set a new index entry Vcn in the allocation, we read the designated index
@@ -3501,39 +3549,29 @@ Return Value:
 
     case SetIndexEntryVcnAllocation:
 
-        {
-            PVCN Vcn;
-            PINDEX_ALLOCATION_BUFFER IndexBuffer;
-            PINDEX_ENTRY IndexEntry;
-            PSCB Scb;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
 
-            //
-            //  Pin the desired index buffer, and check the Lsn.
-            //
+        ASSERT( Length <= PAGE_SIZE );
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, (PVOID *)&IndexBuffer, &Scb );
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
 
-            CheckLsn( IndexBuffer );
-            CheckIndexBufferBefore;
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
 
-            IndexHeader = &IndexBuffer->IndexHeader;
-            CheckIfAllocationIndexEntry;
+        IndexHeader = &IndexBuffer->IndexHeader;
+        CheckIfAllocationIndexEntry;
 
-            *PageLsn = &IndexBuffer->Lsn;
+        *PageLsn = &IndexBuffer->Lsn;
 
-            Vcn = (PVCN)Data;
+        IndexEntry = (PINDEX_ENTRY) Add2Ptr( IndexBuffer, LogRecord->AttributeOffset );
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
-                           LogRecord->AttributeOffset);
+        NtfsRestartSetIndexBlock( IndexEntry,
+                                  *((PLONGLONG) Data) );
+        CheckIndexBufferAfter;
 
-            NtfsRestartSetIndexVcn( IrpContext,
-                                    IndexEntry,
-                                    *Vcn );
-            CheckIndexBufferAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To update a file name in the root, we read the designated Mft
@@ -3543,44 +3581,31 @@ Return Value:
 
     case UpdateFileNameRoot:
 
-        {
-            PDUPLICATED_INFORMATION Info;
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-            PATTRIBUTE_RECORD_HEADER Attribute;
-            PINDEX_ENTRY IndexEntry;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired Mft record.
+        //
 
-            //
-            //  Pin the desired Mft record.
-            //
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
 
-            PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfIndexRoot;
 
-            CheckLsn( FileRecord );
-            CheckFileRecordBefore;
-            CheckIfIndexRoot;
+        Attribute = (PATTRIBUTE_RECORD_HEADER) Add2Ptr( FileRecord, LogRecord->RecordOffset );
 
-            Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
-                          LogRecord->RecordOffset);
+        IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
+        CheckIfRootIndexEntry;
 
-            IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
-            CheckIfRootIndexEntry;
+        *PageLsn = &FileRecord->Lsn;
 
-            *PageLsn = &FileRecord->Lsn;
+        IndexEntry = (PINDEX_ENTRY) Add2Ptr( Attribute, LogRecord->AttributeOffset );
 
-            Info = (PDUPLICATED_INFORMATION)Data;
+        NtfsRestartUpdateFileName( IndexEntry,
+                                   (PDUPLICATED_INFORMATION) Data );
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
-                           LogRecord->AttributeOffset);
+        CheckFileRecordAfter;
 
-            NtfsRestartUpdateFileName( IrpContext,
-                                       IndexEntry,
-                                       Info );
-
-            CheckFileRecordAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To update a file name in the allocation, we read the designated index
@@ -3590,40 +3615,30 @@ Return Value:
 
     case UpdateFileNameAllocation:
 
-        {
-            PDUPLICATED_INFORMATION Info;
-            PINDEX_ALLOCATION_BUFFER IndexBuffer;
-            PINDEX_ENTRY IndexEntry;
-            PSCB Scb;
-            PINDEX_HEADER IndexHeader;
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
 
-            //
-            //  Pin the desired index buffer, and check the Lsn.
-            //
+        ASSERT( Length <= PAGE_SIZE );
 
-            PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, (PVOID *)&IndexBuffer, &Scb );
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
 
-            CheckLsn( IndexBuffer );
-            CheckIndexBufferBefore;
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
 
-            IndexHeader = &IndexBuffer->IndexHeader;
-            CheckIfAllocationIndexEntry;
+        IndexHeader = &IndexBuffer->IndexHeader;
+        CheckIfAllocationIndexEntry;
 
-            *PageLsn = &IndexBuffer->Lsn;
+        *PageLsn = &IndexBuffer->Lsn;
 
-            Info = (PDUPLICATED_INFORMATION)Data;
+        IndexEntry = (PINDEX_ENTRY) Add2Ptr( IndexBuffer, LogRecord->AttributeOffset );
 
-            IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
-                           LogRecord->AttributeOffset);
+        NtfsRestartUpdateFileName( IndexEntry,
+                                   (PDUPLICATED_INFORMATION) Data );
 
-            NtfsRestartUpdateFileName( IrpContext,
-                                       IndexEntry,
-                                       Info );
+        CheckIndexBufferAfter;
 
-            CheckIndexBufferAfter;
-
-            break;
-        }
+        break;
 
     //
     //  To set a range of bits in the volume bitmap, we just read in the a hunk
@@ -3638,7 +3653,6 @@ Return Value:
             PVOID BitMapBuffer;
             ULONG BitMapSize;
             RTL_BITMAP Bitmap;
-            PSCB Scb;
 
             //
             //  Open the attribute first to get the Scb.
@@ -3647,55 +3661,49 @@ Return Value:
             OpenAttributeForRestart( IrpContext, Vcb, LogRecord, &Scb );
 
             //
-            //  If this is the volume bitmap we need to acquire and release it.
-            //  Acquire it before pinning anything to avoid deadlock.
+            //  Pin the desired bitmap buffer.
             //
 
-            if (Scb == Vcb->BitmapScb) {
+            ASSERT( Length <= PAGE_SIZE );
 
-                ExAcquireResourceExclusive( Vcb->BitmapScb->Header.Resource,
-                                            TRUE );
-                SetFlag( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS );
+            PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, &BitMapBuffer, &Scb );
+
+            BitMapRange = (PBITMAP_RANGE)Data;
+
+            CheckBitmapRange;
+
+            //
+            //  Initialize our bitmap description, and call the restart
+            //  routine with the bitmap Scb exclusive (assuming it cannot
+            //  raise).
+            //
+
+            BitMapSize = BytesFromClusters( Vcb, LogRecord->LcnsToFollow ) * 8;
+
+            RtlInitializeBitMap( &Bitmap, BitMapBuffer, BitMapSize );
+
+            NtfsRestartSetBitsInBitMap( IrpContext,
+                                        &Bitmap,
+                                        BitMapRange->BitMapOffset,
+                                        BitMapRange->NumberOfBits );
+
+#ifdef NTFS_CHECK_BITMAP
+            if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ) &&
+                (Scb == Vcb->BitmapScb) &&
+                (Vcb->BitmapCopy != NULL)) {
+
+                ULONG BitmapOffset;
+                ULONG BitmapPage;
+                ULONG StartBit;
+
+                BitmapOffset = BytesFromClusters( Vcb, LogRecord->TargetVcn ) * 8;
+
+                BitmapPage = (BitmapOffset + BitMapRange->BitMapOffset) / (PAGE_SIZE * 8);
+                StartBit = (BitmapOffset + BitMapRange->BitMapOffset) & ((PAGE_SIZE * 8) - 1);
+
+                RtlSetBits( Vcb->BitmapCopy + BitmapPage, StartBit, BitMapRange->NumberOfBits );
             }
-
-            //
-            //  Use a try-finally to insure the resource is released.
-            //
-
-            try {
-
-                //
-                //  Pin the desired bitmap buffer.
-                //
-
-                PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, &BitMapBuffer, &Scb );
-
-                BitMapRange = (PBITMAP_RANGE)Data;
-
-                CheckBitmapRange;
-
-                //
-                //  Initialize our bitmap description, and call the restart
-                //  routine with the bitmap Scb exclusive (assuming it cannot
-                //  raise).
-                //
-
-                BitMapSize = BytesFromClusters( Vcb, LogRecord->LcnsToFollow ) * 8;
-
-                RtlInitializeBitMap( &Bitmap, BitMapBuffer, BitMapSize );
-
-                NtfsRestartSetBitsInBitMap( IrpContext,
-                                            &Bitmap,
-                                            BitMapRange->BitMapOffset,
-                                            BitMapRange->NumberOfBits );
-
-            } finally {
-
-                if (Scb == Vcb->BitmapScb) {
-
-                    ExReleaseResource( Vcb->BitmapScb->Header.Resource );
-                }
-            }
+#endif
 
             break;
         }
@@ -3713,7 +3721,6 @@ Return Value:
             PVOID BitMapBuffer;
             ULONG BitMapSize;
             RTL_BITMAP Bitmap;
-            PSCB Scb;
 
             //
             //  Open the attribute first to get the Scb.
@@ -3722,58 +3729,119 @@ Return Value:
             OpenAttributeForRestart( IrpContext, Vcb, LogRecord, &Scb );
 
             //
-            //  If this is the volume bitmap we need to acquire and release it.
-            //  Acquire it before pinning anything to avoid deadlock.
+            //  Pin the desired bitmap buffer.
             //
 
-            if (Scb == Vcb->BitmapScb) {
+            ASSERT( Length <= PAGE_SIZE );
 
-                ExAcquireResourceExclusive( Vcb->BitmapScb->Header.Resource,
-                                            TRUE );
-                SetFlag( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS );
+            PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, &BitMapBuffer, &Scb );
+
+            BitMapRange = (PBITMAP_RANGE)Data;
+
+            CheckBitmapRange;
+
+            BitMapSize = BytesFromClusters( Vcb, LogRecord->LcnsToFollow ) * 8;
+
+            //
+            //  Initialize our bitmap description, and call the restart
+            //  routine with the bitmap Scb exclusive (assuming it cannot
+            //  raise).
+            //
+
+            RtlInitializeBitMap( &Bitmap, BitMapBuffer, BitMapSize );
+
+            NtfsRestartClearBitsInBitMap( IrpContext,
+                                          &Bitmap,
+                                          BitMapRange->BitMapOffset,
+                                          BitMapRange->NumberOfBits );
+
+#ifdef NTFS_CHECK_BITMAP
+            if (!FlagOn( IrpContext->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ) &&
+                (Scb == Vcb->BitmapScb) &&
+                (Vcb->BitmapCopy != NULL)) {
+
+                ULONG BitmapOffset;
+                ULONG BitmapPage;
+                ULONG StartBit;
+
+                BitmapOffset = BytesFromClusters( Vcb, LogRecord->TargetVcn ) * 8;
+
+                BitmapPage = (BitmapOffset + BitMapRange->BitMapOffset) / (PAGE_SIZE * 8);
+                StartBit = (BitmapOffset + BitMapRange->BitMapOffset) & ((PAGE_SIZE * 8) - 1);
+
+                RtlClearBits( Vcb->BitmapCopy + BitmapPage, StartBit, BitMapRange->NumberOfBits );
             }
-
-            //
-            //  Use a try-finally to insure the resource is released.
-            //
-
-            try {
-
-                //
-                //  Pin the desired bitmap buffer.
-                //
-
-                PinAttributeForRestart( IrpContext, Vcb, LogRecord, Bcb, &BitMapBuffer, &Scb );
-
-                BitMapRange = (PBITMAP_RANGE)Data;
-
-                CheckBitmapRange;
-
-                BitMapSize = BytesFromClusters( Vcb, LogRecord->LcnsToFollow ) * 8;
-
-                //
-                //  Initialize our bitmap description, and call the restart
-                //  routine with the bitmap Scb exclusive (assuming it cannot
-                //  raise).
-                //
-
-                RtlInitializeBitMap( &Bitmap, BitMapBuffer, BitMapSize );
-
-                NtfsRestartClearBitsInBitMap( IrpContext,
-                                              &Bitmap,
-                                              BitMapRange->BitMapOffset,
-                                              BitMapRange->NumberOfBits );
-
-            } finally {
-
-                if (Scb == Vcb->BitmapScb) {
-
-                    ExReleaseResource( Vcb->BitmapScb->Header.Resource );
-                }
-            }
-
+#endif
             break;
         }
+
+    //
+    //  To update a file name in the root, we read the designated Mft
+    //  record, point to the attribute and the index entry, and call the
+    //  same routine used in normal operation.
+    //
+
+    case UpdateRecordDataRoot:
+
+        //
+        //  Pin the desired Mft record.
+        //
+
+        PinMftRecordForRestart( IrpContext, Vcb, LogRecord, Bcb, &FileRecord );
+
+        CheckLsn( FileRecord );
+        CheckFileRecordBefore;
+        CheckIfIndexRoot;
+
+        Attribute = (PATTRIBUTE_RECORD_HEADER)((PCHAR)FileRecord +
+                      LogRecord->RecordOffset);
+
+        IndexHeader = &((PINDEX_ROOT) NtfsAttributeValue( Attribute ))->IndexHeader;
+        CheckIfRootIndexEntry;
+
+        *PageLsn = &FileRecord->Lsn;
+
+        IndexEntry = (PINDEX_ENTRY)((PCHAR)Attribute +
+                       LogRecord->AttributeOffset);
+
+        NtOfsRestartUpdateDataInIndex( IndexEntry, Data, Length );
+
+        CheckFileRecordAfter;
+
+        break;
+
+    //
+    //  To update a file name in the allocation, we read the designated index
+    //  buffer, point to the index entry, and call the same routine used in
+    //  normal operation.
+    //
+
+    case UpdateRecordDataAllocation:
+
+        //
+        //  Pin the desired index buffer, and check the Lsn.
+        //
+
+        ASSERT( Length <= PAGE_SIZE );
+
+        PinAttributeForRestart( IrpContext, Vcb, LogRecord, 0, Bcb, (PVOID *)&IndexBuffer, &Scb );
+
+        CheckLsn( IndexBuffer );
+        CheckIndexBufferBefore;
+
+        IndexHeader = &IndexBuffer->IndexHeader;
+        CheckIfAllocationIndexEntry;
+
+        *PageLsn = &IndexBuffer->Lsn;
+
+        IndexEntry = (PINDEX_ENTRY)((PCHAR)IndexBuffer +
+                       LogRecord->AttributeOffset);
+
+        NtOfsRestartUpdateDataInIndex( IndexEntry, Data, Length );
+
+        CheckIndexBufferAfter;
+
+        break;
 
     //
     //  The following cases require no action during the Redo or Undo Pass.
@@ -3802,24 +3870,24 @@ Return Value:
 
     default:
 
-        DebugTrace( 0, Dbg, "Record address: %08lx\n", LogRecord );
-        DebugTrace( 0, Dbg, "Redo operation is: %04lx\n", LogRecord->RedoOperation );
-        DebugTrace( 0, Dbg, "Undo operation is: %04lx\n", LogRecord->RedoOperation );
+        DebugTrace( 0, Dbg, ("Record address: %08lx\n", LogRecord) );
+        DebugTrace( 0, Dbg, ("Redo operation is: %04lx\n", LogRecord->RedoOperation) );
+        DebugTrace( 0, Dbg, ("Undo operation is: %04lx\n", LogRecord->RedoOperation) );
 
         ASSERTMSG( "Unknown Action!\n", FALSE );
 
         break;
     }
 
-    DebugDoit (
+    DebugDoit(
         if (*Bcb != NULL) {
-            DebugTrace( 0, Dbg, "**** Update applied\n", 0 );
+            DebugTrace( 0, Dbg, ("**** Update applied\n") );
         }
     );
 
-    DebugTrace( 0, Dbg, "Bcb > %08lx\n", *Bcb );
-    DebugTrace( 0, Dbg, "PageLsn > %08lx\n", *PageLsn );
-    DebugTrace(-1, Dbg, "DoAction -> VOID\n", 0 );
+    DebugTrace( 0, Dbg, ("Bcb > %08lx\n", *Bcb) );
+    DebugTrace( 0, Dbg, ("PageLsn > %08lx\n", *PageLsn) );
+    DebugTrace( -1, Dbg, ("DoAction -> VOID\n") );
 }
 
 
@@ -3860,15 +3928,19 @@ Return Value:
 --*/
 
 {
-    VCN SegmentReference;
+    LONGLONG SegmentReference;
 
     PAGED_CODE();
 
     //
-    //  Calculate the file number part of the segment reference.
+    //  Calculate the file number part of the segment reference.  Do this
+    //  by obtaining the file offset of the file record and then convert to
+    //  a file number.
     //
 
-    SegmentReference = LogRecord->TargetVcn >> (Vcb->MftShift - Vcb->ClusterShift);
+    SegmentReference = LlBytesFromClusters( Vcb, LogRecord->TargetVcn );
+    SegmentReference += BytesFromLogBlocks( LogRecord->ClusterBlockOffset );
+    SegmentReference = LlFileRecordsFromBytes( Vcb, SegmentReference );
 
     //
     //  Pin the Mft record.
@@ -3950,6 +4022,7 @@ PinAttributeForRestart (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PNTFS_LOG_RECORD_HEADER LogRecord,
+    IN ULONG Length OPTIONAL,
     OUT PBCB *Bcb,
     OUT PVOID *Buffer,
     OUT PSCB *Scb
@@ -3968,6 +4041,11 @@ Arguments:
 
     LogRecord - Supplies the pointer to the current log record.
 
+    Length - If specified we will use this to determine the length
+        to pin.  This will handle the non-resident streams which may
+        change size (ACL, attribute lists).  The log record may have
+        more clusters than are currently in the stream.
+
     Bcb - Returns a pointer to the Bcb for the pinned record.
 
     Buffer - Returns a pointer to the desired buffer.
@@ -3982,6 +4060,8 @@ Return Value:
 
 {
     LONGLONG FileOffset;
+    ULONG ClusterOffset;
+    ULONG PinLength;
 
     PAGED_CODE();
 
@@ -3995,12 +4075,36 @@ Return Value:
     //  Calculate the desired file offset and pin the buffer.
     //
 
-    FileOffset = LogRecord->TargetVcn << Vcb->ClusterShift;
+    ClusterOffset = BytesFromLogBlocks( LogRecord->ClusterBlockOffset );
+
+    FileOffset = LlBytesFromClusters( Vcb, LogRecord->TargetVcn ) + ClusterOffset;
+
+    //
+    //  We only want to pin the requested clusters or to the end of
+    //  a page, whichever is smaller.
+    //
+
+    if (Vcb->BytesPerCluster > PAGE_SIZE) {
+
+        PinLength = PAGE_SIZE - (((ULONG) FileOffset) & (PAGE_SIZE - 1));
+
+    } else if (Length != 0) {
+
+        PinLength = Length;
+
+    } else {
+
+        PinLength = BytesFromClusters( Vcb, LogRecord->LcnsToFollow ) - ClusterOffset;
+    }
+
+    //
+    //  We don't want to pin more than a page
+    //
 
     NtfsPinStream( IrpContext,
                    *Scb,
                    FileOffset,
-                   BytesFromClusters( Vcb, LogRecord->LcnsToFollow ),
+                   PinLength,
                    Bcb,
                    Buffer );
 }
@@ -4012,7 +4116,6 @@ Return Value:
 
 BOOLEAN
 FindDirtyPage (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS DirtyPageTable,
     IN ULONG TargetAttribute,
     IN VCN Vcn,
@@ -4047,11 +4150,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "FindDirtyPage:\n", 0 );
-    DebugTrace( 0, Dbg, "TargetAttribute = %08lx\n", TargetAttribute );
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
-
-    UNREFERENCED_PARAMETER(IrpContext);
+    DebugTrace( +1, Dbg, ("FindDirtyPage:\n") );
+    DebugTrace( 0, Dbg, ("TargetAttribute = %08lx\n", TargetAttribute) );
+    DebugTrace( 0, Dbg, ("Vcn = %016I64x\n", Vcn) );
 
     //
     //  If table has not yet been initialized, return.
@@ -4093,8 +4194,8 @@ Return Value:
 
                 *DirtyPageEntry = DirtyPage;
 
-                DebugTrace( 0, Dbg, "DirtyPageEntry %08lx\n", *DirtyPageEntry );
-                DebugTrace(-1, Dbg, "FindDirtypage -> TRUE\n", 0 );
+                DebugTrace( 0, Dbg, ("DirtyPageEntry %08lx\n", *DirtyPageEntry) );
+                DebugTrace( -1, Dbg, ("FindDirtypage -> TRUE\n") );
 
                 return TRUE;
             }
@@ -4109,7 +4210,7 @@ Return Value:
     }
     *DirtyPageEntry = NULL;
 
-    DebugTrace(-1, Dbg, "FindDirtypage -> FALSE\n", 0 );
+    DebugTrace( -1, Dbg, ("FindDirtypage -> FALSE\n") );
 
     return FALSE;
 }
@@ -4121,7 +4222,6 @@ Return Value:
 
 VOID
 PageUpdateAnalysis (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN LSN Lsn,
     IN OUT PRESTART_POINTERS DirtyPageTable,
@@ -4158,10 +4258,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "PageUpdateAnalysis:\n", 0 );
+    DebugTrace( +1, Dbg, ("PageUpdateAnalysis:\n") );
 
-    if (!FindDirtyPage( IrpContext,
-                        DirtyPageTable,
+    if (!FindDirtyPage( DirtyPageTable,
                         LogRecord->TargetAttribute,
                         LogRecord->TargetVcn,
                         &DirtyPage )) {
@@ -4179,8 +4278,7 @@ Return Value:
                                 sizeof(DIRTY_PAGE_ENTRY)) / sizeof(LCN)) + 1;
         } else {
             ClustersPerPage = Vcb->ClustersPerPage;
-            NtfsInitializeRestartTable( IrpContext,
-                                        sizeof(DIRTY_PAGE_ENTRY) +
+            NtfsInitializeRestartTable( sizeof(DIRTY_PAGE_ENTRY) +
                                           (ClustersPerPage - 1) * sizeof(LCN),
                                         32,
                                         DirtyPageTable );
@@ -4190,7 +4288,7 @@ Return Value:
         //  Allocate a dirty page entry.
         //
 
-        PageIndex = NtfsAllocateRestartTableIndex( IrpContext, DirtyPageTable );
+        PageIndex = NtfsAllocateRestartTableIndex( DirtyPageTable );
 
         //
         //  Get a pointer to the entry we just allocated.
@@ -4224,7 +4322,7 @@ Return Value:
           LogRecord->LcnsForPage[i];
     }
 
-    DebugTrace(-1, Dbg, "PageUpdateAnalysis -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("PageUpdateAnalysis -> VOID\n") );
 }
 
 
@@ -4304,7 +4402,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "OpenAttributesForRestart:\n", 0 );
+    DebugTrace( +1, Dbg, ("OpenAttributesForRestart:\n") );
 
     //
     //  First we scan the Open Attribute Table to open all of the attributes.
@@ -4335,7 +4433,8 @@ Return Value:
         //
 
         if (OpenEntry->Overlay.AttributeName != NULL) {
-            NtfsFreePagedPool(OpenEntry->Overlay.AttributeName);
+            NtfsFreePool(OpenEntry->Overlay.AttributeName);
+            OpenEntry->AttributeNamePresent = FALSE;
         }
 
         OpenEntry->AttributeName = TempScb->AttributeName;
@@ -4408,16 +4507,16 @@ Return Value:
 
                         &&
 
-                    ((OpenEntry->FileReference.HighPart != 0) ||
-                     (OpenEntry->FileReference.LowPart > MASTER_FILE_TABLE2_NUMBER) ||
-                     (Vcn >= ((VOLUME_DASD_NUMBER + 1) * Vcb->ClustersPerFileRecordSegment)) ||
+                    (NtfsSegmentNumber( &OpenEntry->FileReference ) > MASTER_FILE_TABLE2_NUMBER ||
+                     (Size >= ((VOLUME_DASD_NUMBER + 1) * Vcb->BytesPerFileRecordSegment)) ||
                      (OpenEntry->AttributeTypeCode != $DATA))) {
 
 
-                    FsRtlAddLargeMcbEntry( &Scb->Mcb,
-                                           Vcn,
-                                           DirtyPage->LcnsForPage[i],
-                                           (LONGLONG)1 );
+                    NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                                         Vcn,
+                                         DirtyPage->LcnsForPage[i],
+                                         (LONGLONG)1,
+                                         FALSE );
 
                     if (Size > Scb->Header.AllocationSize.QuadPart) {
 
@@ -4449,11 +4548,11 @@ Return Value:
     CcSetFileSizes( TempScb->FileObject,
                     (PCC_FILE_SIZES)&TempScb->Header.AllocationSize );
 
-    DebugTrace(-1, Dbg, "OpenAttributesForRestart -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("OpenAttributesForRestart -> VOID\n") );
 }
 
 
-VOID
+NTSTATUS
 NtfsCloseAttributesFromRestart (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
@@ -4466,7 +4565,9 @@ Routine Description:
     This routine is called at the end of a Restart to close any attributes
     that had to be opened for Restart purposes.  Actually what this does is
     delete all of the internal streams so that the attributes will eventually
-    go away.
+    go away.  This routine cannot raise because it is called in the finally of
+    MountVolume.  Raising in the main line path will leave the global resource
+    acquired.
 
 Arguments:
 
@@ -4475,16 +4576,18 @@ Arguments:
 
 Return Value:
 
-    None.
+    NTSTATUS - STATUS_SUCCESS if all of the I/O completed successfully.  Otherwise
+        the error in the IrpContext or the first I/O error.
 
 --*/
 
 {
+    NTSTATUS Status = STATUS_SUCCESS;
     POPEN_ATTRIBUTE_ENTRY OpenEntry;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CloseAttributesForRestart:\n", 0 );
+    DebugTrace( +1, Dbg, ("CloseAttributesForRestart:\n") );
 
     //
     //  Set this flag again now, so we do not try to flush out the holes!
@@ -4507,6 +4610,12 @@ Return Value:
         IO_STATUS_BLOCK IoStatus;
         PSCB Scb;
 
+        if (OpenEntry->AttributeNamePresent) {
+
+            NtfsFreePool( OpenEntry->Overlay.AttributeName );
+            OpenEntry->Overlay.AttributeName = NULL;
+        }
+
         Scb = OpenEntry->Overlay.Scb;
 
         //
@@ -4526,8 +4635,7 @@ Return Value:
             //
 
             FileReference = Scb->Fcb->FileReference;
-            if ((FileReference.HighPart != 0) ||
-                (FileReference.LowPart > LOG_FILE_NUMBER) ||
+            if (NtfsSegmentNumber( &FileReference ) > LOG_FILE_NUMBER ||
                 (Scb->AttributeTypeCode != $DATA)) {
 
                 //
@@ -4541,11 +4649,17 @@ Return Value:
                 CcFlushCache( &Scb->NonpagedScb->SegmentObject, NULL, 0, &IoStatus );
                 NtfsReleaseScbFromLazyWrite( (PVOID)Scb );
 
-                if (!NT_SUCCESS(IoStatus.Status)) {
+                if (NT_SUCCESS( Status )) {
 
-                    NtfsNormalizeAndRaiseStatus( IrpContext,
-                                                 IoStatus.Status,
-                                                 STATUS_UNEXPECTED_IO_ERROR );
+                    if (!NT_SUCCESS( IrpContext->ExceptionStatus )) {
+
+                        Status = IrpContext->ExceptionStatus;
+
+                    } else if (!NT_SUCCESS( IoStatus.Status )) {
+
+                        Status = FsRtlNormalizeNtstatus( IoStatus.Status,
+                                                         STATUS_UNEXPECTED_IO_ERROR );
+                    }
                 }
 
                 //
@@ -4553,11 +4667,13 @@ Return Value:
                 //  the stream file so it can eventually go away.
                 //
 
-                FsRtlUninitializeLargeMcb( &Scb->Mcb );
-                FsRtlInitializeLargeMcb( &Scb->Mcb,
-                                         FlagOn( Scb->Fcb->FcbState,
-                                                 FCB_STATE_PAGING_FILE ) ? NonPagedPool :
-                                                                           PagedPool );
+                NtfsUninitializeNtfsMcb( &Scb->Mcb );
+                NtfsInitializeNtfsMcb( &Scb->Mcb,
+                                       &Scb->Header,
+                                       &Scb->McbStructs,
+                                       FlagOn( Scb->Fcb->FcbState,
+                                               FCB_STATE_PAGING_FILE ) ? NonPagedPool :
+                                                                         PagedPool );
 
                 //
                 //  Now that we are restarted, we must clear the header state
@@ -4579,18 +4695,21 @@ Return Value:
 
                 if (Scb->FileObject != NULL) {
 
-                    NtfsDeleteInternalAttributeStream( IrpContext,
-                                                       Scb,
+                    NtfsDeleteInternalAttributeStream( Scb,
                                                        TRUE );
                 } else {
 
-                    BOOLEAN RemovedFcb;
+                    //
+                    //  Make sure the Scb is acquired exclusively.
+                    //
+
+                    NtfsAcquireExclusiveFcb( IrpContext, Scb->Fcb, NULL, TRUE, FALSE );
                     NtfsTeardownStructures( IrpContext,
                                             Scb,
                                             NULL,
-                                            TRUE,
-                                            &RemovedFcb,
-                                            FALSE );
+                                            FALSE,
+                                            FALSE,
+                                            NULL );
                 }
             }
 
@@ -4600,8 +4719,7 @@ Return Value:
             //  Else free the restart table entry.
             //
 
-            NtfsFreeRestartTableIndex( IrpContext,
-                                       &Vcb->OpenAttributeTable,
+            NtfsFreeRestartTableIndex( &Vcb->OpenAttributeTable,
                                        GetIndexFromRestartEntry( &Vcb->OpenAttributeTable,
                                                                  OpenEntry ));
         }
@@ -4620,5 +4738,7 @@ Return Value:
 
     ClearFlag(Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS);
 
-    DebugTrace(-1, Dbg, "CloseAttributesForRestart -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("CloseAttributesForRestart -> %08lx\n", Status) );
+
+    return Status;
 }

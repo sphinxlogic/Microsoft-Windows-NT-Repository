@@ -115,4 +115,4 @@ PSTR PASCAL	FsQueryExt( PSTR sz1 )
     if (*pch == '.') return (pch+1);
     return NULL;
 }					/* FsQueryExt() */
-
+

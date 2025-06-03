@@ -61,7 +61,7 @@ swt:
          {
          j=0;
          while( isdigit(c) )
-            {
+            {
             j= j*10+c-'0';
             c = unix_getc(finput);
             }
@@ -123,7 +123,7 @@ swt:
 
 string:
 
-      putc( c , faction );
+      putc( c , faction );
       while( c=unix_getc(finput) )
          {
 

@@ -25,30 +25,92 @@ Revision History:
 #ifndef _NTFSPROC_
 #define _NTFSPROC_
 
-//#include <ntos.h>
-//#include <string.h>
-//#include <zwapi.h>
-//#include <FsRtl.h>
-#include <ntifs.h>
+#pragma warning(error:4100)   // Unreferenced formal parameter
+#pragma warning(error:4705)   // Statement has no effect
+
+#include <ntos.h>
+#include <string.h>
+#include <zwapi.h>
+#include <FsRtl.h>
+#include <ntrtl.h>
 #include <lfs.h>
 #include <ntdddisk.h>
+#include <NtIoLogc.h>
 
 #include "nodetype.h"
 #include "Ntfs.h"
+
+#ifdef _CAIRO_
+
+#ifndef INLINE
+// definition of inline
+#define INLINE _inline
+#endif
+
+#include <ntfsexp.h>
+#endif
+
 #include "NtfsStru.h"
 #include "NtfsData.h"
 #include "NtfsLog.h"
+
+//**** x86 compiler bug ****
+
+#if defined(_M_IX86)
+#undef Int64ShraMod32
+#define Int64ShraMod32(a, b) ((LONGLONG)(a) >> (b))
+#endif
 
 //
 //  Tag all of our allocations if tagging is turned on
 //
 
-#ifdef POOL_TAGGING
+//
+//  Default module pool tag
+//
 
-#define FsRtlAllocatePool(a,b) FsRtlAllocatePoolWithTag(a,b,'sftN')
-#define FsRtlAllocatePoolWithQuota(a,b) FsRtlAllocatePoolWithQuotaTag(a,b,'sftN')
+#define MODULE_POOL_TAG ('0ftN')
 
-#endif
+#if !(DBG && i386 && defined (NTFSPOOLCHECK))
+
+//
+//  Non-debug allocate and free goes directly to the FsRtl routines
+//
+
+#define NtfsAllocatePoolWithTagNoRaise(a,b,c)   NtfsAllocatePoolWithTag((a),(b),(c))
+#define NtfsAllocatePoolWithTag(a,b,c)          FsRtlAllocatePoolWithTag((a),(b),(c))
+#define NtfsAllocatePool(a,b)                   FsRtlAllocatePoolWithTag((a),(b),MODULE_POOL_TAG)
+#define NtfsFreePool(pv)                        ExFreePool(pv)
+
+#else   //  !DBG
+
+//
+//  Debugging routines capture the stack backtrace for allocates and frees
+//
+
+#define NtfsAllocatePoolWithTagNoRaise(a,b,c)   NtfsDebugAllocatePoolWithTagNoRaise((a),(b),(c))
+#define NtfsAllocatePoolWithTag(a,b,c)          NtfsDebugAllocatePoolWithTag((a),(b),(c))
+#define NtfsAllocatePool(a,b)                   NtfsDebugAllocatePoolWithTag((a),(b),MODULE_POOL_TAG)
+#define NtfsFreePool(pv)                        NtfsDebugFreePool(pv)
+
+PVOID
+NtfsDebugAllocatePoolWithTagNoRaise (
+    POOL_TYPE Pool,
+    ULONG Length,
+    ULONG Tag);
+
+PVOID
+NtfsDebugAllocatePoolWithTag (
+    POOL_TYPE Pool,
+    ULONG Length,
+    ULONG Tag);
+
+VOID
+NtfsDebugFreePool (
+    PVOID pv);
+
+#endif  //  !DBG
+
 
 //
 //  Local character comparison macros that we might want to later move to ntfsproc
@@ -95,6 +157,98 @@ typedef struct _CHAR2 {
 
 
 //
+//  The following two macro are used by the Fsd/Fsp exception handlers to
+//  process an exception.  The first macro is the exception filter used in the
+//  Fsd/Fsp to decide if an exception should be handled at this level.
+//  The second macro decides if the exception is to be finished off by
+//  completing the IRP, and cleaning up the Irp Context, or if we should
+//  bugcheck.  Exception values such as STATUS_FILE_INVALID (raised by
+//  VerfySup.c) cause us to complete the Irp and cleanup, while exceptions
+//  such as accvio cause us to bugcheck.
+//
+//  The basic structure for fsd/fsp exception handling is as follows:
+//
+//  NtfsFsdXxx(..)
+//  {
+//      try {
+//
+//          ..
+//
+//      } except(NtfsExceptionFilter( IrpContext, GetExceptionRecord() )) {
+//
+//          Status = NtfsProcessException( IrpContext, Irp, GetExceptionCode() );
+//      }
+//
+//      Return Status;
+//  }
+//
+//  To explicitly raise an exception that we expect, such as
+//  STATUS_FILE_INVALID, use the below macro NtfsRaiseStatus).  To raise a
+//  status from an unknown origin (such as CcFlushCache()), use the macro
+//  NtfsNormalizeAndRaiseStatus.  This will raise the status if it is expected,
+//  or raise STATUS_UNEXPECTED_IO_ERROR if it is not.
+//
+//  Note that when using these two macros, the original status is placed in
+//  IrpContext->ExceptionStatus, signaling NtfsExceptionFilter and
+//  NtfsProcessException that the status we actually raise is by definition
+//  expected.
+//
+
+LONG
+NtfsExceptionFilter (
+    IN PIRP_CONTEXT IrpContext,
+    IN PEXCEPTION_POINTERS ExceptionPointer
+    );
+
+NTSTATUS
+NtfsProcessException (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp OPTIONAL,
+    IN NTSTATUS ExceptionCode
+    );
+
+VOID
+NtfsRaiseStatus (
+    IN PIRP_CONTEXT IrpContext,
+    IN NTSTATUS Status,
+    IN PFILE_REFERENCE FileReference OPTIONAL,
+    IN PFCB Fcb OPTIONAL
+    );
+
+ULONG
+NtfsRaiseStatusFunction (
+    IN PIRP_CONTEXT IrpContext,
+    IN NTSTATUS Status
+    );
+
+//
+//      VOID
+//      NtfsNormalAndRaiseStatus (
+//          IN PRIP_CONTEXT IrpContext,
+//          IN NT_STATUS Status
+//          IN NT_STATUS NormalStatus
+//          );
+//
+
+#define NtfsNormalizeAndRaiseStatus(IC,STAT,NOR_STAT) {                          \
+    (IC)->ExceptionStatus = (STAT);                                              \
+    ExRaiseStatus(FsRtlNormalizeNtstatus((STAT),NOR_STAT));                      \
+}
+
+//
+//  Informational popup routine.
+//
+
+VOID
+NtfsRaiseInformationHardError (
+    IN PIRP_CONTEXT IrpContext,
+    IN NTSTATUS  Status,
+    IN PFILE_REFERENCE FileReference OPTIONAL,
+    IN PFCB Fcb OPTIONAL
+    );
+
+
+//
 //  Allocation support routines, implemented in AllocSup.c
 //
 //  These routines are for querying, allocating and truncating clusters
@@ -102,10 +256,39 @@ typedef struct _CHAR2 {
 //
 
 //
+//  ****Temporary definitions - to be added to Mcb support more
+//      efficiently.
+//
+
+#ifdef SYSCACHE
+
+BOOLEAN
+FsRtlIsSyscacheFile (
+    IN PFILE_OBJECT FileObject
+    );
+
+VOID
+FsRtlVerifySyscacheData (
+    IN PFILE_OBJECT FileObject,
+    IN PVOID Buffer,
+    IN ULONG Length,
+    IN ULONG Offset
+    );
+#endif
+
+//
 //  The following routine takes an Vbo and returns the lbo and size of
 //  the run corresponding to the Vbo.  It function result is TRUE if
 //  the Vbo has a valid Lbo mapping and FALSE otherwise.
 //
+
+ULONG
+NtfsPreloadAllocation (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PSCB Scb,
+    IN VCN StartingVcn,
+    IN VCN EndingVcn
+    );
 
 BOOLEAN
 NtfsLookupAllocation (
@@ -114,7 +297,8 @@ NtfsLookupAllocation (
     IN VCN Vcn,
     OUT PLCN Lcn,
     OUT PLONGLONG ClusterCount,
-    OUT PULONG Index OPTIONAL
+    OUT PVOID *RangePtr OPTIONAL,
+    OUT PULONG RunIndex OPTIONAL
     );
 
 //
@@ -162,8 +346,7 @@ NtfsDeleteAllocation (
 
 ULONG
 NtfsGetSizeForMappingPairs (
-    IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN ULONG BytesAvailable,
     IN VCN LowestVcn,
     IN PVCN StopOnVcn OPTIONAL,
@@ -172,8 +355,7 @@ NtfsGetSizeForMappingPairs (
 
 VOID
 NtfsBuildMappingPairs (
-    IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN LowestVcn,
     IN OUT PVCN HighestVcn,
     OUT PCHAR MappingPairs
@@ -186,10 +368,85 @@ NtfsGetHighestVcn (
     IN PCHAR MappingPairs
     );
 
+BOOLEAN
+NtfsReserveClusters (
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN PSCB Scb,
+    IN LONGLONG FileOffset,
+    IN ULONG ByteCount
+    );
+
+VOID
+NtfsFreeReservedClusters (
+    IN PSCB Scb,
+    IN LONGLONG FileOffset,
+    IN ULONG ByteCount
+    );
+
+VOID
+NtfsFreeFinalReservedClusters (
+    IN PVCB Vcb,
+    IN LONGLONG ClusterCount
+    );
+
 
 //
 //  Attribute lookup routines, implemented in AttrSup.c
 //
+
+//
+//  This macro detects if we are enumerating through base or external
+//  attributes, and calls the appropriate function.
+//
+//  BOOLEAN
+//  LookupNextAttribute (
+//      IN PRIP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN ATTRIBUTE_TYPE_CODE Code,
+//      IN PUNICODE_STRING Name OPTIONAL,
+//      IN BOOLEAN IgnoreCase,
+//      IN PVOID Value OPTIONAL,
+//      IN ULONG ValueLength,
+//      IN PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      );
+//
+
+#define LookupNextAttribute(IRPCTXT,FCB,CODE,NAME,IC,VALUE,LENGTH,CONTEXT) \
+    ( (CONTEXT)->AttributeList.Bcb == NULL                                 \
+      ?   NtfsLookupInFileRecord( (IRPCTXT),                               \
+                                  (FCB),                                   \
+                                  NULL,                                    \
+                                  (CODE),                                  \
+                                  (NAME),                                  \
+                                  NULL,                                    \
+                                  (IC),                                    \
+                                  (VALUE),                                 \
+                                  (LENGTH),                                \
+                                  (CONTEXT))                               \
+      :   NtfsLookupExternalAttribute((IRPCTXT),                           \
+                                      (FCB),                               \
+                                      (CODE),                              \
+                                      (NAME),                              \
+                                      NULL,                                \
+                                      (IC),                                \
+                                      (VALUE),                             \
+                                      (LENGTH),                            \
+                                      (CONTEXT)) )
+
+BOOLEAN
+NtfsLookupExternalAttribute (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+    IN PUNICODE_STRING QueriedName OPTIONAL,
+    IN PVCN Vcn OPTIONAL,
+    IN BOOLEAN IgnoreCase,
+    IN PVOID QueriedValue OPTIONAL,
+    IN ULONG QueriedValueLength,
+    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+    );
+
+
 
 //
 //  The following two routines do lookups based on the attribute definitions.
@@ -197,36 +454,145 @@ NtfsGetHighestVcn (
 
 ATTRIBUTE_TYPE_CODE
 NtfsGetAttributeTypeCode (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN UNICODE_STRING AttributeTypeName
     );
 
-PATTRIBUTE_DEFINITION_COLUMNS
-NtfsGetAttributeDefinition (
+
+//
+//  PATTRIBUTE_DEFINITION_COLUMNS
+//  NtfsGetAttributeDefinition (
+//      IN PVCB Vcb,
+//      IN ATTRIBUTE_TYPE_CODE AttributeTypeCode
+//      )
+//
+
+#define NtfsGetAttributeDefinition(Vcb,AttributeTypeCode)   \
+    (&Vcb->AttributeDefinitions[(AttributeTypeCode / 0x10) - 1])
+
+//
+//  This routine looks up the attribute uniquely-qualified by the specified
+//  Attribute Code and case-sensitive name.  The attribute may not be unique
+//  if IgnoreCase is specified.
+//
+
+
+BOOLEAN
+NtfsLookupInFileRecord (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN ATTRIBUTE_TYPE_CODE AttributeTypeCode
+    IN PFCB Fcb,
+    IN PFILE_REFERENCE BaseFileReference OPTIONAL,
+    IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+    IN PUNICODE_STRING QueriedName OPTIONAL,
+    IN PVCN Vcn OPTIONAL,
+    IN BOOLEAN IgnoreCase,
+    IN PVOID QueriedValue OPTIONAL,
+    IN ULONG QueriedValueLength,
+    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
     );
+
+
+//
+//  This routine attempts to find the fist occurrence of an attribute with
+//  the specified AttributeTypeCode and the specified QueriedName in the
+//  specified BaseFileReference.  If we find one, its attribute record is
+//  pinned and returned.
+//
+//  BOOLEAN
+//  NtfsLookupAttributeByName (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN PFILE_REFERENCE BaseFileReference,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      IN PUNICODE_STRING QueriedName OPTIONAL,
+//      IN PVCN Vcn OPTIONAL,
+//      IN BOOLEAN IgnoreCase,
+//      OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupAttributeByName(IrpContext,Fcb,BaseFileReference,QueriedTypeCode,QueriedName,Vcn,IgnoreCase,Context)  \
+    NtfsLookupInFileRecord( IrpContext,             \
+                            Fcb,                    \
+                            BaseFileReference,      \
+                            QueriedTypeCode,        \
+                            QueriedName,            \
+                            Vcn,                    \
+                            IgnoreCase,             \
+                            NULL,                   \
+                            0,                      \
+                            Context )
+
+
+//
+//  This function continues where the prior left off.
+//
+//  BOOLEAN
+//  NtfsLookupNextAttributeByName (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      IN PUNICODE_STRING QueriedName OPTIONAL,
+//      IN BOOLEAN IgnoreCase,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+#define NtfsLookupNextAttributeByName(IrpContext,Fcb,QueriedTypeCode,QueriedName,IgnoreCase,Context)    \
+    LookupNextAttribute( IrpContext,                \
+                         Fcb,                       \
+                         QueriedTypeCode,           \
+                         QueriedName,               \
+                         IgnoreCase,                \
+                         NULL,                      \
+                         0,                         \
+                         Context )
 
 //
 //  The following routines find the attribute record for a given Scb.
 //  And also update the scb from the attribute
 //
+//  VOID
+//  NtfsLookupAttributeForScb (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PSCB Scb,
+//      IN PVCN Vcn OPTIONAL,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
 
-VOID
-NtfsLookupAttributeForScb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    );
+#define NtfsLookupAttributeForScb(IrpContext,Scb,Vcn,Context)   \
+    if (!NtfsLookupAttributeByName( IrpContext,                                     \
+                                    Scb->Fcb,                                       \
+                                    &Scb->Fcb->FileReference,                       \
+                                    Scb->AttributeTypeCode,                         \
+                                    &Scb->AttributeName,                            \
+                                    Vcn,                                            \
+                                    FALSE,                                          \
+                                    Context )) {                                    \
+        DebugTrace( 0, 0, ("Could not find attribute for Scb @ %08lx\n", Scb ));    \
+        ASSERTMSG("Could not find attribute for Scb\n", FALSE);                     \
+        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );   \
+    }
 
-BOOLEAN
-NtfsLookupNextAttributeForScb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
-    );
+
+//
+//  This routine looks up and returns the next attribute for a given Scb.
+//
+//  BOOLEAN
+//  NtfsLookupNextAttributeForScb (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PSCB Scb,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupNextAttributeForScb(IrpContext,Scb,Context)   \
+    NtfsLookupNextAttributeByName( IrpContext,                  \
+                                   Scb->Fcb,                    \
+                                   Scb->AttributeTypeCode,      \
+                                   &Scb->AttributeName,         \
+                                   FALSE,                       \
+                                   Context )
 
 VOID
 NtfsUpdateScbFromAttribute (
@@ -249,20 +615,6 @@ NtfsUpdateFcbInfoFromDisk (
     );
 
 //
-//  The following routine would really be better in ntfs.h as a macro
-//  but currently needs to be a procedure.  It indicates to the caller if
-//  the name of an attribute record is equal to the input string.
-//
-
-BOOLEAN
-NtfsEqualAttributeName(
-    IN PIRP_CONTEXT IrpContext,
-    IN PATTRIBUTE_RECORD_HEADER Attribute,
-    IN UNICODE_STRING Name,
-    IN BOOLEAN IgnoreCase
-    );
-
-//
 //  These routines looks up the first/next attribute, i.e., they may be used
 //  to retrieve all atributes for a file record.
 //
@@ -270,20 +622,53 @@ NtfsEqualAttributeName(
 //  the previous Bcb is autmatically unpinned and the new one pinned.
 //
 
-BOOLEAN
-NtfsLookupAttribute (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
+//
+//  This routine attempts to find the fist occurrence of an attribute with
+//  the specified AttributeTypeCode in the specified BaseFileReference.  If we
+//  find one, its attribute record is pinned and returned.
+//
+//  BOOLEAN
+//  NtfsLookupAttribute (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN PFILE_REFERENCE BaseFileReference,
+//      OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
 
-BOOLEAN
-NtfsLookupNextAttribute (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
+#define NtfsLookupAttribute(IrpContext,Fcb,BaseFileReference,Context)   \
+    NtfsLookupInFileRecord( IrpContext,                                 \
+                            Fcb,                                        \
+                            BaseFileReference,                          \
+                            $UNUSED,                                    \
+                            NULL,                                       \
+                            NULL,                                       \
+                            FALSE,                                      \
+                            NULL,                                       \
+                            0,                                          \
+                            Context )
+
+//
+//  This function continues where the prior left off.
+//
+//  BOOLEAN
+//  NtfsLookupNextAttribute (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupNextAttribute(IrpContext,Fcb,Context) \
+    LookupNextAttribute( IrpContext,                    \
+                         Fcb,                           \
+                         $UNUSED,                       \
+                         NULL,                          \
+                         FALSE,                         \
+                         NULL,                          \
+                         0,                             \
+                         Context )
+
 
 //
 //  These routines looks up the first/next attribute of the given type code.
@@ -292,49 +677,56 @@ NtfsLookupNextAttribute (
 //  the previous Bcb is autmatically unpinned and the new one pinned.
 //
 
-BOOLEAN
-NtfsLookupAttributeByCode (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
-
-BOOLEAN
-NtfsLookupNextAttributeByCode (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
 
 //
-//  This routine looks up the attribute uniquely-qualified by the specified
-//  Attribute Code and case-sensitive name.  The attribute may not be unique
-//  if IgnoreCase is specified.
+//  This routine attempts to find the fist occurrence of an attribute with
+//  the specified AttributeTypeCode in the specified BaseFileReference.  If we
+//  find one, its attribute record is pinned and returned.
+//
+//  BOOLEAN
+//  NtfsLookupAttributeByCode (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN PFILE_REFERENCE BaseFileReference,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
 //
 
-BOOLEAN
-NtfsLookupAttributeByName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    IN PUNICODE_STRING DesiredName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
+#define NtfsLookupAttributeByCode(IrpContext,Fcb,BaseFileReference,QueriedTypeCode,Context) \
+    NtfsLookupInFileRecord( IrpContext,             \
+                            Fcb,                    \
+                            BaseFileReference,      \
+                            QueriedTypeCode,        \
+                            NULL,                   \
+                            NULL,                   \
+                            FALSE,                  \
+                            NULL,                   \
+                            0,                      \
+                            Context )
 
-BOOLEAN
-NtfsLookupNextAttributeByName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    IN PUNICODE_STRING DesiredName OPTIONAL,
-    IN BOOLEAN IgnoreCase,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
+
+//
+//  This function continues where the prior left off.
+//
+//  BOOLEAN
+//  NtfsLookupNextAttributeByCode (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupNextAttributeByCode(IrpContext,Fcb,QueriedTypeCode,Context)   \
+    LookupNextAttribute( IrpContext,                \
+                         Fcb,                       \
+                         QueriedTypeCode,           \
+                         NULL,                      \
+                         FALSE,                     \
+                         NULL,                      \
+                         0,                         \
+                         Context )
 
 //
 //  These routines looks up the first/next occurrence of an attribute by its
@@ -349,30 +741,64 @@ NtfsLookupNextAttributeByName (
 //  unpinned and the new one pinned.
 //
 
-BOOLEAN
-NtfsLookupAttributeByValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PFILE_REFERENCE BaseFileReference,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    IN PVOID DesiredValue,
-    IN ULONG DesiredValueLength,
-    OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
 
-BOOLEAN
-NtfsLookupNextAttributeByValue (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN ATTRIBUTE_TYPE_CODE DesiredTypeCode,
-    IN PVOID DesiredValue,
-    IN ULONG DesiredValueLength,
-    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT FoundAttribute
-    );
+//
+//  This routine attempts to find the fist occurrence of an attribute with
+//  the specified AttributeTypeCode and the specified QueriedValue in the
+//  specified BaseFileReference.  If we find one, its attribute record is
+//  pinned and returned.
+//
+//  BOOLEAN
+//  NtfsLookupAttributeByValue (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN PFILE_REFERENCE BaseFileReference,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      IN PVOID QueriedValue,
+//      IN ULONG QueriedValueLength,
+//      OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupAttributeByValue(IrpContext,Fcb,BaseFileReference,QueriedTypeCode,QueriedValue,QueriedValueLength,Context)    \
+    NtfsLookupInFileRecord( IrpContext,             \
+                            Fcb,                    \
+                            BaseFileReference,      \
+                            QueriedTypeCode,        \
+                            NULL,                   \
+                            NULL,                   \
+                            FALSE,                  \
+                            QueriedValue,           \
+                            QueriedValueLength,     \
+                            Context )
+
+//
+//  This function continues where the prior left off.
+//
+//  BOOLEAN
+//  NtfsLookupNextAttributeByValue (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFCB Fcb,
+//      IN ATTRIBUTE_TYPE_CODE QueriedTypeCode,
+//      IN PVOID QueriedValue,
+//      IN ULONG QueriedValueLength,
+//      IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context
+//      )
+//
+
+#define NtfsLookupNextAttributeByValue(IrpContext,Fcb,QueriedTypeCode,QueriedValue,QueriedValueLength,Context)  \
+    LookupNextAttribute( IrpContext,                \
+                         Fcb,                       \
+                         QueriedTypeCode,           \
+                         NULL,                      \
+                         FALSE,                     \
+                         QueriedValue,              \
+                         QueriedValueLength,        \
+                         Context )
+
 
 VOID
 NtfsCleanupAttributeContext(
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PATTRIBUTE_ENUMERATION_CONTEXT AttributeContext
     );
 
@@ -409,10 +835,9 @@ NtfsCleanupAttributeContext(
 //          IN PATTRIBUTE_ENUMERATION_CONTEXT AttributeContext
 //          );
 //
-//      VCN
-//      NtfsMftVcn (
-//          IN PATTRIBUTE_ENUMERATION_CONTEXT AttributeContext,
-//          IN PVCB Vcb
+//      LONGLONG
+//      NtfsMftOffset (
+//          IN PATTRIBUTE_ENUMERATION_CONTEXT AttributeContext
 //          );
 //
 
@@ -440,8 +865,8 @@ NtfsCleanupAttributeContext(
     (CTX)->FoundAttribute.FileRecord    \
 )
 
-#define NtfsMftVcn(CTX,V) (                    \
-    ((CTX)->FoundAttribute.MftFileOffset >> (V)->ClusterShift)            \
+#define NtfsMftOffset(CTX) (                \
+    (CTX)->FoundAttribute.MftFileOffset     \
 )
 
 //
@@ -475,8 +900,7 @@ VOID
 NtfsWriteFileSizes (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN LONGLONG FileSize,
-    IN LONGLONG ValidDataLength,
+    IN PLONGLONG ValidDataLength,
     IN BOOLEAN AdvanceOnly,
     IN BOOLEAN LogIt
     );
@@ -488,6 +912,17 @@ NtfsWriteFileSizes (
 
 VOID
 NtfsUpdateStandardInformation (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    );
+
+//
+//  This routine grows and updates the standard information attribute from
+//  the information in the Fcb.
+//
+
+VOID
+NtfsGrowStandardInformation (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb
     );
@@ -524,27 +959,6 @@ NtfsLookupEntry (
     OUT PQUICK_INDEX QuickIndex OPTIONAL,
     OUT PINDEX_ENTRY *IndexEntry,
     OUT PBCB *IndexEntryBcb
-    );
-
-VOID
-NtfsAddNameToParent (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB ParentScb,
-    IN PFCB ThisFcb,
-    IN BOOLEAN IgnoreCase,
-    IN BOOLEAN LogIt,
-    IN PFILE_NAME FileNameAttr,
-    OUT PUCHAR FileNameFlags,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
-    );
-
-VOID
-NtfsAddDosOnlyName (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB ParentScb,
-    IN PFCB ThisFcb,
-    IN UNICODE_STRING FileName,
-    IN BOOLEAN LogIt
     );
 
 //
@@ -619,6 +1033,15 @@ NtfsChangeAttributeValue (
     );
 
 VOID
+NtfsConvertToNonresident (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN OUT PATTRIBUTE_RECORD_HEADER Attribute,
+    IN BOOLEAN CreateSectionUnderway,
+    IN OUT PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL
+    );
+
+VOID
 NtfsDeleteAttributeRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
@@ -664,13 +1087,20 @@ NtfsRewriteMftMapping (
     IN PVCB Vcb
     );
 
+VOID
+NtfsSetTotalAllocatedField (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN USHORT CompressionState
+    );
+
 //
 //  The following three routines dealing with allocation are to be
 //  called by allocsup.c only.  Other software must call the routines
 //  in allocsup.c
 //
 
-VOID
+BOOLEAN
 NtfsCreateAttributeWithAllocation (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
@@ -732,7 +1162,8 @@ VOID
 NtfsDeleteFile (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
-    IN PSCB ParentScb OPTIONAL
+    IN PSCB ParentScb OPTIONAL,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     );
 
 VOID
@@ -741,7 +1172,7 @@ NtfsPrepareForUpdateDuplicate (
     IN PFCB Fcb,
     IN OUT PLCB *Lcb,
     IN OUT PSCB *ParentScb,
-    IN OUT PBOOLEAN AcquiredParentScb
+    IN BOOLEAN AcquireShared
     );
 
 VOID
@@ -754,16 +1185,13 @@ NtfsUpdateDuplicateInfo (
 
 VOID
 NtfsUpdateLcbDuplicateInfo (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PLCB Lcb
     );
 
 VOID
 NtfsUpdateFcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN BOOLEAN UpdateLastWrite
+    IN PFCB Fcb
     );
 
 //
@@ -777,9 +1205,10 @@ NtfsAddLink (
     IN PSCB ParentScb,
     IN PFCB Fcb,
     IN PFILE_NAME FileNameAttr,
-    IN BOOLEAN LogIt,
+    IN PBOOLEAN LogIt OPTIONAL,
     OUT PUCHAR FileNameFlags,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
+    OUT PQUICK_INDEX QuickIndex OPTIONAL,
+    IN PNAME_PAIR NamePair OPTIONAL
     );
 
 VOID
@@ -787,7 +1216,8 @@ NtfsRemoveLink (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PSCB ParentScb,
-    IN UNICODE_STRING LinkName
+    IN UNICODE_STRING LinkName,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     );
 
 VOID
@@ -795,7 +1225,8 @@ NtfsRemoveLinkViaFlags (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PSCB Scb,
-    IN UCHAR FileNameFlags
+    IN UCHAR FileNameFlags,
+    IN OUT PNAME_PAIR NamePair OPTIONAL
     );
 
 //
@@ -853,7 +1284,6 @@ NtfsRestartChangeMapping (
 
 VOID
 NtfsRestartWriteEndOfFileRecord (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
     IN PATTRIBUTE_RECORD_HEADER OldAttribute,
     IN PATTRIBUTE_RECORD_HEADER NewAttributes,
@@ -883,7 +1313,7 @@ BOOLEAN
 NtfsAllocateClusters (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN OUT PLARGE_MCB Mcb,
+    IN OUT PSCB Scb,
     IN VCN StartingVcn,
     IN BOOLEAN AllocateAll,
     IN LONGLONG ClusterCount,
@@ -901,16 +1331,17 @@ BOOLEAN
 NtfsDeallocateClusters (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN OUT PLARGE_MCB Mcb,
+    IN OUT PNTFS_MCB Mcb,
     IN VCN StartingVcn,
-    IN VCN EndingVcn
+    IN VCN EndingVcn,
+    OUT PLONGLONG TotalAllocated OPTIONAL
     );
 
 VOID
 NtfsCleanupClusterAllocationHints (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN PLARGE_MCB Mcb
+    IN PNTFS_MCB Mcb
     );
 
 VOID
@@ -1040,16 +1471,24 @@ NtfsFindMftFreeTail (
 //  streams implemented in CacheSup.c
 //
 
-VOID
-NtfsCreateInternalAttributeStream (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN BOOLEAN UpdateScb
-    );
+#define NtfsCreateInternalAttributeStream(IC,S,U) {         \
+    NtfsCreateInternalStreamCommon((IC),(S),(U),FALSE);     \
+}
+
+#define NtfsCreateInternalCompressedStream(IC,S,U) {        \
+    NtfsCreateInternalStreamCommon((IC),(S),(U),TRUE);      \
+}
 
 VOID
-NtfsDeleteInternalAttributeStream (
+NtfsCreateInternalStreamCommon (
     IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN BOOLEAN UpdateScb,
+    IN BOOLEAN CompressedStream
+    );
+
+BOOLEAN
+NtfsDeleteInternalAttributeStream (
     IN PSCB Scb,
     IN BOOLEAN ForceClose
     );
@@ -1113,30 +1552,6 @@ NtfsZeroData (
     IN LONGLONG ByteCount
     );
 
-VOID
-NtfsSetDirtyBcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PBCB Bcb,
-    IN PLSN Lsn OPTIONAL,
-    IN PVCB Vcb OPTIONAL
-    );
-
-//
-//  VOID
-//  NtfsVcnFromBcb (
-//      IN PVCB Vcb,
-//      IN VCN Vcn,
-//      IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
-//      IN PPUBLIC_BCB Bcb
-//      );
-//
-
-#define NtfsVcnFromBcb(VCB,VCN,FR,BCB) {                                            \
-    (VCN).QuadPart = LlClustersFromBytes( (VCB),                                             \
-                                  ((PPUBLIC_BCB)(BCB))->MappedFileOffset.QuadPart );         \
-    (VCN).LowPart += ClustersFromBytes( (VCB), (ULONG) (FR) & (PAGE_SIZE -1));      \
-}
-
 //
 //      VOID
 //      NtfsFreeBcb (
@@ -1153,14 +1568,19 @@ NtfsSetDirtyBcb (
 
 #define NtfsFreeBcb(IC,BC) {                        \
     ASSERT_IRP_CONTEXT(IC);                         \
-    if (*(BC) != NULL) { CcFreePinnedData(*(BC)); } \
-    *(BC) = NULL;                                   \
+    if (*(BC) != NULL)                              \
+    {                                               \
+        CcFreePinnedData(*(BC));                    \
+        *(BC) = NULL;                               \
+    }                                               \
 }
 
-#define NtfsUnpinBcb(IC,BC) {                  \
-    ASSERT_IRP_CONTEXT(IC);                    \
-    if (*(BC) != NULL) { CcUnpinData(*(BC)); } \
-    *(BC) = NULL;                              \
+#define NtfsUnpinBcb(BC) {                          \
+    if (*(BC) != NULL)                              \
+    {                                               \
+        CcUnpinData(*(BC));                         \
+        *(BC) = NULL;                               \
+    }                                               \
 }
 
 
@@ -1180,8 +1600,7 @@ NtfsCheckAttributeRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
-    IN PATTRIBUTE_RECORD_HEADER Attribute,
-    IN BOOLEAN AttributeListSeen
+    IN PATTRIBUTE_RECORD_HEADER Attribute
     );
 
 BOOLEAN
@@ -1214,6 +1633,12 @@ NtfsCheckLogRecord (
     IN TRANSACTION_ID TransactionId
     );
 
+BOOLEAN
+NtfsCheckRestartTable (
+    IN PRESTART_TABLE RestartTable,
+    IN ULONG TableSize
+    );
+
 
 //
 //  Collation routines, implemented in ColatSup.c
@@ -1227,9 +1652,9 @@ NtfsCheckLogRecord (
 typedef
 FSRTL_COMPARISON_RESULT
 (*PCOMPARE_VALUES) (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN FSRTL_COMPARISON_RESULT WildCardIs,
     IN BOOLEAN IgnoreCase
@@ -1238,9 +1663,8 @@ FSRTL_COMPARISON_RESULT
 typedef
 BOOLEAN
 (*PIS_IN_EXPRESSION) (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
@@ -1248,9 +1672,8 @@ BOOLEAN
 typedef
 BOOLEAN
 (*PARE_EQUAL) (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UnicodeTable,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PINDEX_ENTRY IndexEntry,
     IN BOOLEAN IgnoreCase
     );
@@ -1258,17 +1681,15 @@ BOOLEAN
 typedef
 BOOLEAN
 (*PCONTAINS_WILDCARD) (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVOID Value,
-    IN ULONG Length
+    IN PVOID Value
     );
 
 typedef
 VOID
 (*PUPCASE_VALUE) (
-    IN PIRP_CONTEXT IrpContext,
-    IN OUT PVOID Value,
-    IN ULONG ValueLength
+    IN PWCH UnicodeTable,
+    IN ULONG UnicodeTableSize,
+    IN OUT PVOID Value
     );
 
 extern PCOMPARE_VALUES    NtfsCompareValues[COLLATION_NUMBER_RULES];
@@ -1276,6 +1697,100 @@ extern PIS_IN_EXPRESSION  NtfsIsInExpression[COLLATION_NUMBER_RULES];
 extern PARE_EQUAL         NtfsIsEqual[COLLATION_NUMBER_RULES];
 extern PCONTAINS_WILDCARD NtfsContainsWildcards[COLLATION_NUMBER_RULES];
 extern PUPCASE_VALUE      NtfsUpcaseValue[COLLATION_NUMBER_RULES];
+
+BOOLEAN
+NtfsFileNameIsInExpression (
+    IN PWCH UnicodeTable,
+    IN PFILE_NAME ExpressionName,
+    IN PFILE_NAME FileName,
+    IN BOOLEAN IgnoreCase
+    );
+
+BOOLEAN
+NtfsFileNameIsEqual (
+    IN PWCH UnicodeTable,
+    IN PFILE_NAME ExpressionName,
+    IN PFILE_NAME FileName,
+    IN BOOLEAN IgnoreCase
+    );
+
+
+//
+//  Compression on the wire routines in CowSup.c
+//
+
+BOOLEAN
+NtfsCopyReadC (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PVOID Buffer,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    OUT PCOMPRESSED_DATA_INFO CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTSTATUS
+NtfsCompressedCopyRead (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    OUT PVOID Buffer,
+    OUT PMDL *MdlChain,
+    OUT PCOMPRESSED_DATA_INFO CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PFSRTL_ADVANCED_FCB_HEADER Header,
+    IN ULONG CompressionUnitSize,
+    IN ULONG ChunkSize
+    );
+
+BOOLEAN
+NtfsMdlReadCompleteCompressed (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+BOOLEAN
+NtfsCopyWriteC (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    IN PVOID Buffer,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PCOMPRESSED_DATA_INFO CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTSTATUS
+NtfsCompressedCopyWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN PVOID Buffer,
+    OUT PMDL *MdlChain,
+    IN PCOMPRESSED_DATA_INFO CompressedDataInfo,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PFSRTL_ADVANCED_FCB_HEADER Header,
+    IN ULONG CompressionUnitSize,
+    IN ULONG ChunkSize,
+    IN ULONG EngineMatches
+    );
+
+BOOLEAN
+NtfsMdlWriteCompleteCompressed (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
 
 
 //
@@ -1295,7 +1810,6 @@ NtfsLockUserBuffer (
 
 PVOID
 NtfsMapUserBuffer (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PIRP Irp
     );
 
@@ -1323,7 +1837,8 @@ NtfsNonCachedIo (
     IN PIRP Irp,
     IN PSCB Scb,
     IN VBO StartingVbo,
-    IN ULONG ByteCount
+    IN ULONG ByteCount,
+    IN ULONG CompressedStream
     );
 
 VOID
@@ -1337,7 +1852,6 @@ NtfsNonCachedNonAlignedIo (
 
 VOID
 NtfsTransformUsaBlock (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN OUT PVOID SystemBuffer,
     IN OUT PVOID Buffer,
@@ -1345,11 +1859,19 @@ NtfsTransformUsaBlock (
     );
 
 VOID
-NtfsCreateBufferAndMdl (
+NtfsCreateMdlAndBuffer (
     IN PIRP_CONTEXT IrpContext,
-    IN ULONG Length,
-    OUT PMDL *Mdl,
+    IN PSCB ThisScb,
+    IN UCHAR NeedTwoBuffers,
+    IN OUT PULONG Length,
+    OUT PMDL *Mdl OPTIONAL,
     OUT PVOID *Buffer
+    );
+
+VOID
+NtfsDeleteMdlAndBuffer (
+    IN PMDL Mdl OPTIONAL,
+    IN PVOID Buffer OPTIONAL
     );
 
 VOID
@@ -1403,36 +1925,256 @@ typedef enum _TYPE_OF_OPEN {
     UserFileOpen,
     UserDirectoryOpen,
     UserVolumeOpen,
-    UserOpenFileById,
-    UserOpenDirectoryById,
-    StreamFileOpen
+    StreamFileOpen,
+#ifdef _CAIRO_
+    UserPropertySetOpen
+#endif  //  _CAIRO_
 
 } TYPE_OF_OPEN;
 
 VOID
 NtfsSetFileObject (
-    IN PIRP_CONTEXT IrpContext,
     IN PFILE_OBJECT FileObject,
     IN TYPE_OF_OPEN TypeOfOpen,
     IN PSCB Scb,
     IN PCCB Ccb OPTIONAL
     );
 
-TYPE_OF_OPEN
+//
+//  TYPE_OF_OPEN
+//  NtfsDecodeFileObject (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PFILE_OBJECT FileObject,
+//      OUT PVCB *Vcb,
+//      OUT PFCB *Fcb,
+//      OUT PSCB *Scb,
+//      OUT PCCB *Ccb,
+//      IN BOOLEAN RaiseOnError
+//      );
+//
+
+#ifndef _CAIRO_
+#define NtfsDecodeFileObject(IC,FO,V,F,S,C,R) (                                     \
+    ( *(S) = (PSCB)(FO)->FsContext),                                                \
+      ((*(S) != NULL)                                                               \
+        ?   ((*(V) = (*(S))->Vcb),                                                  \
+             (*(C) = (PCCB)(FO)->FsContext2),                                       \
+             (*(F) = (*(S))->Fcb),                                                  \
+             ((R)                                                                   \
+              && !FlagOn((*(V))->VcbState, VCB_STATE_VOLUME_MOUNTED)                \
+              && ((*(C) == NULL)                                                    \
+                  || ((*(C))->TypeOfOpen != UserVolumeOpen)                         \
+                  || !FlagOn((*(V))->VcbState, VCB_STATE_LOCKED))                   \
+              && NtfsRaiseStatusFunction((IC), STATUS_VOLUME_DISMOUNTED)),          \
+             ((*(C) == NULL)                                                        \
+              ? StreamFileOpen                                                      \
+              : (*(C))->TypeOfOpen))                                                \
+        : UnopenedFileObject)                                                       \
+)
+#else //  _CAIRO_
+
+#define FlagOn(F,SF) ( \
+    (((F) & (SF)))     \
+)
+
+_inline TYPE_OF_OPEN
 NtfsDecodeFileObject (
     IN PIRP_CONTEXT IrpContext,
     IN PFILE_OBJECT FileObject,
     OUT PVCB *Vcb,
-    OUT PFCB *Fcb OPTIONAL,
-    OUT PSCB *Scb OPTIONAL,
-    OUT PCCB *Ccb OPTIONAL,
+    OUT PFCB *Fcb,
+    OUT PSCB *Scb,
+    OUT PCCB *Ccb,
     IN BOOLEAN RaiseOnError
+    )
+
+/*++
+
+Routine Description:
+
+    This routine decodes a file object into a Vcb, Fcb, Scb, and Ccb.
+
+Arguments:
+
+    IrpContext - The Irp context to use for raising on an error.
+
+    FileObject - The file object to decode.
+
+    Vcb - Where to store the Vcb.
+
+    Fcb - Where to store the Fcb.
+
+    Scb - Where to store the Scb.
+
+    Ccb - Where to store the Ccb.
+
+    RaiseOnError - If FALSE, we do not raise if we encounter an error.
+                   Otherwise we do raise if we encounter an error.
+
+Return Value:
+
+    Type of open
+
+--*/
+
+{
+    *Scb = (PSCB)FileObject->FsContext;
+
+    if (*Scb != NULL) {
+
+        *Vcb = (*Scb)->Vcb;
+        *Ccb = (PCCB)FileObject->FsContext2;
+        *Fcb = (*Scb)->Fcb;
+
+        //
+        //  If the caller wants us to raise, let's see if there's anything
+        //  we should raise.
+        //
+
+        if (RaiseOnError &&
+            !FlagOn((*Vcb)->VcbState, VCB_STATE_VOLUME_MOUNTED) &&
+            ((*Ccb == NULL) ||
+             ((*Ccb)->TypeOfOpen != UserVolumeOpen) ||
+             !FlagOn((*Vcb)->VcbState, VCB_STATE_LOCKED))) {
+
+            NtfsRaiseStatusFunction( IrpContext, STATUS_VOLUME_DISMOUNTED );
+        }
+
+        //
+        //  Every open except a StreamFileOpen has a Ccb.
+        //
+
+        if (*Ccb == NULL) {
+
+            return StreamFileOpen;
+
+        } else {
+
+            return (*Ccb)->TypeOfOpen;
+        }
+
+    } else {
+
+        //
+        //  No Scb, we assume the file wasn't open.
+        //
+
+        return UnopenedFileObject;
+    }
+}
+#endif // _CAIRO_
+
+//
+//  PSCB
+//  NtfsFastDecodeUserFileOpen (
+//      IN PFILE_OBJECT FileObject
+//      );
+//
+
+#define NtfsFastDecodeUserFileOpen(FO) (                                                        \
+    (((FO)->FsContext2 != NULL) && (((PCCB)(FO)->FsContext2)->TypeOfOpen == UserFileOpen)) ?    \
+    (PSCB)(FO)->FsContext : NULL                                                                \
+)
+
+VOID
+NtfsUpdateScbFromFileObject (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFILE_OBJECT FileObject,
+    IN PSCB Scb,
+    IN BOOLEAN CheckTimeStamps
+    );
+
+//
+//  Ntfs-private FastIo routines.
+//
+
+BOOLEAN
+NtfsCopyReadA (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN BOOLEAN Wait,
+    IN ULONG LockKey,
+    OUT PVOID Buffer,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
     );
 
-PSCB
-NtfsFastDecodeUserFileOpen (
-    IN PFILE_OBJECT FileObject
+BOOLEAN
+NtfsCopyWriteA (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN BOOLEAN Wait,
+    IN ULONG LockKey,
+    IN PVOID Buffer,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
     );
+
+BOOLEAN
+NtfsMdlReadA (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+BOOLEAN
+NtfsPrepareMdlWriteA (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+BOOLEAN
+NtfsWaitForIoAtEof (
+    IN PFSRTL_ADVANCED_FCB_HEADER Header,
+    IN OUT PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN PEOF_WAIT_BLOCK EofWaitBlock
+    );
+
+VOID
+NtfsFinishIoAtEof (
+    IN PFSRTL_ADVANCED_FCB_HEADER Header
+    );
+
+//
+//  VOID
+//  FsRtlLockFsRtlHeader (
+//      IN PFSRTL_ADVANCED_FCB_HEADER FsRtlHeader
+//      );
+//
+//  VOID
+//  FsRtlUnlockFsRtlHeader (
+//      IN PFSRTL_ADVANCED_FCB_HEADER FsRtlHeader
+//      );
+//
+
+#define FsRtlLockFsRtlHeader(H) {                           \
+    EOF_WAIT_BLOCK eb;                                      \
+    LARGE_INTEGER ef = {FILE_WRITE_TO_END_OF_FILE, -1};     \
+    ExAcquireFastMutex( (H)->FastMutex );                   \
+    if (((H)->Flags & FSRTL_FLAG_EOF_ADVANCE_ACTIVE)) {     \
+        NtfsWaitForIoAtEof( (H), &ef, 0, &eb );             \
+    }                                                       \
+    (H)->Flags |= FSRTL_FLAG_EOF_ADVANCE_ACTIVE;            \
+    ExReleaseFastMutex( (H)->FastMutex );                   \
+}
+
+#define FsRtlUnlockFsRtlHeader(H) {                         \
+    ExAcquireFastMutex( (H)->FastMutex );                   \
+    NtfsFinishIoAtEof( (H) );                               \
+    ExReleaseFastMutex( (H)->FastMutex );                   \
+}
 
 
 //
@@ -1442,14 +2184,21 @@ NtfsFastDecodeUserFileOpen (
 VOID
 NtfsCreateIndex (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PFCB Fcb,
+    IN OUT PFCB Fcb,
     IN ATTRIBUTE_TYPE_CODE IndexedAttributeType,
     IN COLLATION_RULE CollationRule,
-    IN UCHAR ClustersPerIndexBuffer,
+    IN ULONG BytesPerIndexBuffer,
+    IN UCHAR BlocksPerIndexBuffer,
     IN PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL,
     IN USHORT AttributeFlags,
     IN BOOLEAN NewIndex,
-    IN BOOLEAN LogIt
+    IN BOOLEAN LogIt
+    );
+
+VOID
+NtfsUpdateIndexScbFromAttribute (
+    IN PSCB Scb,
+    IN PATTRIBUTE_RECORD_HEADER IndexRootAttr
     );
 
 BOOLEAN
@@ -1457,7 +2206,6 @@ NtfsFindIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN BOOLEAN IgnoreCase,
     OUT PQUICK_INDEX QuickIndex OPTIONAL,
     OUT PBCB *Bcb,
@@ -1469,7 +2217,6 @@ NtfsUpdateFileNameInIndex (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PFILE_NAME FileName,
-    IN ULONG FileNameLength,
     IN PDUPLICATED_INFORMATION Info,
     IN OUT PQUICK_INDEX QuickIndex OPTIONAL
     );
@@ -1489,7 +2236,6 @@ NtfsDeleteIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PFILE_REFERENCE FileReference
     );
 
@@ -1505,10 +2251,10 @@ NtfsRestartIndexEnumeration (
     IN PCCB Ccb,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN BOOLEAN IgnoreCase,
     IN BOOLEAN NextFlag,
-    OUT PINDEX_ENTRY *IndexEntry
+    OUT PINDEX_ENTRY *IndexEntry,
+    IN PFCB AcquiredFcb OPTIONAL
     );
 
 BOOLEAN
@@ -1520,13 +2266,15 @@ NtfsContinueIndexEnumeration (
     OUT PINDEX_ENTRY *IndexEntry
     );
 
-PINDEX_ENTRY
-NtfsRetrieveOtherIndexEntry (
+PFILE_NAME
+NtfsRetrieveOtherFileName (
     IN PIRP_CONTEXT IrpContext,
     IN PCCB Ccb,
     IN PSCB Scb,
     IN PINDEX_ENTRY IndexEntry,
-    IN OUT PINDEX_CONTEXT OtherContext
+    IN OUT PINDEX_CONTEXT OtherContext,
+    IN PFCB AcquiredFcb OPTIONAL,
+    OUT PBOOLEAN SynchronizationError
     );
 
 VOID
@@ -1550,7 +2298,6 @@ NtfsDeleteIndex (
 
 VOID
 NtfsInitializeIndexContext (
-    IN PIRP_CONTEXT IrpContext,
     OUT PINDEX_CONTEXT IndexContext
     );
 
@@ -1574,7 +2321,7 @@ NtfsReinitializeIndexContext (
 //          );
 //
 
-#define NtfsFoundIndexEntry(IC,IE) ((PVOID) \
+#define NtfsFoundIndexEntry(IE) ((PVOID)    \
     ((PUCHAR) (IE) + sizeof( INDEX_ENTRY )) \
 )
 
@@ -1593,7 +2340,6 @@ NtfsRestartInsertSimpleRoot (
 
 VOID
 NtfsRestartInsertSimpleAllocation (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY InsertIndexEntry,
     IN PINDEX_ALLOCATION_BUFFER IndexBuffer,
     IN PINDEX_ENTRY BeforeIndexEntry
@@ -1601,7 +2347,6 @@ NtfsRestartInsertSimpleAllocation (
 
 VOID
 NtfsRestartWriteEndOfIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_HEADER IndexHeader,
     IN PINDEX_ENTRY OverwriteIndexEntry,
     IN PINDEX_ENTRY FirstNewIndexEntry,
@@ -1609,15 +2354,13 @@ NtfsRestartWriteEndOfIndex (
     );
 
 VOID
-NtfsRestartSetIndexVcn(
-    IN PIRP_CONTEXT IrpContext,
+NtfsRestartSetIndexBlock(
     IN PINDEX_ENTRY IndexEntry,
-    IN VCN Vcn
+    IN LONGLONG IndexBlock
     );
 
 VOID
 NtfsRestartUpdateFileName(
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY IndexEntry,
     IN PDUPLICATED_INFORMATION Info
     );
@@ -1632,10 +2375,15 @@ NtfsRestartDeleteSimpleRoot (
 
 VOID
 NtfsRestartDeleteSimpleAllocation (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY IndexEntry,
     IN PINDEX_ALLOCATION_BUFFER IndexBuffer
     );
+
+VOID
+NtOfsRestartUpdateDataInIndex(
+    IN PINDEX_ENTRY IndexEntry,
+    IN PVOID IndexData,
+    IN ULONG Length );
 
 
 //
@@ -1653,10 +2401,10 @@ NtfsWriteLog (
     IN NTFS_LOG_OPERATION UndoOperation,
     IN PVOID UndoBuffer OPTIONAL,
     IN ULONG UndoLength,
-    IN VCN Vcn,
+    IN LONGLONG StreamOffset,
     IN ULONG RecordOffset,
     IN ULONG AttributeOffset,
-    IN ULONG ClusterCount
+    IN ULONG StructureSize
     );
 
 VOID
@@ -1690,20 +2438,17 @@ NtfsInitializeLogging (
 
 VOID
 NtfsStartLogFile (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB LogFileScb,
     IN PVCB Vcb
     );
 
 VOID
 NtfsStopLogFile (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     );
 
 VOID
 NtfsInitializeRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN ULONG EntrySize,
     IN ULONG NumberEntries,
     OUT PRESTART_POINTERS TablePointer
@@ -1711,7 +2456,6 @@ NtfsInitializeRestartTable (
 
 VOID
 InitializeNewTable (
-    IN PIRP_CONTEXT IrpContext,
     IN ULONG EntrySize,
     IN ULONG NumberEntries,
     OUT PRESTART_POINTERS TablePointer
@@ -1719,13 +2463,11 @@ InitializeNewTable (
 
 VOID
 NtfsFreeRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer
     );
 
 VOID
 NtfsExtendRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG NumberNewEntries,
     IN ULONG FreeGoal
@@ -1733,20 +2475,17 @@ NtfsExtendRestartTable (
 
 ULONG
 NtfsAllocateRestartTableIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer
     );
 
 PVOID
 NtfsAllocateRestartTableFromIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG Index
     );
 
 VOID
 NtfsFreeRestartTableIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG Index
     );
@@ -1764,24 +2503,190 @@ NtfsGetNextRestartTable (
 
 //
 //      VOID
+//      NtfsNormalizeAndCleanupTransaction (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN NTSTATUS *Status,
+//          IN BOOLEAN AlwaysRaise,
+//          IN NTSTATUS NormalizeStatus
+//          );
+//
+//      VOID
 //      NtfsCleanupTransaction (
 //          IN PIRP_CONTEXT IrpContext,
-//          IN NTSTATUS Status
+//          IN NTSTATUS Status,
+//          IN BOOLEAN AlwaysRaise
 //          );
 //
 
-#define NtfsCleanupTransaction(IC,STAT) {                               \
-    if ((IC)->TopLevelIrpContext->TransactionId != 0 &&                 \
-        (IC)->TopLevelIrpContext == (IC)) {                             \
-        if (!NT_SUCCESS( (IC)->TopLevelIrpContext->ExceptionStatus )) { \
-            NtfsRaiseStatus( (IC),                                      \
-                             (IC)->TopLevelIrpContext->ExceptionStatus, \
-                             NULL,                                      \
-                             NULL );                                    \
-        } else if (NT_ERROR( STAT )) {                                  \
-            NtfsRaiseStatus( (IC), STAT, NULL, NULL );                  \
-        }                                                               \
-    }                                                                   \
+#define NtfsNormalizeAndCleanupTransaction(IC,PSTAT,RAISE,NORM_STAT) {                  \
+    if (!NT_SUCCESS( (IC)->TopLevelIrpContext->ExceptionStatus )) {                     \
+        NtfsRaiseStatus( (IC), (IC)->TopLevelIrpContext->ExceptionStatus, NULL, NULL ); \
+    } else if (!NT_SUCCESS( *(PSTAT) )) {                                               \
+        *(PSTAT) = FsRtlNormalizeNtstatus( *(PSTAT), (NORM_STAT) );                     \
+        if ((RAISE) || ((IC)->TopLevelIrpContext->TransactionId != 0)) {                \
+            NtfsRaiseStatus( (IC), *(PSTAT), NULL, NULL );                              \
+        }                                                                               \
+    }                                                                                   \
+}
+
+#define NtfsCleanupTransaction(IC,STAT,RAISE) {                                         \
+    if (!NT_SUCCESS( (IC)->TopLevelIrpContext->ExceptionStatus )) {                     \
+        NtfsRaiseStatus( (IC), (IC)->TopLevelIrpContext->ExceptionStatus, NULL, NULL ); \
+    } else if (!NT_SUCCESS( STAT ) &&                                                   \
+              ((RAISE) || ((IC)->TopLevelIrpContext->TransactionId != 0))) {            \
+        NtfsRaiseStatus( (IC), (STAT), NULL, NULL );                                    \
+    }                                                                                   \
+}
+
+
+//
+//  NTFS MCB support routine, implemented in McbSup.c
+//
+
+//
+//  An Ntfs Mcb is a superset of the regular mcb package.  In
+//  addition to the regular Mcb functions it will unload mapping
+//  information to keep it overall memory usage down
+//
+
+VOID
+NtfsInitializeNtfsMcb (
+    IN PNTFS_MCB Mcb,
+    IN PFSRTL_ADVANCED_FCB_HEADER FcbHeader,
+    IN PNTFS_MCB_INITIAL_STRUCTS McbStructs,
+    IN POOL_TYPE PoolType
+    );
+
+VOID
+NtfsUninitializeNtfsMcb (
+    IN PNTFS_MCB Mcb
+    );
+
+VOID
+NtfsRemoveNtfsMcbEntry (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG Vcn,
+    IN LONGLONG Count
+    );
+
+VOID
+NtfsUnloadNtfsMcbRange (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG StartingVcn,
+    IN LONGLONG EndingVcn,
+    IN BOOLEAN TruncateOnly,
+    IN BOOLEAN AlreadySynchronized
+    );
+
+ULONG
+NtfsNumberOfRangesInNtfsMcb (
+    IN PNTFS_MCB Mcb
+    );
+
+BOOLEAN
+NtfsNumberOfRunsInRange(
+    IN PNTFS_MCB Mcb,
+    IN PVOID RangePtr,
+    OUT PULONG NumberOfRuns
+    );
+
+BOOLEAN
+NtfsLookupLastNtfsMcbEntry (
+    IN PNTFS_MCB Mcb,
+    OUT PLONGLONG Vcn,
+    OUT PLONGLONG Lcn
+    );
+
+ULONG
+NtfsMcbLookupArrayIndex (
+    IN PNTFS_MCB Mcb,
+    IN VCN Vcn
+    );
+
+BOOLEAN
+NtfsSplitNtfsMcb (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG Vcn,
+    IN LONGLONG Amount
+    );
+
+BOOLEAN
+NtfsAddNtfsMcbEntry (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG Vcn,
+    IN LONGLONG Lcn,
+    IN LONGLONG RunCount,
+    IN BOOLEAN AlreadySynchronized
+    );
+
+BOOLEAN
+NtfsLookupNtfsMcbEntry (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG Vcn,
+    OUT PLONGLONG Lcn OPTIONAL,
+    OUT PLONGLONG CountFromLcn OPTIONAL,
+    OUT PLONGLONG StartingLcn OPTIONAL,
+    OUT PLONGLONG CountFromStartingLcn OPTIONAL,
+    OUT PVOID *RangePtr OPTIONAL,
+    OUT PULONG RunIndex OPTIONAL
+    );
+
+BOOLEAN
+NtfsGetNextNtfsMcbEntry (
+    IN PNTFS_MCB Mcb,
+    IN PVOID *RangePtr,
+    IN ULONG RunIndex,
+    OUT PLONGLONG Vcn,
+    OUT PLONGLONG Lcn,
+    OUT PLONGLONG Count
+    );
+
+//
+//  BOOLEAN
+//  NtfsGetSequentialMcbEntry (
+//      IN PNTFS_MCB Mcb,
+//      IN PVOID *RangePtr,
+//      IN ULONG RunIndex,
+//      OUT PLONGLONG Vcn,
+//      OUT PLONGLONG Lcn,
+//      OUT PLONGLONG Count
+//      );
+//
+
+#define NtfsGetSequentialMcbEntry(MC,RGI,RNI,V,L,C) (   \
+    NtfsGetNextNtfsMcbEntry(MC,RGI,RNI,V,L,C) ||        \
+    (RNI = 0) ||                                        \
+    NtfsGetNextNtfsMcbEntry(MC,RGI,MAXULONG,V,L,C) ||   \
+    ((RNI = MAXULONG) == 0)                             \
+    )
+
+
+VOID
+NtfsDefineNtfsMcbRange (
+    IN PNTFS_MCB Mcb,
+    IN LONGLONG StartingVcn,
+    IN LONGLONG EndingVcn,
+    IN BOOLEAN AlreadySynchronized
+    );
+
+//
+//  VOID
+//  NtfsAcquireNtfsMcbMutex (
+//      IN PNTFS_MCB Mcb
+//      );
+//
+//  VOID
+//  NtfsReleaseNtfsMcbMutex (
+//      IN PNTFS_MCB Mcb
+//      );
+//
+
+#define NtfsAcquireNtfsMcbMutex(M) {    \
+    ExAcquireFastMutex((M)->FastMutex); \
+}
+
+#define NtfsReleaseNtfsMcbMutex(M) {    \
+    ExReleaseFastMutex((M)->FastMutex); \
 }
 
 
@@ -1839,7 +2744,6 @@ MFT_SEGMENT_REFERENCE
 NtfsAllocateMftRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN MFT_SEGMENT_REFERENCE HintLocation,
     IN BOOLEAN MftData
     );
 
@@ -1857,8 +2761,7 @@ VOID
 NtfsDeallocateMftRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN ULONG FileNumber,
-    IN BOOLEAN MftData
+    IN ULONG FileNumber
     );
 
 BOOLEAN
@@ -1881,6 +2784,7 @@ NtfsLogMftFileRecord (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PFILE_RECORD_SEGMENT_HEADER FileRecord,
+    IN LONGLONG MftOffset,
     IN PBCB FileRecordBcb,
     IN BOOLEAN RedoOperation
     );
@@ -1892,7 +2796,6 @@ NtfsDefragMft (
 
 VOID
 NtfsCheckForDefrag (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PVCB Vcb
     );
 
@@ -1920,17 +2823,11 @@ typedef enum _PARSE_TERMINATION_REASON {
 
 } PARSE_TERMINATION_REASON;
 
-VOID
-NtfsDissectName (
-    IN PIRP_CONTEXT IrpContext,
-    IN UNICODE_STRING Path,
-    OUT PUNICODE_STRING FirstName,
-    OUT PUNICODE_STRING RemainingName
-    );
+#define NtfsDissectName(Path,FirstName,RemainingName)   \
+    ( FsRtlDissectName( Path, FirstName, RemainingName ) )
 
 BOOLEAN
 NtfsParseName (
-    IN PIRP_CONTEXT IrpContext,
     IN UNICODE_STRING Name,
     IN BOOLEAN WildCardsPermissible,
     OUT PBOOLEAN FoundIllegalCharacter,
@@ -1939,7 +2836,6 @@ NtfsParseName (
 
 PARSE_TERMINATION_REASON
 NtfsParsePath (
-    IN PIRP_CONTEXT IrpContext,
     IN UNICODE_STRING Path,
     IN BOOLEAN WildCardsPermissible,
     OUT PUNICODE_STRING FirstPart,
@@ -1949,7 +2845,6 @@ NtfsParsePath (
 
 VOID
 NtfsPreprocessName (
-    IN PIRP_CONTEXT IrpContext,
     IN UNICODE_STRING InputString,
     OUT PUNICODE_STRING FirstPart,
     OUT PUNICODE_STRING AttributeCode,
@@ -1959,43 +2854,32 @@ NtfsPreprocessName (
 
 VOID
 NtfsUpcaseName (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UpcaseTable,
+    IN ULONG UpcaseTableSize,
     IN OUT PUNICODE_STRING InputString
-    );
-
-BOOLEAN
-NtfsDoesNameContainWildCards (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Name
     );
 
 FSRTL_COMPARISON_RESULT
 NtfsCollateNames (
-    IN PIRP_CONTEXT IrpContext,
+    IN PWCH UpcaseTable,
+    IN ULONG UpcaseTableSize,
     IN PUNICODE_STRING Expression,
     IN PUNICODE_STRING Name,
     IN FSRTL_COMPARISON_RESULT WildIs,
     IN BOOLEAN IgnoreCase
     );
 
-BOOLEAN
-NtfsIsNameInExpression (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Expression,
-    IN PUNICODE_STRING Name,
-    IN BOOLEAN IgnoreCase
-    );
+#define NtfsIsNameInExpression(UC,EX,NM,IC)         \
+    FsRtlIsNameInExpression( (EX), (NM), (IC), (UC) )
 
 BOOLEAN
 NtfsIsFileNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN PUNICODE_STRING FileName,
     IN BOOLEAN WildCardsPermissible
     );
 
 BOOLEAN
 NtfsIsFatNameValid (
-    IN PIRP_CONTEXT IrpContext,
     IN PUNICODE_STRING FileName,
     IN BOOLEAN WildCardsPermissible
     );
@@ -2005,13 +2889,21 @@ NtfsIsDosNameInCurrentCodePage(
     IN  PUNICODE_STRING FileName
     );
 
-BOOLEAN
-NtfsAreNamesEqual (
-    IN PIRP_CONTEXT IrpContext,
-    IN PUNICODE_STRING Name1,
-    IN PUNICODE_STRING Name2,
-    IN BOOLEAN IgnoreCase
-    );
+//
+//  Ntfs works very hard to make sure that all names are kept in upper case
+//  so that most comparisons are done case SENSITIVE.  Name testing for
+//  case SENSITIVE can be very quick since RtlEqualMemory is an inline operation
+//  on several processors.
+//
+//  NtfsAreNamesEqual is used when the caller does not know for sure whether
+//  or not case is important.  In the case where IgnoreCase is a known value,
+//  the compiler can easily optimize the relevant clause.
+//
+
+#define NtfsAreNamesEqual(UpcaseTable,Name1,Name2,IgnoreCase)                           \
+    ((IgnoreCase) ? FsRtlAreNamesEqual( (Name1), (Name2), (IgnoreCase), (UpcaseTable) ) \
+                  : ((Name1)->Length == (Name2)->Length &&                              \
+                     RtlEqualMemory( (Name1)->Buffer, (Name2)->Buffer, (Name1)->Length )))
 
 
 //
@@ -2020,14 +2912,12 @@ NtfsAreNamesEqual (
 
 VOID
 NtfsInsertPrefix (
-    IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb,
     IN BOOLEAN IgnoreCase
     );
 
 VOID
 NtfsRemovePrefix (
-    IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb
     );
 
@@ -2045,7 +2935,6 @@ NtfsFindPrefix (
 
 BOOLEAN
 NtfsInsertNameLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PRTL_SPLAY_LINKS *RootNode,
     IN PNAME_LINK NameLink
     );
@@ -2053,19 +2942,17 @@ NtfsInsertNameLink (
 //
 //  VOID
 //  NtfsRemoveNameLink (
-//      IN PIRP_CONTEXT IrpContext,
 //      IN PRTL_SPLAY_LINKS *RootNode,
 //      IN PNAME_LINK NameLink
 //      );
 //
 
-#define NtfsRemoveNameLink(IC,RN,NL) {      \
+#define NtfsRemoveNameLink(RN,NL) {      \
     *(RN) = RtlDelete( &(NL)->Links );      \
 }
 
 PNAME_LINK
 NtfsFindNameLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PRTL_SPLAY_LINKS *RootNode,
     IN PUNICODE_STRING Name
     );
@@ -2120,13 +3007,15 @@ VOID
 NtfsAcquireAllFiles (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN BOOLEAN Exclusive
+    IN BOOLEAN Exclusive,
+    IN BOOLEAN AcquirePagingIo
     );
 
 VOID
 NtfsReleaseAllFiles (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb
+    IN PVCB Vcb,
+    IN BOOLEAN ReleasePagingIo
     );
 
 BOOLEAN
@@ -2141,6 +3030,37 @@ NtfsAcquireSharedVcb (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN BOOLEAN RaiseOnCantWait
+    );
+
+#define NtfsAcquireExclusivePagingIo(IC,FCB) {                  \
+    ASSERT((IC)->FcbWithPagingExclusive == NULL);               \
+    ExAcquireResourceExclusive((FCB)->PagingIoResource, TRUE);  \
+    (IC)->FcbWithPagingExclusive = (FCB);                       \
+}
+
+#define NtfsReleasePagingIo(IC,FCB) {                                   \
+    ASSERT((IC)->FcbWithPagingExclusive == (FCB));                      \
+    ExReleaseResource((FCB)->PagingIoResource);                         \
+    (IC)->FcbWithPagingExclusive = NULL;                                \
+}
+
+BOOLEAN
+NtfsAcquireFcbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN BOOLEAN DontWait
+    );
+
+VOID
+NtfsReleaseFcbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    );
+
+VOID
+NtfsReleaseScbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
     );
 
 BOOLEAN
@@ -2167,33 +3087,20 @@ NtfsReleaseFcb (
     );
 
 VOID
-NtfsAcquireExclusivePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    );
-
-VOID
-NtfsReleasePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    );
-
-VOID
-NtfsAcquireExclusivePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    );
-
-VOID
-NtfsReleasePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    );
-
-VOID
 NtfsAcquireExclusiveScb (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb
+    );
+
+VOID
+NtfsAcquireSharedScbForTransaction (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    );
+
+VOID
+NtfsReleaseSharedResources (
+    IN PIRP_CONTEXT IrpContext
     );
 
 //
@@ -2224,6 +3131,18 @@ NtfsAcquireExclusiveScb (
 //      NtfsReleaseFcbTable (
 //          IN PIRP_CONTEXT IrpContext,
 //          IN PVCB Vcb
+//          );
+//
+//      VOID
+//      NtfsLockFcb (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PFCB Fcb
+//          );
+//
+//      VOID
+//      NtfsUnlockFcb (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PFCB Fcb
 //          );
 //
 //      VOID
@@ -2268,11 +3187,38 @@ NtfsAcquireExclusiveScb (
 //          IN PVCB Vcb
 //          );
 //
+//      VOID
+//      NtfsAcquireReservedClusters (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PVCB Vcb
+//          );
+//
+//      VOID
+//      NtfsReleaseReservedClusters (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PVCB Vcb
+//          );
+//
+//      VOID NtfsAcquireFsrtlHeader (
+//          IN PSCB Scb
+//          );
+//
+//      VOID NtfsReleaseFsrtlHeader (
+//          IN PSCB Scb
+//          );
+//
+//      VOID
+//      NtfsReleaseVcb (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PVCB Vcb
+//          );
+//
 
 VOID
-NtfsReleaseVcb (
+NtfsReleaseVcbCheckDelete (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
+    IN UCHAR MajorCode,
     IN PFILE_OBJECT FileObject OPTIONAL
     );
 
@@ -2290,31 +3236,33 @@ NtfsReleaseVcb (
 
 #define NtfsAcquireFcbTable(IC,V) {                         \
     ExAcquireFastMutexUnsafe( &(V)->FcbTableMutex );        \
-    (V)->FcbTableThread = (PVOID) PsGetCurrentThread();     \
 }
 
 #define NtfsReleaseFcbTable(IC,V) {                         \
-    (V)->FcbTableThread = NULL;                             \
     ExReleaseFastMutexUnsafe( &(V)->FcbTableMutex );        \
 }
 
-#define NtfsAcquireFcbSecurity(IC,V) {                      \
-    ExAcquireFastMutexUnsafe( &(V)->FcbSecurityMutex );     \
-    (V)->FcbSecurityThread = (PVOID) PsGetCurrentThread();  \
+#define NtfsLockFcb(IC,F) {                                 \
+    ExAcquireFastMutexUnsafe( (F)->FcbMutex );              \
 }
 
-#define NtfsReleaseFcbSecurity(IC,V) {                      \
-    (V)->FcbSecurityThread = NULL;                          \
+#define NtfsUnlockFcb(IC,F) {                               \
+    ExReleaseFastMutexUnsafe( (F)->FcbMutex );              \
+}
+
+#define NtfsAcquireFcbSecurity(V) {                         \
+    ExAcquireFastMutexUnsafe( &(V)->FcbSecurityMutex );     \
+}
+
+#define NtfsReleaseFcbSecurity(V) {                         \
     ExReleaseFastMutexUnsafe( &(V)->FcbSecurityMutex );     \
 }
 
 #define NtfsAcquireCheckpoint(IC,V) {                       \
     ExAcquireFastMutexUnsafe( &(V)->CheckpointMutex );      \
-    (V)->CheckpointThread = (PVOID) PsGetCurrentThread();   \
 }
 
 #define NtfsReleaseCheckpoint(IC,V) {                       \
-    (V)->CheckpointThread = NULL;                           \
     ExReleaseFastMutexUnsafe( &(V)->CheckpointMutex );      \
 }
 
@@ -2331,13 +3279,31 @@ NtfsReleaseVcb (
 }
 
 #define NtfsSetCheckpointNotify(IC,V) {                             \
-    (V)->CheckpointNotifyThread = NULL;                             \
     KeSetEvent( &(V)->CheckpointNotifyEvent, 0, FALSE );            \
 }
 
 #define NtfsResetCheckpointNotify(IC,V) {                           \
-    KeResetEvent( &(V)->CheckpointNotifyEvent );                    \
-    (V)->CheckpointNotifyThread = (PVOID) PsGetCurrentThread();     \
+    KeClearEvent( &(V)->CheckpointNotifyEvent );                    \
+}
+
+#define NtfsAcquireReservedClusters(V) {                    \
+    ExAcquireFastMutex( &(V)->FcbSecurityMutex );           \
+}
+
+#define NtfsReleaseReservedClusters(V) {                    \
+    ExReleaseFastMutex( &(V)->FcbSecurityMutex );           \
+}
+
+#define NtfsAcquireFsrtlHeader(S) {                         \
+    ExAcquireFastMutex((S)->Header.FastMutex);              \
+}
+
+#define NtfsReleaseFsrtlHeader(S) {                         \
+    ExReleaseFastMutex((S)->Header.FastMutex);              \
+}
+
+#define NtfsReleaseVcb(IC,V) {                              \
+    ExReleaseResource( &(V)->Resource );                    \
 }
 
 //
@@ -2391,6 +3357,37 @@ NtfsReleaseScbFromLazyWrite (
     IN PVOID Null
     );
 
+NTSTATUS
+NtfsAcquireFileForModWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER EndingOffset,
+    OUT PERESOURCE *ResourceToRelease,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTSTATUS
+NtfsAcquireFileForCcFlush (
+    IN PFILE_OBJECT FileObject,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTSTATUS
+NtfsReleaseFileForCcFlush (
+    IN PFILE_OBJECT FileObject,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+VOID
+NtfsAcquireForCreateSection (
+    IN PFILE_OBJECT FileObject
+    );
+
+VOID
+NtfsReleaseForCreateSection (
+    IN PFILE_OBJECT FileObject
+    );
+
+
 BOOLEAN
 NtfsAcquireScbForReadAhead (
     IN PVOID Null,
@@ -2442,7 +3439,7 @@ NtfsAbortTransaction (
     IN PTRANSACTION_ENTRY Transaction OPTIONAL
     );
 
-VOID
+NTSTATUS
 NtfsCloseAttributesFromRestart (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
@@ -2510,7 +3507,11 @@ NtfsAssignSecurity (
     IN PIRP_CONTEXT IrpContext,
     IN PFCB ParentFcb,
     IN PIRP Irp,
-    IN PFCB NewFcb
+    IN PFCB NewFcb,
+    IN PFILE_RECORD_SEGMENT_HEADER FileRecord,      //  BUGBUG delete
+    IN PBCB FileRecordBcb,                          //  BUGBUG delete
+    IN LONGLONG FileOffset,                         //  BUGBUG delete
+    IN OUT PBOOLEAN LogIt                           //  BUGBUG delete
     );
 
 NTSTATUS
@@ -2543,7 +3544,6 @@ NtfsAccessCheck (
 NTSTATUS
 NtfsCheckFileForDelete (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
     IN PSCB ParentScb,
     IN PFCB ThisFcb,
     IN BOOLEAN FcbExisted,
@@ -2553,7 +3553,6 @@ NtfsCheckFileForDelete (
 VOID
 NtfsCheckIndexForAddOrDelete (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
     IN PFCB ParentFcb,
     IN ACCESS_MASK DesiredAccess
     );
@@ -2563,13 +3562,15 @@ NtfsUpdateFcbSecurity (
     IN PIRP_CONTEXT IrpContext,
     IN OUT PFCB Fcb,
     IN PFCB ParentFcb OPTIONAL,
+#ifdef _CAIRO_
+    IN SECURITY_ID SecurityId,
+#endif
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN ULONG SecurityDescriptorLength
     );
 
 VOID
 NtfsDereferenceSharedSecurity (
-    IN PIRP_CONTEXT IrpContext,
     IN OUT PFCB Fcb
     );
 
@@ -2580,24 +3581,38 @@ NtfsNotifyTraverseCheck (
     IN PSECURITY_SUBJECT_CONTEXT SubjectContext
     );
 
+#ifdef _CAIRO_
+VOID
+NtfsInitializeSecurity (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFCB Fcb
+    );
+
+VOID
+NtfsLoadSecurityDescriptorById (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PFCB ParentFcb OPTIONAL
+    );
+
+VOID
+NtOfsPurgeSecurityCache (
+    IN PVCB Vcb
+    );
+
+FSRTL_COMPARISON_RESULT
+NtOfsCollateSecurityHash (
+    IN PINDEX_KEY Key1,
+    IN PINDEX_KEY Key2,
+    IN PVOID CollationData
+    );
+#endif
+
 
 //
 //  In-memory structure support routine, implemented in StrucSup.c
 //
-
-//
-//  Routines to manipulate the Global data structure
-//
-
-VOID
-NtfsInitializeNtfsData (
-    IN PDRIVER_OBJECT DriverObject
-    );
-
-VOID
-NtfsDeleteNtfsData (
-    IN PIRP_CONTEXT IrpContext
-    );
 
 //
 //  Routines to create and destory the Vcb
@@ -2614,8 +3629,7 @@ NtfsInitializeVcb (
 VOID
 NtfsDeleteVcb (
     IN PIRP_CONTEXT IrpContext,
-    IN OUT PVCB *Vcb,
-    IN PFILE_OBJECT FileObject OPTIONAL
+    IN OUT PVCB *Vcb
     );
 
 //
@@ -2634,6 +3648,7 @@ NtfsCreateFcb (
     IN PVCB Vcb,
     IN FILE_REFERENCE FileReference,
     IN BOOLEAN IsPagingFile,
+    IN BOOLEAN LargeFcb,
     OUT PBOOLEAN ReturnedExistingFcb OPTIONAL
     );
 
@@ -2646,9 +3661,8 @@ NtfsDeleteFcb (
 
 PFCB
 NtfsGetNextFcbTableEntry (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN PFCB PreviousFcb
+    IN PVOID *RestartKey
     );
 
 //
@@ -2658,10 +3672,10 @@ NtfsGetNextFcbTableEntry (
 PSCB
 NtfsCreateScb (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
     IN PFCB Fcb,
     IN ATTRIBUTE_TYPE_CODE AttributeTypeCode,
-    IN UNICODE_STRING AttributeName,
+    IN PUNICODE_STRING AttributeName,
+    IN BOOLEAN ReturnExistingOnly,
     OUT PBOOLEAN ReturnedExistingScb OPTIONAL
     );
 
@@ -2686,7 +3700,15 @@ NtfsUpdateNormalizedName (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB ParentScb,
     IN PSCB Scb,
-    IN PFILE_NAME FileName OPTIONAL
+    IN PFILE_NAME FileName OPTIONAL,
+    IN BOOLEAN CheckBufferSizeOnly
+    );
+
+VOID
+NtfsBuildNormalizedName (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    OUT PUNICODE_STRING FileName
     );
 
 VOID
@@ -2714,25 +3736,9 @@ NtfsFreeSnapshotsForFcb (
 
 BOOLEAN
 NtfsCreateFileLock (
-    IN PIRP_CONTEXT IrpContext OPTIONAL,
     IN PSCB Scb,
     IN BOOLEAN RaiseOnError
     );
-
-//
-//      VOID
-//      NtfsUninitializeScb (
-//          IN PIRP_CONTEXT IrpContext,
-//          IN PSCB Scb
-//          );
-//
-
-#define NtfsUninitializeScb(IC,S) {                         \
-    FsRtlTruncateLargeMcb( &(S)->Mcb, (LONGLONG) 0 );       \
-    ClearFlag((S)->ScbState,                                \
-              SCB_STATE_FILE_SIZE_LOADED |                  \
-              SCB_STATE_HEADER_INITIALIZED);                \
-}
 
 //
 //
@@ -2745,9 +3751,9 @@ NtfsTeardownStructures (
     IN PIRP_CONTEXT IrpContext,
     IN PVOID FcbOrScb,
     IN PLCB Lcb OPTIONAL,
-    IN BOOLEAN HoldVcbExclusive,
-    OUT PBOOLEAN RemovedFcb OPTIONAL,
-    BOOLEAN DontWaitForAcquire
+    IN BOOLEAN CheckForAttributeTable,
+    IN BOOLEAN DontWaitForAcquire,
+    OUT PBOOLEAN RemovedFcb OPTIONAL
     );
 
 //
@@ -2776,16 +3782,19 @@ NtfsMoveLcb (   //  also munges the ccb and fileobjects filenames
     IN PLCB Lcb,
     IN PSCB Scb,
     IN PFCB Fcb,
-    IN PUNICODE_STRING TargetFileName,
-    IN UCHAR FileNameFlags
+    IN PUNICODE_STRING TargetDirectoryName,
+    IN PUNICODE_STRING LastComponentName,
+    IN UCHAR FileNameFlags,
+    IN BOOLEAN CheckBufferSizeOnly
     );
 
 VOID
 NtfsRenameLcb ( //  also munges the ccb and fileobjects filenames
     IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb,
-    IN UNICODE_STRING LastComponentFileName,
-    IN UCHAR FileNameFlags
+    IN PUNICODE_STRING LastComponentFileName,
+    IN UCHAR FileNameFlags,
+    IN BOOLEAN CheckBufferSizeOnly
     );
 
 VOID
@@ -2797,21 +3806,18 @@ NtfsCombineLcbs (
 
 PLCB
 NtfsLookupLcbByFlags (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN UCHAR FileNameFlags
     );
 
 ULONG
 NtfsLookupNameLengthViaLcb (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     OUT PBOOLEAN LeadingBackslash
     );
 
 VOID
 NtfsFileNameViaLcb (
-    IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb,
     IN PWCHAR FileName,
     ULONG Length,
@@ -2840,9 +3846,11 @@ NtfsFileNameViaLcb (
 //          );
 //
 
-#define NtfsUnlinkCcbFromLcb(IC,C) {   \
-    RemoveEntryList( &(C)->LcbLinks ); \
-    (C)->Lcb = NULL;                   \
+#define NtfsUnlinkCcbFromLcb(IC,C) {            \
+    if ((C)->Lcb != NULL) {                     \
+        RemoveEntryList( &(C)->LcbLinks );      \
+        (C)->Lcb = NULL;                        \
+    }                                           \
 }
 
 //
@@ -2852,6 +3860,8 @@ NtfsFileNameViaLcb (
 PCCB
 NtfsCreateCcb (
     IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN BOOLEAN Indexed,
     IN USHORT EaModificationCount,
     IN ULONG Flags,
     IN UNICODE_STRING FileName,
@@ -2861,6 +3871,7 @@ NtfsCreateCcb (
 VOID
 NtfsDeleteCcb (
     IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
     IN OUT PCCB *Ccb
     );
 
@@ -2885,7 +3896,6 @@ NtfsDeleteIrpContext (
 
 PSCB
 NtfsGetNextScb (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PSCB TerminationScb
     );
@@ -2896,7 +3906,6 @@ NtfsGetNextScb (
 //
 //      PSCB
 //      NtfsGetNextChildScb (
-//          IN PIRP_CONTEXT IrpContext,
 //          IN PFCB Fcb,
 //          IN PSCB PreviousChildScb
 //          );
@@ -2922,6 +3931,13 @@ NtfsGetNextScb (
 //          IN PLCB PreviousChildLcb
 //          );
 //
+//      PLCB
+//      NtfsGetNextParentLcb (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PFCB Fcb,
+//          IN PLCB PreviousChildLcb
+//          );
+//
 //      PCCB
 //      NtfsGetNextCcb (
 //          IN PIRP_CONTEXT IrpContext,
@@ -2930,7 +3946,7 @@ NtfsGetNextScb (
 //          );
 //
 
-#define NtfsGetNextChildScb(IC,F,P) ((PSCB)                                     \
+#define NtfsGetNextChildScb(F,P) ((PSCB)                                        \
     ((P) == NULL ?                                                              \
         (IsListEmpty(&(F)->ScbQueue) ?                                          \
             NULL                                                                \
@@ -2946,7 +3962,7 @@ NtfsGetNextScb (
     )                                                                           \
 )
 
-#define NtfsGetNextParentLcb(IC,F,P) ((PLCB)                                    \
+#define NtfsGetNextParentLcb(F,P) ((PLCB)                                       \
     ((P) == NULL ?                                                              \
         (IsListEmpty(&(F)->LcbQueue) ?                                          \
             NULL                                                                \
@@ -2962,7 +3978,7 @@ NtfsGetNextScb (
     )                                                                           \
 )
 
-#define NtfsGetNextChildLcb(IC,S,P) ((PLCB)                                           \
+#define NtfsGetNextChildLcb(S,P) ((PLCB)                                              \
     ((P) == NULL ?                                                                    \
         ((((NodeType(S) == NTFS_NTC_SCB_DATA) || (NodeType(S) == NTFS_NTC_SCB_MFT))   \
           || IsListEmpty(&(S)->ScbType.Index.LcbQueue)) ?                             \
@@ -2979,7 +3995,7 @@ NtfsGetNextScb (
     )                                                                                 \
 )
 
-#define NtfsGetPrevChildLcb(IC,S,P) ((PLCB)                                           \
+#define NtfsGetPrevChildLcb(S,P) ((PLCB)                                              \
     ((P) == NULL ?                                                                    \
         ((((NodeType(S) == NTFS_NTC_SCB_DATA) || (NodeType(S) == NTFS_NTC_SCB_MFT))   \
           || IsListEmpty(&(S)->ScbType.Index.LcbQueue)) ?                             \
@@ -2996,7 +4012,23 @@ NtfsGetNextScb (
     )                                                                                 \
 )
 
-#define NtfsGetNextCcb(IC,L,P) ((PCCB)                                          \
+#define NtfsGetNextParentLcb(F,P) ((PLCB)                                             \
+    ((P) == NULL ?                                                                    \
+        (IsListEmpty(&(F)->LcbQueue) ?                                                \
+            NULL                                                                      \
+        :                                                                             \
+            CONTAINING_RECORD((F)->LcbQueue.Flink, LCB, FcbLinks.Flink)               \
+        )                                                                             \
+    :                                                                                 \
+        ((PVOID)((PLCB)(P))->FcbLinks.Flink == &(F)->LcbQueue.Flink ?                 \
+            NULL                                                                      \
+        :                                                                             \
+            CONTAINING_RECORD(((PLCB)(P))->FcbLinks.Flink, LCB, FcbLinks.Flink)       \
+        )                                                                             \
+    )                                                                                 \
+)
+
+#define NtfsGetNextCcb(L,P) ((PCCB)                                             \
     ((P) == NULL ?                                                              \
         (IsListEmpty(&(L)->CcbQueue) ?                                          \
             NULL                                                                \
@@ -3021,7 +4053,7 @@ NtfsGetNextScb (
 //          );
 //
 
-#define NtfsDeleteFcbTableEntry(IC,V,FR) {                        \
+#define NtfsDeleteFcbTableEntry(V,FR) {                           \
     FCB_TABLE_ELEMENT _Key;                                       \
     _Key.FileReference = FR;                                      \
     (VOID) RtlDeleteElementGenericTable( &(V)->FcbTable, &_Key ); \
@@ -3034,27 +4066,23 @@ NtfsGetNextScb (
 
 VOID
 NtfsIncrementCleanupCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG IncrementCount
+    IN BOOLEAN NonCachedHandle
     );
 
 VOID
 NtfsIncrementCloseCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN ULONG IncrementCount,
     IN BOOLEAN SystemFile,
     IN BOOLEAN ReadOnly
     );
 
 VOID
 NtfsDecrementCleanupCounts (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG DecrementCount
+    IN BOOLEAN NonCachedHandle
     );
 
 VOID
@@ -3062,429 +4090,30 @@ NtfsDecrementCloseCounts (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PLCB Lcb OPTIONAL,
-    IN ULONG DecrementCount,
-    IN BOOLEAN HoldVcbExclusive,
     IN BOOLEAN SystemFile,
     IN BOOLEAN ReadOnly,
-    IN BOOLEAN DecrementCountsOnly,
-    OUT PBOOLEAN RemovedFcb OPTIONAL
+    IN BOOLEAN DecrementCountsOnly
     );
 
-//
-//  The following are some macros uses specially for allocating and deallocating
-//  our fixed size structures from the small cache lists of free elements
-//
-//      NtfsAllocateXxx (
-//          PXXX *Xxx
-//          );
-//
-//      NtfsFreeXxx (
-//          PXXX Xxx
-//          );
-//
-//
-//  For debugging purposes we sometimes want to allocate our structures from nonpaged
-//  pool so that in the kernel debugger we can walk all the structures.
-//
-
-#define NtfsPagedPool    PagedPool
-#define NtfsNonPagedPool NonPagedPool
-
-#define NtfsAllocateCcb(C) {                                         \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeCcbSize > 0) {                                  \
-        *(C) = NtfsData.FreeCcbArray[--NtfsData.FreeCcbSize];        \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(CCB) );      \
-    }                                                                \
-}
-
-#define NtfsFreeCcb(C) {                                             \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeCcbSize < FREE_CCB_SIZE) {                      \
-        NtfsData.FreeCcbArray[NtfsData.FreeCcbSize++] = (C);         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateFcb(C) {                                         \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeFcbSize > 0) {                                  \
-        *(C) = NtfsData.FreeFcbArray[--NtfsData.FreeFcbSize];        \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(FCB) );      \
-    }                                                                \
-}
-
-#define NtfsFreeFcb(C) {                                             \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeFcbSize < FREE_FCB_SIZE) {                      \
-        NtfsData.FreeFcbArray[NtfsData.FreeFcbSize++] = (C);         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateLcb(C) {                                         \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeLcbSize > 0) {                                  \
-        *(C) = NtfsData.FreeLcbArray[--NtfsData.FreeLcbSize];        \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(LCB) );      \
-    }                                                                \
-}
-
-#define NtfsFreeLcb(C) {                                             \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeLcbSize < FREE_LCB_SIZE) {                      \
-        NtfsData.FreeLcbArray[NtfsData.FreeLcbSize++] = (C);         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateScbData(C) {                                     \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeScbDataSize > 0) {                              \
-        *(C) = NtfsData.FreeScbDataArray[--NtfsData.FreeScbDataSize];\
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, SIZEOF_SCB_DATA );  \
-    }                                                                \
-}
-
-#define NtfsFreeScbData(C) {                                         \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeScbDataSize < FREE_SCB_DATA_SIZE) {             \
-        NtfsData.FreeScbDataArray[NtfsData.FreeScbDataSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateScbShareData(C) {                                           \
-    KIRQL _SavedIrql;                                                           \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );               \
-    if (NtfsData.FreeScbShareDataSize > 0) {                                    \
-        *(C) = NtfsData.FreeScbShareDataArray[--NtfsData.FreeScbShareDataSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-    } else {                                                                    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, SIZEOF_SCB_SHARE_DATA );       \
-    }                                                                           \
-}
-
-#define NtfsFreeScbShareData(C) {                                               \
-    KIRQL _SavedIrql;                                                           \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );               \
-    if (NtfsData.FreeScbShareDataSize < FREE_SCB_SHARE_DATA_SIZE) {             \
-        NtfsData.FreeScbShareDataArray[NtfsData.FreeScbShareDataSize++] = (C);  \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-    } else {                                                                    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-        ExFreePool( (C) );                                                      \
-    }                                                                           \
-}
-
-#define NtfsAllocateScbIndex(C) {                                       \
-    KIRQL _SavedIrql;                                                   \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );       \
-    if (NtfsData.FreeScbIndexSize > 0) {                                \
-        *(C) = NtfsData.FreeScbIndexArray[--NtfsData.FreeScbIndexSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-    } else {                                                            \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, SIZEOF_SCB_INDEX );    \
-    }                                                                   \
-}
-
-#define NtfsFreeScbIndex(C) {                                           \
-    KIRQL _SavedIrql;                                                   \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );       \
-    if (NtfsData.FreeScbIndexSize < FREE_SCB_INDEX_SIZE) {              \
-        NtfsData.FreeScbIndexArray[NtfsData.FreeScbIndexSize++] = (C);  \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-    } else {                                                            \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-        ExFreePool( (C) );                                              \
-    }                                                                   \
-}
-
-#define NtfsAllocateScbNonpaged(C) {                                            \
-    KIRQL _SavedIrql;                                                           \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );               \
-    if (NtfsData.FreeScbNonpagedSize > 0) {                                     \
-        *(C) = NtfsData.FreeScbNonpagedArray[--NtfsData.FreeScbNonpagedSize];   \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-    } else {                                                                    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-        *(C) = FsRtlAllocatePool( NtfsNonPagedPool, sizeof(SCB_NONPAGED));      \
-    }                                                                           \
-}
-
-#define NtfsFreeScbNonpaged(C) {                                            \
-    KIRQL _SavedIrql;                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );           \
-    if (NtfsData.FreeScbNonpagedSize < FREE_SCB_NONPAGED_SIZE) {            \
-        NtfsData.FreeScbNonpagedArray[NtfsData.FreeScbNonpagedSize++] = (C);\
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-    } else {                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-        ExFreePool( (C) );                                                  \
-    }                                                                       \
-}
-
-#define NtfsAllocateDeallocatedRecords(C) {                                                 \
-    KIRQL _SavedIrql;                                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );                           \
-    if (NtfsData.FreeDeallocatedRecordsSize > 0) {                                          \
-        *(C) = NtfsData.FreeDeallocatedRecordsArray[--NtfsData.FreeDeallocatedRecordsSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );                        \
-    } else {                                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );                        \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(DEALLOCATED_RECORDS) );             \
-    }                                                                                       \
-}
-
-#define NtfsFreeDeallocatedRecords(C) {                                                    \
-    KIRQL _SavedIrql;                                                                      \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );                          \
-    if (NtfsData.FreeDeallocatedRecordsSize < FREE_DEALLOCATED_RECORDS_SIZE) {             \
-        NtfsData.FreeDeallocatedRecordsArray[NtfsData.FreeDeallocatedRecordsSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );                       \
-    } else {                                                                               \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );                       \
-        ExFreePool( (C) );                                                                 \
-    }                                                                                      \
-}
-
-#define NtfsAllocateEresource(C) {                                        \
-    KIRQL _SavedIrql;                                                     \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );         \
-    if (NtfsData.FreeEresourceSize > 0) {                                 \
-        *(C) = NtfsData.FreeEresourceArray[--NtfsData.FreeEresourceSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );      \
-    } else {                                                              \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );      \
-        *(C) = FsRtlAllocatePool( NonPagedPool, sizeof(ERESOURCE) );      \
-    }                                                                     \
-    ExInitializeResource( *(C) );                                         \
-}
-
-#define NtfsFreeEresource(C) {                                           \
-    KIRQL _SavedIrql;                                                    \
-    ExDeleteResource( (C) );                                             \
-    ASSERT_RESOURCE_NOT_MINE( (C) );                                     \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );        \
-    if (NtfsData.FreeEresourceSize < FREE_ERESOURCE_SIZE) {              \
-        NtfsData.FreeEresourceArray[NtfsData.FreeEresourceSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );     \
-    } else {                                                             \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );     \
-        ExFreePool( (C) );                                               \
-    }                                                                    \
-}
-
-#define NtfsAllocateIndexContext(C) {                                           \
-    KIRQL _SavedIrql;                                                           \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );               \
-    if (NtfsData.FreeIndexContextSize > 0) {                                    \
-        *(C) = NtfsData.FreeIndexContextArray[--NtfsData.FreeIndexContextSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-    } else {                                                                    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );            \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(INDEX_CONTEXT) );       \
-    }                                                                           \
-}
-
-#define NtfsFreeIndexContext(C) {                                              \
-    KIRQL _SavedIrql;                                                          \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );              \
-    if (NtfsData.FreeIndexContextSize < FREE_INDEX_CONTEXT_SIZE) {             \
-        NtfsData.FreeIndexContextArray[NtfsData.FreeIndexContextSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );           \
-    } else {                                                                   \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );           \
-        ExFreePool( (C) );                                                     \
-    }                                                                          \
-}
-
-#define NtfsAllocateKevent(C) {                                      \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeKeventSize > 0) {                               \
-        *(C) = NtfsData.FreeKeventArray[--NtfsData.FreeKeventSize];  \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NonPagedPool, sizeof(KEVENT) );    \
-    }                                                                \
-}
-
-#define NtfsFreeKevent(C) {                                          \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeKeventSize < FREE_KEVENT_SIZE) {                \
-        NtfsData.FreeKeventArray[NtfsData.FreeKeventSize++] = (C);   \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateNukem(C) {                                       \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeNukemSize > 0) {                                \
-        *(C) = NtfsData.FreeNukemArray[--NtfsData.FreeNukemSize];    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(NUKEM) );    \
-    }                                                                \
-}
-
-#define NtfsFreeNukem(C) {                                           \
-    KIRQL _SavedIrql;                                                \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );    \
-    if (NtfsData.FreeNukemSize < FREE_NUKEM_SIZE) {                  \
-        NtfsData.FreeNukemArray[NtfsData.FreeNukemSize++] = (C);     \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-    } else {                                                         \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql ); \
-        ExFreePool( (C) );                                           \
-    }                                                                \
-}
-
-#define NtfsAllocateScbSnapshot(C) {                                          \
-    KIRQL _SavedIrql;                                                         \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );             \
-    if (NtfsData.FreeScbSnapshotSize > 0) {                                   \
-        *(C) = NtfsData.FreeScbSnapshotArray[--NtfsData.FreeScbSnapshotSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );          \
-    } else {                                                                  \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );          \
-        *(C) = FsRtlAllocatePool( NtfsNonPagedPool, sizeof(SCB_SNAPSHOT) );   \
-    }                                                                         \
-}
-
-#define NtfsFreeScbSnapshot(C) {                                             \
-    KIRQL _SavedIrql;                                                        \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );            \
-    if (NtfsData.FreeScbSnapshotSize < FREE_SCB_SNAPSHOT_SIZE) {             \
-        NtfsData.FreeScbSnapshotArray[NtfsData.FreeScbSnapshotSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );         \
-    } else {                                                                 \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );         \
-        ExFreePool( (C) );                                                   \
-    }                                                                        \
-}
-
-#define NtfsAllocateFcbTable(C,S) {                                     \
-    KIRQL _SavedIrql;                                                   \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );       \
-    if (NtfsData.FreeFcbTableSize > 0) {                                \
-        *(C) = NtfsData.FreeFcbTableArray[--NtfsData.FreeFcbTableSize]; \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-    } else {                                                            \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );    \
-        *(C) = FsRtlAllocatePool( NtfsNonPagedPool, (S) );              \
-    }                                                                   \
-}
-
-#define NtfsFreeFcbTable(C) {                                          \
-    KIRQL _SavedIrql;                                                  \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );      \
-    if (NtfsData.FreeFcbTableSize < FREE_FCB_TABLE_SIZE) {             \
-        NtfsData.FreeFcbTableArray[NtfsData.FreeFcbTableSize++] = (C); \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );   \
-    } else {                                                           \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );   \
-        ExFreePool( (C) );                                             \
-    }                                                                  \
-}
-
-#define NtfsAllocateIoContext(C) {                                          \
-    KIRQL _SavedIrql;                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );           \
-    if (NtfsData.FreeIoContextSize > 0) {                                   \
-        *(C) = NtfsData.FreeIoContextArray[--NtfsData.FreeIoContextSize];   \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-    } else {                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-        *(C) = FsRtlAllocatePool( NonPagedPool, sizeof(NTFS_IO_CONTEXT) );  \
-    }                                                                       \
-}
-
-#define NtfsFreeIoContext(C) {                                              \
-    KIRQL _SavedIrql;                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );           \
-    if (NtfsData.FreeIoContextSize < FREE_IO_CONTEXT_SIZE) {                \
-        NtfsData.FreeIoContextArray[NtfsData.FreeIoContextSize++] = (C);    \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-    } else {                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-        ExFreePool( (C) );                                                  \
-    }                                                                       \
-}
-
-#define NtfsAllocateFileLock(C) {                                           \
-    KIRQL _SavedIrql;                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );           \
-    if (NtfsData.FreeFileLockSize > 0) {                                    \
-        *(C) = NtfsData.FreeFileLockArray[--NtfsData.FreeFileLockSize];     \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-    } else {                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-        *(C) = FsRtlAllocatePool( NtfsPagedPool, sizeof(FILE_LOCK) );       \
-    }                                                                       \
-}
-
-#define NtfsFreeFileLock(C) {                                               \
-    KIRQL _SavedIrql;                                                       \
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &_SavedIrql );           \
-    if (NtfsData.FreeFileLockSize < FREE_FILE_LOCK_SIZE) {                  \
-        NtfsData.FreeFileLockArray[NtfsData.FreeFileLockSize++] = (C);      \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-    } else {                                                                \
-        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, _SavedIrql );        \
-        ExFreePool( (C) );                                                  \
-    }                                                                       \
-}
-
-PVOID
-NtfsAllocatePagedPool (
-    IN ULONG ByteSize
+PERESOURCE
+NtfsAllocateEresource (
     );
 
 VOID
-NtfsFreePagedPool (
-    IN PVOID PoolBlock
+NtfsFreeEresource (
+    IN PERESOURCE Eresource
+    );
+
+PVOID
+NtfsAllocateFcbTableEntry (
+    IN PRTL_GENERIC_TABLE FcbTable,
+    IN CLONG ByteSize
+    );
+
+VOID
+NtfsFreeFcbTableEntry (
+    IN PRTL_GENERIC_TABLE FcbTable,
+    IN PVOID Buffer
     );
 
 
@@ -3498,9 +4127,9 @@ NtfsFreePagedPool (
 //          );
 //
 
-#define NtfsGetCurrentTime(_IC,_T) { \
-    ASSERT_IRP_CONTEXT(_IC);         \
-    KeQuerySystemTime((PLARGE_INTEGER)&(_T));        \
+#define NtfsGetCurrentTime(_IC,_T) {            \
+    ASSERT_IRP_CONTEXT(_IC);                    \
+    KeQuerySystemTime((PLARGE_INTEGER)&(_T));   \
 }
 
 //
@@ -3513,14 +4142,14 @@ NtfsFreePagedPool (
 //          );
 //
 
-#define NtfsCheckLastAccess(_IC,_FCB)  {                                             \
-    LONGLONG _LastAccessTimeWithInc;                                            \
-    _LastAccessTimeWithInc = NtfsLastAccess + (_FCB)->Info.LastAccessTime;     \
-    if (( _LastAccessTimeWithInc < (_FCB)->CurrentLastAccess )) {                \
-        (_FCB)->Info.LastAccessTime = (_FCB)->CurrentLastAccess;                     \
-        SetFlag( (_FCB)->InfoFlags, FCB_INFO_CHANGED_LAST_ACCESS );                  \
-        SetFlag( (_FCB)->FcbState, FCB_STATE_UPDATE_STD_INFO );                      \
-    }                                                                                \
+#define NtfsCheckLastAccess(_IC,_FCB)  {                                    \
+    LONGLONG _LastAccessTimeWithInc;                                        \
+    _LastAccessTimeWithInc = NtfsLastAccess + (_FCB)->Info.LastAccessTime;  \
+    if (( _LastAccessTimeWithInc < (_FCB)->CurrentLastAccess )) {           \
+        (_FCB)->Info.LastAccessTime = (_FCB)->CurrentLastAccess;            \
+        SetFlag( (_FCB)->InfoFlags, FCB_INFO_CHANGED_LAST_ACCESS );         \
+        SetFlag( (_FCB)->FcbState, FCB_STATE_UPDATE_STD_INFO );             \
+    }                                                                       \
 }
 
 
@@ -3573,6 +4202,14 @@ NtfsIoCallSelf (
     IN UCHAR MajorFunction
     );
 
+BOOLEAN
+NtfsLogEvent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PQUOTA_USER_DATA UserData OPTIONAL,
+    IN NTSTATUS LogCode,
+    IN NTSTATUS FinalStatus
+    );
+
 VOID
 NtfsMarkVolumeDirty (
     IN PIRP_CONTEXT IrpContext,
@@ -3590,7 +4227,6 @@ NtfsUpdateVersionNumber (
 VOID
 NtfsPostVcbIsCorrupt (
     IN PIRP_CONTEXT IrpContext,
-    IN PVOID VcbOrNull OPTIONAL,
     IN NTSTATUS  Status OPTIONAL,
     IN PFILE_REFERENCE FileReference OPTIONAL,
     IN PFCB Fcb OPTIONAL
@@ -3728,12 +4364,13 @@ NtfsPostRequest (
     ((((ULONG)(P)) + 7) & 0xfffffff8) \
 )
 
+//
+//  Conversions between bytes and clusters.  Typically we will round up to the
+//  next cluster unless the macro specifies trucate.
+//
+
 #define ClusterAlign(V,P) (                                       \
     ((((ULONG)(P)) + (V)->ClusterMask) & (V)->InverseClusterMask) \
-)
-
-#define StartingCluster(V,P) (               \
-    (((ULONG)(P)) & (V)->InverseClusterMask) \
 )
 
 #define ClusterOffset(V,P) (          \
@@ -3748,12 +4385,60 @@ NtfsPostRequest (
     ((ULONG)(P)) << (V)->ClusterShift \
 )
 
-#define LlClustersFromBytes(V,L) (                                    \
-    (((L) + (LONGLONG) (V)->ClusterMask) >> (CCHAR)(V)->ClusterShift) \
+#define LlClustersFromBytes(V,L) (                                                  \
+    Int64ShraMod32(((L) + (LONGLONG) (V)->ClusterMask), (CCHAR)(V)->ClusterShift)   \
 )
 
-#define LlBytesFromClusters(V,C) (    \
-    ((C) << (CCHAR)(V)->ClusterShift) \
+#define LlClustersFromBytesTruncate(V,L) (                  \
+    Int64ShraMod32((L), (CCHAR)(V)->ClusterShift)           \
+)
+
+#define LlBytesFromClusters(V,C) (                  \
+    Int64ShllMod32((C), (CCHAR)(V)->ClusterShift)   \
+)
+
+//
+//  Conversions between bytes and file records
+//
+
+#define BytesFromFileRecords(V,B) (                 \
+    ((ULONG)(B)) << (V)->MftShift                   \
+)
+
+#define FileRecordsFromBytes(V,F) (                 \
+    ((ULONG)(F)) >> (V)->MftShift                   \
+)
+
+#define LlBytesFromFileRecords(V,F) (               \
+    Int64ShllMod32((F), (CCHAR)(V)->MftShift)       \
+)
+
+#define LlFileRecordsFromBytes(V,B) (               \
+    Int64ShraMod32((B), (CCHAR)(V)->MftShift)       \
+)
+
+//
+//  Conversions between bytes and index blocks
+//
+
+#define BytesFromIndexBlocks(B,S) (     \
+    ((ULONG)(B)) << (S)                 \
+)
+
+#define LlBytesFromIndexBlocks(B,S) (   \
+    Int64ShllMod32((B), (S))            \
+)
+
+//
+//  Conversions between bytes and log blocks (512 byte blocks)
+//
+
+#define BytesFromLogBlocks(B) (                     \
+    ((ULONG) (B)) << DEFAULT_INDEX_BLOCK_BYTE_SHIFT \
+)
+
+#define LogBlocksFromBytesTruncate(B) (             \
+    ((ULONG) (B)) >> DEFAULT_INDEX_BLOCK_BYTE_SHIFT \
 )
 
 #define Add2Ptr(P,I) ((PVOID)((PUCHAR)(P) + (I)))
@@ -3766,7 +4451,6 @@ NtfsPostRequest (
 //      ULONG
 //      NtfsBuildDirNotifyFilter (
 //          IN PIRP_CONTEXT IrpContext,
-//          IN FCB Fcb,
 //          IN ULONG Flags
 //          );
 //
@@ -3783,28 +4467,55 @@ NtfsPostRequest (
 //          IN PFCB ParentFcb OPTIONAL
 //          );
 //
+//      VOID
+//      NtfsUnsafeReportDirNotify (
+//          IN PIRP_CONTEXT IrpContext,
+//          IN PVCB Vcb,
+//          IN PUNICODE_STRING FullFileName,
+//          IN USHORT TargetNameOffset,
+//          IN PUNICODE_STRING StreamName OPTIONAL,
+//          IN PUNICODE_STRING NormalizedParentName OPTIONAL,
+//          IN ULONG Filter,
+//          IN ULONG Action,
+//          IN PFCB ParentFcb OPTIONAL
+//          );
+//
 
-#define NtfsBuildDirNotifyFilter(IC,FC,F) (                                                      \
-    (FlagOn(F, FCB_INFO_CHANGED_FILE_ATTR)               ? FILE_NOTIFY_CHANGE_ATTRIBUTES  : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_ALLOC_SIZE)              ? FILE_NOTIFY_CHANGE_SIZE        : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_FILE_SIZE)               ? FILE_NOTIFY_CHANGE_SIZE        : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_LAST_MOD)                ? FILE_NOTIFY_CHANGE_LAST_WRITE  : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_LAST_ACCESS)             ? FILE_NOTIFY_CHANGE_LAST_ACCESS : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_CREATE)                  ? FILE_NOTIFY_CHANGE_CREATION    : 0) | \
-    (FlagOn(F, FCB_INFO_CHANGED_EA_SIZE)                 ? FILE_NOTIFY_CHANGE_EA          : 0) | \
-    (FlagOn((FC)->FcbState, FCB_STATE_MODIFIED_SECURITY) ? FILE_NOTIFY_CHANGE_SECURITY    : 0)   \
+#define NtfsBuildDirNotifyFilter(IC,F) (                                        \
+    FlagOn( (F), FCB_INFO_CHANGED_ALLOC_SIZE ) ?                                \
+    (FlagOn( (F), FCB_INFO_VALID_NOTIFY_FLAGS ) | FILE_NOTIFY_CHANGE_SIZE) :    \
+    FlagOn( (F), FCB_INFO_VALID_NOTIFY_FLAGS )                                  \
 )
 
-#define NtfsReportDirNotify(IC,V,FN,O,SN,NPN,F,A,PF)                        \
-    FsRtlNotifyFullReportChange( (V)->NotifySync,                           \
-                                 &(V)->DirNotifyList,                       \
-                                 (PSTRING) FN,                              \
-                                 (USHORT) O,                                \
-                                 (PSTRING) SN,                              \
-                                 (PSTRING) NPN,                             \
-                                 F,                                         \
-                                 A,                                         \
-                                 PF )
+#define NtfsReportDirNotify(IC,V,FN,O,SN,NPN,F,A,PF)    {       \
+    try {                                                       \
+        FsRtlNotifyFullReportChange( (V)->NotifySync,           \
+                                     &(V)->DirNotifyList,       \
+                                     (PSTRING) (FN),            \
+                                     (USHORT) (O),              \
+                                     (PSTRING) (SN),            \
+                                     (PSTRING) (NPN),           \
+                                     F,                         \
+                                     A,                         \
+                                     PF );                      \
+    } except (FsRtlIsNtstatusExpected( GetExceptionCode() ) ?   \
+              EXCEPTION_EXECUTE_HANDLER :                       \
+              EXCEPTION_CONTINUE_SEARCH) {                      \
+        NOTHING;                                                \
+    }                                                           \
+}
+
+#define NtfsUnsafeReportDirNotify(IC,V,FN,O,SN,NPN,F,A,PF) {    \
+    FsRtlNotifyFullReportChange( (V)->NotifySync,               \
+                                 &(V)->DirNotifyList,           \
+                                 (PSTRING) (FN),                \
+                                 (USHORT) (O),                  \
+                                 (PSTRING) (SN),                \
+                                 (PSTRING) (NPN),               \
+                                 F,                             \
+                                 A,                             \
+                                 PF );                          \
+}
 
 
 //
@@ -3838,12 +4549,6 @@ typedef union _UCHAR4 {
 #define CopyUchar4(D,S) {                                \
     *((UCHAR4 *)(D)) = *((UNALIGNED UCHAR4 *)(S)); \
 }
-
-//
-//  The following macro is used to tell the caller how much stack is available
-//
-
-#define GetRemainingStackSize(S) ((ULONG)(&(S)) - ((ULONG)(IoGetInitialStack()) - KERNEL_STACK_SIZE))
 
 //
 //  The following routines are used to set up and restore the top level
@@ -3935,6 +4640,23 @@ NtfsSetTopLevelIrp (
     (IC)->TopLevelIrpContext = (TLC)->TopLevelIrpContext;   \
 }
 
+#ifdef NTFS_CHECK_BITMAP
+VOID
+NtfsBadBitmapCopy (
+    IN PIRP_CONTEXT IrpContext,
+    IN ULONG BadBit,
+    IN ULONG Length
+    );
+
+BOOLEAN
+NtfsCheckBitmap (
+    IN PVCB Vcb,
+    IN ULONG Lcn,
+    IN ULONG Count,
+    IN BOOLEAN Set
+    );
+#endif
+
 
 //
 //  The FSD Level dispatch routines.   These routines are called by the
@@ -4019,16 +4741,25 @@ NtfsFsdFlushBuffers (                   //  implemented in Flush.c
     );
 
 NTSTATUS
+NtfsFlushUserStream (                   //  implemented in Flush.c
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN PLONGLONG FileOffset OPTIONAL,
+    IN ULONG Length
+    );
+
+NTSTATUS
 NtfsFlushVolume (                       //  implemented in Flush.c
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN BOOLEAN FlushCache,
-    IN BOOLEAN PurgeFromCache
+    IN BOOLEAN PurgeFromCache,
+    IN BOOLEAN ReleaseAllFiles,
+    IN BOOLEAN MarkFilesForDismount
     );
 
 NTSTATUS
 NtfsFlushLsnStreams (                   //  implemented in Flush.c
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     );
 
@@ -4036,6 +4767,13 @@ VOID
 NtfsFlushAndPurgeFcb (                  //  implemented in Flush.c
     IN PIRP_CONTEXT IrpContext,
     IN PFCB Fcb
+    );
+
+VOID
+NtfsFlushAndPurgeScb (                  //  implemented in Flush.c
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN PSCB ParentScb OPTIONAL
     );
 
 NTSTATUS
@@ -4144,8 +4882,29 @@ NtfsFspClose (                          //  implemented in Close.c
     IN PVCB ThisVcb OPTIONAL
     );
 
+BOOLEAN
+NtfsAddScbToFspClose (                  //  implemented in Close.c
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN BOOLEAN DelayClose
+    );
+
+BOOLEAN
+NtfsNetworkOpenCreate (                 //  implemented in Create.c
+    IN PIRP Irp,
+    OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN PDEVICE_OBJECT VolumeDeviceObject
+    );
+
 NTSTATUS
 NtfsCommonCreate (                      //  implemented in Create.c
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp,
+    OUT PFILE_NETWORK_OPEN_INFORMATION NetworkInfo OPTIONAL
+    );
+
+NTSTATUS
+NtfsCommonVolumeOpen (                  //  implemented in Create.c
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     );
@@ -4340,6 +5099,28 @@ NtfsFastUnlockAllByKey (
     IN PDEVICE_OBJECT DeviceObject
     );
 
+BOOLEAN
+NtfsFastQueryNetworkOpenInfo (
+    IN struct _FILE_OBJECT *FileObject,
+    IN BOOLEAN Wait,
+    OUT struct _FILE_NETWORK_OPEN_INFORMATION *Buffer,
+    OUT struct _IO_STATUS_BLOCK *IoStatus,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+VOID
+NtfsFastIoQueryCompressionInfo (
+    IN PFILE_OBJECT FileObject,
+    OUT PFILE_COMPRESSION_INFORMATION Buffer,
+    OUT PIO_STATUS_BLOCK IoStatus
+    );
+
+VOID
+NtfsFastIoQueryCompressedSize (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    OUT PULONG CompressedSize
+    );
 
 //
 //  The following macro is used by the dispatch routines to determine if
@@ -4368,21 +5149,21 @@ NtfsFastUnlockAllByKey (
 //          );
 //
 
-#define NtfsIsFastIoPossible(S) ((BOOLEAN)(                                 \
-    ((!FlagOn((S)->Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED) ||              \
-      !FsRtlOplockIsFastIoPossible( &(S)->ScbType.Data.Oplock ))            \
+#define NtfsIsFastIoPossible(S) (BOOLEAN)(                                  \
+    (!FlagOn((S)->Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED) ||               \
+     !FsRtlOplockIsFastIoPossible( &(S)->ScbType.Data.Oplock ))             \
                                                                             \
      ? FastIoIsNotPossible                                                  \
                                                                             \
-     : (((S)->ScbType.Data.FileLock == NULL                                 \
-        || !FsRtlAreThereCurrentFileLocks( (S)->ScbType.Data.FileLock ))    \
+     : ((((S)->ScbType.Data.FileLock == NULL                                \
+        || !FsRtlAreThereCurrentFileLocks( (S)->ScbType.Data.FileLock )) && \
+        !FlagOn((S)->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK))      \
                                                                             \
-        ? FastIoIsPossible                                                  \
+           ? FastIoIsPossible                                               \
                                                                             \
-        : FastIoIsQuestionable                                              \
+           : FastIoIsQuestionable                                           \
+                                                                            \
        )                                                                    \
-    )                                                                       \
-  )                                                                         \
 )
 
 //
@@ -4397,92 +5178,6 @@ NtfsFastUnlockAllByKey (
 //
 
 #define IsFileObjectReadOnly(FO) (!((FO)->WriteAccess | (FO)->DeleteAccess))
-
-
-//
-//  The following two macro are used by the Fsd/Fsp exception handlers to
-//  process an exception.  The first macro is the exception filter used in the
-//  Fsd/Fsp to decide if an exception should be handled at this level.
-//  The second macro decides if the exception is to be finished off by
-//  completing the IRP, and cleaning up the Irp Context, or if we should
-//  bugcheck.  Exception values such as STATUS_FILE_INVALID (raised by
-//  VerfySup.c) cause us to complete the Irp and cleanup, while exceptions
-//  such as accvio cause us to bugcheck.
-//
-//  The basic structure for fsd/fsp exception handling is as follows:
-//
-//  NtfsFsdXxx(..)
-//  {
-//      try {
-//
-//          ..
-//
-//      } except(NtfsExceptionFilter( IrpContext, GetExceptionRecord() )) {
-//
-//          Status = NtfsProcessException( IrpContext, Irp, GetExceptionCode() );
-//      }
-//
-//      Return Status;
-//  }
-//
-//  To explicitly raise an exception that we expect, such as
-//  STATUS_FILE_INVALID, use the below macro NtfsRaiseStatus).  To raise a
-//  status from an unknown origin (such as CcFlushCache()), use the macro
-//  NtfsNormalizeAndRaiseStatus.  This will raise the status if it is expected,
-//  or raise STATUS_UNEXPECTED_IO_ERROR if it is not.
-//
-//  Note that when using these two macros, the original status is placed in
-//  IrpContext->ExceptionStatus, signaling NtfsExceptionFilter and
-//  NtfsProcessException that the status we actually raise is by definition
-//  expected.
-//
-
-LONG
-NtfsExceptionFilter (
-    IN PIRP_CONTEXT IrpContext,
-    IN PEXCEPTION_POINTERS ExceptionPointer
-    );
-
-NTSTATUS
-NtfsProcessException (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp OPTIONAL,
-    IN NTSTATUS ExceptionCode
-    );
-
-VOID
-NtfsRaiseStatus (
-    IN PIRP_CONTEXT IrpContext,
-    IN NTSTATUS Status,
-    IN PFILE_REFERENCE FileReference OPTIONAL,
-    IN PFCB Fcb OPTIONAL
-    );
-
-//
-//      VOID
-//      NtfsNormalAndRaiseStatus (
-//          IN PRIP_CONTEXT IrpContext,
-//          IN NT_STATUS Status
-//          IN NT_STATUS NormalStatus
-//          );
-//
-
-#define NtfsNormalizeAndRaiseStatus(IC,STAT,NOR_STAT) {                          \
-    (IC)->ExceptionStatus = (STAT);                                              \
-    ExRaiseStatus(FsRtlNormalizeNtstatus((STAT),NOR_STAT));                      \
-}
-
-//
-//  Informational popup routine.
-//
-
-VOID
-NtfsRaiseInformationHardError (
-    IN PIRP_CONTEXT IrpContext,
-    IN NTSTATUS  Status,
-    IN PFILE_REFERENCE FileReference OPTIONAL,
-    IN PFCB Fcb OPTIONAL
-    );
 
 
 //
@@ -4515,5 +5210,476 @@ NtfsRaiseInformationHardError (
 
 #define try_return(S) { S; goto try_exit; }
 
-#endif // _NTFSPROC_
+
+//
+//  Simple initialization for a name pair
+//
+//  VOID
+//  NtfsInitializeNamePair(PNAME_PAIR PNp);
+//
 
+#define NtfsInitializeNamePair(PNp) {                           \
+    (PNp)->Short.Buffer = (PNp)->ShortBuffer;                   \
+    (PNp)->Long.Buffer = (PNp)->LongBuffer;                     \
+    (PNp)->Short.Length = 0;                                    \
+    (PNp)->Long.Length = 0;                                     \
+    (PNp)->Short.MaximumLength = sizeof((PNp)->ShortBuffer);    \
+    (PNp)->Long.MaximumLength = sizeof((PNp)->LongBuffer);      \
+}
+
+//
+//  Copy a length of WCHARs into a side of a name pair. Only copy the first name
+//  that fits to avoid useless work if more than three links are encountered (per
+//  BrianAn), very rare case. We use the filename flags to figure out what kind of
+//  name we have.
+//
+//  VOID
+//  NtfsCopyNameToNamePair(
+//              PNAME_PAIR PNp,
+//              WCHAR Source,
+//              ULONG SourceLen,
+//              UCHAR NameFlags);
+//
+
+#define NtfsCopyNameToNamePair(PNp, Source, SourceLen, NameFlags) {                          \
+    if (!FlagOn((NameFlags), FILE_NAME_DOS)) {                                               \
+        if ((PNp)->Long.Length == 0) {                                                       \
+            if ((PNp)->Long.MaximumLength < ((SourceLen)*sizeof(WCHAR))) {                   \
+                if ((PNp)->Long.Buffer != (PNp)->LongBuffer) {                               \
+                    NtfsFreePool((PNp)->Long.Buffer);                                        \
+                    (PNp)->Long.Buffer = (PNp)->LongBuffer;                                  \
+                    (PNp)->Long.MaximumLength = sizeof((PNp)->LongBuffer);                   \
+                }                                                                            \
+                (PNp)->Long.Buffer = NtfsAllocatePool(PagedPool,(SourceLen)*sizeof(WCHAR));  \
+                (PNp)->Long.MaximumLength = (SourceLen)*sizeof(WCHAR);                       \
+            }                                                                                \
+            RtlCopyMemory((PNp)->Long.Buffer, (Source), (SourceLen)*sizeof(WCHAR));          \
+            (PNp)->Long.Length = (SourceLen)*sizeof(WCHAR);                                  \
+        }                                                                                    \
+    } else {                                                                                 \
+        ASSERT((PNp)->Short.Buffer == (PNp)->ShortBuffer);                                   \
+        if ((PNp)->Short.Length == 0) {                                                      \
+            RtlCopyMemory((PNp)->Short.Buffer, (Source), (SourceLen)*sizeof(WCHAR));         \
+            (PNp)->Short.Length = (SourceLen)*sizeof(WCHAR);                                 \
+        }                                                                                    \
+    }                                                                                        \
+}
+
+//
+//  Set up a previously used name pair for reuse.
+//
+//  VOID
+//  NtfsResetNamePair(PNAME_PAIR PNp);
+//
+
+#define NtfsResetNamePair(PNp) {                    \
+    if ((PNp)->Long.Buffer != (PNp)->LongBuffer) {  \
+        NtfsFreePool((PNp)->Long.Buffer);             \
+    }                                               \
+    NtfsInitializeNamePair(PNp);                    \
+}
+
+//
+// Cairo support stuff.
+//
+
+typedef VOID
+(*FILE_RECORD_WALK) (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN OUT PVOID Context
+    );
+
+NTSTATUS
+NtfsIterateMft (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN OUT PFILE_REFERENCE FileReference,
+    IN FILE_RECORD_WALK FileRecordFunction,
+    IN PVOID Context
+    );
+
+VOID
+NtfsPostSpecial (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN POST_SPECIAL_CALLOUT PostSpecialCallout,
+    IN PVOID Context
+    );
+
+VOID
+NtfsSpecialDispatch (
+    PVOID Context
+    );
+
+#ifdef _CAIRO_
+
+VOID
+NtfsLoadAddOns (
+    IN struct _DRIVER_OBJECT *DriverObject,
+    IN PVOID Context,
+    IN ULONG Count
+    );
+
+NTSTATUS
+NtfsTryOpenFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    OUT PFCB *CurrentFcb,
+    IN FILE_REFERENCE FileReference
+    );
+
+INLINE
+NTSTATUS
+CiObjectChanged (
+    IN PVCB Vcb,
+    IN OBJECT_HANDLE Object,
+    IN USN Usn,
+    IN ULONG Changes
+    )
+{
+    if (Vcb->ContentIndex != NULL)
+    {
+        return NtfsData.CiCallBackTable->CiObjectChanged(
+                                            Vcb->ContentIndex,
+                                            Object,
+                                            Usn,
+                                            Changes
+                                            );
+    } else {
+        return STATUS_SUCCESS;
+    }
+
+}
+
+INLINE
+NTSTATUS
+CiUpdatesLost (
+    IN PVCB Vcb
+    )
+{
+    if (Vcb->ContentIndex != NULL)
+    {
+        return NtfsData.CiCallBackTable->CiUpdatesLost( Vcb->ContentIndex );
+    } else {
+        return STATUS_SUCCESS;
+    }
+
+}
+
+INLINE
+NTSTATUS
+CiMountVolume (
+    IN PVCB Vcb,
+    IN PIRP_CONTEXT IrpContext
+    )
+{
+    if (NtfsData.CiCallBackTable != NULL) {
+
+        return NtfsData.CiCallBackTable->CiMountVolume(
+            IrpContext,
+            &Vcb->ContentIndex
+            );
+
+    } else {
+        return STATUS_SUCCESS;
+    }
+
+}
+
+INLINE
+NTSTATUS
+CiDismountVolume (
+    IN PVCB Vcb,
+    IN PIRP_CONTEXT IrpContext
+    )
+{
+    if (Vcb->ContentIndex != NULL)
+    {
+        return NtfsData.CiCallBackTable->CiDismountVolume(
+                                            Vcb->ContentIndex,
+                                            IrpContext
+                                            );
+    } else {
+        return STATUS_SUCCESS;
+    }
+
+}
+
+INLINE
+NTSTATUS
+CiShutdown (
+    IN PIRP_CONTEXT IrpContext
+    )
+{
+    if (NtfsData.CiCallBackTable != NULL) {
+
+        return NtfsData.CiCallBackTable->CiShutdown( IrpContext );
+
+    } else {
+        return STATUS_SUCCESS;
+    }
+}
+
+INLINE
+NTSTATUS
+CiFileSystemControl (
+    IN PVCB Vcb,
+    IN ULONG FsControlCode,
+    IN ULONG InBufferLength,
+    IN PVOID InBuffer,
+    OUT ULONG *OutBufferLength,
+    OUT PVOID OutBuffer,
+    IN PIRP_CONTEXT IrpContext
+    )
+{
+    if (Vcb->ContentIndex != NULL)
+    {
+        return NtfsData.CiCallBackTable->CiFileSystemControl(
+                                            Vcb->ContentIndex,
+                                            FsControlCode,
+                                            InBufferLength,
+                                            InBuffer,
+                                            OutBufferLength,
+                                            OutBuffer,
+                                            IrpContext
+                                            );
+    } else {
+        return STATUS_INVALID_PARAMETER;
+    }
+}
+
+//
+//  The following define controls whether quota operations are done
+//  on this FCB.
+//
+
+#define NtfsPerformQuotaOperation(FCB) ((FCB)->QuotaControl != NULL)
+
+VOID
+NtfsAcquireQuotaControl (
+    IN PIRP_CONTEXT IrpContext,
+    IN PQUOTA_CONTROL_BLOCK QuotaControl
+    );
+
+VOID
+NtfsCalculateQuotaAdjustment (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    OUT PLONGLONG Delta
+    );
+
+VOID
+NtfsDereferenceQuotaControlBlock (
+    IN PVCB Vcb,
+    IN PQUOTA_CONTROL_BLOCK *QuotaControl
+    );
+
+VOID
+NtfsExpandQuotaToAllocationSize (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    );
+
+VOID
+NtfsFixupQuota (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    );
+
+NTSTATUS
+NtfsFsQuotaQueryInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_QUOTA_INFORMATION FileQuotaInfo,
+    IN OUT PULONG Length
+    );
+
+NTSTATUS
+NtfsFsQuotaSetInfo (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_QUOTA_INFORMATION FileQuotaInfo,
+    IN ULONG Length
+    );
+
+VOID
+NtfsGetRemainingQuota (
+    IN PIRP_CONTEXT IrpContext,
+    IN ULONG OwnerId,
+    OUT PLONGLONG RemainingQuota,
+    IN OUT PQUICK_INDEX_HINT QuickIndexHint OPTIONAL
+    );
+
+ULONG
+NtfsGetCallersUserId (
+    IN PIRP_CONTEXT IrpContext
+    );
+
+ULONG
+NtfsGetOwnerId (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSID Sid,
+    IN PFILE_QUOTA_INFORMATION FileQuotaInfo OPTIONAL
+    );
+
+VOID
+NtfsInitializeQuotaControlBlock (
+    IN PFCB Fcb
+    );
+
+VOID
+NtfsInitializeQuotaIndex (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PVCB Vcb
+    );
+
+VOID
+NtfsMoveQuotaOwner (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PSECURITY_DESCRIPTOR Security
+    );
+
+
+VOID
+NtfsPostRepairQuotaIndex (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb
+    );
+
+VOID
+NtfsReleaseQuotaControl (
+    IN PIRP_CONTEXT IrpContext,
+    IN PQUOTA_CONTROL_BLOCK QuotaControl
+    );
+
+VOID
+NtfsUpdateFileQuota (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PLONGLONG Delta,
+    IN BOOLEAN LogIt,
+    IN BOOLEAN CheckQuota
+    );
+
+VOID
+NtfsUpdateQuotaDefaults (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFILE_FS_CONTROL_INFORMATION FileQuotaInfo
+    );
+
+INLINE
+VOID
+NtfsConditionallyFixupQuota (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    )
+{
+    if (FlagOn(Fcb->Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_ENABLED)) {
+        NtfsFixupQuota ( IrpContext, Fcb );
+    }
+}
+
+INLINE
+VOID
+NtfsConditionallyUpdateQuota (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN PLONGLONG Delta,
+    IN BOOLEAN LogIt,
+    IN BOOLEAN CheckQuota
+    )
+{
+    if (NtfsPerformQuotaOperation(Fcb) &&
+        !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE )) {
+        NtfsUpdateFileQuota( IrpContext, Fcb, Delta, LogIt, CheckQuota );
+    }
+}
+
+extern BOOLEAN NtfsAllowFixups;
+
+INLINE
+VOID
+NtfsReleaseQuotaIndex (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN BOOLEAN Acquired
+    )
+{
+    if (Acquired) {
+        NtfsReleaseScb( IrpContext, Vcb->QuotaTableScb );
+    }
+}
+
+INLINE
+VOID
+NtfsAcquireSecurityStream (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    OUT PBOOLEAN Acquired
+    )
+{
+    if (Vcb->SecurityDescriptorStream != NULL) {
+
+        ASSERT(!NtfsIsExclusiveScb( Vcb->MftScb ) || NtfsIsExclusiveScb( Vcb->SecurityDescriptorStream ));
+
+        NtfsAcquireExclusiveScb( IrpContext, Vcb->SecurityDescriptorStream );
+        *Acquired = TRUE;
+    }
+}
+
+INLINE
+VOID
+NtfsReleaseSecurityStream (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN BOOLEAN Acquired
+    )
+{
+    if (Acquired) {
+        NtfsReleaseScb( IrpContext, Vcb->SecurityDescriptorStream );
+    }
+}
+
+//
+// Define the quota charge for resident streams.
+//
+
+#define NtfsResidentStreamQuota( Vcb ) ((LONG) Vcb->BytesPerFileRecordSegment)
+
+
+//
+//  The following macro tests to see if it is ok for an internal routine to
+//  write to the volume.
+//
+
+#define NtfsIsVcbAvailable( Vcb ) (FlagOn( Vcb->VcbState,                   \
+                             VCB_STATE_VOLUME_MOUNTED |                     \
+                             VCB_STATE_FLAG_SHUTDOWN |                      \
+                             VCB_STATE_PERFORMED_DISMOUNT |                 \
+                             VCB_STATE_LOCKED) == VCB_STATE_VOLUME_MOUNTED)
+
+#else
+
+#define NtfsConditionallyUpdateQuota( IC, F, D, L, C )
+
+#define NtfsExpandQuotaToAllocationSize( IC, S )
+
+#define NtfsConditionallyFixupQuota( IC, F )
+
+#define NtfsReleaseQuotaIndex( IC, V, B )
+
+#define NtfsMoveQuotaOwner( IC, F, S )
+
+#define NtfsPerformQuotaOperation(FCB) (FALSE)
+
+#define NtfsAcquireSecurityStream( IC, V, B )
+
+#define NtfsReleaseSecurityStream( IC, V, B )
+
+#endif // _CAIRO_
+
+#endif // _NTFSPROC_

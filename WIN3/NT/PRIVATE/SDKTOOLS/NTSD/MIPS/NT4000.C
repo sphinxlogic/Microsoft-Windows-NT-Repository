@@ -13,7 +13,7 @@
 *************************************************************************/
 
 #ifdef  KERNEL
-#undef R3000
+#undef R4000
 #define R4000           //  define to R4000 when routine updated
 #include <ntsdp.h>
 

@@ -62,6 +62,7 @@ typedef SERVERNAME* PSERVERNAME;
 #define EA_NAME_USERNAME        "UserName"
 #define EA_NAME_PASSWORD        "Password"
 #define EA_NAME_TYPE            "Type"
+#define EA_NAME_CREDENTIAL_EX   "ExCredentials"
 
 #define TRANSACTION_REQUEST     0x00000003
 
@@ -85,21 +86,42 @@ typedef SERVERNAME* PSERVERNAME;
                 CTL_CODE(IOCTL_NWRDR_BASE, request, method, access)
 
 #define FSCTL_NWR_START                 _NWRDR_CONTROL_CODE(200, METHOD_IN_DIRECT, FILE_ANY_ACCESS)
-#define FSCTL_NWR_STOP                  _NWRDR_CONTROL_CODE(201, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_LOGON                 _NWRDR_CONTROL_CODE(202, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_LOGOFF                _NWRDR_CONTROL_CODE(203, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_GET_CONNECTION        _NWRDR_CONTROL_CODE(204, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define FSCTL_NWR_ENUMERATE_CONNECTIONS _NWRDR_CONTROL_CODE(205, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define FSCTL_NWR_DELETE_CONNECTION     _NWRDR_CONTROL_CODE(207, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_BIND_TO_TRANSPORT     _NWRDR_CONTROL_CODE(208, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_CHANGE_PASS           _NWRDR_CONTROL_CODE(209, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define FSCTL_NWR_SET_INFO              _NWRDR_CONTROL_CODE(211, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_NWR_STOP                  _NWRDR_CONTROL_CODE(201, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_LOGON                 _NWRDR_CONTROL_CODE(202, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_LOGOFF                _NWRDR_CONTROL_CODE(203, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_CONNECTION        _NWRDR_CONTROL_CODE(204, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_ENUMERATE_CONNECTIONS _NWRDR_CONTROL_CODE(205, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_DELETE_CONNECTION     _NWRDR_CONTROL_CODE(207, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_BIND_TO_TRANSPORT     _NWRDR_CONTROL_CODE(208, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_CHANGE_PASS           _NWRDR_CONTROL_CODE(209, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_SET_INFO              _NWRDR_CONTROL_CODE(211, METHOD_BUFFERED,  FILE_ANY_ACCESS)
 
-#define FSCTL_NWR_GET_CONN_DETAILS      _NWRDR_CONTROL_CODE(217, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define FSCTL_NWR_GET_MESSAGE           _NWRDR_CONTROL_CODE(218, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define FSCTL_NWR_GET_STATISTICS        _NWRDR_CONTROL_CODE(219, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_USERNAME          _NWRDR_CONTROL_CODE(215, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_CHALLENGE             _NWRDR_CONTROL_CODE(216, METHOD_BUFFERED,  FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_CONN_DETAILS      _NWRDR_CONTROL_CODE(217, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_MESSAGE           _NWRDR_CONTROL_CODE(218, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_STATISTICS        _NWRDR_CONTROL_CODE(219, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_CONN_STATUS       _NWRDR_CONTROL_CODE(220, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_CONN_INFO         _NWRDR_CONTROL_CODE(221, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_PREFERRED_SERVER  _NWRDR_CONTROL_CODE(222, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_GET_CONN_PERFORMANCE  _NWRDR_CONTROL_CODE(223, METHOD_NEITHER,   FILE_ANY_ACCESS)
+#define FSCTL_NWR_SET_SHAREBIT          _NWRDR_CONTROL_CODE(224, METHOD_NEITHER,   FILE_ANY_ACCESS)
 
-#define IOCTL_NWR_RAW_HANDLE            _NWRDR_CONTROL_CODE(1002, METHOD_NEITHER, FILE_ANY_ACCESS)
+#define FSCTL_NWR_NDS_SETCONTEXT        NWR_ANY_NDS(1)
+#define FSCTL_NWR_NDS_GETCONTEXT        NWR_ANY_NDS(2)
+#define FSCTL_NWR_NDS_VERIFY_TREE       NWR_ANY_NDS(3)
+#define FSCTL_NWR_NDS_RESOLVE_NAME      NWR_ANY_NDS(4)
+#define FSCTL_NWR_NDS_LIST_SUBS         NWR_ANY_NDS(5)
+#define FSCTL_NWR_NDS_READ_INFO         NWR_ANY_NDS(6)
+#define FSCTL_NWR_NDS_READ_ATTR         NWR_ANY_NDS(7)
+#define FSCTL_NWR_NDS_OPEN_STREAM       NWR_ANY_NDS(8)
+#define FSCTL_NWR_NDS_GET_QUEUE_INFO    NWR_ANY_NDS(9)
+#define FSCTL_NWR_NDS_GET_VOLUME_INFO   NWR_ANY_NDS(10)
+#define FSCTL_NWR_NDS_RAW_FRAGEX        NWR_ANY_NDS(11)
+#define FSCTL_NWR_NDS_CHANGE_PASS       NWR_ANY_NDS(12)
+#define FSCTL_NWR_NDS_LIST_TREES        NWR_ANY_NDS(13)
+
+#define IOCTL_NWR_RAW_HANDLE            _NWRDR_CONTROL_CODE(1002,METHOD_NEITHER,   FILE_ANY_ACCESS)
 
 //
 //  UserNcp control code definitions. The parameter (X) to NWR_ANY_NCP
@@ -109,6 +131,7 @@ typedef SERVERNAME* PSERVERNAME;
 #define NWR_ANY_NCP(X)                  _NWRDR_CONTROL_CODE(0x400 | (X), METHOD_NEITHER, FILE_ANY_ACCESS)
 #define NWR_ANY_F2_NCP(X)               _NWRDR_CONTROL_CODE(0x500 | (X), METHOD_NEITHER, FILE_ANY_ACCESS)
 #define NWR_ANY_HANDLE_NCP(X)           _NWRDR_CONTROL_CODE(0x600 | (X), METHOD_NEITHER, FILE_ANY_ACCESS)
+#define NWR_ANY_NDS(X)                  _NWRDR_CONTROL_CODE(0x700 | (X), METHOD_NEITHER, FILE_ANY_ACCESS)
 
 #define FSCTL_NWR_NCP_E3H               NWR_ANY_NCP(0x17)
 #define FSCTL_NWR_NCP_E2H               NWR_ANY_NCP(0x16)
@@ -165,6 +188,10 @@ typedef struct _NWR_REQUEST_PACKET {
             ULONG UserNameLength;       // Byte count not including NULL  IN
             ULONG PasswordLength;       // Byte count not including NULL  IN
             ULONG ServerNameLength;     // Byte count not including NULL  IN
+            ULONG ReplicaAddrLength;    // IPX address of the nearest dir server
+                                        // replica (for NDS login only).
+                                        // It's either sizeof(TDI_ADDRESS_IPX)
+                                        // or 0.                          IN
 
             WCHAR UserName[1];          // User name not NULL terminated. IN
 
@@ -176,6 +203,10 @@ typedef struct _NWR_REQUEST_PACKET {
             // ServerName               // Preferred server name packed in
                                         //    buffer immediately after
                                         //    Password.                   IN
+
+            // IpxAddress               // Address copied from the SAP response
+                                        // packet, packed immediately after
+                                        // the servername.                IN
         } Logon;
 
         //
@@ -247,6 +278,47 @@ typedef struct _NWR_REQUEST_PACKET {
 
         } SetInfo;
 
+        //
+        // FSCTL_NWR_GET_CONN_STATUS
+        //
+        struct {
+            ULONG ConnectionNameLength; // IN: Length of the connection name we want.
+            ULONG ResumeKey;            // IN: Resume key for a continued request.
+            ULONG EntriesReturned;      // OUT: Entries returned in respose buffer.
+            ULONG BytesNeeded;          // OUT: Size (byte count) of next entry.
+            WCHAR ConnectionName[1];    // IN: Connection name described above.
+        } GetConnStatus;
+
+        //
+        // FSCTL_NWR_GET_CONN_INFO
+        //
+        struct {
+            ULONG ConnectionNameLength; // IN: Length of the connection name we want.
+            WCHAR ConnectionName[1];    // IN: Connection name described above.
+        } GetConnInfo;
+
+        //
+        // FSCTL_NWR_GET_CONN_PERFORMANCE
+        //
+        struct {
+
+            //
+            // These are the fields for the NETCONNECTINFOSTRUCT.
+            //
+
+            DWORD dwFlags;
+            DWORD dwSpeed;
+            DWORD dwDelay;
+            DWORD dwOptDataSize;
+
+            //
+            // This is the remote name in question.
+            //
+
+            ULONG RemoteNameLength;
+            WCHAR RemoteName[1];
+        } GetConnPerformance;
+
         struct {
             ULONG DebugFlags;           // Value for NwDebug
         } DebugValue;
@@ -254,6 +326,166 @@ typedef struct _NWR_REQUEST_PACKET {
     } Parameters;
 
 } NWR_REQUEST_PACKET, *PNWR_REQUEST_PACKET;
+
+typedef struct _NWR_NDS_REQUEST_PACKET {
+
+    //
+    // Version of structure in Buffer 2.
+    //
+
+    ULONG Version;
+
+    union {
+
+        //
+        //  For FSCTL_NWR_NDS_RESOLVE_NAME
+        //
+
+        struct {
+            ULONG ObjectNameLength;         // IN
+            DWORD ResolverFlags;            // IN
+            DWORD BytesWritten;             // OUT
+            WCHAR ObjectName[1];            // IN
+        } ResolveName;
+
+        //
+        //  For FSCTL_NWR_NDS_READ_INFO
+        //
+
+        struct {
+            DWORD ObjectId;                 // IN
+            DWORD BytesWritten;             // OUT
+        } GetObjectInfo;
+
+        //
+        //  For FSCTL_NWR_NDS_LIST_SUBS
+        //
+
+        struct {
+            DWORD ObjectId;                 // IN
+            DWORD IterHandle;               // IN
+            DWORD BytesWritten;             // OUT
+        } ListSubordinates;
+
+        //
+        // For FSCTL_NWR_NDS_READ_ATTR
+        //
+
+        struct {
+            DWORD ObjectId;                 // IN
+            DWORD IterHandle;               // IN
+            DWORD BytesWritten;             // OUT
+            DWORD AttributeNameLength;      // IN
+            WCHAR AttributeName[1];         // IN
+        } ReadAttribute;
+
+        //
+        // For FSCTL_NWR_NDS_OPEN_STREAM
+        //
+
+        struct {
+            DWORD FileLength;                 // OUT
+            DWORD StreamAccess;               // IN
+            DWORD ObjectOid;                  // IN
+            UNICODE_STRING StreamName;        // IN
+            WCHAR StreamNameString[1];        // IN
+        } OpenStream;
+
+        //
+        // For FSCTL_NWR_NDS_SET_CONTEXT
+        //
+
+        struct {
+            DWORD TreeNameLen ;               // IN
+            DWORD ContextLen;                 // IN
+            WCHAR TreeAndContextString[1];    // IN
+        } SetContext;
+
+        //
+        // For FSCTL_NWR_NDS_GET_CONTEXT
+        //
+
+        struct {
+            UNICODE_STRING Context;           // OUT
+            DWORD TreeNameLen ;               // IN
+            WCHAR TreeNameString[1];          // IN
+        } GetContext;
+
+        //
+        // For FSCTL_NWR_NDS_VERIFY_TREE
+        //
+
+        struct {
+            UNICODE_STRING TreeName;          // IN
+            WCHAR NameString[1];              // IN
+        } VerifyTree;
+
+        //
+        // For FSCTL_NWR_NDS_GET_QUEUE_INFO
+        //
+
+        struct {
+            UNICODE_STRING QueueName;          // IN
+            UNICODE_STRING HostServer;         // OUT
+            DWORD QueueId;                     // OUT
+        } GetQueueInfo;
+
+        //
+        // For FSCTL_NWR_NDS_GET_VOLUME_INFO
+        //
+
+        struct {
+            DWORD ServerNameLen;    // OUT
+            DWORD TargetVolNameLen; // OUT
+            DWORD VolumeNameLen;    // IN
+            WCHAR VolumeName[1];    // IN
+        } GetVolumeInfo;
+
+        //
+        // For FSCTL_NWR_NDS_RAW_FRAGEX
+        //
+
+        struct {
+            DWORD NdsVerb;          // IN
+            DWORD RequestLength;    // IN
+            DWORD ReplyLength;      // OUT
+            BYTE  Request[1];       // IN
+        } RawRequest;
+
+        //
+        // For FSCTL_NWR_NDS_CHANGE_PASS
+        //
+
+        struct {
+
+            DWORD NdsTreeNameLength;
+            DWORD UserNameLength;
+            DWORD CurrentPasswordLength;
+            DWORD NewPasswordLength;
+
+            //
+            // The above strings should be end to
+            // end starting at StringBuffer.
+            //
+
+            WCHAR StringBuffer[1];
+        } ChangePass;
+
+        //
+        // For FSCTL_NWR_NDS_LIST_TREES
+        //
+
+        struct {
+
+            DWORD NtUserNameLength;   // IN
+            LARGE_INTEGER UserLuid;   // OUT
+            DWORD TreesReturned;      // OUT
+            WCHAR NtUserName[1];      // IN
+        } ListTrees;
+
+    } Parameters;
+
+} NWR_NDS_REQUEST_PACKET, *PNWR_NDS_REQUEST_PACKET;
 
 //
 // Structure of buffer 2 for FSCTL_NWR_GET_CONNECTION
@@ -307,6 +539,24 @@ typedef struct _NWR_GET_CONNECTION_DETAILS {
     BOOLEAN Preferred;
 } NWR_GET_CONNECTION_DETAILS, *PNWR_GET_CONNECTION_DETAILS;
 
+typedef struct _NWR_GET_USERNAME {
+    WCHAR UserName[1];
+} NWR_GET_USERNAME, *PNWR_GET_USERNAME;
+
+typedef struct _NWR_GET_CHALLENGE_REQUEST {
+    ULONG Flags;
+    ULONG ObjectId;
+    UCHAR Challenge[8];
+    ULONG ServerNameorPasswordLength;
+    WCHAR ServerNameorPassword[1];    // No NULL
+} NWR_GET_CHALLENGE_REQUEST, *PNWR_GET_CHALLENGE_REQUEST;
+
+#define CHALLENGE_FLAGS_SERVERNAME    0
+#define CHALLENGE_FLAGS_PASSWORD      1
+
+typedef struct _NWR_GET_CHALLENGE_REPLY {
+    UCHAR Challenge[8];
+} NWR_GET_CHALLENGE_REPLY, *PNWR_GET_CHALLENGE_REPLY;
 
 //
 //  Fields marked FIXFIX are not updated. Remove or record...
@@ -343,5 +593,33 @@ typedef struct _NW_REDIR_STATISTICS {
 
     ULONG           CurrentCommands;
 } NW_REDIR_STATISTICS, *PNW_REDIR_STATISTICS;
+
+//
+// CONN_STATUS structures for the new shell.
+//
+
+typedef struct _CONN_STATUS {
+    DWORD   dwTotalLength;     // The total length including packed strings.
+    LPWSTR  pszServerName;     // The server name.
+    LPWSTR  pszUserName;       // The user name.
+    LPWSTR  pszTreeName;       // The tree name or NULL for a 2.x or 3.x server.
+    DWORD   nConnNum;          // The connection number used on nw srv.
+    BOOL    fNds;              // TRUE if NDS, False for Bindery servers
+    BOOL    fPreferred;        // TRUE if the connection is a preferred server with no explicit uses.
+    DWORD   dwConnType;        // Authentication status of the connection.
+} CONN_STATUS, *PCONN_STATUS;
+
+#define NW_CONN_NOT_AUTHENTICATED            0x00000000
+#define NW_CONN_BINDERY_LOGIN                0x00000001
+#define NW_CONN_NDS_AUTHENTICATED_NO_LICENSE 0x00000002
+#define NW_CONN_NDS_AUTHENTICATED_LICENSED   0x00000003
+#define NW_CONN_DISCONNECTED                 0x00000004
+
+typedef struct _CONN_INFORMATION {
+    DWORD HostServerLength;
+    LPWSTR HostServer;
+    DWORD UserNameLength;
+    LPWSTR UserName;
+} CONN_INFORMATION, *PCONN_INFORMATION;
 
 #endif  // ifndef _NTDDNWFS_

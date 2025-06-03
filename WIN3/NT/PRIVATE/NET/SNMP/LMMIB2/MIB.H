@@ -1,70 +1,34 @@
+/*++
+
+Copyright (c) 1992-1996  Microsoft Corporation
+
+Module Name:
+
+    mib.h
+
+Abstract:
+
+    LAN Manager MIB constants, types, and prototypes for implementing the LM
+    MIB and its support functions.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 #ifndef mib_h
 #define mib_h
-
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  mib.h
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  LAN Manager MIB constants, types, and prototypes for implementing the LM
-//  MIB and its support functions.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.1  $
-//  $Date:   04 Jun 1992  9:24:36  $
-//  $Author:   todd  $
-//
-//  $Log:   N:/lmmib2/vcs/mib.h_v  $
-//
-//     Rev 1.1   04 Jun 1992  9:24:36   todd
-//  Removed conflicts with the new LM Alert MIB
-//
-//     Rev 1.0   20 May 1992 15:11:24   mlk
-//  Initial revision.
-//
-//     Rev 1.7   02 May 1992 19:10:42   todd
-//  code cleanup
-//
-//     Rev 1.6   27 Apr 1992 12:42:12   todd
-//  Added some LM MIB specific constants.
-//
-//     Rev 1.5   26 Apr 1992 18:05:18   Chip
-//  Took all of the table declarations and broke them off into
-//  individual ????_tbl.h files.
-//
-//     Rev 1.4   26 Apr 1992 14:47:16   todd
-//
-//     Rev 1.3   25 Apr 1992 17:40:32   todd
-//
-//     Rev 1.2   24 Apr 1992 14:36:50   todd
-//  Support for leafs and tables
-//
-//     Rev 1.1   23 Apr 1992 17:58:32   todd
-//
-//     Rev 1.0   22 Apr 1992 17:04:50   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
-
-//--------------------------- VERSION INFO ----------------------------------
-
-static char *mib__h = "@(#) $Logfile:   N:/lmmib2/vcs/mib.h_v  $ $Revision:   1.1  $";
 
 //--------------------------- PUBLIC CONSTANTS ------------------------------
 
 #include <snmp.h>
+#include <snmputil.h>
 
    // MIB Specifics
 #define MIB_PREFIX_LEN            MIB_OidPrefix.idLength

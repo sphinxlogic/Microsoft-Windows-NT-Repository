@@ -68,28 +68,27 @@ main(
     //  are correct
     //
 
-    Zero =           RtlEnlargedIntegerMultiply( 0, 0 );
-    OneSecond =      RtlEnlargedIntegerMultiply( 10, 1000000 );
-    OneMinute =      RtlExtendedIntegerMultiply( OneSecond, 60 );
-    OneHour =        RtlExtendedIntegerMultiply( OneMinute, 60 );
-    OneDay =         RtlExtendedIntegerMultiply( OneHour, 24 );
-    OneWeek =        RtlExtendedIntegerMultiply( OneDay, 7 );
-    OneNormalYear =  RtlExtendedIntegerMultiply( OneDay, 365 );
-    OneLeapYear =    RtlExtendedIntegerMultiply( OneDay, 366 );
-    OneCentury =     RtlLargeIntegerAdd( RtlExtendedIntegerMultiply( OneNormalYear, 76 ),
-                                         RtlExtendedIntegerMultiply( OneLeapYear, 24 ));
-    TwoCenturies =   RtlExtendedIntegerMultiply( OneCentury, 2 );
-    ThreeCenturies = RtlExtendedIntegerMultiply( OneCentury, 3 );
-    FourCenturies =  RtlLargeIntegerAdd( RtlExtendedIntegerMultiply( OneCentury, 4 ),
-                                         OneDay );
+    Zero.QuadPart = 0;
+    OneSecond.QuadPart = 10000000;
+    OneMinute.QuadPart = OneSecond.QuadPart * 60;
+    OneHour.QuadPart = OneMinute.QuadPart * 60;
+    OneDay.QuadPart = OneHour.QuadPart * 24;
+    OneWeek.QuadPart = OneDay.QuadPart * 7;
+    OneNormalYear.QuadPart = OneDay.QuadPart * 365;
+    OneLeapYear.QuadPart = OneDay.QuadPart * 366;
+    OneCentury.QuadPart =  (OneNormalYear.QuadPart * 76) + (OneLeapYear.QuadPart * 24);
+    TwoCenturies.QuadPart = OneCentury.QuadPart * 2;
+    ThreeCenturies.QuadPart = OneCentury.QuadPart * 3;
+    FourCenturies.QuadPart = (OneCentury.QuadPart * 4) + OneDay.QuadPart;
 
-    Sum            = RtlLargeIntegerAdd( Zero,
-                     RtlLargeIntegerAdd( OneSecond,
-                     RtlLargeIntegerAdd( OneMinute,
-                     RtlLargeIntegerAdd( OneHour,
-                     RtlLargeIntegerAdd( OneDay,
-                     RtlLargeIntegerAdd( OneWeek,
-                     RtlLargeIntegerAdd( OneNormalYear, ThreeCenturies)))))));
+    Sum.QuadPart   = Zero.QuadPart +
+                     OneSecond.QuadPart +
+                     OneMinute.QuadPart +
+                     OneHour.QuadPart +
+                     OneDay.QuadPart +
+                     OneWeek.QuadPart +
+                     OneNormalYear.QuadPart +
+                     ThreeCenturies.QuadPart;
 
 
     RtlTimeToTimeFields( (PLARGE_INTEGER)&Zero, &TimeFields );
@@ -324,4 +323,3 @@ PrintTimeFields (
 
     DbgPrint(" (%s)", Days[TimeFields->Weekday]);
 }
-

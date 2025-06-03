@@ -31,7 +31,7 @@ Revision History:
 #include <fcntl.h>
 #include <sys\stropts.h>
 #include <string.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <winperf.h>
 #include "perfctr.h" // error message definition
@@ -80,8 +80,8 @@ PNBT_DEVICE_DATA     pNbtDeviceData;
 int                  MaxNbtDeviceName;
 int                  NumberOfNbtDevices;
 
-// initial count - will update to last 
-PVOID                pNbtDataBuffer;
+// initial count - will update to last
+PVOID                pNbtDataBuffer = NULL;
 int                  NbtDataBufferSize;
 
 // HANDLE NbtHandle = INVALID_HANDLE_VALUE; // Handle of Nbt Device
@@ -94,12 +94,12 @@ int                  NbtDataBufferSize;
 
 // The error value returned by the perfctrs.dll when an error occurs while we
 // are getting the data for the NBT connections.
-// The error codes we get from the socket calls (OpenStream(), s_ioctl(), 
+// The error codes we get from the socket calls (OpenStream(), s_ioctl(),
 // getmsg()) are Unix errors, not Dos or Windows errors. Hopefully, somebody
 // will implement the conversion from these errors to Windows errors.
-// The error value is not used within the Collect data routine because this 
-// routine shouldn't return an error in case it fails to collect Nbt data from 
-// connections. In this case, it just returns the buffer it was supposed to 
+// The error value is not used within the Collect data routine because this
+// routine shouldn't return an error in case it fails to collect Nbt data from
+// connections. In this case, it just returns the buffer it was supposed to
 // place the data into, unchanged.
 
 #define ERROR_NBT_NET_RESPONSE   \
@@ -295,7 +295,7 @@ Return Value:
 
 
 DWORD
-OpenNbtPerformanceData ( 
+OpenNbtPerformanceData (
    IN LPWSTR dwVoid            // not used by this routine
 )
 
@@ -336,7 +336,7 @@ Return Value:
     MonOpenEventLog();
 
     REPORT_INFORMATION (NBT_OPEN_ENTERED, LOG_VERBOSE);
-    
+
     size = BUFF_SIZE;
     status = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
                  SubKeyLinkage,
@@ -373,7 +373,7 @@ Return Value:
          {
          break;
          }
-      
+
 
       ntstatus = OpenNbt (lpLocalDeviceNames,
          &hFileHandle,
@@ -412,7 +412,7 @@ Return Value:
                pNbtDeviceData = pTemp;
                }
             }
-   
+
          // build the Data structure for this device instance
          pNbtDeviceData[NumberOfNbtDevices].hFileHandle
             = hFileHandle;
@@ -450,8 +450,8 @@ Return Value:
 
 
 
-DWORD 
-CollectNbtPerformanceData(    
+DWORD
+CollectNbtPerformanceData(
     IN      LPWSTR  lpValueName,
     IN OUT  LPVOID  *lppData,
     IN OUT  LPDWORD lpcbTotalBytes,
@@ -468,7 +468,7 @@ Routine Description:
          registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -477,15 +477,15 @@ Routine Description:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  lpNumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
 Return Value:
@@ -533,7 +533,7 @@ Return Value:
           lpValueName, (lstrlenW(lpValueName) * sizeof(WCHAR)));
    }
 
- 
+
    //
    // define pointer for Object Data structure (NBT object def.)
    //
@@ -544,7 +544,7 @@ Return Value:
    if (!pNbtDeviceData || NumberOfNbtDevices == 0)
       {
       //
-      // Error getting NBT info, so return 0 bytes, 0 objects and 
+      // Error getting NBT info, so return 0 bytes, 0 objects and
       //  log error
       //
       REPORT_ERROR (NBT_IOCTL_INFO_ERROR, LOG_USER);
@@ -552,7 +552,7 @@ Return Value:
       *lpNumObjectTypes = (DWORD) 0;
       return ERROR_SUCCESS;
       }
-   
+
    if (!pNbtDataBuffer)
       {
       NbtDataBufferSize = 1024L;
@@ -572,13 +572,13 @@ Return Value:
 
 
    // Compute space needed to hold NBT data
-   SpaceNeeded = sizeof(NBT_DATA_DEFINITION) + 
+   SpaceNeeded = sizeof(NBT_DATA_DEFINITION) +
       (NumberOfConnections *
       NumberOfNbtDevices *
-      (sizeof(PERF_INSTANCE_DEFINITION) + 
+      (sizeof(PERF_INSTANCE_DEFINITION) +
       DWORD_MULTIPLE((NBT_CONNECTION_NAME_LENGTH * sizeof(WCHAR))
-      + sizeof(UNICODE_NULL) 
-      + MaxNbtDeviceName ) + 
+      + sizeof(UNICODE_NULL)
+      + MaxNbtDeviceName ) +
       SIZE_OF_NBT_DATA));
 
    if ( *lpcbTotalBytes < SpaceNeeded ) {
@@ -589,9 +589,9 @@ Return Value:
       return ERROR_MORE_DATA;
    }
 
-  
 
-   AnsiConnectionName.Length = 
+
+   AnsiConnectionName.Length =
    AnsiConnectionName.MaximumLength = sizeof(AnsiConnectionNameBuffer);
    AnsiConnectionName.Buffer = AnsiConnectionNameBuffer;
    //
@@ -602,9 +602,9 @@ Return Value:
    //
    // point to where the first instance of this will be (if we find one.
    //
-   pPerfInstanceDefinition = (PERF_INSTANCE_DEFINITION *) 
+   pPerfInstanceDefinition = (PERF_INSTANCE_DEFINITION *)
                (pNbtDataDefinition + 1);
-    
+
    TotalReceived.LowPart =  0; // initialize counters
    TotalSent.LowPart = 0;
    TotalReceived.HighPart =  0; // initialize counters
@@ -741,17 +741,18 @@ Return Value:
 
             //
             //    load instance data into buffer
-            // 
+            //
             MonBuildInstanceDefinition (pPerfInstanceDefinition,
                (PVOID *) &pPerfCounterBlock,
                0,
                0,
-               ConnectionCounter++,
+               (DWORD)PERF_NO_UNIQUE_ID,   // no unique ID, Use the name instead
+//               ConnectionCounter++,
                &ConnectionName);
 
             //
             //    adjust object size values to include new instance
-            // 
+            //
 
             pNbtObject->NumInstances++;
             //
@@ -762,18 +763,15 @@ Return Value:
             pliCounter = (LARGE_INTEGER UNALIGNED * ) (pPerfCounterBlock + 1);
 
             *(pliCounter++) = pConns->BytesRcvd;
-            TotalReceived = RtlLargeIntegerAdd(
-               TotalReceived,
-               pConns->BytesRcvd);
+            TotalReceived.QuadPart = TotalReceived.QuadPart +
+               pConns->BytesRcvd.QuadPart;
 
             *pliCounter++ = pConns->BytesSent;
-            TotalSent = RtlLargeIntegerAdd(
-               TotalSent,
-               pConns->BytesSent);
+            TotalSent.QuadPart = TotalSent.QuadPart +
+               pConns->BytesSent.QuadPart;
 
-            *pliCounter = RtlLargeIntegerAdd(
-               pConns->BytesRcvd,
-               pConns->BytesSent);
+            pliCounter->QuadPart = pConns->BytesRcvd.QuadPart +
+               pConns->BytesSent.QuadPart;
 
             //
             // update pointer for next instance
@@ -790,48 +788,50 @@ Return Value:
 
 
 
-   // The last instance definition contains the total data from all the 
+   // The last instance definition contains the total data from all the
    // displayed connections
 
    RtlInitUnicodeString (&ConnectionName, TotalName);
-   MonBuildInstanceDefinition (pPerfInstanceDefinition, 
-            (PVOID *) &pPerfCounterBlock, 
-            0, 
-            0, 
-            ConnectionCounter++, 
+   MonBuildInstanceDefinition (pPerfInstanceDefinition,
+            (PVOID *) &pPerfCounterBlock,
+            0,
+            0,
+//            ConnectionCounter++,
+            (DWORD)PERF_NO_UNIQUE_ID,   // no unique ID, Use the name instead
             &ConnectionName);
 
    //
    //    adjust object size values to include new instance
-   // 
+   //
 
    pNbtObject->NumInstances++;
    pNbtObject->TotalByteLength += sizeof (PERF_INSTANCE_DEFINITION)
                                   + SIZE_OF_NBT_DATA;
-   
+
    // initialize counter block for this instance
 
    pPerfCounterBlock->ByteLength = SIZE_OF_NBT_DATA;
 
    // load counters
-   
+
    pliCounter = (LARGE_INTEGER UNALIGNED * ) (pPerfCounterBlock + 1);
    (*(pliCounter++)) = TotalReceived;
    (*(pliCounter++)) = TotalSent;
-   *pliCounter++ = RtlLargeIntegerAdd(TotalReceived, TotalSent);
+   pliCounter->QuadPart = TotalReceived.QuadPart + TotalSent.QuadPart;
+   pliCounter++;
 
    // Set returned values
    *lppData = (LPVOID)pliCounter;
 
    *lpNumObjectTypes = NBT_NUM_PERF_OBJECT_TYPES;
    *lpcbTotalBytes = (DWORD)((LPBYTE)pliCounter-(LPBYTE)pNbtObject);
-      
+
    pNbtDataDefinition->NbtObjectType.TotalByteLength = *lpcbTotalBytes;
 
    REPORT_INFORMATION (NBT_COLLECT_DATA, LOG_DEBUG);
    return ERROR_SUCCESS;
 }
-    
+
 
 
 DWORD
@@ -901,4 +901,3 @@ Return Value:
     return ERROR_SUCCESS;
 
 }
-

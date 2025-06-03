@@ -473,11 +473,12 @@ ss_sendunc(HANDLE hpipe, PSTR password, PSTR server)
  * checksum a single file using the checksum server
  */
 BOOL
-ss_checksum_remote(HANDLE hpipe, PSTR path, ULONG * psum)
+ss_checksum_remote( HANDLE hpipe, PSTR path
+                  , ULONG * psum, FILETIME * pft, LONG * pSize )
 {
         SSNEWRESP resp;
+        char msg[300];
 
-        Trace_Fil("ss_checksum_remote\n");
         *psum = 0;
         if (!ss_sendrequest(hpipe, SSREQ_SCAN, path, strlen(path)+1, 0)) {
 
@@ -492,20 +493,53 @@ ss_checksum_remote(HANDLE hpipe, PSTR path, ULONG * psum)
                 return(FALSE);
         }
 
-        if (resp.lCode != SSRESP_FILE) {
+
+        switch(resp.lCode) {
+
+        case SSRESP_END:
+                TRACE_ERROR("No remote files found", FALSE);
+                return(FALSE);
+
+        case SSRESP_ERROR:
+                if (resp.ulSize!=0) {
+                    wsprintf( msg, "Checksum server could not read %s win32 code %d"
+                            , resp.szFile, resp.ulSize
+                            );
+                }
+                else
+                    wsprintf(msg, "Checksum server could not read %s", resp.szFile);
+                TRACE_ERROR(msg, FALSE);
+                return(FALSE);
+
+        case SSRESP_CANTOPEN:
+                wsprintf(msg, "Checksum server could not open %s", resp.szFile);
+                TRACE_ERROR(msg, FALSE);
+                return(FALSE);
+
+        case SSRESP_FILE:
+                *psum = resp.ulSum;
+                *pSize = resp.ulSize;
+                *pft = resp.ft_lastwrite;
+
+                /* read and discard any further packets until SSRESP_END */
+                while(0<ss_getresponse(hpipe, &resp)) {
+                        if (resp.lCode == SSRESP_END) {
+                                break;
+                        }
+                }
+
+                return(TRUE);
+
+        case SSRESP_DIR:
+                wsprintf(msg, "Checksum server thinks %s is a directory", resp.szFile);
+                TRACE_ERROR(msg, FALSE);
+                return(FALSE);
+        default:
+                wsprintf(msg, "Bad code from checksum server:%d", resp.lCode);
+                TRACE_ERROR(msg, FALSE);
                 return(FALSE);
         }
 
-        *psum = resp.ulSum;
-
-        /* read and discard any further packets until SSRESP_END */
-        while(0<ss_getresponse(hpipe, &resp)) {
-                if (resp.lCode == SSRESP_END) {
-                        break;
-                }
-        }
-
-        return(TRUE);
 } /* ss_checksum_remote */
 
 
@@ -583,9 +617,6 @@ static  HANDLE hpData = INVALID_HANDLE_VALUE;   /* the data pipe to get files*/
 static LIST Decomps = NULL;                     /* hThreads of decompressers */
 static LIST Retries = NULL;                     /* DECOMPARGS to retry */
 
-static CRITICAL_SECTION csLogFile;              /* unattended ops log file */
-static HFILE shfLog = HFILE_ERROR;
-
 /* Thread arguments for the decompress thread */
 typedef struct{
         DWORD fileattribs;
@@ -625,7 +656,7 @@ void PurgeDecomps(LIST Decs);
    So for the above reasons the local (client) name is transmitted with the
    file request and sent back with the file in a SSNEWRESP.
 */
-BOOL ss_startcopy(PSTR server,  PSTR uncname, PSTR password, HFILE hfLog)
+BOOL ss_startcopy(PSTR server,  PSTR uncname, PSTR password)
 {       int retry;
         SSNEWRESP resp;         /* buffer for messages received */
         DWORD ThreadId;         /* to keep CreateThread happy */
@@ -635,8 +666,6 @@ BOOL ss_startcopy(PSTR server,  PSTR uncname, PSTR password, HFILE hfLog)
 
         Trace_Fil("ss_startcopy\n");
         nFiles = 0; nGoodFiles = 0; nBadFiles = 0;
-        InitializeCriticalSection(&csLogFile);
-        shfLog = hfLog;
 
         /* don't need a crit sect here because this runs on the main thread */
         if (BulkCopy) return FALSE;     /* already running! */
@@ -1331,17 +1360,6 @@ int Decompress(DECOMPARGS * da)
                         TRACE_ERROR("could not set attributes", FALSE);
                 }
         }
-        if (bOK) {
-            char LogText[1000];
-            UINT ui;
-            EnterCriticalSection(&csLogFile);
-            wsprintf( LogText, "COPY %s %s DONE \n"
-                    , da->Remote
-                    , da->Real
-                    );
-            ui = _lwrite(shfLog, LogText, lstrlen(LogText));
-            LeaveCriticalSection(&csLogFile);
-        }
         GlobalFree((HGLOBAL)da);
         return bOK;
 } /* Decompress */
@@ -1492,15 +1510,7 @@ static void Retry(LIST Rets)
         List_TRAVERSE(Rets, da) {
              if (ss_copy_reliable( Server, da->Remote, da->Real, UNCName, Password))
              {   /* correct the lie we told when Decompress returned FALSE */
-                 char LogText[1000];
                  ++nGoodFiles; --nBadFiles;
-                 EnterCriticalSection(&csLogFile);
-                 wsprintf( LogText, "COPY %s %s DONE \n"
-                         , da->Remote
-                         , da->Real
-                         );
-                 _lwrite(shfLog, LogText, lstrlen(LogText));
-                 LeaveCriticalSection(&csLogFile);
              }
         }
         List_Destroy(&Rets);
@@ -1540,7 +1550,6 @@ int ss_endcopy(void)
         Retries = NULL;
 
         BulkCopy = FALSE;
-        DeleteCriticalSection(&csLogFile);
         if (nBadFiles+nGoodFiles > nFiles) return -99999; /* !!? */
         if (nBadFiles+nGoodFiles < nFiles) nBadFiles = nFiles-nGoodFiles;
 
@@ -1602,6 +1611,10 @@ ss_copy_reliable(PSTR server, PSTR remotepath, PSTR localpath, PSTR uncname,
         HANDLE hpCopy = INVALID_HANDLE_VALUE;    /* N.B. NOT the static global pipe! */
         LONG err;
 
+        FILETIME ft;
+        LONG sz;
+
+
         Trace_Fil("ss_copy_reliable\n");
 //      if (BulkCopy) {
 //              TRACE_ERROR("Cannot do simple copy as bulk copy is in progress", FALSE);
@@ -1660,7 +1673,7 @@ ss_copy_reliable(PSTR server, PSTR remotepath, PSTR localpath, PSTR uncname,
                 if (err!=0) continue;
 
                 sum_remote = 0;
-                if (!ss_checksum_remote(hpCopy, remotepath, &sum_remote)) {
+                if (!ss_checksum_remote(hpCopy, remotepath, &sum_remote, &ft, &sz)) {
                         /* no remote checksum - better retry */
                         if (!TRACE_ERROR("remote checksum failed - retry?", TRUE)) {
                             CloseHandle(hpCopy);

@@ -28,7 +28,7 @@ Revision History:
         Added support for using the real Win32 registry.
         Added support for FAKE_PER_PROCESS_RW_CONFIG handling.
     25-Feb-1993 JohnRo
-        RAID 12914: tell caller if they never opened handle.
+        RAID 12914: _tell caller if they never opened handle.
 
 --*/
 

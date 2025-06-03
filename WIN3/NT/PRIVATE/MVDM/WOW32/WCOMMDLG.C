@@ -33,6 +33,38 @@ MODNAME(wcommdlg.c);
 //
 #if DBG
 
+#define WCDDUMPFINDREPLACE16(p16) \
+    if (fLogFilter & FILTER_COMMDLG) {               \
+        LOGDEBUG(0, ("FINDREPLACE16:\n")); \
+        LOGDEBUG(0, ("\tlStructSize      = %lx\n",(p16)->lStructSize)); \
+        LOGDEBUG(0, ("\thwndOwner        = %x\n",(p16)->hwndOwner));   \
+        LOGDEBUG(0, ("\thInstance        = %x\n",(p16)->hInstance));         \
+        LOGDEBUG(0, ("\tFlags            = %x\n",(p16)->Flags));       \
+        LOGDEBUG(0, ("\tlpstrFindWhat    = %lx\n",(p16)->lpstrFindWhat)); \
+        LOGDEBUG(0, ("\tlpstrReplaceWith = %lx\n",(p16)->lpstrReplaceWith)); \
+        LOGDEBUG(0, ("\twFindWhatLen     = %x\n",(p16)->wFindWhatLen));   \
+        LOGDEBUG(0, ("\twReplaceWithLen  = %x\n",(p16)->wReplaceWithLen));   \
+        LOGDEBUG(0, ("\tlCustData     = %lx\n",(p16)->lCustData));   \
+        LOGDEBUG(0, ("\tlpfnHook      = %lx\n",(p16)->lpfnHook));    \
+        LOGDEBUG(0, ("\tlpTemplateName= %lx\n",(p16)->lpTemplateName)); \
+    }
+
+#define WCDDUMPFINDREPLACE32(p32) \
+    if (fLogFilter & FILTER_COMMDLG) {               \
+        LOGDEBUG(0, ("FINDREPLACE32:\n")); \
+        LOGDEBUG(0, ("\tlStructSize      = %lx\n",(p32)->lStructSize)); \
+        LOGDEBUG(0, ("\thwndOwner        = %x\n",(p32)->hwndOwner));   \
+        LOGDEBUG(0, ("\thInstance        = %x\n",(p32)->hInstance));         \
+        LOGDEBUG(0, ("\tFlags            = %x\n",(p32)->Flags));       \
+        LOGDEBUG(0, ("\tlpstrFindWhat    = %s\n",(p32)->lpstrFindWhat)); \
+        LOGDEBUG(0, ("\tlpstrReplaceWith = %s\n",(p32)->lpstrReplaceWith)); \
+        LOGDEBUG(0, ("\twFindWhatLen     = %x\n",(p32)->wFindWhatLen));   \
+        LOGDEBUG(0, ("\twReplaceWithLen  = %x\n",(p32)->wReplaceWithLen));   \
+        LOGDEBUG(0, ("\tlCustData     = %lx\n",(p32)->lCustData));   \
+        LOGDEBUG(0, ("\tlpfnHook      = %lx\n",(p32)->lpfnHook));    \
+        LOGDEBUG(0, ("\tlpTemplateName= %lx\n",(p32)->lpTemplateName)); \
+    }
+
 #define WCDDUMPCHOOSEFONTDATA16(p16) \
     if (fLogFilter & FILTER_COMMDLG) {               \
         LOGDEBUG(10, ("CHOOSEFONT16:\n")); \
@@ -208,9 +240,16 @@ MODNAME(wcommdlg.c);
 #define WCDDUMPOPENFILENAME32(p32)
 #define WCDDUMPPRINTDLGDATA16(p16)
 #define WCDDUMPPRINTDLGDATA32(p32)
+#define WCDDUMPFINDREPLACE16(p16)
+#define WCDDUMPFINDREPLACE32(p32)
 
 #endif
 
+#define FR_OUTPUTFLAGS (FR_DOWN | FR_WHOLEWORD | FR_MATCHCASE | \
+                        FR_FINDNEXT | FR_REPLACE | FR_REPLACEALL | \
+                        FR_DIALOGTERM | FR_SHOWHELP | FR_NOUPDOWN | \
+                        FR_NOMATCHCASE | FR_NOWHOLEWORD | FR_HIDEUPDOWN | \
+                        FR_HIDEMATCHCASE | FR_HIDEWHOLEWORD)
 
 #define SETEXTENDEDERROR(Code) (dwExtError=Code)
 #define PD_OUTPUTFLAGS (PD_ALLPAGES | PD_COLLATE | PD_PAGENUMS | \
@@ -221,19 +260,16 @@ MODNAME(wcommdlg.c);
 #define CF_OUTPUTFLAGS (CF_NOFACESEL | CF_NOSIZESEL | CF_NOSTYLESEL)
 
 //
-// Internal flags used in the COMMDLGTD structure
-//
-#define WOWCD_ISCHOOSEFONT 1
-
-//
 // private typedefs and structs
 //
 
 typedef BOOL (APIENTRY* FILENAMEPROC)(LPOPENFILENAME);
+typedef HWND (APIENTRY* FINDREPLACEPROC)(LPFINDREPLACE);
 
 //
 // private function prototypes
 //
+
 PCOMMDLGTD
 GetCommdlgTd(
     IN HWND Hwnd32
@@ -247,9 +283,14 @@ GetTemplate16(
     );
 
 VOID
-ThunkDevMode32to16(
-    IN HANDLE hDevMode,
+ThunkhDevMode32to16(
+    IN HANDLE hDevMode32,
     IN OUT HAND16 *phDevMode16
+    );
+
+HGLOBAL 
+ThunkhDevMode16to32(
+    IN HAND16 hDevMode16
     );
 
 VOID
@@ -269,6 +310,12 @@ ThunkOpenFileName32to16(
     IN OPENFILENAME *FileName,
     OUT POPENFILENAME16 FileName16,
     IN BOOLEAN bUpperStrings
+    );
+
+VOID
+ThunkFindReplace16to32(
+    IN PFINDREPLACE16 FindReplace16,
+    OUT FINDREPLACE *FindReplace
     );
 
 UINT APIENTRY
@@ -303,6 +350,20 @@ WCD32GetFileName(
     IN FILENAMEPROC Function
     );
 
+ULONG
+WCD32FindReplaceText(
+    IN PVDMFRAME pFrame,
+    IN FINDREPLACEPROC Function
+    );
+
+UINT APIENTRY
+WCD32FindReplaceDialogProc(
+    HWND hdlg,
+    UINT uMsg,
+    WPARAM uParam,
+    LPARAM lParam
+    );
+
 //
 // global data
 //
@@ -313,6 +374,7 @@ WORD msgWOWLFCHANGE=0;
 WORD msgWOWDIRCHANGE=0;
 WORD msgWOWCHOOSEFONT=0;
 WORD msgSHAREVIOLATION=0;
+WORD msgFINDREPLACE=0;
 
 //
 // unique message thunks
@@ -349,9 +411,18 @@ BOOL FASTCALL WM32msgFILEOK(LPWM32MSGPARAMEX lpwm32mpex)
     if (lpwm32mpex->fThunk) {
         UpdateDosCurrentDirectory(DIR_NT_TO_DOS);
         lpwm32mpex->Parm16.WndProc.lParam = (LPARAM)lpof;
-        ThunkOpenFileName32to16(FileName, FileName16, FALSE);
+
+        // sudeepb 12-Mar-1996
+        //
+        // The selected file name needs to be uppercased for brain dead
+        // apps like symanatec QA 4.0. So changed the following parameter
+        // in ThunkOpenFileName from FALSE to TRUE.
+        //
+
+
+        ThunkOpenFileName32to16(FileName, FileName16, TRUE);
     } else {
-        FileName->Flags = DWORD32(FileName16->Flags) | OFN_NOLONGNAMES;
+        FileName->Flags = DWORD32(FileName16->Flags) | OFN_NOLONGNAMES | CD_WOWAPP;
         FileName->nFileOffset = FileName16->nFileOffset;
         FileName->nFileExtension = FileName16->nFileExtension;
         GETPSZPTR(FileName16->lpstrFilter, FileName->lpstrFilter);
@@ -444,7 +515,11 @@ BOOL FASTCALL WM32msgCHOOSEFONTGETLOGFONT(LPWM32MSGPARAMEX lpwm32mpex)
 {
     LOGFONT LogFont32;
 
+    // The mere fact that we access the buffer after allowing the 16-bit
+    // hook proc to step in breaks Serif PagePlus app which wants it's
+    // hook proc to always have a shot and commdlg to check the return value. 
 
+    // If hook proc returns TRUE, no further action is taken
     //
     // This is the message an app sends the dialog if it wants to find
     // out what font is currently selected.
@@ -454,7 +529,7 @@ BOOL FASTCALL WM32msgCHOOSEFONTGETLOGFONT(LPWM32MSGPARAMEX lpwm32mpex)
     // thunk it back to the 16-bit structure.  Then we return TRUE so
     // comdlg32 doesn't reference the 16-bit logfont.
     //
-    if (!lpwm32mpex->fThunk) {
+    if (!lpwm32mpex->fThunk && !lpwm32mpex->lReturn) {
         SendMessage(lpwm32mpex->hwnd, msgWOWCHOOSEFONT, 0, (LPARAM)&LogFont32);
 
         PUTLOGFONT16(lpwm32mpex->lParam, sizeof(LOGFONT), &LogFont32);
@@ -482,7 +557,7 @@ WCD32DialogProc(
 Routine Description:
 
     This is the hook proc used by ChooseFont, GetOpenFileName,
-    GetSaveAsFileName, and PrintDlg.  It pulls the 16-bit callback
+    GetSaveFileName, and PrintDlg.  It pulls the 16-bit callback
     out of the thread data and calls the common dialog proc to do
     the rest of the work.
 
@@ -570,18 +645,28 @@ Routine Description:
 --*/
 
 {
-    BOOL fSuccess;
-    LPFNM32 pfnThunkMsg;
-    WM32MSGPARAMEX wm32mpex;
-    BOOL   fMessageNeedsThunking;
+    BOOL            fSuccess;
+    LPFNM32         pfnThunkMsg;
+    WM32MSGPARAMEX  wm32mpex;
+    BOOL            fMessageNeedsThunking;
+    POPENFILENAME16 pStruct16;
 
     // If the app has GP Faulted we don't want to pass it any more input
     // This should be removed when USER32 does clean up on task death so
     // it doesn't call us - mattfe june 24 92
 
-    if (CURRENTPTD()->gfIgnoreInput) {
-    LOGDEBUG(6,("    WCD32OpenFileDialog Ignoring Input Messsage %04X\n",uMsg));
-    goto SilentError;
+
+    // Uncomment to receive messages on entrance
+    // LOGDEBUG(10, ("CommonDialogProc In: %lX %X %X %lX (%lX)\n", (DWORD)hdlg, uMsg, uParam, lParam
+
+    if (CURRENTPTD()->dwFlags & TDF_IGNOREINPUT) {
+        LOGDEBUG(6,("    WCD32OpenFileDialog Ignoring Input Messsage %04X\n",uMsg));
+        WOW32ASSERTMSG(!gfIgnoreInputAssertGiven,
+                       "WCD32CommonDialogProc: TDF_IGNOREINPUT hack was used, shouldn't be, "
+                       "please email DaveHart with repro instructions.  Hit 'g' to ignore this "
+                       "and suppress this assertion from now on.\n");
+        gfIgnoreInputAssertGiven = TRUE;
+        goto SilentError;
     }
 
 #if DBG
@@ -618,6 +703,20 @@ Routine Description:
         //
 
         wm32mpex.Parm16.WndProc.lParam = lParam = (LPARAM)pCTD->vpData;
+
+        // The flags in the APPS OPENFILENAME structure get updated by 
+        // CommDlg16 in fileopen.c\InitFileDlg().  This happens in 
+        // FileOpenDlgProc() & FileSaveDlgProc() while processing the
+        // WM_INITDIALOG message.  Persuasion 3.0 depends on it.
+        GETVDMPTR(lParam, sizeof(DWORD), pStruct16);
+        if(pStruct16->lStructSize == sizeof(OPENFILENAME16)) {
+            if(pStruct16->Flags & OFN_CREATEPROMPT) {
+                pStruct16->Flags |= OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+            }
+            else if(pStruct16->Flags & OFN_FILEMUSTEXIST) {
+                pStruct16->Flags |= OFN_PATHMUSTEXIST;
+            }
+        }
         pfnThunkMsg = aw32Msg[uMsg].lpfnM32;
 
     } else if (uMsg < 0x400) {
@@ -634,7 +733,8 @@ Routine Description:
         //
         if ((uMsg==WM_COMMAND) &&
             (LOWORD(uParam)==IDOK) &&
-            (pCTD->pData32 != NULL)) {
+            (pCTD->pData32 != NULL) &&
+            (pCTD->Flags & WOWCD_ISOPENFILE)) {
 
             POPENFILENAME16 FileName16;
 
@@ -655,7 +755,6 @@ Routine Description:
             pfnThunkMsg = WM32msgWOWDIRCHANGE;
         } else if (uMsg == msgWOWLFCHANGE) {
             pfnThunkMsg = WM32msgWOWLFCHANGE;
-
         } else if (pCTD->Flags & WOWCD_ISCHOOSEFONT) {
             //
             // special ChooseFont thunks to handle goofy GETLOGFONT message
@@ -686,12 +785,13 @@ Routine Description:
         wm32mpex.lParam = lParam;
         wm32mpex.pww = NULL;
         wm32mpex.lpfnM32 = pfnThunkMsg;
+
         if (!(pfnThunkMsg)(&wm32mpex)) {
             LOGDEBUG(LOG_ERROR,("    WCD32OpenFileDialog ERROR: cannot thunk 32-bit message %04x\n", uMsg));
             goto Error;
         }
     } else {
-        LOGDEBUG(6,("    No Thunking was required for the 32-bit message %s(%04x)\n", (LPSZ)GetWMMsgName(uMsg), uMsg));
+        LOGDEBUG(6,("WCD32CommonDialogProc, No Thunking was required for the 32-bit message %s(%04x)\n", (LPSZ)GetWMMsgName(uMsg), uMsg));
     }
 
 
@@ -713,7 +813,8 @@ Routine Description:
     //
     if ((uMsg==WM_COMMAND) &&
         (LOWORD(uParam)==IDOK) &&
-        (pCTD->pData32 != NULL)) {
+        (pCTD->pData32 != NULL) &&
+        (pCTD->Flags & WOWCD_ISOPENFILE)) {
 
         POPENFILENAME16 FileName16;
 
@@ -731,6 +832,8 @@ Routine Description:
         goto Error;
 
 Done:
+    // Uncomment to receive message on exit
+    // LOGDEBUG(10, ("CommonDialogProc Out: Return %lX\n", wm32mpex.lReturn));
 
     return wm32mpex.lReturn;
 
@@ -787,7 +890,7 @@ Return Value:
 
     ChooseColorData.lStructSize  = sizeof(CHOOSECOLOR);
     ChooseColorData.hwndOwner    = HWND32(ChooseColorData16->hwndOwner);
-    ChooseColorData.Flags        = DWORD32(ChooseColorData16->Flags);
+    ChooseColorData.Flags        = DWORD32(ChooseColorData16->Flags) | CD_WOWAPP;
     ChooseColorData.rgbResult    = DWORD32(ChooseColorData16->rgbResult);
 
     //
@@ -810,8 +913,13 @@ Return Value:
 
         hRes = GetTemplate16(ChooseColorData16->hInstance,
                              ChooseColorData16->lpTemplateName,
-                             FALSE);
-        if (hRes==NULL) {
+			     FALSE);
+
+	// memory may have moved
+	FREEVDMPTR( pCustColors16 );
+	FREEVDMPTR( ChooseColorData16 );
+
+	if (hRes==NULL) {
             ul = GETBOOL16(FALSE);
             goto ChooseColorError;
         }
@@ -823,7 +931,11 @@ Return Value:
 
         ChooseColorData.hInstance=(HWND)GetTemplate16(ChooseColorData16->hInstance,
                                                       (VPCSTR)NULL,
-                                                      TRUE);
+						      TRUE);
+
+	// memory may have moved
+	FREEVDMPTR( pCustColors16 );
+	FREEVDMPTR( ChooseColorData16 );
     }
 
     WCDDUMPCHOOSECOLORDATA32(&ChooseColorData);
@@ -929,7 +1041,7 @@ Return Value:
 
     ChooseFontData.lStructSize = sizeof(CHOOSEFONT);
     ChooseFontData.hwndOwner   = HWND32(ChooseFontData16->hwndOwner);
-    ChooseFontData.Flags       = DWORD32(ChooseFontData16->Flags);
+    ChooseFontData.Flags       = DWORD32(ChooseFontData16->Flags) | CD_WOWAPP;
     if (ChooseFontData16->Flags & CF_PRINTERFONTS) {
         ChooseFontData.hDC         = HDC32(ChooseFontData16->hDC);
     }
@@ -953,7 +1065,12 @@ Return Value:
         hRes = GetTemplate16(ChooseFontData16->hInstance,
                              ChooseFontData16->lpTemplateName,
                              FALSE);
-        if (hRes==NULL) {
+	// Memory may have moved - invalidate the flat pointers now
+	FREEVDMPTR( ChooseFontData16 );
+	FREEVDMPTR( pFrame );
+	FREEARGPTR( parg16 );
+
+	if (hRes==NULL) {
             ul = GETBOOL16(FALSE);
             goto ChooseFontError;
         }
@@ -966,11 +1083,18 @@ Return Value:
         ChooseFontData.hInstance=(HINSTANCE)GetTemplate16(ChooseFontData16->hInstance,
                                                           (VPCSTR)NULL,
                                                           TRUE);
+	// Memory may have moved - invalidate the flat pointers now
+	FREEVDMPTR( ChooseFontData16 );
+	FREEVDMPTR( pFrame );
+	FREEARGPTR( parg16 );
     }
 
     WCDDUMPCHOOSEFONTDATA32(&ChooseFontData);
 
+    // memory may move because of ChooseFont - invalidate all flat pointers now
     FREEVDMPTR( ChooseFontData16 );
+    FREEVDMPTR( pFrame );
+    FREEARGPTR( parg16 );
 
     ul = GETBOOL16(ChooseFont(&ChooseFontData));
 
@@ -1060,8 +1184,55 @@ Return Value:
     return(WCD32GetFileName(pFrame,GetSaveFileName));
 }
 
-ULONG FASTCALL  WCD32PrintDlg( IN PVDMFRAME pFrame )
+ULONG FASTCALL   WCD32FindText( PVDMFRAME pFrame )
 
+/*++
+
+Routine Description:
+
+    This routine thunks the 16-bit FindText common dialog to the
+    32-bit side.
+
+Arguments:
+
+    pFrame - Supplies 16-bit argument frame
+
+Return Value:
+
+    16-bit BOOLEAN to be returned.
+
+--*/
+{
+    return(WCD32FindReplaceText(pFrame, FindText));
+}
+
+ULONG FASTCALL   WCD32ReplaceText( PVDMFRAME pFrame )
+
+/*++
+
+Routine Description:
+
+    This routine thunks the 16-bit ReplaceText common dialog to the
+    32-bit side.
+
+Arguments:
+
+    pFrame - Supplies 16-bit argument frame
+
+Return Value:
+
+    16-bit BOOLEAN to be returned.
+
+--*/
+{
+    return(WCD32FindReplaceText(pFrame, ReplaceText));
+}
+
+
+
+
+
+ULONG FASTCALL  WCD32PrintDlg( IN PVDMFRAME pFrame )
 /*++
 
 Routine Description:
@@ -1088,14 +1259,16 @@ Return Value:
     PRINTDLGDATA16 OrigDlg16;
     PRES hSetupRes;
     PRES hPrintRes;
+    HAND16    hDevMode16, hDevNames16;
     COMMDLGTD ThreadData;
-    VPDEVMODE16 vpDevMode;
     INT nSize;
 
     GETARGPTR(pFrame, sizeof(PRINTDLG16), parg16);
     vppd = parg16->lppd;
     GETVDMPTR(vppd, sizeof(*PrintDlg16), PrintDlg16);
     SETEXTENDEDERROR(0);
+
+    RtlZeroMemory((PVOID)&PrintDlg32, (DWORD)sizeof(PrintDlg32));
 
     ThreadData.Previous = CURRENTPTD()->CommDlgTd;
     ThreadData.hdlg = (HWND16)-1;
@@ -1111,37 +1284,14 @@ Return Value:
 
     PrintDlg32.lStructSize = sizeof(PRINTDLG);
     PrintDlg32.hwndOwner   = HWND32(PrintDlg16->hwndOwner);
-    PrintDlg32.Flags       = DWORD32(PrintDlg16->Flags) | PD_WOWAPP;
+    PrintDlg32.Flags       = DWORD32(PrintDlg16->Flags) | CD_WOWAPP;
     PrintDlg32.nFromPage   = WORD32(PrintDlg16->nFromPage);
     PrintDlg32.nToPage     = WORD32(PrintDlg16->nToPage);
     PrintDlg32.nMinPage    = WORD32(PrintDlg16->nMinPage);
     PrintDlg32.nMaxPage    = WORD32(PrintDlg16->nMaxPage);
     PrintDlg32.nCopies     = WORD32(PrintDlg16->nCopies);
-    if (FETCHDWORD(PrintDlg16->hDevMode)==0L) {
-        PrintDlg32.hDevMode=NULL;
-    } else {
+    PrintDlg32.hDevMode    = ThunkhDevMode16to32(PrintDlg16->hDevMode);
 
-        vpDevMode = GlobalLock16(PrintDlg16->hDevMode,NULL);
-        if (FETCHDWORD(vpDevMode)==0L) {
-            PrintDlg32.hDevMode = NULL;
-        } else {
-            LPDEVMODE pdm32;
-            PDEVMODE16 pdm16;
-            INT nSize;
-
-            GETVDMPTR(vpDevMode, sizeof(DEVMODE16), pdm16);
-
-            nSize = FETCHWORD(pdm16->dmSize) + FETCHWORD(pdm16->dmDriverExtra);
-            PrintDlg32.hDevMode=GlobalAlloc(GMEM_MOVEABLE,nSize);
-            if (pdm32=GlobalLock(PrintDlg32.hDevMode)) {
-                RtlCopyMemory((PVOID)pdm32, (PVOID)pdm16, nSize);
-                GlobalUnlock(PrintDlg32.hDevMode);
-            }
-
-            FREEVDMPTR(pdm16);
-            GlobalUnlock16(PrintDlg16->hDevMode);
-        }
-    }
     if (FETCHDWORD(PrintDlg16->hDevNames)==0L) {
         PrintDlg32.hDevNames=NULL;
     } else {
@@ -1170,38 +1320,66 @@ Return Value:
         hPrintRes = GetTemplate16(PrintDlg16->hInstance,
                                   PrintDlg16->lpPrintTemplateName,
                                   FALSE);
+        // Memory may have moved - invalidate the flat pointers now
+        FREEVDMPTR( PrintDlg16 );
+        FREEVDMPTR( pFrame );
+        FREEARGPTR( parg16 );
+
         if (hPrintRes == NULL) {
             ul = GETBOOL16(FALSE);
             goto PrintDlgError;
         }
+
         PrintDlg32.hPrintTemplate = (HANDLE)LockResource16(hPrintRes);
         PrintDlg32.Flags &= ~PD_ENABLEPRINTTEMPLATE;
         PrintDlg32.Flags |= PD_ENABLEPRINTTEMPLATEHANDLE;
+
     } else if (PrintDlg16->Flags & PD_ENABLEPRINTTEMPLATEHANDLE) {
 
         PrintDlg32.hPrintTemplate = (HANDLE)GetTemplate16(PrintDlg16->hPrintTemplate,
                                                           (VPCSTR)NULL,
                                                           TRUE);
+        // Memory may have moved - invalidate the flat pointers now
+        FREEVDMPTR( PrintDlg16 );
+        FREEVDMPTR( pFrame );
+        FREEARGPTR( parg16 );
+
     }
+
+    GETVDMPTR(vppd, sizeof(*PrintDlg16), PrintDlg16);
     if (PrintDlg16->Flags & PD_ENABLESETUPTEMPLATE) {
         hSetupRes = GetTemplate16(PrintDlg16->hInstance,
                                   PrintDlg16->lpSetupTemplateName,
                                   FALSE);
+
+        // Memory may have moved - invalidate the flat pointers now
+        FREEVDMPTR( PrintDlg16 );
+        FREEVDMPTR( pFrame );
+        FREEARGPTR( parg16 );
+
         if (hSetupRes == NULL) {
             ul = GETBOOL16(FALSE);
             goto PrintDlgError;
         }
+
         PrintDlg32.hSetupTemplate = (HANDLE)LockResource16(hSetupRes);
         PrintDlg32.Flags &= ~PD_ENABLESETUPTEMPLATE;
         PrintDlg32.Flags |= PD_ENABLESETUPTEMPLATEHANDLE;
+
     } else if (PrintDlg16->Flags & PD_ENABLESETUPTEMPLATEHANDLE) {
 
         PrintDlg32.hSetupTemplate = (HANDLE)GetTemplate16(PrintDlg16->hSetupTemplate,
                                                           (VPCSTR)NULL,
                                                           TRUE);
 
+        // Memory may have moved - invalidate the flat pointers now
+        FREEVDMPTR( PrintDlg16 );
+        FREEVDMPTR( pFrame );
+        FREEARGPTR( parg16 );
+
     }
 
+    GETVDMPTR(vppd, sizeof(*PrintDlg16), PrintDlg16);
     if (PrintDlg16->Flags & PD_RETURNDEFAULT) {
         if (PrintDlg16->hDevMode || PrintDlg16->hDevNames) {
             //
@@ -1236,7 +1414,10 @@ Return Value:
 
     WCDDUMPPRINTDLGDATA32(&PrintDlg32);
 
+    // memory may move - invalidate flat pointers now
     FREEVDMPTR( PrintDlg16 );
+    FREEARGPTR( parg16 );
+    FREEVDMPTR( pFrame );
 
     ul = GETBOOL16(PrintDlg(&PrintDlg32));
 
@@ -1252,8 +1433,24 @@ Return Value:
         //
         // thunk 32-bit DEVMODE structure back to 16-bit
         //
-        ThunkDevMode32to16(PrintDlg32.hDevMode, &PrintDlg16->hDevMode);
-        ThunkDevNames32to16(PrintDlg32.hDevNames, &PrintDlg16->hDevNames);
+        // hDevXXXX16 take care of RISC alignment problems
+        hDevMode16  = PrintDlg16->hDevMode; 
+        hDevNames16 = PrintDlg16->hDevNames; 
+
+        ThunkhDevMode32to16(PrintDlg32.hDevMode, &hDevMode16);
+
+        // memory may move - invalidate flat pointers now
+        FREEVDMPTR( PrintDlg16 );
+        FREEARGPTR( parg16 );
+        FREEVDMPTR( pFrame );
+
+        ThunkDevNames32to16(PrintDlg32.hDevNames, &hDevNames16);
+
+        GETVDMPTR(vppd, sizeof(*PrintDlg16), PrintDlg16);
+
+        PrintDlg16->hDevMode  = hDevMode16;
+        PrintDlg16->hDevNames = hDevNames16;
+
         GlobalFree(PrintDlg32.hDevMode);
         GlobalFree(PrintDlg32.hDevNames);
 
@@ -1393,7 +1590,7 @@ Return Value:
     ThreadData.Previous = CURRENTPTD()->CommDlgTd;
     ThreadData.hdlg = (HWND16)-1;
     ThreadData.pData32 = (PVOID)&FileName;
-    ThreadData.Flags = 0;
+    ThreadData.Flags = WOWCD_ISOPENFILE;
     CURRENTPTD()->CommDlgTd = &ThreadData;
     if (msgFILEOK == 0) {
         //
@@ -1413,6 +1610,21 @@ Return Value:
 
     ThunkOpenFileName16to32(OpenFileName16, &FileName);
 
+    // This is a hack to fix a bug in Win3.1 commdlg.dll.
+    // Win3.1 doesn't check nMaxFileTitle before copying the FileTitle string.
+    // This should be the correct place to put this since Win3.1 implements all
+    // the GetOpenFileName() type api's in terms of GetFileName() too.
+    // (see Win3.1 src's \\pucus\win31aro\src\sdk\commdlg\fileopen.c)
+    // TaxCut'95 depends on the title string being returned.
+    if(FileName.lpstrFileTitle) {
+
+        // if nMaxFileTitle > 0, NT will copy lpstrFileTitle
+        if(FileName.nMaxFileTitle == 0) {
+            WOW32WARNMSG(FALSE, ("WOW:nMaxFileTitle compatibility hack hit\n"));
+            FileName.nMaxFileTitle = 13;  // 8.3 filename + NULL
+        }
+    }
+
     //
     // make sure the current directory is up to date
     //
@@ -1422,7 +1634,12 @@ Return Value:
         hRes = GetTemplate16(OpenFileName16->hInstance,
                              OpenFileName16->lpTemplateName,
                              FALSE);
-        if (!hRes) {
+	// Memory may have moved - invalidate the flat pointers now
+	FREEVDMPTR( OpenFileName16 );
+	FREEARGPTR( parg16 );
+	FREEVDMPTR( pFrame );
+
+	if (!hRes) {
             ul = GETBOOL16(FALSE);
             goto Error;
         }
@@ -1435,14 +1652,22 @@ Return Value:
         FileName.hInstance = (HINSTANCE)GetTemplate16(OpenFileName16->hInstance,
                                                       OpenFileName16->lpTemplateName,
                                                       TRUE);
+	// memory may have moved - re-fetch flat pointers now
+	FREEVDMPTR( OpenFileName16 );
+	FREEARGPTR( parg16 );
+	FREEVDMPTR( pFrame );
     }
     if (FileName.Flags & OFN_ENABLEHOOK) {
+	GETVDMPTR(vpof, sizeof(*OpenFileName16), OpenFileName16);
         ThreadData.vpfnHook = OpenFileName16->lpfnHook;
         ThreadData.vpData   = vpof;
         FileName.lpfnHook = WCD32DialogProc;
     }
 
+    // memory may move - free flat pointers now
     FREEVDMPTR( OpenFileName16 );
+    FREEARGPTR( parg16 );
+    FREEVDMPTR( pFrame );
 
     WCDDUMPOPENFILENAME32(&FileName);
 
@@ -1490,6 +1715,7 @@ Error:
     return(ul);
 }
 
+
 
 VOID
 ThunkOpenFileName16to32(
@@ -1530,15 +1756,18 @@ Return Value:
     FileName->nMaxFileTitle = DWORD32(FileName16->nMaxFileTitle);
     GETPSZPTR(FileName16->lpstrInitialDir, FileName->lpstrInitialDir);
     GETPSZPTR(FileName16->lpstrTitle, FileName->lpstrTitle);
-    FileName->Flags = DWORD32(FileName16->Flags) | OFN_NOLONGNAMES;
+    FileName->Flags = DWORD32(FileName16->Flags) | OFN_NOLONGNAMES | CD_WOWAPP;
     GETPSZPTR(FileName16->lpstrDefExt, FileName->lpstrDefExt);
 }
 
 
+
+
+
 
 VOID
-ThunkDevMode32to16(
-    IN HANDLE hDevMode,
+ThunkhDevMode32to16(
+    IN HANDLE hDevMode32,
     IN OUT HAND16 *phDevMode16
     )
 
@@ -1549,15 +1778,17 @@ Routine Description:
     This routine thunks a 32-bit DevMode structure back into the 16-bit one.
     It will reallocate the 16-bit global memory block as necessary.
 
+    WARNING: This may cause 16-bit memory to move, invalidating flat pointers.
+
 Arguments:
 
-    hDevMode - Supplies a handle to a movable global memory object that
-               contains a 32-bit DEVMODE structure
+    hDevMode    - Supplies a handle to a movable global memory object that
+                  contains a 32-bit DEVMODE structure
 
     phDevMode16 - Supplies a pointer to a 16-bit handle to a movable global
-               memory object that will return the 16-bit DEVMODE structure.
-               If the handle is NULL, the object will be allocated.  It
-               may also be reallocated if its current size is not enough.
+                  memory object that will return the 16-bit DEVMODE structure.
+                  If the handle is NULL, the object will be allocated.  It
+                  may also be reallocated if its current size is not enough.
 
 Return Value:
 
@@ -1566,51 +1797,93 @@ Return Value:
 --*/
 
 {
-    UINT CurrentSize;
-    UINT RequiredSize;
-    PDEVMODE16 pdm16;
-    VPDEVMODE16 DevMode16;
-    LPDEVMODE DevMode32;
+    UINT        CurrentSize;
+    UINT        RequiredSize;
+    VPDEVMODE31 vpDevMode16;
+    LPDEVMODE   lpDevMode32;
 
-    if (hDevMode==NULL) {
-        *phDevMode16=(HAND16)NULL;
+    if (hDevMode32 == NULL) {
+        *phDevMode16 = (HAND16)NULL;
         return;
     }
 
-    DevMode32 = GlobalLock(hDevMode);
-    if (DevMode32==NULL) {
-        *phDevMode16=(HAND16)NULL;
+    lpDevMode32 = GlobalLock(hDevMode32);
+    if (lpDevMode32==NULL) {
+        *phDevMode16 = (HAND16)NULL;
         return;
     }
-    RequiredSize = DevMode32->dmSize + DevMode32->dmDriverExtra;
 
-    if (*phDevMode16==(HAND16)NULL) {
-        DevMode16 = GlobalAllocLock16(GMEM_MOVEABLE,
-                                      RequiredSize,
-                                      phDevMode16);
+    RequiredSize = lpDevMode32->dmSize        + 
+                   lpDevMode32->dmDriverExtra + 
+                   sizeof(WOWDM31);  // see notes in wstruc.c
+
+    if (*phDevMode16 == (HAND16)NULL) {
+        vpDevMode16 = GlobalAllocLock16(GMEM_MOVEABLE,
+                                        RequiredSize,
+                                        phDevMode16);
     } else {
-        DevMode16 = GlobalLock16(*phDevMode16, &CurrentSize);
+        vpDevMode16 = GlobalLock16(*phDevMode16, &CurrentSize);
+
         if (CurrentSize < RequiredSize) {
-            GlobalUnlockFree16(DevMode16);
-            DevMode16 = GlobalAllocLock16(GMEM_MOVEABLE,
-                                          RequiredSize,
-                                          phDevMode16);
+            GlobalUnlockFree16(vpDevMode16);
+            vpDevMode16 = GlobalAllocLock16(GMEM_MOVEABLE,
+                                            RequiredSize,
+                                            phDevMode16);
         }
     }
 
-
-    GETVDMPTR(DevMode16, RequiredSize, pdm16);
-    if (pdm16==NULL) {
-        *phDevMode16=(HAND16)NULL;
-        GlobalUnlock(hDevMode);
-        return;
+    if(ThunkDevMode32to16(vpDevMode16, lpDevMode32, RequiredSize)) {
+        GlobalUnlock16(*phDevMode16);
+    } 
+    else {
+        *phDevMode16 = (HAND16)NULL;
     }
-    RtlCopyMemory(pdm16,DevMode32,RequiredSize);
-    FLUSHVDMPTR(DevMode16,RequiredSize, pdm16);
-    FREEVDMPTR(pdm16);
-    GlobalUnlock16(*phDevMode16);
-    GlobalUnlock(hDevMode);
+
+    GlobalUnlock(hDevMode32);
+
+    return;
 }
+
+
+
+
+
+HGLOBAL ThunkhDevMode16to32(HAND16 hDevMode16)
+{
+    INT         nSize;
+    LPDEVMODE   lpdm32, pdm32;
+    HGLOBAL     hDevMode32 = NULL;
+    VPDEVMODE31 vpDevMode16;
+
+    if (hDevMode16) {
+
+        vpDevMode16 = GlobalLock16(hDevMode16, NULL);
+
+        if(FETCHDWORD(vpDevMode16)) {
+
+            if(pdm32 = ThunkDevMode16to32(vpDevMode16)) {
+
+                nSize = FETCHWORD(pdm32->dmSize) + 
+                        FETCHWORD(pdm32->dmDriverExtra);
+
+                hDevMode32 = GlobalAlloc(GMEM_MOVEABLE, nSize);
+
+                if(lpdm32 = GlobalLock(hDevMode32)) {
+                    RtlCopyMemory((PVOID)lpdm32, (PVOID)pdm32, nSize);
+                    GlobalUnlock(hDevMode32);
+                }
+
+                free_w(pdm32);
+            }
+            GlobalUnlock16(hDevMode16);
+        }
+    }
+
+    return(hDevMode32);
+}
+
+
+
 
 
 VOID
@@ -1625,6 +1898,8 @@ Routine Description:
 
     This routine thunks a 32-bit DevNames structure back into the 16-bit one.
     It will reallocate the 16-bit global memory block as necessary.
+
+    WARNING: This may cause 16-bit memory to move, invalidating flat pointers.
 
 Arguments:
 
@@ -1759,7 +2034,7 @@ Return Value:
 
         CharUpperBuff(FileName->lpstrFile,Length+1);
         FLUSHVDMPTR(FileName16->lpstrFile,
-                    Length,
+                    (USHORT)Length,
                     FileName->lpstrFile);
     }
     if (bUpperStrings && (FileName->lpstrFileTitle)) {
@@ -1773,7 +2048,7 @@ Return Value:
         CharUpperBuff(FileName->lpstrFileTitle,Length+1);
 
         FLUSHVDMPTR(FileName16->lpstrFileTitle,
-                    Length,
+                    (USHORT)Length,
                     FileName->lpstrFileTitle);
     }
 
@@ -1792,6 +2067,8 @@ GetTemplate16(
 Routine Description:
 
     Finds and loads the specified 16-bit dialog template.
+
+    WARNING: This may cause memory movement, invalidating flat pointers
 
 Arguments:
 
@@ -1887,7 +2164,9 @@ Return Value:
 {
     PCOMMDLGTD Data;
 
-    Data = CURRENTPTD()->CommDlgTd;
+    if ((Data = CURRENTPTD()->CommDlgTd) == NULL) {
+        return(Data);
+    }
 
     while (Data->hdlg != GETHWND16(Hwnd32)) {
         Data = Data->Previous;
@@ -1911,4 +2190,300 @@ Return Value:
     }
 
     return(Data);
+}
+
+VOID
+ThunkFindReplace16to32(
+    IN PFINDREPLACE16 FindReplace16,
+    OUT FINDREPLACE *FindReplace
+    )
+/*++
+
+Routine Description:
+
+    This routine thunks a 16-bit FINDREPLACE structure to the 32-bit
+    structure
+
+Arguments:
+
+    FindReplace16 - Supplies a pointer to the 16-bit structure.
+
+    FindReplace   - Supplies a pointer to the 32-bit structure.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    FindReplace->lStructSize = sizeof(FINDREPLACE);
+    FindReplace->hwndOwner   = HWND32(FindReplace16->hwndOwner);
+    FindReplace->hInstance   = (HINSTANCE)(FindReplace16->hInstance);
+    FindReplace->Flags = DWORD32(FindReplace16->Flags);
+
+    strncpy(FindReplace->lpstrFindWhat,
+            VDMPTR(FindReplace16->lpstrFindWhat, FindReplace16->wFindWhatLen),
+            FindReplace16->wFindWhatLen);
+
+    strncpy(FindReplace->lpstrReplaceWith,
+            VDMPTR(FindReplace16->lpstrReplaceWith, FindReplace16->wReplaceWithLen),
+            FindReplace16->wReplaceWithLen);
+
+    FindReplace->wFindWhatLen = FindReplace16->wFindWhatLen;
+    FindReplace->wReplaceWithLen = FindReplace16->wReplaceWithLen;
+    FindReplace->lCustData = FindReplace16->lCustData;
+    FindReplace->lpfnHook = NULL;
+    GETPSZPTR(FindReplace16->lpTemplateName, FindReplace->lpTemplateName);
+}
+
+ULONG
+WCD32FindReplaceText(
+    IN PVDMFRAME pFrame,
+    IN FINDREPLACEPROC Function
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called by WCD32FindText and WCD32RepalceText.
+    It copies a 16-bit FINDREPLACE structure to a 32-bit structure.
+    Two per thread data entries are maintained. One is indexed by the
+    owner hwnd, the other is indexed by the dialog hwnd. The dialog is
+    always hooked by WCD32FindReplaceDialogProc, which dispatches to the
+    16-bit hookproc, and takes care of clean on  WM_DESTROY, with dialog
+    per thread data providing context. WCD32UpdateFindReplaceTextAndFlags
+    updates the 16-bit FINDREPLACE structure when called by the WOW message
+    dispatching logic upon reciept of a WM_WOWNOTIFY message from COMDLG32.
+    The owner per thread data provides context for this operation.
+
+Arguments:
+
+    pFrame - Supplies 16-bit argument frame
+
+    Function - supplies a pointer to the 32-bit function to call (either
+               FindText or RepalceText)
+
+Return Value:
+
+    16-bit BOOLEAN to be returned.
+
+--*/
+{
+    register PFINDTEXT16 parg16;
+    VPFINDREPLACE vpfr;
+    LPFINDREPLACE lpfr = NULL;
+    PFINDREPLACE16 FindReplace16;
+    PCOMMDLGTD ptdDlg = NULL, ptdOwner = NULL;
+    HWND hwndDlg;
+    PRES hRes;
+
+    // WCD32UpdateFindReplaceTextAndFlags will update the 16-bit FINDREPLACE
+    // struct and help thunk the WM_WOWNOTIFY message to the
+    // "commdlg_FindReplace" registered message.
+    if (msgFINDREPLACE == 0) {
+        msgFINDREPLACE = RegisterWindowMessage(FINDMSGSTRING);
+    }
+
+    GETARGPTR(pFrame, sizeof(GETFindReplace16), parg16);
+
+    vpfr = (VPFINDREPLACE)FETCHDWORD(parg16->lpfr);
+    GETVDMPTR(vpfr, sizeof(*FindReplace16), FindReplace16);
+
+    SETEXTENDEDERROR(0);
+
+    if ((lpfr = (LPFINDREPLACE) malloc_w_zero(sizeof(*lpfr))) != NULL) {
+        lpfr->lpstrFindWhat = (LPTSTR) malloc_w(FindReplace16->wFindWhatLen);
+        lpfr->lpstrReplaceWith = (LPTSTR) malloc_w(FindReplace16->wReplaceWithLen);
+    }
+    ptdDlg    = (PCOMMDLGTD) malloc_w_zero(sizeof(*ptdDlg));
+    ptdOwner  = (PCOMMDLGTD) malloc_w_zero(sizeof(*ptdOwner));
+
+    if (((lpfr) && (lpfr->lpstrFindWhat) && (lpfr->lpstrReplaceWith) &&
+        (ptdDlg) && (ptdOwner)) == FALSE) {
+        goto Error;
+        LOGDEBUG(0, ("WCD32FindReplaceText, 32-bit memory allocation failed!\n"));
+    }
+
+    // Link both per thread data structs into the list
+    ptdDlg->Previous = CURRENTPTD()->CommDlgTd;
+    ptdOwner->Previous = ptdDlg;
+    CURRENTPTD()->CommDlgTd = ptdOwner;
+
+    ptdDlg->pData32 = ptdOwner->pData32 = (PVOID)lpfr;
+    ptdDlg->vpData = ptdOwner->vpData = vpfr;
+
+    WCDDUMPFINDREPLACE16(FindReplace16);
+
+    ThunkFindReplace16to32(FindReplace16, lpfr);
+
+    // Set the per thread data indicies
+    ptdDlg->hdlg   = (HWND16)-1;
+    ptdOwner->hdlg = FindReplace16->hwndOwner;
+
+    // If 16-bit dlg hook is spec'ed, set it up.
+    if (FindReplace16->Flags & FR_ENABLEHOOK) {
+        ptdDlg->vpfnHook = ptdOwner->vpfnHook = FindReplace16->lpfnHook;
+    }
+
+    if (FindReplace16->Flags & FR_ENABLETEMPLATE) {
+        hRes = GetTemplate16(FindReplace16->hInstance,
+                             FindReplace16->lpTemplateName,
+                             FALSE);
+        if (!hRes) {
+            goto Error;
+        }
+
+        lpfr->hInstance = (HINSTANCE)LockResource16(hRes);
+        lpfr->Flags &= ~FR_ENABLETEMPLATE;
+        lpfr->Flags |=  FR_ENABLETEMPLATEHANDLE;
+        ptdDlg->pRes = (PVOID) hRes;
+    } else if (FindReplace16->Flags & FR_ENABLETEMPLATEHANDLE) {
+
+        lpfr->hInstance = (HINSTANCE)GetTemplate16(FindReplace16->hInstance,
+                                                   FindReplace16->lpTemplateName,
+                                                   TRUE);
+    }
+
+    // memory may move - free flat pointers now
+    FREEVDMPTR(FindReplace16);
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
+
+    lpfr->Flags |= FR_ENABLEHOOK | CD_WOWAPP;
+    lpfr->lpfnHook = WCD32FindReplaceDialogProc;
+
+    hwndDlg = (*Function)(lpfr);
+
+    if (hwndDlg) {
+        ptdDlg->hdlg = (HWND16)hwndDlg;
+    } else {
+Error:
+        LOGDEBUG(0, ("WCD32FindReplaceText, Failed!\n"));
+        CURRENTPTD()->CommDlgTd = ptdDlg->Previous;
+        if (lpfr) {
+            if (lpfr->lpstrFindWhat) free_w(lpfr->lpstrFindWhat);
+            if (lpfr->lpstrReplaceWith) free_w(lpfr->lpstrReplaceWith);
+            free_w(lpfr);
+        }
+        if (ptdDlg) free_w(ptdDlg);
+        if (ptdOwner) free_w(ptdOwner);
+        return(GETHWND16(0));
+    }
+
+    return(GETHWND16(hwndDlg));
+}
+
+UINT APIENTRY
+WCD32FindReplaceDialogProc(
+    HWND hdlg,
+    UINT uMsg,
+    WPARAM uParam,
+    LPARAM lParam
+    )
+/*++
+
+Routine Description:
+
+    This is the hook proc used by FindText and ReplaceText. It does cleanup
+    on WM_DESTROY and calls WCD32CommonDialogProc to handle the 16-bit
+    dialog hook callback on all messages, if needed.
+
+--*/
+
+{
+    PFINDREPLACE16 FindReplace16;
+    VPFINDREPLACE vpfr;
+    LPFINDREPLACE lpfr;
+    PCOMMDLGTD ptdDlg, ptdOwner;
+    UINT uRet = FALSE;
+
+    // If the ptdDlg is invalid, do nothing.
+    if ((ptdDlg = GetCommdlgTd(hdlg)) == NULL) {
+        return(uRet);
+    }
+
+    if (uMsg != WM_DESTROY) {
+
+        if (ptdDlg->vpfnHook) {
+
+           uRet = WCD32CommonDialogProc(hdlg,
+                                         uMsg,
+                                         uParam,
+                                         lParam,
+                                         ptdDlg,
+                                         ptdDlg->vpfnHook);
+        }
+    }
+    else {
+
+        // CleanUp template if used.
+        vpfr = ptdDlg->vpData;
+        GETVDMPTR(vpfr, sizeof(*FindReplace16), FindReplace16);
+        lpfr = (LPFINDREPLACE)ptdDlg->pData32;
+
+        if (FindReplace16->Flags & FR_ENABLETEMPLATE) {
+            UnlockResource16((PRES)ptdDlg->pRes);
+            FreeResource16((PRES)ptdDlg->pRes);
+        } else if ((FindReplace16->Flags & FR_ENABLETEMPLATEHANDLE) &&
+                   (lpfr->hInstance != NULL)) {
+            free_w(lpfr->hInstance);
+        }
+
+        FREEVDMPTR(FindReplace16);
+
+        // UnLink both per thread data structs from the list.
+        ptdOwner = GetCommdlgTd(lpfr->hwndOwner);
+        CURRENTPTD()->CommDlgTd = ptdDlg->Previous;
+        WOW32ASSERT(ptdOwner->Previous == ptdDlg);
+
+        // Free the per thread data structs.
+        free_w(ptdDlg);
+        free_w(ptdOwner);
+
+        // Free the 32-bit FINDREPLACE structure.
+        free_w(lpfr->lpstrFindWhat);
+        free_w(lpfr->lpstrReplaceWith);
+        free_w(lpfr);
+    }
+
+    if (uMsg == WM_INITDIALOG) {
+        // Force COMDLG32!FindReplaceDialogProc to handle WM_INITDIALOG.
+        uRet = TRUE;
+    }
+
+    return(uRet);
+}
+
+LONG APIENTRY
+WCD32UpdateFindReplaceTextAndFlags(
+    HWND hwndOwner,
+    LPARAM lParam
+    )
+{
+    PCOMMDLGTD ptdOwner;
+    PFINDREPLACE16 FindReplace16;
+    VPFINDREPLACE vpfr;
+    LPFINDREPLACE lpfr = (LPFINDREPLACE) lParam;
+    LONG lRet = 0;
+
+    ptdOwner = GetCommdlgTd(hwndOwner);
+    vpfr = ptdOwner->vpData;
+    GETVDMPTR(vpfr, sizeof(*FindReplace16), FindReplace16);
+
+    // Update the 16-bit structure.
+    FindReplace16->Flags &= ~FR_OUTPUTFLAGS;
+    FindReplace16->Flags |= lpfr->Flags & FR_OUTPUTFLAGS;
+
+    strncpy(VDMPTR(FindReplace16->lpstrFindWhat, FindReplace16->wFindWhatLen),
+            lpfr->lpstrFindWhat, FindReplace16->wFindWhatLen);
+    strncpy(VDMPTR(FindReplace16->lpstrReplaceWith, FindReplace16->wReplaceWithLen),
+            lpfr->lpstrReplaceWith, FindReplace16->wReplaceWithLen);
+
+    WCDDUMPFINDREPLACE16(FindReplace16);
+
+    FREEVDMPTR(FindReplace16);
+
+    return(vpfr);
 }

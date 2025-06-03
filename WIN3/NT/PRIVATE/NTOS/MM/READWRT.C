@@ -23,10 +23,11 @@ Revision History:
 #include "mi.h"
 
 //
-// The maximum amount to try to Probe and Lock is 64k.
+// The maximum amount to try to Probe and Lock is 14 pages, this
+// way it always fits in a 16 page allocation.
 //
 
-#define MAX_LOCK_SIZE (ULONG)0x10000
+#define MAX_LOCK_SIZE ((ULONG)(14 * PAGE_SIZE))
 
 //
 // The maximum to move in a single block is 64k bytes.
@@ -84,6 +85,8 @@ MiDoPoolCopy (
 #pragma alloc_text(PAGE,MiDoMappedCopy)
 #pragma alloc_text(PAGE,MiDoPoolCopy)
 #endif
+
+#define COPY_STACK_SIZE 64
 
 
 NTSTATUS
@@ -157,7 +160,26 @@ Return Value:
             return STATUS_ACCESS_VIOLATION;
         }
 
+#elif defined(_PPC_)
+
+        //
+        // Handle the PCR case for PPC.
+        //
+
+        if (((ULONG)BaseAddress >= KIPCR) &&
+            ((ULONG)BaseAddress < (KIPCR2 + PAGE_SIZE)) &&
+            (((ULONG)BaseAddress + BufferSize) < (KIPCR2 + PAGE_SIZE)) &&
+            (((ULONG)BaseAddress + BufferSize) >= (ULONG)BaseAddress)) {
+            ;
+        } else if (BaseAddress > MM_HIGHEST_USER_ADDRESS) {
+            return STATUS_ACCESS_VIOLATION;
+        }
+        if (Buffer > MM_HIGHEST_USER_ADDRESS) {
+            return STATUS_ACCESS_VIOLATION;
+        }
+
 #else
+
         if ((BaseAddress > MM_HIGHEST_USER_ADDRESS) ||
             (Buffer > MM_HIGHEST_USER_ADDRESS)) {
             return STATUS_ACCESS_VIOLATION;
@@ -383,12 +405,10 @@ MmCopyVirtualMemory(
     PEPROCESS ProcessToLock;
 
 
+    ProcessToLock = FromProcess;
     if (FromProcess == PsGetCurrentProcess()) {
         ProcessToLock = ToProcess;
-        }
-    else {
-        ProcessToLock = FromProcess;
-        }
+    }
 
     //
     // Make sure the process still has an address space.
@@ -597,10 +617,8 @@ Return Value:
     InVa = FromAddress;
     OutVa = ToAddress;
 
-    if (BufferSize > MAX_LOCK_SIZE) {
-        MaximumMoved = MAX_LOCK_SIZE;
-
-    } else {
+    MaximumMoved = MAX_LOCK_SIZE;
+    if (BufferSize <= MAX_LOCK_SIZE) {
         MaximumMoved = BufferSize;
     }
 
@@ -612,7 +630,6 @@ Return Value:
 
     LeftToMove = BufferSize;
     AmountToMove = MaximumMoved;
-    MappedAddress = NULL;
     while (LeftToMove > 0) {
 
         if (LeftToMove < AmountToMove) {
@@ -638,6 +655,8 @@ Return Value:
             // Probe to make sure that the specified buffer is accessable in
             // the target process.
             //
+
+            MappedAddress = NULL;
 
             if (((PVOID)InVa == FromAddress) &&
                 ((PVOID)InVa <= MM_HIGHEST_USER_ADDRESS)) {
@@ -677,11 +696,8 @@ Return Value:
             }
 
             RtlCopyMemory (OutVa, MappedAddress, AmountToMove);
-            MmUnmapLockedPages (MappedAddress, Mdl);
-            MmUnlockPages (Mdl);
-            MappedAddress = NULL;
-
         } except (MiGetExceptionInfo (GetExceptionInformation(), &BadVa)) {
+
 
             //
             // If an exception occurs during the move operation or probe,
@@ -721,6 +737,8 @@ Return Value:
 
             return STATUS_PARTIAL_COPY;
         }
+        MmUnmapLockedPages (MappedAddress, Mdl);
+        MmUnlockPages (Mdl);
 
         LeftToMove -= AmountToMove;
         InVa = (PVOID)((ULONG)InVa + AmountToMove);
@@ -788,6 +806,8 @@ Return Value:
     ULONG MaximumMoved;
     PULONG OutVa;
     PULONG PoolArea;
+    LONGLONG StackArray[COPY_STACK_SIZE];
+    ULONG FreePool;
 
     PAGED_CODE();
 
@@ -805,24 +825,28 @@ Return Value:
     // Allocate non-paged memory to copy in and out of.
     //
 
-    if (BufferSize > MAX_MOVE_SIZE) {
-        MaximumMoved = MAX_MOVE_SIZE;
-
-    } else {
+    MaximumMoved = MAX_MOVE_SIZE;
+    if (BufferSize <= MAX_MOVE_SIZE) {
         MaximumMoved = BufferSize;
     }
 
-    PoolArea = ExAllocatePoolWithTag (NonPagedPool, MaximumMoved, 'wRmM');
+    if (BufferSize <= (COPY_STACK_SIZE * sizeof(LONGLONG))) {
+        PoolArea = (PULONG)&StackArray[0];
+        FreePool = FALSE;
+    } else {
+        PoolArea = ExAllocatePoolWithTag (NonPagedPool, MaximumMoved, 'wRmM');
 
-    while (PoolArea == NULL) {
-        if (MaximumMoved <= MINIMUM_ALLOCATION) {
-            PoolArea = ExAllocatePoolWithTag (NonPagedPoolMustSucceed,
-                                       MaximumMoved, 'wRmM');
+        while (PoolArea == NULL) {
+            if (MaximumMoved <= MINIMUM_ALLOCATION) {
+                PoolArea = ExAllocatePoolWithTag (NonPagedPoolMustSucceed,
+                                           MaximumMoved, 'wRmM');
 
-        } else {
-            MaximumMoved = MaximumMoved >> 1;
-            PoolArea = ExAllocatePoolWithTag (NonPagedPool, MaximumMoved, 'wRmM');
+            } else {
+                MaximumMoved = MaximumMoved >> 1;
+                PoolArea = ExAllocatePoolWithTag (NonPagedPool, MaximumMoved, 'wRmM');
+            }
         }
+        FreePool = TRUE;
     }
 
     //
@@ -891,7 +915,9 @@ Return Value:
 
             KeDetachProcess();
 
-            ExFreePool (PoolArea);
+            if (FreePool) {
+                ExFreePool (PoolArea);
+            }
             if (FailedProbe) {
                 return GetExceptionCode();
 
@@ -931,7 +957,9 @@ Return Value:
         OutVa = (PVOID)((ULONG)OutVa + AmountToMove);
     }
 
-    ExFreePool (PoolArea);
+    if (FreePool) {
+        ExFreePool (PoolArea);
+    }
     KeDetachProcess();
 
     //

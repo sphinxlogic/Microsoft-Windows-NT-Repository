@@ -504,3 +504,102 @@ UCHAR	uchOpt = 0;
     setCF(0);
     return;
 }
+
+/* DemCommit -- Commit File(Flush file buffers)
+ *
+ * Entry - Client (AX:BP) File Handle
+ *
+ * Exit
+ *         SUCCESS
+ *           Client (CY)    = 0
+ *	     buffer flushed
+ *
+ *         FAILURE
+ *           Client (CY) = 1
+ *
+ */
+VOID demCommit(VOID)
+{
+    HANDLE  hFile;
+    BOOL bRet;
+
+    hFile = GETHANDLE(getAX(),getBP());
+    bRet = FlushFileBuffers(hFile);
+#if DBG
+    if (!bRet) {
+
+        //
+        // FlushFileBuffers fails with access denied if the handle
+        // is open for read-only access, however it's not an error
+        // for DOS.
+        //
+
+        DWORD LastError;
+        LastError = GetLastError();
+
+        if (LastError != ERROR_ACCESS_DENIED) {
+            sprintf(demDebugBuffer,
+                    "ntvdm demCommit warning: FlushFileBuffers error %d\n",
+                    LastError);
+            OutputDebugStringOem(demDebugBuffer);
+        }
+    }
+#endif
+
+    setCF(0);
+
+}
+
+/* function to check if new data has been written to the file or
+   if the file has been marked EOF
+
+   Input:   Client (AX:BP) = 32bits NT file handle
+   Output:  Client ZF = 1 if new data or EOF
+		   CF = 1 if EOF
+*/
+
+
+VOID demPipeFileDataEOF(VOID)
+{
+    HANDLE  hFile;
+    BOOL    fEOF;
+    BOOL    DataEOF;
+    DWORD   FileSizeLow;
+    DWORD   FileSizeHigh;
+
+    hFile = GETHANDLE(getAX(), getBP());
+
+    DataEOF = cmdPipeFileDataEOF(hFile, &fEOF);
+    if (fEOF) {
+	//EOF, get file size, max size = 32bits
+	FileSizeLow = GetFileSize(hFile, &FileSizeHigh);
+	setAX((WORD)(FileSizeLow / 0x10000));
+	setBP((WORD)FileSizeLow);
+	setCF(1);		    // EOF is encountered
+    }
+    else
+	setCF(0);
+    setZF(DataEOF ? 0 : 1);
+}
+
+/* function to check if the file has been marked EOF
+   Input:   Client(AX:BP) = 32bits NT file handle
+   Output:  Client CY = 1 if EOF
+*/
+
+VOID demPipeFileEOF(VOID)
+{
+    HANDLE  hFile;
+    DWORD   FileSizeLow;
+    DWORD   FileSizeHigh;
+
+    hFile = GETHANDLE(getAX(), getBP());
+    if (cmdPipeFileEOF(hFile)) {
+	FileSizeLow = GetFileSize(hFile, &FileSizeHigh);
+	setAX((WORD)(FileSizeLow / 0x10000));	// file size in 32bits
+	setBP((WORD)FileSizeLow);
+	setCF(1);		    //EOF is encountered
+    }
+    else
+	setCF(0);
+}

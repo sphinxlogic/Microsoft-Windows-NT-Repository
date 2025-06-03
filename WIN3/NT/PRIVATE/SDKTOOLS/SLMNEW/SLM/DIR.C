@@ -1,21 +1,7 @@
 /* Functions for opening and reading directories */
 
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "proto.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 void OpenDir(DE *pde, PTH pth[], FA fa)
@@ -30,11 +16,7 @@ void OpenPatDir(DE *pde, PTH pth[], char sz[], FA fa)
 /* DOS only; uses physical path so find-first/find-next will work.
  */
         {
-#if defined(DOS)
-        pde->fHadFirst = fFalse;
-#elif defined(_WIN32) || defined(OS2)
         pde->hdir = HDIR_CREATE;
-#endif
         pde->faDesired = fa;
 
         /* Need to concatenate path and pattern and get physical path */
@@ -55,20 +37,13 @@ F FGetDirSz(DE *pde, char sz[], FA *pfa)
 
         do
                 {
-#if defined(DOS)
-                if (pde->fHadFirst)
-#elif defined(_WIN32) || defined(OS2)
                 if (pde->hdir != HDIR_CREATE)
-#endif
                         status = findnext(pde);
                 else
                         {
                         while ((status = findfirst(pde, pde->szDir, pde->faDesired)) != 0 &&
                                (wRetErr = WRetryErr(0, "accessing", 0, pde->szDir)) != 0)
                                 CloseDir(pde);
-#if defined(DOS)
-                        pde->fHadFirst = fTrue;
-#endif
                         }
 
                 if (FaFromPde(pde) == faNormal || FaFromPde(pde) == faArch)
@@ -104,12 +79,5 @@ void
 CloseDir(
     DE *pde)
 {
-#if defined(DOS)
-    /* nothing to do */
-    Unreferenced(pde);
-#elif defined(OS2)
-    DosFindClose(pde->hdir);
-#elif defined(_WIN32)
     FindClose(pde->hdir);
-#endif
 }

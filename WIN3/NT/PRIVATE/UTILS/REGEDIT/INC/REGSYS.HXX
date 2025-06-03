@@ -28,9 +28,7 @@ Environment:
 // #include "message.hxx"
 
 #include "wstring.hxx"
-extern "C"{
-    #include <stdarg.h>
-}
+#include <stdarg.h>
 
 DEFINE_TYPE( ULONG, MSGID );
 

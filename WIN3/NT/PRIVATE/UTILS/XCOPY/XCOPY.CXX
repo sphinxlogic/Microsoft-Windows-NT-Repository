@@ -36,7 +36,7 @@ Revision History:
 #include "arrayit.hxx"
 
 extern "C" {
-	#include <ctype.h>
+   #include <ctype.h>
 }
 
 
@@ -45,8 +45,6 @@ extern "C" {
 
 
 ERRSTACK                        *perrstk;
-
-
 
 
 VOID _CRTAPI1
@@ -264,6 +262,12 @@ Notes:
         _FileNamePattern            = NULL;
         _ExclusionList              = NULL;
         _Iterator                   = NULL;
+
+        // The following switches are being used by DisplayMessageAndExit
+        // before any of those boolean _*Switch is being initialized
+
+        _DontCopySwitch             = FALSE;
+        _StructureOnlySwitch        = TRUE;
 }
 
 VOID
@@ -376,9 +380,9 @@ Notes:
     //
     GetDirectoryAndFilters( _SourcePath, &SourceDirectory, &FileFilter, &DirectoryFilter, &CopyingManyFiles );
 
-    DbgPtrAssert( SourceDirectory );
-    DbgPtrAssert( FileFilter );
-    DbgPtrAssert( DirectoryFilter );
+    DebugPtrAssert( SourceDirectory );
+    DebugPtrAssert( FileFilter );
+    DebugPtrAssert( DirectoryFilter );
 
     if ( _WaitSwitch ) {
 
@@ -415,8 +419,8 @@ Notes:
     //
     GetDirectoryAndFilePattern( _DestinationPath, CopyingManyFiles, &_TargetPath, &_FileNamePattern );
 
-    DbgPtrAssert( _TargetPath );
-    DbgPtrAssert( _FileNamePattern );
+    DebugPtrAssert( _TargetPath );
+    DebugPtrAssert( _FileNamePattern );
 
     //
     //      Get as much of the destination directory as possible.
@@ -470,12 +474,32 @@ Notes:
     //
     TmpPath.Initialize( _TargetPath );
 
-    Traverse( SourceDirectory,
-              &TmpPath,
-              FileFilter,
-              DirectoryFilter,
-              !SourceDirectory->GetPath()->GetPathString()->Strcmp(
-                  _SourcePath->GetPathString()));
+    if (!_UpdateSwitch) {
+
+        Traverse( SourceDirectory,
+                  &TmpPath,
+                  FileFilter,
+                  DirectoryFilter,
+                  !SourceDirectory->GetPath()->GetPathString()->Strcmp(
+                      _SourcePath->GetPathString()));
+
+    } else {
+
+        PATH DestDirectoryPath;
+        PFSN_DIRECTORY DestDirectory;
+
+        DestDirectoryPath.Initialize(&TmpPath);
+        DestDirectory = SYSTEM::QueryDirectory(&DestDirectoryPath);
+
+        TmpPath.Initialize(SourceDirectory->GetPath());
+
+        UpdateTraverse( DestDirectory,
+                        &TmpPath,
+                        FileFilter,
+                        DirectoryFilter,
+                        !SourceDirectory->GetPath()->GetPathString()->Strcmp(
+                            _SourcePath->GetPathString()));
+    }
 
     DELETE( _TargetPath);
 
@@ -497,13 +521,13 @@ Notes:
 
                     DirDeleted = DestinationDirectory->DeleteDirectory();
 
-                    DbgAssert( DirDeleted );
+                    DebugAssert( DirDeleted );
 
                     DELETE( DestinationDirectory );
 
                     PathToDelete.TruncateBase();
                     DestinationDirectory = SYSTEM::QueryDirectory( &PathToDelete );
-                    DbgPtrAssert( DestinationDirectory );
+                    DebugPtrAssert( DestinationDirectory );
             }
         }
 
@@ -576,21 +600,21 @@ Return Value:
 
 {
 
-	PFSN_DIRECTORY		TargetDirectory = NULL;
-	PARRAY				NodeArray;
-	PARRAY_ITERATOR 	Iterator;
-	BOOLEAN 			MemoryOk;
-	PFSN_FILE			File;
-	PFSN_DIRECTORY		Dir;
+   PFSN_DIRECTORY    TargetDirectory = NULL;
+   PARRAY            NodeArray;
+   PARRAY_ITERATOR   Iterator;
+   BOOLEAN        MemoryOk;
+   PFSN_FILE         File;
+   PFSN_DIRECTORY    Dir;
     PWSTRING Name;
     BOOLEAN             Created = FALSE;
     FSN_FILTER          Filter;
     PCPATH              TemplatePath = NULL;
 
-    DbgPtrAssert( Directory );
-    DbgPtrAssert( DestinationPath );
-    DbgPtrAssert( FileFilter );
-    DbgPtrAssert( DirectoryFilter );
+    DebugPtrAssert( Directory );
+    DebugPtrAssert( DestinationPath );
+    DebugPtrAssert( FileFilter );
+    DebugPtrAssert( DirectoryFilter );
 
     if ( !Filter.Initialize() ) {
         return FALSE;
@@ -603,14 +627,14 @@ Return Value:
     if ( _EmptySwitch || !Directory->IsEmpty() ) {
 
         NodeArray = Directory->QueryFsnodeArray( &Filter );
-        DbgPtrAssert( NodeArray );
+        DebugPtrAssert( NodeArray );
 
         if ( NodeArray ) {
             //
             // Get an iterator for processing the nodes
             //
             Iterator = ( PARRAY_ITERATOR ) NodeArray->QueryIterator( );
-            DbgPtrAssert( Iterator );
+            DebugPtrAssert( Iterator );
         }
 
         MemoryOk = (BOOLEAN)( NodeArray && Iterator );
@@ -634,6 +658,11 @@ Return Value:
                 }
                 TargetDirectory = SYSTEM::MakeDirectory( DestinationPath,
                                                          TemplatePath );
+                if (TargetDirectory && !_CopyAttrSwitch) {
+                    DWORD  dwError;
+                    // always set the archive bit so that it gets backup
+                    TargetDirectory->MakeArchived(&dwError);
+                }
                 Created = TRUE;
             }
 
@@ -673,7 +702,7 @@ Return Value:
                 continue;
             }
 
-            DbgAssert( !File->IsDirectory() );
+            DebugAssert( !File->IsDirectory() );
 
             // If we're supposed to use the short name then convert fsnode.
 
@@ -686,12 +715,12 @@ Return Value:
             //  Append the name portion of the node to the destination path.
             //
             Name = File->QueryName();
-            DbgPtrAssert( Name );
+            DebugPtrAssert( Name );
 
             if ( Name ) {
 
                 MemoryOk = DestinationPath->AppendBase( Name );
-                DbgAssert( MemoryOk );
+                DebugAssert( MemoryOk );
 
                 DELETE( Name );
 
@@ -741,7 +770,7 @@ Return Value:
                         continue;
                     }
 
-                    DbgAssert( Dir->IsDirectory() );
+                    DebugAssert( Dir->IsDirectory() );
 
                     // If we're using short names then convert this fsnode.
 
@@ -754,11 +783,11 @@ Return Value:
                     //  Append the name portion of the node to the destination path.
                     //
                     Name = Dir->QueryName();
-                    DbgPtrAssert( Name );
+                    DebugPtrAssert( Name );
 
                     if ( Name ) {
                         MemoryOk = DestinationPath->AppendBase( Name );
-                        DbgAssert( MemoryOk );
+                        DebugAssert( MemoryOk );
 
                         DELETE( Name );
 
@@ -810,6 +839,313 @@ Return Value:
     return TRUE;
 }
 
+BOOLEAN
+XCOPY::UpdateTraverse (
+    IN      PFSN_DIRECTORY  DestDirectory,
+    IN OUT  PPATH           SourcePath,
+    IN      PFSN_FILTER     FileFilter,
+    IN      PFSN_FILTER     DirectoryFilter,
+    IN      BOOLEAN         CopyDirectoryStreams
+    )
+
+/*++
+
+Routine Description:
+
+    Traverse routine for update.
+
+    Like XCOPY::Traverse, except we traverse the *destination*
+    directory, possibly updating files we find there.  The theory
+    being that there will be fewer files in the destination than
+    the source, so we can save time this way.
+
+    The callback function is invoked on each node
+    (directory or file) visited.  The traversal may be finished
+    prematurely when the callback function returns FALSE.
+
+Arguments:
+
+    DestDirectory           - Supplies pointer to destination directory
+
+    SourcePath              - Supplies pointer to path to be used with the
+                                callback function.
+
+    FileFilter              - Supplies a pointer to the file filter.
+
+    DirectoryFilter         - Supplies a pointer to the directory filter.
+
+    CopyDirectoryStreams    - Specifies to copy directory streams when
+                                copying directories.
+
+Return Value:
+
+    BOOLEAN - TRUE if everything traversed
+              FALSE otherwise.
+
+--*/
+
+{
+
+   PARRAY            NodeArray;
+   PARRAY_ITERATOR   Iterator;
+   BOOLEAN        MemoryOk;
+   PFSN_FILE         File;
+   PFSN_DIRECTORY    Dir;
+    PWSTRING Name;
+    BOOLEAN             Created = FALSE;
+    FSN_FILTER          Filter;
+    PCPATH              TemplatePath = NULL;
+
+    DebugPtrAssert( SourcePath );
+    DebugPtrAssert( FileFilter );
+    DebugPtrAssert( DirectoryFilter );
+
+    if ( !Filter.Initialize() ) {
+        return FALSE;
+    }
+
+	 // Don't bother to traverse if
+	 // destination directory is null
+
+	 if (!DestDirectory)
+  		  return TRUE;
+
+    //
+    //  We only traverse this directory if it is not empty (unless the
+    //  empty switch is set).
+    //
+    if ( _EmptySwitch || !DestDirectory->IsEmpty() ) {
+
+        NodeArray = DestDirectory->QueryFsnodeArray( &Filter );
+        DebugPtrAssert( NodeArray );
+
+        if ( NodeArray ) {
+            //
+            // Get an iterator for processing the nodes
+            //
+            Iterator = ( PARRAY_ITERATOR ) NodeArray->QueryIterator( );
+            DebugPtrAssert( Iterator );
+        }
+
+        MemoryOk = (BOOLEAN)( NodeArray && Iterator );
+
+        //
+        //      Copy all the files in the array.
+        //
+
+        while (MemoryOk && ((File = (PFSN_FILE)Iterator->GetNext()) != NULL)) {
+
+            if ( !FileFilter->DoesNodeMatch( (PFSNODE)File ) ) {
+                continue;
+            }
+
+            DebugAssert( !File->IsDirectory() );
+
+            // If we're supposed to use the short name then convert fsnode.
+
+            if (_UseShortSwitch && !File->UseAlternateName()) {
+                MemoryOk = FALSE;
+                continue;
+            }
+
+            //
+            //  Append the name portion of the node to the destination path.
+            //
+            Name = File->QueryName();
+            DebugPtrAssert( Name );
+
+            if ( Name ) {
+                PFSN_FILE SourceFile;
+                PATH DestinationPath;
+                PATH TmpPath;
+
+                TmpPath.Initialize(SourcePath);
+                TmpPath.AppendBase(Name);
+
+                SourceFile = SYSTEM::QueryFile(&TmpPath);
+
+                DestinationPath.Initialize(DestDirectory->GetPath());
+
+                MemoryOk = DestinationPath.AppendBase( Name );
+                DebugAssert( MemoryOk );
+
+                DELETE( Name );
+
+                if ( MemoryOk && NULL != SourceFile ) {
+                    //
+                    //  Copy the file
+                    //
+
+                    if ( !Copier( SourceFile, &DestinationPath ) ) {
+                        ExitProgram( EXIT_MISC_ERROR );
+                    }
+                }
+
+            } else {
+
+                MemoryOk = FALSE;
+
+            }
+
+        }
+
+        if ( MemoryOk ) {
+
+            //
+            //  If recursing, Traverse all the subdirectories
+            //
+            if ( _SubdirSwitch ) {
+
+                Iterator->Reset();
+
+                MemoryOk = (BOOLEAN)( NodeArray && Iterator );
+
+                //
+                //  Recurse thru all the subdirectories
+                //
+                while (MemoryOk &&
+                    ((Dir = (PFSN_DIRECTORY)Iterator->GetNext()) != NULL)) {
+
+                    if ( !DirectoryFilter->DoesNodeMatch( (PFSNODE)Dir ) ) {
+                        continue;
+                    }
+
+                    if( _ExclusionList != NULL && IsExcluded(Dir->GetPath())) {
+                        continue;
+                    }
+
+                    DebugAssert( Dir->IsDirectory() );
+
+                    // If we're using short names then convert this fsnode.
+
+                    if (_UseShortSwitch && !Dir->UseAlternateName()) {
+                        MemoryOk = FALSE;
+                        continue;
+                    }
+
+                    //
+                    //  Append the name portion of the node to the destination
+                    //  path.
+                    //
+                    Name = Dir->QueryName();
+                    DebugPtrAssert( Name );
+
+                    if ( Name ) {
+                        MemoryOk = SourcePath->AppendBase( Name );
+                        DebugAssert( MemoryOk );
+
+                        DELETE( Name );
+
+                        _CanRemoveEmptyDirectories = (BOOLEAN)!_EmptySwitch;
+
+                        if ( MemoryOk ) {
+
+                            //
+                            //  Recurse
+                            //
+
+                            UpdateTraverse( Dir, SourcePath, FileFilter,
+                                DirectoryFilter, TRUE );
+
+                        }
+
+                        SourcePath->TruncateBase();
+
+                    } else {
+                        MemoryOk = FALSE;
+                    }
+
+                }
+            }
+        }
+
+        DELETE( Iterator );
+        NodeArray->DeleteAllMembers();
+        DELETE( NodeArray );
+
+        if ( !MemoryOk ) {
+            DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
+        }
+    }
+
+    return TRUE;
+}
+
+
+XCOPY::ProgressCallBack(
+    LARGE_INTEGER TotalFileSize,
+    LARGE_INTEGER TotalBytesTransferred,
+    LARGE_INTEGER StreamSize,
+    LARGE_INTEGER StreamBytesTransferred,
+    DWORD dwStreamNumber,
+    DWORD dwCallbackReason,
+    HANDLE hSourceFile,
+    HANDLE hDestinationFile,
+    LPVOID lpData OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    Callback routine passed to CopyFileEx.
+
+    Check to see if the user hit Ctrl-C and return appropriate
+    value to CopyFileEx.
+
+Arguments:
+
+    TotalFileSize           - Total size of the file in bytes.
+
+    TotalBytesTransferred   - Total number of bytes transferred.
+
+    StreamSize              - Size of the stream being copied in bytes.
+
+    StreamBytesTransferred  - Number of bytes in current stream transferred.
+
+    dwStreamNumber          - Stream number of the current stream.
+
+    dwCallBackReason        - CALLBACK_CHUNK_FINISHED if a block was transferred,
+                              CALLBACK_STREAM_SWITCH if a stream completed copying.
+
+    hSourceFile             - Handle to the source file.
+
+    hDestinationFile        - Handle to the destination file.
+
+    lpData                  - Pointer to opaque data that was passed to CopyFileEx.  Used
+                              in this instance to pass the "this" pointer to an XCOPY object.
+
+Return Value:
+
+    DWORD                   - PROGRESS_STOP if a Ctrl-C was hit and the copy was restartable,
+                              PROGESS_CANCEL otherwise.
+
+--*/
+
+{
+    FILETIME LastWriteTime;
+
+    //
+    //  If the file was just created then roll back LastWriteTime a little so a subsequent
+    //  xcopy /d /z
+    //  will work if the copy was interrupted.
+    //
+    if ( dwStreamNumber == 1 && dwCallbackReason == CALLBACK_STREAM_SWITCH )
+    {
+        if ( GetFileTime(hSourceFile, NULL, NULL, &LastWriteTime) )
+        {
+            LastWriteTime.dwLowDateTime -= 1000;
+            SetFileTime(hDestinationFile, NULL, NULL, &LastWriteTime);
+        }
+    }
+
+    // GetPFlagBreak returns a pointer to the flag indicating whether a Ctrl-C was hit
+    if ( *((( XCOPY *) lpData)->_Keyboard->GetPFlagBreak()) )
+        return ((XCOPY *) lpData)->_RestartableSwitch ? PROGRESS_STOP : PROGRESS_CANCEL;
+
+    return PROGRESS_CONTINUE;
+}
+
 BOOLEAN
 XCOPY::Copier (
         IN OUT  PFSN_FILE       File,
@@ -954,7 +1290,7 @@ Notes:
                     GetStandardOutput()->WriteString(&WriteBuffer);
 
                 } else {
-                    DbgPrintf("Path is longer than MAX_PATH");
+                    DebugPrintf("Path is longer than MAX_PATH");
                     return FALSE;
                 }
             }
@@ -980,7 +1316,8 @@ Notes:
             Attempts  = 0;
 
             while ( TRUE ) {
-
+                LPPROGRESS_ROUTINE Progress = NULL;
+                PBOOL PCancelFlag = NULL;
                 //
                 //  If copying to floppy, we must determine if there is
                 //  enough disk space for the file, and if not then we
@@ -992,7 +1329,23 @@ Notes:
                     CheckTargetSpace( File, &PathToCopy );
                 }
 
-                if ( File->Copy( &PathToCopy, &CopyError, _ReadOnlySwitch, !_CopyAttrSwitch )) {
+                //
+                //  If the copy is restartable, pass the address of the callback
+                //  routine.  Otherwise, pass the address of _FlagBreak as the
+                //  cancel flag.
+                //
+                if ( _RestartableSwitch )
+                    Progress = (LPPROGRESS_ROUTINE) ProgressCallBack;
+                else
+                    PCancelFlag = _Keyboard->GetPFlagBreak();
+
+                if ( File->Copy( &PathToCopy, &CopyError, _ReadOnlySwitch, !_CopyAttrSwitch,
+                    _RestartableSwitch, Progress, (VOID *) this, PCancelFlag )) {
+
+                    if (!_CopyAttrSwitch && (TargetFile = SYSTEM::QueryFile( &PathToCopy )) ) {
+                        DWORD dwError;
+                        TargetFile->MakeArchived(&dwError);
+                    }
 
                     if ( _ModifySwitch ) {
                         File->ResetArchivedAttribute();
@@ -1024,6 +1377,11 @@ Notes:
                     break;
 
                 } else {
+
+                    //
+                    //  If the copy was cancelled mid-stream, exit.
+                    //
+                    AbortIfCtrlC();
 
                     //
                     //  In case of error, wait for a little while and try
@@ -1161,7 +1519,7 @@ Return Value:
 
                 FreeSpace = FreeSpace + TargetSize;
 
-                // DbgPrintf( "Disk Space: %d Needed: %d\n", FreeSpace.GetLowPart(), FileSize.GetLowPart() );
+                // DebugPrintf( "Disk Space: %d Needed: %d\n", FreeSpace.GetLowPart(), FileSize.GetLowPart() );
 
                 if ( FreeSpace < FileSize ) {
 
@@ -1235,14 +1593,14 @@ Return Value:
 
                                 DirDeleted = DestinationDirectory->DeleteDirectory();
 
-                                DbgAssert( DirDeleted );
+                                DebugAssert( DirDeleted );
 
                                 DELETE( DestinationDirectory );
                                 DestinationDirectory = NULL;
 
                                 PathToDelete.TruncateBase();
                                 DestinationDirectory = SYSTEM::QueryDirectory( &PathToDelete );
-                                DbgPtrAssert( DestinationDirectory );
+                                DebugPtrAssert( DestinationDirectory );
                             }
                         }
                     }
@@ -1314,13 +1672,13 @@ Notes:
     PFSN_FILE           File;
     PWSTRING Prefix      =   NULL;
     PWSTRING FileName    =   NULL;
-	PATH				PrefixPath;
-	PATH				TmpPath;
-	FSN_ATTRIBUTE		All 	=	(FSN_ATTRIBUTE)0;
-	FSN_ATTRIBUTE		Any 	=	(FSN_ATTRIBUTE)0;
-	FSN_ATTRIBUTE		None	=	(FSN_ATTRIBUTE)0;
-	PFSN_FILTER 		FilFilter;
-	PFSN_FILTER 		DirFilter;
+   PATH           PrefixPath;
+   PATH           TmpPath;
+   FSN_ATTRIBUTE     All   =  (FSN_ATTRIBUTE)0;
+   FSN_ATTRIBUTE     Any   =  (FSN_ATTRIBUTE)0;
+   FSN_ATTRIBUTE     None  =  (FSN_ATTRIBUTE)0;
+   PFSN_FILTER       FilFilter;
+   PFSN_FILTER       DirFilter;
     DSTRING             Name;
 
 
@@ -1608,14 +1966,14 @@ Return Value:
 --*/
 
 {
-	PATH				SrcPath;
-	PATH				TrgPath;
-	PARRAY				ArraySrc, ArrayTrg;
-	PARRAY_ITERATOR 	IteratorSrc, IteratorTrg;
+   PATH           SrcPath;
+   PATH           TrgPath;
+   PARRAY            ArraySrc, ArrayTrg;
+   PARRAY_ITERATOR   IteratorSrc, IteratorTrg;
     PWSTRING     ComponentSrc, ComponentTrg;
-	BOOLEAN 			IsCyclical	=	FALSE;
+   BOOLEAN        IsCyclical  =  FALSE;
 
-        DbgAssert( PathSrc != NULL );
+        DebugAssert( PathSrc != NULL );
 
         if ( PathTrg != NULL ) {
 
@@ -1631,8 +1989,8 @@ Return Value:
                 ArraySrc = SrcPath.QueryComponentArray();
                 ArrayTrg = TrgPath.QueryComponentArray();
 
-                DbgPtrAssert( ArraySrc );
-                DbgPtrAssert( ArrayTrg );
+                DebugPtrAssert( ArraySrc );
+                DebugPtrAssert( ArrayTrg );
 
                 if ( !ArraySrc || !ArrayTrg ) {
                         DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
@@ -1644,8 +2002,8 @@ Return Value:
                 IteratorSrc = ( PARRAY_ITERATOR )ArraySrc->QueryIterator();
                 IteratorTrg = ( PARRAY_ITERATOR )ArrayTrg->QueryIterator();
 
-                DbgPtrAssert( IteratorSrc );
-                DbgPtrAssert( IteratorTrg );
+                DebugPtrAssert( IteratorSrc );
+                DebugPtrAssert( IteratorTrg );
 
                 if ( !IteratorSrc || !IteratorTrg ) {
                         DisplayMessageAndExit( XCOPY_ERROR_NO_MEMORY, NULL, EXIT_MISC_ERROR );
@@ -1772,8 +2130,8 @@ Notes:
         DirMsg = QueryMessageString(XCOPY_RESPONSE_DIRECTORY);
         FilMsg = QueryMessageString(XCOPY_RESPONSE_FILE);
 
-        DbgPtrAssert( DirMsg );
-    DbgPtrAssert( FilMsg );
+        DebugPtrAssert( DirMsg );
+    DebugPtrAssert( FilMsg );
 
     //
     //  If the path does not exist, we are copying many files, and we are intelligent,
@@ -1863,8 +2221,8 @@ Return Value:
     YesMsg = QueryMessageString(XCOPY_RESPONSE_YES);
     NoMsg = QueryMessageString(XCOPY_RESPONSE_NO);
 
-    DbgPtrAssert( YesMsg );
-    DbgPtrAssert( NoMsg );
+    DebugPtrAssert( YesMsg );
+    DebugPtrAssert( NoMsg );
 
     while ( TRUE ) {
 
@@ -1963,3 +2321,4 @@ Return Value:
 
     return FALSE;
 }
+

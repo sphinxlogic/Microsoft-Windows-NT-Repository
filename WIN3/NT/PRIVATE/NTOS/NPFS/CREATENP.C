@@ -473,8 +473,6 @@ Return Value:
     PFCB Fcb;
     PCCB Ccb;
 
-    extern POBJECT_TYPE *IoFileObjectType;
-
     PAGED_CODE();
 
     DebugTrace(+1, Dbg, "NpCreateNewNamedPipe\n", 0 );
@@ -503,7 +501,7 @@ Return Value:
         {
             PLARGE_INTEGER Int = (PLARGE_INTEGER)&DefaultTimeout;
 
-            if (LiGeqZero(*Int)) {
+            if (Int->QuadPart >= 0) {
 
                 try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
             }
@@ -719,8 +717,6 @@ Return Value:
 
     PPRIVILEGE_SET  Privileges = NULL;
 
-    extern POBJECT_TYPE *IoFileObjectType;
-
     PAGED_CODE();
 
     DebugTrace(+1, Dbg, "NpCreateExistingNamedPipe\n", 0 );
@@ -896,3 +892,4 @@ Return Value:
 
     return Iosb;
 }
+

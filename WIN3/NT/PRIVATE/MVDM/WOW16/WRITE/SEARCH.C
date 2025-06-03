@@ -2012,4 +2012,4 @@ else
     SetWindowText(hParentWw, (LPSTR)szT);
     }
 }
-
+

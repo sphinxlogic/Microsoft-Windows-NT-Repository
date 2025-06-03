@@ -185,7 +185,7 @@ disasm (PDEBUGPACKET dp, PDWORD poffset, PUCHAR bufptr, BOOLEAN fEAout)
         *pBuf++ = ',';
         OutputHex(disinstr.Jump.Hint, (WIDTH_HINT + 3)/4, TRUE);
 
-        Ea = GetRegValue(dp, GetIntRegNumber(disinstr.Jump.Rb)) & (~3);
+        Ea = (ULONG) GetRegValue(dp, GetIntRegNumber(disinstr.Jump.Rb)) & (~3);
         OutputEffectiveAddress(dp, Ea);
         break;
 
@@ -464,17 +464,11 @@ void OutputEffectiveAddress(PDEBUGPACKET dp, ULONG offset)
     PUCHAR  pszTemp;
     UCHAR   ch;
 
-    PSYMBOL sym;
 
     BlankFill(EACOL);
 
-    sym = GetSymFromAddrAllContexts( offset, &displacement, dp);
-
-    if (sym) {
-        pszTemp = UnDName( sym );
-        if (!pszTemp) {
-            pszTemp = &sym->szName[1];
-        }
+    if (SymGetSymFromAddr( dp->hProcess, offset, &displacement, sym )) {
+        pszTemp = sym->Name;
         while (ch = *pszTemp++)
             *pBuf++ = ch;
         if (displacement) {
@@ -532,7 +526,7 @@ GetNextOffset (PDEBUGPACKET dp, PULONG result, BOOLEAN fStep)
     // Get current address
     //
 
-    firaddr = GetRegValue(dp, REGFIR);
+    firaddr = (ULONG) GetRegValue(dp, REGFIR);
 
     //
     // relative addressing updates PC first

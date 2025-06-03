@@ -107,6 +107,7 @@
 #define 	Q931_TSPID_EXP		Q931(20)	/* internal: spid timer expired */
 #define		Q931_P_STATE_IND	Q931(21)	/* protocol state indications */
 #define		Q931_CAN_TU10_RQ	Q931(22)	/* cancel U10 deadman timer */
+#define		Q931_EST_IGNORE		Q931(23)	/* cm code will ignore this new call */
 
 /* managment data link (mdl) messages */
 #define 	MDL_ASSIGN_RQ		MDL(1)		/* assign tei request */
@@ -149,4 +150,3 @@
 #define		CMD_COMPRESS		CMD(13)		// control B channel compression
 
 #endif		/* _OPCODES_ */
-

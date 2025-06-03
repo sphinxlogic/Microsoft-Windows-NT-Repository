@@ -12,8 +12,6 @@ mips\j4flshbf.s: ..\halfxs\mips\j4flshbf.s
 
 mips\j4flshio.c: ..\halfxs\mips\j4flshio.c
 
-mips\jxebsup.c:  ..\halfxs\mips\jxebsup.c
-
 mips\jxhwsup.c:  ..\halfxs\mips\jxhwsup.c
 
 mips\jxmapio.c:  ..\halfxs\mips\jxmapio.c

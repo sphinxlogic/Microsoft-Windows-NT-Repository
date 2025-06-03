@@ -30,7 +30,7 @@ Revision History:
 // Control routines for SMB processing.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvProcessSmb (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -44,38 +44,37 @@ SrvEndSmbProcessing (
 //
 // Restart routines.
 //
-
-VOID
+VOID SRVFASTCALL
 SrvRestartChainedClose (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartFsdComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartSmbReceived (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartReceive (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteAndUnlock (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvRestartWriteAndXRaw (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvBuildAndSendErrorResponse (
     IN PWORK_CONTEXT WorkContext
     );
@@ -84,9 +83,9 @@ SrvBuildAndSendErrorResponse (
 // SMB Processing routines.
 //
 
-SMB_PROCESSOR_RETURN_TYPE
+SMB_PROCESSOR_RETURN_TYPE SRVFASTCALL
 SrvSmbIllegalCommand (
-    SMB_PROCESSOR_PARAMETERS
+    IN PWORK_CONTEXT WorkContext
     );
 
 #endif // def _SMBCTRL_

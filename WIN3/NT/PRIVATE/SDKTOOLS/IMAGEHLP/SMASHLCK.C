@@ -18,18 +18,8 @@ Revision History:
 
 --*/
 
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <memory.h>
-#include <ctype.h>
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <imagehlp.h>
+#include <private.h>
+
 
 BOOL fVerbose;
 BOOL fUpdate;
@@ -92,13 +82,14 @@ main(
     BOOLEAN LocksSmashed;
     ULONG CheckSum;
     ULONG HeaderSum;
+    ULONG OldChecksum;
 
 
     fUsage = FALSE;
     fVerbose = FALSE;
     fUpdate = FALSE;
 
-    tzset();
+    _tzset();
 
     if (argc <= 1) {
         goto showUsage;
@@ -154,7 +145,7 @@ showUsage:
             // Map and load the current image
             //
 
-            if ( MapAndLoad(CurrentImageName, NULL, &CurrentImage, FALSE, fUpdate ? FALSE : TRUE )) {
+            if ( MapAndLoad(CurrentImageName, NULL, &CurrentImage, FALSE, !fUpdate )) {
 
                 //
                 // make sure the image has correct configuration information,
@@ -199,6 +190,7 @@ showUsage:
                     // recompute the checksum.
                     //
 
+                    OldChecksum = CurrentImage.FileHeader->OptionalHeader.CheckSum;
                     if ( CurrentImage.hFile != INVALID_HANDLE_VALUE ) {
 
                         CurrentImage.FileHeader->OptionalHeader.CheckSum = 0;
@@ -219,7 +211,14 @@ showUsage:
                     // And update the .dbg file (if requested)
                     if (SymbolPath &&
                         CurrentImage.FileHeader->FileHeader.Characteristics & IMAGE_FILE_DEBUG_STRIPPED) {
-                        if ( UpdateDebugInfoFile( CurrentImageName, SymbolPath, DebugFilePath, CurrentImage.FileHeader) ) {
+                        if ( UpdateDebugInfoFileEx( CurrentImageName,
+                                                    SymbolPath,
+                                                    DebugFilePath,
+                                                    CurrentImage.FileHeader,
+                                                    OldChecksum) ) {
+                            if (GetLastError() == ERROR_INVALID_DATA) {
+                                printf( "Warning: Old checksum did not match for %s\n", DebugFilePath);
+                                }
                             printf("Updated symbols for %s\n", DebugFilePath);
                         } else {
                             printf("Unable to update symbols: %s\n", DebugFilePath);

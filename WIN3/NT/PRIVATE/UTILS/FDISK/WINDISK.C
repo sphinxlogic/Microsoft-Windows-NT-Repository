@@ -41,6 +41,13 @@ BOOL AllowAllDeletes = FALSE;   // whether to allow deleting boot/sys parts
 
 #endif
 
+// External from fdinit.
+
+extern HWND    InitDlg;
+extern BOOLEAN InitDlgComplete;
+extern BOOLEAN StartedAsIcon;
+HANDLE         hAccelerator;
+
 // This is the maximum number of members that WinDisk will support
 // in an FT Set.
 
@@ -64,6 +71,7 @@ BOOL SystemPartitionIsSecure = FALSE;
 
 BOOLEAN CommitDueToDelete = FALSE;
 BOOLEAN CommitDueToMirror = FALSE;
+BOOLEAN CommitDueToExtended = FALSE;
 
 // If a mirror is made of the boot partition, this will become
 // non-zero and indicate which disk should get some boot code in
@@ -261,6 +269,8 @@ Return Value:
         CloseHandle(mutex);
         InfoDialog(MSG_ALREADY_RUNNING);
         return;
+    } else {
+        DisplayInitializationMessage();
     }
 
     // Determine whether this is LanmanNt or Windows NT by looking at
@@ -281,7 +291,7 @@ Return Value:
         // mode on WinNt.  It should never be enabled in a released
         // build, but is very useful for internal users.
 
-        if (argc >= 2 && !stricmp(argv[1], "-p:lanman")) {
+        if (argc >= 2 && !_stricmp(argv[1], "-p:lanman")) {
             IsLanmanNt = TRUE;
         }
 #endif
@@ -355,10 +365,21 @@ Return Value:
         AdjustOptionsMenu();
 
         InitHelp();
+        hAccelerator = LoadAccelerators(hModule, TEXT("MainAcc"));
 
+        if (InitDlg) {
+
+            PostMessage(InitDlg,
+                        (WM_USER + 1),
+                        0,
+                        0);
+            InitDlg = (HWND) 0;
+        }
         while (GetMessage(&msg,NULL,0,0)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            if (!TranslateAccelerator(hwndFrame, hAccelerator, &msg)) {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
         }
 
         TermHelp();
@@ -405,6 +426,7 @@ Return Value:
 --*/
 
 {
+    static BOOLEAN     oneTime = TRUE;
     PMEASUREITEMSTRUCT pMeasureItem;
     DWORD              ec;
     DWORD              action;
@@ -421,6 +443,9 @@ Return Value:
 
         // create the listbox
 
+        if (!StartedAsIcon) {
+            StartedAsIcon = IsIconic(hwnd);
+        }
         GetClientRect(hwnd,&rc);
 #if 1
         hwndList = CreateWindow(TEXT("listbox"),
@@ -550,9 +575,9 @@ Return Value:
 
             if ((wParam == MSGF_DIALOGBOX) &&
                 (GetKeyState(VK_F1) & 0x8000) &&
-                GetDlgItem((HANDLE) lParam, IDHELP)) {
+                GetDlgItem((HANDLE) lParam, FD_IDHELP)) {
 
-                PostMessage((HANDLE) lParam, WM_COMMAND, IDHELP, 0L);
+                PostMessage((HANDLE) lParam, WM_COMMAND, FD_IDHELP, 0L);
             }
         }
 
@@ -560,8 +585,11 @@ Return Value:
 
     case WM_PAINT:
 
-        if (!IsIconic(hwnd)) {
-
+#if 1
+        if ((!IsIconic(hwnd)) && !(InitDlg && StartedAsIcon)) {
+#else
+        if (!StartedAsIcon) {
+#endif
             HDC         hdcTemp,hdcScr;
             HBITMAP     hbmTemp;
             PAINTSTRUCT ps;
@@ -679,6 +707,23 @@ Return Value:
 
             EndPaint(hwnd,&ps);
 
+        }
+        if (InitDlg) {
+
+            if (InitDlgComplete) {
+                PostMessage(InitDlg,
+                            (WM_USER + 1),
+                            0,
+                            0);
+                InitDlg = (HWND) 0;
+            }
+
+        }
+        if (oneTime) {
+            if (!StartedAsIcon) {
+                SetForegroundWindow(hwnd);
+            }
+            oneTime = FALSE;
         }
         break;
 
@@ -846,6 +891,8 @@ Return Value:
                         sprintf(newNumberString, "%d", newBootPartitionNumber);
                         InfoDialog(msgCode, oldNumberString, newNumberString);
                     }
+
+                    ClearCommittedDiskInformation();
 
                     if (UpdateMbrOnDisk) {
 
@@ -1025,17 +1072,17 @@ Return Value:
     PWSTR typeName = NULL,
           volumeLabel = NULL;
     PDISKSTATE diskState,
-               selDiskState;
+               selDiskState = NULL;
     DWORD      i,
                j,
-               selectedRegion;
-    ULONG      ordinal,
-               selectedFreeSpaces,
-               freeSpaceIndex,
+               selectedRegion = 0;
+    ULONG      ordinal                 = 0,
+               selectedFreeSpaces      = 0,
+               freeSpaceIndex          = 0,
                componentsInFtSet       = 0,
                selectedNonFtPartitions = 0;
     HMENU      hMenu = GetMenu(hwndFrame);
-    FT_TYPE    type;
+    FT_TYPE    type = (FT_TYPE) 0;
     PULONG     diskSeenCounts;
     PFT_OBJECT_SET     ftSet = NULL;
     PFT_OBJECT         ftObject = NULL;
@@ -1810,6 +1857,8 @@ Return Value:
                 return;
             }
         }
+    } else {
+        CommitDueToExtended = TRUE;
     }
 
 #if i386
@@ -1951,8 +2000,10 @@ Return Value:
 
     DmSetPersistentRegionData(regionDescriptor, regionData);
     if (CreationType != REGION_EXTENDED) {
-        MarkDriveLetterUsed(driveLetter);
-        CommitToAssignLetterList(regionDescriptor, FALSE);
+        if (!isRemovable) {
+            MarkDriveLetterUsed(driveLetter);
+            CommitToAssignLetterList(regionDescriptor, FALSE);
+        }
     }
 
     // this clears all selections on the disk
@@ -2067,6 +2118,11 @@ Return Value:
                 }
             }
         }
+    } else {
+
+        // Deleting an extended partition - enable commit.
+
+        CommitDueToDelete = TRUE;
     }
 
     SetCursor(hcurWait);
@@ -2084,7 +2140,9 @@ Return Value:
 
         // Make the letter available for reuse.
 
-        MarkDriveLetterFree(regionData->DriveLetter);
+        if (!IsDiskRemovable[diskNumber]) {
+            MarkDriveLetterFree(regionData->DriveLetter);
+        }
 
         // Free the persistent data associated with the region.
 
@@ -2249,7 +2307,7 @@ Return Value:
                        freeSpaceSize;
     DWORD              i,
                        part,
-                       free;
+                       free = 0;
     PREGION_DESCRIPTOR regionDescriptor,
                        freeSpace = NULL,
                        existingPartition = NULL;
@@ -2300,7 +2358,7 @@ Return Value:
     partitionSize = FdGetExactSize(existingPartition, FALSE);
     freeSpaceSize = FdGetExactSize(freeSpace, FALSE);
 
-    if (RtlLargeIntegerLessThan(freeSpaceSize, partitionSize)) {
+    if (freeSpaceSize.QuadPart < partitionSize.QuadPart) {
         ErrorDialog(MSG_CRTMIRROR_BADFREE);
         return;
     }
@@ -2568,7 +2626,7 @@ Return Value:
     PFT_OBJECT_SET      ftSet;
     DWORD               i;
     PREGION_DESCRIPTOR  regionDescriptor;
-    CHAR                driveLetter;
+    CHAR                driveLetter = '\0';
 
     FDASSERT( SelectionCount == 1 || SelectionCount == 2 );
 
@@ -2810,9 +2868,9 @@ Return Value:
     PFT_OBJECT_SET     ftSet;
     PFT_OBJECT         ftObject;
     PREGION_DESCRIPTOR regionDescriptor;
-    CHAR               driveLetter;
     FT_SET_STATUS      setState;
     ULONG              numberOfMembers;
+    CHAR               driveLetter = '\0';
     BOOL               setIsHealthy = TRUE;
 
     regionDescriptor = &SELECTED_REGION(0);
@@ -3473,7 +3531,7 @@ Return Value:
 {
     PREGION_DESCRIPTOR freeSpace = NULL;
     PREGION_DESCRIPTOR unhealthy = NULL;
-    ULONG              freeSpaceI;
+    ULONG              freeSpaceI = 0;
     ULONG              i;
     PREGION_DESCRIPTOR regionArray[MaxMembersInFtSet];
     LARGE_INTEGER      minimumSize;
@@ -3534,7 +3592,7 @@ Return Value:
             LARGE_INTEGER largeTemp;
 
             largeTemp = FdGetExactSize(regionArray[i], FALSE);
-            if (RtlLargeIntegerLessThan(largeTemp, minimumSize)) {
+            if (largeTemp.QuadPart < minimumSize.QuadPart) {
                 minimumSize = largeTemp;
             }
 
@@ -3604,12 +3662,14 @@ Return Value:
 
     if (freeSpace) {
 
+        LARGE_INTEGER           temp;
         PPERSISTENT_REGION_DATA regionData,
                                 regionDataTemp;
 
         // Make sure the free space region is large enough.
 
-        if (RtlLargeIntegerLessThan(FdGetExactSize(freeSpace, FALSE), minimumSize)) {
+        temp = FdGetExactSize(freeSpace, FALSE);
+        if (temp.QuadPart < minimumSize.QuadPart) {
             SetCursor(hcurNormal);
             ErrorDialog(MSG_NOT_LARGE_ENOUGH_FOR_STRIPE);
             return;
@@ -3845,6 +3905,7 @@ Return Value:
                                             (DLGPROC)DriveLetterDlgProc,
                                             (LONG)regionDescriptor);
             if (driveLetterOut) {
+                LETTER_ASSIGNMENT_RESULT result;
 
                 if ((driveLetterIn == NO_DRIVE_LETTER_YET) || (driveLetterIn == NO_DRIVE_LETTER_EVER)) {
 
@@ -3855,7 +3916,7 @@ Return Value:
                     driveLetterIn = NO_DRIVE_LETTER_EVER;
                 }
                 if (driveLetterOut != driveLetterIn) {
-                    if (CommitDriveLetter(regionDescriptor, (CHAR) driveLetterIn, (CHAR)driveLetterOut)) {
+                    if (result = CommitDriveLetter(regionDescriptor, (CHAR) driveLetterIn, (CHAR)driveLetterOut)) {
 
                         // The following would be more rigorously correct:
                         // if non-ft, just set regionData->DriveLetter.  If
@@ -3868,9 +3929,16 @@ Return Value:
                             PERSISTENT_DATA(&SELECTED_REGION(i))->DriveLetter = (CHAR)driveLetterOut;
                         }
 
-                        // Mark old letter free, new one used.
+                        // Don't allow the letter that is actually in use
+                        // and will only change on a reboot to cycle back
+                        // into the free list.
 
-                        MarkDriveLetterFree((CHAR)driveLetterIn);
+                        if (result != MustReboot) {
+
+                            // Mark old letter free, new one used.
+
+                            MarkDriveLetterFree((CHAR)driveLetterIn);
+                        }
                         MarkDriveLetterUsed((CHAR)driveLetterOut);
 
                         // force status area and all disk bars to be redrawn
@@ -4022,6 +4090,7 @@ Return Value:
 
     case IDM_COMMIT:
         CommitAllChanges(NULL);
+        EnableMenuItem(GetMenu(hwndFrame), IDM_CONFIGSAVE, MF_ENABLED);
         break;
 
     case IDM_OPTIONSSTATUS:
@@ -4099,25 +4168,22 @@ Return Value:
     }
 
     case IDM_HELPCONTENTS:
+    case IDM_HELP:
 
         HelpFlag = HELP_INDEX;
         goto CallWinHelp;
+        break;
 
     case IDM_HELPSEARCH:
 
         HelpFlag = HELP_PARTIALKEY;
         goto CallWinHelp;
+        break;
 
     case IDM_HELPHELP:
 
         HelpFlag = HELP_HELPONHELP;
         goto CallWinHelp;
-
-        CallWinHelp:
-
-        if (!WinHelp(hwndFrame, HelpFile, HelpFlag, (LONG)"")) {
-            WarningDialog(MSG_HELP_ERROR);
-        }
         break;
 
     case IDM_HELPABOUT: {
@@ -4158,6 +4224,13 @@ Return Value:
     default:
 
         DefWindowProc(hwnd, WM_COMMAND, wParam, lParam);
+    }
+    return;
+
+CallWinHelp:
+
+    if (!WinHelp(hwndFrame, HelpFile, HelpFlag, (LONG)"")) {
+        WarningDialog(MSG_HELP_ERROR);
     }
 }
 
@@ -4298,6 +4371,13 @@ Return Value:
         return FALSE;
     }
 
+    if (!ChangeCommittedOnDisk(BootDiskNumber)) {
+
+        // disk wasn't changed - no possibility for a problem.
+
+        return FALSE;
+    }
+
     bootDisk = Disks[BootDiskNumber];
 
     // Find the region descriptor for the boot partition
@@ -4401,7 +4481,7 @@ Return Value:
     for (i=0; i<DiskCount; i++) {
 
         if (HavePartitionsBeenChanged(i)) {
-            ec = MasterBootCode(i, FALSE, 0);
+            ec = MasterBootCode(i, 0, TRUE, FALSE);
 
             // MasterBootCode has already translated the NT error
             // status into a Windows error status.
@@ -4584,11 +4664,13 @@ Return Value:
 {
     PREGION_DESCRIPTOR   regionDescriptor;
     PDISKSTATE           diskState;
+    LONGLONG temp1,
+             temp2;
     HDC      hDCMem = DiskState->hDCMem;
     DWORD    leftAdjust = BarLeftX,
-             cx,
              xDiskText,
-             brushIndex;
+             cx = 0,
+             brushIndex = 0;
     HPEN     hpenT;
     char     text[100],
              textBold[5];
@@ -4798,16 +4880,10 @@ Return Value:
                     continue;
                 }
 
-                #define DIV1(n,m) RtlLargeIntegerDivide(n,m,NULL)
-                #define DIV2(n,m) RtlExtendedLargeIntegerDivide(n,m,NULL)
-                #define MUL1(n,m) RtlEnlargedUnsignedMultiply(n,m)
-                #define MUL2(n,m) RtlExtendedIntegerMultiply(n,m)
-
-//              regionSize = (regionDescriptor->SizeMB * BarWidth * diskSize)
-//                         / (largestDiskSize * DiskState->DiskSizeMB);
-
-                regionSize = DIV1(MUL2(MUL1(BarWidth, diskSize), regionDescriptor->SizeMB),
-                                  MUL1(largestDiskSize, DiskState->DiskSizeMB)).LowPart;
+                temp1 = UInt32x32To64(BarWidth, diskSize);
+                temp1 *= regionDescriptor->SizeMB;
+                temp2 = UInt32x32To64(largestDiskSize, DiskState->DiskSizeMB);
+                regionSize = (ULONG) (temp1 / temp2);
 
                 if (regionSize < 12*SELECTION_THICKNESS) {
                     barType = BarEqual;
@@ -4817,24 +4893,25 @@ Return Value:
         }
 
         if (barType == BarEqual) {
-//          cx = BarWidth * diskSize / ((DiskState->RegionCount - (DiskState->ExistExtended ? 1 : 0)) * largestDiskSize) ;
 
-            cx = DIV2(MUL1(BarWidth, diskSize),
-                      (DiskState->RegionCount - (DiskState->ExistExtended ? 1 : 0)) * largestDiskSize
-                     ).LowPart;
+            temp1 = UInt32x32To64(BarWidth, diskSize);
+            temp2 = UInt32x32To64((DiskState->RegionCount -
+                       (DiskState->ExistExtended ? 1 : 0)), largestDiskSize);
+            cx = (ULONG) (temp1 / temp2);
         }
 
         for (i=0; i<DiskState->RegionCount; i++) {
-            PFT_OBJECT ftObject;
+            PFT_OBJECT ftObject = NULL;
 
             regionDescriptor = &DiskState->RegionArray[i];
             if (!IsExtended(regionDescriptor->SysID)) {
 
                 if (barType == BarProportional) {
-//                  cx = regionDescriptor->SizeMB * BarWidth * diskSize / (largestDiskSize * DiskState->DiskSizeMB);
 
-                    cx = DIV1(MUL2(MUL1(BarWidth, diskSize), regionDescriptor->SizeMB),
-                              MUL1(largestDiskSize, DiskState->DiskSizeMB)).LowPart;
+                    temp1 = UInt32x32To64(BarWidth, diskSize);
+                    temp1 *= regionDescriptor->SizeMB;
+                    temp2 = UInt32x32To64(largestDiskSize, DiskState->DiskSizeMB);
+                    cx = (ULONG) (temp1 / temp2);
                 }
 
                 isFree = (regionDescriptor->SysID == SYSID_UNUSED);
@@ -5121,7 +5198,7 @@ Return Value:
             StatusTextType[0] = StatusTextVoll[0] = 0;
         } else {
             PREGION_DESCRIPTOR regionDescriptor;
-            DWORD          resid,
+            DWORD          resid = 0,
                            i;
             DWORD          Size = 0;
             TCHAR          textbuf[STATUS_TEXT_SIZE];

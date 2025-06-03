@@ -252,4 +252,3 @@ node_base_type::SetBasicType(
 	return STATUS_OK;
 	}
 
-

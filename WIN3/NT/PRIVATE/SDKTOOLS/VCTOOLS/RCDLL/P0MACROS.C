@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /************************************************************************
@@ -319,7 +318,7 @@ void   definstall(WCHAR * p_text, int n, int number)
         HLN_NAME(ident) = Reuse_W;
         HLN_HASH(ident) = Reuse_W_hash;
         HLN_LENGTH(ident) = (UINT)Reuse_W_length;
-        p = malloc(sizeof(defn_t));
+        p = MyAlloc(sizeof(defn_t));
         if (p == NULL) {
             strcpy (Msg_Text, GET_MSG (1002));
             error(1002);
@@ -1213,7 +1212,7 @@ void   push_macro(pdefn_t pdef)
         **      this element can be reserved for links to dynamically allocated
         **      macro expansion stacks, if they become desirable
         */
-    if(++Macro_depth > LIMIT_MACRO_DEPTH) {
+    if(++Macro_depth >= LIMIT_MACRO_DEPTH) {
         Msg_Temp = GET_MSG (1009);
         SET_MSG (Msg_Text, sizeof(Msg_Text), Msg_Temp, Reuse_W);
         fatal (1009);

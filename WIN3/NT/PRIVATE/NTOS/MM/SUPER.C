@@ -620,6 +620,7 @@ Return Value:
 
     RtlZeroMemory( &ObjectTypeInitializer, sizeof( ObjectTypeInitializer ) );
     ObjectTypeInitializer.Length = sizeof( ObjectTypeInitializer );
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.GenericMapping = MiSectionMapping;
     ObjectTypeInitializer.PoolType = PagedPool;
 

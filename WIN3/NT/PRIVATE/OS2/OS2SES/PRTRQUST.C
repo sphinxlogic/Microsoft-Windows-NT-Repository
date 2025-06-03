@@ -144,7 +144,7 @@ Ow2PrintOpen(
     )
 {
     DWORD   Rc = 0, Access, Share = FILE_SHARE_READ | FILE_SHARE_WRITE;
-    DWORD   Create, Attr = FILE_ATTRIBUTE_NORMAL;
+    DWORD   Create = 0, Attr = FILE_ATTRIBUTE_NORMAL;
     ULONG   Os2Share;
 
     /*
@@ -325,4 +325,3 @@ Ow2PrintWrite(
     }
     return(Rc);
 }
-

@@ -26,14 +26,17 @@ Environment:
 
 #include "wintools.h"
 
-
+#define SZ_SYSTEMROOTKEY             TEXT("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion")
+
+
 BOOL
 BuildEnvironmentReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     );
 
 BOOL
-EnvironmentDlgProc(
+EnvironmentTabProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -41,3 +44,4 @@ EnvironmentDlgProc(
     );
 
 #endif // _ENVIRON_
+

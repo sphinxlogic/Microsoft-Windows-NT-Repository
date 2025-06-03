@@ -431,4 +431,3 @@ LoopVerifyEndpoint (
     );
 
 #endif // def _LOOP_
-

@@ -58,6 +58,8 @@ class SORT	: public PROGRAM {
 		ULONG			_Position;
 		PSTREAM			_Standard_Input_Stream;
 		PSTREAM			_Standard_Output_Stream;
+		PSTREAM         _Standard_Error_Stream;
+		PSTREAM_MESSAGE _Message;
 };
 
 

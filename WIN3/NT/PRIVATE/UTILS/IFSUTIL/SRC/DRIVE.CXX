@@ -1,8 +1,11 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "error.hxx"
 #include "drive.hxx"
 #include "rtmsg.h"
@@ -13,19 +16,21 @@
 #include "ifssys.hxx"
 
 extern "C" {
-	#include <stdio.h>
+#include <stdio.h>
 };
 
 
 // Don't lock down more that 64K for IO.
 CONST   MaxIoSize   = 65536;
 
+// This buffer used when reading back after write
+char ScratchIoBuf[MaxIoSize + 16];
 
 DEFINE_CONSTRUCTOR( DRIVE, OBJECT );
 
 VOID
 DRIVE::Construct (
-	)
+        )
 /*++
 
 Routine Description:
@@ -42,8 +47,8 @@ Return Value:
 
 --*/
 {
-	// unreferenced parameters
-	(void)(this);
+        // unreferenced parameters
+        (void)(this);
 }
 
 
@@ -72,7 +77,7 @@ Return Value:
 BOOLEAN
 DRIVE::Initialize(
     IN      PCWSTRING    NtDriveName,
-    IN OUT  PMESSAGE            Message
+    IN OUT  PMESSAGE     Message
     )
 /*++
 
@@ -129,16 +134,16 @@ Return Value:
 
 --*/
 {
-	// unreferenced parameters
-	(void)(this);
+        // unreferenced parameters
+        (void)(this);
 }
 
 
-DEFINE_CONSTRUCTOR( DP_DRIVE, DRIVE );
+DEFINE_EXPORTED_CONSTRUCTOR( DP_DRIVE, DRIVE, IFSUTIL_EXPORT );
 
 VOID
 DP_DRIVE::Construct (
-	)
+        )
 /*++
 
 Routine Description:
@@ -155,7 +160,7 @@ Return Value:
 
 --*/
 {
-	memset(&_actual, 0, sizeof(DRTYPE));
+    memset(&_actual, 0, sizeof(DRTYPE));
     _supported_list = NULL;
     _num_supported = 0;
     _alignment_mask = 0;
@@ -163,9 +168,11 @@ Return Value:
     _handle = 0;
     _alternate_handle = 0;
     _hosted_drive = FALSE;
+    _super_floppy = FALSE;
 }
 
 
+IFSUTIL_EXPORT
 DP_DRIVE::~DP_DRIVE(
     )
 /*++
@@ -233,10 +240,10 @@ Return Value:
     string.Buffer = (PWSTR)NtDriveName->GetWSTR();
 
     InitializeObjectAttributes( &oa,
-								  &string,
-								  OBJ_CASE_INSENSITIVE,
-								  0,
-								  0 );
+                                &string,
+                                OBJ_CASE_INSENSITIVE,
+                                0,
+                                0 );
 
     Status = NtOpenFile(Handle,
                         DesiredAccess,
@@ -279,16 +286,30 @@ Return Value:
 
     *Alignment = alignment_info.AlignmentRequirement;
 
+    //
+    //  Set the ALLOW_EXTENDED_DASD_IO flag for the file handle,
+    //  which ntfs format and chkdsk depend on to write the backup
+    //  boot sector.  We ignore the return code from this, but we
+    //  could go either way.
+    //
+
+    (VOID)NtFsControlFile( *Handle,
+                           0, NULL, NULL,
+                           &status_block,
+                           FSCTL_ALLOW_EXTENDED_DASD_IO,
+                           NULL, 0, NULL, 0);
+
     return Status;
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DP_DRIVE::Initialize(
-    IN      PCWSTRING    NtDriveName,
-    IN OUT  PMESSAGE            Message,
-    IN      BOOLEAN             IsTransient,
-    IN      BOOLEAN             ExclusiveWrite
+    IN      PCWSTRING   NtDriveName,
+    IN OUT  PMESSAGE    Message,
+    IN      BOOLEAN     IsTransient,
+    IN      BOOLEAN     ExclusiveWrite
     )
 /*++
 
@@ -316,10 +337,10 @@ Return Value:
     CONST   NumMediaTypes   = 20;
 
     IO_STATUS_BLOCK             status_block;
-	DISK_GEOMETRY				disk_geometry;
+        DISK_GEOMETRY                           disk_geometry;
     DISK_GEOMETRY               media_types[NumMediaTypes];
     INT                         i;
-    PARTITION_INFORMATION	    partition_info;
+    PARTITION_INFORMATION           partition_info;
     BOOLEAN                     partition;
     MSGID                       MessageId;
 
@@ -457,7 +478,7 @@ Return Value:
                 return FALSE;
             }
 
-			if (!(_supported_list = NEW DRTYPE[_num_supported])) {
+                        if (!(_supported_list = NEW DRTYPE[_num_supported])) {
                 Destroy();
                 Message ? Message->Set(MSG_FMT_NO_MEMORY) : 1;
                 Message ? Message->Display("") : 1;
@@ -483,6 +504,43 @@ Return Value:
         _supported_list[0] = _actual;
     }
 
+    //
+    // Determine whether the media is a super-floppy; non-floppy
+    // removable media which is not partitioned.  Such media will
+    // have but a single partition, normal media will have at least 4.
+    //
+
+    if (disk_geometry.MediaType == RemovableMedia) {
+
+        CONST INT EntriesPerBootRecord = 4;
+        CONST INT MaxLogicalVolumes = 23;
+        CONST INT Length =  sizeof(DRIVE_LAYOUT_INFORMATION) +
+                            EntriesPerBootRecord * (MaxLogicalVolumes + 1) *
+                                sizeof(PARTITION_INFORMATION);
+
+        UCHAR buf[Length];
+
+        DRIVE_LAYOUT_INFORMATION *layout_info = (DRIVE_LAYOUT_INFORMATION *)buf;
+
+        _last_status = NtDeviceIoControlFile(_handle, 0, NULL, NULL,
+                                             &status_block,
+                                             IOCTL_DISK_GET_DRIVE_LAYOUT,
+                                             NULL, 0, layout_info,
+                                             Length);
+
+        if (!NT_SUCCESS(_last_status)) {
+            Destroy();
+            Message ? Message->Set(MSG_BAD_IOCTL) : 1;
+            Message ? Message->Display("") : 1;
+            return FALSE;
+        }
+
+        if (layout_info->PartitionCount < 4) {
+
+            _super_floppy = TRUE;
+        }
+    }
+
     if (!IsTransient) {
         NtClose(_handle);
         _handle = 0;
@@ -491,6 +549,7 @@ Return Value:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 DP_DRIVE::Initialize(
     IN      PCWSTRING   NtDriveName,
@@ -647,6 +706,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 ULONG
 DP_DRIVE::QuerySectorSize(
     ) CONST
@@ -670,6 +730,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BIG_INT
 DP_DRIVE::QuerySectors(
     ) CONST
@@ -694,34 +755,38 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 UCHAR
 DP_DRIVE::QueryMediaByte(
-	) CONST
+        ) CONST
 /*++
 
 Routine Description:
 
-	This routine computes the media byte used by the FAT and HPFS file
-	systems to represent the current media type.
+        This routine computes the media byte used by the FAT and HPFS file
+        systems to represent the current media type.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	The media byte for the drive.
+        The media byte for the drive.
 
 --*/
 {
     switch (_actual.MediaType) {
-		case F5_1Pt2_512:	// 5.25", 1.2MB,  512 bytes/sector
+        case F5_1Pt2_512:   // 5.25", 1.2MB,  512 bytes/sector
             return 0xF9;
 
-		case F3_1Pt44_512:	// 3.5",  1.44MB, 512 bytes/sector
+       case F3_1Pt44_512:   // 3.5",  1.44MB, 512 bytes/sector
             return 0xF0;
 
         case F3_2Pt88_512:  // 3.5",  2.88MB, 512 bytes/sector
+            return 0xF0;
+
+        case F3_120M_512:   // 3.5",  120MB,  512 bytes/sector
             return 0xF0;
 
         case F3_20Pt8_512:  // 3.5",  20.8MB, 512 bytes/sector
@@ -760,7 +825,7 @@ Return Value:
 
 VOID
 DP_DRIVE::Destroy(
-	)
+        )
 /*++
 
 Routine Description:
@@ -839,6 +904,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 MEDIA_TYPE
 DP_DRIVE::QueryRecommendedMediaType(
     ) CONST
@@ -918,8 +984,8 @@ Return Value:
     IO_STATUS_BLOCK                 status_block;
     NTSTATUS                        status;
 
-    DbgPtrAssert( FileSystemName );
-    DbgPtrAssert( IsCompressed );
+    DebugPtrAssert( FileSystemName );
+    DebugPtrAssert( IsCompressed );
 
     *IsCompressed = FALSE;
 
@@ -1046,7 +1112,7 @@ Return Value:
         return FALSE;
     }
 
-    DbgAssert(Size % _actual.SectorSize == 0);
+    DebugAssert(Size % _actual.SectorSize == 0);
 
     _actual.Sectors = Size / _actual.SectorSize;
 
@@ -1183,7 +1249,7 @@ DEFINE_CONSTRUCTOR( IO_DP_DRIVE, DP_DRIVE );
 
 VOID
 IO_DP_DRIVE::Construct (
-	)
+        )
 
 /*++
 
@@ -1264,9 +1330,9 @@ Return Value:
 
 BOOLEAN
 IO_DP_DRIVE::Initialize(
-    IN      PCWSTRING    NtDriveName,
-    IN OUT  PMESSAGE            Message,
-    IN      BOOLEAN             ExclusiveWrite
+    IN      PCWSTRING   NtDriveName,
+    IN OUT  PMESSAGE    Message,
+    IN      BOOLEAN     ExclusiveWrite
     )
 /*++
 
@@ -1360,6 +1426,7 @@ Return Value:
     return TRUE;
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 IO_DP_DRIVE::Read(
     IN  BIG_INT     StartingSector,
@@ -1386,11 +1453,12 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_cache);
+    DebugAssert(_cache);
     return _cache->Read(StartingSector, NumberOfSectors, Buffer);
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IO_DP_DRIVE::Write(
     BIG_INT     StartingSector,
@@ -1417,11 +1485,12 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_cache);
+    DebugAssert(_cache);
     return _cache->Write(StartingSector, NumberOfSectors, Buffer);
 }
 
 
+IFSUTIL_EXPORT
 VOID
 IO_DP_DRIVE::SetCache(
     IN OUT  PDRIVE_CACHE    Cache
@@ -1445,12 +1514,13 @@ Return Value:
 
 --*/
 {
-    DbgAssert(Cache);
+    DebugAssert(Cache);
     DELETE(_cache);
     _cache = Cache;
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IO_DP_DRIVE::FlushCache(
     )
@@ -1472,7 +1542,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_cache);
+    DebugAssert(_cache);
     return _cache->Flush();
 }
 
@@ -1514,7 +1584,7 @@ Return Value:
     BIG_INT         tmp;
     LARGE_INTEGER   l;
 
-    DbgAssert(!(((ULONG) Buffer) & QueryAlignmentMask()));
+    DebugAssert(!(((ULONG) Buffer) & QueryAlignmentMask()));
 
     sector_size = QuerySectorSize();
     endofrange = StartingSector + NumberOfSectors;
@@ -1527,7 +1597,7 @@ Return Value:
 
         if (secptr + increment > endofrange) {
             tmp = endofrange - secptr;
-            DbgAssert(tmp.GetHighPart() == 0);
+            DebugAssert(tmp.GetHighPart() == 0);
             buffer_size = sector_size*tmp.GetLowPart();
         } else {
             buffer_size = sector_size*increment;
@@ -1568,6 +1638,9 @@ Routine Description:
     This routine writes a run of sectors onto the disk from the buffer pointed
     to by 'Buffer'.  Writing is only permitted if 'Lock' was called.
 
+    MJB: After writing each chunk, we read it back to make sure the write
+    really succeeded.
+
 Arguments:
 
     StartingSector      - Supplies the first sector to be written.
@@ -1588,11 +1661,20 @@ Return Value:
     BIG_INT         endofrange;
     SECTORCOUNT     increment;
     PCHAR           bufptr;
+    PCHAR           scratch_ptr;
     BIG_INT         byte_offset;
     BIG_INT         tmp;
     LARGE_INTEGER   l;
 
-    DbgAssert(!(((ULONG) Buffer) & QueryAlignmentMask()));
+    DebugAssert(!(((ULONG) Buffer) & QueryAlignmentMask()));
+
+    if (! ULONG((ScratchIoBuf)) & QueryAlignmentMask()) {
+        scratch_ptr = ScratchIoBuf;
+    } else {
+        scratch_ptr = (PCHAR)((ULONG) ((PCHAR)ScratchIoBuf +
+            QueryAlignmentMask()) & (~QueryAlignmentMask()));
+    }
+    DebugAssert(!(((ULONG) scratch_ptr) & QueryAlignmentMask()));
 
     sector_size = QuerySectorSize();
     endofrange = StartingSector + NumberOfSectors;
@@ -1605,7 +1687,7 @@ Return Value:
 
         if (secptr + increment > endofrange) {
             tmp = endofrange - secptr;
-            DbgAssert(tmp.GetHighPart() == 0);
+            DebugAssert(tmp.GetHighPart() == 0);
             buffer_size = sector_size*tmp.GetLowPart();
         } else {
             buffer_size = sector_size*increment;
@@ -1623,6 +1705,20 @@ Return Value:
         }
 
         if (NT_ERROR(_last_status) || status_block.Information != buffer_size) {
+
+            return FALSE;
+        }
+
+        DebugAssert(buffer_size <= MaxIoSize);
+
+        _last_status = NtReadFile(_handle, 0, NULL, NULL, &status_block,
+                                  scratch_ptr, buffer_size, &l, NULL);
+
+        if (NT_ERROR(_last_status) || status_block.Information != buffer_size) {
+            return FALSE;
+        }
+
+        if (0 != memcmp(scratch_ptr, bufptr, buffer_size)) {
             return FALSE;
         }
 
@@ -1633,6 +1729,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IO_DP_DRIVE::Verify(
     IN  BIG_INT StartingSector,
@@ -1661,9 +1758,9 @@ Return Value:
     BIG_INT             starting_offset;
     BIG_INT             verify_size;
 
-    DbgAssert(QuerySectorSize());
+    DebugAssert(QuerySectorSize());
 
-    if (IsFloppy()) {
+    if (IsFloppy() || !_is_exclusive_write) {
         return VerifyWithRead(StartingSector, NumberOfSectors);
     }
 
@@ -1673,7 +1770,7 @@ Return Value:
     verify_info.StartingOffset = starting_offset.GetLargeInteger();
 
     // Note: norbertk Verify IOCTL is destined to go to a BIG_INT length.
-    DbgAssert(verify_size.GetHighPart() == 0);
+    DebugAssert(verify_size.GetHighPart() == 0);
     verify_info.Length = verify_size.GetLowPart();
 
     _last_status = NtDeviceIoControlFile(_handle, 0, NULL, NULL,
@@ -1686,6 +1783,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 IO_DP_DRIVE::Verify(
     IN      BIG_INT         StartingSector,
@@ -2004,9 +2102,9 @@ Return Value:
                                     NULL, 0, NULL, 0)) ) {
 
         return FALSE;
-	}
+        }
 
-	return TRUE;
+        return TRUE;
 }
 
 
@@ -2101,14 +2199,14 @@ Return Value:
     }
     sec_per_cyl = sec_per_track*QueryHeads();
 
-    DbgAssert(QueryCylinders().GetHighPart() == 0);
+    DebugAssert(QueryCylinders().GetHighPart() == 0);
     cyl = QueryCylinders().GetLowPart();
     num_bad = QueryHeads();
     if (num_bad == 0 || cyl == 0) {
         return FALSE;
     }
 
-	if (!(bad = NEW BAD_TRACK_NUMBER[num_bad])) {
+        if (!(bad = NEW BAD_TRACK_NUMBER[num_bad])) {
         Message ? Message->Set(MSG_FMT_NO_MEMORY) : 1;
         Message ? Message->Display("") : 1;
         return FALSE;
@@ -2251,8 +2349,10 @@ Return Value:
 }
 
 
-DEFINE_CONSTRUCTOR( LOG_IO_DP_DRIVE, IO_DP_DRIVE );
+DEFINE_EXPORTED_CONSTRUCTOR( LOG_IO_DP_DRIVE, IO_DP_DRIVE, IFSUTIL_EXPORT );
 
+
+IFSUTIL_EXPORT
 LOG_IO_DP_DRIVE::~LOG_IO_DP_DRIVE(
     )
 /*++
@@ -2274,11 +2374,12 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 LOG_IO_DP_DRIVE::Initialize(
-    IN      PCWSTRING    NtDriveName,
-    IN OUT  PMESSAGE            Message,
-    IN      BOOLEAN             ExclusiveWrite
+    IN      PCWSTRING   NtDriveName,
+    IN OUT  PMESSAGE    Message,
+    IN      BOOLEAN     ExclusiveWrite
     )
 /*++
 
@@ -2300,9 +2401,10 @@ Return Value:
 
 --*/
 {
-	return IO_DP_DRIVE::Initialize(NtDriveName, Message, ExclusiveWrite);
+        return IO_DP_DRIVE::Initialize(NtDriveName, Message, ExclusiveWrite);
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 LOG_IO_DP_DRIVE::Initialize(
     IN      PCWSTRING   NtDriveName,
@@ -2340,6 +2442,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 LOG_IO_DP_DRIVE::SetSystemId(
     IN  PARTITION_SYSTEM_ID   SystemId
@@ -2365,25 +2468,24 @@ Return Value:
     IO_STATUS_BLOCK             status_block;
     SET_PARTITION_INFORMATION   partition_info;
 
-    // this operation is unnecessary on floppies and hosted volumes.
     //
-    if (IsFloppy()) {
+    // This operation is unnecessary on floppies, super-floppies, and
+    // hosted volumes.
+    //
+
+    if (IsFloppy() || IsSuperFloppy() || _hosted_drive) {
         return TRUE;
     }
 
-    if (_hosted_drive) {
-        return TRUE;
-    }
-
-	if( SystemId == SYSID_NONE ) {
+    if( SystemId == SYSID_NONE ) {
 
         // Note: billmc -- we should never set it to zero!
 
-		DbgPrint( "Skip setting the partition type to zero.\n" );
-		return TRUE;
-	}
+        DebugPrint( "Skip setting the partition type to zero.\n" );
+        return TRUE;
+    }
 
-	partition_info.PartitionType = (UCHAR) SystemId;
+    partition_info.PartitionType = (UCHAR)SystemId;
 
     _last_status = NtDeviceIoControlFile(_handle, 0, NULL, NULL,
                                          &status_block,
@@ -2422,9 +2524,9 @@ Return Value:
 
 BOOLEAN
 PHYS_IO_DP_DRIVE::Initialize(
-    IN      PCWSTRING    NtDriveName,
-    IN OUT  PMESSAGE            Message,
-    IN      BOOLEAN             ExclusiveWrite
+    IN      PCWSTRING   NtDriveName,
+    IN OUT  PMESSAGE    Message,
+    IN      BOOLEAN     ExclusiveWrite
     )
 /*++
 

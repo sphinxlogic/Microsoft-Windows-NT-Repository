@@ -146,6 +146,8 @@ Return Value:
     pFileContext = irpStack->FileObject->FsContext;
     command = irpStack->Parameters.DeviceIoControl.IoControlCode;
 
+    IoReleaseCancelSpinLock(Irp->CancelIrql);
+
     ACQUIRE_DRIVER_LOCK();
 
     ENTER_DLC(pFileContext);
@@ -185,11 +187,6 @@ Return Value:
 
     RELEASE_DRIVER_LOCK();
 
-    //
-    // Io Subsystem mugged this before calling us. We must make reparations
-    //
-
-    IoReleaseCancelSpinLock(Irp->CancelIrql);
 }
 
 
@@ -277,7 +274,10 @@ Return Value:
                              NULL,  // pointer for pNext field
                              TRUE   // called on cancel path
                              );
-        DeallocatePacket(pFileContext->hPacketPool, pCmdPacket);
+
+        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pCmdPacket);
+
+        DereferenceFileContext(pFileContext);
     } else {
 
         //
@@ -307,6 +307,29 @@ Routine Description:
     received from the remote station. U-Frame transmissions don't get retried
     so will normally complete virtually immediately
 
+	This routine currently does nothing in the retail version, and just
+	complains about things in the debug version.
+
+	Cancel transmit is not defined in the IBM LAN Reference, nor is it
+	defined for NT DLC.  This is only called by the IO subsystem when
+	somebody terminates a thread or process with outstanding IO requests
+	that include a DLC transmit request.
+
+	For application termination, this is not really a problem since eventually
+	the termination process will close the application's FileContext(s) and
+	all SAPs, link stations, etc. belonging to the application will get closed
+	down anyway.
+
+	For thread termination, it is a real problem if an application abandons
+	a transmit (usually Transmit I-Frame) by closing the thread that
+	requested the transmit.  DLC has no defined course of action to toss
+	the transmit, without changing the associated link station state.  This
+	happened with hpmon.dll when the remote station (printer) got jammed
+	and sent Receiver Not Ready in response to attempts to give it the
+	frame.  When something like this happens, it is up to the application
+	to reset or close the link station, or wait, and not rely on thread
+	termination to do the right thing here (because it won't).
+
 Arguments:
 
     Irp             - pointer to IRP to cancel
@@ -323,31 +346,31 @@ Return Value:
     PNT_DLC_CCB pCcb;
 
 #if DBG
-    if (DebugCancel) {
-        DbgPrint("CancelTransmitIrp\n");
-    }
-#endif
 
     irpStack = IoGetCurrentIrpStackLocation(Irp);
     pCcb = &((PNT_DLC_PARMS)Irp->AssociatedIrp.SystemBuffer)->Async.Ccb;
-    if (pCcb->uchDlcCommand == LLC_TRANSMIT_I_FRAME) {
-    } else {
 
-#if DBG
-        DbgPrint("DLC.CancelTransmitIrp: Not cancelling %s CCB %08X\n",
-                 pCcb->uchDlcCommand == LLC_TRANSMIT_FRAMES ? "TRANSMIT_FRAMES"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_DIR_FRAME ? "TRANSMIT_DIR_FRAME"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_UI_FRAME ? "TRANSMIT_UI_FRAME"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_CMD ? "TRANSMIT_XID_CMD"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_RESP_FINAL ? "TRANSMIT_XID_RESP_FINAL"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_RESP_NOT_FINAL ? "TRANSMIT_XID_RESP_NOT_FINAL"
-                 : pCcb->uchDlcCommand == LLC_TRANSMIT_TEST_CMD ? "TRANSMIT_TEST_CMD"
-                 : "UNKNOWN TRANSMIT COMMAND!",
-                 pCcb
-                 );
 #endif
 
-    }
+#if DBG
+
+    DbgPrint("DLC.CancelTransmitIrp: Cancel %s not supported! CCB %08X\n",
+             pCcb->uchDlcCommand == LLC_TRANSMIT_FRAMES ? "TRANSMIT_FRAMES"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_DIR_FRAME ? "TRANSMIT_DIR_FRAME"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_UI_FRAME ? "TRANSMIT_UI_FRAME"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_CMD ? "TRANSMIT_XID_CMD"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_RESP_FINAL ? "TRANSMIT_XID_RESP_FINAL"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_XID_RESP_NOT_FINAL ? "TRANSMIT_XID_RESP_NOT_FINAL"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_TEST_CMD ? "TRANSMIT_TEST_CMD"
+             : pCcb->uchDlcCommand == LLC_TRANSMIT_I_FRAME ? "TRANSMIT_I_FRAME"
+             : "UNKNOWN TRANSMIT COMMAND!",
+             pCcb
+             );
+
+	ASSERT ( pCcb->uchDlcCommand != LLC_TRANSMIT_I_FRAME );
+
+#endif
+
 }
 
 #if DBG

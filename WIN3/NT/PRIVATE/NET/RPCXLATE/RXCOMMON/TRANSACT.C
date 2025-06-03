@@ -70,7 +70,7 @@ Revision History:
 #include <apiworke.h>           // REM_APITXT, APIEXTR.
 #include <lmerr.h>              // NERR_ and ERROR_ equates.
 #include <names.h>              // NetpIsComputerNameValid().
-#include <netdebug.h>   // NetpAssert(), NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpAssert(), NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpMoveMemory(), etc.
 #include <ntddnfs.h>            // TRANSACTION_REQUEST, etc.
 #include <prefix.h>     // PREFIX_ equates.
@@ -185,31 +185,31 @@ Return Value:
 //
 
     IF_DEBUG(TRANSACT) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: entered, servername='"
-                FORMAT_LPTSTR "'...\n", UncServerName);
-        NetpDbgPrint( PREFIX_NETAPI
+                FORMAT_LPTSTR "'...\n", UncServerName));
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: SendParm at " FORMAT_LPVOID
                 ", len=" FORMAT_DWORD " (partial):\n",
-                (LPVOID) SendParmPtr, SendParmLen);
+                (LPVOID) SendParmPtr, SendParmLen));
         if (SendParmPtr != NULL) {
             NetpDbgHexDump(SendParmPtr, NetpDbgReasonable(SendParmLen));
         }
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: SendData at " FORMAT_LPVOID
                 ", len=" FORMAT_DWORD " (partial):\n",
-                (LPVOID) SendDataPtr, SendDataLen);
+                (LPVOID) SendDataPtr, SendDataLen));
         if (SendDataPtr != NULL) {
             NetpDbgHexDump(SendDataPtr, NetpDbgReasonable(SendDataLen));
         }
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: RetParmPtr at " FORMAT_LPVOID
-                ", len=" FORMAT_DWORD ".\n", (LPVOID) RetParmPtr, RetParmLen);
+                ", len=" FORMAT_DWORD ".\n", (LPVOID) RetParmPtr, RetParmLen));
 
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: (old) RetData at " FORMAT_LPVOID ", "
                 "len=" FORMAT_DWORD " (partial):\n",
-                (LPVOID) RetDataPtr, InputRetDataLen);
+                (LPVOID) RetDataPtr, InputRetDataLen));
         if (RetDataPtr != NULL) {
             NetpDbgHexDump(RetDataPtr, NetpDbgReasonable(InputRetDataLen));
         }
@@ -233,9 +233,9 @@ Return Value:
     }
 
     IF_DEBUG(TRANSACT) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: pipe name is '" FORMAT_LPWSTR
-                "'.\n", REM_APITXT);
+                "'.\n", REM_APITXT));
     }
 
 #ifndef CDEBUG
@@ -265,9 +265,9 @@ Return Value:
     (void) STRCPY(TreeConnName, UncServerName);           // copy "\\server",
     (void) STRCAT(TreeConnName, (LPTSTR) TEXT("\\IPC$")); // then "\share".
     IF_DEBUG(TRANSACT) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: TreeConnName is '" FORMAT_LPTSTR
-                "'.\n", TreeConnName);
+                "'.\n", TreeConnName));
     }
 
     // BUGBUG: Should we check tree connect name here?   We shouldn't
@@ -282,10 +282,10 @@ Return Value:
         return (ERROR_NOT_ENOUGH_MEMORY);
     }
     IF_DEBUG(TRANSACT) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: allocated " FORMAT_DWORD
                 " bytes for fsctl parms at "
-                FORMAT_LPVOID ".\n", FsctlParmSize, (LPVOID) FsctlParms);
+                FORMAT_LPVOID ".\n", FsctlParmSize, (LPVOID) FsctlParms));
     }
 
     FsctlParms->Type = TRANSACTION_REQUEST;
@@ -337,9 +337,9 @@ Return Value:
     }
     if (RxpFatalErrorCode(Status)) {
         IF_DEBUG(TRANSACT) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxpTransactSmb: returning fatal status="
-                    FORMAT_API_STATUS ".\n", Status);
+                    FORMAT_API_STATUS ".\n", Status));
         }
         NetpMemoryFree(FsctlParms);
         NetpMemoryFree(TreeConnName);
@@ -366,9 +366,9 @@ Return Value:
 
         ApiNumber = (DWORD) SmbGetUshort((LPWORD) SendParmPtr);
         IF_DEBUG(TRANSACT) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                     "RxpTransactSmb: pretending success for API "
-                    FORMAT_DWORD ".\n", ApiNumber);
+                    FORMAT_DWORD ".\n", ApiNumber));
         }
         SmbPutUshort((LPWORD) RetParmPtr, (WORD) NERR_Success);
 
@@ -427,20 +427,20 @@ Return Value:
     Status = (DWORD) SmbGetUshort((LPWORD) RetParmPtr);
 
     IF_DEBUG(TRANSACT) {
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: returning status="
-                FORMAT_API_STATUS ".\n", Status);
-        NetpDbgPrint( PREFIX_NETAPI
+                FORMAT_API_STATUS ".\n", Status));
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: RetParm at " FORMAT_LPVOID
                 ", len=" FORMAT_DWORD " (partial):\n",
-                (LPVOID) RetParmPtr, RetParmLen);
+                (LPVOID) RetParmPtr, RetParmLen));
         if (RetParmPtr != NULL) {
             NetpDbgHexDump(RetParmPtr, NetpDbgReasonable(RetParmLen));
         }
-        NetpDbgPrint( PREFIX_NETAPI
+        NetpKdPrint(( PREFIX_NETAPI
                 "RxpTransactSmb: (new) RetData at " FORMAT_LPVOID ", "
                 "len=" FORMAT_DWORD " (partial):\n",
-                (LPVOID) RetDataPtr, InputRetDataLen);
+                (LPVOID) RetDataPtr, InputRetDataLen));
         if (RetDataPtr != NULL) {
             NetpDbgHexDump(RetDataPtr, NetpDbgReasonable(InputRetDataLen));
         }

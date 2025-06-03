@@ -90,6 +90,8 @@ typedef enum
 // Bit definitions for CMD_REG_2.
 //
 
+#define SCLK_INV        0x40	  // Bt489 - invert SCLK if in forbidden region
+#define SCLK_NORM       ~SCLK_INV
 #define PORTSEL_MSKD    0x20
 #define PCLK1_SEL       0x10
 #define PCLK0_SEL       ~PCLK1_SEL
@@ -104,7 +106,19 @@ typedef enum
 #define CUR_MODE_64 0x04
 #define CUR_MODE_32 ~CUR_MODE_64
 #define DAC_CLK_2X  0x08
+#define DAC_CLK_2X_489  0x80      // per os2 driver code - undocumented for Bt489
 #define CUR_REG_IND_MSK ~0x03
+
+//
+// Bit definitions for CMD_REG_4 on Bt489.
+//
+
+#define MUX_485_COMPAT   (0x00<<4)   // 485 compatible value - set at reset
+#define CR4_MUX_81       (0x02<<4)	 // 489 8:1 mux mode (8  bpp)
+#define CR4_MUX_41       (0x03<<4)	 // 489 4:1 mux mode (16 bpp)
+#define CR4_MUX_21       (0x04<<4)	 // 489 2:1 mux mode (32 bpp)
+#define CR4_MUX_24BPP    (0x07<<4)	 // 489 24 bpp mux mode (24 bpp)
+#define CR4_MUX_BITS     (0x07<<4)
 
 //
 // Bit definitions for PAL_WR_ADDR to enable CMD_REG_3.
@@ -114,31 +128,53 @@ typedef enum
 #define CMD_REG_3_DIS 0x00
 
 //
+// Bit definitions for PAL_WR_ADDR to enable CMD_REG_4 on Bt489.
+//
+
+#define CMD_REG_4_ENB 0x02
+#define CMD_REG_4_DIS 0x00
+
+//
 // Max clock frequency supported w/o clock doubling.
 //
 //
 
 #define CLK_MAX_FREQ        6750
+#define CLK489_MAX_FREQ     8500
 
 //
 // General purpose macros for accessing the DAC registers.
 //
 
-#define WR_DAC(addr, data) \
-   VideoPortWritePortUchar((PUCHAR) addr, (data))
-
-#define RD_DAC(addr) \
-   VideoPortReadPortUchar((PUCHAR) addr)
 
 //
 // Macros for accessing the palette registers.
 //
 
+extern VOID
+WriteDAC(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    ULONG ulIndex,
+    UCHAR ucValue
+    );
+
+extern UCHAR
+ReadDAC(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    ULONG ulIndex
+    );
+
+#define RD_DAC(addr) \
+   ReadDAC(HwDeviceExtension, (ULONG) addr)
+
+#define WR_DAC(addr, data) \
+   WriteDAC(HwDeviceExtension, (ULONG) addr, (UCHAR) (data))
+
 #define PAL_WR_ADDR(data) \
-   WR_DAC(PAL_WR_ADDR_REG, (data))
+   WriteDAC(HwDeviceExtension, PAL_WR_ADDR_REG, (data))
 
 #define PAL_WR_DATA(data) \
-   WR_DAC(PAL_DATA_REG, (data))
+   WriteDAC(HwDeviceExtension, PAL_DATA_REG, (data))
 
 //
 // Macros for accessing the command register 3.
@@ -155,6 +191,22 @@ typedef enum
     PAL_WR_ADDR(CMD_REG_3_ENB); \
     data = RD_DAC(CMD_REG_3); \
     PAL_WR_ADDR(CMD_REG_3_DIS)
+
+//
+// Macros for accessing the command register 4 on Bt489 DAC.
+//
+
+#define WR_CMD_REG_4(data) \
+    WR_DAC(CMD_REG_0, RD_DAC(CMD_REG_0) | ENB_CMD_REG_3); \
+    PAL_WR_ADDR(CMD_REG_4_ENB); \
+    WR_DAC(CMD_REG_3, (data)); \
+    PAL_WR_ADDR(CMD_REG_4_DIS)
+
+#define RD_CMD_REG_4(data) \
+    WR_DAC(CMD_REG_0, RD_DAC(CMD_REG_0) | ENB_CMD_REG_3); \
+    PAL_WR_ADDR(CMD_REG_4_ENB); \
+    data = RD_DAC(CMD_REG_3); \
+    PAL_WR_ADDR(CMD_REG_4_DIS)
 
 //
 // Macros for accessing the hardware cursor registers.
@@ -245,13 +297,66 @@ Bt485ClrClkDoubler(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
-/*++
 
-Revision History:
+//
+// Function Prototypes for the Bt489 DAC which are defined in P91BT489.C.
+//
+//
+// Bt489 function prototypes.
+//
 
-    $Log:   N:/ntdrv.vcs/miniport.new/bt485.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:44   robk
- * Initial revision.
+VOID
+Bt489SetPalette(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    ULONG *pPal,
+    ULONG StartIndex,
+    ULONG Count
+    );
 
---*/
+VOID
+Bt489SetPointerPos(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    ULONG   ptlX,
+    ULONG   ptlY
+    );
+
+VOID
+Bt489SetPointerShape(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR  pHWCursorShape
+    );
+
+VOID
+Bt489PointerOn(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+Bt489PointerOff(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+Bt489ClearPalette(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+BOOLEAN
+Bt489SetMode(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+Bt489RestoreMode(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+Bt489SetClkDoubler(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+VOID
+Bt489ClrClkDoubler(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );

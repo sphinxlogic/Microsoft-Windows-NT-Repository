@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -20,6 +20,10 @@ Revision History:
     --------    --------    ----------------------------------------------
     t-kinh      8/25/92     Created.
     vladimv     1992        Big reorgs.  Make it look like a real service.
+	ericb		8-23-94		fix bug 23704 - assert shutdown serial line longer
+	ericb		8-24-95		fix bugs 14506, 16195 - improperly closing handles
+	ericb		9/19/95		fix bug 1262 - end message thread gracefully
+    ericb       10/25/95    fix bug 8133 - make shutdown wait configurable
 
 
 Notes:
@@ -91,7 +95,7 @@ HANDLE                  UpsGlobalMessageThread;
 HANDLE                  UpsGlobalMainThread;
 HANDLE                  UpsGlobalLogFileHandle;
 HANDLE                  UpsGlobalMessageFileHandle;
-
+HANDLE                  g_hMessageDone = NULL;
 
 
 VOID _CRTAPI1
@@ -179,7 +183,7 @@ Return value:
             case UPS_POWERFAILSIGNAL: 
     
                 if ( UpsLineAsserted( ModemStatus, LINE_FAIL)) {
-                    if ( UpsGlobalBatteryTime.StoredTime > CRITICAL_TIME) {
+                    if ( UpsGlobalBatteryTime.StoredTime > (time_t)UpsGlobalConfig.ShutdownWait) {
                         ForkMessage = TRUE; // enough time to send a warning message
                     } else {
                         //
@@ -267,15 +271,15 @@ Return value:
             DWORD               WaitTime;
             BOOL                PowerBack = FALSE;
     
-            //  Battery time is taken into account only if the configuration
+			//  Battery time is taken into account only if the configuration
             //  is UPS_POWERFAILSIGNAL.  Also, in this case we wait only if
-            //  battery time is larger than CRITICAL_TIME.
+            //  battery time is larger than UpsGlobalConfig.ShutdownWait.
 
             if ( UpsGlobalActiveSignals != UPS_POWERFAILSIGNAL  ||
-                    UpsGlobalBatteryTime.StoredTime > CRITICAL_TIME) {
+                    UpsGlobalBatteryTime.StoredTime > (time_t)UpsGlobalConfig.ShutdownWait) {
     
                 WaitTime = (UpsGlobalActiveSignals != UPS_POWERFAILSIGNAL) ? INFINITE :
-                            ((UpsGlobalBatteryTime.StoredTime-CRITICAL_TIME) * 1000);
+                            ((UpsGlobalBatteryTime.StoredTime-UpsGlobalConfig.ShutdownWait) * 1000);
 
                 WaitCommEvent( UpsGlobalCommPort, &ModemStatus, &UpsGlobalOverlap);
                 status = WaitForMultipleObjects( 2, event, FALSE, WaitTime);
@@ -325,9 +329,26 @@ Return value:
             if ( PowerBack == TRUE) {
         
                 UpsUpdateTime( DISCHARGE);
-                TerminateThread( UpsGlobalMessageThread,0);
-                CloseHandle( UpsGlobalMessageThread);
-                UpsGlobalMessageThread=NULL;
+				if (!SetEvent(g_hMessageDone))
+				{
+					KdPrint(("[UPS] Error setting Message Done Event: %d\n", GetLastError()));
+					ASSERT( FALSE);
+                }
+                //
+                // note: the INFINITE wait time relies on the fact that the
+                // message thread will exit "quickly." If the message thread
+                // is changed to block on some event in addition to
+                // g_hMessageDone, then the wait time should be set to some
+                // non-INFINITE value to avoid deadlock.
+                //
+				status = WaitForSingleObject(UpsGlobalMessageThread, INFINITE);
+				if (status != WAIT_OBJECT_0)
+				{
+					KdPrint(("[UPS] Error waiting for Message thread exit Event: %d\n", status));
+					ASSERT( FALSE);
+				}
+                CloseHandle(UpsGlobalMessageThread);
+                UpsGlobalMessageThread = NULL;
       
                 //  FirstMessageSent is TRUE (set by the sent message thread)
                 //  if the first message has ever been sent to the users on
@@ -731,7 +752,14 @@ UpsInitialize(
     if ( UpsGlobalOverlap.hEvent == NULL) {
         UpsHandleError( UpsErrorCreateEvent, GetLastError(), NO_ERROR);
     }
-  
+
+	g_hMessageDone = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+	if (g_hMessageDone == NULL)
+	{
+        UpsHandleError(UpsErrorCreateEvent, GetLastError(), NO_ERROR);
+    }
+
     UpsGlobalBatteryTime.MarkTime   = time((time_t *)NULL);
     UpsGlobalBatteryTime.StoredTime = (time_t)0;
 
@@ -920,6 +948,7 @@ UpsInitialize(
     if ((status = UpsUpdateStatus()) != NO_ERROR) {
         UpsHandleError( UpsErrorNotifyServiceController, status, NO_ERROR);
     }
+    KdPrint(("[UPS] Init completed successfully, waiting for comm port events.\n"));
 }
 
 
@@ -941,7 +970,13 @@ Routine Description
 
 --*/
 {
-    Sleep( (UpsGlobalConfig.FirstMessageDelay) * 1000);
+	DWORD dwRet;
+	dwRet = WaitForSingleObject(g_hMessageDone,
+								UpsGlobalConfig.FirstMessageDelay * 1000);
+	if (dwRet == WAIT_OBJECT_0)
+	{
+		ExitThread(0);
+	}
 
     *pFirstMessageSent = TRUE;
 
@@ -953,7 +988,12 @@ Routine Description
             UpsGlobalConfig.ComputerName,
             L""
             );
-        Sleep( ( UpsGlobalConfig.MessageInterval) * 1000);
+		dwRet = WaitForSingleObject(g_hMessageDone,
+									UpsGlobalConfig.MessageInterval * 1000);
+		if (dwRet == WAIT_OBJECT_0)
+		{
+			ExitThread(0);
+		}
     }
 }
 
@@ -964,14 +1004,18 @@ UpsShutdown(
     DWORD           status
     )
 {
-
     if ( status != NO_ERROR  &&  UpsGlobalLogFileHandle != NULL) {
         UpsReportEvent( status, NULL, ERROR_SUCCESS);
     }
 
-    if ( UpsGlobalMessageThread != NULL) {
-        TerminateThread( UpsGlobalMessageThread, NO_ERROR);
-        CloseHandle( UpsGlobalMessageThread);
+    if (UpsGlobalMessageThread != NULL)
+    {
+		if (!SetEvent(g_hMessageDone))
+		{
+			KdPrint(("[UPS] Error setting Message Done Event: %d\n", GetLastError()));
+		}
+		WaitForSingleObject(UpsGlobalMessageThread, INFINITE);
+        CloseHandle(UpsGlobalMessageThread);
     }
 
     if ( UpsGlobalDoneEvent != NULL) {
@@ -982,16 +1026,23 @@ UpsShutdown(
         CloseHandle( UpsGlobalOverlap.hEvent);
     }
 
+	if (g_hMessageDone != NULL)
+	{
+		CloseHandle(g_hMessageDone);
+	}
+
     if ( UpsGlobalCommPort != NULL) {
         CloseHandle( UpsGlobalCommPort);
     }
 
-    if ( UpsGlobalMessageFileHandle != NULL) {
-        CloseHandle( UpsGlobalMessageFileHandle);
+    if (UpsGlobalMessageFileHandle != NULL)
+    {
+        FreeLibrary(UpsGlobalMessageFileHandle);
     }
 
-    if ( UpsGlobalLogFileHandle != NULL) {
-        CloseHandle( UpsGlobalLogFileHandle);
+    if (UpsGlobalLogFileHandle != NULL)
+    {
+        DeregisterEventSource(UpsGlobalLogFileHandle);
     }
 
     // We are done with cleaning up.  Tell Service Controller that we are
@@ -1029,7 +1080,7 @@ Routine Description:
     The UPS service terminates if the ExitWindosEx() call fails.
 
     It is assumed that when we enter this routine we have at least
-    CRITICAL_TIME seconds before UPS battery gives up on us.
+    UpsGlobalConfig.ShutdownWait seconds before UPS battery gives up on us.
 
 Arguments:
 
@@ -1063,8 +1114,13 @@ Notes:
     SetServiceStatus(UpsGlobalServiceStatusHandle, &UpsGlobalServiceStatus);
 
     // kill message thread if started
-    if (UpsGlobalMessageThread != NULL) {
-        TerminateThread(UpsGlobalMessageThread,0);
+    if (UpsGlobalMessageThread != NULL)
+    {
+		if (!SetEvent(g_hMessageDone))
+		{
+			KdPrint(("[UPS] Error setting Message Done Event: %d\n", GetLastError()));
+		}
+		WaitForSingleObject(UpsGlobalMessageThread, INFINITE);
         CloseHandle(UpsGlobalMessageThread);
         UpsGlobalMessageThread = NULL;
     }
@@ -1121,10 +1177,10 @@ Notes:
 
         KdPrint(("[UPS] SystemShutdown: EndTickCount=0x%x\n", EndTickCount));
 
-        if ( CRITICAL_TIME * 1000 > TickCount) {
+        if (UpsGlobalConfig.ShutdownWait * 1000 > TickCount) {
             KdPrint(("[UPS] SystemShutdown: sleep for (dec)%d milliseconds\n", 
-                CRITICAL_TIME * 1000 - TickCount));
-            Sleep( CRITICAL_TIME * 1000 - TickCount);
+                UpsGlobalConfig.ShutdownWait * 1000 - TickCount));
+            Sleep( UpsGlobalConfig.ShutdownWait * 1000 - TickCount);
         }
 
         KdPrint(("[UPS] SystemShutdown: no timely callback.  "
@@ -1140,6 +1196,9 @@ Notes:
             KdPrint(("[UPS] SystemShutdown: DTR error, %d\n", error));
             UpsHandleError( UpsErrorSystemShutdown, NERR_UPSShutdownFailed, error);
         } else {
+            Sleep(10000);   // wait more than 4.5 secs before exiting so that
+                            // the serial line remains asserted long enough for
+                            // the UPS to act on it.
             UpsHandleError( UpsErrorSystemShutdown, NERR_UPSShutdownFailed, NO_ERROR);
         }
     } else {
@@ -1198,6 +1257,7 @@ Return Value:
         KdPrint(("[UPS] TurnOff: DTR error, %d\n", GetLastError()));
         return( FALSE); //  signal not processed completely
     }
+    Sleep(10000);   // wait more than 4.5 secs before exiting
 
     //  Turning the power of is not instantenous, it takes a second or so.
     //  Thus we may actually succeed in printing the log below!
@@ -1241,5 +1301,3 @@ Return Value:
 
     return( NO_ERROR);
 }
-
-

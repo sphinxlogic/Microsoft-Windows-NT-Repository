@@ -322,6 +322,39 @@ typedef struct _GLDISPATCHTABLE {
     void      (APIENTRY *glTranslated             )( GLdouble x, GLdouble y, GLdouble z );
     void      (APIENTRY *glTranslatef             )( GLfloat x, GLfloat y, GLfloat z );
     void      (APIENTRY *glViewport               )( GLint x, GLint y, GLsizei width, GLsizei height );
+    // OpenGL version 1.0 entries end here
+
+    // OpenGL version 1.1 entries begin here
+    void      (APIENTRY *glArrayElement           )(GLint i);
+    void      (APIENTRY *glBindTexture            )(GLenum target, GLuint texture);
+    void      (APIENTRY *glColorPointer           )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glDisableClientState     )(GLenum array);
+    void      (APIENTRY *glDrawArrays             )(GLenum mode, GLint first, GLsizei count);
+    void      (APIENTRY *glDrawElements           )(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
+    void      (APIENTRY *glEdgeFlagPointer        )(GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glEnableClientState      )(GLenum array);
+    void      (APIENTRY *glIndexPointer           )(GLenum type, GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glIndexub                )(GLubyte c);
+    void      (APIENTRY *glIndexubv               )(const GLubyte *c);
+    void      (APIENTRY *glInterleavedArrays      )(GLenum format, GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glNormalPointer          )(GLenum type, GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glPolygonOffset          )(GLfloat factor, GLfloat units);
+    void      (APIENTRY *glTexCoordPointer        )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+    void      (APIENTRY *glVertexPointer          )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+    GLboolean (APIENTRY *glAreTexturesResident    )(GLsizei n, const GLuint *textures, GLboolean *residences);
+    void      (APIENTRY *glCopyTexImage1D         )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLint border);
+    void      (APIENTRY *glCopyTexImage2D         )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border);
+    void      (APIENTRY *glCopyTexSubImage1D      )(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width);
+    void      (APIENTRY *glCopyTexSubImage2D      )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
+    void      (APIENTRY *glDeleteTextures         )(GLsizei n, const GLuint *textures);
+    void      (APIENTRY *glGenTextures            )(GLsizei n, GLuint *textures);
+    void      (APIENTRY *glGetPointerv            )(GLenum pname, GLvoid* *params);
+    GLboolean (APIENTRY *glIsTexture              )(GLuint texture);
+    void      (APIENTRY *glPrioritizeTextures     )(GLsizei n, const GLuint *textures, const GLclampf *priorities);
+    void      (APIENTRY *glTexSubImage1D          )(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels);
+    void      (APIENTRY *glTexSubImage2D          )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+    void      (APIENTRY *glPopClientAttrib        )(void);
+    void      (APIENTRY *glPushClientAttrib       )(GLbitfield mask);
 } GLDISPATCHTABLE, *PGLDISPATCHTABLE;
 
 // OpenGL Client/Driver Procedure Table.
@@ -331,6 +364,10 @@ typedef struct _GLCLTPROCTABLE {
     GLDISPATCHTABLE glDispatchTable;    // OpenGL function dispatch table
 } GLCLTPROCTABLE, *PGLCLTPROCTABLE;
 
+// Number of entries expected for various versions of OpenGL
+#define OPENGL_VERSION_100_ENTRIES      306
+#define OPENGL_VERSION_110_ENTRIES      336
+
 // Driver GLRC handle.
 
 typedef ULONG DHGLRC;
@@ -339,15 +376,36 @@ typedef ULONG DHGLRC;
 
 typedef VOID (APIENTRY *PFN_SETPROCTABLE)(PGLCLTPROCTABLE);
 
+// DrvSetCallbackProcs prototypes
+typedef VOID   (APIENTRY *PFN_SETCURRENTVALUE)(VOID *pv);
+typedef VOID  *(APIENTRY *PFN_GETCURRENTVALUE)(VOID);
+typedef DHGLRC (APIENTRY *PFN_GETDHGLRC)(HGLRC hrc);
+
 // Driver context function prototypes.
 
+BOOL            APIENTRY DrvCopyContext(DHGLRC, DHGLRC, UINT);
 DHGLRC          APIENTRY DrvCreateContext(HDC);
+DHGLRC          APIENTRY DrvCreateLayerContext(HDC, int);
 BOOL            APIENTRY DrvDeleteContext(DHGLRC);
 PGLCLTPROCTABLE APIENTRY DrvSetContext(HDC,DHGLRC,PFN_SETPROCTABLE);
 BOOL            APIENTRY DrvReleaseContext(DHGLRC);
 BOOL            APIENTRY DrvValidateVersion(ULONG);
+BOOL		APIENTRY DrvShareLists(DHGLRC, DHGLRC);
+PROC            APIENTRY DrvGetProcAddress(LPCSTR);
+VOID            APIENTRY DrvSetCallbackProcs(INT, PROC *);
+BOOL            APIENTRY DrvDescribeLayerPlane(HDC, INT, INT, UINT,
+                                               LPLAYERPLANEDESCRIPTOR);
+INT             APIENTRY DrvSetLayerPaletteEntries(HDC, INT, INT, INT,
+                                                   CONST COLORREF *);
+INT             APIENTRY DrvGetLayerPaletteEntries(HDC, INT, INT, INT,
+                                                   COLORREF *);
+BOOL            APIENTRY DrvRealizeLayerPalette(HDC, INT, BOOL);
+BOOL            APIENTRY DrvSwapLayerBuffers(HDC, UINT);
 
 // Input structure for OPENGL_CMD ExtEscape.
+
+typedef struct _WNDOBJ WNDOBJ;
+typedef struct _XLATEOBJ XLATEOBJ;
 
 typedef struct _OPENGLCMD
 {

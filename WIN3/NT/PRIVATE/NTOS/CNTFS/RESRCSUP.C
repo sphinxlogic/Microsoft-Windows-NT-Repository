@@ -23,18 +23,27 @@ Revision History:
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsAcquireAllFiles)
 #pragma alloc_text(PAGE, NtfsAcquireExclusiveFcb)
+#pragma alloc_text(PAGE, NtfsAcquireExclusiveScb)
+#pragma alloc_text(PAGE, NtfsAcquireSharedScbForTransaction)
 #pragma alloc_text(PAGE, NtfsAcquireExclusiveGlobal)
-#pragma alloc_text(PAGE, NtfsAcquireExclusivePagingIo)
 #pragma alloc_text(PAGE, NtfsAcquireExclusiveVcb)
+#pragma alloc_text(PAGE, NtfsAcquireFcbWithPaging)
+#pragma alloc_text(PAGE, NtfsAcquireForCreateSection)
 #pragma alloc_text(PAGE, NtfsAcquireScbForLazyWrite)
 #pragma alloc_text(PAGE, NtfsAcquireSharedGlobal)
+#pragma alloc_text(PAGE, NtfsAcquireFileForCcFlush)
+#pragma alloc_text(PAGE, NtfsAcquireFileForModWrite)
 #pragma alloc_text(PAGE, NtfsAcquireSharedVcb)
 #pragma alloc_text(PAGE, NtfsAcquireVolumeFileForClose)
 #pragma alloc_text(PAGE, NtfsAcquireVolumeFileForLazyWrite)
 #pragma alloc_text(PAGE, NtfsAcquireVolumeForClose)
 #pragma alloc_text(PAGE, NtfsReleaseAllFiles)
+#pragma alloc_text(PAGE, NtfsReleaseFcbWithPaging)
+#pragma alloc_text(PAGE, NtfsReleaseFileForCcFlush)
+#pragma alloc_text(PAGE, NtfsReleaseForCreateSection)
 #pragma alloc_text(PAGE, NtfsReleaseScbFromLazyWrite)
-#pragma alloc_text(PAGE, NtfsReleaseVcb)
+#pragma alloc_text(PAGE, NtfsReleaseScbWithPaging)
+#pragma alloc_text(PAGE, NtfsReleaseSharedResources)
 #pragma alloc_text(PAGE, NtfsReleaseVolumeFileFromClose)
 #pragma alloc_text(PAGE, NtfsReleaseVolumeFileFromLazyWrite)
 #pragma alloc_text(PAGE, NtfsReleaseVolumeFromClose)
@@ -117,7 +126,8 @@ VOID
 NtfsAcquireAllFiles (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN BOOLEAN Exclusive
+    IN BOOLEAN Exclusive,
+    IN BOOLEAN AcquirePagingIo
     )
 
 /*++
@@ -134,6 +144,10 @@ Arguments:
         If FALSE then we acquire all the files shared except for files with
         streams which could be part of transactions.
 
+    AcquirePagingIo - Indicates if we need to acquire the paging io resource
+        exclusively.  Only needed if a future call will flush the volume
+        (i.e. shutdown)
+
 Return Value:
 
     None
@@ -144,6 +158,7 @@ Return Value:
     PFCB Fcb;
     PSCB *Scb;
     PSCB NextScb;
+    PVOID RestartKey;
 
     PAGED_CODE();
 
@@ -151,11 +166,11 @@ Return Value:
 
     NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
 
-    Fcb = NULL;
+    RestartKey = NULL;
     while (TRUE) {
 
         NtfsAcquireFcbTable( IrpContext, Vcb );
-        Fcb = NtfsGetNextFcbTableEntry(IrpContext, Vcb, Fcb);
+        Fcb = NtfsGetNextFcbTableEntry(Vcb, &RestartKey);
         NtfsReleaseFcbTable( IrpContext, Vcb );
 
         if (Fcb == NULL) {
@@ -170,8 +185,16 @@ Return Value:
         //  We delay acquiring those to avoid deadlocks.
         //
 
-        if (Fcb->FileReference.HighPart != 0
-            || Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER) {
+        if (NtfsSegmentNumber( &Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER) {
+
+            //
+            //  If there is a paging Io resource then acquire this if required.
+            //
+
+            if (AcquirePagingIo && (Fcb->PagingIoResource != NULL)) {
+
+                ExAcquireResourceExclusive( Fcb->PagingIoResource, TRUE );
+            }
 
             //
             //  Acquire this Fcb whether or not the underlying file has been deleted.
@@ -185,13 +208,22 @@ Return Value:
             } else {
 
                 //
+                //  Assume that we only need this file shared.  We will then
+                //  look for Lsn related streams.
+                //
+
+                NtfsAcquireSharedFcb( IrpContext, Fcb, NULL, TRUE );
+
+                //
                 //  Walk through all of the Scb's for the file and look for
                 //  an Lsn protected stream.
                 //
 
+                NtfsLockFcb( IrpContext, Fcb );
+
                 NextScb = NULL;
 
-                while (NextScb = NtfsGetNextChildScb( IrpContext, Fcb, NextScb )) {
+                while (NextScb = NtfsGetNextChildScb( Fcb, NextScb )) {
 
                     if (!(NextScb->AttributeTypeCode == $DATA ||
                           NextScb->AttributeTypeCode == $EA)) {
@@ -200,13 +232,17 @@ Return Value:
                     }
                 }
 
-                if (NextScb == NULL) {
+                NtfsUnlockFcb( IrpContext, Fcb );
 
+                //
+                //  If we found a protected Scb then release and reacquire the Fcb
+                //  exclusively.
+                //
+
+                if (NextScb != NULL) {
+
+                    NtfsReleaseFcb( IrpContext, Fcb );
                     NtfsAcquireExclusiveFcb( IrpContext, Fcb, NULL, TRUE, FALSE );
-
-                } else {
-
-                    NtfsAcquireSharedFcb( IrpContext, Fcb, NULL, TRUE );
                 }
             }
         }
@@ -222,6 +258,11 @@ Return Value:
 
         if ((*Scb != NULL)
             && (*Scb != Vcb->BitmapScb)) {
+
+            if (AcquirePagingIo && ((*Scb)->Fcb->PagingIoResource != NULL)) {
+
+                ExAcquireResourceExclusive( (*Scb)->Fcb->PagingIoResource, TRUE );
+            }
 
             NtfsAcquireExclusiveFcb( IrpContext, (*Scb)->Fcb, NULL, TRUE, FALSE );
         }
@@ -240,6 +281,11 @@ Return Value:
 
     if (Vcb->BitmapScb != NULL) {
 
+        if (AcquirePagingIo && (Vcb->BitmapScb->Fcb->PagingIoResource != NULL)) {
+
+            ExAcquireResourceExclusive( Vcb->BitmapScb->Fcb->PagingIoResource, TRUE );
+        }
+
         NtfsAcquireExclusiveFcb( IrpContext, Vcb->BitmapScb->Fcb, NULL, TRUE, FALSE );
     }
 
@@ -250,7 +296,8 @@ Return Value:
 VOID
 NtfsReleaseAllFiles (
     IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb
+    IN PVCB Vcb,
+    IN BOOLEAN ReleasePagingIo
     )
 
 /*++
@@ -263,6 +310,9 @@ Arguments:
 
     Vcb - Supplies the volume
 
+    ReleasePagingIo - Indicates whether we should release the paging io resources
+        as well.
+
 Return Value:
 
     None
@@ -272,6 +322,7 @@ Return Value:
 {
     PFCB Fcb;
     PSCB *Scb;
+    PVOID RestartKey;
 
     PAGED_CODE();
 
@@ -280,11 +331,11 @@ Return Value:
     //  we cycle through the Fcb Table and for each fcb we acquire it.
     //
 
-    Fcb = NULL;
+    RestartKey = NULL;
     while (TRUE) {
 
         NtfsAcquireFcbTable( IrpContext, Vcb );
-        Fcb = NtfsGetNextFcbTableEntry(IrpContext, Vcb, Fcb);
+        Fcb = NtfsGetNextFcbTableEntry(Vcb, &RestartKey);
         NtfsReleaseFcbTable( IrpContext, Vcb );
 
         if (Fcb == NULL) {
@@ -294,12 +345,16 @@ Return Value:
 
         ASSERT_FCB( Fcb );
 
-        if (Fcb->FileReference.HighPart != 0
-            || Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER) {
+        if (NtfsSegmentNumber( &Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER) {
 
             //
             //  Release the file.
             //
+
+            if (ReleasePagingIo && (Fcb->PagingIoResource != NULL)) {
+
+                ExReleaseResource( Fcb->PagingIoResource );
+            }
 
             NtfsReleaseFcb( IrpContext, Fcb );
         }
@@ -315,6 +370,11 @@ Return Value:
 
         if (*Scb != NULL) {
 
+            if (ReleasePagingIo && ((*Scb)->Fcb->PagingIoResource != NULL)) {
+
+                ExReleaseResource( (*Scb)->Fcb->PagingIoResource );
+            }
+
             NtfsReleaseFcb( IrpContext, (*Scb)->Fcb );
         }
 
@@ -326,7 +386,7 @@ Return Value:
         Scb -= 1;
     }
 
-    NtfsReleaseVcb( IrpContext, Vcb, NULL );
+    NtfsReleaseVcb( IrpContext, Vcb );
 
     return;
 }
@@ -436,9 +496,10 @@ Return Value:
 
 
 VOID
-NtfsReleaseVcb (
+NtfsReleaseVcbCheckDelete (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
+    IN UCHAR MajorCode,
     IN PFILE_OBJECT FileObject OPTIONAL
     )
 
@@ -446,11 +507,16 @@ NtfsReleaseVcb (
 
 Routine Description:
 
-    This routine will release the Vcb.
+    This routine will release the Vcb.  We will also test here whether we should
+    teardown the Vcb at this point.  If this is the last open queued to a dismounted
+    volume or the last close from a failed mount or the failed mount then we will
+    want to test the Vcb for a teardown.
 
 Arguments:
 
     Vcb - Supplies the Vcb to acquire
+
+    MajorCode - Indicates what type of operation we were called from.
 
     FileObject - Optionally supplies the file object whose VPB pointer we need to
         zero out
@@ -465,17 +531,322 @@ Return Value:
     ASSERT_IRP_CONTEXT(IrpContext);
     ASSERT_VCB(Vcb);
 
-    PAGED_CODE();
+    if (FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT ) &&
+        (Vcb->CloseCount == 0)) {
 
-    if (Vcb->CloseCount == 0
-        && !FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
+        ULONG ReferenceCount;
+        ULONG ResidualCount;
 
-        NtfsDeleteVcb( IrpContext, &Vcb, FileObject );
+        KIRQL SavedIrql;
+        BOOLEAN DeleteVcb = FALSE;
+
+        ASSERT_EXCLUSIVE_RESOURCE( &Vcb->Resource );
+
+        //
+        //  The volume has gone through dismount.  Now we need to decide if this
+        //  release of the Vcb is the last reference for this volume.  If so we
+        //  can tear the volume down.
+        //
+        //  We compare the reference count in the Vpb with the state of the volume
+        //  and the type of operation.  We also need to check if there is a
+        //  referenced log file object.
+        //
+
+        IoAcquireVpbSpinLock( &SavedIrql );
+
+        ReferenceCount = Vcb->Vpb->ReferenceCount;
+
+        IoReleaseVpbSpinLock( SavedIrql );
+
+        ResidualCount = 0;
+
+        if (Vcb->LogFileObject != NULL) {
+
+            ResidualCount = 1;
+        }
+
+        if (MajorCode == IRP_MJ_CREATE) {
+
+            ResidualCount += 1;
+        }
+
+        //
+        //  If the residual count is the same as the count in the Vpb then we
+        //  can delete the Vpb.
+        //
+
+        if (ResidualCount == ReferenceCount) {
+
+            SetFlag( Vcb->VcbState, VCB_STATE_DELETE_UNDERWAY );
+
+            ExReleaseResource( &Vcb->Resource );
+
+            //
+            //  Never delete the Vcb unless this is the last release of
+            //  this Vcb.
+            //
+
+            if (!ExIsResourceAcquiredExclusive( &Vcb->Resource ) &&
+                (ExIsResourceAcquiredShared( &Vcb->Resource ) == 0)) {
+
+                if (ARGUMENT_PRESENT(FileObject)) { FileObject->Vpb = NULL; }
+
+                //
+                //  If this is a create then the IO system will handle the
+                //  Vpb.
+                //
+
+                if (MajorCode == IRP_MJ_CREATE) {
+
+                    ClearFlag( Vcb->VcbState, VCB_STATE_TEMP_VPB );
+                }
+
+                //
+                //  Use the global resource to synchronize the DeleteVcb process.
+                //
+
+                (VOID) ExAcquireResourceExclusive( &NtfsData.Resource, TRUE );
+
+                RemoveEntryList( &Vcb->VcbLinks );
+
+                ExReleaseResource( &NtfsData.Resource );
+
+                NtfsDeleteVcb( IrpContext, &Vcb );
+
+            } else {
+
+                ClearFlag( Vcb->VcbState, VCB_STATE_DELETE_UNDERWAY );
+            }
+
+        } else {
+
+            ExReleaseResource( &Vcb->Resource );
+        }
 
     } else {
 
         ExReleaseResource( &Vcb->Resource );
     }
+}
+
+
+BOOLEAN
+NtfsAcquireFcbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN BOOLEAN DontWait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used in the create path only.  It acquires the Fcb
+    and also the paging IO resource if it exists but only if the create
+    operation was doing a supersede/overwrite operation.
+
+    This routine will raise if it cannot acquire the resource and wait
+    in the IrpContext is false.
+
+Arguments:
+
+    Fcb - Supplies the Fcb to acquire
+
+    DontWait - If TRUE this overrides the wait value in the IrpContext.
+        We won't wait for the resource and return whether the resource
+        was acquired.
+
+Return Value:
+
+    BOOLEAN - TRUE if acquired.  FALSE otherwise.
+
+--*/
+
+{
+    BOOLEAN Status = FALSE;
+    BOOLEAN Wait = FALSE;
+    BOOLEAN PagingIoAcquired = FALSE;
+
+    ASSERT_IRP_CONTEXT(IrpContext);
+    ASSERT_FCB(Fcb);
+
+    PAGED_CODE();
+
+    //
+    //  Sanity check that this is create.  The supersede flag is only
+    //  set in the create path and only tested here.
+    //
+
+    ASSERT( IrpContext->MajorFunction == IRP_MJ_CREATE );
+
+    if (!DontWait && FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
+
+        Wait = TRUE;
+    }
+
+    //
+    //  Free any exclusive paging I/O resource, we currently have, which
+    //  must presumably be from a directory with a paging I/O resource.
+    //
+    //  We defer releasing the paging io resource when we have logged
+    //  changes against a stream.  The only transaction that should be
+    //  underway at this point is the create file case where we allocated
+    //  a file record.  In this case it is OK to release the paging io
+    //  resource for the parent.
+    //
+
+    if (IrpContext->FcbWithPagingExclusive != NULL) {
+        //  ASSERT(IrpContext->TransactionId == 0);
+        NtfsReleasePagingIo( IrpContext, IrpContext->FcbWithPagingExclusive );
+    }
+
+    //
+    //  Loop until we get it right - worst case is twice through loop.
+    //
+
+    while (TRUE) {
+
+        //
+        //  Acquire Paging I/O first.  Testing for the PagingIoResource
+        //  is not really safe without holding the main resource, so we
+        //  correct for that below.
+        //
+
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING ) &&
+            (Fcb->PagingIoResource != NULL)) {
+            if (!ExAcquireResourceExclusive( Fcb->PagingIoResource, Wait )) {
+                break;
+            }
+            IrpContext->FcbWithPagingExclusive = Fcb;
+            PagingIoAcquired = TRUE;
+        }
+
+        //
+        //  Let's acquire this Fcb exclusively.
+        //
+
+        if (!NtfsAcquireExclusiveFcb( IrpContext, Fcb, NULL, TRUE, DontWait )) {
+
+            if (PagingIoAcquired) {
+                ASSERT(IrpContext->TransactionId == 0);
+                NtfsReleasePagingIo( IrpContext, Fcb );
+            }
+            break;
+        }
+
+        //
+        //  If we now do not see a paging I/O resource we are golden,
+        //  othewise we can absolutely release and acquire the resources
+        //  safely in the right order, since a resource in the Fcb is
+        //  not going to go away.
+        //
+
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING ) ||
+            PagingIoAcquired ||
+            (Fcb->PagingIoResource == NULL)) {
+
+            Status = TRUE;
+            break;
+        }
+
+        NtfsReleaseFcb( IrpContext, Fcb );
+    }
+
+    return Status;
+}
+
+
+VOID
+NtfsReleaseFcbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine releases access to the Fcb, including its
+    paging I/O resource if it exists.
+
+Arguments:
+
+    Fcb - Supplies the Fcb to acquire
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ASSERT_IRP_CONTEXT(IrpContext);
+    ASSERT_FCB(Fcb);
+
+    PAGED_CODE();
+
+    //
+    //  We test that we currently hold the paging Io exclusive before releasing
+    //  it. Checking the ExclusivePagingFcb in the IrpContext tells us if
+    //  it is ours.
+    //
+
+    if ((IrpContext->TransactionId == 0) &&
+        (IrpContext->FcbWithPagingExclusive == Fcb)) {
+        NtfsReleasePagingIo( IrpContext, Fcb );
+    }
+
+    NtfsReleaseFcb( IrpContext, Fcb );
+}
+
+
+VOID
+NtfsReleaseScbWithPaging (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine releases access to the Scb, including its
+    paging I/O resource if it exists.
+
+Arguments:
+
+    Scb - Supplies the Fcb to acquire
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PFCB Fcb = Scb->Fcb;
+
+    ASSERT_IRP_CONTEXT(IrpContext);
+    ASSERT_SCB(Scb);
+
+    PAGED_CODE();
+
+    //
+    //  Release the paging Io resource in the Scb under the following
+    //  conditions.
+    //
+    //      - No transaction underway
+    //      - This paging Io resource is in the IrpContext
+    //          (This last test insures there is a paging IO resource
+    //           and we own it).
+    //
+
+    if ((IrpContext->TransactionId == 0) &&
+        (IrpContext->FcbWithPagingExclusive == Fcb)) {
+        NtfsReleasePagingIo( IrpContext, Fcb );
+    }
+
+    NtfsReleaseScb( IrpContext, Scb );
 }
 
 
@@ -583,7 +954,7 @@ Return Value:
 
                     ASSERT( Fcb->BaseExclusiveCount == 0 );
 
-                    InsertTailList( &IrpContext->TopLevelIrpContext->ExclusiveFcbList,
+                    InsertTailList( &IrpContext->ExclusiveFcbList,
                                     &Fcb->ExclusiveFcbLinks );
                 }
 
@@ -726,7 +1097,7 @@ Return Value:
             //  If there is a transaction then noop this request.
             //
 
-            if (IrpContext->TopLevelIrpContext->TransactionId != 0) {
+            if (IrpContext->TransactionId != 0) {
 
                 return;
             }
@@ -752,119 +1123,6 @@ Return Value:
 }
 
 
-VOID
-NtfsAcquireExclusivePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine acquires exclusive access to the paging Io resource.  In all
-    cases when we acquire this resource exclusive, we already have the Fcb
-    exclusive, so we don't need to check for the file/attribute being deleted.
-    Also this routine will only be called on Scb's pointed to by uses file
-    opens, so we don't need to check for the special system files either.
-
-    This routine is only called when serializing a truncated FileSize, and not
-    when serialize a LargeInteger rollover of FileSize.
-
-    This routine assumes WAIT is TRUE.
-
-Arguments:
-
-    Fcb - This is the Fcb for which we are acquiring the paging Io
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT_IRP_CONTEXT(IrpContext);
-    ASSERT_FCB(Fcb);
-
-    PAGED_CODE();
-
-    (VOID)ExAcquireResourceExclusive( Fcb->PagingIoResource, TRUE );
-
-    //
-    //  If this paging io resource is not in our exclusive list then
-    //  add it now and remember the base count.
-    //
-
-    if (Fcb->ExclusivePagingIoLinks.Flink == NULL) {
-
-        ASSERT( Fcb->BaseExclusivePagingIoCount == 0 );
-        InsertTailList( &IrpContext->TopLevelIrpContext->ExclusivePagingIoList,
-                        &Fcb->ExclusivePagingIoLinks );
-    }
-
-    Fcb->BaseExclusivePagingIoCount += 1;
-
-    return;
-}
-
-
-VOID
-NtfsReleasePagingIo (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine releases the PagingIo resource associated with the specified
-    Scb.  If the PagingIo resource is acquired exclusive, and a transaction
-    is still active, then the release is nooped in order to preserve
-    two-phase locking.  If there is no longer an active transaction, then we
-    remove the Scb from the Exclusive PagingIo entry in the IrpContext
-    as a sign.  PagingIo are released when the transaction is commited.
-
-Arguments:
-
-    Fcb - Fcb associated with PagingIo resource to release
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    if (Fcb->ExclusivePagingIoLinks.Flink != NULL) {
-
-        if (Fcb->BaseExclusivePagingIoCount == 1) {
-
-            //
-            //  If there is a transaction then noop this request.
-            //
-
-            if (IrpContext->TopLevelIrpContext->TransactionId != 0) {
-
-                return;
-            }
-
-            RemoveEntryList( &Fcb->ExclusivePagingIoLinks );
-            Fcb->ExclusivePagingIoLinks.Flink = NULL;
-        }
-
-        Fcb->BaseExclusivePagingIoCount -= 1;
-    }
-
-    ASSERT((Fcb->ExclusivePagingIoLinks.Flink == NULL && Fcb->BaseExclusivePagingIoCount == 0) ||
-           (Fcb->ExclusivePagingIoLinks.Flink != NULL && Fcb->BaseExclusivePagingIoCount != 0));
-
-    ExReleaseResource( Fcb->PagingIoResource );
-}
-
-
-
 VOID
 NtfsAcquireExclusiveScb (
     IN PIRP_CONTEXT IrpContext,
@@ -905,6 +1163,206 @@ Return Value:
     }
 }
 
+
+VOID
+NtfsAcquireSharedScbForTransaction (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to acquire an Scb shared in order to perform updates to
+    the an Scb stream.  This is used if the transaction writes to a range of the
+    stream without changing the size or position of the data.  The caller must
+    already provide synchronization to the data itself.
+
+    There is no corresponding Scb release.  It will be released when the transaction commits.
+    We will acquire the Scb exclusive if it is not yet in the open attribute table.
+
+Arguments:
+
+    Scb - Scb to acquire
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PSCB *Position;
+    PSCB *ScbArray;
+    ULONG Count;
+
+    PAGED_CODE();
+
+    //
+    //  Make sure we have a free spot in the Scb array in the IrpContext.
+    //
+
+    if (IrpContext->SharedScb == NULL) {
+
+        Position = (PSCB *) &IrpContext->SharedScb;
+        IrpContext->SharedScbSize = 1;
+
+    //
+    //  Too bad the first one is not available.  If the current size is one then allocate a
+    //  new block and copy the existing value to it.
+    //
+
+    } else if (IrpContext->SharedScbSize == 1) {
+
+        ScbArray = NtfsAllocatePool( PagedPool, sizeof( PSCB ) * 4 );
+        RtlZeroMemory( ScbArray, sizeof( PSCB ) * 4 );
+        *ScbArray = IrpContext->SharedScb;
+        IrpContext->SharedScb = ScbArray;
+        IrpContext->SharedScbSize = 4;
+        Position = ScbArray + 1;
+
+    //
+    //  Otherwise look through the existing array and look for a free spot.  Allocate a larger
+    //  array if we need to grow it.
+    //
+
+    } else {
+
+        Position = IrpContext->SharedScb;
+        Count = IrpContext->SharedScbSize;
+
+        do {
+
+            if (*Position == NULL) {
+
+                break;
+            }
+
+            Count -= 1;
+            Position += 1;
+
+        } while (Count != 0);
+
+        //
+        //  If we didn't find one then allocate a new structure.
+        //
+
+        if (Count == 0) {
+
+            ScbArray = NtfsAllocatePool( PagedPool, sizeof( PSCB ) * IrpContext->SharedScbSize * 2 );
+            RtlZeroMemory( ScbArray, sizeof( PSCB ) * IrpContext->SharedScbSize * 2 );
+            RtlCopyMemory( ScbArray,
+                           IrpContext->SharedScb,
+                           sizeof( PSCB ) * IrpContext->SharedScbSize );
+
+            NtfsFreePool( IrpContext->SharedScb );
+            IrpContext->SharedScb = ScbArray;
+            Position = ScbArray + IrpContext->SharedScbSize;
+            IrpContext->SharedScbSize *= 2;
+        }
+    }
+
+    ExAcquireResourceShared( Scb->Header.Resource, TRUE );
+
+    if (Scb->NonpagedScb->OpenAttributeTableIndex == 0) {
+
+        ExReleaseResource( Scb->Header.Resource );
+        ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+    }
+
+    *Position = Scb;
+
+    return;
+}
+
+VOID
+NtfsReleaseSharedResources (
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    The routine releases all of the resources acquired shared for
+    transaction.  The SharedScb structure is freed if necessary and
+    the Irp Context field is cleared.
+
+Arguments:
+
+
+Return Value:
+
+    None.
+
+--*/
+{
+
+    PAGED_CODE();
+
+    //
+    //  If only one then free the Scb main resource.
+    //
+
+    if (IrpContext->SharedScbSize == 1) {
+
+#ifdef _CAIRO_
+        if (SafeNodeType(IrpContext->SharedScb) == NTFS_NTC_QUOTA_CONTROL) {
+            NtfsReleaseQuotaControl( IrpContext,
+                              (PQUOTA_CONTROL_BLOCK) IrpContext->SharedScb );
+        } else {
+            ExReleaseResource( ((PSCB) IrpContext->SharedScb)->Header.Resource );
+        }
+
+#else
+        ExReleaseResource( ((PSCB) IrpContext->SharedScb)->Header.Resource );
+#endif // _CAIRO_
+
+    //
+    //  Otherwise traverse the array and look for Scb's to release.
+    //
+
+    } else {
+
+        PSCB *NextScb;
+        ULONG Count;
+
+        NextScb = IrpContext->SharedScb;
+        Count = IrpContext->SharedScbSize;
+
+        do {
+
+            if (*NextScb != NULL) {
+
+#ifdef _CAIRO_
+                if (SafeNodeType(*NextScb) == NTFS_NTC_QUOTA_CONTROL) {
+
+                    NtfsReleaseQuotaControl( IrpContext,
+                                      (PQUOTA_CONTROL_BLOCK) *NextScb );
+                } else {
+
+                    ExReleaseResource( (*NextScb)->Header.Resource );
+                }
+
+#else
+                ExReleaseResource( (*NextScb)->Header.Resource );
+#endif // _CAIRO_
+
+            }
+
+            Count -= 1;
+            NextScb += 1;
+
+        } while (Count != 0);
+
+        NtfsFreePool( IrpContext->SharedScb );
+    }
+
+    IrpContext->SharedScb = NULL;
+    IrpContext->SharedScbSize = 0;
+
+}
 
 BOOLEAN
 NtfsAcquireVolumeForClose (
@@ -992,7 +1450,7 @@ Return Value:
 
     PAGED_CODE();
 
-    NtfsReleaseVcb( NULL, Vcb, NULL );
+    NtfsReleaseVcb( NULL, Vcb );
 
     return;
 }
@@ -1019,8 +1477,8 @@ Routine Description:
 
 Arguments:
 
-    Scb - The Scb which was specified as a context parameter for this
-          routine.
+    OpaqueScb - The Scb which was specified as a context parameter for this
+                routine.
 
     Wait - TRUE if the caller is willing to block.
 
@@ -1034,10 +1492,10 @@ Return Value:
 --*/
 
 {
-    BOOLEAN AcquiredFile = FALSE;
-    BOOLEAN AcquiredMainResource = FALSE;
+    BOOLEAN AcquiredFile = TRUE;
 
-    PSCB Scb = (PSCB)OpaqueScb;
+    ULONG CompressedStream = (ULONG)OpaqueScb & 1;
+    PSCB Scb = (PSCB)((ULONG)OpaqueScb & ~1);
     PFCB Fcb = Scb->Fcb;
 
     ASSERT_SCB(Scb);
@@ -1051,8 +1509,7 @@ Return Value:
     //  a new Mft record.
     //
 
-    if (Fcb->FileReference.HighPart == 0
-        && Fcb->FileReference.LowPart <= VOLUME_DASD_NUMBER) {
+    if (NtfsSegmentNumber( &Fcb->FileReference ) <= MASTER_FILE_TABLE2_NUMBER) {
 
         //
         //  We need to synchronize the lazy writer with the clean volume
@@ -1072,129 +1529,10 @@ Return Value:
     //  state of the file.
     //
 
+    } else if (Scb->Header.PagingIoResource != NULL) {
+        AcquiredFile = ExAcquireResourceShared( Scb->Header.PagingIoResource, Wait );
     } else {
-
-        BOOLEAN AcquireExclusive;
-        PERESOURCE ResourceAcquired;
-
-        while (TRUE) {
-
-            AcquiredMainResource = FALSE;
-
-            //
-            //  If this is a resident file or a compressed file then acquire
-            //  the main resource exclusively.
-            //
-
-            if (FlagOn( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX )) {
-
-                AcquireExclusive = TRUE;
-                ResourceAcquired = Scb->Header.Resource;
-                AcquiredMainResource = TRUE;
-
-            } else {
-
-                AcquireExclusive = FALSE;
-
-                //
-                //  If there is a paging io resource then acquire it shared.
-                //
-
-                if (FlagOn( Scb->ScbState, SCB_STATE_USE_PAGING_IO_RESOURCE )) {
-
-                    ResourceAcquired = Scb->Header.PagingIoResource;
-
-                } else {
-
-                    ResourceAcquired = Scb->Header.Resource;
-                    AcquiredMainResource = TRUE;
-                }
-            }
-
-            if (AcquireExclusive) {
-
-                AcquiredFile = ExAcquireResourceExclusive( ResourceAcquired,
-                                                           Wait );
-
-            } else {
-
-                AcquiredFile = ExAcquireResourceShared( ResourceAcquired,
-                                                        Wait );
-            }
-
-            if (!AcquiredFile) {
-
-                return FALSE;
-            }
-
-            //
-            //  Recheck the state of the file in case something has changed
-            //  since the unsafe test above.
-            //
-            //  Consider the case where we want to have the file exclusively.
-            //
-
-            if (FlagOn( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX )) {
-
-                //
-                //  If we have the file exclusively then break out of the loop.
-                //
-
-                if (AcquireExclusive) {
-
-                    break;
-                }
-
-                //
-                //  Otherwise release what we have and move to acquire the file
-                //  exclusively.
-                //
-
-                ExReleaseResource( ResourceAcquired );
-                continue;
-
-            //
-            //  If we are supposed to acquire the paging io resource then try
-            //  to acquire it and release the one we have.
-            //
-
-            } else if (FlagOn( Scb->ScbState, SCB_STATE_USE_PAGING_IO_RESOURCE )) {
-
-                if (ResourceAcquired != Scb->Header.PagingIoResource) {
-
-                    AcquiredFile = ExAcquireResourceShared( Scb->Header.PagingIoResource,
-                                                            Wait );
-
-                    ExReleaseResource( ResourceAcquired );
-                    AcquiredMainResource = FALSE;
-                }
-
-                break;
-
-            //
-            //  We want the main resource shared.  If we are holding the paging io
-            //  resource then release and go to the top of the loop.
-            //
-
-            } else if (ResourceAcquired != Scb->Header.Resource) {
-
-                ExReleaseResource( ResourceAcquired );
-                continue;
-
-            //
-            //  If we have the main resource exclusively then downgrade to shared.
-            //
-
-            } else {
-
-                if (AcquireExclusive) {
-
-                    ExConvertExclusiveToShared( ResourceAcquired );
-                }
-
-                break;
-            }
-        }
+        AcquiredFile = ExAcquireResourceShared( Scb->Header.Resource, Wait );
     }
 
     if (AcquiredFile) {
@@ -1209,17 +1547,18 @@ Return Value:
         // also not deadlock by trying to get the Fcb exclusive.
         //
 
-        ASSERT( Scb->LazyWriteThread == NULL );
+        ASSERT( Scb->LazyWriteThread[CompressedStream] == NULL );
 
-        Scb->LazyWriteThread = PsGetCurrentThread();
+        Scb->LazyWriteThread[CompressedStream] = PsGetCurrentThread();
 
         //
-        //  Set the low order bit if we have acquired the main resource.
+        //  Make Cc top level, so that we will not post or retry on errors.
+        //  (If it is not NULL, it must be one of our internal calls to this
+        //  routine, such as from Restart or Hot Fix.)
         //
 
-        if (AcquiredMainResource) {
-
-            SetFlag( ((ULONG) Scb->LazyWriteThread), 0x1 );
+        if (IoGetTopLevelIrp() == NULL) {
+            IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
         }
     }
 
@@ -1252,37 +1591,199 @@ Return Value:
 --*/
 
 {
-    PSCB Scb = (PSCB)OpaqueScb;
+    ULONG CompressedStream = (ULONG)OpaqueScb & 1;
+    PSCB Scb = (PSCB)((ULONG)OpaqueScb & ~1);
     PFCB Fcb = Scb->Fcb;
-    ULONG LazyWriteThread;
 
     ASSERT_SCB(Scb);
 
     PAGED_CODE();
 
-    LazyWriteThread = (ULONG) Scb->LazyWriteThread;
-    Scb->LazyWriteThread = NULL;
+    //
+    //  Clear the toplevel at this point, if we set it above.
+    //
 
-    if ((Fcb->FileReference.HighPart != 0) ||
-        (Fcb->FileReference.LowPart > VOLUME_DASD_NUMBER)) {
+    if (IoGetTopLevelIrp() == (PIRP)FSRTL_CACHE_TOP_LEVEL_IRP) {
+        IoSetTopLevelIrp( NULL );
+    }
 
-        //
-        //  If the low bit of the lazy writer thread is set then
-        //  we free the main resource.  Otherwise free the paging
-        //  io resource.
-        //
+    Scb->LazyWriteThread[CompressedStream] = NULL;
 
-        if (FlagOn( LazyWriteThread, 1 )) {
+    if (NtfsSegmentNumber( &Fcb->FileReference ) <= MASTER_FILE_TABLE2_NUMBER) {
 
-            ExReleaseResource( Scb->Header.Resource );
+        NOTHING;
 
-        } else {
-
-            ExReleaseResource( Scb->Header.PagingIoResource );
-        }
+    } else if (Scb->Header.PagingIoResource != NULL) {
+        ExReleaseResource( Scb->Header.PagingIoResource );
+    } else {
+        ExReleaseResource( Scb->Header.Resource );
     }
 
     return;
+}
+
+
+NTSTATUS
+NtfsAcquireFileForModWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER EndingOffset,
+    OUT PERESOURCE *ResourceToRelease,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+{
+    BOOLEAN AcquiredFile;
+
+    PSCB Scb = (PSCB) (FileObject->FsContext);
+    PFCB Fcb = Scb->Fcb;
+
+    ASSERT_SCB(Scb);
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    PAGED_CODE();
+
+    //
+    //  Acquire the Scb only for those files that the write will
+    //  acquire it for, i.e., not the first set of system files.
+    //  Otherwise we can deadlock, for example with someone needing
+    //  a new Mft record.
+    //
+
+    if (NtfsSegmentNumber( &Fcb->FileReference ) <= MASTER_FILE_TABLE2_NUMBER) {
+
+        //
+        //  We need to synchronize the lazy writer with the clean volume
+        //  checkpoint.  We do this by acquiring and immediately releasing this
+        //  Scb.  This is to prevent the lazy writer from flushing the log file
+        //  when the space may be at a premium.
+        //
+
+        if (AcquiredFile = ExAcquireResourceShared( Scb->Header.Resource, FALSE )) {
+            ExReleaseResource( Scb->Header.Resource );
+        }
+        *ResourceToRelease = NULL;
+
+    //
+    //  Now acquire either the main or paging io resource depending on the
+    //  state of the file.
+    //
+
+    } else {
+
+        //
+        //  Figure out which resource to acquire.
+        //
+
+        if (Scb->Header.PagingIoResource != NULL) {
+            *ResourceToRelease = Scb->Header.PagingIoResource;
+        } else {
+            *ResourceToRelease = Scb->Header.Resource;
+        }
+
+        //
+        //  Try to acquire the resource with Wait FALSE
+        //
+
+        AcquiredFile = ExAcquireResourceShared( *ResourceToRelease, FALSE );
+
+        //
+        //  If we got the resource, check if he is possibly trying to extend
+        //  ValidDataLength.  If so that will cause us to go into useless mode
+        //  possibly doing actual I/O writing zeros out to the file past actual
+        //  valid data in the cache.  This is so inefficient that it is better
+        //  to tell MM not to do this write.
+        //
+
+        if (AcquiredFile) {
+            if (Scb->CompressionUnit != 0) {
+                ExAcquireFastMutex( Scb->Header.FastMutex );
+                if ((EndingOffset->QuadPart > Scb->ValidDataToDisk) &&
+                    (EndingOffset->QuadPart < (Scb->Header.FileSize.QuadPart + PAGE_SIZE - 1)) &&
+                    !FlagOn(Scb->Header.Flags, FSRTL_FLAG_USER_MAPPED_FILE)) {
+
+                    ExReleaseResource(*ResourceToRelease);
+                    AcquiredFile = FALSE;
+                    *ResourceToRelease = NULL;
+                }
+                ExReleaseFastMutex( Scb->Header.FastMutex );
+            }
+        } else {
+            *ResourceToRelease = NULL;
+        }
+    }
+
+    return (AcquiredFile ? STATUS_SUCCESS : STATUS_CANT_WAIT);
+}
+
+NTSTATUS
+NtfsAcquireFileForCcFlush (
+    IN PFILE_OBJECT FileObject,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+{
+    PFSRTL_COMMON_FCB_HEADER Header = FileObject->FsContext;
+
+    PAGED_CODE();
+
+    if (Header->PagingIoResource != NULL) {
+        ExAcquireResourceShared( Header->PagingIoResource, TRUE );
+    }
+
+    return STATUS_SUCCESS;
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+}
+
+NTSTATUS
+NtfsReleaseFileForCcFlush (
+    IN PFILE_OBJECT FileObject,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+{
+    PFSRTL_COMMON_FCB_HEADER Header = FileObject->FsContext;
+
+    PAGED_CODE();
+
+    if (Header->PagingIoResource != NULL) {
+        ExReleaseResource( Header->PagingIoResource );
+    }
+
+    return STATUS_SUCCESS;
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+}
+
+VOID
+NtfsAcquireForCreateSection (
+    IN PFILE_OBJECT FileObject
+    )
+
+{
+    PSCB Scb = (PSCB)FileObject->FsContext;
+
+    PAGED_CODE();
+
+    if (Scb->Header.PagingIoResource != NULL) {
+
+        ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
+    }
+}
+
+VOID
+NtfsReleaseForCreateSection (
+    IN PFILE_OBJECT FileObject
+    )
+
+{
+    PSCB Scb = (PSCB)FileObject->FsContext;
+
+    PAGED_CODE();
+
+    if (Scb->Header.PagingIoResource != NULL) {
+
+        ExReleaseResource( Scb->Header.PagingIoResource );
+    }
 }
 
 
@@ -1323,17 +1824,8 @@ Return Value:
     PSCB Scb = (PSCB)OpaqueScb;
     PFCB Fcb = Scb->Fcb;
     BOOLEAN AcquiredFile = FALSE;
-    BOOLEAN SystemFile;
-    PERESOURCE ThisResource;
 
     ASSERT_SCB(Scb);
-
-    //
-    //  Do the code of acquire shared fcb but without the irp context
-    //
-
-    SystemFile = (Fcb->FileReference.HighPart == 0
-                  && Fcb->FileReference.LowPart <= VOLUME_DASD_NUMBER);
 
     //
     //  Acquire the Scb only for those files that the read wil
@@ -1342,15 +1834,10 @@ Return Value:
     //  a new Mft record.
     //
 
-    if (SystemFile
-        || ExAcquireResourceShared( Scb->Header.Resource, Wait )) {
-
-        ThisResource = Scb->Header.Resource;
+    if ((Scb->Header.PagingIoResource == NULL) ||
+        ExAcquireResourceShared( Scb->Header.PagingIoResource, Wait )) {
 
         AcquiredFile = TRUE;
-    }
-
-    if (AcquiredFile) {
 
         //
         //  Add our thread to the read ahead list.
@@ -1381,7 +1868,7 @@ Return Value:
 
         if (ReadAheadThread == (PREAD_AHEAD_THREAD)&NtfsData.ReadAheadThreads) {
 
-            ReadAheadThread = ExAllocatePool( NonPagedPool, sizeof(READ_AHEAD_THREAD) );
+            ReadAheadThread = ExAllocatePoolWithTag( NonPagedPool, sizeof(READ_AHEAD_THREAD), 'RftN' );
 
             //
             //  If we failed to allocate an entry, clean up and raise.
@@ -1391,10 +1878,11 @@ Return Value:
 
                 KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, OldIrql );
 
-                if ((Fcb->FileReference.HighPart != 0) ||
-                    (Fcb->FileReference.LowPart > VOLUME_DASD_NUMBER)) {
+                if (NtfsSegmentNumber( &Fcb->FileReference ) > VOLUME_DASD_NUMBER) {
 
-                    ExReleaseResource( ThisResource );
+                    if (Scb->Header.PagingIoResource != NULL) {
+                        ExReleaseResource( Scb->Header.PagingIoResource );
+                    }
                 }
 
                 ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
@@ -1473,10 +1961,8 @@ Return Value:
 
     KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, OldIrql );
 
-    if ((Fcb->FileReference.HighPart != 0) ||
-        (Fcb->FileReference.LowPart > VOLUME_DASD_NUMBER)) {
-
-        ExReleaseResource( Scb->Header.Resource );
+    if (Scb->Header.PagingIoResource != NULL) {
+        ExReleaseResource( Scb->Header.PagingIoResource );
     }
 
     return;

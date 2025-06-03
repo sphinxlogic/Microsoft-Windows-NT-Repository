@@ -3577,6 +3577,14 @@ Note:
         return (0L);
     }
 
+    if (((long) BSCount < 0) || ((long) SpaceCount < 0)) {
+#if DBG
+        DbgPrint("KbdEchoBSAndFillSpaces: BSCount %d or SpaceCount %d are negative\n",
+                (long)BSCount, (long)SpaceCount);
+#endif
+        return ERROR_INVALID_PARAMETER;
+    }
+
     OldCoord = Coord = GET_CURRENT_COORD;
 
     Coord.X -= (SHORT)BSCount;

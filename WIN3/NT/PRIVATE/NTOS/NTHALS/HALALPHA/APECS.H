@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1993  Digital Equipment Corporation
+Copyright (c) 1993, 1996  Digital Equipment Corporation
 
 Module Name:
 
@@ -21,6 +21,8 @@ Environment:
 
 Revision History:
 
+    Chao Chen       31-Aug-1995 Fix the broken Comanche register data structure.
+    Gene Morgan     27-Feb-1996 Add missing Comanche register defns
 
 --*/
 
@@ -134,11 +136,13 @@ typedef struct _COMANCHE_CSRS{
     UCHAR ErrorHighAddressRegister;
     UCHAR Ldx_lLowAddressRegister;
     UCHAR Ldx_lHighAddressRegister;
+    UCHAR Reserved1[8];
     UCHAR GlobalTimingRegister;
     UCHAR RefreshTimingRegister;
     UCHAR VideoFramePointerRegister;
     UCHAR PresenceDetectLowDataRegister;
     UCHAR PresenceDetectHighDataRegister;
+    UCHAR Reserved2[43];
     UCHAR Bank0BaseAddressRegister;
     UCHAR Bank1BaseAddressRegister;
     UCHAR Bank2BaseAddressRegister;
@@ -147,6 +151,8 @@ typedef struct _COMANCHE_CSRS{
     UCHAR Bank5BaseAddressRegister;
     UCHAR Bank6BaseAddressRegister;
     UCHAR Bank7BaseAddressRegister;
+    UCHAR Bank8BaseAddressRegister;
+    UCHAR Reserved3[7];
     UCHAR Bank0ConfigurationRegister;
     UCHAR Bank1ConfigurationRegister;
     UCHAR Bank2ConfigurationRegister;
@@ -154,6 +160,9 @@ typedef struct _COMANCHE_CSRS{
     UCHAR Bank4ConfigurationRegister;
     UCHAR Bank5ConfigurationRegister;
     UCHAR Bank6ConfigurationRegister;
+    UCHAR Bank7ConfigurationRegister;
+    UCHAR Bank8ConfigurationRegister;
+    UCHAR Reserved4[7];
     UCHAR Bank0TimingRegisterA;
     UCHAR Bank1TimingRegisterA;
     UCHAR Bank2TimingRegisterA;
@@ -162,6 +171,8 @@ typedef struct _COMANCHE_CSRS{
     UCHAR Bank5TimingRegisterA;
     UCHAR Bank6TimingRegisterA;
     UCHAR Bank7TimingRegisterA;
+    UCHAR Bank8TimingRegisterA;
+    UCHAR Reserved5[7];
     UCHAR Bank0TimingRegisterB;
     UCHAR Bank1TimingRegisterB;
     UCHAR Bank2TimingRegisterB;
@@ -170,12 +181,16 @@ typedef struct _COMANCHE_CSRS{
     UCHAR Bank5TimingRegisterB;
     UCHAR Bank6TimingRegisterB;
     UCHAR Bank7TimingRegisterB;
+    UCHAR Bank8TimingRegisterB;
 } COMANCHE_CSRS, *PCOMANCHE_CSRS;
 
 //
 // Define formats of useful COMANCHE registers.
 //
 
+//
+// Error Diagnostic and Status Register
+//
 typedef union _COMANCHE_EDSR{
     struct{
         ULONG Losterr: 1;
@@ -193,6 +208,63 @@ typedef union _COMANCHE_EDSR{
     ULONG all;
 } COMANCHE_EDSR, *PCOMANCHE_EDSR;
 
+//
+// General Control Register
+//
+typedef union _COMANCHE_GCR {
+	struct {
+		ULONG Reserved1: 	1;
+		ULONG Sysarb: 	 	2;
+		ULONG Reserved2: 	1;
+		ULONG Widemem:		1;
+		ULONG Bcen:			1;
+		ULONG Bcnoalloc:	1;
+		ULONG Bclongwr:		1;
+		ULONG Bcigntflag:	1;
+		ULONG Bcfrctflag:	1;
+		ULONG Bcfrcd:		1;
+		ULONG Bcfrcz:		1;
+		ULONG Bcfrcp:		1;
+		ULONG Bcbadap:		1;
+		ULONG Reserved3:	2;
+	};
+	ULONG all;
+} COMANCHE_GCR, *PCOMANCHE_GCR;
+
+//
+// Tag Enable Register
+//
+typedef union _COMANCHE_TER {
+	struct {
+		ULONG Tagen:	16;			// Bit zero is reserved and MBZ
+	};
+	ULONG all;
+} COMANCHE_TER, *PCOMANCHE_TER;
+
+//
+// Bank<n> Base Address Register [0..8]
+//
+typedef union _COMANCHE_BASE_ADDRESS_REGISTER {
+    struct {
+        ULONG Reserved: 5;
+        ULONG BaseAdr: 11;
+    };
+    ULONG all;
+} COMANCHE_BASE_ADDRESS_REGISTER, *PCOMANCHE_BASE_ADDRESS_REGISTER;
+
+//
+// Bank<n> Configuration Register [0..8]
+//
+typedef union _COMANCHE_BANK_CONFIGURATION_REGISTER {
+    struct {
+        ULONG SetValid: 1;
+        ULONG SetSize: 4;
+        ULONG SetSubEna: 1;
+        ULONG SetColSel: 3;
+        ULONG Reserved: 7;
+    };
+    ULONG all;
+}COMANCHE_BANK_CONFIGURATION_REGISTER, *PCOMANCHE_BANK_CONFIGURATION_REGISTER;
 
  
 //
@@ -312,8 +384,6 @@ typedef struct _EPIC_TBASE{
     ULONG Reserved: 9;
     ULONG TBase: 23;
 } EPIC_TBASE, *PEPIC_TBASE;
-
-#if !defined(AXP_FIRMWARE)
 
 
 //
@@ -485,7 +555,6 @@ HalpApecsProgramDmaWindow(
 // Define the format of a translation entry aka a scatter/gather entry
 // or map register.
 //
-
 typedef struct _TRANSLATION_ENTRY{
     ULONG Valid: 1;
     ULONG Pfn: 31;
@@ -547,8 +616,6 @@ typedef struct _TRANSLATION_ENTRY{
 #define HAL_INVALIDATE_TRANSLATION( ENTRY )     \
     (ENTRY)->Valid = 0;
 
-#endif //!AXP_FIRMWARE
-
 //
 // APECS-specific functions.
 //
@@ -578,5 +645,3 @@ READ_EPIC_REGISTER(
 #endif //!_LANGUAGE_ASSEMBLY
 
 #endif //_APECSH_
-
-

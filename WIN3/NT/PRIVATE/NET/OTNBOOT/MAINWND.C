@@ -45,7 +45,7 @@ static  DWORD   dwHelpContextId = 0; //  id to send to help for context sens.
 typedef struct _DLG_DATA {
     HWND    hWnd;       // handle of parent window
     HINSTANCE   hInst;  // instance containing resources
-    LPTSTR  szIdDlg;    // ID of Dialog to start 
+    LPTSTR  szIdDlg;    // ID of Dialog to start
     DLGPROC ProcName;   // dialog Procedure to call
     LPARAM    lArg;     // optional argument  (0 if not used);
 } DLG_DATA, *PDLG_DATA;
@@ -58,7 +58,7 @@ ShowAppHelp (
 /*++
 
 Routine Description:
-    
+
     Generic routine to call WinHelp engine for displaying application
         help. wContext parameter is used for context.
 
@@ -73,7 +73,7 @@ Arguments:
 
 Return Value:
 
-    TRUE if help called successfully    
+    TRUE if help called successfully
 
 --*/
 {
@@ -96,7 +96,7 @@ Return Value:
             dwHelpParam = (DWORD)szKeyString;
         } else {
             nHelpCmd = HELP_CONTENTS;
-            dwHelpParam = 0; 
+            dwHelpParam = 0;
         }
     } else {
         nHelpCmd = HELP_CONTENTS;
@@ -126,7 +126,7 @@ MainWnd_UPDATE_WINDOW_POS (
 /*++
 
 Routine Description:
-    
+
     External window message used to register location of a dialog box
         window so the next dialo can be placed in the same spot.
         Dialog box sends this message whenever it's moved and the top
@@ -138,7 +138,7 @@ Arguments:
     IN  WPARAM  wParam, // x Pos of top left corner
     IN  LPARAM  lParam  // y Pos of top left corner
         location coordinates are in SCREEN pixels
-        
+
 Return Value:
 
     ERROR_SUCCESS
@@ -161,8 +161,8 @@ MainWnd_CLEAR_DLG (
 /*++
 
 Routine Description:
-    
-    Called by a dialog box to clear the previous dialog.    
+
+    Called by a dialog box to clear the previous dialog.
 
 Arguments:
 
@@ -196,7 +196,7 @@ MainWnd_REGISTER_DLG (
 /*++
 
 Routine Description:
-    
+
     external message sent by dialog boxes when they initialize.
         This message and the CLEAR_DLG message above are used to
         overlap dialog boxes to prevent "dead" space between dialogs
@@ -212,7 +212,7 @@ Arguments:
 
 Return Value:
 
-    ERROR_SUCCESS    
+    ERROR_SUCCESS
 
 --*/
 {
@@ -321,8 +321,8 @@ Return Value:
     SetWindowPos (hWnd,
         NULL,
         rDesktop.right+1,   // locate it off the bottom-rt. corner of screen
-        rDesktop.bottom+1,  
-        1,                  // and make it 1 x 1 
+        rDesktop.bottom+1,
+        1,                  // and make it 1 x 1
         1,
         SWP_NOZORDER);
 
@@ -578,13 +578,18 @@ Return Value:
 
 --*/
 {
-    DialogBox (
+    if (DialogBox (
         (HINSTANCE)GetWindowLong(hWnd, GWL_HINSTANCE),
         MAKEINTRESOURCE(NCDU_COPYING_FILES_DLG),
         hWnd,
-        MakeFlopDlgProc);
-
-    PostMessage (hWnd, NCDU_SHOW_SW_CONFIG_DLG, 0, 0);
+        MakeFlopDlgProc) == IDOK) {
+        // operation completed successfully so return to main menu
+        PostMessage (hWnd, NCDU_SHOW_SW_CONFIG_DLG, 0, 0);
+    } else {
+    	// an error ocurred so go back to configuration dialog to see
+    	// if there's something to fix and retry.
+        PostMessage (hWnd, NCDU_SHOW_CONFIRM_DLG, 0, 0);
+    }
 
     return (LRESULT)ERROR_SUCCESS;
 }
@@ -642,7 +647,7 @@ MainWnd_SHOW_COPY_ADMIN_UTILS (
 
 
 //    PostMessage (hWnd, nNextMessage, 0, 0);
-                               
+
     return (LRESULT)ERROR_SUCCESS;
 }
 
@@ -656,7 +661,7 @@ MainWnd_WM_ACTIVATEAPP (
 /*++
 
 Routine Description:
-    
+
     enables and disables the F1 hot key to be active only
         when the app is active (i.e. has focus)
 
@@ -675,7 +680,7 @@ Arguments:
 
 Return Value:
 
-    ERROR_SUCCESS    
+    ERROR_SUCCESS
 
 --*/
 {
@@ -704,7 +709,7 @@ MainWnd_WM_HOTKEY (
 /*++
 
 Routine Description:
-    
+
     processes hot key messages to call help when f1 is pressed
 
 Arguments:
@@ -720,7 +725,7 @@ Arguments:
 
 Return Value:
 
-    ERROR_SUCCESS    
+    ERROR_SUCCESS
 
 --*/
 {
@@ -870,4 +875,3 @@ ReturnValue:
     }
 }
 
-

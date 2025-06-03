@@ -543,9 +543,9 @@ do_it_again:
 	mov	ax,[bx].gi_lruchain
 	mov	cx,[bx].gi_lrucount	; without ems gi_alt_count is 0
 	or	cx,cx
-	jnz	fuck_short_relative_jumps
+        jnz     short_relative_jumps
 	jmps	all_done
-fuck_short_relative_jumps:
+short_relative_jumps:
 	push	ds
 	push	bx
 	mov	es,ax

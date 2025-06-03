@@ -304,7 +304,7 @@ VOID PaintStrWnd( HWND hwnd, LPPAINTSTRUCT pps)
     HANDLE hpsw;
 
 
-    SelectObject(pps->hdc, GetStockObject(ANSI_FIXED_FONT));
+    SelectObject(pps->hdc, GetStockObject(SYSTEM_FIXED_FONT));
     hpsw = (HANDLE)GetWindowLong(hwnd, 0);
     psw = (STRWND *)LocalLock(hpsw);
 
@@ -342,4 +342,3 @@ VOID PaintStrWnd( HWND hwnd, LPPAINTSTRUCT pps)
     LocalUnlock(hpsw);
 }
 
-

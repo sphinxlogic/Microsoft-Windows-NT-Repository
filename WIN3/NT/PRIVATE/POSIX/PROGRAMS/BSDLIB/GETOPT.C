@@ -39,6 +39,9 @@ static char sccsid[] = "@(#)getopt.c	4.13 (Berkeley) 2/23/91";
 #include <stdlib.h>
 #include <string.h>
 
+extern char *index();
+extern char *rindex();
+
 /*
  * get option letter from argument vector
  */

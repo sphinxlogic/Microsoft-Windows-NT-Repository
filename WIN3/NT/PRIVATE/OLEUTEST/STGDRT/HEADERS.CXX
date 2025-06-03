@@ -15,8 +15,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+
 #include <windows.h>
 #include <ole2.h>
+
+#ifdef _CAIRO_
+#define _DCOM_
+#define _CAIROSTG_
+#include <oleext.h>
+#endif
 
 #include <debnot.h>
 

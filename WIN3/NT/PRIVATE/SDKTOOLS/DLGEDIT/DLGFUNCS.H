@@ -28,6 +28,9 @@ HWND CreateControl(NPCTYPE npc, LPTSTR pszText, DWORD flStyle, DWORD flExtStyle,
     INT id, PRECT prc, HWND hwndBehind, PDIALOGINFO pdi);
 VOID DeleteControl(VOID);
 VOID DeleteDialog(BOOL fResAlso);
+#ifdef JAPAN
+VOID KDExpandCopy(LPTSTR, LPTSTR, WORD);
+#endif
 
 
 /*
@@ -294,6 +297,9 @@ VOID StatusFillSymbolList(NPLABEL plHead);
 VOID StatusSetCoords(PRECT prc);
 VOID StatusUpdate(VOID);
 VOID StatusSetEnable(VOID);
+#ifdef JAPAN
+VOID KKExpandCopy(LPTSTR, LPTSTR, WORD);
+#endif
 
 
 /*

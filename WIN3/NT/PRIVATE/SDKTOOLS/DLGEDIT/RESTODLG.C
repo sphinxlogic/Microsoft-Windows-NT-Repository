@@ -980,4 +980,3 @@ VOID MakeCopyFromRes(
         gpResCopy = NULL;
     }
 }
-

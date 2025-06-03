@@ -46,11 +46,10 @@ extern "C" {
 #include "dialogs.h"
 #include "regedhlp.h"
 }
-extern "C" {
+
 #include <wchar.h>
 #include <stdio.h>
 #include "shellapi.h"
-}
 
 #define LOCAL_COMPUTER  (LPWSTR)L"__Local_Computer"
 
@@ -101,6 +100,7 @@ STATIC  PWSTRING    _MsgKeys=     NULL;
 STATIC  PWSTRING    _KeyLocalMachine = NULL;
 STATIC  PWSTRING    _KeyClassesRoot = NULL;
 STATIC  PWSTRING    _KeyCurrentUser = NULL;
+STATIC  PWSTRING    _KeyCurrentConfig = NULL;
 STATIC  PWSTRING    _KeyUsers = NULL;
 STATIC  PWSTRING    _MsgAutoRefresh     = NULL;
 STATIC  PWSTRING    _MsgReadOnly        = NULL;
@@ -512,6 +512,7 @@ Return Value:
     _KeyLocalMachine    = REGEDIT_BASE_SYSTEM::QueryString( MSG_KEY_LOCAL_MACHINE, "" );
     _KeyClassesRoot     = REGEDIT_BASE_SYSTEM::QueryString( MSG_KEY_CLASSES_ROOT, "" );
     _KeyCurrentUser     = REGEDIT_BASE_SYSTEM::QueryString( MSG_KEY_CURRENT_USER, "" );
+    _KeyCurrentConfig   = REGEDIT_BASE_SYSTEM::QueryString( MSG_KEY_CURRENT_CONFIG, "" );
     _KeyUsers           = REGEDIT_BASE_SYSTEM::QueryString( MSG_KEY_USERS, "" );
     _SaveKeyTitle       = REGEDIT_BASE_SYSTEM::QueryString( MSG_SAVE_KEY_DLG_TITLE, "" );
     _RestoreKeyTitle    = REGEDIT_BASE_SYSTEM::QueryString( MSG_RESTORE_KEY_DLG_TITLE, "" );
@@ -541,13 +542,14 @@ Return Value:
         ( _KeyLocalMachine == NULL ) ||
         ( _KeyClassesRoot == NULL ) ||
         ( _KeyCurrentUser == NULL ) ||
+        ( _KeyCurrentConfig == NULL ) ||
         ( _KeyUsers == NULL ) ||
         ( _SaveKeyTitle == NULL ) ||
         ( _RestoreKeyTitle == NULL ) ||
         ( _LoadHiveTitle == NULL ) ||
         ( _AllFiles == NULL ) ||
         ( _StarDotStar == NULL ) ) {
-        DbgPrint( "ERROR: Unable to create WSTRING objects" );
+        DebugPrint( "ERROR: Unable to create WSTRING objects" );
         DELETE( _MsgHelpFile );
         FREE( _HelpFileString );
         DELETE( _MsgIniFile );
@@ -571,6 +573,7 @@ Return Value:
         DELETE( _KeyClassesRoot );
         DELETE( _KeyUsers );
         DELETE( _KeyCurrentUser );
+        DELETE( _KeyCurrentConfig );
         DELETE( _SaveKeyTitle );
         DELETE( _RestoreKeyTitle );
         DELETE( _LoadHiveTitle );
@@ -698,7 +701,7 @@ Return Value:
     DELETE( WindowName );
 
     if( _WndMain == NULL ) {
-        DbgPrint( "CreateWindow() failed" );
+        DebugPrint( "CreateWindow() failed" );
         return( FALSE );
     }
 
@@ -768,9 +771,9 @@ Return Value:
     WSTR            Buffer[2048];
     WSTR            Buffer1[2048];
 
-    DbgPtrAssert( SectionName );
-    DbgPtrAssert( KeyName );
-    DbgPtrAssert( Name );
+    DebugPtrAssert( SectionName );
+    DebugPtrAssert( KeyName );
+    DebugPtrAssert( Name );
 
 
 
@@ -781,7 +784,7 @@ Return Value:
         ( ( KeyNameString = KeyName->QueryWSTR() ) == NULL ) ||
         ( Name == NULL ) ||
         ( ( NameString = Name->QueryWSTR() ) == NULL ) ) {
-        DbgPrint( "ERROR: Unable to retrieve strings" );
+        DebugPrint( "ERROR: Unable to retrieve strings" );
 
         FREE( MsgIniFileString );
         FREE( SectionNameString );
@@ -859,11 +862,11 @@ Return Value:
 
 
 
-    DbgPtrAssert( RegistryWindowSet );
+    DebugPtrAssert( RegistryWindowSet );
 
 
     if( ( MsgIniFileString = _MsgIniFile->QueryWSTR() ) == NULL ) {
-        DbgPrint( "ERROR: Unable to retrieve string" );
+        DebugPrint( "ERROR: Unable to retrieve string" );
         return( FALSE );
     }
     if( RegistryWindowSet == NULL ) {
@@ -900,6 +903,14 @@ Return Value:
                      (WPARAM)RegistryWindowSet->Users->QueryHandle(),
                      0 );
         DELETE( RegistryWindowSet->Users );
+    }
+
+    if( RegistryWindowSet->CurrentConfig != NULL ) {
+        SendMessage( _MDIHandle,
+                     WM_MDIDESTROY,
+                     (WPARAM)RegistryWindowSet->CurrentConfig->QueryHandle(),
+                     0 );
+        DELETE( RegistryWindowSet->CurrentConfig );
     }
 
     if( WINDOWS_APPLICATION::IsSaveSettingsEnabled() ) {
@@ -979,8 +990,8 @@ Return Value:
 
         RegistryWindowSet = RegistryWindow->_RegistryWindowSet;
         if( RegistryWindowSet == NULL ) {
-            DbgPrint( "RegistryWindowSet is NULL" );
-            DbgPtrAssert( RegistryWindowSet );
+            DebugPrint( "RegistryWindowSet is NULL" );
+            DebugPtrAssert( RegistryWindowSet );
             return( TRUE );
         }
         if( ( ( Registry = RegistryWindowSet->Registry ) != NULL ) &&
@@ -1054,8 +1065,8 @@ Return Value:
 
         InternalRegistry = RegistryWindow->_IR;
         if( InternalRegistry == NULL ) {
-            DbgPrint( "Error: InternalRegistry is NULL" );
-            DbgPtrAssert( InternalRegistry );
+            DebugPrint( "Error: InternalRegistry is NULL" );
+            DebugPtrAssert( InternalRegistry );
             return( TRUE );
         }
 
@@ -1073,7 +1084,7 @@ Return Value:
             ( ( MachineNameString = MachineName->QueryWSTR() ) == NULL ) ||
             ( ( RootNameString = RootName->QueryWSTR() ) == NULL ) ) {
 
-                DbgPrint( "ERROR: NULL pointer" );
+                DebugPrint( "ERROR: NULL pointer" );
                 FREE( MsgIniFileString );
                 FREE( MachineNameString );
                 FREE( RootNameString );
@@ -1243,7 +1254,7 @@ Return Value:
     if( ( MsgFontString == NULL ) ||
         ( MsgFaceNameString == NULL ) ||
         ( MsgIniFileString == NULL ) ) {
-        DbgPrint( "ERROR: Unable to initialize strings" );
+        DebugPrint( "ERROR: Unable to initialize strings" );
         FREE( MsgFontString );
         FREE( MsgFaceNameString );
         FREE( MsgIniFileString );
@@ -1334,7 +1345,7 @@ Return Value:
         ( MsgFaceNameString == NULL ) ||
         ( DefaultFaceNameString == NULL ) ||
         ( MsgIniFileString == NULL ) ) {
-        DbgPrint( "ERROR: Unable to initialize strings" );
+        DebugPrint( "ERROR: Unable to initialize strings" );
         FREE( MsgFontString );
         FREE( MsgFaceNameString );
         FREE( MsgIniFileString );
@@ -1539,7 +1550,7 @@ Return Value:
     if( ( ( MsgIniFileString = _MsgIniFile->QueryWSTR() ) == NULL ) ||
         ( ( MsgSettingsString = _MsgSettings->QueryWSTR() ) == NULL ) ||
         ( ( MsgRegistryString = _MsgRegistry->QueryWSTR() ) == NULL ) ) {
-        DbgPrint( "ERROR: Unable to retrieve strings" );
+        DebugPrint( "ERROR: Unable to retrieve strings" );
         FREE( MsgIniFileString );
         FREE( MsgSettingsString );
         FREE( MsgRegistryString );
@@ -1667,7 +1678,7 @@ Return Value:
                                    MsgIniFileString );
 
 
-
+        WindowPlacement.length=sizeof( WINDOWPLACEMENT );
         if( GetWindowPlacement( _WndMain, &WindowPlacement ) ) {
             swprintf( Buffer, (LPWSTR)L"%d", WindowPlacement.rcNormalPosition.left );
             WritePrivateProfileString( MsgSettingsString,
@@ -1795,10 +1806,14 @@ Return Value:
 --*/
 
 {
-    WSTR    MachineName[ 2+MAX_COMPUTERNAME_LENGTH+1 ];
-//                       |                          |----> NUL
-//                       |-------------------------------> two back slashes
-//
+    WSTR    MachineName[ 4*MAX_PATH+1 ];
+    //
+    //  A machine name (Fully Qualified Domain name, eg, \\machine_name.microsoft.com)
+    //  can be huge (127 segments of 63 characters each.
+    //  In practice, a buffer of 256 characters (MAX_PATH) will handle most
+    //  cases. To be in the safe side, this buffer was made a 1024 characters
+    //  long
+    //
     BOOL    OkPressed;
     UINT    BufferSize;
     UINT    Status;
@@ -1806,14 +1821,14 @@ Return Value:
 
     BufferSize = sizeof( MachineName )/ sizeof( WCHAR );
     if( (Status = I_SystemFocusDialog( hWnd,
-                             FOCUSDLG_SERVERS_ONLY,
+                             FOCUSDLG_SERVERS_ONLY | FOCUSDLG_BROWSE_ALL_DOMAINS,
                              ( LPWSTR )MachineName,
                              BufferSize,
                              &OkPressed,
                              _HelpFileString,
                              IDH_DB_SELECT_REGED )) != 0 ) {
-        DbgPrint( "SystemFocusDialog() failed" );
-        DbgPrintf( "SystemFocusDialog() failed, Status = %d \n", Status );
+        DebugPrint( "SystemFocusDialog() failed" );
+        DebugPrintf( "SystemFocusDialog() failed, Status = %d \n", Status );
         return( FALSE );
     }
 
@@ -1824,11 +1839,11 @@ Return Value:
     // Initialize Name with the MachineName, but remove '\\'
     //
     if( !Name->Initialize( MachineName + 2 ) ) {
-        DbgPrint( "Name.Initialize( MachineName, BufferSize ) failed" );
+        DebugPrint( "Name.Initialize( MachineName, BufferSize ) failed" );
         return( FALSE );
     }
 // DbgName = Name->QuerySTR();
-// DbgPrintf( "Name = %s \n", DbgName );
+// DebugPrintf( "Name = %s \n", DbgName );
 // FREE( DbgName );
     return( TRUE );
 }
@@ -1914,9 +1929,9 @@ Return Value:
     PWSTR    PredefinedKeyString;
     WSTR     Buffer[256];
 
-    DbgPtrAssert( MachineName );
-    DbgPtrAssert( PredefinedKey );
-    DbgPtrAssert( WindowPosition );
+    DebugPtrAssert( MachineName );
+    DebugPtrAssert( PredefinedKey );
+    DebugPtrAssert( WindowPosition );
 
     WindowPosition->X = CW_USEDEFAULT;
     WindowPosition->Y = CW_USEDEFAULT;
@@ -1937,7 +1952,7 @@ Return Value:
         ( ( MachineNameString = MachineName->QueryWSTR() ) == NULL ) ||
         ( ( PredefinedKeyString = PredefinedKey->QueryWSTR() ) == NULL ) ||
         ( ( MsgIniFileString = _MsgIniFile->QueryWSTR() ) == NULL ) ) {
-        DbgPrint( "ERROR: NULL pointer" );
+        DebugPrint( "ERROR: NULL pointer" );
         FREE( MachineNameString );
         FREE( PredefinedKeyString );
         FREE( MsgIniFileString );
@@ -1961,7 +1976,7 @@ Return Value:
                  &( WindowPosition->Height ),
                  &( WindowPosition->Style ),
                  &( WindowPosition->Split ) ) != 6 ) {
-        DbgPrint( "sscanf() failed" );
+        DebugPrint( "sscanf() failed" );
     }
 
     FREE( MachineNameString );
@@ -2012,11 +2027,12 @@ Return Value:
     WINDOW_POSITION             WindowPosition;
     FSTRING                     AuxString;
 
-    DbgAssert( ( PredefinedKey == PREDEFINED_KEY_CLASSES_ROOT ) ||
+    DebugAssert( ( PredefinedKey == PREDEFINED_KEY_CLASSES_ROOT ) ||
                ( PredefinedKey == PREDEFINED_KEY_CURRENT_USER ) ||
                ( PredefinedKey == PREDEFINED_KEY_LOCAL_MACHINE ) ||
-               ( PredefinedKey == PREDEFINED_KEY_USERS ) );
-    DbgPtrAssert( RegistryWindowSet );
+               ( PredefinedKey == PREDEFINED_KEY_USERS )
+               ( PredefinedKey == PREDEFINED_KEY_CURRENT_CONFIG ) );
+    DebugPtrAssert( RegistryWindowSet );
 
 
     Registry = RegistryWindowSet->Registry;
@@ -2048,6 +2064,11 @@ Return Value:
 
             RootName = _KeyUsers;
             break;
+
+        case PREDEFINED_KEY_CURRENT_CONFIG:
+
+            RootName = _KeyCurrentConfig;
+            break;
     }
 
     GetRegistryWindowPosition( MachineName, RootName, &WindowPosition );
@@ -2055,34 +2076,34 @@ Return Value:
     if( !Registry->IsRemoteRegistry() ) {
         WindowTitle = REGEDIT_BASE_SYSTEM::QueryString( MSG_REG_WINDOW_TITLE_LOCAL,
                                           "%W",
-					  RootName->GetWSTR() );
-        DbgPtrAssert( WindowTitle );
+                                          RootName->GetWSTR() );
+        DebugPtrAssert( WindowTitle );
 
     } else {
         WindowTitle = REGEDIT_BASE_SYSTEM::QueryString( MSG_REG_WINDOW_TITLE_REMOTE,
                                                   "%W %W",
-						  RootName->GetWSTR(),
-						  MachineName->GetWSTR() );
-        DbgPtrAssert( WindowTitle );
+                                                  RootName->GetWSTR(),
+                                                  MachineName->GetWSTR() );
+        DebugPtrAssert( WindowTitle );
     }
 
     InternalRegistry = ( PREGEDIT_INTERNAL_REGISTRY )NEW( REGEDIT_INTERNAL_REGISTRY );
-    DbgPtrAssert( InternalRegistry );
+    DebugPtrAssert( InternalRegistry );
     if( ( InternalRegistry == NULL ) ||
         ( !InternalRegistry->Initialize( PredefinedKey,
                                          Registry,
                                          RootName ) ) ) {
-        DbgPrint( "InternalRegistry->Initialize() failed" );
+        DebugPrint( "InternalRegistry->Initialize() failed" );
         DELETE( InternalRegistry );
         return( NULL );
 
     } else {
 
         pRegWin = (PREGISTRY_WINDOW)NEW( REGISTRY_WINDOW );
-        DbgPtrAssert( pRegWin );
+        DebugPtrAssert( pRegWin );
         if( ( pRegWin == NULL ) ||
             ( !pRegWin->Initialize( _MDIHandle, WindowTitle, InternalRegistry, RegistryWindowSet, &WindowPosition ) ) ) {
-            DbgPrint( "pRegWin->Initialize() failed" );
+            DebugPrint( "pRegWin->Initialize() failed" );
             DELETE( pRegWin );
             DELETE( InternalRegistry );
             DELETE( WindowTitle );
@@ -2112,6 +2133,12 @@ Return Value:
             RegistryWindowSet->Users = pRegWin;
             RootName = _KeyUsers;
             break;
+
+        case PREDEFINED_KEY_CURRENT_CONFIG:
+
+            RegistryWindowSet->CurrentConfig = pRegWin;
+            break;
+
     }
 
 
@@ -2156,6 +2183,7 @@ Return Value:
     ULONG                       Key1;
     ULONG                       Key2;
     ULONG                       Key3;
+    ULONG                       Key4;
     PWSTR                       MsgKeysString = NULL;
     WCHAR                       Buffer[128];
     PCWSTR                       MachineNameString;
@@ -2169,16 +2197,16 @@ Return Value:
     Registry = ( PREGISTRY )NEW( REGISTRY );
     if( ( RegistryWindowSet == NULL ) ||
         ( Registry == NULL ) ) {
-        DbgPtrAssert( RegistryWindowSet );
-        DbgPtrAssert( Registry );
+        DebugPtrAssert( RegistryWindowSet );
+        DebugPtrAssert( Registry );
         FREE( RegistryWindowSet );
         DELETE( Registry );
-        DbgPrint( "Out of memory" );
+        DebugPrint( "Out of memory" );
         return( FALSE );
     }
 
     if( !Registry->Initialize( MachineName, &ErrorCode ) ) {
-        DbgPrint( "Registry->Initialize() failed" );
+        DebugPrint( "Registry->Initialize() failed" );
         FREE( RegistryWindowSet );
         DELETE( Registry );
         if( ( ErrorCode ==  REGISTRY_RPC_S_SERVER_UNAVAILABLE ) ||
@@ -2201,6 +2229,7 @@ Return Value:
     RegistryWindowSet->CurrentUser = NULL;
     RegistryWindowSet->LocalMachine = NULL;
     RegistryWindowSet->Users = NULL;
+    RegistryWindowSet->CurrentConfig = NULL;
     RegistryWindowSet->Registry = Registry;
 
 
@@ -2218,7 +2247,7 @@ Return Value:
                                  MsgKeysString,
                                  ( Registry->IsRemoteRegistry() )?
                                                (LPWSTR)L"2,3" :
-                                               (LPWSTR)L"2,3,0,1",
+                                               (LPWSTR)L"2,3,4,0,1",
                                  Buffer,
                                  sizeof( Buffer )/sizeof( WCHAR ),
                                  MsgIniFileString );
@@ -2239,15 +2268,17 @@ Return Value:
         }
     } else {
         if( swscanf( Buffer,
-                     (LPWSTR)L"%d,%d,%d,%d",
+                     (LPWSTR)L"%d,%d,%d,%d,%d",
                      &Key0,
                      &Key1,
                      &Key2,
-                     &Key3 ) != 4 ) {
+                     &Key3,
+                     &Key4 ) != 5 ) {
             Key0 = ( ULONG )PREDEFINED_KEY_LOCAL_MACHINE;
             Key1 = ( ULONG )PREDEFINED_KEY_USERS;
-            Key2 = ( ULONG )PREDEFINED_KEY_CLASSES_ROOT;
-            Key3 = ( ULONG )PREDEFINED_KEY_CURRENT_USER;
+            Key2 = ( ULONG )PREDEFINED_KEY_CURRENT_CONFIG;
+            Key3 = ( ULONG )PREDEFINED_KEY_CLASSES_ROOT;
+            Key4 = ( ULONG )PREDEFINED_KEY_CURRENT_USER;
         }
     }
 
@@ -2263,6 +2294,9 @@ Return Value:
                             RegistryWindowSet );
 
         OpenRegistryWindow( PREDEFINED_KEY( Key3 ),
+                            RegistryWindowSet );
+
+        OpenRegistryWindow( PREDEFINED_KEY( Key4 ),
                             RegistryWindowSet );
 
     }
@@ -2322,7 +2356,7 @@ Return Value:
     if( Buffer[0] != ( WCHAR )'\0' ) {
         Pointer = wcstok( Buffer, (LPWSTR)L"," );
         while( Pointer != NULL ) {
-            if( wcsicmp( Pointer, (PCWSTR)L"__Local_Computer" ) == 0 ) {
+            if( _wcsicmp( Pointer, (PCWSTR)L"__Local_Computer" ) == 0 ) {
                 OpenRegistry( NULL );
             } else {
                 if( MachineName.Initialize( Pointer ) ) {
@@ -2375,7 +2409,7 @@ Return Value:
     UINT                             ItemStatus;
     INT                              PopupMenuId;
     PWSTRING                         about_string;
-    PWSTR			     about_str;
+    PWSTR                            about_str;
     DSTRING                          MachineName;
     PREGISTRY_WINDOW_SET             RegistryWindowSet;
     HCURSOR                          Cursor;
@@ -2417,12 +2451,12 @@ Return Value:
                                     (HINSTANCE)WINDOWS_APPLICATION::QueryInstance(),
                                     ( LPVOID ) &Ccs );
         if( _MDIHandle == NULL ) {
-            DbgPrint( "Could not create MDICLIENT window\n" );
+            DebugPrint( "Could not create MDICLIENT window\n" );
             return( 0 );
         }
 
         _PrintManager = ( PRINT_MANAGER* )NEW( PRINT_MANAGER );
-        DbgPtrAssert( _PrintManager );
+        DebugPtrAssert( _PrintManager );
         _PrintManager->Initialize( hWnd );
 
         PostMessage( hWnd, RE_OPEN_LOCAL_REGISTRY, 0, 0 );
@@ -2440,7 +2474,7 @@ Return Value:
                 }
 
                 if( !FindString.Initialize( _FindReplace.lpstrFindWhat ) ) {
-                    DbgPrint( "FindString.Initialize() failed" );
+                    DebugPrint( "FindString.Initialize() failed" );
                     return( 0 );
                 }
                 SendMessage( CurrRegWin,
@@ -2848,8 +2882,8 @@ Return Value:
                         ActiveWindow = ( PREGISTRY_WINDOW ) GetObjectPointer( CurrRegWin );
                         RegistryWindowSet = ActiveWindow->_RegistryWindowSet;
                         if( RegistryWindowSet == NULL ) {
-                            DbgPrint( "RegistryWindowSet is NULL" );
-                            DbgPtrAssert( RegistryWindowSet );
+                            DebugPrint( "RegistryWindowSet is NULL" );
+                            DebugPtrAssert( RegistryWindowSet );
                             return( 0 );
                         }
                         CloseRegistry( RegistryWindowSet );
@@ -3002,21 +3036,21 @@ Return Value:
 
                 case IDM_CONTENTS:
 
-                    if( !WinHelp( _WndMain, _HelpFileString, (UINT)HELP_INDEX, 0 ) ){
-                        DbgPrint( "WinHelp() failed" );
+                    if( !WinHelp( _WndMain, _HelpFileString, (UINT)HELP_FINDER, 0 ) ){
+                        DebugPrint( "WinHelp() failed" );
                     }
                     break;
 
                 case IDM_SEARCH_FOR_HELP:
                     if( !WinHelp( _WndMain, _HelpFileString, (UINT)HELP_PARTIALKEY, (DWORD)"" ) ){
-                        DbgPrint( "WinHelp() failed" );
+                        DebugPrint( "WinHelp() failed" );
                     }
                     break;
 
 
                 case IDM_HOW_TO_USE_HELP:
                     if( !WinHelp( _WndMain, _HelpFileString, (UINT)HELP_HELPONHELP, 0 ) ){
-                        DbgPrint( "WinHelp() failed" );
+                        DebugPrint( "WinHelp() failed" );
                     }
                     break;
 
@@ -3027,7 +3061,7 @@ Return Value:
                         break;
                     }
 
-		    about_str = about_string->QueryWSTR();
+                    about_str = about_string->QueryWSTR();
                     DELETE(about_string);
 
                     ShellAbout( hWnd, about_str, NULL, 0 );
@@ -3109,36 +3143,36 @@ Return Value:
 
 
     if ( !LexArray.Initialize( ) ) {
-        DbgPrint( "LexArray.Initialize() failed \n" );
+        DebugPrint( "LexArray.Initialize() failed \n" );
         return( FALSE );
     }
     if ( !ArgLex.Initialize( &LexArray ) ) {
-        DbgPrint( "ArgLex.Initialize() failed \n" );
+        DebugPrint( "ArgLex.Initialize() failed \n" );
         return( FALSE );
     }
     ArgLex.PutSwitches( (PCSTR)L"/" );
     ArgLex.SetCaseSensitive( FALSE );
     if( !ArgLex.PrepareToParse() ) {
-        DbgPrint( "ArgLex.PrepareToParse() failed \n" );
+        DebugPrint( "ArgLex.PrepareToParse() failed \n" );
         return( FALSE );
     }
 
     if ( !ArgumentArray.Initialize() ) {
-        DbgPrint( "ArgumentArray.Initialize() failed \n" );
+        DebugPrint( "ArgumentArray.Initialize() failed \n" );
         return( FALSE );
     }
     if( !ProgramNameArgument.Initialize((PSTR)L"*") ||
         !FlagReadOnlyMode.Initialize( (PSTR)L"/R" ) ||
         !FlagAccessRemote.Initialize( (PSTR)L"/N" ) ||
         !FlagDisplayHelp.Initialize( (PSTR)L"/?" )) {
-        DbgPrint( "Unable to initialize flag or string arguments \n" );
+        DebugPrint( "Unable to initialize flag or string arguments \n" );
         return( FALSE );
     }
     if( !ArgumentArray.Put( &ProgramNameArgument ) ||
         !ArgumentArray.Put( &FlagReadOnlyMode ) ||
         !ArgumentArray.Put( &FlagAccessRemote ) ||
         !ArgumentArray.Put( &FlagDisplayHelp ) ) {
-        DbgPrint( "ArgumentArray.Put() failed \n" );
+        DebugPrint( "ArgumentArray.Put() failed \n" );
         return( FALSE );
     }
 
@@ -3225,7 +3259,7 @@ Return Value:
         ( MsgSaveSettingsString == NULL ) ) {
 
 
-        DbgPrint( "Error: Unable to retrieve strings" );
+        DebugPrint( "Error: Unable to retrieve strings" );
 
         FREE( MsgIniFileString );
         FREE( MsgSettingsString );
@@ -3351,6 +3385,86 @@ Return Value:
 }
 
 
+BOOL
+CheckPolicy()
+
+/*++
+
+Routine Description:
+
+    Checks if policy prevents regedt32 from running
+
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE if regedt32 should terminate.
+    FALSE if not.
+
+--*/
+
+{
+    BOOL fRegistryToolDisabled = FALSE;
+    HKEY hKey;
+    DWORD Type;
+    DWORD ValueBuffer;
+    DWORD cbValueBuffer;
+    LONG lResult;
+
+    lResult = RegOpenKeyEx(HKEY_CURRENT_USER,
+                     TEXT("Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"),
+                     0,
+                     KEY_READ,
+                     &hKey);
+
+    if (lResult != ERROR_SUCCESS) {
+        return FALSE;
+    }
+
+
+    cbValueBuffer = sizeof(DWORD);
+
+    lResult = RegQueryValueEx(hKey,
+                              TEXT("DisableRegistryTools"),
+                              NULL,
+                              &Type,
+                              (LPBYTE) &ValueBuffer,
+                              &cbValueBuffer);
+
+
+    if (lResult == ERROR_SUCCESS &&
+        Type == REG_DWORD &&
+        cbValueBuffer == sizeof(DWORD) &&
+        ValueBuffer != FALSE) {
+
+        fRegistryToolDisabled = TRUE;
+    }
+
+    RegCloseKey(hKey);
+
+
+    if (fRegistryToolDisabled) {
+        TCHAR szTitle[100];
+        TCHAR szMsg[300];
+
+
+        LoadString ((HINSTANCE)_Module, MSG_REGISTRY_EDITOR, szTitle, 100);
+        LoadString ((HINSTANCE)_Module, MSG_REGEDIT_DISABLED, szMsg, 300);
+
+        MessageBox(NULL, szMsg, szTitle, MB_OK | MB_ICONERROR);
+
+        return TRUE;
+
+    }
+
+    return FALSE;
+
+}
+
+
 INT _CRTAPI1
 main()
 
@@ -3385,6 +3499,10 @@ Return Value:
 
     _Module = GetModuleHandle( NULL );
 
+    if (CheckPolicy()) {
+        exit( 0 );
+    }
+
 
     WINDOWS_APPLICATION::Initialize (
                          _Module,
@@ -3396,7 +3514,7 @@ Return Value:
 
 
     if( !InitializeGlobalStrings() ) {
-        DbgPrint( "InitializeGlobalStrings() failed" );
+        DebugPrint( "InitializeGlobalStrings() failed" );
         exit( 0 );
     }
     GetSettings();
@@ -3709,7 +3827,7 @@ Return Value:
     if( !OpenProcessToken( GetCurrentProcess(),
                            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
                            &TokenHandle ) ) {
-        DbgPrint( "OpenProcessToken failed" );
+        DebugPrint( "OpenProcessToken failed" );
         return( FALSE );
     }
 
@@ -3717,7 +3835,7 @@ Return Value:
     if( !LookupPrivilegeValue( NULL,
                                Privilege, // (LPWSTR)SE_SECURITY_NAME,
                                &( LuidAndAttributes.Luid ) ) ) {
-        DbgPrintf( "LookupPrivilegeValue failed, Error = %#d \n", GetLastError() );
+        DebugPrintf( "LookupPrivilegeValue failed, Error = %#d \n", GetLastError() );
         return( FALSE );
     }
 
@@ -3731,7 +3849,7 @@ Return Value:
                                 0,
                                 NULL,
                                 NULL ) ) {
-        DbgPrintf( "AdjustTokenPrivileges failed, Error = %#x \n", GetLastError() );
+        DebugPrintf( "AdjustTokenPrivileges failed, Error = %#x \n", GetLastError() );
         return( FALSE );
     }
 

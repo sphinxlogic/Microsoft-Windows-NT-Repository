@@ -96,4 +96,3 @@ Return Value:
     CmpUnlockRegistry();
     return;
 }
-

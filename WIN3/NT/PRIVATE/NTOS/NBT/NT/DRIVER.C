@@ -24,8 +24,14 @@ Revision History:
 #include "nbtprocs.h"
 #include <nbtioctl.h>
 
+#if DBG
 // allocate storage for the global debug flag NbtDebug
-ULONG   NbtDebug=0x00000000;    // disable all debugging
+#ifdef _PNP_POWER
+ULONG   NbtDebug=NBT_DEBUG_PNP_POWER;    // NT PNP debugging
+#else // _PNP_POWER
+ULONG   NbtDebug=0x00000000;             // disable all debugging
+#endif // _PNP_POWER
+#endif // DBG
 
 NTSTATUS
 DriverEntry(
@@ -80,9 +86,17 @@ MakePending(
     IN PIRP     pIrp
     );
 
+#ifdef RASAUTODIAL
+VOID
+NbtAcdBind();
+#endif // RASAUTODIAL
+
 //*******************  Pageable Routine Declarations ****************
 #ifdef ALLOC_PRAGMA
 #pragma CTEMakePageable(INIT, DriverEntry)
+#ifdef RASAUTODIAL
+#pragma CTEMakePageable(INIT, NbtAcdBind)
+#endif // RASAUTODIAL
 #pragma CTEMakePageable(PAGE, NbtDispatchCleanup)
 #pragma CTEMakePageable(PAGE, NbtDispatchClose)
 #pragma CTEMakePageable(PAGE, NbtDispatchCreate)
@@ -119,33 +133,25 @@ Return Value:
 
 {
     NTSTATUS            status;
-    int                 i;
-    tDEVICECONTEXT      *pDeviceContext;
-    PLIST_ENTRY         pEntry;
-    tADDRARRAY          *pAddrArray=NULL;
     tADDRARRAY          *pAddr;
     tDEVICES            *pBindDevices=NULL;
     tDEVICES            *pExportDevices=NULL;
+    tADDRARRAY          *pAddrArray=NULL;
+
+#ifndef _PNP_LATER
+    int                 i;
+    PLIST_ENTRY         pHead;
+    PLIST_ENTRY         pEntry;
+    NTSTATUS            Locstatus;
+    tDEVICECONTEXT      *pDeviceContext;
     ULONG               DevicesStarted;
+#endif // _PNP_POWER
 
     CTEPagedCode();
-    //DbgBreakPoint();
 
-#ifdef UP_DRIVER
-	if ( **((PCCHAR *) &KeNumberProcessors) != 1) {
-		CTELogEvent(
-		    DriverObject,
-		    EVENT_UP_DRIVER_ON_MP,
-			1,
-			0,
-			NULL,
-			0,
-			NULL
-			);
-        KdPrint(("NetBT: UP driver cannot load on MP system\n"));
-        return(STATUS_UNSUCCESSFUL);
-	}
-#endif // UP_DRIVER
+#ifdef _PNP_POWER
+    TdiInitialize();
+#endif
 
     //
     // get the file system process for NBT since we need to know this for
@@ -199,6 +205,8 @@ Return Value:
 
     DriverObject->DriverUnload = NULL;
 
+#ifndef _PNP_LATER
+
     // start some timers
     status = InitTimersNotOs();
 
@@ -210,6 +218,14 @@ Return Value:
         StopInitTimers();
         return(status);
     }
+
+// #else // _PNP_POWER
+
+    // ASSERT (status == STATUS_SUCCESS);
+
+    NbtConfig.uDevicesStarted = 0;
+
+#endif // _PNP_POWER
 
     pNbtGlobConfig->iBufferSize[eNBT_FREE_SESSION_MDLS] = sizeof(tSESSIONHDR);
     pNbtGlobConfig->iBufferSize[eNBT_DGRAM_MDLS] = DGRAM_HDR_SIZE
@@ -238,18 +254,17 @@ Return Value:
         return(status);
     }
 
+#ifndef _PNP_LATER
 
     //
     // Create the NBT device object for each adapter configured
     //
     pAddr = pAddrArray;
+
     DevicesStarted = 0;
+
     for (i=0; i<pNbtGlobConfig->uNumDevices; i++ )
     {
-        PLIST_ENTRY pHead;
-        PLIST_ENTRY pEntry;
-        NTSTATUS    Locstatus;
-        tDEVICECONTEXT *pDeviceContext;
 
         // this call ultimately allocates storage for the returned NameString
         // that holds the Ipaddress
@@ -259,7 +274,11 @@ Return Value:
                     &pBindDevices->Names[i],
                     &pExportDevices->Names[i],
                     pAddr,
-                    RegistryPath);
+                    RegistryPath,
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+                    FALSE,
+#endif
+                    &pDeviceContext);
 
         // for a Bnode there are no Wins server addresses, so this Ptr can
         // be null.
@@ -272,76 +291,99 @@ Return Value:
         // allow not having an address to succeed - DHCP will
         // provide an address later
         //
-        if (status == STATUS_INVALID_ADDRESS)
+        if (pDeviceContext != NULL)
         {
-            pHead = &NbtConfig.DeviceContexts;
-            pEntry = pHead->Blink;
-
-            pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
-            //
-            // set to null so we know not to allow connections or dgram
-            // sends on this adapter
-            //
-            pDeviceContext->IpAddress = 0;
-            DevicesStarted++;
-            status = STATUS_SUCCESS;
-
-        }
-        else
-        if (!NT_SUCCESS(status) && ((status != STATUS_INVALID_ADDRESS)))
-        {
-
-            KdPrint((" Create Device Object Failed with status= %X, num devices = %X\n",status,
-                                    NbtConfig.uNumDevices));
-
-            NbtLogEvent(EVENT_NBT_CREATE_DEVICE,status);
-            //
-            // this device will not be started so decrement the count of started
-            // ones.
-            //
-            NbtConfig.AdapterCount--;
-
-            //
-            // cleanup the mess and free the device object since we had some
-            // sort of failure.
-            //
-            pHead = &NbtConfig.DeviceContexts;
-            pEntry = RemoveTailList(pHead);
-
-            pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
-
-            if (pDeviceContext->hNameServer)
+            if (status == STATUS_INVALID_ADDRESS)
             {
-                ObDereferenceObject(pDeviceContext->pNameServerFileObject);
-                Locstatus =  NTZwCloseFile(pDeviceContext->hNameServer);
-                KdPrint(("Close NameSrv File status = %X\n",Locstatus));
-            }
-            if (pDeviceContext->hDgram)
-            {
-                ObDereferenceObject(pDeviceContext->pDgramFileObject);
-                Locstatus = NTZwCloseFile(pDeviceContext->hDgram);
-                KdPrint(("Close Dgram File status = %X\n",Locstatus));
-            }
-            if (pDeviceContext->hSession)
-            {
-                ObDereferenceObject(pDeviceContext->pSessionFileObject);
-                Locstatus = NTZwCloseFile(pDeviceContext->hSession);
-                KdPrint(("Close Session File status = %X\n",Locstatus));
-            }
-            if (pDeviceContext->hControl)
-            {
-                ObDereferenceObject(pDeviceContext->pControlFileObject);
-                Locstatus = NTZwCloseFile(pDeviceContext->hControl);
-                KdPrint(("Close Control File status = %X\n",Locstatus));
+                //
+                // set to null so we know not to allow connections or dgram
+                // sends on this adapter
+                //
+                pDeviceContext->IpAddress = 0;
+
+                DevicesStarted++;
+
+                status = STATUS_SUCCESS;
+
             }
 
-            IoDeleteDevice((PDEVICE_OBJECT)pDeviceContext);
 
-        }
-        else
-        {
-            DevicesStarted++;
-            status = STATUS_SUCCESS;
+            if ((NT_SUCCESS(status)) ||
+                (status == STATUS_INVALID_ADDRESS_COMPONENT)) {
+
+                status = STATUS_SUCCESS;
+                NbtConfig.uDevicesStarted++;
+            }
+
+
+            {
+                //
+                // We can tolerate the invalid address component failure since IP does not know of
+                // static addresses at this time.
+                //
+                if (!NT_SUCCESS(status))
+                {
+
+                    pDeviceContext->RegistrationHandle = NULL;
+
+                    KdPrint((" Create Device Object Failed with status= %X, num devices = %X\n",status,
+                                            NbtConfig.uNumDevices));
+
+                    NbtLogEvent(EVENT_NBT_CREATE_DEVICE,status);
+                    //
+                    // this device will not be started so decrement the count of started
+                    // ones.
+                    //
+                    NbtConfig.AdapterCount--;
+
+                    //
+                    // cleanup the mess and free the device object since we had some
+                    // sort of failure.
+                    //
+                    pHead = &NbtConfig.DeviceContexts;
+                    pEntry = RemoveTailList(pHead);
+
+                    ASSERT (pDeviceContext == CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage));
+
+                    if (pDeviceContext->hNameServer)
+                    {
+                        ObDereferenceObject(pDeviceContext->pNameServerFileObject);
+                        Locstatus =  NTZwCloseFile(pDeviceContext->hNameServer);
+                        KdPrint(("Close NameSrv File status = %X\n",Locstatus));
+                    }
+                    if (pDeviceContext->hDgram)
+                    {
+                        ObDereferenceObject(pDeviceContext->pDgramFileObject);
+                        Locstatus = NTZwCloseFile(pDeviceContext->hDgram);
+                        KdPrint(("Close Dgram File status = %X\n",Locstatus));
+                    }
+                    if (pDeviceContext->hSession)
+                    {
+                        ObDereferenceObject(pDeviceContext->pSessionFileObject);
+                        Locstatus = NTZwCloseFile(pDeviceContext->hSession);
+                        KdPrint(("Close Session File status = %X\n",Locstatus));
+                    }
+                    if (pDeviceContext->hControl)
+                    {
+                        ObDereferenceObject(pDeviceContext->pControlFileObject);
+                        Locstatus = NTZwCloseFile(pDeviceContext->hControl);
+                        KdPrint(("Close Control File status = %X\n",Locstatus));
+                    }
+
+                    IoDeleteDevice((PDEVICE_OBJECT)pDeviceContext);
+
+                }
+                else
+                {
+                    //
+                    // So we know that we need to register this device when an IP addres
+                    // appears
+                    //
+                    pDeviceContext->RegistrationHandle = NULL;
+                    DevicesStarted++;
+                    pDeviceContext->DeviceObject.Flags &= ~DO_DEVICE_INITIALIZING;
+                }
+            }
         }
 
     }
@@ -351,13 +393,12 @@ Return Value:
     if (DevicesStarted == 0)
     {
         ExDeleteResource(&NbtConfig.Resource);
-        ExDeleteResource(&DnsQueries.Resource);
         StopInitTimers();
     }
     else
     {
         //
-        // at least on device context was created successfully, so return success
+        // at least one device context was created successfully, so return success
         //
         status = STATUS_SUCCESS;
     }
@@ -366,6 +407,8 @@ Return Value:
     {
         NbtLogEvent(EVENT_NBT_NO_DEVICES,0);
     }
+
+#endif // _PNP_POWER
 
     if (pBindDevices)
     {
@@ -382,19 +425,74 @@ Return Value:
         CTEMemFree((PVOID)pAddrArray);
     }
 
+#ifndef _PNP_LATER
+
     //
     // Get an Irp for the out of resource queue (used to disconnect sessions
     // when really low on memory)
     //
-    pEntry = NbtConfig.DeviceContexts.Flink;
-    pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
-
-    NbtConfig.OutOfRsrc.pIrp = NTAllocateNbtIrp(&pDeviceContext->DeviceObject);
-
-    if (!NbtConfig.OutOfRsrc.pIrp)
+    if (!IsListEmpty(&NbtConfig.DeviceContexts))
     {
-        return(STATUS_INSUFFICIENT_RESOURCES);
+        pEntry = NbtConfig.DeviceContexts.Flink;
+        pDeviceContext = CONTAINING_RECORD(pEntry,tDEVICECONTEXT,Linkage);
+
+        NbtConfig.OutOfRsrc.pIrp = NTAllocateNbtIrp(&pDeviceContext->DeviceObject);
+
+        if (!NbtConfig.OutOfRsrc.pIrp)
+        {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+        else
+        {
+            //
+            // allocate a dpc structure and keep it: we might need if we hit an
+            // out-of-resource condition
+            //
+            NbtConfig.OutOfRsrc.pDpc = NbtAllocMem(sizeof(KDPC),NBT_TAG('a'));
+            if (!NbtConfig.OutOfRsrc.pDpc)
+            {
+                IoFreeIrp(NbtConfig.OutOfRsrc.pIrp);
+                status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+        }
+
+#ifdef RASAUTODIAL
+        //
+        // Get the automatic connection driver
+        // entry points.
+        //
+        if (status == STATUS_SUCCESS)
+        {
+            NbtAcdBind();
+        }
+#endif
+
+#ifdef _PNP_POWER
+
+        (void)TdiRegisterAddressChangeHandler(
+                        AddressArrival,
+                        AddressDeletion,
+                        &AddressChangeHandle
+                            );
+
+#ifdef WATCHBIND
+        (void)TdiRegisterNotificationHandler(
+                        BindHandler,
+                        UnbindHandler,
+                        &BindingHandle
+                        );
+#endif // WATCHBIND
+
+#endif // _PNP_POWER
     }
+    else
+    {
+        KdPrint(("NetBT!DriverEntry: Huh?  Started NetBT with no devices!"));
+    }
+
+#endif // _PNP_POWER
+
+    NbtConfig.InterfaceIndex = 0;
 
     //
     // Return to the caller.
@@ -611,6 +709,20 @@ Return Value:
     CTEPagedCode();
     pDeviceContext = (tDEVICECONTEXT *)Device;
 
+    //
+    // If this device was destroyed, then reject all opens on it.
+    // Ideally we would like the IO sub-system to guarantee that no
+    // requests come down on IoDeleted devices, but.....
+    //
+    if (InterlockedExchangeAdd(&pDeviceContext->IsDestroyed, 0) != 0) {
+        // IF_DBG(NBT_DEBUG_DRIVER)
+            KdPrint(("Nbt Rejecting Create minor Func\n"));
+
+        pIrp->IoStatus.Status = STATUS_INVALID_DEVICE_STATE;
+        IoCompleteRequest (pIrp, IO_NETWORK_INCREMENT);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
     pIrpsp = IoGetCurrentIrpStackLocation(pIrp);
     ASSERT(pIrpsp->MajorFunction == IRP_MJ_CREATE);
     IrpFlags = pIrpsp->Control;
@@ -680,20 +792,6 @@ Return Value:
             //ASSERTMSG("An error Status reported from NBT",0L);
         }
 #endif
-#if 0
-        pIrp->IoStatus.Status = status;
-
-        // set the Irps cancel routine to null or the system may bugcheck
-        // with a bug code of CANCEL_STATE_IN_COMPLETED_IRP
-        //
-        // refer to IoCancelIrp()  ..\ntos\io\iosubs.c
-        //
-        IoAcquireCancelSpinLock(&OldIrq);
-        IoSetCancelRoutine(pIrp,NULL);
-        IoReleaseCancelSpinLock(OldIrq);
-
-        IoCompleteRequest(pIrp,IO_NETWORK_INCREMENT);
-#endif
 
         // reset the pending returned bit, since we are NOT returning pending
         pIrpsp->Control = IrpFlags;
@@ -743,13 +841,27 @@ Return Value:
     CTEPagedCode();
     pDeviceContext = (tDEVICECONTEXT *)Device;
 
+    irpsp = IoGetCurrentIrpStackLocation(irp);
+
+    //
+    // If this device was destroyed, then reject all requests on it.
+    // Ideally we would like the IO sub-system to guarantee that no
+    // requests come down on IoDeleted devices, but.....
+    //
+    if (InterlockedExchangeAdd(&pDeviceContext->IsDestroyed, 0) != 0) {
+        // IF_DBG(NBT_DEBUG_DRIVER)
+            KdPrint(("Nbt Rejecting Dev Ctrl code = %X\n",irpsp->Parameters.DeviceIoControl.IoControlCode));
+        irp->IoStatus.Status = STATUS_INVALID_DEVICE_STATE;
+        IoCompleteRequest (irp, IO_NETWORK_INCREMENT);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
     /*
      * Initialize the I/O status block.
      */
     irp->IoStatus.Status      = STATUS_PENDING;
     irp->IoStatus.Information = 0;
 
-    irpsp = IoGetCurrentIrpStackLocation(irp);
     ASSERT(irpsp->MajorFunction == IRP_MJ_DEVICE_CONTROL);
 
     IF_DBG(NBT_DEBUG_DRIVER)
@@ -814,11 +926,24 @@ Return Value:
 
     pDeviceContext = (tDEVICECONTEXT *)Device;
 
+    pIrpsp = IoGetCurrentIrpStackLocation(pIrp);
+
+    //
+    // If this device was destroyed, then reject all operations on it.
+    // Ideally we would like the IO sub-system to guarantee that no
+    // requests come down on IoDeleted devices, but.....
+    //
+    if (InterlockedExchangeAdd(&pDeviceContext->IsDestroyed, 0) != 0) {
+        // IF_DBG(NBT_DEBUG_DRIVER)
+            KdPrint(("Nbt Rejecting Internal minor fn. = %X\n",pIrpsp->MinorFunction));
+        pIrp->IoStatus.Status = STATUS_INVALID_DEVICE_STATE;
+        IoCompleteRequest (pIrp, IO_NETWORK_INCREMENT);
+        return STATUS_INVALID_DEVICE_STATE;
+    }
+
     /*
      * Initialize the I/O status block.
      */
-
-    pIrpsp = IoGetCurrentIrpStackLocation(pIrp);
 
     //
     // this check if first to optimize the Send path
@@ -944,14 +1069,6 @@ Return Value:
     //
     if (status != STATUS_PENDING)
     {
-#if 0
-    // DEBUG *************** REMOVE!!!!!!!!!!!!!
-        if (!NT_SUCCESS(status))
-        {
-            KdPrint(("NBT:error return status = %X,MinorFunc = %X\n",status,pIrpsp->MinorFunction));
-        }
-    // DEBUG *************** REMOVE!!!!!!!!!!!!!
-#endif
 #if DBG
         // *TODO* for debug...
         if (!NT_SUCCESS(status))
@@ -1109,4 +1226,3 @@ Return Value:
 
 }
 
-

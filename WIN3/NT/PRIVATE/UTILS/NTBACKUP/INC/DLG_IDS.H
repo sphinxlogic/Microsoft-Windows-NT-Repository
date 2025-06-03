@@ -51,6 +51,7 @@ Initial revision.
 
 // UNIVERSAL DEFINITIONS FOR ALL DIALOGS
 
+#undef  IDHELP
 #define IDHELP 100
 
 #define IDD_HELPABOUTWINTERPARK     1
@@ -131,5 +132,9 @@ Initial revision.
 #define IDD_PMDUMMYABORT           51        // chs:07-27-93
 
 #define IDD_WAITDEVICE             52
+
+#define IDD_CONNECT_XCHNG          53
+
+#define IDD_XCHG_RECOVER           54
 
 #endif

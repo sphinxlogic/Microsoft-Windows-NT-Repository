@@ -312,20 +312,15 @@ Return Value:
 --*/
 
 {
-    ULONG Err;
+    ULONG windowsError;
 
-    Err = FdpLoadHiveIntoRegistry(HiveFilename);
-    if (Err != NO_ERROR) {
-        return Err;
+    windowsError = FdpLoadHiveIntoRegistry(HiveFilename);
+    if (windowsError == NO_ERROR) {
+        windowsError = FdpGetDiskInfoFromKey(TEMP_KEY_NAME,DiskInfo,DiskInfoSize);
+        FdpUnloadHiveFromRegistry();
     }
 
-    Err = FdpGetDiskInfoFromKey(TEMP_KEY_NAME,DiskInfo,DiskInfoSize);
-    if (Err != NO_ERROR) {
-        return Err;
-    }
-
-    FdpUnloadHiveFromRegistry();
-    return NO_ERROR;
+    return windowsError;
 }
 
 
@@ -352,45 +347,45 @@ Return Value:
 --*/
 
 {
-    LONG Err;
-    PVOID DiskInfo;
-    ULONG DiskInfoSize;
+    LONG  windowsError;
+    PVOID diskInfo;
+    ULONG diskInfoSize;
     HKEY  hkeyDisk;
 
 
     // Load up the hive and pull the disk info from it.
 
-    Err = FdpGetDiskInfoFromHive(HiveFilename,&DiskInfo,&DiskInfoSize);
-    if (Err != NO_ERROR) {
-        return Err;
+    windowsError = FdpGetDiskInfoFromHive(HiveFilename,&diskInfo,&diskInfoSize);
+    if (windowsError != NO_ERROR) {
+        return windowsError;
     }
 
     // Propogate the disk info into the current registry.
     //
     // Start by opening HKEY_LOCAL_MACHINE,System\DISK
 
-    Err = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                       TEXT("System\\") DISK_KEY_NAME,
-                       REG_OPTION_RESERVED,
-                       KEY_WRITE,
-                       &hkeyDisk);
+    windowsError = RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                                TEXT("System\\") DISK_KEY_NAME,
+                                REG_OPTION_RESERVED,
+                                KEY_WRITE,
+                                &hkeyDisk);
 
-    if (Err != NO_ERROR) {
-        LocalFree(DiskInfo);
-        return Err;
+    if (windowsError != NO_ERROR) {
+        LocalFree(diskInfo);
+        return windowsError;
     }
 
     // Set the Information value in the DISK key.
 
-    Err = RegSetValueEx(hkeyDisk,
-                        DISK_VALUE_NAME,
-                        0,
-                        REG_BINARY,
-                        DiskInfo,
-                        DiskInfoSize);
+    windowsError = RegSetValueEx(hkeyDisk,
+                                 DISK_VALUE_NAME,
+                                 0,
+                                 REG_BINARY,
+                                 diskInfo,
+                                 diskInfoSize);
     RegCloseKey(hkeyDisk);
-    LocalFree(DiskInfo);
-    return Err;
+    LocalFree(diskInfo);
+    return windowsError;
 }
 
 
@@ -870,10 +865,10 @@ Return Value:
 --*/
 
 {
-    LONG Err;
-    TCHAR Letter;
-    TCHAR LetterColon[4];
-    PSTRING_LIST_NODE StringNode;
+    LONG              windowsError;
+    TCHAR             letter;
+    TCHAR             letterColon[4];
+    PSTRING_LIST_NODE stringNode;
 
     // Tell the user what this will do and prompt for confirmation
 
@@ -888,14 +883,14 @@ Return Value:
     SetCursor(hcurWait);
 
     RtlZeroMemory(ScanDrive,sizeof(ScanDrive));
-    lstrcpy(LetterColon,TEXT("?:\\"));
-    for (Letter=TEXT('A'); Letter<=TEXT('Z'); Letter++) {
+    lstrcpy(letterColon,TEXT("?:\\"));
+    for (letter=TEXT('A'); letter<=TEXT('Z'); letter++) {
 
-        LetterColon[0] = Letter;
+        letterColon[0] = letter;
 
-        if (GetDriveType(LetterColon) == DRIVE_FIXED) {
+        if (GetDriveType(letterColon) == DRIVE_FIXED) {
 
-            ScanDrive[Letter-TEXT('A')] = TRUE;
+            ScanDrive[letter-TEXT('A')] = TRUE;
         }
     }
 
@@ -906,12 +901,12 @@ Return Value:
 
     ConfigurationSearchIdleTrigger = TRUE;
 
-    Err = DialogBox(hModule,
-                    MAKEINTRESOURCE(IDD_SIMPLETEXT),
-                    hwndFrame,
-                    (DLGPROC)FdpScanningDirsDlgProc);
+    windowsError = DialogBox(hModule,
+                             MAKEINTRESOURCE(IDD_SIMPLETEXT),
+                             hwndFrame,
+                             (DLGPROC)FdpScanningDirsDlgProc);
 
-    if (Err == IDCANCEL) {
+    if (windowsError == IDCANCEL) {
         FdpFreeDirectoryList();
         return FALSE;
     }
@@ -927,12 +922,12 @@ Return Value:
     // Display a dialog box that allows the user to select one of the
     // directories we found.
 
-    StringNode = (PSTRING_LIST_NODE)DialogBox(hModule,
+    stringNode = (PSTRING_LIST_NODE)DialogBox(hModule,
                                               MAKEINTRESOURCE(IDD_SELDIR),
                                               hwndFrame,
                                               (DLGPROC)FdpSelectDirDlgProc);
 
-    if (StringNode == NULL) {
+    if (stringNode == NULL) {
         FdpFreeDirectoryList();
         return FALSE;
     }
@@ -948,25 +943,30 @@ Return Value:
 
     SetCursor(hcurWait);
 
-    lstrcpy(Pattern,StringNode->String);
+    lstrcpy(Pattern,stringNode->String);
     lstrcat(Pattern,TEXT(ConfigRegistryPath));
 
-    Err = FdTransferOldDiskInfoToRegistry(Pattern);
-    if (Err != NO_ERROR) {
+    windowsError = FdTransferOldDiskInfoToRegistry(Pattern);
+    if (windowsError != NO_ERROR) {
         lstrcat(Pattern,TEXT(".alt"));
-        Err = FdTransferOldDiskInfoToRegistry(Pattern);
+        windowsError = FdTransferOldDiskInfoToRegistry(Pattern);
     }
     FdpFreeDirectoryList();
     SetCursor(hcurNormal);
 
-    if (Err != NO_ERROR) {
+    if (windowsError != NO_ERROR) {
 
-        ErrorDialog(Err);
+        if (windowsError == ERROR_FILE_NOT_FOUND) {
+            ErrorDialog(MSG_NO_DISK_INFO);
+        } else if (windowsError == ERROR_SHARING_VIOLATION) {
+            ErrorDialog(MSG_DISK_INFO_BUSY);
+        } else {
+            ErrorDialog(windowsError);
+        }
         return FALSE;
     }
     return TRUE;
 }
-
 
 
 
@@ -999,8 +999,14 @@ Return Value:
 {
     LONG    Err;
     TCHAR   caption[256];
-    va_list arglist;
     UINT    errorMode;
+    va_list arglist =
+#ifdef _ALPHA_    // Alpha defines va_list as a struct.  Init as such
+    {0};
+#else
+    NULL;
+#endif
+
 
     // Get confirmation
 
@@ -1012,7 +1018,7 @@ Return Value:
 
     errorMode = SetErrorMode(SEM_FAILCRITICALERRORS);
     LoadString(hModule,IDS_INSERT_DISK,caption,sizeof(caption)/sizeof(TCHAR));
-    if (CommonDialog(MSG_INSERT_REGSAVEDISK,caption,MB_OKCANCEL | MB_TASKMODAL,arglist) != IDOK) {
+    if (CommonDialog(MSG_INSERT_REGSAVEDISK,caption,MB_OKCANCEL | MB_TASKMODAL, arglist) != IDOK) {
         return FALSE;
     }
 
@@ -1073,7 +1079,12 @@ Return Value:
     TCHAR   caption[256];
     DWORD   disposition;
     UINT    errorMode;
-    va_list arglist;
+    va_list arglist =
+#ifdef _ALPHA_
+    {0};        // Alpha defines va_list as a struct.  Init as such.
+#else
+    NULL;
+#endif
 
     // Get a diskette into A:.
 
@@ -1081,7 +1092,7 @@ Return Value:
                IDS_INSERT_DISK,
                caption,
                sizeof(caption)/sizeof(TCHAR));
-    if (CommonDialog(MSG_INSERT_REGSAVEDISK2,caption,MB_OKCANCEL | MB_TASKMODAL,arglist) != IDOK) {
+    if (CommonDialog(MSG_INSERT_REGSAVEDISK2,caption,MB_OKCANCEL | MB_TASKMODAL, arglist) != IDOK) {
         return;
     }
 

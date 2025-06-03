@@ -41,12 +41,6 @@ enum _CANONICALIZATIONNAMETYPES {
 #define SKIP_SERVER 2
 
 //
-//      Definition stolen from BSEDOS.H
-//
-
-#define CCHMAXPATHCOMP 256
-
-//
 //
 //      Other redirector functions
 //
@@ -71,11 +65,13 @@ RdrMapUsersBuffer (
     OUT PVOID *Buffer,
     IN ULONG Length
     );
-VOID
-RdrUnMapUsersBuffer (
-    IN PIRP Irp,
-    IN PVOID Buffer
-    );
+
+//
+// RdrUnMapUsersBuffer does nothing.  This function is performed by the
+// I/O system when the MDL is freed.
+//
+
+#define RdrUnMapUsersBuffer( _Irp, _Buffer )
 
 
 VOID

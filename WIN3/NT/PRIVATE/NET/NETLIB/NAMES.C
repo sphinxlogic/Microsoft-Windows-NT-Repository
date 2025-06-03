@@ -31,7 +31,7 @@ Revision History:
     20-Mar-1991 RitaW
         Added NetpCanonRemoteName().
     09-Apr-1991 JohnRo
-        ANSI-ize (use _stricmp instead of stricmp).  Deleted tabs.
+        ANSI-ize (use _stricmp instead of _stricmp).  Deleted tabs.
     19-Aug-1991 JohnRo
         Allow UNICODE use.
     30-Sep-1991 JohnRo
@@ -45,7 +45,7 @@ Revision History:
     08-Feb-1993 JohnRo
         RAID 10299: portuas: generate assert in netlib/names.c
     15-Apr-1993 JohnRo
-        RAID 6167: avoid access violation or assert with WFW print server.
+        RAID 6167: avoid _access violation or assert with WFW print server.
 
 --*/
 
@@ -60,7 +60,7 @@ Revision History:
 #include <debuglib.h>   // IF_DEBUG().
 #include <icanon.h>     // ITYPE_ equates, NetpNameCanonicalize(), etc.
 #include <names.h>      // My prototypes, etc.
-#include <netdebug.h>   // NetpDbgPrint().
+#include <netdebug.h>   // NetpKdPrint(()).
 #include <prefix.h>     // PREFIX_ equates.
 #include <tstring.h>    // ISALPHA(), NetpAlloc routines, TCHAR_EOS, etc.
 #include <winerror.h>   // NO_ERROR.
@@ -173,7 +173,7 @@ Return Value:
 
 {
     NET_API_STATUS ApiStatus;
-    TCHAR CanonBuf[UNCLEN+1];
+    TCHAR CanonBuf[MAX_PATH];
 
     if (ComputerName == (LPTSTR) NULL) {
         return (FALSE);
@@ -186,22 +186,79 @@ Return Value:
             NULL,                       // no server name
             ComputerName,               // name to validate
             CanonBuf,                   // output buffer
-            (UNCLEN+1) * sizeof(TCHAR), // output buffer size
+            sizeof( CanonBuf ),         // output buffer size
             NAMETYPE_COMPUTER,          // type
             0 );                        // flags: none
 
     IF_DEBUG( NAMES ) {
         if (ApiStatus != NO_ERROR) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpIsComputerNameValid: err " FORMAT_API_STATUS
                     " after canon of '" FORMAT_LPTSTR "'.\n",
-                    ApiStatus, ComputerName );
+                    ApiStatus, ComputerName ));
         }
     }
 
     return (ApiStatus == NO_ERROR);
 
 } // NetpIsComputerNameValid
+
+
+
+BOOL
+NetpIsDomainNameValid(
+    IN LPTSTR DomainName
+    )
+
+/*++
+
+Routine Description:
+
+    NetpIsDomainNameValid checks for "domain" format.
+    The name is only checked syntactically; no attempt is made to determine
+    whether or not a domain with that name actually exists.
+
+Arguments:
+
+    DomainName - Supplies an alleged Domain name.
+
+Return Value:
+
+    BOOL - TRUE if name is syntactically valid, FALSE otherwise.
+
+--*/
+
+{
+    NET_API_STATUS ApiStatus;
+    TCHAR CanonBuf[DNLEN+1];
+
+    if (DomainName == (LPTSTR) NULL) {
+        return (FALSE);
+    }
+    if ( (*DomainName) == TCHAR_EOS ) {
+        return (FALSE);
+    }
+
+    ApiStatus = NetpNameCanonicalize(
+            NULL,                       // no server name
+            DomainName,                 // name to validate
+            CanonBuf,                   // output buffer
+            (DNLEN+1) * sizeof(TCHAR), // output buffer size
+            NAMETYPE_DOMAIN,           // type
+            0 );                       // flags: none
+
+    IF_DEBUG( NAMES ) {
+        if (ApiStatus != NO_ERROR) {
+            NetpKdPrint(( PREFIX_NETLIB
+                    "NetpIsDomainNameValid: err " FORMAT_API_STATUS
+                    " after canon of '" FORMAT_LPTSTR "'.\n",
+                    ApiStatus, DomainName ));
+        }
+    }
+
+    return (ApiStatus == NO_ERROR);
+
+} // NetpIsDomainNameValid
 
 
 BOOL
@@ -335,10 +392,10 @@ NetpIsGroupNameValid(
 
     IF_DEBUG( NAMES ) {
         if (ApiStatus != NO_ERROR) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpIsGroupNameValid: err " FORMAT_API_STATUS
                     " after canon of '" FORMAT_LPTSTR "'.\n",
-                    ApiStatus, GroupName );
+                    ApiStatus, GroupName ));
         }
     }
 
@@ -403,7 +460,7 @@ NetpIsPrintQueueNameValid(
     )
 {
     NET_API_STATUS ApiStatus;
-    TCHAR          CanonBuf[QNLEN+1];
+    TCHAR          CanonBuf[ MAX_PATH ];
 
     if (QueueName == NULL) {
         return (FALSE);
@@ -416,16 +473,16 @@ NetpIsPrintQueueNameValid(
             NULL,                       // no server name
             (LPTSTR) QueueName,         // name to validate
             CanonBuf,                   // output buffer
-            (QNLEN+1) * sizeof(TCHAR),  // output buffer size
+            sizeof( CanonBuf ),         // output buffer size
             NAMETYPE_PRINTQ,            // type
             0 );                        // flags: none
 
     IF_DEBUG( NAMES ) {
         if (ApiStatus != NO_ERROR) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpIsPrintQueuNameValid: err " FORMAT_API_STATUS
                     " after canon of '" FORMAT_LPTSTR "'.\n",
-                    ApiStatus, QueueName );
+                    ApiStatus, QueueName ));
         }
     }
 
@@ -467,7 +524,7 @@ Return Value:
     //
     // Shortest is \\x\y (5).
     //
-    if ((STRLEN(RemoteName) < 5) || (STRLEN(RemoteName) > RMLEN)) {
+    if ((STRLEN(RemoteName) < 5) || (STRLEN(RemoteName) > MAX_PATH )) {
         return (FALSE);
     }
 
@@ -632,10 +689,10 @@ NetpIsUserNameValid(
 
     IF_DEBUG( NAMES ) {
         if (ApiStatus != NO_ERROR) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpIsUserNameValid: err " FORMAT_API_STATUS
                     " after canon of '" FORMAT_LPTSTR "'.\n",
-                    ApiStatus, UserName );
+                    ApiStatus, UserName ));
         }
     }
 

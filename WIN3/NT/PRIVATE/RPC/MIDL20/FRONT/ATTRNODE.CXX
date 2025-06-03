@@ -1,12 +1,12 @@
 /*****************************************************************************/
-/**						Microsoft LAN Manager								**/
-/**				Copyright(c) Microsoft Corp., 1987-1990						**/
+/**                         Microsoft LAN Manager                           **/
+/**                 Copyright(c) Microsoft Corp., 1987-1990                 **/
 /*****************************************************************************/
 /*****************************************************************************
-File				: attrnode.cxx
-Title				: attribute node routines
-History				:
-	04-Aug-1991	VibhasC	Created
+File        : attrnode.cxx
+Title       : attribute node routines
+History     :
+              04-Aug-1991     VibhasC Created
 
 *****************************************************************************/
 /****************************************************************************
@@ -14,963 +14,885 @@ History				:
  ****************************************************************************/
 
 #include "nulldefs.h"
-extern	"C"
-	{
-	#include <stdio.h>
-	#include <stdlib.h>
-	#include <string.h>
-	#include <ctype.h>
-	#include <assert.h>
-	}
+extern  "C"
+    {
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <ctype.h>
+    #include <assert.h>
+    }
 
 #include "allnodes.hxx"
-#include "baduse.hxx"
 #include "cmdana.hxx"
 #include "buffer.hxx"
 
-#define W_CHAR_T_STRLEN_NAME		("MIDL_wchar_strlen")
-#define CHAR_STRLEN_NAME			("MIDL_ascii_strlen")
+#define W_CHAR_T_STRLEN_NAME    ("MIDL_wchar_strlen")
+#define CHAR_STRLEN_NAME        ("MIDL_ascii_strlen")
 
 
 /****************************************************************************
-			external data
+                           external data
  ****************************************************************************/
 
-extern	CMD_ARG			*	pCommand;
-extern	SymTable		*	pBaseSymTbl;
+extern  CMD_ARG     *   pCommand;
+extern  SymTable    *   pBaseSymTbl;
 
 /****************************************************************************
-			external procedures
+                        external procedures
  ****************************************************************************/
 
-extern void					CheckSizeAndLengthTypeMismatch( node_skl	*);
-extern void					ParseError( STATUS_T, char *);
-extern	int					HexCheck(char *);
-extern	BOOL				IsIntegralType( ETYPE );
-extern node_skl			*	pBaseImplicitHandle;
+extern void         ParseError( STATUS_T, char *);
+extern  int         HexCheck(char *);
+extern node_skl *   pBaseImplicitHandle;
 /****************************************************************************/
 
 
 /****************************************************************************
  node_base_attr:
  ****************************************************************************/
-const char	*	AttrNodeNameArray[ ACF_ATTR_END ] =
-	{
-	 "[none]"
-	,"[ptr kind]"
-	,"[string]"
-	,"[uuid]"
-	,"[version]"
-	,"[endpoint]"
-	,"[local]"
-	,"[object]"
-	,"[transmit]"
-	,"[handle]"
-	,"[unaligned]"
-	,"[switch_type]"
-	,"[represent_as]"
-	,"[call_as]"
-	,"[ms_union]"
-	,"[v1_enum]"
-	,"[first_is]"
-	,"[last_is]"
-	,"[length_is]"
-	,"[min_is]"
-	,"[max_is]"
-	,"[size_is]"
-	,"[switch_is]"
-	,"[iid_is]"
-	,"[ignore]"
-	,"[idempotent]"
-	,"[broadcast]"
-	,"[maybe]"
-	,"[async]"
-	,"[input_sync]"
-	,"[byte_count]"
-	,"[callback]"
-	,"[in]"
-	,"[out]"
-	,"[shape]"
-	,"[case]"
-	,"[default]"
-	,"[context_handle]"
-	,"[code]"
-	,"[nocode]"
-	,"[in_line]"
-	,"[out_of_line]"
-	,"[optimize]"
-	,"[offline]"
-	,"[comm_status]"
-	,"[fault_status]"
-	,"[manual]"
-	,"[allocate]"
-	,"[heap]"
-	,"[implicit_handle]"
-	,"[explicit_handle]"
-	,"[auto_handle]"
-	,"[ptrsize]"
-	,"[notify]"
-	,"[enable_allocate]"
-	,"[usr_marshall]"
-	,"[encode]"
-	,"[decode]"
-	};
+const char  *   const AttrNodeNameArray[ ACF_ATTR_END ] =
+    {
+    "[none]"
+    ,"[first_is]"
+    ,"[last_is]"
+    ,"[length_is]"
+    ,"[min_is]"
+    ,"[max_is]"
+    ,"[size_is]"
+    ,"[case]"
+    ,"[funcdescattr]"
+    ,"[idldescattr]"
+    ,"[typedescattr]"
+    ,"[vardescattr]"
+    ,"[type attribute]"
+    ,"[member attribute]"
+    ,"[id]"
+    ,"[helpcontext]"
+    ,"[helpstringcontext]"
+    ,"[lcid]"   // ATTR_LCID - applied to libraries - associated with an LCID constant
+    ,"[dllname]"
+    ,"[helpstring]"
+    ,"[helpfile]"
+    ,"[entry]"
+    ,"[uuid]"
+    ,"[version]"
+    ,"[switch_is]"
+    ,"[iid_is]"
+    ,"[defaultvalue]"
+    ,"[transmit_as]"
+    ,"[wire_marshal]"
+    ,"[represent_as]"
+    ,"[call_as]"        // last attribute that may not appear more than once
+    ,"[custom]" 
+    ,"[switch_type]"
+    ,"[handle]"
+    ,"[user_marshal]"
+    ,"[ms_union]"
+    ,"[v1_enum]"
+    ,"[lcid]"   // ATTR_FLCID - applied to parameters - bit attribute
+    ,"[hidden]"
+    ,"[ptr kind]"
+    ,"[string]"
+    ,"[bstring]"
+    ,"[endpoint]"
+    ,"[local]"
+    ,"[object]"
+    ,"[ignore]"
+    ,"[opaque]"
+    ,"[idempotent]"
+    ,"[broadcast]"
+    ,"[maybe]"
+    ,"[async]"
+    ,"[input_sync]"
+    ,"[byte_count]"
+    ,"[callback]"
+    ,"[in]"
+    ,"[out]"
+    ,"[default]"
+    ,"[context_handle]"
+    ,"[code]"
+    ,"[nocode]"
+    ,"[optimize]"
+    ,"[comm_status]"
+    ,"[fault_status]"
+    ,"[allocate]"
+    ,"[heap]"
+    ,"[implicit_handle]"
+    ,"[explicit_handle]"
+    ,"[auto_handle]"
+    ,"[ptrsize]"
+    ,"[notify]"
+    ,"[notify_flag]"
+    ,"[enable_allocate]"
+    ,"[encode]"
+    ,"[decode]"
+    };
 
-const char * PtrKindArray[]	=
-	{
-	"",
-	"[ref]",
-	"[unique]",
-	"[full]"
-	};
+const char * PtrKindArray[] =
+    {
+    "",
+    "[ref]",
+    "[unique]",
+    "[full]"
+    };
 
-char	*
+const char * TypeAttrArray[] =
+    {
+    "[public]",
+    "[appobject]",
+    "[control]",
+    "[dual]",
+    "[licensed]",
+    "[nonextensible]",
+    "[oleautomation]",
+    "[noncreatable]",
+    "[aggregatable]"
+    };
+
+const char * MemberAttrArray[] =
+    {
+    "[readonly]",
+    "[source]",
+    "[bindable]",
+    "[displaybind]",
+    "[defaultbind]",
+    "[requestedit]",
+    "[propget]",
+    "[propput]",
+    "[propputref]",
+    "[restricted]",
+    "[optional]",
+    "[retval]",
+    "[vararg]",
+    "[predeclid]",
+    "[uidefault]",
+    "[nonbrowsable]",
+    "[defaultcollelem]",
+    "[defaultvtable]",
+    "[immediatebind]",
+    "[usesgetlasterror]",
+    "[replaceable]"
+    };
+
+char    *
 node_base_attr::GetNodeNameString()
-	{
-	int		At	= (int) GetAttrID();
+    {
+    int At  = (int) GetAttrID();
 
-	assert ( At < sizeof(AttrNodeNameArray)/sizeof(char *) );
+    assert ( At < sizeof(AttrNodeNameArray)/sizeof(char *) );
 
-	if ( At == ATTR_PTR_KIND )
-		return (char *) PtrKindArray[ ((node_ptr_attr *)this)->GetPtrKind() ];
-
-	return (char *) AttrNodeNameArray[ (int) At ];
-	}
+    if ( At == ATTR_PTR_KIND )
+        return (char *) PtrKindArray[ ((node_ptr_attr *)this)->GetPtrKind() ];
+    if ( At == ATTR_TYPE )
+        return (char *) TypeAttrArray[ ((node_type_attr *)this)->GetAttr() - TATTR_BEGIN];
+    if ( At == ATTR_MEMBER )
+        return (char *) MemberAttrArray[ ((node_member_attr *)this)->GetAttr() - MATTR_BEGIN];
+    return (char *) AttrNodeNameArray[ (int) At ];
+    }
 
 /****************************************************************************
  ATTRLIST::Merge
-	Merge two ATTRLISTs -- singly linked linear lists - insert at head
+    Merge two ATTRLISTs -- singly linked linear lists - insert at head
  ****************************************************************************/
 void
-ATTRLIST::Merge( 
-	ATTRLIST & MoreAttrs )
-	{
-	node_base_attr * pCur = MoreAttrs.pHead;
+ATTRLIST::Merge(ATTRLIST & MoreAttrs )
+    {
+    node_base_attr * pCur = MoreAttrs.pHead;
 
-	if (pCur == NULL)
-		{
-		return;
-		}
+    if (pCur == NULL)
+        {
+        return;
+        }
 
-	while (pCur->pNext)
-		{
-		pCur = pCur->pNext;
-		}
-	
-	pCur->pNext = pHead;
-	pHead = MoreAttrs.pHead;
+    while (pCur->pNext)
+        {
+        pCur = pCur->pNext;
+        }
 
-	};
+    pCur->pNext = pHead;
+    pHead = MoreAttrs.pHead;
+
+    };
 /****************************************************************************
  ATTRLIST::Reverse
-	Reverse an ATTRLIST -- singly linked linear list
+    Reverse an ATTRLIST -- singly linked linear list
  ****************************************************************************/
 void
 ATTRLIST::Reverse()
-	{
-	node_base_attr * pCur	= pHead;
-	node_base_attr * pNext;
-	node_base_attr * pPrev	= NULL;
+    {
+    node_base_attr * pCur   = pHead;
+    node_base_attr * pNext;
+    node_base_attr * pPrev  = NULL;
 
-	while (pCur)
-		{
-		pNext = pCur->pNext;
-		pCur->pNext = pPrev;
+    while (pCur)
+        {
+        pNext = pCur->pNext;
+        pCur->pNext = pPrev;
 
-		// advance to the next node
-		pPrev = pCur;
-		pCur = pNext;
-		}
-	
-	pHead = pPrev;
+        // advance to the next node
+        pPrev = pCur;
+        pCur = pNext;
+        }
 
-	};
+    pHead = pPrev;
+
+    };
 /****************************************************************************
  ATTRLIST::FInSummary
-	Search for matching attribute -- singly linked linear lists
+    Search for matching attribute -- singly linked linear lists
  ****************************************************************************/
 BOOL
-ATTRLIST::FInSummary( 
-	ATTR_T flag )
-	{
-	node_base_attr * pCur = pHead;
+ATTRLIST::FInSummary(ATTR_T flag )
+    {
+    node_base_attr * pCur = pHead;
 
-	while (pCur)
-		{
-		if ( pCur->AttrID == flag )
-			{
-			return TRUE;
-			};
-		pCur = pCur->pNext;
-		}
-	return FALSE;
-	};
+    while (pCur)
+        {
+        if ( pCur->AttrID == flag )
+            {
+            return TRUE;
+            };
+        pCur = pCur->pNext;
+        }
+    return FALSE;
+    };
+
+/****************************************************************************
+ ATTRLIST::FMATTRInSummary
+    Search for matching MEMEBER attribute -- singly linked linear lists
+ ****************************************************************************/
+BOOL
+ATTRLIST::FMATTRInSummary(MATTR_T flag)
+    {
+    node_base_attr * pCur = pHead;
+
+    while (pCur)
+        {
+        if ( pCur->AttrID == ATTR_MEMBER)
+            {
+            if (((node_member_attr *)pCur)->GetAttr() == flag)
+                return TRUE;
+            };
+        pCur = pCur->pNext;
+        }
+    return FALSE;
+    };
+
+/****************************************************************************
+ ATTRLIST::FTATTRInSummary
+    Search for matching MEMEBER attribute -- singly linked linear lists
+ ****************************************************************************/
+BOOL
+ATTRLIST::FTATTRInSummary(TATTR_T flag)
+    {
+    node_base_attr * pCur = pHead;
+
+    while (pCur)
+        {
+        if ( pCur->AttrID == ATTR_TYPE)
+            {
+            if (((node_member_attr *)pCur)->GetAttr() == flag)
+                return TRUE;
+            };
+        pCur = pCur->pNext;
+        }
+    return FALSE;
+    };
 
 /****************************************************************************
  ATTRLIST::GetAttribute
-	Search for matching attribute -- singly linked linear lists
+    Search for matching attribute -- singly linked linear lists
  ****************************************************************************/
-node_base_attr	*	
-ATTRLIST::GetAttribute( 
-	ATTR_T flag )
-{
-	node_base_attr * pCur = pHead;
+node_base_attr  *
+ATTRLIST::GetAttribute(ATTR_T flag )
+    {
+    node_base_attr * pCur = pHead;
 
-	while (pCur)
-		{
-		if ( pCur->AttrID == flag )
-			{
-			return pCur;
-			}
-		pCur = pCur->pNext;
-		}
-	return NULL;
-};
+    while (pCur)
+        {
+        if ( pCur->AttrID == flag )
+            {
+            return pCur;
+            }
+        pCur = pCur->pNext;
+        }
+    return NULL;
+    };
 
 /****************************************************************************
  ATTRLIST::GetAttributeList
-	Return entire attribute list
+    Return entire attribute list
  ****************************************************************************/
 STATUS_T
-ATTRLIST::GetAttributeList( 
-	type_node_list * pTNList )
-{
-	node_base_attr * pCur = pHead;
+ATTRLIST::GetAttributeList(type_node_list * pTNList )
+    {
+    node_base_attr * pCur = pHead;
 
-	while (pCur)
-		{
-		pTNList->SetPeer( (node_skl *)pCur );
-		pCur = pCur->pNext;
-		}
-	return (pHead) ? STATUS_OK: I_ERR_NO_MEMBER;
-};
+    while (pCur)
+        {
+        pTNList->SetPeer( (node_skl *)pCur );
+        pCur = pCur->pNext;
+        }
+    return (pHead) ? STATUS_OK: I_ERR_NO_MEMBER;
+    };
 
 /****************************************************************************
  ATTRLIST::Clone
-	Return an attribute list with all new attribute nodes
+    Return an attribute list with all new attribute nodes
  ****************************************************************************/
-ATTRLIST &
+ATTRLIST
 ATTRLIST::Clone()
-{
-	node_base_attr * pCur = pHead;
-	ATTRLIST		 NewList;
+    {
+    node_base_attr * pCur = pHead;
+    ATTRLIST    NewList;
 
-	NewList.MakeAttrList();
-	while (pCur)
-		{
-		// gaj - does this reverse the list ?? and if so is it OK?
-		NewList.Add( pCur->Clone() );
-		pCur = pCur->pNext;
-		}
-	return NewList;
-};
+    NewList.MakeAttrList();
+    while (pCur)
+        {
+        // gaj - does this reverse the list ?? and if so is it OK?
+        NewList.Add( pCur->Clone() );
+        pCur = pCur->pNext;
+        }
+    return NewList;
+    };
 
 /****************************************************************************
  ATTRLIST::Dump
-	Dump all attributes on list
+    Dump all attributes on list
  ****************************************************************************/
 void
-ATTRLIST::Dump(STREAM* pStream)
-{
-	node_base_attr * pCur = pHead;
+ATTRLIST::Dump( ISTREAM* pStream)
+    {
+    node_base_attr * pCur = pHead;
 
-	while (pCur)
-		{
-		pStream->Write( pCur->GetNodeNameString() );
-		pCur = pCur->pNext;
-		}
-};
+    while (pCur)
+        {
+        int At  = (int) pCur->GetAttrID();
 
-/****************************************************************************
- IsAttrID:
-	return true if the attribute id matches the given one
- ****************************************************************************/
-BOOL
-node_base_attr::IsAttrID(
-	ATTR_T	A )
-	{
-	return (BOOL) (AttrID == A );
-	}
-/****************************************************************************
-	size related attributes
- sa:
-	the contructor
- ****************************************************************************/
-sa::sa(
-	class expr_node	*	pE,
-	ATTR_T				A ) : nbattr( A )
-	{
-	pExpr	= pE;
-	}
+        if ( At == ATTR_CASE )
+            {
+            pStream->Write( "[case(" );
+/*
+            I removed this section just before check in for midl 3.00.12
+            as it somehow was messing up with the print type's Buffer
+            at the typedef level for an upper struct, when the
+            expression had a (DWORD) cast in it.
+            repro: test10, problem from spoolss. Rkk.
+            
+            expr_list * pExprList;
+            expr_node * pExpr;
+            BOOL        fFirstExpr = TRUE;
 
+            pExprList = ((node_case *)pCur)->GetExprList();
+            pExprList->Init();
+            while (( pExprList->GetPeer( &pExpr ) == STATUS_OK ))
+                {
+                if ( fFirstExpr )
+                    fFirstExpr = FALSE;
+                else
+                    pStream->Write( "," );
 
-node_size_is::node_size_is(
-	class expr_node	*	pE ) : sa( pE, ATTR_SIZE )
-	{
-	}
+                if ( pExpr )
+                    pExpr->Print( pStream );
+                }
+*/
 
-#ifdef scheck
-node_state
-node_size_is::SCheck()
-	{
-	node_state		NState	= sa::SCheck();
-	return NState;
-	}
-#endif //scheck
+            pStream->Write( ")]" );
+            }
+        else
+            {
+            // returns a "[attrname]" string
+            
+            pStream->Write( pCur->GetNodeNameString() );
+            }
 
-node_min_is::node_min_is(
-	class expr_node	*	pE) : sa( pE, ATTR_MIN )
-	{
-	}
-
-node_max_is::node_max_is(
-	class expr_node	*	pE ) : sa( pE, ATTR_MAX )
-	{
-	}
-#ifdef scheck
-node_state
-node_max_is::SCheck()
-	{
-	node_state	NState	= sa::SCheck();
-	return NState;
-	}
-#endif //scheck
-
-node_length_is::node_length_is(
-	class expr_node	*	pE ) : sa( pE, ATTR_LENGTH )
-	{
-	}
-#ifdef scheck
-node_state
-node_length_is::SCheck()
-	{
-	node_state	NState	= sa::SCheck();
-	return NState; //  | NODE_STATE_VARYING_ARRAY;
-	}
-#endif //scheck
-
-node_first_is::node_first_is(
-	class expr_node	*	pE ) : sa( pE, ATTR_FIRST )
-	{
-	}
-#ifdef scheck
-node_state
-node_first_is::SCheck()
-	{
-	node_state	NState	= sa::SCheck();
-	return NState; //  | NODE_STATE_VARYING_ARRAY;
-	}
-#endif //scheck
-
-node_last_is::node_last_is(
-	class expr_node	*	pE ) : sa( pE, ATTR_LAST )
-	{
-	}
-#ifdef scheck
-node_state
-node_last_is::SCheck()
-	{
-	node_state	NState	= sa::SCheck();
-	return NState; //  | NODE_STATE_VARYING_ARRAY;
-	}
-#endif //scheck
-
-/****************************************************************************
- type based attributes
- ****************************************************************************/
-
-ta::ta(
-	node_skl	*	pT,
-	ATTR_T			A ) : nbattr( A )
-	{
-	pType	= pT;
-	}
-
-node_transmit::node_transmit(
-	node_skl	*	pTransmitAs ) : ta( pTransmitAs, ATTR_TRANSMIT )
-	{
-	}
-#ifdef scheck
-node_state
-node_transmit::SCheck()
-	{
-
-	/**
-	 ** . The transmitted type cannot be a context handle.
-	 ** . The transmitted type cannot be a pointer or contain a pointer
-	 ** . The transmitted type cannot be non-rpcable (derive from int or void)
-	 **/
-
-	node_state		NState	= NODE_STATE_TRANSMIT_AS;
-	node_skl	*	pNode	= GetType();
-	BadUseInfo		BU;
-
-	pNode->SCheck( &BU );
-
-	if( pNode->GetNodeState() & NODE_STATE_CONTEXT_HANDLE )
-		ParseError( TRANSMIT_AS_CTXT_HANDLE , (char *)NULL );
-
-	if( pNode->GetNodeState() & NODE_STATE_POINTER )
-		ParseError( TRANSMIT_AS_POINTER, (char *)NULL );
-
-	if( TRULY_NON_RPCABLE( (&BU) )	||
-		BU.NonRPCAbleBecause( NR_PRIMITIVE_HANDLE ) 	||
-		BU.NonRPCAbleBecause( NR_PTR_TO_PRIMITIVE_HANDLE ) 
-	  )
-		ParseError( TRANSMIT_AS_NON_RPCABLE, (char *)NULL );
-
-	if( BU.BadConstructBecause( BC_DERIVES_FROM_E_STAT_T ) )
-		ParseError( TRANSMIT_AS_ON_E_STAT_T , (char *)0 );
-
-	if( BU.BadConstructBecause( BC_DERIVES_FROM_UNSIZED_ARRAY ) )
-		ParseError( UNSIZED_ARRAY, pNode->GetSymName() );
-
-	if( pNode->NeedsUseProcessing() )
-		NState |= NODE_STATE_NEEDS_USE_PROCESSING;
-	if( (pNode->GetNodeState() & NODE_STATE_CONF_ARRAY ) 
-									== NODE_STATE_CONF_ARRAY)
-		NState |= NODE_STATE_CONF_ARRAY;
-
-	return NState;
-	}
-#endif //scheck
-
-node_switch_type::node_switch_type(
-	node_skl	*	pSwitchType) : ta( pSwitchType, ATTR_SWITCH_TYPE )
-	{
-	}
+        pCur = pCur->pNext;
+        }
+    };
 
 /****************************************************************************
  miscellaneous attributes
  ****************************************************************************/
 
-node_string::node_string() : sa( (expr_node * )NULL, ATTR_STRING )
-	{
-	}
-node_string::node_string( ATTR_T A ) : sa( (expr_node *)0, A )
-	{
-	}
+inline unsigned long
+HexToULong( const char * pStr)
+    {
+    unsigned long   Cumulative      = 0;
 
+    for ( ; *pStr; pStr++ )
+        {
+        Cumulative <<= 4;
 
+        // add in another nibble
+        Cumulative += ( *pStr >= 'a' ) ? ( *pStr - 'a' + 10  )
+            : ( *pStr >= 'A' ) ? ( *pStr - 'A' + 10 )
+                                                                                                                  : ( *pStr - '0' );
+        }
+    return Cumulative;
+    }
 
-node_guid::node_guid(
-	char	*	pIn ) : ma( ATTR_GUID )
-	{
-	char	*	p1		= pIn,
-			*	p2		= (p1) ? (strchr( p1+1 , '-')) : 0,
-			*	p3		= (p2) ? (strchr( p2+1 , '-')) : 0,
-			*	p4		= (p3) ? (strchr( p3+1 , '-')) : 0,
-			*	p5		= (p4) ? (strchr( p4+1 , '-')) : 0;
+#define GUID_STRING_1_SIZE  8
+#define GUID_STRING_2_SIZE  4
+#define GUID_STRING_3_SIZE  4
+#define GUID_STRING_4_SIZE  4
+#define GUID_STRING_5_SIZE  12
 
-	if( p1 && p2 && p3 && p4 && p5 )
-		{
-		*p2++ = *p3++ = *p4++ = *p5++ = '\0';
-		CheckAndSetGuid( p1, p2, p3, p4, p5 );
-		}
-	else
-		ParseError( UUID_FORMAT, (char *)0 );
-	}
+void
+GUID_STRS::SetValue()
+    {
+    char    buffer[GUID_STRING_5_SIZE + 1];
+    int     i,j;
+
+    Value.Data1 = HexToULong( str1 );
+    Value.Data2 = (unsigned short) HexToULong( str2 );
+    Value.Data3 = (unsigned short) HexToULong( str3 );
+
+    // go through the last strings backwards, advancing the null
+    // byte as we go.
+
+    // compute bytes 1 and 0
+    strncpy( buffer, str4, GUID_STRING_4_SIZE+1 );
+    for ( i = GUID_STRING_4_SIZE/2 - 1, j=GUID_STRING_4_SIZE-2  ; i >=0 ; i--, j-=2 )
+        {
+        Value.Data4[i] = (unsigned char) HexToULong( &buffer[j] );
+        buffer[j] = '\0';
+        }
+
+    // compute bytes 7 to 2
+    strncpy( buffer, str5, GUID_STRING_5_SIZE+1 );
+    for ( i = GUID_STRING_5_SIZE/2 + 1, j=GUID_STRING_5_SIZE-2 ; i >=2 ; i--, j-=2 )
+        {
+        Value.Data4[i] = (unsigned char) HexToULong( &buffer[j] );
+        buffer[j] = '\0';
+        }
+    }
+
+node_guid::node_guid(char * pIn ) : ma( ATTR_GUID )
+    {
+    char * p1  = pIn,
+         * p2  = (p1) ? (strchr( p1+1 , '-')) : 0,
+         * p3  = (p2) ? (strchr( p2+1 , '-')) : 0,
+         * p4  = (p3) ? (strchr( p3+1 , '-')) : 0,
+         * p5  = (p4) ? (strchr( p4+1 , '-')) : 0;
+
+    if( p1 && p2 && p3 && p4 && p5 )
+        {
+        *p2++ = *p3++ = *p4++ = *p5++ = '\0';
+        CheckAndSetGuid( p1, p2, p3, p4, p5 );
+        }
+    else
+        ParseError( UUID_FORMAT, (char *)0 );
+    }
 
 node_guid::node_guid (
-	char	*	pStr1,
-	char	*	pStr2,
-	char	*	pStr3,
-	char	*	pStr4,
-	char	*	pStr5 ) : ma( ATTR_GUID )
-	{
-	CheckAndSetGuid( pStr1, pStr2, pStr3, pStr4, pStr5 );
-	}
+        char * pStr1,
+        char * pStr2,
+        char * pStr3,
+        char * pStr4,
+        char * pStr5 ) : ma( ATTR_GUID )
+    {
+    CheckAndSetGuid( pStr1, pStr2, pStr3, pStr4, pStr5 );
+    }
 
 void
 node_guid::GetStrs (
-	char	**	pStr1,
-	char	**	pStr2,
-	char	**	pStr3,
-	char	**	pStr4,
-	char	**	pStr5 ) 
-	{
-	*pStr1	= str1;
-	*pStr2	= str2;
-	*pStr3	= str3;
-	*pStr4	= str4;
-	*pStr5	= str5;
-	};
+        char ** pStr1,
+        char ** pStr2,
+        char ** pStr3,
+        char ** pStr4,
+        char ** pStr5 )
+    {
+    *pStr1 = cStrs.str1;
+    *pStr2 = cStrs.str2;
+    *pStr3 = cStrs.str3;
+    *pStr4 = cStrs.str4;
+    *pStr5 = cStrs.str5;
+    };
 
 void
 node_guid::CheckAndSetGuid(
-	char	*	pStr1,
-	char	*	pStr2,
-	char	*	pStr3,
-	char	*	pStr4,
-	char	*	pStr5 )
-	{
-	int	Len1 = strlen(str1 = pStr1);
-	int	Len2 = strlen(str2 = pStr2);
-	int	Len3 = strlen(str3 = pStr3);
-	int	Len4 = strlen(str4 = pStr4);
-	int	Len5 = strlen(str5 = pStr5);
+        char * pStr1,
+        char * pStr2,
+        char * pStr3,
+        char * pStr4,
+        char * pStr5 )
+    {
+    cStrs.SetStrs( pStr1, pStr2, pStr3, pStr4, pStr5 );
 
-	if( (Len1 == 8)	&& (HexCheck(str1)) &&
-		(Len2 == 4) && (HexCheck(str1)) &&
-		(Len3 == 4) && (HexCheck(str1)) &&
-		(Len4 == 4) && (HexCheck(str1)) &&
-		(Len5 == 12) && (HexCheck(str1)) )
-		{
-		if(	!HexCheck(str1)	||
-			!HexCheck(str2)	||
-			!HexCheck(str3)	||
-			!HexCheck(str4)	||
-			!HexCheck(str5) )
-			{
-			ParseError(UUID_NOT_HEX, (char *)NULL);
-			}
-		else
-			{
-			guidstr = new char[ Len1 + Len2 + Len3 + Len4 + Len5 + 5 ];
-			strcpy(guidstr, str1);
-			strcat(guidstr, "-");
-			strcat(guidstr, str2);
-			strcat(guidstr, "-");
-			strcat(guidstr, str3);
-			strcat(guidstr, "-");
-			strcat(guidstr, str4);
-			strcat(guidstr, "-");
-			strcat(guidstr, str5);
-			}
-		}
-		else
-		{
-		ParseError(UUID_FORMAT, (char *)NULL);
-		}
-	}
-node_version::node_version(
-	unsigned long	vMajor,
-	unsigned long	vMinor ) : nbattr( ATTR_VERSION )
-	{
-	major	= vMajor;
-	minor	= vMinor;
+    int Len1 = strlen(pStr1);
+    int Len2 = strlen(pStr2);
+    int Len3 = strlen(pStr3);
+    int Len4 = strlen(pStr4);
+    int Len5 = strlen(pStr5);
 
-	if( (major > 0x0000ffff ) || (minor > 0x0000ffff))
-		ParseError( VERSION_FORMAT, (char *)0);
-	}
+    if( (Len1 == GUID_STRING_1_SIZE) &&
+    (Len2 == GUID_STRING_2_SIZE) &&
+    (Len3 == GUID_STRING_3_SIZE) &&
+    (Len4 == GUID_STRING_4_SIZE) &&
+    (Len5 == GUID_STRING_5_SIZE) )
+        {
+        if( !HexCheck(pStr1)    ||
+            !HexCheck(pStr2)    ||
+            !HexCheck(pStr3)    ||
+            !HexCheck(pStr4)    ||
+            !HexCheck(pStr5) )
+            {
+            ParseError(UUID_NOT_HEX, (char *)NULL);
+            }
+        else
+            {
+            guidstr = new char[ Len1 + Len2 + Len3 + Len4 + Len5 + 5 ];
+            strcpy(guidstr, pStr1);
+            strcat(guidstr, "-");
+            strcat(guidstr, pStr2);
+            strcat(guidstr, "-");
+            strcat(guidstr, pStr3);
+            strcat(guidstr, "-");
+            strcat(guidstr, pStr4);
+            strcat(guidstr, "-");
+            strcat(guidstr, pStr5);
+            }
+        }
+    else
+        {
+        ParseError(UUID_FORMAT, (char *)NULL);
+        }
+    }
 
 node_version::node_version(
-	char	*	pV ) : nbattr(ATTR_VERSION)
-	{
+        unsigned long   vMajor,
+        unsigned long   vMinor ) : nbattr( ATTR_VERSION )
+    {
+    major   = vMajor;
+    minor   = vMinor;
 
-	char		*	pMinor;
-	char		*	pMajor	= pV;
-	BOOL			fError	= TRUE;
+    if( (major > 0x0000ffff ) || (minor > 0x0000ffff))
+        ParseError( VERSION_FORMAT, (char *)0);
+    }
 
-	major	= minor = 0;
+node_version::node_version(char *  pV ) : nbattr(ATTR_VERSION)
+    {
+    char * pMinor;
+    char * pMajor  = pV;
+    BOOL   fError  = TRUE;
 
-	if( pMajor && *pMajor )
-		{
-		if( pMinor = strchr( pMajor, '.' ) )
-			{
-			fError = TRUE;
-			if( *(++pMinor) )
-				{
-				minor = strtoul( pMinor, &pMinor, 10 );
-				if( ! *pMinor )
-					fError = FALSE;
-				}
-			}
-		else
-			fError = FALSE;
+    major = minor = 0;
 
-		if( fError == FALSE )
-			{
-			//use pMinor to save pMajor value;
+    if( pMajor && *pMajor )
+        {
+        if( pMinor = strchr( pMajor, '.' ) )
+            {
+            fError = TRUE;
+            if( *(++pMinor) )
+                {
+                minor = strtoul( pMinor, &pMinor, 10 );
+                if( ! *pMinor )
+                    fError = FALSE;
+                }
+            }
+        else
+            fError = FALSE;
 
-			major = strtoul( pMinor = pMajor, &pMajor, 10 );
+        if( fError == FALSE )
+            {
+            //use pMinor to save pMajor value;
 
-			if( (*pMajor && (*pMajor != '.' )) || (pMajor == pMinor) )
-				fError = TRUE;
-			}
-		}
+            major = strtoul( pMinor = pMajor, &pMajor, 10 );
 
-	if( (fError == TRUE )							||
-		(major > (unsigned long )0x0000ffff)		||
-		(minor > (unsigned long )0x0000ffff)
-	  )
-	  {
-	  ParseError( VERSION_FORMAT, (char *)0 );
-	  }
+            if( (*pMajor && (*pMajor != '.' )) || (pMajor == pMinor) )
+                fError = TRUE;
+            }
+        }
 
-	}
+    if( (fError == TRUE )                       ||
+        (major > (unsigned long )0x0000ffff)    ||
+        (minor > (unsigned long )0x0000ffff)    )
+        {
+        ParseError( VERSION_FORMAT, (char *)0 );
+        }
+
+    }
 
 STATUS_T
 node_version::GetVersion(
-	unsigned short *pMajor,
-	unsigned short *pMinor )
-	{
+        unsigned short *pMajor,
+        unsigned short *pMinor )
+    {
+    *pMajor = (unsigned short) major;
+    *pMinor = (unsigned short) minor;
+    return STATUS_OK;
+    }
 
-	*pMajor	= (unsigned short) major;
-	*pMinor	= (unsigned short) minor;
-	return STATUS_OK;
+node_endpoint::node_endpoint(char * pEndPointString ) : nbattr( ATTR_ENDPOINT )
+    {
+    SetEndPointString( pEndPointString );
+    }
 
-	}
-node_endpoint::node_endpoint(
-	char	*	pEndPointString )	: nbattr( ATTR_ENDPOINT )
-	{
-	SetEndPointString( pEndPointString );
-	}
+void
+node_endpoint::SetEndPointString(
+        char * pString )
+    {
+    ENDPT_PAIR * pEntry  = new ENDPT_PAIR;
+    char       * p1      = pString;
+    char       * p2;
+    char       * pTemp;
+    short        Len;
+    STATUS_T     Status  = ENDPOINT_SYNTAX;
 
-void		
-node_endpoint::SetEndPointString( 
-	char * pString )
-	{
-	ENDPT_PAIR	*	pEntry	= new ENDPT_PAIR;
-	char		*	p1		= pString;
-	char		*	p2;
-	char		*	pTemp;
-	short			Len;
-	STATUS_T		Status	= ENDPOINT_SYNTAX;
+    //
+    // Parse the string. Note that we can assume that the string is at least
+    // a null string, because it came from the parser. If it wasnt a string,
+    // the parser would have barfed anyhow.
+    //
+    // Firstly, the string must have a ':' separator. Also, it must have
+    // at least 1 character before the :.
+    //
 
-	//
-	// Parse the string. Note that we can assume that the string is at least
-	// a null string, because it came from the parser. If it wasnt a string,
-	// the parser would have barfed anyhow.
-	//
-	// Firstly, the string must have a ':' separator. Also, it must have
-	// at least 1 character before the :.
-	//
+    if( pString &&
+        (pTemp = strchr( pString , ':' ) ) &&
+        ((pTemp - pString) > 0) )
+        {
 
-	if( pString &&
-		(pTemp = strchr( pString , ':' ) ) &&
-		((pTemp - pString) > 0) )
-		{
+        //
+        // pick up the first part of the string.
+        //
 
-		//
-		// pick up the first part of the string.
-		//
+        Len = pTemp - pString;
+        p1  = new char [ Len + 1 ]; // one for null.
+        strncpy( p1, pString, Len );
+        p1[ Len ] = '\0';
 
-		Len	= pTemp - pString;
-		p1	= new char [ Len + 1 ]; // one for null.
-		strncpy( p1, pString, Len );
-		p1[ Len ] = '\0';
+        //
+        // pick up the last part of the string. Skip beyond the :. There can be
+        // some characters after the : and before the '['. This is the server
+        // name. Then follows the port within the []. The actual string will
+        // not have the [].
+        //
 
-		//
-		// pick up the last part of the string. Skip beyond the :. There can be
-		// some characters after the : and before the '['. This is the server
-		// name. Then follows the port within the []. The actual string will
-		// not have the []. 
-		//
+        // skip the :
 
-		// skip the :
+        pTemp   += 1;
 
-		pTemp	+= 1;
+        // find out the total length of the string. Allocate 2 less than that
+        // 'cause we dont need the '[' and ']'. The string must be more than
+        // 2 characters 'cause it must have the brackets anyhow.
 
-		// find out the total length of the string. Allocate 2 less than that
-		// 'cause we dont need the '[' and ']'. The string must be more than
-		// 2 characters 'cause it must have the brackets anyhow.
+        Len = strlen( pTemp );
 
-		Len	= strlen( pTemp );
+        if( (Len > 2 ) &&
+            (strchr( pTemp, '[' )) &&
+            (pTemp[ Len - 1] == ']'))
+            {
+            char *p2Cur;
 
-		if( (Len > 2 ) &&
-			(strchr( pTemp, '[' )) &&
-			(pTemp[ Len - 1] == ']'))
-			{
-			char *p2Cur;
+            while( *pTemp != '[' )
+                {
+                pTemp++;
+                Len--;
+                }
 
-			while( *pTemp != '[' )
-				{
-				pTemp++;
-				Len--;
-				}
+            //
+            // in the second half of the parse, just get the whole string till
+            // the null. Now the user could be perverted, he could have a
+            // ] embedded within the string, in addition to the last ]. To
+            // ensure that he gets what he deserves, transfer till the end
+            // except the last character which must be ']'.
 
-			//
-			// in the second half of the parse, just get the whole string till
-			// the null. Now the user could be perverted, he could have a
-			// ] embedded within the string, in addition to the last ]. To
-			// ensure that he gets what he deserves, transfer till the end
-			// except the last character which must be ']'.
+            pTemp++; Len--;
 
-			pTemp++; Len--;
+            p2Cur   = p2 = new char[ Len ]; // Yes, not Len + 1 'cause we are
+                                            // going to re-use the last char
+                                            // which is ] for the null.
 
-			p2Cur	= p2 = new char[ Len ];	// Yes, not Len + 1 'cause we are
-											// going to re-use the last char
-											// which is ] for the null.
+            strncpy( p2Cur, pTemp, --Len );
 
-			strncpy( p2Cur, pTemp, --Len );
+            p2Cur[ Len ] = '\0';
 
-			p2Cur[ Len ] = '\0';
+            Status = STATUS_OK;
+            }
+        else
+            {
+            delete p1;
+            }
 
-			Status = STATUS_OK;
-			}
-		else
-			{
-			delete p1;
-			}
+        }
 
-		}
+    if( Status != STATUS_OK )
+        {
+        ParseError( Status, pString );
+        p1 = p2 = 0;
+        }
 
-	if( Status != STATUS_OK )
-		{
-		ParseError( Status, pString );
-		p1	= p2 = 0;
-		}
+    //
+    // set up the pair.
+    //
 
-	//
-	// set up the pair.
-	//
+    pEntry->pString1    = p1;
+    pEntry->pString2    = p2;
 
-	pEntry->pString1	= p1;
-	pEntry->pString2	= p2;
+    EndPointStringList.Insert( pEntry );
 
-	EndPointStringList.Insert( pEntry );
-
-#if 0
-	GetEndPointString( &p1, &p2 );
-	fprintf( stderr, "Endpoint is %s: %s\n", p1 ? p1 : "" , p2 ? p2 : "" );
-#endif // 0
-	}
+    }
 
 ITERATOR &
 node_endpoint::GetEndPointPairs()
-	{
-	EndPointStringList.Init();
-	return EndPointStringList;
-	}
+    {
+    EndPointStringList.Init();
+    return EndPointStringList;
+    }
 
 
-node_switch_is::node_switch_is(
-	expr_node	*	pE ) : nbattr( ATTR_SWITCH_IS )
-	{
-	pExpr	= pE;
-	}
-
-node_iid_is::node_iid_is(
-	expr_node	*	pE ) : nbattr( ATTR_IID_IS )
-	{
-	pExpr	= pE;
-	}
-
-node_context::node_context() : nbattr( ATTR_CONTEXT )
-	{
-	}
-
-
-node_case::node_case(
-	class expr_list	*	pL ) : nbattr( ATTR_CASE )
-	{
-	pExprList	= pL;
-	}
-
-#ifdef scheck
-node_state
-node_case::SCheck()
-	{
-	expr_node	*	pMyExpr;
-	NODE_T			NT;
-
-	while( pExprList->GetPeer( &pMyExpr ) == STATUS_OK )
-		{
-		assert( pMyExpr != (expr_node *)NULL );
-
-		NT	= (pMyExpr->GetType())->NodeKind();
-
-		if( !pMyExpr->IsConstant() )
-			ParseError( CASE_EXPR_NOT_CONST, (char *)NULL );
-
-		if( !pMyExpr->IsExprInt() &&
-			(NT != NODE_BOOLEAN) &&
-			(NT != NODE_CHAR) )
-			ParseError( CASE_EXPR_NOT_INT, (char *)NULL );
-		}
-	return NODE_STATE_OK;
-	}
-#endif //scheck
 /****************************************************************************
- 				utility routines
+                                utility routines
  ****************************************************************************/
-void
-CheckSizeAndLengthTypeMismatch(
-	node_skl	*	pTypeNode )
-	{
-	sa				*	pSizeNode	= (sa *)NULL;
-	sa				*	pLengthNode	= (sa *)NULL;
-	node_skl		*	pSizeType,
-					*	pLengthType;
-	BOOL				fSizeExprConstant;
-	BOOL				fLengthExprConstant;
-	expr_node		*	pSizeExpr;
-	expr_node		*	pLengthExpr;
-
-#ifdef gaj
-	if( pTypeNode->FInSummary( ATTR_SIZE ) )
-		pSizeNode	= (sa *)pTypeNode->GetAttribute( ATTR_SIZE );
-	else if( pTypeNode->FInSummary( ATTR_MAX ) )
-		pSizeNode	= (sa *)pTypeNode->GetAttribute( ATTR_MAX );
-
-	if( pTypeNode->FInSummary( ATTR_LENGTH ) )
-		pLengthNode	= (sa *)pTypeNode->GetAttribute( ATTR_LENGTH );
-	else if( pTypeNode->FInSummary( ATTR_LAST ) )
-		pLengthNode	= (sa *)pTypeNode->GetAttribute( ATTR_LAST );
-#endif //gaj
-
-	if( pSizeNode && pLengthNode )
-		{
-		pSizeExpr	= pSizeNode->GetExpr();
-		pLengthExpr	= pLengthNode->GetExpr();
-		pSizeType	= pSizeExpr->GetType();
-		pLengthType	= pLengthExpr->GetType();
-		fSizeExprConstant	= pSizeExpr->IsConstant();
-		fLengthExprConstant	= pLengthExpr->IsConstant();
-
-		if(  (pSizeType->NodeKind() != NODE_ERROR) &&
-			 (pLengthType->NodeKind() != NODE_ERROR) &&
-			!(fSizeExprConstant || fLengthExprConstant ) &&
-			 (pSizeType != pLengthType ) )
-			{
-			ParseError(SIZE_LENGTH_TYPE_MISMATCH, (char *)NULL );
-			}
-		}
-	}
-
-#ifdef obsolete
-BOOL
-IsValueInRangeOfType(
-	node_skl	*	pType,
-	expr_node 	*	pExpr )
-	{
-	//
-	// some expression nodes are really not constant expression nodes. Like
-	// variable nodes.
-	//
-
-	pExpr	= pExpr->GetExpr();
-
-	if( pExpr && pExpr->IsConstant() )
-		{
-		expr_constant * pC = new expr_constant( pExpr->GetValue() );
-		BOOL			fResult;
-
-		fResult = pC->IsAValidConstantOfType( pType );
-		delete pC;
-		return fResult;
-		}
-	else
-		return FALSE;
-	}
-#endif // obsolete
-
 int
-HexCheck(
-	char *pStr)
-	{
-	if(pStr && *pStr)
-		{
-		while(*pStr)
-			{
-			if(! isxdigit(*pStr)) return 0;
-			pStr++;
-			}
-		return 1;
-		}
-	return 0;
-	}
+HexCheck(char *pStr)
+    {
+    if(pStr && *pStr)
+        {
+        while(*pStr)
+            {
+            if(! isxdigit(*pStr)) return 0;
+            pStr++;
+            }
+        return 1;
+        }
+    return 0;
+    }
+
 /*****************************************************************************
  These virtual functions can be inlined, but they are here because the MIPS
  compiler does not like virtual inlined functions.
  *****************************************************************************/
 BOOL
 node_base_attr::IsBitAttr()
-	{
-	return FALSE;
-	}
-
-#ifdef scheck
-node_state
-node_base_attr::AcfSCheck()
-	{
-	return NODE_STATE_OK;
-	}
-#endif //scheck
+    {
+    return FALSE;
+    }
 
 class expr_node*
 node_base_attr::GetExpr()
-	{
-	return (class expr_node *)NULL ;
-	}
-#ifdef scheck
-node_state
-node_base_attr::SCheck()
-	{
-	return NODE_STATE_OK;
-	}
-#endif //scheck
+    {
+    return (class expr_node *)NULL ;
+    }
+
 /*****************************************************************************/
 BOOL
 battr::IsBitAttr()
-	{
-	return TRUE;
-	}
-/*****************************************************************************/
-class expr_node *
-sa::GetExpr()
-	{
-	return pExpr;
-	}
-/*****************************************************************************/
-#ifdef scheck
-node_state
-node_int_size_is::SCheck()
-	{
-	return NODE_STATE_OK;
-	}
-node_state
-node_min_is::SCheck()
-	{
-	ParseError( IGNORE_UNIMPLEMENTED_ATTRIBUTE, GetNodeNameString() );
-	return NODE_STATE_OK;
-	}
-node_state
-node_int_length_is::SCheck()
-	{
-	return NODE_STATE_OK;
-	}
-/*****************************************************************************/
-node_state
-ma::SCheck()
-	{
-	return NODE_STATE_OK;
-	}
-/*****************************************************************************/
-node_state
-node_handle::SCheck()
-	{
-	return NODE_STATE_HANDLE;
-	}
+    {
+    return TRUE;
+    }
 
-node_state
-node_callback::SCheck()
-	{
-	ParseError( INVALID_OSF_ATTRIBUTE, GetNodeNameString() );
-	return NODE_STATE_OK;
-	}
+//+---------------------------------------------------------------------------
+//
+//  Function:   TranslateEscapeSequences
+//
+//  Purpose:    Replaces a string's escape sequences with the appropriate 
+//              ASCII characters.
+//
+//              NOTE: this can be done in place because the resulting string
+//              length will always be shorter than or equal to the input string 
+//              length.
+//
+//  Assumes:    The string is NULL terminated and in writable memory.
+//              There are no DBCS characters in the string.    
+//
+//----------------------------------------------------------------------------
 
-node_state
-node_broadcast::SCheck()
-	{
-//	if( !pCommand->IsSwitchDefined( SWITCH_INTERNAL ) )
-//		ParseError( IGNORE_UNIMPLEMENTED_ATTRIBUTE, GetNodeNameString() );
-	return NODE_STATE_OK;
-	}
-node_state
-node_idempotent::SCheck()
-	{
-//	if( !pCommand->IsSwitchDefined( SWITCH_INTERNAL ) )
-//		ParseError( IGNORE_UNIMPLEMENTED_ATTRIBUTE, GetNodeNameString() );
-	return NODE_STATE_OK;
-	}
-node_state
-node_maybe::SCheck()
-	{
-//	if( !pCommand->IsSwitchDefined( SWITCH_INTERNAL ) )
-//		ParseError( IGNORE_UNIMPLEMENTED_ATTRIBUTE, GetNodeNameString() );
-	return NODE_STATE_OK;
-	}
+#define ESCAPE_CHARACTER '\\'
+void TranslateEscapeSequences(char * sz)
+{
+    char * pchNextOut = sz;
+    char ch; 
+    
+    while (0 != (ch = *sz))
+        {
+        if ((char)ESCAPE_CHARACTER == ch)
+            {
+            ch = *(++sz);
+            switch ((char)tolower(ch))
+                {
+                case '0':   // octal sequence
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                    {
+                    char count = 3;
+                    unsigned char value = 0;
+                    do 
+                        {
+                        value *= 8;
+                        value += ch - '0';
+                        ch = *(++sz);
+                        count--;
+                        }
+                    while (ch <= '8' && ch >= '0' && count);
+                    sz--;
+                    ch = (char) value;
+                    break;
+                    }
+                case 'x':   // hex sequence
+                    {
+                    unsigned char value = 0;
+                    ch = tolower(*(++sz));
+                    if ((ch <= '8' && ch >= '0') || (ch <= 'f' && ch >= 'a'))
+                        {
+                        do
+                            {
+                            value *= 16;
+                            if (ch < 'a')
+                                value += ch - '0';
+                            else 
+                                value += ch - 'a' + 10;
+                            ch = tolower(*(++sz));
+                            }
+                        while ((ch <= '8' && ch >= '0') || (ch <= 'f' && ch >= 'a'));
+                        sz--;
+                        ch = (char) value;
+                        }
+                    else    // "\x" with no trailing hex digits is treated as an "x"
+                        {
+                        ch = *(--sz);
+                        }
+                    break;
+                    }
+                case 'n':   // newline
+                    ch = (char) '\n';
+                    break;
+                case 't':   // tab
+                    ch = (char) '\t';
+                    break;
+                case 'v':   // vertical tab
+                    ch = (char) '\v';
+                    break;
+                case 'b':   // backspace
+                    ch = (char) '\b';
+                    break;
+                case 'r':   // carriage return
+                    ch = (char) '\r';
+                    break;
+                case 'f':   // formfeed
+                    ch = (char) '\f';
+                    break;
+                case 'a':   // alert
+                    ch = (char) '\a';
+                    break;
+                case 0:     // just in case the last character in the string is an escape character
+                    ch = (char) ESCAPE_CHARACTER;
+                    sz--;
+                    break;
+                default:
+                    break;
+                }
+            }
+        *(pchNextOut++) = ch;
+        ++sz;
+        }
+    *(pchNextOut++) = ch;
+}
 
-#endif //scheck

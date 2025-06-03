@@ -77,7 +77,9 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"IBMTOK2ISA",
-        L"IOADDR\0001\000100\0",
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0",
         NULL,
         700
 
@@ -91,14 +93,14 @@ static ADAPTER_INFO Adapters[] = {
 // Structure for holding state of a search
 //
 
-typedef struct _SEARCH_STATE {
-
-
+typedef struct _SEARCH_STATE
+{
     ULONG   NumberOfAdapters;
     ULONG   CurrentAdapter;
     USHORT  IoBases[7];
-
-} SEARCH_STATE, *PSEARCH_STATE;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 
 //
@@ -111,13 +113,14 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _TOK162_ADAPTER {
-
-    INTERFACE_TYPE InterfaceType;
-    ULONG          BusNumber;
-    USHORT         IoBaseAddr;
-
-} TOK162_ADAPTER, *PTOK162_ADAPTER;
+typedef struct _TOK162_ADAPTER
+{
+    INTERFACE_TYPE 	InterfaceType;
+    ULONG          	BusNumber;
+    USHORT         	IoBaseAddr;
+}
+	TOK162_ADAPTER,
+	*PTOK162_ADAPTER;
 
 USHORT
 TOK162ContentionTest(
@@ -331,45 +334,43 @@ Return Value:
 --*/
 
 {
-
+	NETDTECT_RESOURCE	Resource;
 
     *lConfidence = 0;
     *ppvToken    = 0;
 
-
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(0);
-
     }
 
+    if (First)
+	{
+        SearchStates[0].CurrentAdapter = 0;
 
-    if (First) {
-
-        SearchStates[0].CurrentAdapter=0;
-
-        Tok162FindCards(
-            InterfaceType,
-            BusNumber,
-            SearchStates
-            );
-
-    } else {
-
-
-        if (++SearchStates[0].CurrentAdapter > 7) {
-
+        Tok162FindCards(InterfaceType, BusNumber, SearchStates);
+    }
+	else
+	{
+        if (++SearchStates[0].CurrentAdapter > 7)
+		{
             return(0);
-
         }
     }
 
-    while (SearchStates[0].CurrentAdapter < 7) {
+    while (SearchStates[0].CurrentAdapter < 7)
+	{
+        if ((SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0) &&
+            (SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0x3f0))
+		{
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = SearchStates[0].IoBases[SearchStates[0].CurrentAdapter];
+			Resource.Length = 30;
+			Resource.Flags = 0;
 
-        if ((SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0)
-             &&
-            (SearchStates[0].IoBases[SearchStates[0].CurrentAdapter] != 0x3f0)) {
+			DetectTemporaryClaimResource(&Resource);
 
             break;
         }
@@ -377,11 +378,9 @@ Return Value:
         SearchStates[0].CurrentAdapter++;
     }
 
-
-    if (SearchStates[0].CurrentAdapter == 7) {
-
+    if (SearchStates[0].CurrentAdapter == 7)
+	{
         return(0);
-
     }
 
     //
@@ -396,13 +395,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -412,8 +410,6 @@ Return Value:
 
     *lConfidence = 100;
     return(0);
-
-
 }
 
 extern
@@ -452,15 +448,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)Token) & 0x8000) {
-
+    if (((ULONG)Token) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)Token >> 8) & 0x7F);
@@ -470,21 +464,16 @@ Return Value:
     //
     // Store information
     //
+    Adapter = (PTOK162_ADAPTER)DetectAllocateHeap(sizeof(TOK162_ADAPTER));
 
-    Adapter = (PTOK162_ADAPTER)DetectAllocateHeap(
-                                 sizeof(TOK162_ADAPTER)
-                                 );
-
-    if (Adapter == NULL) {
-
+    if (Adapter == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across memory address
     //
-
     Adapter->IoBaseAddr = SearchStates[(ULONG)AdapterNumber].IoBases[SearchStates[(ULONG)AdapterNumber].CurrentAdapter];
     Adapter->InterfaceType = InterfaceType;
     Adapter->BusNumber = BusNumber;
@@ -530,48 +519,49 @@ Return Value:
     PTOK162_ADAPTER Adapter;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == NetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == NetcardId)
+		{
             //
             // Store information
             //
-
-            Adapter = (PTOK162_ADAPTER)DetectAllocateHeap(
-                                         sizeof(TOK162_ADAPTER)
-                                         );
-
-            if (Adapter == NULL) {
-
+            Adapter = (PTOK162_ADAPTER)DetectAllocateHeap(sizeof(TOK162_ADAPTER));
+            if (Adapter == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
+            Adapter->IoBaseAddr = 0x86a0;
+            Adapter->InterfaceType = InterfaceType;
+            Adapter->BusNumber = BusNumber;
 
-            Adapter->IoBaseAddr              = 0x86a0;
-            Adapter->InterfaceType           = InterfaceType;
-            Adapter->BusNumber               = BusNumber;
+
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = Adapter->IoBaseAddr;
+			Resource.Length = 30;
+			Resource.Flags = 0;
+
+			DetectTemporaryClaimResource(&Resource);
 
             *Handle = (PVOID)Adapter;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -641,37 +631,29 @@ Return Value:
 
     ULONG StartPointer = (ULONG)Buffer;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
-
-
 
     //
     // Now the IoBaseAddress
     //
-
-    IoBaseAddress=Adapter->IoBaseAddr;
+    IoBaseAddress = Adapter->IoBaseAddr;
 
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)Buffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     Buffer = &(Buffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -679,19 +661,16 @@ Return Value:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(Buffer,L"0x%x",IoBaseAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -735,24 +714,19 @@ Return Value:
 
     WCHAR *Place;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_DATA);
-
     }
-
 
     //
     // Get the IoBaseAddress
     //
-
     Place = FindParameterString(Buffer, IoAddrString);
 
-    if (Place == NULL) {
-
+    if (Place == NULL)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
     Place += UnicodeStrLen(IoAddrString) + 1;
@@ -760,23 +734,19 @@ Return Value:
     //
     // Now parse the thing.
     //
-
     ScanForNumber(Place, &IoBaseAddress, &Found);
 
-    if (Found == FALSE) {
-
+    if (Found == FALSE)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
-    if (IoBaseAddress != Adapter->IoBaseAddr) {
-
+    if (IoBaseAddress != Adapter->IoBaseAddr)
+	{
         return(ERROR_INVALID_DATA);
-
     }
 
     return(NO_ERROR);
-
 }
 
 extern
@@ -1014,22 +984,19 @@ Tok162FindCards(
     // See if it is even possible for one of our cards to be in the
     // machine.
     //
-    for(i = 0; i < 8; i++) {
+    for (i = 0; i < 8; i++)
+	{
+        IdPort = 0x86a0 + (i * 0x1000);
 
-        IdPort = 0x86a0 + (i * 0x100);
-
-        NtStatus = DetectCheckPortUsage(
-                        InterfaceType,
-                        BusNumber,
-                        IdPort,
-                        30
-                        );
-        if(NtStatus == STATUS_SUCCESS) {
+        NtStatus = DetectCheckPortUsage(InterfaceType, BusNumber, IdPort, 30);
+        if (NtStatus == STATUS_SUCCESS)
+		{
             break;
         }
     }
 
-    if(NtStatus != STATUS_SUCCESS) {
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return 0;
     }
 
@@ -1039,29 +1006,27 @@ Tok162FindCards(
     //
     FoundAdapter = TRUE;
 
-    for(i = 0; i < 8; i++) {
-
-        IdPort = 0x86a0 + (i * 0x100);
+    for (i = 0; i < 8; i++)
+	{
+        IdPort = 0x86a0 + (i * 0x1000);
 
         //
         // Read in the switches for the current card
         //
-
         NtStatus = DetectReadPortUshort(
-                        InterfaceType,
-                        BusNumber,
-                        IdPort + PORT_OFFSET_SWITCH_INT_DISABLE,
-                        &temp
-                        );
+						InterfaceType,
+						BusNumber,
+						IdPort + PORT_OFFSET_SWITCH_INT_DISABLE,
+						&temp);
 
         Switches = (PADAPTERSWITCHES)&temp;
 
         //
         // Check to see if the iobase is correct
         //
-
-            switch(Switches->RPL_PIO_Address) {
-            case SW_PIO_ADDR_8:
+		switch (Switches->RPL_PIO_Address)
+		{
+			case SW_PIO_ADDR_8:
                 SwitchIdPort = 0x86a0;
                 break;
             case SW_PIO_ADDR_C:
@@ -1087,26 +1052,30 @@ Tok162FindCards(
                 break;
         }
 
-        if(SwitchIdPort != IdPort) {
+        if (SwitchIdPort != IdPort)
+		{
             FoundAdapter = FALSE;
         }
 
         //
         // Next check the Test bit
         //
-        if(Switches->AdapterMode == SW_ADAPTERMODE_TEST) {
+        if(Switches->AdapterMode == SW_ADAPTERMODE_TEST)
+		{
             FoundAdapter = FALSE;
         }
 
         //
         // Finally see if the DMA is reasonable
         //
-        if(Switches->DMA == 3) { // Invalid DMA value
+        if(Switches->DMA == 3)
+		{
+			// Invalid DMA value
             FoundAdapter = FALSE;
         }
 
-        if(FoundAdapter == TRUE) {
-
+        if (FoundAdapter == TRUE)
+		{
             //
             // Check the address register
             //
@@ -1114,8 +1083,7 @@ Tok162FindCards(
                             InterfaceType,
                             BusNumber,
                             IdPort + PORT_OFFSET_ADDRESS,
-                            &temp
-                            );
+                            &temp);
             //
             // Change the address
             //
@@ -1123,8 +1091,7 @@ Tok162FindCards(
                             InterfaceType,
                             BusNumber,
                             IdPort + PORT_OFFSET_ADDRESS,
-                            0x0200
-                            );
+                            0x0200);
             Tok162Stall();
             Tok162Stall();
 
@@ -1135,21 +1102,23 @@ Tok162FindCards(
                             InterfaceType,
                             BusNumber,
                             IdPort + PORT_OFFSET_ADDRESS,
-                            &temp
-                            );
+                            &temp);
 
-            if(temp != 0x0A00) {
+            if (temp != 0x0A00)
+			{
                 FoundAdapter = FALSE;
             }
-
         }
-        if(FoundAdapter == TRUE) {
+
+        if (FoundAdapter == TRUE)
+		{
             //
             // We found one, so mark it
             //
             SearchStates->IoBases[i] = IdPort;
             SearchStates->NumberOfAdapters++;
         }
+
         FoundAdapter = TRUE;
     }
 }
@@ -1162,4 +1131,3 @@ Tok162Stall(
 {
     return ;
 }
-

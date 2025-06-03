@@ -25,7 +25,6 @@ BOOL    LockSegment16(WORD wSeg);
 BOOL    UnlockSegment16(WORD wSeg);
 HAND16  GetExePtr16( HAND16 hInstance );
 WORD    ChangeSelector16( WORD wSeg );
-UINT    GetModuleUsage16( HAND16 hModule16 );
 VPVOID  RealLockResource16( HMEM16 hMem, PINT pcb );
 WORD    GetModuleFileName16( HAND16 hInst, VPVOID lpszModuleName, WORD cchModuleName );
 

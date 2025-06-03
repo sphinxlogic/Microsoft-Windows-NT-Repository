@@ -652,10 +652,11 @@ INT16 TF_PollDrive( THW_PTR        thw,      /* (I) The drive to be polled  */
                                                         pd_channel->cur_buff,
                                                         curDRV->poll_stuff.def_blk_size,
                                                         &resized_buff ) ;
+
                                    if( ret == TFLE_NO_MEMORY ) {
-                                        ret_val = PD_OUT_OF_MEMORY ;
-                                   } else if( ret != TFLE_NO_ERR ) {
                                         ret_val = PD_DRIVE_FAILURE ;
+                                   } else if( ret != TFLE_NO_ERR ) {
+                                        ret_val = PD_FOREIGN_TAPE ;
                                    } else {
                                         if( ( tmp_ret = DisMountTape( curDRV, NULL, FALSE ) ) != TFLE_NO_ERR ) {
                                              if( tmp_ret == TFLE_DRIVER_FAILURE ) {
@@ -684,10 +685,10 @@ INT16 TF_PollDrive( THW_PTR        thw,      /* (I) The drive to be polled  */
 
                               if( ret == TFLE_NO_MEMORY ) {
                                    ret_val = PD_OUT_OF_MEMORY ;
-                              } else if( ret != TFLE_NO_ERR ) {
-                                   ret_val = PD_DRIVE_FAILURE ;
                               } else {
+
                                    ++curDRV->poll_stuff.blk_size_idx ;
+
                                    BM_Put( pd_channel->buffer_list.vcb_buff ) ;
                                    if( TpRewind( curDRV->drv_hdl, FALSE ) == FAILURE ) {
                                         ret_val = PD_DRIVER_FAILURE ;

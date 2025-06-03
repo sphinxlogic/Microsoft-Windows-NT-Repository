@@ -111,4 +111,3 @@ LONG lParam;
     /* A window procedure should always return something. */
     return (0L);
     }
-

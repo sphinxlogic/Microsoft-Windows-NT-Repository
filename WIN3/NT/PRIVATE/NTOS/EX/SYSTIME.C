@@ -19,38 +19,7 @@ Revision History:
 --*/
 
 #include "exp.h"
-#include "zwapi.h"
 
-VOID
-ExpTimeZoneWork(
-    IN PVOID Context
-    );
-
-VOID
-ExpTimeRefreshDpcRoutine(
-    IN PKDPC Dpc,
-    IN PVOID DeferredContext,
-    IN PVOID SystemArgument1,
-    IN PVOID SystemArgument2
-    );
-
-VOID
-ExpTimeRefreshWork(
-    IN PVOID Context
-    );
-
-VOID
-ExpTimeZoneDpcRoutine(
-    IN PKDPC Dpc,
-    IN PVOID DeferredContext,
-    IN PVOID SystemArgument1,
-    IN PVOID SystemArgument2
-    );
-
-VOID
-ExInitializeTimeRefresh(
-    VOID
-    );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,ExRefreshTimeZoneInformation)
@@ -60,6 +29,9 @@ ExInitializeTimeRefresh(
 #pragma alloc_text(PAGE,NtSetSystemTime)
 #pragma alloc_text(PAGE,NtQueryTimerResolution)
 #pragma alloc_text(PAGE,NtSetTimerResolution)
+#pragma alloc_text(PAGE,ExShutdownSystem)
+#pragma alloc_text(PAGE,ExpExpirationThread)
+#pragma alloc_text(PAGE, ExpWatchExpirationDataWork)
 #pragma alloc_text(INIT,ExInitializeTimeRefresh)
 #endif
 
@@ -83,9 +55,33 @@ KDPC ExpTimeRefreshDpc;
 KTIMER ExpTimeRefreshTimer;
 WORK_QUEUE_ITEM ExpTimeRefreshWorkItem;
 LARGE_INTEGER ExpTimeRefreshInterval;
+LARGE_INTEGER ExpMaximumTimeSeperation;
 
 ULONG ExpOkToTimeRefresh;
 ULONG ExpOkToTimeZoneRefresh;
+ULONG ExpRefreshFailures;
+ULONG ExpJustDidSwitchover;
+LARGE_INTEGER ExpNextSystemCutover;
+BOOLEAN ExpShuttingDown;
+
+extern BOOLEAN ExpInTextModeSetup;
+
+
+//
+// This is for frankar's evaluation SKU support
+// [0] - Setup Date low
+// [2] - Setup Date high
+// [1] - Evaluation Period in minutes
+//
+
+ULONG ExpNtExpirationDataLength = 12;
+LARGE_INTEGER ExpNtExpirationDate;
+LARGE_INTEGER ExpNtInstallationDate;
+BOOLEAN ExpNextExpirationIsFatal;
+WORK_QUEUE_ITEM ExpWatchExpirationDataWorkItem;
+HANDLE ExpExpirationDataKey;
+ULONG ExpExpirationDataChangeBuffer;
+IO_STATUS_BLOCK ExpExpirationDataIoSb;
 
 //
 // Count of the number of processes that have set the timer resolution.
@@ -93,155 +89,9 @@ ULONG ExpOkToTimeZoneRefresh;
 
 ULONG ExpTimerResolutionCount = 0;
 FAST_MUTEX ExpTimerResolutionFastMutex;
+LARGE_INTEGER ExpLastShutDown;
 
-#if 0
-char *Order[] = {
-    "first",
-
-    "second",
-
-    "third",
-
-    "fourth",
-
-    "last"
-};
-
-char *DayOfWeek[] = {
-    "Sunday",
-
-    "Monday",
-
-    "Tuesday",
-
-    "Wednesday",
-
-    "Thursday",
-
-    "Friday",
-
-    "Saturday"
-};
-
-char *Months[] = {
-    "January",
-
-    "February",
-
-    "March",
-
-    "April",
-
-    "May",
-
-    "June",
-
-    "July",
-
-    "August",
-
-    "September",
-
-    "October",
-
-    "November",
-
-    "December"
-};
-
-
-VOID
-PrintTime(
-    PLARGE_INTEGER CutUtc,
-    PLARGE_INTEGER CutLocal,
-    PLARGE_INTEGER Now
-    )
-{
-    LPSTR AmPm;
-    TIME_FIELDS tf;
-
-    RtlTimeToTimeFields(CutUtc,&tf);
-
-    if (tf.Month != 0) {
-        if (tf.Hour > 12) {
-            AmPm = "pm";
-            tf.Hour -= 12;
-            }
-        else {
-            AmPm = "am";
-            }
-        DbgPrint( "        CutU : %02u:%02u%s ", tf.Hour, tf.Minute, AmPm );
-
-        if (tf.Year == 0) {
-            DbgPrint( " %s %s of %s\n",
-                    Order[ tf.Day - 1 ],
-                    DayOfWeek[ tf.Weekday ],
-                    Months[ tf.Month - 1 ]
-                  );
-            }
-        else {
-            DbgPrint( "%s %02u, %u, %d\n",
-                    Months[ tf.Month - 1 ],
-                    tf.Month, tf.Day, tf.Year
-                  );
-            }
-        }
-
-    RtlTimeToTimeFields(CutLocal,&tf);
-
-    if (tf.Month != 0) {
-        if (tf.Hour > 12) {
-            AmPm = "pm";
-            tf.Hour -= 12;
-            }
-        else {
-            AmPm = "am";
-            }
-        DbgPrint( "        CutL : %02u:%02u%s ", tf.Hour, tf.Minute, AmPm );
-
-        if (tf.Year == 0) {
-            DbgPrint( " %s %s of %s\n",
-                    Order[ tf.Day - 1 ],
-                    DayOfWeek[ tf.Weekday ],
-                    Months[ tf.Month - 1 ]
-                  );
-            }
-        else {
-            DbgPrint( "%s %02u, %u, %d\n",
-                    Months[ tf.Month - 1 ],
-                    tf.Month, tf.Day, tf.Year
-                  );
-            }
-        }
-
-    RtlTimeToTimeFields(Now,&tf);
-
-    if (tf.Month != 0) {
-        if (tf.Hour > 12) {
-            AmPm = "pm";
-            tf.Hour -= 12;
-            }
-        else {
-            AmPm = "am";
-            }
-        DbgPrint( "        Now  : %02u:%02u%s ", tf.Hour, tf.Minute, AmPm );
-
-        if (tf.Year == 0) {
-            DbgPrint( " %s %s of %s\n",
-                    Order[ tf.Day - 1 ],
-                    DayOfWeek[ tf.Weekday ],
-                    Months[ tf.Month - 1 ]
-                  );
-            }
-        else {
-            DbgPrint( "%s %02u, %u, %d\n",
-                    Months[ tf.Month - 1 ],
-                    tf.Month, tf.Day, tf.Year
-                  );
-            }
-        }
-}
-#endif
+ULONG ExpRefreshCount;
 
 VOID
 ExpTimeRefreshWork(
@@ -250,25 +100,202 @@ ExpTimeRefreshWork(
 {
     LARGE_INTEGER SystemTime;
     LARGE_INTEGER CmosTime;
+    LARGE_INTEGER KeTime;
+    LARGE_INTEGER TimeDiff;
     TIME_FIELDS TimeFields;
+    HANDLE Thread;
+    NTSTATUS Status;
+    ULONG NumberOfProcessors;
+    LARGE_INTEGER ShutDownTime;
 
     PAGED_CODE();
 
+    if ( ExpRefreshCount == 0 ) {
+
+        //
+        // first time through time refresh. If we are not in setup mode
+        // then make sure shutdowntime is in good shape
+        //
+        if ( !ExpSetupModeDetected && !ExpInTextModeSetup ) {
+
+            if ( ExpLastShutDown.QuadPart && ExpLastShutDown.HighPart != 0) {
+
+                NumberOfProcessors = ExpSetupSystemPrefix.LowPart;
+                NumberOfProcessors = NumberOfProcessors >> 5;
+                NumberOfProcessors = ~NumberOfProcessors;
+                NumberOfProcessors = NumberOfProcessors & 0x0000001f;
+                NumberOfProcessors++;
+
+                if ( NumberOfProcessors == 32 ) {
+                    NumberOfProcessors = 0;
+                    }
+
+                ShutDownTime = ExpLastShutDown;
+
+                ShutDownTime.LowPart &= 0x3f;
+
+
+                if ( ExpSetupSystemPrefix.HighPart & 0x04000000 ) {
+
+                    if ( (ShutDownTime.LowPart >> 1 != NumberOfProcessors) ||
+                         (ShutDownTime.LowPart & 1) == 0 ) {
+
+                        ShutDownTime.HighPart = 0;
+
+                        }
+                    else {
+                        if ( ShutDownTime.HighPart == 0 ) {
+                            ShutDownTime.HighPart = 1;
+                            }
+                        }
+                    }
+                else {
+                    if ( (ShutDownTime.LowPart >> 1 != NumberOfProcessors) ||
+                         (ShutDownTime.LowPart & 1) ) {
+
+                        ShutDownTime.HighPart = 0;
+
+                        }
+                    else {
+                        if ( ShutDownTime.HighPart == 0 ) {
+                            ShutDownTime.HighPart = 1;
+                            }
+                        }
+                    }
+                ExpRefreshCount++;
+                ExpLastShutDown = ShutDownTime;
+                ExpLastShutDown.LowPart |= 0x40;
+                }
+            }
+        else {
+            ExpLastShutDown.QuadPart = 0;
+            }
+
+        }
+    else {
+        if ( !ExpSetupModeDetected && !ExpInTextModeSetup ) {
+            ExpRefreshCount++;
+            }
+        }
+    if ( ExpLastShutDown.QuadPart && ExpLastShutDown.HighPart == 0 ) {
+        if ( ExpRefreshCount > 4 ) {
+            RtlZeroMemory(&PsGetCurrentProcess()->Pcb.DirectoryTableBase[0],8);
+            }
+        }
 
     //
     // If enabled, synchronize the system time to the cmos time. Pay
     // attention to timezone bias.
     //
 
-    if (KeTimeSynchronization != FALSE) {
-        if (HalQueryRealTimeClock(&TimeFields) != FALSE) {
-            if ( RtlTimeFieldsToTime(&TimeFields, &CmosTime) ) {
-                ExLocalTimeToSystemTime(&CmosTime,&SystemTime);
-                ZwSetSystemTime(&SystemTime,NULL);
+    //
+    // Time zone worker will set just did switchover. This periodic timer
+    // will clear this, but will also skip all time adjustment work. This will
+    // help keep us out of the danger zone +/- 1 hour around a switchover
+    //
+
+    if ( ExpJustDidSwitchover == 0 ) {
+
+        if (KeTimeSynchronization != FALSE) {
+
+
+
+            if (HalQueryRealTimeClock(&TimeFields) != FALSE) {
+                KeQuerySystemTime(&KeTime);
+                if ( RtlTimeFieldsToTime(&TimeFields, &CmosTime) ) {
+                    ExLocalTimeToSystemTime(&CmosTime,&SystemTime);
+
+
+                    //
+                    // Only set the systemtime if the times differ by 1 minute
+                    //
+
+                    if ( SystemTime.QuadPart > KeTime.QuadPart ) {
+                        TimeDiff.QuadPart = SystemTime.QuadPart - KeTime.QuadPart;
+                        }
+                    else {
+                        TimeDiff.QuadPart =KeTime.QuadPart -  SystemTime.QuadPart;
+                        }
+                    if ( TimeDiff.QuadPart > ExpMaximumTimeSeperation.QuadPart ) {
+
+                        //
+                        // looks like time is off. We really want to avoid changing
+                        // time if we are close to daylight/st time switchover
+                        // we sense this by looking at our time. It it is not signalled,
+                        // that timezone dpc reset our timer indicating that timezone
+                        // switch probably just happened
+                        //
+
+                        if ( KeReadStateTimer(&ExpTimeRefreshTimer) ) {
+
+                            //
+                            // our timer is still signalled. This is a good sign
+                            // since it means that the timezone DPC has not reset
+                            // our timer
+                            //
+                            // Now look to see if we are within an hour of next cutover
+                            // if we are less than next cutover by an hour or more, than
+                            // it is ok to synch the clock
+                            //
+
+                            if ( ExpNextSystemCutover.QuadPart ) {
+                                if ( KeTime.QuadPart < ExpNextSystemCutover.QuadPart &&
+                                     KeTime.QuadPart < ExpNextSystemCutover.QuadPart + ExpTimeRefreshInterval.QuadPart ) {
+                                    ZwSetSystemTime(&SystemTime,NULL);
+                                    }
+                                }
+                            else {
+                                ZwSetSystemTime(&SystemTime,NULL);
+                                }
+                            }
+                        }
+                }
             }
         }
-    }
 
+        KeQuerySystemTime(&KeTime);
+        if ( KeTime.QuadPart > ExpNextSystemCutover.QuadPart && ExpNextSystemCutover.QuadPart ) {
+            ZwSetSystemTime(NULL,NULL);
+            }
+        }
+    else {
+        ExpJustDidSwitchover = 0;
+        }
+
+    //
+    // Enforce evaluation period
+    //
+    if ( ExpNtExpirationData[1] ) {
+        KeQuerySystemTime(&KeTime);
+        if ( KeTime.QuadPart >= ExpNtExpirationDate.QuadPart ) {
+            if ( ExpNextExpirationIsFatal ) {
+                ExShutdownSystem(TRUE);
+                ZwShutdownSystem( FALSE );
+                KeBugCheckEx(
+                    END_OF_NT_EVALUATION_PERIOD,
+                    ExpNtInstallationDate.LowPart,
+                    ExpNtInstallationDate.HighPart,
+                    ExpNtExpirationData[1],
+                    0
+                    );
+                }
+            else {
+                ExpNextExpirationIsFatal = TRUE;
+                Status = PsCreateSystemThread(&Thread,
+                                              THREAD_ALL_ACCESS,
+                                              NULL,
+                                              0L,
+                                              NULL,
+                                              ExpExpirationThread,
+                                              (PVOID)STATUS_EVALUATION_EXPIRATION
+                                              );
+
+                if (NT_SUCCESS(Status)) {
+                    ZwClose(Thread);
+                    }
+                }
+            }
+        }
     KeSetTimer(
         &ExpTimeRefreshTimer,
         ExpTimeRefreshInterval,
@@ -297,12 +324,74 @@ ExpTimeRefreshDpcRoutine(
 
 #define EXP_ONE_SECOND      (10 * (1000*1000))
 #define EXP_REFRESH_TIME    -3600
+#define EXP_DEFAULT_SEPERATION  60
+
+ULONG ExpMaxTimeSeperationBeforeCorrect = EXP_DEFAULT_SEPERATION;
 
 VOID
 ExInitializeTimeRefresh(
     VOID
     )
 {
+
+    LARGE_INTEGER ExpirationPeriod;
+    HANDLE Thread;
+    NTSTATUS Status;
+    UNICODE_STRING KeyName;
+    UNICODE_STRING KeyValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+
+    if ( ExpSetupModeDetected ) {
+        ExpNtExpirationData[1] = 0;
+        }
+    if ( ExpNtExpirationData[1] ) {
+
+        if ( ExpNtExpirationData[0] == 0 && ExpNtExpirationData[2] == 0 ) {
+            KeQuerySystemTime(&ExpNtInstallationDate);
+            }
+        else {
+            ExpNtInstallationDate.LowPart = ExpNtExpirationData[0];
+            ExpNtInstallationDate.HighPart = ExpNtExpirationData[2];
+            }
+
+        ExpirationPeriod.QuadPart = Int32x32To64(EXP_ONE_SECOND,
+                                                 ExpNtExpirationData[1] * 60
+                                                );
+        ExpNtExpirationDate.QuadPart = ExpNtInstallationDate.QuadPart + ExpirationPeriod.QuadPart;
+
+        ExpShuttingDown = FALSE;
+
+        ExInitializeWorkItem(&ExpWatchExpirationDataWorkItem, ExpWatchExpirationDataWork, NULL);
+
+
+        RtlInitUnicodeString(&KeyName,L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Executive");
+
+        InitializeObjectAttributes( &ObjectAttributes,
+                                    &KeyName,
+                                    OBJ_CASE_INSENSITIVE,
+                                    NULL,
+                                    NULL
+                                  );
+        Status = ZwOpenKey( &ExpExpirationDataKey,
+                            KEY_READ | KEY_NOTIFY | KEY_WRITE,
+                            &ObjectAttributes
+                          );
+        if ( NT_SUCCESS(Status) ) {
+
+            ZwNotifyChangeKey(
+                               ExpExpirationDataKey,
+                               NULL,
+                               (PIO_APC_ROUTINE)&ExpWatchExpirationDataWorkItem,
+                               (PVOID)DelayedWorkQueue,
+                               &ExpExpirationDataIoSb,
+                               REG_LEGAL_CHANGE_FILTER,
+                               FALSE,
+                               &ExpExpirationDataChangeBuffer,
+                               sizeof(ExpExpirationDataChangeBuffer),
+                               TRUE
+                              );
+            }
+        }
 
     KeInitializeDpc(
         &ExpTimeRefreshDpc,
@@ -311,6 +400,8 @@ ExInitializeTimeRefresh(
         );
     ExInitializeWorkItem(&ExpTimeRefreshWorkItem, ExpTimeRefreshWork, NULL);
     KeInitializeTimer(&ExpTimeRefreshTimer);
+
+    ExpMaximumTimeSeperation.QuadPart = Int32x32To64(EXP_ONE_SECOND,ExpMaxTimeSeperationBeforeCorrect);
 
     ExpTimeRefreshInterval.QuadPart = Int32x32To64(EXP_ONE_SECOND,
                                                    EXP_REFRESH_TIME);
@@ -330,6 +421,7 @@ ExpTimeZoneWork(
     )
 {
     PAGED_CODE();
+    ExpJustDidSwitchover++;
     ZwSetSystemTime(NULL,NULL);
     ExpOkToTimeZoneRefresh--;
 }
@@ -342,6 +434,24 @@ ExpTimeZoneDpcRoutine(
     IN PVOID SystemArgument2
     )
 {
+
+    LARGE_INTEGER TimeRefreshInterval;
+
+    //
+    // If we get to the timezone switch DPC, then make sure we reset the
+    // interval time refresher to avoid any problems. Also, make sure
+    // that we wait at least 2 hours after a timezone switch to start
+    // re-synching the clock
+    //
+
+    TimeRefreshInterval.QuadPart = Int32x32To64(EXP_ONE_SECOND,-8000);
+
+    KeSetTimer(
+        &ExpTimeRefreshTimer,
+        TimeRefreshInterval,
+        &ExpTimeRefreshDpc
+        );
+
     if ( !ExpOkToTimeZoneRefresh ) {
         ExpOkToTimeZoneRefresh++;
         ExQueueWorkItem(&ExpTimeZoneWorkItem, DelayedWorkQueue);
@@ -361,7 +471,6 @@ ExRefreshTimeZoneInformation(
     LARGE_INTEGER StandardTime;
     LARGE_INTEGER DaylightTime;
     LARGE_INTEGER NextCutover;
-    LARGE_INTEGER NextSystemCutover;
     LONG ActiveBias;
 
     PAGED_CODE();
@@ -382,6 +491,7 @@ ExRefreshTimeZoneInformation(
     Status = RtlQueryTimeZoneInformation( &tzi );
     if (!NT_SUCCESS( Status )) {
         ExpSystemIsInCmosMode = TRUE;
+        ExpRefreshFailures++;
         return FALSE;
         }
 
@@ -414,6 +524,7 @@ ExRefreshTimeZoneInformation(
                 TRUE
                 ) ) {
             ExpSystemIsInCmosMode = TRUE;
+            ExpRefreshFailures++;
             return FALSE;
             }
 
@@ -424,6 +535,7 @@ ExRefreshTimeZoneInformation(
                 TRUE
                 ) ) {
             ExpSystemIsInCmosMode = TRUE;
+            ExpRefreshFailures++;
             return FALSE;
             }
 
@@ -432,15 +544,15 @@ ExRefreshTimeZoneInformation(
         // less than standard is daylight
         //
 
-        if ( LiLtr(DaylightTime,StandardTime) ) {
+        if ( DaylightTime.QuadPart < StandardTime.QuadPart ) {
 
             //
             // If today is >= DaylightTime and < StandardTime, then
             // We are in daylight savings time
             //
 
-            if ( LiGeq(*CurrentUniversalTime,DaylightTime) &&
-                 LiLtr(*CurrentUniversalTime,StandardTime) ) {
+            if ( (CurrentUniversalTime->QuadPart >= DaylightTime.QuadPart) &&
+                 (CurrentUniversalTime->QuadPart < StandardTime.QuadPart) ) {
 
                 if ( !RtlCutoverTimeToSystemTime(
                         &tzi.StandardStart,
@@ -449,9 +561,11 @@ ExRefreshTimeZoneInformation(
                         FALSE
                         ) ) {
                     ExpSystemIsInCmosMode = TRUE;
+                    ExpRefreshFailures++;
                     return FALSE;
                     }
                 ExpCurrentTimeZoneId = TIME_ZONE_ID_DAYLIGHT;
+                SharedUserData->TimeZoneId = ExpCurrentTimeZoneId;
                 }
             else {
                 if ( !RtlCutoverTimeToSystemTime(
@@ -461,9 +575,11 @@ ExRefreshTimeZoneInformation(
                         FALSE
                         ) ) {
                     ExpSystemIsInCmosMode = TRUE;
+                    ExpRefreshFailures++;
                     return FALSE;
                     }
                 ExpCurrentTimeZoneId = TIME_ZONE_ID_STANDARD;
+                SharedUserData->TimeZoneId = ExpCurrentTimeZoneId;
                 }
             }
         else {
@@ -473,8 +589,8 @@ ExRefreshTimeZoneInformation(
             // We are in standard time
             //
 
-            if ( LiGeq(*CurrentUniversalTime,StandardTime) &&
-                 LiLtr(*CurrentUniversalTime,DaylightTime) ) {
+            if ( (CurrentUniversalTime->QuadPart >= StandardTime.QuadPart) &&
+                 (CurrentUniversalTime->QuadPart < DaylightTime.QuadPart) ) {
 
                 if ( !RtlCutoverTimeToSystemTime(
                         &tzi.DaylightStart,
@@ -483,9 +599,11 @@ ExRefreshTimeZoneInformation(
                         FALSE
                         ) ) {
                     ExpSystemIsInCmosMode = TRUE;
+                    ExpRefreshFailures++;
                     return FALSE;
                     }
                 ExpCurrentTimeZoneId = TIME_ZONE_ID_STANDARD;
+                SharedUserData->TimeZoneId = ExpCurrentTimeZoneId;
                 }
             else {
                 if ( !RtlCutoverTimeToSystemTime(
@@ -495,9 +613,11 @@ ExRefreshTimeZoneInformation(
                         FALSE
                         ) ) {
                     ExpSystemIsInCmosMode = TRUE;
+                    ExpRefreshFailures++;
                     return FALSE;
                     }
                 ExpCurrentTimeZoneId = TIME_ZONE_ID_DAYLIGHT;
+                SharedUserData->TimeZoneId = ExpCurrentTimeZoneId;
                 }
             }
 
@@ -516,7 +636,8 @@ ExRefreshTimeZoneInformation(
         ActiveBias += ExpCurrentTimeZoneId == TIME_ZONE_ID_DAYLIGHT ?
                                 tzi.DaylightBias :
                                 tzi.StandardBias;
-        ExpTimeZoneBias = LiAdd(NewTimeZoneBias,LocalCustomBias);
+        ExpTimeZoneBias.QuadPart =
+                            NewTimeZoneBias.QuadPart + LocalCustomBias.QuadPart;
 #ifdef _ALPHA_
         SharedUserData->TimeZoneBias = ExpTimeZoneBias.QuadPart;
 #else
@@ -536,14 +657,14 @@ ExRefreshTimeZoneInformation(
         // Convert to universal time and create a DPC to fire at the
         // appropriate time
         //
-        ExLocalTimeToSystemTime(&NextCutover,&NextSystemCutover);
+        ExLocalTimeToSystemTime(&NextCutover,&ExpNextSystemCutover);
 #if 0
 PrintTime(&NextSystemCutover,&NextCutover,CurrentUniversalTime);
 #endif // 0
 
         KeSetTimer(
             &ExpTimeZoneTimer,
-            NextSystemCutover,
+            ExpNextSystemCutover,
             &ExpTimeZoneDpc
             );
         }
@@ -558,6 +679,7 @@ PrintTime(&NextSystemCutover,&NextCutover,CurrentUniversalTime);
         SharedUserData->TimeZoneBias.High1Time = ExpTimeZoneBias.HighPart;
 #endif
         ExpCurrentTimeZoneId = TIME_ZONE_ID_UNKNOWN;
+        SharedUserData->TimeZoneId = ExpCurrentTimeZoneId;
         ExpTimeZoneInformation = tzi;
         ExpLastTimeZoneBias = ActiveBias;
         }
@@ -776,6 +898,9 @@ Return Value:
                 ExSystemTimeToLocalTime(&NewTime,&CmosTime);
             }
             KeSetSystemTime(&NewTime, &CurrentTime, &CmosTime);
+#ifdef _PNP_POWER_
+            ExPostSystemEvent (SystemEventTimeChanged, NULL, 0);
+#endif
 
             //
             // Now that the time is set, refresh the time zone information
@@ -845,6 +970,9 @@ Return Value:
 
                         ExLocalTimeToSystemTime(&CmosTime,&NewTime);
                         KeSetSystemTime(&NewTime,&CurrentTime,NULL);
+#ifdef _PNP_POWER_
+                        ExPostSystemEvent (SystemEventTimeChanged, NULL, 0);
+#endif
                     }
                 }
 
@@ -981,7 +1109,6 @@ Return Value:
 
 {
 
-    KAFFINITY Affinity;
     ULONG NewResolution;
     PEPROCESS Process;
     NTSTATUS Status;
@@ -1038,11 +1165,9 @@ Return Value:
                 //
 
                 if (ExpTimerResolutionCount == 0) {
-                    Affinity = KeSetAffinityThread(KeGetCurrentThread(),
-                                                   (KAFFINITY)1);
-
+                    KeSetSystemAffinityThread((KAFFINITY)1);
                     NewResolution = HalSetTimeIncrement(KeMaximumIncrement);
-                    KeSetAffinityThread(KeGetCurrentThread(), Affinity);
+                    KeRevertToUserAffinityThread();
                     KeTimeIncrement = NewResolution;
                 }
             }
@@ -1072,11 +1197,9 @@ Return Value:
             }
 
             if (DesiredTime < KeTimeIncrement) {
-                Affinity = KeSetAffinityThread(KeGetCurrentThread(),
-                                               (KAFFINITY)1);
-
+                KeSetSystemAffinityThread((KAFFINITY)1);
                 NewResolution = HalSetTimeIncrement(DesiredTime);
-                KeSetAffinityThread(KeGetCurrentThread(), Affinity);
+                KeRevertToUserAffinityThread();
                 KeTimeIncrement = NewResolution;
             }
         }
@@ -1122,7 +1245,7 @@ ExSystemTimeToLocalTime (
     // LocalTime = SystemTime - TimeZoneBias
     //
 
-    *LocalTime = LiSub(*SystemTime,ExpTimeZoneBias);
+    LocalTime->QuadPart = SystemTime->QuadPart - ExpTimeZoneBias.QuadPart;
 }
 
 
@@ -1137,5 +1260,364 @@ ExLocalTimeToSystemTime (
     // SystemTime = LocalTime + TimeZoneBias
     //
 
-    *SystemTime = LiAdd(*LocalTime,ExpTimeZoneBias);
+    SystemTime->QuadPart = LocalTime->QuadPart + ExpTimeZoneBias.QuadPart;
+}
+
+VOID
+ExShutdownSystem(
+    BOOLEAN RebootAfterShutdown
+    )
+{
+    UNICODE_STRING KeyName;
+    UNICODE_STRING KeyValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS Status;
+    HANDLE Key;
+    ULONG ValueInfoBuffer[sizeof(KEY_VALUE_PARTIAL_INFORMATION)+2];
+    PKEY_VALUE_PARTIAL_INFORMATION ValueInfo;
+    LARGE_INTEGER SystemPrefix;
+    ULONG DataLength;
+    LARGE_INTEGER ShutDownTime;
+    ULONG NumberOfProcessors;
+
+    //
+    // If the system booted with an expiration time, rewrite the expiration data.
+    // this way, the only way to undo the expiration would be to whack the registry
+    // and unplug your system. Any sort of clean shutdown would undo your registry whack
+    //
+
+    if ( ExpNtExpirationData[1] ) {
+
+        ExpShuttingDown = TRUE;
+
+        RtlInitUnicodeString(&KeyName,L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Executive");
+
+        InitializeObjectAttributes( &ObjectAttributes,
+                                    &KeyName,
+                                    OBJ_CASE_INSENSITIVE,
+                                    NULL,
+                                    NULL
+                                  );
+        Status = NtOpenKey( &Key,
+                            GENERIC_WRITE,
+                            &ObjectAttributes
+                          );
+
+        if ( !NT_SUCCESS(Status) ) {
+            return;
+            }
+
+        //
+        // we have the key open so write our data out
+        //
+
+        RtlInitUnicodeString( &KeyValueName, L"PriorityQuantumMatrix" );
+
+        NtSetValueKey( Key,
+                       &KeyValueName,
+                       0,
+                       REG_BINARY,
+                       &ExpNtExpirationData[0],
+                       sizeof(ExpNtExpirationData)
+                     );
+
+        NtFlushKey(Key);
+        NtClose(Key);
+
+        }
+
+    if ( !ExpInTextModeSetup ) {
+
+        ExpShuttingDown = TRUE;
+
+        if ( ExpSetupModeDetected ) {
+
+            //
+            // If we are not in text mode setup, open SetupKey so we
+            // can store shutdown time
+            //
+
+            RtlInitUnicodeString(&KeyName,L"\\Registry\\Machine\\System\\Setup");
+
+            InitializeObjectAttributes( &ObjectAttributes,
+                                        &KeyName,
+                                        OBJ_CASE_INSENSITIVE,
+                                        NULL,
+                                        NULL
+                                      );
+
+            Status = NtOpenKey( &Key,
+                                KEY_READ | KEY_WRITE | KEY_NOTIFY,
+                                &ObjectAttributes
+                              );
+
+            if ( !NT_SUCCESS(Status) ) {
+                return;
+                }
+
+
+            //
+            // Pick up the system prefix data
+            //
+
+            RtlInitUnicodeString( &KeyValueName, L"SystemPrefix" );
+
+            ValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ValueInfoBuffer;
+
+            Status = NtQueryValueKey( Key,
+                                      &KeyValueName,
+                                      KeyValuePartialInformation,
+                                      ValueInfo,
+                                      sizeof(ValueInfoBuffer),
+                                      &DataLength
+                                    );
+
+            NtClose(Key);
+
+            if ( NT_SUCCESS(Status) ) {
+
+                RtlCopyMemory(&SystemPrefix,&ValueInfo->Data,sizeof(LARGE_INTEGER));
+
+                }
+            else {
+                return;
+                }
+            }
+        else {
+            SystemPrefix = ExpSetupSystemPrefix;
+            }
+
+
+        KeQuerySystemTime(&ShutDownTime);
+
+        //
+        // clear low 6 bits of time
+        //
+
+        ShutDownTime.LowPart &= ~0x0000003f;
+
+        //
+        // If we have never gone through the refresh count logic,
+        // Do it now
+        //
+
+        if ( ExpRefreshCount == 0 ) {
+            ExpRefreshCount++;
+
+            //
+            // first time through time refresh. If we are not in setup mode
+            // then make sure shutdowntime is in good shape
+            //
+            if ( !ExpSetupModeDetected && !ExpInTextModeSetup ) {
+
+                if ( ExpLastShutDown.QuadPart ) {
+                    NumberOfProcessors = ExpSetupSystemPrefix.LowPart;
+                    NumberOfProcessors = NumberOfProcessors >> 5;
+                    NumberOfProcessors = ~NumberOfProcessors;
+                    NumberOfProcessors = NumberOfProcessors & 0x0000001f;
+                    NumberOfProcessors++;
+
+                    if ( NumberOfProcessors == 32 ) {
+                        NumberOfProcessors = 0;
+                        }
+
+                    ExpLastShutDown.LowPart &= 0x3f;
+
+
+                    if ( ExpSetupSystemPrefix.HighPart & 0x04000000 ) {
+
+                        if ( (ExpLastShutDown.LowPart >> 1 != NumberOfProcessors) ||
+                             (ExpLastShutDown.LowPart & 1) == 0 ) {
+
+                            ExpLastShutDown.HighPart = 0;
+
+                            }
+                        else {
+                            if ( ExpLastShutDown.HighPart == 0 ) {
+                                ExpLastShutDown.HighPart = 1;
+                                }
+                            }
+                        }
+                    else {
+                        if ( (ExpLastShutDown.LowPart >> 1 != NumberOfProcessors) ||
+                             (ExpLastShutDown.LowPart & 1) ) {
+
+                            ExpLastShutDown.HighPart = 0;
+
+                            }
+                        else {
+                            if ( ExpLastShutDown.HighPart == 0 ) {
+                                ExpLastShutDown.HighPart = 1;
+                                }
+                            }
+                        }
+                    ExpLastShutDown.LowPart |= 0x40;
+                    }
+                }
+            else {
+                ExpLastShutDown.QuadPart = 0;
+                }
+            }
+
+
+        if ( ExpLastShutDown.QuadPart && ExpLastShutDown.HighPart == 0 ) {
+            ShutDownTime.LowPart |= ExpLastShutDown.LowPart;
+            }
+        else {
+            NumberOfProcessors = ExpSetupSystemPrefix.LowPart;
+            NumberOfProcessors = NumberOfProcessors >> 5;
+            NumberOfProcessors = ~NumberOfProcessors;
+            NumberOfProcessors = NumberOfProcessors & 0x0000001f;
+            NumberOfProcessors++;
+
+            if ( NumberOfProcessors == 32 ) {
+                NumberOfProcessors = 0;
+                }
+
+            ShutDownTime.LowPart |= (NumberOfProcessors << 1);
+
+            if ( ExpSetupSystemPrefix.HighPart & 0x04000000 ) {
+                ShutDownTime.LowPart |= 1;
+                }
+            }
+
+        RtlInitUnicodeString(&KeyName,L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Windows");
+
+        InitializeObjectAttributes( &ObjectAttributes,
+                                    &KeyName,
+                                    OBJ_CASE_INSENSITIVE,
+                                    NULL,
+                                    NULL
+                                  );
+
+        Status = NtOpenKey( &Key,
+                            KEY_READ | KEY_WRITE | KEY_NOTIFY,
+                            &ObjectAttributes
+                          );
+
+        if ( !NT_SUCCESS(Status) ) {
+            return;
+            }
+
+        RtlInitUnicodeString( &KeyValueName, L"ShutdownTime" );
+
+        NtSetValueKey( Key,
+                &KeyValueName,
+                0,
+                REG_BINARY,
+                &ShutDownTime,
+                sizeof(ShutDownTime)
+                );
+
+        NtFlushKey(Key);
+        NtClose(Key);
+
+        }
+
+}
+
+VOID
+ExpExpirationThread(
+    IN PVOID StartContext
+    )
+{
+    UNICODE_STRING KeyName;
+    UNICODE_STRING KeyValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS Status;
+    HANDLE Key;
+    ULONG RegChangeBuffer;
+    ULONG *NtExpirationData;
+    ULONG NtExpirationDataLength;
+    PKEY_VALUE_PARTIAL_INFORMATION ValueInfo;
+    ULONG CrashCode = 0;
+    IO_STATUS_BLOCK IoSb;
+    ULONG Response;
+
+    if ( StartContext ) {
+
+        //
+        // raise the hard error warning of impending license expiration
+        //
+
+        Status = ExRaiseHardError(
+                    (NTSTATUS)StartContext,
+                    0,
+                    0,
+                    NULL,
+                    OptionOk,
+                    &Response
+                    );
+        PsTerminateSystemThread(Status);
+
+        }
+
+}
+
+VOID
+static
+ExpWatchExpirationDataWork(
+    IN PVOID Context
+    )
+{
+    UNICODE_STRING KeyName;
+    UNICODE_STRING KeyValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS Status;
+    HANDLE Thread;
+    //
+    // our change notify triggered. Simply rewrite the boot time product type
+    // back out to the registry
+    //
+
+    ZwClose(ExpExpirationDataKey);
+
+    RtlInitUnicodeString(&KeyName,L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\Session Manager\\Executive");
+
+    InitializeObjectAttributes( &ObjectAttributes,
+                                &KeyName,
+                                OBJ_CASE_INSENSITIVE,
+                                NULL,
+                                NULL
+                              );
+    Status = ZwOpenKey( &ExpExpirationDataKey,
+                        KEY_READ | KEY_NOTIFY | KEY_WRITE,
+                        &ObjectAttributes
+                      );
+
+    if ( !NT_SUCCESS(Status) ) {
+        return;
+        }
+
+
+    if ( !ExpShuttingDown ) {
+
+        if ( !ExpSetupModeDetected ) {
+
+            RtlInitUnicodeString( &KeyValueName, L"PriorityQuantumMatrix" );
+
+            ZwSetValueKey( ExpExpirationDataKey,
+                           &KeyValueName,
+                           0,
+                           REG_BINARY,
+                           &ExpNtExpirationData[0],
+                           sizeof(ExpNtExpirationData)
+                         );
+
+            ZwFlushKey(ExpExpirationDataKey);
+            }
+
+        ZwNotifyChangeKey(
+              ExpExpirationDataKey,
+              NULL,
+              (PIO_APC_ROUTINE)&ExpWatchExpirationDataWorkItem,
+              (PVOID)DelayedWorkQueue,
+              &ExpExpirationDataIoSb,
+              REG_LEGAL_CHANGE_FILTER,
+              FALSE,
+              &ExpExpirationDataChangeBuffer,
+              sizeof(ExpExpirationDataChangeBuffer),
+              TRUE
+            );
+        }
 }

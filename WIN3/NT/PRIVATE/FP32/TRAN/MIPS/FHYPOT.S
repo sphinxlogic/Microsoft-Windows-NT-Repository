@@ -19,23 +19,23 @@
 
 #define half	0.5
 
-.text
-
 /* This entrypoint provided for FCOM for CABS (complex absolute value),
    because FCOM has a hard time calling FHYPOT directly.  Also used by
    FCOM when user writes INTRINSIC CABS.  The latter must use pass by
    reference, of course. */
+.text .text$fhypot
 .globl c_abs_
 .ent c_abs_
 c_abs_:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	l.s	$f12, 0(a0)
 	l.s	$f14, 4(a0)
 	b	hypotf
 	/* just fall through */
 .end c_abs_
 
+.text .text$fhypot
 .globl fhypot
 .globl hypotf
 .ent fhypot
@@ -43,7 +43,7 @@ c_abs_:
 fhypot:
 hypotf:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	cvt.d.s	$f12
 	mul.d	$f12, $f12
 	cvt.d.s	$f14

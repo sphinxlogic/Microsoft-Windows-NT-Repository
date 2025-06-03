@@ -37,7 +37,7 @@ Revision History:
 #include <netlib.h>
 #include <lmapibuf.h>
 #include <tstring.h>
-#include <wcstr.h>              // wcslen().
+#include <stdlib.h>              // wcslen().
 
 //
 // a couple of macros to read pointer checks more easily - NULL_REFERENCE

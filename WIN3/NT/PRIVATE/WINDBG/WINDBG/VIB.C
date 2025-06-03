@@ -101,9 +101,19 @@ int PASCAL FTMakeWatchEntry ( void *ppvibVoid, void *pvit, char *szExpStr)
 
     while( *szExpStr == ' ' ) szExpStr++;
     if ( !*szExpStr ) return TRUE;
+#ifdef DBCS
+    pch = szExpStr + strlen(szExpStr);
+    while (pch > szExpStr) {
+        if (*(pch = CharPrev(szExpStr, pch)) != ' ') {
+            break;
+        }
+    }
+    pch += (IsDBCSLeadByte(*pch) ? 2 : 1);
+#else
     pch = szExpStr + strlen(szExpStr) - 1;
     while ( *pch == ' ' ) pch--;
     pch++;
+#endif
     strcpy(szBuffer,szExpStr);
 
     // do a parse
@@ -362,12 +372,12 @@ BOOL   PASCAL FTVerifyNew( PTRVIT pVit, ULONG oln)
 
        // Do we have both strings?
        if ( pVib->pvtext[i].pszValueP && pVib->pvtext[i].pszValueC   ) {
-                         if ((!strcmpi(pVib->pvtext[i].pszValueC,pVib->pvtext[i].pszValueP)) && (pVib->pvtext[i].fChanged == FALSE))
+                         if ((!_strcmpi(pVib->pvtext[i].pszValueC,pVib->pvtext[i].pszValueP)) && (pVib->pvtext[i].fChanged == FALSE))
                                  {
                                   return(FALSE);
                                  }
                             else
-                if ((!strcmpi(pVib->pvtext[i].pszValueC,pVib->pvtext[i].pszValueP)) && (pVib->pvtext[i].fChanged == TRUE))
+                if ((!_strcmpi(pVib->pvtext[i].pszValueC,pVib->pvtext[i].pszValueP)) && (pVib->pvtext[i].fChanged == TRUE))
                                                   {
                                                    pVib->pvtext[i].fChanged = FALSE;
                                                         return(TRUE);
@@ -1611,6 +1621,12 @@ VOID PASCAL FTSetWatchList( PTRVIT pVit, PSTR list)
     pWatch = strtok(list, "\r\n");
     while ( pWatch ) {
 
+#ifdef DBCS
+        if (IsDBCSLeadByte(*pWatch)) {
+            pWatch = strtok( NULL, "\r\n"); // Get the Next Watch
+            continue;
+        }
+#endif
         cType = *pWatch++;                  // Get the Expansion Type
         pVib  = AddCVWatch(pVit, pWatch);   // Add the Watch
 
@@ -1788,7 +1804,7 @@ PSTR PASCAL FTGetPanelString( PTRVIT pVit, PTRVIB pVib, UINT PanelNumber)
         case ID_PANE_RIGHT:
             pvtext = &pVib->pvtext[pVib->vibIndex];
             if ( pvtext->pszValueC == NULL)
-                pvtext->pszValueC = strdup(FTGetVibResultString(pVit,pVib));
+                pvtext->pszValueC = _strdup(FTGetVibResultString(pVit,pVib));
             return(pvtext->pszValueC);
 
         default:

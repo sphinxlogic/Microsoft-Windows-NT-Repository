@@ -219,7 +219,14 @@ typedef struct _LSARM_POLICY_AUDIT_EVENTS_INFO {
 // to crash when an audit fails.  It is used in the se and lsasrv directories.
 //
 
-#define CRASH_ON_AUDIT_FAIL_VALUE   L"CrashOnAuditFail" 
+#define CRASH_ON_AUDIT_FAIL_VALUE   L"CrashOnAuditFail"
+
+//
+// These are the possible values for the CrashOnAuditFail flag.
+//
+
+#define LSAP_CRASH_ON_AUDIT_FAIL 1
+#define LSAP_ALLOW_ADIMIN_LOGONS_ONLY 2
 
 
 

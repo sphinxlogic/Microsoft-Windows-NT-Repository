@@ -7,7 +7,7 @@
 
 
 
-LOCAL   EESTATUS NEAR   PASCAL      ParseBind (EEHSTR, HTM, PHTM, uint FAR *, uint, SHFLAG, uint);
+LOCAL   EESTATUS        ParseBind (EEHSTR, HTM, PHTM, uint *, uint, SHFLAG, uint);
 
 // defines for version string
 
@@ -71,16 +71,18 @@ peval_t     ST;                 // pointer to evaluation stack top
 peval_t     STP;                // pointer to evaluation stack previous
 PCXT        pCxt = NULL;        // pointer to current cxt for bind
 bnode_t     bnCxt = 0;          // based pointer to node containing {...} context
-char FAR   *pExStr = NULL;      // pointer to expression string
+char   *pExStr = NULL;      // pointer to expression string
 CV_typ_t    ClassExp = 0;       // current explicit class
 CV_typ_t    ClassImp = 0;       // implicit class (set if current context is method)
+long        ClassThisAdjust = 0;// cmplicit class this adjustor
 char       *vfuncptr = "\x07""__vfptr";
 char       *vbaseptr = "\x07""__vbptr";
-HTM FAR    *pTMList;            // pointer to breakpoint return list
+HTM    *pTMList;            // pointer to breakpoint return list
 PTML        pTMLbp;             // global pointer to TML for breakpoint
 HDEP        hBPatch = 0;        // handle to back patch data during BP bind
 ushort      iBPatch;            // index into pTMLbp for backpatch data
 bool_t      GettingChild = FALSE;   // true if in EEGetChildTM
+BOOL        fAutoClassCast;
 
 char        Suffix = '\0';      //  Suffix for symbol search.
 
@@ -89,6 +91,7 @@ char        Suffix = '\0';      //  Suffix for symbol search.
 HCXTL   hCxtl = 0;              // handle for context list buffer during GetCXTL
 PCXTL   pCxtl = NULL;           // pointer to context list buffer during GetCXTL
 ushort  mCxtl = 0;              // maximum number of elements in context list
+PCXT    pBindBPCxt = NULL;      // pointer to Bp Binding context
 
 extern EESTATUS EEFormatMemory();
 extern EESTATUS EEUnformatMemory();
@@ -103,7 +106,7 @@ RELEASE_VERSION('E','E',"Expression Evaluator")
 
 DBGVERSIONCHECK()
 
-void LOADDS PASCAL EEInitializeExpr (PCI pCVInfo, PEI pExprinfo)
+void EEInitializeExpr (PCI pCVInfo, PEI pExprinfo)
 {
 static EXF  EXF =    {
         EEFreeStr,
@@ -168,7 +171,7 @@ static EXF  EXF =    {
 
 /**     Set suffix
  */
-void LOADDS PASCAL EESetSuffix (char c)
+void EESetSuffix (char c)
 {
     Suffix = c;
 }
@@ -188,7 +191,7 @@ void LOADDS PASCAL EESetSuffix (char c)
  */
 
 
-SHFLAG LOADDS PASCAL EEAreTypesEqual (PHTM phTMLeft, PHTM phTMRight)
+SHFLAG EEAreTypesEqual (PHTM phTMLeft, PHTM phTMRight)
 {
     return (AreTypesEqual (*phTMLeft, *phTMRight));
 }
@@ -206,7 +209,7 @@ SHFLAG LOADDS PASCAL EEAreTypesEqual (PHTM phTMLeft, PHTM phTMRight)
  */
 
 
-HTYPE LOADDS PASCAL EEGetHtypeFromTM(PHTM phTM )
+HTYPE EEGetHtypeFromTM(PHTM phTM )
 {
     return ( GetHtypeFromTM(*phTM) );
 }
@@ -224,7 +227,7 @@ HTYPE LOADDS PASCAL EEGetHtypeFromTM(PHTM phTM )
  */
 
 
-EESTATUS LOADDS PASCAL EEAssignTMToTM (PHTM phTMLeft, PHTM phTMRight)
+EESTATUS EEAssignTMToTM (PHTM phTMLeft, PHTM phTMRight)
 {
     Unreferenced(phTMLeft);
     Unreferenced(phTMRight);
@@ -255,7 +258,7 @@ EESTATUS LOADDS PASCAL EEAssignTMToTM (PHTM phTMLeft, PHTM phTMRight)
  */
 
 
-EESTATUS LOADDS PASCAL
+EESTATUS
 EEBindTM(
     PHTM    phTM,
     PCXT    pcxt,
@@ -313,7 +316,7 @@ EEBindTM(
 
 
 
-EESTATUS LOADDS PASCAL EEcChildrenTM (PHTM phTM, long FAR *pcChildren, PSHFLAG pVar)
+EESTATUS EEcChildrenTM (PHTM phTM, long *pcChildren, PSHFLAG pVar)
 {
     return (cChildrenTM (phTM, pcChildren, pVar));
 }
@@ -337,7 +340,7 @@ EESTATUS LOADDS PASCAL EEcChildrenTM (PHTM phTM, long FAR *pcChildren, PSHFLAG p
  */
 
 
-EESTATUS LOADDS PASCAL EEcParamTM (PHTM phTM, ushort FAR *pcParam, PSHFLAG pVarArg)
+EESTATUS EEcParamTM (PHTM phTM, ushort *pcParam, PSHFLAG pVarArg)
 {
     return (cParamTM (*phTM, pcParam, pVarArg));
 }
@@ -363,8 +366,8 @@ EESTATUS LOADDS PASCAL EEcParamTM (PHTM phTM, ushort FAR *pcParam, PSHFLAG pVarA
  */
 
 
-EESTATUS LOADDS PASCAL EEDereferenceTM (PHTM phTMIn, PHTM phTMOut,
-  uint FAR *pEnd, SHFLAG fCase)
+EESTATUS EEDereferenceTM (PHTM phTMIn, PHTM phTMOut,
+  uint *pEnd, SHFLAG fCase)
 {
     register   EESTATUS    retval;
     EEHSTR      hDStr = 0;
@@ -409,7 +412,7 @@ EESTATUS LOADDS PASCAL EEDereferenceTM (PHTM phTMIn, PHTM phTMOut,
  */
 
 
-EESTATUS LOADDS PASCAL EEvaluateTM (PHTM phTM, PFRAME pFrame, EEDSP style)
+EESTATUS EEvaluateTM (PHTM phTM, PFRAME pFrame, EEDSP style)
 {
     EESTATUS status;
 
@@ -444,7 +447,7 @@ EESTATUS LOADDS PASCAL EEvaluateTM (PHTM phTM, PFRAME pFrame, EEDSP style)
  */
 
 
-EESTATUS LOADDS PASCAL EEFormatAddress (SHSEG Seg, UOFFSET Off, char FAR *szAddr, uint cch, uint flags)
+EESTATUS EEFormatAddress (SHSEG Seg, UOFFSET Off, char *szAddr, uint cch, uint flags)
 {
     char    buf[20];
     char    chx = (flags & EEFMT_REAL) ? '#' : ':';
@@ -468,7 +471,7 @@ EESTATUS LOADDS PASCAL EEFormatAddress (SHSEG Seg, UOFFSET Off, char FAR *szAddr
     }
 
     /*
-     * copy the zero terminated string from the near buffer to the FAR buffer
+     * copy the zero terminated string from the buffer to the buffer
      */
 
     if (strlen(buf)+1 >= cch) {
@@ -486,7 +489,7 @@ EESTATUS LOADDS PASCAL EEFormatAddress (SHSEG Seg, UOFFSET Off, char FAR *szAddr
 EESTATUS
 EEFormatAddr(
              LPADDR      lpaddr,
-             char FAR *  lpch,
+             char *  lpch,
              uint        cch,
              uint        flags
     )
@@ -538,7 +541,7 @@ Return Value:
 EESTATUS
 EEUnFormatAddr(
                LPADDR           lpaddr,
-               char FAR *       lpsz
+               char *       lpsz
     )
 
 /*++
@@ -900,7 +903,7 @@ Return Value:
  */
 
 
-EESTATUS LOADDS PASCAL EEFormatCXTFromPCXT (PCXT pCXT, PEEHSTR phStr, BOOL fAbbreviated)
+EESTATUS EEFormatCXTFromPCXT (PCXT pCXT, PEEHSTR phStr, BOOL fAbbreviated)
 {
     register ushort      retval = EECATASTROPHIC;
 
@@ -926,7 +929,7 @@ EESTATUS LOADDS PASCAL EEFormatCXTFromPCXT (PCXT pCXT, PEEHSTR phStr, BOOL fAbbr
  */
 
 
-void LOADDS PASCAL EEFreeCXTL (PHCXTL phCXTL)
+void EEFreeCXTL (PHCXTL phCXTL)
 {
     DASSERT (phCXTL != NULL);
     if (*phCXTL != 0) {
@@ -956,7 +959,7 @@ void LOADDS PASCAL EEFreeCXTL (PHCXTL phCXTL)
  */
 
 
-void LOADDS PASCAL EEFreeHSYMList (HDEP FAR *phSYML)
+void EEFreeHSYMList (HDEP *phSYML)
 {
     PHSL_HEAD  pList;
 
@@ -1003,7 +1006,7 @@ void LOADDS PASCAL EEFreeHSYMList (HDEP FAR *phSYML)
  */
 
 
-void LOADDS PASCAL EEFreeStr (EEHSTR hszStr)
+void EEFreeStr (EEHSTR hszStr)
 {
     if (hszStr != 0) {
 #ifdef DEBUGKERNEL
@@ -1031,7 +1034,7 @@ void LOADDS PASCAL EEFreeStr (EEHSTR hszStr)
  */
 
 
-void LOADDS PASCAL EEFreeTM (PHTM phTM)
+void EEFreeTM (PHTM phTM)
 {
     if (*phTM != 0) {
         // DASSERT (!MHIsMemLocked (*phTM));
@@ -1079,7 +1082,7 @@ void LOADDS PASCAL EEFreeTM (PHTM phTM)
  */
 
 
-void LOADDS PASCAL EEFreeTI (PHTI phTI)
+void EEFreeTI (PHTI phTI)
 {
     if (*phTI != 0) {
 #ifdef DEBUGKERNEL
@@ -1108,13 +1111,13 @@ void LOADDS PASCAL EEFreeTI (PHTI phTI)
  */
 
 
-void LOADDS PASCAL EEFreeTML (PTML pTML)
+void EEFreeTML (PTML pTML)
 {
     uint        i;
     ushort      cTM = 0;
 
     if (pTML != NULL) {
-        pTMList = (HTM FAR *)MHMemLock (pTML->hTMList);
+        pTMList = (HTM *)MHMemLock (pTML->hTMList);
         for (i = 0; i < pTML->cTMListMax; i++) {
             if (pTMList[i] != 0) {
                 EEFreeTM (&pTMList[i]);
@@ -1150,8 +1153,8 @@ void LOADDS PASCAL EEFreeTML (PTML pTML)
  */
 
 
-EESTATUS LOADDS PASCAL EEGetChildTM (PHTM phTMIn, long iChild, PHTM phTMOut,
-  uint FAR *pEnd, SHFLAG fCase, uint radix )
+EESTATUS EEGetChildTM (PHTM phTMIn, long iChild, PHTM phTMOut,
+  uint *pEnd, SHFLAG fCase, uint radix )
 {
     register    EESTATUS    retval;
     EEHSTR      hDStr = 0;
@@ -1200,7 +1203,7 @@ EESTATUS LOADDS PASCAL EEGetChildTM (PHTM phTMIn, long iChild, PHTM phTMOut,
  */
 
 
-EESTATUS LOADDS PASCAL EEGetCXTLFromTM (PHTM phTM, PHCXTL phCXTL)
+EESTATUS EEGetCXTLFromTM (PHTM phTM, PHCXTL phCXTL)
 {
     return (DoGetCXTL (phTM, phCXTL));
 }
@@ -1208,7 +1211,7 @@ EESTATUS LOADDS PASCAL EEGetCXTLFromTM (PHTM phTM, PHCXTL phCXTL)
 
 
 
-EESTATUS LOADDS PASCAL EEGetError (PHTM phTM, EESTATUS Status, PEEHSTR phError)
+EESTATUS EEGetError (PHTM phTM, EESTATUS Status, PEEHSTR phError)
 {
     return (GetErrorText (phTM, Status, phError));
 }
@@ -1233,12 +1236,12 @@ EESTATUS LOADDS PASCAL EEGetError (PHTM phTM, EESTATUS Status, PEEHSTR phError)
  */
 
 
-EESTATUS LOADDS PASCAL
+EESTATUS
 EEGetExprFromTM (
                  PHTM           phTM,
                  PEERADIX       pRadix,
                  PEEHSTR        phStr,
-                 ushort FAR *   pEnd
+                 ushort *   pEnd
                  )
 {
     return GetExpr(phTM, *pRadix, phStr, pEnd);
@@ -1265,8 +1268,8 @@ EEGetExprFromTM (
  */
 
 
-EESTATUS LOADDS PASCAL EEGetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
-  uchar FAR * pRE, SHFLAG fEnableProlog)
+EESTATUS EEGetHSYMList (HDEP *phSYML, PCXT pCxt, ushort mask,
+  uchar * pRE, SHFLAG fEnableProlog)
 {
     return (GetHSYMList (phSYML, pCxt, mask, pRE, fEnableProlog));
 }
@@ -1289,7 +1292,7 @@ EESTATUS LOADDS PASCAL EEGetHSYMList (HDEP FAR *phSYML, PCXT pCxt, ushort mask,
  */
 
 
-EESTATUS LOADDS PASCAL EEGetNameFromTM (PHTM phTM, PEEHSTR phszName)
+EESTATUS EEGetNameFromTM (PHTM phTM, PEEHSTR phszName)
 {
     return (GetSymName (phTM, phszName));
 }
@@ -1316,8 +1319,8 @@ EESTATUS LOADDS PASCAL EEGetNameFromTM (PHTM phTM, PEEHSTR phszName)
  */
 
 
-EESTATUS LOADDS PASCAL EEGetParmTM (PHTM phTMIn, uint iParam,
-  PHTM phTMOut, uint FAR *pEnd, SHFLAG fCase, uint radix )
+EESTATUS EEGetParmTM (PHTM phTMIn, uint iParam,
+  PHTM phTMOut, uint *pEnd, SHFLAG fCase, uint radix )
 {
     register    EESTATUS    retval;
     EEHSTR      hDStr = 0;
@@ -1369,8 +1372,8 @@ EESTATUS LOADDS PASCAL EEGetParmTM (PHTM phTMIn, uint iParam,
  */
 
 
-EESTATUS LOADDS PASCAL EEGetTMFromHSYM (HSYM hSym, PCXT pcxt, PHTM phTM,
-  uint FAR *pEnd, SHFLAG fEnableProlog)
+EESTATUS EEGetTMFromHSYM (HSYM hSym, PCXT pcxt, PHTM phTM,
+  uint *pEnd, SHFLAG fEnableProlog)
 {
     register EESTATUS    retval;
 
@@ -1402,7 +1405,7 @@ EESTATUS LOADDS PASCAL EEGetTMFromHSYM (HSYM hSym, PCXT pcxt, PHTM phTM,
     }
     pExStr = MHMemLock (pExState->hExStr);
     *pExStr++ = (unsigned char)0xff;
-    *((HSYM FAR *)(pExStr)) = hSym;
+    *((HSYM UNALIGNED *)(pExStr)) = hSym;
     pExStr += sizeof (HSYM);
     *pExStr = 0;
     MHMemUnLock (pExState->hExStr);
@@ -1434,12 +1437,12 @@ EESTATUS LOADDS PASCAL EEGetTMFromHSYM (HSYM hSym, PCXT pcxt, PHTM phTM,
  */
 
 
-EESTATUS LOADDS PASCAL EEGetTypeFromTM (PHTM phTM, EEHSTR hszName,
+EESTATUS EEGetTypeFromTM (PHTM phTM, EEHSTR hszName,
   PEEHSTR phszType, ulong select)
 {
-    char FAR   *buf;
+    char   *buf;
     uint        buflen = TYPESTRMAX - 1 + sizeof (HDR_TYPE);
-    char FAR   *pName;
+    char   *pName;
     PHDR_TYPE   pHdr;
 
     DASSERT (*phTM != 0);
@@ -1450,7 +1453,7 @@ EESTATUS LOADDS PASCAL EEGetTypeFromTM (PHTM phTM, EEHSTR hszName,
         // unable to allocate memory for type string
         return (EECATASTROPHIC);
     }
-    buf = (char FAR *)MHMemLock (*phszType);
+    buf = (char *)MHMemLock (*phszType);
     _fmemset (buf, 0, TYPESTRMAX + sizeof (HDR_TYPE));
     pHdr = (PHDR_TYPE)buf;
     buf += sizeof (HDR_TYPE);
@@ -1494,7 +1497,7 @@ EESTATUS LOADDS PASCAL EEGetTypeFromTM (PHTM phTM, EEHSTR hszName,
 
 
 
-EESTATUS LOADDS PASCAL EEGetValueFromTM (PHTM phTM, uint Radix, PEEFORMAT pFormat, PEEHSTR phszValue)
+EESTATUS EEGetValueFromTM (PHTM phTM, uint Radix, PEEFORMAT pFormat, PEEHSTR phszValue)
 {
     return (FormatNode (phTM, Radix, pFormat, phszValue));
 }
@@ -1517,7 +1520,7 @@ EESTATUS LOADDS PASCAL EEGetValueFromTM (PHTM phTM, uint Radix, PEEFORMAT pForma
  */
 
 
-EESTATUS LOADDS PASCAL EEInfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
+EESTATUS EEInfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
 {
     return (InfoFromTM (phTM, pReqInfo, phTMInfo));
 }
@@ -1542,13 +1545,13 @@ EESTATUS LOADDS PASCAL EEInfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
  */
 
 
-EEPDTYP LOADDS PASCAL EEIsExpandable (PHTM phTM)
+EEPDTYP EEIsExpandable (PHTM phTM)
 {
-    eval_t      evalT;
-    peval_t     pvT = &evalT;
-    register ushort      retval = EENOTEXP;
+    eval_t          evalT;
+    peval_t         pvT = &evalT;
+    register ushort retval = EENOTEXP;
 
-    DASSERT (*phTM != 0);
+//    DASSERT (*phTM != 0);
     if (*phTM != 0) {
         DASSERT(pExState == NULL);
         pExState = MHMemLock (*phTM);
@@ -1607,8 +1610,8 @@ EEPDTYP LOADDS PASCAL EEIsExpandable (PHTM phTM)
  */
 
 
-EESTATUS LOADDS PASCAL EEParse (char FAR *szExpr, uint radix, SHFLAG fCase,
-  PHTM phTM, uint FAR *pEnd)
+EESTATUS EEParse (char *szExpr, uint radix, SHFLAG fCase,
+  PHTM phTM, uint *pEnd)
 {
     EESTATUS status;
 
@@ -1648,20 +1651,19 @@ EESTATUS LOADDS PASCAL EEParse (char FAR *szExpr, uint radix, SHFLAG fCase,
  */
 
 
-EESTATUS LOADDS PASCAL
+EESTATUS
 EEParseBP (
-    char FAR *pExpr,
+    char *pExpr,
     uint radix,
     SHFLAG fCase,
     PCXF pCxf,
     PTML pTML,
     ulong select,
-    uint FAR *pEnd,
+    uint *pEnd,
     SHFLAG fEnableProlog
     )
 {
     register EESTATUS    retval = EECATASTROPHIC;
-    HTM         hExState;
     ushort      i;
 
     Unreferenced(select);
@@ -1681,14 +1683,13 @@ EEParseBP (
     // This list of handles will grow if it is filled.
 
     if ((pTMLbp->hTMList = MHMemAllocate (TMLISTCNT * sizeof (HTM))) != 0) {
-        pTMList = (HTM FAR *)MHMemLock (pTMLbp->hTMList);
+        pTMList = (HTM *)MHMemLock (pTMLbp->hTMList);
         _fmemset (pTMList, 0, TMLISTCNT * sizeof (HTM));
         pTMLbp->cTMListMax = TMLISTCNT;
 
         // parse the break point expression
 
-        retval = EEParse (pExpr, radix, fCase, &hExState, pEnd);
-        pTMList[0] = hExState;
+        retval = EEParse (pExpr, radix, fCase, &pTMList[0], pEnd);
         pTMLbp->cTMListAct++;
 
         // initialize the backpatch index into PTML.  If this number remains
@@ -1701,7 +1702,7 @@ EEParseBP (
         if (retval == EENOERROR) {
             // bind the breakpoint expression if no parse error
             BindingBP = TRUE;
-            if ((retval = EEBindTM (&hExState, SHpCXTFrompCXF (pCxf),
+            if ((retval = EEBindTM (&pTMList[0], SHpCXTFrompCXF (pCxf),
               TRUE, fEnableProlog, FALSE)) != EENOERROR) {
 
                 // The binder used the pTMList as a location to
@@ -1780,8 +1781,8 @@ EEParseBP (
  */
 
 
-LOCAL EESTATUS NEAR PASCAL ParseBind (EEHSTR hExpr, HTM hTMIn,
-  PHTM phTMOut, uint FAR *pEnd, uint flags, SHFLAG fCase, uint radix)
+LOCAL EESTATUS ParseBind (EEHSTR hExpr, HTM hTMIn,
+  PHTM phTMOut, uint *pEnd, uint flags, SHFLAG fCase, uint radix)
 {
     pexstate_t  pTMIn;
     register EESTATUS    retval;

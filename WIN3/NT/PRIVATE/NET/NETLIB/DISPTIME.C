@@ -165,7 +165,7 @@ NetpDbgDisplayTimestamp(
         NetpDbgDisplayTag( Tag );
         // TimeStringPtr points to str ending with "\n\0".
         NetpAssert( strlen(TimeStringPtr) == 25 );  // string is
-        NetpDbgPrint( "%24s  (" FORMAT_DWORD ")\n", TimeStringPtr, Time );
+        NetpKdPrint(( "%24s  (" FORMAT_DWORD ")\n", TimeStringPtr, Time ));
     }
 
 
@@ -182,15 +182,15 @@ NetpDbgDisplayTod(
     NetpAssert( Tag != NULL );
     NetpAssert( Tod != NULL );
 
-    NetpDbgPrint( "  " FORMAT_LPDEBUG_STRING "\n", Tag );
+    NetpKdPrint(( "  " FORMAT_LPDEBUG_STRING "\n", Tag ));
 
     NetpDbgDisplayTimestamp( "    (from elapsed time)", Tod->tod_elapsedt );
 
     NetpDbgDisplayTag( "    (from other fields)" );
-    NetpDbgPrint(
+    NetpKdPrint((
             "%04ld-%02ld-%02ld %02ld:%02ld:%02ld\n",
             Tod->tod_year, Tod->tod_month, Tod->tod_day,
-            Tod->tod_hours, Tod->tod_mins, Tod->tod_secs );
+            Tod->tod_hours, Tod->tod_mins, Tod->tod_secs ));
 
     NetpDbgDisplayLong( "    (timezone)", Tod->tod_timezone );
 

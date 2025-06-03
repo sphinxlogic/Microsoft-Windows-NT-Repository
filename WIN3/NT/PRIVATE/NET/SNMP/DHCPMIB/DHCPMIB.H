@@ -28,9 +28,6 @@ Revision History:
 #ifndef dhcpmib_h
 #define dhcpmib_h
 
-static char *dhcpmib__h = "@(#) $Logfile:   N:/xtest/vcs/dhcpmib.h_v  $ $Revision:   1.2  $";
-
-
 // Necessary includes.
 
 #include <snmp.h>

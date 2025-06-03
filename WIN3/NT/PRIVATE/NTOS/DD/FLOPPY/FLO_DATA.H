@@ -45,6 +45,7 @@ Notes:
 #define FLOPSHOW              ((ULONG)0x00000008)
 #define FLOPIRPPATH           ((ULONG)0x00000010)
 #define FLOPFORMAT            ((ULONG)0x00000020)
+#define FLOPSTATUS            ((ULONG)0x00000040)
 extern ULONG FloppyDebugLevel;
 #define FloppyDump(LEVEL,STRING) \
         do { \
@@ -208,7 +209,12 @@ typedef struct _BOOT_SECTOR_INFO {
 // These values are used to index the DriveMediaConstants table.
 //
 
+#if defined(DBCS) && defined(_MIPS_)
+#define NUMBER_OF_DRIVE_MEDIA_COMBINATIONS 24
+#define NUMBER_OF_DRIVE_MEDIA_COMBINATIONSPTOS 11     // For PTOS File
+#else // !DBCS && !_MIPS_
 #define NUMBER_OF_DRIVE_MEDIA_COMBINATIONS 17
+#endif // DBCS && _MIPS_
 
 typedef enum _DRIVE_MEDIA_TYPE {
     Drive360Media160,                      // 5.25"  360k  drive;  160k   media
@@ -216,14 +222,29 @@ typedef enum _DRIVE_MEDIA_TYPE {
     Drive360Media320,                      // 5.25"  360k  drive;  320k   media
     Drive360Media32X,                      // 5.25"  360k  drive;  320k 1k secs
     Drive360Media360,                      // 5.25"  360k  drive;  360k   media
+#if defined(DBCS) && defined(_MIPS_)
+    Drive720Media640,                      // 3.5"   720k  drive;  640k   media
+#endif // DBCS && _MIPS_
     Drive720Media720,                      // 3.5"   720k  drive;  720k   media
     Drive120Media160,                      // 5.25" 1.2Mb  drive;  160k   media
     Drive120Media180,                      // 5.25" 1.2Mb  drive;  180k   media
     Drive120Media320,                      // 5.25" 1.2Mb  drive;  320k   media
     Drive120Media32X,                      // 5.25" 1.2Mb  drive;  320k 1k secs
     Drive120Media360,                      // 5.25" 1.2Mb  drive;  360k   media
+#if defined(DBCS) && defined(_MIPS_)
+    Drive120Media640,                      // 5.25" 1.2Mb  drive;  640k   media
+    Drive120Media720,                      // 5.25" 1.2Mb  drive;  720k   media
+    Drive120Media123,                      // 5.25" 1.2Mb  drive; 1.23Mb   media
+#endif // DBCS && _MIPS_
     Drive120Media120,                      // 5.25" 1.2Mb  drive; 1.2Mb   media
+#if defined(DBCS) && defined(_MIPS_)
+    Drive144Media640,                      // 3.5"  1.44Mb drive;  640k   media
+#endif // DBCS && _MIPS_
     Drive144Media720,                      // 3.5"  1.44Mb drive;  720k   media
+#if defined(DBCS) && defined(_MIPS_)
+    Drive144Media120,                      // 3.5"  1.44Mb drive; 1.2Mb  media
+    Drive144Media123,                      // 3.5"  1.44Mb drive; 1.23Mb  media
+#endif // DBCS && _MIPS_
     Drive144Media144,                      // 3.5"  1.44Mb drive; 1.44Mb  media
     Drive288Media720,                      // 3.5"  2.88Mb drive;  720k   media
     Drive288Media144,                      // 3.5"  2.88Mb drive; 1.44Mb  media
@@ -255,8 +276,13 @@ DRIVE_MEDIA_LIMITS DriveMediaLimits[NUMBER_OF_DRIVE_TYPES] = {
 
     { Drive360Media360, Drive360Media160 }, // DRIVE_TYPE_0360
     { Drive120Media120, Drive120Media160 }, // DRIVE_TYPE_1200
+#if defined(DBCS) && defined(_MIPS_)
+    { Drive720Media720, Drive720Media640 }, // DRIVE_TYPE_0720
+    { Drive144Media144, Drive144Media640 }, // DRIVE_TYPE_1440
+#else // !DBCS && !_MIPS_
     { Drive720Media720, Drive720Media720 }, // DRIVE_TYPE_0720
     { Drive144Media144, Drive144Media720 }, // DRIVE_TYPE_1440
+#endif // DBCS && _MIPS_
     { Drive288Media288, Drive288Media720 }  // DRIVE_TYPE_2880
 };
 
@@ -314,6 +340,10 @@ DRIVE_MEDIA_CONSTANTS DriveMediaConstants[NUMBER_OF_DRIVE_MEDIA_COMBINATIONS] =
     { F5_360_512,   0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
          250, 1000, 0x27, 0, 0x2, 0x2, 0xff, 0xfd, 0 },
 
+#if defined(DBCS) && defined(_MIPS_)
+    { F3_640_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x08, 0x2a, 0x50, 0xf6, 0xf,
+         500, 1000, 0x4f, 0, 0x2, 0x2, 0xff, 0xfb, 0 },
+#endif // DBCS && _MIPS_
     { F3_720_512,   0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
          500, 1000, 0x4f, 0, 0x2, 0x2, 0xff, 0xf9, 2 },
 
@@ -327,11 +357,29 @@ DRIVE_MEDIA_CONSTANTS DriveMediaConstants[NUMBER_OF_DRIVE_MEDIA_COMBINATIONS] =
         1000, 1000, 0x27, 1, 0x1, 0x2, 0xff, 0xff, 0 },
     { F5_360_512,   0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
          625, 1000, 0x27, 1, 0x1, 0x2, 0xff, 0xfd, 0 },
+#if defined(DBCS) && defined(_MIPS_)
+    { F5_640_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x08, 0x2a, 0x50, 0xf6, 0xf,
+         625, 1000, 0x4f, 0, 0x1, 0x2, 0xff, 0xfb, 0 },
+    { F5_720_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
+         625, 1000, 0x4f, 0, 0x1, 0x2, 0xff, 0xf9, 0 },
+    { F5_1Pt23_1024,  0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+         625, 1000, 0x4c, 0, 0x0, 0x2, 0xff, 0xfe, 0 },
+#endif // DBCS && _MIPS_
     { F5_1Pt2_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x0f, 0x1b, 0x54, 0xf6, 0xf,
          625, 1000, 0x4f, 0, 0x0, 0x2, 0xff, 0xf9, 0 },
 
+#if defined(DBCS) && defined(_MIPS_)
+    { F3_640_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x08, 0x2a, 0x50, 0xf6, 0xf,
+         500, 1000, 0x4f, 0, 0x2, 0x2, 0xff, 0xfb, 0 },
+#endif // DBCS && _MIPS_
     { F3_720_512,   0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
          500, 1000, 0x4f, 0, 0x2, 0x2, 0xff, 0xf9, 2 },
+#if defined(DBCS) && defined(_MIPS_)
+    { F3_1Pt2_512,  0xdf, 0x2, 0x25, 0x2, 0x200, 0x0f, 0x1b, 0x54, 0xf6, 0xf,
+         625, 1000, 0x4f, 0, 0x0, 0x2, 0xff, 0xf9, 0 },
+    { F3_1Pt23_1024,  0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+         625, 1000, 0x4c, 0, 0x0, 0x2, 0xff, 0xfe, 0 },
+#endif // DBCS && _MIPS_
     { F3_1Pt44_512, 0xaf, 0x2, 0x25, 0x2, 0x200, 0x12, 0x1b, 0x65, 0xf6, 0xf,
          500, 1000, 0x4f, 0, 0x0, 0x2, 0xff, 0xf0, 3 },
 
@@ -360,6 +408,65 @@ DRIVE_MEDIA_CONSTANTS DriveMediaConstants[NUMBER_OF_DRIVE_MEDIA_COMBINATIONS] =
 
 #define MAXIMUM_CONTROLLERS_PER_MACHINE    3
 #define MAXIMUM_DISKETTES_PER_CONTROLLER   4
+
+#if defined(DBCS) && defined(_MIPS_)
+//
+// IOCTL For 3 mode floppy disk drive
+//
+#define IOCTL_DISK_SET_MEDIA_TYPE CTL_CODE(IOCTL_DISK_BASE, 0x00f4, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_DISK_READ CTL_CODE(IOCTL_DISK_BASE, 0x00f5, METHOD_IN_DIRECT, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#define IOCTL_DISK_WRITE CTL_CODE(IOCTL_DISK_BASE, 0x00f6, METHOD_OUT_DIRECT, FILE_WRITE_ACCESS)
+#define IOCTL_DISK_GET_STATUS CTL_CODE(IOCTL_DISK_BASE, 0x00f7, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_DISK_SENSE_DEVICE CTL_CODE(IOCTL_DISK_BASE, 0x00f8, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_DISK_GET_REMOVABLE_TYPES CTL_CODE(IOCTL_DISK_BASE, 0x00fa, METHOD_BUFFERED, FILE_READ_ACCESS)
+
+// IOCTL_DISK_GET_RENOVEABLES
+
+typedef struct _DDRIVE_TYPE {
+    UCHAR DDrive_Type;
+} DDRIVE_TYPE, *PDDRIVE_TYPE;
+
+// IOCTL_DISK_SET_MEDIA_TYPE
+
+typedef struct _MEDIA_TYPE_PTOS {
+    UCHAR Media_Type_PTOS;
+} MEDIA_TYPE_PTOS, *PMEDIA_TYPE_PTOS;
+
+MEDIA_TYPE_PTOS Set_Media_Type_PTOS[4];
+
+// IOCTL_DISK_READ & IOCTL_DISK_WRITE
+
+typedef struct _DISK_READ_WRITE_PARAMETER_PTOS {
+    ULONG Read_Write_Mode_PTOS;
+    ULONG CylinderNumber_PTOS;
+    ULONG HeadNumber_PTOS;
+    ULONG StartSectorNumber_PTOS;
+    ULONG NumberOfSectors_PTOS;
+} DISK_READ_WRITE_PARAMETER_PTOS, *PDISK_READ_WRITE_PARAMETER_PTOS;
+
+// IOCTL_DISK_GET_STATUS
+
+typedef struct _RESULT_STATUS_PTOS {
+    UCHAR ST0_PTOS;
+    UCHAR ST1_PTOS;
+    UCHAR ST2_PTOS;
+    UCHAR C_PTOS;
+    UCHAR H_PTOS;
+    UCHAR R_PTOS;
+    UCHAR N_PTOS;
+} RESULT_STATUS_PTOS, *PRESULT_STATUS_PTOS;
+
+RESULT_STATUS_PTOS Result_Status_PTOS[4];
+
+// IOCTL_DISK_SENSE_DEVICE
+
+typedef struct _SENSE_DEVISE_STATUS_PTOS {
+    UCHAR ST3_PTOS;
+} SENSE_DEVISE_STATUS_PTOS, *PSENSE_DEVISE_STATUS_PTOS;
+
+SENSE_DEVISE_STATUS_PTOS Result_Status3_PTOS[4];
+
+#endif // DBCS && _MIPS_
 
 //
 // Floppy register structure.  The base address of the controller is
@@ -411,8 +518,16 @@ typedef struct _CONFIG_CONTROLLER_DATA {
     ULONG           ControllerVector;
     UCHAR           NumberOfDrives;
     UCHAR           DriveType[MAXIMUM_DISKETTES_PER_CONTROLLER];
+#if defined(DBCS) && defined(_MIPS_)
+    BOOLEAN         Drive3Mode[MAXIMUM_DISKETTES_PER_CONTROLLER];
+#endif // DBCS && _MIPS_
     DRIVE_MEDIA_CONSTANTS BiosDriveMediaConstants[MAXIMUM_DISKETTES_PER_CONTROLLER];
 } CONFIG_CONTROLLER_DATA,*PCONFIG_CONTROLLER_DATA;
+
+#if defined(DBCS) && defined(_MIPS_)
+#define DRIVE_3MODE     TRUE            // 3modeFDD
+#define DRIVE_2MODE     FALSE           // 2modeFDD
+#endif // DBCS && _MIPS_
 
 typedef struct _CONFIG_DATA {
     PULONG          FloppyCount;
@@ -422,6 +537,47 @@ typedef struct _CONFIG_DATA {
 } CONFIG_DATA;
 
 typedef CONFIG_DATA *PCONFIG_DATA;
+
+#if defined(DBCS) && defined(_MIPS_)
+#define FMS_DOS    1
+#define F2HD1024   2
+#define F2HD512    3
+#define F2HD256    4
+#define F2HD128    5
+#define F2HD       6
+#define F2DD1024   7
+#define F2DD512    8
+#define F2DD256    9
+#define F2DD128   10
+#define F2DD      11
+
+DRIVE_MEDIA_CONSTANTS DriveMediaConstantsPTOS[NUMBER_OF_DRIVE_MEDIA_COMBINATIONSPTOS] =
+    {
+
+    { FMS_DOS,    0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+        1000, 1000, 0x4c, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2HD1024,   0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+        1000, 1000, 0x4c, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2HD512,    0xdf, 0x2, 0x25, 0x2, 0x200, 0x0f, 0x1b, 0x54, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2HD256,    0xdf, 0x2, 0x25, 0x1, 0x100, 0x1b, 0x0e, 0x36, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2HD128,    0xdf, 0x2, 0x25, 0x0, 0x080, 0x1a, 0x07, 0x00, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2HD  ,     0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+        1000, 1000, 0x4c, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2DD1024,   0xdf, 0x2, 0x25, 0x3, 0x400, 0x08, 0x35, 0x74, 0xf6, 0xf,
+        1000, 1000, 0x4c, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2DD512,    0xdf, 0x2, 0x25, 0x2, 0x200, 0x09, 0x2a, 0x50, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2DD256,    0xdf, 0x2, 0x25, 0x1, 0x100, 0x10, 0x0e, 0x36, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2DD128,    0xdf, 0x2, 0x25, 0x0, 0x080, 0x00, 0x00, 0x00, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 },
+    { F2DD,       0xdf, 0x2, 0x25, 0x0, 0x080, 0x00, 0x00, 0x00, 0xf6, 0xf,
+        1000, 1000, 0x4f, 0x0, 0x0, 0x2, 0xff, 0x00, 0 }
+};
+#endif // DBCS && _MIPS_
 
 
 //
@@ -498,10 +654,18 @@ COMMAND_TABLE CommandTable[] = {
     { 8, 1, 7,  TRUE,  TRUE  },            // 06 read
     { 1, 0, 2,  TRUE,  TRUE  },            // 07 recalibrate
     { 0, 0, 2,  FALSE, TRUE  },            // 08 sense interrupt status
+#if defined(DBCS) && defined(_MIPS_)
+    { 8, 1, 7,  TRUE,  TRUE  },            // 09 write deleted data
+#else // !DBCS && !_MIPS_
     { 0, 0, 0,  FALSE, FALSE },            // 09 not implemented
+#endif // DBCS && _MIPS_
     { 1, 1, 7,  TRUE,  TRUE  },            // 0a read id
     { 0, 0, 0,  FALSE, FALSE },            // 0b not implemented
+#if defined(DBCS) && defined(_MIPS_)
+    { 8, 1, 7,  TRUE,  TRUE  },            // 0c read deleted data
+#else // !DBCS && !_MIPS_
     { 0, 0, 0,  FALSE, FALSE },            // 0c not implemented
+#endif // DBCS && _MIPS_
     { 5, 1, 7,  TRUE,  TRUE  },            // 0d format track
     { 0, 0, 10, FALSE, FALSE },            // 0e dump registers
     { 2, 0, 2,  TRUE,  TRUE  },            // 0f seek
@@ -513,6 +677,19 @@ COMMAND_TABLE CommandTable[] = {
     { 0, 0, 0,  FALSE, FALSE },            // 15 not implemented
     { 8, 1, 7,  TRUE,  FALSE }             // 16 verify
 };
+
+#if defined(DBCS) && defined(_MIPS_)
+
+//
+// Bits in the CONFIGURATION5 register.
+//
+#define CONFIG5_ENTER_MODE                 0x55
+#define CONFIG5_EXIT_MODE                  0xaa
+#define CONFIG5_SELECT_CR5                 0x05
+#define CONFIG5_1600KB_MODE_MASK           0x18
+#define CONFIG5_1600KB_MODE                0x18
+
+#endif // DBCS && _MIPS_
 
 //
 // Bits in the DRIVE_CONTROL register.
@@ -635,7 +812,6 @@ COMMAND_TABLE CommandTable[] = {
 //
 
 typedef struct _CONTROLLER_DATA {
-    UCHAR            FifoBuffer[10];
     LARGE_INTEGER    InterruptDelay;
     LARGE_INTEGER    Minimum10msDelay;
     LIST_ENTRY       ListEntry;
@@ -644,9 +820,8 @@ typedef struct _CONTROLLER_DATA {
     LONG             AdapterChannelRefCount;
     KDPC             LogErrorDpc;
     KSEMAPHORE       RequestSemaphore;
-    KSPIN_LOCK       TimerSpinLock;
     KSPIN_LOCK       ListSpinLock;
-    KSPIN_LOCK       ThreadReferenceSpinLock;
+    FAST_MUTEX       ThreadReferenceMutex;
     LONG             ThreadReferenceCount;
     PKINTERRUPT      InterruptObject;
     PVOID            MapRegisterBase;
@@ -662,21 +837,25 @@ typedef struct _CONTROLLER_DATA {
     ULONG            SpanOfControllerAddress;
     ULONG            NumberOfMapRegisters;
     ULONG            IsrReentered;
-    LONG             MotorTimer;
     DRIVE_MEDIA_TYPE LastDriveMediaType;
-    UCHAR            NumberOfDrives;
-    UCHAR            DriveControlImage;
-    UCHAR            HardwareFailCount;
+    ULONG            ControllerVector;
+    KIRQL            ControllerIrql;
+    KINTERRUPT_MODE  InterruptMode;
+    KAFFINITY        ProcessorMask;
+    UCHAR            FifoBuffer[10];
+    BOOLEAN          AllowInterruptProcessing;
+    BOOLEAN          SharableVector;
+    BOOLEAN          SaveFloatState;
     BOOLEAN          HardwareFailed;
     BOOLEAN          CommandHasResultPhase;
     BOOLEAN          ControllerConfigurable;
-    BOOLEAN          UnloadingDriver;
     BOOLEAN          MappedControllerAddress;
     BOOLEAN          CurrentInterrupt;
-    BOOLEAN          ThreadQueueLocked;
     BOOLEAN          Model30;
     UCHAR            PerpendicularDrives;
-    BOOLEAN          UseFifo;
+    UCHAR            NumberOfDrives;
+    UCHAR            DriveControlImage;
+    UCHAR            HardwareFailCount;
 } CONTROLLER_DATA;
 
 typedef CONTROLLER_DATA *PCONTROLLER_DATA;
@@ -692,6 +871,9 @@ typedef struct _DISKETTE_EXTENSION {
     PDEVICE_OBJECT        DeviceObject;
     PCONTROLLER_DATA      ControllerData;
     UCHAR                 DriveType;
+#if defined(DBCS) && defined(_MIPS_)
+    BOOLEAN               Drive3Mode;
+#endif // DBCS && _MIPS_
     ULONG                 BytesPerSector;
     ULONG                 ByteCapacity;
     MEDIA_TYPE            MediaType;
@@ -816,10 +998,16 @@ FloppyUnloadDriver(
     IN PDRIVER_OBJECT DriverObject
     );
 
+NTSTATUS
+FlTurnOnMotor(
+    IN OUT  PDISKETTE_EXTENSION DisketteExtension,
+    IN      BOOLEAN             WriteOperation,
+    OUT     PBOOLEAN            MotorStarted
+    );
+
 VOID
-FloppyMotorOffDpc(
-    IN PDEVICE_OBJECT DeviceObject,
-    IN PVOID Context
+FlTurnOffMotor(
+    IN OUT  PCONTROLLER_DATA ControllerData
     );
 
 NTSTATUS
@@ -966,3 +1154,28 @@ FlReadWriteTrack(
     IN      UCHAR               NumberOfSectors,
     IN      BOOLEAN             NeedSeek
     );
+
+BOOLEAN
+FlDisketteRemoved(
+    IN  PCONTROLLER_DATA    ControllerData,
+    IN  UCHAR               DriveStatus,
+    IN  BOOLEAN             MotorStarted
+    );
+
+#if defined(DBCS) && defined(_MIPS_)
+// For PTOS File
+
+NTSTATUS
+FlReadWrite_PTOS(
+    IN PDISKETTE_EXTENSION DisketteExtension,
+    IN PIRP Irp
+    );
+
+// For 3mode FDD
+
+NTSTATUS
+FlOutputCommandFor3Mode(
+    IN UCHAR Command,
+    IN OUT PDISKETTE_EXTENSION DisketteExtension
+    );
+#endif // DBCS && _MIPS_

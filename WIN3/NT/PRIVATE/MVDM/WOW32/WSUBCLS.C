@@ -351,8 +351,18 @@ DWORD GetThunkWindowProc(
     }
 
     if ( iClass == 0 ) {
+        DWORD dwpid;
         LOGDEBUG(LOG_ALWAYS, ("WOW:GetThunkWindowProc: class unknown\n"));
-        return 0;
+
+        // iClass == 0 implies that hwnd could either be a 32bit window
+        // belonging to a WOW process (like Ole windows) or a window of a
+        // different process. If it is the former return a stub proc
+        // else return 0;
+
+        if (!(GetWindowThreadProcessId(hwnd32,&dwpid) &&
+              (dwpid == GetCurrentProcessId()))){
+            return 0;
+        }
     } else {
         //
         // If they are subclassing one of the standard classes, and they
@@ -364,6 +374,7 @@ DWORD GetThunkWindowProc(
             return( dwResult );
         }
     }
+
 
     /*
     ** Scan the list for available TWPLIST entries or duplicates
@@ -448,6 +459,7 @@ DWORD GetThunkWindowProc(
         lptwp->iClass = iClass;
 
         dwResult = (DWORD)lptwp->vpfn16;
+        FLUSHVDMCODEPTR(vpAvail, sizeof(TWPLIST), lptwp);
         FREEVDMPTR( lptwp );
 
         return( dwResult );
@@ -531,7 +543,7 @@ DWORD IsThunkWindowProc(
     PINT        piClass         // OUT OPTIONAL
 ) {
     VPVOID      vpdw;
-    DWORD UNALIGNED *	lpdw;
+    DWORD UNALIGNED *   lpdw;
     DWORD       dwResult;
     INT         iClass;
 
@@ -543,8 +555,8 @@ DWORD IsThunkWindowProc(
 
     /*
     ** If it is a valid sub-class thunk, then it should be preceeded by
-    ** two dword values.  The first is the subclassing magic number and
-    ** the 2nd is the 32-bit proc address.
+    ** three dword values.  The first is the subclassing magic number,
+    ** the second is the WOWCLASS_*, the 3rd is the 32-bit proc address.
     */
     vpdw = (VPVOID)((DWORD)vpProc16 - sizeof(DWORD)*3);
 

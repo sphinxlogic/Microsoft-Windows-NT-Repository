@@ -38,11 +38,15 @@ Revision History:
 #undef USE_SNMP
 #endif
 
+//#define LOAD_MGMTAPI
 #ifdef LOAD_MGMTAPI
 #undef LOAD_MGMTAPI
 #endif
 
 #define LOAD_INETMIB1
+//#ifdef LOAD_INETMIB1
+//#undef LOAD_INETMIB1
+//#endif
 
 //
 //  Disable DSIS interface for now
@@ -204,13 +208,12 @@ PM_CLOSE_PROC   CloseTcpIpPerformanceData;
 
 #ifdef LOAD_INETMIB1
 
-// SNMP_INIT_PROC SnmpExtensionInit;
-// SNMP_QUERY_PROC SnmpExtensionQuery;
-FARPROC SnmpExtensionInit;
-FARPROC SnmpExtensionQuery;
+FARPROC SnmpExtensionInit = NULL;
+FARPROC SnmpExtensionQuery = NULL;
 HANDLE  hInetMibDll;
 
 #endif
+
 
 
 DWORD
@@ -242,10 +245,13 @@ Return Value:
 {
     DWORD          Status;
     register i;
-    TCHAR         ComputerName[MAX_COMPUTERNAME_LENGTH];
-    DWORD         cchBuffer = MAX_COMPUTERNAME_LENGTH;
+    TCHAR         ComputerName[MAX_COMPUTERNAME_LENGTH+1];
+    DWORD         cchBuffer = MAX_COMPUTERNAME_LENGTH+1;
 
     DWORD    dwDataReturn[2];  // event log data
+#ifdef LOAD_INETMIB1
+    UINT    nErrorMode;
+#endif    
 
 #ifdef LOAD_MGMTAPI
 
@@ -305,6 +311,7 @@ Return Value:
         dwDataReturn[0] = GetLastError();
         REPORT_ERROR_DATA (TCP_GET_STRTOOID_ADDR_FAIL, LOG_USER,
             &dwDataReturn[0], (sizeof (DWORD)));
+        CloseNbtPerformanceData ();
         FreeLibrary (hMgmtApiDll);
         return (dwDataReturn[0]);
     }
@@ -312,9 +319,12 @@ Return Value:
 
     // SnmpMgrStrToOid is defined as a macro above
 
-#endif
+#endif // LOAD_MGMTAPI
 
 #ifdef LOAD_INETMIB1   // this STILL craps out
+
+    // don't pop up any dialog boxes
+    nErrorMode = SetErrorMode (SEM_FAILCRITICALERRORS);
 
     hInetMibDll = LoadLibrary ("INETMIB1.DLL");
 
@@ -322,7 +332,13 @@ Return Value:
         dwDataReturn[0] = GetLastError ();
         REPORT_ERROR_DATA (TCP_LOAD_LIBRARY_FAIL, LOG_USER,
             &dwDataReturn[0], (sizeof (DWORD)));
+        CloseNbtPerformanceData ();
+        // restore Error Mode
+        SetErrorMode (nErrorMode);
         return (dwDataReturn[0]);
+    } else {
+        // restore Error Mode
+        SetErrorMode (nErrorMode);
     }
 
     SnmpExtensionInit = GetProcAddress
@@ -335,10 +351,11 @@ Return Value:
         REPORT_ERROR_DATA (TCP_LOAD_ROUTINE_FAIL, LOG_USER,
             &dwDataReturn[0], (sizeof (DWORD)));
         FreeLibrary (hInetMibDll);
+        CloseNbtPerformanceData ();
         return (dwDataReturn[0]);
     }
-#endif
 
+#endif  // LOAD_INETMIB1
     // Initialize the Variable Binding list for IP, ICMP, TCP and UDP
 
     Status = 0; // initialize error count
@@ -397,7 +414,10 @@ Return Value:
         dwDataReturn[1] = 0;
         REPORT_ERROR_DATA (TCP_COMPUTER_NAME, LOG_USER,
                 &dwDataReturn, sizeof(dwDataReturn));
-               return dwDataReturn[0];
+        CloseNbtPerformanceData ();
+        // BUGBUG: leaving here will cause a memory leak of the Oid strings 
+        // allocated above
+        return dwDataReturn[0];
     }
 
 #ifdef USE_SNMP    
@@ -432,28 +452,11 @@ Return Value:
 
     TcpIpSession =  FALSE;       // make sure it's FALSE
 
-    // create event for use by inet mib routines
-
-    Status = NtCreateEvent (
-        &hSnmpEvent,
-        EVENT_ALL_ACCESS,
-        NULL,
-        NotificationEvent,
-        FALSE);
-
-    if (Status != STATUS_SUCCESS) {
-        dwDataReturn[0] = Status;
-        dwDataReturn[1] = RtlNtStatusToDosError(Status);
-        REPORT_ERROR_DATA (TCP_UNABLE_CREATE_EVENT, LOG_DEBUG,
-            &dwDataReturn, sizeof(dwDataReturn));
-        return (dwDataReturn[1]); // return DOS error
-    }
-
     // initialize inet mib routines
 
     Status = SnmpExtensionInit(
         0L,
-        &hSnmpEvent,
+        &hSnmpEvent,    // event is created by Init Routine
         &SnmpOid
         );
 
@@ -461,7 +464,8 @@ Return Value:
         TcpIpSession = TRUE;   // return TRUE to indicate OK
     }
 
-#endif
+#endif  // USE_SNMP
+
     HEAP_PROBE();
     REPORT_INFORMATION (TCP_OPEN_PERFORMANCE_DATA, LOG_DEBUG);
     return ERROR_SUCCESS;
@@ -1568,7 +1572,16 @@ Return Value:
     }
     
     HEAP_PROBE();
-        
+
+#if 0 
+    // this is closed by the INETMIB1 on process detach
+    // so we don't need to do it here.
+            
+    // close event handle used by SNMP
+    if (CloseHandle (hSnmpEvent)) {
+        hSnmpEvent = NULL;
+    }
+#endif
 
 #ifdef LOAD_INETMIB1
 
@@ -1582,6 +1595,6 @@ Return Value:
 
 }   // CloseTcpIpPerformanceData
 
-
-
-
+
+
+

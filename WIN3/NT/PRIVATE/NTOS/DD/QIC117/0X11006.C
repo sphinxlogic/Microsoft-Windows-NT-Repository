@@ -14,9 +14,27 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11006.c  $
-*	
+*
+*	   Rev 1.10.1.0   29 Jan 1996 14:28:40   BOBLEHMA
+*	Write precomp was only being turned off for CMS 3010 and 3020 drives.
+*	Now all manufacturers drives (3010 and 3020) will have write precomp
+*	turned off.
+*
+*	   Rev 1.10   05 Oct 1995 14:09:56   boblehma
+*	Grizzly code merge.
+*
+*	   Rev 1.9.1.0   28 Jul 1995 15:20:24   TRACYBAI
+*	For Grizzly support, added code to disable the FIFO in the Configure
+*	command if we are on a Grizzly device.
+*
+*	   Rev 1.9   30 Jan 1995 14:23:50   BOBLEHMA
+*	Added #include "vendor.h"
+*
+*	   Rev 1.8   17 Oct 1994 11:42:44   BOBLEHMA
+*	If the FDC is a 82078, send a drive specification command to it for 2MB mode.
+*
 *	   Rev 1.7   10 Feb 1994 08:56:42   STEPHENU
-*	Initialized the precomp_mask to zero, we were "or-ing" in stack garbage and 
+*	Initialized the precomp_mask to zero, we were "or-ing" in stack garbage and
 *	potentially resetting the FDC on the IO cards.
 *
 *	   Rev 1.6   02 Feb 1994 11:22:32   CHETDOUG
@@ -48,6 +66,7 @@
 #define FCT_ID 0x11006
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -77,10 +96,23 @@ dStatus cqd_ConfigureFDC
    SpecifyCmd specify;
    ConfigCmd config;
 	dUByte precomp_mask = 0;		/* Mask write precomp in DSR register */
+	DriveSpec drive_s;
 
 /* CODE: ********************************************************************/
 
    cqd_DCROut(cqd_context, cqd_context->xfer_rate.fdc);
+
+   if  (cqd_context->device_descriptor.fdc_type == FDC_82078_64)  {
+		drive_s.command = DRIVE_SPECIFICATION;
+		drive_s.drive_spec = (dUByte)(DRIVE_SPEC |
+		                     ((cqd_context->device_cfg.select_byte & DRIVE_ID_MASK) <<
+		                     DRIVE_SELECT_OFFSET));
+		drive_s.done = DONE_MARKER;
+      status = cqd_ProgramFDC( cqd_context,
+ 	                            (dUByte *)&drive_s,
+ 	                            sizeof(drive_s),
+ 	                            dFALSE );
+   }
 
    if (cqd_context->device_descriptor.fdc_type == FDC_82077 ||
       cqd_context->device_descriptor.fdc_type == FDC_82077AA ||
@@ -89,15 +121,13 @@ dStatus cqd_ConfigureFDC
       cqd_context->device_descriptor.fdc_type == FDC_NATIONAL) {
 
 		/*  if this is a 3010 or 3020 CMS drive, turn off write precomp */
-		if	(cqd_context->device_descriptor.vendor == VENDOR_CMS) {
-			switch (cqd_context->device_descriptor.drive_class) {
-			case QIC3010_DRIVE:
-			case QIC3020_DRIVE:
-				precomp_mask = FDC_PRECOMP_OFF;
-				break;
-			default:
-				precomp_mask = FDC_PRECOMP_ON;
-			}
+		switch (cqd_context->device_descriptor.drive_class) {
+		case QIC3010_DRIVE:
+		case QIC3020_DRIVE:
+			precomp_mask = FDC_PRECOMP_OFF;
+			break;
+		default:
+			precomp_mask = FDC_PRECOMP_ON;
 		}
 
 		/* Select the fdc data rate corresponding to the current xfer rate
@@ -130,11 +160,16 @@ dStatus cqd_ConfigureFDC
 		config.pretrack = FDC_CONFIG_PRETRACK;
 
 		/* enable CLK48 if this is an FC20 with 82078_64 */
-		if (kdi_FC20(cqd_context->kdi_context) &&
+        if (kdi_Clock48mhz(cqd_context->kdi_context) &&
    		 (cqd_context->device_descriptor.fdc_type == FDC_82078_64)) {
 			/* set the CLK48 bit */
 			config.cmd |= FDC_CLK48;
 		}
+
+		/* disable the FIFO if we are on a Grizzly device */
+		//if ((kdi_Grizzly(cqd_context->kdi_context)) == dTRUE) {
+		//	config.config |= FDC_EFIFO;
+		//}
 
 		/* issue the configure command to the FDC */
 		if ((status = cqd_ProgramFDC(cqd_context,

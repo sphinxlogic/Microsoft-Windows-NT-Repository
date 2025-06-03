@@ -47,20 +47,20 @@ CHAR szExtDeviceMode[] = "EXTDEVICEMODE";
   |                                                                         |
   +-------------------------------------------------------------------------+*/
 HDC APIENTRY GetPrinterDC(BOOL bInformation) {
-    HDC      hdc;
-    LPDEVMODE  lpdevmode = NULL;
+    HDC hdc;
+    LPDEVMODE lpdevmode = NULL;
 
     iPrinter = 0;
 
     // Get the printer information from win.ini into a buffer and null terminate it.
-    GetProfileString ( "windows", "device", "" ,szDevice, sizeof(szDevice));
-    for (szDriver = szDevice; *szDriver && *szDriver != ','; szDriver++)
+    GetProfileString ( TEXT("windows"), TEXT("device"), TEXT(""), szDevice, sizeof(szDevice));
+    for (szDriver = szDevice; *szDriver && *szDriver != TEXT(','); szDriver++)
         ;
     if (*szDriver)
         *szDriver++ = 0;
 
     // From the current position in the buffer, null teminate the list of ports
-    for (szPort = szDriver; *szPort && *szPort != ','; szPort++)
+    for (szPort = szDriver; *szPort && *szPort != TEXT(','); szPort++)
         ;
     if (*szPort)
         *szPort++ = 0;
@@ -76,7 +76,7 @@ HDC APIENTRY GetPrinterDC(BOOL bInformation) {
         // Get a pointer to the initialization data
         lpdevmode = (LPDEVMODE) LocalLock (hInitData);
 
-        if (lstrcmp (szDevice, (LPSTR)lpdevmode)){
+        if (lstrcmp (szDevice, (LPSTR)lpdevmode)) {
             // User has changed the device... cancel this setup, as it is invalid
             // (although if we worked harder we could retain some of it).
             lpdevmode = NULL;
@@ -121,15 +121,16 @@ INT APIENTRY AbortProc ( HDC hdc, WORD reserved) {
 
     // Allow other apps to run, or get abort messages
     while (!fAbort && PeekMessage (&msg, NULL, 0, 0, TRUE))
-        if (!hwndPDlg || !IsDialogMessage (hwndPDlg, &msg)){
+        if (!hwndPDlg || !IsDialogMessage (hwndPDlg, &msg)) {
             TranslateMessage (&msg);
             DispatchMessage  (&msg);
         }
+
     return !fAbort;
 
-        UNREFERENCED_PARAMETER(hdc);
-        UNREFERENCED_PARAMETER(reserved);
-        
+    UNREFERENCED_PARAMETER(hdc);
+    UNREFERENCED_PARAMETER(reserved);
+
 } // AbortProc
 
 
@@ -147,16 +148,18 @@ BOOL APIENTRY PrintDlgProc(HWND hwnd, UINT msg, WORD wParam, LONG lParam) {
             break;
 
         case WM_COMMAND:
-            // abort printing if the only button gets hit 
+            // abort printing if the only button gets hit
             fAbort = TRUE;
             break;
 
         default:
             return FALSE;
     }
+
     return TRUE;
-        UNREFERENCED_PARAMETER(wParam);
-        UNREFERENCED_PARAMETER(lParam);
+
+    UNREFERENCED_PARAMETER(wParam);
+    UNREFERENCED_PARAMETER(lParam);
 } // PrintDlgProc
 
 
@@ -182,6 +185,7 @@ VOID APIENTRY PrintFile(HWND hwnd) {
     INT     yExtSoFar;
     WORD    fError = TRUE;
     HWND    hwndEdit;
+    HFONT   hFont, hOldFont;
 
     hwndEdit = (HWND)GetWindowLong(hwnd,GWL_HWNDEDIT);
 
@@ -196,6 +200,9 @@ VOID APIENTRY PrintFile(HWND hwnd) {
     if (!hdc)
         goto getout5;
 
+    SetMapMode(hdc, MM_TEXT);
+    SelectObject(hdc, GetStockObject(ANSI_FIXED_FONT));
+
     // Disable the main application window and create the Cancel dialog
     EnableWindow (hwndFrame, FALSE);
 
@@ -203,6 +210,7 @@ VOID APIENTRY PrintFile(HWND hwnd) {
 
     if (!hwndPDlg)
         goto getout3;
+
     ShowWindow (hwndPDlg, SW_SHOW);
     UpdateWindow (hwndPDlg);
 
@@ -230,8 +238,8 @@ VOID APIENTRY PrintFile(HWND hwnd) {
     hT        = (HANDLE)SendMessage (hwndEdit, EM_GETHANDLE, 0, 0L);
 
     // While more lines print out the text
-    while (iLine < nLinesEc){
-        if (yExtSoFar + (int) dy > yExtPage){
+    while (iLine < nLinesEc) {
+        if (yExtSoFar + (int) dy > yExtPage) {
             // Reached the end of a page. Tell the device driver to eject a page
             if (Escape(hdc, NEWFRAME, 0, NULL, NULL) < 0 || fAbort)
                 goto getout2;
@@ -262,12 +270,11 @@ VOID APIENTRY PrintFile(HWND hwnd) {
         goto getout2;
 
     // Complete the document.
-    if (Escape(hdc, ENDDOC, 0, NULL, NULL) < 0){
+    if (Escape(hdc, ENDDOC, 0, NULL, NULL) < 0) {
 getout2:
         // Ran into a problem before NEWFRAME? Abort the document
         Escape( hdc, ABORTDOC, 0, NULL, NULL);
-    }
-    else
+    } else
         fError=FALSE;
 
 getout3:
@@ -296,7 +303,7 @@ getout:
 
     return;
         UNREFERENCED_PARAMETER(i);
-        
+
 } // PrintFile
 
 
@@ -331,7 +338,7 @@ BOOL APIENTRY GetInitializationData( HWND hwnd ) {
     if (!(lpfn = (DLGPROC) GetProcAddress (hDrv, szExtDeviceMode)))
         return FALSE;
 
-    if (hInitData){
+    if (hInitData) {
         // We have some old data... we want to modify the previously specified
         // setup rather than starting with the default setup.
         lpOld = (LPSTR)LocalLock(hInitData);
@@ -341,21 +348,14 @@ BOOL APIENTRY GetInitializationData( HWND hwnd ) {
         lpOld = NULL;
 
     // Get the number of bytes needed for the init data
-    cb = (*lpfn) (hwnd,
-                  hDrv,
-                  (LPDEVMODE)NULL,
-                  (LPSTR)szDevice,
-                  (LPSTR)szPort,
-                  (LPDEVMODE)NULL,
-                  (LPSTR)NULL,
-                  0);
+    cb = (*lpfn) (hwnd, hDrv, (LPDEVMODE)NULL, (LPSTR)szDevice, (LPSTR)szPort, (LPDEVMODE)NULL, (LPSTR)NULL, 0);
 
     // Grab some memory for the new data and lock it.
     hT    = LocalAlloc (LHND,cb);
-    if(!hT){
-        MessageBox(hwnd, "<GetInitializationData> Not enough memory.", NULL, MB_OK | MB_ICONHAND);
-            LocalUnlock(hInitData);
-            LocalFree(hInitData);
+    if(!hT) {
+        MessageBox(hwnd, TEXT("<GetInitializationData> Not enough memory."), NULL, MB_OK | MB_ICONHAND);
+        LocalUnlock(hInitData);
+        LocalFree(hInitData);
         FreeLibrary(hDrv);
         return(FALSE);
     }
@@ -363,14 +363,7 @@ BOOL APIENTRY GetInitializationData( HWND hwnd ) {
     lpNew = (LPSTR)LocalLock (hT);
 
     // Post the device mode dialog. 0 flag iff user hits OK button
-    if ((*lpfn) (hwnd,
-                 hDrv,
-                 (LPDEVMODE)lpNew,
-                 (LPSTR)szDevice,
-                 (LPSTR)szPort,
-                 (LPDEVMODE)lpOld,
-                 (LPSTR)NULL,
-                 flag)==IDOK)
+    if ((*lpfn) (hwnd, hDrv, (LPDEVMODE)lpNew, (LPSTR)szDevice, (LPSTR)szPort, (LPDEVMODE)lpOld, (LPSTR)NULL, flag) == IDOK)
         flag = 0;
 
     // Unlock the input structures
@@ -383,13 +376,14 @@ BOOL APIENTRY GetInitializationData( HWND hwnd ) {
     // retain the new one.  Otherwise, toss the new buffer.
     if (flag)
         LocalFree (hT);
-    else{
+    else {
         if (hInitData)
             LocalFree (hInitData);
+
         hInitData = hT;
     }
 
     FreeLibrary(hDrv);
     return (!flag);
-    
+
 } // GetInitializationData

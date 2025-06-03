@@ -68,8 +68,13 @@ NETFLEX_PARMS NetFlex_Defaults =
     DF_FRAMESIZE_TR,
     DF_MULTICASTS,
     DF_INTERNALREQS,
-    DF_INTERNALBUFS
+    DF_INTERNALBUFS,
+    DF_XMITS_TR,
+    256,
+	0
 };
+//    USHORT      utd_numsmallbufs;
+//    USHORT      utd_smallbufsz;
 
 
 NDIS_OID NetFlexGlobalOIDs_Eth[] =

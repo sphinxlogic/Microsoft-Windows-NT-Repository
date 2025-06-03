@@ -82,7 +82,7 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PIRP_CONTEXT IrpContext;
+    PIRP_CONTEXT IrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -103,18 +103,36 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+       if ( IrpContext == NULL ) {
 
-        Status = NwProcessException( IrpContext, GetExceptionCode() );
+           //
+           //  If we couldn't allocate an irp context, just complete
+           //  irp without any fanfare.
+           //
+
+           Status = STATUS_INSUFFICIENT_RESOURCES;
+           Irp->IoStatus.Status = Status;
+           Irp->IoStatus.Information = 0;
+           IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+       } else {
+
+           //
+           // We had some trouble trying to perform the requested
+           // operation, so we'll abort the I/O request with
+           // the error status that we get back from the
+           // execption code.
+           //
+
+           Status = NwProcessException( IrpContext, GetExceptionCode() );
+       }
+
     }
 
-    NwDequeueIrpContext( IrpContext, FALSE );
-    NwCompleteRequest( IrpContext, Status );
+    if ( IrpContext ) {
+        NwDequeueIrpContext( IrpContext, FALSE );
+        NwCompleteRequest( IrpContext, Status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -350,7 +368,7 @@ Return Value:
             //  Dump the write behind cache.
             //
 
-            Status = FlushCache( IrpContext, Fcb->NonPagedFcb );
+            Status = AcquireFcbAndFlushCache( IrpContext, Fcb->NonPagedFcb );
 
             if ( !NT_SUCCESS( Status ) ) {
                 IoRaiseInformationalHardError(
@@ -417,6 +435,41 @@ Return Value:
                                 NCP_CLOSE,
                                 Icb->Handle, sizeof( Icb->Handle ) );
 
+                    // If this is in the long file name space and
+                    // the last access flag has been set, we have to
+                    // reset the last access time _after_ closing the file.
+
+                    if ( Icb->UserSetLastAccessTime &&
+                         BooleanFlagOn( Fcb->Flags, FCB_FLAGS_LONG_NAME ) ) {
+
+                        Status = ExchangeWithWait(
+                            IrpContext,
+                            SynchronousResponseCallback,
+                            "LbbWD_W_bDbC",
+                            NCP_LFN_SET_INFO,
+                            Fcb->Vcb->Specific.Disk.LongNameSpace,
+                            Fcb->Vcb->Specific.Disk.LongNameSpace,
+                            SEARCH_ALL_FILES,
+                            LFN_FLAG_SET_INFO_LASTACCESS_DATE,
+                            28,
+                            Fcb->LastAccessDate,
+                            8,
+                            Fcb->Vcb->Specific.Disk.VolumeNumber,
+                            Fcb->Vcb->Specific.Disk.Handle,
+                            0,
+                            &Fcb->RelativeFileName );
+                    }
+
+                    //
+                    // If someone set the shareable bit, then
+                    // see if we can send the NCP over the wire (all
+                    // instances of the file need to be closed).
+                    //
+
+                    if ( BooleanFlagOn( Fcb->Flags, FCB_FLAGS_LAZY_SET_SHAREABLE ) ) {
+                        LazySetShareable( IrpContext, Icb, Fcb );
+                    }
+
                 } else {
 
                     Status = ExchangeWithWait (
@@ -436,6 +489,41 @@ Return Value:
 
         pNpScb = Icb->SuperType.Scb->pNpScb;
         IrpContext->pNpScb = pNpScb;
+        IrpContext->pScb = pNpScb->pScb;
+
+        if ( Icb->HasRemoteHandle ) {
+
+            //
+            // If we have a remote handle this is a file stream ICB.  We
+            // need to close the remote handle.  The exchange will get us
+            // to the head of the queue to protect the SCB state.
+            //
+
+            Status = ExchangeWithWait(
+                IrpContext,
+                SynchronousResponseCallback,
+                "F-r",
+                NCP_CLOSE,
+                Icb->Handle, sizeof( Icb->Handle ) );
+
+            Icb->HasRemoteHandle = FALSE;
+
+            pNpScb->pScb->OpenNdsStreams--;
+
+            ASSERT( pNpScb->pScb->MajorVersion > 3 );
+
+            //
+            // Do we need to unlicense this connection?
+            //
+
+            if ( ( pNpScb->pScb->UserName.Length == 0 ) &&
+                 ( pNpScb->pScb->VcbCount == 0 ) &&
+                 ( pNpScb->pScb->OpenNdsStreams == 0 ) ) {
+                NdsUnlicenseConnection( IrpContext );
+            }
+
+            NwDequeueIrpContext( IrpContext, FALSE );
+        }
 
     }
 
@@ -481,5 +569,3 @@ Return Value:
     DebugTrace(-1, Dbg, "NwCloseIcb -> %08lx\n", Status);
     return Status;
 }
-
-

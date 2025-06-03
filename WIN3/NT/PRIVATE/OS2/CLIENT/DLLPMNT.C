@@ -33,6 +33,9 @@ Revision History:
 #define INCL_32BIT
 #include "pmnt.h"
 #include "os2win.h"
+#include "sesport.h"
+
+#include "os2crt.h"
 
 #include <ntexapi.h>
 
@@ -41,10 +44,12 @@ extern APIRET PMNTAllocLDTSelector(ULONG BaseAddress, ULONG cbSize, PSEL pSel);
 extern APIRET VioGetConfig(ULONG usConfigId,PVIOCONFIGINFO Config,ULONG hVio);
 extern APIRET VioGetCp(ULONG usReserved,PUSHORT pIdCodePage,ULONG hVio);
 extern APIRET PMNTIsSessionRoot(void);
+extern VOID   PMNTRemoveCloseMenuItem(void); // os2ses\os2.c
 
 extern LONG ScreenX;
 extern LONG ScreenY;
 BOOLEAN PMNTRegisteredDisplayAdapter = FALSE;
+extern HANDLE Ow2ForegroundWindow;
 
 ULONG PMFlags = 0;
 ULONG PMSubprocSem32;
@@ -56,6 +61,14 @@ SetProcessShutdownParameters(
     DWORD dwLevel,
     DWORD dwFlags
     );
+
+// Defined in public\sdk\inc\winuser.h
+#define SW_HIDE 0
+
+BOOLEAN
+ShowWindow(
+    HANDLE hWnd,
+    int nCmdShow);
 
 APIRET
 InitPMNTDevice()
@@ -414,6 +427,15 @@ PMNTIoctl(
 
     switch (request)
     {
+        //PatrickQ 12-29-95 Hook for the CBA to make WIN32 Console window invisible
+        case PMNT_IOCTL_HIDE_WIN32_WINDOW:
+            if (!ShowWindow(Ow2ForegroundWindow, SW_HIDE))
+            {
+#if DBG
+                DbgPrint("PMNTIoctl: ShowWindow(%x) failed\n", Ow2ForegroundWindow);
+#endif
+            }
+            break;
         case PMNT_IOCTL_DD_IOCTL: /* PMNTDD IOCTL's */
             ptr = (PMNT_IOCTL_DD_IOCTL_PARAMS *)input_pointer;
             // BUGBUG - Check input & output pointers against advertised length
@@ -438,6 +460,9 @@ PMNTIoctl(
         default:
             return ERROR_INVALID_PARAMETER;
     }
+
+    //PatrickQ - so that break statements above don't return random return-code
+    return NO_ERROR;
 }
 
 VOID
@@ -690,52 +715,51 @@ PMNTGetPgmName(
     return NO_ERROR;
 }
 
-APIRET
-PMNTGetConsoleTitle(
-    PSZ Buffer,
-    ULONG BufferLength)
-{
-    ULONG RetLength;
+extern ULONG Ow2bNewSession;
 
-    try
-    {
-        Od2ProbeForWrite(Buffer,BufferLength,1);
-    } except( EXCEPTION_EXECUTE_HANDLER )
-    {
-#if DBG
-        DbgPrint("PMNTSetConsoleTile: error, bad pointer parameter\n");
-#endif
-        return(ERROR_INVALID_PARAMETER);
-    }
+DECLARE_HANDLE(HKEY);
+typedef HKEY *PHKEY;
+#define HKEY_LOCAL_MACHINE          (( HKEY ) 0x80000002 )
+typedef ACCESS_MASK REGSAM;
 
-    if (BufferLength > 1)
-    {
-        RetLength = GetConsoleTitleA(Buffer,BufferLength);
-        Buffer[BufferLength-1]='\0';
-        if ((strncmp(Buffer,"PM Shell",9) == 0) &&
-            (!PMNTIsSessionRoot()) ) {
-            strncpy(Buffer,"Print Manager",BufferLength);
-        }
-    }
-    else
-    {
-        if (BufferLength == 1) Buffer[0]='\0';
-        RetLength = 0;
-    }
+LONG
+APIENTRY
+RegOpenKeyExA (
+    HKEY hKey,
+    LPCSTR lpSubKey,
+    DWORD ulOptions,
+    REGSAM samDesired,
+    PHKEY phkResult
+    );
 
-    if (RetLength > 0) {
-        return(NO_ERROR);
-    }
-    else
-    {
-        return(ERROR_INVALID_PARAMETER);
-    }
-}
+LONG
+APIENTRY
+RegQueryValueExA (
+    HKEY hKey,
+    LPCSTR lpValueName,
+    PULONG lpReserved,
+    PULONG lpType,
+    PBYTE lpData,
+    PULONG lpcbData
+    );
+
+LONG
+APIENTRY
+RegCloseKey (
+    HKEY hKey
+    );
+
+#define PMSHELL_TITLE_LEN 40
 
 APIRET
 PMNTSetConsoleTitle(
     PSZ Buffer)
 {
+    CHAR BufferTmp[PMSHELL_TITLE_LEN];
+    DWORD cb;
+    DWORD type;
+    HKEY hkey;
+
     try
     {
         Od2ProbeForRead(Buffer,1,1);
@@ -747,16 +771,72 @@ PMNTSetConsoleTitle(
         return(ERROR_INVALID_PARAMETER);
     }
 
-    if (strncmp(Buffer,"Print Manager",13) || PMNTIsSessionRoot()) {
+    // Note that the code below also takes care that the Print Manager won't
+    //  set the console title unless started independently because if PMSPOOL
+    //  was started by PMShell, it won't be a new session
+
+    if (OS2SS_IS_NEW_SESSION( Ow2bNewSession )) {
+       if (ProcessIsPMShell()) {
+            if (!RegOpenKeyExA(
+                    HKEY_LOCAL_MACHINE,
+                    "SOFTWARE\\Microsoft\\OS/2 Subsystem for NT\\1.0\\PMSHELL",
+                    0,
+                    KEY_QUERY_VALUE,
+                    &hkey
+                    ))
+            {
+                DWORD RemoveCloseMenuItem = 0;
+
+                // Found key SOFTWARE\Microsoft\OS/2 Subsystem for NT\1.0\PMSHELL
+                cb = PMSHELL_TITLE_LEN-1;
+                if (!RegQueryValueExA(
+                        hkey,
+                        "Title",
+                        NULL,
+                        &type,
+                        BufferTmp,
+                        &cb
+                        ))
+                {
+                    BufferTmp[cb] = '\0';
+                    Buffer = BufferTmp;
+                }
+
+                cb = sizeof(DWORD);
+                if (!RegQueryValueExA(
+                        hkey,
+                        "RemoveCloseMenuItem",
+                        NULL,
+                        &type,
+                        &RemoveCloseMenuItem,
+                        &cb
+                        ))
+                {
+                    if (RemoveCloseMenuItem)
+                    {
+                        // PatrickQ 5/2/96.This option means we don't want to
+                        //   allow user to select the close system menu option
+                        //   on PMShell - Required by CBA
+                        PMNTRemoveCloseMenuItem();
+                    }
+                }
+
+                RegCloseKey(hkey);
+            }
+
+            if (Buffer != BufferTmp) {
+                Buffer = "PM Shell";
+            }
+        }
+
+
         if (SetConsoleTitleA(Buffer))
             return(NO_ERROR);
         else
             return(ERROR_INVALID_PARAMETER);
     }
-    if (SetConsoleTitleA("PM Shell"))
-        return(NO_ERROR);
-    else
-        return(ERROR_INVALID_PARAMETER);
+
+    return NO_ERROR;
 }
 
 APIRET
@@ -853,6 +933,16 @@ PMNTGetOurWindow()
         return (0);
     }
 
+    //PQPQ 12/28/95 - Just try to find the window once. If you fail, don't worry
+    //  about it. The loop previously used to get the window handle created a
+    //  problem with Yosef's fix for the CBA to allow turning DosStartSession
+    //  calls into background execution in the same session. This happened
+    //  because sibling processes reset the console title to other strings so we
+    //  failed to find the temporary string among the existing windows.
+    Hwnd = (ULONG)FindWindowA("ConsoleWindowClass", UniqueTitle);
+
+
+#if 0 //PQPQ
     StartingMsec = GetTickCount();
     while (!(Hwnd = (ULONG)FindWindowA("ConsoleWindowClass", UniqueTitle)))
     {
@@ -866,6 +956,7 @@ PMNTGetOurWindow()
             break;
         }
     }
+#endif //PQPQ
 
     /*****************************
      * Restore the Console title *
@@ -1233,7 +1324,7 @@ VioSRFBlock(void)
 * FontHandles
 *
 * History:
-* Aug 11, 1993	ShigeO	Created
+* Aug 11, 1993  ShigeO  Created
 \***************************************************************/
 #define MAX_FONTS 32
 HANDLE ahFont[MAX_FONTS];
@@ -1243,13 +1334,13 @@ ULONG  ulFontCount;
 * GetFontHandle()
 *
 * History:
-* Aug 11, 1993	ShigeO	Created
+* Aug 11, 1993  ShigeO  Created
 \***************************************************************/
 HANDLE GetFontHandle(
     ULONG ulFont)
 {
     if(ulFont && (ulFont <= ulFontCount)) {
-	return ahFont[ulFont-1];
+    return ahFont[ulFont-1];
     }
     return (HANDLE)0;
 }
@@ -1258,14 +1349,14 @@ HANDLE GetFontHandle(
 * PutFontHandle()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 ULONG PutFontHandle(
     HANDLE hFont)
 {
     if(hFont && (ulFontCount < MAX_FONTS)) {
-	ahFont[ulFontCount++] = hFont;
-	return ulFontCount;
+    ahFont[ulFontCount++] = hFont;
+    return ulFontCount;
     }
     return 0L;
 }
@@ -1274,13 +1365,13 @@ ULONG PutFontHandle(
 * GetFontID()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 ULONG GetFontID(
     VOID)
 {
     if(ulFontCount < MAX_FONTS) {
-	return ulFontCount+1;
+    return ulFontCount+1;
     }
     return 0L;
 }
@@ -1289,7 +1380,7 @@ ULONG GetFontID(
 * SelectFont()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 HANDLE
 SelectFont(
@@ -1300,14 +1391,14 @@ SelectFont(
     HANDLE hFontTmp;
 
     if(hFont == hFontPrev) {
-	return hDC;
+    return hDC;
     }
     if(!hDC && (!(hDC = CreateDCA("DISPLAY", NULL, NULL, NULL)))) {
-	return (HANDLE)0;
+    return (HANDLE)0;
     }
     hFontTmp = SelectObject(hDC, hFont);
     if(!hFontTmp || hFontTmp == (HANDLE)0xFFFFFFFFL) {
-	return (HANDLE)0;
+    return (HANDLE)0;
     }
     hFontPrev = hFont;
     return hDC;
@@ -1317,7 +1408,7 @@ SelectFont(
 * PMNTCreateFontIndirect()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 ULONG
 PMNTCreateFontIndirect(
@@ -1326,10 +1417,10 @@ PMNTCreateFontIndirect(
     HANDLE hFont;
 
     if(!GetFontID()) {
-	return 0L;
+    return 0L;
     }
     if(!(hFont = CreateFontIndirectA(lplf))) {
-	return 0L;
+    return 0L;
     }
     return PutFontHandle(hFont);
 }
@@ -1338,7 +1429,7 @@ PMNTCreateFontIndirect(
 * PMNTGetTextMetrics()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 ULONG
 PMNTGetTextMetrics(
@@ -1349,13 +1440,13 @@ PMNTGetTextMetrics(
     HANDLE hFont;
 
     if(!(hFont = GetFontHandle(ulFont))) {
-	return 0L;
+    return 0L;
     }
     if(!(hDC = SelectFont(hFont))) {
-	return 0L;
+    return 0L;
     }
     if(!(GetTextMetricsA(hDC, lptm))) {
-	return 0L;
+    return 0L;
     }
     return 1L;
 }
@@ -1364,7 +1455,7 @@ PMNTGetTextMetrics(
 * PMNTGetFontBitmap()
 *
 * History:
-* Aug 10, 1993	ShigeO	Created
+* Aug 10, 1993  ShigeO  Created
 \***************************************************************/
 ULONG
 PMNTGetStringBitmap(
@@ -1378,13 +1469,13 @@ PMNTGetStringBitmap(
     HANDLE hFont;
 
     if(!(hFont = GetFontHandle(ulFont))) {
-	return 0L;
+    return 0L;
     }
     if(!(hDC = SelectFont(hFont))) {
-	return 0L;
+    return 0L;
     }
     if(!(GetStringBitmapA(hDC, lpszStr, cbStr, cbData, lpSB))) {
-	return 0L;
+    return 0L;
     }
     return 1L;
 }
@@ -1556,8 +1647,8 @@ Os2VDMThread(
     )
 {
     ULONG rc;
-    DWORD Status;
 #ifndef PMNT_DAYTONA
+    DWORD Status;
     HANDLE ThreadHandle = NULL;
     ULONG Tid;
 #endif // not PMNT_DAYTONA

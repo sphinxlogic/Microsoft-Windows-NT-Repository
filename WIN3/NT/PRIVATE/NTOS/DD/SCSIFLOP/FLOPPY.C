@@ -953,9 +953,8 @@ Return Value:
     // beginning of floppy.
     //
 
-    currentIrpStack->Parameters.Read.ByteOffset = RtlLargeIntegerAdd(
-            startingOffset,
-            deviceExtension->StartingOffset);
+    currentIrpStack->Parameters.Read.ByteOffset.QuadPart =
+            startingOffset.QuadPart + deviceExtension->StartingOffset.QuadPart;
 
     //
     // Calculate number of pages in this transfer.
@@ -2012,13 +2011,15 @@ Return Value:
     PIO_STACK_LOCATION irpStack;
     PIRP irp;
     PSCSI_REQUEST_BLOCK srb;
-    LARGE_INTEGER largeInt = RtlConvertUlongToLargeInteger(1);
+    LARGE_INTEGER largeInt;
     PCOMPLETION_CONTEXT context;
     PCDB cdb;
     ULONG alignment;
 
     UNREFERENCED_PARAMETER(Status);
     UNREFERENCED_PARAMETER(Retry);
+
+    largeInt.QuadPart = 1;
 
     //
     // Check the status.  The initialization command only needs to be sent
@@ -2223,10 +2224,10 @@ Return Value:
 
     RtlZeroMemory(buffer, length);
 
-    offset = RtlConvertUlongToLargeInteger(
+    offset.QuadPart =
         (Format->StartCylinderNumber * driveMediaConstants->NumberOfHeads +
         Format->StartHeadNumber) * driveMediaConstants->SectorsPerTrack *
-        driveMediaConstants->BytesPerSector);
+        driveMediaConstants->BytesPerSector;
 
     //
     // Set the event object to the unsignaled state.
@@ -2273,4 +2274,4 @@ Return Value:
     return(status);
 
 }
-
+

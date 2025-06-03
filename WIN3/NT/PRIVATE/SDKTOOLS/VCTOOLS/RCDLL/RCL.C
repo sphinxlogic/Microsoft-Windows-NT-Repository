@@ -8,21 +8,23 @@
 /*                                                                          */
 /****************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 #define EOLCHAR L';'
 #define STRCHAR L'"'
 #define CHRCHAR L'\''
 #define SGNCHAR L'-'
-#define iswhite( c ) ((WCHAR)c <= L' ' ? TRUE : FALSE)
+#define iswhite( c ) ((c != SYMUSESTART) && (c != SYMDEFSTART) &&\
+        ((WCHAR)c <= L' ') ? TRUE : FALSE)
 
-static WCHAR curChar;
-static WCHAR curCharFTB;   /* Cur char From Token Buf */
-static PWCHAR   CurPtrTB;
-static FILE *inpfh;
-static int      curLin, curCol;
+static WCHAR  curChar;
+static WCHAR  curCharFTB;   /* Cur char From Token Buf */
+static PWCHAR CurPtrTB;
+static PFILE  inpfh;
+static int    curLin, curCol;
+
+extern BOOL bExternParse;
 
 
 /* Must be sorted */
@@ -49,6 +51,7 @@ KEY keyList[] =
     { L"DEFPUSHBUTTON",    TKDEFPUSHBUTTON },
     { L"DISCARDABLE",      TKDISCARD },
     { L"DLGINCLUDE",       TKDLGINCLUDE },
+    { L"DLGINIT",          TKDLGINIT },
     { L"EDIT",             TKEDIT },
     { L"EDITTEXT",         TKEDITTEXT },
     { L"END",              END },
@@ -160,16 +163,16 @@ WCHAR GetCharFTB()
 
 /*---------------------------------------------------------------------------*/
 /*                                                                           */
-/*  OurGetChar() -                                                              */
+/*  OurGetChar() -                                                           */
+/*                                                                           */
+/*  Read a character, treating semicolon as an end of line comment char      */
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
-
-/* Read a character, treating semicolon as an end of line comment char */
 
 int OurGetChar()
 {
     if ((LitChar() != EOFMARK) && (curChar == CHCOMMENT))
-        /* if comment, HARD LOOP until EOLN */
+        // if comment, HARD LOOP until EOLN
         while ((LitChar() != EOFMARK) && (curChar != CHNEWLINE));
 
     return((int)curChar);
@@ -202,9 +205,28 @@ int FileChar()
         ibNext++;
 
     return(ch);
-
 }
 
+/*---------------------------------------------------------------------------*/
+/*                                                                           */
+/*  CopyToken() -                                                            */
+/*                                                                           */
+/*---------------------------------------------------------------------------*/
+void CopyToken(PTOKEN ptgt_token, PTOKEN psrc_token)
+{
+    ptgt_token->longval  = psrc_token->longval;
+    ptgt_token->row      = psrc_token->row;
+    ptgt_token->col      = psrc_token->col;
+    ptgt_token->flongval = psrc_token->flongval;
+    ptgt_token->val      = psrc_token->val;
+    ptgt_token->type     = psrc_token->type;
+    ptgt_token->realtype = psrc_token->realtype;
+
+    wcscpy(ptgt_token->sym.name, psrc_token->sym.name);
+    wcscpy(ptgt_token->sym.file, psrc_token->sym.file);
+    ptgt_token->sym.line = psrc_token->sym.line;
+    ptgt_token->sym.nID  = psrc_token->sym.nID;
+}
 
 /*---------------------------------------------------------------------------*/
 /*                                                                           */
@@ -222,11 +244,13 @@ int LitChar()
     int fDot;
     PWCHAR      pch;
     WCHAR buf[ _MAX_PATH ];
+    TOKEN token_save;
 
     for (; ; ) {
         switch (curChar = (WCHAR)FileChar()) {
         case 0:
-            return curChar = EOFMARK;
+	    curChar = EOFMARK;
+	    goto char_return;
 
         case 0xFEFF:     // skip Byte Order Mark
             continue;
@@ -242,7 +266,7 @@ int LitChar()
         case CHCARRIAGE:
             curChar = CHSPACE;
             if (!fIgnore)
-                return curChar;
+                goto char_return;
             break;
 
         case CHNEWLINE:
@@ -255,25 +279,60 @@ int LitChar()
             }
 
             if (!fIgnore)
-                return curChar;
+                goto char_return;
             break;
 
             /* skip whitespace before #line - don't clear fNewLine */
         case CHSPACE:
         case CHTAB:
             if (!fIgnore)
-                return curChar;
+                goto char_return;
             break;
 
         case CHDIRECTIVE:
             if (fNewLine) {
+		        TCHAR tch;
+
                 fDot = FALSE;
 
                 /* also, leave fNewLine set, since we read thru \n */
 
                 /* read the 'line' part */
-                if (FileChar() != L'l')
-                    goto DirectiveError;
+                if ((tch = FileChar()) != L'l') {
+		    if (tch == L'p') {
+			if (FileChar() != L'r')
+			    goto DirectiveError;
+			if (FileChar() != L'a')
+			    goto DirectiveError;
+			if (FileChar() != L'g')
+			    goto DirectiveError;
+			if (FileChar() != L'm')
+			    goto DirectiveError;
+			if (FileChar() != L'a')
+			    goto DirectiveError;
+
+			/*
+			** This is very specific, as any #pragma will
+			** be a code_page pragma written by p0prepro.c.
+			*/
+            CopyToken( &token_save, &token );
+
+			GetToken(FALSE);		/* get #pragma and ignore */
+			GetToken(FALSE);		/* get code_page and ignore */
+			GetToken(TOKEN_NOEXPRESSION);	/* get codepage value only*/
+							/* don't check return value */
+			uiCodePage = token.val;		/* assume ok */
+			/* read through end of line */
+			while (curChar != CHNEWLINE)
+			{
+			    curChar = (WCHAR)FileChar();
+			}
+            CopyToken( &token, &token_save );
+			continue;
+		    }
+		    else
+			goto DirectiveError;
+		}
                 if (FileChar() != L'i')
                     goto DirectiveError;
                 if (FileChar() != L'n')
@@ -372,9 +431,15 @@ DirectiveError:
         default:
             fNewLine = FALSE;
             if (!fIgnore)
-                return curChar;
+                goto char_return;
         }
     }
+
+char_return:
+    if (bExternParse)
+	*((WCHAR*) GetSpace(sizeof(WCHAR))) = curChar;
+
+    return curChar;
 }
 
 
@@ -383,8 +448,7 @@ DirectiveError:
 /*  GetStr() -                                                               */
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
-VOID
-GetStr()
+VOID GetStr()
 {
     PWCHAR      s;
     WCHAR ch;
@@ -446,12 +510,14 @@ gotstr:
                 temptok[i++] = L'\\';
             else if (*s == L'T' || *s == L't')
                 temptok[i++] = L'\011';            /* Tab */
+            else if (*s == 0x0a)                   /* continuation slash */
+            	; /* ignore and let it go trough the s++ at the end so we skip the 0x0a char*/
             else if (*s == L'A' || *s == L'a')
                 temptok[i++] = L'\010';            /* Right Align */
             else if (*s == L'n')
-                temptok[i++] = 10;                 /* linefeed */
+                temptok[i++] = fMacRsrcs ? 13 : 10;   /* linefeed */
             else if (*s == L'r')
-                temptok[i++] = 13;                 /* carriage return */
+                temptok[i++] = fMacRsrcs ? 10 : 13;   /* carriage return */
             else if (*s == L'"')
                 temptok[i++] = L'"';               /* quote character */
             else if (*s == L'X' || *s == L'x')  {  /* Hexidecimal digit */
@@ -469,7 +535,7 @@ gotstr:
                     HexNum = HexNum * 16 + inc;
                     s++;
                 }
-		MultiByteToWideChar(uiCodePage, MB_PRECOMPOSED, &HexNum, 1, &temptok[i], 1);
+                MultiByteToWideChar(uiCodePage, MB_PRECOMPOSED, &HexNum, 1, &temptok[i], 1);
                 i++;
                 s--;
             }
@@ -481,11 +547,14 @@ gotstr:
                     Octal_Num = (Octal_Num * 8 + (*s - L'0'));
                     s++;
                 }
-		MultiByteToWideChar(uiCodePage, MB_PRECOMPOSED, &Octal_Num, 1, &temptok[i], 1);
+                MultiByteToWideChar(uiCodePage, MB_PRECOMPOSED, &Octal_Num, 1, &temptok[i], 1);
                 i++;
                 s--;
             }
-
+            else {
+                temptok[i++] = L'\\';
+                s--;
+            }
         }
         else
             temptok[i++] = *s;
@@ -504,8 +573,7 @@ gotstr:
 /*  GetLStr() -                                                              */
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
-VOID
-GetLStr()
+VOID GetLStr()
 {
     PWCHAR      s;
     WCHAR ch;
@@ -555,9 +623,9 @@ gotstr:
             else if (*s == L'A' || *s == L'a')
                 temptok[i++] = L'\010';            /* Right Align */
             else if (*s == L'n')
-                temptok[i++] = 10;                 /* linefeed */
+                temptok[i++] = fMacRsrcs ? 13 : 10;   /* linefeed */
             else if (*s == L'r')
-                temptok[i++] = 13;                 /* carriage return */
+                temptok[i++] = fMacRsrcs ? 10 : 13;   /* carriage return */
             else if (*s == L'"')
                 temptok[i++] = L'"';               /* quote character */
             else if (*s == L'X' || *s == L'x')  {  /* Hexidecimal digit */
@@ -602,7 +670,6 @@ gotstr:
     memcpy ( tokenbuf, temptok, sizeof(WCHAR)*(i + 1));
 }
 
-
 /*---------------------------------------------------------------------------*/
 /*                                                                           */
 /*  GetToken() -                                                             */
@@ -615,6 +682,11 @@ int     GetToken(int fReportError)
         /* skip whitespace */
         while (iswhite( curChar))
             OurGetChar();
+
+        /* take care of 'random' symbols use */
+        if (curChar == SYMUSESTART)
+            GetSymbol(fReportError, curChar);
+        token.sym.name[0] = L'\0';
 
         /* remember location of token */
         token.row = curLin;
@@ -646,6 +718,9 @@ int     GetToken(int fReportError)
                     GetNumNoExpression();
                 else
                     GetNum();
+
+                if (curChar == SYMUSESTART)
+                    GetSymbol(fReportError, curChar);
             }
             else {
                 if (!GetKwd( fReportError))
@@ -901,6 +976,12 @@ LONG GetExpression(VOID)
     /* Get the first operand */
     op1 = GetOperand();
 
+    /* take care of symbol use */
+    if (curChar == SYMUSESTART) {
+        GetSymbol(TRUE, curChar);
+        token.sym.nID = token.val;
+    }
+
     /* Loop until end of expression */
     for (; ; ) {
         /* Get the operator */
@@ -918,7 +999,11 @@ LONG GetExpression(VOID)
 
         /* If this isn't an operator, we're done with the expression */
         if (!wFlags)
+        {
+            token.sym.nID = (unsigned)op1;
             return op1;
+        }
+        token.sym.name[0] = L'\0';
 
         /* Get the second operand */
         op2 = GetOperand();
@@ -968,8 +1053,11 @@ LONG GetOperand(VOID)
     }
 
     /* If this isn't a number, return an error */
-    if (curChar != L'-' && curChar != L'~' && !iswdigit(curChar))
-        ParseError2(2166, &curChar);
+    if (curChar != L'-' && curChar != L'~' && !iswdigit(curChar)) {
+	GetKwd(FALSE);
+        ParseError2(2237, tokenbuf);
+	return 0;
+    }
 
     /* Get the number in the token structure */
     GetNumFTB();
@@ -993,11 +1081,14 @@ LONG GetOperand(VOID)
  *      the expression parser to pop up a level.
  */
 
-int     GetOperator(
-PWCHAR   pOperator)
+int     GetOperator(PWCHAR   pOperator)
 {
     static WCHAR byOps[] = L"+-|&";
     PWCHAR       pOp;
+
+    /* take care of symbol use */
+    if (curChar == SYMUSESTART)
+        GetSymbol(TRUE, curChar);
 
     /* See if this character is an operator */
     pOp = wcschr(byOps, curChar);
@@ -1033,7 +1124,7 @@ VOID SkipWhitespace(VOID)
 /*                                                                           */
 /*---------------------------------------------------------------------------*/
 
-int     GetKwd(int fReportError)
+int GetKwd(int fReportError)
 {
     PSKEY     sk;
 
@@ -1051,7 +1142,7 @@ int     GetKwd(int fReportError)
     GetWord(tokenbuf);
 
     // Check for TKLSTR -- new for NT
-    if (!tokenbuf[1] && (toupper(tokenbuf[0]) == 'L') && (curChar == STRCHAR))
+    if (!tokenbuf[1] && (towupper(tokenbuf[0]) == L'L') && (curChar == STRCHAR))
     {
         token.type = TKLSTR;
         return TRUE;
@@ -1084,7 +1175,7 @@ USHORT FindKwd(PWCHAR     str)
 
     /* linear search the keyword table for the key */
     for (k = &keyList[0]; k->kwd; k++)
-        if (!(t = wcsicmp( str, k->kwd)))
+        if (!(t = _wcsicmp( str, k->kwd)))
             return k->kwdval;
         else if (t < 0)
             break;
@@ -1129,41 +1220,49 @@ void LexError2(int iMsg, PCHAR str)
 /*---------------------------------------------------------------------------*/
 
 /* For reading in resource names and types.  */
-int     GetNameOrd()
+int GetNameOrd()
 
 {
+    PWCHAR pch;
+    int	fString;
+
     /* get space delimited string */
     if (!GetGenText())
         return FALSE;
 
     /* convert to upper case */
-    wcsupr(tokenbuf);
+    _wcsupr(tokenbuf);
+
+    /* is it a string or number */
+    for (pch=tokenbuf,fString=0 ; *pch ; pch++ )
+	if (!iswdigit(*pch))
+	    fString = 1;
 
     /* determine if ordinal */
-    if (iswdigit( tokenbuf[ 0 ])) {
-        if (tokenbuf[1] == L'X') {
-            int         HexNum;
-            int         inc;
-            USHORT      wCount;
-            PWCHAR      s;
+    if (tokenbuf[0] == L'0' && tokenbuf[1] == L'X') {
+	int         HexNum;
+	int         inc;
+	USHORT      wCount;
+	PWCHAR      s;
 
-            HexNum = 0;
-            s = &tokenbuf[2];
-            for (wCount = 4 ; wCount && iswxdigit(*s) ; --wCount)  {
-                if (*s >= L'A')
-                    inc = *s - L'A' + 10;
-                else
-                    inc = *s - L'0';
-                HexNum = HexNum * 16 + inc;
-                s++;
-            }
-            token.val = (USHORT)HexNum;
-        }
-        else
-            token.val = (USHORT)wcsatoi(tokenbuf);
+	HexNum = 0;
+	s = &tokenbuf[2];
+	for (wCount = 4 ; wCount && iswxdigit(*s) ; --wCount)  {
+	    if (*s >= L'A')
+		inc = *s - L'A' + 10;
+	    else
+		inc = *s - L'0';
+	    HexNum = HexNum * 16 + inc;
+	    s++;
+	}
+	token.val = (USHORT)HexNum;
     }
-    else
+    else if (fString) {
         token.val = 0;
+    }
+    else {
+	token.val = (USHORT)wcsatoi(tokenbuf);
+    }
 
     return TRUE;
 }
@@ -1192,6 +1291,11 @@ PWCHAR    GetGenText()
         return NULL;
     }
 
+    /* random symbol */
+    if (curChar == SYMUSESTART)
+        GetSymbol(TRUE, curChar);
+    token.sym.name[0] = L'\0';
+
     /* read space delimited string */
     *s++ = curChar;
     while (( LitChar() != EOFMARK) && ( !iswhite(curChar)))
@@ -1201,6 +1305,13 @@ PWCHAR    GetGenText()
     OurGetChar();    /* read in the next character        */
     if (curChar == EOFMARK)
         token.type = EOFMARK;
+
+    if (curChar == SYMUSESTART)
+    {
+        GetSymbol(TRUE, curChar);
+        token.sym.nID = token.val;
+    }
+
     return (tokenbuf);
 }
 

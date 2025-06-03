@@ -2065,15 +2065,20 @@ Return Value:
                 &SourceRouting,
                 &SourceRoutingLength);
 
-            Status = NbfProcessUi (
-                         DeviceContext,
-                         SourceAddress,
-                         HeaderBuffer,
-                         (PUCHAR)UHeader,
-                         DlcSize,
-                         SourceRouting,
-                         SourceRoutingLength,
-                         &DatagramAddress);
+            if (SourceRoutingLength > MAX_SOURCE_ROUTING) {
+                Status = STATUS_ABANDONED;
+            } 
+            else {
+                Status = NbfProcessUi (
+                             DeviceContext,
+                             SourceAddress,
+                             HeaderBuffer,
+                             (PUCHAR)UHeader,
+                             DlcSize,
+                             SourceRouting,
+                             SourceRoutingLength,
+                             &DatagramAddress);
+            }
         } else {
 
             //

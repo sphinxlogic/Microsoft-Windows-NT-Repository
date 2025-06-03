@@ -49,11 +49,11 @@ CG_ARRAY::GenMarshall(
 	BOOL				fHasVariance	= (MyID == ID_CG_VAR_ARRAY) ||
 										  (MyID == ID_CG_CONF_VAR_ARRAY);
 
-	_expr_node		*	pSrc		= pCCB->GetSourceExpression();
-	_expr_node		*	pDest		= pCCB->GetDestExpression();
-	_expr_node		*	pFinalFirstExpr;
-	_expr_node		*	pFinalLengthExpr;
-	_expr_node		*	pElementSizeExpr;
+	expr_node		*	pSrc		= pCCB->GetSourceExpression();
+	expr_node		*	pDest		= pCCB->GetDestExpression();
+	expr_node		*	pFinalFirstExpr;
+	expr_node		*	pFinalLengthExpr;
+	expr_node		*	pElementSizeExpr;
 	CG_ARRAY		*	pThis;
 	CG_NDR			*	pBasicCGClass= GetBasicCGClass();
 	BOOL				fArrayElementsMustBeMarshalled = !IsArrayOfRefPointers();
@@ -123,23 +123,23 @@ CG_ARRAY::GenMarshall(
 			}
 		else
 			{
-			pElementSizeExpr	= new _expr_constant( GetBasicCGClass()-> GetWireSize() );
+			pElementSizeExpr	= new expr_constant( GetBasicCGClass()-> GetWireSize() );
 
 			pFinalFirstExpr	= FinalFirstExpression( pCCB );
-			pFinalFirstExpr	= new _expr_b_arithmetic( OP_STAR,
+			pFinalFirstExpr	= new expr_b_arithmetic( OP_STAR,
 													  pFinalFirstExpr,
 													  pElementSizeExpr );
 		
 			pFinalLengthExpr= fHasVariance ? FinalLengthExpression( pCCB ) :
 											 FinalSizeExpression( pCCB );
 		
-			pFinalLengthExpr= new _expr_b_arithmetic( OP_STAR,
+			pFinalLengthExpr= new expr_b_arithmetic( OP_STAR,
 													  pFinalLengthExpr,
 													  pElementSizeExpr );
 		
 			Out_Copy( pCCB,
 					  pDest,
-					  new _expr_b_arithmetic(OP_PLUS,
+					  new expr_b_arithmetic(OP_PLUS,
 											 MakeCastExprPtrToUChar(pSrc),
 											 pFinalFirstExpr ),
 					  pFinalLengthExpr,
@@ -164,8 +164,8 @@ CG_ARRAY::GenSizing(
 	BOOL				fHasVariance	= (MyID == ID_CG_VAR_ARRAY) ||
 										  (MyID == ID_CG_CONF_VAR_ARRAY);
 
-	_expr_node		*	pFinalLengthExpr;
-	_expr_node		*	pElementSizeExpr;
+	expr_node		*	pFinalLengthExpr;
+	expr_node		*	pElementSizeExpr;
 	BOOL				fArrayElementsMustBeMarshalled = !IsArrayOfRefPointers();
 	ITERATOR			VarListToBeMangled;
 
@@ -188,11 +188,11 @@ CG_ARRAY::GenSizing(
 	
 			else
 				{
-				pElementSizeExpr	= new _expr_constant( GetBasicCGClass()->GetWireSize() );
+				pElementSizeExpr	= new expr_constant( GetBasicCGClass()->GetWireSize() );
 				pFinalLengthExpr= fHasVariance ? FinalLengthExpression( pCCB ) :
 												 FinalSizeExpression( pCCB );
 		
-				pFinalLengthExpr= new _expr_b_arithmetic( OP_STAR,
+				pFinalLengthExpr= new expr_b_arithmetic( OP_STAR,
 														  pFinalLengthExpr,
 														  pElementSizeExpr );
 
@@ -232,12 +232,12 @@ CG_ARRAY::GenUnMarshall(
 	BOOL				fHasVariance	= (MyID == ID_CG_VAR_ARRAY) ||
 										  (MyID == ID_CG_CONF_VAR_ARRAY);
 
-	_expr_node		*	pSrc		= pCCB->GetSourceExpression();
-	_expr_node		*	pDest		= pCCB->GetDestExpression();
-	_expr_node		*	pFinalSizeExpr;
-	_expr_node		*	pFinalFirstExpr;
-	_expr_node		*	pFinalLengthExpr;
-	_expr_node		*	pElementSizeExpr;
+	expr_node		*	pSrc		= pCCB->GetSourceExpression();
+	expr_node		*	pDest		= pCCB->GetDestExpression();
+	expr_node		*	pFinalSizeExpr;
+	expr_node		*	pFinalFirstExpr;
+	expr_node		*	pFinalLengthExpr;
+	expr_node		*	pElementSizeExpr;
 	CG_ARRAY		*	pThis;
 	BOOL				fIsTopLevelArray;
 	BOOL				fArrayElementsMustBeMarshalled = !IsArrayOfRefPointers();
@@ -308,9 +308,9 @@ CG_ARRAY::GenUnMarshall(
 	
 	// Now allocate for the array.
 
-	pElementSizeExpr	= new _expr_constant( GetBasicCGClass()->GetMemorySize() );
+	pElementSizeExpr	= new expr_constant( GetBasicCGClass()->GetMemorySize() );
 	pFinalSizeExpr	= FinalSizeExpression( pCCB );
-	pFinalSizeExpr	= new _expr_b_arithmetic( OP_STAR,
+	pFinalSizeExpr	= new expr_b_arithmetic( OP_STAR,
 												  pFinalSizeExpr,
 												  pElementSizeExpr
 											);
@@ -333,21 +333,21 @@ CG_ARRAY::GenUnMarshall(
 		else
 			{
 			pFinalFirstExpr	= FinalFirstExpression( pCCB );
-			pFinalFirstExpr	= new _expr_b_arithmetic( OP_STAR,
+			pFinalFirstExpr	= new expr_b_arithmetic( OP_STAR,
 													  pFinalFirstExpr,
 													  pElementSizeExpr );
 	
 			pFinalLengthExpr= fHasVariance ? FinalLengthExpression( pCCB ) :
 											 FinalSizeExpression( pCCB );
 	
-			pFinalLengthExpr= new _expr_b_arithmetic( OP_STAR,
+			pFinalLengthExpr= new expr_b_arithmetic( OP_STAR,
 													  pFinalLengthExpr,
 													  pElementSizeExpr );
 	
 			if( (pCCB->GetCodeGenSide() == CGSIDE_CLIENT) && fIsTopLevelArray )
 				{
 				Out_Copy( pCCB,
-						  new _expr_b_arithmetic( OP_PLUS,
+						  new expr_b_arithmetic( OP_PLUS,
 												  MakeCastExprPtrToUChar(pDest),
 												  pFinalFirstExpr ),
 						  pSrc,
@@ -359,7 +359,7 @@ CG_ARRAY::GenUnMarshall(
 			else
 				{
 				Out_IfCopy( pCCB,
-							new _expr_b_arithmetic(
+							new expr_b_arithmetic(
 												OP_PLUS,
 												MakeCastExprPtrToUChar(pDest),
 												pFinalFirstExpr ),
@@ -423,16 +423,16 @@ CG_ARRAY::IsBlockCopyPossible()
 	{
 	return GetBasicCGClass()->IsBlockCopyPossible();
 	}
-_expr_node *
+expr_node *
 CG_ARRAY::FinalSizeExpression( CCB * pCCB )
 	{
 	CG_NDR	*	pC;
-	_expr_node	*	pFSExpr;
+	expr_node	*	pFSExpr;
 
 	if( (pC = (CG_NDR *)GetChild())->IsArray() )
 		{
 		pFSExpr = ((CG_ARRAY *)pC)->FinalSizeExpression( pCCB );
-		pFSExpr = new _expr_b_arithmetic(OP_STAR,
+		pFSExpr = new expr_b_arithmetic(OP_STAR,
 									 	pFSExpr,
 									 	PresentedSizeExpression( pCCB ));
 		}
@@ -440,16 +440,16 @@ CG_ARRAY::FinalSizeExpression( CCB * pCCB )
 		pFSExpr = PresentedSizeExpression( pCCB );
 
 	if( pFSExpr->IsConstant() )
-		pFSExpr = new _expr_constant( pFSExpr->Evaluate() );
+		pFSExpr = new expr_constant( pFSExpr->Evaluate() );
 
 	return pFSExpr;
 	}
 
-_expr_node *
+expr_node *
 CG_ARRAY::FinalFirstExpression( CCB * pCCB )
 	{
 	CG_NDR	*	pC;
-	_expr_node	*	pFFExpr;
+	expr_node	*	pFFExpr;
 
 	// for an array a[ 0th ][ 1st]...[nth] the final first expression is:
 	// ((First Of nth dim) * Size Nth dim ) + First N-1th dim) * Size N-1th dim
@@ -458,32 +458,32 @@ CG_ARRAY::FinalFirstExpression( CCB * pCCB )
 	if( (pC = (CG_NDR *)GetChild())->IsArray() )
 		{
 		pFFExpr = ((CG_ARRAY *)pC)->FinalFirstExpression( pCCB );
-		pFFExpr = new _expr_b_arithmetic(OP_STAR,
+		pFFExpr = new expr_b_arithmetic(OP_STAR,
 									 	pFFExpr,
 									 	((CG_ARRAY *)pC)->PresentedSizeExpression( pCCB ));
-		pFFExpr	= new _expr_b_arithmetic( OP_PLUS,
+		pFFExpr	= new expr_b_arithmetic( OP_PLUS,
 										  pFFExpr,
 									 	((CG_ARRAY *)pC)->PresentedFirstExpression( pCCB ));
-											  
+											
 		}
 	else
 		pFFExpr = PresentedFirstExpression( pCCB );
 
 	if( pFFExpr->IsConstant() )
-		pFFExpr = new _expr_constant( pFFExpr->Evaluate() );
+		pFFExpr = new expr_constant( pFFExpr->Evaluate() );
 
 	return pFFExpr;
 	}
-_expr_node *
+expr_node *
 CG_ARRAY::FinalLengthExpression( CCB * pCCB )
 	{
 	CG_NDR	*	pC;
-	_expr_node	*	pFLExpr;
+	expr_node	*	pFLExpr;
 
 	if( (pC = (CG_NDR *)GetChild())->IsArray() )
 		{
 		pFLExpr = ((CG_ARRAY *)pC)->FinalLengthExpression( pCCB );
-		pFLExpr = new _expr_b_arithmetic(OP_STAR,
+		pFLExpr = new expr_b_arithmetic(OP_STAR,
 									 	pFLExpr,
 									 	PresentedLengthExpression( pCCB ));
 		}
@@ -491,7 +491,7 @@ CG_ARRAY::FinalLengthExpression( CCB * pCCB )
 		pFLExpr = PresentedLengthExpression( pCCB );
 
 	if( pFLExpr->IsConstant() )
-		pFLExpr = new _expr_constant( pFLExpr->Evaluate() );
+		pFLExpr = new expr_constant( pFLExpr->Evaluate() );
 
 	return pFLExpr;
 
@@ -513,8 +513,8 @@ CG_ARRAY::HasPointer()
 	{
 	CG_NDR * pBasicCGClass = (CG_NDR *)GetBasicCGClass();
 
-	return ( ( pBasicCGClass->IsPointer() && 
-               (pBasicCGClass->GetCGID() != ID_CG_INTERFACE_PTR) ) || 
+	return ( ( pBasicCGClass->IsPointer() &&
+               (pBasicCGClass->GetCGID() != ID_CG_INTERFACE_PTR) ) ||
              pBasicCGClass->HasPointer() );
 	}
 
@@ -551,7 +551,7 @@ CG_ARRAY::S_GenInitOutLocals(
 	BOOL		fFixedArrayOfXmitOrRepAs= FALSE;
 
 	// If this is a fixed array, then the array would have been allocated
-	// already. Remember, there is also a pointer associated with it. 
+	// already. Remember, there is also a pointer associated with it.
 	// Emit the initialization to the allocated array.
 
 	// If this is a conformant array, then the size would have been
@@ -561,7 +561,7 @@ CG_ARRAY::S_GenInitOutLocals(
 		{
 		ID_CG		ChildID	= ((CG_NDR *)GetChild())->GetCGID();
 
-		if( (ChildID == ID_CG_TRANSMIT_AS)	|| (ChildID == ID_CG_REPRESENT_AS) )
+		if( ((CG_NDR *)GetChild())->IsXmitRepOrUserMarshal() )
 			{
 			fFixedArrayOfXmitOrRepAs = TRUE;
 			}
@@ -573,9 +573,10 @@ CG_ARRAY::S_GenInitOutLocals(
 	else
 		{
 		CGPHASE	Phase = pCCB->GetCodeGenPhase();
-		_expr_node * pElementSizeExpr	=
-					 new _expr_constant( GetBasicCGClass()-> GetWireSize() );
-		_expr_node * pFinalSizeExpr;
+		expr_node * pElementSizeExpr	=
+					 new expr_constant( GetBasicCGClass()-> GetMemorySize() );
+		expr_node * pFinalSizeExpr;
+		BOOL        fIsSigned;
 
 		// Get the final size expression.
 		// Make array believe it is actually on the marshall side, so that the
@@ -584,9 +585,27 @@ CG_ARRAY::S_GenInitOutLocals(
 		pCCB->SetCodeGenPhase( CGPHASE_MARSHALL );
 
 		pFinalSizeExpr = FinalSizeExpression( pCCB );
-		pFinalSizeExpr = new _expr_b_arithmetic( OP_STAR,
+
+        fIsSigned = !((node_base_type *)pFinalSizeExpr->AlwaysGetType()->GetBasicType())->IsUnsigned();
+
+		pFinalSizeExpr = new expr_b_arithmetic( OP_STAR,
 												 pFinalSizeExpr,
 												 pElementSizeExpr );
+
+		// Allocate the proper size.
+		// If the size expression is signed and the value is less than 0, we
+		// need to raise an exception.
+
+		if( pCCB->MustCheckBounds() && fIsSigned )
+		    {
+		    expr_node * pCheckExpr;
+		    pCheckExpr = new expr_op_binary( OP_LESS,
+		                                     pFinalSizeExpr,
+		                                     new expr_constant(0L));
+		    Out_If( pCCB, pCheckExpr);
+		    Out_RaiseException( pCCB, "RPC_X_INVALID_BOUND" );
+		    Out_Endif( pCCB );
+		    }
 
 		Out_Alloc( pCCB,
 				   pCCB->GetSourceExpression(),
@@ -600,10 +619,10 @@ CG_ARRAY::S_GenInitOutLocals(
 	if( IsArrayOfRefPointers()	|| fFixedArrayOfXmitOrRepAs )
 		{
 		// Zero out this array of pointers.
-		_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-		pProc->SetParam( new _expr_param( pCCB->GetSourceExpression() ) );
-		pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-		pProc->SetParam( new _expr_param( new _expr_sizeof( GetType())));
+		expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+		pProc->SetParam( new expr_param( pCCB->GetSourceExpression() ) );
+		pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+		pProc->SetParam( new expr_param( new expr_sizeof( GetType())));
 		pCCB->GetStream()->NewLine();
 		pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 		}
@@ -627,14 +646,14 @@ CG_ARRAY::GenDimByDimProcessing(
 		case CG_ACT_FOLLOWER_MARSHALL:
 		case CG_ACT_FOLLOWER_SIZING:
 
-			pCCB->SetSourceExpression(new _expr_index(
+			pCCB->SetSourceExpression(new expr_index(
 											 pCCB->GetSourceExpression(),
 									   		 GetIndexResource()));
 			Out_For( pCCB,
 					  GetIndexResource(),
 					  PresentedFirstExpression( pCCB ),
 					  PresentedSizeExpression( pCCB ),
-					  new _expr_constant( 1L )
+					  new expr_constant( 1L )
 					);
 
 			if( Act == CG_ACT_MARSHALL )
@@ -643,7 +662,7 @@ CG_ARRAY::GenDimByDimProcessing(
 				pC->GenSizing( pCCB );
 			else if( Act == CG_ACT_FOLLOWER_MARSHALL )
 				pC->GenFollowerMarshall( pCCB );
-			else 
+			else
 				pC->GenFollowerSizing( pCCB );
 
 			Out_EndFor( pCCB );
@@ -653,14 +672,14 @@ CG_ARRAY::GenDimByDimProcessing(
 		case CG_ACT_UNMARSHALL:
 		case CG_ACT_FOLLOWER_UNMARSHALL:
 
-			pCCB->SetDestExpression(new _expr_index(
+			pCCB->SetDestExpression(new expr_index(
 											 pCCB->GetDestExpression(),
 									   		 GetIndexResource()));
 			Out_For( pCCB,
 					  GetIndexResource(),
 					  PresentedFirstExpression( pCCB ),
 					  PresentedSizeExpression( pCCB ),
-					  new _expr_constant( 1L )
+					  new expr_constant( 1L )
 					);
 			if( Act == CG_ACT_UNMARSHALL )
 				((CG_NDR *)GetChild())->GenUnMarshall( pCCB );
@@ -674,14 +693,14 @@ CG_ARRAY::GenDimByDimProcessing(
 		case CG_ACT_FREE:
 		case CG_ACT_FOLLOWER_FREE:
 
-			pCCB->SetSourceExpression(new _expr_index(
+			pCCB->SetSourceExpression(new expr_index(
 											 pCCB->GetSourceExpression(),
 									   		 GetIndexResource()));
 			Out_For( pCCB,
 					  GetIndexResource(),
 					  PresentedFirstExpression( pCCB ),
 					  PresentedSizeExpression( pCCB ),
-					  new _expr_constant( 1L )
+					  new expr_constant( 1L )
 					);
 			((CG_NDR *)GetChild())->GenFree( pCCB );
 				
@@ -690,14 +709,14 @@ CG_ARRAY::GenDimByDimProcessing(
 			break;		
 		case CG_ACT_OUT_ALLOCATE:
 
-			pCCB->SetSourceExpression(new _expr_index(
+			pCCB->SetSourceExpression(new expr_index(
 											 pCCB->GetSourceExpression(),
 									   		 GetIndexResource()));
 			Out_For( pCCB,
 					  GetIndexResource(),
 					  PresentedFirstExpression( pCCB ),
 					  PresentedSizeExpression( pCCB ),
-					  new _expr_constant( 1L )
+					  new expr_constant( 1L )
 					);
 
 			((CG_NDR *)GetChild())->S_GenInitOutLocals( pCCB );
@@ -713,7 +732,7 @@ CG_ARRAY::GenDimByDimProcessing(
 	pCCB->PopEmbeddingLevel();
 	return CG_OK;
 	}
-_expr_node *
+expr_node *
 CG_CONFORMANT_ARRAY::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -723,15 +742,15 @@ CG_CONFORMANT_ARRAY::PresentedSizeExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetSizeIsExpr();
+		expr_node * pExpr = GetSizeIsExpr();
 
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_VARYING_ARRAY::PresentedLengthExpression(
 	CCB	*	pCCB )
 	{
@@ -741,14 +760,14 @@ CG_VARYING_ARRAY::PresentedLengthExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetLengthIsExpr();
+		expr_node * pExpr = GetLengthIsExpr();
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_VARYING_ARRAY::PresentedFirstExpression(
 	CCB	*	pCCB )
 	{
@@ -758,14 +777,14 @@ CG_VARYING_ARRAY::PresentedFirstExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetFirstIsExpr();
+		expr_node * pExpr = GetFirstIsExpr();
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_CONFORMANT_VARYING_ARRAY::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -775,14 +794,14 @@ CG_CONFORMANT_VARYING_ARRAY::PresentedSizeExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetSizeIsExpr();
+		expr_node * pExpr = GetSizeIsExpr();
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_CONFORMANT_VARYING_ARRAY::PresentedLengthExpression(
 	CCB	*	pCCB )
 	{
@@ -792,14 +811,14 @@ CG_CONFORMANT_VARYING_ARRAY::PresentedLengthExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetLengthIsExpr();
+		expr_node * pExpr = GetLengthIsExpr();
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
 
-_expr_node *
+expr_node *
 CG_CONFORMANT_VARYING_ARRAY::PresentedFirstExpression(
 	CCB	*	pCCB )
 	{
@@ -809,22 +828,22 @@ CG_CONFORMANT_VARYING_ARRAY::PresentedFirstExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetFirstIsExpr();
+		expr_node * pExpr = GetFirstIsExpr();
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
-_expr_node *
+expr_node *
 CG_FIXED_ARRAY::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
-	_expr_node * pExpr =  new _expr_constant( GetSizeIsExpr()->Evaluate() );
+	expr_node * pExpr =  new expr_constant( GetSizeIsExpr()->Evaluate() );
 
 	return pExpr;
 	}
 
-_expr_node *
+expr_node *
 CG_STRING_ARRAY::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -834,14 +853,14 @@ CG_STRING_ARRAY::PresentedSizeExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetSizeIsExpr();
+		expr_node * pExpr = GetSizeIsExpr();
 
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
-_expr_node *
+expr_node *
 CG_CONFORMANT_STRING_ARRAY::PresentedSizeExpression(
 	CCB	*	pCCB )
 	{
@@ -851,10 +870,10 @@ CG_CONFORMANT_STRING_ARRAY::PresentedSizeExpression(
 		}
 	else
 		{
-		_expr_node * pExpr = GetSizeIsExpr();
+		expr_node * pExpr = GetSizeIsExpr();
 
 		if( pExpr->IsConstant() )
-			pExpr =  new _expr_constant( pExpr->Evaluate() ); 
+			pExpr =  new expr_constant( pExpr->Evaluate() );
 		return pExpr;
 		}
 	}
@@ -913,14 +932,14 @@ CG_ARRAY::GenRefChecks(
 	{
 	if( IsArrayOfRefPointers() )
 		{
-		pCCB->SetSourceExpression(new _expr_index(
+		pCCB->SetSourceExpression(new expr_index(
 										 pCCB->GetSourceExpression(),
 								   		 GetIndexResource()));
 		Out_For( pCCB,
 				  GetIndexResource(),
 				  PresentedFirstExpression( pCCB ),
 				  PresentedSizeExpression( pCCB ),
-				  new _expr_constant( 1L )
+				  new expr_constant( 1L )
 			   );
 
 		((CG_NDR *)GetChild())->GenRefChecks( pCCB );
@@ -950,9 +969,9 @@ CG_ARRAY::S_GenInitInLocals(
 	{
 	if( IsArrayOfRefPointers() && IsFixedArray() )
 		{
-		_expr_node	*	pSrc = pCCB->GetSourceExpression();
-		_expr_node	*	InLocalResource = GetInLocalResource();
-		_expr_node	*	pExpr = new expr_assign(
+		expr_node	*	pSrc = pCCB->GetSourceExpression();
+		expr_node	*	InLocalResource = GetInLocalResource();
+		expr_node	*	pExpr = new expr_assign(
 										pSrc,
 										MakeAddressExpressionNoMatterWhat(
 															 InLocalResource ));
@@ -960,11 +979,11 @@ CG_ARRAY::S_GenInitInLocals(
 		pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 		pCCB->GetStream()->Write(';');
 
-		_expr_proc_call * pProc = new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
+		expr_proc_call * pProc = new expr_proc_call( MIDL_MEMSET_RTN_NAME );
 
-		pProc->SetParam( new _expr_param( pSrc ) );
-		pProc->SetParam( new _expr_param( new _expr_constant( 0L ) ) );
-		pProc->SetParam( new _expr_param( new _expr_sizeof( GetType())));
+		pProc->SetParam( new expr_param( pSrc ) );
+		pProc->SetParam( new expr_param( new expr_constant( 0L ) ) );
+		pProc->SetParam( new expr_param( new expr_sizeof( GetType())));
 		pCCB->GetStream()->NewLine();
 		pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 		}

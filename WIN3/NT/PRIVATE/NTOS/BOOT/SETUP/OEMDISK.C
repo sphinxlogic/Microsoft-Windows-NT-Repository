@@ -22,6 +22,7 @@ Revision History:
         created
 
 --*/
+#include <setupbat.h>
 #include "setupldr.h"
 #include "stdio.h"
 #include <ctype.h>
@@ -39,6 +40,7 @@ Revision History:
 BOOLEAN PromptOemHal=FALSE;
 BOOLEAN PromptOemScsi=FALSE;
 BOOLEAN PromptOemVideo=FALSE;
+PVOID PreInstallOemInfHandle = NULL;
 
 PCHAR FloppyDiskPath;
 extern PCHAR BootPath;
@@ -83,7 +85,9 @@ SlpOemDiskette(
     OUT PDETECTED_DEVICE DetectedDevice,
     OUT PVOID *ImageBase,
     OUT OPTIONAL PCHAR *ImageName,
-    OUT OPTIONAL PCHAR *DriverDescription
+    OUT OPTIONAL PCHAR *DriverDescription,
+    IN BOOLEAN AllowUserSelection,
+    IN PCHAR    PreInstallComponentDescription
     );
 
 BOOLEAN
@@ -96,7 +100,10 @@ SlpSelectHardware(
     OUT PDETECTED_DEVICE DetectedDevice,
     OUT PVOID *ImageBase,
     OUT OPTIONAL PCHAR *ImageName,
-    OUT OPTIONAL PCHAR *DriverDescription
+    OUT OPTIONAL PCHAR *DriverDescription,
+    IN BOOLEAN AllowUserSelection,
+    IN PCHAR PreInstallComponentDescription,
+    IN BOOLEAN PreInstallOemComponent
     );
 
 BOOLEAN
@@ -185,6 +192,11 @@ Return Value:
     CHAR         Mnemonic;
     POEMSCSIINFO NewOemScsi, CurOemScsi;
     PDETECTED_DEVICE ScsiDevice;
+    BOOLEAN      AllowUserSelection;
+    PPREINSTALL_DRIVER_INFO CurrentDriver;
+
+    AllowUserSelection = ( !PreInstall || (PreinstallDriverList == NULL) )? TRUE : FALSE;
+    CurrentDriver = PreinstallDriverList;
 
     *pOemScsiInfo = CurOemScsi = NULL;
 
@@ -194,107 +206,109 @@ Return Value:
     bRepaint = TRUE;
     while(1) {
 
-        if(bRepaint) {
-            SlClearClientArea();
+        if( AllowUserSelection ) {
+            if(bRepaint) {
+                SlClearClientArea();
 
-            if(bFirstTime) {
-                MessageString = BlFindMessage(SL_SCSI_SELECT_MESSAGE_1);
-            } else if(Success) {
-                MessageString = BlFindMessage(SL_SCSI_SELECT_MESSAGE_3);
-            } else {
-                MessageString = BlFindMessage(SL_SCSI_SELECT_ERROR);
-            }
-            x = 1;
-            y1 = 4;
-            SlGenericMessageBox(0, NULL, MessageString, &x, &y1, &y2, FALSE);
-            y1 = y2 + 1;
-            x = 4;
-
-            //
-            // Count all currently 'detected' SCSI devices.
-            //
-            for(ScsiDriverCount = 0, ScsiDevice = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
-                ScsiDevice;
-                ScsiDriverCount++, ScsiDevice = ScsiDevice->Next);
-
-            //
-            // Display each loaded miniport driver description.
-            //
-            if(ScsiDriverCount) {
-
-                if(ScsiDriverCount > MAX_SCSI_MINIPORT_COUNT) {
-                    NumToSkip = ScsiDriverCount - MAX_SCSI_MINIPORT_COUNT;
-                    //
-                    // Display ellipses to indicate that top entries have scrolled out of view
-                    //
-                    SlGenericMessageBox(0,
-                                        NULL,
-                                        "...",
-                                        &x,
-                                        &y1,
-                                        &y2,
-                                        FALSE
-                                        );
-
-                    y1 = y2 + 1;
-
+                if(bFirstTime) {
+                    MessageString = BlFindMessage(SL_SCSI_SELECT_MESSAGE_1);
+                } else if(Success) {
+                    MessageString = BlFindMessage(SL_SCSI_SELECT_MESSAGE_3);
                 } else {
-                    NumToSkip = 0;
+                    MessageString = BlFindMessage(SL_SCSI_SELECT_ERROR);
+                }
+                x = 1;
+                y1 = 4;
+                SlGenericMessageBox(0, NULL, MessageString, &x, &y1, &y2, FALSE);
+                y1 = y2 + 1;
+                x = 4;
+
+                //
+                // Count all currently 'detected' SCSI devices.
+                //
+                for(ScsiDriverCount = 0, ScsiDevice = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
+                    ScsiDevice;
+                    ScsiDriverCount++, ScsiDevice = ScsiDevice->Next);
+
+                //
+                // Display each loaded miniport driver description.
+                //
+                if(ScsiDriverCount) {
+
+                    if(ScsiDriverCount > MAX_SCSI_MINIPORT_COUNT) {
+                        NumToSkip = ScsiDriverCount - MAX_SCSI_MINIPORT_COUNT;
+                        //
+                        // Display ellipses to indicate that top entries have scrolled out of view
+                        //
+                        SlGenericMessageBox(0,
+                                            NULL,
+                                            "...",
+                                            &x,
+                                            &y1,
+                                            &y2,
+                                            FALSE
+                                            );
+
+                        y1 = y2 + 1;
+
+                    } else {
+                        NumToSkip = 0;
+                        y1++;
+                    }
+
+                    ScsiDevice = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
+                    while(NumToSkip && ScsiDevice) {
+                        ScsiDevice = ScsiDevice->Next;
+                        NumToSkip--;
+                    }
+
+                    while(ScsiDevice) {
+
+                        SlGenericMessageBox(0,
+                                            NULL,
+                                            ScsiDevice->Description,
+                                            &x,
+                                            &y1,
+                                            &y2,
+                                            FALSE
+                                            );
+
+                        y1 = y2 + 1;
+                        ScsiDevice = ScsiDevice->Next;
+                    }
+                } else {
+
                     y1++;
-                }
-
-                ScsiDevice = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
-                while(NumToSkip && ScsiDevice) {
-                    ScsiDevice = ScsiDevice->Next;
-                    NumToSkip--;
-                }
-
-                while(ScsiDevice) {
-
                     SlGenericMessageBox(0,
                                         NULL,
-                                        ScsiDevice->Description,
+                                        BlFindMessage(SL_TEXT_ANGLED_NONE),
                                         &x,
                                         &y1,
                                         &y2,
                                         FALSE
                                         );
-
                     y1 = y2 + 1;
-                    ScsiDevice = ScsiDevice->Next;
                 }
-            } else {
 
+                x = 1;
                 y1++;
                 SlGenericMessageBox(0,
                                     NULL,
-                                    BlFindMessage(SL_TEXT_ANGLED_NONE),
+                                    BlFindMessage(SL_SCSI_SELECT_MESSAGE_2),
                                     &x,
                                     &y1,
                                     &y2,
                                     FALSE
                                     );
-                y1 = y2 + 1;
+
+                SlWriteStatusText(BlFindMessage(SL_SCSI_SELECT_PROMPT));
+
+                bRepaint = FALSE;
             }
-
-            x = 1;
-            y1++;
-            SlGenericMessageBox(0,
-                                NULL,
-                                BlFindMessage(SL_SCSI_SELECT_MESSAGE_2),
-                                &x,
-                                &y1,
-                                &y2,
-                                FALSE
-                                );
-
-            SlWriteStatusText(BlFindMessage(SL_SCSI_SELECT_PROMPT));
-
-            bRepaint = FALSE;
+            c = SlGetChar();
+        } else {
+            c = ( CurrentDriver != NULL )? Mnemonic : ASCI_CR;
         }
-
-        c = SlGetChar();
-
         switch (c) {
             case SL_KEY_F3:
                 SlConfirmExit();
@@ -316,8 +330,15 @@ Return Value:
                                                 NULL,
                                                 &OemScsiBase,
                                                 &OemScsiName,
-                                                &ScsiDescription
+                                                &ScsiDescription,
+                                                AllowUserSelection,
+                                                (AllowUserSelection)? NULL  : CurrentDriver->DriverDescription,
+                                                (BOOLEAN)((AllowUserSelection)? FALSE : CurrentDriver->OemDriver)
                                                 );
+
+                    if(!AllowUserSelection) {
+                        CurrentDriver  = CurrentDriver->Next;
+                    }
 
                     if(Success) {
                         //
@@ -376,7 +397,9 @@ Return Value:
 
 {
     BOOLEAN Success;
+    BOOLEAN AllowUserSelection;
 
+    AllowUserSelection = ( !PreInstall || (ComputerType == NULL) )? TRUE : FALSE;
     do {
         Success = SlpSelectHardware("Computer",
                                     OEMHAL,
@@ -386,7 +409,10 @@ Return Value:
                                     &BlLoaderBlock->SetupLoaderBlock->ComputerDevice,
                                     HalBase,
                                     HalName,
-                                    NULL
+                                    NULL,
+                                    AllowUserSelection,
+                                    ComputerType,
+                                    OemHal
                                     );
 
     } while ( !Success );
@@ -431,7 +457,10 @@ Return Value:
                                     &BlLoaderBlock->SetupLoaderBlock->VideoDevice,
                                     VideoBase,
                                     VideoName,
-                                    NULL
+                                    NULL,
+                                    TRUE,
+                                    NULL,
+                                    FALSE
                                     );
 
     } while ( !Success );
@@ -449,7 +478,10 @@ SlpSelectHardware(
     OUT OPTIONAL PDETECTED_DEVICE DetectedDevice,
     OUT PVOID *ImageBase,
     OUT OPTIONAL PCHAR *ImageName,
-    OUT OPTIONAL PCHAR *DriverDescription
+    OUT OPTIONAL PCHAR *DriverDescription,
+    IN BOOLEAN AllowUserSelection,
+    IN PCHAR PreInstallComponentDescription,
+    IN BOOLEAN PreInstallOemComponent
     )
 
 /*++
@@ -491,6 +523,19 @@ Arguments:
     DriverDescription - If specified, returns the description of the loaded
                         device.
 
+    AllowUserSelection - Indicates whether or not user is allowed to select
+                         a driver. This flag is typically set to FALSE when
+                         pre-installing components defined in unattend.txt.
+
+    PreInstallComponentDescription - In the pre-install mode, points to the string
+                                     that identifies the component to pre-install.
+                                     It is NULL if AllowUserSelction is TRUE.
+
+    PreInstallOemComponent - In the pre-install mode, this flag indicates
+                             whether or not the component to pre-install is
+                             an OEM or RETAIL component.
+
+
 Return Value:
 
     TRUE - Success
@@ -515,58 +560,101 @@ Return Value:
     ULONG Ordinal;
     SCSI_INSERT_STATUS sis;
 
-    Menu = SlCreateMenu();
-    if (Menu==NULL) {
-        SlNoMemoryError();
-        return(FALSE);
-    }
+    if( AllowUserSelection ) {
+        Menu = SlCreateMenu();
+        if (Menu==NULL) {
+            SlNoMemoryError();
+            return(FALSE);
+        }
 
-    //
-    // Build a list of options containing the drivers we ship and the
-    // currently selected OEM option (if any).
-    //
+        //
+        // Build a list of options containing the drivers we ship and the
+        // currently selected OEM option (if any).
+        //
 
-    c = SlpAddSectionToMenu(InfFile,
-                        ComponentName,
-                        Menu);
-    //
-    // Add selection for "other"
-    //
-    strncpy(OtherSelectionName,
-            BlFindMessage(SL_TEXT_OTHER_DRIVER),
-            80
-            );
-    OtherSelectionName[79] = 0;
-    //
-    // Use text up to the first CR or LF.
-    //
-    for(p = OtherSelectionName; *p; p++) {
-        if((*p == '\n') || (*p == '\r')) {
-            *p = '\0';
-            break;
+        c = SlpAddSectionToMenu(InfFile,
+                            ComponentName,
+                            Menu);
+        //
+        // Add selection for "other"
+        //
+        strncpy(OtherSelectionName,
+                BlFindMessage(SL_TEXT_OTHER_DRIVER),
+                80
+                );
+        OtherSelectionName[79] = 0;
+        //
+        // Use text up to the first CR or LF.
+        //
+        for(p = OtherSelectionName; *p; p++) {
+            if((*p == '\n') || (*p == '\r')) {
+                *p = '\0';
+                break;
+            }
+        }
+
+        OtherSelection = SlAddMenuItem(Menu,
+                                       OtherSelectionName,
+                                       (PVOID)-1,
+                                       0);
+
+        //
+        // Default is "other"
+        //
+        Selection = OtherSelection;
+
+    } else {
+        //
+        //  This is a pre-install. Find out if the component to pre-install
+        //  is RETAIL or OEM.
+        //
+        OtherSelection = SlCountLinesInSection( InfFile,
+                                                ComponentName );
+        if( PreInstallOemComponent ) {
+            //
+            //  Pre-installing an OEM component
+            //
+            Selection = OtherSelection;
+        } else {
+            //
+            //  Pre-installing a RETAIL component
+            //
+            PCHAR   q;
+            q = SlPreInstallGetComponentName( InfFile,
+                                              ComponentName,
+                                              PreInstallComponentDescription );
+            if (q==NULL) {
+                //
+                // we have enumerated the entire section without finding a
+                // match, return failure.
+                //
+                SlFatalError(SL_BAD_UNATTENDED_SCRIPT_FILE,
+                             PreInstallComponentDescription,
+                             ComponentName,
+                             "txtsetup.sif");
+                goto SelectionAbort;
+            }
+
+            Selection = SlGetSectionKeyOrdinal( InfFile,
+                                                ComponentName,
+                                                q );
         }
     }
-
-    OtherSelection = SlAddMenuItem(Menu,
-                                   OtherSelectionName,
-                                   (PVOID)-1,
-                                   0);
-
-    //
-    // Default is "other"
-    //
-    Selection = OtherSelection;
 
     //
     // Allow the user to interact with the menu
     //
     while (1) {
-        SlClearClientArea();
-        SlWriteStatusText(BlFindMessage(SL_SELECT_DRIVER_PROMPT));
+        if( AllowUserSelection ) {
+            SlClearClientArea();
+            SlWriteStatusText(BlFindMessage(SL_SELECT_DRIVER_PROMPT));
 
-        c = SlDisplayMenu(MenuHeaderId,
-                          Menu,
-                          &Selection);
+            c = SlDisplayMenu(MenuHeaderId,
+                              Menu,
+                              &Selection);
+        } else {
+            c = ASCI_CR;
+        }
         switch (c) {
             case SL_KEY_F3:
                 SlConfirmExit();
@@ -587,8 +675,11 @@ Return Value:
                                        DetectedDevice,
                                        ImageBase,
                                        ImageName,
-                                       DriverDescription
+                                       DriverDescription,
+                                       AllowUserSelection,
+                                       PreInstallComponentDescription
                                        );
+
 
                     SlClearClientArea();
                     SlWriteStatusText("");
@@ -667,7 +758,7 @@ Return Value:
                         // Create a new detected device entry.
                         //
                         if((sis = SlInsertScsiDevice(Ordinal, &DetectedDevice)) == ScsiInsertError) {
-                            SlFriendlyError(ENOMEM, "SCSI detection", 0, NULL);
+                            SlFriendlyError(ENOMEM, "SCSI detection", __LINE__, __FILE__);
                             goto SelectionAbort;
                         }
 
@@ -677,7 +768,7 @@ Return Value:
                             //
                             // Sanity check to make sure we're talking about the same driver
                             //
-                            if(strcmpi(DetectedDevice->BaseDllName, FileName)) {
+                            if(_strcmpi(DetectedDevice->BaseDllName, FileName)) {
                                 SlError(400);
                                 goto SelectionAbort;
                             }
@@ -740,7 +831,9 @@ SlpOemDiskette(
     OUT OPTIONAL PDETECTED_DEVICE DetectedDevice,
     OUT PVOID *ImageBase,
     OUT OPTIONAL PCHAR *ImageName,
-    OUT OPTIONAL PCHAR *DriverDescription
+    OUT OPTIONAL PCHAR *DriverDescription,
+    IN BOOLEAN  AllowUserSelection,
+    IN PCHAR    PreInstallComponentDescription
     )
 
 /*++
@@ -769,6 +862,14 @@ Arguments:
 
     DriverDescription - If specified, returns description of loaded driver
 
+    AllowUserSelection - Indicates whether or not user is allowed to select
+                         a driver. This flag is typically set to FALSE when
+                         pre-installing components defined in unattend.txt.
+
+    PreInstallComponentDescription - In the pre-install mode, points to the string
+                                     that identifies the component to pre-install.
+                                     It is NULL if AllowUserSelction is TRUE.
+
 Return Value:
 
     TRUE if the user made a choice, FALSE if the user cancelled/error occurred.
@@ -792,45 +893,104 @@ Return Value:
     BOOLEAN bDriverLoaded;
     HwFileType filetype;
     PDETECTED_DEVICE prev, cur;
+    CHAR FullDriverPath[256];
+    ULONG DirectoryLength;
+    BOOLEAN SeparatorNeeded;
+    CHAR OemTextFilePath[256];
+    PCHAR OemComponentId;
+    PCHAR OemComponentDescription;
 
     SlClearClientArea();
 
-    //
-    // Compute the name of the A: drive
-    //
-    if (!SlpFindFloppy(0,FloppyName)) {
+    if( AllowUserSelection ) {
         //
-        // No floppy drive available, bail out.
+        // Compute the name of the A: drive
         //
-        SlError(0);
-        return(FALSE);
-    }
-
-    //
-    // Prompt for the disk.
-    //
-    while(1) {
-        if (!SlPromptForDisk(BlFindMessage(SL_OEM_DISK_PROMPT), TRUE)) {
+        if (!SlpFindFloppy(0,FloppyName)) {
+            //
+            // No floppy drive available, bail out.
+            //
+            SlError(0);
             return(FALSE);
         }
 
-        Status = ArcOpen(FloppyName, ArcOpenReadOnly, &FloppyId);
-        if(Status == ESUCCESS) {
-            break;
+        //
+        // Prompt for the disk.
+        //
+        while(1) {
+            if (!SlPromptForDisk(BlFindMessage(SL_OEM_DISK_PROMPT), TRUE)) {
+                return(FALSE);
+            }
+
+            Status = ArcOpen(FloppyName, ArcOpenReadOnly, &FloppyId);
+            if(Status == ESUCCESS) {
+                break;
+            }
         }
     }
 
     //
     // Load the OEM INF file
     //
-    Status = SlInitIniFile(NULL,
-                           FloppyId,
-                           "txtsetup.oem",
-                           &OemInfHandle,
-                           &Error);
-    if (Status != ESUCCESS) {
-        SlFriendlyError(Status, "txtsetup.oem", __LINE__, __FILE__);
-        goto OemLoadFailed;
+    if( AllowUserSelection ) {
+        strcpy( OemTextFilePath, "" );
+        strcpy( FullDriverPath, "" );
+    } else {
+#ifndef _X86_
+        PCHAR   p;
+#endif
+        strcpy( OemTextFilePath, BootPath );
+#ifndef _X86_
+        //
+        //  On RISC platforms, remove the platform specific directory
+        //  from the path
+        //
+        p =  (OemTextFilePath + strlen(OemTextFilePath) - 1);
+        if( *p == '\\' ) {
+            *p = '\0';
+        }
+        p = strrchr( OemTextFilePath, '\\' );
+        *(p+1) = '\0';
+#endif
+        //
+        //  Note that on x86 the path to txtsetup.oem is going to be:
+        //      $win_nt$.~bt\$OEM$
+        //  while on non-x86 platforms, the path is going to be:
+        //      $win_nt$.~ls\$OEM$\TEXTMODE
+        //
+        strcat( OemTextFilePath,
+#ifdef _X86_
+                WINNT_OEM_DIR
+#else
+                WINNT_OEM_TEXTMODE_DIR
+#endif
+              );
+        //
+        //  Save the path to the directory that contains txtsetup.oem.
+        //  It will be used later on, when we load the driver.
+        //
+        strcpy( FullDriverPath, OemTextFilePath );
+        strcat( OemTextFilePath, "\\" );
+    }
+    //
+    //  Now form the path to txtsetup.oem
+    //
+    strcat( OemTextFilePath, "txtsetup.oem" );
+    if( AllowUserSelection || (PreInstallOemInfHandle == NULL)) {
+        Status = SlInitIniFile(NULL,
+                               ( AllowUserSelection )? FloppyId : BootDeviceId,
+                               OemTextFilePath,
+                               &OemInfHandle,
+                               &Error);
+        if (Status != ESUCCESS) {
+            SlFriendlyError(Status, "txtsetup.oem", __LINE__, __FILE__);
+            goto OemLoadFailed;
+        }
+        if( !AllowUserSelection ) {
+            PreInstallOemInfHandle = OemInfHandle;
+        }
+    } else {
+        OemInfHandle = PreInstallOemInfHandle;
     }
 
     Count = SlCountLinesInSection(OemInfHandle, ComponentName);
@@ -839,39 +999,50 @@ Return Value:
         goto OemLoadFailed;
     }
 
-
     //
     // Get the text of the default choice
     //
-    if(DefaultSelText = SlGetSectionKeyIndex(OemInfHandle, "Defaults",ComponentName, 0)) {
-        DefaultSelText = SlGetSectionKeyIndex(OemInfHandle,ComponentName,DefaultSelText,0);
+    if( AllowUserSelection ) {
+        if(DefaultSelText = SlGetSectionKeyIndex(OemInfHandle, "Defaults",ComponentName, 0)) {
+            DefaultSelText = SlGetSectionKeyIndex(OemInfHandle,ComponentName,DefaultSelText,0);
+        }
+    } else {
+        DefaultSelText = PreInstallComponentDescription;
     }
 
-    //
-    // Build menu
-    //
-    Menu = SlCreateMenu();
-    if (Menu==NULL) {
-        SlNoMemoryError();
-    }
-    SlpAddSectionToMenu(OemInfHandle,ComponentName,Menu);
+    if( AllowUserSelection ) {
+        //
+        // Build menu
+        //
+        Menu = SlCreateMenu();
+        if (Menu==NULL) {
+            SlNoMemoryError();
+        }
+        SlpAddSectionToMenu(OemInfHandle,ComponentName,Menu);
 
-    //
-    // Find the index of the default choice
-    //
-    if(!DefaultSelText || !SlGetMenuItemIndex(Menu,DefaultSelText,&DefaultSelection)) {
-        DefaultSelection=0;
+        //
+        // Find the index of the default choice
+        //
+        if(!DefaultSelText ||
+           !SlGetMenuItemIndex(Menu,DefaultSelText,&DefaultSelection)) {
+            DefaultSelection=0;
+        }
     }
+
     //
     // Allow the user to interact with the menu
     //
     while (1) {
-        SlClearClientArea();
-        SlWriteStatusText(BlFindMessage(SL_SELECT_DRIVER_PROMPT));
+        if( AllowUserSelection ) {
+            SlClearClientArea();
+            SlWriteStatusText(BlFindMessage(SL_SELECT_DRIVER_PROMPT));
 
-        c = SlDisplayMenu(MenuHeaderId,
-                          Menu,
-                          &DefaultSelection);
+            c = SlDisplayMenu(MenuHeaderId,
+                              Menu,
+                              &DefaultSelection);
+        } else {
+            c = ASCI_CR;
+        }
         switch (c) {
 
             case SL_KEY_F3:
@@ -899,12 +1070,28 @@ Return Value:
                     }
                 }
 
-                Data = SlGetMenuItem(Menu, DefaultSelection);
+                if( AllowUserSelection ) {
+                    Data = SlGetMenuItem(Menu, DefaultSelection);
+                    OemComponentId = Data->Identifier;
+                    OemComponentDescription = Data->Description;
+                } else {
+                    OemComponentId = SlPreInstallGetComponentName( OemInfHandle,
+                                                                   ComponentName,
+                                                                   PreInstallComponentDescription );
+                    if( OemComponentId == NULL ) {
+                        SlFatalError(SL_BAD_UNATTENDED_SCRIPT_FILE,
+                                     PreInstallComponentDescription,
+                                     ComponentName,
+                                     "txtsetup.oem");
+
+                    }
+                    OemComponentDescription = PreInstallComponentDescription;
+                }
 
                 if(SlpOemInfSelection(OemInfHandle,
                                       ComponentName,
-                                      Data->Identifier,
-                                      Data->Description,
+                                      OemComponentId,
+                                      OemComponentDescription,
                                       DetectedDevice))
                 {
                     //
@@ -922,14 +1109,29 @@ Return Value:
 
                         if((filetype == HwFilePort) || (filetype == HwFileClass) ||
                                 (filetype == HwFileDriver) || (filetype == HwFileHal)) {
-                            BlOutputLoadMessage(Data->Description,
+                            BlOutputLoadMessage(OemComponentDescription, // Data->Description,
                                                 FileStruct->Filename);
-                            Status = BlLoadImage(FloppyId,
+                            //
+                            // Allocate a string buffer large enough to hold the full
+                            // path to the file.
+                            //
+                            DirectoryLength = strlen(FileStruct->Directory);
+                            SeparatorNeeded = !(DirectoryLength &&
+                                      FileStruct->Directory[DirectoryLength - 1] == '\\');
+                            //
+                            //  Note that FullDriverPath is already initialized.
+                            //  (This was done right before we loaded txtsetup.oem)
+                            //
+                            strcat(FullDriverPath, FileStruct->Directory);
+                            if(SeparatorNeeded) {
+                                strcat(FullDriverPath, "\\");
+                            }
+                            strcat(FullDriverPath, FileStruct->Filename);
+                            Status = BlLoadImage(( AllowUserSelection )? FloppyId : BootDeviceId,
                                                  LoaderHalCode,
-                                                 FileStruct->Filename,
+                                                 FullDriverPath,
                                                  TARGET_IMAGE,
                                                  ImageBase);
-
                             if (Status == ESUCCESS) {
 
                                 DetectedDevice->BaseDllName = FileStruct->Filename;
@@ -939,53 +1141,60 @@ Return Value:
                                 }
 
                                 if(ARGUMENT_PRESENT(DriverDescription)) {
-                                    *DriverDescription = Data->Description;
+                                    *DriverDescription = OemComponentDescription; // Data->Description;
                                 }
 
                                 bDriverLoaded = TRUE;
 
                             } else {
 
-                                SlFriendlyError(
-                                    Status,
-                                    FileStruct->Filename,
-                                    __LINE__,
-                                    __FILE__
-                                    );
+                                if( !PreInstall ) {
+                                    SlFriendlyError(
+                                        Status,
+                                        FullDriverPath,
+                                        __LINE__,
+                                        __FILE__
+                                        );
 
-                                //
-                                // If one of the drivers causes an error, then we abort
-                                //
-                                ArcClose(FloppyId);
-
-                                //
-                                // We must take the bad driver entry out of the chain in
-                                // the case of SCSI.
-                                //
-                                if(ComponentType == OEMSCSI) {
-
-                                    prev = NULL;
-                                    cur = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
-
-                                    while(cur && (cur != DetectedDevice)) {
-                                        prev = cur;
-                                        cur = cur->Next;
+                                    //
+                                    // If one of the drivers causes an error, then we abort
+                                    //
+                                    if( AllowUserSelection ) {
+                                        ArcClose(FloppyId);
                                     }
+                                    //
+                                    // We must take the bad driver entry out of the chain in
+                                    // the case of SCSI.
+                                    //
+                                    if(ComponentType == OEMSCSI) {
 
-                                    if(cur) {   // it better always be non-NULL!
-                                        if(prev) {
-                                            prev->Next = cur->Next;
-                                        } else {
-                                            BlLoaderBlock->SetupLoaderBlock->ScsiDevices = cur->Next;
+                                        prev = NULL;
+                                        cur = BlLoaderBlock->SetupLoaderBlock->ScsiDevices;
+
+                                        while(cur && (cur != DetectedDevice)) {
+                                            prev = cur;
+                                            cur = cur->Next;
+                                        }
+
+                                        if(cur) {   // it better always be non-NULL!
+                                            if(prev) {
+                                                 prev->Next = cur->Next;
+                                            } else {
+                                                BlLoaderBlock->SetupLoaderBlock->ScsiDevices = cur->Next;
+                                            }
                                         }
                                     }
-                                }
 
-                                return FALSE;
+                                    return FALSE;
+                                } else {
+                                    SlFatalError(SL_FILE_LOAD_FAILED, FullDriverPath, Status);
+                                }
                             }
                         }
                     }
-                    ArcClose(FloppyId);
+                    if( AllowUserSelection ) {
+                        ArcClose(FloppyId);
+                    }
 
                     if(bDriverLoaded) {
                         return TRUE;
@@ -1010,7 +1219,9 @@ Return Value:
     }
 
 OemLoadFailed:
-    ArcClose(FloppyId);
+    if( AllowUserSelection ) {
+        ArcClose(FloppyId);
+    }
     return(FALSE);
 }
 
@@ -1434,7 +1645,7 @@ Return Value:
     int i;
 
     for(i=0; StringTable[i]; i++) {
-        if(strcmpi(StringTable[i],String) == 0) {
+        if(_strcmpi(StringTable[i],String) == 0) {
             return(i);
         }
     }
@@ -1674,3 +1885,69 @@ SlpInterpretOemRegistryData(
     return(Reg);
 }
 
+
+PCHAR
+SlPreInstallGetComponentName(
+    IN PVOID Inf,
+    IN PCHAR SectionName,
+    IN PCHAR TargetName
+    )
+
+/*++
+
+Routine Description:
+
+    Determines the canonical short name for a component to be loaded for
+    this machine.
+
+Arguments:
+
+    Inf - Handle to an inf file (retail or OEM).
+
+    SectionName - Supplies the name of the section (eg. [Computer])
+
+    TargetName - Supplies the ARC string to be matched (eg. "Digital DECpc AXP 150")
+
+Return Value:
+
+    NULL - No match was found.
+
+    PCHAR - Pointer to the canonical shortname of the component.
+
+--*/
+
+{
+    ULONG i;
+    PCHAR SearchName;
+
+    //
+    // If this is not an OEM component, then enumerate the entries in the
+    // section in txtsetup.sif
+    //
+    for (i=0;;i++) {
+        SearchName = SlGetSectionLineIndex(Inf,
+                                           SectionName,
+                                           i,
+                                           0);
+        if (SearchName==NULL) {
+            //
+            // we have enumerated the entire section without finding a
+            // match, return failure.
+            //
+            return(NULL);
+        }
+
+        if (_stricmp(TargetName, SearchName) == 0) {
+            //
+            // we have a match
+            //
+            break;
+        }
+    }
+    //
+    // i is the index into the section of the short machine name
+    //
+    return(SlGetKeyName(Inf,
+                        SectionName,
+                        i));
+}

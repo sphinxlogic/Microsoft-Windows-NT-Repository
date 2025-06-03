@@ -1,93 +1,63 @@
-/*
- * API
- *
- * FLoadStatus(pad, lck, ls)
- *      Lock the status file and load it into memory.  If lck != lckNil, then
- *      also initialize the script.
- * FlushStatus(pad)
- *      Write script operations to unlock the status file (if locked), then
- *      run any accumulated script.
- * AbortStatus(pad)
- *      Unlock status file (if locked).
- */
+// API
+//
+// FLoadStatus(pad, lck, ls)
+//      Lock the status file and load it into memory.  If lck != lckNil, then
+//      also initialize the script.
+// FlushStatus(pad)
+//      Write script operations to unlock the status file (if locked), then
+//      run any accumulated script.
+// AbortStatus(pad)
+//      Unlock status file (if locked).
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "script.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-#include <fcntl.h>
-#include <ctype.h>
-#include <stdio.h>
-
-#define     SLMMAXSEG   (unsigned)65500
-                // Max. bytes alloc-able from C6 = 65512, rounded down
-#define     MAXFI       (SLMMAXSEG / sizeof(FI))   /* limit of FI's in 64k */
-#define     MAXED       (SLMMAXSEG / sizeof(ED))   /* limit of ED's in 64k */
-#define     MAXFS       (SLMMAXSEG / sizeof(FS))
-
-#define szAllowedFile "\\:/^.&$%'-_@{}~`!#()"
-
-private char far *LpbResStat(unsigned);
-private F       FCheckSh(AD *, SH far *);
-private F       FLockEdRetry(AD *pad, MF *pmf, char *sz, int ichMax);
-private F       FLockAllRetry(AD *pad, MF *pmf, char *sz, int ichMax);
-private F       FRetryLock(AD *);
-private void    UnlockEd(SH far *, ED far *, IED);
-private void    UnlockAll(SH far *);
-private void    AssertShLocking(SH far *);
-private F       FLoadSh(AD *, SH far *, MF *);
-private F       FLoadFi(AD *, MF *);
-private F       FLoadEd(AD *, MF *, F);
-private void    FindIedCur(AD *);
-private F       FLoadFs(AD *, MF *);
-private void    Write1Ed(AD *, MF *);
-private void    WriteAll(AD *, SH far *, MF *);
-private void    FlushSh(SH far *, MF *);
-private void    FlushFi(AD *, MF *);
-private void    FlushEd(AD *, MF *);
-private void    Flush1Ed(AD *, MF *);
-private void    FlushFs(AD *, MF *);
-
-extern          Append_Date(char *, int);
-
 EnableAssert
 
-#if defined(_WIN32)
-extern LPVOID   InPageErrorAddress;
-#endif
+// Max. bytes alloc-able from C6 = 65512, rounded down
+#define     SLMMAXSEG   (unsigned)65500
+#define     MAXFI       (SLMMAXSEG / sizeof(FI))   // limit of FI's in 64k
+#define     MAXED       (SLMMAXSEG / sizeof(ED))   // limit of ED's in 64k
+#define     MAXFS       (SLMMAXSEG / sizeof(FS))
+
+const char *szAllowedFile = "\\:/^.&$%'-_@{}~`!#()";
+
+char  *LpbResStat(unsigned);
+F      FCheckSh(AD *, SH *);
+F      FLockEdRetry(AD *pad, MF *pmf, char *sz, int ichMax);
+F      FLockAllRetry(AD *pad, MF *pmf, char *sz, int ichMax);
+F      FRetryLock(AD *);
+void   UnlockEd(SH *, ED *, IED);
+void   UnlockAll(SH *);
+void   AssertShLocking(SH *);
+F      FLoadSh(AD *, SH *, MF *);
+F      FLoadFi(AD *, MF *);
+F      FLoadEd(AD *, MF *, F);
+F      FindIedCur(AD *);
+F      FLoadFs(AD *, MF *);
+F      FAllocLoadEdFiFs(AD *, MF *);
+void   Write1Ed(AD *, MF *);
+void   WriteAll(AD *, SH *, MF *);
+void   FlushSh(SH *, MF *);
+void   FlushFi(AD *, MF *);
+void   FlushEd(AD *, MF *);
+void   Flush1Ed(AD *, MF *);
+void   FlushFs(AD *, MF *);
+
+extern         Append_Date(char *, int);
+
+extern LPVOID  InPageErrorAddress;
+
+extern DWORD dwPageSize;
+
+char szLogFail[4096];
 
 PTH pthStFile[] = "/status.slm";
 PTH pthStBak[] = "/status.bak";
 
-PV pvInit = { 1, 0, 0, "" };            /* initial project version */
+PV pvInit = { 1, 0, 0, "" };            // initial project version
 
-#if defined(DOS) || defined(OS2)
-SH shInit =                             /* prototype SH */
-        {
-        MAGIC,                          /* magic */
-        VERSION,                        /* version */
-        0,                              /* ifiMac */
-        0,                              /* iedMac */
-        { 1, 0, 0, "" },                /* pv */
-        fFalse,                         /* fRelease */
-        fFalse,                         /* fAdminLock */
-        fTrue,                          /* fRobust */
-        0,                              /* rgfSpare */
-        lckNil,                         /* lck */
-        "",                             /* nmLocker */
-        0,                              /* wSpare */
-        biMin,                          /* biNext */
-        "/",                            /* pthSSubDir */
-        { 0, 0, 0, 0 }                  /* rgwSpare */
-        };
-#define INIT_SH(sh)  ((sh) = shInit)
-#elif defined(_WIN32)
-#define INIT_SH(sh)                         \
-    {                                       \
+#define INIT_SH(sh) {                       \
         memset(&(sh), 0, sizeof(SH));       \
         (sh).magic          = MAGIC;        \
         (sh).version        = VERSION;      \
@@ -97,23 +67,20 @@ SH shInit =                             /* prototype SH */
         (sh).pthSSubDir[0]  = '/';          \
         (sh).pthSSubDir[1]  = '\0';         \
     }
-#endif
 
-
-/* REVIEW: V2 warning should be removed/changed in later versions */
+// REVIEW: V2 warning should be removed/changed in later versions
 F fV2Warned = fFalse;
 F fV2Crap = fFalse;
 
 short wStart;                    // start time
 
-/* PadStatus is used by AbortStatus to get the state of the status file.
- * It is essential because the caller (the interrupt handler) can't supply
- * the pad.  We also use it to test if the status file is dirty.
- *
- * padStatus is set by FLoadStatus and cleared by AbortStatus and FlushStatus.
- */
+// PadStatus is used by AbortStatus to get the state of the status file.
+// It is essential because the caller (the interrupt handler) can't supply
+// the pad.  We also use it to test if the status file is dirty.
+//
+// padStatus is set by FLoadStatus and cleared by AbortStatus and FlushStatus.
 
-static AD *padStatus = 0;
+AD *padStatus = 0;
 
 F
 FClnStatus()
@@ -122,29 +89,12 @@ FClnStatus()
 }
 
 
-#if defined(DOS)
-/* Can't have huge pointers on xenix or OS2 because of 64k limit on segments
- */
-char huge *
-HpbResStat(
-    long cb)
-{
-    char huge *hpb;
-
-    if ((hpb = HpbAllocCb(cb,fTrue)) == 0) {
-        Error("out of memory\n");
-        return 0;
-    }
-
-    return hpb;
-}
-#endif
-
-private char far *
+char *
 LpbResStat(
-    unsigned cb)
+    unsigned cb
+    )
 {
-    register char far * lpb;
+    register char * lpb;
 
     if ((lpb = LpbAllocCb(cb,fTrue)) == 0) {
         Error("out of memory\n");
@@ -154,35 +104,114 @@ LpbResStat(
     return lpb;
 }
 
+extern DWORD dwPageSize;
 
-SH far *
-PshAlloc()
+SH *
+PshAlloc(
+    F fPageAlign
+    )
 {
-    return (SH far *)LpbResStat(sizeof(SH));
+    SH *psh;
+
+    //
+    // If using QuickIO (which means FILE_FLAG_NO_BUFFERING for network files)
+    // then for all the fringe architectures (i.e. RISC) we need to make sure
+    // our buffers for I/O are aligned on the correct boundary.  Since there is
+    // no API to call to find the correct one, use page size alignment as a sure
+    // bet.  If we are going to go to the trouble to call VirtualAlloc, then
+    // reserve 4MB of address space, so code in FAllocStatus can commit more
+    // pages as needed to hold the FI, ED and FS portions of the status file.
+    //
+
+    if (fPageAlign) {
+        psh = VirtualAlloc(NULL, 4096 * 1024, MEM_RESERVE, PAGE_READWRITE);
+        if (psh != NULL) {
+            if (VirtualAlloc(psh, sizeof(*psh), MEM_COMMIT, PAGE_READWRITE) != psh) {
+                VirtualFree(psh, 0, MEM_RELEASE);
+                psh = NULL;
+            }
+        }
+    } else
+        psh = (SH *)LpbResStat(sizeof(SH));
+
+    return psh;
 }
 
+F
+PshCommit(
+    SH *psh,
+    FI **rgfi,
+    ED **rged1,
+    FS **rgfs
+    )
+{
+    PVOID p;
+    DWORD cb;
 
-/* Allocate space in pad->{rged,rgfi,mpiedrgfs}.
- *
- * This is also where all necessary size overflow checking is done.
- *
- * *** Assumes pad->{psh, cfiAdd, fExtraEd} has already been initialized ***.
- */
+    //
+    // Do one commit for the remaining pieces of the status file
+    // we will read, each on a page boundary to keep DarrylH happy
+    //
+    p = (PVOID)(((DWORD)psh + sizeof(*psh) + dwPageSize - 1) & ~(dwPageSize-1));
+    *rgfi = (FI *)p;
+    p = (PVOID)(((DWORD)p + (sizeof(FI) * psh->ifiMac) + dwPageSize - 1) & ~(dwPageSize-1));
+    *rged1 = (ED *)p;
+    p = (PVOID)(((DWORD)p + sizeof(ED) + dwPageSize - 1) & ~(dwPageSize-1));
+    *rgfs = (FS *)p;
+    p = (PVOID)(((DWORD)p + (sizeof(FS) * psh->ifiMac) + dwPageSize - 1) & ~(dwPageSize-1));
+    cb = (DWORD)p - (DWORD)*rgfi;
+
+    p = VirtualAlloc(*rgfi,
+                     cb,
+                     MEM_COMMIT,
+                     PAGE_READWRITE);
+    if ((PVOID)*rgfi != p)
+        return fFalse;
+
+    return fTrue;
+}
+
+void
+PshFree(
+    SH *psh,
+    F fPageAlign
+    )
+{
+    if (fPageAlign)
+        VirtualFree(psh, 0, MEM_RELEASE);
+    else
+        FreeResStat((char *)psh);
+
+    return;
+}
+
+// Allocate space in pad->{rged,rgfi,mpiedrgfs}.
+//
+// This is also where all necessary size overflow checking is done.
+//
+// *** Assumes pad->{psh, cfiAdd, fExtraEd} has already been initialized ***.
+
 F
 FAllocStatus(
-    AD * pad)
+    AD * pad
+    )
 {
     IED ied;
-    IFI cfi = pad->psh->ifiMac + pad->cfiAdd;
-    IED ced = pad->psh->iedMac + pad->fExtraEd;
+    IFI cfi;
+    IED ced;
     char szNoMoreThan[] = "Can't have more than %d %s in project.\n";
 
-#if defined(_WIN32)
-    if (pad->fMappedStatus) {
-        pad->rgfi = 0;
-        pad->rged = 0;
-        pad->mpiedrgfs = 0;
-        if ((pad->mpiedrgfs = (FS * *)LpbResStat(sizeof(FS far *) * ced)) == 0)
+    AssertF(pad->psh != 0);
+
+    cfi = pad->psh->ifiMac + pad->cfiAdd;
+    ced = pad->psh->iedMac + pad->fExtraEd;
+    pad->rgfi = 0;
+    pad->rged = 0;
+    pad->mpiedrgfs = 0;
+    pad->rged1 = 0;
+    pad->rgfs = 0;
+    if (pad->fMappedIO) {
+        if ((pad->mpiedrgfs = (FS * *)LpbResStat(sizeof(FS *) * ced)) == 0)
             return fFalse;
 
         pad->rgfi = (FI *)((char *)pad->psh + PosRgfi(pad->psh));
@@ -192,34 +221,28 @@ FAllocStatus(
         }
         return fTrue;
     }
-#endif /* _WIN32 */
 
-    pad->rgfi = 0;
-    pad->rged = 0;
-    pad->mpiedrgfs = 0;
-
-    //special checks for excessive size; Apps can't understand 'out of
-    //  memory' as error
+    //special checks for excessive size; Apps can't understand 'out of memory' as error
 
     if (pad->psh->version <= VERSION_64k_EDFI) {
-
         if (cfi > MAXFI)
             FatalError(szNoMoreThan, MAXFI, "files");
         if (ced > MAXED)
             FatalError(szNoMoreThan, MAXED, "enlistments");
-    }
-    // won't check FS because the FI and ED swamp it
 
-    if ((pad->rgfi = (FI far *)LpbResStat(sizeof(FI) * cfi)) == 0 ||
-        (pad->rged = (ED far *)LpbResStat(sizeof(ED) * ced)) == 0 ||
-        (pad->mpiedrgfs = (FS far * far *)LpbResStat(sizeof(FS far *) * ced)) == 0)
+        // won't check FS because the FI and ED swamp it
+    }
+
+    if ((pad->rgfi = (FI *)LpbResStat(sizeof(FI) * cfi)) == 0 ||
+        (pad->rged = (ED *)LpbResStat(sizeof(ED) * ced)) == 0 ||
+        (pad->mpiedrgfs = (FS * *)LpbResStat(sizeof(FS *) * ced)) == 0)
         return fFalse;
 
     for (ied = 0; ied < ced; ied++) {
-        if ((pad->mpiedrgfs[ied] = (FS far *)LpbResStat(sizeof(FS) * cfi)) == 0)
-            /* The rest of mpiedrgfs[] are zero because LpbResStat
-             * zeroes the allocated memory.
-             */
+        if ((pad->mpiedrgfs[ied] = (FS *)LpbResStat(sizeof(FS) * cfi)) == 0)
+            // The rest of mpiedrgfs[] are zero because LpbResStat
+            // zeroes the allocated memory.
+
             return fFalse;
     }
 
@@ -227,268 +250,326 @@ FAllocStatus(
 }
 
 
-/* free all memory associated with a status file and clear pointers */
+// free all memory associated with a status file and clear pointers
 void
 FreeStatus(
-    AD *pad)
+    AD *pad
+    )
 {
     register IED ied;
     register IED iedLim=0;
 
     AssertF(pad != 0);
 
-#if defined(_WIN32)
-    if (pad->fMappedStatus) {
+    if (pad->fMappedIO) {
         if (pad->mpiedrgfs != 0)
-            FreeResStat((char far *)pad->mpiedrgfs);
+            FreeResStat((char *)pad->mpiedrgfs);
 
         UnmapViewOfFile(pad->psh);
-        pad->fMappedStatus = fFalse;
+        pad->fMappedIO = fFalse;
+    }
+    else if (pad->fQuickIO) {
+        if (pad->psh != 0) {
+            iedLim = pad->psh->iedMac + pad->fExtraEd;
+            PshFree(pad->psh, fTrue);
+        }
+
+        pad->fQuickIO = fFalse;
     }
     else {
-#endif /* _WIN32 */
+        if (pad->psh != 0) {
+            iedLim = pad->psh->iedMac + pad->fExtraEd;
+            PshFree(pad->psh, fFalse);
+        }
 
-    if (pad->psh != 0) {
-        iedLim = pad->psh->iedMac + pad->fExtraEd;
-        FreeResStat((char far *)pad->psh);
+        if (pad->mpiedrgfs != 0) {
+            for (ied = 0; ied < iedLim && pad->mpiedrgfs[ied] != 0; ied++)
+                FreeResStat((char *)pad->mpiedrgfs[ied]);
+
+            FreeResStat((char *)pad->mpiedrgfs);
+        }
+
+        if (pad->rged != 0)
+            FreeResStat((char *)pad->rged);
+
+        if (pad->rgfi != 0)
+            FreeResStat((char *)pad->rgfi);
     }
 
-    if (pad->mpiedrgfs != 0) {
-        for (ied = 0; ied < iedLim && pad->mpiedrgfs[ied] != 0; ied++)
-            FreeResStat((char far *)pad->mpiedrgfs[ied]);
-
-        FreeResStat((char far *)pad->mpiedrgfs);
-    }
-
-    if (pad->rged != 0)
-        FreeResStat((char far *)pad->rged);
-
-    if (pad->rgfi != 0)
-        FreeResStat((char far *)pad->rgfi);
-#if defined(_WIN32)
-    }
-#endif
-
+    pad->fStatusAlreadyLoaded = fFalse;
     pad->psh = 0;
     pad->rgfi = 0;
     pad->cfiAdd = 0;
     pad->rged = 0;
     pad->mpiedrgfs = 0;
+    pad->rged1 = 0;
+    pad->rgfs = 0;
     pad->fExtraEd = fFalse;
     pad->iedCur = iedNil;
 }
 
 
-/* Load the status file named in the ad; aborts on file errors; returns
- * fFalse if the requested lock can't be granted.
- */
+// Load the status file named in the ad; aborts on file errors; returns
+// fFalse if the requested lock can't be granted.
+
+F fDisplayStatusFilePath;        // Set by SlmPeekThread in NTSYS.C
+
 F
 FLoadStatus(
     AD *pad,
     LCK lck,
-    LS ls)
+    LS ls
+    )
 {
-    SH far *psh;
+    SH *psh;
     PTH pth[cchPthMax];
-    MF *pmf;
+    MF *pmf = NULL;
     int wDelay = 1;
     F fJustFi = (ls&flsJustFi) != 0;
     F fJustEd = (ls&flsJustEd) != 0;
     char szProblem[160];
     F fRetry;
 
-try {
-
-    AssertNoMf();
-    AssertF(padStatus == 0);
-    AssertF(!pad->fWLock);
-    AssertF(pad->psh == 0);
-    AssertF(!FEmptyNm(pad->nmProj));
-    AssertF(!FEmptyPth(pad->pthSRoot));
-    AssertF(!FEmptyPth(pad->pthURoot));
-    AssertF(lck >= lckNil && lck < lckMax);
-    AssertF(!((fJustFi || fJustEd) && lck != lckNil));
-
-    PthForStatus(pad, pth);
-
-    wStart = (short) (time(NULL) >> 16);
-
-    /* Loop until successfully locked. */
-    for (;;) {
-        /* Set these up on each attempt, AbortStatus clears them. */
-        pad->cfiAdd   = CfiAddOfLs(ls);
-        pad->fExtraEd = (ls&flsExtraEd) != 0;
-        AssertF(pad->cfiAdd == 0 || !pad->fExtraEd);
-
-        /* Save pad for AbortStatus */
-        padStatus = pad;
+    __try {
 
         AssertNoMf();
+        AssertF(padStatus == 0);
         AssertF(!pad->fWLock);
         AssertF(pad->psh == 0);
+        AssertF(!FEmptyNm(pad->nmProj));
+        AssertF(!FEmptyPth(pad->pthSRoot));
+        AssertF(!FEmptyPth(pad->pthURoot));
+        AssertF(lck >= lckNil && lck < lckMax);
+        AssertF(!((fJustFi || fJustEd) && lck != lckNil));
 
-        while ((pmf = PmfOpen(pth, (lck != lckNil) ? omReadWrite : omReadOnly, fxNil)) == 0) {
-            if (!FQueryApp("cannot open status file for %&P/C", "retry", pad)) {
+        if (lck == lckNil)
+            PthForCachedStatus(pad, pth);
+        else {
+            PthForStatus(pad, pth);
+        }
+
+        if (fDisplayStatusFilePath) {
+            PrErr("Processing status file for: %&U/Q\n", pad, pad);
+            fDisplayStatusFilePath = fFalse;
+        }
+
+        wStart = (short) (time(NULL) >> 16);
+
+        // Loop until successfully locked.
+        for (;;) {
+            // Set these up on each attempt, AbortStatus clears them.
+            pad->cfiAdd   = CfiAddOfLs(ls);
+            pad->fExtraEd = (ls&flsExtraEd) != 0;
+            AssertF(pad->cfiAdd == 0 || !pad->fExtraEd);
+
+            // Save pad for AbortStatus
+            padStatus = pad;
+
+            AssertNoMf();
+            AssertF(!pad->fWLock);
+            AssertF(pad->psh == 0);
+
+            pad->fMappedIO = fFalse;
+            pad->fQuickIO = fFalse;
+
+            if (pad->flags&flagMappedIO &&
+                lck == lckNil &&
+                FEmptyNm(pad->nmUser) &&
+                (pad->pecmd->cmd != cmdStatus || !(pad->flags&(flagStAllEd|flagStGlobal))) &&
+                FindIedCur(pad)
+               ) {
+                pad->fQuickIO = fTrue;
+            }
+
+            while (TRUE) {
+                if (pad->fQuickIO)
+                    pmf = PmfOpenNoBuffering(pth, omReadOnly, fxNil);   // must be lckNil
+                else
+                    pmf = PmfOpen(pth, (lck != lckNil) ? omReadWrite : omReadOnly, fxNil);
+
+                if (pmf != 0) {
+                    if (pad->fQuickIO) {
+                        if (!FAllocLoadEdFiFs(pad, pmf)) {
+                            CloseMf(pmf);
+                            continue;
+                        }
+                        psh = pad->psh;
+                    }
+
+                    break;
+                }
+
+                if (!FQueryApp("cannot open status file for %&P/C", "retry", pad)) {
+                    AbortStatus();
+                    return fFalse;
+                }
+
+                if (!FCanPrompt()) {
+                    if (wDelay == 1 && FForce())
+                        Error("cannot open status file for %&P/C\n", pad);
+
+                    // printf("fLR: %s\tDelay: %d\n", pad->flags&flagLimitRetry ? "Set" : "Clear", wDelay);
+
+                    if (60 == wDelay && pad->flags&flagLimitRetry) {
+                        AbortStatus();
+                        return (fFalse);
+                    }
+
+                    if (wDelay > 4 && pad->pecmd->cmd == cmdLog && pad->flags&flagLogDelDirToo) {
+                        AbortStatus();
+                        return (fFalse);
+                    }
+
+                    SleepCsecs(wDelay);
+                    // Double the delay, up to 60 seconds.
+                    wDelay = (wDelay > 30) ? 60 : wDelay * 2;
+                }
+            }
+
+            // Begin critical section, protected by an OS lock on the SH.
+            if (lck != lckNil && !FLockMf(pmf)) {
+                Error("status file for %&P/C in use\n", pad);
+                CloseMf(pmf);
                 AbortStatus();
                 return fFalse;
             }
 
-            if (!FCanPrompt()) {
-                if (wDelay == 1 && FForce())
-                    Error("cannot open status file for %&P/C\n", pad);
+            if (!pad->fQuickIO) {
+                if (pad->flags&flagMappedIO &&
+                    pad->cfiAdd == 0 && !pad->fExtraEd && lck == lckNil &&
+                    (psh = MapMf(pmf, pad->pecmd->cmd == cmdSsync ? ReadOnly : ReadWrite)) != NULL) {
+                    pad->fMappedIO = fTrue;
+                    InPageErrorAddress = NULL;
+                } else {
+                    if ((psh = PshAlloc(fFalse)) == NULL) {
+                        CloseMf(pmf);
+                        AbortStatus();
+                        return fFalse;
+                    }
 
+                }
+                pad->psh = psh;
+
+                // Load sh and check that it is valid.
+                if (!FLoadSh(pad, psh, pmf) || !FCheckSh(pad, psh)) {
+                    CloseMf(pmf);
+                    AbortStatus();
+                    return fFalse;
+                }
+            }
+
+            // break from loop (no lock needed)
+            if (lck == lckNil)
+                break;
+
+            // Load rged so that ssyncing status can be obtained
+            if (!FAllocStatus(pad) || !FLoadEd(pad, pmf, fTrue)) {
+                CloseMf(pmf);
+                AbortStatus();
+                return fFalse;
+            }
+
+            // So far, no retryable errors.
+            fRetry = fFalse;
+
+            // Try to apply the desired lock.
+            if (psh->fAdminLock &&
+                NmCmp(psh->nmLocker, pad->nmInvoker, cchUserMax) != 0) {
+                char szAdmin[cchUserMax + 1];
+
+                SzCopyNm(szAdmin, psh->nmLocker, cchUserMax);
+                SzPrint(szProblem, "status file for %&P/C locked by administrator %s", pad, szAdmin);
+                fRetry = fTrue;
+            }
+
+            else if (lck == lckEd)
+                fRetry = FLockEdRetry(pad, pmf, szProblem, sizeof szProblem);
+            else {
+                AssertF(lck == lckAll);
+                fRetry = FLockAllRetry(pad, pmf, szProblem, sizeof szProblem);
+            }
+
+            UnlockMf(pmf);
+            // End critical section.
+
+            // Exit loop if successfully locked.
+            if (pad->fWLock)
+                    break;
+
+            // Status file is still open.
+            CloseMf(pmf);
+            AbortStatus();
+
+            if (!fRetry || !FQueryApp(szProblem, "retry"))
+                    return fFalse;
+
+            // If not interactive, back off for a while.
+            if (!FCanPrompt()) {
                 // printf("fLR: %s\tDelay: %d\n", pad->flags&flagLimitRetry ? "Set" : "Clear", wDelay);
 
-                if (60 == wDelay && pad->flags&flagLimitRetry) {
-                    AbortStatus();
+                if (60 == wDelay && pad->flags&flagLimitRetry)
                     return (fFalse);
-                }
+
+                if (wDelay == 1 && FForce() && !fVerbose)
+                    Error("%s\n", szProblem);
 
                 SleepCsecs(wDelay);
-                /* Double the delay, up to 60 seconds. */
+
+                // Double the delay, up to 60 seconds.
                 wDelay = (wDelay > 30) ? 60 : wDelay * 2;
             }
         }
 
-        /* Begin critical section, protected by an OS lock on the SH. */
-        if (lck != lckNil && !FLockMf(pmf)) {
-            Error("status file for %&P/C in use\n", pad);
-            CloseMf(pmf);
-            AbortStatus();
-            return fFalse;
-        }
+        // Load rest of status file.  If lck was not lckNil, the status memory
+        // is already allocated and the rged is already loaded.  If fJustFi,
+        // load only the SH and the FI.  If fQuickIO is set, then everything
+        // already done.
+        //
 
-#if defined(_WIN32)
-        pad->fMappedStatus = fFalse;
-        if (pad->flags&flagMappedIO && pad->cfiAdd == 0 &&
-                !pad->fExtraEd && lck == lckNil &&
-                (psh = MapMf(pmf, pad->pecmd->cmd == cmdSsync ? ReadOnly : ReadWrite)) != NULL) {
-            pad->fMappedStatus = fTrue;
-            InPageErrorAddress = NULL;
-        }
-        else
-#endif /* _WIN32 */
-        if ((psh = PshAlloc()) == NULL) {
-            CloseMf(pmf);
-            AbortStatus();
-            return fFalse;
-        }
-        pad->psh = psh;
-
-        /* Load sh and check that it is valid. */
-        if (!FLoadSh(pad, psh, pmf) || !FCheckSh(pad, psh)) {
-            CloseMf(pmf);
-            AbortStatus();
-            return fFalse;
-        }
-
-        /* break from loop (no lock needed) */
-        if (lck == lckNil)
-            break;
-
-        /* Load rged so that ssyncing status can be obtained */
-        if (!FAllocStatus(pad) || !FLoadEd(pad, pmf, fTrue)) {
-            CloseMf(pmf);
-            AbortStatus();
-            return fFalse;
-        }
-
-        /* So far, no retryable errors. */
-        fRetry = fFalse;
-
-        /* Try to apply the desired lock. */
-        if (psh->fAdminLock &&
-            NmCmp(psh->nmLocker, pad->nmInvoker, cchUserMax) != 0) {
-            char szAdmin[cchUserMax + 1];
-
-            SzCopyNm(szAdmin, psh->nmLocker, cchUserMax);
-            SzPrint(szProblem, "status file for %&P/C locked by administrator %s", pad, szAdmin);
-            fRetry = fTrue;
-        }
-
-        else if (lck == lckEd)
-            fRetry = FLockEdRetry(pad, pmf, szProblem, sizeof szProblem);
-        else {
-            AssertF(lck == lckAll);
-            fRetry = FLockAllRetry(pad, pmf, szProblem, sizeof szProblem);
-        }
-
-        UnlockMf(pmf);
-        /* End critical section. */
-
-        /* Exit loop if successfully locked. */
-        if (pad->fWLock)
-                break;
-
-        /* Status file is still open. */
-        CloseMf(pmf);
-        AbortStatus();
-
-        if (!fRetry || !FQueryApp(szProblem, "retry"))
+        if (!pad->fQuickIO) {
+            if ((lck == lckNil && !FAllocStatus(pad)) ||
+                (!fJustEd && !FLoadFi(pad, pmf)) ||
+                (!fJustFi && lck == lckNil && !FLoadEd(pad, pmf, fTrue)) ||
+                (!(fJustFi || fJustEd) && !FLoadFs(pad, pmf))) {
+                CloseMf(pmf);
+                AbortStatus();
                 return fFalse;
-
-        /* If not interactive, back off for a while. */
-        if (!FCanPrompt()) {
-            // printf("fLR: %s\tDelay: %d\n", pad->flags&flagLimitRetry ? "Set" : "Clear", wDelay);
-
-            if (60 == wDelay && pad->flags&flagLimitRetry)
-                return (fFalse);
-
-            if (wDelay == 1 && FForce() && !fVerbose)
-                Error("%s\n", szProblem);
-
-            SleepCsecs(wDelay);
-
-            /* Double the delay, up to 60 seconds. */
-            wDelay = (wDelay > 30) ? 60 : wDelay * 2;
+            }
         }
-    }
 
-    /* Load rest of status file.  If lck was not lckNil, the status memory
-     * is already allocated and the rged is already loaded.  If fJustFi,
-     * load only the SH and the FI.
-     */
-    if ((lck == lckNil && !FAllocStatus(pad)) ||
-        (!fJustEd && !FLoadFi(pad, pmf)) ||
-        (!fJustFi && lck == lckNil && !FLoadEd(pad, pmf, fTrue)) ||
-        (!(fJustFi || fJustEd) && !FLoadFs(pad, pmf))) {
         CloseMf(pmf);
+
+        if (lck != lckNil && !FInitScript(pad, lck)) {
+            AbortStatus();
+            return fFalse;
+        }
+
+        // REVIEW: V2 warning should be removed/changed in later versions
+        if (psh->version == 2 && fVerbose && !fV2Warned) {
+            Warn(szV2Upgrade, pad);
+            fV2Warned = fTrue;
+        }
+    } except( GetExceptionCode() == 0x00001234 ? EXCEPTION_EXECUTE_HANDLER
+                                             : EXCEPTION_CONTINUE_SEARCH ) {
+        if (pmf && pmf->pthReal) {
+            CloseMf(pmf);
+        }
+
         AbortStatus();
         return fFalse;
+
     }
 
-    CloseMf(pmf);
-
-    if (lck != lckNil && !FInitScript(pad, lck)) {
-        AbortStatus();
-        return fFalse;
-    }
-
-    /* REVIEW: V2 warning should be removed/changed in later versions */
-    if (psh->version == 2 && fVerbose && !fV2Warned) {
-        Warn(szV2Upgrade, pad);
-        fV2Warned = fTrue;
-    }
-
-} except( GetExceptionCode() == 0x00001234 ? EXCEPTION_EXECUTE_HANDLER
-                                         : EXCEPTION_CONTINUE_SEARCH ) {
-    if (pmf->pthReal) {
-        CloseMf(pmf);
-    }
-
-    AbortStatus();
-    return fFalse;
-
-}
     return fTrue;
 }
 
 
-/* returns fTrue if the sh is somewhat sane. */
-private F
+// returns fTrue if the sh is somewhat sane.
+F
 FCheckSh(
     AD *pad,
-    SH far *psh)
+    SH *psh
+    )
 {
     if (psh->magic != MAGIC) {
         Error("status file for %&P/C has been damaged;\n"
@@ -499,49 +580,46 @@ FCheckSh(
     }
 
     else if (psh->version < VERSION_COMPAT_MAC) {
-        /* e.g. we want to work with ver 2 status files even
-         * when VERSION == 3
-         */
+        // e.g. we want to work with ver 2 status files even
+        // when VERSION == 3
+
         Error("status file for %&P/C is an old version;\n"
                "have your administrator run slmck -ngr for %&P/C to upgrade\n",
                pad,
                pad);
         return fFalse;
-    }
-
-    else if (psh->version > VERSION) {
+    } else
+    if (psh->version > VERSION) {
         Error("status file for %&P/C is a new version; you are running an old binary.\n"
                "Install the new slm binaries (available from your administrator).\n",
                pad,
                pad);
         return fFalse;
-    }
-
-    else if (PthCmp(pad->pthSSubDir, psh->pthSSubDir) != 0) {
+    }else
+    if (PthCmp(pad->pthSSubDir, psh->pthSSubDir) != 0) {
         Error("status file for %&P/C directory (%ls) disagrees with current directory (%s)\n",
                 pad, psh->pthSSubDir,
                 pad->pthSSubDir);
-        return fTrue;                   /* proceed anyway */
-    }
-
-    else
+        return fTrue;                   // proceed anyway
+    } else
         return fTrue;
 }
 
 
-/* Try to lock a single ed, reporting any problems in szProblem. Write the
- * lock to disk.  Return fTrue if there was a problem that might go away if
- * the user retries.  Rged must already be loaded.
- */
-private F
+// Try to lock a single ed, reporting any problems in szProblem. Write the
+// lock to disk.  Return fTrue if there was a problem that might go away if
+// the user retries.  Rged must already be loaded.
+
+F
 FLockEdRetry(
     AD *pad,
     MF *pmf,
     char *szProblem,
-    int ichProblemMax)
+    int ichProblemMax
+    )
 {
-    ED far *ped;
-    SH far *psh = pad->psh;
+    ED *ped;
+    SH *psh = pad->psh;
     static char szEdLocked[] =
         "%&P/C is already locked for ssync or out by you!\n"
         "(You can only run one ssync or out at a time.)\n"
@@ -556,9 +634,8 @@ FLockEdRetry(
         Append_Date(szProblem, pmf->fdRead);
 
         return fTrue;
-    }
-
-    else if (pad->iedCur == iedNil) {
+    }else
+    if (pad->iedCur == iedNil) {
         Error(szNotEnlisted, pad, pad, pad, pad);
         return fFalse;
     }
@@ -580,30 +657,31 @@ FLockEdRetry(
 
     AssertShLocking(psh);
 
-    /* If aborted after this statement, AbortStatus will remove the
-     * lock from the status file.
-     */
+    // If aborted after this statement, AbortStatus will remove the
+    // lock from the status file.
+
     pad->fWLock = fTrue;
 
     FlushSh(psh, pmf);
     Flush1Ed(pad, pmf);
 
-    return fFalse;                  /* No problems. */
+    return fFalse;                  // No problems.
 }
 
 
-/* Try to lock the entire status file; report any problems in szProblem.
- * Write the lock to disk.  Return fTrue if there was a problem that might go
- * away if the user retries.
- */
-private F
+// Try to lock the entire status file; report any problems in szProblem.
+// Write the lock to disk.  Return fTrue if there was a problem that might go
+// away if the user retries.
+
+F
 FLockAllRetry(
     AD *pad,
     MF *pmf,
     char *szProblem,
-    int ichProblemMax)
+    int ichProblemMax
+    )
 {
-    SH far *psh = pad->psh;
+    SH *psh = pad->psh;
 
     AssertF(psh != 0);
 
@@ -622,25 +700,25 @@ FLockAllRetry(
 
     AssertShLocking(psh);
 
-    /* If aborted after this statement, AbortStatus will remove the
-     * lock from the status file.
-     */
+    // If aborted after this statement, AbortStatus will remove the
+    // lock from the status file.
+
     pad->fWLock = fTrue;
 
     FlushSh(psh, pmf);
 
-    return fFalse;                  /* No problems. */
+    return fFalse;                  // No problems.
 }
 
 
-/* Store the names of the lockers into szBuf; the file must be locked
- * in some way.
- */
+// Store the names of the lockers into szBuf; the file must be locked in some way.
+
 char *
 SzLockers(
     AD *pad,
     char *szBuf,
-    unsigned cchBuf)
+    unsigned cchBuf
+    )
 {
     char szOwner[cchUserMax + 1 + 1];
     IED ied;
@@ -657,15 +735,16 @@ SzLockers(
     AssertF(pad->psh->lck == lckEd);
     AssertF(pad->rged != 0);
 
-    /* Even if pad->psh->lck != lckEd, individual eds might be
-     * locked due to an error.
-     *
-     * Collect those rged[].nmOwner's s.t. rged[].fLocked.
-     */
+    // Even if pad->psh->lck != lckEd, individual eds might be
+    // locked due to an error.
+    //
+    // Collect those rged[].nmOwner's s.t. rged[].fLocked.
+
     strcat(szBuf, " for ssync or out by");
 
     for (ied = 0; ied < pad->psh->iedMac; ied++) {
-        if (pad->rged[ied].fLocked) {
+        if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+            pad->rged[ied].fLocked) {
             SzPrint(szOwner, " %&O", pad, ied);
             if (strlen(szOwner) + strlen(szBuf) < cchBuf-4)
                 strcat(szBuf, szOwner);
@@ -680,12 +759,13 @@ SzLockers(
 }
 
 
-/* Unlock rged[ied], if it was locked. */
-private void
+// Unlock rged[ied], if it was locked.
+void
 UnlockEd(
-    SH far *psh,
-    ED far *rged,
-    IED ied)
+    SH *psh,
+    ED *rged,
+    IED ied
+    )
 {
     AssertF(psh != 0 && rged != 0 && ied != iedNil);
 
@@ -693,27 +773,27 @@ UnlockEd(
 
     rged[ied].fLocked = fFalse;
 
-    /* See if any other users have it locked. */
+    // See if any other users have it locked.
     for (ied = 0; ied < psh->iedMac; ied++) {
-        if (rged[ied].fLocked) {
-            /* No, this isn't inconsistent with the possibilty that
-             * pad->psh->lck != lckEd in SzLockers above; that code
-             * must handle error conditions from locked files;
-             * here we have locked the in-core status file and
-             * the psh->lck had better be lckEd!
-             */
+        if ((!FIsFreeEdValid(psh) || !rged[ied].fFreeEd) &&
+            rged[ied].fLocked) {
+            // No, this isn't inconsistent with the possibilty that
+            // pad->psh->lck != lckEd in SzLockers above; that code must handle
+            // error conditions from locked files; here we have locked the in-
+            // core status file and the psh->lck had better be lckEd!
+
             AssertF(psh->lck >= lckEd);
 
             return;
         }
     }
 
-    /* clear psh->lck to lckNil unless we are lckAll.  This fixes bug
-     * in the case that we call UnlockEd from FInstall1Ed when rerunning
-     * an existing script file, but there is an lckAll on the status
-     * file already from the command we are running (ie. enlist, etc...).
-     * This way we will not assert in the following AssertShLocking call.
-     */
+    // clear psh->lck to lckNil unless we are lckAll.  This fixes bug in the
+    // case that we call UnlockEd from FInstall1Ed when rerunning an existing
+    // script file, but there is an lckAll on the status file already from the
+    // command we are running (ie. enlist, etc...).  This way we will not assert
+    // in the following AssertShLocking call.
+
     if (psh->lck <= lckEd)
         psh->lck = lckNil;
 
@@ -721,39 +801,41 @@ UnlockEd(
 }
 
 
-/* Unlock the sh. */
-private void
+// Unlock the sh.
+void
 UnlockAll(
-    SH far *psh)
+    SH *psh
+    )
 {
     AssertF(psh != 0);
 
     psh->lck = lckNil;
     if (!psh->fAdminLock)
-        ClearLpbCb((char far *)psh->nmLocker, cchUserMax);
+        ClearLpbCb((char *)psh->nmLocker, cchUserMax);
 
     AssertShLocking(psh);
 }
 
 
-private void
+void
 AssertShLocking(
-    SH far *psh)
+    SH *psh
+    )
 {
     AssertF(psh != 0);
     AssertF(FShLockInvariants(psh));
 }
 
 
-/* ********** Validation utils ********** */
+// ********** Validation utils **********
 
-/* CT - Condition Types for the AssertLogFail macro. */
+// CT - Condition Types for the AssertLogFail macro.
 typedef unsigned        CT;
 #define ctRead          (CT)1
 #define ctWrite         (CT)2
 #define ctRdAfterWr     (CT)3
 
-/* CTF - Condition Type Flags for the AssertLogFail macro. */
+// CTF - Condition Type Flags for the AssertLogFail macro.
 #define ctfWarn         (CT)(1<<9)
 #define ctfFlagMask     (CT)(0xFF)
 
@@ -764,11 +846,12 @@ LogFail(
     char *szComment,
     CT ct,
     char *szSrcFile,
-    unsigned uSrcLineNo)
+    unsigned uSrcLineNo
+    )
 {
     extern AD adGlobal;
 
-    /* REVIEW: V2 warning should be removed/changed in later versions */
+    // REVIEW: V2 warning should be removed/changed in later versions
     F fV2 = adGlobal.psh != NULL && adGlobal.psh->version == 2;
 
     if (fV2 && !fV2Crap && !(ct & ctfWarn)) {
@@ -777,18 +860,18 @@ LogFail(
     }
 
     if (!fV2 || !(ct & ctfWarn)) {
-        /* Show the condition that failed */
+        // Show the condition that failed
         Error(szAssertFailed, szComment, szSrcFile, uSrcLineNo);
     }
 
-    /* Return now to avoid a FatalError for V2 status files.
-     * Likewise for the sadmin dump command (otherwise,
-     * bad status files can't be dumped to be fixed).
-     */
+    // Return now to avoid a FatalError for V2 status files.
+    // Likewise for the sadmin dump command (otherwise,
+    // bad status files can't be dumped to be fixed).
+
     if (fV2 || adGlobal.pecmd->cmd == cmdDump)
         return;
 
-    /* Mask off any modifying flags and switch on the CT value */
+    // Mask off any modifying flags and switch on the CT value
     ct &= ctfFlagMask;
     switch (ct) {
         case ctRead:
@@ -816,55 +899,67 @@ LogFail(
 }
 
 
-private void
+void
 ValidatePth(
     CT ct,
     PTH *pth,
-    unsigned cchMax)
+    unsigned cchMax
+    )
 {
     unsigned        ich;
-
-    // printf("VPth: %d - %s\n", cchMax, pth);
 
     AssertLogFail(ct, pth != NULL);
     AssertLogFail(ct, *pth != '\0');
 
-    for (ich = 0; pth[ich] != '\0' && ich < cchMax; ich++)
-        AssertLogFail(ct, isalnum(pth[ich]) || strchr(szAllowedFile, pth[ich]));
+    for (ich = 0; pth[ich] != '\0' && ich < cchMax; ich++) {
+        if (!(isalnum(pth[ich]) || strchr(szAllowedFile, pth[ich]))) {
+            sprintf(szLogFail, "Invalid char '%c (%X)' in Path: \"%*s\"",
+                    pth[ich],
+                    pth[ich],
+                    __min(strlen(pth), cchMax),
+                    pth);
+            LogFail(szLogFail, ct, __FILE__, __LINE__);
+        }
+    }
 }
 
 
-private void
+void
 ValidateNm(
     CT ct,
     NM *nm,
     unsigned cchMax,
-    unsigned fEmptyOk)
+    unsigned fEmptyOk
+    )
 {
     unsigned        ich;
-
-    // printf("VNm: %d - %s\n", cchMax, nm);
 
     AssertLogFail(ct, nm != NULL);
 
     if (!fEmptyOk)
         AssertLogFail(ct, *nm != '\0');
 
-    for(ich = 0; nm[ich] != '\0' && ich < cchMax; ich++)
-        AssertLogFail(ct, isalnum(nm[ich]) || strchr(szAllowedFile, nm[ich]));
+    for(ich = 0; nm[ich] != '\0' && ich < cchMax; ich++) {
+        if (!(isalnum(nm[ich]) || strchr(szAllowedFile, nm[ich]))) {
+            sprintf(szLogFail, "Invalid char '%c (%X)' in Name: \"%*s\"",
+                    nm[ich],
+                    nm[ich],
+                    __min(strlen(nm), cchMax),
+                    nm);
+            LogFail(szLogFail, ct, __FILE__, __LINE__);
+        }
+    }
 }
 
-#undef szAllowedFile
 
-private void
+void
 ValidateSz(
     CT ct,
     char *sz,
-    unsigned cchMax)
+    unsigned cchMax
+    )
 {
     unsigned        ich;
-
-    // printf("VSz: %d - %s\n", cchMax, sz);
 
     AssertLogFail(ct, sz != NULL);
 
@@ -875,12 +970,12 @@ ValidateSz(
 }
 
 
-private void
+void
 ValidateSh(
     CT ct,
-    SH *psh)
+    SH *psh
+    )
 {
-    // printf("VSh: %x\n", psh);
     AssertLogFail(ct, psh->magic == MAGIC);
 
     AssertLogFail(ct, psh->version >= 1);
@@ -906,8 +1001,6 @@ ValidateSh(
     ValidateNm(ct, psh->nmLocker, cchUserMax, psh->lck < lckAll && !psh->fAdminLock);
 
     AssertLogFail(ct | ctfWarn, psh->wSpare == 0);
-
-//    AssertLogFail(ct, psh->biNext >= biMin); biNext is unsigned
     AssertLogFail(ct, psh->biNext <= biNil);
 
     ValidatePth(ct, psh->pthSSubDir, cchPthMax);
@@ -919,98 +1012,135 @@ ValidateSh(
 }
 
 
-private void
+void
 ValidateRgfi(
     CT ct,
     FI *rgfi,
-    unsigned cfi)
+    unsigned cfi
+    )
 {
-    unsigned        ifi;
-    FI *            pfi;
-
-    // printf("Vfi: %d\n", cfi);
+    unsigned ifi;
+    FI     * pfi;
+    char   * szErr = NULL;
 
     for (ifi = 0; ifi < cfi; ifi++) {
         pfi = &rgfi[ifi];
 
         ValidateNm(ct, pfi->nmFile, cchFileMax, fFalse);
 
-        AssertLogFail(ct, pfi->fv >= fvInit);
-        AssertLogFail(ct, pfi->fv < fvLim);
+        if (! ((pfi->fv >= fvInit) && (pfi->fv < fvLim))) {
+            szErr = "File Version Corrupt";
+        }
 
-        AssertLogFail(ct, pfi->fk == fkDir || pfi->fk == fkText || pfi->fk == fkBinary
-                  || pfi->fk == fkUnrec || pfi->fk == fkVersion || pfi->fk == fkUnicode);
+        if (!szErr &&
+            ! (pfi->fk == fkDir ||
+               pfi->fk == fkText ||
+               pfi->fk == fkBinary ||
+               pfi->fk == fkUnrec ||
+               pfi->fk == fkVersion ||
+               pfi->fk == fkUnicode) )
+        {
+            szErr = "File Type Invalid";
+        }
 
-//        AssertLogFail(ct, pfi->fMarked == 0);
+        if (szErr) {
+            _snprintf(szLogFail, sizeof(szLogFail),
+                     "%s: File Index #: %d\tname: %s\tfk: %s\n",
+                     szErr, ifi, pfi->nmFile, pfi->fk);
+            LogFail(szLogFail, ct | ctfWarn, __FILE__, __LINE__);
+        }
 
-        AssertLogFail(ct | ctfWarn, pfi->rgfSpare == 0);
-
-        AssertLogFail(ct | ctfWarn, pfi->wSpare == 0);
+        if (!szErr) {
+            AssertLogFail(ct | ctfWarn, pfi->rgfSpare == 0);
+            AssertLogFail(ct | ctfWarn, pfi->wSpare == 0);
+        }
     }
 }
 
-private void
+void
 ValidateRged(
+    SH *psh,
     CT ct,
     ED *rged,
-    unsigned ced)
+    unsigned ced
+    )
 {
     unsigned        ied;
     ED *            ped;
 
-    // printf("Ved: %d\n", ced);
     for (ied = 0; ied < ced; ied++) {
         ped = &rged[ied];
 
-        ValidatePth(ct, ped->pthEd, cchPthMax);
+        if (!FIsFreeEdValid(psh) || !ped->fFreeEd) {
+            ValidatePth(ct, ped->pthEd, cchPthMax);
 
-        ValidateNm(ct, ped->nmOwner, cchUserMax, fFalse);
+            ValidateNm(ct, ped->nmOwner, cchUserMax, fFalse);
 
-        AssertLogFail(ct | ctfWarn, ped->rgfSpare == 0);
-//        AssertLogFail(ct | ctfWarn, ped->wSpare == 0);
+            if (ped->rgfSpare || (!FIsFreeEdValid(psh) && ped->fFreeEd)) {
+                _snprintf(szLogFail, sizeof(szLogFail),
+                         "rgfSpare !0 - Enlistment #: %d\tname: %s\tpath: %s\tSpare: %d\n",
+                         ied, ped->nmOwner, ped->pthEd, ped->rgfSpare);
+                LogFail(szLogFail, ct | ctfWarn, __FILE__, __LINE__);
+            }
+        }
     }
 }
 
-private void
+void
 ValidateRgfs(
     CT ct,
     FS *rgfs,
-    unsigned cfs)
+    unsigned cfs
+    )
 {
-    unsigned        ifs;
-    FS *            pfs;
-
-    // printf("Vfs: %d\n", cfs);
+    unsigned  ifs;
+    FS      * pfs;
+    char    * szErr = NULL;
 
     for (ifs = 0; ifs < cfs; ifs++) {
         pfs = &rgfs[ifs];
 
-        AssertLogFail(ct, FValidFm(pfs->fm));
+        if (!FValidFm(pfs->fm)) {
+            szErr = "Corrupt File Mode";
+        }
 
-//        AssertLogFail(ct, pfs->bi >= biMin); bi is unsigned
-        AssertLogFail(ct, pfs->bi <= biNil);
+        if (!szErr && (!(pfs->bi <= biNil))) {
+            szErr = "Corrupt Base Index";
+        }
 
-        AssertLogFail(ct, pfs->fv >= fvInit && pfs->fv < fvLim);
+        if (!szErr && (!( pfs->fv >= fvInit && pfs->fv < fvLim))) {
+            szErr = "Corrupt File Version";
+        }
 
-        AssertLogFail(ct, !(fmMerge == pfs->fm && biNil == pfs->bi));
+        if (!szErr && (!( !(fmMerge == pfs->fm && biNil == pfs->bi)))) {
+            szErr = "File Mode/Base Index are mismatched";
+        }
+
+        if (szErr) {
+            _snprintf(szLogFail, sizeof(szLogFail),
+                     "%s: File #: %d\tfm: %d\tfv: %d\tbi: %d\n",
+                     szErr, ifs, pfs->fm, pfs->fv, pfs->bi);
+            LogFail(szLogFail, ct, __FILE__, __LINE__);
+        }
     }
 }
 
-/* ********** CheckSum utils ********** */
+// ********** CheckSum utils **********
 
 typedef unsigned        CKS;
 
-/* Generate checksum value to compare with later */
+// Generate checksum value to compare with later
 #define SetCks(psh,cks,pb,cb) \
         if ((psh)->fRobust) cks=CksCompute((unsigned char *)(pb),cb)
 
-/* Implentation of Fletcher's Checksum.
- * See article on page 32, Dr. Dobb's Journal, May 1992 for details.
- */
-private CKS
+// Implentation of Fletcher's Checksum.
+// See article on page 32, Dr. Dobb's Journal, May 1992 for details.
+
+CKS
 CksCompute(
     unsigned char *pb,
-    unsigned cb)
+    unsigned cb
+    )
 {
     unsigned        sum1 = 0;
     unsigned long   sum2 = 0;
@@ -1031,13 +1161,14 @@ CksCompute(
 #define CheckCks(psh,cksCompare,pmf,pb,cb) \
         if ((psh)->fRobust) CompareCks(cksCompare,pmf,(unsigned char *)(pb),cb)
 
-/* Read data back in after writing and compare checksum values */
-private void
+// Read data back in after writing and compare checksum values
+void
 CompareCks(
     CKS cksCompare,
     MF *pmf,
     unsigned char *pb,
-    unsigned cb)
+    unsigned cb
+    )
 {
     if (pmf->fdRead >= 0) {
         SeekMf(pmf, -((POS)cb), 1);
@@ -1049,15 +1180,16 @@ CompareCks(
 }
 
 
-/*----------------------------------------------------------------------------
- * Name: CbStatusFromPsh
- * Purpose: determine size that the status file should be
- * Assumes: psh points to a valid SLM status file header
- * Returns: calculated size of status file
- */
+//----------------------------------------------------------------------------
+// Name: CbStatusFromPsh
+// Purpose: determine size that the status file should be
+// Assumes: psh points to a valid SLM status file header
+// Returns: calculated size of status file
+
 unsigned long
 CbStatusFromPsh(
-    SH *psh)
+    SH *psh
+    )
 {
     return ((POS)sizeof(SH) +
             (POS)sizeof(FI) * psh->ifiMac +
@@ -1066,19 +1198,20 @@ CbStatusFromPsh(
 }
 
 
-/* Load the sh from the file into *psh.  Return fTrue if successful. */
-private F
+// Load the sh from the file into *psh.  Return fTrue if successful.
+F
 FLoadSh(
     AD *pad,
-    SH far *psh,
-    MF *pmf)
+    SH *psh,
+    MF *pmf
+    )
 {
     POS cbStatus, cbCalc;
     char szPath[cchPthMax];
 
     AssertF(psh != 0);
 
-    cbStatus = SeekMf(pmf, 0, 2 /* SEEK_END */ );
+    cbStatus = SeekMf(pmf, 0, SEEK_END );
     if (cbStatus < sizeof(SH)) {
         SzPhysPath(szPath, pmf->pthReal);
         FatalError("The status file %s\n"
@@ -1087,17 +1220,13 @@ FLoadSh(
             szPath, sizeof(SH), cbStatus, szCallHELP);
     }
 
-#if defined(_WIN32)
-    if (!pad->fMappedStatus) {
-#endif
-        SeekMf(pmf, PosSh(), 0 /* SEEK_SET */ );
-        ReadMf(pmf, (char far *)psh, sizeof(SH));
+    if (!pad->fMappedIO) {
+        SeekMf(pmf, PosSh(), SEEK_SET );
+        ReadMf(pmf, (char *)psh, sizeof(SH));
         ValidateSh(ctRead, psh);
-#if defined(_WIN32)
     }
-#endif /* _WIN32 */
 
-    /* Calculate the size this status file should be */
+    // Calculate the size this status file should be
     cbCalc = CbStatusFromPsh(psh);
 
     if (cbStatus != cbCalc) {
@@ -1112,65 +1241,55 @@ FLoadSh(
 }
 
 
-/* loads the rgfi from the file given the information already in pad;
-   Returns fTrue if successful.
-*/
-private F
+// loads the rgfi from the file given the information already in pad;
+// Returns fTrue if successful.
+
+F
 FLoadFi(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
     AssertF(pad->psh != 0);
     AssertF(pad->rgfi != 0);
 
-#if defined(_WIN32)
-    if (!pad->fMappedStatus) {
-#endif /* _WIN32 */
+    if (!pad->fMappedIO) {
         SeekMf(pmf, PosRgfi(pad->psh), 0);
 
         //if ( pad->psh->ifiMac > MAXFI )
         //  FatalError("FI portion of status file can't be > 64K\n");
 
-        ReadMf(pmf, (char far *)pad->rgfi, sizeof(FI) * pad->psh->ifiMac);
+        ReadMf(pmf, (char *)pad->rgfi, sizeof(FI) * pad->psh->ifiMac);
         ValidateRgfi(ctRead, pad->rgfi, pad->psh->ifiMac);
-#if defined(_WIN32)
     }
-#endif
 
     return fTrue;
 }
 
 
-/* loads all or all+1 ed into memory.  Returns fTrue if succ */
-private F
+// loads all or all+1 ed into memory.  Returns fTrue if succ
+F
 FLoadEd(
     AD *pad,
     MF *pmf,
-    F fFindIedCur)
+    F fFindIedCur
+    )
 {
-    register SH far *psh = pad->psh;
+    register SH *psh = pad->psh;
 
     AssertF(psh != 0);
     AssertF(pad->rged != 0);
 
-#if defined(_WIN32)
-    if (!pad->fMappedStatus)
-    {
-#endif
-    SeekMf(pmf, PosRged(psh), 0);
+    if (!pad->fMappedIO) {
+        SeekMf(pmf, PosRged(psh), 0);
 
-    //if (psh->iedMac > MAXED )
-    //  FatalError("ED portion of status file can't be > 64K\n");
+        ReadMf(pmf, (char *)pad->rged, sizeof(ED) * psh->iedMac);
 
-    ReadMf(pmf, (char far *)pad->rged, sizeof(ED) * psh->iedMac);
-
-    if (pad->pecmd->cmd != cmdStatus &&
-        pad->pecmd->cmd != cmdSsync  &&
-        pad->pecmd->cmd != cmdLog)
-        ValidateRged(ctRead, pad->rged, psh->iedMac);
-#if defined(_WIN32)
+        if (pad->pecmd->cmd != cmdStatus &&
+            pad->pecmd->cmd != cmdSsync  &&
+            pad->pecmd->cmd != cmdLog)
+            ValidateRged(psh, ctRead, pad->rged, psh->iedMac);
     }
-#endif
 
     if (fFindIedCur)
         FindIedCur(pad);
@@ -1179,61 +1298,178 @@ FLoadEd(
 }
 
 
-/* Find iedCur such that pthURoot == rged[iedCur].pthEd. */
-private void
+// Find iedCur such that pthURoot == rged[iedCur].pthEd.
+F
 FindIedCur(
-    AD *pad)
+    AD *pad
+    )
 {
     IED ied;
 
-    pad->iedCur = iedNil;
-    for (ied = 0; ied < pad->psh->iedMac; ied++)
-    {
-        if (PthCmp(pad->pthURoot, pad->rged[ied].pthEd) == 0)
-        {
+    pad->iedCur = FLookupIedCache(pad);
+    if (pad->iedCur != iedNil) {
+        if (pad->rged == 0)
+            return fTrue;
+
+        if (pad->iedCur < pad->psh->iedMac &&
+            PthCmp(pad->pthURoot, pad->rged[pad->iedCur].pthEd) == 0)
+            return fTrue;
+
+        //
+        // Otherwise IED cache is bogus, so recompute
+        //
+        pad->iedCur = iedNil;
+    }
+
+
+
+    if (pad->rged == 0)
+        return fFalse;
+
+    for (ied = 0; ied < pad->psh->iedMac; ied++) {
+        if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+            PthCmp(pad->pthURoot, pad->rged[ied].pthEd) == 0) {
             pad->iedCur = ied;
-            return;
+            FUpdateIedCache(ied, pad);
+            return fTrue;
         }
     }
+
+    return fFalse;
 }
 
 
-/* Load the rgrgfs from the file into pad->mpiedrgfs[].
- * Return fTrue if successful.
- */
-private F
+// Load the single ed for iedCur, the rgfi and rgfsfi for iedCur
+// Return fTrue if successful.
+
+F
+FAllocLoadEdFiFs(
+    AD *pad,
+    MF *pmf
+    )
+{
+    register SH *psh;
+    FI *rgfi;
+    ED *rged1;
+    FS *rgfs;
+    F fValidate = fFalse;
+
+    AssertF(pad->psh == 0);
+    AssertF(pad->rged == 0);
+    AssertF(pad->rged1 == 0);
+    AssertF(pad->rgfi == 0);
+    AssertF(pad->mpiedrgfs == 0);
+    AssertF(pad->rgfs == 0);
+    AssertF(pad->fMappedIO == fFalse);
+    AssertF(pad->fQuickIO == fTrue);
+    AssertF(pad->iedCur != iedNil);
+
+    if (pad->pecmd->cmd != cmdStatus &&
+        pad->pecmd->cmd != cmdSsync  &&
+        pad->pecmd->cmd != cmdLog)
+        fValidate = fTrue;
+
+    psh = 0;
+    rgfi = 0;
+    rged1 = 0;
+    rgfs = 0;
+    if ((psh = PshAlloc(fTrue)) != 0 &&
+        FLoadSh(pad, psh, pmf) &&
+        FCheckSh(pad, psh) &&
+        pad->iedCur < psh->iedMac &&
+        PshCommit(psh, &rgfi, &rged1, &rgfs)) {
+
+        //
+        // Read the entire FI array into rgfi
+        //
+        SeekMf(pmf, PosRgfi(psh), 0);
+        ReadMf(pmf, (char *)rgfi, sizeof(FI) * psh->ifiMac);
+        ValidateRgfi(ctRead, rgfi, psh->ifiMac);
+
+        //
+        // Read the single ED record for pad->iedCur into rged1
+        //
+
+        SeekMf(pmf, PosEd(psh, pad->iedCur), 0);
+        ReadMf(pmf, (char *)rged1, sizeof(ED));
+
+        //
+        // Verify that the iedCache is still correct.  If not
+        // invalidate it and fail this function so we go the slow
+        // way.
+        //
+
+        if (PthCmp(pad->pthURoot, rged1->pthEd) == 0 &&
+            NmCmp(pad->nmInvoker, rged1->nmOwner, cchUserMax) == 0) {
+
+            if (fValidate)
+                ValidateRged(psh, ctRead, rged1, 1);
+
+            //
+            // Read the single FS array for pad->iedCur into rgfs
+            //
+
+            SeekMf(pmf, PosRgfsIed(psh, pad->iedCur), 0);
+            ReadMf(pmf, (char *)rgfs, sizeof(FS) * psh->ifiMac);
+            if (fValidate)
+                ValidateRgfs(ctRead, rgfs, psh->ifiMac);
+
+            pad->psh = psh;
+            pad->rgfi = rgfi;
+            pad->rged1 = rged1;
+            pad->rgfs = rgfs;
+
+            return fTrue;
+        }
+        else {
+            // if (psh->version == VERSION)
+            //     Warn("Recomputing cached enlistment index (%u) for %s%s\n",pad->iedCur, pad->pthURoot, pad->pthUSubDir);
+            FInvalidateLastLookupIedCache();
+        }
+    }
+
+    //
+    // If we get here then we could not do it with quick way, so
+    // discard any allocations and return fFalse to caller.
+    //
+    if (psh != 0)
+        PshFree(psh, fTrue);
+
+    pad->fQuickIO = fFalse;
+    return fFalse;
+}
+
+
+// Load the rgrgfs from the file into pad->mpiedrgfs[].
+// Return fTrue if successful.
+
+F
 FLoadFs(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
-    register SH far *psh = pad->psh;
+    register SH *psh = pad->psh;
     IED ied;
 
     AssertF(psh != 0);
     AssertF(pad->mpiedrgfs != 0);
 
-#if defined(_WIN32)
-    if (!pad->fMappedStatus) {
-#endif
-    SeekMf(pmf, PosRgrgfs(psh), 0);
+    if (!pad->fMappedIO) {
+        SeekMf(pmf, PosRgrgfs(psh), 0);
 
-    /* read rgfs vectors for each dir */
-    for (ied = 0; ied < psh->iedMac; ied++) {
-        AssertF(pad->mpiedrgfs[ied] != 0);
+        // read rgfs vectors for each dir
+        for (ied = 0; ied < psh->iedMac; ied++) {
+            AssertF(pad->mpiedrgfs[ied] != 0);
 
-        //if ( psh->ifiMac > MAXFS )
-        //      FatalError("FS portion of status file can't be > 64K\n");
-
-        ReadMf(pmf, (char far *)pad->mpiedrgfs[ied],
-               sizeof(FS) * psh->ifiMac);
-        if (pad->pecmd->cmd != cmdStatus &&
-            pad->pecmd->cmd != cmdSsync  &&
-            pad->pecmd->cmd != cmdLog)
-            ValidateRgfs(ctRead, pad->mpiedrgfs[ied], psh->ifiMac);
+            ReadMf(pmf, (char *)pad->mpiedrgfs[ied],
+                   sizeof(FS) * psh->ifiMac);
+            if (pad->pecmd->cmd != cmdStatus &&
+                pad->pecmd->cmd != cmdSsync  &&
+                pad->pecmd->cmd != cmdLog)
+                ValidateRgfs(ctRead, pad->mpiedrgfs[ied], psh->ifiMac);
+        }
     }
-#if defined(_WIN32)
-    }
-#endif
 
     AssertF(!pad->fExtraEd || pad->mpiedrgfs[psh->iedMac] != 0);
 
@@ -1241,10 +1477,11 @@ FLoadFs(
 }
 
 
-/* Write the new status file (or changed ed) if necessary.  Run the script. */
+// Write the new status file (or changed ed) if necessary.  Run the script.
 void
 FlushStatus(
-    AD *pad)
+    AD *pad
+    )
 {
     AssertNoMf();
 
@@ -1259,28 +1496,26 @@ FlushStatus(
         AssertF(pad->psh->lck > lckNil);
         AssertF(FShLockInvariants(pad->psh));
 
-        /* Unlock and write the appropriate parts of the status file.
-         * Note that pad->fWLock is not cleared until the script has
-         * been safely run.
-         */
-        pmf = PmfCreate(PthForStatus(pad, pth), permSysFiles, fFalse,
-                        fxGlobal);
+        // Unlock and write the appropriate parts of the status file.
+        // Note that pad->fWLock is not cleared until the script has
+        // been safely run.
+
+        pmf = PmfCreate(PthForStatus(pad, pth), permSysFiles, fFalse, fxGlobal);
 
         if (pad->psh->lck == lckEd) {
             AssertF(pad->iedCur != iedNil);
             pmf->mm = mmInstall1Ed;
-            /* Unlock in Install1Ed. */
+            // Unlock in Install1Ed.
             Write1Ed(pad, pmf);
-        }
-        else {
+        } else {
             pmf->mm = mmInstall;
 
-            /* Operate on a copy of pad->psh, we might still
-             * get interrupted.
-             */
+            // Operate on a copy of pad->psh, we might still
+            // get interrupted.
+
             sh = *pad->psh;
-            UnlockAll((SH far *)&sh);
-            WriteAll(pad, (SH far *)&sh, pmf);
+            UnlockAll((SH *)&sh);
+            WriteAll(pad, (SH *)&sh, pmf);
         }
 
         CloseMf(pmf);
@@ -1289,20 +1524,21 @@ FlushStatus(
     DeferSignals("installing files");
 
     RunScript();
-    pad->fWLock = fFalse;           /* mark status file clean */
+    pad->fWLock = fFalse;           // mark status file clean
 
-    padStatus = 0;                  /* forget AbortStatus' saved pad */
+    padStatus = 0;                  // forget AbortStatus' saved pad
     FreeStatus(pad);
 
     RestoreSignals();
 }
 
 
-/* Save 1 ed's information during a lckEd access. */
-private void
+// Save 1 ed's information during a lckEd access.
+void
 Write1Ed(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
     IED ied = pad->iedCur;
     ED *ped;
@@ -1315,16 +1551,15 @@ Write1Ed(
     AssertF(ied != iedNil);
     AssertF(pad->mpiedrgfs[ied] != 0);
 
-    /* Write ied */
+    // Write ied
     SetCks(pad->psh, cksCompare, &ied, sizeof(ied));
-//    AssertLogFail(ctWrite, ied >= 0); ied is unsigned
     if (pad->psh->version <= VERSION_64k_EDFI) {
         AssertLogFail(ctWrite, ied < MAXED);
     }
-    WriteMf(pmf, (char far *)&ied, sizeof(ied));
+    WriteMf(pmf, (char *)&ied, sizeof(ied));
     CheckCks(pad->psh, cksCompare, pmf, &ied, sizeof(ied));
 
-    /* Write & optionally check ed */
+    // Write & optionally check ed
     ped = &pad->rged[ied];
     if (pad->psh->version > VERSION_64k_EDFI || fSetTime) {
         if (fVerbose)
@@ -1335,25 +1570,26 @@ Write1Ed(
             printf("Not Setting enlistment timestamp...\n");
 
     SetCks(pad->psh, cksCompare, ped, sizeof(ED));
-    ValidateRged(ctWrite, ped, 1);
-    WriteMf(pmf, (char far *)ped, sizeof(ED));
+    ValidateRged(pad->psh, ctWrite, ped, 1);
+    WriteMf(pmf, (char *)ped, sizeof(ED));
     CheckCks(pad->psh, cksCompare, pmf, ped, sizeof(ED));
 
-    /* Write & optionally check rgfs */
+    // Write & optionally check rgfs
     rgfs = pad->mpiedrgfs[ied];
     cbfs = sizeof(FS) * pad->psh->ifiMac;
     SetCks(pad->psh, cksCompare, rgfs, cbfs);
     ValidateRgfs(ctWrite, rgfs, pad->psh->ifiMac);
-    WriteMf(pmf, (char far *)rgfs, cbfs);
+    WriteMf(pmf, (char *)rgfs, cbfs);
     CheckCks(pad->psh, cksCompare, pmf, rgfs, cbfs);
 }
 
 
-private void
+void
 WriteAll(
     AD *pad,
-    SH far *psh,
-    MF *pmf)
+    SH *psh,
+    MF *pmf
+    )
 {
     FlushSh(psh, pmf);
     FlushFi(pad, pmf);
@@ -1362,11 +1598,12 @@ WriteAll(
 }
 
 
-/* Write the *psh to the file. */
-private void
+// Write the *psh to the file.
+void
 FlushSh(
-    SH far *psh,
-    MF *pmf)
+    SH *psh,
+    MF *pmf
+    )
 {
     CKS cksCompare;
 
@@ -1375,16 +1612,17 @@ FlushSh(
     SetCks(psh, cksCompare, psh, sizeof(SH));
     SeekMf(pmf, PosSh(), 0);
     ValidateSh(ctWrite, psh);
-    WriteMf(pmf, (char far *)psh, sizeof(SH));
+    WriteMf(pmf, (char *)psh, sizeof(SH));
     CheckCks(psh, cksCompare, pmf, psh, sizeof(SH));
 }
 
 
-/* Write the rgfi to the file. */
-private void
+// Write the rgfi to the file.
+void
 FlushFi(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
     CKS cksCompare;
     unsigned cbfi;
@@ -1396,16 +1634,17 @@ FlushFi(
     SetCks(pad->psh, cksCompare, pad->rgfi, cbfi);
     SeekMf(pmf, PosRgfi(pad->psh), 0);
     ValidateRgfi(ctWrite, pad->rgfi, pad->psh->ifiMac);
-    WriteMf(pmf, (char far *)pad->rgfi, cbfi);
+    WriteMf(pmf, (char *)pad->rgfi, cbfi);
     CheckCks(pad->psh, cksCompare, pmf, pad->rgfi, cbfi);
 }
 
 
-/* Write the rged to the file. */
-private void
+// Write the rged to the file.
+void
 FlushEd(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
     CKS cksCompare;
     unsigned cbed;
@@ -1419,17 +1658,18 @@ FlushEd(
     if (pad->pecmd->cmd != cmdStatus &&
         pad->pecmd->cmd != cmdSsync  &&
         pad->pecmd->cmd != cmdLog)
-        ValidateRged(ctWrite, pad->rged, pad->psh->iedMac);
-    WriteMf(pmf, (char far *)pad->rged, cbed);
+        ValidateRged(pad->psh, ctWrite, pad->rged, pad->psh->iedMac);
+    WriteMf(pmf, (char *)pad->rged, cbed);
     CheckCks(pad->psh, cksCompare, pmf, pad->rged, cbed);
 }
 
 
-/* Write the current ed to the file. */
-private void
+// Write the current ed to the file.
+void
 Flush1Ed(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
     AssertF( pad->psh != NULL );
     AssertF( pad->mpiedrgfs != NULL );
@@ -1437,18 +1677,19 @@ Flush1Ed(
     AssertF( pad->mpiedrgfs[pad->iedCur] != NULL );
 
     SeekMf(pmf, PosEd(pad->psh,pad->iedCur), 0);
-    WriteMf(pmf, (char far *)&pad->rged[pad->iedCur], sizeof(ED));
+    WriteMf(pmf, (char *)&pad->rged[pad->iedCur], sizeof(ED));
 }
 
 
-/* Write the rgfs to the file. */
-private void
+// Write the rgfs to the file.
+void
 FlushFs(
     AD *pad,
-    MF *pmf)
+    MF *pmf
+    )
 {
-    register SH far *psh = pad->psh;
-    FS far *rgfs;
+    register SH *psh = pad->psh;
+    FS *rgfs;
     IED ied;
     CKS cksCompare;
     unsigned cbfs;
@@ -1465,30 +1706,31 @@ FlushFs(
                 pad->pecmd->cmd != cmdSsync  &&
                 pad->pecmd->cmd != cmdLog)
                 ValidateRgfs(ctWrite, rgfs, psh->ifiMac);
-            WriteMf(pmf, (char far *)rgfs, cbfs);
+            WriteMf(pmf, (char *)rgfs, cbfs);
             CheckCks(psh, cksCompare, pmf, rgfs, cbfs);
         }
     }
 }
 
 
-/* Called from RunScript to install the updated information for an ed
- * which has been ssync'd.  This merges the current status file (at szStatus)
- * with the new information for one ed (at szTemp).
- *
- * This code is run with interrupts ignored.
- */
+// Called from RunScript to install the updated information for an ed
+// which has been ssync'd.  This merges the current status file (at szStatus)
+// with the new information for one ed (at szTemp).
+//
+// This code is run with interrupts ignored.
+
 F
 FInstall1Ed(
     char *szStatus,
-    char *szTemp)
+    char *szTemp
+    )
 {
     AD ad;
     MF *pmfStatus;
     MF *pmfTemp;
     SH sh;
     IED ied;
-    FS far *rgfs;
+    FS *rgfs;
     int cbRgfs;
     PTH pthStatus[cchPthMax];
     PTH pthTemp[cchPthMax];
@@ -1498,12 +1740,10 @@ FInstall1Ed(
         !FPthLogicalSz(pthTemp, szTemp))
             AssertF(fFalse);
 
-    /* Might as well load the ied here, outside of the lock region. */
+    // Might as well load the ied here, outside of the lock region.
     pmfTemp = PmfOpen(pthTemp, omAReadOnly, fxNil);
-    ReadMf(pmfTemp, (char far *)&ied, sizeof ied);
+    ReadMf(pmfTemp, (char *)&ied, sizeof ied);
     AssertF(ied != iedNil);
-//    AssertLogFail(ctRead, ied >= 0); ied is unsigned
-//    AssertLogFail(ctRead, ied < MAXED);
 
     while ((pmfStatus = PmfOpen(pthStatus, omReadWrite, fxNil)) == 0) {
         if (!FQueryApp("cannot open %s", "retry", pthStatus)) {
@@ -1512,9 +1752,7 @@ FInstall1Ed(
         }
     }
 
-#if defined(_WIN32)
-    ad.fMappedStatus = fFalse;
-#endif
+    ad.fMappedIO = fFalse;
     ad.psh = &sh;
 
     if (!FLockMf(pmfStatus)) {
@@ -1524,47 +1762,53 @@ FInstall1Ed(
         return fFalse;
     }
 
-    /* Status file is now locked.  Load the current sh and rged, unlock
-     * the rged[ied].  Copy the new rgfs, update the ed and the sh.
-     */
+    // Status file is now locked.  Load the current sh and rged, unlock
+    // the rged[ied].  Copy the new rgfs, update the ed and the sh.
+
     ad.rged = NULL;
+    rgfs = NULL;
     if (!FLoadSh(&ad, ad.psh, pmfStatus) ||
-        (ad.rged = (ED far *)LpbResStat(ad.psh->iedMac * sizeof(ED))) == 0) {
+        (ad.rged = (ED *)LpbResStat(ad.psh->iedMac * sizeof(ED))) == 0 ||
+        (rgfs    = (FS *)LpbResStat(ad.psh->ifiMac * sizeof(FS))) == 0
+       ) {
         CloseMf(pmfTemp);
         CloseMf(pmfStatus);
-        if (ad.rged != NULL)
-            FreeResStat((char far *)ad.rged);
+        if (ad.rged != NULL) {
+            FreeResStat((char *)ad.rged);
+        }
+        if (rgfs != NULL) {
+            FreeResStat((char *)rgfs);
+        }
         return fFalse;
     }
 
-    /* read rged from status file */
+    // read rged from status file
     SeekMf(pmfStatus, PosRged(ad.psh), 0);
-    ReadMf(pmfStatus, (char far *)ad.rged, ad.psh->iedMac * sizeof(ED));
-    ValidateRged(ctRead, ad.rged, ad.psh->iedMac);
+    ReadMf(pmfStatus, (char *)ad.rged, ad.psh->iedMac * sizeof(ED));
+    ValidateRged(ad.psh, ctRead, ad.rged, ad.psh->iedMac);
 
-    /* read individual ed from temp file */
-    ReadMf(pmfTemp, (char far *)&ad.rged[ied], sizeof(ED));
-    ValidateRged(ctRead, ad.rged, ad.psh->iedMac);  /* check all ED's again! */
+    // read individual ed from temp file
+    ReadMf(pmfTemp, (char *)&ad.rged[ied], sizeof(ED));
+    ValidateRged(ad.psh, ctRead, ad.rged, ad.psh->iedMac);  // check all ED's again!
     UnlockEd(ad.psh, ad.rged, ied);
 
-    /* write single ed to status file */
+    // write single ed to status file
     SetCks(ad.psh, cksCompare, &ad.rged[ied], sizeof(ED));
     SeekMf(pmfStatus, PosEd(ad.psh, ied), 0);
-    ValidateRged(ctWrite, &ad.rged[ied], 1);
-    WriteMf(pmfStatus, (char far *)&ad.rged[ied], sizeof(ED));
+    ValidateRged(ad.psh, ctWrite, &ad.rged[ied], 1);
+    WriteMf(pmfStatus, (char *)&ad.rged[ied], sizeof(ED));
     CheckCks(ad.psh, cksCompare, pmfStatus, &ad.rged[ied], sizeof(ED));
 
-    /* read rgfs from temp file */
+    // read rgfs from temp file
     cbRgfs = ad.psh->ifiMac * sizeof(FS);
-    rgfs = (FS far *)LpbResStat(cbRgfs);
-    ReadMf(pmfTemp, (char far *)rgfs, cbRgfs);
+    ReadMf(pmfTemp, (char *)rgfs, cbRgfs);
     ValidateRgfs(ctRead, rgfs, ad.psh->ifiMac);
 
-    /* write rgfs to status file */
+    // write rgfs to status file
     SetCks(ad.psh, cksCompare, rgfs, cbRgfs);
     SeekMf(pmfStatus, PosRgfsIed(ad.psh, ied), 0);
     ValidateRgfs(ctWrite, rgfs, ad.psh->ifiMac);
-    WriteMf(pmfStatus, (char far *)rgfs, cbRgfs);
+    WriteMf(pmfStatus, (char *)rgfs, cbRgfs);
     CheckCks(ad.psh, cksCompare, pmfStatus, rgfs, cbRgfs);
 
     FlushSh(ad.psh, pmfStatus);
@@ -1572,22 +1816,23 @@ FInstall1Ed(
     CloseMf(pmfStatus);
     CloseMf(pmfTemp);
 
-    FreeResStat((char far *)rgfs);
-    FreeResStat((char far *)ad.rged);
+    FreeResStat((char *)rgfs);
+    FreeResStat((char *)ad.rged);
 
     return fTrue;
 }
 
 
-/* Unlock the status file and free the memory associated with the status; may
- * be called after partially loading the status file.  All files must be closed.
- *
- * This code can be called from Abort (in which case interrupts are already
- * ignored) and from user's code; to play it safe we also ignore them.
- */
+// Unlock the status file and free the memory associated with the status; may
+// be called after partially loading the status file.  All files must be closed.
+//
+// This code can be called from Abort (in which case interrupts are already
+// ignored) and from user's code; to play it safe we also ignore them.
+
 void
 AbortStatus(
-    void)
+    void
+    )
 {
     register AD *pad = padStatus;
 
@@ -1596,24 +1841,21 @@ AbortStatus(
 
     DeferSignals("aborting");
 
-    if (padStatus->fWLock)
-    {
+    if (padStatus->fWLock) {
         register MF *pmf;
         PTH pth[cchPthMax];
         SH sh;
-        SH far *psh = &sh;
+        SH *psh = &sh;
 
         AssertF(pad->psh != 0);
         AssertF(pad->psh->lck != lckNil);
 
-        if ((pmf = PmfOpen(PthForStatus(pad, pth), omReadWrite, fxNil))== 0)
-        {
+        if ((pmf = PmfOpen(PthForStatus(pad, pth), omReadWrite, fxNil))== 0) {
             Error("cannot open status for %&P/C to clear lock\nrun sadmin unlock for %&P/C\n", pad, pad);
             goto unlock;
         }
 
-        if (!FLockMf(pmf))
-        {
+        if (!FLockMf(pmf)) {
             Error("lock for %&P/C not cleared\nrun sadmin unlock for %&P/C\n", pad, pad);
             goto closeUnlock;
         }
@@ -1621,16 +1863,15 @@ AbortStatus(
         if (!FLoadSh(pad, psh, pmf) || !FCheckSh(pad, psh))
             goto closeUnlock;
 
-        if (pad->psh->lck == lckEd)
-        {
+        if (pad->psh->lck == lckEd) {
             LCK lckWas;
             CKS cksCompare;
 
             AssertF(pad->iedCur != iedNil);
 
-            /* Must load entire rged, it might have changed since
-             * it was initially loaded.
-             */
+            // Must load entire rged, it might have changed since it was
+            // initially loaded.
+
             if (!FLoadEd(pad, pmf, fFalse))
                 AssertF(fFalse);
 
@@ -1639,20 +1880,18 @@ AbortStatus(
 
             CheckForBreak();
 
-            /* Don't need to write entire rged, just this one */
+            // Don't need to write entire rged, just this one
             SetCks(pad->psh, cksCompare, pad->rged + pad->iedCur, sizeof(ED));
             SeekMf(pmf, PosRged(psh) + pad->iedCur * sizeof(ED), 0);
-            ValidateRged(ctWrite, pad->rged + pad->iedCur, 1);
-            WriteMf(pmf, (char far *)(pad->rged + pad->iedCur), sizeof(ED));
+            ValidateRged(pad->psh, ctWrite, pad->rged + pad->iedCur, 1);
+            WriteMf(pmf, (char *)(pad->rged + pad->iedCur), sizeof(ED));
             CheckCks(pad->psh, cksCompare, pmf, pad->rged + pad->iedCur, sizeof(ED));
 
-            /* Only need to write sh if it changes the on-disk sh,
-             * but write the whole thing out just to be safe.
-             */
+            // Only need to write sh if it changes the on-disk sh,
+            // but write the whole thing out just to be safe.
+
             FlushSh(psh, pmf);
-        }
-        else
-        {
+        } else {
             UnlockAll(psh);
             FlushSh(psh, pmf);
         }
@@ -1665,18 +1904,19 @@ unlock:
 
     FreeStatus(pad);
 
-    padStatus = 0;                  /* forget saved pad */
+    padStatus = 0;                  // forget saved pad
 
     RestoreSignals();
 }
 
 
-/* simulate FLoadStatus() for a new status file */
+// simulate FLoadStatus() for a new status file
 F
 FFakeStatus(
-    AD *pad)
+    AD *pad
+    )
 {
-    register SH far *psh;
+    register SH *psh;
     MF *pmf;
     PTH pth[cchPthMax];
 
@@ -1686,23 +1926,22 @@ FFakeStatus(
     AssertF(!FEmptyPth(pad->pthSRoot));
     AssertF(!FEmptyPth(pad->pthURoot));
 
-    /* Create a fake status so the script can rename something.
-     * This operation doesn't write a script entry.
-     */
+    // Create a fake status so the script can rename something.
+    // This operation doesn't write a script entry.
+
     pmf = PmfAlloc(PthForStatus(pad, pth), (char *)0, fxGlobal);
-    if (fVerbose)
-    {
-        /* print as if we created the original file */
+    if (fVerbose) {
+        // print as if we created the original file
         PrErr("Create %!s%s\n", pth, SzForMode(permSysFiles));
     }
     CreateMf(pmf, permSysFiles);
     CloseMf(pmf);
 
-    psh = PshAlloc();
+    psh = PshAlloc(fFalse);
     AssertF(psh != 0);
     pad->psh = psh;
 
-    /* build an sh, pretend it is locked by the user */
+    // build an sh, pretend it is locked by the user
     INIT_SH(*psh);
     psh->lck = lckAll;
     NmCopy(psh->nmLocker, pad->nmInvoker, cchUserMax);
@@ -1711,39 +1950,39 @@ FFakeStatus(
     pad->fExtraEd = fFalse;
     pad->iedCur = iedNil;
 
-    if (!FAllocStatus(pad) || !FInitScript(pad, lckAll))
-    {
+    if (!FAllocStatus(pad) || !FInitScript(pad, lckAll)) {
         Abort();
         return fFalse;
     }
 
-    /* Now it is safe to set fWLock. */
+    // Now it is safe to set fWLock.
     pad->fWLock = fTrue;
 
-    /* now use FlushStatus or AbortStatus as appropriate */
+    // now use FlushStatus or AbortStatus as appropriate
     return fTrue;
 }
 
 
-/* create a copy of the current status file in $slm/etc/$project/$subdir */
+// create a copy of the current status file in $slm/etc/$project/$subdir
 void
 CreateStatus(
-    AD *padCur,     /* current, registered ad */
-    AD *padNew)     /* should be a copy of pad with a different subdir; not registered for abort */
+    AD *padCur,     // current, registered ad
+    AD *padNew      // should be a copy of pad with a different subdir; not registered for abort
+    )
 {
     MF *pmf;
     PTH pth[cchPthMax];
     SH sh;
-    SH far *pshCur = padCur->psh;
+    SH *pshCur = padCur->psh;
 
     AssertF(pshCur != 0);
     AssertF(!FEmptyNm(padCur->nmProj));
     AssertF(!FEmptyPth(padCur->pthSRoot));
 
-    /* make padNew refer to the same status as padCur except that there
-       will be no files in the directory.
-    */
-    INIT_SH(sh);                    /* start with pristine SH */
+    // make padNew refer to the same status as padCur except that there
+    // will be no files in the directory.
+
+    INIT_SH(sh);                    // start with pristine SH
     sh.iedMac   = pshCur->iedMac;
     sh.pv       = pshCur->pv;
     sh.fRelease = pshCur->fRelease;
@@ -1751,58 +1990,55 @@ CreateStatus(
     sh.version  = pshCur->version;
     PthCopy(sh.pthSSubDir, padNew->pthSSubDir);
 
-    padNew->psh = (SH far *)&sh;    /* do NOT free */
-    padNew->rgfi = padCur->rgfi;    /* do NOT free */
+    padNew->psh = (SH *)&sh;    // do NOT free
+    padNew->rgfi = padCur->rgfi;    // do NOT free
     padNew->cfiAdd = 0;
-    padNew->rged = padCur->rged;    /* copy pointer; do NOT free */
-    padNew->mpiedrgfs = padCur->mpiedrgfs;  /* do NOT free */
+    padNew->rged = padCur->rged;    // copy pointer; do NOT free
+    padNew->mpiedrgfs = padCur->mpiedrgfs;  // do NOT free
     padNew->fExtraEd = fFalse;
     padNew->iedCur = iedNil;
-#if defined(_WIN32)
-    padNew->fMappedStatus = fFalse;
-#endif
+    padNew->fMappedIO = fFalse;
 
-    /* ensure owner and mode are correct */
-    pmf = PmfCreate(PthForStatus(padNew, pth), permSysFiles, fTrue,
-                    fxGlobal);
+    // ensure owner and mode are correct
+    pmf = PmfCreate(PthForStatus(padNew, pth), permSysFiles, fTrue, fxGlobal);
 
     FlushSh(padNew->psh, pmf);
-    /* no need to FlushFi since there aren't any */
+    // no need to FlushFi since there aren't any
     FlushEd(padNew, pmf);
     FlushFs(padNew, pmf);
 
     CloseMf(pmf);
 
-    /* reset the pointers so they will not be freed */
+    // reset the pointers so they will not be freed
     padNew->psh       = 0;
     padNew->rgfi      = 0;
     padNew->rged      = 0;
     padNew->mpiedrgfs = 0;
 }
 
-/* Called from -p/subdir arg processing, search subdir's status file for a
- * rged[].pthEd which matches the current directory.
- *
- * If found, make pthURoot <- pthEd  and  pthUSubDir <- pthCWD - pthEd.
- * If not,   make pthURoot <- pthCWD and  pthUSubDir <- "/".
- */
+// Called from -p/subdir arg processing, search subdir's status file for a
+// rged[].pthEd which matches the current directory.
+//
+// If found, make pthURoot <- pthEd  and  pthUSubDir <- pthCWD - pthEd.
+// If not,   make pthURoot <- pthCWD and  pthUSubDir <- "/".
+
 void
 InferUSubDir(
-    AD *pad)
+    AD *pad
+    )
 {
     IED ied;
-    PTH pthEd[cchPthMax];
+    PTH pthEd[2 * cchPthMax];       // enough for pad->rged[ied].pthEd + pad->psh->pthSSubDir
     int cchURoot;
 
-    if (PthCmp(pad->pthUSubDir, "/") != 0)
-    {
+    if (PthCmp(pad->pthUSubDir, "/") != 0) {
         PthCat(pad->pthURoot, pad->pthUSubDir);
         PthCopy(pad->pthUSubDir, "/");
     }
 
-    /* PthURoot should now be the current working directory. */
+    // PthURoot should now be the current working directory.
 
-    /* REVIEW.  Assert pthURoot is now the CWD. */
+    // REVIEW.  Assert pthURoot is now the CWD.
     BLOCK   {
         PTH pthCWD[cchPthMax];
 
@@ -1813,44 +2049,211 @@ InferUSubDir(
     if (!FLoadStatus(pad, lckNil, flsJustEd))
         return;
 
-    if (pad->iedCur != iedNil)
-    {
+    if (pad->iedCur != iedNil) {
         FlushStatus(pad);
         return;
     }
 
-    /* Search through rged[].pthEd for a pthEd which, when concatenated
-     * with psh->pthSSubDir, yields pthCWD.  (Otherwise similar to
-     * FindIedCur).
-     */
-    pad->iedCur = iedNil;
-    for (ied = 0; ied < pad->psh->iedMac; ied++)
-    {
-        PthCopy(pthEd, pad->rged[ied].pthEd);
-        if (PthCmp(pad->psh->pthSSubDir, "/") != 0)
-            PthCat(pthEd, pad->psh->pthSSubDir);
+    // Search through rged[].pthEd for a pthEd which, when concatenated with
+    // psh->pthSSubDir, yields pthCWD.  (Otherwise similar to FindIedCur).
 
-        if (PthCmp(pad->pthURoot, pthEd) == 0)
-        {
-            pad->iedCur = ied;
-            break;
+    pad->iedCur = iedNil;
+    for (ied = 0; ied < pad->psh->iedMac; ied++) {
+        if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) {
+            PthCopy(pthEd, pad->rged[ied].pthEd);
+            if (PthCmp(pad->psh->pthSSubDir, "/") != 0)
+                PthCat(pthEd, pad->psh->pthSSubDir);
+
+            if (PthCmp(pad->pthURoot, pthEd) == 0) {
+                pad->iedCur = ied;
+                break;
+            }
         }
     }
 
-    if (ied >= pad->psh->iedMac)    /* no match? */
-    {
+    if (ied >= pad->psh->iedMac) {   // no match?
         FlushStatus(pad);
         return;
     }
 
-    /* Copy remaining part of pthURoot to pthUSubDir.  There must be a
-     * remaining part because FindIedCur would otherwise have matched
-     * pthURoot to some rged[].pthEd.
-     */
+    // Copy remaining part of pthURoot to pthUSubDir.  There must be a
+    // remaining part because FindIedCur would otherwise have matched
+    // pthURoot to some rged[].pthEd.
+
     cchURoot = CchOfPth(pad->rged[ied].pthEd);
     AssertF(pad->pthURoot[cchURoot] != 0);
     PthCopy(pad->pthUSubDir, pad->pthURoot + cchURoot);
     pad->pthURoot[cchURoot] = 0;
 
     FlushStatus(pad);
+}
+
+
+
+typedef struct _IED_CACHE_FILE_RECORD {
+    IED iedCached;                  /* Cached ED index */
+    PTH pthUSubDirCached[cchPthMax]; /* Cached ED subdirectory path */
+} IED_CACHE_FILE_RECORD, *PIED_CACHE_FILE_RECORD;
+
+typedef struct _IED_CACHE_FILE {
+    IED iedMac;                     /* Number of cached EDs */
+    PTH pthEd[cchPthMax];           /* ED path of root */
+    IED_CACHE_FILE_RECORD rgIedCache[1];
+} IED_CACHE_FILE, *PIED_CACHE_FILE;
+
+HANDLE hIedCache;
+PIED_CACHE_FILE pIedCache;
+PIED_CACHE_FILE_RECORD pIedCacheLastLookup;
+
+/*
+   load ied cache information from iedcache.slm in the pthURoot directory
+*/
+PTH pthIedCache[cchPthMax];
+
+F
+FLoadIedCache(
+    AD *pad
+    )
+{
+    F fOk;
+
+    if (pad->flags&(flagSlmRootOverride|flagProjectOverride))
+        if (pad->pecmd->cmd != cmdEnlist)
+            return fFalse;
+
+    SzPrint(pthIedCache, "%&/U/iedcache.slm", pad);
+    fOk = OpenMappedFile(pthIedCache,
+                         TRUE,
+                         FIELD_OFFSET(IED_CACHE_FILE, rgIedCache),
+                         &hIedCache,
+                         &pIedCache
+                        );
+    if (fOk == fTrue && pIedCache->iedMac == 0)
+        PthCopy(pIedCache->pthEd, pad->pthURoot);
+
+    pIedCacheLastLookup = NULL;
+    return fOk;
+}
+
+void
+RemoveIedCache(
+    AD *pad
+    )
+{
+    PTH pth[cchPthMax];
+
+    FUnloadIedCache();
+    SzPrint(pthIedCache, "%&/U/iedcache.slm", pad);
+    UnlinkPth(pthIedCache, fxLocal);
+}
+
+int
+_CRTAPI1
+IedCacheCmpRoutine(
+    const void *key,
+    const void *elem
+    )
+{
+    PTH *pKey = (PTH *)key;
+    PIED_CACHE_FILE_RECORD pElem = (PIED_CACHE_FILE_RECORD)elem;
+
+    // printf("IedCacheCmp( %s, %s ) == %d\n", pKey, pElem->pthUSubDirCached, PthCmp(pKey, pElem->pthUSubDirCached) );
+
+    return PthCmp(pKey, pElem->pthUSubDirCached);
+}
+
+IED
+FLookupIedCache(
+    AD *pad
+    )
+{
+    PIED_CACHE_FILE_RECORD pMatch;
+
+    if (pad->pecmd->cmd != cmdEnlist && pIedCache != NULL)
+    {
+        pMatch = bsearch(pad->pthUSubDir,
+                         pIedCache->rgIedCache,
+                         pIedCache->iedMac,
+                         sizeof(IED_CACHE_FILE_RECORD),
+                         IedCacheCmpRoutine);
+        if (pMatch != NULL)
+        {
+            pIedCacheLastLookup = pMatch;
+            return pMatch->iedCached;
+        }
+    }
+
+    pIedCacheLastLookup = NULL;
+    return iedNil;
+}
+
+void
+FInvalidateLastLookupIedCache(void)
+{
+    if (pIedCacheLastLookup != NULL)
+        pIedCacheLastLookup->iedCached = iedNil;
+
+    return;
+}
+
+int
+_CRTAPI1
+IedCacheSortRoutine(
+    const void *arg1,
+    const void *arg2
+    )
+{
+    PIED_CACHE_FILE_RECORD p1 = (PIED_CACHE_FILE_RECORD)arg1;
+    PIED_CACHE_FILE_RECORD p2 = (PIED_CACHE_FILE_RECORD)arg2;
+
+    // printf("IedSortCmp( %s, %s ) == %d\n", p1->pthUSubDirCached, p2->pthUSubDirCached, PthCmp(p1->pthUSubDirCached, p2->pthUSubDirCached) );
+
+    return PthCmp(p1->pthUSubDirCached, p2->pthUSubDirCached);
+}
+
+F
+FUpdateIedCache(
+    IED ied,
+    AD *pad
+    )
+{
+    PIED_CACHE_FILE_RECORD pNew;
+    unsigned cb;
+
+    if (pad->pecmd->cmd != cmdDefect && pIedCache != NULL)
+    {
+        if (pIedCacheLastLookup != NULL) {
+            pIedCacheLastLookup->iedCached = ied;
+            PthCopy(pIedCacheLastLookup->pthUSubDirCached, pad->pthUSubDir);
+        }
+        else {
+            cb = FIELD_OFFSET(IED_CACHE_FILE, rgIedCache) +
+                (pIedCache->iedMac+1) * sizeof(IED_CACHE_FILE_RECORD);
+            if (GrowMappedFile(hIedCache, &pIedCache, cb))
+            {
+                pNew = &pIedCache->rgIedCache[ pIedCache->iedMac ];
+                pIedCache->iedMac += 1;
+                pNew->iedCached = ied;
+                PthCopy(pNew->pthUSubDirCached, pad->pthUSubDir);
+                qsort(pIedCache->rgIedCache,
+                      pIedCache->iedMac,
+                      sizeof(IED_CACHE_FILE_RECORD),
+                      IedCacheSortRoutine);
+
+                // if (pad->psh->version == VERSION)
+                //     Warn("Remembering enlistment index (%u) for %s\n",ied, pad->pthUSubDir);
+                return fTrue;
+            }
+        }
+    }
+
+    return fFalse;
+}
+
+
+void
+FUnloadIedCache(void)
+{
+    CloseMappedFile(pthIedCache, &hIedCache, &pIedCache);
+    return;
 }

@@ -2,31 +2,13 @@
 *                                                                           *
 * windef.h -- Basic Windows Type Definitions                                *
 *                                                                           *
-* Copyright (c) 1985-1994, Microsoft Corp. All rights reserved.             *
+* Copyright (c) 1985-1996, Microsoft Corp. All rights reserved.             *
 *                                                                           *
 ****************************************************************************/
 
-/*++ BUILD Version: 0003    // Increment this if a change has global effects ;internal_NT
-                                                                         ;internal_NT
-Copyright (c) 1985-91, Microsoft Corporation                             ;internal_NT
-                                                                         ;internal_NT
-Module Name:                                                             ;internal_NT
-                                                                         ;internal_NT
-    windefp.h                                                            ;internal_NT
-                                                                         ;internal_NT
-Abstract:                                                                ;internal_NT
-                                                                         ;internal_NT
-    Private                                                              ;internal_NT
-    Procedure declarations, constant definitions and macros for the Basic ;internal_NT
-    Windows Types                                                        ;internal_NT
-                                                                         ;internal_NT
---*/                                                                     ;internal_NT
 
 #ifndef _WINDEF_        
 #define _WINDEF_
-
-#ifndef _WINDEFP_       ;internal_NT
-#define _WINDEFP_       ;internal_NT
 
 #ifndef NO_STRICT       ;public_NT
 #ifndef STRICT          ;public_NT
@@ -34,9 +16,9 @@ Abstract:                                                                ;intern
 #endif                  ;public_NT
 #endif /* NO_STRICT */  ;public_NT
 
-#ifdef __cplusplus      ;both
-extern "C" {            ;both
-#endif                  ;both
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef WINVER          ;public_win40
 #define WINVER 0x0400   ;public_win40 
@@ -93,7 +75,7 @@ typedef char *PSZ;
 
 #define far
 #define near
-#if (_MSC_VER >= 800)
+#if (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED)
 #define pascal __stdcall
 #else
 #define pascal
@@ -111,7 +93,7 @@ typedef char *PSZ;
 #endif
 #endif
 
-#if (_MSC_VER >= 800)
+#if (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED)
 #define CALLBACK    __stdcall
 #define WINAPI      __stdcall
 #define WINAPIV     __cdecl
@@ -250,7 +232,7 @@ typedef struct tagRECT
     LONG    bottom;
 } RECT, *PRECT, NEAR *NPRECT, FAR *LPRECT;
 
-typedef const RECT FAR* LPCRECT;        ;public_chicago
+typedef const RECT FAR* LPCRECT;
 
 typedef struct _RECTL       /* rcl */
 {
@@ -260,7 +242,7 @@ typedef struct _RECTL       /* rcl */
     LONG    bottom;
 } RECTL, *PRECTL, *LPRECTL;
 
-typedef const RECTL FAR* LPCRECTL;      ;public_chicago
+typedef const RECTL FAR* LPCRECTL;
 
 typedef struct tagPOINT
 {
@@ -320,98 +302,8 @@ typedef struct tagPOINTS
 #define DC_ORIENTATION      17
 #define DC_COPIES           18
 
-#ifdef __cplusplus  ;both
-}                   ;both
-#endif              ;both
-
-;begin_internal_NT
-#ifndef _WINDEFP_NO_PDEVBRUSH
-typedef PVOID   PDEVBRUSH;
+#ifdef __cplusplus
+}
 #endif
-
-typedef ULONG   LBOOL;
-typedef ULONG   RBOOL;
-
-typedef ULONG   COLOR;
-typedef ULONG   COUNT;
-typedef ULONG   PID;
-typedef ULONG	TID;
-
-// Note: these are not duplicates of types declared in ntdef.h, so
-//	 you don't need to delete them.  Really, you don't.
-
-#define CHAR_TO_WCHAR(ch)      ((WCHAR) ((UCHAR) (ch)))
-
-
-typedef PVOID *PPVOID;
-
-/* DEFALULT NEAR FONT MAPPER WEIGHTS */
-
-#define NEAR_WT_FACENAME          0
-#define NEAR_WT_FAMILYNAME        0
-#define NEAR_WT_AVGWIDTH        250
-#define NEAR_WT_XHEIGHT         100
-#define NEAR_WT_SIZE            250
-#define NEAR_WT_TECH              0
-#define NEAR_WT_PANOSE          500
-#define NEAR_WT_PANFAMILY         0
-#define NEAR_WT_PANSERIF          7
-#define NEAR_WT_PANWEIGHT         7
-#define NEAR_WT_PANPROP           5
-#define NEAR_WT_PANCONTRAST       6
-#define NEAR_WT_PANSTROKEVAR      4
-#define NEAR_WT_PANARMSTYLE       3
-#define NEAR_WT_PANLETTER         5
-#define NEAR_WT_PANMIDLINE        9
-#define NEAR_WT_PANXHEIGHT        1
-#define NEAR_WT_CHARSET         900
-
-/* DEFAULT FAR FONT MAPPER WEIGHTS */
-
-#define FAR_WT_FACENAME           0
-#define FAR_WT_FAMILYNAME         0
-#define FAR_WT_AVGWIDTH         250
-#define FAR_WT_XHEIGHT          100
-#define FAR_WT_SIZE             250
-#define FAR_WT_TECH               0
-#define FAR_WT_PANOSE           300
-#define FAR_WT_PANFAMILY          0
-#define FAR_WT_PANSERIF           8
-#define FAR_WT_PANWEIGHT          5
-#define FAR_WT_PANPROP            3
-#define FAR_WT_PANCONTRAST        2
-#define FAR_WT_PANSTROKEVAR       2
-#define FAR_WT_PANARMSTYLE        2
-#define FAR_WT_PANLETTER          2
-#define FAR_WT_PANMIDLINE         1
-#define FAR_WT_PANXHEIGHT         4
-#define FAR_WT_CHARSET          900
-
-/* DEFAULT FONT MAPPER CRITICAL DISTANCES */
-
-#define FAR_DIST_FACENAME        10
-#define FAR_DIST_FAMILYNAME      10
-#define FAR_DIST_AVGWIDTH        10
-#define FAR_DIST_XHEIGHT         10
-#define FAR_DIST_SIZE            10
-#define FAR_DIST_TECH            10
-#define FAR_DIST_PANOSE          10
-#define FAR_DIST_PANFAMILY       10
-#define FAR_DIST_PANSERIF        10
-#define FAR_DIST_PANWEIGHT       10
-#define FAR_DIST_PANPROP         10
-#define FAR_DIST_PANCONTRAST     10
-#define FAR_DIST_PANSTROKEVAR    10
-#define FAR_DIST_PANARMSTYLE     10
-#define FAR_DIST_PANLETTER       10
-#define FAR_DIST_PANMIDLINE      10
-#define FAR_DIST_PANXHEIGHT      10
-#define FAR_DIST_CHARSET         10
-
-/* DEFAULT MAX DISTANCE SUM FOR FONT MAPPER */
-
-#define FM_DISTSETSUM_MAX       1000
-#endif /* _WINDEFP_ */ 
-;end_internal_NT
 
 #endif /* _WINDEF_ */   

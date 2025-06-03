@@ -15,7 +15,7 @@
 
     .286p
 
-;    .xlist
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
@@ -42,7 +42,7 @@ assumes ES,NOTHING
     UserThunk   GETWINDOWDC
     DUserThunk  GETWINDOWLONG
     UserThunk   GETWINDOWTASK
-    UserThunk   GETWINDOWTEXT
+    EUserThunk  GETWINDOWTEXT       ;Use the empty buffer user thunk.
     UserThunk   GETWINDOWTEXTLENGTH
     DUserThunk  GETWINDOWWORD
     DUserThunk  GLOBALADDATOM
@@ -53,22 +53,32 @@ assumes ES,NOTHING
     UserThunk   HIDECARET
     UserThunk   HILITEMENUITEM
     DUserThunk  ICONSIZE            ;;;;;;
-;;;    UserThunk   INFLATERECT	    ; LOCALAPI in winrect.asm
+;;; UserThunk   INFLATERECT      ; LOCALAPI in winrect.asm
 ;;; DUserThunk  INITAPP           ;LOCALAPI in user.asm
     DUserThunk  INSENDMESSAGE,0
     UserThunk   INSERTMENU
-;;;    UserThunk   INTERSECTRECT  ; LOCALAPI in winrect.asm
+;;; UserThunk   INTERSECTRECT  ; LOCALAPI in winrect.asm
     UserThunk   INVALIDATERECT
     UserThunk   INVALIDATERGN
     UserThunk   INVERTRECT
-;;; UserThunk   ISCHARALPHA         ;LOCALAPI in winlang.asm
-;;; UserThunk   ISCHARALPHANUMERIC      ;LOCALAPI in winlang.asm
-;;; UserThunk   ISCHARLOWER         ;LOCALAPI in winlang.asm
-;;; UserThunk   ISCHARUPPER         ;LOCALAPI in winlang.asm
+
+    ; Hack to use original IDs.  These functions have local implementations
+    ; that thunk to Win32 if the locale is other than U.S. English.
+
+    FUN_WIN32ISCHARALPHA        equ FUN_ISCHARALPHA
+    FUN_WIN32ISCHARALPHANUMERIC equ FUN_ISCHARALPHANUMERIC
+    FUN_WIN32ISCHARLOWER        equ FUN_ISCHARLOWER
+    FUN_WIN32ISCHARUPPER        equ FUN_ISCHARUPPER
+
+    DUserThunk  WIN32ISCHARALPHA,        %(size ISCHARALPHA16)
+    DUserThunk  WIN32ISCHARALPHANUMERIC, %(size ISCHARALPHANUMERIC16)
+    DUserThunk  WIN32ISCHARLOWER,        %(size ISCHARLOWER16)
+    DUserThunk  WIN32ISCHARUPPER,        %(size ISCHARUPPER16)
+
     DUserThunk  ISCLIPBOARDFORMATAVAILABLE
     UserThunk   ISDIALOGMESSAGE
     UserThunk   ISDLGBUTTONCHECKED
-;;;    UserThunk   ISRECTEMPTY	       ; LOCALAPI in winrect.asm
+;;; UserThunk   ISRECTEMPTY         ; LOCALAPI in winrect.asm
     DUserThunk  ISTWOBYTECHARPREFIX        ;;;;;;
     DUserThunk  ISUSERIDLE
     DUserThunk  KILLSYSTEMTIMER        ;;;;;
@@ -101,11 +111,12 @@ FUN_WOWLOADMENU EQU FUN_LOADMENU
     DUserThunk  LOCKMYTASK
     DUserThunk  LOOKUPMENUHANDLE
 
-    ; Hack to use original IDs
+    ; Hack to use original IDs.  These functions have local implementations
+    ; that thunk to Win32 if the locale is other than U.S. English.
     FUN_WIN32LSTRCMP equ FUN_LSTRCMP
     FUN_WIN32LSTRCMPI equ FUN_LSTRCMPI
 
-    DUserThunk  WIN32LSTRCMP, %(size LSTRCMP16)
+    DUserThunk  WIN32LSTRCMP,  %(size LSTRCMP16)
     DUserThunk  WIN32LSTRCMPI, %(size LSTRCMPI16)
 
 sEnd    CODE

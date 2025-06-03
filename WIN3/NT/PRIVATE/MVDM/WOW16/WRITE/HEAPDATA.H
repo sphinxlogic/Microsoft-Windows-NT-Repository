@@ -63,4 +63,3 @@ extern int     *memory;
 
 #define ibpMaxSmall (30)  /* pages in rgbp if we were in a tight memory environment */
 #define ibpMaxBig   (60)  /* pages in rgbp if we were in a bigger memory environment */
-

@@ -1,5 +1,5 @@
 //
-// Entry points in string.c
+// Entry points in strings.c
 //
 
 PSTRING
@@ -21,11 +21,4 @@ PSTRING
 CopyString(
     OUT PSTRING DestString OPTIONAL,
     IN PSTRING SourceString
-    );
-
-LONG
-CompareString(
-    IN PSTRING String1,
-    IN PSTRING String2,
-    IN BOOLEAN IsCaseSensitive
     );

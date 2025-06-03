@@ -23,18 +23,30 @@ Revision History:
 
 #include    "cmp.h"
 
+//
+// Private function prototypes
+//
+BOOLEAN
+HvpCoalesceDiscardedBins(
+    IN PHHIVE Hive,
+    IN ULONG NeededSize,
+    IN HSTORAGE_TYPE Type
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,HvpAddBin)
 #pragma alloc_text(PAGE,HvpFreeMap)
 #pragma alloc_text(PAGE,HvpAllocateMap)
+#pragma alloc_text(PAGE,HvpCoalesceDiscardedBins)
 #endif
+
 
 
 PHBIN
 HvpAddBin(
-    PHHIVE  Hive,
-    ULONG   NewSize,
-    HSTORAGE_TYPE   Type
+    IN PHHIVE  Hive,
+    IN ULONG   NewSize,
+    IN HSTORAGE_TYPE   Type
     )
 /*++
 
@@ -78,6 +90,7 @@ Return Value:
     PULONG          NewVector;
     PLIST_ENTRY     Entry;
     PFREE_HBIN      FreeBin;
+    ULONG           TotalDiscardedSize;
 
 
     CMLOG(CML_FLOW, CMS_HIVE) {
@@ -105,14 +118,21 @@ Return Value:
     //
     // see if there's a discarded HBIN of the right size
     //
+    TotalDiscardedSize = 0;
+
+Retry:
+
     Entry = Hive->Storage[Type].FreeBins.Flink;
     while (Entry != &Hive->Storage[Type].FreeBins) {
         FreeBin = CONTAINING_RECORD(Entry,
                                     FREE_HBIN,
                                     ListEntry);
+        TotalDiscardedSize += FreeBin->Size;
         if (FreeBin->Size >= NewSize) {
 
-            if (!HvMarkDirty(Hive, FreeBin->FileOffset, FreeBin->Size)) {
+            if (!HvMarkDirty(Hive,
+                             FreeBin->FileOffset + (Type * HCELL_TYPE_MASK),
+                             FreeBin->Size)) {
                 goto ErrorExit1;
             }
             NewSize = FreeBin->Size;
@@ -136,17 +156,44 @@ Return Value:
         Entry = Entry->Flink;
     }
 
+    if ((Entry == &Hive->Storage[Type].FreeBins) &&
+        (TotalDiscardedSize >= NewSize)) {
+        //
+        // No sufficiently large discarded bin was found,
+        // but the total discarded space is large enough.
+        // Attempt to coalesce adjacent discarded bins into
+        // a larger bin and retry.
+        //
+        if (HvpCoalesceDiscardedBins(Hive, NewSize, Type)) {
+            goto Retry;
+        }
+    }
+
     //
     //  Attempt to allocate the bin.
     //
     UseForIo = (BOOLEAN)((Type == Stable) ? TRUE : FALSE);
-    NewBin = (Hive->Allocate)(NewSize, UseForIo);
-    if (NewBin == NULL) {
-        if (Entry != &Hive->Storage[Type].FreeBins) {
+    if (Entry != &Hive->Storage[Type].FreeBins) {
+        //
+        // Note we use ExAllocatePool directly here to avoid
+        // charging quota for this bin again. When a bin
+        // is discarded, its quota is not returned. This prevents
+        // sparse hives from requiring more quota after
+        // a reboot than on a running system.
+        //
+        NewBin = ExAllocatePoolWithTag((UseForIo) ? PagedPoolCacheAligned : PagedPool,
+                                       NewSize,
+                                       CM_POOL_TAG);
+        if (NewBin == NULL) {
             InsertHeadList(&Hive->Storage[Type].FreeBins, Entry);
             HvMarkClean(Hive, FreeBin->FileOffset, FreeBin->Size);
+            goto ErrorExit1;
         }
-        goto ErrorExit1;
+    } else {
+        NewBin = (Hive->Allocate)(NewSize, UseForIo);
+        if (NewBin == NULL) {
+            goto ErrorExit1;
+        }
     }
 
     //
@@ -367,96 +414,102 @@ ErrorExit1:
 }
 
 
-VOID
-HvpFreeMap(
-    PHHIVE          Hive,
-    PHMAP_DIRECTORY Dir,
-    ULONG           Start,
-    ULONG           End
-    )
-/*++
-
-Routine Description:
-
-    Sweeps through the directory Dir points to and frees Tables.
-    Will free Start-th through End-th entries, INCLUSIVE.
-
-Arguments:
-
-    Hive - supplies pointer to hive control block of interest
-
-    Dir - supplies address of an HMAP_DIRECTORY structure
-
-    Start - index of first map table pointer to clean up
-
-    End - index of last map table pointer to clean up
-
-Return Value:
-
-    NONE.
-
---*/
-{
-    ULONG   i;
-
-    if (End >= HDIRECTORY_SLOTS) {
-        End = HDIRECTORY_SLOTS - 1;
-    }
-
-    for (i = Start; i <= End; i++) {
-        if (Dir->Directory[i] != NULL) {
-            (Hive->Free)(Dir->Directory[i], sizeof(HMAP_TABLE));
-            Dir->Directory[i] = NULL;
-        }
-    }
-    return;
-}
-
-
 BOOLEAN
-HvpAllocateMap(
-    PHHIVE          Hive,
-    PHMAP_DIRECTORY Dir,
-    ULONG           Start,
-    ULONG           End
+HvpCoalesceDiscardedBins(
+    IN PHHIVE Hive,
+    IN ULONG NeededSize,
+    IN HSTORAGE_TYPE Type
     )
+
 /*++
 
 Routine Description:
 
-    Sweeps through the directory Dir points to and allocates Tables.
-    Will allocate Start-th through End-th entries, INCLUSIVE.
+    Walks through the list of discarded bins and attempts to
+    coalesce adjacent discarded bins into one larger bin in
+    order to satisfy an allocation request.
 
-    Does NOT clean up when out of memory, call HvpFreeMap to do that.
 Arguments:
 
-    Hive - supplies pointer to hive control block of interest
+    Hive - Supplies pointer to hive control block.
 
-    Dir - supplies address of an HMAP_DIRECTORY structure
+    NeededSize - Supplies size of allocation needed.
 
-    Start - index of first map table pointer to allocate for
-
-    End - index of last map table pointer to allocate for
+    Type - Stable or Volatile
 
 Return Value:
 
-    TRUE - it worked
+    TRUE - A bin of the desired size was created.
 
-    FALSE - insufficient memory
+    FALSE - No bin of the desired size could be created.
 
 --*/
-{
-    ULONG   i;
-    PVOID   t;
 
-    for (i = Start; i <= End; i++) {
-        ASSERT(Dir->Directory[i] == NULL);
-        t = (PVOID)((Hive->Allocate)(sizeof(HMAP_TABLE), FALSE));
-        if (t == NULL) {
-            return FALSE;
+{
+    PLIST_ENTRY List;
+    PFREE_HBIN FreeBin;
+    PFREE_HBIN PreviousFreeBin;
+    PFREE_HBIN NextFreeBin;
+    PHMAP_ENTRY Map;
+    PHMAP_ENTRY PreviousMap;
+    PHMAP_ENTRY NextMap;
+
+    List = Hive->Storage[Type].FreeBins.Flink;
+
+    while (List != &Hive->Storage[Type].FreeBins) {
+        FreeBin = CONTAINING_RECORD(List, FREE_HBIN, ListEntry);
+
+        if ((FreeBin->Flags & FREE_HBIN_DISCARDABLE)==0) {
+
+            Map = HvpGetCellMap(Hive, FreeBin->FileOffset);
+
+            //
+            // Scan backwards, coalescing previous discarded bins
+            //
+            while (FreeBin->FileOffset > 0) {
+                PreviousMap = HvpGetCellMap(Hive, FreeBin->FileOffset - HBLOCK_SIZE);
+                if (PreviousMap->BinAddress & HMAP_DISCARDABLE) {
+                    PreviousFreeBin = (PFREE_HBIN)PreviousMap->BlockAddress;
+
+                    if (PreviousFreeBin->Flags & FREE_HBIN_DISCARDABLE) {
+                        break;
+                    }
+
+                    RemoveEntryList(&PreviousFreeBin->ListEntry);
+                    PreviousMap->BlockAddress = (ULONG)FreeBin;
+                    FreeBin->FileOffset = PreviousFreeBin->FileOffset;
+                    FreeBin->Size += PreviousFreeBin->Size;
+                    (Hive->Free)(PreviousFreeBin, sizeof(FREE_HBIN));
+                } else {
+                    break;
+                }
+            }
+
+            //
+            // Scan forwards, coalescing subsequent discarded bins
+            //
+            while ((FreeBin->FileOffset + FreeBin->Size) < Hive->BaseBlock->Length) {
+                NextMap = HvpGetCellMap(Hive, FreeBin->FileOffset + FreeBin->Size);
+                if (NextMap->BinAddress & HMAP_DISCARDABLE) {
+                    NextFreeBin = (PFREE_HBIN)NextMap->BlockAddress;
+
+                    if (NextFreeBin->Flags & FREE_HBIN_DISCARDABLE) {
+                        break;
+                    }
+
+                    RemoveEntryList(&NextFreeBin->ListEntry);
+                    NextMap->BlockAddress = (ULONG)FreeBin;
+                    FreeBin->Size += NextFreeBin->Size;
+                    (Hive->Free)(NextFreeBin, sizeof(FREE_HBIN));
+                } else {
+                    break;
+                }
+            }
+            if (FreeBin->Size >= NeededSize) {
+                return(TRUE);
+            }
         }
-        RtlZeroMemory(t, sizeof(HMAP_TABLE));
-        Dir->Directory[i] = (PHMAP_TABLE)t;
+        List=List->Flink;
     }
-    return TRUE;
+    return(FALSE);
 }

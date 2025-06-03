@@ -67,6 +67,9 @@ to that type.
 #define LEX_NORMAL			0x0000
 #define LEX_VERSION			0x0001	// return VERSION and set mode back to LEX_NORMAL
 #define LEX_GUID			0x0002	// return GUID and set mode back to LEX_NORMAL
-#define LEX_BASE_IMPORT		0x0003	// return KWIMPORTIDLBASE STRING as next three tokens
+#define LEX_BASE_IMPORT		0x0003	// return KWIMPORTIDLBASE STRING as next two tokens
 #define LEX_BASE_IMPORT2	0x0004	// return STRING
+#define LEX_ODL_BASE_IMPORT     0x0005  // return KWIMPORTODLBASE STRING as next two tokens
+#define LEX_ODL_BASE_IMPORT2    0x0006  // return STRING
 
+#define MAX_STRING_SIZE	255

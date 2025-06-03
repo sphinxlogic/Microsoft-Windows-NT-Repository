@@ -1,8 +1,9 @@
 /*++ BUILD Version: 0001    Increment this if a change has global effects
 
-Copyright (c) 1985-1993, Microsoft Corporation
+Copyright (c) 1985-1996, Microsoft Corporation
 
 Module Name:
+
 
     windows.h
 
@@ -14,6 +15,14 @@ Abstract:
 
 #ifndef _WINDOWS_
 #define _WINDOWS_
+
+
+#ifndef WINVER
+#define WINVER 0x0400
+#endif
+
+#ifndef _INC_WINDOWS
+#define _INC_WINDOWS
 
 /*  If defined, the following flags inhibit definition
  *     of the indicated items.
@@ -56,6 +65,7 @@ Abstract:
  *  NOHELP            - Help engine interface.
  *  NOPROFILER        - Profiler interface.
  *  NODEFERWINDOWPOS  - DeferWindowPos routines
+ *  NOMCX             - Modem Configuration Extensions
  */
 
 #ifdef RC_INVOKED
@@ -76,7 +86,8 @@ Abstract:
 #define NOWH
 #define NOCOMM
 #define NOKANJI
-
+#define NOCRYPT
+#define NOMCX
 #endif /* RC_INVOKED */
 
 #if !defined(_PPC_) && !defined(_ALPHA_) && !defined(_MIPS_) && !defined(_X86_) && defined(_M_IX86)
@@ -96,7 +107,7 @@ Abstract:
 #endif
 
 #ifndef RC_INVOKED
-#if	( _MSC_VER >= 800 )
+#if     ( _MSC_VER >= 800 )
 #pragma warning(disable:4001)
 #endif
 #include <excpt.h>
@@ -125,9 +136,13 @@ Abstract:
 #include <shellapi.h>
 #include <winperf.h>
 #include <winsock.h>
+
+#ifndef NOCRYPT
+#include <wincrypt.h>
+#endif
+
 #ifndef NOGDI
 #include <commdlg.h>
-#include <drivinit.h>
 #include <winspool.h>
 #ifdef INC_OLE1
 #include <ole.h>
@@ -145,10 +160,21 @@ Abstract:
 #include <winsvc.h>
 #endif
 
+#if(WINVER >= 0x0400)
+#ifndef NOMCX
+#include <mcx.h>
+#endif /* NOMCX */
+
+#ifndef NOIME
+#include <imm.h>
+#endif
+#endif /* WINVER >= 0x0400 */
+
 #ifndef RC_INVOKED
-#if	( _MSC_VER >= 800 )
+#if     ( _MSC_VER >= 800 )
 #pragma warning(default:4001)
 #endif
 #endif /* RC_INVOKED */
 
+#endif /* _INC_WINDOWS */
 #endif /* _WINDOWS_ */

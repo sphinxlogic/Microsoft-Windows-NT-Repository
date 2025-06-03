@@ -70,7 +70,7 @@ char Buffer[MESSAGE_SIZE];
 int
 main(
     int argc,
-    char *argv[],
+    char *argv[]
     )
 {
     HANDLE handle;
@@ -293,7 +293,7 @@ OpenMailslot(
     IO_STATUS_BLOCK ioStatusBlock;
 
     RtlInitString(&ansiString, Name );
-    RtlOemStringToCountedUnicodeString(&nameString, &ansiString, TRUE);
+    RtlOemStringToUnicodeString(&nameString, &ansiString, TRUE);
 
     //
     //  Open the mailslot

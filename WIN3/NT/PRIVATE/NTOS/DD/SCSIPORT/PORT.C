@@ -34,6 +34,13 @@ ULONG ScsiDebug = 0;
 UCHAR ScsiBuffer[128];
 #endif
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'PscS')
+#endif
+
 
 //
 // Routines providing service to hardware dependent driver.
@@ -95,7 +102,7 @@ Return Value:
     // Get pointer to logical unit list.
     //
 
-    logicalUnit = deviceExtension->LogicalUnitList[TargetId];
+    logicalUnit = deviceExtension->LogicalUnitList[(TargetId + Lun) % NUMBER_LOGICAL_UNIT_BINS];
 
     //
     // Walk list looking at target id for requested logical unit extension.
@@ -103,7 +110,8 @@ Return Value:
 
     while (logicalUnit != NULL) {
 
-        if ((logicalUnit->PathId == PathId) && (logicalUnit->Lun == Lun)) {
+        if ((logicalUnit->TargetId == TargetId) &&
+            (logicalUnit->PathId == PathId) && (logicalUnit->Lun == Lun)) {
 
             //
             // Logical unit extension found.
@@ -146,15 +154,14 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension =
-        (PDEVICE_EXTENSION) HwDeviceExtension - 1;
-    PSRB_DATA srbData;
+    PDEVICE_EXTENSION deviceExtension = (PDEVICE_EXTENSION) HwDeviceExtension - 1;
     PLOGICAL_UNIT_EXTENSION logicalUnit;
-    PSCSI_REQUEST_BLOCK srb;
-    UCHAR pathId;
-    UCHAR targetId;
-    UCHAR lun;
-    va_list ap;
+    PSRB_DATA               srbData;
+    PSCSI_REQUEST_BLOCK     srb;
+    UCHAR                   pathId;
+    UCHAR                   targetId;
+    UCHAR                   lun;
+    va_list                 ap;
 
     va_start(ap, HwDeviceExtension);
 
@@ -199,12 +206,10 @@ Return Value:
 
             if (srb->Function == SRB_FUNCTION_ABORT_COMMAND) {
 
-                logicalUnit = GetLogicalUnitExtension(
-                        deviceExtension,
-                        srb->PathId,
-                        srb->TargetId,
-                        srb->Lun
-                        );
+                logicalUnit = GetLogicalUnitExtension(deviceExtension,
+                                                      srb->PathId,
+                                                      srb->TargetId,
+                                                      srb->Lun);
 
                 logicalUnit->CompletedAbort =
                     deviceExtension->InterruptData.CompletedAbort;
@@ -224,6 +229,11 @@ Return Value:
                                        srb->QueueTag);
 
                 ASSERT(srbData->CurrentSrb != NULL && srbData->CompletedRequests == NULL);
+                if ((srb->SrbStatus == SRB_STATUS_SUCCESS) &&
+                    ((srb->Cdb[0] == SCSIOP_READ) ||
+                     (srb->Cdb[0] == SCSIOP_WRITE))) {
+                    ASSERT(srb->DataTransferLength);
+                }
 
                 srbData->CompletedRequests =
                     deviceExtension->InterruptData.CompletedRequests;
@@ -260,11 +270,10 @@ Return Value:
 
             deviceExtension->InterruptData.InterruptFlags |= PD_READY_FOR_NEXT_REQUEST;
 
-            logicalUnit = GetLogicalUnitExtension(
-                deviceExtension,
-                pathId,
-                targetId,
-                lun);
+            logicalUnit = GetLogicalUnitExtension(deviceExtension,
+                                                  pathId,
+                                                  targetId,
+                                                  lun);
 
             if (logicalUnit != NULL && logicalUnit->ReadyLogicalUnit != NULL) {
 
@@ -643,7 +652,7 @@ Return Value:
     for (bus = 0; bus < SCSI_MAXIMUM_BUSES; bus++) {
         for (target = 0; target < deviceExtension->MaximumTargetIds; target++) {
 
-            logicalUnit = deviceExtension->LogicalUnitList[target];
+            logicalUnit = deviceExtension->LogicalUnitList[target % NUMBER_LOGICAL_UNIT_BINS];
 
             while (logicalUnit != NULL) {
 
@@ -751,31 +760,6 @@ Return Value:
 
 } // end ScsiPortMoveMemory()
 
-
-VOID
-ScsiPortStallExecution(
-    ULONG Delay
-    )
-/*++
-
-Routine Description:
-
-    Wait number of microseconds in tight processor loop.
-
-Arguments:
-
-    Delay - number of microseconds to wait.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    KeStallExecutionProcessor(Delay);
-
-} // end ScsiPortStallExecution()
 
 #if DBG
 
@@ -834,6 +818,12 @@ ScsiDebugPrint(
 }
 
 #endif
+
+//
+// The below I/O access routines are forwarded to the HAL or NTOSKRNL on
+// Alpha and Intel platforms.
+//
+#if !defined(_ALPHA_) && !defined(_X86_)
 
 UCHAR
 ScsiPortReadPortUchar(
@@ -1547,6 +1537,7 @@ Return Value:
 
     WRITE_REGISTER_ULONG(Register, Value);
 }
+#endif  // !defined(_ALPHA_) && !defined(_X86_)
 
 
 PSCSI_REQUEST_BLOCK
@@ -1628,11 +1619,10 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension =
-        ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
-    ULONG byteOffset;
-    PHYSICAL_ADDRESS address;
-    ULONG length;
+    PDEVICE_EXTENSION deviceExtension = ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
+    ULONG             byteOffset;
+    PHYSICAL_ADDRESS  address;
+    ULONG             length;
 
     if (Srb == NULL || Srb->SenseInfoBuffer == VirtualAddress) {
 
@@ -1642,8 +1632,7 @@ Return Value:
         ASSERT(byteOffset < deviceExtension->CommonBufferSize);
 
         length = deviceExtension->CommonBufferSize - byteOffset;
-        address = LiAdd(deviceExtension->PhysicalCommonBuffer,
-                        LiFromUlong(byteOffset));
+        address.QuadPart = deviceExtension->PhysicalCommonBuffer.QuadPart + byteOffset;
 
     } else if (deviceExtension->MasterWithAdapter) {
 
@@ -1685,13 +1674,11 @@ Return Value:
 
         length = scatterList->Length - byteOffset;
 
-        address = LiFromUlong(
-                      scatterList->PhysicalAddress + byteOffset
-                  );
+        address.QuadPart = (LONGLONG)(scatterList->PhysicalAddress + byteOffset);
 
     } else {
         *Length = 0;
-        address = LiFromLong(SP_UNINITIALIZED_VALUE);
+        address.QuadPart = (LONGLONG)(SP_UNINITIALIZED_VALUE);
     }
 
     *Length = length;
@@ -1806,33 +1793,6 @@ Return Value:
 //
 // Leave these routines at the end of the file.
 //
-
-SCSI_PHYSICAL_ADDRESS
-ScsiPortConvertUlongToPhysicalAddress(
-    ULONG UlongAddress
-    )
-/*++
-
-Routine Description:
-
-    This routine converts a Ulong to 64-bit physical address.
-
-Arguments:
-
-    UlongAddress - Supplies a 32-bit address to be converted.
-
-Return Value:
-
-    Returns a 64-bit physical address.
-
---*/
-
-{
-    SCSI_PHYSICAL_ADDRESS returnAddress;
-
-    returnAddress = LiFromUlong(UlongAddress);
-    return(returnAddress);
-}
 
 #undef ScsiPortConvertPhysicalAddressToUlong
 

@@ -17,9 +17,7 @@ ifdef WOW
 ; Int 21 tracing control.  If TraceInt21 is defined, ifdef's cause
 ; extra debugging output before/after the DOS call.
 ;
-; Uncomment the following line to enable tracing of Int 21 operations.
-;
-;TraceInt21 equ 1
+; TraceInt21 equ 1 ; uncomment this line to log Int 21 operations.
 endif
 
 
@@ -41,10 +39,12 @@ externW Win_PDB
 externW cur_dos_PDB
 externW cur_drive_owner
 externW LastExtendedError
+ifndef WOW
 externB WinIniInfo
 externB PrivateProInfo
 externB fProfileMaybeStale
 externB fWriteOutProfilesReenter
+endif
 externB fBooting
 ;externD lpWinSftLink
 
@@ -97,7 +97,6 @@ externFP WOWSetDefaultDrive
 externFP WOWGetCurrentDirectory
 externFP WOWSetCurrentDirectory
 externFP WOWGetCurrentDate
-externFP WOWGetCurrentTime
 externFP WOWDeviceIOCTL
 
 externNP DPMIProc
@@ -281,7 +280,7 @@ QD_FIRST equ    0eh
         dw      offset Not_WOW_Handled          ;29
         dw      offset QuickGetDate             ;2a
         dw      offset Not_WOW_Handled          ;2b
-        dw      offset QuickGetTime             ;2c
+        dw      offset Not_WOW_Handled          ;2c
         dw      offset Not_WOW_Handled          ;2d
         dw      offset Not_WOW_Handled          ;2e
         dw      offset Not_WOW_Handled          ;2f
@@ -679,10 +678,10 @@ no_drive_check:
         push    cx                      ; Compare directories
         push    si
         push    di
-        mov     si, TDB_Directory
+        mov     si, TDB_LFNDirectory
         mov     di, si
         xor     al, al                  ; Scan for end of string
-        mov     cx, size TDB_Directory
+        mov     cx, size TDB_LFNDirectory
         cld
         repne   scasb
         mov     cx, di                  ; Calculate length
@@ -706,7 +705,7 @@ restore_dos:
         call    real_DOS                ; select the disk
 
 restore_directory:
-        mov     dx,TDB_Directory
+        mov     dx,TDB_LFNDirectory
         mov     ah,3Bh
         call    real_DOS                ; change directory
 
@@ -832,6 +831,19 @@ ifdef TraceInt21  ; <<< Only Useful when debugging fileio routine >>>
 
         SetKernelDS
 @@:
+
+        cmp     ah,3ch                  ; Create ?
+        jnz     @f
+
+        pop     ds                      ; USERs DS
+        push    ds
+        UnSetKernelDS
+
+        krDebugOut DEB_WARN,"Creating File @DS:DX"
+
+        SetKernelDS
+@@:
+
 endif
 
 
@@ -925,13 +937,6 @@ QuickGetDate:
         pop     cx                              ;cx is now the year
         jmp     QuickDone
 
-QuickGetTime:
-        push    ax
-        cCall   WowGetCurrentTime
-        mov     cx, dx                          ;hour, minutes
-        mov     dx, ax                          ;seconds, hundredths
-        pop     ax
-        jmp     QuickDone
 
 QuickGetDefaultDrive:
         call    GetDefaultDriveFromDOS
@@ -1062,7 +1067,49 @@ QuickFindFirstFile:
         mov     di, curDTA.off
         mov     bx,sp
         mov     bx,ss:[bx + 8]  ; BX = USER DS
+
+ifdef TraceInt21  ; <<< Only Useful when debugging fileio routine >>>
+
+        cmp     fBooting,1
+        jz      @f
+
+        mov     ds,bx                ; USERs DS
+        UnSetKernelDS
+        krDebugOut DEB_WARN, "QuickFindFirstFile looking for @DS:DX"
+        SetKernelDS
+@@:
+endif
+
         cCall   WowFindFirst,<CX,BX,DX,SI,DI>
+
+ifdef TraceInt21  ; <<< Only Useful when debugging fileio routine >>>
+
+        or      ax, ax
+        jnz     @f
+        mov     bx, curDTA.off
+        mov     si, curDTA.sel
+        mov     ds, si
+        UnSetKernelDS
+        mov     si, bx
+        mov     bx, 18h
+        mov     di, [si+bx]
+        mov     bx, 16h
+        mov     dx, [si+bx]
+        mov     bx, 1Eh
+        add     bx, si
+        krDebugOut DEB_WARN, "QuickFindFirstFile found @DS:BX, date #DI, time #DX"
+        mov     bx, 1Ah
+        mov     di, [si+bx]
+        mov     bx, 1Ch
+        mov     dx, [si+bx]
+        mov     bx, 15h
+        mov     bl, [si+bx]
+        xor     bh, bh
+        krDebugOut DEB_WARN, "                     attribute #BX size #DX:#DI"
+        SetKernelDS
+@@:
+endif
+
         pop     di
         pop     si
         pop     bx
@@ -1136,7 +1183,11 @@ QuickCreate:
         add     sp,2            ; discard AX
         pop     bx
         pop     dx
+ifdef TraceInt21
+        jmp     QuickDone       ; Success
+else
         jmps    QuickDone       ; Success
+endif
 
 QuickOpen:
         push    dx
@@ -1189,7 +1240,7 @@ endif
         pop     dx
 QErrRet:
 ifdef TraceInt21
-        krDebugOut DEB_WARN, "DOS fails    AX #AX bx #BX cx #CX dx #DX (t)"
+        krDebugOut DEB_WARN, "Q21 fails    AX #AX bx #BX cx #CX dx #DX (t)"
 endif
         pop     ds
         popf
@@ -1210,7 +1261,7 @@ QuickRead:
         jz      QRError
 QuickDone:
 ifdef TraceInt21
-        krDebugOut DEB_WARN, "DOS succeeds AX #AX bx #BX cx #CX dx #DX (t)"
+        krDebugOut DEB_WARN, "Q21 succeeds AX #AX bx #BX cx #CX dx #DX (t)"
 endif
         pop     ds
         popf
@@ -1345,7 +1396,18 @@ QuickLock:
 
         inc     dx
         jnz     FinishLock
+        cmp     ax, 21h                 ;is this lock violation?
+        jz      short @f                ;yes, give it back to app
         jmp     DoDos
+@@:
+        add     sp,2            ; discard saved AX, since AX = Error Code
+        pop     bx
+        pop     dx
+        mov     WOWLastError,ax
+        mov     WOWErrClass,10          ;ext. err info for lock violation
+        mov     WOWErrAction,2
+        mov     WOWErrLocation,2
+        jmp     QErrRet
 
 FinishLock:
         add     sp,2            ; throw out old AX

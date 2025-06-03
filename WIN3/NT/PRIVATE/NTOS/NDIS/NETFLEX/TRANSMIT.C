@@ -58,20 +58,41 @@ NetFlexProcessXmit(
     PACB acb
     )
 {
-    PXMIT  xmitptr  = acb->acb_xmit_ahead; // Point to the head of the active lists
+    PXMIT			xmitptr;
+    UINT 			curmap;
+    PNDIS_PACKET	packet;
+    NDIS_STATUS		status = NDIS_STATUS_SUCCESS;
+    PNDIS_BUFFER	SourceBuffer;
+    ULONG			XmitedOk = 0;
 
-    UINT curmap;
-    PNDIS_PACKET packet;
-    NDIS_STATUS  status = NDIS_STATUS_SUCCESS;
-    PNDIS_BUFFER SourceBuffer;
-    ULONG        XmitedOk = 0;
+	if (acb->FullDuplexEnabled)
+	{
+		NdisAcquireSpinLock(&acb->XmitLock);
+	}
+
+    xmitptr  = acb->acb_xmit_ahead;
+
+	if ((xmitptr == NULL) ||
+		!(xmitptr->XMIT_CSTAT & XCSTAT_COMPLETE))
+	{
+		if (acb->FullDuplexEnabled)
+		{
+			NdisReleaseSpinLock(&acb->XmitLock);
+		}
+
+		return;
+	}
+
+	//
+	//	Increment the interrupt count.
+	//
+	acb->acb_int_count++;
 
     //
     // For each completed frame issue a NdisMSendComplete.
     // Before completing the send, release the mapping of
     // the phyical buffers if we are using the protocol's buffers.
     //
-
     while (xmitptr->XMIT_CSTAT & XCSTAT_COMPLETE)
     {
         XmitedOk++;
@@ -109,23 +130,24 @@ NetFlexProcessXmit(
         // Clean up the transmit lists and the transmit queues.
         //
         xmitptr->XMIT_CSTAT  = 0;
-        xmitptr->XMIT_MapReg = 0;
-        xmitptr->XMIT_Packet = 0;
+        xmitptr->XMIT_Packet = NULL;
 
         if (xmitptr->XMIT_OurBufferPtr == NULL)
         {
             // Normal Xmit Packet
             //
-            NdisQueryPacket( packet,
-                             NULL,
-                             NULL,
-                             (PNDIS_BUFFER *)&SourceBuffer,
-                             NULL);
+            NdisQueryPacket(
+				packet,
+				NULL,
+				NULL,
+				(PNDIS_BUFFER *)&SourceBuffer,
+				NULL);
             while (SourceBuffer)
             {
-                NdisMCompleteBufferPhysicalMapping(acb->acb_handle,
-                                                  (PNDIS_BUFFER)SourceBuffer,
-                                                  curmap);
+                NdisMCompleteBufferPhysicalMapping(
+					acb->acb_handle,
+					(PNDIS_BUFFER)SourceBuffer,
+					curmap);
                 curmap++;
                 if (curmap == acb->acb_maxmaps)
                 {
@@ -140,8 +162,19 @@ NetFlexProcessXmit(
             // We've used one of our adapter buffers, so put the adapter
             // buffer back on the free list.
             //
-            xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
-            acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            if (xmitptr->XMIT_OurBufferPtr->BufferSize != acb->acb_smallbufsz)
+			{
+                xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
+                acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            }
+            else
+			{
+				//
+				//	small buffer
+				//
+                xmitptr->XMIT_OurBufferPtr->Next = acb->SmallBuffersListHead;
+                acb->SmallBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+            }
             xmitptr->XMIT_OurBufferPtr = NULL;
         }
 
@@ -169,12 +202,27 @@ NetFlexProcessXmit(
         //
         acb->acb_avail_xmit++;
 
-        //
-        // Complete the request
-        //
-        NdisMSendComplete(  acb->acb_handle,
-                            packet,
-                            status);
+		//
+		// Complete the request
+		//
+		if (acb->FullDuplexEnabled)
+		{
+			NdisReleaseSpinLock(&acb->XmitLock);
+		}
+
+		if (packet != NULL)
+		{
+			NdisMSendComplete(acb->acb_handle, packet, status);
+		}
+		else
+		{
+			NdisMSendResourcesAvailable(acb->acb_handle);
+		}
+
+		if (acb->FullDuplexEnabled)
+		{
+			NdisAcquireSpinLock(&acb->XmitLock);
+		}
 
         if (xmitptr == NULL)
             break;
@@ -188,15 +236,21 @@ NetFlexProcessXmit(
     {
         acb->acb_xmit_ahead = xmitptr;
     }
-#ifndef ODD_POINTER
+
     if (acb->acb_xmit_ahead)
     {
+		//
         // Issue a xmit valid adapter interrupt
         //
         NdisRawWritePortUshort(acb->SifIntPort, (USHORT) SIFINT_XMTVALID);
     }
-#endif
+
     acb->acb_gen_objs.frames_xmitd_ok += XmitedOk;
+
+	if (acb->FullDuplexEnabled)
+	{
+		NdisReleaseSpinLock(&acb->XmitLock);
+	}
 }
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -229,6 +283,20 @@ NetFlexTransmitStatus(
     NDIS_STATUS status = NDIS_STATUS_SUCCESS;
     PNDIS_BUFFER  SourceBuffer;
 
+	if (acb->FullDuplexEnabled)
+	{
+		NdisAcquireSpinLock(&acb->XmitLock);
+	}
+
+	if (acb->acb_xmit_ahead == NULL)
+	{
+		if (acb->FullDuplexEnabled)
+		{
+			NdisReleaseSpinLock(&acb->XmitLock);
+		}
+
+		return;
+	}
 
     //
     // We have received a list error.  Determine the type of list error
@@ -273,12 +341,7 @@ NetFlexTransmitStatus(
     // Clean up the transmit lists and the transmit queues.
     //
     xmitptr->XMIT_CSTAT  = 0;
-    xmitptr->XMIT_MapReg = 0;
-    xmitptr->XMIT_Packet = 0;
-
-#ifdef ODD_POINTER
-    acb->XmitStalled = TRUE;
-#endif
+    xmitptr->XMIT_Packet = NULL;
 
     //
     // Take the error list off the active list.  Set up the waiting list
@@ -323,22 +386,37 @@ NetFlexTransmitStatus(
         // We've used one of our adapter buffers, so put the adapter
         // buffer back on the free list.
         //
-        xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
-        acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+        if (xmitptr->XMIT_OurBufferPtr->BufferSize != acb->acb_smallbufsz)
+		{
+            xmitptr->XMIT_OurBufferPtr->Next = acb->OurBuffersListHead;
+            acb->OurBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+        }
+        else
+		{
+			//
+			//	small buffer
+			//
+            xmitptr->XMIT_OurBufferPtr->Next = acb->SmallBuffersListHead;
+            acb->SmallBuffersListHead = xmitptr->XMIT_OurBufferPtr;
+        }
         xmitptr->XMIT_OurBufferPtr = NULL;
     }
     else
     {
-        NdisQueryPacket( packet,
-                         NULL,
-                         NULL,
-                         (PNDIS_BUFFER *)&SourceBuffer,
-                         NULL);
+        NdisQueryPacket(
+			packet,
+			NULL,
+			NULL,
+			(PNDIS_BUFFER *)&SourceBuffer,
+			NULL);
+
         while (SourceBuffer)
         {
-            NdisMCompleteBufferPhysicalMapping(acb->acb_handle,
-                                              (PNDIS_BUFFER)SourceBuffer,
-                                              curmap);
+            NdisMCompleteBufferPhysicalMapping(
+				acb->acb_handle,
+				(PNDIS_BUFFER)SourceBuffer,
+				curmap);
+
             curmap++;
             if (curmap == acb->acb_maxmaps)
             {
@@ -351,9 +429,19 @@ NetFlexTransmitStatus(
     //
     // Complete the request
     //
-    NdisMSendComplete(  acb->acb_handle,
-                        packet,
-                        status);
+	if (acb->FullDuplexEnabled)
+	{
+		NdisReleaseSpinLock(&acb->XmitLock);
+	}
+
+    if (packet)
+	{
+        NdisMSendComplete(acb->acb_handle, packet, status);
+    }
+	else
+	{
+		NdisMSendResourcesAvailable(acb->acb_handle);
+	}
 }
 
 
@@ -398,16 +486,25 @@ NDIS_STATUS NetFlexSend(
     UINT            PhysicalBufferCount, BufferCount;
     UINT            TotalPacketLength;
     PNDIS_BUFFER    SourceBuffer;
-    PUSHORT         avail_xmits = &acb->acb_avail_xmit;
+    PUSHORT         avail_xmits;
 
 
     UINT            curmap,j,i;
     UINT            arraysize;
     ULONG           physbufptr;
-    NDIS_STATUS     status;
-
+    NDIS_STATUS     status = NDIS_STATUS_PENDING;
 
     NDIS_PHYSICAL_ADDRESS_UNIT physaddrarray[MAX_BUFS_PER_XMIT];
+
+	//
+	//	if we are in full duplex mode then acquire the xmit spin lock.
+	//
+	if (acb->FullDuplexEnabled)
+	{	
+		NdisAcquireSpinLock(&acb->XmitLock);
+	}
+
+	avail_xmits = &acb->acb_avail_xmit;
 
     //
     // Do we have at least one available xmit list?
@@ -416,11 +513,13 @@ NDIS_STATUS NetFlexSend(
     {
         // Yes, See if we can process this send request
         //
-        NdisQueryPacket( Packet,
-                         (PUINT)&PhysicalBufferCount,
-                         (PUINT)&BufferCount,
-                         (PNDIS_BUFFER *)(&SourceBuffer),
-                         (PUINT)(&TotalPacketLength));
+        NdisQueryPacket(
+			Packet,
+			(PUINT)&PhysicalBufferCount,
+			(PUINT)&BufferCount,
+			(PNDIS_BUFFER *)(&SourceBuffer),
+			(PUINT)(&TotalPacketLength));
+
         //
         // Point to the head of the xmit list
         //
@@ -429,8 +528,9 @@ NDIS_STATUS NetFlexSend(
         //
         //   Do we need to use our own buffer?
         //
-
-        if ( PhysicalBufferCount <= MAX_BUFS_PER_XMIT )
+        if ((PhysicalBufferCount <= MAX_BUFS_PER_XMIT) &&
+            (TotalPacketLength > acb->acb_smallbufsz ||
+             acb->SmallBuffersListHead == NULL))
         {
             // Clean the Data fields
             //
@@ -454,12 +554,14 @@ NDIS_STATUS NetFlexSend(
             i=0;
             while (SourceBuffer != NULL)
             {
-                NdisMStartBufferPhysicalMapping(    acb->acb_handle,
-                                                    SourceBuffer,
-                                                    curmap,
-                                                    TRUE,
-                                                    physaddrarray,
-                                                    &arraysize   );
+                NdisMStartBufferPhysicalMapping(
+					acb->acb_handle,
+					SourceBuffer,
+					curmap,
+					TRUE,
+					physaddrarray,
+					&arraysize);
+
                 curmap++;
                 if (curmap == acb->acb_maxmaps)
                 {
@@ -488,17 +590,27 @@ NDIS_STATUS NetFlexSend(
         {
             // We need to constrain the packet into our own buffer
             //
-            if (acb->OurBuffersListHead != NULL)
+            if (((PhysicalBufferCount > MAX_BUFS_PER_XMIT) &&
+                 (acb->OurBuffersListHead != NULL)) ||
+                ((acb->SmallBuffersListHead != NULL) &&
+                 (TotalPacketLength <= acb->acb_smallbufsz)))
             {
-                status = NetFlexConstrainPacket(acb,
-                                                xmitptr,
-                                                Packet,
-                                                PhysicalBufferCount,
-                                                SourceBuffer,
-                                                TotalPacketLength);
-
+                status = NetFlexConstrainPacket(
+                             acb,
+                             xmitptr,
+                             Packet,
+                             PhysicalBufferCount,
+                             SourceBuffer,
+                             TotalPacketLength);
                 if (status != NDIS_STATUS_SUCCESS)
-                    return status;
+				{
+					if (acb->FullDuplexEnabled)
+					{	
+						NdisReleaseSpinLock(&acb->XmitLock);
+					}
+
+                    return(status);
+				}
             }
             else
             {
@@ -506,111 +618,16 @@ NDIS_STATUS NetFlexSend(
                 // See if we can process any transmits, freeing up any that are completed...
                 //
                 DebugPrint(1,("NF(%d): No empty Xmit Buffers to transfer into\n",acb->anum));
-                return NDIS_STATUS_RESOURCES;
+
+				if (acb->FullDuplexEnabled)
+				{	
+					NdisReleaseSpinLock(&acb->XmitLock);
+				}
+
+                return(NDIS_STATUS_RESOURCES);
             }
         }
 
-#ifdef ODD_POINTER
-        //
-        // Make this one odd
-        //
-        MAKE_ODD(xmitptr->XMIT_FwdPtr);
-
-        //
-        // Init the timeout
-        //
-        xmitptr->XMIT_Timeout = 0;
-
-        //
-        // Set the Valid/SOF/EOF bits
-        //
-        xmitptr->XMIT_CSTAT = XCSTAT_GO;
-
-        //
-        // If this is not the first one on, we need to update
-        // the previous xmit with a valid forward pointer.
-        //
-        if (acb->acb_xmit_atail != NULL)
-        {
-            // Update old tail correct forward pointer to the new tail
-            //
-            MAKE_EVEN(acb->acb_xmit_atail->XMIT_FwdPtr);
-        }
-        else
-        {
-            // Make this the start of a new active list
-            //
-            acb->acb_xmit_ahead = xmitptr;
-        }
-
-        //
-        // Update Tail Pointer
-        //
-        acb->acb_xmit_atail = xmitptr;
-
-        //
-        // Indicate we've taken one of the xmit lists
-        //
-        (*avail_xmits)--;
-
-#if DBG
-        acb->XmitSent++;
-#endif
-        //
-        // Point the next available pointer to the next one
-        //
-        acb->acb_xmit_head = xmitptr->XMIT_Next;
-
-        //
-        // If we have stalled, we need to issue a new transmit command, if we are not
-        // processing xmit completes in the interrupt handler..
-        //
-        if (!acb->XmitStalled)
-        {
-            return NDIS_STATUS_PENDING;
-        }
-        else if (!acb->HandlingInterrupt)
-        {
-            USHORT sifint_reg;
-            //
-            // See if there is an interrupt pending
-            //
-            NdisRawReadPortUshort( acb->SifIntPort, &sifint_reg);
-
-            if (sifint_reg & SIFINT_SYSINT)
-            {
-                // there is a valid interrupt pending, so let
-                // the interrupt handler process the int as well
-                // as starting up the transmit again...
-                //
-                DebugPrint(2,(" x->is "));
-                NetFlexHandleInterrupt(acb);
-            }
-            else
-            {
-                // The xmit list is empty, so we need to send a new transmit command
-                //
-                DebugPrint(2,("s"));
-
-                // send command when we get the clear out int...
-                //
-                acb->acb_xmit_whead = acb->acb_xmit_ahead;
-                acb->acb_xmit_wtail = acb->acb_xmit_atail;
-                acb->acb_xmit_ahead = acb->acb_xmit_atail = NULL;
-                NetFlexSendNextSCB(acb);
-            }
-            return NDIS_STATUS_PENDING;
-        }
-    }
-
-    //
-    // No, We don't have any transmits at this time...
-    //
-    DebugPrint(2,("NF(%d): Send, Out of Xmit Lists...\n",acb->anum));
-    return NDIS_STATUS_RESOURCES;
-
-
-#else // !ODDPTR
         //
         // Update all the pointers...
         //
@@ -637,9 +654,8 @@ NDIS_STATUS NetFlexSend(
         //
         // Update the head if this is the first one...
         //
-
-        if (acb->acb_xmit_ahead == NULL) {
-
+        if (acb->acb_xmit_ahead == NULL)
+		{
             acb->acb_xmit_ahead = xmitptr;
         }
 
@@ -647,27 +663,31 @@ NDIS_STATUS NetFlexSend(
         // If the transmitter had stalled because it ran out of
         // valid lists, issue an adapter int to pickup this new valid one.
         //
-
         NdisRawWritePortUshort(acb->SifIntPort, (USHORT) SIFINT_XMTVALID);
 
         //
         // Indicate we've taken one of the ints
         //
-
         (*avail_xmits)--;
 
-    }
-    else
-    {
+		if (acb->FullDuplexEnabled)
+		{	
+			NdisReleaseSpinLock(&acb->XmitLock);
+		}
 
-        // No, We don't have any transmits at this time...
-        //
-        DebugPrint(2,("NF(%d): Send, Out of Xmit Lists...\n",acb->anum));
-        return NDIS_STATUS_RESOURCES;
+        return(status);
     }
 
-    return NDIS_STATUS_PENDING;
-#endif
+    // No, We don't have any transmits at this time...
+    //
+    DebugPrint(2,("NF(%d): Send, Out of Xmit Lists...\n",acb->anum));
+
+	if (acb->FullDuplexEnabled)
+	{	
+		NdisReleaseSpinLock(&acb->XmitLock);
+	}
+
+    return(NDIS_STATUS_RESOURCES);
 }
 
 
@@ -697,10 +717,32 @@ NetFlexConstrainPacket(
     UINT    TotalDataMoved = 0;
     ULONG   AdapterPhysicalBufferPtr;
 
-    PBUFFER_DESCRIPTOR BufferDescriptor = acb->OurBuffersListHead;
+    PBUFFER_DESCRIPTOR BufferDescriptor;
 
-    acb->OurBuffersListHead = BufferDescriptor->Next;
-    BufferDescriptor->Next = NULL;
+    if (TotalPacketLength > acb->acb_smallbufsz)
+    {
+        BufferDescriptor = acb->OurBuffersListHead;
+
+        if (!BufferDescriptor)
+		{
+            return(NDIS_STATUS_RESOURCES);
+		}
+
+        acb->OurBuffersListHead = BufferDescriptor->Next;
+        BufferDescriptor->Next = NULL;
+    }
+    else
+    {
+        BufferDescriptor = acb->SmallBuffersListHead;
+
+        if (!BufferDescriptor)
+		{
+            return(NDIS_STATUS_RESOURCES);
+		}
+
+        acb->SmallBuffersListHead = BufferDescriptor->Next;
+        BufferDescriptor->Next = NULL;
+    }
 
     //
     // Clear out the data fields in the xmit list
@@ -717,15 +759,11 @@ NetFlexConstrainPacket(
     {
         // Get Buffer info
         //
-        NdisQueryBuffer(SourceBuffer,
-                        &SourceData,
-                        &SourceLength );
+        NdisQueryBuffer(SourceBuffer, &SourceData, &SourceLength);
 
         // Copy this buffer
         //
-        NdisMoveMemory(CurrentDestination,
-                       SourceData,
-                       SourceLength );
+        NdisMoveMemory(CurrentDestination, SourceData, SourceLength);
 
         //
         // Update destination address
@@ -740,8 +778,7 @@ NetFlexConstrainPacket(
         //
         // Get the next buffers information
         //
-        NdisGetNextBuffer(  SourceBuffer,
-                            &SourceBuffer);
+        NdisGetNextBuffer(SourceBuffer, &SourceBuffer);
 
     } while (SourceBuffer != NULL);
 
@@ -756,11 +793,10 @@ NetFlexConstrainPacket(
     xmitptr->XMIT_Data[0].DataHi  = (USHORT) AdapterPhysicalBufferPtr;
     xmitptr->XMIT_Data[0].DataLo  = (USHORT)(AdapterPhysicalBufferPtr >> 16);
     xmitptr->XMIT_Fsize = (SHORT)(SWAPS((USHORT)TotalPacketLength));
-    xmitptr->XMIT_Packet = Packet;
+    xmitptr->XMIT_Packet = NULL;
 
 
     DebugPrint(2,("NF(%d): Using internal buffer\n",acb->anum));
 
     return NDIS_STATUS_SUCCESS;
 }
-

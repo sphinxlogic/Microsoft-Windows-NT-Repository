@@ -50,4 +50,3 @@ BOOL            FValidateInsertFile(HWND, BOOL, UINT FAR*);
 void            InsertObjectCleanup(HWND);
 
 #endif //_INSOBJ_H_
-

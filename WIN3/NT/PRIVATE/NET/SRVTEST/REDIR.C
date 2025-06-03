@@ -877,16 +877,16 @@ ExecuteCommand(
                     continue;
                 }
 
-                if ( stricmp( localArgv[0], "break" ) == 0 ) {
+                if ( _stricmp( localArgv[0], "break" ) == 0 ) {
                     DbgBreakPoint( );
                     continue;
                 }
 
-                if ( stricmp( localArgv[0], "exit" ) == 0 ) {
+                if ( _stricmp( localArgv[0], "exit" ) == 0 ) {
                     break;
                 }
 
-                if ( stricmp( localArgv[0], "debug" ) == 0 ) {
+                if ( _stricmp( localArgv[0], "debug" ) == 0 ) {
                     if ( Redir->argc > 1 ) {
                         DebugParameter = atolx( localArgv[1] );
                     } else {
@@ -896,7 +896,7 @@ ExecuteCommand(
                 }
 
 #if 0
-                if ( stricmp( localArgv[0], "dbg" ) == 0 ) {
+                if ( _stricmp( localArgv[0], "dbg" ) == 0 ) {
                     NTSTATUS netStatus;
                     netStatus = NetLocalSetServerDebug(
                                     (SHORT)(Redir->argc - 1),
@@ -910,14 +910,14 @@ ExecuteCommand(
                     continue;
                 }
 #endif
-                if ( stricmp( localArgv[0], "delay" ) == 0 ) {
+                if ( _stricmp( localArgv[0], "delay" ) == 0 ) {
                     ULONG ms = 1000;
                     LARGE_INTEGER delayTime;
                     if ( Redir->argc > 1 ) {
                         ms = atol( localArgv[1] );
                     }
                     printf( "Delaying for %lu milliseconds\n", ms );
-                    delayTime = RtlEnlargedIntegerMultiply( ms, -10000 );
+                    delayTime.QuadPart = Int32x32To64( ms, -10000 );
                     NtDelayExecution( TRUE, (PLARGE_INTEGER)&delayTime );
                     continue;
                 }

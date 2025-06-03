@@ -30,6 +30,8 @@ extern UNICODE_PREFIX_TABLE MupPrefixTable;
 extern CCHAR MupStackSize;
 extern LARGE_INTEGER MupKnownPrefixTimeout;
 extern BOOLEAN MupOrderInitialized;
+extern NTSTATUS MupOrderedErrorList[];
+extern BOOLEAN MupEnableDfs;
 
 #ifdef MUPDBG
 extern MUP_LOCK MupDebugLock;

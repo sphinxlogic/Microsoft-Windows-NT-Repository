@@ -20,15 +20,132 @@ Revision History:
 
 #include "psp.h"
 
-#define ALIGN_DOWN(address,amt) ((ULONG)(address) & ~(( amt ) - 1))
-
-#define ALIGN_UP(address,amt) (ALIGN_DOWN( (address + (amt) - 1), (amt) ))
+VOID
+PspQueueApcSpecialApc(
+    IN PKAPC Apc,
+    IN PKNORMAL_ROUTINE *NormalRoutine,
+    IN PVOID *NormalContext,
+    IN PVOID *SystemArgument1,
+    IN PVOID *SystemArgument2
+    );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtGetContextThread)
 #pragma alloc_text(PAGE, NtSetContextThread)
+#pragma alloc_text(PAGE, NtQueueApcThread)
+#pragma alloc_text(PAGE, PspQueueApcSpecialApc )
 #endif
 
+VOID
+PspQueueApcSpecialApc(
+    IN PKAPC Apc,
+    IN PKNORMAL_ROUTINE *NormalRoutine,
+    IN PVOID *NormalContext,
+    IN PVOID *SystemArgument1,
+    IN PVOID *SystemArgument2
+    )
+{
+    PAGED_CODE();
+
+    ExFreePool(Apc);
+}
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+NtQueueApcThread(
+    IN HANDLE ThreadHandle,
+    IN PPS_APC_ROUTINE ApcRoutine,
+    IN PVOID ApcArgument1,
+    IN PVOID ApcArgument2,
+    IN PVOID ApcArgument3
+    )
+
+/*++
+
+Routine Description:
+
+    This function is used to queue a user-mode APC to the specified thread. The APC
+    will fire when the specified thread does an alertable wait
+
+Arguments:
+
+    ThreadHandle - Supplies a handle to a thread object.  The caller
+        must have THREAD_SET_CONTEXT access to the thread.
+
+    ApcRoutine - Supplies the address of the APC routine to execute when the
+        APC fires.
+
+    ApcArgument1 - Supplies the first PVOID passed to the APC
+
+    ApcArgument2 - Supplies the second PVOID passed to the APC
+
+    ApcArgument3 - Supplies the third PVOID passed to the APC
+
+Return Value:
+
+    Returns an NT Status code indicating success or failure of the API
+
+--*/
+
+{
+    PETHREAD Thread;
+    NTSTATUS st;
+    KPROCESSOR_MODE Mode;
+    KIRQL Irql;
+    PKAPC Apc;
+
+    PAGED_CODE();
+
+    Mode = KeGetPreviousMode();
+
+    st = ObReferenceObjectByHandle(
+            ThreadHandle,
+            THREAD_SET_CONTEXT,
+            PsThreadType,
+            Mode,
+            (PVOID *)&Thread,
+            NULL
+            );
+
+    if ( NT_SUCCESS(st) ) {
+        st = STATUS_SUCCESS;
+        if ( IS_SYSTEM_THREAD(Thread) ) {
+            st = STATUS_INVALID_HANDLE;
+            }
+        else {
+            Apc = ExAllocatePoolWithQuotaTag(
+                    (NonPagedPool | POOL_QUOTA_FAIL_INSTEAD_OF_RAISE),
+                    sizeof(*Apc),
+                    'pasP'
+                    );
+
+            if ( !Apc ) {
+                st = STATUS_NO_MEMORY;
+                }
+            else {
+                KeInitializeApc(
+                    Apc,
+                    &Thread->Tcb,
+                    OriginalApcEnvironment,
+                    PspQueueApcSpecialApc,
+                    NULL,
+                    (PKNORMAL_ROUTINE)ApcRoutine,
+                    UserMode,
+                    ApcArgument1
+                    );
+
+                if ( !KeInsertQueueApc(Apc,ApcArgument2,ApcArgument3,0) ) {
+                    ExFreePool(Apc);
+                    st = STATUS_UNSUCCESSFUL;
+                    }
+                }
+            }
+        ObDereferenceObject(Thread);
+        }
+
+    return st;
+}
 
 NTSTATUS
 NtGetContextThread(
@@ -61,125 +178,163 @@ Return Value:
 --*/
 
 {
-    PETHREAD Thread;
-    PGETSETCONTEXT Ctx;
-    NTSTATUS st;
-    KPROCESSOR_MODE Mode;
-    KIRQL Irql;
+
+    ULONG Alignment;
     ULONG ContextFlags;
+    GETSETCONTEXT ContextFrame;
+    ULONG ContextLength;
+    KIRQL Irql;
+    KPROCESSOR_MODE Mode;
+    NTSTATUS Status;
+    PETHREAD Thread;
 
     PAGED_CODE();
 
+    //
+    // Get previous mode and reference specified thread.
+    //
+
     Mode = KeGetPreviousMode();
-
-    st = ObReferenceObjectByHandle(
-            ThreadHandle,
-            THREAD_GET_CONTEXT,
-            PsThreadType,
-            Mode,
-            (PVOID *)&Thread,
-            NULL
-            );
-
-    if ( !NT_SUCCESS(st) ) {
-        return st;
-    }
-
-    if ( IS_SYSTEM_THREAD(Thread) ) {
-        ObDereferenceObject(Thread);
-        return STATUS_INVALID_HANDLE;
-    }
-
-    try {
-
-        RtlZeroMemory(&Ctx,sizeof(Ctx));
-        Ctx = ExAllocatePoolWithQuota(NonPagedPool,sizeof(GETSETCONTEXT));
-
-        if ( Mode != KernelMode) {
-                ProbeForWrite(ThreadContext, sizeof(CONTEXT), CONTEXT_ALIGN);
-        }
-
-        ContextFlags = ThreadContext->ContextFlags;
-
-    } except(EXCEPTION_EXECUTE_HANDLER) {
-
-        //
-        // We can be here either to a bad probe, or
-        // quota exceeded
-        //
-
-        if ( Ctx ) {
-            ExFreePool(Ctx);
-        }
-
-        ObDereferenceObject(Thread);
-
-        return GetExceptionCode();
-    }
-
-    KeInitializeEvent(&Ctx->OperationComplete, NotificationEvent, FALSE);
-
-    Ctx->Context.ContextFlags = ContextFlags;
-
-    Ctx->Mode = Mode;
-
-    if ( Thread == PsGetCurrentThread() ) {
-
-        Ctx->Apc.SystemArgument1 = NULL;
-        Ctx->Apc.SystemArgument2 = Thread;
-
-        KeRaiseIrql(APC_LEVEL, &Irql);
-        PspGetSetContextSpecialApc(&Ctx->Apc, NULL, NULL,
-                                   &Ctx->Apc.SystemArgument1,
-                                   &Ctx->Apc.SystemArgument2);
-        KeLowerIrql(Irql);
-
-    } else {
-        KeInitializeApc(
-            &Ctx->Apc,
-            &Thread->Tcb,
-            OriginalApcEnvironment,
-            PspGetSetContextSpecialApc,
-            NULL,
-            NULL,
-            KernelMode,
-            NULL
-            );
-
-        if ( !KeInsertQueueApc(
-                    &Ctx->Apc,
-                    NULL,
-                    Thread, 2) ) {
-
-            ExFreePool(Ctx);
-            ObDereferenceObject(Thread);
-            return STATUS_UNSUCCESSFUL;
-        }
-
-        KeWaitForSingleObject(
-            &Ctx->OperationComplete,
-            Executive,
-            KernelMode,
-            FALSE,
-            NULL
-            );
-    }
-
-    ObDereferenceObject(Thread);
+    Status = ObReferenceObjectByHandle(ThreadHandle,
+                                   THREAD_GET_CONTEXT,
+                                   PsThreadType,
+                                   Mode,
+                                   (PVOID *)&Thread,
+                                   NULL);
 
     //
-    // Move Context...
+    // If the reference was successful, the check if the specified thread
+    // is a system thread.
     //
 
-    try {
-        RtlMoveMemory(ThreadContext,&Ctx->Context,sizeof(CONTEXT));
-        ExFreePool(Ctx);
-    } except(EXCEPTION_EXECUTE_HANDLER) {
-        ExFreePool(Ctx);
-        return STATUS_SUCCESS;
+    if (NT_SUCCESS(Status)) {
+
+        //
+        // If the thread is not a system thread, then attempt to get the
+        // context of the thread.
+        //
+
+        if (IS_SYSTEM_THREAD(Thread) == FALSE) {
+
+            //
+            // Attempt to get the context of the specified thread.
+            //
+
+            try {
+
+                //
+                // Set the default alignment, capture the context flags,
+                // and set the default size of the context record.
+                //
+
+                Alignment = CONTEXT_ALIGN;
+                ContextFlags = ProbeAndReadUlong(&ThreadContext->ContextFlags);
+                ContextLength = sizeof(CONTEXT);
+
+#if defined(_MIPS_)
+
+                //
+                // The following code is included for backward compatibility
+                // with old code that does not understand extended context
+                // records on MIPS systems.
+                //
+
+                if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+                    Alignment = sizeof(ULONG);
+                    ContextLength = FIELD_OFFSET(CONTEXT, ContextFlags) + 4;
+                }
+
+#endif
+
+                if (Mode != KernelMode) {
+                    ProbeForWrite(ThreadContext, ContextLength, Alignment);
+                }
+
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+                Status = GetExceptionCode();
+            }
+
+            //
+            // If an exception did not occur during the probe of the thread
+            // context, then get the context of the target thread.
+            //
+
+            if (NT_SUCCESS(Status)) {
+                KeInitializeEvent(&ContextFrame.OperationComplete,
+                                  NotificationEvent,
+                                  FALSE);
+
+                ContextFrame.Context.ContextFlags = ContextFlags;
+                ContextFrame.Mode = Mode;
+                if (Thread == PsGetCurrentThread()) {
+                    ContextFrame.Apc.SystemArgument1 = NULL;
+                    ContextFrame.Apc.SystemArgument2 = Thread;
+                    KeRaiseIrql(APC_LEVEL, &Irql);
+                    PspGetSetContextSpecialApc(&ContextFrame.Apc,
+                                               NULL,
+                                               NULL,
+                                               &ContextFrame.Apc.SystemArgument1,
+                                               &ContextFrame.Apc.SystemArgument2);
+
+                    KeLowerIrql(Irql);
+
+                    //
+                    // Move context to specfied context record. If an exception
+                    // occurs, then silently handle it and return success.
+                    //
+
+                    try {
+                        RtlMoveMemory(ThreadContext,
+                                      &ContextFrame.Context,
+                                      ContextLength);
+
+                    } except(EXCEPTION_EXECUTE_HANDLER) {
+                    }
+
+                } else {
+                    KeInitializeApc(&ContextFrame.Apc,
+                                    &Thread->Tcb,
+                                    OriginalApcEnvironment,
+                                    PspGetSetContextSpecialApc,
+                                    NULL,
+                                    NULL,
+                                    KernelMode,
+                                    NULL);
+
+                    if (!KeInsertQueueApc(&ContextFrame.Apc, NULL, Thread, 2)) {
+                        Status = STATUS_UNSUCCESSFUL;
+
+                    } else {
+                        KeWaitForSingleObject(&ContextFrame.OperationComplete,
+                                              Executive,
+                                              KernelMode,
+                                              FALSE,
+                                              NULL);
+                        //
+                        // Move context to specfied context record. If an
+                        // exception occurs, then silently handle it and
+                        // return success.
+                        //
+
+                        try {
+                            RtlMoveMemory(ThreadContext,
+                                          &ContextFrame.Context,
+                                          ContextLength);
+
+                        } except(EXCEPTION_EXECUTE_HANDLER) {
+                        }
+                    }
+                }
+            }
+
+        } else {
+            Status = STATUS_INVALID_HANDLE;
+        }
+
+        ObDereferenceObject(Thread);
     }
 
-    return STATUS_SUCCESS;
+    return Status;
 }
 
 NTSTATUS
@@ -213,109 +368,137 @@ Return Value:
 --*/
 
 {
-    PETHREAD Thread;
-    PGETSETCONTEXT Ctx;
-    NTSTATUS st;
-    KPROCESSOR_MODE Mode;
+
+    ULONG Alignment;
+    ULONG ContextFlags;
+    GETSETCONTEXT ContextFrame;
+    ULONG ContextLength;
     KIRQL Irql;
+    KPROCESSOR_MODE Mode;
+    NTSTATUS Status;
+    PETHREAD Thread;
 
     PAGED_CODE();
 
+    //
+    // Get previous mode and reference specified thread.
+    //
+
     Mode = KeGetPreviousMode();
+    Status = ObReferenceObjectByHandle(ThreadHandle,
+                                       THREAD_SET_CONTEXT,
+                                       PsThreadType,
+                                       Mode,
+                                       (PVOID *)&Thread,
+                                       NULL);
 
-    st = ObReferenceObjectByHandle(
-            ThreadHandle,
-            THREAD_SET_CONTEXT,
-            PsThreadType,
-            Mode,
-            (PVOID *)&Thread,
-            NULL
-            );
+    //
+    // If the reference was successful, the check if the specified thread
+    // is a system thread.
+    //
 
-    if ( !NT_SUCCESS(st) ) {
-        return st;
-    }
-
-    if ( IS_SYSTEM_THREAD(Thread) ) {
-        ObDereferenceObject(Thread);
-        return STATUS_INVALID_HANDLE;
-    }
-
-    try {
-
-        RtlZeroMemory(&Ctx,sizeof(Ctx));
-        Ctx = ExAllocatePoolWithQuota(NonPagedPool,sizeof(GETSETCONTEXT));
-
-        Ctx->Mode = Mode;
-
-        if ( Mode != KernelMode) {
-                ProbeForRead(ThreadContext, sizeof(CONTEXT), CONTEXT_ALIGN);
-        }
-        Ctx->Context.ContextFlags = ThreadContext->ContextFlags;
-        RtlMoveMemory(&Ctx->Context,ThreadContext,sizeof(CONTEXT));
-    } except(EXCEPTION_EXECUTE_HANDLER) {
+    if (NT_SUCCESS(Status)) {
 
         //
-        // We can be here either to a bad probe, a bad move, or
-        // quota exceeded
+        // If the thread is not a system thread, then attempt to get the
+        // context of the thread.
         //
 
-        if ( Ctx ) {
-            ExFreePool(Ctx);
+        if (IS_SYSTEM_THREAD(Thread) == FALSE) {
+
+            //
+            // Attempt to get the context of the specified thread.
+            //
+
+            try {
+
+                //
+                // Set the default alignment, capture the context flags,
+                // and set the default size of the context record.
+                //
+
+                Alignment = CONTEXT_ALIGN;
+                ContextFlags = ProbeAndReadUlong(&ThreadContext->ContextFlags);
+                ContextLength = sizeof(CONTEXT);
+
+#if defined(_MIPS_)
+
+                //
+                // The following code is included for backward compatibility
+                // with old code that does not understand extended context
+                // records on MIPS systems.
+                //
+
+                if ((ContextFlags & CONTEXT_EXTENDED_INTEGER) != CONTEXT_EXTENDED_INTEGER) {
+                    Alignment = sizeof(ULONG);
+                    ContextLength = FIELD_OFFSET(CONTEXT, ContextFlags) + 4;
+                }
+
+#endif
+
+                if (Mode != KernelMode) {
+                    ProbeForRead(ThreadContext, ContextLength, Alignment);
+                }
+
+                RtlMoveMemory(&ContextFrame.Context, ThreadContext, ContextLength);
+
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+                Status = GetExceptionCode();
+            }
+
+            //
+            // If an exception did not occur during the probe of the thread
+            // context, then set the context of the target thread.
+            //
+
+            if (NT_SUCCESS(Status)) {
+                KeInitializeEvent(&ContextFrame.OperationComplete,
+                                  NotificationEvent,
+                                  FALSE);
+
+                ContextFrame.Context.ContextFlags = ContextFlags;
+                ContextFrame.Mode = Mode;
+                if (Thread == PsGetCurrentThread()) {
+                    ContextFrame.Apc.SystemArgument1 = (PVOID)1;
+                    ContextFrame.Apc.SystemArgument2 = Thread;
+                    KeRaiseIrql(APC_LEVEL, &Irql);
+                    PspGetSetContextSpecialApc(&ContextFrame.Apc,
+                                               NULL,
+                                               NULL,
+                                               &ContextFrame.Apc.SystemArgument1,
+                                               &ContextFrame.Apc.SystemArgument2);
+
+                    KeLowerIrql(Irql);
+
+                } else {
+                    KeInitializeApc(&ContextFrame.Apc,
+                                    &Thread->Tcb,
+                                    OriginalApcEnvironment,
+                                    PspGetSetContextSpecialApc,
+                                    NULL,
+                                    NULL,
+                                    KernelMode,
+                                    NULL);
+
+                    if (!KeInsertQueueApc(&ContextFrame.Apc, (PVOID)1, Thread, 2)) {
+                        Status = STATUS_UNSUCCESSFUL;
+
+                    } else {
+                        KeWaitForSingleObject(&ContextFrame.OperationComplete,
+                                              Executive,
+                                              KernelMode,
+                                              FALSE,
+                                              NULL);
+                    }
+                }
+            }
+
+        } else {
+            Status = STATUS_INVALID_HANDLE;
         }
 
         ObDereferenceObject(Thread);
-
-        return GetExceptionCode();
     }
 
-    KeInitializeEvent(&Ctx->OperationComplete, NotificationEvent, FALSE);
-
-    if ( Thread == PsGetCurrentThread() ) {
-
-        Ctx->Apc.SystemArgument1 = (PVOID)1;
-        Ctx->Apc.SystemArgument2 = Thread;
-
-        KeRaiseIrql(APC_LEVEL, &Irql);
-        PspGetSetContextSpecialApc(&Ctx->Apc, NULL, NULL,
-                                   &Ctx->Apc.SystemArgument1,
-                                   &Ctx->Apc.SystemArgument2);
-        KeLowerIrql(Irql);
-
-    } else {
-        KeInitializeApc(
-            &Ctx->Apc,
-            &Thread->Tcb,
-            OriginalApcEnvironment,
-            PspGetSetContextSpecialApc,
-            NULL,
-            NULL,
-            KernelMode,
-            NULL
-            );
-
-        if ( !KeInsertQueueApc(
-                    &Ctx->Apc,
-                    (PVOID)1,
-                    Thread, 2) ) {
-
-            ExFreePool(Ctx);
-            ObDereferenceObject(Thread);
-            return STATUS_UNSUCCESSFUL;
-        }
-
-        KeWaitForSingleObject(
-            &Ctx->OperationComplete,
-            Executive,
-            KernelMode,
-            FALSE,
-            NULL
-            );
-    }
-
-    ExFreePool(Ctx);
-    ObDereferenceObject(Thread);
-
-    return STATUS_SUCCESS;
+    return Status;
 }
-

@@ -232,6 +232,8 @@ SepGetDefaultsSubjectContext(
     IN PSECURITY_SUBJECT_CONTEXT SubjectContext,
     OUT PSID *Owner,
     OUT PSID *Group,
+    OUT PSID *ServerOwner,
+    OUT PSID *ServerGroup,
     OUT PACL *Dacl
     )
 /*++
@@ -271,6 +273,7 @@ Return Value:
 
 {
     PTOKEN EffectiveToken;
+    PTOKEN PrimaryToken;
 
     PAGED_CODE();
 
@@ -280,20 +283,27 @@ Return Value:
         EffectiveToken = (PTOKEN)SubjectContext->PrimaryToken;
     }
 
-    (*Owner) =
-        EffectiveToken->UserAndGroups[EffectiveToken->DefaultOwnerIndex].Sid;
+    (*Owner) = EffectiveToken->UserAndGroups[EffectiveToken->DefaultOwnerIndex].Sid;
 
     (*Group) = EffectiveToken->PrimaryGroup;
 
     (*Dacl)  = EffectiveToken->DefaultDacl;
 
+    PrimaryToken = (PTOKEN)SubjectContext->PrimaryToken;
+
+    *ServerOwner = PrimaryToken->UserAndGroups[PrimaryToken->DefaultOwnerIndex].Sid;
+
+    *ServerGroup = PrimaryToken->PrimaryGroup;
+
+    return;
 }
 
 
 BOOLEAN
 SepValidOwnerSubjectContext(
     IN PSECURITY_SUBJECT_CONTEXT SubjectContext,
-    OUT PSID Owner
+    IN PSID Owner,
+    IN BOOLEAN ServerObject
     )
 /*++
 
@@ -335,7 +345,11 @@ Return Value:
         return( FALSE );
     }
 
-    if (ARGUMENT_PRESENT(SubjectContext->ClientToken)) {
+    //
+    // Allowable owners come from the primary if it's a server object.
+    //
+
+    if (!ServerObject && ARGUMENT_PRESENT(SubjectContext->ClientToken)) {
         EffectiveToken = (PTOKEN)SubjectContext->ClientToken;
     } else {
         EffectiveToken = (PTOKEN)SubjectContext->PrimaryToken;

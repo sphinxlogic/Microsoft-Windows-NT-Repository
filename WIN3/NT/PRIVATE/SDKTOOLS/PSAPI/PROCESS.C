@@ -173,3 +173,51 @@ Return Value:
 
   return(TRUE);
 }
+
+
+BOOL
+WINAPI
+InitializeProcessForWsWatch(
+    HANDLE hProcess
+    )
+{
+    NTSTATUS Status;
+
+    Status = NtSetInformationProcess(
+                hProcess,
+                ProcessWorkingSetWatch,
+                NULL,
+                0
+                );
+    if ( NT_SUCCESS(Status) || Status == STATUS_PORT_ALREADY_SET || Status == STATUS_ACCESS_DENIED ) {
+        return TRUE;
+        }
+    else {
+        return FALSE;
+        }
+}
+
+BOOL
+WINAPI
+GetWsChanges(
+    HANDLE hProcess,
+    PPSAPI_WS_WATCH_INFORMATION lpWatchInfo,
+    DWORD cb
+    )
+{
+    NTSTATUS Status;
+
+    Status = NtQueryInformationProcess(
+                hProcess,
+                ProcessWorkingSetWatch,
+                (PVOID *)lpWatchInfo,
+                cb,
+                NULL
+                );
+    if ( NT_SUCCESS(Status) ) {
+        return TRUE;
+        }
+    else {
+        return FALSE;
+        }
+}

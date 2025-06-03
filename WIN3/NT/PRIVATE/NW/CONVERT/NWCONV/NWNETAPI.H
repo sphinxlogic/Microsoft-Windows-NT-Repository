@@ -5,6 +5,10 @@
 #ifndef _HNWNETAPI_
 #define _HNWNETAPI_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 #ifndef NTSTATUS
 typedef LONG NTSTATUS;
 #endif
@@ -17,31 +21,36 @@ typedef struct _USER_RIGHTS_LIST {
 int NWGetMaxServerNameLen();
 int NWGetMaxUserNameLen();
 
-void NWUserInfoGet(LPTSTR szUserName, void **UInfo);
-void NWUserInfoLog(LPTSTR szUserName, void *UInfo);
+BOOL NWObjectNameGet( DWORD ObjectID, LPTSTR ObjectName );
+
+VOID NWUserInfoGet(LPTSTR szUserName, VOID **UInfo);
+VOID NWUserInfoLog(LPTSTR szUserName, VOID *UInfo);
 DWORD NWServerSet(LPTSTR FileServer);
 DWORD NWServerFree();
 
-DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount);
-DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount);
-DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers, DWORD *UserCount);
-DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers, DWORD *UserCount);
+DWORD NWUsersEnum(USER_LIST **lpUsers, BOOL Display);
+DWORD NWGroupsEnum(GROUP_LIST **lpGroups, BOOL Display);
+DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers);
+DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers);
 DWORD NWServerEnum(LPTSTR Container, SERVER_BROWSE_LIST **lpServList);
 DWORD NWSharesEnum(SHARE_LIST **lpShares);
 
-void NWUserDefaultsGet(void **UDefaults);
-void NWUserDefaultsMap(void *NWUDefaults, NT_DEFAULTS *NTDefaults);
-void NWUserDefaultsLog(void *UDefaults);
-void NWNetUserMapInfo (LPTSTR szUserName, void *UInfo, NT_USER_INFO *NT_UInfo );
+VOID NWUserDefaultsGet(VOID **UDefaults);
+VOID NWUserDefaultsMap(VOID *NWUDefaults, NT_DEFAULTS *NTDefaults);
+VOID NWUserDefaultsLog(VOID *UDefaults);
+VOID NWNetUserMapInfo (LPTSTR szUserName, VOID *UInfo, NT_USER_INFO *NT_UInfo );
+VOID NWFPNWMapInfo(VOID *NWUInfo, PFPNW_INFO fpnw);
 
-void NWUseDel(LPTSTR ServerName);
+VOID NWUseDel(LPTSTR ServerName);
 BOOL NWIsAdmin(LPTSTR UserName);
-void NWServerInfoReset(SOURCE_SERVER_BUFFER *SServ);
-void NWServerInfoSet(LPTSTR ServerName, SOURCE_SERVER_BUFFER *SServ);
+VOID NWServerInfoReset(SOURCE_SERVER_BUFFER *SServ);
+VOID NWServerInfoSet(LPTSTR ServerName, SOURCE_SERVER_BUFFER *SServ);
 BOOL NWServerValidate(HWND hWnd, LPTSTR ServerName, BOOL DupFlag);
 DWORD NWFileRightsEnum(LPTSTR FileName, USER_RIGHTS_LIST **lpUsers, DWORD *UserCount, BOOL DownLevel);
 LPTSTR NWRightsLog(DWORD Rights);
 LPTSTR NWSpecialNamesMap(LPTSTR Name);
+
+VOID NWServerTimeGet();
 
 typedef struct _NW_TO_NT_MAPPING {
     ULONG           NWRight ;
@@ -114,7 +123,11 @@ extern RIGHTS_MAPPING JobRightsMapping ;
 #define NW_PRINTJOB_ADMIN   0x0004
 
 NTSTATUS MapNwRightsToNTAccess( ULONG NWRights, PRIGHTS_MAPPING pMap, ACCESS_MASK *pAccessMask ) ; 
-DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount);
+DWORD NWPrintOpsEnum(USER_LIST **lpUsers);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

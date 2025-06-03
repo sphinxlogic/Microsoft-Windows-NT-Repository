@@ -41,8 +41,8 @@
 //
 // KIRQL
 // KeGetCurrentIrql(
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -58,15 +58,15 @@
 //
 //--
 
-	LEAF_ENTRY(KeGetCurrentIrql)
+        LEAF_ENTRY(KeGetCurrentIrql)
 
 
-	GET_CURRENT_IRQL		// v0 = current irql
+        GET_CURRENT_IRQL                // v0 = current irql
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KeGetCurrentIrql
+        .end KeGetCurrentIrql
 
 
 
@@ -74,13 +74,13 @@
 //
 // PPRCB
 // KeGetCurrentPrcb
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
 //    This function returns the current processor control block for this
-//	processor.
+//      processor.
 //
 // Arguments:
 //
@@ -92,15 +92,15 @@
 //
 //--
 
-	LEAF_ENTRY(KeGetCurrentPrcb)
+        LEAF_ENTRY(KeGetCurrentPrcb)
 
 
-	GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = prcb base
+        GET_PROCESSOR_CONTROL_BLOCK_BASE // v0 = prcb base
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KeGetCurrentPrcb
+        .end KeGetCurrentPrcb
 
 
 
@@ -108,8 +108,8 @@
 //
 // PKTHREAD
 // KeGetCurrentThread
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -125,23 +125,23 @@
 //
 //--
 
-	LEAF_ENTRY(KeGetCurrentThread)
+        LEAF_ENTRY(KeGetCurrentThread)
 
 
-	GET_CURRENT_THREAD		// v0 = current thread address
+        GET_CURRENT_THREAD              // v0 = current thread address
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
 
-	.end KeGetCurrentThread
+        .end KeGetCurrentThread
 
 
 //++
 //
 // PKPCR
 // KeGetPcr(
-//	VOID
-//	)
+//      VOID
+//      )
 //
 // Routine Description:
 //
@@ -158,14 +158,14 @@
 //
 //--
 
-	LEAF_ENTRY(KeGetPcr)
+        LEAF_ENTRY(KeGetPcr)
 
 
-	GET_PROCESSOR_CONTROL_REGION_BASE // v0 = pcr base address
+        GET_PROCESSOR_CONTROL_REGION_BASE // v0 = pcr base address
 
-	ret	zero, (ra)		// return
+        ret     zero, (ra)              // return
 
-	.end KeGetPcr
+        .end KeGetPcr
 
 
 
@@ -193,11 +193,20 @@
 
         LEAF_ENTRY(KeIsExecutingDpc)
 
-	GET_DPC_ACTIVE_FLAG		// v0 = DPC active flag
+#if !defined(NT_UP)
+        DISABLE_INTERRUPTS                  // disable interrupts to prevent context
+                                            // switch to another processor
+#endif
+        GET_PROCESSOR_CONTROL_REGION_BASE    // get PCR address
+        ldl     t0, PcPrcb(v0)              // get PRCB address
+        ldl     v0, PbDpcRoutineActive(t0)  // get DPC routine active flag
+#if !defined(NT_UP)
+        ENABLE_INTERRUPTS                   // disable interrupts to prevent context
+                                            // switch to another processor
+#endif
+        ret     zero, (ra)                  // return
 
-	ret	zero, (ra)		// return
-
-	.end	KeIsExecutingDpc
+        .end    KeIsExecutingDpc
 
 
 

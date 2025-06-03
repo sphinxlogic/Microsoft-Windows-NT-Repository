@@ -1675,4 +1675,3 @@ RulerMarquee()
         }
     }
 #endif
-

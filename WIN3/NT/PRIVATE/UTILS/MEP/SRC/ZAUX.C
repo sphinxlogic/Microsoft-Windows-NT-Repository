@@ -406,10 +406,10 @@ ZFormat (
 	    case 'd':
 		if (fLong) {
 		    
-		    ltoa ( va_arg (vl, long), pStr, base);
+		    _ltoa ( va_arg (vl, long), pStr, base);
 		    
                 } else {
-		    ltoa ( (long)va_arg (vl, int), pStr, base);
+		    _ltoa ( (long)va_arg (vl, int), pStr, base);
 		    
                 }
                 break;

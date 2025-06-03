@@ -26,7 +26,7 @@ Revision History:
 
 #define BugCheckFileId SRV_FILE_SMBFIND
 
-VOID
+VOID SRVFASTCALL
 BlockingFindFirst2 (
     IN PWORK_CONTEXT WorkContext
     );
@@ -36,7 +36,7 @@ DoFindFirst2 (
     IN PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 BlockingFindNext2 (
     IN PWORK_CONTEXT WorkContext
     );
@@ -144,7 +144,7 @@ Return Value:
 } // SrvSmbFindFirst2
 
 
-VOID
+VOID SRVFASTCALL
 BlockingFindFirst2 (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -262,22 +262,41 @@ Return Value:
     }
 
     //
+    // Make sure this really is a disk type share
+    //
+    if( transaction->TreeConnect->Share->ShareType != ShareTypeDisk ) {
+        SrvSetSmbError( WorkContext, STATUS_ACCESS_DENIED );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
+    // Make sure the client is allowed to do this, if we have an Admin share
+    //
+    status = SrvIsAllowedOnAdminShare( WorkContext, transaction->TreeConnect->Share );
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
+        return SmbTransStatusErrorWithoutData;
+    }
+
+    //
     // Initialize the string containing the search name specification.
     //
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
-    if ( !SrvCanonicalizePathName(
+    status =  SrvCanonicalizePathName(
             WorkContext,
+            transaction->TreeConnect->Share,
+            NULL,
             request->Buffer,
             END_OF_TRANSACTION_PARAMETERS( transaction ),
             FALSE,
             isUnicode,
             &fileName
-            ) ) {
+            );
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+    if( !NT_SUCCESS( status ) ) {
+        SrvSetSmbError( WorkContext, status );
         return SmbTransStatusErrorWithoutData;
-
     }
 
     //
@@ -300,6 +319,7 @@ Return Value:
     case SMB_INFO_QUERY_EAS_FROM_LIST:
     case SMB_FIND_FILE_DIRECTORY_INFO:
     case SMB_FIND_FILE_FULL_DIRECTORY_INFO:
+    case SMB_FIND_FILE_OLE_DIRECTORY_INFO:
     case SMB_FIND_FILE_BOTH_DIRECTORY_INFO:
     case SMB_FIND_FILE_NAMES_INFO:
 
@@ -340,6 +360,7 @@ Return Value:
         SrvSetSmbError( WorkContext, STATUS_INSUFF_SERVER_RESOURCES );
         return SmbTransStatusErrorWithoutData;
     }
+    search->SearchStorageType = SmbGetUlong(&request->SearchStorageType);
 
     //
     // Allocate an SID for the search.  The SID is used to locate the
@@ -588,7 +609,7 @@ Return Value:
     // Map the error, if necessary
     //
 
-    if ( WorkContext->Connection->SmbDialect != SmbDialectNtLanMan ) {
+    if ( !IS_NT_DIALECT( WorkContext->Connection->SmbDialect ) ) {
         if ( status == STATUS_NO_SUCH_FILE ) {
             status = STATUS_NO_MORE_FILES;
         }
@@ -726,7 +747,7 @@ Return Value:
 } // SrvSmbFindNext2
 
 
-VOID
+VOID SRVFASTCALL
 BlockingFindNext2 (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -867,6 +888,7 @@ Return Value:
     case SMB_INFO_QUERY_EAS_FROM_LIST:
     case SMB_FIND_FILE_DIRECTORY_INFO:
     case SMB_FIND_FILE_FULL_DIRECTORY_INFO:
+    case SMB_FIND_FILE_OLE_DIRECTORY_INFO:
     case SMB_FIND_FILE_BOTH_DIRECTORY_INFO:
     case SMB_FIND_FILE_NAMES_INFO:
 
@@ -964,8 +986,8 @@ Return Value:
 
         //
         // Test and use the information passed by the client.  A file
-        // name may not be longer than 256 characters, and it should
-        // not contain any directory information.
+        // name may not be longer than MAXIMUM_FILENAME_LENGTH characters,
+        // and it should not contain any directory information.
         //
 
         illegalPath = FALSE;
@@ -979,7 +1001,7 @@ Return Value:
                             (PUCHAR)fileName.Buffer) / sizeof(WCHAR);
 
             for ( i = 0, unicodeChar = fileName.Buffer;
-                  i < 256 && i < maxIndex;
+                  (i < MAXIMUM_FILENAME_LENGTH) && (i < maxIndex);
                   i++, unicodeChar++ ) {
 
                 if ( *unicodeChar == '\0' ) {
@@ -1007,7 +1029,7 @@ Return Value:
             maxIndex = END_OF_REQUEST_SMB( WorkContext ) - ansiChar;
 
             for ( i = 0;
-                  i < 256 && i < maxIndex;
+                  (i < MAXIMUM_FILENAME_LENGTH) && (i < maxIndex);
                   i++, ansiChar++ ) {
 
                 if ( *ansiChar == '\0' ) {
@@ -1269,6 +1291,7 @@ Return Value:
 
     if ( InformationLevel == SMB_FIND_FILE_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_FULL_DIRECTORY_INFO ||
+             InformationLevel == SMB_FIND_FILE_OLE_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_BOTH_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_NAMES_INFO ) {
 
@@ -1403,6 +1426,7 @@ Return Value:
 
         PFILE_DIRECTORY_INFORMATION fileBasic;
         PFILE_FULL_DIR_INFORMATION fileFull;
+        PFILE_OLE_DIR_INFORMATION fileOle;
         PFILE_BOTH_DIR_INFORMATION fileBoth;
         ULONG ntInformationLevel;
 
@@ -1471,6 +1495,10 @@ Return Value:
 
             ntInformationLevel = FileBothDirectoryInformation;
 
+        } else if (InformationLevel == SMB_FIND_FILE_OLE_DIRECTORY_INFO) {
+
+            ntInformationLevel = FileOleDirectoryInformation;
+
         } else {
 
             //
@@ -1492,6 +1520,7 @@ Return Value:
                      filterLongNames,
                      findWithBackupIntent,
                      ntInformationLevel,
+                     Search->SearchStorageType,
                      FileName,
                      ResumeFileIndex,
                      SearchAttributes,
@@ -1509,8 +1538,9 @@ Return Value:
         //
 
         fileBasic = DirectoryInformation->CurrentEntry;
-        fileBoth = (PFILE_BOTH_DIR_INFORMATION) DirectoryInformation->CurrentEntry;
-        fileFull = (PFILE_FULL_DIR_INFORMATION) DirectoryInformation->CurrentEntry;
+        fileBoth = (PFILE_BOTH_DIR_INFORMATION)DirectoryInformation->CurrentEntry;
+        fileFull = (PFILE_FULL_DIR_INFORMATION)DirectoryInformation->CurrentEntry;
+        fileOle = (PFILE_OLE_DIR_INFORMATION)DirectoryInformation->CurrentEntry;
 
         errorOnFileOpen = FALSE;
 
@@ -1681,16 +1711,25 @@ Return Value:
 
         IF_SMB_DEBUG(SEARCH2) {
             UNICODE_STRING nameString;
-            nameString.Buffer = ntInformationLevel == FileFullDirectoryInformation ?
-                                    fileFull->FileName :
-                                    ntInformationLevel == FileDirectoryInformation ?
-                                        fileBasic->FileName :
-                                        fileBoth->FileName;
-            nameString.Length = ntInformationLevel == FileFullDirectoryInformation ?
-                                    fileFull->FileNameLength :
-                                    ntInformationLevel == FileDirectoryInformation ?
-                                        fileBasic->FileNameLength :
-                                        fileBoth->FileNameLength;
+
+            switch (ntInformationLevel) {
+            case FileFullDirectoryInformation:
+                nameString.Buffer = fileFull->FileName;
+                nameString.Length = (USHORT)fileFull->FileNameLength;
+                break;
+            case FileOleDirectoryInformation:
+                nameString.Buffer = fileOle->FileName;
+                nameString.Length = (USHORT)fileOle->FileNameLength;
+                break;
+            case FileBothDirectoryInformation:
+                nameString.Buffer = fileBoth->FileName;
+                nameString.Length = (USHORT)fileBoth->FileNameLength;
+                break;
+            default:
+                nameString.Buffer = fileBasic->FileName;
+                nameString.Length = (USHORT)fileBasic->FileNameLength;
+                break;
+            }
             SrvPrint4( "SrvQueryDirectoryFile(%ld)-- %wZ, length=%ld, "
                       "status=%X\n", count,
                       &nameString,
@@ -2297,7 +2336,7 @@ Return Value:
 
         } else if ( InformationLevel == SMB_FIND_FILE_DIRECTORY_INFO ) {
 
-            PFILE_DIRECTORY_INFORMATION findBuffer = (PVOID)bufferLocation;
+            FILE_DIRECTORY_INFORMATION UNALIGNED *findBuffer = (PVOID)bufferLocation;
             ULONG fileNameLength;
 
             //
@@ -2321,10 +2360,10 @@ Return Value:
             //
 
             bufferLocation = bufferLocation +
-                                 sizeof(FILE_DIRECTORY_INFORMATION) - 1 +
+                                 FIELD_OFFSET( FILE_DIRECTORY_INFORMATION, FileName ) +
                                  fileNameLength;
 
-            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 3) & ~3);
+            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 7) & ~7);
 
             //
             // Check whether this entry will fit in the output buffer.
@@ -2393,7 +2432,7 @@ Return Value:
 
         } else if ( InformationLevel == SMB_FIND_FILE_FULL_DIRECTORY_INFO ) {
 
-            PFILE_FULL_DIR_INFORMATION findBuffer = (PVOID)bufferLocation;
+            FILE_FULL_DIR_INFORMATION UNALIGNED *findBuffer = (PVOID)bufferLocation;
             ULONG fileNameLength;
 
             //
@@ -2417,10 +2456,10 @@ Return Value:
             //
 
             bufferLocation = bufferLocation +
-                                 sizeof(FILE_FULL_DIR_INFORMATION) - 1 +
-                                 fileNameLength;
+                             FIELD_OFFSET(FILE_FULL_DIR_INFORMATION, FileName)+
+                             fileNameLength;
 
-            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 3) & ~3);
+            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 7) & ~7);
 
             //
             // Check whether this entry will fit in the output buffer.
@@ -2487,9 +2526,105 @@ Return Value:
             lastFileName.MaximumLength = lastFileName.Length;
             lastFileIndex = fileFull->FileIndex;
 
+        } else if ( InformationLevel == SMB_FIND_FILE_OLE_DIRECTORY_INFO ) {
+
+            FILE_OLE_DIR_INFORMATION UNALIGNED *findBuffer = (PVOID)bufferLocation;
+            ULONG fileNameLength;
+
+            //
+            // If the client is not speaking Unicode, we need to convert
+            // the file name to ANSI.
+            //
+
+            if ( isUnicode ) {
+                fileNameLength = fileOle->FileNameLength;
+            } else {
+                unicodeString.Length = (USHORT)fileOle->FileNameLength;
+                unicodeString.MaximumLength = unicodeString.Length;
+                unicodeString.Buffer = fileOle->FileName;
+                fileNameLength = RtlUnicodeStringToOemSize( &unicodeString );
+            }
+
+            //
+            // Find the new buffer location.  It won't be used until the
+            // next pass through the loop, but we need to make sure that
+            // this entry will fit.
+            //
+
+            bufferLocation = bufferLocation +
+                             FIELD_OFFSET(FILE_OLE_DIR_INFORMATION,FileName) +
+                             fileNameLength;
+
+            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 7) & ~7);
+
+            //
+            // Check whether this entry will fit in the output buffer.
+            //
+
+            if ( (CLONG)(bufferLocation - Transaction->OutData) >
+                     Transaction->MaxDataCount ) {
+
+                status = STATUS_BUFFER_OVERFLOW;
+                bufferLocation = (PCHAR)findBuffer;
+                break;
+            }
+
+            //
+            // Copy over the information about the entry.
+            //
+
+            RtlCopyMemory(
+                findBuffer,
+                fileOle,
+                FIELD_OFFSET( FILE_OLE_DIR_INFORMATION, FileName )
+                );
+
+            findBuffer->NextEntryOffset =
+                (ULONG)bufferLocation - (ULONG)findBuffer;
+            findBuffer->FileNameLength = fileNameLength;
+
+            if ( isUnicode ) {
+
+                RtlCopyMemory(
+                    findBuffer->FileName,
+                    fileOle->FileName,
+                    fileOle->FileNameLength
+                    );
+
+            } else {
+
+                oemString.MaximumLength = (USHORT)fileNameLength;
+                oemString.Buffer = (PSZ)findBuffer->FileName;
+                status = RtlUnicodeStringToOemString(
+                             &oemString,
+                             &unicodeString,
+                             FALSE
+                             );
+                ASSERT( NT_SUCCESS(status) );
+            }
+
+            //
+            // The lastEntry variable holds a pointer to the last file entry
+            // that we wrote--an offset to this entry must be returned
+            // in the response SMB.
+            //
+
+            lastEntry = (PCHAR)findBuffer;
+
+            //
+            // The file name and index of the last file returned must be
+            // stored in the search block.  Save the name pointer, length,
+            // and file index here.
+            //
+
+            lastFileName.Buffer = fileOle->FileName;
+            lastFileName.Length = (USHORT)fileOle->FileNameLength;
+            lastFileName.MaximumLength = lastFileName.Length;
+            lastFileIndex = fileOle->FileIndex;
+
         } else if ( InformationLevel == SMB_FIND_FILE_BOTH_DIRECTORY_INFO ) {
 
-            PFILE_BOTH_DIR_INFORMATION findBuffer = (PVOID)bufferLocation;
+            FILE_BOTH_DIR_INFORMATION UNALIGNED *findBuffer = (PVOID)bufferLocation;
             ULONG fileNameLength;
 
             //
@@ -2513,10 +2648,10 @@ Return Value:
             //
 
             bufferLocation = bufferLocation +
-                                 sizeof(FILE_BOTH_DIR_INFORMATION) - 1 +
-                                 fileNameLength;
+                             FIELD_OFFSET( FILE_BOTH_DIR_INFORMATION,FileName)+
+                             fileNameLength;
 
-            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 3) & ~3);
+            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 7) & ~7);
 
             //
             // Check whether this entry will fit in the output buffer.
@@ -2609,10 +2744,10 @@ Return Value:
             //
 
             bufferLocation = bufferLocation +
-                                 sizeof(FILE_NAMES_INFORMATION) - 1 +
-                                 fileNameLength;
+                             FIELD_OFFSET(FILE_NAMES_INFORMATION,FileName) +
+                             fileNameLength;
 
-            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 3) & ~3);
+            bufferLocation = (PCHAR)(((ULONG)bufferLocation + 7) & ~7);
 
             //
             // Check whether this entry will fit in the output buffer.
@@ -2749,6 +2884,7 @@ Return Value:
 
     if ( InformationLevel == SMB_FIND_FILE_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_FULL_DIRECTORY_INFO ||
+             InformationLevel == SMB_FIND_FILE_OLE_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_BOTH_DIRECTORY_INFO ||
              InformationLevel == SMB_FIND_FILE_NAMES_INFO ) {
 
@@ -2894,7 +3030,7 @@ Return Value:
         File->AllocationSize.LowPart
         );
 
-    SrvNtAttributesToSmb(
+    SRV_NT_ATTRIBUTES_TO_SMB(
         File->FileAttributes,
         Directory,
         &smbFileAttributes

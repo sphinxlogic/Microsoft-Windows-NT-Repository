@@ -87,4 +87,3 @@
 #include "envlib.h"
 
 #endif /* __ENVIRON_H__ */
-

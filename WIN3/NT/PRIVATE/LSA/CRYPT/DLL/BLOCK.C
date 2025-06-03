@@ -44,7 +44,6 @@ Sys003Initialize(
 
     if (Reason == DLL_PROCESS_ATTACH) {
         Status = RtlInitializeCriticalSection(&CriticalSection);
-        ASSERT(NT_SUCCESS(Status));
     }
 
     if (Reason == DLL_PROCESS_DETACH) {
@@ -52,7 +51,7 @@ Sys003Initialize(
         ASSERT(NT_SUCCESS(Status));
     }
 
-    return(TRUE);
+    return(Status == STATUS_SUCCESS);
 
     DBG_UNREFERENCED_PARAMETER(hmod);
     DBG_UNREFERENCED_PARAMETER(Context);

@@ -211,9 +211,9 @@ RawCompletionRoutine(
         FlagOn(IrpSp->FileObject->Flags, FO_SYNCHRONOUS_IO) &&
         NT_SUCCESS(Irp->IoStatus.Status)) {
 
-        IrpSp->FileObject->CurrentByteOffset =
-                RtlLargeIntegerAdd( IrpSp->FileObject->CurrentByteOffset,
-                RtlConvertUlongToLargeInteger( Irp->IoStatus.Information ) );
+        IrpSp->FileObject->CurrentByteOffset.QuadPart =
+            IrpSp->FileObject->CurrentByteOffset.QuadPart +
+            Irp->IoStatus.Information;
     }
 
     //

@@ -800,42 +800,7 @@ Return Value:
                 NdisMoveMemory(
                     (UNALIGNED PUCHAR)Adapter->CurrentAddress,
                     Addresses->NodeAddress,
-                    6
-                    );
-
-
-                //
-                // Update the current group address
-                //
-                NdisMoveMemory(
-                    (UNALIGNED PUCHAR)&(Adapter->GroupAddress),
-                    Addresses->GroupAddress,
-                    4
-                    );
-
-                //
-                // The address on the card is "backwards" and must be
-                // byte-swapped and word-swapped for us to store.
-                //
-                Adapter->GroupAddress =
-                    BYTE_SWAP_ULONG((ULONG)(Adapter->GroupAddress));
-
-                //
-                // Update the current functional address
-                //
-                NdisMoveMemory(
-                    (UNALIGNED PUCHAR)&(Adapter->FunctionalAddress),
-                    Addresses->FunctionalAddress,
-                    4
-                    );
-
-                //
-                // The address on the card is "backwards" and must be
-                // byte-swapped and word-swapped for us to store.
-                //
-                Adapter->FunctionalAddress =
-                    BYTE_SWAP_ULONG(Adapter->FunctionalAddress);
-
+                    6);
             }
 
             //
@@ -873,6 +838,7 @@ Return Value:
                 // return variable to NDIS_STATUS_FAILURE.
                 //
                 Adapter->CurrentRingState = NdisRingStateOpenFailure;
+                Adapter->OpenErrorCode = Adapter->SsbStatus1;
                 Status = NDIS_STATUS_FAILURE;
 
                 //
@@ -888,6 +854,7 @@ Return Value:
                 // return variable to NDIS_STATUS_SUCCESS.
                 //
                 Adapter->CurrentRingState = NdisRingStateOpened;
+                Adapter->OpenErrorCode = 0;
                 Status = NDIS_STATUS_SUCCESS;
 
                 //
@@ -1346,6 +1313,11 @@ Return Value:
         "TOK162!Indicating ring status - %lx\n",RingStatus);)
 
     //
+    //  Save the current status for query purposes.
+    //
+    Adapter->LastNotifyStatus = RingStatus;
+
+    //
     // Indicate to the filter the ring status.
     //
     NdisMIndicateStatus(
@@ -1401,3 +1373,4 @@ Return Value:
     return(SoftError);
 
 }
+

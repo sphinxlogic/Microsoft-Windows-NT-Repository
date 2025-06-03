@@ -175,13 +175,13 @@ static VOID inc(PSTR mboxname, PSTR foldername)
                         fprintf(stderr, "Can't create document\n");
                         exit(1);
                 }
-                puttext(dh, fileno(pf));
+                puttext(dh, _fileno(pf));
 
                 adddl(fh, getid(dh));
                 putdoc(dh);
                 fclose(pf);
 #if defined (MSDOS)
-                unlink(tmpnam);
+                _unlink(tmpnam);
 #endif
                 free(tmpnam);
         }

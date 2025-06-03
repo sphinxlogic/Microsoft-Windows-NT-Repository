@@ -457,7 +457,7 @@ SampSetVariableAttribute(
     IN ULONG Length
     );
 
-VOID
+NTSTATUS
 SampUpgradeToCurrentRevision(
     IN PSAMP_OBJECT Context,
     IN ULONG AttributeGroup,
@@ -678,7 +678,7 @@ Return Values:
 
     Object->FixedAttributesOffset = KEY_VALUE_HEADER_SIZE;
 
-    Object->FixedLengthSize = sizeof(SAMP_V1_FIXED_LENGTH_GROUP);
+    Object->FixedLengthSize = sizeof(SAMP_V1_0A_FIXED_LENGTH_GROUP);
 
 #if SAMP_GROUP_STORED_SEPARATELY
 
@@ -2729,6 +2729,15 @@ Return Values:
     }
 
     //
+    // Validate the data - make sure that if the units per week are non-zero
+    // then the logon hours buffer is non-NULL.
+    //
+
+    if ( (UnitsPerWeek != 0) && (LogonHours == NULL) ) {
+
+        return(STATUS_INVALID_PARAMETER);
+    }
+    //
     // Calculate length of logon_hours structure
     //
 
@@ -2809,6 +2818,9 @@ Return Values:
 
     PUNICODE_STRING
         KeyAttributeName;
+
+    BOOLEAN
+        CreatedObject = FALSE;
 
 
     //
@@ -2918,22 +2930,6 @@ Return Values:
 
         }
 
-        if (NT_SUCCESS(NtStatus)) {
-
-            //
-            // make any adjustments necessary to bring the data
-            // just read in up to current revision format.
-            //
-
-            SampUpgradeToCurrentRevision(
-                 Context,
-                 AttributeGroup,
-                 Buffer,
-                 RequiredLength,
-                 &TotalRequiredLength
-                 );
-        }
-
     } else {
 
         //
@@ -2950,6 +2946,8 @@ Return Values:
         TotalRequiredLength = SampVariableDataOffset(Context);
 
         ASSERT(TotalRequiredLength <= Context->OnDiskAllocated);
+
+        CreatedObject = TRUE;
     }
 
 
@@ -2999,6 +2997,22 @@ Return Values:
         }
     }
 
+    if (NT_SUCCESS(NtStatus) && !CreatedObject) {
+
+        //
+        // make any adjustments necessary to bring the data
+        // just read in up to current revision format.
+        //
+
+        NtStatus = SampUpgradeToCurrentRevision(
+                        Context,
+                        AttributeGroup,
+                        Buffer,
+                        RequiredLength,
+                        &TotalRequiredLength
+                        );
+    }
+
 #ifdef SAM_DEBUG_ATTRIBUTES
     if (SampDebugAttributes) {
         DbgPrint("SampValidateAttributes - initialized the context :\n\n");
@@ -3010,7 +3024,7 @@ Return Values:
 }
 
 
-VOID
+NTSTATUS
 SampUpgradeToCurrentRevision(
     IN PSAMP_OBJECT Context,
     IN ULONG AttributeGroup,
@@ -3066,6 +3080,11 @@ Return Values:
 
     LARGE_INTEGER
         ZeroModifiedCount  = {0,0};
+    PULONG
+        Pointer;
+    NTSTATUS
+        NtStatus = STATUS_SUCCESS;
+
 
     //
     // Note that Buffer points inside a buffer that is
@@ -3088,7 +3107,7 @@ Return Values:
 
     switch (Context->ObjectType) {
         case SampDomainObjectType:
-            
+
             //
             // Domain FIXED_LENGTH attributes have had the following
             // revisions:
@@ -3100,14 +3119,14 @@ Return Values:
             //
             //       Revision 0x00010002 -  NT1.0a (Revision is first ULONG )
             //                                     (in record.              )
-            
+
             if (LengthOfDataRead ==
                 (sizeof(SAMP_V1_0_FIXED_LENGTH_DOMAIN) +
                  FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data)) ) {
-     
+
                 PSAMP_V1_0A_FIXED_LENGTH_DOMAIN
                     V1aFixed;
-                
+
                 SAMP_V1_0_FIXED_LENGTH_DOMAIN
                     V1Fixed, *OldV1Fixed;
 
@@ -3121,7 +3140,7 @@ Return Values:
 
                 OldV1Fixed = (PSAMP_V1_0_FIXED_LENGTH_DOMAIN)(Buffer +
                                  FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data));
-                             
+
                 RtlMoveMemory(&V1Fixed, OldV1Fixed, sizeof(SAMP_V1_0_FIXED_LENGTH_DOMAIN));
 
 
@@ -3131,29 +3150,29 @@ Return Values:
 
                 V1aFixed = (PSAMP_V1_0A_FIXED_LENGTH_DOMAIN)OldV1Fixed;
 
-                V1aFixed->CreationTime             = V1Fixed.CreationTime;         
-                V1aFixed->ModifiedCount            = V1Fixed.ModifiedCount;        
-                V1aFixed->MaxPasswordAge           = V1Fixed.MaxPasswordAge;       
-                V1aFixed->MinPasswordAge           = V1Fixed.MinPasswordAge;       
-                V1aFixed->ForceLogoff              = V1Fixed.ForceLogoff;          
-                V1aFixed->NextRid                  = V1Fixed.NextRid;              
-                V1aFixed->PasswordProperties       = V1Fixed.PasswordProperties;   
-                V1aFixed->MinPasswordLength        = V1Fixed.MinPasswordLength;    
+                V1aFixed->CreationTime             = V1Fixed.CreationTime;
+                V1aFixed->ModifiedCount            = V1Fixed.ModifiedCount;
+                V1aFixed->MaxPasswordAge           = V1Fixed.MaxPasswordAge;
+                V1aFixed->MinPasswordAge           = V1Fixed.MinPasswordAge;
+                V1aFixed->ForceLogoff              = V1Fixed.ForceLogoff;
+                V1aFixed->NextRid                  = V1Fixed.NextRid;
+                V1aFixed->PasswordProperties       = V1Fixed.PasswordProperties;
+                V1aFixed->MinPasswordLength        = V1Fixed.MinPasswordLength;
                 V1aFixed->PasswordHistoryLength    = V1Fixed.PasswordHistoryLength;
-                V1aFixed->ServerState              = V1Fixed.ServerState;             
-                V1aFixed->ServerRole               = V1Fixed.ServerRole;              
+                V1aFixed->ServerState              = V1Fixed.ServerState;
+                V1aFixed->ServerRole               = V1Fixed.ServerRole;
                 V1aFixed->UasCompatibilityRequired = V1Fixed.UasCompatibilityRequired;
-                
-                
+
+
                 //
                 // And initialize fields new for this revision
                 //
-                
+
                 V1aFixed->Revision                 = SAMP_REVISION;
-                V1aFixed->LockoutDuration.LowPart  = 0xCF1DCC00; // 30 minutes - low part  
-                V1aFixed->LockoutDuration.HighPart = 0XFFFFFFFB; // 30 minutes - high part 
-                V1aFixed->LockoutObservationWindow.LowPart  = 0xCF1DCC00; // 30 minutes - low part  
-                V1aFixed->LockoutObservationWindow.HighPart = 0XFFFFFFFB; // 30 minutes - high part 
+                V1aFixed->LockoutDuration.LowPart  = 0xCF1DCC00; // 30 minutes - low part
+                V1aFixed->LockoutDuration.HighPart = 0XFFFFFFFB; // 30 minutes - high part
+                V1aFixed->LockoutObservationWindow.LowPart  = 0xCF1DCC00; // 30 minutes - low part
+                V1aFixed->LockoutObservationWindow.HighPart = 0XFFFFFFFB; // 30 minutes - high part
                 V1aFixed->LockoutThreshold         = 0; // Disabled
 
                 if (V1aFixed->ServerRole == DomainServerRolePrimary) {
@@ -3161,7 +3180,7 @@ Return Values:
                 } else {
                     V1aFixed->ModifiedCountAtLastPromotion = ZeroModifiedCount;
                 }
-            }        
+            }
 
             break;  //out of switch
 
@@ -3180,15 +3199,20 @@ Return Values:
             //
             //       Revision 0x00010002 -  NT1.0a (Revision is first ULONG )
             //                                     (in record.              )
+            //       Revision 0x00010002a - NT3.5  (Revision is first ULONG )
+            //                                     (in record, still        )
+            //                                     (0x00010002.  Must       )
+            //                                     (ascertain revison by    )
+            //                                     (by record length        )
 
             if (LengthOfDataRead ==
-                (sizeof(SAMP_V1_0_FIXED_LENGTH_USER) +
+                (sizeof(SAMP_V1_FIXED_LENGTH_USER) +
                  FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data)) ) {
-             
+
                 PSAMP_V1_0A_FIXED_LENGTH_USER
                     V1aFixed;
-                
-                SAMP_V1_0_FIXED_LENGTH_USER
+
+                SAMP_V1_FIXED_LENGTH_USER
                     V1Fixed, *OldV1Fixed;
 
 
@@ -3199,9 +3223,9 @@ Return Values:
                 // buffer.
                 //
 
-                OldV1Fixed = (PSAMP_V1_0_FIXED_LENGTH_USER)(Buffer +
+                OldV1Fixed = (PSAMP_V1_FIXED_LENGTH_USER)(Buffer +
                                  FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data));
-                RtlMoveMemory(&V1Fixed, OldV1Fixed, sizeof(SAMP_V1_0_FIXED_LENGTH_USER));
+                RtlMoveMemory(&V1Fixed, OldV1Fixed, sizeof(SAMP_V1_FIXED_LENGTH_USER));
 
 
                 //
@@ -3210,30 +3234,160 @@ Return Values:
 
                 V1aFixed = (PSAMP_V1_0A_FIXED_LENGTH_USER)OldV1Fixed;
 
-                
-                V1aFixed->LastLogon           = V1Fixed.LastLogon;         
-                V1aFixed->LastLogoff          = V1Fixed.LastLogoff;        
-                V1aFixed->PasswordLastSet     = V1Fixed.PasswordLastSet;   
-                V1aFixed->AccountExpires      = V1Fixed.AccountExpires;    
-                V1aFixed->UserId              = V1Fixed.UserId;            
-                V1aFixed->PrimaryGroupId      = V1Fixed.PrimaryGroupId;    
+
+                V1aFixed->LastLogon           = V1Fixed.LastLogon;
+                V1aFixed->LastLogoff          = V1Fixed.LastLogoff;
+                V1aFixed->PasswordLastSet     = V1Fixed.PasswordLastSet;
+                V1aFixed->AccountExpires      = V1Fixed.AccountExpires;
+                V1aFixed->UserId              = V1Fixed.UserId;
+                V1aFixed->PrimaryGroupId      = V1Fixed.PrimaryGroupId;
                 V1aFixed->UserAccountControl  = V1Fixed.UserAccountControl;
-                V1aFixed->CountryCode         = V1Fixed.CountryCode;       
-                V1aFixed->CodePage            = V1Fixed.CodePage;          
-                V1aFixed->BadPasswordCount    = V1Fixed.BadPasswordCount;  
-                V1aFixed->LogonCount          = V1Fixed.LogonCount;        
-                V1aFixed->AdminCount          = V1Fixed.AdminCount;        
-                
+                V1aFixed->CountryCode         = V1Fixed.CountryCode;
+                V1aFixed->CodePage            = V1Fixed.CodePage;
+                V1aFixed->BadPasswordCount    = V1Fixed.BadPasswordCount;
+                V1aFixed->LogonCount          = V1Fixed.LogonCount;
+                V1aFixed->AdminCount          = V1Fixed.AdminCount;
+
                 //
                 // And initialize fields new for this revision
                 //
-                
-                V1aFixed->Revision            = SAMP_REVISION;
-                V1aFixed->LastBadPasswordTime = SampHasNeverTime;       
 
+                V1aFixed->Revision            = SAMP_REVISION;
+                V1aFixed->LastBadPasswordTime = SampHasNeverTime;
+                V1aFixed->OperatorCount       = 0;
+                V1aFixed->Unused2             = 0;
+
+            } else if ((LengthOfDataRead ==
+                (sizeof(SAMP_V1_0_FIXED_LENGTH_USER) +
+                 FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data)) ) &&
+                 (AttributeGroup == SAMP_FIXED_ATTRIBUTES)) {
+
+                PSAMP_V1_0A_FIXED_LENGTH_USER
+                    V1aFixed;
+
+                //
+                // Update from revision 0x00010002
+                //
+                // Just set the added field at the end to 0.
+                //
+
+                V1aFixed = (PSAMP_V1_0A_FIXED_LENGTH_USER)(Buffer +
+                                 FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data));
+
+                V1aFixed->OperatorCount       = 0;
+                V1aFixed->Unused2             = 0;
             }
+
             break;  //out of switch
 
+    case SampGroupObjectType:
+            //
+            // Group FIXED_LENGTH attributes have had the following
+            // revisions:
+            //
+            //       Revision 0x00010001 -  NT1.0  (Revision NOT stored in  )
+            //                                     (record.                 )
+            //                                     (Must ascertain revision )
+            //                                     (by first few ULONGs.    )
+            //
+            //       Revision 0x00010002 -  NT1.0a (Revision is first ULONG )
+            //                                     (in record.              )
+
+            Pointer = (PULONG) (Buffer + FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data));
+
+            //
+            // The old fixed length group had a RID in the first ULONG and
+            // an attributes field in the second. The attributes are in the
+            // first and last nibble of the field.  Currently, the RID is in
+            // the second ULONG. Since all RIDs are more than one nibble,
+            // a rid will always have something set in the middle six nibbles.
+            //
+
+            if ( ( Pointer[0] != SAMP_REVISION ) &&
+                 ( ( Pointer[1] & 0x0ffffff0 ) == 0 ) ) {
+
+                PSAMP_V1_0A_FIXED_LENGTH_GROUP
+                    V1aFixed;
+
+                SAMP_V1_FIXED_LENGTH_GROUP
+                    V1Fixed, *OldV1Fixed;
+
+                ULONG TotalLengthRequired;
+
+                //
+                // Calculate the length required for the new group information.
+                // It is the size of the old group plus enough space for the
+                // new fields in the new fixed attributes.
+                //
+
+                TotalLengthRequired = SampDwordAlignUlong(
+                                        LengthOfDataRead +
+                                        sizeof(SAMP_V1_0A_FIXED_LENGTH_GROUP) -
+                                        sizeof(SAMP_V1_FIXED_LENGTH_GROUP)
+                                        );
+
+
+                NtStatus = SampExtendAttributeBuffer(
+                                Context,
+                                TotalLengthRequired
+                                );
+
+                if (!NT_SUCCESS(NtStatus)) {
+                    return(NtStatus);
+                }
+
+                //
+                // Get the new buffer pointer
+                //
+
+                Buffer = Context->OnDisk;
+
+                //
+                // Move the variable information up to make space for the
+                // fixed information
+                //
+
+                RtlMoveMemory(
+                    Buffer + SampFixedBufferOffset( Context ) + sizeof(SAMP_V1_0A_FIXED_LENGTH_GROUP),
+                    Buffer + SampFixedBufferOffset( Context) + sizeof(SAMP_V1_FIXED_LENGTH_GROUP),
+                    LengthOfDataRead - SampFixedBufferOffset( Context) - sizeof(SAMP_V1_FIXED_LENGTH_GROUP)
+                    );
+
+                //
+                // Update from revision 0x00010001
+                //
+                // First, copy the current buffer contents into a temporary
+                // buffer.
+                //
+
+                OldV1Fixed = (PSAMP_V1_FIXED_LENGTH_GROUP)(Buffer +
+                                 FIELD_OFFSET(KEY_VALUE_PARTIAL_INFORMATION, Data));
+
+                RtlCopyMemory(&V1Fixed, OldV1Fixed, sizeof(SAMP_V1_FIXED_LENGTH_GROUP));
+
+                //
+                // Now copy it back in the new format
+                //
+
+                V1aFixed = (PSAMP_V1_0A_FIXED_LENGTH_GROUP)OldV1Fixed;
+
+                V1aFixed->Revision = SAMP_REVISION;
+                V1aFixed->Unused1 = 0;
+                V1aFixed->RelativeId = V1Fixed.RelativeId;
+                V1aFixed->Attributes = V1Fixed.Attributes;
+                V1aFixed->AdminCount = (V1Fixed.AdminGroup) ? TRUE : FALSE;
+                V1aFixed->OperatorCount = 0;
+
+                //
+                // Update the indicator of how long the on disk structure
+                // is.
+                //
+
+                Context->OnDiskUsed += (sizeof(SAMP_V1_0A_FIXED_LENGTH_GROUP) - sizeof(SAMP_V1_FIXED_LENGTH_GROUP));
+                Context->OnDiskFree = Context->OnDiskAllocated - Context->OnDiskUsed;
+            }
+
+        break;
 
         default:
 
@@ -3245,8 +3399,8 @@ Return Values:
             break;  //out of switch
 
     }
-    
-    return;
+
+    return(NtStatus);
 }
 
 
@@ -3651,16 +3805,22 @@ Return Values:
         RtlCopyMemory(
             Context->OnDisk,
             OldBuffer,
-            SampFixedBufferLength( Context )
+            SampFixedBufferLength( Context ) + SampFixedBufferOffset( Context )
             );
     }
+
+    //
+    // Note: in thise case we may copy the fixed data twice, since if the
+    // variable data is not stored separately then SampVariableBufferOffset
+    // is zero.
+    //
 
     if ( Context->VariableValid ) {
 
         RtlCopyMemory(
-            (PUCHAR)Context->OnDisk + SampFixedBufferLength( Context ),
-            OldBuffer + SampFixedBufferLength( Context ),
-            Context->OnDiskUsed - SampFixedBufferLength( Context )
+            SampVariableBufferAddress( Context ),
+            OldBuffer + SampVariableBufferOffset( Context ),
+            Context->OnDiskUsed - SampVariableBufferOffset( Context )
             );
     }
 

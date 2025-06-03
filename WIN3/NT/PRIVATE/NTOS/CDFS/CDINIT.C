@@ -12,27 +12,19 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
 --*/
 
 #include "CdProcs.h"
-//#include <zwapi.h>
 
-static
-VOID
-NothingVoid(
-    IN PVOID Void
-    );
+//
+//  The Bug check file id for this module
+//
 
-static
-BOOLEAN
-NothingBoolean(
-    IN PVOID Void,
-    IN BOOLEAN Bool
-    );
+#define BugCheckFileId                   (CDFS_BUG_CHECK_CDINIT)
 
 NTSTATUS
 DriverEntry(
@@ -40,45 +32,20 @@ DriverEntry(
     IN PUNICODE_STRING RegistryPath
     );
 
+VOID
+CdInitializeGlobalData (
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT FileSystemDeviceObject
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT, DriverEntry)
-#pragma alloc_text(PAGE, NothingVoid)
-#pragma alloc_text(PAGE, NothingBoolean)
+#pragma alloc_text(INIT, CdInitializeGlobalData)
 #endif
-
-//
-//  These two routines are for unused CcCallbacks
-//
-
-static
-VOID
-NothingVoid(
-    IN PVOID Void
-    )
-{
-    PAGED_CODE();
-
-    UNREFERENCED_PARAMETER(Void);
-    return;
-}
-
-static
-BOOLEAN
-NothingBoolean(
-    IN PVOID Void,
-    IN BOOLEAN Bool
-    )
-{
-    PAGED_CODE();
-
-    UNREFERENCED_PARAMETER(Void);
-    UNREFERENCED_PARAMETER(Bool);
-    return TRUE;
-}
 
 
 //
-//  CDFS Initialize
+//  Local support routine
 //
 
 NTSTATUS
@@ -109,7 +76,7 @@ Return Value:
 {
     NTSTATUS Status;
     UNICODE_STRING UnicodeString;
-    PDEVICE_OBJECT DeviceObject;
+    PDEVICE_OBJECT CdfsFileSystemDeviceObject;
 
     //
     // Create the device object.
@@ -123,9 +90,9 @@ Return Value:
                              FILE_DEVICE_CD_ROM_FILE_SYSTEM,
                              0,
                              FALSE,
-                             &DeviceObject );
+                             &CdfsFileSystemDeviceObject );
 
-    if ( !NT_SUCCESS( Status ) ) {
+    if (!NT_SUCCESS( Status )) {
         return Status;
     }
 
@@ -137,114 +104,37 @@ Return Value:
     //
 
     //
-    // Initialize the driver object with this driver's entry points.
+    //  Initialize the driver object with this driver's entry points.
+    //
+    //  NOTE - Each entry in the dispatch table must have an entry in
+    //  the Fsp/Fsd dispatch switch statements.
     //
 
-    DriverObject->MajorFunction[IRP_MJ_CREATE]                  = (PDRIVER_DISPATCH)CdFsdCreate;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE]                   = (PDRIVER_DISPATCH)CdFsdClose;
-    DriverObject->MajorFunction[IRP_MJ_READ]                    = (PDRIVER_DISPATCH)CdFsdRead;
-    DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION]       = (PDRIVER_DISPATCH)CdFsdQueryInformation;
-    DriverObject->MajorFunction[IRP_MJ_SET_INFORMATION]         = (PDRIVER_DISPATCH)CdFsdSetInformation;
-    DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION]= (PDRIVER_DISPATCH)CdFsdQueryVolumeInformation;
-    DriverObject->MajorFunction[IRP_MJ_CLEANUP]                 = (PDRIVER_DISPATCH)CdFsdCleanup;
-    DriverObject->MajorFunction[IRP_MJ_DIRECTORY_CONTROL]       = (PDRIVER_DISPATCH)CdFsdDirectoryControl;
-    DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL]     = (PDRIVER_DISPATCH)CdFsdFileSystemControl;
-    DriverObject->MajorFunction[IRP_MJ_LOCK_CONTROL]            = (PDRIVER_DISPATCH)CdFsdLockControl;
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]          = (PDRIVER_DISPATCH)CdFsdDeviceControl;
+    DriverObject->MajorFunction[IRP_MJ_CREATE]                  =
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]                   =
+    DriverObject->MajorFunction[IRP_MJ_READ]                    =
+    DriverObject->MajorFunction[IRP_MJ_QUERY_INFORMATION]       =
+    DriverObject->MajorFunction[IRP_MJ_SET_INFORMATION]         =
+    DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION]=
+    DriverObject->MajorFunction[IRP_MJ_DIRECTORY_CONTROL]       =
+    DriverObject->MajorFunction[IRP_MJ_FILE_SYSTEM_CONTROL]     =
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL]          =
+    DriverObject->MajorFunction[IRP_MJ_LOCK_CONTROL]            =
+    DriverObject->MajorFunction[IRP_MJ_CLEANUP]                 = (PDRIVER_DISPATCH) CdFsdDispatch;
 
     DriverObject->FastIoDispatch = &CdFastIoDispatch;
-
-    RtlZeroMemory( &CdFastIoDispatch, sizeof(FAST_IO_DISPATCH) );
-
-    CdFastIoDispatch.SizeOfFastIoDispatch =    sizeof(FAST_IO_DISPATCH);
-    CdFastIoDispatch.FastIoRead =              FsRtlCopyRead;            //  Read
 
     //
     //  Initialize the global data structures
     //
 
-    CdData.NodeTypeCode = CDFS_NTC_DATA_HEADER;
-    CdData.NodeByteSize = sizeof( CD_DATA );
-
-    InitializeListHead( &CdData.MvcbLinks );
-
-    CdData.DriverObject = DriverObject;
-
-    ExInitializeResource( &CdData.Resource );
-
-    //
-    //  Now initialize the zone structures for allocating IRP context records
-    //  We will initiall have a segment for 64 context records.
-    //
-
-    {
-        ULONG ZoneSegmentSize;
-
-        KeInitializeSpinLock( &CdData.IrpContextSpinLock );
-
-        switch ( MmQuerySystemSize() ) {
-
-        case MmSmallSystem:
-
-            ZoneSegmentSize = (4 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-
-        case MmMediumSystem:
-
-            ZoneSegmentSize = (8 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-
-        case MmLargeSystem:
-
-            ZoneSegmentSize = (16 * QuadAlign(sizeof(IRP_CONTEXT))) + sizeof(ZONE_SEGMENT_HEADER);
-            break;
-        }
-
-        (VOID) ExInitializeZone( &CdData.IrpContextZone,
-                                 QuadAlign(sizeof(IRP_CONTEXT)),
-                                 FsRtlAllocatePool( NonPagedPool, ZoneSegmentSize ),
-                                 ZoneSegmentSize );
-    }
-
-    //
-    //  Initialize the cache manager callback routines
-    //
-
-    CdData.CacheManagerCallbacks.AcquireForLazyWrite  = &NothingBoolean;
-    CdData.CacheManagerCallbacks.ReleaseFromLazyWrite = &NothingVoid;
-    CdData.CacheManagerCallbacks.AcquireForReadAhead  = &CdAcquireForReadAhead;
-    CdData.CacheManagerCallbacks.ReleaseFromReadAhead = &CdReleaseFromReadAhead;
-
-    //
-    //  Initialize the codepages in the global data area.  This is an
-    //  extreme hack.  Neccessary until the OS provides some language
-    //  support.
-    //
-
-    //
-    //  Do the primary.
-    //
-
-    CdData.PrimaryCodePage = &PrimaryCodePage;
-
-    //
-    //  Do the array of secondaries (this is just the KANJI).
-    //
-
-    CdData.SecondaryCodePages[0].CodePage = &KanjiCodePage;
-    RtlInitString( &CdData.SecondaryCodePages[0].EscapeString, "$+:" );
-
-    //
-    //  Set up global pointer to our process.
-    //
-
-    CdData.OurProcess = PsGetCurrentProcess();
+    CdInitializeGlobalData( DriverObject, CdfsFileSystemDeviceObject );
 
     //
     //  Register the file system with the I/O system
     //
 
-    IoRegisterFileSystem( DeviceObject );
+    IoRegisterFileSystem( CdfsFileSystemDeviceObject );
 
     //
     //  And return to our caller
@@ -253,4 +143,122 @@ Return Value:
     return( STATUS_SUCCESS );
 }
 
-
+
+//
+//  Local support routine
+//
+
+VOID
+CdInitializeGlobalData (
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDEVICE_OBJECT FileSystemDeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine initializes the global cdfs data structures.
+
+Arguments:
+
+    DriverObject - Supplies the driver object for CDFS.
+
+    FileSystemDeviceObject - Supplies the device object for CDFS.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    //
+    //  Start by initializing the FastIoDispatch Table.
+    //
+
+    RtlZeroMemory( &CdFastIoDispatch, sizeof( FAST_IO_DISPATCH ));
+
+    CdFastIoDispatch.SizeOfFastIoDispatch =    sizeof(FAST_IO_DISPATCH);
+    CdFastIoDispatch.FastIoCheckIfPossible =   CdFastIoCheckIfPossible;  //  CheckForFastIo
+    CdFastIoDispatch.FastIoRead =              FsRtlCopyRead;            //  Read
+    CdFastIoDispatch.FastIoQueryBasicInfo =    CdFastQueryBasicInfo;     //  QueryBasicInfo
+    CdFastIoDispatch.FastIoQueryStandardInfo = CdFastQueryStdInfo;       //  QueryStandardInfo
+    CdFastIoDispatch.FastIoLock =              CdFastLock;               //  Lock
+    CdFastIoDispatch.FastIoUnlockSingle =      CdFastUnlockSingle;       //  UnlockSingle
+    CdFastIoDispatch.FastIoUnlockAll =         CdFastUnlockAll;          //  UnlockAll
+    CdFastIoDispatch.FastIoUnlockAllByKey =    CdFastUnlockAllByKey;     //  UnlockAllByKey
+    CdFastIoDispatch.AcquireFileForNtCreateSection =  CdAcquireForCreateSection;
+    CdFastIoDispatch.ReleaseFileForNtCreateSection =  CdReleaseForCreateSection;
+    CdFastIoDispatch.FastIoQueryNetworkOpenInfo =     CdFastQueryNetworkInfo;   //  QueryNetworkInfo
+
+    //
+    //  Initialize the CdData structure.
+    //
+
+    RtlZeroMemory( &CdData, sizeof( CD_DATA ));
+
+    CdData.NodeTypeCode = CDFS_NTC_DATA_HEADER;
+    CdData.NodeByteSize = sizeof( CD_DATA );
+
+    CdData.DriverObject = DriverObject;
+    CdData.FileSystemDeviceObject = FileSystemDeviceObject;
+
+    InitializeListHead( &CdData.VcbQueue );
+
+    ExInitializeResource( &CdData.DataResource );
+
+    //
+    //  Initialize the cache manager callback routines
+    //
+
+    CdData.CacheManagerCallbacks.AcquireForLazyWrite  = &CdAcquireForCache;
+    CdData.CacheManagerCallbacks.ReleaseFromLazyWrite = &CdReleaseFromCache;
+    CdData.CacheManagerCallbacks.AcquireForReadAhead  = &CdAcquireForCache;
+    CdData.CacheManagerCallbacks.ReleaseFromReadAhead = &CdReleaseFromCache;
+
+    CdData.CacheManagerVolumeCallbacks.AcquireForLazyWrite  = &CdNoopAcquire;
+    CdData.CacheManagerVolumeCallbacks.ReleaseFromLazyWrite = &CdNoopRelease;
+    CdData.CacheManagerVolumeCallbacks.AcquireForReadAhead  = &CdNoopAcquire;
+    CdData.CacheManagerVolumeCallbacks.ReleaseFromReadAhead = &CdNoopRelease;
+
+    //
+    //  Initialize the lock mutex and the async and delay close queues.
+    //
+
+    ExInitializeFastMutex( &CdData.CdDataMutex );
+    InitializeListHead( &CdData.AsyncCloseQueue );
+    InitializeListHead( &CdData.DelayedCloseQueue );
+
+    ExInitializeWorkItem( &CdData.CloseItem,
+                          (PWORKER_THREAD_ROUTINE) CdFspClose,
+                          NULL );
+
+    //
+    //  Do the initialization based on the system size.
+    //
+
+    switch (MmQuerySystemSize()) {
+
+    case MmSmallSystem:
+
+        CdData.IrpContextMaxDepth = 4;
+        CdData.MaxDelayedCloseCount = 8;
+        CdData.MinDelayedCloseCount = 2;
+        break;
+
+    case MmMediumSystem:
+
+        CdData.IrpContextMaxDepth = 8;
+        CdData.MaxDelayedCloseCount = 24;
+        CdData.MinDelayedCloseCount = 6;
+        break;
+
+    case MmLargeSystem:
+
+        CdData.IrpContextMaxDepth = 32;
+        CdData.MaxDelayedCloseCount = 72;
+        CdData.MinDelayedCloseCount = 18;
+        break;
+    }
+}

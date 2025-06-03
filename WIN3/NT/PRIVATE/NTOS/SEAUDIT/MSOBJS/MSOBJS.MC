@@ -162,6 +162,17 @@ MessageId=0x0606
 ACCESS_SYS_SEC
 .
 
+;////////////////////////////////////////////////
+;//
+;//        Access Type = MAXIMUM_ALLOWED
+;//
+
+MessageId=0x0607
+        SymbolicName=SE_ACCESS_NAME_MAXIMUM_ALLOWED
+        Language=English
+MAX_ALLOWED
+.
+
 
 
 ;
@@ -465,6 +476,7 @@ Remotely Shut System Down Privilege
 ;//                                                                          //
 ;//                  Executive objects are:                                  //
 ;//                                                                          //
+;//                            Channel                                       //
 ;//                            Device                                        //
 ;//                            Directory                                     //
 ;//                            Event                                         //
@@ -1019,6 +1031,33 @@ Modify State
 
 
 
+;//
+;// CHANNEL object-specific access types
+;//
+
+MessageId=0x1400
+        SymbolicName=MS_CHANNEL_ACCESS_BIT_0
+        Language=English
+Channel read message
+.
+MessageId=0x1401
+        SymbolicName=MS_CHANNEL_ACCESS_BIT_1
+        Language=English
+Channel write message
+.
+MessageId=0x1402
+        SymbolicName=MS_CHANNEL_ACCESS_BIT_2
+        Language=English
+Channel query information
+.
+MessageId=0x1403
+        SymbolicName=MS_CHANNEL_ACCESS_BIT_3
+        Language=English
+Channel set information
+.
+
+
+
 ;
 ;//////////////////////////////////////////////////////////////////////////////
 ;//                                                                          //
@@ -1509,11 +1548,17 @@ Exit windows
 MessageId=0x1A07
         SymbolicName=MS_WIN_STA_ACCESS_BIT_7
         Language=English
-Enumerate windowstations
+Unused Access Flag
 .
 
 MessageId=0x1A08
         SymbolicName=MS_WIN_STA_ACCESS_BIT_8
+        Language=English
+Include this windowstation in enumerations
+.
+
+MessageId=0x1A09
+        SymbolicName=MS_WIN_STA_ACCESS_BIT_9
         Language=English
 Read screen
 .
@@ -1527,7 +1572,7 @@ Read screen
 MessageId=0x1A10
         SymbolicName=MS_DESKTOP_ACCESS_BIT_0
         Language=English
-Enumerate windows
+Read Objects
 .
 
 MessageId=0x1A11
@@ -1563,7 +1608,19 @@ Journal (playback)
 MessageId=0x1A16
         SymbolicName=MS_DESKTOP_ACCESS_BIT_6
         Language=English
-Enumerate desktops
+Include this desktop in enumerations
+.
+
+MessageId=0x1A17
+        SymbolicName=MS_DESKTOP_ACCESS_BIT_7
+        Language=English
+Write objects
+.
+
+MessageId=0x1A18
+        SymbolicName=MS_DESKTOP_ACCESS_BIT_8
+        Language=English
+Switch to this desktop
 .
 
 
@@ -1785,31 +1842,61 @@ Issue service-specific control commands
 MessageId=0x1D00
         SymbolicName=MS_DDE_SHARE_ACCESS_BIT_0
         Language=English
-DDE Share Request
+DDE Share Read
 .
 
 MessageId=0x1D01
         SymbolicName=MS_DDE_SHARE_ACCESS_BIT_1
         Language=English
-DDE Share Advise
+DDE Share Write
 .
 
 MessageId=0x1D02
         SymbolicName=MS_DDE_SHARE_ACCESS_BIT_2
         Language=English
-DDE Share Poke
+DDE Share Initiate Static
 .
 
 MessageId=0x1D03
         SymbolicName=MS_DDE_SHARE_ACCESS_BIT_3
         Language=English
-DDE Share Execute
+DDE Share Initiate Link
 .
 
 MessageId=0x1D04
         SymbolicName=MS_DDE_SHARE_ACCESS_BIT_4
         Language=English
-DDE Share Start Application
+DDE Share Request
+.
+
+MessageId=0x1D05
+        SymbolicName=MS_DDE_SHARE_ACCESS_BIT_5
+        Language=English
+DDE Share Advise
+.
+
+MessageId=0x1D06
+        SymbolicName=MS_DDE_SHARE_ACCESS_BIT_6
+        Language=English
+DDE Share Poke
+.
+
+MessageId=0x1D07
+        SymbolicName=MS_DDE_SHARE_ACCESS_BIT_7
+        Language=English
+DDE Share Execute
+.
+
+MessageId=0x1D08
+        SymbolicName=MS_DDE_SHARE_ACCESS_BIT_8
+        Language=English
+DDE Share Add Items
+.
+
+MessageId=0x1D09
+        SymbolicName=MS_DDE_SHARE_ACCESS_BIT_9
+        Language=English
+DDE Share List Items
 .
 
 

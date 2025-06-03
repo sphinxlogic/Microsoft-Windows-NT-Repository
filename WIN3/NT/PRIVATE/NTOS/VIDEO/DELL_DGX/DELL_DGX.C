@@ -63,7 +63,7 @@ DevInitDGX(
 VOID
 DevSetPanel(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
-    ULONG ulMessage
+    PUCHAR pMessage
     );
 
 VOID
@@ -106,6 +106,7 @@ VOID
 DevPointerOff(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
+
 
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE,DriverEntry)
@@ -268,7 +269,12 @@ Return Value:
     USHORT temp;
     PUSHORT port;
     VP_STATUS status;
-    
+    PWSTR pwszChip= NULL;    // chip name
+    ULONG cbChip= 0;         // length of chip name
+    PWSTR pwszDac= NULL;     // DAC name
+    ULONG cbDac= 0;          // length of DAC name
+    ULONG cbMemSize;         // size of video memory
+
     VIDEO_ACCESS_RANGE accessRange[NUM_ACCESS_RANGES] = {
         {0X00000061, 0x00000000, 0x00000001, 1, 1, 0},   // DGX I
         {0X00006CA8, 0x00000000, 0x00000001, 1, 1, 0},   // DGX I
@@ -337,14 +343,14 @@ Return Value:
     pVirtAddr = &hwDeviceExtension->DGX1Misc;
 
     for (i=0 ; i <NUM_ACCESS_RANGES ; i++ ) {
-    
+
         if ( (*pVirtAddr = VideoPortGetDeviceBase(hwDeviceExtension,
-                               accessRange[i].RangeStart, 
+                               accessRange[i].RangeStart,
                                accessRange[i].RangeLength,
                                accessRange[i].RangeInIoSpace)) == NULL) {
-    
+
             return ERROR_INVALID_PARAMETER;
-    
+
         }
 
         pVirtAddr++;
@@ -360,26 +366,41 @@ Return Value:
     temp = VideoPortReadPortUshort(port++);
 
     if (temp == DELL_DGX_ID_LOW) {
-        
+
         temp = VideoPortReadPortUshort(port);
-        
+
         if (temp == DELL_DGX_1_ID_HIGH) {
 
             hwDeviceExtension->ModelNumber = 1;
+            pwszChip= CHIPNAME1;
+            cbChip= sizeof(CHIPNAME1);
 
         }
 
         if (temp == DELL_DGX_2_ID_HIGH) {
 
             hwDeviceExtension->ModelNumber = 2;
+            pwszChip= CHIPNAME2;
+            cbChip= sizeof(CHIPNAME2);
 
         }
     }
 
     if (hwDeviceExtension->ModelNumber == 0) {
 
-        return ERROR_DEV_NOT_EXIST;
+        //
+        // If we did not find the chip, free all the resources we allocated.
+        //
 
+        pVirtAddr = &hwDeviceExtension->DGX1Misc;
+
+        for (i=0 ; i <NUM_ACCESS_RANGES ; i++) {
+
+            VideoPortFreeDeviceBase(hwDeviceExtension, *pVirtAddr);
+            pVirtAddr++;
+        }
+
+        return ERROR_DEV_NOT_EXIST;
     }
 
     //
@@ -415,6 +436,27 @@ Return Value:
 
     DevSetPanel(HwDeviceExtension, PANEL_MESSAGE);
 
+    //
+    // Set hardware information strings in registry
+    //
+
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.ChipType",
+                                   pwszChip,
+                                   cbChip );
+
+    pwszDac= DELL_DGX_DACNAME;
+    cbDac= sizeof( DELL_DGX_DACNAME );
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.DacType",
+                                   pwszDac,
+                                   cbDac );
+
+    cbMemSize= DELL_DGX_LEN;
+    VideoPortSetRegistryParameters(HwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &cbMemSize,
+                                   sizeof(ULONG) );
     //
     // Indicate a successful completion status.
     //
@@ -486,6 +528,11 @@ Return Value:
     ULONG inIoSpace, ulTemp;
     PVIDEO_CLUT clutBuffer;
     ULONG modeNumber;
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
 
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
@@ -495,17 +542,99 @@ Return Value:
     switch (RequestPacket->IoControlCode) {
 
 
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "DGXStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->FrameLength) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->FrameLength) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE:  we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameAddress.QuadPart;
+
+        status = VideoPortMapMemory(hwDeviceExtension,
+                                    shareAddress,
+                                    &sharedViewSize,
+                                    &inIoSpace,
+                                    &virtualAddress);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "DGXStartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
+
+
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
 
         VideoDebugPrint((2, "DGXStartIO - MapVideoMemory\n"));
 
-        if ( (RequestPacket->OutputBufferLength <
-              (RequestPacket->StatusBlock->Information =
-                                     sizeof(VIDEO_MEMORY_INFORMATION))) ||
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_MEMORY_INFORMATION)) ||
              (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
         }
+
+        RequestPacket->StatusBlock->Information =  sizeof(VIDEO_MEMORY_INFORMATION);
 
         memoryInformation = RequestPacket->OutputBuffer;
 
@@ -527,11 +656,8 @@ Return Value:
         // case.
         //
 
-        memoryInformation->FrameBufferBase =
-            memoryInformation->VideoRamBase;
-
-        memoryInformation->FrameBufferLength =
-            memoryInformation->VideoRamLength;
+        memoryInformation->FrameBufferBase = memoryInformation->VideoRamBase;
+        memoryInformation->FrameBufferLength = memoryInformation->VideoRamLength;
 
         break;
 
@@ -543,13 +669,15 @@ Return Value:
         if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
-        }
 
-        status = VideoPortUnmapMemory(hwDeviceExtension,
-                                      ((PVIDEO_MEMORY)
-                                       (RequestPacket->InputBuffer))->
-                                           RequestedVirtualAddress,
-                                      0);
+        } else {
+
+            status = VideoPortUnmapMemory(hwDeviceExtension,
+                                          ((PVIDEO_MEMORY)
+                                           (RequestPacket->InputBuffer))->
+                                               RequestedVirtualAddress,
+                                          0);
+        }
 
         break;
 
@@ -560,13 +688,13 @@ Return Value:
 
         modeInformation = RequestPacket->OutputBuffer;
 
-        if (RequestPacket->OutputBufferLength <
-            (RequestPacket->StatusBlock->Information =
-                                     sizeof(VIDEO_MODE_INFORMATION)) ) {
+        if (RequestPacket->OutputBufferLength < sizeof(VIDEO_MODE_INFORMATION)) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
 
         } else {
+
+            RequestPacket->StatusBlock->Information = sizeof(VIDEO_MODE_INFORMATION);
 
             *((PVIDEO_MODE_INFORMATION)RequestPacket->OutputBuffer) =
                 DGXModes[hwDeviceExtension->CurrentModeNumber].modeInformation;
@@ -584,12 +712,14 @@ Return Value:
         VideoDebugPrint((2, "DGXStartIO - QueryAvailableModes\n"));
 
         if (RequestPacket->OutputBufferLength <
-            (RequestPacket->StatusBlock->Information =
-                 hwDeviceExtension->NumValidModes * sizeof(VIDEO_MODE_INFORMATION)) ) {
+                hwDeviceExtension->NumValidModes * sizeof(VIDEO_MODE_INFORMATION)) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
 
         } else {
+
+            RequestPacket->StatusBlock->Information =
+                 hwDeviceExtension->NumValidModes * sizeof(VIDEO_MODE_INFORMATION);
 
             modeInformation = RequestPacket->OutputBuffer;
 
@@ -620,18 +750,17 @@ Return Value:
         // information is there). If the buffer passed in is not large
         // enough return an appropriate error code.
         //
-        // BUGBUG This must be changed to take into account which monitor
+        // WARNING: This must be changed to take into account which monitor
         // is present on the machine.
         //
 
-        if (RequestPacket->OutputBufferLength <
-                (RequestPacket->StatusBlock->Information =
-                                                sizeof(VIDEO_NUM_MODES)) ) {
+        if (RequestPacket->OutputBufferLength < sizeof(VIDEO_NUM_MODES)) {
 
             status = ERROR_INSUFFICIENT_BUFFER;
 
         } else {
 
+            RequestPacket->StatusBlock->Information = sizeof(VIDEO_NUM_MODES);
             ((PVIDEO_NUM_MODES)RequestPacket->OutputBuffer)->NumModes =
                 hwDeviceExtension->NumValidModes;
             ((PVIDEO_NUM_MODES)RequestPacket->OutputBuffer)->ModeInformationLength =
@@ -649,7 +778,7 @@ Return Value:
 
         //
         // verify data
-        // BUGBUG Make sure it is one of the valid modes on the list
+        // WARNING: Make sure it is one of the valid modes on the list
         // calculated using the monitor information.
         //
 
@@ -706,7 +835,7 @@ Return Value:
                           (PULONG)clutBuffer->LookupTable,
                           clutBuffer->FirstEntry,
                           clutBuffer->NumEntries);
-            
+
             status = NO_ERROR;
         }
         break;
@@ -777,23 +906,22 @@ Return Value:
         //
         // Make sure the output buffer is big enough.
         //
-        
+
         if (RequestPacket->OutputBufferLength < sizeof(VIDEO_POINTER_POSITION)) {
-        
+
             RequestPacket->StatusBlock->Information = 0;
             return ERROR_INSUFFICIENT_BUFFER;
-        
+
         }
-        
+
         //
         // Return the pointer position
         //
-        
+
+        RequestPacket->StatusBlock->Information = sizeof(VIDEO_POINTER_POSITION);
+
         pPointerPosition->Row = (SHORT)hwDeviceExtension->ulPointerX;
         pPointerPosition->Column = (SHORT)hwDeviceExtension->ulPointerY;
-        
-        RequestPacket->StatusBlock->Information =
-                sizeof(VIDEO_POINTER_POSITION);
 
         status = NO_ERROR;
 
@@ -1067,10 +1195,10 @@ Return Value:
 
 }
 
-VOID 
+VOID
 DevSetPanel(
     PHW_DEVICE_EXTENSION HwDeviceExtension,
-    ULONG ulMessage
+    PUCHAR pMessage
     )
 
 /*++
@@ -1078,14 +1206,14 @@ DevSetPanel(
 
 Routine Description:
 
-    Writes out a four byte message to the Dell LCD display panel on 
+    Writes out a four byte message to the Dell LCD display panel on
     the front of the machine. This should probably exist as an IOCTL
     (along with the set mode code from above).
 
 Arguments:
 
     HwDeviceExtension - Pointer to the miniport driver's device extension.
-    ULONG - 4 byte ASCII string
+    PUCHAR - ASCII string (4 characters always used)
 
 Return Value:
 
@@ -1100,13 +1228,10 @@ Return Value:
     pPanel = (PUCHAR)HwDeviceExtension->FrontPanel;
     pPanel += 3;
 
-    VideoPortWritePortUchar(pPanel--,(UCHAR)(ulMessage & 0xff));
-    ulMessage >>= 8;
-    VideoPortWritePortUchar(pPanel--,(UCHAR)(ulMessage & 0xff));
-    ulMessage >>= 8;
-    VideoPortWritePortUchar(pPanel--,(UCHAR)(ulMessage & 0xff));
-    ulMessage >>= 8;
-    VideoPortWritePortUchar(pPanel,(UCHAR)(ulMessage & 0xff));
+    VideoPortWritePortUchar( pPanel--, *pMessage++ );
+    VideoPortWritePortUchar( pPanel--, *pMessage++ );
+    VideoPortWritePortUchar( pPanel--, *pMessage++ );
+    VideoPortWritePortUchar( pPanel,   *pMessage++ );
 }
 
 VOID
@@ -1189,7 +1314,7 @@ Return Value:
 
     if ((pPal = HwDeviceExtension->pPaletteRegs) == 0)
         return;
-    
+
     while (iCount--) {
 
         *pPal++ = palentry;
@@ -1197,7 +1322,7 @@ Return Value:
         DacDelay();
 
     }
-    
+
 }
 
 BOOLEAN
@@ -1289,7 +1414,7 @@ Return Value:
         DacDelay();
         pPort += 4;
         VideoPortWritePortUchar(pPort, 0x1);
-        
+
     } else {
 
         if (HwDeviceExtension->ModelNumber == 2) {
@@ -1327,7 +1452,7 @@ Arguments:
     HwDeviceExtension - Pointer to the miniport driver's device extension.
 
     pData - Mode set data
- 
+
     ulCount - size of mode set data.
 
 Return Value:
@@ -1368,14 +1493,14 @@ Return Value:
 
         VideoPortWritePortUchar(pReg,(UCHAR)4);
         DacDelay();
-        
+
         VideoPortWritePortUchar((PUCHAR)(HwDeviceExtension->DGX1OutputPort),
                 (UCHAR)4);
         DacDelay();
-        
+
         VideoPortWritePortUchar(pReg, (UCHAR)1);
         DacDelay();
-        
+
     } else {
 
         pReg = (PUCHAR)(HwDeviceExtension->DGXControlPorts);
@@ -1383,10 +1508,10 @@ Return Value:
 
         VideoPortWritePortUchar(pReg, (UCHAR)0x15);
         DacDelay();
-        
+
         VideoPortWritePortUchar(pReg, (UCHAR)5);
         DacDelay();
-        
+
         VideoPortWritePortUchar(pReg, (UCHAR)0x45);
         DacDelay();
     }
@@ -1467,3 +1592,4 @@ Return Value:
 
     return;
 }
+

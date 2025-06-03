@@ -181,4 +181,3 @@ extern HELPMAP gahmapDialog[];  /* Maps dlg ids to their help context.  */
 extern LANGTABLE gaLangTable[]; /* Table of languages.                  */
 extern INT gcLanguages;         /* Count of languages in the table.     */
 
-

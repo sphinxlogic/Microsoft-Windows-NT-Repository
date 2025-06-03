@@ -26,6 +26,15 @@ extern "C" {
 
 CSimpSvrApp FAR * lpCSimpSvrApp;
 CClassFactory FAR * lpClassFactory;
+BOOL fBeVerbose = FALSE;
+extern "C"
+void TestDebugOut(LPSTR psz)
+{
+    if (fBeVerbose)
+    {
+	OutputDebugString(psz);
+    }
+}
 
 //**********************************************************************
 //
@@ -71,6 +80,12 @@ int PASCAL WinMain(HANDLE hInstance,HANDLE hPrevInstance,LPSTR lpCmdLine,int nCm
 
 {
 	MSG msg;
+	fBeVerbose = GetProfileInt("OLEUTEST","BeVerbose",0);
+
+	if(fBeVerbose == 0)
+	{
+	    fBeVerbose = GetProfileInt("OLEUTEST","spsvr16",0);
+	}
 
 	// recommended size for OLE apps
 	SetMessageQueue(96);
@@ -178,7 +193,7 @@ long FAR PASCAL _export MainWndProc(HWND hWnd,UINT message,WPARAM wParam,LPARAM 
 	switch (message)
 		{
 		case WM_CLOSE:
-			OutputDebugString("*** In WM_CLOSE *** \r\n");
+			TestDebugOut("*** In WM_CLOSE *** \r\n");
 
 			// if there is still a document
 			if (lpCSimpSvrApp->GetDoc())

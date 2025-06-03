@@ -42,7 +42,8 @@
 # Tools Dirs
 
 C800=$(IMPORT)\msvc15
-C68=$(IMPORT)\wings
+C68=$(IMPORT)\msdev
+CMPPC=$(IMPORT)\msdev
 
 #
 # Dos and Win16 is built with C8
@@ -66,19 +67,30 @@ WINSDK_LIB=$(WINSDK_ROOT)\lib
 MASM_BIN=$(IMPORT)\masm
 
 #
-# Mac is built with C68 (wings)
+# Mac is built with VC++ for the Macintosh
 #
 MAC_ROOT=$(C68)
 MAC_BIN=$(MAC_ROOT)\bin
+MAC_BIN_68K=$(MAC_ROOT)\bin\m68k
 MAC_LIB=$(MAC_ROOT)\lib
 MAC_INC=$(MAC_ROOT)\include
 
 #
+# As is PowerMac..
+#
+MPPC_ROOT=$(CMPPC)
+MPPC_BIN=$(MPPC_ROOT)\bin
+MPPC_BIN_MPPC=$(MPPC_ROOT)\bin\mppc
+MPPC_LIB=$(MPPC_ROOT)\mppc\lib
+MPPC_INC=$(MPPC_ROOT)\mppc\include
+
+
+#
 # Common Tools
 #
-MAKE=nmake -nologo 
-MV=mv
+MAKE=nmake -nologo
 MIDL=midl
+INCLUDES=$(IMPORT)\bin\$(PROCESSOR_ARCHITECTURE)\includes
 
 #
 # Common Flags
@@ -90,5 +102,5 @@ NMAKEFLAGS=
 !endif
 
 .SUFFIXES:
-.SUFFIXES: .obj .cod .cxx .c .asm .map .sym .rc .lib .dll .exe .def .idl .acf
+.SUFFIXES: .obj .cod .cxx .c .asm .map .sym .rc .lib .dll .exe .def .idl .acf .r
 

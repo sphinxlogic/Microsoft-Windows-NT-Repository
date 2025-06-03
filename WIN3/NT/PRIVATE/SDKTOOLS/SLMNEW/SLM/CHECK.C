@@ -3,28 +3,8 @@
  * is put into a buffer, and the log file is checked for proper sequence.
  */
 
-#if defined(OS2)
-#define INCL_DOSFILEMGR
-#include <os2.h>
-#endif
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "de.h"
-#include "log.h"
-#include "slmck.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-
-#include "proto.h"
-#include "ckproto.h"
-
-
+#include "precomp.h"
+#pragma hdrstop
 EnableAssert
 
 #define iszDirMax 3     /* number of master directories */
@@ -37,7 +17,7 @@ FCkSRoot(
     AD *pad)
 {
     PTH pth[cchPthMax];
-    struct stat st;
+    struct _stat st;
 
     /* does the Slm root exist and can we write to it */
     if (FStatPth(SzPrint(pth, "%&/S", pad), &st))
@@ -89,7 +69,7 @@ CkSrcPrms(
     char szFile[cchFileMax];
     FA fa;
     DE de;
-    struct stat st;
+    struct _stat st;
     PTH pthDir[cchPthMax];
     PTH pthT[cchPthMax];
 
@@ -114,10 +94,10 @@ FLoadSd(
     AD *pad,
     SD *psd)
 {
-    struct stat st;
+    struct _stat st;
     long cb;
     unsigned cbT;
-    char huge *hpbT;
+    char *hpbT;
 
     ClearPbCb((char *)psd, sizeof(SD));
 
@@ -132,11 +112,6 @@ FLoadSd(
     */
 
     cb = (long)st.st_size;
-
-#if defined(OS2)
-    if (cb >= 65536)
-        FatalError("status file is too large (>64K) and cannot be locked\n");
-#endif /* OS2 */
 
     if ((psd->hpbStatus = HpbResStat(cb)) == 0)
     {
@@ -156,12 +131,12 @@ FLoadSd(
     /* must lock the status file; it will remain locked until FlushSd() */
     if (!FLockMf(psd->pmfStat))
     {
-        Error("status file for %&P/C in use", pad);
+        Error("status file for %&P/C in use\n", pad);
         FlushSd(pad, psd, fTrue);
         return fFalse;
     }
 
-    /* read file into a huge buffer, cbRdWrMax bytes at a time */
+    /* read file into a buffer, cbRdWrMax bytes at a time */
     for (hpbT = psd->hpbStatus; cb > 0; hpbT += cbT, cb -= cbT)
     {
         cbT = cb > cbRdWrMax ? cbRdWrMax : (unsigned)cb;
@@ -185,10 +160,10 @@ FlushSd(
     SD *psd,
     F   fAbort)
 {                               /* should be current version by now */
-    SH far *psh = (SH far *)psd->hpbStatus;
+    SH *psh = (SH *)psd->hpbStatus;
     unsigned cbT;
     long cb;
-    char huge *hpbT;
+    char *hpbT;
     char *szComment;
 
     if (fAbort)
@@ -259,7 +234,7 @@ FlushSd(
             szComment = SzQuery("Comment for log: ");
 
         OpenLog(pad, fTrue);
-        AppendLog(pad, (FI far *)0, (char *)0, szComment);
+        AppendLog(pad, (FI *)0, (char *)0, szComment);
         CloseLog();
 
         CloseMf(psd->pmfStat);
@@ -289,11 +264,10 @@ CkLog(
 {
     PTH pth[cchPthMax];
     LE le;
-    struct stat st;
 
     if (fVerbose)
         PrErr("Checking log file\n");
-    if (!FStatPth(PthForLog(pad, pth), &st))
+    if (!FPthExists(PthForLog(pad, pth), fFalse))
     {
         Error("log file for %&P/C does not exist\n", pad);
         return;

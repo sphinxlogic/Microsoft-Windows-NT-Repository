@@ -119,6 +119,7 @@ Return Value:
     ASSERT(ObjectSizes[ObjectType] != (USHORT)(-1));
 
     pStation = (PLLC_OBJECT)ALLOCATE_ZEROMEMORY_FILE(ObjectSizes[ObjectType]);
+
     if (pStation == NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -166,8 +167,11 @@ Return Value:
                       &DefaultParameters,
                       sizeof(DefaultParameters)
                       );
+
             ALLOCATE_SPIN_LOCK(&pStation->Sap.FlowControlLock);
+
         } else {
+
             FREE_MEMORY_FILE(pStation);
 
             RELEASE_SPIN_LOCK(&pAdapterContext->ObjectDataBase);
@@ -194,7 +198,9 @@ Return Value:
                 LlcStatus = DLC_STATUS_INVALID_OPTION;
             }
         }
+
         ALLOCATE_SPIN_LOCK(&pStation->Sap.FlowControlLock);
+
         break;
 
     case LLC_DIRECT_OBJECT:
@@ -220,17 +226,11 @@ Return Value:
         pStation->Gen.pNext = *ppListBase;
         *phStation = *ppListBase = pStation;
 
-        //
-        // The close completion is made within send spin lock =>
-        // we must use the same spin lock to protect the increment.
-        // (the rules: ObjectSpinLock( SendSpinLock( LinkSpinLock()))
-        //
-
-        ExInterlockedIncrementLong((PLONG)&(pAdapterContext->ObjectCount),
-                                   &pAdapterContext->SendSpinLock.SpinLock
-                                   );
+        pAdapterContext->ObjectCount++;
     } else {
+
         FREE_MEMORY_FILE(pStation);
+
     }
 
     RELEASE_SPIN_LOCK(&pAdapterContext->ObjectDataBase);
@@ -335,7 +335,8 @@ Return Value:
 
                 ACQUIRE_SPIN_LOCK(&pAdapterContext->SendSpinLock);
 
-                pEvent = AllocatePacket(pAdapterContext->hPacketPool);
+                pEvent = ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
+
                 if (pEvent != NULL) {
                     LlcInsertTailList(&pAdapterContext->QueueEvents, pEvent);
                     pEvent->pBinding = pStation->Gen.pLlcBinding;
@@ -417,7 +418,9 @@ Return Value:
         //
 
         ppLinkListBase = (PVOID*)&pAdapterContext->apSapBindings[pStation->Sap.SourceSap];
+
         DEALLOCATE_SPIN_LOCK(&pStation->Sap.FlowControlLock);
+
         break;
 
     case LLC_LINK_OBJECT:
@@ -570,9 +573,12 @@ Return Value:
         // packet storage.
         //
 
-        DeallocatePacket(pAdapterContext->hLinkPool, pLlcObject);
+        DEALLOCATE_PACKET_LLC_LNK(pAdapterContext->hLinkPool, pLlcObject);
+
     } else {
+
         FREE_MEMORY_FILE(pLlcObject);
+
     }
     pAdapterContext->ObjectCount--;
 }
@@ -717,7 +723,9 @@ Return Value:
                     pPacket->Data.Completion.Status = Status;
                     pPacket->Data.Completion.hClientHandle = pLlcObject->Gen.hClientHandle;
                 } else {
-                    DeallocatePacket(pAdapterContext->hPacketPool, pPacket);
+
+                    DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pPacket);
+
                 }
             } else {
 
@@ -861,8 +869,7 @@ Return Value:
 --*/
 
 {
-    if (ExInterlockedDecrementLong((PLONG)&(((PLLC_OBJECT)(pStation))->Gen.ReferenceCount),
-                                  &(((PLLC_OBJECT)(pStation))->Gen.pAdapterContext->SendSpinLock.SpinLock)) == RESULT_ZERO) {
+    if (InterlockedDecrement((PLONG)&(((PLLC_OBJECT)(pStation))->Gen.ReferenceCount)) == 0) {
         CompleteObjectDelete(pStation);
     }
     DLC_TRACE('L');
@@ -893,9 +900,7 @@ Return Value:
 --*/
 
 {
-    ExInterlockedIncrementLong((PLONG)&(((PLLC_OBJECT)pStation)->Gen.ReferenceCount),
-                               &((((PLLC_OBJECT)pStation)->Gen.pAdapterContext->SendSpinLock.SpinLock))
-                               );
+    InterlockedIncrement((PLONG)&(((PLLC_OBJECT)pStation)->Gen.ReferenceCount));
     DLC_TRACE('M');
     DLC_TRACE((UCHAR)((PLLC_OBJECT)pStation)->Gen.ReferenceCount);
 }
@@ -989,6 +994,7 @@ Return Value:
 
 --*/
 
+{
     return ((PDATA_LINK)hLink)->BufferCommitment;
 }
 

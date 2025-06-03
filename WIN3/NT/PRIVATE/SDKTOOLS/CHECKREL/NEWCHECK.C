@@ -399,7 +399,7 @@ WalkTree(
     b = TRUE;
     while(b) {
 
-        strlwr(FindName);
+        _strlwr(FindName);
 
         //
         // recurse if we are at a directory
@@ -511,7 +511,7 @@ ValidateCheckFile( VOID )
             fprintf(stderr,"checkrel: failed to open file %s %d\n",PathName,errno);
             }
         else {
-            ActualSize = filelength(fileno(FileHandle));
+            ActualSize = _filelength(_fileno(FileHandle));
 
             if ( ActualSize == 0xffffffff ) {
                 fprintf(stderr,"checkrel: unable to get file size for file %s %d\n",PathName,errno);
@@ -633,7 +633,7 @@ CheckSumFile(
             if (!Item) {
                 goto bail;
                 }
-            Win32FileHandle = (HANDLE)_get_osfhandle(fileno(FileHandle));
+            Win32FileHandle = (HANDLE)_get_osfhandle(_fileno(FileHandle));
             MappingHandle = CreateFileMapping(
                                 Win32FileHandle,
                                 NULL,
@@ -710,7 +710,7 @@ bail:;
         HANDLE Win32FileHandle;
         HANDLE MappingHandle;
 
-        Win32FileHandle = (HANDLE)_get_osfhandle(fileno(FileHandle));
+        Win32FileHandle = (HANDLE)_get_osfhandle(_fileno(FileHandle));
         MappingHandle = CreateFileMapping(
                             Win32FileHandle,
                             NULL,

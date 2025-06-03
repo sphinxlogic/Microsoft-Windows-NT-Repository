@@ -6,8 +6,7 @@
 #include "hierdraw.h"
 
 
-VOID HierDraw_DrawTerm(LPHEIRDRAWSTRUCT lpHierDrawStruct)
-{
+VOID HierDraw_DrawTerm(LPHEIRDRAWSTRUCT lpHierDrawStruct) {
    if (lpHierDrawStruct->hbmIcons) {
        if (lpHierDrawStruct->hbmMem)
            SelectObject(lpHierDrawStruct->hdcMem,lpHierDrawStruct->hbmMem);
@@ -20,26 +19,23 @@ VOID HierDraw_DrawTerm(LPHEIRDRAWSTRUCT lpHierDrawStruct)
       DeleteDC(lpHierDrawStruct->hdcMem);
       lpHierDrawStruct->hdcMem = NULL;
    }
-}
+} // HierDraw_DrawTerm
 
-VOID HierDraw_DrawCloseAll(LPHEIRDRAWSTRUCT lpHierDrawStruct )
-{
+VOID HierDraw_DrawCloseAll(LPHEIRDRAWSTRUCT lpHierDrawStruct ) {
    lpHierDrawStruct->NumOpened= 0;
    if ( lpHierDrawStruct->Opened ) {
       _ffree(lpHierDrawStruct->Opened);
    }
    lpHierDrawStruct->Opened = NULL;
-}
+} // HierDraw_DrawCloseAll
 
 VOID HierDraw_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT FAR* lpMeasureItem,
-                            LPHEIRDRAWSTRUCT lpHierDrawStruct)
-{
+                            LPHEIRDRAWSTRUCT lpHierDrawStruct) {
    lpMeasureItem->itemHeight = max(lpHierDrawStruct->nBitmapHeight,
                                    lpHierDrawStruct->nTextHeight);
-}
+} // HierDraw_OnMeasureItem
 
-VOID HierDraw_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lpHierDrawStruct )
-{
+VOID HierDraw_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lpHierDrawStruct ) {
    TEXTMETRIC      TextMetrics;
    HANDLE          hOldFont=NULL;
    HDC             hdc;
@@ -62,12 +58,11 @@ VOID HierDraw_DrawSetTextHeight (HWND hwndList, HFONT hFont, LPHEIRDRAWSTRUCT lp
    if ( hwndList != NULL )
        SendMessage(hwndList, LB_SETITEMHEIGHT, 0,
                    MAKELPARAM(lpHierDrawStruct->nLineHeight, 0));
-}
+} // HierDraw_DrawSetTextHeight
 
-static DWORD near RGB2BGR(DWORD rgb)
-{
+static DWORD near RGB2BGR(DWORD rgb) {
     return RGB(GetBValue(rgb),GetGValue(rgb),GetRValue(rgb));
-}
+} // RGB2BGR
 
 /*
  *  Creates the objects used while drawing the tree.  This may be called
@@ -82,13 +77,14 @@ BOOL HierDraw_DrawInit(HINSTANCE hInstance,
                        int  nColumns,
                        BOOL bLines,
                        LPHEIRDRAWSTRUCT lpHierDrawStruct,
-                       BOOL bInit)
-{
+                       BOOL bInit) {
     HANDLE hRes;
     HANDLE hResMem;
-    LPBITMAPINFOHEADER lpbi;
+    LPBITMAPINFOHEADER lpbiReadOnly;
+    LPBITMAPINFOHEADER lpbiReadWrite;
     DWORD *lpColorTable;
     LPSTR lpBits;
+    int biSize;
     int bc;
     HDC hDC;
 
@@ -135,42 +131,53 @@ BOOL HierDraw_DrawInit(HINSTANCE hInstance,
     if (!hResMem)
         return FALSE;
 
-    //
     // Now figure out the bitmaps background color.
-    // This code assumes the these are 16 color bitmaps
-    // and that the lower left corner is a bit in the background
-    // color.
-    //
-    //
-    //
-    lpbi = (LPBITMAPINFOHEADER)LockResource(hResMem);
-    if (!lpbi)
+    // This code assumes the lower left corner is a
+    // bit in the background color.
+    lpbiReadOnly = (LPBITMAPINFOHEADER)LockResource(hResMem);
+    if (!lpbiReadOnly)
         return FALSE;
 
-    lpColorTable = (DWORD FAR *)(lpbi + 1);
+    // Determine size of bitmap information header plus color table entries
+    biSize = lpbiReadOnly->biSize + ((1 << (lpbiReadOnly->biBitCount)) * sizeof(RGBQUAD));
 
-    lpBits = (LPSTR)(lpColorTable + 16);  // ASSUMES 16 COLOR
+    // Allocate copy of the bitmap information to munge on
+    lpbiReadWrite = (LPBITMAPINFOHEADER)GlobalAlloc(GPTR, biSize);
+    if (!lpbiReadWrite)
+        return FALSE;
 
-    bc = (lpBits[0] & 0xF0) >> 4;         // ASSUMES 16 COLOR
-                                          // ALSO ASSUMES LOWER LEFT CORNER IS BG!!!
+    memcpy(lpbiReadWrite, lpbiReadOnly, biSize);
 
+    // Color table immediately follows bitmap information header
+    lpColorTable = (DWORD FAR *)((LPBYTE)lpbiReadWrite + lpbiReadWrite->biSize);
+
+    // No need to munge bits so use original
+    lpBits = (LPBYTE)lpbiReadOnly + biSize;
+
+    bc = (lpBits[0] & 0xF0) >> 4;   // ASSUMES LOWER LEFT CORNER IS BG!!
 
     lpColorTable[bc] = RGB2BGR(GetSysColor(COLOR_WINDOW));
 
     hDC = GetDC(NULL);
 
-    lpHierDrawStruct->hbmIcons = CreateDIBitmap(hDC,lpbi,(DWORD)CBM_INIT,lpBits,
-                                    (LPBITMAPINFO)lpbi,DIB_RGB_COLORS);
+    lpHierDrawStruct->hbmIcons = CreateDIBitmap(
+                                    hDC,
+                                    lpbiReadWrite,
+                                    CBM_INIT,
+                                    lpBits,
+                                    (LPBITMAPINFO)lpbiReadWrite,
+                                    DIB_RGB_COLORS
+                                    );
 
     ReleaseDC(NULL,hDC);
 
-
-    lpHierDrawStruct->nBitmapHeight = (WORD)lpbi->biHeight / nRows;
-    lpHierDrawStruct->nBitmapWidth = (WORD)lpbi->biWidth / nColumns;
+    lpHierDrawStruct->nBitmapHeight = (WORD)lpbiReadWrite->biHeight / nRows;
+    lpHierDrawStruct->nBitmapWidth = (WORD)lpbiReadWrite->biWidth / nColumns;
 
     lpHierDrawStruct->nLineHeight =
          max(lpHierDrawStruct->nBitmapHeight, lpHierDrawStruct->nTextHeight);
 
+    GlobalFree(lpbiReadWrite);
     UnlockResource(hResMem);
     FreeResource(hResMem);
 
@@ -182,7 +189,7 @@ BOOL HierDraw_DrawInit(HINSTANCE hInstance,
         return FALSE;
 
     return TRUE;
-}
+} // HierDraw_DrawInit
 
 
 
@@ -193,8 +200,7 @@ VOID HierDraw_OnDrawItem(HWND  hwnd,
                          TCHAR  *szText,
                          int   nRow,
                          int   nColumn,
-                         LPHEIRDRAWSTRUCT lpHierDrawStruct)
-{
+                         LPHEIRDRAWSTRUCT lpHierDrawStruct) {
     HDC        hDC;
     WORD       wIndent, wTopBitmap, wTopText;
     RECT       rcTemp;
@@ -301,12 +307,13 @@ DealWithFocus:
     }
 
 
-}
+} // HierDraw_OnDrawItem
+
+
 //
 // draw a solid color rectangle quickly
 //
-static VOID near FastRect(HDC hDC, int x, int y, int cx, int cy)
-{
+static VOID near FastRect(HDC hDC, int x, int y, int cx, int cy) {
     RECT rc;
 
     rc.left = x;
@@ -314,11 +321,10 @@ static VOID near FastRect(HDC hDC, int x, int y, int cx, int cy)
     rc.top = y;
     rc.bottom = y+cy;
     ExtTextOut(hDC,x,y,ETO_OPAQUE,&rc,NULL,0,NULL);
-}
+} // FastRect
 
 
-BOOL HierDraw_IsOpened(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
-{
+BOOL HierDraw_IsOpened(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData) {
    // For Now just a dumb  search
    //
    int Count;
@@ -331,11 +337,10 @@ BOOL HierDraw_IsOpened(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
 
    return FALSE;
 
-}
+} // HierDraw_IsOpened
 
 
-VOID HierDraw_OpenItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
-{
+VOID HierDraw_OpenItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData) {
     lpHierDrawStruct->NumOpened++;
 
     if (lpHierDrawStruct->Opened == NULL )
@@ -347,10 +352,10 @@ VOID HierDraw_OpenItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
                sizeof(DWORD)*lpHierDrawStruct->NumOpened);
 
     lpHierDrawStruct->Opened[lpHierDrawStruct->NumOpened-1] = dwData;
-}
+} // HierDraw_OpenItem
 
-VOID HierDraw_CloseItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
-{
+
+VOID HierDraw_CloseItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData) {
    // For Now just a dumb  search
    //
    int Count;
@@ -373,12 +378,11 @@ VOID HierDraw_CloseItem(LPHEIRDRAWSTRUCT lpHierDrawStruct, DWORD dwData)
         }
      }
    }
-}
+} // HierDraw_CloseItem
 
 
 VOID HierDraw_ShowKids(LPHEIRDRAWSTRUCT lpHierDrawStruct,
-                       HWND hwndList, WORD wCurrentSelection, WORD wKids)
-{
+                       HWND hwndList, WORD wCurrentSelection, WORD wKids) {
    WORD wBottomIndex;
    WORD wTopIndex;
    WORD wNewTopIndex;
@@ -396,4 +400,4 @@ VOID HierDraw_ShowKids(LPHEIRDRAWSTRUCT lpHierDrawStruct,
         SendMessage(hwndList, LB_SETTOPINDEX, (WORD)wNewTopIndex, 0L);
    }
 
-}
+} // HierDraw_ShowKids

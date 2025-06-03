@@ -181,8 +181,8 @@ Return Value:
 
     if (aux_in ^ aux_out)
     {
-        NetpDbgPrint("RxpConvertDataStructures: "
-                "InputAuxDescriptor & OutputAuxDescriptor out of sync\n");
+        NetpKdPrint(("RxpConvertDataStructures: "
+                "InputAuxDescriptor & OutputAuxDescriptor out of sync\n"));
         NetpAssert(FALSE);
     }
 #endif
@@ -288,8 +288,8 @@ Return Value:
         if (space_occupied > OutputBufferSize)
         {
             IF_DEBUG(CONVDATA) {
-                NetpDbgPrint("RxpConvertDataStructures: "
-                        "output buffer size blown by primary\n");
+                NetpKdPrint(("RxpConvertDataStructures: "
+                        "output buffer size blown by primary\n"));
             }
             status = ERROR_MORE_DATA;
             goto Cleanup;
@@ -373,8 +373,8 @@ Return Value:
             if (space_occupied > OutputBufferSize)
             {
                 IF_DEBUG(CONVDATA) {
-                    NetpDbgPrint("RxpConvertDataStructures: "
-                            "output buffer size blown by secondary\n");
+                    NetpKdPrint(("RxpConvertDataStructures: "
+                            "output buffer size blown by secondary\n"));
                 }
                 status = ERROR_MORE_DATA;
                 goto Cleanup;

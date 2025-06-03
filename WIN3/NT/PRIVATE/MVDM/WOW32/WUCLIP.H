@@ -45,6 +45,7 @@ typedef struct _CBNODE {
 typedef struct _CBFORMATS {
     WORD    Pre1[13];
     WORD    Pre2[4];
+    WORD    hmem16Drop;   // for the CF_HDROP support
     struct _CBNODE  *NewFormats;
 } CBFORMATS;
 

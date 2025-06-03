@@ -1,6 +1,3 @@
-#include <windows.h>
-
-
 typedef struct _GAUGEVALS {
     int   curValue;
     int   minValue;
@@ -47,4 +44,4 @@ UpdateGauge(
     HWND  handle,
     INT   value
     );
-
+

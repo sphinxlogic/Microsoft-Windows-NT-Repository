@@ -132,9 +132,9 @@ Return Value:
     // characters. Do we have to perform any UNICODE-ASCII mapping here?
     //
 
-    TCHAR   name[UNCLEN+1];     // canonicalized version of ComputerName
+    TCHAR   name[MAX_PATH];     // canonicalized version of ComputerName
     LPTSTR  wksta_name_uncanon; // our computer name (from NetWkstaGetInfo)
-    TCHAR   wksta_name_canon[CNLEN+1]; // our computer name (from canon)
+    TCHAR   wksta_name_canon[MAX_PATH]; // our computer name (from canon)
     LPTSTR  canonicalized_name; // as returned to caller
 
 

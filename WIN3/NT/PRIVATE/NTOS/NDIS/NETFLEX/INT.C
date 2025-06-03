@@ -1,3 +1,4 @@
+
 //**********************************************************************
 //**********************************************************************
 //
@@ -20,6 +21,7 @@
 // History:
 //
 //     04/15/94  Robert Van Cleve - Converted from NDIS Mac Driver
+//
 //
 //
 //***********************************************************************
@@ -79,6 +81,7 @@ VOID NetFlexISR(
     //
     if (sifint_reg & SIFINT_SYSINT)
     {
+        //
         // Acknowledge and Clear Int
         //
         if (!acb->InterruptsDisabled)
@@ -96,6 +99,7 @@ VOID NetFlexISR(
         }
         else
         {
+            //
             // It appears that a second head is generating
             // the interrupt, and we have a DPC queued to
             // process our int, return that we don't recognize it
@@ -135,39 +139,45 @@ VOID NetFlexISR(
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
+
 #ifdef NEW_DYNAMIC_RATIO
 UINT MaxIntRatio = 4;
-UINT RaiseIntThreshold = 140;
-UINT LowerIntThreshold = 40;
-UINT RunThreshold = 2;
+
+//
+// New Threshold for xmit disabled case.
+//
+UINT RaiseIntThreshold = 26;
+
+//
+// Run threshold of 1.5 seconds instead of 200msecs.
+//
+UINT RunThreshold = 15;
 UINT RatioCheckCount = 10;
 #else
+
 UINT sw24 = 220;
 UINT sw21 = 40;
 #endif
 
 #ifdef ALLOW_DISABLE_DYNAMIC_RATIO
 BOOLEAN EnableDynamicRatio = TRUE;
-UINT ratio = 4;
+UINT ratio = 1;
 #endif
 
-VOID
-NetFlexDeferredTimer(
+VOID NetFlexDeferredTimer(
     IN PVOID SystemSpecific1,
     IN PACB  acb,
     IN PVOID SystemSpecific2,
     IN PVOID SystemSpecific3
-    )
+)
 {
-    USHORT ReceivesProcessed;
-#ifdef ODD_POINTER
+    USHORT ReceivesProcessed = 0;
     USHORT sifint_reg;
-#endif
+    UINT   IntAve;
 
     //
     // Indicate that a timer has expired.
     //
-
     DebugPrint(3,("NF(%d) - Defered Timer Expired!\n",acb->anum));
 
     //
@@ -184,53 +194,20 @@ NetFlexDeferredTimer(
 
     if (acb->acb_rcv_head->RCV_CSTAT & RCSTAT_COMPLETE)
     {
+		//
+		//	Increment the interrupt count.
+		//
+		acb->acb_int_count++;
+
         // yes, do them...
         //
         ReceivesProcessed = acb->ProcessReceiveHandler(acb);
     }
 
-    //
-    // See if there are any transmits to do...
-    //
-    if (acb->acb_xmit_ahead != NULL) {
-
-        if (acb->acb_xmit_ahead->XMIT_CSTAT & XCSTAT_COMPLETE) {
-
-            // Yes, go do them...
-            //
-
-            NetFlexProcessXmit(acb);
-        }
-
-#ifdef ODD_POINTER
-        if (acb->XmitStalled & !acb->HandlingInterrupt)
-        {
-            //
-            // See if there is an interrupt pending
-            //
-            NdisRawReadPortUshort( acb->SifIntPort, &sifint_reg);
-
-            if (sifint_reg & SIFINT_SYSINT)
-            {
-                // there is a valid interrupt pending, so let
-                // the interrupt handler process the int as well
-                // as starting up the transmit again...
-                //
-                DebugPrint(2,(" t->is "));
-                NetFlexHandleInterrupt(acb);
-            }
-            else
-            {
-                DebugPrint(2,("t"));
-
-                acb->acb_xmit_whead = acb->acb_xmit_ahead;
-                acb->acb_xmit_wtail = acb->acb_xmit_atail;
-                acb->acb_xmit_ahead = acb->acb_xmit_atail = NULL;
-                NetFlexSendNextSCB(acb);
-            }
-        }
-#endif
-    }
+	//
+	//	See if there are any transmits to do...
+	//
+	NetFlexProcessXmit(acb);
 
     //
     // Processed any receives which need IndicateReceiveComplete?
@@ -251,12 +228,14 @@ NetFlexDeferredTimer(
         }
     }
 
-    if ( ++acb->timer_run_count >= RatioCheckCount ) {
 
+    if ( ++acb->timer_run_count >= RatioCheckCount )
+    {
         acb->timer_run_count = 0;
 
 #ifdef ALLOW_DISABLE_DYNAMIC_RATIO
-        if ( EnableDynamicRatio ) {
+        if ( EnableDynamicRatio )
+        {
 #endif
 
 #ifdef NEW_DYNAMIC_RATIO
@@ -264,17 +243,16 @@ NetFlexDeferredTimer(
             //
             // Should we increase the ratio?
             //
-            if ( acb->handled_interrupts > RaiseIntThreshold )
+            if ( acb->handled_interrupts > RaiseIntThreshold)
             {
                 acb->current_run_down = 0;
-                if (acb->RcvIntRatio < MaxIntRatio)
+                if (acb->XmitIntRatio == 1)
                 {
                     if ( ++acb->current_run_up > RunThreshold )
                     {
 #ifdef XMIT_INTS
-                        acb->XmitIntRatio++;
+                        acb->XmitIntRatio = acb->acb_maxtrans;
 #endif
-                        acb->RcvIntRatio++;
                         acb->acb_gen_objs.interrupt_ratio_changes++;
                         acb->current_run_up = 0;
                         DebugPrint(1,("NF(%d) - RcvIntRatio = %d\n",acb->anum,acb->RcvIntRatio));
@@ -284,36 +262,33 @@ NetFlexDeferredTimer(
             //
             // Or, should we decrease it?
             //
-            else if ( acb->handled_interrupts < LowerIntThreshold )
+            else //if ( acb->handled_interrupts < LowerIntThreshold )
             {
                 acb->current_run_up = 0;
-                if (acb->RcvIntRatio != 1)
+                if (acb->XmitIntRatio != 1)
+
                 {
                     if ( ++acb->current_run_down > RunThreshold )
                     {
+
 #ifdef XMIT_INTS
-                        acb->XmitIntRatio--;
+                        acb->XmitIntRatio = 1;
 #endif
-                        acb->RcvIntRatio--;
                         acb->acb_gen_objs.interrupt_ratio_changes++;
                         acb->current_run_down = 0;
                         DebugPrint(1,("NF(%d) - RcvIntRatio = %d\n",acb->anum,acb->RcvIntRatio));
                     }
                 }
-
-            }
-            else
-            {
-                acb->current_run_both = 0;
             }
 
 #else   //  !defined(NEW_DYNAMIC_RATIO)
 
-            if ( acb->XmitIntRatio != 1 ) {
-
-                if ( acb->handled_interrupts < sw21 ) {
-
-                    if ( ++acb->current_run > RunThreshold ) {
+            if ( acb->XmitIntRatio != 1 )
+            {
+                if ( acb->handled_interrupts < sw21 )
+                {
+                    if ( ++acb->current_run > RunThreshold )
+                    {
 
 #ifdef XMIT_INTS
                         acb->XmitIntRatio = 1;
@@ -323,21 +298,20 @@ NetFlexDeferredTimer(
                         acb->current_run = 0;
                         acb->sw24 += 3;
 
-                        //DbgPrint("n");
-
                         acb->cleartime = 0;
                     }
-                } else {
+                }
+                else
+                {
                     acb->current_run = 0;
                 }
-
-            } else {
-
-                if ( acb->handled_interrupts > sw24 ) {
-
-                    if ( ++acb->current_run > RunThreshold ) {
-
-                        //DbgPrint("t");
+            }
+            else
+            {
+                if ( acb->handled_interrupts > sw24 )
+                {
+                    if ( ++acb->current_run > RunThreshold )
+                    {
 
 #ifdef XMIT_INTS
                         acb->XmitIntRatio = ratio;
@@ -346,7 +320,9 @@ NetFlexDeferredTimer(
                         acb->acb_gen_objs.interrupt_ratio_changes++;
                         acb->current_run = 0;
                     }
-                } else {
+                }
+                else
+                {
                     acb->current_run = 0;
                 }
             }
@@ -355,19 +331,19 @@ NetFlexDeferredTimer(
             acb->IntHistory[acb->Hndx] = acb->handled_interrupts;
             acb->RatioHistory[acb->Hndx] = (UCHAR)acb->RcvIntRatio;
 
-            if ( ++acb->Hndx >= 1024 ) {
+            if ( ++acb->Hndx >= 1024 )
+            {
                 acb->Hndx = 0;
             }
 #endif
-
             //
             // The switchover value to turbo gets incremented each time
             // we drop to normal mode.  We reset this value every x seconds.
             // This will prevent the driver from toggling rapidly between
             // turbo <-> normal mode.
             //
-
-            if ( ++acb->cleartime > 50 ) {
+            if ( ++acb->cleartime > 50 )
+            {
                 acb->sw24 = sw24;
                 acb->cleartime = 0;
             }
@@ -375,7 +351,9 @@ NetFlexDeferredTimer(
 #endif // !NEW_DYNAMIC_RATIO
 
 #ifdef ALLOW_DISABLE_DYNAMIC_RATIO
-        } else {
+        }
+        else
+        {
 
 #ifdef XMIT_INTS
             acb->XmitIntRatio = ratio;
@@ -391,7 +369,6 @@ NetFlexDeferredTimer(
     //
     // Set the timer...
     //
-
     NdisMSetTimer(&acb->DpcTimer, 10);
 
 } // NetFlexDeferredTimer
@@ -421,14 +398,10 @@ NetFlexHandleInterrupt(
     )
 {
     USHORT  sifint_reg;
-    USHORT  tmp_reg,ReceivesProcessed;
+    USHORT  tmp_reg;
+    USHORT  ReceivesProcessed = 0;
 
     PACB acb = (PACB) MiniportAdapterContext;
-
-#ifdef ODD_POINTER
-    acb->HandlingInterrupt = TRUE;
-#endif
-    acb->handled_interrupts++;
 
     //
     // Read the SifInt
@@ -437,6 +410,7 @@ NetFlexHandleInterrupt(
 
     while (sifint_reg & SIFINT_SYSINT)
     {
+        //
         // Ack the interrupt
         //
         sifint_reg &= ~SIFINT_SYSINT;
@@ -452,24 +426,22 @@ NetFlexHandleInterrupt(
         //
         if (acb->acb_rcv_head->RCV_CSTAT & RCSTAT_COMPLETE)
         {
+			//
+			//	Increment the interrupt count.
+			//
+			acb->acb_int_count++;
+
+            //
             // yes, do them...
             //
-            ReceivesProcessed = acb->ProcessReceiveHandler(acb);
+            acb->handled_interrupts++;
+            ReceivesProcessed += acb->ProcessReceiveHandler(acb);
         }
 
         //
         // See if there are any transmits to do...
         //
-        if (acb->acb_xmit_ahead != NULL)
-        {
-            if (acb->acb_xmit_ahead->XMIT_CSTAT & XCSTAT_COMPLETE)
-            {
-                // Yes, go do them...
-                // Go handle any completed xmits.
-                //
-                NetFlexProcessXmit(acb);
-            }
-        }
+		NetFlexProcessXmit(acb);
 
         switch (sifint_reg)
         {
@@ -487,14 +459,20 @@ NetFlexHandleInterrupt(
                 {
                     NetFlexSendNextSCB(acb);
                 }
-                else if ((acb->acb_xmit_whead) || (acb->acb_rcv_whead)
-                         || (acb->acb_scbreq_next))
+                else if ((acb->acb_xmit_whead) ||
+						 (acb->acb_rcv_whead) ||
+						 (acb->acb_scbreq_next))
                 {
                     acb->acb_scbclearout = TRUE;
+                    NdisRawWritePortUshort(
+                        acb->SifIntPort,
+                        (USHORT)SIFINT_SCBREQST);
                 }
                 break;
+
             case INT_COMMAND:
                 NetFlexCommand(acb);
+
                 //
                 // Do we have any commands to complete?
                 //
@@ -512,7 +490,7 @@ NetFlexHandleInterrupt(
                 NdisRawWritePortUshort(acb->SifAddrPort, (USHORT) 0x5e0);
                 NdisRawReadPortUshort( acb->SifDIncPort, &tmp_reg);
 
-                DebugPrint(0,("NF(%d): Adapter Check - 0x%x\n",acb->anum,tmp_reg));
+                DebugPrint(1,("NF(%d): Adapter Check - 0x%x\n",acb->anum,tmp_reg));
 
                 //
                 // Reset has failed, errorlog an entry.
@@ -535,63 +513,22 @@ NetFlexHandleInterrupt(
                 NetFlexRingStatus(acb);
                 break;
 
-#ifdef ODD_POINTER
-            case INT_RECEIVE:
-                //
-                // If we received a Receive Suspended Status, we need to
-                // issue a Recieve_Continue.
-                //
-                if (acb->acb_ssb_virtptr->SSB_Status & RSTAT_RX_SUSPENDED)
-                {
-                    DebugPrint(2,("NF(%d) - Receive Suspended, issuing continue\n",acb->anum));
-                    DisplayRcvList(acb);
-
-                    NdisRawWritePortUshort( acb->SifIntPort, SIFINT_RCVCONT);
-                }
-                break;
-
-
-#else
             case INT_RECEIVE:
                 break;
-#endif
+
             case INT_TRANSMIT:
                 //
-                // If we reached the end of the xmit lists, then the xmit status
-                // will indicate COMMAND_COMPLETE.  The transmiter will be stalled
-                // until another transmit command is issued with a valid list.
+                //  If we reached the end of the xmit lists,
+                //  then the xmit status will indicate COMMAND_COMPLETE.
+                //  The transmiter will be stalled until another transmit
+                //  command is issued with a valid list.
                 //
-#ifdef ODD_POINTER
-                if (acb->acb_ssb_virtptr->SSB_Status & XSTAT_CMDCMPLT)
-                {
-                    // We have stalled.
-                    //
-                    acb->XmitStalled = TRUE;
-#if DBG
-                    if ( acb->XmitSent > acb->LastXmitSent)
-                    {
-                        DebugPrint(1,(" S %d\n",acb->XmitSent));
-                        acb->LastXmitSent = acb->XmitSent;
-                    }
-                    else
-                    {
-                        DebugPrint(2,(" S"));
-                    }
-                    acb->XmitSent = 0;
-#endif
-                }
-                else if (acb->acb_ssb_virtptr->SSB_Status & XSTAT_LERROR)
-#else
                 if (acb->acb_ssb_virtptr->SSB_Status & XSTAT_LERROR)
-#endif
                 {
-                    if (acb->acb_xmit_ahead != NULL) {
-
-                        // We have a list error...
-                        //
-
-                        NetFlexTransmitStatus(acb);
-                    }
+					//
+					// We have a list error...
+					//
+					NetFlexTransmitStatus(acb);
                 }
 
             default:
@@ -601,67 +538,13 @@ NetFlexHandleInterrupt(
         //
         // Issue a ssb clear.  After this we may see SIFCMD interrupts.
         //
-        NdisRawWritePortUshort( acb->SifIntPort, SIFINT_SSBCLEAR);
-
-#ifdef ODD_POINTER
-        if ((acb->acb_xmit_ahead != NULL) && acb->XmitStalled)
-        {
-            DebugPrint(2,("i"));
-            // we have a valid transmit waiting, we need to kick
-            // of another xmit command!
-            if (acb->acb_scb_virtptr->SCB_Cmd == 0)
-            {
-                // no other command in progress, send it now!
-                //
-                acb->acb_scb_virtptr->SCB_Cmd = TMS_TRANSMIT;
-                acb->acb_scb_virtptr->SCB_Ptr = acb->acb_xmit_ahead->XMIT_MyMoto;
-
-                sifint_reg = SIFINT_CMD;
-                //
-                // If there are other requests to send and we are not waiting for
-                // an SCB clear interrupt, tell the adapter we want a SCB clear int.
-                //
-                if ( (!acb->acb_scbclearout) &&
-                     ((acb->acb_scbreq_next) || (acb->acb_rcv_whead) ) )
-                {
-                    sifint_reg |= SIFINT_SCBREQST;
-                    acb->acb_scbclearout = TRUE;
-                }
-                //
-                // Send the SCB to the adapter.
-                //
-                NdisRawWritePortUshort(acb->SifIntPort, (USHORT) sifint_reg);
-
-                //
-                // Indicate that we fired off another command to get everything going
-                // again...
-                //
-                acb->XmitStalled = FALSE;
-            }
-            else
-            {
-                // send command when we get the clear out int...
-                //
-                DebugPrint(1,("DPC:Have to wait for clear out int...\n"));
-                acb->acb_xmit_whead = acb->acb_xmit_ahead;
-                acb->acb_xmit_wtail = acb->acb_xmit_atail;
-                acb->acb_xmit_ahead = acb->acb_xmit_atail = NULL;
-                acb->acb_scbclearout = TRUE;
-                NdisRawWritePortUshort(acb->SifIntPort, (USHORT) SIFINT_SCBREQST);
-            }
-        }
-#endif
+        NdisRawWritePortUshort(acb->SifIntPort, SIFINT_SSBCLEAR);
 
         //
         // Read the SifInt
         //
-        NdisRawReadPortUshort( acb->SifIntPort, &sifint_reg);
-
+        NdisRawReadPortUshort(acb->SifIntPort, &sifint_reg);
     }
-
-#ifdef ODD_POINTER
-    acb->HandlingInterrupt = FALSE;
-#endif
 
     //
     // Processed any receives which need IndicateReceiveComplete?
@@ -712,7 +595,7 @@ NetFlexRingStatus(
 
     value = acb->acb_ssb_virtptr->SSB_Status;
 
-    DebugPrint(0,("NF(%d): RingStatus value = %x\n",acb->anum, value));
+    DebugPrint(1,("NF(%d): RingStatus value = %x\n",acb->anum, value));
 
     //
     // Determine the reason for the ring interrupt.
@@ -902,10 +785,11 @@ NetFlexCommand(
     //
     // Get the scb request associated with the completed request.
     //
-    Status = NetFlexDequeue_TwoPtrQ_Head((PVOID *)&(acb->acb_scbreq_head),
-                                         (PVOID *)&(acb->acb_scbreq_tail),
-                                         (PVOID *)&scbreq);
-
+    Status = NetFlexDequeue_TwoPtrQ_Head(
+                 (PVOID *)&(acb->acb_scbreq_head),
+                 (PVOID *)&(acb->acb_scbreq_tail),
+                 (PVOID *)&scbreq
+             );
     if (Status != NDIS_STATUS_SUCCESS)
     {
         DebugPrint(0,("NF(%d) NetFlexCommand - dequeue scbreq failed!\n",acb->anum));
@@ -935,8 +819,10 @@ NetFlexCommand(
         {
             DebugPrint(0,("NF(%d): Bad status %x\n",acb->anum,acb->acb_ssb_virtptr->SSB_Status));
             DebugPrint(0,("NF(%d): cmd is %x\n",acb->anum,acb->acb_ssb_virtptr->SSB_Cmd));
-            if ( (acb->acb_ssb_virtptr->SSB_Cmd == TMS_OPEN) &&
-                 (acb->acb_ssb_virtptr->SSB_Status & SSB_OPENERR) )
+
+            if ((acb->acb_ssb_virtptr->SSB_Cmd == TMS_OPEN) &&
+                (acb->acb_ssb_virtptr->SSB_Status & SSB_OPENERR)
+            )
             {
                 macreq->req_status = NDIS_STATUS_TOKEN_RING_OPEN_ERROR;
                 macreq->req_info   = (PVOID)(acb->acb_ssb_virtptr->SSB_Status >> 8);
@@ -991,57 +877,28 @@ NetFlexCommand(
         // Take the Mac request off the macreq queue and place it on
         // the confirm queue so that the command can be completed.
         //
-        NetFlexDequeue_TwoPtrQ((PVOID *)&(acb->acb_macreq_head),
-                               (PVOID *)&(acb->acb_macreq_tail),
-                               (PVOID)macreq);
+        NetFlexDequeue_TwoPtrQ(
+            (PVOID *)&(acb->acb_macreq_head),
+            (PVOID *)&(acb->acb_macreq_tail),
+            (PVOID)macreq
+        );
 
-        NetFlexEnqueue_TwoPtrQ_Tail((PVOID *)&(acb->acb_confirm_qhead),
-                               (PVOID *)&(acb->acb_confirm_qtail),
-                               (PVOID)macreq);
+        NetFlexEnqueue_TwoPtrQ_Tail(
+            (PVOID *)&(acb->acb_confirm_qhead),
+            (PVOID *)&(acb->acb_confirm_qtail),
+            (PVOID)macreq
+        );
     } // if (macreq)
 
     //
     // Free up the SCB request associated with this command.
     //
-    NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(acb->acb_scbreq_free),(PVOID)scbreq);
+    scbreq->req_macreq = NULL;
 
-    //
-    // If we have dummy commands immediately following this command,
-    // take off all consecutive dummy commands and place their macreqs
-    // on the confirm queueu.
-    //
-    while ( (acb->acb_scbreq_head) &&
-            (acb->acb_scbreq_head->req_scb.SCB_Cmd == TMS_DUMMYCMD) )
-    {
-        //
-        // Take the dummy command off the queue. If this command is the
-        // next command to be processed, advance the next command pointer
-        // to the next command in the list.
-        //
-        scbreq = acb->acb_scbreq_head;
-        acb->acb_scbreq_head = scbreq->req_next;
-        if (acb->acb_scbreq_next == scbreq)
-        {
-            acb->acb_scbreq_next = acb->acb_scbreq_head;
-        }
-        if (acb->acb_scbreq_head == NULL)
-        {
-            acb->acb_scbreq_tail = NULL;
-        }
-        macreq = scbreq->req_macreq;
-
-        if (macreq)
-        {
-            NetFlexDequeue_TwoPtrQ( (PVOID *)&(acb->acb_macreq_head),
-                                    (PVOID *)&(acb->acb_macreq_tail),
-                                    (PVOID)macreq);
-            macreq->req_status = NDIS_STATUS_SUCCESS;
-            NetFlexEnqueue_TwoPtrQ_Tail(    (PVOID *)&(acb->acb_confirm_qhead),
-                                            (PVOID *)&(acb->acb_confirm_qtail),
-                                            (PVOID)macreq);
-        }
-        NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(acb->acb_scbreq_free),(PVOID)scbreq);
-    }
+    NetFlexEnqueue_OnePtrQ_Head(
+        (PVOID *)&(acb->acb_scbreq_free),
+        (PVOID)scbreq
+    );
 }
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

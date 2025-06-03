@@ -84,7 +84,15 @@ struct view {
         COMPLIST cl;            /* the complist that we own */
 
         BOOL     bExpand;       /* true if we are in expand mode */
-        BOOL     bExpanding;    /* set by view_expandstart, reset by view_expand*/
+        BOOL     bExpanding;    /* set by view_expandstart, reset by view_expand
+                                   interrogated in windiff.c, causes keystrokes
+                                   to be ignored.  Protects against mappings being
+                                   screwed by another thread.
+                                   (I have doubts about this - Laurie).
+                                */
+        BOOL     bExpandGuard;  /* Protects against two threads both trying to
+                                   expand the same item.
+                                */
 
         COMPITEM ciSelect;      /* selected compitem (in expand mode) */
 
@@ -124,7 +132,7 @@ static BOOL bDoneInit = FALSE;
 
 /*------- forward declaration of internal functions ----------------*/
 
-void view_outline_opt(VIEW view, BOOL bRedraw);
+void view_outline_opt(VIEW view, BOOL bRedraw, COMPITEM ci, int* prow);
 void view_freemappings(VIEW view);
 int view_findrow(VIEW view, int number, BOOL bRight);
 BOOL view_expand_item(VIEW view, COMPITEM ci);
@@ -156,6 +164,7 @@ view_new(HWND hwndTable)
         view->hwnd = hwndTable;
         view->cl = NULL;
         view->bExpand = FALSE;
+        view->bExpandGuard = FALSE;
         view->ciSelect = NULL;
         view->rows = 0;
         view->pItems = NULL;
@@ -296,7 +305,7 @@ view_outline(VIEW view)
         /* all work done by view_outline_opt - this function
          * gives us the option of not updating the display
          */
-        view_outline_opt(view, TRUE);
+        view_outline_opt(view, TRUE, NULL, NULL);
 }
 
 
@@ -725,62 +734,98 @@ view_getcurrenttag(VIEW view)
  *
  * EXCEPT THAT WE DON'T DARE.  We cannot ever call SendMessage from the
  * worker thread within CSView.  If there is conflict, it will hang.
+ *
+ * 7 feb 96: restructure to hold critical during crucial parts without holding
+ * over a SendMessage. This should fix the popular bug when a view_newitem on
+ * the scanning thread co-incides with a view_outline caused by a menu
+ * selection.
  */
 BOOL
 view_newitem(VIEW view)
 {
         int maxtag, maxrest;
         long rownr;
+        TableSelection Select;
+        BOOL bSelect;
+        COMPITEM ciTop = NULL;
+        BOOL bRedraw = FALSE;
+        BOOL bAppend = FALSE;
 
-        if ((view == NULL) || (view->bExpand) || (view->bExpanding)) {
-                /* not in outline mode - nothing to do */
-                return(Poll());
+        // get the top row before remapping in case we need it
+        /* find the row at the top of the window */
+        rownr = SendMessage(view->hwnd, TM_TOPROW, FALSE, 0);
+        // also remember the selection
+        bSelect = SendMessage(view->hwnd, TM_GETSELECTION, 0, (UINT) &Select);
+
+        // *important*:no critsec over SendMessage
+        ViewEnter();
+
+        if ((view != NULL) &&
+            !(view->bExpand) &&
+            !(view->bExpanding)) {
+
+            /* save some state about the present mapping */
+            maxtag = view->maxtag;
+            maxrest = view->maxrest;
+
+
+            // remember the compitem this corresponds to
+            if (view->pItems && (rownr >= 0) && (rownr < view->rows)) {
+                ciTop = view->pItems[rownr];
+            }
+
+
+            // re-do the outline mapping, but don't tell the table class.
+            // ask it to check for the visible row closest to ciTop in case
+            // we need to refresh the display
+            //
+            // since we are holding the critsec, the redraw param
+            // *must* be false.
+            view_outline_opt(view, FALSE, ciTop, &rownr);
+
+            /* have the column widths changed ? */
+            if ((maxtag < view->maxtag) || (maxrest < view->maxrest)) {
+                /* yes - need complete redraw */
+                bRedraw = TRUE;
+            } else {
+                bAppend = TRUE;
+            }
         }
 
-        /* save some state about the present mapping */
-        maxtag = view->maxtag;
-        maxrest = view->maxrest;
+        ViewLeave();
 
-        /* re-do the outline mapping, but don't tell the table
-         * class.
-         */
-        view_outline_opt(view, FALSE);
 
-        /* have the column widths changed ? */
-        if ((maxtag < view->maxtag) || (maxrest < view->maxrest)) {
-                /* yes - need complete redraw */
+        if (bRedraw) {
 
-                /* find the row at the top of the window */
-                rownr = SendMessage(view->hwnd, TM_TOPROW, FALSE, 0);
+            /* switch to new mapping */
+            SendMessage(view->hwnd, TM_NEWLAYOUT, 0, (DWORD) view);
 
-                /* switch to new mapping */
-                SendMessage(view->hwnd, TM_NEWLAYOUT, 0, (DWORD) view);
+            // go to the visible row closest to the old top row
+            if ((rownr >= 0) && (rownr < view->rows)) {
+                SendMessage(view->hwnd, TM_TOPROW, TRUE, rownr);
+            }
 
-                /* return to old row if possible - we know
-                 * that row is still there since we have only added
-                 * rows, and not changed any of the existing mapping
-                 *
-                 * Alas this is no longer true.  However the table class
-                 * will defend itself against calls for a bogus top row.
-                 */
-                if (rownr >= 0) {
-                        SendMessage(view->hwnd, TM_TOPROW, TRUE, rownr);
-                }
-        } else {
-                /* no - we can just append */
+            // select the old selection too (if the table class allowed
+            // us to get it)
+            if (bSelect) {
+                SendMessage(view->hwnd, TM_SELECT,0, (DWORD) &Select);
+            }
 
-                /*
-                 * in the WIN32 multiple threads case, the mapping may have
-                 * changed since we released the critsec. however we are still
-                 * safe. The table will not allow us to reduce the number of
-                 * rows, so the worst that can happen is that the table will
-                 * think there are too many rows, and the table message handler
-                 * will handle this correctly (return null for the text).
-                 * The only visible effect is therefore that the scrollbar
-                 * position is wrong.
-                 */
+        } else if (bAppend) {
+            /* we can just append */
 
-                SendMessage(view->hwnd, TM_APPEND, view->rows, (DWORD) view);
+            /*
+             * in the WIN32 multiple threads case, the mapping may have
+             * changed since we released the critsec. however we are still
+             * safe. The table will not allow us to reduce the number of
+             * rows, so the worst that can happen is that the table will
+             * think there are too many rows, and the table message handler
+             * will handle this correctly (return null for the text).
+             * The only visible effect is therefore that the scrollbar
+             * position is wrong.
+             */
+
+            SendMessage(view->hwnd, TM_APPEND, view->rows, (DWORD) view);
         }
 
 
@@ -813,16 +858,29 @@ view_changeviewoptions(VIEW view)
 
         if (!view->bExpand) {
 
-                /* outline mode. maintaining current position is
-                 * unimportant - scroll to the same row number if it is
-       * still there
-                 */
-                view_outline(view);
-                ViewLeave();
-      if (row < view->rows) {
-          SendMessage(view->hwnd, TM_TOPROW, TRUE, row);
-      }
-                return;
+
+            // view_outline_opt allows us to find the first visible row
+            // after a given COMPITEM. Do this to look for the old top-row
+            // compitem, so that even if it is no longer visible, we can
+            // still go to just after it.
+
+            INT newrow = -1;
+            if (row < view->rows) {
+
+                COMPITEM ciTop = view->pItems[row];
+
+                view_outline_opt(view, TRUE, ciTop, &newrow);
+            } else {
+                view_outline_opt(view, TRUE, NULL, NULL);
+            }
+            ViewLeave();
+
+            // row now has the visible row that corresponds to
+            // ciTop or where it would have been
+            if ((newrow >=0) && (newrow < view->rows)) {
+                SendMessage(view->hwnd, TM_TOPROW, TRUE, newrow);
+            }
+            return;
         }
 
         /* expanded mode */
@@ -923,9 +981,18 @@ view_changediffoptions(VIEW view)
                 compitem_discardsections(ci);
         }
 
-        /* if we are in outline mode, we have nothing more to do */
         if (!view->bExpand) {
                 ViewLeave();
+
+                // we are in outline mode. Refreshing the outline view
+                // will pick up any tag and tag width changes
+                view_outline(view);
+
+                // now scroll to the previous position if still there
+                if (row < view->rows) {
+                    SendMessage(view->hwnd, TM_TOPROW, TRUE, row);
+                }
+
                 return;
         }
 
@@ -956,6 +1023,10 @@ view_findchange(VIEW view, long startrow, BOOL bForward)
 
         if (view == NULL) {
                 return(0);
+        }
+
+        if (view->rows <= 0) {
+            return (-1);
         }
 
         ViewEnter();
@@ -1005,7 +1076,7 @@ view_findchange(VIEW view, long startrow, BOOL bForward)
                 }
         } else {
                 /* same search backwards */
-                if (startrow <= 0) {
+                if (startrow < 0) {
                         ViewLeave();
                         return(-1);
                 }
@@ -1143,6 +1214,7 @@ view_freemappings(VIEW view)
                         view->rows * sizeof(COMPLIST));
                 view->pItems = NULL;
         }
+        view->rows = 0;   // Johny Lee's fix for MIPS
 }
 
 /* build a view outline to map one row to a COMPITEM handle by traversing
@@ -1150,9 +1222,16 @@ view_freemappings(VIEW view)
  * optionally tell the table class to redraw (if bRedraw), and if so,
  * scroll the new table to select the row that represents the
  * file we were expanding, if possible
+ *
+ * *important*: if you are holding the view critsec when you call this, you
+ * must pass bRedraw as FALSE or you could deadlock
+ *
+ * if a COMPITEM ci is passed in, then return in *prow the row number that
+ * corresponds to this item in the new view, or if not visible, the first
+ * visible row after it (to retain current scroll position)
  */
 void
-view_outline_opt(VIEW view, BOOL bRedraw)
+view_outline_opt(VIEW view, BOOL bRedraw, COMPITEM ciFind, int * prow)
 {
         int prev_row = -1;      /* the row nr of the previously-expanded row*/
         int i;                  /* nr of includable items */
@@ -1183,15 +1262,24 @@ view_outline_opt(VIEW view, BOOL bRedraw)
         ci = (COMPITEM) List_First(li);
         for (i = 0; ci != NULL; ci = (COMPITEM) List_Next(ci)) {
 
+                if ((ciFind != NULL) && (prow != NULL)) {
+                    if (ci == ciFind) {
+                        // now that we have found the requested item,
+                        // the next visible row is the one we want,
+                        // whether it is ci or a later one
+                        *prow = i;
+                    }
+                }
+
                 state = compitem_getstate(ci);
 
                 if (((outline_include & INCLUDE_SAME) && (state == STATE_SAME)) ||
                     ((outline_include & INCLUDE_DIFFER) && (state == STATE_DIFFER)) ||
                     ((outline_include & INCLUDE_LEFTONLY) && (state == STATE_FILELEFTONLY)) ||
                     ((outline_include & INCLUDE_RIGHTONLY) && (state == STATE_FILERIGHTONLY))) {
-         if (!compitem_getmark(ci) || !hide_markedfiles) {
-             i++;
-         }
+                    if (!compitem_getmark(ci) || !hide_markedfiles) {
+                        i++;
+                    }
                 }
         }
 
@@ -1295,6 +1383,18 @@ view_expand_item(VIEW view, COMPITEM ci)
         LINE line1, line2;
         int i, base_left, base_right, state;
 
+        // We could be on a second thread trying to expand while it's
+        // already going on.  That ain't clever!
+        if (view->bExpandGuard) {
+            Trace_Error(NULL, "Expansion in progress.  Please wait.", FALSE);
+            ViewLeave();
+            return FALSE;
+        }
+
+        // Ensure that the world knows that we are expanding
+        // before we leave the critical section.
+        // This is the only way into getcomposite.
+        view->bExpandGuard = TRUE;
 
 	// the compitem_getcomposite could take a long time
 	// if the file is large and remote. We need to
@@ -1304,7 +1404,9 @@ view_expand_item(VIEW view, COMPITEM ci)
         /* get the composite section list */
         li = compitem_getcomposite(ci);
         if (li == NULL) {
-                return FALSE;
+            view->bExpanding = FALSE;
+            view->bExpandGuard = FALSE;
+            return FALSE;
         }
 
 	ViewEnter();
@@ -1322,6 +1424,7 @@ view_expand_item(VIEW view, COMPITEM ci)
          */
         view->bExpand = TRUE;
         view->bExpanding = FALSE;
+        view->bExpandGuard = FALSE;
         view_freemappings(view);
 
 
@@ -1329,7 +1432,7 @@ view_expand_item(VIEW view, COMPITEM ci)
          * that we should include
          */
         view->rows = 0;
-        for (sh = (SECTION) List_First(li); sh != NULL;
+        for ( sh = (SECTION) List_First(li); sh != NULL;
             sh = (SECTION) List_Next(sh)) {
 
                 state = section_getstate(sh);
@@ -1443,7 +1546,7 @@ view_expand_item(VIEW view, COMPITEM ci)
 
                         /* check the column widths */
                         view->maxrest = max(view->maxrest,
-                                            (line_gettabbedlength(line1, 8)));
+                                            (line_gettabbedlength(line1, g_tabwidth)));
 #ifndef WIN32
          // check for truncation (if VIEWLINE array too large)
          if (i >= view->rows) {

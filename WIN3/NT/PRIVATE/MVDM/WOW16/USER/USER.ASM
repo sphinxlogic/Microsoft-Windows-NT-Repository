@@ -21,19 +21,9 @@
         ; we must always have: LIBINIT equ 1
         LIBINIT equ 1
 
-    FIRST_CALL_MUST_BE_USER_BUG equ 1
-
-    ifdef   WOWEDIT
-    LIBINIT equ 1
-    endif
-
-    ifdef   FIRST_CALL_MUST_BE_USER_BUG
-    LIBINIT equ 1
-    endif
-
     .286p
 
-;    .xlist
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
@@ -57,6 +47,7 @@ externFP    GetModuleHandle
 externFP    SetTaskSignalProc
 externFP    NewSignalProc
 externFP    IsWindow
+externFP    CreateQueue
 
 createSeg   _TEXT,CODE,WORD,PUBLIC,CODE
 createSeg   _DATA,DATA,WORD,PUBLIC,DATA,DGROUP
@@ -147,6 +138,16 @@ cProc   InitApp,<PUBLIC,FAR,PASCAL,NODATA,NOWIN,ATOMIC>
     parmW   hInst       ; App's hInstance
 
     cBegin
+
+    mov     ax,8               ; MAGIC Win3.1 default message queue size
+    push    ax                 ; NOTE Win3.1 (and User32) read the size
+    call    CreateQueue        ; from win.ini, we don't.
+    cmp     ax,0               ; hq
+    jne     IA_HaveQ
+    mov     ax,0               ; return FALSE
+    jmp     IA_Ret
+
+IA_HaveQ:
     push    ds
 
     mov     ax, _DATA          ; set USER16's DS
@@ -177,6 +178,7 @@ IA_notfirstapp:
     xor     dx,dx
 
     pop     ds
+IA_Ret:
     cEnd
 
 
@@ -257,58 +259,18 @@ cEnd nogen
 
 ;
 ; The DWPBits table defines which messages have actual processing for
-; DefWindowProc.  Each line in the table has 2 bytes (16 bits), and defines
-; processing for 16 messages.  A '1' in a bit means to process the message,
-; and a '0' means to simply return 0 to the app.
-;
-; Each 2-byte value is defined as
-;
-;   0 1 2 3 4 5 6 7    8 9 A B C D E F
-;
-;  so, as an example, the first line, for messages 00 through 0F, is
-;
-;   0 0 0 0 0 0 1 0    0 0 0 1 1 1 1 1  (02H, 1FH)
-;
-;  Therefore, messages 06, 0B, 0C, 0D, 0E, and 0F will get passed through
-;  to the 32-bit world, and the other messages will return to the app.
+; DefWindowProc.  We get these bits from user32.  User32 assumes the
+; buffer passed in is zero-initialized, hence the DUP(0) below.
 ;
 
-DWPBits DB  02H, 1FH   ; ACTIVATE,SETREDRAW,SETTEXT,GETTEXT,GETTEXTLENGTH,PAINT
-        DB 0D8H,0C1H   ; CLOSE,QUERYENDSESSION,QUERYOPEN,ERASEBKGND,SHOWWINDOW,CTLCOLOR,CANCELMODE
-        DB 0C3H, 13H   ; SETCURSOR,MOUSEACTIVATE,PAINTICON,ICONERASEBKGND,DRAWITEM,VKEYTOITEM,CHARTOITEM
-        DB  34H, 10H   ; SETHOTKEY,GETHOTKEY,ISACTIVEICON,WM_CLIENTSHUTDOWN
-        DB  03H, 00H   ; WINDOWPOSCHANGING,WINDOWPOSCHANGED
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  5EH, 80H   ; WM_NCCREATE,WM_NCCALCSIZE,WM_NCHITTEST,WM_NCPAINT,WM_NCACTIVATE,WM_SYNCPAINT
-        DB  0,0
-        DB 0F0H, 00H   ; WM_NCMOUSEMOVE,WM_NCLBUTTONDOWN,WM_NCLBUTTONUP,WM_NCLBUTTONDBLCLK
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB 0CEH, 00H   ; KEYDOWN,KEYUP,SYSKEYDOWN,SYSKEYUP,SYSCHAR
-        DB  20H, 00H   ; WM_SYSCOMMAND
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  0,0
-        DB  00H, 30H   ; DROPOBJECT,QUERYDROPOBJECT
+DWPBits DB 101 DUP(0)   ; Room for bits for msgs 0 - 807 (decimal)
+public DWPBits
 
+cbDWPBits DW ($ - codeoffset DWPBits)
+public cbDWPBits
+
+MaxDWPMsg DW 0
+public MaxDWPMsg
 
 ;*--------------------------------------------------------------------------*
 ;*
@@ -331,24 +293,24 @@ parmD lpReturn          ; Callers Return Address
 ;parmW wDS           ; Thunk saved DS
 cBegin
     mov  bx,wMsg
-    cmp  bx,WM_QUERYDROPOBJECT
+    cmp  bx,cs:MaxDWPMsg
     ja   @f         ; jump if above (return with 0)
     mov  cx,bx
     shr  bx,3       ; make byte index into table
     mov  al,cs:[bx+DWPBits] ; get proper 8-bits
     and  cx,0007H
-    shl  al,cl      ; get proper bit into bit 0 of al
-    test al,80H
+    shr  al,cl      ; get proper bit into bit 0 of al
+    test al,1
     jz   @f
 
     mov  sp,bp       ; Do cEnd without Ret count (leave parameters there)
     pop  bp
     ret
 @@:
-    sub  ax,ax     ; flag no window processing
-    sub  dx,dx     ; flag no window processing
     pop  bp
+    xor  ax,ax     ; return (ULONG)0 to flag no window processing
     add  sp,2      ; skip thunk IP
+    xor  dx,dx     ; return (ULONG)0 to flag no window processing
     retf 10        ; 10 bytes to pop
 
 
@@ -358,12 +320,24 @@ cEnd <nogen>
 
     UserThunk   ADJUSTWINDOWRECT
     UserThunk   ADJUSTWINDOWRECTEX
-;;; UserThunk   ANSILOWER           ;LOCALAPI in winlang.asm
-;;; UserThunk   ANSILOWERBUFF       ;LOCALAPI in winlang.asm
-;;; UserThunk   ANSINEXT            ;LOCALAPI in winstr.asm
-;;; UserThunk   ANSIPREV            ;LOCALAPI in winstr.asm
-;;; UserThunk   ANSIUPPER           ;LOCALAPI in winlang.asm
-;;; UserThunk   ANSIUPPERBUFF       ;LOCALAPI in winlang.asm
+
+    ; Hack to use original IDs.  These functions have local implementations
+    ; that thunk to Win32 if the locale is other than U.S. English.
+
+    FUN_WIN32ANSILOWER     equ FUN_ANSILOWER
+    FUN_WIN32ANSILOWERBUFF equ FUN_ANSILOWERBUFF
+    FUN_WIN32ANSINEXT      equ FUN_ANSINEXT
+    FUN_WIN32ANSIPREV      equ FUN_ANSIPREV
+    FUN_WIN32ANSIUPPER     equ FUN_ANSIUPPER
+    FUN_WIN32ANSIUPPERBUFF equ FUN_ANSIUPPERBUFF
+
+    DUserThunk  WIN32ANSILOWER,     %(size ANSILOWER16)
+    DUserThunk  WIN32ANSILOWERBUFF, %(size ANSILOWERBUFF16)
+    DUserThunk  WIN32ANSINEXT,      %(size ANSINEXT16)
+    DUserThunk  WIN32ANSIPREV,      %(size ANSIPREV16)
+    DUserThunk  WIN32ANSIUPPER,     %(size ANSIUPPER16)
+    DUserThunk  WIN32ANSIUPPERBUFF, %(size ANSIUPPERBUFF16)
+
     DUserThunk  ANYPOPUP,0
     UserThunk   APPENDMENU
     UserThunk   ARRANGEICONICWINDOWS

@@ -58,18 +58,18 @@ void				Out_IndentDec( CCB	*	pCCB )
 
 void				Out_AddToBufferPointer(
 											CCB			*	pCCB,
-											_expr_node	*	pResource,
-											_expr_node	*	pAmountExpr );
+											expr_node	*	pResource,
+											expr_node	*	pAmountExpr );
 
 void				Out_ForceAlignment( CCB			* pCCB,
-										_expr_node	* pResource,
+										expr_node	* pResource,
 										ALIGNMENT_PROPERTY	Alignment
 									  );
 
 void				Out_MarshallSimple( CCB			* pCCB,
 										RESOURCE	* pResource,
 									  	node_skl	* pType,
-									  	_expr_node	* pSource,
+									  	expr_node	* pSource,
 									  	BOOL		  fIncr,
 									  	unsigned short Size
 									  );
@@ -92,8 +92,8 @@ void				Out_ProcedureProlog( CCB		*	pCCB,
 									   );
 
 void				Out_CallManager( CCB * pCCB,
-									 _expr_proc_call * pExpr,
-									 _expr_node		 * pReturn,
+									 expr_proc_call * pExpr,
+									 expr_node		 * pReturn,
 									 BOOL			   fIsCallback );
 
 inline
@@ -115,14 +115,14 @@ void				Out_ClientLocalVariables( CCB * pCCB,
 void				Out_HandleInitialize(
 											 CCB * pCCB,
 										     ITERATOR& BindingParamList,
-										     _expr_node * pAssignExpr,
+										     expr_node * pAssignExpr,
 										     BOOL		  fAuto,
 										     unsigned short OpBits
 										    );
 
 void				Out_AutoHandleSendReceive( CCB	* pCCB,
-											   _expr_node	*	pDest,
-											   _expr_node	*	pProc
+											   expr_node	*	pDest,
+											   expr_node	*	pProc
 											 );
 
 void				Out_NormalSendReceive( CCB * pCCB, BOOL fAnyOuts );
@@ -134,31 +134,25 @@ void				Out_IncludeOfFile( CCB * pCCB, PFILENAME p, BOOL fAngleBracket );
 void				Out_EP_Info( CCB * pCCB, ITERATOR * I );
 
 
+void				Out_MKTYPLIB_Guid( CCB *pCCB, 
+								  GUID_STRS & GStrs,
+                                  char * szPrefix,
+								  char * szName );
+
 void				Out_Guid( CCB *pCCB, 
-								  char * pGString1,
-								  char * pGString2,
-								  char * pGString3, 
-								  char * pGString4, 
-								  char * pGString5 );
+								  GUID_STRS & GStrs );
+
 void				Out_IFInfo(
 							 CCB	*	pCCB,
 							 char	*	pCIntInfoTypeName,
 							 char	*	pCIntInfoVarName,
 							 char	*	pCIntInfoSizeOfString,
-							 char	*	pUserGuidStr1,
-							 char	*	pUserGuidStr2,
-							 char	*	pUserGuidStr3,
-							 char	*	pUserGuidStr4,
-							 char	*	pUserGuidStr5,
+							 GUID_STRS & UserGuidStrs,
 
 							 unsigned short UserMajor,
 							 unsigned short UserMinor,
 
-							 char	*	pXferGuidStr1,
-							 char	*	pXferGuidStr2,
-							 char	*	pXferGuidStr3,
-							 char	*	pXferGuidStr4,
-							 char	*	pXferGuidStr5,
+							 GUID_STRS & XferGuidStrs,
 
 							 unsigned short XferSynMajor,
 							 unsigned short XferSynMinor,
@@ -168,7 +162,8 @@ void				Out_IFInfo(
 							 char	*	ProtSeqEPTypeName,
 							 char	*	ProtSeqEPVarName,
 							 BOOL		fNoDefaultEpv,
-							 BOOL		fSide
+							 BOOL		fSide,
+                             BOOL       fHasPipes
 							 );
 
 void				Out_DispatchTableStuff(	CCB		*	pCCB,
@@ -184,23 +179,25 @@ void				Out_ServerStubMessageInit( CCB * pCCB );
 
 void				Out_MarshallBaseType( CCB			*	pCCB,
 										  node_skl		*	pType,
-										  _expr_node	*	pDest,
-										  _expr_node	*	pSource
+										  expr_node	*	pDest,
+										  expr_node	*	pSource
 										);
 
 void				Out_UnMarshallBaseType( CCB		*	pCCB,
 											node_skl*	pType,
-											_expr_node * pDest,
-											_expr_node * pSource );
+											expr_node * pDest,
+											expr_node * pSource );
 											
 
 void				Out_ClientUnMarshallBaseType( CCB			*	pCCB,
 												  node_skl		*	pType,
-												  _expr_node	*	pDest,
-												  _expr_node	*	pSource );
+												  expr_node	*	pDest,
+												  expr_node	*	pSource );
 
 void                Out_TypeFormatStringExtern( CCB * pCCB );
 void                Out_ProcFormatStringExtern( CCB * pCCB );
+void                Out_LocalTypeFormatStringExtern( CCB * pCCB );
+void                Out_LocalProcFormatStringExtern( CCB * pCCB );
 
 void                Out_StubDescriptorExtern( CCB *    pCCB );
 
@@ -237,7 +234,10 @@ void				Out_NdrFreeCall( CCB *		pCCB,
 									 BOOL		fTakeAddress,
 									 BOOL		fDereference );
 
-void				Out_NdrConvert( CCB * pCCB, long FormatStringOffset );
+void                Out_NdrConvert( CCB *           pCCB, 
+                                    long            FormatStringOffset,
+                                    long            ParamTotal,
+                                    unsigned short  ProcOptimFlags );
 
 void				Out_NdrNsGetBuffer( CCB * pCCB );
 void				Out_NdrGetBuffer( CCB * pCCB );
@@ -279,157 +279,157 @@ void				Out_CtxtHdlPrototypes(	CCB		* pCCB,
 
 
 void				Out_PatchReference(	CCB	*	pCCB,
-										_expr_node * pDest,
-										_expr_node * pSource,
+										expr_node * pDest,
+										expr_node * pSource,
 										BOOL		 fIncr );
 								
 void				Out_AlignmentOrAddAction( CCB 			* 	pCCB,
-											  _expr_node	* 	pDest,
+											  expr_node	* 	pDest,
 											  STM_ACTION		Action );
 
-void				Out_If( CCB * pCCB, _expr_node * pExpr );
+void				Out_If( CCB * pCCB, expr_node * pExpr );
 
 void				Out_Else( CCB * pCCB );
 
 void				Out_Endif( CCB * pCCB );
 
 void				Out_UniquePtrMarshall( CCB * pCCB,
-										   _expr_node * pDest,
-										   _expr_node * pSrc );
+										   expr_node * pDest,
+										   expr_node * pSrc );
 
 void				Out_IfUniquePtrInBuffer( CCB * pCCB,
-											 _expr_node * pSrc );
+											 expr_node * pSrc );
 
 void				Out_Assign( CCB * pCCB,
-								_expr_node * pDest,
-								_expr_node * pSrc );
+								expr_node * pDest,
+								expr_node * pSrc );
 
 void				Out_Memcopy( CCB * pCCB,
-								 _expr_node * pDest,
-								 _expr_node * pSrc,
-								 _expr_node * pLength );
+								 expr_node * pDest,
+								 expr_node * pSrc,
+								 expr_node * pLength );
 
 void				Out_strlen( CCB * pCCB,
-								_expr_node	*	pDest,
-								_expr_node	*	pSource,
+								expr_node	*	pDest,
+								expr_node	*	pSource,
 								unsigned short	Size );
 
 void				Out_For( CCB * pCCB,
-							 _expr_node * pIndexExpr,
-							 _expr_node	* pInitialExpr,
-							 _expr_node * pFinalExpr,
-							 _expr_node * pIncrExpr );
+							 expr_node * pIndexExpr,
+							 expr_node	* pInitialExpr,
+							 expr_node * pFinalExpr,
+							 expr_node * pIncrExpr );
 
 void				Out_EndFor( CCB * pCCB );
 							
 
 void								Out_UPDecision(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInBuffer,
-											_expr_node	*	pPtrInMemory );
+											expr_node	*	pPtrInBuffer,
+											expr_node	*	pPtrInMemory );
 void								Out_TLUPDecision(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInBuffer,
-											_expr_node	*	pPtrInMemory );
+											expr_node	*	pPtrInBuffer,
+											expr_node	*	pPtrInMemory );
 
 void								Out_IfAlloc(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_If_IfAlloc(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_If_IfAllocRef(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_Alloc(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_IfAllocSet(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_AllocSet(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_IfCopy(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_Copy(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount,
-											_expr_node	*	pAssign );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount,
+											expr_node	*	pAssign );
 
 void								Out_IfAllocCopy(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void								Out_AllocCopy(
 											CCB			*	pCCB,
-											_expr_node	*	pPtrInMemory,
-											_expr_node	*	pBuffer,
-											_expr_node	*	pExprCount );
+											expr_node	*	pPtrInMemory,
+											expr_node	*	pBuffer,
+											expr_node	*	pExprCount );
 
 void						Out_ConfStringHdr(
 										CCB			*	pCCB,
-										_expr_node	*	pDest,
-										_expr_node	*	pExprSize,
-										_expr_node	*	pExprLength,
+										expr_node	*	pDest,
+										expr_node	*	pExprSize,
+										expr_node	*	pExprLength,
 										BOOL			fMarsh );
 
 void						Out_Copy(
 									CCB		*	pCCB,
-									_expr_node	*	pDest,
-									_expr_node	*	pSource,
-									_expr_node	*	pExprCount,
-									_expr_node	*	pAssign );
+									expr_node	*	pDest,
+									expr_node	*	pSource,
+									expr_node	*	pExprCount,
+									expr_node	*	pAssign );
 
 void				Out_CContextMarshall(
 									CCB			*	pCCB,
-									_expr_node	*	pDest,
-									_expr_node	*	pSource );
+									expr_node	*	pDest,
+									expr_node	*	pSource );
 
 void				Out_CContextUnMarshall(
 									 CCB		*	pCCB,
-									 _expr_node	*	pDest,
-									 _expr_node	*	pSource,
-									 _expr_node	*	pHandle,
-									 _expr_node	*	pDRep );
+									 expr_node	*	pDest,
+									 expr_node	*	pSource,
+									 expr_node	*	pHandle,
+									 expr_node	*	pDRep );
 										
 void				Out_SContextMarshall(
 									CCB			*	pCCB,
-									_expr_node	*	pDest,
-									_expr_node	*	pSource,
-									_expr_node	*	pRDRtn );
+									expr_node	*	pDest,
+									expr_node	*	pSource,
+									expr_node	*	pRDRtn );
 
 void				Out_SContextUnMarshall(
 									CCB			*	pCCB,
-									_expr_node	*	pDest,
-									_expr_node	*	pSource,
-									_expr_node	*	pDRep );
+									expr_node	*	pDest,
+									expr_node	*	pSource,
+									expr_node	*	pDRep );
 
 void				Out_RaiseException( CCB			*	pCCB,
 										PNAME			pExceptionNameVarExpression );
@@ -439,11 +439,11 @@ void				Out_AdvanceAndAlignTo( CCB	*	pCCB,
 
 
 void				Out_PlusEquals( CCB * pCCB,
-									_expr_node * pLHS,
-									_expr_node * pRHS );
+									expr_node * pLHS,
+									expr_node * pRHS );
 
 void				Out_IfFree( CCB *	pCCB,
-							  _expr_node * pSrc );
+							  expr_node * pSrc );
 
 
 void				Out_RpcTryFinally( CCB * pCCB );
@@ -454,62 +454,66 @@ void				Out_RpcEndFinally( CCB * pCCB );
 
 void				Out_RpcTryExcept( CCB * pCCB );
 
-void				Out_RpcExcept_1( CCB * pCCB );
+void                Out_RpcExcept( CCB  * pCCB,
+                                   char * pFilterString );
 
 void				Out_RpcEndExcept( CCB * pCCB );
 
 void				Out_CallNdrMapCommAndFaultStatus( CCB * pCCB,
-													  _expr_node * pAddOfStubMsg,
-													  _expr_node * StatRes,
-													  _expr_node * pCommExpr,
-													  _expr_node * pFaultExpr );
+													  expr_node * pAddOfStubMsg,
+													  expr_node * StatRes,
+													  expr_node * pCommExpr,
+													  expr_node * pFaultExpr );
 void				Out_CallToXmit( CCB * pCCB,
 									PNAME PresentedName,
-									_expr_node * pPresented,
-									_expr_node * pTransmitted );
+									expr_node * pPresented,
+									expr_node * pTransmitted );
 
 void				Out_CallFreeXmit( CCB * pCCB,
 									  PNAME PresentedName,
-									  _expr_node * Xmitted );
+									  expr_node * Xmitted );
 
 void				Out_CallFromXmit( CCB * pCCB,
 									  PNAME PresentedName,
-									  _expr_node * pPresented,
-									  _expr_node * pXmitted );
+									  expr_node * pPresented,
+									  expr_node * pXmitted );
 
 void				Out_CallFreeInst( CCB * pCCB,
 									  PNAME PresentedName,
-									  _expr_node * pPresented );
+									  expr_node * pPresented );
 
 void				Out_TransmitAsPrototypes( CCB * pCCB,
-											  ITERATOR& ListOfPresentedTypes );
+                                              ITERATOR& ListOfPresentedTypes );
 
 void				Out_RepAsPrototypes( CCB * pCCB,
-						                 ITERATOR& ListOfPresentedTypes );
+                                         ITERATOR& ListOfPresentedTypes );
+
+void				Out_UserMarshalPrototypes( CCB * pCCB,
+                                               ITERATOR& ListOfPresentedTypes );
 
 void				Out_Comment( CCB * pCCB, char * pComment );
 
 void				Out_TLUPDecisionBufferOnly( CCB	* pCCB,
-											    _expr_node * pPtrInBuffer,
-												_expr_node	*	pPtrInMemory );
+											    expr_node * pPtrInBuffer,
+												expr_node	*	pPtrInMemory );
 
 void				Out_StringMarshall( CCB 	   * pCCB, 
-											_expr_node * pMemory,
-											_expr_node * pCount,
-											_expr_node * pSize );
+											expr_node * pMemory,
+											expr_node * pCount,
+											expr_node * pSize );
 
 void				Out_StringUnMarshall( CCB 	   * pCCB, 
-											_expr_node * pMemory,
-											_expr_node * pSize );
+											expr_node * pMemory,
+											expr_node * pSize );
 
 void				Out_StructSizingCall( CCB * pCCB,
-										  _expr_node * pSource,
-										  _expr_node * pLengthVar );
+										  expr_node * pSource,
+										  expr_node * pLengthVar );
 
 
 void				Out_StructMarshallCall( CCB * pCCB,
-									  _expr_node * pSrc,
-									  _expr_node * pPtrInBuffer );
+									  expr_node * pSrc,
+									  expr_node * pPtrInBuffer );
 
 void				Out_EmitSizingProlog( CCB * pCCB,
 										  ITERATOR& I,
@@ -530,18 +534,20 @@ void				Out_RpcSSDisableAllocate( CCB * pCCB );
 void				Out_RpcSSSetClientToOsf( CCB * pCCB );
 
 void				Out_MemsetToZero( CCB * pCCB,
-									 _expr_node * pDest,
-									 _expr_node * pSize );
+									 expr_node * pDest,
+									 expr_node * pSize );
 
 void				Out_IID(CCB *pCCB);
+
+void				Out_CLSID(CCB *pCCB);
 
 void				Out_CallAsProxyPrototypes(CCB *pCCB, ITERATOR & ListOfCallAsRoutines);
  
 void				Out_CallAsServerPrototypes(CCB *pCCB, ITERATOR & ListOfCallAsRoutines);
  
 void                Out_CallMemberFunction( CCB			*	pCCB,
-	                                       _expr_proc_call	*	pProcExpr,
-	                                       _expr_node		*	pRet,
+	                                       expr_proc_call	*	pProcExpr,
+	                                       expr_node		*	pRet,
 	                                       BOOL					fThunk );
 
 void                Out_SetOperationBits( CCB *	pCCB, unsigned short OpBits);
@@ -552,10 +558,14 @@ void                Out_TypeEncodePrototypes( CCB * pCCB, ITERATOR& List );
 
 void                Out_TypeDecodePrototypes( CCB * pCCB, ITERATOR& List );
 
+void                Out_TypeFreePrototypes( CCB * pCCB, ITERATOR& List );
+
 void                OutputNdrAlignmentAction( CCB * pCCB,
                                               NDR_ALIGN_ACTION Action );
 
-void                Out_NotifyPrototypes( CCB * pCCB, ITERATOR& ListOfNotifyRoutines );
+void                Out_NotifyPrototypes( CCB *     pCCB,
+                                          ITERATOR& ListOfNotifyRoutines,
+                                          BOOL      fHasFlag );
 
 void                Out_MultiDimVars( CCB * pCCB, CG_PARAM * pParam );
 
@@ -564,3 +574,4 @@ void                Out_MultiDimVarsInit( CCB * pCCB, CG_PARAM * pParam );
 void                Out_CheckUnMarshallPastBufferEnd( CCB * pCCB );
 
 #endif // __OUTPUT_HXX__
+

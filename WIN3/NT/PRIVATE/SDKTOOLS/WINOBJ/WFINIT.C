@@ -18,7 +18,7 @@ typedef VOID  ( APIENTRY *FNPENAPP)(WORD, BOOL);
 
 VOID (APIENTRY *lpfnRegisterPenApp)(WORD, BOOL);
 CHAR szPenReg[] = "RegisterPenApp";
-CHAR szHelv[] = "MS Sans Serif";    // default font, status line font face name
+CHAR szHelv[] = "MS Shell Dlg";    // default font, status line font face name
 
 HBITMAP hbmSave;
 

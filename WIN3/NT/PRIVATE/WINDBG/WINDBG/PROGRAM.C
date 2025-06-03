@@ -431,7 +431,7 @@ Return Value:
                     _splitpath( FileName, NULL, NULL, Name1, NULL );
                     _splitpath( ProgramName, NULL, NULL, Name2, NULL );
 
-                    if ( !stricmp( Name1, Name2 ) ) {
+                    if ( !_stricmp( Name1, Name2 ) ) {
                         strcpy( Buffer, FileName );
                     } else {
                         strcpy( Buffer, ProgramName );
@@ -486,7 +486,7 @@ Return Value:
                         SendMessage( GetDlgItem(hDlg, ID_PROGOPEN_PROGRAMS ),
                                      LB_GETTEXT, i, (LONG)(LPSTR)Buffer );
 
-                        if ( !stricmp( Buffer, Buffer2 )) {
+                        if ( !_stricmp( Buffer, Buffer2 )) {
                             MruFound = TRUE;
                             break;
                         }
@@ -586,7 +586,7 @@ Return Value:
                                      (LONG)(LPSTR)Buffer2 );
 
 
-                        if ( !stricmp( Buffer2, CURRENT_WORKSPACE ) ) {
+                        if ( !_stricmp( Buffer2, CURRENT_WORKSPACE ) ) {
                             //
                             //  Load new program using current workspace.
                             //
@@ -595,7 +595,7 @@ Return Value:
                             strcpy( GetCurrentWorkSpace(), FileName );
 
                         } else {
-                            if ( !stricmp( Buffer2, DEFAULT_WORKSPACE) ) {
+                            if ( !_stricmp( Buffer2, DEFAULT_WORKSPACE) ) {
                                 Buffer2[0] = '\0';
                             }
 
@@ -717,7 +717,7 @@ Return Value:
                     EndDialog( hDlg, TRUE );
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_PROGOPEN_HELP));
                     return TRUE;
             }
@@ -739,7 +739,7 @@ BOOL ProgramHookProc (HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
         switch( LOWORD( wParam )) {
 
-        case IDHELP:
+        case IDWINDBGHELP:
         case pshHelp:
 
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_PROGOPEN_NEW_HELP));
@@ -876,7 +876,7 @@ Return Value:
                     EndDialog( hDlg, TRUE );
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_PROGCLOSE_HELP) );
                     return TRUE;
             }
@@ -938,7 +938,7 @@ Return Value:
                              WM_GETTEXT, sizeof( Buffer ), (LONG)(LPSTR)Buffer );
 
                 if ( GetDefaultWorkSpace( GetCurrentProgramName(TRUE), Buffer1 ) ) {
-                    MakeDefault = !stricmp( Buffer, Buffer1 );
+                    MakeDefault = !_stricmp( Buffer, Buffer1 );
                 } else {
                     MakeDefault = TRUE;
                 }
@@ -981,7 +981,7 @@ Return Value:
                                          (LONG)(LPSTR)Buffer );
 
                             if ( GetDefaultWorkSpace( GetCurrentProgramName(TRUE), Buffer1 ) ) {
-                                MakeDefault = !stricmp( Buffer, Buffer1 );
+                                MakeDefault = !_stricmp( Buffer, Buffer1 );
                             } else {
                                 MakeDefault = TRUE;
                             }
@@ -1032,7 +1032,7 @@ Return Value:
                     //             BM_SETCHECK, MakeDefault ? 1 : 0, 0L );
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_PROGSAVEAS_HELP) );
                     return TRUE;
             }
@@ -1153,7 +1153,7 @@ Return Value:
                         SendMessage( GetDlgItem(hDlg, ID_PROGDELETE_PROGRAMS ),
                                      LB_GETTEXT, i, (LONG)(LPSTR)Buffer );
 
-                        if ( !stricmp( Buffer, Buffer2 )) {
+                        if ( !_stricmp( Buffer, Buffer2 )) {
                             MruFound = TRUE;
                             break;
                         }
@@ -1203,7 +1203,7 @@ Return Value:
 
                             ProgramToDelete = ProgramToDeleteHead;
                             while ( ProgramToDelete ) {
-                                if ( !stricmp( ProgramToDelete->ProgramName,
+                                if ( !_stricmp( ProgramToDelete->ProgramName,
                                                Buffer ) ) {
                                     break;
                                 }
@@ -1287,7 +1287,7 @@ Return Value:
                         //
                         ProgramToDelete = ProgramToDeleteHead;
                         while ( ProgramToDelete ) {
-                            if ( !stricmp( ProgramToDelete->ProgramName, Buffer ) ) {
+                            if ( !_stricmp( ProgramToDelete->ProgramName, Buffer ) ) {
                                 break;
                             }
                             ProgramToDelete = ProgramToDelete->Next;
@@ -1366,7 +1366,7 @@ Return Value:
                     EndDialog( hDlg, TRUE );
                     break;
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg( WinHelp( hDlg, szHelpFileName, HELP_CONTEXT, ID_PROGDELETE_HELP) );
                     return TRUE;
             }
@@ -1478,7 +1478,7 @@ Return Value:
             if ( ProgramToDelete ) {
                 WorkSpaceToDelete = ProgramToDelete->WorkSpaceToDelete;
                 while ( WorkSpaceToDelete ) {
-                    if ( !stricmp( WorkSpaceToDelete->WorkSpace,
+                    if ( !_stricmp( WorkSpaceToDelete->WorkSpace,
                                    WorkSpace  ) ) {
                         Add = FALSE;
                         break;
@@ -1530,7 +1530,7 @@ Return Value:
 
                 SendMessage( hWnd, ComboBox ? CB_GETLBTEXT : LB_GETTEXT, i, (LONG)(LPSTR)Buffer );
 
-                if ( !stricmp( Buffer, Default ) ) {
+                if ( !_stricmp( Buffer, Default ) ) {
 
                     SendMessage( hWnd, ComboBox ? CB_SETCURSEL : LB_SETCURSEL, i, 0L );
                     Selected = TRUE;
@@ -1607,4 +1607,3 @@ Return Value:
     }
 }
 
-

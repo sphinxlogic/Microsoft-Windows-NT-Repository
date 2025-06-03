@@ -21,6 +21,10 @@ Revision History:
 
 #include "lfsprocs.h"
 
+#ifdef BRIANDBG
+BOOLEAN LfsRaiseFull = FALSE;
+#endif
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, LfsCurrentAvailSpace)
 #pragma alloc_text(PAGE, LfsFindCurrentAvail)
@@ -337,17 +341,17 @@ Return Value:
 
     if (UndoRequirement != 0) {
 
-        if (UndoRequirement < 0) {
-
-            UndoRequirement -= Lfcb->RecordHeaderLength;
-        } else {
-
-            UndoRequirement += Lfcb->RecordHeaderLength;
-        }
-
         if (!FlagOn( Lfcb->Flags, LFCB_PACK_LOG )) {
 
             UndoRequirement *= 2;
+        }
+
+        if (UndoRequirement < 0) {
+
+            UndoRequirement -= (2 * Lfcb->RecordHeaderLength);
+        } else {
+
+            UndoRequirement += (2 * Lfcb->RecordHeaderLength);
         }
     }
 
@@ -370,7 +374,16 @@ Return Value:
     //  then we raise a status code.
     //
 
-    if ( LogFileUsage > CurrentAvailSpace ) {                                                                          //**** xxGtr( LogFileUsage, CurrentAvailSpace )
+#ifdef BRIANDBG
+    if (LfsRaiseFull) {
+
+        LfsRaiseFull = FALSE;
+        DebugTrace( -1, Dbg, "LfsVerifyLogSpaceAvail:  About to raise\n", 0 );
+        ExRaiseStatus( STATUS_LOG_FILE_FULL );
+    }
+#endif
+
+    if (LogFileUsage > CurrentAvailSpace) {
 
         DebugTrace( -1, Dbg, "LfsVerifyLogSpaceAvail:  About to raise\n", 0 );
         ExRaiseStatus( STATUS_LOG_FILE_FULL );
@@ -505,7 +518,7 @@ Return Value:
             //  by the data size of each page.
             //
 
-            FreeBytes = ((ULONGLONG)(FreeBytes)) >> Lfcb->LogPageShift;                                                //**** xxShr( FreeBytes, Lfcb->LogPageShift );
+            FreeBytes = Int64ShrlMod32(((ULONGLONG)(FreeBytes)), Lfcb->LogPageShift);
 
             Lfcb->CurrentAvailable = FreeBytes * (ULONG)Lfcb->ReservedLogPageSize;                                     //**** xxXMul( FreeBytes, Lfcb->ReservedLogPageSize.LowPart );
         }

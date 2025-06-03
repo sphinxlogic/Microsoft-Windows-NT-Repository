@@ -14,6 +14,12 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11054.c  $
 *	
+*	   Rev 1.3   10 Aug 1994 11:13:36   BOBLEHMA
+*	Used defines for track numbers instead of hard coded numbers.
+*	
+*	   Rev 1.2   20 Jul 1994 10:37:18   BOBLEHMA
+*	Added tracks 5, 7, 25, and 27 to be mapped out as bad around tape holes.
+*	
 *	   Rev 1.1   19 Jan 1994 11:19:52   KEVINKES
 *	Changed tape_format_code to tape_class.
 *
@@ -71,6 +77,8 @@ dStatus cqd_VerifyMapBad
 	if (end_offset != 0) {
 
 		switch (cqd_context->rd_wr_op.d_track) {
+		case TRACK_5:
+		case TRACK_7:
 		case TRACK_9:
 		case TRACK_11:
 		case TRACK_13:
@@ -79,6 +87,8 @@ dStatus cqd_VerifyMapBad
 		case TRACK_19:
 		case TRACK_21:
 		case TRACK_23:
+		case TRACK_25:
+		case TRACK_27:
 			if ((cqd_context->rd_wr_op.d_segment < end_offset) ||
 				(cqd_context->rd_wr_op.d_segment >=
 				(cqd_context->tape_cfg.seg_tape_track - end_offset))) {

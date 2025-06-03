@@ -1,19 +1,9 @@
 /* catsrc - print current or older versions the source files */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "log.h"
-#include "ad.h"
-#include "script.h"
-#include "da.h"
-#include "dir.h"
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-#include <errno.h>
-#include <sys/stat.h>
+EnableAssert
 
 private F       FAnyDotDot(NE *);
 private F       FCatFiles(AD *, PTH *);
@@ -29,9 +19,6 @@ private F       FUndoNe(AD *, char *, NE *, int, PTH *);
 private NE      **PpneForSzFile(char *);
 private F       FNextSzFile(char *);
 private void    ResetSzFiles(void);
-
-
-EnableAssert
 
 F
 FCatInit(
@@ -182,7 +169,7 @@ FCatFiles(
 
             if (fTitle)
                 PrOut("---------- %&C/F next ----------\n", pad, pfi);
-            CopyFile(pthOut, PthForSFile(pad, pfi, pthSFile),
+            CopyFile(pthOut, PthForCachedSFile(pad, pfi, pthSFile),
                      permRW, fFalse, fxLocal);
         }
         else
@@ -449,7 +436,16 @@ FUndoNe(
         pmfT = PmfMkTemp(pthLocal, permRW, fxLocal);
 
         /* Unmerge szCur and szDiff > pmfT. */
-        if ((w = RunSz("unmerge", pmfT, szCur, szDiff, (char *)0)) != 0)
+        if ((w = RunSz("unmerge", pmfT,
+                        szCur,
+                        szDiff,
+                        (char *)0,
+                        (char *)0,
+                        (char *)0,
+                        (char *)0,
+                        (char *)0,
+                        (char *)0,
+                        (char *)0)) != 0)
         {
             if (-1 == w)
                 Error(szCantExecute, "unmerge.exe",
@@ -490,7 +486,7 @@ FUndoNe(
         if (pthResult)
             CopyNow(pthResult, pth, mode, fxLocal);
         else
-            CopyFile((PTH *)0, pth); /* copies to stdout */
+            CopyFile((PTH *)0, pth, 0, 0, 0); /* copies to stdout */
     }
 
     return fOk;

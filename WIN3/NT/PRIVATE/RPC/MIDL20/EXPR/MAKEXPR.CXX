@@ -42,9 +42,9 @@ extern "C"
  ***************************************************************************/
 /****************************************************************************/
 
-_expr_node *
+expr_node *
 MakeReferentExpressionIfNecessary(
-	_expr_node * pExpr )
+	expr_node * pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -96,9 +96,9 @@ MakeReferentExpressionIfNecessary(
 			return pExpr;
 		}
 }
-_expr_node *
+expr_node *
 MakeDereferentExpressionIfNecessary(
-	_expr_node * pExpr )
+	expr_node * pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -127,7 +127,7 @@ MakeDereferentExpressionIfNecessary(
 	this expression.
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pENew;
+	expr_node	*	pENew;
 	node_skl	*	pNode	= pExpr->GetType();
 	NODE_T			NT		= pNode->NodeKind();
 
@@ -147,15 +147,15 @@ MakeDereferentExpressionIfNecessary(
 		default:
 	//		assert( FALSE );
 		case NODE_POINTER:
-			pENew = new _expr_u_deref( pExpr );
+			pENew = new expr_u_deref( pExpr );
 			pENew->SetType( pNode->GetBasicType() );
 			return pENew;
 		}
 }
 
-_expr_node *
+expr_node *
 MakeAddressExpressionNoMatterWhat(
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -174,7 +174,7 @@ MakeAddressExpressionNoMatterWhat(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pENew	= (_expr_node *) new _expr_u_address( pExpr );
+	expr_node	*	pENew	= (expr_node *) new expr_u_address( pExpr );
 	node_skl	*	pNode	= new node_pointer();
 	pNode->SetBasicType( pExpr->GetType() );
 	pNode->SetEdgeType( EDGE_USE );
@@ -182,10 +182,10 @@ MakeAddressExpressionNoMatterWhat(
 	return pENew;
 }
 
-_expr_node *
+expr_node *
 MakeDerefExpressionOfCastPtrToType(
 	node_skl	*	pType,
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -210,16 +210,16 @@ MakeDerefExpressionOfCastPtrToType(
 	pPtr->SetBasicType( pType );
 	pPtr->SetEdgeType( EDGE_USE );
 
-	pExpr	= new _expr_cast( pPtr, pExpr );
-	pExpr	= new _expr_u_deref( pExpr );
+	pExpr	= new expr_cast( pPtr, pExpr );
+	pExpr	= new expr_u_deref( pExpr );
 	pExpr->SetType( pType );
 
 	return pExpr;
 }
-_expr_node *
+expr_node *
 MakeExpressionOfCastPtrToType(
 	node_skl	*	pType,
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -244,14 +244,14 @@ MakeExpressionOfCastPtrToType(
 	pPtr->SetBasicType( pType );
 	pPtr->SetEdgeType( EDGE_USE );
 
-	pExpr	= new _expr_cast( pPtr, pExpr );
+	pExpr	= new expr_cast( pPtr, pExpr );
 
 	return pExpr;
 }
-_expr_node *
+expr_node *
 MakeExpressionOfCastToTypeName(
 	PNAME			pName,
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -276,12 +276,12 @@ MakeExpressionOfCastToTypeName(
 	pDef->SetBasicType( 0 );
 	pDef->SetEdgeType( EDGE_USE );
 
-	pExpr	= new _expr_cast( pDef, pExpr );
+	pExpr	= new expr_cast( pDef, pExpr );
 
 	return pExpr;
 }
 
-_expr_proc_call *
+expr_proc_call *
 MakeProcCallOutOfParamExprList(
 	PNAME			pName,
 	node_skl	*	pType,
@@ -296,7 +296,7 @@ MakeProcCallOutOfParamExprList(
 
  	pName			- The name of the procedure.
  	pType			- The return type of the procedure.
-	ParamExprList	- The list of expressions (sans the _expr_param nodes)
+	ParamExprList	- The list of expressions (sans the expr_param nodes)
 	
  Return Value:
 	
@@ -304,8 +304,8 @@ MakeProcCallOutOfParamExprList(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node		*	pExpr;
-	_expr_proc_call	*	pProc	= new _expr_proc_call( pName );
+	expr_node		*	pExpr;
+	expr_proc_call	*	pProc	= new expr_proc_call( pName );
 
 	pProc->SetType( pType );
 
@@ -313,15 +313,15 @@ MakeProcCallOutOfParamExprList(
 		{
 		while( ITERATOR_GETNEXT( ParamExprList, pExpr ) )
 			{
-			pProc->SetParam( new _expr_param( pExpr ) );
+			pProc->SetParam( new expr_param( pExpr ) );
 			}
 		}
 
 	return pProc;
 }
-_expr_node *
+expr_node *
 MakeRefExprOutOfDeref(
-	_expr_node * pExpr )
+	expr_node * pExpr )
 	{
 
 	if( pExpr->GetOperator() == OP_UNARY_INDIRECTION )
@@ -330,9 +330,9 @@ MakeRefExprOutOfDeref(
 		}
 	return pExpr;
 	}
-_expr_node *
+expr_node *
 MakeAddressOfPointer(
-	_expr_node * pExpr )
+	expr_node * pExpr )
 	{
 	if( pExpr->GetOperator() == OP_UNARY_INDIRECTION )
 		{
@@ -343,9 +343,9 @@ MakeAddressOfPointer(
 		return MakeAddressExpressionNoMatterWhat( pExpr );
 		}
 	}
-_expr_node *
+expr_node *
 MakeCastExprPtrToUChar(
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 	{
 	node_skl	*	pType;
 	node_skl	*	pP;
@@ -354,11 +354,11 @@ MakeCastExprPtrToUChar(
 	pP	= new node_pointer();
 	pP->SetBasicType( pType );
 	pP->SetEdgeType( EDGE_USE );
-	return new _expr_cast( pP, pExpr );
+	return new expr_cast( pP, pExpr );
 	}
-_expr_node *
+expr_node *
 MakeCastExprPtrToPtrToUChar(
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 	{
 	node_skl	*	pType;
 	node_skl	*	pP;
@@ -371,11 +371,11 @@ MakeCastExprPtrToPtrToUChar(
 	pP1	= new node_pointer();
 	pP1->SetBasicType( pP );
 	pP1->SetEdgeType( EDGE_USE );
-	return new _expr_cast( pP1, pExpr );
+	return new expr_cast( pP1, pExpr );
 	}
-_expr_node *
+expr_node *
 MakeCastExprPtrToVoid(
-	_expr_node	*	pExpr )
+	expr_node	*	pExpr )
 	{
 	node_skl	*	pType;
 	node_skl	*	pP;
@@ -384,13 +384,13 @@ MakeCastExprPtrToVoid(
 	pP	= new node_pointer();
 	pP->SetBasicType( pType );
 	pP->SetEdgeType( EDGE_USE );
-	return new _expr_cast( pP, pExpr );
+	return new expr_cast( pP, pExpr );
 	}
 void
 SetPrefixes(
 	ITERATOR&	VarList,
 	char * pPrefix,
-	_expr_node * pTarget )
+	expr_node * pTarget )
 	{
 	short Count;
 
@@ -401,7 +401,7 @@ SetPrefixes(
 		 Count > 0 ;
 		 Count-- )
 		{
-		_expr_variable * pE;
+		expr_variable * pE;
 
 		ITERATOR_GETNEXT( VarList, pE );
 		pE->SetPrefix( pPrefix );
@@ -411,7 +411,7 @@ SetPrefixes(
 void
 ResetPrefixes(
 	ITERATOR&	VarList,
-	_expr_node * pTarget )
+	expr_node * pTarget )
 	{
 	short Count;
 
@@ -422,7 +422,7 @@ ResetPrefixes(
 		 Count > 0 ;
 		 Count-- )
 		{
-		_expr_variable * pE;
+		expr_variable * pE;
 
 		ITERATOR_GETNEXT( VarList, pE );
 		pE->SetPrefix( 0 );
@@ -430,14 +430,70 @@ ResetPrefixes(
 		}
 	}
 
-_expr_node *
+expr_node *
 Make_1_ArrayExpressionFromVarName(
     PNAME   pName,
     int     Dimension )
     {
-    _expr_variable * pEV = new _expr_variable( pName, 0 );
-    _expr_index    * pIV = new _expr_index( pEV,
-                                           new _expr_constant( (long) Dimension)
+    expr_variable * pEV = new expr_variable( pName, 0 );
+    expr_index    * pIV = new expr_index( pEV,
+                                           new expr_constant( (long) Dimension)
                                          ); 
     return pIV;
+    }
+
+
+
+// This method combines all expressions in the list wiht logical ANDs. There is
+// guaranteed to be at least 1 member in the list.
+
+expr_node *
+CombineIntoLogicalAndExpr(
+    ITERATOR&   List )
+    {
+    expr_node   *   pExpr;
+    expr_node   *   pExpr1;
+
+    ITERATOR_INIT( List );
+
+    ITERATOR_GETNEXT( List, pExpr );
+
+    while( ITERATOR_GETNEXT( List, pExpr1 ) )
+        {
+        pExpr = new expr_op_binary( OP_LOGICAL_AND, pExpr, pExpr1 );
+        }
+
+    return pExpr;
+    }
+
+/*******************************************************************
+    We need to generate an expression to check that any pointers that
+    are used in the expression are non-null, otherwise we will end
+    up generating a deref of those pointers and GP fault. 
+
+    For example, a length_is expression of *pLengthIs should generate
+    code like so:
+    _StubMsg.ActualCount = (pLengthIs) ? *pLengthIs : 0;
+
+    Return the same expression if there is no pointer deref in the expr.
+*******************************************************************/
+expr_node *
+MakeAttrExprWithNullPtrChecks(
+    expr_node * pAttrExpr )
+    {
+    ITERATOR        List;
+        
+    if( pAttrExpr->MakeListOfDerefedVars( List ) )
+        {
+        expr_node   *   pExpr;
+
+        // There is at least 1 deref expression here.
+
+        pExpr = CombineIntoLogicalAndExpr( List );
+        pAttrExpr = new expr_ternary( OP_QM,
+                                      pExpr,
+                                      pAttrExpr,
+                                      new expr_constant( 0L ) );
+        }
+    return pAttrExpr;
     }

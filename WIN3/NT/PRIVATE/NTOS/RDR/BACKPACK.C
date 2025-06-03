@@ -58,61 +58,10 @@ Revision History:
 KSPIN_LOCK BackPackSpinLock = {0};
 
 #ifdef  ALLOC_PRAGMA
-#pragma alloc_text(PAGE, RdrInitializeBackPack)
-#pragma alloc_text(INIT, RdrpInitializeBackPack)
 #pragma alloc_text(PAGE3FILE, RdrBackOff)
 #pragma alloc_text(PAGE3FILE, RdrBackPackFailure)
 #endif
 
-
-VOID
-RdrInitializeBackPack(
-    IN PBACK_PACK pBP,
-    IN ULONG Increment,
-    IN ULONG MaximumDelay
-    )
-/*++
-
-Routine Description:
-
-    This routine is called to initialize the back off structure (usually in
-    an Icb).
-
-Arguments:
-
-    pBP         -   Supplies back pack data for this request.
-
-    Increment   -   Supplies the increase in delay in milliseconds, each time a request
-                    to the network fails.
-
-    MaximumDelay-   Supplies the longest delay the backoff package can introduce
-                    in milliseconds.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    PAGED_CODE();
-
-    //
-    //  Convert Increment in milliseconds so that it can be added
-    //  directly to a current LARGE_INTEGER value.
-    //
-
-    (pBP)->Increment.QuadPart = Increment * 10000;
-
-    //
-    //  Convert MaximumDelay from milliseconds to a number of Intervals.
-    //
-
-    (pBP)->MaximumDelay = MaximumDelay / Increment;
-
-    (pBP)->CurrentIncrement = 0;
-
-}
 
 BOOLEAN
 RdrBackOff (
@@ -210,35 +159,4 @@ Return Value:
     RELEASE_SPIN_LOCK(&BackPackSpinLock, OldIrql);
 
 }
-
-VOID
-RdrpInitializeBackPack (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This routine initializes the redirector back off package.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    //
-    //  Initialize the SpinLock used to protect all Time entries in
-    //  the BACK_PACK structures from being accessed simultaneously.
-    //
-
-    KeInitializeSpinLock(&BackPackSpinLock);
-}
-
 

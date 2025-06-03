@@ -188,4 +188,3 @@ Return Value:
 
     return rc;
 } /* TdiSetEventHandler */
-

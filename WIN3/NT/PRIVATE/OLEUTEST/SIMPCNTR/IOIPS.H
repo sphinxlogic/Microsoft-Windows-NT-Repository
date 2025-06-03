@@ -17,13 +17,13 @@ interface COleInPlaceSite : public IOleInPlaceSite
 
     COleInPlaceSite(CSimpleSite FAR *pSite)
        {
-        OutputDebugString(TEXT("In IOIPS's constructor\r\n"));
+        TestDebugOut(TEXT("In IOIPS's constructor\r\n"));
         m_pSite = pSite;
        };
 
     ~COleInPlaceSite()
        {
-        OutputDebugString(TEXT("In IOIPS;s destructor\r\n"));
+        TestDebugOut(TEXT("In IOIPS;s destructor\r\n"));
        };
 
     STDMETHODIMP QueryInterface (REFIID riid, LPVOID FAR* ppv);
@@ -51,4 +51,3 @@ interface COleInPlaceSite : public IOleInPlaceSite
 };
 
 #endif
-

@@ -151,7 +151,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"DEC100",
-        L"IRQ\0001\00090\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDR\0001\00075\0MEMADDRLENGTH\0002\000100",
+        L"IRQ\0"
+        L"1\0"
+        L"90\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"1\0"
+        L"75\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         De100FirstNext,
         700
 
@@ -160,7 +177,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1100,
         L"DECETHERWORKSTURBO",
-        L"IRQ\0001\00090\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDR\0001\00075\0MEMADDRLENGTH\0002\000100",
+        L"IRQ\0"
+        L"1\0"
+        L"90\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"1\0"
+        L"75\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         DecEWFirstNext,
         700
 
@@ -169,7 +203,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1200,
         L"DEC101",
-        L"IRQ\0001\00090\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDR\0001\00075\0MEMADDRLENGTH\0002\000100",
+        L"IRQ\0"
+        L"1\0"
+        L"90\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"1\0"
+        L"75\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         De101FirstNext,
         700
 
@@ -219,6 +270,11 @@ typedef struct _LANCE_ADAPTER {
     INTERFACE_TYPE InterfaceType;
     ULONG BusNumber;
     PUCHAR MemoryMappedBaseAddress;
+	ULONG	IoBaseAddress;
+	UCHAR	Interrupt;
+	BOOLEAN	MemoryAcquired;
+	BOOLEAN	IoAcquired;
+	BOOLEAN	InterruptAcquired;
 
 } LANCE_ADAPTER, *PLANCE_ADAPTER;
 
@@ -576,6 +632,9 @@ Return Value:
     Adapter->CardType = Adapters[AdapterNumber].Index;
     Adapter->InterfaceType = InterfaceType;
     Adapter->BusNumber = BusNumber;
+	Adapter->MemoryAcquired = FALSE;
+	Adapter->IoAcquired = FALSE;
+	Adapter->Interrupt = FALSE;
 
     *Handle = (PVOID)Adapter;
 
@@ -654,6 +713,10 @@ Return Value:
             Adapter->CardType = NetcardId;
             Adapter->InterfaceType = InterfaceType;
             Adapter->BusNumber = BusNumber;
+
+			Adapter->MemoryAcquired = FALSE;
+			Adapter->IoAcquired = FALSE;
+			Adapter->Interrupt = FALSE;
 
             *Handle = (PVOID)Adapter;
 
@@ -737,7 +800,7 @@ Return Value:
     LONG OutputLengthLeft = BuffSize;
     LONG CopyLength;
     USHORT Value;
-
+	NETDTECT_RESOURCE	Resource;
     ULONG StartPointer = (ULONG)Buffer;
 
     if ((Adapter->InterfaceType != Isa) &&
@@ -769,158 +832,192 @@ Return Value:
     //
     // Get the IoBaseAddress
     //
+	if (!Adapter->IoAcquired)
+	{
+		switch(Adapter->CardType) {
+	
+			//
+			// De100
+			// DecEW
+			// De101
+			//
+			case 1000:
+			case 1100:
+			case 1200:
+	
+				if (DetectCheckPortUsage(Adapter->InterfaceType,
+										 Adapter->BusNumber,
+										 0x200,
+										 0x10
+										) == STATUS_SUCCESS) {
+	
+					if (!LanceHardwareDetails(Adapter->InterfaceType,
+											  Adapter->BusNumber,
+											  0x20C)) {
+	
+						if ((DetectCheckPortUsage(Adapter->InterfaceType,
+												  Adapter->BusNumber,
+												  0x300,
+												  0x10
+												 ) == STATUS_SUCCESS)
+							 &&
+							 (LanceHardwareDetails(Adapter->InterfaceType,
+												   Adapter->BusNumber,
+												   0x30C))) {
+	
+							IoBaseAddress = (ULONG)0x300;
+	
+							FoundIo = TRUE;
+	
+						}
+	
+					} else {
+	
+						IoBaseAddress = (ULONG)0x200;
+	
+						FoundIo = TRUE;
+	
+					}
+	
+				} else {
+	
+					if ((DetectCheckPortUsage(Adapter->InterfaceType,
+											  Adapter->BusNumber,
+											  0x300,
+											  0x10
+											 ) == STATUS_SUCCESS)
+						 &&
+						 (LanceHardwareDetails(Adapter->InterfaceType,
+											   Adapter->BusNumber,
+											   0x30C))) {
+	
+						IoBaseAddress = (ULONG)0x300;
+	
+						FoundIo = TRUE;
+	
+					}
+	
+				}
+	
+				break;
+	
+			default:
 
-    switch(Adapter->CardType) {
-
-        //
-        // De100
-        // DecEW
-        // De101
-        //
-        case 1000:
-        case 1100:
-        case 1200:
-
-            if (DetectCheckPortUsage(Adapter->InterfaceType,
-                                     Adapter->BusNumber,
-                                     0x200,
-                                     0x10
-                                    ) == STATUS_SUCCESS) {
-
-                if (!LanceHardwareDetails(Adapter->InterfaceType,
-                                          Adapter->BusNumber,
-                                          0x20C)) {
-
-                    if ((DetectCheckPortUsage(Adapter->InterfaceType,
-                                              Adapter->BusNumber,
-                                              0x300,
-                                              0x10
-                                             ) == STATUS_SUCCESS)
-                         &&
-                         (LanceHardwareDetails(Adapter->InterfaceType,
-                                               Adapter->BusNumber,
-                                               0x30C))) {
-
-                        IoBaseAddress = (ULONG)0x300;
-
-                        FoundIo = TRUE;
-
-                    }
-
-                } else {
-
-                    IoBaseAddress = (ULONG)0x200;
-
-                    FoundIo = TRUE;
-
-                }
-
-            } else {
-
-                if ((DetectCheckPortUsage(Adapter->InterfaceType,
-                                          Adapter->BusNumber,
-                                          0x300,
-                                          0x10
-                                         ) == STATUS_SUCCESS)
-                     &&
-                     (LanceHardwareDetails(Adapter->InterfaceType,
-                                           Adapter->BusNumber,
-                                           0x30C))) {
-
-                    IoBaseAddress = (ULONG)0x300;
-
-                    FoundIo = TRUE;
-
-                }
-
-            }
-
-            break;
-
-        default:
-
-            return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    if (FoundIo == FALSE) {
-
-        goto BuildBuffer;
-    }
+				return(ERROR_INVALID_PARAMETER);
+	
+		}
+	
+		if (FoundIo == FALSE) {
+	
+			goto BuildBuffer;
+		}
+	
+		//
+		//	Acquire the port.
+		//
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = IoBaseAddress;
+		Resource.Length = 0x10;
+		Resource.Flags = 0;
+	
+		DetectTemporaryClaimResource(&Resource);
+	
+		Adapter->IoBaseAddress = IoBaseAddress;
+		Adapter->IoAcquired = TRUE;
+	}
+	else
+	{
+		FoundIo = TRUE;
+		IoBaseAddress = Adapter->IoBaseAddress;
+	}
 
     //
     // Get memory info.  To do this call FindFirst routine.
     //
+	if (!Adapter->MemoryAcquired)
+	{
+		Adapter->MemoryMappedBaseAddress = 0;
+	
+		for (i=0; i < sizeof(Adapters) / sizeof(ADAPTER_INFO); i++) {
+	
+			if (Adapters[i].Index == Adapter->CardType) {
+				ULONG Confidence;
+				ULONG ReturnValue;
+	
+				ReturnValue = (*(Adapters[i].FirstNext))(
+									i,
+									Adapter->InterfaceType,
+									Adapter->BusNumber,
+									TRUE,
+									0,
+									&Confidence
+									);
+	
+				if ((ReturnValue == 0) && (Confidence == 100)) {
+	
+	
+					 //
+					 // Get the rest of the memory info.
+					 // Guess that it is 64K aligned
+					 //
+					 Adapter->MemoryMappedBaseAddress =
+									  (PUCHAR)((ULONG)(SearchStates[i].MemoryAddress - 0x10000) &
+													   0xF0000
+											  );
+	
+					 break;
+	
+				}
+	
+			}
+	
+		}
 
-    Adapter->MemoryMappedBaseAddress = 0;
-
-    for (i=0; i < sizeof(Adapters) / sizeof(ADAPTER_INFO); i++) {
-
-        if (Adapters[i].Index == Adapter->CardType) {
-            ULONG Confidence;
-            ULONG ReturnValue;
-
-            ReturnValue = (*(Adapters[i].FirstNext))(
-                                i,
-                                Adapter->InterfaceType,
-                                Adapter->BusNumber,
-                                TRUE,
-                                0,
-                                &Confidence
-                                );
-
-            if ((ReturnValue == 0) && (Confidence == 100)) {
-
-
-                 //
-                 // Get the rest of the memory info.
-                 // Guess that it is 64K aligned
-                 //
-                 Adapter->MemoryMappedBaseAddress =
-                                  (PUCHAR)((ULONG)(SearchStates[i].MemoryAddress - 0x10000) &
-                                                   0xF0000
-                                          );
-
-                 break;
-
-            }
-
-        }
-
-    }
-
-    //
-    // Read amount of memory
-    //
-
-    NtStatus = DetectReadPortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               IoBaseAddress,
-                               &Value
-                               );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        goto BuildBuffer;
-
-    }
-
-    if (Value & 0x20) {
-
-        //
-        // Definitely in 32K mode.
-        //
-
-        Adapter->MemoryMappedBaseAddress = (PUCHAR)((ULONG)Adapter->MemoryMappedBaseAddress |
-                                           0x8000);
-    }
-
-
+		//
+		// Read amount of memory
+		//
+	
+		NtStatus = DetectReadPortUshort(
+								   Adapter->InterfaceType,
+								   Adapter->BusNumber,
+								   IoBaseAddress,
+								   &Value
+								   );
+	
+		if (NtStatus != STATUS_SUCCESS) {
+	
+			goto BuildBuffer;
+	
+		}
+	
+		if (Value & 0x20) {
+	
+			//
+			// Definitely in 32K mode.
+			//
+	
+			Adapter->MemoryMappedBaseAddress = (PUCHAR)((ULONG)Adapter->MemoryMappedBaseAddress |
+											   0x8000);
+		}
+	
+		Resource.Type = NETDTECT_MEMORY_RESOURCE;
+		Resource.Value = (ULONG)Adapter->MemoryMappedBaseAddress;
+		Resource.Length = (Resource.Value & 0x8000) ? 0x8000 : 0x10000;
+	
+		DetectTemporaryClaimResource(&Resource);
+		Adapter->MemoryAcquired = TRUE;
+	}
 
     //
     // Get the interrupt number
     //
+	if (Adapter->InterruptAcquired)
+	{
+		InterruptNumber = Adapter->Interrupt;
+		goto BuildBuffer;
+	}
 
     switch(Adapter->CardType) {
 
@@ -1099,7 +1196,7 @@ Return Value:
             default:
 
                 return(ERROR_INVALID_PARAMETER);
-
+					
         }
 
 
@@ -1160,6 +1257,15 @@ Return Value:
         }
 
     }
+
+	Resource.Type = NETDTECT_IRQ_RESOURCE;
+	Resource.Value = InterruptNumber;
+	Resource.Length = 0;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	Adapter->Interrupt = InterruptNumber;
+	Adapter->InterruptAcquired = TRUE;
 
 BuildBuffer :
 
@@ -1488,6 +1594,7 @@ SkipBaseAddr:
     CopyLength = (ULONG)Buffer - StartPointer;
     ((PUCHAR)StartPointer)[CopyLength] = L'\0';
 
+
     return(0);
 }
 
@@ -1531,6 +1638,15 @@ Return Value:
 
     WCHAR *Place;
     CHAR *DetectString;
+	NETDTECT_RESOURCE	Resource;
+	UINT	i;
+	BOOLEAN	FoundIo;
+	BOOLEAN	FoundInterrupt;
+	UCHAR	InterruptNumber;
+    UCHAR InterruptList[6];
+    UCHAR ResultList[6];
+    ULONG InterruptListLength = 0;
+
 
     if ((Adapter->InterfaceType != Isa) &&
         (Adapter->InterfaceType != Eisa)) {
@@ -1539,8 +1655,8 @@ Return Value:
 
     }
 
-    if (Adapter->CardType != 1400) {
-
+    if (Adapter->CardType != 1400)
+	{
         //
         // If not the DecPCA we need to parse out the parameters.
         //
@@ -1563,7 +1679,6 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
 
         if (Found == FALSE) {
@@ -1571,6 +1686,7 @@ Return Value:
             return(ERROR_INVALID_DATA);
 
         }
+
 
         //
         // Get the interrupt number
@@ -1625,426 +1741,293 @@ Return Value:
             return(ERROR_INVALID_DATA);
 
         }
-
-    } else {
-
+    }
+	else
+	{
         //
         // Set the DePCA values
         //
-
         MemoryAddress = 0xD0000;
         IoBaseAddress = 0x200;
         Interrupt = 5;
 
+		return(ERROR_INVALID_DATA);
     }
 
     //
-    // Verify memory address
+    // Get the IoBaseAddress
     //
+	if (!Adapter->IoAcquired)
+	{
 
-    switch (Adapter->CardType) {
-
-        //
-        // De100
-        // DePCA
-        //
-
-        case 1000:
-        case 1400:
-
-            DetectString = De100String;
-
-            //
-            // Check now.
-            //
-
-            if (!DecCardAt(Adapter->InterfaceType,
-                           Adapter->BusNumber,
-                           MemoryAddress | 0xC000,
-                           DetectString)) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            break;
-
-        //
-        // DecEW
-        //
-
-        case 1100:
-
-            //
-            // Check now.
-            //
-
-            if (!DecCardAt(Adapter->InterfaceType,
-                           Adapter->BusNumber,
-                           MemoryAddress | 0xC000,
-                           De200String)) {
-
-                if (!DecCardAt(Adapter->InterfaceType,
-                           Adapter->BusNumber,
-                           MemoryAddress | 0xC000,
-                           De201String)) {
-
-                    if (!DecCardAt(Adapter->InterfaceType,
-                           Adapter->BusNumber,
-                           MemoryAddress | 0xC000,
-                           De202String)) {
-
-                        return(ERROR_INVALID_DATA);
-
-                    }
-
-                }
-
-            }
-
-            break;
-
-        //
-        // De101
-        //
-
-        case 1200:
-
-            DetectString = De101String;
-
-            //
-            // Check now.
-            //
-
-            if (!DecCardAt(Adapter->InterfaceType,
-                   Adapter->BusNumber,
-                   MemoryAddress | 0xC000,
-                   DetectString)) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            break;
-
-        default:
-
-            return(ERROR_INVALID_DATA);
-
-    }
-
+		if (DetectCheckPortUsage(Adapter->InterfaceType,
+								 Adapter->BusNumber,
+								 IoBaseAddress,
+								 0x10) == STATUS_SUCCESS)
+		{
+			if (LanceHardwareDetails(Adapter->InterfaceType,
+								     Adapter->BusNumber,
+									 IoBaseAddress + 0xC))
+			{
+				FoundIo = TRUE;
+			}
+		}
+	
+		if (FoundIo == FALSE)
+		{
+			return(ERROR_INVALID_DATA);
+		}
+	
+		//
+		//	Acquire the port.
+		//
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = IoBaseAddress;
+		Resource.Length = 0x10;
+		Resource.Flags = 0;
+	
+		DetectTemporaryClaimResource(&Resource);
+	
+		Adapter->IoBaseAddress = IoBaseAddress;
+		Adapter->IoAcquired = TRUE;
+	}
+	else
+	{
+		if (IoBaseAddress != Adapter->IoBaseAddress)
+		{
+			return(ERROR_INVALID_DATA);
+		}
+	}
 
     //
-    // Check the IoBaseAddress
+    // Get memory info.  To do this call FindFirst routine.
     //
+	if (!Adapter->MemoryAcquired)
+	{
 
-    if (!LanceHardwareDetails(Adapter->InterfaceType,
-                              Adapter->BusNumber,
-                              IoBaseAddress + 0xC)) {
+		Adapter->MemoryMappedBaseAddress = 0;
+	
+		for (i = 0; i < sizeof(Adapters) / sizeof(ADAPTER_INFO); i++)
+		{
+			if (Adapters[i].Index == Adapter->CardType)
+			{
+				ULONG Confidence;
+				ULONG ReturnValue;
+	
+				ReturnValue = (*(Adapters[i].FirstNext))(
+									i,
+									Adapter->InterfaceType,
+									Adapter->BusNumber,
+									TRUE,
+									0,
+									&Confidence);
+	
+				if ((ReturnValue == 0) && (Confidence == 100))
+				{
+					 //
+					 // Get the rest of the memory info.
+					 // Guess that it is 64K aligned
+					 //
+					 Adapter->MemoryMappedBaseAddress =
+									  (PUCHAR)((ULONG)(SearchStates[i].MemoryAddress - 0x10000) &
+													   0xF0000);
+					 break;
+				}
+			}
+		}
 
-        //
-        // Not found
-        //
+		//
+		// Read amount of memory
+		//
+		DetectReadPortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			IoBaseAddress,
+			&Value);
+	
+		if (Value & 0x20)
+		{
+			//
+			// Definitely in 32K mode.
+			//
+			Adapter->MemoryMappedBaseAddress = (PUCHAR)((ULONG)Adapter->MemoryMappedBaseAddress |
+											   0x8000);
+		}
+	
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_MEMORY_RESOURCE;
+		Resource.Value = (ULONG)Adapter->MemoryMappedBaseAddress;
+		Resource.Length = (Resource.Value & 0x8000) ? 0x8000 : 0x10000;
+	
+		DetectTemporaryClaimResource(&Resource);
+		Adapter->MemoryAcquired = TRUE;
+	}
 
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    if (Adapter->CardType == 1400) {
-
-        UCHAR Value;
-
-        //
-        // For the DePCA we need to check for the Lan Config Register
-        //
-
-        NtStatus = DetectReadPortUchar(
-                              Adapter->InterfaceType,
-                              Adapter->BusNumber,
-                              (ULONG)(0x800),
-                              &(Value)
-                              );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        if (Value == 0xFF) {
-
-            //
-            // No such port, definitely not.
-            //
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    }
-
-    //
-    // Read amount of memory (to continue verifying memory address)
-    //
-
-    NtStatus = DetectReadPortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               IoBaseAddress,
-                               &Value
-                               );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    if (Value & 0x20) {
-
-        //
-        // Definitely in 32K mode.
-        //
-
-        if (!(MemoryAddress & 0x8000)) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    } else {
-
-        //
-        // Definitely in 64K mode.
-        //
-
-        if (MemoryAddress & 0x8000) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    }
+	if (MemoryAddress != (ULONG)Adapter->MemoryMappedBaseAddress)
+	{
+		return(ERROR_INVALID_DATA);
+	}
 
     //
-    // Set the interrupt trap -- we are checking the interrupt number now
+    // Get the interrupt number
     //
-
-    NtStatus = DetectSetInterruptTrap(
-                   Adapter->InterfaceType,
-                   Adapter->BusNumber,
-                   &TrapHandle,
-                   &Interrupt,
-                   1
-                   );
-
-    if (NtStatus == STATUS_SUCCESS) {
-
-        //
-        // Check that it is available
-        //
-
-        NtStatus = DetectQueryInterruptTrap(
-                       TrapHandle,
-                       &Result,
-                       1
-                       );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        if (Result == 3) {
-
-            //
-            // Remove interrupt trap
-            //
-
-            DetectRemoveInterruptTrap(
-                       TrapHandle
-                       );
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-
-        //
-        // Create an interrupt
-        //
-
-        switch (Adapter->CardType) {
-
-            //
-            // De100
-            // DecEW
-            // De101
-            // DePCA
-            //
-            case 1000:
-            case 1100:
-            case 1200:
-            case 1300:
-
-                //
-                // Change to CSR0
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress + 0x6),
-                               0x0
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                //
-                // Write STOP bit
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress + 0x4),
-                               0x4
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                //
-                // Enable Interrupts in NICSR
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress),
-                               0x2
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                //
-                // Write INIT bit and INTERRUPT_ENABLE bit
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress + 0x4),
-                               0x41
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                Sleep(100);
-
-                //
-                // Write STOP bit
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress + 0x4),
-                               0x4
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                //
-                // Disable Interrupts in NICSR
-                //
-
-                NtStatus = DetectWritePortUshort(
-                               Adapter->InterfaceType,
-                               Adapter->BusNumber,
-                               (ULONG)(IoBaseAddress),
-                               0x4
-                               );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-                break;
-
-            default:
-
-                return(ERROR_INVALID_DATA);
-
-        }
-
-
-        //
-        // Check which one went off
-        //
-
-        NtStatus = DetectQueryInterruptTrap(
-                       TrapHandle,
-                       &Result,
-                       1
-                       );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Remove interrupt trap
-        //
-
-        NtStatus = DetectRemoveInterruptTrap(
-                       TrapHandle
-                       );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        if ((Result == 1) || (Result == 2)) {
-
-            return(0);
-
-        }
-
-        return(ERROR_INVALID_DATA);
-
-    } else {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
+	if (!Adapter->InterruptAcquired)
+	{
+		switch(Adapter->CardType)
+		{
+			//
+			// De100
+			// De101
+			//
+			case 1000:
+			case 1200:
+	
+				InterruptList[0] = 2;
+				InterruptList[1] = 3;
+				InterruptList[2] = 4;
+				InterruptList[3] = 5;
+				InterruptList[4] = 7;
+				InterruptListLength = 5;
+				break;
+	
+			//
+			// DecEW
+			//
+	
+			case 1100:
+	
+				InterruptList[0] = 5;
+				InterruptList[1] = 9;
+				InterruptList[2] = 10;
+				InterruptList[3] = 11;
+				InterruptList[4] = 12;
+				InterruptList[5] = 15;
+				InterruptListLength = 6;
+				break;
+	
+			default:
+	
+				return(ERROR_INVALID_PARAMETER);
+		}
+	
+		//
+		// Set the interrupt trap
+		//
+		DetectSetInterruptTrap(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			&TrapHandle,
+			InterruptList,
+			InterruptListLength);
+	
+		//
+		// Change to CSR0
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			IoBaseAddress + 0x6,
+			0x0);
+
+		//
+		// Write STOP bit
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			IoBaseAddress + 0x4,
+			0x4);
+
+		//
+		// Enable Interrupts in NICSR
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			IoBaseAddress,
+			0x2);
+
+		//
+		// Write INIT bit and INTERRUPT_ENABLE bit
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			IoBaseAddress + 0x4,
+			0x41);
+
+		Sleep(100);
+
+		//
+		// Write STOP bit
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			(ULONG)(IoBaseAddress + 0x4),
+			0x4);
+
+		//
+		// Disable Interrupts in NICSR
+		//
+		DetectWritePortUshort(
+			Adapter->InterfaceType,
+			Adapter->BusNumber,
+			(ULONG)(IoBaseAddress),
+			0x4);
+
+		//
+		// Check which one went off
+		//
+		DetectQueryInterruptTrap(TrapHandle, ResultList, InterruptListLength);
+
+		//
+		// Remove interrupt trap
+		//
+		DetectRemoveInterruptTrap(TrapHandle);
+
+		//
+		// Search resulting buffer to find the right interrupt
+		//
+		for (i = 0; i < InterruptListLength; i++)
+		{
+			if ((ResultList[i] == 1) || (ResultList[i] == 2))
+			{
+				if (FoundInterrupt)
+				{
+					//
+					// Uh-oh, looks like interrupts on two different IRQs.
+					//
+					FoundInterrupt = FALSE;
+					return(ERROR_INVALID_DATA);
+				}
+
+				InterruptNumber = InterruptList[i];
+				FoundInterrupt = TRUE;
+			}
+		}
+
+
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = InterruptNumber;
+		Resource.Length = 0;
+	
+		DetectTemporaryClaimResource(&Resource);
+	
+		Adapter->Interrupt = InterruptNumber;
+	}
+
+	if (Interrupt != Adapter->Interrupt)
+	{
+		return(ERROR_INVALID_DATA);
+	}
+
+	return(0);
 }
 
 extern
@@ -2168,7 +2151,6 @@ Return Value:
 --*/
 
 {
-
     //
     // Do we want the IRQL
     //
@@ -2182,6 +2164,7 @@ Return Value:
         if (*plBuffSize < 6) {
 
             *plBuffSize = 0;
+
             return(ERROR_INSUFFICIENT_BUFFER);
 
         }

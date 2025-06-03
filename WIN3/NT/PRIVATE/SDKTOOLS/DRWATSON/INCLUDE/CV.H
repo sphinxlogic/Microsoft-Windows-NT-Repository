@@ -27,4 +27,3 @@ Environment:
 #include "cvinfo.h"
 #include "cvexefmt.h"
 
-

@@ -20,6 +20,11 @@ Revision History:
 --*/
 
 
+
+#define DATA_PORT_OFFSET	0
+#define STATUS_PORT_OFFSET	1
+#define CONTROL_PORT_OFFSET	2
+
 #define LPT1_PORT_STATUS        0x3bd
 #define LPT2_PORT_STATUS        0x379
 #define LPT3_PORT_STATUS        0x279
@@ -41,3 +46,4 @@ extern NTSTATUS PspSetProcessIoHandlers(
     IN PVOID IoHandlerInformation,
     IN ULONG IoHandlerLength
     );
+extern NTSTATUS VdmFlushPrinterWriteData(USHORT Adapter);

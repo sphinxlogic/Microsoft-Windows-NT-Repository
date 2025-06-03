@@ -37,8 +37,8 @@ extern "C"
 //
 void
 GenNdrFormatAttributeDescription( CCB *         pCCB,
-                                  _expr_node *  pMinExpr,
-                                  _expr_node *  pSizeExpr,
+                                  expr_node *  pMinExpr,
+                                  expr_node *  pSizeExpr,
                                   BOOL          IsPointer,
                                   BOOL          IsUnion,
 								  BOOL			IsVaryingArray,
@@ -46,8 +46,8 @@ GenNdrFormatAttributeDescription( CCB *         pCCB,
 
 void 
 GenNdrFormatComplexAttributeDescription( CCB *			pCCB,
-                                  		 _expr_node *	pMinExpr,
-                                  		 _expr_node *	pSizeExpr,
+                                  		 expr_node *	pMinExpr,
+                                  		 expr_node *	pSizeExpr,
 										 long			StackTopDisplacement,
 										 char *			PrintPrefix,
 										 BOOL			IsPointer );
@@ -167,6 +167,7 @@ private:
 	unsigned short	Dimensions;
 	BOOL			fHasFollower;
     BOOL            fIsInMultiDim;
+    BOOL            fIsDupedSizePtr;
 	PTRTYPE			PtrKind;
 	RESOURCE	*	pIndexResource;
 	RESOURCE	*	pPtrResource;
@@ -175,6 +176,7 @@ private:
 	RESOURCE	*	pFirstResource;
 	RESOURCE	*	pMinResource;
 	RESOURCE	*	pInLocalResource;
+    long            ElementDescriptionOffset;
 
 public:
 	
@@ -186,9 +188,9 @@ public:
 									 node_skl * 	pBT,// array in typegraph
 									 FIELD_ATTR_INFO * pFA,
 									 unsigned short	Dim,// number of dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info  // wire alignment, etc
 									 ) : 
-								CG_NDR( pBT, WA ),
+								CG_NDR( pBT, Info ),
 								CG_CONF_ATTRIBUTE( pFA )
 								{
 								SetDimensions( Dim );
@@ -200,6 +202,8 @@ public:
 								SetMinResource( 0 );
 								SetInLocalResource( 0 );
                                 SetIsInMultiDim( FALSE );
+                                SetElementDescriptionOffset(-1);
+                                SetIsDupedSizePtr( FALSE );
 								}
 
 	//
@@ -288,6 +292,16 @@ public:
 								return pIndexResource;
 								}
 
+    void                    SetElementDescriptionOffset( long Offset )
+                                {
+                                ElementDescriptionOffset = Offset;
+                                }
+
+    long                    GetElementDescriptionOffset()
+                                {
+                                return ElementDescriptionOffset;
+                                }
+
 	void					ResetHasFollower()
 								{
 								fHasFollower = 0;
@@ -323,7 +337,17 @@ public:
                                 {
                                 return fIsInMultiDim;
                                 }
-										 
+
+    void                    SetIsDupedSizePtr( BOOL fSet )
+                                {
+                                fIsDupedSizePtr = fSet;
+                                }
+
+    BOOL                    IsDupedSizePtr()
+                                {
+                                return fIsDupedSizePtr;
+                                }
+
 	virtual
 	BOOL					IsArray()
 								{
@@ -343,7 +367,8 @@ public:
 	//
 	// Is the array complex by Ndr Engine standards.  
 	//
-	BOOL					IsComplex( CCB * pCCB );
+    virtual
+	BOOL					IsComplex();
 
 	//
 	// Ndr format string generation method.  Redefined by all classes which 
@@ -388,6 +413,12 @@ public:
 	// Determine an array's element size.
 	//
 	long					GetElementSize();
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return -1;
+                                }
 
 	virtual
 	CG_STATUS				MarshallAnalysis( ANALYSIS_INFO * pAna );
@@ -443,11 +474,11 @@ public:
 
 	BOOL					HasPointer();
 
-	_expr_node			*	FinalFirstExpression( CCB * pCCB );
+	expr_node			*	FinalFirstExpression( CCB * pCCB );
 
-	_expr_node			*	FinalSizeExpression( CCB * pCCB );
+	expr_node			*	FinalSizeExpression( CCB * pCCB );
 
-	_expr_node			*	FinalLengthExpression( CCB * pCCB );
+	expr_node			*	FinalLengthExpression( CCB * pCCB );
 
 	CG_STATUS				GenDimByDimProcessing( CCB * pCCB, CG_ACT Act );
 
@@ -501,11 +532,17 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,
 									 unsigned short dim,	// dimensions
-									 unsigned short WA	// wire align.
+									 XLAT_SIZE_INFO & Info	// wire align.
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA )
+								CG_ARRAY( pBT, pFA, dim, Info )
 								{
 								}
+
+    //          
+    // TYPEDESC generation routine
+    //
+    virtual
+    CG_STATUS               GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB);
 
 	virtual
 	ID_CG					GetCGID()
@@ -521,6 +558,10 @@ public:
 	// Generate the format string.
 	//
 	void					GenNdrFormat( CCB * pCCB );
+
+    long                    FixedBufferSize( CCB * pCCB );
+
+    BOOL                    InterpreterMustFree( CCB * pCCB ) { return TRUE; }
 
 	unsigned long			GetNumOfElements()
 								{
@@ -539,18 +580,18 @@ public:
 								return TRUE;
 								}
 	virtual
-	_expr_node		*		PresentedSizeExpression( CCB * pCCB );
+	expr_node		*		PresentedSizeExpression( CCB * pCCB );
 
 	virtual
-	_expr_node		*		PresentedLengthExpression( CCB * pCCB )
+	expr_node		*		PresentedLengthExpression( CCB * pCCB )
 								{
 								return GetSizeIsExpr();
 								}
 
 	virtual
-	_expr_node		*		PresentedFirstExpression( CCB * pCCB )
+	expr_node		*		PresentedFirstExpression( CCB * pCCB )
 								{
-								return new _expr_constant( 0L );
+								return new expr_constant( 0L );
 								}
 
 	virtual
@@ -559,6 +600,31 @@ public:
 	virtual
 	CG_STATUS				FollowerMarshallAnalysis( ANALYSIS_INFO * pAna );
 	};
+
+//
+// This class corresponds to an opaque type. ( a fixed array of bytes )
+//
+
+class CG_OPAQUE_BLOCK	: public CG_FIXED_ARRAY
+	{
+private:
+
+public:
+	//
+	// The constructor.
+	//
+
+							CG_OPAQUE_BLOCK(
+									node_skl * 			pBT,
+									FIELD_ATTR_INFO * 	pFA,
+									XLAT_SIZE_INFO	&	Info )
+										: CG_FIXED_ARRAY( pBT, pFA, 1, Info )
+								{
+								}
+
+	
+	};
+
 
 //
 // This class corresponds to a conformant array type. 
@@ -578,10 +644,24 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,	// attribute data
 									 unsigned short dim,		// dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info // wire alignment
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA )
+								CG_ARRAY( pBT, pFA, dim, Info )
 								{
+								}
+
+							CG_CONFORMANT_ARRAY(
+									 CG_SIZE_POINTER * pCG		// pointer node to clone from
+									 ) : 
+								CG_ARRAY( pCG->GetType(),
+										  &FIELD_ATTR_INFO(), 
+										  1, 
+										  XLAT_SIZE_INFO( (CG_NDR *) pCG->GetChild()) )
+								{
+								*((CG_NDR *)this) = *((CG_NDR *)pCG);
+								*((CG_CONF_ATTRIBUTE *)this) = *((CG_CONF_ATTRIBUTE *)pCG);
+								SetSizesAndAlignments( XLAT_SIZE_INFO( (CG_NDR*) pCG->GetChild() ));
+                                SetIsDupedSizePtr( TRUE );
 								}
 
 	virtual
@@ -589,6 +669,13 @@ public:
 								{
 								return ID_CG_CONF_ARRAY;
 								}
+
+
+    //          
+    // TYPEDESC generation routine
+    //
+    virtual
+    CG_STATUS               GetTypeDesc(TYPEDESC * &ptd, CCB * pCCB);
 
 	//
 	// Get and set methods.
@@ -607,7 +694,7 @@ public:
 								}
 
 	virtual
-	_expr_node		*		PresentedSizeExpression( CCB * pCCB );
+	expr_node		*		PresentedSizeExpression( CCB * pCCB );
 	};
 
 
@@ -630,9 +717,9 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,	// attribute data
 									 unsigned short dim,		// dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info // wire alignment
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA ),
+								CG_ARRAY( pBT, pFA, dim, Info ),
 								CG_VARY_ATTRIBUTE( pFA )
 								{
 								}
@@ -680,10 +767,10 @@ public:
 								}
 
 	virtual
-	_expr_node		*		PresentedLengthExpression( CCB * pCCB );
+	expr_node		*		PresentedLengthExpression( CCB * pCCB );
 
 	virtual
-	_expr_node		*		PresentedFirstExpression( CCB * pCCB );
+	expr_node		*		PresentedFirstExpression( CCB * pCCB );
 
 	virtual
 	CG_STATUS				MarshallAnalysis( ANALYSIS_INFO * pAna );
@@ -709,11 +796,31 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,	// attribute data
 									 unsigned short dim,		// dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info // wire alignment
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA ),
+								CG_ARRAY( pBT, pFA, dim, Info ),
 								CG_VARY_ATTRIBUTE( pFA )
 								{
+								}
+
+							CG_CONFORMANT_VARYING_ARRAY(
+									 CG_SIZE_LENGTH_POINTER * pCG		// pointer node to clone from
+									 ) : 
+                                //
+                                // We must pass in a null node_skl type so 
+                                // that the code generator can identify this
+                                // as a manufactured conformant array.
+                                //
+								CG_ARRAY( pCG->GetType(),
+										  &FIELD_ATTR_INFO(), 
+										  1, 
+										  XLAT_SIZE_INFO( (CG_NDR *) pCG->GetChild()) ),
+								CG_VARY_ATTRIBUTE( pCG )
+								{
+								*((CG_NDR *)this) = *((CG_NDR *)pCG);
+								*((CG_CONF_ATTRIBUTE *)this) = *((CG_CONF_ATTRIBUTE *)pCG);
+								SetSizesAndAlignments( XLAT_SIZE_INFO( (CG_NDR*) pCG->GetChild() ));
+                                SetIsDupedSizePtr( TRUE );
 								}
 
 	virtual
@@ -749,13 +856,13 @@ public:
 								}
 
 	virtual
-	_expr_node		*		PresentedSizeExpression( CCB * pCCB );
+	expr_node		*		PresentedSizeExpression( CCB * pCCB );
 
 	virtual
-	_expr_node		*		PresentedLengthExpression( CCB * pCCB );
+	expr_node		*		PresentedLengthExpression( CCB * pCCB );
 
 	virtual
-	_expr_node		*		PresentedFirstExpression( CCB * pCCB );
+	expr_node		*		PresentedFirstExpression( CCB * pCCB );
 	};
 
 
@@ -777,9 +884,9 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,	// attribute data
 									 unsigned short dim,		// dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info // wire alignment
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA )
+								CG_ARRAY( pBT, pFA, dim, Info )
 								{
 								}
 
@@ -819,7 +926,7 @@ public:
 
 
 	virtual
-	_expr_node		*		PresentedSizeExpression( CCB * pCCB );
+	expr_node		*		PresentedSizeExpression( CCB * pCCB );
 
 	virtual
 	CG_STATUS				MarshallAnalysis( ANALYSIS_INFO * pAna );
@@ -847,9 +954,9 @@ public:
 									 node_skl * pBT,		// array in typegraph
 									 FIELD_ATTR_INFO * pFA,	// attribute data
 									 unsigned short dim,	// dimensions
-									 unsigned short WA // wire alignment
+									 XLAT_SIZE_INFO & Info // wire alignment
 									 ) : 
-								CG_ARRAY( pBT, pFA, dim, WA )
+								CG_ARRAY( pBT, pFA, dim, Info )
 								{
 								}
 
@@ -865,6 +972,11 @@ public:
                                 return (pChild->GetCGID() != ID_CG_BT);
                                 }
 
+    BOOL                    IsComplex()
+                                {
+                                return IsStringableStruct();
+                                }
+
 	//
 	// Get and set methods.
 	//
@@ -875,7 +987,7 @@ public:
 	void					GenNdrFormat( CCB * pCCB );
 
 	virtual
-	_expr_node		*		PresentedSizeExpression( CCB * pCCB );
+	expr_node		*		PresentedSizeExpression( CCB * pCCB );
 
     virtual
     void                    SetNextNdrAlignment( CCB * pCCB );

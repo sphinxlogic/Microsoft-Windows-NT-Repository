@@ -134,4 +134,3 @@ TYPE * Remove(TYPEARG *item ){							\
 };
 
 #endif // __DICT_HXX__
-

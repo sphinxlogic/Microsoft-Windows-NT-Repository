@@ -264,7 +264,7 @@ You typed an invalid device name.
 
 ACTION
 
-Check the spelling of the device name. Valid device names are LPT1: to LPT9: and COM1: to COM9: for printers and communication devices, and A: to Z: for disk devices.
+Check the spelling of the device name. Valid device names are LPT1: to LPT9: for printers and A: to Z: for disk devices.
 
 .
 MessageId=3717 SymbolicName=NET3717
@@ -3137,7 +3137,7 @@ Check the spelling of the printer name.
 
 To see the list of printers shared on this server, type:
 
-     NET PRINT \\computername\sharename
+     NET VIEW \\computername
 
 .
 MessageId=2151 SymbolicName=NET2151
@@ -3516,8 +3516,7 @@ ACTION
 
 Try the operation again in a minute or two.
 
-If this problem persists, the service may be stuck in a partially running state. Contact technical support. Be prepared to give the name of the service and other information about the system, such as the services and applications that were running, a
-nd the type and amount of network activity on the computer at the time of the problem.
+If this problem persists, the service may be stuck in a partially running state. Contact technical support. Be prepared to give the name of the service and other information about the system, such as the services and applications that were running, and the type and amount of network activity on the computer at the time of the problem.
 
 .
 MessageId=2190 SymbolicName=NET2190

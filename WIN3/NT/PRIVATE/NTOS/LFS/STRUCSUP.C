@@ -28,7 +28,9 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_STRUC_SUP)
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, LfsAllocateLbcb)
 #pragma alloc_text(PAGE, LfsAllocateLfcb)
+#pragma alloc_text(PAGE, LfsDeallocateLbcb)
 #pragma alloc_text(PAGE, LfsDeallocateLfcb)
 #endif
 
@@ -54,6 +56,8 @@ Return Value:
 
 {
     PLFCB Lfcb = NULL;
+    ULONG Count;
+    PLBCB NextLbcb;
 
     PAGED_CODE();
 
@@ -98,10 +102,28 @@ Return Value:
         InitializeListHead( &Lfcb->LbcbActive );
 
         //
+        //  Initialize and allocate the spare Lbcb queue.
+        //
+
+        InitializeListHead( &Lfcb->SpareLbcbList );
+
+        for (Count = 0; Count < LFCB_RESERVE_LBCB_COUNT; Count++ ) {
+
+            NextLbcb = ExAllocatePoolWithTag( PagedPool, sizeof( LBCB ), ' sfL' );
+
+            if (NextLbcb != NULL) {
+
+                InsertHeadList( &Lfcb->SpareLbcbList, (PLIST_ENTRY) NextLbcb );
+                Lfcb->SpareLbcbCount += 1;
+            }
+        }
+
+        //
         //  Allocate the Lfcb synchronization event.
         //
 
         Lfcb->Sync = FsRtlAllocatePool( NonPagedPool, sizeof( LFCB_SYNC ));
+
         ExInitializeResource( &Lfcb->Sync->Resource );
 
         //
@@ -115,6 +137,8 @@ Return Value:
         //
 
         KeInitializeEvent( &Lfcb->Sync->Event, NotificationEvent, TRUE );
+
+        Lfcb->Sync->UserCount = 0;
 
     } finally {
 
@@ -160,6 +184,8 @@ Return Value:
 --*/
 
 {
+    PLBCB NextLbcb;
+
     PAGED_CODE();
 
     DebugTrace( +1, Dbg, "LfsDeallocateLfcb:  Entered\n", 0 );
@@ -193,13 +219,13 @@ Return Value:
 
     if (Lfcb->ActiveTail != NULL) {
 
-        LfsDeallocateLbcb( Lfcb->ActiveTail );
+        LfsDeallocateLbcb( Lfcb, Lfcb->ActiveTail );
         Lfcb->ActiveTail = NULL;
     }
 
     if (Lfcb->PrevTail != NULL) {
 
-        LfsDeallocateLbcb( Lfcb->PrevTail );
+        LfsDeallocateLbcb( Lfcb, Lfcb->PrevTail );
         Lfcb->PrevTail = NULL;
     }
 
@@ -216,8 +242,22 @@ Return Value:
         if (Lfcb->Sync != NULL) {
 
             ExDeleteResource( &Lfcb->Sync->Resource );
+
             ExFreePool( Lfcb->Sync );
         }
+    }
+
+    //
+    //  Deallocate all of the spare Lbcb's.
+    //
+
+    while (!IsListEmpty( &Lfcb->SpareLbcbList )) {
+
+        NextLbcb = (PLBCB) Lfcb->SpareLbcbList.Flink;
+
+        RemoveHeadList( &Lfcb->SpareLbcbList );
+
+        ExFreePool( NextLbcb );
     }
 
     //
@@ -230,4 +270,149 @@ Return Value:
     return;
 }
 
+
+VOID
+LfsAllocateLbcb (
+    IN PLFCB Lfcb,
+    OUT PLBCB *Lbcb
+    )
 
+/*++
+
+Routine Description:
+
+    This routine will allocate the next Lbcb.  If the pool allocation fails
+    we will look at the private queue of Lbcb's.
+
+Arguments:
+
+    Lfcb - Supplies a pointer to the log file control block.
+
+    Lbcb - Address to store the allocated Lbcb.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PLBCB NewLbcb = NULL;
+
+    PAGED_CODE();
+
+    //
+    //  If there are enough entries on the look-aside list then get one from
+    //  there.
+    //
+
+    if (Lfcb->SpareLbcbCount > LFCB_RESERVE_LBCB_COUNT) {
+
+        NewLbcb = (PLBCB) Lfcb->SpareLbcbList.Flink;
+
+        Lfcb->SpareLbcbCount -= 1;
+        RemoveHeadList( &Lfcb->SpareLbcbList );
+
+    //
+    //  Otherwise try to allocate from pool.
+    //
+
+    } else {
+
+        NewLbcb = ExAllocatePoolWithTag( PagedPool, sizeof( LBCB ), ' sfL' );
+    }
+
+    //
+    //  If we didn't get one then look at the look-aside list.
+    //
+
+    if (NewLbcb == NULL) {
+
+        if (Lfcb->SpareLbcbCount != 0) {
+
+            NewLbcb = (PLBCB) Lfcb->SpareLbcbList.Flink;
+
+            Lfcb->SpareLbcbCount -= 1;
+            RemoveHeadList( &Lfcb->SpareLbcbList );
+
+        } else {
+
+            ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+        }
+    }
+
+    //
+    //  Initialize the structure.
+    //
+
+    RtlZeroMemory( NewLbcb, sizeof( LBCB ));
+    NewLbcb->NodeTypeCode = LFS_NTC_LBCB;
+    NewLbcb->NodeByteSize = sizeof( LBCB );
+
+    //
+    //  Return it to the user.
+    //
+
+    *Lbcb = NewLbcb;
+    return;
+}
+
+
+VOID
+LfsDeallocateLbcb (
+    IN PLFCB Lfcb,
+    IN PLBCB Lbcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will deallocate the Lbcb.  If we need one for the look-aside
+    list we will put it there.
+
+Arguments:
+
+    Lfcb - Supplies a pointer to the log file control block.
+
+    Lbcb - This is the Lbcb to deallocate.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Deallocate any restart area attached to this Lbcb.
+    //
+
+    if (FlagOn( Lbcb->LbcbFlags, LBCB_RESTART_LBCB ) &&
+        (Lbcb->PageHeader != NULL)) {
+
+        LfsDeallocateRestartArea( Lbcb->PageHeader );
+    }
+
+    //
+    //  Put this in the Lbcb queue if it is short.
+    //
+
+    if (Lfcb->SpareLbcbCount < LFCB_MAX_LBCB_COUNT) {
+
+        InsertHeadList( &Lfcb->SpareLbcbList, (PLIST_ENTRY) Lbcb );
+        Lfcb->SpareLbcbCount += 1;
+
+    //
+    //  Otherwise just free the pool block.
+    //
+
+    } else {
+
+        ExFreePool( Lbcb );
+    }
+
+    return;
+}

@@ -25,9 +25,13 @@ Revision History:
         all well-known SIDs.
     28-Mar-1992     danhi
         created - based on scsec.c in svcctrl by ritaw
+    03-Mar-1995     markbl
+        Added guest & anonymous logon log access restriction feature.
+
 --*/
 
 #include <eventp.h>
+#include <elfcfg.h>
 
 #define PRIVILEGE_BUF_SIZE  512
 
@@ -81,7 +85,8 @@ static GENERIC_MAPPING LogFileObjectMapping = {
 NTSTATUS
 ElfpCreateLogFileObject(
     PLOGFILE LogFile,
-    DWORD Type
+    DWORD Type,
+    ULONG GuestAccessRestriction
     )
 /*++
 
@@ -102,15 +107,24 @@ Return Value:
     NTSTATUS Status;
     DWORD NumberOfAcesToUse;
 
-#define ELF_LOGFILE_OBJECT_ACES  7             // Number of ACEs in this DACL
+#define ELF_LOGFILE_OBJECT_ACES  10            // Number of ACEs in this DACL
 
     RTL_ACE_DATA AceData[ELF_LOGFILE_OBJECT_ACES] = {
+
+        {ACCESS_DENIED_ACE_TYPE, 0, 0,
+               ELF_LOGFILE_ALL_ACCESS,               &AnonymousLogonSid},
+
+        {ACCESS_DENIED_ACE_TYPE, 0, 0,
+               ELF_LOGFILE_ALL_ACCESS,               &(ElfGlobalData->AliasGuestsSid)},
 
         {ACCESS_ALLOWED_ACE_TYPE, 0, 0,
                ELF_LOGFILE_ALL_ACCESS,               &(ElfGlobalData->LocalSystemSid)},
 
         {ACCESS_ALLOWED_ACE_TYPE, 0, 0,
                ELF_LOGFILE_READ | ELF_LOGFILE_CLEAR, &(ElfGlobalData->AliasAdminsSid)},
+
+        {ACCESS_ALLOWED_ACE_TYPE, 0, 0,
+               ELF_LOGFILE_BACKUP,                   &(ElfGlobalData->AliasBackupOpsSid)},
 
         {ACCESS_ALLOWED_ACE_TYPE, 0, 0,
                ELF_LOGFILE_READ | ELF_LOGFILE_CLEAR, &(ElfGlobalData->AliasSystemOpsSid)},
@@ -128,29 +142,53 @@ Return Value:
                ELF_LOGFILE_WRITE,                    &(ElfGlobalData->WorldSid)}
         };
 
+    PRTL_ACE_DATA pAceData = NULL;
+
     //
     // NON_SECURE logfiles let anyone read/write to them, secure ones
     // only let admins/local system do this.  so for secure files we just
     // don't use the last ACE
     //
+    // Adjust the ACL start based on the passed GuestAccessRestriction flag.
+    // The first two aces deny all log access to guests and/or anonymous
+    // logons. The flag, GuestAccessRestriction, indicates that these two
+    // deny access aces should be applied. Note that the deny aces and the
+    // GuestAccessRestriction flag are not applicable to the security log,
+    // since users and anonymous logons, by default, do not have access.
+    //
 
     switch (Type) {
 
         case ELF_LOGFILE_SECURITY:
-            NumberOfAcesToUse = 2;
+            pAceData = AceData + 2;         // Deny ACEs *not* applicable
+            NumberOfAcesToUse = 3;
             break;
 
         case ELF_LOGFILE_SYSTEM:
-            NumberOfAcesToUse = 5;
+            if (GuestAccessRestriction == ELF_GUEST_ACCESS_RESTRICTED) {
+                pAceData = AceData;         // Deny ACEs *applicable*
+                NumberOfAcesToUse = 8;
+            }
+            else {
+                pAceData = AceData + 2;     // Deny ACEs *not* applicable
+                NumberOfAcesToUse = 6;
+            }
             break;
 
         case ELF_LOGFILE_APPLICATION:
-            NumberOfAcesToUse = 7;
+            if (GuestAccessRestriction == ELF_GUEST_ACCESS_RESTRICTED) {
+                pAceData = AceData;         // Deny ACEs *applicable*
+                NumberOfAcesToUse = 10;
+            }
+            else {
+                pAceData = AceData + 2;     // Deny ACEs *not* applicable
+                NumberOfAcesToUse = 8;
+            }
             break;
 
     }
     Status = RtlCreateUserSecurityObject(
-                   AceData,
+                   pAceData,
                    NumberOfAcesToUse,
                    NULL,                        // Owner
                    NULL,                        // Group
@@ -283,6 +321,7 @@ Return Value:
         ElfDbgPrint(("[ELF] ElfpAccessCheckAndAudit: Failed to impersonate "
             "client %08lx\n", RpcStatus));
 
+        LocalFree(pPrivilegeSet);
         return RpcStatus;
     }
 
@@ -330,54 +369,108 @@ Return Value:
             AccessStatus));
 
         //
-        // The access check failed.  If read or clear access to the
-        // security log is desired, then we will see if this user
-        // passes the privilege check.
+        // MarkBl 1/30/95 : Modified this code a bit to give backup operators
+        //                  the ability to open the security log for purposes
+        //                  of backup.
         //
-        if ((AccessStatus == STATUS_ACCESS_DENIED) &&
-            (!(DesiredAccess & ELF_LOGFILE_WRITE)) &&
-            (ForSecurityLog)) {
 
+        if ((AccessStatus == STATUS_ACCESS_DENIED) && (ForSecurityLog))
+        {
             //
-            // Do Privilege Check for SeSecurityPrivilege
-            // (SE_SECURITY_NAME).
+            // MarkBl 1/30/95 :  First, evalutate the existing code (performed
+            //                   for read or clear access), since its
+            //                   privilege check is more rigorous than mine.
             //
-            if (!LookupPrivilegeValue(NULL, SE_SECURITY_NAME, &luid)) {
-                Status = GetLastError();
-                ElfDbgPrint(("[ELF] ElfpAccessCheckAndAudit: LookupPrivilegeValue "
-                    "failed. status is %d\n",Status));
-                goto CleanExit;
-            }
 
-            pPrivilegeSet->PrivilegeCount = 1;
-            pPrivilegeSet->Control = PRIVILEGE_SET_ALL_NECESSARY;
-            pPrivilegeSet->Privilege[0].Luid = luid;
-            pPrivilegeSet->Privilege[0].Attributes = SE_PRIVILEGE_ENABLED;
+            Status = STATUS_ACCESS_DENIED;
 
-            if (!PrivilegeCheck(
-                    ClientToken,
-                    pPrivilegeSet,
-                    &fResult)) {
+            if (!(DesiredAccess & ELF_LOGFILE_WRITE)) {
 
                 //
-                // Check Failed, Now what?
+                // If read or clear access to the security log is desired,
+                // then we will see if this user passes the privilege check.
                 //
-                Status = GetLastError();
-                ElfDbgPrint(("[ELF] ElfpAccessCheckAndAudit: PrivilegeCheck "
-                    "failed. status is %d\n",Status));
+                //
+                // Do Privilege Check for SeSecurityPrivilege
+                // (SE_SECURITY_NAME).
+                //
+                // MarkBl 1/30/95 : Modified code to fall through on error
+                //                  instead of the jump to 'CleanExit'.
+                //
 
-                goto CleanExit;
+                if (LookupPrivilegeValue(NULL, SE_SECURITY_NAME, &luid)) {
+
+                    pPrivilegeSet->PrivilegeCount = 1;
+                    pPrivilegeSet->Control = PRIVILEGE_SET_ALL_NECESSARY;
+                    pPrivilegeSet->Privilege[0].Luid = luid;
+                    pPrivilegeSet->Privilege[0].Attributes =
+                                                 SE_PRIVILEGE_ENABLED;
+
+                    if (PrivilegeCheck(
+                                    ClientToken,
+                                    pPrivilegeSet,
+                                    &fResult)) {
+                        //
+                        // If the privilege is enabled, then add READ and
+                        // CLEAR to the granted access mask.
+                        //
+                        if (fResult) {
+                            GrantedAccess |= (ELF_LOGFILE_READ |
+                                              ELF_LOGFILE_CLEAR);
+                            Status = STATUS_SUCCESS;
+                        }
+                    }
+                    else {
+                        //
+                        // Check Failed, Now what?
+                        //
+                        Status = GetLastError();
+                        ElfDbgPrint(("[ELF] ElfpAccessCheckAndAudit: " \
+                                     "PrivilegeCheck failed. status is " \
+                                     "%d\n",Status));
+                    }
+                }
+                else {
+                    Status = GetLastError();
+                    ElfDbgPrint(("[ELF] ElfpAccessCheckAndAudit: " \
+                                 "LookupPrivilegeValue failed. status " \
+                                 "is %d\n",Status));
+                }
             }
 
             //
-            // If the privilege is enabled, then add READ and CLEAR
-            // to the granted access mask.
+            // MarkBl 1/30/95 : Finally, my code. If this user has backup
+            //                  privilege, let the open succeed.
             //
-            if (fResult) {
-                GrantedAccess |= (ELF_LOGFILE_READ | ELF_LOGFILE_CLEAR);
-            }
-            else {
-                Status = STATUS_ACCESS_DENIED;
+
+            if (!NT_SUCCESS(Status)) {
+
+                if (LookupPrivilegeValue(NULL, SE_BACKUP_NAME, &luid)) {
+
+                    pPrivilegeSet->PrivilegeCount = 1;
+                    pPrivilegeSet->Control = PRIVILEGE_SET_ALL_NECESSARY;
+                    pPrivilegeSet->Privilege[0].Luid = luid;
+                    pPrivilegeSet->Privilege[0].Attributes =
+                                                 SE_PRIVILEGE_ENABLED;
+
+                    if (PrivilegeCheck(
+                                    ClientToken,
+                                    pPrivilegeSet,
+                                    &fResult)) {
+                        if (fResult) {
+                            GrantedAccess |= ELF_LOGFILE_BACKUP;
+                            Status = STATUS_SUCCESS;
+                        }
+                    }
+                    else {
+                        Status = GetLastError();
+                        goto CleanExit;
+                    }
+                }
+                else {
+                    Status = GetLastError();
+                    goto CleanExit;
+                }
             }
         }
         else {
@@ -385,7 +478,6 @@ Return Value:
         }
     }
 
-AlarmCleanExit:
 
     //
     // Revert to Self
@@ -452,6 +544,8 @@ AlarmCleanExit:
 
     ElfpReleasePrivilege();
 
+    LocalFree(pPrivilegeSet);
+
     return(Status);
 
 CleanExit:
@@ -470,6 +564,9 @@ CleanExit:
     if (ClientToken != NULL) {
         NtClose(ClientToken);
     }
+
+    LocalFree(pPrivilegeSet);
+
     return(Status);
 }
 
@@ -616,7 +713,7 @@ Return Value:
     }
     pTokenPrivilege->PrivilegeCount  = numPrivileges;
     for (i=0; i<numPrivileges ;i++ ) {
-        pTokenPrivilege->Privileges[i].Luid = RtlConvertLongToLargeInteger(
+        pTokenPrivilege->Privileges[i].Luid = RtlConvertLongToLuid(
                                                 pulPrivileges[i]);
         pTokenPrivilege->Privileges[i].Attributes = SE_PRIVILEGE_ENABLED;
 

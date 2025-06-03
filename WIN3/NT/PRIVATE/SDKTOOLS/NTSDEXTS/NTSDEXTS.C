@@ -18,170 +18,204 @@ Revision History:
 
 --*/
 
-#include <ntos.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#include <ntsdexts.h>
-#include <stdio.h>
-#include <string.h>
-#include <heap.h>
-#include <stktrace.h>
+#include "ntsdextp.h"
 
-#include <ntcsrsrv.h>
+NTSD_EXTENSION_APIS ExtensionApis;
+HANDLE ExtensionCurrentProcess;
 
-
-#define move(dst, src)\
-try {\
-    ReadProcessMemory(hCurrentProcess, (LPVOID) (src), &(dst), sizeof(dst), NULL);\
-} except (EXCEPTION_EXECUTE_HANDLER) {\
-    return;\
-}
-#define moveBlock(dst, src, size)\
-try {\
-    ReadProcessMemory(hCurrentProcess, (LPVOID) (src), &(dst), (size), NULL);\
-} except (EXCEPTION_EXECUTE_HANDLER) {\
-    return;\
-}
-
-/*
- * filched from base\inc\basertl.h
- */
-typedef struct _BASE_HANDLE_TABLE_ENTRY {
-    USHORT LockCount;
-    USHORT Flags;
-    union {
-        struct _BASE_HANDLE_TABLE_ENTRY *Next;      // Free handle
-        PVOID Object;                               // Allocated handle
-        ULONG Size;                                 // Handle to discarded obj.
-    } u;
-} BASE_HANDLE_TABLE_ENTRY, *PBASE_HANDLE_TABLE_ENTRY;
-
-typedef struct _BASE_HANDLE_TABLE {
-    ULONG MaximumNumberOfHandles;
-    PBASE_HANDLE_TABLE_ENTRY FreeHandles;
-    PBASE_HANDLE_TABLE_ENTRY CommittedHandles;
-    PBASE_HANDLE_TABLE_ENTRY UnusedCommittedHandles;
-    PBASE_HANDLE_TABLE_ENTRY UnCommittedHandles;
-    PBASE_HANDLE_TABLE_ENTRY MaxReservedHandles;
-} BASE_HANDLE_TABLE, *PBASE_HANDLE_TABLE;
-
-
-/*
- * modified SECOBJHEAD, WINDOWSTATION structures grabbed from user\inc\user.h
- */
-typedef struct _SECOBJHEAD {
-    HANDLE h;
-    DWORD cLockObj;
-    DWORD cLockObjT;
-    PVOID ppi;
-    DWORD hTaskWow;
-    PVOID psd;
-    DWORD cOpen;
-} SECOBJHEAD, *PSECOBJHEAD;
-
-typedef struct tagWINDOWSTATION {
-    SECOBJHEAD head;
-    struct tagWINDOWSTATION *spwinstaNext;  // <---- this is what we care about.
-    LPWSTR lpszWinStaName;
-    PVOID spdeskList;
-    PVOID spdeskLogon;
-    PVOID spcurrentdesk;
-    PVOID spwndDesktopOwner;
-    PVOID spwndLogonNotify;
-    PVOID ptiDesktop;
-    DWORD dwFlags;
-    PVOID pklList;
-    LPWSTR pwchDiacritic;
-    WCHAR awchDiacritic[5];
-    HANDLE hEventInputReady;
-    PVOID ptiClipLock;
-    PVOID spwndClipOpen;
-    PVOID spwndClipViewer;
-    PVOID spwndClipOwner;
-    PVOID pClipBase;
-    int cNumClipFormats;
-    UINT fClipboardChanged : 1;
-    UINT fDrawingClipboard : 1;
-    PVOID pGlobalAtomTable;     // <--- this is what we care about.
-    HANDLE hEventSwitchNotify;
-    LUID luidEndSession;
-} WINDOWSTATION, *PWINDOWSTATION;
-
-
-/*
- * Filched from base\rtl\atom.c
- */
-typedef struct _ATOM_TABLE_ENTRY {
-    struct _ATOM_TABLE_ENTRY *HashLink;
-    ULONG ReferenceCount;
-    ULONG Value;
-    UNICODE_STRING Name;
-} ATOM_TABLE_ENTRY, *PATOM_TABLE_ENTRY;
-
-typedef struct _ATOM_TABLE {
-    BASE_HANDLE_TABLE HandleTable;
-    ULONG NumberOfBuckets;
-    PATOM_TABLE_ENTRY Buckets[1];
-} ATOM_TABLE, *PATOM_TABLE;
-
-/*
- * Filched from base\server\srvatom.c
- */
-typedef struct _ATOM_TABLE_LIST {
-    PVOID AtomTable;
-    LIST_ENTRY Link;
-} ATOM_TABLE_LIST, *PATOM_TABLE_LIST;
-
-CHAR szBaseLocalAtomTable[] = "kernel32!_BaseAtomTable";
-CHAR szUserWinstaList[] = "winsrv!gspwinstalist";
-
-CHAR igrepLastPattern[256];
-DWORD igrepSearchStartAddress;
-DWORD igrepLastPc;
-
-
-PVOID lpLastTraceBufferForHeap = NULL;
-
-VOID
-help(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+DECLARE_API( gle )
 {
-    PNTSD_OUTPUT_ROUTINE Print;
+    NTSTATUS Status;
+    THREAD_BASIC_INFORMATION ThreadInformation;
+    TEB Teb;
+    UCHAR Win32ErrorMessage[ 512 ];
+    UCHAR NTStatusMessage[ 512 ];
+    LPSTR s;
+    HMODULE hWinsock;
 
-    Print = lpExtensionApis->lpOutputRoutine;
+    INIT_API();
+
+    Status = NtQueryInformationThread( hCurrentThread,
+                                       ThreadBasicInformation,
+                                       &ThreadInformation,
+                                       sizeof( ThreadInformation ),
+                                       NULL
+                                     );
+    if (NT_SUCCESS( Status )) {
+        if (ReadMemory( (LPVOID)ThreadInformation.TebBaseAddress,
+                        &Teb,
+                        sizeof(Teb),
+                        NULL
+                      )
+           ) {
+            if (Teb.LastErrorValue != 0) {
+                Win32ErrorMessage[0] = '\0';
+                if ((Teb.LastErrorValue >= WSABASEERR) &&
+                    (Teb.LastErrorValue <= WSABASEERR + 1000) )
+                {
+                    hWinsock = LoadLibrary( "wsock32.dll" );
+                    FormatMessage(  FORMAT_MESSAGE_IGNORE_INSERTS |
+                                    FORMAT_MESSAGE_FROM_HMODULE,
+                                    hWinsock ? hWinsock : GetModuleHandle( "KERNEL32.DLL" ),
+                                    Teb.LastErrorValue,
+                                    0,
+                                    Win32ErrorMessage,
+                                    sizeof( Win32ErrorMessage ),
+                                    NULL );
+                    FreeLibrary( hWinsock );
+                }
+                else
+                    {
+                    FormatMessage( FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_FROM_SYSTEM,
+                                   NULL,
+                                   Teb.LastErrorValue,
+                                   0,
+                                   Win32ErrorMessage,
+                                   sizeof( Win32ErrorMessage ),
+                                   NULL
+                                 );
+                    }
+                }
+            else {
+                strcpy( Win32ErrorMessage, "NO_ERROR" );
+                }
+
+            if (Teb.LastStatusValue != 0) {
+                NTStatusMessage[0] = '\0';
+                FormatMessage( FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_FROM_HMODULE,
+                               GetModuleHandle( "NTDLL.DLL" ),
+                               Teb.LastStatusValue,
+                               0,
+                               NTStatusMessage,
+                               sizeof( NTStatusMessage ),
+                               NULL
+                             );
+                }
+            else {
+                strcpy( NTStatusMessage, "STATUS_SUCCESS" );
+                }
+
+            s = Win32ErrorMessage;
+            while (*s) {
+                if (*s < ' ') {
+                    *s = ' ';
+                    }
+                s++;
+                }
+            dprintf( "LastErrorValue: 0x%x (%u) - '%s'\n",
+                   Teb.LastErrorValue,
+                   Teb.LastErrorValue,
+                   Win32ErrorMessage
+                 );
+
+            s = NTStatusMessage;
+            while (*s) {
+                if (*s < ' ') {
+                    *s = ' ';
+                    }
+                s++;
+                }
+            dprintf( "LastStatusValue: 0x%x - '%s'\n",
+                   Teb.LastStatusValue,
+                   NTStatusMessage
+                 );
+
+            return;
+            }
+        }
+
+    dprintf( "Unable to read current thread's TEB\n" );
+    return;
+}
+
+DECLARE_API( version )
+{
+    OSVERSIONINFOA VersionInformation;
+    HKEY hkey;
+    DWORD cb, dwType;
+    CHAR szCurrentType[128];
+    CHAR szCSDString[3+128];
+
+    INIT_API();
+
+    VersionInformation.dwOSVersionInfoSize = sizeof(VersionInformation);
+    if (!GetVersionEx( &VersionInformation )) {
+        dprintf("GetVersionEx failed - %u\n", GetLastError());
+        return;
+        }
+
+    szCurrentType[0] = '\0';
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+                     "Software\\Microsoft\\Windows NT\\CurrentVersion",
+                     0,
+                     KEY_READ,
+                     &hkey
+                    ) == NO_ERROR
+       ) {
+        cb = sizeof(szCurrentType);
+        if (RegQueryValueEx(hkey, "CurrentType", NULL, &dwType, szCurrentType, &cb ) != 0) {
+            szCurrentType[0] = '\0';
+            }
+        }
+    RegCloseKey(hkey);
+
+    if (VersionInformation.szCSDVersion[0]) {
+        sprintf(szCSDString, ": %s", VersionInformation.szCSDVersion);
+        }
+    else {
+        szCSDString[0] = '\0';
+        }
+
+    dprintf("Version %d.%d (Build %d%s) %s\n",
+          VersionInformation.dwMajorVersion,
+          VersionInformation.dwMinorVersion,
+          VersionInformation.dwBuildNumber,
+          szCSDString,
+          szCurrentType
+         );
+    return;
+}
+
+DECLARE_API( help )
+{
+    INIT_API();
 
     while (*lpArgumentString == ' ')
         lpArgumentString++;
 
     if (*lpArgumentString == '\0') {
-        Print("ntsdexts help:\n\n");
-        Print("!atom [atom]                 - Dump the atom or table(s) for the process\n");
-        Print("!CritSec csAddress           - Dump a critical section\n");
-        Print("!heap [address]              - Dump heap\n");
-        Print("!help [cmd]                  - Displays this list or gives details on command\n");
-        Print("!igrep [pattern [addr]]      - Grep for disassembled pattern starting at addr\n");
-        Print("!locks                       - Dump all Critical Sections in process\n");
-        Print("!obja ObjectAddress          - Dump an object's attributes\n");
-        Print("!str AnsiStringAddress       - Dump an ANSI string\n");
-        Print("!ustr UnicodeStringAddress   - Dump a UNICODE string\n");
-        Print("!dp [v] [pid | pcsr_process] - Dump CSR process\n");
-        Print("!dt [v] pcsr_thread          - Dump CSR thread\n");
-        Print("!trace [address]             - Dump trace buffer\n");
+        dprintf("ntsdexts help:\n\n");
+        dprintf("!atom [atom]                 - Dump the atom or table(s) for the process\n");
+        dprintf("!critSec csAddress           - Dump a critical section\n");
+        dprintf("!cxr address                 - Dump a context record\n");
+        dprintf("!dlls                        - Dump loaded DLLS\n");
+        dprintf("!exr address                 - Dump an exception record\n");
+        dprintf("!gle                         - Dump GetLastError value for current thread\n");
+        dprintf("!handle [handle]             - Dump handle information\n");
+        dprintf("!heap [address]              - Dump heap\n");
+        dprintf("!help [cmd]                  - Displays this list or gives details on command\n");
+        dprintf("!igrep [pattern [addr]]      - Grep for disassembled pattern starting at addr\n");
+        dprintf("!locks                       - Dump all Critical Sections in process\n");
+        dprintf("!obja ObjectAddress          - Dump an object's attributes\n");
+        dprintf("!str AnsiStringAddress       - Dump an ANSI string\n");
+        dprintf("!ustr UnicodeStringAddress   - Dump a UNICODE string\n");
+        dprintf("!dp [v] [pid | pcsr_process] - Dump CSR process\n");
+        dprintf("!dt [v] pcsr_thread          - Dump CSR thread\n");
+        dprintf("!trace [address]             - Dump trace buffer\n");
+        dprintf("!version                     - Dump system version and build number\n");
 
     } else {
         if (*lpArgumentString == '!')
             lpArgumentString++;
         if (strcmp(lpArgumentString, "igrep") == 0) {
-            Print("!igrep [pattern [addr]]     - Grep for disassembled pattern starting at addr\n");
-            Print("       If no pattern, last pattern is used, if no address, last hit is used\n");
+            dprintf("!igrep [pattern [addr]]     - Grep for disassembled pattern starting at addr\n");
+            dprintf("       If no pattern, last pattern is used, if no address, last hit is used\n");
+        } else if (strcmp( lpArgumentString, "handle") == 0) {
+            dprintf("!handle [handle [flags [type]]] - Dump handle information\n");
+            dprintf("       If no handle specified, all handles are dumped.\n");
+            dprintf("       Flags are bits indicating greater levels of detail.\n");
         } else {
-            Print("Invalid command.  No help available\n");
+            dprintf("Invalid command.  No help available\n");
         }
     }
 }
@@ -190,8 +224,6 @@ help(
 
 PLIST_ENTRY
 DumpCritSec(
-    HANDLE hCurrentProcess,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
     DWORD dwAddrCritSec,
     BOOLEAN bDumpIfUnowned
     )
@@ -237,18 +269,12 @@ Return Value:
     CRITICAL_SECTION CriticalSection;
     CRITICAL_SECTION_DEBUG DebugInfo;
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
 
     //
     // Read the critical section from the debuggees address space into our
     // own.
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)dwAddrCritSec,
             &CriticalSection,
             sizeof(CriticalSection),
@@ -260,8 +286,7 @@ Return Value:
 
     DebugInfo.ProcessLocksList.Flink = NULL;
     if (CriticalSection.DebugInfo != NULL) {
-        b = ReadProcessMemory(
-                hCurrentProcess,
+        b = ReadMemory(
                 (LPVOID)CriticalSection.DebugInfo,
                 &DebugInfo,
                 sizeof(DebugInfo),
@@ -284,9 +309,9 @@ Return Value:
     // Get the symbolic name of the critical section
     //
 
-    (lpOutputRoutine)("\n");
-    (lpGetSymbolRoutine)((LPVOID)dwAddrCritSec,Symbol,&Displacement);
-    (lpOutputRoutine)(
+    dprintf("\n");
+    GetSymbol((LPVOID)dwAddrCritSec,Symbol,&Displacement);
+    dprintf(
         "CritSec %s+%lx at %lx\n",
         Symbol,
         Displacement,
@@ -294,29 +319,19 @@ Return Value:
         );
 
     if ( CriticalSection.LockCount == -1) {
-        (lpOutputRoutine)("LockCount          NOT LOCKED\n");
+        dprintf("LockCount          NOT LOCKED\n");
         }
     else {
-        (lpOutputRoutine)("LockCount          %ld\n",CriticalSection.LockCount);
+        dprintf("LockCount          %ld\n",CriticalSection.LockCount);
         }
 
-    (lpOutputRoutine)("RecursionCount     %ld\n",CriticalSection.RecursionCount);
-    (lpOutputRoutine)("OwningThread       %lx\n",CriticalSection.OwningThread);
-    (lpOutputRoutine)("EntryCount         %lx\n",DebugInfo.EntryCount);
+    dprintf("RecursionCount     %ld\n",CriticalSection.RecursionCount);
+    dprintf("OwningThread       %lx\n",CriticalSection.OwningThread);
+    dprintf("EntryCount         %lx\n",DebugInfo.EntryCount);
     if (CriticalSection.DebugInfo != NULL) {
-        (lpOutputRoutine)("ContentionCount    %lx\n",DebugInfo.ContentionCount);
+        dprintf("ContentionCount    %lx\n",DebugInfo.ContentionCount);
         if ( CriticalSection.LockCount != -1) {
-            (lpOutputRoutine)("Locked by:\n");
-
-            for (i=0; i<DebugInfo.Depth; i++) {
-                (lpGetSymbolRoutine)(DebugInfo.OwnerBackTrace[i],Symbol,&Displacement);
-                if (Displacement != 0) {
-                    (lpOutputRoutine)("    %s+%lx\n",Symbol,Displacement);
-                    }
-                else {
-                    (lpOutputRoutine)("    %s\n",Symbol);
-                    }
-                }
+            dprintf("*** Locked\n");
             }
 
         return DebugInfo.ProcessLocksList.Flink;
@@ -325,46 +340,26 @@ Return Value:
     return NULL;
 }
 
-VOID
-critsec(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+DECLARE_API( critsec )
 {
     DWORD dwAddrCritSec;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
 
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
+    INIT_API();
 
     //
     // Evaluate the argument string to get the address of
     // the critical section to dump.
     //
 
-    dwAddrCritSec = (lpGetExpressionRoutine)(lpArgumentString);
+    dwAddrCritSec = GetExpression(lpArgumentString);
     if ( !dwAddrCritSec ) {
         return;
         }
 
-    DumpCritSec(hCurrentProcess,lpExtensionApis,dwAddrCritSec,TRUE);
+    DumpCritSec(dwAddrCritSec,TRUE);
 }
 
-VOID
-igrep(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
-
+DECLARE_API( igrep )
 /*++
 
 Routine Description:
@@ -409,25 +404,13 @@ Return Value:
     CHAR SourceLine[256];
     BOOL NewPc;
     DWORD d;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
-    PNTSD_DISASM lpDisasmRoutine;
-    PNTSD_CHECK_CONTROL_C lpCheckControlCRoutine;
     LPSTR pc;
     LPSTR Pattern;
     LPSTR Expression;
     CHAR Symbol[64];
     DWORD Displacement;
 
-    UNREFERENCED_PARAMETER(hCurrentProcess);
-    UNREFERENCED_PARAMETER(hCurrentThread);
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
-    lpDisasmRoutine = lpExtensionApis->lpDisasmRoutine;
-    lpCheckControlCRoutine = lpExtensionApis->lpCheckControlCRoutine;
+    INIT_API();
 
     if ( igrepLastPc && igrepLastPc == dwCurrentPc ) {
         NewPc = FALSE;
@@ -472,7 +455,7 @@ Return Value:
         strcpy(igrepLastPattern,Pattern);
 
         if ( Expression ) {
-            igrepSearchStartAddress = (lpGetExpressionRoutine)(Expression);
+            igrepSearchStartAddress = GetExpression(Expression);
             if ( !igrepSearchStartAddress ) {
                 igrepSearchStartAddress = igrepLastPc;
                 return;
@@ -485,30 +468,23 @@ Return Value:
 
     dwNextGrepAddr = igrepSearchStartAddress;
     dwCurrGrepAddr = dwNextGrepAddr;
-    d = (lpDisasmRoutine)(&dwNextGrepAddr,SourceLine,FALSE);
+    d = Disassm(&dwNextGrepAddr,SourceLine,FALSE);
     while(d) {
         if (strstr(SourceLine,igrepLastPattern)) {
             igrepSearchStartAddress = dwNextGrepAddr;
-            (lpGetSymbolRoutine)((LPVOID)dwCurrGrepAddr,Symbol,&Displacement);
-            (lpOutputRoutine)("%s",SourceLine);
+            GetSymbol((LPVOID)dwCurrGrepAddr,Symbol,&Displacement);
+            dprintf("%s",SourceLine);
             return;
             }
-        if ((lpCheckControlCRoutine)()) {
+        if ((CheckControlC)()) {
             return;
             }
         dwCurrGrepAddr = dwNextGrepAddr;
-        d = (lpDisasmRoutine)(&dwNextGrepAddr,SourceLine,FALSE);
+        d = Disassm(&dwNextGrepAddr,SourceLine,FALSE);
         }
 }
 
-VOID
-str(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+DECLARE_API( str )
 
 /*++
 
@@ -547,23 +523,15 @@ Return Value:
     LPSTR StringData;
     DWORD Displacement;
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
 
-    UNREFERENCED_PARAMETER(hCurrentThread);
-    UNREFERENCED_PARAMETER(dwCurrentPc);
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
+    INIT_API();
 
     //
     // Evaluate the argument string to get the address of
     // the string to dump.
     //
 
-    dwAddrString = (lpGetExpressionRoutine)(lpArgumentString);
+    dwAddrString = GetExpression(lpArgumentString);
     if ( !dwAddrString ) {
         return;
         }
@@ -573,14 +541,13 @@ Return Value:
     // Get the symbolic name of the string
     //
 
-    (lpGetSymbolRoutine)((LPVOID)dwAddrString,Symbol,&Displacement);
+    GetSymbol((LPVOID)dwAddrString,Symbol,&Displacement);
 
     //
     // Read the string from the debuggees address space into our
     // own.
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)dwAddrString,
             &AnsiString,
             sizeof(AnsiString),
@@ -592,8 +559,7 @@ Return Value:
 
     StringData = (LPSTR)LocalAlloc(LMEM_ZEROINIT,AnsiString.Length+1);
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)AnsiString.Buffer,
             StringData,
             AnsiString.Length,
@@ -604,7 +570,7 @@ Return Value:
         return;
         }
 
-    (lpOutputRoutine)(
+    dprintf(
         "String(%d,%d) %s+%lx at %lx: %s\n",
         AnsiString.Length,
         AnsiString.MaximumLength,
@@ -617,14 +583,7 @@ Return Value:
     LocalFree(StringData);
 }
 
-VOID
-ustr(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+DECLARE_API( ustr )
 
 /*++
 
@@ -664,23 +623,15 @@ Return Value:
     LPSTR StringData;
     DWORD Displacement;
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
 
-    UNREFERENCED_PARAMETER(hCurrentThread);
-    UNREFERENCED_PARAMETER(dwCurrentPc);
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
+    INIT_API();
 
     //
     // Evaluate the argument string to get the address of
     // the string to dump.
     //
 
-    dwAddrString = (lpGetExpressionRoutine)(lpArgumentString);
+    dwAddrString = GetExpression(lpArgumentString);
     if ( !dwAddrString ) {
         return;
         }
@@ -690,14 +641,13 @@ Return Value:
     // Get the symbolic name of the string
     //
 
-    (lpGetSymbolRoutine)((LPVOID)dwAddrString,Symbol,&Displacement);
+    GetSymbol((LPVOID)dwAddrString,Symbol,&Displacement);
 
     //
     // Read the string from the debuggees address space into our
     // own.
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)dwAddrString,
             &UnicodeString,
             sizeof(UnicodeString),
@@ -709,8 +659,7 @@ Return Value:
 
     StringData = (LPSTR)LocalAlloc(LMEM_ZEROINIT,UnicodeString.Length+sizeof(UNICODE_NULL));
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)UnicodeString.Buffer,
             StringData,
             UnicodeString.Length,
@@ -726,7 +675,7 @@ Return Value:
     RtlUnicodeStringToAnsiString(&AnsiString,&UnicodeString,TRUE);
     LocalFree(StringData);
 
-    (lpOutputRoutine)(
+    dprintf(
         "String(%d,%d) %s+%lx at %lx: %s\n",
         UnicodeString.Length,
         UnicodeString.MaximumLength,
@@ -739,14 +688,7 @@ Return Value:
     RtlFreeAnsiString(&AnsiString);
 }
 
-VOID
-obja(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+DECLARE_API( obja )
 
 /*++
 
@@ -787,23 +729,15 @@ Return Value:
     LPSTR StringData;
     DWORD Displacement;
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
 
-    UNREFERENCED_PARAMETER(hCurrentThread);
-    UNREFERENCED_PARAMETER(dwCurrentPc);
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
+    INIT_API();
 
     //
     // Evaluate the argument string to get the address of
     // the Obja to dump.
     //
 
-    dwAddrObja = (lpGetExpressionRoutine)(lpArgumentString);
+    dwAddrObja = GetExpression(lpArgumentString);
     if ( !dwAddrObja ) {
         return;
         }
@@ -813,14 +747,13 @@ Return Value:
     // Get the symbolic name of the Obja
     //
 
-    (lpGetSymbolRoutine)((LPVOID)dwAddrObja,Symbol,&Displacement);
+    GetSymbol((LPVOID)dwAddrObja,Symbol,&Displacement);
 
     //
     // Read the obja from the debuggees address space into our
     // own.
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)dwAddrObja,
             &Obja,
             sizeof(Obja),
@@ -832,8 +765,7 @@ Return Value:
     StringData = NULL;
     if ( Obja.ObjectName ) {
         dwAddrString = (DWORD)Obja.ObjectName;
-        b = ReadProcessMemory(
-                hCurrentProcess,
+        b = ReadMemory(
                 (LPVOID)dwAddrString,
                 &UnicodeString,
                 sizeof(UnicodeString),
@@ -848,8 +780,7 @@ Return Value:
                         UnicodeString.Length+sizeof(UNICODE_NULL)
                         );
 
-        b = ReadProcessMemory(
-                hCurrentProcess,
+        b = ReadMemory(
                 (LPVOID)UnicodeString.Buffer,
                 StringData,
                 UnicodeString.Length,
@@ -867,14 +798,14 @@ Return Value:
     // We got the object name in UnicodeString. StringData is NULL if no name.
     //
 
-    (lpOutputRoutine)(
+    dprintf(
         "Obja %s+%lx at %lx:\n",
         Symbol,
         Displacement,
         dwAddrObja
         );
     if ( StringData ) {
-        (lpOutputRoutine)("\t%s is %ws\n",
+        dprintf("\t%s is %ws\n",
             Obja.RootDirectory ? "Relative Name" : "Full Name",
             UnicodeString.Buffer
             );
@@ -882,31 +813,25 @@ Return Value:
         }
     if ( Obja.Attributes ) {
             if ( Obja.Attributes & OBJ_INHERIT ) {
-                (lpOutputRoutine)("\tOBJ_INHERIT\n");
+                dprintf("\tOBJ_INHERIT\n");
                 }
             if ( Obja.Attributes & OBJ_PERMANENT ) {
-                (lpOutputRoutine)("\tOBJ_PERMANENT\n");
+                dprintf("\tOBJ_PERMANENT\n");
                 }
             if ( Obja.Attributes & OBJ_EXCLUSIVE ) {
-                (lpOutputRoutine)("\tOBJ_EXCLUSIVE\n");
+                dprintf("\tOBJ_EXCLUSIVE\n");
                 }
             if ( Obja.Attributes & OBJ_CASE_INSENSITIVE ) {
-                (lpOutputRoutine)("\tOBJ_CASE_INSENSITIVE\n");
+                dprintf("\tOBJ_CASE_INSENSITIVE\n");
                 }
             if ( Obja.Attributes & OBJ_OPENIF ) {
-                (lpOutputRoutine)("\tOBJ_OPENIF\n");
+                dprintf("\tOBJ_OPENIF\n");
                 }
         }
 }
 
-VOID
-locks(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+
+DECLARE_API( locks )
 
 /*++
 
@@ -939,9 +864,6 @@ Return Value:
 
 {
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_GET_SYMBOL lpGetSymbolRoutine;
     CRITICAL_SECTION_DEBUG DebugInfo;
     PVOID AddrListHead;
     LIST_ENTRY ListHead;
@@ -950,12 +872,7 @@ Return Value:
     LPSTR p;
     PVOID CritSecToDump;
 
-    UNREFERENCED_PARAMETER(hCurrentThread);
-    UNREFERENCED_PARAMETER(dwCurrentPc);
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpGetSymbolRoutine = lpExtensionApis->lpGetSymbolRoutine;
+    INIT_API();
 
     Verbose = FALSE;
     p = lpArgumentString;
@@ -973,7 +890,7 @@ Return Value:
                     goto gotBlank;
 
                 default:
-                    (lpOutputRoutine)( "NTSDEXTS: !locks invalid option flag '-%c'\n", *p );
+                    dprintf( "NTSDEXTS: !locks invalid option flag '-%c'\n", *p );
                     break;
 
                 }
@@ -993,7 +910,7 @@ gotBlank:
     // Locate the address of the list head.
     //
 
-    AddrListHead = (PVOID)(lpGetExpressionRoutine)("&ntdll!RtlCriticalSectionList");
+    AddrListHead = (PVOID)GetExpression("&ntdll!RtlCriticalSectionList");
     if ( !AddrListHead ) {
         return;
         }
@@ -1002,8 +919,7 @@ gotBlank:
     // Read the list head
     //
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
+    b = ReadMemory(
             (LPVOID)AddrListHead,
             &ListHead,
             sizeof(ListHead),
@@ -1019,72 +935,703 @@ gotBlank:
     // Walk the list of critical sections
     //
     while ( Next != AddrListHead ) {
-        b = ReadProcessMemory(
-                hCurrentProcess,
-                (LPVOID)CONTAINING_RECORD( Next,
-                                           RTL_CRITICAL_SECTION_DEBUG,
-                                           ProcessLocksList
-                                         ),
-                &DebugInfo,
-                sizeof(DebugInfo),
-                NULL
-                );
+        b = ReadMemory( (LPVOID)CONTAINING_RECORD( Next,
+                                                   RTL_CRITICAL_SECTION_DEBUG,
+                                                   ProcessLocksList
+                                                 ),
+                        &DebugInfo,
+                        sizeof(DebugInfo),
+                        NULL
+                      );
         if ( !b ) {
             return;
             }
 
-        Next = DumpCritSec(hCurrentProcess,
-                           lpExtensionApis,
-                           (DWORD)DebugInfo.CriticalSection & ~0x80000000,
+        Next = DumpCritSec((DWORD)DebugInfo.CriticalSection & ~0x80000000,
                            Verbose
                           );
         if (Next == NULL) {
             break;
             }
+
+        if ((CheckControlC)()) {
+            break;
+            }
+
         }
 
     return;
 }
 
 
-typedef struct _HEAP_SUMMARY {
-    ULONG CommittedSize;
-    ULONG AllocatedSize;
-    ULONG FreeSize;
-    ULONG OverheadSize;
-} HEAP_SUMMARY, *PHEAP_SUMMARY;
+//
+// Simple routine to convert from hex into a string of characters.
+// Used by debugger extensions.
+//
+// by scottlu
+//
 
-
-VOID
-DumpHEAP(
-    IN HANDLE hCurrentProcess,
-    IN PNTSD_EXTENSION_APIS lpExtensionApis,
-    IN PHEAP HeapAddress,
-    IN PHEAP Heap,
-    IN PHEAP_SUMMARY HeapSummary,
-    IN BOOL ShowFreeLists
-    );
-
-VOID
-DumpHEAP_SEGMENT(
-    IN HANDLE hCurrentProcess,
-    IN PNTSD_EXTENSION_APIS lpExtensionApis,
-    IN PVOID HeapAddress,
-    IN PHEAP Heap,
-    IN PHEAP_SEGMENT Segment,
-    IN ULONG SegmentNumber,
-    IN PHEAP_SUMMARY HeapSummary,
-    IN PVOID EntryAddress
-    );
-
-VOID
-heap(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
+char *
+HexToString(
+    ULONG dw,
+    CHAR *pch
     )
+{
+    if (dw > 0xf) {
+        pch = HexToString(dw >> 4, pch);
+        dw &= 0xf;
+    }
+
+    *pch++ = ((dw >= 0xA) ? ('A' - 0xA) : '0') + (CHAR)dw;
+    *pch = 0;
+
+    return pch;
+}
+
+
+//
+// dt == dump thread
+//
+// dt [v] pcsr_thread
+// v == verbose (structure)
+//
+// by scottlu
+//
+
+DECLARE_API( dt )
+{
+    char chVerbose;
+    CSR_THREAD csrt;
+    ULONG dw;
+
+    INIT_API();
+
+    while (*lpArgumentString == ' ')
+        lpArgumentString++;
+
+    chVerbose = ' ';
+    if (*lpArgumentString == 'v')
+        chVerbose = *lpArgumentString++;
+
+    dw = (ULONG)GetExpression(lpArgumentString);
+    move(csrt, dw);
+
+    //
+    // Print simple thread info if the user did not ask for verbose.
+    //
+    if (chVerbose == ' ') {
+        dprintf("Thread %08lx, Process %08lx, ClientId %lx.%lx, Flags %lx, Ref Count %lx\n",
+                dw,
+                csrt.Process,
+                csrt.ClientId.UniqueProcess,
+                csrt.ClientId.UniqueThread,
+                csrt.Flags,
+                csrt.ReferenceCount);
+        return;
+    }
+
+    dprintf("PCSR_THREAD @ %08lx:\n"
+            "\t+%04lx Link.Flink                %08lx\n"
+            "\t+%04lx Link.Blink                %08lx\n"
+            "\t+%04lx Process                   %08lx\n",
+            dw,
+            FIELD_OFFSET(CSR_THREAD, Link.Flink), csrt.Link.Flink,
+            FIELD_OFFSET(CSR_THREAD, Link.Blink), csrt.Link.Blink,
+            FIELD_OFFSET(CSR_THREAD, Process), csrt.Process);
+
+    dprintf(
+            "\t+%04lx WaitBlock                 %08lx\n"
+            "\t+%04lx ClientId.UniqueProcess    %08lx\n"
+            "\t+%04lx ClientId.UniqueThread     %08lx\n"
+            "\t+%04lx ThreadHandle              %08lx\n",
+            FIELD_OFFSET(CSR_THREAD, WaitBlock), csrt.WaitBlock,
+            FIELD_OFFSET(CSR_THREAD, ClientId.UniqueProcess), csrt.ClientId.UniqueProcess,
+            FIELD_OFFSET(CSR_THREAD, ClientId.UniqueThread), csrt.ClientId.UniqueThread,
+            FIELD_OFFSET(CSR_THREAD, ThreadHandle), csrt.ThreadHandle);
+
+    dprintf(
+            "\t+%04lx Flags                     %08lx\n"
+            "\t+%04lx ReferenceCount            %08lx\n"
+            "\t+%04lx HashLinks.Flink           %08lx\n"
+            "\t+%04lx HashLinks.Blink           %08lx\n",
+            FIELD_OFFSET(CSR_THREAD, Flags), csrt.Flags,
+            FIELD_OFFSET(CSR_THREAD, ReferenceCount), csrt.ReferenceCount,
+            FIELD_OFFSET(CSR_THREAD, HashLinks.Flink), csrt.HashLinks.Flink,
+            FIELD_OFFSET(CSR_THREAD, HashLinks.Blink), csrt.HashLinks.Blink);
+
+    dprintf(
+            "\t+%04lx ShutDownStatus            %08lx\n"
+            "\t+%04lx ServerId                  %08lx\n",
+            FIELD_OFFSET(CSR_THREAD, ShutDownStatus), csrt.ShutDownStatus,
+            FIELD_OFFSET(CSR_THREAD, ServerId), csrt.ServerId);
+
+    return;
+}
+
+//
+// dp == dump process
+//
+// dp [v] [pid | pcsr_process]
+//      v == verbose (structure + thread list)
+//      no process == dump process list
+//
+// by scottlu
+//
+
+DECLARE_API( dp )
+{
+    PLIST_ENTRY ListHead, ListNext;
+    char ach[80];
+    char chVerbose;
+    PCSR_PROCESS pcsrpT;
+    CSR_PROCESS csrp;
+    PCSR_PROCESS pcsrpRoot;
+    PCSR_THREAD pcsrt;
+    ULONG dwProcessId;
+    ULONG dw;
+    DWORD dwRootProcess;
+
+    INIT_API();
+
+    while (*lpArgumentString == ' ')
+        lpArgumentString++;
+
+    chVerbose = ' ';
+    if (*lpArgumentString == 'v')
+        chVerbose = *lpArgumentString++;
+
+    dwRootProcess = GetExpression("&csrsrv!CsrRootProcess");
+    if ( !dwRootProcess ) {
+        return;
+        }
+
+    move(pcsrpRoot, dwRootProcess);
+
+    //
+    // See if user wants all processes. If so loop through them.
+    //
+    if (*lpArgumentString == 0) {
+        ListHead = &pcsrpRoot->ListLink;
+        move(ListNext, &ListHead->Flink);
+
+        while (ListNext != ListHead) {
+            pcsrpT = CONTAINING_RECORD(ListNext, CSR_PROCESS, ListLink);
+
+            ach[0] = chVerbose;
+            ach[1] = ' ';
+            HexToString((ULONG)pcsrpT, &ach[2]);
+
+            dp(hCurrentProcess, hCurrentThread, dwCurrentPc, lpExtensionApis,
+                    ach);
+
+            move(ListNext, &ListNext->Flink);
+        }
+
+        dprintf("---\n");
+        return;
+    }
+
+    //
+    // User wants specific process structure. Evaluate to find id or process
+    // pointer.
+    //
+    dw = (ULONG)GetExpression(lpArgumentString);
+
+    ListHead = &pcsrpRoot->ListLink;
+    move(ListNext, &ListHead->Flink);
+
+    while (ListNext != ListHead) {
+        pcsrpT = CONTAINING_RECORD(ListNext, CSR_PROCESS, ListLink);
+        move(ListNext, &ListNext->Flink);
+
+        move(dwProcessId, &pcsrpT->ClientId.UniqueProcess);
+        if (dw == dwProcessId) {
+            dw = (ULONG)pcsrpT;
+            break;
+        }
+    }
+
+    pcsrpT = (PCSR_PROCESS)dw;
+    move(csrp, pcsrpT);
+
+    //
+    // If not verbose, print simple process info.
+    //
+    if (chVerbose == ' ') {
+        dprintf("Process %08lx, Id %lx, Seq# %lx, Flags %lx, Ref Count %lx\n",
+                pcsrpT,
+                csrp.ClientId.UniqueProcess,
+                csrp.SequenceNumber,
+                csrp.Flags,
+                csrp.ReferenceCount);
+        return;
+    }
+
+    dprintf("PCSR_PROCESS @ %08lx:\n"
+            "\t+%04lx ListLink.Flink            %08lx\n"
+            "\t+%04lx ListLink.Blink            %08lx\n"
+            "\t+%04lx Parent                    %08lx\n",
+            pcsrpT,
+            FIELD_OFFSET(CSR_PROCESS, ListLink.Flink), csrp.ListLink.Flink,
+            FIELD_OFFSET(CSR_PROCESS, ListLink.Blink), csrp.ListLink.Blink,
+            FIELD_OFFSET(CSR_PROCESS, Parent), csrp.Parent);
+
+    dprintf(
+            "\t+%04lx ThreadList.Flink          %08lx\n"
+            "\t+%04lx ThreadList.Blink          %08lx\n"
+            "\t+%04lx NtSession                 %08lx\n"
+            "\t+%04lx ExpectedVersion           %08lx\n",
+            FIELD_OFFSET(CSR_PROCESS, ThreadList.Flink), csrp.ThreadList.Flink,
+            FIELD_OFFSET(CSR_PROCESS, ThreadList.Blink), csrp.ThreadList.Blink,
+            FIELD_OFFSET(CSR_PROCESS, NtSession), csrp.NtSession,
+            FIELD_OFFSET(CSR_PROCESS, ExpectedVersion), csrp.ExpectedVersion);
+
+    dprintf(
+            "\t+%04lx ClientPort                %08lx\n"
+            "\t+%04lx ClientViewBase            %08lx\n"
+            "\t+%04lx ClientViewBounds          %08lx\n"
+            "\t+%04lx ClientId.UniqueProcess    %08lx\n",
+            FIELD_OFFSET(CSR_PROCESS, ClientPort), csrp.ClientPort,
+            FIELD_OFFSET(CSR_PROCESS, ClientViewBase), csrp.ClientViewBase,
+            FIELD_OFFSET(CSR_PROCESS, ClientViewBounds), csrp.ClientViewBounds,
+            FIELD_OFFSET(CSR_PROCESS, ClientId.UniqueProcess), csrp.ClientId.UniqueProcess);
+
+    dprintf(
+            "\t+%04lx ProcessHandle             %08lx\n"
+            "\t+%04lx SequenceNumber            %08lx\n"
+            "\t+%04lx Flags                     %08lx\n"
+            "\t+%04lx DebugFlags                %08lx\n",
+            FIELD_OFFSET(CSR_PROCESS, ProcessHandle), csrp.ProcessHandle,
+            FIELD_OFFSET(CSR_PROCESS, SequenceNumber), csrp.SequenceNumber,
+            FIELD_OFFSET(CSR_PROCESS, Flags), csrp.Flags,
+            FIELD_OFFSET(CSR_PROCESS, DebugFlags), csrp.DebugFlags);
+
+    dprintf(
+            "\t+%04lx DebugUserInterface        %08lx\n"
+            "\t+%04lx ReferenceCount            %08lx\n"
+            "\t+%04lx ProcessGroupId            %08lx\n"
+            "\t+%04lx ProcessGroupSequence      %08lx\n",
+            FIELD_OFFSET(CSR_PROCESS, DebugUserInterface.UniqueProcess), csrp.DebugUserInterface.UniqueProcess,
+            FIELD_OFFSET(CSR_PROCESS, ReferenceCount), csrp.ReferenceCount,
+            FIELD_OFFSET(CSR_PROCESS, ProcessGroupId), csrp.ProcessGroupId,
+            FIELD_OFFSET(CSR_PROCESS, ProcessGroupSequence), csrp.ProcessGroupSequence);
+
+    dprintf(
+            "\t+%04lx fVDM                      %08lx\n"
+            "\t+%04lx ThreadCount               %08lx\n"
+            "\t+%04lx PriorityClass             %08lx\n"
+            "\t+%04lx ShutdownLevel             %08lx\n"
+            "\t+%04lx ShutdownFlags             %08lx\n",
+            FIELD_OFFSET(CSR_PROCESS, fVDM), csrp.fVDM,
+            FIELD_OFFSET(CSR_PROCESS, ThreadCount), csrp.ThreadCount,
+            FIELD_OFFSET(CSR_PROCESS, PriorityClass), csrp.PriorityClass,
+            FIELD_OFFSET(CSR_PROCESS, ShutdownLevel), csrp.ShutdownLevel,
+            FIELD_OFFSET(CSR_PROCESS, ShutdownFlags), csrp.ShutdownFlags);
+
+    //
+    // Now dump simple thread info for this processes' threads.
+    //
+
+    ListHead = &pcsrpT->ThreadList;
+    move(ListNext, &ListHead->Flink);
+
+    dprintf("Threads:\n");
+
+    while (ListNext != ListHead) {
+        pcsrt = CONTAINING_RECORD(ListNext, CSR_THREAD, Link);
+
+        //
+        // Make sure this pcsrt is somewhat real so we don't loop forever.
+        //
+        move(dwProcessId, &pcsrt->ClientId.UniqueProcess);
+        if (dwProcessId != (DWORD)csrp.ClientId.UniqueProcess) {
+            dprintf("Invalid thread. Probably invalid argument to this extension.\n");
+            return;
+        }
+
+        HexToString((ULONG)pcsrt, ach);
+        dt(hCurrentProcess, hCurrentThread, dwCurrentPc, lpExtensionApis, ach);
+
+        move(ListNext, &ListNext->Flink);
+    }
+
+    return;
+}
+
+VOID
+Reg64(
+    LPSTR   Name,
+    ULONG   HiPart,
+    ULONG   LoPart,
+    BOOL    ForceHi
+    )
+{
+    dprintf("%4s=", Name);
+    if (ForceHi || HiPart) {
+        dprintf("%08lx", HiPart);
+    }
+    dprintf("%08lx   ", LoPart);
+}
+
+CONTEXT LastContext;
+BOOL HaveContext = 0;
+
+DECLARE_API( cxr )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump a context record
+
+    Called as:
+
+        !cxr address
+
+Arguments:
+
+    hCurrentProcess - Supplies a handle to the current process (at the
+        time the extension was called).
+
+    hCurrentThread - Supplies a handle to the current thread (at the
+        time the extension was called).
+
+    CurrentPc - Supplies the current pc at the time the extension is
+        called.
+
+    lpExtensionApis - Supplies the address of the functions callable
+        by this extension.
+
+    lpArgumentString - Supplies the pattern and expression for this
+        command.
+
+
+Return Value:
+
+    None.
+
+--*/
+{
+    CONTEXT Context;
+    DWORD Address;
+
+    INIT_API();
+
+    Address = GetExpression(lpArgumentString);
+    if (!Address) {
+        return;
+    }
+
+    move(Context, Address);
+
+    LastContext = Context;
+    HaveContext = TRUE;
+
+
+
+#if i386
+
+    dprintf("eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",
+                Context.Eax,
+                Context.Ebx,
+                Context.Ecx,
+                Context.Edx,
+                Context.Esi,
+                Context.Edi);
+    dprintf("eip=%08lx esp=%08lx ebp=%08lx iopl=%1lx         "
+        "%s %s %s %s %s %s %s %s\n",
+                Context.Eip,
+                Context.Esp,
+                Context.Ebp,
+                ((Context.EFlags >> 12) & 3),
+        (Context.EFlags & 0x800) ? "ov" : "nv",
+        (Context.EFlags & 0x400) ? "dn" : "up",
+        (Context.EFlags & 0x200) ? "ei" : "di",
+        (Context.EFlags & 0x80) ? "ng" : "pl",
+        (Context.EFlags & 0x40) ? "zr" : "nz",
+        (Context.EFlags & 0x10) ? "ac" : "na",
+        (Context.EFlags & 0x4) ? "po" : "pe",
+        (Context.EFlags & 0x1) ? "cy" : "nc");
+
+    dprintf("cs=%04x  ss=%04x  ds=%04x  es=%04x  fs=%04x  gs=%04x"
+            "             efl=%08lx\n",
+                (USHORT)(Context.SegCs & 0xffff),
+                (USHORT)(Context.SegSs & 0xffff),
+                (USHORT)(Context.SegDs & 0xffff),
+                (USHORT)(Context.SegEs & 0xffff),
+                (USHORT)(Context.SegFs & 0xffff),
+                (USHORT)(Context.SegGs & 0xffff),
+                Context.EFlags);
+
+#elif MIPS
+
+    dprintf("at=%08lx v0=%08lx v1=%08lx a0=%08lx a1=%08lx a2=%08lx\n",
+                Context.IntAt,
+                Context.IntV0,
+                Context.IntV1,
+                Context.IntA0,
+                Context.IntA1,
+                Context.IntA2);
+    dprintf("a3=%08lx t0=%08lx t1=%08lx t2=%08lx t3=%08lx t4=%08lx\n",
+                Context.IntA3,
+                Context.IntT0,
+                Context.IntT1,
+                Context.IntT2,
+                Context.IntT3,
+                Context.IntT4);
+    dprintf("t5=%08lx t6=%08lx t7=%08lx s0=%08lx s1=%08lx s2=%08lx\n",
+                Context.IntT5,
+                Context.IntT6,
+                Context.IntT7,
+                Context.IntS0,
+                Context.IntS1,
+                Context.IntS2);
+    dprintf("s3=%08lx s4=%08lx s5=%08lx s6=%08lx s7=%08lx t8=%08lx\n",
+                Context.IntS3,
+                Context.IntS4,
+                Context.IntS5,
+                Context.IntS6,
+                Context.IntS7,
+                Context.IntT8);
+    dprintf("t9=%08lx k0=%08lx k1=%08lx gp=%08lx sp=%08lx s8=%08lx\n",
+                Context.IntT9,
+                Context.IntK0,
+                Context.IntK1,
+                Context.IntGp,
+                Context.IntSp,
+                Context.IntS8);
+    dprintf("ra=%08lx lo=%08lx hi=%08lx           fir=%08lx psr=%08lx\n",
+                Context.IntRa,
+                Context.IntLo,
+                Context.IntHi,
+                Context.Fir,
+                Context.Psr);
+
+    dprintf("cu=%1lx%1lx%1lx%1lx intr(5:0)=%1lx%1lx%1lx%1lx%1lx%1lx sw(1:0)=%1lx%1lx ksu=%1lx erl=%1lx exl=%1lx ie=%1lx\n",
+                (Context.Psr >> 31) & 0x1,
+                (Context.Psr >> 30) & 0x1,
+                (Context.Psr >> 29) & 0x1,
+                (Context.Psr >> 28) & 0x1,
+
+                (Context.Psr >> 15) & 0x1,
+                (Context.Psr >> 14) & 0x1,
+                (Context.Psr >> 13) & 0x1,
+                (Context.Psr >> 12) & 0x1,
+                (Context.Psr >> 11) & 0x1,
+                (Context.Psr >> 10) & 0x1,
+
+                (Context.Psr >> 9) & 0x1,
+                (Context.Psr >> 8) & 0x1,
+
+                (Context.Psr >> 3) & 0x3,
+                (Context.Psr >> 2) & 0x1,
+                (Context.Psr >> 1) & 0x1,
+                (Context.Psr & 0x1));
+
+
+#elif ALPHA
+
+#define R(N,R)  Reg64(N,Context.R>>32,Context.R&0xffffffff,0)
+#define NL()    dprintf("\n")
+
+    R("v0", IntV0); R("t0", IntT0); R("t1", IntT1); R("t2", IntT2); NL();
+    R("t3", IntT3); R("t4", IntT4); R("t5", IntT5); R("t6", IntT6); NL();
+    R("t7", IntT7); R("s0", IntS0); R("s1", IntS1); R("s2", IntS2); NL();
+    R("s3", IntS3); R("s4", IntS4); R("s5", IntS5); R("fp", IntFp); NL();
+    R("a0", IntA0); R("a1", IntA1); R("a2", IntA2); R("a3", IntA3); NL();
+    R("a4", IntA4); R("a5", IntA5); R("t8", IntT8); R("t9", IntT9); NL();
+    R("t10", IntT10); R("t11", IntT11); R("ra", IntRa); R("t12", IntT12); NL();
+    R("at", IntAt); R("gp", IntGp); R("sp", IntSp); R("zero", IntZero); NL();
+
+    Reg64("fpcr", Context.Fpcr>>32, Context.Fpcr&0xffffffff, 1);
+    Reg64("softfpcr", Context.SoftFpcr>>32, Context.SoftFpcr&0xffffffff, 1);
+    R("fir", Fir);
+    NL();
+
+    dprintf(" psr=%08lx\n", Context.Psr);
+    dprintf("mode=%1x ie=%1x irql=%1x\n",
+                        Context.Psr & 0x1,
+                        (Context.Psr>>1) & 0x1,
+                        (Context.Psr>>2) & 0x7);
+
+
+#undef R
+#undef NL
+
+#elif PPC
+
+#define R(N,R)  dprintf("%4s=%08lx", N, Context.R)
+#define NL()    dprintf("\n")
+
+    R("r0", Gpr0); R("r1", Gpr1); R("r2", Gpr2); R("r3", Gpr3); R("r4", Gpr4); R("r5", Gpr5); NL();
+    R("r6", Gpr6); R("r7", Gpr7); R("r8", Gpr8); R("r9", Gpr9); R("r10", Gpr10); R("r11", Gpr11); NL();
+    R("r12", Gpr12); R("r13", Gpr13); R("r14", Gpr14); R("r15", Gpr15); R("r16", Gpr16); R("r17", Gpr17); NL();
+    R("r18", Gpr18); R("r19", Gpr19); R("r20", Gpr20); R("r21", Gpr21); R("r22", Gpr22); R("r23", Gpr23); NL();
+    R("r24", Gpr24); R("r25", Gpr25); R("r26", Gpr26); R("r27", Gpr27); R("r28", Gpr28); R("r29", Gpr29); NL();
+    R("r30", Gpr30); R("r31", Gpr31); R("cr", Cr); R("xer", Xer); R("msr", Msr); R("iar", Iar); NL();
+    R("lr", Lr); R("ctr", Ctr); NL();
+
+#undef R
+#undef NL
+
+#else
+#pragma error("cxr code needed for cpu")
+#endif
+
+    return;
+
+}
+
+DECLARE_API( exr )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump an exception record
+
+    Called as:
+
+        !exr address
+
+Arguments:
+
+    hCurrentProcess - Supplies a handle to the current process (at the
+        time the extension was called).
+
+    hCurrentThread - Supplies a handle to the current thread (at the
+        time the extension was called).
+
+    CurrentPc - Supplies the current pc at the time the extension is
+        called.
+
+    lpExtensionApis - Supplies the address of the functions callable
+        by this extension.
+
+    lpArgumentString - Supplies the pattern and expression for this
+        command.
+
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ULONG Address;
+    ULONG result;
+    NTSTATUS status=0;
+    EXCEPTION_RECORD    Exr;
+    ULONG   i;
+
+    INIT_API();
+
+    Address = GetExpression(lpArgumentString);
+    if (!Address) {
+        return;
+    }
+
+    move(Exr, Address);
+
+    dprintf("Exception Record @ %08lX:\n", Address);
+    dprintf("   ExceptionCode: %08lx\n", Exr.ExceptionCode);
+    dprintf("  ExceptionFlags: %08lx\n", Exr.ExceptionFlags);
+    dprintf("  Chained Record: %08lx\n", Exr.ExceptionRecord);
+    dprintf("ExceptionAddress: %08lx\n", Exr.ExceptionAddress);
+    dprintf("NumberParameters: %08lx\n", Exr.NumberParameters);
+    if (Exr.NumberParameters > EXCEPTION_MAXIMUM_PARAMETERS) {
+        Exr.NumberParameters = EXCEPTION_MAXIMUM_PARAMETERS;
+    }
+    for (i = 0; i < Exr.NumberParameters; i++) {
+        dprintf("    Parameter[%d]: %08lx\n", i, Exr.ExceptionInformation[i]);
+    }
+    return;
+}
+
+
+VOID
+DllsExtension(
+    PCSTR lpArgumentString,
+    PPEB ProcessPeb
+    );
+
+DECLARE_API( dlls )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump the loaded module data
+    base for the debugged process.
+
+
+Arguments:
+
+    hCurrentProcess - Supplies a handle to the current process (at the
+        time the extension was called).
+
+    hCurrentThread - Supplies a handle to the current thread (at the
+        time the extension was called).
+
+    CurrentPc - Supplies the current pc at the time the extension is
+        called.
+
+    lpExtensionApis - Supplies the address of the functions callable
+        by this extension.
+
+    lpArgumentString - Supplies the pattern and expression for this
+        command.
+
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    BOOL b;
+    NTSTATUS Status;
+    PROCESS_BASIC_INFORMATION ProcessInformation;
+    PEB ThePeb;
+
+    INIT_API();
+
+    Status = NtQueryInformationProcess( ExtensionCurrentProcess,
+                                        ProcessBasicInformation,
+                                        &ProcessInformation,
+                                        sizeof( ProcessInformation ),
+                                        NULL
+                                      );
+    if (!NT_SUCCESS( Status )) {
+        b = FALSE;
+        }
+    else {
+        b = ReadMemory( (LPVOID)ProcessInformation.PebBaseAddress,
+                        &ThePeb,
+                        sizeof(ThePeb),
+                        NULL
+                      );
+        }
+
+    if ( !b ) {
+        dprintf("    Unabled to read Process PEB\n" );
+        memset( &ThePeb, 0, sizeof( ThePeb ) );
+        }
+
+    DllsExtension( (PCSTR)lpArgumentString, &ThePeb );
+}
+
+#include "dllsext.c"
+
+VOID
+HeapExtension(
+    PCSTR lpArgumentString,
+    PPEB ProcessPeb
+    );
+
+DECLARE_API( heap )
 
 /*++
 
@@ -1132,758 +1679,48 @@ Return Value:
 
 {
     BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_CHECK_CONTROL_C lpCheckControlCRoutine;
-    PVOID HeapListHead;
-    LIST_ENTRY ListHead;
-    PLIST_ENTRY Next;
-    PHEAP HeapAddress;
-    HEAP CapturedHeap;
-    HEAP_SEGMENT CapturedSegment;
-    LPSTR p;
-    ULONG i;
-    BOOL Verbose, ShowSummary, ShowFreeLists, ShowAllEntries, ForceDump, DumpThisHeap, DumpThisSegment;
-    PVOID HeapAddrToDump, SegmentAddrToDump;
     NTSTATUS Status;
     PROCESS_BASIC_INFORMATION ProcessInformation;
-    HEAP_SUMMARY HeapSummary;
+    PEB ThePeb;
 
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpCheckControlCRoutine = lpExtensionApis->lpCheckControlCRoutine;
+    INIT_API();
 
-    HeapAddrToDump = (PVOID)-1;
-    Verbose = FALSE;
-    ShowSummary = FALSE;
-    ShowFreeLists = FALSE;
-    ShowAllEntries = FALSE;
-    ForceDump = FALSE;
-    p = lpArgumentString;
-    while ( p != NULL && *p ) {
-        if ( *p == '-' ) {
-            p++;
-            switch ( *p ) {
-                case 'X':
-                case 'x':
-                    ForceDump = TRUE;
-                    break;
-
-                case 'A':
-                case 'a':
-                    ShowAllEntries = TRUE;
-                    p++;
-                    break;
-
-                case 'V':
-                case 'v':
-                    Verbose = TRUE;
-                    p++;
-                    break;
-
-                case 'F':
-                case 'f':
-                    ShowFreeLists = TRUE;
-                    ShowAllEntries = TRUE;
-                    p++;
-                    break;
-
-                case 'S':
-                case 's':
-                    ShowSummary = TRUE;
-                    p++;
-                    break;
-
-                case ' ':
-                    goto gotBlank;
-
-                default:
-                    (lpOutputRoutine)( "NTSDEXTS: !heap invalid option flag '-%c'\n", *p );
-                    break;
-                }
-            }
-        else
-        if (*p != ' ') {
-            sscanf(p,"%lx",&HeapAddrToDump);
-            p = strpbrk( p, " " );
-            }
-        else {
-gotBlank:
-            p++;
-            }
-        }
-
-    if (HeapAddrToDump == (PVOID)-1) {
-        Status = NtQueryInformationProcess( hCurrentProcess,
-                                            ProcessBasicInformation,
-                                            &ProcessInformation,
-                                            sizeof( ProcessInformation ),
-                                            NULL
-                                          );
-        if (!NT_SUCCESS( Status )) {
-            b = FALSE;
-            }
-        else {
-            b = ReadProcessMemory(
-                    hCurrentProcess,
-                    (LPVOID)&ProcessInformation.PebBaseAddress->ProcessHeap,
-                    &HeapAddrToDump,
-                    sizeof(HeapAddrToDump),
-                    NULL
-                    );
-            }
-
-        if ( !b ) {
-            (lpOutputRoutine)("    Unabled to read RtlProcessHeap()\n" );
-            HeapAddrToDump = NULL;
-            }
-        }
-
-    //
-    // Locate the address of the list head.
-    //
-
-    HeapListHead = (PVOID)(lpGetExpressionRoutine)("&ntdll!RtlpProcessHeapsList");
-    if ( !HeapListHead ) {
-        return;
-        }
-
-    //
-    // Read the list head
-    //
-
-    b = ReadProcessMemory(
-            hCurrentProcess,
-            (LPVOID)HeapListHead,
-            &ListHead,
-            sizeof(ListHead),
-            NULL
-            );
-    if ( !b ) {
-        return;
-        }
-    Next = ListHead.Flink;
-
-    //
-    // Walk the list of heaps
-    //
-    while ( ForceDump || (Next != HeapListHead) ) {
-        if (ForceDump && HeapAddrToDump != NULL) {
-            HeapAddress = HeapAddrToDump;
-            }
-        else {
-            HeapAddress = CONTAINING_RECORD( Next, HEAP, ProcessHeapsList );
-            }
-        b = ReadProcessMemory(
-                hCurrentProcess,
-                (LPVOID)HeapAddress,
-                &CapturedHeap,
-                sizeof(CapturedHeap),
-                NULL
-                );
-        if ( !b ) {
-            (lpOutputRoutine)("    Unabled to read _HEAP structure at %08x\n", HeapAddress );
-            return;
-            }
-
-        RtlZeroMemory( &HeapSummary, sizeof( HeapSummary ) );
-        if ((HeapAddrToDump == NULL && Verbose) ||
-            HeapAddrToDump == HeapAddress
-           ) {
-            DumpThisHeap = TRUE;
-            DumpHEAP( hCurrentProcess,
-                      lpExtensionApis,
-                      HeapAddress,
-                      &CapturedHeap,
-                      ShowSummary ? &HeapSummary : NULL,
-                      ShowFreeLists
-                    );
-            }
-        else
-        if (HeapAddrToDump == NULL) {
-            DumpThisHeap = ShowAllEntries;
-            }
-        else {
-            DumpThisHeap = FALSE;
-            }
-
-        for (i=0; i<HEAP_MAXIMUM_SEGMENTS; i++) {
-            if (CapturedHeap.Segments[ i ] != NULL) {
-                b = ReadProcessMemory(
-                        hCurrentProcess,
-                        (LPVOID)CapturedHeap.Segments[ i ],
-                        &CapturedSegment,
-                        sizeof(CapturedSegment),
-                        NULL
-                        );
-                if ( !b ) {
-                    (lpOutputRoutine)("    Unabled to read _HEAP_SEGMENT structure at %08x\n", CapturedHeap.Segments[ i ] );
-                    return;
-                    }
-
-                if (DumpThisHeap ||
-                    HeapAddrToDump == CapturedHeap.Segments[ i ]
-                   ) {
-                    DumpThisSegment = TRUE;
-                    if (ShowSummary ||
-                        HeapAddrToDump == CapturedHeap.Segments[ i ]
-                       ) {
-                        SegmentAddrToDump = (PVOID)-1;
-                        }
-                    else
-                    if (ShowAllEntries &&
-                        (HeapAddrToDump == NULL || HeapAddrToDump == HeapAddress)
-                       ) {
-                        SegmentAddrToDump = (PVOID)-1;
-                        }
-                    else {
-                        SegmentAddrToDump = HeapAddrToDump;
-                        }
-                    }
-                else
-                if (HeapAddrToDump != NULL &&
-                    (ULONG)HeapAddrToDump >= (ULONG)CapturedSegment.BaseAddress &&
-                    (ULONG)HeapAddrToDump < (ULONG)CapturedSegment.LastValidEntry
-                   ) {
-                    DumpThisSegment = TRUE;
-                    SegmentAddrToDump = HeapAddrToDump;
-                    }
-                else {
-                    DumpThisSegment = FALSE;
-                    }
-
-                if (DumpThisSegment) {
-                    if (!DumpThisHeap) {
-                        DumpHEAP( hCurrentProcess,
-                                  lpExtensionApis,
-                                  HeapAddress,
-                                  &CapturedHeap,
-                                  ShowSummary ? &HeapSummary : NULL,
-                                  ShowFreeLists
-                                );
-                        DumpThisHeap = TRUE;
-                        }
-
-                    DumpHEAP_SEGMENT( hCurrentProcess,
-                                      lpExtensionApis,
-                                      HeapAddress,
-                                      &CapturedHeap,
-                                      &CapturedSegment,
-                                      i,
-                                      ShowSummary ? &HeapSummary : NULL,
-                                      SegmentAddrToDump
-                                    );
-                    }
-
-                if (DumpThisHeap && ShowSummary) {
-                    (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                                      HeapSummary.CommittedSize,
-                                      HeapSummary.AllocatedSize,
-                                      HeapSummary.FreeSize,
-                                      HeapSummary.OverheadSize
-                                     );
-                    }
-                }
-
-            if ((lpCheckControlCRoutine)()) {
-                return;
-                }
-            }
-
-        if (Next == NULL) {
-            break;
-            }
-
-        Next = CapturedHeap.ProcessHeapsList.Flink;
-        if ( Next != HeapListHead ) {
-            (lpOutputRoutine)("\n" );
-            }
-
-        if (HeapAddrToDump != NULL && (ForceDump || DumpThisHeap)) {
-            break;
-            }
-
-        if ((lpCheckControlCRoutine)()) {
-            return;
-            }
-        }
-}
-
-
-VOID
-DumpHEAP(
-    IN HANDLE hCurrentProcess,
-    IN PNTSD_EXTENSION_APIS lpExtensionApis,
-    IN PHEAP HeapAddress,
-    IN PHEAP Heap,
-    IN PHEAP_SUMMARY HeapSummary,
-    IN BOOL ShowFreeLists
-    )
-{
-    BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_CHECK_CONTROL_C lpCheckControlCRoutine;
-    PVOID FreeListHead;
-    ULONG i;
-    PLIST_ENTRY Next;
-    PHEAP_FREE_ENTRY FreeEntryAddress;
-    HEAP_FREE_ENTRY FreeEntry;
-    PHEAP_UCR_SEGMENT UCRSegment;
-    HEAP_UCR_SEGMENT CapturedUCRSegment;
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpCheckControlCRoutine = lpExtensionApis->lpCheckControlCRoutine;
-
-    (lpOutputRoutine)("Heap at %08x\n", HeapAddress);
-    (lpOutputRoutine)("    Flags:               %08x\n", Heap->Flags );
-    (lpOutputRoutine)("    ForceFlags:          %08x\n", Heap->ForceFlags );
-    (lpOutputRoutine)("    Segment Reserve:     %08x\n", Heap->SegmentReserve );
-    (lpOutputRoutine)("    Segment Commit:      %08x\n", Heap->SegmentCommit );
-    (lpOutputRoutine)("    DeCommit Block Thres:%08x\n", Heap->DeCommitFreeBlockThreshold );
-    (lpOutputRoutine)("    DeCommit Total Thres:%08x\n", Heap->DeCommitTotalFreeThreshold );
-    (lpOutputRoutine)("    Total Free Size:     %08x\n", Heap->TotalFreeSize );
-    (lpOutputRoutine)("    Lock Variable at:    %08x\n", Heap->LockVariable );
-    if (Heap->TraceBuffer) {
-        (lpOutputRoutine)("    Trace Buffer at:     %08x\n", Heap->TraceBuffer );
-        lpLastTraceBufferForHeap = Heap->TraceBuffer;
-        }
-    (lpOutputRoutine)("    UCR FreeList:        %08x\n", Heap->UnusedUnCommittedRanges );
-    UCRSegment = Heap->UCRSegments;
-    while (UCRSegment != NULL) {
-        b = ReadProcessMemory(
-                hCurrentProcess,
-                (LPVOID)UCRSegment,
-                &CapturedUCRSegment,
-                sizeof(CapturedUCRSegment),
-                NULL
-                );
-        if ( !b ) {
-            (lpOutputRoutine)("    Unabled to read _HEAP_UCR_SEGMENT structure at %08x\n", UCRSegment );
-            break;
-            }
-        (lpOutputRoutine)("    UCRSegment - %08x: %08x . %08x\n",
-                          UCRSegment,
-                          CapturedUCRSegment.CommittedSize,
-                          CapturedUCRSegment.ReservedSize
-                         );
-
-        if (HeapSummary != NULL) {
-            HeapSummary->OverheadSize += CapturedUCRSegment.CommittedSize;
-            }
-
-        UCRSegment = CapturedUCRSegment.Next;
-        }
-    (lpOutputRoutine)("    FreeList Usage:      %08x %08x %08x %08x\n",
-                      Heap->u.FreeListsInUseUlong[0],
-                      Heap->u.FreeListsInUseUlong[1],
-                      Heap->u.FreeListsInUseUlong[2],
-                      Heap->u.FreeListsInUseUlong[3]
-                     );
-    if (HeapSummary != NULL) {
-        HeapSummary->OverheadSize += sizeof( *Heap );
-        (lpOutputRoutine)("Committed   Allocated     Free      OverHead\n");
-        (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                          HeapSummary->CommittedSize,
-                          HeapSummary->AllocatedSize,
-                          HeapSummary->FreeSize,
-                          HeapSummary->OverheadSize
-                         );
-        return;
-        }
-
-    for (i=0; i<HEAP_MAXIMUM_FREELISTS; i++) {
-        FreeListHead = &HeapAddress->FreeLists[ i ];
-        if (Heap->FreeLists[ i ].Flink != Heap->FreeLists[ i ].Blink ||
-            Heap->FreeLists[ i ].Flink != FreeListHead
-           ) {
-            (lpOutputRoutine)("    FreeList[ %02x ]: %08x . %08x\n",
-                              i,
-                              Heap->FreeLists[ i ].Blink,
-                              Heap->FreeLists[ i ].Flink
-                             );
-            if (ShowFreeLists) {
-                Next = Heap->FreeLists[ i ].Flink;
-                while (Next != FreeListHead) {
-                    FreeEntryAddress = CONTAINING_RECORD( Next, HEAP_FREE_ENTRY, FreeList );
-                    b = ReadProcessMemory(
-                            hCurrentProcess,
-                            (LPVOID)FreeEntryAddress,
-                            &FreeEntry,
-                            sizeof(FreeEntry),
-                            NULL
-                            );
-                    if ( !b ) {
-                        (lpOutputRoutine)("    Unabled to read _HEAP_ENTRY structure at %08x\n", FreeEntryAddress );
-                        break;
-                        }
-
-                    (lpOutputRoutine)("        %08x: %05x . %05x [%02x] - free (%02x,%02x)\n",
-                                      FreeEntryAddress,
-                                      FreeEntry.PreviousSize << HEAP_GRANULARITY_SHIFT,
-                                      FreeEntry.Size << HEAP_GRANULARITY_SHIFT,
-                                      FreeEntry.Flags,
-                                      FreeEntry.Index,
-                                      FreeEntry.Mask
-                                     );
-
-                    Next = FreeEntry.FreeList.Flink;
-
-                    if ((lpCheckControlCRoutine)()) {
-                        return;
-                        }
-                    }
-                }
-            }
-        }
-}
-
-
-VOID
-DumpHEAP_SEGMENT(
-    IN HANDLE hCurrentProcess,
-    IN PNTSD_EXTENSION_APIS lpExtensionApis,
-    IN PVOID HeapAddress,
-    IN PHEAP Heap,
-    IN PHEAP_SEGMENT Segment,
-    IN ULONG SegmentNumber,
-    IN PHEAP_SUMMARY HeapSummary,
-    IN PVOID EntryAddress
-    )
-{
-    BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_CHECK_CONTROL_C lpCheckControlCRoutine;
-    PHEAP_ENTRY FirstEntry;
-    HEAP_ENTRY Entry;
-    HEAP_ENTRY_EXTRA EntryExtra;
-    PHEAP_UNCOMMMTTED_RANGE UnCommittedRanges;
-    PHEAP_UNCOMMMTTED_RANGE Buffer, UnCommittedRange, UnCommittedRangeEnd;
-
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpCheckControlCRoutine = lpExtensionApis->lpCheckControlCRoutine;
-
-    if (HeapSummary != NULL) {
-        HeapSummary->OverheadSize += sizeof( *Segment );
-        (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                          HeapSummary->CommittedSize,
-                          HeapSummary->AllocatedSize,
-                          HeapSummary->FreeSize,
-                          HeapSummary->OverheadSize
-                         );
-        }
-
-    if (HeapSummary == NULL) {
-        (lpOutputRoutine)("    Segment%02u at %08x:\n", SegmentNumber, Heap->Segments[ SegmentNumber ] );
-        (lpOutputRoutine)("        Flags:           %08x\n", Segment->Flags );
-        (lpOutputRoutine)("        Base:            %08x\n", Segment->BaseAddress );
-        (lpOutputRoutine)("        First Entry:     %08x\n", Segment->FirstEntry );
-        (lpOutputRoutine)("        Last Entry:      %08x\n", Segment->LastValidEntry );
-        (lpOutputRoutine)("        Total Pages:     %08x\n", Segment->NumberOfPages );
-        (lpOutputRoutine)("        Total UnCommit:  %08x\n", Segment->NumberOfUnCommittedPages );
-        (lpOutputRoutine)("        Largest UnCommit:%08x\n", Segment->LargestUnCommittedRange );
-        (lpOutputRoutine)("        UnCommitted Ranges: (%u)\n", Segment->NumberOfUnCommittedRanges );
-        }
-
-    Buffer = RtlAllocateHeap( RtlProcessHeap(), 0,
-                              Segment->NumberOfUnCommittedRanges * sizeof( *UnCommittedRange )
-                            );
-    if (Buffer == NULL) {
-        (lpOutputRoutine)("            unable to allocate memory for reading uncommitted ranges\n" );
-        return;
-        }
-
-    UnCommittedRanges = Segment->UnCommittedRanges;
-    UnCommittedRange = Buffer;
-    while (UnCommittedRanges != NULL) {
-        b = ReadProcessMemory(
-                hCurrentProcess,
-                (LPVOID)UnCommittedRanges,
-                UnCommittedRange,
-                sizeof( *UnCommittedRange ),
-                NULL
-                );
-        if ( !b ) {
-            (lpOutputRoutine)("            unable to read uncommited range structure at %x\n",
-                    UnCommittedRanges );
-            RtlFreeHeap( RtlProcessHeap(), 0, Buffer );
-            return;
-            }
-
-        if (HeapSummary == NULL) {
-            (lpOutputRoutine)("            %08x: %08x\n", UnCommittedRange->Address, UnCommittedRange->Size );
-            }
-
-        UnCommittedRanges = UnCommittedRange->Next;
-        UnCommittedRange->Next = (UnCommittedRange+1);
-        UnCommittedRange += 1;
-
-        if ((lpCheckControlCRoutine)()) {
-            RtlFreeHeap( RtlProcessHeap(), 0, Buffer );
-            return;
-            }
-        }
-
-    if (HeapSummary == NULL) {
-        (lpOutputRoutine)("\n" );
+    Status = NtQueryInformationProcess( ExtensionCurrentProcess,
+                                        ProcessBasicInformation,
+                                        &ProcessInformation,
+                                        sizeof( ProcessInformation ),
+                                        NULL
+                                      );
+    if (!NT_SUCCESS( Status )) {
+        b = FALSE;
         }
     else {
-        HeapSummary->CommittedSize += ( Segment->NumberOfPages -
-                                        Segment->NumberOfUnCommittedPages
-                                      ) * PAGE_SIZE;
-        (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                          HeapSummary->CommittedSize,
-                          HeapSummary->AllocatedSize,
-                          HeapSummary->FreeSize,
-                          HeapSummary->OverheadSize
-                         );
+        b = ReadMemory( (LPVOID)ProcessInformation.PebBaseAddress,
+                        &ThePeb,
+                        sizeof(ThePeb),
+                        NULL
+                      );
         }
 
-    if (((ULONG)EntryAddress == -1) || (HeapSummary != NULL) ||
-        ((ULONG)EntryAddress >= (ULONG)Segment->BaseAddress &&
-         (ULONG)EntryAddress < (ULONG)Segment->LastValidEntry
-        )
-       ) {
-        if (HeapSummary == NULL) {
-            (lpOutputRoutine)("    Heap entries:\n");
-            }
-
-        UnCommittedRangeEnd = UnCommittedRange;
-        UnCommittedRange = Buffer;
-        if (Segment->BaseAddress == HeapAddress) {
-            FirstEntry = &((PHEAP)HeapAddress)->Entry;
-            }
-        else {
-            FirstEntry = &Heap->Segments[ SegmentNumber ]->Entry;
-            }
-
-        if ((ULONG)EntryAddress != -1) {
-            //
-            // Find commited range containing entry address
-            //
-
-            while (UnCommittedRange < UnCommittedRangeEnd) {
-                if ((ULONG)EntryAddress >= (ULONG)FirstEntry &&
-                    (ULONG)EntryAddress < (ULONG)UnCommittedRange->Address
-                   ) {
-                    break;
-                    }
-
-                FirstEntry = (PHEAP_ENTRY)(UnCommittedRange->Address + UnCommittedRange->Size);
-                UnCommittedRange += 1;
-                }
-            }
-
-        while (FirstEntry < Segment->LastValidEntry) {
-            b = ReadProcessMemory(
-                    hCurrentProcess,
-                    (LPVOID)FirstEntry,
-                    &Entry,
-                    sizeof( Entry ),
-                    NULL
-                    );
-            if ( !b ) {
-                (lpOutputRoutine)("            unable to read heap entry at %08x\n", FirstEntry );
-                break;
-                }
-
-            if (HeapSummary == NULL) {
-                (lpOutputRoutine)("        %08x: %05x . %05x [%02x]",
-                                  FirstEntry,
-                                  Entry.PreviousSize << HEAP_GRANULARITY_SHIFT,
-                                  Entry.Size << HEAP_GRANULARITY_SHIFT,
-                                  Entry.Flags
-                                 );
-                }
-            if (Entry.Flags & HEAP_ENTRY_BUSY) {
-                if (HeapSummary == NULL) {
-                    (lpOutputRoutine)(" - busy (%x)",
-                                      (Entry.Size << HEAP_GRANULARITY_SHIFT) - Entry.UnusedBytes
-                                     );
-                    if (Entry.Flags & HEAP_ENTRY_FILL_PATTERN) {
-                        (lpOutputRoutine)(", tail fill" );
-                        }
-                    if (Entry.Flags & HEAP_ENTRY_EXTRA_PRESENT) {
-                        b = ReadProcessMemory(
-                                hCurrentProcess,
-                                (LPVOID)(FirstEntry + Entry.Size - 1),
-                                &EntryExtra,
-                                sizeof( EntryExtra ),
-                                NULL
-                                );
-                        if ( !b ) {
-                            (lpOutputRoutine)("            unable to read heap entry extra at %08x\n", FirstEntry + Entry.Size - 1 );
-                            break;
-                            }
-
-                        if (EntryExtra.Settable) {
-                            (lpOutputRoutine)(" (Handle %08x)", EntryExtra.Settable );
-                            }
-                        }
-                    if (Entry.Flags & HEAP_ENTRY_SETTABLE_FLAGS) {
-                        (lpOutputRoutine)(", user flags (%x)", (Entry.Flags & HEAP_ENTRY_SETTABLE_FLAGS) >> 5 );
-                        }
-
-                    (lpOutputRoutine)("\n" );
-                    }
-                else {
-                    HeapSummary->AllocatedSize += Entry.Size << HEAP_GRANULARITY_SHIFT;
-                    HeapSummary->AllocatedSize -= Entry.UnusedBytes;
-                    HeapSummary->OverheadSize += Entry.UnusedBytes;
-                    }
-                }
-            else {
-                if (HeapSummary == NULL) {
-                    (lpOutputRoutine)(" - free (%02x,%02x)\n",
-                                      ((PHEAP_FREE_ENTRY)&Entry)->Index,
-                                      ((PHEAP_FREE_ENTRY)&Entry)->Mask
-                                     );
-                    }
-                else {
-                    HeapSummary->FreeSize += Entry.Size << HEAP_GRANULARITY_SHIFT;
-                    }
-                }
-
-            if ((HeapSummary == NULL) &&
-                (ULONG)EntryAddress != -1 &&
-                (ULONG)FirstEntry > (ULONG)EntryAddress
-               ) {
-                break;
-                }
-
-            if (Entry.Flags & HEAP_ENTRY_LAST_ENTRY) {
-                if (HeapSummary != NULL) {
-                    (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                                      HeapSummary->CommittedSize,
-                                      HeapSummary->AllocatedSize,
-                                      HeapSummary->FreeSize,
-                                      HeapSummary->OverheadSize
-                                     );
-                    }
-
-                FirstEntry += Entry.Size;
-                if ((ULONG)FirstEntry == UnCommittedRange->Address) {
-                    if (HeapSummary == NULL) {
-                        (lpOutputRoutine)("        %08x:      %08x      - uncommitted bytes.\n",
-                                UnCommittedRange->Address,
-                                UnCommittedRange->Size
-                               );
-                        }
-
-                    FirstEntry = (PHEAP_ENTRY)
-                        ((PCHAR)UnCommittedRange->Address + UnCommittedRange->Size);
-
-                    UnCommittedRange += 1;
-                    }
-                else {
-                    break;
-                    }
-                }
-            else {
-                FirstEntry += Entry.Size;
-                }
-
-            if (Entry.Size == 0 || (lpCheckControlCRoutine)()) {
-                break;
-                }
-            }
+    if ( !b ) {
+        dprintf("    Unabled to read Process PEB\n" );
+        memset( &ThePeb, 0, sizeof( ThePeb ) );
         }
 
-    RtlFreeHeap( RtlProcessHeap(), 0, Buffer );
-    if (HeapSummary != NULL) {
-        (lpOutputRoutine)("% 8x    % 8x      % 8x  % 8x\r",
-                          HeapSummary->CommittedSize,
-                          HeapSummary->AllocatedSize,
-                          HeapSummary->FreeSize,
-                          HeapSummary->OverheadSize
-                         );
-        }
-
-    return;
+    HeapExtension( (PCSTR)lpArgumentString, &ThePeb );
 }
 
-
-
-
-
-VOID DumpAtomTable(
-HANDLE hCurrentProcess,
-PNTSD_OUTPUT_ROUTINE Print,
-PATOM_TABLE *ppat,
-ATOM a)
-{
-    ATOM_TABLE at, *pat;
-    ATOM_TABLE_ENTRY ate, *pate;
-    int iBucket;
-    LPWSTR pwsz;
-    HEAP_ENTRY he;
-    HEAP_ENTRY_EXTRA hex;
-    BOOL fFirst;
-
-    move(pat, ppat);
-    if (pat == NULL) {
-        Print("is not initialized.\n");
-        return;
-    }
-    move(at, pat);
-    if (a) {
-        Print("\n");
-    } else {
-        Print("at %x has %d buckets\n", pat, at.NumberOfBuckets);
-    }
-    for (iBucket = 0; iBucket < (int)at.NumberOfBuckets; iBucket++) {
-        move(pate, &pat->Buckets[iBucket]);
-        if (pate != NULL && !a) {
-            Print("Bucket %2d:", iBucket);
-        }
-        fFirst = TRUE;
-        while (pate != NULL) {
-            if (!fFirst && !a) {
-                Print("          ");
-            }
-            fFirst = FALSE;
-            move(ate, pate);
-            pwsz = (LPWSTR)LocalAlloc(LPTR, (ate.Name.Length + 1) * sizeof(WCHAR));
-            moveBlock(*pwsz, ate.Name.Buffer, ate.Name.Length * sizeof(WCHAR));
-            pwsz[ate.Name.Length >> 1] = L'\0';
-            move(he, ((PHEAP_ENTRY)pate) - 1);
-            if (he.Flags & HEAP_ENTRY_EXTRA_PRESENT) {
-                move(hex, ((PHEAP_ENTRY)pate + he.Size - 2));
-                }
-            else {
-                hex.Settable = 0;
-                }
-            if (a == 0 ||
-                    a == (ATOM)(((PBASE_HANDLE_TABLE_ENTRY)hex.Settable -
-                    at.HandleTable.CommittedHandles) | MAXINTATOM)) {
-                Print("%hx(%2d) = %ls\n",
-                        (ATOM)((PBASE_HANDLE_TABLE_ENTRY)hex.Settable -
-                        at.HandleTable.CommittedHandles) | MAXINTATOM,
-                        ate.ReferenceCount,
-                        pwsz);
-                if (a) {
-                    LocalFree(pwsz);
-                    return;
-                }
-            }
-            LocalFree(pwsz);
-            pate = ate.HashLink;
-        }
-    }
-    if (a)
-        Print("\n");
-}
-
-
+#include "heapext.c"
 
 
 VOID
-atom(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+AtomExtension(
+    PCSTR lpArgumentString
+    );
+
+
+
+DECLARE_API( atom )
 
 /*++
 
@@ -1923,405 +1760,241 @@ Return Value:
 --*/
 
 {
-    PNTSD_OUTPUT_ROUTINE Print;
-    PNTSD_GET_EXPRESSION EvalExpression;
-    PATOM_TABLE *ppat;
-    ATOM a;
-    WINDOWSTATION winsta;
-    PWINDOWSTATION pwinsta, *ppwinsta;
+    INIT_API();
 
-    Print = lpExtensionApis->lpOutputRoutine;
-    EvalExpression = lpExtensionApis->lpGetExpressionRoutine;
+    AtomExtension( (PCSTR)lpArgumentString );
+}
 
-    try {
-        while (*lpArgumentString == ' ') {
-            lpArgumentString++;
+#include "atomext.c"
+
+DECLARE_API( gatom )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump the global atom table
+    kept in kernel mode
+
+    Called as:
+
+        !gatom
+
+Arguments:
+
+    hCurrentProcess - Supplies a handle to the current process (at the
+        time the extension was called).
+
+    hCurrentThread - Supplies a handle to the current thread (at the
+        time the extension was called).
+
+    CurrentPc - Supplies the current pc at the time the extension is
+        called.
+
+    lpExtensionApis - Supplies the address of the functions callable
+        by this extension.
+
+    lpArgumentString - Supplies the pattern and expression for this
+        command.
+
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS Status;
+    ATOM_TABLE_INFORMATION TableInfo;
+    PATOM_TABLE_INFORMATION pTableInfo;
+    PATOM_BASIC_INFORMATION pBasicInfo;
+    ULONG RequiredLength, MaxLength, i;
+
+    INIT_API();
+
+    dprintf("\nGlobal atom table ");
+    Status = NtQueryInformationAtom( RTL_ATOM_INVALID_ATOM,
+                                     AtomTableInformation,
+                                     &TableInfo,
+                                     sizeof( TableInfo ),
+                                     &RequiredLength
+                                   );
+    if (Status != STATUS_INFO_LENGTH_MISMATCH) {
+        dprintf( " - cant get information - %x\n", Status );
+        return;
         }
 
-        if (*lpArgumentString && *lpArgumentString != 0xa) {
-            a = (ATOM)EvalExpression(lpArgumentString);
-        } else {
-            a = 0;
+    RequiredLength += 100 * sizeof( RTL_ATOM );
+    pTableInfo = LocalAlloc( 0, RequiredLength );
+    if (pTableInfo == NULL) {
+        dprintf( " - cant allocate memory for %u atoms\n", RequiredLength / sizeof( RTL_ATOM ) );
+        return;
         }
 
-        ppat = (PATOM_TABLE *)EvalExpression(szBaseLocalAtomTable);
-        if (ppat != NULL) {
-            Print("\nLocal table ");
-            DumpAtomTable(hCurrentProcess, Print, ppat, a);
+    Status = NtQueryInformationAtom( RTL_ATOM_INVALID_ATOM,
+                                     AtomTableInformation,
+                                     pTableInfo,
+                                     RequiredLength,
+                                     &RequiredLength
+                                   );
+    if (!NT_SUCCESS( Status )) {
+        dprintf( " - cant get information about %x atoms - %x\n", RequiredLength / sizeof( RTL_ATOM ), Status );
+        LocalFree( pTableInfo );
+        return;
         }
 
-        ppwinsta = (PWINDOWSTATION *)EvalExpression(szUserWinstaList);
-        if (ppwinsta != NULL) {
-            move(pwinsta, ppwinsta);
-            while (pwinsta != NULL) {
-                move(winsta, pwinsta);
-                ppat = (PATOM_TABLE *)&winsta.pGlobalAtomTable;
-                if (ppat != NULL) {
-                    Print("\nGlobal atom table for window station %lx ",
-                            pwinsta);
-                    DumpAtomTable(hCurrentProcess, Print,
-                            ppat, a);
-                }
-                pwinsta = winsta.spwinstaNext;
+    MaxLength = sizeof( *pBasicInfo ) + RTL_ATOM_MAXIMUM_NAME_LENGTH;
+    pBasicInfo = LocalAlloc( 0, MaxLength );
+    for (i=0; i<pTableInfo->NumberOfAtoms; i++) {
+        Status = NtQueryInformationAtom( pTableInfo->Atoms[ i ],
+                                         AtomBasicInformation,
+                                         pBasicInfo,
+                                         MaxLength,
+                                         &RequiredLength
+                                       );
+        if (!NT_SUCCESS( Status )) {
+            dprintf( "%hx *** query failed (%x)\n", Status );
+            }
+        else {
+            dprintf( "%hx(%2d) = %ls (%d)%s\n",
+                     pTableInfo->Atoms[ i ],
+                     pBasicInfo->UsageCount,
+                     pBasicInfo->Name,
+                     pBasicInfo->NameLength,
+                     pBasicInfo->Flags & RTL_ATOM_PINNED ? " pinned" : ""
+                   );
             }
         }
-
-    } except (EXCEPTION_EXECUTE_HANDLER) {
-        ;
-    }
-}
-
-
-
-//
-// Simple routine to convert from hex into a string of characters.
-// Used by debugger extensions.
-//
-// by scottlu
-//
-
-char *
-HexToString(
-    ULONG dw,
-    CHAR *pch
-    )
-{
-    if (dw > 0xf) {
-        pch = HexToString(dw >> 4, pch);
-        dw &= 0xf;
-    }
-
-    *pch++ = ((dw >= 0xA) ? ('A' - 0xA) : '0') + (CHAR)dw;
-    *pch = 0;
-
-    return pch;
-}
-
-
-//
-// dt == dump thread
-//
-// dt [v] pcsr_thread
-// v == verbose (structure)
-//
-// by scottlu
-//
-
-VOID
-dt(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
-{
-    PNTSD_OUTPUT_ROUTINE Print;
-    PNTSD_GET_EXPRESSION EvalExpression;
-    PNTSD_GET_SYMBOL GetSymbol;
-
-    char chVerbose;
-    CSR_THREAD csrt;
-    ULONG dw;
-
-    Print = lpExtensionApis->lpOutputRoutine;
-    EvalExpression = lpExtensionApis->lpGetExpressionRoutine;
-    GetSymbol = lpExtensionApis->lpGetSymbolRoutine;
-
-    while (*lpArgumentString == ' ')
-        lpArgumentString++;
-
-    chVerbose = ' ';
-    if (*lpArgumentString == 'v')
-        chVerbose = *lpArgumentString++;
-
-    dw = (ULONG)EvalExpression(lpArgumentString);
-    move(csrt, dw);
-
-    //
-    // Print simple thread info if the user did not ask for verbose.
-    //
-    if (chVerbose == ' ') {
-        Print("Thread %08lx, Process %08lx, ClientId %lx.%lx, Flags %lx, Ref Count %lx\n",
-                dw,
-                csrt.Process,
-                csrt.ClientId.UniqueProcess,
-                csrt.ClientId.UniqueThread,
-                csrt.Flags,
-                csrt.ReferenceCount);
-        return;
-    }
-
-    Print("PCSR_THREAD @ %08lx:\n"
-            "\t+%04lx Link.Flink                %08lx\n"
-            "\t+%04lx Link.Blink                %08lx\n"
-            "\t+%04lx Process                   %08lx\n",
-            dw,
-            FIELD_OFFSET(CSR_THREAD, Link.Flink), csrt.Link.Flink,
-            FIELD_OFFSET(CSR_THREAD, Link.Blink), csrt.Link.Blink,
-            FIELD_OFFSET(CSR_THREAD, Process), csrt.Process);
-
-    Print(
-            "\t+%04lx WaitBlock                 %08lx\n"
-            "\t+%04lx ClientId.UniqueProcess    %08lx\n"
-            "\t+%04lx ClientId.UniqueThread     %08lx\n"
-            "\t+%04lx ThreadHandle              %08lx\n",
-            FIELD_OFFSET(CSR_THREAD, WaitBlock), csrt.WaitBlock,
-            FIELD_OFFSET(CSR_THREAD, ClientId.UniqueProcess), csrt.ClientId.UniqueProcess,
-            FIELD_OFFSET(CSR_THREAD, ClientId.UniqueThread), csrt.ClientId.UniqueThread,
-            FIELD_OFFSET(CSR_THREAD, ThreadHandle), csrt.ThreadHandle);
-
-    Print(
-            "\t+%04lx Flags                     %08lx\n"
-            "\t+%04lx ReferenceCount            %08lx\n"
-            "\t+%04lx HashLinks.Flink           %08lx\n"
-            "\t+%04lx HashLinks.Blink           %08lx\n",
-            FIELD_OFFSET(CSR_THREAD, Flags), csrt.Flags,
-            FIELD_OFFSET(CSR_THREAD, ReferenceCount), csrt.ReferenceCount,
-            FIELD_OFFSET(CSR_THREAD, HashLinks.Flink), csrt.HashLinks.Flink,
-            FIELD_OFFSET(CSR_THREAD, HashLinks.Blink), csrt.HashLinks.Blink);
-
-    Print(
-            "\t+%04lx ShutDownStatus            %08lx\n"
-            "\t+%04lx ServerId                  %08lx\n"
-            "\t+%04lx ServerThread              %08lx\n",
-            FIELD_OFFSET(CSR_THREAD, ShutDownStatus), csrt.ShutDownStatus,
-            FIELD_OFFSET(CSR_THREAD, ServerId), csrt.ServerId,
-            FIELD_OFFSET(CSR_THREAD, ServerThread), csrt.ServerThread);
-
-    Print(
-            "\t+%04lx ThreadConnected           %08lx\n"
-            "\t+%04lx ClientEventPairHandle     %08lx\n"
-            "\t+%04lx ClientSectionHandle       %08lx\n"
-            "\t+%04lx ClientSharedMemoryBase    %08lx\n",
-            FIELD_OFFSET(CSR_THREAD, ThreadConnected), csrt.ThreadConnected,
-            FIELD_OFFSET(CSR_THREAD, ClientEventPairHandle), csrt.ClientEventPairHandle,
-            FIELD_OFFSET(CSR_THREAD, ClientSectionHandle), csrt.ClientSectionHandle,
-            FIELD_OFFSET(CSR_THREAD, ClientSharedMemoryBase), csrt.ClientSharedMemoryBase);
-
-    Print(
-            "\t+%04lx SharedMemorySize          %08lx\n"
-            "\t+%04lx Dying                     %08lx\n",
-            FIELD_OFFSET(CSR_THREAD, SharedMemorySize), csrt.SharedMemorySize,
-            FIELD_OFFSET(CSR_THREAD, Dying), csrt.Dying);
-
-    return;
-}
-
-//
-// dp == dump process
-//
-// dp [v] [pid | pcsr_process]
-//      v == verbose (structure + thread list)
-//      no process == dump process list
-//
-// by scottlu
-//
-
-VOID
-dp(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
-{
-    PNTSD_OUTPUT_ROUTINE Print;
-    PNTSD_GET_EXPRESSION EvalExpression;
-    PNTSD_GET_SYMBOL GetSymbol;
-
-    PLIST_ENTRY ListHead, ListNext;
-    char ach[80];
-    char chVerbose;
-    PCSR_PROCESS pcsrpT;
-    CSR_PROCESS csrp;
-    PCSR_PROCESS pcsrpRoot;
-    PCSR_THREAD pcsrt;
-    ULONG dwProcessId;
-    ULONG dw;
-    DWORD dwRootProcess;
-
-    Print = lpExtensionApis->lpOutputRoutine;
-    EvalExpression = lpExtensionApis->lpGetExpressionRoutine;
-    GetSymbol = lpExtensionApis->lpGetSymbolRoutine;
-
-    while (*lpArgumentString == ' ')
-        lpArgumentString++;
-
-    chVerbose = ' ';
-    if (*lpArgumentString == 'v')
-        chVerbose = *lpArgumentString++;
-
-    dwRootProcess = (EvalExpression)("&csrsrv!CsrRootProcess");
-    if ( !dwRootProcess ) {
-        return;
-        }
-
-    move(pcsrpRoot, dwRootProcess);
-
-    //
-    // See if user wants all processes. If so loop through them.
-    //
-    if (*lpArgumentString == 0) {
-        ListHead = &pcsrpRoot->ListLink;
-        move(ListNext, &ListHead->Flink);
-
-        while (ListNext != ListHead) {
-            pcsrpT = CONTAINING_RECORD(ListNext, CSR_PROCESS, ListLink);
-
-            ach[0] = chVerbose;
-            ach[1] = ' ';
-            HexToString((ULONG)pcsrpT, &ach[2]);
-
-            dp(hCurrentProcess, hCurrentThread, dwCurrentPc, lpExtensionApis,
-                    ach);
-
-            move(ListNext, &ListNext->Flink);
-        }
-
-        Print("---\n");
-        return;
-    }
-
-    //
-    // User wants specific process structure. Evaluate to find id or process
-    // pointer.
-    //
-    dw = (ULONG)EvalExpression(lpArgumentString);
-
-    ListHead = &pcsrpRoot->ListLink;
-    move(ListNext, &ListHead->Flink);
-
-    while (ListNext != ListHead) {
-        pcsrpT = CONTAINING_RECORD(ListNext, CSR_PROCESS, ListLink);
-        move(ListNext, &ListNext->Flink);
-
-        move(dwProcessId, &pcsrpT->ClientId.UniqueProcess);
-        if (dw == dwProcessId) {
-            dw = (ULONG)pcsrpT;
-            break;
-        }
-    }
-
-    pcsrpT = (PCSR_PROCESS)dw;
-    move(csrp, pcsrpT);
-
-    //
-    // If not verbose, print simple process info.
-    //
-    if (chVerbose == ' ') {
-        Print("Process %08lx, Id %lx, Seq# %lx, Flags %lx, Ref Count %lx\n",
-                pcsrpT,
-                csrp.ClientId.UniqueProcess,
-                csrp.SequenceNumber,
-                csrp.Flags,
-                csrp.ReferenceCount);
-        return;
-    }
-
-    Print("PCSR_PROCESS @ %08lx:\n"
-            "\t+%04lx ListLink.Flink            %08lx\n"
-            "\t+%04lx ListLink.Blink            %08lx\n"
-            "\t+%04lx Parent                    %08lx\n",
-            pcsrpT,
-            FIELD_OFFSET(CSR_PROCESS, ListLink.Flink), csrp.ListLink.Flink,
-            FIELD_OFFSET(CSR_PROCESS, ListLink.Blink), csrp.ListLink.Blink,
-            FIELD_OFFSET(CSR_PROCESS, Parent), csrp.Parent);
-
-    Print(
-            "\t+%04lx ThreadList.Flink          %08lx\n"
-            "\t+%04lx ThreadList.Blink          %08lx\n"
-            "\t+%04lx NtSession                 %08lx\n"
-            "\t+%04lx ExpectedVersion           %08lx\n",
-            FIELD_OFFSET(CSR_PROCESS, ThreadList.Flink), csrp.ThreadList.Flink,
-            FIELD_OFFSET(CSR_PROCESS, ThreadList.Blink), csrp.ThreadList.Blink,
-            FIELD_OFFSET(CSR_PROCESS, NtSession), csrp.NtSession,
-            FIELD_OFFSET(CSR_PROCESS, ExpectedVersion), csrp.ExpectedVersion);
-
-    Print(
-            "\t+%04lx ClientPort                %08lx\n"
-            "\t+%04lx ClientViewBase            %08lx\n"
-            "\t+%04lx ClientViewBounds          %08lx\n"
-            "\t+%04lx ClientId.UniqueProcess    %08lx\n",
-            FIELD_OFFSET(CSR_PROCESS, ClientPort), csrp.ClientPort,
-            FIELD_OFFSET(CSR_PROCESS, ClientViewBase), csrp.ClientViewBase,
-            FIELD_OFFSET(CSR_PROCESS, ClientViewBounds), csrp.ClientViewBounds,
-            FIELD_OFFSET(CSR_PROCESS, ClientId.UniqueProcess), csrp.ClientId.UniqueProcess);
-
-    Print(
-            "\t+%04lx ProcessHandle             %08lx\n"
-            "\t+%04lx SequenceNumber            %08lx\n"
-            "\t+%04lx Flags                     %08lx\n"
-            "\t+%04lx DebugFlags                %08lx\n",
-            FIELD_OFFSET(CSR_PROCESS, ProcessHandle), csrp.ProcessHandle,
-            FIELD_OFFSET(CSR_PROCESS, SequenceNumber), csrp.SequenceNumber,
-            FIELD_OFFSET(CSR_PROCESS, Flags), csrp.Flags,
-            FIELD_OFFSET(CSR_PROCESS, DebugFlags), csrp.DebugFlags);
-
-    Print(
-            "\t+%04lx DebugUserInterface        %08lx\n"
-            "\t+%04lx ReferenceCount            %08lx\n"
-            "\t+%04lx ProcessGroupId            %08lx\n"
-            "\t+%04lx ProcessGroupSequence      %08lx\n",
-            FIELD_OFFSET(CSR_PROCESS, DebugUserInterface.UniqueProcess), csrp.DebugUserInterface.UniqueProcess,
-            FIELD_OFFSET(CSR_PROCESS, ReferenceCount), csrp.ReferenceCount,
-            FIELD_OFFSET(CSR_PROCESS, ProcessGroupId), csrp.ProcessGroupId,
-            FIELD_OFFSET(CSR_PROCESS, ProcessGroupSequence), csrp.ProcessGroupSequence);
-
-    Print(
-            "\t+%04lx fVDM                      %08lx\n"
-            "\t+%04lx ThreadCount               %08lx\n"
-            "\t+%04lx ForegroundPriority        %08lx\n"
-            "\t+%04lx BackgroundPriority        %08lx\n"
-            "\t+%04lx ShutdownLevel             %08lx\n"
-            "\t+%04lx ShutdownFlags             %08lx\n",
-            FIELD_OFFSET(CSR_PROCESS, fVDM), csrp.fVDM,
-            FIELD_OFFSET(CSR_PROCESS, ThreadCount), csrp.ThreadCount,
-            FIELD_OFFSET(CSR_PROCESS, ForegroundPriority), csrp.ForegroundPriority,
-            FIELD_OFFSET(CSR_PROCESS, BackgroundPriority), csrp.BackgroundPriority,
-            FIELD_OFFSET(CSR_PROCESS, ShutdownLevel), csrp.ShutdownLevel,
-            FIELD_OFFSET(CSR_PROCESS, ShutdownFlags), csrp.ShutdownFlags);
-
-    //
-    // Now dump simple thread info for this processes' threads.
-    //
-
-    ListHead = &pcsrpT->ThreadList;
-    move(ListNext, &ListHead->Flink);
-
-    Print("Threads:\n");
-
-    while (ListNext != ListHead) {
-        pcsrt = CONTAINING_RECORD(ListNext, CSR_THREAD, Link);
-
-        //
-        // Make sure this pcsrt is somewhat real so we don't loop forever.
-        //
-        move(dwProcessId, &pcsrt->ClientId.UniqueProcess);
-        if (dwProcessId != (DWORD)csrp.ClientId.UniqueProcess) {
-            Print("Invalid thread. Probably invalid argument to this extension.\n");
-            return;
-        }
-
-        HexToString((ULONG)pcsrt, ach);
-        dt(hCurrentProcess, hCurrentThread, dwCurrentPc, lpExtensionApis, ach);
-
-        move(ListNext, &ListNext->Flink);
-    }
-
-    return;
 }
 
 
 VOID
-trace(
-    HANDLE hCurrentProcess,
-    HANDLE hCurrentThread,
-    DWORD dwCurrentPc,
-    PNTSD_EXTENSION_APIS lpExtensionApis,
-    LPSTR lpArgumentString
-    )
+KUserExtension(
+    PCSTR lpArgumentString,
+    KUSER_SHARED_DATA * const SharedData
+    );
+
+
+DECLARE_API( kuser )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump the shared user mode
+    page (KUSER_SHARED_DATA)
+
+    Called as:
+
+        !kuser
+
+Arguments:
+
+    None
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    INIT_API();
+
+    KUserExtension( (PCSTR)lpArgumentString, USER_SHARED_DATA );
+}
+
+#include "kuserext.c"
+
+VOID
+PebExtension(
+    PCSTR lpArgumentString,
+    PPEB pPeb
+    );
+
+DECLARE_API( peb )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump the PEB
+
+    Called as:
+
+        !peb
+
+--*/
+
+{
+    NTSTATUS Status;
+    PROCESS_BASIC_INFORMATION ProcessInformation;
+
+    INIT_API();
+
+    Status = NtQueryInformationProcess( ExtensionCurrentProcess,
+                                        ProcessBasicInformation,
+                                        &ProcessInformation,
+                                        sizeof( ProcessInformation ),
+                                        NULL
+                                      );
+    if (!NT_SUCCESS( Status )) {
+        dprintf("    Unabled to query process PEB address (%x)\n", Status );
+        return;
+        }
+
+    PebExtension( (PCSTR)lpArgumentString, ProcessInformation.PebBaseAddress );
+}
+
+VOID
+TebExtension(
+    PCSTR lpArgumentString,
+    PTEB pTeb
+    );
+
+DECLARE_API( teb )
+
+/*++
+
+Routine Description:
+
+    This function is called as an NTSD extension to dump the TEB
+
+    Called as:
+
+        !teb
+
+--*/
+
+{
+    NTSTATUS Status;
+    THREAD_BASIC_INFORMATION ThreadInformation;
+
+    INIT_API();
+
+    Status = NtQueryInformationThread( hCurrentThread,
+                                       ThreadBasicInformation,
+                                       &ThreadInformation,
+                                       sizeof( ThreadInformation ),
+                                       NULL
+                                     );
+    if (!NT_SUCCESS( Status )) {
+        dprintf("    Unabled to query thread TEB address (%x)\n", Status );
+        return;
+        }
+
+    TebExtension( (PCSTR)lpArgumentString, ThreadInformation.TebBaseAddress );
+}
+
+#include "pebext.c"
+
+VOID
+TraceExtension(
+    PCSTR lpArgumentString
+    );
+
+DECLARE_API( trace )
 
 /*++
 
@@ -2331,7 +2004,7 @@ Routine Description:
 
     Called as:
 
-        !heap [address [detail]]
+        !trace [address [detail]]
 
     If an address if not given or an address of 0 is given, then the
     process heap is dumped.  If the address is -1, then all the heaps of
@@ -2368,228 +2041,255 @@ Return Value:
 --*/
 
 {
-    BOOL b;
-    PNTSD_OUTPUT_ROUTINE lpOutputRoutine;
-    PNTSD_GET_EXPRESSION lpGetExpressionRoutine;
-    PNTSD_CHECK_CONTROL_C lpCheckControlCRoutine;
-    LPSTR p;
-    ULONG i;
-    BOOL Verbose, ShowAllEntries;
-    PVOID TraceAddrToDump;
-    RTL_TRACE_BUFFER TraceBuffer;
-    RTL_TRACE_RECORD TraceRecord;
-    PCHAR *EventIdFormatString;
+    INIT_API();
 
-    lpOutputRoutine = lpExtensionApis->lpOutputRoutine;
-    lpGetExpressionRoutine = lpExtensionApis->lpGetExpressionRoutine;
-    lpCheckControlCRoutine = lpExtensionApis->lpCheckControlCRoutine;
+    TraceExtension( lpArgumentString );
+    return;
+}
 
-    TraceAddrToDump = (PVOID)-1;
-    Verbose = FALSE;
-    ShowAllEntries = FALSE;
-    p = lpArgumentString;
-    while ( p != NULL && *p ) {
-        if ( *p == '-' ) {
-            p++;
-            switch ( *p ) {
-                case 'A':
-                case 'a':
-                    ShowAllEntries = TRUE;
-                    p++;
-                    break;
+#include "traceext.c"
 
-                case 'V':
-                case 'v':
-                    Verbose = TRUE;
-                    p++;
-                    break;
+VOID
+ImageExtension(
+    PSTR lpArgs
+    );
 
-                case ' ':
-                    goto gotBlank;
+DECLARE_API( dh )
+{
+    INIT_API();
 
-                default:
-                    (lpOutputRoutine)( "NTSDEXTS: !trace invalid option flag '-%c'\n", *p );
-                    break;
-                }
-            }
-        else
-        if (*p != ' ') {
-            sscanf(p,"%lx",&TraceAddrToDump);
-            p = strpbrk( p, " " );
-            }
-        else {
-gotBlank:
-            p++;
-            }
-        }
+    ImageExtension((PSTR)lpArgumentString);
+    return;
+}
 
-    if (TraceAddrToDump == (PVOID)-1) {
-        TraceAddrToDump = lpLastTraceBufferForHeap;
-        }
+#include "imageext.c"
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
-            (LPVOID)TraceAddrToDump,
-            &TraceBuffer,
-            sizeof(TraceBuffer),
-            NULL
-            );
-    if ( !b ) {
-        (lpOutputRoutine)("    Unabled to read _RTL_TRACE_BUFFER structure at %08x\n", TraceAddrToDump );
-        return;
-        }
+///////////////////////////////////////////////////////////////////////////////
+
+VOID
+DebugPageHeapExtensionFind(
+    PCSTR ArgumentString
+    );
+
+DECLARE_API( dphfind )
+{
+    INIT_API();
+    DebugPageHeapExtensionFind( (PCSTR)lpArgumentString );
+}
+
+VOID
+DebugPageHeapExtensionDump(
+    PCSTR ArgumentString
+    );
+
+DECLARE_API( dphdump )
+{
+    INIT_API();
+    DebugPageHeapExtensionDump( (PCSTR)lpArgumentString );
+}
+
+VOID
+DebugPageHeapExtensionHogs(
+    PCSTR ArgumentString
+    );
+
+DECLARE_API( dphhogs )
+{
+    INIT_API();
+    DebugPageHeapExtensionHogs( (PCSTR)lpArgumentString );
+}
+
+#include "heappagx.c"
+
+#include "secexts.c"
 
 
-    (lpOutputRoutine)("Trace Buffer at %08x\n", TraceAddrToDump);
-    (lpOutputRoutine)("    NumberOfEventIds:    %08x\n", TraceBuffer.NumberOfEventIds );
-    (lpOutputRoutine)("    StartBuffer:         %08x\n", TraceBuffer.StartBuffer );
-    (lpOutputRoutine)("    EndBuffer:           %08x\n", TraceBuffer.EndBuffer );
-    (lpOutputRoutine)("    ReadRecord:          %08x\n", TraceBuffer.ReadRecord );
-    (lpOutputRoutine)("    WriteRecord:         %08x\n", TraceBuffer.WriteRecord );
-    EventIdFormatString = LocalAlloc( LPTR, TraceBuffer.NumberOfEventIds * sizeof( PCHAR ) );
-    if (EventIdFormatString == NULL) {
-        (lpOutputRoutine)("    Unabled to allocate space for EventIdFormatString array (%x)\n", TraceBuffer.NumberOfEventIds * sizeof( PCHAR ) );
-        return;
-        }
 
-    b = ReadProcessMemory(
-            hCurrentProcess,
-            (LPVOID)&((PRTL_TRACE_BUFFER)TraceAddrToDump)->EventIdFormatString,
-            EventIdFormatString,
-            TraceBuffer.NumberOfEventIds * sizeof( PCHAR ),
-            NULL
-            );
-    if ( !b ) {
-        (lpOutputRoutine)("    Unabled to read EventIdFormatString array at\n", (LPVOID)&((PRTL_TRACE_BUFFER)TraceAddrToDump)->EventIdFormatString );
-        return;
-        }
+/*++
 
-    for (i=0; i<TraceBuffer.NumberOfEventIds; i++) {
-        CHAR Buffer[ 256 ];
-        PCHAR s;
+Routine Description:
 
-        s = Buffer;
-        *s = '\0';
-        while (TRUE) {
-            b = ReadProcessMemory(
-                    hCurrentProcess,
-                    (LPVOID)EventIdFormatString[ i ],
-                    s,
-                    sizeof( *s ),
-                    NULL
-                    );
-            if ( !b ) {
-                (lpOutputRoutine)("    Unabled to read EventIdFormatString[ %x ] at %x\n", i, EventIdFormatString[ i ] );
-                return;
-                }
+    This function is called as an NTSD extension to mimic the !handle
+    kd command.  This will walk through the debuggee's handle table
+    and duplicate the handle into the ntsd process, then call NtQueryobjectInfo
+    to find out what it is.
 
-            if (*s == '\0') {
-                break;
-                }
-            EventIdFormatString[ i ] += 1;
-            s += 1;
-            }
+    Called as:
 
-        if (EventIdFormatString[ i ] = LocalAlloc( LPTR, strlen( Buffer )+1 )) {
-            strcpy( EventIdFormatString[ i ], Buffer );
-            }
-        else {
-            (lpOutputRoutine)("    Unabled to allocate space for EventIdFormatString[ %x] '%s'\n", i, Buffer );
+        !handle [handle [flags [Type]]]
+
+    If the handle is 0 or -1, all handles are scanned.  If the handle is not
+    zero, that particular handle is examined.  The flags are as follows
+    (corresponding to secexts.c):
+        1   - Get type information (default)
+        2   - Get basic information
+        4   - Get name information
+        8   - Get object specific info (where available)
+
+    If Type is specified, only object of that type are scanned.  Type is a
+    standard NT type name, e.g. Event, Semaphore, etc.  Case sensitive, of
+    course.
+
+    Examples:
+
+        !handle     -- dumps the types of all the handles, and a summary table
+        !handle 0 0 -- dumps a summary table of all the open handles
+        !handle 0 f -- dumps everything we can find about a handle.
+        !handle 0 f Event
+                    -- dumps everything we can find about open events
+
+--*/
+DECLARE_API( handle )
+{
+    HANDLE  hThere;
+    DWORD   Type;
+    PSTR    Args;
+    DWORD   Mask;
+    DWORD   HandleCount;
+    NTSTATUS Status;
+    DWORD   Total;
+    DWORD   TypeCounts[TYPE_MAX];
+    DWORD   Handle;
+    DWORD   Hits;
+    DWORD   Matches;
+    DWORD   ObjectType;
+
+    INIT_API();
+
+    Mask = GHI_TYPE ;
+    hThere = INVALID_HANDLE_VALUE;
+    Type = 0;
+
+    while (*lpArgumentString == ' ')
+        lpArgumentString++;
+
+    hThere = (PVOID) GetExpression( lpArgumentString );
+
+    while (*lpArgumentString && (*lpArgumentString != ' ') )
+    {
+        lpArgumentString++;
+    }
+    while (*lpArgumentString == ' ')
+        lpArgumentString++;
+
+    if (*lpArgumentString)
+    {
+        Mask = GetExpression( lpArgumentString );
+    }
+
+    while (*lpArgumentString && (*lpArgumentString != ' ') )
+    {
+        lpArgumentString++;
+    }
+    while (*lpArgumentString == ' ')
+        lpArgumentString++;
+
+    if (*lpArgumentString)
+    {
+        Type = GetObjectTypeIndex( lpArgumentString );
+        if (Type == (DWORD) -1 )
+        {
+            dprintf("Unknown type '%s'\n", lpArgumentString );
             return;
-            }
+        }
+    }
+
+    //
+    // if they specified 0, they just want the summary.  Make sure nothing
+    // sneaks out.
+    //
+
+    if ( Mask == 0 )
+    {
+        Mask = GHI_SILENT;
+    }
+    //
+    // hThere of 0 indicates all handles.
+    //
+    if ((hThere == 0) || (hThere == INVALID_HANDLE_VALUE))
+    {
+        Status = NtQueryInformationProcess( hCurrentProcess,
+                                            ProcessHandleCount,
+                                            &HandleCount,
+                                            sizeof( HandleCount ),
+                                            NULL );
+
+        if ( !NT_SUCCESS( Status ) )
+        {
+            return;
         }
 
-    if (TraceBuffer.ReadRecord == NULL) {
-        (lpOutputRoutine)("    Trace buffer is empty.\n" );
-        }
-    else {
-        while (TraceBuffer.WriteRecord != TraceBuffer.ReadRecord) {
-            b = ReadProcessMemory(
-                    hCurrentProcess,
-                    (LPVOID)TraceBuffer.ReadRecord,
-                    &TraceRecord,
-                    FIELD_OFFSET( RTL_TRACE_RECORD, Arguments ),
-                    NULL
-                    );
-            if ( !b ) {
-                (lpOutputRoutine)("    Unabled to read Trace Record at %x\n", TraceBuffer.ReadRecord );
-                break;
-                }
+        Hits = 0;
+        Handle = 0;
+        Matches = 0;
+        ZeroMemory( TypeCounts, sizeof(TypeCounts) );
 
-            if (TraceRecord.EventId != RTL_TRACE_FILLER_EVENT_ID) {
-                if (TraceRecord.NumberOfArguments > RTL_TRACE_MAX_ARGUMENTS_FOR_EVENT ||
-                    TraceRecord.Size == 0 ||
-                    (lpCheckControlCRoutine)()
-                   ) {
-                    break;
+        while ( Hits < HandleCount )
+        {
+            if ( Type )
+            {
+                if (GetHandleInfo( hCurrentProcess,
+                                   (HANDLE) Handle,
+                                   GHI_TYPE | GHI_SILENT,
+                                   &ObjectType ) )
+                {
+                    Hits++;
+                    if ( ObjectType == Type )
+                    {
+                        GetHandleInfo( hCurrentProcess,
+                                        (HANDLE) Handle,
+                                        Mask,
+                                        &ObjectType );
+                        Matches ++;
                     }
 
-                b = ReadProcessMemory(
-                        hCurrentProcess,
-                        (LPVOID)&TraceBuffer.ReadRecord->Arguments,
-                        TraceRecord.Arguments,
-                        TraceRecord.NumberOfArguments * sizeof( ULONG ),
-                        NULL
-                        );
-                if ( !b ) {
-                    (lpOutputRoutine)("    Unabled to read Trace Record arguments at %x\n", &TraceBuffer.ReadRecord->Arguments );
-                    break;
-                    }
-
-                (lpOutputRoutine)(EventIdFormatString[ TraceRecord.EventId ],
-                                  TraceRecord.Arguments[ 0 ],
-                                  TraceRecord.Arguments[ 1 ],
-                                  TraceRecord.Arguments[ 2 ],
-                                  TraceRecord.Arguments[ 3 ],
-                                  TraceRecord.Arguments[ 4 ],
-                                  TraceRecord.Arguments[ 5 ],
-                                  TraceRecord.Arguments[ 6 ],
-                                  TraceRecord.Arguments[ 7 ]
-                                 );
-                (lpOutputRoutine)("\n");
                 }
+            }
+            else
+            {
+                if (GetHandleInfo(  hCurrentProcess,
+                                    (HANDLE) Handle,
+                                    GHI_TYPE | GHI_SILENT,
+                                    &ObjectType) )
+                {
+                    Hits++;
+                    TypeCounts[ ObjectType ] ++;
 
-            TraceBuffer.ReadRecord = (PRTL_TRACE_RECORD)((PCHAR)TraceBuffer.ReadRecord + TraceRecord.Size );
-            if (TraceBuffer.ReadRecord >= TraceBuffer.EndBuffer) {
-                TraceBuffer.ReadRecord = TraceBuffer.StartBuffer;
+                    GetHandleInfo(  hCurrentProcess,
+                                    (HANDLE) Handle,
+                                    Mask,
+                                    &ObjectType );
+
                 }
             }
 
-        (lpOutputRoutine)("    Exiting loop %08x %08x\n",
-                          TraceBuffer.ReadRecord,
-                          TraceBuffer.WriteRecord
-                         );
+            Handle += 4;
         }
+
+        if ( Type == 0 )
+        {
+            dprintf( "%d Handles\n", Hits );
+            dprintf( "Type           \tCount\n");
+            for (Type = 0; Type < TYPE_MAX ; Type++ )
+            {
+                if (TypeCounts[Type])
+                {
+                    dprintf("%-15ws\t%d\n", pszTypeNames[Type], TypeCounts[Type]);
+                }
+            }
+        }
+        else
+        {
+            dprintf("%d handles of type %ws\n", Matches, pszTypeNames[Type] );
+        }
+
+
+    }
+    else
+    {
+        GetHandleInfo( hCurrentProcess, hThere, Mask, &Type );
+    }
+
 }
 
 
-#if 0
-
-typedef struct _RTL_TRACE_RECORD {
-    ULONG Size;
-    USHORT EventId;
-    USHORT NumberOfArguments;
-    ULONG Arguments[ RTL_TRACE_MAX_ARGUMENTS_FOR_EVENT ];
-} RTL_TRACE_RECORD, *PRTL_TRACE_RECORD;
-
-typedef struct _RTL_TRACE_BUFFER {
-    ULONG Signature;
-    USHORT NumberOfRecords;
-    USHORT NumberOfEventIds;
-    PRTL_TRACE_RECORD StartBuffer;
-    PRTL_TRACE_RECORD EndBuffer;
-    PRTL_TRACE_RECORD ReadRecord;
-    PRTL_TRACE_RECORD WriteRecord;
-    PCHAR EventIdFormatString[ 1 ];
-} RTL_TRACE_BUFFER, *PRTL_TRACE_BUFFER;
-
-#define RTL_TRACE_SIGNATURE 0xFEBA1234
-
-#define RTL_TRACE_FILLER_EVENT_ID 0xFFFF
-
-#define RTL_TRACE_NEXT_RECORD( L, P ) (PRTL_TRACE_RECORD)                           \
-    (((PCHAR)(P) + (P)->Size) >= (PCHAR)(L)->EndBuffer ? (L)->StartBuffer :         \
-                                                         ((PCHAR)(P) + (P)->Size)   \
-    )
-
-#endif

@@ -111,19 +111,3 @@ CopyString(
 
     return( DestString );
 }
-
-
-LONG
-CompareString(
-    IN PSTRING String1,
-    IN PSTRING String2,
-    IN BOOLEAN IsCaseSensitive
-    )
-{
-    if (IsCaseSensitive)
-        return( strncmp( String1->Buffer, String2->Buffer,
-                         String1->Length ) );
-    else
-        return( strnicmp( String1->Buffer, String2->Buffer,
-                          String1->Length ) );
-}

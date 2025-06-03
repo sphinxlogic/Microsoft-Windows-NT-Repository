@@ -42,6 +42,9 @@ static char sccsid[] = "@(#)putenv.c	5.4 (Berkeley) 2/23/91";
 #include <stdlib.h>
 #include <string.h>
 
+extern char *strdup();
+extern int setenv();
+
 int
 putenv(str)
 	const char *str;

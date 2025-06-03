@@ -28,7 +28,7 @@ Revision History:
 
 NTSTATUS
 CmpSetSecurityDescriptorInfo(
-    IN PCM_KEY_REFERENCE Key,
+    IN PCM_KEY_CONTROL_BLOCK kcb,
     IN PSECURITY_INFORMATION SecurityInformation,
     IN PSECURITY_DESCRIPTOR ModificationDescriptor,
     IN OUT PSECURITY_DESCRIPTOR *ObjectsSecurityDescriptor,
@@ -38,11 +38,18 @@ CmpSetSecurityDescriptorInfo(
 
 NTSTATUS
 CmpQuerySecurityDescriptorInfo(
-    IN PCM_KEY_REFERENCE Key,
+    IN PCM_KEY_CONTROL_BLOCK kcb,
     IN PSECURITY_INFORMATION SecurityInformation,
     OUT PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN OUT PULONG Length,
     IN OUT PSECURITY_DESCRIPTOR *ObjectsSecurityDescriptor
+    );
+
+PCM_KEY_SECURITY
+CmpGetKeySecurity(
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Key,
+    OUT PHCELL_INDEX SecurityCell OPTIONAL
     );
 
 VOID
@@ -56,7 +63,7 @@ CmpGetObjectSecurity(
 BOOLEAN
 CmpFindMatchingDescriptorCell(
     IN PHHIVE Hive,
-    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN ULONG Type,
     OUT PHCELL_INDEX MatchingCell
@@ -97,6 +104,7 @@ CmpRemoveSecurityCellList(
 #pragma alloc_text(PAGE,CmpCheckCreateAccess)
 #pragma alloc_text(PAGE,CmpCheckNotifyAccess)
 #pragma alloc_text(PAGE,CmpGetObjectSecurity)
+#pragma alloc_text(PAGE,CmpGetKeySecurity)
 #pragma alloc_text(PAGE,CmpHiveRootSecurityDescriptor)
 #pragma alloc_text(PAGE,CmpFreeSecurityDescriptor)
 #pragma alloc_text(PAGE,CmpFindMatchingDescriptorCell)
@@ -193,8 +201,9 @@ Return Value:
 --*/
 
 {
-    CM_KEY_REFERENCE Key;
+    PCM_KEY_CONTROL_BLOCK kcb;
     NTSTATUS Status;
+    CM_KEY_REFERENCE Key;
 
     //
     //  Make sure the common parts of our input are proper
@@ -227,8 +236,7 @@ Return Value:
         return(STATUS_KEY_DELETED);
     }
 
-    Key.KeyHive = ((PCM_KEY_BODY)Object)->KeyControlBlock->KeyHive;
-    Key.KeyCell = ((PCM_KEY_BODY)Object)->KeyControlBlock->KeyCell;
+    kcb = ((PCM_KEY_BODY)Object)->KeyControlBlock;
 
     //
     //  This routine simply cases off of the operation code to decide
@@ -245,7 +253,7 @@ Return Value:
         //
         ASSERT( (PoolType == PagedPool) || (PoolType == NonPagedPool) );
 
-        Status = CmpSetSecurityDescriptorInfo( &Key,
+        Status = CmpSetSecurityDescriptorInfo( kcb,
                                                SecurityInformation,
                                                SecurityDescriptor,
                                                ObjectsSecurityDescriptor,
@@ -258,12 +266,10 @@ Return Value:
         // notification here.
         //
         if (NT_SUCCESS(Status)) {
-            CmpReportNotify(
-                ((PCM_KEY_BODY)Object)->KeyControlBlock->FullName,
-                ((PCM_KEY_BODY)Object)->KeyControlBlock->KeyHive,
-                ((PCM_KEY_BODY)Object)->KeyControlBlock->KeyCell,
-                REG_NOTIFY_CHANGE_ATTRIBUTES | REG_NOTIFY_CHANGE_SECURITY
-                );
+            CmpReportNotify(kcb->FullName,
+                            kcb->KeyHive,
+                            kcb->KeyCell,
+                            REG_NOTIFY_CHANGE_ATTRIBUTES | REG_NOTIFY_CHANGE_SECURITY);
         }
 
         break;
@@ -275,7 +281,7 @@ Return Value:
         //  method
         //
         ASSERT( CapturedLength != NULL );
-        Status = CmpQuerySecurityDescriptorInfo( &Key,
+        Status = CmpQuerySecurityDescriptorInfo( kcb,
                                                  SecurityInformation,
                                                  SecurityDescriptor,
                                                  CapturedLength,
@@ -308,7 +314,9 @@ Return Value:
         //
         // Assign the actual descriptor.
         //
-        Status = CmpAssignSecurityDescriptor( &Key,
+        Status = CmpAssignSecurityDescriptor( kcb->KeyHive,
+                                              kcb->KeyCell,
+                                              kcb->KeyNode,
                                               SecurityDescriptor,
                                               PoolType );
         break;
@@ -319,7 +327,7 @@ Return Value:
         //  Bugcheck on any other operation code,  We won't get here if
         //  the earlier asserts are still checked.
         //
-        KeBugCheckEx( REGISTRY_ERROR,3,1,0,0);
+        KeBugCheckEx( REGISTRY_ERROR,3,1,(ULONG)kcb,0);
 
     }
 
@@ -331,7 +339,7 @@ Return Value:
 
 NTSTATUS
 CmpSetSecurityDescriptorInfo(
-    IN PCM_KEY_REFERENCE Key,
+    IN PCM_KEY_CONTROL_BLOCK Key,
     IN PSECURITY_INFORMATION SecurityInformation,
     IN PSECURITY_DESCRIPTOR ModificationDescriptor,
     IN OUT PSECURITY_DESCRIPTOR *ObjectsSecurityDescriptor,
@@ -347,7 +355,7 @@ Routine Description:
 
 Arguments:
 
-    Key - Supplies a pointer to the CM_KEY_REFERENCE for the node whose
+    Key - Supplies a pointer to the KEY_CONTROL_BLOCK for the node whose
         security descriptor will be set.
 
     SecurityInformation - Indicates which security information is
@@ -390,8 +398,9 @@ Return Value:
     PCM_KEY_NODE Node;
     ULONG DescriptorLength;
     PSECURITY_DESCRIPTOR DescriptorCopy;
-            PSECURITY_DESCRIPTOR OldDescriptorCopy;
+    PSECURITY_DESCRIPTOR OldDescriptorCopy;
     ULONG   Type;
+    LARGE_INTEGER SystemTime;
 
     PAGED_CODE();
     CMLOG(CML_FLOW, CMS_SEC) {
@@ -404,10 +413,9 @@ Return Value:
     // changing its security descriptor and then being unable to bring
     // the hive cell into memory for updating.
     //
-    CmpGetObjectSecurity( Key->KeyCell,
-                          Key->KeyHive,
-                          &Security,
-                          &SecurityCell );
+    Security = CmpGetKeySecurity(Key->KeyHive,
+                                 Key->KeyNode,
+                                 &SecurityCell);
 
     //
     // SeSetSecurityDescriptorInfo helpfully frees whatever we pass it
@@ -468,7 +476,7 @@ Return Value:
         return STATUS_NO_LOG_SPACE;
     }
 
-    Node = (PCM_KEY_NODE) HvGetCell(Key->KeyHive, Key->KeyCell);
+    Node = (PCM_KEY_NODE) Key->KeyNode;
 
     if (Security->ReferenceCount > 1) {
 
@@ -595,13 +603,22 @@ Return Value:
     }
 
     ExFreePool(DescriptorCopy);
+
+    //
+    // Update the LastWriteTime of the key.
+    //
+    KeQuerySystemTime(&SystemTime);
+    Node->LastWriteTime = SystemTime;
+
     return(STATUS_SUCCESS);
 }
 
 
 NTSTATUS
 CmpAssignSecurityDescriptor(
-    IN PCM_KEY_REFERENCE Key,
+    IN PHHIVE Hive,
+    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN POOL_TYPE PoolType
     )
@@ -615,8 +632,14 @@ Routine Description:
 
 Arguments:
 
-    Key - Supplies a pointer to the CM_KEY_REFERENCE for the node whose
-        security descriptor will be assigned.
+    Hive - Supplies a pointer to the Hive for the node whose security
+           descriptor will be assigned.
+
+    Cell - Supplies the HCELL_INDEX of the node whose security descriptor
+           will be assigned.
+
+    Node - Supplies a pointer to the node whose security descriptor will
+           be assigned.
 
     SecurityDescriptor - Supplies a pointer to the security descriptor to
            be assigned to the node.
@@ -633,7 +656,6 @@ Return Value:
 
 {
     HCELL_INDEX SecurityCell;
-    PCM_KEY_NODE Node;
     PCM_KEY_SECURITY Security;
     ULONG DescriptorLength;
     ULONG Type;
@@ -642,10 +664,9 @@ Return Value:
     //
     // Map the node that we need to assign the security descriptor to.
     //
-    if (! HvMarkCellDirty(Key->KeyHive, Key->KeyCell)) {
+    if (! HvMarkCellDirty(Hive, Cell)) {
         return STATUS_NO_LOG_SPACE;
     }
-    Node = (PCM_KEY_NODE) HvGetCell(Key->KeyHive, Key->KeyCell);
     ASSERT_NODE(Node);
 
     CMLOG(CML_FLOW, CMS_SEC) {
@@ -654,7 +675,7 @@ Return Value:
 
         Name.MaximumLength = Name.Length = Node->NameLength;
         Name.Buffer = Node->Name;
-        KdPrint(("CmpAssignSecurityDescriptor: '%wZ' (H %lx C %lx)\n",&Name,Key->KeyHive,Key->KeyCell ));
+        KdPrint(("CmpAssignSecurityDescriptor: '%wZ' (H %lx C %lx)\n",&Name,Hive,Cell ));
         KdPrint(("\tSecurityCell = %lx\n",Node->u1.s1.Security));
 #endif
     }
@@ -675,20 +696,18 @@ Return Value:
     // If successful, then we don't need to allocate a new cell, we can
     // just point to the existing one and increment its reference count.
     //
-    Type = HvGetCellType(Key->KeyCell);
-    if (!CmpFindMatchingDescriptorCell( Key->KeyHive,
-                                        Key->KeyCell,
+    Type = HvGetCellType(Cell);
+    if (!CmpFindMatchingDescriptorCell( Hive,
+                                        Node,
                                         SecurityDescriptor,
                                         Type,
                                         &SecurityCell )) {
         //
         // No matching descriptor found, allocate and initialize a new one.
         //
-        SecurityCell = HvAllocateCell(
-                            Key->KeyHive,
-                            SECURITY_CELL_LENGTH(SecurityDescriptor),
-                            Type
-                            );
+        SecurityCell = HvAllocateCell(Hive,
+                                      SECURITY_CELL_LENGTH(SecurityDescriptor),
+                                      Type);
         if (SecurityCell == HCELL_NIL) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -696,7 +715,7 @@ Return Value:
         //
         // Map the security cell
         //
-        Security = (PCM_KEY_SECURITY) HvGetCell(Key->KeyHive, SecurityCell);
+        Security = (PCM_KEY_SECURITY) HvGetCell(Hive, SecurityCell);
 
         //
         // Initialize the security cell
@@ -714,9 +733,9 @@ Return Value:
         // Insert the new security descriptor into the list of security
         // cells.
         //
-        if (!CmpInsertSecurityCellList(Key->KeyHive,Key->KeyCell,SecurityCell))
+        if (!CmpInsertSecurityCellList(Hive,Cell,SecurityCell))
         {
-            HvFreeCell(Key->KeyHive, SecurityCell);
+            HvFreeCell(Hive, SecurityCell);
             return STATUS_NO_LOG_SPACE;
         }
 
@@ -726,10 +745,10 @@ Return Value:
         // Found identical descriptor already existing.  Map it in and
         // increment its reference count.
         //
-        if (! HvMarkCellDirty(Key->KeyHive, SecurityCell)) {
+        if (! HvMarkCellDirty(Hive, SecurityCell)) {
             return STATUS_NO_LOG_SPACE;
         }
-        Security = (PCM_KEY_SECURITY) HvGetCell(Key->KeyHive, SecurityCell);
+        Security = (PCM_KEY_SECURITY) HvGetCell(Hive, SecurityCell);
         Security->ReferenceCount += 1;
     }
 
@@ -748,7 +767,7 @@ Return Value:
 
 NTSTATUS
 CmpQuerySecurityDescriptorInfo(
-    IN PCM_KEY_REFERENCE Key,
+    IN PCM_KEY_CONTROL_BLOCK kcb,
     IN PSECURITY_INFORMATION SecurityInformation,
     OUT PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN OUT PULONG Length,
@@ -803,10 +822,9 @@ Return Value:
         KdPrint(("CmpQuerySecurityDescriptorInfo:\n"));
     }
 
-    CmpGetObjectSecurity( Key->KeyCell,
-                          Key->KeyHive,
-                          &Security,
-                          NULL );
+    Security = CmpGetKeySecurity( kcb->KeyHive,
+                                  kcb->KeyNode,
+                                  NULL );
 
     CellSecurityDescriptor = &Security->Descriptor;
 
@@ -936,9 +954,9 @@ Return Value:
 
 BOOLEAN
 CmpCheckNotifyAccess(
-    PCM_NOTIFY_BLOCK        NotifyBlock,
-    PHHIVE                  Hive,
-    HCELL_INDEX             Cell
+    IN PCM_NOTIFY_BLOCK NotifyBlock,
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Node
     )
 /*++
 
@@ -954,9 +972,9 @@ Arguments:
                   operation, including the identity of the subject
                   that opened the notify.
 
-    Hive - hive containing key of interest.
+    Hive - Supplies pointer to hive containing Node.
 
-    Cell - cell containing key of interest.
+    Node - Supplies pointer to key of interest.
 
 Return Value:
 
@@ -978,10 +996,9 @@ Return Value:
     CMLOG(CML_FLOW, CMS_SEC) {
         KdPrint(("CmpCheckAccessForNotify:\n"));
     }
-    CmpGetObjectSecurity( Cell,
-                          Hive,
-                          &Security,
-                          NULL );
+    Security = CmpGetKeySecurity(Hive,
+                                 Node,
+                                 NULL);
 
     SeLockSubjectContext( &NotifyBlock->SubjectContext );
 
@@ -1052,8 +1069,6 @@ Return Value:
     //
     Node = (PCM_KEY_NODE) HvGetCell(Hive, Cell);
 
-    ASSERT(Node->Signature == CM_KEY_NODE_SIGNATURE);
-
     CMLOG(CML_FLOW, CMS_SEC) {
 #if DBG
         UNICODE_STRING Name;
@@ -1065,20 +1080,71 @@ Return Value:
 #endif
     }
 
-    ASSERT_NODE(Node);
-    CellIndex = Node->u1.s1.Security;
+    *Security = CmpGetKeySecurity(Hive,Node,SecurityCell);
+
+    return;
+}
+
+PCM_KEY_SECURITY
+CmpGetKeySecurity(
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Key,
+    OUT PHCELL_INDEX SecurityCell OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns the security of a registry key.
+
+Arguments:
+
+    Hive - Supplies the hive the object's cell is in.
+
+    Key - Supplies a pointer to the key node.
+
+    SecurityCell - Returns the index of the security cell
+
+Return Value:
+
+    Returns a pointer to the security cell of the object
+
+--*/
+
+{
+    HCELL_INDEX CellIndex;
+    PCM_KEY_SECURITY Security;
+
+    PAGED_CODE();
+
+    ASSERT(Key->Signature == CM_KEY_NODE_SIGNATURE);
+    ASSERT_NODE(Key);
+
+    CMLOG(CML_FLOW, CMS_SEC) {
+#if DBG
+        UNICODE_STRING Name;
+
+        Name.MaximumLength = Name.Length = Key->NameLength;
+        Name.Buffer = Key->Name;
+        KdPrint(("CmpGetObjectSecurity for: "));
+        KdPrint(("%wZ\n", &Name));
+#endif
+    }
+
+    CellIndex = Key->u1.s1.Security;
 
     //
     // Map in the security descriptor cell
     //
-    *Security = (PCM_KEY_SECURITY) HvGetCell(Hive, CellIndex);
-    ASSERT_SECURITY(*Security);
+    Security = (PCM_KEY_SECURITY) HvGetCell(Hive, CellIndex);
+    ASSERT_SECURITY(Security);
 
     if (ARGUMENT_PRESENT(SecurityCell)) {
         *SecurityCell = CellIndex;
     }
 
-    return;
+    return(Security);
 }
 
 PSECURITY_DESCRIPTOR
@@ -1103,7 +1169,7 @@ Return Value:
 
     Pointer to an initialized security descriptor if successful.
 
-    NULL otherwise.
+    Bugcheck otherwise.
 
 --*/
 
@@ -1132,13 +1198,14 @@ Return Value:
     if ((WorldSid  == NULL) ||
         (SystemSid == NULL) ||
         (AdminSid  == NULL)) {
-        goto ErrorExit;
+
+        KeBugCheckEx(REGISTRY_ERROR, 10, 0, 0, 0);
     }
 
     if ((!NT_SUCCESS(RtlInitializeSid(WorldSid, &WorldAuthority, 1))) ||
         (!NT_SUCCESS(RtlInitializeSid(SystemSid, &NtAuthority, 1))) ||
         (!NT_SUCCESS(RtlInitializeSid(AdminSid, &NtAuthority, 2)))) {
-        goto ErrorExit;
+        KeBugCheckEx(REGISTRY_ERROR, 10, 1, 0, 0);
     }
 
     *(RtlSubAuthoritySid(WorldSid, 0)) = SECURITY_WORLD_RID;
@@ -1176,7 +1243,8 @@ Return Value:
         CMLOG(CML_MAJOR, CMS_SEC) {
             KdPrint(("CmpHiveRootSecurityDescriptor: couldn't allocate ACL\n"));
         }
-        goto ErrorExit;
+
+        KeBugCheckEx(REGISTRY_ERROR, 10, 2, 0, 0);
     }
 
     Status = RtlCreateAcl(Acl, AclLength, ACL_REVISION);
@@ -1184,7 +1252,7 @@ Return Value:
         CMLOG(CML_MAJOR, CMS_SEC) {
             KdPrint(("CmpHiveRootSecurityDescriptor: couldn't initialize ACL\n"));
         }
-        goto ErrorExit;
+        KeBugCheckEx(REGISTRY_ERROR, 10, 3, 0, 0);
     }
 
     //
@@ -1210,7 +1278,8 @@ Return Value:
         CMLOG(CML_MAJOR, CMS_SEC) {
             KdPrint(("CmpHiveRootSecurityDescriptor: RtlAddAce failed status %08lx\n", Status));
         }
-        goto ErrorExit;
+
+        KeBugCheckEx(REGISTRY_ERROR, 10, 4, 0, 0);
     }
 
     //
@@ -1244,7 +1313,7 @@ Return Value:
         CMLOG(CML_MAJOR, CMS_SEC) {
             KdPrint(("CmpHiveRootSecurityDescriptor: Couldn't allocate Sec. Desc.\n"));
         }
-        goto ErrorExit;
+        KeBugCheckEx(REGISTRY_ERROR, 10, 5, 0, 0);
     }
 
     AclCopy = (PACL)((PISECURITY_DESCRIPTOR)SecurityDescriptor+1);
@@ -1258,7 +1327,7 @@ Return Value:
         }
         ExFreePool(SecurityDescriptor);
         SecurityDescriptor=NULL;
-        goto ErrorExit;
+        KeBugCheckEx(REGISTRY_ERROR, 10, 6, 0, 0);
     }
 
     Status = RtlSetDaclSecurityDescriptor( SecurityDescriptor,
@@ -1271,10 +1340,9 @@ Return Value:
         }
         ExFreePool(SecurityDescriptor);
         SecurityDescriptor=NULL;
-        goto ErrorExit;
+        KeBugCheckEx(REGISTRY_ERROR, 10, 7, 0, 0);
     }
 
-ErrorExit:
     //
     // free any allocations we made
     //
@@ -1378,7 +1446,7 @@ Return Value:
 BOOLEAN
 CmpFindMatchingDescriptorCell(
     IN PHHIVE Hive,
-    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN ULONG Type,
     OUT PHCELL_INDEX MatchingCell
@@ -1421,9 +1489,9 @@ Return Value:
 --*/
 
 {
-    PCM_KEY_NODE Node;
+    PCM_KEY_NODE SiblingNode;
     PCM_KEY_SECURITY Security;
-    HCELL_INDEX ParentCell;
+    PCM_KEY_NODE ParentNode;
     HCELL_INDEX SiblingCell;
     NTSTATUS Status;
     ULONG DescriptorLength;
@@ -1431,34 +1499,31 @@ Return Value:
 
     PAGED_CODE();
     //
-    // Map in the cell that we are to assign the security descriptor to and
-    // check to see if it's a root node or not.
+    // Check to see if it's a root node or not.
     //
-    Node = (PCM_KEY_NODE) HvGetCell(Hive, Cell);
     if (Node->Flags & KEY_HIVE_ENTRY) {
 
         //
         // Never share security descriptors across hive boundaries
         //
         CMLOG(CML_FLOW, CMS_SEC) {
-            KdPrint(("CmpFindMatchingDescriptor: Cell is hive root\n"));
+            KdPrint(("CmpFindMatchingDescriptor: Node is hive root\n"));
         }
         return(FALSE);
     }
 
-    ParentCell = Node->Parent;
+    ParentNode = (PCM_KEY_NODE)HvGetCell(Hive,Node->Parent);
     DescriptorLength = RtlLengthSecurityDescriptor(SecurityDescriptor);
 
-    CmpGetObjectSecurity(ParentCell,
-                         Hive,
-                         &Security,
-                         MatchingCell);
+    Security = CmpGetKeySecurity(Hive,
+                                 ParentNode,
+                                 MatchingCell);
 
     if ((DescriptorLength==Security->DescriptorLength) &&
         (Type == HvGetCellType(*MatchingCell))          &&
-        (DescriptorLength==RtlCompareMemory(SecurityDescriptor,
-                                            &(Security->Descriptor),
-                                            DescriptorLength))) {
+        (RtlEqualMemory(SecurityDescriptor,
+                        &(Security->Descriptor),
+                        DescriptorLength))) {
         //
         // We have found a match.
         //
@@ -1472,22 +1537,24 @@ Return Value:
     // Parent didn't match.  Go check all the siblings.
     //
     index=0;
-    do {
-        Status = CmpFindChildByNumber(Hive,
-                                      ParentCell,
-                                      index++,
-                                      KeyBodyNode,
-                                      &SiblingCell);
-        if ((NT_SUCCESS(Status)) &&
-            (SiblingCell != Cell)) {
+    while (TRUE) {
+        SiblingCell = CmpFindSubKeyByNumber(Hive,ParentNode,index++);
+        if (SiblingCell == HCELL_NIL) {
+            //
+            // out of siblings
+            //
+            return(FALSE);
+        }
+        SiblingNode = (PCM_KEY_NODE)HvGetCell(Hive,SiblingCell);
+
+        if (SiblingNode != Node) {
 
             //
             // We have a sibling, so get its security descriptor
             //
-            CmpGetObjectSecurity(SiblingCell,
-                                 Hive,
-                                 &Security,
-                                 MatchingCell);
+            Security = CmpGetKeySecurity(Hive,
+                                         SiblingNode,
+                                         MatchingCell);
 
             //
             // Compare its security descriptor to ours
@@ -1495,9 +1562,9 @@ Return Value:
 
             if ((DescriptorLength==Security->DescriptorLength) &&
                 (Type == HvGetCellType(*MatchingCell))          &&
-                (DescriptorLength==RtlCompareMemory(SecurityDescriptor,
-                                                    &(Security->Descriptor),
-                                                    DescriptorLength))) {
+                (RtlEqualMemory(SecurityDescriptor,
+                                &(Security->Descriptor),
+                                DescriptorLength))) {
                 //
                 // We have found a match.
                 //
@@ -1508,7 +1575,7 @@ Return Value:
                 return(TRUE);
             }
         }
-    } while ( NT_SUCCESS(Status) );
+    }
 
     CMLOG(CML_FLOW, CMS_SEC) {
         KdPrint(("CmpFindMatchingDescriptor: no matching descriptor found\n"));

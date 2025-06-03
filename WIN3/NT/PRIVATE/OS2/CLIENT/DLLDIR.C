@@ -97,7 +97,7 @@ Return Value:
 --*/
 
 {
-    PCHAR DiskName;
+    CHAR DiskName[] = "\\OS2SS\\DRIVES\\D:\\";
     STRING DiskNameString;
     UNICODE_STRING DiskNameString_U;
     NTSTATUS Status;
@@ -105,8 +105,6 @@ Return Value:
     OBJECT_ATTRIBUTES Obja;
     IO_STATUS_BLOCK IoStatus;
     APIRET  RetCode;
-
-    DiskName = "\\OS2SS\\DRIVES\\D:\\";
 
     DiskName[DRIVE_LETTER+FILE_PREFIX_LENGTH] = (CHAR) (DiskNumber + '@');
     Od2InitMBString(&DiskNameString,DiskName);
@@ -746,9 +744,7 @@ Return Value:
 --*/
 
 {
-    PCHAR DiskName;
-
-    DiskName = "\\OS2SS\\DRIVES\\D:\\";
+    CHAR DiskName[] = "\\OS2SS\\DRIVES\\D:\\";
 
     DiskName[DRIVE_LETTER+FILE_PREFIX_LENGTH] = (CHAR) (DiskNumber + 'A');
     *RootDirectoryString = RtlAllocateHeap(Od2Heap, 0,
@@ -819,7 +815,7 @@ Return Value:
     HANDLE NtDirectoryHandle;
     OBJECT_ATTRIBUTES Obja;
     IO_STATUS_BLOCK IoStatus;
-    PCHAR DiskName;
+    CHAR DiskName[] = "\\OS2SS\\DRIVES\\D:\\";
     STRING RootDirString;
     NTSTATUS Status;
     APIRET RetCode;
@@ -835,7 +831,6 @@ Return Value:
                 RoutineName, DiskNumber, Od2CurrentDisk);
     }
 #endif
-    DiskName = "\\OS2SS\\DRIVES\\D:\\";
 
     //
     // we maintain the current directory for the current drive in the DLL,

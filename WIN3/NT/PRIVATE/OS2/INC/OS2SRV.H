@@ -30,6 +30,8 @@ Revision History:
 ULONG Os2Debug;
 #endif
 
+// Flag to let OS2SRV know whether or not to ignore LOGOFF (when started as a service)
+extern BOOLEAN fService;
 
 //
 // Include NT Session Manager and Debug SubSystem Interfaces
@@ -101,6 +103,7 @@ typedef struct _OS2_SESSION {
     HANDLE  hWaitThread;
     HANDLE  hProcess;
     ULONG   dwProcessId;
+    ULONG   dwParentProcessId;
     HANDLE  SesGrpHandle;
     PVOID   SesGrpAddress;
     BOOLEAN InTermination;
@@ -412,7 +415,8 @@ ULONG    Os2ssCountryCode;
 ULONG    Os2ssCodePage[2];
 UCHAR    Os2ssKeyboardLayout[2];
 #if PMNT
-UCHAR    Os2ssKeyboardName[5];
+UCHAR    Os2ssKeyboardName[4];  // Allow space for keyboard sub-code (103,
+                                // 189, 150G etc.)
 #endif
 ULONG    Os2ssKeysOnFlag;
 ULONG    Os2SrvExitNow;
@@ -1362,6 +1366,17 @@ ULONG
 Os2AccessGPPopup(
     IN  ULONG   CS,
     IN  ULONG   IP,
+    IN  ULONG   AX,
+    IN  ULONG   BX,
+    IN  ULONG   CX,
+    IN  ULONG   DX,
+    IN  ULONG   SI,
+    IN  ULONG   DI,
+    IN  ULONG   BP,
+    IN  ULONG   SP,
+    IN  ULONG   SS,
+    IN  ULONG   DS,
+    IN  ULONG   ES,
     IN  PUCHAR  AppName
     );
 

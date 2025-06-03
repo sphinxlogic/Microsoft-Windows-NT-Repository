@@ -29,7 +29,6 @@
 #include        <lmaccess.h>
 #include        <lmerr.h>
 #include <ntsam.h>
-#include        <wcstr.h>
 
 #include        "uastest.h"
 #include "accessp.h"
@@ -60,7 +59,7 @@ test_init_modals()
     PUSER_MODALS_INFO_0 um0p;
 
     //
-    // test with invalid level 
+    // test with invalid level
     //
 
     if (err = NetUserModalsGet(server, 3, (LPBYTE *) &um0p)) {
@@ -75,7 +74,7 @@ test_init_modals()
     }
 
     //
-    // get valid level 
+    // get valid level
     //
 
     if (err = NetUserModalsGet(server, 0, (LPBYTE *) &um0p))
@@ -84,24 +83,24 @@ test_init_modals()
         error_exit( PASS, "First UserModalsGet successful", NULL);
 
         //
-        // verify initial settings 
+        // verify initial settings
         //
-    
+
         TestDiffDword( "Min password default mismatch", NULL,
                        um0p->usrmod0_min_passwd_len, DEF_MIN_PWLEN );
-    
+
         TestDiffDword( "Max password age default mismatch", NULL,
                         um0p->usrmod0_max_passwd_age, DEF_MAX_PWAGE );
-    
+
         TestDiffDword( "Min password age default mismatch", NULL,
                         um0p->usrmod0_min_passwd_age, DEF_MIN_PWAGE );
-    
+
         TestDiffDword( "Force logooff default mismatch", NULL,
                         um0p->usrmod0_force_logoff, DEF_FORCE_LOGOFF );
-    
+
         TestDiffDword( "Password history length default mismatch", NULL,
                         um0p->usrmod0_password_hist_len, DEF_MAX_PWHIST );
-    
+
         NetApiBufferFree( um0p );
     }
 
@@ -115,7 +114,7 @@ restore_original_modals( VOID )
 
 
     //
-    // attempt to restore original (default) settings 
+    // attempt to restore original (default) settings
     //
 
     um0.usrmod0_min_passwd_len = DEF_MIN_PWLEN;
@@ -128,25 +127,25 @@ restore_original_modals( VOID )
         error_exit( FAIL, "UserModalsSet (restore) Failed", NULL);
 
     //
-    // verify reset 
+    // verify reset
     //
-    
+
     if (err = NetUserModalsGet(server, 0, (LPBYTE *) &um0p)) {
         error_exit( FAIL, "Verify UserModalsGet failed", NULL);
     } else {
-    
+
         TestDiffDword( "Min password default mismatch", NULL,
                        um0p->usrmod0_min_passwd_len, DEF_MIN_PWLEN );
-    
+
         TestDiffDword( "Max password age default mismatch", NULL,
                         um0p->usrmod0_max_passwd_age, DEF_MAX_PWAGE );
-    
+
         TestDiffDword( "Min password age default mismatch", NULL,
                         um0p->usrmod0_min_passwd_age, DEF_MIN_PWAGE );
-    
+
         TestDiffDword( "Force logooff default mismatch", NULL,
                         um0p->usrmod0_force_logoff, DEF_FORCE_LOGOFF );
-    
+
         TestDiffDword( "Password history length default mismatch", NULL,
                         um0p->usrmod0_password_hist_len, DEF_MAX_PWHIST );
 
@@ -164,7 +163,7 @@ test_set_modals()
 
 
     //
-    // set with invalid level 
+    // set with invalid level
     //
 
     if (err = NetUserModalsSet(server, 3, (LPBYTE) &um0, &ParmError )) {
@@ -174,7 +173,7 @@ test_set_modals()
         error_exit(FAIL, "UserModalsSet with invalid level succeeded", NULL);
 
     //
-    // setup data for update 
+    // setup data for update
     //
 
     um0.usrmod0_min_passwd_len = TEST_MIN_PWLEN;
@@ -185,7 +184,7 @@ test_set_modals()
 
 
     //
-    // set with valid level 
+    // set with valid level
     //
 
     if (err = NetUserModalsSet(server, 0, (LPBYTE) &um0, &ParmError ))
@@ -194,40 +193,40 @@ test_set_modals()
         error_exit( PASS, "NetUserModalsSet level 0 OK", NULL);
 
         //
-        // verify set data 
+        // verify set data
         //
-    
+
         if (err = NetUserModalsGet(server, 0, (LPBYTE *) &um0p)) {
             error_exit(FAIL, "Verify UserModalsGet failed", NULL);
         } else {
-    
-    
+
+
             //
-            // verify initial settings 
+            // verify initial settings
             //
-    
+
             TestDiffDword( "Min password test mismatch", NULL,
                         um0p->usrmod0_min_passwd_len, TEST_MIN_PWLEN );
-        
+
             TestDiffDword( "Max password age test mismatch", NULL,
                             um0p->usrmod0_max_passwd_age, TEST_MAX_PWAGE );
-        
+
             TestDiffDword( "Min password age test mismatch", NULL,
                             um0p->usrmod0_min_passwd_age, TEST_MIN_PWAGE );
-        
+
             TestDiffDword( "Force logooff test mismatch", NULL,
                             um0p->usrmod0_force_logoff, TEST_FORCE_LOGOFF );
-        
+
             TestDiffDword( "Password history length test mismatch", NULL,
                             um0p->usrmod0_password_hist_len, TEST_MAX_PWHIST );
-            
+
             NetApiBufferFree( um0p );
         }
     }
 
 
     //
-    // attempt to restore original (default) settings 
+    // attempt to restore original (default) settings
     //
 
     restore_original_modals( );
@@ -253,7 +252,7 @@ short   parmnum;
     LPWSTR LevelText;
 
     //
-    // setup data for update 
+    // setup data for update
     //
 
     switch (parmnum) {
@@ -302,18 +301,18 @@ short   parmnum;
         error_exit(PASS, "UserModalsSet successful", LevelText);
 
         //
-        // verify set data 
+        // verify set data
         //
-    
+
         if (err = NetUserModalsGet(server, 0, (LPBYTE *) &um0p)) {
             error_exit(FAIL, "Verify UserModalsGet failed", NULL);
-    
+
         } else {
-    
+
             //
-            // verify initial settings 
+            // verify initial settings
             //
-        
+
             switch (parmnum) {
             case 1001:
                 TestDiffDword( "Min password test mismatch", LevelText,
@@ -340,12 +339,12 @@ short   parmnum;
             }
 
             NetApiBufferFree( um0p );
-    
+
         }
     }
 
     //
-    // attempt to restore original (default) settings 
+    // attempt to restore original (default) settings
     //
 
     restore_original_modals( );

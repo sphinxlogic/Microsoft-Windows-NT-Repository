@@ -122,7 +122,7 @@ DXDATA  segment
         extrn   segDXCode:WORD
         extrn   NetHeapSize:WORD
 
-ifdef WOW
+ifdef WOW_x86
         extrn   FastBop:fword
 endif
 
@@ -975,7 +975,6 @@ PMIntr2A  endp
 PMIntr5C  proc  near
 
 if PM_NCB_HANDLING
-
 ;
 ; we no longer want to make the call through the real-mode handler, since all
 ; it does is make the BOP
@@ -987,7 +986,16 @@ if PM_NCB_HANDLING
 
 DoNetRqst:
 
-ifdef WOW
+;
+; Do a  sync/async NETBIOS presence check. Don't BOP for this simple case.
+; Also don't do the async call because Delrina WinFax Pro hasn't initialized
+; The post address in the NCB.
+;
+        cmp     byte ptr es:[bx],7fh    ; sync NETBIOS presence check
+        je      skip_bop
+        cmp     byte ptr es:[bx],0ffh   ; async NETBIOS presence check
+        je      skip_bop
+ifdef WOW_x86
 .386p
         push    ds
         mov     ds,selDgroupPM
@@ -999,7 +1007,7 @@ ifdef WOW
 .286p
 else
         SVC     SVC_NETBIOS5C
-endif ; WOW
+endif ; WOW_x86
 
         cmp     dl,2ah
         jne     @f
@@ -1015,6 +1023,14 @@ endif ; WOW
         inc     ah
 @@:     pop     dx
         riret
+
+skip_bop:
+        mov     al,3                    ; INVALID COMMAND error
+        mov     es:[bx].ncb_retcode,al  ; returned in NCB_RETCODE && al
+        mov     es:[bx].ncb_cmd_cplt,al ; and NCB_CMD_CPLT
+        pop     dx
+        riret
+
 
 else
 
@@ -1587,7 +1603,7 @@ DXPMCODE    segment
 
 NetBiosPostRoutine proc near
 
-IFNDEF WOW
+IFNDEF WOW_x86
         pusha
 else
 .386p
@@ -1685,7 +1701,7 @@ postsub_done:
         call    FreeLowBlock            ;free the low heap block
 postsub_no_release:
 
-IFNDEF WOW
+IFNDEF WOW_x86
         popa
 ELSE
 .386p
@@ -2251,13 +2267,13 @@ HandleNetbiosAnr proc
         push    SEL_DXDATA OR STD_RING
         pop     ds
 
-ifdef WOW
+ifdef WOW_x86
 .386p
         FBOP    BOP_REDIR, SVC_NETBIOSCHECK, FastBop
 .286p
 else
         SVC     SVC_NETBIOSCHECK
-endif ; WOW
+endif ; WOW_x86
 
         jnz     @f
         jmp     chain_previous_int      ; not PM Netbios ANR
@@ -2269,7 +2285,7 @@ endif ; WOW
 ; a post routine if we're here
 ;
 
-IFNDEF WOW
+IFNDEF WOW_x86
         pusha
 ELSE
 .386p
@@ -2280,13 +2296,13 @@ ELSE
 ENDIF
         push    es
 
-ifdef WOW
+ifdef WOW_x86
 .386p
         FBOP    BOP_REDIR, SVC_NETBIOS5CINTERRUPT, FastBop
 .286p
 else
         SVC     SVC_NETBIOS5CINTERRUPT
-endif ; WOW
+endif ; WOW_x86
 
 ;
 ; save the stack pointer - apparently some apps will RETF, not IRET from the
@@ -2320,7 +2336,7 @@ endif ; WOW
 ;
 
         pop     es
-IFNDEF WOW
+IFNDEF WOW_x86
         popa
 ELSE
 .386p
@@ -2335,13 +2351,13 @@ ENDIF
 ; next NET interrupt to be generated, if one is queued
 ;
 
-ifdef WOW
+ifdef WOW_x86
 .386p
         FBOP    BOP_REDIR, SVC_RDRINTACK2, FastBop
 .286p
 else
         SVC     SVC_RDRINTACK2
-endif ; WOW
+endif ; WOW_x86
 
 ;
 ; restore the rest of the interrupted context and resume

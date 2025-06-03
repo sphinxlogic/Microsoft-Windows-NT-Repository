@@ -1675,7 +1675,7 @@ Return Value:
         OldIrql
         );
 
-    CharTime = RtlLargeIntegerNegate(CharTime);
+    CharTime.QuadPart = -CharTime.QuadPart;
 
     if (KeSetTimer(
             &Extension->LowerRTSTimer,

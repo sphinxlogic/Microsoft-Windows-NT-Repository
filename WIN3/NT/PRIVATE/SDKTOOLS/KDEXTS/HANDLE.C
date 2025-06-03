@@ -22,10 +22,8 @@ Revision History:
 
 --*/
 
-
-#include <handle.h>
-
-
+#include "precomp.h"
+#pragma hdrstop
 
 BOOL
 DumpHandles (
@@ -38,14 +36,12 @@ DumpHandles (
 
 BOOLEAN
 DumpHandle(
+    IN PHANDLE_TABLE        HandleTable,
     IN POBJECT_TABLE_ENTRY  p,
     IN HANDLE               Handle,
     IN POBJECT_TYPE         pObjectType,
     IN ULONG                Flags
     );
-
-
-
 
 DECLARE_API( handle  )
 
@@ -66,6 +62,7 @@ Return Value:
 --*/
 
 {
+
     ULONG        ProcessToDump;
     HANDLE       HandleToDump;
     ULONG        Flags;
@@ -82,6 +79,8 @@ Return Value:
     HandleToDump  = (HANDLE)0xFFFFFFFF;
     Flags         = 0xFFFFFFFF;
     ProcessToDump = 0xFFFFFFFF;
+
+    dprintf("processor number %d\n", dwProcessor);
 
     nArgs = sscanf(args,"%lx %lx %lx %s",&HandleToDump,&Flags,&ProcessToDump, TypeName);
     if (ProcessToDump == 0xFFFFFFFF) {
@@ -108,6 +107,11 @@ Return Value:
         }
     }
 
+    //
+    // If a process id is specified, then search the active process list
+    // for the specified process id.
+    //
+
     if (ProcessToDump < MM_USER_PROBE_ADDRESS) {
         ProcessHead = GetExpression( "PsActiveProcessHead" );
         if ( !ProcessHead ||
@@ -115,6 +119,7 @@ Return Value:
                           &List,
                           sizeof(LIST_ENTRY),
                           &Result) ) {
+
             dprintf("%08lx: Unable to get value of PsActiveProcessHead\n", ProcessHead );
             return;
         }
@@ -128,6 +133,7 @@ Return Value:
             dprintf("PsActiveProcessHead is NULL!\n");
             return;
         }
+
     } else {
         Next = NULL;
         ProcessHead = 1;
@@ -136,6 +142,7 @@ Return Value:
     while((ULONG)Next != ProcessHead) {
         if (Next != NULL) {
             Process = CONTAINING_RECORD(Next,EPROCESS,ActiveProcessLinks);
+
         } else {
             Process = (PEPROCESS)ProcessToDump;
         }
@@ -144,6 +151,7 @@ Return Value:
                           &ProcessContents,
                           sizeof(EPROCESS),
                           &Result) ) {
+
             dprintf("%08lx: Unable to read _EPROCESS\n", Process );
             return;
         }
@@ -156,6 +164,7 @@ Return Value:
                 if (!DumpHandles (&ProcessContents, Process, HandleToDump, pObjectType, Flags)) {
                     break;
                 }
+
             } else {
                 break;
             }
@@ -183,73 +192,107 @@ DumpHandles (
     IN POBJECT_TYPE pObjectType,
     IN ULONG        Flags
     )
-{
-    ULONG               Result;
-    ULONG               cb;
-    ULONG               i;
-    HANDLETABLE         HandleTable;
-    PHANDLETABLEENTRY   HandleTableEntries, p;
-    PCHAR               Address;
 
-    if ( !ReadMemory( (DWORD)ProcessContents->ObjectTable,
-                      &HandleTable,
-                      sizeof(HandleTable),
-                      &Result) ) {
-        dprintf("%08lx: Unable to read handle table\n",ProcessContents->ObjectTable);
+{
+
+    ULONG CountTableEntries;
+    ULONG HandleNumber;
+    ULONG NumberOfHandles;
+    ULONG Result;
+    ULONG cb;
+    ULONG i;
+    HANDLE_TABLE HandleTable;
+    PHANDLE_ENTRY TableEntries, p;
+    PCHAR Address;
+
+    if (!ReadMemory((DWORD)ProcessContents->ObjectTable,
+                    &HandleTable,
+                    sizeof(HANDLE_TABLE),
+                    &Result)) {
+
+        dprintf("%08lx: Unable to read handle table\n",
+                ProcessContents->ObjectTable);
+
         return FALSE;
     }
 
-    if (HandleToDump == 0) {
-        cb = HandleTable.CountTableEntries * HandleTable.SizeTableEntry * sizeof( ULONG );
+    HandleNumber = (ULONG)HandleToDump >> 2;
+    CountTableEntries = HandleTable.TableBound - HandleTable.TableEntries;
+    if (HandleNumber == 0) {
+        NumberOfHandles = CountTableEntries - 1;
+        HandleTable.TableEntries = &HandleTable.TableEntries[1];
+
     } else {
-        i  = ((ULONG)HandleToDump >> 2) - 1;
-        cb = HandleTable.SizeTableEntry * sizeof( ULONG );
-        HandleTable.TableEntries = (PHANDLETABLEENTRY)((PCHAR)HandleTable.TableEntries + (i * cb));
+        if (HandleNumber >= CountTableEntries) {
+            dprintf("Invalid handle (%d)\n", HandleNumber);
+            return FALSE;
+        }
+
+        NumberOfHandles = 1;
+        HandleTable.TableEntries = &HandleTable.TableEntries[HandleNumber];
     }
 
-    HandleTableEntries = malloc(cb);
-    if (HandleTableEntries == NULL) {
-        dprintf("Unable to allocate memory for reading handle table (%u bytes)\n", cb);
+    cb = NumberOfHandles * sizeof(HANDLE_ENTRY);
+    TableEntries = LocalAlloc(LPTR, cb);
+    if (TableEntries == NULL) {
+        dprintf("Unable to allocate memory for reading handle table (%u bytes)\n",
+                 cb);
+
         return FALSE;
     }
 
     Address = (PCHAR)HandleTable.TableEntries;
-    p       = HandleTableEntries;
+    p = TableEntries;
 
     while (cb > 0) {
-        //if (cb > (PACKET_MAX_SIZE-512)) {
-        //    i = PACKET_MAX_SIZE-512;
-        //} else {
-            i = cb;
-        //}
-        cb -= i;
+        if (!ReadMemory((DWORD)Address, p, cb, &i)) {
+            dprintf("Unable to read handle table entries (%lx, %lx) - (%u, %u)\n",
+                    ProcessContents->ObjectTable,
+                    Address,
+                    i,
+                    Result);
 
-        if ( !ReadMemory( (DWORD)Address,p,i,&Result) ) {
-            dprintf("Unable to read handle table entries (%lx,%lx) - (%u,%u)\n",
-                    ProcessContents->ObjectTable,Address,i,Result);
-            free(HandleTableEntries);
+            LocalFree(TableEntries);
             return FALSE;
         }
+
+        cb -= i;
         Address += i;
-        p = (PHANDLETABLEENTRY )((PCHAR)p + i);
+        p = (PHANDLE_ENTRY)((PCHAR)p + i);
     }
 
-    p = HandleTableEntries;
-    if (HandleToDump != 0) {
-        DumpHandle( (POBJECT_TABLE_ENTRY)p, HandleToDump, pObjectType, Flags );
-    } else {
-        for (i=0; i<HandleTable.CountTableEntries; i++) {
-            DumpHandle( (POBJECT_TABLE_ENTRY)p, (HANDLE)((i+1) << 2), pObjectType, Flags );
-            p = (PHANDLETABLEENTRY)((PCHAR)p + (HandleTable.SizeTableEntry) * sizeof( ULONG ));
+    dprintf("Handle Table at %x with %d. %s at %x - %s\n",
+            ProcessContents->ObjectTable,
+            NumberOfHandles,
+            (NumberOfHandles == 1) ? "Entry" : "Entries",
+            HandleTable.TableEntries,
+            (HandleTable.LifoOrder == FALSE) ? "FIFO Order" : "LIFO Order");
 
-            if ( CheckControlC() ) {
+    p = TableEntries;
+    if (HandleNumber != 0) {
+        DumpHandle(&HandleTable,
+                   (POBJECT_TABLE_ENTRY)p,
+                   (HANDLE)(HandleNumber << 2),
+                   pObjectType,
+                   Flags);
+
+    } else {
+        for (i = 1; i < CountTableEntries; i++) {
+            DumpHandle(&HandleTable,
+                       (POBJECT_TABLE_ENTRY)p,
+                       (HANDLE)(i << 2),
+                       pObjectType,
+                       Flags);
+
+            p += 1;
+            if (CheckControlC()) {
                 goto exit;
             }
         }
     }
 
 exit:
-    free(HandleTableEntries);
+    LocalFree(TableEntries);
     return TRUE;
 }
 
@@ -257,52 +300,64 @@ exit:
 
 BOOLEAN
 DumpHandle(
+    IN PHANDLE_TABLE        HandleTable,
     IN POBJECT_TABLE_ENTRY  p,
     IN HANDLE               Handle,
     IN POBJECT_TYPE         pObjectType,
     IN ULONG                Flags
     )
+
 {
+
     ULONG Result;
     ULONG HandleAttributes;
-    NONPAGED_OBJECT_HEADER NonPagedObjectHeader;
+    OBJECT_HEADER ObjectHeader;
+    PVOID ObjectBody;
 
-    if ((ULONG)(p->NonPagedObjectHeader) & HANDLE_FREE_BIT) {
-        if (Flags & 4) {
+    if (ExIsEntryFree(HandleTable->TableEntries, HandleTable->TableBound, (PHANDLE_ENTRY)p)) {
+        if (pObjectType == NULL && Flags & 4) {
             dprintf("%04lx: free handle\n", Handle);
         }
+
         return TRUE;
     }
 
     HandleAttributes = p->NonPagedObjectHeader & 0x6;
     p->NonPagedObjectHeader ^= HandleAttributes;
 
-    if ( !ReadMemory( (DWORD)p->NonPagedObjectHeader,
-                      &NonPagedObjectHeader,
-                      sizeof(NonPagedObjectHeader),
-                      &Result) ) {
+    if (!ReadMemory((DWORD)p->NonPagedObjectHeader,
+                    &ObjectHeader,
+                    sizeof(ObjectHeader),
+                    &Result)) {
+
         dprintf("%08lx: Unable to read nonpaged object header\n", p->NonPagedObjectHeader);
         return FALSE;
     }
 
-    if (pObjectType != NULL && NonPagedObjectHeader.Type != pObjectType) {
+    if (pObjectType != NULL && ObjectHeader.Type != pObjectType) {
         return TRUE;
     }
 
+    ObjectBody = &((POBJECT_HEADER)p->NonPagedObjectHeader)->Body;
     dprintf("%04lx: Object: %08lx  GrantedAccess: %08lx",
-            Handle,NonPagedObjectHeader.Object,p->GrantedAccess);
+            Handle,
+            ObjectBody,
+            p->GrantedAccess);
+
     if (HandleAttributes & 2) {
         dprintf(" (Inherit)");
     }
+
     if (HandleAttributes & 4) {
         dprintf(" (Audit)");
     }
+
     dprintf("\n");
     if (Flags & 2) {
-        DumpObject( "    ",NonPagedObjectHeader.Object,&NonPagedObjectHeader,Flags );
+        DumpObject( "    ",ObjectBody, &ObjectHeader,Flags );
     }
 
-    EXPRLastDump = (ULONG)NonPagedObjectHeader.Object;
+    EXPRLastDump = (ULONG)ObjectBody;
     dprintf("\n");
     return TRUE;
 }

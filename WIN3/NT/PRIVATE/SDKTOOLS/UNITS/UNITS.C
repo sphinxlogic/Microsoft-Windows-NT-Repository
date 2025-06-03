@@ -38,11 +38,11 @@ typedef struct _HALFVALUE {
 
 } HALFVALUE, *PHALFVALUE;
 
-typedef struct _VALUE {
+typedef struct _FULLVALUE {
     ULONG       Fuzz;
     HALFVALUE   Nom;
     HALFVALUE   Dom;
-} VALUE, *PVALUE;
+} FULLVALUE, *PFULLVALUE;
 
 struct {
     PSZ         Prefix;
@@ -65,7 +65,7 @@ struct {
     PSZ         DefaultDump;
 } BuiltInDumps[] = {
     "sec",  "hour second millisec microsec nanosec",
-    "bit",  "gigabyte megabyte kilobyte dword byte bit",
+    "bit",  "terabyte gigabyte megabyte kilobyte dword byte bit",
     NULL
 };
 
@@ -77,10 +77,10 @@ PVOID   zalloc (IN ULONG len);
 PSZ     StrDup (IN PSZ String);
 VOID    ReadUnitTab (VOID);
 PUNIT   LookupUnit (PSZ UnitName);
-VOID    DumpValue (IN PVALUE Value);
-VOID    InitializeValue (IN PVALUE Value);
-BOOLEAN ConvertValue (PVALUE, PSZ, PVALUE, PSZ);
-BOOLEAN ProcessString (PUNIT, PSZ, PVALUE);
+VOID    DumpValue (IN PFULLVALUE Value);
+VOID    InitializeValue (IN PFULLVALUE Value);
+VOID    ConvertValue (PFULLVALUE, PSZ, PFULLVALUE, PSZ);
+BOOLEAN ProcessString (PUNIT, PSZ, PFULLVALUE);
 PSZ     CopyUnitName (PSZ Out, PSZ String);
 PSZ     CopyWord (PSZ Out, PSZ String);
 PSZ     SkipSpace (PSZ String);
@@ -88,12 +88,14 @@ BOOLEAN MatchPattern (PUCHAR String, PUCHAR Pattern);
 VOID    ReduceTypes (IN OUT PHALFVALUE MValue, IN OUT PHALFVALUE DValue);
 VOID    AddTypes (IN OUT PHALFVALUE Dest, IN PHALFVALUE Child);
 BOOLEAN DumpMatchingTypes (PSZ Str);
+VOID    GetInput (PSZ Desc, PSZ Str);
+VOID    AssertFailed (PSZ FileName, ULONG LineNo);
 
 
-void main(int argc, char **argv)
+void _CRTAPI1 main(int argc, char **argv)
 {
     UCHAR       have[80], want[80], want2[200];
-    VALUE       hValue, wValue;
+    FULLVALUE   hValue, wValue;
     PSZ         p;
     ULONG       i;
 
@@ -181,18 +183,19 @@ void main(int argc, char **argv)
         printf ("\n");
     }
 
-    return 0;
+    return ;
 }
 
+VOID
 GetInput (
-    IN PSZ      Desc,
-    OUT PSZ     Str
+    PSZ     Desc,
+    PSZ     Str
     )
 {
     for (; ;) {
         printf (Desc);
         gets   (Str);
-        strlwr (Str);
+        _strlwr (Str);
 
         if (strcmp (Str, "q") == 0) {
             exit (1);
@@ -311,6 +314,7 @@ PSZ CopyUnitName (PSZ Out, PSZ String)
 }
 
 
+VOID
 AssertFailed (PSZ FileName, ULONG LineNo)
 {
     printf ("Assert failed - file %s line %d\n", FileName, LineNo);
@@ -342,7 +346,7 @@ GetBaseType (
 VOID
 GetBaseTypes (
     OUT PSZ     Out,
-    IN PVALUE   Value
+    IN PFULLVALUE   Value
     )
 /**
  *  Returns ascii dump of values data type
@@ -361,7 +365,7 @@ GetBaseTypes (
 
 VOID
 DumpValue (
-    IN PVALUE   Value
+    IN PFULLVALUE   Value
     )
 {
     UCHAR   s[80];
@@ -483,17 +487,17 @@ FormatDbl (
 }
 
 
-BOOLEAN
+VOID
 ConvertValue (
-    IN PVALUE   hValue,
+    IN PFULLVALUE   hValue,
     IN PSZ      have,
-    IN PVALUE   wValue,
+    IN PFULLVALUE   wValue,
     IN PSZ      want
     )
 {
     DBL         ans;
     UCHAR       s1[80], s2[80], cf[80];
-    VALUE       Junk1, Junk2;
+    FULLVALUE   Junk1, Junk2;
     BOOLEAN     flag;
     DBL         hAccum, wAccum;
     PSZ         p1, p2, p3, p4, p5;
@@ -571,12 +575,12 @@ BOOLEAN
 ProcessString (
     IN PUNIT    Unit,
     IN PSZ      String,
-    OUT PVALUE  ReturnValue
+    OUT PFULLVALUE  ReturnValue
     )
 {
     UCHAR       s[80], c;
     ULONG       i, j;
-    VALUE       ChildValue;
+    FULLVALUE   ChildValue;
     PHALFVALUE  MValue, DValue, hldvalue;
 
     ReturnValue->Fuzz = 0;
@@ -599,8 +603,8 @@ ProcessString (
 
         MValue->NoType = 1;
         MValue->Type[0].Unit = Unit;
-        MValue->Type[0].Pow  = 1.0;
-        return ;
+        MValue->Type[0].Pow  = 1;
+        return TRUE;
     }
 
     if (c >= '0' &&  c <= '9'  ||  c == '.') {

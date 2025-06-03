@@ -35,10 +35,14 @@ Revision History:
 /* XLATON */
 extern VOID nt_block_event_thread(ULONG);
 extern VOID nt_resume_event_thread(VOID);
+/* notification of PDB(Process Data Block, A.K.A PSP) termination */
+extern VOID HostTerminatePDB(USHORT pdb);
+/* disk subsystem reset notification. These functions will close all
+ * outstanding opened handles for DASD(Direct AcceS Disk) */
+extern VOID HostFloppyReset(VOID);
+extern VOID HostFdiskReset(VOID);
 
-// function to tell the floppy module release its lock
-extern VOID nt_floppy_release_lock(VOID);
-extern VOID nt_fdisk_release_lock(VOID);
+
 // unsupported services dialog box
 extern VOID host_direct_access_error(ULONG);
 
@@ -85,6 +89,8 @@ int RcMessageBox(USHORT wId, CHAR *msg1, CHAR *msg2, ULONG dwOptions);
 #define EG_PIF_CMDLINE_ERR     21
 #define EG_PIF_ASK_CMDLINE     22
 #define EG_ENVIRONMENT_ERR     23
+#define EG_BAD_FAULT           27
+#define EG_DOS_PROG_EXTENSION  28
 
 #define ED_BADSYSFILE		336
 #define ED_INITMEMERR           337
@@ -113,8 +119,14 @@ ULONG WOWSysErrorBox(
     USHORT wBtn3
     );
 
+// Called by WOW to force VdmAllocateVirtualMemory to alloc blocks of
+// memory with ever increasing linear address's.
+VOID SetWOWforceIncrAlloc(
+    BOOL iEnable
+    );
+
 // call out to softpc to get config.sys\autoexec.bat file names
-VOID GetPIFConfigFiles(BOOLEAN bConfig, char *pchFileName);
+VOID GetPIFConfigFiles(BOOL bConfig, char *pchFileName);
 
 // exported interfaces
 extern VOID    TerminateVDM (VOID);
@@ -129,6 +141,10 @@ void WakeUpNow(void);
 // Constants
 //
 #define MSW_PE              0x1
+
+/* XLATOFF */
+#define ISPESET             (UCHAR) (getMSW() & MSW_PE ? 1 : 0)
+/* XLATON */
 
 //
 // Macros
@@ -157,11 +173,11 @@ void WakeUpNow(void);
 #define FLG_OVERFLOW        0x00000800
 #define FLG_OVERFLOW_BIT    0x0000000B
 
-//typedef ULONG sys_addr;
-
 EXPORT
 VOID
-host_cpu_init();
+host_cpu_init(
+     VOID
+     );
 
 //EXPORT
 //VOID
@@ -172,10 +188,17 @@ host_cpu_init();
 EXPORT
 VOID
 host_simulate(
+    VOID
     );
 
 HANDLE
 host_CreateThread(
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    DWORD dwStackSize,
+    LPTHREAD_START_ROUTINE lpStartAddress,
+    LPVOID lpParameter,
+    DWORD dwCreationFlags,
+    LPDWORD lpThreadId
     );
 
 VOID
@@ -185,12 +208,16 @@ cpu_createthread(
 
 VOID
 host_ExitThread(
+    DWORD dwExitCode
     );
 
 
 EXPORT VOID host_com_close(int PortId);
 EXPORT int SuspendTimerThread(VOID);
 EXPORT int ResumeTimerThread(VOID);
+
+void *ch_malloc(unsigned int NumBytes);
+
 
 UCHAR *Sim32pGetVDMPointer(ULONG addr, UCHAR pm);
 #define Sim32GetVDMPointer(Addr,Size,Mode) Sim32pGetVDMPointer(Addr,Mode)
@@ -509,6 +536,7 @@ extern BOOL     Sim32FlushVDMPointer (ULONG, USHORT, PBYTE , BOOL);
 extern BOOL     Sim32FreeVDMPointer (ULONG, USHORT, PBYTE , BOOL);
 extern BOOL     Sim32GetVDMMemory (ULONG, USHORT, PBYTE , BOOL);
 extern BOOL     Sim32SetVDMMemory (ULONG, USHORT, PBYTE , BOOL);
+extern VOID     sas_overwrite_memory(PBYTE, ULONG);
 
 extern UCHAR getAL(VOID);
 extern UCHAR getCL(VOID);
@@ -548,15 +576,39 @@ extern VOID setSI(USHORT val);
 extern VOID setDI(USHORT val);
 extern VOID setIP(USHORT val);
 
+extern ULONG getEAX(VOID);
+extern ULONG getECX(VOID);
+extern ULONG getEDX(VOID);
+extern ULONG getEBX(VOID);
+extern ULONG getESP(VOID);
+extern ULONG getEBP(VOID);
+extern ULONG getESI(VOID);
+extern ULONG getEDI(VOID);
+extern ULONG getEIP(VOID);
+
+extern VOID setEAX(ULONG val);
+extern VOID setECX(ULONG val);
+extern VOID setEDX(ULONG val);
+extern VOID setEBX(ULONG val);
+extern VOID setESP(ULONG val);
+extern VOID setEBP(ULONG val);
+extern VOID setESI(ULONG val);
+extern VOID setEDI(ULONG val);
+extern VOID setEIP(ULONG val);
+
 extern USHORT getES(VOID);
 extern USHORT getCS(VOID);
 extern USHORT getSS(VOID);
 extern USHORT getDS(VOID);
+extern USHORT getFS(VOID);
+extern USHORT getGS(VOID);
 
 extern VOID setES(USHORT val);
 extern VOID setCS(USHORT val);
 extern VOID setSS(USHORT val);
 extern VOID setDS(USHORT val);
+extern VOID setFS(USHORT val);
+extern VOID setGS(USHORT val);
 
 extern ULONG getAF(VOID);
 extern ULONG getCF(VOID);
@@ -570,6 +622,8 @@ extern ULONG getZF(VOID);
 extern ULONG getIOPL(VOID);
 extern ULONG getNT(VOID);
 extern USHORT getSTATUS(VOID);
+extern ULONG getEFLAGS(VOID);
+extern USHORT getMSW(VOID);
 
 extern VOID setAF(ULONG val);
 extern VOID setCF(ULONG val);
@@ -582,6 +636,16 @@ extern VOID setTF(ULONG val);
 extern VOID setZF(ULONG val);
 extern VOID setIOPL(ULONG val);
 extern VOID setNT(ULONG val);
+extern VOID setSTATUS(USHORT val);
+extern VOID setEFLAGS(ULONG val);
+extern VOID setMSW(USHORT val);
+
+extern ULONG getCR0(VOID);
+extern VOID setCR0(ULONG val);
+extern ULONG getSS_AR(VOID);
+extern ULONG getSS_BASE(VOID);
+extern VOID setSS_BASE_LIMIT_AR(ULONG base, ULONG limit, ULONG ar);
+extern VOID setCPL(ULONG val);
 
 
 #endif

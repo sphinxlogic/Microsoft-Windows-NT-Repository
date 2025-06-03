@@ -213,7 +213,7 @@ HSF LOADDS PASCAL SLHsfFromFile ( HMOD hmod, LSZ  lszFile )
 	pImage = (PIMAGE_INFO)SHGetNextExe( (HEXE)NULL);
     
     _splitpath(lszFile, NULL, NULL, rgch, NULL);
-    strlwr(rgch);
+    _strlwr(rgch);
     if ( GetLinenoFromFilename( rgch, &pSymfile, 1, pImage->index) )
 	return (HSF) (((HMOD) pSymfile == hmod) ? pSymfile : NULL);
     else

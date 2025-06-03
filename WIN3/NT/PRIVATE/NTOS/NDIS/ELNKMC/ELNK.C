@@ -144,7 +144,6 @@ DriverEntry(
     IN PUNICODE_STRING RegistryPath
     );
 
-
 
 #pragma NDIS_INIT_FUNCTION(DriverEntry)
 
@@ -501,50 +500,78 @@ Return Value:
 
         NdisAllocateSpinLock(&Adapter->Lock);
 
+		//
+		// Get station address
+		//
+		ElnkGetStationAddress(Adapter);
+	
+		//
+		// Check for validity of the address
+		//
+		if (((Adapter->NetworkAddress[0] == 0xFF) &&
+			 (Adapter->NetworkAddress[1] == 0xFF) &&
+			 (Adapter->NetworkAddress[2] == 0xFF) &&
+			 (Adapter->NetworkAddress[3] == 0xFF) &&
+			 (Adapter->NetworkAddress[4] == 0xFF) &&
+			 (Adapter->NetworkAddress[5] == 0xFF)) ||
+			((Adapter->NetworkAddress[0] == 0x00) &&
+			 (Adapter->NetworkAddress[1] == 0x00) &&
+			 (Adapter->NetworkAddress[2] == 0x00) &&
+			 (Adapter->NetworkAddress[3] == 0x00) &&
+			 (Adapter->NetworkAddress[4] == 0x00) &&
+			 (Adapter->NetworkAddress[5] == 0x00)))
+		{
+			ElnkLogError(
+					Adapter,
+					startChip,
+					NDIS_ERROR_CODE_INVALID_VALUE_FROM_ADAPTER,
+					0);
+
+			return(NDIS_STATUS_FAILURE);
+		}
+
         //
         // Do the initial init first so we can get the adapter's address
         // before creating the filter DB.
         //
-
         Adapter->FilterDB = NULL;
 
-        if (!ElnkInitialInit(
-                            Adapter,
-                            ElnkInterruptVector
-                            )) {
+        if (!EthCreateFilter(
+                    MaximumMulticastAddresses,
+                    ElnkChangeAddresses,
+                    ElnkChangeClass,
+                    ElnkCloseAction,
+                    Adapter->CurrentAddress,
+                    &Adapter->Lock,
+                    &Adapter->FilterDB
+                    )) {
+
+            ElnkLogError(
+                    Adapter,
+                    registerAdapter,
+                    NDIS_ERROR_CODE_OUT_OF_RESOURCES,
+                    0
+                    );
+            if ELNKDEBUG
+				DPrint1("ElnkRegisterAdapter - unsuccessful filter create.\n");
 
             NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
             NdisFreeSpinLock(&Adapter->Lock);
             ELNK_FREE_PHYS(Adapter);
+            return NDIS_STATUS_RESOURCES;
+        }
+
+        if (!ElnkInitialInit(Adapter, ElnkInterruptVector))
+		{
+			EthDeleteFilter(Adapter->FilterDB);
+            NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
+            NdisFreeSpinLock(&Adapter->Lock);
+            ELNK_FREE_PHYS(Adapter);
+
             return NDIS_STATUS_FAILURE;
-
-        } else {
-
-            if (!EthCreateFilter(
-                        MaximumMulticastAddresses,
-                        ElnkChangeAddresses,
-                        ElnkChangeClass,
-                        ElnkCloseAction,
-                        Adapter->CurrentAddress,
-                        &Adapter->Lock,
-                        &Adapter->FilterDB
-                        )) {
-
-                ElnkLogError(
-                        Adapter,
-                        registerAdapter,
-                        NDIS_ERROR_CODE_OUT_OF_RESOURCES,
-                        0
-                        );
-                if ELNKDEBUG DPrint1("ElnkRegisterAdapter - unsuccessful filter create.\n");
-
-                NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
-                NdisFreeSpinLock(&Adapter->Lock);
-                ELNK_FREE_PHYS(Adapter);
-                return NDIS_STATUS_RESOURCES;
-
-            }
-
+        }
+		else
+		{
             //
             // Record it in the global adapter list.
             //
@@ -830,19 +857,35 @@ Return Value:
 
         NdisAllocateSpinLock(&Adapter->Lock);
 
-        if (!ElnkInitialInit(
-                            Adapter,
-                            Adapter->InterruptVector
-                            )) {
+		//
+		// Get station address
+		//
+		ElnkGetStationAddress(Adapter);
+	
+		//
+		// Check for validity of the address
+		//
+		if (((Adapter->NetworkAddress[0] == 0xFF) &&
+			 (Adapter->NetworkAddress[1] == 0xFF) &&
+			 (Adapter->NetworkAddress[2] == 0xFF) &&
+			 (Adapter->NetworkAddress[3] == 0xFF) &&
+			 (Adapter->NetworkAddress[4] == 0xFF) &&
+			 (Adapter->NetworkAddress[5] == 0xFF)) ||
+			((Adapter->NetworkAddress[0] == 0x00) &&
+			 (Adapter->NetworkAddress[1] == 0x00) &&
+			 (Adapter->NetworkAddress[2] == 0x00) &&
+			 (Adapter->NetworkAddress[3] == 0x00) &&
+			 (Adapter->NetworkAddress[4] == 0x00) &&
+			 (Adapter->NetworkAddress[5] == 0x00)))
+		{
+			ElnkLogError(
+					Adapter,
+					startChip,
+					NDIS_ERROR_CODE_INVALID_VALUE_FROM_ADAPTER,
+					0);
 
-            ElnkDeleteAdapterMemory(Adapter);
-
-            NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
-            NdisFreeSpinLock(&Adapter->Lock);
-            ELNK_FREE_PHYS(Adapter);
-            return NDIS_STATUS_FAILURE;
-
-        }
+			return(NDIS_STATUS_FAILURE);
+		}
 
         if (!EthCreateFilter(
                     MaximumMulticastAddresses,
@@ -860,7 +903,22 @@ Return Value:
                     NDIS_ERROR_CODE_OUT_OF_RESOURCES,
                     0
                     );
-            if ELNKDEBUG DPrint1("ElnkRegisterAdapter - unsuccessful filter create.\n");
+            if ELNKDEBUG
+				DPrint1("ElnkRegisterAdapter - unsuccessful filter create.\n");
+            ElnkDeleteAdapterMemory(Adapter);
+
+            NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
+            NdisFreeSpinLock(&Adapter->Lock);
+            ELNK_FREE_PHYS(Adapter);
+            return NDIS_STATUS_FAILURE;
+        }
+
+        if (!ElnkInitialInit(
+                            Adapter,
+                            Adapter->InterruptVector
+                            )) {
+
+			EthDeleteFilter(Adapter->FilterDB);
             ElnkDeleteAdapterMemory(Adapter);
 
             NdisDeregisterAdapter(Adapter->NdisAdapterHandle);
@@ -1324,7 +1382,7 @@ Return Value:
     Open = PELNK_OPEN_FROM_BINDING_HANDLE(MacBindingHandle);
 
     NdisAcquireSpinLock(&Adapter->Lock);
-    Adapter->References++;
+	Adapter->References++;
 
     //
     // Don't do anything if it's closing
@@ -1338,15 +1396,14 @@ Return Value:
         Reserved->OpenBlock = Open;
         Reserved->Next = (PNDIS_REQUEST)NULL;
 
-        Open->References++;
+		Open->References++;
 
         ElnkQueueRequest(Adapter, &Open->OpenCloseRequest);
 
         //
         // Remove the creation reference.
         //
-
-        Open->References--;
+		Open->References--;
 
         StatusToReturn = NDIS_STATUS_PENDING;
 

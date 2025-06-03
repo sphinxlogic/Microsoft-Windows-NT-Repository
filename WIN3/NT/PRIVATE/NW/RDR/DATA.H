@@ -31,10 +31,7 @@ extern LIST_ENTRY ScbQueue;
 extern NONPAGED_SCB NwPermanentNpScb;
 extern SCB NwPermanentScb;
 
-extern LARGE_INTEGER NwLargeZero;
-extern LARGE_INTEGER NwLargeOne;
 extern LARGE_INTEGER NwMaxLarge;
-extern LARGE_INTEGER NwOneSecond;
 extern ULONG NwAbsoluteTotalWaitTime;
 
 extern TDI_ADDRESS_IPX OurAddress;
@@ -90,14 +87,57 @@ extern ULONG NwMaxReceiveSize;
 extern ULONG NwPrintOptions;
 extern UNICODE_STRING NwProviderName;
 
+extern LONG MaxSendDelay;
+extern LONG MaxReceiveDelay;
+extern LONG MinSendDelay;
+extern LONG MinReceiveDelay;
+extern LONG BurstSuccessCount;
+extern LONG BurstSuccessCount2;
+extern LONG AllowGrowth;
+extern LONG DontShrink;
+extern LONG SendExtraNcp;
+extern LONG DefaultMaxPacketSize;
+extern LONG PacketThreshold;
+extern LONG LargePacketAdjustment;
+extern LONG LipPacketAdjustment;
+extern LONG LipAccuracy;
+extern LONG MaxWriteTimeout;
+extern LONG MaxReadTimeout;
+extern LONG WriteTimeoutMultiplier;
+extern LONG ReadTimeoutMultiplier;
+
+extern ULONG EnableMultipleConnects;
+
+extern ULONG ReadExecOnlyFiles;
+
+extern LONG Japan;     //  Controls special DBCS translation
+extern LONG DisableReadCache ;
+extern LONG DisableWriteCache ;
+extern LONG FavourLongNames ;           // use LFN where possible
+
+extern LARGE_INTEGER TimeOutEventInterval;
+
 extern NW_REDIR_STATISTICS Stats;
 extern ULONG ContextCount;
 
 extern SECTION_DESCRIPTOR NwSectionDescriptor;
 extern ERESOURCE NwUnlockableCodeResource;
 
+extern ULONG LockTimeoutThreshold;
+
+#ifdef _PNP_POWER
+
+extern HANDLE TdiBindingHandle;
+extern UNICODE_STRING TdiIpxDeviceName;
+
+#endif
+
+extern BOOLEAN DelayedProcessLineChange;
+extern PIRP DelayedLineChangeIrp;
+
 #ifdef NWDBG
 
+#define DEBUG_TRACE_ALWAYS               (0x00000000)
 #define DEBUG_TRACE_CLEANUP              (0x00000001)
 #define DEBUG_TRACE_CLOSE                (0x00000002)
 #define DEBUG_TRACE_CREATE               (0x00000004)
@@ -112,6 +152,7 @@ extern ERESOURCE NwUnlockableCodeResource;
 #define DEBUG_TRACE_WORKQUE              (0x00000800)
 #define DEBUG_TRACE_UNWIND               (0x00001000)
 #define DEBUG_TRACE_CATCH_EXCEPTIONS     (0x00002000)
+#define DEBUG_TRACE_ICBS                 (0x00004000)
 #define DEBUG_TRACE_FILEINFO             (0x00008000)
 #define DEBUG_TRACE_DIRCTRL              (0x00010000)
 #define DEBUG_TRACE_CONVERT              (0x00020000)
@@ -123,7 +164,9 @@ extern ERESOURCE NwUnlockableCodeResource;
 #define DEBUG_TRACE_SECURITY             (0x00800000)
 #define DEBUG_TRACE_CACHE                (0x01000000)
 #define DEBUG_TRACE_LIP                  (0x02000000)
+#define DEBUG_TRACE_MDL                  (0x04000000)
 
+#define DEBUG_TRACE_NDS                  (0x10000000)
 #define DEBUG_TRACE_SCAVENGER            (0x40000000)
 #define DEBUG_TRACE_TIMER                (0x80000000)
 
@@ -192,3 +235,4 @@ extern LONG NwPerformanceTimerLevel;
 #endif // NWDBG
 
 #endif // _NWDATA_
+

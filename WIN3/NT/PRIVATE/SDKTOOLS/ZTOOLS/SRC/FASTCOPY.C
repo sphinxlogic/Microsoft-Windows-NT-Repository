@@ -70,7 +70,7 @@ NPSZ writer ()
     if ( f != LAST ) {
         fAbort = TRUE;
     }
-    WaitForSingleObject( hThread, -1 );
+    WaitForSingleObject( hThread, (DWORD)-1 );
     CloseHandle( hThread );
     CloseHandle(hevQNotEmpty);
     DeleteCriticalSection(&hcrtQLock);
@@ -119,7 +119,7 @@ BUF *dequeue( void )
            block on eventsem until enqueue posts (ie. adds to queue)
         */
 
-        WaitForSingleObject( hevQNotEmpty, -1 );
+        WaitForSingleObject( hevQNotEmpty, (DWORD)-1 );
     }
     return fpbuf;
 }

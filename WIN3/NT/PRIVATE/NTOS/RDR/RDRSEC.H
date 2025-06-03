@@ -43,6 +43,8 @@ typedef struct _SECURITY_ENTRY {
 //    struct _TRANSPORT_CONNECTION *TransportConnection; // XPort connection for Se.
 //    struct _TRANSPORT *Transport; // Transport provider (if SPECIAL_IPC)
     struct _SERVERLISTENTRY *Server;    // Server entry is associated with
+    struct _CONNECTLISTENTRY *Connection; // Connection entry is associated with
+                                          //  (share level servers only)
     UNICODE_STRING UserName;            // User name if !SE_USE_DEFAULT_USER
     UNICODE_STRING Password;            // Password if !SE_USE_DEFAULT_PASS
     UNICODE_STRING Domain;              // Domain if !SE_USE_DEFAULT_DOMAIN
@@ -54,10 +56,8 @@ typedef struct _SECURITY_ENTRY {
     LIST_ENTRY GlobalNext;              // Next Se in global security list
 #endif
 
-#ifdef _CAIRO_
     CtxtHandle  Khandle;
     CredHandle  Chandle;
-#endif // _CAIRO_
 
     USHORT UserId;                      // User's UID from server
     UCHAR UserSessionKey[MSV1_0_USER_SESSION_KEY_LENGTH]; // Users session key
@@ -82,12 +82,10 @@ typedef struct _SECURITY_ENTRY {
 //#define SE_USE_SPECIAL_IPC    0x80000000 // Se is for the special IPC VC.
 #define SE_IS_NULL_SESSION    0x00000010 // Hint indicating this is a null sess
 
-#ifdef _CAIRO_
-#define SE_HAS_CRED_HANDLE    0x00000010
 #define SE_HAS_CONTEXT        0x00000020
 #define SE_BLOB_NEEDS_VERIFYING 0x00000040      // For Kerberos
 #define SE_RETURN_ON_ERROR    0x00000080        // To prompt for creds
-#endif // _CAIRO_
+#define SE_HAS_CRED_HANDLE    0x00000100
 
 #define LOCK_SECURITY_DATABASE()  KeWaitForMutexObject(&RdrSecurityMutex, KernelMode, Executive, FALSE, NULL);
 #define UNLOCK_SECURITY_DATABASE()  KeReleaseMutex(&RdrSecurityMutex, FALSE);

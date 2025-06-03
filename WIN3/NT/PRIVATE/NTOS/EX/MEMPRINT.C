@@ -21,12 +21,11 @@ Revision History:
 
 --*/
 
-#include <ntos.h>
-#include <zwapi.h>
+#include "exp.h"
+#pragma hdrstop
+
 #include <stdarg.h>
 #include <string.h>
-#include "stdio.h"
-
 #include <memprint.h>
 #undef DbgPrint
 
@@ -584,7 +583,7 @@ Return Value:
     //     is really done.
     //
 
-    delayInterval = LiFromLong( -10*10*1000*1000 );
+    delayInterval.QuadPart = -10*10*1000*1000;
 
     DbgPrint( "Delaying...\n" );
     KeDelayExecutionThread( KernelMode, TRUE, &delayInterval );
@@ -704,7 +703,7 @@ Return Value:
             break;
         }
 
-        delayInterval = LiFromLong( -5*10*1000*1000 );    // five second delay
+        delayInterval.QuadPart = -5*10*1000*1000;    // five second delay
         KeDelayExecutionThread( KernelMode, FALSE, &delayInterval );
 
     }
@@ -818,7 +817,7 @@ Return Value:
         // Update the count of bytes written to the log file.
         //
 
-        totalBytesWritten = LiAdd( totalBytesWritten, writeSize );
+        totalBytesWritten.QuadPart = totalBytesWritten.QuadPart + writeSize.QuadPart;
 
         //
         // Extend the file if we have reached the end of what we have
@@ -828,13 +827,10 @@ Return Value:
         // file comes in.
         //
 
-        if ( LiGtr( totalBytesWritten, fileAllocation ) ||
-             LiEql( totalBytesWritten, fileAllocation ) ) {
+        if ( totalBytesWritten.QuadPart >= fileAllocation.QuadPart ) {
 
-            fileAllocation = LiAdd(
-                                 fileAllocation,
-                                 fileAllocationIncrement
-                                 );
+            fileAllocation.QuadPart =
+                        fileAllocation.QuadPart + fileAllocationIncrement.QuadPart;
 
             DbgPrint( "Enlarging log file to %ld bytes.\n",
                           fileAllocation.LowPart );
@@ -849,10 +845,8 @@ Return Value:
 
             if ( !NT_SUCCESS(status) ) {
                 DbgPrint( "Attempt to extend log file failed: %X\n", status );
-                fileAllocation = LiSub(
-                                     fileAllocation,
-                                     fileAllocationIncrement
-                                     );
+                fileAllocation.QuadPart =
+                        fileAllocation.QuadPart - fileAllocationIncrement.QuadPart;
             }
         }
     }

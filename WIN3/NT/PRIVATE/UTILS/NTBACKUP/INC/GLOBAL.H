@@ -305,11 +305,19 @@ extern BOOL      gfServers;
 extern BOOL      gfNetworks;
 extern BOOL      gfEnhanced;
 
+#ifdef OEM_EMS
+extern BOOL      gfExchange;
+#endif
+
 extern INT16     gCatMaintChoice;
 extern INT16     gCatBsetChoice;
 extern INT16     gCatTapeChoice;
 
 extern INT16     gViewNetChoices;
+
+#ifdef OEM_EMS
+extern INT16     gViewXchgChoices;
+#endif
 
 extern INT       gfPWForPWDBState;
 

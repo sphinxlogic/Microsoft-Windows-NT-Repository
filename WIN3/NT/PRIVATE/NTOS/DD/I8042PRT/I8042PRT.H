@@ -23,6 +23,10 @@ Revision History:
 #include "kbdmou.h"
 #include "i8042cfg.h"
 
+#ifdef PNP_IDENTIFY
+#include "devdesc.h"
+#endif
+
 //
 // Define the timer values.
 //
@@ -69,32 +73,53 @@ Revision History:
 
 //
 // Default number of function keys, number of LED indicators, and total
-// number of keys located on the known types of keyboard.  
+// number of keys located on the known types of keyboard.
 //
 
+#ifndef JAPAN
 #define NUM_KNOWN_KEYBOARD_TYPES                   4
+#else
+// NLS Keyboard Support Code.
+#define NUM_KNOWN_KEYBOARD_TYPES                  16
+#endif
 #define KEYBOARD_TYPE_DEFAULT                      4
 #define KEYBOARD_INDICATORS_DEFAULT                0
 
 typedef struct _KEYBOARD_TYPE_INFORMATION {
-    USHORT NumberOfFunctionKeys;  
+    USHORT NumberOfFunctionKeys;
     USHORT NumberOfIndicators;
     USHORT NumberOfKeysTotal;
 } KEYBOARD_TYPE_INFORMATION, *PKEYBOARD_TYPE_INFORMATION;
 
-static const 
+static const
 KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
     {10, 3, 84},     // PC/XT 83- 84-key keyboard (and compatibles)
     {12, 3, 102},    // Olivetti M24 102-key keyboard (and compatibles)
     {10, 3, 84},     // All AT type keyboards (84-86 keys)
     {12, 3, 101}     // Enhanced 101- or 102-key keyboards (and compatibles)
+#ifdef JAPAN
+// NLS Keyboard Support Code.
+    ,
+    { 0, 0, 0},
+    { 0, 0, 0},
+    {12, 3, 106},    // TYPE=7  IBM-J 5576-002 keyboard
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    { 0, 0, 0},
+    {12, 4, 105}     // TYPE=16 AX keyboard
+#endif
 };
 
 //
 // Minimum, maximum, and default values for keyboard typematic rate and delay.
 //
 
-#define KEYBOARD_TYPEMATIC_RATE_MINIMUM     2   
+#define KEYBOARD_TYPEMATIC_RATE_MINIMUM     2
 #define KEYBOARD_TYPEMATIC_RATE_MAXIMUM    30
 #define KEYBOARD_TYPEMATIC_RATE_DEFAULT    30
 #define KEYBOARD_TYPEMATIC_DELAY_MINIMUM  250
@@ -141,12 +166,13 @@ KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
 // Defines for DeviceExtension->HardwarePresent.
 //
 
-#define KEYBOARD_HARDWARE_PRESENT  1
-#define MOUSE_HARDWARE_PRESENT     2
-#define BALLPOINT_HARDWARE_PRESENT 4
+#define KEYBOARD_HARDWARE_PRESENT   0x01
+#define MOUSE_HARDWARE_PRESENT      0x02
+#define BALLPOINT_HARDWARE_PRESENT  0x04
+#define WHEELMOUSE_HARDWARE_PRESENT 0x08
 
 //
-// Define macros for performing I/O on the 8042 command/status and data 
+// Define macros for performing I/O on the 8042 command/status and data
 // registers.
 //
 
@@ -163,8 +189,8 @@ KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
 // Define commands to the 8042 controller.
 //
 
-#define I8042_READ_CONTROLLER_COMMAND_BYTE	0x20
-#define I8042_WRITE_CONTROLLER_COMMAND_BYTE	0x60
+#define I8042_READ_CONTROLLER_COMMAND_BYTE      0x20
+#define I8042_WRITE_CONTROLLER_COMMAND_BYTE     0x60
 #define I8042_DISABLE_MOUSE_DEVICE              0xA7
 #define I8042_ENABLE_MOUSE_DEVICE               0xA8
 #define I8042_AUXILIARY_DEVICE_TEST             0xA9
@@ -177,26 +203,26 @@ KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
 // Define the 8042 Controller Command Byte.
 //
 
-#define CCB_ENABLE_KEYBOARD_INTERRUPT 0x01    
-#define CCB_ENABLE_MOUSE_INTERRUPT    0x02    
-#define CCB_DISABLE_KEYBOARD_DEVICE   0x10    
-#define CCB_DISABLE_MOUSE_DEVICE      0x20    
-#define CCB_KEYBOARD_TRANSLATE_MODE   0x40    
+#define CCB_ENABLE_KEYBOARD_INTERRUPT 0x01
+#define CCB_ENABLE_MOUSE_INTERRUPT    0x02
+#define CCB_DISABLE_KEYBOARD_DEVICE   0x10
+#define CCB_DISABLE_MOUSE_DEVICE      0x20
+#define CCB_KEYBOARD_TRANSLATE_MODE   0x40
 
 
 //
 // Define the 8042 Controller Status Register bits.
 //
 
-#define OUTPUT_BUFFER_FULL       0x01       
-#define INPUT_BUFFER_FULL        0x02      
-#define MOUSE_OUTPUT_BUFFER_FULL 0x20    
+#define OUTPUT_BUFFER_FULL       0x01
+#define INPUT_BUFFER_FULL        0x02
+#define MOUSE_OUTPUT_BUFFER_FULL 0x20
 
 //
 // Define the 8042 responses.
 //
 
-#define ACKNOWLEDGE         0xFA	
+#define ACKNOWLEDGE         0xFA        
 #define RESEND              0xFE
 
 //
@@ -230,6 +256,7 @@ KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
 #define ENABLE_MOUSE_TRANSMISSION         0xF4
 #define SET_MOUSE_SCALING_1TO1            0xE6
 #define READ_MOUSE_STATUS                 0xE9
+#define GET_DEVICE_ID                     0xF2
 
 //
 // Define the mouse responses.
@@ -237,6 +264,7 @@ KEYBOARD_TYPE_INFORMATION KeyboardTypeInformation[NUM_KNOWN_KEYBOARD_TYPES] = {
 
 #define MOUSE_COMPLETE      0xAA
 #define MOUSE_ID_BYTE       0x00
+#define WHEELMOUSE_ID_BYTE  0x03
 
 //
 // Define the i8042 controller input/output ports.
@@ -246,7 +274,7 @@ typedef enum _I8042_IO_PORT_TYPE {
     DataPort = 0,
     CommandPort,
     MaximumPortCount
-    
+
 } I8042_IO_PORT_TYPE;
 
 //
@@ -288,6 +316,7 @@ typedef enum _MOUSE_STATE {
     MouseIdle,
     XMovement,
     YMovement,
+    ZMovement,
     MouseExpectingACK
 } MOUSE_STATE;
 
@@ -302,7 +331,7 @@ typedef struct _KEYBOARD_SET_PACKET {
 } KEYBOARD_SET_PACKET, *PKEYBOARD_SET_PACKET;
 
 //
-// Intel i8042 configuration information.  
+// Intel i8042 configuration information.
 //
 
 typedef struct _I8042_CONFIGURATION_INFORMATION {
@@ -401,6 +430,13 @@ typedef struct _I8042_CONFIGURATION_INFORMATION {
 
     USHORT MouseResolution;
 
+    //
+    // Boolean flags determines whether we should try and detect the wheel
+    // on the mouse or not
+    //
+
+    ULONG EnableWheelDetection;
+
 } I8042_CONFIGURATION_INFORMATION, *PI8042_CONFIGURATION_INFORMATION;
 
 //
@@ -472,7 +508,7 @@ typedef struct _PORT_KEYBOARD_EXTENSION {
     //
     // Request sequence number (used for error logging).
     //
-    
+
     ULONG SequenceNumber;
 
     //
@@ -573,7 +609,7 @@ typedef struct _PORT_MOUSE_EXTENSION {
     //
     // Request sequence number (used for error logging).
     //
-    
+
     ULONG SequenceNumber;
 
     //
@@ -607,13 +643,20 @@ typedef struct _PORT_MOUSE_EXTENSION {
     BOOLEAN OkayToLogOverflow;
 
     //
-    // Number of interval timer ticks to wait before deciding that the 
+    // Number of interval timer ticks to wait before deciding that the
     // next mouse interrupt is for the start of a new packet.  Used to
     // synch up again if a byte of the mouse packet gets lost.
     //
 
     ULONG SynchTickCount;
-    
+
+    //
+    // Keep track of last byte of data received from mouse so we can detect
+    // the two-byte string which indicates a potential reset
+    // 
+
+    UCHAR LastByteReceived;
+
 } PORT_MOUSE_EXTENSION, *PPORT_MOUSE_EXTENSION;
 
 //
@@ -655,13 +698,13 @@ typedef struct _DEVICE_EXTENSION {
     //
     // Keyboard-specific port connection data.
     //
-    
+
     PORT_KEYBOARD_EXTENSION KeyboardExtension;
 
     //
     // Mouse-specific port connection data.
     //
-    
+
     PORT_MOUSE_EXTENSION MouseExtension;
 
     //
@@ -754,7 +797,39 @@ typedef struct _DEVICE_EXTENSION {
 
     BOOLEAN UnmapRegistersRequired;
 
+#if defined(JAPAN) && defined(i386)
+// Fujitsu Sep.08.1994
+// We want to write debugging information to the file except stop error.
+
+    LONG Dump1Keys;           // CrashDump call first press keys flag
+                              //  7 6 5 4 3 2 1 0 bit
+                              //    | | |   | | +--- Right Shift Key
+                              //    | | |   | +----- Right Ctrl Key
+                              //    | | |   +------- Right Alt Key
+                              //    | | +----------- Left Shift Key
+                              //    | +------------- Left Ctrl Key
+                              //    +--------------- Left Alt Key
+    LONG Dump2Key;            // CrashDump call second twice press key no
+    LONG DumpFlags;           // Key press flags
+
+#endif
+
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
+
+//
+// Temporary structure used during initialization
+//
+
+typedef struct _INIT_EXTENSION {
+
+    DEVICE_EXTENSION DeviceExtension;
+
+#ifdef PNP_IDENTIFY
+    HWDESC_INFO MouseConfig;
+    HWDESC_INFO KeyboardConfig;
+#endif
+
+} INIT_EXTENSION, *PINIT_EXTENSION;
 
 //
 // Define the port InitializeDataQueue context structure.
@@ -771,7 +846,7 @@ typedef struct _I8042_INITIALIZE_DATA_CONTEXT {
 
 typedef struct _I8042_TRANSMIT_CCB_CONTEXT {
     IN ULONG HardwareDisableEnableMask;
-    IN BOOLEAN AndOperation; 
+    IN BOOLEAN AndOperation;
     IN UCHAR ByteMask;
     OUT NTSTATUS Status;
 } I8042_TRANSMIT_CCB_CONTEXT, *PI8042_TRANSMIT_CCB_CONTEXT;
@@ -785,7 +860,7 @@ typedef struct _I8042_DEVICE_ENABLE_DISABLE_CONTEXT {
     IN ULONG EnableMask;
     IN BOOLEAN AndOperation;
     OUT NTSTATUS Status;
-} I8042_DEVICE_ENABLE_DISABLE_CONTEXT, 
+} I8042_DEVICE_ENABLE_DISABLE_CONTEXT,
   *PI8042_DEVICE_ENABLE_DISABLE_CONTEXT;
 
 //
@@ -810,7 +885,7 @@ typedef struct _SET_DATA_POINTER_CONTEXT {
 //
 // Define the port timer context structure.
 //
- 
+
 typedef struct _TIMER_CONTEXT {
     IN PDEVICE_OBJECT DeviceObject;
     IN PLONG TimerCounter;
@@ -829,7 +904,7 @@ typedef struct _KEYBOARD_INITIATE_CONTEXT {
 
 //
 // Statically allocate the (known) scancode-to-indicator-light mapping.
-// This information is returned by the 
+// This information is returned by the
 // IOCTL_KEYBOARD_QUERY_INDICATOR_TRANSLATION device control request.
 //
 
@@ -961,7 +1036,7 @@ VOID
 I8xBuildResourceList(
     IN PDEVICE_EXTENSION DeviceExtension,
     OUT PCM_RESOURCE_LIST *ResourceList,
-    OUT PULONG ResourceListSize 
+    OUT PULONG ResourceListSize
     );
 
 UCHAR
@@ -1054,7 +1129,7 @@ I8xInitializeMouse(
 
 VOID
 I8xKeyboardConfiguration(
-    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PINIT_EXTENSION InitializationData,
     IN PUNICODE_STRING RegistryPath,
     IN PUNICODE_STRING KeyboardDeviceName,
     IN PUNICODE_STRING PointerDeviceName
@@ -1070,7 +1145,7 @@ I8xKeyboardInitiateWrapper(
     IN PVOID Context
     );
 
-NTSTATUS 
+NTSTATUS
 I8xKeyboardPeripheralCallout(
     IN PVOID Context,
     IN PUNICODE_STRING PathName,
@@ -1097,7 +1172,7 @@ I8xLogError(
 
 VOID
 I8xMouseConfiguration(
-    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PINIT_EXTENSION InitializationData,
     IN PUNICODE_STRING RegistryPath,
     IN PUNICODE_STRING KeyboardDeviceName,
     IN PUNICODE_STRING PointerDeviceName
@@ -1108,7 +1183,7 @@ I8xMouseEnableTransmission(
     IN PDEVICE_OBJECT DeviceObject
     );
 
-NTSTATUS 
+NTSTATUS
 I8xMousePeripheralCallout(
     IN PVOID Context,
     IN PUNICODE_STRING PathName,
@@ -1147,7 +1222,7 @@ I8xPutControllerCommand(
 
 VOID
 I8xServiceParameters(
-    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PINIT_EXTENSION InitializationData,
     IN PUNICODE_STRING RegistryPath,
     IN PUNICODE_STRING KeyboardDeviceName,
     IN PUNICODE_STRING PointerDeviceName
@@ -1175,5 +1250,37 @@ I8xWriteDataToMouseQueue(
     IN PPORT_MOUSE_EXTENSION MouseExtension,
     IN PMOUSE_INPUT_DATA InputData
     );
+
+NTSTATUS
+I8xFindWheelMouse(
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+VOID
+I8xQueueCurrentInput(
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+#ifdef JAPAN
+NTSTATUS
+I8xCreateSymbolicLink(
+    IN PWCHAR SymbolicLinkName,
+    IN ULONG SymbolicLinkInteger,
+    IN PUNICODE_STRING DeviceName
+    );
+
+#if defined(i386)
+// Fujitsu Sep.08.1994
+// We want to write debugging information to the file except stop error.
+VOID
+I8xServiceCrashDump(
+    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PUNICODE_STRING RegistryPath,
+    IN PUNICODE_STRING KeyboardDeviceName,
+    IN PUNICODE_STRING PointerDeviceName
+    );
+#endif // i386
+
+#endif // JAPAN
 
 #endif // _I8042PRT_

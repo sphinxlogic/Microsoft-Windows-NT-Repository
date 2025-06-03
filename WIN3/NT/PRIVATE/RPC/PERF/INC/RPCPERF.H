@@ -27,6 +27,11 @@ Revision History:
 #include <windows.h>
 #endif
 
+#ifdef WIN
+#include <windows.h>
+#endif
+
+#include <rpc.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -39,8 +44,11 @@ extern char         *Protseq;
 extern char         *NetworkAddr;
 extern unsigned long Iterations;
 extern unsigned int  MinThreads;
+extern char         *AuthnLevelStr;
+extern unsigned long AuthnLevel;
 extern long          Options[7];
-extern long          Debug;
+extern char         *LogFileName;
+extern unsigned int  OutputLevel;
 
 #define CHECK_STATUS(status, string) if (status) {                       \
         printf("%s failed - %d (%08x)\n", (string), (status), (status)); \
@@ -56,4 +64,9 @@ extern void EndTime(char *);
 extern void ApiError(char *, unsigned long);
 extern void Dump(char *,...);
 extern void DbDump(char *,...);
+
+#define printf Dump
+#define dbgprintf DebugDump
+
+
 

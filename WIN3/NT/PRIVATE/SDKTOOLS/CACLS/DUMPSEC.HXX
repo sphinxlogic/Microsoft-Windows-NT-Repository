@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        DUMPSEC.hxx
 //
 //  Contents:    class encapsulating file security.

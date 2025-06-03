@@ -19,7 +19,7 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "zwapi.h"
+
 
 //
 // MmReadWrite yields 0 if no-access, 10 if read-only, 11 if read-write.
@@ -247,6 +247,16 @@ Environment:
     NTSTATUS status;
     KIRQL OldIrql;
 
+    PVOID DeallocationStack;
+    PVOID *StackLimit;
+
+#if defined(WX86)
+    PWX86TIB Wx86Tib;
+#endif
+
+
+
+
     //
     // Create an exception handler as the Teb is within the user's
     // address space.
@@ -260,20 +270,41 @@ Environment:
         Teb = PCR->Teb;
 #endif
 
+        DeallocationStack = Teb->DeallocationStack;
+        StackLimit = &Teb->NtTib.StackLimit;
+
         //
         // The stack base and the stack limit are both within the stack.
         //
 
         if ((Teb->NtTib.StackBase < FaultingAddress) ||
-            (Teb->DeallocationStack > FaultingAddress)) {
+            (DeallocationStack > FaultingAddress)) {
 
+#if defined(WX86)
             //
-            // Not within the stack.
+            // Also check the Wx86 i386 stack on risc
             //
+            if (!(Wx86Tib = Teb->Vdm) ||
+                Wx86Tib->Size != sizeof(WX86TIB) ||
+                Wx86Tib->StackBase < FaultingAddress ||
+                Wx86Tib->DeallocationStack > FaultingAddress)
 
-            return STATUS_GUARD_PAGE_VIOLATION;
+#endif
+              {
+                //
+                // Not within the stack.
+                //
+
+                return STATUS_GUARD_PAGE_VIOLATION;
+            }
+
+#if defined(WX86)
+            DeallocationStack = Wx86Tib->DeallocationStack;
+            StackLimit = &Wx86Tib->StackLimit;
+#endif
 
         }
+
 
         //
         // This address is within the current stack, check to see
@@ -285,7 +316,7 @@ Environment:
 
         RegionSize = PAGE_SIZE;
 
-        if ((NextPage - PAGE_SIZE) <= (ULONG)PAGE_ALIGN(Teb->DeallocationStack)) {
+        if ((NextPage - PAGE_SIZE) <= (ULONG)PAGE_ALIGN(DeallocationStack)) {
 
             //
             // There is no more room for expansion, attempt to
@@ -293,7 +324,7 @@ Environment:
             // stack.
             //
 
-            NextPage = (ULONG)PAGE_ALIGN(Teb->DeallocationStack) + PAGE_SIZE;
+            NextPage = (ULONG)PAGE_ALIGN(DeallocationStack) + PAGE_SIZE;
 
             status = ZwAllocateVirtualMemory (NtCurrentProcess(),
                                               (PVOID *)&NextPage,
@@ -302,12 +333,14 @@ Environment:
                                               MEM_COMMIT,
                                               PAGE_READWRITE);
             if ( NT_SUCCESS(status) ) {
-                Teb->NtTib.StackLimit = (PVOID)( (PUCHAR)NextPage);
+
+                *StackLimit = (PVOID)( (PUCHAR)NextPage);
+
             }
 
             return STATUS_STACK_OVERFLOW;
         }
-
+        *StackLimit = (PVOID)((PUCHAR)(NextPage + PAGE_SIZE));
 retry:
         status = ZwAllocateVirtualMemory (NtCurrentProcess(),
                                           (PVOID *)&NextPage,
@@ -316,6 +349,7 @@ retry:
                                           MEM_COMMIT,
                                           PAGE_READWRITE | PAGE_GUARD);
 
+
         if (NT_SUCCESS(status) || (status == STATUS_ALREADY_COMMITTED)) {
 
             //
@@ -323,7 +357,6 @@ retry:
             // already present, return success.
             //
 
-            Teb->NtTib.StackLimit = (PVOID)((PUCHAR)(NextPage + PAGE_SIZE));
             return STATUS_PAGE_FAULT_GUARD_PAGE;
         }
 

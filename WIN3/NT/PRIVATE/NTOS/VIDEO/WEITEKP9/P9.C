@@ -18,22 +18,99 @@ Environment:
 Revision History may be found at the end of this file.
 
 --*/
-#include "dderror.h"
-#include "devioctl.h"
 
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "vga.h"
+#include "string.h"
+#include "p91regs.h"
+#include "p9errlog.h"
+
+//
+// This global is used as an error flag to error out quickly on the multiple
+// calls to P9FindAdapter when a board is not supported.
+//
+
+extern VP_STATUS vpP91AdapterStatus;
+
+extern ULONG P91_Bt485_DAC_Regs[];
+
+BOOLEAN gMadeAdjustments=FALSE;
+
+extern BOOLEAN
+bIntergraphBoard(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+extern VOID SetVgaMode3(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+extern VOID
+WriteP9ConfigRegister(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    UCHAR regnum,
+    UCHAR jValue
+    );
+
+extern VOID
+InitP9100(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+
+extern VOID
+P91_SysConf(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+
+extern VOID
+P91_WriteTiming(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+extern VOID vDumpPCIConfig(PHW_DEVICE_EXTENSION HwDeviceExtension,
+                    PUCHAR psz);
+
 
 //
 // Local function Prototypes
 //
 // Functions that start with 'P9' are entry points for the OS port driver.
 //
+
+VP_STATUS
+GetCPUIdCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+    PVOID Identifier,
+    ULONG IdentifierLength,
+    PVOID ConfigurationData,
+    ULONG ConfigurationDataLength,
+    PVOID ComponentInformation,
+    ULONG ComponentInformationLength
+    );
+
+VP_STATUS
+GetDeviceDataCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+    PVOID Identifier,
+    ULONG IdentifierLength,
+    PVOID ConfigurationData,
+    ULONG ConfigurationDataLength,
+    PVOID ComponentInformation,
+    ULONG ComponentInformationLength
+    );
+
+VOID
+DevSetRegistryParams(
+    PHW_DEVICE_EXTENSION hwDeviceExtension
+    );
+
 
 VP_STATUS
 P9FindAdapter(
@@ -60,9 +137,10 @@ DevInitP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
-BOOLEAN
+VOID
 DevDisableP9(
-    PHW_DEVICE_EXTENSION HwDeviceExtension
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    BOOLEAN BugCheck
     );
 
 VP_STATUS
@@ -80,6 +158,32 @@ P9ResetVideo(
     IN ULONG Columns,
     IN ULONG Rows
     );
+
+VOID
+InitializeModes(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+#if defined(ALLOC_PRAGMA)
+#pragma alloc_text(PAGE,DriverEntry)
+#pragma alloc_text(PAGE,GetCPUIdCallback)
+#pragma alloc_text(PAGE,GetDeviceDataCallback)
+#pragma alloc_text(PAGE,DevSetRegistryParams)
+#pragma alloc_text(PAGE,P9FindAdapter)
+#pragma alloc_text(PAGE,P9Initialize)
+#pragma alloc_text(PAGE,P9StartIO)
+
+/*****************************************************************************
+ *
+ * IMPORTANT:
+ *
+ * Some routines, like DevDisable, can not be paged since they are called
+ * when the system is bugchecking
+ *
+ ****************************************************************************/
+
+// #pragma alloc_text(PAGE, DevDisableP9)
+#endif
 
 
 ULONG
@@ -115,7 +219,6 @@ Return Value:
     ULONG status;
     UCHAR   i;
 
-
     VideoDebugPrint((1, "DriverEntry ----------\n"));
 
     //
@@ -148,13 +251,12 @@ Return Value:
     {
         //
         // Compute the size of the device extension by adding in the
-        // number of DAC Registers and OEM specific registers.
+        // number of DAC Registers.
         //
 
         hwInitData.HwDeviceExtensionSize =
             sizeof(HW_DEVICE_EXTENSION) +
-            (OEMAdapter[i].pDac->cDacRegs * sizeof(PVOID)) +
-            (OEMAdapter[i].pAdapterDesc->cOEMRegs * sizeof(PVOID));
+            (OEMAdapter[i].pDac->cDacRegs * sizeof(PVOID));
 
         //
         // This driver accesses one range of memory one range of control
@@ -173,45 +275,58 @@ Return Value:
         //
         // This device supports many bus types.
         //
+        // SNI has implemented machines with both VL and PCI versions of the
+        // weitek chipset.  Don't bother with the other buses since the
+        // detection code may actually crash some MIPS boxes.
+        //
 
-        hwInitData.AdapterInterfaceType = PCIBus;
-
-        if ((status = VideoPortInitialize(Context1,
-                                          Context2,
-                                          &hwInitData,
-                                          &(OEMAdapter[i]))) == NO_ERROR)
+        if (OEMAdapter[i].pAdapterDesc->bPCIAdapter)
         {
-            break;
+            hwInitData.AdapterInterfaceType = PCIBus;
+
+            if ((status = VideoPortInitialize(Context1,
+                                              Context2,
+                                              &hwInitData,
+                                              &(OEMAdapter[i]))) == NO_ERROR)
+            {
+                break;
+            }
         }
-
-        hwInitData.AdapterInterfaceType = Isa;
-
-        if ((status = VideoPortInitialize(Context1,
-                                          Context2,
-                                          &hwInitData,
-                                          &(OEMAdapter[i]))) == NO_ERROR)
+        else
         {
-            break;
-        }
 
-        hwInitData.AdapterInterfaceType = Eisa;
+#ifndef _MIPS_
 
-        if ((status = VideoPortInitialize(Context1,
-                                          Context2,
-                                          &hwInitData,
-                                          &(OEMAdapter[i]))) == NO_ERROR)
-        {
-            break;
-        }
+            hwInitData.AdapterInterfaceType = Isa;
 
-        hwInitData.AdapterInterfaceType = Internal;
+            if ((status = VideoPortInitialize(Context1,
+                                              Context2,
+                                              &hwInitData,
+                                              &(OEMAdapter[i]))) == NO_ERROR)
+            {
+                break;
+            }
 
-        if ((status = VideoPortInitialize(Context1,
-                                          Context2,
-                                          &hwInitData,
-                                          &(OEMAdapter[i]))) == NO_ERROR)
-        {
-            break;
+            hwInitData.AdapterInterfaceType = Eisa;
+
+            if ((status = VideoPortInitialize(Context1,
+                                              Context2,
+                                              &hwInitData,
+                                              &(OEMAdapter[i]))) == NO_ERROR)
+            {
+                break;
+            }
+#endif
+
+            hwInitData.AdapterInterfaceType = Internal;
+
+            if ((status = VideoPortInitialize(Context1,
+                                              Context2,
+                                              &hwInitData,
+                                              &(OEMAdapter[i]))) == NO_ERROR)
+            {
+                break;
+            }
         }
     }
 
@@ -245,6 +360,9 @@ Return Value:
 --*/
 
 {
+
+#ifdef _X86_
+
     if (ValueData &&
         ValueLength &&
         (*((PULONG)ValueData) == 1)) {
@@ -258,7 +376,173 @@ Return Value:
         return ERROR_INVALID_PARAMETER;
 
     }
+
+#else
+
+    //
+    // we never have a VL bus on non-x86 systems
+    //
+
+    return ERROR_INVALID_PARAMETER;
+
+#endif
+
 }
+
+VP_STATUS
+GetCPUIdCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+    PVOID Identifier,
+    ULONG IdentifierLength,
+    PVOID ConfigurationData,
+    ULONG ConfigurationDataLength,
+    PVOID ComponentInformation,
+    ULONG ComponentInformationLength
+    )
+{
+    VideoDebugPrint((2, "Weitek: Check the SNI CPU ID\n"));
+
+    //
+    // We do not want to try to detect the weitekp9 if there isn't one present.
+    // (Kind of a paradox?)
+    //
+
+    if (Identifier) {
+
+        if (VideoPortCompareMemory(Context,
+                                   Identifier,
+                                   IdentifierLength) == IdentifierLength)
+        {
+            return NO_ERROR;
+        }
+    }
+
+    return ERROR_DEV_NOT_EXIST;
+
+} //end GetCPUIdCallback()
+
+VP_STATUS
+GetDeviceDataCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    VIDEO_DEVICE_DATA_TYPE DeviceDataType,
+    PVOID Identifier,
+    ULONG IdentifierLength,
+    PVOID ConfigurationData,
+    ULONG ConfigurationDataLength,
+    PVOID ComponentInformation,
+    ULONG ComponentInformationLength
+    )
+{
+    PVIDEO_HARDWARE_CONFIGURATION_DATA configData = ConfigurationData;
+    PHW_DEVICE_EXTENSION hwDeviceExtension;
+    ULONG i;
+
+    hwDeviceExtension = (PHW_DEVICE_EXTENSION)HwDeviceExtension;
+
+    VideoDebugPrint((2, "Weitek: controller information is present\n"));
+
+    //
+    // We do not want to try to detect the weitekp9 if there isn't one present.
+    // (Kind of a paradox?)
+    //
+
+    if (Identifier) {
+
+        if (VideoPortCompareMemory(L"DIAMOND P9000 VLBUS",
+                                   Identifier,
+                                   sizeof(L"DIAMOND P9000 VLBUS")) ==
+                                   sizeof(L"DIAMOND P9000 VLBUS"))
+        {
+            hwDeviceExtension->MachineType = SIEMENS;
+        }
+        else if (VideoPortCompareMemory(L"DIAMOND P9100 VLBUS",
+                                        Identifier,
+                                        sizeof(L"DIAMOND P9100 VLBUS")) ==
+                                        sizeof(L"DIAMOND P9100 VLBUS"))
+
+        {
+            hwDeviceExtension->MachineType = SIEMENS_P9100_VLB;
+        }
+        else
+        {
+            return ERROR_DEV_NOT_EXIST;
+        }
+
+        VideoDebugPrint((1, "Siemens Nixdorf RM400 VL with Weitek P9%d00\n",
+                         hwDeviceExtension->MachineType == SIEMENS ? 0:1));
+
+        hwDeviceExtension->P9PhysAddr.LowPart = 0x1D000000;
+
+        //
+        // adjust DriverAccessRanges for Siemens box
+        //
+        // This routine may be called several times, but we
+        // only want to do this once!
+        //
+
+        if (!gMadeAdjustments)
+        {
+            ULONG adjust;
+
+            if ((hwDeviceExtension->MachineType == SIEMENS_P9100_VLB) &&
+                (VideoPortIsCpu(L"RM400-MT") || VideoPortIsCpu(L"RM400-T")
+               ||VideoPortIsCpu(L"RM400-T MP")))
+            {
+                //
+                // If we have a P9100 VLB and it's *not* on a RM200
+                // then use the new address.
+                //
+                // Otherwise, use the old address.
+                //
+
+                adjust = 0x1E000000;
+            }
+            else if (hwDeviceExtension->MachineType == SIEMENS
+                 ||  VideoPortIsCpu(L"RM200"))
+            {
+                adjust = 0x14000000;
+            }
+            else return ERROR_DEV_NOT_EXIST;
+
+            DriverAccessRanges[1].RangeStart.LowPart += adjust;
+
+            for(i=0; i<0x10; i++)
+            {
+                VLDefDACRegRange[i].RangeStart.LowPart += adjust;
+            }
+
+            gMadeAdjustments = TRUE;
+        }
+
+    }
+
+    return NO_ERROR;
+
+} //end GetDeviceDataCallback()
+
+VP_STATUS
+P9QueryNamedValueCallback(
+    PVOID HwDeviceExtension,
+    PVOID Context,
+    PWSTR ValueName,
+    PVOID ValueData,
+    ULONG ValueLength
+)
+{
+    if (ValueLength == 4)
+    {
+        *((PULONG) Context) = *((PULONG)ValueData);
+        return(NO_ERROR);
+    }
+    else
+    {
+        return(ERROR_INVALID_PARAMETER);
+    }
+}
+
 
 VP_STATUS
 P9FindAdapter(
@@ -314,9 +598,13 @@ Arguments:
 --*/
 
 {
-    PP9ADAPTER      pCurAdapter;
-    PULONG          pVirtAddr;
-    SHORT           i;
+    PP9ADAPTER pCurAdapter;
+    PULONG     pVirtAddr;
+    SHORT      i;
+    ULONG      TotalRanges;
+
+    ULONG      CoProcId;
+    VP_STATUS  vpCurrStatus = NO_ERROR;
 
     VideoDebugPrint((1, "P9FindAdapter: enter\n"));
 
@@ -350,9 +638,52 @@ Arguments:
                                         pVlCardDetect,
                                         NULL) != NO_ERROR)
     {
-
         return(ERROR_DEV_NOT_EXIST);
     }
+
+    HwDeviceExtension->P9PhysAddr.HighPart = 0;
+    HwDeviceExtension->P9PhysAddr.LowPart = 0;
+
+    VideoPortGetRegistryParameters((PVOID) HwDeviceExtension,
+                                   L"Membase",
+                                   FALSE,
+                                   P9QueryNamedValueCallback,
+                                   (PVOID) &(HwDeviceExtension->P9PhysAddr.LowPart));
+
+
+    // SNI is shipping MIPS machine with Internal and PCI versions of the
+    // weitek chips.  For other buses, don't try to load
+    // For MIPS machine with an Internal Bus, check the ID
+    // for PPC, we just go through normal detection
+    //
+
+#if defined(_MIPS_)
+
+    if (ConfigInfo->AdapterInterfaceType == Internal)
+    {
+        //
+        // Let get the hardware information from the hardware description
+        // part of the registry.
+        //
+        // Check if there is a video adapter on the internal bus.
+        // Exit right away if there is not.
+        //
+
+        if (NO_ERROR != VideoPortGetDeviceData(HwDeviceExtension,
+                                               VpControllerData,
+                                               &GetDeviceDataCallback,
+                                               pCurAdapter))
+        {
+
+            VideoDebugPrint((2, "Weitek: VideoPort get controller info failed\n"));
+
+            return ERROR_INVALID_PARAMETER;
+
+        }
+    }
+    else if(ConfigInfo->AdapterInterfaceType != PCIBus)
+                return ERROR_INVALID_PARAMETER;
+#endif
 
     //
     // Move the various Hw component structures for this board into the
@@ -378,11 +709,9 @@ Arguments:
     // The arrays are kept at the very end of the device extension and
     // are order dependent.
     //
+
     (PUCHAR) HwDeviceExtension->pDACRegs = (PUCHAR) HwDeviceExtension +
                                     sizeof(HW_DEVICE_EXTENSION);
-    (PUCHAR) HwDeviceExtension->pOEMRegs = (PUCHAR) HwDeviceExtension->pDACRegs +
-                                    (pCurAdapter->pDac->cDacRegs *
-                                    sizeof(PVOID));
 
     //
     // Call the OEMGetBaseAddr routine to determine if the board is
@@ -394,6 +723,12 @@ Arguments:
         VideoDebugPrint((1, "FindAdapter Failed\n"));
         return(ERROR_DEV_NOT_EXIST);
     }
+
+    //
+    // We found an adapter, pickup a local for the chip type.
+    //
+
+    CoProcId = pCurAdapter->pCoprocInfo->CoprocId;
 
     //
     // Make sure the size of the structure is at least as large as what we
@@ -416,11 +751,20 @@ Arguments:
 
     ConfigInfo->HardwareStateSize = 0;
 
-    ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart = 0L;
-    ConfigInfo->VdmPhysicalVideoMemoryAddress.HighPart = 0L;
-    ConfigInfo->VdmPhysicalVideoMemoryLength = 0L;
-
-
+    if (CoProcId == P9000_ID)
+    {
+        ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart  = 0L;
+        ConfigInfo->VdmPhysicalVideoMemoryAddress.HighPart = 0L;
+        ConfigInfo->VdmPhysicalVideoMemoryLength           = 0L;
+    }
+    else
+    {
+        ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart  = MEM_VGA_ADDR;
+        ConfigInfo->VdmPhysicalVideoMemoryAddress.HighPart = 0L;
+        ConfigInfo->VdmPhysicalVideoMemoryLength           = MEM_VGA_SIZE;
+        if(HwDeviceExtension->MachineType == SIEMENS_P9100_PCi)
+                ConfigInfo->VdmPhysicalVideoMemoryAddress.LowPart |= 0x10000000;
+    }
     //
     // The OEMGetBaseAddr routine should have initialized the following
     // data structures:
@@ -433,17 +777,13 @@ Arguments:
     // Initialize the physical address for the registers and frame buffer.
     //
 
-    HwDeviceExtension->CoprocPhyAddr.LowPart =
-        HwDeviceExtension->P9PhysAddr.LowPart
-            + HwDeviceExtension->P9CoprocInfo.CoprocRegOffset;
-    HwDeviceExtension->CoprocPhyAddr.HighPart =
-        HwDeviceExtension->P9PhysAddr.HighPart;
+    HwDeviceExtension->CoprocPhyAddr = HwDeviceExtension->P9PhysAddr;
+    HwDeviceExtension->CoprocPhyAddr.LowPart +=
+            HwDeviceExtension->P9CoprocInfo.CoprocRegOffset;
 
-    HwDeviceExtension->PhysicalFrameAddr.LowPart =
-        HwDeviceExtension->P9PhysAddr.LowPart +
+    HwDeviceExtension->PhysicalFrameAddr = HwDeviceExtension->P9PhysAddr;
+    HwDeviceExtension->PhysicalFrameAddr.LowPart +=
             HwDeviceExtension->P9CoprocInfo.FrameBufOffset;
-    HwDeviceExtension->PhysicalFrameAddr.HighPart =
-        HwDeviceExtension->P9PhysAddr.HighPart;
 
     //
     // Initialize the access range structure with the base address values
@@ -455,88 +795,296 @@ Arguments:
     DriverAccessRanges[0].RangeLength =
                 HwDeviceExtension->P9CoprocInfo.AddrSpace;
 
+    if (CoProcId == P9000_ID)
+    {
+        //
+        // Init the total number of standard access ranges.
+        //
+
+        TotalRanges = NUM_DRIVER_ACCESS_RANGES + NUM_DAC_ACCESS_RANGES + 1;
+
+    }
+    else
+    {
+        TotalRanges = NUM_DRIVER_ACCESS_RANGES;
+    }
+
     //
     // Check to see if another miniport driver has allocated any of the
     // coprocessor's memory space.
     //
 
     if (VideoPortVerifyAccessRanges(HwDeviceExtension,
-                                    NUM_DRIVER_ACCESS_RANGES +
-                                    NUM_DAC_ACCESS_RANGES,
+                                    TotalRanges,
                                     DriverAccessRanges) != NO_ERROR)
     {
-        return(ERROR_INVALID_PARAMETER);
+        if (HwDeviceExtension->AdapterDesc.bRequiresIORanges)
+        {
+            //
+            // If we need more then just the coproc ranges, and couldn't get
+            // then we need to fail.
+            //
+
+            VideoDebugPrint((0, "P9FindAdapter : (ERROR) VideoPortVerifyAccessRanges - Failed\n"));
+            return ERROR_INVALID_PARAMETER;
+        }
+        else
+        {
+            //
+            // We couldn't claim all of the access ranges.  However, this is a
+            // card which really only needs the coproc and frame buffer range.
+            //
+
+            if (VideoPortVerifyAccessRanges(HwDeviceExtension,
+                                            1,
+                                            DriverAccessRanges) != NO_ERROR)
+            {
+                //
+                // This access range we can't do without
+                //
+
+                VideoDebugPrint((0, "P9FindAdapter : (ERROR) VideoPortVerifyAccessRanges - Failed\n"));
+                return ERROR_INVALID_PARAMETER;
+            }
+        }
     }
-
-    //
-    // Map the coprocessor and VGA ranges into system virtual address space.
-    // This code assumes that the order of the virtual addresses in the
-    // HwDeviceExtension is the same as the order of the entries in the
-    // access range structure.
-    //
-
-    pVirtAddr = (PULONG) &HwDeviceExtension->P9MemBase;
-
-    for (i = 0; i < NUM_DRIVER_ACCESS_RANGES; i++ )
+    else
     {
-        if ( (*pVirtAddr = (ULONG)
+        //
+        // If we get here, then we must have successfully claimed
+        // the VGA access ranges.  Lets map them in.
+        //
+
+        HwDeviceExtension->Vga =
             VideoPortGetDeviceBase(HwDeviceExtension,
-                DriverAccessRanges[i].RangeStart,
-                DriverAccessRanges[i].RangeLength,
-                DriverAccessRanges[i].RangeInIoSpace)) == 0)
-        {
-            return ERROR_INVALID_PARAMETER;
-        }
-        pVirtAddr++;
+                                   DriverAccessRanges[1].RangeStart,
+                                   DriverAccessRanges[1].RangeLength,
+                                   DriverAccessRanges[1].RangeInIoSpace);
     }
 
     //
-    // Map all of the DAC registers into system virtual address space.
-    // These registers are mapped seperately from the coprocessor and DAC
-    // registers since their virtual addresses must be kept in an array
-    // at the end of the device extension.
+    // map coproc, frame buffer, and vga ports
     //
 
-    for (i = 0; i < NUM_DAC_ACCESS_RANGES; i++)
     {
-            if ( (HwDeviceExtension->pDACRegs[i] =
-            (ULONG) VideoPortGetDeviceBase(HwDeviceExtension,
-                DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeStart,
-                DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeLength,
-                DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeInIoSpace)) == 0)
-        {
-            return ERROR_INVALID_PARAMETER;
-        }
+        PHYSICAL_ADDRESS Base;
+
+        Base = DriverAccessRanges[0].RangeStart;
+        Base.QuadPart += HwDeviceExtension->P9CoprocInfo.CoprocRegOffset;
+
+        HwDeviceExtension->Coproc =
+            VideoPortGetDeviceBase(HwDeviceExtension,
+                                   Base,
+                                   0x100000,
+                                   DriverAccessRanges[0].RangeInIoSpace);
+
+        Base = DriverAccessRanges[0].RangeStart;
+        Base.QuadPart += HwDeviceExtension->P9CoprocInfo.FrameBufOffset;
+
+        HwDeviceExtension->FrameAddress =
+            VideoPortGetDeviceBase(HwDeviceExtension,
+                                   Base,
+                                   HwDeviceExtension->P9CoprocInfo.AddrSpace -
+                                   HwDeviceExtension->P9CoprocInfo.FrameBufOffset,
+                                   DriverAccessRanges[0].RangeInIoSpace);
     }
 
-    //
-    // Initialize the virtual address of the P9 registers and frame buffer.
-    //
-
-    (PUCHAR) HwDeviceExtension->Coproc =
-        (PUCHAR) HwDeviceExtension->P9MemBase +
-            HwDeviceExtension->P9CoprocInfo.CoprocRegOffset;
-    (PUCHAR) HwDeviceExtension->FrameAddress =
-        (PUCHAR) HwDeviceExtension->P9MemBase +
-            HwDeviceExtension->P9CoprocInfo.FrameBufOffset;
-
-    //
-    // Enable the video memory so it can be sized.
-    //
-
-    if (HwDeviceExtension->AdapterDesc.P9EnableMem)
+    if( HwDeviceExtension->Coproc == NULL ||
+        HwDeviceExtension->FrameAddress == NULL ||
+        (HwDeviceExtension->Vga == NULL &&
+         HwDeviceExtension->AdapterDesc.bRequiresIORanges))
     {
-        if (!HwDeviceExtension->AdapterDesc.P9EnableMem(HwDeviceExtension))
+        VideoDebugPrint((0, "weitekp9: VideoPortGetDeviceBase failed.\n"));
+
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    if (CoProcId == P9000_ID)
+    {
+        //
+        // Map all of the DAC registers into system virtual address space.
+        // These registers are mapped seperately from the coprocessor and DAC
+        // registers since their virtual addresses must be kept in an array
+        // at the end of the device extension.
+        //
+
+        for (i = 0; i < NUM_DAC_ACCESS_RANGES; i++)
         {
-            return(FALSE);
+                if ( (HwDeviceExtension->pDACRegs[i] =
+                (ULONG) VideoPortGetDeviceBase(HwDeviceExtension,
+                    DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeStart,
+                    DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeLength,
+                    DriverAccessRanges[i + NUM_DRIVER_ACCESS_RANGES].RangeInIoSpace)) == 0)
+            {
+                return ERROR_INVALID_PARAMETER;
+            }
+        }
+    }
+    else
+    {
+
+        for (i = 0; i < NUM_DAC_ACCESS_RANGES; i++)
+        {
+            HwDeviceExtension->pDACRegs[i] = P91_Bt485_DAC_Regs[i];
         }
     }
 
+    // NOTE: !!! jn 1294
+    //       On the P9100 we will always allocate the a full 12 meg
+    //       of address space...
+
+    if (CoProcId == P9000_ID)
+    {
+        //
+        // Enable the video memory so it can be sized.
+        //
+
+        if (HwDeviceExtension->AdapterDesc.P9EnableMem)
+        {
+            if (!HwDeviceExtension->AdapterDesc.P9EnableMem(HwDeviceExtension))
+            {
+                return(FALSE);
+            }
+        }
+
+        //
+        // Determine the amount of video memory installed.
+        //
+
+        HwDeviceExtension->P9CoprocInfo.SizeMem(HwDeviceExtension);
+    }
+
     //
-    // Determine the amount of video memory installed.
+    // Detect the DAC type.
+    // !!!
+    // On the X86, This requires switching into native mode, so the screen
+    // will be dark for the remainder of boot.
     //
 
-    HwDeviceExtension->P9CoprocInfo.SizeMem(HwDeviceExtension);
+    if (CoProcId == P9100_ID)
+    {
+        ULONG   ulPuConfig;
+#ifdef _MIPS_
+        VGA_REGS VGAregs;
+        void P91SaveVGARegs();
+        if_SIEMENS_P9100()
+              {
+              /*
+              ** SNI-Od: Save all VGA registers before we switch
+              **         to native mode
+              */
+              P91SaveVGARegs(HwDeviceExtension,&VGAregs);
+              }
+#endif
+
+        // If we have found a serious error, don't go any further.  We have already
+        // logged the error if the status is set in HwDeviceExtension
+
+        if ( vpP91AdapterStatus != NO_ERROR )
+        {
+            return (ERROR_DEV_NOT_EXIST);
+        }
+
+        // Get into Native mode
+
+        if (HwDeviceExtension->usBusType == VESA)
+        {
+            WriteP9ConfigRegister(HwDeviceExtension, P91_CONFIG_CONFIGURATION, 3);
+        }
+
+        WriteP9ConfigRegister(HwDeviceExtension, P91_CONFIG_MODE, 0);
+
+        HwDeviceExtension->p91State.ulPuConfig = P9_RD_REG(P91_PU_CONFIG);
+
+        // Look to see if it is an Intergraph board - if so, we want to error out
+
+        if ( bIntergraphBoard(HwDeviceExtension) == TRUE )
+        {
+            vpCurrStatus = P9_INTERGRAPH_FOUND;
+            goto error1;
+        }
+
+        // Determine the VRAM type:
+
+        HwDeviceExtension->p91State.bVram256 =
+            (HwDeviceExtension->p91State.ulPuConfig & P91_PUC_MEMORY_DEPTH)
+            ? FALSE : TRUE;
+
+        // Size the memory
+
+        P91SizeVideoMemory(HwDeviceExtension);
+
+        // Setup the Hardware Device Extension.
+        // So the mode counter will work.
+
+        HwDeviceExtension->FrameLength = HwDeviceExtension->p91State.ulFrameBufferSize;
+
+        // Make sure we are supporting the correct DAC.
+
+        ulPuConfig = P9_RD_REG(P91_PU_CONFIG);
+
+        if ((ulPuConfig & P91_PUC_RAMDAC_TYPE) == P91_PUC_DAC_IBM525)
+        {
+            if (HwDeviceExtension->Dac.ulDacId != DAC_ID_IBM525)
+            {
+                VideoDebugPrint((1, "WEITEKP9! WARNING - Detected an IBM525 DAC, Expected a Bt485 DAC\n"));
+                goto error1;
+            }
+        }
+        else if ((ulPuConfig & P91_PUC_RAMDAC_TYPE) == P91_PUC_DAC_BT485)
+        {
+            if (HwDeviceExtension->Dac.ulDacId != DAC_ID_BT485)
+            {
+                VideoDebugPrint((1, "WEITEKP9! WARNING - Detected an BT485 DAC, Expected an IBM525 DAC\n"));
+                goto error1;
+            }
+        }
+        else if ((ulPuConfig & P91_PUC_RAMDAC_TYPE) == P91_PUC_DAC_BT489)
+        {
+            if (HwDeviceExtension->Dac.ulDacId != DAC_ID_BT489)
+            {
+                VideoDebugPrint((1, "WEITEKP9! WARNING - Detected an BT489 DAC, Expected an IBM525 DAC\n"));
+                goto error1;
+            }
+        }
+        else
+        {
+            vpCurrStatus = P9_UNSUPPORTED_DAC;
+            VideoDebugPrint((1, "WEITEKP9! ERROR - Found P9100, detected an unsupported DAC\n"));
+            goto error1;
+        }
+
+#ifdef i386
+        // Switch back to VGA emulation mode
+        //
+        // We need to do this so that the VGA miniport can start up --
+        // otherwise, it will refuse to load, and we'll get an NTVDM
+        // error.
+
+        WriteP9ConfigRegister(HwDeviceExtension, P91_CONFIG_MODE, 0x2);
+
+#endif
+#ifdef   _MIPS_
+        if_SIEMENS_P9100()
+                {
+                /*
+                ** SNI-Od: Restore all VGA registers
+                ** after we switch back to VGA mode
+                */
+                void P91RestoreVGAregs();
+                WriteP9ConfigRegister(HwDeviceExtension,P91_CONFIG_MODE,0x2);
+                P91RestoreVGAregs(HwDeviceExtension,&VGAregs);
+                }
+#endif  // MIPS
+    }
+
+
+    //
+    // Set the Chip, Adapter, DAC, and Memory information in the registry.
+    //
+
+    DevSetRegistryParams(HwDeviceExtension);
+
 
     //
     // Initialize the monitor parameters.
@@ -551,6 +1099,14 @@ Arguments:
     HwDeviceExtension->flPtrState = 0;
 
     //
+    // NOTE:
+    // Should we free up all the address map we allocated to ourselves ?
+    // Do we use them after initialization ???
+    //
+    // VideoPortFreeDeviceBase(HwDeviceExtension, HwDeviceExtension->Coproc);
+    // VideoPortFreeDeviceBase(HwDeviceExtension, HwDeviceExtension->Vga);
+
+    //
     // Indicate we do not wish to be called over
     //
 
@@ -562,9 +1118,139 @@ Arguments:
 
     VideoDebugPrint((1, "FindAdapter: succeeded\n"));
 
+#ifdef _MIPS_
+    if_Not_SIEMENS_P9100_VLB()
+#endif
+    VideoPortFreeDeviceBase(HwDeviceExtension, HwDeviceExtension->FrameAddress);
+
+    InitializeModes(HwDeviceExtension);
+
     return(NO_ERROR);
 
+    //
+    // We get here if we really detected a problem, not a mismatch of configuration
+    //
+
+error1:
+
+    if ( vpCurrStatus != NO_ERROR && vpCurrStatus != vpP91AdapterStatus )
+    {
+        vpP91AdapterStatus = vpCurrStatus;
+
+        VideoPortLogError(HwDeviceExtension,
+                          NULL,
+                          vpCurrStatus,
+                          __LINE__);
+    }
+
+#if defined(i386) || defined(_MIPS_)
+    // Switch back to VGA emulation mode
+    //
+    // We need to do this so that the VGA miniport can start up.
+
+    #ifdef _MIPS_
+        if_SIEMENS_P9100()
+    #endif
+                WriteP9ConfigRegister(HwDeviceExtension, P91_CONFIG_MODE, 0x2);
+#endif
+
+    return (ERROR_DEV_NOT_EXIST);
+
 } // end P9FindAdapter()
+
+VOID
+DevSetRegistryParams(PHW_DEVICE_EXTENSION hwDeviceExtension)
+{
+    PUSHORT pwszChip,
+            pwszDAC,
+            pwszAdapterString;
+
+    ULONG   cbChip,
+            cbDAC,
+            cbAdapterString,
+            AdapterMemorySize;
+
+    //
+    // First set the string for the chip type, and set the
+    // memory configuration if available.
+    //
+
+    if (hwDeviceExtension->P9CoprocInfo.CoprocId == P9000_ID)
+    {
+        pwszChip = L"Weitek P9000";
+        cbChip   = sizeof (L"Weitek P9000");
+    }
+    else
+    {
+        pwszChip = L"Weitek P9100";
+        cbChip   = sizeof (L"Weitek P9100");
+    }
+
+    //
+    // Set the memory size
+    //
+
+    AdapterMemorySize = hwDeviceExtension->FrameLength;
+
+    //
+    // Now, set the string for the DAC type.
+    //
+
+    if (hwDeviceExtension->Dac.ulDacId == DAC_ID_BT485)
+    {
+        pwszDAC = L"Brooktree Bt485";
+        cbDAC   = sizeof (L"Brooktree Bt485");
+    }
+    else if (hwDeviceExtension->Dac.ulDacId == DAC_ID_BT489)
+        {
+            pwszDAC = L"Brooktree Bt489";
+            cbDAC   = sizeof (L"Brooktree Bt489");
+    }
+    else
+    {
+        pwszDAC = L"IBM IBM525";
+        cbDAC   = sizeof (L"IBM IBM525");
+    }
+
+    //
+    // Now just pickup the adapter information from the adapter description.
+    //
+
+    //
+    // BUGBUG use the length of the longest string !
+    //
+
+    pwszAdapterString = hwDeviceExtension->AdapterDesc.ausAdapterIDString;
+    cbAdapterString   = sizeof(L"Generic Weitek P9000 VL Adapter");
+
+    //
+    // We now have a complete hardware description of the hardware.
+    // Save the information to the registry so it can be used by
+    // configuration programs - such as the display applet
+    //
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.ChipType",
+                                   pwszChip,
+                                   cbChip);
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.DacType",
+                                   pwszDAC,
+                                   cbDAC);
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &AdapterMemorySize,
+                                   sizeof(ULONG));
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.AdapterString",
+                                   pwszAdapterString,
+                                   cbAdapterString);
+}
+
+
 
 
 BOOLEAN
@@ -645,42 +1331,84 @@ Return Value:
     {
 
 
-        case IOCTL_VIDEO_GET_BASE_ADDR:
+        case IOCTL_VIDEO_QUERY_PUBLIC_ACCESS_RANGES:
 
-            VideoDebugPrint((1, "P9StartIO - Get Coproc Base Addr\n"));
+            VideoDebugPrint((1, "P9StartIO - IOCTL_QUERY_PUBLIC_ACCESS_RANGES\n"));
 
             if (RequestPacket->OutputBufferLength <
                 (RequestPacket->StatusBlock->Information =
-                sizeof(VIDEO_COPROCESSOR_INFORMATION)) )
+                sizeof(VIDEO_PUBLIC_ACCESS_RANGES)) )
             {
 
                 status = ERROR_INSUFFICIENT_BUFFER;
                 break;
             }
 
+#if 0
+            vDumpPCIConfig(HwDeviceExtension,
+                           "P9StartIo - IOCTL_QUERY_PUBLIC_ACCESS_RANGES");
+#endif
+
             // map the coproc to a virtual address
 
-            inIoSpace = 0;
+            //
+            // Note that on the Alpha we have to map this in sparse-space
+            // because dense-space requires all reads to be 64 bits, which
+            // would give us unintended side effects using the Weitek
+            // registers.
+            //
 
-            virtualAddr = NULL;
+            {
+                PVIDEO_PUBLIC_ACCESS_RANGES portAccess;
+                ULONG CoprocSize = 0x100000;
 
-            status = VideoPortMapMemory(HwDeviceExtension,
-                                        HwDeviceExtension->CoprocPhyAddr,
-                                        &(HwDeviceExtension->P9CoprocInfo.CoprocLength),
-                                        &inIoSpace,
-                                        &virtualAddr);
+                portAccess = RequestPacket->OutputBuffer;
 
-            // return the Coproc Base Address.
+                portAccess->InIoSpace = FALSE;
+                portAccess->MappedInIoSpace = portAccess->InIoSpace;
+                portAccess->VirtualAddress = NULL;
 
-            (ULONG) ((PVIDEO_COPROCESSOR_INFORMATION)
-                RequestPacket->OutputBuffer)->CoprocessorBase = (ULONG) virtualAddr;
+                status = VideoPortMapMemory(HwDeviceExtension,
+                                            HwDeviceExtension->CoprocPhyAddr,
+                                            &CoprocSize,
+                                            &(portAccess->MappedInIoSpace),
+                                            &(portAccess->VirtualAddress));
 
+                HwDeviceExtension->CoprocVirtAddr = portAccess->VirtualAddress;
+            }
 
             status = NO_ERROR;
 
             break;
 
 
+        case IOCTL_VIDEO_FREE_PUBLIC_ACCESS_RANGES:
+
+            VideoDebugPrint((2, "P9StartIO - FreePublicAccessRanges\n"));
+
+            {
+                PVIDEO_MEMORY mappedMemory;
+
+                if (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) {
+
+                    status = ERROR_INSUFFICIENT_BUFFER;
+                    break;
+                }
+
+                mappedMemory = RequestPacket->InputBuffer;
+                status = NO_ERROR;
+
+                if (mappedMemory->RequestedVirtualAddress != NULL)
+                {
+                    status = VideoPortUnmapMemory(HwDeviceExtension,
+                                                  mappedMemory->
+                                                      RequestedVirtualAddress,
+                                                  0);
+                }
+
+            }
+
+            break;
 
 
         case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -703,7 +1431,21 @@ Return Value:
 
             memoryInformation->VideoRamLength = HwDeviceExtension->FrameLength;
 
+        #ifdef ALPHA
+
+            //
+            // On the Alpha, we map the frame buffer in dense-space so that
+            // we can have GDI draw directly on the surface when we need it
+            // to.
+            //
+
+            inIoSpace = 4;
+
+        #else
+
             inIoSpace = 0;
+
+        #endif
 
             status = VideoPortMapMemory(HwDeviceExtension,
                                         HwDeviceExtension->PhysicalFrameAddr,
@@ -764,6 +1506,16 @@ Return Value:
                 ((PVIDEO_MODE_INFORMATION)RequestPacket->OutputBuffer)->Frequency =
                     HwDeviceExtension->VideoData.vlr;
 
+                if (HwDeviceExtension->P9CoprocInfo.CoprocId == P9000_ID)
+                {
+                    ((PVIDEO_MODE_INFORMATION)RequestPacket->OutputBuffer)->DriverSpecificAttributeFlags =
+                        CAPS_WEITEK_CHIPTYPE_IS_P9000;
+                }
+                else
+                {
+                    ((PVIDEO_MODE_INFORMATION)RequestPacket->OutputBuffer)->DriverSpecificAttributeFlags =
+                        0;
+                }
 
                 status = NO_ERROR;
             }
@@ -772,25 +1524,9 @@ Return Value:
 
         case IOCTL_VIDEO_QUERY_AVAIL_MODES:
 
-
             VideoDebugPrint((1, "P9StartIO - QueryAvailableModes\n"));
 
-            numValidModes = 0;
-            for (i = 0; i < mP9ModeCount; i++)
-            {
-                //
-                // Determine the video memory required for this mode,
-                // not counting modes which require more memory than
-                // is currently available.
-                //
-
-                ulMemoryUsage = P9Modes[i].modeInformation.ScreenStride *
-                    P9Modes[i].modeInformation.VisScreenHeight;
-                if (HwDeviceExtension->FrameLength >= ulMemoryUsage)
-                {
-                    numValidModes++;
-                }
-            }
+            numValidModes = HwDeviceExtension->ulNumAvailModes;
 
             if (RequestPacket->OutputBufferLength <
                 (RequestPacket->StatusBlock->Information =
@@ -801,25 +1537,23 @@ Return Value:
             }
             else
             {
+                ULONG Flags=0;
+
+                if (HwDeviceExtension->P9CoprocInfo.CoprocId == P9000_ID)
+                {
+                    Flags = CAPS_WEITEK_CHIPTYPE_IS_P9000;
+                }
+
                 modeInformation = RequestPacket->OutputBuffer;
 
                 for (i = 0; i < mP9ModeCount; i++)
                 {
-                    //
-                    // Determine the video memory required for this mode,
-                    // not returning mode info for modes which require
-                    // more memory than is currently available.
-                    //
-
-                    ulMemoryUsage = P9Modes[i].modeInformation.ScreenStride *
-                        P9Modes[i].modeInformation.VisScreenHeight;
-                    if (HwDeviceExtension->FrameLength >= ulMemoryUsage)
+                    if (P9Modes[i].valid == TRUE)
                     {
-
                         *modeInformation = P9Modes[i].modeInformation;
+                        modeInformation->DriverSpecificAttributeFlags = Flags;
                         modeInformation++;
                     }
-
                 }
 
                 status = NO_ERROR;
@@ -838,7 +1572,7 @@ Return Value:
         // information is there). If the buffer passed in is not large
         // enough return an appropriate error code.
         //
-        // BUGBUG This must be changed to take into account which monitor
+        // !!! This must be changed to take into account which monitor
         // is present on the machine.
         //
 
@@ -850,26 +1584,8 @@ Return Value:
         }
         else
         {
-            numValidModes = 0;
-
-            for (i = 0; i < mP9ModeCount; i++)
-            {
-                //
-                // Determine the video memory required for this mode,
-                // not counting modes which require more memory than
-                // is currently available.
-                //
-
-                ulMemoryUsage = P9Modes[i].modeInformation.ScreenStride *
-                    P9Modes[i].modeInformation.VisScreenHeight;
-                if (HwDeviceExtension->FrameLength >= ulMemoryUsage)
-                {
-                    numValidModes++;
-                }
-            }
-
             ((PVIDEO_NUM_MODES)RequestPacket->OutputBuffer)->NumModes =
-                    numValidModes;
+                    HwDeviceExtension->ulNumAvailModes;
 
             ((PVIDEO_NUM_MODES)RequestPacket->OutputBuffer)->ModeInformationLength =
                 sizeof(VIDEO_MODE_INFORMATION);
@@ -886,7 +1602,7 @@ Return Value:
 
         //
         // verify data
-        // BUGBUG Make sure it is one of the valid modes on the list
+        // !!! Make sure it is one of the valid modes on the list
         // calculated using the monitor information.
         //
 
@@ -901,6 +1617,11 @@ Return Value:
             *(ULONG *)(RequestPacket->InputBuffer);
 
         DevInitP9(HwDeviceExtension);
+
+#if 0
+        vDumpPCIConfig(HwDeviceExtension,
+                       "P9StartIo - IOCTL_VIDEO_SET_CURRENT_MODE");
+#endif
 
         status = NO_ERROR;
 
@@ -1144,7 +1865,7 @@ Return Value:
             status = ERROR_INSUFFICIENT_BUFFER;
         }
 
-        pointerCaps->Flags = VIDEO_MODE_ASYNC_POINTER | VIDEO_MODE_MONO_POINTER;
+        pointerCaps->Flags = VIDEO_MODE_MONO_POINTER;
         pointerCaps->MaxWidth = CURSOR_WIDTH;
         pointerCaps->MaxHeight = CURSOR_HEIGHT;
         pointerCaps->HWPtrBitmapStart = 0;        // No VRAM storage for pointer
@@ -1166,11 +1887,118 @@ Return Value:
 
         VideoDebugPrint((1, "P9StartIO - RESET_DEVICE\n"));
 
-        DevDisableP9(HwDeviceExtension);
+        DevDisableP9(HwDeviceExtension, FALSE);
 
         status = NO_ERROR;
 
         break;
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+    {
+        PVIDEO_SHARE_MEMORY pShareMemory;
+        PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+        PHYSICAL_ADDRESS shareAddress;
+        PVOID virtualAddress;
+        ULONG sharedViewSize;
+
+        VideoDebugPrint((2, "P9StartIo - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            VideoDebugPrint((0, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - ERROR_INSUFFICIENT_BUFFER\n"));
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > HwDeviceExtension->FrameLength) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  HwDeviceExtension->FrameLength) ) {
+
+            VideoDebugPrint((0, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - ERROR_INVALID_PARAMETER\n"));
+            status = ERROR_INVALID_PARAMETER;
+            break;
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        #ifdef ALPHA
+
+            //
+            // On the Alpha, we map the frame buffer in dense-space so that
+            // we can have GDI draw directly on the surface when we need it
+            // to.
+            //
+
+            inIoSpace = 4;
+
+        #else
+
+            inIoSpace = 0;
+
+        #endif
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            HwDeviceExtension->PhysicalFrameAddr.QuadPart;
+
+        //
+        // The frame buffer is always mapped linearly.
+        //
+
+        status = VideoPortMapMemory(HwDeviceExtension,
+                                    shareAddress,
+                                    &sharedViewSize,
+                                    &inIoSpace,
+                                    &virtualAddress);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+        break;
+
+    }
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+    {
+        PVIDEO_SHARE_MEMORY pShareMemory;
+
+        VideoDebugPrint((2, "P9StartIo - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(HwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
+
+    }
 
     //
     // if we get here, an invalid IoControlCode was specified.
@@ -1237,110 +2065,35 @@ Return Value:
 
     HwDeviceExtension->AdapterDesc.OEMSetMode(HwDeviceExtension);
 
-    Init8720(HwDeviceExtension);
+    if (HwDeviceExtension->P9CoprocInfo.CoprocId == P9000_ID)
+    {
+        Init8720(HwDeviceExtension);
 
-    //
-    // Initialize the P9000 system configuration register.
-    //
+        //
+        // Initialize the P9000 system configuration register.
+        //
 
-    SysConf(HwDeviceExtension);
+        SysConf(HwDeviceExtension);
 
-    //
-    // Set the P9000 Crtc timing registers.
-    //
+        //
+        // Set the P9000 Crtc timing registers.
+        //
 
-    WriteTiming(HwDeviceExtension);
+        WriteTiming(HwDeviceExtension);
+    }
+    else
+    {
+        InitP9100(HwDeviceExtension);
+        P91_SysConf(HwDeviceExtension);
+        P91_WriteTiming(HwDeviceExtension);
+    }
+
 
     VideoDebugPrint((1, "DevInitP9  ---done---\n"));
 }
 
 
-BOOLEAN
-DevDisableP9(
-    PHW_DEVICE_EXTENSION HwDeviceExtension
-    )
 
-/*++
-
-routine description:
-
-    disables the P9 and turns on vga pass-thru.
-
-arguments:
-
-    hwdeviceextension - pointer to the miniport driver's device extension.
-
-
-return value:
-
---*/
-
-{
-    HwDeviceExtension->AdapterDesc.P9DisableVideo(HwDeviceExtension);
-
-    //
-    // Clean up the DAC.
-    //
-
-    HwDeviceExtension->Dac.DACRestore(HwDeviceExtension);
-
-
-    return(TRUE);
-}
-
-
-VP_STATUS   P9QueryNamedValueCallback(
-    PVOID HwDeviceExtension,
-    PVOID Context,
-    PWSTR ValueName,
-    PVOID ValueData,
-    ULONG ValueLength
-)
-
-/*++
-
-Routine Description:
-
-    Callback routine for VideoPortGetRegistryParameters. Stores registry
-    values pertaining to the current mode.
-
-Arguments:
-
-    HwDeviceExtension - Pointer to the miniport driver's device extension.
-
-    Context - Ptr to info about local storage for the registry parameter.
-
-    ValueName - Name of the registry parameter.
-
-    ValueLength - Length of the registry parm's value.
-
-Return Value:
-
-NO_ERROR
-
-ERROR_INVALID_PARAMETER - The requested registry value was invalid/not found.
-
---*/
-
-{
-    PREGISTRY_DATA_INFO pCurInf;
-
-    pCurInf = (PREGISTRY_DATA_INFO) Context;
-
-    if (pCurInf->usDataSize <= (USHORT) ValueLength)
-    {
-        VideoPortMoveMemory(pCurInf->pvDataValue, ValueData, ValueLength);
-    }
-    else
-    {
-        return(ERROR_INVALID_PARAMETER);
-    }
-
-    return(NO_ERROR);
-
-}
-
-
 BOOLEAN
 P9ResetVideo(
     IN PVOID HwDeviceExtension,
@@ -1352,9 +2105,11 @@ P9ResetVideo(
 
 routine description:
 
-    This function is a wrapper for the DevDisableP9 function. It is exported
-    as the HwResetHw entry point so that it may be called by the Video Port
-    driver at bugcheck time so that VGA video may be enabled.
+    disables the P9 and turns on vga pass-thru.
+
+    This function is exported as the HwResetHw entry point so that it may be
+    called by the Video Port driver
+    at bugcheck time so that VGA video may be enabled.
 
 arguments:
 
@@ -1364,17 +2119,13 @@ arguments:
 
 return value:
 
-Always returns FALSE so that the Video Port driver will call Int 10 to
-set the desired video mode.
+    Always returns FALSE so that the Video Port driver will call Int 10 to
+    set the desired video mode.
 
 --*/
 
 {
-    //
-    // Disable P9 video.
-    //
-
-    DevDisableP9(HwDeviceExtension);
+    DevDisableP9(HwDeviceExtension, TRUE);
 
     //
     // Tell the Video Port driver to do an Int 10 mode set.
@@ -1383,13 +2134,167 @@ set the desired video mode.
     return(FALSE);
 }
 
+VOID
+DevDisableP9(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    BOOLEAN BugCheck
+    )
+{
+    PHYSICAL_ADDRESS Base;
+    BOOLEAN bResetComplete;
+
+    //
+    // Clean up the DAC.
+    //
+
+    HwDeviceExtension->Dac.DACRestore(HwDeviceExtension);
+
+    //
+    // If we are not about to "bugcheck", then clear out
+    // video memory.
+    //
+    // NOTE: On the alpha, the attempt to clear video memory causes
+    //       the machine to hang.  So, we just won't clear the memory
+    //       on the alpha.
+    //
+
+#if !defined(_ALPHA_)
+
+    if (BugCheck == FALSE)
+    {
+        Base = DriverAccessRanges[0].RangeStart;
+        Base.QuadPart += HwDeviceExtension->P9CoprocInfo.FrameBufOffset;
+
+        HwDeviceExtension->FrameAddress =
+            VideoPortGetDeviceBase(HwDeviceExtension,
+                                   Base,
+                                   HwDeviceExtension->P9CoprocInfo.AddrSpace -
+                                   HwDeviceExtension->P9CoprocInfo.FrameBufOffset,
+                                   DriverAccessRanges[0].RangeInIoSpace);
+
+        if (HwDeviceExtension->FrameAddress != NULL)
+        {
+            VideoDebugPrint((2, "Weitekp9: Clearing video memory.\n"));
+
+            VideoPortZeroMemory(HwDeviceExtension->FrameAddress,
+                                HwDeviceExtension->FrameLength);
+
+            VideoPortFreeDeviceBase(HwDeviceExtension, HwDeviceExtension->FrameAddress);
+        }
+    }
+
+#endif
+
+    // NOTE: On the P9100 we must take care of the DAC before
+    //       we change the mode to emulation.
+    //       !!! This must be tested on the P9000
+
+    bResetComplete = HwDeviceExtension->AdapterDesc.P9DisableVideo(HwDeviceExtension);
+
+    //
+    // We only want to call int10 if the reset function needs some help and
+    // we are not in bugcheck mode, because int10 does not work in bugcheck
+    // mode.
+    //
+
+    if ((bResetComplete == FALSE) &&
+        (BugCheck == FALSE))
+    {
+
+#ifndef PPC
+
+        VIDEO_X86_BIOS_ARGUMENTS biosArguments;
+
+        //
+        // Now simply do an int10 and switch to mode 3.  The video BIOS
+        // will do the work.
+        //
+
+        VideoPortZeroMemory(&biosArguments, sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+
+        biosArguments.Eax = 0x0003;
+
+        VideoPortInt10(HwDeviceExtension, &biosArguments);
+
+#endif
+
+    }
+}
+
+VOID
+InitializeModes(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    )
+
 /*++
 
-Revision History:
+Routine Description:
 
-    $Log:   N:/ntdrv.vcs/miniport.new/p9.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:40:38   robk
- * Initial revision.
+    This routine walks through the list of modes, and determines which
+    modes will work with our hardware.  It sets a flag for each mode
+    which will work, and places the number of valid modes in the
+    HwDeviceExtension.
+
+Arguments:
+
+    HwDeviceExtension - pointer to the miniport driver's device extension.
+    Columns - Number of columns for text mode (not used).
+    Rows - Number of rows for text mode (not used).
+
+Return Value:
+
+    none
 
 --*/
+
+{
+    int i;
+    ULONG numValidModes=0;
+
+    for(i=0; i<mP9ModeCount; i++)
+    {
+        if ((HwDeviceExtension->FrameLength >=
+             P9Modes[i].modeInformation.ScreenStride *
+             P9Modes[i].modeInformation.VisScreenHeight) &&
+            (HwDeviceExtension->P9CoprocInfo.CoprocId &
+             P9Modes[i].ulChips))
+        {
+
+            if_SIEMENS_VLB()
+            {
+                P9Modes[i].modeInformation.AttributeFlags |=
+                    VIDEO_MODE_NO_64_BIT_ACCESS;
+            }
+
+            P9Modes[i].valid = TRUE;
+            numValidModes++;
+        }
+    }
+
+    //
+    // store the number of valid modes in the HwDeviceExtension
+    // so we can quickly look it up later when we need it.
+    //
+
+    HwDeviceExtension->ulNumAvailModes = numValidModes;
+}
+
+//
+//  Global Functions.
+//
+
+long mul32(
+    short op1,
+    short op2
+    )
+{
+    return ( ((long) op1) * ((long) op2));
+}
+
+int div32(
+    long op1,
+    short op2
+    )
+{
+    return ( (int) (op1 / (long) op2));
+}

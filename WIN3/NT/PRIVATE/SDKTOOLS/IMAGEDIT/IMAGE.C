@@ -516,4 +516,4 @@ Error2:
 Error1:
     SetCursor (hcurOld);
 }
-
+

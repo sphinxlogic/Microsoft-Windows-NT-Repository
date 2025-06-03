@@ -66,8 +66,6 @@ typedef enum _SSP_API_NUMBER {
     SspLpcFreeCredentialHandle,
     SspLpcInitializeSecurityContext,
     SspLpcAcceptSecurityContext,
-    SspLpcImpersonateSecurityContext,
-    SspLpcRevertSecurityContext,
     SspLpcQueryContextAttributes,
     SspLpcDeleteSecurityContext,
     SspLpcNtLmSspControl,
@@ -103,6 +101,8 @@ typedef struct _SSP_FREE_CREDENTIAL_HANDLE_ARGS {
 typedef struct _SSP_INITIALIZE_SECURITY_CONTEXT_ARGS {
     CredHandle CredentialHandle;
     CtxtHandle ContextHandle;           // IN/OUT parameter
+    LUID LogonId;
+    HANDLE ClientTokenHandle;
     TimeStamp ExpirationTime;           // OUT parameter
     ULONG ContextReqFlags;
     ULONG ContextAttributes;            // OUT parameter
@@ -118,12 +118,14 @@ typedef struct _SSP_INITIALIZE_SECURITY_CONTEXT_ARGS {
     PVOID OutputToken;                  // OUT parameter
     UCHAR SessionKey[MSV1_0_USER_SESSION_KEY_LENGTH];
     ULONG NegotiateFlags;
+    LPWSTR ContextNames;
 } SSP_INITIALIZE_SECURITY_CONTEXT_ARGS, *PSSP_INITIALIZE_SECURITY_CONTEXT_ARGS;
 
 typedef struct _SSP_ACCEPT_SECURITY_CONTEXT_ARGS {
     CredHandle CredentialHandle;
     CtxtHandle ContextHandle;           // IN/OUT parameter
     TimeStamp ExpirationTime;           // OUT parameter
+    TimeStamp PasswordExpiry;           // OUT parameter
     ULONG ContextReqFlags;
     ULONG ContextAttributes;            // OUT parameter
     ULONG InputTokenSize;
@@ -132,6 +134,9 @@ typedef struct _SSP_ACCEPT_SECURITY_CONTEXT_ARGS {
     PVOID OutputToken;                  // OUT parameter
     UCHAR SessionKey[MSV1_0_USER_SESSION_KEY_LENGTH];
     ULONG NegotiateFlags;
+    HANDLE TokenHandle;
+    NTSTATUS SubStatus;
+    LPWSTR ContextNames;
 } SSP_ACCEPT_SECURITY_CONTEXT_ARGS, *PSSP_ACCEPT_SECURITY_CONTEXT_ARGS;
 
 typedef struct _SSP_IMPERSONATE_SECURITY_CONTEXT_ARGS {

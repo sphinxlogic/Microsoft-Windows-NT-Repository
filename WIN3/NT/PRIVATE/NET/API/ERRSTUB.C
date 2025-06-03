@@ -41,9 +41,9 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetErrorLogClear (
-    IN LPTSTR UncServerName OPTIONAL,
-    IN LPTSTR BackupFile OPTIONAL,
-    IN LPBYTE Reserved OPTIONAL
+    IN LPCWSTR UncServerName OPTIONAL,
+    IN LPCWSTR BackupFile OPTIONAL,
+    IN LPBYTE  Reserved OPTIONAL
     )
 
 {
@@ -52,8 +52,8 @@ NetErrorLogClear (
     }
 
     return (RxNetErrorLogClear(
-            UncServerName,
-            BackupFile,
+            (LPWSTR)UncServerName,
+            (LPWSTR)BackupFile,
             Reserved));
 
 } // NetErrorLogClear
@@ -62,17 +62,17 @@ NetErrorLogClear (
 
 NET_API_STATUS NET_API_FUNCTION
 NetErrorLogRead (
-    IN LPTSTR UncServerName OPTIONAL,
-    IN LPTSTR Reserved1 OPTIONAL,
-    IN LPHLOG ErrorLogHandle,
-    IN DWORD Offset,
-    IN LPDWORD Reserved2 OPTIONAL,
-    IN DWORD Reserved3,
-    IN DWORD OffsetFlag,
+    IN LPCWSTR   UncServerName OPTIONAL,
+    IN LPWSTR    Reserved1 OPTIONAL,
+    IN LPHLOG    ErrorLogHandle,
+    IN DWORD     Offset,
+    IN LPDWORD   Reserved2 OPTIONAL,
+    IN DWORD     Reserved3,
+    IN DWORD     OffsetFlag,
     OUT LPBYTE * BufPtr,
-    IN DWORD PrefMaxSize,
-    OUT LPDWORD BytesRead,
-    OUT LPDWORD TotalAvailable
+    IN DWORD     PrefMaxSize,
+    OUT LPDWORD  BytesRead,
+    OUT LPDWORD  TotalAvailable
     )
 {
     if ( (UncServerName == NULL) || (*UncServerName == '\0') ) {
@@ -80,7 +80,7 @@ NetErrorLogRead (
     }
 
     return (RxNetErrorLogRead(
-            UncServerName,
+            (LPWSTR)UncServerName,
             Reserved1,
             ErrorLogHandle,
             Offset,
@@ -97,14 +97,14 @@ NetErrorLogRead (
 
 NET_API_STATUS NET_API_FUNCTION
 NetErrorLogWrite (
-    IN LPBYTE Reserved1 OPTIONAL,
-    IN DWORD Code,
-    IN LPTSTR Component,
-    IN LPBYTE Buffer,
-    IN DWORD NumBytes,
-    IN LPBYTE MsgBuf,
-    IN DWORD StrCount,
-    IN LPBYTE Reserved2 OPTIONAL
+    IN LPBYTE  Reserved1 OPTIONAL,
+    IN DWORD   Code,
+    IN LPCWSTR Component,
+    IN LPBYTE  Buffer,
+    IN DWORD   NumBytes,
+    IN LPBYTE  MsgBuf,
+    IN DWORD   StrCount,
+    IN LPBYTE  Reserved2 OPTIONAL
     )
 {
     UNREFERENCED_PARAMETER(Reserved1);

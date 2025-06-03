@@ -385,4 +385,4 @@ struct new_rsrc
     };
 
 #define RS_ALIGN( x ) (x).rs_align
-
+

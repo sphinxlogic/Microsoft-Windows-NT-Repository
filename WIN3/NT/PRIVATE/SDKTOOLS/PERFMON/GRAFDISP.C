@@ -189,8 +189,8 @@ BOOL DrawBarChartData (HDC hDC,
    INT         nLegendItems,
                cx,
                cxBar,
-               xDataPoint,
-               y ;
+               xDataPoint = 0,
+               y  = 0;
    RECT        rectBar ;
    RECT        rectBkgrnd ;
    HBRUSH      hOldBrush ;
@@ -760,8 +760,8 @@ void DrawGraphScale (HDC hDC,
    INT     len,
            i,
            nLines,
-           iUnitsPerLine ;
-   FLOAT   ePercentOfTotal  ;
+           iUnitsPerLine = 0;
+   FLOAT   ePercentOfTotal  = 0.0f;
    FLOAT   eDiff ;
    BOOL    bUseFloatingPt = FALSE ;
 
@@ -804,7 +804,8 @@ void DrawGraphScale (HDC hDC,
 
    // Set the background color to gray
    if (!IsPrinterDC (hDC))
-      FillRect (hDC, &(pGraph->rectVertScale), hbLightGray) ;
+//      FillRect (hDC, &(pGraph->rectVertScale), hbLightGray) ;
+      FillRect (hDC, &(pGraph->rectVertScale), hBrushFace) ;
 
 // TESTING TESTING
 #ifdef   PERFMON_DEBUG
@@ -1103,7 +1104,8 @@ void /*static*/ OnCreate (HWND hWnd)
    GetTextMetrics(hGraphDisplayDC, &tmScales) ;
    HalfTextHeight = tmScales.tmHeight / 2 ;
 
-   SetBkColor (hGraphDisplayDC, crLightGray) ;
+//   SetBkColor (hGraphDisplayDC, crLightGray) ;
+   SetBkColor (hGraphDisplayDC, ColorBtnFace) ;
 
 
    InsertGraph(hWnd) ;
@@ -1273,7 +1275,8 @@ BOOL GraphDisplayInitializeApplication (void)
    wc.cbWndExtra    = iGraphDisplayClassExtra ;
    wc.hIcon         = NULL ;
    wc.hCursor       = LoadCursor(NULL, IDC_ARROW) ;
-   wc.hbrBackground = hbLightGray ;
+//   wc.hbrBackground = hbLightGray ;
+   wc.hbrBackground = hBrushFace ;
    wc.lpszMenuName  = NULL ;
    wc.lpszClassName = (LPTSTR) szGraphDisplayWindowClass ;
 
@@ -1385,5 +1388,5 @@ void ChartHighlight (void)
       }
    }  // ChartHighlight
 
-
-
+
+

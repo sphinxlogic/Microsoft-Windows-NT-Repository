@@ -580,7 +580,7 @@ BOOL
 ss_sendnewresp( HANDLE hpipe
               , long lVersion
               , long lCode
-              , ULONG ulSize
+              , ULONG ulSize      /* used for Win32 error code for SSRESP_ERRROR */
               , ULONG ulSum
               , DWORD dwLowTime
               , DWORD dwHighTime

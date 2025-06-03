@@ -18,13 +18,13 @@ interface CAdviseSink : public IAdviseSink
 
     CAdviseSink(CSimpleSite FAR * pSite)
        {
-        OutputDebugString(TEXT("In IAS's constructor\r\n"));
+        TestDebugOut(TEXT("In IAS's constructor\r\n"));
         m_pSite = pSite;
        };
 
     ~CAdviseSink()
        {
-        OutputDebugString(TEXT("In IAS's destructor\r\n"));
+        TestDebugOut(TEXT("In IAS's destructor\r\n"));
        } ;
 
     STDMETHODIMP QueryInterface (REFIID riid, LPVOID FAR* ppv);
@@ -42,4 +42,3 @@ interface CAdviseSink : public IAdviseSink
 
 
 #endif
-

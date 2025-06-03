@@ -45,17 +45,17 @@ Revision History:
     01-Dec-1992 JohnRo
         RAID 3844: remote NetReplSetInfo uses local machine type.  (Added
         NetpGetProductType and NetpIsProductTypeValid.)
+    13-Feb-1995 FloydR
+        Deleted NetpAllocStringFromTStr() - unused
 
 --*/
 
 #ifndef _NETLIBNT_
 #define _NETLIBNT_
 
-
-PSTRING                  // Returns NULL on err; free with NetApiBufferFree.
-NetpAllocStringFromTStr(
-    IN LPTSTR Src
-    );
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 NET_API_STATUS
 NetpAllocTStrFromString(
@@ -108,5 +108,9 @@ NetpRdrFsControlTree(
     IN DWORD OutputBufferSize,
     IN BOOL NoPermissionRequired
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ndef _NETLIBNT_

@@ -34,147 +34,355 @@
 #include "adapter.h"
 #include "protos.h"
 
+
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 //
-//  Routine Name:   NetFlexTransferData
+//  Routine Name:   NetFlexAddMulticasts
 //
-//  Description:    This routine copies the received data into
-//                  a packet structure provided by the caller.
+//  Description:
+//      This routine adds a Multicast address to
+//      the adapter if it has not already been added.
 //
 //  Input:
-//
-//  MiniportAdapterContext - The context value returned by the driver when the
-//  adapter was initialized.  In reality this is a pointer to NE3200_ADAPTER.
-//
-//  MiniportReceiveContext - The context value passed by the driver on its call
-//  to NdisMIndicateReceive.  The driver can use this value to determine
-//  which packet, on which adapter, is being received.
-//
-//  ByteOffset - An unsigned integer specifying the offset within the
-//  received packet at which the copy is to begin.  If the entire packet
-//  is to be copied, ByteOffset must be zero.
-//
-//  BytesToTransfer - An unsigned integer specifying the number of bytes
-//  to copy.  It is legal to transfer zero bytes; this has no effect.  If
-//  the sum of ByteOffset and BytesToTransfer is greater than the size
-//  of the received packet, then the remainder of the packet (starting from
-//  ByteOffset) is transferred, and the trailing portion of the receive
-//  buffer is not modified.
-//
-//  Packet - A pointer to a descriptor for the packet storage into which
-//  the MAC is to copy the received packet.
-//
-//  BytesTransfered - A pointer to an unsigned integer.  The MAC writes
-//  the actual number of bytes transferred into this location.  This value
-//  is not valid if the return Status is STATUS_PENDING.
+//      acb     - Our Driver Context for this adapter or head.
 //
 //  Output:
-//      Packet - Place to copy data.
-//      BytesTransferred - Number of bytes copied.
-//      Returns NDIS_STATUS_SUCCESS for a successful
-//      completion. Otherwise, an error code is returned.
 //
-//  Called By:
-//      Miniport Wrapper
+//  Called By:      NetFlexSetInformation
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
-NetFlexTransferData(
-    OUT PNDIS_PACKET Packet,
-    OUT PUINT BytesTransferred,
-    IN NDIS_HANDLE MiniportAdapterContext,
-    IN NDIS_HANDLE MiniportReceiveContext,
-    IN UINT ByteOffset,
-    IN UINT BytesToTransfer
-    )
+NDIS_STATUS NetFlexAddMulticasts(
+    PACB    acb,
+    PSCBREQ *ScbHead,
+    PSCBREQ *ScbTail
+)
 {
-    PACB acb = (PACB) MiniportAdapterContext;
-    PRCV rcv;
-    PUCHAR rcvdataptr;
-    UINT dstlen;
-    PNDIS_BUFFER  curbuf;
-    PVOID dstaddr;
-    UINT bytesleft, bytestocopy;
-    USHORT rcvfsize;
-
-    DebugPrint(2,("NF(%d) - Transfer Data\n",acb->anum));
-    //
-    // Get rcv list info
-    //
-    rcv = (PRCV) MiniportReceiveContext;
-    rcvfsize = (USHORT)(SWAPS(rcv->RCV_Fsize));
-    rcvdataptr = (PUCHAR)rcv->RCV_Buf;
-    ByteOffset += rcv->RCV_HeaderLen;
-
-    *BytesTransferred = 0;
+    NDIS_STATUS Status;
+    PETH_OBJS   ethobjs;
+    PSCBREQ     scbreq;
+    USHORT      j;
+    PUCHAR      addr;
 
     //
-    // If the caller asked for zero bytes, just return success with no
-    // bytes transferred.
+    // Set ethobjs to the special objects...
     //
-    if (BytesToTransfer == 0)
-    {
-        return NDIS_STATUS_SUCCESS;
-    }
-    //
-    // If the offset has gone past the packet data, flag an error.
-    //
-    if (ByteOffset >= rcvfsize)
-    {
-        return NDIS_STATUS_FAILURE;
-    }
+    ethobjs = (PETH_OBJS)acb->acb_spec_objs;
 
     //
-    // Now determine how many bytes to transfer.
+    // Loop through the multicast table, and send them to the card
     //
-    rcvdataptr += ByteOffset;
-    bytesleft = BytesToTransfer > (rcvfsize - ByteOffset) ?
-            (rcvfsize - ByteOffset) : BytesToTransfer ;
-
-    //
-    // Will the data fit into the packet?
-    //
-    NdisQueryPacket(Packet,
-                    NULL,
-                    NULL,
-                    &curbuf,
-                    &dstlen );
-
-    if (dstlen < bytesleft)
-    {
-        return NDIS_STATUS_FAILURE;
-    }
-
-    *BytesTransferred = bytesleft;
-
-    //
-    // Let's copy the data now.
-    //
-    while (curbuf && bytesleft)
+    for (j = 0; j < ethobjs->NumberOfEntries; j++)
     {
         //
-        // Get the buffer information of the current buffer.
+        //  Get an SCB.
         //
-        NdisQueryBuffer(curbuf,
-                        &dstaddr,
-                        &dstlen );
-
-        bytestocopy = bytesleft > dstlen ? dstlen : bytesleft;
-
-        NdisMoveMemory(dstaddr,
-            rcvdataptr,
-            bytestocopy
+        Status = NetFlexDequeue_OnePtrQ_Head(
+                     (PVOID *)(&acb->acb_scbreq_free),
+                     (PVOID *)&scbreq
+                 );
+        if (Status != NDIS_STATUS_SUCCESS)
+        {
+            DebugPrint(
+                0,
+                ("NF(%d): Add Multicast, Ran out of SCB's!\n",
+                acb->anum)
             );
-        rcvdataptr += bytestocopy;
-        bytesleft -= bytestocopy;
 
-        NdisGetNextBuffer(
-            curbuf,
-            &curbuf
-            );
+            return(NDIS_STATUS_FAILURE);
+        }
+
+        //
+        // Add Multicast entry to card
+        //
+        addr = ethobjs->MulticastEntries + (j * NET_ADDR_SIZE);
+
+        DebugPrint(
+            1, ("NF(%d): Adding %02x-%02x-%02x-%02x-%02x-%02x to Multicast Table\n",
+            acb->anum, addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]));
+
+        scbreq->req_scb.SCB_Cmd = TMS_MULTICAST;
+        scbreq->req_macreq = NULL;
+        scbreq->req_multi.MB_Option = MPB_ADD_ADDRESS;
+        scbreq->req_multi.MB_Addr_Hi = *((PUSHORT) addr);
+        scbreq->req_multi.MB_Addr_Med = *((PUSHORT)(addr + 2));
+        scbreq->req_multi.MB_Addr_Lo = *((PUSHORT)(addr + 4));
+
+        //
+        //  Queue the scb.
+        //
+        NetFlexEnqueue_TwoPtrQ_Tail(ScbHead, ScbTail, scbreq);
     }
 
-    return NDIS_STATUS_SUCCESS;
+    return(NDIS_STATUS_SUCCESS);
+}
+
+
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+//
+//  Routine Name:   NetFlexDeleteMulticast
+//
+//  Description:
+//      This routine removes the multicast address from the
+//      enabled multicast lists.
+//
+//  Input:
+//      acb - Our Driver Context for this adapter or head.
+//
+//  Output:
+//      Status     - SUCCESS | FAILURE
+//
+//  Called By:
+//      NetFlexSetInformation
+//
+//++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+NDIS_STATUS NetFlexDeleteMulticast(
+    PACB    acb,
+    PSCBREQ *ScbHead,
+    PSCBREQ *ScbTail
+)
+{
+    NDIS_STATUS Status;
+    PSCBREQ     scbreq;
+
+    DebugPrint(1, ("NF(%d): Delete Multicast Table\n", acb->anum));
+
+    //
+    // Get a free SCBReq block.
+    //
+    Status = NetFlexDequeue_OnePtrQ_Head(
+                 (PVOID *)&(acb->acb_scbreq_free),
+                 (PVOID *)&scbreq
+             );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        // Queue SCB to process request
+        //
+        scbreq->req_scb.SCB_Cmd     = TMS_MULTICAST;
+        scbreq->req_macreq          = NULL;
+        scbreq->req_multi.MB_Option = MPB_CLEAR_ALL;
+
+        NetFlexEnqueue_TwoPtrQ_Tail(ScbHead, ScbTail, scbreq);
+    }
+    else
+    {
+        DebugPrint(0,("NF(%d): Delete Multicast Table, Ran out of SCB's!\n",acb->anum));
+    }
+
+    return(Status);
+}
+
+
+NDIS_STATUS PromiscuousFilterChanged(
+    PACB    acb,
+    ULONG   Filter,
+    PSCBREQ *ScbHead,
+    PSCBREQ *ScbTail
+)
+{
+    NDIS_STATUS Status;
+    PSCBREQ     scbreq;
+    ULONG       open_options;
+
+    // Modify the open options to set COPY ALL FRAMES (promiscuous)
+    //
+    Status = NetFlexDequeue_OnePtrQ_Head(
+                 (PVOID *)&(acb->acb_scbreq_free),
+                 (PVOID *)&scbreq
+             );
+    if (Status == NDIS_STATUS_SUCCESS)
+    {
+        //
+        // Queue SCB to process request
+        //
+        scbreq->req_scb.SCB_Cmd = TMS_MODIFYOPEN;
+        scbreq->req_macreq = NULL;
+
+        //
+        //  Set the open options for ethernet and token ring.
+        //
+        open_options = OOPTS_CNMAC;
+        if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_5)
+            open_options |= OOPTS_CMAC;
+
+        //
+        // If we are turning it on, set the copy all frame bit
+        // bit, else turn it off.
+        //
+        if (Filter & NDIS_PACKET_TYPE_PROMISCUOUS)
+        {
+            //
+            //  Turn on promiscuous mode.
+            //
+            acb->acb_opnblk_virtptr->OPEN_Options |= SWAPS((USHORT)open_options);
+            scbreq->req_scb.SCB_Ptr =  acb->acb_opnblk_virtptr->OPEN_Options;
+
+            DebugPrint(1,("NF(%d): FilterChanged: Turn Promiscous Mode ON...\n",acb->anum));
+            acb->acb_promiscuousmode++;
+        }
+        else
+        {
+            //
+            //  Turn off promiscuous mode.
+            //
+            acb->acb_opnblk_virtptr->OPEN_Options &= SWAPS((USHORT)~open_options);
+            scbreq->req_scb.SCB_Ptr = acb->acb_opnblk_virtptr->OPEN_Options;
+
+            DebugPrint(1,("NF(%d): FilterChanged: Turn Promiscous Mode OFF...\n",acb->anum));
+            acb->acb_promiscuousmode--;
+        }
+
+        //
+        //  Queue the scb to be sent.
+        //
+        NetFlexEnqueue_TwoPtrQ_Tail(ScbHead, ScbTail, scbreq);
+    }
+    else
+    {
+        DebugPrint(0, ("NF(%d): Change Promiscuous mode, ran out of SCB's\n", acb->anum));
+    }
+
+    return(Status);
+}
+
+
+NDIS_STATUS AllMulticastFilterChanged(
+    PACB    acb,
+    ULONG   Filter,
+    PSCBREQ *ScbHead,
+    PSCBREQ *ScbTail
+)
+{
+    NDIS_STATUS Status;
+    PSCBREQ     scbreq;
+    PETH_OBJS   ethobjs = acb->acb_spec_objs;
+
+    //
+    // Get a free SCBReq block.
+    //
+    Status = NetFlexDequeue_OnePtrQ_Head(
+                 (PVOID *)&(acb->acb_scbreq_free),
+                 (PVOID *)&scbreq
+             );
+    if (Status != NDIS_STATUS_SUCCESS)
+    {
+        DebugPrint(0, ("NF(%d): AllMulticastFilterChanged(), Ran out of SCB's!\n",acb->anum));
+        return(Status);
+    }
+
+    //
+    //  Turning All_Multicast On?
+    //
+    if (Filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
+    {
+        DebugPrint(1,("NF(%d): FilterChanged: Turn ALL_Multicast ON...\n",acb->anum));
+
+        // Queue SCB to process request
+        //
+        scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
+        scbreq->req_macreq              = NULL;
+        scbreq->req_multi.MB_Option     = MPB_SET_ALL;
+
+        //
+        //  Queue the scb to be sent.
+        //
+        NetFlexEnqueue_TwoPtrQ_Tail(ScbHead, ScbTail, scbreq);
+    }
+    else
+    {
+        //  Turn All_Multicast Off.
+        //
+        DebugPrint(1,("NF(%d): FilterChanged: Turn ALL_Multicast OFF, delete all\n",acb->anum));
+
+        //
+        //  Set up the scb to turn off ALL_MULTICAST.
+        //
+        scbreq->req_scb.SCB_Cmd = TMS_MULTICAST;
+        scbreq->req_macreq = NULL;
+        scbreq->req_multi.MB_Option = MPB_CLEAR_ALL;
+
+        //
+        //  Queue the scb to be sent.
+        //
+        NetFlexEnqueue_TwoPtrQ_Tail(ScbHead, ScbTail, scbreq);
+
+        //
+        //  Is Multicast on?
+        //
+        if (Filter & NDIS_PACKET_TYPE_MULTICAST)
+        {
+            //
+            //  Yes, we need to re-enable all of the entries...
+            //  The call to delete the multicast address above
+            //  will determine if a completion is queued.
+            //
+            if (ethobjs->NumberOfEntries > 0)
+                NetFlexAddMulticasts(acb, ScbHead, ScbTail);
+        }
+        else
+        {
+            //
+            // Multicast isn't enabled, and we deleted them, so indicate
+            // that we also removed the multicast entries.
+            //
+            ethobjs->NumberOfEntries = 0;
+        }
+    }
+
+    return(NDIS_STATUS_SUCCESS);
+}
+
+
+NDIS_STATUS MulticastFilterChanged(
+    PACB    acb,
+    ULONG   Filter,
+    PSCBREQ *ScbHead,
+    PSCBREQ *ScbTail
+)
+{
+    NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
+    PSCBREQ     scbreq;
+    PETH_OBJS   ethobjs;
+
+    //
+    //  If the ALL_MULTICAST filter bit is set then we don't need to
+    //  turn on/off the MULTICAST crap.  We will save the current filter
+    //  options with the ACB in the calling routine so that we know
+    //  to turn on the MULTICAST addresses when the ALL_MULTICAST bit
+    //  is cleared.
+    //
+    if (Filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
+        return(NDIS_STATUS_SUCCESS);
+
+    //
+    //  Get a pointer to the ethernet objecst.
+    //
+    ethobjs = acb->acb_spec_objs;
+
+    //
+    // Are we turning the MULTICAST bit on or off?
+    //
+    if (Filter & NDIS_PACKET_TYPE_MULTICAST)
+    {
+        DebugPrint(1,("NF(%d): FilterChanged: Turn multicast ON...\n",acb->anum));
+
+        //
+        // Do we have any entries to enable?
+        //
+        if (ethobjs->NumberOfEntries > 0)
+            Status = NetFlexAddMulticasts(acb, ScbHead, ScbTail);
+    }
+    else
+    {
+        DebugPrint(1,("NF(%d): FilterChanged: Turn multicast OFF, delete all\n", acb->anum));
+
+        //
+        //  Have any to delete?
+        //
+        if (ethobjs->NumberOfEntries > 0)
+            Status = NetFlexDeleteMulticast(acb, ScbHead, ScbTail);
+    }
+
+    return(Status);
 }
 
 
@@ -210,30 +418,26 @@ NetFlexTransferData(
 //      Miniport Wrapper
 //
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-NDIS_STATUS
-NetFlexSetInformation(
+NDIS_STATUS NetFlexSetInformation(
     IN NDIS_HANDLE  MiniportAdapterContext,
     IN NDIS_OID     Oid,
     IN PVOID        InformationBuffer,
     IN ULONG        InformationBufferLength,
     OUT PULONG      BytesRead,
     OUT PULONG      BytesNeeded
-    )
+)
 {
-    SHORT multinum;
-    ULONG value;
+    ULONG       value;
     PMACREQ     macreq;
-    PUCHAR      addr,savaddr;
     PETH_OBJS   ethobjs;
     PTR_OBJS    trobjs;
-    PMULTI_TABLE mt;
     PSCBREQ     scbreq;
-    ULONG       open_options;
+    PSCBREQ     ScbHead = NULL;
+    PSCBREQ     ScbTail = NULL;
     ULONG       Filter;
-    BOOLEAN     BadFilter;
-    BOOLEAN     found;
-    BOOLEAN     QueueCompletion  = FALSE;
-    BOOLEAN     CompletionQueued = FALSE;
+    ULONG       BadFilter;
+    BOOLEAN     QueueCompletion = FALSE;
+    BOOLEAN     QueueCleanup = FALSE;
 
     PACB acb = (PACB) MiniportAdapterContext;
     NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
@@ -246,7 +450,6 @@ NetFlexSetInformation(
         return(NDIS_STATUS_RESET_IN_PROGRESS);
     }
 
-
     if (acb->RequestInProgress)
     {
         DebugPrint(0,("NF(%d): SetOID: Aready have RequestInProcess!\n",acb->anum));
@@ -256,14 +459,6 @@ NetFlexSetInformation(
     acb->RequestInProgress = TRUE;
 
     //
-    // Get a mac request in case we need the completeion
-    //
-    NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                 (PVOID *)&macreq);
-    macreq->req_next    = NULL;
-    macreq->req_type    = REQUEST_CMP;
-    macreq->req_status  = NDIS_STATUS_SUCCESS;
-    //
     // Save the information about the request
     //
     acb->BytesRead               = BytesRead;
@@ -272,215 +467,179 @@ NetFlexSetInformation(
     acb->InformationBuffer       = InformationBuffer;
     acb->InformationBufferLength = InformationBufferLength;
 
-
-    switch (Oid) {
-
-    case OID_GEN_CURRENT_PACKET_FILTER:
-        if (InformationBufferLength != sizeof(ULONG))
-        {
-            DebugPrint(0,("NF(%d): Bad Packet Filter\n",acb->anum));
-            acb->RequestInProgress = FALSE;
-            NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                         (PVOID)macreq);
-
-            return NDIS_STATUS_INVALID_DATA;
-        }
-
-        Filter = *(PULONG)(InformationBuffer);
-        DebugPrint(2,("NF(%d): OidSet: GEN_CURRENT_PACKET_FILTER = %x\n",acb->anum,Filter));
-
-        //
-        // Verify Filter
-        //
-        BadFilter = FALSE;
-        if ( acb->acb_gen_objs.media_type_in_use == NdisMedium802_3)
-        {
-            //--------------------------------
-            // Ethernet Specific Filters...
-            //--------------------------------
-            //
-            // accept only the following:
-            //
-            BadFilter = (Filter & ~(    NDIS_PACKET_TYPE_DIRECTED      |
-                                        NDIS_PACKET_TYPE_MULTICAST     |
-                                        NDIS_PACKET_TYPE_ALL_MULTICAST |
-                                        NDIS_PACKET_TYPE_BROADCAST     |
-                                        ( acb->FullDuplexEnabled ? 0 : NDIS_PACKET_TYPE_PROMISCUOUS)
-                        )          ) !=0;
-            if (BadFilter)
+    switch (Oid)
+    {
+        case OID_GEN_CURRENT_PACKET_FILTER:
+            if (InformationBufferLength != sizeof(ULONG))
             {
-                DebugPrint(2,("NF(%d): PacketFilter Not Supported\n",acb->anum));
-
-                *BytesRead = sizeof(ULONG);
+                DebugPrint(0,("NF(%d): Bad Packet Filter\n",acb->anum));
                 acb->RequestInProgress = FALSE;
-                NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                             (PVOID)macreq);
 
-                return NDIS_STATUS_NOT_SUPPORTED;
+                return(NDIS_STATUS_INVALID_DATA);
             }
 
+            Filter = *(PULONG)(InformationBuffer);
+            DebugPrint(1,("NF(%d): OidSet: GEN_CURRENT_PACKET_FILTER = %x\n",acb->anum,Filter));
+
+            //-------------------------------------------
+            //  Filters Common to TokenRing and Ethernet
+            //-------------------------------------------
+
+#if (DBG || DBGPRINT)
+            if (Filter & NDIS_PACKET_TYPE_DIRECTED)
+                DebugPrint(1,("NF(%d): FilterChangeAction: Directed\n",acb->anum));
+#endif
             //
-            // Are we turning MULTICAST on or off?
+            // Verify Filter
             //
-            if ( (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_MULTICAST) ^
-                 (Filter & NDIS_PACKET_TYPE_MULTICAST) )
+            if ( acb->acb_gen_objs.media_type_in_use == NdisMedium802_3)
             {
-                if (Filter & NDIS_PACKET_TYPE_MULTICAST )
+                //--------------------------------
+                // Ethernet Specific Filters...
+                //--------------------------------
+                //
+                // accept only the following:
+                //
+                BadFilter = (ULONG)~(NDIS_PACKET_TYPE_DIRECTED       |
+                                     NDIS_PACKET_TYPE_MULTICAST      |
+                                     NDIS_PACKET_TYPE_ALL_MULTICAST  |
+                                     NDIS_PACKET_TYPE_BROADCAST      |
+                                     (acb->FullDuplexEnabled ?
+                                      0 : NDIS_PACKET_TYPE_PROMISCUOUS)
+                                    );
+                if (Filter & BadFilter)
                 {
-                    DebugPrint(1,("NF(%d): FilterChanged: Turn multicast ON...\n",acb->anum));
+                    DebugPrint(1,("NF(%d): PacketFilter Not Supported\n",acb->anum));
+
+                    *BytesRead = sizeof(ULONG);
+                    acb->RequestInProgress = FALSE;
+
+                    Status = NDIS_STATUS_NOT_SUPPORTED;
+
+                    break;
                 }
-                else
+
+                //
+                // Did the state of the ALL_MULTICAST bit change?
+                //
+                if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_MULTICAST) ^
+                     (Filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
+                )
                 {
-                    DebugPrint(1,("NF(%d): FilterChanged: Turn multicast OFF, delete all\n",acb->anum));
-
-                    ethobjs = (PETH_OBJS)acb->acb_spec_objs;
-
-                    //
-                    // Do we have any multicasts we need to delete?
-                    //
-                    if (ethobjs->multi_enabled)
+                    Status = AllMulticastFilterChanged(
+                                 acb,
+                                 Filter,
+                                 &ScbHead,
+                                 &ScbTail
+                             );
+                    if (NDIS_STATUS_SUCCESS != Status)
                     {
-                        // Yes, So remove all of the enabled ones
                         //
-                        while (ethobjs->multi_enabled != NULL)
-                        {
-                            NetFlexDequeue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_enabled)),
-                                                        (PVOID *) &mt);
-
-                            NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(ethobjs->multi_free),
-                                                        (PVOID) mt);
-                        }
-
+                        //  We might need to cleanup the local
+                        //  queue of SCBs.
                         //
-                        // Get a free SCBReq block to issue a clear all multicasts.
-                        //
-                        Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                              (PVOID *)&scbreq);
-
-                        if (Status == NDIS_STATUS_SUCCESS)
-                        {
-                            // Queue SCB to process request
-                            //
-                            scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
-                            scbreq->req_macreq              = NULL;
-                            scbreq->req_multi.MB_Option     = MPB_CLEAR_ALL;
-                            NetFlexQueueSCB(acb, scbreq);
-                            //
-                            // Indicate we need to a Queue MacReq Completion
-                            //
-                            QueueCompletion = TRUE;
-                        }
+                        QueueCleanup = TRUE;
+                        break;
                     }
+
+                    //
+                    //  We successfully changed the ALL_MULTICAST bit.
+                    //
+                    QueueCompletion = TRUE;
+                }
+
+                //
+                //  Did the state of the MULTICAST bit change?
+                //
+                if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_MULTICAST) ^
+                    (Filter & NDIS_PACKET_TYPE_MULTICAST)
+                )
+                {
+                    Status = MulticastFilterChanged(
+                                 acb,
+                                 Filter,
+                                 &ScbHead,
+                                 &ScbTail
+                             );
+                    if (NDIS_STATUS_SUCCESS != Status)
+                    {
+                        //
+                        //  We might need to cleanup the local
+                        //  queue of SCBs.
+                        //
+                        QueueCleanup = TRUE;
+                        break;
+                    }
+
+                    //
+                    //  We successfully changed the MULTICAST bit.
+                    //
+                    QueueCompletion = TRUE;
                 }
             }
-
-            //
-            // Are we turning ALL_MULTICAST on or off?
-            //
-
-            if ( (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_MULTICAST) ^
-                 (Filter & NDIS_PACKET_TYPE_ALL_MULTICAST) )
+            else
             {
-                if (Filter & NDIS_PACKET_TYPE_ALL_MULTICAST )
+                //-------------------------------
+                // Token Ring Specific Filters...
+                //-------------------------------
+                //
+                // accept all of the following:
+                //
+                BadFilter = (ULONG)~(NDIS_PACKET_TYPE_FUNCTIONAL        |
+                                     NDIS_PACKET_TYPE_ALL_FUNCTIONAL    |
+                                     NDIS_PACKET_TYPE_GROUP             |
+                                     NDIS_PACKET_TYPE_DIRECTED          |
+                                     NDIS_PACKET_TYPE_BROADCAST         |
+                                     NDIS_PACKET_TYPE_PROMISCUOUS
+                                    );
+                if (Filter & BadFilter)
                 {
-                    DebugPrint(1,("NF(%d): FilterChanged: Turn ALL_Multicast ON...\n",acb->anum));
+                    DebugPrint(1,("NF(%d): PacketFilter Not Supported\n",acb->anum));
+
+                    *BytesRead = sizeof(ULONG);
+
+                    acb->RequestInProgress = FALSE;
+
+                    Status = NDIS_STATUS_NOT_SUPPORTED;
+
+                    break;
+                }
+
+                //
+                // Are we turning the All Functional address filter on or off?
+                //
+                if (((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL) ^
+                      (Filter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL)) ||
+                     ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_FUNCTIONAL) ^
+                      (Filter & NDIS_PACKET_TYPE_FUNCTIONAL))
+                )
+                {
+                    //
+                    // We are changing it.  Are we turning it on?
+                    // Set functional address to all functional address
                     //
                     // Get a free SCBReq block.
                     //
-                    Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                          (PVOID *)&scbreq);
-
-                    if (Status == NDIS_STATUS_SUCCESS)
+                    Status = NetFlexDequeue_OnePtrQ_Head(
+                                 (PVOID *)&(acb->acb_scbreq_free),
+                                 (PVOID *)&scbreq
+                             );
+                    if (Status != NDIS_STATUS_SUCCESS)
                     {
-                        // Queue SCB to process request
                         //
-                        scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
-                        scbreq->req_macreq              = NULL;
-                        scbreq->req_multi.MB_Option     = MPB_SET_ALL;
-                        NetFlexQueueSCB(acb, scbreq);
+                        //  We failed to get an scb.  We don't need
+                        //  to cleanup the scb queue since this is the
+                        //  first one.
                         //
-                        // Indicate we need to a Queue MacReq Completion
-                        //
-                        QueueCompletion = TRUE;
+                        break;
                     }
-                }
-                else
-                {
-                    DebugPrint(1,("NF(%d): FilterChanged: Turn ALL_Multicast OFF, delete all\n",acb->anum));
+
                     //
-                    // Get a free SCBReq block.
-                    //
-                    Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                          (PVOID *)&scbreq);
-                    if (Status == NDIS_STATUS_SUCCESS)
-                    {
-                        // Queue SCB to process request
-                        //
-                        scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
-                        scbreq->req_macreq              = NULL;
-                        scbreq->req_multi.MB_Option     = MPB_CLEAR_ALL;
-                        NetFlexQueueSCB(acb, scbreq);
-                        //
-                        // Indicate we need to a Queue MacReq Completion
-                        //
-                        QueueCompletion = TRUE;
-                    }
-                }
-            }
-        }
-        else
-        {
-            //-------------------------------
-            // Token Ring Specific Filters...
-            //-------------------------------
-            //
-            // accept all, except the following:
-            //
-            BadFilter = (Filter & ~(
-                                        NDIS_PACKET_TYPE_FUNCTIONAL    |
-                                        NDIS_PACKET_TYPE_ALL_FUNCTIONAL|
-                                        NDIS_PACKET_TYPE_GROUP         |
-                                        NDIS_PACKET_TYPE_DIRECTED      |
-                                        NDIS_PACKET_TYPE_BROADCAST     |
-                                        NDIS_PACKET_TYPE_PROMISCUOUS
-                        )          ) !=0;
-
-            if (BadFilter)
-            {
-                DebugPrint(2,("NF(%d): PacketFilter Not Supported\n",acb->anum));
-
-                *BytesRead = sizeof(ULONG);
-                acb->RequestInProgress = FALSE;
-                NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                             (PVOID)macreq);
-
-                return NDIS_STATUS_NOT_SUPPORTED;
-            }
-
-            //
-            // Are we turning the All Functional address filter on or off?
-            //
-            if ( ( (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL) ^
-                   (Filter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL) ) ||
-                 ( (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_FUNCTIONAL) ^
-                   (Filter & NDIS_PACKET_TYPE_FUNCTIONAL) ) )
-
-            {
-                //
-                // We are changing it.  Are we turning it on?
-                // Set functional address to all functional address
-                //
-                // Get a free SCBReq block.
-                //
-                Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                      (PVOID *)&scbreq);
-
-                if (Status == NDIS_STATUS_SUCCESS)
-                {
                     // Queue SCB to process request
                     //
                     scbreq->req_scb.SCB_Cmd = TMS_SETFUNCT;
                     scbreq->req_macreq = NULL;
+
                     //
                     // If we are turning it on, set the functional address
                     // to all ones, else set it to the acb's functional
@@ -499,33 +658,51 @@ NetFlexSetInformation(
                         }
                         else
                         {
+                            //
                             // clear it
+                            //
                             scbreq->req_scb.SCB_Ptr = 0;
                         }
                     }
 
                     DebugPrint(1,("NF(%d): FilterChanged: Setting Functional Address =0x%x\n",acb->anum,scbreq->req_scb.SCB_Ptr));
-                    NetFlexQueueSCB(acb, scbreq);
+
+                    //
+                    //  Queue the scb.
+                    //
+                    NetFlexEnqueue_TwoPtrQ_Tail(&ScbHead, &ScbTail, scbreq);
+
                     //
                     // Indicate we need to QueueCompletion MacReq
                     //
                     QueueCompletion = TRUE;
                 }
-            }
 
-            //
-            // Changing Group?
-            //
-            if ( (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_GROUP) ^
-                 (Filter & NDIS_PACKET_TYPE_GROUP) )
-            {
-                // Get a free SCBReq block.
                 //
-                Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                      (PVOID *)&scbreq);
-
-                if (Status == NDIS_STATUS_SUCCESS)
+                // Changing Group?
+                //
+                if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_GROUP) ^
+                    (Filter & NDIS_PACKET_TYPE_GROUP)
+                )
                 {
+                    // Get a free SCBReq block.
+                    //
+                    Status = NetFlexDequeue_OnePtrQ_Head(
+                                 (PVOID *)&(acb->acb_scbreq_free),
+                                 (PVOID *)&scbreq
+                             );
+                    if (Status != NDIS_STATUS_SUCCESS)
+                    {
+                        //
+                        //  We might need to cleanup the local
+                        //  queue of SCBs.
+                        //
+                        QueueCleanup = TRUE;
+
+                        break;
+                    }
+
+                    //
                     // Queue SCB to process request
                     //
                     scbreq->req_scb.SCB_Cmd = TMS_SETGROUP;
@@ -545,422 +722,450 @@ NetFlexSetInformation(
                     }
 
                     DebugPrint(1,("NF(%d): FilterChanged: Setting Group Address =0x%x\n",acb->anum,scbreq->req_scb.SCB_Ptr));
-                    NetFlexQueueSCB(acb, scbreq);
+
+                    //
+                    //  Queue the scb.
+                    //
+                    NetFlexEnqueue_TwoPtrQ_Tail(&ScbHead, &ScbTail, scbreq);
+
                     //
                     // Indicate we need to QueueCompletion MacReq
                     //
                     QueueCompletion = TRUE;
                 }
             }
-        }
 
-        //-------------------------------------------
-        //  Filters Common to TokenRing and Ethernet
-        //-------------------------------------------
-
-#if (DBG || DBGPRINT)
-        if (Filter & NDIS_PACKET_TYPE_DIRECTED)
-            DebugPrint(1,("NF(%d): FilterChangeAction: Directed\n",acb->anum));
-#endif
-
-        //
-        // Are we turning on/off Promiscuous?
-        //
-        if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_PROMISCUOUS)^
-            (Filter & NDIS_PACKET_TYPE_PROMISCUOUS) )
-        {
-            // Modify the open options to set COPY ALL FRAMES (promiscuous)
             //
-            Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                  (PVOID *)&scbreq);
-
-            if (Status == NDIS_STATUS_SUCCESS)
+            //  Did the state of the PROMISCUOUS flag change?
+            //
+            if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_PROMISCUOUS) ^
+                (Filter & NDIS_PACKET_TYPE_PROMISCUOUS)
+            )
             {
-                // Queue SCB to process request
-                //
-                scbreq->req_scb.SCB_Cmd = TMS_MODIFYOPEN;
-                scbreq->req_macreq = macreq;
-
-                //
-                // If we are turning it on, set the copy all frame bit
-                // bit, else turn it off.
-                //
-                if (Filter & NDIS_PACKET_TYPE_PROMISCUOUS)
+                Status = PromiscuousFilterChanged(
+                             acb,
+                             Filter,
+                             &ScbHead,
+                             &ScbTail
+                         );
+                if (NDIS_STATUS_SUCCESS != Status)
                 {
-                   open_options = OOPTS_CNMAC;
-                   if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_5)
-                   {
-                       open_options |= OOPTS_CMAC;
-                   }
-                   acb->acb_opnblk_virtptr->OPEN_Options |= SWAPS((USHORT)open_options);
-
-                   scbreq->req_scb.SCB_Ptr =  acb->acb_opnblk_virtptr->OPEN_Options;
-                   DebugPrint(1,("NF(%d): FilterChanged: Turn Promiscous Mode ON...\n",acb->anum));
-                   acb->acb_promiscuousmode++;
-                }
-                else
-                {
-                   open_options = OOPTS_CNMAC;
-                   if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_5)
-                   {
-                       open_options |= OOPTS_CMAC;
-                   }
-                   acb->acb_opnblk_virtptr->OPEN_Options &= SWAPS((USHORT)~open_options);
-                   scbreq->req_scb.SCB_Ptr = acb->acb_opnblk_virtptr->OPEN_Options;
-                   DebugPrint(1,("NF(%d): FilterChanged: Turn Promiscous Mode OFF...\n",acb->anum));
-                   acb->acb_promiscuousmode--;
+                    //
+                    //  We might need to cleanup the local
+                    //  queue of SCBs.
+                    //
+                    QueueCleanup = TRUE;
+                    break;
                 }
 
-                NetFlexQueueSCB(acb, scbreq);
-
-                QueueCompletion = FALSE;
-                CompletionQueued = TRUE;
-
-                Status = NDIS_STATUS_PENDING;
+                //
+                //  We successfully changed the PROMISCUOUS bit.
+                //
+                QueueCompletion = TRUE;
             }
-        }
 
-        acb->acb_gen_objs.cur_filter = Filter;
-        *BytesRead = InformationBufferLength;
-        break;
+            acb->acb_gen_objs.cur_filter = Filter;
+            *BytesRead = InformationBufferLength;
 
-
-
-    case OID_802_3_MULTICAST_LIST:
-        if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_5 )
-        {
-            // Not configured for ethernet...
-            //
-            DebugPrint(0,("NF(%d): MULTICAST LIST INVALID OID\n",acb->anum));
-            *BytesRead = 0;
-            Status = NDIS_STATUS_NOT_SUPPORTED;
             break;
-        }
 
-        if (InformationBufferLength % NET_ADDR_SIZE != 0)
-        {
-            // The data must be a multiple of the Ethernet address size.
-            //
-            *BytesNeeded = NET_ADDR_SIZE - (InformationBufferLength % NET_ADDR_SIZE);
-            DebugPrint(0,("NF(%d): MULTICAST LIST INVALID LENGTH\n",acb->anum));
-            acb->RequestInProgress = FALSE;
-            return(NDIS_STATUS_INVALID_DATA);
-        }
-
-        {
-            USHORT          j;
-            ULONG           offset;
-            BOOLEAN         AddedOne   = FALSE;
-            BOOLEAN         RemovedOne = FALSE;
-
-            DebugPrint(1,("NF(%d):Set OID_802_3_Multicast_List\n",acb->anum));
-
-            savaddr = addr = (PUCHAR)InformationBuffer;
-            multinum = (SHORT)(InformationBufferLength / NET_ADDR_SIZE  );
-            ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
-            scbreq = NULL;
+        case OID_802_3_MULTICAST_LIST:
 
             //
-            // Do we need to reset them all?
+            //  Is the adapter setup for token ring?
             //
-            if ((multinum == 0) &&
-                (ethobjs->multi_enabled != NULL))
+            if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_5 )
             {
-                // Reset them all
-                // Get a free SCBReq block.
                 //
-                Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                      (PVOID *)&scbreq);
-                if (Status == NDIS_STATUS_SUCCESS)
-                {
-                    // Remove all of the enabled
-                    //
-                    while (ethobjs->multi_enabled != NULL)
-                    {
-                        NetFlexDequeue_OnePtrQ_Head((PVOID *)(&(ethobjs->multi_enabled)),
-                                                    (PVOID *) &mt);
+                //  Token ring does not support multicast.
+                //
+                DebugPrint(0,("NF(%d): MULTICAST LIST INVALID OID\n",acb->anum));
+                *BytesRead = 0;
+                acb->RequestInProgress = FALSE;
 
-                        NetFlexEnqueue_OnePtrQ_Head((PVOID *)&(ethobjs->multi_free),
-                                                    (PVOID) mt);
-                    }
+                Status = NDIS_STATUS_NOT_SUPPORTED;
 
-                    scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
-                    scbreq->req_macreq              = macreq;
-                    scbreq->req_multi.MB_Option     = MPB_CLEAR_ALL;
-                    //
-                    // put the macreq on the macreq queue
-                    //
-                    NetFlexEnqueue_TwoPtrQ_Tail( (PVOID *)&(acb->acb_macreq_head),
-                                                 (PVOID *)&(acb->acb_macreq_tail),
-                                                 (PVOID)macreq);
+                break;
+            }
 
-                    NetFlexQueueSCB(acb, scbreq);
+            if (InformationBufferLength % NET_ADDR_SIZE != 0)
+            {
+                //
+                // The data must be a multiple of the Ethernet address size.
+                //
+                DebugPrint(0,("NF(%d): MULTICAST LIST INVALID LENGTH\n",acb->anum));
 
-                    //
-                    // Since this is the only command we're queueing
-                    // we've attached the completion maqreq to the actual
-                    // command.  QueueCompletion = FALSE, but CompletionQueued = TRUE
-                    //
-                    CompletionQueued = TRUE;
-                    Status = NDIS_STATUS_PENDING;
-                }
-                *BytesRead = InformationBufferLength;
+                *BytesNeeded = InformationBufferLength + (NET_ADDR_SIZE - (InformationBufferLength % NET_ADDR_SIZE));
+                acb->RequestInProgress = FALSE;
+
+                Status = NDIS_STATUS_INVALID_DATA;
+
                 break;
             }
 
             //
-            //  Remove any Deleted Multicast Entries
+            //  Get a pointer to the ethernet objects.
             //
-            mt = ethobjs->multi_enabled;
-            while (mt != NULL)
+            ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
+            scbreq = NULL;
+
+            value = (InformationBufferLength / NET_ADDR_SIZE );
+
+            if (value > ethobjs->MaxMulticast)
             {
-                found = FALSE;
-                j=0;
-                while ((j<multinum) && (!found))
-                {
-                    ULONG result;
+                DebugPrint(0,("NF(%d): TOO MANY MULTICAST ADDRESSES\n",acb->anum));
 
-                    offset = j * NET_ADDR_SIZE;
+                //
+                // There are too many, but add as many as we can.
+                //
+                acb->RequestInProgress = FALSE;
 
-                    ETH_COMPARE_NETWORK_ADDRESSES_EQ(mt->mt_addr,&addr[offset],&result);
-                    if (result == 0)
-                    {
-                        found = TRUE;
-                    }
-                    j++;
-                }
+                Status = NDIS_STATUS_MULTICAST_FULL;
 
-                if (!found)
-                {
-                    DebugPrint(1,("NF(%d): Removing %02x-%02x-%02x-%02x-%02x-%02x from Multicast table\n",acb->anum,
-                                 *(mt->mt_addr  ), *(mt->mt_addr+1), *(mt->mt_addr+2),
-                                 *(mt->mt_addr+3), *(mt->mt_addr+4), *(mt->mt_addr+5)));
-
-                    NetFlexDeleteMulticast(acb,mt,&RemovedOne);
-                    mt = ethobjs->multi_enabled;
-                }
-                else
-                {
-                    mt = mt->mt_next;
-                }
+                break;
             }
 
-            //
-            //  Add any New Multicast Entries
-            //
-            if ( (Status = NetFlexValidateMulticasts(addr,multinum)) == NDIS_STATUS_SUCCESS)
-            {
-                for (j=0; (j < multinum) && (Status == NDIS_STATUS_SUCCESS); j++)
-                {
-                    Status = NetFlexAddMulticast(acb,(PUCHAR) addr + (j * NET_ADDR_SIZE),&AddedOne);
-                }
-            }
+            DebugPrint(1, ("NF(%d): Saving multicast address\n", acb->anum));
 
-            if (AddedOne || RemovedOne)
+            //
+            // Save entries in the table.
+            //
+            NdisMoveMemory(
+                ethobjs->MulticastEntries,
+                InformationBuffer,
+                value * NET_ADDR_SIZE
+            );
+
+            //
+            //  If we have any entries enabled, delete them,
+            //  unless NDIS_PACKET_TYPE_ALL_MULTICAST is set.
+            //
+            if (!(acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_MULTICAST) &&
+                (ethobjs->NumberOfEntries > 0)
+            )
             {
+                //
+                // Get a free SCBReq block.
+                //
+                Status = NetFlexDequeue_OnePtrQ_Head(
+                             (PVOID *)&(acb->acb_scbreq_free),
+                             (PVOID *)&scbreq
+                         );
+                if (Status != NDIS_STATUS_SUCCESS)
+                {
+                    DebugPrint(0,("NF(%d): MULTICAST_LIST: out of SCBs\n", acb->anum));
+
+                    //
+                    //  Since this is the first SCB, and it failed,
+                    //  we don't need to clean up.
+                    //
+                    break;
+                }
+
+                DebugPrint(1,("NF(%d): MULTICAST_LIST: clearing current list\n", acb->anum));
+
+                // Queue SCB to process request
+                //
+                scbreq->req_scb.SCB_Cmd         = TMS_MULTICAST;
+                scbreq->req_macreq              = NULL;
+                scbreq->req_multi.MB_Option     = MPB_CLEAR_ALL;
+
+                //
+                //  Queue the scb.
+                //
+                NetFlexEnqueue_TwoPtrQ_Tail(&ScbHead, &ScbTail, scbreq);
+
+                //
                 // Indicate we need to a Queue MacReq Completion
                 //
                 QueueCompletion = TRUE;
             }
-        }
 
-        *BytesRead = InformationBufferLength;
-        break;
-
-
-    case OID_GEN_CURRENT_LOOKAHEAD:
-        // We don't set anything, just return ok. - RVC true?
-        //
-        *BytesRead = 4;
-        Status = NDIS_STATUS_SUCCESS;
-        DebugPrint(2,("NF(%d): OID_GEN_CURRENT_LOOKAHEAD...\n",acb->anum));
-        break;
-
-
-    case OID_802_5_CURRENT_FUNCTIONAL:
-        if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3 )
-        {
-            // If we are running Ethernet, a call for this oid is an error.
             //
-            Status = NDIS_STATUS_NOT_SUPPORTED;
-            break;
-        }
-
-        if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL )
-        {
-            DebugPrint(0,("NF(%d): Oid_Set Functional Address bad\n",acb->anum));
-            *BytesNeeded = TR_LENGTH_OF_FUNCTIONAL - InformationBufferLength;
-            Status = NDIS_STATUS_INVALID_LENGTH;
-            break;
-        }
-
-        NdisMoveMemory( (PVOID)&value,
-                        InformationBuffer,
-                        TR_LENGTH_OF_FUNCTIONAL);
-
-        trobjs = (PTR_OBJS)(acb->acb_spec_objs);
-
-        *((PULONG)(trobjs->cur_func_addr)) = value;
-
-        DebugPrint(2,("NF(%d): OidSet Functional Address = %08x\n",acb->anum,value));
-        //
-        // Update filter if the funcational address has been set in
-        // the packet filter.
-        //
-        if (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_FUNCTIONAL)
-        {
-            Status = NetFlexDequeue_OnePtrQ_Head( (PVOID *)&(acb->acb_scbreq_free),
-                                                  (PVOID *)&scbreq  );
-
-            if (Status == NDIS_STATUS_SUCCESS)
-            {
-                scbreq->req_scb.SCB_Cmd = TMS_SETFUNCT;
-                scbreq->req_macreq = macreq;
-                scbreq->req_scb.SCB_Ptr = value;
-                //
-                // put the macreq on the macreq queue
-                //
-                NetFlexEnqueue_TwoPtrQ_Tail( (PVOID *)&(acb->acb_macreq_head),
-                                             (PVOID *)&(acb->acb_macreq_tail),
-                                             (PVOID)macreq);
-
-                NetFlexQueueSCB(acb, scbreq);
-
-                //
-                // Since this is the only command we're queueing
-                // we've attacted the completion maqreq to the actual
-                // command.  QueueCompletion = FALSE, but CompletionQueued = TRUE
-                //
-                CompletionQueued = TRUE;
-                Status = NDIS_STATUS_PENDING;
-            }
-        }
-
-        *BytesRead = TR_LENGTH_OF_FUNCTIONAL;
-        break;
-
-    case OID_802_5_CURRENT_GROUP:
-        if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3 )
-        {
-            // If we are running Ethernet, a call for this oid is an error.
+            // Save number of entrys
             //
-            Status = NDIS_STATUS_NOT_SUPPORTED;
-            break;
-        }
+            ethobjs->NumberOfEntries = (SHORT)value;
 
-        if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL)
-        {
-            DebugPrint(0,("NF(%d): OidSet Group Address BAD\n",acb->anum));
-            *BytesNeeded = TR_LENGTH_OF_FUNCTIONAL - InformationBufferLength;
-            Status = NDIS_STATUS_INVALID_LENGTH;
-            break;
-        }
-
-        NdisMoveMemory( (PVOID)&value,
-                        InformationBuffer,
-                        TR_LENGTH_OF_FUNCTIONAL);
-
-        trobjs = (PTR_OBJS)(acb->acb_spec_objs);
-
-        *((PULONG)(trobjs->cur_grp_addr)) = value;
-
-        DebugPrint(2,("NF(%d): OidSet Group Address = %08x\n",acb->anum,value));
-
-        //
-        // Update filter if the group address has been set in
-        // the packet filter.
-        //
-        if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_GROUP) != 0)
-        {
-            Status = NetFlexDequeue_OnePtrQ_Head(
-                 (PVOID *)&(acb->acb_scbreq_free),
-                 (PVOID *)&scbreq);
-
-            if (Status == NDIS_STATUS_SUCCESS)
+            //
+            //  If filter has NDIS_PACKET_TYPE_MULTICAST, but NOT
+            //  NDIS_PACKET_TYPE_ALL_MULTICAST, then enable these entries now.
+            //
+            if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_MULTICAST) &&
+                !(acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
+            )
             {
-                scbreq->req_scb.SCB_Cmd = TMS_SETGROUP;
-                scbreq->req_macreq = macreq;
-                scbreq->req_scb.SCB_Ptr = value;
-                //
-                // put the macreq on the macreq queue
-                //
-                NetFlexEnqueue_TwoPtrQ_Tail( (PVOID *)&(acb->acb_macreq_head),
-                                             (PVOID *)&(acb->acb_macreq_tail),
-                                             (PVOID)macreq);
+                if (ethobjs->NumberOfEntries > 0)
+                {
+                    Status = NetFlexAddMulticasts(acb, &ScbHead, &ScbTail);
+                    if (Status != NDIS_STATUS_SUCCESS)
+                    {
+                        //
+                        //  Cleanup the local SCB queue.
+                        //
+                        QueueCleanup = TRUE;
+                        break;
+                    }
 
-                NetFlexQueueSCB(acb, scbreq);
-
-                //
-                // Since this is the only command we're queueing
-                // we've attacted the completion maqreq to the actual
-                // command.  QueueCompletion = FALSE, but CompletionQueued = TRUE
-                //
-                CompletionQueued = TRUE;
-                Status = NDIS_STATUS_PENDING;
+                    //
+                    // Indicate we need to a Queue MacReq Completion
+                    //
+                    QueueCompletion = TRUE;
+                }
             }
-        }
 
-        *BytesRead = TR_LENGTH_OF_FUNCTIONAL;
-        break;
+            *BytesRead = InformationBufferLength;
 
-    default:
+            break;
 
-        Status = NDIS_STATUS_INVALID_OID;
-        break;
+        case OID_GEN_CURRENT_LOOKAHEAD:
+            //
+            // We don't set anything, just return ok. - RVC true?
+            //
+            *BytesRead = 4;
+            Status = NDIS_STATUS_SUCCESS;
+            DebugPrint(1,("NF(%d): OID_GEN_CURRENT_LOOKAHEAD...\n",acb->anum));
+
+            break;
+
+
+        case OID_802_5_CURRENT_FUNCTIONAL:
+            if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3)
+            {
+                //
+                // If we are running Ethernet, a call for this oid is an error.
+                //
+                acb->RequestInProgress = FALSE;
+
+                Status = NDIS_STATUS_NOT_SUPPORTED;
+
+                break;
+            }
+
+            if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL )
+            {
+                DebugPrint(0,("NF(%d): Oid_Set Functional Address bad\n",acb->anum));
+                *BytesNeeded = TR_LENGTH_OF_FUNCTIONAL - InformationBufferLength;
+
+                acb->RequestInProgress = FALSE;
+
+                Status = NDIS_STATUS_INVALID_LENGTH;
+
+                break;
+            }
+
+            //
+            //  Get the oid info.
+            //
+            NdisMoveMemory(
+                (PVOID)&value,
+                InformationBuffer,
+                TR_LENGTH_OF_FUNCTIONAL
+            );
+
+            //
+            //  Get a pointer to the token ring objects.
+            //
+            trobjs = (PTR_OBJS)(acb->acb_spec_objs);
+
+            *((PULONG)(trobjs->cur_func_addr)) = value;
+
+            DebugPrint(1,("NF(%d): OidSet Functional Address = %08x\n",acb->anum,value));
+
+            //
+            // Update filter if the funcational address has been set in
+            // the packet filter.
+            //
+            if (!(acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_ALL_FUNCTIONAL) &&
+                (acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_FUNCTIONAL)
+            )
+            {
+                //
+                //  Get an scb.
+                //
+                Status = NetFlexDequeue_OnePtrQ_Head(
+                             (PVOID *)&(acb->acb_scbreq_free),
+                             (PVOID *)&scbreq
+                         );
+                if (Status == NDIS_STATUS_SUCCESS)
+                {
+                    scbreq->req_scb.SCB_Cmd = TMS_SETFUNCT;
+                    scbreq->req_macreq = NULL;
+                    scbreq->req_scb.SCB_Ptr = value;
+
+                    //
+                    //  Queue the scb.
+                    //
+                    NetFlexEnqueue_TwoPtrQ_Tail(&ScbHead, &ScbTail, scbreq);
+
+                    QueueCompletion = TRUE;
+                }
+            }
+
+            *BytesRead = TR_LENGTH_OF_FUNCTIONAL;
+            break;
+
+        case OID_802_5_CURRENT_GROUP:
+            if (acb->acb_gen_objs.media_type_in_use == NdisMedium802_3 )
+            {
+                // If we are running Ethernet, a call for this oid is an error.
+                //
+                acb->RequestInProgress = FALSE;
+
+                Status = NDIS_STATUS_NOT_SUPPORTED;
+
+                break;
+            }
+
+            if (InformationBufferLength != TR_LENGTH_OF_FUNCTIONAL)
+            {
+                DebugPrint(0,("NF(%d): OidSet Group Address BAD\n",acb->anum));
+                *BytesNeeded = TR_LENGTH_OF_FUNCTIONAL - InformationBufferLength;
+
+                acb->RequestInProgress = FALSE;
+                Status = NDIS_STATUS_INVALID_LENGTH;
+
+                break;
+            }
+
+            NdisMoveMemory(
+                (PVOID)&value,
+                InformationBuffer,
+                TR_LENGTH_OF_FUNCTIONAL
+            );
+
+            trobjs = (PTR_OBJS)(acb->acb_spec_objs);
+
+            *((PULONG)(trobjs->cur_grp_addr)) = value;
+
+            DebugPrint(1,("NF(%d): OidSet Group Address = %08x\n",acb->anum,value));
+
+            //
+            // Update filter if the group address has been set in
+            // the packet filter.
+            //
+            if ((acb->acb_gen_objs.cur_filter & NDIS_PACKET_TYPE_GROUP) != 0)
+            {
+                Status = NetFlexDequeue_OnePtrQ_Head(
+                             (PVOID *)&(acb->acb_scbreq_free),
+                             (PVOID *)&scbreq
+                         );
+                if (Status == NDIS_STATUS_SUCCESS)
+                {
+                    scbreq->req_scb.SCB_Cmd = TMS_SETGROUP;
+                    scbreq->req_macreq = NULL;
+                    scbreq->req_scb.SCB_Ptr = value;
+
+                    //
+                    //  Queue the scb.
+                    //
+                    NetFlexEnqueue_TwoPtrQ_Tail(&ScbHead, &ScbTail, scbreq);
+
+                    QueueCompletion = TRUE;
+                }
+            }
+
+            *BytesRead = TR_LENGTH_OF_FUNCTIONAL;
+            break;
+
+        default:
+
+            Status = NDIS_STATUS_INVALID_OID;
+            break;
 
     }
 
+    if (QueueCleanup)
+    {
+        DebugPrint(1,("NF(%d): Error Setting OID (0x%x)\n",acb->anum, Oid));
+
+        //
+        //  There was an error trying to get sufficent SCBs to
+        //  complete the request.
+        //
+        while (ScbHead != NULL)
+        {
+            NetFlexDequeue_OnePtrQ_Head(&ScbHead, &scbreq);
+
+            NetFlexEnqueue_OnePtrQ_Head(
+                (PVOID *)&acb->acb_scbreq_free,
+                scbreq
+            );
+        }
+
+        QueueCompletion = FALSE;
+    }
 
     if (QueueCompletion)
     {
-        // We need to queue a dummy request to follow the
-        // queued SCB commands.  This will allow us to
-        // indicate the completion correctly.
         //
-
-        DebugPrint(2,("NF(%d): Queueing Up Dummy Request to complete set OID (0x%x)\n",acb->anum,Oid));
-
-        *BytesNeeded = 0xffff;
-
-        Status = NetFlexDequeue_OnePtrQ_Head((PVOID *)&(acb->acb_scbreq_free),
-                                             (PVOID *)&scbreq);
-        if (Status == NDIS_STATUS_SUCCESS)
+        //  Was there actually an scb queued?
+        //
+        if (NULL != ScbHead)
         {
-
-            scbreq->req_scb.SCB_Cmd = TMS_DUMMYCMD;
-            scbreq->req_macreq = macreq;
-
             //
-            // put the macreq on the macreq queue
+            //  We should have a local list of scb's to send.
             //
-            NetFlexEnqueue_TwoPtrQ_Tail( (PVOID *)&(acb->acb_macreq_head),
-                                         (PVOID *)&(acb->acb_macreq_tail),
-                                         (PVOID)macreq);
+            do
+            {
+                //
+                //  Get a pointer to the next scb to process.
+                //
+                scbreq = ScbHead->req_next;
 
-            NetFlexQueueSCB(acb, scbreq);
+                //
+                //  Are we on the last scb?
+                //
+                if (NULL == scbreq)
+                {
+                    //
+                    // Get a mac request in case we need the completeion
+                    //
+                    NetFlexDequeue_OnePtrQ_Head(
+                        (PVOID *)&(acb->acb_macreq_free),
+                        (PVOID *)&macreq
+                    );
 
+                    //
+                    //  Initialize the completion request.
+                    //
+                    macreq->req_next    = NULL;
+                    macreq->req_type    = REQUEST_CMP;
+                    macreq->req_status  = NDIS_STATUS_SUCCESS;
 
-            CompletionQueued = TRUE;
-            Status = NDIS_STATUS_PENDING;
-        }
-        else
-        {
-            DebugPrint(0,("NF(%d):SetOID, couldn't get free ScbReq for Dummy Request Complete!",acb->anum));
-            acb->RequestInProgress = FALSE;
+                    //
+                    //  Setup the last scb to be sent to the card.
+                    //
+                    ScbHead->req_macreq = macreq;
+
+                    //
+                    // put the macreq on the macreq queue
+                    //
+                    NetFlexEnqueue_TwoPtrQ_Tail(
+                        (PVOID *)&(acb->acb_macreq_head),
+                        (PVOID *)&(acb->acb_macreq_tail),
+                        (PVOID)macreq
+                    );
+                }
+
+                //
+                //  Send the scb down to the card
+                //
+                NetFlexQueueSCB(acb, ScbHead);
+
+                ScbHead = scbreq;
+
+            } while (NULL != scbreq);
+
+            return(NDIS_STATUS_PENDING);
         }
     }
 
-    if (!CompletionQueued)
-    {
-        // We didn't queue up the macreq, so put it back on the free queue
-        // also indicate that we are done with the SetOid request....
-        Status = NDIS_STATUS_SUCCESS;
-        acb->RequestInProgress = FALSE;
-        NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                     (PVOID)macreq);
-    }
+    //
+    //  Request was aborted due to error.
+    //
+    acb->RequestInProgress = FALSE;
 
-    return Status;
+    return(Status);
 }
 
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1007,22 +1212,17 @@ NetFlexQueryInformation(
     OUT PULONG BytesNeeded
 )
 {
-    PACB    acb = (PACB) MiniportAdapterContext;
-
+    PACB        acb = (PACB) MiniportAdapterContext;
     PMACREQ     macreq;
     ULONG       lvalue;
     USHORT      svalue;
     PTR_OBJS    trobjs;
     PETH_OBJS   ethobjs;
-    LONG        transfersize;
-    PUCHAR      iptr, srcptr;
+    PUCHAR      srcptr;
     PUCHAR      copyptr = NULL;
-    PMULTI_TABLE mt, mt_array[MAX_MULTICASTS];
     PSCBREQ     scbreq;
-    SHORT       count;
     UCHAR       vendorid[4];
     SHORT       copylen    = (SHORT)sizeof(ULONG);   // Most common length
-    int         i;
 
     NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
     BOOLEAN     needcopy = TRUE;
@@ -1056,23 +1256,23 @@ NetFlexQueryInformation(
             {
                 case AS_OPENED:
                     lvalue = NdisHardwareStatusReady;
-                    DebugPrint(0,("NF(%d):Query HW Status - AS_OPENED\n",acb->anum));
+                    DebugPrint(1,("NF(%d):Query HW Status - AS_OPENED\n",acb->anum));
                     break;
                 case AS_CLOSING:
                     lvalue = NdisHardwareStatusClosing;
-                    DebugPrint(0,("NF(%d):Query HW Status - AS_CLOSING\n",acb->anum));
+                    DebugPrint(1,("NF(%d):Query HW Status - AS_CLOSING\n",acb->anum));
                     break;
                 case AS_RESETTING:
                 case AS_RESET_HOLDING:
-                    DebugPrint(0,("NF(%d):Query HW Status - AS_RESETTING\n",acb->anum));
+                    DebugPrint(1,("NF(%d):Query HW Status - AS_RESETTING\n",acb->anum));
                     lvalue = NdisHardwareStatusReset;
                     break;
                 case AS_INITIALIZING:
-                    DebugPrint(0,("NF(%d):Query HW Status - AS_INITIALIZING\n",acb->anum));
+                    DebugPrint(1,("NF(%d):Query HW Status - AS_INITIALIZING\n",acb->anum));
                     lvalue = NdisHardwareStatusInitializing;
                     break;
                 default:
-                    DebugPrint(0,("NF(%d):NetFlexQueryInformation: Undefinded State - 0x%x",acb->anum,acb->acb_state));
+                    DebugPrint(1,("NF(%d):NetFlexQueryInformation: Undefinded State - 0x%x",acb->anum,acb->acb_state));
                     break;
             }
             copyptr = (PUCHAR)&lvalue;
@@ -1149,7 +1349,8 @@ NetFlexQueryInformation(
             //
             if (acb->FullDuplexEnabled)
             {
-               lvalue |= NDIS_MAC_OPTION_NO_LOOPBACK;
+               lvalue |= NDIS_MAC_OPTION_NO_LOOPBACK |
+						 NDIS_MAC_OPTION_FULL_DUPLEX;
             }
             copyptr = (PUCHAR)&lvalue;
             break;
@@ -1216,54 +1417,16 @@ NetFlexQueryInformation(
 
                 case OID_802_3_MULTICAST_LIST:
                     DebugPrint(2,("NF(%d): Query OID_802_3_MULTICAST_LIST\n",acb->anum));
-                    needcopy = FALSE;
-                    count = 0;
                     ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
-                    mt = ethobjs->multi_enabled;
-                    while (mt)
-                    {
-                        mt_array[count] = mt;
-                        count++;
-                        mt = mt->mt_next;
-                        DebugPrint(1,("NF(%d): Copying %02x-%02x-%02x-%02x-%02x-%02x from Multicast table\n",acb->anum,
-                                     *(mt->mt_addr  ), *(mt->mt_addr+1), *(mt->mt_addr+2),
-                                     *(mt->mt_addr+3), *(mt->mt_addr+4), *(mt->mt_addr+5)));
-                    }
 
-                    transfersize = (count * NET_ADDR_SIZE);
-
-                    //
-                    // Do we have enough space for the list?
-                    //
-                    if (InformationBufferLength < (UINT)transfersize)
-                    {
-                        DebugPrint(1,("NF(%d): Not enough space in buffer\n",acb->anum));
-                        *BytesNeeded = transfersize - InformationBufferLength;
-                        Status = NDIS_STATUS_INVALID_LENGTH;
-                    }
-                    else
-                    {
-                        iptr = (PUCHAR) InformationBuffer;
-                        //
-                        // Copy the data bytes
-                        //
-                        for (i = 0; i < count; i++)
-                        {
-                            NdisMoveMemory( iptr,
-                                            mt_array[i]->mt_addr,
-                                            NET_ADDR_SIZE   );
-                            (PUCHAR)(iptr) += NET_ADDR_SIZE;
-                        }
-                        //
-                        // Update the information pointer and size.
-                        //
-                        *BytesWritten += transfersize;
-                    }
+                    needcopy = TRUE;
+                    copylen = ethobjs->NumberOfEntries * NET_ADDR_SIZE;
+                    copyptr = (PVOID) &ethobjs->NumberOfEntries;
                     break;
 
                 case OID_802_3_MAXIMUM_LIST_SIZE:
                     ethobjs = (PETH_OBJS)(acb->acb_spec_objs);
-                    lvalue = ethobjs->multi_max;
+                    lvalue = ethobjs->MaxMulticast;
                     copyptr = (PUCHAR)&lvalue;
                     DebugPrint(2,("NF(%d): Query OID_802_3_MAXIMUM_LIST_SIZE = 0x%x\n",acb->anum,lvalue));
                     break;
@@ -1813,7 +1976,7 @@ NetFlexProcessMacReq(
     PMACREQ     macreq;
     BOOLEAN     ReceiveResult;
 
-    DebugPrint(0,("NF(%d): NetFlexProcessMacReq entered.\n", acb->anum));
+    DebugPrint(1,("NF(%d): NetFlexProcessMacReq entered.\n", acb->anum));
 
     while (acb->acb_confirm_qhead != NULL)
     {
@@ -1863,19 +2026,12 @@ NetFlexProcessMacReq(
                     //
                     acb->acb_rcv_whead = acb->acb_rcv_head;
 
-#ifdef ODD_POINTER
-                    //
-                    // Indicate that the transmiter is stalled.
-                    //
-                    acb->XmitStalled = TRUE;
-#else
                     //
                     // Now lets finish the open by sending a
                     // transmit and receive command to the adapter.
                     //
-
                     acb->acb_xmit_whead = acb->acb_xmit_wtail = acb->acb_xmit_head;
-#endif
+
                     //
                     // If the adapter is ready for a command, call a
                     // routine that will kick off the transmit command.
@@ -1886,11 +2042,14 @@ NetFlexProcessMacReq(
                     }
                     else if (!acb->acb_scbclearout)
                     {
+                        //
                         // Make sure we are interrupted when the SCB is
                         // available so that we can send the transmit command.
                         //
                         acb->acb_scbclearout = TRUE;
-                        NdisRawWritePortUshort( acb->SifIntPort, (USHORT) SIFINT_SCBREQST);
+                        NdisRawWritePortUshort(
+                            acb->SifIntPort,
+                            (USHORT)SIFINT_SCBREQST);
                     }
                 }
                 else
@@ -1965,7 +2124,7 @@ NetFlexProcessMacReq(
                         DebugPrint(1,("NF(%d): NetFlexProcessMacReq: Completing request.\n", acb->anum));
 
                         acb->RequestInProgress = FALSE;
-                        NdisMSetInformationComplete(acb->acb_handle,status);
+                        NdisMSetInformationComplete(acb->acb_handle, status);
                     }
                 }
                 else
@@ -1973,11 +2132,14 @@ NetFlexProcessMacReq(
                     DebugPrint(0,("NF(%d): Have macreq QUERY_CMP or REQUEST_CMP without RequestInProgress!\n",acb->anum));
                 }
 
-                NdisZeroMemory (macreq, sizeof(MACREQ));
-                NetFlexEnqueue_OnePtrQ_Head( (PVOID *)&(acb->acb_macreq_free),
-                                             (PVOID)macreq);
+                NdisZeroMemory(macreq, sizeof(MACREQ));
+                NetFlexEnqueue_OnePtrQ_Head(
+                    (PVOID *)&(acb->acb_macreq_free),
+                    (PVOID)macreq
+                );
 
                 break;
+
             default:    // We should NEVER be here
                 DebugPrint(0,("NF(%d): ProcessMaqReq - No command - ERROR!\n",acb->anum));
                 break;

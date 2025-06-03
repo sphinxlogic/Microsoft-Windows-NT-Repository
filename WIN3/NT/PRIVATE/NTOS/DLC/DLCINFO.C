@@ -95,19 +95,14 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS:
-            STATUS_SUCCESS
-            STATUS_INVALID_COMMAND
+    None.
+
 --*/
 
 {
     LLC_NDIS_REQUEST Request;
     PULONG pOidBuffer;
-    struct {
-        ULONG Oid;
-        ULONG Length;
-        ULONG DlcErrorCounter;
-    } Info;
+    ULONG counter;
     UINT i;
     UINT Status;
 
@@ -138,8 +133,8 @@ Return Value:
     //
 
     Request.Ndis.RequestType = NdisRequestQueryInformation;
-    Request.Ndis.DATA.QUERY_INFORMATION.InformationBuffer = &Info;
-    Request.Ndis.DATA.QUERY_INFORMATION.InformationBufferLength = sizeof(Info);
+    Request.Ndis.DATA.QUERY_INFORMATION.InformationBuffer = &counter;
+    Request.Ndis.DATA.QUERY_INFORMATION.InformationBufferLength = sizeof(counter);
 
     for (i = 0; i < ADAPTER_ERROR_COUNTERS; i++) {
         if (pOidBuffer[i] != 0) {
@@ -157,17 +152,25 @@ Return Value:
             ENTER_DLC(pFileContext);
 
             if (Status != STATUS_SUCCESS) {
-                Info.DlcErrorCounter = 0;
-            } else if (Info.DlcErrorCounter - pFileContext->NdisErrorCounters[i] > 255
-            && pAdapterErrors != NULL) {
-                Info.DlcErrorCounter = 255;
+
+#if DBG
+				if ( Status != STATUS_NOT_SUPPORTED ){
+					// Only print real errors.
+					DbgPrint("DLC.GetDlcErrorCounters: LlcNdisRequest returns %x\n", Status);
+				}
+#endif
+
+                counter = 0;
+            } else if ((counter - pFileContext->NdisErrorCounters[i] > 255)
+            && (pAdapterErrors != NULL)) {
+                counter = 255;
             } else {
-                Info.DlcErrorCounter -= pFileContext->NdisErrorCounters[i];
+                counter -= pFileContext->NdisErrorCounters[i];
             }
             if (pAdapterErrors != NULL) {
-                pAdapterErrors[i] = (UCHAR)Info.DlcErrorCounter;
+                pAdapterErrors[i] = (UCHAR)counter;
             }
-            pFileContext->NdisErrorCounters[i] += Info.DlcErrorCounter;
+            pFileContext->NdisErrorCounters[i] += counter;
         }
     }
 }

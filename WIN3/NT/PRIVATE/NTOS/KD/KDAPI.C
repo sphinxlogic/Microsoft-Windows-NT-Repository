@@ -30,6 +30,15 @@ Revision History:
 
 #include "kdp.h"
 
+
+//
+// externs
+//
+extern BOOLEAN KdpControlCPressed;
+extern ULONG   KdpPageInAddress;
+extern VOID RtlpBreakWithStatusInstruction(VOID);
+
+
 #if ACCASM && !defined(_MSC_VER)
 long asm(const char *,...);
 #pragma intrinsic(asm)
@@ -51,9 +60,9 @@ extern BOOLEAN KdDebuggerNotPresent;
 extern BOOLEAN BreakpointsSuspended;
 extern PVOID KdpNtosImageBase;
 
-ULONG CurrentSymbolStart = 0;
-ULONG CurrentSymbolEnd = 0;
-LONG NextCallLevelChange = 0;      // used only over returns to the
+ULONG KdpCurrentSymbolStart = 0;
+ULONG KdpCurrentSymbolEnd = 0;
+LONG KdpNextCallLevelChange = 0;      // used only over returns to the
                                    // debugger.
 
 #define DBGKD_MAX_SPECIAL_CALLS 10
@@ -68,6 +77,7 @@ ULONG KdpNumInternalBreakpoints = 0;
 
 KTIMER InternalBreakpointTimer;
 KDPC InternalBreakpointCheckDpc;
+
 
 VOID
 KdpProcessInternalBreakpoint (
@@ -95,6 +105,13 @@ KdClearSpecialCalls (
 VOID
 KdpGetVersion(
     IN PDBGKD_MANIPULATE_STATE m
+    );
+
+NTSTATUS
+KdpPageIn(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
     );
 
 VOID
@@ -214,9 +231,13 @@ KdpLevelChange (
 #pragma alloc_text(PAGEKD, KdpReadPhysicalMemory)
 #pragma alloc_text(PAGEKD, KdpWritePhysicalMemory)
 #pragma alloc_text(PAGEKD, KdpGetVersion)
+#pragma alloc_text(PAGEKD, KdpPageIn)
 #pragma alloc_text(PAGEKD, KdpCauseBugCheck)
 #pragma alloc_text(PAGEKD, KdpWriteBreakPointEx)
 #pragma alloc_text(PAGEKD, KdpRestoreBreakPointEx)
+#if DBG
+#pragma alloc_text(PAGEKD, KdpDprintf)
+#endif
 #if i386
 #pragma alloc_text(PAGEKD, InternalBreakpointCheck)
 #pragma alloc_text(PAGEKD, KdSetInternalBreakpoint)
@@ -235,6 +256,44 @@ KdpLevelChange (
 #endif // i386
 #endif // ALLOC_PRAGMA
 
+
+
+#if DBG
+VOID
+KdpDprintf(
+    IN PCHAR f,
+    ...
+    )
+/*++
+
+Routine Description:
+
+    Printf routine for the debugger that is safer than DbgPrint.  Calls
+    the packet driver instead of reentering the debugger.
+
+Arguments:
+
+    f - Supplies printf format
+
+Return Value:
+
+    None
+
+--*/
+{
+    char    buf[100];
+    STRING  Output;
+    va_list mark;
+
+    va_start(mark, f);
+    _vsnprintf(buf, 100, f, mark);
+    va_end(mark);
+
+    Output.Buffer = buf;
+    Output.Length = strlen(Output.Buffer);
+    KdpPrintString(&Output);
+}
+#endif // DBG
 
 
 BOOLEAN
@@ -269,7 +328,6 @@ Return Value:
 
     BOOLEAN Enable;
 #if DBG
-    STRING  Output;
     extern ULONG KiFreezeFlag;
 #endif
 
@@ -296,21 +354,15 @@ Return Value:
 #if DBG
 
     if ((KiFreezeFlag & FREEZE_BACKUP) != 0) {
-        Output.Buffer = "FreezeLock was jammed!  Backup SpinLock was used!\n";
-        Output.Length = 50;
-        KdpPrintString (&Output);
+        DPRINT(("FreezeLock was jammed!  Backup SpinLock was used!\n"));
     }
 
     if ((KiFreezeFlag & FREEZE_SKIPPED_PROCESSOR) != 0) {
-        Output.Buffer = "Some processors not frozen in debugger!\n";
-        Output.Length = 40;
-        KdpPrintString (&Output);
+        DPRINT(("Some processors not frozen in debugger!\n"));
     }
 
     if (KdpPortLocked == FALSE) {
-        Output.Buffer = "Port lock was not acquired!\n";
-        Output.Length = 28;
-        KdpPrintString (&Output);
+        DPRINT(("Port lock was not acquired!\n"));
     }
 
 #endif
@@ -346,7 +398,7 @@ Return Value:
     //
 
     KdPortRestore();
-    if (KdpPortLock) {
+    if (KdpPortLocked) {
         KdpPortUnlock();
     }
 
@@ -697,7 +749,7 @@ Return Value:
     STRING MessageData;
     STRING MessageHeader;
     DBGKD_MANIPULATE_STATE ManipulateState;
-    USHORT ReturnCode;
+    ULONG ReturnCode;
     NTSTATUS Status;
     KCONTINUE_STATUS ContinueStatus;
 
@@ -727,7 +779,7 @@ ResendPacket:
     //
     // After sending packet, if there is no response from debugger
     // AND the packet is for reporting symbol (un)load, the debugger
-    // will be decalred to be not present.  Note If the packet is for
+    // will be declared to be not present.  Note If the packet is for
     // reporting exception, the KdpSendPacket will never stop.
     //
 
@@ -842,6 +894,14 @@ ResendPacket:
             break;
 
 #if i386
+        case DbgKdReadMachineSpecificRegister:
+            KdpReadMachineSpecificRegister(&ManipulateState,&MessageData,ContextRecord);
+            break;
+
+        case DbgKdWriteMachineSpecificRegister:
+            KdpWriteMachineSpecificRegister(&ManipulateState,&MessageData,ContextRecord);
+            break;
+
         case DbgKdSetSpecialCallApi:
             KdSetSpecialCall(&ManipulateState,ContextRecord);
             break;
@@ -865,6 +925,15 @@ ResendPacket:
 
         case DbgKdCauseBugCheckApi:
             KdpCauseBugCheck(&ManipulateState);
+            break;
+
+        case DbgKdPageInApi:
+            Status = KdpPageIn(&ManipulateState,&MessageData,ContextRecord);
+            if (Status) {
+                ManipulateState.ApiNumber = DbgKdContinueApi;
+                ManipulateState.u.Continue.ContinueStatus = Status;
+                return ContinueError;
+            }
             break;
 
         case DbgKdWriteBreakPointExApi:
@@ -1321,14 +1390,14 @@ void PotentialNewSymbol (ULONG pc)
     if (-1 != SymNumFor(pc)) {
         int sym = SymNumFor(pc);
         TraceDataBuffer[TraceDataBufferPosition].s.SymbolNumber = (UCHAR) sym;
-        CurrentSymbolStart = TraceDataSyms[sym].SymMin;
-        CurrentSymbolEnd = TraceDataSyms[sym].SymMax;
+        KdpCurrentSymbolStart = TraceDataSyms[sym].SymMin;
+        KdpCurrentSymbolEnd = TraceDataSyms[sym].SymMax;
 
         return;  // we've already seen this one
     }
 
-    TraceDataSyms[NextTraceDataSym].SymMin = CurrentSymbolStart;
-    TraceDataSyms[NextTraceDataSym].SymMax = CurrentSymbolEnd;
+    TraceDataSyms[NextTraceDataSym].SymMin = KdpCurrentSymbolStart;
+    TraceDataSyms[NextTraceDataSym].SymMax = KdpCurrentSymbolEnd;
 
     TraceDataBuffer[TraceDataBufferPosition].s.SymbolNumber = NextTraceDataSym;
 
@@ -1363,10 +1432,10 @@ TraceDataRecordCallInfo(
 
     long SymNum = SymNumFor(pc);
 
-    if (NextCallLevelChange != 0) {
+    if (KdpNextCallLevelChange != 0) {
         TraceDataBuffer[TraceDataBufferPosition].s.LevelChange =
-                                                (char) NextCallLevelChange;
-        NextCallLevelChange = 0;
+                                                (char) KdpNextCallLevelChange;
+        KdpNextCallLevelChange = 0;
     }
 
 
@@ -1387,14 +1456,14 @@ TraceDataRecordCallInfo(
         if (TraceDataBufferPosition +2 >= TRACE_DATA_BUFFER_MAX_SIZE) {
             TraceDataBufferFilled = TRUE;
         }
-       NextCallLevelChange = CallLevelChange;
+       KdpNextCallLevelChange = CallLevelChange;
        return FALSE;
     }
 
     TraceDataBuffer[TraceDataBufferPosition].s.LevelChange =(char)CallLevelChange;
     TraceDataBuffer[TraceDataBufferPosition].s.SymbolNumber = (UCHAR) SymNum;
-    CurrentSymbolStart = TraceDataSyms[SymNum].SymMin;
-    CurrentSymbolEnd = TraceDataSyms[SymNum].SymMax;
+    KdpCurrentSymbolStart = TraceDataSyms[SymNum].SymMin;
+    KdpCurrentSymbolEnd = TraceDataSyms[SymNum].SymMax;
 
     return TRUE;
 }
@@ -1500,7 +1569,7 @@ Return Value:
 
     NextTraceDataSym = 0;
     NumTraceDataSyms = 0;
-    NextCallLevelChange = 0;
+    KdpNextCallLevelChange = 0;
     if (ContextRecord && !InstrCountInternal) {
         InitialSP = ContextRecord->Esp;
     }
@@ -1562,7 +1631,7 @@ KdpCheckTracePoint(
             ContextRecord->EFlags &= ~0x100L; /* clear trace flag */
             return TRUE; // resume non-traced thread at full speed
         }
-        if ((!SymbolRecorded) && (CurrentSymbolStart != 0) && (CurrentSymbolEnd != 0)) {
+        if ((!SymbolRecorded) && (KdpCurrentSymbolStart != 0) && (KdpCurrentSymbolEnd != 0)) {
             /* We need to use oldpc here, because this may have been
                a 1 instruction call.  We've ALREADY executed the instruction
                that the new symbol is for, and if the pc has moved out of
@@ -1582,7 +1651,7 @@ KdpCheckTracePoint(
              *   Put the breakpoint instruction back and resume
              *   regular execution.
              * If it's not:
-             *   set up like it's a ww, by setting Begin and CurrentSymbolEnd
+             *   set up like it's a ww, by setting Begin and KdpCurrentSymbolEnd
              *   and bop off into single step land.  We probably ought to
              *   disable all breakpoints here, too, so that we don't do
              *   anything foul like trying two non-COUNTONLY's at the
@@ -1610,8 +1679,8 @@ KdpCheckTracePoint(
             }
 
             /* Not a COUNTONLY.  Go to single step mode. */
-            CurrentSymbolEnd = 0;
-            CurrentSymbolStart = KdpInternalBPs[SkippedBPNum].ReturnAddress;
+            KdpCurrentSymbolEnd = 0;
+            KdpCurrentSymbolStart = KdpInternalBPs[SkippedBPNum].ReturnAddress;
 
             ContextRecord->EFlags |= 0x100L; /* Trace on. */
             InitialSP = ContextRecord->Esp;
@@ -1649,7 +1718,7 @@ KdpCheckTracePoint(
                  * step operation.
                  *
                  * For extra added fun, it's possible to execute interrupt
-                 * routines IN THE SAME THREAD!!!  That's way we need to keep
+                 * routines IN THE SAME THREAD!!!  That's why we need to keep
                  * the stack pointer as well as the thread address: the APC
                  * code can result in pushing on the stack and doing a call
                  * that's really part on an interrupt service routine in the
@@ -1704,9 +1773,9 @@ KdpCheckTracePoint(
     } /* if breakpoint */
 
     if ((AfterSC || ExceptionRecord->ExceptionCode == STATUS_SINGLE_STEP) &&
-        CurrentSymbolStart != 0 &&
-        ((CurrentSymbolEnd == 0 && ContextRecord->Esp <= InitialSP) ||
-         (CurrentSymbolStart <= pc && pc < CurrentSymbolEnd))) {
+        KdpCurrentSymbolStart != 0 &&
+        ((KdpCurrentSymbolEnd == 0 && ContextRecord->Esp <= InitialSP) ||
+         (KdpCurrentSymbolStart <= pc && pc < KdpCurrentSymbolEnd))) {
         ULONG lc;
         /* We've taken a step trace, but are still executing in the current
          * function.  Remember that we executed an instruction, check to
@@ -1736,7 +1805,7 @@ KdpCheckTracePoint(
         return TRUE;
     }
     if ((AfterSC || (ExceptionRecord->ExceptionCode == STATUS_SINGLE_STEP)) &&
-        (CurrentSymbolStart != 0)) {
+        (KdpCurrentSymbolStart != 0)) {
         // We're WatchTracing, but have just changed symbol range.
         // Fill in the call record and return to the debugger if
         // either we're full or the pc is outside of the known
@@ -1768,7 +1837,7 @@ KdpCheckTracePoint(
 
             IntBPsSkipping--;
             InstrCountInternal = FALSE;
-            CurrentSymbolStart = 0;
+            KdpCurrentSymbolStart = 0;
             KdpRestoreAllBreakpoints();
 
             if (KdpInternalBPs[SkippedBPNum].Flags &
@@ -1790,7 +1859,7 @@ KdpCheckTracePoint(
             //
             // We have to compute lc after calling
             // TraceDataRecordCallInfo, because LevelChange relies on
-            // CurrentSymbolStart and CurrentSymbolEnd corresponding to
+            // KdpCurrentSymbolStart and KdpCurrentSymbolEnd corresponding to
             // the pc.
             //
 
@@ -2001,7 +2070,7 @@ Return Value:
         //
 
         WaitStateChange.NewState = DbgKdLoadSymbolsStateChange;
-        WaitStateChange.ProcessorType = (USHORT)KeProcessorType;
+        WaitStateChange.ProcessorLevel = KeProcessorLevel;
         WaitStateChange.Processor = (USHORT)KeGetCurrentPrcb()->Number;
         WaitStateChange.NumberProcessors = (ULONG)KeNumberProcessors;
         WaitStateChange.Thread = (PVOID)KeGetCurrentThread();
@@ -2048,6 +2117,7 @@ Return Value:
 
     return (BOOLEAN) Status;
 }
+
 
 VOID
 KdpReadPhysicalMemory(
@@ -2125,34 +2195,26 @@ Return Value:
         // Memory move starts and ends on the same page.
         //
         VirtualAddress=MmDbgTranslatePhysicalAddress(Source);
-        AdditionalData->Length = (USHORT)KdpMoveMemory(
-                                            Destination,
-                                            VirtualAddress,
-                                            BytesLeft
-                                            );
-        BytesLeft -= AdditionalData->Length;
+        if (VirtualAddress == NULL) {
+            AdditionalData->Length = 0;
+        } else {
+            AdditionalData->Length = (USHORT)KdpMoveMemory(
+                                                Destination,
+                                                VirtualAddress,
+                                                BytesLeft
+                                                );
+            BytesLeft -= AdditionalData->Length;
+        }
     } else {
         //
         // Memory move spans page boundaries
         //
         VirtualAddress=MmDbgTranslatePhysicalAddress(Source);
-        NumberBytes = (USHORT)(PAGE_SIZE - BYTE_OFFSET(VirtualAddress));
-        AdditionalData->Length = (USHORT)KdpMoveMemory(
-                                        Destination,
-                                        VirtualAddress,
-                                        NumberBytes
-                                        );
-        Source.LowPart += NumberBytes;
-        Destination += NumberBytes;
-        BytesLeft -= NumberBytes;
-        while(BytesLeft > 0) {
-            //
-            // Transfer a full page or the last bit,
-            // whichever is smaller.
-            //
-            VirtualAddress = MmDbgTranslatePhysicalAddress(Source);
-            NumberBytes = (USHORT) ((PAGE_SIZE < BytesLeft) ? PAGE_SIZE : BytesLeft);
-            AdditionalData->Length += (USHORT)KdpMoveMemory(
+        if (VirtualAddress == NULL) {
+            AdditionalData->Length = 0;
+        } else {
+            NumberBytes = (USHORT)(PAGE_SIZE - BYTE_OFFSET(VirtualAddress));
+            AdditionalData->Length = (USHORT)KdpMoveMemory(
                                             Destination,
                                             VirtualAddress,
                                             NumberBytes
@@ -2160,6 +2222,26 @@ Return Value:
             Source.LowPart += NumberBytes;
             Destination += NumberBytes;
             BytesLeft -= NumberBytes;
+            while(BytesLeft > 0) {
+                //
+                // Transfer a full page or the last bit,
+                // whichever is smaller.
+                //
+                VirtualAddress = MmDbgTranslatePhysicalAddress(Source);
+                if (VirtualAddress == NULL) {
+                    break;
+                } else {
+                    NumberBytes = (USHORT) ((PAGE_SIZE < BytesLeft) ? PAGE_SIZE : BytesLeft);
+                    AdditionalData->Length += (USHORT)KdpMoveMemory(
+                                                    Destination,
+                                                    VirtualAddress,
+                                                    NumberBytes
+                                                    );
+                    Source.LowPart += NumberBytes;
+                    Destination += NumberBytes;
+                    BytesLeft -= NumberBytes;
+                }
+            }
         }
     }
 
@@ -2294,6 +2376,7 @@ Return Value:
                   );
     UNREFERENCED_PARAMETER(Context);
 }
+
 
 #if i386
 VOID
@@ -2336,8 +2419,6 @@ KdpProcessInternalBreakpoint (
 } // KdpProcessInternalBreakpoint
 #endif
 
-
-
 
 VOID
 KdpGetVersion(
@@ -2378,6 +2459,7 @@ Return Value:
         KdpSendContext = TRUE;
     }
 
+    RtlZeroMemory(&m->u.GetVersion, sizeof(m->u.GetVersion));
     //
     // the current build number
     //
@@ -2388,17 +2470,29 @@ Return Value:
     // kd protocol version number.  this should be incremented if the
     // protocol changes.
     //
-    m->u.GetVersion.ProtocolVersion = 2;
+    m->u.GetVersion.ProtocolVersion = 4;
     m->u.GetVersion.Flags = 0;
 
 #if !defined(NT_UP)
     m->u.GetVersion.Flags |= DBGKD_VERS_FLAG_MP;
 #endif
 
+#if defined(_M_IX86)
+    m->u.GetVersion.MachineType = IMAGE_FILE_MACHINE_I386;
+#elif defined(_M_MRX000)
+    m->u.GetVersion.MachineType = IMAGE_FILE_MACHINE_R4000;
+#elif defined(_M_ALPHA)
+    m->u.GetVersion.MachineType = IMAGE_FILE_MACHINE_ALPHA;
+#elif defined(_M_PPC)
+    m->u.GetVersion.MachineType = IMAGE_FILE_MACHINE_POWERPC;
+#else
+#error( "unknown target machine" );
+#endif
+
     //
     // address of the loader table
     //
-    m->u.GetVersion.PsLoadedModuleList  = (ULONG)&PsLoadedModuleList;
+    m->u.GetVersion.PsLoadedModuleList = (ULONG)&PsLoadedModuleList;
 
     //
     // If the debugger is being initialized during boot, PsNtosImageBase
@@ -2414,6 +2508,15 @@ Return Value:
         m->u.GetVersion.KernBase = (ULONG)PsNtosImageBase;
     }
 
+    m->u.GetVersion.ThCallbackStack = FIELD_OFFSET(KTHREAD, CallbackStack);
+    m->u.GetVersion.KiCallUserMode = (ULONG)KiCallUserMode;
+    m->u.GetVersion.KeUserCallbackDispatcher = KeUserCallbackDispatcher;
+    m->u.GetVersion.NextCallback = FIELD_OFFSET(KCALLOUT_FRAME, CbStk);
+#if defined(_X86_)
+    m->u.GetVersion.FramePointer = FIELD_OFFSET(KCALLOUT_FRAME, Ebp);
+#endif
+    m->u.GetVersion.BreakpointWithStatus = (ULONG)RtlpBreakWithStatusInstruction;
+
     //
     // the usual stuff
     //
@@ -2427,6 +2530,79 @@ Return Value:
 
     return;
 } // KdGetVersion
+
+
+NTSTATUS
+KdpPageIn(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
+    )
+
+/*++
+
+Routine Description:
+
+    This function provides an api to causes a page of memory to be made present.
+
+Arguments:
+
+    m - Supplies the state manipulation message.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    STRING          MessageHeader;
+    NTSTATUS        Status = STATUS_SUCCESS;
+    ULONG           ContinueStatus = 0;
+
+
+
+    if ((KeGetCurrentIrql() > APC_LEVEL) && (!KdpControlCPressed)) {
+
+        //
+        // we are currently at a high irql and did NOT get
+        // here by pressing control-c.  it is not allowed
+        // to page in data at this time.
+        //
+        Status = STATUS_UNSUCCESSFUL;
+
+    } else {
+
+        //
+        // save the address
+        //
+        KdpPageInAddress = m->u.PageIn.Address;
+        ContinueStatus = m->u.PageIn.ContinueStatus;
+
+    }
+
+    //
+    // setup packet
+    //
+    MessageHeader.Length = sizeof(*m);
+    MessageHeader.Buffer = (PCHAR)m;
+    m->ReturnStatus = Status;
+
+    //
+    // send back our response
+    //
+    KdpSendPacket(
+        PACKET_TYPE_KD_STATE_MANIPULATE,
+        &MessageHeader,
+        AdditionalData
+        );
+
+    //
+    // return the caller's continue status value.  if this is a non-zero
+    // value the system is continued using this value as the continuestatus.
+    //
+    return ContinueStatus;
+} // KdpPageIn
 
 
 VOID
@@ -2459,6 +2635,7 @@ Return Value:
 
 } // KdCauseBugCheck
 
+
 NTSTATUS
 KdpWriteBreakPointEx(
     IN PDBGKD_MANIPULATE_STATE m,
@@ -2569,7 +2746,7 @@ Return Value:
     return a->ContinueStatus;
 }
 
-
+
 VOID
 KdpRestoreBreakPointEx(
     IN PDBGKD_MANIPULATE_STATE m,

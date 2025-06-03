@@ -254,7 +254,7 @@ MNetServerEnumCommon(
                                domain,
                                resume_handle);
 
-    if (ReturnCode == NERR_Success) {
+    if (ReturnCode == NERR_Success || ReturnCode == ERROR_MORE_DATA) {
 
         //
         // Cycle thru the returned entries, moving each one up over the

@@ -1,16 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include <stdio.h>
-
-/* The following are definitions of the debugging group and level bits
- * for the code in this file.
- */
-
-#define ICGRP   0x0040  /* Informational commands group */
-#define DILVL   0x0001  /* Directory level              */
-#define TYLVL   0x0002  /* Type level                   */
-#define VELVL   0x0004  /* Version level                */
-#define VOLVL   0x0008  /* Volume level                 */
 
 #define TYPEBUFSIZE     80
 #define TYPEREADSIZE    512
@@ -34,7 +22,7 @@ extern TCHAR TmpBuf[];
 extern TCHAR Fmt26[], Fmt25[];
 
 extern unsigned LastRetCode;
-extern BOOLEAN CtrlCSeen;
+extern BOOL CtrlCSeen;
 
 struct FSVol {
         unsigned long SerNum ;          /* Volume serial number            */
@@ -139,7 +127,6 @@ int TyWork(TCHAR *fspec) {
     CHAR        TypeBuf[TYPEREADSIZE+1];
     ULONG       result;
     BOOL        flag;
-    BOOL        fUnicode=FALSE;
     TCHAR       *bptr;
     ULONG       fDevice = 0;
     ULONG       maxbytes = 0xFFFFFFFF ; // max file size
@@ -154,7 +141,10 @@ int TyWork(TCHAR *fspec) {
     int         rc;
     LONG        bWrite;
     CHAR       *pType;
+#ifdef UNICODE
     WCHAR       wc;
+    BOOL        fUnicode=FALSE;
+#endif // UNICODE
 
     TypeBufSize = TYPEREADSIZE;
 
@@ -213,6 +203,7 @@ int TyWork(TCHAR *fspec) {
 
         if (first_read) {
             result = 0xffffffff;    /* unlimited checks */
+#ifdef UNICODE
             fUnicode = IsTextUnicode((LPWSTR)TypeBuf, bytesread, &result);
             if ((result&IS_TEXT_UNICODE_SIGNATURE) != 0) {
                 bytesread -= sizeof(TCHAR);
@@ -224,36 +215,44 @@ int TyWork(TCHAR *fspec) {
                 //    break;
                 //}
             }
+#endif // UNICODE
 #ifdef DBCS
-	    //
-	    // If the result depends only upon statistics, check
-	    // to see if there is a possibility of DBCS.
-	    //
+            //
+            // If the result depends only upon statistics, check
+            // to see if there is a possibility of DBCS.
+            //
             if (AnyDbcsLeadChars &&
-		(result&IS_TEXT_UNICODE_STATISTICS) != 0 &&
-		(result&(~IS_TEXT_UNICODE_STATISTICS)) == 0) {
-		CHAR	*pch = TypeBuf;
-		int	cb = bytesread;
+                (result&IS_TEXT_UNICODE_STATISTICS) != 0 &&
+                (result&(~IS_TEXT_UNICODE_STATISTICS)) == 0) {
+                CHAR    *pch = TypeBuf;
+                int     cb = bytesread;
 
-		while (cb != 0) {
-		    if (is_dbcsleadchar(*pch)) {
-			fUnicode = FALSE;
-			break;
-		    }
-		    cb--;
-		    pch++;
-		}
-	    }
+                while (cb != 0) {
+                    if (is_dbcsleadchar(*pch)) {
+                        fUnicode = FALSE;
+                        break;
+                    }
+                    cb--;
+                    pch++;
+                }
+            }
 #endif /* DBCS */
         }
 
         bytestoctlz = bytesread;
+#ifdef UNICODE
         if (fUnicode) {
             if (first_read) {
                 DEBUG((ICGRP, TYLVL, "TYWORK: file is unicode")) ;
             }
-            brcopy = bytesread / sizeof(WCHAR);
-        } else if (FileIsConsole(STDOUT) || fOutputUnicode) {
+            brcopy = bytesread / sizeof(TCHAR);
+        } else
+#endif // UNICODE
+        if (FileIsConsole(STDOUT)
+#ifdef UNICODE
+              || fOutputUnicode
+#endif // UNICODE
+           ) {
             PCHAR   pch = TypeBuf;
 
             brcopy = bytesread;
@@ -277,9 +276,13 @@ int TyWork(TCHAR *fspec) {
                 brcopy--;
             }
 
-	    result = 0;
+            result = 0;
             flag = ZScanA(TRUE, (PCHAR)TypeBuf, &bytestoctlz, &result);
             DEBUG((ICGRP, TYLVL, "TYWORK: converting %d bytes to unicode", flag?bytesread:bytestoctlz)) ;
+
+            if ( (!flag) && (bytestoctlz == 0) )
+                break;
+
             brcopy = MultiByteToWideChar(CurrentCP, 0,
                 (LPCSTR)TypeBuf, flag?bytesread:bytestoctlz,
                 (LPWSTR)TypeBufW, TypeBufSize*2);
@@ -294,14 +297,14 @@ int TyWork(TCHAR *fspec) {
 
         if (first_read) {
             if (tywild)
-            fwprintf(stderr, Fmt25, fspec);
+                PutStdErr(MSG_TYPE_FILENAME, ONEARG, fspec);
             first_read = FALSE;
         }
 
         DEBUG((ICGRP, TYLVL, "TYWORK: bytesread = %d, brcopy = %d", bytesread, brcopy)) ;
 
         bWrite = brcopy;
-        pType  = bptr;
+        pType  = (CHAR *)bptr;
         while ( bWrite > 0 ) {
 
             ULONG bToWrite = min( TYPEBUFSIZE, bWrite );
@@ -323,16 +326,16 @@ int TyWork(TCHAR *fspec) {
                 byteswrit *= sizeof(TCHAR);
                 pType  += byteswrit;
 
+#ifdef UNICODE
             } else if (fOutputUnicode || fUnicode) {
 
-try_again:
-                if ( bWrite > TYPEBUFSIZE*sizeof(WCHAR) ) {
+                if ( bWrite > TYPEBUFSIZE*sizeof(TCHAR) ) {
                     bToWrite = TYPEBUFSIZE;
                 } else {
                     if ( fUnicode ) {
                         bToWrite = bWrite;
                     } else {
-                        bToWrite = bWrite/sizeof(WCHAR);
+                        bToWrite = bWrite/sizeof(TCHAR);
                     }
                 }
 
@@ -341,26 +344,28 @@ try_again:
                 }
 
                 if ( fUnicode ) {
-                    wc = *((WCHAR*)pType + bToWrite);
-                    *((WCHAR*)pType + bToWrite) = UNICODE_NULL;
+                    wc = *((TCHAR*)pType + bToWrite);
+                    *((TCHAR*)pType + bToWrite) = UNICODE_NULL;
                 }
 
                 DEBUG((ICGRP, TYLVL, "TYWORK: Writing unicode text to file")) ;
                 flag = MyWriteFile(
                   STDOUT,       /* device         */
                   pType,                 /* bytes          */
-                  bToWrite * sizeof(WCHAR), /* bytes to write */
+                  bToWrite * sizeof(TCHAR), /* bytes to write */
                   &byteswrit);      /* bytes actually written   */
 
                 if ( fUnicode ) {
-                    *((WCHAR*)pType + bToWrite) = wc;
+                    *((TCHAR*)pType + bToWrite) = wc;
                 }
 
-                bWrite -= byteswrit/sizeof(WCHAR);
+                bWrite -= byteswrit/sizeof(TCHAR);
                 pType  += byteswrit;
+#endif // UNICODE
 
             } else {
 
+try_again:
                 DEBUG((ICGRP, TYLVL, "TYWORK: Writing dbcs text to file")) ;
                 flag = WriteFile(CRTTONT(STDOUT), pType, bToWrite, &byteswrit, NULL);
                 bWrite -= byteswrit;
@@ -369,7 +374,7 @@ try_again:
             }
 
             DEBUG((ICGRP, TYLVL, "TYWORK: flag = %d, byteswrit = %d", flag, byteswrit)) ;
-            if (flag == 0 || byteswrit != bToWrite*sizeof(WCHAR)) {
+            if (flag == 0 || byteswrit != bToWrite*sizeof(TCHAR)) {
                 DosErr = GetLastError();
                 if (!DosErr) {
                     DosErr = ERROR_DISK_FULL ;
@@ -428,23 +433,28 @@ TypeExit:
  *
  */
 
-int eVersion(n)
-struct cmdnode *n ;
+int
+eVersion(
+    struct cmdnode *n
+    )
 {
-        unsigned vrs ;
+    unsigned vrs ;
 
-        vrs = GetVersion();
+    vrs = GetVersion();
 
-        if (n)                          /* Begins & ends with NLN only...   */
-            cmd_printf(CrLf) ;          /* ...when not part of prompt.      */
+    if (n)                          /* Begins & ends with NLN only...   */
+        cmd_printf(CrLf) ;          /* ...when not part of prompt.      */
 
-        PutStdOut(MSG_MS_DOS_VERSION, TWOARGS, argstr1( TEXT("%d"), (unsigned long)(vrs & 0xFF)),
-                  argstr2( TEXT("%-2d"), (unsigned long)((vrs >> 8)& 0xFF))) ;
-        if (n)                          /* Begins & ends with NLN only...   */
-            cmd_printf(CrLf) ;          /* ...when not part of prompt.      */
+    PutStdOut(MSG_MS_DOS_VERSION,
+                THREEARGS,
+                VerMsg,
+                argstr1( TEXT("%d"), (unsigned long)(vrs & 0xFF)),
+                argstr2( TEXT("%-2d"), (unsigned long)((vrs >> 8)& 0xFF))) ;
+    if (n)                          /* Begins & ends with NLN only...   */
+        cmd_printf(CrLf) ;          /* ...when not part of prompt.      */
 
 
-        return(LastRetCode = SUCCESS) ;
+    return(LastRetCode = SUCCESS) ;
 }
 
 
@@ -534,11 +544,9 @@ TCHAR *drvspec ;
         struct FSVol vol ;
         unsigned DNum ;
         TCHAR c ;
-        TCHAR *VolumeRoot;
+        TCHAR VolumeRoot[] = TEXT(" :\\");
         DWORD Vsn[2];
         BOOL b;
-
-        VolumeRoot = TEXT(" :\\");
 
         DEBUG((ICGRP, VOLVL, "VOLWORK: drvspec = `%ws'", drvspec)) ;
 
@@ -556,7 +564,7 @@ TCHAR *drvspec ;
                 return(FAILURE) ;
         } ;
 
-        *VolumeRoot = c;
+        VolumeRoot[0] = c;
         b = GetVolumeInformation(VolumeRoot,vol.name,sizeof(vol.name),Vsn,NULL,NULL,NULL,0);
 
         if (!b) {
@@ -590,65 +598,65 @@ TCHAR *drvspec ;
 }
 
 /****************************************************************
- * 
+ *
  *  ZScanA - scan data in an arbitrary segment for ^Zs
  *
  *   Purpose:
- *	If flag is on, scan buffer for a ^Z.  If it is found, update the
- *	buffer length and return 0.  Otherwise return -1.
- *	Double byte characters are taken into account.
+ *      If flag is on, scan buffer for a ^Z.  If it is found, update the
+ *      buffer length and return 0.  Otherwise return -1.
+ *      Double byte characters are taken into account.
  *
  *   int ZScan(int flag, long buffer, unsigned *buflenptr, int *skip_first)
  *
  *   Args:
- *	flag - nonzero if any scanning is to be done
- *	buffer - a long pointer to the buffer to use
- *	buflenptr - ptr to the length of buffer
- *	skip_first - ptr to an integer. The initial value of *skip_first
- *		must be 0 on the first call when scanning a file. There
- *		after, the caller leaves *skip_first alone. ZScan uses
- *		the variable to remember if the first byte of the next
- *		buffer is going to be the second have of a double
- *		byte character.
+ *      flag - nonzero if any scanning is to be done
+ *      buffer - a long pointer to the buffer to use
+ *      buflenptr - ptr to the length of buffer
+ *      skip_first - ptr to an integer. The initial value of *skip_first
+ *              must be 0 on the first call when scanning a file. There
+ *              after, the caller leaves *skip_first alone. ZScan uses
+ *              the variable to remember if the first byte of the next
+ *              buffer is going to be the second have of a double
+ *              byte character.
  *
  *   Returns:
- *	See above.
+ *      See above.
  *
  *   Notes:
- *	This routine will need to be modified once the MMU code is in the DOS.
- *	macro is defined in cmd.h.
+ *      This routine will need to be modified once the MMU code is in the DOS.
+ *      macro is defined in cmd.h.
  *
  *
- *	ZScan
- *	if (flag) then
- *		buffer = buffer + *skip_first
- *		dbcs_flag = 0
- *		count = *buflenptr - *skip_first
- *		use rep scanb to find first ^Z in buffer
- *		if (no ^z was found)
- *			goto FZSNoZ
- *		do {
- *			count++;
- *			buffer--;
- *		} until (*buffer < 0x80 || count = *buflenptr);
- *		while (--count > 0) loop
- *			if (dbcs_flag == 0) then
- *				if (*buffer == ^Z) then
- *					*buflenptr = count
- *					return(0)
- *				else if (*buffer is a dbcs_lead_char) then
- *					dbcs_flag = 1
- *				endif
- *				endif
- *			else
- *				dbcs_flag = 0
- *			buffer = buffer + 1
- *			count = count - 1
- *		end loop
- *		*skip_first = dbcs_flag
- *	endif
+ *      ZScan
+ *      if (flag) then
+ *              buffer = buffer + *skip_first
+ *              dbcs_flag = 0
+ *              count = *buflenptr - *skip_first
+ *              use rep scanb to find first ^Z in buffer
+ *              if (no ^z was found)
+ *                      goto FZSNoZ
+ *              do {
+ *                      count++;
+ *                      buffer--;
+ *              } until (*buffer < 0x80 || count = *buflenptr);
+ *              while (--count > 0) loop
+ *                      if (dbcs_flag == 0) then
+ *                              if (*buffer == ^Z) then
+ *                                      *buflenptr = count
+ *                                      return(0)
+ *                              else if (*buffer is a dbcs_lead_char) then
+ *                                      dbcs_flag = 1
+ *                              endif
+ *                              endif
+ *                      else
+ *                              dbcs_flag = 0
+ *                      buffer = buffer + 1
+ *                      count = count - 1
+ *              end loop
+ *              *skip_first = dbcs_flag
+ *      endif
  *FZSNoZ:
- *	return(-1)
+ *      return(-1)
  *----
  ****************************************************************/
 
@@ -657,31 +665,31 @@ int
 ZScanA(BOOL flag, PCHAR buf, PULONG buflen, PULONG skip)
 {
     PCHAR pbuf = buf,
-	  bufend;
+          bufend;
 
     CHAR  c0;
-    
+
     if ( flag ) {
-	pbuf += *skip;
-	bufend = buf + *buflen - *skip;
+        pbuf += *skip;
+        bufend = buf + *buflen - *skip;
 
-	while (pbuf < bufend) {
-	    if (is_dbcsleadchar(c0=*pbuf))
-		pbuf++;
-	    if (c0 == CTRLZ)
-		break;
-	    pbuf++;
-	}
+        while (pbuf < bufend) {
+            if (is_dbcsleadchar(c0=*pbuf))
+                pbuf++;
+            if (c0 == CTRLZ)
+                break;
+            pbuf++;
+        }
 
-	if (c0 == CTRLZ) {
-	    // *buflen = pbuf+1 - buf;
-	    *buflen = pbuf - buf;
-	    *skip = 0;
-	    return(0);
-	}
-	else {
-	    *skip = pbuf - bufend;
-	}
+        if (c0 == CTRLZ) {
+            // *buflen = pbuf+1 - buf;
+            *buflen = pbuf - buf;
+            *skip = 0;
+            return(0);
+        }
+        else {
+            *skip = pbuf - bufend;
+        }
     }
     return(-1);
 }

@@ -2,15 +2,10 @@
  * status - print the status of the given files for the current directory
  */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
+EnableAssert
 
 private void Stat1Ed(AD *, IED, F);
 private void StatGlobal(AD *);
@@ -19,12 +14,21 @@ private void StatREd(AD *, IED);
 private void StatMEd(AD *, IED);
 private void StatVEd(AD *, IED);
 private void PrOwner(AD *, IED);
-private char *SzTypeOfFi(FI far *);
 private void PrStatusLogEntries(AD *, char *, FV, FV);
 
-EnableAssert
+__inline char const *
+SzTypeOfFi(
+    FI *pfi
+    )
+{
+    return (pfi->fDeleted) ? "deleted" : mpfksz[pfi->fk];
+}
 
 unsigned long ulBackupCounter;
+unsigned long ulLocalBackupCounter = 0x10000000;
+
+MF *mfStatLog;
+MF *mfStatLocalLog;
 
 /* Check status command arguments. */
 F
@@ -60,6 +64,34 @@ FStatInit(
     pad->flags |= flagMappedIO;
 #endif
 
+    //
+    // IED Caching on by default for SSYNC, STATUS, LOG
+    //
+
+    pad->flags |= flagCacheIed;
+
+    mfStatLocalLog = NULL;
+    if (pad->flags&flagStScript)
+    {
+        mfStatLog = OpenLocalMf(pad->sz1);
+        if (!mfStatLog)
+        {
+            Error("can't create script file\n");
+            return fFalse;
+        }
+        if (pad->sz2)
+        {
+            mfStatLocalLog = OpenLocalMf(pad->sz2);
+            if (!mfStatLocalLog)
+            {
+                Error("can't create local script file\n");
+                return fFalse;
+            }
+        }
+    }
+    else
+        mfStatLog = NULL;
+
     return fTrue;
 }
 
@@ -74,7 +106,8 @@ FStatDir(
 
     CheckForBreak();
 
-    if (!FLoadStatus(pad, (LCK) (PthCmp(pad->pthSSubDir, "/") ? lckNil : lckEd), flsNone))
+    if (!pad->fStatusAlreadyLoaded &&
+        !FLoadStatus(pad, (LCK) (!FTopUDir(pad) ? lckNil : lckEd), flsNone))
         return fTrue;   /* keep trying other directories */
 
     try {
@@ -84,13 +117,15 @@ FStatDir(
             Stat1Ed(pad, iedNil, fFalse);
         } else if (pad->flags&flagStAllEd) {
             for (ied = 0; ied < iedMac; ied++)
-                Stat1Ed(pad, ied, fFalse);
+                if (!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd)
+                    Stat1Ed(pad, ied, fFalse);
         }
         else if (!FEmptyNm(pad->nmUser)) {
             IED cedMatch;
 
             for (ied = 0, cedMatch = 0; ied < iedMac; ied++) {
-                if (NmCmp(pad->nmUser, pad->rged[ied].nmOwner, cchUserMax) == 0) {
+                if ((!FIsFreeEdValid(pad->psh) || !pad->rged[ied].fFreeEd) &&
+                    NmCmp(pad->nmUser, pad->rged[ied].nmOwner, cchUserMax) == 0) {
                     Stat1Ed(pad, ied, fFalse);
                     cedMatch++;
                 }
@@ -177,10 +212,10 @@ Stat1Ed(
         /* simple list of local paths */
         StatREd(pad, ied);
     }
-    else if (pad->flags&flagStScript) {
+    else if (mfStatLog) {
         /* Generate script for local files to ssync or in */
         if (pad->iedCur != iedNil)
-            StatSEd(pad);
+            StatSEd(pad, mfStatLog, mfStatLocalLog);
     }
     else
         StatMEd(pad, ied);
@@ -369,7 +404,7 @@ private void PrOwner(AD *pad, IED ied)
         }
 
 
-void StatSEd(AD *pad)
+void StatSEd(AD *pad, MF *pmfStatLog, MF *pmfStatLocalLog)
 /* print a script to undo the status for each marked file in the current
    directory.  For files that are marked for update or merge, generate a
    SSYNC command.  For files that are marked out, generate an IN
@@ -386,12 +421,18 @@ void StatSEd(AD *pad)
     char szBase[cchPthMax];
     char szCurDir[cchPthMax];
     F fAny = fFalse;
+    F fAnyOutput = fFalse;
     F fSyncFiles = fFalse;
     F fSyncDelDir = fFalse;
     POS posLog;
 
     posLog = -1;
     AssertLoaded(pad);
+
+    /* make path to dir and convert in place */
+    szCurDir[0] = '\0';
+    SzPhysPath(szCurDir, PthForUDir(pad, szCurDir));
+    ConvTmpLog(szCurDir, szCurDir); /* convert in place */
 
     for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
         {
@@ -400,11 +441,6 @@ void StatSEd(AD *pad)
 
         if (!fAny)
             {
-            /* make path to dir and convert in place */
-            *szCurDir = '\0';
-            SzPhysPath(szCurDir, PthForUDir(pad, szCurDir));
-            ConvTmpLog(szCurDir, szCurDir); /* convert in place */
-
             /* Print a CD command to change directory to the local directory */
             PrOut("cd %s\n", szCurDir);
 
@@ -423,8 +459,10 @@ void StatSEd(AD *pad)
             SzPrint(szBase, "%&B", pad, pfs->bi);
             }
 
-        PrOut("@REM %-14s %4d %4d %-10s%s\n", szFile, pfs->fv, pfi->fv,
-            pfi->fk == fkDir ? " (dir)" : mpfmsz[pfs->fm], szBase);
+        PrOut("@REM %-14s %4d %4d %-10s%s %s%s\n", szFile, pfs->fv, pfi->fv,
+            pfi->fk == fkDir ? " (dir)" : mpfmsz[pfs->fm], szBase,
+            pfi->fk == fkDir ? "" : pad->pthURoot,
+            pfi->fk == fkDir ? "" : pad->pthUSubDir);
 
 
         if (pfs->fm > fmAdd && pfs->fm <= fmMerge)
@@ -444,11 +482,12 @@ void StatSEd(AD *pad)
     if (posLog != -1)
         CloseLog();
 
-    if (!fAny)
+    if (!fAny && pmfStatLocalLog == 0)
         return;
 
-    if (pad->pecmd->cmd == cmdStatus)
-        {
+    fAnyOutput = fAny;
+
+    if (pad->pecmd->cmd == cmdStatus) {
         /* Loop over files and generate a ssync command for those that need
          * to be updated, merged, deleted.
          */
@@ -483,7 +522,7 @@ void StatSEd(AD *pad)
                     PrOut(" -f");
 
                 fAny = fTrue;
-
+                fAnyOutput = fTrue;
                 if (pad->flags&flagStAllFiles)
                     {
                     break;
@@ -511,92 +550,149 @@ void StatSEd(AD *pad)
             if (pad->flags&flagForce)
                 PrOut(" -f");
             PrOut("\n");
+            fAnyOutput = fTrue;
             }
-        }
 
-    /* Loop over files and generate an ssync command for those that need
-       to be unghosted, if requested.
-     */
-    if (pad->flags&flagStGhosted)
-        {
-        fAny = FALSE;
-        FileCount = 0;
-        for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
-                {
+        /* Loop over files and generate an ssync command for those that need
+           to be unghosted, if requested.
+         */
+        if (pad->flags&flagStGhosted)
+            {
+            fAny = FALSE;
+            FileCount = 0;
+            for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++) {
                 if (!pfi->fMarked)
                     continue;
 
                 pfs = PfsForPfi(pad, pad->iedCur, pfi);
                 AssertF(FValidFm(pfs->fm));
 
-            /* We need to generate an in command for files that are in
-               an fmOut state or headed there.
-            */
-                if (pfs->fm == fmGhost ||
-                pfs->fm == fmNonExistent
-               )
-                {
-                    if (!fAny)
-                    {
-                    PrOut("@REM ssync -u");
-                    fAny = fTrue;
-                        }
+                /* We need to generate an unghost command for files that are
+                   ghosted or nonexistent
+                */
+                if (pfs->fm == fmGhost || pfs->fm == fmNonExistent) {
+                    if (!fAny) {
+                        PrOut("@REM ssync -u");
+                        fAny = fTrue;
+                        fAnyOutput = fTrue;
+                    }
 
                     PrOut(" %&F", pad, pfi);
+                    if ((++FileCount % 8) == 0) {
+                        PrOut("\n");
+                        fAny = fFalse;
+                    }
+                }
+            }
+
+            if (fAny)
+                PrOut("\n");
+            }
+
+        /* Loop over files and generate an in command for those that need
+         * to be checked in.
+         */
+        fAny = fFalse;
+        FileCount = 0;
+        pfiMac = pad->rgfi + pad->psh->ifiMac;
+        for (pfi=pad->rgfi; pfi < pfiMac; pfi++)
+            {
+            if (!pfi->fMarked)
+                continue;
+
+            pfs = PfsForPfi(pad, pad->iedCur, pfi);
+            AssertF(FValidFm(pfs->fm));
+
+            /* We need to generate an in command for files that are in
+             * an fmOut state or headed there.
+             */
+            if (pfs->fm == fmOut || pfs->fm == fmMerge || pfs->fm == fmVerify ||
+                    pfs->fm == fmConflict)
+                {
+                if (!fAny)
+                    {
+                    PrOut("@REM in -c \"\"");
+                    fAny = fTrue;
+                    fAnyOutput = fTrue;
+                    }
+
+                PrOut(" %&F", pad, pfi);
                 if ((++FileCount % 8) == 0)
                     {
                     PrOut("\n");
                     fAny = fFalse;
                     }
+
+                if (pmfStatLog)
+                    {
+                    if (ulBackupCounter == 0)
+                        PrMf(pmfStatLog, "@REM\n@REM Backup/Restore script for %s project\n@REM\n", pad->nmProj);
+
+                    PrMf(pmfStatLog, "call ntstatxx.cmd %s %s %&F %08x\n", pad->nmProj, szCurDir, pad, pfi, ulBackupCounter++);
+                    }
                 }
-                }
+            }
 
-        if (fAny)
-            PrOut("\n");
-        }
+        if (pmfStatLocalLog != 0) {
+            DE de;
+            F fLocalFileOrDir;
 
-    /* Loop over files and generate an in command for those that need
-     * to be checked in.
-     */
-    fAny = fFalse;
-    FileCount = 0;
-    for (pfi=pad->rgfi, pfiMac=pfi+pad->psh->ifiMac; pfi < pfiMac; pfi++)
-        {
-        if (!pfi->fMarked)
-            continue;
+            //
+            // They also want a list of files private to their local enlistment
+            //
+            SzPrint(szBase, "%s\\*", szCurDir);
+            if (findfirst(&de, szBase, faAll) == 0) {
+                do {
+                    if (!(de.FindData.dwFileAttributes & FILE_ATTRIBUTE_READONLY)) {
+                        fLocalFileOrDir = fTrue;
+                        for (pfi=pad->rgfi; pfi < pfiMac; pfi++) {
+                            SzPrint(szFile, "%&F", pad, pfi);
+                            if (!_stricmp(szFile, de.FindData.cFileName)) {
+                                fLocalFileOrDir = fFalse;
+                                break;
+                            }
+                        }
 
-        pfs = PfsForPfi(pad, pad->iedCur, pfi);
-        AssertF(FValidFm(pfs->fm));
+                        if (fLocalFileOrDir) {
+                            if (de.FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                                if (((de.FindData.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE) != 0) ||
+                                    !_stricmp(de.FindData.cFileName, "slm.dif") ||
+                                    GetFileAttributes(SzPrint(szBase, "%s\\%s\\slm.ini", szCurDir, de.FindData.cFileName )) != -1) {
+                                    fLocalFileOrDir = fFalse;
+                                }
+                            }
+                            else {
+                                if (((de.FindData.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE) == 0) ||
+                                    !_stricmp(de.FindData.cFileName, "local.scr") ||
+                                    !_stricmp(de.FindData.cFileName, "iedcache.slm")) {
+                                    fLocalFileOrDir = fFalse;
+                                }
+                            }
 
-        /* We need to generate an in command for files that are in
-         * an fmOut state or headed there.
-         */
-        if (pfs->fm == fmOut || pfs->fm == fmMerge || pfs->fm == fmVerify ||
-                pfs->fm == fmConflict)
-            {
-            if (!fAny)
-                {
-                PrOut("@REM in -c \"\"");
-                fAny = fTrue;
-                }
+                            if (fLocalFileOrDir) {
+                                if (ulLocalBackupCounter == 0)
+                                    PrMf(pmfStatLocalLog, "@REM\n@REM Backup/Restore script for local only files in %s project\n@REM\n", pad->nmProj);
 
-            PrOut(" %&F", pad, pfi);
-            if ((++FileCount % 8) == 0)
-                {
-                PrOut("\n");
-                fAny = fFalse;
-                }
-
-            if (ulBackupCounter == 0)
-                PrLog("@REM\n@REM Backup/Restore script for %s project\n@REM\n", pad->nmProj);
-
-            PrLog("call ntstatxx.cmd %s %s %&F %08x\n", pad->nmProj, szCurDir, pad, pfi, ulBackupCounter++);
+                                PrMf(pmfStatLocalLog, "call ntstatxx.cmd %s %s %s %08x %s\n",
+                                     pad->nmProj,
+                                     szCurDir,
+                                     de.FindData.cFileName,
+                                     ulLocalBackupCounter++,
+                                     (de.FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ?
+                                       "localdir" : "localfile");
+                            }
+                        }
+                    }
+                } while (findnext(&de) == 0);
             }
         }
+    }
 
     if (fAny)
         PrOut("\n");
-    PrOut("@\n");
+
+    if (fAnyOutput)
+        PrOut("@\n");
     }
 
 
@@ -649,12 +745,6 @@ private void StatVEd(AD *pad, IED ied)
                 PrOut("\n");
         }
 
-private char *SzTypeOfFi(pfi)
-register FI far *pfi;
-        {
-        return (pfi->fDeleted) ? "deleted" : mpfksz[pfi->fk];
-        }
-
 
 private void PrStatusLogEntries(AD *pad, char *pszFile, FV userVersion, FV CurrentVersion)
 {
@@ -664,7 +754,7 @@ private void PrStatusLogEntries(AD *pad, char *pszFile, FV userVersion, FV Curre
 
     while (FGetLe(&le))
         {
-        if (!stricmp(le.szFile, pszFile))
+        if (!_stricmp(le.szFile, pszFile))
             {
             if (le.fv <= userVersion)
                 {

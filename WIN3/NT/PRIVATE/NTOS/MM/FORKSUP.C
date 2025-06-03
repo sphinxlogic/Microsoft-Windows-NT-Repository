@@ -36,7 +36,7 @@ MiUpControlAreaRefs (
     IN PCONTROL_AREA ControlArea
     );
 
-BOOLEAN
+ULONG
 MiDoneWithThisPageGetAnother (
     IN PULONG PageFrameIndex,
     IN PMMPTE PointerPde,
@@ -136,9 +136,9 @@ Environment:
     PMMCLONE_DESCRIPTOR Clone;
     PMMCLONE_DESCRIPTOR NextClone;
     PMMCLONE_DESCRIPTOR NewClone;
-    BOOLEAN Attached = FALSE;
-    BOOLEAN CloneFailed;
-    BOOLEAN VadInsertFailed;
+    ULONG Attached = FALSE;
+    ULONG CloneFailed;
+    ULONG VadInsertFailed;
     ULONG WorkingSetIndex;
     PVOID VirtualAddress;
     NTSTATUS status;
@@ -171,11 +171,11 @@ Environment:
     ULONG TotalNonPagedPoolCharge;
     PMMPFN PfnForkPtePage;
     PUSHORT UsedPageTableEntries;
-    BOOLEAN ReleasedWorkingSetMutex;
-    BOOLEAN FirstTime;
+    ULONG ReleasedWorkingSetMutex;
+    ULONG FirstTime;
 
 #if DBG
-    if (MmDebug & 0x4000) {
+    if (MmDebug & MM_DBG_FORK) {
         DbgPrint("beginning clone operation process to clone = %lx\n",
             ProcessToClone);
     }
@@ -250,7 +250,7 @@ Environment:
         //
 
         if ((Vad->u.VadFlags.PrivateMemory == 1) ||
-            (Vad->u.VadFlags.Inherit != ViewUnmap)) {
+            (Vad->u.VadFlags.Inherit == MM_VIEW_SHARE)) {
 
             NewVad = ExAllocatePoolWithTag (NonPagedPool, sizeof(MMVAD), ' daV');
 
@@ -429,7 +429,7 @@ Environment:
         //
 
         if ((Vad->u.VadFlags.PrivateMemory == 1) ||
-            (Vad->u.VadFlags.Inherit == ViewShare)) {
+            (Vad->u.VadFlags.Inherit == MM_VIEW_SHARE)) {
 
             //
             // The virtual address descriptor should be shared in the
@@ -444,10 +444,32 @@ Environment:
 
             NextVad = NewVad->Parent;
 
+
             if (Vad->u.VadFlags.PrivateMemory == 1) {
                 *(PMMVAD_SHORT)NewVad = *(PMMVAD_SHORT)Vad;
+                NewVad->u.VadFlags.NoChange = 0;
             } else {
                 *NewVad = *Vad;
+            }
+
+            if (NewVad->u.VadFlags.NoChange) {
+                if ((NewVad->u2.VadFlags2.OneSecured) ||
+                    (NewVad->u2.VadFlags2.MultipleSecured)) {
+
+                    //
+                    // Eliminate these as the memory was secured
+                    // only in this process, not in the new one.
+                    //
+
+                    NewVad->u2.VadFlags2.OneSecured = 0;
+                    NewVad->u2.VadFlags2.MultipleSecured = 0;
+                    NewVad->u2.VadFlags2.StoredInVad = 0;
+                    NewVad->u3.List.Flink = NULL;
+                    NewVad->u3.List.Blink = NULL;
+                }
+                if (NewVad->u2.VadFlags2.SecNoChange == 0) {
+                    NewVad->u.VadFlags.NoChange = 0;
+                }
             }
             NewVad->Parent = NextVad;
 
@@ -547,11 +569,11 @@ Environment:
                         Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
                         Pfn1->OriginalPte = DemandZeroPde;
                         Pfn1->u2.ShareCount = 1;
-                        Pfn1->ReferenceCount = 1;
+                        Pfn1->u3.e2.ReferenceCount = 1;
                         Pfn1->PteAddress = PointerPde;
                         Pfn1->u3.e1.Modified = 1;
                         Pfn1->u3.e1.PageLocation = ActiveAndValid;
-                        Pfn1->u3.e1.PteFrame = PdePhysicalPage;
+                        Pfn1->PteFrame = PdePhysicalPage;
 
                         //
                         // Increment the share count for the page containing
@@ -743,7 +765,7 @@ Environment:
                         MI_MAKE_VALID_PTE_WRITE_COPY (PointerPte);
 
                         ForkProtoPte->ProtoPte = *PointerPte;
-                        ForkProtoPte->ReferenceCount = 2;
+                        ForkProtoPte->CloneRefCount = 2;
 
                         //
                         // Transform the PFN element to reference this new fork
@@ -754,7 +776,7 @@ Environment:
                         Pfn2->u3.e1.PrototypePte = 1;
 
                         ContainingPte = MiGetPteAddress(&ForkProtoPte->ProtoPte);
-                        Pfn2->u3.e1.PteFrame = ContainingPte->u.Hard.PageFrameNumber;
+                        Pfn2->PteFrame = ContainingPte->u.Hard.PageFrameNumber;
 
 
                         //
@@ -921,7 +943,7 @@ Environment:
 
                             MI_MAKE_PROTECT_WRITE_COPY (ForkProtoPte->ProtoPte);
 
-                            ForkProtoPte->ReferenceCount = 2;
+                            ForkProtoPte->CloneRefCount = 2;
 
                             TempPte.u.Long =
                                  MiProtoAddressForPte (&ForkProtoPte->ProtoPte);
@@ -990,6 +1012,8 @@ AllDone:
     //
     // Make the count of private pages match between the two processes.
     //
+
+    ASSERT ((LONG)CurrentProcess->NumberOfPrivatePages >= 0);
 
     ProcessToInitialize->NumberOfPrivatePages =
                                           CurrentProcess->NumberOfPrivatePages;
@@ -1245,7 +1269,7 @@ AllDone:
     }
 
 #if DBG
-    if (MmDebug & 0x4000) {
+    if (MmDebug & MM_DBG_FORK) {
         DbgPrint("ending clone operation process to clone = %lx\n",
             ProcessToClone);
     }
@@ -1271,7 +1295,7 @@ ErrorReturn1:
         return status;
 }
 
-BOOLEAN
+ULONG
 MiDecrementCloneBlockReference (
     IN PMMCLONE_DESCRIPTOR CloneDescriptor,
     IN PMMCLONE_BLOCK CloneBlock,
@@ -1310,7 +1334,7 @@ Environment:
 
 {
 
-    BOOLEAN MutexReleased = FALSE;
+    ULONG MutexReleased = FALSE;
     MMPTE CloneContents;
     PMMPFN Pfn3;
     KIRQL OldIrql;
@@ -1319,15 +1343,16 @@ Environment:
 
     OldIrql = APC_LEVEL;
 
-    if (CurrentProcess->ForkInProgress) {
+    MutexReleased = MiMakeSystemAddressValidPfnWs (CloneBlock, CurrentProcess);
+
+    while (CurrentProcess->ForkInProgress) {
         MiWaitForForkToComplete (CurrentProcess);
+        MiMakeSystemAddressValidPfnWs (CloneBlock, CurrentProcess);
         MutexReleased = TRUE;
     }
 
-    MutexReleased = MiMakeSystemAddressValidPfnWs (CloneBlock, CurrentProcess);
-
-    CloneBlock->ReferenceCount -= 1;
-    NewCount = CloneBlock->ReferenceCount;
+    CloneBlock->CloneRefCount -= 1;
+    NewCount = CloneBlock->CloneRefCount;
 
     ASSERT (NewCount >= 0);
 
@@ -1369,7 +1394,7 @@ Environment:
             Pfn3 = MI_PFN_ELEMENT (CloneContents.u.Trans.PageFrameNumber);
             MI_SET_PFN_DELETED (Pfn3);
 
-            MiDecrementShareCount (Pfn3->u3.e1.PteFrame);
+            MiDecrementShareCount (Pfn3->PteFrame);
 
             //
             // Check the reference count for the page, if the reference
@@ -1380,7 +1405,7 @@ Environment:
             // free list.
             //
 
-            if ((Pfn3->ReferenceCount == 0) &&
+            if ((Pfn3->u3.e2.ReferenceCount == 0) &&
                 (Pfn3->u3.e1.PageLocation != FreePageList)) {
 
                 MiUnlinkPageFromList (Pfn3);
@@ -1431,7 +1456,7 @@ Environment:
         {
         ULONG i;
             for (i = 0; i < CloneDescriptor->CloneHeader->NumberOfPtes; i++) {
-                if (OldCloneBlock->ReferenceCount != 0) {
+                if (OldCloneBlock->CloneRefCount != 0) {
                     DbgPrint("fork block with non zero ref count %lx %lx %lx\n",
                         OldCloneBlock, CloneDescriptor,
                         CloneDescriptor->CloneHeader);
@@ -1439,7 +1464,7 @@ Environment:
                 }
             }
 
-            if (MmDebug & 0x4000) {
+            if (MmDebug & MM_DBG_FORK) {
                 DbgPrint("removing clone header at address %lx\n",
                         CloneDescriptor->CloneHeader);
             }
@@ -1458,7 +1483,7 @@ Environment:
         MiRemoveClone (CloneDescriptor);
 
 #if DBG
-        if (MmDebug & 0x4000) {
+        if (MmDebug & MM_DBG_FORK) {
           DbgPrint("removing clone descriptor at address %lx\n",CloneDescriptor);
         }
 #endif //DBG
@@ -1570,7 +1595,7 @@ MiUpPfnReferenceCount (
 
     Pfn1 = MI_PFN_ELEMENT (Page);
     LOCK_PFN (OldIrql);
-    Pfn1->ReferenceCount += Count;
+    Pfn1->u3.e2.ReferenceCount += Count;
     UNLOCK_PFN (OldIrql);
     return;
 }
@@ -1609,7 +1634,7 @@ MiUpControlAreaRefs (
 }
 
 
-BOOLEAN
+ULONG
 MiDoneWithThisPageGetAnother (
     IN PULONG PageFrameIndex,
     IN PMMPTE PointerPde,
@@ -1618,7 +1643,7 @@ MiDoneWithThisPageGetAnother (
 
 {
     KIRQL OldIrql;
-    BOOLEAN ReleasedMutex;
+    ULONG ReleasedMutex;
 
     LOCK_PFN (OldIrql);
 
@@ -1658,7 +1683,7 @@ MiUpCloneProtoRefCount (
     MiMakeSystemAddressValidPfnWs (CloneProto,
                                    CurrentProcess );
 
-    CloneProto->ReferenceCount += 1;
+    CloneProto->CloneRefCount += 1;
 
     UNLOCK_PFN (OldIrql);
     return;
@@ -1731,7 +1756,7 @@ MiHandleForkTransitionPte (
 
         MI_MAKE_PROTECT_WRITE_COPY (ForkProtoPte->ProtoPte);
 
-        ForkProtoPte->ReferenceCount = 2;
+        ForkProtoPte->CloneRefCount = 2;
 
         //
         // Transform the PFN element to reference this new fork
@@ -1754,9 +1779,9 @@ MiHandleForkTransitionPte (
 
         ContainingPte = MiGetPteAddress(&ForkProtoPte->ProtoPte);
 
-        PageTablePage = Pfn2->u3.e1.PteFrame;
+        PageTablePage = Pfn2->PteFrame;
 
-        Pfn2->u3.e1.PteFrame =
+        Pfn2->PteFrame =
                         ContainingPte->u.Hard.PageFrameNumber;
 
         //
@@ -1822,8 +1847,6 @@ MiUpForkPageShareCount(
 
     LOCK_PFN (OldIrql);
     PfnForkPtePage->u2.ShareCount += 1;
-    PfnForkPtePage->ValidPteCount += 1;
-    ASSERT (PfnForkPtePage->ValidPteCount < PfnForkPtePage->u2.ShareCount);
 
     UNLOCK_PFN (OldIrql);
     return;

@@ -307,7 +307,7 @@ RxPrintQEnum(
             BufferSize,
             &ActualEntries,
             EntriesAvail);
-            
+
     //
     // Check for a nasty WFW 3.1 bug: for level 0, with multiple queues,
     // one or more queue names are garbage.  (I've seen garbage "zzzzWWzzl"
@@ -538,8 +538,8 @@ RxPrintQGetInfo(
     }
 
     IF_DEBUG(PRTQ) {
-        NetpDbgPrint( PREFIX_NETAPI "RxPrintQGetInfo: returned, status is "
-                FORMAT_API_STATUS "\n", Status);
+        NetpKdPrint(( PREFIX_NETAPI "RxPrintQGetInfo: returned, status is "
+                FORMAT_API_STATUS "\n", Status));
     }
 
     // Return results of RxRemoteApi call.
@@ -717,8 +717,8 @@ RxPrintQSetInfo(
 
         default :
             IF_DEBUG(PRTQ) {
-                NetpDbgPrint( PREFIX_NETAPI
-                        "RxPrintQSetInfo: invalid (bad parmnum).\n" );
+                NetpKdPrint(( PREFIX_NETAPI
+                        "RxPrintQSetInfo: invalid (bad parmnum).\n" ));
             }
             return (ERROR_INVALID_PARAMETER);
         }

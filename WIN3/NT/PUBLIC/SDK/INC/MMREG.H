@@ -2,7 +2,7 @@
  *
  *   mmreg.h  - Registered Multimedia Information Public Header File
  *
- *   Copyright (c) 1991-1994 Microsoft Corporation.  All Rights Reserved.
+ *   Copyright (c) 1991-1995 Microsoft Corporation.  All Rights Reserved.
  *
  * Multimedia Registration
  *
@@ -50,79 +50,79 @@ extern "C" {            /* Assume C declarations for C++ */
 
 /* manufacturer IDs */
 #ifndef MM_MICROSOFT
-#define   MM_MICROSOFT			1	   /*  Microsoft Corporation  */
+#define   MM_MICROSOFT                  1          /*  Microsoft Corporation  */
 #endif
 
-#define   MM_CREATIVE			2	   /*  Creative Labs, Inc  */
-#define   MM_MEDIAVISION		3	   /*  Media Vision, Inc.  */
-#define   MM_FUJITSU			4	   /*  Fujitsu Corp.  */
-#define   MM_ARTISOFT			20	   /*  Artisoft, Inc.  */
-#define   MM_TURTLE_BEACH		21	   /*  Turtle Beach, Inc.  */
-#define   MM_IBM			22	   /*  IBM Corporation  */
-#define   MM_VOCALTEC			23	   /*  Vocaltec LTD.  */
-#define   MM_ROLAND			24	   /*  Roland  */
-#define   MM_DSP_SOLUTIONS		25	   /*  DSP Solutions, Inc.  */
-#define   MM_NEC			26	   /*  NEC  */
-#define   MM_ATI			27	   /*  ATI  */
-#define   MM_WANGLABS			28	   /*  Wang Laboratories, Inc  */
-#define   MM_TANDY			29	   /*  Tandy Corporation  */
-#define   MM_VOYETRA			30	   /*  Voyetra  */
-#define   MM_ANTEX			31	   /*  Antex Electronics Corporation  */
-#define   MM_ICL_PS			32	   /*  ICL Personal Systems  */
-#define   MM_INTEL			33	   /*  Intel Corporation  */
-#define   MM_GRAVIS			34	   /*  Advanced Gravis  */
-#define   MM_VAL			35	   /*  Video Associates Labs, Inc.  */
-#define   MM_INTERACTIVE		36	   /*  InterActive Inc  */
-#define   MM_YAMAHA			37	   /*  Yamaha Corporation of America  */
-#define   MM_EVEREX			38	   /*  Everex Systems, Inc  */
-#define   MM_ECHO			39	   /*  Echo Speech Corporation  */
-#define   MM_SIERRA			40	   /*  Sierra Semiconductor Corp  */
-#define   MM_CAT			41	   /*  Computer Aided Technologies  */
-#define   MM_APPS			42	   /*  APPS Software International  */
-#define   MM_DSP_GROUP			43	   /*  DSP Group, Inc  */
-#define   MM_MELABS			44	   /*  microEngineering Labs  */
-#define   MM_COMPUTER_FRIENDS		45	   /*  Computer Friends, Inc.  */
-#define   MM_ESS			46	   /*  ESS Technology  */
-#define   MM_AUDIOFILE			47	   /*  Audio, Inc.  */
-#define   MM_MOTOROLA			48	   /*  Motorola, Inc.  */
-#define   MM_CANOPUS			49	   /*  Canopus, co., Ltd.  */
-#define   MM_EPSON			50	   /*  Seiko Epson Corporation  */
-#define   MM_TRUEVISION			51	   /*  Truevision  */
-#define   MM_AZTECH			52	   /*  Aztech Labs, Inc.  */
-#define   MM_VIDEOLOGIC			53	   /*  Videologic  */
-#define   MM_SCALACS			54	   /*  SCALACS  */
-#define   MM_KORG			55	   /*  Toshihiko Okuhura, Korg Inc.  */
-#define   MM_APT			56	   /*  Audio Processing Technology  */
-#define   MM_ICS			57	   /*  Integrated Circuit Systems, Inc.  */
-#define   MM_ITERATEDSYS 		58	   /*  Iterated Systems, Inc.  */
-#define   MM_METHEUS			59	   /*  Metheus  */
-#define   MM_LOGITECH			60	   /*  Logitech, Inc.  */
-#define   MM_WINNOV			61	   /*  Winnov, Inc.  */
-#define   MM_NCR			62	   /*  NCR Corporation  */
-#define   MM_EXAN			63	   /*  EXAN  */
-#define   MM_AST			64	   /*  AST Research Inc.  */
-#define   MM_WILLOWPOND			65	   /*  Willow Pond Corporation  */
-#define   MM_SONICFOUNDRY		66	   /*  Sonic Foundry  */
-#define   MM_VITEC			67	   /*  Vitec Multimedia  */
-#define   MM_MOSCOM			68	   /*  MOSCOM Corporation  */
-#define   MM_SILICONSOFT		69	   /*  Silicon Soft, Inc.  */
-#define   MM_SUPERMAC			73	   /*  Supermac  */
-#define   MM_AUDIOPT			74	   /*  Audio Processing Technology  */
-#define   MM_SPEECHCOMP			76	   /*  Speech Compression  */
-#define   MM_DOLBY			78	   /*  Dolby Laboratories  */
-#define   MM_OKI			79	   /*  OKI  */
-#define   MM_AURAVISION			80	   /*  AuraVision Corporation  */
-#define   MM_OLIVETTI			81	   /*  Olivetti  */
-#define   MM_IOMAGIC			82	   /*  I/O Magic Corporation  */
-#define   MM_MATSUSHITA			83	   /*  Matsushita Electric Industrial Co., LTD.  */
-#define   MM_CONTROLRES			84	   /*  Control Resources Limited  */
-#define   MM_XEBEC			85	   /*  Xebec Multimedia Solutions Limited  */
-#define   MM_NEWMEDIA	  		86	   /*  New Media Corporation  */
-#define   MM_NMS			87	   /*  Natural MicroSystems  */
-#define   MM_LYRRUS			88	   /*  Lyrrus Inc.  */
-#define   MM_COMPUSIC			89	   /*  Compusic  */
-#define   MM_OPTI			90	   /*  OPTi Computers Inc.  */
-#define   MM_DIALOGIC			93	   /*  Dialogic Corporation  */
+#define   MM_CREATIVE                   2          /*  Creative Labs, Inc  */
+#define   MM_MEDIAVISION                3          /*  Media Vision, Inc.  */
+#define   MM_FUJITSU                    4          /*  Fujitsu Corp.  */
+#define   MM_ARTISOFT                   20         /*  Artisoft, Inc.  */
+#define   MM_TURTLE_BEACH               21         /*  Turtle Beach, Inc.  */
+#define   MM_IBM                        22         /*  IBM Corporation  */
+#define   MM_VOCALTEC                   23         /*  Vocaltec LTD.  */
+#define   MM_ROLAND                     24         /*  Roland  */
+#define   MM_DSP_SOLUTIONS              25         /*  DSP Solutions, Inc.  */
+#define   MM_NEC                        26         /*  NEC  */
+#define   MM_ATI                        27         /*  ATI  */
+#define   MM_WANGLABS                   28         /*  Wang Laboratories, Inc  */
+#define   MM_TANDY                      29         /*  Tandy Corporation  */
+#define   MM_VOYETRA                    30         /*  Voyetra  */
+#define   MM_ANTEX                      31         /*  Antex Electronics Corporation  */
+#define   MM_ICL_PS                     32         /*  ICL Personal Systems  */
+#define   MM_INTEL                      33         /*  Intel Corporation  */
+#define   MM_GRAVIS                     34         /*  Advanced Gravis  */
+#define   MM_VAL                        35         /*  Video Associates Labs, Inc.  */
+#define   MM_INTERACTIVE                36         /*  InterActive Inc  */
+#define   MM_YAMAHA                     37         /*  Yamaha Corporation of America  */
+#define   MM_EVEREX                     38         /*  Everex Systems, Inc  */
+#define   MM_ECHO                       39         /*  Echo Speech Corporation  */
+#define   MM_SIERRA                     40         /*  Sierra Semiconductor Corp  */
+#define   MM_CAT                        41         /*  Computer Aided Technologies  */
+#define   MM_APPS                       42         /*  APPS Software International  */
+#define   MM_DSP_GROUP                  43         /*  DSP Group, Inc  */
+#define   MM_MELABS                     44         /*  microEngineering Labs  */
+#define   MM_COMPUTER_FRIENDS           45         /*  Computer Friends, Inc.  */
+#define   MM_ESS                        46         /*  ESS Technology  */
+#define   MM_AUDIOFILE                  47         /*  Audio, Inc.  */
+#define   MM_MOTOROLA                   48         /*  Motorola, Inc.  */
+#define   MM_CANOPUS                    49         /*  Canopus, co., Ltd.  */
+#define   MM_EPSON                      50         /*  Seiko Epson Corporation  */
+#define   MM_TRUEVISION                 51         /*  Truevision  */
+#define   MM_AZTECH                     52         /*  Aztech Labs, Inc.  */
+#define   MM_VIDEOLOGIC                 53         /*  Videologic  */
+#define   MM_SCALACS                    54         /*  SCALACS  */
+#define   MM_KORG                       55         /*  Toshihiko Okuhura, Korg Inc.  */
+#define   MM_APT                        56         /*  Audio Processing Technology  */
+#define   MM_ICS                        57         /*  Integrated Circuit Systems, Inc.  */
+#define   MM_ITERATEDSYS                58         /*  Iterated Systems, Inc.  */
+#define   MM_METHEUS                    59         /*  Metheus  */
+#define   MM_LOGITECH                   60         /*  Logitech, Inc.  */
+#define   MM_WINNOV                     61         /*  Winnov, Inc.  */
+#define   MM_NCR                        62         /*  NCR Corporation  */
+#define   MM_EXAN                       63         /*  EXAN  */
+#define   MM_AST                        64         /*  AST Research Inc.  */
+#define   MM_WILLOWPOND                 65         /*  Willow Pond Corporation  */
+#define   MM_SONICFOUNDRY               66         /*  Sonic Foundry  */
+#define   MM_VITEC                      67         /*  Vitec Multimedia  */
+#define   MM_MOSCOM                     68         /*  MOSCOM Corporation  */
+#define   MM_SILICONSOFT                69         /*  Silicon Soft, Inc.  */
+#define   MM_SUPERMAC                   73         /*  Supermac  */
+#define   MM_AUDIOPT                    74         /*  Audio Processing Technology  */
+#define   MM_SPEECHCOMP                 76         /*  Speech Compression  */
+#define   MM_DOLBY                      78         /*  Dolby Laboratories  */
+#define   MM_OKI                        79         /*  OKI  */
+#define   MM_AURAVISION                 80         /*  AuraVision Corporation  */
+#define   MM_OLIVETTI                   81         /*  Olivetti  */
+#define   MM_IOMAGIC                    82         /*  I/O Magic Corporation  */
+#define   MM_MATSUSHITA                 83         /*  Matsushita Electric Industrial Co., LTD.  */
+#define   MM_CONTROLRES                 84         /*  Control Resources Limited  */
+#define   MM_XEBEC                      85         /*  Xebec Multimedia Solutions Limited  */
+#define   MM_NEWMEDIA                   86         /*  New Media Corporation  */
+#define   MM_NMS                        87         /*  Natural MicroSystems  */
+#define   MM_LYRRUS                     88         /*  Lyrrus Inc.  */
+#define   MM_COMPUSIC                   89         /*  Compusic  */
+#define   MM_OPTI                       90         /*  OPTi Computers Inc.  */
+#define   MM_DIALOGIC                   93         /*  Dialogic Corporation  */
 
 /* MM_MICROSOFT product IDs */
 
@@ -194,22 +194,22 @@ extern "C" {            /* Assume C declarations for C++ */
 #define  MM_MSFT_WSS_NT_MIXER               58      /*  WSS NT mixer  */
 #define  MM_MSFT_WSS_NT_AUX                 59      /*  WSS NT aux  */
 
-#define  MM_MSFT_SB16_WAVEIN	60	/*  Sound Blaster 16 waveform input  */
-#define  MM_MSFT_SB16_WAVEOUT	61	/*  Sound Blaster 16  waveform output  */
-#define  MM_MSFT_SB16_MIDIIN	62	/*  Sound Blaster 16 midi-in  */
-#define  MM_MSFT_SB16_MIDIOUT	63	/*  Sound Blaster 16 midi out  */
-#define  MM_MSFT_SB16_SYNTH	64	/*  Sound Blaster 16 FM Synthesis  */
-#define  MM_MSFT_SB16_AUX_LINE	65	/*  Sound Blaster 16 aux (line in)  */
-#define  MM_MSFT_SB16_AUX_CD	66	/*  Sound Blaster 16 aux (CD)  */
-#define  MM_MSFT_SB16_MIXER	67	/*  Sound Blaster 16 mixer device  */
-#define  MM_MSFT_SBPRO_WAVEIN	68	/*  Sound Blaster Pro waveform input  */
-#define  MM_MSFT_SBPRO_WAVEOUT	69	/*  Sound Blaster Pro waveform output  */
-#define  MM_MSFT_SBPRO_MIDIIN	70	/*  Sound Blaster Pro midi in  */
-#define  MM_MSFT_SBPRO_MIDIOUT	71	/*  Sound Blaster Pro midi out  */
-#define  MM_MSFT_SBPRO_SYNTH	72	/*  Sound Blaster Pro FM synthesis  */
-#define  MM_MSFT_SBPRO_AUX_LINE	73	/*  Sound Blaster Pro aux (line in )  */
-#define  MM_MSFT_SBPRO_AUX_CD	74	/*  Sound Blaster Pro aux (CD)  */
-#define  MM_MSFT_SBPRO_MIXER	75	/*  Sound Blaster Pro mixer  */
+#define  MM_MSFT_SB16_WAVEIN    60      /*  Sound Blaster 16 waveform input  */
+#define  MM_MSFT_SB16_WAVEOUT   61      /*  Sound Blaster 16  waveform output  */
+#define  MM_MSFT_SB16_MIDIIN    62      /*  Sound Blaster 16 midi-in  */
+#define  MM_MSFT_SB16_MIDIOUT   63      /*  Sound Blaster 16 midi out  */
+#define  MM_MSFT_SB16_SYNTH     64      /*  Sound Blaster 16 FM Synthesis  */
+#define  MM_MSFT_SB16_AUX_LINE  65      /*  Sound Blaster 16 aux (line in)  */
+#define  MM_MSFT_SB16_AUX_CD    66      /*  Sound Blaster 16 aux (CD)  */
+#define  MM_MSFT_SB16_MIXER     67      /*  Sound Blaster 16 mixer device  */
+#define  MM_MSFT_SBPRO_WAVEIN   68      /*  Sound Blaster Pro waveform input  */
+#define  MM_MSFT_SBPRO_WAVEOUT  69      /*  Sound Blaster Pro waveform output  */
+#define  MM_MSFT_SBPRO_MIDIIN   70      /*  Sound Blaster Pro midi in  */
+#define  MM_MSFT_SBPRO_MIDIOUT  71      /*  Sound Blaster Pro midi out  */
+#define  MM_MSFT_SBPRO_SYNTH    72      /*  Sound Blaster Pro FM synthesis  */
+#define  MM_MSFT_SBPRO_AUX_LINE 73      /*  Sound Blaster Pro aux (line in )  */
+#define  MM_MSFT_SBPRO_AUX_CD   74      /*  Sound Blaster Pro aux (CD)  */
+#define  MM_MSFT_SBPRO_MIXER    75      /*  Sound Blaster Pro mixer  */
 
 #define  MM_MSFT_MSOPL_SYNTH  76 /* Yamaha OPL2/OPL3 compatible FM synthesis */
 
@@ -584,7 +584,7 @@ extern "C" {            /* Assume C declarations for C++ */
 /*////////////////////////////////////////////////////////////////////////// */
 
 /*              INFO LIST CHUNKS (from the Multimedia Programmer's Reference
-					plus new ones)
+                                        plus new ones)
 */
 #define RIFFINFO_IARL      mmioFOURCC ('I', 'A', 'R', 'L')     /*Archival location  */
 #define RIFFINFO_IART      mmioFOURCC ('I', 'A', 'R', 'T')     /*Artist  */
@@ -613,17 +613,17 @@ extern "C" {            /* Assume C declarations for C++ */
 /* New INFO Chunks as of August 30, 1993: */
 #define RIFFINFO_ISMP      mmioFOURCC ('I', 'S', 'M', 'P')     /*SMPTE time code  */
 /* ISMP: SMPTE time code of digitization start point expressed as a NULL terminated
-		text string "HH:MM:SS:FF". If performing MCI capture in AVICAP, this
-		chunk will be automatically set based on the MCI start time.
+                text string "HH:MM:SS:FF". If performing MCI capture in AVICAP, this
+                chunk will be automatically set based on the MCI start time.
 */
 #define RIFFINFO_IDIT      mmioFOURCC ('I', 'D', 'I', 'T')     /*Digitization Time  */
 /* IDIT: "Digitization Time" Specifies the time and date that the digitization commenced.
-		The digitization time is contained in an ASCII string which
-		contains exactly 26 characters and is in the format
-		"Wed Jan 02 02:03:55 1990\n\0".
-		The ctime(), asctime(), functions can be used to create strings
-		in this format. This chunk is automatically added to the capture
-		file based on the current system time at the moment capture is initiated.
+                The digitization time is contained in an ASCII string which
+                contains exactly 26 characters and is in the format
+                "Wed Jan 02 02:03:55 1990\n\0".
+                The ctime(), asctime(), functions can be used to create strings
+                in this format. This chunk is automatically added to the capture
+                file based on the current system time at the moment capture is initiated.
 */
 
 /*Template line for new additions*/
@@ -635,46 +635,46 @@ extern "C" {            /* Assume C declarations for C++ */
 #ifndef NONEWWAVE
 
 /* WAVE form wFormatTag IDs */
-#define  WAVE_FORMAT_UNKNOWN	0x0000	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_ADPCM	0x0002	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_IBM_CVSD	0x0005	/*  IBM Corporation  */
-#define  WAVE_FORMAT_ALAW	0x0006	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_MULAW	0x0007	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_OKI_ADPCM	0x0010	/*  OKI  */
-#define  WAVE_FORMAT_DVI_ADPCM	0x0011	/*  Intel Corporation  */
-#define  WAVE_FORMAT_IMA_ADPCM	(WAVE_FORMAT_DVI_ADPCM)	/*  Intel Corporation  */
-#define  WAVE_FORMAT_MEDIASPACE_ADPCM	0x0012	/*  Videologic  */
-#define  WAVE_FORMAT_SIERRA_ADPCM	0x0013	/*  Sierra Semiconductor Corp  */
-#define  WAVE_FORMAT_G723_ADPCM	0x0014	/*  Antex Electronics Corporation  */
-#define  WAVE_FORMAT_DIGISTD	0x0015	/*  DSP Solutions, Inc.  */
-#define  WAVE_FORMAT_DIGIFIX	0x0016	/*  DSP Solutions, Inc.  */
-#define  WAVE_FORMAT_DIALOGIC_OKI_ADPCM	0x0017	/*  Dialogic Corporation  */
-#define  WAVE_FORMAT_YAMAHA_ADPCM	0x0020	/*  Yamaha Corporation of America  */
-#define  WAVE_FORMAT_SONARC	0x0021	/*  Speech Compression  */
-#define  WAVE_FORMAT_DSPGROUP_TRUESPEECH	0x0022	/*  DSP Group, Inc  */
-#define  WAVE_FORMAT_ECHOSC1	0x0023	/*  Echo Speech Corporation  */
-#define  WAVE_FORMAT_AUDIOFILE_AF36	0x0024	/*    */
-#define  WAVE_FORMAT_APTX	0x0025	/*  Audio Processing Technology  */
-#define  WAVE_FORMAT_AUDIOFILE_AF10	0x0026	/*    */
-#define  WAVE_FORMAT_DOLBY_AC2	0x0030	/*  Dolby Laboratories  */
-#define  WAVE_FORMAT_GSM610	0x0031	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_ANTEX_ADPCME	0x0033	/*  Antex Electronics Corporation  */
-#define  WAVE_FORMAT_CONTROL_RES_VQLPC	0x0034	/*  Control Resources Limited  */
-#define  WAVE_FORMAT_DIGIREAL	0x0035	/*  DSP Solutions, Inc.  */
-#define  WAVE_FORMAT_DIGIADPCM	0x0036	/*  DSP Solutions, Inc.  */
-#define  WAVE_FORMAT_CONTROL_RES_CR10	0x0037	/*  Control Resources Limited  */
-#define  WAVE_FORMAT_NMS_VBXADPCM	0x0038	/*  Natural MicroSystems  */
-#define  WAVE_FORMAT_G721_ADPCM	0x0040	/*  Antex Electronics Corporation  */
-#define  WAVE_FORMAT_MPEG	0x0050	/*  Microsoft Corporation  */
-#define  WAVE_FORMAT_CREATIVE_ADPCM	0x0200	/*  Creative Labs, Inc  */
-#define  WAVE_FORMAT_CREATIVE_FASTSPEECH8	0x0202	/*  Creative Labs, Inc  */
-#define  WAVE_FORMAT_CREATIVE_FASTSPEECH10	0x0203	/*  Creative Labs, Inc  */
-#define  WAVE_FORMAT_FM_TOWNS_SND	0x0300	/*  Fujitsu Corp.  */
-#define  WAVE_FORMAT_OLIGSM	0x1000	/*  Ing C. Olivetti & C., S.p.A.  */
-#define  WAVE_FORMAT_OLIADPCM	0x1001	/*  Ing C. Olivetti & C., S.p.A.  */
-#define  WAVE_FORMAT_OLICELP	0x1002	/*  Ing C. Olivetti & C., S.p.A.  */
-#define  WAVE_FORMAT_OLISBC	0x1003	/*  Ing C. Olivetti & C., S.p.A.  */
-#define  WAVE_FORMAT_OLIOPR	0x1004	/*  Ing C. Olivetti & C., S.p.A.  */
+#define  WAVE_FORMAT_UNKNOWN    0x0000  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_ADPCM      0x0002  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_IBM_CVSD   0x0005  /*  IBM Corporation  */
+#define  WAVE_FORMAT_ALAW       0x0006  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_MULAW      0x0007  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_OKI_ADPCM  0x0010  /*  OKI  */
+#define  WAVE_FORMAT_DVI_ADPCM  0x0011  /*  Intel Corporation  */
+#define  WAVE_FORMAT_IMA_ADPCM  (WAVE_FORMAT_DVI_ADPCM) /*  Intel Corporation  */
+#define  WAVE_FORMAT_MEDIASPACE_ADPCM   0x0012  /*  Videologic  */
+#define  WAVE_FORMAT_SIERRA_ADPCM       0x0013  /*  Sierra Semiconductor Corp  */
+#define  WAVE_FORMAT_G723_ADPCM 0x0014  /*  Antex Electronics Corporation  */
+#define  WAVE_FORMAT_DIGISTD    0x0015  /*  DSP Solutions, Inc.  */
+#define  WAVE_FORMAT_DIGIFIX    0x0016  /*  DSP Solutions, Inc.  */
+#define  WAVE_FORMAT_DIALOGIC_OKI_ADPCM 0x0017  /*  Dialogic Corporation  */
+#define  WAVE_FORMAT_YAMAHA_ADPCM       0x0020  /*  Yamaha Corporation of America  */
+#define  WAVE_FORMAT_SONARC     0x0021  /*  Speech Compression  */
+#define  WAVE_FORMAT_DSPGROUP_TRUESPEECH        0x0022  /*  DSP Group, Inc  */
+#define  WAVE_FORMAT_ECHOSC1    0x0023  /*  Echo Speech Corporation  */
+#define  WAVE_FORMAT_AUDIOFILE_AF36     0x0024  /*    */
+#define  WAVE_FORMAT_APTX       0x0025  /*  Audio Processing Technology  */
+#define  WAVE_FORMAT_AUDIOFILE_AF10     0x0026  /*    */
+#define  WAVE_FORMAT_DOLBY_AC2  0x0030  /*  Dolby Laboratories  */
+#define  WAVE_FORMAT_GSM610     0x0031  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_ANTEX_ADPCME       0x0033  /*  Antex Electronics Corporation  */
+#define  WAVE_FORMAT_CONTROL_RES_VQLPC  0x0034  /*  Control Resources Limited  */
+#define  WAVE_FORMAT_DIGIREAL   0x0035  /*  DSP Solutions, Inc.  */
+#define  WAVE_FORMAT_DIGIADPCM  0x0036  /*  DSP Solutions, Inc.  */
+#define  WAVE_FORMAT_CONTROL_RES_CR10   0x0037  /*  Control Resources Limited  */
+#define  WAVE_FORMAT_NMS_VBXADPCM       0x0038  /*  Natural MicroSystems  */
+#define  WAVE_FORMAT_G721_ADPCM 0x0040  /*  Antex Electronics Corporation  */
+#define  WAVE_FORMAT_MPEG       0x0050  /*  Microsoft Corporation  */
+#define  WAVE_FORMAT_CREATIVE_ADPCM     0x0200  /*  Creative Labs, Inc  */
+#define  WAVE_FORMAT_CREATIVE_FASTSPEECH8       0x0202  /*  Creative Labs, Inc  */
+#define  WAVE_FORMAT_CREATIVE_FASTSPEECH10      0x0203  /*  Creative Labs, Inc  */
+#define  WAVE_FORMAT_FM_TOWNS_SND       0x0300  /*  Fujitsu Corp.  */
+#define  WAVE_FORMAT_OLIGSM     0x1000  /*  Ing C. Olivetti & C., S.p.A.  */
+#define  WAVE_FORMAT_OLIADPCM   0x1001  /*  Ing C. Olivetti & C., S.p.A.  */
+#define  WAVE_FORMAT_OLICELP    0x1002  /*  Ing C. Olivetti & C., S.p.A.  */
+#define  WAVE_FORMAT_OLISBC     0x1003  /*  Ing C. Olivetti & C., S.p.A.  */
+#define  WAVE_FORMAT_OLIOPR     0x1004  /*  Ing C. Olivetti & C., S.p.A.  */
 
 //
 //  the WAVE_FORMAT_DEVELOPMENT format tag can be used during the
@@ -732,7 +732,7 @@ typedef struct tWAVEFORMATEX
     WORD    nBlockAlign;       /* block size of data */
     WORD    wBitsPerSample;    /* Number of bits per sample of mono data */
     WORD    cbSize;            /* The count in bytes of the size of
-				    extra information (after cbSize) */
+                                    extra information (after cbSize) */
 
 } WAVEFORMATEX;
 typedef WAVEFORMATEX       *PWAVEFORMATEX;
@@ -746,8 +746,8 @@ typedef WAVEFORMATEX FAR  *LPWAVEFORMATEX;
 /* Define data for MS ADPCM */
 
 typedef struct adpcmcoef_tag {
-	short   iCoef1;
-	short   iCoef2;
+        short   iCoef1;
+        short   iCoef2;
 } ADPCMCOEFSET;
 typedef ADPCMCOEFSET       *PADPCMCOEFSET;
 typedef ADPCMCOEFSET NEAR *NPADPCMCOEFSET;
@@ -765,10 +765,10 @@ typedef ADPCMCOEFSET FAR  *LPADPCMCOEFSET;
 #endif
 
 typedef struct adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
-	WORD            wNumCoef;
-	ADPCMCOEFSET    aCoef[];
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
+        WORD            wNumCoef;
+        ADPCMCOEFSET    aCoef[];
 } ADPCMWAVEFORMAT;
 typedef ADPCMWAVEFORMAT       *PADPCMWAVEFORMAT;
 typedef ADPCMWAVEFORMAT NEAR *NPADPCMWAVEFORMAT;
@@ -786,8 +786,8 @@ typedef ADPCMWAVEFORMAT FAR  *LPADPCMWAVEFORMAT;
 //
 
 typedef struct dvi_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } DVIADPCMWAVEFORMAT;
 typedef DVIADPCMWAVEFORMAT       *PDVIADPCMWAVEFORMAT;
 typedef DVIADPCMWAVEFORMAT NEAR *NPDVIADPCMWAVEFORMAT;
@@ -803,8 +803,8 @@ typedef DVIADPCMWAVEFORMAT FAR  *LPDVIADPCMWAVEFORMAT;
 //
 
 typedef struct ima_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } IMAADPCMWAVEFORMAT;
 typedef IMAADPCMWAVEFORMAT       *PIMAADPCMWAVEFORMAT;
 typedef IMAADPCMWAVEFORMAT NEAR *NPIMAADPCMWAVEFORMAT;
@@ -817,8 +817,8 @@ typedef IMAADPCMWAVEFORMAT FAR  *LPIMAADPCMWAVEFORMAT;
 //
 */
 typedef struct mediaspace_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD    wRevision;
+        WAVEFORMATEX    wfx;
+        WORD    wRevision;
 } MEDIASPACEADPCMWAVEFORMAT;
 typedef MEDIASPACEADPCMWAVEFORMAT           *PMEDIASPACEADPCMWAVEFORMAT;
 typedef MEDIASPACEADPCMWAVEFORMAT NEAR     *NPMEDIASPACEADPCMWAVEFORMAT;
@@ -832,12 +832,12 @@ typedef MEDIASPACEADPCMWAVEFORMAT FAR      *LPMEDIASPACEADPCMWAVEFORMAT;
 //
 
 typedef struct sierra_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wRevision;
+        WAVEFORMATEX    wfx;
+        WORD            wRevision;
 } SIERRAADPCMWAVEFORMAT;
-typedef SIERRAADPCMWAVEFORMAT 	*PSIERRAADPCMWAVEFORMAT;
-typedef SIERRAADPCMWAVEFORMAT NEAR 	*NPSIERRAADPCMWAVEFORMAT;
-typedef SIERRAADPCMWAVEFORMAT FAR  	*LPSIERRAADPCMWAVEFORMAT;
+typedef SIERRAADPCMWAVEFORMAT   *PSIERRAADPCMWAVEFORMAT;
+typedef SIERRAADPCMWAVEFORMAT NEAR      *NPSIERRAADPCMWAVEFORMAT;
+typedef SIERRAADPCMWAVEFORMAT FAR       *LPSIERRAADPCMWAVEFORMAT;
 
 
 
@@ -849,9 +849,9 @@ typedef SIERRAADPCMWAVEFORMAT FAR  	*LPSIERRAADPCMWAVEFORMAT;
 //
 
 typedef struct g723_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            cbExtraSize;
-	WORD		nAuxBlockSize;
+        WAVEFORMATEX    wfx;
+        WORD            cbExtraSize;
+        WORD            nAuxBlockSize;
 } G723_ADPCMWAVEFORMAT;
 typedef G723_ADPCMWAVEFORMAT *PG723_ADPCMWAVEFORMAT;
 typedef G723_ADPCMWAVEFORMAT NEAR *NPG723_ADPCMWAVEFORMAT;
@@ -865,7 +865,7 @@ typedef G723_ADPCMWAVEFORMAT FAR  *LPG723_ADPCMWAVEFORMAT;
 //
 
 typedef struct digistdwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } DIGISTDWAVEFORMAT;
 typedef DIGISTDWAVEFORMAT       *PDIGISTDWAVEFORMAT;
 typedef DIGISTDWAVEFORMAT NEAR *NPDIGISTDWAVEFORMAT;
@@ -879,7 +879,7 @@ typedef DIGISTDWAVEFORMAT FAR  *LPDIGISTDWAVEFORMAT;
 //
 
 typedef struct digifixwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } DIGIFIXWAVEFORMAT;
 typedef DIGIFIXWAVEFORMAT       *PDIGIFIXWAVEFORMAT;
 typedef DIGIFIXWAVEFORMAT NEAR *NPDIGIFIXWAVEFORMAT;
@@ -890,7 +890,7 @@ typedef DIGIFIXWAVEFORMAT FAR  *LPDIGIFIXWAVEFORMAT;
 // WAVEFORMAT_DIALOGIC_OKI_ADPCM   (0x0017)
 //
 typedef struct creative_fastspeechformat_tag{
-	WAVEFORMATEX	ewf;
+        WAVEFORMATEX    ewf;
 }DIALOGICOKIADPCMWAVEFORMAT;
 typedef DIALOGICOKIADPCMWAVEFORMAT       *PDIALOGICOKIADPCMWAVEFORMAT;
 typedef DIALOGICOKIADPCMWAVEFORMAT NEAR *NPDIALOGICOKIADPCMWAVEFORMAT;
@@ -905,8 +905,8 @@ typedef DIALOGICOKIADPCMWAVEFORMAT FAR  *LPDIALOGICOKIADPCMWAVEFORMAT;
 //
 
 typedef struct yamaha_adpmcwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	
+        WAVEFORMATEX    wfx;
+
 } YAMAHA_ADPCMWAVEFORMAT;
 typedef YAMAHA_ADPCMWAVEFORMAT *PYAMAHA_ADPCMWAVEFORMAT;
 typedef YAMAHA_ADPCMWAVEFORMAT NEAR *NPYAMAHA_ADPCMWAVEFORMAT;
@@ -920,8 +920,8 @@ typedef YAMAHA_ADPCMWAVEFORMAT FAR  *LPYAMAHA_ADPCMWAVEFORMAT;
 //
 
 typedef struct sonarcwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wCompType;
+        WAVEFORMATEX    wfx;
+        WORD            wCompType;
 } SONARCWAVEFORMAT;
 typedef SONARCWAVEFORMAT       *PSONARCWAVEFORMAT;
 typedef SONARCWAVEFORMAT NEAR *NPSONARCWAVEFORMAT;
@@ -935,10 +935,10 @@ typedef SONARCWAVEFORMAT FAR  *LPSONARCWAVEFORMAT;
 //
 
 typedef struct truespeechwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wRevision;
-	WORD            nSamplesPerBlock;
-	BYTE            abReserved[28];
+        WAVEFORMATEX    wfx;
+        WORD            wRevision;
+        WORD            nSamplesPerBlock;
+        BYTE            abReserved[28];
 } TRUESPEECHWAVEFORMAT;
 typedef TRUESPEECHWAVEFORMAT       *PTRUESPEECHWAVEFORMAT;
 typedef TRUESPEECHWAVEFORMAT NEAR *NPTRUESPEECHWAVEFORMAT;
@@ -952,7 +952,7 @@ typedef TRUESPEECHWAVEFORMAT FAR  *LPTRUESPEECHWAVEFORMAT;
 //
 
 typedef struct echosc1waveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } ECHOSC1WAVEFORMAT;
 typedef ECHOSC1WAVEFORMAT       *PECHOSC1WAVEFORMAT;
 typedef ECHOSC1WAVEFORMAT NEAR *NPECHOSC1WAVEFORMAT;
@@ -966,7 +966,7 @@ typedef ECHOSC1WAVEFORMAT FAR  *LPECHOSC1WAVEFORMAT;
 //
 
 typedef struct audiofile_af36waveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } AUDIOFILE_AF36WAVEFORMAT;
 typedef AUDIOFILE_AF36WAVEFORMAT       *PAUDIOFILE_AF36WAVEFORMAT;
 typedef AUDIOFILE_AF36WAVEFORMAT NEAR *NPAUDIOFILE_AF36WAVEFORMAT;
@@ -979,7 +979,7 @@ typedef AUDIOFILE_AF36WAVEFORMAT FAR  *LPAUDIOFILE_AF36WAVEFORMAT;
 //
 //
 typedef struct aptxwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } APTXWAVEFORMAT;
 typedef APTXWAVEFORMAT       *PAPTXWAVEFORMAT;
 typedef APTXWAVEFORMAT NEAR *NPAPTXWAVEFORMAT;
@@ -993,7 +993,7 @@ typedef APTXWAVEFORMAT FAR  *LPAPTXWAVEFORMAT;
 //
 
 typedef struct audiofile_af10waveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } AUDIOFILE_AF10WAVEFORMAT;
 typedef AUDIOFILE_AF10WAVEFORMAT       *PAUDIOFILE_AF10WAVEFORMAT;
 typedef AUDIOFILE_AF10WAVEFORMAT NEAR *NPAUDIOFILE_AF10WAVEFORMAT;
@@ -1004,46 +1004,46 @@ typedef AUDIOFILE_AF10WAVEFORMAT FAR  *LPAUDIOFILE_AF10WAVEFORMAT;
            WAVE_FORMAT_DOLBY_AC2    (0x0030)*/
 //
 typedef struct dolbyac2waveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            nAuxBitsCode;
+        WAVEFORMATEX    wfx;
+        WORD            nAuxBitsCode;
 } DOLBYAC2WAVEFORMAT;
 
 /*Microsoft's */
-// WAVE_FORMAT_GSM 610	         0x0031
+// WAVE_FORMAT_GSM 610           0x0031
 //
 typedef struct gsm610waveformat_tag {
-WAVEFORMATEX	wfx;
-WORD			wSamplesPerBlock;
-} GSM610WAVEFORMAT;			
+WAVEFORMATEX    wfx;
+WORD                    wSamplesPerBlock;
+} GSM610WAVEFORMAT;
 typedef GSM610WAVEFORMAT *PGSM610WAVEFORMAT;
-typedef GSM610WAVEFORMAT NEAR	 *NPGSM610WAVEFORMAT;
-typedef GSM610WAVEFORMAT FAR	 *LPGSM610WAVEFORMAT;
+typedef GSM610WAVEFORMAT NEAR    *NPGSM610WAVEFORMAT;
+typedef GSM610WAVEFORMAT FAR     *LPGSM610WAVEFORMAT;
 
 //
-//  	Antex Electronics Corp
+//      Antex Electronics Corp
 //
 //      for WAVE_FORMAT_ADPCME                  (0x0033)
 //
 //
 
 typedef struct adpcmewaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } ADPCMEWAVEFORMAT;
-typedef ADPCMEWAVEFORMAT		*PADPCMEWAVEFORMAT;
-typedef ADPCMEWAVEFORMAT NEAR	*NPADPCMEWAVEFORMAT;
-typedef ADPCMEWAVEFORMAT FAR 	*LPADPCMEWAVEFORMAT;
+typedef ADPCMEWAVEFORMAT                *PADPCMEWAVEFORMAT;
+typedef ADPCMEWAVEFORMAT NEAR   *NPADPCMEWAVEFORMAT;
+typedef ADPCMEWAVEFORMAT FAR    *LPADPCMEWAVEFORMAT;
 
 /*       Control Resources Limited */
-// WAVE_FORMAT_CONTROL_RES_VQLPC	         0x0034
+// WAVE_FORMAT_CONTROL_RES_VQLPC                 0x0034
 //
 typedef struct contres_vqlpcwaveformat_tag {
-WAVEFORMATEX	wfx;
-WORD			wSamplesPerBlock;
-} CONTRESVQLPCWAVEFORMAT;			
+WAVEFORMATEX    wfx;
+WORD                    wSamplesPerBlock;
+} CONTRESVQLPCWAVEFORMAT;
 typedef CONTRESVQLPCWAVEFORMAT *PCONTRESVQLPCWAVEFORMAT;
-typedef CONTRESVQLPCWAVEFORMAT NEAR	 *NPCONTRESVQLPCWAVEFORMAT;
-typedef CONTRESVQLPCWAVEFORMAT FAR	 *LPCONTRESVQLPCWAVEFORMAT;
+typedef CONTRESVQLPCWAVEFORMAT NEAR      *NPCONTRESVQLPCWAVEFORMAT;
+typedef CONTRESVQLPCWAVEFORMAT FAR       *LPCONTRESVQLPCWAVEFORMAT;
 
 //
 //
@@ -1053,11 +1053,11 @@ typedef CONTRESVQLPCWAVEFORMAT FAR	 *LPCONTRESVQLPCWAVEFORMAT;
 //
 
 typedef struct digirealwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } DIGIREALWAVEFORMAT;
 typedef DIGIREALWAVEFORMAT *PDIGIREALWAVEFORMAT;
-typedef DIGIREALWAVEFORMAT NEAR	*NPDIGIREALWAVEFORMAT;
+typedef DIGIREALWAVEFORMAT NEAR *NPDIGIREALWAVEFORMAT;
 typedef DIGIREALWAVEFORMAT FAR *LPDIGIREALWAVEFORMAT;
 
 //
@@ -1068,8 +1068,8 @@ typedef DIGIREALWAVEFORMAT FAR *LPDIGIREALWAVEFORMAT;
 //
 
 typedef struct digiadpcmmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } DIGIADPCMWAVEFORMAT;
 typedef DIGIADPCMWAVEFORMAT       *PDIGIADPCMWAVEFORMAT;
 typedef DIGIADPCMWAVEFORMAT NEAR *NPDIGIADPCMWAVEFORMAT;
@@ -1077,15 +1077,15 @@ typedef DIGIADPCMWAVEFORMAT FAR  *LPDIGIADPCMWAVEFORMAT;
 
 
 /*       Control Resources Limited */
-// WAVE_FORMAT_CONTROL_RES_CR10	         0x0037
+// WAVE_FORMAT_CONTROL_RES_CR10          0x0037
 //
 typedef struct contres_cr10waveformat_tag {
-WAVEFORMATEX	wfx;
-WORD			wSamplesPerBlock;
-} CONTRESCR10WAVEFORMAT;			
+WAVEFORMATEX    wfx;
+WORD                    wSamplesPerBlock;
+} CONTRESCR10WAVEFORMAT;
 typedef CONTRESCR10WAVEFORMAT *PCONTRESCR10WAVEFORMAT;
-typedef CONTRESCR10WAVEFORMAT NEAR	 *NPCONTRESCR10WAVEFORMAT;
-typedef CONTRESCR10WAVEFORMAT FAR	 *LPCONTRESCR10WAVEFORMAT;
+typedef CONTRESCR10WAVEFORMAT NEAR       *NPCONTRESCR10WAVEFORMAT;
+typedef CONTRESCR10WAVEFORMAT FAR        *LPCONTRESCR10WAVEFORMAT;
 
 
 
@@ -1097,8 +1097,8 @@ typedef CONTRESCR10WAVEFORMAT FAR	 *LPCONTRESCR10WAVEFORMAT;
 //
 
 typedef struct nms_vbxadpcmmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wSamplesPerBlock;
+        WAVEFORMATEX    wfx;
+        WORD            wSamplesPerBlock;
 } NMS_VBXADPCMWAVEFORMAT;
 typedef NMS_VBXADPCMWAVEFORMAT       *PNMS_VBXADPCMWAVEFORMAT;
 typedef NMS_VBXADPCMWAVEFORMAT NEAR *NPNMS_VBXADPCMWAVEFORMAT;
@@ -1113,8 +1113,8 @@ typedef NMS_VBXADPCMWAVEFORMAT FAR  *LPNMS_VBXADPCMWAVEFORMAT;
 //
 
 typedef struct g721_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD		nAuxBlockSize;
+        WAVEFORMATEX    wfx;
+        WORD            nAuxBlockSize;
 } G721_ADPCMWAVEFORMAT;
 typedef G721_ADPCMWAVEFORMAT *PG721_ADPCMWAVEFORMAT;
 typedef G721_ADPCMWAVEFORMAT NEAR *NPG721_ADPCMWAVEFORMAT;
@@ -1162,8 +1162,8 @@ typedef MPEG1WAVEFORMAT FAR            *LPMPEG1WAVEFORMAT;
 //
 
 typedef struct creative_adpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wRevision;
+        WAVEFORMATEX    wfx;
+        WORD            wRevision;
 } CREATIVEADPCMWAVEFORMAT;
 typedef CREATIVEADPCMWAVEFORMAT       *PCREATIVEADPCMWAVEFORMAT;
 typedef CREATIVEADPCMWAVEFORMAT NEAR *NPCREATIVEADPCMWAVEFORMAT;
@@ -1174,8 +1174,8 @@ typedef CREATIVEADPCMWAVEFORMAT FAR  *LPCREATIVEADPCMWAVEFORMAT;
 // WAVEFORMAT_CREATIVE_FASTSPEECH8   (0x0202)
 //
 typedef struct creative_fastspeech8format_tag {
-	WAVEFORMATEX	wfx;
-	WORD wRevision;
+        WAVEFORMATEX    wfx;
+        WORD wRevision;
 } CREATIVEFASTSPEECH8WAVEFORMAT;
 typedef CREATIVEFASTSPEECH8WAVEFORMAT       *PCREATIVEFASTSPEECH8WAVEFORMAT;
 typedef CREATIVEFASTSPEECH8WAVEFORMAT NEAR *NPCREATIVEFASTSPEECH8WAVEFORMAT;
@@ -1185,8 +1185,8 @@ typedef CREATIVEFASTSPEECH8WAVEFORMAT FAR  *LPCREATIVEFASTSPEECH8WAVEFORMAT;
 // WAVEFORMAT_CREATIVE_FASTSPEECH10   (0x0203)
 //
 typedef struct creative_fastspeech10format_tag {
-	WAVEFORMATEX	wfx;
-	WORD wRevision;
+        WAVEFORMATEX    wfx;
+        WORD wRevision;
 } CREATIVEFASTSPEECH10WAVEFORMAT;
 typedef CREATIVEFASTSPEECH10WAVEFORMAT       *PCREATIVEFASTSPEECH10WAVEFORMAT;
 typedef CREATIVEFASTSPEECH10WAVEFORMAT NEAR *NPCREATIVEFASTSPEECH10WAVEFORMAT;
@@ -1201,8 +1201,8 @@ typedef CREATIVEFASTSPEECH10WAVEFORMAT FAR  *LPCREATIVEFASTSPEECH10WAVEFORMAT;
 //
 
 typedef struct fmtowns_snd_waveformat_tag {
-	WAVEFORMATEX    wfx;
-	WORD            wRevision;
+        WAVEFORMATEX    wfx;
+        WORD            wRevision;
 } FMTOWNS_SND_WAVEFORMAT;
 typedef FMTOWNS_SND_WAVEFORMAT       *PFMTOWNS_SND_WAVEFORMAT;
 typedef FMTOWNS_SND_WAVEFORMAT NEAR *NPFMTOWNS_SND_WAVEFORMAT;
@@ -1216,7 +1216,7 @@ typedef FMTOWNS_SND_WAVEFORMAT FAR  *LPFMTOWNS_SND_WAVEFORMAT;
 //
 
 typedef struct oligsmwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } OLIGSMWAVEFORMAT;
 typedef OLIGSMWAVEFORMAT     *POLIGSMWAVEFORMAT;
 typedef OLIGSMWAVEFORMAT NEAR *NPOLIGSMWAVEFORMAT;
@@ -1231,7 +1231,7 @@ typedef OLIGSMWAVEFORMAT  FAR  *LPOLIGSMWAVEFORMAT;
 //
 
 typedef struct oliadpcmwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } OLIADPCMWAVEFORMAT;
 typedef OLIADPCMWAVEFORMAT     *POLIADPCMWAVEFORMAT;
 typedef OLIADPCMWAVEFORMAT NEAR *NPOLIADPCMWAVEFORMAT ;
@@ -1248,7 +1248,7 @@ typedef OLIADPCMWAVEFORMAT  FAR  *LPOLIADPCMWAVEFORMAT;
 //
 
 typedef struct olicelpwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } OLICELPWAVEFORMAT;
 typedef OLICELPWAVEFORMAT     *POLICELPWAVEFORMAT;
 typedef OLICELPWAVEFORMAT NEAR *NPOLICELPWAVEFORMAT ;
@@ -1265,7 +1265,7 @@ typedef OLICELPWAVEFORMAT  FAR  *LPOLICELPWAVEFORMAT;
 //
 
 typedef struct olisbcwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } OLISBCWAVEFORMAT;
 typedef OLISBCWAVEFORMAT     *POLISBCWAVEFORMAT;
 typedef OLISBCWAVEFORMAT NEAR *NPOLISBCWAVEFORMAT ;
@@ -1282,7 +1282,7 @@ typedef OLISBCWAVEFORMAT  FAR  *LPOLISBCWAVEFORMAT;
 //
 
 typedef struct olioprwaveformat_tag {
-	WAVEFORMATEX    wfx;
+        WAVEFORMATEX    wfx;
 } OLIOPRWAVEFORMAT;
 typedef OLIOPRWAVEFORMAT     *POLIOPRWAVEFORMAT;
 typedef OLIOPRWAVEFORMAT NEAR *NPOLIOPRWAVEFORMAT ;
@@ -1304,8 +1304,8 @@ typedef OLIOPRWAVEFORMAT  FAR  *LPOLIOPRWAVEFORMAT;
 #ifndef _ACM_WAVEFILTER
 #define _ACM_WAVEFILTER
 
-#define WAVE_FILTER_UNKNOWN	    0x0000
-#define WAVE_FILTER_DEVELOPMENT	   (0xFFFF)
+#define WAVE_FILTER_UNKNOWN         0x0000
+#define WAVE_FILTER_DEVELOPMENT    (0xFFFF)
 
 typedef struct wavefilter_tag {
     DWORD   cbStruct;           /* Size of the filter in bytes */
@@ -1370,7 +1370,7 @@ struct tag_s_RIFFWAVE_inst {
     BYTE    bHighVelocity;
 };
 
-typedef struct tag_s_RIFFWAVE_INST s_RIFFWAVE_inst;
+typedef struct tag_s_RIFFWAVE_inst s_RIFFWAVE_inst;
 
 #endif
 
@@ -1442,20 +1442,20 @@ typedef struct tag_s_RIFFWAVE_INST s_RIFFWAVE_inst;
 /* Structure definitions */
 
 typedef struct tagEXBMINFOHEADER {
-	BITMAPINFOHEADER    bmi;
-	/* extended BITMAPINFOHEADER fields */
-	DWORD   biExtDataOffset;
-	
-	/* Other stuff will go here */
+        BITMAPINFOHEADER    bmi;
+        /* extended BITMAPINFOHEADER fields */
+        DWORD   biExtDataOffset;
 
-	/* ... */
+        /* Other stuff will go here */
 
-	/* Format-specific information */
-	/* biExtDataOffset points here */
-	
+        /* ... */
+
+        /* Format-specific information */
+        /* biExtDataOffset points here */
+
 } EXBMINFOHEADER;
 
-#endif		//NOBITMAP
+#endif          //NOBITMAP
 
 /* New DIB Compression Defines */
 
@@ -1621,9 +1621,9 @@ MJPGHDTSEG_STORAGE BYTE MJPGDHTSeg[0x1A4] = {
 #define FOURCC_RDSP mmioFOURCC('R', 'D', 'S', 'P')
 
 #ifndef MMNOMIXER
-#define MIXERCONTROL_CONTROLTYPE_SRS_MTS		(MIXERCONTROL_CONTROLTYPE_BOOLEAN + 6)
-#define MIXERCONTROL_CONTROLTYPE_SRS_ONOFF		(MIXERCONTROL_CONTROLTYPE_BOOLEAN + 7)
-#define MIXERCONTROL_CONTROLTYPE_SRS_SYNTHSELECT	(MIXERCONTROL_CONTROLTYPE_BOOLEAN + 8)
+#define MIXERCONTROL_CONTROLTYPE_SRS_MTS                (MIXERCONTROL_CONTROLTYPE_BOOLEAN + 6)
+#define MIXERCONTROL_CONTROLTYPE_SRS_ONOFF              (MIXERCONTROL_CONTROLTYPE_BOOLEAN + 7)
+#define MIXERCONTROL_CONTROLTYPE_SRS_SYNTHSELECT        (MIXERCONTROL_CONTROLTYPE_BOOLEAN + 8)
 #endif
 
 #ifndef RC_INVOKED

@@ -150,13 +150,13 @@ Return Value:
         NULL
         );
 
-    Status = NtOpenEvent( &EventHandle, SYNCHRONIZE, &ObjectAttributes );
+    Status = ZwOpenEvent( &EventHandle, SYNCHRONIZE, &ObjectAttributes );
     if (!NT_SUCCESS(Status)) {
         return(Status);
     }
 
-    Status = NtWaitForSingleObject( EventHandle, TRUE, NULL);
-    IgnoreStatus = NtClose( EventHandle );
+    Status = ZwWaitForSingleObject( EventHandle, TRUE, NULL);
+    IgnoreStatus = ZwClose( EventHandle );
     if (!NT_SUCCESS(Status)) {
         return(Status);
     }
@@ -217,6 +217,124 @@ Return Value:
     }
 
     (*SecurityMode) = ConnectInfo.SecurityMode;
+
+    return ConnectInfo.CompletionStatus;
+
+}
+
+
+NTSTATUS
+LsaConnectUntrusted(
+    OUT PHANDLE LsaHandle
+    )
+
+/*++
+
+Routine Description:
+
+    This service connects to the LSA server and sets up an untrusted
+    connection.  It does not check anything about the caller.
+
+Arguments:
+
+
+    LsaHandle - Receives a handle which must be provided in future
+        authenticaiton services.
+
+
+Return Value:
+
+    STATUS_SUCCESS - The call completed successfully.
+
+--*/
+
+{
+    NTSTATUS Status, IgnoreStatus;
+    UNICODE_STRING PortName, EventName;
+    LSAP_AU_REGISTER_CONNECT_INFO ConnectInfo;
+    ULONG ConnectInfoLength;
+    SECURITY_QUALITY_OF_SERVICE DynamicQos;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE EventHandle;
+
+
+
+    //
+    // Wait for LSA to initialize...
+    //
+
+
+    RtlInitUnicodeString( &EventName, L"\\SECURITY\\LSA_AUTHENTICATION_INITIALIZED" );
+    InitializeObjectAttributes(
+        &ObjectAttributes,
+        &EventName,
+        OBJ_CASE_INSENSITIVE,
+        0,
+        NULL
+        );
+
+    Status = ZwOpenEvent( &EventHandle, SYNCHRONIZE, &ObjectAttributes );
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
+
+    Status = ZwWaitForSingleObject( EventHandle, TRUE, NULL);
+    IgnoreStatus = ZwClose( EventHandle );
+    if (!NT_SUCCESS(Status)) {
+        return(Status);
+    }
+
+
+
+    //
+    // Set up the security quality of service parameters to use over the
+    // port.  Use the most efficient (least overhead) - which is dynamic
+    // rather than static tracking.
+    //
+
+    DynamicQos.ImpersonationLevel = SecurityImpersonation;
+    DynamicQos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
+    DynamicQos.EffectiveOnly = TRUE;
+
+
+
+
+    //
+    // Set up the connection information to contain the logon process
+    // name.
+    //
+
+    ConnectInfoLength = sizeof(LSAP_AU_REGISTER_CONNECT_INFO);
+    RtlZeroMemory(
+        &ConnectInfo,
+        ConnectInfoLength
+        );
+
+
+    //
+    // Connect to the LSA server
+    //
+
+    RtlInitUnicodeString(&PortName,L"\\LsaAuthenticationPort");
+    Status = ZwConnectPort(
+                 LsaHandle,
+                 &PortName,
+                 &DynamicQos,
+                 NULL,
+                 NULL,
+                 NULL,
+                 &ConnectInfo,
+                 &ConnectInfoLength
+                 );
+    if ( !NT_SUCCESS(Status) ) {
+        //DbgPrint("LSA AU: Logon Process Register failed %lx\n",Status);
+        return Status;
+    }
+
+    if ( !NT_SUCCESS(ConnectInfo.CompletionStatus) ) {
+        //DbgPrint("LSA AU: Logon Process Register rejected %lx\n",ConnectInfo.CompletionStatus);
+        ;
+    }
 
     return ConnectInfo.CompletionStatus;
 
@@ -748,13 +866,17 @@ Return Status:
 
     if ( NT_SUCCESS(Status) ) {
         Status = Message.ReturnedStatus;
-#if DBG
-        if ( !NT_SUCCESS(Status) ) {
+        if ( NT_SUCCESS(Status) ) {
+
+            NTSTATUS TempStatus;
+            TempStatus = ZwClose(LsaHandle);
+            ASSERT(NT_SUCCESS(TempStatus));
+        }
+        else {
             DbgPrint("LSA AU: DeRregisterLogonProcess Failed 0x%lx\n",Status);
         }
     } else {
         DbgPrint("LSA AU: Package Lookup NtRequestWaitReply Failed 0x%lx\n",Status);
-#endif //DBG
     }
 
     return Status;

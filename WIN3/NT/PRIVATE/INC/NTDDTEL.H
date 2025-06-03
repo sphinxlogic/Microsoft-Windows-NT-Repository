@@ -40,4 +40,3 @@ typedef struct _TELNET_IOCTL_INPUT_DATA {
 #define IOCTL_TELNET_PAUSE      0
 #define IOCTL_TELNET_CONTINUE   1
 
-

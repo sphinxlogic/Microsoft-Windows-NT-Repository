@@ -204,11 +204,9 @@ Return Value:
     //
         Inner: while (TRUE) {
 
-            SourceChild = CmpFindSubKeyByNumber(
-                            CmpSourceHive,
-                            Frame->SourceCell,
-                            Frame->i
-                            );
+            SourceChild = CmpFindSubKeyByNumber(CmpSourceHive,
+                                                (PCM_KEY_NODE)HvGetCell(CmpSourceHive,Frame->SourceCell),
+                                                Frame->i);
 
             if (SourceChild == HCELL_NIL) {
                 break;
@@ -335,7 +333,7 @@ Return Value:
     BOOLEAN success = FALSE;
     ULONG   i;
     PCELL_DATA psrckey;
-    PCELL_DATA ptarkey;
+    PCM_KEY_NODE ptarkey;
     PCELL_DATA psrclist;
     PCELL_DATA ptarlist;
     PCELL_DATA psrcsecurity;
@@ -343,7 +341,6 @@ Return Value:
     HCELL_INDEX class;
     ULONG   classlength;
     ULONG   count;
-    CM_KEY_REFERENCE key;
     ULONG   Type;
 
     CMLOG(CML_MINOR, CMS_SAVRES) {
@@ -390,34 +387,31 @@ Return Value:
     //
     // Fill in the target body
     //
-    ptarkey = HvGetCell(TargetHive, newkey);
+    ptarkey = (PCM_KEY_NODE)HvGetCell(TargetHive, newkey);
 
-    ptarkey->u.KeyNode.u1.s1.Class = newclass;
-    ptarkey->u.KeyNode.u1.s1.Security = HCELL_NIL;
-    ptarkey->u.KeyNode.SubKeyLists[Stable] = HCELL_NIL;
-    ptarkey->u.KeyNode.SubKeyLists[Volatile] = HCELL_NIL;
-    ptarkey->u.KeyNode.SubKeyCounts[Stable] = 0;
-    ptarkey->u.KeyNode.SubKeyCounts[Volatile] = 0;
-    ptarkey->u.KeyNode.Parent = Parent;
+    ptarkey->u1.s1.Class = newclass;
+    ptarkey->u1.s1.Security = HCELL_NIL;
+    ptarkey->SubKeyLists[Stable] = HCELL_NIL;
+    ptarkey->SubKeyLists[Volatile] = HCELL_NIL;
+    ptarkey->SubKeyCounts[Stable] = 0;
+    ptarkey->SubKeyCounts[Volatile] = 0;
+    ptarkey->Parent = Parent;
 
-    ptarkey->u.KeyNode.Flags = (psrckey->u.KeyNode.Flags & KEY_COMP_NAME);
+    ptarkey->Flags = (psrckey->u.KeyNode.Flags & KEY_COMP_NAME);
     if (Parent == HCELL_NIL) {
-        ptarkey->u.KeyNode.Flags |= KEY_HIVE_ENTRY + KEY_NO_DELETE;
+        ptarkey->Flags |= KEY_HIVE_ENTRY + KEY_NO_DELETE;
     }
 
     //
     // Allocate and copy security
     //
-    key.KeyHive = TargetHive;
-    key.KeyCell = newkey;
-
     psrcsecurity = HvGetCell(SourceHive, security);
 
-    status = CmpAssignSecurityDescriptor(
-                &key,
-                &(psrcsecurity->u.KeySecurity.Descriptor),
-                PagedPool
-                );
+    status = CmpAssignSecurityDescriptor(TargetHive,
+                                         newkey,
+                                         ptarkey,
+                                         &(psrcsecurity->u.KeySecurity.Descriptor),
+                                         PagedPool);
     if (!NT_SUCCESS(status)) {
         goto DoFinally;
     }
@@ -429,8 +423,8 @@ Return Value:
     count = psrckey->u.KeyNode.ValueList.Count;
 
     if ((count == 0) || (CopyValues == FALSE)) {
-        ptarkey->u.KeyNode.ValueList.List = HCELL_NIL;
-        ptarkey->u.KeyNode.ValueList.Count = 0;
+        ptarkey->ValueList.List = HCELL_NIL;
+        ptarkey->ValueList.Count = 0;
         success = TRUE;
     } else {
 
@@ -444,7 +438,7 @@ Return Value:
         if (newlist == HCELL_NIL) {
             goto DoFinally;
         }
-        ptarkey->u.KeyNode.ValueList.List = newlist;
+        ptarkey->ValueList.List = newlist;
         ptarlist = HvGetCell(TargetHive, newlist);
 
 
@@ -674,4 +668,3 @@ Return Value:
 
     return newcell;
 }
-

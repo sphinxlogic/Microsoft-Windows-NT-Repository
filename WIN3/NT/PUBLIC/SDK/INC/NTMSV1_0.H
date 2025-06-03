@@ -216,6 +216,8 @@ typedef struct _MSV1_0_INTERACTIVE_PROFILE {
 #define MSV1_0_UPDATE_LOGON_STATISTICS       0x04
 #define MSV1_0_RETURN_USER_PARAMETERS        0x08
 #define MSV1_0_DONT_TRY_GUEST_ACCOUNT        0x10
+#define MSV1_0_ALLOW_SERVER_TRUST_ACCOUNT    0x20
+#define MSV1_0_RETURN_PASSWORD_EXPIRY        0x40
 
 //
 // The high order byte is a value indicating the SubAuthentication DLL.
@@ -242,11 +244,13 @@ typedef struct _MSV1_0_LM20_LOGON {
 // Values for UserFlags.
 //
 
-#define LOGON_GUEST             0x01
-#define LOGON_NOENCRYPTION      0x02
-#define LOGON_CACHED_ACCOUNT    0x04
-#define LOGON_USED_LM_PASSWORD  0x08
-#define LOGON_EXTRA_SIDS        0x20
+#define LOGON_GUEST                 0x01
+#define LOGON_NOENCRYPTION          0x02
+#define LOGON_CACHED_ACCOUNT        0x04
+#define LOGON_USED_LM_PASSWORD      0x08
+#define LOGON_EXTRA_SIDS            0x20
+#define LOGON_SUBAUTH_SESSION_KEY   0x40
+#define LOGON_SERVER_TRUST_ACCOUNT  0x80
 
 //
 // The high order byte is reserved for return by SubAuthentication DLLs.
@@ -292,7 +296,8 @@ typedef enum _MSV1_0_PROTOCOL_MESSAGE_TYPE {
     MsV1_0EnumerateUsers,                    // Both submission and response
     MsV1_0GetUserInfo,                       // Both submission and response
     MsV1_0ReLogonUsers,                      // Submission only
-    MsV1_0ChangePassword                     // Both submission and response
+    MsV1_0ChangePassword,                    // Both submission and response
+    MsV1_0ChangeCachedPassword               // Both submission and response
 } MSV1_0_PROTOCOL_MESSAGE_TYPE, *PMSV1_0_PROTOCOL_MESSAGE_TYPE;
 
 //
@@ -380,7 +385,13 @@ typedef struct _MSV1_0_RELOGON_REQUEST {
 } MSV1_0_RELOGON_REQUEST, *PMSV1_0_RELOGON_REQUEST;
 
 //
-// MsV1_0ChangePassword submit buffer
+// MsV1_0ChangePassword and MsV1_0ChangeCachedPassword submit buffer
+//
+// MsV1_0ChangePassword changes the password on the SAM account plus
+//  the password cache and logon credentials if applicable.
+//
+// MsV1_0ChangeCachedPassword only changes the password cache and the logon
+//  credentials.
 //
 
 typedef struct _MSV1_0_CHANGEPASSWORD_REQUEST {

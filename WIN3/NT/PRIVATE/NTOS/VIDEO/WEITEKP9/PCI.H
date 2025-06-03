@@ -31,37 +31,13 @@ PciFindDevice(
     IN OUT  PULONG                  pulSlotNum
     );
 
-BOOLEAN
-PciReadConfigReg(
-    IN  PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN  ULONG                   ulSlotNum,
-    IN  USHORT                  usRegNum,
-    OUT PULONG                  pulValue,
-    IN  USHORT                  usSize
-    );
-
-BOOLEAN
-PciWriteConfigReg(
-    IN  PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN  ULONG                   ulSlotNum,
-    IN  USHORT                  usRegNum,
-    IN  ULONG                   ulValue,
-    IN  USHORT                  usSize
-    );
-
-BOOLEAN
-PciMapMemory(
-    IN      PHW_DEVICE_EXTENSION    HwDeviceExtension,
-    IN      ULONG                   ulRangeLen,
-    IN      BOOLEAN                 bInIoSpace,
-    IN OUT  PULONG                  pulPhysAddr
-    );
-
 //
 // Externals used by the PCI routines.
 //
 
 extern  VIDEO_ACCESS_RANGE  VLDefDACRegRange[];
+
+#if 0
 
 //
 // Define P9 register/frame buffer addresses using the OEM's default
@@ -69,6 +45,8 @@ extern  VIDEO_ACCESS_RANGE  VLDefDACRegRange[];
 //
 
 #define MemBase             0xA0000000
+
+#endif
 
 //
 // Bit to write to the sequencer control register to enable/disable P9
@@ -95,17 +73,20 @@ extern  VIDEO_ACCESS_RANGE  VLDefDACRegRange[];
 #define WTK_VENDOR_ID   (USHORT) 0x100E
 #define WTK_9001_ID     (USHORT) 0x9001
 #define WTK_9002_ID     (USHORT) 0x9002
-#define P9001_IO_RANGE  0xc04
+
+#define P9001_IO_RANGE  0x1000 // 4K worth of IO ports.
+
+#define WTK_9100_ID     (USHORT) 0x9100 
 
 //
 // Weitek P9001 specific configuration space registers.
 //
 
-#define P9001_CMD_REG           0x04l
-#define P9001_REV_ID            0x08l
-#define P9001_BASE_ADDR         0x10l
-#define P9001_REG_BASE          0x14l
-#define P9001_BIOS_BASE_ADDR    0x30l
+#define P9001_CMD_REG           0x04
+#define P9001_REV_ID            0x08
+#define P9001_BASE_ADDR         0x10
+#define P9001_REG_BASE          0x14
+#define P9001_BIOS_BASE_ADDR    0x30
 #define WTK_VGA_PRESENT         0x300
 
 //
@@ -123,7 +104,7 @@ extern  VIDEO_ACCESS_RANGE  VLDefDACRegRange[];
 //
 
 #define VIPER_ID_STR    "VIPER"
-#define BIOS_RANGE_LEN   0x8000l
+#define BIOS_RANGE_LEN   0x8000
 
 //
 // Misc PCI definitions.
@@ -175,23 +156,3 @@ extern  VIDEO_ACCESS_RANGE  VLDefDACRegRange[];
 #define RS_D_PCI_9002_ADDR    0x00C1
 #define RS_E_PCI_9002_ADDR    0x00C2
 #define RS_F_PCI_9002_ADDR    0x00C3
-
-//
-// Defines for PCI specific registers in the Device Extension OEM registers
-// array.
-//
-
-#define PCI_REG_BASE        (HwDeviceExtension->pOEMRegs[0])
-#define PCI_SLOT_NUM        (HwDeviceExtension->pOEMRegs[1])
-
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/pci.h_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:42:30   robk
- * Initial revision.
-
---*/

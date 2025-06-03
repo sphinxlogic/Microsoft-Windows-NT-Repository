@@ -48,11 +48,11 @@ typedef struct _MMSUPPORT {
     ULONG PageFaultCount;
     ULONG PeakWorkingSetSize;
     ULONG WorkingSetSize;
-    USHORT MinimumWorkingSetSize;
-    USHORT MaximumWorkingSetSize;
+    ULONG MinimumWorkingSetSize;
+    ULONG MaximumWorkingSetSize;
     struct _MMWSL *VmWorkingSetList;
     LIST_ENTRY WorkingSetExpansionLinks;
-    BOOLEAN AllowWorkingSetAdjustment;
+    UCHAR AllowWorkingSetAdjustment;
     BOOLEAN AddressSpaceBeingDeleted;
     UCHAR ForegroundSwitchCount;
     UCHAR MemoryPriority;
@@ -105,6 +105,9 @@ typedef struct _PAGEFAULT_HISTORY {
 } PAGEFAULT_HISTORY, *PPAGEFAULT_HISTORY;
 #endif // DEVL
 
+#define PS_WS_TRIM_FROM_EXE_HEADER        1
+#define PS_WS_TRIM_BACKGROUND_ONLY_APP    2
+
 //
 // Process structure.
 //
@@ -149,7 +152,7 @@ typedef struct _EPROCESS {
 
     PVOID DebugPort;
     PVOID ExceptionPort;
-    PVOID ObjectTable;
+    PHANDLE_TABLE ObjectTable;
 
     //
     // Security
@@ -168,7 +171,9 @@ typedef struct _EPROCESS {
     FAST_MUTEX AddressCreationLock;
     KSPIN_LOCK HyperSpaceLock;
     struct _ETHREAD *ForkInProgress;
-    ULONG VmOperation;
+    USHORT VmOperation;
+    BOOLEAN ForkWasSuccessful;
+    UCHAR MmAgressiveWsTrimMask;
     PKEVENT VmOperationEvent;
     HARDWARE_PTE PageDirectoryPte;
     ULONG LastFaultCount;
@@ -178,8 +183,7 @@ typedef struct _EPROCESS {
     PVOID CloneRoot;
     ULONG NumberOfPrivatePages;
     ULONG NumberOfLockedPages;
-    BOOLEAN ForkWasSuccessful;
-    UCHAR NextPageColor;
+    USHORT NextPageColor;
     BOOLEAN ExitProcessCalled;
 
     //
@@ -199,7 +203,7 @@ typedef struct _EPROCESS {
     PEPROCESS_QUOTA_BLOCK QuotaBlock;
     NTSTATUS LastThreadExitStatus;
     PPAGEFAULT_HISTORY WorkingSetWatch;
-    PVOID LpcPort;
+    HANDLE Win32WindowStation;
     HANDLE InheritedFromUniqueProcessId;
     ACCESS_MASK GrantedAccess;
     ULONG DefaultHardErrorProcessing;
@@ -211,6 +215,15 @@ typedef struct _EPROCESS {
     UCHAR ImageFileName[ 16 ];
     ULONG VmTrimFaultValue;
     BOOLEAN SetTimerResolution;
+    UCHAR PriorityClass;
+    union {
+        struct {
+            UCHAR SubSystemMinorVersion;
+            UCHAR SubSystemMajorVersion;
+        };
+        USHORT SubSystemVersion;
+    };
+    PVOID Win32Process;
 } EPROCESS;
 
 typedef EPROCESS *PEPROCESS;
@@ -270,7 +283,7 @@ typedef struct _ETHREAD {
     //
 
     ULONG PerformanceCountLow;
-    PPS_IMPERSONATION_INFORMATION Client;
+    PPS_IMPERSONATION_INFORMATION ImpersonationInfo;
 
 
     //
@@ -312,7 +325,7 @@ typedef struct _ETHREAD {
     BOOLEAN LpcExitThreadCalled;
     BOOLEAN HardErrorsAreDisabled;
     BOOLEAN LpcReceivedMsgIdValid;
-    BOOLEAN SpareBoolean2;
+    BOOLEAN ActiveImpersonationInfo;
     LONG PerformanceCountHigh;
 } ETHREAD;
 typedef ETHREAD *PETHREAD;
@@ -322,14 +335,18 @@ typedef ETHREAD *PETHREAD;
 //
 
 typedef struct _INITIAL_PEB {
-    BOOLEAN InheritedAddressSpace;
-    HANDLE Mutant;
+    BOOLEAN InheritedAddressSpace;      // These four fields cannot change unless the
+    BOOLEAN ReadImageFileExecOptions;   //
+    BOOLEAN BeingDebugged;              //
+    BOOLEAN SpareBool;                  //
+    HANDLE Mutant;                      // PEB structure is also updated.
 } INITIAL_PEB, *PINITIAL_PEB;
 
 //
 // Global Variables
 //
 
+extern ULONG PsPrioritySeperation;
 extern LIST_ENTRY PsActiveProcessHead;
 extern UNICODE_STRING PsNtDllPathName;
 extern PVOID PsSystemDllBase;
@@ -358,6 +375,11 @@ BOOLEAN
 PsInitSystem (
     IN ULONG Phase,
     IN PLOADER_PARAMETER_BLOCK LoaderBlock
+    );
+
+NTSTATUS
+PsLocateSystemDll (
+    VOID
     );
 
 //
@@ -418,10 +440,56 @@ PsCreateSystemProcess(
     IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL
     );
 
-// begin_ntifs
+typedef
+VOID (*PLEGO_NOTIFY_ROUTINE)(
+    PKTHREAD Thread
+    );
+
+ULONG
+PsSetLegoNotifyRoutine(
+    PLEGO_NOTIFY_ROUTINE LegoNotifyRoutine
+    );
+
+// begin_ntifs begin_ntddk
+
+typedef
+VOID
+(*PCREATE_PROCESS_NOTIFY_ROUTINE)(
+    IN HANDLE ParentId,
+    IN HANDLE ProcessId,
+    IN BOOLEAN Create
+    );
+
+NTSTATUS
+PsSetCreateProcessNotifyRoutine(
+    IN PCREATE_PROCESS_NOTIFY_ROUTINE NotifyRoutine,
+    IN BOOLEAN Remove
+    );
+
+typedef
+VOID
+(*PCREATE_THREAD_NOTIFY_ROUTINE)(
+    IN HANDLE ProcessId,
+    IN HANDLE ThreadId,
+    IN BOOLEAN Create
+    );
+
+NTSTATUS
+PsSetCreateThreadNotifyRoutine(
+    IN PCREATE_THREAD_NOTIFY_ROUTINE NotifyRoutine
+    );
+
+// end_ntddk
+
 //
 // Security Support
 //
+
+NTSTATUS
+PsAssignImpersonationToken(
+    IN PETHREAD Thread,
+    IN HANDLE Token
+    );
 
 PACCESS_TOKEN
 PsReferencePrimaryToken(
@@ -649,6 +717,55 @@ PsForwardException (
     IN BOOLEAN SecondChance
     );
 
+typedef
+NTSTATUS
+(*PKWIN32_PROCESS_CALLOUT) (
+    IN PVOID Process,
+    IN BOOLEAN Initialize
+    );
+
+typedef enum _PSW32THREADCALLOUTTYPE {
+    PsW32ThreadCalloutInitialize,
+    PsW32ThreadCalloutExit,
+    PsW32ThreadCalloutDelete
+} PSW32THREADCALLOUTTYPE;
+
+typedef
+NTSTATUS
+(*PKWIN32_THREAD_CALLOUT) (
+    IN PVOID Thread,
+    IN PSW32THREADCALLOUTTYPE CalloutType
+    );
+
+NTKERNELAPI
+VOID
+PsEstablishWin32Callouts(
+    IN PKWIN32_PROCESS_CALLOUT ProcessCallout,
+    IN PKWIN32_THREAD_CALLOUT ThreadCallout,
+    IN PKWIN32_GLOBALATOMTABLE_CALLOUT GlobalAtomTableCallout,
+    IN PVOID BatchFlushRoutine,
+    IN ULONG ProcessSize,
+    IN ULONG ThreadSize
+    );
+
+NTKERNELAPI
+NTSTATUS
+PsCreateWin32Process(
+    IN PEPROCESS Process
+    );
+
+typedef enum _PSPROCESSPRIORITYMODE {
+    PsProcessPriorityBackground,
+    PsProcessPriorityForeground,
+    PsProcessPrioritySpinning
+} PSPROCESSPRIORITYMODE;
+
+NTKERNELAPI
+VOID
+PsSetProcessPriorityByClass(
+    IN PEPROCESS Process,
+    IN PSPROCESSPRIORITYMODE PriorityMode
+    );
 
 #if DEVL
 NTSTATUS
@@ -659,5 +776,23 @@ PsWatchWorkingSet(
     );
 
 #endif // DEVL
+
+// begin_ntddk begin_nthal begin_ntifs
+
+HANDLE
+PsGetCurrentProcessId( VOID );
+
+HANDLE
+PsGetCurrentThreadId( VOID );
+
+BOOLEAN
+PsGetVersion(
+    PULONG MajorVersion OPTIONAL,
+    PULONG MinorVersion OPTIONAL,
+    PULONG BuildNumber OPTIONAL,
+    PUNICODE_STRING CSDVersion OPTIONAL
+    );
+
+// end_ntddk end_nthal end_ntifs
 
 #endif // _PS_

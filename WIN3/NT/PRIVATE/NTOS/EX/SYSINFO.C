@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This module implements the NT set anmd query system information services.
+    This module implements the NT set and query system information services.
 
 Author:
 
@@ -23,16 +23,20 @@ Revision History:
 --*/
 
 #include "exp.h"
-#include "pool.h"
-#include "zwapi.h"
+#pragma hdrstop
+
 #include "stdlib.h"
 #include "string.h"
 #include "vdmntos.h"
+#include <nturtl.h>
+#include "pool.h"
+#include "stktrace.h"
+#include "..\..\..\inc\alpha.h"
+
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'ofnI');
 
 #define PSP_INVALID_ID 2        // BUGBUG - Copied from ps\psp.h
 extern PVOID PspCidTable;       // BUGBUG - Copied from ps\psp.h
-
-extern KiServiceLimit;
 
 extern ULONG MmAvailablePages;
 extern ULONG MmTotalCommittedPages;
@@ -47,10 +51,17 @@ extern ULONG MmPagedPoolPage;
 extern ULONG MmSystemDriverPage;
 extern ULONG MmTotalSystemCodePages;
 extern ULONG MmTotalSystemDriverPages;
+extern RTL_TIME_ZONE_INFORMATION ExpTimeZoneInformation;
 
-#if DBG
+//
+// For SystemDpcBehaviorInformation
+//
+extern ULONG KiMaximumDpcQueueDepth;
+extern ULONG KiMinimumDpcRate;
+extern ULONG KiAdjustDpcThreshold;
+extern ULONG KiIdealDpcRate;
+
 extern LIST_ENTRY MmLoadedUserImageList;
-#endif // DBG
 
 extern MMSUPPORT MmSystemCacheWs;
 
@@ -76,18 +87,26 @@ ExpCopyThreadInfo (
     IN PETHREAD Thread
     );
 
-#if DEVL
+#if i386 && !FPO
 NTSTATUS
 ExpGetStackTraceInformation (
     OUT PVOID SystemInformation,
     IN ULONG SystemInformationLength,
     OUT PULONG Length
     );
+#endif // i386 && !FPO
 
 NTSTATUS
 ExpGetLockInformation (
     OUT PVOID SystemInformation,
     IN ULONG SystemInformationLength,
+    OUT PULONG Length
+    );
+
+NTSTATUS
+ExpGetLookasideInformation (
+    OUT PVOID Buffer,
+    IN ULONG BufferLength,
     OUT PULONG Length
     );
 
@@ -123,10 +142,17 @@ NTSTATUS
 ExpGetPoolTagInfo (
     IN PVOID SystemInformation,
     IN ULONG SystemInformationLength,
-    IN OUT PULONG ReturnLength
+    IN OUT PULONG ReturnLength OPTIONAL
     );
 
-#endif // DEVL
+NTSTATUS
+ExpQueryModuleInformation(
+    IN PLIST_ENTRY LoadOrderListHead,
+    IN PLIST_ENTRY UserModeLoadOrderListHead,
+    OUT PRTL_PROCESS_MODULES ModuleInformation,
+    IN ULONG ModuleInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+    );
 
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE, NtQueryDefaultLocale)
@@ -136,10 +162,12 @@ ExpGetPoolTagInfo (
 #pragma alloc_text(PAGE, ExpGetHandleInformation)
 #pragma alloc_text(PAGE, ExpGetObjectInformation)
 #pragma alloc_text(PAGE, ExpGetPoolTagInfo)
+#pragma alloc_text(PAGE, ExpQueryModuleInformation)
+#pragma alloc_text(PAGE, ExpCopyProcessInfo)
 #pragma alloc_text(PAGELK, ExpGetProcessInformation)
-#pragma alloc_text(PAGELK, ExpCopyProcessInfo)
 #pragma alloc_text(PAGELK, ExpCopyThreadInfo)
 #pragma alloc_text(PAGELK, ExpGetLockInformation)
+#pragma alloc_text(PAGELK, ExpGetLookasideInformation)
 #pragma alloc_text(PAGELK, ExpGetPoolInformation)
 #endif
 
@@ -364,8 +392,7 @@ Arguments:
 
             SYSTEM_BASIC_INFORMATION Structure
 
-                ULONG OemMachineId - An OEM specific bit pattern that
-                    identifies the machine configuration.
+                ULONG Reserved - Always zero.
 
                 ULONG TimerResolutionInMicroSeconds - The resolution of
                     the hardware time.  All time values in NT are
@@ -406,14 +433,73 @@ Arguments:
 
             SYSTEM_PROCESSOR_INFORMATION Structure
 
-                ULONG ProcessorType - The processor type.  May be one of:
-                    PROCESSOR_INTEL_386, PROCESSOR_INTEL_486,
-                    PROCESSOR_MIPS_R2000, PROCESSOR_MIPS_R3000
-                    or PROCESSOR_MIPS_R4000
+                USHORT ProcessorArchitecture - The processor architecture:
+                    PROCESSOR_ARCHITECTURE_INTEL
+                    PROCESSOR_ARCHITECTURE_MIPS
+                    PROCESSOR_ARCHITECTURE_ALPHA
+                    PROCESSOR_ARCHITECTURE_PPC
 
-                ULONG Reserved1.
+                USHORT ProcessorLevel - architecture dependent processor level.
+                    This is the least common denominator for an MP system:
 
-                ULONG Reserved2.
+                    For PROCESSOR_ARCHITECTURE_INTEL:
+                        3 - 386
+                        4 - 486
+                        5 - 586 or Pentium
+
+                    For PROCESSOR_ARCHITECTURE_MIPS:
+                        00xx - where xx is 8-bit implementation number (bits 8-15 of
+                            PRId register.
+                        0004 - R4000
+
+                    For PROCESSOR_ARCHITECTURE_ALPHA:
+                        xxxx - where xxxx is 16-bit processor version number (low
+                            order 16 bits of processor version number from firmware)
+
+                        21064 - 21064
+                        21066 - 21066
+                        21164 - 21164
+
+                    For PROCESSOR_ARCHITECTURE_PPC:
+                        xxxx - where xxxx is 16-bit processor version number (high
+                            order 16 bits of Processor Version Register).
+                        1 - 601
+                        3 - 603
+                        4 - 604
+                        6 - 603+
+                        9 - 604+
+                        20 - 620
+
+                USHORT ProcessorRevision - architecture dependent processor revision.
+                    This is the least common denominator for an MP system:
+
+                    For PROCESSOR_ARCHITECTURE_INTEL:
+                        For Old Intel 386 or 486:
+                            FFxx - where xx is display as a hexidecimal CPU stepping
+                            (e.g. FFD0 is D0 stepping)
+
+                        For Intel Pentium or Cyrix/NextGen 486
+                            xxyy - where xx is model number and yy is stepping, so
+                            0201 is Model 2, Stepping 1
+
+                    For PROCESSOR_ARCHITECTURE_MIPS:
+                        00xx is 8-bit revision number of processor (low order 8 bits
+                            of PRId Register
+
+                    For PROCESSOR_ARCHITECTURE_ALPHA:
+                        xxyy - where xxyy is 16-bit processor revision number (low
+                            order 16 bits of processor revision number from firmware).
+                            Displayed as Model 'A'+xx, Pass yy
+
+                    For PROCESSOR_ARCHITECTURE_PPC:
+                        xxyy - where xxyy is 16-bit processor revision number (low
+                            order 16 bits of Processor Version Register).  Displayed
+                            as a fixed point number xx.yy
+
+                USHORT Reserved - Always zero.
+
+                ULONG ProcessorFeatureBits - architecture dependent processor feature bits.
+                    This is the least common denominator for an MP system.
 
         SystemPerformanceInformation - Data type is SYSTEM_PERFORMANCE_INFORMATION
 
@@ -459,6 +545,93 @@ Arguments:
             SYSTEM_PROCESSOR_INFORMATION Structure
                 BUGBUG - add here when done.
 
+        SystemPlugPlayBusInformation - Data type is SYSTEM_PLUGPLAY_BUS_INFORMATION
+
+             SYSTEM_PLUGPLAY_BUS_INFORMATION Structure
+
+                 ULONG BusCount - Indicates the number of elements returned in the BusInstanceList array.
+
+                 PLUGPLAY_BUS_INSTANCE BusInstanceList[ANYSIZE_ARRAY] - Supplies information about busses
+                                                                        in the machine.
+
+        SystemDockInformation - Data type is SYSTEM_DOCK_INFORMATION
+
+             SYSTEM_DOCK_INFORMATION Structure
+
+                 SYSTEM_DOCKED_STATE DockState - Ordinal specifying the current docking state. Possible values:
+                     SystemDockStateUnknown - The docking state of the system could not be determined.
+                     SystemUndocked - The system is undocked.
+                     SystemDocked - The system is docked.
+
+                 ULONG DockIdLength - Specifies the length in characters of the Dock ID string
+                                      (not including terminating NULL).
+
+                 ULONG SerialNumberOffset - Specifies the character offset of the Serial Number within
+                                            the DockId buffer.
+
+                 ULONG SerialNumberLength - Specifies the length in characters of the Serial Number
+                                            string (not including terminating NULL).
+
+                 WCHAR DockId - Character buffer containing two null-terminated strings.  The first
+                                string is a character representation of the dock ID number, starting
+                                at the beginning of the buffer.  The second string is a character
+                                representation of the machine's serial number, starting at character
+                                offset SerialNumberOffset in the buffer.
+
+
+        SystemPowerSettings - Data type is SYSTEM_POWER_SETTINGS
+            SYSTEM_POWER_INFORMATION Structure
+                BOOLEAN SystemSuspendSupported - Supplies a BOOLEAN as to
+                    whether the system suspend is enabled or not.
+                BOOLEAN SystemHibernateSupported - Supplies a BOOLEAN as to
+                    whether the system hibernate is enabled or not.
+                BOOLEAN ResumeTimerSupportsSuspend - Supplies a BOOLEAN as to
+                    whether the resuming from an external programmed timer
+                    from within a system suspend is enabled or not.
+                BOOLEAN ResumeTimerSupportsHibernate - Supplies a BOOLEAN as to
+                    whether or resuming from an external programmed timer
+                    from within a system hibernate is enabled or not.
+                BOOLEAN LidSupported - Supplies a BOOLEAN as to whether or not
+                    the suspending and resuming by Lid are enabled or not.
+                BOOLEAN TurboSettingSupported - Supplies a BOOLEAN as to whether
+                    or not the system supports a turbo mode setting.
+                BOOLEAN TurboMode - Supplies a BOOLEAN as to whether or not
+                    the system is in turbo mode.
+                BOOLEAN SystemAcOrDc - Supplies a BOOLEAN as to whether or not
+                    the system is in AC mode.
+                BOOLEAN DisablePowerDown - If TRUE, signifies that all requests to
+                    PoRequestPowerChange for a SET_POWER-PowerDown irp are to
+                    be ingored.
+                LARGE_INTEGER SpindownDrives - If non-zero, signifies to the
+                    cache manager (or the IO susbsystem) to optimize drive
+                    accesses based upon power saves, are that drives are to
+                    be spun down as appropriate. The value represents to user's
+                    requested disk spin down timeout.
+
+        SystemProcessorSpeedInformation - Data type is SYSTEM_PROCESSOR_SPEED_INFORMATION
+            SYSTEM_PROCESSOR_SPEED_INFORMATION Structure (same as HalProcessorSpeedInformation)
+                ULONG MaximumProcessorSpeed - The maximum hertz the processor is
+                    capable of. This information is used by the UI to draw the
+                    appropriate scale. This field is read-only and cannot be
+                    set.
+                ULONG CurrentAvailableSpeed - The hertz for which the processor
+                    runs at when not idle. This field is read-only and cannot
+                    be set.
+                ULONG ConfiguredSpeedLimit - The herts for which the processor
+                    is limited to due to the current configuration.
+                UCHAR PowerState
+                    0 - Normal
+                    1 - The processors speed is being limited due to available
+                    power restrictions. This field id read-only by the system.
+                UCHAR ThermalState
+                    0 - Normal
+                    1 - The processors speed is being limited due to thermal
+                    restrictions. This field is read-only by the system.
+                UCHAR TurboState
+                    0 - Normal
+                    1 - The processors speed is being limited by the fact that
+                    the system turbo mode is currently disabled which is
+                    requested to obtain more processor speed.
 
     SystemInformationLength - Specifies the length in bytes of the system
         information buffer.
@@ -491,6 +664,7 @@ Return Value:
 --*/
 
 {
+
     KPROCESSOR_MODE PreviousMode;
     PSYSTEM_BASIC_INFORMATION BasicInfo;
     PSYSTEM_PROCESSOR_INFORMATION ProcessorInfo;
@@ -499,7 +673,6 @@ Return Value:
     PSYSTEM_PERFORMANCE_INFORMATION PerformanceInfo;
     PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION ProcessorPerformanceInfo;
     PSYSTEM_CALL_COUNT_INFORMATION CallCountInformation;
-    PSYSTEM_PATH_INFORMATION PathInfo;
     PSYSTEM_DEVICE_INFORMATION DeviceInformation;
     PCONFIGURATION_INFORMATION ConfigInfo;
     PSYSTEM_EXCEPTION_INFORMATION ExceptionInformation;
@@ -507,12 +680,33 @@ Return Value:
     PSYSTEM_QUERY_TIME_ADJUST_INFORMATION TimeAdjustmentInformation;
     PSYSTEM_KERNEL_DEBUGGER_INFORMATION KernelDebuggerInformation;
     PSYSTEM_CONTEXT_SWITCH_INFORMATION ContextSwitchInformation;
+    PSYSTEM_INTERRUPT_INFORMATION InterruptInformation;
+
+#ifdef _PNP_POWER_
+    BOOLEAN ReleasePlugPlayBusListResource = FALSE;
+    PLIST_ENTRY CurrentPnPBusListEntry, CurrentPnPBusInstance;
+    PPLUGPLAY_BUS_ENUMERATOR CurrentPnPBusEnumerator;
+    PSYSTEM_PLUGPLAY_BUS_INFORMATION PlugPlayBusInformation;
+    PHAL_SYSTEM_DOCK_INFORMATION HalDockInformation;
+    PSYSTEM_DOCK_INFORMATION DockInformation;
+    PSYSTEM_POWER_INFORMATION PowerInformation;
+    PSYSTEM_PROCESSOR_SPEED_INFORMATION ProcessorSpeedInfo;
+    union {
+        HAL_POWER_INFORMATION HalPower;
+        HAL_PROCESSOR_SPEED_INFORMATION HalProcessorSpeed;
+    } Info;
+
+    ULONG ReturnLengthFromHal;
+#endif // _PNP_POWER_
+
     NTSTATUS Status;
     BOOLEAN ReleaseModuleResoure = FALSE;
     PKPRCB Prcb;
     ULONG Length;
     ULONG i;
     ULONG ContextSwitches;
+    PULONG TableLimit, TableCounts;
+    PKSERVICE_TABLE_DESCRIPTOR Table;
 
     PAGED_CODE();
 
@@ -529,15 +723,19 @@ Return Value:
 
         PreviousMode = KeGetPreviousMode();
         if (PreviousMode != KernelMode) {
-
             ProbeForWrite(SystemInformation,
                           SystemInformationLength,
-                          sizeof(ULONG));
+                          SystemInformationClass == SystemKernelDebuggerInformation ? sizeof(BOOLEAN)
+                                                                                    : sizeof(ULONG));
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                ProbeForWriteUlong( ReturnLength );
-                }
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                ProbeForWriteUlong(ReturnLength);
             }
+        }
+
+        if (ARGUMENT_PRESENT(ReturnLength)) {
+            *ReturnLength = 0;
+        }
 
         switch (SystemInformationClass) {
 
@@ -550,7 +748,7 @@ Return Value:
             BasicInfo = (PSYSTEM_BASIC_INFORMATION)SystemInformation;
             BasicInfo->NumberOfProcessors = KeNumberProcessors;
             BasicInfo->ActiveProcessorsAffinityMask = KeActiveProcessors;
-            BasicInfo->OemMachineId = 0;
+            BasicInfo->Reserved = 0;
             BasicInfo->TimerResolution = KeMaximumIncrement;
             BasicInfo->NumberOfPhysicalPages = MmNumberOfPhysicalPages;
             BasicInfo->LowestPhysicalPageNumber = MmLowestPhysicalPage;
@@ -566,47 +764,22 @@ Return Value:
             break;
 
         case SystemProcessorInformation:
+            if (SystemInformationLength < sizeof( SYSTEM_PROCESSOR_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+            ProcessorInfo = (PSYSTEM_PROCESSOR_INFORMATION)SystemInformation;
+
+            ProcessorInfo->ProcessorArchitecture = KeProcessorArchitecture;
+            ProcessorInfo->ProcessorLevel = KeProcessorLevel;
+            ProcessorInfo->ProcessorRevision = KeProcessorRevision;
+            ProcessorInfo->Reserved = 0;
+            ProcessorInfo->ProcessorFeatureBits = KeFeatureBits;
+
             if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
+                *ReturnLength = sizeof( SYSTEM_PROCESSOR_INFORMATION );
                 }
 
-            i = KeNumberProcessors;
-            while (i--) {
-                if (SystemInformationLength < sizeof( SYSTEM_PROCESSOR_INFORMATION )) {
-                    return STATUS_INFO_LENGTH_MISMATCH;
-                    }
-
-                ProcessorInfo = (PSYSTEM_PROCESSOR_INFORMATION)SystemInformation;
-#ifdef i386
-                Prcb = KiProcessorBlock[i];
-                ProcessorInfo->ProcessorType = Prcb->CpuType * 100 + 86;
-#else
-#ifdef MIPS
-#ifdef R3000
-                ProcessorInfo->ProcessorType = PROCESSOR_MIPS_R3000;
-#endif // R3000
-#ifdef R4000
-                ProcessorInfo->ProcessorType = PROCESSOR_MIPS_R4000;
-#endif // R4000
-#else
-#ifdef ALPHA
-                ProcessorInfo->ProcessorType = PROCESSOR_ALPHA_21064;
-#else
-                *** Error *** Processor Type not defined
-#endif // Alpha
-#endif // MIPS
-#endif // i386
-
-                if (ARGUMENT_PRESENT( ReturnLength )) {
-                    *ReturnLength += sizeof( SYSTEM_PROCESSOR_INFORMATION );
-                    }
-                SystemInformationLength -= sizeof( SYSTEM_PROCESSOR_INFORMATION );
-                if (SystemInformationLength == 0) {
-                    break;
-                    }
-
-                ProcessorInfo++;
-                }
             break;
 
         case SystemPerformanceInformation:
@@ -615,19 +788,6 @@ Return Value:
                 }
 
             PerformanceInfo = (PSYSTEM_PERFORMANCE_INFORMATION)SystemInformation;
-
-            //
-            // Event Pair Information
-            //
-
-            LocalPerformanceInfo.EvPrWaitingLow = KeWaitReason[WrEventPair];
-
-            //
-            // Lpc information.
-            //
-
-            LocalPerformanceInfo.LpcThreadsWaitingInReceive = KeWaitReason[WrLpcReceive];
-            LocalPerformanceInfo.LpcThreadsWaitingForReply = KeWaitReason[WrLpcReply];
 
             //
             // Io information.
@@ -720,8 +880,10 @@ Return Value:
                               &LocalPerformanceInfo.NonPagedPoolPages,
                               &LocalPerformanceInfo.PagedPoolAllocs,
                               &LocalPerformanceInfo.PagedPoolFrees,
+                              &LocalPerformanceInfo.PagedPoolLookasideHits,
                               &LocalPerformanceInfo.NonPagedPoolAllocs,
-                              &LocalPerformanceInfo.NonPagedPoolFrees
+                              &LocalPerformanceInfo.NonPagedPoolFrees,
+                              &LocalPerformanceInfo.NonPagedPoolLookasideHits
                             );
 
             //
@@ -874,35 +1036,32 @@ Return Value:
             TimeAdjustmentInformation->Enable = KeTimeSynchronization;
             break;
 
-        case SystemPathInformation:
-            if (SystemInformationLength <
-                (sizeof( SYSTEM_PATH_INFORMATION ) + NtSystemPathString.MaximumLength)
-               ) {
+        case SystemSummaryMemoryInformation:
+        case SystemFullMemoryInformation:
+
+            if (SystemInformationLength < sizeof( SYSTEM_MEMORY_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
+            }
 
-            PathInfo = (PSYSTEM_PATH_INFORMATION)SystemInformation;
-            PathInfo->Path.Length = NtSystemPathString.Length;
-            PathInfo->Path.MaximumLength = NtSystemPathString.MaximumLength;
-            PathInfo->Path.Buffer = (PCHAR)(PathInfo + 1);
-            RtlMoveMemory( PathInfo->Path.Buffer,
-                           NtSystemPathString.Buffer,
-                           NtSystemPathString.MaximumLength
-                         );
+            Status = MmMemoryUsage (SystemInformation,
+                                    SystemInformationLength,
+             (SystemInformationClass == SystemFullMemoryInformation) ? 0 : 1,
+                                    &Length);
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = sizeof( SYSTEM_PATH_INFORMATION ) +
-                                NtSystemPathString.MaximumLength;
-                }
+            if (NT_SUCCESS(Status) && ARGUMENT_PRESENT( ReturnLength )) {
+                *ReturnLength = Length;
+            }
+            break;
+
+        case SystemPathInformation:
+            DbgPrint( "EX: SystemPathInformation now available via SharedUserData\n" );
+            DbgBreakPoint();
+            return STATUS_NOT_IMPLEMENTED;
             break;
 
         case SystemProcessInformation:
             if (SystemInformationLength < sizeof( SYSTEM_PROCESS_INFORMATION)) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
                 }
 
             Status = ExpGetProcessInformation (SystemInformation,
@@ -911,36 +1070,51 @@ Return Value:
 
             if (NT_SUCCESS(Status) && ARGUMENT_PRESENT( ReturnLength )) {
                 *ReturnLength = Length;
-                }
+            }
 
             break;
 
         case SystemCallCountInformation:
 
-//#if DBG
             Length = sizeof(SYSTEM_CALL_COUNT_INFORMATION) +
-                                    (sizeof(ULONG) * (KiServiceLimit - 1));
-
-            if (SystemInformationLength < Length) {
-                return STATUS_INFO_LENGTH_MISMATCH;
+                        (NUMBER_SERVICE_TABLES * sizeof(ULONG));
+            for ( i = 0, Table = KeServiceDescriptorTableShadow;
+                  i < NUMBER_SERVICE_TABLES;
+                  i++, Table++ ) {
+                if ( (Table->Limit != 0) && (Table->Count != NULL) ) {
+                    Length += Table->Limit * sizeof(ULONG);
                 }
-
-            CallCountInformation = (PSYSTEM_CALL_COUNT_INFORMATION)SystemInformation;
-            CallCountInformation->Length = Length;
-            CallCountInformation->TotalCalls = KiServiceLimit;
-
-            RtlMoveMemory((PVOID)&(CallCountInformation->NumberOfCalls[0]),
-                          (PVOID)KeServiceCountTable,
-                          KiServiceLimit * sizeof(ULONG));
+            }
 
             if (ARGUMENT_PRESENT( ReturnLength )) {
                 *ReturnLength = Length;
+            }
+
+            if (SystemInformationLength < Length) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            CallCountInformation = (PSYSTEM_CALL_COUNT_INFORMATION)SystemInformation;
+            CallCountInformation->Length = Length;
+            CallCountInformation->NumberOfTables = NUMBER_SERVICE_TABLES;
+
+            TableLimit = (PULONG)(CallCountInformation + 1);
+            TableCounts = TableLimit + NUMBER_SERVICE_TABLES;
+            for ( i = 0, Table = KeServiceDescriptorTableShadow;
+                  i < NUMBER_SERVICE_TABLES;
+                  i++, Table++ ) {
+                if ((Table->Limit == 0) || (Table->Count == NULL)) {
+                    *TableLimit++ = 0;
+                } else {
+                    *TableLimit++ = Table->Limit;
+                    RtlMoveMemory((PVOID)TableCounts,
+                                  (PVOID)Table->Count,
+                                  Table->Limit * sizeof(ULONG));
+                    TableCounts += Table->Limit;
                 }
+            }
 
             break;
-//#else
-//            return STATUS_NOT_IMPLEMENTED;
-//#endif //DBG
 
         case SystemDeviceInformation:
             if (SystemInformationLength != sizeof( SYSTEM_DEVICE_INFORMATION )) {
@@ -961,7 +1135,6 @@ Return Value:
                 }
             break;
 
-#if DEVL
         case SystemFlagsInformation:
             if (SystemInformationLength != sizeof( SYSTEM_FLAGS_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
@@ -973,23 +1146,16 @@ Return Value:
                 *ReturnLength = sizeof( SYSTEM_FLAGS_INFORMATION );
                 }
             break;
-#endif //DEVL
 
         case SystemCallTimeInformation:
             return STATUS_NOT_IMPLEMENTED;
 
-#if DEVL
         case SystemModuleInformation:
             KeEnterCriticalRegion();
             ExAcquireResourceExclusive( &PsLoadedModuleResource, TRUE );
             ReleaseModuleResoure = TRUE;
-            Status = RtlQueryModuleInformation( &PsLoadedModuleList,
-                                                NULL,
-#if DBG
+            Status = ExpQueryModuleInformation( &PsLoadedModuleList,
                                                 &MmLoadedUserImageList,
-#else
-                                                NULL,
-#endif // DBG
                                                 (PRTL_PROCESS_MODULES)SystemInformation,
                                                 SystemInformationLength,
                                                 ReturnLength
@@ -1000,12 +1166,8 @@ Return Value:
             break;
 
         case SystemLocksInformation:
-            if (SystemInformationLength < sizeof( RTL_PROCESS_LOCK_INFORMATION )) {
+            if (SystemInformationLength < sizeof( RTL_PROCESS_LOCKS )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
                 }
 
             Status = ExpGetLockInformation (SystemInformation,
@@ -1023,13 +1185,13 @@ Return Value:
                 return STATUS_INFO_LENGTH_MISMATCH;
                 }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-                }
-
+#if i386 && !FPO
             Status = ExpGetStackTraceInformation (SystemInformation,
                                                   SystemInformationLength,
                                                   &Length);
+#else
+            Status = STATUS_NOT_IMPLEMENTED;
+#endif // i386 && !FPO
 
             if (ARGUMENT_PRESENT( ReturnLength )) {
                 *ReturnLength = Length;
@@ -1038,12 +1200,8 @@ Return Value:
             break;
 
         case SystemPagedPoolInformation:
-            if (SystemInformationLength < sizeof( RTL_HEAP_INFORMATION )) {
+            if (SystemInformationLength < sizeof( SYSTEM_POOL_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
                 }
 
             Status = ExpGetPoolInformation( PagedPool,
@@ -1058,12 +1216,8 @@ Return Value:
             break;
 
         case SystemNonPagedPoolInformation:
-            if (SystemInformationLength < sizeof( RTL_HEAP_INFORMATION )) {
+            if (SystemInformationLength < sizeof( SYSTEM_POOL_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
                 }
 
             Status = ExpGetPoolInformation( NonPagedPool,
@@ -1082,10 +1236,6 @@ Return Value:
                 return STATUS_INFO_LENGTH_MISMATCH;
                 }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-                }
-
             Status = ExpGetHandleInformation( SystemInformation,
                                               SystemInformationLength,
                                               &Length
@@ -1099,10 +1249,6 @@ Return Value:
         case SystemObjectInformation:
             if (SystemInformationLength < sizeof( SYSTEM_OBJECTTYPE_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
                 }
 
             Status = ExpGetObjectInformation( SystemInformation,
@@ -1121,10 +1267,6 @@ Return Value:
                 return STATUS_INFO_LENGTH_MISMATCH;
                 }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-                }
-
             Status = MmGetPageFileInformation( SystemInformation,
                                                SystemInformationLength,
                                                &Length
@@ -1138,22 +1280,32 @@ Return Value:
 
         case SystemFileCacheInformation:
 
-            if (SystemInformationLength < sizeof( SYSTEM_FILECACHE_INFORMATION )) {
-                return STATUS_INFO_LENGTH_MISMATCH;
-                }
+            //
+            // This structure was extended in NT 4.0 from 12 bytes.
+            // Use the previous size of 12 bytes for versioning info.
+            //
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-                }
+            if (SystemInformationLength < 12) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
 
             FileCache = (PSYSTEM_FILECACHE_INFORMATION)SystemInformation;
             FileCache->CurrentSize = MmSystemCacheWs.WorkingSetSize << PAGE_SHIFT;
             FileCache->PeakSize = MmSystemCacheWs.PeakWorkingSetSize << PAGE_SHIFT;
             FileCache->PageFaultCount = MmSystemCacheWs.PageFaultCount;
 
+            i = 12;
+            if (SystemInformationLength >= sizeof( SYSTEM_FILECACHE_INFORMATION )) {
+                i = sizeof (SYSTEM_FILECACHE_INFORMATION);
+                FileCache->MinimumWorkingSet =
+                                MmSystemCacheWs.MinimumWorkingSetSize;
+                FileCache->MaximumWorkingSet =
+                                MmSystemCacheWs.MaximumWorkingSetSize;
+            }
+
             if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = sizeof(SYSTEM_FILECACHE_INFORMATION);
-                }
+                *ReturnLength = i;
+            }
             break;
 
         case SystemPoolTagInformation:
@@ -1161,11 +1313,8 @@ Return Value:
 #ifdef POOL_TAGGING
             if (SystemInformationLength < sizeof( SYSTEM_POOLTAG_INFORMATION )) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-                }
+            }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-                }
             Status = ExpGetPoolTagInfo (SystemInformation,
                                         SystemInformationLength,
                                         ReturnLength);
@@ -1181,10 +1330,6 @@ Return Value:
                 return STATUS_INFO_LENGTH_MISMATCH;
             }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-            }
-
             Status = ExpGetInstemulInformation(
                                             (PSYSTEM_VDM_INSTEMUL_INFO)SystemInformation
                                             );
@@ -1196,9 +1341,6 @@ Return Value:
             Status = STATUS_NOT_IMPLEMENTED;
 #endif
             break;
-
-
-#endif // DEVL
 
 #if DBG
         case SystemNextEventIdInformation:
@@ -1243,10 +1385,6 @@ Return Value:
                 return STATUS_INFO_LENGTH_MISMATCH;
             }
 
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
-            }
-
             Status = MmGetCrashDumpInformation (
                            (PSYSTEM_CRASH_DUMP_INFORMATION)SystemInformation);
 
@@ -1285,6 +1423,7 @@ Return Value:
                 ULONG AlignmentFixupCount = 0;
                 ULONG ExceptionDispatchCount = 0;
                 ULONG FloatingEmulationCount = 0;
+                ULONG ByteWordEmulationCount = 0;
 
                 for (i = 0; i < (ULONG)KeNumberProcessors; i += 1) {
                     Prcb = KiProcessorBlock[i];
@@ -1292,12 +1431,16 @@ Return Value:
                         AlignmentFixupCount += Prcb->KeAlignmentFixupCount;
                         ExceptionDispatchCount += Prcb->KeExceptionDispatchCount;
                         FloatingEmulationCount += Prcb->KeFloatingEmulationCount;
+#if defined(_ALPHA_)
+                        ByteWordEmulationCount += Prcb->KeByteWordEmulationCount;
+#endif // defined(_ALPHA_)
                     }
                 }
 
                 ExceptionInformation->AlignmentFixupCount = AlignmentFixupCount;
                 ExceptionInformation->ExceptionDispatchCount = ExceptionDispatchCount;
                 ExceptionInformation->FloatingEmulationCount = FloatingEmulationCount;
+                ExceptionInformation->ByteWordEmulationCount = ByteWordEmulationCount;
             }
 
             break;
@@ -1306,10 +1449,6 @@ Return Value:
 
             if (SystemInformationLength < sizeof( SYSTEM_CRASH_STATE_INFORMATION)) {
                 return STATUS_INFO_LENGTH_MISMATCH;
-            }
-
-            if (ARGUMENT_PRESENT( ReturnLength )) {
-                *ReturnLength = 0;
             }
 
             Status = MmGetCrashDumpStateInformation (
@@ -1340,7 +1479,6 @@ Return Value:
 
         case SystemContextSwitchInformation:
 
-//#if DBG
             if (SystemInformationLength < sizeof( SYSTEM_CONTEXT_SWITCH_INFORMATION)) {
                 return STATUS_INFO_LENGTH_MISMATCH;
             }
@@ -1365,9 +1503,11 @@ Return Value:
             ContextSwitchInformation->ContextSwitches = ContextSwitches;
             ContextSwitchInformation->FindAny = KeThreadSwitchCounters.FindAny;
             ContextSwitchInformation->FindLast = KeThreadSwitchCounters.FindLast;
+            ContextSwitchInformation->FindIdeal = KeThreadSwitchCounters.FindIdeal;
             ContextSwitchInformation->IdleAny = KeThreadSwitchCounters.IdleAny;
             ContextSwitchInformation->IdleCurrent = KeThreadSwitchCounters.IdleCurrent;
             ContextSwitchInformation->IdleLast = KeThreadSwitchCounters.IdleLast;
+            ContextSwitchInformation->IdleIdeal = KeThreadSwitchCounters.IdleIdeal;
             ContextSwitchInformation->PreemptAny = KeThreadSwitchCounters.PreemptAny;
             ContextSwitchInformation->PreemptCurrent = KeThreadSwitchCounters.PreemptCurrent;
             ContextSwitchInformation->PreemptLast = KeThreadSwitchCounters.PreemptLast;
@@ -1378,11 +1518,321 @@ Return Value:
             }
 
             break;
-//#else
 
-//            return STATUS_NOT_IMPLEMENTED;
+        case SystemRegistryQuotaInformation:
 
-//#endif
+            if (SystemInformationLength < sizeof( SYSTEM_REGISTRY_QUOTA_INFORMATION)) {
+                return(STATUS_INFO_LENGTH_MISMATCH);
+            }
+            CmQueryRegistryQuotaInformation((PSYSTEM_REGISTRY_QUOTA_INFORMATION)SystemInformation);
+
+            if (ARGUMENT_PRESENT( ReturnLength )) {
+                *ReturnLength = sizeof(SYSTEM_REGISTRY_QUOTA_INFORMATION);
+            }
+            break;
+
+        case SystemDpcBehaviorInformation:
+            {
+                PSYSTEM_DPC_BEHAVIOR_INFORMATION DpcInfo;
+                //
+                // If the system information buffer is not the correct length,
+                // then return an error.
+                //
+                if (SystemInformationLength != sizeof(SYSTEM_DPC_BEHAVIOR_INFORMATION)) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+                DpcInfo = (PSYSTEM_DPC_BEHAVIOR_INFORMATION)SystemInformation;
+
+                //
+                // Exception handler for this routine will return the correct
+                // error if any of these accesses fail.
+                //
+                //
+                // Return the current DPC behavior variables
+                //
+                DpcInfo->DpcQueueDepth = KiMaximumDpcQueueDepth;
+                DpcInfo->MinimumDpcRate = KiMinimumDpcRate;
+                DpcInfo->AdjustDpcThreshold = KiAdjustDpcThreshold;
+                DpcInfo->IdealDpcRate = KiIdealDpcRate;
+            }
+            break;
+
+        case SystemInterruptInformation:
+
+            if (SystemInformationLength < (sizeof(SYSTEM_INTERRUPT_INFORMATION) * KeNumberProcessors)) {
+                return(STATUS_INFO_LENGTH_MISMATCH);
+            }
+
+            InterruptInformation = (PSYSTEM_INTERRUPT_INFORMATION)SystemInformation;
+            for (i=0; i < (ULONG)KeNumberProcessors; i++) {
+                Prcb = KiProcessorBlock[i];
+                InterruptInformation->ContextSwitches = Prcb->KeContextSwitches;
+                InterruptInformation->DpcCount = Prcb->DpcCount;
+                InterruptInformation->DpcRate = Prcb->DpcRequestRate;
+                InterruptInformation->TimeIncrement = KeTimeIncrement;
+                InterruptInformation->DpcBypassCount = Prcb->DpcBypassCount;
+                InterruptInformation->ApcBypassCount = Prcb->ApcBypassCount;
+
+                ++InterruptInformation;
+            }
+
+            break;
+
+        case SystemPlugPlayBusInformation:
+
+#ifndef _PNP_POWER_
+            return STATUS_NOT_IMPLEMENTED;
+#else
+            //
+            // Report the Plug and Play bus instances currently present in the system.
+            //
+            // First, acquire resource for shared (read) access.
+            //
+            KeEnterCriticalRegion();
+            ExAcquireResourceShared( &PpBusResource, TRUE );
+            ReleasePlugPlayBusListResource = TRUE;
+
+            //
+            // Determine the number of buses in the Plug and Play manager's list.
+            //
+            i = 0;
+            for ( CurrentPnPBusListEntry = PpBusListHead.Flink;
+                  CurrentPnPBusListEntry != &PpBusListHead;
+                  CurrentPnPBusListEntry = CurrentPnPBusListEntry->Flink ) {
+
+                CurrentPnPBusEnumerator = CONTAINING_RECORD( CurrentPnPBusListEntry,
+                                                             PLUGPLAY_BUS_ENUMERATOR,
+                                                             BusEnumeratorListEntry
+                                                           );
+
+                for ( CurrentPnPBusInstance = CurrentPnPBusEnumerator->BusInstanceListEntry.Flink;
+                      CurrentPnPBusInstance != &(CurrentPnPBusEnumerator->BusInstanceListEntry);
+                      CurrentPnPBusInstance = CurrentPnPBusInstance->Flink ) {
+
+                    i++;
+                }
+            }
+
+            Length = sizeof(SYSTEM_PLUGPLAY_BUS_INFORMATION) +
+                     (i ? sizeof(PLUGPLAY_BUS_INSTANCE) * (i - 1) : 0);
+
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                *ReturnLength = Length;
+            }
+
+            if (SystemInformationLength < Length) {
+                ExReleaseResource( &PpBusResource );
+                KeLeaveCriticalRegion();
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            PlugPlayBusInformation = (PSYSTEM_PLUGPLAY_BUS_INFORMATION)SystemInformation;
+
+            PlugPlayBusInformation->BusCount = i;
+
+            i = 0;
+            for ( CurrentPnPBusListEntry = PpBusListHead.Flink;
+                  CurrentPnPBusListEntry != &PpBusListHead;
+                  CurrentPnPBusListEntry = CurrentPnPBusListEntry->Flink ) {
+
+                CurrentPnPBusEnumerator = CONTAINING_RECORD( CurrentPnPBusListEntry,
+                                                             PLUGPLAY_BUS_ENUMERATOR,
+                                                             BusEnumeratorListEntry
+                                                           );
+
+                for ( CurrentPnPBusInstance = CurrentPnPBusEnumerator->BusInstanceListEntry.Flink;
+                      CurrentPnPBusInstance != &(CurrentPnPBusEnumerator->BusInstanceListEntry);
+                      CurrentPnPBusInstance = CurrentPnPBusInstance->Flink ) {
+
+                    RtlCopyMemory( &(PlugPlayBusInformation->BusInstance[i]),
+                                   &(CONTAINING_RECORD( CurrentPnPBusInstance,
+                                                        PLUGPLAY_BUS_INSTANCE_FULL_DESCRIPTOR,
+                                                        BusInstanceListEntry
+                                                      )->BusInstanceInformation),
+                                   sizeof(PLUGPLAY_BUS_INSTANCE)
+                                 );
+                    i++;
+                }
+            }
+
+            ExReleaseResource( &PpBusResource );
+            ReleasePlugPlayBusListResource = FALSE;
+            KeLeaveCriticalRegion();
+            break;
+#endif // _PNP_POWER_
+
+        case SystemDockInformation:
+
+#ifndef _PNP_POWER_
+            return STATUS_NOT_IMPLEMENTED;
+#else
+            //
+            // Report the current system docking state, as returned by HalQuerySystemInformation
+            // (information class HalSystemDockInformation).
+            //
+            // First, retrieve the information via HalQuerySystemInformation.  Start with an initial
+            // guess for buffer size that accommodates a 32-bit dock ID and a 32-bit serial # (in
+            // character form).
+            //
+            Length = sizeof(HAL_SYSTEM_DOCK_INFORMATION) + (17 * sizeof(WCHAR));
+
+            do {
+
+                HalDockInformation = (PHAL_SYSTEM_DOCK_INFORMATION)ExAllocatePool( PagedPool, Length);
+
+                if(HalDockInformation) {
+
+                    Status = HalQuerySystemInformation( HalSystemDockInformation,
+                                                        Length,
+                                                        HalDockInformation,
+                                                        &Length
+                                                      );
+                } else {
+                    Status = STATUS_NO_MEMORY;
+                }
+
+                if(!NT_SUCCESS( Status )) {
+
+                    if(HalDockInformation) {
+                        ExFreePool( HalDockInformation );
+                    }
+
+                    if(Status != STATUS_BUFFER_TOO_SMALL) { // Then we want to return an error.
+
+                        if(Status == STATUS_INVALID_LEVEL) { // Translate HAL return code
+                            Status = STATUS_NOT_IMPLEMENTED;
+                        }
+
+                        return Status;
+                    }
+                }
+
+            } while (Status == STATUS_BUFFER_TOO_SMALL);
+
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                *ReturnLength = Length;
+            }
+
+            if (SystemInformationLength < Length) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            DockInformation = (PSYSTEM_DOCK_INFORMATION)SystemInformation;
+            DockInformation->DockState       = HalDockInformation->DockState;
+            DockInformation->DeviceBusType   = HalDockInformation->DeviceBusType;
+            DockInformation->DeviceBusNumber = HalDockInformation->DeviceBusNumber;
+            DockInformation->SlotNumber      = HalDockInformation->SlotNumber;
+
+            ExFreePool( HalDockInformation );
+
+            //
+            // Reset NTSTATUS variable since we used it above.
+            //
+            Status = STATUS_SUCCESS;
+
+            break;
+
+#endif // _PNP_POWER_
+
+#ifdef _PNP_POWER_
+        case SystemPowerInformation:
+            if (SystemInformationLength < sizeof( SYSTEM_POWER_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+            // Temporary data
+
+            PowerInformation = (PSYSTEM_POWER_INFORMATION)SystemInformation;
+            RtlZeroMemory (PowerInformation, sizeof (SYSTEM_POWER_INFORMATION));
+
+            Status = HalQuerySystemInformation( HalPowerInformation,
+                                                sizeof( HAL_POWER_INFORMATION ),
+                                                &Info.HalPower,
+                                                &ReturnLengthFromHal );
+
+            if(NT_SUCCESS(Status)){
+                PowerInformation = (PSYSTEM_POWER_INFORMATION)SystemInformation;
+
+                PowerInformation->SystemSuspendSupported = Info.HalPower.SuspendSupported;
+                PowerInformation->SystemHibernateSupported = Info.HalPower.SoftPowerDownSupported;
+                PowerInformation->ResumeTimerSupportsSuspend = Info.HalPower.ResumeTimerSupportsSuspend;
+                PowerInformation->ResumeTimerSupportsHibernate = Info.HalPower.ResumeTimerSupportsHibernate;
+                PowerInformation->LidSupported = Info.HalPower.LidPresent;
+                PowerInformation->TurboSettingSupported = Info.HalPower.TurboSettingSupported;
+                PowerInformation->TurboMode = Info.HalPower.TurboMode;
+            }
+
+            // BUGBUG: SpindownDrives ?????
+            // PowerInformation->SpindownDrives = TRUE;
+            PowerInformation->PowerDownDisabled = !PoEnabled;
+
+            if (ARGUMENT_PRESENT( ReturnLength )) {
+                *ReturnLength = sizeof( SYSTEM_POWER_INFORMATION );
+            }
+
+            Status = STATUS_SUCCESS;
+            break;
+
+        case SystemProcessorSpeedInformation:
+            if (SystemInformationLength < sizeof( SYSTEM_PROCESSOR_SPEED_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            ProcessorSpeedInfo =
+                (PSYSTEM_PROCESSOR_SPEED_INFORMATION)SystemInformation;
+            RtlZeroMemory (ProcessorSpeedInfo, sizeof (SYSTEM_PROCESSOR_SPEED_INFORMATION));
+
+            Status = HalQuerySystemInformation( HalProcessorSpeedInformation,
+                                                sizeof( HAL_PROCESSOR_SPEED_INFORMATION ),
+                                                &Info.HalProcessorSpeed,
+                                                &ReturnLengthFromHal );
+
+            if(NT_SUCCESS(Status)){
+                ProcessorSpeedInfo->MaximumProcessorSpeed = Info.HalProcessorSpeed.MaximumProcessorSpeed;
+                ProcessorSpeedInfo->CurrentAvailableSpeed = Info.HalProcessorSpeed.CurrentAvailableSpeed;
+                ProcessorSpeedInfo->ConfiguredSpeedLimit  = Info.HalProcessorSpeed.ConfiguredSpeedLimit;
+                ProcessorSpeedInfo->PowerLimit            = Info.HalProcessorSpeed.PowerLimit;
+                ProcessorSpeedInfo->ThermalLimit          = Info.HalProcessorSpeed.ThermalLimit;
+                ProcessorSpeedInfo->TurboLimit            = Info.HalProcessorSpeed.TurboLimit;
+            }
+
+            if (ARGUMENT_PRESENT( ReturnLength )) {
+                *ReturnLength = sizeof( SYSTEM_PROCESSOR_SPEED_INFORMATION );
+            }
+
+            Status = STATUS_SUCCESS;
+            break;
+#endif // _PNP_POWER_
+
+        case SystemCurrentTimeZoneInformation:
+            if (SystemInformationLength < sizeof( RTL_TIME_ZONE_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+            RtlCopyMemory(SystemInformation,&ExpTimeZoneInformation,sizeof(ExpTimeZoneInformation));
+            if (ARGUMENT_PRESENT( ReturnLength )) {
+                *ReturnLength = sizeof( RTL_TIME_ZONE_INFORMATION );
+                }
+
+            Status = STATUS_SUCCESS;
+            break;
+
+            //
+            // Query pool lookaside list and general lookaside list
+            // information.
+            //
+
+        case SystemLookasideInformation:
+            Status = ExpGetLookasideInformation(SystemInformation,
+                                                SystemInformationLength,
+                                                &Length);
+
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                *ReturnLength = Length;
+            }
+
+            break;
 
         default:
 
@@ -1391,16 +1841,24 @@ Return Value:
             //
 
             return STATUS_INVALID_INFO_CLASS;
-            }
         }
-    except (EXCEPTION_EXECUTE_HANDLER) {
 
+    } except (EXCEPTION_EXECUTE_HANDLER) {
         if (ReleaseModuleResoure) {
             ExReleaseResource (&PsLoadedModuleResource);
             KeLeaveCriticalRegion();
         }
+
+#ifdef _PNP_POWER_
+        if (ReleasePlugPlayBusListResource) {
+            ExReleaseResource(&PpBusResource);
+            KeLeaveCriticalRegion();
+        }
+#endif // _PNP_POWER_
+
         Status = GetExceptionCode();
     }
+
     return Status;
 }
 
@@ -1459,6 +1917,15 @@ Return Value:
     NTSTATUS Status;
     ULONG TimeAdjustment;
     PSYSTEM_SET_TIME_ADJUST_INFORMATION TimeAdjustmentInformation;
+    BOOLEAN InformationClassInRegistry;
+#ifdef _PNP_POWER_
+    PSYSTEM_POWER_INFORMATION PowerInformation;
+    PSYSTEM_PROCESSOR_SPEED_INFORMATION ProcessorSpeedInformation;
+    union {
+        HAL_POWER_INFORMATION           HalPower;
+        HAL_PROCESSOR_SPEED_INFORMATION HalProcessorSpeed;
+    } Info;
+#endif // _PNP_POWER_
 
     PAGED_CODE();
 
@@ -1468,6 +1935,8 @@ Return Value:
     //
 
     Status = STATUS_SUCCESS;
+    InformationClassInRegistry = FALSE;
+
     try {
 
         //
@@ -1487,6 +1956,19 @@ Return Value:
         //
 
         switch (SystemInformationClass) {
+        case SystemFlagsInformation:
+            if (SystemInformationLength != sizeof( SYSTEM_FLAGS_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+            if (!SeSinglePrivilegeCheck( SeDebugPrivilege, PreviousMode )) {
+                return STATUS_ACCESS_DENIED;
+                }
+            else {
+                ((PSYSTEM_FLAGS_INFORMATION)SystemInformation)->Flags &= FLG_KERNELMODE_VALID_BITS;
+                NtGlobalFlag = ((PSYSTEM_FLAGS_INFORMATION)SystemInformation)->Flags;
+                }
+            break;
 
             //
             // Set system time adjustment information.
@@ -1534,6 +2016,409 @@ Return Value:
             KeTimeSynchronization = Enable;
             break;
 
+            //
+            // Set registry quota limit.
+            //
+            // N.B. The caller must have SeIncreaseQuotaPrivilege
+            //
+        case SystemRegistryQuotaInformation:
+
+            //
+            // If the system information buffer is not the correct length,
+            // then return an error.
+            //
+
+            if (SystemInformationLength != sizeof( SYSTEM_REGISTRY_QUOTA_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            //
+            // If the current thread does not have the privilege to create
+            // a pagefile, then return an error.
+            //
+
+            if ((PreviousMode != KernelMode) &&
+                (SeSinglePrivilegeCheck(SeIncreaseQuotaPrivilege, PreviousMode) == FALSE)) {
+                return STATUS_PRIVILEGE_NOT_HELD;
+            }
+
+            //
+            // Set registry quota parameters.
+            //
+            CmSetRegistryQuotaInformation((PSYSTEM_REGISTRY_QUOTA_INFORMATION)SystemInformation);
+
+            break;
+
+        case SystemPrioritySeperation:
+            {
+                ULONG PrioritySeperation;
+
+                //
+                // If the system information buffer is not the correct length,
+                // then return an error.
+                //
+
+                if (SystemInformationLength != sizeof( ULONG )) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                    }
+
+                try {
+                    PrioritySeperation = *(PULONG)SystemInformation;
+                    }
+                except(EXCEPTION_EXECUTE_HANDLER) {
+                    return GetExceptionCode();
+                    }
+
+                if ( PrioritySeperation > 2 ) {
+                    Status = STATUS_INVALID_PARAMETER;
+                    }
+                else {
+                    PsPrioritySeperation = PrioritySeperation;
+                    Status = STATUS_SUCCESS;
+                    }
+            }
+            break;
+
+        case SystemExtendServiceTableInformation:
+            {
+
+                UNICODE_STRING Image;
+                PWSTR  Buffer;
+                PVOID ImageBaseAddress;
+                ULONG EntryPoint;
+                PVOID SectionPointer;
+                PIMAGE_NT_HEADERS NtHeaders;
+                PDRIVER_INITIALIZE InitRoutine;
+
+                //
+                // If the system information buffer is not the correct length,
+                // then return an error.
+                //
+
+                if (SystemInformationLength != sizeof( UNICODE_STRING ) ) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                    }
+
+                if (PreviousMode != KernelMode) {
+
+                    //
+                    // The caller's access mode is not kernel so check to ensure that
+                    // the caller has the privilege to load a driver.
+                    //
+
+                    if (!SeSinglePrivilegeCheck( SeLoadDriverPrivilege, PreviousMode )) {
+                        return STATUS_PRIVILEGE_NOT_HELD;
+                        }
+
+                    try {
+                        Buffer = NULL;
+                        Image = *(PUNICODE_STRING)SystemInformation;
+                        Buffer = ExAllocatePool(PagedPool,Image.Length);
+                        if ( !Buffer ) {
+                            return STATUS_NO_MEMORY;
+                            }
+                        RtlCopyMemory(Buffer,Image.Buffer,Image.Length);
+                        Image.Buffer = Buffer;
+                        }
+                    except(EXCEPTION_EXECUTE_HANDLER) {
+                        if ( Buffer ) {
+                            ExFreePool(Buffer);
+                            }
+                        return GetExceptionCode();
+                        }
+
+                    //
+                    // MmLoadSystemImage is always called with previous mode
+                    // of kernel. I will keep this alive...
+                    //
+
+                    Status = ZwSetSystemInformation(
+                                SystemExtendServiceTableInformation,
+                                (PVOID)&Image,
+                                sizeof(Image)
+                                );
+
+                    ExFreePool(Buffer);
+
+                    return Status;
+
+                    }
+                else {
+                    Image = *(PUNICODE_STRING)SystemInformation;
+                    }
+
+                //
+                // We are in kernelmode now, so load the driver
+                //
+
+                Status = MmLoadSystemImage(
+                            &Image,
+                            &SectionPointer,
+                            (PVOID *) &ImageBaseAddress
+                            );
+
+                if (!NT_SUCCESS( Status )) {
+                    return Status;
+                    }
+
+                NtHeaders = RtlImageNtHeader( ImageBaseAddress );
+                EntryPoint = NtHeaders->OptionalHeader.AddressOfEntryPoint;
+                EntryPoint += (ULONG) ImageBaseAddress;
+                InitRoutine = (PDRIVER_INITIALIZE) EntryPoint;
+
+                Status = (InitRoutine)(NULL,NULL);
+
+                if (!NT_SUCCESS( Status )) {
+                    MmUnloadSystemImage( SectionPointer );
+                    }
+
+                }
+                break;
+
+
+        case SystemUnloadGdiDriverInformation:
+            {
+
+                if (SystemInformationLength != sizeof( PVOID ) ) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                    }
+
+                if (PreviousMode != KernelMode) {
+
+                    //
+                    // The caller's access mode is not kernel so fail.
+                    // Only GDI from the kernel can call this.
+                    //
+
+                    return STATUS_PRIVILEGE_NOT_HELD;
+
+                    }
+
+                MmUnloadSystemImage( *((PVOID *)SystemInformation) );
+
+                Status = STATUS_SUCCESS;
+
+                }
+                break;
+
+
+        case SystemLoadGdiDriverInformation:
+            {
+
+                UNICODE_STRING Image;
+                PVOID ImageBaseAddress;
+                ULONG EntryPoint;
+                PVOID SectionPointer;
+
+                PIMAGE_NT_HEADERS NtHeaders;
+
+                //
+                // If the system information buffer is not the correct length,
+                // then return an error.
+                //
+
+                if (SystemInformationLength != sizeof( SYSTEM_GDI_DRIVER_INFORMATION ) ) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                    }
+
+                if (PreviousMode != KernelMode) {
+
+                    //
+                    // The caller's access mode is not kernel so fail.
+                    // Only GDI from the kernel can call this.
+                    //
+
+                    return STATUS_PRIVILEGE_NOT_HELD;
+
+                    }
+
+                Image = ((PSYSTEM_GDI_DRIVER_INFORMATION)SystemInformation)->DriverName;
+
+                //
+                // We are in kernelmode now, so load the driver
+                //
+
+                Status = MmLoadSystemImage(
+                            &Image,
+                            &SectionPointer,
+                            (PVOID *) &ImageBaseAddress
+                            );
+
+                if (NT_SUCCESS( Status )) {
+
+                    PSYSTEM_GDI_DRIVER_INFORMATION GdiDriverInfo =
+                        (PSYSTEM_GDI_DRIVER_INFORMATION) SystemInformation;
+
+                    ULONG Size;
+                    PVOID BaseAddress;
+
+                    GdiDriverInfo->ExportSectionPointer =
+                        RtlImageDirectoryEntryToData(ImageBaseAddress,
+                                                     TRUE,
+                                                     IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                     &Size);
+
+                    //
+                    // Get the entry point - at this time we may or may not
+                    // use it.
+                    //
+
+                    NtHeaders = RtlImageNtHeader( ImageBaseAddress );
+                    EntryPoint = NtHeaders->OptionalHeader.AddressOfEntryPoint;
+                    EntryPoint += (ULONG) ImageBaseAddress;
+
+                    GdiDriverInfo->ImageAddress = (PVOID) ImageBaseAddress;
+                    GdiDriverInfo->SectionPointer = SectionPointer;
+                    GdiDriverInfo->EntryPoint = (PVOID) EntryPoint;
+
+                    //
+                    // GDI drivers can be entirely paged - especially
+                    // printer drivers !
+                    //
+
+                    BaseAddress = MmPageEntireDriver((PVOID)ImageBaseAddress);
+
+                    ASSERT(BaseAddress == ImageBaseAddress);
+
+                    }
+                }
+                break;
+
+        case SystemFileCacheInformation:
+
+            if (SystemInformationLength < sizeof( SYSTEM_FILECACHE_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            return MmAdjustWorkingSetSize (
+                        ((PSYSTEM_FILECACHE_INFORMATION)SystemInformation)->MinimumWorkingSet,
+                        ((PSYSTEM_FILECACHE_INFORMATION)SystemInformation)->MaximumWorkingSet,
+                        TRUE);
+
+            break;
+
+        case SystemDpcBehaviorInformation:
+            {
+                SYSTEM_DPC_BEHAVIOR_INFORMATION DpcInfo;
+                //
+                // If the system information buffer is not the correct length,
+                // then return an error.
+                //
+                if (SystemInformationLength != sizeof(SYSTEM_DPC_BEHAVIOR_INFORMATION)) {
+                    return STATUS_INFO_LENGTH_MISMATCH;
+                }
+
+                if (PreviousMode != KernelMode) {
+                    //
+                    // The caller's access mode is not kernel so check to ensure that
+                    // the caller has the privilege to load a driver.
+                    //
+
+                    if (!SeSinglePrivilegeCheck( SeLoadDriverPrivilege, PreviousMode )) {
+                        return STATUS_PRIVILEGE_NOT_HELD;
+                    }
+                }
+
+                //
+                // Exception handler for this routine will return the correct
+                // error if this access fails.
+                //
+                DpcInfo = *(PSYSTEM_DPC_BEHAVIOR_INFORMATION)SystemInformation;
+
+                //
+                // Set the new DPC behavior variables
+                //
+                KiMaximumDpcQueueDepth = DpcInfo.DpcQueueDepth;
+                KiMinimumDpcRate = DpcInfo.MinimumDpcRate;
+                KiAdjustDpcThreshold = DpcInfo.AdjustDpcThreshold;
+                KiIdealDpcRate = DpcInfo.IdealDpcRate;
+            }
+            break;
+#ifdef _PNP_POWER_
+        case SystemPowerInformation:
+
+            //
+            // This information level is available in the registry
+            //
+
+            InformationClassInRegistry = TRUE;
+
+            //
+            // If the current thread does not have the privilege to set the
+            // time adjustment variables, then return an error.
+            //
+
+            if ((PreviousMode != KernelMode) &&
+                (SeSinglePrivilegeCheck(SeShutdownPrivilege, PreviousMode) == FALSE)) {
+                return STATUS_PRIVILEGE_NOT_HELD;
+            }
+
+            //
+            // If the system information buffer is not the correct length,
+            // then return an error.
+            //
+
+            if (SystemInformationLength != sizeof( SYSTEM_POWER_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            PowerInformation = (PSYSTEM_POWER_INFORMATION)SystemInformation;
+            Info.HalPower.SuspendSupported = PowerInformation->SystemSuspendSupported;
+            Info.HalPower.SoftPowerDownSupported = PowerInformation->SystemHibernateSupported;
+            Info.HalPower.ResumeTimerSupportsSuspend = PowerInformation->ResumeTimerSupportsSuspend;
+            Info.HalPower.ResumeTimerSupportsHibernate = PowerInformation->ResumeTimerSupportsHibernate;
+            Info.HalPower.LidPresent = PowerInformation->LidSupported;
+            Info.HalPower.TurboSettingSupported = PowerInformation->TurboSettingSupported;
+            Info.HalPower.TurboMode = PowerInformation->TurboMode;
+
+            // BUGBUG: SpindownDrivers
+
+
+            Status = HalSetSystemInformation(
+                        HalPowerInformation,
+                        sizeof( HAL_POWER_INFORMATION ),
+                        &Info.HalPower
+                        );
+
+            if (NT_SUCCESS (Status)) {
+                PoSetPowerManagementEnable ((BOOLEAN) !PowerInformation->PowerDownDisabled);
+            }
+            break;
+
+        case SystemProcessorSpeedInformation:
+
+            //
+            // This information level is available in the registry
+            //
+
+            InformationClassInRegistry = TRUE;
+
+            //
+            // If the system information buffer is not the correct length,
+            // then return an error.
+            //
+
+            if (SystemInformationLength != sizeof( SYSTEM_PROCESSOR_SPEED_INFORMATION )) {
+                return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+            ProcessorSpeedInformation = (PSYSTEM_PROCESSOR_SPEED_INFORMATION)SystemInformation;
+            Info.HalProcessorSpeed.MaximumProcessorSpeed = ProcessorSpeedInformation->MaximumProcessorSpeed;
+            Info.HalProcessorSpeed.CurrentAvailableSpeed = ProcessorSpeedInformation->CurrentAvailableSpeed;
+            Info.HalProcessorSpeed.ConfiguredSpeedLimit  = ProcessorSpeedInformation->ConfiguredSpeedLimit;
+            Info.HalProcessorSpeed.PowerLimit = ProcessorSpeedInformation->PowerLimit;
+            Info.HalProcessorSpeed.ThermalLimit = ProcessorSpeedInformation->ThermalLimit;
+            Info.HalProcessorSpeed.TurboLimit = ProcessorSpeedInformation->TurboLimit;
+
+            Status = HalSetSystemInformation(
+                        HalProcessorSpeedInformation,
+                        sizeof( HAL_POWER_INFORMATION ),
+                        &Info.HalProcessorSpeed
+                        );
+
+            break;
+#endif // _PNP_POWER_
+
         default:
             //KeBugCheckEx(SystemInformationClass,KdPitchDebugger,0,0,0);
             Status = STATUS_INVALID_INFO_CLASS;
@@ -1544,6 +2429,43 @@ Return Value:
         Status = GetExceptionCode();
     }
 
+#ifdef _PNP_POWER_
+    //
+    // If successful perform notification
+    //
+
+    if(NT_SUCCESS(Status)) {
+
+        if (InformationClassInRegistry) {
+
+            //
+            // This inforamtion class is in the registry, check
+            // to see if the registry needs updated (callback will
+            // be done by this check)
+            //
+
+            ExpCheckSystemInformation (
+                NULL,
+                (PVOID) SystemInformationClass,
+                NULL
+            );
+
+        } else {
+
+            //
+            // Notify callback that this information level was set
+            //
+
+            ExNotifyCallback (
+                ExCbSetSystemInformation,
+                (PVOID) SystemInformationClass,
+                (PVOID) NULL
+            );
+        }
+    }
+
+#endif
+
     return Status;
 }
 
@@ -1553,8 +2475,10 @@ ExLockUserBuffer(
     IN ULONG Length,
     OUT PVOID *LockVariable
     )
+
 {
     PMDL Mdl;
+    PVOID Address;
 
     //
     // Allocate an MDL to map the request.
@@ -1563,6 +2487,10 @@ ExLockUserBuffer(
     Mdl = ExAllocatePoolWithQuota (NonPagedPool,
                                    sizeof(MDL) + sizeof(ULONG) +
                                      BYTES_TO_PAGES (Length) * sizeof(ULONG));
+    if (Mdl == NULL) {
+        return NULL;
+    }
+
     //
     // Initialize MDL for request.
     //
@@ -1580,8 +2508,15 @@ ExLockUserBuffer(
         return( NULL );
     }
 
+    Mdl->MdlFlags |= MDL_MAPPING_CAN_FAIL;
+    Address =  MmGetSystemAddressForMdl (Mdl);
     *LockVariable = Mdl;
-    return( MmGetSystemAddressForMdl (Mdl) );
+    if (Address == NULL) {
+        ExUnlockUserBuffer (Mdl);
+        *LockVariable = NULL;
+    }
+
+    return Address;
 }
 
 
@@ -1589,13 +2524,14 @@ VOID
 ExUnlockUserBuffer(
     IN PVOID LockVariable
     )
+
 {
     MmUnlockPages ((PMDL)LockVariable);
     ExFreePool ((PMDL)LockVariable);
     return;
 }
 
-
+extern FAST_MUTEX PspActiveProcessMutex;
 NTSTATUS
 ExpGetProcessInformation (
     OUT PVOID SystemInformation,
@@ -1635,7 +2571,7 @@ Return Value:
             class requested by the SystemInformationClass parameter.
 
         STATUS_ACCESS_VIOLATION - Either the SystemInformation buffer pointer
-            or the ReturnLength pointer value specified an invalid address.
+            or the Length pointer value specified an invalid address.
 
         STATUS_WORKING_SET_QUOTA - The process does not have sufficient
             working set to lock the specified output structure in memory.
@@ -1657,8 +2593,10 @@ Return Value:
     PVOID LockVariable;
     ULONG TotalSize;
     ULONG NextEntryOffset;
+    PUCHAR Src;
+    PWSTR Dst;
+    ULONG n;
     NTSTATUS status = STATUS_SUCCESS;
-    PVOID UnlockHandle;
 
     *Length = 0;
 
@@ -1669,8 +2607,16 @@ Return Value:
     if (MappedAddress == NULL) {
         return( STATUS_ACCESS_VIOLATION );
     }
-    UnlockHandle = MmLockPagableImageSection((PVOID)ExpGetProcessInformation);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle (ExPageLockHandle);
+    ExAcquireFastMutex(&PspActiveProcessMutex);
+
+    //
+    // Initialize an event object and then set the event with the wait
+    // parameter TRUE. This causes the event to be set and control is
+    // returned with the dispatcher database locked at dispatch IRQL.
+    //
+
+    KeInitializeEvent (&Event, NotificationEvent, FALSE);
     try {
 
         ProcessInfo = (PSYSTEM_PROCESS_INFORMATION)MappedAddress;
@@ -1679,8 +2625,18 @@ Return Value:
         NextEntryOffset = sizeof(SYSTEM_PROCESS_INFORMATION);
         TotalSize = sizeof(SYSTEM_PROCESS_INFORMATION);
 
+        ExpCopyProcessInfo (ProcessInfo, PsIdleProcess);
+
         //
-        // Initialize an event object and then set the event with the wait
+        // Since Idle process and system process share the same
+        // object table, zero out idle processes handle count to
+        // reduce confusion
+        //
+
+        ProcessInfo->HandleCount = 0;
+
+        //
+        // Set the event with the wait
         // parameter TRUE. This causes the event to be set and control is
         // returned with the dispatcher database locked at dispatch IRQL.
         //
@@ -1689,7 +2645,6 @@ Return Value:
         //      process lists.
         //
 
-        KeInitializeEvent (&Event, NotificationEvent, FALSE);
         KeSetEvent (&Event, 0, TRUE);
 
         //
@@ -1698,11 +2653,8 @@ Return Value:
         //      code. Extended execution will ADVERSELY affect system operation
         //      and integrity.
         //
-        // Get info for idle process
+        // Get info for idle process's threads
         //
-
-        ExpCopyProcessInfo (ProcessInfo, PsIdleProcess);
-
         //
         // Get information for each thread.
         //
@@ -1716,6 +2668,7 @@ Return Value:
 
             if (TotalSize > SystemInformationLength) {
                 status = STATUS_INFO_LENGTH_MISMATCH;
+                KeWaitForSingleObject (&Event, Executive, KernelMode, FALSE, NULL);
                 goto Failed;
             }
             Thread = (PETHREAD)(CONTAINING_RECORD(NextThread,
@@ -1727,6 +2680,13 @@ Return Value:
             NextThread = NextThread->Flink;
             ThreadInfo += 1;
         }
+
+        //
+        // Unlock the dispatch database by waiting on the event that was
+        // previously set with the wait parameter TRUE.
+        //
+
+        KeWaitForSingleObject (&Event, Executive, KernelMode, FALSE, NULL);
 
         ProcessInfo->ImageName.Buffer = NULL;
         ProcessInfo->ImageName.Length = 0;
@@ -1756,6 +2716,25 @@ Return Value:
             ExpCopyProcessInfo (ProcessInfo, Process);
 
             //
+            // Set the event with the wait
+            // parameter TRUE. This causes the event to be set and control is
+            // returned with the dispatcher database locked at dispatch IRQL.
+            //
+            // WARNING - The following code assumes that the process structure
+            //      uses kernel objects to synchronize access to the thread and
+            //      process lists.
+            //
+
+            KeSetEvent (&Event, 0, TRUE);
+
+            //
+            // WARNING - The following code runs with the kernel dispatch database
+            //      locked. EXTREME caution should be taken when modifying this
+            //      code. Extended execution will ADVERSELY affect system operation
+            //      and integrity.
+            //
+
+            //
             // Get information for each thread.
             //
 
@@ -1768,6 +2747,7 @@ Return Value:
 
                 if (TotalSize > SystemInformationLength) {
                     status = STATUS_INFO_LENGTH_MISMATCH;
+                    KeWaitForSingleObject (&Event, Executive, KernelMode, FALSE, NULL);
                     goto Failed;
                 }
                 Thread = (PETHREAD)(CONTAINING_RECORD(NextThread,
@@ -1781,55 +2761,47 @@ Return Value:
             }
 
             //
+            // Unlock the dispatch database by waiting on the event that was
+            // previously set with the wait parameter TRUE.
+            //
+
+            KeWaitForSingleObject (&Event, Executive, KernelMode, FALSE, NULL);
+
+            //
             // Get the image name.
             //
 
-#if DEVL
-            if (Process->ImageFileName != NULL) {
-                PUCHAR Src = Process->ImageFileName;
-                PWSTR Dst;
-                ULONG n;
+            ProcessInfo->ImageName.Buffer = NULL;
+            ProcessInfo->ImageName.Length = 0;
+            ProcessInfo->ImageName.MaximumLength = 0;
 
-                n = strlen( Src );
-                if (n == 0) {
-                    ProcessInfo->ImageName.Buffer = NULL;
-                    ProcessInfo->ImageName.Length = 0;
-                    ProcessInfo->ImageName.MaximumLength = 0;
+            if ((n = strlen( Src = Process->ImageFileName ))) {
+                n = ROUND_UP( ((n + 1) * sizeof( WCHAR )), sizeof(LARGE_INTEGER) );
+                TotalSize += n;
+                NextEntryOffset += n;
+                if (TotalSize > SystemInformationLength) {
+                    status = STATUS_INFO_LENGTH_MISMATCH;
                 } else {
-                    n = (n + 1) * sizeof( WCHAR );
-                    TotalSize += ROUND_UP (n, sizeof(LARGE_INTEGER));
-                    NextEntryOffset += ROUND_UP (n, sizeof(LARGE_INTEGER));
-                    if (TotalSize > SystemInformationLength) {
-                        status = STATUS_INFO_LENGTH_MISMATCH;
-                    } else {
-                        Dst = (PWSTR)(ThreadInfo);
-                        while (*Dst++ = (WCHAR)*Src++) {
-                            ;
-                            }
-                        ProcessInfo->ImageName.Length = (USHORT)(n - sizeof( UNICODE_NULL ));
-                        ProcessInfo->ImageName.MaximumLength = (USHORT)n;
+                    Dst = (PWSTR)(ThreadInfo);
+                    while (*Dst++ = (WCHAR)*Src++) {
+                        ;
+                        }
+                    ProcessInfo->ImageName.Length = (USHORT)((PCHAR)Dst - (PCHAR)ThreadInfo - sizeof( UNICODE_NULL ));
+                    ProcessInfo->ImageName.MaximumLength = (USHORT)n;
 
-                        //
-                        // Set the image name to point into the user's memory.
-                        //
+                    //
+                    // Set the image name to point into the user's memory.
+                    //
 
-                        ProcessInfo->ImageName.Buffer = (PWSTR)
-                                    ((PCHAR)SystemInformation +
-                                     ((PCHAR)(ThreadInfo) - (PCHAR)MappedAddress));
-                    }
-
-                    if (!NT_SUCCESS( status )) {
-                        goto Failed;
-                    }
+                    ProcessInfo->ImageName.Buffer = (PWSTR)
+                                ((PCHAR)SystemInformation +
+                                 ((PCHAR)(ThreadInfo) - (PCHAR)MappedAddress));
                 }
-            } else {
-#endif
-                ProcessInfo->ImageName.Buffer = NULL;
-                ProcessInfo->ImageName.Length = 0;
-                ProcessInfo->ImageName.MaximumLength = 0;
-#if DEVL
+
+                if (!NT_SUCCESS( status )) {
+                    goto Failed;
+                }
             }
-#endif
 
             //
             // Point to next process.
@@ -1844,14 +2816,11 @@ Return Value:
         *Length = TotalSize;
 
 Failed:
-        //
-        // Unlock the dispatch database by waiting on the event that was
-        // previously set with the wait parameter TRUE.
-        //
+        ;
 
-        KeWaitForSingleObject (&Event, Executive, KernelMode, FALSE, NULL);
     } finally {
-        MmUnlockPagableImageSection(UnlockHandle);
+        ExReleaseFastMutex(&PspActiveProcessMutex);
+        MmUnlockPagableImageSection(ExPageLockHandle);
         ExUnlockUserBuffer( LockVariable );
     }
 
@@ -1865,8 +2834,17 @@ ExpCopyProcessInfo (
     )
 
 {
+    PHANDLE_TABLE Ht;
 
+    PAGED_CODE();
 
+    Ht = (PHANDLE_TABLE)Process->ObjectTable;
+    if ( Ht ) {
+        ProcessInfo->HandleCount = Ht->HandleCount;
+        }
+    else {
+        ProcessInfo->HandleCount = 0;
+        }
     ProcessInfo->CreateTime = Process->CreateTime;
     ProcessInfo->UserTime.QuadPart = UInt32x32To64(Process->Pcb.UserTime,
                                                    KeMaximumIncrement);
@@ -1919,7 +2897,6 @@ ExpCopyThreadInfo (
     ThreadInfo->StartAddress = Thread->StartAddress;
 }
 
-#if DEVL
 #ifdef i386
 extern ULONG ExVdmOpcodeDispatchCounts[256];
 extern ULONG VdmBopCount;
@@ -1978,19 +2955,74 @@ ExpGetInstemulInformation(
 }
 #endif
 
+#if i386 && !FPO
 NTSTATUS
 ExpGetStackTraceInformation (
     OUT PVOID SystemInformation,
     IN ULONG SystemInformationLength,
-    OUT PULONG Length
+    OUT PULONG ReturnLength OPTIONAL
     )
 {
-    *Length = 0;
-    return RtlQueryProcessBackTraceInformation( (PRTL_PROCESS_BACKTRACES)SystemInformation,
-                                                SystemInformationLength,
-                                                Length
-                                              );
+    NTSTATUS Status;
+    PRTL_PROCESS_BACKTRACES BackTraceInformation = (PRTL_PROCESS_BACKTRACES)SystemInformation;
+    PRTL_PROCESS_BACKTRACE_INFORMATION BackTraceInfo;
+    PSTACK_TRACE_DATABASE DataBase;
+    PRTL_STACK_TRACE_ENTRY p, *pp;
+    ULONG RequiredLength, n;
+
+    DataBase = RtlpAcquireStackTraceDataBase();
+    if (DataBase == NULL) {
+        return STATUS_UNSUCCESSFUL;
+        }
+    DataBase->DumpInProgress = TRUE;
+    RtlpReleaseStackTraceDataBase();
+    try {
+        RequiredLength = FIELD_OFFSET( RTL_PROCESS_BACKTRACES, BackTraces );
+        if (SystemInformationLength < RequiredLength) {
+            Status = STATUS_INFO_LENGTH_MISMATCH;
+            }
+        else {
+            BackTraceInformation->CommittedMemory =
+                (ULONG)DataBase->CurrentUpperCommitLimit - (ULONG)DataBase->CommitBase;
+            BackTraceInformation->ReservedMemory =
+                (ULONG)DataBase->EntryIndexArray - (ULONG)DataBase->CommitBase;
+            BackTraceInformation->NumberOfBackTraceLookups = DataBase->NumberOfEntriesLookedUp;
+            n = DataBase->NumberOfEntriesAdded;
+            BackTraceInformation->NumberOfBackTraces = n;
+            }
+
+        RequiredLength += (sizeof( *BackTraceInfo ) * n);
+        if (SystemInformationLength < RequiredLength) {
+            Status = STATUS_INFO_LENGTH_MISMATCH;
+            }
+        else {
+            Status = STATUS_SUCCESS;
+            BackTraceInfo = &BackTraceInformation->BackTraces[ 0 ];
+            pp = DataBase->EntryIndexArray;
+            while (n--) {
+                p = *--pp;
+                BackTraceInfo->SymbolicBackTrace = NULL;
+                BackTraceInfo->TraceCount = p->TraceCount;
+                BackTraceInfo->Index = p->Index;
+                BackTraceInfo->Depth = p->Depth;
+                RtlMoveMemory( BackTraceInfo->BackTrace,
+                               p->BackTrace,
+                               p->Depth * sizeof( PVOID )
+                             );
+                BackTraceInfo++;
+                }
+            }
+        }
+    finally {
+        DataBase->DumpInProgress = FALSE;
+        }
+
+    if (ARGUMENT_PRESENT(ReturnLength)) {
+        *ReturnLength = RequiredLength;
+    }
+    return Status;
 }
+#endif // i386 && !FPO
 
 NTSTATUS
 ExpGetLockInformation (
@@ -2031,7 +3063,7 @@ Return Value:
             class requested by the SystemInformationClass parameter.
 
         STATUS_ACCESS_VIOLATION - Either the SystemInformation buffer pointer
-            or the ReturnLength pointer value specified an invalid address.
+            or the Length pointer value specified an invalid address.
 
         STATUS_WORKING_SET_QUOTA - The process does not have sufficient
             working set to lock the specified output structure in memory.
@@ -2045,7 +3077,6 @@ Return Value:
     PRTL_PROCESS_LOCKS LockInfo;
     PVOID LockVariable;
     NTSTATUS Status;
-    PVOID UnlockHandle;
 
 
     *Length = 0;
@@ -2059,8 +3090,7 @@ Return Value:
         return( STATUS_ACCESS_VIOLATION );
         }
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)ExpGetLockInformation);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle (ExPageLockHandle);
     try {
 
         Status = ExQuerySystemLockInformation( LockInfo,
@@ -2070,12 +3100,227 @@ Return Value:
         }
     finally {
         ExUnlockUserBuffer( LockVariable );
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
         }
 
     return( Status );
 }
 
+NTSTATUS
+ExpGetLookasideInformation (
+    OUT PVOID Buffer,
+    IN ULONG BufferLength,
+    OUT PULONG Length
+    )
+
+/*++
+
+Routine Description:
+
+    This function returns pool lookaside list and and general lookaside
+    list information.
+
+Arguments:
+
+    Buffer - Supplies a pointer to the buffer which receives the lookaside
+        list information.
+
+    BufferLength - Supplies the length of the information buffer in bytes.
+
+    Length - Supplies a pointer to a variable that receives the length of
+        lookaside information returned.
+
+Return Value:
+
+    Returns one of the following status codes:
+
+        STATUS_SUCCESS - Normal, successful completion.
+
+        STATUS_ACCESS_VIOLATION - The buffer could not be locked in memory.
+
+--*/
+
+{
+
+    PVOID BufferLock;
+    PLIST_ENTRY Entry;
+    ULONG Index;
+    KIRQL OldIrql;
+    ULONG Limit;
+    PSYSTEM_LOOKASIDE_INFORMATION Lookaside;
+    ULONG Number;
+    PNPAGED_LOOKASIDE_LIST NPagedLookaside;
+    PPAGED_LOOKASIDE_LIST PagedLookaside;
+    PSMALL_POOL_LOOKASIDE PoolLookaside;
+    PKSPIN_LOCK SpinLock;
+    NTSTATUS Status;
+
+    //
+    // Compute the number of lookaside entries and set the return status to
+    // success.
+    //
+
+    Limit = BufferLength / sizeof(SYSTEM_LOOKASIDE_INFORMATION);
+    Number = 0;
+    Status = STATUS_SUCCESS;
+
+    //
+    // If the number of lookaside entries to return is not zero, then collect
+    // the lookaside information.
+    //
+
+    if (Limit != 0) {
+        if ((Lookaside =
+                (PSYSTEM_LOOKASIDE_INFORMATION)ExLockUserBuffer(Buffer,
+                                                                BufferLength,
+                                                                &BufferLock)) == NULL) {
+            Status = STATUS_ACCESS_VIOLATION;
+
+        } else {
+            MmLockPagableSectionByHandle(ExPageLockHandle);
+
+            //
+            // Copy nonpaged pool lookaside information to information buffer.
+            //
+
+            Index = 0;
+            PoolLookaside = &ExpSmallNPagedPoolLookasideLists[0];
+            do {
+                Lookaside->CurrentDepth = PoolLookaside->SListHead.Depth;
+                Lookaside->MaximumDepth = PoolLookaside->Depth;
+                Lookaside->TotalAllocates = PoolLookaside->TotalAllocates;
+                Lookaside->AllocateMisses =
+                        PoolLookaside->TotalAllocates - PoolLookaside->AllocateHits;
+
+                Lookaside->TotalFrees = PoolLookaside->TotalFrees;
+                Lookaside->FreeMisses =
+                        PoolLookaside->TotalFrees - PoolLookaside->FreeHits;
+
+                Lookaside->Type = 0;
+                Lookaside->Tag = 'looP';
+                Lookaside->Size = (Index + 1) * 32;
+                Number += 1;
+                if (Number == Limit) {
+                    goto Finish2;
+                }
+
+                Index += 1;
+                Lookaside += 1;
+                PoolLookaside += 1;
+            } while (Index < POOL_SMALL_LISTS);
+
+            //
+            // Copy paged pool lookaside information to information buffer.
+            //
+
+#if !defined(_PPC_)
+
+            Index = 0;
+            PoolLookaside = &ExpSmallPagedPoolLookasideLists[0];
+            do {
+                Lookaside->CurrentDepth = PoolLookaside->SListHead.Depth;
+                Lookaside->MaximumDepth = PoolLookaside->Depth;
+                Lookaside->TotalAllocates = PoolLookaside->TotalAllocates;
+                Lookaside->AllocateMisses =
+                        PoolLookaside->TotalAllocates - PoolLookaside->AllocateHits;
+
+                Lookaside->TotalFrees = PoolLookaside->TotalFrees;
+                Lookaside->FreeMisses =
+                        PoolLookaside->TotalFrees - PoolLookaside->FreeHits;
+
+                Lookaside->Type = 1;
+                Lookaside->Tag = 'looP';
+                Lookaside->Size = (Index + 1) * 32;
+                Number += 1;
+                if (Number == Limit) {
+                    goto Finish2;
+                }
+
+                Index += 1;
+                Lookaside += 1;
+                PoolLookaside += 1;
+            } while (Index < POOL_SMALL_LISTS);
+
+#endif
+
+            //
+            // Copy nonpaged general lookaside information to buffer.
+            //
+
+            SpinLock = &ExNPagedLookasideLock;
+            ExAcquireSpinLock(SpinLock, &OldIrql);
+            Entry = ExNPagedLookasideListHead.Flink;
+            while (Entry != &ExNPagedLookasideListHead) {
+                NPagedLookaside = CONTAINING_RECORD(Entry,
+                                                    NPAGED_LOOKASIDE_LIST,
+                                                    L.ListEntry);
+
+                Lookaside->CurrentDepth = NPagedLookaside->L.ListHead.Depth;
+                Lookaside->MaximumDepth = NPagedLookaside->L.Depth;
+                Lookaside->TotalAllocates = NPagedLookaside->L.TotalAllocates;
+                Lookaside->AllocateMisses = NPagedLookaside->L.AllocateMisses;
+                Lookaside->TotalFrees = NPagedLookaside->L.TotalFrees;
+                Lookaside->FreeMisses = NPagedLookaside->L.FreeMisses;
+                Lookaside->Type = 0;
+                Lookaside->Tag = NPagedLookaside->L.Tag;
+                Lookaside->Size = NPagedLookaside->L.Size;
+                Number += 1;
+                if (Number == Limit) {
+                    goto Finish1;
+                }
+
+                Entry = Entry->Flink;
+                Lookaside += 1;
+            }
+
+            ExReleaseSpinLock(SpinLock, OldIrql);
+
+            //
+            // Copy paged general lookaside information to buffer.
+            //
+
+            SpinLock = &ExPagedLookasideLock;
+            ExAcquireSpinLock(SpinLock, &OldIrql);
+            Entry = ExPagedLookasideListHead.Flink;
+            while (Entry != &ExPagedLookasideListHead) {
+                PagedLookaside = CONTAINING_RECORD(Entry,
+                                                   PAGED_LOOKASIDE_LIST,
+                                                   L.ListEntry);
+
+                Lookaside->CurrentDepth = PagedLookaside->L.ListHead.Depth;
+                Lookaside->MaximumDepth = PagedLookaside->L.Depth;
+                Lookaside->TotalAllocates = PagedLookaside->L.TotalAllocates;
+                Lookaside->AllocateMisses = PagedLookaside->L.AllocateMisses;
+                Lookaside->TotalFrees = PagedLookaside->L.TotalFrees;
+                Lookaside->FreeMisses = PagedLookaside->L.FreeMisses;
+                Lookaside->Type = 1;
+                Lookaside->Tag = PagedLookaside->L.Tag;
+                Lookaside->Size = PagedLookaside->L.Size;
+                Number += 1;
+                if (Number == Limit) {
+                    goto Finish1;
+                }
+
+                Entry = Entry->Flink;
+                Lookaside += 1;
+            }
+
+        Finish1:
+            ExReleaseSpinLock(SpinLock, OldIrql);
+
+            //
+            // Unlock user buffer and page lock image section.
+            //
+
+        Finish2:
+            MmUnlockPagableImageSection(ExPageLockHandle);
+            ExUnlockUserBuffer(BufferLock);
+        }
+    }
+
+    *Length = Number * sizeof(SYSTEM_LOOKASIDE_INFORMATION);
+    return Status;
+}
 
 NTSTATUS
 ExpGetPoolInformation(
@@ -2116,7 +3361,7 @@ Return Value:
             class requested by the SystemInformationClass parameter.
 
         STATUS_ACCESS_VIOLATION - Either the SystemInformation buffer pointer
-            or the ReturnLength pointer value specified an invalid address.
+            or the Length pointer value specified an invalid address.
 
         STATUS_WORKING_SET_QUOTA - The process does not have sufficient
             working set to lock the specified output structure in memory.
@@ -2127,28 +3372,33 @@ Return Value:
 --*/
 
 {
-    PRTL_HEAP_INFORMATION HeapInfo;
+#if DBG || (i386 && !FPO)
+
+//
+// Only works on checked builds or free x86 builds with FPO turned off
+// See comment in mm\allocpag.c
+//
+
+    PSYSTEM_POOL_INFORMATION PoolInfo;
     PVOID LockVariable;
     NTSTATUS Status;
-    PVOID UnlockHandle;
 
 
     *Length = 0;
 
-    HeapInfo = (PRTL_HEAP_INFORMATION)
+    PoolInfo = (PSYSTEM_POOL_INFORMATION)
         ExLockUserBuffer( SystemInformation,
                           SystemInformationLength,
                           &LockVariable
                         );
-    if (HeapInfo == NULL) {
+    if (PoolInfo == NULL) {
         return( STATUS_ACCESS_VIOLATION );
         }
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)ExpGetPoolInformation);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle (ExPageLockHandle);
     try {
         Status = ExSnapShotPool( PoolType,
-                                 HeapInfo,
+                                 PoolInfo,
                                  SystemInformationLength,
                                  Length
                                );
@@ -2156,10 +3406,13 @@ Return Value:
         }
     finally {
         ExUnlockUserBuffer( LockVariable );
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
         }
 
     return( Status );
+#else
+    return STATUS_NOT_IMPLEMENTED;
+#endif // DBG || (i386 && !FPO)
 }
 
 NTSTATUS
@@ -2200,7 +3453,7 @@ Return Value:
             class requested by the SystemInformationClass parameter.
 
         STATUS_ACCESS_VIOLATION - Either the SystemInformation buffer pointer
-            or the ReturnLength pointer value specified an invalid address.
+            or the Length pointer value specified an invalid address.
 
         STATUS_WORKING_SET_QUOTA - The process does not have sufficient
             working set to lock the specified output structure in memory.
@@ -2281,7 +3534,7 @@ Return Value:
             class requested by the SystemInformationClass parameter.
 
         STATUS_ACCESS_VIOLATION - Either the SystemInformation buffer pointer
-            or the ReturnLength pointer value specified an invalid address.
+            or the Length pointer value specified an invalid address.
 
         STATUS_WORKING_SET_QUOTA - The process does not have sufficient
             working set to lock the specified output structure in memory.
@@ -2324,19 +3577,16 @@ Return Value:
     return( Status );
 }
 
-#endif
 
 NTSTATUS
 ExpGetPoolTagInfo (
     IN PVOID SystemInformation,
     IN ULONG SystemInformationLength,
-    IN OUT PULONG ReturnLength
+    IN OUT PULONG ReturnLength OPTIONAL
     )
 
 {
     ULONG totalBytes = 0;
-    ULONG foundBytes = 0;
-    ULONG found = 0;
     ULONG i;
     NTSTATUS status = STATUS_SUCCESS;
     PSYSTEM_POOLTAG_INFORMATION taginfo;
@@ -2349,17 +3599,16 @@ ExpGetPoolTagInfo (
 
     taginfo = (PSYSTEM_POOLTAG_INFORMATION)SystemInformation;
     poolTag = &taginfo->TagInfo[0];
-
-    totalBytes = sizeof (SYSTEM_POOLTAG_INFORMATION);
-
+    totalBytes = FIELD_OFFSET(SYSTEM_POOLTAG_INFORMATION, TagInfo);
+    taginfo->Count = 0;
     for (i = 0; i < MAX_TRACKER_TABLE; i++) {
         if (PoolTrackTable[i].Key != 0) {
-            found += 1;
+            taginfo->Count += 1;
             totalBytes += sizeof (SYSTEM_POOLTAG);
             if (SystemInformationLength < totalBytes) {
                 status = STATUS_INFO_LENGTH_MISMATCH;
             } else {
-                poolTag->Tag = PoolTrackTable[i].Key;
+                poolTag->TagUlong = PoolTrackTable[i].Key;
                 poolTag->PagedAllocs = PoolTrackTable[i].PagedAllocs;
                 poolTag->PagedFrees = PoolTrackTable[i].PagedFrees;
                 poolTag->PagedUsed = PoolTrackTable[i].PagedBytes;
@@ -2370,9 +3619,153 @@ ExpGetPoolTagInfo (
             }
         }
     }
-    taginfo->Count = found;
+
     if (ARGUMENT_PRESENT(ReturnLength)) {
-        *ReturnLength = foundBytes;
+        *ReturnLength = totalBytes;
     }
+
     return status;
+}
+
+
+NTSTATUS
+ExpQueryModuleInformation(
+    IN PLIST_ENTRY LoadOrderListHead,
+    IN PLIST_ENTRY UserModeLoadOrderListHead,
+    OUT PRTL_PROCESS_MODULES ModuleInformation,
+    IN ULONG ModuleInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
+    )
+{
+    NTSTATUS Status;
+    ULONG RequiredLength;
+    PLIST_ENTRY Next;
+    PLIST_ENTRY Next1;
+    PRTL_PROCESS_MODULE_INFORMATION ModuleInfo;
+    PLDR_DATA_TABLE_ENTRY LdrDataTableEntry;
+    PLDR_DATA_TABLE_ENTRY LdrDataTableEntry1;
+    ANSI_STRING AnsiString;
+    PUCHAR s;
+
+    RequiredLength = FIELD_OFFSET( RTL_PROCESS_MODULES, Modules );
+    if (ModuleInformationLength < RequiredLength) {
+        Status = STATUS_INFO_LENGTH_MISMATCH;
+        }
+    else {
+        ModuleInformation->NumberOfModules = 0;
+        ModuleInfo = &ModuleInformation->Modules[ 0 ];
+        Status = STATUS_SUCCESS;
+        }
+
+    Next = LoadOrderListHead->Flink;
+    while ( Next != LoadOrderListHead ) {
+        LdrDataTableEntry = CONTAINING_RECORD( Next,
+                                               LDR_DATA_TABLE_ENTRY,
+                                               InLoadOrderLinks
+                                             );
+
+        RequiredLength += sizeof( RTL_PROCESS_MODULE_INFORMATION );
+        if (ModuleInformationLength < RequiredLength) {
+            Status = STATUS_INFO_LENGTH_MISMATCH;
+            }
+        else {
+
+            ModuleInfo->MappedBase = NULL;
+            ModuleInfo->ImageBase = LdrDataTableEntry->DllBase;
+            ModuleInfo->ImageSize = LdrDataTableEntry->SizeOfImage;
+            ModuleInfo->Flags = LdrDataTableEntry->Flags;
+            ModuleInfo->LoadCount = LdrDataTableEntry->LoadCount;
+
+            ModuleInfo->LoadOrderIndex = (USHORT)(ModuleInformation->NumberOfModules);
+            ModuleInfo->InitOrderIndex = 0;
+            AnsiString.Buffer = ModuleInfo->FullPathName;
+            AnsiString.Length = 0;
+            AnsiString.MaximumLength = sizeof( ModuleInfo->FullPathName );
+            RtlUnicodeStringToAnsiString( &AnsiString,
+                                          &LdrDataTableEntry->FullDllName,
+                                          FALSE
+                                        );
+            s = AnsiString.Buffer + AnsiString.Length;
+            while (s > AnsiString.Buffer && *--s) {
+                if (*s == (UCHAR)OBJ_NAME_PATH_SEPARATOR) {
+                    s++;
+                    break;
+                    }
+                }
+            ModuleInfo->OffsetToFileName = (USHORT)(s - AnsiString.Buffer);
+
+            ModuleInfo++;
+            }
+
+        ModuleInformation->NumberOfModules++;
+        Next = Next->Flink;
+        }
+
+    if (ARGUMENT_PRESENT( UserModeLoadOrderListHead )) {
+        Next = UserModeLoadOrderListHead->Flink;
+        while ( Next != UserModeLoadOrderListHead ) {
+            LdrDataTableEntry = CONTAINING_RECORD( Next,
+                                                   LDR_DATA_TABLE_ENTRY,
+                                                   InLoadOrderLinks
+                                                 );
+
+            RequiredLength += sizeof( RTL_PROCESS_MODULE_INFORMATION );
+            if (ModuleInformationLength < RequiredLength) {
+                Status = STATUS_INFO_LENGTH_MISMATCH;
+                }
+            else {
+                ModuleInfo->MappedBase = NULL;
+                ModuleInfo->ImageBase = LdrDataTableEntry->DllBase;
+                ModuleInfo->ImageSize = LdrDataTableEntry->SizeOfImage;
+                ModuleInfo->Flags = LdrDataTableEntry->Flags;
+                ModuleInfo->LoadCount = LdrDataTableEntry->LoadCount;
+
+                ModuleInfo->LoadOrderIndex = (USHORT)(ModuleInformation->NumberOfModules);
+
+                ModuleInfo->InitOrderIndex = ModuleInfo->LoadOrderIndex;
+
+                AnsiString.Buffer = ModuleInfo->FullPathName;
+                AnsiString.Length = 0;
+                AnsiString.MaximumLength = sizeof( ModuleInfo->FullPathName );
+                RtlUnicodeStringToAnsiString( &AnsiString,
+                                              &LdrDataTableEntry->FullDllName,
+                                              FALSE
+                                            );
+                s = AnsiString.Buffer + AnsiString.Length;
+                while (s > AnsiString.Buffer && *--s) {
+                    if (*s == (UCHAR)OBJ_NAME_PATH_SEPARATOR) {
+                        s++;
+                        break;
+                        }
+                    }
+                ModuleInfo->OffsetToFileName = (USHORT)(s - AnsiString.Buffer);
+
+                ModuleInfo++;
+                }
+
+            ModuleInformation->NumberOfModules++;
+            Next = Next->Flink;
+            }
+        }
+
+    if (ARGUMENT_PRESENT(ReturnLength)) {
+        *ReturnLength = RequiredLength;
+    }
+    return( Status );
+}
+
+BOOLEAN
+ExIsProcessorFeaturePresent(
+    ULONG ProcessorFeature
+    )
+{
+    BOOLEAN rv;
+
+    if ( ProcessorFeature < PROCESSOR_FEATURE_MAX ) {
+        rv = SharedUserData->ProcessorFeatures[ProcessorFeature];
+        }
+    else {
+        rv = FALSE;
+        }
+    return rv;
 }

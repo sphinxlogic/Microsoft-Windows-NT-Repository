@@ -19,12 +19,7 @@ mikemon    12-31-90    Upgraded the comments.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
+#include <precomp.hxx>
 
 
 MUTEX::MUTEX (

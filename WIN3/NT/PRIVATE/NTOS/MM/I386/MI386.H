@@ -22,7 +22,6 @@ Revision History:
 
 --*/
 
-#define COLORED_PAGES 1
 
 /*++
 
@@ -50,12 +49,15 @@ Revision History:
                  |                                    |
                  +------------------------------------+
         81000000 |                                    |
-                 |                                    |
-                 |                                    |
-                 |                                    |
                  | Unused  NO ACCESS                  |
                  |                                    |
+                 +------------------------------------+
+        A0000000 | System mapped views                |
                  |                                    |
+                 |                                    |
+                 +------------------------------------+
+        A3000000 |                                    |
+                 | Unused  NO ACCESS                  |
                  |                                    |
                  +------------------------------------+
         C0000000 | Page Table Pages mapped through    |
@@ -98,6 +100,13 @@ Revision History:
 
 --*/
 
+#define MM_KSEG0_BASE ((ULONG)0x80000000)
+
+#define MM_KSEG2_BASE ((ULONG)0xA0000000)
+
+#define MM_PAGES_IN_KSEG0 ((MM_KSEG2_BASE - MM_KSEG0_BASE) >> PAGE_SHIFT)
+
+extern ULONG MmKseg2Frame;
 
 //
 // PAGE_SIZE for Intel i386 is 4k, virtual page is 20 bits with a PAGE_SHIFT
@@ -109,6 +118,10 @@ Revision History:
 //
 // Address space layout definitions.
 //
+
+#define CODE_START MM_KSEG0_BASE
+
+#define CODE_END   MM_KSEG2_BASE
 
 #define MM_SYSTEM_RANGE_START (0x80000000)
 
@@ -126,20 +139,23 @@ Revision History:
 
 #define HYPER_SPACE_END (0xC07fffff)
 
+#define MM_SYSTEM_VIEW_START (0xA0000000)
+
+#define MM_SYSTEM_VIEW_SIZE (48*1024*1024)
+
 //
 // Define the start and maximum size for the system cache.
 // Maximum size 512MB.
 //
-
-#define MM_SYSTEM_CACHE_START (0xC1000000)
-
-#define MM_MAXIMUM_SYSTEM_CACHE_SIZE ((512*1024*1024) >> PAGE_SHIFT)
 
 #define MM_SYSTEM_CACHE_WORKING_SET (0xC0C00000)
 
 #define MM_SYSTEM_CACHE_START (0xC1000000)
 
 #define MM_SYSTEM_CACHE_END (0xE1000000)
+
+#define MM_MAXIMUM_SYSTEM_CACHE_SIZE     \
+   (((ULONG)MM_SYSTEM_CACHE_END - (ULONG)MM_SYSTEM_CACHE_START) >> PAGE_SHIFT)
 
 #define MM_PAGED_POOL_START ((PVOID)(0xE1000000))
 
@@ -159,17 +175,11 @@ Revision History:
 // Define absolute minumum and maximum count for system ptes.
 //
 
-#define MM_MINIMUM_SYSTEM_PTES 4000
+#define MM_MINIMUM_SYSTEM_PTES 7000
 
 #define MM_MAXIMUM_SYSTEM_PTES 50000
 
-#define MM_DEFAULT_SYSTEM_PTES 10000
-
-//
-// Number of PTEs to flush singularly before flushing the entire TB.
-//
-
-#define MM_MAXIMUM_FLUSH_COUNT 7
+#define MM_DEFAULT_SYSTEM_PTES 11000
 
 //
 // Pool limits
@@ -182,10 +192,10 @@ Revision History:
 #define MM_MAX_INITIAL_NONPAGED_POOL ((ULONG)(128*1024*1024))
 
 //
-// The total amount of nonpaged pool (initial pool + expansion + system PTEs).
+// The total amount of nonpaged pool (initial pool + expansion).
 //
 
-#define MM_MAX_ADDITIONAL_NONPAGED_POOL ((ULONG)(192*1024*1024))
+#define MM_MAX_ADDITIONAL_NONPAGED_POOL ((ULONG)(128*1024*1024))
 
 //
 // The maximum amount of paged pool that can be created.
@@ -242,21 +252,21 @@ Revision History:
 
 #define MM_COLOR_MASK_VIRTUAL (0)
 
-#ifdef COLORED_PAGES
-
 //
-//  Define 2mb worth of secondary colors.
+//  Define 256k worth of secondary colors.
 //
 
-#define MM_SECONDARY_COLORS (256)
+#define MM_SECONDARY_COLORS_DEFAULT (64)
+
+#define MM_SECONDARY_COLORS_MIN (2)
+
+#define MM_SECONDARY_COLORS_MAX (1024)
 
 //
 // Mask for isolating secondary color from physical page number;
 //
 
-#define MM_SECONDARY_COLOR_MASK (MM_SECONDARY_COLORS - 1)
-
-#endif //COLORED_PAGES
+extern ULONG MmSecondaryColorMask;
 
 //
 // Maximum number of paging files.
@@ -271,7 +281,7 @@ Revision History:
 
 #define FIRST_MAPPING_PTE   ((ULONG)0xC0400000)
 
-#define NUMBER_OF_MAPPING_PTES 127L
+#define NUMBER_OF_MAPPING_PTES 255
 #define LAST_MAPPING_PTE   \
      ((ULONG)((ULONG)FIRST_MAPPING_PTE + (NUMBER_OF_MAPPING_PTES * PAGE_SIZE)))
 
@@ -281,17 +291,33 @@ Revision History:
 
 #define WORKING_SET_LIST   ((PVOID)((ULONG)ZEROING_PAGE_PTE + PAGE_SIZE))
 
+#define MM_MAXIMUM_WORKING_SET \
+       ((ULONG)((ULONG)2*1024*1024*1024 - 64*1024*1024) >> PAGE_SHIFT) //2Gb-64Mb
+
+#define MM_WORKING_SET_END ((ULONG)0xC07FF000)
+
+
 //
 // Define masks for fields within the PTE.
 ///
 
 #define MM_PTE_VALID_MASK         0x1
+#if defined(NT_UP)
 #define MM_PTE_WRITE_MASK         0x2
+#else
+#define MM_PTE_WRITE_MASK         0x800
+#endif
 #define MM_PTE_OWNER_MASK         0x4
 #define MM_PTE_WRITE_THROUGH_MASK 0x8
 #define MM_PTE_CACHE_DISABLE_MASK 0x10
 #define MM_PTE_ACCESS_MASK        0x20
+#if defined(NT_UP)
 #define MM_PTE_DIRTY_MASK         0x40
+#else
+#define MM_PTE_DIRTY_MASK         0x42
+#endif
+#define MM_PTE_LARGE_PAGE_MASK    0x80
+#define MM_PTE_GLOBAL_MASK        0x100
 #define MM_PTE_COPY_ON_WRITE_MASK 0x200
 #define MM_PTE_PROTOTYPE_MASK     0x400
 #define MM_PTE_TRANSITION_MASK    0x800
@@ -303,11 +329,11 @@ Revision History:
 
 #define MM_PTE_NOACCESS          0x0   // not expressable on i386
 #define MM_PTE_READONLY          0x0
-#define MM_PTE_READWRITE         0x2
+#define MM_PTE_READWRITE         MM_PTE_WRITE_MASK
 #define MM_PTE_WRITECOPY         0x200 // read-only copy on write bit set.
 #define MM_PTE_EXECUTE           0x0   // read-only on i386
 #define MM_PTE_EXECUTE_READ      0x0
-#define MM_PTE_EXECUTE_READWRITE 0x2
+#define MM_PTE_EXECUTE_READWRITE MM_PTE_WRITE_MASK
 #define MM_PTE_EXECUTE_WRITECOPY 0x200 // read-only copy on write bit set.
 #define MM_PTE_NOCACHE           0x010
 #define MM_PTE_GUARD             0x0  // not expressable on i386
@@ -346,14 +372,7 @@ Revision History:
 
 #define MM_KERNEL_NOACCESS_PTE (MM_NOACCESS << MM_PROTECT_FIELD_SHIFT)
 
-//
-// Dirty bit definitions for clean and dirty.
-//
-
-#define MM_PTE_CLEAN 0
-
-#define MM_PTE_DIRTY 1
-
+extern ULONG MmPteGlobal; // One if processor supports Global Page, else zero.
 
 //
 // Kernel stack alignment requirements.
@@ -409,12 +428,10 @@ Revision History:
 //
 //--
 
-#define MI_MAKE_VALID_PTE(OUTPTE,FRAME,PMASK,PPTE)          \
-       (OUTPTE).u.Long = ((FRAME << 12) |                   \
-                         (MmProtectToPteMask[PMASK]) |      \
-                          (MI_DETERMINE_OWNER(PPTE) << 2) | \
-                          MM_PTE_VALID_MASK |               \
-                          MM_PTE_ACCESS_MASK);
+#define MI_MAKE_VALID_PTE(OUTPTE,FRAME,PMASK,PPTE)                            \
+       (OUTPTE).u.Long = ((FRAME << 12) |                                     \
+                         (MmProtectToPteMask[PMASK]) |                        \
+                          MiDetermineUserGlobalPteMask ((PMMPTE)PPTE));
 
 //++
 //VOID
@@ -508,11 +525,82 @@ Revision History:
 //--
 
 #define MI_MAKE_TRANSITION_PTE_VALID(OUTPTE,PPTE)                             \
+        ASSERT (((PPTE)->u.Hard.Valid == 0) &&                                \
+                ((PPTE)->u.Trans.Prototype == 0) &&                           \
+                ((PPTE)->u.Trans.Transition == 1));                           \
        (OUTPTE).u.Long = (((PPTE)->u.Long & 0xFFFFF000) |                     \
                          (MmProtectToPteMask[(PPTE)->u.Trans.Protection]) |   \
-                         (MI_DETERMINE_OWNER(PPTE) << 2) |                    \
-                          MM_PTE_VALID_MASK |                                 \
-                          MM_PTE_ACCESS_MASK);
+                          MiDetermineUserGlobalPteMask ((PMMPTE)PPTE));
+
+
+//++
+//VOID
+//MI_SET_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro sets the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set dirty.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_DIRTY(PTE) (PTE).u.Long |= HARDWARE_PTE_DIRTY_MASK
+
+
+//++
+//VOID
+//MI_SET_PTE_CLEAN (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro clears the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set clear.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_CLEAN(PTE) (PTE).u.Long &= ~HARDWARE_PTE_DIRTY_MASK
+
+
+
+//++
+//VOID
+//MI_IS_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro checks the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to check.
+//
+// Return Value:
+//
+//    TRUE if the page is dirty (modified), FALSE otherwise.
+//
+//--
+
+#define MI_IS_PTE_DIRTY(PTE) ((PTE).u.Hard.Dirty != 0)
 
 
 
@@ -540,14 +628,19 @@ Revision History:
 //
 //--
 
-#define MI_SET_GLOBAL_BIT_IF_SYSTEM(OUTPTE,PPTE)
-
+#define MI_SET_GLOBAL_BIT_IF_SYSTEM(OUTPTE,PPTE)                             \
+   if ((((PMMPTE)PPTE) > MiGetPteAddress(MM_HIGHEST_USER_ADDRESS)) &&        \
+       ((((PMMPTE)PPTE) <= MiGetPteAddress (PTE_BASE)) ||                    \
+       (((PMMPTE)PPTE) >= MiGetPteAddress (MM_SYSTEM_CACHE_WORKING_SET)))) { \
+           (OUTPTE).u.Hard.Global = MmPteGlobal;                             \
+   }                                                                         \
 
 
 //++
 //VOID
 //MI_SET_GLOBAL_STATE (
-//    IN MMPTE PTE
+//    IN MMPTE PTE,
+//    IN ULONG STATE
 //    );
 //
 // Routine Description:
@@ -558,30 +651,7 @@ Revision History:
 //
 //    PTE - Supplies the PTE to set global state into.
 //
-// Return Value:
-//
-//     None.
-//
-//--
-
-#define MI_SET_GLOBAL_STATE(PTE)
-
-
-
-
-//++
-//VOID
-//MI_CLEAR_GLOBAL_STATE (
-//    IN MMPTE PTE
-//    );
-//
-// Routine Description:
-//
-//    This macro clears the global bit if the pointer PTE.
-//
-// Argments
-//
-//    PTE - Supplies the PTE to clear global state from.
+//    STATE - Supplies 1 if global, 0 if not.
 //
 // Return Value:
 //
@@ -589,7 +659,10 @@ Revision History:
 //
 //--
 
-#define MI_CLEAR_GLOBAL_STATE(PTE)
+#define MI_SET_GLOBAL_STATE(PTE,STATE)                              \
+           (PTE).u.Hard.Global = (STATE & MmPteGlobal);
+
+
 
 
 
@@ -800,15 +873,8 @@ Revision History:
 //
 //--
 
-#ifdef COLORED_PAGES
 #define MI_GET_PAGE_COLOR_FROM_PTE(PTEADDRESS)  \
-         ((ULONG)((MmSystemPageColor++) & MM_SECONDARY_COLOR_MASK))
-#else
-#define MI_GET_PAGE_COLOR_FROM_PTE(PTEADDRESS)  0
-
-#endif //COLORED_PAGES
-
-
+         ((ULONG)((MmSystemPageColor++) & MmSecondaryColorMask))
 
 
 
@@ -833,17 +899,9 @@ Revision History:
 //
 //--
 
-//#ifdef COLORED_PAGES
-//#define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)  \ //
-//         ((((ULONG)(ADDRESS)) >> PAGE_SHIFT) & MM_SECONDARY_COLOR_MASK)
 
-#ifdef COLORED_PAGES
 #define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)  \
-         ((ULONG)((MmSystemPageColor++) & MM_SECONDARY_COLOR_MASK))
-#else
-#define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)  0
-
-#endif //COLORED_PAGES
+         ((ULONG)((MmSystemPageColor++) & MmSecondaryColorMask))
 
 
 
@@ -869,14 +927,8 @@ Revision History:
 //--
 
 
-#ifdef COLORED_PAGES
 #define MI_PAGE_COLOR_PTE_PROCESS(PTE,COLOR)  \
-         ((ULONG)((*(COLOR))++) & MM_SECONDARY_COLOR_MASK)
-
-#else
-#define MI_GET_PAGE_COLOR_FOR_PROCESS(PROCESS) 0
-
-#endif //COLORED_PAGES
+         ((ULONG)((*(COLOR))++) & MmSecondaryColorMask)
 
 
 
@@ -902,15 +954,8 @@ Revision History:
 //
 //--
 
-#ifdef COLORED_PAGES
 #define MI_PAGE_COLOR_VA_PROCESS(ADDRESS,COLOR) \
-         ((ULONG)((*(COLOR))++) & MM_SECONDARY_COLOR_MASK)
-
-#else
-#define MI_PAGE_COLOR_VA_PROCESS(ADDRESS,COLOR)  0
-
-#endif //COLORED_PAGES
-
+         ((ULONG)((*(COLOR))++) & MmSecondaryColorMask)
 
 
 
@@ -960,7 +1005,7 @@ Revision History:
 #define MI_GET_PREVIOUS_COLOR(COLOR)  (0)
 
 
-#define MI_GET_SECONDARY_COLOR(PAGE,PFN) (PAGE & MM_SECONDARY_COLOR_MASK)
+#define MI_GET_SECONDARY_COLOR(PAGE,PFN) (PAGE & MmSecondaryColorMask)
 
 
 #define MI_GET_COLOR_FROM_SECONDARY(SECONDARY_COLOR) (0)
@@ -1032,8 +1077,6 @@ Revision History:
                     PAGE = MmModifiedPageListByColor[COLOR].Flink;           \
                 }                                                            \
             }
-
-
 
 
 
@@ -1115,9 +1158,17 @@ Revision History:
 //
 //--
 
+#if defined(NT_UP)
 #define MI_SET_ACCESSED_IN_PTE(PPTE,ACCESSED) \
                     ((PPTE)->u.Hard.Accessed = ACCESSED)
+#else
 
+//
+// Don't do anything on MP systems.
+//
+
+#define MI_SET_ACCESSED_IN_PTE(PPTE,ACCESSED)
+#endif
 
 
 //++
@@ -1140,8 +1191,11 @@ Revision History:
 //
 //--
 
+#if defined(NT_UP)
 #define MI_GET_ACCESSED_IN_PTE(PPTE) ((PPTE)->u.Hard.Accessed)
-
+#else
+#define MI_GET_ACCESSED_IN_PTE(PPTE) 0
+#endif
 
 
 //++
@@ -1252,9 +1306,7 @@ Revision History:
 //   This macro returns the address of the corresponding prototype which
 //   was encoded earlier into the supplied PTE.
 //
-//    NOTE THAT AS PROTOPTE CAN RESIDE IN BOTH PAGED AND NONPAGED POOL
-//    THIS MACRO LIMITS THE COMBINED SIZES OF TWO POOLS AND REQUIRES THEM
-//    TO BE WITHIN THE MAX SIZE CONSTRAINTS
+//    NOTE THAT AS PROTOPTE CAN ONLY RESIDE IN PAGED POOL!!!!!!
 //
 //    MAX SIZE = 2^(2+7+21) = 2^30 = 1GB.
 //
@@ -1340,7 +1392,7 @@ Revision History:
 #define MiProtoAddressForKernelPte(proto_va)  MiProtoAddressForPte(proto_va)
 
 
-
+#define MM_SUBSECTION_MAP (128*1024*1024)
 
 //++
 //PSUBSECTION
@@ -1368,10 +1420,21 @@ Revision History:
 //
 //--
 
-#define MiGetSubsectionAddress(lpte)                        \
+//#define MiGetSubsectionAddress(lpte)                        \
+//            ((PSUBSECTION)((ULONG)MM_NONPAGED_POOL_END -    \
+//                (((((lpte)->u.Long)>>11)<<7) |              \
+//                (((lpte)->u.Long<<2) & 0x78))))
+
+#define MiGetSubsectionAddress(lpte)                              \
+    (((lpte)->u.Long & 0x80000000) ?                              \
+            ((PSUBSECTION)((ULONG)MmSubsectionBase +    \
+                ((((lpte)->u.Long & 0x7ffff800) >> 4) |              \
+                (((lpte)->u.Long<<2) & 0x78)))) \
+      : \
             ((PSUBSECTION)((ULONG)MM_NONPAGED_POOL_END -    \
                 (((((lpte)->u.Long)>>11)<<7) |              \
-                (((lpte)->u.Long<<2) & 0x78))))
+                (((lpte)->u.Long<<2) & 0x78)))))
+
 
 
 //++
@@ -1398,9 +1461,19 @@ Revision History:
 //
 //--
 
-#define MiGetSubsectionAddressForPte(VA)  \
+//#define MiGetSubsectionAddressForPte(VA)  \
+//   (((((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA)>>2) & (ULONG)0x0000001E) |  \
+//   ((((((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA)<<4) & (ULONG)0xfffff800))))
+
+#define MiGetSubsectionAddressForPte(VA)                   \
+            (((ULONG)(VA) < (ULONG)MM_KSEG2_BASE) ?                  \
+   (((((ULONG)VA - (ULONG)MmSubsectionBase)>>2) & (ULONG)0x0000001E) |  \
+   ((((((ULONG)VA - (ULONG)MmSubsectionBase)<<4) & (ULONG)0x7ffff800)))| \
+   0x80000000) \
+            : \
    (((((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA)>>2) & (ULONG)0x0000001E) |  \
-   ((((((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA)<<4) & (ULONG)0xfffff800))))
+   ((((((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA)<<4) & (ULONG)0x7ffff800)))))
+
 
 
 
@@ -1707,8 +1780,8 @@ Revision History:
 //--
 
 #define MI_MAKE_PROTECT_WRITE_COPY(PTE) \
-        if ((PTE).u.Long & 0x80) {      \
-            ((PTE).u.Long |= 0x20);      \
+        if ((PTE).u.Soft.Protection & MM_PROTECTION_WRITE_MASK) {      \
+            (PTE).u.Long |= MM_PROTECTION_COPY_MASK << MM_PROTECT_FIELD_SHIFT;      \
         }
 
 
@@ -1740,7 +1813,14 @@ Revision History:
 //
 //--
 
+#if defined(NT_UP)
 #define MI_SET_PAGE_DIRTY(PPTE,VA,PFNHELD)
+#else
+#define MI_SET_PAGE_DIRTY(PPTE,VA,PFNHELD)                          \
+            if ((PPTE)->u.Hard.Dirty == 1) {                        \
+                MiSetDirtyBit ((VA),(PPTE),(PFNHELD));              \
+            }
+#endif
 
 
 
@@ -1775,8 +1855,14 @@ Revision History:
 //
 //--
 
-// not implemented on the x86.
+#if defined(NT_UP)
 #define MI_NO_FAULT_FOUND(TEMP,PPTE,VA,PFNHELD)
+#else
+#define MI_NO_FAULT_FOUND(TEMP,PPTE,VA,PFNHELD) \
+        if (StoreInstruction && ((PPTE)->u.Hard.Dirty == 0)) {  \
+            MiSetDirtyBit ((VA),(PPTE),(PFNHELD));     \
+        }
+#endif
 
 
 
@@ -1810,8 +1896,9 @@ Revision History:
 //--
 
 #define MI_CAPTURE_DIRTY_BIT_TO_PFN(PPTE,PPFN)                      \
+         ASSERT (KeGetCurrentIrql() > APC_LEVEL);                   \
          if (((PPFN)->u3.e1.Modified == 0) &&                       \
-            ((PPTE)->u.Hard.Dirty == MM_PTE_DIRTY)) {               \
+            ((PPTE)->u.Hard.Dirty != 0)) {               \
              (PPFN)->u3.e1.Modified = 1;                            \
              if (((PPFN)->OriginalPte.u.Soft.Prototype == 0) &&     \
                           ((PPFN)->u3.e1.WriteInProgress == 0)) {   \
@@ -1842,10 +1929,9 @@ Revision History:
 //
 //--
 
-// always FALSE on x86.
 
-#define MI_IS_PHYSICAL_ADDRESS(Va) FALSE
-
+#define MI_IS_PHYSICAL_ADDRESS(Va) \
+     (((ULONG)Va >= MM_KSEG0_BASE) && ((ULONG)Va < MM_KSEG2_BASE) && (MmKseg2Frame))
 
 
 //++
@@ -1869,15 +1955,13 @@ Revision History:
 //
 //--
 
-// not implemented on x86, always return 0
 
-#define MI_CONVERT_PHYSICAL_TO_PFN(Va) (0)
+#define MI_CONVERT_PHYSICAL_TO_PFN(Va)    (((ULONG)Va << 3) >> 15)
 
-#ifdef COLORED_PAGES
+
 typedef struct _MMCOLOR_TABLES {
     ULONG Flink;
     PVOID Blink;
-    LIST_ENTRY PrimaryColor;
 } MMCOLOR_TABLES, *PMMCOLOR_TABLES;
 
 typedef struct _MMPRIMARY_COLOR_TABLES {
@@ -1885,10 +1969,11 @@ typedef struct _MMPRIMARY_COLOR_TABLES {
 } MMPRIMARY_COLOR_TABLES, *PMMPRIMARY_COLOR_TABLES;
 
 
-extern MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+extern MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#endif
 
-extern MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
-#endif //COLORED_PAGES
+extern PMMCOLOR_TABLES MmFreePagesByColor[2];
 
 extern ULONG MmTotalPagesForPagingFile;
 
@@ -1896,21 +1981,6 @@ extern ULONG MmTotalPagesForPagingFile;
 //
 // A VALID Page Table Entry on an Intel 386/486 has the following definition.
 //
-
-typedef struct _MMPTE_HARDWARE {
-    ULONG Valid : 1;
-    ULONG Write : 1;
-    ULONG Owner : 1;
-    ULONG WriteThrough : 1;
-    ULONG CacheDisable : 1;
-    ULONG Accessed : 1;
-    ULONG Dirty : 1;
-    ULONG Rsvd : 2;
-    ULONG CopyOnWrite : 1;
-    ULONG Prototype : 1;
-    ULONG Transition : 1;
-    ULONG PageFrameNumber : 20;
-} MMPTE_HARDWARE;
 
 typedef struct _MMPTE_SOFTWARE {
     ULONG Valid : 1;
@@ -1937,7 +2007,7 @@ typedef struct _MMPTE_PROTOTYPE {
     ULONG Valid : 1;
     ULONG ProtoAddressLow : 7;
     ULONG ReadOnly : 1;  // if set allow read only access.
-    ULONG ForkType : 1;
+    ULONG WhichPool : 1;
     ULONG Prototype : 1;
     ULONG ProtoAddressHigh : 21;
 } MMPTE_PROTOTYPE;
@@ -1947,7 +2017,8 @@ typedef struct _MMPTE_SUBSECTION {
     ULONG SubsectionAddressLow : 4;
     ULONG Protection : 5;
     ULONG Prototype : 1;
-    ULONG SubsectionAddressHigh : 21;
+    ULONG SubsectionAddressHigh : 20;
+    ULONG WhichPool : 1;
 } MMPTE_SUBSECTION;
 
 typedef struct _MMPTE_LIST {
@@ -1958,29 +2029,65 @@ typedef struct _MMPTE_LIST {
 } MMPTE_LIST;
 
 //
-// A VALID Page Table Entry on an Intel 386/486 has the following definition.
+// A Page Table Entry on an Intel 386/486 has the following definition.
 //
 
-// typedef struct _HARDWARE_PTE {
-//     ULONG Valid : 1;
-//     ULONG Write : 1;
-//     ULONG Owner : 1;
-//     ULONG WriteThrough : 1;
-//     ULONG CacheDisable : 1;
-//     ULONG Accessed : 1;
-//     ULONG Dirty : 1;
-//     ULONG Rsvd : 2;
-//     ULONG CopyOnWrite : 1; // software field
-//     ULONG Prototype : 1;   // software field
-//     ULONG Transition : 1;  // software field
-//     ULONG PageFrameNumber : 20;
-// } HARDWARE_PTE, *PHARDWARE_PTE;
+#if defined(NT_UP)
+
+//
+// Uniprocessor version.
+//
+
+typedef struct _MMPTE_HARDWARE {
+    ULONG Valid : 1;
+    ULONG Write : 1;  // UP version
+    ULONG Owner : 1;
+    ULONG WriteThrough : 1;
+    ULONG CacheDisable : 1;
+    ULONG Accessed : 1;
+    ULONG Dirty : 1;
+    ULONG LargePage : 1;
+    ULONG Global : 1;
+    ULONG CopyOnWrite : 1; // software field
+    ULONG Prototype : 1;   // software field
+    ULONG reserved : 1;  // software field
+    ULONG PageFrameNumber : 20;
+} MMPTE_HARDWARE, *PMMPTE_HARDWARE;
+
+#define HARDWARE_PTE_DIRTY_MASK     0x40
+
+#else
+
+//
+// MP version to avoid stalls when flush TBs accross processors.
+//
+
+typedef struct _MMPTE_HARDWARE {
+    ULONG Valid : 1;
+    ULONG Writable : 1;      //changed for MP version
+    ULONG Owner : 1;
+    ULONG WriteThrough : 1;
+    ULONG CacheDisable : 1;
+    ULONG Accessed : 1;
+    ULONG Dirty : 1;
+    ULONG LargePage : 1;
+    ULONG Global : 1;
+    ULONG CopyOnWrite : 1; // software field
+    ULONG Prototype : 1;   // software field
+    ULONG Write : 1;       // software field - MP change
+    ULONG PageFrameNumber : 20;
+} MMPTE_HARDWARE, *PMMPTE_HARDWARE;
+
+#define HARDWARE_PTE_DIRTY_MASK     0x42
+
+#endif //NT_UP
 
 
 typedef struct _MMPTE {
     union  {
         ULONG Long;
-        HARDWARE_PTE Hard;
+        MMPTE_HARDWARE Hard;
+        HARDWARE_PTE Flush;
         MMPTE_PROTOTYPE Proto;
         MMPTE_SOFTWARE Soft;
         MMPTE_TRANSITION Trans;
@@ -1990,3 +2097,9 @@ typedef struct _MMPTE {
 } MMPTE;
 
 typedef MMPTE *PMMPTE;
+
+ULONG
+FASTCALL
+MiDetermineUserGlobalPteMask (
+    IN PMMPTE Pte
+    );

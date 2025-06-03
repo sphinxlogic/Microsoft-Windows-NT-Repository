@@ -687,7 +687,7 @@ LPDRAWITEMSTRUCT lpdis )      // I - Pointer to information about item.
                     SelectObject( lpdis->hDC, hSaveObject );
 
 //                    cxPos += ( DLM_ItembMaxTextLen( lpDispItem ) * pHdr->cxTextWidth );
-                    cxPos = rcNew.right;
+                    cxPos = (short)rcNew.right;
 
                     // Create a little more space for strings less than 5 characters long.
 
@@ -770,6 +770,7 @@ LPDRAWITEMSTRUCT lpdis )      // I - Pointer to information about item.
    HANDLE          hSaveObject ;
    POINT           pt;            //dvc - GetWindowOrgEx return value
    SIZE            sizeRect ;     //dvc - GetTextExtentPoint return val
+
 
    if ( (lpdis->itemAction == ODA_SELECT ) ||
         (lpdis->itemAction == ODA_DRAWENTIRE ) )

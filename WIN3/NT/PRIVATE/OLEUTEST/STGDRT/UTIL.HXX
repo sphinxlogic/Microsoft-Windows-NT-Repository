@@ -21,6 +21,7 @@ void CleanData(void);
 void UnsetData(void);
 void out(char *fmt, ...);
 void error(int code, char *fmt, ...);
+void errorprint(char *fmt, ...);
 char *OlecsOut(OLECHAR const *ptcs);
 char *ScText(SCODE sc);
 HRESULT Result(HRESULT hr);

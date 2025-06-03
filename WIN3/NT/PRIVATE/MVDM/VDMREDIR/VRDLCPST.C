@@ -520,11 +520,6 @@ Return Value:
             }
             pDosCcb->uchDlcStatus = pCcb->uchDlcStatus;
             cancelledReceive = pCcb;
-            LocalFree(pCcb);
-
-            IF_DEBUG(DLC_ALLOC) {
-                DPUT1("FREE: freed block @ %x\n", pCcb);
-            }
 
         } else {
 
@@ -983,13 +978,6 @@ Return Value:
             cancelledReceive = (PLLC_CCB)pReadParms->ulNotificationFlag;
 
             //
-            // free the NT RECEIVE CCB and parameter table we allocated in
-            // VrDlc5cHandler
-            //
-
-            LocalFree((HLOCAL)pReadParms->ulNotificationFlag);
-
-            //
             // set up the registers to call the command completion appendage
             // for the failed RECEIVE command
             //
@@ -1295,6 +1283,12 @@ Return Value:
 
     if (cancelledReceive) {
         RemoveDeadReceives(cancelledReceive);
+
+        LocalFree(cancelledReceive);
+
+        IF_DEBUG(DLC_ALLOC) {
+            DPUT1("FREE: freed block @ %x\n", cancelledReceive);
+        }
     }
 
     //

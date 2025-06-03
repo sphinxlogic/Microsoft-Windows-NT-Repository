@@ -799,4 +799,3 @@ IN2000_Service (int Func, ADAPTER_PTR HA, U32 Misc)
 
   return 0;
 }
-

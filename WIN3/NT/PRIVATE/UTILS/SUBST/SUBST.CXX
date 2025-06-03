@@ -12,6 +12,7 @@
 #include "system.hxx"
 #include "ulibcl.hxx"
 #include "subst.hxx"
+#include "dir.hxx"
 // #include "..\..\windows\inc\conapi.h"
 
 BOOLEAN
@@ -162,7 +163,7 @@ QuerySubstedDrive(
     if( QueryDosDevice( DriveName,
                         PhysicalDrive,
                         PhysicalDriveLength ) != 0 ) {
-        DosDevicesPattern.Initialize( (LPWSTR)L"\\DosDevices\\" );
+        DosDevicesPattern.Initialize( (LPWSTR)L"\\??\\" );
         DeviceName.Initialize( PhysicalDrive );
         Position = DeviceName.Strstr( &DosDevicesPattern );
         if( Position == 0 ) {
@@ -257,6 +258,9 @@ Return Value:
     }
 
     arglex.PutSwitches( "/" );
+    arglex.PutStartQuotes( "\"" );
+    arglex.PutEndQuotes( "\"" );
+    arglex.PutSeparators( " \t" );
     arglex.SetCaseSensitive(FALSE);
 
     if (!arglex.PrepareToParse()) {

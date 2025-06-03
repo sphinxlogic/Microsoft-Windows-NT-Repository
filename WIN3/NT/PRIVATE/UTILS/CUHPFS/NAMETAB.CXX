@@ -254,7 +254,7 @@ NAME_LOOKUP_TABLE::Initialize(
     if( !NT_SUCCESS( Status ) ) {
 
         _FileHandle = 0;
-        DbgPrintf( "CONVERT: NtOpenFile failed--status = 0x%x.\n", Status );
+        DebugPrintf( "CONVERT: NtOpenFile failed--status = 0x%x.\n", Status );
         Message->Set( MSG_CONV_CANT_READ_NAME_TABLE );
         Message->Display( "", QualifiedFileName );
         Destroy();
@@ -271,7 +271,7 @@ NAME_LOOKUP_TABLE::Initialize(
 
     if( !NT_SUCCESS( Status ) ) {
 
-        DbgPrintf( "CONVERT: NtQueryInformationFile failed--status = 0x%x.\n", Status );
+        DebugPrintf( "CONVERT: NtQueryInformationFile failed--status = 0x%x.\n", Status );
         Message->Set( MSG_CONV_CANT_READ_NAME_TABLE );
         Message->Display( "", QualifiedFileName  );
         Destroy();
@@ -297,7 +297,7 @@ NAME_LOOKUP_TABLE::Initialize(
         if( !NT_SUCCESS( Status ) ) {
 
             _SectionHandle = 0;
-            DbgPrintf( "CONVERT: NtCreateSection failed--status = 0x%x.\n", Status );
+            DebugPrintf( "CONVERT: NtCreateSection failed--status = 0x%x.\n", Status );
             Message->Set( MSG_CONV_CANT_READ_NAME_TABLE );
             Message->Display( "", QualifiedFileName  );
             Destroy();
@@ -320,7 +320,7 @@ NAME_LOOKUP_TABLE::Initialize(
         if( !NT_SUCCESS( Status ) ) {
 
             _Data = NULL;
-            DbgPrintf( "CONVERT: NtMapViewOfSection failed--status = 0x%x.\n", Status );
+            DebugPrintf( "CONVERT: NtMapViewOfSection failed--status = 0x%x.\n", Status );
             Message->Set( MSG_CONV_CANT_READ_NAME_TABLE );
             Message->Display( "", QualifiedFileName  );
             Destroy();
@@ -387,7 +387,7 @@ ReturnValue:
     CurrentEntry = (PBYTE)_Data;
     EntryCount = 0;
 
-    DbgPtrAssert( CurrentEntry );
+    DebugPtrAssert( CurrentEntry );
 
     while( CurrentOffset < _DataLength ) {
 

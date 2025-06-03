@@ -40,6 +40,13 @@ Revision History :
 #include "parlog.h"
 #include "ntddser.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'LraP')
+#endif
+
 
 #if DBG
 ULONG PlDebugLevel = 0;
@@ -412,8 +419,7 @@ Return Value:
 
     KeInitializeTimer(&extension->ReadTimer);
     KeInitializeDpc(&extension->ReadDpc, PlReadDpc, extension);
-    extension->ReadDpcTime = RtlLargeIntegerNegate(
-            RtlConvertUlongToLargeInteger(50*10*1000));
+    extension->ReadDpcTime.QuadPart = -(50*10*1000);
 
 
     KeInitializeSpinLock(&extension->ControlLock);

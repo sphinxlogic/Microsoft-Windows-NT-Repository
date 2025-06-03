@@ -45,12 +45,18 @@ assumes ES,NOTHING
     KernelThunk  GetProfileInt
     KernelThunk  GetPrivateProfileString
     KernelThunk  GetPrivateProfileInt
+    KernelThunk  RegEnumKey32
+    KernelThunk  RegOpenKey32
+    KernelThunk  RegCloseKey32
+    KernelThunk  RegEnumValue32
     KernelThunk  WriteProfileString
     KernelThunk  WritePrivateProfileString
+    DKernelThunk GetVersionEx
+
+
 
 ; Internal WOW Thunks
 
-    DKernelThunk WowKillProcess,0       ; WOW Process Destruction
     DKernelThunk WowInitTask        ; Task Creation
     DKernelThunk WowKillTask,0      ; Task Destruction
     DKernelThunk WOWFreeResource,     %(size FREERESOURCE16)
@@ -77,14 +83,17 @@ assumes ES,NOTHING
     DKernelThunk WowWaitForMsgAndEvent
     DKernelThunk WowMsgBox
     DKernelThunk WowGetCurrentDate,0
-    DKernelThunk WowGetCurrentTime,0
     DKernelThunk WowDeviceIOCTL
     DKernelThunk WowFileSetAttributes
     DKernelThunk WowFileSetDateTime
     DKernelThunk WowFileCreate
     DKernelThunk WowDosWowInit
     DKernelThunk WowCheckUserGdi
-
+    DKernelThunk WowPartyByNumber
+    DKernelThunk WowShouldWeSayWin95
+    DKernelThunk GetShortPathName
+    DKernelThunk FindAndReleaseDib
+    DKernelThunk WowReserveHtask
 
 ;-----------------------------------------------------------------------;
 ; WOWGetNexVdmCommand
@@ -114,7 +123,7 @@ assumes ES,NOTHING
     DKernelThunk WowGetNextVdmCommand
 
 ;-----------------------------------------------------------------------;
-; WOWRegisterShellWindowHandle
+; WowRegisterShellWindowHandle
 ;
 ; Tells WOW the Windows Handle To Post Messages to For Execing 16 bit
 ; apps.   (see WOWEXEC and WK32NotifyThread)
@@ -137,7 +146,7 @@ assumes ES,NOTHING
 ;   New API for Multi Tasking Exec by 32 bit app of 16 bit app
 ;-----------------------------------------------------------------------;
 
-    DKernelThunk WowRegisterShellWindowHandle, %(size WOWREGISTERSHELLWINDOWHANDLE16)
+    DKernelThunk WowRegisterShellWindowHandle
 
 ;-----------------------------------------------------------------------;
 ; WOWLoadModule32
@@ -189,7 +198,7 @@ assumes ES,NOTHING
 ;  Mon 01-Dec-1992 16:30:00  -by-  Russ Blake  [russbl}
 ;-----------------------------------------------------------------------;
 
-    DKernelThunk WOWSetIdleHook
+    DKernelThunk WOWSetIdleHook,0
 
 ;-----------------------------------------------------------------------;
 ; WOWQueryPerformanceCounter
@@ -215,7 +224,7 @@ assumes ES,NOTHING
 ;  Mon 16-Mar-1991 14:19:04  -by-  Matthew Felton  [mattfe}
 ;-----------------------------------------------------------------------;
 
-    DKernelThunk WOWQueryPerformanceCounter, %(size WOWQUERYPERFORMANCECOUNTER16)
+    DKernelThunk WOWQueryPerformanceCounter
 
 ;-----------------------------------------------------------------------;
 ; WOWGetFastAddress
@@ -244,7 +253,7 @@ assumes ES,NOTHING
     DKernelThunk WOWGetFastAddress, 0
 
     DKernelThunk WOWGetFastCbRetAddress, 0
-    DKernelThunk WOWGetTableOffsets, %(size WOWGETTABLEOFFSETS16)
+    DKernelThunk WOWGetTableOffsets
 
 ;-----------------------------------------------------------------------;
 ; WOWKillRemoteTask
@@ -302,8 +311,8 @@ assumes ES,NOTHING
     DKernelThunk WOWDelFile, %(size WOWDelFile16)
     DKernelThunk VirtualAlloc
     DKernelThunk VirtualFree
-    DKernelThunk VirtualLock
-    DKernelThunk VirtualUnlock
+;    DKernelThunk VirtualLock    Unused
+;    DKernelThunk VirtualUnlock  Unused
     DKernelThunk GlobalMemoryStatus
     DKernelThunk GetDriveType
     DKernelThunk LoadLibraryEx32W, %(size LOADLIBRARYEX32)
@@ -312,29 +321,50 @@ assumes ES,NOTHING
     DKernelThunk GetVDMPointer32W, %(size GETVDMPOINTER32)
     DKernelThunk ICallProc32W,0
 
-    DKernelThunk ExitWindowsExecContinue
-
 ; These Thunks Shouldn't be Called - They are Thunked to Trap Them.
 
-    DKernelThunk GetTaskQueueES
-    DKernelThunk GetTaskQueueDS
+;   DKernelThunk GetTaskQueueES
+;   DKernelThunk GetTaskQueueDS
     DKernelThunk PostEvent
 ;   DKernelThunk IsTaskLocked
 ;   DKernelThunk IsWinOldApTask
     DKernelThunk WaitEvent
-    DKernelThunk OldYield
+    DKernelThunk OldYield,0
 ;   DKernelThunk GetTaskQueue
     DKernelThunk SetPriority
-    DKernelThunk SetTaskQueue
+;   DKernelThunk SetTaskQueue
     DKernelThunk DirectedYield
     DKernelThunk LockCurrentTask
-    DKernelThunk WriteOutProfiles
+    DKernelThunk WriteOutProfiles,0
 
-; Thunk for GetModuleFileName. Since the api exists on 16bit side too we give
-; it a different name.
+;
+; ExitKernel is small wrapper which takes exit status in AX and pushes it
+; for the convenience of ExitKernelThunk, a regular WOW stack-based thunk.
+; The FUN_ aliasing below allows us to generate the thunk with the name
+; ExitKernelThunk while using the arguments and thunk table entry already
+; set up for ExitKernel.
+;
+
+    FUN_ExitKernelThunk equ FUN_ExitKernel
+    DKernelThunk ExitKernelThunk, %(size EXITKERNEL16)
+
+; FatalExitC is called by FatalExit and takes the same one word parameter
+; indicating fatalexit code.
+
+    FUN_FatalExitC equ FUN_FatalExit
+    DKernelThunk FatalExitC, %(size FATALEXIT16)
+
+; Thunk for WowGetModuleFileName reuses the GetModuleFileName slot.
 
     FUN_WowGetModuleFileName equ FUN_GetModuleFileName
     DKernelThunk WowGetModuleFileName, %(size GetModuleFileName16)
+
+; Thunk for WowGetModuleHandle reuses the GetModuleHandle slot.
+
+    FUN_WowGetModuleHandle equ FUN_GetModuleHandle
+    DKernelThunk WowGetModuleHandle
+
+
 
 
 
@@ -349,13 +379,13 @@ assumes ES,NOTHING
 ;   up to 32.
 ;
 ;   DWORD fAddressConvert - Bit Field, for 16:16 address Convertion
-;			    eg (bit 1 means convert parameter 1 from 16:16
-;				to flat address before calling routine)
-;   DWORD cParams	  - Number of DWORD parameters (so we can clean the stack
-;			    and so 32 bit land know how many params to copy to
-;			    32 bit stack before call.
+;                           eg (bit 1 means convert parameter 1 from 16:16
+;                               to flat address before calling routine)
+;   DWORD cParams         - Number of DWORD parameters (so we can clean the stack
+;                           and so 32 bit land know how many params to copy to
+;                           32 bit stack before call.
 ;   DWORD lpProcAddress   - 32 bit native address to call (use LoadLibraryEx32W
-;			    and GetProcAddress32W to figure this out).
+;                           and GetProcAddress32W to figure this out).
 ;
 ; Returns:
 ;   What ever the API returned on 32 bit side in AX:DX
@@ -369,27 +399,27 @@ assumes ES,NOTHING
 ; History:
 ;  Mon 12-Mar-1993 14:19:04  -by-  Matthew Felton  [mattfe}
 ;-----------------------------------------------------------------------;
-	assumes ds,nothing
-	assumes es,nothing
+        assumes ds,nothing
+        assumes es,nothing
 
-cProc	CallProc32W,<PUBLIC,FAR>
-;	PARMD cParams
+cProc   CallProc32W,<PUBLIC,FAR>
+;       PARMD cParams
 cBegin nogen
-	push	bp
-	mov	bp,sp
+        push    bp
+        mov     bp,sp
 
         ; Disable CDECL source bit
         and     word ptr [bp+8],NOT CPEX32_SOURCE_CDECL
 
-	cCall	ICallProc32W
+        cCall   ICallProc32W
 
 ;   Clean Up Callers Stack to remove Parameters Passed
 
-	mov  bx, WORD PTR [bp+6]    ; get the # of DWORDS this API took
-	shl  bx, 2	    ; convert it to offset into aRets table
-	add  bx, codeoffset aRets
-	pop  bp
-	jmp  bx 	    ; dispatch to the right RETF n
+        mov  bx, WORD PTR [bp+6]    ; get the # of DWORDS this API took
+        shl  bx, 2          ; convert it to offset into aRets table
+        add  bx, codeoffset aRets
+        pop  bp
+        jmp  bx             ; dispatch to the right RETF n
 
 CRETENTRIES equ 020h
 ; generate the retf n codetable
@@ -398,9 +428,9 @@ CRETENTRIES equ 020h
     REPT CRETENTRIES
         IFE  bytes
 aRets:
-	ENDIF
-	retf bytes + 4*3    ; 4*3 - Always
-	nop
+        ENDIF
+        retf bytes + 4*3    ; 4*3 - Always
+        nop
     bytes = bytes + 4
     ENDM
 
@@ -427,3 +457,4 @@ _CallProcEx32W ENDP
 sEnd    CODE
 
 end
+

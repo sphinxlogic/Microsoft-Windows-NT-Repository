@@ -59,7 +59,7 @@ Revision History:
     }
 
 
-    
+
 #define LsapSetParmTypeString( AuditParameters, Index, String )                \
     {                                                                          \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeString;      \
@@ -69,7 +69,7 @@ Revision History:
     }
 
 
-     
+
 #define LsapSetParmTypeUlong( AuditParameters, Index, Ulong )                  \
     {                                                                          \
         (AuditParameters).Parameters[(Index)].Type = SeAdtParmTypeUlong;       \
@@ -84,7 +84,7 @@ Revision History:
     }
 
 
-                                                                               
+
 #define LsapSetParmTypeLogonId( AuditParameters, Index, LogonId )              \
     {                                                                          \
         PLUID TmpLuid;                                                         \
@@ -114,6 +114,7 @@ Revision History:
 #define LSAP_ADT_LOG_FULL_SHUTDOWN_TIMEOUT    (ULONG) 0x0000012cL
 
 extern RTL_CRITICAL_SECTION LsapAdtQueueLock;
+extern RTL_CRITICAL_SECTION LsapAdtLogFullLock;
 
 extern BOOLEAN LsapAuditSuccessfulLogons;
 
@@ -224,6 +225,7 @@ extern LUID DebugPrivilege;
 //
 
 extern BOOLEAN LsapCrashOnAuditFail;
+extern BOOLEAN LsapAllowAdminLogonsOnly;
 
 
 
@@ -294,7 +296,8 @@ LsapAdtAuditLogon(
     IN SECURITY_LOGON_TYPE LogonType,
     IN PSID UserSid,
     IN LUID AuthenticationId,
-    IN NTSTATUS LogonStatus
+    IN NTSTATUS LogonStatus,
+    IN PUNICODE_STRING WorkstationName
     );
 
 #define LSAP_ADT_LOG_QUEUE_DISCARD  ((ULONG) 0x00000001L)
@@ -460,22 +463,22 @@ LsapAdtTrustedDomain(
     );
 
 VOID
-LsapAdtAuditLogoff( 
-    PLSAP_LOGON_SESSION Session 
+LsapAdtAuditLogoff(
+    PLSAP_LOGON_SESSION Session
     );
 
 VOID
-LsapAdtPolicyChange( 
+LsapAdtPolicyChange(
     IN USHORT EventCategory,
     IN ULONG  EventID,
     IN USHORT EventType,
     IN PSID ClientSid,
     IN LUID CallerAuthenticationId,
-    IN PLSARM_POLICY_AUDIT_EVENTS_INFO LsapAdtEventsInformation 
+    IN PLSARM_POLICY_AUDIT_EVENTS_INFO LsapAdtEventsInformation
     );
 
 VOID
-LsapAdtAuditSpecialPrivileges( 
+LsapAdtAuditSpecialPrivileges(
     PPRIVILEGE_SET Privileges,
     LUID LogonId,
     PSID UserSid

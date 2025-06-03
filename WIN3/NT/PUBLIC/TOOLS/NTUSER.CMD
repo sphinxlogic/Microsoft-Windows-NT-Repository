@@ -1,9 +1,8 @@
-@if "%_echo%" == "" echo off
 @rem
 @rem If no drive has been specified for the NT development tree, assume
-@rem C:.  To override this, place a SET _NTDRIVE=X: in your CONFIG.SYS
+@rem W:.  To override this, place a SET _NTDRIVE=X: in your CONFIG.SYS
 @rem
-if "%_NTDRIVE%" == "" set _NTDRIVE=C:
+if "%_NTDRIVE%" == "" set _NTDRIVE=W:
 if NOT "%USERNAME%" == "" goto skip1
 echo !!! Error - USERNAME environment varialbe not set in CONFIG.SYS
 goto done
@@ -18,6 +17,7 @@ goto done
 @rem
 if NOT "%1" == "" set USERNAME=%1
 if "%_NTUSER%" == "" goto skip2
+if "%1" == "" if "%USERNAME%" == "%_NTUSER%" alias src /d
 if "%1" == "" set USERNAME=%_NTUSER%
 :skip2
 @rem

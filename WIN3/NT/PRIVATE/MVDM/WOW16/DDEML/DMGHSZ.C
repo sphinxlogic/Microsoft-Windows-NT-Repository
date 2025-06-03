@@ -171,4 +171,4 @@ HWND hwndFrame)
     IncHszCount(a);
     return((HSZ)MAKELONG(a, hwndFrame));
 }
-
+

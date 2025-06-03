@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1991	Microsoft Corporation
+Copyright (c) 1991      Microsoft Corporation
 
 Module Name:
 
@@ -101,9 +101,9 @@ Return Value:
 --*/
 
 {
-    DbgPrintf( "\t\tType = %x \n", _Type );
-    DbgPrintf( "\t\tShareDisposition = %x \n", _ShareDisposition );
-    DbgPrintf( "\t\tFlags = %x \n", _Flags );
+    DebugPrintf( "\t\tType = %x \n", _Type );
+    DebugPrintf( "\t\tShareDisposition = %x \n", _ShareDisposition );
+    DebugPrintf( "\t\tFlags = %x \n", _Flags );
 }
 #endif
 
@@ -186,9 +186,9 @@ Return Value:
 
 {
     PARTIAL_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tPhisycalAddress.HighPart = %#lx \n", _PhysicalAddress.HighPart );
-    DbgPrintf( "\t\tPhisycalAddress.LowPart = %#lx \n", _PhysicalAddress.LowPart );
-    DbgPrintf( "\t\tLength = %#lx \n\n", _Length );
+    DebugPrintf( "\t\tPhisycalAddress.HighPart = %#lx \n", _PhysicalAddress.HighPart );
+    DebugPrintf( "\t\tPhisycalAddress.LowPart = %#lx \n", _PhysicalAddress.LowPart );
+    DebugPrintf( "\t\tLength = %#lx \n\n", _Length );
 }
 #endif
 
@@ -270,9 +270,9 @@ Return Value:
 
 {
     PARTIAL_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tLevel = %#lx \n", _Level );
-    DbgPrintf( "\t\tVector = %#lx \n", _Vector );
-    DbgPrintf( "\t\tAffinity = %#lx \n\n", _Affinity );
+    DebugPrintf( "\t\tLevel = %#lx \n", _Level );
+    DebugPrintf( "\t\tVector = %#lx \n", _Vector );
+    DebugPrintf( "\t\tAffinity = %#lx \n\n", _Affinity );
 }
 #endif
 
@@ -356,9 +356,9 @@ Return Value:
 
 {
     PARTIAL_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tStartAddress.HighPart = %#lx \n", _StartAddress.HighPart );
-    DbgPrintf( "\t\tStartAddress.LowPart = %#lx \n", _StartAddress.LowPart );
-    DbgPrintf( "\t\tLength = %#lx \n\n", _Length );
+    DebugPrintf( "\t\tStartAddress.HighPart = %#lx \n", _StartAddress.HighPart );
+    DebugPrintf( "\t\tStartAddress.LowPart = %#lx \n", _StartAddress.LowPart );
+    DebugPrintf( "\t\tLength = %#lx \n\n", _Length );
 }
 #endif
 
@@ -440,9 +440,9 @@ Return Value:
 
 {
     PARTIAL_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tChannel = %#lx \n", _Channel );
-    DbgPrintf( "\t\tPort = %#lx \n", _Port );
-    DbgPrintf( "\t\tReserved1 = %#lx \n\n", _Reserved1 );
+    DebugPrintf( "\t\tChannel = %#lx \n", _Channel );
+    DebugPrintf( "\t\tPort = %#lx \n", _Port );
+    DebugPrintf( "\t\tReserved1 = %#lx \n\n", _Reserved1 );
 }
 #endif
 
@@ -531,8 +531,8 @@ Return Value:
 
 {
     PARTIAL_DESCRIPTOR::DbgDumpObject();
-    DbgPrintf( "\t\tDataSize = %#lx \n", _DataSize );
-    DbgPrintf( "\t\tReserved1 = %#lx \n", _Reserved1 );
-    DbgPrintf( "\t\tReserved2 = %#lx \n\n", _Reserved2 );
+    DebugPrintf( "\t\tDataSize = %#lx \n", _DataSize );
+    DebugPrintf( "\t\tReserved1 = %#lx \n", _Reserved1 );
+    DebugPrintf( "\t\tReserved2 = %#lx \n\n", _Reserved2 );
 }
 #endif

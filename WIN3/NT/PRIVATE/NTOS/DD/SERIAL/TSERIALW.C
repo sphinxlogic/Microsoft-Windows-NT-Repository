@@ -16,6 +16,8 @@ int _CRTAPI1 main(int argc,char *argv[]) {
     DWORD NumberActuallyWritten;
     DWORD NumberToWrite = 0;
     DWORD UseBaud = 19200;
+
+    COMMTIMEOUTS To;
     clock_t Start;
     clock_t Finish;
 
@@ -73,6 +75,22 @@ int _CRTAPI1 main(int argc,char *argv[]) {
         MyDcb.ByteSize = 8;
         MyDcb.Parity = NOPARITY;
         MyDcb.StopBits = ONESTOPBIT;
+        MyDcb.fOutxCtsFlow = TRUE;
+        MyDcb.fOutxDsrFlow = TRUE;
+        MyDcb.fDtrControl = DTR_CONTROL_ENABLE;
+        MyDcb.fRtsControl = RTS_CONTROL_ENABLE;
+
+
+        To.ReadIntervalTimeout = 0;
+        To.ReadTotalTimeoutMultiplier = 0;
+        To.ReadTotalTimeoutConstant = 0;
+        To.WriteTotalTimeoutMultiplier = 0;
+        To.WriteTotalTimeoutConstant = 0;
+
+        SetCommTimeouts(
+            hFile,
+            &To
+            );
 
         if (SetCommState(
                 hFile,

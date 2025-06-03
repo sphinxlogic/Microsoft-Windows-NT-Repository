@@ -21,10 +21,6 @@
  *	include files
  ***************************************************************************/
 
-#ifdef DOS_OS2_BUILD
-#pragma data_seg("vtbls", "DATA")
-#endif
-
 #include "becls.hxx"
 
 #pragma hdrstop
@@ -100,9 +96,7 @@ CGMain(
 	CCB					CCB( DEFAULT_GB_RTN_NAME,
 							 DEFAULT_SR_RTN_NAME,
 							 DEFAULT_FB_RTN_NAME,
-							 pCommand->IsOptimSpeed() ? OPTIMIZE_SPEED :
-							 pCommand->IsOptimSize()  ? OPTIMIZE_SIZE  :
-							 							OPTIMIZE_INTERPRETER,
+							 pCommand->GetOptimizationFlags(),
 							 pCommand->IsSwitchDefined( SWITCH_USE_EPV ),
 							 pCommand->IsSwitchDefined( SWITCH_NO_DEFAULT_EPV ),
 							 pCommand->IsSwitchDefined( SWITCH_OLDNAMES ),

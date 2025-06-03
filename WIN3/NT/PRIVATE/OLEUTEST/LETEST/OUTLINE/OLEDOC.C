@@ -1177,4 +1177,3 @@ STDMETHODIMP_(ULONG) OleDoc_Unk_Release (LPUNKNOWN lpThis)
 
 	return OleDoc_Release(lpOleDoc);
 }
-

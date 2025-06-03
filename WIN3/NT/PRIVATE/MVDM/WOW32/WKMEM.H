@@ -13,6 +13,8 @@
 
 LPVOID FASTCALL WK32VirtualAlloc(PVDMFRAME pFrame);
 BOOL FASTCALL   WK32VirtualFree(PVDMFRAME pFrame);
+#if 0
 BOOL FASTCALL   WK32VirtualLock(PVDMFRAME pFrame);
 BOOL FASTCALL   WK32VirtualUnLock(PVDMFRAME pFrame);
+#endif
 VOID FASTCALL   WK32GlobalMemoryStatus(PVDMFRAME pFrame);

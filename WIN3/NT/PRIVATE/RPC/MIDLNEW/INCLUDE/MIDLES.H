@@ -113,4 +113,3 @@ void    I_MesDecodeHyper   ( MIDL_ES_HANDLE, double __RPC_UNALIGNED __RPC_FAR * 
 
 #endif /* __MIDLES_H__ */
 
-

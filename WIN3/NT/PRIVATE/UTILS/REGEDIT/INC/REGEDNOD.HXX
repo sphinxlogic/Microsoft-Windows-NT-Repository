@@ -780,7 +780,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Children );
+    DebugPtrAssert( Children );
     _Children = Children;
 }
 
@@ -880,7 +880,7 @@ Return Value:
 --*/
 
 {
-    DbgPtrAssert( Values );
+    DebugPtrAssert( Values );
     _Values = Values;
 }
 

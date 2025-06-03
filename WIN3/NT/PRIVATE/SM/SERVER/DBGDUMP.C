@@ -20,7 +20,7 @@ Revision History:
 
 #if DBG
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 VOID
 DbgpDumpUserInterface (

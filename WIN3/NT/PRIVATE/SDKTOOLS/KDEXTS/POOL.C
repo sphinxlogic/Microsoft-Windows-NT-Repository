@@ -22,6 +22,9 @@ Revision History:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
+
 #include <limits.h>
 
 typedef struct _POOL_BLOCK_HEAD {
@@ -62,6 +65,13 @@ typedef struct _STRING_HACK {
     ULONG String1;
     ULONG Pad;
 } STRING_HACK, *PSTRING_HACK;
+
+
+BOOLEAN
+CheckSingleFilter (
+    PCHAR Tag,
+    PCHAR Filter
+    );
 
 int _CRTAPI1
 ulcomp(const void *e1,const void *e2);
@@ -184,7 +194,7 @@ Return Value:
                         (ULONG)PoolBlock.Header.PoolTag,
                         (ULONG)PoolBlock.Header.PoolTag >> 8,
                         (ULONG)PoolBlock.Header.PoolTag >> 16,
-                        (ULONG)PoolBlock.Header.PoolTag >> 24,
+                        (ULONG)(PoolBlock.Header.PoolTag&~PROTECTED_POOL) >> 24,
                         (ULONG)PoolBlock.List.Flink,
                         (ULONG)PoolBlock.List.Blink);
 
@@ -198,8 +208,6 @@ Return Value:
             }
         } while ( ((ULONG)Pool & 0xfffffff0) != (PoolStart & 0xfffffff0 ));
 
-        TotalFrag  += Frag;
-        TotalCount += count;
         return;
     }
 
@@ -250,7 +258,7 @@ Return Value:
                         (ULONG)PoolBlock.Header.PoolTag,
                         (ULONG)PoolBlock.Header.PoolTag >> 8,
                         (ULONG)PoolBlock.Header.PoolTag >> 16,
-                        (ULONG)PoolBlock.Header.PoolTag >> 24);
+                        (ULONG)(PoolBlock.Header.PoolTag&~PROTECTED_POOL) >> 24);
             }
             Pool = (PUCHAR)PoolBlock.List.Flink;
             if ( CheckControlC() ) {
@@ -269,6 +277,88 @@ Return Value:
             TotalCount,TotalFrag);
     dprintf(  " NonPagedPool Usage:  %7ld bytes\n",(PoolDesc.TotalPages + PoolDesc.TotalBigPages)*PAGE_SIZE);
     return;
+}
+
+
+PRTL_BITMAP
+GetBitmap(
+    ULONG pBitmap
+    )
+{
+    ULONG Result;
+    RTL_BITMAP Bitmap;
+    PRTL_BITMAP p;
+
+    if ( !ReadMemory( (DWORD)pBitmap,
+                      &Bitmap,
+                      sizeof(Bitmap),
+                      &Result) ) {
+        dprintf("%08lx: Unable to get contents of bitmap\n", pBitmap );
+        return NULL;
+    }
+
+    p = HeapAlloc( GetProcessHeap(), 0, sizeof( *p ) + (Bitmap.SizeOfBitMap / 8) );
+    if (p) {
+        p->SizeOfBitMap = Bitmap.SizeOfBitMap;
+        p->Buffer = (PULONG)(p + 1);
+        if ( !ReadMemory( (DWORD)Bitmap.Buffer,
+                          p->Buffer,
+                          Bitmap.SizeOfBitMap / 8,
+                          &Result) ) {
+            dprintf("%08lx: Unable to get contents of bitmap buffer\n", Bitmap.Buffer );
+            HeapFree( GetProcessHeap(), 0, p );
+            p = NULL;
+        }
+    }
+
+    return p;
+}
+
+
+VOID
+DumpPool( VOID )
+{
+    PCHAR p, pStart;
+    ULONG Size;
+    ULONG BusyFlag;
+    ULONG CurrentPage, NumberOfPages;
+    PRTL_BITMAP StartMap = GetBitmap( GetUlongValue( "MmPagedPoolAllocationMap" ) );
+    PRTL_BITMAP EndMap = GetBitmap( GetUlongValue( "MmEndOfPagedPoolBitmap" ) );
+    PVOID PagedPoolStart = (PVOID)GetUlongValue( "MmPagedPoolStart" );
+    PVOID PagedPoolEnd = (PVOID)GetUlongValue( "MmPagedPoolEnd" );
+    PVOID NonPagedPoolStart = (PVOID)GetUlongValue( "MmNonPagedPoolStart" );
+    PVOID NonPagedPoolEnd = (PVOID)GetUlongValue( "MmNonPagedPoolEnd" );
+
+    if (StartMap && EndMap) {
+        p = PagedPoolStart;
+        CurrentPage = 0;
+        dprintf( "Paged Pool: %x .. %x\n", PagedPoolStart, PagedPoolEnd );
+        while (p < (PCHAR)PagedPoolEnd) {
+            if ( CheckControlC() ) {
+                return;
+            }
+            pStart = p;
+            BusyFlag = RtlCheckBit( StartMap, CurrentPage );
+            while ( ~(BusyFlag ^ RtlCheckBit( StartMap, CurrentPage )) ) {
+                p += PAGE_SIZE;
+                if (RtlCheckBit( EndMap, CurrentPage )) {
+                    CurrentPage++;
+                    break;
+                    }
+
+                CurrentPage++;
+                if (p > (PCHAR)PagedPoolEnd) {
+                   break;
+                   }
+                }
+
+            Size = p - pStart;
+            dprintf( "%08x: %x - %s\n", pStart, Size, BusyFlag ? "busy" : "free" );
+            }
+        }
+
+    HeapFree( GetProcessHeap(), 0, StartMap );
+    HeapFree( GetProcessHeap(), 0, EndMap );
 }
 
 
@@ -303,6 +393,7 @@ Return Value:
     PUCHAR      Pool;
     POOL_HACKER PoolBlock;
     ULONG       Previous;
+    UCHAR       c;
 
     PoolTrackTable = (PPOOL_TRACKER_TABLE)GetUlongValue ("PoolTrackTable");
 
@@ -310,7 +401,7 @@ Return Value:
     Flags = 0;
     sscanf(args,"%lx %lx",&PoolPageToDump,&Flags);
     if (PoolPageToDump == (PVOID)0xFFFFFFFF) {
-        dprintf("Specify a valid address within the kernel pool\n");
+        DumpPool();
         return;
     }
 
@@ -319,6 +410,10 @@ Return Value:
     Previous    = 0;
 
     while ((PVOID)PAGE_ALIGN(Pool) == StartPage) {
+        if ( CheckControlC() ) {
+            return;
+        }
+
         if ( !ReadMemory( (DWORD)Pool,
                           &PoolBlock,
                           sizeof(POOL_HACKER),
@@ -327,26 +422,34 @@ Return Value:
             return;
         }
 
-        dprintf("%lx size: %4lx previous size: %4lx ",
+        if ((ULONG)PoolPageToDump >= (ULONG)Pool &&
+            (ULONG)PoolPageToDump < ((ULONG)Pool + ((ULONG)PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT))
+           ) {
+            c = '*';
+        } else {
+            c = ' ';
+        }
+        dprintf("%c%lx size: %4lx previous size: %4lx ",
+                c,
                 (ULONG)Pool,
                 (ULONG)PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT,
                 (ULONG)PoolBlock.Header.PreviousSize << POOL_BLOCK_SHIFT);
 
         if (PoolBlock.Header.PoolType == 0) {
             dprintf(" (Free)");
-                dprintf("      %c%c%c%c\n",
+                dprintf("      %c%c%c%c%c\n",
+                    c,
                     (ULONG)PoolBlock.Header.PoolTag,
                     (ULONG)PoolBlock.Header.PoolTag >> 8,
                     (ULONG)PoolBlock.Header.PoolTag >> 16,
-                    (ULONG)PoolBlock.Header.PoolTag >> 24);
+                    (ULONG)(PoolBlock.Header.PoolTag&~PROTECTED_POOL) >> 24);
         } else {
             dprintf(" (Allocated)");
             if ((PoolBlock.Header.PoolType & POOL_QUOTA_MASK) == 0) {
                 if (PoolBlock.Header.AllocatorBackTraceIndex != 0 &&
                     PoolBlock.Header.AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT
                    ) {
-
-                    if ( !ReadMemory( (DWORD)&PoolTrackTable[ PoolBlock.Header.PoolTagHash ],
+                    if ( !ReadMemory( (DWORD)&PoolTrackTable[ PoolBlock.Header.PoolTagHash&~(PROTECTED_POOL >> 16) ],
                                       &Tags,
                                       sizeof(Tags),
                                       &result) ) {
@@ -355,15 +458,21 @@ Return Value:
                         PoolTag = Tags.Key;
                     }
 
+                    if (PoolBlock.Header.PoolTagHash & (PROTECTED_POOL >> 16)) {
+                        PoolTag |= PROTECTED_POOL;
+                    }
+
                 } else {
                     PoolTag = PoolBlock.Header.PoolTag;
                 }
 
-                dprintf(" %c%c%c%c\n",
+                dprintf(" %c%c%c%c%c%s\n",
+                    c,
                     PoolTag,
                     PoolTag >> 8,
                     PoolTag >> 16,
-                    PoolTag >> 24
+                    (PoolTag&~PROTECTED_POOL) >> 24,
+                    (PoolTag&PROTECTED_POOL) ? " (Protected)" : ""
                     );
 
             } else {
@@ -532,4 +641,211 @@ Return Value:
     }
 
     return;
+}
+
+
+DECLARE_API( poolfind )
+
+/*++
+
+Routine Description:
+
+    finds a tag in nonpaged pool
+
+Arguments:
+
+    args -
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PPOOL_TRACKER_TABLE PoolTrackTable;
+    POOL_TRACKER_TABLE  Tags;
+    ULONG       result;
+    ULONG       PoolTag;
+    ULONG       Flags;
+    ULONG       Result;
+    PVOID       PoolPage;
+    PVOID       StartPage;
+    PUCHAR      Pool;
+    POOL_HACKER PoolBlock;
+    ULONG       Previous;
+    PCHAR       PoolStart;
+    PCHAR       PoolEnd;
+    ULONG       TagName;
+    CHAR        TagNameX[4] = {' ',' ',' ',' '};
+
+
+    Flags = 0;
+    sscanf(args,"%c%c%c%c %lx", &TagNameX[0],
+        &TagNameX[1], &TagNameX[2], &TagNameX[3], &Flags);
+
+    TagName = TagNameX[0] | (TagNameX[1] << 8) | (TagNameX[2] << 16) | (TagNameX[3] << 24);
+
+    if (Flags == 0) {
+        PoolStart = (PCHAR)GetUlongValue ("MmNonPagedPoolStart");
+        PoolEnd = (PCHAR)
+            PoolStart + GetUlongValue ("MmMaximumNonPagedPoolInBytes");
+    } else {
+        PoolStart = (PCHAR)GetUlongValue ("MmPagedPoolStart");
+        PoolEnd = (PCHAR)
+            PoolStart + GetUlongValue ("MmSizeOfPagedPoolInBytes");
+    }
+
+    dprintf("\nSearching %s pool (%lx : %lx) for Tag: %c%c%c%c\n\n",
+                                            (Flags == 0) ? "NonPaged" : "Paged",
+                                            PoolStart, PoolEnd,
+                                            TagName,
+                                            TagName >> 8,
+                                            TagName >> 16,
+                                            TagName >> 24);
+
+    PoolTrackTable = (PPOOL_TRACKER_TABLE)GetUlongValue ("PoolTrackTable");
+
+    PoolPage = (PVOID)PoolStart;
+
+    while (PoolPage < (PVOID)PoolEnd) {
+
+        Pool        = (PUCHAR)PAGE_ALIGN (PoolPage);
+        StartPage   = (PVOID)Pool;
+        Previous    = 0;
+
+        while ((PVOID)PAGE_ALIGN(Pool) == StartPage) {
+            if ( !ReadMemory( (DWORD)Pool,
+                              &PoolBlock,
+                              sizeof(POOL_HACKER),
+                              &Result) ) {
+                break;
+            }
+
+            if ((PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT) > POOL_PAGE_SIZE) {
+                //dprintf("Bad allocation size @%lx, too large\n", Pool);
+                break;
+            }
+
+            if (PoolBlock.Header.BlockSize == 0) {
+                //dprintf("Bad allocation size @%lx, zero is invalid\n", Pool);
+                break;
+            }
+
+            if (PoolBlock.Header.PreviousSize != Previous) {
+                //dprintf("Bad previous allocation size @%lx, last size was %lx\n",Pool, Previous);
+                break;
+            }
+
+            PoolTag = PoolBlock.Header.PoolTag;
+            if ((PoolBlock.Header.PoolType & POOL_QUOTA_MASK) == 0) {
+                if (PoolBlock.Header.AllocatorBackTraceIndex != 0 &&
+                    PoolBlock.Header.AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT
+                   ) {
+
+                    if ( !ReadMemory( (DWORD)&PoolTrackTable[ PoolBlock.Header.PoolTagHash&~(PROTECTED_POOL >> 16) ],
+                                      &Tags,
+                                      sizeof(Tags),
+                                      &result) ) {
+                        PoolTag = 0;
+                    } else {
+                        PoolTag = Tags.Key;
+                    }
+
+                    if (PoolBlock.Header.PoolTagHash & (PROTECTED_POOL >> 16)) {
+                        PoolTag |= PROTECTED_POOL;
+                    }
+                }
+            }
+
+            if (CheckSingleFilter ((PCHAR)&PoolTag, (PCHAR)&TagName)) {
+
+                dprintf("%lx size: %4lx previous size: %4lx ",
+                        (ULONG)Pool,
+                        (ULONG)PoolBlock.Header.BlockSize << POOL_BLOCK_SHIFT,
+                        (ULONG)PoolBlock.Header.PreviousSize << POOL_BLOCK_SHIFT);
+
+                if (PoolBlock.Header.PoolType == 0) {
+                    dprintf(" (Free)");
+                        dprintf("      %c%c%c%c\n",
+                            (ULONG)PoolBlock.Header.PoolTag,
+                            (ULONG)PoolBlock.Header.PoolTag >> 8,
+                            (ULONG)PoolBlock.Header.PoolTag >> 16,
+                            (ULONG)(PoolBlock.Header.PoolTag&~PROTECTED_POOL) >> 24);
+                } else {
+                    dprintf(" (Allocated)");
+                    if ((PoolBlock.Header.PoolType & POOL_QUOTA_MASK) == 0) {
+                        if (PoolBlock.Header.AllocatorBackTraceIndex != 0 &&
+                            PoolBlock.Header.AllocatorBackTraceIndex & POOL_BACKTRACEINDEX_PRESENT
+                           ) {
+                            if ( !ReadMemory( (DWORD)&PoolTrackTable[ PoolBlock.Header.PoolTagHash&~(PROTECTED_POOL >> 16) ],
+                                              &Tags,
+                                              sizeof(Tags),
+                                              &result) ) {
+                                PoolTag = 0;
+                            } else {
+                                PoolTag = Tags.Key;
+                            }
+
+                            if (PoolBlock.Header.PoolTagHash & (PROTECTED_POOL >> 16)) {
+                                PoolTag |= PROTECTED_POOL;
+                            }
+
+                        } else {
+                            PoolTag = PoolBlock.Header.PoolTag;
+                        }
+
+                        dprintf(" %c%c%c%c%s\n",
+                            PoolTag,
+                            PoolTag >> 8,
+                            PoolTag >> 16,
+                            (PoolTag&~PROTECTED_POOL) >> 24,
+                            (PoolTag&PROTECTED_POOL) ? " (Protected)" : ""
+                            );
+
+                    } else {
+                        if (PoolBlock.Header.ProcessBilled != NULL) {
+                            dprintf(" Process: %08x\n", PoolBlock.Header.ProcessBilled );
+                        }
+                    }
+                }
+            }
+
+            Previous = PoolBlock.Header.BlockSize;
+            Pool += (Previous << POOL_BLOCK_SHIFT);
+            if ( CheckControlC() ) {
+                dprintf("\n...terminating - searched pool to %lx\n",
+                        PoolPage);
+                return;
+            }
+        }
+        PoolPage = (PVOID)((PCHAR)PoolPage + PAGE_SIZE);
+        if ( CheckControlC() ) {
+            dprintf("\n...terminating - searched pool to %lx\n",
+                    PoolPage);
+            return;
+        }
+    }
+
+    return;
+}
+
+BOOLEAN
+CheckSingleFilter (
+    PCHAR Tag,
+    PCHAR Filter
+    )
+{
+    ULONG i;
+    CHAR tc;
+    CHAR fc;
+
+    for ( i = 0; i < 4; i++ ) {
+        tc = *Tag++;
+        fc = *Filter++;
+        if ( fc == '*' ) return TRUE;
+        if ( fc == '?' ) continue;
+        if ( tc != fc ) return FALSE;
+    }
+    return TRUE;
 }

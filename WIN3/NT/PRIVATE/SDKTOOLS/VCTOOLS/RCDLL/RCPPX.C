@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 int afxReadOnlySymbols = FALSE;
 int afxHiddenSymbols = FALSE;
@@ -82,5 +81,5 @@ void AfxOutputMacroDefn(pdefn_t p)
                  (char)flags | '\200',   // (char)0x80,
                  SYMDELIMIT);
 
-        fwrite(lineBuffer, nLen * sizeof(WCHAR), 1, OUTPUTFILE);
+        myfwrite(lineBuffer, nLen * sizeof(WCHAR), 1, OUTPUTFILE);
 }

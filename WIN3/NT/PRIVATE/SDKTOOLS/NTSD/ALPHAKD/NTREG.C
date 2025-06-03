@@ -1,1 +1,0 @@
-#include "..\alpha\ntreg.c"

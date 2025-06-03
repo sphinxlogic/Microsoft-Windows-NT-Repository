@@ -24,6 +24,7 @@ Revision History:
 --*/
 
 #include "ki.h"
+#pragma hdrstop
 #include "abios.h"
 
 extern PKCOMMON_DATA_AREA KiCommonDataArea;
@@ -167,7 +168,7 @@ Return Value:
                 (ULONG)GdtEntry->HighWord.Bytes.BaseMid << 16 |
                 (ULONG)GdtEntry->HighWord.Bytes.BaseHi << 24);
     } else {
-        return -1L;
+        return (ULONG)(-1L);
     }
 }
 
@@ -187,7 +188,7 @@ Routine Description:
     This function searches Device Blocks and Common Data Area for the
     Logical Id matching the specified Device Id.
 
-    N.B. (BUGBUG shielint) To speed the search, this routine ASSUMES that
+    N.B. (WARNING shielint) To speed the search, this routine ASSUMES that
     the LIDs with the same Device ID always appear consecutively in the
     Common Data Area.  IBM ABIOS doc does not explicitly specify this.
     But from the way ABIOS initializes Device Block and Function Transfer
@@ -474,8 +475,6 @@ Return Value:
 
     STATUS_SUCCESS - If the requested selectors are allocated.
 
-    STATUS_ABIOS_NOT_PRESENT - If there is no ABIOS support in the system.
-
     STATUS_ABIOS_SELECTOR_NOT_AVAILABLE - if systen can not allocate the number
                                of selectors requested.
 
@@ -485,9 +484,6 @@ Return Value:
     PKFREE_GDT_ENTRY GdtEntry;
     KIRQL OldIrql;
 
-    if (!KiAbiosPresent) {
-        return STATUS_ABIOS_NOT_PRESENT;
-    }
     if (KiNumberFreeSelectors >= NumberOfSelectors) {
         ExAcquireSpinLock(&KiAbiosGdtLock, &OldIrql);
 
@@ -537,19 +533,12 @@ Return Value:
 
     STATUS_SUCCESS - If the requested LID is released.
 
-    STATUS_ABIOS_NOT_PRESENT - If there is no ABIOS support in the system.
-
 --*/
-
 {
     PKFREE_GDT_ENTRY GdtEntry;
     KIRQL OldIrql;
     ULONG Gdt;
 
-
-    if (!KiAbiosPresent) {
-        return STATUS_ABIOS_NOT_PRESENT;
-    }
     ExAcquireSpinLock(&KiAbiosGdtLock, &OldIrql);
 
     //
@@ -706,7 +695,7 @@ Return Value:
     KiCommonDataArea = KeLoaderBlock->u.I386.CommonDataArea;
 
     //
-    // BUGBUG For now we want to disable ABIOS support on MP.
+    // NOTE For now we want to disable ABIOS support on MP.
     //
 
     if (KiCommonDataArea == NULL || Processor != 0) {
@@ -776,4 +765,3 @@ Return Value:
         Ki386InitializeGdtFreeList(EndOfGdt);
     }
 }
-

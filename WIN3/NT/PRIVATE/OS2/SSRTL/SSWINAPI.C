@@ -1802,6 +1802,7 @@ Or2WinWriteFile(
     return(bRc);
 }
 
+/* YOSEFD Apr-1-1996 Not in use
 int
 Or2Win_read(
     PSZ     FuncName,
@@ -1816,6 +1817,7 @@ Or2Win_read(
     }
     return(_read(hFile, Buffer, Length));
 }
+*/
 
 BOOL
 Or2WinReadFile(

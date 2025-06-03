@@ -93,12 +93,6 @@ Return Value:
     ULONG i;
     PCH p;
 
-#if DEVL
-    if ( MmQuerySystemSize() == MmSmallSystem && InitialSegmentSize > (2*PAGE_SIZE) ) {
-        KeBugCheckEx (NO_PAGES_AVAILABLE, 0x123, InitialSegmentSize,0 ,0);
-    }
-#endif
-
     if ( (BlockSize & 7) || ((ULONG)InitialSegment & 7) ||
          (BlockSize > InitialSegmentSize) ) {
 #if DBG

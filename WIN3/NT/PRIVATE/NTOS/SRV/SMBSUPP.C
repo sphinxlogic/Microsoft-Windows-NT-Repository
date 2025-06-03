@@ -36,17 +36,11 @@ STATIC GENERIC_MAPPING SrvFileAccessMapping = GENERIC_SHARE_FILE_ACCESS_MAPPING;
 // Forward references
 //
 
-
-NTSTATUS
-SrvCheckShareFileAccess(
-    IN PWORK_CONTEXT WorkContext,
-    IN ACCESS_MASK FileDesiredAccess
-    );
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, Srv8dot3ToUnicodeString )
 #pragma alloc_text( PAGE, SrvAllocateAndBuildPathName )
 #pragma alloc_text( PAGE, SrvCanonicalizePathName )
+#pragma alloc_text( PAGE, SrvCheckSearchAttributesForHandle )
 #pragma alloc_text( PAGE, SrvCheckSearchAttributes )
 #pragma alloc_text( PAGE, SrvGetAlertServiceName )
 #pragma alloc_text( PAGE, SrvGetBaseFileName )
@@ -58,8 +52,6 @@ SrvCheckShareFileAccess(
 #pragma alloc_text( PAGE, SrvIsLegalFatName )
 #pragma alloc_text( PAGE, SrvMakeUnicodeString )
 //#pragma alloc_text( PAGE, SrvReleaseContext )
-#pragma alloc_text( PAGE, SrvSmbAttributesToNt )
-#pragma alloc_text( PAGE, SrvNtAttributesToSmb )
 #pragma alloc_text( PAGE, SrvSetFileWritethroughMode )
 #pragma alloc_text( PAGE, SrvOemStringTo8dot3 )
 #pragma alloc_text( PAGE, SrvUnicodeStringTo8dot3 )
@@ -76,6 +68,7 @@ SrvCheckShareFileAccess(
 #pragma alloc_text( PAGE, SrvCheckShareFileAccess )
 #pragma alloc_text( PAGE, SrvReleaseShareRootHandle )
 #pragma alloc_text( PAGE, SrvUpdateVcQualityOfService )
+#pragma alloc_text( PAGE, SrvIsAllowedOnAdminShare )
 //#pragma alloc_text( PAGE, SrvValidateSmb )
 #pragma alloc_text( PAGE, SrvWildcardRename )
 #pragma alloc_text( PAGE8FIL, SrvCheckForSavedError )
@@ -148,19 +141,7 @@ Return Value:
         // searching backwards.
         //
 
-        for ( i = 0; i < 8; i++ ) {
-
-            //
-            // Copy the byte.
-            //
-            // *** This code used to mask off the top bit.  This was a
-            //     legacy of very ancient times when the bit may have
-            //     been used as a resume key sequence bit.
-            //
-
-            tempBuffer[i] = (UCHAR)Input8dot3[i];
-
-        }
+        RtlCopyMemory( tempBuffer, Input8dot3, 8 );
 
         for ( i = 7;
               (i >= 0) && (tempBuffer[i] == CHAR_SP);
@@ -350,12 +331,14 @@ Return Value:
     // If there was no separator character at the end of the first path
     // or at the beginning of the next path, put one in.  We don't
     // want to put in leading slashes, however, so don't put one in
-    // if it would be the first character.
+    // if it would be the first character.  Also, we don't want to insert
+    // a slash if a relative stream is being opened (i.e. name begins with ':')
     //
 
     if ( nextLocation > pathBuffer &&
              *(nextLocation - 1) != DIRECTORY_SEPARATOR_CHAR &&
-             *path2.Buffer != DIRECTORY_SEPARATOR_CHAR ) {
+             *path2.Buffer != DIRECTORY_SEPARATOR_CHAR &&
+             *path2.Buffer != RELATIVE_STREAM_INITIAL_CHAR ) {
 
         *nextLocation++ = DIRECTORY_SEPARATOR_CHAR;
     }
@@ -370,12 +353,13 @@ Return Value:
     //
     // If there was no separator character at the end of the first path
     // or at the beginning of the next path, put one in.  Again, don't
-    // put in leading slashes.
+    // put in leading slashes, and watch out for relative stream opens.
     //
 
     if ( nextLocation > pathBuffer &&
              *(nextLocation - 1) != DIRECTORY_SEPARATOR_CHAR &&
-             *path3.Buffer != DIRECTORY_SEPARATOR_CHAR ) {
+             *path3.Buffer != DIRECTORY_SEPARATOR_CHAR &&
+             *path3.Buffer != RELATIVE_STREAM_INITIAL_CHAR ) {
 
         *nextLocation++ = DIRECTORY_SEPARATOR_CHAR;
     }
@@ -407,9 +391,11 @@ Return Value:
 
 } // SrvAllocateAndBuildPathName
 
-BOOLEAN
+NTSTATUS
 SrvCanonicalizePathName(
     IN PWORK_CONTEXT WorkContext,
+    IN PSHARE Share OPTIONAL,
+    IN PUNICODE_STRING RelatedPath OPTIONAL,
     IN OUT PVOID Name,
     IN PCHAR LastValidLocation,
     IN BOOLEAN RemoveTrailingDots,
@@ -451,10 +437,21 @@ Routine Description:
     as the file name in NT Create And X) that are not required to be
     zero terminated.
 
+    If the SMB described by WorkContext is marked as containing Dfs names,
+    this routine will additionally call the Dfs driver to translate the
+    Dfs name to a path relative to the Share. Since this call to the Dfs
+    driver is NOT idempotent, the SMB flag indicating that it contains a
+    Dfs name is CLEARED after a call to this routine. This posses a problem
+    for the few SMBs that contain multiple names. The handlers for those
+    SMBs must make sure that they conditionally call the SMB_MARK_AS_DFS_NAME
+    macro before calling this routine.
+
 Arguments:
 
     WorkContext - contains information about the negotiated dialect. This
         is used for deciding whether to strip trailing spaces and dots.
+
+    Share - a pointer to the share entry
 
     Name - a pointer to the filename to canonicalize.
 
@@ -481,10 +478,11 @@ Return Value:
 {
     PWCH source, destination, lastComponent, name;
     BOOLEAN notNtClient;
+    NTSTATUS status = STATUS_SUCCESS;
 
     PAGED_CODE( );
 
-    notNtClient = ( WorkContext->Connection->SmbDialect != SmbDialectNtLanMan );
+    notNtClient = !IS_NT_DIALECT( WorkContext->Connection->SmbDialect );
 
     if ( SourceIsUnicode ) {
 
@@ -526,12 +524,14 @@ Return Value:
         oemString.Length = (USHORT)length;
         oemString.MaximumLength = (USHORT)length;
 
-        if ( !NT_SUCCESS(RtlOemStringToUnicodeString(
+        status = RtlOemStringToUnicodeString(
                             String,
                             &oemString,
                             TRUE
-                            )) ) {
-            return FALSE;
+                            );
+
+        if( !NT_SUCCESS( status ) ) {
+            return status;
         }
 
         name = (PWCH)String->Buffer;
@@ -626,9 +626,9 @@ Return Value:
                 if ( destination <= name ) {
                     if ( !SourceIsUnicode ) {
                         RtlFreeUnicodeString( String );
-                        DEBUG String->Buffer = NULL;
+                        String->Buffer = NULL;
                     }
-                    return FALSE;
+                    return STATUS_OBJECT_PATH_SYNTAX_BAD;
                 }
 
                 //
@@ -764,7 +764,45 @@ Return Value:
     String->Length = (SHORT)((PCHAR)destination - (PCHAR)name);
     String->MaximumLength = String->Length;
 
-    return TRUE;
+    //
+    // One final thing:  Is this SMB referring to a DFS name?  If so, ask
+    //  the DFS driver to turn it into a local name.
+    //
+    if( ARGUMENT_PRESENT( Share ) &&
+        Share->IsDfs &&
+        SMB_CONTAINS_DFS_NAME( WorkContext )) {
+
+        BOOLEAN stripLastComponent = FALSE;
+
+        //
+        // We have to special case some SMBs (like TRANS2_FIND_FIRST2)
+        // because they contain path Dfs path names that could refer to a
+        // junction point. The SMB handlers for these SMBs are not interested
+        // in a STATUS_PATH_NOT_COVERED error; instead they want the name
+        // to be resolved to the the junction point.
+        //
+
+        if (WorkContext->NextCommand == SMB_COM_TRANSACTION2) {
+
+            PTRANSACTION transaction;
+            USHORT command;
+
+            transaction = WorkContext->Parameters.Transaction;
+            command = SmbGetUshort( &transaction->InSetup[0] );
+
+            if (command == TRANS2_FIND_FIRST2)
+                stripLastComponent = TRUE;
+
+        }
+
+        status =
+            DfsNormalizeName(Share, RelatedPath, stripLastComponent, String);
+
+        SMB_MARK_AS_DFS_TRANSLATED( WorkContext );
+
+    }
+
+    return status;
 
 } // SrvCanonicalizePathName
 
@@ -833,8 +871,68 @@ Return Value:
 } // SrvCheckForSavedError
 
 
-NTSTATUS
+NTSTATUS SRVFASTCALL
 SrvCheckSearchAttributes(
+    IN USHORT FileAttributes,
+    IN USHORT SmbSearchAttributes
+    )
+/*++
+
+Routine Description:
+
+    Determines whether the FileAttributes has
+    attributes not specified in SmbSearchAttributes.  Only the system
+    and hidden bits are examined.
+
+Arguments:
+
+    FileAttributes - The attributes in question
+
+    SmbSearchAttributes - the search attributes passed in an SMB.
+
+Return Value:
+
+    STATUS_NO_SUCH_FILE if the attributes do not jive, or STATUS_SUCCESS if
+        the search attributes encompass the attributes on the file.
+
+--*/
+{
+    PAGED_CODE( );
+
+    //
+    // If the search attributes has both the system and hidden bits set,
+    // then the file must be OK.
+    //
+
+    if ( (SmbSearchAttributes & FILE_ATTRIBUTE_SYSTEM) != 0 &&
+         (SmbSearchAttributes & FILE_ATTRIBUTE_HIDDEN) != 0 ) {
+        return STATUS_SUCCESS;
+    }
+
+    //
+    // Mask out everything but the system and hidden bits--they're all
+    // we care about.
+    //
+
+    FileAttributes &= (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN);
+
+    //
+    // If a bit is set in fileAttributes that was not set in the search
+    // attributes, then their bitwise OR will have a bit set that is
+    // not set in search attributes.
+    //
+
+    if ( (SmbSearchAttributes | FileAttributes) != SmbSearchAttributes ) {
+        return STATUS_NO_SUCH_FILE;
+    }
+
+    return STATUS_SUCCESS;
+
+} // SrvCheckSearchAttributes
+
+
+NTSTATUS
+SrvCheckSearchAttributesForHandle(
     IN HANDLE FileHandle,
     IN USHORT SmbSearchAttributes
     )
@@ -864,7 +962,6 @@ Return Value:
 {
     NTSTATUS status;
     FILE_BASIC_INFORMATION fileBasicInformation;
-    USHORT fileAttributes;
 
     PAGED_CODE( );
 
@@ -892,7 +989,7 @@ Return Value:
     if ( !NT_SUCCESS(status) ) {
         INTERNAL_ERROR(
             ERROR_LEVEL_UNEXPECTED,
-            "SrvCheckSearchAttributes: NtQueryInformationFile (basic "
+            "SrvCheckSearchAttributesForHandle: NtQueryInformationFile (basic "
                 "information) returned %X",
             status,
             NULL
@@ -902,28 +999,10 @@ Return Value:
         return status;
     }
 
-    //
-    // Mask out everything but the system and hidden bits--they're all
-    // we care about.
-    //
+    return SrvCheckSearchAttributes( (USHORT)fileBasicInformation.FileAttributes,
+                                     SmbSearchAttributes );
 
-    fileAttributes = (USHORT)( fileBasicInformation.FileAttributes &
-                             (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN) );
-
-    //
-    // If a bit is set in fileAttributes that was not set in the search
-    // attributes, then their bitwise OR will have a bit set that is
-    // not set in search attributes.
-    //
-
-    if ( (USHORT)(SmbSearchAttributes | fileAttributes) !=
-                                                SmbSearchAttributes ) {
-        return STATUS_NO_SUCH_FILE;
-    }
-
-    return STATUS_SUCCESS;
-
-} // SrvCheckSearchAttributes
+} // SrvCheckSearchAttributesForHandle
 
 VOID
 SrvGetAlertServiceName(
@@ -1101,28 +1180,21 @@ Return Value:
 --*/
 
 {
-    ULONG i;
-    PWCH baseFileName = InputName->Buffer;
+    PWCH ep = &InputName->Buffer[ InputName->Length / sizeof(WCHAR) ];
+    PWCH baseFileName = ep - 1;
 
     PAGED_CODE( );
 
-    for ( i = 0; i < InputName->Length / sizeof(WCHAR); i++ ) {
-
-        //
-        // If s points to a directory separator, set fileBaseName to
-        // the character after the separator.
-        //
-
-        if ( InputName->Buffer[i] == DIRECTORY_SEPARATOR_CHAR ) {
-            baseFileName = &InputName->Buffer[++i];
+    for( ; baseFileName > InputName->Buffer; --baseFileName ) {
+        if( *baseFileName == DIRECTORY_SEPARATOR_CHAR ) {
+            OutputName->Buffer = baseFileName + 1;
+            OutputName->Length = (USHORT)( (ULONG)ep - (ULONG)OutputName->Buffer );
+            OutputName->MaximumLength = OutputName->Length;
+            return;
         }
-
     }
 
-    OutputName->Buffer = baseFileName;
-    OutputName->Length = (SHORT)( InputName->Length -
-                    ((baseFileName - InputName->Buffer) * sizeof(WCHAR)) );
-    OutputName->MaximumLength = OutputName->Length;
+    *OutputName = *InputName;
 
     return;
 
@@ -1131,6 +1203,7 @@ Return Value:
 VOID
 SrvGetMultiSZList(
     PWSTR **ListPointer,
+    PWSTR BaseKeyName,
     PWSTR ParameterKeyName,
     PWSTR *DefaultList
     )
@@ -1173,7 +1246,7 @@ Return Value:
 
     PAGED_CODE( );
 
-    RtlInitUnicodeString( &unicodeParamPath, StrRegSrvParameterPath );
+    RtlInitUnicodeString( &unicodeParamPath, BaseKeyName );
     RtlInitUnicodeString( &unicodeKeyName, ParameterKeyName );
 
     InitializeObjectAttributes(
@@ -1775,7 +1848,7 @@ Return Value:
 } // SrvGetSubdirectoryLength
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvIsLegalFatName (
     IN PWSTR InputName,
     IN CLONG InputNameLength
@@ -1803,49 +1876,71 @@ Return Value:
 --*/
 
 {
+    UNICODE_STRING original_name;
 
-    ANSI_STRING ansiFileName;
-    UNICODE_STRING fileName;
-    CHAR buffer[13];    // include the NULL terminator
+    UNICODE_STRING upcase_name;
+    WCHAR          upcase_buffer[ 13 ];
 
-    PAGED_CODE( );
+    STRING         oem_string;
+    CHAR           oem_buffer[ 13 ];
+
+    UNICODE_STRING converted_name;
+    WCHAR          converted_name_buffer[ 13 ];
+
+    BOOLEAN spacesInName, nameValid8Dot3;
+
+    PAGED_CODE();
 
     //
-    // If the length is greater than 8 (name) + 3 (ext) + 1 (dot),
-    // then this is not a valid fat name.
+    // Special case . and .. -- they are legal FAT names
     //
+    if( InputName[0] == L'.' ) {
 
-    if ( InputNameLength > 12 * sizeof(WCHAR) ) {
-        return(FALSE);
+        if( InputNameLength == sizeof(WCHAR) ||
+            ((InputNameLength == 2*sizeof(WCHAR)) && InputName[1] == L'.')) {
+            return TRUE;
+        }
+
+        return FALSE;
     }
 
-    fileName.Buffer = InputName;
-    fileName.Length =
-    fileName.MaximumLength = (USHORT)InputNameLength;
+    original_name.Buffer = InputName;
+    original_name.Length = original_name.MaximumLength = (USHORT)InputNameLength;
 
-    //
-    // Since the fsrtl routine only accepts ansi strings, we have to
-    // convert our file name to ansi
-    //
+    nameValid8Dot3 = RtlIsNameLegalDOS8Dot3( &original_name, NULL, &spacesInName );
 
-    ansiFileName.Buffer = buffer;
-    ansiFileName.MaximumLength = 13;
+    if( !nameValid8Dot3 || spacesInName ) {
+        return FALSE;
+    }
 
-    (VOID)RtlUnicodeStringToAnsiString(
-                                &ansiFileName,
-                                &fileName,
-                                FALSE
-                                );
+    if( SrvFilterExtendedCharsInPath == FALSE ) {
+        //
+        // One final test -- we must be able to convert this name to OEM and back again
+        //  without any loss of information.
+        //
 
-    return FsRtlIsFatDbcsLegal(
-                        ansiFileName,
-                        TRUE,           // wildcards
-                        FALSE,          // not a path name
-                        FALSE           // no leading '\\'
-                        );
+        oem_string.Buffer = oem_buffer;
+        upcase_name.Buffer = upcase_buffer;
+        converted_name.Buffer = converted_name_buffer;
+
+        oem_string.MaximumLength = sizeof( oem_buffer );
+        upcase_name.MaximumLength = sizeof( upcase_buffer );
+        converted_name.MaximumLength = sizeof( converted_name_buffer );
+
+        oem_string.Length = 0;
+        upcase_name.Length = 0;
+        converted_name.Length = 0;
+
+        nameValid8Dot3 = NT_SUCCESS( RtlUpcaseUnicodeString( &upcase_name, &original_name, FALSE )) &&
+            NT_SUCCESS( RtlUnicodeStringToOemString( &oem_string, &upcase_name, FALSE )) &&
+            FsRtlIsFatDbcsLegal( oem_string, FALSE, FALSE, FALSE ) &&
+            NT_SUCCESS( RtlOemStringToUnicodeString( &converted_name, &oem_string, FALSE )) &&
+            RtlEqualUnicodeString( &upcase_name, &converted_name, FALSE );
+    }
+
+    return nameValid8Dot3;
 
 } // SrvIsLegalFatName
-
 
 NTSTATUS
 SrvMakeUnicodeString (
@@ -1889,6 +1984,7 @@ Return Value:
         ASSERT( ((ULONG)Source & 1) == 0 );
 
         if ( ARGUMENT_PRESENT( SourceLength ) ) {
+            ASSERT( (*SourceLength) != (USHORT) -1 );
             Destination->Buffer = Source;
             Destination->Length = *SourceLength;
             Destination->MaximumLength = *SourceLength;
@@ -1994,6 +2090,7 @@ Return Value:
 
     if ( WorkContext->Rfcb != NULL ) {
         SrvDereferenceRfcb( WorkContext->Rfcb );
+        WorkContext->OplockOpen = FALSE;
         WorkContext->Rfcb = NULL;
     }
 
@@ -2011,144 +2108,13 @@ Return Value:
     //
 
     if ( WorkContext->BlockingOperation ) {
-        ExInterlockedAddUlong(
-            &SrvBlockingOpsInProgress,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(Fsd)
-            );
+        InterlockedDecrement( &SrvBlockingOpsInProgress );
         WorkContext->BlockingOperation = FALSE;
     }
 
     return;
 
 } // SrvReleaseContext
-
-
-VOID
-SrvSmbAttributesToNt (
-    IN USHORT SmbAttributes,
-    OUT PBOOLEAN Directory OPTIONAL,
-    OUT PULONG NtAttributes
-    )
-
-/*++
-
-Routine Description:
-
-    This routine converts attributes from SMB format to NT format.
-
-    The attribute bits in the SMB protocol (same as OS/2) have the
-    following meanings:
-
-      bit 0 - read only file
-      bit 1 - hidden file
-      bit 2 - system file
-      bit 3 - reserved
-      bit 4 - directory
-      bit 5 - archive file
-
-    NT file attributes are similar, but have a bit set for a "normal"
-    file (no other bits set) and do not have a bit set for directories.
-    Instead, directory information is passed to and from APIs as a
-    BOOLEAN parameter.
-
-Arguments:
-
-    SmbAttributes - the attributes in SMB format.
-
-    Directory - the Directory field associated with the NT directory
-        entry.
-
-    NtAttributes - where the converted attributes are returned.
-
-Return Value:
-
-    none.
-
---*/
-
-{
-    PAGED_CODE( );
-
-    ASSERT( FILE_ATTRIBUTE_READONLY  == SMB_FILE_ATTRIBUTE_READONLY  );
-    ASSERT( FILE_ATTRIBUTE_HIDDEN    == SMB_FILE_ATTRIBUTE_HIDDEN    );
-    ASSERT( FILE_ATTRIBUTE_SYSTEM    == SMB_FILE_ATTRIBUTE_SYSTEM    );
-    ASSERT( FILE_ATTRIBUTE_ARCHIVE   == SMB_FILE_ATTRIBUTE_ARCHIVE   );
-    ASSERT( FILE_ATTRIBUTE_DIRECTORY == SMB_FILE_ATTRIBUTE_DIRECTORY );
-
-    *NtAttributes = (ULONG)SmbAttributes &
-                            ( SMB_FILE_ATTRIBUTE_READONLY |
-                              SMB_FILE_ATTRIBUTE_HIDDEN   |
-                              SMB_FILE_ATTRIBUTE_SYSTEM   |
-                              SMB_FILE_ATTRIBUTE_ARCHIVE  |
-                              SMB_FILE_ATTRIBUTE_DIRECTORY );
-
-    if ( SmbAttributes == 0 ) {
-        *NtAttributes = FILE_ATTRIBUTE_NORMAL;
-    }
-
-    if ( ARGUMENT_PRESENT(Directory) ) {
-        if ( (SmbAttributes & SMB_FILE_ATTRIBUTE_DIRECTORY) != 0 ) {
-            *Directory = TRUE;
-        } else {
-            *Directory = FALSE;
-        }
-    }
-
-} // SrvSmbAttributesToNt
-
-
-VOID
-SrvNtAttributesToSmb (
-    IN ULONG NtAttributes,
-    IN BOOLEAN Directory,
-    OUT PUSHORT SmbAttributes
-    )
-
-/*++
-
-Routine Description:
-
-    This routine converts attributes from NT format to SMB format.
-
-Arguments:
-
-    NtAttributes - value of attributes in NT format.
-
-    Directory - the Directory field associated with the NT directory
-        entry.
-
-Return Value:
-
-    Attributes in SMB format.
-
---*/
-
-{
-    PAGED_CODE( );
-
-    ASSERT( FILE_ATTRIBUTE_READONLY  == SMB_FILE_ATTRIBUTE_READONLY  );
-    ASSERT( FILE_ATTRIBUTE_HIDDEN    == SMB_FILE_ATTRIBUTE_HIDDEN    );
-    ASSERT( FILE_ATTRIBUTE_SYSTEM    == SMB_FILE_ATTRIBUTE_SYSTEM    );
-    ASSERT( FILE_ATTRIBUTE_ARCHIVE   == SMB_FILE_ATTRIBUTE_ARCHIVE   );
-    ASSERT( FILE_ATTRIBUTE_DIRECTORY == SMB_FILE_ATTRIBUTE_DIRECTORY );
-
-    *SmbAttributes = (USHORT)(NtAttributes &
-                            ( FILE_ATTRIBUTE_READONLY |
-                              FILE_ATTRIBUTE_HIDDEN   |
-                              FILE_ATTRIBUTE_SYSTEM   |
-                              FILE_ATTRIBUTE_ARCHIVE  |
-                              FILE_ATTRIBUTE_DIRECTORY )) ;
-
-    if ( NtAttributes == FILE_ATTRIBUTE_NORMAL ) {
-        *SmbAttributes = 0;
-    }
-
-    if ( Directory ) {
-        *SmbAttributes |= SMB_FILE_ATTRIBUTE_DIRECTORY;
-    }
-
-} // SrvNtAttributesToSmb
 
 
 BOOLEAN
@@ -2232,7 +2198,6 @@ Return Value:
 
 } // SrvSetFileWritethroughMode
 
-
 VOID
 SrvOemStringTo8dot3 (
     IN POEM_STRING InputString,
@@ -2258,7 +2223,6 @@ Return Value:
     None.
 
 --*/
-
 {
     CLONG i, j;
     PCHAR inBuffer = InputString->Buffer;
@@ -2266,33 +2230,30 @@ Return Value:
 
     PAGED_CODE( );
 
+    ASSERT( inLength <= 12 );
+
     //
     // First make the output name all blanks.
     //
 
-    for ( i = 0; i < 11; i++ ) {
-        Output8dot3[i] = CHAR_SP;
-    }
+    RtlFillMemory( Output8dot3, 11, CHAR_SP );
 
     //
     // If we get "." or "..", just return them.  They do not follow
     // the usual rules for FAT names.
     //
 
-    if ( (inBuffer[0] == '.') && (inLength == 1) ) {
+    if( inBuffer[0] == '.' ) {
+        if( inLength == 1 ) {
+            Output8dot3[0] = '.';
+            return;
+        }
 
-        Output8dot3[0] = '.';
-
-        return;
-
-    } else if ( (inBuffer[0] == '.') &&
-                (inBuffer[1] == '.') &&
-                (inLength == 2) ) {
-
-        Output8dot3[0] = '.';
-        Output8dot3[1] = '.';
-
-        return;
+        if( inLength == 2 && inBuffer[1] == '.' ) {
+            Output8dot3[0] = '.';
+            Output8dot3[1] = '.';
+            return;
+        }
     }
 
     //
@@ -2300,11 +2261,36 @@ Return Value:
     // the end of the input string or a dot.
     //
 
-    for ( i = 0;
-          (i < inLength) && (inBuffer[i] != '.') && (inBuffer[i] != '\\');
-          i++ ) {
+    if (*NlsMbCodePageTag) {
 
-        Output8dot3[i] = inBuffer[i];
+        for ( i = 0;
+              (i < inLength) && (inBuffer[i] != '.') && (inBuffer[i] != '\\');
+              i++ ) {
+
+            if (FsRtlIsLeadDbcsCharacter(inBuffer[i])) {
+
+                if (i+1 < inLength) {
+                    Output8dot3[i] = inBuffer[i];
+                    i++;
+                    Output8dot3[i] = inBuffer[i];
+                } else {
+                    break;
+                }
+
+            } else {
+
+                Output8dot3[i] = inBuffer[i];
+            }
+        }
+
+    } else {
+
+        for ( i = 0;
+              (i < inLength) && (inBuffer[i] != '.') && (inBuffer[i] != '\\');
+              i++ ) {
+
+            Output8dot3[i] = inBuffer[i];
+        }
 
     }
 
@@ -2327,14 +2313,38 @@ Return Value:
         // Add the extension to the output name
         //
 
-        for ( j = 8;
-              (i < inLength) && (inBuffer[i] != '\\');
-              i++, j++ ) {
+        if (*NlsMbCodePageTag) {
 
-            Output8dot3[j] = inBuffer[i];
+            for ( j = 8;
+                  (i < inLength) && (inBuffer[i] != '\\');
+                  i++, j++ ) {
 
+                if (FsRtlIsLeadDbcsCharacter(inBuffer[i])) {
+
+                    if (i+1 < inLength) {
+                        Output8dot3[j] = inBuffer[i];
+                        i++; j++;
+                        Output8dot3[j] = inBuffer[i];
+                    } else {
+                        break;
+                    }
+
+                } else {
+
+                    Output8dot3[j] = inBuffer[i];
+
+                }
+            }
+
+        } else {
+
+            for ( j = 8;
+                  (i < inLength) && (inBuffer[i] != '\\');
+                  i++, j++ ) {
+
+                Output8dot3[j] = inBuffer[i];
+            }
         }
-
     }
 
     //
@@ -2376,35 +2386,78 @@ Return Value:
 --*/
 
 {
+    ULONG oemSize;
     OEM_STRING oemString;
+    ULONG index = 0;
+    UCHAR aSmallBuffer[ 50 ];
+    NTSTATUS status;
 
     PAGED_CODE( );
 
-    if ( Upcase ) {
+    oemSize = RtlUnicodeStringToOemSize( InputString );
 
-        (VOID)RtlUpcaseUnicodeStringToOemString(
-                                        &oemString,
-                                        InputString,
-                                        TRUE
-                                        );
+    ASSERT( oemSize < MAXUSHORT );
+
+    if( oemSize <= sizeof( aSmallBuffer ) ) {
+        oemString.Buffer = aSmallBuffer;
     } else {
-
-        (VOID)RtlUnicodeStringToOemString( &oemString, InputString, TRUE );
+        oemString.Buffer = ALLOCATE_HEAP( oemSize, BlockTypeBuffer );
+        if( oemString.Buffer == NULL ) {
+           *Output8dot3 = '\0';
+            return;
+        }
     }
 
-    SrvOemStringTo8dot3(
+    oemString.MaximumLength = (USHORT)oemSize;
+    oemString.Length = (USHORT)oemSize - 1;
+
+    if ( Upcase ) {
+
+        status = RtlUpcaseUnicodeToOemN(
+                    oemString.Buffer,
+                    oemString.Length,
+                    &index,
+                    InputString->Buffer,
+                    InputString->Length
+                    );
+
+        ASSERT( NT_SUCCESS( status ) );
+
+
+    } else {
+
+        status = RtlUnicodeToOemN(
+                    oemString.Buffer,
+                    oemString.Length,
+                    &index,
+                    InputString->Buffer,
+                    InputString->Length
+                    );
+
+        ASSERT( NT_SUCCESS( status ) );
+    }
+
+    if( NT_SUCCESS( status ) ) {
+
+        oemString.Buffer[ index ] = '\0';
+
+        SrvOemStringTo8dot3(
                     &oemString,
                     Output8dot3
                     );
+    } else {
 
-    RtlFreeOemString( &oemString );
-    return;
+        *Output8dot3 = '\0';
+    }
+
+    if( oemSize > sizeof( aSmallBuffer ) ) {
+        FREE_HEAP( oemString.Buffer );
+    }
 
 } // SrvUnicodeStringTo8dot3
 
-
 #if SRVDBG_STATS
-VOID
+VOID SRVFASTCALL
 SrvUpdateStatistics2 (
     PWORK_CONTEXT WorkContext,
     UCHAR SmbCommand
@@ -2435,7 +2488,7 @@ Return Value:
 
         LARGE_INTEGER td;
 
-        td.QuadPart = SrvSystemTime - WorkContext->StartTime;
+        td.QuadPart = WorkContext->CurrentWorkQueue->stats.SystemTime - WorkContext->StartTime;
 
         //
         // Update the SMB-specific statistics fields.
@@ -2567,7 +2620,7 @@ Return Value:
     PCONNECTION connection;
     PTABLE_HEADER tableHeader;
     PRFCB rfcb;
-    CSHORT index;
+    USHORT index;
     USHORT sequence;
     KIRQL oldIrql;
 
@@ -2619,7 +2672,7 @@ Return Value:
         sequence = FID_SEQUENCE( Fid );
         tableHeader = &connection->FileTable;
 
-        if ( (index >= (CSHORT)tableHeader->TableSize) ||
+        if ( (index >= tableHeader->TableSize) ||
              (tableHeader->Table[index].Owner == NULL) ||
              (tableHeader->Table[index].SequenceNumber != sequence) ) {
 
@@ -2781,7 +2834,7 @@ Return Value:
     PCONNECTION connection;
     PTABLE_HEADER tableHeader;
     PRFCB rfcb;
-    CSHORT index;
+    USHORT index;
     USHORT sequence;
     KIRQL oldIrql;
 
@@ -2818,7 +2871,7 @@ Return Value:
         sequence = FID_SEQUENCE( Fid );
         tableHeader = &connection->FileTable;
 
-        if ( (index >= (CSHORT)tableHeader->TableSize) ||
+        if ( (index >= tableHeader->TableSize) ||
              (tableHeader->Table[index].Owner == NULL) ||
              (tableHeader->Table[index].SequenceNumber != sequence) ) {
 
@@ -2932,7 +2985,7 @@ error_exit:
 PSEARCH
 SrvVerifySid (
     IN PWORK_CONTEXT WorkContext,
-    IN CSHORT Index,
+    IN USHORT Index,
     IN USHORT Sequence,
     IN PSRV_DIRECTORY_INFORMATION DirectoryInformation,
     IN CLONG BufferSize
@@ -3085,7 +3138,7 @@ Return Value:
     PCONNECTION connection;
     PTREE_CONNECT treeConnect;
     PTABLE_HEADER tableHeader;
-    CSHORT index;
+    USHORT index;
     USHORT sequence;
 
     PAGED_CODE( );
@@ -3205,7 +3258,7 @@ Return Value:
     PCONNECTION connection;
     PTABLE_HEADER tableHeader;
     PSESSION session;
-    CSHORT index;
+    USHORT index;
     USHORT sequence;
 
     PAGED_CODE( );
@@ -3273,17 +3326,30 @@ Return Value:
 
         if ( GET_BLOCK_STATE(session) == BlockStateActive ) {
 
-            //
-            // The session is active.  Reference it.
-            //
+            LARGE_INTEGER liNow;
 
-            SrvReferenceSession( session );
+            KeQuerySystemTime( &liNow);
 
-            //
-            // Update the last use time for autologoff.
-            //
+            if(liNow.QuadPart >= session->LogOffTime.QuadPart)
+            {
+                session= NULL;
+            }
+            else
+            {
 
-            KeQuerySystemTime( &session->LastUseTime );
+                //
+                // The session is active.  Reference it.
+                //
+
+                SrvReferenceSession( session );
+
+                //
+                // Update the last use time for autologoff.
+                //
+
+                session->LastUseTime = liNow;
+            }
+
 
         } else {
 
@@ -3311,9 +3377,10 @@ Return Value:
 
 NTSTATUS
 SrvVerifyUidAndTid (
-    IN PWORK_CONTEXT WorkContext,
+    IN  PWORK_CONTEXT WorkContext,
     OUT PSESSION *Session,
-    OUT PTREE_CONNECT *TreeConnect
+    OUT PTREE_CONNECT *TreeConnect,
+    IN  SHARE_TYPE ShareType
     )
 
 /*++
@@ -3341,6 +3408,8 @@ Arguments:
 
     TreeConnect - Returns a pointer to the tree connect block
 
+    ShareType - the type of share it should be
+
 Return Value:
 
     NTSTATUS - STATUS_SUCCESS, STATUS_SMB_BAD_UID, or STATUS_SMB_BAD_TID
@@ -3353,10 +3422,11 @@ Return Value:
     PTREE_CONNECT treeConnect;
     PPAGED_CONNECTION pagedConnection;
     PTABLE_HEADER tableHeader;
-    CSHORT index;
+    USHORT index;
     USHORT Uid;
     USHORT Tid;
     USHORT sequence;
+    LARGE_INTEGER liNow;
 
     PAGED_CODE( );
 
@@ -3368,11 +3438,15 @@ Return Value:
     if ( (WorkContext->Session != NULL) &&
          (WorkContext->TreeConnect != NULL) ) {
 
+        if( ShareType != ShareTypeWild &&
+            WorkContext->TreeConnect->Share->ShareType != ShareType ) {
+            return STATUS_ACCESS_DENIED;
+        }
+
         *Session = WorkContext->Session;
         *TreeConnect = WorkContext->TreeConnect;
 
         return STATUS_SUCCESS;
-
     }
 
     //
@@ -3413,14 +3487,17 @@ Return Value:
         //
 
         tableHeader = &pagedConnection->SessionTable;
-        if (!DIALECT_HONORS_UID(connection->SmbDialect) ) {
 
+
+        if (!DIALECT_HONORS_UID(connection->SmbDialect))
+        {
             session = tableHeader->Table[0].Owner;
-
-        } else if ( (index >= tableHeader->TableSize) ||
-             ((session = tableHeader->Table[index].Owner) == NULL) ||
-             (tableHeader->Table[index].SequenceNumber != sequence) ||
-             (GET_BLOCK_STATE(session) != BlockStateActive) ) {
+        }
+        else if( (index >= tableHeader->TableSize) ||
+                 ((session = tableHeader->Table[index].Owner) == NULL) ||
+                 (tableHeader->Table[index].SequenceNumber != sequence) ||
+                 (GET_BLOCK_STATE(session) != BlockStateActive) )
+        {
 
             //
             // The UID is invalid for this connection, or the session is
@@ -3431,6 +3508,19 @@ Return Value:
 
             return STATUS_SMB_BAD_UID;
 
+        }
+
+        //
+        // it's valid
+        //
+
+        KeQuerySystemTime(&liNow);
+
+        if(liNow.QuadPart >= session->LogOffTime.QuadPart)
+        {
+            RELEASE_LOCK( &connection->Lock );
+
+            return STATUS_SMB_BAD_UID;
         }
 
     }
@@ -3486,12 +3576,15 @@ Return Value:
              SrvRestrictNullSessionAccess &&
              ( treeConnect->Share->ShareType != ShareTypePipe ) ) {
 
+
             BOOLEAN matchFound = FALSE;
             ULONG i;
 
+            ACQUIRE_LOCK_SHARED( &SrvConfigurationLock );
+
             for ( i = 0; SrvNullSessionShares[i] != NULL ; i++ ) {
 
-                if ( wcsicmp(
+                if ( _wcsicmp(
                         SrvNullSessionShares[i],
                         treeConnect->Share->ShareName.Buffer
                         ) == 0 ) {
@@ -3500,6 +3593,8 @@ Return Value:
                     break;
                 }
             }
+
+            RELEASE_LOCK( &SrvConfigurationLock );
 
             //
             // The null session is not allowed to access this share - reject.
@@ -3527,7 +3622,7 @@ Return Value:
         // Update the last use time for autologoff.
         //
 
-        KeQuerySystemTime( &session->LastUseTime );
+        session->LastUseTime = liNow;
 
     }
 
@@ -3546,6 +3641,13 @@ Return Value:
 
     *Session = session;
     *TreeConnect = treeConnect;
+
+    //
+    // Make sure this is the correct type of share
+    //
+    if( ShareType != ShareTypeWild && (*TreeConnect)->Share->ShareType != ShareType ) {
+        return STATUS_ACCESS_DENIED;
+    }
 
     return STATUS_SUCCESS;
 
@@ -3578,13 +3680,7 @@ Return Value:
 {
     KIRQL oldIrql;
     BOOLEAN bufferShortage;
-
-    //
-    // Acquire the spin lock that protects both SrvReceiveWorkItems
-    // and SrvBlockingOpsInProgress.
-    //
-
-    ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
     //
     // Even if we have reached our limit, we will allow this blocking
@@ -3593,8 +3689,8 @@ Return Value:
     // service blocking requests.
     //
 
-    if ( (SrvReceiveWorkItems < SrvMaxReceiveWorkItemCount) ||
-         ((SrvReceiveWorkItems - SrvBlockingOpsInProgress)
+    if ( (queue->FreeWorkItems < queue->MaximumWorkItems) ||
+         ((queue->FreeWorkItems - SrvBlockingOpsInProgress)
                                  > SrvMinFreeWorkItemsBlockingIo) ) {
 
         //
@@ -3602,7 +3698,7 @@ Return Value:
         // blocking operation count.
         //
 
-        ++SrvBlockingOpsInProgress;
+        InterlockedIncrement( &SrvBlockingOpsInProgress );
         bufferShortage = FALSE;
 
     } else {
@@ -3613,8 +3709,6 @@ Return Value:
 
         bufferShortage = TRUE;
     }
-
-    RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
 
     return bufferShortage;
 
@@ -3827,26 +3921,6 @@ SrvIoCreateFile (
     IN ULONG Options,
     IN PSHARE Share OPTIONAL
     )
-
-/*++
-
-Routine Description:
-
-    Closes a handle, records statistics for number of handles closed,
-    total time spent closing handles.
-
-Arguments:
-
-    Handle - the handle to close.
-    Share - if present, specifies a share block to use to obtain
-        the share root handle for the ObjectAttributes.
-
-Return Value:
-
-    NTSTATUS - result of operation.
-
---*/
-
 {
     PFILE_OBJECT fileObject;
     PDEVICE_OBJECT deviceObject;
@@ -3857,6 +3931,7 @@ Return Value:
     ULONG newUsage;
     ULONG requiredSize;
     SHARE_TYPE shareType;
+    UNICODE_STRING fileName, *pName;
 
 #if SRVDBG_STATS
     LARGE_INTEGER timeStamp, currentTime;
@@ -3864,6 +3939,32 @@ Return Value:
 #endif
 
     PAGED_CODE( );
+
+    //
+    // See if this operation is allowed on this share
+    //
+    if( ARGUMENT_PRESENT( Share ) ) {
+        status = SrvIsAllowedOnAdminShare( WorkContext, Share );
+
+        if( !NT_SUCCESS( status ) ) {
+            return status;
+        }
+    }
+
+    //
+    // Make sure the client isn't trying to create a file having the name
+    //   of a DOS device
+    //
+    SrvGetBaseFileName( ObjectAttributes->ObjectName, &fileName );
+    for( pName = SrvDosDevices; pName->Length; pName++ ) {
+        if( RtlCompareUnicodeString( pName, &fileName, TRUE ) == 0 ) {
+            //
+            // Whoa!  We don't want clients trying to create files having a
+            //   DOS device name
+            //
+            return STATUS_ACCESS_DENIED;
+        }
+    }
 
     //
     // If this is from the NULL session, allow it to open only certain
@@ -3874,27 +3975,65 @@ Return Value:
 
         shareType = WorkContext->TreeConnect->Share->ShareType;
 
-        if ( WorkContext->Session->IsNullSession &&
-             SrvRestrictNullSessionAccess &&
-             (shareType == ShareTypePipe) ) {
+        if( shareType == ShareTypePipe ) {
+            if ( WorkContext->Session->IsNullSession ) {
 
-            BOOLEAN matchFound = FALSE;
-            ULONG i;
+                if( SrvRestrictNullSessionAccess ) {
+                    BOOLEAN matchFound = FALSE;
+                    ULONG i;
 
-            for ( i = 0; SrvNullSessionPipes[i] != NULL ; i++ ) {
+                    ACQUIRE_LOCK( &SrvConfigurationLock );
 
-                if ( wcsicmp(
-                        SrvNullSessionPipes[i],
-                        ObjectAttributes->ObjectName->Buffer
-                        ) == 0 ) {
+                    for ( i = 0; SrvNullSessionPipes[i] != NULL ; i++ ) {
 
-                    matchFound = TRUE;
-                    break;
+                        if ( _wcsicmp(
+                                SrvNullSessionPipes[i],
+                                ObjectAttributes->ObjectName->Buffer
+                                ) == 0 ) {
+
+                            matchFound = TRUE;
+                            break;
+                        }
+                    }
+
+                    RELEASE_LOCK( &SrvConfigurationLock );
+
+                    if ( !matchFound ) {
+                        return(STATUS_ACCESS_DENIED);
+                    }
                 }
-            }
 
-            if ( !matchFound ) {
-                return(STATUS_ACCESS_DENIED);
+            } else if( WorkContext->Session->IsLSNotified == FALSE ) {
+                //
+                // We have a pipe open request, not a NULL session, and
+                //  we haven't gotten clearance from the license server yet.
+                //  If this pipe requires clearance, get a license.
+                //
+                ULONG i;
+                BOOLEAN matchFound = FALSE;
+
+                ACQUIRE_LOCK( &SrvConfigurationLock );
+
+                for ( i = 0; SrvPipesNeedLicense[i] != NULL ; i++ ) {
+
+                    if ( _wcsicmp(
+                            SrvPipesNeedLicense[i],
+                            ObjectAttributes->ObjectName->Buffer
+                            ) == 0 ) {
+                        matchFound = TRUE;
+                        break;
+                    }
+                }
+
+                RELEASE_LOCK( &SrvConfigurationLock );
+
+                if( matchFound == TRUE ) {
+                    status = SrvXsLSOperation( WorkContext->Session,
+                                               XACTSRV_MESSAGE_LSREQUEST );
+
+                    if( !NT_SUCCESS( status ) )
+                        return status;
+                }
             }
         }
 
@@ -3950,6 +4089,13 @@ Return Value:
 
         status = SrvCheckShareFileAccess( WorkContext, DesiredAccess );
         if ( !NT_SUCCESS( status )) {
+            //
+            // Some clients want ACCESS_DENIED to be in the server class
+            // instead of the DOS class when it's due to share ACL
+            // restrictions.  So we need to keep track of why we're
+            // returning ACCESS_DENIED.
+            //
+            WorkContext->ShareAclFailure = TRUE;
             return STATUS_ACCESS_DENIED;
         }
 
@@ -3982,6 +4128,13 @@ Return Value:
             //
 
             if ( Disposition != FILE_OPEN_IF ) {
+                //
+                // Some clients want ACCESS_DENIED to be in the server class
+                // instead of the DOS class when it's due to share ACL
+                // restrictions.  So we need to keep track of why we're
+                // returning ACCESS_DENIED.
+                //
+                WorkContext->ShareAclFailure = TRUE;
                 return STATUS_ACCESS_DENIED;
             }
 
@@ -3996,43 +4149,48 @@ Return Value:
 
     }
 
-    //
-    // Make sure that this open will not push the server over its
-    // nonpaged and paged quotas.
-    //
+    if( SrvMaxNonPagedPoolUsage != 0xFFFFFFFF ) {
+        //
+        // Make sure that this open will not push the server over its
+        // nonpaged and paged quotas.
+        //
 
-    newUsage = ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentNonPagedPoolUsage,
-                    IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE,
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    ) + IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE;
+        newUsage = InterlockedExchangeAdd(
+                        (PLONG)&SrvStatistics.CurrentNonPagedPoolUsage,
+                        IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE
+                        ) + IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE;
 
-    if ( newUsage > SrvMaxNonPagedPoolUsage ) {
-        status = STATUS_INSUFF_SERVER_RESOURCES;
-        eventToLog = EVENT_SRV_NONPAGED_POOL_LIMIT;
-        goto error_exit1;
+        if ( newUsage > SrvMaxNonPagedPoolUsage ) {
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            eventToLog = EVENT_SRV_NONPAGED_POOL_LIMIT;
+            goto error_exit1;
+        }
+
+        if ( SrvStatistics.CurrentNonPagedPoolUsage > SrvStatistics.PeakNonPagedPoolUsage) {
+            SrvStatistics.PeakNonPagedPoolUsage = SrvStatistics.CurrentNonPagedPoolUsage;
+        }
     }
 
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-    newUsage = ExInterlockedAddUlong(
-                    &SrvStatistics.CurrentPagedPoolUsage,
-                    IO_FILE_OBJECT_PAGED_POOL_CHARGE,
-                    &GLOBAL_SPIN_LOCK(Statistics)
-                    ) + IO_FILE_OBJECT_PAGED_POOL_CHARGE;
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+    if( SrvMaxPagedPoolUsage != 0xFFFFFFFF ) {
 
-    if ( newUsage > SrvMaxPagedPoolUsage ) {
-        status = STATUS_INSUFF_SERVER_RESOURCES;
-        eventToLog = EVENT_SRV_PAGED_POOL_LIMIT;
-        goto error_exit;
+        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+        newUsage = InterlockedExchangeAdd(
+                        (PLONG)&SrvStatistics.CurrentPagedPoolUsage,
+                        IO_FILE_OBJECT_PAGED_POOL_CHARGE
+                        ) + IO_FILE_OBJECT_PAGED_POOL_CHARGE;
+        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+
+        if ( newUsage > SrvMaxPagedPoolUsage ) {
+            status = STATUS_INSUFF_SERVER_RESOURCES;
+            eventToLog = EVENT_SRV_PAGED_POOL_LIMIT;
+            goto error_exit;
+        }
+
+        if ( SrvStatistics.CurrentPagedPoolUsage > SrvStatistics.PeakPagedPoolUsage) {
+            SrvStatistics.PeakPagedPoolUsage = SrvStatistics.CurrentPagedPoolUsage;
+        }
     }
 
-    if ( SrvStatistics.CurrentNonPagedPoolUsage > SrvStatistics.PeakNonPagedPoolUsage) {
-        SrvStatistics.PeakNonPagedPoolUsage = SrvStatistics.CurrentNonPagedPoolUsage;
-    }
-    if ( SrvStatistics.CurrentPagedPoolUsage > SrvStatistics.PeakPagedPoolUsage) {
-        SrvStatistics.PeakPagedPoolUsage = SrvStatistics.CurrentPagedPoolUsage;
-    }
 
     //
     // If Share is specified, we may need to fill up the root share
@@ -4064,19 +4222,6 @@ Return Value:
         ObjectAttributes->RootDirectory = Share->RootDirectoryHandle;
 
     }
-
-#ifdef _CAIRO_
-    //
-    // The name for FILE_OPEN_BY_FILE_ID should be FILE_OPEN_LOCAL_SCOPE
-    //
-    // If this is to the DFS$ share, make sure the "from the server" bit
-    // is set so we don't go off-machine.
-    //
-
-    if (WorkContext->TreeConnect->Share->IsDfs) {
-        CreateOptions |= FILE_OPEN_BY_FILE_ID;  // BUGBUG
-    }
-#endif // _CAIRO_
 
     //
     // Impersonate the client.  This makes us look like the client for
@@ -4142,7 +4287,6 @@ Return Value:
     //
     // Determine how long the IoCreateFile took.
     //
-
     timeDifference.QuadPart = currentTime.QuadPart - timeStamp.QuadPart;
 
     //
@@ -4156,7 +4300,6 @@ Return Value:
         &GLOBAL_SPIN_LOCK(Statistics)
         );
 #endif
-
     //
     // Release the share root handle if device is removable.
     //
@@ -4209,21 +4352,29 @@ Return Value:
 
 error_exit:
 
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-    ExInterlockedAddUlong(
-        &SrvStatistics.CurrentPagedPoolUsage,
-        (ULONG)(-(LONG)IO_FILE_OBJECT_PAGED_POOL_CHARGE),
-        &GLOBAL_SPIN_LOCK(Statistics)
-        );
-    ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+    if( SrvMaxPagedPoolUsage != 0xFFFFFFFF ) {
+        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= IO_FILE_OBJECT_PAGED_POOL_CHARGE );
+
+        InterlockedExchangeAdd(
+            (PLONG)&SrvStatistics.CurrentPagedPoolUsage,
+            -IO_FILE_OBJECT_PAGED_POOL_CHARGE
+            );
+
+        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+    }
 
 error_exit1:
 
-    ExInterlockedAddUlong(
-        &SrvStatistics.CurrentNonPagedPoolUsage,
-        (ULONG)(-(LONG)IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE),
-        &GLOBAL_SPIN_LOCK(Statistics)
-        );
+    if( SrvMaxPagedPoolUsage != 0xFFFFFFFF ) {
+        ASSERT( (LONG)SrvStatistics.CurrentNonPagedPoolUsage >= IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE );
+
+        InterlockedExchangeAdd(
+            (PLONG)&SrvStatistics.CurrentNonPagedPoolUsage,
+            -IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE
+            );
+
+        ASSERT( (LONG)SrvStatistics.CurrentNonPagedPoolUsage >= 0 );
+    }
 
     if ( status == STATUS_INSUFF_SERVER_RESOURCES ) {
 
@@ -4316,10 +4467,10 @@ Return Value:
     // Make sure we're in the server FSP.
     //
 
-    process = SRV_CURRENT_PROCESS;
-    if ( process != SERVER_PROCESS ) {
+    process = IoGetCurrentProcess();
+    if ( process != SrvServerProcess ) {
         //KdPrint(( "SRV: Closing handle %x in process %x\n", Handle, process ));
-        KeAttachProcess( &SERVER_PROCESS->Pcb );
+        KeAttachProcess( SrvServerProcess );
     }
 
     //
@@ -4332,7 +4483,7 @@ Return Value:
     // Return to the original process.
     //
 
-    if ( process != SERVER_PROCESS ) {
+    if ( process != SrvServerProcess ) {
         KeDetachProcess();
     }
 
@@ -4368,18 +4519,25 @@ Return Value:
 #endif
 
     if ( QuotaCharged ) {
-        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-        ExInterlockedAddUlong(
-            &SrvStatistics.CurrentPagedPoolUsage,
-            (ULONG)(-(LONG)IO_FILE_OBJECT_PAGED_POOL_CHARGE),
-            &GLOBAL_SPIN_LOCK(Statistics)
-            );
-        ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
-        ExInterlockedAddUlong(
-            &SrvStatistics.CurrentNonPagedPoolUsage,
-            (ULONG)(-(LONG)IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE),
-            &GLOBAL_SPIN_LOCK(Statistics)
-            );
+        if( SrvMaxPagedPoolUsage != 0xFFFFFFFF ) {
+            ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+            ExInterlockedAddUlong(
+                &SrvStatistics.CurrentPagedPoolUsage,
+                (ULONG)(-(LONG)IO_FILE_OBJECT_PAGED_POOL_CHARGE),
+                &GLOBAL_SPIN_LOCK(Statistics)
+                );
+            ASSERT( (LONG)SrvStatistics.CurrentPagedPoolUsage >= 0 );
+        }
+
+        if( SrvMaxNonPagedPoolUsage != 0xFFFFFFFF ) {
+            ASSERT( (LONG)SrvStatistics.CurrentNonPagedPoolUsage >= 0 );
+            ExInterlockedAddUlong(
+                &SrvStatistics.CurrentNonPagedPoolUsage,
+                (ULONG)(-(LONG)IO_FILE_OBJECT_NON_PAGED_POOL_CHARGE),
+                &GLOBAL_SPIN_LOCK(Statistics)
+                );
+            ASSERT( (LONG)SrvStatistics.CurrentNonPagedPoolUsage >= 0 );
+        }
     }
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalHandlesClosed );
@@ -4531,23 +4689,11 @@ Return Value:
 
     // !!! get rid of this if statement eventually--always impersonate
 
-#ifdef _CAIRO_
     if ( WorkContext->Session->HaveHandle ) {
-        ASSERT(WorkContext->Session->HaveCairo);
 
         status = ImpersonateSecurityContext(
                     &WorkContext->Session->UserHandle
                     );
-#else // _CAIRO_
-    if ( WorkContext->Session->UserToken != NULL ) {
-
-        status = NtSetInformationThread(
-                     NtCurrentThread( ),
-                     ThreadImpersonationToken,
-                     (PVOID)&WorkContext->Session->UserToken,
-                     sizeof(WorkContext->Session->UserToken)
-                     );
-#endif // _CAIRO_
 
         if ( !NT_SUCCESS(status) ) {
             INTERNAL_ERROR(
@@ -4588,34 +4734,22 @@ Return Value:
 --*/
 
 {
+    NTSTATUS status;
+    HANDLE handle = NULL;
     PAGED_CODE( );
 
-#ifdef _CAIRO_
-    if (1) {
-#else // _CAIRO_
-    // !!! get rid of this if statement eventually--always revert
-    if ( SrvLsaHandle != NULL ) {
-#endif // _CAIRO_
 
-        NTSTATUS status;
-        HANDLE handle = NULL;
+    status = PsAssignImpersonationToken(PsGetCurrentThread(),NULL);
 
-        status = NtSetInformationThread(
-                     NtCurrentThread( ),
-                     ThreadImpersonationToken,
-                     (PVOID)&handle,
-                     sizeof(handle)
-                     );
-        if ( !NT_SUCCESS(status) ) {
-            INTERNAL_ERROR(
-                ERROR_LEVEL_UNEXPECTED,
-                "REVERT: NtSetInformationThread failed: %X",
-                status,
-                NULL
-                );
+    if ( !NT_SUCCESS(status) ) {
+        INTERNAL_ERROR(
+            ERROR_LEVEL_UNEXPECTED,
+            "REVERT: NtSetInformationThread failed: %X",
+            status,
+            NULL
+            );
 
-            SrvLogServiceFailure( SRV_SVC_NT_SET_INFO_THREAD, status );
-        }
+        SrvLogServiceFailure( SRV_SVC_NT_SET_INFO_THREAD, status );
     }
 
     return;
@@ -4669,7 +4803,9 @@ Return Value:
     // If the client doesn't want to set the time, don't set it.
     //
 
-    if ( LastWriteTimeInSeconds == 0 || LastWriteTimeInSeconds == 0xFFFFFFFF ) {
+    if( Rfcb->ShareType != ShareTypeDisk ||
+        LastWriteTimeInSeconds == 0      ||
+        LastWriteTimeInSeconds == 0xFFFFFFFF ) {
 
         //
         // If the file was written to, we won't cache the file.  This is to
@@ -4785,11 +4921,7 @@ Return Value:
 
     securityDescriptor = WorkContext->TreeConnect->Share->FileSecurityDescriptor;
 
-#ifdef _CAIRO_
     if (securityDescriptor != NULL) {
-#else // _CAIRO_
-    if ( SrvLsaHandle != NULL && securityDescriptor != NULL ) {
-#endif // _CAIRO_
 
         IMPERSONATE( WorkContext );
 
@@ -4985,7 +5117,8 @@ Return Value:
     //
 
     if ( !NT_SUCCESS(status) ) {
-        if ( status != STATUS_INVALID_CONNECTION ) {
+        if ( status != STATUS_INVALID_CONNECTION &&
+             status != STATUS_CONNECTION_INVALID ) {
             INTERNAL_ERROR(
                 ERROR_LEVEL_UNEXPECTED,
                 "SrvUpdateVcQualityOfService: SrvIssueTdiQuery failed: %X\n",
@@ -5071,7 +5204,7 @@ exitquery:
 } // SrvUpdateVcQualityOfService
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvValidateSmb (
     IN PWORK_CONTEXT WorkContext
     )
@@ -5106,29 +5239,16 @@ Return Value:
 
     if ( SmbGetAlignedUlong( (PULONG)smbHeader->Protocol ) !=
                                                 SMB_HEADER_PROTOCOL ) {
-        goto error_exit_nolog;
+        SrvLogInvalidSmb( WorkContext );
+        return FALSE;
     }
 
 #if SRVDBG
 
     if ( smbHeader->Reserved != 0 ) {
+        SrvLogInvalidSmb( WorkContext );
         return FALSE;
     }
-
-#if 0 // NO RESERVED FIELDS LEFT!
-    //
-    // *** Note that we can't check Reserved2[0] because the NT Create
-    //     SMBs use it to hold the upper half of the PID.
-    //
-
-    if ( SmbGetAlignedUshort( &smbHeader->Reserved2[1] ) != 0 ||
-         SmbGetAlignedUshort( &smbHeader->Reserved2[2] ) != 0 ||
-         SmbGetAlignedUshort( &smbHeader->Reserved2[3] ) != 0 ||
-         SmbGetAlignedUshort( &smbHeader->Reserved2[4] ) != 0 ||
-         SmbGetAlignedUshort( &smbHeader->Reserved2[5] ) != 0 ) {
-        return FALSE;
-    }
-#endif
 
     //
     // DOS LM2.1 sets SMB_FLAGS_SERVER_TO_REDIR on an oplock break
@@ -5137,6 +5257,7 @@ Return Value:
 
     if ( (smbHeader->Flags &
             ~(INCOMING_SMB_FLAGS | SMB_FLAGS_SERVER_TO_REDIR)) != 0 ) {
+        SrvLogInvalidSmb( WorkContext );
         return FALSE;
     }
 
@@ -5149,9 +5270,29 @@ Return Value:
                       SmbGetAlignedUshort( &smbHeader->Flags2 ) &
                           ~INCOMING_SMB_FLAGS2 ));
 
+        SrvLogInvalidSmb( WorkContext );
         return FALSE;
     }
 
+#endif
+
+#if 0
+    if( (smbHeader->Command != SMB_COM_LOCKING_ANDX) &&
+        (smbHeader->Flags & SMB_FLAGS_SERVER_TO_REDIR) ) {
+
+        //
+        // A client has set the bit indicating that this is a server response
+        //   packet. This could be an attempt by a client to sneak through a
+        //   firewall -- because the firewall may be configured to allow incoming
+        //   responses, but no incomming requests (thereby allowing internal clients
+        //   to access Internet servers, but not allowing external clients to access
+        //   internal servers).  Reject this SMB.
+        //
+        //
+
+        SrvLogInvalidSmb( WorkContext );
+        return FALSE;
+    }
 #endif
 
     //
@@ -5263,7 +5404,8 @@ Return Value:
                     &WorkContext->Connection->OemClientMachineNameString ));
 
             }
-            goto error_exit;
+            SrvLogInvalidSmb( WorkContext );
+            return FALSE;
         }
     }
 
@@ -5292,6 +5434,8 @@ Return Value:
 
         }
 
+        SrvLogInvalidSmb( WorkContext );
+
     } else {
 
         //
@@ -5318,13 +5462,8 @@ Return Value:
 
         }
 
+        SrvLogInvalidSmb( WorkContext );
     }
-
-error_exit:
-
-    SrvLogInvalidSmb( WorkContext );
-
-error_exit_nolog:
 
     return FALSE;
 
@@ -5523,27 +5662,93 @@ DispatchToOrphanage(
     IN PQUEUEABLE_BLOCK_HEADER Block
     )
 {
-
-    KIRQL oldIrql;
-
     ASSERT( Block->BlockHeader.ReferenceCount == 1 );
 
-    ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
-
-    PushEntryList(
+    ExInterlockedPushEntrySList(
         &SrvBlockOrphanage,
-        &Block->SingleListEntry
+        &Block->SingleListEntry,
+        &GLOBAL_SPIN_LOCK(Fsd)
         );
 
-    SrvResourceOrphanedBlocks = TRUE;
+    InterlockedIncrement( &SrvResourceOrphanedBlocks );
+
     SrvFsdQueueExWorkItem(
         &SrvResourceThreadWorkItem,
         &SrvResourceThreadRunning,
         CriticalWorkQueue
         );
 
-    RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
     return;
 
 } // DispatchToOrphanage
 
+NTSTATUS
+SrvIsAllowedOnAdminShare(
+    IN PWORK_CONTEXT WorkContext,
+    IN PSHARE Share
+)
+/*++
+
+Routine Description:
+
+    This routine returns STATUS_SUCCESS if the client represented by
+    the WorkContext should be allowed to access the Share, if the share
+    is an Administrative Disk share.
+
+Arguments:
+
+    WorkContext - the unit of work
+    Share - pointer to a share, possibly an administrative share
+
+Return Value:
+
+    STATUS_SUCCESS if allowed.  Error otherwise.
+
+--*/
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+
+    if( Share->SpecialShare && Share->ShareType == ShareTypeDisk ) {
+
+        SECURITY_SUBJECT_CONTEXT subjectContext;
+        ACCESS_MASK desiredAccess, grantedAccess;
+
+        IMPERSONATE( WorkContext );
+
+        SeCaptureSubjectContext( &subjectContext );
+
+        if( !SeAccessCheck(
+                Share->SecurityDescriptor,
+                &subjectContext,
+                FALSE,
+                SRVSVC_SHARE_CONNECT,
+                0L,
+                NULL,
+                &SrvShareConnectMapping,
+                UserMode,
+                &grantedAccess,
+                &status
+                ) ) {
+
+            //
+            // We have a non-administrative user trying to access a file
+            // through an administrative share.  Can't allow that!
+            //
+            // Some clients want ACCESS_DENIED to be in the server class
+            // instead of the DOS class when it's due to share ACL
+            // restrictions.  So we need to keep track of why we're
+            // returning ACCESS_DENIED.
+            //
+
+            WorkContext->ShareAclFailure = TRUE;
+        }
+
+        SeReleaseSubjectContext( &subjectContext );
+
+        REVERT();
+    }
+
+    return status;
+}

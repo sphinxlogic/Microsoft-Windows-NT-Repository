@@ -37,7 +37,7 @@ Revision History:
 #include <lmerr.h>                // LAN Manager network error definitions
 
 #include <netlibnt.h>             // NetpNtStatusToApiStatus
-#include <netdebug.h>             // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>             // NetpKdPrint(()), FORMAT_ equates.
 #include <debuglib.h>             // IF_DEBUG()
 #include <tstring.h>              // Transitional string support
 
@@ -70,8 +70,8 @@ Return Value:
                                      NULL,
                                      ConfigFile
                                      ))) {
-        NetpDbgPrint("[Netlib] RtlOpenConfigFile failed "
-                FORMAT_NTSTATUS "\n", ntstatus);
+        NetpKdPrint(("[Netlib] RtlOpenConfigFile failed "
+                FORMAT_NTSTATUS "\n", ntstatus));
     }
 
     return NetpNtStatusToApiStatus(ntstatus);
@@ -121,8 +121,8 @@ Return Value:
 
     if (*SectionPointer == NULL) {
 
-        NetpDbgPrint("[Netlib] RtlLocateSectionConfigFile ["
-                FORMAT_LPSTR "] failed\n", ConfigSection);
+        NetpKdPrint(("[Netlib] RtlLocateSectionConfigFile ["
+                FORMAT_LPSTR "] failed\n", ConfigSection));
 
         return NERR_CfgCompNotFound;
     }
@@ -219,8 +219,8 @@ Return Value:
     KeywordValueBuffer[CharCount] = TCHAR_EOS;
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint("[Netlib] KeywordValueString for " FORMAT_LPSTR
-                " is " FORMAT_LPTSTR "\n", ConfigKeyword, KeywordValueBuffer);
+        NetpKdPrint(("[Netlib] KeywordValueString for " FORMAT_LPSTR
+                " is " FORMAT_LPTSTR "\n", ConfigKeyword, KeywordValueBuffer));
     }
 
     *KeywordValueStringLength = CharCount;

@@ -26,7 +26,9 @@ Revision History:
 #include "adtp.h"
 
 NTSTATUS LsapAdtInitializeCrashOnFail( VOID );
+BOOL LsapShutdownNotification( IN ULONG ControlType );
 
+BOOLEAN LsapShutdownInProgress = FALSE;
 ULONG LsapAdtInitializationPass = 0;
 
 
@@ -65,6 +67,7 @@ LUID DebugPrivilege;
 //
 
 BOOLEAN LsapCrashOnAuditFail = FALSE;
+BOOLEAN LsapAllowAdminLogonsOnly = FALSE;
 
 
 
@@ -297,13 +300,25 @@ Return Value:
         // Initialize privilege values we need
         //
 
-        ChangeNotifyPrivilege       = RtlConvertLongToLargeInteger( SE_CHANGE_NOTIFY_PRIVILEGE      );
-        AuditPrivilege              = RtlConvertLongToLargeInteger( SE_AUDIT_PRIVILEGE              );
-        CreateTokenPrivilege        = RtlConvertLongToLargeInteger( SE_CREATE_TOKEN_PRIVILEGE       );
-        AssignPrimaryTokenPrivilege = RtlConvertLongToLargeInteger( SE_ASSIGNPRIMARYTOKEN_PRIVILEGE );
-        BackupPrivilege             = RtlConvertLongToLargeInteger( SE_BACKUP_PRIVILEGE             );
-        RestorePrivilege            = RtlConvertLongToLargeInteger( SE_RESTORE_PRIVILEGE            );
-        DebugPrivilege              = RtlConvertLongToLargeInteger( SE_DEBUG_PRIVILEGE              );
+        ChangeNotifyPrivilege       = RtlConvertLongToLuid( SE_CHANGE_NOTIFY_PRIVILEGE      );
+        AuditPrivilege              = RtlConvertLongToLuid( SE_AUDIT_PRIVILEGE              );
+        CreateTokenPrivilege        = RtlConvertLongToLuid( SE_CREATE_TOKEN_PRIVILEGE       );
+        AssignPrimaryTokenPrivilege = RtlConvertLongToLuid( SE_ASSIGNPRIMARYTOKEN_PRIVILEGE );
+        BackupPrivilege             = RtlConvertLongToLuid( SE_BACKUP_PRIVILEGE             );
+        RestorePrivilege            = RtlConvertLongToLuid( SE_RESTORE_PRIVILEGE            );
+        DebugPrivilege              = RtlConvertLongToLuid( SE_DEBUG_PRIVILEGE              );
+
+        //
+        // Tell base/wincon how to shut us down.
+        // First, tell base to shut us down as late in the game as possible.
+        //
+
+        SetProcessShutdownParameters(LSAP_SHUTDOWN_LEVEL, SHUTDOWN_NORETRY);
+
+        // And, tell them what function to call when we are being shutdown:
+
+        SetConsoleCtrlHandler(LsapShutdownNotification, TRUE);
+
 
     } else if (Pass == 2) {
 
@@ -532,7 +547,11 @@ Return Values:
 {
     NTSTATUS Status = STATUS_SUCCESS;
 
-    RtlInitializeCriticalSection(&LsapAdtQueueLock);
+    Status = RtlInitializeCriticalSection(&LsapAdtQueueLock);
+
+    if (NT_SUCCESS(Status)) {
+        Status = RtlInitializeCriticalSection(&LsapAdtLogFullLock);
+    }
 
     LsapAdtLogQueue.FirstQueuedRecord = NULL;
     LsapAdtLogQueue.LastQueuedRecord = NULL;
@@ -635,7 +654,11 @@ Return Value:
     PWCHAR DeviceNameBuffer;
     ULONG MappingIndex = 0;
 
-    RtlInitUnicodeString(&LinkName,L"\\DosDevices\\A:");
+    WCHAR wszDosDevices[sizeof(L"\\DosDevices\\A:") + 1];
+
+    wcscpy(wszDosDevices, L"\\DosDevices\\A:");
+
+    RtlInitUnicodeString(&LinkName, wszDosDevices);
 
 
     p = (PWCHAR)LinkName.Buffer;
@@ -784,8 +807,19 @@ Return Value:
 
     } else {
 
+        //
+        // Check the value of the CrashOnFail value. If it is 1, we
+        // crash on audit fail. If it is two, we only allow admins to
+        // logon.
+        //
+
         pKeyInfo = (PKEY_VALUE_PARTIAL_INFORMATION)KeyInfo;
-        LsapCrashOnAuditFail = (BOOLEAN) *(pKeyInfo->Data);
+        if (*(pKeyInfo->Data) == LSAP_CRASH_ON_AUDIT_FAIL) {
+            LsapCrashOnAuditFail = TRUE;
+        } else if (*(pKeyInfo->Data) == LSAP_ALLOW_ADIMIN_LOGONS_ONLY) {
+            LsapAllowAdminLogonsOnly = TRUE;
+        }
+
     }
 
     if ( LsapCrashOnAuditFail ) {
@@ -811,3 +845,34 @@ Return Value:
 
     return( STATUS_SUCCESS );
 }
+
+
+BOOL
+LsapShutdownNotification(
+    IN ULONG ControlType
+    )
+/*++
+
+Routine Description:
+
+    This routine sets a global flag indicating that shutdown is in progress.
+    The flag is used by the auditing subsystem to tell whether to bugcheck
+    when an audit fails - we don't want to bugcheck during shutdown because
+    the eventlog stopped.
+
+Arguments:
+
+    ControlType - a flag indicating what event occurred.
+
+Return Value:
+
+    TRUE
+
+--*/
+{
+    if (ControlType == CTRL_SHUTDOWN_EVENT) {
+        LsapShutdownInProgress = TRUE;
+    }
+    return(TRUE);
+}
+

@@ -45,7 +45,7 @@ main(int argc, char **argv)
 	    pszfileonly = p + 1;
 	}
 	strcpy(szfileonly, pszfileonly);
-	strlwr(szfileonly);
+	_strlwr(szfileonly);
 
 	// Build temp file path
 

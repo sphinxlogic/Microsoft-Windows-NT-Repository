@@ -53,26 +53,22 @@ typedef enum _COMPARISON {
     IsGreaterThan
 } COMPARISON;
 
-static
 CLONG
 ComputeNameLength(
     IN PSTRING Name
     );
 
-static
 COMPARISON
 CompareNamesCaseSensitive (
     IN PSTRING Prefix,
     IN PSTRING Name
     );
 
-static
 CLONG
 ComputeUnicodeNameLength(
     IN PUNICODE_STRING Name
     );
 
-static
 COMPARISON
 CompareUnicodeStrings (
     IN PUNICODE_STRING Prefix,
@@ -750,7 +746,6 @@ Return Value:
 }
 
 
-static
 CLONG
 ComputeNameLength(
     IN PSTRING Name
@@ -844,7 +839,6 @@ Returns Value:
 }
 
 
-static
 COMPARISON
 CompareNamesCaseSensitive (
     IN PSTRING Prefix,
@@ -2128,7 +2122,6 @@ Return Value:
 }
 
 
-static
 CLONG
 ComputeUnicodeNameLength(
     IN PUNICODE_STRING Name
@@ -2166,7 +2159,7 @@ Returns Value:
     //  optimize not having to reload the length each time
     //
 
-    NameLength = Name->Length/2;
+    NameLength = (ULONG)Name->Length/2;
 
     //
     //  Now loop through the input string counting back slashes
@@ -2194,7 +2187,6 @@ Returns Value:
 }
 
 
-static
 COMPARISON
 CompareUnicodeStrings (
     IN PUNICODE_STRING Prefix,
@@ -2250,8 +2242,8 @@ Return Value:
     //  time we need their values
     //
 
-    PrefixLength = Prefix->Length/2;
-    NameLength = Name->Length/2;
+    PrefixLength = (ULONG)Prefix->Length/2;
+    NameLength = (ULONG)Name->Length/2;
 
     //
     //  Special case the situation where the prefix string is simply "\" and
@@ -2303,14 +2295,22 @@ Return Value:
 
     if (i == CaseInsensitiveIndex) {
 
+        WCHAR *s1 = &Prefix->Buffer[i];
+        WCHAR *s2 = &Name->Buffer[i];
+
         for (; i < MinLength; i += 1) {
 
-            PrefixChar = NLS_UPCASE(Prefix->Buffer[i]);
-            NameChar   = NLS_UPCASE(Name->Buffer[i]);
+            PrefixChar = *s1++;
+            NameChar = *s2++;
 
             if (PrefixChar != NameChar) {
 
-                break;
+                PrefixChar = NLS_UPCASE(PrefixChar);
+                NameChar   = NLS_UPCASE(NameChar);
+
+                if (PrefixChar != NameChar) {
+                    break;
+                }
             }
         }
     }

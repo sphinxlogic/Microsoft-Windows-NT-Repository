@@ -21,6 +21,7 @@ History		:
 #define LIST_CHECK
 
 #endif
+
 /************************************************************************* 
  ** definitions
  *************************************************************************/
@@ -42,7 +43,9 @@ FreeListMgr::Get (size_t size)
 	/* Count this call (even if it fails).
 	 */
 
+#ifndef NDEBUG
 	GetCount++;
+#endif
 
 	/* Make sure the "size" requested is the same as the previous 
 	 * requests.
@@ -105,7 +108,9 @@ unsigned long	*	pSignature;
 #endif
 	// Count this call.
 
+#ifndef NDEBUG
 	PutCount++;
+#endif
 
 	// Put the given element on the head of the free-list.
 

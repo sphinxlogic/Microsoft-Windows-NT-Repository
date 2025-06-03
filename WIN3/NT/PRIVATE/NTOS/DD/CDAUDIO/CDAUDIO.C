@@ -38,6 +38,14 @@ Revision History:
 
 #include "cdaudio.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,' AdC')
+#endif
+
+
 
 //
 // Function declarations
@@ -81,6 +89,11 @@ CdAudioSendToNextDriver(
 BOOLEAN
 CdAudioIsPlayActive(
     IN PDEVICE_OBJECT DeviceObject
+    );
+
+BOOLEAN
+NecSupportNeeded(
+    PUCHAR InquiryData
     );
 
 NTSTATUS
@@ -152,7 +165,37 @@ CdAudioPan533DeviceControl(
     );
 
 NTSTATUS
+CdAudioAtapiDeviceControl(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+CdAudioLionOpticsDeviceControl(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
+NTSTATUS
 CdAudioIoCompletion(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Context
+    );
+
+NTSTATUS
+CdAudioHPCdrDeviceControl(
+    PDEVICE_OBJECT DeviceObject,
+    PIRP Irp
+    );
+
+VOID
+HpCdrProcessLastSession(
+    IN PCDROM_TOC Toc
+    );
+
+NTSTATUS
+HPCdrCompletion(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Context
@@ -176,6 +219,7 @@ ScsiClassReleaseQueue(
     IN PDEVICE_OBJECT DeviceObject
     );
 
+#if 0
 //
 // define for private CdDump
 //
@@ -186,6 +230,7 @@ sprintf(
     const char *format,
     ...
     );
+#endif
 
 //
 // Define the sections that allow for discarding (i.e. paging) some of
@@ -205,6 +250,11 @@ sprintf(
 #pragma alloc_text(PAGECDNC, CdAudio535DeviceControl)
 #pragma alloc_text(PAGECDOT, CdAudioPioneerDeviceControl)
 #pragma alloc_text(PAGECDNC, CdAudioPan533DeviceControl)
+#pragma alloc_text(PAGECDOT, CdAudioAtapiDeviceControl)
+#pragma alloc_text(PAGECDOT, CdAudioLionOpticsDeviceControl)
+#pragma alloc_text(PAGECDOT, CdAudioHPCdrDeviceControl)
+#pragma alloc_text(PAGECDOT, HpCdrProcessLastSession)
+#pragma alloc_text(PAGECDOT, HPCdrCompletion)
 
 
 NTSTATUS
@@ -243,6 +293,7 @@ Return Value:
     SCSI_REQUEST_BLOCK  srb;
     PCDB                cdb = (PCDB)srb.Cdb;
     PUCHAR              inquiryDataPtr;
+    ULONG               i;
 
     //
     // Set up the device driver entry points.
@@ -339,10 +390,11 @@ Return Value:
 
         //
         // Initialize the class device extension. This is used by the
-        // class commands such as ScsiClassSendSrbSynchronous.  The only fields used
-        // are the port device object pointer which is set to the attached
-        // device.  The DeviceNumber, DeviceObject, and TimeOutVlaue are also
-        // used. The logical unit address will be set the the lower driver.
+        // class commands such as ScsiClassSendSrbSynchronous.  The only fields
+        // used are the port device object pointer which is set to the attached
+        // device.  The DeviceNumber, DeviceObject, TimeOutValue and
+        // PhysicalDevice are also used. The logical unit address will be set
+        // by the lower driver.
         //
 
         deviceExtension->ClassDeviceExtension.DeviceObject = cdaudioDevice;
@@ -350,6 +402,7 @@ Return Value:
         deviceExtension->ClassDeviceExtension.PortDeviceObject =
             deviceExtension->TargetDeviceObject;
         deviceExtension->ClassDeviceExtension.TimeOutValue = AUDIO_TIMEOUT;
+        deviceExtension->ClassDeviceExtension.PhysicalDevice = cdaudioDevice;
 
         //
         // Indicate to drivers above us that we want IRPs
@@ -435,18 +488,20 @@ Return Value:
 
             if ((inquiryDataPtr[8]  =='N') &&
                 (inquiryDataPtr[9]  =='E') &&
-                (inquiryDataPtr[10] =='C') &&
-                (inquiryDataPtr[29] !='2') &&
-                (inquiryDataPtr[30] !='6')) {
+                (inquiryDataPtr[10] =='C')) {
 
-                //
-                // Map NEC support section into non-paged pool
-                //
 
-                MmLockPagableImageSection((PVOID)CdAudioNECDeviceControl);
-                deviceExtension->Active = CDAUDIO_NEC;
-                CdDump(( 3, "CdAudioInitialize: %s is a NEC drive.\n",
-                             deviceNameBuffer ));
+                if (NecSupportNeeded(inquiryDataPtr)) {
+
+                    //
+                    // Map NEC support section into non-paged pool
+                    //
+
+                    MmLockPagableCodeSection((PVOID)CdAudioNECDeviceControl);
+                    deviceExtension->Active = CDAUDIO_NEC;
+                    CdDump(( 3, "CdAudioInitialize: %s is a NEC drive.\n",
+                                 deviceNameBuffer ));
+                }
             }
 
             //
@@ -461,8 +516,13 @@ Return Value:
                 (inquiryDataPtr[25]=='M') &&
                 (inquiryDataPtr[27]=='6')) {
 
-                MmLockPagableImageSection((PVOID)CdAudioPioneerDeviceControl);
+                MmLockPagableCodeSection((PVOID)CdAudioPioneerDeviceControl);
                 deviceExtension->Active = CDAUDIO_PIONEER;
+
+                if (inquiryDataPtr[28] != '0') {
+                    deviceExtension->Active= CDAUDIO_PIONEER624;
+                }
+
                 CdDump(( 3, "CdAudioInitialize: %s is a PIONEER DRM-6xx drive.\n",
                              deviceNameBuffer ));
             }
@@ -481,7 +541,7 @@ Return Value:
                 (inquiryDataPtr[21]=='5') &&
                 (inquiryDataPtr[22]=='X')) {
 
-                MmLockPagableImageSection((PVOID)CdAudioDenonDeviceControl);
+                MmLockPagableCodeSection((PVOID)CdAudioDenonDeviceControl);
                 deviceExtension->Active = CDAUDIO_DENON;
                 CdDump(( 3, "CdAudioInitialize: %s is a DENON DRD-25X drive.\n",
                              deviceNameBuffer ));
@@ -502,7 +562,7 @@ Return Value:
                 (inquiryDataPtr[29]=='5') &&
                 (inquiryDataPtr[32]=='Q')) {
 
-                MmLockPagableImageSection((PVOID)CdAudio535DeviceControl);
+                MmLockPagableCodeSection((PVOID)CdAudio535DeviceControl);
                 deviceExtension->Active = CDAUDIO_CDS535;
                 CdDump(( 3, "CdAudioInitialize: %s is a Chinon CDS-535 drive.\n",
                              deviceNameBuffer ));
@@ -528,7 +588,7 @@ Return Value:
                  (inquiryDataPtr[32]=='H')
                 )) {
 
-                MmLockPagableImageSection((PVOID)CdAudio435DeviceControl);
+                MmLockPagableCodeSection((PVOID)CdAudio435DeviceControl);
                 deviceExtension->Active = CDAUDIO_CDS435;
                 CdDump(( 3, "CdAudioInitialize: %s is a Chinon CDS-435/431 drive.\n",
                              deviceNameBuffer ));
@@ -572,7 +632,7 @@ Return Value:
                         // Yes, we want to handle this HITACHI drive...
                         //
 
-                        MmLockPagableImageSection((PVOID)CdAudioHitachiDeviceControl);
+                        MmLockPagableCodeSection((PVOID)CdAudioHitachiDeviceControl);
                         deviceExtension->Active = CDAUDIO_HITACHI;
                         inquiryDataPtr[25] = (UCHAR)0;
                         CdDump(( 3,
@@ -581,7 +641,6 @@ Return Value:
                     }
 
             }
-
 
             //
             // Check for Panasonic CR-533
@@ -600,10 +659,132 @@ Return Value:
                 (inquiryDataPtr[28]=='3')
                 ) {
 
-                MmLockPagableImageSection((PVOID)CdAudioPan533DeviceControl);
+                MmLockPagableCodeSection((PVOID)CdAudioPan533DeviceControl);
                 deviceExtension->Active = CDAUDIO_CR533;
                 inquiryDataPtr[25] = (UCHAR)0;
                 CdDump(( 3, "CdAudioInitialize: %s is a Panasonic CR-533 drive.\n",
+                             deviceNameBuffer ));
+            }
+
+            //
+            // Check for Atapi drives that require support.
+            //
+
+            if ((inquiryDataPtr[8] =='W') &&
+                (inquiryDataPtr[9] =='E') &&
+                (inquiryDataPtr[10]=='A') &&
+                (inquiryDataPtr[11]=='R') &&
+                (inquiryDataPtr[12]=='N') &&
+                (inquiryDataPtr[13]=='E') &&
+                (inquiryDataPtr[14]=='S') &&
+                (inquiryDataPtr[15]==' ') &&
+                (inquiryDataPtr[16]=='R') &&
+                (inquiryDataPtr[17]=='U') &&
+                (inquiryDataPtr[18]=='B') ||
+
+                (inquiryDataPtr[8] =='O') &&
+                (inquiryDataPtr[9] =='T') &&
+                (inquiryDataPtr[10]=='I') &&
+                (inquiryDataPtr[11]==' ') &&
+                (inquiryDataPtr[16]=='D') &&
+                (inquiryDataPtr[17]=='O') &&
+                (inquiryDataPtr[18]=='L') &&
+                (inquiryDataPtr[19]=='P') &&
+                (inquiryDataPtr[20]=='H')
+
+                ) {
+
+                MmLockPagableCodeSection((PVOID)CdAudioAtapiDeviceControl);
+                deviceExtension->Active = CDAUDIO_ATAPI;
+                inquiryDataPtr[25] = (UCHAR)0;
+                CdDump(( 3, "CdAudioInitialize: %s is an Atapi drive.\n",
+                             deviceNameBuffer ));
+            }
+
+            //
+            // Check for FUJITSU drives
+            //
+
+            if ((inquiryDataPtr[8] =='F') &&
+                (inquiryDataPtr[9] =='U') &&
+                (inquiryDataPtr[10]=='J') &&
+                (inquiryDataPtr[11]=='I') &&
+                (inquiryDataPtr[12]=='T')) {
+
+                //
+                // It's a Fujitsu drive...is it one we want to
+                // handle...?
+                //
+
+                if ((inquiryDataPtr[16]=='C') &&
+                    (inquiryDataPtr[17]=='D') &&
+                    (inquiryDataPtr[18]=='R') &&
+                    (inquiryDataPtr[20]=='3') &&
+                    (inquiryDataPtr[21]=='6') &&
+                    (inquiryDataPtr[22]=='5') &&
+                    (inquiryDataPtr[23]=='0')) {
+
+                    //
+                    // Yes, we want to handle this as HITACHI compatible drive...
+                    //
+
+                    MmLockPagableCodeSection((PVOID)CdAudioHitachiDeviceControl);
+                    deviceExtension->Active = CDAUDIO_HITACHI;
+                    inquiryDataPtr[25] = (UCHAR)0;
+                    CdDump(( 3,
+                        "CdAudioInitialize: %s is a FUJITSU %s drive.\n",
+                        deviceNameBuffer, &inquiryDataPtr[16] ));
+
+                } else if ((inquiryDataPtr[16]=='F') &&
+                           (inquiryDataPtr[17]=='M') &&
+                           (inquiryDataPtr[18]=='C') &&
+                           (inquiryDataPtr[21]=='1') &&
+                           (inquiryDataPtr[22]=='0') &&
+                           ((inquiryDataPtr[23]=='1') ||
+                            (inquiryDataPtr[23]=='2')) ) {
+
+                    //
+                    // Yes, we want to handle this as FUJITSU drive...
+                    //
+
+                    MmLockPagableCodeSection((PVOID)CdAudioHitachiDeviceControl);
+                    deviceExtension->Active = CDAUDIO_FUJITSU;
+                    inquiryDataPtr[25] = (UCHAR)0;
+                    CdDump(( 3,
+                        "CdAudioInitialize: %s is a FUJITSU %s drive.\n",
+                        deviceNameBuffer, &inquiryDataPtr[16] ));
+                }
+
+            }
+
+            //
+            // Check for HP CDR
+            //
+
+            if ((inquiryDataPtr[8] =='H') &&
+                (inquiryDataPtr[9] =='P') &&
+                (inquiryDataPtr[10]==' ') &&
+                (inquiryDataPtr[11]==' ') &&
+                (inquiryDataPtr[12]==' ') &&
+                (inquiryDataPtr[13]==' ') &&
+                (inquiryDataPtr[14]==' ') &&
+                (inquiryDataPtr[15]==' ') &&
+                (inquiryDataPtr[16]=='C') &&
+                (inquiryDataPtr[17]=='4') &&
+                (inquiryDataPtr[18]=='3') &&
+                (inquiryDataPtr[19]=='2') &&
+                (inquiryDataPtr[20]=='4') &&
+                (inquiryDataPtr[21]=='/') &&
+                (inquiryDataPtr[22]=='C') &&
+                (inquiryDataPtr[23]=='4') &&
+                (inquiryDataPtr[24]=='3') &&
+                (inquiryDataPtr[25]=='2') &&
+                (inquiryDataPtr[26]=='5')
+                ) {
+
+                MmLockPagableCodeSection((PVOID)CdAudioHPCdrDeviceControl);
+                deviceExtension->Active = CDAUDIO_HPCDR;
+                CdDump(( 3, "CdAudioInitialize: %s is an HPCDR drive.\n",
                              deviceNameBuffer ));
             }
 
@@ -638,7 +819,54 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-} // end CdAudioInitialize()
+} // end DriverEntry()
+
+#define NEC_NO_CDAUDIO_SUPPORT_DRIVES 9
+
+BOOLEAN
+NecSupportNeeded(
+    PUCHAR InquiryData
+    )
+
+/*++
+
+Routine Description:
+
+    This routine determines whether the NEC drive in question needs assistance from
+    this driver.
+
+Arguments:
+
+    InquiryData - Pointer to the inquiry data buffer.
+
+Return Value:
+
+    TRUE - if support is needed.
+
+--*/
+
+{
+    PINQUIRYDATA inquiryData = (PINQUIRYDATA)InquiryData;
+    ULONG  i;
+    PUCHAR goodDriveList[NEC_NO_CDAUDIO_SUPPORT_DRIVES] = {"CD-ROM 1300A    ",
+                                                           "CD-ROM DRIVE:273",
+                                                           "CD-ROM DRIVE:502",
+                                                           "CD-ROM DRIVE:260",
+                                                           "CD-ROM DRIVE:280",
+                                                           "CD-ROM DRIVE:282",
+                                                           "CD-ROM DRIVE:271",
+                                                           "CD-ROM DRIVE:272",
+                                                           "CD-ROM DRIVE:251"};
+
+
+    for (i = 0; i < NEC_NO_CDAUDIO_SUPPORT_DRIVES; i++) {
+        if (RtlCompareMemory(inquiryData->ProductId, goodDriveList[i], 16) == 16) {
+            return FALSE;
+        }
+    }
+
+    return TRUE;
+}
 
 
 NTSTATUS
@@ -764,6 +992,7 @@ Return Value:
             break;
 
         case CDAUDIO_PIONEER:
+        case CDAUDIO_PIONEER624:
             status = CdAudioPioneerDeviceControl( DeviceObject, Irp );
             break;
 
@@ -771,6 +1000,7 @@ Return Value:
             status = CdAudioDenonDeviceControl( DeviceObject, Irp );
             break;
 
+        case CDAUDIO_FUJITSU:
         case CDAUDIO_HITACHI:
             status = CdAudioHitachiDeviceControl( DeviceObject, Irp );
             break;
@@ -785,6 +1015,14 @@ Return Value:
 
         case CDAUDIO_CR533:
             status = CdAudioPan533DeviceControl( DeviceObject, Irp );
+            break;
+
+        case CDAUDIO_ATAPI:
+            status = CdAudioAtapiDeviceControl( DeviceObject, Irp );
+            break;
+
+        case CDAUDIO_HPCDR:
+            status = CdAudioHPCdrDeviceControl( DeviceObject, Irp );
             break;
 
         default:
@@ -1457,17 +1695,18 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    IO_STATUS_BLOCK ioStatus;
-    PIRP irp;
+    PDEVICE_EXTENSION  deviceExtension = DeviceObject->DeviceExtension;
+    UCHAR              retryCount = MAXIMUM_RETRIES;
+    IO_STATUS_BLOCK    ioStatus;
+    PIRP               irp;
     PIO_STACK_LOCATION irpStack;
-    KEVENT event;
-    PUCHAR senseInfoBuffer;
-    LARGE_INTEGER largeInt = RtlConvertUlongToLargeInteger(0);
-    UCHAR    retryCount = MAXIMUM_RETRIES;
-    NTSTATUS status;
-    BOOLEAN  retry;
+    KEVENT             event;
+    PUCHAR             senseInfoBuffer;
+    LARGE_INTEGER      largeInt;
+    NTSTATUS           status;
+    BOOLEAN            retry;
 
+    largeInt.QuadPart = 0;
     //
     // Write length to SRB.
     //
@@ -1485,7 +1724,7 @@ Return Value:
     Srb->Function = SRB_FUNCTION_EXECUTE_SCSI;
 
     //
-    // BUGBUG:  This is a violation of the SCSI spec but it is required for
+    // This is a violation of the SCSI spec but it is required for
     // some targets.
     //
 
@@ -2406,7 +2645,7 @@ NECSeek:
                 // Delay for .5 seconds.
                 //
 
-                delay = LiFromLong( - 10 * 1000 * 100 * 5 );
+                delay.QuadPart = - 10 * 1000 * 100 * 5;
 
                 //
                 // Stall for a while to let the controller spinup.
@@ -2565,6 +2804,7 @@ Return Value:
     PCDROM_TOC         cdaudioDataOut  = Irp->AssociatedIrp.SystemBuffer;
     SCSI_REQUEST_BLOCK srb;
     PPNR_CDB           cdb = (PPNR_CDB)srb.Cdb;
+    PCDB               scsiCdb = (PCDB) srb.Cdb;
     NTSTATUS           status;
     ULONG              i,retry;
     PUCHAR             Toc;
@@ -2612,10 +2852,6 @@ PioneerRestart:
 
         }
 
-        //
-        // Set up defaults
-        //
-
         RtlZeroMemory( Toc, CDROM_TOC_SIZE );
 
         //
@@ -2623,6 +2859,12 @@ PioneerRestart:
         // necessary since we don't know which is the
         // currently loaded disc.
         //
+
+        if (deviceExtension->Active == CDAUDIO_PIONEER) {
+            cdb->PNR_START_STOP.Immediate     = 1;
+        } else {
+            cdb->PNR_START_STOP.Immediate     = 0;
+        }
 
         cdb->PNR_START_STOP.OperationCode = SCSIOP_START_STOP_UNIT;
         cdb->PNR_START_STOP.Start         = 1;
@@ -2636,13 +2878,12 @@ PioneerRestart:
                                     );
 
         if (!NT_SUCCESS(status)) {
-
             CdDump(( 1,
                 "CdAudioPioneerDeviceControl: Start Unit failed (0x%lx)\n",
-                status ));
+                status));
+
             ExFreePool( Toc );
             goto SetStatusAndReturn;
-
         }
 
         //
@@ -3157,10 +3398,8 @@ PioneerRestart:
 
     case IOCTL_CDROM_EJECT_MEDIA:
 
-        CdDump(( 3,
-                     "CdAudioPioneerDeviceControl: IOCTL_CDROM_EJECT_MEDIA received.\n"
-                     ));
-
+        CdDump(( 3, "CdAudioPioneerDeviceControl: "
+                    "IOCTL_CDROM_EJECT_MEDIA received. "));
 
         deviceExtension->PlayActive = FALSE;
 
@@ -3168,15 +3407,30 @@ PioneerRestart:
         // Build cdb to eject cartridge
         //
 
-        srb.CdbLength            = 10;
-        srb.TimeOutValue         = AUDIO_TIMEOUT;
-        cdb->PNR_EJECT.OperationCode = PIONEER_EJECT_CODE;
+        if (deviceExtension->Active == CDAUDIO_PIONEER) {
+            srb.CdbLength            = 10;
+            srb.TimeOutValue         = AUDIO_TIMEOUT;
+            cdb->PNR_EJECT.OperationCode = PIONEER_EJECT_CODE;
+            cdb->PNR_EJECT.Immediate     = 1;
+        } else {
+            srb.CdbLength = 6;
+
+            scsiCdb->START_STOP.OperationCode = SCSIOP_START_STOP_UNIT;
+            scsiCdb->START_STOP.LoadEject = 1;
+            scsiCdb->START_STOP.Start = 0;
+        }
+
+
         status = ScsiClassSendSrbSynchronous( deviceExtension->DeviceObject,
                                      &srb,
                                      NULL,
                                      0,
                                      FALSE
                                     );
+        CdDump(( 1, "CdAudioPioneerDeviceControl: "
+                    "IOCTL_CDROM_EJECT_MEDIA returned %lx.\n",
+                 status
+              ));
         break;
 
     case IOCTL_CDROM_GET_CONTROL:
@@ -4156,7 +4410,11 @@ HitachiRestart:
         // Fill in CDB
         //
 
-        cdb->READ_DISC_INFO.OperationCode       = HITACHI_READ_TOC_CODE;
+        if (deviceExtension->Active == CDAUDIO_FUJITSU) {
+            cdb->READ_DISC_INFO.OperationCode = FUJITSU_READ_TOC_CODE;
+        } else {
+            cdb->READ_DISC_INFO.OperationCode = HITACHI_READ_TOC_CODE;
+        }
         cdb->READ_DISC_INFO.AllocationLength[0] = CDROM_TOC_SIZE >> 8;
         cdb->READ_DISC_INFO.AllocationLength[1] = CDROM_TOC_SIZE & 0xFF;
         srb.TimeOutValue                        = AUDIO_TIMEOUT;
@@ -4187,66 +4445,129 @@ HitachiRestart:
             status = STATUS_SUCCESS;
 
         //
-        // Translate data into our format
+        // added for cdrom101 and 102 to correspondence
         //
 
-        bytesTransfered =
-            currentIrpStack->Parameters.Read.Length > sizeof(CDROM_TOC) ?
-            sizeof(CDROM_TOC) : currentIrpStack->Parameters.Read.Length;
-        Irp->IoStatus.Information  = bytesTransfered;
-        cdaudioDataOut->Length[0]  = (UCHAR)(bytesTransfered >> 8);
-        cdaudioDataOut->Length[1]  = (UCHAR)(bytesTransfered & 0xFF);
-        cdaudioDataOut->FirstTrack = Toc[2];
-        cdaudioDataOut->LastTrack  = Toc[3];
-
-        for( i=0;
-             i<=( (ULONG)cdaudioDataOut->LastTrack -
-                  (ULONG)cdaudioDataOut->FirstTrack   );
-             i++
-            ) {
+        if( deviceExtension->Active == CDAUDIO_HITACHI ) {
 
             //
-            // Grab Information for each track
+            // Translate data into our format
+            //
+
+            bytesTransfered =
+                currentIrpStack->Parameters.Read.Length > sizeof(CDROM_TOC) ?
+                sizeof(CDROM_TOC) : currentIrpStack->Parameters.Read.Length;
+            Irp->IoStatus.Information  = bytesTransfered;
+            cdaudioDataOut->Length[0]  = (UCHAR)(bytesTransfered >> 8);
+            cdaudioDataOut->Length[1]  = (UCHAR)(bytesTransfered & 0xFF);
+            cdaudioDataOut->FirstTrack = Toc[2];
+            cdaudioDataOut->LastTrack  = Toc[3];
+
+            for( i=0;
+                 i<=( (ULONG)cdaudioDataOut->LastTrack -
+                      (ULONG)cdaudioDataOut->FirstTrack   );
+                 i++
+                ) {
+
+                //
+                // Grab Information for each track
+                //
+
+                cdaudioDataOut->TrackData[i].Reserved    = 0;
+                cdaudioDataOut->TrackData[i].Control     =
+                    ((Toc[(i*4)+8] & 0x0F) << 4) | (Toc[(i*4)+8] >> 4);
+                cdaudioDataOut->TrackData[i].TrackNumber =
+                    (UCHAR)((i + cdaudioDataOut->FirstTrack));
+
+                cdaudioDataOut->TrackData[i].Reserved1 =  0;
+                cdaudioDataOut->TrackData[i].Address[0] = 0;
+                cdaudioDataOut->TrackData[i].Address[1] = Toc[(i*4)+9];
+                cdaudioDataOut->TrackData[i].Address[2] = Toc[(i*4)+10];
+                cdaudioDataOut->TrackData[i].Address[3] = Toc[(i*4)+11];
+
+            }
+
+            //
+            // Fake "lead out track" info
             //
 
             cdaudioDataOut->TrackData[i].Reserved    = 0;
-            cdaudioDataOut->TrackData[i].Control     =
-                ((Toc[(i*4)+8] & 0x0F) << 4) | (Toc[(i*4)+8] >> 4);
-            cdaudioDataOut->TrackData[i].TrackNumber =
-                (UCHAR)((i + cdaudioDataOut->FirstTrack));
+            cdaudioDataOut->TrackData[i].Control     = 0x10;
+            cdaudioDataOut->TrackData[i].TrackNumber = 0xaa;
+            cdaudioDataOut->TrackData[i].Reserved1   = 0;
+            cdaudioDataOut->TrackData[i].Address[0]  = 0;
+            cdaudioDataOut->TrackData[i].Address[1]  = Toc[5];
+            cdaudioDataOut->TrackData[i].Address[2]  = Toc[6];
+            cdaudioDataOut->TrackData[i].Address[3]  = Toc[7];
 
-            cdaudioDataOut->TrackData[i].Reserved1 =  0;
-            cdaudioDataOut->TrackData[i].Address[0] = 0;
-            cdaudioDataOut->TrackData[i].Address[1] = Toc[(i*4)+9];
-            cdaudioDataOut->TrackData[i].Address[2] = Toc[(i*4)+10];
-            cdaudioDataOut->TrackData[i].Address[3] = Toc[(i*4)+11];
+            //
+            // Clear out device extension data
+            //
+
+            deviceExtension->Paused = CDAUDIO_NOT_PAUSED;
+            deviceExtension->PausedM = 0;
+            deviceExtension->PausedS = 0;
+            deviceExtension->PausedF = 0;
+            deviceExtension->LastEndM = 0;
+            deviceExtension->LastEndS = 0;
+            deviceExtension->LastEndF = 0;
+        } else {
+
+            //
+            // added for cdrom101 and 102 to correspondence
+            //
+
+            bytesTransfered =
+                currentIrpStack->Parameters.Read.Length > sizeof(CDROM_TOC) ?
+                sizeof(CDROM_TOC) : currentIrpStack->Parameters.Read.Length;
+
+            Irp->IoStatus.Information  = bytesTransfered;
+            cdaudioDataOut->Length[0]  = (UCHAR)(bytesTransfered >> 8);
+            cdaudioDataOut->Length[1]  = (UCHAR)(bytesTransfered & 0xFF);
+            cdaudioDataOut->FirstTrack = Toc[1];
+            cdaudioDataOut->LastTrack  = Toc[2];
+
+            for( i=0 ;i<=( (ULONG)cdaudioDataOut->LastTrack -
+                      (ULONG)cdaudioDataOut->FirstTrack  ); i++ ) {
+
+                //
+                // Grab Information for each track
+                //
+
+                cdaudioDataOut->TrackData[i].Reserved    = 0;
+
+                if(Toc[(i*3)+6] & 0x80)
+                    cdaudioDataOut->TrackData[i].Control     = 0x04;
+                 else
+                    cdaudioDataOut->TrackData[i].Control     = 0;
+
+                cdaudioDataOut->TrackData[i].Adr     = 0;
+
+                cdaudioDataOut->TrackData[i].TrackNumber =
+                    (UCHAR)((i + cdaudioDataOut->FirstTrack));
+
+                cdaudioDataOut->TrackData[i].Reserved1 =  0;
+                cdaudioDataOut->TrackData[i].Address[0] = 0;
+                cdaudioDataOut->TrackData[i].Address[1] = Toc[(i*3)+6] & 0x7f;
+                cdaudioDataOut->TrackData[i].Address[2] = Toc[(i*3)+7];
+                cdaudioDataOut->TrackData[i].Address[3] = Toc[(i*3)+8];
+
+            }
+
+            //
+            // Fake "lead out track" info
+            //
+
+            cdaudioDataOut->TrackData[i].Reserved    = 0;
+            cdaudioDataOut->TrackData[i].Control     = 0x10;
+            cdaudioDataOut->TrackData[i].TrackNumber = 0xaa;
+            cdaudioDataOut->TrackData[i].Reserved1   = 0;
+            cdaudioDataOut->TrackData[i].Address[0]  = 0;
+            cdaudioDataOut->TrackData[i].Address[1]  = Toc[3];
+            cdaudioDataOut->TrackData[i].Address[2]  = Toc[4];
+            cdaudioDataOut->TrackData[i].Address[3]  = Toc[5];
 
         }
-
-        //
-        // Fake "lead out track" info
-        //
-
-        cdaudioDataOut->TrackData[i].Reserved    = 0;
-        cdaudioDataOut->TrackData[i].Control     = 0x10;
-        cdaudioDataOut->TrackData[i].TrackNumber = 0xaa;
-        cdaudioDataOut->TrackData[i].Reserved1   = 0;
-        cdaudioDataOut->TrackData[i].Address[0]  = 0;
-        cdaudioDataOut->TrackData[i].Address[1]  = Toc[5];
-        cdaudioDataOut->TrackData[i].Address[2]  = Toc[6];
-        cdaudioDataOut->TrackData[i].Address[3]  = Toc[7];
-
-        //
-        // Clear out device extension data
-        //
-
-        deviceExtension->Paused = CDAUDIO_NOT_PAUSED;
-        deviceExtension->PausedM = 0;
-        deviceExtension->PausedS = 0;
-        deviceExtension->PausedF = 0;
-        deviceExtension->LastEndM = 0;
-        deviceExtension->LastEndS = 0;
-        deviceExtension->LastEndF = 0;
 
         //
         // Free storage now that we've stored it elsewhere
@@ -4542,6 +4863,8 @@ HitachiRestart:
         srb.CdbLength            = 12;
         srb.TimeOutValue         = AUDIO_TIMEOUT;
         cdb->AUDIO_STATUS.OperationCode = HITACHI_READ_SUB_Q_CHANNEL_CODE;
+
+Retry:
         status = ScsiClassSendSrbSynchronous( deviceExtension->DeviceObject,
                                      &srb,
                                      SubQPtr,
@@ -4549,6 +4872,18 @@ HitachiRestart:
                                      FALSE
                                     );
         if ((NT_SUCCESS(status)) || (status==STATUS_DATA_OVERRUN)) {
+
+            //
+            // While playing one track of Japanese music CDs on "CD player",
+            // track number is incremented unexpectedly.
+            // Some of SubQ data in Japanese music cd does not contain current position
+            // information. This is distinguished by lower 4 bits of SubQPtr[1]. If this
+            // data is needless, retry READ_SUB_Q_CHANNEL_CODE command until required
+            // information will be got.
+            //
+
+            if((SubQPtr[1] & 0x0F) != 1)
+                goto Retry;
 
             userPtr->Header.Reserved = 0;
             if (deviceExtension->Paused == CDAUDIO_PAUSED) {
@@ -5176,7 +5511,7 @@ Return Value:
 
         //
         // Use the data seek command to move the pickup
-        // BUGBUG: blithely assumes logical block size == 2048 bytes
+        // NOTE: This blithely assumes logical block size == 2048 bytes.
         //
 
         destblock = ((((ULONG)(inputBuffer->M) * 60)
@@ -6179,6 +6514,248 @@ CdAudioPan533DeviceControl(
 
 }
 
+
+NTSTATUS
+CdAudioAtapiDeviceControl(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    )
+
+{
+
+    NTSTATUS             status;
+    PCD_DEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+    PIO_STACK_LOCATION   currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
+    SCSI_REQUEST_BLOCK   srb;
+    PCDB12               cdb = (PCDB12)srb.Cdb;
+
+    CdDump ((3,"CdAudioAtapiDeviceControl: IoControl %x.\n",
+                currentIrpStack->Parameters.DeviceIoControl.IoControlCode));
+
+    //
+    // The Atapi devices supported only need remapping of IOCTL_CDROM_STOP_AUDIO
+    //
+
+    if (currentIrpStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_CDROM_STOP_AUDIO) {
+
+        deviceExtension->PlayActive = FALSE;
+
+        //
+        // Zero and fill in new Srb
+        //
+
+        RtlZeroMemory(&srb, sizeof(SCSI_REQUEST_BLOCK));
+
+        //
+        // Issue the Atapi STOP_PLAY command.
+        //
+
+        cdb->STOP_PLAY.OperationCode = 0x4E;
+
+        srb.CdbLength = 12;
+
+        //
+        // Set timeout value.
+        //
+
+        srb.TimeOutValue = AUDIO_TIMEOUT;
+
+        status = ScsiClassSendSrbSynchronous(DeviceObject,
+                      &srb,
+                      NULL,
+                      0,
+                      FALSE);
+
+        if (!NT_SUCCESS(status)) {
+
+            CdDump(( 1,
+                "CdAudioAtapiDeviceControl: STOP_AUDIO error (0x%08lX)\n",
+                 status ));
+
+            Irp->IoStatus.Status = status;
+            IoCompleteRequest(Irp, IO_NO_INCREMENT);
+            return status;
+
+        }
+
+    } else {
+
+        return CdAudioSendToNextDriver( DeviceObject, Irp );
+
+    }
+
+    Irp->IoStatus.Status = status;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+
+}
+
+VOID
+HpCdrProcessLastSession(
+    IN PCDROM_TOC Toc
+    )
+
+/*++
+
+Routine Description:
+
+    This routine fixes up the multi session table of contents when the
+    session data is returned for HP CDR 4020i drives.
+
+Arguments:
+
+    Toc - the table of contents buffer returned from the drive.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    ULONG index;
+    PUCHAR cp;
+
+    index = Toc->FirstTrack;
+
+    if (index) {
+        index--;
+
+        //
+        // Fix up the TOC information from the HP method to how it is
+        // interpreted by the file systems.
+        //
+
+        Toc->FirstTrack = Toc->TrackData[0].Reserved;
+        Toc->LastTrack = Toc->TrackData[index].Reserved;
+        Toc->TrackData[0] = Toc->TrackData[index];
+    } else {
+            Toc->FirstTrack = Toc->LastTrack = 0;
+    }
+
+    DebugPrint((2, "HP TOC data for last session\n"));
+    for (cp = (PUCHAR) Toc, index = 0; index < 12; index++, cp++) {
+        DebugPrint((2, "%2x ", *cp));
+    }
+    DebugPrint((2, "\n"));
+}
+
+
+NTSTATUS
+HPCdrCompletion(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Context
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when the I/O request has completed.
+
+Arguments:
+
+    DeviceObject - SimBad device object.
+    Irp          - Completed request.
+    Context      - not used.  Set up to also be a pointer to the DeviceObject.
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+    UNREFERENCED_PARAMETER(Context);
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    if (Irp->PendingReturned) {
+
+        IoMarkIrpPending( Irp );
+
+    }
+
+    if (NT_SUCCESS(Irp->IoStatus.Status)) {
+        HpCdrProcessLastSession((PCDROM_TOC)Irp->AssociatedIrp.SystemBuffer);
+    }
+    return Irp->IoStatus.Status;
+}
+
+
+NTSTATUS
+CdAudioHPCdrDeviceControl(
+    PDEVICE_OBJECT DeviceObject,
+    PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called by CdAudioDeviceControl to handle
+    audio IOCTLs sent to the HPCdr device - this specifically handles
+    session data for multi session support.
+
+Arguments:
+
+    DeviceObject
+    Irp
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+    PIO_STACK_LOCATION   currentIrpStack = IoGetCurrentIrpStackLocation(Irp);
+    PIO_STACK_LOCATION   nextIrpStack    = IoGetNextIrpStackLocation(Irp);
+    PCD_DEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+
+    //
+    // Is this a GET_LAST_SESSION request
+    //
+
+    if (currentIrpStack->Parameters.DeviceIoControl.IoControlCode == IOCTL_CDROM_GET_LAST_SESSION) {
+
+        //
+        // Copy stack parameters to next stack.
+        //
+
+        RtlMoveMemory(nextIrpStack,
+                      currentIrpStack,
+                      sizeof(IO_STACK_LOCATION));
+
+        //
+        // Set IRP so IoComplete calls our completion routine.
+        //
+
+        IoSetCompletionRoutine(Irp,
+                               HPCdrCompletion,
+                               deviceExtension,
+                               TRUE,
+                               TRUE,
+                               TRUE);
+
+        //
+        // Send this to next driver layer and process on completion.
+        //
+
+        return IoCallDriver(deviceExtension->TargetDeviceObject, Irp);
+
+    } else {
+
+        return CdAudioSendToNextDriver( DeviceObject, Irp );
+
+    }
+
+    //
+    // Cannot get here
+    //
+
+    return STATUS_UNSUCCESSFUL;
+}
 
 #if DBG
 VOID
@@ -6222,4 +6799,3 @@ Return Value:
 } // end CdAudioDebugPrint
 
 #endif // DBG
-

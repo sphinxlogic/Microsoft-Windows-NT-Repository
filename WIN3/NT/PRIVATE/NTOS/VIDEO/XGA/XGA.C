@@ -1000,6 +1000,18 @@ Return Value:
                    hwDeviceExtension->FrameBufferLength >> 10));
 
     //
+    // hwDeviceExtension->FrameBufferLength contains the amount of memory
+    // on the device.  Lets write this information into the registry.
+    //
+    // This value is in bytes, which is what I believe we want.
+    //
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &hwDeviceExtension->FrameBufferLength,
+                                   sizeof(ULONG));
+
+    //
     // For now, we only support color devices
     //
 

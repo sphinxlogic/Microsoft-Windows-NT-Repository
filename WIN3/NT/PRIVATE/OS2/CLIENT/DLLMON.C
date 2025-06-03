@@ -132,7 +132,7 @@ DosMonOpen(IN   PSZ     pDevName,
     {   Od2ProbeForWrite(phMon, sizeof(USHORT), 1);
         for ( Index = 0 ; MonDevTable[Index].DeviceName ; Index++ )
         {
-            if (!strnicmp(MonDevTable[Index].DeviceName,
+            if (!_strnicmp(MonDevTable[Index].DeviceName,
                           pDevName,
                           MonDevTable[Index].NameLength + 1))
             {

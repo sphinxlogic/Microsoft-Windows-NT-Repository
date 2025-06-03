@@ -120,98 +120,6 @@ hwndfound:
 }
 
 
-/* Returns the number of drives in AX */
-
-#if 0
-INT APIENTRY SetCurrentDrive(INT Drive)
-{
-#ifdef ORGCODE
-    _asm {
-        mov     dx,Drive
-        mov     ah,0Eh
-        int     21h
-        sub     ah,ah       ; Zero out AH
-    }
-#else
-    UNREFERENCED_PARAMETER(Drive);
-    return 0;
-#endif
-}
-
-INT APIENTRY SetCurrentDirectory(LPSTR lpDirName)
-{
-    if (lpDirName[1] == ':') {
-        SetCurrentDrive(DRIVEID(lpDirName));
-        lpDirName += 2; // get rid of X:
-    }
-
-    _asm {
-        push    ds
-        lds     dx,lpDirName    ; DS:DI = lpDirName
-        mov     ah,3Bh
-        int     21h
-        pop     ds
-        jc      SCDExit     ; Skip on error
-        xor     ax,ax       ; Return FALSE if successful
-SCDExit:
-    }
-
-    if (0) return 0;    // remove warning, optimized out
-}
-#endif
-
-
-#if 0
-int FAR PASCAL GetCurrentDrive()
-{
-    _asm {
-        mov     ah,19h
-        int     21h
-        sub     ah,ah       ; Zero out AH
-    }
-    if (0) return 0;    // remove warning, optimized out
-}
-
-
-/*
- *
- * in:
- *     iDrive   0 = dir for current drive
- *      1 = A:
- *      2 = B:
- * out:
- *
- *     lpDest   gets fully qualified path
- *
- */
-
-int FAR PASCAL GetCurrentDirectory(int iDrive, LPSTR lpDest)
-{
-    if (!iDrive)
-        iDrive = GetCurrentDrive() + 1;
-
-    *lpDest++ = (char)(iDrive + '@');
-    *lpDest++ = ':';
-    *lpDest++ = '\\';
-    *lpDest = 0;
-
-    _asm {
-        push    ds
-        lds     si,lpDest
-        mov     dx,iDrive
-        mov     ah,47h
-        int     21h
-        pop     ds          ; Restore DS
-        jc      GCDExit     ; Skip if error
-        xor     ax,ax       ; Return FALSE if no error
-GCDExit:
-    }
-    if (0) return 0;    // remove warning, optimized out
-}
-#endif
-
-
-
 // avoid confusion in DOSs upper case mapping by converting to
 // upper case before passing down to dos
 
@@ -322,7 +230,7 @@ HWND  APIENTRY GetRealParent(HWND hwnd)
 
 VOID  APIENTRY WFHelp(HWND hwnd)
 {
-        if (!WinHelp(hwnd, szWinfileHelp, HELP_CONTEXT, dwContext)) {
+        if (!WinHelp(hwnd, szWinObjHelp, HELP_CONTEXT, dwContext)) {
                 MyMessageBox(hwnd, IDS_WINFILE, IDS_WINHELPERR, MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL);
         }
 
@@ -399,7 +307,7 @@ WORD  APIENTRY WFGetConnection(LPSTR lpDev, LPSTR lpPath, BOOL fClosed)
 {
     DWORD cb;
     UINT err;
-    UINT caps;
+    UINT caps;
 
     cb = 64;
 
@@ -709,7 +617,7 @@ VOID  APIENTRY GetVolShare(WORD wDrive, LPSTR szVolShare)
 
     szVolShare[0] = TEXT('\0');
 
-#ifdef OLD
+#ifdef OLD
     if (!IsCDRomDrive(wDrive))
       {
 
@@ -722,9 +630,9 @@ VOID  APIENTRY GetVolShare(WORD wDrive, LPSTR szVolShare)
       }
     else
         lstrcpy(szVolShare,"CD-ROM");
-#else
-    lstrcpy(szVolShare, "Objects");
-#endif
+#else
+    lstrcpy(szVolShare, "Objects");
+#endif
 }
 
 

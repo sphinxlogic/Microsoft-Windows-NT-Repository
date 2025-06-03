@@ -19,6 +19,8 @@ Revision History:
 --*/
 
 #include "ntos.h"
+#include "seopaque.h"
+#include <zwapi.h>
 
 #ifdef POOL_TAGGING
 #define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'  bO')
@@ -69,49 +71,38 @@ LIST_ENTRY ObpRemoveObjectQueue;
 VOID
 FASTCALL
 ObpIncrPointerCount(
-    IN PNONPAGED_OBJECT_HEADER NonPagedObjectHeader
+    IN POBJECT_HEADER ObjectHeader
     );
 
 VOID
 FASTCALL
 ObpDecrPointerCount(
-    IN PNONPAGED_OBJECT_HEADER NonPagedObjectHeader
+    IN POBJECT_HEADER ObjectHeader
     );
 
 BOOLEAN
 FASTCALL
 ObpDecrPointerCountWithResult(
-    IN PNONPAGED_OBJECT_HEADER NonPagedObjectHeader
+    IN POBJECT_HEADER ObjectHeader
     );
 
 VOID
 FASTCALL
 ObpIncrHandleCount(
-    IN PNONPAGED_OBJECT_HEADER NonPagedObjectHeader
+    IN POBJECT_HEADER ObjectHeader
     );
 
 BOOLEAN
 FASTCALL
 ObpDecrHandleCount(
-    IN PNONPAGED_OBJECT_HEADER NonPagedObjectHeader
+    IN POBJECT_HEADER ObjectHeader
     );
 
 #else
 
-#if defined(_X86_)
-
-#define InterlockedIncrement Exfi386InterlockedIncrementLong
-#define InterlockedDecrement Exfi386InterlockedDecrementLong
-
-#define ObpDecrPointerCountWithResult( np ) (InterlockedDecrement( &np->PointerCount ) == RESULT_ZERO)
-#define ObpDecrHandleCount( np ) (InterlockedDecrement( &np->HandleCount ) == RESULT_ZERO)
-
-#else
 
 #define ObpDecrPointerCountWithResult( np ) (InterlockedDecrement( &np->PointerCount ) == 0)
 #define ObpDecrHandleCount( np ) (InterlockedDecrement( &np->HandleCount ) == 0)
-
-#endif
 
 #define ObpIncrPointerCount( np ) InterlockedIncrement( &np->PointerCount )
 #define ObpDecrPointerCount( np ) InterlockedDecrement( &np->PointerCount )
@@ -170,43 +161,6 @@ ObpDecrHandleCount(
     KeLeaveCriticalRegion();                       \
     ObpValidateIrql("ObpLeaveRootDirectoryMutex")
 
-//
-// This zone will be used to contain the NONPAGED_OBJECT_HEADER structures
-// pointed to by object headers.  The zone will be in nonpaged pool and
-// growable.
-//
-
-ZONE_HEADER ObpZone;
-KSPIN_LOCK ObpZoneLock;
-
-#define OBP_LARGE_ZONE_SEGMENT_SIZE (8192)
-#define OBP_MEDIUM_ZONE_SEGMENT_SIZE (2048-8)
-#define OBP_SMALL_ZONE_SEGMENT_SIZE (1024-8)
-ULONG ObpZoneSegmentSize;
-
-//
-// Object handles consist of four fields:
-//
-//  - handle table index (OBJ_HANDLE_INDEX)       (i=bits 2-31)  30 bits
-//  - user specified bit(s) (OBJ_HANDLE_TAGBITS)  (t=bits 0-1)    2 bits
-//                                                Total =        32 bits
-//   3         2         1
-//  10987654321098765432109876543210
-//
-//  nnnnnnnnnniiiiiiiiiiiiiiiiiiiitt
-//
-
-#define OBJ_HANDLE_HANDLE_INDEX_BIT 2
-#define OBJ_HANDLE_HANDLE_INDEX     0xFFFFFFFCL
-
-#define MAKE_OBJECT_HANDLE( handle_index ) (HANDLE)( \
-        ((ULONG)(handle_index) << OBJ_HANDLE_HANDLE_INDEX_BIT) \
-        )
-
-#define OBJ_HANDLE_TO_HANDLE_INDEX( h ) ( \
-        (((ULONG)(h) & OBJ_HANDLE_HANDLE_INDEX) >> OBJ_HANDLE_HANDLE_INDEX_BIT) \
-        )
-
 #define ObpGetObjectTable() (PsGetCurrentProcess()->ObjectTable)
 
 //
@@ -223,7 +177,6 @@ ULONG ObpZoneSegmentSize;
 // so that various macros can directly access header fields.
 //
 
-struct _NONPAGED_OBJECT_HEADER;
 struct _OBJECT_HEADER;
 struct _OBJECT_BODY_HEADER;
 
@@ -240,59 +193,76 @@ struct _OBJECT_BODY_HEADER;
 POBJECT_TYPE ObpObjectTypes[ OBP_MAX_DEFINED_OBJECT_TYPES ];
 
 //
-// Object Directory Entry Structure
-//
-typedef struct _OBJECT_DIRECTORY_ENTRY {
-    struct _OBJECT_DIRECTORY_ENTRY *ChainLink;
-    PVOID Object;
-} OBJECT_DIRECTORY_ENTRY, *POBJECT_DIRECTORY_ENTRY;
-
-
-//
-// Symbolic Link Object Structure
-//
-
-typedef struct _OBJECT_SYMBOLIC_LINK {
-    UNICODE_STRING Link;
-    LARGE_INTEGER CreationTime;
-    UCHAR LinkName[1];
-} OBJECT_SYMBOLIC_LINK, *POBJECT_SYMBOLIC_LINK;
-
-
-//
 // Object Table Entry Structure
 //
 
 typedef struct _OBJECT_TABLE_ENTRY {
-    ULONG NonPagedObjectHeader;
-    ACCESS_MASK GrantedAccess;
+    union {
+        struct _OBJECT_HEADER *ObjectHeader;
+        ULONG Attributes;
+    };
+    union {
+        ACCESS_MASK GrantedAccess;
+        struct {
+            USHORT GrantedAccessIndex;
+            USHORT CreatorBackTraceIndex;
+        };
+    };
 } OBJECT_TABLE_ENTRY, *POBJECT_TABLE_ENTRY;
 
-#define LOG_OBJECT_TABLE_ENTRY_SIZE 1
+
+#if i386 && !FPO
+ACCESS_MASK
+ObpTranslateGrantedAccessIndex(
+    USHORT GrantedAccessIndex
+    );
+
+USHORT
+ObpComputeGrantedAccessIndex(
+    ACCESS_MASK GrantedAccess
+    );
+
+USHORT ObpCurCachedGrantedAccessIndex;
+USHORT ObpMaxCachedGrantedAccessIndex;
+PACCESS_MASK ObpCachedGrantedAccesses;
+#endif // i386 && !FPO
 
 //
-// When a handle to an object with security is created, audit routines will
-// be called to perform any auditing that may be required.  The audit
-// routines will return a boolean indicating whether or not audits should be
-// generated on close.  The value of this boolean will be stored in the
-// lowest bit of the Object field of the OBJECT_TABLE_ENTRY structure.
+// The three low order bits of the object table entry are used for handle
+// attributes.
+//
+// Define the bit mask for the protect from close handle attribute.
 //
 
-#define OBJ_AUDIT_OBJECT_CLOSE  0x00000004L
+#define OBJ_PROTECT_CLOSE 0x1
 
 //
-// The following two bits are available for handle attributes in the
-// Object field of an ObjectTableEntry.  The lowest order bit (0x1)
-// is reserved for use by the Handle Table package in EX.
+// The bit mask for inherit MUST be 0x2.
 //
 
-#define OBJ_HANDLE_ATTRIBUTES   0x00000006L
+#if (OBJ_INHERIT != 0x2)
 
-#if (OBJ_HANDLE_ATTRIBUTES ^ OBJ_INHERIT ^ OBJ_AUDIT_OBJECT_CLOSE)
-
-#error Handle attributes bits conflict
+#error Object inheritance bit definition conflicts
 
 #endif
+
+//
+// Define the bit mask for the generate audit on close attribute.
+//
+// When a handle to an object with security is created, audit routines will
+// be called to perform any auditing that may be required. The audit routines
+// will return a boolean indicating whether or not audits should be generated
+// on close.
+//
+
+#define OBJ_AUDIT_OBJECT_CLOSE 0x00000004L
+
+//
+// The following three bits are available for handle attributes in the
+// Object field of an ObjectTableEntry.
+//
+
+#define OBJ_HANDLE_ATTRIBUTES (OBJ_PROTECT_CLOSE | OBJ_INHERIT | OBJ_AUDIT_OBJECT_CLOSE)
 
 //
 // Security Descriptor Cache
@@ -374,34 +344,128 @@ POBJECT_TYPE ObpDirectoryObjectType;
 POBJECT_TYPE ObpSymbolicLinkObjectType;
 POBJECT_DIRECTORY ObpRootDirectoryObject;
 POBJECT_DIRECTORY ObpTypeDirectoryObject;
+POBJECT_DIRECTORY ObpDosDevicesDirectoryObject;
+ULONGLONG ObpDosDevicesShortNamePrefix;
+UNICODE_STRING ObpDosDevicesShortName;
 ERESOURCE ObpRootDirectoryMutex;
 ERESOURCE SecurityDescriptorCacheLock;
 
+//
+// Define date structures for the object creation information region.
+//
+
+NPAGED_LOOKASIDE_LIST ObpCreateInfoLookasideList;
+
+//
+// Define data structures for the object name buffer lookaside list.
+//
+
+#define OBJECT_NAME_BUFFER_SIZE 248
+
+NPAGED_LOOKASIDE_LIST ObpNameBufferLookasideList;
 
 //
 // Internal Entry Points defined in obcreate.c
 //
 
 NTSTATUS
-ObpCaptureObjectCreateInfo(
+ObpCaptureObjectCreateInformation(
     IN POBJECT_TYPE ObjectType OPTIONAL,
     IN KPROCESSOR_MODE ProbeMode,
     IN POBJECT_ATTRIBUTES ObjectAttributes,
     OUT PUNICODE_STRING CapturedObjectName,
-    OUT POBJECT_CREATE_INFORMATION *ReturnedObjectCreateInfo
+    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo,
+    IN LOGICAL UseLookaside
     );
+
+#define ObpFreeObjectCreateInformation(ObjectCreateInfo)                    \
+    ObpReleaseObjectCreateInformation((ObjectCreateInfo));                  \
+    ObpFreeObjectCreateInfoBuffer((ObjectCreateInfo))
+
+#define ObpReleaseObjectCreateInformation(ObjectCreateInfo) {               \
+    if ((ObjectCreateInfo)->SecurityDescriptor != NULL) {                   \
+        SeReleaseSecurityDescriptor((ObjectCreateInfo)->SecurityDescriptor, \
+                                    (ObjectCreateInfo)->ProbeMode,          \
+                                    TRUE);                                  \
+        (ObjectCreateInfo)->SecurityDescriptor = NULL;                      \
+    }                                                                       \
+}
 
 NTSTATUS
 ObpCaptureObjectName(
     IN KPROCESSOR_MODE ProbeMode,
     IN PUNICODE_STRING ObjectName,
-    OUT PUNICODE_STRING CapturedObjectName
+    IN OUT PUNICODE_STRING CapturedObjectName,
+    IN LOGICAL UseLookaside
+    );
+
+PWCHAR
+ObpAllocateObjectNameBuffer(
+    IN ULONG Length,
+    IN LOGICAL UseLookaside,
+    IN OUT PUNICODE_STRING ObjectName
     );
 
 VOID
-ObpFreeObjectCreateInfo(
-    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo
+FASTCALL
+ObpFreeObjectNameBuffer(
+    IN PUNICODE_STRING ObjectName
     );
+
+/*++
+
+POBJECT_CREATE_INFORMATION
+ObpAllocateObjectCreateInfoBuffer(
+    VOID
+    )
+
+Routine Description:
+
+    This function allocates a created information buffer.
+
+    N.B. This function is nonpageable.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    If the allocation is successful, then the address of the allocated
+    create information buffer is is returned as the function value.
+    Otherwise, a value of NULL is returned.
+
+--*/
+
+#define ObpAllocateObjectCreateInfoBuffer()             \
+    (POBJECT_CREATE_INFORMATION)ExAllocateFromNPagedLookasideList(&ObpCreateInfoLookasideList)
+
+/*++
+
+VOID
+FASTCALL
+ObpFreeObjectCreateInfoBuffer(
+    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo
+    )
+
+Routine Description:
+
+    This function frees a create information buffer.
+
+    N.B. This function is nonpageable.
+
+Arguments:
+
+    ObjectCreateInfo - Supplies a pointer to a create information buffer.
+
+Return Value:
+
+    None.
+
+--*/
+
+#define ObpFreeObjectCreateInfoBuffer(ObjectCreateInfo) \
+    ExFreeToNPagedLookasideList(&ObpCreateInfoLookasideList, ObjectCreateInfo)
 
 NTSTATUS
 ObpAllocateObject(
@@ -415,15 +479,10 @@ ObpAllocateObject(
 
 
 VOID
+FASTCALL
 ObpFreeObject(
     IN PVOID Object
     );
-
-VOID
-ObpDeleteType(
-    IN PVOID Object
-    );
-
 
 //
 // Internal Entry Points defined in oblink.c
@@ -441,6 +500,11 @@ ObpParseSymbolicLink(
     IN OUT PVOID Context OPTIONAL,
     IN PSECURITY_QUALITY_OF_SERVICE SecurityQos OPTIONAL,
     OUT PVOID *Object
+    );
+
+NTSTATUS
+ObpDeleteSymbolicLink(
+    IN PVOID Object
     );
 
 //
@@ -534,10 +598,9 @@ ObpIncrementHandleCount(
     );
 
 
-ULONG
+VOID
 ObpDecrementHandleCount(
     PEPROCESS Process,
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader,
     POBJECT_HEADER ObjectHeader,
     POBJECT_TYPE ObjectType,
     ACCESS_MASK GrantedAccess
@@ -554,16 +617,6 @@ ObpCreateHandle(
     IN BOOLEAN DirectoryLocked,
     IN KPROCESSOR_MODE AccessMode,
     OUT PVOID *ReferencedNewObject OPTIONAL,
-    OUT PHANDLE Handle
-    );
-
-NTSTATUS
-ObpInsertUnnamedObject(
-    IN POBJECT_CREATE_INFORMATION ObjectCreateInfo,
-    IN PVOID Object,
-    IN ACCESS_MASK DesiredAccess,
-    IN ULONG ObjectPointerBias,
-    OUT PVOID *NewObject,
     OUT PHANDLE Handle
     );
 
@@ -622,6 +675,25 @@ ObpCheckPseudoHandleAccess(
     IN BOOLEAN TypeMutexLocked
     );
 
+
+BOOLEAN
+ObpCheckTraverseAccess(
+    IN PVOID DirectoryObject,
+    IN ACCESS_MASK TraverseAccess,
+    IN PACCESS_STATE AccessState OPTIONAL,
+    IN BOOLEAN TypeMutexLocked,
+    IN KPROCESSOR_MODE PreviousMode,
+    OUT PNTSTATUS AccessStatus
+    );
+
+BOOLEAN
+ObpCheckObjectReference(
+    IN PVOID Object,
+    IN OUT PACCESS_STATE AccessState,
+    IN BOOLEAN TypeMutexLocked,
+    IN KPROCESSOR_MODE AccessMode,
+    OUT PNTSTATUS AccessStatus
+    );
 
 //
 // Internal entry points defined in obsdata.c

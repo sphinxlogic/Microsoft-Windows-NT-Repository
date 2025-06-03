@@ -12,4 +12,4 @@
 #define	RES_SYPL10_TRANS	7  
 
 #endif
-
+

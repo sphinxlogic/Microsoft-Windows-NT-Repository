@@ -19,31 +19,21 @@ Revision History:
 
 
 --*/
-#include <string.h>
-
-#ifdef NTENV
-extern "C" {
-#include <sysinc.h>
-#include <rpc.h>
-}
-#else
-#include <sysinc.h>
-#include <rpc.h>
-#endif
-
-
-#include <rpcdcep.h>
-#include <rpcndr.h>
-
-#include <epmap.h>
-#include <util.hxx>
-START_C_EXTERN
+#include <precomp.hxx>
 #include <epmp.h>
-END_C_EXTERN
+#include <epmap.h>
 #include <twrproto.h>
+#include <rpctran.h>
+
+extern RPC_STATUS __RPC_FAR
+MapFromNcaStatusCode (
+    IN unsigned long NcaStatus
+    );
 
 static ProtseqEndpointPair EpMapperTable[] =
+
                                   {
+#ifndef DOSWIN32RPC
                                      "ncacn_np", "\\pipe\\epmapper",
                                      "ncalrpc", "epmapper",
                                      "ncacn_ip_tcp", "135",
@@ -54,7 +44,23 @@ static ProtseqEndpointPair EpMapperTable[] =
                                      "ncacn_nb_tcp", "135",
                                      "ncacn_nb_ipx", "135",
                                      "ncacn_spx", "34280",
-                                     "ncadg_ipx", "34280"
+                                     "ncadg_ipx", "34280",
+                                     "ncacn_at_dsp", "Endpoint Mapper",
+                                     "ncacn_vns_spp", "385"
+#endif
+
+#ifdef DOSWIN32RPC
+                                     "ncalrpc", "epmapper",
+                                     "ncacn_np", "\\pipe\\epmapper",
+                                     "ncacn_nb_nb", "135",
+                                     "ncacn_spx", "34280",
+#ifdef WIN96
+                                     "ncadg_ipx", "34280",
+                                     "ncadg_ip_udp", "135",
+#endif // WIN96
+                                     "ncacn_ip_tcp", "135"
+
+#endif // DOSWIN32RPC
                                    };
 
 unsigned long PartialRetries=0;
@@ -68,28 +74,7 @@ typedef struct _EP_LOOKUP_DATA
     RPC_CHAR *  PAPI *  Endpoints;
 } EP_LOOKUP_DATA;
 
-#ifdef WIN32RPC
 
-UUID   MgmtIf = { 0xafa8bd80,0x7d8a,0x11c9,
-                    {0xbe,0xf4,0x08,0x00,0x2b,0x10,0x29,0x89} };
-UUID   NullUuid = { 0L, 0, 0, {0,0,0,0,0,0,0,0} };
-
-
-int
-IsMgmtIfUuid(
-   UUID PAPI * IfId
-   )
-{
-
-  if (RpcpMemoryCompare(IfId, &MgmtIf, sizeof(UUID)) == 0)
-      {
-      return 1;
-      }
-
-  return 0;
-}
-
-#endif
 
 
 RPC_STATUS RPC_ENTRY
@@ -100,6 +85,7 @@ EpResolveEndpoint (
     IN RPC_CHAR PAPI * RpcProtocolSequence,
     IN RPC_CHAR PAPI * NetworkAddress,
     IN OUT void PAPI * PAPI * EpLookupHandle,
+    IN unsigned Timeout,
     OUT RPC_CHAR * PAPI * Endpoint
     )
 /*++
@@ -163,19 +149,15 @@ Return Value:
             *EpLookupHandle;
     unsigned long RetryCount, i;
 
+    ASSERT(*Endpoint == 0);
+
 #ifdef NTENV
 
     UNICODE_STRING UnicodeStr;
 
-
-   if (  (IsMgmtIfUuid ((UUID PAPI * )&IfId->SyntaxGUID))
-         &&( (ObjectUuid == 0) ||
-             (RpcpMemoryCompare(ObjectUuid, &NullUuid, sizeof(UUID)) == 0) ) )
-      {
-      return(RPC_S_BINDING_INCOMPLETE);
-      }
-
 #endif
+
+
 
 
     // We have already sucked all of the endpoints from the endpoint mapper;
@@ -203,6 +185,7 @@ ReturnEndpointFromList:
             {
             return(RPC_S_OUT_OF_MEMORY);
             }
+
         return(RPC_S_OK);
         }
 
@@ -255,7 +238,7 @@ ReturnEndpointFromList:
 
 #endif // NTENV
 
-    RpcStatus = BindToEpMapper(&MapperHandle, AnsiNWAddr, AnsiProtseq);
+    RpcStatus = BindToEpMapper(&MapperHandle, AnsiNWAddr, AnsiProtseq, Timeout);
     if ( RpcStatus != RPC_S_OK )
         {
         MapperHandle = 0;
@@ -301,12 +284,11 @@ ReturnEndpointFromList:
               {
               ReallyTooBusy++;
               }
-              
+
            }
 
         if ( ErrorStatus != 0 )
             {
-
             // For DCE interop the endpoint mapper returns DCE errors on the
             // wire.  We need to map some of them to the MS RPC ones.
 
@@ -321,7 +303,7 @@ ReturnEndpointFromList:
                     break;
 
                 default :
-                    RpcStatus = EPT_S_CANT_PERFORM_OP;
+                    RpcStatus = MapFromNcaStatusCode(ErrorStatus);
                     break;
                 }
 
@@ -332,10 +314,15 @@ ReturnEndpointFromList:
 
         for (i = 0; i < Returned; i++)
             {
+            if (OutputTower[i] == 0)
+                {
+                return RPC_S_OUT_OF_MEMORY ;
+                }
+
             RpcStatus = TowerExplode(
-                                 OutputTower[i], 
-                                 NULL, 
-                                 NULL, 
+                                 OutputTower[i],
+                                 NULL,
+                                 NULL,
                                  NULL,
                                  (char PAPI * PAPI *) &EPoint,
                                  NULL
@@ -358,7 +345,7 @@ ReturnEndpointFromList:
               *Endpoint = DuplicateString(UnicodeStr.Buffer);
               RtlFreeUnicodeString(&UnicodeStr);
 
-#elif defined(WIN)
+#elif defined(WIN) || defined(DOSWIN32RPC) || defined(MAC)
 
               *Endpoint = DuplicateString(EPoint);
               I_RpcFree(EPoint);
@@ -375,10 +362,10 @@ ReturnEndpointFromList:
                  break;
                  }
 
-              EpLookupData->Endpoints[EpLookupData->NumberOfEndpoints] = 
+              EpLookupData->Endpoints[EpLookupData->NumberOfEndpoints] =
                                                                    *Endpoint;
               EpLookupData->NumberOfEndpoints += 1;
-              if ( EpLookupData->NumberOfEndpoints ==  
+              if ( EpLookupData->NumberOfEndpoints ==
                                              EpLookupData->MaximumEndpoints )
                   {
                   break;
@@ -416,8 +403,8 @@ CleanupAndReturn:
 
     if ( MapperHandle != 0 )
         {
-        RpcStatus = RpcBindingFree(&MapperHandle);
-        ASSERT( RpcStatus == RPC_S_OK );
+        RPC_STATUS Status = RpcBindingFree(&MapperHandle);
+        ASSERT( Status == RPC_S_OK );
         }
 
     if ( ContextHandle != 0 )
@@ -528,7 +515,7 @@ CLH Create 2/17/94
      if ( _fstricmp((char PAPI *)AnsiProtseq,
                                (char PAPI *)EpMapperTable[i].Protseq) )
 #elif defined(NTENV)
-     if ( stricmp((char PAPI *)AnsiProtseq,
+     if ( _stricmp((char PAPI *)AnsiProtseq,
                                (char PAPI *)EpMapperTable[i].Protseq) )
 #else
      if (RpcpStringCompare((char *)AnsiProtseq, EpMapperTable[i].Protseq) )
@@ -591,7 +578,8 @@ RPC_STATUS  RPC_ENTRY
 BindToEpMapper(
     OUT RPC_BINDING_HANDLE PAPI * MapperHandle,
     IN unsigned char PAPI * NWAddress OPTIONAL,
-    IN unsigned char PAPI * Protseq OPTIONAL
+    IN unsigned char PAPI * Protseq OPTIONAL,
+    IN unsigned Timeout
     )
 /*+
 
@@ -600,7 +588,7 @@ Routine Description:
     This helper routine is used to by RpcEpRegister[NoReplace],
     RpcEpUnRegister and EpResolveEndpoint(epclnt.cxx) to bind to
     the EpMapper. If a Protseq is supplied, that particular protseq
-    is tried, otherwise all protseqs specified in EpMapperTable are tried.
+    is tried, otherwise lrpc is used to connect to the local epmapper.
     If a NW Address is specified EpMapper at that host is contacted, else
     local Endpoint mapper is used.
 
@@ -608,9 +596,11 @@ Arguments:
 
     MapperHandle- Returns binding handle to the Endpoint mapper
 
-    NWAddress - NW address of the Endpoint mapper to bind to
+    NWAddress - NW address of the Endpoint mapper to bind to.
+                Ignored if protseq is NULL.
 
     Protseq   - Protocol sequence the client wishes to use.
+                NULL indicates a call to the local endpoint mapper.
 
 Return Value:
 
@@ -631,55 +621,64 @@ Return Value:
 
   Count = sizeof(EpMapperTable)/sizeof(EpMapperTable[0]);
 
-  for (i = 0; i < Count; i++)
+#ifdef WIN32RPC
+  // If Protseq == NULL use lrpc.
+  if (NULL == Protseq)
       {
-      if ( (Protseq != NULL)
-#ifdef WIN
-          && _fstricmp((char PAPI *)Protseq,
-                               (char PAPI *)EpMapperTable[i].Protseq) )
-#elif defined(NTENV)
-          && stricmp((char PAPI *)Protseq,
-                               (char PAPI *)EpMapperTable[i].Protseq) )
-#else
-          && RpcpStringCompare((char *)Protseq, EpMapperTable[i].Protseq) )
+      ASSERT(NWAddress == 0);
+      BindingString = (unsigned char PAPI *)"ncalrpc:[epmapper]";
+      }
+  else
 #endif
-        continue;
+      {
+      for (i = 0; i < Count; i++)
+          {
+#ifdef WIN
+          if (_fstricmp((char PAPI *)Protseq,
+                        (char PAPI *)EpMapperTable[i].Protseq))
+#elif defined(NTENV)
+          if (_stricmp((char PAPI *)Protseq,
+                      (char PAPI *)EpMapperTable[i].Protseq) )
+#else
+          if (RpcpStringCompare((char *)Protseq, EpMapperTable[i].Protseq) )
+#endif
+              continue;
 
-      if ((Status = RpcStringBindingCompose(NULL,
-                   (unsigned char PAPI *)   EpMapperTable[i].Protseq,
-                   (unsigned char PAPI *)   NWAddress,
-                   (unsigned char PAPI *)   EpMapperTable[i].Endpoint,
-                                            0,
-                                            &BindingString)) != RPC_S_OK)
-         {
-            break;
-         }
+          // Found it.
 
-      Status = RpcBindingFromStringBinding(BindingString, MapperHandle);
+          Status = RpcStringBindingCompose(NULL,
+                    (unsigned char PAPI *) EpMapperTable[i].Protseq,
+                    (unsigned char PAPI *) NWAddress,
+                    (unsigned char PAPI *) EpMapperTable[i].Endpoint,
+                                           0,
+                                           &BindingString);
+          break;
+          }
+      }
 
-      if (Status == RPC_S_PROTSEQ_NOT_SUPPORTED)
-         {
-            RpcStringFree(&BindingString);
-            continue;
-         }
-      else
-         {
-            break;
-         }
-
-      } //For look over all protseqs in EpMapperTable
-
-  if (BindingString != NULL)
+  if (BindingString)
      {
-        RpcStringFree(&BindingString);
+     Status = RpcBindingFromStringBinding(BindingString, MapperHandle);
      }
 
-  if (Status)
+  if (BindingString != NULL && Protseq != NULL)
      {
-         return(EPT_S_CANT_PERFORM_OP);
+     RpcStringFree(&BindingString);
      }
 
-  return(0);
+  if (Status != RPC_S_OK)
+     {
+     return(EPT_S_CANT_PERFORM_OP);
+     }
+
+  Status = RpcMgmtSetComTimeout(*MapperHandle, Timeout);
+
+  if (Status != RPC_S_OK)
+     {
+     return(EPT_S_CANT_PERFORM_OP);
+     }
+
+  return(RPC_S_OK);
 }
 
 void RPC_ENTRY
@@ -701,6 +700,107 @@ EpFreeLookupHandle (
     RpcpFarFree(EpLookupData);
 }
 
+#ifdef NTENV
+
+HPROCESS hRpcssContext = 0;
+
+RPC_STATUS RPC_ENTRY
+I_RpcServerAllocatePort(
+    IN DWORD Flags,
+    OUT USHORT *pPort
+    )
+{
+    USHORT Port;
+    RPC_STATUS status;
+    RPC_BINDING_HANDLE hServer;
+    PORT_TYPE type;
+
+    *pPort = 0;
+
+    // Figure out what sort of port to allocate
+
+    if (Flags & RPC_C_USE_INTERNET_PORT)
+        {
+        type = PORT_INTERNET;
+        Flags &= ~RPC_C_USE_INTERNET_PORT;
+        }
+    else if (Flags & RPC_C_USE_INTRANET_PORT)
+        {
+        type = PORT_INTRANET;
+        Flags &= ~RPC_C_USE_INTRANET_PORT;
+        }
+    else
+        {
+        type = PORT_DEFAULT;
+        }
+
+    if (Flags)
+        {
+        return(RPC_S_INVALID_ARG);
+        }
+
+    // Setup process context in the endpoint mapper if needed.
+
+    if (hRpcssContext == 0)
+        {
+        HPROCESS hProcess;
+
+        status = RpcBindingFromStringBindingW(RPC_CONST_STRING("ncalrpc:[epmapper]"),
+                                              &hServer);
+        if (status != RPC_S_OK)
+            {
+            return(status);
+            }
+
+        hProcess = 0;
+
+        status = OpenEndpointMapper(hServer,
+                                    &hProcess);
+
+        RPC_STATUS statust =
+        RpcBindingFree(&hServer);
+        ASSERT(statust == RPC_S_OK);
+
+        if (status != RPC_S_OK)
+            {
+            return(status);
+            }
+
+        GlobalMutexRequest();
+
+        if (hRpcssContext != 0)
+            {
+            ASSERT(hRpcssContext != hProcess);
+            RpcSmDestroyClientContext(&hProcess);
+            }
+        else
+            {
+            hRpcssContext = hProcess;
+            }
+
+        GlobalMutexClear();
+        }
+
+    // Actually allocate a port.
+
+    RPC_STATUS allocstatus;
+
+    status = AllocateReservedIPPort(hRpcssContext,
+                                    type,
+                                    &allocstatus,
+                                    pPort);
+
+    if (status != RPC_S_OK)
+        {
+        ASSERT(*pPort == 0);
+        return(status);
+        }
+
+    return(allocstatus);
+}
+
+#endif
+
 // Very special code for our older (NT 3.1 Era) servers.
 //
 // These server send out unique pointers which will confuse our
@@ -714,8 +814,8 @@ extern "C"
 void FixupForUniquePointerServers(PRPC_MESSAGE pMessage)
 {
     int CurrentPointer = 3;
-    int NumberOfPointers;
-    int i;
+    unsigned int NumberOfPointers;
+    unsigned int i;
     unsigned long __RPC_FAR *pBuffer;
 
     pBuffer = (unsigned long __RPC_FAR *) pMessage->Buffer;
@@ -747,7 +847,7 @@ void FixupForUniquePointerServers(PRPC_MESSAGE pMessage)
     return;
 }
 
-#if defined(WIN) || defined(NTENV) || defined(OS2_12)
+#if defined(WIN) || defined(WIN32)
 
 void __RPC_FAR * __RPC_API
 MIDL_user_allocate(

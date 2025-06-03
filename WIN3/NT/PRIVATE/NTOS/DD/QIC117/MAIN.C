@@ -42,6 +42,247 @@ Revision History:
 #endif
 
 
+#if DBG_NOT
+#define MODULE_TEST 1
+
+// prototype from 0x11038.c (only in debug build)
+dUDWord kdi_Rand();
+
+//
+// The following code is a paranoid check for the bad sector code.
+//
+//
+
+//
+// Walk the bad sector list and create a count of bad sectors
+//
+int q117CountBadSectorList(
+    IN OUT PQ117_CONTEXT Context
+)
+{
+    BAD_LIST *badSectorList;
+    int cur,count,list_size,last;
+    unsigned char hiBitSet;
+
+
+    badSectorList = &Context->CurrentTape.BadMapPtr->BadList[0];
+
+    list_size = 0;
+    last = cur = 0;
+    while (cur = q117BadListEntryToSector(badSectorList[list_size].ListEntry,&hiBitSet)) {
+        ASSERT(cur > last);
+        last = cur;
+        ++list_size;
+    }
+
+    return list_size;
+}
+
+//
+// Create a test bitlist that mirrors the bad sector map maintained by
+// the shipping routines called within,  and exercise the bad sector
+// insertion and utility functions.
+//
+void q117CheckedModuleTest(
+    IN OUT PQ117_CONTEXT Context
+)
+{
+#define NUM_SEGS 0x1388
+#define BADMAPSIZE 0x7000
+#define GUARD 0x400
+    unsigned long  *chklst,*chksav,bits,curbad,new,newbad;
+    int bit,number;
+    SEGMENT seg;
+    unsigned char *guardptr, *ptr;
+    Q117_CONTEXT myContext;
+    SEGMENT i,indx;
+    int size_before,size_after;
+    char *snap,*badmap;
+    dStatus status;
+    int curcount,newcount;
+    int paranoid=FALSE;
+
+    // don't use the one passed in,  as we want this to be a non-intrusive
+    // test
+    myContext = *Context;
+    Context = &myContext;
+
+    kdi_debug_level = QIC117INFO;
+
+    badmap = ptr = ExAllocatePool(PagedPool, BADMAPSIZE+GUARD);
+    Context->CurrentTape.BadMapPtr = (void *)ptr;
+    snap = ExAllocatePool(PagedPool, BADMAPSIZE);
+    CheckedDump(QIC117INFO,( "bad: %x snap: %x\n",badmap,snap));
+
+
+    ptr += BADMAPSIZE;
+    guardptr = ptr;
+
+    // Setup a gard band to check for walk off
+    memset(guardptr, 0x5a, GUARD);
+
+    Context->CurrentTape.BadSectorMapFormat = BadMap3ByteList;
+    Context->CurrentTape.BadSectorMapSize = BADMAPSIZE;
+
+
+    // Allocate a buffer to double check work done by service routines
+    chklst = ExAllocatePool(PagedPool, sizeof(*chklst) * NUM_SEGS);
+    chksav = ExAllocatePool(PagedPool, sizeof(*chklst) * NUM_SEGS);
+
+    memset(chklst,0,sizeof(*chklst) * NUM_SEGS);
+
+
+    // Zero the bad sector memory,  and reset the index
+    memset(badmap, 0x55, BADMAPSIZE);
+    RtlZeroMemory(
+        Context->CurrentTape.BadMapPtr,
+        3);
+    Context->CurrentTape.CurBadListIndex = 0;
+
+
+    // Now,  keep adding random bad sectors to the list until an error occurs
+    do {
+        // Get the segment to hit
+        seg = (SEGMENT)(kdi_Rand() * (NUM_SEGS-1) / 0x7fff);
+
+        // Get the number of bad sectors to add
+        number = kdi_Rand() * 16 / 0x7fff;
+
+        if (number == 6) {
+
+            // Just set all of the bits
+            bits = 0xffffffff;
+            CheckedDump(QIC117INFO,( "Created allbit pattern\n"));
+
+
+        } else {
+
+            // Create a bad sector bitmap
+            bits = 0;
+            for (i=0;i<number;++i) {
+                bit = kdi_Rand() * 8 / 0x7fff;
+                bits |= 1<<bit;
+            }
+
+        }
+
+        // Get the current size of the bad sector list
+        size_before = q117CountBadSectorList(Context);
+        if (size_before > 0x23f7) {
+            paranoid = TRUE;
+            //kdi_debug_level |= QIC117SHOWBSM;
+        }
+
+        // get the current bit list
+        curbad = q117ReadBadSectorList(Context,seg);
+
+        // sanity check
+        ASSERT(curbad == chklst[seg]);
+
+
+        // calculate how many new bits were added
+        curcount = q117CountBits(NULL, 0, curbad);
+        if (curcount == 32) curcount = 1;
+        newcount = q117CountBits(NULL, 0, curbad|bits);
+        if (newcount == 32) newcount = 1;
+
+        size_after = size_before - curcount + newcount;
+
+        if (paranoid) {
+            CheckedDump(QIC117INFO,( "curbad:  %x newbad: %x\n",
+                size_before, size_after, curcount, newcount, seg, bits));
+
+            CheckedDump(QIC117INFO,( "bef %x aft %x cb: %x nb: %x seg: %x bits:%x\n",
+                size_before, size_after, curcount, newcount, seg, bits));
+
+            // Take snapshot
+            memcpy(snap, badmap, size_before*LIST_ENTRY_SIZE);
+            memcpy(chksav, chklst, sizeof(*chklst) * NUM_SEGS);
+            indx = Context->CurrentTape.CurBadListIndex;
+        }
+
+        // Now map out the bits
+        status = q117UpdateBadMap(Context, seg, bits);
+
+        if (!status) {
+
+            // get the current bit list
+            newbad = q117ReadBadSectorList(Context,seg);
+
+            ASSERT(newbad == (curbad | bits));
+            chklst[seg] |= bits;
+
+            ASSERT(size_after == q117CountBadSectorList(Context));
+
+            if (paranoid) {
+                // Perform final sanity check
+                for (i=0;i<NUM_SEGS;++i) {
+                    int idx;
+                    idx = Context->CurrentTape.CurBadListIndex;
+
+                    curbad = q117ReadBadSectorList(Context,i);
+
+                    // sanity check
+                    if (curbad != chklst[i]) {
+
+                        CheckedDump(QIC117INFO,(
+                            "curbad = %x != chklst[i] = %x\n",
+                            curbad, chklst[i]));
+
+                        CheckedDump(QIC117INFO,(
+                            "badmap = %x, snap = %x,startindex = %x ,index = %x, BSL offset: %x\n",
+                            badmap, snap, indx, idx, idx*LIST_ENTRY_SIZE));
+
+                        CheckedDump(QIC117INFO,(
+                            "chklst = %x, chksav = %x,  Descrepancy at segment: %x, BSM offset: %x \n",
+                            chklst, chksav, i, i*sizeof(*chklst)));
+
+                        ASSERT(FALSE);
+
+                        Context->CurrentTape.CurBadListIndex = idx;
+
+                        curbad = q117ReadBadSectorList(Context,i);
+                    }
+
+
+                }
+            }
+
+        }
+
+    } while (!status);
+
+    // Perform final sanity check
+    for (i=0;i<NUM_SEGS;++i) {
+        curbad = q117ReadBadSectorList(Context,i);
+
+        // sanity check
+        ASSERT(curbad == chklst[i]);
+    }
+
+    // Perform final sanity check
+    for (i=NUM_SEGS-1;i>=0;--i) {
+        curbad = q117ReadBadSectorList(Context,i);
+
+        // sanity check
+        ASSERT(curbad == chklst[i]);
+    }
+
+
+
+    // check the gard area for overrun
+    ptr = guardptr;
+    for(i=0;i<GUARD;++i) {
+        ASSERT(*ptr++ ==  0x5a);
+    }
+
+    ExFreePool(badmap);
+    ExFreePool(snap);
+    ExFreePool(chklst);
+}
+
+#endif
+
 
 //
 // Start of code
@@ -84,6 +325,82 @@ Return Value:
     STRING          dosString;
     UNICODE_STRING  dosUnicodeString;
     CCHAR           dosNameBuffer[64];
+    ULONG           verifyOnly = 0;
+    ULONG           detectOnly = 0;
+    ULONG           formatDisabled = 0;
+
+    {
+        //
+        // We use this to query into the registry as to whether we
+        // should break at driver entry.
+        //
+
+        RTL_QUERY_REGISTRY_TABLE    paramTable[4];
+        ULONG                       zero = 0;
+
+        UNICODE_STRING  paramPath;
+#define SubKeyString L"\\Parameters"
+
+        //
+        // The registry path parameter points to our key, we will append
+        // the Parameters key and look for any additional configuration items
+        // there.  We add room for a trailing NUL for those routines which
+        // require it.
+
+        paramPath.MaximumLength = RegistryPath->Length + sizeof(SubKeyString);
+        paramPath.Buffer = ExAllocatePool(PagedPool, paramPath.MaximumLength);
+
+        if (paramPath.Buffer != NULL)
+        {
+            RtlMoveMemory(
+                paramPath.Buffer, RegistryPath->Buffer, RegistryPath->Length);
+
+            RtlMoveMemory(
+                &paramPath.Buffer[RegistryPath->Length / 2], SubKeyString,
+                sizeof(SubKeyString));
+
+            paramPath.Length = paramPath.MaximumLength;
+        }
+        else
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(&paramTable[0], sizeof(paramTable));
+
+        paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[0].Name = L"VerifyOnlyOnFormat";
+        paramTable[0].EntryContext = &verifyOnly;
+        paramTable[0].DefaultType = REG_DWORD;
+        paramTable[0].DefaultData = &zero;
+        paramTable[0].DefaultLength = sizeof(ULONG);
+
+        paramTable[1].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[1].Name = L"DetectOnly";
+        paramTable[1].EntryContext = &detectOnly;
+        paramTable[1].DefaultType = REG_DWORD;
+        paramTable[1].DefaultData = &zero;
+        paramTable[1].DefaultLength = sizeof(ULONG);
+
+        paramTable[2].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[2].Name = L"FormatDisabled";
+        paramTable[2].EntryContext = &formatDisabled;
+        paramTable[2].DefaultType = REG_DWORD;
+        paramTable[2].DefaultData = &zero;
+        paramTable[2].DefaultLength = sizeof(ULONG);
+
+        if (!NT_SUCCESS(RtlQueryRegistryValues(
+            RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
+            paramPath.Buffer, &paramTable[0], NULL, NULL)))
+        {
+            verifyOnly = 0;
+            detectOnly = 0;
+            formatDisabled = 0;
+        }
+
+        ExFreePool(paramPath.Buffer);
+
+    }
 
     //
     // Build the unicode name for the floppy tape.
@@ -120,6 +437,7 @@ Return Value:
 
 
     if (!NT_SUCCESS(status)) {
+
         return(status);
     }
 
@@ -157,41 +475,75 @@ Return Value:
 
 
     //
-    // Increment system tape count.
-    //
-    ++IoGetConfigurationInformation()->TapeCount;
-
-    //
     // Get device extension address.
     //
 
     context = q117DeviceObject->DeviceExtension;
     context->q117iDeviceObject = q117iDeviceObject;
+    context->TapeNumber = tapeNumber;
+    context->Parameters.VerifyOnlyOnFormat = !!verifyOnly;
+    context->Parameters.FormatDisabled = !!formatDisabled;
+    context->Parameters.DetectOnly = !!detectOnly;
+
 
     //
     // Allocate memory for the filer
     //
-
     status = q117AllocatePermanentMemory(
         context,
         AdapterObject,
         NumberOfMapRegisters
         );
 
-    if (status) {
-        IoDeleteDevice(q117DeviceObject);
-        return status;
+    //
+    //  If we got our memory
+    //
+    if (!status) {
+
+        //
+        // Indicate MDLs required.
+        //
+
+        q117DeviceObject->Flags = DO_DIRECT_IO;
+
+        status = q117CreateRegistryInfo(tapeNumber, RegistryPath, context);
+
+        q117RdsInitReed();
+
     }
 
+#if MODULE_TEST
+    q117CheckedModuleTest(context);
+#endif
+
     //
-    // Indicate MDLs required.
+    // Increment system tape count.
     //
 
-    q117DeviceObject->Flags = DO_DIRECT_IO;
+    if (status) {
 
-    status = q117CreateRegistryInfo(tapeNumber, RegistryPath, context);
+        //
+        // Note the failure in the upper level driver in the event log and
+        //  return failure to the lower level driver.
+        //
+        q117LogError(
+            q117DeviceObject,
+            context->ErrorSequence++,
+            context->MajorFunction,
+            0,
+            status,
+            status,
+            QIC117_NO_BUFFERS
+            );
 
-    q117RdsInitReed();
+        IoDeleteDevice(q117DeviceObject);
+
+    } else {
+
+        ++IoGetConfigurationInformation()->TapeCount;
+
+    }
+
 
     return status;
 
@@ -226,52 +578,32 @@ Return Value:
 --*/
 
 {
+    CHAR buffer[64];
     HANDLE          lunKey;
     HANDLE          unitKey;
-    UNICODE_STRING  ntUnicodeString;
-    UCHAR           ntNameBuffer[80];
-    STRING          ntNameString;
     UNICODE_STRING  name;
-    OBJECT_ATTRIBUTES objectAttributes;
-    ULONG           disposition;
     NTSTATUS        status;
 
     //
     // Create the Tape key in the device map.
     //
 
-    RtlInitUnicodeString(
-        &name,
-        L"\\Registry\\Machine\\Hardware\\DeviceMap\\Tape"
-        );
-
-    //
-    // Initialize the object for the key.
-    //
-
-    InitializeObjectAttributes( &objectAttributes,
-                                &name,
-                                OBJ_CASE_INSENSITIVE,
-                                NULL,
-                                (PSECURITY_DESCRIPTOR) NULL );
-
-    //
-    // Create the key or open it.
-    //
-
-    status = ZwCreateKey(&lunKey,
-                        KEY_READ | KEY_WRITE,
-                        &objectAttributes,
-                        0,
-                        (PUNICODE_STRING) NULL,
-                        REG_OPTION_VOLATILE,
-                        &disposition );
+    status = q117CreateKey(
+        NULL,
+        "\\Registry\\Machine\\Hardware\\DeviceMap\\Tape",
+        &lunKey);
 
     if (!NT_SUCCESS(status)) {
         return status;
     }
 
-    status = q117CreateNumericKey(lunKey, TapeNumber, L"Unit ", &unitKey);
+
+    //
+    // Now create the Unit key
+    //
+    sprintf(buffer, "Unit %d", TapeNumber);
+
+    status = q117CreateKey(lunKey, buffer, &unitKey);
 
     ZwClose(lunKey);
 
@@ -279,21 +611,11 @@ Return Value:
         return status;
     }
 
-
     //
     // Add Identifier value.
     //
 
-    RtlInitUnicodeString(&name, L"Identifier");
-
-    status = ZwSetValueKey(
-        unitKey,
-        &name,
-        0,
-        REG_SZ,
-        L"QIC-40/QIC-80 floppy tape drive",
-        sizeof(L"QIC-40/QIC-80 floppy tape drive")
-        );
+    status = kdi_WriteRegString(unitKey,"Identifier","Floppy tape drive");
 
     if ( NT_SUCCESS(status) ) {
         //
@@ -308,7 +630,7 @@ Return Value:
             0,
             REG_SZ,
             RegistryPath->Buffer,
-            RegistryPath->Length
+            RegistryPath->Length+sizeof(WCHAR)
             );
     }
 
@@ -317,28 +639,13 @@ Return Value:
         // Add DeviceName value.
         //
 
-        RtlInitUnicodeString(&name, L"DeviceName");
 
-        sprintf(ntNameBuffer,
+        sprintf(buffer,
                 "Tape%d",
                 TapeNumber);
 
-        RtlInitString(&ntNameString, ntNameBuffer);
+        status = kdi_WriteRegString(unitKey,"DeviceName",buffer);
 
-        status = RtlAnsiStringToUnicodeString(&ntUnicodeString,
-                                              &ntNameString,
-                                              TRUE);
-
-        status = ZwSetValueKey(
-            unitKey,
-            &name,
-            0,
-            REG_SZ,
-            ntUnicodeString.Buffer,
-            ntUnicodeString.Length
-            );
-
-        RtlFreeUnicodeString(&ntUnicodeString);
     }
 
     if ( NT_SUCCESS(status) ) {
@@ -346,16 +653,8 @@ Return Value:
         // Add UniqueID
         //
 
-        RtlInitUnicodeString(&name, L"UniqueId");
+        status = kdi_WriteRegString(unitKey,"UniqueId","");
 
-        status = ZwSetValueKey(
-            unitKey,
-            &name,
-            0,
-            REG_SZ,
-            L"",
-            0
-            );
     }
 
 
@@ -366,10 +665,9 @@ Return Value:
 } // end q117CreateRegistryInfo
 
 NTSTATUS
-q117CreateNumericKey(
+q117CreateKey(
     IN HANDLE Root,
-    IN ULONG Name,
-    IN PWSTR Prefix,
+    IN PSTR key,
     OUT PHANDLE NewKey
     )
 
@@ -398,48 +696,31 @@ Return Value:
 
 {
 
-    UNICODE_STRING string;
-    UNICODE_STRING stringNum;
     OBJECT_ATTRIBUTES objectAttributes;
-    WCHAR bufferNum[16];
-    WCHAR buffer[64];
     ULONG disposition;
     NTSTATUS status;
+    UNICODE_STRING  usName;
+    STRING          sTemp;
 
     //
     // Copy the Prefix into a string.
     //
 
-    string.Length = 0;
-    string.MaximumLength=64;
-    string.Buffer = buffer;
 
-    RtlInitUnicodeString(&stringNum, Prefix);
 
-    RtlCopyUnicodeString(&string, &stringNum);
+    RtlInitString(&sTemp, key);
 
-    //
-    // Create a port number key entry.
-    //
-
-    stringNum.Length = 0;
-    stringNum.MaximumLength = 16;
-    stringNum.Buffer = bufferNum;
-
-    status = RtlIntegerToUnicodeString(Name, 10, &stringNum);
+    status = RtlAnsiStringToUnicodeString(
+                &usName,
+                &sTemp,
+                TRUE );
 
     if (!NT_SUCCESS(status)) {
         return status;
     }
 
-    //
-    // Append the prefix and the numeric name.
-    //
-
-    RtlAppendUnicodeStringToString(&string, &stringNum);
-
     InitializeObjectAttributes( &objectAttributes,
-                                &string,
+                                &usName,
                                 OBJ_CASE_INSENSITIVE,
                                 Root,
                                 (PSECURITY_DESCRIPTOR) NULL );
@@ -451,6 +732,7 @@ Return Value:
                         (PUNICODE_STRING) NULL,
                         REG_OPTION_VOLATILE,
                         &disposition );
+
 
     return(status);
 
@@ -555,7 +837,7 @@ Return Value:
         //
         Irp->IoStatus.Information = amount;
 
-        CheckedDump(QIC117SHOWTD,("%x=Read(%x) - Status: %x\n",amount,currentIrpStack->Parameters.Read.Length, status));
+        CheckedDump(QIC117SHOWAPI,("%x=Read(%x) - Status: %x\n",amount,currentIrpStack->Parameters.Read.Length, status));
 
     }
 
@@ -711,6 +993,7 @@ q117ConvertStatus(
         break;
 #endif
 
+    case ERR_UNSUPPORTED_FORMAT:
     case ERR_UNRECOGNIZED_FORMAT:
     case ERR_TAPE_NOT_FORMATED:
     case ERR_BAD_TAPE:
@@ -763,7 +1046,7 @@ q117ConvertStatus(
         NTSTATUS logStatus = q117MapStatus(Status);
 
 		  switch (logStatus) {
-			
+
 			  case QIC117_NOTAPE:
 			  case QIC117_NEWCART:
 			  case QIC117_DABORT:
@@ -774,7 +1057,7 @@ q117ConvertStatus(
 				  break;
 			  default:
 #if DBG
-            CheckedDump(QIC117SHOWTD,(
+            CheckedDump(QIC117DBGP,(
                 "Error %x(%s) logged as NTError %x\n",
                 Status, q117GetErrorString(Status), ntStatus)
                 );
@@ -795,7 +1078,7 @@ q117ConvertStatus(
     } else {
 #if DBG
         if (ntStatus) {
-            CheckedDump(QIC117SHOWTD,("Error %x reported as NTError %x\n",Status,ntStatus));
+            CheckedDump(QIC117DBGP,("Error %x reported as NTError %x\n",Status,ntStatus));
         }
 #endif
     }
@@ -833,9 +1116,13 @@ NTSTATUS q117MapStatus(
         case ERR_NO_VOLUMES:
             mapped = QIC117_NOVOLS;
             break;
+        case ERR_UNRECOGNIZED_FORMAT:   // something in the header of the
+                                        // tape is not right. tape needs
+                                        // reformatted
         case ERR_TAPE_NOT_FORMATED:
             mapped = QIC117_UNFORMAT;
             break;
+
         case ERR_UNKNOWN_TAPE_FORMAT:
             mapped = QIC117_UNKNOWNFORMAT;
             break;
@@ -843,6 +1130,15 @@ NTSTATUS q117MapStatus(
         case ERR_BAD_BLOCK_HARD_ERR:
         case ERR_BAD_BLOCK_DETECTED:
             mapped = QIC117_BADBLK;
+            break;
+        case ERR_WRITE_FAILURE:         // Bad sector was encountered
+                                        // while trying to write data
+                                        // at the end of the volume,  and
+                                        // there was no place to move
+                                        // the data to.
+                                        // since this is like an end of tape
+                                        // error,  we'll use this error
+            mapped = QIC117_WRITE_FAULT;
             break;
         case ERR_END_OF_TAPE:
             mapped = QIC117_ENDTAPEERR;
@@ -935,7 +1231,6 @@ NTSTATUS q117MapStatus(
         case ERR_FW_ILLEGAL_TRACK:
         case ERR_FW_ILLEGAL_CMD:
         case ERR_FW_ILLEGAL_ENTRY:
-        case ERR_FW_BROKEN_TAPE:
         case ERR_FW_GAIN_ERROR:
         case ERR_FW_CMD_WHILE_ERROR:
         case ERR_FW_CMD_WHILE_NEW_CART:
@@ -964,7 +1259,6 @@ NTSTATUS q117MapStatus(
         case ERR_FW_EDGE_SEEK_ERROR:
         case ERR_FW_MISSING_TRAINING_TABLE:
         case ERR_FW_INVALID_FORMAT:
-        case ERR_FW_SENSOR_ERROR:
         case ERR_FW_TABLE_CHECKSUM_ERROR:
         case ERR_FW_WATCHDOG_RESET:
         case ERR_FW_ILLEGAL_ENTRY_FMT_MODE:
@@ -972,6 +1266,10 @@ NTSTATUS q117MapStatus(
         case ERR_FW_ILLEGAL_ERROR_NUMBER:
         case ERR_FW_NO_DRIVE:
             mapped = QIC117_FIRMWARE;
+            break;
+        case ERR_FW_BROKEN_TAPE:
+        case ERR_FW_SENSOR_ERROR:
+            mapped = QIC117_DESPOOLED;
             break;
         case ERR_INCOMPATIBLE_MEDIA:
         case ERR_UNKNOWN_TAPE_LENGTH:
@@ -1026,7 +1324,7 @@ Return Value:
         IOCTL_CMS_IOCTL_BASE &&
         irpStack->Parameters.DeviceIoControl.IoControlCode <=
         IOCTL_CMS_IOCTL_BASE+(XXX_LAST_COMMAND << IOCTL_CMS_IOCTL_SHIFT)
-        ) {
+    ) {
 
         ntStatus = cms_IoCtl(DeviceObject, Irp);
 
@@ -1045,94 +1343,101 @@ Return Value:
         //
         if (NT_SUCCESS(ntStatus)) {
 
-            CheckedDump(QIC117SHOWPOLL,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
+            CheckedDump(QIC117SHOWAPIPOLL,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
 
             switch (irpStack->Parameters.DeviceIoControl.IoControlCode) {
 
             case IOCTL_TAPE_GET_DRIVE_PARAMS:
 
                 ntStatus = q117IoCtlGetDriveParameters(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_GET_DRIVE_PARAMS done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_GET_DRIVE_PARAMS done"));
                 break;
 
             case IOCTL_TAPE_SET_DRIVE_PARAMS:
 
                 ntStatus = q117IoCtlSetDriveParameters(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_SET_DRIVE_PARAMS done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_SET_DRIVE_PARAMS done"));
                 break;
 
             case IOCTL_TAPE_GET_MEDIA_PARAMS:
 
                 ntStatus = q117IoCtlGetMediaParameters(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWPOLL,("IOCTL_TAPE_GET_MEDIA_PARAMS done"));
+                CheckedDump(QIC117SHOWAPIPOLL,("IOCTL_TAPE_GET_MEDIA_PARAMS done"));
                 break;
 
             case IOCTL_TAPE_SET_MEDIA_PARAMS:
 
                 ntStatus = q117IoCtlSetMediaParameters(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_SET_MEDIA_PARAMS done\n"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_SET_MEDIA_PARAMS done\n"));
                 break;
 
             case IOCTL_TAPE_CREATE_PARTITION:
 
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_CREATE_PARTITION attempted\n"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_CREATE_PARTITION attempted\n"));
                 ntStatus = STATUS_INVALID_DEVICE_REQUEST;
                 break;
 
             case IOCTL_TAPE_ERASE:
 
                 ntStatus = q117IoCtlErase(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_ERASE done"));
+                CheckedDump(QIC117SHOWAPI,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_ERASE done"));
                 break;
 
             case IOCTL_TAPE_PREPARE:
 
                 ntStatus = q117IoCtlPrepare(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_PREPARE done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_PREPARE done"));
                 break;
 
             case IOCTL_TAPE_WRITE_MARKS:
 
                 ntStatus = q117IoCtlWriteMarks(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_WRITE_MARKS done"));
+                CheckedDump(QIC117SHOWAPI,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_WRITE_MARKS done"));
                 break;
 
             case IOCTL_TAPE_GET_POSITION:
 
                 ntStatus = q117IoCtlGetPosition(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_GET_POSITION done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_GET_POSITION done"));
                 break;
 
             case IOCTL_TAPE_SET_POSITION:
 
                 ntStatus = q117IoCtlSetPosition(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
-                CheckedDump(QIC117SHOWTD,("IOCTL_TAPE_SET_POSITION done"));
+                CheckedDump(QIC117SHOWAPI,("Curmark: %x TotalMarks: %x\n", context->CurrentMark, context->MarkArray.TotalMarks));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_TAPE_SET_POSITION done"));
                 break;
 
             case IOCTL_TAPE_GET_STATUS:
 
                 ntStatus = q117IoCtlGetStatus (DeviceObject, Irp);
-                CheckedDump(QIC117SHOWPOLL,("IOCTL_TAPE_GET_STATUS done"));
+                CheckedDump(QIC117SHOWAPIPOLL,("IOCTL_TAPE_GET_STATUS done"));
                 break;
 
             case IOCTL_CMS_WRITE_ABS_BLOCK:
 
                 ntStatus = q117IoCtlWriteAbs(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_CMS_WRITE_ABS_BLOCK done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_CMS_WRITE_ABS_BLOCK done"));
                 break;
 
             case IOCTL_CMS_READ_ABS_BLOCK:
 
                 ntStatus = q117IoCtlReadAbs(DeviceObject, Irp);
-                CheckedDump(QIC117SHOWTD,("IOCTL_CMS_READ_ABS_BLOCK done"));
+                CheckedDump(QIC117SHOWAPI,("IOCTL_CMS_READ_ABS_BLOCK done"));
                 break;
+
+            case IOCTL_CMS_DETECT_DEVICE:
+
+                ntStatus = q117IoCtlDetect(DeviceObject, Irp);
+                CheckedDump(QIC117SHOWAPI,("IOCTL_CMS_READ_ABS_BLOCK done"));
+                break;
+
 
             default:
 
-                CheckedDump(QIC117SHOWTD,("Un-implemented request: %x",irpStack->Parameters.DeviceIoControl.IoControlCode));
+                CheckedDump(QIC117DBGP,("Un-implemented request: %x",irpStack->Parameters.DeviceIoControl.IoControlCode));
                 ntStatus = STATUS_INVALID_DEVICE_REQUEST;
 
             } // end switch()
@@ -1145,7 +1450,7 @@ Return Value:
     // Complete the request.
     //
 
-    CheckedDump(QIC117SHOWTD,(" -- ntStatus:  %x\n",ntStatus));
+    CheckedDump(QIC117SHOWAPI,(" -- ntStatus:  %x\n",ntStatus));
     Irp->IoStatus.Status = ntStatus;
 
     //
@@ -1199,7 +1504,7 @@ Return Value:
         // Page-lock this code
         //
 #ifndef NOCODELOCK
-        context->PageHandle = MmLockPagableImageSection((PVOID)q117DeviceControl);
+        context->PageHandle = MmLockPagableCodeSection((PVOID)q117DeviceControl);
 #endif
 
         //
@@ -1409,7 +1714,7 @@ Return Value:
                         &DeviceObject->DeviceQueue,
                         &Irp->Tail.Overlay.DeviceQueueEntry
                         )) {
-            CheckedDump(QIC117SHOWTD,(
+            CheckedDump(QIC117DBGP,(
                 "q117Cancel: Irp 0x%x not in device queue?!?\n",
                 Irp
                 ));
@@ -1551,4 +1856,3 @@ Return Value:
     return(STATUS_SUCCESS);
 
 }
-

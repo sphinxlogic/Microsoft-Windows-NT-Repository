@@ -78,6 +78,10 @@ int fForward = selCur.fForward;
 int sty;
 typeCP cp;
 
+MSG msg;
+
+PeekMessage(&msg, (HWND)NULL, NULL, NULL, PM_NOREMOVE);
+
 vfGotoKeyMode |= (GetKeyState( kcGoto & ~wKcCommandMask) < 0);
 
 switch( kc ) {
@@ -218,7 +222,11 @@ register struct EDL *pedl;
 int dipgd;
 int xpNow;
 
- vfGotoKeyMode |= (GetKeyState( kcGoto & ~wKcCommandMask) < 0);
+MSG msg;
+
+PeekMessage(&msg, (HWND)NULL, NULL, NULL, PM_NOREMOVE);
+
+vfGotoKeyMode |= (GetKeyState( kcGoto & ~wKcCommandMask) < 0);
 
  /* Compute dl, vxpCursor for selection starting point */
 
@@ -516,4 +524,3 @@ int xp;
  xp = DxpDiff(0, dcp, &xp) + vfli.xpLeft;
  *pxp = xp + (xpSelBar - wwdCurrentDoc.xpMin);
 }
-

@@ -5,7 +5,7 @@
  *	??-???-???? ??	 Original Version
  *	06-Sep-1988 bw	 Issue error is directory removal fails
  *	20-Dec-1989 SB	 Change for new Index file format, added NOTES
- *      17-Oct-1990 w-barry Removed calls to stat function until stat works
+ *      17-Oct-1990 w-barry Removed calls to _stat function until _stat works
  *                          on Nt
  *      18-Oct-1990 w-barry Removed 'dead' code.
  *
@@ -64,7 +64,7 @@ FILE *list;
     char *idx;				/* name of index */
     char *file;
     long totbytes;
-    struct stat statbuf;
+    struct _stat statbuf;
 
     totbytes = 0L;
     dir = idx = file = NULL;
@@ -84,7 +84,7 @@ FILE *list;
     strcpy (idx, dir);
     pathcat (idx, RM_IDX);
     /* try to open index.  If it fails, no problem */
-    if ((fhidx = open (idx, O_RDWR | O_BINARY)) != -1) {
+    if ((fhidx = _open (idx, O_RDWR | O_BINARY)) != -1) {
 	if (list)
 	    fprintf (list, "Expunging files in %s\n", pDir);
 
@@ -99,16 +99,16 @@ FILE *list;
 		 * file. The deleted file index is derived from the current
 		 * offset and the length of the string.
 		 */
-		sprintf (file, "%s\\deleted.%03x", dir, (lseek (fhidx, 0L, SEEK_CUR)
+		sprintf (file, "%s\\deleted.%03x", dir, (_lseek (fhidx, 0L, SEEK_CUR)
 			 - strlen (szRec)) / RM_RECLEN);
 
 
-                if (stat (file, &statbuf) == -1) {
+                if (_stat (file, &statbuf) == -1) {
 		    if (list)
 			fprintf (list, " (%s - %s)\n", file, error ());
 		}
 		else {
-		    unlink (file);
+		    _unlink (file);
 		    totbytes += statbuf.st_size;
 		    if (list) {
 			char *pTime = ctime (&statbuf.st_mtime);
@@ -127,15 +127,15 @@ FILE *list;
 	    }
 	} while (readNewIdxRec (fhidx, szRec, MAX_PATH));
 
-	close (fhidx);
-	unlink (idx);
-	if (rmdir (dir))
+	_close (fhidx);
+	_unlink (idx);
+	if (_rmdir (dir))
 	    fprintf (list, "ERROR: Unable to remove directory %s - %s\n", dir, error ());
 	if (list)
 	    fprintf (list, "%ld bytes freed\n", totbytes);
     }
     else
-	if (!stat (dir, &statbuf))
+	if (!_stat (dir, &statbuf))
 	    fprintf (list, "Warning: Cannot open %s - %s\n", idx, error ());
 done:
     if (dir)

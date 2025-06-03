@@ -25,24 +25,17 @@ Revision History:
 #include "ldrp.h"
 #include <ctype.h>
 
-#define BASESYSTEMDLLNAME "ntdll.dll"
-#define WBASESYSTEMDLLNAME L"ntdll.dll"
-
-BOOLEAN LdrpInLdrInit = FALSE;
-STRING NtSystemPathString;
-PUCHAR NtSystemPath;
-UCHAR PathInfoBuffer[ DOS_MAX_PATH_LENGTH ];
-
-PVOID NtDllBase;
-ULONG LdrpNumberOfProcessors;
-
-UNICODE_STRING LdrpDefaultPath;
-RTL_CRITICAL_SECTION FastPebLock;
-SYSTEM_BASIC_INFORMATION SystemInfo;
 BOOLEAN LdrpShutdownInProgress = FALSE;
 BOOLEAN LdrpImageHasTls = FALSE;
-BOOLEAN LdrpBeingDebugged = FALSE;
 BOOLEAN LdrpVerifyDlls = FALSE;
+BOOLEAN LdrpLdrDatabaseIsSetup = FALSE;
+BOOLEAN LdrpInLdrInit = FALSE;
+
+PVOID NtDllBase;
+
+#if defined(MIPS) || defined(_ALPHA_)
+ULONG LdrpGpValue;
+#endif // MIPS || ALPHA
 
 #if DBG
 
@@ -81,26 +74,10 @@ NtdllOkayToLockRoutine(
     );
 
 VOID
-LdrpReferenceLoadedDll (
-    IN PLDR_DATA_TABLE_ENTRY LdrDataTableEntry
-    );
-
-VOID
 RtlpInitDeferedCriticalSection( VOID );
 
 VOID
 RtlpCurdirInit();
-
-PRTL_INITIALIZE_LOCK_ROUTINE RtlInitializeLockRoutine =
-    (PRTL_INITIALIZE_LOCK_ROUTINE)RtlInitializeCriticalSection;
-PRTL_ACQUIRE_LOCK_ROUTINE RtlAcquireLockRoutine =
-    (PRTL_ACQUIRE_LOCK_ROUTINE)RtlEnterCriticalSection;
-PRTL_RELEASE_LOCK_ROUTINE RtlReleaseLockRoutine =
-    (PRTL_RELEASE_LOCK_ROUTINE)RtlLeaveCriticalSection;
-PRTL_DELETE_LOCK_ROUTINE RtlDeleteLockRoutine =
-    (PRTL_DELETE_LOCK_ROUTINE)RtlDeleteCriticalSection;
-PRTL_OKAY_TO_LOCK_ROUTINE RtlOkayToLockRoutine =
-    (PRTL_OKAY_TO_LOCK_ROUTINE)NtdllOkayToLockRoutine;
 
 PVOID
 NtdllpAllocateStringRoutine(
@@ -122,6 +99,14 @@ PRTL_ALLOCATE_STRING_ROUTINE RtlAllocateStringRoutine;
 PRTL_FREE_STRING_ROUTINE RtlFreeStringRoutine;
 RTL_BITMAP TlsBitMap;
 
+RTL_CRITICAL_SECTION_DEBUG LoaderLockDebug;
+RTL_CRITICAL_SECTION LoaderLock = {
+    &LoaderLockDebug,
+    -1
+    };
+BOOLEAN LoaderLockInitialized;
+
+
 #if defined(MIPS) || defined(_ALPHA_)
 VOID
 LdrpSetGp(
@@ -138,6 +123,10 @@ LdrpInitializationFailure(
     NTSTATUS ErrorStatus;
     ULONG ErrorParameter;
     ULONG ErrorResponse;
+
+    if ( LdrpFatalHardErrorCount ) {
+        return;
+        }
 
     //
     // Its error time...
@@ -188,20 +177,13 @@ Return Value:
 --*/
 
 {
-    NTSTATUS st,InitStatus,qst;
+    NTSTATUS st, InitStatus;
     PPEB Peb;
     PTEB Teb;
-    PSYSTEM_PATH_INFORMATION PathInfo;
-    SYSTEM_FLAGS_INFORMATION FlagInfo;
-#if DBG
-    UNICODE_STRING UnicodeString;
-    PWSTR pw;
-#endif
-#if defined(MIPS) || defined(_ALPHA_)
-    ULONG gp, temp;
-#endif
+    UNICODE_STRING UnicodeImageName;
     MEMORY_BASIC_INFORMATION MemInfo;
     BOOLEAN AlreadyFailed;
+    LARGE_INTEGER DelayValue;
 
     SystemArgument2;
 
@@ -209,150 +191,164 @@ Return Value:
     Peb = NtCurrentPeb();
     Teb = NtCurrentTeb();
 
-    PathInfo = (PSYSTEM_PATH_INFORMATION)PathInfoBuffer;
-    NtQuerySystemInformation( SystemPathInformation,
-                              PathInfo,
-                              sizeof( PathInfoBuffer ),
-                              NULL
-                            );
-    NtSystemPathString = PathInfo->Path;
-    NtSystemPath = PathInfo->Path.Buffer;
-
-#if DBG
     if (!Peb->Ldr) {
-        pw = (PWSTR)Peb->ProcessParameters->ImagePathName.Buffer;
-        if (!(Peb->ProcessParameters->Flags & RTL_USER_PROC_PARAMS_NORMALIZED)) {
-            pw = (PWSTR)((PCHAR)pw + (ULONG)(Peb->ProcessParameters));
-            }
-        UnicodeString.Buffer = pw;
-        UnicodeString.Length = Peb->ProcessParameters->ImagePathName.Length;
-        UnicodeString.MaximumLength = UnicodeString.Length;
-
-        st = LdrQueryImageFileExecutionOptions( &UnicodeString,
-                                                L"GlobalFlag",
-                                                REG_DWORD,
-                                                &NtGlobalFlag,
-                                                sizeof( NtGlobalFlag ),
-                                                NULL
-                                              );
-        if (NT_SUCCESS( st )) {
-
-            //
-            // Whenever a  %wZ string is included, the following DbgPrint access violates
-            // down in RtlUnicodeToMultiByteN.
-            //
-
-            DbgPrint( "LDR: Using value of 0x%08x GlobalFlag for process\n",
-                      NtGlobalFlag
-                    );
-
-            }
-        else {
-            NtQuerySystemInformation( SystemFlagsInformation,
-                                      &FlagInfo,
-                                      sizeof( FlagInfo ),
-                                      NULL
-                                    );
-            NtGlobalFlag = FlagInfo.Flags;
-            }
-        }
-#else
-        NtQuerySystemInformation( SystemFlagsInformation,
-                                  &FlagInfo,
-                                  sizeof( FlagInfo ),
-                                  NULL
-                                );
-        NtGlobalFlag = FlagInfo.Flags;
-#endif // DBG
-
-
-#if DEVL
-    ShowSnaps = (BOOLEAN)(FLG_SHOW_LDR_SNAPS & NtGlobalFlag);
-#endif
-
-    InitStatus = STATUS_SUCCESS;
-
 #if defined(MIPS) || defined(_ALPHA_)
-    //
-    // Set GP register
-    //
-    gp =(ULONG)RtlImageDirectoryEntryToData(
-            Peb->ImageBaseAddress,
-            TRUE,
-            IMAGE_DIRECTORY_ENTRY_GLOBALPTR,
-            &temp
-            );
+        ULONG temp;
+#if defined(MIPS)
+        Peb->ProcessStarterHelper = (PVOID)LdrProcessStarterHelper;
+#endif
+        //
+        // Set GP register
+        //
+        LdrpGpValue =(ULONG)RtlImageDirectoryEntryToData(
+                Peb->ImageBaseAddress,
+                TRUE,
+                IMAGE_DIRECTORY_ENTRY_GLOBALPTR,
+                &temp
+                );
+        if (Context != NULL) {
+            LdrpSetGp( LdrpGpValue );
+#if defined(_MIPS_)
+            Context->XIntGp = (LONG)LdrpGpValue;
+#else
+            Context->IntGp = LdrpGpValue;
+#endif
+        }
+#endif // MIPS || ALPHA
+
+        NtGlobalFlag = Peb->NtGlobalFlag;
+#if DBG
+        if (TRUE)
+#else
+        if (Peb->BeingDebugged || Peb->ReadImageFileExecOptions)
+#endif
+        {
+            PWSTR pw;
+
+            pw = (PWSTR)Peb->ProcessParameters->ImagePathName.Buffer;
+            if (!(Peb->ProcessParameters->Flags & RTL_USER_PROC_PARAMS_NORMALIZED)) {
+                pw = (PWSTR)((PCHAR)pw + (ULONG)(Peb->ProcessParameters));
+                }
+            UnicodeImageName.Buffer = pw;
+            UnicodeImageName.Length = Peb->ProcessParameters->ImagePathName.Length;
+            UnicodeImageName.MaximumLength = UnicodeImageName.Length;
+
+            st = LdrQueryImageFileExecutionOptions( &UnicodeImageName,
+                                                    L"GlobalFlag",
+                                                    REG_DWORD,
+                                                    &NtGlobalFlag,
+                                                    sizeof( NtGlobalFlag ),
+                                                    NULL
+                                                  );
+            if (!NT_SUCCESS( st )) {
+                UnicodeImageName.Length = 0;
+
+                if (Peb->BeingDebugged) {
+                    NtGlobalFlag |= FLG_HEAP_ENABLE_FREE_CHECK |
+                                    FLG_HEAP_ENABLE_TAIL_CHECK |
+                                    FLG_HEAP_VALIDATE_PARAMETERS;
+                    }
+                }
+        }
+
+#if DBG && FLG_HEAP_PAGE_ALLOCS
+
+        if ( NtGlobalFlag & FLG_HEAP_PAGE_ALLOCS ) {
+
+            //
+            //  Turn on BOOLEAN RtlpDebugPageHeap to indicate that
+            //  new heaps should be created with debug page heap manager
+            //  when possible.  Also force off other heap debug flags
+            //  that can cause conflicts with the debug page heap
+            //  manager.
+            //
+
+            RtlpDebugPageHeap = TRUE;
+
+            NtGlobalFlag &= ~( FLG_HEAP_ENABLE_TAGGING |
+                               FLG_HEAP_ENABLE_TAG_BY_DLL
+                             );
+
+            }
+
+#endif // DBG && FLG_HEAP_PAGE_ALLOCS
+
+    }
+#if defined(MIPS) || defined(_ALPHA_)
+    else
     if (Context != NULL) {
-        LdrpSetGp(gp);
-        Context->IntGp = gp;
+        LdrpSetGp( LdrpGpValue );
+#if defined(_MIPS_)
+        Context->XIntGp = (LONG)LdrpGpValue;
+#else
+        Context->IntGp = LdrpGpValue;
+#endif
     }
 #endif // MIPS || ALPHA
 
-    Teb->StaticUnicodeString.MaximumLength = (USHORT)(STATIC_UNICODE_BUFFER_LENGTH << 1);
-    Teb->StaticUnicodeString.Length = (USHORT)0;
-    Teb->StaticUnicodeString.Buffer = Teb->StaticUnicodeBuffer;
-    st = NtWaitForProcessMutant();
+    ShowSnaps = (BOOLEAN)(FLG_SHOW_LDR_SNAPS & NtGlobalFlag);
 
+    //
+    // Serialize for here on out
+    //
 
-    if (!NT_SUCCESS(st)) {
-#if DBG
-        DbgPrint("LDRINIT: Acquire Process Lock Wait failed - %lX\n", st);
-#endif
-        LdrpInitializationFailure(st);
-        RtlRaiseStatus(st);
-        return;
+    Peb->LoaderLock = (PVOID)&LoaderLock;
+    if ( !RtlTryEnterCriticalSection(&LoaderLock) ) {
+        if ( LoaderLockInitialized ) {
+            RtlEnterCriticalSection(&LoaderLock);
+            }
+        else {
+
+            //
+            // drop into a 30ms delay loop
+            //
+
+            DelayValue.QuadPart = Int32x32To64( 30, -10000 );
+            while ( !LoaderLockInitialized ) {
+                NtDelayExecution(FALSE,&DelayValue);
+                }
+            RtlEnterCriticalSection(&LoaderLock);
+            }
+        }
+
+    if (Teb->DeallocationStack == NULL) {
+        st = NtQueryVirtualMemory(
+                NtCurrentProcess(),
+                Teb->NtTib.StackLimit,
+                MemoryBasicInformation,
+                (PVOID)&MemInfo,
+                sizeof(MemInfo),
+                NULL
+                );
+        if ( !NT_SUCCESS(st) ) {
+            LdrpInitializationFailure(st);
+            RtlRaiseStatus(st);
+            return;
+            }
+        else {
+            Teb->DeallocationStack = MemInfo.AllocationBase;
+        }
     }
 
-    qst = NtQueryVirtualMemory(
-            NtCurrentProcess(),
-            Teb->NtTib.StackLimit,
-            MemoryBasicInformation,
-            (PVOID)&MemInfo,
-            sizeof(MemInfo),
-            NULL
-            );
-    if ( !NT_SUCCESS(qst) ) {
-        LdrpInitializationFailure(qst);
-        RtlRaiseStatus(qst);
-        return;
-        }
-    else {
-        Teb->DeallocationStack = MemInfo.AllocationBase;
-        }
-
+    InitStatus = STATUS_SUCCESS;
     try {
         if (!Peb->Ldr) {
             LdrpInLdrInit = TRUE;
-
-            {
-                HANDLE DebugPort;
-                NTSTATUS xst;
-                DebugPort = (HANDLE)NULL;
-
-                xst = NtQueryInformationProcess(
-                        NtCurrentProcess(),
-                        ProcessDebugPort,
-                        (PVOID)&DebugPort,
-                        sizeof(DebugPort),
-                        NULL
-                        );
-
-                if (NT_SUCCESS(xst) && DebugPort) {
-                    LdrpBeingDebugged = TRUE;
-                    }
-            }
 #if DBG
             //
             // Time the load.
             //
 
-            if (NtGlobalFlag & FLG_DISPLAY_LOAD_TIME) {
+            if (LdrpDisplayLoadTime) {
                 NtQueryPerformanceCounter(&BeginTime, NULL);
             }
 #endif // DBG
 
             try {
-                InitStatus = LdrpInitializeProcess(Context, SystemArgument1);
+                InitStatus = LdrpInitializeProcess( Context,
+                                                    SystemArgument1,
+                                                    UnicodeImageName.Length ? &UnicodeImageName : NULL
+                                                  );
                 }
             except ( EXCEPTION_EXECUTE_HANDLER ) {
                 InitStatus = GetExceptionCode();
@@ -360,7 +356,7 @@ Return Value:
                 LdrpInitializationFailure(GetExceptionCode());
                 }
 #if DBG
-            if (NtGlobalFlag & FLG_DISPLAY_LOAD_TIME) {
+            if (LdrpDisplayLoadTime) {
                 NtQueryPerformanceCounter(&EndTime, NULL);
                 NtQueryPerformanceCounter(&ElapsedTime, &Interval);
                 ElapsedTime.QuadPart = EndTime.QuadPart - BeginTime.QuadPart;
@@ -396,12 +392,19 @@ Return Value:
                 InitStatus = LdrpForkProcess();
                 }
             else {
+
+#if defined (WX86)
+                if (Teb->Vdm) {
+                    InitStatus = LdrpInitWx86(Teb->Vdm, Context, TRUE);
+                    }
+#endif
+
                 LdrpInitializeThread();
                 }
         }
     } finally {
         LdrpInLdrInit = FALSE;
-        st = NtReleaseProcessMutant();
+        RtlLeaveCriticalSection(&LoaderLock);
         }
 
     NtTestAlert();
@@ -413,6 +416,8 @@ Return Value:
             }
         RtlRaiseStatus(InitStatus);
     }
+
+
 }
 
 NTSTATUS
@@ -423,16 +428,18 @@ LdrpForkProcess( VOID )
 
     Peb = NtCurrentPeb();
 
-#if DEVL
     InitializeListHead( &RtlCriticalSectionList );
     RtlInitializeCriticalSection( &RtlCriticalSectionLock );
-#endif // DEVL
 
-    Peb->FastPebLock = &FastPebLock;
-    st = RtlInitializeCriticalSection((PRTL_CRITICAL_SECTION)Peb->FastPebLock);
+    InsertTailList(&RtlCriticalSectionList, &LoaderLock.DebugInfo->ProcessLocksList);
+    LoaderLock.DebugInfo->CriticalSection = &LoaderLock;
+    LoaderLockInitialized = TRUE;
+
+    st = RtlInitializeCriticalSection(&FastPebLock);
     if ( !NT_SUCCESS(st) ) {
         RtlRaiseStatus(st);
         }
+    Peb->FastPebLock = &FastPebLock;
     Peb->FastPebLockRoutine = (PVOID)&RtlEnterCriticalSection;
     Peb->FastPebUnlockRoutine = (PVOID)&RtlLeaveCriticalSection;
     Peb->InheritedAddressSpace = FALSE;
@@ -454,7 +461,8 @@ LdrpForkProcess( VOID )
 NTSTATUS
 LdrpInitializeProcess (
     IN PCONTEXT Context OPTIONAL,
-    IN PVOID SystemDllBase
+    IN PVOID SystemDllBase,
+    IN PUNICODE_STRING UnicodeImageName
     )
 
 /*++
@@ -490,14 +498,13 @@ Return Value:
     PPEB Peb;
     NTSTATUS st;
     PWCH p, pp;
-    STRING AnsiString;
     UNICODE_STRING CurDir;
     UNICODE_STRING FullImageName;
     UNICODE_STRING CommandLine;
     HANDLE LinkHandle;
-    CHAR SystemDllPathBuffer[DOS_MAX_PATH_LENGTH];
-    ANSI_STRING SystemDllPath;
-    PLDR_DATA_TABLE_ENTRY LdrDataTableEntry, ImageEntry;
+    WCHAR SystemDllPathBuffer[DOS_MAX_PATH_LENGTH];
+    UNICODE_STRING SystemDllPath;
+    PLDR_DATA_TABLE_ENTRY LdrDataTableEntry;
     PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
     UNICODE_STRING Unicode;
     OBJECT_ATTRIBUTES Obja;
@@ -505,11 +512,17 @@ Return Value:
     ULONG i;
     PIMAGE_NT_HEADERS NtHeader = RtlImageNtHeader( NtCurrentPeb()->ImageBaseAddress );
     PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigData;
+    ULONG ProcessHeapFlags;
     RTL_HEAP_PARAMETERS HeapParameters;
     NLSTABLEINFO InitTableInfo;
+    LARGE_INTEGER LongTimeout;
+    UNICODE_STRING NtSystemRoot;
+
 #if DBG
     PCHAR EventIdBuffer;
 #endif // DBG
+
+    NtDllBase = SystemDllBase;
 
     if ( NtHeader->OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_NATIVE ) {
 
@@ -522,7 +535,28 @@ Return Value:
 
         }
 
+
     Peb = NtCurrentPeb();
+
+#if defined (_ALPHA_) && defined (WX86)
+     //
+     // for Wx86 deal with alpha's page size which is larger than x86
+     // This needs to be done before any code reads beyond the file headers.
+     //
+    if (NtHeader->FileHeader.Machine == IMAGE_FILE_MACHINE_I386 &&
+        NtHeader->OptionalHeader.SectionAlignment < PAGE_SIZE &&
+        !LdrpWx86FormatVirtualImage(NtHeader,
+                                    (PVOID)NtHeader->OptionalHeader.ImageBase
+                                    ))
+      {
+        return STATUS_INVALID_IMAGE_FORMAT;
+        }
+#endif
+
+
+    LdrpNumberOfProcessors = Peb->NumberOfProcessors;
+    RtlpTimeout = Peb->CriticalSectionTimeout;
+    LongTimeout.QuadPart = Int32x32To64( 3600, -10000000 );
 
     if (ProcessParameters = RtlNormalizeProcessParams(Peb->ProcessParameters)) {
         FullImageName = *(PUNICODE_STRING)&ProcessParameters->ImagePathName;
@@ -533,7 +567,6 @@ Return Value:
         RtlInitUnicodeString( &CommandLine, NULL );
         }
 
-    RtlpTimeout = Peb->CriticalSectionTimeout;
 
     RtlInitNlsTables(
         Peb->AnsiCodePageData,
@@ -545,6 +578,12 @@ Return Value:
     RtlResetRtlTranslations(&InitTableInfo);
 
 #if DBG
+    if (UnicodeImageName) {
+        DbgPrint( "LDR: Using value of 0x%08x GlobalFlag for %wZ\n",
+                  NtGlobalFlag,
+                  UnicodeImageName
+                );
+        }
 
     LdrpEventIdBufferSize = sizeof( LdrpEventIdBuffer );
     EventIdBuffer = (PVOID)LdrpEventIdBuffer;
@@ -666,6 +705,7 @@ Return Value:
                );
 #endif // DBG
 
+
     ImageConfigData = RtlImageDirectoryEntryToData( Peb->ImageBaseAddress,
                                                     TRUE,
                                                     IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
@@ -673,6 +713,7 @@ Return Value:
                                                   );
 
     RtlZeroMemory( &HeapParameters, sizeof( HeapParameters ) );
+    ProcessHeapFlags = HEAP_GROWABLE | HEAP_CLASS_0;
     HeapParameters.Length = sizeof( HeapParameters );
     if (ImageConfigData != NULL && i == sizeof( *ImageConfigData )) {
         NtGlobalFlag &= ~ImageConfigData->GlobalFlagsClear;
@@ -689,6 +730,15 @@ Return Value:
 #if DBG
             DbgPrint( "LDR: Using CriticalSectionTimeout of 0x%x ms from image.\n",
                       ImageConfigData->CriticalSectionDefaultTimeout
+                    );
+#endif
+            }
+
+        if (ImageConfigData->ProcessHeapFlags != 0) {
+            ProcessHeapFlags = ImageConfigData->ProcessHeapFlags;
+#if DBG
+            DbgPrint( "LDR: Using ProcessHeapFlags of 0x%x from image.\n",
+                      ProcessHeapFlags
                     );
 #endif
             }
@@ -730,23 +780,48 @@ Return Value:
             }
         }
 
-#if DBG
-    if (NtGlobalFlag & FLG_SHOW_LDR_PROCESS_STARTS) {
+    //
+    // This field is non-zero if the image file that was used to create this
+    // process contained a non-zero value in its image header.  If so, then
+    // set the affinity mask for the process using this value.  It could also
+    // be non-zero if the parent process create us suspended and poked our
+    // PEB with a non-zero value before resuming.
+    //
+    if (Peb->ImageProcessAffinityMask) {
+        st = NtSetInformationProcess( NtCurrentProcess(),
+                                      ProcessAffinityMask,
+                                      &Peb->ImageProcessAffinityMask,
+                                      sizeof( Peb->ImageProcessAffinityMask )
+                                    );
+        if (NT_SUCCESS( st )) {
+            KdPrint(( "LDR: Using ProcessAffinityMask of 0x%x from image.\n",
+                      Peb->ImageProcessAffinityMask
+                   ));
+            }
+        else {
+            KdPrint(( "LDR: Failed to set ProcessAffinityMask of 0x%x from image (Status == %08x).\n",
+                      Peb->ImageProcessAffinityMask, st
+                   ));
+            }
+        }
+
+    if (RtlpTimeout.QuadPart < LongTimeout.QuadPart) {
+        RtlpTimoutDisable = TRUE;
+        }
+
+    if (ShowSnaps) {
         DbgPrint( "LDR: PID: 0x%x started - '%wZ'\n",
                   NtCurrentTeb()->ClientId.UniqueProcess,
                   &CommandLine
                 );
     }
-#endif
 
     for(i=0;i<LDRP_HASH_TABLE_SIZE;i++) {
         InitializeListHead(&LdrpHashTable[i]);
     }
 
-#if DEVL
     InitializeListHead( &RtlCriticalSectionList );
     RtlInitializeCriticalSection( &RtlCriticalSectionLock );
-#endif // DEVL
 
     Peb->TlsBitmap = (PVOID)&TlsBitMap;
 
@@ -755,8 +830,6 @@ Return Value:
         &Peb->TlsBitmapBits[0],
         sizeof(Peb->TlsBitmapBits) * 8
         );
-
-    LdrpNumberOfProcessors = Peb->TlsExpansionCounter;
     Peb->TlsExpansionCounter = sizeof(Peb->TlsBitmapBits) * 8;
 
     //
@@ -765,12 +838,17 @@ Return Value:
 
     RtlpInitDeferedCriticalSection();
 
+
+    InsertTailList(&RtlCriticalSectionList, &LoaderLock.DebugInfo->ProcessLocksList);
+    LoaderLock.DebugInfo->CriticalSection = &LoaderLock;
+    LoaderLockInitialized = TRUE;
+
     //
     // Initialize the stack trace data base if requested
     //
 
-#if i386 && DEVL
-    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
+#if i386
+    if (NtGlobalFlag & FLG_USER_STACK_TRACE_DB) {
         PVOID BaseAddress = NULL;
         ULONG ReserveSize = 2 * 1024 * 1024;
 
@@ -792,25 +870,34 @@ Return Value:
                                      &ReserveSize,
                                      MEM_RELEASE
                                    );
+                }
+            else {
+                NtGlobalFlag |= FLG_HEAP_VALIDATE_PARAMETERS;
+                }
             }
         }
-    }
-#endif // i386 && DEVL
+#endif // i386
 
     //
     // Initialize the loader data based in the PEB.
     //
 
-    Peb->FastPebLock = &FastPebLock;
-    st = RtlInitializeCriticalSection((PRTL_CRITICAL_SECTION)Peb->FastPebLock);
+    st = RtlInitializeCriticalSection(&FastPebLock);
     if ( !NT_SUCCESS(st) ) {
         return st;
         }
+    Peb->FastPebLock = &FastPebLock;
     Peb->FastPebLockRoutine = (PVOID)&RtlEnterCriticalSection;
     Peb->FastPebUnlockRoutine = (PVOID)&RtlLeaveCriticalSection;
 
     RtlInitializeHeapManager();
-    Peb->ProcessHeap = RtlCreateHeap( HEAP_GROWABLE | HEAP_CLASS_0,
+    if (NtHeader->OptionalHeader.MajorSubsystemVersion <= 3 &&
+        NtHeader->OptionalHeader.MinorSubsystemVersion < 51
+       ) {
+        ProcessHeapFlags |= HEAP_CREATE_ALIGN_16;
+        }
+
+    Peb->ProcessHeap = RtlCreateHeap( ProcessHeapFlags,
                                       NULL,
                                       NtHeader->OptionalHeader.SizeOfHeapReserve,
                                       NtHeader->OptionalHeader.SizeOfHeapCommit,
@@ -821,16 +908,33 @@ Return Value:
         return STATUS_NO_MEMORY;
     }
 
+    NtdllBaseTag = RtlCreateTagHeap( Peb->ProcessHeap,
+                                     0,
+                                     L"NTDLL!",
+                                     L"!Process\0"                  // Heap Name
+                                     L"CSRSS Client\0"
+                                     L"LDR Database\0"
+                                     L"Current Directory\0"
+                                     L"TLS Storage\0"
+                                     L"DBGSS Client\0"
+                                     L"SE Temporary\0"
+                                     L"Temporary\0"
+                                     L"LocalAtom\0"
+                                   );
+
     RtlAllocateStringRoutine = NtdllpAllocateStringRoutine;
     RtlFreeStringRoutine = NtdllpFreeStringRoutine;
 
+    RtlInitializeAtomPackage( MAKE_TAG( ATOM_TAG ) );
+
     RtlpCurdirInit();
 
-    strcpy( SystemDllPathBuffer, NtSystemPath );
     SystemDllPath.Buffer = SystemDllPathBuffer;
-    SystemDllPath.Length = (USHORT)strlen( NtSystemPath );
+    SystemDllPath.Length = 0;
     SystemDllPath.MaximumLength = sizeof( SystemDllPathBuffer );
-    RtlAppendAsciizToString( &SystemDllPath, "\\System32\\" );
+    RtlInitUnicodeString( &NtSystemRoot, USER_SHARED_DATA->NtSystemRoot );
+    RtlAppendUnicodeStringToString( &SystemDllPath, &NtSystemRoot );
+    RtlAppendUnicodeToString( &SystemDllPath, L"\\System32\\" );
 
     RtlInitUnicodeString(&Unicode,L"\\KnownDlls");
     InitializeObjectAttributes( &Obja,
@@ -873,6 +977,7 @@ Return Value:
                                             &LdrpKnownDllPath,
                                             NULL
                                           );
+            NtClose(LinkHandle);
             if ( !NT_SUCCESS(st) ) {
                 return st;
                 }
@@ -897,17 +1002,19 @@ Return Value:
             LdrpDefaultPath = *(PUNICODE_STRING)&ProcessParameters->DllPath;
             }
         else {
-            LdrpInitializationFailure( STATUS_UNSUCCESSFUL );
+            LdrpInitializationFailure( STATUS_INVALID_PARAMETER );
             }
 
         StaticCurDir = TRUE;
         CurDir = ProcessParameters->CurrentDirectory.DosPath;
-
         if (CurDir.Buffer == NULL || CurDir.Buffer[ 0 ] == UNICODE_NULL || CurDir.Length == 0) {
-            AnsiString = SystemDllPath;
-            AnsiString.Length = 3;
-            st = RtlAnsiStringToUnicodeString(&CurDir, &AnsiString, TRUE);
-            ASSERT(NT_SUCCESS(st));
+            CurDir.Buffer = (RtlAllocateStringRoutine)( (3+1) * sizeof( WCHAR ) );
+            ASSERT(CurDir.Buffer != NULL);
+            RtlMoveMemory( CurDir.Buffer,
+                           USER_SHARED_DATA->NtSystemRoot,
+                           3 * sizeof( WCHAR )
+                         );
+            CurDir.Buffer[ 3 ] = UNICODE_NULL;
             }
         }
 
@@ -916,7 +1023,7 @@ Return Value:
     // exceptions.
     //
 
-    Peb->Ldr = RtlAllocateHeap(Peb->ProcessHeap, 0, sizeof(PEB_LDR_DATA));
+    Peb->Ldr = RtlAllocateHeap(Peb->ProcessHeap, MAKE_TAG( LDR_TAG ), sizeof(PEB_LDR_DATA));
     if ( !Peb->Ldr ) {
         RtlRaiseStatus(STATUS_NO_MEMORY);
         }
@@ -936,7 +1043,7 @@ Return Value:
     // be special cased.
     //
 
-    LdrDataTableEntry = ImageEntry = LdrpAllocateDataTableEntry(Peb->ImageBaseAddress);
+    LdrDataTableEntry = LdrpImageEntry = LdrpAllocateDataTableEntry(Peb->ImageBaseAddress);
     LdrDataTableEntry->LoadCount = (USHORT)0xffff;
     LdrDataTableEntry->EntryPoint = LdrpFetchAddressOfEntryPoint(LdrDataTableEntry->DllBase);
     LdrDataTableEntry->FullDllName = FullImageName;
@@ -957,7 +1064,7 @@ Return Value:
     if (pp) {
        LdrDataTableEntry->BaseDllName.Length = (USHORT)((ULONG)p - (ULONG)pp);
        LdrDataTableEntry->BaseDllName.MaximumLength = LdrDataTableEntry->BaseDllName.Length + (USHORT)sizeof(UNICODE_NULL);
-       LdrDataTableEntry->BaseDllName.Buffer = RtlAllocateHeap(Peb->ProcessHeap, 0,
+       LdrDataTableEntry->BaseDllName.Buffer = RtlAllocateHeap(Peb->ProcessHeap, MAKE_TAG( LDR_TAG ),
                                                                LdrDataTableEntry->BaseDllName.MaximumLength
                                                               );
        RtlMoveMemory(LdrDataTableEntry->BaseDllName.Buffer,
@@ -970,7 +1077,6 @@ Return Value:
     LdrpInsertMemoryTableEntry(LdrDataTableEntry);
     LdrDataTableEntry->Flags |= LDRP_ENTRY_PROCESSED;
 
-#if DEVL
     if (ShowSnaps) {
         DbgPrint( "LDR: NEW PROCESS\n" );
         DbgPrint( "     Image Path: %wZ (%wZ)\n",
@@ -979,9 +1085,7 @@ Return Value:
                 );
         DbgPrint( "     Current Directory: %wZ\n", &CurDir );
         DbgPrint( "     Search Path: %wZ\n", &LdrpDefaultPath );
-//      DbgBreakPoint();
     }
-#endif
 
     //
     // The process references the system DLL, so map this one next. Since
@@ -990,18 +1094,31 @@ Return Value:
     // system Dll, we'll keep the LoadCount initialized to 0.
     //
 
-    NtDllBase = SystemDllBase;
     LdrDataTableEntry = LdrpAllocateDataTableEntry(SystemDllBase);
     LdrDataTableEntry->Flags = (USHORT)LDRP_IMAGE_DLL;
     LdrDataTableEntry->EntryPoint = LdrpFetchAddressOfEntryPoint(LdrDataTableEntry->DllBase);
     LdrDataTableEntry->LoadCount = (USHORT)0xffff;
 
-    RtlAppendAsciizToString( &SystemDllPath, BASESYSTEMDLLNAME );
-    st = RtlAnsiStringToUnicodeString(&LdrDataTableEntry->FullDllName, &SystemDllPath, TRUE);
-    ASSERT(NT_SUCCESS(st));
+    LdrDataTableEntry->BaseDllName.Length = SystemDllPath.Length;
+    RtlAppendUnicodeToString( &SystemDllPath, L"ntdll.dll" );
+    LdrDataTableEntry->BaseDllName.Length = SystemDllPath.Length - LdrDataTableEntry->BaseDllName.Length;
+    LdrDataTableEntry->BaseDllName.MaximumLength = LdrDataTableEntry->BaseDllName.Length + sizeof( UNICODE_NULL );
 
-    RtlInitUnicodeString(&LdrDataTableEntry->BaseDllName,WBASESYSTEMDLLNAME);
-
+    LdrDataTableEntry->FullDllName.Buffer =
+        (RtlAllocateStringRoutine)( SystemDllPath.Length + sizeof( UNICODE_NULL ) );
+    ASSERT(LdrDataTableEntry->FullDllName.Buffer != NULL);
+    RtlMoveMemory( LdrDataTableEntry->FullDllName.Buffer,
+                   SystemDllPath.Buffer,
+                   SystemDllPath.Length
+                 );
+    LdrDataTableEntry->FullDllName.Buffer[ SystemDllPath.Length / sizeof( WCHAR ) ] = UNICODE_NULL;
+    LdrDataTableEntry->FullDllName.Length = SystemDllPath.Length;
+    LdrDataTableEntry->FullDllName.MaximumLength = SystemDllPath.Length + sizeof( UNICODE_NULL );
+    LdrDataTableEntry->BaseDllName.Buffer = (PWSTR)
+        ((PCHAR)(LdrDataTableEntry->FullDllName.Buffer) +
+         LdrDataTableEntry->FullDllName.Length -
+         LdrDataTableEntry->BaseDllName.Length
+        );
     LdrpInsertMemoryTableEntry(LdrDataTableEntry);
 
     //
@@ -1020,18 +1137,13 @@ Return Value:
         NTSTATUS ErrorStatus;
         ULONG ErrorParameters[2];
         ULONG ErrorResponse;
-        UNICODE_STRING UniCurDir;
 
         //
         // Its error time...
         //
 
-        RtlInitAnsiString(&AnsiString, NtSystemPath);
-        st = RtlAnsiStringToUnicodeString(&UniCurDir, &AnsiString, TRUE);
-        ASSERT(NT_SUCCESS(st));
-
         ErrorParameters[0] = (ULONG)&CurDir;
-        ErrorParameters[1] = (ULONG)&UniCurDir;
+        ErrorParameters[1] = (ULONG)&NtSystemRoot;
 
         ErrorStatus = NtRaiseHardError(
                         STATUS_BAD_CURRENT_DIRECTORY,
@@ -1045,12 +1157,12 @@ Return Value:
             RtlFreeUnicodeString(&CurDir);
             }
         if ( NT_SUCCESS(ErrorStatus) && ErrorResponse == ResponseCancel ) {
+            LdrpFatalHardErrorCount++;
             return st;
             }
         else {
-            CurDir = UniCurDir;
+            CurDir = NtSystemRoot;
             st = RtlSetCurrentDirectory_U(&CurDir);
-            RtlFreeUnicodeString(&UniCurDir);
             }
         }
     else {
@@ -1060,13 +1172,27 @@ Return Value:
         }
 
 
+#if defined(WX86)
+
+    //
+    // Load in x86 emulator for risc (Wx86.dll)
+    //
+
+    if (NtHeader->FileHeader.Machine == IMAGE_FILE_MACHINE_I386) {
+        st = LdrpLoadWx86Dll(Context);
+        if (!NT_SUCCESS(st)) {
+            return st;
+            }
+        }
+
+#endif
 
     st = LdrpWalkImportDescriptor(
             LdrpDefaultPath.Buffer,
-            ImageEntry
+            LdrpImageEntry
             );
 
-    LdrpReferenceLoadedDll(ImageEntry);
+    LdrpReferenceLoadedDll(LdrpImageEntry);
 
     //
     // Lock the loaded DLL's to prevent dlls that back link to the exe to
@@ -1087,6 +1213,12 @@ Return Value:
         }
     }
 
+    //
+    // All static DLL's are now pinned in place. No init routines have been run yet
+    //
+
+    LdrpLdrDatabaseIsSetup = TRUE;
+
 
     if (!NT_SUCCESS(st)) {
 #if DBG
@@ -1104,8 +1236,9 @@ Return Value:
     // signal the debugger with an exception
     //
 
-    if ( LdrpBeingDebugged ) {
-        DbgBreakPoint();
+    if ( Peb->BeingDebugged ) {
+         DbgBreakPoint();
+         ShowSnaps = (BOOLEAN)(FLG_SHOW_LDR_SNAPS & NtGlobalFlag);
     }
 
 #if defined (_X86_)
@@ -1115,7 +1248,7 @@ Return Value:
 #endif
 
 #if DBG
-    if (NtGlobalFlag & FLG_DISPLAY_LOAD_TIME) {
+    if (LdrpDisplayLoadTime) {
         NtQueryPerformanceCounter(&InitbTime, NULL);
     }
 #endif // DBG
@@ -1155,7 +1288,6 @@ Return Value:
     PDLL_INIT_ROUTINE InitRoutine;
     PLIST_ENTRY Next;
 
-
     //
     // only unload once ! DllTerm routines might call exit process in fatal situations
     //
@@ -1166,8 +1298,7 @@ Return Value:
 
     Peb = NtCurrentPeb();
 
-#if DBG
-    if (NtGlobalFlag & FLG_SHOW_LDR_PROCESS_STARTS) {
+    if (ShowSnaps) {
         UNICODE_STRING CommandLine;
 
         CommandLine = Peb->ProcessParameters->CommandLine;
@@ -1180,55 +1311,90 @@ Return Value:
                   &CommandLine
                 );
     }
-#endif
 
-    NtWaitForProcessMutant();
+    LdrpShutdownThreadId = NtCurrentTeb()->ClientId.UniqueThread;
     LdrpShutdownInProgress = TRUE;
+    RtlEnterCriticalSection(&LoaderLock);
+
     try {
 
         //
-        // Go in reverse order initialization order and build
-        // the unload list
+        // check to see if the heap is locked. If so, do not do ANY
+        // dll processing since it is very likely that a dll will need
+        // to do heap operations, but that the heap is not in good shape.
+        // ExitProcess called in a very active app can leave threads terminated
+        // in the middle of the heap code or in other very bad places. Checking the
+        // heap lock is a good indication that the process was very active when it
+        // called ExitProcess
         //
 
-        Next = Peb->Ldr->InInitializationOrderModuleList.Blink;
-        while ( Next != &Peb->Ldr->InInitializationOrderModuleList) {
-            LdrDataTableEntry
-                = (PLDR_DATA_TABLE_ENTRY)
-                  (CONTAINING_RECORD(Next,LDR_DATA_TABLE_ENTRY,InInitializationOrderLinks));
-
-            Next = Next->Blink;
-
-            //
-            // Walk through the entire list looking for
-            // entries. For each entry, that has an init
-            // routine, call it.
-            //
-
-            if (Peb->ImageBaseAddress != LdrDataTableEntry->DllBase) {
-                InitRoutine = (PDLL_INIT_ROUTINE)LdrDataTableEntry->EntryPoint;
-                if (InitRoutine && (LdrDataTableEntry->Flags & LDRP_PROCESS_ATTACH_CALLED) ) {
-                   if (LdrDataTableEntry->Flags) {
-                       if ( LdrDataTableEntry->TlsIndex ) {
-                           LdrpCallTlsInitializers(LdrDataTableEntry->DllBase,DLL_PROCESS_DETACH);
-                           }
-
-                       (InitRoutine)(LdrDataTableEntry->DllBase,DLL_PROCESS_DETACH, (PVOID)1);
-                   }
-                }
+        if ( RtlpHeapIsLocked( RtlProcessHeap() )) {
+#if DBG
+            DbgPrint( "LDR: ExitProcess called while process heap locked\n" );
+#endif
+            ;
             }
-        }
+        else {
+            if ( Peb->BeingDebugged ) {
+                RtlValidateProcessHeaps();
+                }
 
-        //
-        // If the image has tls than call its initializers
-        //
+            //
+            // Go in reverse order initialization order and build
+            // the unload list
+            //
 
-        if ( LdrpImageHasTls ) {
-            LdrpCallTlsInitializers(NtCurrentPeb()->ImageBaseAddress,DLL_PROCESS_DETACH);
+            Next = Peb->Ldr->InInitializationOrderModuleList.Blink;
+            while ( Next != &Peb->Ldr->InInitializationOrderModuleList) {
+                LdrDataTableEntry
+                    = (PLDR_DATA_TABLE_ENTRY)
+                      (CONTAINING_RECORD(Next,LDR_DATA_TABLE_ENTRY,InInitializationOrderLinks));
+
+                Next = Next->Blink;
+
+                //
+                // Walk through the entire list looking for
+                // entries. For each entry, that has an init
+                // routine, call it.
+                //
+
+                if (Peb->ImageBaseAddress != LdrDataTableEntry->DllBase) {
+                    InitRoutine = (PDLL_INIT_ROUTINE)LdrDataTableEntry->EntryPoint;
+                    if (InitRoutine && (LdrDataTableEntry->Flags & LDRP_PROCESS_ATTACH_CALLED) ) {
+                        if (LdrDataTableEntry->Flags) {
+                            if ( LdrDataTableEntry->TlsIndex ) {
+                                LdrpCallTlsInitializers(LdrDataTableEntry->DllBase,DLL_PROCESS_DETACH);
+                                }
+
+#if defined (WX86)
+                            if (!Wx86CurrentTib() ||
+                                LdrpRunWx86DllEntryPoint(InitRoutine,
+                                                        NULL,
+                                                        LdrDataTableEntry->DllBase,
+                                                        DLL_PROCESS_DETACH,
+                                                        (PVOID)1
+                                                        ) ==  STATUS_IMAGE_MACHINE_TYPE_MISMATCH)
+#endif
+                               {
+                                (InitRoutine)(LdrDataTableEntry->DllBase,DLL_PROCESS_DETACH, (PVOID)1);
+                                }
+
+                            }
+                        }
+                    }
+                }
+
+            //
+            // If the image has tls than call its initializers
+            //
+
+            if ( LdrpImageHasTls ) {
+                LdrpCallTlsInitializers(NtCurrentPeb()->ImageBaseAddress,DLL_PROCESS_DETACH);
+                }
             }
 
     } finally {
-        NtReleaseProcessMutant();
+        RtlLeaveCriticalSection(&LoaderLock);
     }
 
 }
@@ -1268,7 +1434,7 @@ Return Value:
 
     Peb = NtCurrentPeb();
 
-    NtWaitForProcessMutant();
+    RtlEnterCriticalSection(&LoaderLock);
 
     try {
 
@@ -1310,7 +1476,19 @@ Return Value:
                             if ( LdrDataTableEntry->TlsIndex ) {
                                 LdrpCallTlsInitializers(LdrDataTableEntry->DllBase,DLL_THREAD_DETACH);
                                 }
-                            (InitRoutine)(LdrDataTableEntry->DllBase,DLL_THREAD_DETACH, NULL);
+
+#if defined (WX86)
+                            if (!Wx86CurrentTib() ||
+                                LdrpRunWx86DllEntryPoint(InitRoutine,
+                                                        NULL,
+                                                        LdrDataTableEntry->DllBase,
+                                                        DLL_THREAD_DETACH,
+                                                        NULL
+                                                        ) ==  STATUS_IMAGE_MACHINE_TYPE_MISMATCH)
+#endif
+                               {
+                                (InitRoutine)(LdrDataTableEntry->DllBase,DLL_THREAD_DETACH, NULL);
+                                }
                             }
                         }
                     }
@@ -1327,11 +1505,12 @@ Return Value:
         LdrpFreeTls();
 
     } finally {
+
 #if DBG
         Teb->Spare1 = GuiExit;
 #endif
 
-        NtReleaseProcessMutant();
+        RtlLeaveCriticalSection(&LoaderLock);
     }
 }
 
@@ -1366,6 +1545,10 @@ Return Value:
 
     Peb = NtCurrentPeb();
 
+    if ( LdrpShutdownInProgress ) {
+        return;
+        }
+
     LdrpAllocateTls();
 
     Next = Peb->Ldr->InMemoryOrderModuleList.Flink;
@@ -1383,11 +1566,27 @@ Return Value:
             if ( !(LdrDataTableEntry->Flags & LDRP_DONT_CALL_FOR_THREADS)) {
                 InitRoutine = (PDLL_INIT_ROUTINE)LdrDataTableEntry->EntryPoint;
                 if (InitRoutine && (LdrDataTableEntry->Flags & LDRP_PROCESS_ATTACH_CALLED) ) {
-                   if (LdrDataTableEntry->Flags & LDRP_IMAGE_DLL) {
-                       if ( LdrDataTableEntry->TlsIndex ) {
-                           LdrpCallTlsInitializers(LdrDataTableEntry->DllBase,DLL_THREAD_ATTACH);
-                           }
-                        (InitRoutine)(LdrDataTableEntry->DllBase,DLL_THREAD_ATTACH, NULL);
+                    if (LdrDataTableEntry->Flags & LDRP_IMAGE_DLL) {
+                        if ( LdrDataTableEntry->TlsIndex ) {
+                            if ( !LdrpShutdownInProgress ) {
+                                LdrpCallTlsInitializers(LdrDataTableEntry->DllBase,DLL_THREAD_ATTACH);
+                                }
+                            }
+
+#if defined (WX86)
+                        if (!Wx86CurrentTib() ||
+                            LdrpRunWx86DllEntryPoint(InitRoutine,
+                                                    NULL,
+                                                    LdrDataTableEntry->DllBase,
+                                                    DLL_THREAD_ATTACH,
+                                                    NULL
+                                                    ) ==  STATUS_IMAGE_MACHINE_TYPE_MISMATCH)
+#endif
+                           {
+                            if ( !LdrpShutdownInProgress ) {
+                                (InitRoutine)(LdrDataTableEntry->DllBase,DLL_THREAD_ATTACH, NULL);
+                                }
+                            }
                         }
                     }
                 }
@@ -1399,7 +1598,7 @@ Return Value:
     // If the image has tls than call its initializers
     //
 
-    if ( LdrpImageHasTls ) {
+    if ( LdrpImageHasTls && !LdrpShutdownInProgress ) {
         LdrpCallTlsInitializers(NtCurrentPeb()->ImageBaseAddress,DLL_THREAD_ATTACH);
         }
 
@@ -1477,7 +1676,7 @@ LdrQueryImageFileExecutionOptions(
                             );
     if (Status == STATUS_BUFFER_OVERFLOW) {
         KeyValueInformation = (PKEY_VALUE_PARTIAL_INFORMATION)
-            RtlAllocateHeap( RtlProcessHeap(), 0,
+            RtlAllocateHeap( RtlProcessHeap(), MAKE_TAG( TEMP_TAG ),
                              sizeof( *KeyValueInformation ) +
                                 KeyValueInformation->DataLength
                            );
@@ -1516,7 +1715,7 @@ LdrQueryImageFileExecutionOptions(
                 }
             else {
                 if (KeyValueInformation->DataLength > BufferSize) {
-                    Status == STATUS_BUFFER_OVERFLOW;
+                    Status = STATUS_BUFFER_OVERFLOW;
                     }
                 else {
                     BufferSize = KeyValueInformation->DataLength;
@@ -1575,21 +1774,21 @@ LdrpInitializeTls(
 
         if ( FirstTimeThru ) {
             FirstTimeThru = FALSE;
-            if ( TlsImage ) {
+            if ( TlsImage && !LdrpImageHasTls) {
+                RtlpSerializeHeap( RtlProcessHeap() );
                 LdrpImageHasTls = TRUE;
                 }
             }
 
         if ( TlsImage ) {
-#if DEVL
             if (ShowSnaps) {
                 DbgPrint( "LDR: Tls Found in %wZ at %lx\n",
                             &Entry->BaseDllName,
                             TlsImage
                         );
                 }
-#endif
-            TlsEntry = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(*TlsEntry));
+
+            TlsEntry = RtlAllocateHeap(RtlProcessHeap(),MAKE_TAG( TLS_TAG ),sizeof(*TlsEntry));
             if ( !TlsEntry ) {
                 return STATUS_NO_MEMORY;
                 }
@@ -1613,7 +1812,27 @@ LdrpInitializeTls(
             // Update the index for this dll's thread local storage
             //
 
-            *TlsEntry->Tls.AddressOfIndex = LdrpNumberOfTlsEntries++;
+
+#if defined(_MIPS_)
+
+
+            //
+            // Scaled index is only supported on mips since we have to worry about
+            // other compiler/linker vendors not being as careful with the
+            // field as we have been. Ours has always been 0. Who knows what
+            // borland/whatcom have done
+            //
+
+            if ( TlsEntry->Tls.Characteristics & IMAGE_SCN_SCALE_INDEX ) {
+                *TlsEntry->Tls.AddressOfIndex = LdrpNumberOfTlsEntries << 2;
+                }
+            else {
+                *TlsEntry->Tls.AddressOfIndex = LdrpNumberOfTlsEntries;
+                }
+#else
+            *TlsEntry->Tls.AddressOfIndex = LdrpNumberOfTlsEntries;
+#endif // _MIPS_
+            TlsEntry->Tls.Characteristics = LdrpNumberOfTlsEntries++;
             }
         }
 
@@ -1643,50 +1862,64 @@ LdrpAllocateTls(
     // Allocate the array of thread local storage pointers
     //
 
-    TlsVector = RtlAllocateHeap(RtlProcessHeap(),0,sizeof(PVOID)*LdrpNumberOfTlsEntries);
-    if ( !TlsVector ) {
-        return STATUS_NO_MEMORY;
-        }
-
-    Teb->ThreadLocalStoragePointer = TlsVector;
-
-    Head = &LdrpTlsList;
-    Next = Head->Flink;
-
-    while ( Next != Head ) {
-        TlsEntry = CONTAINING_RECORD(Next, LDRP_TLS_ENTRY, Links);
-        Next = Next->Flink;
-        TlsVector[*TlsEntry->Tls.AddressOfIndex] = RtlAllocateHeap(
-                                                    RtlProcessHeap(),
-                                                    0,
-                                                    TlsEntry->Tls.EndAddressOfRawData - TlsEntry->Tls.StartAddressOfRawData
-                                                    );
-        if (!TlsVector[*TlsEntry->Tls.AddressOfIndex] ) {
+    if ( LdrpNumberOfTlsEntries ) {
+        TlsVector = RtlAllocateHeap(RtlProcessHeap(),MAKE_TAG( TLS_TAG ),sizeof(PVOID)*LdrpNumberOfTlsEntries);
+        if ( !TlsVector ) {
             return STATUS_NO_MEMORY;
             }
-#if DEVL
-        if (ShowSnaps) {
-            DbgPrint("LDR: TlsVector %x Index %d = %x copied from %x to %x\n",
-                TlsVector,
-                *TlsEntry->Tls.AddressOfIndex,
-                &TlsVector[*TlsEntry->Tls.AddressOfIndex],
-                TlsEntry->Tls.StartAddressOfRawData,
-                TlsVector[*TlsEntry->Tls.AddressOfIndex]
+
+        Teb->ThreadLocalStoragePointer = TlsVector;
+
+#if defined(_MIPS_)
+
+        //
+        // let mips context switch the tls vector
+        //
+
+        NtSetInformationThread(NtCurrentThread(),
+                               ThreadSetTlsArrayAddress,
+                               &TlsVector,
+                               sizeof(TlsVector));
+
+#endif // _MIPS_
+
+        Head = &LdrpTlsList;
+        Next = Head->Flink;
+
+        while ( Next != Head ) {
+            TlsEntry = CONTAINING_RECORD(Next, LDRP_TLS_ENTRY, Links);
+            Next = Next->Flink;
+            TlsVector[TlsEntry->Tls.Characteristics] = RtlAllocateHeap(
+                                                        RtlProcessHeap(),
+                                                        MAKE_TAG( TLS_TAG ),
+                                                        TlsEntry->Tls.EndAddressOfRawData - TlsEntry->Tls.StartAddressOfRawData
+                                                        );
+            if (!TlsVector[TlsEntry->Tls.Characteristics] ) {
+                return STATUS_NO_MEMORY;
+                }
+
+            if (ShowSnaps) {
+                DbgPrint("LDR: TlsVector %x Index %d = %x copied from %x to %x\n",
+                    TlsVector,
+                    TlsEntry->Tls.Characteristics,
+                    &TlsVector[TlsEntry->Tls.Characteristics],
+                    TlsEntry->Tls.StartAddressOfRawData,
+                    TlsVector[TlsEntry->Tls.Characteristics]
+                    );
+                }
+
+            RtlCopyMemory(
+                TlsVector[TlsEntry->Tls.Characteristics],
+                (PVOID)TlsEntry->Tls.StartAddressOfRawData,
+                TlsEntry->Tls.EndAddressOfRawData - TlsEntry->Tls.StartAddressOfRawData
                 );
+
+            //
+            // Do the TLS Callouts
+            //
+
             }
-#endif
-        RtlCopyMemory(
-            TlsVector[*TlsEntry->Tls.AddressOfIndex],
-            (PVOID)TlsEntry->Tls.StartAddressOfRawData,
-            TlsEntry->Tls.EndAddressOfRawData - TlsEntry->Tls.StartAddressOfRawData
-            );
-
-        //
-        // Do the TLS Callouts
-        //
-
         }
-
     return STATUS_SUCCESS;
 }
 
@@ -1704,33 +1937,34 @@ LdrpFreeTls(
 
     TlsVector = Teb->ThreadLocalStoragePointer;
 
-    Head = &LdrpTlsList;
-    Next = Head->Flink;
+    if ( TlsVector ) {
+        Head = &LdrpTlsList;
+        Next = Head->Flink;
 
-    while ( Next != Head ) {
-        TlsEntry = CONTAINING_RECORD(Next, LDRP_TLS_ENTRY, Links);
-        Next = Next->Flink;
+        while ( Next != Head ) {
+            TlsEntry = CONTAINING_RECORD(Next, LDRP_TLS_ENTRY, Links);
+            Next = Next->Flink;
 
-        //
-        // Do the TLS callouts
-        //
+            //
+            // Do the TLS callouts
+            //
 
-        if ( TlsVector[*TlsEntry->Tls.AddressOfIndex] ) {
-            RtlFreeHeap(
-                RtlProcessHeap(),
-                0,
-                TlsVector[*TlsEntry->Tls.AddressOfIndex]
-                );
+            if ( TlsVector[TlsEntry->Tls.Characteristics] ) {
+                RtlFreeHeap(
+                    RtlProcessHeap(),
+                    0,
+                    TlsVector[TlsEntry->Tls.Characteristics]
+                    );
 
+                }
             }
+
+        RtlFreeHeap(
+            RtlProcessHeap(),
+            0,
+            TlsVector
+            );
         }
-
-    RtlFreeHeap(
-        RtlProcessHeap(),
-        0,
-        TlsVector
-        );
-
 }
 
 VOID
@@ -1741,8 +1975,8 @@ LdrpCallTlsInitializers(
 {
     PIMAGE_TLS_DIRECTORY TlsImage;
     ULONG TlsSize;
+    PIMAGE_TLS_CALLBACK *CallBackArray;
     PIMAGE_TLS_CALLBACK InitRoutine;
-    int i;
 
     TlsImage = (PIMAGE_TLS_DIRECTORY)RtlImageDirectoryEntryToData(
                        DllBase,
@@ -1754,29 +1988,40 @@ LdrpCallTlsInitializers(
 
     try {
         if ( TlsImage ) {
-            if ( TlsImage->AddressOfCallBacks ) {
-#if DEVL
+            CallBackArray = TlsImage->AddressOfCallBacks;
+            if ( CallBackArray ) {
                 if (ShowSnaps) {
                     DbgPrint( "LDR: Tls Callbacks Found. Imagebase %lx Tls %lx CallBacks %lx\n",
                                 DllBase,
                                 TlsImage,
-                                TlsImage->AddressOfCallBacks
+                                CallBackArray
                             );
                     }
-#endif
 
-                i = 0;
-                while(TlsImage->AddressOfCallBacks[i]){
-                    InitRoutine = TlsImage->AddressOfCallBacks[i++];
-#if DEVL
-                if (ShowSnaps) {
-                    DbgPrint( "LDR: Calling Tls Callback Imagebase %lx Function %lx\n",
-                                DllBase,
-                                InitRoutine
-                            );
-                    }
+                while(*CallBackArray){
+                    InitRoutine = *CallBackArray++;
+
+                    if (ShowSnaps) {
+                        DbgPrint( "LDR: Calling Tls Callback Imagebase %lx Function %lx\n",
+                                    DllBase,
+                                    InitRoutine
+                                );
+                        }
+
+#if defined (WX86)
+                    if (!Wx86CurrentTib() ||
+                        LdrpRunWx86DllEntryPoint(
+                             (PDLL_INIT_ROUTINE)InitRoutine,
+                             NULL,
+                             DllBase,
+                             Reason,
+                             NULL
+                             ) ==  STATUS_IMAGE_MACHINE_TYPE_MISMATCH)
 #endif
-                    (InitRoutine)(DllBase,Reason,0);
+                       {
+                        (InitRoutine)(DllBase,Reason,0);
+                        }
+
                     }
                 }
             }

@@ -1162,4 +1162,3 @@ Return Value:
     return (*lpfnSetLabel)(szDrive, (PWSTR)szLabel);
 }
 
-

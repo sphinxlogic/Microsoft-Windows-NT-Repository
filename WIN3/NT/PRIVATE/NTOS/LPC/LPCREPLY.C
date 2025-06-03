@@ -20,6 +20,25 @@ Revision History:
 
 #include "lpcp.h"
 
+NTSTATUS
+LpcpCopyRequestData(
+    IN BOOLEAN WriteToMessageData,
+    IN HANDLE PortHandle,
+    IN PPORT_MESSAGE Message,
+    IN ULONG DataEntryIndex,
+    IN PVOID Buffer,
+    IN ULONG BufferSize,
+    OUT PULONG NumberOfBytesCopied OPTIONAL
+    );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,NtReplyPort)
+#pragma alloc_text(PAGE,NtReplyWaitReplyPort)
+#pragma alloc_text(PAGE,NtReadRequestData)
+#pragma alloc_text(PAGE,NtWriteRequestData)
+#pragma alloc_text(PAGE,LpcpCopyRequestData)
+#endif
+
 
 NTSTATUS
 NtReplyPort(
@@ -31,11 +50,11 @@ NtReplyPort(
     PLPCP_PORT_OBJECT PortObject;
     PORT_MESSAGE CapturedReplyMessage;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
     PETHREAD CurrentThread;
     PETHREAD WakeupThread;
 
+    PAGED_CODE();
     CurrentThread = PsGetCurrentThread();
 
     //
@@ -88,17 +107,15 @@ NtReplyPort(
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
     // the thread and get the pointer to the message that the thread
     // is waiting for a reply to.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedReplyMessage.u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
+    ExAcquireFastMutex( &LpcpLock );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedReplyMessage.u1.s1.TotalLength );
     if (Msg == NULL) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( WakeupThread );
         ObDereferenceObject( PortObject );
         return( STATUS_NO_MEMORY );
@@ -107,7 +124,7 @@ NtReplyPort(
     //
     // See if the thread is waiting for a reply to the message
     // specified on this call.  If not then a bogus message
-    // has been specified, so release the spin lock, dereference the thread
+    // has been specified, so release the mutex, dereference the thread
     // and return failure.
     //
 
@@ -128,12 +145,12 @@ NtReplyPort(
                     WakeupThread->Cid.UniqueThread
                  ));
 #if DBG
-        if (NtGlobalFlag & FLG_STOP_ON_EXCEPTION) {
+        if (LpcpStopOnReplyMismatch) {
             DbgBreakPoint();
             }
 #endif
         LpcpFreeToPortZone( Msg, TRUE );
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( WakeupThread );
         ObDereferenceObject( PortObject );
         return( STATUS_REPLY_MESSAGE_MISMATCH );
@@ -153,11 +170,14 @@ NtReplyPort(
              ));
 
     if (CapturedReplyMessage.u2.s2.DataInfoOffset != 0) {
-        LpcpFindDataInfoMessage( PortObject, CapturedReplyMessage.MessageId, TRUE );
+        LpcpFreeDataInfoMessage( PortObject,
+                                 CapturedReplyMessage.MessageId,
+                                 CapturedReplyMessage.CallbackId
+                               );
         }
 
     //
-    // Release the spin lock that guards the LpcReplyMessage field
+    // Release the mutex that guards the LpcReplyMessage field
     // after marking message as being replied to.
     //
 
@@ -179,7 +199,7 @@ NtReplyPort(
         CurrentThread->LpcReceivedMessageId = 0;
         CurrentThread->LpcReceivedMsgIdValid = FALSE;
         }
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 
     //
     // Copy the reply message to the request message buffer
@@ -225,13 +245,13 @@ NtReplyWaitReplyPort(
 {
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PLPCP_PORT_OBJECT PortObject;
     PORT_MESSAGE CapturedReplyMessage;
     PLPCP_MESSAGE Msg;
     PETHREAD CurrentThread;
     PETHREAD WakeupThread;
 
+    PAGED_CODE();
     CurrentThread = PsGetCurrentThread();
 
     //
@@ -286,17 +306,15 @@ NtReplyWaitReplyPort(
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
     // the thread and get the pointer to the message that the thread
     // is waiting for a reply to.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedReplyMessage.u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
+    ExAcquireFastMutex( &LpcpLock );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedReplyMessage.u1.s1.TotalLength );
     if (Msg == NULL) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( WakeupThread );
         ObDereferenceObject( PortObject );
         return( STATUS_NO_MEMORY );
@@ -305,7 +323,7 @@ NtReplyWaitReplyPort(
     //
     // See if the thread is waiting for a reply to the message
     // specified on this call.  If not then a bogus message
-    // has been specified, so release the spin lock, dereference the thread
+    // has been specified, so release the mutex, dereference the thread
     // and return failure.
     //
 
@@ -326,12 +344,12 @@ NtReplyWaitReplyPort(
                     WakeupThread->Cid.UniqueThread
                  ));
 #if DBG
-        if (NtGlobalFlag & FLG_STOP_ON_EXCEPTION) {
+        if (LpcpStopOnReplyMismatch) {
             DbgBreakPoint();
             }
 #endif
         LpcpFreeToPortZone( Msg, TRUE );
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( WakeupThread );
         ObDereferenceObject( PortObject );
         return( STATUS_REPLY_MESSAGE_MISMATCH );
@@ -352,11 +370,14 @@ NtReplyWaitReplyPort(
              ));
 
     if (CapturedReplyMessage.u2.s2.DataInfoOffset != 0) {
-        LpcpFindDataInfoMessage( PortObject, CapturedReplyMessage.MessageId, TRUE );
+        LpcpFreeDataInfoMessage( PortObject,
+                                 CapturedReplyMessage.MessageId,
+                                 CapturedReplyMessage.CallbackId
+                               );
         }
 
     //
-    // Release the spin lock that guards the LpcReplyMessage field
+    // Release the mutex that guards the LpcReplyMessage field
     // after marking message as being replied to.
     //
 
@@ -380,7 +401,7 @@ NtReplyWaitReplyPort(
         CurrentThread->LpcReceivedMessageId = 0;
         CurrentThread->LpcReceivedMsgIdValid = FALSE;
         }
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 
     //
     // Copy the reply message to the request message buffer
@@ -434,16 +455,16 @@ NtReplyWaitReplyPort(
     if (Status == STATUS_SUCCESS ) {
 
         //
-        // Acquire the spin lock that gaurds the request message
+        // Acquire the mutex that gaurds the request message
         // queue.  Remove the request message from the list of
         // messages being processed and free the message back to the queue's zone.
         // If the zone's free list was zero before freeing this message then
         // pulse the free event after free the message so that threads waiting
         // to allocate a request message buffer will wake up.  Finally,
-        // release the spin lock and return the system service status.
+        // release the mutex and return the system service status.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
 
         Msg = CurrentThread->LpcReplyMessage;
         CurrentThread->LpcReplyMessage = NULL;
@@ -466,7 +487,7 @@ NtReplyWaitReplyPort(
             }
 #endif
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         if (Msg != NULL) {
             try {
@@ -482,12 +503,12 @@ NtReplyWaitReplyPort(
                 }
 
             //
-            // Acquire the LPC spin lock and decrement the reference count for the
+            // Acquire the LPC mutex and decrement the reference count for the
             // message.  If the reference count goes to zero the message will be
             // deleted.
             //
 
-            ExAcquireSpinLock( &LpcpLock, &OldIrql );
+            ExAcquireFastMutex( &LpcpLock );
 
             if (Msg->RepliedToThread != NULL) {
                 ObDereferenceObject( Msg->RepliedToThread );
@@ -496,7 +517,7 @@ NtReplyWaitReplyPort(
 
             LpcpFreeToPortZone( Msg, TRUE );
 
-            ExReleaseSpinLock( &LpcpLock, OldIrql );
+            ExReleaseFastMutex( &LpcpLock );
             }
         }
 
@@ -505,17 +526,6 @@ NtReplyWaitReplyPort(
     return( Status );
 }
 
-
-NTSTATUS
-LpcpCopyRequestData(
-    IN BOOLEAN WriteToMessageData,
-    IN HANDLE PortHandle,
-    IN PPORT_MESSAGE Message,
-    IN ULONG DataEntryIndex,
-    IN PVOID Buffer,
-    IN ULONG BufferSize,
-    OUT PULONG NumberOfBytesCopied OPTIONAL
-    );
 
 NTSTATUS
 NtReadRequestData(
@@ -527,6 +537,8 @@ NtReadRequestData(
     OUT PULONG NumberOfBytesRead OPTIONAL
     )
 {
+    PAGED_CODE();
+
     return LpcpCopyRequestData( FALSE,
                                 PortHandle,
                                 Message,
@@ -548,6 +560,7 @@ NtWriteRequestData(
     OUT PULONG NumberOfBytesWritten OPTIONAL
     )
 {
+    PAGED_CODE();
     return LpcpCopyRequestData( TRUE,
                                 PortHandle,
                                 Message,
@@ -575,7 +588,6 @@ LpcpCopyRequestData(
     PLPCP_MESSAGE Msg;
     PLIST_ENTRY Head, Next;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PETHREAD ClientThread;
     PPORT_DATA_INFORMATION DataInfo;
     PPORT_DATA_ENTRY DataEntry;
@@ -584,6 +596,7 @@ LpcpCopyRequestData(
     PORT_DATA_ENTRY CapturedDataEntry;
     ULONG BytesCopied;
 
+    PAGED_CODE();
     //
     // Get previous processor mode and probe output arguments if necessary.
     //
@@ -654,17 +667,17 @@ LpcpCopyRequestData(
         }
 
     //
-    // Acquire the spin lock that gaurds the LpcReplyMessage field of
+    // Acquire the mutex that gaurds the LpcReplyMessage field of
     // the thread and get the pointer to the message that the thread
     // is waiting for a reply to.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
 
     //
     // See if the thread is waiting for a reply to the message
     // specified on this call.  If not then a bogus message
-    // has been specified, so release the spin lock, dereference the thread
+    // has been specified, so release the mutex, dereference the thread
     // and return failure.
     //
 
@@ -673,7 +686,10 @@ LpcpCopyRequestData(
         }
     else {
         Status = STATUS_INVALID_PARAMETER;
-        Msg = LpcpFindDataInfoMessage( PortObject, CapturedMessage.MessageId, FALSE );
+        Msg = LpcpFindDataInfoMessage( PortObject,
+                                       CapturedMessage.MessageId,
+                                       CapturedMessage.CallbackId
+                                     );
         if (Msg != NULL) {
             DataInfo = (PPORT_DATA_INFORMATION)((PUCHAR)&Msg->Request +
                                                 Msg->Request.u2.s2.DataInfoOffset
@@ -689,17 +705,17 @@ LpcpCopyRequestData(
         }
 
     if (!NT_SUCCESS( Status )) {
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         ObDereferenceObject( ClientThread );
         ObDereferenceObject( PortObject );
         return( Status );
         }
 
     //
-    // Release the spin lock that guards the LpcReplyMessage field
+    // Release the mutex that guards the LpcReplyMessage field
     //
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 
 
     //

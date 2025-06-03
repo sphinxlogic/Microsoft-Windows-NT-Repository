@@ -58,7 +58,10 @@ BOOLEAN
 WdCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR	Interrupt,
+	OUT PULONG	MemoryAddress,
+	OUT PULONG	MemoryLength
     );
 
 VOID
@@ -124,6 +127,12 @@ WdCardSetup(
     OUT UCHAR *NetworkAddress
     );
 
+BOOLEAN
+CheckFor585(
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    ULONG IoBaseAddress
+    );
 
 #ifdef WORKAROUND
 
@@ -167,7 +176,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"SMCISA",
-        L"IRQ\0001\00090\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDR\0001\000100\0MEMADDRLENGTH\0002\000100\0",
+        L"IRQ\0"
+        L"1\0"
+        L"90\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"1\0"
+        L"100\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0",
         NULL,
         400
 
@@ -180,12 +206,15 @@ static ADAPTER_INFO Adapters[] = {
 //
 // Structure for holding state of a search
 //
-
-typedef struct _SEARCH_STATE {
-
-    ULONG IoBaseAddress;
-
-} SEARCH_STATE, *PSEARCH_STATE;
+typedef struct _SEARCH_STATE
+{
+    ULONG 	IoBaseAddress;
+	UCHAR	Interrupt;
+	ULONG	MemoryAddress;
+	ULONG	MemoryLength;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 
 //
@@ -199,14 +228,18 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _WD_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG IoBaseAddress;
-
-} WD_ADAPTER, *PWD_ADAPTER;
+typedef struct _WD_ADAPTER
+{
+    LONG 			CardType;
+    INTERFACE_TYPE	InterfaceType;
+    ULONG			BusNumber;
+    ULONG			IoBaseAddress;
+	UCHAR			Interrupt;
+	ULONG			MemoryAddress;
+	ULONG			MemoryLength;
+}
+	WD_ADAPTER,
+	*PWD_ADAPTER;
 
 
 extern
@@ -382,51 +415,52 @@ Return Value:
 --*/
 
 {
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
+	NETDTECT_RESOURCE	Resource;
 
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
-    if (lNetcardId != 1000) {
-
+    if (lNetcardId != 1000)
+	{
         *lConfidence = 0;
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
     // If fFirst, reset search state
     //
-
-    if (fFirst) {
-
+    if (fFirst)
+	{
         SearchStates[0].IoBaseAddress = 0x200;
-
-    } else if (SearchStates[0].IoBaseAddress < 0x400) {
-
+    }
+	else if (SearchStates[0].IoBaseAddress < 0x400)
+	{
         SearchStates[0].IoBaseAddress += 0x20;
     }
 
-    while (SearchStates[0].IoBaseAddress < 0x400) {
-
-        if (WdCardAt(InterfaceType, BusNumber, SearchStates[0].IoBaseAddress)) {
-
+    while (SearchStates[0].IoBaseAddress < 0x400)
+	{
+        if (WdCardAt(
+				InterfaceType,
+				BusNumber,
+				SearchStates[0].IoBaseAddress,
+				&SearchStates[0].Interrupt,
+				&SearchStates[0].MemoryAddress,
+				&SearchStates[0].MemoryLength))
+		{
             break;
-
         }
 
         SearchStates[0].IoBaseAddress += 0x20;
-
     }
 
-    if (SearchStates[0].IoBaseAddress == 0x400) {
-
+    if (SearchStates[0].IoBaseAddress == 0x400)
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
     //
@@ -441,13 +475,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -495,15 +528,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
@@ -513,21 +544,15 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PWD_ADAPTER)DetectAllocateHeap(
-                                 sizeof(WD_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PWD_ADAPTER)DetectAllocateHeap(sizeof(WD_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->IoBaseAddress = SearchStates[(ULONG)AdapterNumber].IoBaseAddress;
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
@@ -574,49 +599,58 @@ Return Value:
     PWD_ADAPTER Handle;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PWD_ADAPTER)DetectAllocateHeap(
-                                         sizeof(WD_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PWD_ADAPTER)DetectAllocateHeap(sizeof(WD_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Handle->IoBaseAddress = 0x200;
+			Handle->Interrupt = 3;
+			Handle->MemoryAddress = 0;
+
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
 
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = 0x200;
+			Resource.Length = 0x20;
+			Resource.Flags = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = 3;
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -681,592 +715,44 @@ Return Value:
 {
     PWD_ADAPTER Adapter = (PWD_ADAPTER)(pvHandle);
     NTSTATUS NtStatus;
-    ULONG Bid;
-    UCHAR Interrupt = 0;
-    UCHAR IdByte;
-    UCHAR RegValue, RegValue2;
-    UCHAR RevNumber = 0;
-    ULONG RamAddr = 0;
-    ULONG RamSize = 0;
     LONG OutputLengthLeft = cwchBuffSize;
     LONG CopyLength;
-
-    static UCHAR TestBuffer[] = "Test String";
-    UCHAR ReadBuffer[15];
-    HANDLE TrapHandle;
-    UCHAR InterruptList[6];
-    UCHAR ResultList[6];
-    ULONG Length, i;
-
     ULONG StartPointer = (ULONG)pwchBuffer;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
-        return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    //
-    // Verify the IoBaseAddress
-    //
-
-    if (!WdCardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  Adapter->IoBaseAddress
-                 )) {
-
-        if (Adapter->IoBaseAddress < 0x400) {
-
-            Adapter->IoBaseAddress += 0x20;
-
-        }
-
-        while (Adapter->IoBaseAddress < 0x400) {
-
-            if (WdCardAt(Adapter->InterfaceType,
-                         Adapter->BusNumber,
-                         Adapter->IoBaseAddress
-                        )) {
-
-                //
-                // Found one!
-                //
-
-                break;
-
-            }
-
-            Adapter->IoBaseAddress += 0x20;
-
-        }
-
-        if (Adapter->IoBaseAddress == 0x400) {
-
-            //
-            // No card
-            //
-
-            if (cwchBuffSize < 2) {
-
-                return(ERROR_INSUFFICIENT_BUFFER);
-
-            }
-
-            wsprintf(pwchBuffer, L"\0");
-
-            return(0);
-
-        }
-
-    }
-
-
-
-    //
-    // Get MemorySize
-    //
-
-    WdGetBoardId(Adapter->InterfaceType,
-                 Adapter->BusNumber,
-                 Adapter->IoBaseAddress,
-                 &Bid
-                );
-
-    NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                   Adapter->BusNumber,
-                                   Adapter->IoBaseAddress + WD_ID_BYTE,
-                                   &IdByte
-                                  );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
     }
-
-    RevNumber = IdByte & WD_BOARD_REV_MASK;
-
-    RevNumber >>= 1;
-
-    if (RevNumber >= 3) {
-
-        CardGetEepromRamSize(Adapter->InterfaceType,
-                             Adapter->BusNumber,
-                             Adapter->IoBaseAddress,
-                             Bid,
-                             &RamSize
-                            );
-
-    } else {
-
-        CardGetRamSize(Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       Adapter->IoBaseAddress,
-                       RevNumber,
-                       Bid,
-                       &RamSize
-                      );
-
-    }
-
-    //
-    // For card with no interface chip we have to find a suitable
-    // location for the memory address and then we can find the
-    // interrupt number.
-    //
-
-    if (!(Bid & INTERFACE_CHIP)) {
-
-        //
-        // Search for a memory location
-        //
-
-        for (RamAddr = 0xC0000; RamAddr < 0xE0000; RamAddr += 0x2000) {
-
-            //
-            // Verify memory address
-            //
-
-            NtStatus = DetectCheckMemoryUsage(
-                            Adapter->InterfaceType,
-                            Adapter->BusNumber,
-                            RamAddr,
-                            0x2000
-                            );
-
-             if (NtStatus == STATUS_SUCCESS) {
-
-                 //
-                 // Set up MSR
-                 //
-
-                 RegValue = (((UCHAR)(((PUSHORT)RamAddr) + 2) << 3) |
-                                  (UCHAR)(RamAddr >> 13)
-                                );
-
-                 NtStatus = DetectWritePortUchar(
-                                    Adapter->InterfaceType,
-                                    Adapter->BusNumber,
-                                    Adapter->IoBaseAddress + CNFG_MSR_583,
-                                    (UCHAR)(RegValue | (UCHAR)0x40)
-                                   );
-
-                 if (NtStatus != STATUS_SUCCESS) {
-
-                     continue;
-
-                 }
-
-                 //
-                 // Write test string to memory
-                 //
-
-                 NtStatus = DetectWriteMappedMemory(
-                                  Adapter->InterfaceType,
-                                  Adapter->BusNumber,
-                                  RamAddr,
-                                  strlen(TestBuffer) + 1,
-                                  TestBuffer
-                                  );
-
-                 if (NtStatus != STATUS_SUCCESS) {
-
-                     continue;
-
-                 }
-
-                 //
-                 // Read it back
-                 //
-
-                 NtStatus = DetectReadMappedMemory(
-                                  Adapter->InterfaceType,
-                                  Adapter->BusNumber,
-                                  RamAddr,
-                                  strlen(TestBuffer) + 1,
-                                  ReadBuffer
-                                  );
-
-                 if (NtStatus != STATUS_SUCCESS) {
-
-                     continue;
-
-                 }
-
-                 //
-                 // Are they the same?
-                 //
-
-                 Length = strlen(TestBuffer) + 1;
-
-                 if (memcmp(ReadBuffer, TestBuffer, Length) != 0) {
-
-                     continue;
-
-                 }
-
-                 break;
-
-             }
-
-        }
-
-        //
-        // Did we find a suitable spot?
-        //
-
-        if (RamAddr == 0xE0000) {
-
-            //
-            // Abort (pro-choice?)
-            //
-
-            RamAddr = 0;
-
-            goto BuildBuffer;
-
-        }
-
-
-        //
-        // Verify Interrupt
-        //
-
-        InterruptList[0] = 3;
-        InterruptList[1] = 2;
-        InterruptList[2] = 4;
-        InterruptList[3] = 5;
-        InterruptList[4] = 6;
-        InterruptList[5] = 7;
-
-
-        //
-        // Set the interrupt trap -- we are checking the interrupt number now
-        //
-
-        NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       InterruptList,
-                       6
-                       );
-
-        if (NtStatus == STATUS_SUCCESS) {
-
-            UCHAR NetworkAddress[6];
-
-            //
-            // CardSetup
-            //
-
-            WdCardSetup(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                Adapter->IoBaseAddress,
-                RamAddr,
-                Bid,
-                NetworkAddress
-                );
-
-            //
-            // Create an interrupt
-            //
-
-            Send8390Packet(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                Adapter->IoBaseAddress + 0x10,
-                RamAddr,
-                WdCardCopyDownBuffer,
-                NetworkAddress
-                );
-
-            //
-            // Check which one went off
-            //
-
-            NtStatus = DetectQueryInterruptTrap(
-                           TrapHandle,
-                           ResultList,
-                           6
-                           );
-
-            //
-            // Remove interrupt trap
-            //
-
-            NtStatus = DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                goto BuildBuffer;
-
-            }
-
-            for (i=0; i < 6; i++) {
-
-                if ((ResultList[i] == 1) || (ResultList[i] == 2)) {
-
-                    if (Interrupt == 0) {
-
-                        Interrupt = InterruptList[i];
-
-                    } else {
-
-                        //
-                        // Error! Two interrupts reported
-                        //
-
-                        Interrupt = 0;
-
-                        goto BuildBuffer;
-
-                    }
-
-                }
-
-            }
-
-        }
-
-
-        goto BuildBuffer;
-
-    }
-
-    //
-    // Get58xRamBase();
-    //
-
-    NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                   Adapter->BusNumber,
-                                   Adapter->IoBaseAddress,
-                                   &RegValue
-                                  );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(ERROR_INVALID_PARAMETER);
-
-    }
-
-    RegValue &= 0x3F;
-
-    if ((Bid & INTERFACE_CHIP_MASK) == INTERFACE_5X3_CHIP) {
-
-        RegValue |= 0x40;
-
-        RamAddr = (ULONG)RegValue << 13;
-
-    } else {
-
-        NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                       Adapter->BusNumber,
-                                       Adapter->IoBaseAddress + CNFG_LAAR_584,
-                                       &RegValue2
-                                      );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_PARAMETER);
-        }
-
-        RegValue2 &= CNFG_LAAR_MASK;
-
-        RegValue2 <<= 3;
-
-        RegValue2 |= ((RegValue & 0x38) >> 3);
-
-        RamAddr = ((ULONG)RegValue2 << 16) + (((ULONG)(RegValue & 0x7)) << 13);
-
-    }
-
-    //
-    // Get58xIrq();
-    //
-
-    RegValue = 0;
-
-    if ((Bid & INTERFACE_CHIP_MASK) != INTERFACE_5X3_CHIP) {
-
-        NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                       Adapter->BusNumber,
-                                       Adapter->IoBaseAddress + CNFG_ICR_583,
-                                       &RegValue
-                                      );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_PARAMETER);
-        }
-
-        RegValue &= CNFG_ICR_IR2_584;
-
-    }
-
-    NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                   Adapter->BusNumber,
-                                   Adapter->IoBaseAddress + CNFG_IRR_583,
-                                   &RegValue2
-                                  );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(ERROR_INVALID_PARAMETER);
-    }
-
-    RegValue2 &= CNFG_IRR_IRQS;
-    RegValue2 >>= 5;
-
-    if (RegValue2 == 0) {
-
-        if (RegValue == 0) {
-
-            Interrupt = 2;
-
-        } else {
-
-            Interrupt = 10;
-
-        }
-
-    } else if (RegValue2 == 1) {
-
-        if (RegValue == 0) {
-
-            Interrupt = 3;
-
-        } else {
-
-            Interrupt = 11;
-
-        }
-
-    } else if (RegValue2 == 2) {
-
-        if (RegValue == 0) {
-
-            if (Bid & ALTERNATE_IRQ_BIT) {
-
-                Interrupt = 5;
-
-            } else {
-
-                Interrupt = 4;
-
-            }
-
-        } else {
-
-            Interrupt = 15;
-
-        }
-
-    } else if (RegValue2 == 3) {
-
-        if (RegValue == 0) {
-
-            Interrupt = 7;
-
-        } else {
-
-            Interrupt = 4;
-
-        }
-
-    }
-
-BuildBuffer:
-
-    //
-    // Build resulting buffer
-    //
 
     //
     // First put in memory addr
     //
-
-    if (RamAddr == 0) {
-
+    if (Adapter->MemoryAddress == 0)
+	{
         goto SkipMemory;
-
     }
-
-    //
-    // Copy in the title string
-    //
-
-    CopyLength = UnicodeStrLen(MemAddrString) + 1;
-
-    if (OutputLengthLeft < CopyLength) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    RtlMoveMemory((PVOID)pwchBuffer,
-                  (PVOID)MemAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
-
-    pwchBuffer = &(pwchBuffer[CopyLength]);
-    OutputLengthLeft -= CopyLength;
-
-    //
-    // Copy in the value
-    //
-
-    if (OutputLengthLeft < 8) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    CopyLength = wsprintf(pwchBuffer,L"0x%x",(ULONG)(RamAddr));
-
-    if (CopyLength < 0) {
-
-        return(ERROR_INSUFFICIENT_BUFFER);
-
-    }
-
-    CopyLength++;  // Add in the \0
-
-    pwchBuffer = &(pwchBuffer[CopyLength]);
-    OutputLengthLeft -= CopyLength;
-
-
-
 
     //
     // Now the amount of memory
     //
-
-    if (RamSize == 0) {
-
+    if (Adapter->MemoryLength == 0)
+	{
         goto SkipMemory;
-
     }
 
     //
     // Copy in the title string
     //
+    CopyLength = UnicodeStrLen(MemAddrString) + 1;
 
-    CopyLength = UnicodeStrLen(MemLengthString) + 1;
-
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
-                  (PVOID)MemLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (PVOID)MemAddrString,
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1274,19 +760,16 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 8) {
-
+    if (OutputLengthLeft < 8)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"0x%x", RamSize);
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", Adapter->MemoryAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1294,6 +777,43 @@ BuildBuffer:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
+
+    //
+    // Copy in the title string
+    //
+    CopyLength = UnicodeStrLen(MemLengthString) + 1;
+
+    if (OutputLengthLeft < CopyLength)
+	{
+        return(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    RtlMoveMemory((PVOID)pwchBuffer,
+                  (PVOID)MemLengthString,
+                  (CopyLength * sizeof(WCHAR)));
+
+    pwchBuffer = &(pwchBuffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
+
+    //
+    // Copy in the value
+    //
+    if (OutputLengthLeft < 8)
+	{
+        return(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", Adapter->MemoryLength);
+
+    if (CopyLength < 0)
+	{
+        return(ERROR_INSUFFICIENT_BUFFER);
+    }
+
+    CopyLength++;  // Add in the \0
+
+    pwchBuffer = &(pwchBuffer[CopyLength]);
+    OutputLengthLeft -= CopyLength;
 
 SkipMemory:
 
@@ -1304,19 +824,16 @@ SkipMemory:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1324,19 +841,16 @@ SkipMemory:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x%x",Adapter->IoBaseAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1347,19 +861,16 @@ SkipMemory:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1367,19 +878,16 @@ SkipMemory:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 5) {
-
+    if (OutputLengthLeft < 5)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x20");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1387,31 +895,24 @@ SkipMemory:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
-
-
-    if (Interrupt == 0) {
-
+    if (Adapter->Interrupt == 0)
+	{
         goto SkipIrq;
-
     }
 
     //
     // Copy in the title string (IRQ)
     //
-
     CopyLength = UnicodeStrLen(IrqString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1419,44 +920,36 @@ SkipMemory:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 3) {
-
+    if (OutputLengthLeft < 3)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"%d",Interrupt);
+    CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->Interrupt);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
-
 
     CopyLength++;  // Add in the \0
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
     //
     // Copy in the title string (IRQTYPE)
     //
-
     CopyLength = UnicodeStrLen(IrqTypeString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IrqTypeString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1464,11 +957,9 @@ SkipMemory:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 2) {
-
+    if (OutputLengthLeft < 2)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     //
@@ -1477,29 +968,24 @@ SkipMemory:
     //
     CopyLength = wsprintf(pwchBuffer,L"0");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
-
 
     CopyLength++;  // Add in the \0
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
 SkipIrq:
 
     //
     // Copy in final \0
     //
-
-    if (OutputLengthLeft < 1) {
-
+    if (OutputLengthLeft < 1)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = (ULONG)pwchBuffer - StartPointer;
@@ -1536,30 +1022,20 @@ Return Value:
 
 {
     PWD_ADAPTER Adapter = (PWD_ADAPTER)(pvHandle);
-    ULONG MemoryBaseAddress = 0;
-    UCHAR Interrupt = 0;
-    HANDLE TrapHandle;
-    ULONG TmpLong;
-    ULONG IoBaseAddress = 0;
-    ULONG Bid;
-    ULONG Length;
-    UCHAR RegValue, RegValue2;
     WCHAR *Place;
     BOOLEAN Found;
-    NTSTATUS NtStatus;
+	ULONG	IoBaseAddress;
+	ULONG	MemoryBaseAddress;
+	ULONG	Interrupt;
+	NETDTECT_RESOURCE	Resource;
 
-    static UCHAR TestBuffer[] = "Test String";
-    UCHAR ReadBuffer[15];
-
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
-    if (Adapter->CardType == 1000) {
-
+    if (Adapter->CardType == 1000)
+	{
         //
         // Parse out the parameter.
         //
@@ -1567,13 +1043,11 @@ Return Value:
         //
         // Get the IoBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, IoAddrString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoAddrString) + 1;
@@ -1581,25 +1055,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         //
         // Get the MemoryBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, MemAddrString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(MemAddrString) + 1;
@@ -1607,25 +1077,21 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &MemoryBaseAddress, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         //
         // Get the Interrupt
         //
-
         Place = FindParameterString(pwchBuffer, IrqString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IrqString) + 1;
@@ -1633,458 +1099,82 @@ Return Value:
         //
         // Now parse the thing.
         //
+        ScanForNumber(Place, &Interrupt, &Found);
 
-        ScanForNumber(Place, &TmpLong, &Found);
-
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
-        Interrupt = (UCHAR)TmpLong;
-
-    } else {
-
+    }
+	else
+	{
         //
         // Error!
         //
-
         return(ERROR_INVALID_DATA);
-
     }
 
-    //
-    // Verify IoAddress
-    //
-
-    if (!WdCardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  IoBaseAddress)) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    WdGetBoardId(Adapter->InterfaceType,
-                 Adapter->BusNumber,
-                 IoBaseAddress,
-                 &Bid
-                );
-    //
-    // Verify MemoryBaseAddress
-    //
-
-
-    if (Bid & INTERFACE_CHIP) {
-
-        if (MemoryBaseAddress != 0) {
-
-            //
-            // Get58xRamBase();
-            //
-
-            NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                           Adapter->BusNumber,
-                                           IoBaseAddress,
-                                           &RegValue
-                                          );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            RegValue &= 0x3F;
-
-            if ((Bid & INTERFACE_CHIP_MASK) == INTERFACE_5X3_CHIP) {
-
-                RegValue |= 0x40;
-
-                if (((ULONG)RegValue << 13) != MemoryBaseAddress) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-            } else {
-
-                NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                               Adapter->BusNumber,
-                                               IoBaseAddress + CNFG_LAAR_584,
-                                               &RegValue2
-                                              );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-                }
-
-                RegValue2 &= CNFG_LAAR_MASK;
-
-                RegValue2 <<= 3;
-
-                RegValue2 |= ((RegValue & 0x38) >> 3);
-
-                if (((ULONG)RegValue2 << 16) + (((ULONG)(RegValue & 0x7)) << 13) !=
-                    MemoryBaseAddress) {
-
-                    return(ERROR_INVALID_DATA);
-
-                }
-
-            }
-
-        }
-
-
-        if (Interrupt != 0) {
-
-            UCHAR Tmp;
-
-            //
-            // Verify Interrupt
-            //
-
-            RegValue = 0;
-
-            if ((Bid & INTERFACE_CHIP_MASK) != INTERFACE_5X3_CHIP) {
-
-                NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                               Adapter->BusNumber,
-                                               IoBaseAddress + CNFG_ICR_583,
-                                               &RegValue
-                                              );
-
-                if (NtStatus != STATUS_SUCCESS) {
-
-                    return(ERROR_INVALID_DATA);
-                }
-
-                RegValue &= CNFG_ICR_IR2_584;
-
-            }
-
-            NtStatus = DetectReadPortUchar(Adapter->InterfaceType,
-                                           Adapter->BusNumber,
-                                           IoBaseAddress + CNFG_IRR_583,
-                                           &RegValue2
-                                          );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                return(ERROR_INVALID_DATA);
-            }
-
-            RegValue2 &= CNFG_IRR_IRQS;
-            RegValue2 >>= 5;
-
-            if (RegValue2 == 0) {
-
-                if (RegValue == 0) {
-
-                    Tmp = 2;
-
-                } else {
-
-                    Tmp = 10;
-
-                }
-
-            } else if (RegValue2 == 1) {
-
-                if (RegValue == 0) {
-
-                    Tmp = 3;
-
-                } else {
-
-                    Tmp = 11;
-
-                }
-
-            } else if (RegValue2 == 2) {
-
-                if (RegValue == 0) {
-
-                    if (Bid & ALTERNATE_IRQ_BIT) {
-
-                        Tmp = 5;
-
-                    } else {
-
-                        Tmp = 4;
-
-                    }
-
-                } else {
-
-                    Tmp = 15;
-
-                }
-
-            } else if (RegValue2 == 3) {
-
-                if (RegValue == 0) {
-
-                    Tmp = 7;
-
-                } else {
-
-                    Tmp = 4;
-
-                }
-
-            }
-
-            if (Tmp != Interrupt) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-        }
-
-        return(0);
-
-    } else {
-
-        //
-        // ARG! Someone owns one of the ooollllllddddd cards.  We have
-        // to do this the hard way
-        //
-
-        if (MemoryBaseAddress == 0) {
-
-            //
-            // Missing necessary parameter
-            //
-
+	if ((IoBaseAddress != Adapter->IoBaseAddress) ||
+		(Interrupt != Adapter->Interrupt) ||
+		(MemoryBaseAddress != Adapter->MemoryAddress))
+	{
+		UCHAR	TempInterrupt;
+		ULONG	TempMemoryAddress;
+		ULONG	TempMemoryLength;
+
+        if (WdCardAt(
+				Adapter->InterfaceType,
+				Adapter->BusNumber,
+				IoBaseAddress,
+				&TempInterrupt,
+				&TempMemoryAddress,
+				&TempMemoryLength))
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
-        if (Interrupt == 0) {
-
-            //
-            // Missing necessary parameter
-            //
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Verify memory address
-        //
-
-        NtStatus = DetectCheckMemoryUsage(
-                            Adapter->InterfaceType,
-                            Adapter->BusNumber,
-                            MemoryBaseAddress,
-                            0x2000
-                            );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Set up MSR
-        //
-
-        RegValue = (((UCHAR)(((PUSHORT)MemoryBaseAddress) + 2) << 3) |
-                         (UCHAR)(MemoryBaseAddress >> 13)
-                       );
-
-        NtStatus = DetectWritePortUchar(
-                           Adapter->InterfaceType,
-                           Adapter->BusNumber,
-                           IoBaseAddress + CNFG_MSR_583,
-                           (UCHAR)(RegValue | (UCHAR)0x40)
-                          );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Write test string to memory
-        //
-
-        NtStatus = DetectWriteMappedMemory(
-                         Adapter->InterfaceType,
-                         Adapter->BusNumber,
-                         MemoryBaseAddress,
-                         strlen(TestBuffer) + 1,
-                         TestBuffer
-                         );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Read it back
-        //
-
-        NtStatus = DetectReadMappedMemory(
-                         Adapter->InterfaceType,
-                         Adapter->BusNumber,
-                         MemoryBaseAddress,
-                         strlen(TestBuffer) + 1,
-                         ReadBuffer
-                         );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Are they the same?
-        //
-
-        Length = strlen(TestBuffer) + 1;
-
-        if (memcmp(ReadBuffer, TestBuffer, Length) != 0) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-        //
-        // Verify Interrupt
-        //
-
-        //
-        // Set the interrupt trap -- we are checking the interrupt number now
-        //
-
-        NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       &Interrupt,
-                       1
-                       );
-
-        if (NtStatus == STATUS_SUCCESS) {
-
-            UCHAR Result;
-            UCHAR NetworkAddress[6];
-
-            //
-            // First check that it is available.
-            //
-
-            NtStatus = DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            if (Result == 3) {
-
-                //
-                // Remove interrupt trap
-                //
-
-                NtStatus = DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            //
-            // CardSetup
-            //
-
-            WdCardSetup(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                IoBaseAddress,
-                MemoryBaseAddress,
-                Bid,
-                NetworkAddress
-                );
-
-            //
-            // Create an interrupt
-            //
-
-            Send8390Packet(
-                Adapter->InterfaceType,
-                Adapter->BusNumber,
-                IoBaseAddress + 0x10,
-                MemoryBaseAddress,
-                WdCardCopyDownBuffer,
-                NetworkAddress
-                );
-
-            //
-            // Check which one went off
-            //
-
-            NtStatus = DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            //
-            // Remove interrupt trap
-            //
-
-            NtStatus = DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
-                return(ERROR_INVALID_DATA);
-
-            }
-
-            if ((Result == 1) || (Result == 2)) {
-
-                return(0);
-
-            }
-
-            return(ERROR_INVALID_DATA);
-
-        } else {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-
-    }
-
+		if ((Interrupt != TempInterrupt) ||
+			(MemoryBaseAddress != TempMemoryAddress))
+		{
+			return(ERROR_INVALID_DATA);
+		}
+
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_PORT_RESOURCE;
+		Resource.Value = Adapter->IoBaseAddress;
+		Resource.Length = 0x20;
+		Resource.Flags = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
+
+		Resource.Value = IoBaseAddress;
+		DetectTemporaryClaimResource(&Resource);
+
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = Adapter->Interrupt;
+		Resource.Length = 0;
+		DetectFreeSpecificTemporaryResource(&Resource);
+
+		Resource.Value = Interrupt;
+		DetectTemporaryClaimResource(&Resource);
+
+
+		Resource.Type = NETDTECT_MEMORY_RESOURCE;
+		Resource.Value = Adapter->MemoryAddress;
+		Resource.Length = Adapter->MemoryLength;
+		DetectFreeSpecificTemporaryResource(&Resource);
+
+		Resource.Value = TempMemoryAddress;
+		Resource.Length = TempMemoryLength;
+		DetectTemporaryClaimResource(&Resource);
+
+		Adapter->IoBaseAddress = IoBaseAddress;
+		Adapter->Interrupt = TempInterrupt;
+		Adapter->MemoryAddress = TempMemoryAddress;
+		Adapter->MemoryLength = TempMemoryLength;
+	}
+
+	return(0);
 }
 
 extern
@@ -2361,7 +1451,10 @@ BOOLEAN
 WdCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG MemoryAddress,
+	OUT PULONG MemoryLength
     )
 
 /*++
@@ -2387,66 +1480,448 @@ Return Value:
 --*/
 
 {
+    NTSTATUS NtStatus;
+    ULONG TempBoardId = 0;
+	UCHAR InterruptNumber = 0;
+    ULONG Bid;
+    UCHAR IdByte;
+    UCHAR RegValue, RegValue2;
+    UCHAR RevNumber = 0;
+    ULONG RamAddr = 0;
+    ULONG RamSize = 0;
+    UCHAR ReadBuffer[15];
+    HANDLE TrapHandle;
+    UCHAR InterruptList[6];
+    UCHAR ResultList[6];
+    ULONG Length, i;
+	NETDTECT_RESOURCE	Resource;
+    static UCHAR TestBuffer[] = "Test String";
+
+#if DBG
+    DbgPrint("WdCardAt entered: IoBaseAddress = 0x%.4X.\n", IoBaseAddress);
+#endif
+
     if (DetectCheckPortUsage(InterfaceType,
                              BusNumber,
                              IoBaseAddress,
-                             0x20
-                            ) != STATUS_SUCCESS) {
-
+                             0x20) != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress + WD_690_CR)) {
-
+    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress + WD_690_CR))
+	{
+#if DBG
+        DbgPrint("WdCardAt: This is not an 8390 CHIP.\n");
+#endif
         return(FALSE);
-
     }
 
-    if (!CheckForWdAddress(InterfaceType, BusNumber, IoBaseAddress)) {
+    if (!CheckForWdAddress(InterfaceType, BusNumber, IoBaseAddress))
+	{
+#if DBG
+        DbgPrint("WdCardAt: Check for address failed.\n");
+#endif
 
         return(FALSE);
-
     }
 
-    return(TRUE);
-
-#if 0
-
+    //
+    // Get the board ID and check for an unsupported SMC card.
+    //
     WdGetBoardId(InterfaceType, BusNumber, IoBaseAddress, &TempBoardId);
 
-    TempBoardId = (TempBoardId & STATIC_ID_MASK);
+	if (TempBoardId == 0)
+	{
+		return(FALSE);
+	}
 
-    switch (TempBoardId) {
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_PORT_RESOURCE;
+	Resource.Value = IoBaseAddress;
+	Resource.Length = 0x20;
+	Resource.Flags = 0;
+	
+	DetectTemporaryClaimResource(&Resource);
 
-        //
-        // All the card ids
-        //
-        // WD8003EP is the same as 8003E
-        // WD8013EWC is the same as 8013EPC
-        // WD8003EBT is the same as 8003E
-        //
-        case WD8003E:
-        case WD8003EB:
-        case WD8003WC:
-        case WD8013EW:
-        case WD8013EPC:
-        case WD8013WC:
-        case WD8013W:
+    //
+    // Get MemorySize
+    //
+    WdGetBoardId(InterfaceType,
+                 BusNumber,
+                 IoBaseAddress,
+                 &Bid);
 
-        case WD8003WT:
-        case WD8003W:
-        case WD8003EW:
-        case WD8013EBT:
-        case WD8013EB:
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+					BusNumber,
+					IoBaseAddress + WD_ID_BYTE,
+					&IdByte);
 
-            return(TRUE);
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
+        return(FALSE);
     }
 
-    return(FALSE);
+    RevNumber = IdByte & WD_BOARD_REV_MASK;
 
-#endif
+    RevNumber >>= 1;
+
+    if (RevNumber >= 3)
+	{
+        CardGetEepromRamSize(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress,
+			Bid,
+			&RamSize);
+    }
+	else
+	{
+        CardGetRamSize(
+			InterfaceType,
+			BusNumber,
+			IoBaseAddress,
+			RevNumber,
+			Bid,
+			&RamSize);
+    }
+
+    //
+    // For card with no interface chip we have to find a suitable
+    // location for the memory address and then we can find the
+    // interrupt number.
+    //
+    if (!(Bid & INTERFACE_CHIP))
+	{
+        //
+		// Search for a memory location
+        //
+        for (RamAddr = 0xC0000; RamAddr < 0xE0000; RamAddr += 0x2000)
+		{
+			//
+            // Verify memory address
+            //
+            NtStatus = DetectCheckMemoryUsage(
+                            InterfaceType,
+                            BusNumber,
+                            RamAddr,
+                            0x2000);
+
+            if (NtStatus == STATUS_SUCCESS)
+			{
+				//
+                // Set up MSR
+                //
+                RegValue = (((UCHAR)(((PUSHORT)RamAddr) + 2) << 3) |
+							  (UCHAR)(RamAddr >> 13));
+
+                NtStatus = DetectWritePortUchar(
+								InterfaceType,
+								BusNumber,
+								IoBaseAddress + CNFG_MSR_583,
+								(UCHAR)(RegValue | (UCHAR)0x40));
+
+                if (NtStatus != STATUS_SUCCESS)
+				{
+					continue;
+				}
+
+                //
+                // Write test string to memory
+                //
+                NtStatus = DetectWriteMappedMemory(
+							  InterfaceType,
+							  BusNumber,
+							  RamAddr,
+							  strlen(TestBuffer) + 1,
+							  TestBuffer);
+
+                if (NtStatus != STATUS_SUCCESS)
+				{
+					continue;
+                }
+
+                //
+                // Read it back
+                //
+                NtStatus = DetectReadMappedMemory(
+							  InterfaceType,
+							  BusNumber,
+							  RamAddr,
+							  strlen(TestBuffer) + 1,
+							  ReadBuffer);
+
+                if (NtStatus != STATUS_SUCCESS)
+				{
+					continue;
+                }
+
+                //
+                // Are they the same?
+                //
+                Length = strlen(TestBuffer) + 1;
+
+                if (memcmp(ReadBuffer, TestBuffer, Length) != 0)
+				{
+					continue;
+                }
+
+                break;
+             }
+        }
+
+        //
+        // Did we find a suitable spot?
+        //
+        if (RamAddr == 0xE0000)
+		{
+            //
+            // Abort (pro-choice?)
+            //
+            RamAddr = 0;
+        }
+
+        //
+        // Verify Interrupt
+        //
+        InterruptList[0] = 3;
+        InterruptList[1] = 2;
+        InterruptList[2] = 4;
+        InterruptList[3] = 5;
+        InterruptList[4] = 6;
+        InterruptList[5] = 7;
+
+        //
+        // Set the interrupt trap -- we are checking the interrupt number now
+        //
+        NtStatus = DetectSetInterruptTrap(
+                       InterfaceType,
+                       BusNumber,
+                       &TrapHandle,
+                       InterruptList,
+                       6);
+
+        if (NtStatus == STATUS_SUCCESS)
+		{
+            UCHAR NetworkAddress[6];
+
+            //
+            // CardSetup
+            //
+            WdCardSetup(
+                InterfaceType,
+                BusNumber,
+                IoBaseAddress,
+                RamAddr,
+                Bid,
+                NetworkAddress);
+
+            //
+            // Create an interrupt
+            //
+            Send8390Packet(
+                InterfaceType,
+                BusNumber,
+                IoBaseAddress + 0x10,
+                RamAddr,
+                WdCardCopyDownBuffer,
+                NetworkAddress);
+
+            //
+            // Check which one went off
+            //
+            NtStatus = DetectQueryInterruptTrap(TrapHandle, ResultList, 6);
+
+            //
+            // Remove interrupt trap
+            //
+            NtStatus = DetectRemoveInterruptTrap(TrapHandle);
+
+            if (NtStatus != STATUS_SUCCESS)
+			{
+				return(FALSE);
+            }
+
+            for (i = 0; i < 6; i++)
+			{
+                if ((ResultList[i] == 1) || (ResultList[i] == 2))
+				{
+                    if (InterruptNumber == 0)
+					{
+                        InterruptNumber = InterruptList[i];
+                    }
+					else
+					{
+                        //
+                        // Error! Two interrupts reported
+                        //
+                        InterruptNumber = 0;
+						break;
+                    }
+                }
+            }
+        }
+    }
+	else
+	{
+		//
+		// Get58xRamBase();
+		//
+		NtStatus = DetectReadPortUchar(InterfaceType,
+									   BusNumber,
+									   IoBaseAddress,
+									   &RegValue);
+	
+		if (NtStatus != STATUS_SUCCESS)
+		{
+			return(FALSE);
+		}
+	
+		RegValue &= 0x3F;
+	
+		if ((Bid & INTERFACE_CHIP_MASK) == INTERFACE_5X3_CHIP)
+		{
+			RegValue |= 0x40;
+	
+			RamAddr = (ULONG)RegValue << 13;
+		}
+		else
+		{
+			NtStatus = DetectReadPortUchar(InterfaceType,
+										   BusNumber,
+										   IoBaseAddress + CNFG_LAAR_584,
+										   &RegValue2);
+	
+			if (NtStatus != STATUS_SUCCESS)
+			{
+				return(FALSE);
+			}
+	
+			RegValue2 &= CNFG_LAAR_MASK;
+	
+			RegValue2 <<= 3;
+	
+			RegValue2 |= ((RegValue & 0x38) >> 3);
+	
+			RamAddr = ((ULONG)RegValue2 << 16) + (((ULONG)(RegValue & 0x7)) << 13);
+		}
+	
+		//
+		// Get58xIrq();
+		//
+		RegValue = 0;
+	
+		if ((Bid & INTERFACE_CHIP_MASK) != INTERFACE_5X3_CHIP)
+		{
+			NtStatus = DetectReadPortUchar(InterfaceType,
+										   BusNumber,
+										   IoBaseAddress + CNFG_ICR_583,
+										   &RegValue);
+	
+			if (NtStatus != STATUS_SUCCESS)
+			{
+				return(FALSE);
+			}
+	
+			RegValue &= CNFG_ICR_IR2_584;
+		}
+	
+		NtStatus = DetectReadPortUchar(InterfaceType,
+									   BusNumber,
+									   IoBaseAddress + CNFG_IRR_583,
+									   &RegValue2);
+	
+		if (NtStatus != STATUS_SUCCESS)
+		{
+			return(FALSE);
+		}
+	
+		RegValue2 &= CNFG_IRR_IRQS;
+		RegValue2 >>= 5;
+	
+		if (RegValue2 == 0)
+		{
+			if (RegValue == 0)
+			{
+				InterruptNumber = 2;
+			}
+			else
+			{
+				InterruptNumber = 10;
+			}
+		}
+		else if (RegValue2 == 1)
+		{
+			if (RegValue == 0)
+			{
+				InterruptNumber = 3;
+			}
+			else
+			{
+				InterruptNumber = 11;
+			}
+		}
+		else if (RegValue2 == 2)
+		{
+			if (RegValue == 0)
+			{
+				if (Bid & ALTERNATE_IRQ_BIT)
+				{
+					InterruptNumber = 5;
+				}
+				else
+				{
+					InterruptNumber = 4;
+				}
+			}
+			else
+			{
+				InterruptNumber = 15;
+			}
+		}
+		else if (RegValue2 == 3)
+		{
+			if (RegValue == 0)
+			{
+				InterruptNumber = 7;
+			}
+			else
+			{
+				InterruptNumber = 4;
+			}
+		}
+	}
+
+	if ((RamAddr != 0) && (RamSize != 0))
+	{
+		//
+		//	Acquire the memory resource...
+		//
+		*MemoryAddress = RamAddr;
+		*MemoryLength = RamSize;
+
+		Resource.Type = NETDTECT_MEMORY_RESOURCE;
+		Resource.Value = RamAddr;
+		Resource.Length = RamSize;
+	
+		DetectTemporaryClaimResource(&Resource);
+	}
+
+	if (InterruptNumber != 0)
+	{
+
+		Resource.Type = NETDTECT_MEMORY_RESOURCE;
+		Resource.Value = InterruptNumber;
+		Resource.Length = 0;
+	
+		DetectTemporaryClaimResource(&Resource);
+
+		*Interrupt = InterruptNumber;
+	}
+
+    return(TRUE);
 }
 
 VOID
@@ -2486,96 +1961,116 @@ Return:
     //
     // Init mask.
     //
-
     *BoardIdMask = 0;
 
     //
     // GetBoardRevNumber();
     //
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + WD_ID_BYTE,
+                    &IdByte);
 
-    NtStatus = DetectReadPortUchar(InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + WD_ID_BYTE,
-                      &IdByte
-                     );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
+    RevNumber = (IdByte & WD_BOARD_REV_MASK) >> 1;
 
-    RevNumber = IdByte & WD_BOARD_REV_MASK;
-
-    RevNumber >>= 1;
-
+#if DBG
+    DbgPrint("WdGetBoardId: RevNumber = 0x%.8X.\n", RevNumber);
+#endif
 
     //
     // Check rev is valid.
     //
-
-    if (RevNumber == 0) {
-
+    if (RevNumber == 0)
+	{
+        *BoardIdMask = 0;
         return;
-
     }
-
 
     //
     // GetBaseInfo();
     //
-
     CardGetBaseInfo(InterfaceType, BusNumber, IoBaseAddress, BoardIdMask);
-
 
     //
     // GetMediaType();
     //
-
-    if (IdByte & WD_MEDIA_TYPE_BIT) {
-
+    if (IdByte & WD_MEDIA_TYPE_BIT)
+	{
         *BoardIdMask |= ETHERNET_MEDIA;
+    }
+	else
+	{
+        ULONG i;
+        ULONG Address;
+        UCHAR CheckSum = 0, TempChar;
 
-    } else {
+        Address = IoBaseAddress + 8;
 
-        if (RevNumber != 1) {
+        for (i = 0; i < 8; i++, Address++)
+		{
+			NtStatus = DetectReadPortUchar(
+							InterfaceType,
+							BusNumber,
+							Address,
+							&TempChar);
 
-            *BoardIdMask |= TWISTED_PAIR_MEDIA;
+            if ( NtStatus != STATUS_SUCCESS )
+			{
+                *BoardIdMask = 0;
+                return;
+            }
 
-        } else {
-
-            *BoardIdMask |= STARLAN_MEDIA;
-
+            CheckSum += TempChar;
         }
 
+        //
+        // If this is TOKENRING then our driver won't work.
+        //
+        if ( CheckSum == 0xEE )
+		{
+#if DBG
+            DbgPrint("WdGetBoardId: Media type is TOKENRING.\n");
+#endif
+
+            *BoardIdMask = 0;
+            return;
+        }
+
+        if (RevNumber != 1)
+		{
+            *BoardIdMask |= TWISTED_PAIR_MEDIA;
+        }
+		else
+		{
+            *BoardIdMask |= STARLAN_MEDIA;
+        }
     }
 
     //
     // if (RevNumber >= 2) then
     //       GetIdByteInfo();
     //
-
-    if (RevNumber >= 2) {
-
+    if (RevNumber >= 2)
+	{
         //
         // For two cards this bit means use alternate IRQ
         //
-
-        if (IdByte & WD_SOFT_CONFIG_BIT) {
-
+        if (IdByte & WD_SOFT_CONFIG_BIT)
+		{
             if (((*BoardIdMask & WD8003EB) == WD8003EB) ||
-                ((*BoardIdMask & WD8003W)  == WD8003W)) {
-
+                ((*BoardIdMask & WD8003W)  == WD8003W))
+			{
                 *BoardIdMask |= ALTERNATE_IRQ_BIT;
-
             }
-
         }
-
     }
-
 
     //
     // if (RevNumber >= 3) then
@@ -2585,33 +2080,44 @@ Return:
     // else
     //       GetRamSize();
     //
-
-    if (RevNumber >= 3) {
-
+    if (RevNumber >= 3)
+	{
         ULONG EEPromMask;
 
-        *BoardIdMask &= (WD_584_ID_EEPROM_OVERRIDE |
-                             WD_584_EXTRA_EEPROM_OVERRIDE);
+        if ( !CheckFor585(InterfaceType, BusNumber, IoBaseAddress) )
+		{
+            *BoardIdMask &= (WD_584_ID_EEPROM_OVERRIDE | WD_584_EXTRA_EEPROM_OVERRIDE);
 
-        *BoardIdMask |= INTERFACE_584_CHIP;
+            *BoardIdMask |= INTERFACE_584_CHIP;
+        }
+		else
+		{
+            //
+            // The adapter is a 585, 790, or a 795. None of the
+            // adapters work with our driver.
+            //
+
+#if DBG
+            DbgPrint("WdGetBoardId: This is a 585, 790, or 795.\n");
+#endif
+
+            *BoardIdMask = 0;
+            return;
+        }
 
         CardGetEepromInfo(InterfaceType, BusNumber, IoBaseAddress, &EEPromMask);
 
         *BoardIdMask |= EEPromMask;
-
     }
 
     //
     // if (RevNumber >= 4) then
     //    AddFeatureBits(ADVANCED_FEATURES);
     //
-
-    if (RevNumber >= 4) {
-
+    if (RevNumber >= 4)
+	{
         *BoardIdMask |= ADVANCED_FEATURES;
-
     }
-
 }
 
 
@@ -2664,157 +2170,128 @@ Return:
     //
     // Get original value
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_7,
-                                   &SaveValue
-                                  );
+                                   &SaveValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     //
     // Put something into chip (if it exists).
     //
-
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_7,
-                                    0x35
-                                   );
+                                    0x35);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     //
     // Swamp bus with something else.
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     //
     // Read from chip
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_7,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     //
     // Was the value saved on the chip??
     //
-
-    if (RegValue == 0x35) {
-
+    if (RegValue == 0x35)
+	{
         //
         // Try it again just for kicks.
         //
-
         NtStatus = DetectWritePortUchar(InterfaceType,
                                         BusNumber,
                                         IoBaseAddress + WD_REG_7,
-                                        0x3A
-                                       );
+                                        0x3A);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Swamp bus with something else.
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Read from chip
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_7,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Was the value saved on the chip??
         //
-
-        if (RegValue == 0x3A) {
-
+        if (RegValue == 0x3A)
+		{
             ExistsAnInterfaceChip = TRUE;
-
         }
-
     }
 
     //
     // Write back original value.
     //
-
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_7,
-                                    SaveValue
-                                   );
+                                    SaveValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     //
     //
@@ -2822,86 +2299,68 @@ Return:
     //
     //         return;
     //
-
-
-    for (Register = WD_REG_1;  Register < WD_REG_6; Register++) {
-
+    for (Register = WD_REG_1;  Register < WD_REG_6; Register++)
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + Register,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + Register + WD_LAN_OFFSET,
-                                       &SaveValue
-                                      );
+                                       &SaveValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
-        if (RegValue != SaveValue) {
-
+        if (RegValue != SaveValue)
+		{
             break;
-
         }
-
     }
 
-    if (Register == WD_REG_6) {
-
+    if (Register == WD_REG_6)
+	{
         //
         // Check register 7
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + Register,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + Register + WD_LAN_OFFSET,
-                                       &SaveValue
-                                      );
+                                       &SaveValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
-
     }
 
-    if (RegValue == SaveValue) {
-
+    if (RegValue == SaveValue)
+	{
         return;
-
     }
-
-
-
 
     //
     //
@@ -2922,86 +2381,71 @@ Return:
     //
     //
     //
-
-
-    if (ExistsAnInterfaceChip) {
-
+    if (ExistsAnInterfaceChip)
+	{
         *BoardIdMask |= INTERFACE_CHIP;
-
-    } else {
-
+    }
+	else
+	{
         //
         // Save original value.
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &SaveValue
-                                      );
-
-        if (NtStatus != STATUS_SUCCESS) {
-
+                                       &SaveValue);
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Now flip 16 bit value and write it back.
         //
-
         RegValue = (SaveValue & (UCHAR)WD_SIXTEEN_BIT);
 
         NtStatus = DetectWritePortUchar(InterfaceType,
                            BusNumber,
                            IoBaseAddress + WD_REG_1,
-                           (UCHAR)(SaveValue ^ WD_SIXTEEN_BIT)
-                           );
+                           (UCHAR)(SaveValue ^ WD_SIXTEEN_BIT));
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Swamp bus with something else.
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress,
-                                       &TmpValue
-                                      );
+                                       &TmpValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
         //
         // Read back value.
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &TmpValue
-                                      );
+                                       &TmpValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
 
-        if ((UCHAR)(TmpValue & (UCHAR)WD_SIXTEEN_BIT) == (UCHAR)RegValue) {
-
+        if ((UCHAR)(TmpValue & (UCHAR)WD_SIXTEEN_BIT) == (UCHAR)RegValue)
+		{
             //
             // If the flip stayed, we have a 16 bit chip.
             //
@@ -3009,46 +2453,35 @@ Return:
             //
             // Put back orginal value.
             //
-
             NtStatus = DetectWritePortUchar(InterfaceType,
                                BusNumber,
                                IoBaseAddress + WD_REG_1,
-                               (UCHAR)(SaveValue & 0xFE)
-                               );
+                               (UCHAR)(SaveValue & 0xFE));
 
-            if (NtStatus != STATUS_SUCCESS) {
-
+            if (NtStatus != STATUS_SUCCESS)
+			{
                 *BoardIdMask = 0;
                 return;
-
             }
 
-
             *BoardIdMask |= BOARD_16BIT;
-
-        } else {
-
+        }
+		else
+		{
             //
             // Put back original value.
             //
-
             NtStatus = DetectWritePortUchar(InterfaceType,
                                BusNumber,
                                IoBaseAddress + WD_REG_1,
-                               SaveValue
-                               );
-
-            if (NtStatus != STATUS_SUCCESS) {
-
+                               SaveValue);
+            if (NtStatus != STATUS_SUCCESS)
+			{
                 *BoardIdMask = 0;
                 return;
-
             }
-
         }
-
     }
-
 }
 
 
@@ -3097,28 +2530,23 @@ Return:
     UCHAR RegValue;
     NTSTATUS NtStatus;
 
-
     //
     // *BoardIdMask = 0;
     //
-
     *BoardIdMask = 0;
 
     //
     // RecallEEPromData();
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3128,28 +2556,23 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_3,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_EAR_MASK;
@@ -3159,28 +2582,23 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_3,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3190,59 +2608,48 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
-    while (RegValue & WD_584_RECALL_DONE) {
-
+    while (RegValue & WD_584_RECALL_DONE)
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_584_EEPROM_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     //
@@ -3250,29 +2657,20 @@ Return:
     //
     //      AddFeatureBits(PAGED_RAM);
     //
-
-    if ((RegValue & WD_584_EEPROM_PAGING_MASK) == WD_584_EEPROM_RAM_PAGING) {
-
+    if ((RegValue & WD_584_EEPROM_PAGING_MASK) == WD_584_EEPROM_RAM_PAGING)
+	{
         *BoardIdMask |= PAGED_RAM;
-
     }
-
 
     //
     // if (RomPaging) then
     //
     //      AddFeatureBits(PAGED_ROM);
     //
-
-    if ((RegValue & WD_584_EEPROM_PAGING_MASK) == WD_584_EEPROM_ROM_PAGING) {
-
+    if ((RegValue & WD_584_EEPROM_PAGING_MASK) == WD_584_EEPROM_ROM_PAGING)
+	{
         *BoardIdMask |= PAGED_ROM;
-
     }
-
-
-
-
 
     //
     // if (16BitBus) then
@@ -3283,11 +2681,9 @@ Return:
     //
     //                  AddFeatureBits(SLOT_16BIT);
     //
-
-    if ((RegValue & WD_584_EEPROM_BUS_SIZE_MASK) == WD_584_EEPROM_BUS_SIZE_16BIT) {
-
+    if ((RegValue & WD_584_EEPROM_BUS_SIZE_MASK) == WD_584_EEPROM_BUS_SIZE_16BIT)
+	{
         *BoardIdMask |= BOARD_16BIT;
-
     }
 
     //
@@ -3312,64 +2708,54 @@ Return:
     //                      AddFeatureBits(ETHERNET_MEDIA);
     //
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_584_EEPROM_0,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
-    if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_STARLAN_TYPE) {
-
+    if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_STARLAN_TYPE)
+	{
         *BoardIdMask |= STARLAN_MEDIA;
-
-    } else if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_TP_TYPE) {
-
-        *BoardIdMask |= TWISTED_PAIR_MEDIA;
-
-    } else if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_EW_TYPE) {
-
-        *BoardIdMask |= EW_MEDIA;
-
-    } else {
-
-        *BoardIdMask |= ETHERNET_MEDIA;
-
     }
-
+	else if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_TP_TYPE)
+	{
+        *BoardIdMask |= TWISTED_PAIR_MEDIA;
+    }
+	else if ((RegValue & WD_584_EEPROM_MEDIA_MASK) == WD_584_EW_TYPE)
+	{
+        *BoardIdMask |= EW_MEDIA;
+    }
+	else
+	{
+        *BoardIdMask |= ETHERNET_MEDIA;
+    }
 
     //
     // if (AlternateIrq) then AddFeatureBits(ALTERNATE_IRQ_BIT);
     //
-
-    if ((RegValue & WD_584_EEPROM_IRQ_MASK) != WD_584_PRIMARY_IRQ) {
-
+    if ((RegValue & WD_584_EEPROM_IRQ_MASK) != WD_584_PRIMARY_IRQ)
+	{
         *BoardIdMask |= ALTERNATE_IRQ_BIT;
-
     }
 
     //
     // RecallLanAddressFromEEProm(NdisAdapterHandle, BaseAddr);
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3379,28 +2765,23 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_3,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_EAR_MASK;
@@ -3410,28 +2791,23 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_3,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3441,47 +2817,38 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         *BoardIdMask = 0;
         return;
-
     }
 
-    while (RegValue & WD_584_RECALL_DONE) {
-
+    while (RegValue & WD_584_RECALL_DONE)
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             *BoardIdMask = 0;
             return;
-
         }
-
     }
-
 }
 
 BOOLEAN
@@ -3515,62 +2882,56 @@ Return:
     UCHAR Value;
     NTSTATUS NtStatus;
 
-    NtStatus = DetectReadPortUchar(InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + WD_LAN_0,
-                      &Value
-                     );
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+                    BusNumber,
+                    IoBaseAddress + WD_LAN_0,
+                    &Value);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (Value != 0x00) {
-
+    if (Value != 0x00)
+	{
         return(FALSE);
-
     }
 
-    NtStatus = DetectReadPortUchar(InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + WD_LAN_1,
-                      &Value
-                     );
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+                    BusNumber,
+                    IoBaseAddress + WD_LAN_1,
+                    &Value);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (Value != 0x00) {
-
+    if (Value != 0x00)
+	{
         return(FALSE);
-
     }
 
-    NtStatus = DetectReadPortUchar(InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + WD_LAN_2,
-                      &Value
-                     );
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+                    BusNumber,
+                    IoBaseAddress + WD_LAN_2,
+                    &Value);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (Value != 0xC0) {
-
+    if (Value != 0xC0)
+	{
         return(FALSE);
-
     }
+
 
     return(TRUE);
-
 }
 
 
@@ -3615,23 +2976,19 @@ Return:
     //
     // InitValue
     //
-
     *RamSize = 0;
 
     //
     // RecallEEPromData();
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3641,26 +2998,21 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_3,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_EAR_MASK;
@@ -3670,26 +3022,21 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_3,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3699,138 +3046,117 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
-    while (RegValue & WD_584_RECALL_DONE) {
-
+    while (RegValue & WD_584_RECALL_DONE)
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             return;
-
         }
-
     }
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_584_EEPROM_0,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     //
     // Get RAM Info
     //
-
-    if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) == WD_584_EEPROM_RAM_SIZE_8K) {
-
+    if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) == WD_584_EEPROM_RAM_SIZE_8K)
+	{
         *RamSize = 0x2000;
-
-    } else {
-
-        if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) == WD_584_EEPROM_RAM_SIZE_16K) {
-
-            if (!(Bid & BOARD_16BIT)) {
-
+    }
+	else
+	{
+        if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) == WD_584_EEPROM_RAM_SIZE_16K)
+		{
+            if (!(Bid & BOARD_16BIT))
+			{
                 *RamSize = 0x4000;
-
-            } else if (!(Bid & SLOT_16BIT)) {
-
+            }
+			else if (!(Bid & SLOT_16BIT))
+			{
                 *RamSize = 0x2000;
-
-            } else {
-
+            }
+			else
+			{
                 *RamSize = 0x4000;
-
             }
-
-        } else {
-
-            if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) ==
-                WD_584_EEPROM_RAM_SIZE_32K) {
-
-                *RamSize = 0x8000;
-
-            } else {
-
-                if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) ==
-                    WD_584_EEPROM_RAM_SIZE_64K) {
-
-                    if (!(Bid & BOARD_16BIT)) {
-
-                        *RamSize = 0x10000;
-
-                    } else {
-
-                        if (!(Bid & SLOT_16BIT)) {
-
-                            *RamSize = 0x8000;
-
-                        } else {
-
-                            *RamSize = 0x10000;
-
-                        }
-
-                    }
-
-                } else {
-
-                    *RamSize = 0x0;
-
-                }
-
-            }
-
         }
-
+		else
+		{
+            if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) ==
+                WD_584_EEPROM_RAM_SIZE_32K)
+			{
+                *RamSize = 0x8000;
+            }
+			else
+			{
+                if ((RegValue & WD_584_EEPROM_RAM_SIZE_MASK) ==
+                    WD_584_EEPROM_RAM_SIZE_64K)
+				{
+                    if (!(Bid & BOARD_16BIT))
+					{
+                        *RamSize = 0x10000;
+                    }
+					else
+					{
+                        if (!(Bid & SLOT_16BIT))
+						{
+                            *RamSize = 0x8000;
+                        }
+						else
+						{
+                            *RamSize = 0x10000;
+                        }
+                    }
+                }
+				else
+				{
+                    *RamSize = 0x0;
+                }
+            }
+        }
     }
 
     //
     // Restore EEPROM to initial state
     //
-
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3840,26 +3166,22 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_3,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_EAR_MASK;
@@ -3869,26 +3191,21 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_3,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
     RegValue &= WD_584_ICR_MASK;
@@ -3898,44 +3215,35 @@ Return:
     NtStatus = DetectWritePortUchar(InterfaceType,
                                     BusNumber,
                                     IoBaseAddress + WD_REG_1,
-                                    RegValue
-                                   );
+                                    RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
-
 
     NtStatus = DetectReadPortUchar(InterfaceType,
                                    BusNumber,
                                    IoBaseAddress + WD_REG_1,
-                                   &RegValue
-                                  );
+                                   &RegValue);
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return;
-
     }
 
-    while (RegValue & WD_584_RECALL_DONE) {
-
+    while (RegValue & WD_584_RECALL_DONE)
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             return;
-
         }
-
     }
-
 }
 
 VOID
@@ -3985,35 +3293,29 @@ Return:
     //
     // Check for a 16 bit slot...
     //
-
-    if (Bid & BOARD_16BIT) {
-
+    if (Bid & BOARD_16BIT)
+	{
         //
         // Now check if it is a 16 bit slot....
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_REG_1,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             return;
-
         }
 
-        if (!(RegValue & WD_SIXTEEN_BIT)) {
-
+        if (!(RegValue & WD_SIXTEEN_BIT))
+		{
             Slot16Bit = FALSE;
-
         }
-
-    } else {
-
+    }
+	else
+	{
         Slot16Bit = FALSE;
-
     }
 
     //
@@ -4099,118 +3401,101 @@ Return:
     //
     //                      AddFeatureBits(RAM_SIZE_UNKNOWN);
     //
-
-
-
-
-
-    if (RevNumber < 2) {
-
-        if (Bid & BOARD_16BIT) {
-
-            if (Slot16Bit) {
-
+    if (RevNumber < 2)
+	{
+        if (Bid & BOARD_16BIT)
+		{
+            if (Slot16Bit)
+			{
                 *RamSize = 0x4000;
-
-            } else {
-
-                *RamSize = 0x2000;
-
             }
-
-        } else {
-
-            if (!(Bid & INTERFACE_CHIP)) {
-
+			else
+			{
                 *RamSize = 0x2000;
-
-            } else {
-
+            }
+        }
+		else
+		{
+            if (!(Bid & INTERFACE_CHIP))
+			{
+                *RamSize = 0x2000;
+            }
+			else
+			{
                 NtStatus = DetectReadPortUchar(InterfaceType,
                                                BusNumber,
                                                IoBaseAddress + WD_REG_1,
-                                               &RegValue
-                                              );
+                                               &RegValue);
 
-                if (NtStatus != STATUS_SUCCESS) {
-
+                if (NtStatus != STATUS_SUCCESS)
+				{
                     return;
-
                 }
 
-                if (RegValue & WD_MSB_583_BIT) {
-
+                if (RegValue & WD_MSB_583_BIT)
+				{
                     *RamSize = 0x8000;
-
-                } else {
-
-                    *RamSize = 0x2000;
-
                 }
-
+				else
+				{
+                    *RamSize = 0x2000;
+                }
             }
-
         }
-
-    } else {
-
-
+    }
+	else
+	{
         NtStatus = DetectReadPortUchar(InterfaceType,
                                        BusNumber,
                                        IoBaseAddress + WD_ID_BYTE,
-                                       &RegValue
-                                      );
+                                       &RegValue);
 
-        if (NtStatus != STATUS_SUCCESS) {
-
+        if (NtStatus != STATUS_SUCCESS)
+		{
             return;
-
         }
 
-        switch (Bid & STATIC_ID_MASK) {
-
+        switch (Bid & STATIC_ID_MASK)
+		{
             case WD8003E:
             case WD8003S:
             case WD8003WT:
             case WD8003W:
             case WD8003EB:
 
-                if (RegValue & WD_RAM_SIZE_BIT) {
-
+                if (RegValue & WD_RAM_SIZE_BIT)
+				{
                     *RamSize = 0x8000;
-
-                } else {
-
+                }
+				else
+				{
                     *RamSize = 0x2000;
-
                 }
 
                 break;
 
             case WD8013EBT:
 
-                if (Bid & SLOT_16BIT) {
-
-                    if (RegValue & WD_RAM_SIZE_BIT) {
-
+                if (Bid & SLOT_16BIT)
+				{
+                    if (RegValue & WD_RAM_SIZE_BIT)
+					{
                         *RamSize = 0x10000;
-
-                    } else {
-
-                        *RamSize = 0x4000;
-
                     }
-
-                } else {
-
-                    if (RegValue & WD_RAM_SIZE_BIT) {
-
+					else
+					{
+                        *RamSize = 0x4000;
+                    }
+                }
+				else
+				{
+                    if (RegValue & WD_RAM_SIZE_BIT)
+					{
                         *RamSize = 0x8000;
-
-                    } else {
-
+                    }
+					else
+					{
                         *RamSize = 0x2000;
-
                     }
                 }
 
@@ -4219,11 +3504,8 @@ Return:
             default:
 
                 *RamSize = 0x2000;
-
         }
-
     }
-
 }
 
 VOID
@@ -4266,8 +3548,7 @@ Return:
             BusNumber,
             MemoryBaseAddress,
             Length,
-            Buffer
-            );
+            Buffer);
 }
 
 
@@ -4315,79 +3596,64 @@ Return Value:
     NTSTATUS NtStatus;
     LARGE_INTEGER Delay;
 
-
     //
     // Reset IC
     //
-
-    NtStatus = DetectReadPortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + CNFG_MSR_583,
-                       &SaveValue
-                      );
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + CNFG_MSR_583,
+                    &SaveValue);
 
     RegValue = SaveValue | (UCHAR)0x80;
 
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + CNFG_MSR_583,
-                       RegValue
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + CNFG_MSR_583,
+                    RegValue);
 
     //
     // Wait for reset to complete. (2 ms)
     //
-
     Delay.LowPart = 2000;
     Delay.HighPart = 0;
 
-    NtDelayExecution(
-        FALSE,
-        &Delay
-        );
+    NtDelayExecution(FALSE, &Delay);
 
     //
     // Put back original value
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + CNFG_MSR_583,
-                       (UCHAR)(SaveValue & (UCHAR)(~0x80))
-                      );
-
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + CNFG_MSR_583,
+                    (UCHAR)(SaveValue & (UCHAR)(~0x80)));
 
     //
     // Enable Ram
     //
-
-
     RegValue = (((UCHAR)(((PUSHORT)MemoryBaseAddress) + 2) << 3) |
-                (UCHAR)(MemoryBaseAddress >> 13)
-                );
+                (UCHAR)(MemoryBaseAddress >> 13));
 
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + CNFG_MSR_583,
-                       (UCHAR)(RegValue | (UCHAR)0x40)
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + CNFG_MSR_583,
+                    (UCHAR)(RegValue | (UCHAR)0x40));
 
     //
     // Load LAN Address
     //
-
-    for (i=0; i < 6; i++) {
-
+    for (i = 0; i < 6; i++)
+	{
         //
         // Read from IC
         //
-
         NtStatus = DetectReadPortUchar(InterfaceType, BusNumber,
                       IoBaseAddress + 0x8 + i,
-                      &(NetworkAddress[i])
-                     );
-
-
+                      &(NetworkAddress[i]));
     }
-
-
 
     //
     // Init NIC
@@ -4396,173 +3662,298 @@ Return Value:
     //
     // Maintain reset
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x10,
-                       0x21
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x10,
+                    0x21);
 
     //
     // Reset Remote_byte_count registers
     //
 
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1A,
-                       0
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1A,
+                    0);
 
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1B,
-                       0
-                      );
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1B,
+                    0);
 
     //
     // Make sure reset is bit is set
     //
+    NtStatus = DetectReadPortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x17,
+                    &RegValue);
 
-    NtStatus = DetectReadPortUchar(InterfaceType, BusNumber,
-                      IoBaseAddress + 0x17,
-                      &RegValue
-                     );
-
-    if (!(RegValue & 0x80)) {
-
+    if (!(RegValue & 0x80))
+	{
         //
         // Wait 1600 ms
         //
-
         Delay.LowPart = 1600000;
         Delay.HighPart = 0;
 
-        NtDelayExecution(
-            FALSE,
-            &Delay
-            );
+        NtDelayExecution(FALSE, &Delay);
     }
 
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1E,
-                       0x40
-                      );
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1E,
+                    0x40);
 
     //
     // Set Receive Config
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1C,
-                       0x0
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1C,
+                    0x0);
 
     //
     // loopback operation while setting up rings.
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1D,
-                       0x04
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1D,
+                    0x04);
 
     //
     // Write first Receive ring buffer number
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x11,
-                       0x1
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x11,
+                    0x1);
 
     //
     // Write last Receive ring buffer number
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x12,
-                       0x3
-                      );
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x12,
+                    0x3);
 
     //
     // Write buffer number where the card cannot write beyond.
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x13,
-                       0x2
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x13,
+                    0x2);
 
     //
     // Clear all interrupt status bits
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x17,
-                       0xFF
-                      );
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x17,
+                    0xFF);
 
     //
     // Set Interrupt Mask
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1F,
-                       0xFF
-                       );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1F,
+                    0xFF);
 
     //
     // Maintain reset and select page 1
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x10,
-                       0x61
-                      );
-
-
-
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x10,
+                    0x61);
 
     //
     // Write physical address
     //
-
-    for (i = 0; i < 6; i++) {
-
-        NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x11 + i,
-                       NetworkAddress[i]
-                      );
+    for (i = 0; i < 6; i++)
+	{
+        NtStatus = DetectWritePortUchar(
+						InterfaceType,
+						BusNumber,
+						IoBaseAddress + 0x11 + i,
+						NetworkAddress[i]);
     }
-
 
     //
     // Load next pointer.
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x17,
-                       0x2
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x17,
+                    0x2);
 
     //
     // Normal operation
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x1D,
-                       0x00
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x1D,
+                    0x00);
 
     //
     // Start the chip
     //
-
-    NtStatus = DetectWritePortUchar(InterfaceType, BusNumber,
-                       IoBaseAddress + 0x10,
-                       0x22
-                      );
+    NtStatus = DetectWritePortUchar(
+					InterfaceType,
+					BusNumber,
+                    IoBaseAddress + 0x10,
+                    0x22);
 }
 
+BOOLEAN
+CheckFor585(
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG BusNumber,
+    ULONG IoBaseAddress
+    )
+
+/*++
+
+Routine Description:
+
+    This routine will check for presence of 585/790/795 interface.
+
+Arguments:
+
+ BaseAddr - The base address for I/O to the board.
+
+Return:
+
+    FALSE, if not 585 nor 790 nor 795.
+    TRUE,  if 585/790/795.
+
+--*/
+{
+    UCHAR RegValue, RegValue1, RegValue2;
+    UCHAR SavValue;
+    NTSTATUS Status;
+
+    Status = DetectReadPortUchar(
+					InterfaceType,
+                    BusNumber,
+                    IoBaseAddress + WD_REG_4,
+                    &RegValue);
+
+    if ( Status != STATUS_SUCCESS )
+	{
+        return FALSE;
+    }
+
+    SavValue = RegValue;
+    RegValue &= 0xC3;
+    RegValue |= 0x80;
+
+    Status = DetectWritePortUchar(
+                    InterfaceType,
+                    BusNumber,
+                    IoBaseAddress + WD_REG_4,
+                    RegValue);
+
+    if ( Status != STATUS_SUCCESS )
+	{
+        return FALSE;
+    }
+
+    RegValue1 = RegValue2 = 0;
+
+    for (RegValue = 0; RegValue < 6; RegValue++)
+	{
+        Status = DetectReadPortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + 0x08 + RegValue,
+                        &RegValue1);
+
+        if (Status != STATUS_SUCCESS)
+		{
+            return FALSE;
+        }
+
+        Status = DetectReadPortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + WD_REG_4,
+                        &RegValue2);
+
+        if ( Status != STATUS_SUCCESS )
+		{
+            return FALSE;
+        }
+
+        RegValue2 &= 0xC3;
+        RegValue2 ^= 0x80;
+
+        Status = DetectWritePortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + WD_REG_4,
+                        RegValue2);
+
+        if ( Status != STATUS_SUCCESS )
+		{
+            return FALSE;
+        }
+
+        Status = DetectReadPortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + 0x08 + RegValue,
+                        &RegValue2);
+
+        if ( Status != STATUS_SUCCESS )
+		{
+            return FALSE;
+        }
+
+        if (RegValue1 != RegValue2)
+		{
+            break;
+        }
+    }
+
+    if (RegValue == 6)
+	{
+        Status = DetectWritePortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + WD_REG_4,
+                        SavValue);
+
+        return FALSE;
+    }
+
+    Status = DetectWritePortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + WD_REG_4,
+                        (UCHAR)(SavValue & 0xC3));
+
+    if ( Status != STATUS_SUCCESS )
+	{
+        return FALSE;
+    }
+
+    return TRUE;
+}

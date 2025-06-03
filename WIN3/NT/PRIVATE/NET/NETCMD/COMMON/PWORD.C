@@ -45,10 +45,12 @@ Revision History:
 #include "netlib0.h"
 #include <stdio.h>		
 #include <bseerr.h>
-#include <neterr.h>
 #include <malloc.h>
-#include <apperr.h>
-#include <apperr2.h>
+/*
+ * Should I put the ID in apperr2.h ?
+ * but we should sync the .mc file.
+ */
+#include "..\..\messages\netmsg.h"
 
 #include <luitext.h>
 
@@ -60,6 +62,21 @@ Revision History:
 /*-- static data for weeks info --*/
 
 static searchlist_data week_data[] = {
+    {APE2_GEN_NONLOCALIZED_MONDAY,   0},
+    {APE2_GEN_NONLOCALIZED_TUESDAY,  1},
+    {APE2_GEN_NONLOCALIZED_WEDNSDAY, 2},
+    {APE2_GEN_NONLOCALIZED_THURSDAY, 3},
+    {APE2_GEN_NONLOCALIZED_FRIDAY,   4},
+    {APE2_GEN_NONLOCALIZED_SATURDAY, 5},
+    {APE2_GEN_NONLOCALIZED_SUNDAY,   6},
+    {APE2_GEN_NONLOCALIZED_MONDAY_ABBREV,   0},
+    {APE2_GEN_NONLOCALIZED_TUESDAY_ABBREV,  1},
+    {APE2_GEN_NONLOCALIZED_WEDNSDAY_ABBREV, 2},
+    {APE2_GEN_NONLOCALIZED_THURSDAY_ABBREV, 3},
+    {APE2_GEN_NONLOCALIZED_FRIDAY_ABBREV,   4},
+    {APE2_GEN_NONLOCALIZED_SATURDAY_ABBREV, 5},
+    {APE2_GEN_NONLOCALIZED_SATURDAY_ABBREV2,5},
+    {APE2_GEN_NONLOCALIZED_SUNDAY_ABBREV,   6},
     {APE2_GEN_MONDAY_ABBREV,	0},
     {APE2_GEN_TUESDAY_ABBREV,	1},
     {APE2_GEN_WEDNSDAY_ABBREV,	2},

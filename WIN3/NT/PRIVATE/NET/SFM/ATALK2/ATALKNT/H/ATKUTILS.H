@@ -1,2 +1,0 @@
-#define     DbgPrintNewLine()   DbgPrint("\n")
-

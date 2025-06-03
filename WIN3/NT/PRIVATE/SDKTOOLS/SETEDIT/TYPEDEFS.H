@@ -66,6 +66,20 @@ typedef struct PERFSYSTEMSTRUCT
    LPTSTR  lpszValue;
    BOOL    bSystemNoLongerNeeded;
    BOOL    bSystemCounterNameSaved;
+   // the following used by perf data thread
+   DWORD           dwThreadID ;
+   HANDLE          hThread ;
+   DWORD           StateData ;
+   HANDLE          hStateDataMutex ;
+   HANDLE          hPerfDataEvent ;
+   PPERFDATA       pSystemPerfData ;
+
+   // mainly used by Alert to report system up/down   
+   DWORD           dwSystemState ;
+
+   // system version
+   DWORD           SysVersion ;
+
    } PERFSYSTEM, *PPERFSYSTEM, **PPPERFSYSTEM ;
 
 
@@ -129,6 +143,7 @@ typedef struct _LINESTRUCT
 
    struct _PERF_INSTANCE_DEFINITION lnInstanceDef;
    LPTSTR                          lnInstanceName;
+   DWORD                           dwInstanceIndex;
 
    LPTSTR                          lnPINName;
    LPTSTR                          lnParentObjName;
@@ -628,8 +643,10 @@ typedef struct PLAYBACKLOGSTRUCT
 
 
 // minor version 3 to support alert, report, log intervals in msec
+// minor version 5 to support storing Log file name in setting
+//  and start logging after reading the file.
 #define LogMajorVersion    1
-#define LogMinorVersion    3
+#define LogMinorVersion    5
 
 
 typedef struct DISKLOGSTRUCT
@@ -638,6 +655,7 @@ typedef struct DISKLOGSTRUCT
    DWORD          dwIntervalSecs ;
    BOOL           bManualRefresh ;
    OPTIONS        perfmonOptions ;
+   TCHAR          LogFileName[260] ;
    } DISKLOG ;
 
 
@@ -693,7 +711,9 @@ typedef ALERT *PALERT ;
 
 // minor version 2 to support Alert msg name
 // minor version 3 to support alert, report, log intervals in msec
-#define AlertMinorVersion    3
+// minor version 4 to support alert event logging
+// minor version 6 to support alert misc options
+#define AlertMinorVersion    6
 
 
 typedef struct DISKALERTSTRUCT
@@ -706,6 +726,7 @@ typedef struct DISKALERTSTRUCT
    BOOL           bNetworkAlert ;
    TCHAR          MessageName [16] ;
    OPTIONS        perfmonOptions ;
+   DWORD          MiscOptions ;
    } DISKALERT ;
 
 
@@ -717,13 +738,17 @@ typedef struct DISKALERTSTRUCT
 typedef struct COLUMNGROUPSTRUCT
    {
    struct COLUMNGROUPSTRUCT *pColumnGroupNext ;
+   struct COLUMNGROUPSTRUCT  *pColumnGroupPrevious ;
+   struct OBJECTGROUPSTRUCT  *pParentObject ;
    LPTSTR         lpszParentName ;
    LPTSTR         lpszInstanceName ;
    int            ParentNameTextWidth ;
    int            InstanceNameTextWidth ;
    int            xPos ;
    int            xWidth ;
+   int            yFirstLine ;
    int            ColumnNumber ;  // start from 0
+   DWORD          dwInstanceIndex;
    } COLUMNGROUP ;
 
 
@@ -733,9 +758,12 @@ typedef COLUMNGROUP *PCOLUMNGROUP ;
 typedef struct COUNTERGROUPSTRUCT
    {
    struct COUNTERGROUPSTRUCT *pCounterGroupNext ;
+   struct COUNTERGROUPSTRUCT *pCounterGroupPrevious ;
+   struct OBJECTGROUPSTRUCT  *pParentObject ;
    DWORD          dwCounterIndex ;
    PLINE          pLineFirst ;
    int            yLine ;
+   int            xWidth ;
    } COUNTERGROUP ;
 
 typedef COUNTERGROUP *PCOUNTERGROUP ;
@@ -744,11 +772,14 @@ typedef COUNTERGROUP *PCOUNTERGROUP ;
 typedef struct OBJECTGROUPSTRUCT
    {
    struct OBJECTGROUPSTRUCT  *pObjectGroupNext ;
+   struct OBJECTGROUPSTRUCT  *pObjectGroupPrevious ;
+   struct SYSTEMGROUPSTRUCT  *pParentSystem ;
    LPTSTR         lpszObjectName ;
    PCOUNTERGROUP  pCounterGroupFirst ;
    PCOLUMNGROUP   pColumnGroupFirst ;
    int            yFirstLine ;
    int            yLastLine ;
+   int            xWidth ;
    } OBJECTGROUP ;
 
 typedef OBJECTGROUP *POBJECTGROUP ;
@@ -757,10 +788,12 @@ typedef OBJECTGROUP *POBJECTGROUP ;
 typedef struct SYSTEMGROUPSTRUCT
    {  // SystemGroup
    struct SYSTEMGROUPSTRUCT *pSystemGroupNext ;
+   struct SYSTEMGROUPSTRUCT *pSystemGroupPrevious ;
    LPTSTR         lpszSystemName ;
    POBJECTGROUP   pObjectGroupFirst ;
    int            yFirstLine ;
    int            yLastLine ;
+   int            xWidth ;
    } SYSTEMGROUP ;
 
 typedef  SYSTEMGROUP   *PSYSTEMGROUP ;
@@ -842,7 +875,10 @@ typedef struct PERFFILEHEADERSTRUCT
 // minor version 1 to support window placement data
 // minor version 2 to support alert msg name
 // minor version 3 to support alert, report, log intervals in msec
-#define WorkspaceMinorVersion    3
+// minor version 4 to support alert eventlog
+// minor version 5 to support log file name in log setting
+// minor version 6 to support alert misc options
+#define WorkspaceMinorVersion    6
 
 typedef struct DISKWORKSPACESTRUCT
    {
@@ -855,5 +891,5 @@ typedef struct DISKWORKSPACESTRUCT
    } DISKWORKSPACE ;
 
 
-
-
+
+

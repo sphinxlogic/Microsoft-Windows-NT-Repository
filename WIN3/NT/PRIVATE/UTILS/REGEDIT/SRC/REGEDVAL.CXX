@@ -21,9 +21,7 @@ Environment:
 
 --*/
 
-extern "C" {
-    #include <stdio.h>
-}
+#include <stdio.h>
 
 #include "regedval.hxx"
 #include "regsys.hxx"
@@ -164,7 +162,7 @@ Return Value:
 
 
 {
-    DbgPtrAssert( ValueEntry );
+    DebugPtrAssert( ValueEntry );
 
     Destroy();
 
@@ -227,7 +225,7 @@ Return Value:
             DELETE( _NoNameString );
             DELETE( _InvalidDataString );
             _StringsInitialized = FALSE;
-            DbgPrint( "Unable to initialize string" );
+            DebugPrint( "Unable to initialize string" );
             return( FALSE );
         }
         //
@@ -287,12 +285,12 @@ Return Value:
 //                                             digits followed by a 'space'
 //
 
-    DbgAssert( DataSize != 0 );
-    DbgPtrAssert( Data );
+    DebugAssert( DataSize != 0 );
+    DebugPtrAssert( Data );
 
     String = ( PWSTRING )NEW( DSTRING );
     if( String == NULL ) {
-        DbgPrint( "Unable to allocate memory" );
+        DebugPrint( "Unable to allocate memory" );
         return( NULL );
     }
 
@@ -306,7 +304,7 @@ Return Value:
         sprintf( Buffer + Index - 1, "%s", "..." );
     }
     if( !String->Initialize( Buffer ) ) {
-        DbgPrint( "String->Initialize( Buffer ) failed" );
+        DebugPrint( "String->Initialize( Buffer ) failed" );
         FREE( String );
         return( NULL );
     }
@@ -365,23 +363,23 @@ Return Value:
 //
 
     Name = _ValueEntry->GetName();
-    DbgPtrAssert( Name );
+    DebugPtrAssert( Name );
     DataType = _ValueEntry->GetType();
     DataSize = _ValueEntry->GetData( &Data );
 
     //
     // Verify that the Data is not NULL when the DataSize is not zero
     //
-    DbgAssert( ( DataSize == 0 ) || ( Data != NULL ) );
+    DebugAssert( ( DataSize == 0 ) || ( Data != NULL ) );
 
     if( Name->QueryChCount() != 0 ) {
         if( !_FormattedString.Initialize( Name ) ) {
-            DbgPrint( "_FormattedString.Initialize( Name )" );
+            DebugPrint( "_FormattedString.Initialize( Name )" );
             return( FALSE );
         }
     } else {
         if( !_FormattedString.Initialize( _NoNameString ) ) {
-            DbgPrint( "_FormattedString.Initialize( Name )" );
+            DebugPrint( "_FormattedString.Initialize( Name )" );
             return( FALSE );
         }
     }
@@ -423,7 +421,7 @@ Return Value:
                     StringSize = DataSize/sizeof( WCHAR );
                 }
                 if( !TmpString.Initialize( ( PWSTR )Data, StringSize ) ) {
-                     DbgPrint( "TmpString.Initialize() failed" );
+                     DebugPrint( "TmpString.Initialize() failed" );
                      return( FALSE );
                 }
                 _FormattedString.Strcat( &TmpString );
@@ -456,7 +454,7 @@ Return Value:
             if( DataSize == sizeof( DWORD ) ) {
                 swprintf( TmpValue, ( LPWSTR )L"%#x", *( ( LPDWORD )Data ) );
                 if( !TmpString.Initialize( TmpValue ) ) {
-                    DbgPrint( "TmpString.Initialize() failed" );
+                    DebugPrint( "TmpString.Initialize() failed" );
                     return( FALSE );
                 }
                 _FormattedString.Strcat( &TmpString );
@@ -476,7 +474,7 @@ Return Value:
                 }
                 MultiSzBuffer = ( PWSTR )MALLOC( ( size_t )DataSize );
                 if( MultiSzBuffer == NULL ) {
-                    DbgPrint( "Unable to allocate memory" );
+                    DebugPrint( "Unable to allocate memory" );
                     return( FALSE );
                 }
                 MultiSzNumberOfWChars = DataSize / sizeof( WCHAR );
@@ -491,7 +489,7 @@ Return Value:
                     MultiSzNumberOfWChars--;
                 }
                 if( !MultiSzString.Initialize( MultiSzBuffer, ( DataSize / sizeof( WCHAR ) ) - 1 ) ) {
-                    DbgPrint( "MultiSzString.Initialize() failed" );
+                    DebugPrint( "MultiSzString.Initialize() failed" );
                     FREE( MultiSzBuffer );
                     return( FALSE );
                 }
@@ -589,11 +587,11 @@ Return Value:
 
     PSTR    Pointer;
 
-    DbgPrintf( "======== Dumping a REGEDIT_FORMATTED_VALUE_ENTRY object ==== \n\n" );
+    DebugPrintf( "======== Dumping a REGEDIT_FORMATTED_VALUE_ENTRY object ==== \n\n" );
     _ValueEntry->DbgPrintValueEntry();
     Pointer = _FormattedString.QuerySTR();
-    DbgPtrAssert( Pointer );
-    DbgPrintf( "    _FormattedString = %s \n", Pointer );
+    DebugPtrAssert( Pointer );
+    DebugPrintf( "    _FormattedString = %s \n", Pointer );
     FREE( Pointer );
 
 }
@@ -614,7 +612,7 @@ Routine Description:
     Compare two value entries based on their names.
 
 Arguments:
-	
+
     ValueEntry - Supplies the node to compare with.
 
 Return Value:
@@ -630,7 +628,7 @@ Return Value:
     PCWSTRING   Name1;
     PCWSTRING   Name2;
 
-    DbgPtrAssert( ValueEntry );
+    DebugPtrAssert( ValueEntry );
 
     Name1 = GetName();
     Name2 = ( ( PCREGEDIT_FORMATTED_VALUE_ENTRY )ValueEntry )->GetName();

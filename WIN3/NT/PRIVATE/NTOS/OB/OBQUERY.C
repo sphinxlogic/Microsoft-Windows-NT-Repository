@@ -25,6 +25,7 @@ Revision History:
 #pragma alloc_text(PAGE,ObQueryNameString)
 #pragma alloc_text(PAGE,ObQueryTypeName)
 #pragma alloc_text(PAGE,ObQueryTypeInfo)
+#pragma alloc_text(PAGE,ObQueryObjectAuditingByHandle)
 #pragma alloc_text(PAGE,NtSetInformationObject)
 #endif
 
@@ -40,7 +41,6 @@ NtQueryObject(
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
     PVOID Object;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_QUOTA_INFO QuotaInfo;
     POBJECT_HEADER_NAME_INFO NameInfo;
@@ -104,13 +104,12 @@ NtQueryObject(
 
         GrantedAccess = HandleInformation.GrantedAccess;
 
-        NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
         ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
-        ObjectType = NonPagedObjectHeader->Type;
+        ObjectType = ObjectHeader->Type;
         }
     else {
+        GrantedAccess = 0;
         Object = NULL;
-        NonPagedObjectHeader = NULL;
         ObjectHeader = NULL;
         ObjectType = NULL;
         }
@@ -126,13 +125,13 @@ NtQueryObject(
         if (ObjectHeader->Flags & OB_FLAG_PERMANENT_OBJECT) {
             ObjectBasicInfo.Attributes |= OBJ_PERMANENT;
             }
-        if (ObjectHeader->ExclusiveProcess != NULL) {
+        if (ObjectHeader->Flags & OB_FLAG_EXCLUSIVE_OBJECT) {
             ObjectBasicInfo.Attributes |= OBJ_EXCLUSIVE;
             }
 
         ObjectBasicInfo.GrantedAccess = GrantedAccess;
-        ObjectBasicInfo.HandleCount = NonPagedObjectHeader->HandleCount;
-        ObjectBasicInfo.PointerCount = NonPagedObjectHeader->PointerCount;
+        ObjectBasicInfo.HandleCount = ObjectHeader->HandleCount;
+        ObjectBasicInfo.PointerCount = ObjectHeader->PointerCount;
         QuotaInfo = OBJECT_HEADER_TO_QUOTA_INFO( ObjectHeader );
         if (QuotaInfo != NULL) {
             ObjectBasicInfo.PagedPoolCharge = QuotaInfo->PagedPoolCharge;
@@ -293,31 +292,29 @@ NtQueryObject(
 
     case ObjectHandleFlagInformation:
         try {
-            if (ARGUMENT_PRESENT( ReturnLength ) ) {
-                *ReturnLength = sizeof( OBJECT_HANDLE_FLAG_INFORMATION );
-                }
+            if (ARGUMENT_PRESENT(ReturnLength)) {
+                *ReturnLength = sizeof(OBJECT_HANDLE_FLAG_INFORMATION);
+            }
+
             HandleFlags = (POBJECT_HANDLE_FLAG_INFORMATION)ObjectInformation;
-            if (ObjectInformationLength < sizeof( OBJECT_HANDLE_FLAG_INFORMATION ) ) {
+            if (ObjectInformationLength < sizeof( OBJECT_HANDLE_FLAG_INFORMATION)) {
                 Status = STATUS_INFO_LENGTH_MISMATCH;
-                }
-            else {
+
+            } else {
+                HandleFlags->Inherit = FALSE;
                 if (HandleInformation.HandleAttributes & OBJ_INHERIT) {
                     HandleFlags->Inherit = TRUE;
-                    }
-                else {
-                    HandleFlags->Inherit = FALSE;
-                    }
+                }
 
-                Status = ExQueryHandleExtraBit( ObpGetObjectTable(),
-                                                FALSE,
-                                                (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle ),
-                                                &HandleFlags->ProtectFromClose
-                                              );
+                HandleFlags->ProtectFromClose = FALSE;
+                if (HandleInformation.HandleAttributes & OBJ_PROTECT_CLOSE) {
+                    HandleFlags->ProtectFromClose = TRUE;
                 }
             }
-        except( EXCEPTION_EXECUTE_HANDLER ) {
+
+        } except( EXCEPTION_EXECUTE_HANDLER ) {
             Status = GetExceptionCode();
-            }
+        }
 
         break;
 
@@ -340,11 +337,9 @@ ObGetObjectName(
     IN PVOID Object
     )
 {
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_NAME_INFO NameInfo;
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
     NameInfo = OBJECT_HEADER_TO_NAME_INFO( ObjectHeader );
 
@@ -357,6 +352,9 @@ ObGetObjectName(
 }
 #endif // DBG
 
+#define OBP_MISSING_NAME_LITERAL L"..."
+#define OBP_MISSING_NAME_LITERAL_SIZE (sizeof( OBP_MISSING_NAME_LITERAL ) - sizeof( UNICODE_NULL ))
+
 NTSTATUS
 ObQueryNameString(
     IN PVOID Object,
@@ -366,7 +364,6 @@ ObQueryNameString(
     )
 {
     NTSTATUS Status;
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_HEADER ObjectHeader;
     POBJECT_HEADER_NAME_INFO NameInfo;
     POBJECT_HEADER ObjectDirectoryHeader;
@@ -378,17 +375,16 @@ ObQueryNameString(
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
     ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
     NameInfo = OBJECT_HEADER_TO_NAME_INFO( ObjectHeader );
 
-    if (NonPagedObjectHeader->Type->TypeInfo.QueryNameProcedure != NULL) {
+    if (ObjectHeader->Type->TypeInfo.QueryNameProcedure != NULL) {
         try {
             KIRQL SaveIrql;
 
             ObpBeginTypeSpecificCallOut( SaveIrql );
-            ObpEndTypeSpecificCallOut( SaveIrql, "Query", NonPagedObjectHeader->Type, Object );
-            Status = (*NonPagedObjectHeader->Type->TypeInfo.QueryNameProcedure)(
+            ObpEndTypeSpecificCallOut( SaveIrql, "Query", ObjectHeader->Type, Object );
+            Status = (*ObjectHeader->Type->TypeInfo.QueryNameProcedure)(
                         Object,
                         (BOOLEAN)(NameInfo != NULL && NameInfo->Name.Length != 0),
                         ObjectNameInfo,
@@ -444,6 +440,7 @@ ObQueryNameString(
                 ObjectDirectory = NameInfo->Directory;
                 }
             else {
+                NameSize += sizeof( OBJ_NAME_PATH_SEPARATOR ) + OBP_MISSING_NAME_LITERAL_SIZE;
                 break;
                 }
             }
@@ -485,6 +482,11 @@ ObQueryNameString(
                         ObjectDirectory = NameInfo->Directory;
                         }
                     else {
+                        StringBuffer = (PWCH)((PCH)StringBuffer - OBP_MISSING_NAME_LITERAL_SIZE);
+                        RtlMoveMemory( StringBuffer,
+                                       OBP_MISSING_NAME_LITERAL,
+                                       OBP_MISSING_NAME_LITERAL_SIZE
+                                     );
                         break;
                         }
                     }
@@ -514,8 +516,8 @@ ObQueryTypeName(
     OUT PULONG ReturnLength
     )
 {
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
     POBJECT_TYPE ObjectType;
+    POBJECT_HEADER ObjectHeader;
     ULONG TypeNameSize;
     PUNICODE_STRING String;
     PWCH StringBuffer;
@@ -523,8 +525,8 @@ ObQueryTypeName(
 
     PAGED_CODE();
 
-    NonPagedObjectHeader = OBJECT_TO_NONPAGED_OBJECT_HEADER( Object );
-    ObjectType = NonPagedObjectHeader->Type;
+    ObjectHeader = OBJECT_TO_OBJECT_HEADER( Object );
+    ObjectType = ObjectHeader->Type;
 
     NameSize = ObjectType->Name.Length;
     TypeNameSize = NameSize + sizeof( UNICODE_NULL ) + sizeof( UNICODE_STRING );
@@ -604,39 +606,71 @@ ObQueryTypeInfo(
     return Status;
 }
 
+NTSTATUS
+ObQueryObjectAuditingByHandle(
+    IN HANDLE Handle,
+    OUT PBOOLEAN GenerateOnClose
+    )
+{
+    PHANDLE_TABLE ObjectTable;
+    POBJECT_TABLE_ENTRY ObjectTableEntry;
+    PVOID Object;
+    ULONG CapturedGrantedAccess;
+    ULONG CapturedAttributes;
+    POBJECT_HEADER ObjectHeader;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+    ObpValidateIrql( "ObQueryObjectAuditingByHandle" );
+
+    ObjectTable = ObpGetObjectTable();
+    ObjectTableEntry = (POBJECT_TABLE_ENTRY)ExMapHandleToPointer(
+                   ObjectTable,
+                   (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle ),
+                   TRUE         // shared access
+                   );
+
+    if (ObjectTableEntry != NULL) {
+        ObjectHeader = (POBJECT_HEADER)(ObjectTableEntry->Attributes & ~OBJ_HANDLE_ATTRIBUTES);
+        CapturedAttributes = (ULONG)(ObjectTableEntry->Attributes);
+        if (CapturedAttributes & OBJ_AUDIT_OBJECT_CLOSE) {
+            *GenerateOnClose = TRUE;
+        } else {
+            *GenerateOnClose = FALSE;
+        }
+        ExUnlockHandleTableShared(ObjectTable);
+        return(STATUS_SUCCESS);
+    } else {
+        return(STATUS_INVALID_HANDLE);
+    }
+}
+
 
 BOOLEAN
-ObpSetHandleBit(
-    IN OUT PVOID TableEntry,
-    IN ULONG Parameter
-    );
-
-typedef struct _OBP_SET_HANDLE_BIT_PARAMS {
-    PVOID ObjectTable;
-    HANDLE HandleIndex;
-    OBJECT_HANDLE_FLAG_INFORMATION CapturedObjectInfo;
-} OBP_SET_HANDLE_BIT_PARAMS, *POBP_SET_HANDLE_BIT_PARAMS;
-
-BOOLEAN
-ObpSetHandleBit(
+ObpSetHandleAttributes(
     IN OUT PVOID TableEntry,
     IN ULONG Parameter
     )
+
 {
+
+    POBJECT_HANDLE_FLAG_INFORMATION ObjectInformation;
     POBJECT_TABLE_ENTRY ObjectTableEntry = (POBJECT_TABLE_ENTRY)TableEntry;
-    POBP_SET_HANDLE_BIT_PARAMS Params = (POBP_SET_HANDLE_BIT_PARAMS)Parameter;
 
-    if (Params->CapturedObjectInfo.Inherit) {
-        ObjectTableEntry->NonPagedObjectHeader |= OBJ_INHERIT;
-        }
-    else {
-        ObjectTableEntry->NonPagedObjectHeader &= ~OBJ_INHERIT;
-        }
+    ObjectInformation = (POBJECT_HANDLE_FLAG_INFORMATION)Parameter;
+    if (ObjectInformation->Inherit) {
+        ObjectTableEntry->Attributes |= OBJ_INHERIT;
 
-    ExSetHandleExtraBit( Params->ObjectTable,
-                         Params->HandleIndex,
-                         Params->CapturedObjectInfo.ProtectFromClose
-                       );
+    } else {
+        ObjectTableEntry->Attributes &= ~OBJ_INHERIT;
+    }
+
+    if (ObjectInformation->ProtectFromClose) {
+        ObjectTableEntry->Attributes |= OBJ_PROTECT_CLOSE;
+
+    } else {
+        ObjectTableEntry->Attributes &= ~OBJ_PROTECT_CLOSE;
+    }
 
     return TRUE;
 }
@@ -650,64 +684,66 @@ NtSetInformationObject(
     IN PVOID ObjectInformation,
     IN ULONG ObjectInformationLength
     )
+
 {
+
+    OBJECT_HANDLE_FLAG_INFORMATION CapturedInformation;
+    HANDLE ObjectHandle;
+    PVOID ObjectTable;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    OBP_SET_HANDLE_BIT_PARAMS Params;
 
     PAGED_CODE();
+
+    //
+    // Check if the information class and information lenght are correct.
+    //
+
+    if (ObjectInformationClass != ObjectHandleFlagInformation) {
+        return STATUS_INVALID_INFO_CLASS;
+    }
+
+    if (ObjectInformationLength != sizeof(OBJECT_HANDLE_FLAG_INFORMATION)) {
+        return STATUS_INFO_LENGTH_MISMATCH;
+    }
 
     //
     // Get previous processor mode and probe output argument if necessary.
     //
 
     PreviousMode = KeGetPreviousMode();
-    if (PreviousMode != KernelMode) {
-        try {
-            ProbeForRead( ObjectInformation,
-                          ObjectInformationLength,
-                          1
-                        );
-            Params.CapturedObjectInfo = *(POBJECT_HANDLE_FLAG_INFORMATION)ObjectInformation;
-            }
-        except( EXCEPTION_EXECUTE_HANDLER ) {
-            return( GetExceptionCode() );
-            }
-        }
-    else {
-        Params.CapturedObjectInfo = *(POBJECT_HANDLE_FLAG_INFORMATION)ObjectInformation;
+    try {
+        if (PreviousMode != KernelMode) {
+            ProbeForRead(ObjectInformation, ObjectInformationLength, 1);
         }
 
-    if (ObjectInformationClass != ObjectHandleFlagInformation) {
-        return STATUS_INVALID_INFO_CLASS;
-        }
+        CapturedInformation = *(POBJECT_HANDLE_FLAG_INFORMATION)ObjectInformation;
 
-    if (ObjectInformationLength != sizeof( OBJECT_HANDLE_FLAG_INFORMATION )) {
-        return( STATUS_INFO_LENGTH_MISMATCH );
-        }
+    } except(ExSystemExceptionFilter()) {
+        return GetExceptionCode();
+    }
 
     //
     // Get the address of the object table for the current process.
     //
 
-    Params.ObjectTable = ObpGetObjectTable();
-    Params.HandleIndex = (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX( Handle );
+    ObjectTable = ObpGetObjectTable();
+    ObjectHandle = (HANDLE)OBJ_HANDLE_TO_HANDLE_INDEX(Handle);
 
     //
     // Make the change to the handle table entry
     //
 
-    if (ExChangeHandle( Params.ObjectTable,
-                        Params.HandleIndex,
-                        ObpSetHandleBit,
-                        (ULONG)&Params
-                      )
-       ) {
+    if (ExChangeHandle(ObjectTable,
+                       ObjectHandle,
+                       ObpSetHandleAttributes,
+                       (ULONG)&CapturedInformation)) {
+
         Status = STATUS_SUCCESS;
-        }
-    else {
+
+    } else {
         Status = STATUS_ACCESS_DENIED;
-        }
+    }
 
     return Status;
 }

@@ -61,7 +61,7 @@ begin:
       i = 1;
       for(;;)
          {
-         c = unix_getc(finput);
+         c = unix_getc(finput);
          if( c == '\n' || c == EOF )
             error("illegal or missing ' or \"" );
          if( c == '\\' )
@@ -123,7 +123,7 @@ begin:
             tokname[i] = c;
             if( reserve && isupper(c) ) tokname[i] += 'a'-'A';
             if( ++i >= NAMESIZE ) --i;
-            c = unix_getc(finput);
+            c = unix_getc(finput);
             }
          }
       else return(c);

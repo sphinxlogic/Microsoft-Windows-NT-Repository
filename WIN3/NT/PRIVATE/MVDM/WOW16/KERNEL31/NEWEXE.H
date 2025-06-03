@@ -377,4 +377,4 @@ struct new_rsrc
 #define NE_WINDOWS	2	/* Microsoft Windows		 */
 #define NE_DOS4 	3	/* Microsoft MS-DOS 4.x		 */
 #define NE_DEV386	4	/* Microsoft Windows 386	 */
-
+

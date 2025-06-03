@@ -145,7 +145,7 @@ Notes:
     if ( ((String = NEW DSTRING) == NULL )  ||
 		 !(SYSTEM::QueryResourceString( String, MsgId, "" )) ) {
 
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 	}
 
 	return String;
@@ -174,14 +174,9 @@ Return Value:
 --*/
 
 {
-	switch ( ErrorCode ) {
-
-	default:
-		Message->Set( MODE_ERROR_EXTENDED );
-		Message->Display( "%d", ErrorCode );
-		ExitMode( EXIT_ERROR );
-
-	}
+	Message->Set( MODE_ERROR_EXTENDED );
+	Message->Display( "%d", ErrorCode );
+	ExitMode( (ULONG)EXIT_ERROR );
 }
 
 VOID

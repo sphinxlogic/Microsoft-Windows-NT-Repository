@@ -75,35 +75,35 @@ Return Value:
     // Initialize the integer registers to contain their register number.
     //
 
-    Context->IntZero = 0;
-    Context->IntAt = 1;
-    Context->IntV0 = 2;
-    Context->IntV1 = 3;
-    Context->IntA0 = 4;
-    Context->IntA1 = 5;
-    Context->IntA2 = 6;
-    Context->IntA3 = 7;
-    Context->IntT0 = 8;
-    Context->IntT1 = 9;
-    Context->IntT2 = 10;
-    Context->IntT3 = 11;
-    Context->IntT4 = 12;
-    Context->IntT5 = 13;
-    Context->IntT6 = 14;
-    Context->IntT7 = 15;
-    Context->IntS0 = 16;
-    Context->IntS1 = 17;
-    Context->IntS2 = 18;
-    Context->IntS3 = 19;
-    Context->IntS4 = 20;
-    Context->IntS5 = 21;
-    Context->IntS6 = 22;
-    Context->IntS7 = 23;
-    Context->IntT8 = 24;
-    Context->IntT9 = 25;
-    Context->IntS8 = 30;
-    Context->IntLo = 0;
-    Context->IntHi = 0;
+    Context->XIntZero = 0;
+    Context->XIntAt = 1;
+    Context->XIntV0 = 2;
+    Context->XIntV1 = 3;
+    Context->XIntA0 = 4;
+    Context->XIntA1 = 5;
+    Context->XIntA2 = 6;
+    Context->XIntA3 = 7;
+    Context->XIntT0 = 8;
+    Context->XIntT1 = 9;
+    Context->XIntT2 = 10;
+    Context->XIntT3 = 11;
+    Context->XIntT4 = 12;
+    Context->XIntT5 = 13;
+    Context->XIntT6 = 14;
+    Context->XIntT7 = 15;
+    Context->XIntS0 = 16;
+    Context->XIntS1 = 17;
+    Context->XIntS2 = 18;
+    Context->XIntS3 = 19;
+    Context->XIntS4 = 20;
+    Context->XIntS5 = 21;
+    Context->XIntS6 = 22;
+    Context->XIntS7 = 23;
+    Context->XIntT8 = 24;
+    Context->XIntT9 = 25;
+    Context->XIntS8 = 30;
+    Context->XIntLo = 0;
+    Context->XIntHi = 0;
 
     //
     // Initialize the floating point registers to contain zero in their upper
@@ -147,18 +147,13 @@ Return Value:
     //
     // Initialize the control registers.
     //
+    // N.B. The register gp is estabished at thread startup by the loader.
+    //
 
-    Context->IntGp = 0; // This will be set in LdrpInitialize at thread startup
-    Context->IntSp = (ULONG)InitialSp;
-    Context->IntRa = 1;
+    Context->XIntGp = 0;
+    Context->XIntSp = (LONG)InitialSp;
+    Context->XIntRa = 1;
     Context->Fir = (ULONG)InitialPc;
-
-#if defined(R4000)
-
-    ((FSR *)(&Context->Fsr))->FS = 1;
-
-#endif
-
     Context->Psr = 0;
     Context->ContextFlags = CONTEXT_FULL;
 
@@ -166,8 +161,8 @@ Return Value:
     // Set the initial context of the thread in a machine specific way.
     //
 
-    Context->IntA0 = (ULONG)Parameter;
-    Context->IntSp -= KTRAP_FRAME_ARGUMENTS;
+    Context->XIntA0 = (LONG)Parameter;
+    Context->XIntSp -= KTRAP_FRAME_ARGUMENTS;
 }
 
 NTSTATUS
@@ -249,12 +244,12 @@ Return Value:
         if (AlreadySuspended == FALSE) {
             NtResumeThread(Thread, NULL);
         }
-        return(Status);
+
+        return Status;
     }
 
     if (AlreadySuspended) {
-
-        Context.IntV0 = STATUS_ALERTED;
+        Context.XIntV0 = (LONG)STATUS_ALERTED;
     }
 
     //
@@ -262,25 +257,28 @@ Return Value:
     // s0 - s7. The context record is passed on the stack of the target thread.
     //
 
-    NewSp = Context.IntSp - sizeof(CONTEXT);
-    Status = NtWriteVirtualMemory(Process, (PVOID)NewSp, &Context,
-                                  sizeof(CONTEXT), NULL);
+    NewSp = (ULONG)(Context.XIntSp - sizeof(CONTEXT));
+    Status = NtWriteVirtualMemory(Process,
+                                  (PVOID)NewSp,
+                                  &Context,
+                                  sizeof(CONTEXT),
+                                  NULL);
+
     if (NT_SUCCESS(Status) == FALSE) {
         if (AlreadySuspended == FALSE) {
             NtResumeThread(Thread, NULL);
         }
-        return(Status);
+
+        return Status;
     }
 
-    Context.IntSp = NewSp;
-
+    Context.XIntSp = (LONG)NewSp;
     if (PassContext) {
-        Context.IntS0 = NewSp;
-        RtlMoveMemory(&Context.IntS1, Arguments, ArgumentCount * sizeof(ULONG));
+        Context.XIntS0 = (LONG)NewSp;
+        RtlMoveMemory(&Context.XIntS1, Arguments, ArgumentCount * sizeof(ULONG));
 
     } else {
-
-        RtlMoveMemory(&Context.IntS0, Arguments, ArgumentCount * sizeof(ULONG));
+        RtlMoveMemory(&Context.XIntS0, Arguments, ArgumentCount * sizeof(ULONG));
     }
 
     //
@@ -293,6 +291,6 @@ Return Value:
     if (AlreadySuspended == FALSE) {
         NtResumeThread(Thread, NULL);
     }
-    return(Status);
+
+    return Status;
 }
-

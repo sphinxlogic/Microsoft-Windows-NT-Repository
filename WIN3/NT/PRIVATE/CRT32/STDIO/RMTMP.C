@@ -35,7 +35,24 @@
 #include <os2dll.h>
 
 
-#ifdef _POSIX_
+#if defined(_MSC_VER) && defined(_WIN32)
+
+#pragma data_seg(".CRT$XPX")
+static void (__cdecl *pterm)(void) = _rmtmp;
+#pragma data_seg()
+
+#endif	/* _MSC_VER */
+
+#ifdef	_WIN32
+
+/*
+ * Definitions for _tmpoff, _tempoff and _old_pfxlen. These will cause this
+ * module to be linked in whenever the termination code needs it.
+ */
+unsigned _tmpoff = 1;
+unsigned _tempoff = 1;
+unsigned _old_pfxlen = 0;
+#else	/* ndef _WIN32 */
 /*
  * Definitions for _tmpoff, _tempoff and _old_pfxlen. These will cause this
  * module to be linked in whenever the termination code needs it.

@@ -1062,7 +1062,7 @@ BOOL DllStart(
         LPSTR           lpModuleName;
         LPSTR           lpModulePath;
         UINT            length;
-        BOOL            fPE;
+        UCHAR           fPE;
         DWORD           EventParams[4];
         VDMCONTEXT      vcContext;
         VDMINTERNALINFO viInfo;
@@ -1105,7 +1105,7 @@ BOOL DllStart(
 
         // Get the module's path and name
 
-        fPE = getMSW() & MSW_PE;
+        fPE = ISPESET;
 
         lpModuleName = (LPSTR)Sim32GetVDMPointer(
                             (ULONG)pNDFrame->dwModuleName,
@@ -1212,7 +1212,7 @@ BOOL TaskStop(
         LPSTR           lpModuleName;
         LPSTR           lpModulePath;
         UINT            length;
-        BOOL            fPE;
+        UCHAR           fPE;
         DWORD           EventParams[4];
         VDMCONTEXT      vcContext;
         VDMINTERNALINFO viInfo;
@@ -1233,7 +1233,7 @@ BOOL TaskStop(
 
         // Get the module's path and name
 
-        fPE = getMSW() & MSW_PE;
+        fPE = ISPESET;
 
         lpModuleName = (LPSTR)Sim32GetVDMPointer(
                             (ULONG)pSTFrame->dwModuleName,
@@ -1369,14 +1369,14 @@ void DBGDispatch()
     BOOL            fData;
     LPSTR           lpModuleName;
     LPSTR           lpPathName;
-    BOOL            fPE;
+    UCHAR           fPE;
     PFFRAME16       pFFrame;
     PTFRAME16       pTFrame;
     PNDFRAME16      pNDFrame;
     PSTFRAME16      pSTFrame;
     WORD            wFrame;
 
-    fPE = getMSW() & MSW_PE;
+    fPE = ISPESET;
 
     stack = (UNALIGNED WORD *)Sim32GetVDMPointer(
                         ((ULONG)getSS() << 16) + (ULONG)getSP(),
@@ -1519,7 +1519,7 @@ VOID DBGNotifyNewTask(
         LPSTR           lpModuleName;
         LPSTR           lpModulePath;
         UINT            length;
-        BOOL            fPE;
+        UCHAR           fPE;
         DWORD           EventParams[4];
         VDMCONTEXT      vcContext;
         VDMINTERNALINFO viInfo;
@@ -1579,7 +1579,7 @@ VOID DBGNotifyNewTask(
 
         // Get the module's path and name
 
-        fPE = getMSW() & MSW_PE;
+        fPE = ISPESET;
 
         lpModuleName = (LPSTR)Sim32GetVDMPointer(
                             (ULONG)pNTFrame->dwModuleName,

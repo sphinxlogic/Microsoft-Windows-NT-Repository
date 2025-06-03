@@ -22,18 +22,26 @@ Revision History:
 
 --*/
 
-#include <handle.h>
+#include "precomp.h"
+#pragma hdrstop
 
-extern ULONG   STeip, STebp, STesp;
-static PHANDLETABLE   PspCidTable;
-static HANDLETABLE    CapturedPspCidTable;
+extern ULONG STeip, STebp, STesp;
+static PHANDLE_TABLE PspCidTable;
+static HANDLE_TABLE CapturedPspCidTable;
 
+PEPROCESS ProcessLastDump;
+ULONG ThreadLastDump;
+
+ULONG TotalProcessCommit;
+
+#ifdef TARGET_i386
+VOID GetStackTraceRegs(ULONG,PULONG,PULONG,PULONG);
+#endif
 
 BOOLEAN
 GetTheSystemTime (
     OUT PLARGE_INTEGER Time
     );
-
 
 DECLARE_API( process )
 
@@ -130,7 +138,7 @@ Return Value:
             ProcessToDump < MM_USER_PROBE_ADDRESS && ProcessToDump == (ULONG)ProcessContents.UniqueProcessId ||
             ProcessToDump > MM_USER_PROBE_ADDRESS && ProcessToDump == (ULONG)Process
            ) {
-            if (DumpProcess (&ProcessContents, Process, Flags) && Flags & 6) {
+            if (DumpProcess (&ProcessContents, Process, Flags) && (Flags & 6)) {
                 Next = ProcessContents.Pcb.ThreadListHead.Flink;
 
                 while ( Next != &Process->Pcb.ThreadListHead) {
@@ -144,7 +152,7 @@ Return Value:
                         break;
                     }
 
-                    if (!DumpThread("        ", &ThreadContents, Thread, Flags)) {
+                    if (!DumpThread(dwProcessor,"        ", &ThreadContents, Thread, Flags)) {
                         break;
                         }
 
@@ -156,6 +164,7 @@ Return Value:
                     }
                 }
                 EXPRLastDump = (ULONG)Process;
+                ProcessLastDump = Process;
                 dprintf("\n");
             }
 
@@ -218,8 +227,9 @@ Return Value:
         return;
     }
 
-    DumpThread ("", &ThreadContents, Thread, Flags);
+    DumpThread (dwProcessor,"", &ThreadContents, Thread, Flags);
     EXPRLastDump = (ULONG)Thread;
+    ThreadLastDump = (ULONG)Thread;
     return;
 
 }
@@ -231,7 +241,7 @@ DumpProcess (
     IN ULONG Flags
     )
 {
-    HANDLETABLE HandleTable;
+    HANDLE_TABLE HandleTable;
     ULONG NumberOfHandles;
     WCHAR Buf[256];
     ULONG Result;
@@ -251,35 +261,43 @@ DumpProcess (
                          &HandleTable,
                          sizeof(HandleTable),
                          &Result)) {
-            NumberOfHandles = HandleTable.CountTableEntries;
+
+            NumberOfHandles = (HandleTable.TableBound - HandleTable.TableEntries) - 1;
         }
     }
-    dprintf("PROCESS %08lx  Cid: %04lx  Peb: %08x  ParentCid: %04lx  DirBase: %04lx  ObjectTable: %08lx(%u)\n",
+
+    dprintf("PROCESS %08lx  Cid: %04lx    Peb: %08x  ParentCid: %04lx\n",
             RealProcessBase,
             ProcessContents->UniqueProcessId,
             ProcessContents->Peb,
-            ProcessContents->InheritedFromUniqueProcessId,
+            ProcessContents->InheritedFromUniqueProcessId
+           );
+
+    dprintf("    DirBase: %08lx  ObjectTable: %08lx  TableSize: %3u.\n",
             ProcessContents->Pcb.DirectoryTableBase[ 0 ],
             ProcessContents->ObjectTable,
             NumberOfHandles
-           );
+            );
 
-    if ( ProcessContents->ImageFileName[ 0 ] != '\0' ) {
+    if (ProcessContents->ImageFileName[0] != '\0' ) {
         strcpy((char *)Buf,ProcessContents->ImageFileName);
-        }
-    else {
+
+    } else {
         strcpy((char *)Buf,"System Process");
-        }
+    }
+
     dprintf("    Image: %s\n",Buf);
     if (!(Flags & 1)) {
         dprintf("\n");
         return TRUE;
-        }
+    }
 
-    dprintf("    VadRoot %lx  Clone Root %lx Private Pages %lx Modified Pages %lx\n",ProcessContents->VadRoot,
+    dprintf("    VadRoot %lx Clone %lx Private %ld. Modified %ld. Locked %ld.\n",ProcessContents->VadRoot,
                         ProcessContents->CloneRoot,
                         ProcessContents->NumberOfPrivatePages,
-                        ProcessContents->ModifiedPageCount);
+                        ProcessContents->ModifiedPageCount,
+                        ProcessContents->NumberOfLockedPages);
+
     dprintf("    %X MutantState %s OwningThread %lx\n",
             &RealProcessBase->ProcessMutant,
             ProcessContents->ProcessMutant.Header.SignalState ? "Signalled" : "Locked",
@@ -294,7 +312,6 @@ DumpProcess (
     // Primary token
     //
 
-
     dprintf("    Token                             %lx\n", ProcessContents->Token                        );
 
     //
@@ -306,12 +323,7 @@ DumpProcess (
     }
 
     GetTheSystemTime (&RunTime);
-
-    RunTime = RtlLargeIntegerSubtract(
-                RunTime,
-                *(PLARGE_INTEGER)&ProcessContents->CreateTime
-                );
-
+    RunTime.QuadPart -= ProcessContents->CreateTime.QuadPart;
     RtlTimeToElapsedTimeFields ( &RunTime, &Times);
     dprintf("    ElapsedTime                      %3ld:%02ld:%02ld.%04ld\n",
               Times.Hour,
@@ -319,9 +331,7 @@ DumpProcess (
               Times.Second,
               Times.Milliseconds);
 
-    RunTime = RtlEnlargedUnsignedMultiply(ProcessContents->Pcb.UserTime,
-                                          TimeIncrement);
-
+    RunTime.QuadPart = UInt32x32To64(ProcessContents->Pcb.UserTime, TimeIncrement);
     RtlTimeToElapsedTimeFields ( &RunTime, &Times);
     dprintf("    UserTime                        %3ld:%02ld:%02ld.%04ld\n",
               Times.Hour,
@@ -329,9 +339,7 @@ DumpProcess (
               Times.Second,
               Times.Milliseconds);
 
-    RunTime = RtlEnlargedUnsignedMultiply(ProcessContents->Pcb.KernelTime,
-                                          TimeIncrement);
-
+    RunTime.QuadPart = UInt32x32To64(ProcessContents->Pcb.KernelTime, TimeIncrement);
     RtlTimeToElapsedTimeFields ( &RunTime, &Times);
     dprintf("    KernelTime                      %3ld:%02ld:%02ld.%04ld\n",
               Times.Hour,
@@ -341,9 +349,14 @@ DumpProcess (
 
     dprintf("    QuotaPoolUsage[PagedPool]         %ld\n",ProcessContents->QuotaPoolUsage[PagedPool]       );
     dprintf("    QuotaPoolUsage[NonPagedPool]      %ld\n",ProcessContents->QuotaPoolUsage[NonPagedPool]    );
-    dprintf("    Working Set Sizes (now,min,max)  (%ld, %ld, %ld)\n",ProcessContents->Vm.WorkingSetSize,
-                                                                    ProcessContents->Vm.MinimumWorkingSetSize,
-                                                                    ProcessContents->Vm.MaximumWorkingSetSize);
+    dprintf("    Working Set Sizes (now,min,max)  (%ld, %ld, %ld) (%ldKB, %ldKB, %ldKB)\n",
+            ProcessContents->Vm.WorkingSetSize,
+            ProcessContents->Vm.MinimumWorkingSetSize,
+            ProcessContents->Vm.MaximumWorkingSetSize,
+            _KB*ProcessContents->Vm.WorkingSetSize,
+            _KB*ProcessContents->Vm.MinimumWorkingSetSize,
+            _KB*ProcessContents->Vm.MaximumWorkingSetSize
+           );
     dprintf("    PeakWorkingSetSize                %ld\n",ProcessContents->Vm.PeakWorkingSetSize           );
     dprintf("    VirtualSize                       %ld Mb\n",ProcessContents->VirtualSize /(1024*1024)     );
     dprintf("    PeakVirtualSize                   %ld Mb\n",ProcessContents->PeakVirtualSize/(1024*1024)  );
@@ -389,12 +402,14 @@ UCHAR *WaitReasonList[] = {
 
 BOOL
 DumpThread (
+    IN ULONG Processor,
     IN char *Pad,
     IN PETHREAD Thread,
     IN PETHREAD RealThreadBase,
     IN ULONG Flags
     )
 {
+    #define MAX_STACK_FRAMES  40
     TIME_FIELDS Times;
     LARGE_INTEGER RunTime;
     ULONG Address;
@@ -411,9 +426,12 @@ DumpThread (
     ULONG frames = 0;
     ULONG i;
     ULONG displacement;
-    EXTSTACKTRACE stk[20];
+    EXTSTACKTRACE stk[MAX_STACK_FRAMES];
 #ifdef TARGET_i386
-    KSWITCHFRAME SwitchFrame;
+    struct {
+        KSWITCHFRAME Frame;
+        DWORD SavedEbp;
+    } SwitchFrame;
 #endif
 
 
@@ -422,12 +440,13 @@ DumpThread (
         return FALSE;
     }
 
-    dprintf("%sTHREAD %lx  Cid %lx.%lx  Teb: %08x ",
+    dprintf("%sTHREAD %lx  Cid %lx.%lx  Teb: %08x  Win32Thread: %08x ",
         Pad,
         RealThreadBase,
         Thread->Cid.UniqueProcess,
         Thread->Cid.UniqueThread,
-        Thread->Tcb.Teb
+        Thread->Tcb.Teb,
+        Thread->Tcb.Win32Thread
         );
 
 
@@ -493,10 +512,10 @@ DumpThread (
             }
 
             switch (WaitObject.Header.Type) {
-                case 0:
+                case EventNotificationObject:
                     dprintf("NotificationEvent\n");
                     break;
-                case EventObject:
+                case EventSynchronizationObject:
                     dprintf("SynchronizationEvent\n");
                     break;
                 case SemaphoreObject:
@@ -506,8 +525,11 @@ DumpThread (
                 case ThreadObject:
                     dprintf("Thread\n");
                     break;
-                case TimerObject:
-                    dprintf("Timer\n");
+                case TimerNotificationObject:
+                    dprintf("NotificationTimer\n");
+                    break;
+                case TimerSynchronizationObject:
+                    dprintf("SynchronizationTimer\n");
                     break;
                 case EventPairObject:
                     dprintf("EventPair\n");
@@ -610,8 +632,8 @@ BadWaitBlock:
     // Impersonation information
     //
 
-    if (Thread->Client != NULL) {
-        dprintf("%sImpersonation token: %lx\n", Pad, Thread->Client);
+    if (Thread->ActiveImpersonationInfo) {
+        dprintf("%sImpersonation token: %lx\n", Pad, Thread->ImpersonationInfo);
     } else {
         dprintf("%sNot impersonating\n", Pad);
     }
@@ -625,9 +647,21 @@ BadWaitBlock:
               Pad,
               Thread->Tcb.WaitTime);
 
-    dprintf("%sContext Switch Count    %ld\n",
+    dprintf("%sContext Switch Count    %ld",
               Pad,
               Thread->Tcb.ContextSwitches);
+
+    if (!Thread->Tcb.EnableStackSwap) {
+        dprintf("    NoStackSwap");
+    } else {
+        dprintf("               ");
+    }
+
+    if (Thread->Tcb.LargeStack) {
+        dprintf("    LargeStack");
+    }
+
+    dprintf ("\n");
 
     //
     // Get the time increment value which is used to compute runtime.
@@ -637,9 +671,7 @@ BadWaitBlock:
         ReadMemory( KeTimeIncrement, &TimeIncrement, sizeof(ULONG), &Result );
     }
 
-    RunTime = RtlEnlargedUnsignedMultiply(Thread->Tcb.UserTime,
-                                          TimeIncrement);
-
+    RunTime.QuadPart = UInt32x32To64(Thread->Tcb.UserTime, TimeIncrement);
     RtlTimeToElapsedTimeFields ( &RunTime, &Times);
     dprintf("%sUserTime                %3ld:%02ld:%02ld.%04ld\n",
               Pad,
@@ -648,9 +680,7 @@ BadWaitBlock:
               Times.Second,
               Times.Milliseconds);
 
-    RunTime = RtlEnlargedUnsignedMultiply(Thread->Tcb.KernelTime,
-                                          TimeIncrement);
-
+    RunTime.QuadPart = UInt32x32To64(Thread->Tcb.KernelTime, TimeIncrement);
     RtlTimeToElapsedTimeFields ( &RunTime, &Times);
     dprintf("%sKernelTime              %3ld:%02ld:%02ld.%04ld\n",
               Pad,
@@ -690,11 +720,13 @@ BadWaitBlock:
                 Buffer
                 );
             }
-
-    dprintf("%sInitial Sp %lx Current Sp %lx\n",
+    dprintf("%sStack Init %lx Current %lx Base %lx Limit %lx Call %lx\n",
         Pad,
         Thread->Tcb.InitialStack,
-        Thread->Tcb.KernelStack
+        Thread->Tcb.KernelStack,
+        Thread->Tcb.StackBase,
+        Thread->Tcb.StackLimit,
+        Thread->Tcb.CallbackStack
         );
 
     dprintf("%sPriority %ld BasePriority %ld PriorityDecrement %ld DecrementCount %ld\n",
@@ -710,54 +742,70 @@ BadWaitBlock:
     }
 
 #ifdef TARGET_i386
-        //
-        // Get SwitchFrame and perform backtrace providing EBP,ESP,EIP
-        // (full FPO backtrace context)
-        //
 
-        if (ReadMemory( (DWORD) Thread->Tcb.KernelStack,
-                        (PVOID) &SwitchFrame,
-                        sizeof (SwitchFrame),
-                        &Result)) {
-
-            frames = StackTrace( SwitchFrame.Ebp,
-                                 (ULONG) Thread->Tcb.KernelStack +
-                                                       sizeof(SwitchFrame),
-                                 SwitchFrame.RetAddr,
-                                 stk,
-                                 20 );
-
-            if (frames) {
-                STeip = SwitchFrame.RetAddr;
-                STebp = SwitchFrame.Ebp;
-                STesp = (ULONG) Thread->Tcb.KernelStack +
-                                sizeof(SwitchFrame);
+        if (Thread->Tcb.State == Running) {
+            GetStackTraceRegs( Thread->Tcb.NextProcessor, &STeip, &STebp, &STesp );
+            SetThreadForOperation( (PULONG)&RealThreadBase );
+            frames = StackTrace( STebp, STesp, STeip, stk, MAX_STACK_FRAMES );
+        } else {
+            //
+            // Get SwitchFrame and perform backtrace providing EBP,ESP,EIP
+            // (full FPO backtrace context)
+            //
+            // N.B. The dword immediately preceding the switch frame contains
+            //      the saved EBP.
+            //
+            ZeroMemory( &SwitchFrame, sizeof(SwitchFrame) );
+            ReadMemory(
+                (DWORD)Thread->Tcb.KernelStack,
+                (PVOID)&SwitchFrame,
+                sizeof(SwitchFrame),
+                &Result
+                );
+            if (Result == sizeof(SwitchFrame)) {
+                STeip = SwitchFrame.Frame.RetAddr;
+                STebp = SwitchFrame.SavedEbp;
+                STesp = (ULONG) Thread->Tcb.KernelStack + sizeof(KSWITCHFRAME);
+                SetThreadForOperation( (PULONG)&RealThreadBase );
+                frames = StackTrace( STebp, STesp, STeip, stk, MAX_STACK_FRAMES );
             }
         }
-#elif defined(TARGET_MIPS) || defined(TARGET_ALPHA)
-        if (Thread->Tcb.State == Running) {
-            //
-            // this will generate a stacktrace for the current thread
-            //
-            frames = StackTrace( 0, 0, 0, stk, 20 );
-        } else {
+
+#elif defined(TARGET_MIPS) || defined(TARGET_ALPHA) || defined(TARGET_PPC)
+
+        if (Thread->Tcb.State != Running) {
+            SetThreadForOperation( (PULONG)&RealThreadBase );
             frames = StackTrace( (DWORD)Thread->Tcb.KernelStack,
                                  (DWORD)Thread->Tcb.KernelStack,
                                  0,
                                  stk,
-                                 20 );
+                                 MAX_STACK_FRAMES
+                                 );
         }
+
 #endif
 
         for (i=0; i<frames; i++) {
 
             if (i==0) {
-                dprintf( "%sChildEBP RetAddr  Args to Child\n", Pad );
+#ifdef TARGET_PPC
+                dprintf( "\n%sChildEBP RetAddr\n", Pad );
+#else
+                dprintf( "\n%sChildEBP RetAddr  Args to Child\n", Pad );
+#endif
             }
 
             Buffer[0] = '!';
             GetSymbol((LPVOID)stk[i].ProgramCounter, Buffer, &displacement);
 
+#ifdef TARGET_PPC
+            dprintf( "%s%08x %08x %s",
+                     Pad,
+                     stk[i].FramePointer,
+                     stk[i].ReturnAddress,
+                     Buffer
+                   );
+#else
             dprintf( "%s%08x %08x %08x %08x %08x %s",
                      Pad,
                      stk[i].FramePointer,
@@ -767,22 +815,13 @@ BadWaitBlock:
                      stk[i].Args[2],
                      Buffer
                    );
+#endif
 
             if (displacement) {
                 dprintf( "+0x%x", displacement );
             }
 
             dprintf( "\n" );
-
-
-        }
-
-        if (frames) {
-
-
-
-
-
         }
 
     dprintf("\n");
@@ -859,7 +898,6 @@ Return Value:
     dprintf("    QuotaBlock:                        0x%lx\n", FIELD_OFFSET(EPROCESS, QuotaBlock) );
     dprintf("    LastThreadExitStatus:              0x%lx\n", FIELD_OFFSET(EPROCESS, LastThreadExitStatus) );
     dprintf("    WorkingSetWatch:                   0x%lx\n", FIELD_OFFSET(EPROCESS, WorkingSetWatch) );
-    dprintf("    LpcPort:                           0x%lx\n", FIELD_OFFSET(EPROCESS, LpcPort) );
     dprintf("    InheritedFromUniqueProcessId:      0x%lx\n", FIELD_OFFSET(EPROCESS, InheritedFromUniqueProcessId) );
     dprintf("    GrantedAccess:                     0x%lx\n", FIELD_OFFSET(EPROCESS, GrantedAccess) );
     dprintf("    DefaultHardErrorProcessing         0x%lx\n", FIELD_OFFSET(EPROCESS, DefaultHardErrorProcessing) );
@@ -869,6 +907,9 @@ Return Value:
     dprintf("    ProcessMutant:                     0x%lx\n", FIELD_OFFSET(EPROCESS, ProcessMutant) );
     dprintf("    ImageFileName[0]:                  0x%lx\n", FIELD_OFFSET(EPROCESS, ImageFileName) );
     dprintf("    VmTrimFaultValue:                  0x%lx\n", FIELD_OFFSET(EPROCESS, VmTrimFaultValue) );
+    dprintf("    Win32Process:                      0x%lx\n", FIELD_OFFSET(EPROCESS, Win32Process) );
+    dprintf("    Win32WindowStation:                0x%lx\n", FIELD_OFFSET(EPROCESS, Win32WindowStation) );
+
 
     return;
 }
@@ -910,7 +951,7 @@ Return Value:
     dprintf("    LpcReplyMessage:               0x%lx\n", FIELD_OFFSET(ETHREAD, LpcReplyMessage) );
     dprintf("    LpcReplyMessageId:             0x%lx\n", FIELD_OFFSET(ETHREAD, LpcReplyMessageId) );
 
-    dprintf("    Client:                        0x%lx\n", FIELD_OFFSET(ETHREAD, Client) );
+    dprintf("    ImpersonationInfo:             0x%lx\n", FIELD_OFFSET(ETHREAD, ImpersonationInfo) );
     dprintf("    IrpList:                       0x%lx\n", FIELD_OFFSET(ETHREAD, IrpList) );
     dprintf("    TopLevelIrp:                   0x%lx\n", FIELD_OFFSET(ETHREAD, TopLevelIrp) );
     dprintf("    ReadClusterSize:               0x%lx\n", FIELD_OFFSET(ETHREAD, ReadClusterSize) );
@@ -936,6 +977,7 @@ GetCurrentProcessAddress(
     HANDLE   hCurrentThread,
     PETHREAD CurrentThread
     )
+
 {
     ULONG Result;
     ETHREAD Thread;
@@ -965,9 +1007,9 @@ GetCurrentThreadAddress(
 #ifdef TARGET_ALPHA
 
     ReadControlSpace( (USHORT)Processor,
-                      (PVOID)DEBUG_CONTROL_SPACE_THREAD,
+                      DEBUG_CONTROL_SPACE_THREAD,
                       (PVOID)&Address,
-                      sizeof(PKTHREAD),
+                      sizeof(PKTHREAD)
                      );
 
     return CONTAINING_RECORD(Address, ETHREAD, Tcb);
@@ -978,6 +1020,30 @@ GetCurrentThreadAddress(
 
     if (!ReadPcr(Processor, &Prcb, &Address, hCurrentThread)) {
         dprintf("Unable to read PCR for Processor %u\n",Processor);
+        return NULL;
+    }
+
+    return CONTAINING_RECORD(Prcb.CurrentThread,ETHREAD,Tcb);
+
+#elif defined(TARGET_PPC)
+
+    KPCR  Pcr;
+    PKPCR pp;
+    KPRCB Prcb;
+    ULONG Result;
+
+    Processor = 0;
+    pp = &Pcr;
+    if (!ReadPcr(Processor, pp, &Address, hCurrentThread)) {
+        dprintf("Unable to read PCR for Processor %u\n",Processor);
+        return NULL;
+    }
+
+    //
+    // Address -> base of the pcr, read the PCR in.
+    //
+
+    if (!ReadMemory((DWORD)pp->Prcb, &Prcb, sizeof(KPRCB), &Result)) {
         return NULL;
     }
 
@@ -1010,6 +1076,8 @@ GetCurrentThreadAddress(
 #define SYSTEM_TIME_ADDRESS  KIPCR2
 #elif defined(TARGET_ALPHA)
 #define SYSTEM_TIME_ADDRESS  KI_USER_SHARED_DATA
+#elif defined(TARGET_PPC)
+#define SYSTEM_TIME_ADDRESS  KI_USER_SHARED_DATA
 #else
 #error( "unknown target machine" );
 #endif
@@ -1034,7 +1102,7 @@ GetTheSystemTime (
         return FALSE;
     }
 
-    *Time = *(PLARGE_INTEGER)&sud.SystemTime;
+    *Time = *(LARGE_INTEGER UNALIGNED *)&sud.SystemTime;
 
     return TRUE;
 }
@@ -1079,7 +1147,7 @@ FetchProcessStructureVariables(
         return TRUE;
     }
 
-    PspCidTable = (PHANDLETABLE)GetExpression( "PspCidTable" );
+    PspCidTable = (PHANDLE_TABLE)GetExpression( "PspCidTable" );
     if ( !PspCidTable ||
          !ReadMemory((DWORD)PspCidTable,
                      &PspCidTable,
@@ -1098,46 +1166,128 @@ PVOID
 LookupUniqueId(
     HANDLE UniqueId
     )
+
 {
-    ULONG Result;
-    ULONG TableIndex;
-    PULONG pEntry;
-    ULONG Entry;
+
+    HANDLE_ENTRY Entry;
     static BOOLEAN HavePspCidTable = FALSE;
+    ULONG Result;
+    PHANDLE_ENTRY TableBound;
+    PHANDLE_ENTRY TableEntries;
+    ULONG TableIndex;
 
     if (!HavePspCidTable) {
-        if ( !ReadMemory( (DWORD)PspCidTable,
-                          &CapturedPspCidTable,
-                          sizeof(CapturedPspCidTable),
-                          &Result) ) {
+        if (!ReadMemory((DWORD)PspCidTable,
+                        &CapturedPspCidTable,
+                        sizeof(HANDLE_TABLE),
+                        &Result)) {
+
             return NULL;
         }
 
         HavePspCidTable = TRUE;
+    }
+
+    TableBound = CapturedPspCidTable.TableBound;
+    TableEntries = CapturedPspCidTable.TableEntries;
+    TableIndex = (ULONG)UniqueId;
+    if (TableIndex < (ULONG)(TableBound - TableEntries)) {
+        if (!ReadMemory((DWORD)(&TableEntries[TableIndex]),
+                        &Entry,
+                        sizeof(HANDLE_ENTRY),
+                        &Result)) {
+
+            Entry.Object = NULL;
+
+        } else if (ExIsEntryFree(TableEntries, TableBound, &Entry)) {
+            Entry.Object = NULL;
+
         }
 
-    pEntry = (PULONG)CapturedPspCidTable.TableEntries;
-    TableIndex = (ULONG)UniqueId - 1;
-    if (TableIndex < CapturedPspCidTable.CountTableEntries) {
-        pEntry = (PULONG)
-            ((PCHAR)CapturedPspCidTable.TableEntries +
-             (TableIndex << (CapturedPspCidTable.LogSizeTableEntry + 2))
-            );
+    } else {
+        Entry.Object = NULL;
+    }
 
-        if ( !ReadMemory( (DWORD)pEntry,
-                          &Entry,
-                          sizeof( Entry ),
-                          &Result) ) {
-            Entry = 0;
-            }
-        else
-        if (TestFreePointer( Entry )) {
-            Entry = 0;
-            }
-        }
-    else {
-        Entry = 0;
+    return Entry.Object;
+}
+
+int
+__cdecl
+CmpFunc(
+    const void *pszElem1,
+    const void *pszElem2
+    )
+{
+    PPROCESS_COMMIT_USAGE p1, p2;
+
+    p1 = (PPROCESS_COMMIT_USAGE)pszElem1;
+    p2 = (PPROCESS_COMMIT_USAGE)pszElem2;
+    return p2->CommitCharge - p1->CommitCharge;
+}
+
+PPROCESS_COMMIT_USAGE
+GetProcessCommit (
+    PULONG TotalCommitCharge,
+    PULONG NumberOfProcesses
+    )
+{
+    PPROCESS_COMMIT_USAGE p;
+    ULONG n;
+    LIST_ENTRY List;
+    PLIST_ENTRY Next;
+    ULONG ProcessHead;
+    PEPROCESS Process;
+    EPROCESS ProcessContents;
+    ULONG Total;
+    ULONG Result;
+
+    Total = 0;
+
+    n = 0;
+    p = HeapAlloc( GetProcessHeap(), 0, 1 );
+
+    ProcessHead = GetExpression( "PsActiveProcessHead" );
+    if (!ProcessHead) {
+        dprintf("Unable to get value of PsActiveProcessHead\n");
+        return 0;
+    }
+
+    if (!ReadMemory( ProcessHead, &List, sizeof(LIST_ENTRY), &Result )) {
+        dprintf("Unable to get value of PsActiveProcessHead\n");
+        return 0;
+    }
+
+    Next = List.Flink;
+
+    while((ULONG)Next != ProcessHead) {
+        Process = CONTAINING_RECORD(Next,EPROCESS,ActiveProcessLinks);
+
+        if (!ReadMemory( (DWORD)Process, &ProcessContents, sizeof(EPROCESS), &Result )) {
+            dprintf("Unable to read _EPROCESS at %lx\n",Process);
+            return 0;
         }
 
-    return (PVOID)Entry;
+        Total += ProcessContents.CommitCharge;
+
+        n += 1;
+        p = HeapReAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, p, n * sizeof( *p ) );
+        if (p != NULL) {
+            strcpy( p[ n-1 ].ImageFileName, ProcessContents.ImageFileName );
+            p[ n-1 ].CommitCharge = ProcessContents.CommitCharge;
+            p[ n-1 ].NumberOfPrivatePages = ProcessContents.NumberOfPrivatePages;
+            p[ n-1 ].NumberOfLockedPages = ProcessContents.NumberOfLockedPages;
+        }
+
+        Next = ProcessContents.ActiveProcessLinks.Flink;
+
+        if (CheckControlC()) {
+            return 0;
+        }
+    }
+
+    qsort( p, n, sizeof( *p ), CmpFunc );
+
+    *TotalCommitCharge = Total;
+    *NumberOfProcesses = n;
+    return p;
 }

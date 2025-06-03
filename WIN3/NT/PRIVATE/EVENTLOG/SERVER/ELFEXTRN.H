@@ -45,6 +45,8 @@ extern      CHAR   name_Eventlogsvc[];
 
 extern      RTL_RESOURCE        GlobalElfResource;
 
+extern      PSID        AnonymousLogonSid;
+
 extern      PVOID       ElfBackupPointer;
 extern      HANDLE      ElfBackupEvent;
 
@@ -80,3 +82,18 @@ extern      HANDLE ElfGlobalSvcRefHandle;
 extern      WCHAR   DefaultMessageBoxTitle[];
 extern      LPWSTR  GlobalAllocatedMsgTitle;
 extern      LPWSTR  GlobalMessageBoxTitle;
+
+#ifdef _CAIRO_
+
+//
+// The eventlog service links to ALERTSYS.DLL by hand (eventlog.c) after
+// eventlog initialization, since this dll's initialization code requires
+// a running eventlog service.
+//
+
+typedef LONG (*PREPORTALERT)(PCALERTREPORTRECORD, DWORD);
+
+extern       HINSTANCE    ghAlertSysDll;
+extern       PREPORTALERT gpfReportAlert;
+
+#endif // _CAIRO_

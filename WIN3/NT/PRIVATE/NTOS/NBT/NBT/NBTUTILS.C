@@ -35,6 +35,11 @@ EnableInboundConnections(
     IN   PLIST_ENTRY    pLowerConnFreeHead
         );
 
+VOID
+NbtNonDpcFreeAddrObj(
+    IN  PVOID       pContext
+    );
+
 //#if DBG
 LIST_ENTRY  UsedIrps;
 //#endif
@@ -68,15 +73,60 @@ Return Value:
 --*/
 
 {
+    //
+    // let's come back and do this later when it's not dpc time
+    //
+    CTEQueueForNonDispProcessing(
+                           NULL,
+                           pBlk,
+                           NULL,
+                           NbtNonDpcFreeAddrObj,
+                           pBlk->pDeviceContext);
 
-    if (pBlk)
+}
+
+//----------------------------------------------------------------------------
+VOID
+NbtNonDpcFreeAddrObj(
+    IN  PVOID       pContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine releases all memory associated with an Address object.
+
+Arguments:
+
+
+Return Value:
+
+    none
+
+--*/
+
+{
+    tADDRESSELE  *pAddress;
+
+    pAddress = (tADDRESSELE *)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
+
+    if (pAddress)
     {
+
+#ifndef VXD
+        if (pAddress->SecurityDescriptor)
+            SeDeassignSecurity(&pAddress->SecurityDescriptor);
+#endif
         // free the address block itself
         // zero the verify value so that another user of the same memory
         // block cannot accidently pass in a valid verifier
-        pBlk->Verify += 10;
-        CTEMemFree((PVOID)pBlk);
+
+        pAddress->Verify += 10;
+        CTEMemFree((PVOID)pAddress);
     }
+
+    CTEMemFree(pContext);
 }
 
 //----------------------------------------------------------------------------
@@ -266,10 +316,9 @@ Return Value:
 {
     NTSTATUS             status;
     TDI_REQUEST          Request;
-    TDI_ADDRESS_NETBIOS  Address;
+    TA_NETBIOS_ADDRESS   Address;
     UCHAR                pName[NETBIOS_NAME_SIZE];
     USHORT               uType;
-    ULONG                size;
     CTELockHandle        OldIrq;
     tNAMEADDR            *pNameAddr;
     tCLIENTELE           *pClientEle;
@@ -282,11 +331,9 @@ Return Value:
     //
     if (pDeviceContext->pPermClient)
     {
-        size = CTEMemCmp(pDeviceContext->pPermClient->pAddress->pNameAddr->Name,
+        if (CTEMemEqu(pDeviceContext->pPermClient->pAddress->pNameAddr->Name,
                   pName,
-                  NETBIOS_NAME_SIZE);
-
-        if (size == NETBIOS_NAME_SIZE)
+                  NETBIOS_NAME_SIZE))
         {
             return(STATUS_SUCCESS);
         }
@@ -315,6 +362,9 @@ Return Value:
         //
 
         pClientEle = NbtAllocateClientBlock((tADDRESSELE *)pNameAddr->pAddressEle);
+        if (!pClientEle)
+            return(STATUS_INSUFFICIENT_RESOURCES);
+
         pNameAddr->pAddressEle->RefCount++;
         //
         // reset the ip address incase the the address got set to loop back
@@ -332,6 +382,8 @@ Return Value:
         //
         pNameAddr->AdapterMask |= pDeviceContext->AdapterNumber;
 
+        pNameAddr->NameTypeState |= NAMETYPE_QUICK;
+
         IF_DBG(NBT_DEBUG_NAMESRV)
         KdPrint(("Nbt: Adding Permanent name to existing name in table %15.15s<%X> \n",
                 pName,(UCHAR)pName[15]));
@@ -346,12 +398,15 @@ Return Value:
         //
         // Make it a Quick name so it does not get registered on the net
         //
-        Address.NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_QUICK_UNIQUE;
+        Address.TAAddressCount = 1;
+        Address.Address[0].AddressType = TDI_ADDRESS_TYPE_NETBIOS;
+        Address.Address[0].AddressLength = TDI_ADDRESS_LENGTH_NETBIOS;
+        Address.Address[0].Address[0].NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_QUICK_UNIQUE;
 
-        CTEMemCopy(Address.NetbiosName,pName,NETBIOS_NAME_SIZE);
+        CTEMemCopy(Address.Address[0].Address[0].NetbiosName,pName,NETBIOS_NAME_SIZE);
 
         status = NbtOpenAddress(&Request,
-                                &Address,
+                                (PTA_ADDRESS)&Address.Address[0],
                                 pDeviceContext->IpAddress,
                                 NULL,
                                 pDeviceContext,
@@ -369,14 +424,13 @@ Return Value:
     if (NT_SUCCESS(status))
     {
         pDeviceContext->pPermClient = pClientEle;
-    }
-
 #ifdef VXD
-    //
-    // 0th element is for perm. name: store it.
-    //
-    pDeviceContext->pNameTable[0] = pClientEle;
+       //
+       // 0th element is for perm. name: store it.
+       //
+       pDeviceContext->pNameTable[0] = pClientEle;
 #endif
+    }
 
     CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
@@ -418,11 +472,6 @@ Return Value:
 
     if (pDeviceContext->pPermClient)
     {
-        pNameAddr = pDeviceContext->pPermClient->pAddress->pNameAddr;
-
-
-        pNameAddr->NameTypeState &= ~NAME_STATE_MASK;
-        pNameAddr->NameTypeState |= STATE_CONFLICT;
 
         //
         // We need to free the client and set the perm name ptr to null
@@ -568,7 +617,7 @@ Return Value:
 
     for (i=0;i<iNumBuffers ;i++ )
     {
-        pBuffer =(PLIST_ENTRY)CTEAllocInitMem((USHORT)iSizeBuffer);
+        pBuffer =(PLIST_ENTRY)CTEAllocInitMem(iSizeBuffer);
         if (!pBuffer)
         {
             return(STATUS_INSUFFICIENT_RESOURCES);
@@ -765,6 +814,7 @@ Return Value:
 GetNetBiosNameFromTransportAddress(
         IN  PTA_NETBIOS_ADDRESS pTransAddr,
         OUT PCHAR               *pName,
+        OUT PULONG              pNameLen,
         OUT PULONG              pNameType
         )
 /*++
@@ -783,133 +833,29 @@ Return Values:
 
 --*/
 {
-    if (pTransAddr->Address[0].AddressType != TDI_ADDRESS_TYPE_NETBIOS)
-    {
-        return(STATUS_INVALID_PARAMETER);
-    }
 
-    if (pTransAddr->Address[0].AddressLength != sizeof(TDI_ADDRESS_NETBIOS))
+    ULONG    Diff;
+
+    //
+    // name could be longer than 16 bytes (dns name), but make sure it's at
+    // least 16 bytes (sizeof(TDI_ADDRESS_NETBIOS = 16 + sizeof(USHORT))
+    //
+    if (pTransAddr->Address[0].AddressLength < sizeof(TDI_ADDRESS_NETBIOS))
     {
         return(STATUS_INVALID_PARAMETER);
     }
 
     *pName = (PCHAR)pTransAddr->Address[0].Address[0].NetbiosName;
 
+    Diff = sizeof(TDI_ADDRESS_NETBIOS) - NETBIOS_NAME_SIZE;
+
+    *pNameLen = (ULONG)pTransAddr->Address[0].AddressLength - Diff;
+
     *pNameType = pTransAddr->Address[0].Address[0].NetbiosNameType;
+
     return(STATUS_SUCCESS);
 }
-#if 0
-//----------------------------------------------------------------------------
-NTSTATUS
-ConvertToAscii(
-    IN  PCHAR            pNameHdr,
-    IN  LONG             NumBytes,
-    OUT PCHAR            pName,
-    OUT PULONG           pNameSize
-    )
-/*++
 
-Routine Description:
-
-    This routine converts half ascii to normal ascii and then appends the scope
-    onto the end of the name to make a full name again.
-
-Arguments:
-    NumBytes    - the total number of bytes in the message - may include
-                  more than just the name itself
-
-Return Value:
-
-    NTSTATUS - success or not
-    This routine returns the length of the name in half ascii format including
-    the null at the end, but NOT including the length byte at the beginning.
-    For a non-scoped name it returns 33.
-
---*/
-{
-    LONG     i;
-    int      iIndex;
-    LONG     lValue;
-    ULONG    UNALIGNED    *pHdr;
-    PUCHAR   pTmp;
-
-    // the first bytes should be 32 (0x20) - the length of the half
-    // ascii name
-    //
-    if ((*pNameHdr == NETBIOS_NAME_SIZE*2) && (NumBytes > NETBIOS_NAME_SIZE*2))
-    {
-        pHdr = (ULONG UNALIGNED *)++pNameHdr;  // to increment past the length byte
-
-        // the Half AScii portion of the netbios name is always 32 bytes long
-        for (i=0; i < NETBIOS_NAME_SIZE*2 ;i +=4 )
-        {
-            lValue = *pHdr - 0x41414141;  // four A's
-            pHdr++;
-            lValue =    ((lValue & 0x0F000000) >> 16) +
-                        ((lValue & 0x0F0000) >> 4) +
-                        ((lValue & 0x0F00) >> 8) +
-                        ((lValue & 0x0F) << 4);
-            *(PUSHORT)pName = (USHORT)lValue;
-            ((PUSHORT)pName)++;
-
-        }
-
-        // verify that the name has the correct format...i.e. it is one or more
-        // labels each starting with the length byte for the label and the whole
-        // thing terminated with a 0 byte (for the root node name length of zero).
-        // count the length of the scope.  pName should be pointing at the first
-        // length byte of the scope now, and pHdr should be pointing to the
-        // first byte after the half ascii name.
-        iIndex = 0;
-
-        //
-        // Store the address of the start of the scope in the netbios name
-        // (if one is present). If there is no scope present in the name, then
-        // pHdr must be pointing to the NULL byte.
-        //
-        pTmp = (PUCHAR)pHdr;
-
-        // cannot used structured exception handling at raised IRQl and expect
-        // it to work, since the mapper will bugcheck
-        while (iIndex < (NumBytes - NETBIOS_NAME_SIZE*2-1) && *pTmp)
-        {
-            pTmp++;
-            iIndex++;
-        }
-        iIndex++;   // to include the null at the end.
-
-        // check for an overflow on the maximum length of 256 bytes
-        if (iIndex > (MAX_DNS_NAME_LENGTH-NETBIOS_NAME_SIZE-1))
-        {
-            // the name is too long..probably badly formed
-            return(STATUS_UNSUCCESSFUL);
-        }
-
-        // copy any remaining scope to pName directly since the scope is not
-        // encoded in half ASCII - this also copies the null at the end to the
-        // the end of pName
-        if (pTmp != (PUCHAR)pHdr)
-        {
-           CTEMemCopy((PVOID)pName,(PVOID)pHdr,iIndex);
-        }
-        else
-        {
-            //
-            // Store the NULL byte
-            //
-            *pName = *(PCHAR)pTmp;
-        }
-
-        *pNameSize = NETBIOS_NAME_SIZE*2 + iIndex;
-
-        return(STATUS_SUCCESS);
-    }
-    else
-    {
-        return(STATUS_UNSUCCESSFUL);
-    }
-}
-#endif
 //----------------------------------------------------------------------------
 NTSTATUS
 ConvertToAscii(
@@ -1072,175 +1018,130 @@ Return Value:
 }
 
 
-#ifdef VXD
 //----------------------------------------------------------------------------
-PCHAR
-DnsStoreName(
-    OUT PCHAR            pDest,
-    IN  PCHAR            pName,
+ULONG
+Nbt_inet_addr(
+    IN  PCHAR            pName
     )
 /*++
 
 Routine Description:
 
-    This routine copies the netbios name (and appends the scope on the
-    end) in the DNS namequery packet
+    This routine converts ascii ipaddr (11.101.4.25) into a ULONG.  This is
+    based on the inet_addr code in winsock
 
 Arguments:
-
+    pName   - the string containing the ipaddress
 
 Return Value:
 
-    the address of the next byte in the destination after the the name
-    has been copied
-
---*/
-{
-    LONG     i;
-    LONG     count;
-    PCHAR    pStarting;
-    PCHAR    pSrc;
-    LONG     DomNameSize;
-    LONG     OneMoreSubfield;
-
-
-    pStarting = pDest++;
-    count = 0;
-    //
-    // copy until we reach the space padding
-    //
-    while ( count < NETBIOS_NAME_SIZE )
-    {
-       if (*pName != 0x20)
-       {
-          *pDest++ = *pName++;
-       }
-       else
-       {
-          break;
-       }
-       count++;
-    }
-
-    *pStarting = (CHAR)count;
-
-    //
-    // check if domain name exists.  koti.microsoft.com will be represented
-    // as 4KOTI9microsoft3com0  (where nos. => no. of bytes of subfield)
-    //
-    pSrc = NbtConfig.pDomainName;
-    if (pSrc != NULL)
-    {
-       OneMoreSubfield = 1;
-
-       while( OneMoreSubfield )
-       {
-          count = 0;
-          pStarting = pDest++;
-          while ( *pSrc != '.' && *pSrc != '\0' )
-          {
-             *pDest++ = *pSrc++;
-             count++;
-          }
-          *pStarting = (CHAR)count;
-
-          pSrc++;
-
-          if (*pSrc == '\0')
-             OneMoreSubfield = 0;
-       }
-    }
-
-    *pDest++ = 0;
-
-
-    // return the address of the next byte of the destination
-    return(pDest);
-}
-
-
-
-
-//----------------------------------------------------------------------------
-NTSTATUS
-DnsExtractName(
-    IN  PCHAR            pNameHdr,
-    IN  LONG             NumBytes,
-    OUT PCHAR            pName,
-    OUT PULONG           pNameSize
-    )
-/*++
-
-Routine Description:
-
-    This routine extracts the name from the packet and then appends the scope
-    onto the end of the name to make a full name.
-
-Arguments:
-    NumBytes    - the total number of bytes in the message - may include
-                  more than just the name itself
-
-Return Value:
-
+    the ipaddress as a ULONG if it's a valid ipaddress.  Otherwise, 0.
 
 --*/
 {
 
+    PCHAR    pStr;
+    int      i;
+    int      len, fieldLen;
+    int      fieldsDone;
+    ULONG    IpAddress;
+    BYTE     ByteVal;
+    PCHAR    pIpPtr;
+    BOOLEAN  fDotFound;
+    BOOLEAN  fieldOk;
 
-    LONG     i;
-    int      iIndex;
-    LONG     lValue;
-    ULONG    UNALIGNED    *pHdr;
-    PUCHAR   pTmp;
-    LONG     Len;
 
-
-    KdPrint(("DnsExtractName entered\r\n"));
+    pStr = pName;
+    len = 0;
+    pIpPtr = (PCHAR)&IpAddress;
+    pIpPtr += 3;                   // so that we store in network order
+    fieldsDone=0;
 
     //
-    // how long is the name we received
+    // the 11.101.4.25 format can be atmost 15 chars, and pName is guaranteed
+    // to be at least 16 chars long (how convenient!!).  Convert the string to
+    // a ULONG.
     //
-    Len = *pNameHdr;
-
-    ++pNameHdr;     // to increment past the length byte
-
-    // copy the name (no domain) as given by DNS server (i.e., just copy
-    // foobar when DNS returned foobar.microsoft.com in the response
-    // (this is likely to be less than the usualy 16 byte len)
-    //
-    for (i=0; i < Len ;i++ )
+    while(len < NETBIOS_NAME_SIZE)
     {
-        *pName++ = *pNameHdr++;
+        fieldLen=0;
+        fieldOk = FALSE;
+        ByteVal = 0;
+        fDotFound = FALSE;
+
+        //
+        // This loop traverses each of the four fields (max len of each
+        // field is 3, plus 1 for the '.'
+        //
+        while (fieldLen < 4)
+        {
+            if (*pStr >='0' && *pStr <='9')
+            {
+                ByteVal = (ByteVal*10) + (*pStr - '0');
+                fieldOk = TRUE;
+            }
+
+            else if (*pStr == '.' || *pStr == ' ' || *pStr == '\0')
+            {
+                *pIpPtr = ByteVal;
+                pIpPtr--;
+                fieldsDone++;
+
+                if (*pStr == '.')
+                    fDotFound = TRUE;
+
+                // if we got a space or 0, assume it's the 4th field
+                if (*pStr == ' ' || *pStr == '\0')
+                {
+                    break;
+                }
+            }
+
+            // unacceptable char: can't be ipaddr
+            else
+            {
+                return(0);
+            }
+
+            pStr++;
+            len++;
+            fieldLen++;
+
+            // if we found the dot, we are done with this field: go to the next one
+            if (fDotFound)
+                break;
+        }
+
+        // this field wasn't ok (e.g. "11.101..4" or "11.101.4." etc.)
+        if (!fieldOk)
+        {
+            return(0);
+        }
+
+        // if we are done with all 4 fields, we are done with the outer loop too
+        if ( fieldsDone == 4)
+            break;
+
+        if (!fDotFound)
+        {
+            return(0);
+        }
     }
 
     //
-    // now, make it look like NBNS responded, by adding the 0x20 pad
+    // make sure the remaining chars are spaces or 0's (i.e. don't allow
+    // 11.101.4.25xyz to succeed)
     //
-    for (i=Len; i<NETBIOS_NAME_SIZE; i++)
+    for (i=len; i<NETBIOS_NAME_SIZE; i++, pStr++)
     {
-        *pName++ = 0x20;
+        if (*pStr != ' ' && *pStr != '\0')
+        {
+            return(0);
+        }
     }
 
-    //
-    // at this point we are pointing to the '.' after foobar.  Find the
-    // length of the entire name
-    //
-    while ( (*pNameHdr != '\0') && (Len < NumBytes) )
-    {
-        pNameHdr++;
-        Len++;
-    }
-
-    Len++;            // to account for the trailing 0
-
-    *pNameSize = Len;
-
-    KdPrint(("Leaving DnsExtractName\r\n"));
-
-    return(STATUS_SUCCESS);
+    return( IpAddress );
 }
-
-#endif
 
 
 //----------------------------------------------------------------------------
@@ -1275,12 +1176,40 @@ Return Value:
 
         pTracker = CONTAINING_RECORD(pListEntry,tDGRAM_SEND_TRACKING,Linkage);
 
+        //
+        // Do these initializations here - there was a problem where this tracker's transactionId
+        // would be set to 0x1A1A (indirectly thru unions), and used as such since the check in CreatePdu
+        // is for a 0 TransactionId field in the tracker returned from this function.
+        //
+#if DBG
+        pTracker->Verify = NBT_VERIFY_TRACKER;
+        pTracker->pClientIrp = (PVOID)0x1A1A1A1A;
+        pTracker->pConnEle = (PVOID)0x1A1A1A1A;
+        pTracker->SendBuffer.HdrLength = 0x1A1A1A1A;
+        pTracker->SendBuffer.pDgramHdr = (PVOID)0x1A1A1A1A;
+        pTracker->SendBuffer.Length    = 0x1A1A1A1A;
+        pTracker->SendBuffer.pBuffer   = (PVOID)0x1A1A1A1A;
+        pTracker->pDeviceContext = (PVOID)0x1A1A1A1A;
+        pTracker->pTimer = (PVOID)0x1A1A1A1A;
+        pTracker->RefCount = 0x1A1A1A1A;
+        pTracker->pDestName = (PVOID)0x1A1A1A1A;
+        pTracker->pNameAddr = (PVOID)0x1A1A1A1A;
+#ifdef VXD
+        pTracker->pchDomainName = (PVOID)0x1A1A1A1A;
+#endif
+        pTracker->pTimeout = (PVOID)0x1A1A1A1A;
+        pTracker->SrcIpAddress = 0x1A1A1A1A;
+        pTracker->CompletionRoutine = (PVOID)0x1A1A1A1A;
+        pTracker->Flags = 0x1A1A;
+#endif
         // clear any list of trackers Q'd to this tracker
         InitializeListHead(&pTracker->TrackerList);
         pTracker->Connect.pTimer    = NULL;
         pTracker->pClientIrp        = NULL;
         pTracker->TransactionId     = 0;
         pTracker->Flags             = 0;
+
+        InitializeListHead(&pTracker->Linkage);
         status = STATUS_SUCCESS;
 
     }
@@ -1304,8 +1233,30 @@ Return Value:
         }
         else
         {
+#if DBG
+            pTracker->Verify = NBT_VERIFY_TRACKER;
+            pTracker->pClientIrp = (PVOID)0x1A1A1A1A;
+            pTracker->pConnEle = (PVOID)0x1A1A1A1A;
+            pTracker->SendBuffer.HdrLength = 0x1A1A1A1A;
+            pTracker->SendBuffer.pDgramHdr = (PVOID)0x1A1A1A1A;
+            pTracker->SendBuffer.Length    = 0x1A1A1A1A;
+            pTracker->SendBuffer.pBuffer   = (PVOID)0x1A1A1A1A;
+            pTracker->pDeviceContext = (PVOID)0x1A1A1A1A;
+            pTracker->pTimer = (PVOID)0x1A1A1A1A;
+            pTracker->RefCount = 0x1A1A1A1A;
+            pTracker->pDestName = (PVOID)0x1A1A1A1A;
+            pTracker->pNameAddr = (PVOID)0x1A1A1A1A;
+#ifdef VXD
+            pTracker->pchDomainName = (PVOID)0x1A1A1A1A;
+#endif
+            pTracker->pTimeout = (PVOID)0x1A1A1A1A;
+            pTracker->SrcIpAddress = 0x1A1A1A1A;
+            pTracker->CompletionRoutine = (PVOID)0x1A1A1A1A;
+            pTracker->Flags = 0x1A1A;
+#endif
             NbtConfig.iCurrentNumBuff[eNBT_DGRAM_TRACKER]++;
             pTracker->Connect.pTimer = NULL ;
+            InitializeListHead(&pTracker->Linkage);
             status = STATUS_SUCCESS;
         }
 
@@ -1315,9 +1266,10 @@ Return Value:
     // keep tracker on a used list for debug
     if (NT_SUCCESS(status))
     {
-        ADD_TO_LIST(&UsedTrackers,&pTracker->DebugLinkage);
+        //ADD_TO_LIST(&UsedTrackers,&pTracker->DebugLinkage);
     }
 //#endif
+
     *ppTracker = pTracker;
     return(status);
 }
@@ -1553,15 +1505,22 @@ Return Value:
     {
         PLIST_ENTRY pLowerHead;
 
-        pLowerHead = &pDeviceContext->LowerConnFreeHead;
-        pLowerConnFreeHead->Flink = pLowerHead->Flink;
-        pLowerConnFreeHead->Blink = pLowerHead->Blink;
+        if (!IsListEmpty(&pDeviceContext->LowerConnFreeHead))
+        {
+            pLowerHead = &pDeviceContext->LowerConnFreeHead;
+            pLowerConnFreeHead->Flink = pLowerHead->Flink;
+            pLowerConnFreeHead->Blink = pLowerHead->Blink;
 
-        // hook the list head and tail to the new head
-        pLowerHead->Flink->Blink = pLowerConnFreeHead;
-        pLowerHead->Blink->Flink = pLowerConnFreeHead;
+            // hook the list head and tail to the new head
+            pLowerHead->Flink->Blink = pLowerConnFreeHead;
+            pLowerHead->Blink->Flink = pLowerConnFreeHead;
 
-        InitializeListHead(&pDeviceContext->LowerConnFreeHead);
+            InitializeListHead(&pDeviceContext->LowerConnFreeHead);
+        }
+        else
+        {
+            InitializeListHead(pLowerConnFreeHead);
+        }
     }
 
     MarkForCloseLowerConnections(pDeviceContext,OldIrq1,OldIrq);
@@ -1625,6 +1584,7 @@ Return Value:
     CTELockHandle       OldIrq;
     PLIST_ENTRY         pHead;
     PLIST_ENTRY         pEntry;
+    PLIST_ENTRY         pNextEntry;
     ULONG               Count=0;
 
     CTEPagedCode();
@@ -1635,15 +1595,16 @@ Return Value:
     while (pEntry != pHead)
     {
         pLowerConn = CONTAINING_RECORD(pEntry,tLOWERCONNECTION,Linkage);
+        pNextEntry = pEntry->Flink;
         RemoveEntryList(pEntry);
-        pEntry = pEntry->Flink;
+        pEntry = pNextEntry;
         Count++;
 
         //
         // close the lower connection with the transport
         //
-        NTDereferenceObject((PVOID *)pLowerConn->pFileObject);
-        NbtTdiCloseConnection(pLowerConn);
+        //DereferenceObject((PVOID *)pLowerConn->pFileObject);
+        //TdiCloseConnection(pLowerConn);
 
         NbtDereferenceLowerConnection(pLowerConn);
 
@@ -1701,7 +1662,7 @@ Return Value:
     //
     if (Count)
     {
-        pList = CTEAllocMem(Count * sizeof(tLOWERCONNECTION *));
+        pList = NbtAllocMem(Count * sizeof(tLOWERCONNECTION *),NBT_TAG('T'));
         if (pList)
         {
             //
@@ -1718,8 +1679,7 @@ Return Value:
                 {
                     *pList = pLowerConn;
                     pList++;
-                    ExInterlockedIncrementLong(&pLowerConn->RefCount,
-                                               &pLowerConn->SpinLock);
+                    InterlockedIncrement(&pLowerConn->RefCount);
                     pEntry = pEntry->Flink;
                     Count++;
                 }
@@ -1878,7 +1838,7 @@ Return Value:
     CTEPagedCode();
     for (i=0;i < iNumConnections ;i++ )
     {
-        pLowerConn =(tLOWERCONNECTION *)CTEAllocMem((ULONG)sizeof(tLOWERCONNECTION));
+        pLowerConn =(tLOWERCONNECTION *)NbtAllocMem((ULONG)sizeof(tLOWERCONNECTION),NBT_TAG('U'));
         if (!pLowerConn)
         {
             return(STATUS_INSUFFICIENT_RESOURCES);
@@ -2080,7 +2040,3 @@ Return Value:
 
     return(STATUS_SUCCESS);
 }
-
-
-
-

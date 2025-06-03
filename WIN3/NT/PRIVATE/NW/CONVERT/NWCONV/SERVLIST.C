@@ -24,7 +24,6 @@
   +-------------------------------------------------------------------------+
 */
 
-
 #include "globals.h"
 #include "convapi.h"
 #include "columnlb.h"
@@ -51,8 +50,8 @@ static ULONG NumDomains = 0;
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | TreeSave()                                                              |
-  |                                                                         |
+  | TreeSave()
+  |
   +-------------------------------------------------------------------------+*/
 void _TreeSaveR(HANDLE hFile, DIR_BUFFER *Dir) {
    DIR_BUFFER *DList;
@@ -105,8 +104,8 @@ void TreeSave(HANDLE hFile, DIR_BUFFER *Dir) {
 
 
 /*+-------------------------------------------------------------------------+
-  | TreeLoad()                                                              |
-  |                                                                         |
+  | TreeLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void _TreeLoadR(HANDLE hFile, DIR_BUFFER *Dir) {
    DIR_LIST *DList;
@@ -191,14 +190,14 @@ void TreeLoad(HANDLE hFile, DIR_BUFFER **pDir) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | UserListCompare()                                                       |
-  |                                                                         |
+  | UserListCompare()
+  |
   +-------------------------------------------------------------------------+*/
 int __cdecl UserListCompare(const void *arg1, const void *arg2) {
-   USER_LIST *ULarg1, *ULarg2;
+   USER_BUFFER *ULarg1, *ULarg2;
 
-   ULarg1 = (USER_LIST *) arg1;
-   ULarg2 = (USER_LIST *) arg2;
+   ULarg1 = (USER_BUFFER *) arg1;
+   ULarg2 = (USER_BUFFER *) arg2;
 
    // This works as the first item of the structure is the string
    return lstrcmpi( ULarg1->Name, ULarg2->Name);
@@ -211,8 +210,8 @@ int __cdecl UserListCompare(const void *arg1, const void *arg2) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ShareListDelete()                                                       |
-  |                                                                         |
+  | ShareListDelete()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListDelete(SHARE_LIST *ShareList) {
    SHARE_BUFFER *SList;
@@ -245,8 +244,8 @@ void ShareListDelete(SHARE_LIST *ShareList) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SourceShareListFixup()                                                  |
-  |                                                                         |
+  | SourceShareListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void SourceShareListFixup(DEST_SERVER_BUFFER *DServ, SHARE_LIST *ShareList) {
    TCHAR tmpName[MAX_SHARE_NAME_LEN + 1];
@@ -292,8 +291,8 @@ void SourceShareListFixup(DEST_SERVER_BUFFER *DServ, SHARE_LIST *ShareList) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DestShareListFixup()                                                    |
-  |                                                                         |
+  | DestShareListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void DestShareListFixup(DEST_SERVER_BUFFER *DServ) {
    SHARE_BUFFER *SList, *oSList;
@@ -305,6 +304,9 @@ void DestShareListFixup(DEST_SERVER_BUFFER *DServ) {
 
    if (DServ->ShareList == NULL)
       return;
+
+   if (DServ->ShareList->Fixup == FALSE)
+      return; // do not fixup twice...
 
    DServ->ShareList->Fixup = FALSE;
    DList = DServ->DriveList;
@@ -340,8 +342,8 @@ void DestShareListFixup(DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListSave()                                                         |
-  |                                                                         |
+  | ShareListSave()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListSave(HANDLE hFile, SHARE_LIST *ShareList) {
    SHARE_BUFFER *SList;
@@ -401,8 +403,8 @@ void ShareListSave(HANDLE hFile, SHARE_LIST *ShareList) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListLoad()                                                         |
-  |                                                                         |
+  | ShareListLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListLoad(HANDLE hFile, SHARE_LIST **lpShareList) {
    SHARE_BUFFER *SList;
@@ -444,8 +446,8 @@ dprintf(TEXT("\n"));
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListLog()                                                          |
-  |                                                                         |
+  | ShareListLog()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListLog(SHARE_LIST *ShareList, BOOL DestServer) {
    ULONG i;
@@ -473,8 +475,8 @@ void ShareListLog(SHARE_LIST *ShareList, BOOL DestServer) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | SServListAdd()                                                          |
-  |                                                                         |
+  | SServListAdd()
+  |
   +-------------------------------------------------------------------------+*/
 SOURCE_SERVER_BUFFER *SServListAdd(LPTSTR ServerName) {
    SOURCE_SERVER_BUFFER *tmpPtr;
@@ -487,6 +489,7 @@ SOURCE_SERVER_BUFFER *SServListAdd(LPTSTR ServerName) {
       // init it to NULL's
       memset(tmpPtr, 0, Size);
       tmpPtr->Name = (LPTSTR) ((BYTE *) tmpPtr + sizeof(SOURCE_SERVER_BUFFER));
+      tmpPtr->LName = tmpPtr->Name;
       lstrcpy(tmpPtr->Name, TEXT("\\\\"));
       tmpPtr->Name += 2;
       lstrcpy(tmpPtr->Name, ServerName);
@@ -509,8 +512,8 @@ SOURCE_SERVER_BUFFER *SServListAdd(LPTSTR ServerName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListDelete()                                                       |
-  |                                                                         |
+  | SServListDelete()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListDelete(SOURCE_SERVER_BUFFER *tmpPtr) {
    SOURCE_SERVER_BUFFER *PrevPtr;
@@ -553,8 +556,8 @@ void SServListDelete(SOURCE_SERVER_BUFFER *tmpPtr) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListDeleteAll()                                                    |
-  |                                                                         |
+  | SServListDeleteAll()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListDeleteAll() {
    SOURCE_SERVER_BUFFER *ServList;
@@ -573,8 +576,8 @@ void SServListDeleteAll() {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListFind()                                                         |
-  |                                                                         |
+  | SServListFind()
+  |
   +-------------------------------------------------------------------------+*/
 SOURCE_SERVER_BUFFER *SServListFind(LPTSTR ServerName) {
    BOOL Found = FALSE;
@@ -598,16 +601,16 @@ SOURCE_SERVER_BUFFER *SServListFind(LPTSTR ServerName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListIndex()                                                        |
-  |                                                                         |
-  |   The index routines place an index number into each item of the list,  |
-  |   and is called just before saving out the list.  This is so when we    |
-  |   read them in we can reference pointer links.  In their normal state   |
-  |   these data structures are cross referenced via pointers, but once     |
-  |   saved/restored the pointers have no meaning, so we use the index to   |
-  |   re-reference the pointers to the correct data items when they are     |
-  |   read back in.                                                         |
-  |                                                                         |
+  | SServListIndex()
+  |
+  |   The index routines place an index number into each item of the list,
+  |   and is called just before saving out the list.  This is so when we
+  |   read them in we can reference pointer links.  In their normal state
+  |   these data structures are cross referenced via pointers, but once
+  |   saved/restored the pointers have no meaning, so we use the index to
+  |   re-reference the pointers to the correct data items when they are
+  |   read back in.
+  |
   +-------------------------------------------------------------------------+*/
 void SServListIndex() {
    SOURCE_SERVER_BUFFER *ServList;
@@ -623,8 +626,8 @@ void SServListIndex() {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListIndexMapGet()                                                  |
-  |                                                                         |
+  | SServListIndexMapGet()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListIndexMapGet(DWORD **pMap) {
    DWORD *Map = NULL;
@@ -646,8 +649,8 @@ void SServListIndexMapGet(DWORD **pMap) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListFixup()                                                        |
-  |                                                                         |
+  | SServListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListFixup() {
 
@@ -658,8 +661,8 @@ void SServListFixup() {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListSave()                                                         |
-  |                                                                         |
+  | SServListSave()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListSave(HANDLE hFile) {
    DWORD wrote;
@@ -684,8 +687,8 @@ void SServListSave(HANDLE hFile) {
 
 
 /*+-------------------------------------------------------------------------+
-  | SServListLoad()                                                         |
-  |                                                                         |
+  | SServListLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void SServListLoad(HANDLE hFile) {
    BOOL Continue = TRUE;
@@ -712,8 +715,8 @@ void SServListLoad(HANDLE hFile) {
       tmpPtr->next = NULL;
       tmpPtr->prev = NULL;
 
-      tmpPtr->Name = (LPTSTR) ((BYTE *) tmpPtr + sizeof(SOURCE_SERVER_BUFFER));
-      tmpPtr->Name += 2;
+      tmpPtr->LName = (LPTSTR) ((BYTE *) tmpPtr + sizeof(SOURCE_SERVER_BUFFER));
+      tmpPtr->Name  = tmpPtr->LName + 2;
 
       // link it into the list
       if (!SServListStart)
@@ -748,8 +751,8 @@ dprintf(TEXT("   Version: %u.%u\n\n"), (UINT) tmpPtr->VerMaj, (UINT) tmpPtr->Ver
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | DServListAdd()                                                          |
-  |                                                                         |
+  | DServListAdd()
+  |
   +-------------------------------------------------------------------------+*/
 DEST_SERVER_BUFFER *DServListAdd(LPTSTR ServerName) {
    DEST_SERVER_BUFFER *tmpPtr;
@@ -763,6 +766,7 @@ DEST_SERVER_BUFFER *DServListAdd(LPTSTR ServerName) {
       // init it to NULL's
       memset(tmpPtr, 0, Size);
       tmpPtr->Name = (LPTSTR) ((BYTE *) tmpPtr + sizeof(DEST_SERVER_BUFFER));
+      tmpPtr->LName = tmpPtr->Name;
       lstrcpy(tmpPtr->Name, TEXT("\\\\"));
       tmpPtr->Name += 2;
       lstrcpy(tmpPtr->Name, ServerName);
@@ -785,8 +789,8 @@ DEST_SERVER_BUFFER *DServListAdd(LPTSTR ServerName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListDelete()                                                       |
-  |                                                                         |
+  | DServListDelete()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListDelete(DEST_SERVER_BUFFER *tmpPtr) {
    DEST_SERVER_BUFFER *PrevPtr;
@@ -848,8 +852,8 @@ void DServListDelete(DEST_SERVER_BUFFER *tmpPtr) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListDeleteAll()                                                    |
-  |                                                                         |
+  | DServListDeleteAll()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListDeleteAll() {
    DEST_SERVER_BUFFER *ServList;
@@ -869,8 +873,8 @@ void DServListDeleteAll() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListFind()                                                         |
-  |                                                                         |
+  | DServListFind()
+  |
   +-------------------------------------------------------------------------+*/
 DEST_SERVER_BUFFER *DServListFind(LPTSTR ServerName) {
    BOOL Found = FALSE;
@@ -894,8 +898,8 @@ DEST_SERVER_BUFFER *DServListFind(LPTSTR ServerName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListIndex()                                                        |
-  |                                                                         |
+  | DServListIndex()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListIndex() {
    DEST_SERVER_BUFFER *ServList;
@@ -914,8 +918,8 @@ void DServListIndex() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListIndexMapGet()                                                  |
-  |                                                                         |
+  | DServListIndexMapGet()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListIndexMapGet(DWORD **pMap) {
    DWORD *Map = NULL;
@@ -937,8 +941,8 @@ void DServListIndexMapGet(DWORD **pMap) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListFixup()                                                        |
-  |                                                                         |
+  | DServListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListFixup() {
    DEST_SERVER_BUFFER *ServList;
@@ -965,8 +969,8 @@ void DServListFixup() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListSave()                                                         |
-  |                                                                         |
+  | DServListSave()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListSave(HANDLE hFile) {
    DWORD wrote;
@@ -1001,8 +1005,8 @@ void DServListSave(HANDLE hFile) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListLoad()                                                         |
-  |                                                                         |
+  | DServListLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListLoad(HANDLE hFile) {
    BOOL Continue = TRUE;
@@ -1029,8 +1033,8 @@ void DServListLoad(HANDLE hFile) {
       tmpPtr->next = NULL;
       tmpPtr->prev = NULL;
 
-      tmpPtr->Name = (LPTSTR) ((BYTE *) tmpPtr + sizeof(DEST_SERVER_BUFFER));
-      tmpPtr->Name += 2;
+      tmpPtr->LName = (LPTSTR) ((BYTE *) tmpPtr + sizeof(DEST_SERVER_BUFFER));
+      tmpPtr->Name  = tmpPtr->LName + 2;
 
       // link it into the list
       if (!DServListStart)
@@ -1069,8 +1073,8 @@ dprintf(TEXT("   Version: %u.%u\n\n"), (UINT) tmpPtr->VerMaj, (UINT) tmpPtr->Ver
 
 
 /*+-------------------------------------------------------------------------+
-  | DServListSpaceFree()                                                    |
-  |                                                                         |
+  | DServListSpaceFree()
+  |
   +-------------------------------------------------------------------------+*/
 void DServListSpaceFree() {
    DEST_SERVER_BUFFER *ServList;
@@ -1100,8 +1104,8 @@ void DServListSpaceFree() {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | VShareListAdd()                                                         |
-  |                                                                         |
+  | VShareListAdd()
+  |
   +-------------------------------------------------------------------------+*/
 VIRTUAL_SHARE_BUFFER *VShareListAdd(DEST_SERVER_BUFFER *DServ, LPTSTR ShareName, LPTSTR Path) {
    VIRTUAL_SHARE_BUFFER *tmpPtr;
@@ -1138,8 +1142,8 @@ VIRTUAL_SHARE_BUFFER *VShareListAdd(DEST_SERVER_BUFFER *DServ, LPTSTR ShareName,
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListDelete()                                                      |
-  |                                                                         |
+  | VShareListDelete()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListDelete(DEST_SERVER_BUFFER *DServ, VIRTUAL_SHARE_BUFFER *tmpPtr) {
    VIRTUAL_SHARE_BUFFER *PrevPtr;
@@ -1182,8 +1186,8 @@ void VShareListDelete(DEST_SERVER_BUFFER *DServ, VIRTUAL_SHARE_BUFFER *tmpPtr) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListDeleteAll()                                                   |
-  |                                                                         |
+  | VShareListDeleteAll()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListDeleteAll(DEST_SERVER_BUFFER *DServ) {
    VIRTUAL_SHARE_BUFFER *ShareList;
@@ -1205,8 +1209,8 @@ void VShareListDeleteAll(DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListIndex()                                                       |
-  |                                                                         |
+  | VShareListIndex()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListIndex(DEST_SERVER_BUFFER *DServ) {
    VIRTUAL_SHARE_BUFFER *ShareList;
@@ -1222,8 +1226,8 @@ void VShareListIndex(DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListIndexMapGet()                                                 |
-  |                                                                         |
+  | VShareListIndexMapGet()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListIndexMapGet(DEST_SERVER_BUFFER *DServ, DWORD **pMap) {
    DWORD *Map = NULL;
@@ -1245,8 +1249,8 @@ void VShareListIndexMapGet(DEST_SERVER_BUFFER *DServ, DWORD **pMap) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListSave()                                                        |
-  |                                                                         |
+  | VShareListSave()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListSave(HANDLE hFile, DEST_SERVER_BUFFER *DServ) {
    DWORD wrote;
@@ -1267,8 +1271,8 @@ void VShareListSave(HANDLE hFile, DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListLoad()                                                        |
-  |                                                                         |
+  | VShareListLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListLoad(HANDLE hFile, DEST_SERVER_BUFFER *DServ) {
    BOOL Continue = TRUE;
@@ -1313,8 +1317,8 @@ void VShareListLoad(HANDLE hFile, DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | VShareListFixup()                                                       |
-  |                                                                         |
+  | VShareListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void VShareListFixup(DEST_SERVER_BUFFER *DServ) {
    VIRTUAL_SHARE_BUFFER *VShare;
@@ -1358,8 +1362,8 @@ void VShareListFixup(DEST_SERVER_BUFFER *DServ) {
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | DomainListAdd()                                                         |
-  |                                                                         |
+  | DomainListAdd()
+  |
   +-------------------------------------------------------------------------+*/
 DOMAIN_BUFFER *DomainListAdd(LPTSTR DomainName, LPTSTR PDCName) {
    DOMAIN_BUFFER *tmpPtr;
@@ -1397,8 +1401,8 @@ DOMAIN_BUFFER *DomainListAdd(LPTSTR DomainName, LPTSTR PDCName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListDelete()                                                      |
-  |                                                                         |
+  | DomainListDelete()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListDelete(DOMAIN_BUFFER *tmpPtr) {
    DOMAIN_BUFFER *PrevPtr;
@@ -1441,8 +1445,8 @@ void DomainListDelete(DOMAIN_BUFFER *tmpPtr) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListDeleteAll()                                                   |
-  |                                                                         |
+  | DomainListDeleteAll()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListDeleteAll() {
    DOMAIN_BUFFER *DomList;
@@ -1462,8 +1466,8 @@ void DomainListDeleteAll() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListFind()                                                        |
-  |                                                                         |
+  | DomainListFind()
+  |
   +-------------------------------------------------------------------------+*/
 DOMAIN_BUFFER *DomainListFind(LPTSTR DomainName) {
    BOOL Found = FALSE;
@@ -1487,8 +1491,8 @@ DOMAIN_BUFFER *DomainListFind(LPTSTR DomainName) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListIndex()                                                       |
-  |                                                                         |
+  | DomainListIndex()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListIndex() {
    DOMAIN_BUFFER *DomList;
@@ -1504,8 +1508,8 @@ void DomainListIndex() {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListIndexMapGet()                                                 |
-  |                                                                         |
+  | DomainListIndexMapGet()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListIndexMapGet(DWORD **pMap) {
    DWORD *Map = NULL;
@@ -1527,8 +1531,8 @@ void DomainListIndexMapGet(DWORD **pMap) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListSave()                                                        |
-  |                                                                         |
+  | DomainListSave()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListSave(HANDLE hFile) {
    DWORD wrote;
@@ -1551,8 +1555,8 @@ void DomainListSave(HANDLE hFile) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DomainListLoad()                                                        |
-  |                                                                         |
+  | DomainListLoad()
+  |
   +-------------------------------------------------------------------------+*/
 void DomainListLoad(HANDLE hFile) {
    BOOL Continue = TRUE;
@@ -1614,19 +1618,20 @@ dprintf(TEXT("   PDC Name: %s\n\n"), tmpPtr->PDCName);
   +-------------------------------------------------------------------------+*/
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListAdd()                                                        |
-  |                                                                         |
-  |    Allocates and inserts a new record for holding a server pair and     |
-  |    associated conversion options.                                       |
-  |                                                                         |
-  | Comments:                                                               |
-  |    The convert list is a doubly linked list of records.  Each record    |
-  |    contains the source and destination server (server-pair) and a       |
-  |    pointer to the conversion specific information.  The exact info      |
-  |    is specific to the platform being converted from (source server type)|
-  |                                                                         |
+  | ConvertListAdd()
+  |
+  |    Allocates and inserts a new record for holding a server pair and
+  |    associated conversion options.
+  |
+  | Comments:
+  |    The convert list is a doubly linked list of records.  Each record
+  |    contains the source and destination server (server-pair) and a
+  |    pointer to the conversion specific information.  The exact info
+  |    is specific to the platform being converted from (source server type)
+  |
   +-------------------------------------------------------------------------+*/
 CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUFFER *DestServer) {
+   CONVERT_OPTIONS *cvo;
    CONVERT_LIST *tmpPtr;
    CONVERT_LIST *cPtr;
    BOOL match = FALSE;
@@ -1638,10 +1643,15 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
       memset(tmpPtr, 0, sizeof(CONVERT_LIST));
 
       tmpPtr->SourceServ = SourceServer;
-      tmpPtr->DestServ = DestServer;
+      tmpPtr->FileServ = DestServer;
 
       // initialize the conversion options
       UserOptionsInit(&tmpPtr->ConvertOptions);
+
+      // Set NetWareInfo based on current FPNW setting...
+      cvo = (CONVERT_OPTIONS *) tmpPtr->ConvertOptions;
+      cvo->NetWareInfo = DestServer->IsFPNW;
+
       FileOptionsInit(&tmpPtr->FileOptions);
 
       // link it into the list - we want to link right after another
@@ -1656,7 +1666,7 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
             // should be in the list so find it.
             cPtr = ConvertListStart;
             while (cPtr && !match) {
-               if (!lstrcmpi(DestServer->Name, cPtr->DestServ->Name))
+               if (!lstrcmpi(DestServer->Name, cPtr->FileServ->Name))
                   match = TRUE;
                else
                   cPtr = cPtr->next;
@@ -1665,7 +1675,7 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
             if (match) {
                // have a match - so go to the end of the matching pairs...
                while (cPtr && match) {
-                  if (lstrcmpi(DestServer->Name, cPtr->DestServ->Name))
+                  if (lstrcmpi(DestServer->Name, cPtr->FileServ->Name))
                      match = FALSE;
                   else
                      cPtr = cPtr->next;
@@ -1681,8 +1691,8 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
                // should be in the list so find it.
                cPtr = ConvertListStart;
                while (cPtr && !match) {
-                  if (cPtr->DestServ->InDomain && cPtr->DestServ->Domain)
-                     if (!lstrcmpi(DestServer->Domain->Name, cPtr->DestServ->Domain->Name))
+                  if (cPtr->FileServ->InDomain && cPtr->FileServ->Domain)
+                     if (!lstrcmpi(DestServer->Domain->Name, cPtr->FileServ->Domain->Name))
                         match = TRUE;
 
                   if (!match)
@@ -1692,8 +1702,8 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
                if (match) {
                   // have a match - so go to the end of the matching pairs...
                   while (cPtr && match) {
-                     if (cPtr->DestServ->InDomain && cPtr->DestServ->Domain) {
-                        if (lstrcmpi(DestServer->Domain->Name, cPtr->DestServ->Domain->Name))
+                     if (cPtr->FileServ->InDomain && cPtr->FileServ->Domain) {
+                        if (lstrcmpi(DestServer->Domain->Name, cPtr->FileServ->Domain->Name))
                            match = FALSE;
                      } else
                         match = FALSE;
@@ -1730,11 +1740,11 @@ CONVERT_LIST *ConvertListAdd(SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUF
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListDelete()                                                     |
-  |                                                                         |
-  |    Removes and deallocates a convert list entry from the conversion     |
-  |    list.                                                                |
-  |                                                                         |
+  | ConvertListDelete()
+  |
+  |    Removes and deallocates a convert list entry from the conversion
+  |    list.
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListDelete(CONVERT_LIST *tmpPtr) {
    CONVERT_LIST *PrevPtr;
@@ -1744,7 +1754,7 @@ void ConvertListDelete(CONVERT_LIST *tmpPtr) {
    // those routines take care of freeing up chained data structures. Also
    // DServList will only be delete if it's UseCount goes to 0.
    SServListDelete(tmpPtr->SourceServ);
-   DServListDelete(tmpPtr->DestServ);
+   DServListDelete(tmpPtr->FileServ);
 
    // Now unlink the actual convert list record
    PrevPtr = tmpPtr->prev;
@@ -1775,11 +1785,11 @@ void ConvertListDelete(CONVERT_LIST *tmpPtr) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListDeleteAll()                                                  |
-  |                                                                         |
-  |    Removes and deallocates all the convert list entrys and removes them |
-  |    from the listbox.                                                    |
-  |                                                                         |
+  | ConvertListDeleteAll()
+  |
+  |    Removes and deallocates all the convert list entrys and removes them
+  |    from the listbox.
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListDeleteAll() {
    CONVERT_LIST *ConvList;
@@ -1798,8 +1808,8 @@ void ConvertListDeleteAll() {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListSaveAll()                                                    |
-  |                                                                         |
+  | ConvertListSaveAll()
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListSaveAll(HANDLE hFile) {
    DWORD wrote;
@@ -1818,14 +1828,14 @@ void ConvertListSaveAll(HANDLE hFile) {
       // Need to de-reference the server pointers to their index, and after 
       // saving restore them.
       ss = CurrentConvertList->SourceServ;
-      ds = CurrentConvertList->DestServ;
+      ds = CurrentConvertList->FileServ;
       CurrentConvertList->SourceServ = (SOURCE_SERVER_BUFFER *) CurrentConvertList->SourceServ->Index;
-      CurrentConvertList->DestServ = (DEST_SERVER_BUFFER *) CurrentConvertList->DestServ->Index;
+      CurrentConvertList->FileServ = (DEST_SERVER_BUFFER *) CurrentConvertList->FileServ->Index;
 
       WriteFile(hFile, CurrentConvertList, sizeof(CONVERT_LIST), &wrote, NULL);
 
       CurrentConvertList->SourceServ = ss;
-      CurrentConvertList->DestServ = ds;
+      CurrentConvertList->FileServ = ds;
 
       // Now the options
       UserOptionsSave(hFile, CurrentConvertList->ConvertOptions);
@@ -1844,8 +1854,8 @@ void ConvertListSaveAll(HANDLE hFile) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListLoadAll()                                                    |
-  |                                                                         |
+  | ConvertListLoadAll()
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListLoadAll(HANDLE hFile) {
    CONVERT_LIST *tmpPtr;
@@ -1897,8 +1907,8 @@ void ConvertListLoadAll(HANDLE hFile) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListFixup()                                                      |
-  |                                                                         |
+  | ConvertListFixup()
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListFixup(HWND hWnd) {
    BOOL ok = TRUE;
@@ -1916,7 +1926,7 @@ void ConvertListFixup(HWND hWnd) {
 
    CurrentConvertList = ConvertListStart;
    while (CurrentConvertList) {
-      CurrentConvertList->DestServ = (DEST_SERVER_BUFFER *) DMap[(DWORD) CurrentConvertList->DestServ];
+      CurrentConvertList->FileServ = (DEST_SERVER_BUFFER *) DMap[(DWORD) CurrentConvertList->FileServ];
       CurrentConvertList->SourceServ = (SOURCE_SERVER_BUFFER *) SMap[(DWORD) CurrentConvertList->SourceServ];
 
       CurrentConvertList = CurrentConvertList->next;
@@ -1938,7 +1948,7 @@ void ConvertListFixup(HWND hWnd) {
    CurrentConvertList = ConvertListStart;
    while (CurrentConvertList) {
       ok = TRUE;
-      if (!NTServerValidate(hWnd, CurrentConvertList->DestServ->Name))
+      if (!NTServerValidate(hWnd, CurrentConvertList->FileServ->Name))
          ok = FALSE;
 
       if (ok)
@@ -1952,10 +1962,10 @@ void ConvertListFixup(HWND hWnd) {
       } else {
          // The connections were okay to these so resynch their information
          NWServerInfoReset(CurrentConvertList->SourceServ);
-         NTServerInfoReset(hWnd, CurrentConvertList->DestServ, TRUE);
-         DestShareListFixup(CurrentConvertList->DestServ);
-         VShareListFixup(CurrentConvertList->DestServ);
-         SourceShareListFixup(CurrentConvertList->DestServ, CurrentConvertList->SourceServ->ShareList);
+         NTServerInfoReset(hWnd, CurrentConvertList->FileServ, TRUE);
+         DestShareListFixup(CurrentConvertList->FileServ);
+         VShareListFixup(CurrentConvertList->FileServ);
+         SourceShareListFixup(CurrentConvertList->FileServ, CurrentConvertList->SourceServ->ShareList);
 
          // need to fixup the trusted domain in the user options to the new 
          // domain list...
@@ -1978,8 +1988,8 @@ void ConvertListFixup(HWND hWnd) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ConvertListLog()                                                        |
-  |                                                                         |
+  | ConvertListLog()
+  |
   +-------------------------------------------------------------------------+*/
 void ConvertListLog() {
    DEST_SERVER_BUFFER *DServ = NULL;
@@ -2005,8 +2015,8 @@ void ConvertListLog() {
 
    // Loop through the conversion pairs (they are already in order)
    while (CurrentConvertList) {
-      LogWriteLog(1, Lids(IDS_L_128), CurrentConvertList->SourceServ->Name, CurrentConvertList->DestServ->Name);
-      LogWriteSummary(1, Lids(IDS_L_128), CurrentConvertList->SourceServ->Name, CurrentConvertList->DestServ->Name);
+      LogWriteLog(1, Lids(IDS_L_128), CurrentConvertList->SourceServ->Name, CurrentConvertList->FileServ->Name);
+      LogWriteSummary(1, Lids(IDS_L_128), CurrentConvertList->SourceServ->Name, CurrentConvertList->FileServ->Name);
       CurrentConvertList = CurrentConvertList->next;
    }
 
@@ -2024,11 +2034,11 @@ void ConvertListLog() {
 
    while (CurrentConvertList) {
       // Make sure to only log each source server once
-      if (DServ != CurrentConvertList->DestServ) {
+      if (DServ != CurrentConvertList->FileServ) {
          // remember this new server
-         DServ = CurrentConvertList->DestServ;
+         DServ = CurrentConvertList->FileServ;
 
-         LogWriteLog(0, TEXT("[%s]\r\n"), CurrentConvertList->DestServ->Name);
+         LogWriteLog(0, TEXT("[%s]\r\n"), CurrentConvertList->FileServ->Name);
          LogWriteLog(1, Lids(IDS_L_130));
          LogWriteLog(1, Lids(IDS_L_131), DServ->VerMaj, DServ->VerMin);
 
@@ -2060,3 +2070,25 @@ void ConvertListLog() {
 } // ConvertListLog
 
 
+/*+-------------------------------------------------------------------------+
+  | UserServerNameGet()
+  |
+  +-------------------------------------------------------------------------+*/
+LPTSTR UserServerNameGet(DEST_SERVER_BUFFER *DServ, void *COpt) {
+   CONVERT_OPTIONS *ConvOpt;
+   LPTSTR ServName = NULL;
+
+   ConvOpt = (CONVERT_OPTIONS *) COpt;
+   // If going to a trusted domain then point to it's PDC for user transfers
+   if (ConvOpt->UseTrustedDomain && (ConvOpt->TrustedDomain != NULL) && (ConvOpt->TrustedDomain->PDCName != NULL)) {
+      ServName = ConvOpt->TrustedDomain->PDCName;
+   } else
+      // If in a domain then point to the PDC for user transfers
+      if (DServ->InDomain && DServ->Domain) {
+         ServName = DServ->Domain->PDCName;
+      } else {
+         ServName = DServ->Name;
+      }
+
+   return ServName;
+} // UserServerNameGet

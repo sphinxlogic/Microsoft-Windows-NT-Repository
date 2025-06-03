@@ -18,7 +18,7 @@ Revision History:
 
 --*/
 
-#include "dbgsrvp.h"
+#include "smsrvp.h"
 
 NTSTATUS
 DbgpSsException (
@@ -171,7 +171,7 @@ Return Value:
     // hash table
     //
 
-    AppThread = RtlAllocateHeap(RtlProcessHeap(), 0,sizeof(DBGP_APP_THREAD));
+    AppThread = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(DBGP_APP_THREAD));
 
     if ( !AppThread ) {
         RtlLeaveCriticalSection(&DbgpHashTableLock);
@@ -314,14 +314,14 @@ Return Value:
     // hash table
     //
 
-    AppProcess = RtlAllocateHeap(RtlProcessHeap(), 0,sizeof(DBGP_APP_PROCESS));
+    AppProcess = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(DBGP_APP_PROCESS));
 
     if ( !AppProcess ) {
         RtlLeaveCriticalSection(&DbgpHashTableLock);
         return STATUS_NO_MEMORY;
         }
 
-    AppThread = RtlAllocateHeap(RtlProcessHeap(), 0,sizeof(DBGP_APP_THREAD));
+    AppThread = RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(DBGP_APP_THREAD));
 
     if ( !AppThread ) {
         RtlFreeHeap(RtlProcessHeap(),0,AppProcess);

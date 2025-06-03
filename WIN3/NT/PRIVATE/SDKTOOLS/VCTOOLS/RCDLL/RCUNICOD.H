@@ -42,7 +42,7 @@ Revision History:
 //
 INT
 DetermineFileType (
-    IN      FILE        *fpInputFile
+    IN      PFILE        fpInputFile
     );
 
 //
@@ -69,4 +69,3 @@ WCHAR ** UnicodeCommandLine (
     char **
     );
 
-

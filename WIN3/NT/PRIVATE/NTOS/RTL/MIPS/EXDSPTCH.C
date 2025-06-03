@@ -85,6 +85,17 @@ RtlpVirtualUnwind (
     OUT PULONG EstablisherFrame,
     IN OUT PKNONVOLATILE_CONTEXT_POINTERS ContextPointers OPTIONAL
     );
+
+ULONG
+RtlpVirtualUnwind32 (
+    IN ULONG ControlPc,
+    IN PRUNTIME_FUNCTION FunctionEntry,
+    IN OUT PCONTEXT ContextRecord,
+    OUT PBOOLEAN InFunction,
+    OUT PULONG EstablisherFrame,
+    IN OUT PKNONVOLATILE_CONTEXT_POINTERS ContextPointers OPTIONAL
+    );
+
 
 BOOLEAN
 RtlDispatchException (
@@ -133,6 +144,7 @@ Return Value:
     ULONG EstablisherFrame;
     ULONG ExceptionFlags;
     PRUNTIME_FUNCTION FunctionEntry;
+    ULONG Index;
     BOOLEAN InFunction;
     ULONG HighLimit;
     ULONG LowLimit;
@@ -174,7 +186,7 @@ Return Value:
         //
 
         if (FunctionEntry != NULL) {
-            NextPc = RtlVirtualUnwind(ControlPc,
+            NextPc = RtlVirtualUnwind(ControlPc | 1,
                                       FunctionEntry,
                                       &ContextRecord1,
                                       &InFunction,
@@ -209,12 +221,29 @@ Return Value:
                 DispatcherContext.EstablisherFrame = EstablisherFrame;
                 DispatcherContext.ContextRecord = ContextRecord;
                 ExceptionRecord->ExceptionFlags = ExceptionFlags;
+
+                //
+                // If requested log exception.
+                //
+
+                if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                    Index = RtlpLogExceptionHandler(ExceptionRecord,
+                                                    ContextRecord,
+                                                    ControlPc,
+                                                    FunctionEntry,
+                                                    sizeof(RUNTIME_FUNCTION));
+                }
+
                 Disposition =
                     RtlpExecuteHandlerForException(ExceptionRecord,
                                                    EstablisherFrame,
                                                    ContextRecord,
                                                    &DispatcherContext,
                                                    FunctionEntry->ExceptionHandler);
+
+                if (NtGlobalFlag & FLG_ENABLE_EXCEPTION_LOGGING) {
+                    RtlpLogLastExceptionDisposition(Index, Disposition);
+                }
 
                 ExceptionFlags |=
                     (ExceptionRecord->ExceptionFlags & EXCEPTION_NONCONTINUABLE);
@@ -295,7 +324,7 @@ Return Value:
             // Set point at which control left the previous routine.
             //
 
-            NextPc = ContextRecord1.IntRa - 4;
+            NextPc = (ULONG)(ContextRecord1.XIntRa - 4);
 
             //
             // If the next control PC is the same as the old control PC, then
@@ -312,7 +341,7 @@ Return Value:
         //
 
         ControlPc = NextPc;
-    } while (ContextRecord1.IntSp < HighLimit);
+    } while ((ULONG)ContextRecord1.XIntSp < HighLimit);
 
     //
     // Set final exception flags and return exception not handled.
@@ -425,7 +454,7 @@ Return Value:
                     //
 
                     if ((FunctionEntry->PrologEndAddress < FunctionEntry->BeginAddress) ||
-                        (FunctionEntry->PrologEndAddress >= FunctionEntry->EndAddress)) {
+                        (FunctionEntry->PrologEndAddress > FunctionEntry->EndAddress)) {
                         FunctionEntry = (PRUNTIME_FUNCTION)FunctionEntry->PrologEndAddress;
                     }
 
@@ -514,9 +543,9 @@ Return Value:
     //
 
     RtlCaptureContext(&ContextRecord);
-    ControlPc = ContextRecord.IntRa - 4;
+    ControlPc = (ULONG)(ContextRecord.XIntRa - 4);
     FunctionEntry = RtlLookupFunctionEntry(ControlPc);
-    NextPc = RtlVirtualUnwind(ControlPc,
+    NextPc = RtlVirtualUnwind(ControlPc | 1,
                               FunctionEntry,
                               &ContextRecord,
                               &InFunction,
@@ -620,9 +649,9 @@ Return Value:
     //
 
     RtlCaptureContext(&ContextRecord);
-    ControlPc = ContextRecord.IntRa - 4;
+    ControlPc = (ULONG)(ContextRecord.XIntRa - 4);
     FunctionEntry = RtlLookupFunctionEntry(ControlPc);
-    NextPc = RtlVirtualUnwind(ControlPc,
+    NextPc = RtlVirtualUnwind(ControlPc | 1,
                               FunctionEntry,
                               &ContextRecord,
                               &InFunction,
@@ -781,9 +810,9 @@ Return Value:
 
     RtlpGetStackLimits(&LowLimit, &HighLimit);
     RtlCaptureContext(ContextRecord);
-    ControlPc = ContextRecord->IntRa - 4;
+    ControlPc = (ULONG)(ContextRecord->XIntRa - 4);
     FunctionEntry = RtlLookupFunctionEntry(ControlPc);
-    NextPc = RtlVirtualUnwind(ControlPc,
+    NextPc = RtlVirtualUnwind(ControlPc | 1,
                               FunctionEntry,
                               ContextRecord,
                               &InFunction,
@@ -904,7 +933,7 @@ Return Value:
                     // handler directly continues execution.
                     //
 
-                    ContextRecord->IntV0 = (ULONG)ReturnValue;
+                    ContextRecord->XIntV0 = (LONG)ReturnValue;
                     Disposition =
                         RtlpExecuteHandlerForUnwind(ExceptionRecord,
                                                     EstablisherFrame,
@@ -936,7 +965,7 @@ Return Value:
 
                     case ExceptionContinueSearch :
                         if (EstablisherFrame != (ULONG)TargetFrame) {
-                            NextPc = RtlVirtualUnwind(ControlPc,
+                            NextPc = RtlVirtualUnwind(ControlPc | 1,
                                                       FunctionEntry,
                                                       ContextRecord,
                                                       &InFunction,
@@ -984,7 +1013,7 @@ Return Value:
                 //
 
                 if (EstablisherFrame != (ULONG)TargetFrame) {
-                    NextPc = RtlVirtualUnwind(ControlPc,
+                    NextPc = RtlVirtualUnwind(ControlPc | 1,
                                               FunctionEntry,
                                               ContextRecord,
                                               &InFunction,
@@ -999,7 +1028,7 @@ Return Value:
             // Set point at which control left the previous routine.
             //
 
-            NextPc = ContextRecord->IntRa - 4;
+            NextPc = (ULONG)(ContextRecord->XIntRa - 4);
 
             //
             // If the next control PC is the same as the old control PC, then
@@ -1033,7 +1062,7 @@ Return Value:
     //
 
     if (EstablisherFrame == (ULONG)TargetFrame) {
-        ContextRecord->IntV0 = (ULONG)ReturnValue;
+        ContextRecord->XIntV0 = (LONG)ReturnValue;
         RtlpRestoreContext(ContextRecord, ExceptionRecord);
 
     } else {
@@ -1073,6 +1102,506 @@ Routine Description:
     If a context pointers record is specified, then the address where each
     nonvolatile registers is restored from is recorded in the appropriate
     element of the context pointers record.
+
+    N.B. This routine handles 64-bit context records.
+
+Arguments:
+
+    ControlPc - Supplies the address where control left the specified
+        function.
+
+        N.B. The low order bit of this argument is used to denote the
+             context record type. If the low order bit is clear, then
+             the context record contains 32-bit information. Otherwise,
+             it contains 64-bit information.
+
+    FunctionEntry - Supplies the address of the function table entry for the
+        specified function.
+
+    ContextRecord - Supplies the address of a context record.
+
+    InFunction - Supplies a pointer to a variable that receives whether the
+        control PC is within the current function.
+
+    EstablisherFrame - Supplies a pointer to a variable that receives the
+        the establisher frame pointer value.
+
+    ContextPointers - Supplies an optional pointer to a context pointers
+        record.
+
+Return Value:
+
+    The address where control left the previous frame is returned as the
+    function value.
+
+--*/
+
+{
+
+    ULONG Address;
+    ULONG DecrementOffset;
+    ULONG DecrementRegister;
+    PULONG FloatingRegister;
+    ULONG Function;
+    MIPS_INSTRUCTION Instruction;
+    PULONGLONG IntegerRegister;
+    ULONG NextPc;
+    LONG Offset;
+    ULONG Opcode;
+    ULONG Rd;
+    BOOLEAN RestoredRa;
+    BOOLEAN RestoredSp;
+    ULONG Rs;
+    ULONG Rt;
+
+    //
+    // If the low order bit of the control PC is clear, then the context
+    // record format is 32-bit. Otherwise, the context record format is
+    // 64-bits.
+    //
+
+    if ((ControlPc & 1) == 0) {
+        return RtlpVirtualUnwind32(ControlPc,
+                                   FunctionEntry,
+                                   ContextRecord,
+                                   InFunction,
+                                   EstablisherFrame,
+                                   ContextPointers);
+
+    } else {
+
+        //
+        // Set the base address of the integer and floating register arrays.
+        //
+
+        FloatingRegister = &ContextRecord->FltF0;
+        IntegerRegister = &ContextRecord->XIntZero;
+
+        //
+        // If the instruction at the point where control left the specified
+        // function is a return, then any saved registers have been restored
+        // with the possible exception of the stack pointer and the control
+        // PC is not considered to be in the function (i.e., an epilogue).
+        //
+
+        ControlPc &= ~1;
+        if (*((PULONG)ControlPc) == JUMP_RA) {
+            *InFunction = FALSE;
+            Instruction.Long = *((PULONG)ControlPc + 1);
+            Opcode = Instruction.i_format.Opcode;
+            Offset = Instruction.i_format.Simmediate;
+            Rd = Instruction.r_format.Rd;
+            Rs = Instruction.i_format.Rs;
+            Rt = Instruction.i_format.Rt;
+            Function = Instruction.r_format.Function;
+
+            //
+            // If the opcode is an add immediate unsigned op and both the
+            // source and destination registers are SP, then add the signed
+            // offset value to SP. Otherwise, if the opcode is a special op,
+            // the operation is an add unsigned, and the source and destination
+            // registers are both SP, then add the register specified by Rd to
+            // SP.
+            //
+
+            if ((Opcode == ADDIU_OP) && (Rt == SP) && (Rs == SP)) {
+                IntegerRegister[SP] += Offset;
+
+            } else if ((Opcode == SPEC_OP) && (Function == ADDU_OP) &&
+                       (Rd == SP) && (Rs == SP)) {
+                IntegerRegister[SP] += IntegerRegister[Rt];
+            }
+
+            *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+            return (ULONG)ContextRecord->XIntRa;
+        }
+
+        //
+        // If the address where control left the specified function is outside
+        // the limits of the prologue, then the control PC is considered to be
+        // within the function and the control address is set to the end of
+        // the prologue. Otherwise, the control PC is not considered to be
+        // within the function (i.e., it is within the prologue).
+        //
+
+        if ((ControlPc < FunctionEntry->BeginAddress) ||
+            (ControlPc >= FunctionEntry->PrologEndAddress)) {
+            *InFunction = TRUE;
+            ControlPc = FunctionEntry->PrologEndAddress;
+
+        } else {
+            *InFunction = FALSE;
+        }
+
+        //
+        // Scan backward through the prologue and reload callee registers that
+        // were stored.
+        //
+
+        DecrementRegister = 0;
+        *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+        NextPc = (ULONG)(ContextRecord->XIntRa - 4);
+        RestoredRa = FALSE;
+        RestoredSp = FALSE;
+        while (ControlPc > FunctionEntry->BeginAddress) {
+
+            //
+            // Get instruction value, decode fields, case of opcode value, and
+            // reverse store operations.
+            //
+
+            ControlPc -= 4;
+            Instruction.Long = *((PULONG)ControlPc);
+            Opcode = Instruction.i_format.Opcode;
+            Offset = Instruction.i_format.Simmediate;
+            Rd = Instruction.r_format.Rd;
+            Rs = Instruction.i_format.Rs;
+            Rt = Instruction.i_format.Rt;
+            Address = (ULONG)(Offset + IntegerRegister[Rs]);
+            if (Opcode == SW_OP) {
+
+                //
+                // Store word.
+                //
+                // If the base register is SP and the source register is an
+                // integer register, then reload the register value.
+                //
+
+                if (Rs == SP) {
+                    IntegerRegister[Rt] = *((PLONG)Address);
+
+                    //
+                    // If the destination register is RA and this is the first
+                    // time that RA is being restored, then set the address of
+                    // where control left the previous frame. Otherwise, this
+                    // is an interrupt or exception and the return PC should be
+                    // biased by 4. Otherwise, if the destination register is
+                    // SP and this is the first time that SP is being restored,
+                    // then set the establisher frame pointer.
+                    //
+
+                    if (Rt == RA) {
+                        if (RestoredRa == FALSE) {
+                            NextPc = (ULONG)(ContextRecord->XIntRa - 4);
+                            RestoredRa = TRUE;
+
+                        } else {
+                            NextPc += 4;
+                        }
+
+                    } else if (Rt == SP) {
+                        if (RestoredSp == FALSE) {
+                            *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+                            RestoredSp = TRUE;
+                        }
+                    }
+
+                    //
+                    // If a context pointer record is specified, then record
+                    // the address where the destination register contents
+                    // are stored.
+                    //
+
+                    if (ARGUMENT_PRESENT(ContextPointers)) {
+                        ContextPointers->XIntegerContext[Rt] = (PULONGLONG)Address;
+                    }
+                }
+
+            } else if (Opcode == SD_OP) {
+
+                //
+                // Store double.
+                //
+                // If the base register is SP and the source register is an
+                // integer register, then reload the register value.
+                //
+
+                if (Rs == SP) {
+                    IntegerRegister[Rt] = *((PULONGLONG)Address);
+
+                    //
+                    // If the destination register is RA and this is the first
+                    // time that RA is being restored, then set the address of
+                    // where control left the previous frame. Otherwise, this
+                    // is an interrupt or exception and the return PC should be
+                    // biased by 4. Otherwise, if the destination register is
+                    // SP and this is the first time that SP is being restored,
+                    // then set the establisher frame pointer.
+                    //
+
+                    if (Rt == RA) {
+                        if (RestoredRa == FALSE) {
+                            NextPc = (ULONG)(ContextRecord->XIntRa - 4);
+                            RestoredRa = TRUE;
+
+                        } else {
+                            NextPc += 4;
+                        }
+
+                    } else if (Rt == SP) {
+                        if (RestoredSp == FALSE) {
+                            *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+                            RestoredSp = TRUE;
+                        }
+                    }
+
+                    //
+                    // If a context pointer record is specified, then record
+                    // the address where the destination register contents
+                    // are stored.
+                    //
+                    // N.B. The low order bit of the address is set to indicate
+                    //      a store double operation.
+                    //
+
+                    if (ARGUMENT_PRESENT(ContextPointers)) {
+                        ContextPointers->XIntegerContext[Rt] = (PLONGLONG)((ULONG)Address | 1);
+                    }
+                }
+
+            } else if (Opcode == SWC1_OP) {
+
+                //
+                // Store word coprocessor 1.
+                //
+                // If the base register is SP and the source register is a
+                // floating register, then reload the register value.
+                //
+
+                if (Rs == SP) {
+                    FloatingRegister[Rt] = *((PULONG)Address);
+
+                    //
+                    // If a context pointer record is specified, then record
+                    // the address where the destination register contents
+                    // are stored.
+                    //
+
+                    if (ARGUMENT_PRESENT(ContextPointers)) {
+                        ContextPointers->FloatingContext[Rt] = (PULONG)Address;
+                    }
+                }
+
+            } else if (Opcode == SDC1_OP) {
+
+                //
+                // Store double coprocessor 1.
+                //
+                // If the base register is SP and the source register is a
+                // floating register, then reload the register and the next
+                // register values.
+                //
+
+                if (Rs == SP) {
+                    FloatingRegister[Rt] = *((PULONG)Address);
+                    FloatingRegister[Rt + 1] = *((PULONG)(Address + 4));
+
+                    //
+                    // If a context pointer record is specified, then record
+                    // the address where the destination registers contents
+                    // are stored.
+                    //
+
+                    if (ARGUMENT_PRESENT(ContextPointers)) {
+                        ContextPointers->FloatingContext[Rt] = (PULONG)Address;
+                        ContextPointers->FloatingContext[Rt + 1] = (PULONG)(Address + 4);
+                    }
+                }
+
+            } else if (Opcode == ADDIU_OP) {
+
+                //
+                // Add immediate unsigned.
+                //
+                // If both the source and destination registers are SP, then
+                // a standard stack allocation was performed and the signed
+                // displacement value should be subtracted from SP. Otherwise,
+                // if the destination register is the decrement register and
+                // the source register is zero, then add the decrement value
+                // to SP.
+                //
+
+                if ((Rs == SP) && (Rt == SP)) {
+                    IntegerRegister[SP] -= Offset;
+                    if (RestoredSp == FALSE) {
+                        *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+                        RestoredSp = TRUE;
+                    }
+
+                } else if ((Rt == DecrementRegister) && (Rs == ZERO)) {
+                    IntegerRegister[SP] += Offset;
+                    if (RestoredSp == FALSE) {
+                        *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+                        RestoredSp = TRUE;
+                    }
+                }
+
+            } else if (Opcode == ORI_OP) {
+
+                //
+                // Or immediate.
+                //
+                // If both the destination and source registers are the decrement
+                // register, then save the decrement value. Otherwise, if the
+                // destination register is the decrement register and the source
+                // register is zero, then add the decrement value to SP.
+                //
+
+                if ((Rs == DecrementRegister) && (Rt == DecrementRegister)) {
+                    DecrementOffset = (Offset & 0xffff);
+
+                } else if ((Rt == DecrementRegister) && (Rs == ZERO)) {
+                    IntegerRegister[SP] += (Offset & 0xffff);
+                    if (RestoredSp == FALSE) {
+                        *EstablisherFrame = (ULONG)ContextRecord->XIntSp;
+                        RestoredSp = TRUE;
+                    }
+                }
+
+            } else if (Opcode == SPEC_OP) {
+
+                //
+                // Special operation.
+                //
+                // The real opcode is in the function field of special opcode
+                // instructions.
+                //
+
+                Function = Instruction.r_format.Function;
+                if ((Function == ADDU_OP) || (Function == OR_OP)) {
+
+                    //
+                    // Add unsigned or an or operation.
+                    //
+                    // If one of the source registers is ZERO, then the
+                    // operation is a move operation and the destination
+                    // register should be moved to the appropriate source
+                    // register.
+                    //
+
+                    if (Rt == ZERO) {
+                        IntegerRegister[Rs] = IntegerRegister[Rd];
+
+                        //
+                        // If the destination register is RA and this is the
+                        // first time that RA is being restored, then set the
+                        // address of where control left the previous frame.
+                        // Otherwise, this an interrupt or exception and the
+                        // return PC should be biased by 4.
+                        //
+
+                        if (Rs == RA) {
+                            if (RestoredRa == FALSE) {
+                                NextPc = (ULONG)(ContextRecord->XIntRa - 4);
+                                RestoredRa = TRUE;
+
+                            } else {
+                                NextPc += 4;
+                            }
+                        }
+
+                    } else if (Rs == ZERO) {
+                        IntegerRegister[Rt] = IntegerRegister[Rd];
+
+                        //
+                        // If the destination register is RA and this is the
+                        // first time that RA is being restored, then set the
+                        // address of where control left the previous frame.
+                        // Otherwise, this an interrupt or exception and the
+                        // return PC should be biased by 4.
+                        //
+
+                        if (Rt == RA) {
+                            if (RestoredRa == FALSE) {
+                                NextPc = (ULONG)(ContextRecord->XIntRa - 4);
+                                RestoredRa = TRUE;
+
+                            } else {
+                                NextPc += 4;
+                            }
+                        }
+                    }
+
+                } else if (Function == SUBU_OP) {
+
+                    //
+                    // Subtract unsigned.
+                    //
+                    // If the destination register is SP and the source register
+                    // is SP, then a stack allocation greater than 32kb has been
+                    // performed and source register number of the decrement must
+                    // be saved for later use.
+                    //
+
+                    if ((Rd == SP) && (Rs == SP)) {
+                        DecrementRegister = Rt;
+                    }
+                }
+
+            } else if (Opcode == LUI_OP) {
+
+                //
+                // Load upper immediate.
+                //
+                // If the destination register is the decrement register, then
+                // compute the decrement value, add it from SP, and clear the
+                // decrement register number.
+                //
+
+                if (Rt == DecrementRegister) {
+                    DecrementRegister = 0;
+                    IntegerRegister[SP] += (LONG)(DecrementOffset + (Offset << 16));
+                    if (RestoredSp == FALSE) {
+                        *EstablisherFrame = (ULONG)(ContextRecord->XIntSp);
+                        RestoredSp = TRUE;
+                    }
+                }
+            }
+        }
+
+        //
+        // Make sure that integer register zero is really zero.
+        //
+
+        ContextRecord->XIntZero = 0;
+        return NextPc;
+    }
+}
+
+ULONG
+RtlpVirtualUnwind32 (
+    IN ULONG ControlPc,
+    IN PRUNTIME_FUNCTION FunctionEntry,
+    IN OUT PCONTEXT ContextRecord,
+    OUT PBOOLEAN InFunction,
+    OUT PULONG EstablisherFrame,
+    IN OUT PKNONVOLATILE_CONTEXT_POINTERS ContextPointers OPTIONAL
+    )
+
+/*++
+
+Routine Description:
+
+    This function virtually unwinds the specfified function by executing its
+    prologue code backwards.
+
+    If the function is a leaf function, then the address where control left
+    the previous frame is obtained from the context record. If the function
+    is a nested function, but not an exception or interrupt frame, then the
+    prologue code is executed backwards and the address where control left
+    the previous frame is obtained from the updated context record.
+
+    Otherwise, an exception or interrupt entry to the system is being unwound
+    and a specially coded prologue restores the return address twice. Once
+    from the fault instruction address and once from the saved return address
+    register. The first restore is returned as the function value and the
+    second restore is place in the updated context record.
+
+    If a context pointers record is specified, then the address where each
+    nonvolatile registers is restored from is recorded in the appropriate
+    element of the context pointers record.
+
+    N.B. This routine handles 32-bit context records.
 
 Arguments:
 
@@ -1249,7 +1778,7 @@ Return Value:
                 //
 
                 if (ARGUMENT_PRESENT(ContextPointers)) {
-                    ContextPointers->IntegerContext[Rt] = (PULONG)Address;
+                    ContextPointers->XIntegerContext[Rt] = (PULONGLONG)Address;
                 }
             }
 
@@ -1534,7 +2063,7 @@ Return Value:
     //
 
     RtlMoveMemory((PVOID)&LocalContext, ContextRecord, sizeof(CONTEXT));
-    return RtlVirtualUnwind(ControlPc,
+    return RtlVirtualUnwind(ControlPc | 1,
                             FunctionEntry,
                             &LocalContext,
                             InFunction,

@@ -44,6 +44,9 @@ typedef struct netflx_parameters {
     USHORT      utd_maxmulticast;
     USHORT      utd_maxinternalreqs;
     USHORT      utd_maxinternalbufs;
+    USHORT      utd_numsmallbufs;
+    USHORT      utd_smallbufsz;
+	BOOLEAN		utd_extremecheckforhang;
 } NETFLEX_PARMS, *PNETFLEX_PARMS;
 
 /* Netflx parms defaults */
@@ -211,10 +214,9 @@ typedef struct general_objs
 
 typedef struct eth_objs
 {
-    PMULTI_TABLE    multitable_lists;
-    PMULTI_TABLE    multi_free;
-    PMULTI_TABLE    multi_enabled;
-    USHORT          multi_max;
+    USHORT          MaxMulticast;
+    UCHAR           *MulticastEntries;
+    USHORT          NumberOfEntries;
     USHORT          RSL_AlignmentErr;
     USHORT          RSL_1_Collision;
     USHORT          RSL_More_Collision;
@@ -257,23 +259,23 @@ typedef struct acb_block {
     NDIS_HANDLE     acb_handle;     /* Our Miniport Handle          */
 
     USHORT          actl_reg;       // Saved value of our ACTL_REG
+    USHORT          InterruptsDisabled;
+
     PUCHAR          SifIntPort;     // SIF interrupt register
     PUCHAR          SifActlPort;    // SIF ACTL register
-
     PRCV            acb_rcv_head;   /* Head of our Receive Lists    */
 
 #ifdef ODD_POINTER
-    BOOLEAN         XmitStalled;        /* state of the transmiter      */
+    BOOLEAN         XmitStalled;    /* state of the transmiter      */
 #endif
 
+	NDIS_SPIN_LOCK	XmitLock;
     PXMIT           acb_xmit_head;  /*                              */
     PXMIT           acb_xmit_ahead; /*                              */
     PXMIT           acb_xmit_atail; /*                              */
 
     USHORT          acb_maxrcvs;
     USHORT          acb_avail_xmit;
-
-    BOOLEAN         InterruptsDisabled;
 
     USHORT          acb_curmap;
     USHORT          acb_maxmaps;
@@ -295,6 +297,7 @@ typedef struct acb_block {
 #endif
 
     PBUFFER_DESCRIPTOR OurBuffersListHead;
+    PBUFFER_DESCRIPTOR SmallBuffersListHead;
 
     //
     // Dynamic ratio stuff
@@ -338,6 +341,8 @@ typedef struct acb_block {
 
     USHORT          acb_scbclearout;
     USHORT          acb_maxtrans;
+    USHORT          acb_smallbufsz;
+    USHORT          acb_padJim;
     USHORT          acb_maxreqs;
     USHORT          acb_openoptions;
     NDIS_STATUS     acb_lastopenstat;
@@ -363,6 +368,8 @@ typedef struct acb_block {
     PXMIT           acb_xmit_ctail;     /*                              */
 
     USHORT          acb_state;          /* Adapter Primary State        */
+	ULONG			acb_int_timeout;	//	Interrupt timeout.
+	ULONG			acb_int_count;		//	Count of interrupts.
 
     //
     // Various mapped I/O Port Addresses for this adapter.
@@ -384,6 +391,7 @@ typedef struct acb_block {
 
     PVOID                   OurBuffersVirtPtr;  /* Virt ptr to our internal bufs */
 
+    PVOID                   SmallBuffersVirtPtr;  /* Virt ptr to our internal bufs */
     NDIS_PHYSICAL_ADDRESS   acb_scb_physptr;    /* Phys ptr to the SCB        */
     NDIS_PHYSICAL_ADDRESS   acb_ssb_physptr;    /* Phys ptr to the SSB        */
 
@@ -419,7 +427,7 @@ typedef struct acb_block {
 
     USHORT          acb_promiscuousmode;    /* Board accepts all pkts   */
     USHORT          acb_boardid;            /* Board id                 */
-    SHORT           acb_baseaddr;           /* Base address of board    */
+    USHORT          acb_baseaddr;           /* Base address of board    */
     PNETFLEX_PARMS  acb_parms;              /* Pointer to adp's param's */
 
     USHORT          acb_usefpa;             /* are using fast pkt accel */
@@ -431,7 +439,10 @@ typedef struct acb_block {
     USHORT          acb_upstreamaddrptr;    /* buffer for read adapter  */
     USHORT          acb_maxinternalbufs;    /* maximum internal xmit bufs */
 
+    USHORT          acb_numsmallbufs;       /* maximum small xmit bufs    */
     BOOLEAN         RequestInProgress;      // Is there an outstanding request
+    BOOLEAN         AdapterInitializing;    // Are we initialing?
+
 
     //
     // These variables hold information about a pending request.
@@ -446,6 +457,12 @@ typedef struct acb_block {
 
     BOOLEAN                 InterruptsShared;
     BOOLEAN                 FullDuplexEnabled;
+    BOOLEAN                 SmallBuffersAreContiguous;
+    BOOLEAN                 MergeBuffersAreContiguous;
+    BOOLEAN                 RecvBuffersAreContiguous;
+
+    BOOLEAN                 nfpad1;
+    USHORT                  nfpad2;
 
     //
     // Stuff Needed for a reset.
@@ -467,6 +484,8 @@ typedef struct acb_block {
     PVOID                   MergeBufferPoolVirt;
     NDIS_PHYSICAL_ADDRESS   MergeBufferPoolPhys;
 
+    PVOID                   SmallBufferPoolVirt;
+    NDIS_PHYSICAL_ADDRESS   SmallBufferPoolPhys;
 #if (DBG || DBGPRINT)
     USHORT  anum;
     USHORT  max_int_buffs_used;
@@ -531,7 +550,7 @@ typedef struct netflx_entry {
 //------------------
 
 
-#define NETFLEX_MAJ_VER    3
+#define NETFLEX_MAJ_VER    4
 #define NETFLEX_MIN_VER    0
 
 //-------------------------------------
@@ -559,3 +578,4 @@ extern NDIS_PHYSICAL_ADDRESS NetFlexHighestAddress;
 extern NETFLEX_PARMS NetFlex_Defaults;
 
 #endif
+

@@ -7,10 +7,46 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.4  $
-      $Date:   30 Jun 1994 18:12:56  $
-	$Author:   RWOLFF  $
-	   $Log:   S:/source/wnt/ms11/miniport/vcs/query_cx.h  $
+  $Revision:   1.14  $
+      $Date:   01 May 1996 14:11:26  $
+	$Author:   RWolff  $
+	   $Log:   S:/source/wnt/ms11/miniport/archive/query_cx.h_v  $
+ * 
+ *    Rev 1.14   01 May 1996 14:11:26   RWolff
+ * Added prototype for new routine DenseOnAlpha().
+ * 
+ *    Rev 1.13   23 Apr 1996 17:24:00   RWolff
+ * Split mapping of memory types reported by BIOS into our enumeration
+ * of memory types according to ASIC type, since ?T and ?X use the same
+ * memory type code to refer to different memory types.
+ * 
+ *    Rev 1.12   15 Apr 1996 16:58:22   RWolff
+ * Added prototype for routine which identifies which flavour of the
+ * Mach 64 is in use.
+ * 
+ *    Rev 1.11   20 Mar 1996 13:45:38   RWolff
+ * Increased size of buffer where screen is stored prior to video memory
+ * being used to hold query information.
+ * 
+ *    Rev 1.10   01 Mar 1996 12:16:02   RWolff
+ * Added definitions used for Alpha "blue screen" preservation.
+ * 
+ *    Rev 1.9   11 Jan 1996 19:43:32   RWolff
+ * New definitions and structures to support use of AX=A?07 BIOS call rather
+ * than special cases to restrict refresh rates.
+ * 
+ *    Rev 1.8   24 Feb 1995 12:29:18   RWOLFF
+ * Prototype for TextBanding_cx()
+ * 
+ *    Rev 1.7   18 Nov 1994 11:54:14   RWOLFF
+ * Split structures and internal variables so that they can be included
+ * separately, as needed for no-BIOS support.
+ * 
+ *    Rev 1.6   14 Sep 1994 15:20:26   RWOLFF
+ * Added definitions for all 32BPP colour orderings.
+ * 
+ *    Rev 1.5   31 Aug 1994 16:28:18   RWOLFF
+ * Added support for 1152x864.
  * 
  *    Rev 1.4   30 Jun 1994 18:12:56   RWOLFF
  * Removed prototype for IsApertureConflict_cx() and definitions used
@@ -58,7 +94,11 @@ QUERY_CX.H - Header file for QUERY_CX.C
 #define S1_GAMMA_CORRECT    0x4000
 #define S1_GREYSCALE_256    0x2000
 #define S1_SLEEPMODE        0x1000
-#define S1_32BPP            0x0010
+#define S1_32BPP            0x00F0
+#define S1_32BPP_xRGB       0x0080
+#define S1_32BPP_BGRx       0x0040
+#define S1_32BPP_RGBx       0x0020
+#define S1_32BPP_xBGR       0x0010
 #define S1_24BPP            0x000C
 #define S1_24BPP_BGR        0x0008
 #define S1_24BPP_RGB        0x0004
@@ -74,23 +114,40 @@ QUERY_CX.H - Header file for QUERY_CX.C
 extern int DetectMach64(void);
 extern VP_STATUS QueryMach64(struct query_structure *Query);
 extern BOOL BlockWriteAvail_cx(struct query_structure *Query);
+extern BOOL TextBanding_cx(struct query_structure *Query);
+extern PWSTR IdentifyMach64Asic(struct query_structure *Query, PULONG AsicStringLength);
+#if defined(ALPHA)
+extern BOOL DenseOnAlpha(struct query_structure *Query);
+#endif
 
 
-
-#ifdef INCLUDE_QUERY_CX
 /*
- * Private definitions used in QUERY_CX.C
+ * Structures used in QUERY_CX.C and (on non-x86 machines with no
+ * emulation, so VideoPortInt10() is not available) modules which
+ * emulate the query functions of the BIOS.
  */
+#ifdef STRUCTS_QUERY_CX
 
 /*
- * Query structure returned by CX BIOS call AX=0xA009. This structure
+ * Hardware capability structure returned by BIOS call AX=0xA?07.
+ */
+#pragma pack(1)
+struct cx_hw_cap{
+    BYTE cx_HorRes;             /* Horizontal resolution in units of 8 pixels */
+    BYTE cx_RamOrDacType;       /* RAM type or bitmask of DAC types */
+    BYTE cx_MemReq;             /* Minimum memory to support the mode in question */
+    BYTE cx_MaxDotClock;        /* Maximum dot clock, in megahertz */
+    BYTE cx_MaxPixDepth;        /* Code for maximum pixel depth for the mode in question */
+};
+
+/*
+ * Query structure returned by CX BIOS call AX=0xA?09. This structure
  * is NOT interchangeable with query_structure from AMACH1.H.
  *
  * The alignment of fields within the BIOS query and mode table
  * structures does not match the default structure alignment of the
  * Windows NT C compiler, so we must force byte alignment.
  */
-#pragma pack(1)
 struct cx_query{
     WORD cx_sizeof_struct;      /* Size of the structure in bytes */
     BYTE cx_structure_rev;      /* Structure revision number */
@@ -116,7 +173,7 @@ struct cx_query{
 };
 
 /*
- * Mode table structure returned by CX BIOS call AX=0xA009. This structure
+ * Mode table structure returned by CX BIOS call AX=0xA?09. This structure
  * is NOT interchangeable with st_mode_table from AMACH1.H.
  */
 struct cx_mode_table{
@@ -145,6 +202,59 @@ struct cx_mode_table{
 };
 #pragma pack()
 
+#endif  /* defined STRUCTS_QUERY_CX */
+
+
+#ifdef INCLUDE_QUERY_CX
+/*
+ * Private definitions used in QUERY_CX.C
+ */
+
+#define FORMAT_DACMASK  0   /* cx_hw_cap.cx_RamOrDacType is mask of DAC types */
+#define FORMAT_RAMMASK  1   /* cx_hw_cap.cx_RamOrDacType is mask of RAM types */
+#define FORMAT_DACTYPE  2   /* cx_hw_cap.cx_RamOrDacType is DAC type */
+#define FORMAT_RAMTYPE  3   /* cx_hw_cap.cx_RamOrDacType is RAM type */
+
+/*
+ * The following definitions are used in creating a buffer where the
+ * contents of an existing VGA graphics screen and specific VGA registers
+ * are stored in preparation for using the screen as a buffer below
+ * 1M physical in order to store the BIOS query information. It is
+ * assumed that the temporary buffer used to store this information
+ * is an array of unsigned characters.
+ *
+ * According to Arthur Lai, older BIOSes determined the required size
+ * of the query buffer at runtime by examining the installed modes,
+ * while newer BIOSes take a buffer large enough to handle the worst
+ * case scenario in order to reduce code size. This should never be
+ * larger than 1 kilobyte. In the unlikely event that this is exceeded,
+ * we will save the first kilobyte and allow the remainder to be
+ * overwritten by query data, rather than overflowing our save buffer.
+ */
+#define VGA_SAVE_SIZE   1024    /* Array location where size of buffer is stored */
+#define VGA_SAVE_SIZE_H 1025
+#define VGA_SAVE_SEQ02  1026    /* Array location where sequencer register 2 value stored */
+#define VGA_SAVE_GRA08  1027    /* Array location where graphics register 8 value stored */
+#define VGA_SAVE_GRA01  1028    /* Array location where graphics register 1 value stored */
+#define VGA_TOTAL_SIZE  1029    /* Size of screen/register save buffer */
+
+/*
+ * Pixel depths for use as an array index. Two columns will be wasted
+ * since there is no depth code equal to zero and we don't use 15BPP,
+ * but this allows direct indexing using the pixel width field of the
+ * hardware capabilities structure returned by BIOS call AX=0xA?07.
+ */
+enum {
+    DEPTH_NOTHING = 0,
+    DEPTH_4BPP,
+    DEPTH_8BPP,
+    DEPTH_15BPP,
+    DEPTH_16BPP,
+    DEPTH_24BPP,
+    DEPTH_32BPP,
+    HOW_MANY_DEPTHS
+    };    
+
 /*
  * Mappings of Mach 64 query values to enumerations from AMACH1.H
  */
@@ -167,6 +277,17 @@ UCHAR CXMapRamType[7] =
     VMEM_DRAM_256Kx4_GRAP,  /* Space filler - type 4 not documented */
     VMEM_VRAM_256Kx4_SPLIT512,
     VMEM_VRAM_256Kx16_SPLIT256
+    };
+
+UCHAR CTMapRamType[7] =
+    {
+    VMEM_GENERIC_DRAM,      /* Space filler - type 0 not documented */
+    VMEM_GENERIC_DRAM,
+    VMEM_EDO_DRAM,
+    VMEM_BRRAM,
+    VMEM_SDRAM,
+    VMEM_GENERIC_DRAM,      /* Space filler - type 5 not documented */
+    VMEM_GENERIC_DRAM       /* Space filler - type 6 not documented */
     };
 
 UCHAR CXMapBus[8] =
@@ -199,11 +320,12 @@ USHORT CXPixelDepth[7] =
 /*
  * Used in searching mode tables for desired resolution.
  */
-USHORT CXHorRes[5] =
+USHORT CXHorRes[6] =
     {
     640,
     800,
     1024,
+    1152,
     1280,
     1600
     };
@@ -211,11 +333,12 @@ USHORT CXHorRes[5] =
 /*
  * Flags to show that a given resolution is supported.
  */
-UCHAR CXStatusFlags[5] =
+UCHAR CXStatusFlags[6] =
     {
     VRES_640x480,
     VRES_800x600,
     VRES_1024x768,
+    VRES_1152x864,
     VRES_1280x1024,
     VRES_1600x1200
     };

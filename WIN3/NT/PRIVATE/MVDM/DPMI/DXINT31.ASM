@@ -347,7 +347,6 @@ DXPMCODE    segment
 
 PMIntr31        proc    near
 
-;       int     3; debugbug
         cld                     ;practice 'safe programming'
 
 ;  Determine if this one of the services we support.
@@ -373,6 +372,7 @@ i31_do_it:
         assume  ds:DGROUP
 
         mov     bx,cs:[bx+2]
+        FCLI                    ;needed for [i31_dsp_rtn]
         mov     i31_dsp_rtn,bx
 
 ifdef DEBUG
@@ -951,6 +951,9 @@ ifndef WOW
         mov     cx,4                    ;copy the descriptor
         rep movsw
 
+        cmp     byte ptr [bp].intUserAX,SelMgt_Get_Desc ; Get or Set?
+        jz      i31_gs25                                ; Done if get.
+
         push    ax                      ; notify dpmi32 of segment base change
         mov     ax,bx                   ; ax -> selector
         mov     cx,1                    ; cx -> selector count
@@ -961,6 +964,7 @@ else
         cCall   NMoveDescriptor,<ds,esi,es,edi>
         .286p
 endif   ; WOW
+i31_gs25:
         pop     ds
         assume ds:DGROUP
 
@@ -1729,8 +1733,16 @@ ENDIF
 
         FSTI                             ;still don't need ints disabled
 
-        mov     ax,[bx].RealMode_Flags
-        mov     [bp].intUserFL,ax
+; Apparently in win31 standard mode, the pm caller's flags are set to the
+; value of the rm flags at the handler's iret. On win31 enhanced mode, this
+; was *not* done, and the pm flags are, except for carry, basically
+; preserved. Since setting the flags kills some apps (winfax deltest),
+; we should adhere to the enhanced mode convention. Thus, the following
+; code is if'd out.
+if 0
+       mov     ax,[bx].RealMode_Flags
+       mov     [bp].intUserFL,ax
+endif
 
 ; Copy the updated client register frame to the caller, and we're finished
 
@@ -3169,4 +3181,3 @@ DXPMCODE    ends
 
 ;****************************************************************
         end
-                                                                                                                                                 

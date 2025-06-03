@@ -32,9 +32,8 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include <zwapi.h>
 
-VOID    (*KiUserExceptionDispatcherAddress)();
+extern UCHAR VdmUserCr0MapIn[];
 
 VOID
 Ki386AdjustEsp0(
@@ -530,6 +529,10 @@ Return Value:
     ULONG i;
     BOOLEAN StateSaved;
     BOOLEAN ModeChanged;
+#if DBG
+    PKPCR   Pcr;
+    KIRQL   OldIrql;
+#endif
 
     UNREFERENCED_PARAMETER( ExceptionFrame );
 
@@ -715,14 +718,13 @@ Return Value:
             if (KeGetCurrentThread()->ApcState.Process->VdmFlag & 0xf) {
 
                 //
-                // BUGBUG - for beta
                 // This is a special hack to allow SetContext for VDMs to
                 // turn on/off it's CR0_EM bit.
                 //
 
-                NpxFrame->Cr0NpxState &= ~(CR0_MP | CR0_TS | CR0_EM);
+                NpxFrame->Cr0NpxState &= ~(CR0_MP | CR0_TS | CR0_EM | CR0_PE);
                 NpxFrame->Cr0NpxState |=
-                    ContextFrame->FloatSave.Cr0NpxState & (CR0_EM | CR0_MP);
+                    VdmUserCr0MapIn[ContextFrame->FloatSave.Cr0NpxState & (CR0_EM | CR0_MP)];
 
             } else {
 
@@ -730,9 +732,16 @@ Return Value:
                 // The 80387 is being emulated by the R3 emulator.
                 // ** The only time the Npx state is ever obtained or set is
                 // ** for userlevel handling.  Current Irql must be 0 or 1.
+                // And the context being set must be for the current thread.
                 // Go smash the floatingpoint context into the R3 emulator's
                 // data area.
                 //
+#if DBG
+                OldIrql = KeRaiseIrqlToSynchLevel();
+                Pcr = KeGetPcr();
+                ASSERT (Pcr->Prcb->CurrentThread->Teb == Pcr->NtTib.Self);
+                KeLowerIrql (OldIrql);
+#endif
 
                 StateSaved = KiNpxFrameToEm87State(&ContextFrame->FloatSave);
                 if (StateSaved) {
@@ -868,7 +877,7 @@ Return Value:
     //
     // if the BREAK_POINT occured in V86 mode, the debugger running in the
     // VDM will expect CS:EIP to point after the exception (the way the
-    // processor left it.  BUGBUG this is also true for protected mode dos
+    // processor left it.  this is also true for protected mode dos
     // app debuggers.  We will need a way to detect this.
     //
     //
@@ -1103,7 +1112,7 @@ Return Value:
                 // call the exception dispatcher.
                 //
 
-                TrapFrame->Eip = (ULONG)KiUserExceptionDispatcherAddress;
+                TrapFrame->Eip = (ULONG)KeUserExceptionDispatcher;
                 return;
 
             } except (KiCopyInformation(&ExceptionRecord1,
@@ -1202,4 +1211,60 @@ Return Value:
                   sizeof(EXCEPTION_RECORD));
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+
+NTSTATUS
+KeRaiseUserException(
+    IN NTSTATUS ExceptionCode
+    )
+
+/*++
+
+Routine Description:
+
+    This function causes an exception to be raised in the calling thread's user-mode
+    context. It does this by editing the trap frame the kernel was entered with to
+    point to trampoline code that raises the requested exception.
+
+Arguments:
+
+    ExceptionCode - Supplies the status value to be used as the exception
+        code for the exception that is to be raised.
+
+Return Value:
+
+    The status value that should be returned by the caller.
+
+--*/
+
+{
+    PKTHREAD Thread;
+    PKTRAP_FRAME TrapFrame;
+    PTEB Teb;
+    ULONG PreviousEip;
+
+    ASSERT(KeGetPreviousMode() == UserMode);
+
+    Thread = KeGetCurrentThread();
+    TrapFrame = Thread->TrapFrame;
+    Teb = (PTEB)Thread->Teb;
+
+    //
+    // In order to create the correct call stack, we return the previous
+    // EIP as the status code. The usermode trampoline code will push this
+    // onto the stack for use as the return address. The status code to
+    // be raised is passed in the TEB.
+    //
+
+    try {
+        Teb->ExceptionCode = ExceptionCode;
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+        return(ExceptionCode);
+    }
+
+    PreviousEip = TrapFrame->Eip;
+    TrapFrame->Eip = KeRaiseUserExceptionDispatcher;
+
+    return((NTSTATUS)PreviousEip);
 }

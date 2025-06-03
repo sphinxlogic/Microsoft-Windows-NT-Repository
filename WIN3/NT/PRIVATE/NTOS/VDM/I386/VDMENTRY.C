@@ -104,7 +104,7 @@ Return Value:
             if (KeI386VdmIoplAllowed) {
                 *((PULONG)ServiceData) = V86_VIRTUAL_INT_EXTENSIONS;
             } else {
-                // bugbug remove this if pm extensions to be used
+                // remove this if pm extensions to be used
                 *((PULONG)ServiceData) = KeI386VirtualIntExtensions &
                     ~PM_VIRTUAL_INT_EXTENSIONS;
             }
@@ -129,6 +129,10 @@ Return Value:
             Status = GetExceptionCode();
         }
 
+    } else if (Service == VdmPrinterDirectIoOpen) {
+	Status = VdmpPrinterDirectIoOpen(ServiceData);
+    } else if (Service == VdmPrinterDirectIoClose) {
+	Status = VdmpPrinterDirectIoClose(ServiceData);
     } else {
         Status = STATUS_INVALID_PARAMETER_1;
     }

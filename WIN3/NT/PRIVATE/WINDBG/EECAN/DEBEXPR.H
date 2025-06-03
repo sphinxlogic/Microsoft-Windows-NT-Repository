@@ -32,6 +32,9 @@
 #define BIND_fSupOvlOps      0x04    // TRUE if overloaded operators suppressed
 #define BIND_fSupBase       0x08    // TRUE if base class searching suppressed
 
+#define HSYM_MARKER      0x01   // in expr, indicates that an HSYM follows
+#define HSYM_CODE_LEN    0x08   // length of encoded HSYM
+
 // Number of operators supported
 
 enum {
@@ -125,21 +128,21 @@ typedef union val_t {
     ULARGE_INTEGER vuquad;
     float          vfloat;
     double         vdouble;
-    REAL10         vldouble;
+    FLOAT10         vldouble;
     ADDR           vptr;
 } val_t;
 typedef val_t  *pval_t;
 
 typedef struct token_t {
     op_t        opTok;          // Token type: OP_ident, OP_dot, etc.
-    char FAR   *pbTok;          // Pointer to start of actual token
-    char FAR   *pbEnd;          // pointer to last character + 1 of token
+    char       *pbTok;          // Pointer to start of actual token
+    char       *pbEnd;          // pointer to last character + 1 of token
     ushort      iTokStart;      // index of token start calculated from pbTok
     uchar       cbTok;          // Size of token (in bytes)
     CV_typ_t    typ;            // Type of constant token
     val_t   val;                // Value of constant token
 } token_t;
-typedef token_t FAR *ptoken_t;
+typedef token_t *ptoken_t;
 
 //  Macros to access values of a parse token
 
@@ -168,7 +171,8 @@ enum fcn_call {
     FCN_STD,
     FCN_MIPS,
     FCN_THIS,
-    FCN_ALPHA
+    FCN_ALPHA,
+    FCN_PPC
 };
 
 
@@ -239,8 +243,10 @@ typedef union vdata_t {
         CV_typ_t    pmclass;    // containing class for pointer to member
         ushort      pmenum;     // enumeration specifying pm format
         long        arraylen;   // length of array in bytes
+        long        thisadjust; // adjustor for this pointer
         struct {
-            ushort      ireg;       // System register values
+            ushort  ireg;       // System register values
+            bool_t  hibyte;     // TRUE if register is high byte
         } reg;
     } ptr;
 
@@ -295,6 +301,7 @@ typedef union vdata_t {
 
     struct {
         ushort      ireg;       // System register values
+        bool_t      hibyte;     // TRUE if register is high byte
     } reg;
 
     struct {
@@ -350,8 +357,8 @@ typedef struct eval_t {
     ushort      vallen;         // length of value in bytes
     val_t       val;            // value of node
 } eval_t;
-typedef eval_t FAR *peval_t;    // far pointer to evaluation element
-typedef eval_t     *neval_t;    // near pointer to evaluation element
+typedef eval_t *peval_t;        // pointer to evaluation element
+typedef eval_t *neval_t;        // pointer to evaluation element
 
 // The following macros are used to test and set values in an evaluation
 // element.  pv is a far pointer to an evaluation element either in the
@@ -369,6 +376,9 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 #define EVAL_SYM_OFF(pv)        ((pv)->addr.addr.off)
 #define EVAL_SYM_EMI(pv)        ((pv)->addr.emi)
 #define EVAL_SYM_MODE(pv)       ((pv)->addr.mode)
+
+#define EVAL_SYM_IS32(pv)       (ADDR_IS_OFF32(EVAL_SYM(pv)))
+#define EVAL_SYM_ISFLAT(pv)     (ADDR_IS_FLAT(EVAL_SYM(pv)))
 #define EVAL_HSYM(pv)           ((pv)->hSym)
 #define EVAL_MOD(pv)            ((pv)->mod)
 #define EVAL_VALLEN(pv)         ((pv)->vallen)
@@ -454,7 +464,7 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 //  This data is almost always from the type and typedef record of the node
 
 #define EVAL_REG(pv)            ((pv)->data.reg.ireg)
-//#define EVAL_IS_HIBYTE(pv)      ((pv)->data.reg.hibyte)
+#define EVAL_IS_HIBYTE(pv)      ((pv)->data.reg.hibyte)
 
 #define EVAL_REGREL(pv)         ((pv)->regrel)
 
@@ -469,6 +479,7 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 #define PTR_STYPE(pv)           (((pv)->data.ptr.stype))
 #define PTR_BSYMTYPE(pv)        (((pv)->data.ptr.symtype))
 #define PTR_ADDR(pv)            (((pv)->data.ptr.addr))
+#define PTR_THISADJUST(pv)      (((pv)->data.ptr.thisadjust))
 #define PTR_PMCLASS(pv)         (((pv)->data.ptr.pmclass))
 #define PTR_PMENUM(pv)          (((pv)->data.ptr.pmenum))
 #define PTR_ARRAYLEN(pv)        (((pv)->data.ptr.arraylen))
@@ -621,7 +632,7 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 //  This data is almost always from the type and typedef record of the node
 
 #define N_EVAL_REG(nv)            ((nv)->data.reg.ireg)
-//#define N_EVAL_IS_HIBYTE(nv)      ((nv)->data.reg.hibyte)
+#define N_EVAL_IS_HIBYTE(nv)      ((nv)->data.reg.hibyte)
 
 #define N_EVAL_IS_NFCN(nv)        (!((nv)->data.fcn.flags.farcall))
 #define N_EVAL_IS_FFCN(nv)        (((nv)->data.fcn.flags.farcall))
@@ -638,7 +649,7 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 #define N_PTR_PMENUM(nv)          (((nv)->data.ptr.pmenum))
 #define N_PTR_ARRAYLEN(nv)        (((nv)->data.ptr.arraylen))
 #define N_PTR_REG_IREG(nv)        (((nv)->data.ptr.reg.ireg))
-//#define N_PTR_REG_HIBYTE(nv)      (((nv)->data.ptr.reg.hibyte))
+#define N_PTR_REG_HIBYTE(nv)      (((nv)->data.ptr.reg.hibyte))
 
 #define N_CLASS_LEN(nv)           (((nv)->data.classd.cblen))
 #define N_CLASS_COUNT(nv)         (((nv)->data.classd.count))
@@ -696,34 +707,36 @@ typedef eval_t     *neval_t;    // near pointer to evaluation element
 //  pointers to evaluation stack
 
 extern HDEP     hEStack;        // handle of evaluation stack if not zero
-extern struct elem_t FAR *pEStack;  // pointer to evaluation stack
+extern struct elem_t *pEStack;  // pointer to evaluation stack
 #ifndef USE_BASED
 typedef int belem_t;
-#define pelemOfbelem(a) ((pelem_t)(((char FAR *) pEStack) + (a)))
-#define belemOfpelem(a) ((belem_t)(((char FAR *) a) - (char FAR *) (pEStack)))
+#define pelemOfbelem(a) ((pelem_t)(((char *) pEStack) + (a)))
+#define belemOfpelem(a) ((belem_t)(((char *) a) - (char *) (pEStack)))
 #else
 typedef struct elem_t _based(pEStack) *belem_t; // based pointer to stack element
 #define pelemOfbelem(a) ((pelem_t) a)
 #define belemOfpelem(a) ((belem_t) a)
 #endif
-typedef struct elem_t FAR *pelem_t;    // far pointer to evaluation stack element
+typedef struct elem_t *pelem_t;    // far pointer to evaluation stack element
 
 extern belem_t  StackLen;       // length is evaluation stack buffer
 extern belem_t  StackMax;       // maximum length reached by evaluation stack
 extern belem_t  StackOffset;    // offset into evaluation stack for next element
 extern belem_t  StackCkPoint;   // checkpointed evaluation stack offset
 extern uchar    Evaluating;     // TRUE if evaluating rather than binding
-extern char FAR *pExStr;        // pointer to current expression string
+extern char     *pExStr;        // pointer to current expression string
 extern uchar    BindingBP;      // true if binding breakpoint expression
 extern CV_typ_t ClassExp;       // current explicit class
 extern CV_typ_t ClassImp;       // implicit class (set if current context is method)
+extern long     ClassThisAdjust;// implicit class this adjustor
 extern char     *vfuncptr;
 extern char     *vbaseptr;
-extern HTM FAR  *pTMList;       // breakpoint return list
+extern HTM      *pTMList;       // breakpoint return list
 extern PTML     pTMLbp;         // global pointer to TML for breakpoint
 extern HDEP     hBPatch;        // handle to back patch data during BP bind
 extern ushort   iBPatch;        // index into pTMLbp for backpatch data
 extern bool_t   GettingChild;   // true if in EEGetChildTM
+extern BOOL     fAutoClassCast; // true if auto class cast is enabled
 
 typedef struct elem_t {
     belem_t     pe;             // based pointer to previous evalation element
@@ -734,6 +747,7 @@ typedef struct elem_t {
 extern peval_t  ST;             // pointer to evaluation stack top
 extern peval_t  STP;            // pointer to evaluation stack previous
 extern PCXT     pCxt;           // pointer to current cxt for bind
+extern PCXT     pBindBPCxt;     // pointer to Bp Binding context
 
 
 //  stree_t - abstract syntax tree
@@ -758,13 +772,13 @@ typedef struct stree_t {
     char        nodebase[];
 } stree_t;
 
-typedef stree_t FAR *pstree_t;
+typedef stree_t *pstree_t;
 extern pstree_t pTree;      // locked address of abstract or evaluation tree
 
 #ifndef USE_BASED
 typedef int bnode_t;
-#define pnodeOfbnode(a) ((pnode_t)(((char FAR *) pTree) + (a)))
-#define bnodeOfpnode(a) ((bnode_t)(((char FAR *) a) - (char FAR *) (pTree)))
+#define pnodeOfbnode(a) ((pnode_t)(((char *) pTree) + (a)))
+#define bnodeOfpnode(a) ((bnode_t)(((char *) a) - (char *) (pTree)))
 #else
 typedef struct node_t _based (pTree) *bnode_t;
 #define pnodeOfbnode(a) (a)
@@ -780,7 +794,7 @@ typedef struct node_t {
     PCXF        pcxf;           // pointer to a context for binding class/structs
     eval_t      v[];            // extra data if ident or constant
 } node_t;
-typedef struct node_t FAR *pnode_t;
+typedef struct node_t *pnode_t;
 
 
 typedef struct adjust_t {
@@ -789,7 +803,7 @@ typedef struct adjust_t {
     OFFSET     vbpoff;         // displacement from address point to vbptr
     OFFSET     disp;           // displacement from *vbptr to base displacement
 } adjust_t;
-typedef struct adjust_t FAR *padjust_t;
+typedef struct adjust_t *padjust_t;
 
 typedef enum {
     OM_none,                    // initialization state
@@ -820,7 +834,7 @@ typedef struct argd_t {
     ometric     best;           // best overload metric for this argument
     ometric     current;        // current overload metric for this argument
 } argd_t;
-typedef struct argd_t FAR *pargd_t;
+typedef struct argd_t *pargd_t;
 
 
 
@@ -858,6 +872,7 @@ typedef struct exstate_t {
         ushort  fSupOvlOps  :1; // true if overloaded operator search suppressed
         ushort  fSupBase    :1; // true if base class searches suppressed
         ushort  tlsrel      :1; // true if expression is TLS relative
+        ushort  fNotPresent :1; // true if expr contains a missing data item
     } state;
     uint        ExLen;      // expression length
     uint        style;      // display formatting style
@@ -874,7 +889,7 @@ typedef struct exstate_t {
     eval_t      result;     // evaluation result
 } exstate_t;
 
-typedef exstate_t FAR *pexstate_t;
+typedef exstate_t *pexstate_t;
 extern pexstate_t pExState;    // global pointer to current evaluation state structure
 
 
@@ -912,7 +927,7 @@ typedef struct  symbase_t {
     ushort      vbind;          // index into virtal base table
 } symbase_t;
 
-typedef symbase_t FAR *psymbase_t;
+typedef symbase_t *psymbase_t;
 
 // structure for accumulating dominated and searched virtual bases
 
@@ -924,7 +939,7 @@ typedef struct dombase_t {
     CV_typ_t    dom[];
 } dombase_t;
 
-typedef struct dombase_t FAR *pdombase_t;
+typedef struct dombase_t *pdombase_t;
 
 
 //  symclass_t - structure to describe symbol searching in a class
@@ -960,7 +975,7 @@ typedef struct symclass_t {
     symbase_t   symbase[];
 } symclass_t;
 
-typedef symclass_t FAR *psymclass_t;
+typedef symclass_t *psymclass_t;
 
 
 
@@ -1017,12 +1032,16 @@ typedef struct  search_t {
     CV_typ_t    typeOut;        // type index of found element
     OFFSET      offset;         // symbol address point offset if member
     OFFSET      thisoff;        // this pointer offset from original address point
+#ifdef NEVER
     address_t   address;        // address of symbol
+#endif
+    ADDR        addr;           // address of symbol
     argcounters best;
+    ushort      overloadCount;  // overload counter used by arg matching functions --gdp 9/20/92
     CV_fldattr_t access;        // access flags if class member
 } search_t;
 
-typedef search_t FAR * psearch_t;
+typedef search_t * psearch_t;
 
 
 
@@ -1058,10 +1077,11 @@ typedef enum {
 
 //  Bit values describing the permitted scope for symbol searching
 
-#define SCP_lexical 0x0001  // lexical scope (formals, automatics & local statics)
-#define SCP_class   0x0002  // class scope if member function
-#define SCP_module  0x0004  // module scope
-#define SCP_global  0x0008  // global scope
+#define SCP_lexical     0x0001  // lexical scope (formals, automatics & local statics)
+#define SCP_class       0x0002  // class scope if member function
+#define SCP_module      0x0004  // module scope
+#define SCP_global      0x0008  // global scope
+#define SCP_nomatchfn   0x0010  // don't call matchfunction (avoid recursion)
 
 #define SCP_all (SCP_lexical | SCP_module | SCP_class | SCP_global)
 
@@ -1085,86 +1105,85 @@ typedef enum {
 
 //  deblex.c
 
-ushort      PASCAL      GetDBToken (uchar FAR *, ptoken_t, uint, op_t);
-ushort      PASCAL      GetEscapedChar (char FAR * FAR *, ushort FAR*);
-ushort      PASCAL      ParseConst (uchar FAR *, ptoken_t, uint);
+ushort          GetDBToken (uchar *, ptoken_t, uint, op_t);
+ushort          GetEscapedChar (char * *, ushort*);
+ushort          ParseConst (uchar *, ptoken_t, uint);
 
 //  debparse.c
 
-EESTATUS    PASCAL      DoParse (PHTM, uint, bool_t, uint FAR *);
-EESTATUS    PASCAL      Parse (char FAR *, uint, SHFLAG, PHTM, uint FAR *);
+EESTATUS        DoParse (PHTM, uint, bool_t, uint *);
+EESTATUS        Parse (char *, uint, SHFLAG, PHTM, uint *);
 
 //  debbind.c
 
-EESTATUS    PASCAL      DoBind (PHTM, PCXT, uint);
-void        PASCAL      InitSearchRight (bnode_t, bnode_t, psearch_t, ushort);
-void        PASCAL      InitSearchSym (bnode_t, peval_t, psearch_t, CV_typ_t, ushort, ushort);
+EESTATUS        DoBind (PHTM, PCXT, uint);
+void            InitSearchRight (bnode_t, bnode_t, psearch_t, ushort);
+void            InitSearchSym (bnode_t, peval_t, psearch_t, CV_typ_t, ushort, ushort);
 
 //  debeval.c
 
-EESTATUS    PASCAL      DoEval (PHTM, PFRAME, EEDSP);
+EESTATUS        DoEval (PHTM, PFRAME, EEDSP);
 
 
 //  debsup.c
 
-bool_t      PASCAL      AreTypesEqual (HTM, HTM);
-HTYPE       PASCAL      GetHtypeFromTM(HTM);
-EESTATUS    PASCAL      cChildrenTM (PHTM, long FAR *, PSHFLAG);
-ushort      PASCAL      cParamTM (HTM, ushort FAR *, PSHFLAG);
-EESTATUS    PASCAL      DereferenceTM (HTM, PEEHSTR);
-ushort      PASCAL      DupTM (PHTM, PHTM);
-EESTATUS    PASCAL      GetChildTM (HTM, ulong, PEEHSTR, PEEHSTR, uint);
-EESTATUS    PASCAL      GetSymName (PHTM, PEEHSTR);
-ushort      PASCAL      InfoFromTM (PHTM, PRI, PHTI);
-ushort      PASCAL      IsExpandablePtr (peval_t);
-bool_t      PASCAL      LoadVal (peval_t);
-bool_t      PASCAL      ResolveAddr (peval_t);
+bool_t          AreTypesEqual (HTM, HTM);
+HTYPE           GetHtypeFromTM(HTM);
+EESTATUS        cChildrenTM (PHTM, long *, PSHFLAG);
+ushort          cParamTM (HTM, ushort *, PSHFLAG);
+EESTATUS        DereferenceTM (HTM, PEEHSTR);
+ushort          DupTM (PHTM, PHTM);
+EESTATUS        GetChildTM (HTM, ulong, PEEHSTR, PEEHSTR, uint);
+EESTATUS        GetSymName (PHTM, PEEHSTR);
+ushort          InfoFromTM (PHTM, PRI, PHTI);
+ushort          IsExpandablePtr (peval_t);
+bool_t          LoadVal (peval_t);
+bool_t          ResolveAddr (peval_t);
 
 //  debsym.c
 
-void        PASCAL      InitSearchBase (bnode_t, CV_typ_t, CV_typ_t, psearch_t, peval_t);
-void        PASCAL      InitSearchtDef (psearch_t, peval_t, ushort);
-farg_t      PASCAL      GetArgType (peval_t, short, CV_typ_t FAR *);
-CV_ptrmode_e PASCAL     SetAmbiant (bool_t);
-EESTATUS    PASCAL      GetHSYMList (HDEP FAR *, PCXT, ushort, uchar FAR *, SHFLAG);
-HSYM        PASCAL      SearchCFlag (void);
-HR_t        PASCAL      SearchSym (psearch_t);
-bool_t      PASCAL      pvThisFromST (bnode_t);
-#if defined (M68K)
-ushort      TypeFromHreg (ushort hreg);
-#endif
+void            InitSearchBase (bnode_t, CV_typ_t, CV_typ_t, psearch_t, peval_t);
+void            InitSearchtDef (psearch_t, peval_t, ushort);
+farg_t          GetArgType (peval_t, short, CV_typ_t *);
+bool_t          getDefnFromDecl(CV_typ_t, peval_t, CV_typ_t*);
+CV_ptrmode_e    SetAmbiant (bool_t);
+EESTATUS        GetHSYMList (HDEP *, PCXT, ushort, uchar *, SHFLAG);
+HSYM            SearchCFlag (void);
+HR_t            SearchBasePtrBase (psearch_t);
+HR_t            SearchSym (psearch_t);
+bool_t          pvThisFromST (bnode_t);
 
 //  debtree.c
 
-ushort      PASCAL      PushToken (ptoken_t);
-bool_t      FASTCALL    GrowTree (uint);
-bool_t      FASTCALL    GrowETree (uint);
+ushort          PushToken (ptoken_t);
+bool_t FASTCALL GrowTree (uint);
+bool_t FASTCALL GrowETree (uint);
 
 //  debsrch.c
 
-bool_t      PASCAL      FindPtrToPtr (peval_t, CV_typ_t FAR *);
-bool_t      PASCAL      LoadSymVal (peval_t pn);
-bool_t      PASCAL      LoadLValue (peval_t);
-MTYP_t      PASCAL      MatchType (peval_t, bool_t);
-void        PASCAL      ProtoPtr (peval_t, peval_t, bool_t, CV_modifier_t);
+bool_t          FindPtrToPtr (peval_t, CV_typ_t *);
+bool_t          LoadSymVal (peval_t pn);
+bool_t          LoadLValue (peval_t);
+MTYP_t          MatchType (peval_t, bool_t);
+void            ProtoPtr (peval_t, peval_t, bool_t, CV_modifier_t);
 
 //  debtyper.c
 
-bool_t      PASCAL      CastNode (peval_t, CV_typ_t, CV_typ_t);
-bool_t      PASCAL      DeNormalizePtr (peval_t, peval_t);
-bool_t      PASCAL      NormalizeBase (peval_t);
-void        PASCAL      TypeNodes (op_t, peval_t, peval_t);
-bool_t      PASCAL      ValidateNodes (op_t, peval_t, peval_t);
-CV_typ_t    PASCAL      PerformUAC (CV_typ_t, CV_typ_t);
+bool_t          CastNode (peval_t, CV_typ_t, CV_typ_t);
+bool_t          DeNormalizePtr (peval_t, peval_t);
+bool_t          NormalizeBase (peval_t);
+void            TypeNodes (op_t, peval_t, peval_t);
+bool_t          ValidateNodes (op_t, peval_t, peval_t);
+CV_typ_t        PerformUAC (CV_typ_t, CV_typ_t);
 
 // debfmt.c
 
-ushort      PASCAL      FormatCXT (PCXT, PEEHSTR, BOOL);
-void        PASCAL      FormatFormal (HSYM, CXF *, ushort, char FAR **, short *);
-EESTATUS    PASCAL      FormatNode (PHTM phTM, uint Radix, PEEFORMAT pFormat, PEEHSTR phszValue);
-void        PASCAL      FormatType (peval_t, char FAR * FAR*, uint FAR *, char FAR * FAR *, ulong, PHDR_TYPE);
-void    NEAR    PASCAL  FormatProc (peval_t, char FAR * FAR *, uint FAR *,
-                                    char FAR * FAR *, CV_typ_t, CV_typ_t,
+ushort          FormatCXT (PCXT, PEEHSTR, BOOL);
+void            FormatFormal (HSYM, CXF *, ushort, char **, short *);
+EESTATUS        FormatNode (PHTM phTM, uint Radix, PEEFORMAT pFormat, PEEHSTR phszValue);
+void            FormatType (peval_t, char **, uint *, char * *, ulong, PHDR_TYPE);
+void            FormatProc (peval_t, char * *, uint *,
+                                    char * *, CV_typ_t, CV_typ_t,
                                     CV_call_e, ushort, CV_typ_t, ulong,
                                     PHDR_TYPE);
 
@@ -1172,39 +1191,34 @@ void    NEAR    PASCAL  FormatProc (peval_t, char FAR * FAR *, uint FAR *,
 
 // deberr.c
 
-ushort      PASCAL      GetErrorText (PHTM, EESTATUS, PEEHSTR);
+ushort          GetErrorText (PHTM, EESTATUS, PEEHSTR);
 
 
 // debutil.c
 
-SHFLAG      LOADDS PASCAL   csCmp (LPSSTR, LPV, LSZ, SHFLAG);
-SHFLAG      LOADDS PASCAL   fnCmp (LPSSTR, LPV, LSZ, SHFLAG);
-SHFLAG      LOADDS PASCAL   tdCmp (LPSSTR, LPV, LSZ, SHFLAG);
-bool_t      PASCAL      PopStack (void);
-bool_t      PASCAL      PushStack (peval_t);
-void        PASCAL      CkPointStack (void);
-bool_t      PASCAL      ResetStack (void);
-void        PASCAL      RemoveIndir (peval_t);
-ulong       PASCAL      RNumLeaf (void FAR *, uint FAR *);
-bool_t      PASCAL      SetNodeType (peval_t, CV_typ_t);
-long        PASCAL      TypeDefSize (peval_t);
-long        PASCAL      TypeSize (peval_t);
-int         PASCAL      TypeSizePrim (CV_typ_t);
-bool_t      PASCAL      UpdateMem (peval_t);
-#if defined (M68K)
-UINT        GetDebuggeeBytes (ADDR, UINT, void FAR *, CV_typ_t);
-UINT        PutDebuggeeBytes (ADDR, UINT, void FAR *, CV_typ_t);
-PSHREG      GetReg (PSHREG, PCXT);
-PSHREG      SetReg (PSHREG, PCXT);
-HDEP        SaveReg (PCXT);
-void        RestoreReg (HDEP, PCXT);
-#endif
-
+SHFLAG          csCmp (LPSSTR, LPV, LSZ, SHFLAG);
+SHFLAG          fnCmp (LPSSTR, LPV, LSZ, SHFLAG);
+SHFLAG          tdCmp (LPSSTR, LPV, LSZ, SHFLAG);
+bool_t          PopStack (void);
+bool_t          PushStack (peval_t);
+void            CkPointStack (void);
+bool_t          fCanSubtractPtrs (peval_t, peval_t);
+char *          GetHSYMCodeFromHSYM(HSYM);
+HSYM            GetHSYMFromHSYMCode(char *);
+bool_t          ResetStack (void);
+void            RemoveIndir (peval_t);
+ulong           RNumLeaf (void *, uint *);
+bool_t          SetNodeType (peval_t, CV_typ_t);
+long            TypeDefSize (peval_t);
+long            TypeSize (peval_t);
+int             TypeSizePrim (CV_typ_t);
+bool_t          UpdateMem (peval_t);
+CV_typ_t        GetUdtDefnTindex (CV_typ_t TypeIn, neval_t nv, char *lpStr);
 
 // debwalk.c
 
-ushort      PASCAL      DoGetCXTL (PHTM, PHCXTL);
-EESTATUS    PASCAL      GetExpr (PHTM, EERADIX, PEEHSTR, ushort FAR *);
+ushort          DoGetCXTL (PHTM, PHCXTL);
+EESTATUS        GetExpr (PHTM, EERADIX, PEEHSTR, ushort *);
 
 
 /*
@@ -1216,6 +1230,10 @@ EESTATUS    PASCAL      GetExpr (PHTM, EERADIX, PEEHSTR, ushort FAR *);
 #endif
 
 #ifdef TARGET_MIPS
+#define LONG_DOUBLE_64
+#endif
+
+#ifdef TARGET_PPC
 #define LONG_DOUBLE_64
 #endif
 

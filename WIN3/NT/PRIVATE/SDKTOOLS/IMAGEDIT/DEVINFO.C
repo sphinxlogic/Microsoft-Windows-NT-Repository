@@ -48,6 +48,8 @@ VOID InitDeviceList(VOID)
     DeviceLinkAlloc(FT_ICON, ids(IDS_ICONDEVNAMEEGAVGA), 16, 32, 32);
     DeviceLinkAlloc(FT_ICON, ids(IDS_ICONDEVNAMEMONO), 2, 32, 32);
     DeviceLinkAlloc(FT_ICON, ids(IDS_ICONDEVNAMECGA), 2, 32, 16);
+    DeviceLinkAlloc(FT_ICON, ids(IDS_ICONDEVNAMEWIN95), 16, 16, 16);
+
 
     ProcessDeviceSection(FT_ICON);
 

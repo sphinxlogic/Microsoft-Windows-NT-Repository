@@ -57,6 +57,11 @@ Return Value:
     // Note:  the mips specific help routine reports no extensions.  That
     // should be changed if a common extension is implemented
 
+    (*Print)("sel <selector number> [number of selectors]\n");
+    (*Print)("\tDumps contents of LDT selectors starting with\n");
+    (*Print)("\t<selector number>.  If [number of selectors] is specified\n");
+    (*Print)("\tthat number of selectors is dumped.  If not, 10h selectors\n");
+    (*Print)("\tare dumped\n");
 
     // print out procesor specific help
     helpp();

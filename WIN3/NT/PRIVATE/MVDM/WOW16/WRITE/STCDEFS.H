@@ -57,4 +57,3 @@ struct AKD
 
 /* max length of strings used in usages and font names */
 #define cchIdstrMax	32
-

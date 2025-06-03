@@ -5,6 +5,10 @@
 #ifndef _HFILESEL_
 #define _HFILESEL_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 // Forward references as the structures are recursively linked
 struct _DIR_BUFFER;
 struct _DIR_LIST;
@@ -64,7 +68,7 @@ typedef struct _DIR_BUFFER {
    DWORD Attributes;
    BYTE Convert;                 // None, All or Partial
    BOOL Special;
-	
+
    struct _DIR_LIST *DirList;    // Directory List structure
    struct _FILE_LIST *FileList;  // File List structure
 } DIR_BUFFER;
@@ -98,9 +102,9 @@ typedef struct _FILE_LIST {
 
 typedef struct _FILE_PATH_BUFFER {
    LPTSTR Server;
-	LPTSTR Share;
-	LPTSTR Path;
-	TCHAR FullPath[MAX_PATH + 1];
+   LPTSTR Share;
+   LPTSTR Path;
+   TCHAR FullPath[MAX_PATH + 1];
 } FILE_PATH_BUFFER;
 
 
@@ -116,6 +120,10 @@ FILE_PATH_BUFFER *FilePathInit();
 void FilePathServerSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Server);
 void FilePathShareSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Share);
 void FilePathPathSet(FILE_PATH_BUFFER *fpBuf, LPTSTR Path);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

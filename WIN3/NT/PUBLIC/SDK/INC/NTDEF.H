@@ -23,7 +23,7 @@ Revision History:
 
 #include <ctype.h>  // winnt ntndis
 
-// begin_ntminiport begin_ntndis
+// begin_ntminiport begin_ntndis begin_ntminitape
 
 #ifndef IN
 #define IN
@@ -49,11 +49,21 @@ Revision History:
 #define ANYSIZE_ARRAY 1       // winnt
 #endif
 
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_) // winnt
-#define UNALIGNED __unaligned               // winnt
-#else                                       // winnt
-#define UNALIGNED                           // winnt
-#endif                                      // winnt
+// begin_winnt
+
+#if defined(_M_MRX000) && !(defined(MIDL_PASS) || defined(RC_INVOKED)) && defined(ENABLE_RESTRICTED)
+#define RESTRICTED_POINTER __restrict
+#else
+#define RESTRICTED_POINTER
+#endif
+
+#if defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
+#define UNALIGNED __unaligned
+#else
+#define UNALIGNED
+#endif
+
+// end_winnt
 
 #ifndef CONST
 #define CONST               const
@@ -75,11 +85,11 @@ Revision History:
 
 typedef void *PVOID;    // winnt
 
-// end_ntminiport end_ntndis
+// end_ntminiport end_ntndis end_ntminitape
 
 // begin_winnt begin_ntndis
 
-#if (_MSC_VER >= 800)
+#if (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED)
 #define NTAPI __stdcall
 #else
 #define _cdecl
@@ -98,7 +108,7 @@ typedef void *PVOID;    // winnt
 
 // end_winnt end_ntndis
 
-// begin_winnt begin_ntminiport begin_ntndis
+// begin_winnt begin_ntminiport begin_ntndis begin_ntminitape
 
 //
 // Basics
@@ -139,7 +149,7 @@ typedef CONST CHAR *LPCSTR, *PCSTR;
 //
 // Neutral ANSI/UNICODE types and macros
 //
-#ifdef  UNICODE
+#ifdef  UNICODE                     // r_winnt
 
 #ifndef _TCHAR_DEFINED
 typedef WCHAR TCHAR, *PTCHAR;
@@ -151,9 +161,9 @@ typedef LPWSTR LPTCH, PTCH;
 typedef LPWSTR PTSTR, LPTSTR;
 typedef LPCWSTR LPCTSTR;
 typedef LPWSTR LP;
-#define __TEXT(quote) L##quote
+#define __TEXT(quote) L##quote      // r_winnt
 
-#else   /* UNICODE */
+#else   /* UNICODE */               // r_winnt
 
 #ifndef _TCHAR_DEFINED
 typedef char TCHAR, *PTCHAR;
@@ -164,10 +174,10 @@ typedef unsigned char TUCHAR, *PTUCHAR;
 typedef LPSTR LPTCH, PTCH;
 typedef LPSTR PTSTR, LPTSTR;
 typedef LPCSTR LPCTSTR;
-#define __TEXT(quote) quote
+#define __TEXT(quote) quote         // r_winnt
 
-#endif /* UNICODE */
-#define TEXT(quote) __TEXT(quote)
+#endif /* UNICODE */                // r_winnt
+#define TEXT(quote) __TEXT(quote)   // r_winnt
 
 
 // end_winnt
@@ -217,7 +227,9 @@ typedef signed char SCHAR;
 typedef SCHAR *PSCHAR;
 
 #ifndef NO_STRICT
+#ifndef STRICT
 #define STRICT 1
+#endif
 #endif
 
 //
@@ -234,6 +246,14 @@ typedef PVOID HANDLE;
 #define DECLARE_HANDLE(name) typedef HANDLE name
 #endif
 typedef HANDLE *PHANDLE;
+
+//
+// Flag (bit) fields
+//
+
+typedef UCHAR  FCHAR;
+typedef USHORT FSHORT;
+typedef ULONG  FLONG;
 
 // end_winnt
 
@@ -257,7 +277,7 @@ typedef CCHAR *PCCHAR;
 typedef CSHORT *PCSHORT;
 typedef CLONG *PCLONG;
 
-// end_ntminiport end_ntndis
+// end_ntminiport end_ntndis end_ntminitape
 
 //
 // NLS basics (Locale and Language Ids)
@@ -266,6 +286,13 @@ typedef CLONG *PCLONG;
 typedef ULONG LCID;         // winnt
 typedef PULONG PLCID;       // winnt
 typedef USHORT LANGID;      // winnt
+
+//
+// Logical Data Type - These are 32-bit logical values.
+//
+
+typedef ULONG LOGICAL;
+typedef ULONG *PLOGICAL;
 
 // begin_ntndis
 //
@@ -347,16 +374,19 @@ typedef NTSTATUS *PNTSTATUS;
 #define HighTime HighPart
 
 
-// begin_winnt begin_ntminiport begin_ntndis
+// begin_winnt begin_ntminiport begin_ntndis begin_ntminitape
 
 //
 // __int64 is only supported by 2.0 and later midl.
 // __midl is set by the 2.0 midl and not by 1.0 midl.
 //
 
+#define _ULONGLONG_
 #if (!defined(MIDL_PASS) || defined(__midl)) && (!defined(_M_IX86) || (defined(_INTEGRAL_MAX_BITS) && _INTEGRAL_MAX_BITS >= 64))
 typedef __int64 LONGLONG;
 typedef unsigned __int64 ULONGLONG;
+
+#define MAXLONGLONG                      (0x7fffffffffffffff)
 #else
 typedef double LONGLONG;
 typedef double ULONGLONG;
@@ -364,6 +394,10 @@ typedef double ULONGLONG;
 
 typedef LONGLONG *PLONGLONG;
 typedef ULONGLONG *PULONGLONG;
+
+// Update Sequence Number
+
+typedef LONGLONG USN;
 
 #if defined(MIDL_PASS)
 typedef struct _LARGE_INTEGER {
@@ -402,13 +436,16 @@ typedef union _ULARGE_INTEGER {
 
 typedef ULARGE_INTEGER *PULARGE_INTEGER;
 
-// end_ntminiport end_ntndis
+// end_ntminiport end_ntndis end_ntminitape
 
 //
 // Locally Unique Identifier
 //
 
-typedef LARGE_INTEGER LUID, *PLUID;
+typedef struct _LUID {
+    ULONG LowPart;
+    LONG HighPart;
+} LUID, *PLUID;
 
 // end_winnt
 // begin_ntminiport begin_ntndis
@@ -511,7 +548,7 @@ Int64ShrlMod32 (
 
 //
 // The x86 C compiler understands inline assembler. Therefore, inline functions
-// that employ inline assembelr are used for shifts of 0..31.  The multiplies
+// that employ inline assembler are used for shifts of 0..31.  The multiplies
 // rely on the compiler recognizing the cast of the multiplicand to int64 to
 // generate the optimal code inline.
 //
@@ -540,8 +577,6 @@ Int64ShrlMod32 (
     ULONG ShiftCount
     );
 
-#if !defined (__cplusplus)
-
 #pragma warning(disable:4035)               // re-enable below
 
 __inline ULONGLONG
@@ -551,8 +586,8 @@ Int64ShllMod32 (
     ULONG ShiftCount
     )
 {
-    _asm    {
-        mov     ecx, ShiftCount             ; must be 0..31
+    __asm    {
+        mov     ecx, ShiftCount
         mov     eax, dword ptr [Value]
         mov     edx, dword ptr [Value+4]
         shld    edx, eax, cl
@@ -567,8 +602,8 @@ Int64ShraMod32 (
     ULONG ShiftCount
     )
 {
-    _asm {
-        mov     ecx, ShiftCount             ; must be 0..31
+    __asm {
+        mov     ecx, ShiftCount
         mov     eax, dword ptr [Value]
         mov     edx, dword ptr [Value+4]
         shrd    eax, edx, cl
@@ -583,22 +618,14 @@ Int64ShrlMod32 (
     ULONG ShiftCount
     )
 {
-    _asm    {
-        mov     ecx, ShiftCount             ; must be 0..31
+    __asm    {
+        mov     ecx, ShiftCount
         mov     eax, dword ptr [Value]
         mov     edx, dword ptr [Value+4]
         shrd    eax, edx, cl
         shr     edx, cl
     }
 }
-
-#else
-
-#define Int64ShllMod32(a, b) ((ULONGLONG)(a) << (b))
-#define Int64ShraMod32(a, b) ((LONGLONG)(a) >> (b))
-#define Int64ShrlMod32(a, b) ((ULONGLONG)(a) >> (b))
-
-#endif // !defined (__cplusplus)
 
 #pragma warning(default:4035)
 
@@ -636,142 +663,6 @@ Int64ShrlMod32 (
 
 // end_winnt
 
-#if !defined(MIDL_PASS)
-
-#ifdef __cplusplus
-extern "C"
-#endif
-#pragma warning(disable:4124)               // re-enable below
-__inline
-#if defined(_ALPHA_)
-static
-#endif
-#if defined(_PPC_)
-static
-#endif
-LARGE_INTEGER
-#if defined(_MIPS_)
-__fastcall
-#endif
-_LiCvt_ (
-    IN LONGLONG Operand
-    )
-
-{
-
-    LARGE_INTEGER Temp;
-
-    Temp.QuadPart = Operand;
-    return Temp;
-}
-#pragma warning(default:4124)
-
-#define LiTemps        VOID _LiNeverCalled_(VOID)
-#define LiNeg(a)       _LiCvt_(-(a).QuadPart)
-#define LiAdd(a,b)     _LiCvt_((a).QuadPart + (b).QuadPart)
-#define LiSub(a,b)     _LiCvt_((a).QuadPart - (b).QuadPart)
-#define LiNMul(a,b)    (RtlEnlargedIntegerMultiply((a), (b)))          // (Long * Long)
-#define LiXMul(a,b)    (RtlExtendedIntegerMultiply((a), (b)))          // (Large * Long)
-#define LiDiv(a,b)     _LiCvt_((a).QuadPart / (b).QuadPart)
-#define LiXDiv(a,b)    (RtlExtendedLargeIntegerDivide((a), (b), NULL)) // (Large / Long)
-#define LiMod(a,b)     _LiCvt_((a).QuadPart % (b).QuadPart)
-#define LiShr(a,b)     _LiCvt_((ULONGLONG)(a).QuadPart >> (CCHAR)(b))
-#define LiShl(a,b)     _LiCvt_((a).QuadPart << (CCHAR)(b))
-#define LiGtr(a,b)     ((a).QuadPart > (b).QuadPart)
-#define LiGeq(a,b)     ((a).QuadPart >= (b).QuadPart)
-#define LiEql(a,b)     ((a).QuadPart == (b).QuadPart)
-#define LiNeq(a,b)     ((a).QuadPart != (b).QuadPart)
-#define LiLtr(a,b)     ((a).QuadPart < (b).QuadPart)
-#define LiLeq(a,b)     ((a).QuadPart <= (b).QuadPart)
-#define LiGtrZero(a)   ((a).QuadPart > 0)
-#define LiGeqZero(a)   ((a).QuadPart >= 0)
-#define LiEqlZero(a)   ((a).QuadPart == 0)
-#define LiNeqZero(a)   ((a).QuadPart != 0)
-#define LiLtrZero(a)   ((a).QuadPart < 0)
-#define LiLeqZero(a)   ((a).QuadPart <= 0)
-#define LiFromLong(a)  _LiCvt_((LONGLONG)(a))
-#define LiFromUlong(a) _LiCvt_((LONGLONG)(a))
-
-#define LiGtrT_        LiGtr
-#define LiGtr_T        LiGtr
-#define LiGtrTT        LiGtr
-#define LiGeqT_        LiGeq
-#define LiGeq_T        LiGeq
-#define LiGeqTT        LiGeq
-#define LiEqlT_        LiEql
-#define LiEql_T        LiEql
-#define LiEqlTT        LiEql
-#define LiNeqT_        LiNeq
-#define LiNeq_T        LiNeq
-#define LiNeqTT        LiNeq
-#define LiLtrT_        LiLtr
-#define LiLtr_T        LiLtr
-#define LiLtrTT        LiLtr
-#define LiLeqT_        LiLeq
-#define LiLeq_T        LiLeq
-#define LiLeqTT        LiLeq
-#define LiGtrZeroT     LiGtrZero
-#define LiGeqZeroT     LiGeqZero
-#define LiEqlZeroT     LiEqlZero
-#define LiNeqZeroT     LiNeqZero
-#define LiLtrZeroT     LiLtrZero
-#define LiLeqZeroT     LiLeqZero
-
-#else
-
-#define LiNeg(a)       (RtlLargeIntegerNegate((a)))                   // -a
-#define LiAdd(a,b)     (RtlLargeIntegerAdd((a),(b)))                  // a + b
-#define LiSub(a,b)     (RtlLargeIntegerSubtract((a),(b)))             // a - b
-#define LiNMul(a,b)    (RtlEnlargedIntegerMultiply((a),(b)))          // a * b (Long * Long)
-#define LiXMul(a,b)    (RtlExtendedIntegerMultiply((a),(b)))          // a * b (Large * Long)
-#define LiDiv(a,b)     (RtlLargeIntegerDivide((a),(b),NULL))          // a / b (Large / Large)
-#define LiXDiv(a,b)    (RtlExtendedLargeIntegerDivide((a),(b),NULL))  // a / b (Large / Long)
-#define LiMod(a,b)     (RtlLargeIntegerModulo((a),(b)))               // a % b
-#define LiShr(a,b)     (RtlLargeIntegerShiftRight((a),(CCHAR)(b)))    // a >> b
-#define LiShl(a,b)     (RtlLargeIntegerShiftLeft((a),(CCHAR)(b)))     // a << b
-#define LiGtr(a,b)     (RtlLargeIntegerGreaterThan((a),(b)))          // a > b
-#define LiGeq(a,b)     (RtlLargeIntegerGreaterThanOrEqualTo((a),(b))) // a >= b
-#define LiEql(a,b)     (RtlLargeIntegerEqualTo((a),(b)))              // a == b
-#define LiNeq(a,b)     (RtlLargeIntegerNotEqualTo((a),(b)))           // a != b
-#define LiLtr(a,b)     (RtlLargeIntegerLessThan((a),(b)))             // a < b
-#define LiLeq(a,b)     (RtlLargeIntegerLessThanOrEqualTo((a),(b)))    // a <= b
-#define LiGtrZero(a)   (RtlLargeIntegerGreaterThanZero((a)))          // a > 0
-#define LiGeqZero(a)   (RtlLargeIntegerGreaterOrEqualToZero((a)))     // a >= 0
-#define LiEqlZero(a)   (RtlLargeIntegerEqualToZero((a)))              // a == 0
-#define LiNeqZero(a)   (RtlLargeIntegerNotEqualToZero((a)))           // a != 0
-#define LiLtrZero(a)   (RtlLargeIntegerLessThanZero((a)))             // a < 0
-#define LiLeqZero(a)   (RtlLargeIntegerLessOrEqualToZero((a)))        // a <= 0
-#define LiFromLong(a)  (RtlConvertLongToLargeInteger((a)))
-#define LiFromUlong(a) (RtlConvertUlongToLargeInteger((a)))
-
-#define LiTemps        LARGE_INTEGER _LiT1,_LiT2
-#define LiGtrT_(a,b)   ((_LiT1 = a,_LiT2),     LiGtr(_LiT1,(b)))
-#define LiGtr_T(a,b)   ((_LiT1,_LiT2 = b),     LiGtr((a),_LiT2))
-#define LiGtrTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiGtr(_LiT1,_LiT2))
-#define LiGeqT_(a,b)   ((_LiT1 = a,_LiT2),     LiGeq(_LiT1,(b)))
-#define LiGeq_T(a,b)   ((_LiT1,_LiT2 = b),     LiGeq((a),_LiT2))
-#define LiGeqTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiGeq(_LiT1,_LiT2))
-#define LiEqlT_(a,b)   ((_LiT1 = a,_LiT2),     LiEql(_LiT1,(b)))
-#define LiEql_T(a,b)   ((_LiT1,_LiT2 = b),     LiEql((a),_LiT2))
-#define LiEqlTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiEql(_LiT1,_LiT2))
-#define LiNeqT_(a,b)   ((_LiT1 = a,_LiT2),     LiNeq(_LiT1,(b)))
-#define LiNeq_T(a,b)   ((_LiT1,_LiT2 = b),     LiNeq((a),_LiT2))
-#define LiNeqTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiNeq(_LiT1,_LiT2))
-#define LiLtrT_(a,b)   ((_LiT1 = a,_LiT2),     LiLtr(_LiT1,(b)))
-#define LiLtr_T(a,b)   ((_LiT1,_LiT2 = b),     LiLtr((a),_LiT2))
-#define LiLtrTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiLtr(_LiT1,_LiT2))
-#define LiLeqT_(a,b)   ((_LiT1 = a,_LiT2),     LiLeq(_LiT1,(b)))
-#define LiLeq_T(a,b)   ((_LiT1,_LiT2 = b),     LiLeq((a),_LiT2))
-#define LiLeqTT(a,b)   ((_LiT1 = a, _LiT2 = b),LiLeq(_LiT1,_LiT2))
-#define LiGtrZeroT(a)  ((_LiT1 = a,_LiT2),     LiGtrZero(_LiT1))
-#define LiGeqZeroT(a)  ((_LiT1 = a,_LiT2),     LiGeqZero(_LiT1))
-#define LiEqlZeroT(a)  ((_LiT1 = a,_LiT2),     LiEqlZero(_LiT1))
-#define LiNeqZeroT(a)  ((_LiT1 = a,_LiT2),     LiNeqZero(_LiT1))
-#define LiLtrZeroT(a)  ((_LiT1 = a,_LiT2),     LiLtrZero(_LiT1))
-#define LiLeqZeroT(a)  ((_LiT1 = a,_LiT2),     LiLeqZero(_LiT1))
-
-#endif
-
 //
 // Event type
 //
@@ -780,6 +671,15 @@ typedef enum _EVENT_TYPE {
     NotificationEvent,
     SynchronizationEvent
     } EVENT_TYPE;
+
+//
+// Timer type
+//
+
+typedef enum _TIMER_TYPE {
+    NotificationTimer,
+    SynchronizationTimer
+    } TIMER_TYPE;
 
 //
 // Wait type
@@ -849,7 +749,7 @@ typedef struct _UNICODE_STRING {
 typedef UNICODE_STRING *PUNICODE_STRING;
 #define UNICODE_NULL ((WCHAR)0) // winnt
 
-// begin_ntminiport
+// begin_ntminiport begin_ntminitape
 
 //
 // Boolean
@@ -858,7 +758,7 @@ typedef UNICODE_STRING *PUNICODE_STRING;
 typedef UCHAR BOOLEAN;           // winnt
 typedef BOOLEAN *PBOOLEAN;       // winnt
 
-// end_ntminiport
+// end_ntminiport end_ntminitape
 
 // begin_winnt
 //
@@ -867,10 +767,9 @@ typedef BOOLEAN *PBOOLEAN;       // winnt
 //
 
 typedef struct _LIST_ENTRY {
-   struct _LIST_ENTRY *Flink;
-   struct _LIST_ENTRY *Blink;
-} LIST_ENTRY;
-typedef LIST_ENTRY *PLIST_ENTRY;
+   struct _LIST_ENTRY * volatile Flink;
+   struct _LIST_ENTRY * volatile Blink;
+} LIST_ENTRY, *PLIST_ENTRY, *RESTRICTED_POINTER PRLIST_ENTRY;
 
 //
 //  Singly linked list structure. Can be used as either a list head, or
@@ -892,7 +791,8 @@ typedef struct _SINGLE_LIST_ENTRY {
 #define OBJ_EXCLUSIVE           0x00000020L
 #define OBJ_CASE_INSENSITIVE    0x00000040L
 #define OBJ_OPENIF              0x00000080L
-#define OBJ_VALID_ATTRIBUTES    0x000000F2L
+#define OBJ_OPENLINK            0x00000100L
+#define OBJ_VALID_ATTRIBUTES    0x000001F2L
 
 //
 // Object Attributes structure
@@ -930,7 +830,7 @@ typedef OBJECT_ATTRIBUTES *POBJECT_ATTRIBUTES;
     (p)->SecurityQualityOfService = NULL;               \
     }
 
-// begin_ntminiport begin_ntndis
+// begin_ntminiport begin_ntndis begin_ntminitape
 
 //
 // Constants
@@ -947,7 +847,37 @@ typedef OBJECT_ATTRIBUTES *POBJECT_ATTRIBUTES;
 #endif
 #endif // NULL
 
-// end_ntminiport end_ntndis
+// end_ntminiport end_ntndis end_ntminitape
+
+// begin_winnt begin_ntndis
+
+//
+// Base data structures for OLE support
+//
+
+#ifndef GUID_DEFINED
+#define GUID_DEFINED
+
+typedef struct _GUID {          // size is 16
+    ULONG Data1;
+    USHORT Data2;
+    USHORT Data3;
+    UCHAR Data4[8];
+} GUID;
+
+#endif // !GUID_DEFINED
+
+#ifndef __OBJECTID_DEFINED
+#define __OBJECTID_DEFINED
+
+typedef struct  _OBJECTID {     // size is 20
+    GUID Lineage;
+    ULONG Uniquifier;
+} OBJECTID;
+#endif // !_OBJECTID_DEFINED
+
+// end_winnt end_ntndis
+
 
 #define MINCHAR     0x80        // winnt
 #define MAXCHAR     0x7f        // winnt
@@ -1031,149 +961,222 @@ typedef enum _NT_PRODUCT_TYPE {
 
 
 
-// begin_winnt
+// begin_winnt begin_r_winnt
 
-/*
- *  Language IDs.
- *
- *  The following two combinations of primary language ID and
- *  sublanguage ID have special semantics:
- *
- *    Primary Language ID   Sublanguage ID      Result
- *    -------------------   ---------------     ------------------------
- *    LANG_NEUTRAL          SUBLANG_NEUTRAL     Language neutral
- *    LANG_NEUTRAL          SUBLANG_DEFAULT     User default language
- *    LANG_NEUTRAL          SUBLANG_SYS_DEFAULT System default language
- */
+//
+//  Language IDs.
+//
+//  The following two combinations of primary language ID and
+//  sublanguage ID have special semantics:
+//
+//    Primary Language ID   Sublanguage ID      Result
+//    -------------------   ---------------     ------------------------
+//    LANG_NEUTRAL          SUBLANG_NEUTRAL     Language neutral
+//    LANG_NEUTRAL          SUBLANG_DEFAULT     User default language
+//    LANG_NEUTRAL          SUBLANG_SYS_DEFAULT System default language
+//
 
-/*
- *  Primary language IDs.
- */
+//
+//  Primary language IDs.
+//
+
 #define LANG_NEUTRAL                     0x00
 
+#define LANG_AFRIKAANS                   0x36
+#define LANG_ALBANIAN                    0x1c
+#define LANG_ARABIC                      0x01
+#define LANG_BASQUE                      0x2d
+#define LANG_BELARUSIAN                  0x23
 #define LANG_BULGARIAN                   0x02
+#define LANG_CATALAN                     0x03
 #define LANG_CHINESE                     0x04
 #define LANG_CROATIAN                    0x1a
 #define LANG_CZECH                       0x05
 #define LANG_DANISH                      0x06
 #define LANG_DUTCH                       0x13
 #define LANG_ENGLISH                     0x09
+#define LANG_ESTONIAN                    0x25
+#define LANG_FAEROESE                    0x38
+#define LANG_FARSI                       0x29
 #define LANG_FINNISH                     0x0b
 #define LANG_FRENCH                      0x0c
 #define LANG_GERMAN                      0x07
 #define LANG_GREEK                       0x08
+#define LANG_HEBREW                      0x0d
 #define LANG_HUNGARIAN                   0x0e
 #define LANG_ICELANDIC                   0x0f
+#define LANG_INDONESIAN                  0x21
 #define LANG_ITALIAN                     0x10
 #define LANG_JAPANESE                    0x11
 #define LANG_KOREAN                      0x12
+#define LANG_LATVIAN                     0x26
+#define LANG_LITHUANIAN                  0x27
 #define LANG_NORWEGIAN                   0x14
 #define LANG_POLISH                      0x15
 #define LANG_PORTUGUESE                  0x16
 #define LANG_ROMANIAN                    0x18
 #define LANG_RUSSIAN                     0x19
+#define LANG_SERBIAN                     0x1a
 #define LANG_SLOVAK                      0x1b
 #define LANG_SLOVENIAN                   0x24
 #define LANG_SPANISH                     0x0a
 #define LANG_SWEDISH                     0x1d
+#define LANG_THAI                        0x1e
 #define LANG_TURKISH                     0x1f
+#define LANG_UKRAINIAN                   0x22
+#define LANG_VIETNAMESE                  0x2a
 
-/*
- *  Sublanguage IDs.
- *
- *  The name immediately following SUBLANG_ dictates which primary
- *  language ID that sublanguage ID can be combined with to form a
- *  valid language ID.
- */
-#define SUBLANG_NEUTRAL                  0x00    /* language neutral */
-#define SUBLANG_DEFAULT                  0x01    /* user default */
-#define SUBLANG_SYS_DEFAULT              0x02    /* system default */
+//
+//  Sublanguage IDs.
+//
+//  The name immediately following SUBLANG_ dictates which primary
+//  language ID that sublanguage ID can be combined with to form a
+//  valid language ID.
+//
 
-#define SUBLANG_CHINESE_TRADITIONAL      0x01    /* Chinese (Taiwan) */
-#define SUBLANG_CHINESE_SIMPLIFIED       0x02    /* Chinese (PR China) */
-#define SUBLANG_CHINESE_HONGKONG         0x03    /* Chinese (Hong Kong) */
-#define SUBLANG_CHINESE_SINGAPORE        0x04    /* Chinese (Singapore) */
-#define SUBLANG_DUTCH                    0x01    /* Dutch */
-#define SUBLANG_DUTCH_BELGIAN            0x02    /* Dutch (Belgian) */
-#define SUBLANG_ENGLISH_US               0x01    /* English (USA) */
-#define SUBLANG_ENGLISH_UK               0x02    /* English (UK) */
-#define SUBLANG_ENGLISH_AUS              0x03    /* English (Australian) */
-#define SUBLANG_ENGLISH_CAN              0x04    /* English (Canadian) */
-#define SUBLANG_ENGLISH_NZ               0x05    /* English (New Zealand) */
-#define SUBLANG_ENGLISH_EIRE             0x06    /* English (Irish) */
-#define SUBLANG_FRENCH                   0x01    /* French */
-#define SUBLANG_FRENCH_BELGIAN           0x02    /* French (Belgian) */
-#define SUBLANG_FRENCH_CANADIAN          0x03    /* French (Canadian) */
-#define SUBLANG_FRENCH_SWISS             0x04    /* French (Swiss) */
-#define SUBLANG_GERMAN                   0x01    /* German */
-#define SUBLANG_GERMAN_SWISS             0x02    /* German (Swiss) */
-#define SUBLANG_GERMAN_AUSTRIAN          0x03    /* German (Austrian) */
-#define SUBLANG_ITALIAN                  0x01    /* Italian */
-#define SUBLANG_ITALIAN_SWISS            0x02    /* Italian (Swiss) */
-#define SUBLANG_NORWEGIAN_BOKMAL         0x01    /* Norwegian (Bokmal) */
-#define SUBLANG_NORWEGIAN_NYNORSK        0x02    /* Norwegian (Nynorsk) */
-#define SUBLANG_PORTUGUESE               0x02    /* Portuguese */
-#define SUBLANG_PORTUGUESE_BRAZILIAN     0x01    /* Portuguese (Brazilian) */
-#define SUBLANG_SPANISH                  0x01    /* Spanish (Castilian) */
-#define SUBLANG_SPANISH_MEXICAN          0x02    /* Spanish (Mexican) */
-#define SUBLANG_SPANISH_MODERN           0x03    /* Spanish (Modern) */
+#define SUBLANG_NEUTRAL                  0x00    // language neutral
+#define SUBLANG_DEFAULT                  0x01    // user default
+#define SUBLANG_SYS_DEFAULT              0x02    // system default
 
-/*
- *  Sorting IDs.
- *
- */
-#define SORT_DEFAULT                     0x0     /* sorting default */
+#define SUBLANG_ARABIC_SAUDI_ARABIA      0x01    // Arabic (Saudi Arabia)
+#define SUBLANG_ARABIC_IRAQ              0x02    // Arabic (Iraq)
+#define SUBLANG_ARABIC_EGYPT             0x03    // Arabic (Egypt)
+#define SUBLANG_ARABIC_LIBYA             0x04    // Arabic (Libya)
+#define SUBLANG_ARABIC_ALGERIA           0x05    // Arabic (Algeria)
+#define SUBLANG_ARABIC_MOROCCO           0x06    // Arabic (Morocco)
+#define SUBLANG_ARABIC_TUNISIA           0x07    // Arabic (Tunisia)
+#define SUBLANG_ARABIC_OMAN              0x08    // Arabic (Oman)
+#define SUBLANG_ARABIC_YEMEN             0x09    // Arabic (Yemen)
+#define SUBLANG_ARABIC_SYRIA             0x0a    // Arabic (Syria)
+#define SUBLANG_ARABIC_JORDAN            0x0b    // Arabic (Jordan)
+#define SUBLANG_ARABIC_LEBANON           0x0c    // Arabic (Lebanon)
+#define SUBLANG_ARABIC_KUWAIT            0x0d    // Arabic (Kuwait)
+#define SUBLANG_ARABIC_UAE               0x0e    // Arabic (U.A.E)
+#define SUBLANG_ARABIC_BAHRAIN           0x0f    // Arabic (Bahrain)
+#define SUBLANG_ARABIC_QATAR             0x10    // Arabic (Qatar)
+#define SUBLANG_CHINESE_TRADITIONAL      0x01    // Chinese (Taiwan)
+#define SUBLANG_CHINESE_SIMPLIFIED       0x02    // Chinese (PR China)
+#define SUBLANG_CHINESE_HONGKONG         0x03    // Chinese (Hong Kong)
+#define SUBLANG_CHINESE_SINGAPORE        0x04    // Chinese (Singapore)
+#define SUBLANG_DUTCH                    0x01    // Dutch
+#define SUBLANG_DUTCH_BELGIAN            0x02    // Dutch (Belgian)
+#define SUBLANG_ENGLISH_US               0x01    // English (USA)
+#define SUBLANG_ENGLISH_UK               0x02    // English (UK)
+#define SUBLANG_ENGLISH_AUS              0x03    // English (Australian)
+#define SUBLANG_ENGLISH_CAN              0x04    // English (Canadian)
+#define SUBLANG_ENGLISH_NZ               0x05    // English (New Zealand)
+#define SUBLANG_ENGLISH_EIRE             0x06    // English (Irish)
+#define SUBLANG_ENGLISH_SOUTH_AFRICA     0x07    // English (South Africa)
+#define SUBLANG_ENGLISH_JAMAICA          0x08    // English (Jamaica)
+#define SUBLANG_ENGLISH_CARIBBEAN        0x09    // English (Caribbean)
+#define SUBLANG_ENGLISH_BELIZE           0x0a    // English (Belize)
+#define SUBLANG_ENGLISH_TRINIDAD         0x0b    // English (Trinidad)
+#define SUBLANG_FRENCH                   0x01    // French
+#define SUBLANG_FRENCH_BELGIAN           0x02    // French (Belgian)
+#define SUBLANG_FRENCH_CANADIAN          0x03    // French (Canadian)
+#define SUBLANG_FRENCH_SWISS             0x04    // French (Swiss)
+#define SUBLANG_FRENCH_LUXEMBOURG        0x05    // French (Luxembourg)
+#define SUBLANG_GERMAN                   0x01    // German
+#define SUBLANG_GERMAN_SWISS             0x02    // German (Swiss)
+#define SUBLANG_GERMAN_AUSTRIAN          0x03    // German (Austrian)
+#define SUBLANG_GERMAN_LUXEMBOURG        0x04    // German (Luxembourg)
+#define SUBLANG_GERMAN_LIECHTENSTEIN     0x05    // German (Liechtenstein)
+#define SUBLANG_ITALIAN                  0x01    // Italian
+#define SUBLANG_ITALIAN_SWISS            0x02    // Italian (Swiss)
+#define SUBLANG_KOREAN                   0x01    // Korean (Extended Wansung)
+#define SUBLANG_KOREAN_JOHAB             0x02    // Korean (Johab)
+#define SUBLANG_NORWEGIAN_BOKMAL         0x01    // Norwegian (Bokmal)
+#define SUBLANG_NORWEGIAN_NYNORSK        0x02    // Norwegian (Nynorsk)
+#define SUBLANG_PORTUGUESE               0x02    // Portuguese
+#define SUBLANG_PORTUGUESE_BRAZILIAN     0x01    // Portuguese (Brazilian)
+#define SUBLANG_SERBIAN_LATIN            0x02    // Serbian (Latin)
+#define SUBLANG_SERBIAN_CYRILLIC         0x03    // Serbian (Cyrillic)
+#define SUBLANG_SPANISH                  0x01    // Spanish (Castilian)
+#define SUBLANG_SPANISH_MEXICAN          0x02    // Spanish (Mexican)
+#define SUBLANG_SPANISH_MODERN           0x03    // Spanish (Modern)
+#define SUBLANG_SPANISH_GUATEMALA        0x04    // Spanish (Guatemala)
+#define SUBLANG_SPANISH_COSTA_RICA       0x05    // Spanish (Costa Rica)
+#define SUBLANG_SPANISH_PANAMA           0x06    // Spanish (Panama)
+#define SUBLANG_SPANISH_DOMINICAN_REPUBLIC 0x07  // Spanish (Dominican Republic)
+#define SUBLANG_SPANISH_VENEZUELA        0x08    // Spanish (Venezuela)
+#define SUBLANG_SPANISH_COLOMBIA         0x09    // Spanish (Colombia)
+#define SUBLANG_SPANISH_PERU             0x0a    // Spanish (Peru)
+#define SUBLANG_SPANISH_ARGENTINA        0x0b    // Spanish (Argentina)
+#define SUBLANG_SPANISH_ECUADOR          0x0c    // Spanish (Ecuador)
+#define SUBLANG_SPANISH_CHILE            0x0d    // Spanish (Chile)
+#define SUBLANG_SPANISH_URUGUAY          0x0e    // Spanish (Uruguay)
+#define SUBLANG_SPANISH_PARAGUAY         0x0f    // Spanish (Paraguay)
+#define SUBLANG_SPANISH_BOLIVIA          0x10    // Spanish (Bolivia)
+#define SUBLANG_SPANISH_EL_SALVADOR      0x11    // Spanish (El Salvador)
+#define SUBLANG_SPANISH_HONDURAS         0x12    // Spanish (Honduras)
+#define SUBLANG_SPANISH_NICARAGUA        0x13    // Spanish (Nicaragua)
+#define SUBLANG_SPANISH_PUERTO_RICO      0x14    // Spanish (Puerto Rico)
+#define SUBLANG_SWEDISH                  0x01    // Swedish
+#define SUBLANG_SWEDISH_FINLAND          0x02    // Swedish (Finland)
 
-#define SORT_JAPANESE_XJIS               0x0     /* Japanese XJIS order */
-#define SORT_JAPANESE_UNICODE            0x1     /* Japanese Unicode order */
+//
+//  Sorting IDs.
+//
 
-#define SORT_CHINESE_BIG5                0x0     /* Chinese BIG5 order */
-#define SORT_CHINESE_UNICODE             0x1     /* Chinese Unicode order */
+#define SORT_DEFAULT                     0x0     // sorting default
 
-#define SORT_KOREAN_KSC                  0x0     /* Korean KSC order */
-#define SORT_KOREAN_UNICODE              0x1     /* Korean Unicode order */
+#define SORT_JAPANESE_XJIS               0x0     // Japanese XJIS order
+#define SORT_JAPANESE_UNICODE            0x1     // Japanese Unicode order
 
+#define SORT_CHINESE_BIG5                0x0     // Chinese BIG5 order
+#define SORT_CHINESE_PRCP                0x0     // PRC Chinese Phonetic order
+#define SORT_CHINESE_UNICODE             0x1     // Chinese Unicode order
+#define SORT_CHINESE_PRC                 0x2     // PRC Chinese Stroke Count order
 
-/*
- *  A language ID is a 16 bit value which is the combination of a
- *  primary language ID and a secondary language ID.  The bits are
- *  allocated as follows:
- *
- *       +-----------------------+-------------------------+
- *       |     Sublanguage ID    |   Primary Language ID   |
- *       +-----------------------+-------------------------+
- *        15                   10 9                       0   bit
- *
- *
- *  Language ID creation/extraction macros:
- *
- *    MAKELANGID    - construct language id from a primary language id and
- *                    a sublanguage id.
- *    PRIMARYLANGID - extract primary language id from a language id.
- *    SUBLANGID     - extract sublanguage id from a language id.
- */
+#define SORT_KOREAN_KSC                  0x0     // Korean KSC order
+#define SORT_KOREAN_UNICODE              0x1     // Korean Unicode order
+
+#define SORT_GERMAN_PHONE_BOOK           0x1     // German Phone Book order
+
+// end_r_winnt
+
+//
+//  A language ID is a 16 bit value which is the combination of a
+//  primary language ID and a secondary language ID.  The bits are
+//  allocated as follows:
+//
+//       +-----------------------+-------------------------+
+//       |     Sublanguage ID    |   Primary Language ID   |
+//       +-----------------------+-------------------------+
+//        15                   10 9                       0   bit
+//
+//
+//  Language ID creation/extraction macros:
+//
+//    MAKELANGID    - construct language id from a primary language id and
+//                    a sublanguage id.
+//    PRIMARYLANGID - extract primary language id from a language id.
+//    SUBLANGID     - extract sublanguage id from a language id.
+//
+
 #define MAKELANGID(p, s)       ((((USHORT)(s)) << 10) | (USHORT)(p))
 #define PRIMARYLANGID(lgid)    ((USHORT)(lgid) & 0x3ff)
 #define SUBLANGID(lgid)        ((USHORT)(lgid) >> 10)
 
 
-/*
- *  A locale ID is a 32 bit value which is the combination of a
- *  language ID, a sort ID, and a reserved area.  The bits are
- *  allocated as follows:
- *
- *       +-------------+---------+-------------------------+
- *       |   Reserved  | Sort ID |      Language ID        |
- *       +-------------+---------+-------------------------+
- *        31         20 19     16 15                      0   bit
- *
- *
- *  Locale ID creation/extraction macros:
- *
- *    MAKELCID       - construct locale id from a language id and a sort id.
- *    LANGIDFROMLCID - extract language id from a locale id.
- *    SORTIDFROMLCID - extract sort id from a locale id.
- */
+//
+//  A locale ID is a 32 bit value which is the combination of a
+//  language ID, a sort ID, and a reserved area.  The bits are
+//  allocated as follows:
+//
+//       +-------------+---------+-------------------------+
+//       |   Reserved  | Sort ID |      Language ID        |
+//       +-------------+---------+-------------------------+
+//        31         20 19     16 15                      0   bit
+//
+//
+//  Locale ID creation/extraction macros:
+//
+//    MAKELCID       - construct locale id from a language id and a sort id.
+//    LANGIDFROMLCID - extract language id from a locale id.
+//    SORTIDFROMLCID - extract sort id from a locale id.
+//
+
 #define NLS_VALID_LOCALE_MASK  0x000fffff
 
 #define MAKELCID(lgid, srtid)  ((ULONG)((((ULONG)((USHORT)(srtid))) << 16) |  \
@@ -1182,18 +1185,21 @@ typedef enum _NT_PRODUCT_TYPE {
 #define SORTIDFROMLCID(lcid)   ((USHORT)((((ULONG)(lcid)) & NLS_VALID_LOCALE_MASK) >> 16))
 
 
-/*
- *  Default System and User IDs for language and locale.
- */
+//
+//  Default System and User IDs for language and locale.
+//
+
 #define LANG_SYSTEM_DEFAULT    (MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT))
 #define LANG_USER_DEFAULT      (MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT))
 
 #define LOCALE_SYSTEM_DEFAULT  (MAKELCID(LANG_SYSTEM_DEFAULT, SORT_DEFAULT))
 #define LOCALE_USER_DEFAULT    (MAKELCID(LANG_USER_DEFAULT, SORT_DEFAULT))
 
+#define LOCALE_NEUTRAL                                                        \
+          (MAKELCID(MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), SORT_DEFAULT))
 
 
-// begin_ntminiport begin_ntndis
+// begin_ntminiport begin_ntndis begin_ntminitape
 
 //
 // Macros used to eliminate compiler warning generated when formal
@@ -1245,7 +1251,6 @@ typedef enum _NT_PRODUCT_TYPE {
 #endif // lint or _lint
 
 
-// end_winnt end_ntminiport end_ntndis
+// end_winnt end_ntminiport end_ntndis end_ntminitape
 
 #endif // _NTDEF_
-

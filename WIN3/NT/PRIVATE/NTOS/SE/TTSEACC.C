@@ -62,4 +62,3 @@ main(
     KiSystemStartup();
     return( 0 );
 }
-

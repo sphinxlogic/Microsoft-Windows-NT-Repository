@@ -39,6 +39,7 @@ void PaneCutSelection( PPANE p );
 int  PaneCaretNum( PPANE p);
 
 
+extern LRESULT SendMessageNZ (HWND,UINT,WPARAM,LPARAM);
 extern void CheckHorizontalScroll (PPANE p);
 
 BOOL inMouseMove=FALSE;
@@ -77,7 +78,7 @@ void PaneKeyboardHandler(HWND hWnd, UINT message, WPARAM wParam, LONG lParam)
 
     if ((message == WM_KEYDOWN) && ((wParam == VK_CONTROL) || (wParam == VK_SHIFT)))
       {
-          return;
+          return;   // don't care if it is just the ctrl/shift key
       }
 
     switch (message) {
@@ -136,155 +137,123 @@ void PaneKeyboardHandler(HWND hWnd, UINT message, WPARAM wParam, LONG lParam)
 
     case WM_KEYDOWN:
 
-        if (hWnd != p->hWndButton)
-          {
-              if ((!isShiftDown) && (wParam != VK_DELETE) && (wParam != VK_RIGHT) && (wParam != VK_LEFT) && (wParam != VK_HOME) && (wParam != VK_END))
-                {
-                    POINT cPos;
-                    GetCaretPos (&cPos);
-                    PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE);
-                }
+        if (hWnd != p->hWndButton) {
+             MSG msg;
 
-          }
+             // if text has been highlighted, a cut may be necessary
+             // in preparing for an insert
+
+             if (p->SelLen != 0 &&
+                 PeekMessage(&msg, hWnd, WM_KEYDOWN, WM_CHAR, PM_NOREMOVE))
+               if (msg.message == WM_CHAR)
+                 switch (msg.wParam) {
+                   // there will not be any insert for these four cases
+                   case TAB:
+                   case CTRL_H:
+                   case CTRL_M:
+                   case ESCAPE:
+                     break;
+                   default:
+                     if (msg.wParam >= ' ') {
+                       PaneCutSelection(p);
+                       p->SelLen = 0;
+                       return;
+                     }
+                 }
+
+             // removes any highlighting if necessary
+             // except the following key combinations:
+             // DELETE, BACKSPACE
+             // Shift+(Ctrl)+Left/Right Arrow
+             // Shift+Home/End Key
+
+             if (wParam != VK_DELETE &&
+                 wParam != VK_BACK &&
+                 !(isShiftDown &&
+                   (wParam == VK_LEFT || wParam == VK_RIGHT ||
+                    (!isCtrlDown && (wParam == VK_HOME || wParam == VK_END)))
+                  )
+                ) {
+                POINT cPos;
+                GetCaretPos (&cPos);
+                PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE);
+             }
+        }
 
         switch ( wParam ) {
 
-
         case VK_DELETE:
-            if (p->SelLen != 0)
-              {
-                  PaneCutSelection(p);
-                  p->SelLen = 0;
-              }
+        case VK_BACK:
+            if (p->SelLen != 0) {
+              PaneCutSelection(p);
+              p->SelLen = 0;
+            } else if (wParam == VK_BACK)
+              PaneDeleteChar(p, (SHORT)(p->CurPos-1));  // backspace
             else
-              PaneDeleteChar(p,(SHORT)p->CurPos);
-
+              PaneDeleteChar(p, (SHORT)p->CurPos);
             break;
 
         case VK_LEFT:
-            PaneSetPos(p,(SHORT)(p->CurPos-1));
-
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE );
-              }
-
-            break;
-
         case VK_RIGHT:
-            PaneSetPos(p,(SHORT)(p->CurPos+1));
-
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE );
-              }
-
+            if (isShiftDown) {
+              POINT cPos;
+              if (p->SelLen == 0)
+                p->SelPos = p->CurPos;
+              PaneSetPos(p,(SHORT)(p->CurPos+((wParam == VK_LEFT)?-1:1)));
+              GetCaretPos (&cPos);
+              PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE );
+            } else
+               PaneSetPos(p,(SHORT)(p->CurPos+((wParam == VK_LEFT)?-1:1)));
             break;
-
 
         case VK_UP:
-            PaneInvalidateCurrent( p->hWndFocus, p, -1);
-            PaneSetIdx(p,(SHORT)(p->CurIdx-1));
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE);
-              }
-            p->SelLen = 0;
-            p->SelPos = 0;
-            PaneCaretNum(p);
-            break;
-
         case VK_DOWN:
-            PaneInvalidateCurrent( p->hWndFocus, p, -1);
-            PaneSetIdx(p,(SHORT)(p->CurIdx+1));
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE );
-              }
+            PaneInvalidateCurrent(p->hWndFocus, p, -1);
+            PaneSetIdx(p,(SHORT)(p->CurIdx + ((wParam == VK_UP) ?-1:1)));
+            if (isShiftDown) {
+              POINT cPos;
+              GetCaretPos (&cPos);
+              PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE);
+            }
             p->SelLen = 0;
             p->SelPos = 0;
             PaneCaretNum(p);
             break;
 
         case VK_PRIOR:
-            PaneSetIdx(p,(SHORT)(p->CurIdx-PAGE));
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE );
-              }
-            p->SelLen = 0;
-            p->SelPos = 0;
-            PaneCaretNum(p);
-            break;
-
         case VK_NEXT:
-            PaneSetIdx(p,(SHORT)(p->CurIdx+PAGE));
-            if (isShiftDown)
-              {
-                  POINT cPos;
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE );
-              }
+            PaneSetIdx(p,(SHORT)(p->CurIdx+((wParam == VK_PRIOR) ?-PAGE:PAGE)));
+            if (isShiftDown) {
+              POINT cPos;
+              GetCaretPos (&cPos);
+              PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, FALSE );
+            }
             p->SelLen = 0;
             p->SelPos = 0;
             PaneCaretNum(p);
             break;
 
         case VK_HOME:
-            if (isCtrlDown)
-              {
-                PaneSetIdx(p,(SHORT)0);
-              }
-            else
-              if (!isShiftDown)
-               {
-                PaneSetPos(p,(SHORT)0);
-                p->SelLen = 0;
-                p->SelPos = 0;
-               }
-               else
-                {
-                 POINT cPos;
-
-                  PaneSetPos(p,(SHORT)0);
-                  GetCaretPos (&cPos);
-                  PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE);
-                }
-            PaneCaretNum(p);
-            break;
-
         case VK_END:
-            if (isCtrlDown)
-              {
-               PaneSetIdx(p,(SHORT)0x7fff);
-              }
-            else
-              if (!isShiftDown)
-               {
-                PaneSetPos(p,(SHORT)0x7fff);
-                p->SelLen = 0;
-                p->SelPos = 0;
-               }
-              else
-                {
-                 POINT cPos;
+            {
+            SHORT   tmp;
+            POINT   cPos;
 
-                 PaneSetPos(p,(SHORT)0x7fff);
-                 GetCaretPos (&cPos);
-                 PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE);
-                }
-
+            tmp = (wParam == VK_HOME) ? 0 : 0x7fff; // first or last
+            if (isCtrlDown) {
+              PaneSetIdx(p, (SHORT)tmp);
+            } else if (isShiftDown) {
+              if (p->SelLen == 0)
+                p->SelPos = p->CurPos;
+              PaneSetPos(p, (SHORT)tmp);
+              GetCaretPos (&cPos);
+              PaneSetPosXY( hWnd, (WORD)cPos.x, (WORD)cPos.y, TRUE);
+            } else {
+              PaneSetPos(p, (SHORT)tmp);
+              p->SelLen = p->SelPos = 0; // why?
+            }
             PaneCaretNum(p);
+            }
             break;
 
         case VK_TAB:
@@ -299,10 +268,6 @@ void PaneKeyboardHandler(HWND hWnd, UINT message, WPARAM wParam, LONG lParam)
             } else {
                 PaneEditMode(p);
             }
-            break;
-
-        case VK_BACK:
-            PaneDeleteChar(p,(SHORT)(p->CurPos-1));
             break;
 
         case VK_ESCAPE:
@@ -490,7 +455,7 @@ PaneCutSelection(
     PSTR        pBuf = NULL;
     int         nLen = 0;
     PANEINFO    Info = {0,0,0,0,NULL};
-    LPSTR       pSrc;
+    SHORT       Indx;
 
     if ( p->SelLen != 0 ) {
 
@@ -504,15 +469,15 @@ PaneCutSelection(
         }
 
         if ( p->SelLen > 0 ) {
-            pSrc = pBuf + p->SelPos;
+            Indx = p->SelPos;
             nLen = p->SelLen;
         } else {
-            pSrc = pBuf + p->SelPos + p->SelLen;
+            Indx = p->CurPos;
             nLen = -(p->SelLen);
         }
 
         while ( nLen-- ) {
-            PaneDeleteChar(p, p->SelPos);
+            PaneDeleteChar(p, Indx);
         }
 
     }
@@ -567,6 +532,19 @@ PaneSetPos(
                 nLen = strlen(pBuf);
             }
         }
+
+#ifdef DBCS
+        if(NewPos > p->CurPos) { /* move right */
+            if(IsDBCSLeadByte((BYTE)*(pBuf + p->CurPos))) {
+                NewPos++;
+            }
+        }
+        else if(NewPos < p->CurPos) { /* move left */
+            if(IsDBCSLeadByte((BYTE)(*CharPrev(pBuf, pBuf + p->CurPos)))) {
+                NewPos--;
+            }
+        }
+#endif
 
         //  If the New position is out of range, put it back in range
         if ( NewPos < 0 ) {
@@ -754,6 +732,10 @@ PaneSetPosXY(
                 hDC = GetDC(p->hWndFocus);
                 SelectObject(hDC, p->hFont);
                 do {
+#ifdef DBCS
+                    if(NewPos >=0 && IsDBCSLeadByte((BYTE)*(pBuf+NewPos)))
+                        NewPos++;
+#endif
                     NewPos++;
                     GetTextExtentPoint(hDC, pBuf, NewPos, &Size);
                 } while (Size.cx < X);
@@ -777,6 +759,9 @@ PaneSetPosXY(
                 p->SelPos = NewPos;
                 p->SelLen = 0;
             }
+#ifdef DBCS
+            p->CurPos = NewPos;
+#endif
 
             PaneSetPos( p, NewPos );
             PaneInvalidateCurrent( p->hWndFocus, p, -1);
@@ -845,6 +830,9 @@ PaneSelectWord(
 
     if ( pBuf && pBuf[Start] != ' ' && pBuf[Start] != '\t' ) {
 
+#ifdef DBCS
+      if(!IsDBCSLeadByte((BYTE)pBuf[Start])) {
+#endif
         while ( Start > 0 && pBuf[Start] != ' ' && pBuf[Start] != '\t' ) {
             Start--;
         }
@@ -852,11 +840,20 @@ PaneSelectWord(
         if ( pBuf[Start] == ' ' || pBuf[Start] == '\t' ) {
             Start++;
         }
+#ifdef DBCS
+      }
+#endif
 
         while ( End < nLen
              && pBuf[End]
              && pBuf[End] != ' '
              && pBuf[End] != '\t' ) {
+#ifdef DBCS
+            if(IsDBCSLeadByte((BYTE)pBuf[End])) {
+                End++;
+                break;
+            }
+#endif
             End++;
         }
 
@@ -1002,9 +999,12 @@ PaneSetCaret(
         return;                      //window is empty or bad indx
     }
 
-    SendMessage( p->hWndFocus, LB_GETITEMRECT, (WPARAM)p->CurIdx, (LPARAM)&Rect);
-    GetClientRect( p->hWndFocus, &cRect);
-    Offset = Rect.right - cRect.right;
+    if (p->hWndFocus) {
+        SendMessage( p->hWndFocus, LB_GETITEMRECT, (WPARAM)p->CurIdx, (LPARAM)&Rect);
+        GetClientRect( p->hWndFocus, &cRect);
+        Offset = Rect.right - cRect.right;
+    } else
+        Offset = 0;
 
 
     if (p->nCtrlId == ID_PANE_LEFT) {
@@ -1105,10 +1105,11 @@ PaneCaretNum(
     RECT Rect = {0,0,0,0};
     RECT tRect = {0,0,0,0};
     RECT cRect = {0,0,0,0};
-    int   nNum, nRct, nMin, nMax, nScrollPos;
+    const RECT zeroRect = {0,0,0,0};
+    int   nNum, nMin, nMax, nScrollPos;
     HWND  hPane;
     BOOL  fRedo = TRUE;
-
+    LRESULT rst;
 
     GetScrollRange (p->hWndScroll,SB_CTL,&nMin, &nMax);
 
@@ -1116,29 +1117,35 @@ PaneCaretNum(
         hPane = (p->hWndFocus != p->hWndButton) ?
                      p->hWndFocus
                     :p->hWndLeft;
-        SendMessage(hPane,
-                    LB_GETITEMRECT,
-                    (WPARAM)p->CurIdx,
-                    (LPARAM)&Rect);
-        SendMessage(hPane,
-                    LB_GETITEMRECT,
-                    (WPARAM)p->TopIdx,
-                    (LPARAM)&tRect);
+        rst = SendMessageNZ(hPane,
+                            LB_GETITEMRECT,
+                            (WPARAM)p->CurIdx,
+                            (LPARAM)&Rect);
+        if (rst == LB_ERR)
+            return 0;
+        rst = SendMessageNZ(hPane,
+                            LB_GETITEMRECT,
+                            (WPARAM)p->TopIdx,
+                            (LPARAM)&tRect);
+        if (rst == LB_ERR)
+            return 0;
 
         nScrollPos = GetScrollPos (p->hWndScroll,SB_CTL);
 
         // Is the caret in range?
 
-        GetClientRect(hPane, &cRect);
-        nRct = (cRect.bottom - cRect.top);
+        if (hPane != NULL) {
 
-        if (nRct != 0) {
-            if ((Rect.bottom - Rect.top) > nRct)
-                nNum = 0;
-            else if ((Rect.bottom - Rect.top) != 0)
-                nNum = (nRct / (Rect.bottom - Rect.top));
-            else
-                nNum = 0;
+           int nRct;
+
+           GetClientRect(hPane, &cRect);
+           nRct = (cRect.bottom - cRect.top);
+           if ((Rect.bottom - Rect.top) > nRct)
+               nNum = 0;
+           else if ((Rect.bottom - Rect.top) != 0)
+               nNum = (nRct / (Rect.bottom - Rect.top));
+           else
+               nNum = 0;
         }
 
         if ((Rect.bottom > cRect.bottom)
@@ -1150,7 +1157,7 @@ PaneCaretNum(
                          0);
 
         } else if ((Rect.top < tRect.top)
-                     && (p->CurIdx >= 0)
+                     && (p->CurIdx != 0xFFFF)
                      && (nNum > 0)) {
 
             ScrollPanes (p,

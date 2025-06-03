@@ -22,7 +22,7 @@ Revision History:
 #include "msp.h"
 #include "nlp.h"
 #include "nlpcache.h"
-#include <wcstr.h>
+#include <stdlib.h>
 
 
 VOID
@@ -771,7 +771,8 @@ NlpAllocateNetworkProfile (
     IN PLSA_CLIENT_REQUEST ClientRequest,
     OUT PMSV1_0_LM20_LOGON_PROFILE *ProfileBuffer,
     OUT PULONG ProfileBufferSize,
-    IN  PNETLOGON_VALIDATION_SAM_INFO2 NlpUser
+    IN  PNETLOGON_VALIDATION_SAM_INFO2 NlpUser,
+    IN  ULONG ParameterControl
     )
 
 /*++
@@ -799,6 +800,9 @@ Arguments:
     NlpUser - Contains the validation information which is
         to be copied in the ProfileBuffer.  Will be NULL to indicate a
         NULL session.
+
+    ParameterControl - Contains the flags passed by the caller
+        of LsaLogonUser.
 
 Return Value:
 
@@ -876,8 +880,13 @@ Return Value:
         // Copy the individual scalar fields into the profile buffer.
         //
 
-        OLD_TO_NEW_LARGE_INTEGER( NlpUser->LogoffTime,
-                                  LocalProfile->LogoffTime);
+        if ((ParameterControl & MSV1_0_RETURN_PASSWORD_EXPIRY) != 0) {
+            OLD_TO_NEW_LARGE_INTEGER( NlpUser->PasswordMustChange,
+                                      LocalProfile->LogoffTime);
+        } else {
+            OLD_TO_NEW_LARGE_INTEGER( NlpUser->LogoffTime,
+                                      LocalProfile->LogoffTime);
+        }
         OLD_TO_NEW_LARGE_INTEGER( NlpUser->KickOffTime,
                                   LocalProfile->KickOffTime);
         LocalProfile->UserFlags = NlpUser->UserFlags;
@@ -1118,143 +1127,195 @@ Return Value:
 
     V1->User.User.Attributes = 0;
 
-    //
-    // Allocate an array to hold the groups
-    //
-
-    Size = ( (ULONG)sizeof(TOKEN_GROUPS)
-       + (NlpUser->GroupCount * (ULONG)sizeof(SID_AND_ATTRIBUTES))
-       - (ANYSIZE_ARRAY * (ULONG)sizeof(SID_AND_ATTRIBUTES))
-           );
 
     //
-    // If there are extra SIDs, add space for them
+    // If this is a server logon, build a more limited token information
+    // structure.
     //
 
-    if (NlpUser->UserFlags & LOGON_EXTRA_SIDS) {
-        Size += NlpUser->SidCount * (ULONG)sizeof(SID_AND_ATTRIBUTES);
-    }
+    if ((NlpUser->UserFlags & LOGON_SERVER_TRUST_ACCOUNT) == 0)
+    {
+
+        //
+        // Allocate an array to hold the groups
+        //
+
+        Size = ( (ULONG)sizeof(TOKEN_GROUPS)
+           + (NlpUser->GroupCount * (ULONG)sizeof(SID_AND_ATTRIBUTES))
+           - (ANYSIZE_ARRAY * (ULONG)sizeof(SID_AND_ATTRIBUTES))
+               );
+
+        //
+        // If there are extra SIDs, add space for them
+        //
+
+        if (NlpUser->UserFlags & LOGON_EXTRA_SIDS) {
+            Size += NlpUser->SidCount * (ULONG)sizeof(SID_AND_ATTRIBUTES);
+        }
 
 
+        V1->Groups = (*Lsa.AllocateLsaHeap)( Size );
 
-    V1->Groups = (*Lsa.AllocateLsaHeap)( Size );
-
-    if ( V1->Groups == NULL ) {
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-        goto Cleanup;
-    }
-
-    V1->Groups->GroupCount = 0;
-
-    //
-    // Start copying SIDs into the structure
-    //
-
-
-
-    //
-    // If the UserId is non-zero, then it contians the users RID.
-    //
-
-    if ( NlpUser->UserId ) {
-        V1->User.User.Sid =
-                NlpMakeDomainRelativeSid( NlpUser->LogonDomainId,
-                                          NlpUser->UserId );
-
-        if( V1->User.User.Sid == NULL ) {
+        if ( V1->Groups == NULL ) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto Cleanup;
         }
 
-    }
+        V1->Groups->GroupCount = 0;
 
-    //
-    // Make a copy of the primary group (a required field).
-    //
-
-
-    V1->PrimaryGroup.PrimaryGroup = NlpMakeDomainRelativeSid(
-                                            NlpUser->LogonDomainId,
-                                            NlpUser->PrimaryGroupId );
-
-    if ( V1->PrimaryGroup.PrimaryGroup == NULL ) {
-        Status = STATUS_INSUFFICIENT_RESOURCES;
-        goto Cleanup;
-    }
+        //
+        // Start copying SIDs into the structure
+        //
 
 
 
+        //
+        // If the UserId is non-zero, then it contians the users RID.
+        //
+
+        if ( NlpUser->UserId ) {
+            V1->User.User.Sid =
+                    NlpMakeDomainRelativeSid( NlpUser->LogonDomainId,
+                                              NlpUser->UserId );
+
+            if( V1->User.User.Sid == NULL ) {
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                goto Cleanup;
+            }
+
+        }
+
+        //
+        // Make a copy of the primary group (a required field).
+        //
 
 
-    //
-    // Copy over all the groups passed as RIDs
-    //
+        V1->PrimaryGroup.PrimaryGroup = NlpMakeDomainRelativeSid(
+                                                NlpUser->LogonDomainId,
+                                                NlpUser->PrimaryGroupId );
 
-    for ( i=0; i < NlpUser->GroupCount; i++ ) {
-
-        V1->Groups->Groups[i].Attributes = NlpUser->GroupIds[i].Attributes;
-
-        V1->Groups->Groups[i].Sid = NlpMakeDomainRelativeSid(
-                                         NlpUser->LogonDomainId,
-                                         NlpUser->GroupIds[i].RelativeId );
-
-        if( V1->Groups->Groups[i].Sid == NULL ) {
+        if ( V1->PrimaryGroup.PrimaryGroup == NULL ) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             goto Cleanup;
         }
 
-        V1->Groups->GroupCount++;
-    }
 
 
-    //
-    // Add in the extra SIDs
-    //
 
-    if (NlpUser->UserFlags & LOGON_EXTRA_SIDS) {
 
-        ULONG index = 0;
         //
-        // If the user SID wasn't passed as a RID, it is the first
-        // SID.
+        // Copy over all the groups passed as RIDs
         //
 
-        if ( !V1->User.User.Sid ) {
-            if ( NlpUser->SidCount <= index ) {
+        for ( i=0; i < NlpUser->GroupCount; i++ ) {
 
-                Status = STATUS_INSUFFICIENT_LOGON_INFO;
-                goto Cleanup;
-            }
-            V1->User.User.Sid = NlpCopySid( NlpUser->ExtraSids[index].Sid );
+            V1->Groups->Groups[i].Attributes = NlpUser->GroupIds[i].Attributes;
 
-            if (!V1->User.User.Sid) {
+            V1->Groups->Groups[i].Sid = NlpMakeDomainRelativeSid(
+                                             NlpUser->LogonDomainId,
+                                             NlpUser->GroupIds[i].RelativeId );
+
+            if( V1->Groups->Groups[i].Sid == NULL ) {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
                 goto Cleanup;
             }
-
-            index++;
-        }
-
-        //
-        // Copy over all additional SIDs as groups.
-        //
-
-        for ( ; index < NlpUser->SidCount; index++ ) {
-
-            V1->Groups->Groups[V1->Groups->GroupCount].Attributes =
-                NlpUser->ExtraSids[index].Attributes;
-
-            if (! (V1->Groups->Groups[V1->Groups->GroupCount].Sid =
-                    NlpCopySid(NlpUser->ExtraSids[index].Sid ) ) ) {
-
-                Status = STATUS_INSUFFICIENT_RESOURCES;
-                goto Cleanup;
-            }
-
-
 
             V1->Groups->GroupCount++;
         }
+
+
+        //
+        // Add in the extra SIDs
+        //
+
+        if (NlpUser->UserFlags & LOGON_EXTRA_SIDS) {
+
+            ULONG index = 0;
+            //
+            // If the user SID wasn't passed as a RID, it is the first
+            // SID.
+            //
+
+            if ( !V1->User.User.Sid ) {
+                if ( NlpUser->SidCount <= index ) {
+
+                    Status = STATUS_INSUFFICIENT_LOGON_INFO;
+                    goto Cleanup;
+                }
+                V1->User.User.Sid = NlpCopySid( NlpUser->ExtraSids[index].Sid );
+
+                if (!V1->User.User.Sid) {
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto Cleanup;
+                }
+
+                index++;
+            }
+
+            //
+            // Copy over all additional SIDs as groups.
+            //
+
+            for ( ; index < NlpUser->SidCount; index++ ) {
+
+                V1->Groups->Groups[V1->Groups->GroupCount].Attributes =
+                    NlpUser->ExtraSids[index].Attributes;
+
+                if (! (V1->Groups->Groups[V1->Groups->GroupCount].Sid =
+                        NlpCopySid(NlpUser->ExtraSids[index].Sid ) ) ) {
+
+                    Status = STATUS_INSUFFICIENT_RESOURCES;
+                    goto Cleanup;
+                }
+
+
+
+                V1->Groups->GroupCount++;
+            }
+        }
+
+    }
+    else
+    {
+        SID ServerLogonSid = {SID_REVISION, 1, SECURITY_NT_AUTHORITY, SECURITY_SERVER_LOGON_RID };
+        ULONG SidSize;
+
+        //
+        // Built the server logon token. This is similar to an anonymous
+        // logon token but it has a SERVER LOGON SID instead of an
+        // ANONYMOUS LOGON sid
+        //
+
+        SidSize = RtlLengthSid(&ServerLogonSid);
+
+        V1->User.User.Sid = (*Lsa.AllocateLsaHeap)( SidSize );
+        if (V1->User.User.Sid == NULL) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Cleanup;
+        }
+
+        RtlCopyMemory(
+            V1->User.User.Sid,
+            &ServerLogonSid,
+            SidSize
+            );
+
+        //
+        // Build the primary group to be the same
+        //
+
+        V1->PrimaryGroup.PrimaryGroup = (*Lsa.AllocateLsaHeap)( SidSize );
+        if (V1->PrimaryGroup.PrimaryGroup == NULL) {
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+            goto Cleanup;
+        }
+
+        RtlCopyMemory(
+            V1->PrimaryGroup.PrimaryGroup,
+            &ServerLogonSid,
+            SidSize
+            );
+
     }
 
     if (!V1->User.User.Sid) {

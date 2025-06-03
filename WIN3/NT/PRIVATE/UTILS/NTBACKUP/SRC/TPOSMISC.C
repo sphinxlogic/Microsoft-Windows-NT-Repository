@@ -419,7 +419,7 @@ CHAR_PTR drive_name )
 
    if ( answer ) {
 #ifdef OS_WIN32
-      _sleep( (DWORD)3000 );
+      Sleep( (DWORD)3000 );
 #endif
       status = UI_NEW_TAPE_INSERTED ;
    }

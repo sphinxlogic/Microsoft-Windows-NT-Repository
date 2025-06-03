@@ -89,12 +89,14 @@ typedef     union {
 #endif
     } VTUNION;
 
+#if 0
 typedef struct _FMTID
 	{
 	DWORD dword;
 	WORD words[2];
 	BYTE bytes[8];
 	} FMTID;
+#endif
 
 typedef struct _PROPSETLIST
 	{
@@ -246,10 +248,10 @@ typedef struct _STANDARDSECINMEM
 
 #define FIntelOrder(prop) ((prop)->byteOrder==0xfffe)
 #define SetOs(prop, os) {(prop)->osVersion=os; (prop)->getOSVersion=LOWORD(GetVersion());}
-#define SetSumInfFMTID(fmtId) {(fmtId)->dword=0XF29F85E0; *(long FAR *)&(fmtId)->words=0X10684FF9;\
-				*(long FAR *)&(fmtId)->bytes[0]=0X000891AB; *(long FAR *)&(fmtId)->bytes[4]=0XD9B3272B;}
-#define FEqSumInfFMTID(fmtId) ((fmtId)->dword==0XF29F85E0&&*((long FAR *)&(fmtId)->words)==0X10684FF9&&\
-				*((long FAR *)&(fmtId)->bytes[0])==0X000891AB&&*((long FAR *)&(fmtId)->bytes[4])==0XD9B3272B)
+#define SetSumInfFMTID(fmtId) {(fmtId)->Data1=0XF29F85E0; *(long FAR *)&(fmtId)->Data2=0X10684FF9;\
+                                *(long FAR *)&(fmtId)->Data4[0]=0X000891AB; *(long FAR *)&(fmtId)->Data4[4]=0XD9B3272B;}
+#define FEqSumInfFMTID(fmtId) ((fmtId)->Data1==0XF29F85E0&&*((long FAR *)&(fmtId)->Data2)==0X10684FF9&&\
+                                *((long FAR *)&(fmtId)->Data4[0])==0X000891AB&&*((long FAR *)&(fmtId)->Data4[4])==0XD9B3272B)
 #define FSzEqPropStreamName(sz) _fstricmp(sz, PropStreamName)
 #define ClearSumInf(lpsuminf, cb) {_fmemset(lpsuminf,0,cb); (lpsuminf)->byteOrder=0xfffe;\
 				SetOs(lpsuminf, osWinOnDos);}

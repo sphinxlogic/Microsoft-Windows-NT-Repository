@@ -218,6 +218,9 @@ Initial revision.
 #define IDD_ABOUTPROCESSORTITLE 309
 #define IDD_ABOUTPROCESSOR      310
 #define IDD_ABOUTICON           311
+#define IDD_ABOUTIDENTTITLE     312
+#define IDD_ABOUTIDENT          313
+#define IDD_ABOUTPRODID         314
 
 #define IDD_FIND        ID(400)
 #define IDD_SEARCH      401
@@ -311,11 +314,13 @@ Initial revision.
 #include "jobs.h"
 
 /* backup set dialog */
-#if defined ( OEM_MSOFT )
+#ifdef OEM_MSOFT
 #  include "ombkup.h"
 #else
 #  include "bkup.h"
 #endif
+
+#include "omxchng.h"
 
 /* runtime dialog */
 

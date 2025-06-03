@@ -24,9 +24,13 @@ Environment:
 #define _IMAGEHLP_SOURCE_
 #define _CROSS_PLATFORM_
 #include "walk.h"
+#include "private.h"
 #include <stdlib.h>
 
-char _fltused;          // Avoid dragging in float code for float->double conversion
+#ifdef __cplusplus
+extern "C"
+#endif
+char _fltused = 0;          // Avoid dragging in float code for float->double conversion
 
 BOOL
 WalkAlphaInit(
@@ -46,14 +50,15 @@ WalkAlphaNext(
     PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccessRoutine
     );
 
-BOOL static
-GetStackFrame(
+BOOL
+WalkAlphaGetStackFrame(
     HANDLE                            hProcess,
     LPDWORD                           ReturnAddress,
     LPDWORD                           FramePointer,
     PCONTEXT                          Context,
     PREAD_PROCESS_MEMORY_ROUTINE      ReadMemory,
-    PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccess
+    PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccess,
+    PKDHELP                           KdHelp
     );
 
 #define ZERO 0x0                /* integer register 0 */
@@ -63,6 +68,12 @@ GetStackFrame(
 #define SAVED_INTEGER_MASK 0xf3ffff02 /* saved integer registers */
 #define IS_FLOATING_SAVED(Register) ((SAVED_FLOATING_MASK >> Register) & 1L)
 #define IS_INTEGER_SAVED(Register) ((SAVED_INTEGER_MASK >> Register) & 1L)
+#define CALLBACK_STACK(f)  (f->KdHelp.ThCallbackStack)
+#define CALLBACK_NEXT(f)   (f->KdHelp.NextCallback)
+#define CALLBACK_FUNC(f)   (f->KdHelp.KiCallUserMode)
+#define CALLBACK_THREAD(f) (f->KdHelp.Thread)
+#define CALLBACK_FP(f)     (f->KdHelp.FramePointer)
+#define CALLBACK_DISPATCHER(f) (f->KdHelp.KeUserCallbackDispatcher)
 
 
 BOOL
@@ -195,11 +206,10 @@ Version Information:  This version was taken from exdspatch.c@v37 (Feb 1993)
     ULONG             Address;
     ULONG             DecrementOffset;
     ULONG             DecrementRegister;
-    PULONG            FloatingRegister;
-    PULONG            FloatingRegisterHigh;
+    PULONGLONG        FloatingRegister;
     ULONG             FrameSize;
     ULONG             Function;
-    PULONG            IntegerRegister;
+    PULONGLONG        IntegerRegister;
     ULONG             Literal8;
     ULONG             NextPc;
     LONG              Offset16;
@@ -216,12 +226,12 @@ Version Information:  This version was taken from exdspatch.c@v37 (Feb 1993)
     // perf hack: fill cache with prolog
     if (FunctionEntry) {
         cb = FunctionEntry->PrologEndAddress - FunctionEntry->BeginAddress;
-        Prolog = (PVOID) LocalAlloc(LPTR, cb);
+        Prolog = (PVOID) MemAlloc( cb );
         if (!ReadMemory( hProcess, (LPVOID)FunctionEntry->BeginAddress,
                                                          Prolog, cb, &cb )) {
             return 0;
         }
-        LocalFree(Prolog);
+        MemFree(Prolog);
     }
 
     //
@@ -233,7 +243,6 @@ Version Information:  This version was taken from exdspatch.c@v37 (Feb 1993)
 
     IntegerRegister      = &Context->IntV0;
     FloatingRegister     = &Context->FltF0;
-    FloatingRegisterHigh = &Context->HighFltF0;
 
     //
     // Handle the epilogue case where the next instruction is a return.
@@ -465,8 +474,8 @@ Version Information:  This version was taken from exdspatch.c@v37 (Feb 1993)
                 // stored on the stack.
                 //
 
-                Address = Offset16 + Context->IntSp;
-                if (!ReadMemory(hProcess, (LPVOID)Address, &IntegerRegister[Ra], 4, &cb)) {
+                Address = (ULONG)(Offset16 + Context->IntSp);
+                if (!ReadMemory(hProcess, (LPVOID)Address, &IntegerRegister[Ra], 8L, &cb)) {
                     return 0;
                 }
 
@@ -815,8 +824,6 @@ StackAllocation:
             break;
 
         case STT_OP :
-        case STS_OP :
-
 
             //
             // Store T-Floating (quadword integer) instruction.
@@ -836,41 +843,56 @@ StackAllocation:
                 // stored on the stack.
                 //
 
-                Address = Offset16 + Context->IntSp;
-                if (!ReadMemory(hProcess, (LPVOID)Address, &FloatingRegister[Ra], 4, &cb)) {
+                Address = (ULONG)(Offset16 + Context->IntSp);
+                if (!ReadMemory(hProcess, (LPVOID)Address, &FloatingRegister[Ra], 8L, &cb)) {
                     return 0;
                 }
 
-                if (Opcode == STT_OP) {
+                //
+                // If a context pointer record is specified, then record
+                // the address where the destination register contents are
+                // stored.
+                //
 
-                    //
-                    // value was stored as a double; get the high four bytes
-                    //
-
-                    Address += 4;
-                    if (!ReadMemory(hProcess, (LPVOID)Address, &FloatingRegisterHigh[Ra], 4, &cb)) {
-                        return 0;
-                    }
-
-                } else {
-
-                    //
-                    // value was stored as a float.  Do a conversion to a
-                    // double, since registers are Always read as doubles
-                    //
-
-                    union {
-                       double         d;
-                       float          f;
-                       LARGE_INTEGER li;
-                    } u;
-
-                    memcpy( &u.f, &FloatingRegister[Ra], sizeof (u.f) );
-                    u.d = (double) u.f;
-                    FloatingRegister[Ra]     = u.li.LowPart;
-                    FloatingRegisterHigh[Ra] = u.li.HighPart;
-
+                if (ContextPointers != (PKNONVOLATILE_CONTEXT_POINTERS) NULL) {
+                    ContextPointers->FloatingContext[Ra] = (PULONGLONG)Address;
                 }
+            }
+            break;
+
+
+        case STS_OP :
+
+            //
+            // Store T-Floating (dword integer) instruction.
+            //
+            // If the base register is SP, then reload the source register
+            // value from the value stored on the stack.
+            //
+            // The prologue instruction sequence is:
+            //
+            // ==>  stt   Fx, N(sp)         // save floating register Fx
+            //
+
+            if ((Rb == SP_REG) && (Ra != FZERO_REG)) {
+
+                //
+                // Reload the register by retrieving the value previously
+                // stored on the stack.
+                //
+
+                float f;
+
+                Address = (ULONG)(Offset16 + Context->IntSp);
+                if (!ReadMemory(hProcess, (LPVOID)Address, &f, sizeof(float), &cb)) {
+                    return 0;
+                }
+
+                //
+                // value was stored as a float.  Do a conversion to a
+                // double, since registers are Always read as doubles
+                //
+                FloatingRegister[Ra] = (ULONGLONG)(double)f;
 
                 //
                 // If a context pointer record is specified, then record
@@ -920,19 +942,22 @@ StackAllocation:
 }
 
 BOOL
-GetStackFrame(
+WalkAlphaGetStackFrame(
     HANDLE                            hProcess,
     LPDWORD                           ReturnAddress,
     LPDWORD                           FramePointer,
     PCONTEXT                          Context,
     PREAD_PROCESS_MEMORY_ROUTINE      ReadMemory,
-    PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccess
+    PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccess,
+    PKDHELP                           KdHelp
     )
 {
     KNONVOLATILE_CONTEXT_POINTERS    cp;
     PIMAGE_RUNTIME_FUNCTION_ENTRY    rf;
-    DWORD                            dwRa = Context->IntRa;
+    DWORD                            dwRa = (DWORD)Context->IntRa;
     BOOL                             rval = TRUE;
+    DWORD                            cb;
+    DWORD                            Address;
 
 
     rf = (PIMAGE_RUNTIME_FUNCTION_ENTRY) FunctionTableAccess( hProcess, *ReturnAddress );
@@ -958,26 +983,25 @@ GetStackFrame(
         // in particular, we want the fault instruction so we can get the
         // correct scope in the case of an exception.
         //
-        if ( (dwRa == *ReturnAddress && *FramePointer == Context->IntSp) ||
+        if ( (dwRa == *ReturnAddress && *FramePointer == (DWORD)Context->IntSp) ||
              (dwRa == 1) || (dwRa == 0) || (dwRa == (1-4)) ) {
             rval = FALSE;
         }
 
         *ReturnAddress = dwRa;
-        *FramePointer  = Context->IntSp;
+        *FramePointer  = (DWORD)Context->IntSp;
 
     } else {
 
-        if ( (dwRa == *ReturnAddress && *FramePointer == Context->IntSp) ||
+        if ( (dwRa == *ReturnAddress && *FramePointer == (DWORD)Context->IntSp) ||
              (dwRa == 1) || (dwRa == 0) || (dwRa == (1-4)) ) {
             rval = FALSE;
         }
 
-        *ReturnAddress = Context->IntRa;
-        *FramePointer  = Context->IntSp;
+        *ReturnAddress = (DWORD)Context->IntRa;
+        *FramePointer  = (DWORD)Context->IntSp;
 
     }
-
 
     return rval;
 }
@@ -1009,32 +1033,16 @@ WalkAlphaInit(
             //
             // successfully read an exception frame from the stack
             //
-#if defined(_M_IX86) || defined(_M_MRX000)
-
-            Context->IntSp = StackFrame->AddrFrame.Offset;
-            Context->Fir   = ((PLARGE_INTEGER)(&pef->SwapReturn))->LowPart;
-            Context->IntRa = ((PLARGE_INTEGER)(&pef->SwapReturn))->LowPart;
-            Context->IntS0 = ((PLARGE_INTEGER)(&pef->IntS0))->LowPart;
-            Context->IntS1 = ((PLARGE_INTEGER)(&pef->IntS1))->LowPart;
-            Context->IntS2 = ((PLARGE_INTEGER)(&pef->IntS2))->LowPart;
-            Context->IntS3 = ((PLARGE_INTEGER)(&pef->IntS3))->LowPart;
-            Context->IntS4 = ((PLARGE_INTEGER)(&pef->IntS4))->LowPart;
-            Context->IntS5 = ((PLARGE_INTEGER)(&pef->IntS5))->LowPart;
-            Context->Psr   = (ULONG)(pef->Psr);
-
-#else        // on an ALPHA
-
-            Context->IntSp  = StackFrame->AddrFrame.Offset;
-            Context->Fir    = (ULONG)(pef->SwapReturn & 0xffffffff);
-            Context->IntRa  = (ULONG)(pef->SwapReturn & 0xffffffff);
-            Context->IntS0  = (ULONG)(pef->IntS0 & 0xffffffff);
-            Context->IntS1  = (ULONG)(pef->IntS1 & 0xffffffff);
-            Context->IntS2  = (ULONG)(pef->IntS2 & 0xffffffff);
-            Context->IntS3  = (ULONG)(pef->IntS3 & 0xffffffff);
-            Context->IntS4  = (ULONG)(pef->IntS4 & 0xffffffff);
-            Context->IntS5  = (ULONG)(pef->IntS5 & 0xffffffff);
-            Context->Psr    = (ULONG)(pef->Psr  & 0xffffffff);
-#endif
+            Context->IntSp  = (LONG)StackFrame->AddrFrame.Offset;
+            Context->Fir    = pef->SwapReturn;
+            Context->IntRa  = pef->SwapReturn;
+            Context->IntS0  = pef->IntS0;
+            Context->IntS1  = pef->IntS1;
+            Context->IntS2  = pef->IntS2;
+            Context->IntS3  = pef->IntS3;
+            Context->IntS4  = pef->IntS4;
+            Context->IntS5  = pef->IntS5;
+            Context->Psr    = pef->Psr;
         } else {
             return FALSE;
         }
@@ -1044,24 +1052,25 @@ WalkAlphaInit(
 
     StackFrame->Virtual = TRUE;
 
-    StackFrame->AddrPC.Offset       = Context->Fir;
+    StackFrame->AddrPC.Offset       = (DWORD)Context->Fir;
     StackFrame->AddrPC.Mode         = AddrModeFlat;
 
-    StackFrame->AddrFrame.Offset    = Context->IntSp;
+    StackFrame->AddrFrame.Offset    = (DWORD)Context->IntSp;
     StackFrame->AddrFrame.Mode      = AddrModeFlat;
 
     ContextSave = *Context;
     PcOffset    = StackFrame->AddrPC.Offset;
     FrameOffset = StackFrame->AddrFrame.Offset;
 
-    if (!GetStackFrame( hProcess,
+    if (!WalkAlphaGetStackFrame( hProcess,
                         &PcOffset,
                         &FrameOffset,
                         &ContextSave,
                         ReadMemory,
-                        FunctionTableAccess ) ) {
+                        FunctionTableAccess,
+                        &StackFrame->KdHelp ) ) {
 
-        StackFrame->AddrReturn.Offset = Context->IntRa;
+        StackFrame->AddrReturn.Offset = (DWORD)Context->IntRa;
 
     } else {
 
@@ -1094,17 +1103,78 @@ WalkAlphaNext(
     DWORD              cb;
     CONTEXT            ContextSave;
     BOOL               rval = TRUE;
+    DWORD              Address;
+    PIMAGE_RUNTIME_FUNCTION_ENTRY  rf;
 
 
-    if (!GetStackFrame( hProcess,
+    if (!WalkAlphaGetStackFrame( hProcess,
                         &StackFrame->AddrPC.Offset,
                         &StackFrame->AddrFrame.Offset,
                         Context,
                         ReadMemory,
-                        FunctionTableAccess ) ) {
+                        FunctionTableAccess,
+                        &StackFrame->KdHelp ) ) {
 
         rval = FALSE;
 
+        //
+        // If the frame could not be unwound or is terminal, see if
+        // there is a callback frame:
+        //
+
+        if (AppVersion.Revision >= 4 && CALLBACK_STACK(StackFrame)) {
+
+           if (CALLBACK_STACK(StackFrame) & 0x80000000) {
+
+                //
+                // it is the pointer to the stack frame that we want,
+                // or -1.
+
+                Address = CALLBACK_STACK(StackFrame);
+
+            } else {
+
+                //
+                // if it is a positive integer, it is the offset to
+                // the address in the thread.
+                // Look up the pointer:
+                //
+
+                rval = ReadMemory(hProcess,
+                                  (PVOID)(CALLBACK_THREAD(StackFrame) +
+                                                 CALLBACK_STACK(StackFrame)),
+                                  &Address,
+                                  sizeof(DWORD),
+                                  &cb);
+
+                if (!rval || Address == 0) {
+                    Address = 0xffffffff;
+                    CALLBACK_STACK(StackFrame) = 0xffffffff;
+                }
+
+            }
+
+            if ( (Address == 0xffffffff) ||
+                !(rf = (PIMAGE_RUNTIME_FUNCTION_ENTRY)
+                     FunctionTableAccess(hProcess, CALLBACK_FUNC(StackFrame))) ) {
+
+                rval = FALSE;
+
+            } else {
+
+                ReadMemory(hProcess,
+                           (PVOID)(Address + CALLBACK_NEXT(StackFrame)),
+                           &CALLBACK_STACK(StackFrame),
+                           sizeof(DWORD),
+                           &cb);
+
+                StackFrame->AddrPC.Offset = rf->PrologEndAddress;
+                StackFrame->AddrFrame.Offset = Address;
+                Context->IntSp = (LONG)Address;
+
+                rval = TRUE;
+            }
+        }
     }
 
     //
@@ -1113,13 +1183,13 @@ WalkAlphaNext(
     ContextSave = *Context;
     StackFrame->AddrReturn.Offset = StackFrame->AddrPC.Offset;
 
-    if (!GetStackFrame( hProcess,
+    if (!WalkAlphaGetStackFrame( hProcess,
                         &StackFrame->AddrReturn.Offset,
                         &cb,
                         &ContextSave,
                         ReadMemory,
-                        FunctionTableAccess ) ) {
-
+                        FunctionTableAccess,
+                        &StackFrame->KdHelp ) ) {
 
         StackFrame->AddrReturn.Offset = 0;
 

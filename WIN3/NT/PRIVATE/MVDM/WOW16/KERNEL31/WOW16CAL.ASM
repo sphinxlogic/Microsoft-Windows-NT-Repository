@@ -1,4 +1,3 @@
-
     TITLE   WOW16CAL.ASM
     PAGE    ,132
 ;
@@ -63,6 +62,7 @@ externFP FREERESOURCE
 externFP LOCKRESOURCE
 externFP SIZEOFRESOURCE
 externFP Int21Handler
+externFP IsBadReadPtr
 externFP GetSelectorLimit
 externFP GetExpWinVer
 externNP SwitchTask
@@ -83,11 +83,12 @@ externW  pLocalHeap
 externNP SetOwner
 externFP WowCheckUserGdi
 externFP GetExePtr
-
+externFP FatalExit
 
 sBegin  NRESCODE
 externFP get_sel_flags
 externFP set_sel_for_dib
+externFP RestoreDib
 sEnd    NRESCODE
 
 DataBegin
@@ -96,7 +97,6 @@ externW wCurTaskBP
 externW Win_PDB              ;MikeTri - extracting DOS PDB and SFT
 externD pFileTable
 externB fExitOnLastApp
-GlobalB fDibInProgress,0
 
 if PMODE
 externW THHOOK
@@ -120,10 +120,6 @@ externW TraceOff
 externD pDosWowData
 
 UserModuleName DB 'USER.EXE', 0
-ifdef DEBUG
-gwThreads db    0h;         ; Should be Zero When 1 thread is active
-endif
-
 
 DataEnd
 
@@ -169,14 +165,14 @@ apfnWOW16Func   dw  WOW16Return     ;order MUST match RET_* (wow.h)
         dw  WOW16SetCursorIconFlag
         dw  WOW16SetAbortProc
         dw  WOW16EnumPropsProc
-        dw  WOW16MidiInFunc         ; MultiMedia callbacks - MikeTri 30-Apr-1992
-        dw  WOW16MidiOutFunc
-        dw  WOW16IOProc
-        dw  WOW16TimeFunc
-        dw  WOW16WaveInFunc
-        dw  WOW16WaveOutFunc
+        dw  WOW16ForceSegmentFault
+        dw  0                           ;FREE
+        dw  0                           ;FREE
+        dw  0                           ;FREE
+        dw  0                           ;FREE
+        dw  0                           ;FREE
         dw  WOW16GetExePtr
-        dw  WOW16GetModuleUsage
+        dw  0                          ; WOW16GetModuleUsage removed
         dw  WOW16ForceTaskFault
         dw  WOW16GetExpWinVer
         dw  WOW16GetCurDir
@@ -206,8 +202,8 @@ CRETENTRIES equ 020h
         align 8
         IFE  bytes
 aRets:
-	ENDIF
-	pop  bx 	    ;restore app BX
+        ENDIF
+        pop  bx             ;restore app BX
         pop  bp
         add  sp, 0ah          ;pop thunk ret address, wCallID/lpfn, wArgs
         retf bytes
@@ -303,9 +299,20 @@ cBegin nogen
 wc_set_vdmframe:
     push bp
     mov  bp, sp                     ; standard frame
-    push bx			    ; REMOVE LATER APPs BX
+    push bx                         ; REMOVE LATER APPs BX
     push es                         ; REMOVE LATER
     push cx                         ; REMOVE LATER
+ifndef PM386
+    ; %OUT building 286
+    push    ax                      ; dummy values for fs,gs in 286
+    push    ax
+else
+.386
+    ; %OUT building 386
+    push fs
+    push gs
+.286
+endif
     push ds
     sub  sp, 4                      ; room for api dword return value
     push si                         ; standard regs
@@ -320,10 +327,6 @@ WOW16ApiCall:
     mov [wCurTaskSS],di     ;save current task SS
     mov [wCurTaskBP],bp     ;save current task BP
 
-ifdef DEBUG
-    dec gwThreads       ; Reduce Count of Threads in 16 bit space
-endif
-
 ;   We don't want to allow debuggers to trace into 32 bit land, since they
 ;   will get lost.
 
@@ -337,18 +340,16 @@ WOW16FastVector:
 .386
     call    fword ptr [FastWOW]
 .286
+    jmp     short WOW16CallContinue
 
+    public WOW16SlowVector
+Entry   WOW16SlowVector
+    BOP BOP_WOW
+
+    public WOW16CallContinue
 WOW16CallContinue:  ; don't move this label!  see comment below
 
-;   Check for Task Switch
     SetKernelDS ds
-
-ifdef DEBUG;
-    inc gwThreads   ; gwThreads should be ZERO when 1 thread is running
-    jz  @f;     ; If its more than ZERO we have a problem.
-    INT3_NEVER      ; ASSERT
-@@:
-endif;
 
     xor     ax,ax
     xchg    TraceOff,ax
@@ -356,6 +357,7 @@ endif;
     jnz     turn_on_trace_bit
 
 W16C_010:
+;   Check for Task Switch
     pop ax                               ; retrieve current task ID
     cmp ax, [curTDB]                     ; Task Switch ?
     jnz jmpSwitchTask                    ; Yes -> Perform Task Switch
@@ -368,7 +370,7 @@ WOW16CallNewTaskRet:
     cmp bx, RET_RETURN
     jnz WOW16_From_CallBack16
 
-public WOW16Return
+    public WOW16Return
 WOW16Return:
 
     ; we don't want to return to the thunk, that's just going to
@@ -386,6 +388,15 @@ wc_restore_regs:
     pop  ax             ;
     pop  dx
     pop  ds
+ifndef PM386
+    pop  cx             ; trash cx for two dumy words, as real cx is going
+    pop  cx             ; to be popped after this.
+else
+.386
+    pop  gs
+    pop  fs
+.286
+endif
 
     pop  cx                         ; REMOVE LATER
     pop  es                         ; REMOVE LATER
@@ -406,6 +417,7 @@ endif
     add  bx, codeoffset aRets
     jmp  bx             ; dispatch to the right RETF n
 
+
 ;
 ;   If a debugger was tracing the app then reenable on the 16 bit side again
 ;
@@ -419,6 +431,7 @@ turn_on_trace_bit:
     jmps    W16C_010
 
 
+    public WOW16_From_CallBack16
 WOW16_From_CallBack16:      ; exception RET_DEBUGRETURN and RET_TASKSTARTED
     mov si, bp              ; save bp, dont push on stack
     mov bp, sp              ; for convenience.
@@ -432,6 +445,7 @@ WOW16_From_CallBack16:      ; exception RET_DEBUGRETURN and RET_TASKSTARTED
     jmp apfnWOW16Func[bx]   ;route to appropriate function handler
 
 
+    public WOW16DebugReturn
 Entry   WOW16DebugReturn
      ; undo the 'callback' munging
     mov bp, si
@@ -441,11 +455,7 @@ Entry   WOW16DebugReturn
 jmpSwitchTask:
     jmp SwitchTask  ; Go perform a Task Switch
 
-Entry   WOW16SlowVector
-    BOP BOP_WOW
-    jmp     short WOW16CallContinue
-
-
+    public WOW16TaskStartedTmp
 Entry  WOW16TaskStartedTmp
      ; undo the 'callback' munging
     mov  bp, si
@@ -456,6 +466,15 @@ Entry  WOW16TaskStartedTmp
     pop  dx
     pop  ds
 
+ifndef PM386
+    pop  cx             ; trash cx for two dumy words, as real cx is going
+    pop  cx             ; to be popped after this.
+else
+.386
+    pop  gs
+    pop  fs
+.286
+endif
     pop  cx                         ; REMOVE LATER
     pop  es                         ; REMOVE LATER
     pop  bx                         ; pop  bx  ; REMOVE LATER;
@@ -468,6 +487,7 @@ Entry  WOW16TaskStartedTmp
 ; Assumes PARM16 is followed by vpfn
 ;
 
+    public WOW16WOWCallback16
 Entry   WOW16WOWCallback16    ; 32-bit generic callback
 
     call    [vpfnProc]        ; call the target proc
@@ -475,6 +495,7 @@ Entry   WOW16WOWCallback16    ; 32-bit generic callback
     sub     sp, si            ; undo effect of "RET cbArgs"
     jmp WOW16Done
 
+    public WOW16WndProc
 Entry   WOW16WndProc
 
 ; don't expect si and di to be saved by the callback function - so save the
@@ -496,43 +517,50 @@ Entry   WOW16WndProc
     mov     sp,bp           ;restore pre-callback sp
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16EnumFontProc
 Entry   WOW16EnumFontProc
 
     call    [vpfnProc]      ;call the font proc
     sub     sp,size PARMEFP ;undo the effect of the proc's RET 0Eh
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16EnumObjProc
 Entry   WOW16EnumObjProc
     call    [vpfnProc]      ;call the obj proc
     sub     sp,size PARMEOP ;undo the effect of the proc's RET 0Eh
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16EnumWindowProc
 Entry   WOW16EnumWindowProc
     call    [vpfnProc]      ;call the font proc
     sub     sp,size PARMEWP ;undo the effect of the proc's RET 06h
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16LineDDAProc
 Entry   WOW16LineDDAProc
     call    [vpfnProc]      ;call the Line DDA proc
     sub     sp,size PARMDDA     ;undo the effect of the proc's RET 0Eh
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16GrayStringProc
 Entry   WOW16GrayStringProc
     call    [vpfnProc]      ;call the Graystring proc
     sub     sp,size PARMGST     ;undo the effect of the proc's RET 0Eh
     jmp     WOW16Done       ;call back to WOW32
 
+    public WOW16EnumPropsProc
 Entry   WOW16EnumPropsProc
     call    [vpfnProc]      ;call the obj proc
     sub     sp,size PARMEPP ;undo the effect of the proc's RET
     jmp     WOW16Done       ;call back to WOW32
 
-
+    public WOW16WordBreakProc
 Entry   WOW16WordBreakProc
     call    [vpfnProc]      ;call the wordbreak proc
     sub     sp,size PARMWBP ;undo the effect of the proc's RET
     jmp     WOW16Done       ;call back to WOW32
 
+if 0
 ;
 ; MultiMedia callbacks - MikeTri 30-Apr-1992
 ;
@@ -566,6 +594,7 @@ Entry   WOW16WaveOutFunc
     call    [vpfnProc]      ;call the WaveOut proc
     sub     sp,size PARMWOF ;undo the effect of the proc's RET 12h
     jmp     WOW16Done       ;call back to WOW32
+endif
 
 Entry   WOW16LocalAlloc
     mov     ax,wMsg         ; set up DS with hInstance
@@ -669,12 +698,22 @@ Entry   WOW16LocalSize
     jmp     WOW16Done
 
 Entry   WOW16LocalFree
+    mov     ax,lParam.hi    ; get selector of current local heap
+    push    ax              ; set up for call to IsBadReadPtr
+    push    0
+    push    1
+    call    far ptr IsBadReadPtr  ; is selector still valid?
+    or      ax,ax
+    jnz     wlf_done              ; ax != 0 -> nope!
+
     mov     ax,lParam.hi    ; set up DS with value from alloc
     mov     ds,ax
 
     push    lParam.lo       ;push hMem
     call    far ptr LOCALFREE   ;
+wlf_done:
     jmp WOW16Done       ;
+
 
 Entry   WOW16GlobalAllocLock
     push    wParam          ;push wFlags
@@ -844,8 +883,22 @@ Entry   WOW16HookProc
 
 
 Entry   WOW16SetAbortProc
-    call    [vpfnProc]          ;call the apps Hook Proc.
-    sub     sp,size PARMSAP     ;undo the effect of the proc's RET 0x04h
+    call    [vpfnProc]          ;call the apps abort proc
+;   sub     sp,size PARMSAP     ;undo the effect of the proc's RET 0x04h
+;
+;   Use 'bp' to restore 'sp' instead of subtracting 4bytes from sp. this is
+;   because Wordperfect's Informs doesn't pop the arguments off the stack.
+;   However it preserves 'bp'.
+;
+;   Here in wow, sp is same as bp .  The correct value  is in 'bp' - see
+;   WOW16_From_CallBack16
+;
+;   Similar fix can also be found in win31 - core\gdi, function queryabort()
+;
+;                                   - nandurir
+;
+
+    mov     sp, bp
     jmp     WOW16Done           ;call back to WOW32
 
 
@@ -887,16 +940,11 @@ Entry   WOW16SetCursorIconFlag
     jmp     WOW16Done       ;
 
 
-
 Entry   WOW16GetExePtr
     push    wParam          ;push hInstance
     call    GetExePtr
     jmp     WOW16Done
 
-Entry   WOW16GetModuleUsage
-    push    wParam          ;push hModule
-    call    GetModuleUsage
-    jmp     WOW16Done
 
 Entry   WOW16ForceTaskExit
     mov     ax,4CFFH        ; Hung App Support Forces Current Task to Exit
@@ -921,19 +969,25 @@ Entry   WOW16WinExec
 Entry   WOW16GetExpWinVer
     push    wParam          ;push hInstance
     call    GetExpWinVer
-    jmp     WOW16Done
+    jmps    WOW16Done
 
 Entry   WOW16GetCurDir
     call    GetCurrentDirectory       ;
     sub     sp,size PARMDIR           ; restore stack
-    jmp     WOW16Done   ;call back to WOW32
+    jmps    WOW16Done   ;call back to WOW32
 
 
 Entry   WOW16ForceTaskFault
-    %OUT    Ignore Impure warning A4100 its required for Forcing a GP Fault
+    ; %OUT    Ignore Impure warning A4100 its required for Forcing a GP Fault
     mov     cs:gdtdsc,0     ; Force a GP Fault - Write to our CS
     jmp     WOW16ForceTaskFault
 
+Entry   WOW16ForceSegmentFault
+    push    lParam.hi   ; selector of lp
+    push    lParam.lo   ; offset   of lp
+    push    1           ; min byte size
+    call    far ptr IsBadReadPtr  ; force segment fault or handle GPF
+    jmps    WOW16Done
 
 Entry   WOW16ForegroundIdle
     mov     ax,1689h        ;notify application that the foreground
@@ -962,20 +1016,10 @@ Entry   WOW16GetDibFlags
 
 Entry   WOW16SetDibSel
     cCall   set_sel_for_dib,<wParam,wMsg,lParam.lo,lParam.hi,hwnd>
-    push    ds
-    SetKernelDS
-    inc     fDibInProgress
-    UnSetKernelDS
-    pop     ds
     jmps    WOW16Done       ; Just return return value
 
 Entry   WOW16FreeDibSel
-    cCall   set_sel_for_dib,<wParam,wMsg,lParam.lo,lParam.hi,0>
-    push    ds
-    SetKernelDS
-    dec     fDibInProgress
-    UnSetKernelDS
-    pop     ds
+    cCall   RestoreDib,<wParam,wMsg,lParam.hi,lParam.lo>
     jmps    WOW16Done       ; Just return return value
 
 Entry   WOW16Debug
@@ -1001,10 +1045,6 @@ WOW16DoneBoot:                      ; tasking.asm needs this label
     push    [curTDB]        ;save current 16bit task handle (see tasking.asm)
     mov [wCurTaskSS],ss     ;save current task SS
     mov [wCurTaskBP],bp     ;save current task BP
-ifdef DEBUG
-    dec gwThreads       ; Reduce Count of Threads in 16 bit space
-endif
-
     mov     TraceOff,1h             ; Don't allow debuggers to trace to 32 bit land
 
     test    [FastWOWCbRetCS], 0ffffh
@@ -1171,8 +1211,8 @@ cBegin
         mov     ax,Drive        ; AX = Drive
         or      al,al       ; Zero?
         jnz     CDGotDrive      ; Yup, skip
-	mov	ah,19h	    ; Get Current Disk
-	DOSCALL
+        mov     ah,19h      ; Get Current Disk
+        DOSCALL
         inc     al          ; Convert to logical drive number
 CDGotDrive:
         mov     dl,al       ; DL = Logical Drive Number
@@ -1183,8 +1223,8 @@ CDGotDrive:
         stosb
         mov     byte ptr es:[di],0  ; Null terminate in case of error
         mov     si,di       ; DS:SI = lpDest[1]
-	mov	ah,47h	    ; Get Current Directory
-	DOSCALL
+        mov     ah,47h      ; Get Current Directory
+        DOSCALL
         jc      CDExit      ; Skip if error
         xor     ax,ax       ; Return FALSE if no error
 CDExit:
@@ -1253,25 +1293,6 @@ gt1:    mov     es,ax
 ;       ret
 
 
-; --- SetTaskSignalProc ----
-; Moved into this file because CONTEXT.ASM is not part of WOW's Kernel
-; and we just needed this one function.
-
-cProc   SetTaskSignalProc,<PUBLIC,FAR>
-;       parmW   taskID
-;       parmD   signalProc
-cBegin  nogen
-        mov     bx,sp
-        mov     ax,ss:[bx+8]
-        call    GetTaskHandle0
-        mov     ax,ss:[bx+4]
-        mov     dx,ss:[bx+6]
-        xchg    ax,es:[TDB_USignalProc].off
-        xchg    dx,es:[TDB_USignalProc].sel
-        ret     6
-cEnd    nogen
-
-
 ;*--------------------------------------------------------------------------*
 ;*                                                                          *
 ;*  WowSetExitOnLastApp(WORD fExitOnLastApp)                                *
@@ -1319,7 +1340,7 @@ Entry WowFixWin32CurDir
         and     dl,7fh
         mov     ah,0Eh                      ; change drive
         DOSCALL
-        mov     dx,TDB_Directory            ; DS:DX points to TDB curdir
+        mov     dx,TDB_LFNDirectory         ; DS:DX points to TDB curdir
         mov     ah,3Bh                      ; change directory
         DOSCALL
 if KDEBUG
@@ -1363,6 +1384,33 @@ cBegin]
     cCall   WowCheckUserGdi,<ds,dx> ; Much easier to check this in 32bit land.
 hc5:
     pop     es
+cEnd
+
+;-----------------------------------------------------------------------;
+; WowSetCompatHandle
+;
+; This routine takes a single parameter and saves it in the TDB. It is
+; used to take care of a bug in dBase where it confuses handle values.
+; This is a private API called by USER.EXE.
+;
+; All registers must be saved. DS is saved automatically by cmacros.
+; History:
+;-----------------------------------------------------------------------;
+
+cProc  WowSetCompatHandle, <PUBLIC, FAR>
+ParmW handle
+cBegin
+        push    bx
+        SetKernelDS
+        mov     bx,[CurTDB]
+        or      bx,bx
+        jz      @f                              ;check for zero just in case
+        mov     ds,bx                           ; DS points to TDB
+        UnSetKernelDS
+        mov     bx, handle
+        mov     ds:[TDB_CompatHandle],bx        ;save it here
+@@:
+        pop     bx
 cEnd
 
 sEND    CODE

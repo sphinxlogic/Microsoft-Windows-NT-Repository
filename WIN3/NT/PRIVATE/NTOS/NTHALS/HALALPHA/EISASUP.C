@@ -322,7 +322,7 @@ Return Value:
         //
 
         *((PUCHAR) &extendedMode) = 0;
-        extendedMode.ChannelNumber = channelNumber;
+        extendedMode.ChannelNumber = (UCHAR)channelNumber;
 
         switch (DeviceDescriptor->DmaSpeed) {
         case Compatible:
@@ -1052,10 +1052,12 @@ Return Value:
 
 }    
 
+#if !defined(AXP_FIRMWARE)
 
 ULONG
 HalpGetEisaData (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN ULONG SlotNumber,
     IN PVOID Buffer,
     IN ULONG Offset,
@@ -1070,7 +1072,10 @@ Routine Description:
 Arguments:
 
 
-    BusNumber - Indicates which bus.
+    BusHandler - Registered BUSHANDLER for the target configuration space
+
+    RootHandler - Registered BUSHANDLER for the orginating HalGetBusData 
+        request.
 
     Buffer - Supplies the space to store the data.
 
@@ -1083,13 +1088,13 @@ Return Value:
     Returns the amount of data stored into the buffer.
 
 --*/
-
 {
     OBJECT_ATTRIBUTES ObjectAttributes;
     OBJECT_ATTRIBUTES BusObjectAttributes;
     PWSTR EisaPath = L"\\Registry\\Machine\\Hardware\\Description\\System\\EisaAdapter";
     PWSTR ConfigData = L"Configuration Data";
     ANSI_STRING TmpString;
+    ULONG BusNumber;
     UCHAR BusString[] = "00";
     UNICODE_STRING RootName, BusName;
     UNICODE_STRING ConfigDataName;
@@ -1108,6 +1113,7 @@ Return Value:
     PUCHAR DataBuffer = Buffer;
     BOOLEAN Found = FALSE;
 
+    UNREFERENCED_PARAMETER( RootHandler );
 
     RtlInitUnicodeString(
                     &RootName,
@@ -1142,6 +1148,8 @@ Return Value:
     //
     // Init bus number path
     //
+
+    BusNumber = BusHandler->BusNumber;
 
     if (BusNumber > 99) {
         return (0);
@@ -1383,14 +1391,35 @@ Return Value:
 
 NTSTATUS
 HalpAdjustEisaResourceList (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
     )
+/*++
+
+Routine Description:
+
+    The function adjusts pResourceList to keep it in the bounds of the EISA bus
+    resources.
+
+Arguments:
+
+    BusHandler - Registered BUSHANDLER for the target configuration space
+
+    RootHandler - Register BUSHANDLER for the orginating HalAdjustResourceList request.
+
+    pResourceList - Supplies the PIO_RESOURCE_REQUIREMENTS_LIST to be checked.
+
+Return Value:
+
+    STATUS_SUCCESS
+
+--*/
 {
     LARGE_INTEGER                  li64k, li4g;
 
-    li64k = RtlConvertUlongToLargeInteger (0xffff);
-    li4g  = RtlConvertUlongToLargeInteger (0xffffffff);
+    li64k.QuadPart = 0xffff;
+    li4g.QuadPart  = 0xffffffff;
 
     HalpAdjustResourceListUpperLimits (
         pResourceList,
@@ -1402,17 +1431,38 @@ HalpAdjustEisaResourceList (
 
     return STATUS_SUCCESS;
 }
-
+
 NTSTATUS
 HalpAdjustIsaResourceList (
-    IN ULONG BusNumber,
+    IN PBUS_HANDLER BusHandler,
+    IN PBUS_HANDLER RootHandler,
     IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
     )
+/*++
+
+Routine Description:
+
+    The function adjusts pResourceList to keep it in the bounds of ISA bus
+    resources.
+
+Arguments:
+
+    BusHandler - Registered BUSHANDLER for the target configuration space
+
+    RootHandler - Register BUSHANDLER for the orginating HalAdjustResourceList request.
+
+    pResourceList - Supplies the PIO_RESOURCE_REQUIREMENTS_LIST to be checked.
+
+Return Value:
+
+    STATUS_SUCCESS
+
+--*/
 {
     LARGE_INTEGER                  li64k, limem;
 
-    li64k = RtlConvertUlongToLargeInteger (0xffff);
-    limem = RtlConvertUlongToLargeInteger (0xffffff);
+    li64k.QuadPart = 0xffff;
+    limem.QuadPart = 0xffffff;
 
     HalpAdjustResourceListUpperLimits (
         pResourceList,
@@ -1424,4 +1474,4 @@ HalpAdjustIsaResourceList (
 
     return STATUS_SUCCESS;
 }
-
+#endif // AXP_FIRMWARE

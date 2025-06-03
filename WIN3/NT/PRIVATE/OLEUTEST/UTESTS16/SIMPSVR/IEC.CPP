@@ -47,7 +47,7 @@
 
 STDMETHODIMP CExternalConnection::QueryInterface (REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In CExternalConnection::QueryInterface\r\n");
+	TestDebugOut("In CExternalConnection::QueryInterface\r\n");
 
 	return m_lpObj->QueryInterface(riid, ppvObj);
 }
@@ -83,7 +83,7 @@ STDMETHODIMP CExternalConnection::QueryInterface (REFIID riid, LPVOID FAR* ppvOb
 
 STDMETHODIMP_(ULONG) CExternalConnection::AddRef ()
 {
-	OutputDebugString("In CExternalConnection::AddRef\r\n");
+	TestDebugOut("In CExternalConnection::AddRef\r\n");
 	++m_nCount;
 	return m_lpObj->AddRef();
 };
@@ -108,7 +108,7 @@ STDMETHODIMP_(ULONG) CExternalConnection::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 // Comments:
@@ -119,7 +119,7 @@ STDMETHODIMP_(ULONG) CExternalConnection::AddRef ()
 
 STDMETHODIMP_(ULONG) CExternalConnection::Release ()
 {
-	OutputDebugString("In CExternalConnection::Release\r\n");
+	TestDebugOut("In CExternalConnection::Release\r\n");
 	--m_nCount;
 	return m_lpObj->Release();
 };
@@ -147,7 +147,7 @@ STDMETHODIMP_(ULONG) CExternalConnection::Release ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -156,7 +156,7 @@ STDMETHODIMP_(ULONG) CExternalConnection::Release ()
 
 STDMETHODIMP_(DWORD) CExternalConnection::AddConnection (DWORD extconn, DWORD reserved)
 {
-	OutputDebugString("In CExternalConnection::AddConnection\r\n");
+	TestDebugOut("In CExternalConnection::AddConnection\r\n");
 
 	if (extconn & EXTCONN_STRONG)
 		return ++m_dwStrong;
@@ -187,7 +187,7 @@ STDMETHODIMP_(DWORD) CExternalConnection::AddConnection (DWORD extconn, DWORD re
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      COleObject::Close           IOO.CPP
 //
 // Comments:
@@ -197,7 +197,7 @@ STDMETHODIMP_(DWORD) CExternalConnection::AddConnection (DWORD extconn, DWORD re
 
 STDMETHODIMP_(DWORD) CExternalConnection::ReleaseConnection (DWORD extconn, DWORD reserved, BOOL fLastReleaseCloses)
 {
-	OutputDebugString("In CExternalConnection::ReleaseConnection\r\n");
+	TestDebugOut("In CExternalConnection::ReleaseConnection\r\n");
 
 	if (extconn & EXTCONN_STRONG)
 		{

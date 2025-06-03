@@ -43,9 +43,6 @@
 
 #define PSR_MASK (~((0x3 << PSR_KSU) | (1 << PSR_EXL))) // PSR exception mask
 
-#define TotalFrameLength (KERNEL_STACK_SIZE - (TrapFrameLength + \
-                          ExceptionFrameLength)) //
-
 //
 // Define exception handler frame structure.
 //
@@ -61,13 +58,8 @@ HandlerFrameLength:                     // handler frame length
 //
 
         .extern KdpOweBreakpoint    1
-        .extern KeNumberProcessIds  4
+        .extern KeGdiFlushUserBatch 4
         .extern KeNumberTbEntries   4
-        .extern KeServiceCountTable 4
-        .extern KeServiceTimeTable  4
-        .extern KiMasterPid         4
-        .extern KiMasterSequence    4
-        .extern KiServiceLimit      4
         .extern PsWatchEnabled      1
 
 //
@@ -75,16 +67,19 @@ HandlerFrameLength:                     // handler frame length
 //
 // This set has a one bit for each of the possible load/store instructions.
 //
-// These include: lb, lh, lwl, lw, lbu, lhu, lwr, ld, ll, lwc1, ldc1,
-//                sb, sh, swl, sw, swr, sd, sc, swc1, and sdc1.
+// These include: ldl, ldr, lb, lh, lwl, lw, lbu, lhu, lwr, lwu, sb, sh, swl,
+//                sw, sdl. sdr. swr, ll, lwc1, lwc2, lld, ldc1, ldc2, ld, sc,
+//                swc1, swc2, sdc, sdc1, sdc2, sd.
 //
 // N.B. The set is biased by a base of 0x20 which is the opcode for lb.
 //
 
         .sdata
+        .align  3
         .globl  KiLoadInstructionSet
 KiLoadInstructionSet:                   // load instruction set
-        .word   0x2323cfff              //
+        .word   0x0c000000              //
+        .word   0xf7f77fff              //
 
 //
 // Define count of bad virtual address register cases.
@@ -102,17 +97,6 @@ KiMismatchCount:                        // count of read miss address mismatches
 
 #endif
 
-//
-// Synchronize process Ids and process Id wrap locks.
-//
-
-#if !defined(NT_UP)
-
-        .globl  KiSynchronizeIdsLock
-KiSynchronizeIdsLock:                   // synchronize process ids lock
-        .word   0                       //
-
-#endif
 
         SBTTL("System Startup")
 //++
@@ -132,7 +116,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        LEAF_ENTRY_S(KiSystemStartup, _TEXT$03)
+        LEAF_ENTRY(KiSystemStartup)
 
         j       KiInitializeSystem      // initialize system
 
@@ -144,8 +128,8 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // Routine Description:
 //
 //    This routine is entered as the result of a TB miss on a reference
-//    to any part of the address space from either kernel or user mode.
-//    Interrupts are disabled when this routine is entered.
+//    to any part of the 32-bit address space from kernel mode. Interrupts
+//    are disabled when this routine is entered.
 //
 //    The function of this routine is to load a pair of second level PTEs
 //    from the current page table into the TB. The context register is
@@ -176,14 +160,14 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        LEAF_ENTRY_S(KiTbMiss, _TEXT$03)
-
-        START_REGION(KiTbMissStartAddress2.x)
+        LEAF_ENTRY(KiTbMiss)
 
 //
 // The following code is required on 2.x R4000 chips to work around a
 // chip bug. The work around is not needed for 3.0 and later chips.
 //
+
+        START_REGION(KiTbMissStartAddress2.x)
 
         .set    noreorder
         .set    noat
@@ -200,7 +184,19 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         .set    noreorder
         .set    noat
 
-#if !defined(NT_UP)
+//
+// The following code is required on all MP systems to work around a problem
+// where the hardware reports a TB miss even when the entry is really in the
+// TB.
+//
+
+#if defined(NT_UP)
+
+        mfc0    k0,context              // get virtual address * 2 of PTE
+        mfc0    k1,badvaddr             // get bad virtual address
+        sra     k0,k0,1                 // compute virtual address of PTE
+
+#else
 
         tlbp                            // ****** r4400 errata ******
         mfc0    k0,context              // ****** r4400 errata ******
@@ -209,12 +205,6 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         sra     k0,k0,1                 // compute virtual address of PTE
         bgez    k1,20f                  // ****** r4400 errata ******
         mfc0    k1,badvaddr             // get bad virtual address
-
-#else
-
-        mfc0    k0,context              // get virtual address * 2 of PTE
-        mfc0    k1,badvaddr             // get bad virtual address
-        sra     k0,k0,1                 // compute virtual address of PTE
 
 #endif
 
@@ -232,38 +222,256 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         nop                             // fill
         mtc0    zero,entrylo0           // reset first PTE value
         mtc0    zero,entrylo1           // reset second PTE value
-10:                                     //
 
 #endif
 
-        nop                             //
+10:     nop                             //
         tlbwr                           // write entry randomly into TB
         nop                             // 3 cycle hazzard
         nop                             //
         mtc0    zero,taglo              // 1 cycle hazzard - clear active flag
-
-#if DBG
-
-        lw      k0,KiPcr + PcPrcb(zero) // get processor block address
-        nop                             // fill
-        lw      k1,PbFirstLevelTbFills(k0) // increment number of first level
-        nop                             // fill
-        addu    k1,k1,1                 // TB fills
-        sw      k1,PbFirstLevelTbFills(k0) // store result
-
-#endif
-
 20:     eret                            //
-        nop                             // errata
-        nop                             //
-        nop                             //
-        eret                            //
         .set    at
         .set    reorder
 
-        END_REGION(KiTbMissEndAddress)
+        END_REGION(KiTbMissEndAddress3.x)
+
+//
+// The r10000 TB miss routine is different since the fine designers of the
+// chip didn't understand what the frame mask register was really for and
+// only masked PFN bits. Unfortunately they didn't mask the UC bits which
+// require the bits to be masked manually.
+//
+
+        START_REGION(KiTbMissStartAddress9.x)
+
+        .set    noreorder
+        .set    noat
+        mfc0    k0,context              // get virtual address * 2 of PTE
+        mfc0    k1,badvaddr             // get bad virtual address
+        sra     k0,k0,1                 // compute virtual address of PTE
+        mtc0    k0,taglo                // set first level active flag
+        lwu     k1,0(k0)                // get first PTE - may fault
+        lwu     k0,4(k0)                // get second PTE - no fault
+        mtc0    k1,entrylo0             // set first PTE value
+        mtc0    k0,entrylo1             // set second PTE value
+
+#if DBG
+
+        xor     k1,k1,k0                // compare G-bits
+        and     k1,k1,1 << ENTRYLO_G    // isolate G-bit
+        beq     zero,k1,10f             // if eq, G-bits match
+        nop                             // fill
+        mtc0    zero,entrylo0           // reset first PTE value
+        mtc0    zero,entrylo1           // reset second PTE value
+
+#endif
+
+10:     nop                             //
+        tlbwr                           // write entry randomly into TB
+        nop                             // 3 cycle hazzard
+        nop                             //
+        mtc0    zero,taglo              // 1 cycle hazzard - clear active flag
+20:     eret                            //
+        .set    at
+        .set    reorder
+
+        END_REGION(KiTbMissEndAddress9.x)
 
         .end    KiTbMiss
+
+        SBTTL("XTB Miss Vector Routine")
+//++
+//
+// Routine Description:
+//
+//    This routine is entered as the result of a TB miss on a reference
+//    to any part of the 64-bit address space from user mode. Interrupts
+//    are disabled when this routine is entered.
+//
+//    The function of this routine is to load a pair of second level PTEs
+//    from the current page table into the TB. The context register is
+//    loaded by hardware with the virtual address of the PTE * 2. In addition,
+//    the entryhi register is loaded with the virtual tag, such that the PTEs
+//    can be loaded directly into the TB. The badvaddr register is loaded by
+//    hardware with the virtual address of the fault and is saved in case the
+//    page table page is not currently mapped by the TB.
+//
+//    If a fault occurs when attempting to load the specified PTEs from the
+//    current page table, then it is vectored through the general exception
+//    vector at KSEG0_BASE + 0x180.
+//
+//    This routine is copied to address KSEG0_BASE + 0x80 at system startup.
+//
+// Arguments:
+//
+//    None.
+//
+// Return Value:
+//
+//    None.
+//
+//    N.B. This routine saves the contents of the badvaddr register in k1
+//       so that it can be used by the general exception vector routine
+//       if an exception occurs while trying to load the first PTE from
+//       memory.
+//
+//--
+
+        LEAF_ENTRY(KiXTbMiss)
+
+//
+// The following code is required on 2.x R4000 chips to work around a
+// chip bug. The work around is not needed for 3.0 and later chips.
+//
+
+        START_REGION(KiXTbMissStartAddress2.x)
+
+        .set    noreorder
+        .set    noat
+        nop                             // ****** r4000 errata ******
+        mfc0    k0,psr                  // ****** r4000 errata ******
+        mtc0    zero,psr                // ****** r4000 errata ******
+        mtc0    k0,psr                  // ****** r4000 errata ******
+        nop                             // ****** r4000 errata ******
+        .set    at
+        .set    reorder
+
+        START_REGION(KiXTbMissStartAddress3.x)
+
+        .set    noreorder
+        .set    noat
+
+//
+// The following code is required on all MP systems to work around a problem
+// where the hardware reports a TB miss even when the entry is really in the
+// TB.
+//
+
+#if defined(NT_UP)
+
+        mfc0    k0,context              // get virtual address * 2 of PTE
+        dmfc0   k1,xcontext             // get extended context register
+        sra     k0,k0,1                 // compute virtual address of PTE
+        dsrl    k1,k1,22                // isolate bits 63:62 and 39:31 of address
+        and     k1,k1,0x7ff             // check if valid user address
+        beq     zero,k1,5f              // if eq, valid user address
+        xor     k1,k1,0x7ff             // check if valid kernel address
+        bne     zero,k1,30f             // if ne, invalid kernel address
+5:      mfc0    k1,badvaddr             // get bad virtual address
+
+#else
+
+//
+// ****** r4400 errata ******
+//
+
+        dmfc0   k1,xcontext             // get extended context register
+        tlbp                            // probe TB for miss address
+        mfc0    k0,context              // get virtual address * 2 of PTE
+        dsrl    k1,k1,22                // isolate bits 63:62 and 39:31 of
+        and     k1,k1,0x7ff             // virtual address
+        beq     zero,k1,5f              // if eq, valid user address
+        xor     k1,k1,0x7ff             // check if valid kernel address
+        bne     zero,k1,30f             // if ne, invalid kernel address
+5:      mfc0    k1,index                // get index register
+        sra     k0,k0,1                 // compute virtual address of PTE
+        bgez    k1,20f                  // if gez, address already in TB
+        mfc0    k1,badvaddr             // get bad virtual address
+
+#endif
+
+        mtc0    k0,taglo                // set first level active flag
+        lw      k1,0(k0)                // get first PTE - may fault
+        lw      k0,4(k0)                // get second PTE - no fault
+        mtc0    k1,entrylo0             // set first PTE value
+        mtc0    k0,entrylo1             // set second PTE value
+
+#if DBG
+
+        xor     k1,k1,k0                // compare G-bits
+        and     k1,k1,1 << ENTRYLO_G    // isolate G-bit
+        beq     zero,k1,10f             // if eq, G-bits match
+        nop                             // fill
+        mtc0    zero,entrylo0           // reset first PTE value
+        mtc0    zero,entrylo1           // reset second PTE value
+
+#endif
+
+10:     nop                             //
+        tlbwr                           // write entry randomly into TB
+        nop                             // 3 cycle hazzard
+        nop                             //
+        mtc0    zero,taglo              // 1 cycle hazzard - clear active flag
+20:     eret                            //
+
+//
+// The user address is greater than 32-bits.
+//
+
+30:     j       KiInvalidUserAddress    //
+        nop                             //
+        .set    at
+        .set    reorder
+
+        END_REGION(KiXTbMissEndAddress3.x)
+
+//
+// The r10000 TB miss routine is different since the fine designers of the
+// chip didn't understand what the frame mask register was really for and
+// only masked PFN bits. Unfortunately they didn't mask the UC bits which
+// require the bits to be masked manually.
+//
+
+        START_REGION(KiXTbMissStartAddress9.x)
+
+        .set    noreorder
+        .set    noat
+        mfc0    k0,context              // get virtual address * 2 of PTE
+        dmfc0   k1,xcontext             // get extended context register
+        sra     k0,k0,1                 // compute virtual address of PTE
+        dsrl    k1,k1,22                // isolate bits 63:62 and 43:31 of
+        and     k1,k1,0x7ff             // check if valid user address
+        beq     zero,k1,5f              // if eq, valid user address
+        xor     k1,k1,0x7ff             // check if valid kernel address
+        bne     zero,k1,30f             // if ne, invalid kernel address
+5:      mfc0    k1,badvaddr             // get bad virtual address
+        mtc0    k0,taglo                // set first level active flag
+        lwu     k1,0(k0)                // get first PTE - may fault
+        lwu     k0,4(k0)                // get second PTE - no fault
+        mtc0    k1,entrylo0             // set first PTE value
+        mtc0    k0,entrylo1             // set second PTE value
+
+#if DBG
+
+        xor     k1,k1,k0                // compare G-bits
+        and     k1,k1,1 << ENTRYLO_G    // isolate G-bit
+        beq     zero,k1,10f             // if eq, G-bits match
+        nop                             // fill
+        mtc0    zero,entrylo0           // reset first PTE value
+        mtc0    zero,entrylo1           // reset second PTE value
+
+#endif
+
+10:     nop                             //
+        tlbwr                           // write entry randomly into TB
+        nop                             // 3 cycle hazzard
+        nop                             //
+        mtc0    zero,taglo              // 1 cycle hazzard - clear active flag
+        eret                            //
+
+//
+// The user address is greater than 32-bits.
+//
+
+30:     j       KiInvalidUserAddress    //
+        nop                             //
+        .set    at
+        .set    reorder
+
+        END_REGION(KiXTbMissEndAddress9.x)
+
+        .end    KiXTbMiss
 
         SBTTL("Cache Parity Error Vector Routine")
 //++
@@ -300,7 +508,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        LEAF_ENTRY_S(KiCacheError, _TEXT$03)
+        LEAF_ENTRY(KiCacheError)
 
         START_REGION(KiCacheErrorStartAddress)
 
@@ -354,7 +562,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        LEAF_ENTRY_S(KiGeneralException, _TEXT$03)
+        LEAF_ENTRY(KiGeneralException)
 
         START_REGION(KiGeneralExceptionStartAddress)
 
@@ -486,7 +694,6 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // Check for one of the three remaining cases.
 //
 
-        .align  4
 10:     mfc0    k1,badvaddr             // get bad virtual address
         mfc0    k0,taglo                // get first level flag
         srl     k1,k1,PDI_SHIFT         // isolate page directory index
@@ -502,7 +709,6 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 
         beq     zero,k0,20f             // if eq, not first level miss
         nop                             // fill
-        b       20f                     //
         mfc0    k1,lladdr               // get actual bad virtual address
 
 //
@@ -510,12 +716,11 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // routine.
 //
 
-        .align  4
 20:     mfc0    k0,epc                  // get exception PC
         mtc0    zero,taglo              // clear first level miss flag
-        sw      t7,KiPcr + PcSavedT7(zero) // save integer registers t7 - t9
-        sw      t8,KiPcr + PcSavedT8(zero) //
-        sw      t9,KiPcr + PcSavedT9(zero) //
+        sd      t7,KiPcr + PcSavedT7(zero) // save integer registers t7 - t9
+        sd      t8,KiPcr + PcSavedT8(zero) //
+        sd      t9,KiPcr + PcSavedT9(zero) //
         sw      k0,KiPcr + PcSavedEpc(zero) // save exception PC
         sw      k1,KiPcr + PcBadVaddr(zero) // save bad virtual address
 
@@ -532,7 +737,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         mfc0    t7,cause                // get cause of exception
         mtc0    t8,psr                  // clear EXL and disable interrupts
         lw      k1,KiPcr + PcInitialStack(zero) // get initial kernel stack
-        and     t8,t9,0x1 << PSR_PMODE  // isolate previous processor mode
+        and     t8,t9,1 << PSR_PMODE    // isolate previous processor mode
         bnel    zero,t8,30f             // if ne, previous mode was user
         subu    t8,k1,TrapFrameLength   // allocate trap frame
 
@@ -541,10 +746,11 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // performed and the exception/ code is set to cause a bug check.
 //
 
-        subu    t8,k1,TotalFrameLength  // compute lower stack bound
-        sltu    t8,sp,t8                // check for stack overflow
-        beq     zero,t8,30f             // if eq, no stack overflow
+        lw      k1,KiPcr + PcStackLimit(zero) // get current stack limit
         subu    t8,sp,TrapFrameLength   // allocate trap frame
+        sltu    k1,t8,k1                // check for stack overflow
+        beql    zero,k1,30f             // if eq, no stack overflow
+        nop                             // fill
 
 //
 // The kernel stack has either overflowed. Switch to the panic stack and
@@ -552,9 +758,15 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // panic code.
 //
 
+        lw      t7,KiPcr + PcInitialStack(zero) // ***** temp ****
+        lw      t8,KiPcr + PcStackLimit(zero) // ***** temp ****
+        sw      t7,KiPcr + PcSystemReserved(zero) // **** temp ****
+        sw      t8,KiPcr + PcSystemReserved + 4(zero) // **** temp ****
         lw      k1,KiPcr + PcPanicStack(zero) // get address of panic stack
         li      t7,XCODE_PANIC          // set cause of exception to panic
         sw      k1,KiPcr + PcInitialStack(zero) // reset initial stack pointer
+        subu    t8,k1,KERNEL_STACK_SIZE // compute and set stack limit
+        sw      t8,KiPcr + PcStackLimit(zero) //
         subu    t8,k1,TrapFrameLength   // allocate trap frame
 
 //
@@ -572,15 +784,14 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //
 
-        .align  4
-30:     sw      sp,TrIntSp(t8)          // save integer register sp
+30:     sd      sp,TrXIntSp(t8)         // save integer register sp
         move    sp,t8                   // set new stack pointer
         cfc1    t8,fsr                  // get floating status register
-        sw      gp,TrIntGp(sp)          // save integer register gp
-        sw      s8,TrIntS8(sp)          // save integer register s8
+        sd      gp,TrXIntGp(sp)         // save integer register gp
+        sd      s8,TrXIntS8(sp)         // save integer register s8
         sw      t8,TrFsr(sp)            // save current FSR
         sw      t9,TrPsr(sp)            // save processor state
-        sw      ra,TrIntRa(sp)          // save integer register ra
+        sd      ra,TrXIntRa(sp)         // save integer register ra
         lw      gp,KiPcr + PcSystemGp(zero) // set system general pointer
         and     t8,t7,R4000_XCODE_MASK  // isolate exception code
 
@@ -601,83 +812,50 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         lw      t0,KiPcr + PcCurrentThread(zero) // get current thread address
         li      t8,PSR_MASK             // get the PSR mask
         and     t8,t9,t8                // clear EXL and mode in PSR
-
-//
-// If the system service code is negative, then the service is a fast path
-// event pair client/server service. This service is only executed from user
-// mode and its performance must be as fast as possible. Therefore, the path
-// to execute this service is as optimal as possible.
-//
-
-        bgez    v0,35f                  // if gez, normal system service
         sw      ra,TrFir(s8)            // set real continuation address
-
-//
-// The service is a fast path event pair client/server service.
-//
-// N.B. The following code sets up to directly call the event pair service
-//      routine with a return to the system service dispatch code. This
-//      avoids an extra jump instuction and it is necessary for the return
-//      address to be in the system service dispatch code for the get/set
-//      context routine and unwinding.
-//
-// N.B. The event service code is carefully chosen so that it is negative
-//      and the bit that determines which event is low and which is high
-//      is the bit that defines the displacement from one event to the
-//      other.
-//
-
-        lw      t3,EtEventPair(t0)      // get address of event pair object
-        and     v1,v0,SET_EVENT_PAIR_MASK // isolate displacement value
-        la      ra,KiSystemServiceEventPair // set return address
-        beq     zero,t3,70f             // if eq, no event pair associated
-        addu    a0,t3,EpEventLow        // compute address of low event
-        addu    a1,t3,EpEventHigh       // compute address of high event
-        addu    a0,a0,v1                // compute actual low event address
-        subu    a1,a1,v1                // compute actual high event address
-        addu    a2,zero,1               // set previous mode to user
-        j       KiSetServerWaitClientEvent // execute event pair service
-        mtc0    t8,psr                  // enable interrupts
-
-//
-// The service is a normal service.
-//
-
-35:     j       KiSystemServiceNormal   // execute normal system service
+        sb      zero,TrSavedFlag(s8)    // clear s-registers saved flag
+        j       KiSystemServiceNormal   // execute normal system service
         mtc0    t8,psr                  // enable interrupts
 
 //
 // Save the volatile integer register state.
 //
 
-        .align  4
-40:     sw      AT,TrIntAt(s8)          // save assembler temporary register
-        sw      v0,TrIntV0(s8)          // save integer register v0
-        sw      v1,TrIntV1(s8)          // save integer register v1
-        sw      a0,TrIntA0(s8)          // save integer registers a0 - a3
-        sw      a1,TrIntA1(s8)          //
-        sw      a2,TrIntA2(s8)          //
-        sw      a3,TrIntA3(s8)          //
-        sw      t0,TrIntT0(s8)          // save integer registers t0 - t2
-        sw      t1,TrIntT1(s8)          //
-        sw      t2,TrIntT2(s8)          //
-        lw      t0,KiPcr + PcSavedT7(zero) // get saved register t8 - t9
-        lw      t1,KiPcr + PcSavedT8(zero) //
-        lw      t2,KiPcr + PcSavedT9(zero) //
-        sw      t3,TrIntT3(s8)          // save integer register t3 - t9
-        sw      t4,TrIntT4(s8)          //
-        sw      t5,TrIntT5(s8)          //
-        sw      t6,TrIntT6(s8)          //
-        sw      t0,TrIntT7(s8)          //
-        sw      t1,TrIntT8(s8)          //
-        sw      t2,TrIntT9(s8)          //
+40:     sd      AT,TrXIntAt(s8)         // save assembler temporary register
+        sd      v0,TrXIntV0(s8)         // save integer register v0
+        sd      v1,TrXIntV1(s8)         // save integer register v1
+        sd      a0,TrXIntA0(s8)         // save integer registers a0 - a3
+        sd      a1,TrXIntA1(s8)         //
+        sd      a2,TrXIntA2(s8)         //
+        sd      a3,TrXIntA3(s8)         //
+        sd      t0,TrXIntT0(s8)         // save integer registers t0 - t2
+        sd      t1,TrXIntT1(s8)         //
+        sd      t2,TrXIntT2(s8)         //
+        ld      t0,KiPcr + PcSavedT7(zero) // get saved register t8 - t9
+        ld      t1,KiPcr + PcSavedT8(zero) //
+        ld      t2,KiPcr + PcSavedT9(zero) //
+        sd      t3,TrXIntT3(s8)         // save integer register t3 - t7
+        sd      t4,TrXIntT4(s8)         //
+        sd      t5,TrXIntT5(s8)         //
+        sd      t6,TrXIntT6(s8)         //
+        sd      t0,TrXIntT7(s8)         //
+        sd      s0,TrXIntS0(s8)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(s8)         //
+        sd      s2,TrXIntS2(s8)         //
+        sd      s3,TrXIntS3(s8)         //
+        sd      s4,TrXIntS4(s8)         //
+        sd      s5,TrXIntS5(s8)         //
+        sd      s6,TrXIntS6(s8)         //
+        sd      s7,TrXIntS7(s8)         //
+        sd      t1,TrXIntT8(s8)         // save integer registers t8 - t9
+        sd      t2,TrXIntT9(s8)         //
         mflo    t3                      // get multiplier/quotient lo and hi
         mfhi    t4                      //
         lw      t5,KiPcr + PcXcodeDispatch(t8) // get exception routine address
         xor     t6,t8,XCODE_INTERRUPT   // check for interrupt exception
         lw      t8,KiPcr + PcSavedEpc(zero) // get exception PC
-        sw      t3,TrIntLo(s8)          // save multiplier/quotient lo and hi
-        sw      t4,TrIntHi(s8)          //
+        sd      t3,TrXIntLo(s8)         // save multiplier/quotient lo and hi
+        sd      t4,TrXIntHi(s8)         //
         beq     zero,t6,50f             // if eq, interrupt exception
         sw      t8,TrFir(s8)            // save exception PC
 
@@ -703,6 +881,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 // Dispatch to exception handing routine with:
 //
+//    t5 - Address of the exception handling routine.
 //    t6 - If not an interrupt, then the previous mode.
 //    t7 - The cause register with the BD bit set.
 //    t8 - The address of the faulting instruction.
@@ -710,25 +889,213 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //         Otherwise the previous PSR with EXL and mode set.
 //
 
-50:     bltzl   t7,60f                  // if ltz, exception in delay slot
+50:     li      t4,TRUE                 // get saved s-registers flag
+        bltzl   t7,60f                  // if ltz, exception in delay slot
         addu    t8,t8,4                 // compute address of exception
 60:     j       t5                      // dispatch to exception routine
-        nop                             // fill
-
-//
-// No event pair object is specified for the current thread. Set the service
-// completion status and finish in common code.
-//
-
-70:     li      v0,STATUS_NO_EVENT_PAIR // set service status
-        j       KiSystemServiceEventPair // finish in common code
-        mtc0    t8,psr                  // enable interrupts
+        sb      t4,TrSavedFlag(s8)      // set s-registers saved flag
         .set    at
         .set    reorder
 
         END_REGION(KiGeneralExceptionEndAddress)
 
         .end    KiGeneralException
+
+        SBTTL("Invalid User Address")
+//++
+//
+// Routine Description:
+//
+//    This routine is entered when an invalid user address is encountered
+//    in the XTB Miss handler. When this routine is entered, interrupts
+//    are disabled.
+//
+//    The primary function of this routine is to route the exception to the
+//    invalid user 64-bit address exception handling routine.
+//
+// Arguments:
+//
+//    None.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        LEAF_ENTRY(KiInvalidUserAddress)
+
+        .set    noreorder
+        .set    noat
+        dmfc0   k1,badvaddr             // get the bad virtual address
+        dmfc0   k0,epc                  // get exception PC
+        sd      k1,KiPcr + PcSystemReserved(zero) // **** temp ****
+        dmfc0   k1,xcontext             // **** temp ****
+        sd      k0,KiPcr + PcSystemReserved + 8(zero) // **** temp ****
+        sd      k1,KiPcr + PcSystemReserved + 16(zero) // **** temp ****
+        ld      k1,KiPcr + PcSystemReserved(zero) // **** temp ****
+        sd      t7,KiPcr + PcSavedT7(zero) // save integer registers t7 - t9
+        sd      t8,KiPcr + PcSavedT8(zero) //
+        sd      t9,KiPcr + PcSavedT9(zero) //
+        sw      k0,KiPcr + PcSavedEpc(zero) // save exception PC
+        sw      k1,KiPcr + PcBadVaddr(zero) // save bad virtual address
+
+//
+// The bad virtual address is saved in the PCR in case it is needed by the
+// respective dispatch routine.
+//
+// N.B. EXL must be cleared in the current PSR so switching the stack
+//      can occur with TB Misses enabled.
+//
+
+        mfc0    t9,psr                  // get current processor status
+        li      t8,1 << PSR_CU1         // set coprocessor 1 enable bit
+        mfc0    t7,cause                // get cause of exception
+        mtc0    t8,psr                  // clear EXL and disable interrupts
+        lw      k1,KiPcr + PcInitialStack(zero) // get initial kernel stack
+        and     t8,t9,1 << PSR_PMODE    // isolate previous processor mode
+        bnel    zero,t8,10f             // if ne, previous mode was user
+        subu    t8,k1,TrapFrameLength   // allocate trap frame
+
+//
+// If the kernel stack has overflowed, then a switch to the panic stack is
+// performed and the exception/ code is set to cause a bug check.
+//
+
+        lw      k1,KiPcr + PcStackLimit(zero) // get current stack limit
+        subu    t8,sp,TrapFrameLength   // allocate trap frame
+        sltu    k1,t8,k1                // check for stack overflow
+        beql    zero,k1,10f             // if eq, no stack overflow
+        nop                             // fill
+
+//
+// The kernel stack has either overflowed. Switch to the panic stack and
+// cause a bug check to occur by setting the exception cause value to the
+// panic code.
+//
+
+        lw      k1,KiPcr + PcPanicStack(zero) // get address of panic stack
+        li      t7,XCODE_PANIC          // set cause of exception to panic
+        sw      k1,KiPcr + PcInitialStack(zero) // reset initial stack pointer
+        subu    t8,k1,KERNEL_STACK_SIZE // compute and set stack limit
+        sw      t8,KiPcr + PcStackLimit(zero) //
+        subu    t8,k1,TrapFrameLength   // allocate trap frame
+
+//
+// Allocate a trap frame, save parital context, and dispatch to the appropriate
+// exception handling routine.
+//
+// N.B. At this point:
+//
+//          t7 contains the cause of the exception,
+//          t8 contains the new stack pointer, and
+//          t9 contains the previous processor state.
+//
+//      Since the kernel stack is not wired into the TB, a TB miss can occur
+//      during the switch of the stack and the subsequent storing of context.
+//
+//
+
+10:     sd      sp,TrXIntSp(t8)         // save integer register sp
+        move    sp,t8                   // set new stack pointer
+        cfc1    t8,fsr                  // get floating status register
+        sd      gp,TrXIntGp(sp)         // save integer register gp
+        sd      s8,TrXIntS8(sp)         // save integer register s8
+        sw      t8,TrFsr(sp)            // save current FSR
+        sw      t9,TrPsr(sp)            // save processor state
+        sd      ra,TrXIntRa(sp)         // save integer register ra
+        lw      gp,KiPcr + PcSystemGp(zero) // set system general pointer
+        and     t8,t7,R4000_XCODE_MASK  // isolate exception code
+
+//
+// Check for panic stack switch.
+//
+// N.B. While k1 is being used a TB miss cannot be tolerated.
+//
+
+        xor     k1,t8,XCODE_PANIC       // check for panic stack switch
+        bnel    zero,k1,20f             // if ne, invalid user address
+        li      t8,XCODE_INVALID_USER_ADDRESS // set exception dispatch code
+
+//
+// Save the volatile integer register state.
+//
+
+20:     move    s8,sp                   // set address of trap frame
+        sd      AT,TrXIntAt(s8)         // save assembler temporary register
+        sd      v0,TrXIntV0(s8)         // save integer register v0
+        sd      v1,TrXIntV1(s8)         // save integer register v1
+        sd      a0,TrXIntA0(s8)         // save integer registers a0 - a3
+        sd      a1,TrXIntA1(s8)         //
+        sd      a2,TrXIntA2(s8)         //
+        sd      a3,TrXIntA3(s8)         //
+        sd      t0,TrXIntT0(s8)         // save integer registers t0 - t2
+        sd      t1,TrXIntT1(s8)         //
+        sd      t2,TrXIntT2(s8)         //
+        ld      t0,KiPcr + PcSavedT7(zero) // get saved register t8 - t9
+        ld      t1,KiPcr + PcSavedT8(zero) //
+        ld      t2,KiPcr + PcSavedT9(zero) //
+        sd      t3,TrXIntT3(s8)         // save integer register t3 - t7
+        sd      t4,TrXIntT4(s8)         //
+        sd      t5,TrXIntT5(s8)         //
+        sd      t6,TrXIntT6(s8)         //
+        sd      t0,TrXIntT7(s8)         //
+        sd      s0,TrXIntS0(s8)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(s8)         //
+        sd      s2,TrXIntS2(s8)         //
+        sd      s3,TrXIntS3(s8)         //
+        sd      s4,TrXIntS4(s8)         //
+        sd      s5,TrXIntS5(s8)         //
+        sd      s6,TrXIntS6(s8)         //
+        sd      s7,TrXIntS7(s8)         //
+        sd      t1,TrXIntT8(s8)         // save integer registers t8 - t9
+        sd      t2,TrXIntT9(s8)         //
+        mflo    t3                      // get multiplier/quotient lo and hi
+        mfhi    t4                      //
+        lw      t5,KiPcr + PcXcodeDispatch(t8) // get exception routine address
+        lw      t8,KiPcr + PcSavedEpc(zero) // get exception PC
+        sd      t3,TrXIntLo(s8)         // save multiplier/quotient lo and hi
+        sd      t4,TrXIntHi(s8)         //
+        sw      t8,TrFir(s8)            // save exception PC
+
+//
+// Save the volatile floating register state.
+//
+
+        sdc1    f0,TrFltF0(s8)          // save floating register f0 - f19
+        sdc1    f2,TrFltF2(s8)          //
+        sdc1    f4,TrFltF4(s8)          //
+        sdc1    f6,TrFltF6(s8)          //
+        sdc1    f8,TrFltF8(s8)          //
+        sdc1    f10,TrFltF10(s8)        //
+        sdc1    f12,TrFltF12(s8)        //
+        sdc1    f14,TrFltF14(s8)        //
+        sdc1    f16,TrFltF16(s8)        //
+        sdc1    f18,TrFltF18(s8)        //
+        srl     t6,t9,PSR_PMODE         // isolate previous mode
+        and     t6,t6,1                 //
+        li      t0,PSR_MASK             // clear EXL amd mode is PSR
+        and     t9,t9,t0                //
+
+//
+// Dispatch to exception handing routine with:
+//
+//    t5 - Address of the exception handling routine.
+//    t6 - Previous mode.
+//    t7 - The cause register with the BD bit set.
+//    t8 - The address of the faulting instruction.
+//    t9 - The new PSR with EXL and mode clear.
+//
+
+        li      t4,TRUE                 // get saved s-registers flag
+        bltzl   t7,30f                  // if ltz, exception in delay slot
+        addu    t8,t8,4                 // compute address of exception
+30:     j       t5                      // dispatch to exception routine
+        sb      t4,TrSavedFlag(s8)      // set s-registers saved flag
+        .set    at
+        .set    reorder
+
+        .end    KiInvalidUserAddress
 
         SBTTL("Address Error Dispatch")
 //++
@@ -742,15 +1109,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiAddressErrorDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiAddressErrorDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -850,15 +1225,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiBreakpointDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiBreakpointDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -928,15 +1311,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiBugCheckDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiBugCheckDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1018,15 +1409,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiCoprocessorUnusableDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiCoprocessorUnusableDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1092,15 +1491,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiDataBusErrorDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiDataBusErrorDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1167,15 +1574,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiFloatDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiFloatDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1244,15 +1659,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiIllegalInstructionDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiIllegalInstructionDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1318,15 +1741,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiInstructionBusErrorDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiInstructionBusErrorDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1394,15 +1825,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        NESTED_ENTRY_S(KiIntegerOverflowDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiIntegerOverflowDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1470,15 +1909,23 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 
         EXCEPTION_HANDLER(KiInterruptHandler)
 
-        NESTED_ENTRY_S(KiInterruptDistribution, TrapFrameLength, zero, _TEXT$00);
+        NESTED_ENTRY(KiInterruptDistribution, TrapFrameLength, zero);
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1510,7 +1957,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 //--
 
-        ALTERNATE_ENTRY_S(KiInterruptException)
+        ALTERNATE_ENTRY(KiInterruptException)
 
         .set    noreorder
         .set    noat
@@ -1544,7 +1991,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 // current stack.
 //
 
-        bgezal  t4,KiSwitchStacks       // if gez, above dispatch level
+        bgezal  t4,60f                  // if gez, above dispatch level
         sll     t3,t3,PSR_INTMASK       // shift table entry into position
 
 //
@@ -1567,35 +2014,35 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 #if DBG
 
         sw      a0,TrExceptionRecord(s8) // save service routine address
-        swc1    f0,TrFltF0(s8)          // save memory fill registers
-        swc1    f1,TrFltF1(s8)          //
 
 #endif
 
+//
+// Increment interrupt count and call interrupt service routine.
+//
+// N.B. It is known that the interrupt is either an APC interrupt or
+//      a dispatch interrupt, and therefore, the volatile floating
+//      state is saved and restored to avoid saves and restores in
+//      both interrupt dispatchers.
+//
+
+        SAVE_VOLATILE_FLOAT_STATE       // save volatile floating state
+
+        lw      t2,KiPcr + PcPrcb(zero) // get current processor block address
+        lw      t3,PbInterruptCount(t2) // increment the count of interrupts
+        addu    t3,t3,1                 //
+        sw      t3,PbInterruptCount(t2) // store result
         jal     a0                      // call interrupt service routine
 
-#if DBG
+        RESTORE_VOLATILE_FLOAT_STATE    // restore volatile floating state
 
-        lw      t0,TrFltF0(s8)          // get saved memory fill registers
-        lw      t1,TrFltF1(s8)          //
-        mfc1    t2,f0                   // get current memory fill registers
-        mfc1    t3,f1                   //
-        bne     t0,t2,20f               // if ne, register mismatch
-        beq     t1,t3,30f               // if eq, register match
-
-20:     break   KERNEL_BREAKPOINT       //
-30:                                     //
-
-#endif
-
-        lw      t0,KiPcr + PcPrcb(zero) // get current processor block address
-        lw      t1,PbInterruptCount(t0) // increment the count of interrupts
-        addu    t1,t1,1                 //
-        sw      t1,PbInterruptCount(t0) // store result
-
+//
+// Common exit point for special dispatch and APC interrupt bypass.
 //
 // Restore state and exit interrupt.
 //
+
+        ALTERNATE_ENTRY(KiInterruptExit)
 
 40:     lw      t1,TrFsr(s8)            // get previous floating status
         li      t0,1 << PSR_CU1         // set coprocessor 1 enable bit
@@ -1608,7 +2055,7 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
         lw      t1,TrFir(s8)            // get continuation address
         lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
         lbu     t3,TrOldIrql(s8)        // get old IRQL
-        and     t4,t0,0x1 << PSR_PMODE  // check if previous mode was user
+        and     t4,t0,1 << PSR_PMODE    // check if previous mode was user
         beq     zero,t4,50f             // if eq, previous mode was kernel
         sb      t3,KiPcr + PcCurrentIrql(zero) // restore old IRQL
 
@@ -1629,10 +2076,68 @@ KiSynchronizeIdsLock:                   // synchronize process ids lock
 //
 
 50:     sw      t0,KiPcr + PcSavedT7(zero) // save processor status
-        b       KiTrapExit              // join common code
+        j       KiTrapExit              // join common code
         sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
         .set    at
         .set    reorder
+
+//
+// Switch to interrupt stack.
+//
+
+60:     j       KiSwitchStacks          //
+
+//
+// Increment number of bypassed dispatch interrupts and check if an APC
+// interrupt is pending and the old IRQL is zero.
+//
+
+        ALTERNATE_ENTRY(KiContinueInterrupt)
+
+        .set    noreorder
+        .set    noat
+        lw      t7,KiPcr + PcPrcb(zero) // get current PRCB
+        li      t1,1 << PSR_CU1         // get coprocessor 1 enable bit
+        mfc0    t9,psr                  // get current PSR
+        mtc0    t1,psr                  // disable interrupts - 3 cycle hazzard
+        lw      t1,PbDpcBypassCount(t7) // increment the DPC bypass count
+        li      t2,PSR_ENABLE_MASK      // get PSR enable mask
+        lbu     t8,TrOldIrql(s8)        // get old IRQL
+        mfc0    t6,cause                // get exception cause register
+        addu    t1,t1,1                 //
+        sw      t1,PbDpcBypassCount(t7) // store result
+        and     t5,t6,APC_INTERRUPT     // check for an APC interrupt
+        beq     zero,t5,70f             // if eq, no APC interrupt
+        li      t0,APC_LEVEL            // set new IRQL to APC_LEVEL
+        bne     zero,t8,70f             // if ne, APC interrupts blocked
+        move    a0,zero                 // set previous mode to kernel
+
+//
+// An APC interrupt is pending.
+//
+
+        lbu     t3,KiPcr + PcIrqlTable(t0) // get new mask from IRQL table
+        nor     t2,t2,zero              // complement interrupt enable mask
+        and     t9,t9,t2                // clear interrupt mask, EXL, and KSU
+        sll     t3,t3,PSR_INTMASK       // shift table entry into position
+        or      t9,t9,t3                // merge new interrupt enable mask
+        sb      t0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+        and     t6,t6,DISPATCH_INTERRUPT // clear APC interrupt pending
+        mtc0    t6,cause                //
+        mtc0    t9,psr                  // enable interrupts
+        .set    at
+        .set    reorder
+
+        lw      t1,PbApcBypassCount(t7) // increment the APC bypass count
+        addu    t1,t1,1                 //
+        sw      t1,PbApcBypassCount(t7) //
+        move    a1,zero                 // set exception frame address
+        move    a2,zero                 // set trap frame address
+        jal     KiDeliverApc            // deliver kernel mode APC
+
+70:     RESTORE_VOLATILE_FLOAT_STATE    // restore volatile floating state
+
+        j       KiInterruptExit         //
 
         .end    KiInterruptDistribution
 
@@ -1657,7 +2162,7 @@ SwFrameLength:                          // length of stack frame
 
         EXCEPTION_HANDLER(KiInterruptHandler)
 
-        NESTED_ENTRY_S(KiInterruptStackSwitch, SwFrameLength, zero, _TEXT$00);
+        NESTED_ENTRY(KiInterruptStackSwitch, SwFrameLength, zero);
 
         .set    noreorder
         .set    noat
@@ -1678,7 +2183,7 @@ SwFrameLength:                          // length of stack frame
 //
 
 
-        ALTERNATE_ENTRY_S(KiSwitchStacks)
+        ALTERNATE_ENTRY(KiSwitchStacks)
 
         .set    noreorder
         .set    noat
@@ -1693,10 +2198,14 @@ SwFrameLength:                          // length of stack frame
 // Switch to the interrupt stack.
 //
 
+        lw      t6,KiPcr + PcInitialStack(zero) // get old initial stack address
+        lw      t7,KiPcr + PcStackLimit(zero) // and stack limit
         lw      sp,KiPcr + PcInterruptStack(zero) // set interrupt stack address
-        lw      t4,KiPcr + PcInitialStack(zero) // get old initial stack address
+        sw      t6,KiPcr + PcSavedInitialStack(zero) // save old stack address
+        sw      t7,KiPcr + PcSavedStackLimit(zero) // and stack limit
         sw      sp,KiPcr + PcInitialStack(zero) // set new initial stack address
-        sw      t4,KiPcr + PcSavedInitialStack(zero) // save old initial stack address
+        subu    t4,sp,KERNEL_STACK_SIZE // and stack limit
+        sw      t4,KiPcr + PcStackLimit(zero) //
 10:     subu    sp,sp,SwFrameLength     // allocate stack frame
         sw      t5,SwSp(sp)             // save previous stack pointer
         sw      ra,SwRa(sp)             // save return address
@@ -1713,42 +2222,21 @@ SwFrameLength:                          // length of stack frame
 #if DBG
 
         sw      a0,TrExceptionRecord(s8) // save service routine address
-        lw      t0,KeTickCount          // save current tick count
-        sw      t0,TrExceptionRecord + 4(s8) //
-        swc1    f0,TrFltF0(s8)          // save memory fill registers
-        swc1    f1,TrFltF1(s8)          //
 
 #endif
-
-        jal     a0                      // call interrupt service routine
-
-#if DBG
-
-        lw      t0,TrFltF0(s8)          // get saved memory fill registers
-        lw      t1,TrFltF1(s8)          //
-        mfc1    t2,f0                   // get current memory fill registers
-        mfc1    t3,f1                   //
-        bne     t0,t2,20f               // if ne, register mismatch
-        bne     t1,t3,20f               // if ne, register mismatch
-        lw      t2,TrExceptionRecord(s8) // get service routine address
-        lw      t3,TrExceptionRecord + 4(s8) // get starting tick count
-        lw      t4,KeTickCount          // get current tick count
-        subu    t4,t4,t3                // compute time in interrupt routine
-        sltu    t5,t4,50                // check if less than half a second
-        bne     zero,t5,30f             // if ne, less than half a second
-
-20:     break   KERNEL_BREAKPOINT       //
-30:                                     //
-
-#endif
-
-        lw      t0,KiPcr + PcPrcb(zero) // get current processor block address
-        lw      t1,PbInterruptCount(t0) // increment the count of interrupts
-        addu    t1,t1,1                 //
-        sw      t1,PbInterruptCount(t0) // store result
 
 //
-// Restore state and exit interrupt.
+// Increment interrupt count and call interrupt service routine.
+//
+
+        lw      t2,KiPcr + PcPrcb(zero) // get current processor block address
+        lw      t3,PbInterruptCount(t2) // increment the count of interrupts
+        addu    t3,t3,1                 //
+        sw      t3,PbInterruptCount(t2) // store result
+        jal     a0                      // call interrupt service routine
+
+//
+// Restore state, and exit interrupt.
 //
 
         lw      t1,TrFsr(s8)            // get previous floating status
@@ -1758,38 +2246,152 @@ SwFrameLength:                          // length of stack frame
         .set    noat
         mtc0    t0,psr                  // disable interrupts - 3 cycle hazzard
         ctc1    t1,fsr                  // restore floating status
-        lw      t0,TrPsr(s8)            // get previous processor status
+        lbu     t8,TrOldIrql(s8)        // get old IRQL
+        lw      t9,TrPsr(s8)            // get previous processor status
         lw      t1,TrFir(s8)            // get continuation address
-        lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
-        lbu     t3,TrOldIrql(s8)        // get old IRQL
-        and     t4,t0,0x1 << PSR_PMODE  // check if previous mode was user
-        beq     zero,t4,40f             // if eq, previous mode was kernel
-        sb      t3,KiPcr + PcCurrentIrql(zero) // restore old IRQL
-
-//
-// If a user mode APC is pending, then request an APV interrupt.
-//
-
-        lbu     t3,ThApcState + AsUserApcPending(t2) // get user APC pending
-        sb      zero,ThAlerted(t2)      // clear kernel mode alerted
-        mfc0    t4,cause                // get exception cause register
-        sll     t3,t3,(APC_LEVEL + CAUSE_INTPEND - 1) // shift APC pending
-        or      t4,t4,t3                // merge possible APC interrupt request
-        mtc0    t4,cause                // set exception cause register
 
 //
 // Save the new processor status and continuation PC in the PCR so a TB
-// is not possible, then restore the volatile register state.
+// is not possible later, then restore the volatile register state.
 //
 
-40:     lw      t2,TrOnInterruptStack(s8) // get saved stack indicator
-        lw      t3,KiPcr + PcSavedInitialStack(zero) // get old stack address
-        sw      t0,KiPcr + PcSavedT7(zero) // save processor status
+        lw      t2,TrOnInterruptStack(s8) // get saved stack indicator
+        sb      t8,KiPcr + PcCurrentIrql(zero) // restore old IRQL
+        sw      t9,KiPcr + PcSavedT7(zero) // save processor status
+        bne     zero,t2,KiTrapExit      // if ne, stay on interrupt stack
         sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
-        beql    zero,t2,50f             // if eq, switch back to kernel stack
-        sw      t3,KiPcr + PcInitialStack(zero) // restore thread initial stack address
-50:     b       KiTrapExit              // join common code
+        lw      t3,KiPcr + PcSavedInitialStack(zero) // get old initial stack
+        lw      t4,KiPcr + PcSavedStackLimit(zero) // get old stack limit
+        sltu    t8,t8,DISPATCH_LEVEL    // check if IRQL less than dispatch
+        sw      t3,KiPcr + PcInitialStack(zero) // restore old initial stack
+        sw      t4,KiPcr + PcStackLimit(zero) // restore old stack limit
+        mfc0    t6,cause                // get exception cause register
+        beq     zero,t8,KiTrapExit      // if eq, old IRQL dispatch or above
         sw      t2,KiPcr + PcOnInterruptStack(zero) // restore stack indicator
+
+//
+// Check if a DPC interrupt is pending since the old IRQL is less than
+// DISPATCH_LEVEL and it is more efficient to directly dispatch than
+// let the interrupt logic request the interrupt.
+//
+
+        and     t8,t6,DISPATCH_INTERRUPT // check for dispatch interrupt
+        beql    zero,t8,40f             // if eq, no dispatch interrupt
+        lw      t7,KiPcr + PcCurrentThread(zero) // get current thread address
+
+//
+// A dispatch interrupt is pending.
+//
+
+        move    sp,s8                   // set correct stack pointer
+        li      t0,DISPATCH_LEVEL       // set new IRQL to DISPATCH_LEVEL
+        lbu     t3,KiPcr + PcIrqlTable(t0) // get new mask from IRQL table
+        li      t2,PSR_ENABLE_MASK      // get PSR enable mask
+        nor     t2,t2,zero              // complement interrupt enable mask
+        sll     t3,t3,PSR_INTMASK       // shift table entry into position
+        and     t9,t9,t2                // clear interrupt mask, EXL, and KSU
+        or      t9,t9,t3                // merge new interrupt enable mask
+        or      t9,t9,1 << PSR_IE       // set interrupt enable
+        sb      t0,KiPcr + PcCurrentIrql(zero) // set new IRQL
+        mtc0    t9,psr                  // enable interrupts
+        .set    at
+        .set    reorder
+
+        SAVE_VOLATILE_FLOAT_STATE       // save volatile floating state
+
+//
+// N.B. The following code returns to the main interrupt dispatch so
+//      get and set context APCs can virtually unwind the stack properly.
+//
+
+        la      ra,KiContinueInterrupt  // set return address
+        j       KiDispatchInterrupt     // process dispatch interrupt
+
+//
+// If the previous mode is user and a user mode APC is pending, then
+// request an APC interrupt.
+//
+
+        .set    noreorder
+        .set    noat
+40:     and     t4,t9,1 << PSR_PMODE    // check if previous mode was user
+        beq     zero,t4,50f             // if eq, previous mode was kernel
+        ld      AT,TrXIntAt(s8)         // restore integer register AT
+        lbu     t3,ThApcState + AsUserApcPending(t7) // get user APC pending
+        sb      zero,ThAlerted(t7)      // clear kernel mode alerted
+        sll     t3,t3,(APC_LEVEL + CAUSE_INTPEND - 1) // shift APC pending
+        or      t6,t6,t3                // merge possible APC interrupt request
+        mtc0    t6,cause                // set exception cause register
+        .set    at
+        .set    reorder
+
+//
+// Common trap exit sequence for all traps.
+//
+
+        ALTERNATE_ENTRY(KiTrapExit)
+
+        .set    noreorder
+        .set    noat
+        ld      AT,TrXIntAt(s8)         // restore integer register AT
+50:     ld      v0,TrXIntV0(s8)         // restore integer register v0
+        ld      v1,TrXIntV1(s8)         // restore integer register v1
+        ld      a0,TrXIntA0(s8)         // restore integer registers a0 - a3
+        ld      a1,TrXIntA1(s8)         //
+        ld      a2,TrXIntA2(s8)         //
+        ld      t0,TrXIntLo(s8)         // restore lo and hi integer registers
+        ld      t1,TrXIntHi(s8)         //
+        ld      a3,TrXIntA3(s8)         //
+        mtlo    t0                      //
+        mthi    t1                      //
+        ld      t0,TrXIntT0(s8)         // restore integer registers t0 - t7
+        ld      t1,TrXIntT1(s8)         //
+        ld      t2,TrXIntT2(s8)         //
+        ld      t3,TrXIntT3(s8)         //
+        ld      t4,TrXIntT4(s8)         //
+        ld      t5,TrXIntT5(s8)         //
+        ld      t6,TrXIntT6(s8)         //
+        ld      t7,TrXIntT7(s8)         //
+        ld      s0,TrXIntS0(s8)         // restore integer registers s0 - s7
+        ld      s1,TrXIntS1(s8)         //
+        ld      s2,TrXIntS2(s8)         //
+        ld      s3,TrXIntS3(s8)         //
+        ld      s4,TrXIntS4(s8)         //
+        ld      s5,TrXIntS5(s8)         //
+        ld      s6,TrXIntS6(s8)         //
+        ld      s7,TrXIntS7(s8)         //
+        ld      t8,TrXIntT8(s8)         // restore integer registers t8 - t9
+        ld      t9,TrXIntT9(s8)         //
+
+//
+// Common exit sequence for system services.
+//
+
+        ALTERNATE_ENTRY(KiServiceExit)
+
+        ld      gp,TrXIntGp(s8)         // restore integer register gp
+        ld      sp,TrXIntSp(s8)         // restore stack pointer
+        ld      ra,TrXIntRa(s8)         // restore return address
+        ld      s8,TrXIntS8(s8)         // restore integer register s8
+
+//
+// WARNING: From this point on no TB Misses can be tolerated.
+//
+
+        li      k0,1 << PSR_EXL         // set EXL bit in temporary PSR
+        mtc0    k0,psr                  // set new PSR value - 3 cycle hazzard
+        lw      k0,KiPcr + PcSavedT7(zero) // get previous processor status
+        lw      k1,KiPcr + PcSavedEpc(zero) // get continuation address
+        nop                             //
+        mtc0    k0,psr                  // set new PSR value - 3 cycle hazzard
+        mtc0    k1,epc                  // set continuation PC
+        nop                             //
+        nop                             //
+        eret                            //
+        nop                             // errata
+        nop                             //
+        nop                             //
+        eret                            //
         .set    at
         .set    reorder
 
@@ -1836,7 +2438,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        NESTED_ENTRY_S(KiInterruptHandler, HandlerFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiInterruptHandler, HandlerFrameLength, zero)
 
         subu    sp,sp,HandlerFrameLength // allocate stack frame
         sw      ra,HdRa(sp)             // save return address
@@ -1865,15 +2467,23 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        NESTED_ENTRY_S(KiVirtualMemoryDispatch, TrapFrameLength, zero, _TEXT$00);
+        NESTED_ENTRY(KiVirtualMemoryDispatch, TrapFrameLength, zero);
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -1908,7 +2518,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        ALTERNATE_ENTRY_S(KiReadMissException)
+        ALTERNATE_ENTRY(KiReadMissException)
 
         li      a0,0                    // set read indicator
         lw      a1,KiPcr + PcBadVaddr(zero) // get the bad virtual address
@@ -1958,7 +2568,7 @@ SwFrameLength:                          // length of stack frame
 
         .set    noreorder
         .set    noat
-        srl     t0,t7,30                // isolate high bits of excetpion PC
+        srl     t0,t7,30                // isolate high bits of exception PC
         beq     a1,t7,30f               // if eq,  addresses match
         xor     a2,t0,0x2               // check for kseg0 or kseg1 address
 
@@ -2008,12 +2618,10 @@ SwFrameLength:                          // length of stack frame
 //
 
 4:      lw      t0,0(t7)                // get instruction value
-        lw      t1,KiLoadInstructionSet // get load/store instruction set
+        ld      t1,KiLoadInstructionSet // get load/store instruction set
         li      t2,1                    // compute opcode set member
         srl     t3,t0,32 - 6            // right justify opcode value
-        subu    t3,t3,0x20              // normalize opcode value
-        bltz    t3,5f                   // if ltz, not a load/store
-        sll     t2,t2,t3                // shift opcode member into position
+        dsll    t2,t2,t3                // shift opcode member into position
         and     t2,t2,t1                // check if load/store instruction
         bne     zero,t2,10f             // if ne, load/store instruction
         srl     t1,t0,21 - 3            // extract base register number
@@ -2078,12 +2686,10 @@ SwFrameLength:                          // length of stack frame
 //
 
 8:      lw      t0,0(t0)                // get instruction value
-        lw      t1,KiLoadInstructionSet // get load/store instruction set
+        ld      t1,KiLoadInstructionSet // get load/store instruction set
         li      t2,1                    // compute opcode set member
         srl     t3,t0,32 - 6            // right justify opcode value
-        subu    t3,t3,0x20              // normalize opcode value
-        bltz    t3,20f                  // if ltz, not load/store instruction
-        sll     t2,t2,t3                // shift opcode member into position
+        dsll    t2,t2,t3                // shift opcode member into position
         and     t2,t2,t1                // check if load/store instruction
         beq     zero,t2,20f             // if eq, not load/store instruction
         srl     t1,t0,21 - 3            // extract base register number
@@ -2105,49 +2711,49 @@ SwFrameLength:                          // length of stack frame
         move    t2,zero                 //
 
         b       14f                     // at
-        lw      t2,TrIntAt(s8)          //
+        lw      t2,TrXIntAt(s8)         //
 
         b       14f                     // v0
-        lw      t2,TrIntV0(s8)          //
+        lw      t2,TrXIntV0(s8)         //
 
         b       14f                     // v1
-        lw      t2,TrIntV1(s8)          //
+        lw      t2,TrXIntV1(s8)         //
 
         b       14f                     // a0
-        lw      t2,TrIntA0(s8)          //
+        lw      t2,TrXIntA0(s8)         //
 
         b       14f                     // a1
-        lw      t2,TrIntA1(s8)          //
+        lw      t2,TrXIntA1(s8)         //
 
         b       14f                     // a2
-        lw      t2,TrIntA2(s8)          //
+        lw      t2,TrXIntA2(s8)         //
 
         b       14f                     // a3
-        lw      t2,TrIntA3(s8)          //
+        lw      t2,TrXIntA3(s8)         //
 
         b       14f                     // t0
-        lw      t2,TrIntT0(s8)          //
+        lw      t2,TrXIntT0(s8)         //
 
         b       14f                     // t1
-        lw      t2,TrIntT1(s8)          //
+        lw      t2,TrXIntT1(s8)         //
 
         b       14f                     // t2
-        lw      t2,TrIntT2(s8)          //
+        lw      t2,TrXIntT2(s8)         //
 
         b       14f                     // t3
-        lw      t2,TrIntT3(s8)          //
+        lw      t2,TrXIntT3(s8)         //
 
         b       14f                     // t4
-        lw      t2,TrIntT4(s8)          //
+        lw      t2,TrXIntT4(s8)         //
 
         b       14f                     // t5
-        lw      t2,TrIntT5(s8)          //
+        lw      t2,TrXIntT5(s8)         //
 
         b       14f                     // t6
-        lw      t2,TrIntT6(s8)          //
+        lw      t2,TrXIntT6(s8)         //
 
         b       14f                     // t7
-        lw      t2,TrIntT7(s8)          //
+        lw      t2,TrXIntT7(s8)         //
 
         b       14f                     // s0
         move    t2,s0                   //
@@ -2174,10 +2780,10 @@ SwFrameLength:                          // length of stack frame
         move    t2,s7                   //
 
         b       14f                     // t8
-        lw      t2,TrIntT8(s8)          //
+        lw      t2,TrXIntT8(s8)         //
 
         b       14f                     // t9
-        lw      t2,TrIntT9(s8)          //
+        lw      t2,TrXIntT9(s8)         //
 
         b       14f                     // k0
         move    t2,zero                 //
@@ -2186,15 +2792,15 @@ SwFrameLength:                          // length of stack frame
         move    t2,zero                 //
 
         b       14f                     // gp
-        lw      t2,TrIntGp(s8)          //
+        lw      t2,TrXIntGp(s8)         //
 
         b       14f                     // sp
-        lw      t2,TrIntSp(s8)          //
+        lw      t2,TrXIntSp(s8)         //
 
         b       14f                     // s8
-        lw      t2,TrIntS8(s8)          //
+        lw      t2,TrXIntS8(s8)         //
 
-        lw      t2,TrIntRa(s8)          // ra
+        lw      t2,TrXIntRa(s8)         // ra
 
 //
 // If the effective virtual address matches the bad virtual address, then
@@ -2236,7 +2842,7 @@ SwFrameLength:                          // length of stack frame
 #endif
 
         sw      t0,KiPcr + PcSavedT7(zero) // save processor status
-        b       KiTrapExit              // join common code
+        j       KiTrapExit              // join common code
         sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
         .set    at
         .set    reorder
@@ -2246,6 +2852,12 @@ SwFrameLength:                          // length of stack frame
         b       30f                     // join common code
 
 #endif
+
+        ALTERNATE_ENTRY(KiReadMissException9.x)
+
+        li      a0,0                    // set read indicator
+        lw      a1,KiPcr + PcBadVaddr(zero) // get the bad virtual address
+        b       30f                     // join common code
 
         ALTERNATE_ENTRY(KiModifyException)
 
@@ -2280,8 +2892,7 @@ SwFrameLength:                          // length of stack frame
         lw      t1,TrExceptionRecord + ErExceptionCode(s8) // get previous mode
         move    a0,v0                   // set status of fault resolution
         bltz    v0,40f                  // if ltz, unsuccessful resolution
-        and     t1,t1,t0                // check if user mode and watch enabled
-        beq     zero,t1,35f             // if eq, not user mode and watch enabled
+        beq     zero,t0,35f             // if eq, watch not enabled
         lw      a1,TrExceptionRecord + ErExceptionAddress(s8) // get exception address
         lw      a2,TrExceptionRecord + ErExceptionInformation + 4(s8) // set bad address
         jal     PsWatchWorkingSet       // record working set information
@@ -2293,16 +2904,14 @@ SwFrameLength:                          // length of stack frame
 35:     lbu     t0,KdpOweBreakpoint     // get owned breakpoint flag
         beq     zero,t0,37f             // if eq, no owed breakpoints
         jal     KdSetOwedBreakpoints    // insert breakpoints if necessary
-37:     move    v0,zero                 // set success status
+37:     j       KiAlternateExit         //
 
 //
-// If success is returned, then the exception was handled by memory management.
-// Otherwise, fill in remainder of exception record and attempt to dispatch
-// the exception.
+// The exception was not resolved. Fill in the remainder of the exception
+// record and attempt to dispatch the exception.
 //
 
 40:     addu    a0,s8,TrExceptionRecord // compute exception record address
-        bgez    v0,KiAlternateExit      // if gez, exception resolved
         lw      a3,ErExceptionCode(a0)  // restore previous mode
         li      t1,STATUS_IN_PAGE_ERROR | 0x10000000 // get special code
         beq     v0,t1,60f               // if eq, special bug check code
@@ -2352,19 +2961,25 @@ SwFrameLength:                          // length of stack frame
 
         EXCEPTION_HANDLER(KiSystemServiceHandler)
 
-        NESTED_ENTRY_S(KiSystemServiceDispatch, TrapFrameLength, zero, _TEXT$00);
+        NESTED_ENTRY(KiSystemServiceDispatch, TrapFrameLength, zero);
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp - TrapFrameLength(sp) // save stack pointer
+        sd      sp,TrXIntSp - TrapFrameLength(sp) // save stack pointer
         subu    sp,sp,TrapFrameLength   // allocate trap frame
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
-        nop                             // fill to 0 mode 32 boundary
-        nop                             //
         .set    at
         .set    reorder
 
@@ -2398,78 +3013,22 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        ALTERNATE_ENTRY_S(KiSystemServiceException)
+        ALTERNATE_ENTRY(KiSystemServiceException)
 
         START_REGION(KiSystemServiceDispatchStart)
 
-        ALTERNATE_ENTRY(KiSystemServiceEventPair)
-
-//
-// Restore state and exit system service.
-//
-
-        lw      t1,TrFsr(s8)            // get previous floating status
-        li      t0,1 << PSR_CU1         // set coprocessor 1 enable bit
-
-        .set    noreorder
-        .set    noat
-        mtc0    t0,psr                  // disable interrupts - 3 cycle hazzard
-        ctc1    t1,fsr                  // restore floating status
-        lw      t0,TrPsr(s8)            // get previous processor status
-        lw      t1,TrFir(s8)            // get continuation address
-        lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
-        and     t3,t0,0x1 << PSR_PMODE  // check if previous mode was user
-        beq     zero,t3,10f             // if eq, previous mode was kernel
-        sw      t0,KiPcr + PcSavedT7(zero) // save processor status
-
-//
-// If a user mode APC is pending, then request an APV interrupt.
-//
-
-        lbu     t3,ThApcState + AsUserApcPending(t2) // get user APC pending
-        sb      zero,ThAlerted(t2)      // clear kernel mode alerted
-        mfc0    t4,cause                // get exception cause register
-        sll     t3,t3,(APC_LEVEL + CAUSE_INTPEND - 1) // shift APC pending
-        or      t4,t4,t3                // merge possible APC interrupt request
-        mtc0    t4,cause                // set exception cause register
-
-//
-// Save the new processor status and continuation PC in the PCR so a TB
-// is not possible, then restore the volatile register state.
-//
-
-10:     b       KiServiceExit           // join common code
-        sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
-        .set    at
-        .set    reorder
-
-//
-// Normal system service execution.
-//
-
-        ALTERNATE_ENTRY_S(KiSystemServiceNormal)
+        ALTERNATE_ENTRY(KiSystemServiceNormal)
 
         srl     t9,t9,PSR_PMODE         // isolate previous processor mode
         lbu     t3,ThPreviousMode(t0)   // get old previous mode from thread object
+        lw      t4,ThTrapFrame(t0)      // get current trap frame address
         and     t9,t9,0x1               // isolate previous mode
         sb      t9,ThPreviousMode(t0)   // set new previous mode in thread object
         sb      t3,TrPreviousMode(s8)   // save old previous mode of thread object
-        lw      t4,KiServiceLimit       // get service number limit
-        la      t5,KiServiceTable       // get service table address
-        sll     v1,v0,2                 // compute system service offset value
-        sltu    t4,v0,t4                // check if invalid service number
-        addu    v1,v1,t5                // compute address of service entry
-        beq     zero,t4,50f             // if eq, invalid service number
-        lw      v1,0(v1)                // get address of service routine
+        sw      t4,TrTrapFrame(s8)      // save current trap frame address
 
 #if DBG
 
-        lw      t6,KeServiceCountTable  // get service count table address
-        sll     t5,v0,2                 // compute system service offset value
-        addu    t6,t6,t5                // compute address of service entry
-        lw      t7,0(t6)                // increment system service count
-        addu    t7,t7,1                 //
-        sw      t7,0(t6)                // store result
         lbu     t7,ThKernelApcDisable(t0) // get current APC disable count
         lbu     t8,ThApcStateIndex(t0)  // get current APC state index
         sb      t7,TrExceptionRecord(s8) // save APC disable count
@@ -2477,6 +3036,69 @@ SwFrameLength:                          // length of stack frame
 
 #endif
 
+//
+// If the specified system service number is not within range, then
+// attempt to convert the thread to a GUI thread and retry the service
+// dispatch.
+//
+// N.B. The argument registers a0-a3, the system service number in v0,
+//      and the thread address in t0 must be preserved while attempting
+//      to convert the thread to a GUI thread.
+//
+
+        ALTERNATE_ENTRY(KiSystemServiceRepeat)
+
+        sw      s8,ThTrapFrame(t0)      // save address of trap frame
+        lw      t6,ThServiceTable(t0)   // get service descriptor table address
+        srl     t1,v0,SERVICE_TABLE_SHIFT // isolate service descriptor offset
+        and     t1,t1,SERVICE_TABLE_MASK //
+        add     t6,t6,t1                // compute service descriptor address
+        lw      t4,SdLimit(t6)          // get service number limit
+        lw      t5,SdBase(t6)           // get service table address
+        and     t7,v0,SERVICE_NUMBER_MASK // isolate service table offset
+        sll     v1,t7,2                 // compute system service offset value
+        sltu    t4,t7,t4                // check if invalid service number
+        addu    v1,v1,t5                // compute address of service entry
+        beq     zero,t4,50f             // if eq, invalid service number
+        lw      v1,0(v1)                // get address of service routine
+
+#if DBG
+
+        lw      t6,SdCount(t6)          // get service count table address
+        sll     t5,t7,2                 // compute system service offset value
+        beq     zero,t6,12f             // if eq, table not defined
+        addu    t6,t6,t5                // compute address of service entry
+        lw      t7,0(t6)                // increment system service count
+        addu    t7,t7,1                 //
+        sw      t7,0(t6)                // store result
+12:                                     //
+
+#endif
+
+//
+// If the system service is a GUI service and the GDI user batch queue is
+// not empty, then call the appropriate service to flush the user batch.
+//
+
+        xor     t2,t1,SERVICE_TABLE_TEST // check if GUI system service
+        bne     zero,t2,15f             // if ne, not GUI system service
+        lw      t3,KiPcr + PcTeb(zero)  // get current thread TEB address
+        sw      v1,TrXIntV1(s8)         // save service routine address
+        sw      a0,TrXIntA0(s8)         // save possible arguments 1 and 2
+        lw      t4,TeGdiBatchCount(t3)  // get number of batched GDI calls
+        sw      a1,TrXIntA1(s8)         //
+        sw      a2,TrXIntA2(s8)         // save possible third argument
+        lw      t5,KeGdiFlushUserBatch  // get address of flush routine
+        beq     zero,t4,15f             // if eq, no batched calls
+        sw      a3,TrXIntA3(s8)         // save possible fourth argument
+        jal     t5                      // flush GDI user batch
+        lw      v1,TrXIntV1(s8)         // restore service routine address
+        lw      a0,TrXIntA0(s8)         // restore possible arguments
+        lw      a1,TrXIntA1(s8)         //
+        lw      a2,TrXIntA2(s8)         //
+        lw      a3,TrXIntA3(s8)         //
+15:     addu    a0,a0,zero              // make sure of sign extension
+        addu    a1,a1,zero              // N.B. needed for 64-bit addressing
         and     t1,v1,1                 // check if any in-memory arguments
         beq     zero,t1,30f             // if eq, no in-memory arguments
 
@@ -2495,24 +3117,24 @@ SwFrameLength:                          // length of stack frame
         START_REGION(KiSystemServiceStartAddress)
 
         subu    sp,sp,TrapFrameArguments // allocate argument list space
-        lw      t0,TrIntSp(s8)          // get previous stack pointer
-        beq     zero,t9,10f             // if eq, previous mode was kernel
+        lw      t0,TrXIntSp(s8)         // get previous stack pointer
+        beq     zero,t9,20f             // if eq, previous mode was kernel
         li      t1,MM_USER_PROBE_ADDRESS // get user probe address
         sltu    t2,t0,t1                // check if stack in user region
-        bne     zero,t2,10f             // if ne, stack in user region
+        bne     zero,t2,20f             // if ne, stack in user region
         move    t0,t1                   // set invalid user stack address
-10:     ldc1    f0,16(t0)               // get twelve argument values from
-        ldc1    f2,24(t0)               // callers stack
-        ldc1    f4,32(t0)               //
-        ldc1    f6,40(t0)               //
-        ldc1    f8,48(t0)               //
-        ldc1    f10,56(t0)              //
-        sdc1    f0,16(sp)               // stores arguments on kernel stack
-        sdc1    f2,24(sp)               //
-        sdc1    f4,32(sp)               //
-        sdc1    f6,40(sp)               //
-        sdc1    f8,48(sp)               //
-        sdc1    f10,56(sp)              //
+20:     ld      t1,16(t0)               // get twelve argument values from
+        ld      t2,24(t0)               // callers stack
+        ld      t3,32(t0)               //
+        ld      t4,40(t0)               //
+        ld      t5,48(t0)               //
+        ld      t6,56(t0)               //
+        sd      t1,16(sp)               // stores arguments on kernel stack
+        sd      t2,24(sp)               //
+        sd      t3,32(sp)               //
+        sd      t4,40(sp)               //
+        sd      t5,48(sp)               //
+        sd      t6,56(sp)               //
 
         END_REGION(KiSystemServiceEndAddress)
 
@@ -2522,14 +3144,23 @@ SwFrameLength:                          // length of stack frame
 // Call system service.
 //
 
-30:     jal     v1                      // call system service
+30:     addu    a2,a2,zero              // make sure of sign extension
+        addu    a3,a3,zero              // needed for 64-bit addressing
+        jal     v1                      // call system service
+
+//
+// Restore old trap frame address from the current trap frame.
+//
 
         ALTERNATE_ENTRY(KiSystemServiceExit)
 
         lw      a0,KiPcr + PcPrcb(zero) // get processor block address
+        lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
+        lw      t3,TrTrapFrame(s8)      // get old trap frame address
         lw      t0,PbSystemCalls(a0)    // increment number of system calls
         addu    t0,t0,1                 //
         sw      t0,PbSystemCalls(a0)    //
+        sw      t3,ThTrapFrame(t2)      // restore old trap frame address
 
 //
 // Restore state and exit system service.
@@ -2544,7 +3175,6 @@ SwFrameLength:                          // length of stack frame
         ctc1    t1,fsr                  // restore floating status
         lw      t0,TrPsr(s8)            // get previous processor status
         lw      t1,TrFir(s8)            // get continuation address
-        lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
         lbu     t3,TrPreviousMode(s8)   // get old previous mode
 
 #if DBG
@@ -2553,15 +3183,15 @@ SwFrameLength:                          // length of stack frame
         lbu     a3,ThApcStateIndex(t2)  // get current APC state index
         lbu     t5,TrExceptionRecord(s8) // get previous APC disable count
         lbu     t6,TrExceptionRecord + 1(s8) // get previous APC state index
-        xor     t5,t5,a2                // compare APC disable count
-        xor     t6,t6,a3                // compare APC state index
-        or      t5,t5,t6                // merge comparison value
-        bne     zero,t5,60f             // if ne, invalid state or count
+        xor     t7,t5,a2                // compare APC disable count
+        xor     t8,t6,a3                // compare APC state index
+        or      t9,t8,t7                // merge comparison value
+        bne     zero,t9,60f             // if ne, invalid state or count
         nop                             // fill
 
 #endif
 
-        and     t4,t0,0x1 << PSR_PMODE  // check if previous mode was user
+        and     t4,t0,1 << PSR_PMODE    // check if previous mode was user
         beq     zero,t4,40f             // if eq, previous mode was kernel
         sb      t3,ThPreviousMode(t2)   // restore old previous mode
 
@@ -2582,16 +3212,45 @@ SwFrameLength:                          // length of stack frame
 //
 
 40:     sw      t0,KiPcr + PcSavedT7(zero) // save processor status
-        b       KiServiceExit           // join common code
+        j       KiServiceExit           // join common code
         sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
         .set    at
         .set    reorder
 
 //
+// The specified system service number is not within range. Attempt to
+// convert the thread to a GUI thread if specified system service is
+// not a base service and the thread has not already been converted to
+// a GUI thread.
+//
+// N.B. The argument register a0-a3, the system service number in v0,
+//      and the thread address in t0 must be preserved if an attempt
+//      is made to convert the thread to a GUI thread.
+//
+
+50:     xor     t2,t1,SERVICE_TABLE_TEST // check if GUI system service
+        sw      v0,TrXIntV0(s8)         // save system service number
+        bne     zero,t2,55f             // if ne, not GUI system service
+        sw      a0,TrXIntA0(s8)         // save argument register a0
+        sw      a1,TrXIntA1(s8)         // save argument registers a1-a3
+        sw      a2,TrXIntA2(s8)         //
+        sw      a3,TrXIntA3(s8)         //
+        jal     PsConvertToGuiThread    // attempt to convert to GUI thread
+        move    v1,v0                   // save completion status
+        move    s8,sp                   // reset trap frame address
+        lw      v0,TrXIntV0(s8)         // restore system service number
+        lw      a0,TrXIntA0(s8)         // restore argument registers a0-a3
+        lw      a1,TrXIntA1(s8)         //
+        lw      a2,TrXIntA2(s8)         //
+        lw      a3,TrXIntA3(s8)         //
+        lw      t0,KiPcr + PcCurrentThread(zero) // get current thread address
+        beq     zero,v1,KiSystemServiceRepeat // if eq, successful conversion
+
+//
 // Return invalid system service status for invalid service code.
 //
 
-50:     li      v0,STATUS_INVALID_SYSTEM_SERVICE // set completion status
+55:     li      v0,STATUS_INVALID_SYSTEM_SERVICE // set completion status
         b       KiSystemServiceExit      //
 
 //
@@ -2605,8 +3264,9 @@ SwFrameLength:                          // length of stack frame
 
 #if DBG
 
-60:     li      a0,SYSTEM_EXIT_OWNED_MUTEX // set bug check code
-        move    a1,zero                 // mutex levels have been removed
+60:     li      a0,APC_INDEX_MISMATCH   // set bug check code
+        move    a1,t5                   // set previous APC disable
+        sw      t6,4 * 4(sp)            // set previous state index
         jal     KeBugCheckEx            // call bug check routine
         j       KiExceptionExit         // dummy jump for filler
 
@@ -2689,7 +3349,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiSystemServiceHandler, _TEXT$02)
+        LEAF_ENTRY(KiSystemServiceHandler)
 
         subu    sp,sp,HandlerFrameLength // allocate stack frame
         sw      ra,HdRa(sp)             // save return address
@@ -2774,7 +3434,7 @@ SwFrameLength:                          // length of stack frame
 //
 
         lw      t0,KiPcr + PcCurrentThread(zero) // get current thread address
-        lw      t1,CxIntS8(a2)          // get address of trap frame
+        lw      t1,CxXIntS8(a2)         // get address of trap frame
         lbu     t3,ThPreviousMode(t0)   // get previous mode from thread object
         lbu     t4,TrPreviousMode(t1)   // get previous mode from trap frame
         bne     zero,t3,50f             // if ne, previous mode was user
@@ -2820,15 +3480,23 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        NESTED_ENTRY_S(KiTrapDispatch, TrapFrameLength, zero, _TEXT$02)
+        NESTED_ENTRY(KiTrapDispatch, TrapFrameLength, zero)
 
         .set    noreorder
         .set    noat
-        sw      sp,TrIntSp(sp)          // save stack pointer
-        sw      ra,TrIntRa(sp)          // save return address
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
         sw      ra,TrFir(sp)            // save return address
-        sw      s8,TrIntS8(sp)          // save frame pointer
-        sw      gp,TrIntGp(sp)          // save general pointer
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -2885,6 +3553,183 @@ SwFrameLength:                          // length of stack frame
 
         .end    KiTrapDispatch
 
+        SBTTL("User Address Error Dispatch")
+//++
+//
+// Routine Description:
+//
+//    The following code is never executed. Its purpose is to allow the
+//    kernel debugger to walk call frames backwards through an exception,
+//    to support unwinding through exceptions for system services, and to
+//    support get/set user context.
+//
+//--
+
+        NESTED_ENTRY(KiUserAddressErrorDispatch, TrapFrameLength, zero)
+
+        .set    noreorder
+        .set    noat
+        sd      sp,TrXIntSp(sp)         // save stack pointer
+        sd      ra,TrXIntRa(sp)         // save return address
+        sw      ra,TrFir(sp)            // save return address
+        sd      s8,TrXIntS8(sp)         // save frame pointer
+        sd      gp,TrXIntGp(sp)         // save general pointer
+        sd      s0,TrXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,TrXIntS1(sp)         //
+        sd      s2,TrXIntS2(sp)         //
+        sd      s3,TrXIntS3(sp)         //
+        sd      s4,TrXIntS4(sp)         //
+        sd      s5,TrXIntS5(sp)         //
+        sd      s6,TrXIntS6(sp)         //
+        sd      s7,TrXIntS7(sp)         //
+        move    s8,sp                   // set frame pointer
+        .set    at
+        .set    reorder
+
+        PROLOGUE_END
+
+//++
+//
+// Routine Description:
+//
+//    Control reaches here when a read or write user address error exception
+//    is generated from the XTB miss handler. A user address error exception
+//    occurs when an invalid 64-bit user address is generated. Interrupts are
+//    disabled when this routine is entered.
+//
+//    The function of this routine is to raise an access violation exception.
+//
+// Arguments:
+//
+//    t6 - The previous mode.
+//    t7 - The cause register with the BD bit set.
+//    t8 - The address of the faulting instruction.
+//    t9 - The new PSR with EXL and mode clear.
+//    gp - Supplies a pointer to the system short data area.
+//    s8 - Supplies a pointer to the trap frame.
+//
+// Return Value:
+//
+//    None.
+//
+//--
+
+        ALTERNATE_ENTRY(KiUserAddressErrorException)
+
+        lw      a1,KiPcr + PcBadVaddr(zero) // get the bad virtual address
+
+//
+// N.B. The following code is a work around for a chip bug where the bad
+//      virtual address is not correct on an instruction stream TB miss.
+//
+//      If the exception PC is equal to the bad virtual address, then the
+//      bad virtual address is correct.
+//
+//      If the instruction at the exception PC is not in the TB or the
+//      TB entry is invalid, then the bad virtual address is incorrect
+//      and the instruction is repeated.
+//
+//      Otherwise, the bad virtual address is correct.
+//
+
+#if !defined(NT_UP)
+
+        move    t7,t8                   // get address of faulting instruction
+
+        .set    noreorder
+        .set    noat
+        srl     t0,t7,30                // isolate high bits of exception PC
+        beq     a1,t7,30f               // if eq,  addresses match
+        xor     a2,t0,0x2               // check for kseg0 or kseg1 address
+
+//
+// If the instruction at the exception PC is not in the TB or the TB entry
+// invalid, then the bad virtual address is not valid and the instruction is
+// repeated.
+//
+
+        beq     zero,a2,30f             // if eq, kseg0 or kseg1 address
+        srl     t1,t7,ENTRYHI_VPN2      // isolate VPN2 of virtual address
+        mfc0    v0,entryhi              // get current VPN2 and PID
+        sll     t1,t1,ENTRYHI_VPN2      //
+        and     v1,v0,PID_MASK << ENTRYHI_PID // isolate current PID
+        or      t1,t1,v1                // merge PID with VPN2 of address
+        mtc0    t1,entryhi              // set VPN2 and PID for probe
+        nop                             // 3 cycle hazzard
+        nop                             //
+        nop                             //
+        tlbp                            // probe for entry in TB
+        nop                             // 2 cycle hazzard
+        nop                             //
+        mfc0    t2,index                // read result of probe
+        nop                             // 1 cycle hazzard
+        bltzl   t2,20f                  // if ltz, entry not in TB
+        mtc0    v0,entryhi              // restore VPN2 and PID
+        sll     t3,t7,31 - 12           // shift page bit into sign
+        tlbr                            // read entry from TB
+        nop                             // 3 cycle hazzard
+        nop                             //
+        nop                             //
+        mfc0    t5,entrylo1             // read low part of TB entry
+        mfc0    t4,entrylo0             //
+        bltzl   t3,10f                  // if ltz, check second PTE
+        and     t5,t5,1 << ENTRYLO_V    // check if second PTE valid
+        and     t5,t4,1 << ENTRYLO_V    // check if first PTE valid
+10:     mtc0    zero,pagemask           // restore page mask register
+        mtc0    v0,entryhi              // restore VPN2 and PID
+        bne     zero,t5,30f             // if ne, PTE valid
+
+//
+// N.B. PSR and EPC may have changed because of TB miss and need to be
+//      reloaded.
+//
+
+20:     nop                             // 2 cycle hazzard
+        nop                             //
+        lw      t0,TrPsr(s8)            // get previous processor state
+        lw      t1,TrFir(s8)            // get continuation address
+        sw      t0,KiPcr + PcSavedT7(zero) // save processor status
+        j       KiTrapExit              // join common code
+        sw      t1,KiPcr + PcSavedEpc(zero) // save continuation address
+        .set    at
+        .set    reorder
+
+#endif
+
+30:     addu    a0,s8,TrExceptionRecord // compute exception record address
+
+        .set    noreorder
+        .set    noat
+        mtc0    t9,psr                  // set new PSR
+        move    a3,t6                   // set previous mode
+        .set    at
+        .set    reorder
+
+        sw      zero,ErExceptionInformation(a0) // save load/store indicator
+        sw      a1,ErExceptionInformation + 4(a0) // save bad virtual address
+        sw      t8,ErExceptionAddress(a0) // set exception address
+
+//
+// If the address is a reference to the last 64k of user address space, then
+// treat the error as an address error. Otherwise, treat the error as an
+// access violation.
+//
+
+        li      t3,STATUS_ACCESS_VIOLATION // set exception code
+        li      t4,0x7fff0000           // get address mask value
+        and     t5,t4,t1                // isolate high address bits
+        bne     t4,t5,40f               // if ne, invalid user address
+        li      t3,STATUS_DATATYPE_MISALIGNMENT // set exception code
+40:     sw      t3,ErExceptionCode(a0)  //
+        sw      zero,ErExceptionFlags(a0) // set exception flags
+        sw      zero,ErExceptionRecord(a0) // set associated record
+        li      t0,2                    // set number of exception parameters
+        sw      t0,ErNumberParameters(a0) //
+        jal     KiExceptionDispatch     // join common code
+        j       KiExceptionExit         // dummy jump for filler
+
+        .end    KiUserAddressErrorDispatch
+
         SBTTL("Exception Dispatch")
 //++
 //
@@ -2907,18 +3752,10 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        NESTED_ENTRY_S(KiExceptionDispatch, ExceptionFrameLength, zero, _TEXT$00)
+        NESTED_ENTRY(KiExceptionDispatch, ExceptionFrameLength, zero)
 
         subu    sp,sp,ExceptionFrameLength // allocate exception frame
         sw      ra,ExIntRa(sp)          // save return address
-        sw      s0,ExIntS0(sp)          // save integer registers s0 - s7
-        sw      s1,ExIntS1(sp)          //
-        sw      s2,ExIntS2(sp)          //
-        sw      s3,ExIntS3(sp)          //
-        sw      s4,ExIntS4(sp)          //
-        sw      s5,ExIntS5(sp)          //
-        sw      s6,ExIntS6(sp)          //
-        sw      s7,ExIntS7(sp)          //
         sdc1    f20,ExFltF20(sp)        // save floating registers f20 - f31
         sdc1    f22,ExFltF22(sp)        //
         sdc1    f24,ExFltF24(sp)        //
@@ -2964,14 +3801,6 @@ SwFrameLength:                          // length of stack frame
 
         ALTERNATE_ENTRY(KiExceptionExit)
 
-        lw      s0,ExIntS0(sp)          // restore integer registers s0 - s7
-        lw      s1,ExIntS1(sp)          //
-        lw      s2,ExIntS2(sp)          //
-        lw      s3,ExIntS3(sp)          //
-        lw      s4,ExIntS4(sp)          //
-        lw      s5,ExIntS5(sp)          //
-        lw      s6,ExIntS6(sp)          //
-        lw      s7,ExIntS7(sp)          //
         ldc1    f20,ExFltF20(sp)        // restore floating registers f20 - f31
         ldc1    f22,ExFltF22(sp)        //
         ldc1    f24,ExFltF24(sp)        //
@@ -2991,7 +3820,7 @@ SwFrameLength:                          // length of stack frame
         lw      t0,TrPsr(s8)            // get previous processor status
         lw      t1,TrFir(s8)            // get continuation address
         lw      t2,KiPcr + PcCurrentThread(zero) // get current thread address
-        and     t3,t0,0x1 << PSR_PMODE  // check if previous mode was user
+        and     t3,t0,1 << PSR_PMODE    // check if previous mode was user
         beq     zero,t3,10f             // if eq, previous mode was kernel
         sw      t0,KiPcr + PcSavedT7(zero) // save processor status
 
@@ -3021,66 +3850,8 @@ SwFrameLength:                          // length of stack frame
         ldc1    f12,TrFltF12(s8)        //
         ldc1    f14,TrFltF14(s8)        //
         ldc1    f16,TrFltF16(s8)        //
-        b       KiTrapExit              //
+        j       KiTrapExit              //
         ldc1    f18,TrFltF18(s8)        //
-
-//
-// Common exit sequence for all traps.
-//
-
-        ALTERNATE_ENTRY_S(KiTrapExit)
-
-        lw      AT,TrIntAt(s8)          // restore integer register AT
-        lw      v0,TrIntV0(s8)          // restore integer register v0
-        lw      v1,TrIntV1(s8)          // restore integer register v1
-        lw      a0,TrIntA0(s8)          // restore integer registers a0 - a3
-        lw      a1,TrIntA1(s8)          //
-        lw      a2,TrIntA2(s8)          //
-        lw      t0,TrIntLo(s8)          // restore lo and hi integer registers
-        lw      t1,TrIntHi(s8)          //
-        lw      a3,TrIntA3(s8)          //
-        mtlo    t0                      //
-        mthi    t1                      //
-        lw      t0,TrIntT0(s8)          // restore integer registers t0 - t9
-        lw      t1,TrIntT1(s8)          //
-        lw      t2,TrIntT2(s8)          //
-        lw      t3,TrIntT3(s8)          //
-        lw      t4,TrIntT4(s8)          //
-        lw      t5,TrIntT5(s8)          //
-        lw      t6,TrIntT6(s8)          //
-        lw      t7,TrIntT7(s8)          //
-        lw      t8,TrIntT8(s8)          //
-        lw      t9,TrIntT9(s8)          //
-
-//
-// Common exit sequence for system services.
-//
-
-        ALTERNATE_ENTRY(KiServiceExit)
-
-        lw      gp,TrIntGp(s8)          // restore integer register gp
-        lw      sp,TrIntSp(s8)          // restore stack pointer
-        lw      ra,TrIntRa(s8)          // restore return address
-        lw      s8,TrIntS8(s8)          // restore integer register s8
-
-//
-// WARNING: From this point on no TB Misses can be tolerated.
-//
-
-        li      k0,1 << PSR_EXL         // set EXL bit in temporary PSR
-        mtc0    k0,psr                  // set new PSR value - 3 cycle hazzard
-        lw      k0,KiPcr + PcSavedT7(zero) // get previous processor status
-        lw      k1,KiPcr + PcSavedEpc(zero) // get continuation address
-        nop                             //
-        mtc0    k0,psr                  // set new PSR value - 3 cycle hazzard
-        mtc0    k1,epc                  // set continuation PC
-        nop                             //
-        nop                             //
-        eret                            //
-        nop                             // errata
-        nop                             //
-        nop                             //
-        eret                            //
         .set    at
         .set    reorder
 
@@ -3110,7 +3881,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiDisableInterrupts, _TEXT$02)
+        LEAF_ENTRY(KiDisableInterrupts)
 
         .set    noreorder
         .set    noat
@@ -3150,13 +3921,14 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiRestoreInterrupts, _TEXT$02)
+        LEAF_ENTRY(KiRestoreInterrupts)
 
         .set    noreorder
         .set    noat
         mfc0    t0,psr                  // get current processor status
-        sll     t1,a0,PSR_IE            // shift previous enable into position
-        or      t1,t1,t0                // merge previous enable
+        and     a0,a0,0xff              // isolate interrupt enable
+        sll     t1,a0,PSR_IE            // shift interrupt enable into position
+        or      t1,t1,t0                // merge interrupt enable with PSR
         mtc0    t1,psr                  // restore previous interrupt enable
         nop                             //
         .set    at
@@ -3199,7 +3971,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KeFillEntryTb, _TEXT$00)
+        LEAF_ENTRY(KeFillEntryTb)
 
         and     a0,a0,~0x7              // clear low bits of PTE address
         lw      t0,0(a0)                // get first PTE value
@@ -3298,7 +4070,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KeFillLargeEntryTb, _TEXT$02)
+        LEAF_ENTRY(KeFillLargeEntryTb)
 
         and     a0,a0,~0x7              // clear low bits of PTE address
         lw      t0,0(a0)                // get first PTE value
@@ -3369,7 +4141,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KeFillFixedEntryTb, _TEXT$02)
+        LEAF_ENTRY(KeFillFixedEntryTb)
 
         lw      t0,0(a0)                // get first PTE value
         lw      t1,4(a0)                // get second PTE value
@@ -3406,6 +4178,7 @@ SwFrameLength:                          // length of stack frame
 //
 // VOID
 // KeFlushCurrentTb (
+//    VOID
 //    )
 //
 // Routine Description:
@@ -3422,9 +4195,9 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KeFlushCurrentTb, _TEXT$00)
+        LEAF_ENTRY(KeFlushCurrentTb)
 
-        b       KiFlushRandomTb         // execute common code
+        j       KiFlushRandomTb         // execute common code
 
         .end    KeFlushCurrentTb
 
@@ -3433,6 +4206,7 @@ SwFrameLength:                          // length of stack frame
 //
 // VOID
 // KiFlushFixedTb (
+//    VOID
 //    )
 //
 // Routine Description:
@@ -3450,12 +4224,12 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiFlushFixedTb, _TEXT$00)
+        LEAF_ENTRY(KiFlushFixedTb)
 
         .set    noreorder
         .set    noat
         move    t0,zero                 // set base index of fixed TB entries
-        b       KiFlushTb               //
+        j       KiFlushTb               //
         mfc0    t3,wired                // set highest index number + 1
         .set    at
         .set    reorder
@@ -3467,6 +4241,7 @@ SwFrameLength:                          // length of stack frame
 //
 // VOID
 // KiFlushRandomTb (
+//    VOID
 //    )
 //
 // Routine Description:
@@ -3483,7 +4258,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiFlushRandomTb, _TEXT$00)
+        LEAF_ENTRY(KiFlushRandomTb)
 
         .set    noreorder
         .set    noat
@@ -3533,16 +4308,6 @@ SwFrameLength:                          // length of stack frame
 //    IN ULONG Count
 //    )
 //
-// and
-//
-// VOID
-// KiFlushMultipleTbByPid (
-//    IN BOOLEAN Invalid,
-//    IN PVOID *Virtual,
-//    IN ULONG Count,
-//    IN ULONG Pid
-//    )
-//
 // Routine Description:
 //
 //    This function flushes a multiples entries from the translation buffer.
@@ -3557,36 +4322,22 @@ SwFrameLength:                          // length of stack frame
 //
 //    Count (a2) - Supplies the number of TB entries to flush.
 //
-//    Pid (a3) - Supplies the PID for which the multiple TB entries are
-//       flushed.
-//
 // Return Value:
 //
 //    None.
 //
 //--
 
-        LEAF_ENTRY_S(KiFlushMultipleTb, _TEXT$00)
+        LEAF_ENTRY(KiFlushMultipleTb)
 
         DISABLE_INTERRUPTS(t0)          // disable interrupts
 
         .set    noreorder
         .set    noat
         mfc0    t1,entryhi              // get current PID and VPN2
-        b       5f                      // join common code
+        nop                             //
         and     a3,t1,PID_MASK << ENTRYHI_PID // isolate current PID
-        .set    at
-        .set    reorder
-
-        ALTERNATE_ENTRY_S(KiFlushMultipleTbByPid)
-
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mfc0    t1,entryhi              // save current PID and VPN2
-        sll     a3,a3,ENTRYHI_PID       // shift PID into position
-5:      lw      v0,0(a1)                // get virtual address
+10:     lw      v0,0(a1)                // get virtual address
         addu    a1,a1,4                 // advance to next entry
         subu    a2,a2,1                 // reduce number of entries
         srl     t2,v0,ENTRYHI_VPN2      // isolate VPN2 of virtual address
@@ -3602,44 +4353,28 @@ SwFrameLength:                          // length of stack frame
         mfc0    t3,index                // read result of probe
         nop                             //
         bltz    t3,30f                  // if ltz, entry is not in TB
-        sll     v1,v0,0x1f - (ENTRYHI_VPN2 - 1) // shift VPN<12> into sign
+        lui     t2,KSEG0_BASE  >> 16    // set invalidate address
 
 #if DBG
 
         sltu    t4,t3,FIXED_ENTRIES     // check if fixed entry region
-        beq     zero,t4,7f              // if eq, index not in fixed region
+        beq     zero,t4,20f             // if eq, index not in fixed region
         nop                             //
         break   KERNEL_BREAKPOINT       // break into debugger
-7:                                      //
 
 #endif
 
-        tlbr                            // read entry from TB
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        mfc0    t4,entrylo1             // read low part of TB entry
-        mfc0    t3,entrylo0             //
-        bltzl   v1,10f                  // if ltz, invalidate second PTE
-        and     t4,t4,1 << ENTRYLO_G    // clear second PTE - preserve G-bit
-        and     t3,t3,1 << ENTRYLO_G    // clear first PTE - preserve G-bit
-10:     or      t5,t4,t3                // merge PTE valid bits
-        and     t5,t5,1 << ENTRYLO_V    // check if either PTE is valid
-        mtc0    t3,entrylo0             // set low part of TB entry
-        bne     zero,t5,20f             // if ne, one of the PTEs is valid
-        mtc0    t4,entrylo1             // set low part of TB entry
-        li      t2,KSEG0_BASE           // set invalidate address
+20:     mtc0    zero,entrylo0           // set low part of TB entry
+        mtc0    zero,entrylo1           //
         or      t2,t2,a3                // merge PID with VPN2 of invalid address
-20:     mtc0    t2,entryhi              // set VPN2 and PID for TB write
+        mtc0    t2,entryhi              // set VPN2 and PID for TB write
         nop                             // 1 cycle hazzard
         tlbwi                           // overwrite index TB entry
         nop                             // 3 cycle hazzard
         nop                             //
         nop                             //
+30:     bgtz    a2,10b                  // if gtz, more entires to flush
         mtc0    zero,pagemask           // restore page mask register
-30:     bgtz    a2,5b                   // if gtz, more entires to flush
-        mtc0    t1,entryhi              // restore current PID and VPN2
-        nop                             // 1 cycle hazzard
         .set    at
         .set    reorder
 
@@ -3658,15 +4393,6 @@ SwFrameLength:                          // length of stack frame
 //    IN PVOID Virtual
 //    )
 //
-// and
-//
-// VOID
-// KiFlushSingleTbByPid (
-//    IN BOOLEAN Invalid,
-//    IN PVOID Virtual,
-//    IN ULONG Pid
-//    )
-//
 // Routine Description:
 //
 //    This function flushes a single entry from the translation buffer.
@@ -3679,37 +4405,22 @@ SwFrameLength:                          // length of stack frame
 //    Virtual (a1) - Supplies the virtual address of the entry that is to
 //       be flushed from the translation buffer.
 //
-//    Pid (a2) - Supplies the PID for which the single TB entry is to be
-//       flushed.
-//
 // Return Value:
 //
 //    None.
 //
 //--
 
-        LEAF_ENTRY_S(KiFlushSingleTb, _TEXT$00)
+        LEAF_ENTRY(KiFlushSingleTb)
 
         DISABLE_INTERRUPTS(t0)          // disable interrupts
 
         .set    noreorder
         .set    noat
         mfc0    t1,entryhi              // get current PID and VPN2
-        b       5f                      // join common code
-        and     a2,t1,PID_MASK << ENTRYHI_PID // isolate current PID
-        .set    at
-        .set    reorder
-
-        ALTERNATE_ENTRY_S(KiFlushSingleTbByPid)
-
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mfc0    t1,entryhi              // save current PID and VPN2
-        sll     a2,a2,ENTRYHI_PID       // shift PID into position
-5:      srl     t2,a1,ENTRYHI_VPN2      // isolate VPN2 of virtual address
+        srl     t2,a1,ENTRYHI_VPN2      // isolate VPN2 of virtual address
         sll     t2,t2,ENTRYHI_VPN2      //
+        and     a2,t1,PID_MASK << ENTRYHI_PID // isolate current PID
         or      t2,t2,a2                // merge PID with VPN2 of virtual address
         mtc0    t2,entryhi              // set VPN2 and PID for probe
         nop                             // 3 cycle hazzard
@@ -3720,48 +4431,32 @@ SwFrameLength:                          // length of stack frame
         nop                             //
         mfc0    t3,index                // read result of probe
         nop                             //
-        bltz    t3,30f                  // if ltz, entry is not in TB
-        sll     a3,a1,0x1f - (ENTRYHI_VPN2 - 1) // shift VPN<12> into sign
+        bltz    t3,20f                  // if ltz, entry is not in TB
+        lui     t2,KSEG0_BASE >> 16     // set invalid address
 
 #if DBG
 
         sltu    t4,t3,FIXED_ENTRIES     // check if fixed entry region
-        beq     zero,t4,7f              // if eq, index not in fixed region
+        beq     zero,t4,10f             // if eq, index not in fixed region
         nop                             //
         break   KERNEL_BREAKPOINT       // break into debugger
-7:                                      //
 
 #endif
 
-        tlbr                            // read entry from TB
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        mfc0    t4,entrylo1             // read low part of TB entry
-        mfc0    t3,entrylo0             //
-        bltzl   a3,10f                  // if ltz, invalidate second PTE
-        and     t4,t4,1 << ENTRYLO_G    // clear second PTE - preserve G-bit
-        and     t3,t3,1 << ENTRYLO_G    // clear first PTE - preserve G-bit
-10:     or      t5,t4,t3                // merge PTE valid bits
-        and     t5,t5,1 << ENTRYLO_V    // check if either PTE is valid
-        mtc0    t3,entrylo0             // set low part of TB entry
-        bne     zero,t5,20f             // if ne, one of the PTEs is valid
-        mtc0    t4,entrylo1             // set low part of TB entry
-        li      t2,KSEG0_BASE           // set invalidate address
+10:     mtc0    zero,entrylo0           // set low part of TB entry
+        mtc0    zero,entrylo1           //
         or      t2,t2,a2                // merge PID with VPN2 of invalid address
-20:     mtc0    t2,entryhi              // set VPN2 and PID for TB write
+        mtc0    t2,entryhi              // set VPN2 and PID for TB write
         nop                             // 1 cycle hazzard
         tlbwi                           // overwrite index TB entry
         nop                             // 3 cycle hazzard
         nop                             //
         nop                             //
         mtc0    zero,pagemask           // restore page mask register
-30:     mtc0    t1,entryhi              // restore current PID and VPN2
-        nop                             // 1 cycle hazzard
         .set    at
         .set    reorder
 
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
+20:     ENABLE_INTERRUPTS(t0)           // enable interrupts
 
         j       ra                      // return
 
@@ -3791,7 +4486,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiProbeEntryTb, _TEXT$02)
+        LEAF_ENTRY(KiProbeEntryTb)
 
         DISABLE_INTERRUPTS(t0)          // disable interrupts
 
@@ -3864,7 +4559,7 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiReadEntryTb, _TEXT$02)
+        LEAF_ENTRY(KiReadEntryTb)
 
         DISABLE_INTERRUPTS(t0)          // disable interrupts
 
@@ -3903,6 +4598,7 @@ SwFrameLength:                          // length of stack frame
 //
 // VOID
 // KiPassiveRelease (
+//    VOID
 //    )
 //
 // Routine Description:
@@ -3919,335 +4615,8 @@ SwFrameLength:                          // length of stack frame
 //
 //--
 
-        LEAF_ENTRY_S(KiPassiveRelease, _TEXT$02)
+        LEAF_ENTRY(KiPassiveRelease)
 
         j       ra                      // return
 
         .end    KiPassiveRelease
-
-        SBTTL("Swap Process")
-//++
-//
-// BOOLEAN
-// KiSwapProcess (
-//    IN PKPROCESS NewProcess,
-//    IN PKPROCESS OldProcess
-//    )
-//
-// Routine Description:
-//
-//    This function swaps the address space from one process to another by
-//    assigning a new process id, if necessary, and loading the fixed entry
-//    in the TB that maps the process page directory page.
-//
-// Arguments:
-//
-//    NewProcess (a0) - Supplies a pointer to a control object of type process
-//      which represents the new process that is switched to.
-//
-//    OldProcess (a1) - Supplies a pointer to a control object of type process
-//      which represents the old process that is switched from.
-//
-// Return Value:
-//
-//    If PID rollover occurs, then a value of TRUE is returned as the function
-//    value. Otherwise, a value of FALSE is returned.
-//
-//    N.B. If a value of TRUE is returned, then the process id wrap lock is
-//      held on an MP system.
-//
-//--
-
-        .struct 0
-SpArg:  .space  4 * 4                   // argument register save area
-        .space  4 * 3                   // fill for alignment
-SpRa:   .space  4                       // saved return address
-SpFrameLength:                          // length of stack frame
-SpA0:   .space  4                       // saved argument register a0
-
-        NESTED_ENTRY_S(KiSwapProcess, SpFrameLength, zero, _TEXT$00)
-
-        subu    sp,sp,SpFrameLength     // allocate stack frame
-        sw      ra,SpRa(sp)             // save return address
-
-        PROLOGUE_END
-
-//
-// Clear the processor set member number in the old process and set the
-// processor member number in the new process.
-//
-// N.B. The following code is turned off since PID are used in the TB and
-//      there is no need to keep the process active mask up-to-date.
-//
-
-#if 0
-
-        lw      t0,KiPcr + PcSetMember(zero) // get processor set member mask
-        lw      t2,PrActiveProcessors(a0) // get new active processor set
-        lw      t1,PrActiveProcessors(a1) // get old active processor set
-        nor     t3,t0,zero              // complement processor set mask
-        and     t1,t1,t3                // clear processor member in set
-        or      t2,t2,t0                // set processor member in set
-        sw      t2,PrActiveProcessors(a0) // set new active processor set
-        sw      t1,PrActiveProcessors(a1) // set old active processor set
-
-#endif
-
-//
-// If the process sequence number matches the system sequence number, then
-// use the process PID. Otherwise, allocate a new process PID.
-//
-
-        lw      t0,PrProcessSequence(a0) // get process sequence number
-        lw      t1,KiMasterSequence     // get master sequence number
-        lw      v1,PrProcessPid(a0)     // get process PID
-        li      v0,FALSE                // set PID rollover value FALSE
-        beq     t0,t1,20f               // if eq, use the process PID
-        lw      v1,KiMasterPid          // get master system PID
-        lw      t2,KeNumberProcessIds   // get number of process id's
-        addu    v1,v1,1 << ENTRYHI_PID  // increment master system PID
-        sltu    t2,v1,t2                // any more PIDs to allocate
-        sw      t1,PrProcessSequence(a0) // set process sequence number
-        bne     zero,t2,10f             // if ne, more PIDs to allocate
-
-//
-// Acquire the process id wrap lock so the reassignment of PID's is
-// interlocked with all of the TB flush routines in an MP system.
-//
-// N.B. Control leaves this routine with the process id wrap lock held.
-//
-
-#if !defined(NT_UP)
-
-5:      ll      a1,KiProcessIdWrapLock  // get current lock value
-        move    a2,a0                   // set lock ownership value
-        bne     zero,a1,5b              // if ne, lock owned
-        sc      a2,KiProcessIdWrapLock  // set spin lock owner
-        beq     zero,a2,5b              // if eq, store conditional failed
-
-#endif
-
-        addu    t1,t1,1                 // increment master sequence number
-        sw      t1,PrProcessSequence(a0) // set process sequence number
-        sw      t1,KiMasterSequence     // set master sequence number
-        sw      a0,SpA0(sp)             // save process object address
-        jal     KiFlushRandomTb         // flush random part of TB
-        li      v0,TRUE                 // set PID rollover value TRUE
-
-//
-// Flush the single fixed large entry.
-//
-
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mfc0    t1,entryhi              // save current PID
-        li      t2,LARGE_ENTRY          // set large entry index
-        mtc0    t2,index                // set entry index
-        mtc0    zero,entrylo0           // set low Part of TB entry
-        mtc0    zero,entrylo1           //
-        li      t3,KSEG0_BASE           // set high part of TB entry
-        mtc0    t3,entryhi              //
-        nop                             // 1 cycle hazzard
-        tlbwi                           // overwrite fixed TB entry
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        mtc0    t1,entryhi              // restore current PID
-        .set    at
-        .set    reorder
-
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
-
-        lw      a0,SpA0(sp)             // restore process object address
-        move    v1,zero                 // set next PID value
-10:     sw      v1,KiMasterPid          // set new master PID value
-        sw      v1,PrProcessPid(a0)     // set new process PID
-
-//
-// Swap address space to the specified process.
-//
-
-20:     lw      t1,PrDirectoryTableBase(a0) // get page directory PDE
-        lw      t2,PrDirectoryTableBase + 4(a0) // get hyper space PDE
-        li      t3,PDE_BASE             // get virtual address of PDR
-        or      t3,t3,v1                // merge process PID
-        li      t4,PDR_ENTRY << INDEX_INDEX // set entry index for PDR
-
-        DISABLE_INTERRUPTS(t5)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mtc0    t3,entryhi              // set VPN2 and PID of TB entry
-        mtc0    t1,entrylo0             // set first PDE value
-        mtc0    t2,entrylo1             // set second PDE value
-        mtc0    t4,index                // set index of PDR entry
-        nop                             // 1 cycle hazzard
-        tlbwi                           // write system PDR TB entry
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        .set    at
-        .set    reorder
-
-        ENABLE_INTERRUPTS(t5)           // enable interrupts
-
-        lw      ra,SpRa(sp)             // restore return address
-        addu    sp,sp,SpFrameLength     // deallocate stack frame
-        j       ra                      // return
-
-        .end    KiSwapProcess
-
-        SBTTL("Synchronize Process Ids Target")
-//++
-//
-// VOID
-// KiSynchronizeProcessIdsTarget (
-//    IN PULONG signalDone,
-//    IN PVOID Parameter1,
-//    IN PVOID Parameter2,
-//    IN PVOID Parameter3
-//    )
-//
-// Routine Description:
-//
-//    This function synchronizes the PID of the current process in an MP
-//    system. This function is called when PID rollover has occured on
-//    on another processor.
-//
-//    N.B. This function is called at IPI_LEVEL with the dispatcher database
-//         held by the initiating processor.
-//
-// Arguments:
-//
-//    SignalDone (a0) - Supplies a pointer to a variable that is cleared when
-//        the requested operation has been performed.
-//
-//    Parameter1 - Parameter3 (a1 - a3) - Not used.
-//
-// Return Value:
-//
-//    None.
-//
-//--
-
-#if !defined(NT_UP)
-
-        .struct 0
-SyArg:  .space  4 * 4                   // argument register save area
-        .space  4 * 3                   // fill for alignment
-SyRa:   .space  4                       // saved return address
-SyFrameLength:                          // length of stack frame
-SyA0:   .space  4                       // saved argument register a0
-
-        NESTED_ENTRY_S(KiSynchronizeProcessIdsTarget, SyFrameLength, zero, _TEXT$00)
-
-        subu    sp,sp,SyFrameLength     // allocate stack frame
-        sw      ra,SyRa(sp)             // save return address
-
-        PROLOGUE_END
-
-//
-// Save the address of the packet address and flush the entire TB.
-//
-        sw      a0,SyA0(sp)             // save adress of packet address
-        jal     KiFlushRandomTb         // flush random part of TB
-
-//
-// Flush the single fixed large entry.
-//
-
-        DISABLE_INTERRUPTS(t0)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mfc0    t1,entryhi              // save current PID
-        li      t2,LARGE_ENTRY          // set large entry index
-        mtc0    t2,index                // set entry index
-        mtc0    zero,entrylo0           // set low Part of TB entry
-        mtc0    zero,entrylo1           //
-        li      t3,KSEG0_BASE           // set high part of TB entry
-        mtc0    t3,entryhi              //
-        nop                             // 1 cycle hazzard
-        tlbwi                           // overwrite fixed TB entry
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        mtc0    t1,entryhi              // restore current PID
-        .set    at
-        .set    reorder
-
-        ENABLE_INTERRUPTS(t0)           // enable interrupts
-
-        lw      a0,SpA0(sp)             // restore address of packet address
-
-//
-// Acquire the synchronize process ids lock.
-//
-
-10:     ll      t0,KiSynchronizeIdsLock // get current lock value
-        move    t1,a0                   // set ownership value
-        bne     zero,t0,10b             // if ne, spin lock owned
-        sc      t1,KiSynchronizeIdsLock // set spin lock owner
-        beq     zero,t1,10b             // if eq, store conditional failed
-
-//
-// If the process sequence number matches the system sequence number, then
-// use the process PID. Otherwise, allocate a new process PID.
-//
-
-        lw      v0,KiPcr + PcCurrentThread(zero) // get current thread address
-        lw      v0,ThApcState + AsProcess(v0) // get current process address
-        lw      t0,PrProcessSequence(v0) // get process sequence number
-        lw      t1,KiMasterSequence     // get master sequence number
-        lw      v1,PrProcessPid(v0)     // get process PID
-        beq     t0,t1,20f               // if eq, use the process PID
-        lw      v1,KiMasterPid          // get master system PID value
-        addu    v1,v1,1 << ENTRYHI_PID  // increment master system PID
-        sw      v1,KiMasterPid          // store allocated PID value
-        sw      t1,PrProcessSequence(v0) // set process sequence number
-        sw      v1,PrProcessPid(v0)     // set new process PID
-
-//
-// Swap address space to the current process with a new PID.
-//
-
-20:     lw      t1,PrDirectoryTableBase(v0) // get page directory PDE
-        lw      t2,PrDirectoryTableBase + 4(v0) // get hyper space PDE
-        li      t3,PDE_BASE             // get virtual address of PDR
-        or      t3,t3,v1                // merge process PID
-        li      t4,PDR_ENTRY << INDEX_INDEX // set entry index for PDR
-
-        DISABLE_INTERRUPTS(t5)          // disable interrupts
-
-        .set    noreorder
-        .set    noat
-        mtc0    t3,entryhi              // set VPN2 and PID of TB entry
-        mtc0    t1,entrylo0             // set first PDE value
-        mtc0    t2,entrylo1             // set second PDE value
-        mtc0    t4,index                // set index of PDR entry
-        nop                             // 1 cycle hazzard
-        tlbwi                           // write system PDR TB entry
-        nop                             // 3 cycle hazzard
-        nop                             //
-        nop                             //
-        .set    at
-        .set    reorder
-
-        ENABLE_INTERRUPTS(t5)           // enable interrupts
-
-//
-// Release the synchronize process id lock, clear the packet address, and
-// return.
-//
-
-        sw      zero,KiSynchronizeIdsLock // set spin lock not owned
-        sw      zero,0(a0)              // clear address of packet address
-        lw      ra,SyRa(sp)             // restore return address
-        addu    sp,sp,SyFrameLength     // deallocate stack frame
-        j       ra                      // return
-
-        .end    KiSynchronizeProcessIdsTarget
-
-#endif

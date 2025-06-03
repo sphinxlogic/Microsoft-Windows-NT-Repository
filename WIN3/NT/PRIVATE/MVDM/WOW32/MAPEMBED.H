@@ -33,42 +33,43 @@ Author:
 
 #define _MAP_EMBEDDING_SECTION_
 
+#define IS_EMBEDDING_SECTION(pszSection)                                     \
+    ( ! (pszSection == NULL || _stricmp( pszSection, szEmbedding )) )
 
-    BOOLEAN
-    IsEmbeddingSection(
-        IN  LPSTR   SectionName
-        );
+BOOL
+IsWinIniHelper(
+    IN  LPSTR   Filename
+    );
 
-    BOOLEAN
-    IsFileWinIni(
-        IN  LPSTR   FileName
-        );
+//
+// WARNING Filename argument to IS_WIN_INI must already be lowercase.
+//
 
-    VOID
-    UpdateEmbeddingAllKeys(
-        );
+#define IS_WIN_INI(Filename) (                                               \
+    (Filename)                                                               \
+    ? (strstr((Filename), szWinDotIni)                                       \
+          ? IsWinIniHelper((Filename))                                       \
+          : FALSE)                                                           \
+     : FALSE)
 
-    PSTR
-    GetWinIniFullPath(
-        );
+VOID
+UpdateEmbeddingAllKeys( VOID );
 
-    VOID
-    SetLastTimeUpdated(
-        );
+VOID
+SetLastTimeUpdated( VOID );
 
-    VOID
-    UpdateEmbeddingKey(
-        IN  LPSTR   KeyName
-        );
+VOID
+UpdateEmbeddingKey(
+    IN  LPSTR   KeyName
+    );
 
-    VOID
-    UpdateClassesRootSubKey(
-        IN  LPSTR   KeyName,
-        IN  LPSTR   Value
-        );
+VOID
+UpdateClassesRootSubKey(
+    IN  LPSTR   KeyName,
+    IN  LPSTR   Value
+    );
 
-    BOOLEAN
-    WasSectionRecentlyUpdated(
-        );
+BOOL
+WasSectionRecentlyUpdated( VOID );
 
 #endif

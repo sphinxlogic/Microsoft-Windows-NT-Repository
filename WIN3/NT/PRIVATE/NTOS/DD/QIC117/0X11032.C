@@ -20,13 +20,22 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11032.c  $
 *	
+*	   Rev 1.20   26 Apr 1995 15:12:46   derekhan
+*	added vendor
+*
+*	   Rev 1.19   26 Apr 1995 12:23:26   derekhan
+*	merge iomega fix
+*
+*	   Rev 1.18   13 Jul 1994 07:27:22   CRAIGOGA
+*	Added check for CMD_LOCATE_DEVICE if not configured or not selected.
+*
 *	   Rev 1.17   03 Jun 1994 15:30:14   BOBLEHMA
 *	Added a CmdSelectDevice before calling StopTape (practicing safe computing).
-*	
+*
 *	   Rev 1.16   20 May 1994 10:07:34   BOBLEHMA
 *	Added a stop tape call for an abort level 0.  The stop tape was removed from
 *	deselect device so now call stop tape before the deselect device function.
-*	
+*
 *	   Rev 1.15   22 Mar 1994 15:33:34   CHETDOUG
 *	Format command should not enter format mode
 *	until after doing the calibrate tape length.
@@ -86,6 +95,7 @@
 #define FCT_ID 0x11032
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -129,7 +139,8 @@ dStatus cqd_ProcessFRB
    if (status == DONT_PANIC) {
 
 		if ( !((CqdContextPtr)cqd_context)->configured &&
-      	(((ADIRequestHdrPtr)frb)->driver_cmd != CMD_REPORT_DEVICE_CFG) ) {
+      	(((ADIRequestHdrPtr)frb)->driver_cmd != CMD_REPORT_DEVICE_CFG) &&
+      	(((ADIRequestHdrPtr)frb)->driver_cmd != CMD_LOCATE_DEVICE) ) {
 
 			status = kdi_Error(ERR_DEVICE_NOT_CONFIGURED, FCT_ID, ERR_SEQ_1);
 
@@ -137,6 +148,7 @@ dStatus cqd_ProcessFRB
 
 			if (!((CqdContextPtr)cqd_context)->cmd_selected &&
    			((((ADIRequestHdrPtr)frb)->driver_cmd != CMD_SELECT_DEVICE) &&
+   			(((ADIRequestHdrPtr)frb)->driver_cmd != CMD_LOCATE_DEVICE) &&
 				(((ADIRequestHdrPtr)frb)->driver_cmd != CMD_REPORT_DEVICE_CFG))) {
 
 				status = kdi_Error(ERR_DEVICE_NOT_SELECTED, FCT_ID, ERR_SEQ_1);
@@ -177,6 +189,7 @@ dStatus cqd_ProcessFRB
 
       	switch (((ADIRequestHdrPtr)frb)->driver_cmd) {
 
+   		case CMD_LOCATE_DEVICE:
    		case CMD_SELECT_DEVICE:
 			case CMD_REPORT_DEVICE_CFG:
             	break;
@@ -218,7 +231,12 @@ dStatus cqd_ProcessFRB
 														((CqdContextPtr)cqd_context))) ==
 														ERR_DRV_NOT_READY) {
 
-               		cqd_PauseTape(((CqdContextPtr)cqd_context));
+							if (((CqdContextPtr)cqd_context)->device_descriptor.vendor == VENDOR_IOMEGA &&
+								 ((CqdContextPtr)cqd_context)->device_descriptor.drive_class == QIC3010_DRIVE) {
+								cqd_StopTape(((CqdContextPtr)cqd_context));
+							} else {
+								cqd_PauseTape(((CqdContextPtr)cqd_context));
+							}
 
             		}
 

@@ -22,7 +22,7 @@ Environment:
 Revision History:
 
     01-Mar-1994     Danl
-        Created a seperate location for the Credential Managers GetCaps()
+        Created a separate location for the Credential Managers GetCaps()
         function.  This way if a provider has both a credential manager
         dll and a network dll, we will be able to direct calls to the
         correct GetCaps() function.
@@ -42,8 +42,6 @@ Revision History:
 // Includes
 //
 
-#include <npapi.h>
-#include <mpr.h>
 
 //=======================
 // Data Structures
@@ -51,15 +49,18 @@ Revision History:
 typedef struct _PROVIDER {
     NETRESOURCE             Resource;
     DWORD                   Type;           // WNNC_NET_MSNet, WNNC_NET_LanMan, WNNC_NET_NetWare
-    HANDLE                  Handle;         // Handle to the provider DLL.
+    HMODULE                 Handle;         // Handle to the provider DLL.
     LPTSTR                  DllName;        // set to NULL after loaded.
-    HANDLE                  AuthentHandle;  // Handle to authenticator DLL.
+    HMODULE                 AuthentHandle;  // Handle to authenticator DLL.
     LPTSTR                  AuthentDllName; // Authenticator Dll.
     DWORD                   InitClass;      // Network or Authentication provider.
+    DWORD                   ConnectCaps;    // Cached result of GetCaps(WNNC_CONNECTION)
     PF_NPAddConnection      AddConnection;
     PF_NPAddConnection3     AddConnection3;
+    PF_NPGetReconnectFlags  GetReconnectFlags;
     PF_NPCancelConnection   CancelConnection;
     PF_NPGetConnection      GetConnection;
+    PF_NPGetConnection3     GetConnection3;
     PF_NPGetUser            GetUser;
     PF_NPOpenEnum           OpenEnum;
     PF_NPEnumResource       EnumResource;
@@ -78,6 +79,9 @@ typedef struct _PROVIDER {
     PF_NPFMXEditPerm        FMXEditPerm;
     PF_NPFMXGetPermHelp     FMXGetPermHelp;
     PF_NPGetUniversalName   GetUniversalName;
+    PF_NPGetResourceParent  GetResourceParent;
+    PF_NPGetResourceInformation     GetResourceInformation;
+    PF_NPGetConnectionPerformance   GetConnectionPerformance;
 }PROVIDER, *LPPROVIDER;
 
 
@@ -93,6 +97,10 @@ typedef struct _ERROR_RECORD {
 //=======================
 // MACROS
 //=======================
+
+#define IS_EMPTY_STRING(pch) ( !pch || !*(pch) )
+
+#define LENGTH(array)   (sizeof(array)/sizeof((array)[0]))
 
 #define FIND_END_OF_LIST(record)    while(record->Next != NULL) {   \
                                         record=record->Next;        \
@@ -111,19 +119,61 @@ typedef struct _ERROR_RECORD {
 #define INIT_IF_NECESSARY(level,status) if(!(GlobalInitLevel & level)) {    \
                                             status = MprLevel2Init(level);  \
                                             if (status != WN_SUCCESS) {     \
+                                                SetLastError(status);       \
                                                 return(status);             \
                                             }                               \
                                         }
+
+//=======================
+// INLINE FUNCTIONS
+//=======================
+
+inline void
+PROBE_FOR_WRITE(
+    LPDWORD pdw
+    )
+// WARNING: This function can throw an exception.  It must be called from
+// within a try-except block.
+{
+    *(volatile DWORD *)pdw = *(volatile DWORD *)pdw;
+}
+
+inline BOOL
+IS_BAD_BYTE_BUFFER(
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize    // in bytes
+    )
+// WARNING: This function can throw an exception.  It must be called from
+// within a try-except block.
+{
+    PROBE_FOR_WRITE(lpBufferSize);
+    return IsBadWritePtr(lpBuffer, *lpBufferSize);
+}
+
+inline BOOL
+IS_BAD_WCHAR_BUFFER(
+    LPVOID  lpBuffer,
+    LPDWORD lpBufferSize    // in Unicode characters
+    )
+// WARNING: This function can throw an exception.  It must be called from
+// within a try-except block.
+{
+    PROBE_FOR_WRITE(lpBufferSize);
+    return IsBadWritePtr(lpBuffer, *lpBufferSize * sizeof(WCHAR));
+}
 
 //=======================
 // CONSTANTS
 //=======================
 #define DEFAULT_MAX_PROVIDERS   25
 
-#define BAD_NAME    0x00000001
-#define NO_NET      0x00000002
-#define OTHER_ERRS  0xFFFFFFFF
-
+// Bit masks for remembering error codes
+#define BAD_NAME        0x00000001
+#define NO_NET          0x00000002
+#define NOT_CONNECTED   0x00000004
+#define NOT_CONTAINER   0x00000008
+#define NO_DEVICES      0x00000010
+#define OTHER_ERRS      0xFFFFFFFF
 
 #define REDIR_DEVICE    0x00000001
 #define REMOTE_NAME     0x00000002
@@ -152,6 +202,7 @@ typedef struct _ERROR_RECORD {
 #define NET_PROVIDER_KEY         TEXT("system\\CurrentControlSet\\Control\\NetworkProvider")
 #define RESTORE_WAIT_VALUE       TEXT("RestoreTimeout")
 #define RESTORE_CONNECTION_VALUE TEXT("RestoreConnection")
+#define DEFER_CONNECTION_VALUE   TEXT("DeferConnection")
 
 
 //
@@ -171,17 +222,7 @@ typedef struct _ERROR_RECORD {
 #define CREDENTIAL_TYPE     (WN_CREDENTIAL_CLASS | WN_PRIMARY_AUTHENT_CLASS)
 
 
-
-//
-// The following masks are used to indicate which fields in the NetResource
-// structure are used by the API.
-//
-#define NETRESFIELD_LOCALNAME       0x00000001
-#define NETRESFIELD_REMOTENAME      0x00000002
-#define NETRESFIELD_COMMENT         0x00000004
-#define NETRESFIELD_PROVIDER        0x00000008
-
-// The path in the registry for user's persistant connections is found in
+// The path in the registry for user's persistent connections is found in
 // the following key:
 //
 //      "\HKEY_CURRENT_USER\Network"
@@ -200,6 +241,9 @@ typedef struct _ERROR_RECORD {
 #define REMOTE_PATH_NAME              TEXT("RemotePath")
 #define USER_NAME                     TEXT("UserName")
 #define PROVIDER_NAME                 TEXT("ProviderName")
+#define PROVIDER_TYPE                 TEXT("ProviderType")
+#define PROVIDER_FLAGS                TEXT("ProviderFlags")
+#define DEFER_FLAGS                   TEXT("DeferFlags")
 #define CONNECTION_TYPE               TEXT("ConnectionType")
 
 #define PRINT_CONNECTION_KEY_NAME     TEXT("Printers\\RestoredConnections")
@@ -212,7 +256,7 @@ extern DWORD            GlobalNumProviders;
 extern ERROR_RECORD     MprErrorRecList;
 extern DWORD            MprDebugLevel;
 extern HANDLE           MprLoadLibSemaphore;  // used to protect DLL handles
-extern DWORD            GlobalInitLevel;
+extern volatile DWORD   GlobalInitLevel;
 extern CRITICAL_SECTION MprErrorRecCritSec;
 
 //==========================
@@ -235,13 +279,23 @@ MprFindCallOrder(
 
 DWORD
 MprDeviceType(
-    IN  LPTSTR  DeviceName
+    IN  LPCTSTR DeviceName
     );
 
 BOOL
 MprGetProviderIndex(
-    IN  LPTSTR  ProviderName,
+    IN  LPCTSTR ProviderName,
     OUT LPDWORD IndexPtr
+    );
+
+LPPROVIDER
+MprFindProviderByName(
+    IN  LPCWSTR ProviderName
+    );
+
+LPPROVIDER
+MprFindProviderByType(
+    IN  DWORD   ProviderType
     );
 
 DWORD
@@ -261,7 +315,7 @@ MprEndCallOrder(
     VOID
     );
 
-BOOL
+LPERROR_RECORD
 MprAllocErrorRecord(
     VOID);
 
@@ -270,7 +324,7 @@ MprFreeErrorRecord(
     VOID);
 
 LPERROR_RECORD
-MprFindErrorRec(
+MprFindErrorRecord(
     DWORD   CurrentThreadId
     );
 
@@ -279,7 +333,7 @@ MprNetIsAvailable(
     VOID) ;
 
 //=========================
-// Functions from mprreg.h
+// Functions from mprreg.c
 //=========================
 
 BOOL
@@ -297,6 +351,19 @@ MprGetKeyValue(
     LPTSTR  *ValueString
     );
 
+BOOL
+MprGetKeyDwordValue(
+    IN  HKEY    KeyHandle,
+    IN  LPCWSTR ValueName,
+    OUT DWORD * Value
+    );
+
+LONG
+MprGetKeyNumberValue(
+    IN  HKEY    KeyHandle,
+    IN  LPCWSTR ValueName,
+    IN  LONG    Default
+    );
 
 DWORD
 MprEnumKey(
@@ -323,26 +390,28 @@ DWORD MprGetPrintKeyInfo(HKEY    KeyHandle,
 
 BOOL
 MprFindDriveInRegistry (
-    IN  LPTSTR  DriveName,
+    IN  LPCTSTR DriveName,
     OUT LPTSTR  *RemoteName
     );
 
-BOOL
+DWORD
 MprRememberConnection (
-    IN LPTSTR           ProviderName,
-    IN LPTSTR           UserName,
-    IN LPNETRESOURCEW   NetResource
+    IN LPPROVIDER       Provider,
+    IN LPCTSTR          UserName,
+    IN LPNETRESOURCEW   NetResource,
+    IN BYTE             ProviderFlags,
+    IN DWORD            DeferFlags
     );
 
-BOOL
+DWORD
 MprSetRegValue(
     IN  HKEY    KeyHandle,
     IN  LPTSTR  ValueName,
-    IN  LPTSTR  ValueString,
+    IN  LPCTSTR ValueString,
     IN  DWORD   LongValue
     );
 
-BOOL
+DWORD
 MprCreateRegKey(
     IN  HKEY    BaseKeyHandle,
     IN  LPTSTR  KeyName,
@@ -352,8 +421,10 @@ MprCreateRegKey(
 BOOL
 MprReadConnectionInfo(
     IN  HKEY            KeyHandle,
-    IN  LPTSTR          DriveName,
+    IN  LPCTSTR         DriveName,
     IN  DWORD           Index,
+    OUT LPDWORD         ProviderFlags,
+    OUT LPDWORD         DeferFlags,
     OUT LPTSTR          *UserNamePtr,
     OUT LPNETRESOURCEW  NetResource,
     IN  DWORD           MaxSubKeyLen
@@ -361,7 +432,7 @@ MprReadConnectionInfo(
 
 VOID
 MprForgetRedirConnection(
-    IN LPTSTR  lpName
+    IN LPCTSTR  lpName
     );
 
 DWORD

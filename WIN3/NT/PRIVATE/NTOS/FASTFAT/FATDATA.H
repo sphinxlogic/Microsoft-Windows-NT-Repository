@@ -27,6 +27,8 @@ Revision History:
 
 extern FAT_DATA FatData;
 
+extern NPAGED_LOOKASIDE_LIST FatIrpContextLookasideList;
+
 extern PDEVICE_OBJECT FatFileSystemDeviceObject;
 
 extern LARGE_INTEGER FatLargeZero;
@@ -36,6 +38,26 @@ extern LARGE_INTEGER FatOneSecond;
 extern LARGE_INTEGER FatOneDay;
 extern LARGE_INTEGER FatJanOne1980;
 extern LARGE_INTEGER FatDecThirtyOne1979;
+
+extern FAT_TIME_STAMP FatTimeJanOne1980;
+
+extern LARGE_INTEGER FatMagic10000;
+#define FAT_SHIFT10000 13
+
+extern LARGE_INTEGER FatMagic86400000;
+#define FAT_SHIFT86400000 26
+
+#define FatConvert100nsToMilliseconds(LARGE_INTEGER) (                      \
+    RtlExtendedMagicDivide( (LARGE_INTEGER), FatMagic10000, FAT_SHIFT10000 )\
+    )
+
+#define FatConvertMillisecondsToDays(LARGE_INTEGER) (                       \
+    RtlExtendedMagicDivide( (LARGE_INTEGER), FatMagic86400000, FAT_SHIFT86400000 ) \
+    )
+
+#define FatConvertDaysToMilliseconds(DAYS) (                                \
+    Int32x32To64( (DAYS), 86400000 )                                        \
+    )
 
 //
 //  The global structure used to contain our fast I/O callbacks

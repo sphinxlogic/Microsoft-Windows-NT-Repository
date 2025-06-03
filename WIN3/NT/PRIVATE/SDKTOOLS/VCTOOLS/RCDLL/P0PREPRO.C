@@ -8,8 +8,8 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
+#include <ddeml.h>
 
 /************************************************************************/
 /* Internal constants                                                   */
@@ -31,7 +31,7 @@ void chk_newline(PWCHAR);
 void in_standard(void);
 int incr_ifstack(void);
 token_t next_control(void);
-void pragma(void);
+unsigned long int pragma(void);
 int skipto(int);
 void skip_quoted(int);
 PWCHAR sysinclude(void);
@@ -123,7 +123,8 @@ void   preprocess(void)
     int                 condition;
     token_t             deftok;
     hln_t               identifier;
-
+    unsigned long int   cp;
+    
     if(Macro_depth != 0) {      /* # only when not in a macro */
         return;
     }
@@ -348,7 +349,26 @@ start:
         chk_newline(PPendif_str /* "#endif" */);
         break;
     case P0_PRAGMA :
-        pragma();
+        cp = pragma();
+	if (cp != 0) {
+	    if (cp == CP_WINUNICODE) {
+		strcpy (Msg_Text, GET_MSG (4213));
+		warning(4213);
+		break;
+	    }
+	    if (!IsValidCodePage(cp)) {
+		strcpy (Msg_Text, GET_MSG (4214));
+		warning(4214);
+		break;
+	    }
+	    if (cp != uiCodePage) {
+		if (!io_restart(cp)) {
+		    strcpy (Msg_Text, GET_MSG (1121));
+		    fatal(1121);
+		}
+		uiCodePage = cp;	// can't be set until now!
+        }
+	}
         break;
     case P0_UNDEF :
         if(CHARMAP(c = skip_cwhite()) != LX_ID) {
@@ -600,7 +620,7 @@ first_switch:
             Linenumber++;
             // must manually write '\r' with '\n' when writing 16-bit strings
             if(Prep) {
-                fwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
+                myfwrite(L"\r\n", 2 * sizeof(WCHAR), 1, OUTPUTFILE);
             }
             if((c = skip_cwhite()) == L'#') {
                 if(LX_IS_IDENT(c = skip_cwhite())) {
@@ -815,23 +835,75 @@ void   skip_NLonly(void)
 **  called by preprocess() after we have seen the #pragma
 **  and are ready to handle the keyword which follows.
 ************************************************************************/
-void   pragma(void)
+unsigned long int pragma()
 {
     WCHAR   c;
+    unsigned long int cp=0;
 
-#if 0
-    if(Prep) {
+    c = skip_cwhite();
+    if (c != L'\n') {
+	getid(c);
+	_wcsupr(Reuse_W);
+	if (wcscmp(L"CODE_PAGE", Reuse_W) == 0) {
+	    if ((c = skip_cwhite()) == L'(') {
+		c = skip_cwhite();	// peek token
+		if (iswdigit(c)) {
+		    token_t tok;
+		    int	old_prep = Prep;
 
-        fwrite(L"#pragma", 7 * sizeof(WCHAR), 1, OUTPUTFILE);
-        while((c = get_non_eof()) != L'\n') {
-            fwrite(&c, sizeof(WCHAR), 1, OUTPUTFILE);
-        }
-        UNGETCH();
-        return;
+		    Prep = FALSE;
+		    tok = getnum(c);
+		    Prep = old_prep;
+
+		    switch(tok) {
+			default:
+			case L_CFLOAT:
+			case L_CDOUBLE:
+			case L_CLDOUBLE:
+			case L_FLOAT:
+			case L_DOUBLE:
+			    break;
+			case L_CINTEGER:
+			case L_LONGINT:
+			case L_CUNSIGNED:
+			case L_LONGUNSIGNED:
+			case L_SHORT:
+			case L_LONG:
+			case L_SIGNED:
+			case L_UNSIGNED:
+			    cp = TR_LVALUE(yylval.yy_tree);
+			    break;
+		    }
+		}
+		if (cp == 0) {
+		    getid(c);
+		    _wcsupr(Reuse_W);
+		    if (wcscmp(L"DEFAULT", Reuse_W) == 0) {
+			cp = uiDefaultCodePage;
+		    }
+		    else {
+			wsprintfA(Msg_Text, "%s%ws", GET_MSG(4212), Reuse_W);
+			error(4212);
+		    }
+		}
+		if ((c = skip_cwhite()) != L')') {
+		    UNGETCH();
+		    strcpy (Msg_Text, GET_MSG (4211));
+		    error(4211);
+		}
+	    }
+	    else {
+		UNGETCH();
+		strcpy (Msg_Text, GET_MSG (4210));
+		error(4210);
+	    }
+
+	    swprintf(Reuse_W, L"#pragma code_page %d\r\n", cp);
+	    myfwrite(Reuse_W, wcslen(Reuse_W) * sizeof(WCHAR), 1, OUTPUTFILE);
+	}
     }
-#endif
-
     // Skip #pragma statements
     while((c = get_non_eof()) != L'\n');
     UNGETCH();
+    return cp;
 }

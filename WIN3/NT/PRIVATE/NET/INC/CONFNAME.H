@@ -138,12 +138,18 @@ Revision History:
 #define NETLOGON_KEYWORD_SCRIPTS         TEXT("Scripts")
 #define NETLOGON_KEYWORD_UPDATE          TEXT("Update")
 #define NETLOGON_KEYWORD_DISABLEPASSWORDCHANGE TEXT("DisablePasswordChange")
+#define NETLOGON_KEYWORD_REFUSEPASSWORDCHANGE  TEXT("RefusePasswordChange")
 #define NETLOGON_KEYWORD_MAXIMUMLOGFILESIZE    TEXT("MaximumLogFileSize")
 #define NETLOGON_KEYWORD_GOVERNOR        TEXT("ReplicationGovernor")
 #define NETLOGON_KEYWORD_CHANGELOGSIZE   TEXT("ChangeLogSize")
 #define NETLOGON_KEYWORD_MAXIMUMMAILSLOTMESSAGES TEXT("MaximumMailslotMessages")
 #define NETLOGON_KEYWORD_MAILSLOTMESSAGETIMEOUT TEXT("MailslotMessageTimeout")
 #define NETLOGON_KEYWORD_MAILSLOTDUPLICATETIMEOUT TEXT("MailslotDuplicateTimeout")
+#define NETLOGON_KEYWORD_TRUSTEDDOMAINLIST TEXT("TrustedDomainList")
+#define NETLOGON_KEYWORD_MAXIMUMREPLICATORTHREADCOUNT TEXT("MaximumReplicatorThreadCount")
+#define NETLOGON_KEYWORD_EXPECTEDDIALUPDELAY TEXT("ExpectedDialupDelay")
+#define NETLOGON_KEYWORD_SCAVENGEINTERVAL TEXT("ScavengeInterval")
+
 
 
 ///////////////////////////////////////////////////////////////////////////////

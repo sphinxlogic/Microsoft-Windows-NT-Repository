@@ -57,7 +57,7 @@ Return Value:
     //
     ReadControlSpace(
                 (USHORT)Processor,
-                (PVOID)DEBUG_CONTROL_SPACE_DPCACTIVE,
+                DEBUG_CONTROL_SPACE_DPCACTIVE,
                 (PULONG)&DpcActiveFlag,
                 sizeof(PULONG) );
     dprintf("DpcActive flag is %08lx\n", DpcActiveFlag);

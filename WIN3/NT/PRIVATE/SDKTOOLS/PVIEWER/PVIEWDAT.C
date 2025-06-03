@@ -1093,7 +1093,7 @@ PPERF_INSTANCE  pInstance;
 PPERF_COUNTER   pCounter;
 DWORD           *pdwData;
 DWORD           *pdwProcPrio;
-BOOL            bPrioCounter;
+BOOL            bPrioCounter = TRUE;
 
 
 
@@ -1108,20 +1108,35 @@ BOOL            bPrioCounter;
 
 
 
+
+    if (pInstance)
+        {
+        // get thread base priority
+        //
+
+        if (pCounter = FindCounter (pThreadObj, PX_THREAD_BASE_PRIO))
+            pdwData = CounterData (pInstance, pCounter);
+        else
+            bPrioCounter = FALSE;
+
+
+        // get process priority
+        //
+
+        if (pCounter = FindCounter (pProcessObj, PX_PROCESS_PRIO))
+            pdwProcPrio = CounterData (pProcessInst, pCounter);
+        else
+            bPrioCounter = FALSE;
+        }
+    else
+        bPrioCounter = FALSE;
+
+
+
+
+
     // set thread base priority
     //
-    bPrioCounter = TRUE;
-
-    if (pCounter = FindCounter (pProcessObj, PX_THREAD_BASE_PRIO))
-        pdwData = CounterData (pProcessInst, pCounter);
-    else
-        bPrioCounter = FALSE;
-
-
-    if (pCounter = FindCounter (pProcessObj, PX_PROCESS_PRIO))
-        pdwProcPrio = CounterData (pProcessInst, pCounter);
-    else
-        bPrioCounter = FALSE;
 
     if (!bPrioCounter)
         CheckRadioButton (hWnd,

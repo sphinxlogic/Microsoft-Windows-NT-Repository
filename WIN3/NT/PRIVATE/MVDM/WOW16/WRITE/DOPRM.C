@@ -415,4 +415,3 @@ else if (ftc < 48)
 Assert(iftc < *ftctb);
 return(*(ftctb + 1 + iftc));
 }
-

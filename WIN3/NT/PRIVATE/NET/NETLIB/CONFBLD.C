@@ -26,11 +26,11 @@ Revision History:
     16-Mar-1992 JohnRo
         Removed dependency on NetApi.DLL (it needs registry to init!)
     20-Mar-1992 JohnRo
-        I forgot to close some handles, which caused some sections disappear.
+        I forgot to _close some handles, which caused some sections disappear.
     29-Mar-1992 JohnRo
         Added kludge code to convert ASCII command-line arguments to UNICODE.
     31-Mar-1992 JohnRo
-        Flush the registry after each create/write.
+        Flush the registry after each create/_write.
         Changed default domain to NtProj and set up equates for defaults.
     07-Apr-1992 JohnRo
         Fix UNICODE problems.
@@ -61,7 +61,6 @@ Revision History:
 #include <stdio.h>              // fprintf().
 #include <stdlib.h>             // exit(), EXIT_SUCCESS, etc.
 #include <tstring.h>            // WCSSIZE().
-#include <wcstr.h>              // (Used by WCSSIZE().)
 
 
 #define DEBUG_PRINT             (void) printf

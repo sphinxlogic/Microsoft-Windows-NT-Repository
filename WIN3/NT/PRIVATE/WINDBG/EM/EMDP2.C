@@ -150,13 +150,13 @@ Return Value:
     lpmdi->rgobjd = NULL;
     lpchName = ( (LPCH) &( lpmdl->rgobjd[cobj] ) );
 
-    lpmdi->lszName = MHAlloc ( _fstrlen ( lpchName ) + 1 );
+    lpmdi->lszName = MHAlloc ( strlen ( lpchName ) + 1 );
     if ( lpmdi->lszName == NULL )  {
         LLUnlock( hmdi );
         assert( "load dll cannot dup mod name" && FALSE );
         return xosdOutOfMemory;
     }
-    _fstrcpy ( lpmdi->lszName, lpchName );
+    strcpy ( lpmdi->lszName, lpchName );
 
     if (cobj) {
         lpmdi->rgobjd = (LPOBJD) MHAlloc ( sizeof(OBJD) * cobj);
@@ -258,7 +258,7 @@ XOSD
 CreateThreadStruct (
     HPID hpid,
     TID tid,
-    HTID FAR *lphtid
+    HTID *lphtid
     )
 {
     HPRC  hprc  = HprcFromHpid ( hpid );
@@ -495,10 +495,6 @@ MDIKill(
         MHFree(lpmdi->rgobjd);
         lpmdi->rgobjd = NULL;
     }
-    if (lpmdi->lpDebug) {
-        MHFree(lpmdi->lpDebug);
-        lpmdi->lpDebug = NULL;
-    }
 }
 
 
@@ -575,16 +571,16 @@ MDIComp (
                 _splitpath( (LPSTR)fn2, NULL, NULL, fname, ext );
                 _makepath( fn2, NULL, NULL, fname, ext );
 
-                return _fstricmp ( fn1, fn2 );
+                return _stricmp ( fn1, fn2 );
 
             } else {
 
-                return _fstricmp ( lpv, lpmdi->lszName );
+                return _stricmp ( lpv, lpmdi->lszName );
 
             }
 
         case emdiEMI:
-            return !(lpmdi->hemi == *(( HEMI FAR * ) lpv ) );
+            return !(lpmdi->hemi == *(( HEMI * ) lpv ) );
 
         case emdiMTE:
             return !(lpmdi->mte == *((LPWORD) lpv ));
@@ -629,7 +625,16 @@ ConvertOmapFromSrc(
     LPOMAP  pomapMid;
 
 
-    if ((!lpmdi) || (!lpmdi->lpDebug) || (!lpmdi->lpDebug->lpOmapFrom)) {
+    if (!lpmdi) {
+        return addr;
+    }
+
+    if ( lpmdi->lpgsi == NULL ) {
+        SHWantSymbols( (HEXE)lpmdi->hemi );
+        lpmdi->lpgsi = (LPGSI)SHLpGSNGetTable( (HEXE)lpmdi->hemi );
+    }
+
+    if ((!lpmdi->lpDebug) || (!lpmdi->lpDebug->lpOmapFrom)) {
         return addr;
     }
 
@@ -699,7 +704,16 @@ ConvertOmapToSrc(
     INT     i;
 
 
-    if ((!lpmdi) || (!lpmdi->lpDebug) || (!lpmdi->lpDebug->lpOmapFrom)) {
+    if (!lpmdi) {
+        return addr;
+    }
+
+    if ( lpmdi->lpgsi == NULL ) {
+        SHWantSymbols( (HEXE)lpmdi->hemi );
+        lpmdi->lpgsi = (LPGSI)SHLpGSNGetTable( (HEXE)lpmdi->hemi );
+    }
+
+    if ((!lpmdi->lpDebug) || (!lpmdi->lpDebug->lpOmapTo)) {
         return addr;
     }
 
@@ -777,8 +791,6 @@ Routine Description:
     This routine is used to convert addresses between linker index (section
     or segment relative) addresses and real addresses (segment:offset).
 
-
-
 Arguments:
 
     hpid        - Supplies the handle to the process for context to convert
@@ -794,20 +806,14 @@ Return Value:
 {
     HMDI hmdi;
 
-    /*
-     *  Check to see if the address is already a segment:offset pair and
-     *  return if it is.
-     */
+    // Check to see if the address is already a segment:offset pair and return if it is.
 
     if ( !ADDR_IS_LI(*lpaddr) ) {
         return xosdNone;
     }
 
-    /*
-     *  Now based on the emi field of the address (which uniquely defines
-     *  the executable module in the symbol handler), get the conversion
-     *  information.
-     */
+    // Now based on the emi field of the address (which uniquely defines the
+    // executable module in the symbol handler), get the conversion information.
 
     assert( emiAddr( *lpaddr ) != 0 );
 
@@ -815,22 +821,19 @@ Return Value:
 
         ADDR_IS_LI(*lpaddr) = FALSE;
 
-#if defined(TARGET_MIPS) || defined(TARGET_ALPHA)
-        /*
-         * The opposite of the code in UnFixupAddr -- Remove the 1
-         *      which was stuck in to make sure we did not think it was
-         *      an absolute
-         */
+#if defined(TARGET_MIPS) || defined(TARGET_ALPHA) || defined(TARGET_PPC)
+
+        // The opposite of the code in UnFixupAddr -- Remove the 1 which was
+        //  stuck in to make sure we did not think it was an absolute.
+
         lpaddr->addr.seg = 0;
 
-#endif  // TARGET_MIPS || TARGET_ALPHA
+#endif  // TARGET_MIPS || TARGET_ALPHA || TARGET_PPC
 
     } else {
 
-        /*
-         * Based on the symbol handler handle find our internal data structure
-         *      for the dll.
-         */
+        // Based on the symbol handler handle find our internal data structure
+        //  for the dll.
 
         hmdi = LLFind ( LlmdiFromHprc ( HprcFromHpid(hpid) ), 0,
                        (LPVOID)&emiAddr ( *lpaddr ), (LONG) emdiEMI );
@@ -846,10 +849,8 @@ Return Value:
             LPSGI lpsgi;
             unsigned short seg;
 
-            /*
-             *  If we could not find an internal structure for the DLL
-             *  then it must be some type of error.
-             */
+            // If we could not find an internal structure for the DLL
+            // then it must be some type of error.
 
             if ( lpmdi == NULL ) {
                 return xosdUnknown;
@@ -861,13 +862,11 @@ Return Value:
                 }
             }
 
-            /*
-             *  If the segment/selector is 0 then it must be an absolute
-             *  symbol and we therefore don't need to do any conversion.
-             *
-             *  If we could get no information describing the symbol
-             *  information then we can't do any conversion.
-             */
+            // If the segment/selector is 0 then it must be an absolute symbol
+            // and we therefore don't need to do any conversion.
+            //
+            // If we could get no information describing the symbol information
+            // then we can't do any conversion.
 
             if ( lpmdi->lpgsi == NULL ) {
                 LLUnlock( hmdi );
@@ -876,62 +875,69 @@ Return Value:
                 lpmdi->lpgsi = (LPGSI)SHLpGSNGetTable( (HEXE)(emiAddr( *lpaddr )) );
             }
 
-            if ( (GetAddrSeg( *lpaddr ) > 0) && (lpmdi->lpgsi) ) {
+            seg = GetAddrSeg( *lpaddr );
 
-                /*
-                 * Get the linker index number for the segment number
-                 *      and assure that it is valid.
-                 */
+            if ( seg > 0 ) {
+                if (lpmdi->lpgsi) {
 
-                wsel = (WORD) (GetAddrSeg( *lpaddr ) - 1);
-                if ( wsel >= lpmdi->lpgsi->csgMax ) {
-                    /*
-                     * Linker index is either not valid or not yet loaded
-                     */
+                    // Get the linker index number for the segment number
+                    //  and assure that it is valid.
 
-                    return xosdUnknown;
-                }
-                else {
+                    wsel = (WORD) (GetAddrSeg( *lpaddr ) - 1);
+                    if ( wsel >= lpmdi->lpgsi->csgMax ) {
 
-                    /*
-                     *  We know which section it comes from.  To compute
-                     *  the real offset we need to add the following
-                     *  items together.
-                     *
-                     *  original offset                GetAddrOff( *lpaddr )
-                     *  offset of index in section     lpsgi->doffseg
-                     *      (this is the group offset)
-                     *  offset of section from base of rgobjd[physSeg-1].offset
-                     *          image
-                     *
-                     *
-                     *  The segment can just be loaded from the MAP.  Notice
-                     *  that we will infact "lose" information in this
-                     *  conversion sometimes.  Specifically a cs:data address
-                     *  after unfixup and fixup will come out ds:data.  This
-                     *  is "expected" behavior.
-                     */
+                        // Linker index is either not valid or not yet loaded
 
-                    lpsgi = &lpmdi->lpgsi->rgsgi[ wsel ];
-
-                    if (lpmdi->rgobjd[(lpsgi->isgPhy-1)].wPad == 0) {
                         return xosdUnknown;
+                    } else {
+
+                        // We know which section it comes from.  To compute the
+                        // real offset we need to add the following items
+                        // together.
+                        //
+                        // original offset                GetAddrOff( *lpaddr )
+                        // offset of index in section     lpsgi->doffseg
+                        //     (this is the group offset)
+                        // offset of section from base of rgobjd[physSeg-1].offset
+                        //         image
+                        //
+                        // The segment can just be loaded from the MAP.  Notice
+                        // that we will infact "lose" information in this
+                        // conversion sometimes.  Specifically a cs:data address
+                        // after unfixup and fixup will come out ds:data.  This
+                        // is "expected" behavior.
+
+                        lpsgi = &lpmdi->lpgsi->rgsgi[ wsel ];
+
+                        if (lpmdi->rgobjd[(lpsgi->isgPhy-1)].wPad == 0) {
+                            return xosdUnknown;
+                        }
+
+                        GetAddrOff ( *lpaddr ) += lpsgi->doffseg;
+
+                        GetAddrOff( *lpaddr ) +=
+                          (UOFFSET) (lpmdi->rgobjd[ (lpsgi->isgPhy - 1) ]. offset);
+
+                        // Make sure we adjust to the original start (just in case the
+                        // image was modified since the CV info was written).
+                        //
+                        // rgobjd contains the VA for each section start.
+                        // lpSecStart contains the calculated RVA for the section start.
+
+                        if (lpmdi->lpDebug->lpSecStart) {
+                            GetAddrOff ( *lpaddr ) +=
+                                lpmdi->lpDebug->lpSecStart[(lpsgi->isgPhy - 1)].Offset -
+                                 (lpmdi->rgobjd[(lpsgi->isgPhy - 1)].offset -
+                                   lpmdi->lpBaseOfDll);
+                        }
+                        seg = lpmdi->rgobjd[(lpsgi->isgPhy - 1)].wSel;
                     }
 
-                    GetAddrOff ( *lpaddr ) += lpsgi->doffseg;
-
-                    GetAddrOff( *lpaddr ) +=
-                      (UOFFSET) (lpmdi->rgobjd[ (lpsgi->isgPhy - 1) ]. offset);
-
-                    seg = lpmdi->rgobjd[(lpsgi->isgPhy - 1)].wSel;
+                    GetAddrSeg ( *lpaddr ) = seg;
                 }
-
-                GetAddrSeg ( *lpaddr ) = seg;
             }
 
-            /*
-             *  Set the bits describing the address
-             */
+            // Set the bits describing the address
 
             ADDR_IS_REAL(*lpaddr) = lpmdi->fRealMode;
             ADDR_IS_OFF32(*lpaddr) = lpmdi->fOffset32;
@@ -945,9 +951,7 @@ Return Value:
                 }
             }
 
-            /*
-             * Now release the module description
-             */
+            // Now release the module description
 
             LLUnlock ( hmdi );
         }
@@ -1003,36 +1007,26 @@ Return Value:
     LDT_ENTRY   ldt;
     XOSD        xosd;
 
-    /*
-     *  If the address already has the Linker Index bit set then there
-     *  is no work for use to do.
-     */
-
+    // If the address already has the Linker Index bit set then there
+    // is no work for use to do.
 
     if ( ADDR_IS_LI(*lpaddr) ) {
         return xosdNone;
     }
 
-    /*
-     *  If the EMI field in the address is not already filled in, then
-     *  we will now fill it in.
-     */
+    // If the EMI field in the address is not already filled in, then
+    // we will now fill it in.
 
     if ( emiAddr ( *lpaddr ) == 0 ) {
         SetEmi ( hpid, lpaddr );
     }
 
-    /*
-     *  Get the internal Process Descriptor structure
-     */
+    // Get the internal Process Descriptor structure
 
     hprc = HprcFromHpid(hpid);
 
-    /*
-     *  Is the EMI we got from the address equal to the process handle?
-     *  if so then we cannot unfix the address and should just set the
-     *  bits in the mode field.
-     */
+    // Is the EMI we got from the address equal to the process handle?  if so then
+    // we cannot unfix the address and should just set the bits in the mode field.
 
     if ( (HPID)emiAddr ( *lpaddr ) != hpid ) {
         LPMDI lpmdi;
@@ -1044,14 +1038,12 @@ Return Value:
         USHORT          seg;
         ULONG           iSeg;
 
-
         if (hmdi == 0) {
-            /*
-             * If we get here we are really messed up.  We have a valid (?)
-             *  emi field set in the ADDR packeet, it is not the process
-             *  handle, but it does not correspond to a known emi in the
-             *  current process.  Therefore bail out as an error
-             */
+
+            // If we get here we are really messed up.  We have a valid (?)
+            // emi field set in the ADDR packeet, it is not the process
+            // handle, but it does not correspond to a known emi in the
+            // current process.  Therefore bail out as an error
 
             return xosdUnknown;
         }
@@ -1067,22 +1059,16 @@ Return Value:
             }
         }
 
-        /*
-         * Start out by using the "default" set of fields.  These
-         *      are based on what our best guess is for the executable
-         *      module.  This is based on what the DM told use when
-         *      it loaded the exe.
-         */
+        // Start out by using the "default" set of fields.  These are based
+        // on what our best guess is for the executable module.  This is based
+        // on what the DM told use when it loaded the exe.
 
         ADDR_IS_REAL(*lpaddr) = lpmdi->fRealMode;
         ADDR_IS_OFF32(*lpaddr) = lpmdi->fOffset32;
         ADDR_IS_FLAT(*lpaddr) = lpmdi->fFlatMode;
 
-        /*
-         *  If there is not table describing the layout of segments in
-         *      the exe, there is no debug information and there fore no
-         *      need to continue this process.
-         */
+        // If there is not table describing the layout of segments in the exe, there
+        //  is no debug information and there fore no need to continue process.
 
         if ( lpmdi->lpgsi == NULL ) {
             LLUnlock( hmdi );
@@ -1107,26 +1093,47 @@ Return Value:
         ulo = (unsigned long)GetAddrOff( *lpaddr );
         seg = (unsigned short)GetAddrSeg( *lpaddr );
 
-        /*
-         *  First correct out the "segment" portion of the offset.
-         *
-         *  For flat addresses this means that we locate which section
-         *      number the address fell in and adjust back to that section
-         *
-         *  For non-flat address this mains locate which segment number
-         *      the selector matches
-         */
+        // First correct out the "segment" portion of the offset.
+        //
+        // For flat addresses this means that we locate which section
+        //  number the address fell in and adjust back to that section
+        //
+        // For non-flat address this mains locate which segment number
+        //  the selector matches
 
         assert(lpmdi->cobj >= 0);
 
         if (ADDR_IS_FLAT( *lpaddr )) {
-            for ( iSeg=0; iSeg < lpmdi->cobj; iSeg++) {
-                if ((lpmdi->rgobjd[ iSeg ].offset <= ulo) &&
-                    (ulo < (OFFSET) (lpmdi->rgobjd[ iSeg ].offset +
-                                     lpmdi->rgobjd[ iSeg].cb))) {
 
-                    ulo -= lpmdi->rgobjd[ iSeg ].offset;
-                    break;
+            // If there's a SecStart table use it (it should contain the section
+            //  values the symbolic was built with).
+            if (lpmdi->lpDebug->lpSecStart) {
+                DWORD NewOff = ulo - lpmdi->lpBaseOfDll;
+                LPSECSTART SecStart = lpmdi->lpDebug->lpSecStart;
+
+                for ( iSeg=0; iSeg < lpmdi->cobj; iSeg++) {
+                    if ((SecStart[iSeg].Offset <= NewOff) &&
+                         NewOff < (SecStart[iSeg].Offset + SecStart[iSeg].Size)
+                       ) {
+                        ulo = NewOff - SecStart[iSeg].Offset;
+//                        ulo -=
+//                            SecStart[iSeg].Offset -
+//                            (lpmdi->rgobjd[iSeg].offset - lpmdi->lpBaseOfDll);
+                        break;
+                    }
+                }
+            } else {
+
+                // Then convert to a true rva so we can find it in the symbol tree.
+
+                for ( iSeg=0; iSeg < lpmdi->cobj; iSeg++) {
+                    if ((lpmdi->rgobjd[ iSeg ].offset <= ulo) &&
+                        (ulo < (OFFSET) (lpmdi->rgobjd[ iSeg ].offset +
+                                         lpmdi->rgobjd[ iSeg].cb))
+                       ) {
+                        ulo -= lpmdi->rgobjd[ iSeg ].offset;
+                        break;
+                    }
                 }
             }
         } else {
@@ -1166,15 +1173,14 @@ Return Value:
 
     } else {
 
-    itsBogus:
+itsBogus:
         if (ADDR_IS_REAL( *lpaddr )) {
             ADDR_IS_FLAT( *lpaddr ) = FALSE;
             ADDR_IS_OFF32( *lpaddr ) = FALSE;
         } else {
-            /*
-             * See if the segment matches the flat segment.  If it does not
-             *      then we must be in a non-flat segment.
-             */
+
+            // See if the segment matches the flat segment.  If it does not
+            //  then we must be in a non-flat segment.
 
             lpprc = LLLock( hprc );
 
@@ -1197,7 +1203,7 @@ Return Value:
                     return xosd;
                 }
 
-                _fmemcpy( &ldt, LpDmMsg->rgb, sizeof(ldt));
+                memcpy( &ldt, LpDmMsg->rgb, sizeof(ldt));
 
                 ADDR_IS_FLAT(*lpaddr) = FALSE;
                 ADDR_IS_OFF32(*lpaddr) = (BYTE) ldt.HighWord.Bits.Default_Big;
@@ -1207,12 +1213,11 @@ Return Value:
         }
 
 #if !defined (TARGET_i386)
-        /*
-         *      This line is funny.  We assume that all addresses
-         *      which have a segment of 0 to be absolute symbols.
-         *      We therefore set the segment to 1 just to make sure
-         *      that it is not zero.
-         */
+
+        // This line is funny.  We assume that all addresses
+        // which have a segment of 0 to be absolute symbols.
+        // We therefore set the segment to 1 just to make sure
+        // that it is not zero.
 
         lpaddr->addr.seg = 1;
 #endif // ! TARGET_i386
@@ -1220,7 +1225,7 @@ Return Value:
 
     ADDR_IS_LI(*lpaddr) = TRUE;
     return xosdNone;
-}                               /* UnFixupAddr() */
+}
 
 
 
@@ -1233,7 +1238,7 @@ UpdateRegisters (
     LPTHD lpthd = LLLock ( hthd );
 
     SendRequest ( dmfReadReg, HpidFromHprc ( hprc ), HtidFromHthd ( hthd ) );
-    _fmemcpy ( &lpthd->regs, LpDmMsg->rgb, sizeof ( lpthd->regs ) );
+    memcpy ( &lpthd->regs, LpDmMsg->rgb, sizeof ( lpthd->regs ) );
 
 
     lpthd->drt = drtCntrlPresent | drtAllPresent;
@@ -1257,7 +1262,7 @@ UpdateSpecialRegisters (
         //
         // in kernel mode...
         //
-        _fmemcpy ( lpthd->pvSpecial, LpDmMsg->rgb, lpthd->dwcbSpecial );
+        memcpy ( lpthd->pvSpecial, LpDmMsg->rgb, lpthd->dwcbSpecial );
         lpthd->regs.Dr0 = ((PKSPECIAL_REGISTERS)(LpDmMsg->rgb))->KernelDr0;
         lpthd->regs.Dr1 = ((PKSPECIAL_REGISTERS)(LpDmMsg->rgb))->KernelDr1;
         lpthd->regs.Dr2 = ((PKSPECIAL_REGISTERS)(LpDmMsg->rgb))->KernelDr2;
@@ -1294,7 +1299,7 @@ DoGetContext(
 {
     XOSD xosd = SendRequest ( dmfReadReg, hpid, htid );
     if (xosd == xosdNone) {
-       _fmemcpy ( *(LPVOID *)lpv, LpDmMsg->rgb, sizeof (CONTEXT) );
+       memcpy ( *(LPVOID *)lpv, LpDmMsg->rgb, sizeof (CONTEXT) );
     }
     return xosd;
 }
@@ -1401,7 +1406,7 @@ RegisterEmi (
         // Setup the overlay table
         if ( usOvlMax ) {
             lpmdi->lpsel = MHRealloc( lpmdi->lpsel, sizeof( WORD ) * usOvlMax + 1 );
-            _fmemset( &lpmdi->lpsel [ 1 ], 0, sizeof( WORD ) * usOvlMax );
+            memset( &lpmdi->lpsel [ 1 ], 0, sizeof( WORD ) * usOvlMax );
         }
 #endif // !TARGET32
     }
@@ -1953,7 +1958,7 @@ DebugPacket (
             LPPRC lpprc = LLLock ( hprc );
 
             assert ( wValue == sizeof ( PID ) );
-            lpprc->pid = *( (PID FAR *) lpb );
+            lpprc->pid = *( (PID *) lpb );
             lpprc->stat = statStarted;
             LLUnlock ( hprc );
         }
@@ -1977,7 +1982,7 @@ DebugPacket (
             LLUnlock(hprc);
 
             assert ( wValue == sizeof ( TID ) );
-            xosd = CreateThreadStruct ( hpid, *( (TID FAR *) lpb ), &htid );
+            xosd = CreateThreadStruct ( hpid, *( (TID *) lpb ), &htid );
 
             CallTL ( tlfReply, hpid, sizeof ( HTID ), (LPVOID)&htid );
             if ( xosd == xosdNone ) {
@@ -2167,11 +2172,14 @@ DebugPacket (
             lpthd->regs.Eip     = lpbpr->offEIP;
             lpthd->regs.Ebp     = lpbpr->offEBP;
 #elif defined(TARGET_MIPS)
-            lpthd->regs.Fir     = lpbpr->offEIP;
-            lpthd->regs.IntSp   = lpbpr->offEBP;
+            lpthd->regs.XFir    = lpbpr->offEIP;
+            lpthd->regs.XIntSp  = lpbpr->offEBP;
 #elif defined(TARGET_ALPHA)
             lpthd->regs.Fir     = lpbpr->offEIP;
             lpthd->regs.IntSp   = lpbpr->offEBP;
+#elif defined(TARGET_PPC)
+            lpthd->regs.Iar     = lpbpr->offEIP;
+            lpthd->regs.Gpr1    = lpbpr->offEBP;
 #else
 
 #error "unrecognized target CPU"
@@ -2208,11 +2216,14 @@ DebugPacket (
             lpthd->regs.Eip     = lpepr->bpr.offEIP;
             lpthd->regs.Ebp     = lpepr->bpr.offEBP;
 #elif defined(TARGET_MIPS)
-            lpthd->regs.Fir     = lpepr->bpr.offEIP;
-            lpthd->regs.IntSp   = lpepr->bpr.offEBP;
+            lpthd->regs.XFir    = lpepr->bpr.offEIP;
+            lpthd->regs.XIntSp  = lpepr->bpr.offEBP;
 #elif defined(TARGET_ALPHA)
             lpthd->regs.Fir     = lpepr->bpr.offEIP;
             lpthd->regs.IntSp   = lpepr->bpr.offEBP;
+#elif defined(TARGET_PPC)
+            lpthd->regs.Iar     = lpepr->bpr.offEIP;
+            lpthd->regs.Gpr1    = lpepr->bpr.offEBP;
 #else
 
 #error "unrecognized target CPU"
@@ -2255,11 +2266,14 @@ DebugPacket (
             lpthd->regs.Eip     = lprip->bpr.offEIP;
             lpthd->regs.Ebp     = lprip->bpr.offEBP;
 #elif defined(TARGET_MIPS)
-            lpthd->regs.Fir     = lprip->bpr.offEIP;
-            lpthd->regs.IntSp   = lprip->bpr.offEBP;
+            lpthd->regs.XFir    = lprip->bpr.offEIP;
+            lpthd->regs.XIntSp  = lprip->bpr.offEBP;
 #elif defined(TARGET_ALPHA)
             lpthd->regs.Fir     = lprip->bpr.offEIP;
             lpthd->regs.IntSp   = lprip->bpr.offEBP;
+#elif defined(TARGET_PPC)
+            lpthd->regs.Iar     = lprip->bpr.offEIP;
+            lpthd->regs.Gpr1    = lprip->bpr.offEBP;
 #else
 
 #error "unrecognized target CPU"
@@ -2401,23 +2415,24 @@ DebugPacket (
 
     case dbceGetSymbolFromOffset:
         {
-            STACKFRAME stk;
             LPSTR p;
-            LPSTR fname = SHAddrToPublicName( (LPADDR)lpb );
+            ADDR addr;
+            LPDMSYM lpds;
+            STACKFRAME stk = {0};
+            LPSTR fname = SHAddrToPublicName( (LPADDR)lpb, &addr );
             StackWalkSetup( hpid, htid, &stk );
             if (fname) {
-                p = malloc( strlen(fname) + 16 );
-                strcpy(p,fname);
+                lpds = (LPDMSYM)malloc( sizeof(DMSYM) + strlen(fname) + 1);
+                strcpy(lpds->fname,fname);
                 free(fname);
             } else {
-                p = malloc( 32 );
-                sprintf( p, "<unknown>0x%08x", GetAddrOff(*(LPADDR)lpb) );
+                lpds = (LPDMSYM)malloc( sizeof(DMSYM) + 32 );
+                sprintf( lpds->fname, "<unknown>0x%08x", GetAddrOff(*(LPADDR)lpb) );
             }
-            fname = p;
-            p += strlen(p) + 1;
-            *(LPDWORD)p = stk.AddrReturn.Offset;
-            CallTL( tlfReply, hpid, strlen(fname)+sizeof(DWORD)+1, (LPVOID)fname );
-            free( fname );
+            lpds->AddrSym = addr;
+            lpds->Ra = stk.AddrReturn.Offset;
+            CallTL( tlfReply, hpid, sizeof(DMSYM) + strlen(lpds->fname) + 1 , (LPVOID)lpds );
+            free( lpds );
             xosd = xosdNone;
         }
         break;

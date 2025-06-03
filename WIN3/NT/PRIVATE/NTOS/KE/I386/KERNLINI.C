@@ -35,6 +35,7 @@ Revision History:
 --*/
 
 #include "ki.h"
+#include "ki386.h"
 
 #define TRAP332_GATE 0xEF00
 
@@ -51,16 +52,6 @@ KiSetCR0Bits(
 BOOLEAN
 KiIsNpxPresent(
     VOID
-    );
-
-VOID
-KiInitializePcr (
-    IN ULONG Processor,
-    IN PKPCR    Pcr,
-    IN PKIDTENTRY Idt,
-    IN PKGDTENTRY Gdt,
-    IN PKTSS Tss,
-    IN PKTHREAD Thread
     );
 
 VOID
@@ -91,13 +82,25 @@ KiGetFeatureBits (
     VOID
     );
 
+NTSTATUS
+KiMoveRegTree(
+    HANDLE  Source,
+    HANDLE  Dest
+    );
+
 VOID
-Ke386CpuID (
-    ULONG   InEax,
-    PULONG  OutEax,
-    PULONG  OutEbx,
-    PULONG  OutEcx,
-    PULONG  OutEdx
+Ki386EnableGlobalPage (
+    IN volatile PLONG Number
+    );
+
+BOOLEAN
+KiInitMachineDependent (
+    VOID
+    );
+
+VOID
+KiInitializeMTRR (
+    IN BOOLEAN LastProcessor
     );
 
 #ifdef ALLOC_PRAGMA
@@ -108,6 +111,8 @@ Ke386CpuID (
 #pragma alloc_text(INIT,KiSwapIDT)
 #pragma alloc_text(INIT,KeSetup80387OrEmulate)
 #pragma alloc_text(INIT,KiGetFeatureBits)
+#pragma alloc_text(INIT,KiMoveRegTree)
+#pragma alloc_text(INIT,KiInitMachineDependent)
 #endif
 
 
@@ -115,9 +120,19 @@ Ke386CpuID (
 PVOID KiTrap08;
 #endif
 
-extern KSPIN_LOCK KiIopmLock;
 extern PVOID Ki387RoundModeTable;
 extern PVOID Ki386IopmSaveArea;
+extern ULONG KeI386ForceNpxEmulation;
+extern WCHAR CmDisabledFloatingPointProcessor[];
+extern UCHAR CmpCyrixID[];
+
+#define CPU_NONE    0
+#define CPU_INTEL   1
+#define CPU_AMD     2
+#define CPU_CYRIX   3
+
+
+
 
 //
 // Profile vars
@@ -182,6 +197,7 @@ Return Value:
     KIRQL OldIrql;
     PKPCR Pcr;
     BOOLEAN NpxFlag;
+    ULONG FeatureBits;
 
     KiSetProcessorType();
     KiSetCR0Bits();
@@ -195,6 +211,19 @@ Return Value:
 
     InitializeListHead(&Prcb->DpcListHead);
     KeInitializeSpinLock(&Prcb->DpcLock);
+    Prcb->DpcRoutineActive = 0;
+    Prcb->DpcQueueDepth = 0;
+    Prcb->MaximumDpcQueueDepth = KiMaximumDpcQueueDepth;
+    Prcb->MinimumDpcRate = KiMinimumDpcRate;
+    Prcb->AdjustDpcThreshold = KiAdjustDpcThreshold;
+
+    //
+    // Check for unsupported processor revision
+    //
+
+    if (Prcb->CpuType == 3) {
+        KeBugCheckEx(UNSUPPORTED_PROCESSOR,0x386,0,0,0);
+    }
 
     //
     // If the initial processor is being initialized, then initialize the
@@ -211,13 +240,25 @@ Return Value:
         KeI386CpuType = Prcb->CpuType;
         KeI386CpuStep = Prcb->CpuStep;
 
-        if (KeI386CpuType == 3  && (KeI386CpuStep >> 8) <= 1) {
-            KeBugCheckEx(HAL_INITIALIZATION_FAILED,0xb1,KeI386CpuType,KeI386CpuStep,0);
-            for (; ;) {
-            }
+        KeProcessorArchitecture = PROCESSOR_ARCHITECTURE_INTEL;
+        KeProcessorLevel = (USHORT)Prcb->CpuType;
+        if (Prcb->CpuID == 0) {
+            KeProcessorRevision = 0xFF00 |
+                                  (((Prcb->CpuStep >> 4) + 0xa0 ) & 0x0F0) |
+                                  (Prcb->CpuStep & 0xf);
+        } else {
+            KeProcessorRevision = Prcb->CpuStep;
         }
 
         KeFeatureBits = KiGetFeatureBits();
+
+        //
+        // If cmpxchg8b was available at boot, verify its still available
+        //
+
+        if ((KiBootFeatureBits & KF_CMPXCHG8B) && !(KeFeatureBits & KF_CMPXCHG8B)) {
+            KeBugCheckEx (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED, KF_CMPXCHG8B, 0, 0, 0);
+        }
 
         //
         // Lower IRQL to APC level.
@@ -225,24 +266,15 @@ Return Value:
 
         KeLowerIrql(APC_LEVEL);
 
+
         //
-        // Initialize spin locks for the kernel data structures.
+        // Initialize kernel internal spinlocks
         //
 
+        KeInitializeSpinLock(&KiContextSwapLock);
         KeInitializeSpinLock(&KiDispatcherLock);
         KeInitializeSpinLock(&KiFreezeExecutionLock);
 
-        //
-        //  Initialize the profile interrupt spinlocks
-        //
-
-        KeInitializeSpinLock(&KiProfileLock);
-
-        //
-        // Initialize the i/o access mask spinlock
-        //
-
-        KeInitializeSpinLock(&KiIopmLock);
 
         //
         // Performance architecture independent initialization.
@@ -262,13 +294,15 @@ Return Value:
         DirectoryTableBase[1] = 0;
         KeInitializeProcess(Process,
                             (KPRIORITY)0,
-                            (KAFFINITY)(0x7f),
+                            (KAFFINITY)(0xffffffff),
                             &DirectoryTableBase[0],
                             FALSE);
 
         Process->ThreadQuantum = MAXCHAR;
 
     } else {
+
+        FeatureBits =  KiGetFeatureBits();
 
         //
         // Adjust global cpu setting to represent lowest of all processors
@@ -279,39 +313,37 @@ Return Value:
             // NPX support must be available on all processors or on none
             //
 
-            KeBugCheck (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED);
+            KeBugCheckEx (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED, 0x387, 0, 0, 0);
         }
 
-        if (Prcb->CpuType != KeI386CpuType) {
+        if ((ULONG)(Prcb->CpuType) != KeI386CpuType) {
 
-            if (Prcb->CpuType < KeI386CpuType) {
+            if ((ULONG)(Prcb->CpuType) < KeI386CpuType) {
 
                 //
                 // What is the lowest CPU type
                 //
 
-                KeI386CpuType = Prcb->CpuType;
-            }
-
-            if (KeI386CpuType <= 3) {
-
-                //
-                // Can not mix processor types of 386 or before
-                //
-
-                KeBugCheck (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED);
+                KeI386CpuType = (ULONG)Prcb->CpuType;
+                KeProcessorLevel = (USHORT)Prcb->CpuType;
             }
         }
 
-        if (KeI386CpuType == 3) {
-
+        if ((KiBootFeatureBits & KF_CMPXCHG8B)  &&  !(FeatureBits & KF_CMPXCHG8B)) {
             //
-            // MP 386 systems no longer supported
+            // cmpxchg8b must be available on all processors, if installed at boot
             //
 
-            KeBugCheck (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED);
+            KeBugCheckEx (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED, KF_CMPXCHG8B, 0, 0, 0);
         }
 
+        if ((KeFeatureBits & KF_GLOBAL_PAGE)  &&  !(FeatureBits & KF_GLOBAL_PAGE)) {
+            //
+            // Global page support must be available on all processors, if on boot processor
+            //
+
+            KeBugCheckEx (MULTIPROCESSOR_CONFIGURATION_NOT_SUPPORTED, KF_GLOBAL_PAGE, 0, 0, 0);
+        }
 
         //
         // Use lowest stepping value
@@ -319,13 +351,20 @@ Return Value:
 
         if (Prcb->CpuStep < KeI386CpuStep) {
             KeI386CpuStep = Prcb->CpuStep;
+            if (Prcb->CpuID == 0) {
+                KeProcessorRevision = 0xFF00 |
+                                      ((Prcb->CpuStep >> 8) + 'A') |
+                                      (Prcb->CpuStep & 0xf);
+            } else {
+                KeProcessorRevision = Prcb->CpuStep;
+            }
         }
 
         //
         // Use subset of all NT feature bits available on each processor
         //
 
-        KeFeatureBits &= KiGetFeatureBits();
+        KeFeatureBits &= FeatureBits;
 
         //
         // Lower IRQL to DISPATCH level.
@@ -334,6 +373,16 @@ Return Value:
         KeLowerIrql(DISPATCH_LEVEL);
 
     }
+
+    //
+    // Update processor features
+    //
+
+    SharedUserData->ProcessorFeatures[PF_MMX_INSTRUCTIONS_AVAILABLE] =
+        (KeFeatureBits & KF_MMX) ? TRUE : FALSE;
+
+    SharedUserData->ProcessorFeatures[PF_COMPARE_EXCHANGE_DOUBLE] =
+        (KeFeatureBits & KF_CMPXCHG8B) ? TRUE : FALSE;
 
     //
     // Initialize idle thread object and then set:
@@ -351,6 +400,8 @@ Return Value:
                        (PKSYSTEM_ROUTINE)NULL, (PKSTART_ROUTINE)NULL,
                        (PVOID)NULL, (PCONTEXT)NULL, (PVOID)NULL, Process);
     Thread->InitialStack = (PVOID)(((ULONG)IdleStack) &0xfffffff0);
+    Thread->StackBase = Thread->InitialStack;
+    Thread->StackLimit = (PVOID)((ULONG)Thread->InitialStack - KERNEL_STACK_SIZE);
     Thread->NextProcessor = Number;
     Thread->Priority = HIGH_PRIORITY;
     Thread->State = Running;
@@ -363,8 +414,6 @@ Return Value:
     // initialized at KiInitializePcr().
     //
 
-    KeInitializeDpc(&Prcb->QuantumEndDpc,
-                    (PKDEFERRED_ROUTINE)KiQuantumEnd, NIL);
     Prcb->CurrentThread = Thread;
     Prcb->NextThread = (PKTHREAD)NULL;
     Prcb->IdleThread = Thread;
@@ -376,12 +425,6 @@ Return Value:
     //
 
     KiAcquireSpinLock(&KiDispatcherLock);
-
-    //
-    // Insert thread in active matrix.
-    //
-
-    InsertActiveMatrix(Number, HIGH_PRIORITY);
 
     //
     // Release DispatcherDatabase
@@ -402,12 +445,18 @@ Return Value:
 
     //
     // If the initial processor is being initialized, then compute the
-    // timer table reciprocal value.
+    // timer table reciprocal value and reset the PRCB values for the
+    // controllable DPC behavior in order to reflect any registry
+    // overrides.
     //
 
     if (Number == 0) {
         KiTimeIncrementReciprocal = KiComputeReciprocal((LONG)KeMaximumIncrement,
                                                         &KiTimeIncrementShiftCount);
+
+        Prcb->MaximumDpcQueueDepth = KiMaximumDpcQueueDepth;
+        Prcb->MinimumDpcRate = KiMinimumDpcRate;
+        Prcb->AdjustDpcThreshold = KiAdjustDpcThreshold;
     }
 
     //
@@ -439,7 +488,6 @@ Return Value:
     KiAcquireSpinLock(&KiDispatcherLock);
     if (Prcb->NextThread == (PKTHREAD)NULL) {
         SetMember(Number, KiIdleSummary);
-        RemoveActiveMatrix(Number, 0);
     }
     KiReleaseSpinLock(&KiDispatcherLock);
 
@@ -449,7 +497,7 @@ Return Value:
     // This processor has initialized
     //
 
-    LoaderBlock->Prcb = NULL;
+    LoaderBlock->Prcb = (ULONG)NULL;
 
     return;
 }
@@ -531,7 +579,7 @@ Return Value:
     // as early as possible.
     //
 
-    Pcr->PrcbData.Number = Processor;
+    Pcr->PrcbData.Number = (UCHAR)Processor;
     Pcr->PrcbData.SetMember = 1 << Processor;
     KiProcessorBlock[Processor] = Pcr->Prcb;
 
@@ -542,10 +590,6 @@ Return Value:
     Pcr->GDT = Gdt;
     Pcr->IDT = Idt;
     Pcr->TSS = Tss;
-
-    //  state tracking variable used in asserts
-
-    Pcr->IsExecutingDpc = FALSE;
 
     return;
 }
@@ -612,9 +656,6 @@ Return Value:
 
     //  Set IO Map base address to indicate no IO map present.
 
-    // BUGBUG Daveh the system must know how big the TSS is, so we
-    //        should use that here, instead of a constant.
-
     // N.B. -1 does not seem to be a valid value for the map base.  If this
     //      value is used, byte immediate in's and out's will actually go
     //      the hardware when executed in V86 mode.
@@ -672,9 +713,6 @@ Return Value:
 {
 
     //  Set IO Map base address to indicate no IO map present.
-
-    // BUGBUG Daveh the system must know how big the TSS is, so we
-    //        should use that here, instead of a constant.
 
     // N.B. -1 does not seem to be a valid value for the map base.  If this
     //      value is used, byte immediate in's and out's will actually go
@@ -740,7 +778,7 @@ Return Value:
         p = (PUCHAR)(Tss->IoMaps[i].IoMap);
 
         for (j = 0; j < PIOPM_SIZE; j++) {
-            p[j] = -1;
+            p[j] = (UCHAR)-1;
         }
     }
 
@@ -780,12 +818,6 @@ Routine Description:
 
     Note that this procedure edits the current IDT.
 
-BUGBUG bryanwi 21mar90 - this is a cronk
-
-    We should always just init the IDT in a procedure with all
-    the constants in it (or in a table it reads) and put the
-    fully correct values there.
-
 Arguments:
 
     None.
@@ -818,14 +850,15 @@ KiGetFeatureBits ()
 
 --*/
 {
-    UCHAR   Buffer[50];
-    ULONG   Junk, ProcessorFeatures, NtBits;
-    PKPRCB  Prcb;
+    UCHAR           Buffer[50];
+    ULONG           Junk, ProcessorFeatures, NtBits;
+    ULONG           CpuVendor;
+    PKPRCB          Prcb;
 
     NtBits = 0;
 
     Prcb = KeGetCurrentPrcb();
-    Prcb->CpuVendorString[0] = 0;
+    Prcb->VendorString[0] = 0;
 
     if (!Prcb->CpuID) {
         return NtBits;
@@ -835,66 +868,257 @@ KiGetFeatureBits ()
     // Determine the processor type
     //
 
-    Ke386CpuID (0, &Junk, (PULONG) Buffer+0, (PULONG) Buffer+2, (PULONG) Buffer+1);
+    CPUID (0, &Junk, (PULONG) Buffer+0, (PULONG) Buffer+2, (PULONG) Buffer+1);
     Buffer[12] = 0;
 
     //
     // Copy vendor string to Prcb for debugging
     //
 
-    strcpy (Prcb->CpuVendorString, Buffer);
+    strcpy (Prcb->VendorString, Buffer);
 
     //
-    // If this is an Intel processor, determine whichNT compatible
-    // features are present
+    // Determine OEM type
     //
 
+    CpuVendor = CPU_NONE;
     if (strcmp (Buffer, "GenuineIntel") == 0) {
+        CpuVendor = CPU_INTEL;
+    } else if (strcmp (Buffer, "AuthenticAMD") == 0) {
+        CpuVendor = CPU_AMD;
+    } else if (strcmp (Buffer, CmpCyrixID) == 0) {
+        CpuVendor = CPU_CYRIX;
+    }
 
-        Ke386CpuID (1, &Junk, &Junk, &Junk, &ProcessorFeatures);
+    //
+    // Determine which NT compatible features are present
+    //
 
-        if (ProcessorFeatures & 0x02) {
-            NtBits |= KF_V86_VIS;
+    CPUID (1, &Junk, &Junk, &Junk, &ProcessorFeatures);
+
+    if (CpuVendor == CPU_INTEL || CpuVendor == CPU_AMD || CpuVendor == CPU_CYRIX) {
+        if (ProcessorFeatures & 0x100) {
+            NtBits |= KF_CMPXCHG8B;
         }
 
         if (ProcessorFeatures & 0x10) {
             NtBits |= KF_RDTSC;
         }
 
-        if (ProcessorFeatures & 0x80) {
-            NtBits |= KF_MACHINE_CHECK;
-        }
-    }
-
-    //
-    // If this is an AMD processor, determine which NT compatible
-    // features are present
-    //
-
-    if (strcmp (Buffer, "AuthenticAMD") == 0) {
-        Ke386CpuID (1, &Junk, &Junk, &Junk, &ProcessorFeatures);
-
         if (ProcessorFeatures & 0x02) {
-            NtBits |= KF_V86_VIS;
+            NtBits |= KF_V86_VIS | KF_CR4;
         }
 
-        if (ProcessorFeatures & 0x10) {
-            NtBits |= KF_RDTSC;
+        if (ProcessorFeatures & 0x00800000) {
+            NtBits |= KF_MMX;
         }
     }
 
 
-    /**
-     *
-     * Disable virtual interrupt support until otherwise
-     * informed to put it back in.   KenR.
-     *
-     */
+    if (CpuVendor == CPU_INTEL || CpuVendor == CPU_CYRIX) {
 
-    NtBits &= ~KF_V86_VIS;
+        if (ProcessorFeatures & 0x08) {
+            NtBits |= KF_LARGE_PAGE | KF_CR4;
+        }
+
+        if (ProcessorFeatures & 0x2000) {
+            NtBits |= KF_GLOBAL_PAGE | KF_CR4;
+        }
+
+        if (ProcessorFeatures & 0x8000) {
+            NtBits |= KF_CMOV;
+        }
+    }
+
+    //
+    // Intel specific stuff
+    //
+
+    if (CpuVendor == CPU_INTEL) {
+        if (ProcessorFeatures & 0x1000) {
+            NtBits |= KF_MTRR;
+        }
+
+        if (Prcb->CpuType == 6) {
+            WRMSR (0x8B, 0);
+            CPUID (1, &Junk, &Junk, &Junk, &ProcessorFeatures);
+            Prcb->UpdateSignature.QuadPart = RDMSR (0x8B);
+        }
+    }
 
     return NtBits;
 }
+
+#define MAX_ATTEMPTS    10
+
+BOOLEAN
+KiInitMachineDependent (
+    VOID
+    )
+{
+    KAFFINITY       ActiveProcessors, CurrentAffinity;
+    ULONG           NumberProcessors;
+    IDENTITY_MAP    IdentityMap;
+    ULONG           Index;
+    ULONG           Average;
+    ULONG           Junk;
+    struct {
+        LARGE_INTEGER   PerfStart;
+        LARGE_INTEGER   PerfEnd;
+        LONGLONG        PerfDelta;
+        LARGE_INTEGER   PerfFreq;
+        LONGLONG        TSCStart;
+        LONGLONG        TSCEnd;
+        LONGLONG        TSCDelta;
+        ULONG           MHz;
+    } Samples[MAX_ATTEMPTS], *pSamp;
+
+    //
+    // If PDE large page is supported, enable it.
+    //
+    // We enable large pages before global pages to make TLB invalidation
+    // easier while turning on large pages.
+    //
+
+    if (KeFeatureBits & KF_LARGE_PAGE) {
+        if (Ki386CreateIdentityMap(&IdentityMap))  {
+
+            KiIpiGenericCall (
+                (PKIPI_BROADCAST_WORKER) Ki386EnableTargetLargePage,
+                (ULONG)(&IdentityMap)
+            );
+        }
+
+        //
+        // Always call Ki386ClearIdentityMap() to free any memory allocated
+        //
+
+        Ki386ClearIdentityMap(&IdentityMap);
+    }
+
+    //
+    // If PDE/PTE global page is supported, enable it
+    //
+
+    if (KeFeatureBits & KF_GLOBAL_PAGE) {
+        NumberProcessors = KeNumberProcessors;
+        KiIpiGenericCall (
+            (PKIPI_BROADCAST_WORKER) Ki386EnableGlobalPage,
+            (ULONG)(&NumberProcessors)
+        );
+    }
+
+    ActiveProcessors = KeActiveProcessors;
+    for (CurrentAffinity=1; ActiveProcessors; CurrentAffinity <<= 1) {
+
+        if (ActiveProcessors & CurrentAffinity) {
+
+            //
+            // Switch to that processor, and remove it from the
+            // remaining set of processors
+            //
+
+            ActiveProcessors &= ~CurrentAffinity;
+            KeSetSystemAffinityThread(CurrentAffinity);
+
+            //
+            // Determine the MHz for the processor
+            //
+
+            KeGetCurrentPrcb()->MHz = 0;
+
+            if (KeFeatureBits & KF_RDTSC) {
+
+                Index = 0;
+                pSamp = Samples;
+
+                for (; ;) {
+
+                    //
+                    // Collect a new sample
+                    // Delay the thread a "long" amount and time it with
+                    // a time source and RDTSC.
+                    //
+
+                    CPUID (0, &Junk, &Junk, &Junk, &Junk);
+                    pSamp->PerfStart = KeQueryPerformanceCounter (NULL);
+                    pSamp->TSCStart = RDTSC();
+                    pSamp->PerfFreq.QuadPart = -50000;
+
+                    KeDelayExecutionThread (KernelMode, FALSE, &pSamp->PerfFreq);
+
+                    CPUID (0, &Junk, &Junk, &Junk, &Junk);
+                    pSamp->PerfEnd = KeQueryPerformanceCounter (&pSamp->PerfFreq);
+                    pSamp->TSCEnd = RDTSC();
+
+                    //
+                    // Calculate processors MHz
+                    //
+
+                    pSamp->PerfDelta = pSamp->PerfEnd.QuadPart - pSamp->PerfStart.QuadPart;
+                    pSamp->TSCDelta = pSamp->TSCEnd - pSamp->TSCStart;
+
+                    pSamp->MHz = (ULONG) ((pSamp->TSCDelta * pSamp->PerfFreq.QuadPart + 500000L) /
+                                          (pSamp->PerfDelta * 1000000L));
+
+
+                    //
+                    // If last 2 samples matched, done
+                    //
+
+                    if (Index  &&  pSamp->MHz == pSamp[-1].MHz) {
+                        break;
+                    }
+
+                    //
+                    // Advance to next sample
+                    //
+
+                    pSamp += 1;
+                    Index += 1;
+
+                    //
+                    // If too many samples, then something is wrong
+                    //
+
+                    if (Index >= MAX_ATTEMPTS) {
+
+#if DBG
+                        //
+                        // Temp breakpoint to see where this is failing
+                        // and why
+                        //
+
+                        DbgBreakPoint();
+#endif
+
+                        Average = 0;
+                        for (Index = 0; Index < MAX_ATTEMPTS; Index++) {
+                            Average += Samples[Index].MHz;
+                        }
+                        pSamp[-1].MHz = Average / MAX_ATTEMPTS;
+                        break;
+                    }
+
+                }
+
+                KeGetCurrentPrcb()->MHz = (USHORT) pSamp[-1].MHz;
+            }
+
+            //
+            // If MTRR is supported, initialize per processor
+            //
+
+            if (KeFeatureBits & KF_MTRR) {
+                KiInitializeMTRR ( (BOOLEAN) (ActiveProcessors ? FALSE : TRUE));
+            }
+        }
+    }
+
+    KeRevertToUserAffinityThread();
+    return TRUE;
+}
+
 
 VOID
 KeOptimizeProcessorControlState (
@@ -934,60 +1158,424 @@ Return Value:
 
 {
     PKINTERRUPT_ROUTINE HandlerAddress;
-    KAFFINITY Affinity;
-    KIRQL OldIrql;
-    PKTHREAD Thread;
-    USHORT CpuIndex;
+    KAFFINITY           ActiveProcessors, CurrentAffinity;
+    KIRQL               OldIrql;
+    ULONG               disposition;
+    HANDLE              SystemHandle, SourceHandle, DestHandle;
+    NTSTATUS            Status;
+    UNICODE_STRING      unicodeString;
+    OBJECT_ATTRIBUTES   ObjectAttributes;
+    double              Dividend, Divisor;
+    BOOLEAN             PrecisionErrata;
 
     if (KeI386NpxPresent) {
+
         //
-        // Not emulating
+        // A coprocessor is present - check to see if the precision errata exists
         //
 
-        return ;
+        PrecisionErrata = FALSE;
+
+        ActiveProcessors = KeActiveProcessors;
+        for (CurrentAffinity = 1; ActiveProcessors; CurrentAffinity <<= 1) {
+
+            if (ActiveProcessors & CurrentAffinity) {
+                ActiveProcessors &= ~CurrentAffinity;
+
+                //
+                // Run calculation on each processor.
+                //
+
+                KeSetSystemAffinityThread(CurrentAffinity);
+                _asm {
+
+                    ;
+                    ; This is going to destroy the state in the coprocesssor,
+                    ; but we know that there's no state currently in it.
+                    ;
+
+                    cli
+                    mov     eax, cr0
+                    mov     ecx, eax    ; hold original cr0 value
+                    and     eax, not (CR0_TS+CR0_MP+CR0_EM)
+                    mov     cr0, eax
+
+                    fninit              ; to known state
+                }
+
+                Dividend = 4195835.0;
+                Divisor  = 3145727.0;
+
+                _asm {
+                    fld     Dividend
+                    fdiv    Divisor     ; test known faulty divison
+                    fmul    Divisor     ; Multiple quotient by divisor
+                    fcomp   Dividend    ; Compare product and dividend
+                    fstsw   ax          ; Move float conditions to ax
+                    sahf                ; move to eflags
+
+                    mov     cr0, ecx    ; restore cr0
+                    sti
+
+                    jc      short em10
+                    jz      short em20
+em10:               mov     PrecisionErrata, TRUE
+em20:
+                }
+            }
+        }
+
+
+        //
+        // Check to see if the emulator should be used anyway
+        //
+
+        switch (KeI386ForceNpxEmulation) {
+            case 0:
+                //
+                // Use the emulator based on the value in KeI386NpxPresent
+                //
+
+                break;
+
+            case 1:
+                //
+                // Only use the emulator if any processor has the known
+                // Pentium floating point division problem.
+                //
+
+                if (PrecisionErrata) {
+                    KeI386NpxPresent = FALSE;
+                }
+                break;
+
+            default:
+
+                //
+                // Unkown setting - use the emulator
+                //
+
+                KeI386NpxPresent = FALSE;
+                break;
+        }
     }
 
-    HandlerAddress = (PKINTERRUPT_ROUTINE) ((PULONG) R3EmulatorTable)[0];
-    Ki387RoundModeTable = (PVOID) ((PULONG) R3EmulatorTable)[1];
+    //
+    // Setup processor features, and install emulator if needed
+    //
 
-    Thread = KeGetCurrentThread();
-    Affinity = KeSetAffinityThread(Thread, (KAFFINITY)1);
+    SharedUserData->ProcessorFeatures[PF_FLOATING_POINT_EMULATED] = KeI386NpxPresent;
+    SharedUserData->ProcessorFeatures[PF_FLOATING_POINT_PRECISION_ERRATA] = PrecisionErrata;
 
-    for (CpuIndex = 0; CpuIndex < (USHORT)KeNumberProcessors; CpuIndex++) {
-
-        //
-        // Run this code on each processor.
-        //
-
-        KeSetAffinityThread(Thread, (KAFFINITY)(1<<CpuIndex));
+    if (!KeI386NpxPresent) {
 
         //
-        // Raise IRQL to dispatcher level and lock dispatcher database.
+        // MMx not available when emulator is used
         //
 
-        KiLockDispatcherDatabase(&OldIrql);
+        KeFeatureBits &= ~KF_MMX;
+        SharedUserData->ProcessorFeatures[PF_MMX_INSTRUCTIONS_AVAILABLE] = FALSE;
 
         //
-        // Make the trap 07 IDT entry point at the passed-in handler
+        // Errata not present when using emulator
         //
 
-        KiSetHandlerAddressToIDT(I386_80387_NP_VECTOR, HandlerAddress);
-        KeGetPcr()->IDT[I386_80387_NP_VECTOR].Selector = KGDT_R3_CODE;
-        KeGetPcr()->IDT[I386_80387_NP_VECTOR].Access = TRAP332_GATE;
-
+        SharedUserData->ProcessorFeatures[PF_FLOATING_POINT_PRECISION_ERRATA] = FALSE;
 
         //
-        // Unlock dispatcher database and lower IRQL to its previous value.
+        // Use the user mode floating point emulator
         //
 
-        KiUnlockDispatcherDatabase(OldIrql);
+        HandlerAddress = (PKINTERRUPT_ROUTINE) ((PULONG) R3EmulatorTable)[0];
+        Ki387RoundModeTable = (PVOID) ((PULONG) R3EmulatorTable)[1];
+
+        ActiveProcessors = KeActiveProcessors;
+        for (CurrentAffinity = 1; ActiveProcessors; CurrentAffinity <<= 1) {
+
+            if (ActiveProcessors & CurrentAffinity) {
+                ActiveProcessors &= ~CurrentAffinity;
+
+                //
+                // Run this code on each processor.
+                //
+
+                KeSetSystemAffinityThread(CurrentAffinity);
+
+                //
+                // Raise IRQL and lock dispatcher database.
+                //
+
+                KiLockDispatcherDatabase(&OldIrql);
+
+                //
+                // Make the trap 07 IDT entry point at the passed-in handler
+                //
+
+                KiSetHandlerAddressToIDT(I386_80387_NP_VECTOR, HandlerAddress);
+                KeGetPcr()->IDT[I386_80387_NP_VECTOR].Selector = KGDT_R3_CODE;
+                KeGetPcr()->IDT[I386_80387_NP_VECTOR].Access = TRAP332_GATE;
+
+
+                //
+                // Unlock dispatcher database and lower IRQL to its previous value.
+                //
+
+                KiUnlockDispatcherDatabase(OldIrql);
+            }
+        }
+
+        //
+        // Move any entries from ..\System\FloatingPointProcessor to
+        // ..\System\DisabledFloatingPointProcessor.
+        //
+
+        //
+        // Open system tree
+        //
+
+        InitializeObjectAttributes(
+            &ObjectAttributes,
+            &CmRegistryMachineHardwareDescriptionSystemName,
+            OBJ_CASE_INSENSITIVE,
+            NULL,
+            NULL
+            );
+
+        Status = ZwOpenKey( &SystemHandle,
+                            KEY_ALL_ACCESS,
+                            &ObjectAttributes
+                            );
+
+        if (NT_SUCCESS(Status)) {
+
+            //
+            // Open FloatingPointProcessor key
+            //
+
+            InitializeObjectAttributes(
+                &ObjectAttributes,
+                &CmTypeName[FloatingPointProcessor],
+                OBJ_CASE_INSENSITIVE,
+                SystemHandle,
+                NULL
+                );
+
+            Status = ZwOpenKey ( &SourceHandle,
+                                 KEY_ALL_ACCESS,
+                                 &ObjectAttributes
+                                 );
+
+            if (NT_SUCCESS(Status)) {
+
+                //
+                // Create DisabledFloatingPointProcessor key
+                //
+
+                RtlInitUnicodeString (
+                    &unicodeString,
+                    CmDisabledFloatingPointProcessor
+                    );
+
+                InitializeObjectAttributes(
+                    &ObjectAttributes,
+                    &unicodeString,
+                    OBJ_CASE_INSENSITIVE,
+                    SystemHandle,
+                    NULL
+                    );
+
+                Status = ZwCreateKey( &DestHandle,
+                                      KEY_ALL_ACCESS,
+                                      &ObjectAttributes,
+                                      0,
+                                      NULL,
+                                      REG_OPTION_VOLATILE,
+                                      &disposition
+                                      );
+
+                if (NT_SUCCESS(Status)) {
+
+                    //
+                    // Move it
+                    //
+
+                    KiMoveRegTree (SourceHandle, DestHandle);
+                    ZwClose (DestHandle);
+                }
+                ZwClose (SourceHandle);
+            }
+            ZwClose (SystemHandle);
+        }
     }
 
     //
     // Set affinity back to the original value.
     //
 
-    KeSetAffinityThread(Thread, Affinity);
+    KeRevertToUserAffinityThread();
+}
 
-    return;
+
+
+NTSTATUS
+KiMoveRegTree(
+    HANDLE  Source,
+    HANDLE  Dest
+    )
+{
+    NTSTATUS                    Status;
+    PKEY_BASIC_INFORMATION      KeyInformation;
+    PKEY_VALUE_FULL_INFORMATION KeyValue;
+    OBJECT_ATTRIBUTES           ObjectAttributes;
+    HANDLE                      SourceChild;
+    HANDLE                      DestChild;
+    ULONG                       ResultLength;
+    UCHAR                       buffer[1024];           // hmm....
+    UNICODE_STRING              ValueName;
+    UNICODE_STRING              KeyName;
+
+
+    KeyValue = (PKEY_VALUE_FULL_INFORMATION)buffer;
+
+    //
+    // Move values from source node to dest node
+    //
+
+    for (; ;) {
+        //
+        // Get first value
+        //
+
+        Status = ZwEnumerateValueKey(Source,
+                                     0,
+                                     KeyValueFullInformation,
+                                     buffer,
+                                     sizeof (buffer),
+                                     &ResultLength);
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+
+        //
+        // Write value to dest node
+        //
+
+        ValueName.Buffer = KeyValue->Name;
+        ValueName.Length = (USHORT) KeyValue->NameLength;
+        ZwSetValueKey( Dest,
+                       &ValueName,
+                       KeyValue->TitleIndex,
+                       KeyValue->Type,
+                       buffer+KeyValue->DataOffset,
+                       KeyValue->DataLength
+                      );
+
+        //
+        // Delete value and get first value again
+        //
+
+        Status = ZwDeleteValueKey (Source, &ValueName);
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+    }
+
+
+    //
+    // Enumerate node's children and apply ourselves to each one
+    //
+
+    KeyInformation = (PKEY_BASIC_INFORMATION)buffer;
+    for (; ;) {
+
+        //
+        // Open node's first key
+        //
+
+        Status = ZwEnumerateKey(
+                    Source,
+                    0,
+                    KeyBasicInformation,
+                    KeyInformation,
+                    sizeof (buffer),
+                    &ResultLength
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+        KeyName.Buffer = KeyInformation->Name;
+        KeyName.Length = (USHORT) KeyInformation->NameLength;
+
+        InitializeObjectAttributes(
+            &ObjectAttributes,
+            &KeyName,
+            OBJ_CASE_INSENSITIVE,
+            Source,
+            NULL
+            );
+
+        Status = ZwOpenKey(
+                    &SourceChild,
+                    KEY_ALL_ACCESS,
+                    &ObjectAttributes
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+        //
+        // Create key in dest tree
+        //
+
+        InitializeObjectAttributes(
+            &ObjectAttributes,
+            &KeyName,
+            OBJ_CASE_INSENSITIVE,
+            Dest,
+            NULL
+            );
+
+        Status = ZwCreateKey(
+                    &DestChild,
+                    KEY_ALL_ACCESS,
+                    &ObjectAttributes,
+                    0,
+                    NULL,
+                    REG_OPTION_VOLATILE,
+                    NULL
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+        //
+        // Move subtree
+        //
+
+        Status = KiMoveRegTree(SourceChild, DestChild);
+
+        ZwClose(DestChild);
+        ZwClose(SourceChild);
+
+        if (!NT_SUCCESS(Status)) {
+            break;
+        }
+
+        //
+        // Loop and get first key.  (old first key was delete by the
+        // call to KiMoveRegTree).
+        //
+    }
+
+    //
+    // Remove source node
+    //
+
+    return NtDeleteKey (Source);
 }

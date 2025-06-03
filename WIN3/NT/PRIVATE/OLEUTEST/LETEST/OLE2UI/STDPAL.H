@@ -290,4 +290,3 @@ CSCONST(unsigned char) palSVGA[256][3] =
 	{0xff, 0xff, 0xff} // 255 Sys White	gray 255
 	};
 	
-

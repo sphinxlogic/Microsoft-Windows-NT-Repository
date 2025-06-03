@@ -46,6 +46,11 @@ QueryPathCompletionRoutine (
     );
 
 NTSTATUS
+MupRerouteOpenToDfs (
+    IN PFILE_OBJECT FileObject
+    );
+
+NTSTATUS
 BroadcastOpen (
     IN PIRP Irp
     );
@@ -58,19 +63,12 @@ OpenMupFileSystem (
     IN USHORT ShareAccess
     );
 
-#ifdef _CAIRO_
-NTSTATUS
-DfsRerouteOpen (
-    IN PFILE_OBJECT FileObject,
-    IN ULONG Length
-    );
-#endif
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, BroadcastOpen )
 #pragma alloc_text( PAGE, CreateRedirectedFile )
 #pragma alloc_text( PAGE, MupCreate )
 #pragma alloc_text( PAGE, MupRerouteOpen )
+#pragma alloc_text( PAGE, MupRerouteOpenToDfs )
 #pragma alloc_text( PAGE, OpenMupFileSystem )
 #pragma alloc_text( PAGE, QueryPathCompletionRoutine )
 #endif
@@ -134,7 +132,24 @@ Return Value:
     DebugTrace( 0, Dbg, "FileObject        = %08lx\n", (ULONG)fileObject );
     DebugTrace( 0, Dbg, "FileName          = %Z\n",    (ULONG)&fileName );
 
+    FsRtlEnterFileSystem();
+
     try {
+
+        //
+        // Check to see if this is an open that came in via a Dfs device
+        // object.
+        //
+
+        if (MupEnableDfs) {
+            if ((MupDeviceObject->DeviceObject.DeviceType == FILE_DEVICE_DFS) ||
+                    (MupDeviceObject->DeviceObject.DeviceType ==
+                        FILE_DEVICE_DFS_FILE_SYSTEM)) {
+
+                status = DfsFsdCreate( (PDEVICE_OBJECT) MupDeviceObject, Irp );
+                try_return( NOTHING );
+            }
+        }
 
         //
         // Check if we are trying to open the mup file system
@@ -169,12 +184,16 @@ Return Value:
 
         if ( status == STATUS_REPARSE ) {
             Irp->IoStatus.Information = IO_REPARSE;
+        } else if( status == STATUS_PENDING ) {
+            IoMarkIrpPending( Irp );
         }
 
     try_exit: NOTHING;
     } except ( EXCEPTION_EXECUTE_HANDLER ) {
         NOTHING;
     }
+
+    FsRtlExitFileSystem();
 
     DebugTrace(-1, Dbg, "MupCreate -> %08lx\n", status);
     return status;
@@ -320,7 +339,7 @@ Return Value:
 
     PQUERY_PATH_REQUEST qpRequest;
 
-    PMASTER_QUERY_PATH_CONTEXT masterContext;
+    PMASTER_QUERY_PATH_CONTEXT masterContext = NULL;
     PQUERY_PATH_CONTEXT queryContext;
 
     PIRP irp;
@@ -329,66 +348,6 @@ Return Value:
 
     PAGED_CODE();
     DebugTrace(+1, Dbg, "CreateRedirectedFile\n", 0);
-
-#ifdef _CAIRO_
-    //
-    // Need to see if this file refers to a file in the Dfs namespace.
-    //
-    irpSp = IoGetCurrentIrpStackLocation( Irp );
-    buffer = (PWCH)FileObject->FileName.Buffer;
-    length = FileObject->FileName.Length;
-
-    if ( *buffer == L'\\' && irpSp->MajorFunction == IRP_MJ_CREATE ) {
-        buffer++;
-        while ( (length -= sizeof(WCHAR)) > 0 && *buffer++ != L'\\' );
-	length -= sizeof(WCHAR);
-
-        if ( length > 0 &&
-             wcsnicmp(
-                buffer,
-                L"DFS$\\",
-                MIN( length/sizeof(WCHAR), (sizeof( L"DFS$\\" ) - sizeof(WCHAR)) / sizeof(WCHAR) ) ) == 0 ) {
-
-            //
-	    // This is a Dfs file open. Forward to Dfs now.
-            //
-
-            DebugTrace(0, 1, "Prefix %Z is a Dfs open\n", (ULONG)&FileObject->FileName);
-	    length -= sizeof(L"DFS$") - sizeof(WCHAR);
-	    if (length > 0)
-		length -= sizeof(WCHAR);
-
-	    ASSERT(length >= 0);
-	    status = DfsRerouteOpen(FileObject, length);
-            DebugTrace(-1, Dbg, "CreateRedirectedFile -> 0x%8lx\n", status );
-            MupCompleteRequest( Irp, status );
-            return status;
-
-        }
-    }
-#endif
-
-    //
-    // If there is only one redirector.  Give it the create request.
-    //
-
-    if ( MupProviderCount == 1 ) {
-
-        listEntry = MupProviderList.Flink;
-
-        provider = CONTAINING_RECORD(
-                       listEntry,
-                       UNC_PROVIDER,
-                       ListEntry
-                       );
-
-        status = MupRerouteOpen( FileObject, provider );
-        DebugTrace(-1, Dbg, "CreateRedirectedFile -> %8lx", status );
-
-        MupCompleteRequest( Irp, status );
-        return status;
-
-    }
 
     //
     // Check to see if this file name begins with a known prefix.
@@ -410,7 +369,7 @@ Return Value:
 
         KeQuerySystemTime( &now );
 
-        if ( RtlLargeIntegerLessThan( now, knownPrefix->LastUsedTime ) ) {
+        if ( now.QuadPart < knownPrefix->LastUsedTime.QuadPart ) {
 
             //
             // The known prefix has not timed out yet, recalculate the
@@ -459,10 +418,10 @@ Return Value:
     if ( *buffer == L'\\' && irpSp->MajorFunction == IRP_MJ_CREATE ) {
         buffer++;
         while ( (length -= sizeof(WCHAR)) > 0 && *buffer++ != L'\\' );
-	length -= sizeof(WCHAR);
+        length -= sizeof(WCHAR);
 
         if ( length > 0 &&
-             wcsnicmp(
+             _wcsnicmp(
                 buffer,
                 L"Mailslot",
                 MIN( length/sizeof(WCHAR), (sizeof( L"MAILSLOT" ) - sizeof(WCHAR)) / sizeof(WCHAR) ) ) == 0 ) {
@@ -481,7 +440,31 @@ Return Value:
             return status;
 
         }
+
     }
+
+    //
+    // Check to see if this is a Dfs name. If so, we'll handle it separately
+    //
+
+    if (MupEnableDfs &&
+            (FileObject->FsContext2 != (PVOID) DFS_DOWNLEVEL_OPEN_CONTEXT)) {
+        UNICODE_STRING pathName;
+
+        status = DfsFsctrlIsThisADfsPath( &FileObject->FileName, &pathName );
+
+        if (status == STATUS_SUCCESS) {
+
+            DebugTrace(-1, Dbg, "Rerouting open of [%wZ] to Dfs\n", &FileObject->FileName);
+
+            status = MupRerouteOpenToDfs(FileObject);
+            MupCompleteRequest( Irp, status );
+            return( status );
+
+        }
+
+    }
+
 
     try {
 
@@ -502,6 +485,7 @@ Return Value:
         masterContext->FileObject = FileObject;
         masterContext->Provider = NULL;
         masterContext->KnownPrefix = knownPrefix;
+        masterContext->ErrorStatus = STATUS_BAD_NETWORK_PATH;
 
         MupAcquireGlobalLock();
         MupReferenceBlock( knownPrefix );
@@ -585,6 +569,13 @@ Return Value:
                 }
 
                 //
+                // Set the RequestorMode to KernelMode, since all the
+                // parameters to this Irp are in kernel space
+                //
+
+                irp->RequestorMode = KernelMode;
+
+                //
                 // Get a referenced pointer to the provider, the reference
                 // is release when the IO completes.
                 //
@@ -634,11 +625,24 @@ Return Value:
 
     } finally {
 
-        //
-        // Release our reference to the query context.
-        //
+        if (AbnormalTermination()) {
 
-        status = MupDereferenceMasterQueryContext( masterContext );
+            status = STATUS_INSUFFICIENT_RESOURCES;
+
+            MupCompleteRequest( Irp, status );
+
+        } else {
+
+            ASSERT( masterContext != NULL );
+
+            //
+            // Release our reference to the query context.
+            //
+
+            status = MupDereferenceMasterQueryContext( masterContext );
+        }
+
+
     }
 
     DebugTrace(-1, Dbg, "CreateRedirectedFile -> 0x%8lx\n", status );
@@ -729,6 +733,89 @@ Return Value:
 
     return STATUS_REPARSE;
 }
+
+NTSTATUS
+MupRerouteOpenToDfs (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine redirects an create IRP request to the Dfs part of this
+    driver by changing the name of the file and returning
+    STATUS_REPARSE to the IO system
+
+Arguments:
+
+    FileObject - The file object to open
+
+Return Value:
+
+    NTSTATUS - The status of the operation
+
+--*/
+
+{
+    PCHAR buffer;
+    ULONG deviceNameLength;
+
+    PAGED_CODE();
+    //
+    //  Allocate storage for the new file name.
+    //
+
+    buffer = ExAllocatePoolWithTag(
+                 PagedPool,
+                 sizeof(DFS_DEVICE_ROOT) + FileObject->FileName.Length,
+                 ' puM'
+                 );
+
+    if ( buffer ==  NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    //
+    // Copy the device name to the string buffer.
+    //
+
+    RtlMoveMemory(
+        buffer,
+        DFS_DEVICE_ROOT,
+        sizeof(DFS_DEVICE_ROOT)
+        );
+
+    deviceNameLength = sizeof(DFS_DEVICE_ROOT) - sizeof(UNICODE_NULL);
+
+    //
+    // Append the file name
+    //
+
+    RtlMoveMemory(
+        buffer + deviceNameLength,
+        FileObject->FileName.Buffer,
+        FileObject->FileName.Length
+        );
+
+    //
+    // Free the old file name string buffer.
+    //
+
+    ExFreePool( FileObject->FileName.Buffer );
+
+    FileObject->FileName.Buffer = (PWCHAR)buffer;
+    FileObject->FileName.MaximumLength =
+        FileObject->FileName.Length + (USHORT)deviceNameLength;
+    FileObject->FileName.Length = FileObject->FileName.MaximumLength;
+
+    //
+    // Tell the file system to try again.
+    //
+
+    return STATUS_REPARSE;
+}
+
 
 NTSTATUS
 BroadcastOpen (
@@ -905,7 +992,8 @@ Return Value:
                                  );
                     ASSERT( NT_SUCCESS( status ) );
 
-                    ccb->Handle = handle;
+                    ZwClose( handle );
+
                     ccb->DeviceObject =
                         IoGetRelatedDeviceObject( ccb->FileObject );
 
@@ -1048,7 +1136,6 @@ Return Value:
 
     DeviceObject;   // prevent compiler warnings
 
-    PAGED_CODE();
     queryPathContext = Context;
     masterContext = queryPathContext->MasterContext;
 
@@ -1065,7 +1152,7 @@ Return Value:
     ACQUIRE_LOCK( &masterContext->Lock );
 
     if ( NT_SUCCESS( status ) &&
-         lengthAccepted != 0 ) {
+         lengthAccepted != 0) {
 
         knownPrefix = masterContext->KnownPrefix;
 
@@ -1119,36 +1206,40 @@ Return Value:
             // We have found a match.  Attempt to remember it.
             //
 
-            buffer = ALLOCATE_PAGED_POOL( lengthAccepted, BlockTypeBuffer );
+            if (masterContext->FileObject->FsContext2 != (PVOID) DFS_DOWNLEVEL_OPEN_CONTEXT) {
 
-            RtlMoveMemory(
-                buffer,
-                masterContext->FileObject->FileName.Buffer,
-                lengthAccepted
-                );
+                buffer = ALLOCATE_PAGED_POOL( lengthAccepted, BlockTypeBuffer );
+        
+                RtlMoveMemory(
+                    buffer,
+                    masterContext->FileObject->FileName.Buffer,
+                    lengthAccepted
+                    );
+        
+                //
+                // Copy the reference provider pointer for the known prefix
+                // block.
+                //
+        
+                knownPrefix->UncProvider = masterContext->Provider;
+                knownPrefix->Prefix.Buffer = (PWCH)buffer;
+                knownPrefix->Prefix.Length = (USHORT)lengthAccepted;
+                knownPrefix->Prefix.MaximumLength = (USHORT)lengthAccepted;
+                knownPrefix->PrefixStringAllocated = TRUE;
+        
+                ACQUIRE_LOCK( &MupPrefixTableLock );
+        
+                RtlInsertUnicodePrefix(
+                    &MupPrefixTable,
+                    &knownPrefix->Prefix,
+                    &knownPrefix->TableEntry
+                    );
+        
+                knownPrefix->InTable = TRUE;
+        
+                RELEASE_LOCK( &MupPrefixTableLock );
 
-            //
-            // Copy the reference provider pointer for the known prefix
-            // block.
-            //
-
-            knownPrefix->UncProvider = masterContext->Provider;
-            knownPrefix->Prefix.Buffer = (PWCH)buffer;
-            knownPrefix->Prefix.Length = (USHORT)lengthAccepted;
-            knownPrefix->Prefix.MaximumLength = (USHORT)lengthAccepted;
-            knownPrefix->PrefixStringAllocated = TRUE;
-
-            ACQUIRE_LOCK( &MupPrefixTableLock );
-
-            RtlInsertUnicodePrefix(
-                &MupPrefixTable,
-                &knownPrefix->Prefix,
-                &knownPrefix->TableEntry
-                );
-
-            knownPrefix->InTable = TRUE;
-
-            RELEASE_LOCK( &MupPrefixTableLock );
+            }
 
         } finally {
 
@@ -1172,7 +1263,40 @@ Return Value:
 
     } else {
 
+        //
+        // If our error status is more significant than the error status
+        //  stored in the masterContext, then put ours there
+        //
+
+        ULONG newError, oldError;
+
+        //
+        // MupOrderedErrorList is a list of error codes ordered from least
+        //  important to most important.  We're calling down to multiple
+        //  redirectors, but we can only return 1 error code on complete failure.
+        //
+        // To figure out which error to return, we look at the stored error and
+        //  the current error.  We return the error having the highest index in
+        //  the MupOrderedErrorList
+        //
+        if( NT_SUCCESS( masterContext->ErrorStatus ) ) {
+            masterContext->ErrorStatus = status;
+        } else {
+            for( oldError = 0; MupOrderedErrorList[ oldError ]; oldError++ )
+                if( masterContext->ErrorStatus == MupOrderedErrorList[ oldError ] )
+                    break;
+
+            for( newError = 0; newError < oldError; newError++ )
+                if( status == MupOrderedErrorList[ newError ] )
+                    break;
+
+            if( newError >= oldError ) {
+                masterContext->ErrorStatus = status;
+            }
+        }
+
 not_this_one:
+
         MupDereferenceUncProvider( queryPathContext->Provider );
 
         //
@@ -1195,95 +1319,3 @@ not_this_one:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
-
-#ifdef _CAIRO_
-#define DFS_DEVICE_DIR	L"\\Device\\WinDfs\\Org\\"
-
-NTSTATUS
-DfsRerouteOpen (
-    IN PFILE_OBJECT FileObject,
-    IN ULONG Length
-    )
-
-/*++
-
-Routine Description:
-
-    This routine redirects an create IRP request to the Dfs driver
-    by changing the name of the file and returning STATUS_REPARSE to the
-    IO system.
-
-Arguments:
-
-    FileObject - The file object to open
-
-    Length - The relevant portion of the FileName to copy over. This helps in
-	     stripping out the \<server>\DFS$\ part of the FileName.
-
-Return Value:
-
-    NTSTATUS - The status of the operation
-
---*/
-
-{
-    PCHAR buffer;
-    ULONG deviceNameLength;
-    PWCHAR relevantFileName;
-
-    PAGED_CODE();
-    //
-    //  Allocate storage for the new file name.
-    //
-    deviceNameLength = sizeof(DFS_DEVICE_DIR) - sizeof(WCHAR);
-
-    buffer = ExAllocatePoolWithTag(
-                 PagedPool,
-                 deviceNameLength + Length,
-                 ' puM'
-                 );
-
-    if ( buffer ==  NULL) {
-        return STATUS_INSUFFICIENT_RESOURCES;
-    }
-
-    //
-    // Copy the device name to the string buffer.
-    //
-
-    RtlMoveMemory(
-        buffer,
-	    DFS_DEVICE_DIR,
-    	sizeof(DFS_DEVICE_DIR) - sizeof(WCHAR)
-        );
-
-
-    //
-    // Append the file name
-    //
-    relevantFileName = 	FileObject->FileName.Buffer + 
-			(FileObject->FileName.Length - Length)/sizeof(WCHAR);
-    RtlMoveMemory(
-        buffer + deviceNameLength,
-	relevantFileName,
-        Length
-        );
-
-    //
-    // Free the old file name string buffer.
-    //
-
-    ExFreePool( FileObject->FileName.Buffer );
-
-    FileObject->FileName.Buffer = (PWCHAR)buffer;
-    FileObject->FileName.MaximumLength = deviceNameLength + Length;
-    FileObject->FileName.Length = FileObject->FileName.MaximumLength;
-    DebugTrace(0, 1, "Redirecting to Dfs %wZ \n", &FileObject->FileName);
-
-    //
-    // Tell the file system to try again.
-    //
-
-    return STATUS_REPARSE;
-}
-#endif

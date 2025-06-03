@@ -264,28 +264,21 @@ typedef struct _DRIVE_LOCKLIST {
     BOOLEAN                 CurrentlyLocked;
 } DRIVE_LOCKLIST, *PDRIVE_LOCKLIST;
 
+// Commit support enum for drive letter assignment
+
+typedef enum _LETTER_ASSIGNMENT_RESULT {
+    Failure = 0,
+    Complete,
+    MustReboot
+} LETTER_ASSIGNMENT_RESULT;
+
 // Items below used to be in fdenginp.h -- have been moved here to
 // remove dependency on ArcInst project.
-
-
-#define UNSIGNED(x)     RtlConvertUlongToLargeInteger(x)
-#define SIGNED(x)       RtlConvertLongToLargeInteger(x)
-#define ADD(x,y)        RtlLargeIntegerAdd(x,y)
-#define SUBTRACT(x,y)   RtlLargeIntegerSubtract(x,y)
-#define DIVIDE(x,y)     RtlLargeIntegerDivide(x,y,NULL)
-#define MULTIPLY(x,y)   RtlExtendedIntegerMultiply(x,y)
-#define MOD(x,y,p)      RtlLargeIntegerDivide(x,y,p)
-
-#define ZERO(x)         RtlLargeIntegerEqualToZero(x)
-#define EQ(x,y)         RtlLargeIntegerEqualTo(x,y)
-#define GT(x,y)         RtlLargeIntegerGreaterThan(x,y)
-#define LT(x,y)         RtlLargeIntegerLessThan(x,y)
 
 #define LOWPART(x)      ((x).LowPart)
 
 #define ONE_MEG         (1024*1024)
 
-//#define SIZEMB(x)       LOWPART(DIVIDE(x,UNSIGNED(ONE_MEG)))
 ULONG
 SIZEMB(
     IN LARGE_INTEGER ByteCount

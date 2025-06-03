@@ -24,8 +24,6 @@ Revision History:
 //
 // Define the global read/write data for the I/O system.
 //
-
-//
 // The following lock is used to guard access to the CancelRoutine address
 // in IRPs.  It must be locked to set the address of a routine, clear the
 // address of a routine, when a cancel routine is invoked, or when
@@ -121,34 +119,26 @@ LIST_ENTRY IopDriverReinitializeQueueHead;
 LIST_ENTRY IopNotifyShutdownQueueHead;
 
 //
-// The following locks are used to guard access to the I/O Request Packet (IRP)
-// Lookaside lists and the Memory Descriptor List (MDL) Lookaside list.  The
-// appropriate lock must be held to either place a packet onto the list or to
-// take one off.
+// The following queue header contains the list of the driver that have
+// registered to be notified when a file system registers or unregisters itself
+// as an active file system.
 //
 
-extern KSPIN_LOCK IopLargeIrpLock;
-extern KSPIN_LOCK IopSmallIrpLock;
-extern KSPIN_LOCK IopMdlLock;
+LIST_ENTRY IopFsNotifyChangeQueueHead;
 
 //
-// The following are the zone headers for the zones used to keep track of the
-// two I/O Request Packet (IRP) Lookaside lists and the Memory Descriptor List
-// (MDL) Lookaside list.  These lists hold all of the free pre-allocated IRPs
-// and MDLs in the system and are all of optimum size.  This speeds up memory
-// allocation and deallocation since neither operation requires invoking the
-// general pool functions.
+// The following are the lookaside lists used to keep track of the two I/O
+// Request Packet (IRP) and the Memory Descriptor List (MDL)Lookaside list.
 //
 // The "large" IRP contains 4 stack locations, the maximum in the SDK, and the
 // "small" IRP contains a single entry, the most common case for devices other
 // than disks and network devices.
 //
 
-ZONE_HEADER IopLargeIrpList;
-ZONE_HEADER IopSmallIrpList;
-ZONE_HEADER IopMdlList;
+NPAGED_LOOKASIDE_LIST IopLargeIrpLookasideList;
+NPAGED_LOOKASIDE_LIST IopSmallIrpLookasideList;
+NPAGED_LOOKASIDE_LIST IopMdlLookasideList;
 ULONG IopLargeIrpStackLocations;
-ULONG IopKeepNonZonedIrps;
 
 //
 // The following spinlock is used to control access to the I/O system's error
@@ -186,11 +176,18 @@ extern KSPIN_LOCK IopErrorLogAllocationLock;
 extern KSPIN_LOCK IopCompletionLock;
 
 //
-// The following global contains the quere of informational hard error
+// The following global contains the queue of informational hard error
 // pop-ups.
 //
 
 IOP_HARD_ERROR_QUEUE IopHardError;
+
+//
+// The following global is non-null when there is a pop-up on the screen
+// waiting for user action.  It points to that packet.
+//
+
+PIOP_HARD_ERROR_PACKET IopCurrentHardError;
 
 //
 // The following are used to implement the I/O system's one second timer.
@@ -217,7 +214,9 @@ POBJECT_TYPE IoControllerObjectType;
 POBJECT_TYPE IoCompletionObjectType;
 POBJECT_TYPE IoDeviceObjectType;
 POBJECT_TYPE IoDriverObjectType;
+POBJECT_TYPE IoDeviceHandlerObjectType;
 POBJECT_TYPE IoFileObjectType;
+ULONG        IoDeviceHandlerObjectSize;
 
 //
 // The following is a global lock and counters for I/O operations requested
@@ -249,7 +248,6 @@ ULONG IopDumpControlBlockChecksum;
 // implement fast file object locks.
 //
 
-extern KSPIN_LOCK IopFastLockSpinLock;
 KEVENT IopFastLockEvent;
 
 //*********
@@ -276,12 +274,12 @@ KSEMAPHORE IopRegistrySemaphore;
 // The following array specifies the minimum length of the FileInformation
 // buffer for an NtQueryInformationFile service.
 //
-// WARNING:  This array depends on the order of the values in the FileInformationClass
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FileInformationClass enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-UCHAR IopQueryOperationLength[FileMaximumInformation] =
+UCHAR IopQueryOperationLength[] =
           {
             0,
             0,                                      // directory
@@ -301,15 +299,7 @@ UCHAR IopQueryOperationLength[FileMaximumInformation] =
             0,                                      // full ea
             sizeof( FILE_MODE_INFORMATION ),        // mode
             sizeof( FILE_ALIGNMENT_INFORMATION ),   // alignment
-            sizeof( FILE_BASIC_INFORMATION ) +
-            sizeof( FILE_STANDARD_INFORMATION ) +
-            sizeof( FILE_INTERNAL_INFORMATION ) +
-            sizeof( FILE_EA_INFORMATION ) +
-            sizeof( FILE_ACCESS_INFORMATION ) +
-            sizeof( FILE_POSITION_INFORMATION ) +
-            sizeof( FILE_MODE_INFORMATION ) +
-            sizeof( FILE_ALIGNMENT_INFORMATION ) +
-            sizeof( FILE_NAME_INFORMATION ),        // all
+            sizeof( FILE_ALL_INFORMATION ),         // all
             0,                                      // allocation
             0,                                      // eof
             sizeof( FILE_NAME_INFORMATION ),        // alternate name
@@ -317,25 +307,34 @@ UCHAR IopQueryOperationLength[FileMaximumInformation] =
             sizeof( FILE_PIPE_INFORMATION ),        // common pipe query
             sizeof( FILE_PIPE_LOCAL_INFORMATION ),  // local pipe query
             sizeof( FILE_PIPE_REMOTE_INFORMATION ), // remote pipe query
-            sizeof( FILE_MAILSLOT_QUERY_INFORMATION ),   // mailslot query
+            sizeof( FILE_MAILSLOT_QUERY_INFORMATION),// mailslot query
             0,                                      // mailslot set
             sizeof( FILE_COMPRESSION_INFORMATION ), // compressed FileSize query
-            0,                                      // copy on write query
+            0,                                      // copy on write set
             0,                                      // completion
-            0,                                      // move cluster
-            sizeof( FILE_STORAGE_INFORMATION ),     // storage
+            0,                                      // move cluster set
+            0,                                      // Ole classid set
+            0,                                      // Ole statebits set
+            sizeof( FILE_NETWORK_OPEN_INFORMATION), // network open query
+            0,                                      // Objectid set
+            sizeof( FILE_OLE_ALL_INFORMATION ),     // Ole all query
+            0,                                      // Ole directory query
+            0,                                      // ContentIndex set
+            0,                                      // InheritContentIndex set
+            sizeof( FILE_OLE_INFORMATION ),         // Ole query/set
+            0xff                                    // <terminator>
           };
 
 //
 // The following array specifies the minimum length of the FileInformation
 // buffer for an NtSetInformationFile service.
 //
-// WARNING:  This array depends on the order of the values in the FileInformationClass
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FileInformationClass enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-UCHAR IopSetOperationLength[FileMaximumInformation] =
+UCHAR IopSetOperationLength[] =
           {
             0,
             0,                                      // directory
@@ -369,64 +368,83 @@ UCHAR IopSetOperationLength[FileMaximumInformation] =
             sizeof(FILE_COPY_ON_WRITE_INFORMATION), // copy on write set
             sizeof(FILE_COMPLETION_INFORMATION),    // completion
             sizeof(FILE_MOVE_CLUSTER_INFORMATION),  // move cluster
-            sizeof( FILE_STORAGE_INFORMATION ),     // storage
+            sizeof(FILE_OLE_CLASSID_INFORMATION),   // Ole classid set
+            sizeof(FILE_OLE_STATE_BITS_INFORMATION),// Ole statebits set
+            0,                                      // network open query
+            sizeof(FILE_OBJECTID_INFORMATION),      // Objectid set
+            0,                                      // Ole all query
+            0,                                      // Ole directory query
+            sizeof(BOOLEAN),                        // ContentIndex set
+            sizeof(BOOLEAN),                        // InheritCI set
+            sizeof(FILE_OLE_INFORMATION),           // Ole query/set
+            0xff                                    // <terminator>
           };
 
 //
-// The following array specifies the minimum length of the FileInformation
-// buffer for an NtQueryDirectoryFile service.
+// The following array specifies the alignment requirement of both all query
+// and set operations, including directory operations, but not FS operations.
 //
-// WARNING:  This array depends on the order of the values in the FileInformationClass
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FileInformationClass enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-UCHAR IopQueryDirOperationLength[FileMaximumInformation] =
+UCHAR IopQuerySetAlignmentRequirement[] =
           {
             0,
-            sizeof( FILE_DIRECTORY_INFORMATION ),   // directory
-            sizeof( FILE_FULL_DIR_INFORMATION ),    // full directory
-            sizeof( FILE_BOTH_DIR_INFORMATION ),    // both directory
-            0,                                      // basic
-            0,                                      // standard
-            0,                                      // internal
-            0,                                      // ea
-            0,                                      // access
-            0,                                      // name
-            0,                                      // rename
-            0,                                      // link
-            sizeof( FILE_NAMES_INFORMATION ),       // names
-            0,                                      // disposition
-            0,                                      // position
-            0,                                      // full ea
-            0,                                      // mode
-            0,                                      // alignment
-            0,                                      // all
-            0,                                      // allocation
-            0,                                      // eof
-            0,                                      // alternate name
-            0,                                      // stream
-            0,                                      // common pipe query/set
-            0,                                      // local pipe query
-            0,                                      // remove pipe query/set
-            0,                                      // mailslot query
-            0,                                      // mailslot set
-            0,                                      // compressed file size
-            0,                                      // copy on write
-            0,                                      // completion
-            0,                                      // move cluster
+            sizeof( LONGLONG ),                     // directory
+            sizeof( LONGLONG ),                     // full directory
+            sizeof( LONGLONG ),                     // both directory
+            sizeof( LONGLONG ),                     // basic
+            sizeof( LONGLONG ),                     // standard
+            sizeof( LONGLONG ),                     // internal
+            sizeof( LONG ),                         // ea
+            sizeof( LONG ),                         // access
+            sizeof( LONG ),                         // name
+            sizeof( LONG ),                         // rename
+            sizeof( LONG ),                         // link
+            sizeof( LONG ),                         // names
+            sizeof( CHAR ),                         // disposition
+            sizeof( LONGLONG ),                     // position
+            sizeof( LONG ),                         // full ea
+            sizeof( LONG ),                         // mode
+            sizeof( LONG ),                         // alignment
+            sizeof( LONGLONG ),                     // all
+            sizeof( LONGLONG ),                     // allocation
+            sizeof( LONGLONG ),                     // eof
+            sizeof( LONG ),                         // alternate name
+            sizeof( LONGLONG ),                     // stream
+            sizeof( LONG ),                         // common pipe query/set
+            sizeof( LONG ),                         // local pipe
+            sizeof( LONG ),                         // remove pipe query/set
+            sizeof( LONGLONG ),                     // mailslot query
+            sizeof( LONG ),                         // mailslot set
+            sizeof( LONGLONG ),                     // compressed FileSize set
+            sizeof( LONG ),                         // copy on write set
+            sizeof( LONG ),                         // completion
+            sizeof( LONG ),                         // move cluster
+            sizeof( LONG ),                         // Ole classid set
+            sizeof( LONG ),                         // Ole statebits set
+            sizeof( LONGLONG ),                     // network open query
+            sizeof( LONG ),                         // Objectid set
+            sizeof( LONGLONG ),                     // Ole all query
+            sizeof( LONGLONG ),                     // Ole directory query
+            sizeof( CHAR ),                         // ContentIndex set
+            sizeof( CHAR ),                         // InheritCI set
+            sizeof( LONGLONG ),                     // Ole query/set
+            0xff                                    // <terminator>
           };
 
 //
 // The following array specifies the required access mask for the caller to
 // access information in an NtQueryXxxFile service.
 //
-// WARNING:  This array depends on the order of the values in the FileInformationClass
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FileInformationClass enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-ULONG IopQueryOperationAccess[FileMaximumInformation] =
+ULONG IopQueryOperationAccess[] =
          {
             0,
             0,                      // directory [not used in access check]
@@ -460,19 +478,28 @@ ULONG IopQueryOperationAccess[FileMaximumInformation] =
             0,                      // copy on write - invalid for query
             0,                      // completion - invalid for query
             0,                      // move cluster - invalid for query
-            0                       // storage
+            0,                      // Ole classid set
+            0,                      // Ole statebits set
+            FILE_READ_ATTRIBUTES,   // network open query
+            0,                      // Objectid set
+            FILE_READ_ATTRIBUTES,   // Ole all query
+            0,                      // Ole dir. query [not used in access check]
+            0,                      // ContentIndex set
+            0,                      // InheritContentIndex set
+            FILE_READ_ATTRIBUTES,   // Ole query/set
+            0xffffffff              // <terminator>
           };
 
 //
 // The following array specifies the required access mask for the caller to
 // access information in an NtSetXxxFile service.
 //
-// WARNING:  This array depends on the order of the values in the FILE_INFORMATION_CLASS
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FILE_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-ULONG IopSetOperationAccess[FileMaximumInformation] =
+ULONG IopSetOperationAccess[] =
          {
             0,
             0,                      // directory - invalid for set
@@ -504,56 +531,134 @@ ULONG IopSetOperationAccess[FileMaximumInformation] =
             0,                      // mailslot set
             0,                      // compressed file sie - invalid for set
             0,                      // copy on write [any access to the file]
+            0,                      // completion [any access to the file]
             FILE_WRITE_DATA,        // move cluster [write access to the file]
-            FILE_WRITE_ATTRIBUTES,  // storage
+            FILE_WRITE_ATTRIBUTES,  // Ole classid set
+            FILE_WRITE_ATTRIBUTES,  // Ole statebits set
+            0,                      // network open query
+            FILE_WRITE_ATTRIBUTES,  // Objectid set
+            0,                      // Ole all query
+            0,                      // Ole directory query
+            FILE_WRITE_ATTRIBUTES,  // ContentIndex set
+            FILE_WRITE_ATTRIBUTES,  // InheritContentIndex set
+            FILE_WRITE_ATTRIBUTES,  // Ole query/set
+            0xffffffff              // <terminator>
           };
 
 //
 // The following array specifies the minimum length of the FsInformation
-// buffer for an Nt[Query/Set]VolumeFile service.
+// buffer for an NtQueryVolumeInformation service.
 //
-// WARNING:  This array depends on the order of the values in the FS_INFORMATION_CLASS
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FS_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-UCHAR IopQuerySetFsOperationLength[FileFsMaximumInformation] =
+UCHAR IopQueryFsOperationLength[] =
           {
             0,
             sizeof( FILE_FS_VOLUME_INFORMATION ),       // volume
-            sizeof( FILE_FS_LABEL_INFORMATION ),        // label
+            0,                                          // label
             sizeof( FILE_FS_SIZE_INFORMATION ),         // size
             sizeof( FILE_FS_DEVICE_INFORMATION ),       // device
             sizeof( FILE_FS_ATTRIBUTE_INFORMATION ),    // attribute
-            sizeof( FILE_FS_QUOTA_INFORMATION ),        // quota query
-            sizeof( FILE_FS_QUOTA_INFORMATION ),        // quota set
-            sizeof( FILE_FS_CONTROL_INFORMATION ),      // control query
-            sizeof( FILE_FS_CONTROL_INFORMATION ),      // control set
+            sizeof( FILE_FS_CONTROL_INFORMATION ),      // control query/set
+            sizeof( FILE_QUOTA_INFORMATION ),           // quota query: temp
+            0,                                          // quota set: temp
+            0xff                                        // <terminator>
+          };
+
+//
+// The following array specifies the minimum length of the FsInformation
+// buffer for an NtSetVolumeInformation service.
+//
+// WARNING:  This array depends on the order of the values in the
+//           FS_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
+//
+
+UCHAR IopSetFsOperationLength[] =
+          {
+            0,
+            0,                                          // volume
+            sizeof( FILE_FS_LABEL_INFORMATION ),        // label
+            0,                                          // size
+            0,                                          // device
+            0,                                          // attribute
+            sizeof( FILE_FS_CONTROL_INFORMATION ),      // control query/set
+            0,                                          // quota query: temp
+            sizeof( FILE_QUOTA_INFORMATION ),           // quota set: temp
+            0xff                                        // <terminator>
           };
 
 //
 // The following array specifies the required access mask for the caller to
-// access information in an Nt[Query/Set]VolumeFile service.
+// access information in an NtQueryVolumeInformation service.
 //
-// WARNING:  This array depends on the order of the values in the FS_INFORMATION_CLASS
-//           enumerated type.  Note that the enumerated type is one-based and
-//           the array is zero-based.
+// WARNING:  This array depends on the order of the values in the
+//           FS_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
 //
 
-ULONG IopQuerySetFsOperationAccess[FileFsMaximumInformation] =
+ULONG IopQueryFsOperationAccess[] =
          {
             0,
             0,                          // volume [any access to file or volume]
-            FILE_WRITE_DATA,            // label [write access to volume]
+            0,                          // label - query is invalid
             0,                          // size [any access to file or volume]
             0,                          // device [any access to file or volume
-            0,                          // attribute [any access to file or volume]
-            0,            		// quota query [any access to volume]
-            FILE_WRITE_DATA,            // quota set [write access to volume]
-            0,            		// control query [any access to volume]
-            FILE_WRITE_DATA,            // control set [write access to volume]
+            0,                          // attribute [any access to file or vol]
+            FILE_READ_DATA,             // control query/set [vol read access]
+            0,                          // quota query -- BUGBUG: temporary
+            FILE_READ_DATA,             // quota set -- BUGBUG: temporary
+            0xffffffff                  // <terminator>
           };
 
+//
+// The following array specifies the required access mask for the caller to
+// access information in an NtSetVolumeInformation service.
+//
+// WARNING:  This array depends on the order of the values in the
+//           FS_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
+//
+
+ULONG IopSetFsOperationAccess[] =
+         {
+            0,
+            0,                          // volume - set is invalid
+            FILE_WRITE_DATA,            // label [write access to volume]
+            0,                          // size - set is invalid
+            0,                          // device - set is invalid
+            0,                          // attribute - set is invalid
+            FILE_WRITE_DATA,            // control query/set [vol write access]
+            0,                          // quota query -- BUGBUG: temporary
+            FILE_WRITE_DATA,            // quota set -- BUGBUG: temporary
+            0xffffffff                  // <terminator>
+          };
+
+//
+// The following array specifies the alignment requirements for all FS query
+// and set information services.
+//
+// WARNING:  This array depends on the order of the values in the
+//           FS_INFORMATION_CLASS enumerated type.  Note that the
+//           enumerated type is one-based and the array is zero-based.
+//
+
+UCHAR IopQuerySetFsAlignmentRequirement[] =
+         {
+            0,
+            sizeof( LONGLONG ),         // volume
+            sizeof( LONG ),             // label
+            sizeof( LONGLONG ),         // size
+            sizeof( LONG ),             // device
+            sizeof( LONG ),             // attribute
+            sizeof( LONGLONG ),         // control query/set
+            sizeof( LONG ),             // quota query -- BUGBUG: temporary
+            sizeof( LONG ),             // quota set -- BUGBUG: temporary
+            0xff                        // <terminator>
+          };
 
 WCHAR IopWstrRaw[]                  = L".Raw";
 WCHAR IopWstrTranslated[]           = L".Translated";

@@ -25,9 +25,10 @@ Revision History:
 #define INIT_SYSTEMROOT_DLLPATH  "\\SystemRoot\\System32"
 #define INIT_SYSTEMROOT_BINPATH  "\\SystemRoot\\System32"
 
-extern STRING NtSystemPathString;
-extern PUCHAR NtSystemPath;
+extern UNICODE_STRING NtSystemRoot;
 extern ULONG NtBuildNumber;
+extern ULONG NtMajorVersion;
+extern ULONG NtMinorVersion;
 extern ULONG CmNtCSDVersion;
 extern UNICODE_STRING CmVersionString;
 extern UNICODE_STRING CmCSDVersionString;

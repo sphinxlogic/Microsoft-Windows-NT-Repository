@@ -33,6 +33,14 @@
  *      18-Apr-1994 bens    Add /L switch
  *      20-Apr-1994 bens    Fix cabinet/disk size accounting
  *      21-Apr-1994 bens    Print out c run-time errno in FCI failures
+ *      22-Apr-1994 bens    Add checking for unique file names in cabinet set
+ *      03-May-1994 bens    Add customizable INF stuff
+ *      27-May-1994 bens    Add Quantum support
+ *      03-Jun-1994 bens    Add .Option Explicit, .Define support
+ *      13-Jul-1994 bens    Add DoNotCopyFiles
+ *      27-Jul-1994 bens    Support quotes in .InfWrite[Xxx]; /SIZE qualifier
+ *                              for reserving space.
+ *      14-Dec-1994 bens    Implement *csum* support
  */
 
 #include <stdlib.h>
@@ -50,6 +58,10 @@
 #ifdef BIT16
 #include <dos.h>
 #else // !BIT16
+//** Get minimal Win32 definitions
+//   In particular, variable.h defines VARTYPE and VARFLAGS, which
+//   the OLE folks have also defined for OLE automation.
+//#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #undef ERROR    // Override stupid "#define ERROR 0" in wingdi.h
 #endif // !BIT16
@@ -64,14 +76,23 @@
 #include "inf.h"
 #include "filelist.h"
 #include "fileutil.h"
+#include "misc.h"
+#include "glist.h"
 
 #include "diamond.msg"
 #include "dfparse.msg"      // Get standard variable names
+
+#include "crc32.h"
+
 
 #ifdef BIT16
 #include "chuck\fci.h"
 #else // !BIT16
 #include "chuck\nt\fci.h"
+#endif // !BIT16
+
+#ifndef BIT16
+#include "filever.h"
 #endif // !BIT16
 
 
@@ -97,33 +118,59 @@ FNASSERTFAILURE(fnafReport);
 FNDIRFILEPARSE(fndfpPassONE);
 FNDIRFILEPARSE(fndfpPassTWO);
 
-BOOL      addDefine(PSESSION psess, char *pszArg, PERROR perr);
+BOOL      addCmdLineVar(PSESSION psess, char *pszArg, PERROR perr);
 HFILESPEC addDirectiveFile(PSESSION psess, char *pszArg, PERROR perr);
+HGENERIC  addFileToSession(PSESSION  psess,
+                           char     *pszSrc,
+                           char     *pszDst,
+                           long      cbFile,
+                           PCOMMAND  pcmd,
+                           PERROR    perr);
 BOOL      buildInfAndRpt(PSESSION psess, PERROR perr);
 BOOL      ccabFromSession(PCCAB pccab,
                           PSESSION psess,
                           ULONG cbPrevCab,
                           PERROR perr);
 BOOL      checkDiskClusterSize(PSESSION psess, PERROR perr);
+BOOL      checkReferences(PSESSION psess, PERROR perr);
+BOOL      checkVariableDefinitions(PSESSION psess, PERROR perr);
 void      computeSetID(PSESSION psess, char *psz);
+BOOL      doDefine(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr);
+BOOL      doDelete(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr);
+BOOL      doDump(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr);
 BOOL      doFile(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr);
 BOOL      doNew(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr);
+BOOL      doOption(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr);
+BOOL      doReference(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr);
 BOOL      ensureCabinet(PSESSION psess, PERROR perr);
+BOOL      ensureCabinetsFlushed(PSESSION psess, PERROR perr);
 BOOL      executeCommand(PSESSION psess,PCOMMAND pcmd,BOOL fPass2,PERROR perr);
 BOOL      getCompressedFileName(PSESSION psess,
                                 char *   pszResult,
                                 int      cbResult,
                                 char *   pszSrc,
                                 PERROR   perr);
+BOOL      getFileChecksum(char  *pszFile, ULONG *pchecksum, PERROR perr);
 long      getMaxDiskSize(PSESSION psess, PERROR perr);
+BOOL      getVarWithOverride(PSESSION  psess,
+                             char     *pchDst,
+                             int       cbDst,
+                             char     *pszPattern,
+                             char     *pszVar,
+                             int       i,
+                             char     *pszKind,
+                             PERROR    perr);
 BOOL      inCabinet(PSESSION psess, PERROR perr);
 char     *mapCRTerrno(int errno);
-BOOL      nameFromTemplate(char * pszResult,
-                           int    cbResult,
-                           char * pszTemplate,
-                           int    i,
-                           char * pszName,
-                           PERROR perr);
+BOOL      modeInfAddLine(PSESSION  psess,
+                         INFAREA   inf,
+                         char     *pszLine,
+                         PERROR    perr);
+BOOL      modeInfAddFile(PSESSION  psess,
+                         char     *pszFile,
+                         int       iDisk,
+                         int       iCabinet,
+                         PERROR    perr);
 BOOL      newDiskIfNecessary(PSESSION psess,
                              long     cbConsume,
                              BOOL     fSubOnNewDisk,
@@ -134,13 +181,19 @@ BOOL      processDirectives(PSESSION psess, PERROR perr);
 BOOL      processFile(PSESSION psess, PERROR perr);
 void      resetSession(PSESSION psess);
 BOOL      setCabinetReserve(PCCAB pccab, PSESSION psess, PERROR perr);
-BOOL      setDiskParameters(PSESSION psess, long cbDisk, PERROR perr);
+BOOL      setDiskParameters(PSESSION  psess,
+                            char     *pszDiskSize,
+                            long      cbDisk,
+                            PERROR    perr);
 BOOL      setVariable(PSESSION  psess,
-                      HVARLIST  hvlist,
                       char     *pszName,
                       char     *pszValue,
                       PERROR    perr);
 int       tcompFromSession(PSESSION psess, PERROR perr);
+void      updateHgenLast(PSESSION psess, char *pszDst);
+
+FNOVERRIDEFILEPROPERTIES(fnofpDiamond);
+
 
 //** FCI callbacks
 FNALLOC(fciAlloc);
@@ -173,6 +226,8 @@ int __cdecl main (int cArg, char *apszArg[])
     int         rc;                     // Return code
 
     AssertRegisterFunc(fnafReport);     // Register assertion reporter
+    MemSetCheckHeap(FALSE);             // Turn off slow heap checking
+
     ErrClear(&err);                     // No error
     err.pszFile = NULL;                 // No file being processed, yet
 
@@ -184,20 +239,28 @@ int __cdecl main (int cArg, char *apszArg[])
         exit(1);
     }
     SetAssertSignature((psess),sigSESSION);
-    psess->hflistDirectives = NULL;
-    psess->hflistNormal     = NULL;
-    psess->hflistFiller     = NULL;
-    psess->hflistOnDisk     = NULL;
-    psess->hvlist           = NULL;
-    psess->levelVerbose     = vbNONE;   // Default to no status
-    psess->hfci             = NULL;
-    psess->cbTotalFileBytes = 0;        // Total bytes in all files
-    psess->cFiles           = 0;
-    psess->fNoLineFeed      = 0;        // TRUE if last printf did not have \n
-    psess->cchLastLine      = 0;
-    psess->hinf             = NULL;
-    psess->setID            = 0;        // No set ID, yet
-    psess->achCurrOutputDir[0] = '\0';  // Default is current directory
+#ifndef REMOVE_CHICAGO_M6_HACK
+    psess->fFailOnIncompressible = FALSE; // Don't fail on incompressible data
+#endif
+    psess->fExplicitVarDefine  = FALSE;  // Don't require .Define
+    psess->fGetVerInfo         = FALSE;  // Don't get version info
+    psess->fGetFileChecksum    = FALSE;  // Don't compute file checksums
+    psess->fPass2              = FALSE;  // Pass 1
+    psess->hflistDirectives    = NULL;
+    psess->hvlist              = NULL;
+    psess->hvlistPass2         = NULL;
+    psess->levelVerbose        = vbNONE; // Default to no status
+    psess->hfci                = NULL;
+    psess->cbTotalFileBytes    = 0;      // Total bytes in all files
+    psess->cFiles              = 0;
+    psess->fNoLineFeed         = 0;      // TRUE if last printf did not have \n
+    psess->cchLastLine         = 0;
+    psess->hinf                = NULL;
+    psess->hglistFiles         = NULL;
+    psess->setID               = 0;      // No set ID, yet
+    psess->achCurrOutputDir[0] = '\0';   // Default is current directory
+    psess->fForceNewDisk       = FALSE;
+
     memset(psess->achBlanks,' ',cchSCREEN_WIDTH);
     psess->achBlanks[cchSCREEN_WIDTH] = '\0';
     resetSession(psess);                // Reset pass variables
@@ -207,7 +270,7 @@ int __cdecl main (int cArg, char *apszArg[])
     printf(psess->achMsg);
 
     //** Initialize Directive File processor (esp. predefined variables)
-    if (!(hvlist = DFPInit(&err))) {
+    if (!(hvlist = DFPInit(psess,&err))) {
         printError(psess,&err);
         return 1;
     }
@@ -224,6 +287,9 @@ int __cdecl main (int cArg, char *apszArg[])
     if (psess->act == actHELP) {        // Do help if any args, for now
         printf("\n");                   // Separate banner from help
         printf(pszCMD_LINE_HELP);
+#ifdef ASSERT
+        printf(pszCMD_LINE_HELP_DBG);
+#endif
         return 0;
     }
 
@@ -233,6 +299,11 @@ int __cdecl main (int cArg, char *apszArg[])
     //** Process command
     switch (psess->act) {
         case actFILE:
+            //** Check for any non-standard variable names
+            if (!checkVariableDefinitions(psess,&err)) {
+                return 1;               // Errors already printed
+            }
+            //** Compress the file
             if (!processFile(psess,&err)) {
                 printError(psess,&err);
                 return 1;
@@ -292,7 +363,7 @@ BOOL processFile(PSESSION psess, PERROR perr)
     char           *pszDst;             // Destination (cabinet) file spec
     char           *pszFilename;        // Name to store in cabinet
     SESSIONANDERROR sae;                // Context for FCI calls
-    int             tcomp;
+    TCOMP           tcomp;
 
     //** Store context to pass through FCI calls
     sae.psess = psess;
@@ -343,6 +414,10 @@ BOOL processFile(PSESSION psess, PERROR perr)
     ccab.cbFolderThresh    = ccab.cb;   // No folder size limit
     ccab.setID             = 0;         // Set ID does not matter, but make
                                         // it deterministic!
+#ifndef REMOVE_CHICAGO_M6_HACK
+    //** Pass hack flag on to FCI
+    ccab.fFailOnIncompressible = psess->fFailOnIncompressible;
+#endif
 
     //** Set reserved sizes (from variable settings)
     if (!setCabinetReserve(&ccab,psess,perr)) {
@@ -376,6 +451,7 @@ BOOL processFile(PSESSION psess, PERROR perr)
                 psess->hfci,
                 pszSrc,                 // filename to add to cabinet
                 pszFilename,            // name to store into cabinet file
+                FALSE,
                 fciGetNextCabinet_NOT,  // Should never go to a next cabinet!
                 fciStatus,              // Status callback
                 fciOpenInfo,            // Open/get attribs/etc. callback
@@ -409,7 +485,7 @@ BOOL processFile(PSESSION psess, PERROR perr)
 
     //** Success
     return TRUE;
-}
+} /* processFile() */
 
 
 /***  fciGetNextCabinet_NOT - FCI calls this to get new cabinet info
@@ -457,24 +533,6 @@ FNFCIGETNEXTCABINET(fciGetNextCabinet_NOT)
  *
  *  Exit-Failure:
  *      Returns FALSE; perr filled in with details.
- *
- *  Details:
- *      PASS 1
- *      o   Save Variable definitions for Pass 2
- *      o   Process directive file(s)
- *      o   Check for syntax errors, missing files, etc.
- *      o   Build Filler and OnDisk lists
- *      o   File Copy Commands outside of Filler/OnDisk/Group are
- *              discarded for this pass!
- *      o   Only File Copy Commands are allowed inside Filler/OnDisk/Group
- *              sections!  ==> This makes the semantics much, much simpler!
- *      PASS 2:
- *      o   Reset to initial variable definitions
- *      o   Process directive file(s) again
- *      o   Skip Filler and OnDisk sections (already have these lists)
- *      o   Satisfy OnDisk list first
- *      o   Read File Copy Commands from directives files next
- *      o   Use Filler list as needed
  */
 BOOL processDirectives(PSESSION psess, PERROR perr)
 {
@@ -482,13 +540,7 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
     HFILESPEC       hfspec;
     HTEXTFILE       htf=NULL;
     HVARIABLE       hvar;
-    HVARLIST        hvlistPass2=NULL;   // Variable list for Pass 2
     char           *pszFile;
-    SESSIONANDERROR sae;                // Context for FCI calls
-
-    //** Store context to pass through FCI calls
-    sae.psess = psess;
-    sae.perr  = perr;
 
     //** Must have at least one directives file
     AssertSess(psess);
@@ -498,7 +550,6 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
     if (psess->levelVerbose == vbNONE) {
         //NOTE: This line gets over written below
         lineOut(psess,pszDIA_PARSING_DIRECTIVES,FALSE);
-
     }
     else {
         lineOut(psess,pszDIA_PASS_1_HEADER1,TRUE);
@@ -506,7 +557,7 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
     }
 
     //** Save a copy of the variable list in this state for Pass 2
-    if (!(hvlistPass2 = VarCloneList(psess->hvlist,perr))) {
+    if (!(psess->hvlistPass2 = VarCloneList(psess->hvlist,perr))) {
         goto error;                     // perr already filled in
     }
 
@@ -533,6 +584,23 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
         TFClose(htf);
         htf = NULL;                     // Clear so error path avoids close
     }
+
+    //** Not processing directive files; avoid bogus file/line number info
+    //   in any error messages that might be generated below.
+    perr->pszFile = NULL;
+
+    //** If .Option Explicit, make sure no variables have been .Set without
+    //   being .Defined.
+    //   NOTE: No need to check return value, since any error will increment
+    //         psess->cErrors, and cause us to bail out just below.
+    if (psess->fExplicitVarDefine) {
+        checkVariableDefinitions(psess,perr);
+    }
+
+    //** If in relational mode, make sure there are no unreferenced files
+    //   NOTE: No need to check return value, since any error will increment
+    //         psess->cErrors, and cause us to bail out just below.
+    checkReferences(psess,perr);
 
     //** Bail out if any errors in pass 1
     if (psess->cErrors > 0) {
@@ -561,12 +629,30 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
         goto error;
     }
 
+    //** Initialize for INF generation
+    //   NOTE: We use the variable state at the *end* of pass 1, as this
+    //         permits the INF area header variables to be defined anywhere!
+    //
+    //   NOTE: We check the InfXxxLineFormat variables for undefined
+    //         parameters (so that we can error out before we spend a lot
+    //         of time compressing files!).
+    //
+    //   NOTE: If any of the ver info parameters (*ver*, *vers*, *lang*)
+    //         are used in the InfFileLineFormat variable, then we note this
+    //         and collect ver info during pass 2.  Otherwise, we skip it to
+    //         speed up pass 2.
+    if (!infCreate(psess,perr)) {
+        goto error;
+    }
+
 /*
  ** Pass TWO, do the layout!
  */
+    psess->fPass2 = TRUE;               // Remember for asserts, mostly
+
     //** Tailor status based on verbosity level
     if (psess->levelVerbose >= vbNONE) {
-        MsgSet(psess->achMsg,pszDIA_STATS_BEFORE,"%ld%ld",
+        MsgSet(psess->achMsg,pszDIA_STATS_BEFORE,"%,ld%,ld",
                                     psess->cbTotalFileBytes,psess->cFiles);
         lineOut(psess,psess->achMsg,TRUE);
         //NOTE: This line gets over written below
@@ -581,15 +667,9 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
     if (!VarDestroyList(psess->hvlist,perr)) {
         goto error;                     // perr already filled in
     }
-    psess->hvlist = hvlistPass2;        // Use variables saved for pass 2
-    hvlistPass2 = NULL;                 // Clear so error path does not free
+    psess->hvlist = psess->hvlistPass2; // Use variables saved for pass 2
+    psess->hvlistPass2 = NULL;          // Clear so error path does not free
     resetSession(psess);                // Reset pass variables
-
-    //** Initialize for INF generation
-    if (!(psess->hinf = infCreate(perr))) {
-        goto error;
-    }
-    psess->fGenerateInf = TRUE;         // Remember we are creating INF
 
     //** Process directive files for pass 2
     hfspec = FLFirstFile(psess->hflistDirectives);
@@ -616,21 +696,10 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
     //** No longer processing directive files; reset ERROR
     perr->pszFile = NULL;
 
-    //** Flush out any final cabinet remnants
-    if (!FCIFlushCabinet(psess->hfci,FALSE,fciGetNextCabinet,fciStatus,&sae)) {
-        //** Only set error if we didn't already do so in FCIAddFile callback
-        if (!ErrIsError(sae.perr)) {
-            mapFCIError(perr,psess,szFCI_FLUSH_CABINET,&psess->erf);
-        }
+    //** Flush out cabinets, if we have not already done so
+    if (!ensureCabinetsFlushed(psess,perr)) {
         goto error;
     }
-
-    //** Destroy FCI context
-    if (!FCIDestroy(psess->hfci)) {
-        mapFCIError(perr,psess,szFCI_DESTROY,&psess->erf);
-        goto error;
-    }
-    psess->hfci = NULL;                 // Clear out FCI context
 
     //** Get ending time, generate INF and RPT files
     psess->clkEnd = clock();
@@ -643,15 +712,15 @@ BOOL processDirectives(PSESSION psess, PERROR perr)
 
 error:
     if (psess->hinf != NULL) {
-        infDestroy(psess->hinf,&errTmp);
+        infDestroy(psess->hinf,&errTmp);    // Ignore errors
     }
 
     if (htf != NULL) {
         TFClose(htf);
     }
 
-    if (hvlistPass2 != NULL) {
-        VarDestroyList(hvlistPass2,&errTmp);  // Ignore any error
+    if (psess->hvlistPass2 != NULL) {
+        VarDestroyList(psess->hvlistPass2,&errTmp);  // Ignore any error
     }
 
     //** Failure
@@ -703,10 +772,12 @@ BOOL buildInfAndRpt(PSESSION psess, PERROR perr)
     hvar = VarFind(psess->hvlist,pszVAR_INF_FILE_NAME,perr);
     Assert(!perr->fError);              // Must be defined
     pszFile = VarGetString(hvar);
-    if (!infGenerate(psess->hinf,pszFile,&timeNow,pszDIAMOND_VERSION,perr)) {
+    if (!infGenerate(psess,pszFile,&timeNow,pszDIAMOND_VERSION,perr)) {
         return FALSE;
     }
-    infDestroy(psess->hinf,perr);
+    if (!infDestroy(psess->hinf,perr)) {
+        return FALSE;
+    }
     psess->hinf = NULL;                 // So caller knows it is gone
 
     //** Display summary of results and write report file
@@ -715,7 +786,7 @@ BOOL buildInfAndRpt(PSESSION psess, PERROR perr)
     pszFile = VarGetString(hvar);
     pfileRpt = fopen(pszFile,"wt");     // Create setup.rpt
     if (pfileRpt == NULL) {             // Could not create
-        ErrSet(perr,pszDIA_ERR_CANT_CREATE_RPT,"%s",pszFile);
+        ErrSet(perr,pszDIAERR_CANT_CREATE_RPT,"%s",pszFile);
         printError(psess,perr);
         ErrClear(perr);                 // But, continue
     }
@@ -727,19 +798,19 @@ BOOL buildInfAndRpt(PSESSION psess, PERROR perr)
     }
 
     //** Show stats on stdout and to report file
-    MsgSet(psess->achMsg,pszDIA_STATS_AFTER1,"%9ld",psess->cFiles);
+    MsgSet(psess->achMsg,pszDIA_STATS_AFTER1,"%,13ld",psess->cFiles);
     lineOut(psess,psess->achMsg,TRUE);
     if (pfileRpt) {
         fprintf(pfileRpt,"%s\n",psess->achMsg);
     }
 
-    MsgSet(psess->achMsg,pszDIA_STATS_AFTER2,"%9ld",psess->cbFileBytes);
+    MsgSet(psess->achMsg,pszDIA_STATS_AFTER2,"%,13ld",psess->cbFileBytes);
     lineOut(psess,psess->achMsg,TRUE);
     if (pfileRpt) {
         fprintf(pfileRpt,"%s\n",psess->achMsg);
     }
 
-    MsgSet(psess->achMsg,pszDIA_STATS_AFTER3,"%9ld",psess->cbFileBytesComp);
+    MsgSet(psess->achMsg,pszDIA_STATS_AFTER3,"%,13ld",psess->cbFileBytesComp);
     lineOut(psess,psess->achMsg,TRUE);
     if (pfileRpt) {
         fprintf(pfileRpt,"%s\n",psess->achMsg);
@@ -751,7 +822,7 @@ BOOL buildInfAndRpt(PSESSION psess, PERROR perr)
         percent *= 100.0;           // Make it 0..100
     }
     else {
-        Assert(0);                  // Should never get here
+        //** No files, I guess!
         percent = 0.0;
     }
     MsgSet(psess->achMsg,pszDIA_STATS_AFTER4,"%6.2f",percent);
@@ -786,8 +857,23 @@ FNDIRFILEPARSE(fndfpPassONE)
 {
     long        cMaxErrors;
     HVARIABLE   hvar;
+    static char achDDFName[cbFILE_NAME_MAX] = "";
 
     AssertSess(psess);
+
+    //** Update line count status occassionaly
+    if ((psess->levelVerbose == vbNONE) &&
+        (!(perr->iLine % 50) || _stricmp(achDDFName,perr->pszFile))) {
+        //** Minimal verbosity, and we've processed a 50-line chunk,
+        //   or we've switched DDF files.
+        MsgSet(psess->achMsg,pszDIA_PARSING_PROGRESS,"%s%d",
+                             perr->pszFile,perr->iLine);
+        lineOut(psess,psess->achMsg,FALSE);
+        //** Remember this DDF file name if it changed
+        if (perr->iLine % 50) {
+            strcpy(achDDFName,perr->pszFile);
+        }
+    }
 
     //** Execute only if we have no parse error so far
     if (!ErrIsError(perr)) {
@@ -875,32 +961,59 @@ executeCommand(PSESSION   psess,
             return TRUE;
 
         case ctDELETE:
-        case ctEND_FILLER:
-        case ctEND_GROUP:
-        case ctEND_ON_DISK:
-        case ctFILLER:
-        case ctGROUP:
-            ErrSet(perr,"not yet implemented!");
-            return FALSE;
+            return doDelete(psess,pcmd,fPass2,perr);
+
+        case ctDUMP:
+            return doDump(psess,pcmd,fPass2,perr);
+
+        case ctINF_BEGIN:               // Nothing to do
+        case ctINF_END:                 // Nothing to do
+            return TRUE;
+
+        case ctINF_WRITE:
+            return modeInfAddLine(psess,
+                                  pcmd->inf.inf,
+                                  pcmd->inf.achLine,
+                                  perr);
 
         case ctNEW:
             return doNew(psess,pcmd,fPass2,perr);
 
-        case ctON_DISK:
-            ErrSet(perr,"not yet implemented!");
-            return FALSE;
+        case ctOPTION:
+            return doOption(psess,pcmd,fPass2,perr);
 
         case ctFILE:
-            return doFile(psess,pcmd,fPass2,perr);
+            if (!doFile(psess,pcmd,fPass2,perr) || !fPass2) {
+                //** Failed or pass 1, toss parameter list
+                if (pcmd->file.hglist) {
+                    GLDestroyList(pcmd->file.hglist);
+                }
+                return FALSE;
+            }
+            return TRUE;
+
+        case ctREFERENCE:
+            if (!doReference(psess,pcmd,fPass2,perr) || !fPass2) {
+                //** Failed or pass 1, toss parameter list
+                if (pcmd->ref.hglist) {
+                    GLDestroyList(pcmd->ref.hglist);
+                }
+                return FALSE;
+            }
+            return TRUE;
+
+        case ctDEFINE:
+            return doDefine(psess,pcmd,fPass2,perr);
 
         case ctSET:
             return setVariable(psess,
-            		       psess->hvlist,
                                pcmd->set.achVarName,
                                pcmd->set.achValue,
                                perr);
 
         case ctBAD:
+        case ctINF_WRITE_CAB:   // dfparse.c maps to ctINF_WRITE
+        case ctINF_WRITE_DISK:  // dfparse.c maps to ctINF_WRITE
         default:
             Assert(0);              // Should never get here
             return FALSE;
@@ -915,36 +1028,257 @@ executeCommand(PSESSION   psess,
 /***    setVariable - wrapper around VarSet to do special processing
  *
  *  Entry:
- *      hvlist   - Variable list
+ *      psess    - Session
  *      pszName  - Variable name
  *      pszValue - New value
  *      perr     - ERROR structure
- *      
- *  Exit-Success: 
+ *
+ *  Exit-Success:
  *      Returns TRUE, variable is created (if necessary) and value set.
  *
  *  Exit-Failure:
  *      Returns FALSE, cannot set variable value.
  *      ERROR structure filled in with details of error.
+ *
+ *  Notes:
+ *      (1) For *all* variables, we convert special disk size strings into
+ *          their numeric equivalent.  This is the easiest way to ensure
+ *          that we catch MaxDiskSize[n] variables!
+ *      (2) We check for variables with the special vflCOPY flag, and if
+ *          this is *pass 1*, we also set these variables in the *pass 2*
+ *          list; this permits InfDisk/CabinetLineFormat variables to
+ *          be defined in the *inf* section of the DDF, but get used in
+ *          the *layout* section!  (Whew, pretty squirrely!)
  */
 BOOL setVariable(PSESSION  psess,
-		 HVARLIST  hvlist,
                  char     *pszName,
                  char     *pszValue,
                  PERROR    perr)
 {
+    char        achSize[50];
+    long	cbDisk;
+    HVARIABLE   hvar;
+    char       *psz;
+
+    //** Do special disk size list procesing
+    if (cbDisk = IsSpecialDiskSize(psess,pszValue)) {
+        _ltoa(cbDisk,achSize,10);       // Convert number to string
+        psz = achSize;
+    }
+    else {                              // Not special
+        psz = pszValue;
+    }
+
     //** Set the variable
-    if (!VarSet(hvlist,pszName,pszValue,perr)) {
+    if (!(hvar = VarSet(psess->hvlist,pszName,psz,perr))) {
         return FALSE;
     }
 
+    //** Set it in the pass 2 list if:
+    //      We are not already in pass 2             -and-
+    //      We have already created the pass 2 list  -and-
+    //      The variable is supposed to be copied
+
+    if (!psess->fPass2     &&
+        psess->hvlistPass2 &&
+        (VarGetFlags(hvar) & vflCOPY)) {
+        if (!(hvar = VarSet(psess->hvlistPass2,pszName,psz,perr))) {
+            return FALSE;
+        }
+    }
+
     //** If MaxDiskSize, update other variables if appropriate
-    if (stricmp(pszName,pszVAR_MAX_DISK_SIZE) == 0) {
-        return setDiskParameters(psess,atol(pszValue),perr);
+    if (_stricmp(pszName,pszVAR_MAX_DISK_SIZE) == 0) {
+        return setDiskParameters(psess,psz,0,perr);
+    }
+
+    //** If GenerateInf, do special goofy context processing
+    if (_stricmp(pszName,pszVAR_GENERATE_INF) == 0) {
+        switch (psess->ddfmode) {
+            case ddfmodeUNKNOWN:
+                //** Let change occur; we don't make up our mind until
+                //   the first file copy command.
+                return TRUE;
+
+            case ddfmodeUNIFIED:        // Doing INF in parallel with file copy
+                ErrSet(perr,pszDIA_BAD_INF_MODE);
+                return FALSE;
+
+            case ddfmodeRELATIONAL:
+                hvar = VarFind(psess->hvlist,pszVAR_GENERATE_INF,perr);
+                Assert(!perr->fError);          // Must be defined
+                //** Don't allow turning off twice!
+                if (!VarGetBool(hvar)) {
+                    ErrSet(perr,pszDIA_BAD_INF_MODE);
+                    return FALSE;
+                }
+                //** Now we read reference commands
+                psess->fExpectFileCommand = FALSE;
+                return TRUE;
+
+            default:
+                Assert(0);
+                return FALSE;
+    	}
     }
 
     return TRUE;
 } /* setVariable() */
+
+
+/***    doDump - Process a .DUMP command (dump all variables)
+ *
+ *  Entry:
+ *      psess  - Session
+ *      pcmd   - Command to process (ct == ctDUMP)
+ *      fPass2 - TRUE if this is pass 2
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; psess updated.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL doDump(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
+{
+    HVARIABLE   hvar;
+    VARFLAGS    vfl;
+    char       *pszName;
+    char       *pszValue;
+
+    AssertSess(psess);
+    Assert(pcmd->ct == ctDUMP);
+
+    //** Print variable dump header (two line feeds to make sure
+    //      we get a blank line if status output preceded us).
+    printf("\n\n%s\n",pszDIA_VAR_DUMP1);
+    printf("%s\n",pszDIA_VAR_DUMP2);
+
+    //** Print out all variables
+    for (hvar = VarFirstVar(psess->hvlist);
+         hvar;
+         hvar = VarNextVar(hvar)) {
+
+        //** Get variable info
+        vfl      = VarGetFlags(hvar);
+        pszName  = VarGetName(hvar);
+        pszValue = VarGetString(hvar);
+
+        //** Print name and flag (indent for readability)
+        printf("    %s",pszName);
+        if (vfl != vflNONE) {
+            printf("(");
+            if (vfl & vflPERM) {
+                printf("%s",pszDIA_VAR_PERMANENT);
+            }
+            else if (vfl & vflDEFINE) {
+                printf("%s",pszDIA_VAR_DEFINED);
+            }
+            else {
+                Assert(0);  // Unknown flag
+            }
+            printf(")");
+        }
+
+        //** Print value
+        printf("=<%s>\n",pszValue);
+    }
+
+    //** Success
+    return TRUE;
+} /* doDump() */
+
+
+/***    doDefine - Process a .DEFINE command
+ *
+ *  Entry:
+ *      psess  - Session to update
+ *      pcmd   - Command to process (ct == ctDEFINE)
+ *      fPass2 - TRUE if this is pass 2, where we do the real work!
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; psess updated.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL doDefine(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
+{
+    HVARIABLE   hvar;
+    VARFLAGS    vfl;
+
+    AssertSess(psess);
+    Assert(pcmd->ct == ctDEFINE);
+
+    //** Create variable if necessary
+    hvar = VarFind(psess->hvlist,pcmd->set.achVarName,perr);
+    if (hvar == NULL) {                 // Have to create it ourselves
+        hvar = VarCreate(psess->hvlist,        // var list
+                         pcmd->set.achVarName, // var name
+                         "",                   // default value
+                         vtypeSTR,             // var type
+                         vflDEFINE,            // var is DEFINED
+                         NULL,                 // No validation function
+                         perr);
+        if (hvar == NULL) {
+            return FALSE;               // Could not create variable
+        }
+    }
+    else {
+        //** Variable already exists, check if .DEFINE is OK
+        vfl = VarGetFlags(hvar);
+        if (vfl & vflDEFINE) {
+            ErrSet(perr,pszDIAERR_REDEFINE,"%s%s",
+                                           pszCMD_DEFINE,pcmd->set.achVarName);
+            return FALSE;
+        }
+        else if (vfl & vflPERM) {
+            ErrSet(perr,pszDIAERR_DEFINE_PERM,"%s%s",
+                                           pszCMD_DEFINE,pcmd->set.achVarName);
+            return FALSE;
+        }
+    }
+
+    //** Everything is fine, set the variable value
+    return setVariable(psess,
+                       pcmd->set.achVarName,
+                       pcmd->set.achValue,
+                       perr);
+} /* doDefine() */
+
+
+/***    doDelete - Process a .DELETE command
+ *
+ *  Entry:
+ *      psess  - Session to update
+ *      pcmd   - Command to process (ct == ctDELETE)
+ *      fPass2 - TRUE if this is pass 2, where we do the real work!
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; psess updated.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL doDelete(PSESSION psess, PCOMMAND pcmd, BOOL fPass2, PERROR perr)
+{
+    HVARIABLE   hvar;
+
+    AssertSess(psess);
+    Assert(pcmd->ct == ctDELETE);
+
+    //** Make sure variable exists
+    if (!(hvar = VarFind(psess->hvlist,pcmd->delete.achVarName,perr))) {
+        return FALSE;                   // Variable does not exist
+    }
+
+    //** Delete it
+    VarDelete(hvar);
+    return TRUE;
+} /* doDelete() */
 
 
 /***    doNew - Process a .NEW command
@@ -967,10 +1301,18 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
     char            *pszKind;
 
     AssertSess(psess);
+    Assert(pcmd->ct == ctNEW);
 /*
- ** Pass 1, check for invalid context (.new cabinet/folder when not in cabinet)
+ ** Pass 1, check for invalid context
  */
     if (!fPass2) {
+        //** Don't permit .New commands in INF section of RELATIONAL DDF
+        if (!psess->fExpectFileCommand) {
+            ErrSet(perr,pszDIAERR_BAD_CMD_IN_INF_SECT,"%s",pszCMD_NEW);
+            return FALSE;
+        }
+
+        //** Don't permit .New cabinet/folder when not in cabinet
         switch (pcmd->new.nt) {
             case newFOLDER:
             case newCABINET:
@@ -983,12 +1325,7 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
                 return FALSE;
 
             case newDISK:
-//BUGBUG 29-Mar-1994 bens Hmmm--have to write some code!
-                ErrSet(perr,".New DISK: not yet implemented!");
                 return TRUE;
-
-            default:
-                break;
         }
         Assert(0);                      // Should never get here
         return FALSE;
@@ -1002,6 +1339,9 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
     sae.perr  = perr;
     switch (pcmd->new.nt) {
         case newFOLDER:
+            if (!psess->hfci) {         // No FCI context yet, so NOP
+                return TRUE;
+            }
             if (!FCIFlushFolder(psess->hfci,fciGetNextCabinet,fciStatus,&sae)) {
                 //** Only set error if we didn't already do so
                 if (!ErrIsError(sae.perr)) {
@@ -1012,7 +1352,26 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
             psess->cFilesInFolder = 0;  // Reset files in folder count
             break;
 
+        case newDISK:
+                //** Our technique is a lazy one -- we set the flag asking for
+                //   a new disk, and (if in a cabinet) we flush the current
+                //   cabinet.  Either way, the next file or cabinet will start
+                //   on a new disk.
+                psess->fForceNewDisk = TRUE;
+                if (!inCabinet(psess,perr)) {
+                    return TRUE;        // Not in a cabinet, we're done
+                }
+
+                //** OK, we're in a cabinet; We want to flush it and assume
+                //   that more files are coming for the next cabinet, so
+                //   just fall through to the .New Cabinet code!
+                //
+                //  ATTENTION: FALLING THROUGH!
+
         case newCABINET:
+            if (!psess->hfci) {         // No FCI context yet, so NOP
+                return TRUE;
+            }
             //** Flush current cabinet, but tell FCI more are coming!
             if (!FCIFlushCabinet(psess->hfci,TRUE,
                                      fciGetNextCabinet,fciStatus,&sae)) {
@@ -1025,18 +1384,123 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
             psess->cFilesInCabinet = 0; // Reset files in folder count
             break;
 
-        case newDISK:
-//BUGBUG 29-Mar-1994 bens Hmmm--have to write some code!
-            ErrSet(perr,"not yet implemented!");
-            return FALSE;
-            break;
-
         default:
             Assert(0);
             return FALSE;
     }
     return TRUE;
 } /* doNew() */
+
+
+/***    doOption - Process a .OPTION command
+ *
+ *  Entry:
+ *      psess  - Session to update
+ *      pcmd   - Command to process (ct == ctOPTION)
+ *      fPass2 - TRUE if this is pass 2
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; psess updated.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL doOption(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
+{
+    AssertSess(psess);
+    Assert(pcmd->ct == ctOPTION);
+
+    //** Check for a change to the Explicit variable definition setting
+    if (pcmd->opt.ofMask & optEXPLICIT) {
+        //** Change to .Option Explicit
+        psess->fExplicitVarDefine = ((pcmd->opt.of & optEXPLICIT) != 0);
+    }
+
+    //** Make sure no other bits get snuck in
+    Assert((pcmd->opt.ofMask & ~optEXPLICIT) == 0);
+    return TRUE;
+} /* doOption() */
+
+
+/***    doReference - Process an INF file reference
+ *
+ *  Entry:
+ *      psess  - Session to update
+ *      pcmd   - Command to process (ct == ctREFERENCE)
+ *      fPass2 - TRUE if this is pass 2, where we do the real work!
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; psess updated.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL doReference(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
+{
+    HGENERIC    hgen;
+    PFILEINFO   pfinfo;
+    FILEINFO    finfoIgnore;            // For ValidateParms
+
+    AssertSess(psess);
+    Assert(!psess->fExpectFileCommand);
+    Assert(psess->ddfmode == ddfmodeRELATIONAL);
+
+    //** Find referenced file
+    if (!(hgen = GLFind(psess->hglistFiles,pcmd->ref.achDst,"",perr))) {
+        ErrSet(perr,pszDIAERR_REF_FILE_NOT_FOUND,"%s",pcmd->ref.achDst);
+        return FALSE;
+    }
+
+    //** Get file info structure
+    pfinfo = GLGetValue(hgen);
+    AssertFinfo(pfinfo);
+
+    //** Merge copy of parms from file into reference line
+    if (!GLCopyToList(&(pcmd->ref.hglist),  // Destination
+                      pfinfo->hglistParm,   // Source
+                      DuplicateFileParm,
+                      pszDIA_FILE_PARM,
+                      perr)) {
+        return FALSE;
+    }
+
+/*
+ ** PASS 1 Processing
+ */
+    if (!fPass2) {
+        //** Validate standard parameters in parameter list
+        //   NOTE: ValidateParms is usually used for File Copy commands,
+        //         so /date, /time, etc. parameters will actually make
+        //         modifications to the finfo structure.  However, we don't
+        //         want any modifications to the fileinfo structure for a
+        //         File Reference command.  So, we copy the info to a temporary
+        //         structure, and ignore any changes ValidateParms makes.
+        finfoIgnore = *pfinfo;          // Scratch copy of fileinfo
+        if (!ValidateParms(psess,pcmd->ref.hglist,&finfoIgnore,perr)) {
+            return FALSE;
+        }
+        pfinfo->flags |= fifREFERENCED; // Mark referenced bit
+        return TRUE;                    // Everything is fine so far
+    }
+
+/*
+ ** PASS 2 Processing
+ */
+    //** Make sure cabinets are flushed so all file info is filled in
+    if (!ensureCabinetsFlushed(psess,perr)) {
+        return FALSE;
+    }
+
+    //** Add line to file area of INF
+    if (!infAddFile(psess,pcmd->ref.achDst,pfinfo,pcmd->ref.hglist,perr)) {
+        return FALSE;                   // perr already filled in
+    }
+
+    //** Success
+    return TRUE;
+} /* doReference() */
 
 
 /***    doFile - Process a file copy command
@@ -1055,18 +1519,44 @@ BOOL doNew(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
  */
 BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
 {
-    static char     achSrc[cbFILE_NAME_MAX]; // Minimize stack usage
-    static char     achDst[cbFILE_NAME_MAX]; // Minimize stack usage
-    static char     achInInf[cbFILE_NAME_MAX]; // Minimize stack usage
+    //** Minimize stack usage
+    static char     achSrc[cbFILE_NAME_MAX]; // Full source file name
+    static char     achDst[cbFILE_NAME_MAX]; // Destination file name
+    static char     achFull[cbFILE_NAME_MAX]; // Full destination file name
     long            cbFile;
     long            cMaxFiles;
+    BOOL            fCopyFile;          // See DoNotCopyFiles variable
     BOOL            fSuccess;
+    HGENERIC	    hgen;	
     HVARIABLE       hvar;
     char           *pch;
+    PFILEINFO       pfinfo;
     SESSIONANDERROR sae;                // Context for FCI calls
-    int             tcomp;              // Compression type
+    TCOMP           tcomp;              // Compression type
 
     AssertSess(psess);
+    Assert(psess->fExpectFileCommand);
+
+/*
+ ** Determine INF generation mode on first copy file command
+ */
+    if (psess->ddfmode == ddfmodeUNKNOWN) {
+        hvar = VarFind(psess->hvlist,pszVAR_GENERATE_INF,perr);
+        Assert(!perr->fError);          // Must be defined
+        if (VarGetBool(hvar)) {         // Generate INF in parallel
+            psess->ddfmode = ddfmodeUNIFIED;
+        }
+        else {
+            psess->ddfmode = ddfmodeRELATIONAL;
+            //** Make sure UniqueFiles is ON
+            hvar = VarFind(psess->hvlist,pszVAR_UNIQUE_FILES,perr);
+            Assert(!perr->fError);      // Must be defined
+            if (!VarGetBool(hvar)) {    // Must be unique
+                ErrSet(perr,pszDIAERR_MUST_BE_UNIQUE);
+                return FALSE;
+            }
+        }
+    }
 
     //** Store context to pass through FCI calls
     sae.psess = psess;
@@ -1097,6 +1587,7 @@ BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
             MsgSet(psess->achMsg,pszDIA_FILE_COPY,"%s%s",achSrc,achDst);
             lineOut(psess,psess->achMsg,TRUE);
         }
+
         //** Make sure MaxDiskSize is a multiple of the ClusterSize
         //   NOTE: This only catches cases where MaxDiskSize/ClusterSize
         //         are not compatible.  MaxDiskSizeN variables cannot
@@ -1114,17 +1605,73 @@ BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
         computeSetID(psess,achDst);     // Accumulate cabinet setID
         psess->cbTotalFileBytes += cbFile;  // Count up total file sizes
         psess->cFiles++;                // Count files
-//BUGBUG 14-Feb-1994 bens Need to add file to appropriate list (OnDisk, etc.)
+
+        //** Keep track of file names, handle uniqueness checking
+        if (!(hgen = addFileToSession(psess,achSrc,achDst,cbFile,pcmd,perr))) {
+            return FALSE;
+        }
+
+        //** Make sure standard parameters have valid format
+        pfinfo = GLGetValue(hgen);
+        AssertFinfo(pfinfo);
+        if (!ValidateParms(psess,pfinfo->hglistParm,pfinfo,perr)) {
+            return FALSE;
+        }
+
+        //** Allow InfDate, InfTime, InfAttr overrides
+        //   NOTE: This must be called *after* ValidateParms(), so that
+        //         it will not override parms specified on the file copy
+        //         command!
+        if (!CheckForInfVarOverrides(psess,pfinfo,perr)) {
+            return FALSE;
+        }
         return TRUE;
     }
 
 /*
  ** PASS 2 Processing
  */
+
     //** Give user status
     strcpy(psess->achCurrFile,achDst);  // Info for fciStatus
     psess->iCurrFile++;                 // Info for fciStatus
     fciStatus(statusFile,0,0,&sae);     // Show new file name, ignore rc
+
+    //** Update psess->hgenLast for INF generation
+    updateHgenLast(psess,achDst);
+
+#ifndef BIT16
+    //** Get Version/Language info (only if needed for INF file)
+    //   NOTE: We only do this in Win32-land, because the Win32 API can
+    //         (usually) handle both 16-bit and 32-bit EXE formats, but
+    //         the 16-bit API cannot handle 32-bit EXE formats.
+    //         Also, we wait until PASS 2 so we know whether the version
+    //         information is needed for the INF file, since it slows us
+    //         down a little to gather it.
+    if (psess->fGetVerInfo) {
+        hgen = psess->hgenFileLast;     // Item for this file
+        pfinfo = GLGetValue(hgen);      // Get file info
+        AssertFinfo(pfinfo);
+        if (!getFileVerAndLang(achSrc,
+                               &(pfinfo->verMS),
+                               &(pfinfo->verLS),
+                               &(pfinfo->pszVersion),
+                               &(pfinfo->pszLang),
+                               perr)) {
+            return FALSE;
+        }
+    }
+#endif // !BIT16
+
+    //** Compute file checksum (only if needed for INF file)
+    if (psess->fGetFileChecksum) {
+        hgen = psess->hgenFileLast;     // Item for this file
+        pfinfo = GLGetValue(hgen);      // Get file info
+        AssertFinfo(pfinfo);
+        if (!getFileChecksum(achSrc,&(pfinfo->checksum),perr)) {
+            return FALSE;
+        }
+    }
 
     //** Get compression type
     tcomp = tcompFromSession(psess,perr);
@@ -1163,6 +1710,7 @@ BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
                     psess->hfci,
                     achSrc,             // filename to add to cabinet
                     achDst,             // name to store into cabinet file
+                    pcmd->file.fRunFlag, // Flag indicating execute on extract
                     fciGetNextCabinet,  // callback for continuation cabinet
                     fciStatus,          // status callback
                     fciOpenInfo,        // Open/get attribs/etc. callback
@@ -1203,18 +1751,32 @@ BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
 
 
 //BUGBUG 30-Mar-1994 bens Don't support compressing individual files
-    if (tcomp != tcompNONE) {
+    if (tcomp != tcompTYPE_NONE) {
         ErrSet(perr,pszDIAERR_SINGLE_COMPRESS,"%s",pcmd->file.achSrc);
         return FALSE;
     }
 
-    //** Get file size to see if we can fit it on this disk
-    if (-1 == (cbFile = getFileSize(achSrc,perr))) {
-        return FALSE;                   // perr already filled in
-    }
+    //** See if we are copying files; this feature of not copying files
+    //   was implemented for the ACME group, so that their clients can
+    //   generate "ADMIN" INF files quickly -- they do one Diamond run
+    //   with one version of InfFileLineFormat with cabinets and compression
+    //   on, and that generates the "disk" INF.  Then they do another
+    //   Diamond run with a different InfFileLineFormat, and they set
+    //   DoNotCopyFiles=TRUE, and turn off cabinets and compression, so
+    //   Diamond goes through all the motions to generate an INF, but
+    //   skips the step of actually copying any files!
+
+    hvar = VarFind(psess->hvlist,pszVAR_DO_NOT_COPY_FILES,perr);
+    Assert(!perr->fError);              // Must be defined
+    fCopyFile = !VarGetBool(hvar);      // Invert setting
+
+    //** Get file info for this file
+    hgen = psess->hgenFileLast;         // Item for this file
+    pfinfo = GLGetValue(hgen);          // Get file info
+    AssertFinfo(pfinfo);
 
     //** Switch to new disk if necessary, account for file
-    if (!newDiskIfNecessary(psess,cbFile,TRUE,perr)) {
+    if (!newDiskIfNecessary(psess,pfinfo->cbFile,TRUE,perr)) {
         return FALSE;
     }
 
@@ -1223,43 +1785,91 @@ BOOL doFile(PSESSION psess,PCOMMAND pcmd, BOOL fPass2, PERROR perr)
         return FALSE;
     }
 
-    //** Construct filespec to store in the INF file
-    hvar = VarFind(psess->hvlist,pszVAR_DIR_DEST,perr);
-    Assert(!perr->fError);              // Must be defined
-    pch = VarGetString(hvar);           // Get source dir
-    if (!catDirAndFile(achInInf,            // gets "foo\setup.exe"
-                       sizeof(achInInf),
-                       pch,                 // "foo"
-                       pcmd->file.achDst,   // "setup.exe"
-                       pcmd->file.achSrc,
-                       perr)) {
-        return FALSE;                   // perr set already
-    }
-
     //** Construct complete filespec for destination file
-    if (!catDirAndFile(achDst,                  // gets "disk1\foo\setup.exe"
-                       sizeof(achDst),
+    if (!catDirAndFile(achFull,                 // gets "disk1\foo\setup.exe"
+                       sizeof(achFull),
                        psess->achCurrOutputDir, // "disk1"
-                       achInInf,                // "foo\setup.exe"
+                       achDst,                  // "foo\setup.exe"
                        "",
                        perr)) {
         return FALSE;                   // perr set already
     }
 
-    //** Add file to INF
-    if (!infAddFile(psess->hinf,achInInf,psess->iDisk,0,cbFile,perr)) {
+    //** If copying files, make sure destination directory is created
+    if (fCopyFile && !ensureDirectory(achFull,TRUE,perr)) {
         return FALSE;                   // perr already filled in
     }
 
-    //** Copy file and return result
-    fSuccess = CopyOneFile(achDst,achSrc,(UINT)cbFILE_COPY_BUFFER,perr);
+    //** Copy file (or just merge file date/time/attr values)
 //BUGBUG 01-Apr-1994 bens Pass status to CopyOneFile for more granularity
 //          Also, should think about separating out data for files that are
 //          not compressed versus those that are, so we can provide accurate
 //          statistics!
-    fciStatus(statusFile,cbFile,cbFile,&sae); // Show file copied, ignore rc
+    fSuccess = CopyOneFile(achFull,     // Destination file name
+                           achSrc,      // Source file name
+                           fCopyFile,   // Control whether file is copied
+                           (UINT)cbFILE_COPY_BUFFER, // Copy buffer size
+                           fnofpDiamond, // Overrides date/time/attr
+                           psess,       // Context for fnofpDiamond
+                           perr);       // ERROR structure
+
+    //** Use true file size for status, ignore return code
+    fciStatus(statusFile,pfinfo->cbFile,pfinfo->cbFile,&sae);
+
+    //** Add file to INF (cabinet=0 ==> not inside a cabinet)
+    if (!modeInfAddFile(psess,achDst,psess->iDisk,0,perr)) {
+        return FALSE;                   // perr already filled in
+    }
+
     return fSuccess;
 } /* doFile() */
+
+
+/***    ensureCabinetsFlushed - Make sure FCI is flushed out
+ *
+ *  Entry:
+ *      psess - Session
+ *      perr  - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; cabinets flushed (if necessary)
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in
+ */
+BOOL ensureCabinetsFlushed(PSESSION psess, PERROR perr)
+{
+    SESSIONANDERROR sae;                // Context for FCI calls
+
+    AssertSess(psess);
+
+    //** NOP if we already flushed FCI
+    if (!psess->hfci) {
+        return TRUE;
+    }
+
+    //** Store context to pass through FCI calls
+    sae.psess = psess;
+    sae.perr  = perr;
+
+    //** Flush out any final cabinet remnants
+    if (!FCIFlushCabinet(psess->hfci,FALSE,fciGetNextCabinet,fciStatus,&sae)) {
+        //** Only set error if we didn't already do so in FCIAddFile callback
+        if (!ErrIsError(sae.perr)) {
+            mapFCIError(perr,psess,szFCI_FLUSH_CABINET,&psess->erf);
+        }
+        return FALSE;
+    }
+
+    //** Destroy FCI context
+    if (!FCIDestroy(psess->hfci)) {
+        mapFCIError(perr,psess,szFCI_DESTROY,&psess->erf);
+        return FALSE;
+    }
+    psess->hfci = NULL;                 // Clear out FCI context
+
+    return TRUE;
+} /* ensureCabinetsFlushed() */
 
 
 /***    computeSetID - accumulate cabinet set ID
@@ -1377,9 +1987,13 @@ BOOL ensureCabinet(PSESSION psess, PERROR perr)
 BOOL ccabFromSession(PCCAB pccab, PSESSION psess, ULONG cbPrevCab, PERROR perr)
 {
     HVARIABLE   hvar;
-    char       *pch;
 
     AssertSess(psess);
+
+#ifndef REMOVE_CHICAGO_M6_HACK
+    //** Pass hack flag on to FCI
+    pccab->fFailOnIncompressible = psess->fFailOnIncompressible;
+#endif
 
     /*** Switch to new disk, if necessary
      *
@@ -1408,12 +2022,15 @@ BOOL ccabFromSession(PCCAB pccab, PSESSION psess, ULONG cbPrevCab, PERROR perr)
     pccab->iDisk = psess->iDisk;        // Set disk number for FCI
     pccab->setID = psess->setID;        // Carry over set ID
 
-    //** Format cabinet name (FOO*.CAB + n => FOOn.CAB)
-    hvar = VarFind(psess->hvlist,pszVAR_CAB_NAME,perr);
-    Assert(!perr->fError);              // Must be defined
-    pch = VarGetString(hvar);           // Get cabinet name template
-    if (!nameFromTemplate(pccab->szCab,sizeof(pccab->szCab),
-                            pch,psess->iCabinet,pszDIA_CABINET,perr)) {
+    //** Get cabinet file name
+    if (!getVarWithOverride(psess,
+                            pccab->szCab,
+                            sizeof(pccab->szCab),
+                            pszPATTERN_VAR_CAB_NAME,
+                            pszVAR_CAB_NAME,
+                            psess->iCabinet,
+                            pszDIA_CABINET,
+                            perr)) {
         return FALSE;                   // perr already filled in
     }
 
@@ -1443,7 +2060,7 @@ BOOL ccabFromSession(PCCAB pccab, PSESSION psess, ULONG cbPrevCab, PERROR perr)
     strcpy(pccab->szDisk,psess->achCurrDiskLabel);
 
     //** Save away cabinet and disk info for INF
-    if (!infAddCabinet(psess->hinf,
+    if (!infAddCabinet(psess,
                        psess->iCabinet,
                        psess->iDisk,
                        pccab->szCab,
@@ -1483,9 +2100,6 @@ long roundUp(long value, long chunk)
  *          (the root directory size limitation) and the bytes per disk.
  *          If we cannot fit the file on the disk, then we increment to
  *          the next disk, leaving some free space.
- *
- *  Factors in deciding to switch to a new disk:
- *
  *
  *  Entry:
  *      psess         - Session to update
@@ -1530,16 +2144,20 @@ BOOL newDiskIfNecessary(PSESSION psess,
 
     //** Figure out if we need to go to a new disk
     if ((cbConsume == -1)                            || // Forced new disk
+        psess->fForceNewDisk                         || // .New Disk directive
         (roundUp(cbConsume,cbCluster) > psess->cbDiskLeft) || // No more space
         (!inCabinet(psess,perr) && (psess->cFilesInDisk >= cMaxFiles))) {
 
+        psess->fForceNewDisk = FALSE;   // Reset force flag
         psess->iDisk++;                 // New disk
+
         //** Get max disk size for this disk
         if (-1 == (psess->cbDiskLeft = getMaxDiskSize(psess,perr))) {
             return FALSE;
         }
+
         //** Update ClusterSize and MaxDiskFileCount (if standard disk size)
-        if (!setDiskParameters(psess,psess->cbDiskLeft,perr)) {
+        if (!setDiskParameters(psess,NULL,psess->cbDiskLeft,perr)) {
             return FALSE;
         }
 
@@ -1565,15 +2183,15 @@ BOOL newDiskIfNecessary(PSESSION psess,
     //   2) Get user-readable disk label
     //   3) Add disk to INF file
 
-    //** Format disk output directory name (DIR* + n => DIRn)
-    hvar = VarFind(psess->hvlist,pszVAR_DISK_DIR_NAME,perr);
-    Assert(!perr->fError);              // Must be defined
-    pch = VarGetString(hvar);           // Get disk dir name template
-    if (!nameFromTemplate(psess->achCurrOutputDir,
-                          sizeof(psess->achCurrOutputDir),
-                          pch,
-                          psess->iDisk,pszDIA_DISK_DIR,
-                          perr)) {
+    //** Get disk output directory name
+    if (!getVarWithOverride(psess,
+                            psess->achCurrOutputDir,
+                            sizeof(psess->achCurrOutputDir),
+                            pszPATTERN_VAR_DISK_DIR,
+                            pszVAR_DISK_DIR_NAME,
+                            psess->iDisk,
+                            pszDIA_DISK_DIR,
+                            perr)) {
         return FALSE;                   // perr already filled in
     }
 
@@ -1585,54 +2203,22 @@ BOOL newDiskIfNecessary(PSESSION psess,
     //** Append path separator if necessary
     pch = psess->achCurrOutputDir;
     cch = strlen(pch);
-    if ((pch[0] != '\0') &&
-        (pch[cch-1] != chPATH_SEP1) &&
-        (pch[cch-1] != chPATH_SEP2) ) {
-        pch[cch]   = chPATH_SEP1;
-        pch[cch+1] = '\0';
-    }
+    appendPathSeparator(&(pch[cch-1]));
 
-
-    //**(2) Get/Build the sticky, user-readable disk label
-
-    //** First, build variable name that *may* exist for this disk
-    if (!nameFromTemplate(psess->achMsg,sizeof(psess->achMsg),
-            pszPATTERN_VAR_DISK_LABEL,psess->iDisk,pszDIA_DISK_LABEL,perr)) {
-        Assert(0);                      // Should never fail
+    //**(2) Get the sticky, user-readable disk label
+    if (!getVarWithOverride(psess,
+                            psess->achCurrDiskLabel,
+                            sizeof(psess->achCurrDiskLabel),
+                            pszPATTERN_VAR_DISK_LABEL,
+                            pszVAR_DISK_LABEL_NAME,
+                            psess->iDisk,
+                            pszDIA_DISK_LABEL,
+                            perr)) {
         return FALSE;                   // perr already filled in
     }
 
-    //** Next, see if this variable exists
-    hvar = VarFind(psess->hvlist,psess->achMsg,perr);
-    if (hvar != NULL) {                 // Yes, get its value
-        pch = VarGetString(hvar);       // Get disk label
-        if (strlen(pch) >= CB_MAX_DISK_NAME) {
-//BUGBUG 16-Feb-1994 bens Should check disk label size during pass 1!
-            ErrSet(perr,pszDIAERR_LABEL_TOO_BIG,"%d%s",
-                            CB_MAX_DISK_NAME-1,pch);
-            return FALSE;
-        }
-        strcpy(psess->achCurrDiskLabel,pch);
-    }
-    else {                              // NO, no specific label for this disk
-        ErrClear(perr);                 // Not an error
-        //** Construct default name
-        hvar = VarFind(psess->hvlist,pszVAR_DISK_LABEL_NAME,perr);
-        Assert(!perr->fError);          // Must be defined
-        pch = VarGetString(hvar);       // Get disk label template
-        Assert(CB_MAX_DISK_NAME >=sizeof(psess->achCurrDiskLabel));
-        if (!nameFromTemplate(psess->achCurrDiskLabel,
-                              sizeof(psess->achCurrDiskLabel),
-                              pch,
-                              psess->iDisk,
-                              pszDIA_DISK_LABEL,
-                              perr)) {
-            return FALSE;               // perr already filled in
-        }
-    }
-
     //**(3) Add new disk to INF file
-    if (!infAddDisk(psess->hinf,psess->iDisk,psess->achCurrDiskLabel,perr)) {
+    if (!infAddDisk(psess,psess->iDisk,psess->achCurrDiskLabel,perr)) {
         return FALSE;
     }
 
@@ -1687,19 +2273,54 @@ BOOL setCabinetReserve(PCCAB pccab, PSESSION psess, PERROR perr)
  */
 int tcompFromSession(PSESSION psess, PERROR perr)
 {
-    HVARIABLE       hvar;
+    HVARIABLE   hvar;
+    int         typeC;
+    int         level;                  // Quantum compression level
+    int         memory;                 // Quantum compression memory
 
     AssertSess(psess);
     //** Get compression setting
     hvar = VarFind(psess->hvlist,pszVAR_COMPRESS,perr);
     Assert(!perr->fError);              // Must be defined
     if (VarGetBool(hvar)) {             // Compression is on
-        return tcompMSZIP;
+        //** Get the compression type
+        hvar = VarFind(psess->hvlist,pszVAR_COMPRESSION_TYPE,perr);
+        Assert(!ErrIsError(perr));      // Must be defined
+        typeC = CompTypeFromPSZ(VarGetString(hvar),perr);
+        Assert(!ErrIsError(perr));      // Checked when it was defined
+        switch (typeC) {
+            case tcompTYPE_MSZIP:
+                return tcompTYPE_MSZIP;
+
+            case tcompTYPE_QUANTUM:
+#ifdef BIT16
+                //** Quantum *compression* not supported in 16-bit mode.
+                //   We should never get here because the dfparse.c
+                //   validation should generate an error if Quantum is
+                //   selected.
+                Assert(0);
+#endif
+                //** Get the compression level setting
+                hvar = VarFind(psess->hvlist,pszVAR_COMPRESSION_LEVEL,perr);
+                Assert(!ErrIsError(perr));      // Must be defined
+                level = CompLevelFromPSZ(VarGetString(hvar),perr);
+                Assert(!ErrIsError(perr));      // Checked when it was defined
+
+                //** Get the compression memory setting
+                hvar = VarFind(psess->hvlist,pszVAR_COMPRESSION_MEMORY,perr);
+                Assert(!ErrIsError(perr));      // Must be defined
+                memory = CompMemoryFromPSZ(VarGetString(hvar),perr);
+                Assert(!ErrIsError(perr));      // Checked when it was defined
+
+                //** Construct TCOMP and return it
+                return TCOMPfromTypeLevelMemory(typeC,level,memory);
+        }
+        //** Unknown compression type
+        Assert(0);
     }
     else {
-        return tcompNONE;
+        return tcompTYPE_NONE;          // Compression is off
     }
-//BUGBUG 30-Mar-1994 bens When Quantum is added, look at CompressionLevel var
     Assert(0);
 } /* tcompFromSession() */
 
@@ -1805,104 +2426,100 @@ long getMaxDiskSize(PSESSION psess, PERROR perr)
  *  standard values for ClusterSize and MaxDiskFileCount.
  *
  *  Entry:
- *      psess  - Session
- *      cbDisk - Disk size
- *      perr   - ERROR structure
+ *      psess       - Session
+ *      pszDiskSize - Disk size string (NULL if cbDisk should be used instead)
+ *      cbDisk      - Disk size (only if pszDiskSize == NULL)
+ *      perr        - ERROR structure
  *
  *  Exit-Success:
- *      TRUE; ClusterSize/MaxDiskFileCount adjusted if cbDisk is standard size
+ *      TRUE; ClusterSize/MaxDiskFileCount adjusted if specified size is
+ *            on our special list.
  *
  *  Exit-Failure:
  *      Returns -1; perr filled in
  */
-BOOL setDiskParameters(PSESSION psess, long cbDisk, PERROR perr)
+BOOL setDiskParameters(PSESSION  psess,
+                       char     *pszDiskSize,
+                       long      cbDisk,
+                       PERROR    perr)
 {
-    PERROR	perrIgnore;
-    
-    if (IsSpecialDiskSize(psess,cbDisk)) {
-        //   NOTE: We have to be careful not to set these variables
-        //         until they are defined!
-        if (VarFind(psess->hvlist,pszVAR_CLUSTER_SIZE,perrIgnore)) {
-            //** ClusterSize is defined
-            if (!VarSetLong(psess->hvlist,pszVAR_CLUSTER_SIZE,cbDisk,perr)) {
-                return FALSE;
-            }
+    char    achSize[50];
+    ERROR   errIgnore;
+    char   *psz;
+
+    //** Determine which parameter to use
+    if (pszDiskSize == NULL) {
+        _ltoa(cbDisk,achSize,10);       // Convert number to string
+        psz = achSize;
+    }
+    else {
+        psz = pszDiskSize;
+    }
+
+    //** Look up special list, get integer size for sure
+    if (!(cbDisk = IsSpecialDiskSize(psess,psz))) {
+        return TRUE;                    // Not a special size
+    }
+
+    //   NOTE: We have to be careful not to set these variables
+    //         until they are defined!
+    if (VarFind(psess->hvlist,pszVAR_CLUSTER_SIZE,&errIgnore)) {
+        //** ClusterSize is defined
+        if (!VarSetLong(psess->hvlist,pszVAR_CLUSTER_SIZE,cbDisk,perr)) {
+            return FALSE;
         }
-        if (VarFind(psess->hvlist,pszVAR_MAX_DISK_FILE_COUNT,perrIgnore)) {
-            //** MaxDiskFileCount is defined
-            if (!VarSetLong(psess->hvlist,pszVAR_MAX_DISK_FILE_COUNT,cbDisk,perr)) {
-                return FALSE;
-            }
+    }
+    if (VarFind(psess->hvlist,pszVAR_MAX_DISK_FILE_COUNT,&errIgnore)) {
+        //** MaxDiskFileCount is defined
+        if (!VarSetLong(psess->hvlist,pszVAR_MAX_DISK_FILE_COUNT,cbDisk,perr)) {
+            return FALSE;
         }
     }
     return TRUE;
 } /* setDiskParameters() */
 
 
-/***    nameFromTemplate - Construct name from template with * and integer
+/***    fnofpDiamond - Override file date/time/attributes
  *
- *  Entry:
- *      pszResult   - Buffer to receive constructed name
- *      cbResult    - Size of pszResult
- *      pszTemplate - Template string (with 0 or more "*" characters)
- *      i           - Value to use in place of "*"
- *      pszName     - Name to use if error is detected
- *      perr        - ERROR structure to fill in
- *
- *  Exit-Success:
- *      Returns TRUE; pszResult filled in.
- *
- *  Exit-Failure:
- *      Returns FALSE; perr filled in with error.
+ *  NOTE: See fileutil.h for entry/exit conditions.
  */
-BOOL nameFromTemplate(char   *pszResult,
-                      int     cbResult,
-                      char   *pszTemplate,
-                      int     i,
-                      char   *pszName,
-                      PERROR  perr)
+FNOVERRIDEFILEPROPERTIES(fnofpDiamond)
 {
-    char    ach[cbFILE_NAME_MAX];       // Buffer for resulting name
-    char    achFmt[cbFILE_NAME_MAX];    // Buffer for sprintf format string
-    int     cch;
-    int     cWildCards=0;               // Count of wild cards
-    char   *pch;
-    char   *pchDst;
+    PFILEINFO   pfinfo;
+    PSESSION    psess;
 
-    //** Replace any wild card characters with %d
-    pchDst = achFmt;
-    for (pch=pszTemplate; *pch; pch++) {
-        if (*pch == chDF_WILDCARD) {    // Got a wild card
-            *pchDst++ = '%';            // Replace with %d format specifier
-            *pchDst++ = 'd';
-            cWildCards++;               // Count how many we see
+    psess = (PSESSION)pv;
+    AssertSess(psess);
+
+    //** Use override values and/or store real values
+    if (psess->fGenerateInf) {          // Only valid if INF will be made
+        pfinfo = GLGetValue(psess->hgenFileLast);
+        AssertFinfo(pfinfo);
+        if (pfinfo->flags & fifDATE_SET) {
+            pfta->date = pfinfo->fta.date; // Override
         }
         else {
-            *pchDst++ = *pch;           // Copy character
+            pfinfo->fta.date = pfta->date; // Store for INF generation
+        }
+
+        if (pfinfo->flags & fifTIME_SET) {
+            pfta->time = pfinfo->fta.time; // Override
+        }
+        else {
+            pfinfo->fta.time = pfta->time; // Store for INF generation
+        }
+
+        if (pfinfo->flags & fifATTR_SET) {
+            pfta->attr = pfinfo->fta.attr; // Override
+        }
+        else {
+            pfinfo->fta.attr = pfta->attr; // Store for INF generation
         }
     }
-    *pchDst++ = '\0';                   // Terminate string
-
-    if (cWildCards > 4) {
-        ErrSet(perr,pszDIAERR_TWO_MANY_WILDS,"%c%d%s",
-                chDF_WILDCARD,4,pszName);
-        return FALSE;
-    }
-
-    //** Replace first four(4) occurences (just to be hard-coded!)
-    cch = sprintf(ach,achFmt,i,i,i,i);
-
-    //** Fail if expanded result is too long
-    if (cch >= cbResult) {
-        ErrSet(perr,pszDIAERR_EXPANDED_TOO_LONG,"%s%d%s",
-                pszName,cbResult-1,ach);
-        return FALSE;
-    }
-    strcpy(pszResult,ach);
 
     //** Success
     return TRUE;
-} /* nameFromTemplate() */
+} /* fnofpDiamond() */
 
 
 /***    fciOpenInfo - Get file date, time, and attributes for FCI
@@ -1924,15 +2541,22 @@ FNFCIGETOPENINFO(fciOpenInfo)
 {
     FILETIMEATTR    fta;
     int             hf;
-    PSESSION        psess = ((PSESSIONANDERROR)pv)->psess;
     PERROR          perr  = ((PSESSIONANDERROR)pv)->perr;
+    PSESSION        psess = ((PSESSIONANDERROR)pv)->psess;
 
     AssertSess(psess);
 
-    //** Get file date, time, and attributes
+    //** Get real file date, time, and attributes
     if (!GetFileTimeAndAttr(&fta,pszName,perr)) {
         return FALSE;
     }
+
+    //** Get/Override file date/time/attributes
+    if (!fnofpDiamond(&fta,psess,perr)) {
+        return FALSE;                   // perr already filled in
+    }
+
+    //** Tell FCI what to use
     *pdate    = fta.date;
     *ptime    = fta.time;
     *pattribs = fta.attr;
@@ -1982,14 +2606,13 @@ FNFCIFILEPLACED(fciFilePlaced)
     }
 
     //** Add file entry to INF temp file
-    if (psess->fGenerateInf) {
+    if (psess->fGenerateInf) {          // Only if generating INF file
         if (!fContinuation) {           // Only if not a continuation
-            if (!infAddFile(psess->hinf,
-                            pszFile,
-                            pccab->iDisk,
-                            pccab->iCab,
-                            cbFile,
-                            perr)) {
+            if (!modeInfAddFile(psess,
+                                pszFile,
+                                pccab->iDisk,
+                                pccab->iCab,
+                                perr)) {
                 return -1;              // Abort with error
             }
         }
@@ -2082,12 +2705,14 @@ FNFCISTATUS(fciStatus)
 
         //** Amount of status depends upon verbosity
         if (psess->levelVerbose >= vbFULL) {
-            MsgSet(psess->achMsg,pszDIA_PERCENT_COMPLETE_DETAILS,"%6.2f%ld%ld",
+            MsgSet(psess->achMsg,pszDIA_PERCENT_COMPLETE_DETAILS,
+                "%6.2f%,ld%,ld",
                 percent,psess->cbFileBytes,psess->cbFileBytesComp);
             lineOut(psess,psess->achMsg,TRUE);
         }
         else {
-            MsgSet(psess->achMsg,pszDIA_PERCENT_COMPLETE_SOME,"%6.2f%s%ld%ld",
+            MsgSet(psess->achMsg,pszDIA_PERCENT_COMPLETE_SOME,
+                "%6.2f%s%,ld%,ld",
                 percent, psess->achCurrFile, psess->iCurrFile, psess->cFiles);
             //** NOTE: No line-feed, so that we don't scroll
             lineOut(psess,psess->achMsg,FALSE);
@@ -2334,25 +2959,29 @@ BOOL getCompressedFileName(PSESSION psess,
 void resetSession(PSESSION psess)
 {
     AssertSess(psess);
-    psess->act               = actBAD;
-    psess->fFiller           = FALSE;
-    psess->fOnDisk           = FALSE;
-    psess->fGroup            = FALSE;
-    psess->iDisk             = 0;
-    psess->iCabinet          = 0;
-    psess->iFolder           = 0;
-    psess->cbDiskLeft        = -1;      // Force new disk first time
-    psess->cErrors           = 0;
-    psess->cWarnings         = 0;
-    psess->cbFileBytes       = 0;
-    psess->cbFileBytesComp   = 0;
-    psess->iCurrFile         = 0;
+    psess->act                = actBAD;
+    psess->iDisk              = 0;
+    psess->iCabinet           = 0;
+    psess->iFolder            = 0;
+    psess->cbDiskLeft         = -1;     // Force new disk first time
+    psess->cErrors            = 0;
+    psess->cWarnings          = 0;
+    psess->cbFileBytes        = 0;
+    psess->cbFileBytesComp    = 0;
+    psess->iCurrFile          = 0;
+    psess->fRunSeen           = FALSE;
 
-    psess->cFilesInFolder    = 0;
-    psess->cFilesInCabinet   = 0;
-    psess->cFilesInDisk      = 0;
-    psess->cbCabinetEstimate = 0;       // No estimated cabinet size
-}
+    psess->cFilesInFolder     = 0;
+    psess->cFilesInCabinet    = 0;
+    psess->cFilesInDisk       = 0;
+    psess->cbCabinetEstimate  = 0;      // No estimated cabinet size
+    psess->ddfmode            = ddfmodeUNKNOWN; // Don't know unified vs.
+                                                // relational, yet
+    psess->fExpectFileCommand = TRUE;   // Default is file copy commands
+    psess->fCopyToInf         = FALSE;  // Not in .InfBegin/End
+    psess->hgenFile           = (HGENERIC)-1; // Not valid
+    psess->hgenFileLast       = (HGENERIC)-1; // Not valid
+} /* resetSession() */
 
 
 /***    parseCommandLine - Parse the command line arguments
@@ -2410,6 +3039,12 @@ BOOL parseCommandLine(PSESSION psess, int cArg, char *apszArg[], PERROR perr)
                     return TRUE;
                     break;
 
+#ifndef REMOVE_CHICAGO_M6_HACK
+                case chSWITCH_ANDY:
+                    psess->fFailOnIncompressible = TRUE;
+                    break;
+#endif
+
                 case chSWITCH_DEFINE:
                     if (apszArg[i][2] != '\0') {
                         ErrSet(perr,pszDIAERR_BAD_SWITCH,"%s",apszArg[i]);
@@ -2447,6 +3082,13 @@ BOOL parseCommandLine(PSESSION psess, int cArg, char *apszArg[], PERROR perr)
                     fLocation = TRUE;
                     break;
 
+#ifdef ASSERT
+                case chSWITCH_MEMORY_DBG:
+                    //** Turn on full memory heap checking (very slow!)
+                    MemSetCheckHeap(TRUE);
+                    break;
+#endif
+
                 case chSWITCH_VERBOSE:
                     if (apszArg[i][2] != '\0') {
                         psess->levelVerbose = atoi(&apszArg[i][2]);
@@ -2473,7 +3115,7 @@ BOOL parseCommandLine(PSESSION psess, int cArg, char *apszArg[], PERROR perr)
         }
         else if (fDefine) {
             //** Grab a define
-            if (!addDefine(psess,apszArg[i],perr)) {
+            if (!addCmdLineVar(psess,apszArg[i],perr)) {
                 //** Error adding definition; perr already set
                 return FALSE;           // Failure
             }
@@ -2602,7 +3244,7 @@ HFILESPEC addDirectiveFile(PSESSION psess, char *pszArg, PERROR perr)
 } /* addDirectiveFile */
 
 
-/***    addDefine - Add variable definition to session list
+/***    addCmdLineVar - Add a command line variable to session list
  *
  *  Entry:
  *      psess  - Session to update
@@ -2615,7 +3257,7 @@ HFILESPEC addDirectiveFile(PSESSION psess, char *pszArg, PERROR perr)
  *  Exit-Failure:
  *      Returns actBAD; perr filled in with error.
  */
-BOOL addDefine(PSESSION psess, char *pszArg, PERROR perr)
+BOOL addCmdLineVar(PSESSION psess, char *pszArg, PERROR perr)
 {
     COMMAND cmd;                        // For var name & value
     BOOL    f;
@@ -2630,7 +3272,6 @@ BOOL addDefine(PSESSION psess, char *pszArg, PERROR perr)
 
     //** Assign variable
     f = setVariable(psess,
-    		    psess->hvlist,
                     cmd.set.achVarName,
                     cmd.set.achValue,
                     perr);
@@ -2640,7 +3281,7 @@ BOOL addDefine(PSESSION psess, char *pszArg, PERROR perr)
 
     //** Return result
     return f;
-} /* addDefine */
+} /* addCmdLineVar() */
 
 
 #ifdef ASSERT
@@ -2676,7 +3317,7 @@ void printError(PSESSION psess, PERROR perr)
     //** Determine type of error
     if (perr->pszFile != NULL) {
         //** Error in a directive file
-        printf("%s(%d) : %s : %s\n",
+        printf("%s(%d): %s: %s\n",
                 perr->pszFile,perr->iLine,pszDIAERR_ERROR,perr->ach);
     }
     else {
@@ -2746,6 +3387,11 @@ void mapFCIError(PERROR perr, PSESSION psess, char *pszCall, PERF perf)
         ErrSet(perr,pszFCIERR_CAB_FILE,"%s%s",pszCall,pszErrno);
         break;
 
+    case FCIERR_M6_HACK_INCOMPRESSIBLE:
+        ErrSet(perr,pszFCIERR_M6_HACK_INCOMPRESSIBLE,"%s%s",
+                                        pszCall,psess->achCurrFile);
+        break;
+
     default:
         ErrSet(perr,pszFCIERR_UNKNOWN_ERROR,"%s%d",pszCall,perf->erfOper);
         break;
@@ -2785,3 +3431,729 @@ char *mapCRTerrno(int errno)
     Assert(0);
     return NULL;
 } /* mapCRTerrno() */
+
+
+/***    updateHgenLast - Set correct psess->hgenLast
+ *
+ *  Entry:
+ *      psess  - Session
+ *      pszDst - Destination file name
+ *
+ *  Exit:
+ *      psess->hgenFileLast set to point to current file
+ */
+void updateHgenLast(PSESSION psess, char *pszDst)
+{
+    PFILEINFO   pfinfo;
+
+    Assert(psess->hgenFileLast != NULL); // Catch read off end of list
+    if (psess->hgenFileLast == (HGENERIC)-1) { // Get first file on list
+        psess->hgenFileLast = GLFirstItem(psess->hglistFiles);
+    }
+    else {                          // Get next file
+        psess->hgenFileLast = GLNextItem(psess->hgenFileLast);
+    }
+
+    //** Make sure we got the expected entry
+    pfinfo = GLGetValue(psess->hgenFileLast);
+    AssertFinfo(pfinfo);
+    Assert(strcmp(pszDst,GLGetKey(psess->hgenFileLast)) == 0);
+} /* updateHgenLast() */
+
+
+/***    modeInfAddFile - Add a file line to INF, depending upon DDF mode
+ *
+ *  There are two cases to consider:
+ *  (1) "relational" mode
+ *      ==> Augment psess->hglistFiles with placement information
+ *  (2) "unified" mode
+ *      ==> Augment psess->hglistFiles with placement information and
+ *          then format and write out file line to INF file.
+ *  Entry:
+ *      psess    - Session
+ *      inf      - Area of INF file to receive line
+ *      pszFile  - Destination file name
+ *      iDisk    - Disk number (1-based)
+ *      iCabinet - Cabinet number (1-based, 0=> not in cabinet)
+ *      perr     - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; line added to INF file
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL modeInfAddFile(PSESSION  psess,
+                    char     *pszFile,
+                    int       iDisk,
+                    int       iCabinet,
+                    PERROR    perr)
+
+{
+    HGENERIC    hgen;
+    PFILEINFO   pfinfo;
+    PFILEPARM   pfparm;
+
+    AssertSess(psess);
+    Assert(psess->ddfmode != ddfmodeBAD);
+    Assert(psess->ddfmode != ddfmodeUNKNOWN);
+
+    //** Get file item
+    Assert(psess->hgenFile != NULL);    // Catch read off end of list
+    if (psess->hgenFile == (HGENERIC)-1) { // Get first file on list
+        psess->hgenFile = GLFirstItem(psess->hglistFiles);
+    }
+    hgen = psess->hgenFile;
+    Assert(hgen != NULL);
+    psess->hgenFile = GLNextItem(hgen); // Advance for next time
+
+    //** Get fileinfo and augment it
+    pfinfo = GLGetValue(hgen);
+    AssertFinfo(pfinfo);
+    Assert(strcmp(pszFile,GLGetKey(hgen)) == 0); // Verify destination name
+    pfinfo->iDisk    = iDisk;           // Store placement info
+    pfinfo->iCabinet = iCabinet;        // Store placement info
+
+    //** Let /SIZE parm override true file size if former is *larger*
+    //   NOTE: This is only for reporting in the INF file -- this has
+    //         no affect on space used on the disk!
+    pfparm = GLFindAndGetValue(pfinfo->hglistParm,pszPARM_FILESIZE);
+    if (pfparm) {                       // /Size specfied
+        AssertFparm(pfparm);
+        pfinfo->cbFile = atol(pfparm->pszValue);
+    }
+
+    //** Write INF line if in unified mode
+    if (psess->ddfmode == ddfmodeUNIFIED) {
+        if (!infAddFile(psess,pszFile,pfinfo,pfinfo->hglistParm,perr)) {
+            return FALSE;               // perr already filled in
+        }
+    }
+
+    //** Success
+    return TRUE;
+} /* modeInfAddFile() */
+
+
+/***    modeInfAddLine - Add line to INF, depending upon DDF mode
+ *
+ *  There are several cases to consider:
+ *  (1) The disk or cabinet area is specified
+ *      ==> Write line immediately to INF
+ *  (2) "relational" mode AND GenerateINF is TRUE
+ *      ==> Write line immediately to INF
+ *  (3) "relational" mode AND GenerateINF is FALSE AND File area specified
+ *      => ERROR -- it is unclear what the semantics of this should
+ *         be, since the INF is not being generated in step with the
+ *         file copy commands.  So writes to the FILE area are not
+ *         supported in the "layout" section of the DDF.
+ *  (4) "unified" mode AND File area specified
+ *      (a) No file copy commands have been processed
+ *          ==> Write line immediately to INF
+ *      (b) One or more file copy commands already done
+ *          ==> This is the tricky case, because we need to make sure that
+ *              the line is written to the INF in correct synchronization
+ *              with surrounding file copy commands.  If files are being
+ *              placed in cabinets, then we may have passed file copy
+ *              commands to FCI, but it may not yet have actually placed them
+ *              in cabinets, so we won't have written their lines to the INF
+ *              file!  So, if any "unmatched" files are queued up, we append
+ *              this INF to the last file, and this line (or lines) will be
+ *              written when this file is actually added to the INF.  If
+ *              there are no queued files (we might not be in a cabinet, or
+ *              the cabinet may have flushed), then we write to the INF
+ *              immediately.
+ *  (5) "unknown" mode (haven't decided between relational or unified)
+ *      ==> Write line immediately to INF
+ *
+ *  Entry:
+ *      psess   - Session
+ *      inf     - Area of INF file to receive line
+ *      pszLine - Line to add
+ *      perr    - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; line added to INF file
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL modeInfAddLine(PSESSION  psess,
+                    INFAREA   inf,
+                    char     *pszLine,
+                    PERROR    perr)
+{
+    BOOL        fGenerateInf;
+    HVARIABLE   hvar;
+    PFILEINFO   pfinfo;
+    PLINEINFO   plinfo;
+
+    AssertSess(psess);
+    hvar = VarFind(psess->hvlist,pszVAR_GENERATE_INF,perr);
+    Assert(!perr->fError);              // Must be defined
+    fGenerateInf = VarGetBool(hvar);    // Get INF generation setting
+
+/*
+ * Work common to Pass 1 & 2
+ */
+
+    //** Check for invalid location of InfWrite FILE
+    if ((psess->ddfmode == ddfmodeRELATIONAL) &&
+        !fGenerateInf                         &&
+        (inf == infFILE)) {
+        //** InfWrite to file area in relation layout section of DDF
+        Assert(psess->fExpectFileCommand);
+        ErrSet(perr,pszDIAERR_INF_IN_LAYOUT);
+        return FALSE;
+    }
+
+    //** If this is pass 1, we're done
+    if (!psess->fPass2) {
+        return TRUE;
+    }
+
+/*
+ * Pass 2
+ */
+
+    //** Check for InfWrite FILE that must be postponed
+    if ((psess->ddfmode == ddfmodeUNIFIED) &&
+        (inf == infFILE)                   &&
+        (psess->iCurrFile > 0)) {
+        //** InfWrite to file area while doing file copy commands
+        Assert(fGenerateInf);           // Must be generating INF
+        pfinfo = GLGetValue(psess->hgenFileLast); // Get last file added
+        AssertFinfo(pfinfo);
+
+        //** Do not have to postpone if preceding file written to INF already
+        if (pfinfo->flags & fifWRITTEN_TO_INF) {
+            return infAddLine(psess->hinf,inf,pszLine,perr);
+        }
+
+        //** Postpone write
+        if (pfinfo->hglistInfLines == NULL) { // Create list
+            pfinfo->hglistInfLines = GLCreateList(NULL,
+                                                  DestroyLineInfo,
+                                                  pszDIA_LINE_INFO,
+                                                  perr);
+            if (!pfinfo->hglistInfLines) {
+                return FALSE;           // perr already filled in
+            }
+        }
+
+        //** Create line info
+        if (!(plinfo = MemAlloc(sizeof(LINEINFO)))) {
+            ErrSet(perr,pszDIAERR_OUT_OF_MEMORY,"%s",pszDIAOOM_TRACKING_LINES);
+            return FALSE;
+        }
+        if (!(plinfo->pszLine = MemStrDup(pszLine))) {
+            ErrSet(perr,pszDIAERR_OUT_OF_MEMORY,"%s",pszDIAOOM_TRACKING_LINES);
+            MemFree(plinfo);
+            return FALSE;
+        }
+
+        //** Add line to list
+        if (!GLAdd(pfinfo->hglistInfLines,  // List
+                   NULL,                    // key name
+                   plinfo,                  // file info
+                   pszDIA_LINE_INFO,        // Description for error message
+                   FALSE,                   // Uniqueness setting
+                   perr)) {
+            MemFree(plinfo->pszLine);
+            MemFree(plinfo);
+            return FALSE;
+        }
+
+        //** Initialize remainder of structure
+        plinfo->inf = inf;
+        SetAssertSignature(plinfo,sigLINEINFO);
+        return TRUE;
+    }
+
+    //** We're OK to write the line right now!
+    return infAddLine(psess->hinf,inf,pszLine,perr);
+} /* modeInfAddLine() */
+
+
+/***    addFileToSession - Add file to session list
+ *
+ *  Entry:
+ *      psess  - Session to update
+ *      pszSrc - Source file name
+ *      pszDst - Destination file name (used as key in list)
+ *      cbFile - Size of file
+ *      pcmd   - Command to process (ct == ctFILE)
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns HGENERIC; file added to psess->hglistFiles; pcmd->file.hglist
+ *          moved to newly added FILEINFO entry!
+ *
+ *  Exit-Failure:
+ *      Returns NULL; perr filled in with error.
+ */
+HGENERIC addFileToSession(PSESSION  psess,
+                          char     *pszSrc,
+                          char     *pszDst,
+                          long      cbFile,
+                          PCOMMAND  pcmd,
+                          PERROR    perr)
+{
+    BOOL        fUnique;                // True if file name has to be unique
+    HGENERIC    hgen;
+    HVARIABLE   hvar;
+    PFILEINFO   pfinfo;
+    PFILEINFO   pfinfoFirst;
+    PFILEPARM   pfparm;
+
+    AssertSess(psess);
+    Assert(pcmd->ct == ctFILE);
+
+    //** Get UniqueFiles setting
+    hvar = VarFind(psess->hvlist,pszVAR_UNIQUE_FILES,perr);
+    Assert(!perr->fError);              // Must be defined
+    fUnique = VarGetBool(hvar);         // Get default setting
+
+    //** See if default is overridden on command line
+    pfparm = GLFindAndGetValue(pcmd->file.hglist,pszFILE_UNIQUE);
+    if (pfparm) {                   // /Unique specfied
+        AssertFparm(pfparm);
+        if (-1 == (fUnique = BOOLfromPSZ(pfparm->pszValue,perr))) {
+            return NULL;           // perr filled in already
+        }
+    }
+
+    //** Relational mode requires unique destination file names
+    if ((psess->ddfmode == ddfmodeRELATIONAL) && !fUnique) {
+        ErrSet(perr,pszDIAERR_MUST_BE_UNIQUE2);
+        return NULL;
+    }
+
+    //** Make sure file list exists
+    if (!psess->hglistFiles) {
+        psess->hglistFiles = GLCreateList(NULL,              // No default
+                                          DestroyFileInfo,
+                                          pszDIA_FILE_INFO,
+                                          perr);
+        if (!psess->hglistFiles) {
+            return NULL;               // perr already filled in
+        }
+    }
+
+    //** Create file info
+    if (!(pfinfo = MemAlloc(sizeof(FILEINFO)))) {
+        ErrSet(perr,pszDIAERR_OUT_OF_MEMORY,"%s",pszDIAOOM_TRACKING_FILES);
+        return NULL;
+    }
+    if (!(pfinfo->pszDDF = MemStrDup(perr->pszFile))) {
+        ErrSet(perr,pszDIAERR_OUT_OF_MEMORY,"%s",pszDIAOOM_TRACKING_FILES);
+        MemFree(pfinfo);
+        return NULL;
+    }
+
+    //** Add file to list
+    if (!(hgen = GLAdd(psess->hglistFiles,  // List
+                       pszDst,              // key name
+                       pfinfo,              // file info
+                       pszDIA_FILE,         // Description for error message
+                       fUnique,             // Uniqueness setting
+                       perr))) {
+        //** See if we need to remap error
+        if (perr->code == ERRGLIST_NOT_UNIQUE) {
+            //** Give info on where first file name was found
+            pfinfoFirst = GLGetValue(perr->pv);
+            AssertFinfo(pfinfoFirst);
+            ErrSet(perr,pszDIAERR_NOT_UNIQUE,"%s%s%d",
+                            pszDst,pfinfoFirst->pszDDF,pfinfoFirst->ilineDDF);
+        }
+        MemFree(pfinfo->pszDDF);
+        MemFree(pfinfo);
+        return NULL;
+    }
+
+    //** Initialize remainder of structure
+    pfinfo->ilineDDF       = perr->iLine;       // Set line number in DDF
+    pfinfo->cbFile         = cbFile;            // File size
+    pfinfo->iDisk          = idiskBAD;          // Not yet determined
+    pfinfo->iCabinet       = icabBAD;           // Not yet determined
+    pfinfo->iFile          = (int)psess->cFiles;// File index in layout
+    pfinfo->fta.date       = 0;                 // Not yet determined
+    pfinfo->fta.time       = 0;                 // Not yet determined
+    pfinfo->fta.attr       = 0;                 // Not yet determined
+    pfinfo->hglistInfLines = NULL;              // No lines to print
+    pfinfo->flags          = 0;                 // Reset all flags
+    pfinfo->hglistParm     = pcmd->file.hglist; // Save file parameters
+    pfinfo->checksum       = 0;                 // Not yet determined
+    pfinfo->verMS          = 0;                 // Not yet determined
+    pfinfo->verLS          = 0;                 // Not yet determined
+    pfinfo->pszVersion     = NULL;              // Not yet determined
+    pfinfo->pszLang        = NULL;              // Not yet determined
+    pcmd->file.hglist = NULL;           // Nothing to free!
+
+    //** Set signature after we get structure fully initialized
+    SetAssertSignature(pfinfo,sigFILEINFO);
+    return hgen;                        //
+} /* addFileToSession() */
+
+
+/***    checkReferences - Make sure all files in layout section are referenced
+ *
+ *  Entry:
+ *      psess  - Session
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; everything is dandy.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL checkReferences(PSESSION psess, PERROR perr)
+{
+    BOOL        fInf;
+    BOOL        fOK;
+    HGENERIC    hgen;
+    int         iLine;
+    PFILEINFO   pfinfo;
+    PFILEPARM   pfparm;
+    char       *pszFile;
+
+    AssertSess(psess);
+
+    //** Only need to check if in relational mode
+    if (psess->ddfmode != ddfmodeRELATIONAL) {
+        return TRUE;
+    }
+
+    //** Check list of files in layout to make sure all were referenced
+    fOK = TRUE;                         // Assume everything is OK
+    for (hgen = GLFirstItem(psess->hglistFiles);
+         hgen;
+         hgen = GLNextItem(hgen)) {
+
+        pfinfo = GLGetValue(hgen);
+        AssertFinfo(pfinfo);
+        if (!(pfinfo->flags & fifREFERENCED)) { // Not referenced
+            fInf = TRUE;                // Assume INF reference is required
+	    pfparm = GLFindAndGetValue(pfinfo->hglistParm,pszFILE_INF);
+            if (pfparm) {               // /Inf specfied
+                AssertFparm(pfparm);
+                if (-1 == (fInf = BOOLfromPSZ(pfparm->pszValue,perr))) {
+                    return FALSE;       // perr filled in already
+                }
+            }
+            if (fInf) {                 // Should have been referenced
+                ErrSet(perr,pszDIAERR_FILE_NOT_REFD,"%s",GLGetKey(hgen));
+
+                //** Save current position
+                pszFile = perr->pszFile;
+                iLine   = perr->iLine;
+
+                //** Set position of unreferenced file
+                perr->pszFile = pfinfo->pszDDF;
+                perr->iLine   = pfinfo->ilineDDF;
+
+                //** Print error
+                printError(psess,perr); // Show error
+
+                //** Restore position
+                perr->pszFile = pszFile;
+                perr->iLine   = iLine;
+
+                //** Reset error so we can continue
+                ErrClear(perr);         // Catch all errors
+                fOK = FALSE;            // Remember we had an error
+            }
+        }
+    }
+    //** Return status
+    return fOK;
+} /* checkReferences() */
+
+
+/** apszVarTemplate - List of variable name templates
+ *
+ *  checkVariableDefinitions() uses this list to avoid complaining about
+ *  "standard" variables that are of the form: Name<integer>.
+ */
+char *apszVarTemplate[] = {
+    pszPATTERN_VAR_CAB_NAME,
+    pszPATTERN_VAR_DISK_DIR,
+    pszPATTERN_VAR_DISK_LABEL,
+    pszPATTERN_VAR_INF_DISK_HEADER,
+    pszPATTERN_VAR_INF_DISK_LINE_FMT,
+    pszPATTERN_VAR_INF_CAB_HEADER,
+    pszPATTERN_VAR_INF_CAB_LINE_FMT,
+    pszPATTERN_VAR_INF_FILE_HEADER,
+    pszPATTERN_VAR_INF_FILE_LINE_FMT,
+    pszPATTERN_VAR_INF_HEADER,
+    pszPATTERN_VAR_INF_FOOTER,
+    pszPATTERN_VAR_MAX_DISK_SIZE,
+    NULL,
+};
+
+
+/** apszParmNames - List of InfXxx suffixes for standard parameters
+ *
+ *  checkVariableDefinitions() uses this list to avoid complaining about
+ *  "standard" parameters that are of the form: Inf<parm>.
+ */
+char *apszParmNames[] = {
+    pszPARM_FILEATTR,
+    pszPARM_CAB_NUMBER,
+    pszPARM_CAB_FILE,
+    pszPARM_CHECKSUM,
+    pszPARM_FILEDATE,
+    pszPARM_DISK_NUMBER,
+    pszPARM_FILENAME,
+    pszPARM_FILE_NUMBER,
+    pszPARM_INF,
+    pszPARM_LABEL,
+    pszPARM_LANG,
+    pszPARM_FILESIZE,
+    pszPARM_FILETIME,
+    pszPARM_UNIQUE,
+    pszPARM_VERNUM,
+    pszPARM_VERSTR,
+};
+
+
+/***    checkVariableDefinitions - Verify all variables are .Defined or PERM
+ *
+ *  Entry:
+ *      psess  - Session
+ *      perr   - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; everything is dandy.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL checkVariableDefinitions(PSESSION psess, PERROR perr)
+{
+    int         cb;
+    BOOL        f;
+    BOOL        fOK;
+    HVARIABLE   hvar;
+    VARFLAGS    vfl;
+    char      **ppsz;
+    char       *psz;
+    char       *pszName;
+    char       *pszSuffix;
+
+    AssertSess(psess);
+
+    //** Generate errors for any variables that are not permanent or were
+    //   not .Defined.
+    //   NOTE: We don't do this checking at .Set time, because user-defined
+    //         variables may be specified on the command line, and we want
+    //         to permit that *if* an INF file is specified.
+    //
+    fOK = TRUE;                         // Assume everything is OK
+    for (hvar = VarFirstVar(psess->hvlist);
+         hvar;
+         hvar = VarNextVar(hvar)) {
+
+        vfl = VarGetFlags(hvar);
+        if (0 == (vfl & (vflPERM | vflDEFINE))) { //** Not defined
+            f = FALSE;                  // Assume variable is OK
+            pszName = VarGetName(hvar);
+
+            //** See if this is one of the "template" variables
+            for (ppsz=apszVarTemplate; *ppsz; ppsz++) {
+                cb = strlen(*ppsz) - 1;
+                Assert(cb > 0);
+                Assert((*ppsz)[cb] == chDF_WILDCARD);
+                if (_strnicmp(pszName,*ppsz,cb) == 0) {
+                    //** The prefix is valid, make sure rest is an integer
+                    for (psz = pszName + cb;   // Point at prefix
+                         *psz && isdigit(*psz);
+                         psz++) {
+                        ;               // Check that rest of string is digits
+                    }
+                    f = (*psz == '\0'); // OK if we ran off end of string
+                    break;              // No need to continue checking
+                }
+            }
+
+            //** If no match so far, check for InfXxxx variable name
+            if (!f) {
+                //** See if this is one of the InfXxx parm default value vars
+                cb = strlen(pszPREFIX_INF_VARS);
+                if (_strnicmp(pszName,pszPREFIX_INF_VARS,cb) == 0) {
+                    //** Starts with "Inf" -- check for parm name suffix
+                    pszSuffix = pszName + cb;   // Point at suffix
+                    for (ppsz=apszParmNames; *ppsz; ppsz++) {
+                        if (_stricmp(pszSuffix,*ppsz) == 0) {
+                            f = TRUE;   // Variable is OK
+                            break;      // Stop checking
+                        }
+                    }
+                }
+            }
+
+            //** Check result of comparisons
+            if (!f) {
+                ErrSet(perr,pszDIAERR_UNDEFINED_VAR,"%s%s%s",
+                            pszCMD_OPTION,
+                            pszOPTION_EXPLICIT,
+                            pszName);
+
+                //** Print error
+                printError(psess,perr); // Show error
+
+                //** Reset error so we can continue
+                ErrClear(perr);         // Catch all errors
+                fOK = FALSE;            // Remember we had an error
+            }
+        }
+    }
+
+    //** Return status
+    return fOK;
+} /* checkVariableDefinitions() */
+
+
+/***    getVarWithOverride - Checks for override for variable, gets value
+ *
+ *  Entry:
+ *      psess      - Session
+ *      pchDst     - Buffer to receive constructed value
+ *      cbDst      - Size of pchDst
+ *      pszPattern - Variable name pattern (i.e., CabinetLabel*)
+ *      pszVar     - Name of variable with default value (i.e., CabinetNameTemplate)
+ *      i          - Index to be used for pszPattern and pszTemplate
+ *      pszKind    - Description of variable (for error messages)
+ *      perr       - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; buffer filled in
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL getVarWithOverride(PSESSION  psess,
+                        char     *pchDst,
+                        int       cbDst,
+                        char     *pszPattern,
+                        char     *pszVar,
+                        int       i,
+                        char     *pszKind,
+                        PERROR    perr)
+{
+    HVARIABLE	hvar;
+    char       *psz;
+
+    AssertSess(psess);
+
+    //** (1) Construct override variable name
+    if (!nameFromTemplate(psess->achMsg,
+                          sizeof(psess->achMsg),
+                          pszPattern,
+                          i,
+                          pszKind,
+                          perr)) {
+        Assert(0);                      // Should never fail
+        return FALSE;                   // perr already filled in
+    }
+
+    //** (2) See if override variable exists
+    hvar = VarFind(psess->hvlist,psess->achMsg,perr);
+    if (hvar != NULL) {                 // Yes, get its value
+        psz = VarGetString(hvar);       // Get disk label
+        if (strlen(psz) >= (size_t)cbDst) {
+            ErrSet(perr,pszDIAERR_VALUE_TOO_LONG,"%s%d%s",pszKind,cbDst-1,psz);
+            return FALSE;
+        }
+        strcpy(pchDst,psz);
+    }
+    else {                              // NO, no override for this *i*
+        ErrClear(perr);                 // Not an error
+        //** Construct default value
+        hvar = VarFind(psess->hvlist,pszVar,perr);
+        Assert(!perr->fError);          // Must be defined
+        psz = VarGetString(hvar);       // Get template
+        if (!nameFromTemplate(pchDst,
+                              cbDst,
+                              psz,
+                              i,
+                              pszKind,
+                              perr)) {
+            return FALSE;               // perr already filled in
+        }
+    }
+
+    //** Success
+    return TRUE;
+} /* getVarWithOverride() */
+
+//** Get CRC code
+//BUGBUG 14-Dec-1994 bens Include code here to avoid makefile change
+#include "crc32.c"
+
+
+/***    getFileChecksum - Compute file checksum
+ *
+ *  Entry:
+ *      pszFile     - Filespec
+ *      pchecksum   - Receives 32-bit checksum of file
+ *      perr        - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE, *pchecksum filled in.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in with error.
+ */
+BOOL getFileChecksum(char *pszFile, ULONG *pchecksum, PERROR perr)
+{
+#define cbCSUM_BUFFER   4096            // File buffer size
+    int     cb;                         // Amount of data in read buffer
+    ULONG   csum=CRC32_INITIAL_VALUE;   // Initialize CRC
+    char   *pb=NULL;                    // Read buffer
+    int     hf=-1;                      // File handle
+    int     rc;
+    BOOL    result=FALSE;               // Assume failure
+
+    //** Initialize returned checksum (assume failure)
+    *pchecksum = csum;
+
+    //** Allocate file buffer
+    if (!(pb = MemAlloc(cbCSUM_BUFFER))) {
+        ErrSet(perr,pszDIAERR_NO_MEMORY_CRC,"%s",pszFile);
+        return FALSE;
+    }
+
+    //** Open file
+    hf = _open(pszFile,_O_RDONLY | _O_BINARY,&rc);
+    if (hf == -1) {
+        ErrSet(perr,pszDIAERR_OPEN_FAILED,"%s",pszFile);
+        goto Exit;
+    }
+
+    //** Compute checksum
+    while (_eof(hf) == 0) {
+        cb = _read(hf,pb,cbCSUM_BUFFER);
+        if (cb == -1) {
+            ErrSet(perr,pszDIAERR_READ_FAIL_CRC,"%s",pszFile);
+            goto Exit;
+        }
+        if (cb != 0) {
+            csum = CRC32Compute(pb,cb,csum); // Accumulate CRC
+        }
+    }
+
+    //** Success
+    result = TRUE;
+    *pchecksum = csum;                  // Store checksum for caller
+
+Exit:
+    if (hf != -1) {
+        _close(hf);
+    }
+    if (pb != NULL) {
+        MemFree(pb);
+    }
+    return result;
+} /* getFileChecksum() */

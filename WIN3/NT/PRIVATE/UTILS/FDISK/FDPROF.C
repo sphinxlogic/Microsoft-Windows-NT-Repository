@@ -9,7 +9,13 @@ int  ProfileWindowX,
 
 BOOL ProfileIsMaximized,ProfileIsIconic;
 
+#ifdef JAPAN
+//Don't use IDS_APPNAME as registry key,
+//because it is also used window's caption and it was localized.
+CHAR SectionName[]             = "Disk Administrator";
+#else
 CHAR SectionName[80];
+#endif
 
 CHAR szWindowPosition[]        = "WindowPosition";
 CHAR szWindowMaximized[]       = "WindowMaximized";
@@ -34,7 +40,12 @@ WriteProfile(
     LONG  Err;
 
 
+#ifdef JAPAN
+//Don't use IDS_APPNAME as registry key,
+//because it is also used window's caption and it was localized.
+#else
     LoadStringA(hModule,IDS_APPNAME,SectionName,sizeof(SectionName));
+#endif
 
     // Make sure that the appropriate registry keys exits:
     //
@@ -151,7 +162,12 @@ ReadProfile(
     CHAR text[100],text2[100];
     int  i;
 
+#ifdef JAPAN
+//Don't use IDS_APPNAME as registry key,
+//because it is also used window's caption and it was localized.
+#else
     LoadStringA(hModule,IDS_APPNAME,SectionName,sizeof(SectionName));
+#endif
 
     // get the window position data
 

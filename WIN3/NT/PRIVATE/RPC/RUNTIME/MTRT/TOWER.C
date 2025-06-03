@@ -29,27 +29,27 @@ Revision History:
 #include <sysinc.h>
 #include <rpc.h>
 #include "rpcndr.h"
-#include "epmp.h"
+#include <epmp.h>
 #include "twrtypes.h"
 #include <twrproto.h>
 
 
-
-
 #ifndef NTENV
-#define stricmp  _fstricmp
-#define strlen   _fstrlen
-#define _MT
-#endif // NTENV
+#define StringCompareA RpcpStringCompare
+#define StringLengthA  RpcpStringLength
+#else
+#define StringCompareA _stricmp
+#define StringLengthA strlen
+#endif
 
-#if !defined(_MIPS_) && !defined(_ALPHA_)  && !defined(_PPC_)
-#define UNALIGNED
+#ifndef UNALIGNED
+#error UNALIGNED not defined by sysinc.h or its includes and is needed.
 #endif
 
 #pragma pack(1)
 
 
-#ifdef NTENV
+#ifdef WIN32
 /*
    Some Spc specific stuff
 */
@@ -61,9 +61,10 @@ Revision History:
 
 
 #ifdef WIN
-#pragma code_seg("MISC_SEG");
+#pragma code_seg("MISC_SEG")
 #endif
 
+#define MAKEPORT(a, b)      ((unsigned short)(((unsigned char)(a)) | ((unsigned short)((unsigned char)(b))) << 8))
 
 
 void RPC_ENTRY
@@ -72,6 +73,8 @@ GetNWStyleName(
   IN  char __RPC_FAR * netaddr,
   IN  int  sizeofname
   );
+
+extern void ByteSwapUuid(IN OUT UUID __RPC_FAR *pUuid);
 
 
 RPC_STATUS
@@ -106,6 +109,13 @@ Return Value:
 
   Id->MajorVersion  = Floor->MajorVersion;
   Id->MinorVersion  = Floor->MinorVersion;
+
+#ifdef MAC
+  ByteSwapUuid(&Id->Uuid) ;
+  ByteSwapShort(Id->MajorVersion) ;
+  ByteSwapShort(Id->MinorVersion) ;
+#endif
+
   return(RPC_S_OK);
 }
 
@@ -139,11 +149,24 @@ Return Value:
   Floor->ProtocolIdByteCount = sizeof(Floor->Uuid) + sizeof(Floor->FloorId)
                                + sizeof(Floor->MajorVersion);
   Floor->AddressByteCount  = sizeof(Floor->MinorVersion);
+
+#ifdef MAC
+  ByteSwapShort(Floor->ProtocolIdByteCount) ;
+  ByteSwapShort(Floor->AddressByteCount) ;
+#endif
+
   RpcpMemoryCopy((char PAPI *) &Floor->Uuid, (char PAPI *) &Id->Uuid,
           sizeof(UUID));
 
   Floor->MajorVersion = Id->MajorVersion;
   Floor->MinorVersion = Id->MinorVersion;
+
+#ifdef MAC
+  ByteSwapShort(Floor->MajorVersion) ;
+  ByteSwapShort(Floor->MinorVersion) ;
+  ByteSwapUuid(&Floor->Uuid) ;
+#endif
+
   return(RPC_S_OK);
 }
 
@@ -151,7 +174,7 @@ Return Value:
 #pragma code_seg()
 #endif
 
-#ifdef NTENV
+#ifdef WIN32
 
 RPC_STATUS RPC_ENTRY
 SpcTowerConstruct(
@@ -164,10 +187,9 @@ SpcTowerConstruct(
   unsigned long TowerSize;
   UNALIGNED PFLOOR_234 Floor;
 
-
   *Floors = NP_TOWERS_SPC;
   TowerSize = ((Endpoint == NULL) || (*Endpoint == '\0')) ?
-                                      2 : (strlen(Endpoint) + 1);
+                                      2 : (StringLengthA(Endpoint) + 1);
   TowerSize += sizeof(FLOOR_234) - 2;
 
   if ((*Tower = (unsigned char *)I_RpcAllocate(*ByteCount = TowerSize)) == NULL)
@@ -181,8 +203,8 @@ SpcTowerConstruct(
   Floor->FloorId = (unsigned char)(NP_TRANSPORTID_SPC & 0xFF);
   if ((Endpoint) && (*Endpoint))
      {
-       memcpy((char PAPI *)&Floor->Data[0], Endpoint,
-               (Floor->AddressByteCount = strlen(Endpoint)+1));
+       RpcpMemoryCopy((char PAPI *)&Floor->Data[0], Endpoint,
+               (Floor->AddressByteCount = StringLengthA(Endpoint)+1));
      }
   else
      {
@@ -212,12 +234,12 @@ SpcTowerExplode(
 
   if (Protseq != NULL)
      {
-     *Protseq = I_RpcAllocate(strlen("ncalrpc") + 1);
+     *Protseq = I_RpcAllocate(StringLengthA("ncalrpc") + 1);
      if (*Protseq == NULL)
         {
         return(RPC_S_OUT_OF_MEMORY);
         }
-     RpcpMemoryCopy(*Protseq, "ncalrpc", strlen("ncalrpc") + 1);
+     RpcpMemoryCopy(*Protseq, "ncalrpc", StringLengthA("ncalrpc") + 1);
      }
 
   if (Endpoint == NULL)
@@ -243,7 +265,7 @@ SpcTowerExplode(
 
 }
 
-#endif //NtEnv
+#endif // WIN32
 
 #ifdef WIN
 #pragma code_seg("MISC_SEG")
@@ -290,17 +312,22 @@ Return Value:
 
   ProtocolType = Floor->FloorId;
   Floor = NEXTFLOOR(PFLOOR_234, Floor);
+#ifdef MAC
+	ByteSwapShort(Floor->ProtocolIdByteCount) ;
+	ByteSwapShort(Floor->AddressByteCount) ;
+#endif
+
 
   switch(ProtocolType)
 
   {
 
-#ifdef NTENV
+#ifdef WIN32
     case SPC:
          Status = SpcTowerExplode((unsigned char PAPI *)Floor,
                                      Protseq, Endpoint, NWAddress);
          break;
-#endif /*NTENV*/
+#endif /*WIN32*/
 
     case CONNECTIONFUL:
     case CONNECTIONLESS:
@@ -399,6 +426,7 @@ ExplodePredefinedTowers(
  {
 
  case NCACN_NP:
+ case NCACN_AT_DSP:
  case NCACN_NB:
      if (Endpoint != 0)
         {
@@ -415,6 +443,11 @@ ExplodePredefinedTowers(
         ProtocolSequence = "ncacn_np";
         }
      else
+	 if (Floor->FloorId == NCACN_AT_DSP)
+		 {
+		 ProtocolSequence = "ncacn_at_dsp";
+		 }
+      else
         {
         FloorNext = NEXTFLOOR(PFLOOR_234, Floor);
 
@@ -474,13 +507,38 @@ ExplodePredefinedTowers(
             }
          RpcpMemoryCopy(&PortNum,(char PAPI *)&Floor->Data[0],sizeof(PortNum));
 #ifdef WIN
-         RpcItoa(ByteSwapShort(PortNum), Tmp, 10);
+         _ultoa(ByteSwapShort(PortNum), Tmp, 10);
          _fstrcpy(*Endpoint, Tmp);
 #else
+#ifndef MAC
          RpcItoa(ByteSwapShort(PortNum), *Endpoint, 10);
+#else
+         RpcItoa(PortNum, *Endpoint, 10);
+#endif
 #endif
          }
       break;
+
+    case NCACN_VNS_SPP:
+       ProtocolSequence = "ncacn_vns_spp";
+       PortNum = MAKEPORT(Floor->Data[1], Floor->Data[0]) ;
+
+       if (Endpoint != 0)
+         {
+         *Endpoint = I_RpcAllocate(6);
+         if (*Endpoint == 0)
+            {
+            return(RPC_S_OUT_OF_MEMORY);
+            }
+
+#ifdef WIN
+         RpcItoa(PortNum , Tmp, 10);
+         _fstrcpy(*Endpoint, Tmp);
+#else
+         RpcItoa(PortNum, *Endpoint, 10) ;
+#endif
+         }
+       break;
 
   default:
          return (RPC_S_INVALID_RPC_PROTSEQ);
@@ -489,7 +547,7 @@ ExplodePredefinedTowers(
 
   if (Protseq != 0)
      {
-     *Protseq = I_RpcAllocate(strlen(ProtocolSequence) + 1);
+     *Protseq = I_RpcAllocate(StringLengthA(ProtocolSequence) + 1);
      if (*Protseq == 0)
         {
         if (Endpoint != 0)
@@ -500,7 +558,7 @@ ExplodePredefinedTowers(
         return(RPC_S_OUT_OF_MEMORY);
         }
 
-     RpcpMemoryCopy(*Protseq, ProtocolSequence, strlen(ProtocolSequence) + 1);
+     RpcpMemoryCopy(*Protseq, ProtocolSequence, StringLengthA(ProtocolSequence) + 1);
      }
 
   if (NWAddress != 0)
@@ -518,6 +576,8 @@ ExplodePredefinedTowers(
 
       case NCACN_NP:
       case NCACN_NB:
+      case NCACN_AT_DSP:
+      case NCACN_VNS_SPP:
 
          //these have strings as their nw addresses
          *NWAddress = I_RpcAllocate(Floor->AddressByteCount);
@@ -544,7 +604,7 @@ ExplodePredefinedTowers(
             break;
             }
          Addr = &Floor->Data[0];
-         sprintf(*NWAddress, "%d.%d.%d.%d", Addr[0], Addr[1], Addr[2], Addr[3]);
+         RpcpStringPrintfA(*NWAddress, "%d.%d.%d.%d", Addr[0], Addr[1], Addr[2], Addr[3]);
          break;
 
        case NCACN_SPX:
@@ -632,13 +692,21 @@ Return Value:
 {
    PFLOOR_0OR1 Floor;
    PFLOOR_234  Floor234;
-   unsigned long FloorCount;
+   unsigned short FloorCount;
    RPC_STATUS err = 0;
 
    FloorCount = *((unsigned short PAPI *)&Tower->tower_octet_string);
+#ifdef MAC
+   ByteSwapShort(FloorCount) ;
+#endif
+
    Floor = (PFLOOR_0OR1)
            ((unsigned short PAPI *)&Tower->tower_octet_string + 1);
 
+#ifdef MAC
+	ByteSwapShort(Floor->ProtocolIdByteCount) ;
+	ByteSwapShort(Floor->AddressByteCount) ;
+#endif
    //Process Floor 0 Interface Spec.
    if (Ifid != NULL)
       {
@@ -646,6 +714,11 @@ Return Value:
       }
 
    Floor = NEXTFLOOR(PFLOOR_0OR1, Floor);
+
+#ifdef MAC
+	ByteSwapShort(Floor->ProtocolIdByteCount) ;
+	ByteSwapShort(Floor->AddressByteCount) ;
+#endif
 
    //Now we point to and process Floor 1 Transfer Syntax Spec.
    if ((!err) && (XferId != NULL))
@@ -659,6 +732,10 @@ Return Value:
      }
 
    Floor234 = (PFLOOR_234)NEXTFLOOR(PFLOOR_0OR1, Floor);
+#ifdef MAC
+	ByteSwapShort(Floor234->ProtocolIdByteCount) ;
+	ByteSwapShort(Floor234->AddressByteCount) ;
+#endif
 
    //Now Floor234 points to Floor 2. RpcProtocol [Connect-Datagram]
 
@@ -712,16 +789,16 @@ Return Value:
   unsigned short Numfloors,  PAPI *FloorCnt;
   twr_t PAPI * Twr;
   PFLOOR_0OR1 Floor;
-  PFLOOR_234  Floor234;
+  PFLOOR_234  Floor234, Floor234_1;
   RPC_STATUS Status;
   unsigned long TowerLen, ByteCount;
   char PAPI * UpperTower;
   unsigned short ProtocolType;
 
 
-#ifdef NTENV
+#ifdef WIN32
 
-    if ( stricmp(RpcProtocolSequence, "ncalrpc") == 0 )
+    if ( StringCompareA(RpcProtocolSequence, "ncalrpc") == 0 )
         {
           ProtocolType = SPC;
           Status = SpcTowerConstruct(Endpoint, &Numfloors,
@@ -729,7 +806,7 @@ Return Value:
         }
     else
 
-#endif // NTENV
+#endif // WIN32
 
         {
 
@@ -775,7 +852,7 @@ Return Value:
       }
 
    TowerLen = 2 + ByteCount;
-   TowerLen += 2 * sizeof(FLOOR_0OR1) + sizeof(FLOOR_2);
+   TowerLen += 2 * sizeof(FLOOR_0OR1) + sizeof(FLOOR_2) ; // BUGBUG:extra tower pad
 
    if ( (*Tower = Twr = I_RpcAllocate((unsigned int)TowerLen+4)) == NULL)
       {
@@ -784,8 +861,13 @@ Return Value:
       }
 
    Twr->tower_length = TowerLen;
+
    FloorCnt = (unsigned short PAPI *)&Twr->tower_octet_string;
    *FloorCnt = Numfloors;
+
+#ifdef MAC
+	ByteSwapShort(*FloorCnt) ;
+#endif
 
    Floor = (PFLOOR_0OR1)(FloorCnt+1);
 
@@ -806,9 +888,13 @@ Return Value:
   Floor234->AddressByteCount = 2;
 
   //Floor 3,4,5.. use the tower encoded by the Transports
-  Floor234 = NEXTFLOOR(PFLOOR_234, Floor234);
+  Floor234_1 = NEXTFLOOR(PFLOOR_234, Floor234);
+#ifdef MAC
+	ByteSwapShort(Floor234->ProtocolIdByteCount) ;
+	ByteSwapShort(Floor234->AddressByteCount) ;
+#endif
 
-  RpcpMemoryCopy((char PAPI *)Floor234, (char PAPI *)UpperTower,
+  RpcpMemoryCopy((char PAPI *)Floor234_1, (char PAPI *)UpperTower,
           (size_t)ByteCount);
   I_RpcFree(UpperTower);
 
@@ -820,3 +906,4 @@ Return Value:
 #endif
 
 #pragma pack()
+

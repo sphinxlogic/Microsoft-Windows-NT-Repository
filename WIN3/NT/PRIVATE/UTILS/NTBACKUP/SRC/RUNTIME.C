@@ -226,6 +226,7 @@ Added NT changes and a focus fix.
 *****************************************************/
 
 #include "all.h"
+#include "ctl3d.h"
 
 #ifdef SOME
 #include "some.h"
@@ -248,6 +249,9 @@ Added NT changes and a focus fix.
 
 extern WORD     RT_BSD_index ;
 extern WORD     RT_max_BSD_index ;
+#ifdef OEM_EMS
+extern INT32    RT_BSD_OsId ;
+#endif
 
 /* PRIVATE FUNCTION PROTOTYPES */
 
@@ -282,6 +286,57 @@ static UINT64  mwTotalBytes;
 static HWND    mwhWndStatus;
 static UINT64  mwLastByteCnt;
 static STATS_PTR  op_stats;
+
+#ifdef OEM_EMS
+static DLG_CTRL_ENTRY DefaultCtrlTable[] = {
+     { IDD_JS_DP,        0,  CM_ENABLE },
+     { IDD_JS_DP_LABEL,  0,  CM_ENABLE },
+     { IDD_JS_FP,        0,  CM_ENABLE },
+     { IDD_JS_FP_LABEL,  0,  CM_ENABLE },
+     { IDD_JS_BP,        0,  CM_ENABLE },
+     { IDD_JS_BP_LABEL,  0,  CM_ENABLE },
+     { IDD_JS_ET,        0,  CM_ENABLE },
+     { IDD_JS_ET_LABEL,  0,  CM_ENABLE },
+     { IDD_JS_CF,        0,  CM_ENABLE },
+     { IDD_JS_CF_LABEL,  0,  CM_ENABLE },
+     { IDD_JS_SF,        0,  CM_ENABLE },
+     { IDD_JS_SF_LABEL,  0,  CM_ENABLE }
+};
+
+static DLG_CTRL_ENTRY EMSCtrlTable[] = {
+     { IDD_JS_DP,        0,  CM_HIDE    },
+     { IDD_JS_DP_LABEL,  0,  CM_DISABLE },
+     { IDD_JS_FP,        0,  CM_HIDE    },
+     { IDD_JS_FP_LABEL,  0,  CM_DISABLE },
+     { IDD_JS_BP,        0,  CM_ENABLE  },
+     { IDD_JS_BP_LABEL,  0,  CM_ENABLE  },
+     { IDD_JS_ET,        0,  CM_ENABLE  },
+     { IDD_JS_ET_LABEL,  0,  CM_ENABLE  },
+     { IDD_JS_CF,        0,  CM_HIDE    },
+     { IDD_JS_CF_LABEL,  0,  CM_DISABLE },
+     { IDD_JS_SF,        0,  CM_HIDE    },
+     { IDD_JS_SF_LABEL,  0,  CM_DISABLE }
+};
+
+// FS_UNKNOWN_OS must be last w/ no other iDispType == FS_UNKNOWN_OS (or its value).
+static DLG_DISPLAY_ENTRY RuntimeDispTable[] = {
+      { FS_EMS_MDB_ID,   EMSCtrlTable, 
+        sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            HELPID_DIALOGRUNTIME },
+      { FS_EMS_DSA_ID,   EMSCtrlTable,
+        sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            HELPID_DIALOGRUNTIME },
+      { FS_UNKNOWN_OS,   DefaultCtrlTable, 
+        sizeof(DefaultCtrlTable)/sizeof(DefaultCtrlTable[0]),    HELPID_DIALOGRUNTIME }
+};
+
+static DLG_MODE ModeTable[] = {
+     { 0,   RuntimeDispTable,  
+       sizeof(RuntimeDispTable)/sizeof(RuntimeDispTable[0]),   &(RuntimeDispTable[2]) },   
+};
+
+static UINT16 cModeTblSize = sizeof( ModeTable ) / sizeof( ModeTable[0] );
+static DLG_MODE *pCurMode = ModeTable;
+
+#endif     
 
 STATS_PTR UI_GetBackupPtrToStatsStructure( );
 
@@ -325,6 +380,13 @@ MP2   mp2 )
      {
           CDS_PTR     pCDS = CDS_GetPerm ();
 
+          // Let's go 3-D!!
+          Ctl3dSubclassDlgEx( hDlg, CTL3D_ALL );
+
+#ifdef OEM_EMS
+          pCurMode = DM_InitCtrlTables( hDlg, ModeTable, cModeTblSize, 0 );
+          DM_DispShowControls( hDlg, pCurMode, FS_UNKNOWN_OS );
+#endif
           // Place the dialog in the place saved relative to the
           // frame window.
 
@@ -408,7 +470,7 @@ MP2   mp2 )
              if ( mwRuntimeDisplayed == RUNTIME_LARGE ) {
                 hWnd = GetDlgItem( hDlg, IDD_JS_SOURCE_DRIVE );
                 hDCBitmap = GetDC( hWnd );
-                RSM_BitmapDraw( wIdSource, 0, 0, 0, 0, hDCBitmap );
+                RSM_BitmapDraw( (WORD)(wIdSource + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap );
                 ReleaseDC( hWnd, hDCBitmap );
              }
           }
@@ -427,24 +489,44 @@ MP2   mp2 )
              /* arrow bitmap */
              // hWnd = GetDlgItem( hDlg, IDD_JS_ARROW );
              // hDCBitmap = GetDC( hWnd );
-             // RSM_BitmapDraw( IDRBM_RT_ARROW, 0, 0, 0, 0, hDCBitmap );
+             // RSM_BitmapDraw( IDRBM_RT_ARROW + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
              // ReleaseDC( hWnd, hDCBitmap );
 
              hWnd = GetDlgItem( hDlg, IDD_JS_FOLDER );
              hDCBitmap = GetDC( hWnd );
-             RSM_BitmapDraw( IDRBM_FOLDER, 0, 0, 0, 0, hDCBitmap );
-             ReleaseDC( hWnd, hDCBitmap );
+             RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+#ifdef OEM_EMS
+             switch ( RT_BSD_OsId ) {
+
+                  case FS_EMS_MDB_ID:
+                       RSM_BitmapDraw( IDRBM_EMS_MDB + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                       wIdFile= 0 ;
+                       break;
+                  case FS_EMS_DSA_ID:
+                       RSM_BitmapDraw( IDRBM_EMS_DSA + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                       wIdFile= 0 ;
+                       break;
+                  default:
+                       RSM_BitmapDraw( IDRBM_FOLDER + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                       break;
+            }
+#else
+            RSM_BitmapDraw( IDRBM_FOLDER + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+#endif
+            ReleaseDC( hWnd, hDCBitmap );
 
              if ( wIdFile ) {
 
                   hWnd = GetDlgItem( hDlg, IDD_JS_FILE );
                   hDCBitmap = GetDC( hWnd );
-                  RSM_BitmapDraw( wIdFile, 0, 0, 0, 0, hDCBitmap );
+                  RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                  RSM_BitmapDraw( (WORD)(wIdFile + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap );
                   ReleaseDC( hWnd, hDCBitmap );
              }
 
              JobStatusStats( mwLastByteCnt );
           }
+
           return TRUE;
 
      case WM_COMMAND:
@@ -676,17 +758,28 @@ WORD control_function )       /* I - control function number */
                SetDlgItemText( ghModelessDialog, IDD_JS_CF, gszTprintfBuffer ) ;
 
                /* clear the elapsed time field */
-#ifndef UNICODE
                yprintf( TEXT("00%c00\r"),  UI_GetTimeSeparator() ) ;
-#else //UNICODE
-               yprintf( TEXT("00%wc00\r"),  UI_GetTimeSeparator() ) ;
-#endif //UNICODE
                SetDlgItemText( ghModelessDialog, IDD_JS_ET, gszTprintfBuffer ) ;
 
                /* clear the directory & file name fields */
                yprintf( TEXT(" \r") ) ;
+//               SetDlgItemText( ghModelessDialog, IDD_JS_FILE, gszTprintfBuffer ) ;
+//               SetDlgItemText( ghModelessDialog, IDD_JS_FOLDER, gszTprintfBuffer ) ;
                SetDlgItemText( ghModelessDialog, IDD_JS_LINE1, gszTprintfBuffer ) ;
                SetDlgItemText( ghModelessDialog, IDD_JS_LINE2, gszTprintfBuffer ) ;
+
+               hWnd = GetDlgItem( ghModelessDialog, IDD_JS_FOLDER ) ;
+               hDCBitmap = GetDC( hWnd );
+               RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+
+               ReleaseDC( hWnd, hDCBitmap );
+
+               hWnd = GetDlgItem( ghModelessDialog, IDD_JS_FILE ) ;
+
+               hDCBitmap = GetDC( hWnd ) ;
+               RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+
+               ReleaseDC (  hWnd,  hDCBitmap  ) ;
 
           }
           break ;
@@ -696,8 +789,35 @@ WORD control_function )       /* I - control function number */
           if ( mwRuntimeDisplayed != RUNTIME_LARGE ) break;
           DisplayDirectory( ghModelessDialog, gszTprintfBuffer, IDD_JS_LINE1 ) ;
           wIdFileSave = FALSE ;
-          SetDlgItemText (  ghModelessDialog, IDD_JS_FILE, TEXT("") ) ;
-          SetDlgItemText (  ghModelessDialog, IDD_JS_LINE2, TEXT("") ) ;
+
+//          SetDlgItemText (  ghModelessDialog, IDD_JS_FILE, TEXT("       \r") ) ;
+          SetDlgItemText (  ghModelessDialog, IDD_JS_LINE2, TEXT("     \r") ) ;
+
+          hWnd = GetDlgItem( ghModelessDialog, IDD_JS_FOLDER ) ;
+          hDCBitmap = GetDC( hWnd );
+          RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+
+          switch ( RT_BSD_OsId ) {
+
+                case FS_EMS_MDB_ID:
+                     RSM_BitmapDraw( IDRBM_EMS_MDB + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                     break;
+                case FS_EMS_DSA_ID:
+                     RSM_BitmapDraw( IDRBM_EMS_DSA + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                     break;
+                default:
+                     RSM_BitmapDraw( IDRBM_FOLDER + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+                     break;
+          }
+          ReleaseDC( hWnd, hDCBitmap );
+
+          hWnd = GetDlgItem( ghModelessDialog, IDD_JS_FILE ) ;
+
+          hDCBitmap = GetDC( hWnd ) ;
+          RSM_BitmapDraw( IDRBM_BLANK16x16 + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap );
+
+          ReleaseDC (  hWnd,  hDCBitmap  ) ;
+
           break ;
 
      case JOB_STATUS_ELAPSED_TIME:
@@ -741,7 +861,13 @@ WORD control_function )       /* I - control function number */
           SetDlgItemText( ghModelessDialog, IDD_JS_DEST_NAME, gszTprintfBuffer ) ;
 
           break ;
+#ifdef OEM_EMS
+     case JOB_STATUS_FS_TYPE:
 
+          DM_DispShowControls( ghModelessDialog, pCurMode, RT_BSD_OsId );
+
+          break;
+#endif
      case JOB_STATUS_VOLUME_HARDDRIVE:
 
           if ( mwRuntimeDisplayed != RUNTIME_LARGE ) break;
@@ -755,7 +881,7 @@ WORD control_function )       /* I - control function number */
 
           hWnd = GetDlgItem( ghModelessDialog, IDD_JS_SOURCE_DRIVE ) ;
           hDCBitmap = GetDC( hWnd ) ;
-          RSM_BitmapDraw( wIdSource, 0, 0, 0, 0, hDCBitmap ) ;
+          RSM_BitmapDraw( (WORD)(wIdSource + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap ) ;
           ReleaseDC( hWnd, hDCBitmap ) ;
 
           if ( wIdBitmapReverseFlag ) {
@@ -769,7 +895,7 @@ WORD control_function )       /* I - control function number */
           {
                hWnd = GetDlgItem( ghModelessDialog, IDD_JS_DEST_DRIVE ) ;
                hDCBitmap = GetDC( hWnd ) ;
-               RSM_BitmapDraw( wIdDestination, 0, 0, 0, 0, hDCBitmap ) ;
+               RSM_BitmapDraw( wIdDestination + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap ) ;
                ReleaseDC( hWnd, hDCBitmap ) ;
 
                // hWnd = GetDlgItem( ghModelessDialog, IDD_JS_ARROW ) ;
@@ -794,7 +920,8 @@ WORD control_function )       /* I - control function number */
 
           hWnd = GetDlgItem( ghModelessDialog, IDD_JS_SOURCE_DRIVE ) ;
           hDCBitmap = GetDC( hWnd ) ;
-          RSM_BitmapDraw( wIdSource, 0, 0, 0, 0, hDCBitmap ) ;
+
+          RSM_BitmapDraw( (WORD)(wIdSource + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap ) ;
           ReleaseDC( hWnd, hDCBitmap ) ;
 
           if ( wIdBitmapReverseFlag ) {
@@ -808,7 +935,7 @@ WORD control_function )       /* I - control function number */
           {
                hWnd = GetDlgItem( ghModelessDialog, IDD_JS_DEST_DRIVE ) ;
                hDCBitmap = GetDC( hWnd ) ;
-               RSM_BitmapDraw( wIdDestination, 0, 0, 0, 0, hDCBitmap ) ;
+               RSM_BitmapDraw( wIdDestination + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap ) ;
                ReleaseDC( hWnd, hDCBitmap ) ;
 
                // hWnd = GetDlgItem( ghModelessDialog, IDD_JS_ARROW ) ;
@@ -817,6 +944,7 @@ WORD control_function )       /* I - control function number */
                // ReleaseDC( hWnd, hDCBitmap ) ;
           }
           #endif
+
 
           break ;
 
@@ -828,7 +956,8 @@ WORD control_function )       /* I - control function number */
 
           hWnd = GetDlgItem( ghModelessDialog, IDD_JS_SOURCE_DRIVE ) ;
           hDCBitmap = GetDC( hWnd ) ;
-          RSM_BitmapDraw( wIdSource, 0, 0, 0, 0, hDCBitmap ) ;
+
+          RSM_BitmapDraw( (WORD)(wIdSource + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap ) ;
           ReleaseDC( hWnd, hDCBitmap ) ;
 
           #ifndef OEM_MSOFT
@@ -836,7 +965,7 @@ WORD control_function )       /* I - control function number */
                wIdDestination = IDRBM_HARDDRIVE  ;
                hWnd = GetDlgItem( ghModelessDialog, IDD_JS_DEST_DRIVE ) ;
                hDCBitmap = GetDC( hWnd ) ;
-               RSM_BitmapDraw( wIdDestination, 0, 0, 0, 0, hDCBitmap ) ;
+               RSM_BitmapDraw( wIdDestination + BTNFACE_BACKGND, 0, 0, 0, 0, hDCBitmap ) ;
                ReleaseDC( hWnd, hDCBitmap ) ;
 
                // hWnd = GetDlgItem( ghModelessDialog, IDD_JS_ARROW ) ;
@@ -901,7 +1030,7 @@ WORD control_function )       /* I - control function number */
 
               hDCBitmap = GetDC( hWnd ) ;
 
-              RSM_BitmapDraw (  wIdFile, 0, 0, 0, 0, hDCBitmap  ) ;
+              RSM_BitmapDraw ( (WORD)(wIdFile + BTNFACE_BACKGND), 0, 0, 0, 0, hDCBitmap  ) ;
 
               ReleaseDC (  hWnd,  hDCBitmap  ) ;
           }
@@ -1038,11 +1167,7 @@ WORD control_function )       /* I - control function number */
                EnableMenuItem( hMenu, SC_CLOSE, MF_GRAYED ) ;
 
                /* clear the elapsed time field */
-#ifndef UNICODE
                yprintf( TEXT("00%c00\r"),  UI_GetTimeSeparator() ) ;
-#else //UNICODE
-               yprintf( TEXT("00%wc00\r"),  UI_GetTimeSeparator() ) ;
-#endif //UNICODE
                SetDlgItemText( ghModelessDialog, IDD_JS_ET, gszTprintfBuffer ) ;
 
                wMaxLength = 1 ;
@@ -1223,11 +1348,7 @@ WORD control_function )       /* I - control function number */
           SetDlgItemText( ghModelessDialog, IDD_JS_CF, gszTprintfBuffer ) ;
 
           /* clear the elapsed time field */
-#ifndef UNICODE
           yprintf( TEXT("00%c00\r"),  UI_GetTimeSeparator() ) ;
-#else //UNICODE
-          yprintf( TEXT("00%wc00\r"),  UI_GetTimeSeparator() ) ;
-#endif //UNICODE
           SetDlgItemText( ghModelessDialog, IDD_JS_ET, gszTprintfBuffer ) ;
 
           RT_BSD_index = 1  ;   /* start with set number 1 */
@@ -1884,7 +2005,22 @@ DBLK_PTR        pFileDBLK )
      case LP_ACCESS_DENIED_ERROR:
      case LP_PRIVILEGE_ERROR:
 
-          if ( pFileDBLK != NULL ) {
+          if ( DLE_GetDeviceType( dle ) == FS_EMS_DRV ) {
+               if (wOperationType == OPERATION_BACKUP ) {
+                    unStringID = RES_EMS_BKU_ACCESS_FAILURE ;
+               } else {
+                    unStringID = RES_EMS_RST_ACCESS_FAILURE ;
+               }
+
+               if ( DLE_GetParent( dle ) ) {
+
+                    dle = DLE_GetParent(dle) ;
+               } 
+
+
+               unStreamID = STRM_INVALID ;
+          
+          } else if ( pFileDBLK != NULL ) {
                unStringID = IDS_RTD_ACCESSDENIED_FILE;
                fDirOnly = FALSE;
           }
@@ -1894,6 +2030,12 @@ DBLK_PTR        pFileDBLK )
 
           break;
 
+     case FS_BAD_ATTACH_TO_SERVER:
+
+          unStringID = IDS_XCHNG_NO_SERVICE_RUNNING ;
+          unStreamID = STRM_INVALID ;
+
+          break;
      case LP_FILE_WRITE_ERROR:
 
           if ( pFileDBLK != NULL ) {
@@ -1950,7 +2092,7 @@ DBLK_PTR        pFileDBLK )
                }
           }
 
-          RSM_Sprintf ( szBuffer, (LPSTR)(DWORD)unStringID, pszDirFile );
+          RSM_Sprintf ( szBuffer, (LPSTR)(DWORD)unStringID, pszDirFile+1 );
 
           UI_FreePathBuffer ( &pszDirFile ) ;
 
@@ -1964,6 +2106,7 @@ DBLK_PTR        pFileDBLK )
      switch ( unStreamID ) {
 
      case -1:
+     case 0 :
           break ;
 
      case STRM_GENERIC_DATA: /* 'STAN' */
@@ -2142,11 +2285,7 @@ static INT AlternateLargeFileAbort ( VOID )
          RSM_StringCopy( RES_RESTORE_ABORT_PART2, AbortMsg[1], TEXT_BOX_BUFSIZE / 2 );
      }
 
-#ifndef UNICODE
      sprintf(AbortText, TEXT("%s %s\012\012%s"), AbortMsg[0], fpath, AbortMsg[1]);
-#else //UNICODE
-     sprintf(AbortText, TEXT("%ws %ws\012\012%ws"), AbortMsg[0], fpath, AbortMsg[1]);
-#endif //UNICODE
 
 
       hWnd = GetLastActivePopup( ghWndFrame );

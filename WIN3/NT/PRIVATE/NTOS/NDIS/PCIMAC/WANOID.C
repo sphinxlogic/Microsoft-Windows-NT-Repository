@@ -1,8 +1,8 @@
-#include	<ntddk.h>
+//#include	<ntddk.h>
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include    <ndismini.h>
 #include	<ndiswan.h>
-#include	<ntddndis.h>
+//#include	<ntddndis.h>
 #include	<stdio.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -116,10 +116,10 @@ WanOidProc(
 			pWanInfo->Endpoints = 2 * NumIddPerAdapter;
 			pWanInfo->MemoryFlags = 0;
 			pWanInfo->HighestAcceptableAddress = HighestAcceptableMax;
-			pWanInfo->MaxTransmit = 10;
-			pWanInfo->MaxFrameSize = 1500;
-			pWanInfo->HeaderPadding = 14;
-			pWanInfo->TailPadding = 0;
+			pWanInfo->MaxTransmit = MAX_WANPACKET_XMITS;
+			pWanInfo->MaxFrameSize = MAX_WANPACKET_BUFFERSIZE;
+			pWanInfo->HeaderPadding = MAX_WANPACKET_HEADERPADDING;
+			pWanInfo->TailPadding = MAX_WANPACKET_TAILPADDING;
 			pWanInfo->FramingBits = RAS_FRAMING |
  			                        PPP_FRAMING |
 									PPP_COMPRESS_PROTOCOL_FIELD |

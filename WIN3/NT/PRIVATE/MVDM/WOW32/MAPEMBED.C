@@ -32,153 +32,20 @@ Author:
 #include "precomp.h"
 #pragma hdrstop
 
+MODNAME(mapembed.c);
+
 
 #define WININITIMEOUT   2000
 #define BUFFER_SIZE     128
 
 #define EMPTY_STRING        ""
-#define EMBEDDING           "embedding"
-#define SERVER_KEY          "protocol\\StdFileEditing\\server"
-#define PICTURE             "picture"
-#define WIN_INI_FILE        "win.ini"
-#define SYSTEM_ROOT         "SystemRoot"
-#define CURRENT_VERSION_KEY "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
-
 
 DWORD   _LastTimeUpdated = 0;
 
 
 
-PSTR
-GetWinIniFullPath(
-    )
-
-/*++
-
-Routine Description:
-
-    Build a string that contains the full path for the win.ini file.
-
-Arguments:
-
-    None.
-
-
-Return Value:
-
-    PSTR - String that contains the path, or NULL if the path couldn't
-           be built.
-
-
---*/
-
-
-
-{
-    CHAR    BufferForSystemRoot[ 2*BUFFER_SIZE ];
-    PSTR    SystemRoot;
-    DWORD   SystemRootSize;
-
-    PSTR    Path;
-    ULONG   PathSize;
-    HKEY    Key;
-    LONG    Status;
-
-
-    Key = NULL;
-    SystemRoot = BufferForSystemRoot;
-    SystemRootSize = sizeof( BufferForSystemRoot );
-    if( RegOpenKey( HKEY_LOCAL_MACHINE,
-                    CURRENT_VERSION_KEY,
-                    &Key ) != ERROR_SUCCESS ) {
-        return( NULL );
-    }
-    Status =  RegQueryValueEx( Key,
-                               SYSTEM_ROOT,
-                               NULL,
-                               NULL,
-                               SystemRoot,
-                               &SystemRootSize );
-
-    if( ( Status != ERROR_SUCCESS ) &&
-        ( Status != ERROR_MORE_DATA ) ) {
-        RegCloseKey( Key );
-        return( NULL );
-    }
-
-    if( Status == ERROR_MORE_DATA ) {
-        SystemRootSize++;
-        SystemRoot = ( PSTR )malloc_w( SystemRootSize );
-        if( SystemRoot == NULL ) {
-            RegCloseKey( Key );
-            return( NULL );
-        }
-        Status =  RegQueryValueEx( Key,
-                                   SYSTEM_ROOT,
-                                   NULL,
-                                   NULL,
-                                   SystemRoot,
-                                   &SystemRootSize );
-        RegCloseKey( Key );
-        if( Status != ERROR_SUCCESS ) {
-            free_w( SystemRoot );
-            return( NULL );
-        }
-    }
-
-    PathSize = strlen( SystemRoot ) + strlen( WIN_INI_FILE ) + sizeof( CHAR ) + 1;
-    Path = ( PSTR )malloc_w( PathSize );
-    if( Path == NULL ) {
-        if( SystemRoot != BufferForSystemRoot ) {
-            free_w( SystemRoot );
-        }
-        return( NULL );
-    }
-    lstrcpy( Path, SystemRoot );
-    lstrcat( Path, "\\" );
-    lstrcat( Path, WIN_INI_FILE );
-    if( SystemRoot != BufferForSystemRoot ) {
-        free_w( SystemRoot );
-    }
-    return( Path );
-}
-
-
-
-BOOLEAN
-IsEmbeddingSection(
-    IN LPSTR    Name
-    )
-
-
-/*++
-
-Routine Description:
-
-    Determine if the name passed as argument refers to the "embedding"
-    section of win.ini.
-
-Arguments:
-
-    Name -  Name to be examined.
-
-
-Return Value:
-
-    BOOLEAN - Returns TRUE if 'Name' is the name of the "embedding" section.
-              Otherwise, returns FALSE.
-
---*/
-
-{
-    return( ( ( Name == NULL ) || ( lstrcmpi( Name, EMBEDDING ) != 0 ) )?
-            FALSE : TRUE );
-}
-
-
-
-BOOLEAN
-IsFileWinIni(
+BOOL
+IsWinIniHelper(
     IN LPSTR    FileName
     )
 
@@ -188,6 +55,8 @@ IsFileWinIni(
 Routine Description:
 
     Determine if the name passed as argument refers to the file win.ini.
+    Used by IS_WIN_INI macro, which assures the argument is non-null and
+    deals with exact match of "win.ini".
 
 Arguments:
 
@@ -196,67 +65,57 @@ Arguments:
 
 Return Value:
 
-    BOOLEAN - Returns TRUE if 'Name' refers to win.ini.
+    BOOL - Returns TRUE if 'Name' refers to win.ini.
               Otherwise, returns FALSE.
 
 --*/
 
 {
-    CHAR    BufferForFullPath[ 2*BUFFER_SIZE ];
-    LONG    SizeOfFullPath;
-    PSTR    FullPath;
+    CHAR    BufferForFullPath[MAX_PATH];
     PSTR    PointerToName;
+    DWORD   SizeOfFullPath;
 
-    PSTR    WinIniPath;
-    LONG    Result;
+    BOOL    Result;
 
-    if( FileName == NULL ) {
-        return( FALSE );
+#ifdef DEBUG
+    //
+    // Filename argument must already be lowercase.  Be sure.
+    //
+
+    {
+        char Lowercase[MAX_PATH];
+
+        WOW32ASSERT(strlen(FileName) < MAX_PATH-1);
+        strcpy(Lowercase, FileName);
+        _strlwr(Lowercase);
+        WOW32ASSERT(!strcmp(FileName, Lowercase));
     }
-    if( lstrcmpi( FileName, WIN_INI_FILE ) == 0 ) {
-        return( TRUE );
-    }
+#endif
 
-
-    WinIniPath = GetWinIniFullPath();
-    if( WinIniPath == NULL ) {
-        return( FALSE );
-    }
-
-    FullPath = BufferForFullPath;
-    if( ( SizeOfFullPath = GetFullPathName( FileName,
-                                            sizeof( BufferForFullPath ),
-                                            FullPath ,
-                                            &PointerToName ) ) == 0 ) {
-        free_w( WinIniPath );
-        return( FALSE );
+    if (!strcmp(FileName, szWinDotIni)) {
+        Result = TRUE;
+        goto Done;
     }
 
-    SizeOfFullPath++;
-    if( SizeOfFullPath > sizeof( BufferForFullPath ) ) {
-        FullPath = ( PSTR )malloc_w( SizeOfFullPath );
-        if( FullPath == NULL ) {
-            free_w( WinIniPath );
-            return( FALSE );
-        }
-        if( GetFullPathName( FileName,
-                             SizeOfFullPath,
-                             FullPath,
-                             &PointerToName ) == 0 ) {
-            free_w( FullPath );
-            free_w( WinIniPath );
-            return( FALSE );
-        }
+    SizeOfFullPath = GetFullPathName( FileName,
+                                      sizeof BufferForFullPath,
+                                      BufferForFullPath,
+                                      &PointerToName );
+
+    if (SizeOfFullPath == 0) {
+        Result = FALSE;
+        goto Done;
     }
 
+    WOW32ASSERT( (SizeOfFullPath + 1) <= sizeof BufferForFullPath );
 
-    Result = lstrcmpi( WinIniPath, FullPath );
-    if( FullPath != BufferForFullPath ) {
-        free_w( FullPath );
-    }
-    free_w( WinIniPath );
+    WOW32ASSERTMSG(pszWinIniFullPath && pszWinIniFullPath[0],
+                   "WOW32 ERROR pszWinIniFullPath not initialized.\n");
 
-    return( ( Result == 0 ) ? TRUE : FALSE );
+    Result = !_stricmp( pszWinIniFullPath, BufferForFullPath );
+
+Done:
+    return Result;
 }
 
 
@@ -394,7 +253,7 @@ Return Value:
         goto NukeClass;
 
 
-    Status = RegQueryValue(Key,SERVER_KEY,szServer,&cchServerSize);
+    Status = RegQueryValue(Key,szServerKey,szServer,&cchServerSize);
     if( ( Status != ERROR_SUCCESS ) &&
         ( Status != ERROR_MORE_DATA ) )
         goto NukeClass;
@@ -405,7 +264,7 @@ Return Value:
         if( szServer == NULL )
             goto NukeClass;
 
-        Status = RegQueryValue(Key,SERVER_KEY,szServer,&cchServerSize);
+        Status = RegQueryValue(Key,szServerKey,szServer,&cchServerSize);
         if( Status != ERROR_SUCCESS )
             goto NukeClass;
     }
@@ -414,7 +273,7 @@ Return Value:
         goto NukeClass;
 
 
-    if (GetProfileString(EMBEDDING, szClass, EMPTY_STRING,
+    if (GetProfileString(szEmbedding, szClass, EMPTY_STRING,
           szOldLine, sizeof(szOldLine)))
       {
         for (lpForms=szOldLine, nCommas=0; ; lpForms=AnsiNext(lpForms))
@@ -435,8 +294,7 @@ FoundForms:
       {
 DoDefaults:
         lpDesc = szClassName;
-        lpForms = PICTURE;
-//        lpForms = "picture";
+        lpForms = szPicture;
       }
 
     // we have a class, a classname, and a server, so its an le class
@@ -456,7 +314,7 @@ DoDefaults:
     wsprintf(szLine, "%s,%s,%s,%s",
              lpDesc, (LPSTR)szClassName, (LPSTR)szServer, lpForms);
 
-    WriteProfileString(EMBEDDING, szClass, szLine);
+    WriteProfileString(szEmbedding, szClass, szLine);
     if( Key != NULL ) {
         RegCloseKey( Key );
     }
@@ -488,7 +346,7 @@ NukeClass:
     if( szLine != BufferForLine ) {
         free_w( szLine );
     }
-    WriteProfileString(EMBEDDING,szClass,NULL);
+    WriteProfileString(szEmbedding,szClass,NULL);
 }
 
 
@@ -572,7 +430,7 @@ Return Value:
         }
         return;
     }
-    if( ( RegCreateKey( key, SERVER_KEY, &key1 ) != ERROR_SUCCESS ) ||
+    if( ( RegCreateKey( key, szServerKey, &key1 ) != ERROR_SUCCESS ) ||
         ( RegSetValue( key1, NULL, REG_SZ, lpServer, strlen( lpServer ) ) != ERROR_SUCCESS ) ) {
         if( key != NULL ) {
             RegCloseKey( key );
@@ -615,7 +473,7 @@ Return Value:
 
 
 
-BOOLEAN
+BOOL
 WasSectionRecentlyUpdated(
     )
 

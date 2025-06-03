@@ -36,6 +36,8 @@ Revision History:
 #define MILLISECONDS                MICROSECONDS*1000
 #define SECONDS                     MILLISECONDS*1000
 
+#define NwOneSecond 10000000
+
 //
 //  Default number of times to retranmit a packet before giving up
 //  on waiting for a response.
@@ -79,7 +81,13 @@ Revision History:
 //  size.  This longest packet is a long name query.
 //
 
-#define  MAX_DATA      256+32
+#define  MAX_SEND_DATA      256+32
+//
+//  The size of the largest non READ packet we can receive, rounded up to DWORD
+//  size. This longest packet is read queue job list of 250 jobs
+//
+
+#define  MAX_RECV_DATA      544+32
 
 //
 //  Best guess at max packet size, if the transport can't tell us.
@@ -115,6 +123,11 @@ Revision History:
 
 #define LFN_NO_OS2_NAME_SPACE   -1
 
+//
+// The ordinal for the long namespace in the namespace packet.
+//
+
+#define LONG_NAME_SPACE_ORDINAL 4
 
 //
 //  Largest possible SAP Response size and size of a SAP record
@@ -129,8 +142,25 @@ Revision History:
 //
 
 #define MAX_SERVER_NAME_LENGTH   48
+#define MAX_UNICODE_UID_LENGTH   8
 #define MAX_USER_NAME_LENGTH     100    // BUGBUG - What is correct value?
 #define MAX_VOLUME_NAME_LENGTH   16     // BUGBUG - What is correct value?
+
+//
+//  Maximum number of unique drive letters we will send to a server.
+//  Only seems to matter to portable netWare servers.
+//
+#define MAX_DRIVES              64
+
+
+//
+//  Default Timeout Event interval. We do not want to fill up the
+//  event-log with timeout events. If a timeout event has been logged
+//  in the last timeout event interval, we will ignore further timeout
+//  events.
+//
+
+#define DEFAULT_TIMEOUT_EVENT_INTERVAL  5
 
 
 #endif // _NWCONST_

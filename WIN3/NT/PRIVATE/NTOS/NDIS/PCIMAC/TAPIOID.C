@@ -5,11 +5,11 @@
 //
 //
 //
-#include	<ntddk.h>
+//#include	<ntddk.h>
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
-#include	<ntddndis.h>
+//#include	<ntddndis.h>
 #include	<stdio.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -47,7 +47,7 @@ static OID_DISPATCH TapiOids[] =
 	{OID_TAPI_GET_ADDRESS_CAPS, TSPI_LineGetAddressCaps},
 	{OID_TAPI_GET_ADDRESS_ID, TSPI_LineGetAddressID},
 	{OID_TAPI_GET_ADDRESS_STATUS, TSPI_LineGetAddressStatus},
-	{OID_TAPI_GET_CALL_ADDRESS_ID, TSPI_LineGetAddressID},
+	{OID_TAPI_GET_CALL_ADDRESS_ID, TSPI_LineGetCallAddressID},
 	{OID_TAPI_GET_CALL_INFO, TSPI_LineGetCallInfo},
 	{OID_TAPI_GET_CALL_STATUS, TSPI_LineGetCallStatus},
 	{OID_TAPI_GET_DEV_CAPS, TSPI_LineGetDevCaps},
@@ -202,13 +202,13 @@ TSPI_LineAnswer(
 				  &Param2,
 				  &Param3);
 
+    mtl_set_conn_state(cm->mtl, Prof->chan_num, 1);
+
 	//
 	// indicate line up to wan wrapper
 	//
 	WanLineup(cm, NULL);
 					
-    mtl_set_conn_state(cm->mtl, 1);
-
 	//
 	// mark idd resources as being in use
 	//
@@ -251,6 +251,7 @@ TSPI_LineClose(
 	CM	*cm;
 
 	D_LOG(D_ENTRY, ("LineClose: hdLine: 0x%p", TapiBuffer->hdLine));
+
 	//
 	// validate line handle and get line pointer
 	//
@@ -268,6 +269,7 @@ TSPI_LineClose(
 		if (Adapter->TapiLineInfo[n] == TapiLineInfo)
 			break;
 	}
+
 //	if (n == MAX_IDD_PER_ADAPTER)
 	if (n == MAX_CM_PER_ADAPTER)
 		return(NDIS_STATUS_FAILURE);
@@ -282,9 +284,10 @@ TSPI_LineClose(
 	cm->TapiLineInfo = NULL;
 
 	//
-	// if a call is active disconnect it
+	// if call is active disconnect it
 	//
-	cm_disconnect(cm);
+	if (cm->TapiCallState != LINECALLSTATE_IDLE)
+		cm_disconnect(cm);
 
 	//
 	// destroy line object
@@ -488,6 +491,7 @@ TSPI_LineDrop(
 	TAPI_LINE_INFO*	TapiLineInfo;
 	CM*	cm;
 	CM_PROF	*Prof;
+	ULONG	Param1 = 0, Param2 = 0, Param3 = 0;
 
 	D_LOG(D_ENTRY, ("LineDrop: hdCall: 0x%p", TapiBuffer->hdCall));
 
@@ -523,6 +527,19 @@ TSPI_LineDrop(
 	// send call state to idle
 	//
 	cm->TapiCallState = LINECALLSTATE_IDLE;
+
+	//
+	// send a call state idle message to the app
+	//
+	Param1 = cm->TapiCallState;
+	SendLineEvent(Adapter,
+	              TapiLineInfo->htLine,
+				  cm->htCall,
+				  LINE_CALLSTATE,
+				  &Param1,
+				  &Param2,
+				  &Param3);
+
 
 	//
 	// if this was a listening Line reissue a listen
@@ -1199,7 +1216,7 @@ TSPI_LineGetID(
 			if (TapiLineInfo == NULL)
 				return(NDIS_STATUS_TAPI_INVALLINEHANDLE);
 
-			if (!strnicmp(DeviceClass, "tapi/line", TapiBuffer->ulDeviceClassSize))
+			if (!_strnicmp(DeviceClass, "tapi/line", TapiBuffer->ulDeviceClassSize))
 			{
 				AvailMem = DeviceID->ulTotalSize - sizeof(VAR_STRING);
 				StringLength = (AvailMem > 4) ? 4 : AvailMem;
@@ -1232,7 +1249,7 @@ TSPI_LineGetID(
 			if (cm->TapiCallState != LINECALLSTATE_CONNECTED)
 				return(NDIS_STATUS_TAPI_INVALCALLHANDLE);
 
-			if (!strnicmp(DeviceClass, "ndis", TapiBuffer->ulDeviceClassSize))
+			if (!_strnicmp(DeviceClass, "ndis", TapiBuffer->ulDeviceClassSize))
 			{
 				AvailMem = DeviceID->ulTotalSize - sizeof(VAR_STRING);
 				StringLength = (AvailMem > 4) ? 4 : AvailMem;
@@ -2216,16 +2233,17 @@ SignalConnectSuccess(
 	ADAPTER	*Adapter = (ADAPTER*)cm->Adapter;
 	TAPI_LINE_INFO	*TapiLineInfo = (TAPI_LINE_INFO*)cm->TapiLineInfo;
 	ULONG	Param1 = 0, Param2 = 0, Param3 = 0;
+	CM_PROF	*Prof = (CM_PROF*)&cm->dprof;
 
 	D_LOG(D_ENTRY, ("SignalConnectSuccess: hdLine: 0x%p, hdCall: 0x%p", TapiLineInfo, cm));
 	cm->TapiCallState = LINECALLSTATE_CONNECTED;
+
+    mtl_set_conn_state(cm->mtl, Prof->chan_num, 1);
 
 	//
 	// indicate line up to wan wrapper
 	//
 	WanLineup(cm, NULL);
-
-    mtl_set_conn_state(cm->mtl, 1);
 
 	//
 	// indicate callstate event call connected
@@ -2311,12 +2329,12 @@ SendLineEvent(
 	D_LOG(D_ENTRY, ("SendLineEvent: TapiLine: 0x%p, TapiCall: 0x%p", htLine, htCall));
 
 
-	NdisMIndicateStatus(Adapter->AdapterHandle,
+	NdisMIndicateStatus(Adapter->Handle,
 						NDIS_STATUS_TAPI_INDICATION,
 						&LineEvent,
 						sizeof(NDIS_TAPI_EVENT));
 
-	NdisMIndicateStatusComplete(Adapter->AdapterHandle);
+	NdisMIndicateStatusComplete(Adapter->Handle);
 
 	//
 	// stuff to work with conn wrapper without wan wrapper

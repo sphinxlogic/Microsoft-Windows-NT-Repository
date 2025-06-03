@@ -7,4 +7,4 @@ BOOL PerfmonInitialize (HINSTANCE hCurrentInstance,
 
 
 void PerfmonClose (HWND hWndMain) ;
-
+

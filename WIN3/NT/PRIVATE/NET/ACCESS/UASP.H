@@ -43,11 +43,22 @@ Revision History:
 
 NET_API_STATUS
 UaspOpenDomain(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN ULONG DesiredAccess,
     IN BOOL AccountDomain,
     OUT PSAM_HANDLE DomainHandle,
     OUT PSID *DomainId OPTIONAL
+    );
+
+NET_API_STATUS
+UaspOpenDomainWithDomainName(
+    IN LPCWSTR DomainName,
+    IN ULONG DesiredAccess,
+    IN BOOL AccountDomain,
+    OUT PSAM_HANDLE DomainHandle,
+    OUT PSID *DomainId OPTIONAL,
+    OUT LPWSTR *ServerName,
+    OUT LPWSTR *ShareName
     );
 
 VOID
@@ -57,7 +68,7 @@ UaspCloseDomain(
 
 NET_API_STATUS
 UaspGetDomainId(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     OUT PSAM_HANDLE SamServerHandle OPTIONAL,
     OUT PPOLICY_ACCOUNT_DOMAIN_INFO * AccountDomainInfo
         // Caller must deallocate buffer using LsaFreeMemory.
@@ -65,13 +76,13 @@ UaspGetDomainId(
 
 NET_API_STATUS
 UaspLSASetServerRole(
-    IN LPWSTR ServerName,
+    IN LPCWSTR ServerName,
     IN PDOMAIN_SERVER_ROLE_INFORMATION DomainServerRole
     );
 
 NET_API_STATUS
 UaspBuiltinDomainSetServerRole(
-    IN LPWSTR ServerName,
+    IN LPCWSTR ServerName,
     IN PDOMAIN_SERVER_ROLE_INFORMATION DomainServerRole
     );
 
@@ -89,10 +100,10 @@ typedef enum _ALIASP_DOMAIN_TYPE {
 
 NET_API_STATUS
 AliaspOpenAliasInDomain(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN ALIASP_DOMAIN_TYPE DomainType,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR AliasName,
+    IN LPCWSTR AliasName,
     OUT PSAM_HANDLE AliasHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL,
     OUT PSAM_HANDLE DomainHandle OPTIONAL
@@ -102,7 +113,7 @@ NET_API_STATUS
 AliaspOpenAlias(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR AliasName,
+    IN LPCWSTR AliasName,
     OUT PSAM_HANDLE AliasHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     );
@@ -117,19 +128,26 @@ AliaspOpenAlias2(
 
 NET_API_STATUS
 AliaspChangeMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR AliasName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR AliasName,
     IN PSID MemberSid,
     IN BOOL AddMember
     );
 
+typedef enum {
+    SetMembers,
+    AddMembers,
+    DelMembers
+} ALIAS_MEMBER_CHANGE_TYPE;
+
 NET_API_STATUS
 AliaspSetMembers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR AliasName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR AliasName,
     IN DWORD Level,
     IN LPBYTE Buffer,
-    IN DWORD NewMemberCount
+    IN DWORD NewMemberCount,
+    IN ALIAS_MEMBER_CHANGE_TYPE
     );
 
 NET_API_STATUS
@@ -163,6 +181,20 @@ AliaspPackBuf(
     DWORD FixedSize,
     PUNICODE_STRING Names) ;
 
+NET_API_STATUS
+AliaspNamesToSids (
+    IN LPCWSTR ServerName,
+    IN DWORD NameCount,
+    IN LPWSTR *Names,
+    OUT PSID **Sids
+    );
+
+VOID
+AliaspFreeSidList (
+    IN DWORD SidCount,
+    IN PSID *Sids
+    );
+
 //
 // Procedure forwards for groupp.c
 //
@@ -171,16 +203,16 @@ NET_API_STATUS
 GrouppOpenGroup(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR GroupName,
+    IN LPCWSTR GroupName,
     OUT PSAM_HANDLE GroupHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     );
 
 NET_API_STATUS
 GrouppChangeMember(
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
-    IN LPWSTR UserName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
+    IN LPCWSTR UserName,
     IN BOOL AddMember
     );
 
@@ -208,8 +240,8 @@ GrouppMemberRelocationRoutine(
 
 NET_API_STATUS
 GrouppSetUsers (
-    IN LPWSTR ServerName OPTIONAL,
-    IN LPWSTR GroupName,
+    IN LPCWSTR ServerName OPTIONAL,
+    IN LPCWSTR GroupName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN DWORD NewMemberCount,
@@ -224,7 +256,7 @@ NET_API_STATUS
 UserpOpenUser(
     IN SAM_HANDLE DomainHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN LPWSTR UserName,
+    IN LPCWSTR UserName,
     OUT PSAM_HANDLE UserHandle OPTIONAL,
     OUT PULONG RelativeId OPTIONAL
     );
@@ -251,7 +283,7 @@ UserpSetInfo(
     IN SAM_HANDLE UserHandle OPTIONAL,
     IN SAM_HANDLE BuiltinDomainHandle OPTIONAL,
     IN ULONG UserRelativeId,
-    IN LPWSTR UserName,
+    IN LPCWSTR UserName,
     IN DWORD Level,
     IN LPBYTE Buffer,
     IN ULONG WhichFieldsMask,
@@ -321,7 +353,7 @@ NetpGetElapsedSeconds(
 
 NET_API_STATUS
 UaspDownlevel(
-    IN LPWSTR ServerName OPTIONAL,
+    IN LPCWSTR ServerName OPTIONAL,
     IN NET_API_STATUS OriginalError,
     OUT LPBOOL TryDownLevel
     );

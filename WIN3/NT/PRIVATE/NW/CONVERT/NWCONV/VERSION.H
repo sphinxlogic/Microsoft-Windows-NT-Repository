@@ -1,58 +1,52 @@
-/****************************************************************************
- *                                                                          *
- *      VERSION.H        -- Version information                             *
- *                                                                          *
- ****************************************************************************/
+/*
+** Template for version resources.  Place this in your .rc file,
+** editing the values for VER_FILETYPE, VER_FILESUBTYPE,
+** VER_FILEDESCRIPTION_STR and VER_INTERNALNAME_STR as needed.
+** See winver.h for possible values.
+**
+** Ntverp.h defines several global values that don't need to be
+** changed except for official releases such as betas, sdk updates, etc.
+**
+** Common.ver has the actual version resource structure that all these
+** #defines eventually initialize.
+*/
 
-#define rmj         1
-#define rmm         0
-#define rup         0
-#define szVerName   ""
-#define szVerUser   ""
+/* #include <windows.h> needed if this will be the .rc file */
 
-#ifndef VS_FF_DEBUG 
-#include <winver.h>
-#endif 
+#include <ntverp.h>
 
-#define VERSION                     "1.0"
-#define VER_PRODUCTVERSION_STR      "1.00\0"
-#define VER_PRODUCTVERSION          rmj,rmm,0,rup
+/*-----------------------------------------------*/
+/* the following lines are specific to this file */
+/*-----------------------------------------------*/
 
-/*--------------------------------------------------------------*/
-/* the following section defines values used in the version     */
-/* data structure for all files, and which do not change.       */
-/*--------------------------------------------------------------*/
+/* VER_FILETYPE, VER_FILESUBTYPE, VER_FILEDESCRIPTION_STR
+ * and VER_INTERNALNAME_STR must be defined before including COMMON.VER
+ * The strings don't need a '\0', since common.ver has them.
+ */
+#define   VER_FILETYPE   VFT_APP
+/* possible values:      VFT_UNKNOWN
+            VFT_APP
+            VFT_DLL
+            VFT_DRV
+            VFT_FONT
+            VFT_VXD
+            VFT_STATIC_LIB
+*/
+#define   VER_FILESUBTYPE   VFT2_UNKNOWN
+/* possible values      VFT2_UNKNOWN
+            VFT2_DRV_PRINTER
+            VFT2_DRV_KEYBOARD
+            VFT2_DRV_LANGUAGE
+            VFT2_DRV_DISPLAY
+            VFT2_DRV_MOUSE
+            VFT2_DRV_NETWORK
+            VFT2_DRV_SYSTEM
+            VFT2_DRV_INSTALLABLE
+            VFT2_DRV_SOUND
+            VFT2_DRV_COMM
+*/
+#define VER_FILEDESCRIPTION_STR     "Migration Tool for NetWare"
+#define VER_INTERNALNAME_STR        "NWConv"
+#define VER_ORIGINALFILENAME_STR    "NWCONV.EXE"
 
-// default is nodebug
-#ifndef DEBUG
-#define VER_DEBUG                   0
-#else
-#define VER_DEBUG                   VS_FF_DEBUG
-#endif
-
-// default is privatebuild
-#ifndef OFFICIAL
-#define VER_PRIVATEBUILD            VS_FF_PRIVATEBUILD
-#else
-#define VER_PRIVATEBUILD            0
-#endif
-
-// default is prerelease
-#ifndef FINAL
-#define VER_PRERELEASE              VS_FF_PRERELEASE
-#else
-#define VER_PRERELEASE              0
-#endif
-
-#define VER_FILETYPE                VFT_APP
-#define VER_FILESUBTYPE             VFT_UNKNOWN
-
-#define VER_FILEFLAGSMASK           VS_FFI_FILEFLAGSMASK
-#define VER_FILEOS                  VOS_NT_WINDOWS32
-#define VER_FILEFLAGS               (VER_PRIVATEBUILD|VER_PRERELEASE|VER_DEBUG)
-
-#define VER_LEGALCOPYRIGHT_YEARS    "1993-1994"
-#define VER_COMPANYNAME_STR         "Microsoft Corporation\0"
-#define VER_PRODUCTNAME_STR         "Microsoft\256 Windows(TM) NT Operating System\0"
-#define VER_LEGALTRADEMARKS_STR     \
-"Microsoft\256 is a registered trademark of Microsoft Corporation. Windows(TM) is a trademark of Microsoft Corporation.\0"
+#include "common.ver"

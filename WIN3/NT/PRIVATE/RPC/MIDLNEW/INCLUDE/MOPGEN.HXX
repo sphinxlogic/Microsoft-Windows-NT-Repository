@@ -195,4 +195,3 @@ public:
 #endif //  __MOPGEN_HXX__
 
 
-

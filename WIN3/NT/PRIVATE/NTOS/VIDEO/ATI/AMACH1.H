@@ -2,12 +2,13 @@
 //**                                                                     **
 //**                               AMACH1.H                              **
 //**                                                                     **
-//**     Copyright (c) 1993, ATI Technologies Inc.                       **
+//**     Copyright (c) 1993, 1995 ATI Technologies Inc.                  **
 //*************************************************************************
 //   
-//  Created from the 68800.H and 68801.H in the Windows NT Group
-//      as a simple merging of the files so ALL Mach8 and Mach32 defines
-//      are located in one H file.
+//  Supplemental definitions and data structures which are independent
+//      of the ATI accelerator family being used. Mach 8/Mach32 specific
+//      definitions and structures are in AMACH.H, while Mach 64 specific
+//      definitions and structures are in AMACHCX.H.
 //
 //  Created the 68800.inc file which includes equates, macros, etc 
 //       from the following include files:    
@@ -20,10 +21,56 @@
   
 /**********************       PolyTron RCS Utilities
 
-   $Revision:   1.0  $
-   $Date:   31 Jan 1994 11:26:48  $
-   $Author:   RWOLFF  $
-   $Log:   S:/source/wnt/ms11/miniport/vcs/amach1.h  $
+   $Revision:   1.14  $
+   $Date:   23 Apr 1996 17:15:20  $
+   $Author:   RWolff  $
+   $Log:   S:/source/wnt/ms11/miniport/archive/amach1.h_v  $
+ * 
+ *    Rev 1.14   23 Apr 1996 17:15:20   RWolff
+ * Added new memory types (used by ?T) to memory type enumeration.
+ * 
+ *    Rev 1.13   22 Dec 1995 14:51:10   RWolff
+ * Added support for Mach 64 GT internal DAC.
+ * 
+ *    Rev 1.12   08 Sep 1995 16:36:00   RWolff
+ * Added support for AT&T 408 DAC (STG1703 equivalent).
+ * 
+ *    Rev 1.11   28 Jul 1995 14:39:24   RWolff
+ * Added support for the Mach 64 VT (CT equivalent with video overlay).
+ * 
+ *    Rev 1.10   30 Jan 1995 11:56:54   RWOLFF
+ * Added support for CT internal DAC.
+ * 
+ *    Rev 1.9   18 Jan 1995 15:38:02   RWOLFF
+ * Added Chrontel CH8398 to DAC type enumeration.
+ * 
+ *    Rev 1.8   23 Dec 1994 10:48:40   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.7   18 Nov 1994 11:49:16   RWOLFF
+ * Added new DAC type DAC_STG1703. This DAC is equivalent to the STG1702,
+ * but has its own clock generator. The STG1702/1703 in native mode are
+ * programmed differently in 24BPP than when they are strapped for
+ * STG1700 emulation.
+ * 
+ *    Rev 1.6   14 Sep 1994 15:25:54   RWOLFF
+ * Added "most desirable colour ordering" field to query structure,
+ * changed RGB<depth>_<order> definitions from enumeration to flags
+ * that can be used in this field.
+ * 
+ *    Rev 1.5   31 Aug 1994 16:09:02   RWOLFF
+ * Added support for TVP3026 DAC and 1152x864, removed dead code.
+ * 
+ *    Rev 1.4   19 Aug 1994 17:03:30   RWOLFF
+ * Added support for Graphics Wonder, SC15026 DAC, and pixel clock
+ * generator independence.
+ * 
+ *    Rev 1.3   20 May 1994 13:56:42   RWOLFF
+ * Ajith's change: added field for bus type reported by NT to
+ * the query structure.
+ * 
+ *    Rev 1.2   12 May 1994 11:15:04   RWOLFF
+ * Removed redundant definition, added refresh rate to mode table structure.
  * 
  *    Rev 1.1   04 May 1994 19:22:58   RWOLFF
  * Fix for block write test corrupting the screen when running display applet
@@ -275,13 +322,15 @@ struct  query_structure  {
     BOOL    q_ext_bios_fcn;        // TRUE if ATI Extended BIOS fcns present
     BOOL    q_ignore1280;          // TRUE if ignore 1280 table in Mach8 cards
     BOOL    q_m32_aper_calc;       // TRUE if mach32 aperture addr needs Extra Bits.
-    short   q_screen_pitch;        // Pixels per display line
-    UCHAR   q_BlockWrite;          // Whether or not block write mode is available
-    ULONG   q_system_bus_type;     // bus type reported by NT
+    BOOL    q_GraphicsWonder;       /* TRUE if this is a Graphics Wonder (restricted Mach 32) */
+    short   q_screen_pitch;         // Pixels per display line
+    UCHAR   q_BlockWrite;           /* Whether or not block write mode is available */
+    ULONG   q_system_bus_type;      // bus type reported by NT
+    USHORT  q_HiColourSupport;      /* Colour orders supported for non-paletted modes */
     };
 
 
-// Matches BIOS mode table query function
+// Matches BIOS mode table query function up to and including m_overscan_gr
 struct  st_mode_table {
     short   m_x_size;              // horizontal screen resolution
     short   m_y_size;              // vertical screen resolution
@@ -309,25 +358,37 @@ struct  st_mode_table {
     short   m_overscan_gr;         // overscan color green and red
     short   enabled;               // what frequency is enabled (eeprom 7,8,9,10 or 11)
     short   control;               // clock and control values  (CRT table 0)
+    ULONG   ClockFreq;              /* Clock frequency (in Hertz) */
     short   m_screen_pitch;        // pixels per display line
     WORD    ColourDepthInfo;       /* Information about colour depth being used */
     short   Refresh;                /* Refresh rate, in hertz */
     };
 
 
+/*
+ * Masks and flags for the m_clock_select field.
+ * All the flags will be stripped out when the field
+ * is ANDed with CLOCK_SEL_STRIP.
+ */
+#define CLOCK_SEL_STRIP     0xFF83  /* AND to remove clock selector/divisor */
+#define CLOCK_SEL_MUX       0x0004  /* Use mux mode (2x 8bit pixels in 16 bit path) */
+#define CLOCK_SEL_DIVIDED   0x0008  /* Clock frequency for mux mode already divided by 2 */
 
-// assign constants to the 16,24 and 32 bpp RGB individual color values
-enum   {
-    RGB16_DFLT = 0,
-    RGB16_555,
-    RGB16_565,
-    RGB16_655,
-    RGB16_664,
-    RGB24_RGB,
-    RGB24_BGR,
-    RGB32_xBGR,
-    RGB32_RBGx
-    };
+
+/*
+ * Flags to put in query_structure.q_HiColourSupport to show that
+ * the corresponding colour order is supported.
+ */
+#define RGB16_555   0x0001
+#define RGB16_565   0x0002
+#define RGB16_655   0x0004
+#define RGB16_664   0x0008
+#define RGB24_RGB   0x0010
+#define RGB24_BGR   0x0020
+#define RGB32_RGBx  0x0040
+#define RGB32_xRGB  0x0080
+#define RGB32_BGRx  0x0100
+#define RGB32_xBGR  0x0200
 
 
 //-----  Video Memory  details
@@ -338,7 +399,11 @@ enum  {
 	VMEM_DRAM_256Kx16,
     VMEM_DRAM_256Kx4_GRAP,      /* This and following types on 68800-6 only */
     VMEM_VRAM_256Kx4_SPLIT512,
-    VMEM_VRAM_256Kx16_SPLIT256
+    VMEM_VRAM_256Kx16_SPLIT256,
+    VMEM_GENERIC_DRAM,          /* This and following types are for Mach 64 ?T only */
+    VMEM_EDO_DRAM,
+    VMEM_BRRAM,
+    VMEM_SDRAM
 	};
 
 #define VMEM_VRAM_256Kx16_SER256 VMEM_VRAM_256Kx4_SER256    /* 68800-6 only */
@@ -375,13 +440,55 @@ enum  { DAC_ATI_68830,
 	 */
 	DAC_ATT491,
     DAC_ATT498,
+    DAC_SC15026,
 
     /*
      * DAC types below are not used on 8514/A-compatible accelerators.
-     * Subsequent additions must be made AFTER DAC_STG1700.
-     *
-     * There are currently no DACs in this category.
+     * Subsequent additions must be made AFTER DAC_SC15026.
      */
+    DAC_TVP3026,
+    DAC_IBM514,
+
+    /*
+     * This DAC is more advanced than the STG1700.
+     */
+    DAC_STG1702,
+
+    /*
+     * DAC is equivalent to STG1702, but it has its own clock
+     * generator which is programmed differently from the one
+     * normally used on the Mach 64.
+     */
+    DAC_STG1703,
+
+    /*
+     * DAC with equivalent capabilities to STG1703, but not a
+     * drop-in replacement.
+     */
+    DAC_CH8398,
+
+    /*
+     * Yet another DAC which is equivalent to STG1703 but which
+     * is not a drop-in replacement.
+     */
+    DAC_ATT408,
+
+    /*
+     * Internal DAC on Mach 64 CT ASIC.
+     */
+    DAC_INTERNAL_CT,
+
+    /*
+     * Internal DAC on Mach 64 GT ASIC. This is a CT equivalent
+     * with built-in multimedia and games functionality.
+     */
+    DAC_INTERNAL_GT,
+
+    /*
+     * Internal DAC on Mach 64 VT ASIC. This is a CT equivalent
+     * with built-in video overlay circuitry.
+     */
+    DAC_INTERNAL_VT,
 
 	/*
 	 * Size definition for arrays indexed by DAC type (assumes enumerated
@@ -395,7 +502,7 @@ enum  { DAC_ATI_68830,
  * Size definition for 8514/A-compatible accelerator arrays indexed by
  * DAC type.
  */
-#define MAX_OLD_DAC HOW_MANY_DACs
+#define MAX_OLD_DAC DAC_TVP3026
 
 /*
  * Possible knowledge states for block write capability.
@@ -467,6 +574,7 @@ enum  { VRAM_256k=1,
 #define VRES_1024x768   0x0004
 #define VRES_1280x1024  0x0008
 #define VRES_ALT_1      0x0010          /* Usually 1152x900,  1120x750 */
+#define VRES_1152x864   VRES_ALT_1
 #define VRES_RESERVED_6 0x0020
 #define VRES_RESERVED_7 0x0040
 #define VRES_RESERVED_8 0x0080
@@ -522,17 +630,6 @@ enum  { VRES_UNDEFINED,
 
 
 
-#ifndef MSDOS
-
-//#define OUTP(port,val)  VideoPortWritePortUchar  (phwDeviceExtension->aVideoAddress[port], (BYTE)(val))
-//extern VOID OUTP(int Port, UCHAR Data);
-//#define OUTPW(port,val) VideoPortWritePortUshort (phwDeviceExtension->aVideoAddress[port], (WORD)(val))
-//extern VOID OUTPW(int Port, USHORT Data);
-//#define INP(port)       VideoPortReadPortUchar   (((PHW_DEVICE_EXTENSION)phwDeviceExtension)->aVideoAddress[port])
-//extern UCHAR INP(int Port);
-//#define INPW(port)      VideoPortReadPortUshort  (((PHW_DEVICE_EXTENSION)phwDeviceExtension)->aVideoAddress[port])
-//extern USHORT INPW(int Port);
-
 /*
  * Definitions with an underscore in their name will read or write
  * a portion of a larger register other than the least significant
@@ -561,17 +658,5 @@ enum  { VRES_UNDEFINED,
 #define OUTPD(port, val)        LioOutpd(port, val)
 
 
-#else
-
-#ifndef OUTPW
-#define INP(port)	            inp((unsigned)(port))
-#define INPW(port)	         inpw((unsigned)(port))
-#define OUTP(port, val)       outp((unsigned)(port), (int)(val))
-#define OUTPW(port, val)      outpw((unsigned)(port), (unsigned)(val))
-#endif
-
-#define VideoPortMoveMemory(Dst, Src, Size) memcpy(Dst, Src, Size)
-
-#endif
-
 //**********************   end  of  AMACH1.H   ****************************
+

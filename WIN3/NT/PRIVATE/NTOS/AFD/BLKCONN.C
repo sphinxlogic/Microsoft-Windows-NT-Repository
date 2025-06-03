@@ -23,22 +23,75 @@ Revision History:
 
 VOID
 AfdFreeConnection (
-    IN PVOID Connection
+    IN PVOID Context
     );
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text( PAGEAFD, AfdAbortConnection )
 #pragma alloc_text( PAGE, AfdAddFreeConnection )
 #pragma alloc_text( PAGE, AfdAllocateConnection )
 #pragma alloc_text( PAGE, AfdCreateConnection )
 #pragma alloc_text( PAGE, AfdFreeConnection )
 #pragma alloc_text( PAGEAFD, AfdDereferenceConnection )
+#if REFERENCE_DEBUG
 #pragma alloc_text( PAGEAFD, AfdReferenceConnection )
+#endif
 #pragma alloc_text( PAGEAFD, AfdGetFreeConnection )
 #pragma alloc_text( PAGEAFD, AfdGetReturnedConnection )
 #pragma alloc_text( PAGEAFD, AfdGetUnacceptedConnection )
 #pragma alloc_text( PAGEAFD, AfdAddConnectedReference )
 #pragma alloc_text( PAGEAFD, AfdDeleteConnectedReference )
 #endif
+
+#if GLOBAL_REFERENCE_DEBUG
+AFD_GLOBAL_REFERENCE_DEBUG AfdGlobalReference[MAX_GLOBAL_REFERENCE];
+LONG AfdGlobalReferenceSlot = -1;
+#endif
+
+#if AFD_PERF_DBG
+#define CONNECTION_REUSE_DISABLED   (AfdDisableConnectionReuse)
+#else
+#define CONNECTION_REUSE_DISABLED   (FALSE)
+#endif
+
+
+VOID
+AfdAbortConnection (
+    IN PAFD_CONNECTION Connection
+    )
+{
+
+    NTSTATUS status;
+
+    ASSERT( Connection != NULL );
+    ASSERT( Connection->ConnectedReferenceAdded );
+
+    //
+    // Abort the connection. We need to set the CleanupBegun flag
+    // before initiating the abort so that the connected reference
+    // will get properly removed in AfdRestartAbort.
+    //
+    // Note that if AfdBeginAbort fails then AfdRestartAbort will not
+    // get invoked, so we must remove the connected reference ourselves.
+    //
+
+    Connection->CleanupBegun = TRUE;
+    status = AfdBeginAbort( Connection );
+
+    if( !NT_SUCCESS(status) ) {
+
+        Connection->AbortIndicated = TRUE;
+        AfdDeleteConnectedReference( Connection, FALSE );
+
+    }
+
+    //
+    // Remove the active reference.
+    //
+
+    DEREFERENCE_CONNECTION( Connection );
+
+} // AfdAbortConnection
 
 
 NTSTATUS
@@ -101,6 +154,10 @@ Return Value:
         &AfdSpinLock
         );
 
+    InterlockedIncrement(
+        &Endpoint->Common.VcListening.FreeConnectionCount
+        );
+
     return STATUS_SUCCESS;
 
 } // AfdAddFreeConnection
@@ -119,7 +176,12 @@ AfdAllocateConnection (
     // Allocate a buffer to hold the endpoint structure.
     //
 
-    connection = AFD_ALLOCATE_POOL( NonPagedPool, sizeof(AFD_CONNECTION) );
+    connection = AFD_ALLOCATE_POOL(
+                     NonPagedPool,
+                     sizeof(AFD_CONNECTION),
+                     AFD_CONNECTION_POOL_TAG
+                     );
+
     if ( connection == NULL ) {
         return NULL;
     }
@@ -157,24 +219,15 @@ AfdAllocateConnection (
     //connection->ConnectedReferenceAdded = FALSE;
     //connection->SpecialCondition = FALSE;
     //connection->CleanupBegun = FALSE;
+    //connection->OwningProcess = NULL;
+    //connection->ClosePendedTransmit = FALSE;
 
 #if REFERENCE_DEBUG
-    {
-        PAFD_REFERENCE_DEBUG referenceDebug;
-
-        referenceDebug = AFD_ALLOCATE_POOL(
-                             NonPagedPool,
-                             sizeof(AFD_REFERENCE_DEBUG) * MAX_REFERENCE
-                             );
-        if ( referenceDebug != NULL ) {
-            connection->CurrentReferenceSlot = 0;
-            RtlZeroMemory( referenceDebug, sizeof(AFD_REFERENCE_DEBUG) * MAX_REFERENCE );
-            connection->ReferenceDebug = referenceDebug;
-        } else {
-            connection->CurrentReferenceSlot = 0xFFFFFFFF;
-            connection->ReferenceDebug = NULL;
-        }
-    }
+    connection->CurrentReferenceSlot = -1;
+    RtlZeroMemory(
+        &connection->ReferenceDebug,
+        sizeof(AFD_REFERENCE_DEBUG) * MAX_REFERENCE
+        );
 #endif
 
     //
@@ -281,7 +334,7 @@ Return Value:
             NonPagedPool,
             AfdReceiveWindowSize + AfdSendWindowSize
             );
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     AfdRecordQuotaHistory(
@@ -290,6 +343,20 @@ Return Value:
         "CreateConn  ",
         connection
         );
+
+    AfdRecordPoolQuotaCharged( AfdReceiveWindowSize + AfdSendWindowSize );
+
+    //
+    // Remember the process that got charged the pool quota for this
+    // connection object.  Also reference the process to which we're
+    // going to charge the quota so that it is still around when we
+    // return the quota.
+    //
+
+    ASSERT( connection->OwningProcess == NULL );
+    connection->OwningProcess = ProcessToCharge;
+
+    ObReferenceObject( ProcessToCharge );
 
     //
     // If the provider does not buffer, initialize appropriate lists in
@@ -353,7 +420,7 @@ Return Value:
     //
 
     ctx = (CONNECTION_CONTEXT UNALIGNED *)&ea->EaName[ea->EaNameLength + 1];
-    RtlMoveMemory( ctx, &connection, sizeof(CONNECTION_CONTEXT) );
+    *ctx = (CONNECTION_CONTEXT)connection;
 
     InitializeObjectAttributes(
         &objectAttributes,
@@ -389,9 +456,11 @@ Return Value:
     }
     if ( !NT_SUCCESS(status) ) {
         KeDetachProcess( );
-        AfdDereferenceConnection( connection );
+        DEREFERENCE_CONNECTION( connection );
         return status;
     }
+
+    AfdRecordConnOpened();
 
     //
     // Reference the connection's file object.
@@ -412,6 +481,18 @@ Return Value:
         KdPrint(( "AfdCreateConnection: file object for connection %lx at "
                   "%lx\n", connection, connection->FileObject ));
     }
+
+    AfdRecordConnRef();
+
+    //
+    // Remember the device object to which we need to give requests for
+    // this connection object.  We can't just use the
+    // fileObject->DeviceObject pointer because there may be a device
+    // attached to the transport protocol.
+    //
+
+    connection->DeviceObject =
+        IoGetRelatedDeviceObject( connection->FileObject );
 
     //
     // Associate the connection with the address object on the endpoint if
@@ -453,7 +534,7 @@ Return Value:
     if ( InLine ) {
         status = AfdSetInLineMode( connection, TRUE );
         if ( !NT_SUCCESS(status) ) {
-            AfdDereferenceConnection( connection );
+            DEREFERENCE_CONNECTION( connection );
             return status;
         }
     }
@@ -464,6 +545,8 @@ Return Value:
 
     *Connection = connection;
 
+    UPDATE_CONN( connection, connection->FileObject );
+
     return STATUS_SUCCESS;
 
 } // AfdCreateConnection
@@ -471,53 +554,176 @@ Return Value:
 
 VOID
 AfdFreeConnection (
-    IN PVOID Connection
+    IN PVOID Context
     )
 {
     NTSTATUS status;
-    PAFD_CONNECTION connection = Connection;
+    PAFD_CONNECTION connection;
+    BOOLEAN reuseConnection;
+    PAFD_ENDPOINT listeningEndpoint;
 
     PAGED_CODE( );
 
+    ASSERT( Context != NULL );
+
+    connection = CONTAINING_RECORD(
+                     Context,
+                     AFD_CONNECTION,
+                     WorkItem
+                     );
+
     ASSERT( connection->ReferenceCount == 0 );
     ASSERT( connection->Type == AfdBlockTypeConnection );
-    ASSERT( KeGetCurrentIrql( ) == 0 );
 
     //
-    // Free and dereference the various objects on the connection.
-    // Close and dereference the TDI connection object on the endpoint,
-    // if any.
+    // Determine whether we can reuse this connection object.  We reuse
+    // connection objects to assist performance when the connection
+    // object is from a listening endpoint.
     //
 
-    if ( connection->FileObject != NULL ) {
-        ObDereferenceObject( connection->FileObject );
-        connection->FileObject = NULL;
-    }
+    if ( connection->Endpoint != NULL &&
+             !CONNECTION_REUSE_DISABLED &&
+             !connection->Endpoint->EndpointCleanedUp &&
+             connection->Endpoint->Type == AfdBlockTypeVcConnecting &&
+             connection->Endpoint->Common.VcConnecting.ListenEndpoint != NULL ) {
 
-    if ( connection->Handle != NULL ) {
-        KeAttachProcess( AfdSystemProcess );
-        status = ZwClose( connection->Handle );
-        ASSERT( NT_SUCCESS(status) );
-        KeDetachProcess( );
-        connection->Handle = NULL;
+        UPDATE_CONN( connection, 0 );
+
+        //
+        // Reference the listening endpoint so that it does not
+        // go away while we are cleaning up this connection object
+        // for reuse.
+        //
+
+        listeningEndpoint = connection->Endpoint->Common.VcConnecting.ListenEndpoint;
+        ASSERT( listeningEndpoint->Type == AfdBlockTypeVcListening );
+
+        REFERENCE_ENDPOINT( listeningEndpoint );
+
+        reuseConnection = TRUE;
+
+    } else {
+
+        UPDATE_CONN( connection, 0 );
+
+        reuseConnection = FALSE;
+
+        //
+        // Free and dereference the various objects on the connection.
+        // Close and dereference the TDI connection object on the endpoint,
+        // if any.
+        //
+
+        if ( connection->Handle != NULL ) {
+
+            IO_STATUS_BLOCK ioStatusBlock;
+            HANDLE handle;
+
+            KeAttachProcess( AfdSystemProcess );
+            handle = connection->Handle;
+            connection->Handle = NULL;
+
+            //
+            // Disassociate this connection object from the address object.
+            //
+
+            status = ZwDeviceIoControlFile(
+                        handle,                         // FileHandle
+                        NULL,                           // Event
+                        NULL,                           // ApcRoutine
+                        NULL,                           // ApcContext
+                        &ioStatusBlock,                 // IoStatusBlock
+                        IOCTL_TDI_DISASSOCIATE_ADDRESS, // IoControlCode
+                        NULL,                           // InputBuffer
+                        0,                              // InputBufferLength
+                        NULL,                           // OutputBuffer
+                        0                               // OutputBufferLength
+                        );
+
+            if( status == STATUS_PENDING ) {
+
+                status = ZwWaitForSingleObject(
+                             handle,
+                             TRUE,
+                             NULL
+                             );
+
+                ASSERT( NT_SUCCESS(status) );
+                status = ioStatusBlock.Status;
+
+            }
+
+            // ASSERT( NT_SUCCESS(status) );
+
+            //
+            // Close the handle.
+            //
+
+            status = ZwClose( handle );
+            ASSERT( NT_SUCCESS(status) );
+            AfdRecordConnClosed();
+            KeDetachProcess( );
+
+        }
+
+        if ( connection->FileObject != NULL ) {
+
+            ObDereferenceObject( connection->FileObject );
+            connection->FileObject = NULL;
+            AfdRecordConnDeref();
+
+        }
+
+        //
+        // Return the quota we charged to this process when we allocated
+        // the connection object.
+        //
+
+        PsReturnPoolQuota(
+            connection->OwningProcess,
+            NonPagedPool,
+            connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes
+            );
+        AfdRecordQuotaHistory(
+            connection->OwningProcess,
+            -(LONG)(connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes),
+            "ConnDealloc ",
+            connection
+            );
+        AfdRecordPoolQuotaReturned(
+            connection->MaxBufferredReceiveBytes + connection->MaxBufferredSendBytes
+            );
+
+        //
+        // Dereference the process that got the quota charge.
+        //
+
+        ASSERT( connection->OwningProcess != NULL );
+        ObDereferenceObject( connection->OwningProcess );
+        connection->OwningProcess = NULL;
     }
 
     if ( !connection->TdiBufferring && connection->VcDisconnectIrp != NULL ) {
         IoFreeIrp( connection->VcDisconnectIrp );
+        connection->VcDisconnectIrp = NULL;
     }
 
-    if ( connection->Endpoint != NULL ) {
-        AfdDereferenceEndpoint( connection->Endpoint );
-        DEBUG connection->Endpoint = NULL;
-    }
+    //
+    // If we're going to reuse this connection, don't free the remote
+    // address structure--we'll reuse it as well.
+    //
 
-    if ( connection->RemoteAddress != NULL ) {
-        AFD_FREE_POOL( connection->RemoteAddress );
-        DEBUG connection->RemoteAddress = NULL;
+    if ( connection->RemoteAddress != NULL && !reuseConnection ) {
+        AFD_FREE_POOL(
+            connection->RemoteAddress,
+            AFD_REMOTE_ADDRESS_POOL_TAG
+            );
+        connection->RemoteAddress = NULL;
     }
 
     if ( connection->ConnectDataBuffers != NULL ) {
         AfdFreeConnectDataBuffers( connection->ConnectDataBuffers );
+        connection->ConnectDataBuffers = NULL;
     }
 
     //
@@ -545,87 +751,216 @@ AfdFreeConnection (
         }
     }
 
-    //
-    // Free the space that holds the connection itself.
-    //
+    if ( connection->Endpoint != NULL ) {
 
-    IF_DEBUG(CONNECTION) {
-        KdPrint(( "AfdFreeConnection: Freeing connection at %lx\n", connection ));
+        //
+        // If there is a transmit file IRP on the endpoint, complete it.
+        //
+
+        if ( connection->ClosePendedTransmit ) {
+            AfdCompleteClosePendedTransmit( connection->Endpoint );
+        }
+
+        DEREFERENCE_ENDPOINT( connection->Endpoint );
+        connection->Endpoint = NULL;
     }
 
-    DEBUG connection->Type = 0xAFDF;
+    //
+    // Either free the actual connection block or put it back on the
+    // listening endpoint's list of available connection objects.
+    //
 
-#if REFERENCE_DEBUG
-    if ( connection->ReferenceDebug != NULL ) {
-        AFD_FREE_POOL( connection->ReferenceDebug );
+    if ( reuseConnection ) {
+
+        //
+        // Reinitialize various fields in the connection object.
+        //
+
+        connection->ReferenceCount = 1;
+        ASSERT( connection->Type == AfdBlockTypeConnection );
+        connection->State = AfdConnectionStateFree;
+
+        connection->DisconnectIndicated = FALSE;
+        connection->AbortIndicated = FALSE;
+        connection->ConnectedReferenceAdded = FALSE;
+        connection->SpecialCondition = FALSE;
+        connection->CleanupBegun = FALSE;
+        connection->ClosePendedTransmit = FALSE;
+
+        if ( !connection->TdiBufferring ) {
+
+            ASSERT( IsListEmpty( &connection->VcReceiveIrpListHead ) );
+            ASSERT( IsListEmpty( &connection->VcSendIrpListHead ) );
+            ASSERT( IsListEmpty( &connection->VcReceiveBufferListHead ) );
+
+            connection->VcBufferredReceiveBytes = 0;
+            connection->VcBufferredExpeditedBytes = 0;
+            connection->VcBufferredReceiveCount = 0;
+            connection->VcBufferredExpeditedCount = 0;
+
+            connection->VcReceiveBytesInTransport = 0;
+            connection->VcReceiveCountInTransport = 0;
+
+            connection->VcBufferredSendBytes = 0;
+            connection->VcBufferredSendCount = 0;
+
+        } else {
+
+            connection->VcNonBlockingSendPossible = TRUE;
+            connection->VcZeroByteReceiveIndicated = FALSE;
+        }
+
+        //
+        // Place the connection on the listening endpoint's list of
+        // available connections.
+        //
+
+        ExInterlockedInsertHeadList(
+            &listeningEndpoint->Common.VcListening.FreeConnectionListHead,
+            &connection->ListEntry,
+            &AfdSpinLock
+            );
+
+        //
+        // Reduce the count of failed connection adds on the listening
+        // endpoint to account for this connection object which we're
+        // adding back onto the queue.
+        //
+
+        InterlockedDecrement(
+            &listeningEndpoint->Common.VcListening.FailedConnectionAdds
+            );
+
+        InterlockedIncrement(
+            &listeningEndpoint->Common.VcListening.FreeConnectionCount
+            );
+
+        //
+        // Get rid of the reference we added to the listening endpoint
+        // above.
+        //
+
+        DEREFERENCE_ENDPOINT( listeningEndpoint );
+
+    } else {
+
+#if ENABLE_ABORT_TIMER_HACK
+        //
+        // Free any attached abort timer.
+        //
+
+        if( connection->AbortTimerInfo != NULL ) {
+
+            AFD_FREE_POOL(
+                connection->AbortTimerInfo,
+                AFD_ABORT_TIMER_HACK_POOL_TAG
+                );
+
+        }
+#endif  // ENABLE_ABORT_TIMER_HACK
+
+        //
+        // Free the space that holds the connection itself.
+        //
+
+        IF_DEBUG(CONNECTION) {
+            KdPrint(( "AfdFreeConnection: Freeing connection at %lx\n", connection ));
+        }
+
+        connection->Type = 0xAFDF;
+
+        AFD_FREE_POOL(
+            connection,
+            AFD_CONNECTION_POOL_TAG
+            );
     }
-#endif
 
-    //
-    // Free the actual connection block.
-    //
-
-    AFD_FREE_POOL( connection );
-
-} // AfdDoConnectionDeallocations
+} // AfdFreeConnection
 
 
+#if REFERENCE_DEBUG
+VOID
+AfdDereferenceConnection (
+    IN PAFD_CONNECTION Connection,
+    IN PVOID Info1,
+    IN PVOID Info2
+    )
+#else
 VOID
 AfdDereferenceConnection (
     IN PAFD_CONNECTION Connection
     )
+#endif
 {
+    LONG result;
     KIRQL oldIrql;
 
     ASSERT( Connection->Type == AfdBlockTypeConnection );
-
-    //
-    // Acquire the lock that protects the connection's reference count
-    // field.
-    //
-
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    ASSERT( Connection->ReferenceCount > 0 );
+    ASSERT( Connection->ReferenceCount != 0xD1000000 );
 
     IF_DEBUG(CONNECTION) {
         KdPrint(( "AfdDereferenceConnection: connection %lx, new refcnt %ld\n",
                       Connection, Connection->ReferenceCount-1 ));
     }
 
+    //
+    // Note that if we're tracking refcnts, we *must* call
+    // AfdUpdateConnectionTrack before doing the dereference.  This is
+    // because the connection object might go away in another thread as
+    // soon as we do the dereference.  However, because of this,
+    // the refcnt we store with this may sometimes be incorrect.
+    //
+
 #if REFERENCE_DEBUG
-    {
-        PAFD_REFERENCE_DEBUG slot;
-
-        if ( Connection->CurrentReferenceSlot == MAX_REFERENCE ) {
-            Connection->CurrentReferenceSlot = 0;
-        }
-
-        slot = &Connection->ReferenceDebug[Connection->CurrentReferenceSlot];
-        slot->Action = 0xFFFFFFFF;
-        slot->NewCount = Connection->ReferenceCount - 1;
-        RtlGetCallersAddress( &slot->Caller, &slot->CallersCaller );
-        Connection->CurrentReferenceSlot++;
-    }
+    AfdUpdateConnectionTrack(
+        Connection,
+        Connection->ReferenceCount - 1,
+        Info1,
+        Info2,
+        0xFFFFFFFF
+        );
 #endif
 
-    ASSERT( Connection->ReferenceCount > 0 );
-    ASSERT( Connection->ReferenceCount != 0xD1000000 );
+    //
+    // We must hold AfdSpinLock while doing the dereference and check
+    // for free.  This is because some code makes the assumption that
+    // the connection structure will not go away while AfdSpinLock is
+    // held, and that code references the endpoint before releasing
+    // AfdSpinLock.  If we did the InterlockedDecrement() without the
+    // lock held, our count may go to zero, that code may reference the
+    // connection, and then a double free might occur.
+    //
+    // It is still valuable to use the interlocked routines for
+    // increment and decrement of structures because it allows us to
+    // avoid having to hold the spin lock for a reference.
+    //
+
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     //
-    // Decrement the reference count; if it is 0, free the connection.
+    // Perform the actual decrement of the refernce count.  Note that we
+    // use the intrinsic functions for this, because of their
+    // performance benefit.
     //
 
-    if ( --(Connection->ReferenceCount) == 0 ) {
+    result = InterlockedDecrement( &Connection->ReferenceCount );
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
-        AfdQueueWorkItem( AfdFreeConnection, Connection );
+    //
+    // If the reference count is now 0, free the connection in an
+    // executive worker thread.
+    //
 
-    } else {
+    if ( result == 0 ) {
 
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+        AfdQueueWorkItem(
+            AfdFreeConnection,
+            &Connection->WorkItem
+            );
+
     }
-
-    return;
 
 } // AfdDereferenceConnection
 
@@ -671,6 +1006,10 @@ Return Value:
     if ( listEntry == NULL ) {
         return NULL;
     }
+
+    InterlockedDecrement(
+        &Endpoint->Common.VcListening.FreeConnectionCount
+        );
 
     //
     // Find the connection pointer from the list entry and return a
@@ -722,7 +1061,7 @@ Return Value:
 
     ASSERT( Endpoint->Type == AfdBlockTypeVcListening );
 
-    KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+    AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
     //
     // Walk the endpoint's list of returned connections until we reach
@@ -750,13 +1089,13 @@ Return Value:
 
             RemoveEntryList( listEntry );
 
-            KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+            AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
             return connection;
         }
     }
 
-    KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+    AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
 
     return NULL;
 
@@ -809,55 +1148,44 @@ Return Value:
 } // AfdGetUnacceptedConnection
 
 
+#if REFERENCE_DEBUG
 VOID
 AfdReferenceConnection (
     IN PAFD_CONNECTION Connection,
-    IN BOOLEAN SpinLockHeld
+    IN PVOID Info1,
+    IN PVOID Info2
     )
 {
-    KIRQL oldIrql;
+
+    LONG result;
 
     ASSERT( Connection->Type == AfdBlockTypeConnection );
     ASSERT( Connection->ReferenceCount > 0 );
     ASSERT( Connection->ReferenceCount != 0xD1000000 );
-
-    //
-    // Acquire the lock that protects the connection's reference count
-    // field, imcrement the reference count, and return.
-    //
-
-    if ( !SpinLockHeld ) {
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
-    }
 
     IF_DEBUG(CONNECTION) {
         KdPrint(( "AfdReferenceConnection: connection %lx, new refcnt %ld\n",
                       Connection, Connection->ReferenceCount+1 ));
     }
 
+    //
+    // Do the actual increment of the reference count.
+    //
+
+    result = InterlockedIncrement( &Connection->ReferenceCount );
+
 #if REFERENCE_DEBUG
-    {
-        PAFD_REFERENCE_DEBUG slot;
-
-        if ( Connection->CurrentReferenceSlot == MAX_REFERENCE ) {
-            Connection->CurrentReferenceSlot = 0;
-        }
-
-        slot = &Connection->ReferenceDebug[Connection->CurrentReferenceSlot];
-        slot->Action = 1;
-        slot->NewCount = Connection->ReferenceCount + 1;
-        RtlGetCallersAddress( &slot->Caller, &slot->CallersCaller );
-        Connection->CurrentReferenceSlot++;
-    }
+    AfdUpdateConnectionTrack(
+        Connection,
+        result,
+        Info1,
+        Info2,
+        1
+        );
 #endif
 
-    Connection->ReferenceCount += 1;
-
-    if ( !SpinLockHeld ) {
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-    }
-
 } // AfdReferenceConnection
+#endif
 
 
 VOID
@@ -887,7 +1215,7 @@ Return Value:
 {
     KIRQL oldIrql;
 
-    KeAcquireSpinLock( &Connection->Endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &Connection->Endpoint->SpinLock, &oldIrql );
 
     IF_DEBUG(CONNECTION) {
         KdPrint(( "AfdAddConnectedReference: connection %lx, new refcnt %ld\n",
@@ -903,17 +1231,19 @@ Return Value:
     //
 
     Connection->ConnectedReferenceAdded = TRUE;
+    AfdRecordConnectedReferencesAdded();
 
-    KeReleaseSpinLock( &Connection->Endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &Connection->Endpoint->SpinLock, oldIrql );
 
-    AfdReferenceConnection( Connection, FALSE );
+    REFERENCE_CONNECTION( Connection );
 
 } // AfdAddConnectedReference
 
 
 VOID
 AfdDeleteConnectedReference (
-    IN PAFD_CONNECTION Connection
+    IN PAFD_CONNECTION Connection,
+    IN BOOLEAN EndpointLockHeld
     )
 
 /*++
@@ -931,6 +1261,9 @@ Arguments:
 
     Connection - a pointer to an AFD connection block.
 
+    EndpointLockHeld - TRUE if the caller already has the endpoint
+      spin lock.  The lock remains held on exit.
+
 Return Value:
 
     None.
@@ -940,10 +1273,17 @@ Return Value:
 {
     KIRQL oldIrql;
     PAFD_ENDPOINT endpoint;
+#if REFERENCE_DEBUG
+    PVOID caller, callersCaller;
+
+    RtlGetCallersAddress( &caller, &callersCaller );
+#endif
 
     endpoint = Connection->Endpoint;
 
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    if ( !EndpointLockHeld ) {
+        AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    }
 
     //
     // Only do a dereference if the connected reference is still active
@@ -999,10 +1339,13 @@ Return Value:
             //
 
             Connection->ConnectedReferenceAdded = FALSE;
+            AfdRecordConnectedReferencesDeleted();
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            if ( !EndpointLockHeld ) {
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            }
 
-            AfdDereferenceConnection( Connection );
+            DEREFERENCE_CONNECTION( Connection );
 
         } else {
 
@@ -1014,32 +1357,24 @@ Return Value:
 
 #if REFERENCE_DEBUG
             {
-                PAFD_REFERENCE_DEBUG slot;
+                ULONG action;
 
-                if ( Connection->CurrentReferenceSlot == MAX_REFERENCE ) {
-                    Connection->CurrentReferenceSlot = 0;
-                }
-
-                slot = &Connection->ReferenceDebug[Connection->CurrentReferenceSlot];
-
-                slot->Action = 0;
+                action = 0;
 
                 if ( !Connection->TdiBufferring &&
                          Connection->VcBufferredSendCount != 0 ) {
-                    slot->Action |= 0xA0000000;
+                    action |= 0xA0000000;
                 }
 
                 if ( !Connection->CleanupBegun ) {
-                    slot->Action |= 0x0B000000;
+                    action |= 0x0B000000;
                 }
 
                 if ( !Connection->AbortIndicated && !Connection->DisconnectIndicated ) {
-                    slot->Action |= 0x00C00000;
+                    action |= 0x00C00000;
                 }
 
-                slot->NewCount = Connection->ReferenceCount;
-                RtlGetCallersAddress( &slot->Caller, &slot->CallersCaller );
-                Connection->CurrentReferenceSlot++;
+                UPDATE_CONN( Connection, action );
             }
 #endif
             //
@@ -1051,7 +1386,9 @@ Return Value:
 
             Connection->SpecialCondition = TRUE;
 
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            if ( !EndpointLockHeld ) {
+                AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            }
         }
 
     } else {
@@ -1062,10 +1399,55 @@ Return Value:
                           Connection, Connection->ReferenceCount ));
         }
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        if ( !EndpointLockHeld ) {
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        }
     }
 
     return;
 
 } // AfdDeleteConnectedReference
+
+#if REFERENCE_DEBUG
+
+
+VOID
+AfdUpdateConnectionTrack (
+    IN PAFD_CONNECTION Connection,
+    IN LONG NewReferenceCount,
+    IN PVOID Info1,
+    IN PVOID Info2,
+    IN ULONG Action
+    )
+{
+    PAFD_REFERENCE_DEBUG slot;
+    LONG newSlot;
+
+    newSlot = InterlockedIncrement( &Connection->CurrentReferenceSlot );
+    slot = &Connection->ReferenceDebug[newSlot % MAX_REFERENCE];
+
+    slot->Info1 = Info1;
+    slot->Info2 = Info2;
+    slot->Action = Action;
+    slot->NewCount = NewReferenceCount;
+
+#if GLOBAL_REFERENCE_DEBUG
+    {
+        PAFD_GLOBAL_REFERENCE_DEBUG globalSlot;
+
+        newSlot = InterlockedIncrement( &AfdGlobalReferenceSlot );
+        globalSlot = &AfdGlobalReference[newSlot % MAX_GLOBAL_REFERENCE];
+
+        globalSlot->Info1 = Info1;
+        globalSlot->Info2 = Info2;
+        globalSlot->Action = Action;
+        globalSlot->NewCount = NewReferenceCount;
+        globalSlot->Connection = Connection;
+        KeQueryTickCount( &globalSlot->TickCounter );
+    }
+#endif
+
+} // AfdUpdateConnectionTrack
+
+#endif
 

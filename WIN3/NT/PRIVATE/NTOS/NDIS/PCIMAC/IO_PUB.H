@@ -12,6 +12,8 @@
 #define     IO_E_BADSIG     3           /* bad signature */
 #define     IO_E_BADVER     4           /* bad version */
 #define     IO_E_BADCMD     5           /* bad command opcode */
+#define		IO_E_BADIDD		6
+#define		IO_E_BADCM		7
 #define		IO_E_PENDING	0xFF		/* command is pending */
 
 /* IO commands available listed here */
@@ -27,6 +29,24 @@
 #define     IO_CMD_TRC_GET_ENT  0x307   /* get a trace entry */
 #define		IO_CMD_TRC_CREATE	0x30A	/* create trc object */
 #define		IO_CMD_TRC_DESTROY	0x30B	/* destroy trc object */
+
+#define		IO_CMD_DO_ADP_CMD		0x400
+#define		MAX_ADP_OPERATIONS		8
+#define		GET_ADP_UCHAR			1
+#define		GET_ADP_USHORT			2
+#define		GET_ADP_ULONG			3
+#define		GET_ADP_BUFFER			4
+#define		SET_ADP_UCHAR			5
+#define		SET_ADP_USHORT			6
+#define		SET_ADP_ULONG			7
+#define		SET_ADP_BUFFER			8
+
+#define		IO_CMD_DO_IDP_CMD		0x401
+#define		MAX_IDP_OPERATIONS		4
+#define		GET_IDP_IO_VALUE		1
+#define		GET_IDP_BUFFER			2
+#define		SET_IDP_IO_VALUE		3
+#define		SET_IDP_BUFFER			4
 
 #define     IO_CMD_IDD_GET_AREA		0x900   /* get idd area */
 #define		IO_CMD_IDD_RESET_AREA	0x901	/* reset idd area state */
@@ -88,9 +108,29 @@ typedef struct
 
         TRC_STATUS  trc_stat;			/* IO_CMD_TRC_GET_STAT */
         TRC_ENTRY   trc_ent;			/* IO_CMD_TRC_GET_ENT */
-
-
 		IDD_AREA	IddStat;			// IO_CMD_GET_IDD_STAT
+
+		struct
+		{
+			UCHAR	uc;
+			USHORT	us;
+			ULONG	ul;
+			ULONG	Address;
+			USHORT	Length;
+			UCHAR	Buffer[ADP_RAM_SIZE];
+		} AdpRaw;
+
+		struct
+		{
+			UCHAR	uc;
+			USHORT	us;
+			ULONG	ul;
+			USHORT	Bank;
+			USHORT	Page;
+			ULONG	Address;
+			USHORT	Length;
+			UCHAR	Buffer[IDP_RAM_PAGE_SIZE];
+		} IdpRaw;
 
     } val;
 
@@ -98,4 +138,3 @@ typedef struct
 
 #endif		/* _IO_PUB_ */
 
-

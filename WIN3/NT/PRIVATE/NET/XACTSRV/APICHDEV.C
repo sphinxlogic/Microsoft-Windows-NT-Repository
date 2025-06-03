@@ -105,8 +105,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevControl: "
-                          "NetCharDevControl failed: %X\n", status );
+            NetpKdPrint(( "XsNetCharDevControl: "
+                          "NetCharDevControl failed: %X\n", status ));
         }
     }
 
@@ -168,10 +168,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetCharDevEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -200,16 +200,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetCharDevEnum: NetCharDevEnum failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetCharDevEnum: NetCharDevEnum failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetCharDevEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -253,10 +253,10 @@ Return Value:
         );
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -341,9 +341,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetCharDevGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -375,8 +375,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetCharDevGetInfo: NetCharDevGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetCharDevGetInfo: NetCharDevGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -430,8 +430,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevGetInfo: RapConvertSingleEntry failed: "
-                      "%X\n", status );
+            NetpKdPrint(( "XsNetCharDevGetInfo: RapConvertSingleEntry failed: "
+                      "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -439,9 +439,9 @@ Return Value:
     }
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -456,14 +456,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetCharDevGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetCharDevGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetCharDevGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -540,10 +540,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevQEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetCharDevQEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -578,16 +578,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQEnum: NetCharDevQEnum failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetCharDevQEnum: NetCharDevQEnum failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevQEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetCharDevQEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -631,10 +631,10 @@ Return Value:
         );
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -746,9 +746,9 @@ Return Value:
         );
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "XsNetCharDevQGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetCharDevQGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -765,8 +765,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQGetInfo: NetCharDevQGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetCharDevQGetInfo: NetCharDevQGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -819,8 +819,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsCharDevQGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsCharDevQGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -828,9 +828,9 @@ Return Value:
     }
 
     IF_DEBUG(CHAR_DEV) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -845,14 +845,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetCharDevQGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetCharDevQGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetCharDevQGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -950,8 +950,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQPurge: "
-                          "NetCharDevQPurge failed: %X\n", status );
+            NetpKdPrint(( "XsNetCharDevQPurge: "
+                          "NetCharDevQPurge failed: %X\n", status ));
         }
     }
 
@@ -1031,8 +1031,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQPurgeSelf: "
-                          "NetCharDevQPurgeSelf failed: %X\n", status );
+            NetpKdPrint(( "XsNetCharDevQPurgeSelf: "
+                          "NetCharDevQPurgeSelf failed: %X\n", status ));
         }
     }
 
@@ -1122,8 +1122,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQSetInfo: Problem with conversion: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetCharDevQSetInfo: Problem with conversion: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1151,8 +1151,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetCharDevQSetInfo: NetCharDevQSetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetCharDevQSetInfo: NetCharDevQSetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

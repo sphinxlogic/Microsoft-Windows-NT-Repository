@@ -65,8 +65,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetNameCanonicalize: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetNameCanonicalize: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
 
@@ -108,8 +108,8 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetNameCanonicalize: "
-                          "NetNameCanonicalize failed: %X\n", status );
+            NetpKdPrint(( "XsI_NetNameCanonicalize: "
+                          "NetNameCanonicalize failed: %X\n", status ));
         }
         goto cleanup;
     }
@@ -164,8 +164,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetNameCompare: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetNameCompare: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -197,8 +197,8 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetNameCompare: NetNameCompare failed: "
-                          "%X\n", status);
+            NetpKdPrint(( "XsI_NetNameCompare: NetNameCompare failed: "
+                          "%X\n", status));
         }
     }
 
@@ -245,8 +245,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetNameValidate: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetNameValidate: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -272,7 +272,7 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetPathType: NetPathType failed: %X\n", status);
+            NetpKdPrint(( "XsI_NetPathType: NetPathType failed: %X\n", status));
         }
     }
 
@@ -322,8 +322,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetPathCanonicalize: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetPathCanonicalize: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -376,8 +376,8 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetPathCanonicalize: "
-                          "NetPathCanonicalize failed: %X\n", status);
+            NetpKdPrint(( "XsI_NetPathCanonicalize: "
+                          "NetPathCanonicalize failed: %X\n", status));
         }
         goto cleanup;
     }
@@ -439,8 +439,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetPathCompare: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetPathCompare: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -472,8 +472,8 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetPathCompare: NetPathCompare failed: "
-                          "%X\n", status);
+            NetpKdPrint(( "XsI_NetPathCompare: NetPathCompare failed: "
+                          "%X\n", status));
         }
     }
 
@@ -521,8 +521,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PATH) {
-        NetpDbgPrint( "XsI_NetPathType: header at %lx, params at %lx\n",
-                      Header, parameters );
+        NetpKdPrint(( "XsI_NetPathType: header at %lx, params at %lx\n",
+                      Header, parameters ));
     }
 
     //
@@ -548,7 +548,7 @@ Return Value:
     if ( !XsApiSuccess(status) ) {
 
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsI_NetPathType: NetPathType failed: %X\n", status);
+            NetpKdPrint(( "XsI_NetPathType: NetPathType failed: %X\n", status));
         }
     }
 

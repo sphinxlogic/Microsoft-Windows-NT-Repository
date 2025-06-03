@@ -226,7 +226,7 @@ ReturnError:
 
     RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
 
-    dprintf(DPRT_SMBBUF, ("RdrAllocateSMBBuffer %lx", Smb));
+    dprintf(DPRT_SMBBUF, ("RdrAllocateSMBBuffer %lx\n", Smb));
 
     return Smb;
 }
@@ -260,7 +260,7 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
-    dprintf(DPRT_SMBBUF, ("RdrFreeSMBBuffer %lx", Smb));
+    dprintf(DPRT_SMBBUF, ("RdrFreeSMBBuffer %lx\n", Smb));
 
     ASSERT(Smb->Signature == STRUCTURE_SIGNATURE_SMB_BUFFER);
 
@@ -301,7 +301,7 @@ Return Value:
     //  otherwise, free up the pool for the buffer.
     //
 
-    if (NumFreeSmbBuffers < RdrData.MaximumCommands) {
+    if (NumFreeSmbBuffers < MaximumCommands) {
 
         //
         //  Indicate that one more SMB buffer is freed.

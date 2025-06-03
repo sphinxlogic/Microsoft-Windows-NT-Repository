@@ -195,7 +195,8 @@ Return Value:
 BOOLEAN
 LsapAuReferenceClientContext(
     PLSAP_CLIENT_REQUEST ClientRequest,
-    BOOLEAN RemoveContext
+    BOOLEAN RemoveContext,
+    PBOOLEAN TrustedClient
     )
 
 /*++
@@ -304,6 +305,9 @@ Return Value:
             }
 
             RtlReleaseResource(&LsapAuClientContextLock);
+
+            *TrustedClient = Context->TrustedClient;
+
             return(TRUE);
 
         }

@@ -25,18 +25,36 @@
 #include <fcntl.h>
 #include <io.h>
 #include <string.h>
+
+#define MAXFILENAME 256
+
+
 CHAR szPropertyName [] = "FILENAME";  // Name of the File name property list item
 
 
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+FileExists(
+   PSTR pch
+   )
 
-/*+-------------------------------------------------------------------------+
-  | FileExists()                                                            |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL FileExists(PSTR pch) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
         int fh;
 
-        if ((fh = open(pch, O_RDONLY)) < 0)
+        if ((fh = _open(pch, O_RDONLY)) < 0)
              return(FALSE);
 
         _lclose(fh);
@@ -44,21 +62,44 @@ BOOL FileExists(PSTR pch) {
 } // FileExists
 
 
-/*+-------------------------------------------------------------------------+
-  | GetFileName()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-VOID APIENTRY GetFileName(HWND hwnd, PSTR pstr) {
-    OPENFILENAME ofn;
-    CHAR szFilterSpec [128] =                       // file type filters
-             "Log Files(*.LOG)\0*.LOG\0";
+/////////////////////////////////////////////////////////////////////////
+VOID APIENTRY 
+GetFileName(
+   HWND hwnd, 
+   PSTR pstr
+   )
 
-    #define MAXFILENAME 256
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+    CHAR szFmt[128];
+    OPENFILENAME ofn;
+    CHAR szFilterSpec[128];
+    CHAR szDefExt[10];
     CHAR szFileName[MAXFILENAME];
     CHAR szFileTitle[MAXFILENAME];
 
     strcpy(szFileName, "");   // these need be NULL
     strcpy(szFileTitle, "");
+    memset(&ofn,0,sizeof(ofn)) ;
+    memset(szFilterSpec,0,sizeof(szFilterSpec)) ;
+
+    LoadString (hInst, (WORD)IDS_OPENTEXT, 
+                (LPSTR)szFmt, sizeof (szFmt));
+    LoadString (hInst, (WORD)IDS_OPENFILTER,
+                (LPSTR)szFilterSpec, sizeof (szFilterSpec));
+
 
     ofn.lStructSize       = sizeof(OPENFILENAME);
     ofn.hwndOwner         = hwnd;
@@ -71,8 +112,10 @@ VOID APIENTRY GetFileName(HWND hwnd, PSTR pstr) {
     ofn.lpstrInitialDir   = NULL;
     ofn.lpstrFileTitle    = szFileTitle;
     ofn.nMaxFileTitle     = MAXFILENAME;
-    ofn.lpstrTitle        = "Open TextFiles";
-    ofn.lpstrDefExt       = "LOG";
+    ofn.lpstrTitle        = szFmt;
+
+    LoadString (hInst, (WORD)IDS_DEFEXT, (LPSTR)szDefExt, sizeof (szDefExt));
+    ofn.lpstrDefExt       = szDefExt;
     ofn.Flags             = OFN_FILEMUSTEXIST;
     
     // Use standard open dialog

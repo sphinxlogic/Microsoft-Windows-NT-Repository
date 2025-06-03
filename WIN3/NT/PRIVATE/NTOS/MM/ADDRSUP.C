@@ -1194,7 +1194,7 @@ Return Value:
         NextNode = MiGetNextNode (Node);
 
         if (NextNode != (PMMADDRESS_NODE)NULL) {
-            if (SizeOfRange <
+            if (SizeOfRange <=
                 ((ULONG)NextNode->StartingVa -
                          (ULONG)MI_ROUND_TO_SIZE(Node->EndingVa, Alignment))) {
 
@@ -1222,7 +1222,7 @@ Return Value:
             if ((((ULONG)Node->EndingVa + X64K) <
                     (ULONG)MM_HIGHEST_VAD_ADDRESS)
                         &&
-                (SizeOfRange <
+                (SizeOfRange <=
                     ((ULONG)MM_HIGHEST_VAD_ADDRESS -
                          (ULONG)MI_ROUND_TO_SIZE(Node->EndingVa, Alignment)))) {
 
@@ -1344,7 +1344,7 @@ Return Value:
             //
 
             if (PreviousNode->EndingVa < OptimalStart) {
-                if (SizeOfRange <
+                if (SizeOfRange <=
                     ((ULONG)Node->StartingVa -
                     (ULONG)MI_ROUND_TO_SIZE(PreviousNode->EndingVa,
                                             Alignment))) {
@@ -1382,7 +1382,7 @@ Return Value:
             //
 
             if (Node->StartingVa > MM_LOWEST_USER_ADDRESS) {
-                if (SizeOfRange <
+                if (SizeOfRange <=
                     ((ULONG)Node->StartingVa - (ULONG)MM_LOWEST_USER_ADDRESS)) {
 
                     //

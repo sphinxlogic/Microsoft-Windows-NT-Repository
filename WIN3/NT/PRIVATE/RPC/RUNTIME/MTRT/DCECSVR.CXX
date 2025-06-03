@@ -19,4 +19,5 @@ Revision History:
 
 --*/
 
+#include <precomp.hxx>
 #include <dcecmmn.cxx>

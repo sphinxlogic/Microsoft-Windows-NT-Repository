@@ -295,4 +295,3 @@ Return Value:
 
     return ExceptionContinueSearch;
 }
-

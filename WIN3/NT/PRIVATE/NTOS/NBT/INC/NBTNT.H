@@ -12,19 +12,18 @@
 #ifndef VXD
 #include <ntos.h>
 #include <status.h>
-#include <ntdef.h>
 #include <ntstatus.h>
-#include <ntrtl.h>
 #include <tdikrnl.h>
 #include <tdi.h>
 #include <sockets/netinet/in.h> // htons, ntohs
 #include <windef.h>
+#include <stdio.h>
 #include <nb30.h>
-#include "zwapi.h"
+#include <zwapi.h>
 
 #else
 
-#include <oscfg.h>
+#include <oscfgnbt.h>
 #include <cxport.h>
 #define  __int64 double
 #include <windef.h>
@@ -58,6 +57,7 @@ typedef PVOID PDEVICE_OBJECT ;
 #define STATUS_DUPLICATE_NAME           ((NTSTATUS)0xC00000BDL)
 #define STATUS_BAD_NETWORK_PATH         ((NTSTATUS)0xC00000BEL)
 #define STATUS_REMOTE_NOT_LISTENING     ((NTSTATUS)0xC00000BCL)
+#define STATUS_CONNECTION_REFUSED       ((NTSTATUS)0xC0000236L)
 #define STATUS_INVALID_PARAMETER        ((NTSTATUS)0xC000000DL)
 #define STATUS_UNEXPECTED_NETWORK_ERROR ((NTSTATUS)0xC00000C4L)
 #define STATUS_NOT_SUPPORTED            ((NTSTATUS)0xC00000BBL)
@@ -269,4 +269,4 @@ TdiDefaultSendPossibleHandler (
 
 #define FILE_DEVICE_NBT  0x32
 #endif
-
+

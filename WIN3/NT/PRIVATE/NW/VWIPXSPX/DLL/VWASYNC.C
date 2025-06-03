@@ -88,14 +88,32 @@ Return Value:
 
 {
     BOOL fOperationPerformed = FALSE ;
+    static int n = 1 ;
+
     UNREFERENCED_PARAMETER(Parameters);
 
     while (TRUE) 
     {
-        if (!fOperationPerformed)
-            Sleep(ONE_TICK);
+        //
+        // we will always yield in this loop to be friendly to others,
+        // but occasionally we will forcefully do a non zero sleep for
+        // lower priority threads to run. 
+        //
+        if ((n % 100) == 0)
+        {
+            Sleep(ONE_TICK) ;
+            n = 1 ;
+        }
+        if (!fOperationPerformed && ((n % 4) == 0))
+        {
+            Sleep(10) ;
+            n++ ;
+        }
         else
+        {
             Sleep(0) ;
+            n++ ;
+        }
 
         ++AesTickCount;
         ScanTimerList();

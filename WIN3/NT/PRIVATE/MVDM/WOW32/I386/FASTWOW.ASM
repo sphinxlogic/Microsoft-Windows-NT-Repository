@@ -64,6 +64,10 @@ endif
 ;   If ON All APIs performand with Try Except (decreases performance)
 FASTCALL equ 1
 
+        EXTRN   __imp__CurrentMonitorTeb:DWORD
+        EXTRN   __imp__ExpVdmTib:DWORD
+        EXTRN   __imp__FlatAddress:DWORD
+
 _TEXT   SEGMENT PARA PUBLIC 'CODE'
         ASSUME  DS:NOTHING, ES:NOTHING, SS:FLAT, FS:NOTHING, GS:NOTHING
 
@@ -91,14 +95,18 @@ endif
 _TEXT   ENDS
 
 _DATA   SEGMENT  DWORD PUBLIC 'DATA'
-        extrn _ExpVdmTib:Dword
-        extrn _ExpLdt:Dword
         extrn _aw32WOW:Dword
-        extrn _FlatAddress:Dword
-        extrn _CurrentMonitorTeb:Dword
+
+        public _WowpLockPrefixTable
+_WowpLockPrefixTable    label dword
+        dd offset FLAT:_wowlock1
+        dd offset FLAT:_wowlock2
+        dd offset FLAT:_wowlock3
+        dd offset FLAT:_wowlock4
+        dd offset FLAT:_wowlock5
+        dd offset FLAT:_wowlock6
+        dd 0
 _DATA   ENDS
-
-
 
 _DATA   SEGMENT
 
@@ -108,10 +116,6 @@ _savess16 DW  0
 
 _saveip16 DD  0
 _savecs16 DD  0
-
-FSGS16      LABEL   DWORD
-_savefs16 DW  0
-_savegs16 DW  0
 
 _saveebp32    DD    0
 
@@ -147,26 +151,6 @@ public  Stack16
 ; It also saves a jmp when returning to kernel.
 ;
 
-
-regress1 equ    1
-slow3    equ    1
-locks    equ    0
-
-
-;
-; The following macros allow us to replace nops with locks on an MP machine
-;
-
-??LockNumber=0
-LOCKIT  macro
-??LockNumber=??LockNumber+1
-        lck    %??LockNumber
-        endm
-
-lck     macro n
-Lck&n:
-        nop
-        endm
 
 _TEXT   SEGMENT
 
@@ -204,32 +188,30 @@ cPublicProc _WOWBopEntry,0
         mov     _saveecx,ecx                    ; the high parts of the 32 bit
         mov     _saveedx,edx                    ; registers.   [LATER] this
                                                 ; should be moved to fame
-if slow3
         pushfd                                  ; Save them flags
-endif
 
-        mov     ebx,dword ptr [_ExpVdmTib]      ; get pointer to contexts
+        ; we make here the assumption that the c compiler always keeps the 
+        ; direction flag clear. We clear it here instead of restoring it
+        ; from the context for performance
+        cld
+
+        mov     ebx, dword ptr [__imp__ExpVdmTib]      ; get pointer to contexts
 
         ;
         ; start saving some of the 16-bit context
         ;
 
-if slow3
         ; Interrupts are always enabled in WOW, but if we are trying
         ; to simulate the fact that they are disabled, we need to
         ; turn them off in the structure.
-
-        ; [LATER] only need to update CsEFlags if interrupts pending
 
         pop     eax
         mov     edx,dword ptr ds:FIXED_NTVDMSTATE_LINEAR ; Get simulated bits
         or      edx,NOT VDM_VIRTUAL_INTERRUPTS
         and     eax,edx                 ; Pass on interrupt bit if it was on
         mov     dword ptr [ebx].VtVdmContext.CsEFlags,eax
-endif
 
         ; Save the calling address
-        ; we shouldn't have to do this every time.
         ; this address remains constant once krnl286 has booted.
         ; these three instructions are cheaper than saving it
         ; [LATER] this can be reduced. how?
@@ -249,10 +231,6 @@ wbe10:
         lss     esp, [ebx].VtMonitorContext.CsEsp
 
         ; Now running on Monitor stack
-
-        ; Save the 16-bit FS, GS segregs
-        push    fs
-        push    gs
 
         ; save hiword of ESI, EDI
         ; note that di has already been trashed
@@ -276,10 +254,10 @@ wbe10:
         mov     ebp, _saveebp32
 
         ; Update the CURRENTPTD->vpStack
-        mov     eax,fs:[018h]
-        mov     edx,[eax+0708h]
+        mov     eax,fs:[PcTeb]
+        mov     ecx,[eax+TbWOW32Reserved]
         mov     esi, [Stack16]
-        mov     dword ptr [edx],esi         ; PTD->vpStack = vpCurrentStack
+        mov     dword ptr [ecx],esi         ; PTD->vpStack = vpCurrentStack
 
         ; Convert the 16:16 SS:SP pointer into a 32-bit flat pointer
         ; DI = 16-bit SS, put there by kernel
@@ -287,13 +265,16 @@ wbe10:
         and     esi, 0FFFFh                 ; esi = 16-bit sp
         and     edi, 0FFFFh                 ; remove junk from high word
         shr     edi, 3                      ; remove ring and table bits
-        mov     edx, _FlatAddress
+
+        mov     edx, dword ptr [__imp__FlatAddress]
         add     esi, dword ptr [edx+edi*4]
 
         ; esi is now a flat pointer to the frame
 
 ifdef DEBUG
-        stdCall _logargs,<3,esi>
+	push	ecx
+	stdCall _logargs,<3,esi>
+	pop	ecx
 endif
 
 
@@ -303,7 +284,7 @@ endif
 
         ; esi = pFrame
 if NO_W32TRYCALL
-        mov     [ebx].VtMonitorContext.CsEsp, esp
+        mov     [ecx].WtdFastWowEsp, esp
         test    edx, 0ffff0000h
         jnz     short @f
    ifdef FASTCALL
@@ -331,10 +312,10 @@ endif
 ;   non-volatile registers may be destroyed if it is returned via
 ;   try-except handler.
 ;
-        mov     ebx,[_CurrentMonitorTeb]
-        mov     ecx,fs:[018h]
-        mov     [ebx],ecx                   ; Tell NTVDM which is the active thread
-        mov     ecx,[ecx+0708h]
+        mov     ebx, dword ptr [__imp__CurrentMonitorTeb]
+        mov     ecx,fs:[PcTeb]
+        mov     [ebx], ecx  ; Tell NTVDM which is the active thread
+        mov     ecx,[ecx+TbWOW32Reserved]
 
 ifdef DEBUG
         push    ecx
@@ -343,7 +324,7 @@ ifdef DEBUG
         movzx   esi, word ptr [ecx]         ; offset
         movzx   edi, word ptr [ecx+2]       ; selector
         shr     edi, 3                      ; remove ring and table bits
-        mov     ebx, _FlatAddress
+        mov     ebx, dword ptr [__imp__FlatAddress]
         add     esi, dword ptr [ebx+edi*4]  ; esi = offset + base
 
         stdCall _logreturn,<5, esi, eax>
@@ -351,7 +332,10 @@ ifdef DEBUG
         pop     eax
         pop     ecx
 endif
-        mov     ebx,dword ptr [_ExpVdmTib]
+        mov     ebx, dword ptr [__imp__ExpVdmTib]
+
+        push    dword ptr [ebx].VtVdmContext.CsEFlags   ;get 16-bit flags
+        popfd   ; in case the direction flag was set
 
 
         test    dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_INTERRUPT_PENDING
@@ -364,11 +348,8 @@ wl40:
         pop     edi
         pop     esi
 
-        ; restore 16-bit fs, gs
-        pop     gs
-        pop     fs
-
-        mov     dword ptr [ebx].VtMonitorContext.CsEsp,esp
+        mov     [ebx].VtMonitorContext.CsEsp,esp
+        mov     [ecx].WtdFastWowEsp,esp
 
         ; return to vdm stack
         push    word ptr [ecx+2]
@@ -396,9 +377,8 @@ wl40:
         ;
 wl60:   ; Interrupts are disabled, turn them off in the virtual flags
         ;
-
-        LOCKIT
-        and        dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
+_wowlock1:
+        lock and        dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
         jmp     wl40
 
         ;
@@ -410,9 +390,8 @@ wl70:   ; Interrupt came in, dispatch it
 
         test    [ebx].VtVdmContext.CsEFlags,dword ptr EFLAGS_INTERRUPT_MASK
         jz      wl60
-
-        LOCKIT
-        or         dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_VIRTUAL_INTERRUPTS
+_wowlock2:
+        lock or         dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_VIRTUAL_INTERRUPTS
 
 
         push    eax     ; save API return value
@@ -440,9 +419,8 @@ wl70:   ; Interrupt came in, dispatch it
         stdCall _DispatchInterrupts
         test    dword ptr [ebx].VtVdmContext.CsEFlags,VDM_VIRTUAL_INTERRUPTS
         jnz     wl80
-
-        LOCKIT
-        and dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
+_wowlock3:
+        lock and dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
 
 wl80:   pop     ecx     ; points to ptd->vpStack
         pop     ebx
@@ -455,10 +433,8 @@ wl80:   pop     ecx     ; points to ptd->vpStack
         pop     edi
         pop     esi
 
-        pop     gs
-        pop     fs
-
         mov     dword ptr [ebx].VtMonitorContext.CsEsp,esp
+        mov     [ecx].WtdFastWowEsp,esp
 
         ;
         ; switch to 16-bit stack (probably an interrupt stack)
@@ -509,12 +485,12 @@ cPublicProc _PostExceptionHandler,0
 ;       Fixed up Exception registration pointer (just in case)
 ;
 
-        mov     eax, fs:[0]
+        mov     eax, fs:[PcExceptionList]
 peh00:
         cmp     eax, esp
         jb      short @f
 
-        mov     fs:[0], eax
+        mov     fs:[PcExceptionList], eax
         xor     eax, eax
         jmp     ApiReturnAddress
 
@@ -550,7 +526,7 @@ stdENDP _PostExceptionHandler
 cPublicProc _W32SetExceptionContext,1
         assume ds:_DATA
 
-        mov     ecx,dword ptr [_ExpVdmTib]
+        mov     ecx, dword ptr [__imp__ExpVdmTib]
         mov     edx, [esp+4]            ; (edx) = Context Record
         mov     ecx, dword ptr [ecx].VtMonitorContext.CsEsp
         mov     [edx].CsEsp, ecx
@@ -584,16 +560,17 @@ stdENDP _W32SetExceptionContext
 cPublicProc _IsW32WorkerException, 0
         assume  ds:_DATA
 
-        mov     ecx,dword ptr [_ExpVdmTib]
-        mov     eax, dword ptr [ecx].VtMonitorContext.CsEsp
+        mov     ecx, fs:[PcTeb]
+        mov     ecx, [ecx].TbWOW32Reserved
+        mov     eax, dword ptr [ecx].WtdFastWowEsp
+        or      eax, eax
+        jz      @f            ; FastWowEsp is zero, not worker exception
         mov     edx, [eax-4]
         cmp     edx, offset FLAT:ApiReturnAddress
-        jne     short @f
-
-        mov     ax, 1
-        stdRET  _IsW32WorkerException
-@@:     xor     eax, eax
-        stdRET  _IsW32WorkerException
+        ; eax is still monitor esp, so it's nonzero
+        je      short @f
+        xor     eax, eax
+@@:     stdRET  _IsW32WorkerException
 
 stdENDP _IsW32WorkerException
 
@@ -637,28 +614,31 @@ cPublicProc _FastWOWCallbackCall,0
         push    edi
         push    ebx
 
-        mov     ebx,[_ExpVdmTib]
+        mov     ebx, dword ptr [__imp__ExpVdmTib]
 
         ; translate the interrupt flag to the virtual interrupt flag
 
         test    [ebx].VtVdmContext.CsEFlags,dword ptr EFLAGS_INTERRUPT_MASK
         jz      fe10
-
-        LOCKIT
-        or dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_VIRTUAL_INTERRUPTS
+_wowlock4:
+        lock or dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_VIRTUAL_INTERRUPTS
 
         test    dword ptr ds:FIXED_NTVDMSTATE_LINEAR,dword ptr VDM_INTERRUPT_PENDING
         jnz     fe70
 
         jmp     fe20
 
-fe10:   LOCKIT
-        and dword ptr ds:FIXED_NTVDMSTATE_LINEAR, NOT VDM_VIRTUAL_INTERRUPTS
+fe10:
+_wowlock5:
+        lock and dword ptr ds:FIXED_NTVDMSTATE_LINEAR, NOT VDM_VIRTUAL_INTERRUPTS
 fe20:
 
         mov     _saveebp32, ebp
 
+        mov     ecx, fs:[PcTeb]
+        mov     ecx, [ecx].TbWOW32Reserved
         mov     [ebx].VtMonitorContext.CsEsp,esp
+        mov     [ecx].WtdFastWowEsp,esp
 
         pushfd
         pop     ecx
@@ -669,6 +649,10 @@ fe20:
         push    word ptr 0
         push    _savesp16
         lss     esp, [esp]
+
+	; before going to 16 bit, patch ebp to zero the high bits
+	; hijaak pro app is relying upon hiword of ebp being 0
+	and     ebp, 0ffffh
 
         ; put flags, cs, and ip onto the 16-bit stack so we can iret to krnl286
 
@@ -706,15 +690,18 @@ fe70:   ; Interrupt pending, dispatch it
         test    dword ptr [ebx].VtVdmContext.CsEFlags,VDM_VIRTUAL_INTERRUPTS
         jnz     fe80
 
-        LOCKIT
-        and dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
+_wowlock6:
+        lock and dword ptr ds:FIXED_NTVDMSTATE_LINEAR,NOT VDM_VIRTUAL_INTERRUPTS
 
 fe80:   pop     eax
         pop     ebx
 
         mov     _saveebp32, ebp
 
+        mov     ecx, fs:[PcTeb]
+        mov     ecx, [ecx].TbWOW32Reserved
         mov     [ebx].VtMonitorContext.CsEsp,esp
+        mov     [ecx].WtdFastWowEsp,esp
 
         pushfd
         pop     ecx
@@ -727,6 +714,10 @@ fe80:   pop     eax
         lss     esp, [esp]
 
         ; put flags, cs, and ip onto the 16-bit stack so we can iret to krnl286
+
+	; before interrupts are dispatched, patch ebp to zero the high bits
+	; hijaak pro app is relying upon hiword of ebp being 0
+	and     ebp, 0ffffh
 
         push    dword ptr [ebx].VtVdmContext.CsEflags
         push    dword ptr [ebx].VtVdmContext.CsSegCs
@@ -765,7 +756,7 @@ cPublicProc _FastWOWCallbackRet,0
         mov     ebx,KGDT_R3_DATA OR RPL_MASK
         mov     ds,bx
         assume ds:_DATA
-        mov     ebx,[_ExpVdmTib]
+        mov     ebx, dword ptr [__imp__ExpVdmTib]
         pushfd
         pop     eax
         mov     dword ptr [ebx].VtVdmContext.CsEFlags,eax
@@ -787,8 +778,8 @@ fwcbr10:
 
         mov     ecx, KGDT_R3_TEB OR RPL_MASK
         mov     fs, cx
-        mov     eax, fs:[18h]
-        mov     ecx, [eax+708h]
+        mov     eax, fs:[PcTeb]
+        mov     ecx, [eax+TbWOW32Reserved]
 
         mov     _savess16,ss
         mov     _savesp16,sp
@@ -798,10 +789,9 @@ fwcbr10:
 
         movzx   esi,si
 
-if regress1
         mov     dword ptr [ebx].VtVdmContext.CsEsp, esi
         mov     word ptr [ebx].VtVdmContext.CsSegSs, ss
-endif
+
         ; switch Stacks
 .errnz  (CsEsp + 4 - CsSegSS)
         lss     esp, [ebx].VtMonitorContext.CsEsp
@@ -894,36 +884,6 @@ cPublicProc _FastBopSetVDMStack,1
         stdRET  _FastBopSetVDMStack
 
 stdENDP _FastBopSetVDMStack
-
-;++
-;
-;   Routine Description:
-;
-;       This routine replaces some nops with locks on an MP machine.
-;       This is necessary for correct operation.  This routine MUST
-;       be at the end of fastwow.asm
-;
-
-        assume  DS:FLAT
-cPublicProc _FixLocks,0
-
-??FixedLocks = 0
-fixlock macro n
-        mov     byte ptr [Lck&n],al
-        endm
-
-        mov     al,0f0h
-        ;
-        ; Replace all of the "lock" nops with actual lock
-        ;
-        REPT ??LockNumber
-        ??FixedLocks = ??FixedLocks + 1
-        fixlock         %??FixedLocks
-        ENDM
-
-        stdRET  _FixLocks
-
-stdENDP _FixLocks
 
 _TEXT   ends
 

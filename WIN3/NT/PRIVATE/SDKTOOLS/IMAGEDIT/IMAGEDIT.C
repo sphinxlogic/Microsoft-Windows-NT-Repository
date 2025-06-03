@@ -74,14 +74,18 @@ MMain(hInstance, hPrevInstance, lpCmdLine, nCmdShow)
         return FALSE;
 
     while (GetMessage(&msg, NULL, 0, 0)) {
+#ifndef JAPAN // enabled jump key(i.e. F7-F10)
         if (!ghwndColor || !IsDialogMessage(ghwndColor, &msg)) {
             if (!ghwndPropBar || !IsDialogMessage(ghwndPropBar, &msg)) {
+#endif
                 if (!TranslateAccelerator(ghwndMain, haccelTbl, &msg)) {
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
+#ifndef JAPAN
             }
         }
+#endif
     }
 
     DBGStackReport(FALSE);
@@ -324,7 +328,7 @@ STATICFN BOOL NEAR InitInstance(
     lpfnMsgFilterHookFunc =
             MakeProcInstance((FARPROC)MsgFilterHookFunc, ghInst);
     ghhkMsgFilter =
-            SetWindowsHook(WH_MSGFILTER, lpfnMsgFilterHookFunc);
+            SetWindowsHook(WH_MSGFILTER, (HOOKPROC)lpfnMsgFilterHookFunc);
 
     if (!ReadWindowPos(szAppPos, &x, &y, &cx, &cy, &fMaximized)) {
         x = 2 * iScrollBarWidth;
@@ -811,7 +815,7 @@ STATICFN VOID NEAR WriteEnv(VOID)
                         gaie[i].pstrKeyName, NULL, ids(IDS_IMAGEDITINI));
             }
             else {
-                itoa(*gaie[i].pnVar, szBuf, 10);
+                _itoa(*gaie[i].pnVar, szBuf, 10);
                 WritePrivateProfileString(ids(IDS_APPNAME),
                         gaie[i].pstrKeyName, szBuf, ids(IDS_IMAGEDITINI));
             }
@@ -821,7 +825,7 @@ STATICFN VOID NEAR WriteEnv(VOID)
     /*
      * Save the current screen color.
      */
-    ltoa((LONG)grgbScreen, szBuf, 10);
+    _ltoa((LONG)grgbScreen, szBuf, 10);
     WritePrivateProfileString(ids(IDS_APPNAME),
             szrgbScreen, szBuf, ids(IDS_IMAGEDITINI));
 }
@@ -920,7 +924,7 @@ STATICFN VOID NEAR CleanUp(VOID)
     ImageLinkFreeList();
 
     if (lpfnMsgFilterHookFunc) {
-        UnhookWindowsHook(WH_MSGFILTER, lpfnMsgFilterHookFunc);
+        UnhookWindowsHook(WH_MSGFILTER, (HOOKPROC)lpfnMsgFilterHookFunc);
         FreeProcInstance(lpfnMsgFilterHookFunc);
     }
 
@@ -930,4 +934,111 @@ STATICFN VOID NEAR CleanUp(VOID)
     if (lpfnColorDlgProc)
         FreeProcInstance((FARPROC)lpfnColorDlgProc);
 }
-
+
+#ifdef DBCS
+/****************************************************************************
+    My_mbschr:  strchr() DBCS version
+****************************************************************************/
+unsigned char * _CRTAPI1 My_mbschr(
+    unsigned char *psz, unsigned short uiSep)
+{
+    while (*psz != '\0' && *psz != uiSep) {
+        psz = CharNext(psz);
+    }
+    if (*psz == '\0' && uiSep != '\0') {
+        return NULL;
+    } else {
+        return psz;
+    }
+}
+/****************************************************************************
+    My_mbstok:  strtok() DBCS version
+****************************************************************************/
+unsigned char * _CRTAPI1 My_mbstok(
+    unsigned char *pszSrc, unsigned char *pszSep)
+{
+    static char *pszSave = NULL;
+    char *pszHead;
+    char *psz;
+
+    if (pszSrc == NULL) {
+        if (pszSave == NULL) {
+            return NULL;
+        } else {
+            psz = pszSave;
+        }
+    } else {
+        psz = pszSrc;
+    }
+
+    /*********************************************/
+    /* Skip delimiters to find a head of a token */
+    /*********************************************/
+    while (*psz) {
+        if (IsDBCSLeadByte(*psz)) {
+            break;
+        } else if (NULL == My_mbschr(pszSep, *psz)) {
+            break;
+        }
+        psz++;
+    }
+    if (*psz == '\0') {
+        //No more token
+        return (pszSave = NULL);
+    }
+    pszHead = psz;
+
+    /******************************/
+    /* Search a Tail of the token */
+    /******************************/
+    while (*psz) {
+        if (IsDBCSLeadByte(*psz)) {
+            psz += 2;
+            continue;
+        } else if (NULL != My_mbschr(pszSep, *psz)) {
+            break;
+        }
+        psz++;
+    }
+    if (*psz == '\0') {
+        pszSave = NULL;
+    } else {
+        //Found next delimiter
+        pszSave = psz + 1;
+        *psz = '\0';
+    }
+    return pszHead;
+}
+/****************************************************************************
+    My_mbsncat:
+****************************************************************************/
+unsigned char * _CRTAPI1 My_mbsncat(
+    unsigned char *psz1, const unsigned char *psz2, size_t nLength)
+{
+    unsigned char *pszSv = psz1;
+    int nLen = (int)nLength;
+
+    while ('\0' != *psz1) {
+        psz1++;
+    }
+
+    while (0 < nLen) {
+        if (*psz2 == '\0') {
+            *psz1++ = '\0';
+            nLen--;
+        } else if (IsDBCSLeadByte(*psz2)) {
+            if (nLen == 1) {
+                *psz1 = '\0';
+            } else {
+                *psz1++ = *psz2++;
+                *psz1++ = *psz2++;
+            }
+            nLen -= 2;
+        } else {
+            *psz1++ = *psz2++;
+            nLen--;
+        }
+    }
+    return pszSv;
+}
+#endif //DBCS

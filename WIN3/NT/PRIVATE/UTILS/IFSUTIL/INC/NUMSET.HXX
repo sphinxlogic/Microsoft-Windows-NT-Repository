@@ -24,6 +24,15 @@ Author:
 #include "bigint.hxx"
 #include "list.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 DECLARE_CLASS( NUMBER_SET );
 
 class NUMBER_EXTENT : public OBJECT {
@@ -42,26 +51,45 @@ DEFINE_POINTER_TYPES(NUMBER_EXTENT);
 
 class NUMBER_SET : public OBJECT {
 
-	public:
+        public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( NUMBER_SET );
 
         VIRTUAL
+        IFSUTIL_EXPORT
         ~NUMBER_SET(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Add(
             IN  BIG_INT Number
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        AddStart(
+            IN  BIG_INT Number
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        AddNext(
+            IN  BIG_INT Number
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Add(
             IN  BIG_INT Start,
@@ -69,18 +97,43 @@ class NUMBER_SET : public OBJECT {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Add(
             IN  PCNUMBER_SET    NumberSet
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        CheckAndAdd(
+            IN  BIG_INT         Number,
+            OUT PBOOLEAN        Duplicate
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Remove(
             IN  BIG_INT Number
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        RemoveAll(
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
+        BOOLEAN
+        CheckAndRemove(
+            IN  BIG_INT         Number,
+            OUT PBOOLEAN        DoesExists
+            );
+
+        NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Remove(
             IN  BIG_INT Start,
@@ -88,6 +141,7 @@ class NUMBER_SET : public OBJECT {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Remove(
             IN  PCNUMBER_SET    NumberSet
@@ -99,12 +153,14 @@ class NUMBER_SET : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BIG_INT
         QueryNumber(
             IN  BIG_INT Index
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         DoesIntersectSet(
             IN  BIG_INT Start,
@@ -117,6 +173,7 @@ class NUMBER_SET : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         QueryDisjointRange(
             IN  ULONG       Index,
@@ -125,6 +182,7 @@ class NUMBER_SET : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         QueryContainingRange(
             IN  BIG_INT     Number,
@@ -134,10 +192,10 @@ class NUMBER_SET : public OBJECT {
 
     private:
 
-		NONVIRTUAL
-		VOID
- 		Construct (
- 			);
+                NONVIRTUAL
+                VOID
+                Construct (
+                        );
 
         NONVIRTUAL
         VOID

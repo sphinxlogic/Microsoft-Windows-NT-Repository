@@ -46,10 +46,26 @@ VOID ST_StartOperation(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900 ;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
      memset( stats_ptr, 0, sizeof( STATS ) ) ;
-     time( &t_time ) ;
      ST_SetOPStartTime( stats_ptr, t_time ) ;
 
      return ;
@@ -68,9 +84,25 @@ VOID ST_EndOperation(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
-     time( &t_time ) ;
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
      ST_SetOPEndTime( stats_ptr, t_time ) ;
 
      return ;
@@ -89,10 +121,27 @@ VOID ST_StartOperationIdle(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
+
      if( ST_OPIdleLevel( stats_ptr ) == 0 ) {
-          time( &t_time ) ;
           ST_SetOPStartIdle( stats_ptr, t_time ) ;
      }
      else {
@@ -115,10 +164,26 @@ VOID ST_EndOperationIdle(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
      if( ST_OPIdleLevel( stats_ptr ) == 1 ) {
-          time( &t_time ) ;
           ST_AddOPIdle( stats_ptr, ( UINT32 )( t_time - ST_GetOPStartIdle( stats_ptr ) ) ) ;
           ST_SetOPStartIdle( stats_ptr, 0L ) ;
      }
@@ -141,10 +206,27 @@ VOID ST_StartBackupSet(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
+
      memset( stats_ptr, 0, sizeof( STATS ) ) ;
-     time( &t_time ) ;
      ST_SetBSStartTime( stats_ptr, t_time ) ;
 
      return ;
@@ -163,9 +245,26 @@ VOID ST_EndBackupSet(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
-     time( &t_time ) ;
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
+
      ST_SetBSEndTime( stats_ptr, t_time ) ;
 
      return ;
@@ -183,10 +282,27 @@ VOID ST_StartBackupSetIdle(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
+
      if( ST_BSIdleLevel( stats_ptr ) == 0 ) {
-          time( &t_time ) ;
           ST_SetBSStartIdle( stats_ptr, t_time ) ;
      }
      else {
@@ -211,10 +327,27 @@ VOID ST_EndBackupSetIdle(
 
 STATS_PTR stats_ptr )
 {
+     SYSTEMTIME loc_time ;
+     struct tm dos_time ;
      time_t t_time ;
 
+     GetLocalTime( &loc_time ) ;
+
+     dos_time.tm_sec = loc_time.wSecond;
+     dos_time.tm_min = loc_time.wMinute ;
+     dos_time.tm_hour = loc_time.wHour ;
+     dos_time.tm_mday = loc_time.wDay ;
+     dos_time.tm_mon  = loc_time.wMonth -1;
+     dos_time.tm_year = loc_time.wYear -1900;
+     dos_time.tm_isdst= -1 ;
+
+     t_time = mktime( &dos_time ) ;
+     if ( t_time == -1 ) {
+          t_time = 0 ;
+     }
+
+
      if( ST_BSIdleLevel( stats_ptr ) == 1 ) {
-          time( &t_time ) ;
           ST_AddBSIdle( stats_ptr, ( UINT32 )( t_time - ST_GetBSStartIdle( stats_ptr ) ) ) ;
           ST_SetBSStartIdle( stats_ptr, 0L ) ;
      }

@@ -50,7 +50,7 @@ Revision History:
 
 #define MAX_DIR_NAME_SIZE       ( (PATHLEN+1) * sizeof( TCHAR ) )
 #define MAX_LIST_SIZE           ( 512         * sizeof( TCHAR ) )  // arbitrary
-#define MAX_MASTER_NAME_SIZE    ( (UNCLEN+1)  * sizeof( TCHAR ) )
+#define MAX_MASTER_NAME_SIZE    ( (MAX_PATH+1)* sizeof( TCHAR ) )
 #define MAX_PATH_SIZE           ( (PATHLEN+1) * sizeof( TCHAR ) )
 #define MAX_USER_NAME_SIZE      ( (UNLEN+1)   * sizeof( TCHAR ) )
 

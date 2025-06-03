@@ -291,9 +291,41 @@ Return Value:
             //
 
             //
+            // If this file object has a completion port associated with it
+            // and this request has a non-NULL APC context then a completion
+            // message needs to be queued.
+            //
+
+            if (fileObject->CompletionContext && ARGUMENT_PRESENT( ApcContext )) {
+                PIOP_MINI_COMPLETION_PACKET miniPacket = NULL;
+
+                try {
+                    miniPacket = ExAllocatePoolWithQuotaTag( NonPagedPool,
+                                                             sizeof( *miniPacket ),
+                                                             ' pcI' );
+                } except( EXCEPTION_EXECUTE_HANDLER ) {
+                    NOTHING;
+                }
+
+                if (miniPacket) {
+                    miniPacket->TypeFlag = 0xffffffff;
+                    miniPacket->KeyContext = fileObject->CompletionContext->Key;
+                    miniPacket->ApcContext = ApcContext;
+                    miniPacket->IoStatus = localIoStatus.Status;
+                    miniPacket->IoStatusInformation = localIoStatus.Information;
+
+                    KeInsertQueue( (PKQUEUE) fileObject->CompletionContext->Port,
+                                   &miniPacket->ListEntry );
+                } else {
+                    localIoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
+                }
+            }
+
+            //
             // Cleanup and return.
             //
 
+            fileObject->LockOperation = TRUE;
             ObDereferenceObject( fileObject );
             return localIoStatus.Status;
         }

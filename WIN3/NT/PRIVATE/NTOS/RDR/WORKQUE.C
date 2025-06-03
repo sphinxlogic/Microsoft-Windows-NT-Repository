@@ -89,9 +89,6 @@ RdrExecutiveWorkerThreadRoutine(
 
 #pragma alloc_text(PAGE, SpinUpWorkQueue)
 #pragma alloc_text(PAGE, RdrInitializeWorkQueue)
-#pragma alloc_text(PAGE, RdrSetMaximumThreadsWorkQueue)
-#pragma alloc_text(PAGE, RdrInitializeIrpContext)
-#pragma alloc_text(PAGE, RdrUninitializeIrpContext)
 #pragma alloc_text(PAGE, RdrAllocateIrpContext)
 #pragma alloc_text(PAGE3FILE, RdrQueueToWorkerThread)
 #pragma alloc_text(PAGE3FILE, RdrDequeueInWorkerThread)
@@ -157,6 +154,8 @@ Note:
     //  If the user provided an IRP, we want to make it cancelable.
     //
 
+    ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
+
     if (Entry->Irp != NULL) {
 
         IoAcquireCancelSpinLock(&Entry->Irp->CancelIrql);
@@ -169,6 +168,9 @@ Note:
         //
 
         if (Entry->Irp->Cancel) {
+
+            IoReleaseCancelSpinLock (Entry->Irp->CancelIrql);
+            RELEASE_SPIN_LOCK(&WorkQueue->SpinLock, OldIrql);
 
             RdrCompleteRequest(Entry->Irp, STATUS_CANCELLED);
 
@@ -189,8 +191,6 @@ Note:
             IoReleaseCancelSpinLock (Entry->Irp->CancelIrql);
         }
     }
-
-    ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
 
     //
     //  Bump the number of active requests by 1.
@@ -228,7 +228,6 @@ Note:
     //
 
     InsertTailList(&WorkQueue->Queue, &Entry->Queue);
-
 
     //
     // Kick the file system process to get it to pull the request from the
@@ -291,13 +290,13 @@ Return Value:
     //  blocking waiting for the request.
     //
 
-    ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
-
     if (*FirstCall) {
         *FirstCall = FALSE;
     } else {
         WorkQueue->NumberOfRequests -= 1;
     }
+
+    ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
 
     while (TRUE) {
 
@@ -313,20 +312,37 @@ Return Value:
             Item = CONTAINING_RECORD(Entry, WORK_ITEM, Queue);
 
             //
-            //  Since we've managed to remove this entry from the list, it can be
-            //  no longer canceled.  If this is an IRP related request, mark it as no
-            //  longer canceled.
+            //  If this is an IRP related request, check whether it's
+            //  been cancelled.  If it has, complete it now.  If not,
+            //  remove the cancel routine so that it can't be canceled.
             //
 
             if (Item->Irp != NULL) {
 
-                //
-                //  Now, just to make sure, remove the cancel routine for this IRP
-                //
-
                 IoAcquireCancelSpinLock( &Item->Irp->CancelIrql );
 
-                Item->Irp->Cancel = FALSE;
+                if (Item->Irp->Cancel) {
+
+                    //
+                    //  This IRP has been cancelled.  Complete it now,
+                    //  then go back to try again.
+                    //
+
+                    WorkQueue->NumberOfRequests -= 1;
+
+                    IoReleaseCancelSpinLock( Item->Irp->CancelIrql );
+                    RELEASE_SPIN_LOCK(&WorkQueue->SpinLock, OldIrql);
+
+                    RdrCompleteRequest(Item->Irp, STATUS_CANCELLED);
+
+                    ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
+                    continue;
+
+                }
+
+                //
+                //  The IRP has not been cancelled.  Don't let it be.
+                //
 
                 IoSetCancelRoutine ( Item->Irp, NULL );
 
@@ -378,8 +394,7 @@ Return Value:
 
     }
 
-    ASSERT(FALSE);
-    return NULL;
+    // Can't get here.
 }
 
 VOID
@@ -607,8 +622,6 @@ Return Value:
     KIRQL OldIrql;
     PLIST_ENTRY Entry, NextEntry;
 
-    IoSetCancelRoutine(Irp, NULL);
-
     IoReleaseCancelSpinLock (Irp->CancelIrql);
 
     ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
@@ -724,21 +737,39 @@ Return Value:
 
             RemoveEntryList(Entry);
 
+            WorkQueue->NumberOfRequests -= 1;
+
             //
-            //  This routine isn't cancelable any more.
+            //  This IRP isn't cancelable any more.
             //
 
             IoAcquireCancelSpinLock( &Item->Irp->CancelIrql );
 
             IoSetCancelRoutine ( Item->Irp, NULL );
 
-            IoReleaseCancelSpinLock( Item->Irp->CancelIrql );
+            if ( !Item->Irp->Cancel ) {
 
-            //
-            //  Complete the request with an appropriate status (cancelled).
-            //
+                //
+                // The IRP hasn't been cancelled, so we can complete it.
+                //
 
-            RdrCompleteRequest (Item->Irp, STATUS_CANCELLED);
+                IoReleaseCancelSpinLock( Item->Irp->CancelIrql );
+
+                //
+                //  Complete the request with an appropriate status (cancelled).
+                //
+
+                RdrCompleteRequest (Item->Irp, STATUS_CANCELLED);
+
+            } else {
+
+                //
+                // The IRP has been cancelled (and the cancel routine has
+                // been called), so we can't complete it.
+                //
+
+                IoReleaseCancelSpinLock( Item->Irp->CancelIrql );
+            }
 
             //
             //  Now free up the IRP context associated with this request
@@ -824,7 +855,7 @@ Return Value:
     WorkQueue->QueueInitialized = TRUE;
     WorkQueue->SpinningUp = FALSE;
 
-    WorkQueue->ThreadIdleLimit.QuadPart = (LONGLONG)ThreadIdleLimit*1000 * -10000;
+    WorkQueue->ThreadIdleLimit.QuadPart = Int32x32To64(ThreadIdleLimit, 1000 * -10000);
 
     Status = PsCreateSystemThread (
         &ThreadId,                      // Thread handle
@@ -926,7 +957,7 @@ Return Value:
         //
         //  Wait for the thread to terminate.
         //
-        KeWaitForSingleObject(&TerminateContext.TerminateEvent, KernelMode, Executive, FALSE, NULL);
+        KeWaitForSingleObject(&TerminateContext.TerminateEvent, Executive, KernelMode, FALSE, NULL);
 
         ACQUIRE_SPIN_LOCK(&WorkQueue->SpinLock, &OldIrql);
 
@@ -973,36 +1004,6 @@ TerminateWorkerThread(
     //
 
     PsTerminateSystemThread(STATUS_SUCCESS);
-}
-
-
-
-NTSTATUS
-RdrSetMaximumThreadsWorkQueue(
-    IN PWORK_QUEUE WorkQueue,
-    IN ULONG MaximumNumberOfThreads
-    )
-/*++
-
-Routine Description:
-
-    Initialize a work queue structure, allocating all structures used for it.
-
-Arguments:
-
-    ULONG       MaximumNumberOfThreads - Max number of threads to create.
-
-Return Value:
-
-    Status of initialization.
-
---*/
-{
-    PAGED_CODE();
-
-    WorkQueue->MaximumThreads = MaximumNumberOfThreads;
-
-    return STATUS_SUCCESS;
 }
 
 PIRP_CONTEXT
@@ -1069,66 +1070,6 @@ Return Value:
 #endif
 
     return IrpContext;
-}
-
-VOID
-RdrInitializeIrpContext (
-    VOID
-    )
-/*++
-
-Routine Description:
-
-    Initialize the Irp Context system
-
-Arguments:
-
-    None.
-
-
-Return Value:
-    None.
-
---*/
-{
-    PAGED_CODE();
-
-    KeInitializeSpinLock(&IrpContextInterlock);
-    InitializeListHead(&IrpContextList);
-}
-
-VOID
-RdrUninitializeIrpContext (
-    VOID
-    )
-/*++
-
-Routine Description:
-
-    Initialize the Irp Context system
-
-Arguments:
-
-    None.
-
-
-Return Value:
-    None.
-
---*/
-{
-    PAGED_CODE();
-
-    //
-    //  Free all the IRP contexts.
-    //
-
-    while (!IsListEmpty(&IrpContextList)) {
-        PIRP_CONTEXT IrpContext = (PIRP_CONTEXT)RemoveHeadList(&IrpContextList);
-
-        FREE_POOL(IrpContext);
-    }
-
 }
 
 //

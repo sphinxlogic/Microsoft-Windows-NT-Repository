@@ -64,8 +64,8 @@
 
 /* Static variables */
 
-static TCHAR stat_fmt3[] = TEXT("  %-*.*ws%lu\n");
-static TCHAR stat_fmt4[] = TEXT("  %-*.*ws%ws\n");
+static TCHAR stat_fmt3[] = TEXT("  %-*.*ws%lu\r\n");
+static TCHAR stat_fmt4[] = TEXT("  %-*.*ws%ws\r\n");
 
 /* The list of services for which stats are collected */
 
@@ -178,7 +178,7 @@ VOID stats_display(VOID)
 {
     USHORT		    err;		/* API return status */
     TCHAR FAR *		    pBuffer;
-    USHORT2ULONG	    read;	/* num entries read by API */
+    USHORT2ULONG	    _read;	/* num entries read by API */
     USHORT2ULONG	    i;
     USHORT		    j;
     int 		    printed = 0;
@@ -188,16 +188,16 @@ VOID stats_display(VOID)
 			    NULL,
 			    2,
 			    (LPBYTE*)&pBuffer,
-			    &read))
+			    &_read))
 	ErrorExit(err);
 
-    if (read == 0)
+    if (_read == 0)
 	EmptyExit();
 
     InfoPrint(APE_StatsHeader);
 
     for (i=0, info_list_entry = (struct service_info_2 FAR *) pBuffer;
-	 i < read; i++, info_list_entry++)
+	 i < _read; i++, info_list_entry++)
     {
 	for (j = 0 ;  allowed_svc[j] ; j++)
 	{
@@ -269,7 +269,7 @@ VOID stats_server_display(VOID)
     GetMessageList(SRVMSGSIZE, ServerMsgList, &maxmsglen);
 
 #ifdef DEBUG
-    WriteToCon(TEXT("stats_server_display: Got message list\n"));
+    WriteToCon(TEXT("stats_server_display: Got message list\r\n"));
 #endif
 
     maxmsglen += 5;
@@ -301,8 +301,8 @@ VOID stats_server_display(VOID)
     if( stats_entry->sts0_bytessent_high == STATS_UNKNOWN &&
 	stats_entry->sts0_bytessent_low == STATS_UNKNOWN )
     {
-	WriteToCon(fmtNPSZ, maxmsglen, maxmsglen,
-		ServerMsgList[S_MSG_STATS_B_SENT].msg_text,
+	WriteToCon(fmtNPSZ, 0, maxmsglen,
+		PaddedString(maxmsglen,ServerMsgList[S_MSG_STATS_B_SENT].msg_text,NULL),
 		ServerMsgList[S_MSG_GEN_UNKNOWN].msg_text);
     }
     else
@@ -310,8 +310,8 @@ VOID stats_server_display(VOID)
 	DLW_DIVIDE_1K(stats_entry->sts0_bytessent_high,
 	      stats_entry->sts0_bytessent_low);
 
-	WriteToCon(fmtNPSZ, maxmsglen, maxmsglen,
-	    ServerMsgList[S_MSG_STATS_B_SENT].msg_text,
+	WriteToCon(fmtNPSZ, 0, maxmsglen,
+	    PaddedString(maxmsglen,ServerMsgList[S_MSG_STATS_B_SENT].msg_text,NULL),
 	    format_dlword(stats_entry->sts0_bytessent_high,
 			  stats_entry->sts0_bytessent_low,
 			  dlwbuf));
@@ -320,8 +320,8 @@ VOID stats_server_display(VOID)
     if( stats_entry->sts0_bytesrcvd_high == STATS_UNKNOWN &&
 	stats_entry->sts0_bytesrcvd_low == STATS_UNKNOWN )
     {
-	WriteToCon(fmtNPSZ, maxmsglen, maxmsglen,
-		ServerMsgList[S_MSG_STATS_B_RECEIVED].msg_text,
+	WriteToCon(fmtNPSZ, 0, maxmsglen,
+		PaddedString(maxmsglen,ServerMsgList[S_MSG_STATS_B_RECEIVED].msg_text,NULL),
 		ServerMsgList[S_MSG_GEN_UNKNOWN].msg_text);
     }
     else
@@ -329,8 +329,8 @@ VOID stats_server_display(VOID)
 	DLW_DIVIDE_1K(stats_entry->sts0_bytesrcvd_high,
 	      stats_entry->sts0_bytesrcvd_low);
 
-	WriteToCon(fmtNPSZ, maxmsglen, maxmsglen,
-	    ServerMsgList[S_MSG_STATS_B_RECEIVED].msg_text,
+	WriteToCon(fmtNPSZ, 0, maxmsglen,
+	    PaddedString(maxmsglen,ServerMsgList[S_MSG_STATS_B_RECEIVED].msg_text,NULL),
 	    format_dlword(stats_entry->sts0_bytesrcvd_high,
 			  stats_entry->sts0_bytesrcvd_low,
 			  dlwbuf));
@@ -343,9 +343,6 @@ VOID stats_server_display(VOID)
 
     PrintNL();
 
-    /* Network Errors
-    WriteToCon(stat_fmt, maxmsglen, maxmsglen, ServerMsgList[6].msg_text,
-	    stats_entry->sts0_); */
 
     SrvPrintStat(fmtULONG, fmtNPSZ, maxmsglen, S_MSG_STATS_SYSTEM_ERR,
 		stats_entry->sts0_syserrors);
@@ -578,7 +575,7 @@ VOID NEAR stats_headers(TCHAR * service, USHORT headermsg,
     TCHAR FAR ** ppBuffer)
 {
     USHORT		    err;		/* API return status */
-    TCHAR		    cname[CNLEN+1];
+    TCHAR		    cname[MAX_PATH+1];
 
     struct wksta_info_10 FAR *	    wksta_entry;
 
@@ -594,7 +591,7 @@ VOID NEAR stats_headers(TCHAR * service, USHORT headermsg,
     }
 
 #ifdef DEBUG
-    WriteToCon(TEXT("About to call NetStatisticsGet2, service == %Fws\n"),
+    WriteToCon(TEXT("About to call NetStatisticsGet2, service == %Fws\r\n"),
 	    (TCHAR FAR *) service);
 #endif
 
@@ -609,7 +606,7 @@ VOID NEAR stats_headers(TCHAR * service, USHORT headermsg,
 	ErrorExit(err);
 
 #ifdef DEBUG
-    WriteToCon(TEXT("stats_headers: MNetStatisticsGet succeeded\n"));
+    WriteToCon(TEXT("stats_headers: MNetStatisticsGet succeeded\r\n"));
 #endif
 
     InfoPrintInsTxt(headermsg, cname);
@@ -745,16 +742,16 @@ revstr_add(TCHAR FAR * target, TCHAR FAR * source)
  *
  */
 VOID SrvPrintStat( TCHAR *deffmt, TCHAR *unkfmt, USHORT len,
-		    USHORT msg, ULONG stat)
+		    USHORT msg, ULONG _stat)
 {
-	    if( stat == STATS_UNKNOWN )
-		WriteToCon( unkfmt, len, len,
-		    ServerMsgList[msg].msg_text,
+	    if( _stat == STATS_UNKNOWN )
+		WriteToCon( unkfmt, 0, len,
+		    PaddedString(len,ServerMsgList[msg].msg_text,NULL),
 		    ServerMsgList[S_MSG_GEN_UNKNOWN].msg_text);
 	    else
-		WriteToCon( deffmt, len, len,
-		    ServerMsgList[msg].msg_text,
-		    stat );
+		WriteToCon( deffmt, 0, len,
+		    PaddedString(len,ServerMsgList[msg].msg_text,NULL),
+		    _stat );
 }
 
 
@@ -766,17 +763,17 @@ VOID WksPrintStat(
 	TCHAR *unkfmt,
 	USHORT len,
 	USHORT msg,
-	ULONG stat)
+	ULONG _stat)
 {
 
-    if( stat == STATS_UNKNOWN )
-	WriteToCon( unkfmt, len, len,
-	    WkstaMsgList[msg].msg_text,
+    if( _stat == STATS_UNKNOWN )
+	WriteToCon( unkfmt, 0, len,
+	    PaddedString(len,WkstaMsgList[msg].msg_text,NULL),
 	    WkstaMsgList[W_MSG_GEN_UNKNOWN].msg_text);
     else
-	WriteToCon( deffmt, len, len,
-	    WkstaMsgList[msg].msg_text,
-		    stat );
+	WriteToCon( deffmt, 0, len,
+	    PaddedString(len,WkstaMsgList[msg].msg_text,NULL),
+		_stat );
 }
 
 /*** WksPrintLargeInt - Print a LARGE_INTEGER statistic
@@ -791,8 +788,8 @@ VOID WksPrintLargeInt(
 {
     TCHAR dlwbuf[DLWBUFSIZE];
 
-    WriteToCon(format, maxmsglen, maxmsglen,
-	   WkstaMsgList[msgnum].msg_text,
+    WriteToCon(format, 0, maxmsglen,
+	   PaddedString(maxmsglen,WkstaMsgList[msgnum].msg_text,NULL),
 	   format_dlword(high, low, dlwbuf));
 }
 

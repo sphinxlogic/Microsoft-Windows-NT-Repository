@@ -1,5 +1,7 @@
 //+-------------------------------------------------------------------
 //
+// Copyright (C) 1995, Microsoft Corporation.
+//
 //  File:        account.hxx
 //
 //  Contents:    class encapsulating NT security user account.

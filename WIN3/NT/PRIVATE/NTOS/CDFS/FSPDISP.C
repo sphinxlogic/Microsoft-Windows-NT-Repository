@@ -22,15 +22,19 @@ Revision History:
 #include "CdProcs.h"
 
 //
-//  Define our local debug trace level
+//  The Bug check file id for this module
 //
 
-#define Dbg                             (DEBUG_TRACE_FSP_DISPATCHER)
+#define BugCheckFileId                   (CDFS_BUG_CHECK_FSPDISP)
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, CdFspDispatch)
+#endif
 
 
 VOID
 CdFspDispatch (
-    IN PVOID Context
+    IN PIRP_CONTEXT IrpContext
     )
 
 /*++
@@ -44,53 +48,37 @@ Routine Description:
 
 Arguments:
 
-
-    Context - Supplies the thread id.
+    IrpContext - IrpContext for a request to process.
 
 Return Value:
 
-    None - This routine never exits
+    None
 
 --*/
 
 {
-    PIRP Irp;
-    PIRP_CONTEXT IrpContext;
-    PIO_STACK_LOCATION IrpSp;
+    THREAD_CONTEXT ThreadContext;
+    NTSTATUS Status;
 
-    PVOLUME_DEVICE_OBJECT VolDo;
+    PIRP Irp = IrpContext->Irp;
+    PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    IrpContext = (PIRP_CONTEXT)Context;
-
-    Irp = IrpContext->OriginatingIrp;
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
-
-    //
-    //  Now because we are the Fsp we will force the IrpContext to
-    //  indicate true on Wait.
-    //
-
-    IrpContext->Wait = TRUE;
+    PVOLUME_DEVICE_OBJECT VolDo = NULL;
 
     //
     //  If this request has an associated volume device object, remember it.
     //
 
-    if ( IrpSp->FileObject != NULL ) {
+    if (IrpSp->FileObject != NULL) {
 
         VolDo = CONTAINING_RECORD( IrpSp->DeviceObject,
                                    VOLUME_DEVICE_OBJECT,
                                    DeviceObject );
-    } else {
-
-        VolDo = NULL;
     }
 
     //
     //  Now case on the function code.  For each major function code,
-    //  either call the appropriate FSP routine or case on the minor
-    //  function and then call the FSP routine.  The FSP routine that
+    //  either call the appropriate worker routine.  This routine that
     //  we call is responsible for completing the IRP, and not us.
     //  That way the routine can complete the IRP and then continue
     //  post processing as required.  For example, a read can be
@@ -98,176 +86,125 @@ Return Value:
     //
     //  We'll do all of the work within an exception handler that
     //  will be invoked if ever some underlying operation gets into
-    //  trouble (e.g., if CdReadSectorsSync has trouble).
+    //  trouble.
     //
 
     while ( TRUE ) {
 
-        DebugTrace(0, Dbg, "CdFspDispatch: Irp = 0x%08lx\n", Irp);
+        //
+        //  Set all the flags indicating we are in the Fsp.
+        //
 
-        //
-        //  If this Irp was top level, note it in our thread local storage.
-        //
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FSP_FLAGS );
 
         FsRtlEnterFileSystem();
 
-        if ( IrpContext->RecursiveFileSystemCall ) {
+        CdSetThreadContext( IrpContext, &ThreadContext );
 
-            IoSetTopLevelIrp( (PIRP)FSRTL_FSP_TOP_LEVEL_IRP );
+        while (TRUE) {
 
-        } else {
-
-            IoSetTopLevelIrp( Irp );
-        }
-
-        try {
-
-            switch ( IrpContext->MajorFunction ) {
+            try {
 
                 //
-                //  For Create Operation,
-                //
-
-                case IRP_MJ_CREATE:
-
-                    CdFspCreate( IrpContext, Irp );
-                    break;
-
-                //
-                //  For close operations.  We do a little kludge here in case
-                //  this close causes a volume to go away.  It will NULL the
-                //  VolDo local variable so that we will not try to look at
-                //  the overflow queue.
-                //
-
-                case IRP_MJ_CLOSE:
-
-                    IrpContext->RealDevice = (PDEVICE_OBJECT)&VolDo;
-
-                    CdFspClose( IrpContext, Irp );
-                    break;
-
-                //
-                //  For read operations
-                //
-
-                case IRP_MJ_READ:
-
-                    //
-                    //  If this was originally a DPC request and the irp->thread
-                    //  field is null, "adopt" the Irp in our thread.  Also a
-                    //  Dpc irp will always be top level since we post them
-                    //  immediately upon receipt.  This is marked in the
-                    //  IrpContext, so we don't want to set this in the thread
-                    //  local storage since control has already been returned
-                    //  to the thread.
-                    //
-
-                    if ( FlagOn(IrpContext->MinorFunction, IRP_MN_DPC) &&
-                         (Irp->Tail.Overlay.Thread == NULL) ) {
-
-                        Irp->Tail.Overlay.Thread = PsGetCurrentThread();
-                    }
-
-                    CdFspRead( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Query Information operations,
-                //
-
-                case IRP_MJ_QUERY_INFORMATION:
-
-                    CdFspQueryInformation( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Set Information operations,
-                //
-
-                case IRP_MJ_SET_INFORMATION:
-
-                    CdFspSetInformation( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Query Volume Information operations,
-                //
-
-                case IRP_MJ_QUERY_VOLUME_INFORMATION:
-
-                    CdFspQueryVolumeInformation( IrpContext, Irp );
-                    break;
-
-                //
-                //  For File Cleanup operations,
-                //
-
-                case IRP_MJ_CLEANUP:
-
-                    CdFspCleanup( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Directory Control operations,
-                //
-
-                case IRP_MJ_DIRECTORY_CONTROL:
-
-                    CdFspDirectoryControl( IrpContext, Irp );
-                    break;
-
-                //
-                //  For File System Control operations,
-                //
-
-                case IRP_MJ_FILE_SYSTEM_CONTROL :
-
-                    CdFspFileSystemControl( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Lock Control operations,
-                //
-
-                case IRP_MJ_LOCK_CONTROL:
-
-                    CdFspLockControl( IrpContext, Irp );
-                    break;
-
-                //
-                //  For Device Control operations,
-                //
-
-                case IRP_MJ_DEVICE_CONTROL:
-
-                    CdFspDeviceControl( IrpContext, Irp );
-                    break;
-
-                //
-                //  For any other major operations, return an invalid
+                //  Reinitialize for the next try at completing this
                 //  request.
                 //
 
-                default:
+                Status =
+                IrpContext->ExceptionStatus = STATUS_SUCCESS;
 
-                    CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_DEVICE_REQUEST );
+                //
+                //  Initialize the Io status field in the Irp.
+                //
+
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                Irp->IoStatus.Information = 0;
+
+                //
+                //  Case on the major irp code.
+                //
+
+                switch (IrpContext->MajorFunction) {
+
+                case IRP_MJ_CREATE :
+
+                    CdCommonCreate( IrpContext, Irp );
                     break;
+
+                case IRP_MJ_CLOSE :
+
+                    ASSERT( FALSE );
+                    break;
+
+                case IRP_MJ_READ :
+
+                    CdCommonRead( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_QUERY_INFORMATION :
+
+                    CdCommonQueryInfo( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_SET_INFORMATION :
+
+                    CdCommonQueryInfo( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_QUERY_VOLUME_INFORMATION :
+
+                    CdCommonQueryVolInfo( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_DIRECTORY_CONTROL :
+
+                    CdCommonDirControl( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_FILE_SYSTEM_CONTROL :
+
+                    CdCommonFsControl( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_DEVICE_CONTROL :
+
+                    CdCommonDevControl( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_LOCK_CONTROL :
+
+                    CdCommonLockControl( IrpContext, Irp );
+                    break;
+
+                case IRP_MJ_CLEANUP :
+
+                    CdCommonCleanup( IrpContext, Irp );
+                    break;
+
+                default :
+
+                    Status = STATUS_INVALID_DEVICE_REQUEST;
+                    CdCompleteRequest( IrpContext, Irp, Status );
+                }
+
+            } except( CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
+
+                Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
             }
 
-        } except(CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
             //
-            //  We had some trouble trying to perform the requested
-            //  operation, so we'll abort the I/O request with
-            //  the error status that we get back from the
-            //  execption code.
+            //  Break out of the loop if we didn't get CANT_WAIT.
             //
 
-            (VOID) CdProcessException( IrpContext, Irp, GetExceptionCode() );
+            if (Status != STATUS_CANT_WAIT) { break; }
+
+            //
+            //  We are retrying this request.  Cleanup the IrpContext for the retry.
+            //
+
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING );
+            CdCleanupIrpContext( IrpContext, FALSE );
         }
-
-        IoSetTopLevelIrp( NULL );
 
         FsRtlExitFileSystem();
 
@@ -276,7 +213,7 @@ Return Value:
         //  them.
         //
 
-        if ( VolDo != NULL ) {
+        if (VolDo != NULL) {
 
             KIRQL SavedIrql;
             PVOID Entry = NULL;
@@ -308,43 +245,36 @@ Return Value:
             //  the Ex Worker thread.
             //
 
-            if ( Entry == NULL ) {
-
-                break;
-            }
+            if (Entry == NULL) { break; }
 
             //
-            //  Extract the IrpContext, Irp, and IrpSp, and loop.
+            //  Extract the IrpContext , Irp, set wait to TRUE, and loop.
             //
 
             IrpContext = CONTAINING_RECORD( Entry,
                                             IRP_CONTEXT,
                                             WorkQueueItem.List );
 
-            IrpContext->Wait = TRUE;
-
-            Irp = IrpContext->OriginatingIrp;
-
+            Irp = IrpContext->Irp;
             IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
             continue;
-
-        } else {
-
-            break;
         }
+
+        break;
     }
 
     //
-    //  Decrement the PostedRequestCount.
+    //  Decrement the PostedRequestCount if there was a volume device object.
     //
 
-    if ( VolDo ) {
+    if (VolDo) {
 
-        ExInterlockedAddUlong( &VolDo->PostedRequestCount,
-                               0xffffffff,
-                               &VolDo->OverflowQueueSpinLock );
+        InterlockedDecrement( &VolDo->PostedRequestCount );
     }
 
     return;
 }
+
+
+

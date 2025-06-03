@@ -6,7 +6,7 @@
 //  OS dependent functions such as allocating memory etc.
 //
 //
-#include "types.h"
+#include "nbtprocs.h"
 
 // to convert a millisecond to a 100ns time
 //
@@ -50,14 +50,14 @@ Return Value:
     //
     // convert to 100 ns units by multiplying by 10,000
     //
-    Time = RtlEnlargedUnsignedMultiply(DeltaTime,(LONG)MILLISEC_TO_100NS);
+    Time.QuadPart = UInt32x32To64(DeltaTime,(LONG)MILLISEC_TO_100NS);
 
     //
     // to make a delta time, negate the time
     //
-    Time = RtlLargeIntegerNegate(Time);
+    Time.QuadPart = -(Time.QuadPart);
 
-    ASSERT(RtlLargeIntegerLessThanZero(Time));
+    ASSERT(Time.QuadPart < 0);
 
     (VOID)KeSetTimer(&pTimerIn->t_timer,Time,&pTimerIn->t_dpc);
 
@@ -87,4 +87,4 @@ Return Value:
 {
     KeInitializeTimer(&pTimerIn->t_timer);
 }
-
+

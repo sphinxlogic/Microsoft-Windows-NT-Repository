@@ -41,104 +41,16 @@ typedef enum _SECURITY_DB_TYPE {
     SecurityDbLsa
 } SECURITY_DB_TYPE, *PSECURITY_DB_TYPE;
 
-typedef enum _SECURITY_DB_DELTA_TYPE {
-    SecurityDbNew = 1,
-    SecurityDbRename,
-    SecurityDbDelete,
-    SecurityDbChangeMemberAdd,
-    SecurityDbChangeMemberSet,
-    SecurityDbChangeMemberDel,
-    SecurityDbChange,
-    SecurityDbChangePassword
-} SECURITY_DB_DELTA_TYPE, *PSECURITY_DB_DELTA_TYPE;
-
-typedef enum _SECURITY_DB_OBJECT_TYPE {
-    SecurityDbObjectSamDomain = 1,
-    SecurityDbObjectSamUser,
-    SecurityDbObjectSamGroup,
-    SecurityDbObjectSamAlias,
-    SecurityDbObjectLsaPolicy,
-    SecurityDbObjectLsaTDomain,
-    SecurityDbObjectLsaAccount,
-    SecurityDbObjectLsaSecret
-} SECURITY_DB_OBJECT_TYPE, *PSECURITY_DB_OBJECT_TYPE;
-
 //
-// Account types
+// These structures are used to get and set private data.  Note that
+// DataType must be the first field of every such structure.
 //
-//  Both enumerated types and flag definitions are provided.
-//  The flag definitions are used in places where more than
-//  one type of account may be specified together.
-//
-
-typedef enum _SAM_ACCOUNT_TYPE {
-    SamObjectUser = 1,
-    SamObjectGroup ,
-    SamObjectAlias
-} SAM_ACCOUNT_TYPE, *PSAM_ACCOUNT_TYPE;
-
-
-#define SAM_USER_ACCOUNT                (0x00000001)
-#define SAM_GLOBAL_GROUP_ACCOUNT        (0x00000002)
-#define SAM_LOCAL_GROUP_ACCOUNT         (0x00000004)
 
 typedef enum _SAMI_PRIVATE_DATA_TYPE {
     SamPrivateDataNextRid = 1,
     SamPrivateDataPassword
 } SAMI_PRIVATE_DATA_TYPE, *PSAMI_PRIVATE_DATA_TYPE;
 
-
-
-//
-// Define the data type used to pass netlogon information on the account
-// that was added or deleted from a group.
-//
-
-typedef struct _SAM_GROUP_MEMBER_ID {
-    ULONG   MemberRid;
-} SAM_GROUP_MEMBER_ID, *PSAM_GROUP_MEMBER_ID;
-
-
-//
-// Define the data type used to pass netlogon information on the account
-// that was added or deleted from an alias.
-//
-
-typedef struct _SAM_ALIAS_MEMBER_ID {
-    PSID    MemberSid;
-} SAM_ALIAS_MEMBER_ID, *PSAM_ALIAS_MEMBER_ID;
-
-
-
-
-//
-// Define the data type used to pass netlogon information on a delta
-//
-
-typedef union _SAM_DELTA_DATA {
-
-    //
-    // Delta type ChangeMember{Add/Del/Set} and account type group
-    //
-
-    SAM_GROUP_MEMBER_ID GroupMemberId;
-
-    //
-    // Delta type ChangeMember{Add/Del/Set} and account type alias
-    //
-
-    SAM_ALIAS_MEMBER_ID AliasMemberId;
-
-} SAM_DELTA_DATA, *PSAM_DELTA_DATA;
-
-
-
-
-
-//
-// These structures are used to get and set private data.  Note that
-// DataType must be the first field of every such structure.
-//
 
 typedef struct _SAMI_PRIVATE_DATA_NEXTRID_TYPE {
     SAMI_PRIVATE_DATA_TYPE DataType;
@@ -250,7 +162,7 @@ SamIEnumerateAccountRids(
     OUT PULONG ReturnCount,
     OUT PULONG *AccountRids
     );
-    
+
 
 
 VOID

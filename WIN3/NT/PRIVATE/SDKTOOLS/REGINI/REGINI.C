@@ -1,164 +1,261 @@
 #include "regutil.h"
 
-#define ACL_LIST_START L'['
-#define ACL_LIST_END L']'
-
-HANDLE RiLoadHive(
-    IN PCHAR HiveFileName,
-    IN PCHAR HiveRootName
-    );
-
-NTSTATUS
-RiInitializeRegistryFromAsciiFile(
-    IN PUNICODE_STRING FileName,
-    IN HANDLE RootHandle
-    );
-
-BOOLEAN
-RiParseACL(
-    IN OUT PUNICODE_STRING KeyName,
-    OUT PUNICODE_STRING AclName
-    );
-
-void
-Usage( void )
-{
-    fprintf( stderr, "usage: REGINI [-h hivefile hiveroot] [files...]\n" );
-    exit( 1 );
-}
-
-PVOID OldValueBuffer;
-ULONG OldValueBufferSize;
-OBJECT_ATTRIBUTES RootKey;
-HANDLE RegistryRoot;
-HANDLE HiveHandle;
-UNICODE_STRING RootName;
+BOOLEAN BackwardsCompatibleInput;
 
 typedef struct _KEY_INFO {
     ULONG IndentAmount;
-    UNICODE_STRING Name;
+    PWSTR Name;
+    BOOLEAN NameDisplayed;
     HANDLE Handle;
-    LARGE_INTEGER LastWriteTime;
+    FILETIME LastWriteTime;
 } KEY_INFO, *PKEY_INFO;
 
 #define MAX_KEY_DEPTH 64
 
-NTSTATUS
-RiInitializeRegistryFromAsciiFile(
-    IN PUNICODE_STRING FileName,
-    IN HANDLE RootHandle
+void
+DisplayPath(
+    PKEY_INFO p,
+    ULONG Depth,
+    PSECURITY_DESCRIPTOR SecurityDescriptor
     )
 {
-    NTSTATUS Status;
+    ULONG i;
+
+    for (i=0; i<Depth-1; i++) {
+        if (!p[ i ].NameDisplayed) {
+            p[ i ].NameDisplayed = TRUE;
+            RTFormatKeyName( (PREG_OUTPUT_ROUTINE)fprintf, stdout, i * IndentMultiple, p[ i ].Name );
+            if (i+1 == Depth-1) {
+                RTFormatKeySecurity( (PREG_OUTPUT_ROUTINE)fprintf,
+                                     stdout,
+                                     NULL,
+                                     SecurityDescriptor
+                                   );
+                }
+            printf( "\n" );
+            }
+        }
+}
+
+
+LONG
+DeleteKeyTree(
+    IN PREG_CONTEXT RegistryContext,
+    IN HKEY ParentKeyHandle,
+    IN PCWSTR KeyName
+    )
+{
+    HKEY KeyHandle;
+    ULONG SubKeyIndex;
+    WCHAR SubKeyName[ MAX_PATH ];
+    ULONG SubKeyNameLength;
+    FILETIME LastWriteTime;
+    LONG Error;
+
+    Error = RTDeleteKey( RegistryContext,
+                         ParentKeyHandle,
+                         KeyName
+                       );
+    if (Error == NO_ERROR) {
+        return Error;
+        }
+
+    Error = RTOpenKey( RegistryContext,
+                       ParentKeyHandle,
+                       KeyName,
+                       MAXIMUM_ALLOWED,
+                       REG_OPTION_OPEN_LINK,
+                       &KeyHandle
+                     );
+
+    //
+    // Enumerate node's children and apply ourselves to each one
+    //
+
+    do {
+        SubKeyNameLength = sizeof( SubKeyName );
+        Error = RTEnumerateKey( RegistryContext,
+                                KeyHandle,
+                                0,
+                                &LastWriteTime,
+                                &SubKeyNameLength,
+                                SubKeyName
+                              );
+
+        if (Error != NO_ERROR) {
+            break;
+            }
+
+        Error = DeleteKeyTree( RegistryContext, KeyHandle, SubKeyName );
+        }
+    while (Error == NO_ERROR);
+
+    RTCloseKey( RegistryContext, KeyHandle );
+
+    return RTDeleteKey( RegistryContext,
+                        ParentKeyHandle,
+                        KeyName
+                      );
+}
+
+
+LONG
+InitializeRegistryFromAsciiFile(
+    IN PWSTR FileName
+    )
+{
+    HKEY RootHandle;
+    LONG Error, ReturnedError;
     REG_UNICODE_FILE UnicodeFile;
-    PWSTR EndKey, FirstEqual, BeginValue;
-    ULONG IndentAmount;
-    UNICODE_STRING InputLine;
-    UNICODE_STRING KeyName;
-    UNICODE_STRING KeyValue;
-    UNICODE_STRING AclName;
-    PKEY_VALUE_FULL_INFORMATION OldValueInformation;
-    PKEY_BASIC_INFORMATION KeyInformation;
-    UCHAR KeyInformationBuffer[ 512 ];
-    ULONG ResultLength;
-    ULONG OldValueLength;
-    PVOID ValueBuffer;
-    ULONG ValueLength;
-    ULONG ValueType;
+    REG_UNICODE_PARSE ParsedLine;
+    ULONG OldValueType, OldValueLength;
     KEY_INFO KeyPath[ MAX_KEY_DEPTH ];
     PKEY_INFO CurrentKey;
     ULONG KeyPathLength;
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    UNICODE_STRING Class;
     ULONG Disposition;
-    BOOLEAN UpdateKeyValue;
     ULONG i;
-    SECURITY_DESCRIPTOR SecurityDescriptor;
-    PSECURITY_DESCRIPTOR pSecurityDescriptor;
-    BOOLEAN HasAcl;
+    ULONG PreviousValueIndentAmount;
+    LPSTR s;
 
-    OldValueInformation = (PKEY_VALUE_FULL_INFORMATION)OldValueBuffer;
-    Class.Buffer = NULL;
-    Class.Length = 0;
+    Error = RTConnectToRegistry( MachineName,
+                                 HiveFileName,
+                                 HiveRootName,
+                                 Win95Path,
+                                 Win95UserPath,
+                                 NULL,
+                                 &RegistryContext
+                               );
+    if (Error != NO_ERROR) {
+        return Error;
+        }
+    RootHandle = RegistryContext.HiveRootHandle;
 
-    Status = RegLoadAsciiFileAsUnicode( FileName,
-                                        &UnicodeFile
-                                      );
-    if (!NT_SUCCESS( Status )) {
-        return( Status );
+    Error = RTLoadAsciiFileAsUnicode( FileName,
+                                      &UnicodeFile
+                                    );
+    if (Error != NO_ERROR) {
+        RTDisconnectFromRegistry( &RegistryContext );
+        return Error;
         }
 
+    RtlZeroMemory( &ParsedLine, sizeof( ParsedLine ) );
+    UnicodeFile.BackwardsCompatibleInput = BackwardsCompatibleInput;
+    PreviousValueIndentAmount = 0xFFFFFFFF;
     KeyPathLength = 0;
-    while (RegGetNextLine( &UnicodeFile, &IndentAmount, &FirstEqual )) {
-#if 0
-        InputLine.Buffer = UnicodeFile.BeginLine;
-        InputLine.Length = (USHORT)((PCHAR)UnicodeFile.EndOfLine - (PCHAR)UnicodeFile.BeginLine);
-        InputLine.MaximumLength = InputLine.Length;
-        printf( "GetNextLine: (%02u) '%wZ'\n", IndentAmount, &InputLine );
-#endif
-        if (FirstEqual == NULL) {
-            KeyName.Buffer = UnicodeFile.BeginLine;
-            KeyName.Length = (USHORT)((PCHAR)UnicodeFile.EndOfLine - (PCHAR)KeyName.Buffer);
-            KeyName.MaximumLength = (USHORT)(KeyName.Length + sizeof( WCHAR ));
-
-            if (IndentAmount == 0 && !_wcsnicmp( KeyName.Buffer, L"USER:", 5 )) {
-                UNICODE_STRING CurrentUserKeyPath;
-                UNICODE_STRING NewKeyName;
-
-                Status = MyRtlFormatCurrentUserKeyPath ( &CurrentUserKeyPath );
-                if (!NT_SUCCESS( Status )) {
-                    fprintf( stderr, "REGINI: Unable to get current user key\n" );
-                    return( Status );
+    ReturnedError = NO_ERROR;
+    while (TRUE) {
+        if (!RTParseNextLine( &UnicodeFile, &ParsedLine )) {
+            if (!ParsedLine.AtEndOfFile) {
+                DisplayPath( KeyPath, KeyPathLength+1, NULL );
+                if (ParsedLine.IsKeyName) {
+                    InputMessage( FileName,
+                                  ParsedLine.LineNumber,
+                                  TRUE,
+                                  ParsedLine.AclString ? "Invalid key '%ws' Acl [%ws]"
+                                                       : "Invalid key '%ws'",
+                                  (ULONG)ParsedLine.KeyName,
+                                  (ULONG)ParsedLine.AclString
+                                );
                     }
+                else {
+                    switch( ParsedLine.ParseFailureReason ) {
+                        case ParseFailValueTooLarge:
+                            s = "Value too large - '%ws = %ws'";
+                            break;
 
-                NewKeyName.MaximumLength = (USHORT)(CurrentUserKeyPath.Length + KeyName.Length + sizeof( WCHAR ));
-                NewKeyName.Length = 0;
-                NewKeyName.Buffer = RtlAllocateHeap( RtlProcessHeap(),
-                                                     0,
-                                                     NewKeyName.MaximumLength
-                                                   );
-                if (NewKeyName.Buffer == NULL) {
-                    fprintf( stderr, "REGINI: Unable to allocate memory for current user key\n" );
-                    return( STATUS_NO_MEMORY );
+                        case ParseFailUnableToAccessFile:
+                            s = "Unable to access file - '%ws = %ws'";
+                            break;
+
+                        case ParseFailDateTimeFormatInvalid:
+                            s = "Date/time format invalid - '%ws = %ws'";
+                            break;
+
+                        case ParseFailInvalidLineContinuation:
+                            s = "Invalid line continuation - '%ws = %ws'";
+                            break;
+
+                        case ParseFailInvalidQuoteCharacter:
+                            s = "Invalid quote character - '%ws = %ws'";
+                            break;
+
+                        case ParseFailBinaryDataLengthMissing:
+                            s = "Missing length for binary data - '%ws = %ws'";
+                            break;
+
+                        case ParseFailBinaryDataOmitted:
+                        case ParseFailBinaryDataNotEnough:
+                            s = "Not enough binary data for length - '%ws = %ws'";
+                            break;
+
+                        case ParseFailInvalidRegistryType:
+                            s = "Invalid registry type - '%ws = %ws'";
+                            break;
+
+                        default:
+                            s = "Invalid value - '%ws = %ws'";
+                        }
+
+                    InputMessage( FileName,
+                                  ParsedLine.LineNumber,
+                                  TRUE,
+                                  s,
+                                  (ULONG)ParsedLine.ValueName,
+                                  (ULONG)ParsedLine.ValueString
+                                );
+
+                    ReturnedError = ERROR_BAD_FORMAT;
+                    break;
                     }
-                RtlAppendUnicodeStringToString( &NewKeyName, &CurrentUserKeyPath );
-                RtlAppendUnicodeToString( &NewKeyName, L"\\" );
-                KeyName.Buffer += 5;
-                KeyName.Length -= 5 * sizeof( WCHAR );
-                RtlAppendUnicodeStringToString( &NewKeyName, &KeyName );
-                KeyName = NewKeyName;
                 }
 
-            //
-            // Check to see if there is an ACL specified for this key
-            //
+            break;
+            }
+        else
+        if (ParsedLine.IsKeyName) {
+            if (DebugOutput) {
+                printf( "%02u %04u  KeyName: %ws",
+                        KeyPathLength,
+                        ParsedLine.IndentAmount,
+                        ParsedLine.KeyName
+                      );
+                }
 
-            HasAcl = RiParseACL(&KeyName, &AclName);
+            if (ParsedLine.IndentAmount > PreviousValueIndentAmount) {
+                fprintf( stderr,
+                         "REGINI: Missing line continuation character for %ws\n",
+                         ParsedLine.KeyName
+                       );
 
-#if 1
-            printf( "%02u %04u  KeyName: %wZ", KeyPathLength, IndentAmount, &KeyName );
-#endif
+                ReturnedError = ERROR_BAD_FORMAT;
+                break;
+                }
+            else {
+                PreviousValueIndentAmount = 0xFFFFFFFF;
+                }
+
             CurrentKey = &KeyPath[ KeyPathLength - 1 ];
             if (KeyPathLength == 0 ||
-                IndentAmount > CurrentKey->IndentAmount
+                ParsedLine.IndentAmount > CurrentKey->IndentAmount
                ) {
                 if (KeyPathLength == MAX_KEY_DEPTH) {
                     fprintf( stderr,
-                             "REGINI: %wZ key exceeded maximum depth (%u) of tree.\n",
-                             &KeyName,
+                             "REGINI: %ws key exceeded maximum depth (%u) of tree.\n",
+                             ParsedLine.KeyName,
                              MAX_KEY_DEPTH
                            );
 
-                    return( STATUS_UNSUCCESSFUL );
+                    ReturnedError = ERROR_FILENAME_EXCED_RANGE;
+                    break;
                     }
                 KeyPathLength++;
                 CurrentKey++;
                 }
             else {
                 do {
-                    NtClose( CurrentKey->Handle );
+                    RTCloseKey( &RegistryContext, CurrentKey->Handle );
                     CurrentKey->Handle = NULL;
-                    if (IndentAmount == CurrentKey->IndentAmount) {
+                    if (ParsedLine.IndentAmount == CurrentKey->IndentAmount) {
                         break;
                         }
                     CurrentKey--;
@@ -166,138 +263,120 @@ RiInitializeRegistryFromAsciiFile(
                         break;
                         }
                     }
-                while (IndentAmount <= CurrentKey->IndentAmount);
+                while (ParsedLine.IndentAmount <= CurrentKey->IndentAmount);
                 }
 
-#if 0
-            printf( "  (%02u)\n", KeyPathLength );
-#endif
-            CurrentKey->Name = KeyName;
-            CurrentKey->IndentAmount = IndentAmount;
-
-            if (HasAcl) {
-                Status = RegCreateSecurity(&AclName,
-                                           &SecurityDescriptor);
-                if (NT_SUCCESS(Status)) {
-                    pSecurityDescriptor = &SecurityDescriptor;
-                } else {
-                    pSecurityDescriptor = NULL;
-                    fprintf(stderr,
-                            "REGINI, CreateSecurity for %wZ (%wZ) failed %08lx\n",
-                            &KeyName,
-                            &AclName,
-                            Status);
+            if (DebugOutput) {
+                printf( "  (%02u)\n", KeyPathLength );
                 }
-            } else {
-                pSecurityDescriptor = NULL;
-            }
+            CurrentKey->Name = ParsedLine.KeyName;
+            CurrentKey->NameDisplayed = FALSE;
+            CurrentKey->IndentAmount = ParsedLine.IndentAmount;
+            CurrentKey->Handle = NULL;
+            if (ParsedLine.DeleteKey) {
+                Error = DeleteKeyTree( &RegistryContext,
+                                       KeyPathLength < 2 ? RootHandle :
+                                          KeyPath[ KeyPathLength - 2 ].Handle,
+                                       ParsedLine.KeyName
+                                     );
+                if (Error == NO_ERROR) {
+                    if (DebugOutput) {
+                        fprintf( stderr, "    Deleted key %02x %ws (%08x)\n",
+                                         CurrentKey->IndentAmount,
+                                         CurrentKey->Name,
+                                         CurrentKey->Handle
+                               );
+                        }
 
-            InitializeObjectAttributes( &ObjectAttributes,
-                                        &KeyName,
-                                        OBJ_CASE_INSENSITIVE,
-                                        KeyPathLength < 2 ? RootHandle :
-                                            KeyPath[ KeyPathLength - 2 ].Handle,
-                                        pSecurityDescriptor
-                                      );
-
-            Status = NtCreateKey( &CurrentKey->Handle,
-                                  MAXIMUM_ALLOWED,
-                                  &ObjectAttributes,
-                                  0,
-                                  &Class,
-                                  0,
-                                  &Disposition
-                                );
-            if (NT_SUCCESS( Status )) {
-                if (DebugOutput) {
-                    fprintf( stderr, "    Created key %02x %wZ (%08x)\n",
-                                     CurrentKey->IndentAmount,
-                                     &CurrentKey->Name,
-                                     CurrentKey->Handle
-                           );
-                    }
-
-                //
-                // If the key was opened (not created) then we may need to
-                // explicitly set the security descriptor that we want on
-                // it.
-                //
-                if ((Disposition == REG_OPENED_EXISTING_KEY) &&
-                    (pSecurityDescriptor != NULL)) {
-
-                    Status = NtSetSecurityObject(CurrentKey->Handle,
-                                                 DACL_SECURITY_INFORMATION,
-                                                 pSecurityDescriptor);
-                    if (!NT_SUCCESS(Status)) {
-                        fprintf(stderr,
-                                "NtSetSecurityObject on %wZ failed %08lx\n",
-                                &KeyName,
-                                Status);
-                    }
-
-                }
-
-                KeyInformation = (PKEY_BASIC_INFORMATION)KeyInformationBuffer;
-                Status = NtQueryKey( CurrentKey->Handle,
-                                     KeyBasicInformation,
-                                     KeyInformation,
-                                     sizeof( KeyInformationBuffer ),
-                                     &ResultLength
-                                   );
-                if (NT_SUCCESS( Status )) {
-                    CurrentKey->LastWriteTime = KeyInformation->LastWriteTime;
+                    DisplayPath( KeyPath, KeyPathLength+1, NULL );
+                    fprintf( stderr, "; *** Deleted the above key and all of its subkeys ***\n" );
                     }
                 else {
-                    RtlZeroMemory( &CurrentKey->LastWriteTime,
-                                   sizeof( CurrentKey->LastWriteTime )
-                                 );
+                    fprintf( stderr,
+                             "REGINI: DeleteKey (%ws) relative to handle (%lx) failed - %u\n",
+                             ParsedLine.KeyName,
+                             KeyPathLength < 2 ? RootHandle :
+                                KeyPath[ KeyPathLength - 2 ].Handle,
+                             Error
+                           );
 
-                    }
-
-                if (Disposition == REG_CREATED_NEW_KEY) {
-                    printf( "Created Key: " );
-                    for (i=0; i<KeyPathLength-1; i++) {
-                        printf( "%wZ\\", &KeyPath[ i ].Name );
-                        }
-                    printf( "%wZ\n", &KeyName );
+                    ReturnedError = Error;
+                    break;
                     }
                 }
             else {
-                fprintf( stderr,
-                         "REGINI: CreateKey (%wZ) relative to handle (%lx) failed - %lx\n",
-                         &KeyName,
-                         ObjectAttributes.RootDirectory,
-                         Status
-                       );
+                Error = RTCreateKey( &RegistryContext,
+                                     KeyPathLength < 2 ? RootHandle :
+                                        KeyPath[ KeyPathLength - 2 ].Handle,
+                                     ParsedLine.KeyName,
+                                     MAXIMUM_ALLOWED,
+                                     0,
+                                     ParsedLine.SecurityDescriptor,
+                                     (PHKEY)&CurrentKey->Handle,
+                                     &Disposition
+                                   );
+                if (Error == NO_ERROR) {
+                    if (DebugOutput) {
+                        fprintf( stderr, "    Created key %02x %ws (%08x)\n",
+                                         CurrentKey->IndentAmount,
+                                         CurrentKey->Name,
+                                         CurrentKey->Handle
+                               );
+                        }
+
+                    Error = RTQueryKey( &RegistryContext,
+                                        CurrentKey->Handle,
+                                        &CurrentKey->LastWriteTime,
+                                        NULL,
+                                        NULL
+                                      );
+                    if (Error != NO_ERROR) {
+                        RtlZeroMemory( &CurrentKey->LastWriteTime,
+                                       sizeof( CurrentKey->LastWriteTime )
+                                     );
+                        }
+
+                    if (Disposition == REG_CREATED_NEW_KEY) {
+                        DisplayPath( KeyPath, KeyPathLength+1, ParsedLine.SecurityDescriptor );
+                        }
+                    }
+                else {
+                    fprintf( stderr,
+                             "REGINI: CreateKey (%ws) relative to handle (%lx) failed - %u\n",
+                             ParsedLine.KeyName,
+                             KeyPathLength < 2 ? RootHandle :
+                                KeyPath[ KeyPathLength - 2 ].Handle,
+                             Error
+                           );
+
+                    ReturnedError = Error;
+                    break;
+                    }
                 }
             }
         else {
-            EndKey = FirstEqual;
-            while (EndKey > UnicodeFile.BeginLine && EndKey[ -1 ] <= L' ') {
-                EndKey--;
+            if (CurrentKey == NULL) {
+                InputMessage( FileName,
+                              ParsedLine.LineNumber,
+                              TRUE,
+                              "Value name ('%ws') seen before any key name",
+                              (ULONG)ParsedLine.ValueName,
+                              0
+                            );
+                ReturnedError = ERROR_BAD_FORMAT;
+                break;
                 }
-            KeyName.Buffer = UnicodeFile.BeginLine;
-            KeyName.Length = (USHORT)((PCHAR)EndKey - (PCHAR)KeyName.Buffer);
-            KeyName.MaximumLength = (USHORT)(KeyName.Length + 1);
 
-            BeginValue = FirstEqual + 1;
-            while (BeginValue < UnicodeFile.EndOfLine && *BeginValue <= L' ') {
-                BeginValue++;
-                }
-            KeyValue.Buffer = BeginValue;
-            KeyValue.Length = (USHORT)((PCHAR)UnicodeFile.EndOfLine - (PCHAR)BeginValue);
-            KeyValue.MaximumLength = (USHORT)(KeyValue.Length + 1);
-
-            while (IndentAmount <= CurrentKey->IndentAmount) {
+            while (ParsedLine.IndentAmount <= CurrentKey->IndentAmount) {
                 if (DebugOutput) {
-                    fprintf( stderr, "    Popping from key %02x %wZ (%08x)\n",
+                    fprintf( stderr, "    Popping from key %02x %ws (%08x)\n",
                                      CurrentKey->IndentAmount,
-                                     &CurrentKey->Name,
+                                     CurrentKey->Name,
                                      CurrentKey->Handle
                            );
                     }
 
-                NtClose( CurrentKey->Handle );
+                RTCloseKey( &RegistryContext, CurrentKey->Handle );
                 CurrentKey->Handle = NULL;
                 CurrentKey--;
                 if (--KeyPathLength == 1) {
@@ -306,492 +385,280 @@ RiInitializeRegistryFromAsciiFile(
                 }
 
             if (DebugOutput) {
-                fprintf( stderr, "    Adding value '%wZ = %wZ' to key %02x %wZ (%08x)\n",
-                                 &KeyName,
-                                 &KeyValue,
+                fprintf( stderr, "    Adding value '%ws = %ws' to key %02x %ws (%08x)\n",
+                                 ParsedLine.ValueName,
+                                 ParsedLine.ValueString,
                                  CurrentKey->IndentAmount,
-                                 &CurrentKey->Name,
+                                 CurrentKey->Name,
                                  CurrentKey->Handle
                        );
 
                 }
-            if (RegGetKeyValue( &KeyValue,
-                                &UnicodeFile,
-                                &ValueType,
-                                &ValueBuffer,
-                                &ValueLength
-                              )
-               ) {
-                if (ValueBuffer == NULL) {
-                    Status = NtDeleteValueKey( KeyPath[ KeyPathLength - 1 ].Handle,
-                                               &KeyName
-                                             );
-                    if (NT_SUCCESS( Status )) {
-                        printf( "Delete value for Key: " );
-                        for (i=0; i<KeyPathLength; i++) {
-                            printf( "%wZ\\", &KeyPath[ i ].Name );
-                            }
-                        printf( "%wZ\n", &KeyName );
-                        }
-                    }
-                else {
-                    if (RtlLargeIntegerGreaterThan( UnicodeFile.LastWriteTime,
-                                                    CurrentKey->LastWriteTime
-                                                  )
-                       ) {
-                        Status = STATUS_UNSUCCESSFUL;
-                        UpdateKeyValue = TRUE;
-                        }
-                    else {
-                        Status = NtQueryValueKey( KeyPath[ KeyPathLength - 1 ].Handle,
-                                                  &KeyName,
-                                                  KeyValueFullInformation,
-                                                  OldValueInformation,
-                                                  OldValueBufferSize,
-                                                  &OldValueLength
-                                                );
-                        if (NT_SUCCESS( Status )) {
-                            UpdateKeyValue = TRUE;
-                            }
-                        else {
-                            UpdateKeyValue = FALSE;
-                            }
-                        }
 
-                    if (!NT_SUCCESS( Status ) ||
-                        OldValueInformation->Type != ValueType ||
-                        OldValueInformation->DataLength != ValueLength ||
-                        RtlCompareMemory( (PCHAR)OldValueInformation +
-                                            OldValueInformation->DataOffset,
-                                          ValueBuffer,
-                                          ValueLength
-                                        ) != ValueLength
-                       ) {
-
-                        Status = NtSetValueKey( KeyPath[ KeyPathLength - 1 ].Handle,
-                                                &KeyName,
-                                                0,
-                                                ValueType,
-                                                ValueBuffer,
-                                                ValueLength
-                                              );
-                        if (NT_SUCCESS( Status )) {
-                            printf( "%s value for Key: ",
-                                    UpdateKeyValue ? "Updated" : "Created"
-                                  );
-                            for (i=0; i<KeyPathLength; i++) {
-                                printf( "%wZ\\", &KeyPath[ i ].Name );
-                                }
-                            printf( "%wZ = '%wZ'\n", &KeyName, &KeyValue );
-                            }
-                        else {
-                            fprintf( stderr,
-                                     "REGINI: SetValueKey (%wZ) failed - %lx\n",
-                                     &KeyName,
-                                     Status
-                                   );
-                            }
-                        }
-
-                    RtlFreeHeap( RtlProcessHeap(), 0, ValueBuffer );
+            PreviousValueIndentAmount = ParsedLine.IndentAmount;
+            if (ParsedLine.DeleteValue) {
+                Error = RTDeleteValueKey( &RegistryContext,
+                                          KeyPath[ KeyPathLength - 1 ].Handle,
+                                          ParsedLine.ValueName
+                                        );
+                if (Error == NO_ERROR) {
+                    printf( "    %ws = DELETED\n", ParsedLine.ValueName );
                     }
                 }
             else {
-                fprintf( stderr,
-                         "REGINI: Invalid key (%wZ) value (%wZ)\n",
-                         &KeyName,
-                         &KeyValue
-                       );
+                OldValueLength = OldValueBufferSize;
+                Error = RTQueryValueKey( &RegistryContext,
+                                         KeyPath[ KeyPathLength - 1 ].Handle,
+                                         ParsedLine.ValueName,
+                                         &OldValueType,
+                                         &OldValueLength,
+                                         OldValueBuffer
+                                        );
+                if (Error != NO_ERROR ||
+                    OldValueType != ParsedLine.ValueType ||
+                    OldValueLength != ParsedLine.ValueLength ||
+                    RtlCompareMemory( OldValueBuffer,
+                                      ParsedLine.ValueData,
+                                      ParsedLine.ValueLength
+                                    ) != ParsedLine.ValueLength
+                   ) {
+                    Error = RTSetValueKey( &RegistryContext,
+                                           KeyPath[ KeyPathLength - 1 ].Handle,
+                                           ParsedLine.ValueName,
+                                           ParsedLine.ValueType,
+                                           ParsedLine.ValueLength,
+                                           ParsedLine.ValueData
+                                         );
+                    if (Error == NO_ERROR) {
+                        DisplayPath( KeyPath, KeyPathLength+1, NULL );
+                        RTFormatKeyValue( OutputWidth,
+                                          (PREG_OUTPUT_ROUTINE)fprintf,
+                                          stdout,
+                                          FALSE,
+                                          KeyPathLength * IndentMultiple,
+                                          ParsedLine.ValueName,
+                                          ParsedLine.ValueLength,
+                                          ParsedLine.ValueType,
+                                          ParsedLine.ValueData
+                                        );
+                        }
+                    else {
+                        fprintf( stderr,
+                                 "REGINI: SetValueKey (%ws) failed (%u)\n",
+                                 ParsedLine.ValueName,
+                                 Error
+                               );
+
+                        ReturnedError = Error;
+                        break;
+                        }
+                    }
                 }
             }
         }
 
-        //
-        // Close handles we still have open.
-        //
-        while (CurrentKey >= KeyPath ) {
-            NtClose(CurrentKey->Handle);
-            --CurrentKey;
+    //
+    // Close handles we still have open.
+    //
+    while (CurrentKey >= KeyPath ) {
+        RTCloseKey( &RegistryContext, CurrentKey->Handle );
+        --CurrentKey;
         }
 
-    return( Status );
+    RTDisconnectFromRegistry( &RegistryContext );
+
+    return ReturnedError;
 }
 
-HANDLE RiLoadHive(
-    IN PCHAR HiveFileName,
-    IN PCHAR HiveRootName
+BOOL
+CtrlCHandler(
+    IN ULONG CtrlType
     )
 {
-    ANSI_STRING AnsiString;
-    NTSTATUS Status;
-    UNICODE_STRING DosFileName;
-    UNICODE_STRING NtFileName;
-    OBJECT_ATTRIBUTES File;
-    HANDLE KeyHandle;
-    SECURITY_DESCRIPTOR SecurityDescriptor;
-
-    RtlInitAnsiString(&AnsiString, HiveFileName);
-
-    Status = RtlAnsiStringToUnicodeString(&DosFileName,
-                                          &AnsiString,
-                                          TRUE);
-    if (NT_SUCCESS(Status)) {
-        RtlInitAnsiString(&AnsiString, HiveRootName);
-        Status = RtlAnsiStringToUnicodeString(&RootName,
-                                              &AnsiString,
-                                              TRUE);
-    }
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr, "REGINI - Couldn't load hive file %s - Status %08lx\n",
-                HiveFileName,
-                Status);
-        exit(1);
-    }
-
-    if (!RtlDosPathNameToNtPathName_U(DosFileName.Buffer,
-                                      &NtFileName,
-                                      NULL,
-                                      NULL)) {
-        fprintf(stderr, "REGINI - Couldn't load hive file %s - Status %08lx\n",
-                HiveFileName,
-                Status);
-        exit(1);
-    }
-
-    //
-    // Create security descriptor with a NULL Dacl.  This is necessary
-    // because the security descriptor we pass in gets used in system
-    // context.  So if we just pass in NULL, then the Wrong Thing happens.
-    // (but only on NTFS!)
-    //
-    Status = RtlCreateSecurityDescriptor(&SecurityDescriptor,
-                                         SECURITY_DESCRIPTOR_REVISION);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "REGINI - RtlCreateSecurityDescriptor failed %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    Status = RtlSetDaclSecurityDescriptor(&SecurityDescriptor,
-                                          TRUE,         // Dacl present
-                                          NULL,         // but grants all access
-                                          FALSE);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "REGINI - RtlSetDaclSecurityDescriptor failed %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    InitializeObjectAttributes(&File,
-                               &NtFileName,
-                               OBJ_CASE_INSENSITIVE,
-                               NULL,
-                               &SecurityDescriptor);
-
-    RtlInitUnicodeString(&RootName, L"\\Registry");
-    InitializeObjectAttributes(&RootKey,
-                               &RootName,
-                               OBJ_CASE_INSENSITIVE,
-                               NULL,
-                               NULL);
-    Status = NtOpenKey(&RegistryRoot,
-                       KEY_READ,
-                       &RootKey);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr, "REGINI - Couldn't open \\Registry - Status %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    RtlInitAnsiString(&AnsiString, HiveRootName);
-    Status = RtlAnsiStringToUnicodeString(&RootName,
-                                          &AnsiString,
-                                          TRUE);
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr, "REGINI - Couldn't allocate string for %s\n",
-                &AnsiString);
-        exit(1);
-    }
-
-    InitializeObjectAttributes(&RootKey,
-                               &RootName,
-                               OBJ_CASE_INSENSITIVE,
-                               RegistryRoot,
-                               NULL);
-    if (DebugOutput) {
-        fprintf( stderr, "REGINI: Unloading key %wZ\n", RootKey.ObjectName );
-        }
-
-    NtUnloadKey(&RootKey);
-
-    if (DebugOutput) {
-        fprintf( stderr, "REGINI: Loading key %wZ\n", RootKey.ObjectName );
-        }
-    Status = NtLoadKey(&RootKey, &File);
-
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr, "REGINI - NtLoadKey failed %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    return(RegistryRoot);
-
+    RTDisconnectFromRegistry( &RegistryContext );
+    return FALSE;
 }
 
+
 int
-_CRTAPI1 main( argc, argv )
-int argc;
-char *argv[];
+_CRTAPI1
+main(
+    int argc,
+    char *argv[]
+    )
 {
-    int i;
+    ULONG n;
     char *s;
-    char *HiveFileName;
-    char *HiveRootName;
-    NTSTATUS Status;
+    LONG Error;
     BOOL FileArgumentSeen;
-    ANSI_STRING AnsiString;
-    UNICODE_STRING DosFileName;
-    UNICODE_STRING FileName;
-    HANDLE RootHandle = NULL;
-    HANDLE Handle;
-    BOOLEAN RestoreWasEnabled;
-    BOOLEAN BackupWasEnabled;
+    PWSTR FileName;
 
-    RtlAllocateStringRoutine = NtdllpAllocateStringRoutine;
-    RtlFreeStringRoutine = NtdllpFreeStringRoutine;
+    InitCommonCode( CtrlCHandler,
+                    "REGINI",
+                    "[-b] textFiles...",
+                    "-b specifies that REGINI should be backward compatible with older\n"
+                    "    versions of REGINI that did not strictly enforce line continuations\n"
+                    "    and quoted strings Specifically, REG_BINARY, REG_RESOURCE_LIST and\n"
+                    "    REG_RESOURCE_REQUIREMENTS_LIST data types did not need line\n"
+                    "    continuations after the first number that gave the size of the data.\n"
+                    "    It just kept looking on following lines until it found enough data\n"
+                    "    values to equal the data length or hit invalid input.  Quoted\n"
+                    "    strings were only allowed in REG_MULTI_SZ.  They could not be\n"
+                    "    specified around key or value names, or around values for REG_SZ or\n"
+                    "    REG_EXPAND_SZ Finally, the old REGINI did not support the semicolon\n"
+                    "    as an end of line comment character.\n"
+                    "\n"
+                    "textFiles is one or more ANSI or Unicode text files with registry data.\n"
+                    "\n"
+                    "The easiest way to understand the format of the input textFile is to use\n"
+                    "the REGDMP command with no arguments to dump the current contents of\n"
+                    "your NT Registry to standard out.  Redirect standard out to a file and\n"
+                    "this file is acceptable as input to REGINI\n"
+                    "\n"
+                    "Some general rules are:\n"
+                    "    Semicolon character is an end-of-line comment character, provided it\n"
+                    "    is the first non-blank character on a line\n"
+                    "\n"
+                    "    Backslash character is a line continuation character.  All\n"
+                    "    characters from the backslash up to but not including the first\n"
+                    "    non-blank character of the next line are ignored.  If there is more\n"
+                    "    than one space before the line continuation character, it is\n"
+                    "    replaced by a single space.\n"
+                    "\n"
+                    "    Indentation is used to indicate the tree structure of registry keys\n"
+                    "    The REGDMP program uses indentation in multiples of 4.  You may use\n"
+                    "    hard tab characters for indentation, but embedded hard tab\n"
+                    "    characters are converted to a single space regardless of their\n"
+                    "    position\n"
+                    "\n"
+                    "    For key names, leading and trailing space characters are ignored and\n"
+                    "    not included in the key name, unless the key name is surrounded by\n"
+                    "    quotes.  Imbedded spaces are part of a key name.\n"
+                    "\n"
+                    "    Key names can be followed by an Access Control List (ACL) which is a\n"
+                    "    series of decimal numbers, separated by spaces, bracketed by a\n"
+                    "    square brackets (e.g.  [8 4 17]).  The valid numbers and their\n"
+                    "    meanings are:\n"
+                    "\n"
+                    "       1  - Administrators Full Access\n"
+                    "       2  - Administrators Read Access\n"
+                    "       3  - Administrators Read and Write Access\n"
+                    "       4  - Administrators Read, Write and Delete Access\n"
+                    "       5  - Creator Full Access\n"
+                    "       6  - Creator Read and Write Access\n"
+                    "       7  - World Full Access\n"
+                    "       8  - World Read Access\n"
+                    "       9  - World Read and Write Access\n"
+                    "       10 - World Read, Write and Delete Access\n"
+                    "       11 - Power Users Full Access\n"
+                    "       12 - Power Users Read and Write Access\n"
+                    "       13 - Power Users Read, Write and Delete Access\n"
+                    "       14 - System Operators Full Access\n"
+                    "       15 - System Operators Read and Write Access\n"
+                    "       16 - System Operators Read, Write and Delete Access\n"
+                    "       17 - System Full Access\n"
+                    "       18 - System Read and Write Access\n"
+                    "       19 - System Read Access\n"
+                    "       20 - Administrators Read, Write and Execute Access\n"
+                    "       21 - Interactive User Full Access\n"
+                    "       22 - Interactive User Read and Write Access\n"
+                    "       23 - Interactive User Read, Write and Delete Access\n"
+                    "\n"
+                    "    If there is an equal sign on the same line as a left square bracket\n"
+                    "    then the equal sign takes precedence, and the line is treated as a\n"
+                    "    registry value.  If the text between the square brackets is the\n"
+                    "    string DELETE with no spaces, then REGINI will delete the key and\n"
+                    "    any values and keys under it.\n"
+                    "\n"
+                    "    For registry values, the syntax is:\n"
+                    "\n"
+                    "       value Name = type data\n"
+                    "\n"
+                    "    Leading spaces, spaces on either side of the equal sign and spaces\n"
+                    "    between the type keyword and data are ignored, unless the value name\n"
+                    "    is surrounded by quotes.\n"
+                    "\n"
+                    "    The value name may be left off or be specified by an at-sign\n"
+                    "    character which is the same thing, namely the empty value name.  So\n"
+                    "    the following two lines are identical:\n"
+                    "\n"
+                    "       = type data\n"
+                    "       @ = type data\n"
+                    "\n"
+                    "    This syntax means that you can't create a value with leading or or\n"
+                    "    trailing spaces, an equal sign or an at-sign in the value name,\n"
+                    "    unless you put the name in quotes.\n"
+                    "\n"
+                    "    Valid value types and format of data that follows are:\n"
+                    "\n"
+                    "       REG_SZ text\n"
+                    "       REG_EXPAND_SZ text\n"
+                    "       REG_MULTI_SZ \"string1\" \"string2\" ...\n"
+                    "       REG_DATE mm/dd/yyyy HH:MM DayOfWeek\n"
+                    "       REG_DWORD numberDWORD\n"
+                    "       REG_BINARY numberOfBytes numberDWORD(s)...\n"
+                    "       REG_NONE (same format as REG_BINARY)\n"
+                    "       REG_RESOURCE_LIST (same format as REG_BINARY)\n"
+                    "       REG_RESOURCE_REQUIREMENTS (same format as REG_BINARY)\n"
+                    "       REG_RESOURCE_REQUIREMENTS_LIST (same format as REG_BINARY)\n"
+                    "       REG_FULL_RESOURCE_DESCRIPTOR (same format as REG_BINARY)\n"
+                    "       REG_MULTISZ_FILE fileName\n"
+                    "       REG_BINARYFILE fileName\n"
+                    "\n"
+                    "    If no value type is specified, default is REG_SZ\n"
+                    "\n"
+                    "    For REG_SZ and REG_EXPAND_SZ, if you want leading or trailing spaces\n"
+                    "    in the value text, surround the text with quotes.  The value text\n"
+                    "    can contain any number of imbedded quotes, and REGINI will ignore\n"
+                    "    them, as it only looks at the first and last character for quote\n"
+                    "    characters.\n"
+                    "\n"
+                    "    For REG_BINARY, the value data consists of one or more numbers The\n"
+                    "    default base for numbers is decimal.  Hexidecimal may be specified\n"
+                    "    by using 0x prefix.  The first number is the number of data bytes,\n"
+                    "    excluding the first number.  After the first number must come enough\n"
+                    "    numbers to fill the value.  Each number represents one DWORD or 4\n"
+                    "    bytes.  So if the first number was 0x5 you would need two more\n"
+                    "    numbers after that to fill the 5 bytes.  The high high order 3 bytes\n"
+                    "    of the second DWORD would be ignored.\n"
+                  );
 
-    OldValueBufferSize = VALUE_BUFFER_SIZE;
-    OldValueBuffer = VirtualAlloc( NULL, OldValueBufferSize, MEM_COMMIT, PAGE_READWRITE );
-    if (OldValueBuffer == NULL) {
-        fprintf( stderr, "REGINI: Unable to allocate value buffer.\n" );
-        exit( 1 );
-        }
-
-    //
-    // Try to enable backup and restore privileges
-    //
-    Status = RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE,
-                                TRUE,               // Enable
-                                FALSE,              // Not impersonating
-                                &RestoreWasEnabled);// previous state
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "REGINI - Couldn't enable SE_RESTORE_PRIVILEGE %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    Status = RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE,
-                                TRUE,               // Enable
-                                FALSE,              // Not impersonating
-                                &BackupWasEnabled); // previous state
-    if (!NT_SUCCESS(Status)) {
-        fprintf(stderr,
-                "REGINI - Couldn't enable SE_BACKUP_PRIVILEGE %08lx\n",
-                Status);
-        exit(1);
-    }
-
-    RegInitialize();
+    BackwardsCompatibleInput = FALSE;
     FileArgumentSeen = FALSE;
-    for (i=1; i<argc; i++) {
-        s = argv[ i ];
+    while (--argc) {
+        s = *++argv;
         if (*s == '-' || *s == '/') {
             while (*++s) {
                 switch( tolower( *s ) ) {
-                    case 'd':
-                        DebugOutput = TRUE;
+                    case 'b':
+                        BackwardsCompatibleInput = TRUE;
                         break;
 
-                    case 'h':
-                        if (i+2 < argc) {
-                            HiveFileName = argv[++i];
-                            HiveRootName = argv[++i];
-                            RootHandle = RiLoadHive(HiveFileName, HiveRootName);
-                        } else {
-                            Usage();
-                        }
-                        break;
-
-                    default:    Usage();
+                    default:
+                        CommonSwitchProcessing( &argc, &argv, *s );
                     }
                 }
             }
         else {
             FileArgumentSeen = TRUE;
-            RtlInitAnsiString( &AnsiString, s );
-            Status = RtlAnsiStringToUnicodeString( &DosFileName, &AnsiString, TRUE );
-            if (NT_SUCCESS( Status )) {
-                if (RtlDosPathNameToNtPathName_U( DosFileName.Buffer,
-                                                  &FileName,
-                                                  NULL,
-                                                  NULL
-                                                )
-                   ) {
-                    Status = RiInitializeRegistryFromAsciiFile( &FileName, RootHandle );
-                    }
-                else {
-                    Status = STATUS_UNSUCCESSFUL;
-                    }
+            FileName = GetArgAsUnicode( s );
+            if (FileName == NULL) {
+                Error = GetLastError();
+                }
+            else {
+                Error = InitializeRegistryFromAsciiFile( FileName );
                 }
 
-            if (!NT_SUCCESS( Status )) {
-                fprintf( stderr,
-                         "REGINI: Failed to load from %s - Status == %lx\n",
-                         s,
-                         Status
-                       );
+            if (Error != NO_ERROR) {
+                FatalError( "Failed to load from file '%s' (%u)\n", (ULONG)s, Error );
+                exit( Error );
                 }
             }
         }
 
     if (!FileArgumentSeen) {
-        RtlInitUnicodeString( &FileName, L"\\SystemRoot\\System32\\Config\\registry.sys" );
-        Status = RiInitializeRegistryFromAsciiFile( &FileName, RootHandle );
-        if (!NT_SUCCESS( Status )) {
-            fprintf( stderr,
-                     "REGINI: Failed to load from %wZ - Status == %lx\n",
-                     &FileName,
-                     Status
-                   );
-            }
-        else {
-            RtlInitUnicodeString( &FileName, L"\\SystemRoot\\System32\\Config\\registry.usr" );
-            Status = RiInitializeRegistryFromAsciiFile( &FileName, RootHandle );
-            if (!NT_SUCCESS( Status )) {
-                fprintf( stderr,
-                         "REGINI: Failed to load from %wZ - Status == %lx\n",
-                         &FileName,
-                         Status
-                       );
-                }
-            }
+        Usage( "No textFile specified", 0 );
         }
 
-    if (RootHandle != NULL) {
-        Status = NtOpenKey(&Handle,
-                           MAXIMUM_ALLOWED,
-                           &RootKey);
-        if (!NT_SUCCESS(Status)) {
-            fprintf(stderr, "REGINI: Couldn't open root hive key %08lx\n",Status);
-        } else {
-            NtFlushKey(Handle);
-            NtClose(Handle);
-        }
-        if (DebugOutput) {
-            fprintf( stderr, "REGINI: Unloading key %wZ\n", RootKey.ObjectName );
-            }
-        Status = NtUnloadKey(&RootKey);
-        if (!NT_SUCCESS(Status)) {
-            fprintf(stderr, "REGINI: Couldn't unload hive from registry %08lx\n",Status);
-        }
-        NtClose(RegistryRoot);
-    }
-
-    //
-    // Restore privileges to what they were
-    //
-
-    RtlAdjustPrivilege(SE_RESTORE_PRIVILEGE,
-                       RestoreWasEnabled,
-                       FALSE,
-                       &RestoreWasEnabled);
-
-    RtlAdjustPrivilege(SE_BACKUP_PRIVILEGE,
-                       BackupWasEnabled,
-                       FALSE,
-                       &BackupWasEnabled);
-
-
-
-    return( 0 );
-}
-
-
-
-BOOLEAN
-RiParseACL(
-    IN OUT PUNICODE_STRING KeyName,
-    OUT PUNICODE_STRING AclName
-    )
-
-/*++
-
-Routine Description:
-
-    Takes a unicode string of the form "some key name  [2 4 3 1]" and splits
-    it into "some key name" and "2 4 3 1".
-
-Arguments:
-
-    KeyName - Supplies the unicode string, returns just the key name.
-
-    AclName - Returns the AclName ( "2 4 3 1" )
-
-Return Value:
-
-    TRUE - Acl present and successfully parsed.
-
-    FALSE - Acl not present
-
---*/
-
-{
-    PWSTR AclStart;
-    PWSTR AclEnd;
-    PWSTR NameEnd;
-
-    //
-    // First scan the KeyName to see if there is an ACL there at all.  If
-    // not, we don't do anything but return FALSE.
-    //
-    AclStart = KeyName->Buffer;
-    while (AclStart < (KeyName->Buffer+KeyName->Length/sizeof(WCHAR))) {
-        if (*AclStart == ACL_LIST_START) {
-            break;
-        }
-        ++AclStart;
-    }
-
-    if (*AclStart != ACL_LIST_START) {
-
-        //
-        // No ACL present in this key name
-        //
-
-        return(FALSE);
-    }
-
-    //
-    // We have found an ACL name
-    //
-    AclName->Buffer = AclStart+1;
-    AclName->Length = 0;
-    AclEnd = AclName->Buffer;
-    while (*AclEnd != ACL_LIST_END) {
-        AclName->Length += sizeof(WCHAR);
-        ++AclEnd;
-    }
-    AclName->MaximumLength = AclName->Length;
-
-    //
-    // Now remove the ACL name from the key name.
-    //
-    --AclStart;
-    while ((*AclStart == L' ') ||
-           (*AclStart == L'\t')) {
-        --AclStart;
-    }
-    KeyName->Length = (AclStart - KeyName->Buffer)*sizeof(WCHAR)+sizeof(WCHAR);
-    KeyName->MaximumLength = KeyName->Length;
-#if 1
-    printf(" KeyName (%wZ) has Acl (%wZ)\n",
-           KeyName,
-           AclName);
-#endif
-
-    return(TRUE);
+    return 0;
 }

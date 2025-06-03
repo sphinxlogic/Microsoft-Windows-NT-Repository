@@ -56,16 +56,19 @@ class ATTRLIST;
 // the special iterator for attribute lists during context walks
 //
 
-class ATTR_ITERATOR : public gplistmgr
+class ATTR_ITERATOR
 	{
 private:
 
 	ATTR_SUMMARY		Summary;
+	ATTR_POINTER_VECTOR	AllAttrs;
+	gplistmgr			RedundantAttrExtras[ REDUNDANT_ATTR_END + 1 ];
 
 public:
 						ATTR_ITERATOR()
 							{
 							CLEAR_ATTR( Summary );
+							memset( AllAttrs, 0, sizeof( ATTR_POINTER_VECTOR ) );
 							}
 
 	void				ExtractFieldAttributes( FIELD_ATTR_INFO * );
@@ -76,24 +79,31 @@ public:
 
 	BOOL				FInSummary( ATTR_T Attr )
 							{
-							return IS_ATTR( (Summary), Attr );
+							return (BOOL) AllAttrs[ Attr ];
 							}
 
 	void				Add( node_base_attr * pAttr )
 							{
-							Insert( (void *) pAttr);
-							SET_ATTR( Summary, pAttr->GetAttrID() );
+							ATTR_T		Attr = pAttr->GetAttrID();
+
+							if ( !AllAttrs[ Attr ] )
+								AllAttrs[ Attr ] = pAttr;
+							else
+								AddRedundantAttr( pAttr );
+
+							SET_ATTR( Summary, Attr );
 							}
 
 	void				ClearAttributes()
 							{
-							Clear();
  							CLEAR_ATTR( Summary );
+							memset( AllAttrs, 0, sizeof( ATTR_POINTER_VECTOR ) );
+							memset( RedundantAttrExtras, 0, sizeof( RedundantAttrExtras ) );
 							}
 
 	BOOL				HasAttributes()
 							{
-							return NonNull();
+							return !IS_CLEAR_ATTR( Summary );
 							}
 
 	ATTR_VECTOR		*	GetSummary()
@@ -102,9 +112,13 @@ public:
 							}
 
 private:
-	// special delete function used by ExtractXXX routines
-	void				Delete( struct _gplist * & pPrev,
-								struct _gplist * & pCur );
+	void				AddRedundantAttr( node_base_attr * pAttr )
+							{
+							ATTR_T		Attr = pAttr->GetAttrID();
+
+							RedundantAttrExtras[ Attr ].Insert( pAttr );
+							}
+
 
 	};
 
@@ -122,6 +136,7 @@ protected:
 	WALK_CTXT		*	pParentCtxt;
 	WALK_CTXT		*	pIntfCtxt;
 	ATTR_ITERATOR	*	pDownAttrList;
+	BOOL				GotImportantPosn;
 
 public:
 						// use this to make one without a parent context
@@ -130,6 +145,7 @@ public:
 							pParent		= pPar;
 							pParentCtxt	= NULL;
 							pIntfCtxt	= NULL;
+							GotImportantPosn	= FALSE;
 
 							// allocate the topmost attributes structure
 							pDownAttrList	= new ATTR_ITERATOR;
@@ -147,6 +163,7 @@ public:
 							pParent		= pPar;
 							pParentCtxt	= pCtxt;
 							pIntfCtxt	= pCtxt->pIntfCtxt;
+							GotImportantPosn = pCtxt->GotImportantPosn;
 	
 							pDownAttrList	= pCtxt->pDownAttrList;
 
@@ -165,6 +182,7 @@ public:
 							pParent		= pCtxt->GetParent();
 							pParentCtxt	= pCtxt;
 							pIntfCtxt	= pCtxt->pIntfCtxt;
+							GotImportantPosn = pCtxt->GotImportantPosn;
 	
 							pDownAttrList	= pCtxt->pDownAttrList;
 
@@ -201,6 +219,23 @@ public:
 							return (node_interface *) pIntfCtxt->pParent;
 							}
 
+	void				MarkImportantPosition()
+							{
+							GotImportantPosn = TRUE;
+							}
+
+	void				UnMarkImportantPosition()
+							{
+							GotImportantPosn = FALSE;
+							}
+
+	BOOL				IsImportantPosition()
+							{
+							return GotImportantPosn;
+							}
+
+	void				FindImportantPosition(tracked_node & Posn);
+
 	// establish a new interface context for this node; new clean attr list
 	WALK_CTXT	*		SetInterfaceContext( WALK_CTXT * pCtxt )
 							{
@@ -218,7 +253,7 @@ public:
 	WALK_CTXT	*		FindRecursiveContext( node_skl * self );
 
 	// for my context, find the appropriate pointer kind ( and extract it if needed )
-	PTRTYPE				GetPtrKind();
+	PTRTYPE				GetPtrKind( BOOL * pfExplicitPtrAttr = NULL );
 
 	// get all the operation bits (MAYBE, IDEMPOTENT, BROADCAST, etc.
 	unsigned short		GetOperationBits();
@@ -262,7 +297,7 @@ public:
 
 	BOOL				HasAttributes()
 							{
-							return ( pDownAttrList->NonNull() );
+							return ( pDownAttrList->HasAttributes() );
 							}
 
 								
@@ -287,5 +322,9 @@ public:
 
 	};
 	  
+// prototype for semantic error routines
+extern void
+SemError( node_skl *, WALK_CTXT &, STATUS_T, char * );
+
 
 #endif // __WALKCTXT_HXX__

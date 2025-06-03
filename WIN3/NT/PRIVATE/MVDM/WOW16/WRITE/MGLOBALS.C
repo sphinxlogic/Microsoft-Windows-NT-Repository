@@ -814,5 +814,4 @@ struct FMI      vfmiSysScreen;    /* to keep the metrics info for the system
 int            vrgdxpSysScreen[chFmiMax - chFmiMin];
                                   /* Used by vfmiSysScreen. */
 #endif /* KANJI */
-
-
+

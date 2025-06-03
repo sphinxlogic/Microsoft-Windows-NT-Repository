@@ -6,29 +6,10 @@
  *
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <direct.h>
-#include <conio.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <limits.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "dir.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
-
-#if defined(DOS)
-#include "de.h"
-#include <dos.h>
-#endif
+EnableAssert
 
 private F FRedirectDr(char *, PTH *, int *);
 private F FFindPass(char *, PTH *);
@@ -43,10 +24,6 @@ int     getmach(char *);
 int     getredir(int, char *, char *);
 int     mkredir(char *, PTH *);
 int     endredir(char *);
-char    *getcwd(char *pathbuf, int maxlen);
-
-EnableAssert
-
 
 #ifndef SROOT
 #define SROOT "/slm"            /* default on DOS */
@@ -84,7 +61,7 @@ EnableAssert
  * that already exist; since they are more likely to go away than ones
  * we create ourselves.
  */
-#define FNetDn(dn)      (mpdndt[dn] == dtTempNet)
+#define FNetDn(dn)      (mpdndt[dn] == dtTempNet || mpdndt[dn] == dtPermNet)
 
 void
 CheckProjectDiskSpace(
@@ -95,40 +72,6 @@ CheckProjectDiskSpace(
 
     SzPhysPath(pthPhys, pad->pthSRoot);
 
-#if defined(DOS)
-    {
-        unsigned short      wRet;
-        int                 drive_no;
-        unsigned long       cbFree;
-        struct diskfree_t   diskinfo;
-
-        // our mapping has A:==0, but dos use A:==1
-        drive_no = DnForCh(*pthPhys) + 1;
-        if (wRet = _dos_getdiskfree(drive_no, &diskinfo)) {
-            Error("unable to get drive information for %&S, error code %u\n",
-                  pad, wRet);
-            return;
-        } else {
-            cbFree = (unsigned long)diskinfo.sectors_per_cluster *
-                     (unsigned long)diskinfo.bytes_per_sector *
-                     (unsigned long)diskinfo.avail_clusters;
-        }
-
-        if (fVerbose) {
-            if (szOp)
-                PrErr("%s: ", szOp);
-            PrErr("%lu K-bytes free on %&S\n\n", cbFree/1024, pad);
-        }
-
-        if (cbFree < cbMin) {
-            Error("Disk space on %&S is dangerously low.\n"
-                  "Please contact your project administrator.\n", pad);
-            if (FQueryUser("Abort? ", pad))
-                    ExitSlm();
-        }
-    }
-
-#elif defined(_WIN32)
     {
         char    szDrive[_MAX_DRIVE];
         __int64 cbFree;
@@ -138,6 +81,9 @@ CheckProjectDiskSpace(
         unsigned long cbClusterTotal;
 
         _splitpath(pthPhys, szDrive, NULL, NULL, NULL);
+        if (szDrive[ strlen( szDrive )-1 ] != '\\') {
+            strcat( szDrive, "\\" );
+            }
 
         if (!GetDiskFreeSpace(szDrive, &cbSectCluster, &cbSect, &cbClusterFree, &cbClusterTotal)) {
             Error("unable to get drive information for %&S, error code %u\n",
@@ -163,7 +109,6 @@ CheckProjectDiskSpace(
                     ExitSlm();
         }
     }
-#endif
 }
 
 typedef struct _ts {
@@ -191,7 +136,7 @@ ValidateProject(
     int     i;
 
     // verify SLM installation by existance of pad->pthSRoot/etc
-    if (!FPthExists(SzPrint(sz, "%&/S/etc", pad), fTrue) ||
+    if ((fVerbose && !FPthExists(SzPrint(sz, "%&/S/etc", pad), fTrue)) ||
             !FPthExists(SzPrint(sz, "%&/S/src", pad), fTrue) ||
             !FPthExists(SzPrint(sz, "%&/S/diff", pad), fTrue))
         FatalError("SLM installation %&S is not valid\n", pad);
@@ -206,7 +151,7 @@ ValidateProject(
 
     fSetTime = FALSE;
     for (i=0; i<tsCnt ;i++)
-        if (!strnicmp(TimedServers[i].Name, sz+2, TimedServers[i].Len)) {
+        if (!_strnicmp(TimedServers[i].Name, sz+2, TimedServers[i].Len)) {
             fSetTime = TRUE;
             break;
         }
@@ -291,17 +236,10 @@ PthGetDn(
 {
     PTH *pth;
     register char *pch;
-#if defined(DOS)
-    DE de;
-    FA fa;
-#elif defined(_WIN32)
     char    RootPath[] = "?:\\";
     BOOL    fStatusOk;
-#endif
 
-#if defined(DOS) || defined(_WIN32)
     char sz[_MAX_PATH];
-#endif
 
     if ((pth = mpdnpth[dn]) != 0)
         return pth;
@@ -313,16 +251,6 @@ PthGetDn(
     mpdnpth[dn] = pth;              /* set temporarily with //D: */
     SzPrint(pth, "//%c:", ChForDn(dn));
 
-#if defined(DOS)
-    OpenDir(&de, pth, faVolume);    /* will open root dir of d: */
-    if (!FGetDirSz(&de, sz, &fa))
-    {
-        CloseDir(&de);
-        goto VolError;
-    }
-
-    CloseDir(&de);
-#elif defined(_WIN32)
     RootPath[0] = ChForDn(dn);
 
     fStatusOk = GetVolumeInformation(RootPath, sz, _MAX_PATH, NULL,
@@ -338,7 +266,6 @@ PthGetDn(
     if (sz[0] == '\0')
         //  No volume label
         goto VolError;
-#endif
 
     if ((pch = index(sz, '.')) != 0)
         /* remove one . if present */
@@ -372,6 +299,9 @@ VolError:
 
    NOTE: szOut and pthIn may be the same!
 */
+
+int lastnetdn = -1;
+
 char *
 SzPhysPath(
     char *szOut,        /* place to put result */
@@ -406,18 +336,25 @@ SzPhysPath(
     else
     {
         /* no drive -> check all net paths */
-        for (dn = 0; dn < dnMax; dn++)
-        {
-            if (!FNetDn(dn))
-                continue;
+        if (lastnetdn != -1 &&
+            FPthPrefix(PthGetDn(lastnetdn), pthIn, (PTH *)(szOut+2)))
+            dn = lastnetdn;
+        else
+            for (dn = 0; dn < dnMax; dn++)
+            {
+                if (!FNetDn(dn))
+                    continue;
 
-            if ((pth = PthGetDn(dn)) == 0)
-                continue;
+                if ((pth = PthGetDn(dn)) == 0)
+                    continue;
 
-            /* check for prefix and return suffix in szOut+2 */
-            if (FPthPrefix(pth, pthIn, (PTH *)(szOut+2)))
-                break;
-        }
+                /* check for prefix and return suffix in szOut+2 */
+                if (FPthPrefix(pth, pthIn, (PTH *)(szOut+2)))
+                {
+                    lastnetdn = dn;
+                    break;
+                }
+            }
 
         /* print error if no network drive and we cannot get one */
         if (dn == dnMax)
@@ -659,7 +596,7 @@ FPthLogicalSz(
     int dnIn;
 
     ConvToSlash(szIn);
-    strupr(szIn);
+    _strupr(szIn);
     /* this guarantees that we will not overrun the locals here */
     if (strlen(szIn) + 1 > cchPthMax)
     {
@@ -731,7 +668,7 @@ ConvTmpLog(
     char szT[cchPthMax];
     int dnIn;
 
-    if (FDriveId(szIn, &dnIn) && mpdndt[dnIn] == dtTempNet)
+    if (FDriveId(szIn, &dnIn) && FNetDn(dnIn))
     {
         PTH *pth = PthGetDn(dnIn);
 
@@ -782,7 +719,7 @@ GetCurPth(
     PTH pth[])
 {
     char sz[cchPthMax];
-    if (getcwd(sz,cchPthMax) == 0)
+    if (_getcwd(sz,cchPthMax) == 0)
         FatalError("cannot determine current directory\n");
 
     if (!FPthLogicalSz(pth, sz))
@@ -798,7 +735,6 @@ GetUser(
     AD *pad)
 {
     register char *sz;
-    char *getenv();
 
     if ((sz = getenv("LOGNAME")) == 0 || *sz == '\0')
         /* use machine name if LOGNAME not present or zero length */
@@ -817,12 +753,7 @@ void
 InitPerms(
     void)
 {
-#if defined(_WIN32)
     //LATER: don't know about version numbers
-#elif defined(DOS)
-    if (_osmajor < 3)
-        FatalError("DOS 3.0 or newer is required\n");
-#endif
 }
 
 
@@ -833,7 +764,7 @@ void
 ChkPerms(
     AD *pad)
 {
-    struct stat st;
+    struct _stat st;
     PTH pth[cchPthMax];
 
     /* ensure the directory exists and then ensure that we can write to it*/
@@ -888,19 +819,17 @@ ChkDriveVol(
             strcpy(pthVol, pthCur+4);
     }
 
-    /* fail if volume is 'OS2' */
-    if (!strcmpi("OS2", pthVol))
-        FatalError("the default volume label OS2 is not permitted\n"
-                    "Use the LABEL command to change your volume label\n");
-
     /* check for volume label collision */
     if (!FLoadStatus(pad, lckNil, flsNone))
         FatalError("could not get access to the status file\n");
+
     ped = pad->rged;
     for (ied = 0; ied < pad->psh->iedMac; ied++, ped++)
     {
-        if (strcmp(ped->pthEd, pad->pthURoot) == 0 &&
-            strncmp(ped->nmOwner, pad->nmInvoker, cchUserMax) != 0)
+
+        if ((!FIsFreeEdValid(pad->psh) || !ped->fFreeEd) &&
+            PthCmp(ped->pthEd, pad->pthURoot) == 0 &&
+            NmCmp(ped->nmOwner, pad->nmInvoker, cchUserMax) != 0)
         {
             char szUser[cchUserMax+1];
             *szUser = '\0';
@@ -941,11 +870,7 @@ FRedirectDr(
         return fTrue;
 
     /* if redirection failed, go print error message */
-#if defined(_WIN32)
     if (en != enInvPassword && en != enInvPassword2)
-#elif defined(DOS)
-    if (en != enInvPassword && en != enAccessDenied)
-#endif
         goto PrNetError;
 
     /* try password from acct file */
@@ -959,26 +884,17 @@ FRedirectDr(
     else
         SzPrint(szPrompt, "Password for %s: ", pthNet);
 
-#if defined(_WIN32)
     while ((en == enInvPassword || en == enInvPassword2) && FQueryPass(szPass, szPrompt))
     {
         if (en == enInvPassword)
-            strupr(szPass);
-#elif defined(DOS)
-    while ((en == enInvPassword || en == enAccessDenied)&& FQueryPass(szPass, szPrompt))
-    {
-#endif
-        /* Try DOS call again -- did it work this time? */
+            _strupr(szPass);
+        /* Try call again -- did it work this time? */
         if ((en = mkredir(szDev, pthNet)) == 0)
             return fTrue;
 
-        /* DOS call failed even with password */
+        /* call failed even with password */
         if (en == enInvPassword ||
-#if defined(_WIN32)
             en == enInvPassword2)
-#elif defined(DOS)
-            en == enAccessDenied)
-#endif
             Error("password not accepted; try again or press ENTER\n");
     }
 
@@ -1027,17 +943,11 @@ PrNetError:
             break;
         case enInvPassword:
             break;
-#if defined(_WIN32)
         case enInvPassword2:
             break;
         case enNoWksta:
             Error("workstation has not been started\n");
             break;
-#elif defined(DOS)
-        case enAccessDenied:
-            Error("access is denied\n");
-            break;
-#endif
     }
 
     /* If the user doesn't give a password, or the error is something
@@ -1065,7 +975,7 @@ FFindPass(
 
     if ((pthDir = getenv("INIT")) != NULL)
     {
-        if ((pthDir = strdup(pthDir)) == NULL)
+        if ((pthDir = _strdup(pthDir)) == NULL)
             FatalError(szOutOfMem);
         pth = strtok(pthDir, szSemi);
         while (pth != NULL)
@@ -1116,7 +1026,7 @@ FPullPass(
         strcpy(pthAccFile, pthDir);
     }
     else
-        getcwd(pthAccFile, sizeof(pthAccFile)-sizeof(szAccFileName)-1);
+        _getcwd(pthAccFile, sizeof(pthAccFile)-sizeof(szAccFileName)-1);
 
     cb = strlen(pthAccFile);
     if (pthAccFile[cb-1] != '\\' && pthAccFile[cb-1] != '/')
@@ -1241,11 +1151,7 @@ FQueryPass(
     PrErr(szPrompt);
     while (fTrue)                   /* forever */
     {
-#if defined(_WIN32)
-        chInput = (char) getch();
-#elif defined(DOS)
-        chInput = (char) bdos(0x7, 0, 0);       /* direct console in */
-#endif
+        chInput = (char) _getch();
         switch(chInput)
         {
             default:

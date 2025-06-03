@@ -38,7 +38,7 @@ SetControlWord:
 	and	ax,0F3FH		; Limit to valid values
 	mov	EMSEG:[ControlWord], ax	; Store in the emulated control word
 	not	al			;Flip mask bits for fast compare
-	and	al,3FH			;Limit to valid mask bits
+        and     al,3FH                  ;Limit to valid mask bits
 	mov	EMSEG:[ErrMask],al
 	and	eax,(RoundControl + PrecisionControl) shl 8
 .erre	RoundControl eq 1100B
@@ -143,7 +143,7 @@ SaveEnv:
 	mov	dseg:[esi.E32_CodeOff],eax
 	mov	eax,EMSEG:[PrevDataOff]
 	mov	dseg:[esi.E32_DataOff],eax
-	mov	EMSEG:[CWmask],03FH	   ;Set all mask bits
+        mov     EMSEG:[CWmask],03FH        ;Set all mask bits
 	mov	EMSEG:[ErrMask],0
 	ret
 
@@ -165,6 +165,8 @@ EM_ENTRY eFSAVE
 eFSAVE:
 	mov	ax,[esp+4].OldStatus
 	mov	EMSEG:[StatusWord],ax
+        mov     eax,[esp+4].OldCodeOff
+        mov     EMSEG:[PrevCodeOff],eax
 	push	offset eFINIT		; After fsave we must do a finit
 SaveState:				; Enter here for debugger save state
 	call	SaveEnv
@@ -219,7 +221,7 @@ eFRSTOR:
 ;masked, we will convert unsupported format to Indefinite.  Note that the
 ;mask and [CURerr] will be completely restored by the FLDENV at the end.
 
-	mov	EMSEG:[CWmask],3FH		;Mask off invalid operation exception
+        mov     EMSEG:[CWmask],3FH              ;Mask off invalid operation exception
 	mov	edi,EMSEG:[CURstk]
 	mov	ebp,NumLev
 FrstorLoadLoop:
@@ -231,8 +233,7 @@ FrstorLoadLoop:
 	dec	ebp
 	jnz	FrstorLoadLoop
 	sub	esi,NumLev*10+size Env80x87_32	;Point to start of env.
-;	jmp	eFLDENV			;Fall into eFLDENV
-;.erre	$ eq eFLDENV
+        jmp     eFLDENV                 ;Fall into eFLDENV
 
 
 ;***	eFLDENV - emulate FLDENV   [address]
@@ -360,7 +361,7 @@ GetStatusWord:
 	sub	eax, BEGstk
 	mov	bl,Reg87Len
 	div	bl
-	add	eax, 1			; adjust for emulator's stack layout
+        inc     eax                     ; adjust for emulator's stack layout
 	and	eax, 7			; eax is now the stack number
 	shl	ax, 11
 	or	ax,[esp+8].OldStatus	; or in the rest of the status word.
@@ -380,7 +381,7 @@ GetEMSEGStatusWord:
 	sub	eax, BEGstk
 	mov	bl,Reg87Len
 	div	bl
-	add	eax, 1			; adjust for emulator's stack layout
+        inc     eax                     ; adjust for emulator's stack layout
 	and	eax, 7			; eax is now the stack number
 	shl	ax, 11
 	or	ax, EMSEG:[StatusWord]	; or in the rest of the status word.
@@ -396,7 +397,7 @@ GetEMSEGStatusWord:
 SetEmStatusWord:
 	and	ax,7F7FH
 	mov	bx,ax
-	and	bx,3FH	      		; set up CURerr in case user
+        and     bx,3FH                  ; set up CURerr in case user
 	mov	EMSEG:[CURerr],bl	; wants to force an exception
 	mov	ebx, eax
 	and	ebx, not (7 shl 11)	; remove stack field.
@@ -404,20 +405,14 @@ SetEmStatusWord:
 
 	sub	ah, 8  			; adjust for emulator's stack layout
 	and	ah, 7 shl 3
-	jz	StackPtrWasZero
 	mov	al, ah
 	shr	ah, 1
 	add	al, ah			; stack field * 3 * 4
 .erre	Reg87Len eq 12	
 	and	eax, 255	   	; eax is now 12*stack number
-	add	eax, BEGstk
+        add     eax, BEGstk
 	mov	EMSEG:[CURstk], eax
 	ret
-
-StackPtrWasZero:
-	mov	EMSEG:[CURstk], INITstk
-	ret
-
 
 
 public _SaveEm87Context

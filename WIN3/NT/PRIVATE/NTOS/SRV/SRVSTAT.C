@@ -121,23 +121,6 @@ Return Value:
             Status = STATUS_INSUFF_SERVER_RESOURCES;
         }
 
-#if 0
-        //
-        // Post NT 1.0, LsaLogonUser now returns these new NT status code.
-        // 1.0 clients can't map these so we do it here.
-        //
-        // 5/8/94: CliffV suggested that it would be more appropriate
-        // to just send out the new status codes.
-        //
-
-
-        if ( Status == STATUS_ACCOUNT_LOCKED_OUT ) {
-            Status = STATUS_LOGON_FAILURE;
-        } else if ( Status == STATUS_PASSWORD_MUST_CHANGE ) {
-            Status = STATUS_PASSWORD_EXPIRED;
-        }
-#endif
-
         if ( CLIENT_CAPABLE_OF(NT_STATUS, WorkContext->Connection) ) {
 
             //
@@ -180,6 +163,15 @@ Return Value:
 
             header->ErrorClass = SMB_ERR_CLASS_DOS;
             SmbPutUshort( &header->Error, NERR_InvalidAPI );
+            return;
+
+        case STATUS_PATH_NOT_COVERED:
+            //
+            // This code indicates that the server does not cover this part
+            // of the DFS namespace.
+            //
+            header->ErrorClass = SMB_ERR_CLASS_SERVER;
+            SmbPutUshort( &header->Error, SMB_ERR_BAD_PATH );
             return;
 
         default:
@@ -410,7 +402,19 @@ Return Value:
     // Now map the error to a DOS or OS/2 error code.
     //
 
-    if ( smbDialect > SmbDialectLanMan10 ) {
+    if ( error == ERROR_ACCESS_DENIED &&
+         smbDialect == SmbDialectDosLanMan21 &&
+         WorkContext->ShareAclFailure ) {
+
+        //
+        // WfW & DOS LM2.1 want SMB_ERR_ACCESS to be in the server
+        // error class when it's due to ACL restrictions, but in the
+        // DOS class otherwise.
+        //
+        errorClass = SMB_ERR_CLASS_SERVER;
+        errorCode = SMB_ERR_ACCESS;
+
+    } else if ( smbDialect > SmbDialectLanMan10 ) {
 
         MapErrorForDosClient(
             WorkContext,
@@ -680,3 +684,108 @@ SrvSetBufferOverflowError (
 
 } // SrvSetBufferOverflowError
 
+
+#if DBG
+VOID
+SrvLogBuffer( PCHAR msg, PVOID buf, ULONG len )
+{
+    NTSTATUS status;
+    HANDLE handle;
+    IO_STATUS_BLOCK iosb;
+    OBJECT_ATTRIBUTES objectAttributes;
+    PUCHAR buffer;
+    ULONG n = 0;
+    ULONG i;
+    UNICODE_STRING name;
+
+    if( msg ) {
+        n = strlen( msg );
+    }
+
+    buffer = ALLOCATE_HEAP( 4*len + n, BlockTypeDataBuffer );
+    if( buffer == NULL ) {
+        return;
+    }
+
+    buffer[ 0 ] = '\n';
+
+    if( msg ) {
+        RtlCopyMemory( &buffer[1], msg, n );
+        n++;
+        buffer[ n++ ] = '\n';
+    }
+        
+    for( i=0; i < len && n < 4*len; ) {
+
+        UCHAR c = ((PUCHAR)buf)[ i ];
+
+        if( (c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') ||
+            ( c == ' ' || c == ';' || c == ':' || c == ',' || c == '.' ) ||
+            ( c >= '0' && c <= '9' ) ) {
+            buffer[ n++ ] = c;
+            buffer[ n++ ] = ' ';
+        } else {
+            buffer[n++] = "0123456789abcdef"[ (c>>4) & 0xf ];
+            buffer[n++] = "0123456789abcdef"[ c & 0xf ];
+        }
+
+        buffer[n++] = ' ';
+
+        ++i;
+
+        if( (i%16) == 0 ) {
+            buffer[ n++ ] = '\n';
+        }
+    }
+
+    if( n < 4*len ) {
+        buffer[ n++ ] = '\n';
+        buffer[ n++ ] = '\n';
+    }
+
+    name.Length = 44;
+    name.MaximumLength = name.Length;
+    name.Buffer = L"\\DosDevices\\C:\\Srv.Log";
+
+    SrvInitializeObjectAttributes_U(
+        &objectAttributes,
+        &name,
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+    );
+
+    status = NtCreateFile(
+        &handle,
+        FILE_APPEND_DATA,                   // desired access
+        &objectAttributes,
+        &iosb,
+        NULL,                               // AllocationSize OPTIONAL
+        FILE_ATTRIBUTE_NORMAL,              // FileAttributes
+        FILE_SHARE_WRITE | FILE_SHARE_READ, // ShareAccess
+        FILE_OPEN_IF,                       // Create dispisition
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,            // Create options
+        NULL,                               // EaBuffer
+        0                                   // EaLength
+        );
+
+    if( NT_SUCCESS( status ) ) {
+
+        NtWriteFile( handle,
+                     NULL,
+                     NULL,
+                     NULL,
+                     &iosb,
+                     buffer,
+                     n,
+                     NULL,
+                     NULL
+                   );
+
+        NtClose( handle );
+    }
+
+    FREE_HEAP( buffer );
+}
+#endif

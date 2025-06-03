@@ -146,14 +146,8 @@ FatLogOf(
 //      );
 //
 
-#define FatLockFreeClusterBitMap(VCB) {                             \
-    NTSTATUS Status;                                                \
-    Status = KeWaitForSingleObject( &(VCB)->FreeClusterBitMapEvent, \
-                                    Executive,                      \
-                                    KernelMode,                     \
-                                    FALSE,                          \
-                                    (PLARGE_INTEGER) NULL );        \
-    ASSERT( NT_SUCCESS( Status ) );                                 \
+#define FatLockFreeClusterBitMap(VCB) {                   \
+    ExAcquireFastMutex( &(VCB)->FreeClusterBitMapMutex ); \
 }
 
 //
@@ -163,10 +157,8 @@ FatLogOf(
 //      );
 //
 
-#define FatUnlockFreeClusterBitMap(VCB) {                                   \
-    ULONG PreviousState;                                                    \
-    PreviousState = KeSetEvent( &(VCB)->FreeClusterBitMapEvent, 0, FALSE ); \
-    ASSERT( PreviousState == 0 );                                           \
+#define FatUnlockFreeClusterBitMap(VCB) {                 \
+    ExReleaseFastMutex( &(VCB)->FreeClusterBitMapMutex ); \
 }
 
 //
@@ -178,9 +170,9 @@ FatLogOf(
 //      );
 //
 
-#define FatIsClusterFree(IRPCONTEXT,VCB,FAT_INDEX)             \
-                                                               \
-    (RtlCheckBit(&(VCB)->FreeClusterBitMap,(FAT_INDEX)) == 0)
+#define FatIsClusterFree(IRPCONTEXT,VCB,FAT_INDEX)              \
+                                                                \
+    (RtlCheckBit(&(VCB)->FreeClusterBitMap,(FAT_INDEX)-2) == 0)
 
 //
 //  BOOLEAN
@@ -191,9 +183,9 @@ FatLogOf(
 //      );
 //
 
-#define FatIsClusterAllocated(IRPCONTEXT,VCB,FAT_INDEX)      \
-                                                             \
-    (RtlCheckBit(&(VCB)->FreeClusterBitMap,(FAT_INDEX)) != 0)
+#define FatIsClusterAllocated(IRPCONTEXT,VCB,FAT_INDEX)        \
+                                                               \
+    (RtlCheckBit(&(VCB)->FreeClusterBitMap,(FAT_INDEX)-2) != 0)
 
 //
 //  VOID
@@ -208,10 +200,6 @@ FatLogOf(
 #ifdef DOUBLE_SPACE_WRITE
 
 #define FatFreeClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {             \
-                                                                              \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 0 ) == 1 ); \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 1 ) == 1 ); \
-                                                                              \
     DebugTrace( 0, Dbg, "Free clusters (Index<<16 | Count) (%8lx)\n",         \
                         (FAT_INDEX)<<16 | (CLUSTER_COUNT));                   \
     if ((CLUSTER_COUNT) == 1) {                                               \
@@ -227,10 +215,6 @@ FatLogOf(
 #else
 
 #define FatFreeClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {             \
-                                                                              \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 0 ) == 1 ); \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 1 ) == 1 ); \
-                                                                              \
     DebugTrace( 0, Dbg, "Free clusters (Index<<16 | Count) (%8lx)\n",         \
                         (FAT_INDEX)<<16 | (CLUSTER_COUNT));                   \
     if ((CLUSTER_COUNT) == 1) {                                               \
@@ -253,10 +237,6 @@ FatLogOf(
 //
 
 #define FatAllocateClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {      \
-                                                                           \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 0 ) == 1 ); \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 1 ) == 1 ); \
-                                                                           \
     DebugTrace( 0, Dbg, "Allocate clusters (Index<<16 | Count) (%8lx)\n",  \
                         (FAT_INDEX)<<16 | (CLUSTER_COUNT));                \
     if ((CLUSTER_COUNT) == 1) {                                            \
@@ -276,12 +256,9 @@ FatLogOf(
 //      );
 //
 
-#define FatUnreserveClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {   \
-                                                                         \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 0 ) == 1 ); \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 1 ) == 1 ); \
-                                                                         \
-    RtlClearBits(&(VCB)->FreeClusterBitMap,(FAT_INDEX),(CLUSTER_COUNT)); \
+#define FatUnreserveClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {          \
+    RtlClearBits(&(VCB)->FreeClusterBitMap,(FAT_INDEX)-2,(CLUSTER_COUNT));      \
+    if ((FAT_INDEX) < (VCB)->ClusterHint) { (VCB)->ClusterHint = (FAT_INDEX); } \
 }
 
 //
@@ -294,12 +271,15 @@ FatLogOf(
 //      );
 //
 
-#define FatReserveClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {   \
-                                                                       \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 0 ) == 1 ); \
-    ASSERTMSG("FatFreeClusters ", RtlCheckBit( &(VCB)->FreeClusterBitMap, 1 ) == 1 ); \
-                                                                       \
-    RtlSetBits(&(VCB)->FreeClusterBitMap,(FAT_INDEX),(CLUSTER_COUNT)); \
+#define FatReserveClusters(IRPCONTEXT,VCB,FAT_INDEX,CLUSTER_COUNT) {         \
+    RtlSetBits(&(VCB)->FreeClusterBitMap,(FAT_INDEX)-2,(CLUSTER_COUNT));     \
+    if ((VCB)->ClusterHint == (FAT_INDEX)) {                                 \
+        ULONG _AfterRun = (FAT_INDEX) + (CLUSTER_COUNT);                     \
+        (VCB)->ClusterHint =                                                 \
+            RtlCheckBit(&(VCB)->FreeClusterBitMap, _AfterRun - 2) ?          \
+            RtlFindClearBits( &(VCB)->FreeClusterBitMap, 1, _AfterRun - 2) : \
+            _AfterRun;                                                       \
+    }                                                                        \
 }
 
 //
@@ -308,28 +288,20 @@ FatLogOf(
 //      IN PIRP_CONTEXT IrpContext,
 //      IN PVCB Vcb,
 //      IN ULONG ClusterCount,
-//      IN PULONG AlternateClusterHint
+//      IN ULONG AlternateClusterHint
 //      );
 //
-
-#define FatFindFreeClusterRun(IRPCONTEXT,VCB,CLUSTER_COUNT,CLUSTER_HINT)       \
-                                                                               \
-    RtlFindClearBits( &(VCB)->FreeClusterBitMap,                               \
-                      (CLUSTER_COUNT),                                         \
-                      ((CLUSTER_HINT) != 0)?(CLUSTER_HINT):(VCB)->ClusterHint )
-
-//
-//  ULONG
-//  FatLongestFreeClusterRun (
-//      IN PIRP_CONTEXT IrpContext,
-//      IN PVCB Vcb,
-//      IN PULONG FatIndex,
-//      );
+//  Do a special check if only one cluster is desired.
 //
 
-#define FatLongestFreeClusterRun(IRPCONTEXT,VCB,FAT_INDEX)        \
-                                                                  \
-    RtlFindLongestRunClear(&(VCB)->FreeClusterBitMap,(FAT_INDEX))
+#define FatFindFreeClusterRun(IRPCONTEXT,VCB,CLUSTER_COUNT,CLUSTER_HINT) ( \
+    (CLUSTER_COUNT == 1) &&                                                \
+    FatIsClusterFree((IRPCONTEXT), (VCB), (CLUSTER_HINT)) ?                \
+    (CLUSTER_HINT) :                                                       \
+    RtlFindClearBits( &(VCB)->FreeClusterBitMap,                           \
+                      (CLUSTER_COUNT),                                     \
+                      (CLUSTER_HINT) - 2) + 2                              \
+)
 
 #if DBG
 extern KSPIN_LOCK VWRSpinLock;
@@ -433,9 +405,9 @@ Arguments:
     {
         CC_FILE_SIZES FileSizes;
 
-        FileSizes.AllocationSize =
-        FileSizes.FileSize = LiFromUlong( FatReservedBytes( &Vcb->Bpb ) +
-                                          FatBytesPerFat( &Vcb->Bpb ) );
+        FileSizes.AllocationSize.QuadPart =
+        FileSizes.FileSize.QuadPart = (FatReservedBytes( &Vcb->Bpb ) +
+                                       FatBytesPerFat( &Vcb->Bpb ));
         FileSizes.ValidDataLength = FatMaxLarge;
 
         if ( Vcb->VirtualVolumeFile->PrivateCacheMap == NULL ) {
@@ -456,11 +428,11 @@ Arguments:
 
         //
         //  Initialize the free cluster BitMap.  The number of bits is the
-        //  number of clusters plus the two reserved entries.  Note that
-        //  FsRtlAllocatePool will always allocate me something longword alligned.
+        //  number of clusters.  Note that FsRtlAllocatePool will always
+        //  allocate me something longword alligned.
         //
 
-        BitMapSize = Vcb->AllocationSupport.NumberOfClusters + 2;
+        BitMapSize = Vcb->AllocationSupport.NumberOfClusters;
 
         BitMapBuffer = FsRtlAllocatePool( PagedPool, (BitMapSize + 7) / 8 );
 
@@ -482,6 +454,7 @@ Arguments:
             ULONG Page;
             ULONG FatIndex;
             FAT_ENTRY FatEntry;
+            FAT_ENTRY FirstFatEntry;
             PFAT_ENTRY FatBuffer;
 
             ULONG ClustersThisRun;
@@ -548,6 +521,8 @@ Arguments:
                 FatBuffer = (PFAT_ENTRY)((PUCHAR)SavedBcbs[Page][1] +
                                          FatReservedBytes(&Vcb->Bpb) % PAGE_SIZE) + 2;
 
+                FirstFatEntry = *FatBuffer;
+
             } else {
 
                 //
@@ -564,6 +539,8 @@ Arguments:
                                    FatBytesPerFat( &Vcb->Bpb ),
                                    &SavedBcbs[0][0],
                                    (PVOID *)&FatBuffer );
+
+                FatLookup12BitEntry(FatBuffer, 2, &FirstFatEntry);
             }
 
             //
@@ -571,14 +548,16 @@ Arguments:
             //  reserved.  So start an allocated run.
             //
 
-            CurrentRun = AllocatedClusters;
+            CurrentRun = (FirstFatEntry == FAT_CLUSTER_AVAILABLE) ?
+                         FreeClusters : AllocatedClusters;
+
             StartIndexOfThisRun = 0;
 
-            for (FatIndex = 2; FatIndex < BitMapSize; FatIndex++) {
+            for (FatIndex = 0; FatIndex < BitMapSize; FatIndex++) {
 
                 if (FatIndexBitSize == 12) {
 
-                    FatLookup12BitEntry(FatBuffer, FatIndex, &FatEntry);
+                    FatLookup12BitEntry(FatBuffer, FatIndex + 2, &FatEntry);
 
                 } else {
 
@@ -655,10 +634,15 @@ Arguments:
                             StartIndexOfThisRun,
                             ClustersThisRun );
             }
-        }
 
-        ASSERT( RtlCheckBit( &Vcb->FreeClusterBitMap, 0 ) == 1 );
-        ASSERT( RtlCheckBit( &Vcb->FreeClusterBitMap, 1 ) == 1 );
+            //
+            //  Now set the ClusterHint
+            //
+
+            Vcb->ClusterHint =
+                (FatIndex = RtlFindClearBits( &Vcb->FreeClusterBitMap, 1, 0 )) != -1 ?
+                FatIndex + 2 : 2;
+        }
 
     } finally {
 
@@ -1033,7 +1017,7 @@ Arguments:
 
                 if ( Vbo >= CurrentVbo ) {
 
-                    FcbOrDcb->Header.AllocationSize = LiFromUlong(CurrentVbo);
+                    FcbOrDcb->Header.AllocationSize.QuadPart = CurrentVbo;
                     *Allocated = FALSE;
 
                     DebugTrace( 0, Dbg, "New file allocation size = %08lx.\n", CurrentVbo);
@@ -1277,7 +1261,7 @@ Arguments:
 
             FcbOrDcb->FirstClusterOfFile = FatGetIndexFromLbo( Vcb, FirstLboOfFile );
 
-            FcbOrDcb->Header.AllocationSize = LiFromUlong(DesiredAllocationSize);
+            FcbOrDcb->Header.AllocationSize.QuadPart = DesiredAllocationSize;
 
             Dirent->FirstClusterOfFile = (FAT_ENTRY)FcbOrDcb->FirstClusterOfFile;
 
@@ -1496,7 +1480,7 @@ Return Value:
 
     try {
 
-        FcbOrDcb->Header.AllocationSize = LiFromUlong(DesiredAllocationSize);
+        FcbOrDcb->Header.AllocationSize.QuadPart = DesiredAllocationSize;
 
         //
         //  Special case 0
@@ -1691,6 +1675,7 @@ Arguments:
     ULONG BytesPerCluster;
     ULONG StartingCluster;
     ULONG ClusterCount;
+    ULONG Hint;
 #if DBG
     ULONG i;
     ULONG PreviousClear;
@@ -1758,13 +1743,22 @@ Arguments:
     }
 
     //
-    //  Try to find a run of free clusters large enough for us.
+    //  Try to find a run of free clusters large enough for us.  Use either
+    //  the hint passed in or the Vcb hint but double check its range.
     //
+
+    Hint = AlternativeClusterHint != 0 ?
+           AlternativeClusterHint :
+           Vcb->ClusterHint;
+
+    if (Hint < 2 || Hint >= Vcb->AllocationSupport.NumberOfClusters + 2) {
+        Hint = 2;
+    }
 
     StartingCluster = FatFindFreeClusterRun( IrpContext,
                                              Vcb,
                                              ClusterCount,
-                                             AlternativeClusterHint );
+                                             Hint );
 
     //
     //  If the above call was successful, we can just update the fat
@@ -1772,7 +1766,7 @@ Arguments:
     //  runs.
     //
 
-    if (StartingCluster != 0xffffffff) {
+    if (StartingCluster != 1) {
 
         try {
 
@@ -1783,7 +1777,7 @@ Arguments:
 
             for (i=0; i<ClusterCount; i++) {
                 ASSERT( RtlCheckBit(&Vcb->FreeClusterBitMap,
-                                    StartingCluster + i) == 0 );
+                                    StartingCluster + i - 2) == 0 );
             }
 
             PreviousClear = RtlNumberOfClearBits( &Vcb->FreeClusterBitMap );
@@ -1815,15 +1809,6 @@ Arguments:
             //
 
             FatAllocateClusters(IrpContext, Vcb, StartingCluster, ClusterCount);
-
-            //
-            //  If we used the Vcb hint index, update it.
-            //
-
-            if (AlternativeClusterHint == 0) {
-
-                Vcb->ClusterHint = StartingCluster + ClusterCount;
-            }
 
         } finally {
 
@@ -1894,8 +1879,14 @@ Arguments:
                 //  this will then be the last while() itteration.
                 //
 
-                ClustersFound = FatLongestFreeClusterRun( IrpContext, Vcb, &Index );
+                // 12/3/95 - David Goebel: need to bias bitmap by 2 bits for the defrag
+                // hooks and the below macro became impossible to do without in-line
+                // procedures.
+                //
+                // ClustersFound = FatLongestFreeClusterRun( IrpContext, Vcb, &Index );
 
+                ClustersFound = RtlFindLongestRunClear( &Vcb->FreeClusterBitMap, &Index );
+                Index += 2;
 #if DBG
                 //
                 //  Verify that the Bits are all really zero.
@@ -1903,7 +1894,7 @@ Arguments:
 
                 for (i=0; i<ClustersFound; i++) {
                     ASSERT( RtlCheckBit(&Vcb->FreeClusterBitMap,
-                                        Index + i) == 0 );
+                                        Index + i - 2) == 0 );
                 }
 
                 PreviousClear = RtlNumberOfClearBits( &Vcb->FreeClusterBitMap );
@@ -1974,16 +1965,6 @@ Arguments:
                 ClustersRemaining -= ClustersFound;
 
                 PriorLastIndex = Index + ClustersFound - 1;
-            }
-
-            //
-            //  Now all the requested clusters have been allocgated.
-            //  If we were using the Vcb hint index, update it.
-            //
-
-            if (AlternativeClusterHint == 0) {
-
-                Vcb->ClusterHint = Index + ClustersFound;
             }
 
         } finally {
@@ -2790,10 +2771,6 @@ Arguments:
 }
 
 
-//
-//  Internal support routine
-//
-
 VOID
 FatSetFatEntry (
     IN PIRP_CONTEXT IrpContext,
@@ -3302,7 +3279,6 @@ Return Value:
             ReleaseMutex = FALSE;
             FatUnlockFreeClusterBitMap( Vcb );
 #endif // ALPHA
-
         }
 
     } finally {

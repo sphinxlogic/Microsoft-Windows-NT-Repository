@@ -20,6 +20,7 @@ Revision History:
     Who         When        What
     --------    --------    ----------------------------------------------
     mikemas     9-20-91     created
+    MuraliK    10-19-94     Nls Enabled the code
 
 Notes:
 
@@ -46,8 +47,9 @@ Notes:
  */
 /***************************************************************************/
 
-#include "local.h"
-
+# include "local.h"
+# include "sockutil.h"
+# include "nls.h"
 
 //
 // Global data
@@ -63,6 +65,7 @@ char myname[256];
 //
 
 static  FILE *cfile;
+
 
 //
 // Local function prototypes
@@ -172,7 +175,11 @@ ruserpass(
         if (getlogin(myname, 256) != 0) {
             exit(1);
         }
-        sprintf(prompt, "Name (%s:%s): ", host, myname);
+        //  sprintf( prompt, "Name (%s:%s): ", host, myname);
+        //
+        //   Nls Enabled ( MuraliK) 10-19-94
+        //
+        NlsSPrintf( IDS_USER_NAME_PROMPT, prompt, 128, host, myname);
         *aname = getusername(prompt);
         if ((*aname)[0] == '\0') {
             *aname = myname;
@@ -180,7 +187,11 @@ ruserpass(
     }
 
     if ((*aname != NULL) && (*apass == NULL)) {
-        sprintf(prompt, "Password (%s:%s): ", host, myname);
+        // sprintf(prompt, "Password (%s:%s): ", host, myname);
+        //
+        //   Nls Enabled ( MuraliK) 10-19-94
+        //
+        NlsSPrintf( IDS_USER_PASSWORD_PROMPT, prompt, 128, host, myname);
         *apass = getpass(prompt);
         if ((*apass)[0] == '\0') {
             exit(1);
@@ -234,7 +245,7 @@ rnetrc(
 {
     char *hdir, buf[BUFSIZ];
     int t;
-    struct stat stb;
+    struct _stat stb;
 
 //
 //BUGBUG - what is the "HOME" directory in Win32/Posix???
@@ -269,7 +280,11 @@ next:
                     if (token()) {
                         if (*aname == NULL) {
                             if ((*aname = malloc(strlen(tokval) + 1)) == NULL) {
-                                fprintf(stderr, "Out of memory\n");
+                                //
+                                //fprintf(stderr, "Out of memory\n");
+                                //
+                                //  Nls Enabled (MuraliK) 10-19-94
+                                NlsPerror( IDS_OUT_OF_MEMORY, GetLastError());
                                 exit(1);
                             }
                             strcpy(*aname, tokval);
@@ -298,7 +313,11 @@ next:
 
                     if (token() && *apass == NULL) {
                         if ((*apass = malloc(strlen(tokval) + 1)) == NULL) {
-                            fprintf(stderr, "Out of memory\n");
+                            //
+                            //fprintf(stderr, "Out of memory\n");
+                            //
+                            //  Nls Enabled (MuraliK) 10-19-94
+                            NlsPerror( IDS_OUT_OF_MEMORY, GetLastError());
                             exit(1);
                         }
                         strcpy(*apass, tokval);
@@ -313,7 +332,11 @@ next:
                     break;
 
                 default:
-                    fprintf(stderr, "Unknown netrc option %s\n", tokval);
+                    //fprintf(stderr, "Unknown netrc option %s\n", tokval);
+                    //
+                    //  Nls Enabled ( MuraliK) 10-19-94
+                    //
+                    NlsPutMsg( STDERR, IDS_UNKNOWN_NETRC_OPTION, tokval);
                     goto done;
                 }
             }
@@ -389,7 +412,11 @@ renv(
         return;
     if (*aname == NULL) {
         if ((*aname = malloc(comma - cp + 1)) == NULL) {
-            fprintf(stderr, "Out of memory\n");
+            //
+            //fprintf(stderr, "Out of memory\n");
+            //
+            //  Nls Enabled (MuraliK) 10-19-94
+            NlsPerror( IDS_OUT_OF_MEMORY, GetLastError());
             exit(1);
         }
         strncpy(*aname, cp, comma - cp);
@@ -398,12 +425,20 @@ renv(
             return;
     comma++;
     if ((cp = malloc(strlen(comma)+1)) == NULL) {
-        fprintf(stderr, "Out of memory\n");
+        //
+        //fprintf(stderr, "Out of memory\n");
+        //
+        //  Nls Enabled (MuraliK) 10-19-94
+        NlsPerror( IDS_OUT_OF_MEMORY, GetLastError());
         exit(1);
     }
     strcpy(cp, comma);
     if ((*apass = malloc(16)) == NULL) {
-        fprintf(stderr, "Out of memory\n");
+        //
+        //fprintf(stderr, "Out of memory\n");
+        //
+        //  Nls Enabled (MuraliK) 10-19-94
+        NlsPerror(  IDS_OUT_OF_MEMORY, GetLastError());
         exit(1);
     }
     mkpwclear(cp, host[0], *apass);
@@ -993,11 +1028,11 @@ mkenvkey(
     char stemp[40], stemp1[40], sttyname[30];
     register char *sk,*p;
 
-    if (isatty(2))
+    if (_isatty(2))
         strcpy(sttyname,ttyname(2));
-    else if (isatty(0))
+    else if (_isatty(0))
         strcpy(sttyname,ttyname(0));
-    else if (isatty(1))
+    else if (_isatty(1))
         strcpy(sttyname,ttyname(1));
     else
         return (NULL);
@@ -1034,7 +1069,11 @@ mkpwunclear(
     }
     skey = mkenvkey(mch);
     if (skey == NULL) {
-        fprintf(stderr, "Can't make key\n");
+        // fprintf(stderr, "Can't make key\n");
+        //
+        //  NLS Enabled  ( 10-19-94)
+        //
+        NlsPerror( IDS_CANT_MAKE_KEY, GetLastError());
         exit(1);
     }
     nbsencrypt(spasswd, skey, sencpasswd);
@@ -1055,11 +1094,16 @@ mkpwclear(
     }
     skey = mkenvkey(mch);
     if (skey == NULL) {
-        fprintf(stderr, "Can't make key\n");
+        // fprintf(stderr, "Can't make key\n");
+        //
+        //  NLS Enabled  ( 10-19-94)
+        //
+        NlsPerror( IDS_CANT_MAKE_KEY, GetLastError());
         exit(1);
     }
     nbsdecrypt(sencpasswd, skey, spasswd);
 }
 
 #endif
+
 

@@ -1,1 +1,0 @@
-#define ID_PRILANGID_LIST  1000

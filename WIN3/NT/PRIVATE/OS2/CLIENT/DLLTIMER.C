@@ -478,6 +478,7 @@ DosSleep(
     NTSTATUS Status;
     LARGE_INTEGER DelayIntervalValue;
     PLARGE_INTEGER DelayInterval;
+    LARGE_INTEGER StartTimeStamp;
 
     DelayInterval = Od2CaptureTimeout( MilliSeconds, &DelayIntervalValue );
     if (DelayInterval == NULL) {
@@ -487,6 +488,8 @@ DosSleep(
         DelayInterval = &DelayIntervalValue;
     }
 
+DosSleep_retry:
+    Od2StartTimeout(&StartTimeStamp);
     Status = NtDelayExecution( TRUE, DelayInterval );
 
     if ((Status == STATUS_SUCCESS) ||
@@ -501,6 +504,21 @@ DosSleep(
                 }
 #endif
         return( ERROR_TS_WAKEUP );
+    }
+    else
+    if (Status == STATUS_USER_APC) {
+#if DBG
+        DbgPrint("[%d,%d] WARNING !!! DosSleep was broken by APC\n",
+            Od2Process->Pib.ProcessId,
+            Od2CurrentThreadId()
+            );
+#endif
+        if (Od2ContinueTimeout(&StartTimeStamp, DelayInterval) == STATUS_SUCCESS) {
+            goto DosSleep_retry;
+        }
+        else {
+            return( NO_ERROR );
+        }
     }
     else {
 #if DBG
@@ -776,7 +794,7 @@ DosAsyncTimer(
     ULONG TimeAnchor;
     PTIME_SEM pTimeSem;
     APIRET RetCode;
-    NTSTATUS Status;
+    NTSTATUS Status=0;
     HANDLE ThreadHandle;
     ULONG FreeSlot;
     ULONG Tid;
@@ -899,7 +917,7 @@ DosStartTimer(
     ULONG TimeAnchor;
     PTIME_SEM pTimeSem;
     APIRET RetCode;
-    NTSTATUS Status;
+    NTSTATUS Status=0;
     HANDLE ThreadHandle;
     ULONG FreeSlot;
     ULONG Tid;

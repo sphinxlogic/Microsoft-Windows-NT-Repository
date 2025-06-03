@@ -68,6 +68,7 @@ typedef enum LOOP_MESSAGES {
 
 /* logging messages */
      MSG_LOG_BLOCK,
+     MSG_LOG_STREAM_NAME,
 
 /* statistics messages */
      MSG_BLOCK_PROCESSED,
@@ -171,6 +172,7 @@ typedef enum ERROR_MESSAGES {
        LP_PRIVILEGE_ERROR,
        LP_OUT_OF_SPACE_ERROR,
        LP_INVALID_DRIVE_ERROR,
+       LP_END_OPER_FAILED,
 
        /* Force Watcom to allocate two bytes. */
        LP__FORCE_WATCOM_SIZE=256

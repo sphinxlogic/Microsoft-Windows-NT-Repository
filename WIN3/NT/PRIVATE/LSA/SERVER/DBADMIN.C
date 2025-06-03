@@ -712,17 +712,14 @@ Return Value:
         // Increment Modification Count.
         //
 
-        LsapDbState.PolicyModificationInfo.ModifiedId =
-            RtlLargeIntegerAdd(
-                LsapDbState.PolicyModificationInfo.ModifiedId,
-                Increment
-                );
+        LsapDbState.PolicyModificationInfo.ModifiedId.QuadPart =
+            LsapDbState.PolicyModificationInfo.ModifiedId.QuadPart +
+                Increment.QuadPart;
+                
         if (Options & LSAP_DB_PROMOTION_INCREMENT) {
-            LsapDbState.PolicyModificationInfo.ModifiedId =
-                RtlLargeIntegerAdd(
-                    LsapDbState.PolicyModificationInfo.ModifiedId,
-                    PromotionIncrement
-                    );
+            LsapDbState.PolicyModificationInfo.ModifiedId.QuadPart =
+                LsapDbState.PolicyModificationInfo.ModifiedId.QuadPart +
+                    PromotionIncrement.QuadPart;
         }
 
         Status = LsapDbWriteAttributeObject(
@@ -792,7 +789,13 @@ ApplyTransactionError:
 
     LsapDbState.PolicyModificationInfo.ModifiedId =
         OriginalModifiedId;
-        
+
+
+    //
+    // abort the transaction
+    //
+
+    (VOID) RtlAbortRXact( LsapDbState.RXactContext );
 
     goto ApplyTransactionFinish;
 }

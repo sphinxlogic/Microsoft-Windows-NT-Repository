@@ -69,6 +69,6 @@ Return Value:
     // Never returns from HAL
     //
 
-    HalReturnToFirmware(HalRebootRoutine);
+    KeReturnToFirmware(HalRebootRoutine);
 }
-
+

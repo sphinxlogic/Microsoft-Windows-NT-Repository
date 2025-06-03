@@ -44,7 +44,10 @@ PDRIVE_LOCKLIST DriveLockListHead = NULL;
 
 extern BOOLEAN CommitDueToDelete;
 extern BOOLEAN CommitDueToMirror;
+extern BOOLEAN CommitDueToExtended;
 extern ULONG   UpdateMbrOnDisk;
+
+extern HWND    InitDlg;
 
 // List head for new drive letter assignment on commit.
 
@@ -195,6 +198,7 @@ Return Value:
                     // can be assigned.
 
                     newName[0] = (TCHAR)assignList->OriginalLetter;
+                    NetworkRemoveShare((LPCTSTR) newName);
                     DefineDosDevice(DDD_REMOVE_DEFINITION, (LPCTSTR) newName, (LPCTSTR) NULL);
                     newName[0] = (TCHAR)assignList->DriveLetter;
 
@@ -205,6 +209,7 @@ Return Value:
                 // Assign the name - don't worry about errors for now.
 
                 DefineDosDevice(DDD_RAW_TARGET_PATH, (LPCTSTR) newName, (LPCTSTR) targetPath);
+                NetworkShare((LPCTSTR) newName);
 
                 // Some of the file systems do not actually dismount
                 // when requested.  Instead, they set a verification
@@ -349,10 +354,34 @@ Return Values:
     }
 
     if (!regionData->VolumeExists) {
+        PASSIGN_LIST assignList,
+                     prevEntry;
 
         // This item has never been created so no need to put it in the
-        // lock list.
+        // lock list.  But it does need to be removed from the assign
+        // letter list.
 
+        prevEntry = NULL;
+        assignList = AssignDriveLetterListHead;
+        while (assignList) {
+
+            // If a match is found remove it from the list.
+
+            if (assignList->DriveLetter == driveLetter) {
+                if (prevEntry) {
+                    prevEntry->Next = assignList->Next;
+                } else {
+                    AssignDriveLetterListHead = assignList->Next;
+                }
+
+                Free(assignList);
+                assignList = NULL;
+            } else {
+
+                prevEntry = assignList;
+                assignList = assignList->Next;
+            }
+        }
         return 0;
     }
 
@@ -528,6 +557,7 @@ Return Values:
                 name[1] = (TCHAR)':';
                 name[2] = 0;
 
+                NetworkRemoveShare((LPCTSTR) name);
                 if (!DefineDosDevice(DDD_REMOVE_DEFINITION, (LPCTSTR) name, (LPCTSTR) NULL)) {
 
                     // could not remove name!!?
@@ -549,7 +579,7 @@ Return Values:
     return 0;
 }
 
-BOOL
+LETTER_ASSIGNMENT_RESULT
 CommitDriveLetter(
     IN PREGION_DESCRIPTOR RegionDescriptor,
     IN CHAR OldDrive,
@@ -571,8 +601,9 @@ Arguments:
 
 Return Value:
 
-    TRUE - if the assigning of the letter and the update of the
-           registry succeed.
+    0 - the assignment failed.
+    1 - if the assigning of the letter occurred interactively.
+    2 - must reboot to do the letter.
 
 --*/
 
@@ -584,8 +615,8 @@ Return Value:
     TCHAR                   newName[4];
     WCHAR                   targetPath[100];
     int                     doIt;
-    BOOL                    result = FALSE;
     STATUS_CODE             status = ERROR_SEVERITY_ERROR;
+    LETTER_ASSIGNMENT_RESULT result = Failure;
 
     regionData = PERSISTENT_DATA(RegionDescriptor);
 
@@ -598,7 +629,7 @@ Return Value:
 
         if (assignList->DriveLetter == (UCHAR)OldDrive) {
             assignList->DriveLetter = (UCHAR)NewDrive;
-            return TRUE;
+            return Complete;
         }
         assignList = assignList->Next;
     }
@@ -631,7 +662,7 @@ Return Value:
                                   &handle);
 
         if (!NT_SUCCESS(status)) {
-            return FALSE;
+            return Failure;
         }
 
         // Lock the drive to insure that no other access is occurring
@@ -654,9 +685,9 @@ Return Value:
             if (doIt == IDYES) {
                 RegistryChanged = TRUE;
                 RestartRequired = TRUE;
-                return TRUE;
+                return MustReboot;
             }
-            return FALSE;
+            return Failure;
         }
     } else {
 
@@ -672,7 +703,7 @@ Return Value:
 
         LowUnlockDrive(handle);
         LowCloseDisk(handle);
-        return FALSE;
+        return Failure;
     }
 
     // Update the registry first.  This way if something goes wrong
@@ -681,11 +712,11 @@ Return Value:
     if (!DiskRegistryAssignDriveLetter(Disks[RegionDescriptor->Disk]->Signature,
                                       FdGetExactOffset(RegionDescriptor),
                                       FdGetExactSize(RegionDescriptor, FALSE),
-                                      (NewDrive == NO_DRIVE_LETTER_EVER) ? (UCHAR)' ' : (UCHAR)NewDrive)) {
+                                      (UCHAR)((NewDrive == NO_DRIVE_LETTER_EVER) ? (UCHAR)' ' : (UCHAR)NewDrive))) {
 
         // Registry update failed.
 
-        return FALSE;
+        return Failure;
     }
 
     // It is safe to change the drive letter.  First, remove the
@@ -695,12 +726,13 @@ Return Value:
     newName[1] = (TCHAR)':';
     newName[2] = 0;
 
+    NetworkRemoveShare((LPCTSTR) newName);
     if (!DefineDosDevice(DDD_REMOVE_DEFINITION, (LPCTSTR) newName, (LPCTSTR) NULL)) {
 
         LowUnlockDrive(handle);
         LowCloseDisk(handle);
         RegistryChanged = TRUE;
-        return FALSE;
+        return Failure;
     }
 
     if (NewDrive != NO_DRIVE_LETTER_EVER) {
@@ -717,12 +749,13 @@ Return Value:
                  RegionDescriptor->PartitionNumber);
 
         if (DefineDosDevice(DDD_RAW_TARGET_PATH, (LPCTSTR) newName, (LPCTSTR) targetPath)) {
-            result = TRUE;
+            result = Complete;
         } else {
             RegistryChanged = TRUE;
         }
+        NetworkShare((LPCTSTR) newName);
     } else {
-        result = TRUE;
+        result = Complete;
     }
 
     // Force the file system to dismount
@@ -980,6 +1013,8 @@ Return Value:
                     InfoDialog(MsgCode, OldNumberString, NewNumberString);
                 }
 
+                ClearCommittedDiskInformation();
+
                 if (UpdateMbrOnDisk) {
 
                     UpdateMasterBootCode(UpdateMbrOnDisk);
@@ -1054,7 +1089,7 @@ Return Value:
                                NULL,
                                NULL);
 
-    status = NtOpenFile(&handle,
+    status = DmOpenFile(&handle,
                         SYNCHRONIZE | FILE_ANY_ACCESS,
                         &objectAttributes,
                         &statusBlock,
@@ -1079,7 +1114,7 @@ Return Value:
                           NULL,
                           0L);
 
-    NtClose(handle);
+    DmClose(handle);
     return;
 }
 
@@ -1109,7 +1144,8 @@ Return Value:
     if (DriveLockListHead ||
         AssignDriveLetterListHead ||
         CommitDueToDelete ||
-        CommitDueToMirror) {
+        CommitDueToMirror ||
+        CommitDueToExtended) {
         return TRUE;
     }
     return FALSE;
@@ -1141,10 +1177,14 @@ Return Value:
     PSCSI_ADAPTER_BUS_INFO adapterInfo;
     PSCSI_BUS_DATA         busData;
     PSCSI_INQUIRY_DATA     inquiryData;
-    BYTE                   buffer[32];
+    TCHAR                  physicalName[32];
+    TCHAR                  driveName[32];
+    BYTE                   driveBuffer[32];
+    BYTE                   physicalBuffer[32];
     HANDLE                 volumeHandle;
     STRING                 string;
     UNICODE_STRING         unicodeString;
+    UNICODE_STRING         physicalString;
     OBJECT_ATTRIBUTES      objectAttributes;
     NTSTATUS               ntStatus;
     IO_STATUS_BLOCK        statusBlock;
@@ -1154,19 +1194,54 @@ Return Value:
                            i,
                            j,
                            deviceNumber,
-                           driveLetter,
-                           portNumber = 0;
+                           currentPort,
+                           numberOfPorts,
+                           percentComplete,
+                           portNumber;
 
     diskFound = FALSE;
     cdromFound = FALSE;
+
+    // Determine how many buses there are
+
+    portNumber = numberOfPorts = percentComplete = 0;
     while (TRUE) {
 
-        memset(buffer, 0, sizeof(buffer));
-        sprintf(buffer, "\\\\.\\Scsi%d:", portNumber);
+        memset(driveBuffer, 0, sizeof(driveBuffer));
+        sprintf(driveBuffer, "\\\\.\\Scsi%d:", portNumber);
 
         // Open the SCSI port with the DOS name.
 
-        volumeHandle = CreateFile(buffer,
+        volumeHandle = CreateFile(driveBuffer,
+                                  GENERIC_READ,
+                                  FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                  NULL,
+                                  OPEN_EXISTING,
+                                  0,
+                                  0);
+
+        if (volumeHandle == INVALID_HANDLE_VALUE) {
+            break;
+        }
+
+        CloseHandle(volumeHandle);
+        numberOfPorts++;
+        portNumber++;
+    }
+
+    currentPort = 1;
+    portNumber = 0;
+
+    // Perform the scsi bus rescan.
+
+    while (TRUE) {
+
+        memset(driveBuffer, 0, sizeof(driveBuffer));
+        sprintf(driveBuffer, "\\\\.\\Scsi%d:", portNumber);
+
+        // Open the SCSI port with the DOS name.
+
+        volumeHandle = CreateFile(driveBuffer,
                                   GENERIC_READ,
                                   FILE_SHARE_READ | FILE_SHARE_WRITE,
                                   NULL,
@@ -1193,13 +1268,24 @@ Return Value:
             break;
         }
 
+        percentComplete = (currentPort * 100) / numberOfPorts;
+
+        if (percentComplete < 100) {
+            PostMessage(InitDlg,
+                        WM_USER,
+                        percentComplete,
+                        0);
+        }
+
+        currentPort++;
+
         // Get a big chuck of memory to store the SCSI bus data.
 
-        adapterInfo = malloc(0x400);
+        adapterInfo = malloc(0x4000);
 
         if (adapterInfo == NULL) {
             CloseHandle(volumeHandle);
-            return;
+            goto finish;
         }
 
         // Issue device control to get configuration information.
@@ -1209,12 +1295,12 @@ Return Value:
                              NULL,
                              0,
                              adapterInfo,
-                             0x400,
+                             0x4000,
                              &bytesTransferred,
                              NULL)) {
 
             CloseHandle(volumeHandle);
-            return;
+            goto finish;
         }
 
 
@@ -1267,24 +1353,22 @@ Return Value:
         deviceNumber = 0;
         while (TRUE) {
 
-            memset(buffer, 0, sizeof(buffer));
-            sprintf(buffer, "\\Device\\Harddisk%d\\Partition0", deviceNumber);
-            RtlInitString(&string, buffer);
+            memset(driveBuffer, 0, sizeof(driveBuffer));
+            sprintf(driveBuffer, "\\Device\\Harddisk%d\\Partition0", deviceNumber);
 
+            RtlInitString(&string, driveBuffer);
             ntStatus = RtlAnsiStringToUnicodeString(&unicodeString,
                                                     &string,
                                                     TRUE);
             if (!NT_SUCCESS(ntStatus)) {
-                continue;
+                break;
             }
-
             InitializeObjectAttributes(&objectAttributes,
                                        &unicodeString,
                                        0,
                                        NULL,
                                        NULL);
-
-            ntStatus = NtOpenFile(&volumeHandle,
+            ntStatus = DmOpenFile(&volumeHandle,
                                   FILE_READ_DATA  | FILE_WRITE_DATA | SYNCHRONIZE,
                                   &objectAttributes,
                                   &statusBlock,
@@ -1292,6 +1376,7 @@ Return Value:
                                   FILE_SYNCHRONOUS_IO_ALERT);
 
             if (!NT_SUCCESS(ntStatus)) {
+                RtlFreeUnicodeString(&unicodeString);
                 break;
             }
 
@@ -1307,9 +1392,74 @@ Return Value:
                                  NULL)) {
 
             }
+            DmClose(volumeHandle);
 
-            CloseHandle(volumeHandle);
+            // see if the physicaldrive# symbolic link is present
+
+            sprintf(physicalBuffer, "\\DosDevices\\PhysicalDrive%d", deviceNumber);
             deviceNumber++;
+
+            RtlInitString(&string, physicalBuffer);
+            ntStatus = RtlAnsiStringToUnicodeString(&physicalString,
+                                                    &string,
+                                                    TRUE);
+            if (!NT_SUCCESS(ntStatus)) {
+                continue;
+            }
+            InitializeObjectAttributes(&objectAttributes,
+                                       &physicalString,
+                                       0,
+                                       NULL,
+                                       NULL);
+            ntStatus = DmOpenFile(&volumeHandle,
+                                  FILE_READ_DATA  | FILE_WRITE_DATA | SYNCHRONIZE,
+                                  &objectAttributes,
+                                  &statusBlock,
+                                  FILE_SHARE_READ  | FILE_SHARE_WRITE,
+                                  FILE_SYNCHRONOUS_IO_ALERT);
+
+            if (!NT_SUCCESS(ntStatus)) {
+                ULONG index;
+                ULONG dest;
+
+                // Name is not there - create it.  This copying
+                // is done in case this code should ever become
+                // unicode and the types for the two strings would
+                // actually be different.
+                //
+                // Copy only the portion of the physical name
+                // that is in the \dosdevices\ directory
+
+                for (dest = 0, index = 12; TRUE; index++, dest++) {
+
+                    physicalName[dest] = (TCHAR)physicalBuffer[index];
+                    if (!physicalName[dest]) {
+                        break;
+                    }
+                }
+
+                // Copy all of the NT namespace name.
+
+                for (index = 0; TRUE; index++) {
+
+                    driveName[index] = (TCHAR) driveBuffer[index];
+                    if (!driveName[index]) {
+                        break;
+                    }
+                }
+
+                DefineDosDevice(DDD_RAW_TARGET_PATH,
+                                (LPCTSTR) physicalName,
+                                (LPCTSTR) driveName);
+
+            } else {
+                DmClose(volumeHandle);
+            }
+
+            // free allocated memory for unicode string.
+
+            RtlFreeUnicodeString(&unicodeString);
+            RtlFreeUnicodeString(&physicalString);
         }
     }
 
@@ -1320,16 +1470,16 @@ Return Value:
         deviceNumber = 0;
         while (TRUE) {
 
-            memset(buffer, 0, sizeof(buffer));
-            sprintf(buffer, "\\Device\\Cdrom%d", deviceNumber);
-            RtlInitString(&string, buffer);
+            memset(driveBuffer, 0, sizeof(driveBuffer));
+            sprintf(driveBuffer, "\\Device\\Cdrom%d", deviceNumber);
+            RtlInitString(&string, driveBuffer);
 
             ntStatus = RtlAnsiStringToUnicodeString(&unicodeString,
                                                     &string,
                                                     TRUE);
 
             if (!NT_SUCCESS(ntStatus)) {
-                continue;
+                break;
             }
 
             InitializeObjectAttributes(&objectAttributes,
@@ -1338,7 +1488,7 @@ Return Value:
                                        NULL,
                                        NULL);
 
-            ntStatus = NtOpenFile(&volumeHandle,
+            ntStatus = DmOpenFile(&volumeHandle,
                                   FILE_READ_DATA  | FILE_WRITE_DATA | SYNCHRONIZE,
                                   &objectAttributes,
                                   &statusBlock,
@@ -1365,5 +1515,10 @@ Return Value:
             deviceNumber++;
         }
     }
+finish:
+    PostMessage(InitDlg,
+                WM_USER,
+                100,
+                0);
     return;
 }

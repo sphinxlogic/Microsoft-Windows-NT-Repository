@@ -412,4 +412,3 @@ typedef RAWOBJECT FAR *LPRAWOBJECT;
 #endif
 
 #endif
-

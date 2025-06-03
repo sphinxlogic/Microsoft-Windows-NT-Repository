@@ -29,6 +29,15 @@ typedef enum
 	OLE1_OWNERLINK_PRECEDES_NATIVE = 8
 } Ole1TestFlags;
 
+// more flags used to control what formats are offered
+
+typedef enum
+{
+	OFFER_TESTSTORAGE	= 1,
+	OFFER_EMBEDDEDOBJECT	= 2
+} DataFlags;
+
+
 //+-------------------------------------------------------------------------
 //
 //  Class:	CGenDataObject
@@ -80,6 +89,15 @@ public:
 	void SetupOle1Mode( Ole1TestFlags fFlags );
 	HRESULT SetOle1ToClipboard( void );
 
+       	// Used by various tests, controls what formats are offered by
+	// the data object
+
+	void SetDataFormats( DataFlags fFlags );
+
+	// Indicates whether or not QueryInterface was called.  Used by
+	// OleQueryXXX tests.
+
+	BOOL HasQIBeenCalled();
 
 	// test clipboard formats
 
@@ -113,6 +131,7 @@ private:
 				STGMEDIUM *pmedium);
 
 	Ole1TestFlags	m_fOle1;	// OLE1 configuration flags
+	BOOL		m_fQICalled;
 
 };
 
@@ -160,4 +179,3 @@ private:
 
 
 #endif // !_GENDATA_H
-

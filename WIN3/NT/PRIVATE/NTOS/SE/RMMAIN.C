@@ -495,18 +495,7 @@ Return Value:
 
     SepRmLsaCallProcess = PsGetCurrentProcess();
 
-    Status = ObReferenceObjectByPointer(
-                 SepRmLsaCallProcess,
-                 0,
-                 PsProcessType,
-                 KernelMode
-                 );
-
-    if ( !NT_SUCCESS(Status) ) {
-
-        KdPrint(("Security Rm Init: Reference System Porcess Object failed 0x%lx\n", Status));
-        goto RmCommandServerThreadInitError;
-    }
+    ObReferenceObject(SepRmLsaCallProcess);
 
     //
     // Wait on the LSA signalling the event.  This means that the LSA
@@ -700,7 +689,7 @@ Return Value:
                                    (ULONG) ClientView.ViewBase );
     SepRmState.LsaViewPortMemory = ClientView.ViewRemoteBase;
 
-/* BugBug - ScottBi - probably don't need the resource
+/* BugWarning - ScottBi - probably don't need the resource
 
     //
     // Create the resource serializing access to the port.  This
@@ -761,7 +750,7 @@ SepRmComponentTestCommandWrkr(
 
 Routine Description:
 
-    BUGBUG - Remove this command when other RM commands are implemented.
+    BUGWARNING - Remove this command when other RM commands are implemented.
              Until then, this command is the only way a CT can verify that
              an RM command with parameters is sent correctly.
 
@@ -1160,69 +1149,69 @@ Return Value:
             // Send Message to the LSA via the LSA Server Command LPC Port.
             // This must be done in the process in which the handle was created.
             //
-    
+
             Status = ZwRequestWaitReplyPort(
                          SepRmState.LsaCommandPortHandle,
                          (PPORT_MESSAGE) &CommandMessage,
                          (PPORT_MESSAGE) &ReplyMessage
                          );
-    
+
             //
             // If the command was successful, copy the data back to the output
             // buffer.
             //
-    
+
             if (NT_SUCCESS(Status)) {
-    
+
                 //
                 // Move output from command (if any) to buffer.  Note that this
                 // is done even if the command returns status, because some status
                 // values are not errors.
                 //
-    
+
                 if (ARGUMENT_PRESENT(WorkQueueItem->ReplyBuffer)) {
-    
+
                     RtlMoveMemory(
                         WorkQueueItem->ReplyBuffer,
                         ReplyMessage.ReplyBuffer,
                         WorkQueueItem->ReplyBufferLength
                         );
                 }
-    
+
                 //
                 // Return status from command.
                 //
-    
+
                 Status = ReplyMessage.ReturnedStatus;
-    
+
                 if (!NT_SUCCESS(Status)) {
                     KdPrint(("Security: Command sent from RM to LSA returned 0x%lx\n",
                         Status));
                 }
-    
+
             } else {
-    
+
                 KdPrint(("Security: Sending Command RM to LSA failed 0x%lx\n", Status));
             }
-    
+
             //
             // On return from the LPC call to the LSA, we expect the called
             // LSA worker routine to have copied the Command Parameters
             // buffer (if any).  If a custom shared memory boffer was allocated,
             // free it now.
             //
-    
+
             if (CommandMessage.CommandParamsMemoryType == SepRmLsaCustomSharedMemory) {
-    
+
                 RegionSize = 0;
-    
+
                 Status = ZwFreeVirtualMemory(
                              SepLsaHandle,
                              (PVOID *) &CommandMessage.CommandParams,
                              &RegionSize,
                              MEM_RELEASE
                              );
-    
+
                 ASSERT(NT_SUCCESS(Status));
             }
 

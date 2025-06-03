@@ -33,6 +33,25 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_CREATE)
 
+
+//
+//  Macros for incrementing performance counters.
+//
+
+#define CollectCreateHitStatistics(VCB) {                                               \
+    PFILESYSTEM_STATISTICS Stats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()];   \
+    Stats->Fat.CreateHits += 1;                                                         \
+}
+
+#define CollectCreateStatistics(VCB,STATUS) {                                           \
+    PFILESYSTEM_STATISTICS Stats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()];   \
+    if ((STATUS) == STATUS_SUCCESS) {                                                   \
+        Stats->Fat.SuccessfulCreates += 1;                                              \
+    } else {                                                                            \
+        Stats->Fat.FailedCreates += 1;                                                  \
+    }                                                                                   \
+}
+
 LUID FatSecurityPrivilege = { SE_SECURITY_PRIVILEGE, 0 };
 
 //
@@ -68,7 +87,8 @@ FatOpenExistingDcb (
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
     IN ULONG CreateDisposition,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     );
 
 IO_STATUS_BLOCK
@@ -86,6 +106,7 @@ FatOpenExistingFcb (
     IN ULONG CreateDisposition,
     IN BOOLEAN DeleteOnClose,
     IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN FileNameOpenedDos,
     OUT PBOOLEAN OplockPostIrp
     );
 
@@ -96,7 +117,6 @@ FatOpenTargetDirectory (
     IN PDCB Dcb,
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
-    IN POEM_STRING RemainingName,
     IN BOOLEAN DoesNameExist
     );
 
@@ -113,7 +133,8 @@ FatOpenExistingDirectory (
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
     IN ULONG CreateDisposition,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     );
 
 IO_STATUS_BLOCK
@@ -135,7 +156,8 @@ FatOpenExistingFile (
     IN ULONG CreateDisposition,
     IN BOOLEAN IsPagingFile,
     IN BOOLEAN NoEaKnowledge,
-    IN BOOLEAN DeleteOnClose
+    IN BOOLEAN DeleteOnClose,
+    IN BOOLEAN FileNameOpenedDos
     );
 
 IO_STATUS_BLOCK
@@ -151,7 +173,8 @@ FatCreateNewDirectory (
     IN PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG EaLength,
     IN UCHAR FileAttributes,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     );
 
 IO_STATUS_BLOCK
@@ -168,6 +191,7 @@ FatCreateNewFile (
     IN PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG EaLength,
     IN UCHAR FileAttributes,
+    IN PUNICODE_STRING LfnBuffer,
     IN BOOLEAN IsPagingFile,
     IN BOOLEAN NoEaKnowledge,
     IN BOOLEAN DeleteOnClose,
@@ -189,21 +213,6 @@ FatSupersedeOrOverwriteFile (
     IN BOOLEAN NoEaKnowledge
     );
 
-PFCB
-FatFindPrefix (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN POEM_STRING Name,
-    IN OUT POEM_STRING RemainingPart
-    );
-
-VOID
-FatSetFullNameInFcb(
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb,
-    IN PUNICODE_STRING FinalName
-    );
-
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FatCommonCreate)
 #pragma alloc_text(PAGE, FatCreateNewDirectory)
@@ -217,8 +226,8 @@ FatSetFullNameInFcb(
 #pragma alloc_text(PAGE, FatOpenTargetDirectory)
 #pragma alloc_text(PAGE, FatOpenVolume)
 #pragma alloc_text(PAGE, FatSupersedeOrOverwriteFile)
-#pragma alloc_text(PAGE, FatFindPrefix)
 #pragma alloc_text(PAGE, FatSelectNames)
+#pragma alloc_text(PAGE, FatSetFullNameInFcb)
 #endif
 
 
@@ -342,12 +351,13 @@ Return Value:
 --*/
 
 {
+    NTSTATUS Status;
     IO_STATUS_BLOCK Iosb;
     PIO_STACK_LOCATION IrpSp;
 
     PFILE_OBJECT FileObject;
     PFILE_OBJECT RelatedFileObject;
-    OEM_STRING FileName;
+    UNICODE_STRING FileName;
     ULONG AllocationSize;
     PFILE_FULL_EA_INFORMATION EaBuffer;
     ACCESS_MASK DesiredAccess;
@@ -367,16 +377,24 @@ Return Value:
     BOOLEAN NoEaKnowledge;
     BOOLEAN DeleteOnClose;
     BOOLEAN TemporaryFile;
+    BOOLEAN FileNameOpenedDos;
 
     ULONG CreateDisposition;
 
     PVCB Vcb;
     PFCB Fcb;
+    PCCB Ccb;
     PDCB ParentDcb;
     PDCB FinalDcb = NULL;
 
-    OEM_STRING FinalName;
-    OEM_STRING RemainingPart;
+    UNICODE_STRING FinalName;
+    UNICODE_STRING RemainingPart;
+    UNICODE_STRING NextRemainingPart;
+    UNICODE_STRING UpcasedFinalName;
+    WCHAR UpcasedBuffer[MAX_LFN_CHARACTERS];
+
+    OEM_STRING OemFinalName;
+    UCHAR OemBuffer[MAX_LFN_CHARACTERS*2];
 
     PDIRENT Dirent;
     PBCB DirentBcb;
@@ -388,14 +406,9 @@ Return Value:
     BOOLEAN TrailingBackslash;
     BOOLEAN FirstLoop = TRUE;
 
-    UCHAR FileNameBuffer[120];
-
     CCB LocalCcb;
     UNICODE_STRING Lfn;
-    WCHAR LfnBuffer[260];
-
-    UNICODE_STRING FinalUnicodeName;
-    UNICODE_STRING FinalUpcasedUnicodeName = {0,0,NULL};
+    WCHAR LfnBuffer[MAX_LFN_CHARACTERS];
 
     //
     //  Get the current IRP stack location
@@ -422,7 +435,7 @@ Return Value:
     //  Here is the  "M A R K   L U C O V S K Y"  hack from hell.
     //
     //  It's here because Mark says he can't avoid sending me double beginning
-    //  backslashes win the Win32 layer.
+    //  backslashes via the Win32 layer.
     //
 
     if ((IrpSp->FileObject->FileName.Length > sizeof(WCHAR)) &&
@@ -467,6 +480,7 @@ Return Value:
     //
 
     FileObject        = IrpSp->FileObject;
+    FileName          = FileObject->FileName;
     RelatedFileObject = FileObject->RelatedFileObject;
     AllocationSize    = Irp->Overlay.AllocationSize.LowPart;
     EaBuffer          = Irp->AssociatedIrp.SystemBuffer;
@@ -502,8 +516,9 @@ Return Value:
     //  we can't use the ATTRIBUTE_VALID_FLAGS constant because that has
     //  the control and normal flags set.
     //
+    //  Delay setting ARCHIVE in case this is a directory: DavidGoe 2/16/95
+    //
 
-    FileAttributes   |= FILE_ATTRIBUTE_ARCHIVE;
     FileAttributes   &= (FILE_ATTRIBUTE_READONLY |
                          FILE_ATTRIBUTE_HIDDEN   |
                          FILE_ATTRIBUTE_SYSTEM   |
@@ -541,6 +556,49 @@ Return Value:
 #endif
 
     //
+    //  Verify that this isn't an open for a structured storage type.
+    //
+
+    if ((Options & FILE_STORAGE_TYPE_SPECIFIED) == FILE_STORAGE_TYPE_SPECIFIED) {
+        ClearFlag(Options, FILE_STORAGE_TYPE_SPECIFIED);
+
+        if ((Options & FILE_STORAGE_TYPE_FILE) == FILE_STORAGE_TYPE_FILE) {
+
+            //
+            //  Treated as FILE_NON_DIRECTORY_FILE.
+            //
+
+            ClearFlag(Options, FILE_STORAGE_TYPE_FILE);
+            SetFlag(Options, FILE_NON_DIRECTORY_FILE);
+
+        } else if ((Options & FILE_STORAGE_TYPE_DIRECTORY) == FILE_STORAGE_TYPE_DIRECTORY) {
+
+            //
+            //  Treated as FILE_DIRECTORY_FILE.
+            //
+
+            ClearFlag(Options, FILE_STORAGE_TYPE_DIRECTORY);
+            SetFlag(Options, FILE_DIRECTORY_FILE);
+
+        } else if ((Options & FILE_STORAGE_TYPE_DEFAULT) == FILE_STORAGE_TYPE_DEFAULT) {
+
+            //
+            //  Treated as neither FILE nor NON_DIRECTORY_FILE.
+            //
+
+            ClearFlag(Options, FILE_STORAGE_TYPE_DEFAULT);
+        }
+
+        if ((Options & FILE_STORAGE_TYPE_MASK) != 0) {
+
+            FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+    
+            DebugTrace(-1, Dbg, "FatCommonCreate -> STATUS_INVALID_PARAMETER\n", 0);
+            return STATUS_INVALID_PARAMETER;
+        }
+    }
+
+    //
     //  Decipher Option flags and values
     //
 
@@ -567,49 +625,7 @@ Return Value:
                                 ((CreateDisposition == FILE_OPEN) ||
                                  (CreateDisposition == FILE_OPEN_IF)));
 
-    //
-    //  Upcase the string and convert it to UNICODE.
-    //
-    //  Avoid an ExAllocatePool, if we can.  We can't change the file
-    //  name in the FileObject in case we need to reparse.
-    //
 
-    if ( FileObject->FileName.Length != 0 ) {
-
-        FileName.Buffer = &FileNameBuffer[0];
-        FileName.Length = 0;
-        FileName.MaximumLength = 120;
-
-        Iosb.Status = RtlUpcaseUnicodeStringToCountedOemString( &FileName,
-                                                                &FileObject->FileName,
-                                                                FALSE );
-
-        if (Iosb.Status == STATUS_BUFFER_OVERFLOW) {
-
-            FileName.Buffer = NULL;
-            FileName.Length = 0;
-            FileName.MaximumLength = 0;
-
-            Iosb.Status = RtlUpcaseUnicodeStringToCountedOemString( &FileName,
-                                                                    &FileObject->FileName,
-                                                                    TRUE );
-        }
-
-        if (!NT_SUCCESS( Iosb.Status)) {
-
-            FatCompleteRequest( IrpContext, Irp, Iosb.Status );
-
-            DebugTrace(-1, Dbg, "FatCommonCreate:  Exit  ->  %08lx\n", Iosb.Status);
-
-            return Iosb.Status;
-        }
-
-    } else {
-
-        FileName.Length = 0;
-        FileName.MaximumLength = 0;
-        FileName.Buffer = NULL;
-    }
 
     //
     //  Acquire exclusive access to the vcb, and enqueue the Irp if
@@ -621,11 +637,6 @@ Return Value:
         DebugTrace(0, Dbg, "Cannot acquire Vcb\n", 0);
 
         Iosb.Status = FatFsdPostRequest( IrpContext, Irp );
-
-        if (FileName.Buffer != &FileNameBuffer[0]) {
-
-                RtlFreeOemString( &FileName );
-        }
 
         DebugTrace(-1, Dbg, "FatCommonCreate -> %08lx\n", Iosb.Status );
         return Iosb.Status;
@@ -664,52 +675,51 @@ Return Value:
         //  then it is the Vcb itself.
         //
 
-        {
-            PVOID x;
+        if ((FileName.Length == 0) &&
+            ((RelatedFileObject == NULL) ||
+             (FatDecodeFileObject(RelatedFileObject,&Vcb,&Fcb,&Ccb)) == UserVolumeOpen)) {
 
-            if (FileName.Length == 0 &&
-                (RelatedFileObject == NULL ||
-                (FatDecodeFileObject(RelatedFileObject,(PVCB *)&x,(PFCB *)&x,(PCCB *)&x)) == UserVolumeOpen)) {
+            //
+            //  Check if we were to open a directory
+            //
 
-                //
-                //  Check if we were to open a directory
-                //
+            if (DirectoryFile) {
 
-                if (DirectoryFile) {
+                DebugTrace(0, Dbg, "Cannot open volume as a directory\n", 0);
 
-                    DebugTrace(0, Dbg, "Cannot open volume as a directory\n", 0);
-
-                    try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
-                }
-
-                //
-                //  Can't open the TargetDirectory of the DASD volume.
-                //
-
-                if (OpenTargetDirectory) {
-
-                    try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
-                }
-
-                DebugTrace(0, Dbg, "Opening the volume, Vcb = %08lx\n", Vcb);
-
-                Iosb = FatOpenVolume( IrpContext,
-                                      FileObject,
-                                      Vcb,
-                                      DesiredAccess,
-                                      ShareAccess,
-                                      CreateDisposition );
-
-                Irp->IoStatus.Information = Iosb.Information;
-                try_return( Iosb.Status );
+                try_return( Iosb.Status = STATUS_NOT_A_DIRECTORY );
             }
+
+            //
+            //  Can't open the TargetDirectory of the DASD volume.
+            //
+
+            if (OpenTargetDirectory) {
+
+                try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
+            }
+
+            DebugTrace(0, Dbg, "Opening the volume, Vcb = %08lx\n", Vcb);
+
+            CollectCreateHitStatistics(Vcb);
+
+            Iosb = FatOpenVolume( IrpContext,
+                                  FileObject,
+                                  Vcb,
+                                  DesiredAccess,
+                                  ShareAccess,
+                                  CreateDisposition );
+
+            Irp->IoStatus.Information = Iosb.Information;
+            try_return( Iosb.Status );
         }
 
         //
         //  Check if we're opening the root dcb
         //
 
-        if ((FileName.Length == 1) && (FileName.Buffer[0] == '\\')) {
+        if ((FileName.Length == sizeof(WCHAR)) &&
+            (FileName.Buffer[0] == L'\\')) {
 
             //
             //  Check if we were not suppose to open a directory
@@ -731,7 +741,18 @@ Return Value:
                 try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
             }
 
+            //
+            //  Not allowed to delete root directory.
+            //
+
+            if (DeleteOnClose) {
+
+                try_return( Iosb.Status = STATUS_CANNOT_DELETE );
+            }
+
             DebugTrace(0, Dbg, "Opening root dcb\n", 0);
+
+            CollectCreateHitStatistics(Vcb);
 
             Iosb = FatOpenRootDcb( IrpContext,
                                    FileObject,
@@ -744,103 +765,207 @@ Return Value:
             try_return( Iosb.Status );
         }
 
+
         //
-        //  FatCommonCreate(): trailing backslash check for dbcs string
+        //  FatCommonCreate(): trailing backslash check
         //
 
-        if (*NlsMbOemCodePageTag) {
 
-            ULONG index = 0;
+        if ((FileName.Length != 0) &&
+            (FileName.Buffer[FileName.Length/sizeof(WCHAR)-1] == L'\\')) {
 
-            TrailingBackslash = FALSE;
-
-            while ( index < FileName.Length ) {
-
-                if (FsRtlIsLeadDbcsCharacter(FileName.Buffer[index])) {
-
-                    TrailingBackslash = FALSE;
-                    index += 2;
-
-                } else {
-
-                    TrailingBackslash = ( FileName.Buffer[index] == '\\') ? TRUE : FALSE;
-                    index += 1;
-                }
-            }
-
-            if ( TrailingBackslash ) {
-
-                FileName.Length -= 1;
-            }
+            FileName.Length -= sizeof(WCHAR);
+            TrailingBackslash = TRUE;
 
         } else {
 
-            if ( (FileName.Length != 0) &&
-                 (FileName.Buffer[FileName.Length-1] == '\\') ) {
-
-                FileName.Length -= 1;
-                TrailingBackslash = TRUE;
-
-            } else {
-
-                TrailingBackslash = FALSE;
-            }
+            TrailingBackslash = FALSE;
         }
 
         //
         //  If there is a related file object then this is a relative open.
         //  The related file object is the directory to start our search at.
-        //  Return an error if it is not a directory.  Both the then and the
-        //  else clause set Fcb to point to the last Fcb/Dcb that already
-        //  exists in memory given the input file name.
+        //  Return an error if it is not a directory.
         //
-        //  Also we loop here until we land on an Fcb that is in a good
+
+        if (RelatedFileObject != NULL) {
+
+            PVCB RelatedVcb;
+            PDCB RelatedDcb;
+            PCCB RelatedCcb;
+            TYPE_OF_OPEN TypeOfOpen;
+
+            TypeOfOpen = FatDecodeFileObject( RelatedFileObject,
+                                              &RelatedVcb,
+                                              &RelatedDcb,
+                                              &RelatedCcb );
+
+            if (TypeOfOpen != UserFileOpen &&
+                TypeOfOpen != UserDirectoryOpen) {
+
+                DebugTrace(0, Dbg, "Invalid related file object\n", 0);
+
+                try_return( Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND );
+            }
+
+            //
+            //  Check a special error case.
+            //
+
+            if ((FileName.Length == sizeof(WCHAR)) &&
+                (FileName.Buffer[0] == L'\\')) {
+
+                try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+            }
+
+            //
+            //  Set up the file object's Vpb pointer in case anything happens.
+            //
+
+            FileObject->Vpb = RelatedFileObject->Vpb;
+
+            ParentDcb = RelatedDcb;
+
+        } else {
+
+            ParentDcb = Vcb->RootDcb;
+        }
+
+        //
+        //  Initialize our two temp strings with their stack buffers.
+        //
+
+        OemFinalName.Length = 0;
+        OemFinalName.MaximumLength = MAX_LFN_CHARACTERS * 2;
+        OemFinalName.Buffer = OemBuffer;
+
+        UpcasedFinalName.Length = 0;
+        UpcasedFinalName.MaximumLength = MAX_LFN_CHARACTERS * sizeof(WCHAR);
+        UpcasedFinalName.Buffer = UpcasedBuffer;
+
+        //
+        //  We loop here until we land on an Fcb that is in a good
         //  condition.  This way we can reopen files that have stale handles
         //  to files of the same name but are now different.
         //
 
         while ( TRUE ) {
 
-            if (RelatedFileObject != NULL) {
+            Fcb = ParentDcb;
+            RemainingPart = FileName;
 
-                PVCB v;
-                PDCB d;
-                PCCB c;
+            //
+            //  Now walk down the Dcb tree looking for the longest prefix.
+            //  This one exit condition in the while() is to handle a
+            //  special case condition (relative NULL name open), the main
+            //  exit conditions are at the bottom of the loop.
+            //
 
-                if (FatDecodeFileObject(RelatedFileObject, &v, &d, &c) != UserDirectoryOpen) {
+            while (RemainingPart.Length != 0) {
 
-                    DebugTrace(0, Dbg, "Invalid related file object\n", 0);
+                PFCB NextFcb;
 
-                    try_return( Iosb.Status = STATUS_OBJECT_PATH_NOT_FOUND );
+                FsRtlDissectName( RemainingPart,
+                                  &FinalName,
+                                  &NextRemainingPart );
+
+                //
+                //  If RemainingPart starts with a backslash the name is
+                //  invalid.
+                //  Check for no more than 255 characters in FinalName
+                //
+
+                if (((NextRemainingPart.Length != 0) && (NextRemainingPart.Buffer[0] == L'\\')) ||
+                    (FinalName.Length > 255*sizeof(WCHAR))) {
+
+                    try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
                 }
 
                 //
-                //  Set up the file object's Vpb pointer in case anything happens.
+                //  Now, try to convert this one component into Oem and search
+                //  the splay tree.  If it works then that's great, otherwise
+                //  we have to try with the UNICODE name instead.
                 //
 
-                FileObject->Vpb = RelatedFileObject->Vpb;
+                Status = FatUpcaseUnicodeStringToCountedOemString( &OemFinalName, &FinalName, FALSE );
 
-                //
-                //  Check some special cases
-                //
+                if (NT_SUCCESS(Status)) {
 
-                if ( FileName.Length == 0 ) {
-
-                    Fcb = d;
-                    RemainingPart.Length = 0;
-
-                } else if ( (FileName.Length == 1) && (FileName.Buffer[0] == '\\')) {
-
-                    try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+                    NextFcb = FatFindFcb( IrpContext,
+                                          &Fcb->Specific.Dcb.RootOemNode,
+                                          (PSTRING)&OemFinalName,
+                                          &FileNameOpenedDos );
 
                 } else {
 
-                    Fcb = FatFindPrefix( IrpContext, d, &FileName, &RemainingPart );
+                    NextFcb = NULL;
+                    OemFinalName.Length = 0;
+
+                    if (Status != STATUS_UNMAPPABLE_CHARACTER) {
+
+                        try_return( Iosb.Status = Status );
+                    }
                 }
 
-            } else {
+                //
+                //  If we didn't find anything searching the Oem space, we
+                //  have to try the Unicode space.  To save cycles in the
+                //  common case that this tree is empty, we do a quick check
+                //  here.
+                //
 
-                Fcb = FatFindPrefix( IrpContext, Vcb->RootDcb, &FileName, &RemainingPart );
+                if ((NextFcb == NULL) && Fcb->Specific.Dcb.RootUnicodeNode) {
+
+                    //
+                    // First downcase, then upcase the string, because this
+                    // is what happens when putting names into the tree (see
+                    // strucsup.c, FatConstructNamesInFcb()).
+                    //
+
+                    Status = FatDowncaseUnicodeString(&UpcasedFinalName, &FinalName, FALSE );
+                    if (!NT_SUCCESS(Status)) {
+
+                        try_return( Iosb.Status = Status );
+                    }
+
+                    Status = FatUpcaseUnicodeString( &UpcasedFinalName, &UpcasedFinalName, FALSE );
+                    if (!NT_SUCCESS(Status)) {
+
+                        try_return( Iosb.Status = Status );
+                    }
+
+                    NextFcb = FatFindFcb( IrpContext,
+                                          &Fcb->Specific.Dcb.RootUnicodeNode,
+                                          (PSTRING)&UpcasedFinalName,
+                                          &FileNameOpenedDos );
+                }
+
+                //
+                //  If we got back an Fcb then we consumed the FinalName
+                //  legitimately, so the remaining name is now RemainingPart.
+                //
+
+                if (NextFcb != NULL) {
+                    Fcb = NextFcb;
+                    RemainingPart = NextRemainingPart;
+                }
+
+                if ((NextFcb == NULL) ||
+                    (NodeType(NextFcb) == FAT_NTC_FCB) ||
+                    (NextRemainingPart.Length == 0)) {
+
+                    break;
+                }
+            }
+
+            //
+            //  Remaining name cannot start with a backslash
+            //
+
+            if (RemainingPart.Length && (RemainingPart.Buffer[0] == L'\\')) {
+
+                RemainingPart.Length -= sizeof(WCHAR);
+                RemainingPart.Buffer += 1;
             }
 
             //
@@ -933,12 +1058,13 @@ Return Value:
 
             if (OpenTargetDirectory) {
 
+                CollectCreateHitStatistics(Vcb);
+
                 Iosb = FatOpenTargetDirectory( IrpContext,
                                                FileObject,
                                                Fcb->ParentDcb,
                                                DesiredAccess,
                                                ShareAccess,
-                                               &Fcb->ShortName.Name.Oem,
                                                TRUE );
 
                 Irp->IoStatus.Information = Iosb.Information;
@@ -966,6 +1092,8 @@ Return Value:
 
                 DebugTrace(0, Dbg, "Open existing dcb, Dcb = %08lx\n", Fcb);
 
+                CollectCreateHitStatistics(Vcb);
+
                 Iosb = FatOpenExistingDcb( IrpContext,
                                            FileObject,
                                            Vcb,
@@ -973,7 +1101,8 @@ Return Value:
                                            DesiredAccess,
                                            ShareAccess,
                                            CreateDisposition,
-                                           NoEaKnowledge );
+                                           NoEaKnowledge,
+                                           DeleteOnClose );
 
                 Irp->IoStatus.Information = Iosb.Information;
                 try_return( Iosb.Status );
@@ -1008,6 +1137,8 @@ Return Value:
                     try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
                 }
 
+                CollectCreateHitStatistics(Vcb);
+
                 Iosb = FatOpenExistingFcb( IrpContext,
                                            FileObject,
                                            Vcb,
@@ -1021,6 +1152,7 @@ Return Value:
                                            CreateDisposition,
                                            NoEaKnowledge,
                                            DeleteOnClose,
+                                           FileNameOpenedDos,
                                            &OplockPostIrp );
 
 
@@ -1084,76 +1216,123 @@ Return Value:
         //  If we are not in ChicagoMode, use FAT symantics.
         //
 
-        if (FatData.ChicagoMode ?
-            !FsRtlIsHpfsDbcsLegal( RemainingPart, FALSE, TRUE, TRUE ) :
-            !FsRtlIsFatDbcsLegal( RemainingPart, FALSE, TRUE, TRUE )) {
-
-            try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
-        }
-
         ParentDcb = Fcb;
+        FirstLoop = TRUE;
+
         while (TRUE) {
 
             //
-            //  Dissect the remaining part, if we get back FALSE that means
-            //  the file name is illegal.
+            //  We do one little optimization here on the first itterration of
+            //  the loop since we know that we have already tried to convert
+            //  FinalOemName from the original UNICODE.
             //
 
-            DebugTrace(0, Dbg, "Dissecting the name %Z\n", &RemainingPart);
+            if (FirstLoop) {
 
-            FatDissectName( IrpContext,
-                            RemainingPart,
-                            &FinalName,
-                            &RemainingPart );
+                FirstLoop = FALSE;
+                RemainingPart = NextRemainingPart;
+                Status = OemFinalName.Length ? STATUS_SUCCESS : STATUS_UNMAPPABLE_CHARACTER;
+
+            } else {
+
+                //
+                //  Dissect the remaining part.
+                //
+
+                DebugTrace(0, Dbg, "Dissecting the name %Z\n", &RemainingPart);
+
+                FsRtlDissectName( RemainingPart,
+                                  &FinalName,
+                                  &RemainingPart );
+
+                //
+                //  If RemainingPart starts with a backslash the name is
+                //  invalid.
+                //  Check for no more than 255 characters in FinalName
+                //
+
+                if (((RemainingPart.Length != 0) && (RemainingPart.Buffer[0] == L'\\')) ||
+                    (FinalName.Length > 255*sizeof(WCHAR))) {
+
+                    try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+                }
+
+                //
+                //  Now, try to convert this one component into Oem.  If it works
+                //  then that's great, otherwise we have to try with the UNICODE
+                //  name instead.
+                //
+
+                Status = FatUpcaseUnicodeStringToCountedOemString( &OemFinalName, &FinalName, FALSE );
+            }
+
+            if (NT_SUCCESS(Status)) {
+
+                //
+                //  We'll start by trying to locate the dirent for the name.  Note
+                //  that we already know that there isn't an Fcb/Dcb for the file
+                //  otherwise we would have found it when we did our prefix lookup.
+                //
+
+                if (FatIsNameValid( IrpContext, OemFinalName, FALSE, FALSE, FALSE )) {
+
+                    FatStringTo8dot3( IrpContext,
+                                      OemFinalName,
+                                      &LocalCcb.OemQueryTemplate.Constant );
+
+                    LocalCcb.Flags = 0;
+
+                } else {
+
+                    LocalCcb.Flags = CCB_FLAG_SKIP_SHORT_NAME_COMPARE;
+                }
+
+            } else {
+
+                LocalCcb.Flags = CCB_FLAG_SKIP_SHORT_NAME_COMPARE;
+
+                if (Status != STATUS_UNMAPPABLE_CHARACTER) {
+
+                    try_return( Iosb.Status = Status );
+                }
+            }
 
             //
-            //  If RemainingPart starts with a backslash the name is
-            //  invalid.
+            //  Now we know a lot about the final name, so do legal name
+            //  checking here.
             //
 
-            if ((RemainingPart.Length != 0) &&
-                (RemainingPart.Buffer[0] == L'\\')) {
+            if (FatData.ChicagoMode) {
 
-                try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+                ULONG i;
+
+                for (i=0; i < FinalName.Length/sizeof(WCHAR); i++) {
+
+                    if ((FinalName.Buffer[i] < 0x80) &&
+                        !(FsRtlIsAnsiCharacterLegalHpfs(FinalName.Buffer[i], FALSE))) {
+
+                        try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+                    }
+                }
+
+            } else {
+
+                if (FlagOn(LocalCcb.Flags, CCB_FLAG_SKIP_SHORT_NAME_COMPARE)) {
+
+                    try_return( Iosb.Status = STATUS_OBJECT_NAME_INVALID );
+                }
             }
 
             DebugTrace(0, Dbg, "FinalName is %Z\n", &FinalName);
             DebugTrace(0, Dbg, "RemainingPart is %Z\n", &RemainingPart);
 
-            //
-            //  We'll start by trying to locate the dirent for the name.  Note
-            //  that we already know that there isn't an Fcb/Dcb for the file
-            //  otherwise we would have found it when we did our prefix lookup
-            //
 
-            if (FatIsNameValid( IrpContext, FinalName, FALSE, FALSE, FALSE )) {
+            if (!NT_SUCCESS(Status = FatUpcaseUnicodeString( &UpcasedFinalName, &FinalName, FALSE))) {
 
-                FatStringTo8dot3( IrpContext,
-                                  FinalName,
-                                  &LocalCcb.OemQueryTemplate.Constant );
-
-                LocalCcb.Flags = 0;
-
-            } else {
-
-                LocalCcb.Flags = CCB_FLAG_SKIP_SHORT_NAME_COMPARE;
+                try_return( Iosb.Status = Status );
             }
 
-            FinalUnicodeName.Length =
-            FinalUnicodeName.MaximumLength = FinalName.Length * sizeof(WCHAR);
-            FinalUnicodeName.Buffer =
-                &FileObject->FileName.Buffer[ FinalName.Buffer - FileName.Buffer ];
-
-            Iosb.Status = RtlUpcaseUnicodeString( &FinalUpcasedUnicodeName,
-                                                  &FinalUnicodeName,
-                                                  TRUE );
-
-            if (!NT_SUCCESS(Iosb.Status)) {
-
-                FatNormalizeAndRaiseStatus( IrpContext, Iosb.Status );
-            }
-
-            LocalCcb.UnicodeQueryTemplate =  FinalUpcasedUnicodeName;
+            LocalCcb.UnicodeQueryTemplate =  UpcasedFinalName;
             LocalCcb.ContainsWildCards = FALSE;
 
             Lfn.Length = 0;
@@ -1167,6 +1346,7 @@ Return Value:
                              &Dirent,
                              &DirentBcb,
                              &DirentByteOffset,
+                             &FileNameOpenedDos,
                              &Lfn );
 
             //
@@ -1227,12 +1407,9 @@ Return Value:
 
             FinalDcb = ParentDcb;
 
-            FatSetFullNameInFcb( IrpContext, ParentDcb, &FinalUnicodeName );
+            FatSetFullNameInFcb( IrpContext, ParentDcb, &FinalName );
 
             FatUnpinBcb( IrpContext, DirentBcb );
-
-            RtlFreeUnicodeString( &FinalUpcasedUnicodeName );
-            FinalUpcasedUnicodeName.Buffer = NULL;
         }
 
         if (Dirent != NULL) {
@@ -1256,7 +1433,6 @@ Return Value:
                                                ParentDcb,
                                                DesiredAccess,
                                                ShareAccess,
-                                               &FinalName,
                                                TRUE );
 
                 Irp->IoStatus.Information = Iosb.Information;
@@ -1294,7 +1470,8 @@ Return Value:
                                                  DesiredAccess,
                                                  ShareAccess,
                                                  CreateDisposition,
-                                                 NoEaKnowledge );
+                                                 NoEaKnowledge,
+                                                 DeleteOnClose );
 
                 Irp->IoStatus.Information = Iosb.Information;
                 try_return( Iosb.Status );
@@ -1335,7 +1512,8 @@ Return Value:
                                         CreateDisposition,
                                         IsPagingFile,
                                         NoEaKnowledge,
-                                        DeleteOnClose );
+                                        DeleteOnClose,
+                                        FileNameOpenedDos );
 
             //
             //  Check if we need to set the cache support flag in
@@ -1364,7 +1542,6 @@ Return Value:
                                            ParentDcb,
                                            DesiredAccess,
                                            ShareAccess,
-                                           &FinalName,
                                            FALSE );
 
             Irp->IoStatus.Information = Iosb.Information;
@@ -1391,7 +1568,7 @@ Return Value:
 
         if (FlagOn(LocalCcb.Flags, CCB_FLAG_SKIP_SHORT_NAME_COMPARE)) {
 
-            FinalName.Length = 0;
+            OemFinalName.Length = 0;
         }
 
 
@@ -1462,18 +1639,29 @@ Return Value:
                 FatRaiseStatus( IrpContext, STATUS_MEDIA_WRITE_PROTECTED );
             }
 
+            //
+            //  Don't allow people to create directories with the
+            //  temporary bit set.
+            //
+
+            if (TemporaryFile) {
+                
+                try_return( Iosb.Status = STATUS_INVALID_PARAMETER );
+            }
+
             Iosb = FatCreateNewDirectory( IrpContext,
                                           FileObject,
                                           Vcb,
                                           ParentDcb,
+                                          &OemFinalName,
                                           &FinalName,
-                                          &FinalUnicodeName,
                                           DesiredAccess,
                                           ShareAccess,
                                           EaBuffer,
                                           EaLength,
                                           FileAttributes,
-                                          NoEaKnowledge );
+                                          NoEaKnowledge,
+                                          DeleteOnClose );
 
             Irp->IoStatus.Information = Iosb.Information;
             try_return( Iosb.Status );
@@ -1554,14 +1742,15 @@ Return Value:
                                  FileObject,
                                  Vcb,
                                  ParentDcb,
+                                 &OemFinalName,
                                  &FinalName,
-                                 &FinalUnicodeName,
                                  DesiredAccess,
                                  ShareAccess,
                                  AllocationSize,
                                  EaBuffer,
                                  EaLength,
                                  FileAttributes,
+                                 &Lfn,
                                  IsPagingFile,
                                  NoEaKnowledge,
                                  DeleteOnClose,
@@ -1581,29 +1770,29 @@ Return Value:
 
     try_exit: NOTHING;
 
-    //
-    //  This is a Beta Fix.  Do this at a better place later.
-    //
-
-    if (NT_SUCCESS(Iosb.Status) && !OpenTargetDirectory) {
-
-        PFCB Fcb;
-
         //
-        //  If there is an Fcb/Dcb, set the long file name.
+        //  This is a Beta Fix.  Do this at a better place later.
         //
 
-        Fcb = FileObject->FsContext;
+        if (NT_SUCCESS(Iosb.Status) && !OpenTargetDirectory) {
 
-        if (Fcb &&
-            ((NodeType(Fcb) == FAT_NTC_FCB) ||
-             (NodeType(Fcb) == FAT_NTC_DCB)) &&
-            (Fcb->FullFileName.Buffer == NULL)) {
+            PFCB Fcb;
+    
+            //
+            //  If there is an Fcb/Dcb, set the long file name.
+            //
 
-            FatSetFullNameInFcb( IrpContext, Fcb, &FinalUnicodeName );
+            Fcb = FileObject->FsContext;
+    
+            if (Fcb &&
+                ((NodeType(Fcb) == FAT_NTC_FCB) ||
+                 (NodeType(Fcb) == FAT_NTC_DCB)) &&
+                (Fcb->FullFileName.Buffer == NULL)) {
+    
+                FatSetFullNameInFcb( IrpContext, Fcb, &FinalName );
+            }
         }
-    }
-
+    
     } finally {
 
         DebugUnwind( FatCommonCreate );
@@ -1630,6 +1819,19 @@ Return Value:
             (FinalDcb->Specific.Dcb.DirectoryFile != NULL)) {
 
             PFILE_OBJECT DirectoryFileObject;
+            ULONG SavedFlags;
+
+            //
+            //  Before doing the uninitialize, we have to unpin anything
+            //  that has been repinned, but clear writethrough first.
+            //
+
+            SavedFlags = IrpContext->Flags;
+
+            ClearFlag( IrpContext->Flags,
+                       IRP_CONTEXT_FLAG_WRITE_THROUGH | IRP_CONTEXT_FLAG_FLOPPY );
+
+            FatUnpinRepinnedBcbs( IrpContext );
 
             DirectoryFileObject = FinalDcb->Specific.Dcb.DirectoryFile;
 
@@ -1638,25 +1840,13 @@ Return Value:
             CcUninitializeCacheMap( DirectoryFileObject, NULL, NULL );
 
             ObDereferenceObject( DirectoryFileObject );
+
+            IrpContext->Flags = SavedFlags;
         }
 
         if (AbnormalTermination()) {
 
             FatReleaseVcb( IrpContext, Vcb );
-
-            //
-            //  Free strings that we may have allocated.
-            //
-
-            if (FileName.Buffer != &FileNameBuffer[0]) {
-
-                RtlFreeOemString( &FileName );
-            }
-
-            if (FinalUpcasedUnicodeName.Buffer) {
-
-                RtlFreeUnicodeString( &FinalUpcasedUnicodeName );
-            }
         }
     }
 
@@ -1775,22 +1965,10 @@ Return Value:
             }
         }
 
-        //
-        //  Free strings that we may have allocated.
-        //
-
-        if (FileName.Buffer != &FileNameBuffer[0]) {
-
-            RtlFreeOemString( &FileName );
-        }
-
-        if (FinalUpcasedUnicodeName.Buffer) {
-
-            RtlFreeUnicodeString( &FinalUpcasedUnicodeName );
-        }
-
         DebugTrace(-1, Dbg, "FatCommonCreate -> %08lx\n", Iosb.Status);
     }
+
+    CollectCreateStatistics(Vcb, Iosb.Status);
 
     return Iosb.Status;
 }
@@ -1945,7 +2123,7 @@ Return Value:
         UnwindShareAccess = TRUE;
 
         //
-        //  Setup the context and section object pointers, and update
+        //  Set up the context and section object pointers, and update
         //  our reference counts
         //
 
@@ -1953,6 +2131,8 @@ Return Value:
                           UserVolumeOpen,
                           Vcb,
                           UnwindCcb = FatCreateCcb( IrpContext ));
+
+        FileObject->SectionObjectPointer = &Vcb->SectionObjectPointers;
 
         Vcb->DirectAccessOpenCount += 1;
         Vcb->OpenFileCount += 1;
@@ -2172,7 +2352,8 @@ FatOpenExistingDcb (
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
     IN ULONG CreateDisposition,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     )
 
 /*++
@@ -2197,6 +2378,8 @@ Arguments:
 
     NoEaKnowledge - This opener doesn't understand Ea's and we fail this
         open if the file has NeedEa's.
+
+    DeleteOnClose - The caller wants the file gone when the handle is closed
 
 Return Value:
 
@@ -2232,10 +2415,11 @@ Return Value:
 
         //
         //  If the caller has no Ea knowledge, we immediately check for
-        //  Need Ea's on the file.
+        //  Need Ea's on the file.  We don't need to check for ea's on the
+        //  root directory, because it never has any.
         //
 
-        if (NoEaKnowledge) {
+        if (NoEaKnowledge && NodeType(Dcb) != FAT_NTC_ROOT_DCB) {
 
             ULONG NeedEaCount;
 
@@ -2267,21 +2451,23 @@ Return Value:
         //  Check the create disposition and desired access
         //
 
-        if (((CreateDisposition != FILE_OPEN) &&
-             (CreateDisposition != FILE_OPEN_IF))
-
-                        ||
-
-            (!FatCheckFileAccess( IrpContext,
-                                  Dcb->DirentFatFlags,
-                                  DesiredAccess))) {
+        if ((CreateDisposition != FILE_OPEN) &&
+            (CreateDisposition != FILE_OPEN_IF)) {
 
             Iosb.Status = STATUS_OBJECT_NAME_COLLISION;
             try_return( Iosb );
         }
 
+        if (!FatCheckFileAccess( IrpContext,
+                                 Dcb->DirentFatFlags,
+                                 DesiredAccess)) {
+
+            Iosb.Status = STATUS_ACCESS_DENIED;
+            try_return( Iosb );
+        }
+
         //
-        //  If the Root dcb is already opened by someone then we need
+        //  If the dcb is already opened by someone then we need
         //  to check the share access
         //
 
@@ -2323,6 +2509,21 @@ Return Value:
         UnwindCounts = TRUE;
 
         //
+        //  Mark the delete on close bit if the caller asked for that.
+        //
+
+        {
+            PCCB Ccb = (PCCB)FileObject->FsContext2;
+
+
+            if (DeleteOnClose) {
+                
+                SetFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+            }
+
+        }
+
+        //
         //  In case this was set, clear it now.
         //
 
@@ -2360,7 +2561,7 @@ Return Value:
             }
             if (UnwindCcb != NULL) { FatDeleteCcb( IrpContext, UnwindCcb ); }
             if (UnwindShareAccess) { IoRemoveShareAccess( FileObject, &Dcb->ShareAccess ); }
-        }
+        } 
 
         if (DcbAcquired) {
 
@@ -2393,6 +2594,7 @@ FatOpenExistingFcb (
     IN ULONG CreateDisposition,
     IN BOOLEAN NoEaKnowledge,
     IN BOOLEAN DeleteOnClose,
+    IN BOOLEAN FileNameOpenedDos,
     OUT PBOOLEAN OplockPostIrp
     )
 
@@ -2430,10 +2632,13 @@ Arguments:
     NoEaKnowledge - This opener doesn't understand Ea's and we fail this
         open if the file has NeedEa's.
 
+    DeleteOnClose - The caller wants the file gone when the handle is closed
+
+    FileNameOpenedDos - The caller hit the short side of the name pair finding
+        this file
+
     OplockPostIrp - Address to store boolean indicating if the Irp needs to
         be posted to the Fsp.
-
-    DeleteOnClose - The caller wants the file gone when the handle is closed
 
 Return Value:
 
@@ -2662,6 +2867,31 @@ Return Value:
         }
 
         //
+        //  If this is a non-cached open, and there are no open cached
+        //  handles, but there is a still a data section, attempt a flush
+        //  and purge operation to avoid cache coherency overhead later.
+        //  We ignore any I/O errors from the flush.
+        //
+        //  We set the CREATE_IN_PROGRESS flag to prevent the Fcb from
+        //  going away out from underneath us.
+        //
+
+        if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING) &&
+            (Fcb->UncleanCount == Fcb->NonCachedUncleanCount) &&
+            (Fcb->NonPaged->SectionObjectPointers.DataSectionObject != NULL)) {
+
+            SetFlag(Fcb->Vcb->VcbState, VCB_STATE_FLAG_CREATE_IN_PROGRESS);
+
+            CcFlushCache( &Fcb->NonPaged->SectionObjectPointers, NULL, 0, NULL );
+            CcPurgeCacheSection( &Fcb->NonPaged->SectionObjectPointers,
+                                 NULL,
+                                 0,
+                                 FALSE );
+
+            ClearFlag(Fcb->Vcb->VcbState, VCB_STATE_FLAG_CREATE_IN_PROGRESS);
+        }
+
+        //
         //  Check if the user only wanted to open the file
         //
 
@@ -2822,18 +3052,36 @@ Return Value:
 
             Fcb->UncleanCount += 1;
             Fcb->OpenCount += 1;
+            if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+                Fcb->NonCachedUncleanCount += 1;
+            }
             Vcb->OpenFileCount += 1;
             if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount += 1; }
             UnwindCounts = TRUE;
 
-            //
-            //  Mark the DeleteOnClose bit if the operation was successful.
-            //
+            {
+                PCCB Ccb;
+                Ccb = (PCCB)FileObject->FsContext2;
 
-            if ( DeleteOnClose ) {
-
-                SetFlag( Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE );
+                //
+                //  Mark the DeleteOnClose bit if the operation was successful.
+                //
+    
+                if ( DeleteOnClose ) {
+    
+                    SetFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+                }
+    
+                //
+                //  Mark the OpenedByShortName bit if the operation was successful.
+                //
+    
+                if ( FileNameOpenedDos ) {
+    
+                    SetFlag( Ccb->Flags, CCB_FLAG_OPENED_BY_SHORTNAME );
+                }
             }
+
         }
 
     } finally {
@@ -2855,6 +3103,9 @@ Return Value:
             if (UnwindCounts) {
                 Fcb->UncleanCount -= 1;
                 Fcb->OpenCount -= 1;
+                if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+                    Fcb->NonCachedUncleanCount -= 1;
+                }
                 Vcb->OpenFileCount -= 1;
                 if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount -= 1; }
             }
@@ -2890,7 +3141,6 @@ FatOpenTargetDirectory (
     IN PDCB Dcb,
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
-    IN POEM_STRING RemainingName,
     IN BOOLEAN DoesNameExist
     )
 
@@ -2910,8 +3160,6 @@ Arguments:
     DesiredAccess - Supplies the desired access of the caller
 
     ShareAccess - Supplies the share access of the caller
-
-    RemainingName - Supplies the name to replace in the file object
 
     DoesNameExist - Indicates if the file name already exists in the
         target directory.
@@ -3097,7 +3345,8 @@ FatOpenExistingDirectory (
     IN ACCESS_MASK DesiredAccess,
     IN USHORT ShareAccess,
     IN ULONG CreateDisposition,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     )
 
 /*++
@@ -3136,6 +3385,8 @@ Arguments:
 
     NoEaKnowledge - This opener doesn't understand Ea's and we fail this
         open if the file has NeedEa's.
+
+    DeleteOnClose - The caller wants the file gone when the handle is closed
 
 Return Value:
 
@@ -3184,16 +3435,18 @@ Return Value:
         //  Check the create disposition and desired access
         //
 
-        if (((CreateDisposition != FILE_OPEN) &&
-             (CreateDisposition != FILE_OPEN_IF))
-
-                        ||
-
-            (!FatCheckFileAccess( IrpContext,
-                                  Dirent->Attributes,
-                                  DesiredAccess))) {
+        if ((CreateDisposition != FILE_OPEN) &&
+            (CreateDisposition != FILE_OPEN_IF)) {
 
             Iosb.Status = STATUS_OBJECT_NAME_COLLISION;
+            try_return( Iosb );
+        }
+
+        if (!FatCheckFileAccess( IrpContext,
+                                 Dirent->Attributes,
+                                 DesiredAccess)) {
+
+            Iosb.Status = STATUS_ACCESS_DENIED;
             try_return( Iosb );
         }
 
@@ -3292,7 +3545,8 @@ FatOpenExistingFile (
     IN ULONG CreateDisposition,
     IN BOOLEAN IsPagingFile,
     IN BOOLEAN NoEaKnowledge,
-    IN BOOLEAN DeleteOnClose
+    IN BOOLEAN DeleteOnClose,
+    IN BOOLEAN FileNameOpenedDos
     )
 
 /*++
@@ -3344,6 +3598,9 @@ Arguments:
         open if the file has NeedEa's.
 
     DeleteOnClose - The caller wants the file gone when the handle is closed
+
+    FileNameOpenedDos - The caller opened this file by hitting the 8.3 side
+        of the Lfn/8.3 pair
 
 Return Value:
 
@@ -3485,17 +3742,19 @@ Return Value:
 
         if ( Fcb->FirstClusterOfFile == 0 ) {
 
-            Fcb->Header.AllocationSize = LiFromLong(0);
+            Fcb->Header.AllocationSize.QuadPart = 0;
         }
 
         //
         //  If this is a paging file, lookup the allocation size so that
-        //  the Mcb is always valid.
+        //  the Mcb is always valid, and mark this a system file to prevent
+        //  it from being opened.
         //
 
         if (IsPagingFile) {
 
             FatLookupFileAllocationSize( IrpContext, Fcb );
+            SetFlag( Fcb->FcbState, FCB_STATE_SYSTEM_FILE );
         }
 
         //
@@ -3620,19 +3879,40 @@ Return Value:
 
             Fcb->UncleanCount += 1;
             Fcb->OpenCount += 1;
+            if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+                Fcb->NonCachedUncleanCount += 1;
+            }
             Vcb->OpenFileCount += 1;
             if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount += 1; }
             UnwindCounts = TRUE;
         }
 
-        //
-        //  Mark the DeleteOnClose bit if the operation was successful.
-        //
+        {
+            PCCB Ccb;
+            Ccb = (PCCB)FileObject->FsContext2;
 
-        if ( DeleteOnClose && NT_SUCCESS(Iosb.Status) ) {
+            if ( NT_SUCCESS(Iosb.Status) ) {
 
-            SetFlag( Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE );
+                //
+                //  Mark the DeleteOnClose bit if the operation was successful.
+                //
+
+                if ( DeleteOnClose ) {
+        
+                    SetFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+                }
+
+                //
+                //  Mark the OpenedByShortName bit if the operation was successful.
+                //
+    
+                if ( FileNameOpenedDos ) {
+    
+                    SetFlag( Ccb->Flags, CCB_FLAG_OPENED_BY_SHORTNAME );
+                }
+            }
         }
+
 
     } finally {
 
@@ -3647,6 +3927,9 @@ Return Value:
             if (UnwindCounts) {
                 Fcb->UncleanCount -= 1;
                 Fcb->OpenCount -= 1;
+                if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+                    Fcb->NonCachedUncleanCount -= 1;
+                }
                 Vcb->OpenFileCount -= 1;
                 if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount -= 1; }
             }
@@ -3678,7 +3961,8 @@ FatCreateNewDirectory (
     IN PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG EaLength,
     IN UCHAR FileAttributes,
-    IN BOOLEAN NoEaKnowledge
+    IN BOOLEAN NoEaKnowledge,
+    IN BOOLEAN DeleteOnClose
     )
 
 /*++
@@ -3717,6 +4001,8 @@ Arguments:
 
     NoEaKnowledge - This opener doesn't understand Ea's and we fail this
         open if the file has NeedEa's.
+
+    DeleteOnClose - The caller wants the file gone when the handle is closed
 
 Return Value:
 
@@ -3779,6 +4065,15 @@ Return Value:
     }
 
     //
+    //  DeleteOnClose and ReadOnly are not compatible.
+    //
+
+    if (DeleteOnClose && FlagOn(FileAttributes, FAT_DIRENT_ATTR_READ_ONLY)) {
+
+        Iosb.Status = STATUS_CANNOT_DELETE;
+        return Iosb;
+    }
+
     //  Now get the names that we will be using.
     //
 
@@ -3787,6 +4082,7 @@ Return Value:
                     OemName,
                     UnicodeName,
                     &ShortName,
+                    NULL,
                     &AllLowerComponent,
                     &AllLowerExtension,
                     &CreateLfn );
@@ -3882,9 +4178,9 @@ Return Value:
                             AllLowerComponent,
                             AllLowerExtension,
                             CreateLfn ? UnicodeName : NULL,
-                            (UCHAR)(FileAttributes & ~FILE_ATTRIBUTE_ARCHIVE |
-                                    FAT_DIRENT_ATTR_DIRECTORY ),
-                            TRUE );
+                            (UCHAR)(FileAttributes | FAT_DIRENT_ATTR_DIRECTORY),
+                            TRUE,
+                            NULL );
 
         //
         //  If the dirent crossed pages, we have to do some real gross stuff.
@@ -3996,6 +4292,11 @@ Return Value:
         Dcb->OpenCount += 1;
         Vcb->OpenFileCount += 1;
         if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount += 1; }
+
+        if (DeleteOnClose) {
+
+            SetFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+        }
 
         //
         //  And set our return status
@@ -4184,6 +4485,7 @@ FatCreateNewFile (
     IN PFILE_FULL_EA_INFORMATION EaBuffer,
     IN ULONG EaLength,
     IN UCHAR FileAttributes,
+    IN PUNICODE_STRING LfnBuffer,
     IN BOOLEAN IsPagingFile,
     IN BOOLEAN NoEaKnowledge,
     IN BOOLEAN DeleteOnClose,
@@ -4225,6 +4527,8 @@ Arguments:
 
     FileAttributes - Supplies the file attributes for the newly created
         file
+
+    LfnBuffer - A MAX_LFN sized buffer for directory searching
 
     IsPagingFile - Indicates if this is the paging file being created
 
@@ -4275,6 +4579,17 @@ Return Value:
     OEM_STRING ShortName;
     UCHAR ShortNameBuffer[12];
 
+    UNICODE_STRING UniTunneledShortName;
+    WCHAR UniTunneledShortNameBuffer[12];
+    UNICODE_STRING UniTunneledLongName;
+    WCHAR UniTunneledLongNameBuffer[26];
+    LARGE_INTEGER TunneledCreationTime;
+    ULONG TunneledDataSize;
+    BOOLEAN HaveTunneledInformation;
+    BOOLEAN UsingTunneledLfn = FALSE;
+
+    PUNICODE_STRING RealUnicodeName;
+
     //
     //  The following variables are for abnormal termination
     //
@@ -4288,8 +4603,16 @@ Return Value:
     DebugTrace(+1, Dbg, "FatCreateNewFile...\n", 0);
 
     ShortName.Length = 0;
-    ShortName.MaximumLength = 12;
+    ShortName.MaximumLength = sizeof(ShortNameBuffer);
     ShortName.Buffer = &ShortNameBuffer[0];
+
+    UniTunneledShortName.Length = 0;
+    UniTunneledShortName.MaximumLength = sizeof(UniTunneledShortNameBuffer);
+    UniTunneledShortName.Buffer = &UniTunneledShortNameBuffer[0];
+
+    UniTunneledLongName.Length = 0;
+    UniTunneledLongName.MaximumLength = sizeof(UniTunneledLongNameBuffer);
+    UniTunneledLongName.Buffer = &UniTunneledLongNameBuffer[0];
 
     DirentBcb = NULL;
     EaHandle = 0;
@@ -4318,6 +4641,20 @@ Return Value:
     }
 
     //
+    //  Look in the tunnel cache for names and timestamps to restore
+    //
+
+    TunneledDataSize = sizeof(LARGE_INTEGER);
+    HaveTunneledInformation = FsRtlFindInTunnelCache( &Vcb->Tunnel,
+                                                      FatDirectoryKey(ParentDcb),
+                                                      UnicodeName,
+                                                      &UniTunneledShortName,
+                                                      &UniTunneledLongName,
+                                                      &TunneledDataSize,
+                                                      &TunneledCreationTime );
+    ASSERT(TunneledDataSize == sizeof(LARGE_INTEGER));
+
+    //
     //  Now get the names that we will be using.
     //
 
@@ -4326,6 +4663,7 @@ Return Value:
                     OemName,
                     UnicodeName,
                     &ShortName,
+                    (HaveTunneledInformation? &UniTunneledShortName : NULL),
                     &AllLowerComponent,
                     &AllLowerExtension,
                     &CreateLfn );
@@ -4334,18 +4672,45 @@ Return Value:
     //  If we are not in Chicago mode, ignore the magic bits.
     //
 
+    RealUnicodeName = UnicodeName;
+
     if (!FatData.ChicagoMode) {
 
         AllLowerComponent = FALSE;
         AllLowerExtension = FALSE;
         CreateLfn = FALSE;
+
+    } else {
+
+        //
+        //  If the Unicode name was legal for a short name and we got
+        //  a tunneling hit which had a long name associated which is
+        //  avaliable for use, use it.
+        //
+
+        if (!CreateLfn &&
+            UniTunneledLongName.Length &&
+            !FatLfnDirentExists(IrpContext, ParentDcb, &UniTunneledLongName, LfnBuffer)) {
+
+            UsingTunneledLfn = TRUE;
+            CreateLfn = TRUE;
+
+            RealUnicodeName = &UniTunneledLongName;
+
+            //
+            //  Short names are always upcase if an LFN exists
+            //
+
+            AllLowerComponent = FALSE;
+            AllLowerExtension = FALSE;
+        }
     }
 
     //
     //  Create/allocate a new dirent
     //
 
-    DirentsNeeded = CreateLfn ? FAT_LFN_DIRENTS_NEEDED(UnicodeName) + 1 : 1;
+    DirentsNeeded = CreateLfn ? FAT_LFN_DIRENTS_NEEDED(RealUnicodeName) + 1 : 1;
 
     DirentByteOffset = FatCreateNewDirent( IrpContext,
                                            ParentDcb,
@@ -4423,9 +4788,10 @@ Return Value:
                             &ShortName,
                             AllLowerComponent,
                             AllLowerExtension,
-                            CreateLfn ? UnicodeName : NULL,
-                            FileAttributes,
-                            TRUE );
+                            CreateLfn ? RealUnicodeName : NULL,
+                            (UCHAR)(FileAttributes | FILE_ATTRIBUTE_ARCHIVE),
+                            TRUE,
+                            (HaveTunneledInformation ? &TunneledCreationTime : NULL) );
 
         //
         //  If the dirent crossed pages, we have to do some real gross stuff.
@@ -4458,7 +4824,7 @@ Return Value:
                                         DirentByteOffset,
                                         ShortDirentByteOffset,
                                         ShortDirent,
-                                        CreateLfn ? UnicodeName : NULL,
+                                        CreateLfn ? RealUnicodeName : NULL,
                                         IsPagingFile );
         UnwindDirent = NULL;
 
@@ -4501,7 +4867,7 @@ Return Value:
         //  below won't have to.
         //
 
-        FatSetFullNameInFcb( IrpContext, Fcb, UnicodeName );
+        FatSetFullNameInFcb( IrpContext, Fcb, RealUnicodeName );
 
         //
         //  Setup the context and section object pointers, and update
@@ -4537,6 +4903,9 @@ Return Value:
 
         Fcb->UncleanCount += 1;
         Fcb->OpenCount += 1;
+        if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+            Fcb->NonCachedUncleanCount += 1;
+        }
         Vcb->OpenFileCount += 1;
         if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount += 1; }
         UnwindCounts = TRUE;
@@ -4550,13 +4919,31 @@ Return Value:
 
     //try_exit:  NOTHING;
 
-        //
-        //  Mark the DeleteOnClose bit if the operation was successful.
-        //
+        if ( NT_SUCCESS(Iosb.Status) ) {
 
-        if ( DeleteOnClose && NT_SUCCESS(Iosb.Status) ) {
+            //
+            //  Mark the DeleteOnClose bit if the operation was successful.
+            //
 
-            SetFlag( Fcb->FcbState, FCB_STATE_DELETE_ON_CLOSE );
+            if ( DeleteOnClose ) {
+    
+                SetFlag( UnwindCcb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+            }
+
+            //
+            //  Mark the OpenedByShortName bit if the operation was successful.
+            //  If we created an Lfn, we have some sort of generated short name
+            //  and thus don't consider ourselves to have opened it - though we
+            //  may have had a case mix Lfn "Foo.bar" and generated "FOO.BAR"
+            //
+            //  Unless, of course, we wanted to create a short name and hit an
+            //  associated Lfn in the tunnel cache
+            //
+
+            if ( !CreateLfn && !UsingTunneledLfn ) {
+
+                SetFlag( UnwindCcb->Flags, CCB_FLAG_OPENED_BY_SHORTNAME );
+            }
         }
 
     } finally {
@@ -4632,6 +5019,9 @@ Return Value:
             if (UnwindCounts) {
                 Fcb->UncleanCount -= 1;
                 Fcb->OpenCount -= 1;
+                if (FlagOn(FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING)) {
+                    Fcb->NonCachedUncleanCount -= 1;
+                }
                 Vcb->OpenFileCount -= 1;
                 if (IsFileObjectReadOnly(FileObject)) { Vcb->ReadOnlyCount -= 1; }
             }
@@ -4646,6 +5036,15 @@ Return Value:
 
             ExFreePool( Dirent );
             FatUnpinBcb( IrpContext, SecondPageBcb );
+        }
+
+        if (UniTunneledLongName.Buffer != UniTunneledLongNameBuffer) {
+
+            //
+            //  Tunneling package grew the buffer from pool
+            //
+
+            ExFreePool( UniTunneledLongName.Buffer );
         }
 
         DebugTrace(-1, Dbg, "FatCreateNewFile -> Iosb.Status = %08lx\n", Iosb.Status);
@@ -4810,6 +5209,7 @@ Return Value:
 
         Fcb->Header.FileSize.LowPart = 0;
         Fcb->Header.ValidDataLength.LowPart = 0;
+        Fcb->ValidDataToDisk = 0;
 
         ExReleaseResource( Fcb->Header.PagingIoResource );
 
@@ -4844,6 +5244,8 @@ Return Value:
 
         Dirent->FileSize = 0;
 
+        FileAttributes |= FILE_ATTRIBUTE_ARCHIVE;
+
         if (CreateDisposition == FILE_SUPERSEDE) {
 
             Dirent->Attributes = FileAttributes;
@@ -4858,8 +5260,10 @@ Return Value:
         KeQuerySystemTime( &Fcb->LastWriteTime );
 
         (VOID)FatNtTimeToFatTime( IrpContext,
-                                  Fcb->LastWriteTime,
-                                  &Dirent->LastWriteTime );
+                                  &Fcb->LastWriteTime,
+                                  TRUE,
+                                  &Dirent->LastWriteTime,
+                                  NULL );
 
         if (FatData.ChicagoMode) {
 
@@ -4980,83 +5384,6 @@ Return Value:
 //  Internal support routine
 //
 
-PFCB
-FatFindPrefix (
-    IN PIRP_CONTEXT IrpContext,
-    IN PDCB Dcb,
-    IN POEM_STRING Name,
-    IN OUT POEM_STRING RemainingPart
-    )
-{
-    PFCB Fcb;
-    PFCB NextFcb;
-
-    OEM_STRING FinalOemName;
-    OEM_STRING RemainingOemPart;
-
-    PAGED_CODE();
-
-    Fcb = Dcb;
-    *RemainingPart = *Name;
-
-    while (TRUE) {
-
-        FatDissectName( IrpContext,
-                        *RemainingPart,
-                        &FinalOemName,
-                        &RemainingOemPart );
-
-        //
-        //  If RemainingPart starts with a backslash the name is
-        //  invalid.
-        //
-
-        if ((RemainingOemPart.Length != 0) &&
-            (RemainingOemPart.Buffer[0] == L'\\')) {
-
-            FatNormalizeAndRaiseStatus( IrpContext, STATUS_OBJECT_NAME_INVALID );
-        }
-
-        NextFcb = FatFindFcb( IrpContext,
-                              &Fcb->Specific.Dcb.RootOemNode,
-                              (PSTRING)&FinalOemName );
-
-        //
-        //  If we got back an Fcb then we consumed the FinalOemName
-        //  legitimately, so the remaining name is now RemainingOemPart.
-        //
-
-        if (NextFcb != NULL) {
-            *RemainingPart = RemainingOemPart;
-            Fcb = NextFcb;
-        }
-
-        if ((NextFcb == NULL) ||
-            (NodeType(NextFcb) == FAT_NTC_FCB) ||
-            (RemainingOemPart.Length == 0)) {
-
-            break;
-        }
-    }
-
-    //
-    //  Remaining name cannot start with a backslash
-    //
-
-    if (RemainingPart->Length && (RemainingPart->Buffer[0] == '\\')) {
-
-        RemainingPart->Length -= 1;
-        RemainingPart->Buffer += 1;
-    }
-
-    return Fcb;
-}
-
-
-//
-//  Internal support routine
-//
-
 VOID
 FatSetFullNameInFcb(
     IN PIRP_CONTEXT IrpContext,
@@ -5077,7 +5404,6 @@ FatSetFullNameInFcb(
         RtlCopyMemory( &Fcb->FullFileName.Buffer[1],
                        &FinalName->Buffer[0],
                        FinalName->Length );
-
     } else {
 
         PUNICODE_STRING Prefix;
@@ -5101,4 +5427,4 @@ FatSetFullNameInFcb(
                        &FinalName->Buffer[0],
                        FinalName->Length );
     }
-}
+ }

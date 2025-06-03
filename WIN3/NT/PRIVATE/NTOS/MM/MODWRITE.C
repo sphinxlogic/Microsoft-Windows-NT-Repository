@@ -19,8 +19,6 @@ Revision History:
 --*/
 
 #include "mi.h"
-#include "zwapi.h"
-#include "ntiodump.h"
 
 typedef struct _MMWORK_CONTEXT {
     LARGE_INTEGER Size;
@@ -33,6 +31,8 @@ typedef struct _MM_WRITE_CLUSTER {
     ULONG StartIndex;
     ULONG Cluster[2 * (MM_MAXIMUM_DISK_IO_SIZE / PAGE_SIZE) + 1];
 } MM_WRITE_CLUSTER, *PMM_WRITE_CLUSTER;
+
+ULONG MmWriteAllModifiedPages;
 
 NTSTATUS
 MiCheckForCrashDump (
@@ -60,6 +60,7 @@ MiClusterWritePages (
 #pragma alloc_text(PAGE,MiCheckForCrashDump)
 #pragma alloc_text(PAGE,MmGetCrashDumpInformation)
 #pragma alloc_text(PAGE,MiCrashDumpWorker)
+#pragma alloc_text(PAGE,MiFlushAllPages)
 #endif
 
 
@@ -83,6 +84,8 @@ ULONG MmOverCommit2;
 ULONG MmPageFileFullExtend;
 
 ULONG MmPageFileFull;
+
+ULONG MmModNoWriteInsert;
 
 BOOLEAN MmSystemPageFileLocated;
 
@@ -350,7 +353,7 @@ Return Value:
                            0L,
                            0L,
                            FILE_SUPERSEDE,
-                           FILE_NO_INTERMEDIATE_BUFFERING,
+                           FILE_NO_INTERMEDIATE_BUFFERING | FILE_NO_COMPRESSION,
                            (PVOID) NULL,
                            0L,
                            CreateFileTypeNone,
@@ -1706,6 +1709,7 @@ Environment:
     NTSTATUS status;
     PCONTROL_AREA ControlArea;
     ULONG FailAllIo = FALSE;
+    PFILE_OBJECT FileObject;
     PERESOURCE FileResource;
 
 #if DBG
@@ -1802,20 +1806,15 @@ Environment:
             // Note that the modified bit in the PFN database is not set.
             //
 
-            if ((status != STATUS_FILE_LOCK_CONFLICT) &&
+            if (((status != STATUS_FILE_LOCK_CONFLICT) &&
                 (ControlArea != NULL) &&
-                (ControlArea->u.Flags.Networked == 1)) {
+                (ControlArea->u.Flags.Networked == 1))
+                            ||
+                (status == STATUS_FILE_INVALID)) {
 
                 if (ControlArea->u.Flags.FailAllIo == 0) {
                     ControlArea->u.Flags.FailAllIo = 1;
                     FailAllIo = TRUE;
-
-                    //
-                    // Up the reference count so the control area cannot
-                    // be deleted.
-                    //
-
-                    ControlArea->NumberOfPfnReferences += 1;
 
                     KdPrint(("MM MODWRITE: failing all io, controlarea %lx status %lx\n",
                           ControlArea, status));
@@ -1866,6 +1865,7 @@ Environment:
     // the amount of free space left in the paging file.
     //
 
+    FileObject = WriterEntry->File;
     FileResource = WriterEntry->FileResource;
 
     if ((WriterEntry->PagingFile != NULL) &&
@@ -1940,7 +1940,29 @@ Environment:
 
     ASSERT (((ULONG)WriterEntry->Links.Flink & 1) == 0);
 
+    UNLOCK_PFN (OldIrql);
+
+    if (FileResource != NULL) {
+        FsRtlReleaseFileForModWrite (FileObject, FileResource);
+    }
+
+    if (FailAllIo) {
+
+        if (ControlArea->FilePointer->FileName.Length &&
+            ControlArea->FilePointer->FileName.MaximumLength &&
+            ControlArea->FilePointer->FileName.Buffer) {
+
+            IoRaiseInformationalHardError(
+                STATUS_LOST_WRITEBEHIND_DATA,
+                &ControlArea->FilePointer->FileName,
+                NULL
+                );
+        }
+    }
+
     if (ControlArea != NULL) {
+
+        LOCK_PFN (OldIrql);
 
         //
         // A write to a mapped file just completed, check to see if
@@ -1964,40 +1986,9 @@ Environment:
             //
 
             MiCheckControlArea (ControlArea, NULL, OldIrql);
-            goto Released;
+        } else {
+            UNLOCK_PFN (OldIrql);
         }
-    }
-
-    UNLOCK_PFN (OldIrql);
-
-Released:
-
-    if (FileResource != NULL) {
-        ExReleaseResource (FileResource);
-    }
-
-    if (FailAllIo) {
-
-        if ( ControlArea->FilePointer->FileName.Length &&
-             ControlArea->FilePointer->FileName.MaximumLength &&
-             ControlArea->FilePointer->FileName.Buffer ) {
-
-            IoRaiseInformationalHardError(
-                STATUS_LOST_WRITEBEHIND_DATA,
-                &ControlArea->FilePointer->FileName,
-                NULL
-                );
-        }
-
-        LOCK_PFN (OldIrql);
-
-        ControlArea->NumberOfPfnReferences -= 1;
-
-        //
-        // This routine returns with the PFN lock released.
-        //
-
-        MiCheckControlArea (ControlArea, NULL, OldIrql);
     }
 
     if (NT_ERROR(status)) {
@@ -2195,9 +2186,7 @@ Environment:
             i += 1;
         } while (i < MmNumberOfPagingFiles);
 
-#ifdef COLORED_PAGES
         NextColor = 0;
-#endif //COLORED_PAGES
 
         LOCK_PFN (OldIrql);
 
@@ -2206,6 +2195,35 @@ Environment:
             //
             // Modified page writer was signalled.
             //
+
+            if ((MmAvailablePages < MmFreeGoal) &&
+                (MmModNoWriteInsert)) {
+
+                //
+                // Remove pages from the modified no write list
+                // that are waiting for the cache manager to flush them.
+                //
+
+                i = 0;
+                while ((MmModifiedNoWritePageListHead.Total != 0) &&
+                      (i < 32)) {
+                    PSUBSECTION Subsection;
+                    PCONTROL_AREA ControlArea;
+
+                    PageFrameIndex = MmModifiedNoWritePageListHead.Flink;
+                    Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
+                    Subsection = MiGetSubsectionAddress (&Pfn1->OriginalPte);
+                    ControlArea = Subsection->ControlArea;
+                    if (ControlArea->u.Flags.NoModifiedWriting) {
+                        MmModNoWriteInsert = FALSE;
+                        break;
+                    }
+                    MiUnlinkPageFromList (Pfn1);
+                    MiInsertPageInList (&MmModifiedPageListHead,
+                                        PageFrameIndex);
+                    i += 1;
+                }
+            }
 
             if (MmModifiedPageListHead.Total == 0) {
 
@@ -2218,17 +2236,7 @@ Environment:
                 KeClearEvent (&MmModifiedPageWriterEvent);
 
                 break;
-
             }
-
-#ifndef COLORED_PAGES
-
-            //
-            // Remove the first page from the list.
-            //
-
-            PageFrameIndex = MmModifiedPageListHead.Flink;
-#else
 
             //
             // Determine which type of pages are to most popular,
@@ -2253,8 +2261,6 @@ Environment:
                 PageFrameIndex = MmModifiedPageListHead.Flink;
             }
 
-#endif //COLORED_PAGES
-
             //
             // Check to see what type of page (section file backed or page
             // file backed) and write out that page and more if possible.
@@ -2275,18 +2281,6 @@ Environment:
                     // are no MDLs for mapped writes free.
                     //
 
-#ifndef COLORED_PAGES
-
-                    while (Pfn1->OriginalPte.u.Soft.Prototype == 1) {
-                        PageFrameIndex = Pfn1->u1.Flink;
-                        if (PageFrameIndex == MM_EMPTY_LIST) {
-                            PageFrameIndex = MmModifiedPageListHead.Flink;
-                            Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-                            break;
-                        }
-                        Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-                    }
-#else
                     MI_GET_MODIFIED_PAGE_ANY_COLOR (PageFrameIndex, NextColor);
 
                     //
@@ -2304,7 +2298,6 @@ Environment:
                     }
 
                     Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
-#endif //COLORED_PAGES
                 }
             } else if (IsListEmpty(&MmPagingFileHeader.ListHead)) {
 
@@ -2317,12 +2310,8 @@ Environment:
                     PageFrameIndex = Pfn1->u1.Flink;
                     if (PageFrameIndex == MM_EMPTY_LIST) {
 
-#ifndef COLORED_PAGES
-                        PageFrameIndex = MmModifiedPageListHead.Flink;
-#else
                         MI_GET_MODIFIED_PAGE_ANY_COLOR (PageFrameIndex,
                                                         NextColor);
-#endif //COLORED_PAGES
                         Pfn1 = MI_PFN_ELEMENT (PageFrameIndex);
                         break;
                     }
@@ -2376,21 +2365,22 @@ Environment:
                 return;
             }
 
-            if (((MmAvailablePages > MmFreeGoal) &&
-                    (MmModifiedPageListHead.Total < MmFreeGoal))
-                     ||
-                (MmAvailablePages > MmMoreThanEnoughFreePages)) {
+            if (!MmWriteAllModifiedPages) {
+                if (((MmAvailablePages > MmFreeGoal) &&
+                        (MmModifiedPageListHead.Total < MmFreeGoal))
+                         ||
+                    (MmAvailablePages > MmMoreThanEnoughFreePages)) {
 
-                //
-                // There are ample pages, clear the event and wait again...
-                //
+                    //
+                    // There are ample pages, clear the event and wait again...
+                    //
 
-                UNLOCK_PFN (OldIrql);
+                    UNLOCK_PFN (OldIrql);
 
-                KeClearEvent (&MmModifiedPageWriterEvent);
-                break;
+                    KeClearEvent (&MmModifiedPageWriterEvent);
+                    break;
+                }
             }
-
         } // end for
 
     } // end for
@@ -2512,6 +2502,21 @@ Environment:
         return;
     }
 
+    if ((ControlArea->u.Flags.HadUserReference == 0) &&
+        (MmAvailablePages > (MmFreeGoal + 40)) &&
+        (MmEnoughMemoryForWrite())) {
+
+        //
+        // This page was modified via the cache manager.  Don't
+        // write it out at this time as there are ample pages.
+        //
+
+        MiUnlinkPageFromList (Pfn1);
+        MiInsertFrontModifiedNoWrite (PageFrameIndex);
+        MmModNoWriteInsert = TRUE;
+        return;
+    }
+
     //
     // Look at backwards at previous prototype PTEs to see if
     // this can be clustered into a larger write operation.
@@ -2546,7 +2551,7 @@ Environment:
     if (MmIsAddressValid (PointerPte)) {
         BasePte = PointerPte;
     } else {
-        BasePte = MiMapPageInHyperSpace (Pfn1->u3.e1.PteFrame, &OldIrql2);
+        BasePte = MiMapPageInHyperSpace (Pfn1->PteFrame, &OldIrql2);
         BasePte = (PMMPTE)((PCHAR)BasePte +
                             BYTE_OFFSET (PointerPte));
     }
@@ -2583,7 +2588,7 @@ Environment:
         //
 
         if ((Pfn2->u3.e1.Modified == 0 ) ||
-            (Pfn2->ReferenceCount != 0)) {
+            (Pfn2->u3.e2.ReferenceCount != 0)) {
             break;
         }
         PageFrameIndex = PteContents.u.Trans.PageFrameNumber;
@@ -2632,7 +2637,7 @@ Environment:
     // is I/O in progress.
     //
 
-    Pfn1->ReferenceCount += 1;
+    Pfn1->u3.e2.ReferenceCount += 1;
 
     //
     // Clear the modified bit for the page and set the write
@@ -2713,7 +2718,7 @@ Environment:
         Pfn2 = MI_PFN_ELEMENT (PteContents.u.Trans.PageFrameNumber);
 
         if ((Pfn2->u3.e1.Modified == 0 ) ||
-            (Pfn2->ReferenceCount != 0)) {
+            (Pfn2->u3.e2.ReferenceCount != 0)) {
 
             //
             // Page is not dirty or not on the modified list,
@@ -2737,7 +2742,7 @@ Environment:
         // is I/O in progress.
         //
 
-        Pfn2->ReferenceCount += 1;
+        Pfn2->u3.e2.ReferenceCount += 1;
 
         //
         // Clear the modified bit for the page and set the
@@ -2783,6 +2788,15 @@ Environment:
                                         ModWriterEntry->WriteOffset.QuadPart);
         ModWriterEntry->u.LastByte.QuadPart = TempOffset.QuadPart;
     }
+
+#if DBG
+    if ((ULONG)ModWriterEntry->Mdl.ByteCount >
+                                ((1+MmModifiedWriteClusterSize)*PAGE_SIZE)) {
+        DbgPrint("Mdl %lx, TempOffset %lx %lx Subsection %lx\n",
+            ModWriterEntry->Mdl, TempOffset.LowPart, TempOffset.HighPart, Subsection);
+        DbgBreakPoint();
+    }
+#endif //DBG
 
     MmInfoCounters.MappedWriteIoCount += 1;
     MmInfoCounters.MappedPagesWriteCount +=
@@ -2936,9 +2950,8 @@ Environment:
     //
     // page is destined for the paging file.
     //
-#ifdef COLORED_PAGES
+
     NextColor = Pfn1->u3.e1.PageColor;
-#endif //COLORED_PAGES
     //
     // find the paging file with the most free space and get
     // a cluster.
@@ -3041,6 +3054,9 @@ Environment:
 
     CurrentPagingFile->FreeSpace -= ThisCluster;
     CurrentPagingFile->CurrentUsage += ThisCluster;
+    if (CurrentPagingFile->FreeSpace < 32) {
+        PageFileFull = 1;
+    }
 
     StartingOffset.QuadPart = (LONGLONG)StartBit << PAGE_SHIFT;
 
@@ -3056,8 +3072,6 @@ Environment:
     Page = &ModWriterEntry->Page[0];
 
     ClusterSize = 0;
-
-
 
     //
     // Search through the modified page list looking for other
@@ -3090,15 +3104,6 @@ Environment:
                 // write-in-progress marks the state.
                 //
 
-#ifndef COLORED_PAGES
-
-                //
-                // Set page frame index to next modified page in list.
-                //
-
-                PageFrameIndex = Pfn1->u1.Flink;
-                MiUnlinkPageFromList (Pfn1);
-#else
                 //
                 // Unlink the page so the same page won't be found
                 // on the modified page list by color.
@@ -3109,14 +3114,13 @@ Environment:
 
                 MI_GET_MODIFIED_PAGE_BY_COLOR (PageFrameIndex,
                                                NextColor);
-#endif //COLORED_PAGES
 
                 //
                 // Up the reference count for the physical page as there
                 // is I/O in progress.
                 //
 
-                Pfn1->ReferenceCount += 1;
+                Pfn1->u3.e2.ReferenceCount += 1;
 
                 //
                 // Clear the modified bit for the page and set the
@@ -3162,18 +3166,12 @@ Environment:
             // This page was not destined for a paging file,
             // get another page.
             //
-
-#ifndef COLORED_PAGES
-            PageFrameIndex = Pfn1->u1.Flink;
-#else
-            //
             // Get a page of the same color as the one which
             // was not usable.
             //
 
             MI_GET_MODIFIED_PAGE_BY_COLOR (PageFrameIndex,
                                            NextColor);
-#endif //COLORED_PAGES
         }
 
         if (PageFrameIndex == MM_EMPTY_LIST) {
@@ -3338,7 +3336,7 @@ MiClusterWritePages (
         //
 
         PointerClusterPte = (PMMPTE)((PCHAR)MiMapPageInHyperSpace (
-                                        Pfn1->u3.e1.PteFrame, &OldIrql)
+                                        Pfn1->PteFrame, &OldIrql)
                                         +
                                 BYTE_OFFSET (PointerClusterPte));
         ThisPage = (PMMPTE)((ULONG)PointerClusterPte & ~(PAGE_SIZE - 1));
@@ -3380,7 +3378,7 @@ MiClusterWritePages (
                 Pfn2 = MI_PFN_ELEMENT(PageFrameIndex);
                 ASSERT (Pfn2->OriginalPte.u.Soft.Prototype == 0);
                 if ((Pfn2->u3.e1.Modified != 0 ) &&
-                    (Pfn2->ReferenceCount == 0)) {
+                    (Pfn2->u3.e2.ReferenceCount == 0)) {
 
                     Start -= 1;
                     WriteCluster->Count += 1;
@@ -3417,7 +3415,7 @@ MiClusterWritePages (
             Pfn2 = MI_PFN_ELEMENT(PageFrameIndex);
             ASSERT (Pfn2->OriginalPte.u.Soft.Prototype == 0);
             if ((Pfn2->u3.e1.Modified != 0 ) &&
-                (Pfn2->ReferenceCount == 0)) {
+                (Pfn2->u3.e2.ReferenceCount == 0)) {
 
                 Start += 1;
                 WriteCluster->Count += 1;
@@ -3983,5 +3981,45 @@ Return Value:
 
         LOCK_PFN (OldIrql);
     }
+    return;
+}
+
+VOID
+MiFlushAllPages (
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    Forces a write of all modified pages.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+Environment:
+
+    Kernel mode.  No locks held.  Apc level or less.
+
+--*/
+
+{
+    ULONG j = 40;
+
+    MmWriteAllModifiedPages = TRUE;
+    KeSetEvent (&MmModifiedPageWriterEvent, 0, FALSE);
+
+    do {
+        KeDelayExecutionThread (KernelMode, FALSE, &Mm30Milliseconds);
+        j -= 1;
+    } while ((MmModifiedPageListHead.Total > 50) && (j > 0));
+
+    MmWriteAllModifiedPages = FALSE;
     return;
 }

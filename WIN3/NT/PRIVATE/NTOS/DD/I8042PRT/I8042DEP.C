@@ -1,4 +1,3 @@
-
 /*++
 
 Copyright (c) 1990, 1991, 1992, 1993  Microsoft Corporation
@@ -57,6 +56,11 @@ Revision History:
 #pragma alloc_text(INIT,I8xServiceParameters)
 #pragma alloc_text(INIT,I8xBuildResourceList)
 #pragma alloc_text(INIT,I8xInitializeHardware)
+#if defined(JAPAN) && defined(i386)
+// Fujitsu Sep.08.1994
+// We want to write debugging information to the file except stop error.
+#pragma alloc_text(INIT,I8xServiceCrashDump)
+#endif
 #endif
 
 
@@ -87,8 +91,8 @@ Return Value:
 
 {
     PDEVICE_OBJECT portDeviceObject = NULL;
+    PINIT_EXTENSION initializationData = NULL;
     PDEVICE_EXTENSION deviceExtension = NULL;
-    DEVICE_EXTENSION tmpDeviceExtension;
     NTSTATUS status = STATUS_SUCCESS;
     KIRQL coordinatorIrql = 0;
     I8042_INITIALIZE_DATA_CONTEXT initializeDataContext;
@@ -108,6 +112,7 @@ Return Value:
     ULONG resourceListSize = 0;
     BOOLEAN conflictDetected;
     ULONG i;
+
     UNICODE_STRING fullKeyboardName;
     UNICODE_STRING fullPointerName;
     UNICODE_STRING baseKeyboardName;
@@ -126,10 +131,34 @@ Return Value:
     I8xPrint((1,"\n\nI8042PRT-I8042Initialize: enter\n"));
 
     //
+    // Allocate the temporary device extension
+    //
+
+    initializationData = ExAllocatePool(
+                            NonPagedPool,
+                            sizeof(INIT_EXTENSION)
+                            );
+
+    if (initializationData  == NULL) {
+        I8xPrint((
+            1,
+            "I8042PRT-I8042Initialize: Couldn't allocate pool for init extension\n"
+            ));
+
+        status = STATUS_UNSUCCESSFUL;
+        errorCode = I8042_INSUFFICIENT_RESOURCES;
+        uniqueErrorValue = I8042_ERROR_VALUE_BASE + 2;
+        dumpData[0] = (ULONG) sizeof(INIT_EXTENSION);
+        dumpCount = 1;
+        goto I8042InitializeExit;
+    }
+
+    //
     // Zero-initialize various structures.
     //
 
-    RtlZeroMemory(&tmpDeviceExtension, sizeof(DEVICE_EXTENSION));
+    RtlZeroMemory(initializationData, sizeof(INIT_EXTENSION));
+
     for (i = 0; i < DUMP_COUNT; i++)
         dumpData[i] = 0;
 
@@ -199,20 +228,20 @@ Return Value:
     //
 
     I8xKeyboardConfiguration(
-        &tmpDeviceExtension, 
+        initializationData, 
         &registryPath, 
         &baseKeyboardName,
         &basePointerName
         );
 
     I8xMouseConfiguration(
-        &tmpDeviceExtension, 
+        initializationData, 
         &registryPath, 
         &baseKeyboardName,
         &basePointerName
         );
 
-    if (tmpDeviceExtension.HardwarePresent == 0) {
+    if (initializationData->DeviceExtension.HardwarePresent == 0) {
 
         //
         // There is neither a keyboard nor a mouse attached.  Free
@@ -225,7 +254,8 @@ Return Value:
         uniqueErrorValue = I8042_ERROR_VALUE_BASE + 4;
         goto I8042InitializeExit;
 
-    } else if (!(tmpDeviceExtension.HardwarePresent & KEYBOARD_HARDWARE_PRESENT)) {
+    } else if (!(initializationData->DeviceExtension.HardwarePresent &
+                 KEYBOARD_HARDWARE_PRESENT)) {
         //
         // Log a warning about the missing keyboard later on, but 
         // continue processing.
@@ -245,7 +275,8 @@ Return Value:
     // PS/2 compatible mice to get the informational message on every boot.
     //
 
-    else if (!(tmpDeviceExtension.HardwarePresent & MOUSE_HARDWARE_PRESENT)) {
+    else if (!(initializationData->DeviceExtension.HardwarePresent &
+               MOUSE_HARDWARE_PRESENT)) {
 
         //
         // Log a warning about the missing mouse later on, but 
@@ -407,6 +438,16 @@ Return Value:
             //
             // We've successfully created a device object.
             //
+#ifdef JAPAN
+            status = I8xCreateSymbolicLink(L"\\DosDevices\\KEYBOARD", i, &fullKeyboardName);
+            if (!NT_SUCCESS(status)) {
+                errorCode = I8042_INSUFFICIENT_RESOURCES;
+                uniqueErrorValue = I8042_ERROR_VALUE_BASE + 12;
+                dumpData[0] = (ULONG) i;
+                dumpCount = 1;
+                goto I8042InitializeExit;
+            }
+#endif
 
             break; 
         } else {
@@ -443,8 +484,29 @@ Return Value:
 
     deviceExtension =
         (PDEVICE_EXTENSION)portDeviceObject->DeviceExtension;
-    *deviceExtension = tmpDeviceExtension;
+    *deviceExtension = initializationData->DeviceExtension;
     deviceExtension->DeviceObject = portDeviceObject;
+
+#if defined(JAPAN) && defined(i386)
+// Fujitsu Sep.08.1994
+// We want to write debugging information to the file except stop error.
+
+    deviceExtension->Dump1Keys = 0;
+    deviceExtension->Dump2Key = 0;
+    deviceExtension->DumpFlags = 0;
+
+    //
+    // Get the crashdump information.
+    //
+
+    I8xServiceCrashDump(
+        deviceExtension,
+        &registryPath,
+        &baseKeyboardName,
+        &basePointerName
+        );
+
+#endif
 
     //
     // Set up the resource list prior to reporting resource usage.
@@ -567,13 +629,17 @@ Return Value:
         addressSpace = (deviceExtension->Configuration.PortList[i].Flags 
                            & CM_RESOURCE_PORT_IO) == CM_RESOURCE_PORT_IO? 1:0;
 
-        HalTranslateBusAddress(
+        if (!HalTranslateBusAddress(
             deviceExtension->Configuration.InterfaceType,
             deviceExtension->Configuration.BusNumber,
             deviceExtension->Configuration.PortList[i].u.Port.Start,
             &addressSpace,
             &cardAddress
-        );
+            )) {
+
+            addressSpace = 1;
+            cardAddress.QuadPart = 0;
+        }
 
         if (!addressSpace) {
 
@@ -782,6 +848,16 @@ Return Value:
             // drivers can access the port device object by different names.
             //
 
+#ifdef JAPAN
+            status = I8xCreateSymbolicLink(L"\\DosDevices\\POINTER", i, &fullPointerName);
+            if (!NT_SUCCESS(status)) {
+                errorCode = I8042_INSUFFICIENT_RESOURCES;
+                uniqueErrorValue = I8042_ERROR_VALUE_BASE + 12;
+                dumpData[0] = (ULONG) i;
+                dumpCount = 1;
+                goto I8042InitializeExit;
+            }
+#endif
             status = IoCreateSymbolicLink( 
                          &fullPointerName,
                          &fullKeyboardName 
@@ -1172,7 +1248,9 @@ Return Value:
                 1, 
                 "I8042PRT-I8042Initialize: Stored keyboard name in DeviceMap\n"
                 ));
+
         }
+
     }
 
     if (deviceExtension->HardwarePresent & MOUSE_HARDWARE_PRESENT) {
@@ -1206,9 +1284,40 @@ Return Value:
                 "I8042PRT-I8042Initialize: Stored pointer name in DeviceMap\n"
                 ));
         }
+
     }
 
     ASSERT(status == STATUS_SUCCESS);
+
+#ifdef PNP_IDENTIFY
+    //
+    // Log information about our resources & device object in the registry
+    // so that the user mode PnP stuff can determine which driver/device goes
+    // with which set of arcdetect resources
+    //
+
+    LinkDeviceToDescription(
+        RegistryPath,
+        &fullKeyboardName,
+        initializationData->KeyboardConfig.InterfaceType,
+        initializationData->KeyboardConfig.InterfaceNumber,
+        initializationData->KeyboardConfig.ControllerType,
+        initializationData->KeyboardConfig.ControllerNumber,
+        initializationData->KeyboardConfig.PeripheralType,
+        initializationData->KeyboardConfig.PeripheralNumber
+        );
+
+    LinkDeviceToDescription(
+        RegistryPath,
+        &fullPointerName,
+        initializationData->MouseConfig.InterfaceType,
+        initializationData->MouseConfig.InterfaceNumber,
+        initializationData->MouseConfig.ControllerType,
+        initializationData->MouseConfig.ControllerNumber,
+        initializationData->MouseConfig.PeripheralType,
+        initializationData->MouseConfig.PeripheralNumber
+        );
+#endif
 
     //
     // Set up the device driver entry points.
@@ -1340,6 +1449,14 @@ I8042InitializeExit:
 
     if (resources) {
         ExFreePool(resources);
+    }
+
+    //
+    // Free the temporary device extension
+    //
+
+    if (initializationData != NULL) {
+        ExFreePool(initializationData);
     }
 
     //
@@ -2051,6 +2168,14 @@ Return Value:
     }
 #endif
 
+
+#if 0
+    //
+    // NOTE:  This is supposedly the "correct thing to do.  However,
+    // disabling the mouse on RadiSys EPC-24 which uses VLSI part number
+    // VL82C144 (3751E) causes the part to shut down keyboard interrupts.
+    //
+
     status = I8xPutBytePolled(
                  (CCHAR) CommandPort,
                  NO_WAIT_FOR_ACKNOWLEDGE,
@@ -2067,6 +2192,7 @@ Return Value:
 
         deviceExtension->HardwarePresent &= ~MOUSE_HARDWARE_PRESENT;
     }
+#endif
 
     //
     // Drain the i8042 output buffer to get rid of stale data that could
@@ -2106,7 +2232,19 @@ Return Value:
                 status
                 ));
 
+#if defined(JAPAN) && defined(i386)
+//Fujitsu Aug.23.1994
+//      To realize "keyboard-less system" needs to make look like connecting
+//      keybaord hardware, as this routine, if not connect.
+
+         if ( status == STATUS_IO_TIMEOUT ) {
+            deviceExtension->HardwarePresent |= KEYBOARD_HARDWARE_PRESENT;
+         }else{
             deviceExtension->HardwarePresent &= ~KEYBOARD_HARDWARE_PRESENT;
+         }
+#else
+            deviceExtension->HardwarePresent &= ~KEYBOARD_HARDWARE_PRESENT;
+#endif
         }
     }
 
@@ -2583,7 +2721,7 @@ Return Value:
 
 VOID
 I8xServiceParameters(
-    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PINIT_EXTENSION InitializationData,
     IN PUNICODE_STRING RegistryPath,
     IN PUNICODE_STRING KeyboardDeviceName,
     IN PUNICODE_STRING PointerDeviceName
@@ -2598,7 +2736,8 @@ Routine Description:
 
 Arguments:
 
-    DeviceExtension - Pointer to the device extension.
+    InitializationData - Pointer to the initialization data, including the
+        the device extension.
 
     RegistryPath - Pointer to the null-terminated Unicode name of the 
         registry path for this driver.
@@ -2639,13 +2778,15 @@ Return Value:
     ULONG overrideKeyboardSubtype = (ULONG) -1;
     ULONG invalidKeyboardSubtype = (ULONG) -1;
     ULONG defaultSynchPacket100ns = MOUSE_SYNCH_PACKET_100NS;
+    ULONG enableWheelDetection = 0;
+    ULONG defaultEnableWheelDetection = 1;
     UNICODE_STRING defaultPointerName;
     UNICODE_STRING defaultKeyboardName;
     NTSTATUS status = STATUS_SUCCESS;
     PWSTR path = NULL;
-    USHORT queriesPlusOne = 15;
+    USHORT queries = 15;
 
-    configuration = &DeviceExtension->Configuration;
+    configuration = &(InitializationData->DeviceExtension.Configuration);
     configuration->StallMicroseconds = I8042_STALL_DEFAULT;
     parametersPath.Buffer = NULL;
 
@@ -2663,7 +2804,7 @@ Return Value:
     
         parameters = ExAllocatePool(
                          PagedPool,
-                         sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
+                         sizeof(RTL_QUERY_REGISTRY_TABLE) * (queries + 1)
                          );
     
         if (!parameters) {
@@ -2680,7 +2821,7 @@ Return Value:
     
             RtlZeroMemory(
                 parameters,
-                sizeof(RTL_QUERY_REGISTRY_TABLE) * queriesPlusOne
+                sizeof(RTL_QUERY_REGISTRY_TABLE) * (queries + 1)
                 );
     
             //
@@ -2847,7 +2988,7 @@ Return Value:
         parameters[12].Flags = RTL_QUERY_REGISTRY_DIRECT;
         parameters[12].Name = L"MouseSynchIn100ns";
         parameters[12].EntryContext = 
-            &DeviceExtension->MouseExtension.SynchTickCount;
+            &(InitializationData->DeviceExtension.MouseExtension.SynchTickCount);
         parameters[12].DefaultType = REG_DWORD;
         parameters[12].DefaultData = &defaultSynchPacket100ns;
         parameters[12].DefaultLength = sizeof(ULONG);
@@ -2859,11 +3000,18 @@ Return Value:
         parameters[13].DefaultData = &defaultPollStatusIterations;
         parameters[13].DefaultLength = sizeof(USHORT);
 
+        parameters[14].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        parameters[14].Name = L"EnableWheelDetection";
+        parameters[14].EntryContext = &enableWheelDetection;
+        parameters[14].DefaultType = REG_DWORD;
+        parameters[14].DefaultData = &defaultEnableWheelDetection;
+        parameters[14].DefaultLength = sizeof(ULONG);
+
         status = RtlQueryRegistryValues(
                      RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
                      parametersPath.Buffer,
                      parameters,
-                     NULL,
+                     NULL,             
                      NULL
                      );
 
@@ -2891,7 +3039,9 @@ Return Value:
             defaultDataQueueSize;
         configuration->MouseAttributes.InputDataQueueLength = 
             defaultDataQueueSize;
-        DeviceExtension->MouseExtension.SynchTickCount =
+        configuration->EnableWheelDetection =
+            defaultEnableWheelDetection;
+        InitializationData->DeviceExtension.MouseExtension.SynchTickCount =
             defaultSynchPacket100ns;
         RtlCopyUnicodeString(KeyboardDeviceName, &defaultKeyboardName);
         RtlCopyUnicodeString(PointerDeviceName, &defaultPointerName);
@@ -2901,6 +3051,7 @@ Return Value:
         configuration->PollingIterationsMaximum = 
             (USHORT) pollingIterationsMaximum;
         configuration->PollStatusIterations = (USHORT) pollStatusIterations;
+        configuration->EnableWheelDetection = (ULONG) ((enableWheelDetection) ? 1 : 0);
     }
 
     I8xPrint((
@@ -3032,14 +3183,14 @@ Return Value:
             (UCHAR) overrideKeyboardSubtype;
     }
 
-    if (DeviceExtension->MouseExtension.SynchTickCount == 0) {
+    if (InitializationData->DeviceExtension.MouseExtension.SynchTickCount == 0) {
 
         I8xPrint((
             1,
             "I8042PRT-I8xServiceParameters: overriding MouseSynchIn100ns\n"
             ));
 
-        DeviceExtension->MouseExtension.SynchTickCount =
+        InitializationData->DeviceExtension.MouseExtension.SynchTickCount =
             defaultSynchPacket100ns;
     }
 
@@ -3050,12 +3201,19 @@ Return Value:
     // are added to the system time each time the interval clock interrupts.
     //
 
-    DeviceExtension->MouseExtension.SynchTickCount /= KeQueryTimeIncrement();
+    InitializationData->DeviceExtension.MouseExtension.SynchTickCount /=
+        KeQueryTimeIncrement();
 
     I8xPrint((
         1,
         "I8042PRT-I8xServiceParameters: SynchTickCount = 0x%x\n",
-        DeviceExtension->MouseExtension.SynchTickCount
+        InitializationData->DeviceExtension.MouseExtension.SynchTickCount
+        ));
+
+    I8xPrint((
+        1,
+        "I8042PRT-I8xServiceParameters: DisableWheelMouse = %#x\n",
+        configuration->EnableWheelDetection
         ));
 
     //

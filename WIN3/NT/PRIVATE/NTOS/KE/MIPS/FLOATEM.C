@@ -110,8 +110,15 @@ typedef struct _FP_CONTEXT_BLOCK {
 //
 
 typedef struct _FP_DOUBLE_OPERAND {
-    LONG MantissaHigh;
-    ULONG MantissaLow;
+    union {
+        struct {
+            ULONG MantissaLow;
+            LONG MantissaHigh;
+        };
+
+        LONGLONG Mantissa;
+    };
+
     LONG Exponent;
     LONG Sign;
     BOOLEAN Infinity;
@@ -176,6 +183,13 @@ KiInvalidOperationLongword (
     );
 
 BOOLEAN
+KiInvalidOperationQuadword (
+    IN PFP_CONTEXT_BLOCK ContextBlock,
+    IN BOOLEAN Infinity,
+    IN LONG Sign
+    );
+
+BOOLEAN
 KiInvalidOperationSingle (
     IN PFP_CONTEXT_BLOCK ContextBlock,
     IN BOOLEAN CheckForNan,
@@ -192,6 +206,12 @@ KiNormalizeDouble (
 
 BOOLEAN
 KiNormalizeLongword (
+    IN PFP_CONTEXT_BLOCK ContextBlock,
+    IN PFP_DOUBLE_OPERAND ResultOperand
+    );
+
+BOOLEAN
+KiNormalizeQuadword (
     IN PFP_CONTEXT_BLOCK ContextBlock,
     IN PFP_DOUBLE_OPERAND ResultOperand
     );
@@ -291,6 +311,11 @@ Return Value:
     ULARGE_INTEGER LargeResult;
     LONG Longword;
     LONG Negation;
+    union {
+        LONGLONG Quadword;
+        LARGE_INTEGER LargeValue;
+    }u;
+
     LONG SingleMantissa;
     FP_SINGLE_OPERAND SingleOperand1;
     FP_SINGLE_OPERAND SingleOperand2;
@@ -380,7 +405,7 @@ Return Value:
         //
 
         if (((ContextBlock.Fd & 0x1) != 0) || ((Fs & 0x1) != 0) || ((Ft & 0x1) != 0) ||
-            ((Format != FORMAT_WORD) && (Format > FORMAT_DOUBLE))) {
+            ((Format != FORMAT_LONGWORD) && (Format != FORMAT_QUADWORD) && (Format > FORMAT_DOUBLE))) {
             Function = FLOAT_ILLEGAL;
         }
 
@@ -552,8 +577,8 @@ Return Value:
                 //
 
                 if ((SingleOperand1.Nan != FALSE) &&
-                    (Function < FLOAT_ROUND_LONGWORD) ||
-                    (Function > FLOAT_CONVERT_LONGWORD) ||
+                    (Function < FLOAT_ROUND_QUADWORD) ||
+                    (Function > FLOAT_CONVERT_QUADWORD) ||
                     ((Function > FLOAT_FLOOR_LONGWORD) &&
                     (Function < FLOAT_CONVERT_SINGLE))) {
                     return KiInvalidOperationSingle(&ContextBlock,
@@ -575,8 +600,8 @@ Return Value:
                 //
 
                 if ((DoubleOperand1.Nan != FALSE) &&
-                    (Function < FLOAT_ROUND_LONGWORD) ||
-                    (Function > FLOAT_CONVERT_LONGWORD) ||
+                    (Function < FLOAT_ROUND_QUADWORD) ||
+                    (Function > FLOAT_CONVERT_QUADWORD) ||
                     ((Function > FLOAT_FLOOR_LONGWORD) &&
                     (Function < FLOAT_CONVERT_SINGLE))) {
                     return KiInvalidOperationDouble(&ContextBlock,
@@ -585,11 +610,21 @@ Return Value:
                                                     &DoubleOperand1);
                 }
 
-            } else if ((Format == FORMAT_WORD) &&
+            } else if ((Format == FORMAT_LONGWORD) &&
                        (Function >= FLOAT_CONVERT_SINGLE)) {
                 Longword = KiGetRegisterValue(Fs + 32,
                                               ContextBlock.ExceptionFrame,
                                               ContextBlock.TrapFrame);
+
+            } else if ((Format == FORMAT_QUADWORD) &&
+                       (Function >= FLOAT_CONVERT_SINGLE)) {
+                u.LargeValue.LowPart = KiGetRegisterValue(Fs + 32,
+                                                          ContextBlock.ExceptionFrame,
+                                                          ContextBlock.TrapFrame);
+
+                u.LargeValue.HighPart = KiGetRegisterValue(Fs + 33,
+                                                           ContextBlock.ExceptionFrame,
+                                                           ContextBlock.TrapFrame);
 
             } else {
                 Function = FLOAT_ILLEGAL;
@@ -812,7 +847,7 @@ Return Value:
                         DoubleOperand1.MantissaLow -= DoubleMantissaLow;
                         DoubleOperand1.MantissaHigh -= DoubleMantissaHigh;
                         if (DoubleOperand1.MantissaHigh < 0) {
-                            DoubleOperand1.MantissaLow = -DoubleOperand1.MantissaLow;
+                            DoubleOperand1.MantissaLow = ~DoubleOperand1.MantissaLow + 1;
                             DoubleOperand1.MantissaHigh = -DoubleOperand1.MantissaHigh;
                             if (DoubleOperand1.MantissaLow != 0) {
                                 DoubleOperand1.MantissaHigh -= 1;
@@ -1207,11 +1242,8 @@ Return Value:
                                                 DoubleQuotient.LowPart >> 31;
 
                     DoubleQuotient.LowPart <<= 1;
-                    if (RtlLargeIntegerGreaterThanOrEqualTo(DoubleDividend,
-                                                            DoubleDivisor) != FALSE) {
-                        DoubleDividend = RtlLargeIntegerSubtract(DoubleDividend,
-                                                                 DoubleDivisor);
-
+                    if (DoubleDividend.QuadPart >= DoubleDivisor.QuadPart) {
+                        DoubleDividend.QuadPart -= DoubleDivisor.QuadPart;
                         DoubleQuotient.LowPart |= 1;
                     }
 
@@ -1287,24 +1319,28 @@ Return Value:
                 //
                 //   1. Converting the value to a normalized value with
                 //      an exponent equal to the denormalization shift count
+                //      plus the bias of the exponent plus one.
                 //
                 //   2. Computing the square root of the value and unpacking
-                //      the result
+                //      the result.
                 //
-                //   3. Converting the shift count back to a denormalization
-                //      shift count
+                //   3. Converting the shift count back to a normalization
+                //      shift count.
                 //
                 //   4. Rounding and packing the resultant value.
                 //
+                // N.B. The square root of all denormalized number is a
+                //      normalized number.
+                //
 
-                SingleOperand1.Exponent = (SINGLE_EXPONENT_BIAS +
-                                            SingleOperand1.Exponent - 1) << 23;
+                SingleOperand1.Exponent = (SINGLE_EXPONENT_BIAS + 1 +
+                                            SingleOperand1.Exponent) << 23;
 
                 SingleValue = (SingleOperand1.Mantissa & ~(1 << 25)) >> 2;
                 SingleValue |= SingleOperand1.Exponent;
                 StickyBits = KiSquareRootSingle(&SingleValue);
                 SingleOperand1.Exponent =  (SingleValue >> 23) -
-                                            SINGLE_EXPONENT_BIAS + 1;
+                                            ((SINGLE_EXPONENT_BIAS + 1) / 2);
 
                 SingleOperand1.Mantissa = ((SingleValue &
                                             0x7fffff) | 0x800000) << 2;
@@ -1348,18 +1384,22 @@ Return Value:
                 //
                 //   1. Converting the value to a normalized value with
                 //      an exponent equal to the denormalization shift count
+                //      plus the bias of the exponent plus one.
                 //
                 //   2. Computing the square root of the value and unpacking
-                //      the result
+                //      the result.
                 //
-                //   3. Converting the shift count back to a denormalization
-                //      shift count
+                //   3. Converting the shift count back to a normalization
+                //      shift count.
                 //
                 //   4. Rounding and packing the resultant value.
                 //
+                // N.B. The square root of all denormalized numbers is a
+                //      normalized number.
+                //
 
-                DoubleOperand1.Exponent = (DOUBLE_EXPONENT_BIAS +
-                                            DoubleOperand1.Exponent - 1) << 20;
+                DoubleOperand1.Exponent = (DOUBLE_EXPONENT_BIAS + 1 +
+                                            DoubleOperand1.Exponent) << 20;
 
                 DoubleValue.HighPart = (DoubleOperand1.MantissaHigh & ~(1 << 22)) >> 2;
                 DoubleValue.LowPart = (DoubleOperand1.MantissaHigh << 30) |
@@ -1368,7 +1408,7 @@ Return Value:
                 DoubleValue.HighPart |= DoubleOperand1.Exponent;
                 StickyBits = KiSquareRootDouble(&DoubleValue);
                 DoubleOperand1.Exponent =  (DoubleValue.HighPart >> 20) -
-                                            DOUBLE_EXPONENT_BIAS + 1;
+                                            ((DOUBLE_EXPONENT_BIAS + 1) / 2);
 
                 DoubleOperand1.MantissaLow = DoubleValue.LowPart << 2;
                 DoubleOperand1.MantissaHigh = ((DoubleValue.HighPart &
@@ -1382,8 +1422,6 @@ Return Value:
             } else {
                 break;
             }
-
-            break; // ****** temp ****** //
 
             //
             // Floating absolute operation.
@@ -1804,9 +1842,9 @@ Return Value:
             //
             // Floating convert to single.
             //
-            // This operation is only legal for conversion from double and
-            // longword formats to single format. This operation can not be
-            // used to convert from a single format to a single format.
+            // This operation is only legal for conversion from quadword,
+            // longword, and double formats to single format. This operation
+            // can not be used to convert from a single format to a single format.
             //
             // Floating conversion to single is accompished by forming a
             // single floating operand and then normalize and storing the
@@ -1863,7 +1901,7 @@ Return Value:
                                          &SingleOperand1,
                                          StickyBits);
 
-            } else if (Format == FORMAT_WORD) {
+            } else if (Format == FORMAT_LONGWORD) {
 
                 //
                 // Compute the sign of the result.
@@ -1896,8 +1934,58 @@ Return Value:
                         SingleOperand1.Exponent -= 1;
                     }
 
-                    SingleOperand1.Mantissa = Longword >> (32 - 26);
-                    StickyBits = Longword & ((1 << (32 - 26)) - 1);
+                    SingleOperand1.Mantissa = (ULONG)Longword >> (32 - 26);
+                    StickyBits = Longword << 26;
+
+                } else {
+                    SingleOperand1.Mantissa = 0;
+                    StickyBits = 0;
+                    SingleOperand1.Exponent = 0;
+                }
+
+                //
+                // Normalize and store the result value.
+                //
+
+                return KiNormalizeSingle(&ContextBlock,
+                                         &SingleOperand1,
+                                         StickyBits);
+
+            } else if (Format == FORMAT_QUADWORD) {
+
+                //
+                // Compute the sign of the result.
+                //
+
+                if (u.Quadword < 0) {
+                    SingleOperand1.Sign = 0x1;
+                    u.Quadword = -u.Quadword;
+
+                } else {
+                    SingleOperand1.Sign = 0;
+                }
+
+                //
+                // Initialize the infinity and NaN values.
+                //
+
+                SingleOperand1.Infinity = FALSE;
+                SingleOperand1.Nan = FALSE;
+
+                //
+                // Compute the exponent value and normalize the quadword
+                // value.
+                //
+
+                if (u.Quadword != 0) {
+                    SingleOperand1.Exponent = SINGLE_EXPONENT_BIAS + 63;
+                    while (u.Quadword > 0) {
+                        u.Quadword <<= 1;
+                        SingleOperand1.Exponent -= 1;
+                    }
+
+                    SingleOperand1.Mantissa = (LONG)((ULONGLONG)u.Quadword >> (64 - 26));
+                    StickyBits = (u.Quadword << 26) ? 1 : 0;
 
                 } else {
                     SingleOperand1.Mantissa = 0;
@@ -1920,8 +2008,8 @@ Return Value:
             //
             // Floating convert to double.
             //
-            // This operation is only legal for conversion from single
-            // and longword formats to double format. This operation
+            // This operation is only legal for conversion from quadword,
+            // longword, and single formats to double format. This operation
             // cannot be used to convert from a double format to a double
             // format.
             //
@@ -1981,7 +2069,7 @@ Return Value:
             } else if (Format == FORMAT_DOUBLE) {
                 break;
 
-            } else if (Format == FORMAT_WORD) {
+            } else if (Format == FORMAT_LONGWORD) {
 
                 //
                 // Compute the sign of the result.
@@ -2014,12 +2102,10 @@ Return Value:
                         DoubleOperand1.Exponent -= 1;
                     }
 
-                    DoubleOperand1.MantissaHigh = Longword >> (32 - (55 - 32));
-                    DoubleOperand1.MantissaLow = Longword << (55 - 32);
+                    DoubleOperand1.Mantissa = (ULONGLONG)Longword >> (64 - 55);
 
                 } else {
-                    DoubleOperand1.MantissaHigh = 0;
-                    DoubleOperand1.MantissaLow = 0;
+                    DoubleOperand1.Mantissa = 0;
                     DoubleOperand1.Exponent = 0;
                 }
 
@@ -2030,6 +2116,149 @@ Return Value:
                 return KiNormalizeDouble(&ContextBlock,
                                          &DoubleOperand1,
                                          0);
+
+            } else if (Format == FORMAT_QUADWORD) {
+
+                //
+                // Compute the sign of the result.
+                //
+
+                if (u.Quadword < 0) {
+                    DoubleOperand1.Sign = 0x1;
+                    u.Quadword = -u.Quadword;
+
+                } else {
+                    DoubleOperand1.Sign = 0;
+                }
+
+                //
+                // Initialize the infinity and NaN values.
+                //
+
+                DoubleOperand1.Infinity = FALSE;
+                DoubleOperand1.Nan = FALSE;
+
+                //
+                // Compute the exponent value and normalize the quadword
+                // value.
+                //
+
+                if (u.Quadword != 0) {
+                    DoubleOperand1.Exponent = DOUBLE_EXPONENT_BIAS + 63;
+                    while (u.Quadword > 0) {
+                        u.Quadword <<= 1;
+                        DoubleOperand1.Exponent -= 1;
+                    }
+
+                    DoubleOperand1.Mantissa = (ULONGLONG)u.Quadword >> (64 - 55);
+                    StickyBits = (u.Quadword << 55) ? 1 : 0;
+
+                } else {
+                    DoubleOperand1.Mantissa = 0;
+                    StickyBits = 0;
+                    DoubleOperand1.Exponent = 0;
+                }
+
+                //
+                // Normalize and store the result value.
+                //
+
+                return KiNormalizeDouble(&ContextBlock,
+                                         &DoubleOperand1,
+                                         StickyBits);
+
+            } else {
+                break;
+            }
+
+            //
+            // Floating convert to quadword.
+            //
+            // This operation is only legal for conversion from double
+            // and single formats to quadword format. This operation
+            // cannot be used to convert from a quadword format to a
+            // longword or quadword format.
+            //
+            // Floating conversion to quadword is accomplished by forming
+            // a quadword value from a single or double floating value.
+            //
+            // There is one general conversion operation and four directed
+            // rounding operations.
+            //
+
+        case FLOAT_ROUND_QUADWORD:
+            ContextBlock.Round = ROUND_TO_NEAREST;
+            goto ConvertQuadword;
+
+        case FLOAT_TRUNC_QUADWORD:
+            ContextBlock.Round = ROUND_TO_ZERO;
+            goto ConvertQuadword;
+
+        case FLOAT_CEIL_QUADWORD:
+            ContextBlock.Round = ROUND_TO_PLUS_INFINITY;
+            goto ConvertQuadword;
+
+        case FLOAT_FLOOR_QUADWORD:
+            ContextBlock.Round = ROUND_TO_MINUS_INFINITY;
+            goto ConvertQuadword;
+
+        case FLOAT_CONVERT_QUADWORD:
+        ConvertQuadword:
+            if (Format == FORMAT_SINGLE) {
+
+                //
+                // If the operand is infinite or is a NaN, then store a
+                // quiet NaN or an appropriate infinity if the invalid
+                // operation trap is disabled, or raise an exception if
+                // the invalid trap is enabled.
+                //
+
+                if ((SingleOperand1.Infinity != FALSE) ||
+                    (SingleOperand1.Nan != FALSE)) {
+                    return KiInvalidOperationQuadword(&ContextBlock,
+                                                      SingleOperand1.Infinity,
+                                                      SingleOperand1.Sign);
+                }
+
+                //
+                // Transform the single operand to double format.
+                //
+
+                DoubleOperand1.Mantissa = (LONGLONG)SingleOperand1.Mantissa << (55 - 26);
+                DoubleOperand1.Exponent = SingleOperand1.Exponent +
+                                    DOUBLE_EXPONENT_BIAS - SINGLE_EXPONENT_BIAS;
+
+                DoubleOperand1.Sign = SingleOperand1.Sign;
+                DoubleOperand1.Infinity = FALSE;
+                DoubleOperand1.Nan = FALSE;
+
+                //
+                // Convert double to quadword and store the result value.
+                //
+
+                return KiNormalizeQuadword(&ContextBlock, &DoubleOperand1);
+
+            } else if (Format == FORMAT_DOUBLE) {
+
+                //
+                // If the operand is infinite or is a NaN, then store a
+                // quiet NaN or an appropriate infinity if the invalid
+                // operation trap is disabled, or raise an exception if
+                // the invalid trap is enabled.
+                //
+
+                if ((DoubleOperand1.Infinity != FALSE) ||
+                    (DoubleOperand1.Nan != FALSE)) {
+                    return KiInvalidOperationQuadword(&ContextBlock,
+                                                      DoubleOperand1.Infinity,
+                                                      DoubleOperand1.Sign);
+                }
+
+                //
+                // Convert double to quadword and store the result value.
+                //
+
+                return KiNormalizeQuadword(&ContextBlock, &DoubleOperand1);
 
             } else {
                 break;
@@ -2640,7 +2869,7 @@ Return Value:
         }
 
     } else {
-        ResultValue = INTEGER_NAN;
+        ResultValue = SINGLE_INTEGER_NAN;
     }
 
     //
@@ -2664,6 +2893,100 @@ Return Value:
 
         KiSetRegisterValue(ContextBlock->Fd + 32,
                            ResultValue,
+                           ContextBlock->ExceptionFrame,
+                           ContextBlock->TrapFrame);
+
+        TrapFrame->Fir = ContextBlock->BranchAddress;
+        return TRUE;
+    }
+}
+
+BOOLEAN
+KiInvalidOperationQuadword (
+    IN PFP_CONTEXT_BLOCK ContextBlock,
+    IN BOOLEAN Infinity,
+    IN LONG Sign
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called to either raise and exception or store a
+    quiet NaN for an invalid conversion to quadword.
+
+Arguments:
+
+    ContextBlock - Supplies a pointer to the emulation context block.
+
+    Infinity - Suuplies a boolean variable that specifies whether the
+        invalid operand is infinite.
+
+    Sign - Supplies the infinity sign if the invalid operand is infinite.
+
+Return Value:
+
+    If the invalid operation trap is enabled, then a value of FALSE is
+    returned. Otherwise, an appropriate longword value is stored as the
+    destination result and a value of TRUE is returned.
+
+--*/
+
+{
+
+    PEXCEPTION_RECORD ExceptionRecord;
+    PFP_IEEE_VALUE IeeeValue;
+    union {
+        ULONGLONG ResultValue;
+        ULARGE_INTEGER LargeValue;
+    }u;
+
+    PKTRAP_FRAME TrapFrame;
+
+    //
+    // If the value is infinite, then the result is a properly signed value
+    // whose magnitude is the largest that will fit in 64-bits. Otherwise,
+    // the result is an integer NaN.
+    //
+
+    if (Infinity != FALSE) {
+        if (Sign == 0) {
+            u.ResultValue = 0x7fffffffffffffff;
+
+        } else {
+            u.ResultValue = 0x8000000000000000;
+        }
+
+    } else {
+        u.ResultValue = DOUBLE_INTEGER_NAN;
+    }
+
+    //
+    // If the invalid operation trap is enabled then store the proper
+    // exception code and exception flags and return a value of FALSE.
+    // Otherwise, store a quiet NaN as the destination result and return
+    // a value of TRUE.
+    //
+
+    ExceptionRecord = ContextBlock->ExceptionRecord;
+    TrapFrame = ContextBlock->TrapFrame;
+    ((PFSR)&TrapFrame->Fsr)->SV = 1;
+    if (((PFSR)&TrapFrame->Fsr)->EV != 0) {
+        ExceptionRecord->ExceptionCode = STATUS_FLOAT_INVALID_OPERATION;
+        ((PFSR)&TrapFrame->Fsr)->XV = 1;
+        IeeeValue = (PFP_IEEE_VALUE)&ExceptionRecord->ExceptionInformation[2];
+        IeeeValue->Value.U64Value.QuadPart = u.ResultValue;
+        return FALSE;
+
+    } else {
+
+        KiSetRegisterValue(ContextBlock->Fd + 32,
+                           u.LargeValue.LowPart,
+                           ContextBlock->ExceptionFrame,
+                           ContextBlock->TrapFrame);
+
+        KiSetRegisterValue(ContextBlock->Fd + 33,
+                           u.LargeValue.HighPart,
                            ContextBlock->ExceptionFrame,
                            ContextBlock->TrapFrame);
 
@@ -3056,7 +3379,7 @@ Return Value:
 
             } else {
                 ResultValueLow = DOUBLE_MAXIMUM_VALUE_LOW;
-                ResultValueHigh = DOUBLE_MAXIMUM_VALUE_HIGH | (1 << 31);
+                ResultValueHigh = (ULONG)(DOUBLE_MAXIMUM_VALUE_HIGH | (1 << 31));
             }
 
             break;
@@ -3073,7 +3396,7 @@ Return Value:
         case ROUND_TO_MINUS_INFINITY:
             if (ResultOperand->Sign != 0) {
                 ResultValueLow = DOUBLE_INFINITY_VALUE_LOW;
-                ResultValueHigh = DOUBLE_INFINITY_VALUE_HIGH | (1 << 31);
+                ResultValueHigh = (ULONG)(DOUBLE_INFINITY_VALUE_HIGH | (1 << 31));
 
             } else {
                 ResultValueLow = DOUBLE_MAXIMUM_VALUE_LOW;
@@ -3419,7 +3742,7 @@ Return Value:
         }
 
     } else {
-        ResultValue = -ResultValue;
+        ResultValue = ~ResultValue + 1;
         if ((ResultValue >> 31) == 0) {
             Overflow = TRUE;
         }
@@ -3454,6 +3777,223 @@ Return Value:
 
     KiSetRegisterValue(ContextBlock->Fd + 32,
                        ResultValue,
+                       ContextBlock->ExceptionFrame,
+                       ContextBlock->TrapFrame);
+
+    TrapFrame->Fir = ContextBlock->BranchAddress;
+    return TRUE;
+}
+
+BOOLEAN
+KiNormalizeQuadword (
+    IN PFP_CONTEXT_BLOCK ContextBlock,
+    IN PFP_DOUBLE_OPERAND ResultOperand
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called to convert a result value to a quadword result.
+
+    N.B. The result value is specified with a guard bit on the right,
+        the hidden bit (if appropriate), and an overlfow bit of zero.
+        The result format is:
+
+        <63:55> - zero
+        <54 - hidden bit
+        <53:2> - mantissa
+        <1> - guard bit
+        <0> - round bit
+
+        There are no sticky bits.
+
+Arguments:
+
+    ContextBlock - Supplies a pointer to the emulation context block.
+
+    ResultOperand - Supplies a pointer to the result operand value.
+
+Return Value:
+
+    If there is not an exception, or the exception is handled, then a proper
+    result is stored in the destination result, the continuation address is
+    set, and a value of TRUE is returned. Otherwise, no value is stored and
+    a value of FALSE is returned.
+
+--*/
+
+{
+
+    PEXCEPTION_RECORD ExceptionRecord;
+    LONG ExponentShift;
+    PFP_IEEE_VALUE IeeeValue;
+    BOOLEAN Inexact;
+    BOOLEAN Overflow;
+    union {
+        ULONGLONG ResultValue;
+        ULARGE_INTEGER LargeValue;
+    }u;
+
+    ULONG RoundBit;
+    ULONG StickyBits;
+    PKTRAP_FRAME TrapFrame;
+
+    //
+    // Subtract out the exponent bias and divide the cases into right
+    // and left shifts.
+    //
+
+    ExceptionRecord = ContextBlock->ExceptionRecord;
+    TrapFrame = ContextBlock->TrapFrame;
+    ExponentShift = ResultOperand->Exponent - DOUBLE_EXPONENT_BIAS;
+    if (ExponentShift < 54) {
+
+        //
+        // The integer value is less than 2**52 and a right shift must
+        // be performed.
+        //
+
+        ExponentShift = 54 - ExponentShift;
+        if (ExponentShift > 54) {
+            ExponentShift = 54;
+        }
+
+        StickyBits = (ULONG)(ResultOperand->Mantissa << (32 - ExponentShift));
+        u.ResultValue = ResultOperand->Mantissa >> ExponentShift;
+        Overflow = FALSE;
+
+    } else {
+
+        //
+        // The integer value is two or greater and a left shift must be
+        // performed.
+        //
+
+        ExponentShift -= 54;
+        if (ExponentShift <= (63 - 54)) {
+            StickyBits = 0;
+            u.ResultValue = ResultOperand->Mantissa << ExponentShift;
+            Overflow = FALSE;
+
+        } else {
+            Overflow = TRUE;
+        }
+    }
+
+    //
+    // Round the result value using the mantissa and the sticky bits,
+    //
+
+    RoundBit = StickyBits >> 31;
+    StickyBits <<= 1;
+    switch (ContextBlock->Round) {
+
+        //
+        // Round to nearest representable number.
+        //
+
+    case ROUND_TO_NEAREST:
+        if (RoundBit != 0) {
+            if ((StickyBits != 0) || ((u.ResultValue & 0x1) != 0)) {
+                u.ResultValue += 1;
+                if (u.ResultValue == 0) {
+                    Overflow = TRUE;
+                }
+            }
+        }
+
+        break;
+
+        //
+        // Round toward zero.
+        //
+
+    case ROUND_TO_ZERO:
+        break;
+
+        //
+        // Round toward plus infinity.
+        //
+
+    case ROUND_TO_PLUS_INFINITY:
+        if ((ResultOperand->Sign == 0) && (StickyBits != 0)) {
+            u.ResultValue += 1;
+            if (u.ResultValue == 0) {
+                Overflow = TRUE;
+            }
+        }
+
+        break;
+
+        //
+        // Round toward minus infinity.
+        //
+
+    case ROUND_TO_MINUS_INFINITY:
+        if ((ResultOperand->Sign != 0) && (StickyBits != 0)) {
+            u.ResultValue += 1;
+            if (u.ResultValue == 0) {
+                Overflow = TRUE;
+            }
+        }
+
+        break;
+    }
+
+    //
+    // If the result value is positive and the result is negative, then
+    // overflow has occurred. Otherwise, negate the result value and
+    // check if the result is negative. If the result is positive, then
+    // overflow has occurred.
+    //
+
+    if (ResultOperand->Sign == 0) {
+        if ((u.ResultValue >> 63) != 0) {
+            Overflow = TRUE;
+        }
+
+    } else {
+        u.ResultValue = ~u.ResultValue + 1;
+        if ((u.ResultValue >> 63) == 0) {
+            Overflow = TRUE;
+        }
+    }
+
+    //
+    // Check to determine if an exception should be delivered or the result
+    // should be written to the destination register.
+    //
+
+    if (Overflow != FALSE) {
+        return KiInvalidOperationQuadword(ContextBlock,
+                                          FALSE,
+                                          0);
+
+    } else if ((StickyBits | RoundBit) != 0) {
+        ((PFSR)&TrapFrame->Fsr)->SI = 1;
+        if (((PFSR)&TrapFrame->Fsr)->EI != 0) {
+            ExceptionRecord->ExceptionCode = STATUS_FLOAT_INEXACT_RESULT;
+            ((PFSR)&TrapFrame->Fsr)->XI = 1;
+            IeeeValue = (PFP_IEEE_VALUE)&ExceptionRecord->ExceptionInformation[2];
+            IeeeValue->Value.U64Value.QuadPart = u.ResultValue;
+            return FALSE;
+        }
+
+    }
+
+    //
+    // Set the destination register value, update the return address,
+    // and return a value of TRUE.
+    //
+
+    KiSetRegisterValue(ContextBlock->Fd + 32,
+                       u.LargeValue.LowPart,
+                       ContextBlock->ExceptionFrame,
+                       ContextBlock->TrapFrame);
+
+    KiSetRegisterValue(ContextBlock->Fd + 33,
+                       u.LargeValue.HighPart,
                        ContextBlock->ExceptionFrame,
                        ContextBlock->TrapFrame);
 
@@ -3697,7 +4237,7 @@ Return Value:
                 ResultValue = SINGLE_INFINITY_VALUE;
 
             } else {
-                ResultValue = SINGLE_MAXIMUM_VALUE | (1 << 31);
+                ResultValue = (ULONG)(SINGLE_MAXIMUM_VALUE | (1 << 31));
             }
 
             break;
@@ -3713,7 +4253,7 @@ Return Value:
 
         case ROUND_TO_MINUS_INFINITY:
             if (ResultOperand->Sign != 0) {
-                ResultValue = SINGLE_INFINITY_VALUE | (1 << 31);
+                ResultValue = (ULONG)(SINGLE_INFINITY_VALUE | (1 << 31));
 
             } else {
                 ResultValue = SINGLE_MAXIMUM_VALUE;

@@ -1,5 +1,5 @@
 /*
- * IDD_PUB.H - IDP Device Driver public header for PCIMAC/ISA
+ * IDD.H - IDP Device Driver header
  */
 
 #ifndef _IDD_
@@ -55,11 +55,13 @@
 #define 	IDD_FNAME_LEN		128		/* size of a filename (path) */
 #define 	IDD_DEF_SIZE		1000	/* size of definition database */
 #define 	IDD_MAX_SEND		(6*32)	/* max # of pending send allowed */
+#define 	IDD_MAX_RECEIVE		(6*32)	/* max # of pending receives on adapter*/
 #define 	IDD_MAX_HAND		(6*6)	/* max # of receive handles allowed */
 #define 	IDD_RX_PORTS		6		/* # of recieve ports defined */
 #define 	IDD_TX_PORTS		6  	 	/* # of transmit ports defined */
 #define     IDD_TX_PARTQ        4       /* # of (buffer) partition queues for tx */
 #define		IDD_PAGE_NONE	(UCHAR)0xFF /* no page arg for idd__cpage */
+#define		IDP_MAX_RX_BUFFER	350		/* stupid double buffer buffer */
 
 /* memory banks */
 #define		IDD_BANK_BUF		0
@@ -154,10 +156,50 @@ typedef struct
 
     USHORT	msg_opcode;			/* message opcode (type) */
     USHORT	msg_buflen;			/* related buffer length */
+    ULONG	msg_bufptr;			/* related buffer pointer (0=none) */
+    ULONG	msg_bufid;			/* related buffer id */
+    ULONG	msg_param;			/* parameter area */
+} IDP_CMD;
+#pragma pack()
+
+
+/* adp low level (shared memory) command interface structure */
+#pragma pack(2)
+typedef struct
+{                            		
+    UCHAR	opcode;			 		/* command opcode */
+#define     ADP_L_MAP		0		/* - map a port name to id */
+#define     ADP_L_READ		1		/* - read from a port */
+#define     ADP_L_WRITE		2		/* - write to a port */
+#define     ADP_L_BIND		3		/* - bind a port to a status bit */
+#define     ADP_L_UNBIND	4		/* - unbind a port from a status bit */
+#define     ADP_L_POLL		5		/* - poll a prot (check for read) */
+#define     ADP_L_GET_WBUF	6		/* - get a write buffer */
+#define     ADP_L_PUT_RBUF	7		/* - put (free) a read buffer */
+
+    UCHAR	status;                     /* command status */
+#define     ADP_S_PEND		0xFF		/* - command pending */	
+#define     ADP_S_EXEC		0xFE		/* - command is executing */
+#define     ADP_S_OK		0x00		/* - command complted succ */
+#define     ADP_S_NOPORT	0x01		/* - no such port error */
+#define     ADP_S_NOMSG		0x02		/* - no messages error */
+#define     ADP_S_NOBUF		0x03		/* - no local buffer error */
+#define     ADP_S_NOBIT		0x04		/* - no status bit left error */
+#define     ADP_S_BOUND		0x05		/* - port already bound error */
+#define     ADP_S_NOTBOUND	0x06		/* - port not bound error */
+#define     ADP_S_TIMEOUT	0x07		/* - command timed out error */
+#define     ADP_S_DONE(s)	(!(s & 0x80))   /* -command execution done (<0x80) */
+
+    USHORT	port_id;			/* related port identifier */
+    CHAR	port_name[8];		/* related port name */
+    USHORT	port_bitpatt;		/* related port bit pattern */
+
+    USHORT	msg_opcode;			/* message opcode (type) */
+    USHORT	msg_buflen;			/* related buffer length */
     CHAR	*msg_bufptr;		/* related buffer pointer (0=none) */
     ULONG	msg_bufid;			/* related buffer id */
     ULONG	msg_param;			/* parameter area */
-} IDD_CMD;
+} ADP_CMD;
 #pragma pack()
 
 typedef struct tagIDD_LINESTATE
@@ -177,20 +219,40 @@ typedef struct tagIDD_CALLINFO
 	VOID*			cm[2];					/* cm that is using an lterm */
 }IDD_CALLINFO;
 
+#ifdef	DBG
+typedef struct
+{
+	INT				Count;
+	ULONG			Put;
+	ULONG			Get;
+	ULONG			TxState;
+	ULONG			FragsSinceBegin;
+	ULONG			Buffer[32];
+}BUFFER_MANAGER;
+#endif
+
 /* IDD object */
 typedef struct _IDD
 {
     USHORT	    	state;		        		/* IDD object state */
-		
 #define 	IDD_S_INIT		0					/* - initial state */	
 #define 	IDD_S_CHECK		1					/* - in check hardware phase */
 #define 	IDD_S_STARTUP	2					/* - in startup */
 #define 	IDD_S_RUN		3					/* - now running */
 #define 	IDD_S_SHUTDOWN	4					/* - in shutdown */
+
+#ifdef	DBG
+	BUFFER_MANAGER	BufferStuff[4];
+#endif
+
+	ULONG			WaitCounter;
+	ULONG			MaxWaitCounter;
+
+	USHORT			AbortReason;
 		
     NDIS_SPIN_LOCK  lock;	    				/* spin lock guarding access to obj */
 		
-    NDIS_HANDLE     adapter_handle;				/* related adapter handle */
+    NDIS_HANDLE		adapter_handle;				/* related adapter handle */
 			
     IDD_PHW			phw;						/* physical hardware */	
     IDD_VHW			vhw;						/* virtualization of hardware */
@@ -201,17 +263,18 @@ typedef struct _IDD
 	IDD_RECIT		recit[IDD_RX_PORTS];		/* receive table for rx ports */
 	IDD_RHAND		rhand_pool[IDD_MAX_HAND];	/* pool or rhand for recit table */
 	
-	CHAR			RxBuffer[350];				/* receive storage */
-
     USHORT          rx_port[IDD_RX_PORTS];      /* port id's in idp terms for rx */
     USHORT          tx_port[IDD_TX_PORTS];      /* ... for tx */
     ULONG           rx_buf;                     /* id for last received (old) buffer from idp */
     ULONG           tx_buf[IDD_TX_PARTQ];       /* (new) tx buffer as idp bufids */
     USHORT          tx_partq[IDD_TX_PORTS];     /* related memory parition queues */
 
-    IDD_CMD volatile	*cmd;					/* pointer to idp command struct */
-    USHORT volatile		*stat;					/* pointer to status register */
+    IDP_CMD volatile	*IdpCmd;				/* pointer to idp command struct */
+    USHORT	volatile	*IdpStat;				/* pointer to status register */
+    UCHAR	volatile	*IdpEnv;				/* pointer to status register */
 
+    ADP_CMD			AdpCmd;						/* pointer to adp command struct */
+    USHORT 			AdpStat;					/* pointer to status register */
 
     SEMA            proc_sema;                  /* processing sema */
 
@@ -227,13 +290,32 @@ typedef struct _IDD
 	VOID			*res_mem;					/* resource mgr handle for memory */
 	VOID			*res_io;					/* resource mgr handle for i/o */
 
-	VOID			(*set_bank)();				/* set memory bank */
-	VOID			(*set_page)();				/* set memory page - or none */
-	VOID			(*set_basemem)();			/* set base memory address */
+	ULONG			(*CheckIO)();				/* Check Base I/O */
+	ULONG			(*CheckMem)();				/* Check Base Mem */
+	VOID			(*SetBank)();				/* set memory bank */
+	VOID			(*SetPage)();				/* set memory page - or none */
+	VOID			(*SetBasemem)();			/* set base memory address */
+	INT				(*LoadCode)();				/* load the adapter */
+	ULONG			(*PollTx)();				/* poll the adapter for xmits*/
+	ULONG			(*PollRx)();				/* poll the adapter for recvs */
+	UCHAR			(*Execute)();				/* Execute a command */
+	VOID			(*OutToPort)();				/* Write Char to port*/
+	UCHAR			(*InFromPort)();			/* Read Char from port*/
+	USHORT			(*ApiGetPort)();			/* Get Port ID from adapter*/
+	INT				(*ApiBindPort)();			/* Bind a Port to a status bit*/
+	ULONG			(*ApiAllocBuffer)();		/* Get a buffer from the adapter*/
+	VOID			(*ResetAdapter)();			/* Reset the adapter*/
+	USHORT			(*NVRamRead)();				/* Read Adapters NVRam*/
+	VOID			(*ChangePage)();			/* Change Memory Page on Adapter*/
 
 	IDD_AREA		Area;						/* idd area storage */
 
     VOID			*trc;						/* related trace object */
+
+	UCHAR			DefinitionTable[IDD_DEF_SIZE];  /* init definition database */
+	USHORT			DefinitionTableLength;			/* length of definition database */
+
+	UCHAR			RxBuffer[IDP_MAX_RX_BUFFER];	/* receive storage */
 } IDD;
 
 
@@ -243,12 +325,12 @@ INT		idd_destroy(VOID* idd_1);
 INT		idd_set_base_io(VOID* idd_1, USHORT base_io);
 INT		idd_set_base_mem(VOID* idd_1, ULONG base_mem, CHAR* vmem);
 INT     idd_set_idp_bin(VOID* idd_1, CHAR* idp_bin);
-INT		idd_add_def(CHAR* name, CHAR* val);
+INT		idd_add_def(IDD *idd, CHAR* name, CHAR* val);
 INT     idd_get_nvram(VOID *idd_1, USHORT addr, USHORT* val);
 INT		idd_check(VOID* idd_1);
 INT		idd_startup(VOID* idd_1);
 INT		idd_shutdown(VOID* idd_1);
-INT		idd_process(IDD* idd, UCHAR TxOnly);
+ULONG	idd_process(IDD* idd, UCHAR TxOnly);
 INT		idd_send_msg(VOID* idd_1, IDD_MSG *msg, USHORT port,
 				VOID (*handler)(), VOID* handler_arg);
 INT		idd_attach(VOID* idd_1, USHORT port,
@@ -270,32 +352,10 @@ INT		idd_get_area(VOID* idd_1, ULONG area_id, VOID(*handler)(), VOID*handler_arg
 INT		idd_get_area_stat(VOID* idd_1, IDD_AREA *IddStat);
 VOID	IddSetRxFraming(VOID* idd_1, USHORT port, ULONG FrameType);
 
-USHORT	idd__nv_read(IDD* idd, USHORT addr);
-VOID 	idd__nv_write(IDD* idd, USHORT addr, USHORT val);
-UCHAR	idd__inp(IDD* idd, USHORT port);
-VOID	idd__outp(IDD* idd, USHORT port, UCHAR val);
-VOID	idd__memwset(USHORT* dst, USHORT val, int size);
-VOID	idd__memwcpy(USHORT* dst, USHORT* src, int size);
-VOID	idd__exec(IDD *idd, UCHAR opcode);
-VOID	idd__cpage(IDD *idd, UCHAR page);
 VOID	IddPollFunction(VOID* a1, VOID* Adapter_1, VOID* a3, VOID* a4);
 VOID	LineStateTimerTick(VOID* a1, VOID* Adapter_1, VOID* a3, VOID *a4);
 VOID	idd__cmd_handler(IDD *idd, USHORT chan, ULONG Reserved, IDD_MSG* msg);
 VOID	DetectFramingHandler(IDD *idd, USHORT chan, ULONG IddRxFrameType, IDD_XMSG *msg);
-INT		poll_tx(IDD* idd);
-INT		poll_rx(IDD* idd);
-USHORT	idd__copyin(IDD* idd, CHAR* dst, CHAR* src, USHORT sec_len);
-
-/* board specific routines */
-VOID	idd__pc_set_bank(IDD* idd, UCHAR bank, UCHAR run);
-VOID	idd__pc4_set_bank(IDD* idd, UCHAR bank, UCHAR run);
-VOID	idd__mc_set_bank(IDD* idd, UCHAR bank, UCHAR run);
-VOID	idd__pc_set_page(IDD* idd, UCHAR page);
-VOID	idd__pc4_set_page(IDD* idd, UCHAR page);
-VOID	idd__mc_set_page(IDD* idd, UCHAR page);
-VOID	idd__pc_set_basemem(IDD* idd, ULONG basemem);
-VOID	idd__pc4_set_basemem(IDD* idd, ULONG basemem);
-VOID	idd__mc_set_basemem(IDD* idd, ULONG basemem);
 
 ULONG	EnumIddInSystem(VOID);
 ULONG	EnumIddPerAdapter(VOID *Adapter_1);
@@ -303,8 +363,78 @@ IDD*	GetIddByIndex(ULONG);
 INT		IoEnumIdd(VOID *cmd);
 ULONG	idd_init(VOID);
 
+INT		IdpLoadCode(IDD* idd);
+INT		AdpLoadCode(IDD* idd);
+INT		IdpBindPort(IDD* idd, USHORT port, USHORT bitpatt);
+INT		AdpBindPort(IDD* idd, USHORT port, USHORT bitpatt);
+INT		IdpResetBoard(IDD* idd);
+INT		AdpResetBoard(IDD* idd);
+ULONG	IdpAllocBuf(IDD*, INT);
+ULONG	AdpAllocBuf(IDD*, INT);
+USHORT	IdpGetPort(IDD *idd, CHAR name[8]);
+USHORT	AdpGetPort(IDD *idd, CHAR name[8]);
+ULONG	IdpCheckIO(IDD*);
+ULONG	AdpCheckIO(IDD*);
+ULONG	IdpCheckMem(IDD*);
+ULONG	AdpCheckMem(IDD*);
 
+/* board specific routines */
+VOID	IdpPcSetBank(IDD* idd, UCHAR bank, UCHAR run);
+VOID	IdpPc4SetBank(IDD* idd, UCHAR bank, UCHAR run);
+VOID	IdpMcSetBank(IDD* idd, UCHAR bank, UCHAR run);
+VOID	AdpSetBank(IDD* idd, UCHAR bank, UCHAR run);
+VOID	IdpPcSetPage(IDD* idd, UCHAR page);
+VOID	IdpPc4SetPage(IDD* idd, UCHAR page);
+VOID	IdpMcSetPage(IDD* idd, UCHAR page);
+VOID	AdpSetPage(IDD* idd, UCHAR page);
+VOID	IdpPcSetBasemem(IDD* idd, ULONG basemem);
+VOID	IdpPc4SetBasemem(IDD* idd, ULONG basemem);
+VOID	IdpMcSetBasemem(IDD* idd, ULONG basemem);
+VOID	AdpSetBasemem(IDD* idd, ULONG basemem);
+
+UCHAR	IdpInp(IDD* idd, USHORT port);
+UCHAR	AdpInp(IDD* idd, USHORT port);
+VOID	IdpOutp(IDD* idd, USHORT port, UCHAR val);
+VOID	AdpOutp(IDD* idd, USHORT port, UCHAR val);
+ULONG	IdpPollTx(IDD* idd);
+ULONG	AdpPollTx(IDD* idd);
+ULONG	IdpPollRx(IDD* idd);
+ULONG	AdpPollRx(IDD* idd);
+UCHAR	IdpExec(IDD *idd, UCHAR opcode);
+UCHAR	AdpExec(IDD *idd, UCHAR opcode);
+VOID	IdpCPage(IDD *idd, UCHAR page);
+VOID	AdpCPage(IDD *idd, UCHAR page);
+USHORT	IdpNVRead(IDD* idd, USHORT addr);
+USHORT	AdpNVRead(IDD* idd, USHORT addr);
+VOID 	IdpNVWrite(IDD* idd, USHORT addr, USHORT val);
+VOID 	AdpNVWrite(IDD* idd, USHORT addr, USHORT val);
+VOID	IdpNVErase(IDD* idd);
+VOID	AdpNVErase(IDD* idd);
+VOID	IdpMemset(UCHAR* dst, USHORT val, int size);
+VOID	AdpMemset(UCHAR* dst, USHORT val, int size);
+VOID	IdpMemcpy(UCHAR* dst, UCHAR* src, int size);
+VOID	AdpMemcpy(UCHAR* dst, UCHAR* src, int size);
+USHORT	IdpCopyin(IDD* idd, UCHAR* dst, UCHAR* src, USHORT src_len);
+USHORT	AdpCopyin(IDD* idd, UCHAR* src, USHORT src_len);
+
+VOID	AdpWriteControlBit (IDD *idd, UCHAR	Bit, UCHAR Value);
+VOID	AdpPutBuffer (IDD *idd, ULONG Destination, PUCHAR Source, USHORT Length);
+VOID	AdpGetBuffer (IDD *idd, PUCHAR Destination, ULONG Source, USHORT Length);
+VOID	AdpWriteCommandStatus(IDD *idd, UCHAR Value);
+UCHAR	AdpReadCommandStatus(IDD *idd);
+VOID	AdpSetAddress(IDD *idd, ULONG Address);
+VOID	AdpPutUByte(IDD *idd, ULONG Address, UCHAR Value);
+VOID	AdpPutUShort(IDD *idd, ULONG Address, USHORT Value);
+VOID	AdpPutULong(IDD *idd, ULONG Address, ULONG Value);
+UCHAR	AdpGetUByte(IDD *idd, ULONG Address);
+USHORT	AdpGetUShort(IDD *idd, ULONG Address);
+ULONG	AdpGetULong(IDD *idd, ULONG Address);
+UCHAR	AdpReadReceiveStatus(IDD *idd);
+UCHAR	IdpGetUByteIO(IDD* idd, USHORT port);
+VOID	IdpGetBuffer(IDD* idd, ULONG Bank, ULONG Page, ULONG Address, USHORT Length, PUCHAR Buffer);
+VOID	IdpPutUByteIO(IDD* idd, USHORT Port, UCHAR Value);
+VOID	IdpPutBuffer(IDD* idd, ULONG Bank, ULONG Page, ULONG Address, USHORT Length, PUCHAR Buffer);
+VOID	IddGetDataFromAdapter(VOID *idd_1, PUCHAR Destination, PUCHAR Source, USHORT Length);
 VOID	LineStateHandler(VOID* idd_1, ULONG AreaId, CHAR* AreaBuffer, ULONG BufferLen);
 
 #endif			/* _IDD_ */
-

@@ -77,7 +77,8 @@ UnlinkContextHandle (
 
 VOID
 LinkLogModule (
-    PLOGMODULE   pLogModule
+    PLOGMODULE   pLogModule,
+    ANSI_STRING * pModuleNameA
     );
 
 VOID
@@ -107,6 +108,7 @@ SetUpDataStruct (
         PUNICODE_STRING     LogFileName,
         ULONG               MaxFileSize,
         ULONG               Retention,
+        ULONG               GuestAccessRestriction,
         PUNICODE_STRING     ModuleName,
         HANDLE              hLogFile,
         ELF_LOG_TYPE        LogType
@@ -242,7 +244,8 @@ PerformWriteRequest ( PELF_REQUEST_RECORD Request
 NTSTATUS
 ElfpCreateLogFileObject(
     PLOGFILE LogFile,
-    DWORD Type
+    DWORD Type,
+    ULONG GuestAccessRestriction
     );
 
 VOID
@@ -357,5 +360,25 @@ ElfBeginForcedShutdown(
     IN DWORD    ServiceSpecificCode
     );
 
+#ifdef _CAIRO_
+
+BOOL
+GetSourceAlertFilterFromRegistry(
+    HANDLE            hKeyLogFile,
+    UNICODE_STRING  * pswszSourceName,
+    SHORT           * psCategoryFilter,
+    SHORT           * psSeverityFilter);
+
+BOOL
+TestFilter(
+    WORD NTEventType, 
+    SHORT sAlertSeverity);
+
+HRESULT
+RaiseCairoAlert(
+    PLOGMODULE pLogModule, 
+    EVENTLOGRECORD * pEventLogRecord);
+
+#endif // _CAIRO_
 
 #endif // ifndef _ELFPROTO_

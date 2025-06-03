@@ -80,6 +80,7 @@ typedef struct _REQUEST_HEADER {
 // Scatter/Gather descriptor definition
 //
 
+#define PAGE_SIZE (ULONG)0x1000
 #define MAXIMUM_SG_DESCRIPTORS  17
 #define MAXIMUM_TRANSFER_SIZE  (MAXIMUM_SG_DESCRIPTORS - 1) * PAGE_SIZE
 
@@ -287,6 +288,65 @@ typedef struct _IDA_CONTROLLER {
 } IDA_CONTROLLER, *PIDA_CONTROLLER;
 
 //
+// Controller bHBAModel definitions
+//
+#define IDA_UNDEFINED_CONTROLLER    0
+#define IDA_BASE_CONTROLLER         1
+#define IDA_PCI_DAZZLER             2
+#define IDA_EISA_DAZZLER            3
+
+//
+// DAZZLER PCI interface definitions for EISA I/O space 
+//
+
+typedef struct _EISAPCI_CONTROLLER {
+
+    ULONG Timer;                               // x000
+    ULONG CPFIFO;                              // x004
+    ULONG CCFIFO;                              // x008
+    ULONG InterruptMask;                       // x00C
+    ULONG InterruptStatus;                     // x010
+    ULONG InterruptPending;                    // x014
+
+} EISAPCI_CONTROLLER, *PEISAPCI_CONTROLLER;
+
+#define IDA_PCI_TIMER_OFFSET                0
+#define IDA_PCI_CPFIFO_OFFSET               4
+#define IDA_PCI_CCFIFO_OFFSET               8
+#define IDA_PCI_MASK_OFFSET                 12
+#define IDA_PCI_STATUS_OFFSET               16
+#define IDA_PCI_PENDING_OFFSET              20
+
+#define IDA_PCI_IRQ_DISABLE_MASK            0x00000000
+#define IDA_PCI_FIFO_NOT_EMPTY_MASK         0x00000001
+#define IDA_PCI_FIFO_NOT_FULL_MASK          0x00000002
+#define IDA_PCI_COMPLETION_STATUS_ACTIVE    0x00000001
+#define IDA_PCI_ISSUE_STATUS_CLEAR          0x00000002
+
+#define IDA_PCI_PHYS_ADDR_MASK              0xfffffffc
+#define IDA_PCI_COMPLETION_STATUS_MASK      0x00000003
+#define IDA_PCI_COMPLETION_ERROR            0x00000001
+
+#define IDA_PCI_COMPAQ_ID                   0x00000E11
+#define IDA_PCI_DAZZLER_DEVICE_ID           0x0000AE10
+#define IDA_EISA_ID_MASKID_LOW              0xff000000
+
+#define IDA_PCI_NUM_ACCESS_RANGES           3
+
+typedef struct _PCI_IDENTIFIER {
+   USHORT   usVendorID;
+   USHORT   usDeviceID;
+} PCI_IDENTIFIER, *PPCI_IDENTIFIER;
+
+typedef struct _IDA_CONTEXT {
+   UCHAR          bHBAModel;
+   USHORT         usEisaSlot;
+   PCI_IDENTIFIER PciIdentifier;
+   PCI_ADDRESS    PciAddress;
+} IDA_CONTEXT, *PIDA_CONTEXT;
+
+
+//
 // System Doorbell Interrupt Register bit definitions
 //
 
@@ -349,3 +409,4 @@ typedef struct _FLUSH_DISABLE {
 	USHORT disable_flag;
 	UCHAR reserved[30];
 } FLUSH_DISABLE, *PFLUSH_DISABLE;
+

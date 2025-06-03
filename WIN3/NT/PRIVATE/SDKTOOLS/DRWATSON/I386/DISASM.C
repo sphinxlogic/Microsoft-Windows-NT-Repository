@@ -230,13 +230,13 @@ disasm( PDEBUGPACKET dp, PULONG pOffset, PUCHAR pchDst, BOOLEAN fEAout )
 
                 if (*action & 1) {
                     if (fEAout) {
-                        EAaddr[0] = GetRegValue(dp, REGESI);
+                        EAaddr[0] = (DWORD)GetRegValue(dp, REGESI);
                         EAsize[0] = indx;
                         }
                     }
                 if (*action++ & 2) {
                     if (fEAout) {
-                        EAaddr[1] = GetRegValue(dp, REGEDI);
+                        EAaddr[1] = (DWORD)GetRegValue(dp, REGEDI);
                         EAsize[1] = indx;
                         }
                     }
@@ -755,15 +755,15 @@ DIdoModrm (PDEBUGPACKET dp, char **ppchBuf, int segOvr, BOOLEAN fEAout)
         else {
             if (fEAout) {
                 if (segOvr) {
-                    EAaddr[0] = GetRegValue(dp, reg32[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg32[rm]);
                     pchEAseg[0] = distbl[segOvr].instruct;
                     }
                 else if (reg32[rm] == REGEBP || reg32[rm] == REGESP) {
-                    EAaddr[0] = GetRegValue(dp, reg32[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg32[rm]);
                     pchEAseg[0] = dszSS_;
                     }
                 else
-                    EAaddr[0] = GetRegValue(dp, reg32[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg32[rm]);
                 }
             OutputString(ppchBuf, mrmtb32[rm]);
             }
@@ -779,7 +779,7 @@ DIdoModrm (PDEBUGPACKET dp, char **ppchBuf, int segOvr, BOOLEAN fEAout)
                     *(*ppchBuf)++ = (char)(ss + '0');
                     }
                 if (fEAout)
-                    EAaddr[0] = GetRegValue(dp, reg32[ind]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg32[ind]);
                 }
             }
         }
@@ -792,17 +792,17 @@ DIdoModrm (PDEBUGPACKET dp, char **ppchBuf, int segOvr, BOOLEAN fEAout)
         else {
             if (fEAout) {
                 if (segOvr) {
-                    EAaddr[0] = GetRegValue(dp, reg16[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg16[rm]);
                     pchEAseg[0] = distbl[segOvr].instruct;
                     }
                 else if (reg16[rm] == REGEBP) {
-                    EAaddr[0] = GetRegValue(dp, reg16[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg16[rm]);
                     pchEAseg[0] = dszSS_;
                     }
                 else
-                    EAaddr[0] = GetRegValue(dp, reg16[rm]);
+                    EAaddr[0] = (DWORD)GetRegValue(dp, reg16[rm]);
                 if (rm < 4)
-                    EAaddr[0] += GetRegValue(dp, reg16_2[rm]);
+                    EAaddr[0] += (DWORD)GetRegValue(dp, reg16_2[rm]);
             }
             OutputString(ppchBuf, mrmtb16[rm]);
             }
@@ -1001,10 +1001,9 @@ OutputString (char **ppBuf, char *pStr)
 void
 OutputSymbol (PDEBUGPACKET dp, char **ppBuf, char *pValue, int length, int segOvr)
 {
-    ULONG   displacement;
-    ULONG   value;
-    PSYMBOL sym;
-    char    *szSymName;
+    ULONG               displacement;
+    ULONG               value;
+    char                *szSymName;
 
     value = 0;
     if (length == 1)
@@ -1016,12 +1015,8 @@ OutputSymbol (PDEBUGPACKET dp, char **ppBuf, char *pValue, int length, int segOv
 
     EAaddr[0] = value;
 
-    sym = GetSymFromAddrAllContexts( value, &displacement, dp );
-    if (sym) {
-        szSymName = UnDName( sym );
-        if (!szSymName) {
-            szSymName = &sym->szName[1];
-        }
+    if (SymGetSymFromAddr( dp->hProcess, value, &displacement, sym )) {
+        szSymName = sym->Name;
         OutputString(ppBuf, szSymName);
         OutputHexValue(ppBuf, (char *)&displacement, length, TRUE);
         *(*ppBuf)++ = ' ';
@@ -1069,7 +1064,7 @@ GetNextOffset (PDEBUGPACKET dp, PULONG pcaddr, BOOLEAN fStep)
     //  read instruction stream bytes into membuf and set mode and
     //      opcode size flags
 
-    *pcaddr = GetRegValue(dp,REGEIP);
+    *pcaddr = (DWORD)GetRegValue(dp,REGEIP);
     instroffset = *pcaddr;
     G_mode_32 = TRUE;
     mode_32 = opsize_32 = (G_mode_32 == 1); /* local addressing mode */
@@ -1107,7 +1102,7 @@ GetNextOffset (PDEBUGPACKET dp, PULONG pcaddr, BOOLEAN fStep)
 
     else if (opcode == 0xcf) {          //  cf - iret - get RA from stack
 
-        addrReturn = GetRegValue(dp, REGESP);
+        addrReturn = (DWORD)GetRegValue(dp, REGESP);
         DoMemoryRead( dp,
                       (LPVOID)addrReturn,
                       (LPVOID)retAddr,

@@ -651,7 +651,6 @@ Return Value:
     //  one and attach it to the process
     //
     if ( ProcessLdtInfo == NULL ) {
-        // BUGBUG Quota??
         ProcessLdtInfo = ExAllocatePool(
                             PagedPool,
                             sizeof(LDTINFORMATION)

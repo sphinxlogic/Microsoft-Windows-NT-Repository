@@ -22,64 +22,18 @@ Revision History:
 
 --*/
 
-#include <dpmi32p.h>
+#include "precomp.h"
+#pragma hdrstop
+#include <softpc.h>
 #include <memory.h>
 #include <malloc.h>
 
-extern ULONG VdmSize;
 
-//
-// Internal structure definitions
-//
-#pragma pack(1)
-typedef struct _DpmiMemInfo {
-    DWORD LargestFree;
-    DWORD MaxUnlocked;
-    DWORD MaxLocked;
-    DWORD AddressSpaceSize;
-    DWORD UnlockedPages;
-    DWORD FreePages;
-    DWORD PhysicalPages;
-    DWORD FreeAddressSpace;
-    DWORD PageFileSize;
-} DPMIMEMINFO, *PDPMIMEMINFO;
-#pragma pack()
-
-//
-// Ldt  Points to the 16bit side table.
-//
-LDT_ENTRY *Ldt;
-
-
-// Function Prototypes
-
-VOID DpmiSetDescriptorEntry(
-    VOID
-    );
-
-VOID DpmiSwitchToProtectedmode(
-    VOID
-    );
-
-VOID DpmiSetProtectedmodeInterrupt(
-    VOID
-    );
-
-VOID DpmiGetFastBopEntry(
-    VOID
-    );
-
-VOID DPMIGetMemoryInfo(
-    VOID
-    );
-
-VOID GetFastBopEntryAddress(
-    PCONTEXT VdmContext
-    );
-
-VOID
-DpmiSetDescriptorEntry(
-    VOID
+BOOL
+DpmiSetX86Descriptor(
+    LDT_ENTRY *Descriptors,
+    USHORT  registerAX,
+    USHORT  registerCX
     )
 /*++
 
@@ -99,68 +53,12 @@ Return Value:
 --*/
 
 {
-    LDT_ENTRY *Descriptors;
-    USHORT i;
-    ULONG Base;
-    ULONG Limit;
     PPROCESS_LDT_INFORMATION LdtInformation = NULL;
     NTSTATUS Status;
-    USHORT  registerCX;
-    USHORT  registerAX;
     ULONG ulLdtEntrySize;
     ULONG Selector0,Selector1;
 
-    registerAX = getAX();
-    if (registerAX % 8){
-        return;
-    }
-
-    Descriptors = (PLDT_ENTRY)Sim32GetVDMPointer(((getES() << 16) | getBX()),
-        0,
-        (UCHAR) (getMSW() & MSW_PE));
-
-
-    registerCX =  getCX();
     ulLdtEntrySize =  registerCX * sizeof(LDT_ENTRY);
-    for (i = 0; i < registerCX; i++) {
-
-        // form Base and Limit values
-
-        Base = Descriptors[i].BaseLow | (Descriptors[i].HighWord.Bytes.BaseMid << 16) |
-            (Descriptors[i].HighWord.Bytes.BaseHi << 24);
-
-        Limit = Descriptors[i].LimitLow | (Descriptors[i].HighWord.Bits.LimitHi << 16);
-        Limit = (Limit << (12 * Descriptors[i].HighWord.Bits.Granularity)) +
-            Descriptors[i].HighWord.Bits.Granularity * 0xFFF;
-
-        //
-        // Do NOT remove the following code.  There are several apps that
-        // choose arbitrarily high limits for theirs selectors.  This works
-        // under windows 3.1, but NT won't allow us to do that.
-        // The following code fixes the limits for such selectors.
-        // Note: if the base is > 0x7FFEFFFF, the selector set will fail
-        //
-
-        if ((Limit > 0x7FFEFFFF) || (Base + Limit > 0x7FFEFFFF)) {
-            Limit = 0x7FFEFFFF - (Base + 0xFFF);
-            if (!Descriptors[i].HighWord.Bits.Granularity) {
-                Descriptors[i].LimitLow = (USHORT)(Limit & 0x0000FFFF);
-                Descriptors[i].HighWord.Bits.LimitHi =
-                    (Limit & 0x000f0000) >> 16;
-            } else {
-                Descriptors[i].LimitLow = (USHORT)((Limit >> 12) & 0xFFFF);
-                Descriptors[i].HighWord.Bits.LimitHi =
-                    ((Limit >> 12) & 0x000f0000) >> 16;
-            }
-        }
-
-        if ((registerAX >> 3) != 0) {
-            FlatAddress[(registerAX >> 3) + i] = Base;
-#if DBG
-            SelectorLimit[(registerAX >> 3) + i] = Limit;
-#endif
-        }
-    }
 
     //
     // If there are only 2 descriptors, set them the fast way
@@ -181,10 +79,9 @@ Return Value:
             *((PULONG)(&Descriptors[1]) + 1)
             );
         if (NT_SUCCESS(Status)) {
-          setAX(0);
-          return;
+          return TRUE;
         }
-        return;
+        return FALSE;
     }
 
     LdtInformation = malloc(sizeof(PROCESS_LDT_INFORMATION) + ulLdtEntrySize);
@@ -209,18 +106,18 @@ Return Value:
             ("DPMI: Failed to set selectors %lx\n", Status)
             );
         free(LdtInformation);
-        return;
+        return FALSE;
     }
 
     free(LdtInformation);
 
-    setAX(0);
+    return TRUE;
 }
 
 
 
 VOID
-DpmiSwitchToProtectedmode(
+switch_to_protected_mode(
     VOID
     )
 
@@ -287,115 +184,6 @@ Return Value:
 }
 
 
-VOID
-DpmiSetProtectedmodeInterrupt(
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function services the SetProtectedmodeInterrupt bop.  It retrieves
-    the handler information from the Dos application stack, and puts it into
-    the VdmTib, for use by instruction emulation.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    PVDM_INTERRUPTHANDLER Handlers;
-    USHORT IntNumber;
-    PCHAR StackPointer;
-
-    Handlers = ((PVDM_TIB)(NtCurrentTeb()->Vdm))->VdmInterruptHandlers;
-
-    StackPointer = Sim32GetVDMPointer(((((ULONG)getSS()) << 16) | getSP()),
-        0,
-        (UCHAR) (getMSW() & MSW_PE)
-        );
-
-    IntNumber = *(PUSHORT)(StackPointer + 6);
-
-    Handlers[IntNumber].Flags = *(PUSHORT)(StackPointer + 8);
-    Handlers[IntNumber].CsSelector = *(PUSHORT)(StackPointer + 4);
-    Handlers[IntNumber].Eip = *(PULONG)(StackPointer);
-    
-    if (IntNumber == 0x21)
-    {
-        VDMSET_INT21_HANDLER_DATA    ServiceData;
-        NTSTATUS Status;
-
-        ServiceData.Selector = Handlers[IntNumber].CsSelector;
-        ServiceData.Offset =   Handlers[IntNumber].Eip;
-        ServiceData.Gate32 = Handlers[IntNumber].Flags & VDM_INT_32;
-        
-        Status = NtVdmControl(VdmSetInt21Handler,  &ServiceData);
-
-#if DBG
-        if (!NT_SUCCESS(Status)) {
-            OutputDebugString("DPMI32: Error Setting Int21handler\n");
-        }
-#endif        
-    }
-
-    setAX(0);
-}
-
-VOID
-DpmiSetFaultHandler(
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function services the SetFaultHandler bop.  It retrieves
-    the handler information from the Dos application stack, and puts it into
-    the VdmTib, for use by instruction emulation.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
-    PVDM_FAULTHANDLER Handlers;
-    USHORT IntNumber;
-    PCHAR StackPointer;
-
-    Handlers = ((PVDM_TIB)(NtCurrentTeb()->Vdm))->VdmFaultHandlers;
-
-    StackPointer = Sim32GetVDMPointer(((((ULONG)getSS()) << 16) | getSP()),
-        0,
-        (UCHAR) (getMSW() & MSW_PE)
-        );
-
-    IntNumber = *(PUSHORT)(StackPointer + 12);
-
-    Handlers[IntNumber].Flags = *(PULONG)(StackPointer + 14);
-    Handlers[IntNumber].CsSelector = *(PUSHORT)(StackPointer + 10);
-    Handlers[IntNumber].Eip = *(PULONG)(StackPointer + 6);
-    Handlers[IntNumber].SsSelector = *(PUSHORT)(StackPointer + 4);
-    Handlers[IntNumber].Esp = *(PULONG)(StackPointer);
-
-    setAX(0);
-}
 VOID
 switch_to_real_mode(
     VOID
@@ -479,63 +267,6 @@ Return Value:
 --*/
 {
     GetFastBopEntryAddress(&VdmTib.VdmContext);
-}
-
-VOID
-DpmiGetMemoryInfo(
-    VOID
-    )
-/*++
-
-Routine Description:
-
-    This routine returns information about memory to the dos extender
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-{
-    MEMORYSTATUS MemStatus;
-    PDPMIMEMINFO MemInfo;
-
-    //
-    // Get a pointer to the return structure
-    //
-    MemInfo = (PDPMIMEMINFO)Sim32GetVDMPointer(
-        ((ULONG)getES()) << 16,
-        1,
-        TRUE
-        );
-
-    (CHAR *)MemInfo += (*GetDIRegister)();
-
-    //
-    // Initialize the structure
-    //
-    RtlFillMemory(MemInfo, sizeof(DPMIMEMINFO), 0xFF);
-
-    //
-    // Get the information on memory
-    //
-    MemStatus.dwLength = sizeof(MEMORYSTATUS);
-    GlobalMemoryStatus(&MemStatus);
-
-    //
-    // Return the information
-    //
-    MemInfo->LargestFree = MemStatus.dwAvailPhys;
-    MemInfo->FreePages = MemStatus.dwAvailPhys / 4096;
-    MemInfo->AddressSpaceSize = MemStatus.dwTotalVirtual / 4096;
-    MemInfo->PhysicalPages = MemStatus.dwTotalPhys / 4096;
-    MemInfo->PageFileSize = MemStatus.dwTotalPageFile / 4096;
-    MemInfo->FreeAddressSpace = MemStatus.dwAvailVirtual / 4096;
-
 }
 
 UCHAR *
@@ -651,44 +382,5 @@ Return Value:
         ThreadSetDebugContext (&ClearDebugRegisters[0]);
         setCF(1);
         }
-
-}
-
-
-
-VOID DpmiPassPmStackInfo(
-    VOID
-    )
-/*++
-
-Routine Description:
-
-    This routine enables DOSX, the monitor and NTOSKRNL to share a data
-    structure that is used to manage DPMI stack switching. The data structure
-    is defined in VDMTIB, and its address is passed here to DOSX. In addition,
-    DOSX passes the address of the "locked PM" stack, which this code puts
-    into the data structure.
-
-Arguments:
-
-    Client ES:BX => locked PM stack
-
-Return Value:
-
-    Client CS:DS = Flat pointer to VdmPmStackInfo
-
---*/
-{
-    DWORD pPmStackInfo;
-
-    VdmTib.PmStackInfo.SsSelector = getES();
-    VdmTib.PmStackInfo.Esp = (DWORD) getBX();
-    VdmTib.PmStackInfo.LockCount = 0;
-
-    pPmStackInfo = (DWORD) &VdmTib.PmStackInfo;
-
-    setCX(HIWORD(pPmStackInfo));
-    setDX(LOWORD(pPmStackInfo));
-
 
 }

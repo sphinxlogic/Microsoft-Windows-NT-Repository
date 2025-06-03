@@ -1,6 +1,6 @@
 /*++ BUILD Version: 0001    // Increment this if a change has global effects
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -1433,7 +1433,7 @@ Notes:
 //
 // MessageText:
 //
-//  %2 : The adapter has received a request to deinsert from the 
+//  %2 : The adapter has received a request to deinsert from the
 //  ring.  The adapter will continue to try to reinsert back into the ring.
 //
 #define EVENT_NDIS_REMOVE_RECEIVED_ERROR 0x800013A5L
@@ -1452,7 +1452,7 @@ Notes:
 //
 // MessageText:
 //
-//  %2 : The adapter has detected an Adapter Check as a result of some 
+//  %2 : The adapter has detected an Adapter Check as a result of some
 //  unrecoverable hardware of software error.  Please contact your service provider.
 //
 #define EVENT_NDIS_ADAPTER_CHECK_ERROR   0xC00013A7L
@@ -2713,6 +2713,133 @@ Notes:
 //  %2 could not bind to any adapters. The transport could not start.
 //
 #define EVENT_IPX_NO_ADAPTERS            0xC0002523L
+
+
+/////////////////////////////////////////////////////////////////////////
+//
+// DCOM Events (10000-10999)
+//
+//
+/////////////////////////////////////////////////////////////////////////
+
+
+//
+// MessageId: EVENT_RPCSS_CREATEPROCESS_FAILURE
+//
+// MessageText:
+//
+//  Unable to start a DCOM Server: %3.
+//  The error:%n"%%%2"%nHappened while starting this command:%n%1
+//
+#define EVENT_RPCSS_CREATEPROCESS_FAILURE 0xC0002710L
+
+//
+// MessageId: EVENT_RPCSS_RUNAS_CREATEPROCESS_FAILURE
+//
+// MessageText:
+//
+//  Unable to start a DCOM Server: %3 as %4/%5.
+//  The error:%n"%%%2"%nHappened while starting this command:%n%1
+//
+#define EVENT_RPCSS_RUNAS_CREATEPROCESS_FAILURE 0xC0002711L
+
+//
+// MessageId: EVENT_RPCSS_LAUNCH_ACCESS_DENIED
+//
+// MessageText:
+//
+//  Access denied attempting to launch a DCOM Server.
+//  The server is:%n%1
+//
+#define EVENT_RPCSS_LAUNCH_ACCESS_DENIED 0xC0002712L
+
+//
+// MessageId: EVENT_RPCSS_DEFAULT_LAUNCH_ACCESS_DENIED
+//
+// MessageText:
+//
+//  Access denied attempting to launch a DCOM Server using DefaultLaunchPermssion.
+//  The server is:%n%1
+//
+#define EVENT_RPCSS_DEFAULT_LAUNCH_ACCESS_DENIED 0xC0002713L
+
+//
+// MessageId: EVENT_RPCSS_RUNAS_CANT_LOGIN
+//
+// MessageText:
+//
+//  DCOM got error "%%%1" and was unable to logon %2\%3
+//  in order to run the server:%n%4
+//
+#define EVENT_RPCSS_RUNAS_CANT_LOGIN     0xC0002714L
+
+//
+// MessageId: EVENT_RPCSS_START_SERVICE_FAILURE
+//
+// MessageText:
+//
+//  DCOM got error "%%%1" attempting to start the service %2 with arguments "%3"
+//  in order to run the server:%n%4
+//
+#define EVENT_RPCSS_START_SERVICE_FAILURE 0xC0002715L
+
+//
+// MessageId: EVENT_RPCSS_REMOTE_SIDE_ERROR
+//
+// MessageText:
+//
+//  DCOM got error "%%%1" from the computer %2 when attempting to
+//  activate the server:%n%3
+//
+#define EVENT_RPCSS_REMOTE_SIDE_ERROR    0xC0002716L
+
+//
+// MessageId: EVENT_RPCSS_ACTIVATION_ERROR
+//
+// MessageText:
+//
+//  DCOM got error "%%%1" when attempting to
+//  activate the server:%n%2
+//
+#define EVENT_RPCSS_ACTIVATION_ERROR     0xC0002717L
+
+//
+// MessageId: EVENT_RPCSS_REMOTE_SIDE_ERROR_WITH_FILE
+//
+// MessageText:
+//
+//  DCOM got error "%%%1" from the computer %2 when attempting to
+//  the server:%n%3 with file %4.
+//
+#define EVENT_RPCSS_REMOTE_SIDE_ERROR_WITH_FILE 0xC0002718L
+
+//
+// MessageId: EVENT_RPCSS_REMOTE_SIDE_UNAVAILABLE
+//
+// MessageText:
+//
+//  DCOM was unable to communicate with the computer %1 using any of the configured
+//  protocols.
+//
+#define EVENT_RPCSS_REMOTE_SIDE_UNAVAILABLE 0xC0002719L
+
+//
+// MessageId: EVENT_RPCSS_SERVER_START_TIMEOUT
+//
+// MessageText:
+//
+//  The server %1 did not register with DCOM within the required timeout.
+//
+#define EVENT_RPCSS_SERVER_START_TIMEOUT 0xC000271AL
+
+//
+// MessageId: EVENT_RPCSS_SERVER_NOT_RESPONDING
+//
+// MessageText:
+//
+//  The server %1 could not be contacted to establish the connection to the client
+//
+#define EVENT_RPCSS_SERVER_NOT_RESPONDING 0xC000271BL
 
 
 #endif // _NETEVENT

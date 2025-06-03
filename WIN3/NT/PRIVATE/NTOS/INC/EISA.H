@@ -387,4 +387,3 @@ typedef struct _DMA_EXTENDED_MODE {
 #define DMA_AUTO_INIT       0x10 // Auto initialization mode
 #endif
 #endif
-

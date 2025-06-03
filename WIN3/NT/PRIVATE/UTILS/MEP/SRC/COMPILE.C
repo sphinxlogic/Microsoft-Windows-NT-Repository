@@ -404,7 +404,7 @@ nextmsg (
                     fLook = TRUE;
                 }
             } else {
-                fLook = (flagType) strcmpi (pFileHead->pName, tempbuf);
+                fLook = (flagType) _strcmpi (pFileHead->pName, tempbuf);
             }
     
 	    if (fLook) {
@@ -412,7 +412,7 @@ nextmsg (
                  * if about to change to new file, check for existance first, and if found,
                  * autosave our current file.
                  */
-                if (strcmpi(pFileHead->pName, tempbuf)) {
+                if (_strcmpi(pFileHead->pName, tempbuf)) {
                     fh = MepFOpen(tempbuf, ACCESSMODE_READ, SHAREMODE_RW, FALSE);
                     if (fh == NULL) {
                         return disperr (MSGERR_CMPSRC, tempbuf);

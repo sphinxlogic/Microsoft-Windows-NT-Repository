@@ -21,6 +21,9 @@ Revision History:
 --*/
 
 #include "psp.h"
+#include "winerror.h"
+
+
 //
 // Process Pooled Quota Usage and Limits
 //  NtQueryInformationProcess using ProcessPooledUsageAndLimits
@@ -29,6 +32,7 @@ Revision History:
 extern ULONG MmSizeOfPagedPoolInBytes;
 extern ULONG MmSizeOfNonPagedPoolInBytes;
 extern ULONG MmTotalCommitLimit;
+extern KMUTANT ObpInitKillMutant;
 
 //
 // this is the csrss process !
@@ -45,6 +49,12 @@ extern BOOLEAN PsWatchEnabled;
 #define WS_OVERHEAD 16
 #define MAX_WS_CATCH_INDEX (((WS_CATCH_SIZE-WS_OVERHEAD)/sizeof(PROCESS_WS_WATCH_INFORMATION)) - 2)
 
+KPRIORITY PspPriorityTable[PROCESS_PRIORITY_CLASS_REALTIME+1] = {8,4,8,13,24};
+
+NTSTATUS
+PsConvertToGuiThread(
+    VOID
+    );
 
 NTSTATUS
 PspQueryWorkingSetWatch(
@@ -86,10 +96,14 @@ PspSetQuotaLimits(
     );
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, PsEstablishWin32Callouts)
+#pragma alloc_text(PAGE, PsConvertToGuiThread)
+#pragma alloc_text(PAGE, PsCreateWin32Process)
 #pragma alloc_text(PAGE, NtQueryInformationProcess)
 #pragma alloc_text(PAGE, NtSetInformationProcess)
 #pragma alloc_text(PAGE, NtQueryInformationThread)
 #pragma alloc_text(PAGE, NtSetInformationThread)
+#pragma alloc_text(PAGE, PsSetProcessPriorityByClass)
 #pragma alloc_text(PAGELK, PspQueryWorkingSetWatch)
 #pragma alloc_text(PAGELK, PspQueryQuotaLimits)
 #pragma alloc_text(PAGELK, PspQueryPooledQuotaLimits)
@@ -111,7 +125,6 @@ PspQueryWorkingSetWatch(
     PEPROCESS Process;
     KIRQL OldIrql;
     NTSTATUS st;
-    PVOID UnlockHandle;
 
     st = ObReferenceObjectByHandle(
             ProcessHandle,
@@ -131,30 +144,36 @@ PspQueryWorkingSetWatch(
         return STATUS_UNSUCCESSFUL;
     }
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)PspQueryWorkingSetWatch);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle(ExPageLockHandle);
     ExAcquireSpinLock(&WorkingSetCatcher->SpinLock,&OldIrql);
 
     if ( WorkingSetCatcher->CurrentIndex ) {
 
         //
-        // Null Terminate
+        // Null Terminate the first empty entry in the buffer
         //
 
         WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingPc = NULL;
-        WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingVa = NULL;
+
+        //Store a special Va value if the buffer was full and
+        //page faults could have been lost
+
+        if (WorkingSetCatcher->CurrentIndex != WorkingSetCatcher->MaxIndex)
+            WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingVa = NULL;
+        else
+            WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingVa = (PVOID) 1;
 
         SpaceNeeded = (WorkingSetCatcher->CurrentIndex+1) * sizeof(PROCESS_WS_WATCH_INFORMATION);
     } else {
         ExReleaseSpinLock(&WorkingSetCatcher->SpinLock,OldIrql);
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
         ObDereferenceObject(Process);
         return STATUS_NO_MORE_ENTRIES;
     }
 
     if ( ProcessInformationLength < SpaceNeeded ) {
         ExReleaseSpinLock(&WorkingSetCatcher->SpinLock,OldIrql);
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
         ObDereferenceObject(Process);
         return STATUS_BUFFER_TOO_SMALL;
     }
@@ -178,7 +197,7 @@ PspQueryWorkingSetWatch(
     WorkingSetCatcher->CurrentIndex = 0;
     ExReleaseSpinLock(&WorkingSetCatcher->SpinLock,OldIrql);
 
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
     ObDereferenceObject(Process);
 
     return STATUS_SUCCESS;
@@ -199,7 +218,6 @@ PspQueryQuotaLimits(
     KIRQL OldIrql;
     NTSTATUS st;
     PEPROCESS_QUOTA_BLOCK QuotaBlock;
-    PVOID UnlockHandle;
 
     if ( ProcessInformationLength != (ULONG) sizeof(QUOTA_LIMITS) ) {
         return STATUS_INFO_LENGTH_MISMATCH;
@@ -220,8 +238,7 @@ PspQueryQuotaLimits(
 
     QuotaBlock = Process->QuotaBlock;
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)PspQueryQuotaLimits);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle(ExPageLockHandle);
 
     if ( QuotaBlock != &PspDefaultQuotaBlock ) {
         ExAcquireSpinLock(&QuotaBlock->QuotaLock,&OldIrql);
@@ -264,7 +281,7 @@ PspQueryQuotaLimits(
         ;
     }
 
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
     return STATUS_SUCCESS;
 }
 
@@ -283,7 +300,6 @@ PspQueryPooledQuotaLimits(
     NTSTATUS st;
     PEPROCESS_QUOTA_BLOCK QuotaBlock;
     POOLED_USAGE_AND_LIMITS UsageAndLimits;
-    PVOID UnlockHandle;
 
     if ( ProcessInformationLength != (ULONG) sizeof(POOLED_USAGE_AND_LIMITS) ) {
         return STATUS_INFO_LENGTH_MISMATCH;
@@ -304,8 +320,7 @@ PspQueryPooledQuotaLimits(
 
     QuotaBlock = Process->QuotaBlock;
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)PspQueryPooledQuotaLimits);
-    ASSERT(UnlockHandle);
+    MmLockPagableSectionByHandle(ExPageLockHandle);
 
     ExAcquireSpinLock(&QuotaBlock->QuotaLock,&OldIrql);
 
@@ -322,7 +337,7 @@ PspQueryPooledQuotaLimits(
     UsageAndLimits.PeakPagefileUsage = QuotaBlock->PeakPagefileUsage;
 
     ExReleaseSpinLock(&QuotaBlock->QuotaLock,OldIrql);
-    MmUnlockPagableImageSection(UnlockHandle);
+    MmUnlockPagableImageSection(ExPageLockHandle);
 
     ObDereferenceObject(Process);
 
@@ -362,7 +377,11 @@ NtQueryInformationProcess(
     VM_COUNTERS VmCounters;
     KERNEL_USER_TIMES SysUserTime;
     HANDLE DebugPort;
+    ULONG HandleCount;
     ULONG DefaultHardErrorMode;
+    HANDLE Wx86Info;
+    PHANDLE_TABLE Ht;
+    ULONG DisableBoost;
 
     PAGED_CODE();
 
@@ -659,6 +678,63 @@ NtQueryInformationProcess(
 
         return STATUS_SUCCESS;
 
+    case ProcessHandleCount :
+
+        if ( ProcessInformationLength != (ULONG) sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_QUERY_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        KeWaitForSingleObject( &ObpInitKillMutant,
+                               Executive,
+                               KernelMode,
+                               FALSE,
+                               NULL
+                             );
+
+        Ht = (PHANDLE_TABLE)Process->ObjectTable;
+
+        if ( Ht ) {
+            HandleCount = Ht->HandleCount;
+            }
+        else {
+            HandleCount = 0;
+            }
+
+        KeReleaseMutant( &ObpInitKillMutant, 0, FALSE, FALSE );
+
+        ObDereferenceObject(Process);
+
+        //
+        // Either of these may cause an access violation. The
+        // exception handler will return access violation as
+        // status code. No further cleanup needs to be done.
+        //
+
+        try {
+            *(PULONG) ProcessInformation = HandleCount;
+
+            if (ARGUMENT_PRESENT(ReturnLength) ) {
+                *ReturnLength = sizeof(HANDLE);
+            }
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return STATUS_SUCCESS;
+        }
+
+        return STATUS_SUCCESS;
+
     case ProcessLdtInformation :
 
         st = ObReferenceObjectByHandle(
@@ -688,6 +764,82 @@ NtQueryInformationProcess(
         }
 
         ObDereferenceObject(Process);
+        return st;
+
+
+    case ProcessWx86Information :
+
+        if ( ProcessInformationLength != sizeof(HANDLE) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        Wx86Info = NULL;
+
+#ifndef i386
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_QUERY_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        if ((ULONG)Process->VdmObjects == sizeof(WX86TIB)) {
+            Wx86Info = Process->VdmObjects;
+        }
+
+        ObDereferenceObject(Process);
+#endif
+
+        try {
+            *(PHANDLE) ProcessInformation = Wx86Info;
+
+            if (ARGUMENT_PRESENT(ReturnLength) ) {
+                *ReturnLength = sizeof(HANDLE);
+            }
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return STATUS_SUCCESS;
+        }
+
+        return STATUS_SUCCESS;
+
+    case ProcessPriorityBoost:
+        if ( ProcessInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_QUERY_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        DisableBoost = Process->Pcb.DisableBoost ? 1 : 0;
+
+        ObDereferenceObject(Process);
+
+        try {
+            *(PULONG)ProcessInformation = DisableBoost;
+
+            if (ARGUMENT_PRESENT(ReturnLength) ) {
+                *ReturnLength = sizeof(ULONG);
+            }
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
         return st;
 
     default:
@@ -764,8 +916,9 @@ PspSetQuotaLimits(
 
             KeAttachProcess (&Process->Pcb);
             ReturnStatus = MmAdjustWorkingSetSize (
-                            RequestedLimits.MinimumWorkingSetSize >> PAGE_SHIFT,
-                            RequestedLimits.MaximumWorkingSetSize >> PAGE_SHIFT
+                            RequestedLimits.MinimumWorkingSetSize,
+                            RequestedLimits.MaximumWorkingSetSize,
+                            FALSE
                             );
             KeDetachProcess();
 
@@ -799,8 +952,8 @@ PspSetQuotaLimits(
             // Grab the quota lock to prevent usage changes
             //
 
-            UnlockHandle = MmLockPagableImageSection((PVOID)PspSetQuotaLimits);
-            ASSERT(UnlockHandle);
+            MmLockPagableSectionByHandle(ExPageLockHandle);
+            UnlockHandle = ExPageLockHandle;
 
             ExAcquireSpinLock(&PspDefaultQuotaBlock.QuotaLock, &OldIrql );
 
@@ -949,14 +1102,14 @@ LimitRaised1:
 
             KeAttachProcess (&Process->Pcb);
             ReturnStatus = MmAdjustWorkingSetSize (
-                            RequestedLimits.MinimumWorkingSetSize >> PAGE_SHIFT,
-                            RequestedLimits.MaximumWorkingSetSize >> PAGE_SHIFT
+                            RequestedLimits.MinimumWorkingSetSize,
+                            RequestedLimits.MaximumWorkingSetSize,
+                            FALSE
                             );
             KeDetachProcess();
 
         }
     }
-wsdone:
     ObDereferenceObject(Process);
 
     return ReturnStatus;
@@ -1015,6 +1168,11 @@ Return Value:
     BOOLEAN HasPrivilege = FALSE;
     PLIST_ENTRY Next;
     UCHAR MemoryPriority;
+    PROCESS_PRIORITY_CLASS LocalPriorityClass;
+    HANDLE Wx86Info;
+    KAFFINITY Affinity, AffinityWithMasks;
+    ULONG DisableBoost;
+    BOOLEAN bDisableBoost;
 
     PAGED_CODE();
 
@@ -1031,6 +1189,10 @@ Return Value:
         } else if (ProcessInformationClass == ProcessEnableAlignmentFaultFixup) {
             ProbeAlignment = sizeof(BOOLEAN);
 
+        } else if (ProcessInformationClass == ProcessPriorityClass) {
+            ProbeAlignment = sizeof(BOOLEAN);
+        } else if (ProcessInformationClass == ProcessAffinityMask) {
+            ProbeAlignment = sizeof (KAFFINITY);
         } else {
             ProbeAlignment = sizeof(ULONG);
         }
@@ -1069,11 +1231,6 @@ Return Value:
             return st;
         }
 
-        if ( Process->WorkingSetWatch ) {
-            ObDereferenceObject(Process);
-            return STATUS_PORT_ALREADY_SET;
-        }
-
         WorkingSetCatcher = ExAllocatePool(NonPagedPool,WS_CATCH_SIZE);
         if ( !WorkingSetCatcher ) {
             ObDereferenceObject(Process);
@@ -1084,13 +1241,13 @@ Return Value:
         WorkingSetCatcher->CurrentIndex = 0;
         WorkingSetCatcher->MaxIndex = MAX_WS_CATCH_INDEX;
 
-        KeInitializeSpinLock(&WorkingSetCatcher->SpinLock);
-
         if ( Process->WorkingSetWatch ) {
             ExFreePool(WorkingSetCatcher);
             ObDereferenceObject(Process);
             return STATUS_PORT_ALREADY_SET;
         }
+
+        KeInitializeSpinLock(&WorkingSetCatcher->SpinLock);
         Process->WorkingSetWatch = WorkingSetCatcher;
 
         ObDereferenceObject(Process);
@@ -1162,6 +1319,69 @@ Return Value:
 
         KeSetPriorityProcess(&Process->Pcb,BasePriority);
         MmSetMemoryPriorityProcess(Process, MemoryPriority);
+        ObDereferenceObject(Process);
+
+        return STATUS_SUCCESS;
+        }
+
+    case ProcessPriorityClass:
+        {
+        if ( ProcessInformationLength != sizeof(PROCESS_PRIORITY_CLASS) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        try {
+            LocalPriorityClass = *(PPROCESS_PRIORITY_CLASS)ProcessInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        if ( LocalPriorityClass.PriorityClass > PROCESS_PRIORITY_CLASS_REALTIME ) {
+            return STATUS_INVALID_PARAMETER;
+            }
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_SET_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+            }
+
+
+        if ( LocalPriorityClass.PriorityClass != Process->PriorityClass &&
+             LocalPriorityClass.PriorityClass == PROCESS_PRIORITY_CLASS_REALTIME ) {
+
+            //
+            // Increasing the base priority of a process is a
+            // privileged operation.  Check for the privilege
+            // here.
+            //
+
+            HasPrivilege = SeCheckPrivilegedObject(
+                               SeIncreaseBasePriorityPrivilege,
+                               ProcessHandle,
+                               PROCESS_SET_INFORMATION,
+                               PreviousMode
+                               );
+
+            if (!HasPrivilege) {
+
+                ObDereferenceObject(Process);
+                return STATUS_PRIVILEGE_NOT_HELD;
+            }
+        }
+
+        Process->PriorityClass = LocalPriorityClass.PriorityClass;
+
+        PsSetProcessPriorityByClass(Process, LocalPriorityClass.Foreground ?
+                PsProcessPriorityForeground : PsProcessPriorityBackground);
+
         ObDereferenceObject(Process);
 
         return STATUS_SUCCESS;
@@ -1323,14 +1543,37 @@ Return Value:
         }
 
         if ( DebugPort ) {
+            st = PsLockProcess(Process,PreviousMode,PsLockPollOnTimeout);
+
+            if ( st != STATUS_SUCCESS ) {
+                if ( DebugPort ) {
+                    ObDereferenceObject(DebugPort);
+                    }
+                ObDereferenceObject( Process );
+                return STATUS_PROCESS_IS_TERMINATING;
+                }
+
             if ( Process->DebugPort ) {
+                PsUnlockProcess(Process);
                 ObDereferenceObject(Process);
                 ObDereferenceObject(DebugPort);
                 return STATUS_PORT_ALREADY_SET;
             } else {
                 Process->DebugPort = DebugPort;
             }
+
+            KeAttachProcess (&Process->Pcb);
+            if (Process->Peb != NULL) {
+                Process->Peb->BeingDebugged = (BOOLEAN)(Process->DebugPort != NULL ? TRUE : FALSE);
+                }
+            KeDetachProcess();
+
+            PsUnlockProcess(Process);
+
         } else {
+            if (Process->DebugPort) {
+                ObDereferenceObject(Process->DebugPort);
+            }
             Process->DebugPort = DebugPort;
         }
 
@@ -1593,7 +1836,7 @@ Return Value:
         // If the calls returns FALSE we must return an error code.
         //
 
-        if (!SeSinglePrivilegeCheck(RtlConvertLongToLargeInteger(
+        if (!SeSinglePrivilegeCheck(RtlConvertLongToLuid(
                                     SE_TCB_PRIVILEGE),
                                     PreviousMode )) {
 
@@ -1662,6 +1905,174 @@ Return Value:
         ObDereferenceObject(Process);
         return STATUS_SUCCESS;
 
+
+#ifndef i386
+    case ProcessWx86Information :
+        if ( ProcessInformationLength != sizeof(HANDLE) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        try {
+            Wx86Info = *(PHANDLE) ProcessInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        if ( (ULONG)Wx86Info != sizeof(WX86TIB)) {
+            return STATUS_INVALID_PARAMETER;
+        }
+
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_SET_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        Process->VdmObjects = Wx86Info;
+
+        ObDereferenceObject(Process);
+        return STATUS_SUCCESS;
+#endif
+
+    case ProcessAffinityMask:
+
+        if ( ProcessInformationLength != sizeof(KAFFINITY) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+            }
+
+        try {
+            Affinity = *(PKAFFINITY)ProcessInformation;
+
+            }
+        except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+            }
+
+        AffinityWithMasks = Affinity & KeActiveProcessors;
+
+        if ( !Affinity || ( AffinityWithMasks != Affinity ) ) {
+            return STATUS_INVALID_PARAMETER;
+            }
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_SET_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+            }
+
+        {
+            NTSTATUS xst;
+            PLIST_ENTRY Next;
+            PETHREAD OriginalThread;
+
+            //
+            // the following allows this api to properly if
+            // called while the exiting process is blocked holding the
+            // createdeletelock. This can happen during debugger/server
+            // lpc transactions that occur in pspexitthread
+            //
+
+            xst = PsLockProcess(Process,PreviousMode,PsLockPollOnTimeout);
+
+            if ( xst != STATUS_SUCCESS ) {
+                ObDereferenceObject( Process );
+                return STATUS_PROCESS_IS_TERMINATING;
+                }
+
+            Process->Pcb.Affinity = AffinityWithMasks;
+
+            Next = Process->Pcb.ThreadListHead.Flink;
+
+            while ( Next != &Process->Pcb.ThreadListHead) {
+
+                Thread = (PETHREAD)(CONTAINING_RECORD(Next,KTHREAD,ThreadListEntry));
+                KeSetAffinityThread(&Thread->Tcb,AffinityWithMasks);
+                Next = Next->Flink;
+                }
+
+            PsUnlockProcess(Process);
+        }
+        ObDereferenceObject(Process);
+        return STATUS_SUCCESS;
+
+    case ProcessPriorityBoost:
+        if ( ProcessInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        try {
+            DisableBoost = *(PULONG)ProcessInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        bDisableBoost = (DisableBoost ? TRUE : FALSE);
+
+        st = ObReferenceObjectByHandle(
+                ProcessHandle,
+                PROCESS_SET_INFORMATION,
+                PsProcessType,
+                PreviousMode,
+                (PVOID *)&Process,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+            }
+
+        {
+            NTSTATUS xst;
+            PLIST_ENTRY Next;
+            PETHREAD OriginalThread;
+
+            //
+            // the following allows this api to properly if
+            // called while the exiting process is blocked holding the
+            // createdeletelock. This can happen during debugger/server
+            // lpc transactions that occur in pspexitthread
+            //
+
+            xst = PsLockProcess(Process,PreviousMode,PsLockPollOnTimeout);
+
+            if ( xst != STATUS_SUCCESS ) {
+                ObDereferenceObject( Process );
+                return STATUS_PROCESS_IS_TERMINATING;
+                }
+
+            Process->Pcb.DisableBoost = bDisableBoost;
+
+            Next = Process->Pcb.ThreadListHead.Flink;
+
+            while ( Next != &Process->Pcb.ThreadListHead) {
+
+                Thread = (PETHREAD)(CONTAINING_RECORD(Next,KTHREAD,ThreadListEntry));
+                KeSetDisableBoostThread(&Thread->Tcb,bDisableBoost);
+                Next = Next->Flink;
+                }
+
+            PsUnlockProcess(Process);
+        }
+        ObDereferenceObject(Process);
+        return STATUS_SUCCESS;
+
+        return st;
+
     default:
         return STATUS_INVALID_INFO_CLASS;
     }
@@ -1711,11 +2122,14 @@ Return Value:
 
     LARGE_INTEGER PerformanceCount;
     PETHREAD Thread;
+    PEPROCESS Process;
+    ULONG LastThread;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS st;
     THREAD_BASIC_INFORMATION BasicInfo;
     KERNEL_USER_TIMES SysUserTime;
     PVOID Win32StartAddressValue;
+    ULONG DisableBoost;
 
     //
     // Get previous processor mode and probe output argument if necessary.
@@ -1941,6 +2355,68 @@ Return Value:
 
         return st;
 
+    case ThreadAmILastThread:
+        if ( ThreadInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        Thread = PsGetCurrentThread();
+        Process = THREAD_TO_PROCESS(Thread);
+
+        if ( (Process->Pcb.ThreadListHead.Flink == Process->Pcb.ThreadListHead.Blink)
+             && (Process->Pcb.ThreadListHead.Flink == &Thread->Tcb.ThreadListEntry) ) {
+            LastThread = 1;
+            }
+        else {
+            LastThread = 0;
+            }
+
+        try {
+            *(PULONG)ThreadInformation = LastThread;
+
+            if (ARGUMENT_PRESENT(ReturnLength) ) {
+                *ReturnLength = sizeof(ULONG);
+            }
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        return STATUS_SUCCESS;
+
+    case ThreadPriorityBoost:
+        if ( ThreadInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        st = ObReferenceObjectByHandle(
+                ThreadHandle,
+                THREAD_QUERY_INFORMATION,
+                PsThreadType,
+                PreviousMode,
+                (PVOID *)&Thread,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        DisableBoost = Thread->Tcb.DisableBoost ? 1 : 0;
+
+        ObDereferenceObject(Thread);
+
+        try {
+            *(PULONG)ThreadInformation = DisableBoost;
+
+            if (ARGUMENT_PRESENT(ReturnLength) ) {
+                *ReturnLength = sizeof(ULONG);
+            }
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        return st;
+
     default:
         return STATUS_INVALID_INFO_CLASS;
     }
@@ -2024,9 +2500,12 @@ Return Value:
     KPRIORITY Priority;
     LONG BasePriority;
     ULONG TlsIndex;
+    PVOID TlsArrayAddress;
     PVOID Win32StartAddressValue;
     ULONG ProbeAlignment;
     BOOLEAN EnableAlignmentFaultFixup;
+    ULONG IdealProcessor;
+    ULONG DisableBoost;
 
     HANDLE ImpersonationTokenHandle;
 
@@ -2124,8 +2603,8 @@ Return Value:
 
         if ( BasePriority > THREAD_BASE_PRIORITY_MAX ||
              BasePriority < THREAD_BASE_PRIORITY_MIN ) {
-            if ( BasePriority == THREAD_BASE_PRIORITY_LOWRT ||
-                 BasePriority == THREAD_BASE_PRIORITY_IDLE ) {
+            if ( BasePriority == THREAD_BASE_PRIORITY_LOWRT+1 ||
+                 BasePriority == THREAD_BASE_PRIORITY_IDLE-1 ) {
                 ;
                 }
             else {
@@ -2278,7 +2757,7 @@ Return Value:
         // it as the thread's impersonation token.
         //
 
-        st = PspAssignImpersonationToken( Thread, ImpersonationTokenHandle );
+        st = PsAssignImpersonationToken( Thread, ImpersonationTokenHandle );
 
 
         ObDereferenceObject(Thread);
@@ -2388,6 +2867,78 @@ Return Value:
         return st;
 
 
+    case ThreadIdealProcessor:
+
+        if ( ThreadInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+
+        try {
+            IdealProcessor = *(PULONG)ThreadInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        if ( IdealProcessor > MAXIMUM_PROCESSORS ) {
+            return STATUS_INVALID_PARAMETER;
+            }
+
+        st = ObReferenceObjectByHandle(
+                ThreadHandle,
+                THREAD_SET_INFORMATION,
+                PsThreadType,
+                PreviousMode,
+                (PVOID *)&Thread,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        //
+        // this is sort of a slimey way of returning info from this set only
+        // api
+        //
+
+        st = (NTSTATUS)KeSetIdealProcessorThread(&Thread->Tcb,(CCHAR)IdealProcessor);
+
+        ObDereferenceObject(Thread);
+
+        return st;
+
+
+    case ThreadPriorityBoost:
+        if ( ThreadInformationLength != sizeof(ULONG) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        try {
+            DisableBoost = *(PULONG)ThreadInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        st = ObReferenceObjectByHandle(
+                ThreadHandle,
+                THREAD_SET_INFORMATION,
+                PsThreadType,
+                PreviousMode,
+                (PVOID *)&Thread,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        KeSetDisableBoostThread(&Thread->Tcb,DisableBoost ? TRUE : FALSE);
+
+        ObDereferenceObject(Thread);
+
+        return st;
+
     case ThreadZeroTlsCell:
         if ( ThreadInformationLength != sizeof(ULONG) ) {
             return STATUS_INFO_LENGTH_MISMATCH;
@@ -2473,10 +3024,51 @@ Return Value:
         return st;
         break;
 
+    case ThreadSetTlsArrayAddress:
+        if ( ThreadInformationLength != sizeof(PVOID) ) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+
+        try {
+            TlsArrayAddress = *(PVOID *)ThreadInformation;
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+        }
+
+        st = ObReferenceObjectByHandle(
+                ThreadHandle,
+                THREAD_SET_INFORMATION,
+                PsThreadType,
+                PreviousMode,
+                (PVOID *)&Thread,
+                NULL
+                );
+
+        if ( !NT_SUCCESS(st) ) {
+            return st;
+        }
+
+        Thread->Tcb.TlsArray = TlsArrayAddress;
+
+#if defined(_MIPS_)
+
+        if (Thread == PsGetCurrentThread()) {
+            PCR->TlsArray = TlsArrayAddress;
+        }
+
+#endif
+
+        ObDereferenceObject(Thread);
+
+        return st;
+        break;
+
     default:
         return STATUS_INVALID_INFO_CLASS;
     }
 }
+
 
 NTSTATUS
 PsWatchWorkingSet(
@@ -2484,22 +3076,31 @@ PsWatchWorkingSet(
     IN PVOID PcValue,
     IN PVOID Va
     )
+
+/*++
+
+Routine Description:
+
+    This function collects data about page faults.
+    For both user and kernel space page faults, it stores information about
+    the page fault in the causing process's data structure.
+
+Arguments:
+
+    Status - type of page fault
+    PcValue - Program Counter value that caused page fault
+    Va - Memory address that was being accessed to cause the page fault
+
+--*/
+
 {
     PEPROCESS Process;
     PPAGEFAULT_HISTORY WorkingSetCatcher;
     KIRQL OldIrql;
     BOOLEAN TransitionFault = FALSE;
 
-    //
-    // throw away system references
-    //
-
-    if ( !NT_SUCCESS( Status ) ||
-         (ULONG)PcValue & 0x80000000 ||
-         (ULONG)Va & 0x80000000
-       ) {
+    if ( !NT_SUCCESS( Status ))
         return Status;
-        }
 
     if ( Status <= STATUS_PAGE_FAULT_TRANSITION ) {
         TransitionFault = TRUE;
@@ -2509,6 +3110,7 @@ PsWatchWorkingSet(
 #if DBG
         ULONG EventLogMask = TransitionFault ? RTL_EVENT_CLASS_TRANSITION_FAULT
                                              : RTL_EVENT_CLASS_PAGE_FAULT;
+        ASSERT (KeGetCurrentIrql() < DISPATCH_LEVEL);
         if (RtlAreLogging( EventLogMask )) {
             RtlLogEvent( PspPageFaultEventId,
                          EventLogMask,
@@ -2526,10 +3128,381 @@ PsWatchWorkingSet(
         ExReleaseSpinLock(&WorkingSetCatcher->SpinLock,OldIrql);
         return Status;
         }
+
+    //Store the Pc and Va values in the buffer. Use the least sig. bit
+    //of the Va to store whether it was a soft or hard fault
     WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingPc = PcValue;
-    WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingVa = Va;
+    WorkingSetCatcher->WatchInfo[WorkingSetCatcher->CurrentIndex].FaultingVa = TransitionFault ? (PVOID)((ULONG)Va | 1) : (PVOID)((ULONG)Va & 0xfffffffe) ;
     WorkingSetCatcher->CurrentIndex++;
 
     ExReleaseSpinLock(&WorkingSetCatcher->SpinLock,OldIrql);
     return Status;
+}
+
+PKWIN32_PROCESS_CALLOUT PspW32ProcessCallout;
+PKWIN32_THREAD_CALLOUT PspW32ThreadCallout;
+ULONG PspW32ProcessSize;
+ULONG PspW32ThreadSize;
+FAST_MUTEX PspW32FastMutex;
+
+NTKERNELAPI
+VOID
+PsEstablishWin32Callouts(
+    IN PKWIN32_PROCESS_CALLOUT ProcessCallout,
+    IN PKWIN32_THREAD_CALLOUT ThreadCallout,
+    IN PKWIN32_GLOBALATOMTABLE_CALLOUT GlobalAtomTableCallout,
+    IN PVOID BatchFlushRoutine,
+    IN ULONG ProcessSize,
+    IN ULONG ThreadSize
+    )
+
+/*++
+
+Routine Description:
+
+    This function is used by the Win32 kernel mode component to
+    register callout functions for process/thread init/deinit functions
+    and to report the sizes of the structures.
+
+Arguments:
+
+    ProcessCallout - Supplies the address of the function to be called when
+        a process is either created or deleted.
+
+    ThreadCallout - Supplies the address of the function to be called when
+        a thread is either created or deleted.
+
+    GlobalAtomTableCallout - Supplies the address of the function to be called
+        to get the correct global atom table for the current process
+
+    BatchFlushRoutine - Supplies the address of the function to be called
+
+    ProcessSize - Supplies the size of the Win32 process object
+
+    ThreadSize - Supplies the size of the Win32 thread object
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PAGED_CODE();
+
+    ExInitializeFastMutex(&PspW32FastMutex);
+    PspW32ProcessCallout = ProcessCallout;
+    PspW32ThreadCallout = ThreadCallout;
+    ExGlobalAtomTableCallout = GlobalAtomTableCallout;
+    PspW32ProcessSize = ProcessSize;
+    PspW32ThreadSize = ThreadSize;
+    KeGdiFlushUserBatch = (PGDI_BATCHFLUSH_ROUTINE)BatchFlushRoutine;
+}
+
+
+VOID
+PsSetProcessPriorityByClass(
+    IN PEPROCESS Process,
+    IN PSPROCESSPRIORITYMODE PriorityMode
+    )
+{
+    KPRIORITY BasePriority;
+    UCHAR MemoryPriority;
+    ULONG QuantumIndex;
+
+    PAGED_CODE();
+
+
+    BasePriority = PspPriorityTable[Process->PriorityClass];
+
+
+    if ( PriorityMode == PsProcessPriorityForeground ) {
+        QuantumIndex = PsPrioritySeperation;
+        MemoryPriority = MEMORY_PRIORITY_FOREGROUND;
+#if defined(_X86_)
+        Process->MmAgressiveWsTrimMask &= ~PS_WS_TRIM_BACKGROUND_ONLY_APP;
+#endif // _X86_
+        }
+    else {
+        QuantumIndex = 0;
+        MemoryPriority = MEMORY_PRIORITY_BACKGROUND;
+        }
+
+    if ( Process->PriorityClass != PROCESS_PRIORITY_CLASS_IDLE ) {
+        Process->Pcb.ThreadQuantum = PspForegroundQuantum[QuantumIndex];
+        }
+    else {
+        Process->Pcb.ThreadQuantum = THREAD_QUANTUM;
+        }
+
+    KeSetPriorityProcess(&Process->Pcb,BasePriority);
+    if ( PriorityMode != PsProcessPrioritySpinning ) {
+        MmSetMemoryPriorityProcess(Process, MemoryPriority);
+        }
+}
+
+
+
+NTSTATUS
+PsConvertToGuiThread(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This function converts a thread to a GUI thread. This involves giving the
+    thread a larger variable sized stack, and allocating appropriate w32
+    thread and process objects.
+
+Arguments:
+
+    None.
+
+Environment:
+
+    On x86 this function needs to build an EBP frame.  The function
+    KeSwitchKernelStack depends on this fact.   The '#pragma optimize
+    ("y",off)' below disables frame pointer omission for all builds.
+    Note that this modification to the optimizations being
+    performed is from this point in the source module below.
+
+Return Value:
+
+    TBD
+
+--*/
+
+#if defined(i386)
+#pragma optimize ("y",off)
+#endif
+
+{
+    PVOID NewStack;
+    PVOID OldStack;
+    PVOID Win32Process;
+    PVOID Win32ProcessInit;
+    PVOID Win32Thread;
+    PVOID Win32ThreadSave;
+    PETHREAD Thread;
+    PEPROCESS Process;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    if (KeGetPreviousMode() == KernelMode) {
+        return STATUS_INVALID_PARAMETER;
+        }
+
+    if ( !PspW32ProcessCallout ) {
+        return STATUS_ACCESS_DENIED;
+        }
+
+
+    Thread = PsGetCurrentThread();
+
+    //
+    // If the thread is using the shadow service table, then an attempt is
+    // being made to convert a thread that has already been converted, or
+    // a limit violation has occured on the Win32k system service table.
+    //
+
+    if ( Thread->Tcb.ServiceTable != (PVOID)&KeServiceDescriptorTable[0] ) {
+        return STATUS_ALREADY_WIN32;
+        }
+
+    Process = PsGetCurrentProcess();
+
+    //
+    // check to see if process is already set, if not, we
+    // need to set it up as well.  User may have allocated
+    // the structure but not initialized it.
+    //
+
+    Win32ProcessInit = Process->Win32Process;
+    if ( Win32ProcessInit ) {
+        if ( *(PEPROCESS *)Win32ProcessInit ) {
+
+            //
+            // Callout has been made.
+            //
+
+            Win32ProcessInit = NULL;
+            }
+        Win32Process = NULL;
+        }
+    else {
+        ExAcquireFastMutex(&PspW32FastMutex);
+        if ( !Process->Win32Process ) {
+
+            //
+            // The process really is not set
+            //
+
+            Win32Process = ExAllocatePoolWithQuotaTag((PagedPool|POOL_QUOTA_FAIL_INSTEAD_OF_RAISE),PspW32ProcessSize,'crpW');
+            if ( !Win32Process ) {
+
+                NtCurrentTeb()->LastErrorValue = (LONG)ERROR_NOT_ENOUGH_MEMORY;
+
+                ExReleaseFastMutex(&PspW32FastMutex);
+                return STATUS_NO_MEMORY;
+                }
+            RtlZeroMemory(Win32Process, PspW32ProcessSize);
+            Win32ProcessInit = Win32Process;
+            }
+        else {
+            Win32Process = NULL;
+            ExReleaseFastMutex(&PspW32FastMutex);
+            }
+        }
+
+    //
+    // We have the W32 process (or don't need one). Now get the thread data
+    // and the kernel stack
+    //
+
+    Win32Thread = ExAllocatePoolWithQuotaTag((PagedPool|POOL_QUOTA_FAIL_INSTEAD_OF_RAISE),PspW32ThreadSize,'rhtW');
+    if ( !Win32Thread ) {
+
+        if ( Win32Process ) {
+            ExFreePool(Win32Process);
+            ExReleaseFastMutex(&PspW32FastMutex);
+            }
+
+        NtCurrentTeb()->LastErrorValue = (LONG)ERROR_NOT_ENOUGH_MEMORY;
+
+        return STATUS_NO_MEMORY;
+        }
+
+    RtlZeroMemory((UCHAR *)Win32Thread, PspW32ThreadSize);
+    NewStack = MmCreateKernelStack(TRUE);
+
+    if ( !NewStack ) {
+
+        ExFreePool(Win32Thread);
+        if ( Win32Process ) {
+            ExFreePool(Win32Process);
+            ExReleaseFastMutex(&PspW32FastMutex);
+            }
+
+        NtCurrentTeb()->LastErrorValue = (LONG)ERROR_NOT_ENOUGH_MEMORY;
+
+        return STATUS_NO_MEMORY;
+        }
+
+    OldStack = KeSwitchKernelStack(NewStack,
+                                   (UCHAR *)NewStack - KERNEL_LARGE_STACK_COMMIT);
+
+    MmDeleteKernelStack(OldStack, FALSE);
+
+    //
+    // We are all clean on the stack, now call out and then link the Win32 structures
+    // to the base exec structures
+    //
+
+    if ( Win32ProcessInit ) {
+        if (Win32Process) {
+            Process->Win32Process = Win32Process;
+            }
+        Status = (PspW32ProcessCallout)(Win32ProcessInit,TRUE);
+        if ( !NT_SUCCESS(Status) ) {
+            if ( Win32Thread ) {
+                ExFreePool(Win32Thread);
+                }
+            if ( Win32Process ) {
+
+                //
+                // Allow the process destruction code to free Win32Process
+                //
+
+                ExReleaseFastMutex(&PspW32FastMutex);
+                }
+            return Status;
+            }
+        if (Win32Process) {
+            ExReleaseFastMutex(&PspW32FastMutex);
+            }
+        }
+
+    Win32ThreadSave = Thread->Tcb.Win32Thread;
+    Thread->Tcb.Win32Thread = Win32Thread;
+
+    //
+    // Switch the thread to use the shadow system service table which will
+    // enable it to execute Win32k services.
+    //
+
+    Thread->Tcb.ServiceTable = (PVOID)&KeServiceDescriptorTableShadow[0];
+
+    //
+    // Reference the thread prior to the callout because the
+    // callout may perform a callback to the client.  If the
+    // thread dies during the callback, the callback will
+    // not return and the thread will be dereferenced in
+    // PspExitThread.
+    //
+
+    ObReferenceObject(Thread);
+    Status = (PspW32ThreadCallout)(Win32Thread,PsW32ThreadCalloutInitialize);
+    if ( !NT_SUCCESS(Status) ) {
+        if ( Win32Thread ) {
+            ExFreePool(Win32Thread);
+            }
+        Thread->Tcb.ServiceTable = (PVOID)&KeServiceDescriptorTable[0];
+        Thread->Tcb.Win32Thread = Win32ThreadSave;
+        ObDereferenceObject(Thread);
+        }
+
+    return Status;
+
+}
+
+NTSTATUS
+PsCreateWin32Process(
+    IN PEPROCESS Process
+    )
+
+/*++
+
+Routine Description:
+
+    This function allocates and initializes a Win32Process.  This allows
+    USER to get a Win32Process structure without going through
+    PsConvertToGuiThread.
+
+Arguments:
+
+    Process - Supplies the process being converted to a gui process.
+
+Return Value:
+
+    TBS
+
+--*/
+
+{
+    PVOID Win32Process;
+
+    if (Process->Win32Process)
+        return STATUS_SUCCESS;
+
+    ExAcquireFastMutex(&PspW32FastMutex);
+    if ( !Process->Win32Process ) {
+
+        //
+        // The process really is not set
+        //
+
+        Win32Process = ExAllocatePoolWithQuotaTag((PagedPool|POOL_QUOTA_FAIL_INSTEAD_OF_RAISE),PspW32ProcessSize,'crpW');
+        if ( !Win32Process ) {
+            ExReleaseFastMutex(&PspW32FastMutex);
+
+            return STATUS_NO_MEMORY;
+            }
+        RtlZeroMemory(Win32Process, PspW32ProcessSize);
+        Process->Win32Process = Win32Process;
+        }
+    ExReleaseFastMutex(&PspW32FastMutex);
+    return STATUS_SUCCESS;
 }

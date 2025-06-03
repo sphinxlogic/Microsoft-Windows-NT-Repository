@@ -7,10 +7,45 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.7  $
-      $Date:   15 Jun 1994 11:07:08  $
-	$Author:   RWOLFF  $
-	   $Log:   S:/source/wnt/ms11/miniport/vcs/init_m.c  $
+  $Revision:   1.16  $
+      $Date:   15 May 1996 16:35:42  $
+	$Author:   RWolff  $
+	   $Log:   S:/source/wnt/ms11/miniport/archive/init_m.c_v  $
+ * 
+ *    Rev 1.16   15 May 1996 16:35:42   RWolff
+ * Waits for idle after setting accelerator mode.
+ * 
+ *    Rev 1.15   17 Apr 1996 13:09:26   RWolff
+ * Backed out Alpha LFB mapping as dense.
+ * 
+ *    Rev 1.14   11 Apr 1996 15:12:40   RWolff
+ * Now maps framebuffer as dense on DEC Alpha with PCI graphics card.
+ * 
+ *    Rev 1.13   31 Mar 1995 11:53:46   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.12   14 Feb 1995 15:41:20   RWOLFF
+ * Changed conditional compile that uses or fakes failure of
+ * VideoPortMapBankedMemory() to look for IOCTL_VIDEO_SHARE_VIDEO_MEMORY
+ * instead of the routine itself. Looking for the routine always failed,
+ * and since the routine is supplied in order to allow DCI to be used
+ * on systems without a linear framebuffer, it should be available on
+ * any DDK version that supports the IOCTL. If it isn't, a compile-time
+ * error will be generated (unresolved external reference).
+ * 
+ *    Rev 1.11   03 Feb 1995 15:17:00   RWOLFF
+ * Added support for DCI, removed dead code.
+ * 
+ *    Rev 1.10   23 Dec 1994 10:47:18   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.9   22 Jul 1994 17:48:50   RWOLFF
+ * Merged with Richard's non-x86 code stream.
+ * 
+ *    Rev 1.8   27 Jun 1994 16:30:12   RWOLFF
+ * Now reports all hardware default mode tables as noninterlaced to
+ * avoid confusing the display applet.
  * 
  *    Rev 1.7   15 Jun 1994 11:07:08   RWOLFF
  * Now uses VideoPortZeroDeviceMemory() to clear 24BPP screens on NT builds
@@ -77,15 +112,9 @@ OTHER FILES
 
 #include "dderror.h"
 
-/*
- * Different include files are needed for the Windows NT device driver
- * and device drivers for other operating systems.
- */
-#ifndef MSDOS
 #include "miniport.h"
 #include "video.h"
 #include "ntddvdeo.h"
-#endif
 
 #include "stdtyp.h"
 #include "amach.h"
@@ -119,6 +148,9 @@ static void QuerySingleMode_m(PVIDEO_MODE_INFORMATION ModeInformation, struct qu
 #pragma alloc_text(PAGE_M, QuerySingleMode_m)
 #pragma alloc_text(PAGE_M, SetCurrentMode_m)
 #pragma alloc_text(PAGE_M, ResetDevice_m)
+#pragma alloc_text(PAGE_M, SetPowerManagement_m)
+#pragma alloc_text(PAGE_M, ShareVideoMemory_m)
+/* BankMap_m() can't be made pageable */
 #endif
 
 
@@ -154,12 +186,14 @@ void AlphaInit_m(void)
     DEC_DELAY
     OUTPW(MEM_BNDRY, 0);
     DEC_DELAY
+#if 0
     OUTPW(CONFIG_STATUS_1, 0x1410);
     DEC_DELAY
     OUTPW(SCRATCH_PAD_1, 0);
     DEC_DELAY
     OUTPW(SCRATCH_PAD_0, 0);
     DEC_DELAY
+#endif
     OUTPW(CLOCK_SEL, 0x250);
     DEC_DELAY
     OUTPW(DAC_W_INDEX, 0x40);
@@ -167,6 +201,10 @@ void AlphaInit_m(void)
     OUTPW(MISC_CNTL, 0xC00);
     DEC_DELAY
     OUTPW(LOCAL_CONTROL, 0x1402);
+#if defined (MIPS) || defined (_MIPS_)
+    DEC_DELAY
+    OUTPW(OVERSCAN_COLOR_8, 0);    //RKE: to eliminate left overscan on MIPS
+#endif
     DEC_DELAY
 
     return;
@@ -329,6 +367,11 @@ VP_STATUS MapVideoMemory_m(PVIDEO_REQUEST_PACKET RequestPacket, struct query_str
             }
         }
     inIoSpace = 0;
+#if 0   /* defined(ALPHA) if display driver can handle dense LFB */
+    if (QueryPtr->q_bus_type == BUS_PCI)
+        inIoSpace = 4;
+#endif
+
     status = VideoPortMapMemory(phwDeviceExtension,
                     	        phwDeviceExtension->PhysicalFrameAddress,
                                 &(memoryInformation->FrameBufferLength),
@@ -714,7 +757,7 @@ static void QuerySingleMode_m(PVIDEO_MODE_INFORMATION ModeInformation,
 void SetCurrentMode_m(struct query_structure *QueryPtr, struct st_mode_table *CrtTable)
 {
     WORD MiscOptions;   /* Contents of MISC_OPTIONS register */
-    int Scratch;        /* Temporary variable */
+    USHORT Scratch;     /* Temporary variable */
 
     /*
      * Put the DAC in a known state before we start.
@@ -812,7 +855,7 @@ void SetCurrentMode_m(struct query_structure *QueryPtr, struct st_mode_table *Cr
     /*
      * If we are going to be using the VGA aperture on a Mach 32,
      * initialize the bank manager by saving the ATI extended register
-     * values and putting the VGA controller inot packed pixel mode.
+     * values and putting the VGA controller into packed pixel mode.
      *
      * We can't identify this case by looking at
      * phwDeviceExtension->FrameLength because it is set to 0x10000
@@ -867,29 +910,46 @@ void SetCurrentMode_m(struct query_structure *QueryPtr, struct st_mode_table *Cr
      *
      * 24 and 32 BPP would require a q_desire_y value beyond the
      * maximum allowable clipping value (1535) if we clear the screen
-     * using a blit. Since the display driver only supports these
-     * colour depths if the linear framebuffer is enabled, we can
-     * set all of video memory to 0 through the LFB for these depths.
-     *
-     * Since the memory we are blanking is dedicated for use by a
-     * specific device (the graphics subsystem) rather than being
-     * system memory, use VideoPortZeroDeviceMemory() where available.
-     * This function is present in Daytona beta 2 and later versions
-     * of Windows NT.
+     * using a normal blit. Since these pixel depths are only supported
+     * up to 800x600, we can fake it by doing a 16BPP blit of double the
+     * screen height, clipping the special case of 640x480 24BPP on
+     * a 1M card (this is the only true colour mode that will fit in
+     * 1M, so if we hit this case on a 1M card, we know which mode
+     * we're dealing with) to avoid running off the end of video memory.
      */
     if (CrtTable->m_pixel_depth >= 24)
         {
-#ifdef DAYTONA
-        VideoPortZeroDeviceMemory(phwDeviceExtension->FrameAddress,
-                                  phwDeviceExtension->VideoRamSize);
-#else
-        VideoPortZeroMemory(phwDeviceExtension->FrameAddress,
-                            phwDeviceExtension->VideoRamSize);
-#endif
+        /*
+         * Save the colour depth configuration and switch into 16BPP
+         */
+        Scratch = INPW(R_EXT_GE_CONFIG);
+        OUTPD(EXT_GE_CONFIG, (Scratch & 0xFFCF) | PIX_WIDTH_16BPP);
+
+        CheckFIFOSpace_m(SIXTEEN_WORDS);
+
+        OUTPW(DP_CONFIG, 0x2011);
+        OUTPW(ALU_FG_FN, 0x7);          // Paint 
+        OUTPW(FRGD_COLOR, 0);	        // Black 
+        OUTPW(CUR_X, 0);
+        OUTPW(CUR_Y, 0);
+        OUTPW(DEST_X_START, 0);
+        OUTPW(DEST_X_END, QueryPtr->q_desire_x);
+
+        if (QueryPtr->q_memory_size == VRAM_1mb)
+            OUTPW(DEST_Y_END, 720);     /* Only 640x480 24BPP will fit in 1M */
+        else
+            OUTPW(DEST_Y_END, (WORD)(2*(QueryPtr->q_desire_y)));
+
+        /*
+         * Let the blit finish then restore the colour depth configuration
+         */
+        WaitForIdle_m();
+        OUTPD(EXT_GE_CONFIG, Scratch);
+
         }
     else{
         /*
-         * Other colour depths can be handled by a blit, and the
+         * Other colour depths can be handled by a normal blit, and the
          * LFB may not be available, so use a blit to clear the screen.
          */
         CheckFIFOSpace_m(SIXTEEN_WORDS);
@@ -903,6 +963,24 @@ void SetCurrentMode_m(struct query_structure *QueryPtr, struct st_mode_table *Cr
         OUTPW(DEST_X_END, QueryPtr->q_desire_x);
         OUTPW(DEST_Y_END, QueryPtr->q_desire_y);
         }
+
+#if 0
+    /*
+     * In 800x600 24BPP, set the offset to start 1 pixel into video
+     * memory to avoid screen tearing. The MAP_VIDEO_MEMORY packet
+     * must adjust the framebuffer base to compensate for this.
+     */
+    if ((QueryPtr->q_desire_x == 800) && (QueryPtr->q_pix_depth == 24))
+        {
+        OUTPW(CRT_OFFSET_LO, 3);
+        }
+    else
+        {
+        OUTPW(CRT_OFFSET_HI, 0);
+        }
+#endif
+
+    WaitForIdle_m();
 
     return;
 
@@ -1052,3 +1130,187 @@ VP_STATUS SetPowerManagement_m(struct query_structure *QueryPtr, DWORD DpmsState
         return NO_ERROR;
 
 }   /* SetPowerManagement_m() */
+
+
+
+/**************************************************************************
+ *
+ * VP_STATUS ShareVideoMemory_m(RequestPacket, QueryPtr);
+ *
+ * PVIDEO_REQUEST_PACKET RequestPacket; Request packet with input and output buffers
+ * struct query_structure *QueryPtr;    Query information for the card
+ *
+ * DESCRIPTION:
+ *  Allow applications to do direct screen access through DCI.
+ *
+ * RETURN VALUE:
+ *  NO_ERROR if successful
+ *  error code if failed
+ *
+ * CALLED BY:
+ *  IOCTL_VIDEO_SHARE_VIDEO_MEMORY packet of ATIMPStartIO()
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+VP_STATUS ShareVideoMemory_m(PVIDEO_REQUEST_PACKET RequestPacket, struct query_structure *QueryPtr)
+{
+    PVIDEO_SHARE_MEMORY InputPtr;               /* Pointer to input structure */
+    PVIDEO_SHARE_MEMORY_INFORMATION OutputPtr;  /* Pointer to output structure */
+    PHYSICAL_ADDRESS ShareAddress;              /* Physical address of video memory */
+    PVOID VirtualAddress;                       /* Virtual address to map video memory at */
+    ULONG SharedViewSize;                       /* Size of block to share */
+    ULONG SpaceType;                            /* Sparse or dense space? */
+    VP_STATUS Status;                           /* Status to return */
+
+    /*
+     * We can only share the aperture with application programs if there
+     * is an aperture available. If both the LFB and the on-board VGA
+     * and therefore the VGA aperture) are disabled, report that we
+     * can't share the aperture.
+     */
+    if ((QueryPtr->q_aperture_cfg == 0) && (QueryPtr->q_VGA_type == 0))
+        return ERROR_INVALID_FUNCTION;
+
+    InputPtr = RequestPacket->InputBuffer;
+
+    if ((InputPtr->ViewOffset > phwDeviceExtension->VideoRamSize) ||
+        ((InputPtr->ViewOffset + InputPtr->ViewSize) > phwDeviceExtension->VideoRamSize))
+        {
+        VideoDebugPrint((DEBUG_ERROR, "ShareVideoMemory_m() - access beyond video memory\n"));
+        return ERROR_INVALID_PARAMETER;
+        }
+
+    RequestPacket->StatusBlock->Information = sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+    /*
+     * Beware: the input buffer and the output buffer are the same buffer,
+     * and therefore data should not be copied from one to the other.
+     */
+    VirtualAddress = InputPtr->ProcessHandle;
+    SharedViewSize = InputPtr->ViewSize;
+
+    SpaceType = 0;
+#if defined(_ALPHA_)
+    /*
+     * Use dense space mapping whenever we can, because that will
+     * allow us to support DCI and direct GDI access.
+     *
+     * Dense space is extremely slow with ISA cards on the newer Alphas,
+     * because any byte- or word-write requires a read/modify/write
+     * operation, and the ALpha can only ever do 64-bit reads when in
+     * dense mode. As a result, these operations would always require
+     * 4 reads and 2 writes on the ISA bus. Also, some older Alphas
+     * don't support dense space mapping.
+     *
+     * Any Alpha that supports PCI can support dense space mapping, and
+     * because the bus is wider and faster, the read/modify/write has
+     * less of an impact on performance.
+     */
+    if (QueryPtr->q_bus_type == BUS_PCI)
+        SpaceType = 4;
+#endif
+
+    /*
+     * NOTE: we are ignoring ViewOffset
+     */
+    ShareAddress.QuadPart = phwDeviceExtension->PhysicalFrameAddress.QuadPart;
+
+
+    /*
+     * If the LFB is enabled, use ordinary mapping. If we have only
+     * the paged aperture, we must map to banked memory. Since the
+     * LFB is always aligned on a 1M boundary (4M boundary for 4M
+     * aperture), this check for the paged aperture will never falsely
+     * detect a LFB as paged.
+     */
+    if (phwDeviceExtension->PhysicalFrameAddress.LowPart == 0x0A0000)
+        {
+        /*
+         * On some versions of the DDK, VideoPortMapBankedMemory() is
+         * not available. If this is the case, force an error.
+         * This routine should be available in all versions of
+         * the DDK which support DCI, since it is used for DCI
+         * support on cards with banked apertures.
+         */
+#if defined(IOCTL_VIDEO_SHARE_VIDEO_MEMORY)
+        Status = VideoPortMapBankedMemory(
+            phwDeviceExtension,
+            ShareAddress,
+            &SharedViewSize,
+            &SpaceType,
+            &VirtualAddress,
+            0x10000,            /* 64k VGA aperture */
+            FALSE,              /* No separate read/write banks */
+            BankMap_m,          /* Our bank-mapping routine */
+            (PVOID) phwDeviceExtension);
+#else
+        Status = ERROR_INVALID_FUNCTION;
+#endif
+        }
+    else    /* LFB */
+        {
+        Status = VideoPortMapMemory(phwDeviceExtension,
+                                    ShareAddress,
+                                    &SharedViewSize,
+                                    &SpaceType,
+                                    &VirtualAddress);
+        }
+
+    OutputPtr = RequestPacket->OutputBuffer;
+    OutputPtr->SharedViewOffset = InputPtr->ViewOffset;
+    OutputPtr->VirtualAddress = VirtualAddress;
+    OutputPtr->SharedViewSize = SharedViewSize;
+
+    return Status;
+
+}   /* ShareVideoMemory_m() */
+
+
+
+/**************************************************************************
+ *
+ * void BankMap_m(BankRead, BankWrite, Context);
+ *
+ * LONG BankRead;       Bank to read
+ * LONG BankWrite;      Bank to write
+ * PVOID Context;       Pointer to hardware-specific information
+ *
+ * DESCRIPTION:
+ *  Map the selected bank of video memory into the 64k VGA aperture.
+ *  We don't support separate read and write banks, so we use BankWrite
+ *  to set the read/write bank, and ignore BankRead.
+ *
+ * CALLED BY:
+ *  This is an entry point, rather than being called
+ *  by other miniport functions.
+ *
+ * NOTE:
+ *  This function is called directly by the memory manager during page
+ *  fault handling, and so cannot be made pageable.
+ *
+ * AUTHOR:
+ *  Robert Wolff
+ *
+ * CHANGE HISTORY:
+ *
+ * TEST HISTORY:
+ *
+ ***************************************************************************/
+
+void BankMap_m(LONG BankRead, LONG BankWrite, PVOID Context)
+{
+    OUTPW( reg1CE, (USHORT)(((BankWrite & 0x0f) << 9) | 0xb2));
+    OUTPW( reg1CE, (USHORT)(((BankWrite & 0x30) << 4) | 0xae));
+
+    return;
+
+}   /* BankMap_m() */
+
+

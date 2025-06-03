@@ -459,7 +459,7 @@ VOID  VLM_ClearAllServerSelections( )
 
 VOID VLM_ServerListCreate( )
 {
-#if !defined ( OEM_MSOFT ) //unsupported feature
+#if !defined ( OEM_MSOFT )
  {
 
    WININFO_PTR wininfo;
@@ -558,11 +558,10 @@ VOID VLM_ServerListCreate( )
    DLM_DispListInit( wininfo, &flat_dlm );
 
    // open a new window
-
    RSM_StringCopy ( IDS_VLMSERVERTITLE, title, MAX_UI_RESOURCE_LEN );
 
-   gb_servers_win = WM_Create( WM_MDIPRIMARY | WM_TREELIST |
-                               WM_FLATLISTSC | WM_MIN,
+   gb_servers_win = WM_Create( WM_MDIPRIMARY |
+                               WM_TREELIST | WM_FLATLISTSC | WM_MIN,
                                title,
                                NULL,
                                WM_DEFAULT,
@@ -832,7 +831,7 @@ static VOID_PTR VLM_SrvSetSelect(
 VLM_OBJECT_PTR server_vlm,
 BYTE attr )
 {
-#if ! defined ( OEM_MSOFT )
+#if !defined ( OEM_MSOFT )
  {
    VLM_OBJECT_PTR vlm;
    APPINFO_PTR appinfo;

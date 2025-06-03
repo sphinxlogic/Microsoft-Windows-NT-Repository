@@ -36,13 +36,8 @@ typedef struct compitem FAR* COMPITEM;
  * case, the compitem handle will be returned. This also affects
  * behaviour of compitem_delete- we only free the compitem itself if
  * we allocated it ourself and not through List_NewLast.
- *
- * If hfLog is not HFILE_ERROR then an entry will be written to the log file for
- * every STATE_DIFFER or STATELEFTONLY file.
- * Executing the log file will bring left up to agrteement with right
- * apart from deleting deletable files.  (These are entered as REM lines).
  */
-COMPITEM compitem_new(DIRITEM left, DIRITEM right, LIST list, BOOL fExact, HFILE hfLog);
+COMPITEM compitem_new(DIRITEM left, DIRITEM right, LIST list, BOOL fExact);
 
 
 /* delete a compitem and free all associated data - INCLUDING deleting
@@ -150,3 +145,6 @@ BOOL compitem_getmark(COMPITEM item);
 
 /* Tell compitem the paths to be used for autocopy.  Copies left to right */
 void compitem_SetCopyPaths(LPSTR LeftPath, LPSTR RightPath);
+
+/* Rescan the file, get new checksums etc */
+void compitem_rescan(COMPITEM ci);

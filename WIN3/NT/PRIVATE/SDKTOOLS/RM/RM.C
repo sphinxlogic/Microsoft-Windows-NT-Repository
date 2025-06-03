@@ -109,7 +109,7 @@ void * dummy;
     int i, rc;
 
     if (strcmp(b->fbuf.cFileName, ".") && strcmp(b->fbuf.cFileName, "..") &&
-        strcmpi(b->fbuf.cFileName, "deleted")) {
+        _strcmpi(b->fbuf.cFileName, "deleted")) {
         if (HASATTR(b->fbuf.dwFileAttributes,FILE_ATTRIBUTE_DIRECTORY)) {
             if (fRecursive) {
                 switch (strend(p)[-1]) {
@@ -131,7 +131,7 @@ void * dummy;
             if (fPrompt || (!fForce && HASATTR(b->fbuf.dwFileAttributes, FILE_ATTRIBUTE_READONLY))) {
                 printf("%s? ", p);
                 fflush(stdout);
-                switch (getch()) {
+                switch (_getch()) {
                 case 'y':
                 case 'Y':
                     printf("Yes\n");
@@ -244,8 +244,8 @@ char *v[];
                     }
                 // Fall thru if /d without /x
             case 'h':
-                if (!strcmpi(p, "help")) {
-                    iRetCode = spawnlp(P_WAIT, "qh.exe", "qh", "/u",
+                if (!_strcmpi(p, "help")) {
+                    iRetCode = _spawnlp(P_WAIT, "qh.exe", "qh", "/u",
                                        "rm.exe", NULL);
                     /* When qh returns QH_TOPIC_NOT_FOUND or when we
                      *    get -1 (returned when the spawn fails) then

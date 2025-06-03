@@ -503,13 +503,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
-
     ASSERT (Request->ReferenceCount > 0);
 
-    result = ExInterlockedIncrementLong (
-              &Request->ReferenceCount,
-              Request->ProviderInterlock);
+    InterlockedIncrement (&Request->ReferenceCount);
 
 } /* StRefRequest */
 
@@ -539,13 +535,11 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &Request->ReferenceCount,
-                Request->ProviderInterlock);
+    result = InterlockedDecrement (&Request->ReferenceCount);
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
     //
     // If we have deleted all references to this request, then we can
@@ -554,7 +548,7 @@ Return Value:
     // stream of execution has access to the request any longer.
     //
 
-    if (result == ResultZero) {
+    if (result == 0) {
         StDestroyRequest (Request);
     }
 
@@ -690,13 +684,9 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
-
     ASSERT (IRP_REFCOUNT(IrpSp) > 0);
 
-    result = ExInterlockedIncrementLong (
-              &IRP_REFCOUNT(IrpSp),
-              &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock));
+    InterlockedIncrement (&IRP_REFCOUNT(IrpSp));
 
 } /* StRefSendIrp */
 
@@ -729,13 +719,11 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT result;
+    LONG result;
 
-    result = ExInterlockedDecrementLong (
-                &IRP_REFCOUNT(IrpSp),
-                &(IRP_DEVICE_CONTEXT(IrpSp)->Interlock));
+    result = InterlockedDecrement (&IRP_REFCOUNT(IrpSp));
 
-    ASSERT (result != ResultNegative);
+    ASSERT (result >= 0);
 
     //
     // If we have deleted all references to this request, then we can
@@ -744,7 +732,7 @@ Return Value:
     // stream of execution has access to the request any longer.
     //
 
-    if (result == ResultZero) {
+    if (result == 0) {
 
         PIRP Irp = (PIRP)IRP_CONNECTION(IrpSp);
 

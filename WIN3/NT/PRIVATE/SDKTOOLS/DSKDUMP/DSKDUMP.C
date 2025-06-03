@@ -19,7 +19,7 @@ Revision History:
 --*/
 
 #include "DskDump.h"
-
+#include "cvtoem.h"
 
 int
 _CRTAPI1 main( argc, argv )
@@ -194,7 +194,7 @@ OpenVolume(
         for (i = 0; i < (ULONG)FileName.Length/2; i += 1) {
             if (FileName.Buffer[i] == ':') {
                 FileName.Buffer[i+1] = UNICODE_NULL;
-                FileName.Length = (i+1)*2;
+                FileName.Length = (USHORT)((i+1)*2);
                 break;
             }
         }
@@ -221,4 +221,4 @@ OpenVolume(
 
     return Handle;
 }
-
+

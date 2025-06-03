@@ -1,1 +1,0 @@
-in ..\..\..\..\lib\uimiscp.lib

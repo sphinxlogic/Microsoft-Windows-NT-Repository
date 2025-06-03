@@ -23,8 +23,10 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
 
-#define PACKET_MAX_SIZE 4000
+#define PACKET_MAX_SIZE 2048
 #define NUMBER_OF_PTE_TO_READ ((PACKET_MAX_SIZE/sizeof(MMPTE))-16)
 
 
@@ -127,7 +129,7 @@ Return Value:
     SystemCacheEndPte = (PMMPTE)MiGetPteAddress (SystemCacheEnd);
     NumberOfPtes = 1 + SystemCacheEndPte - SystemCacheStartPte;
 
-    PteArray = malloc(NumberOfPtes * sizeof (MMPTE));
+    PteArray = LocalAlloc(LPTR, NumberOfPtes * sizeof (MMPTE));
     if (!PteArray) {
         dprintf("unable to get allocate memory\n");
         return;
@@ -138,7 +140,7 @@ Return Value:
          PteCount += NUMBER_OF_PTE_TO_READ) {
 
         if (CheckControlC()) {
-            free((void *)PteArray);
+            LocalFree((void *)PteArray);
             return;
         }
 
@@ -157,7 +159,7 @@ Return Value:
             dprintf("unable to get PTE table block - "
                     "address %lx - count %lu - page %lu\n",
                     Pte, ReadCount, PteCount);
-            free((void *)PteArray);
+            LocalFree((void *)PteArray);
             return;
         }
     }
@@ -175,10 +177,12 @@ Return Value:
     HighPage = Valid;
     LowPage = 0;
 
-    PfnArray = malloc((Valid+1) * sizeof (MMPFN));
+    dprintf("  File cache has %ld valid pages\n",Valid);
+
+    PfnArray = LocalAlloc(LPTR, (Valid+1) * sizeof (MMPFN));
     if (!PfnArray) {
         dprintf("unable to get allocate memory\n");
-        free((void *)PteArray);
+        LocalFree((void *)PteArray);
         return;
     }
 
@@ -202,8 +206,8 @@ Return Value:
                 dprintf("unable to get PFN table block - "
                     "address %lx - count %lu - page %lu\n",
                     Pfn, sizeof(MMPFN), PageCount);
-                free((void *)PteArray);
-                free((void *)PfnArray);
+                LocalFree((void *)PteArray);
+                LocalFree((void *)PfnArray);
                 return;
             }
             PageCount += 1;
@@ -213,8 +217,9 @@ Return Value:
 
     //dprintf("                 \n");
     MemoryUsage (PfnArray,LowPage,HighPage, 1);
-    free((void *)PfnArray);
-    free((void *)PteArray);
+    LocalFree((void *)PfnArray);
+    LocalFree((void *)PteArray);
 
     return;
 }
+

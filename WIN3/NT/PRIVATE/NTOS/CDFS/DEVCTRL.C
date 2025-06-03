@@ -22,110 +22,29 @@ Revision History:
 #include "CdProcs.h"
 
 //
-//  The local debug trace level
+//  The Bug check file id for this module
 //
 
-#define Dbg                              (DEBUG_TRACE_DEVCTRL)
+#define BugCheckFileId                   (CDFS_BUG_CHECK_DEVCTRL)
 
 //
-//  Local procedure prototypes
+//  Local support routines
 //
 
 NTSTATUS
-DeviceControlCompletionRoutine(
+CdDevCtrlCompletionRoutine (
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Contxt
     );
 
-NTSTATUS
-CdCommonDeviceControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    );
-
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdCommonDeviceControl)
-#pragma alloc_text(PAGE, CdFsdDeviceControl)
-#pragma alloc_text(PAGE, CdFspDeviceControl)
+#pragma alloc_text(PAGE, CdCommonDevControl)
 #endif
 
 
 NTSTATUS
-CdFsdDeviceControl (
-    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSD part of Device control operations
-
-Arguments:
-
-    VolumeDeviceObject - Supplies the volume device object where the
-        file exists
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    NTSTATUS - The FSD status for the IRP
-
---*/
-
-{
-    NTSTATUS Status;
-    PIRP_CONTEXT IrpContext = NULL;
-
-    BOOLEAN TopLevel;
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFsdDeviceControl:  Entered\n", 0);
-
-    FsRtlEnterFileSystem();
-
-    TopLevel = CdIsIrpTopLevel( Irp );
-
-    try {
-
-        IrpContext = CdCreateIrpContext( Irp, CanFsdWait( Irp ));
-
-        Status = CdCommonDeviceControl( IrpContext, Irp );
-
-    } except(CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
-
-        Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
-    }
-
-    if (TopLevel) { IoSetTopLevelIrp( NULL ); }
-
-    FsRtlExitFileSystem();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFsdDeviceControl:  Exit -> %08lx\n", Status);
-
-    return Status;
-
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
-}
-
-
-VOID
-CdFspDeviceControl (
+CdCommonDevControl (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     )
@@ -134,109 +53,130 @@ CdFspDeviceControl (
 
 Routine Description:
 
-    This routine implements the FSP part of the Device control operations
-
 Arguments:
 
-    Irp - Supplies the Irp being processed
-
 Return Value:
-
-    None
-
---*/
-
-{
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdFspDeviceControl:  Entered\n", 0);
-
-    //
-    //  Call the common query routine.  The Fsp is always allowed to block
-    //
-
-    (VOID)CdCommonDeviceControl( IrpContext, Irp );
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFspDeviceControl:  Exit -> VOID\n", 0);
-
-    return;
-}
-
-
-//
-//  Internal support routine
-//
-
-NTSTATUS
-CdCommonDeviceControl (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This is the common routine for doing Device control operations called
-    by both the fsd and fsp threads
-
-Arguments:
-
-    Irp - Supplies the Irp to process
-
-    InFsp - Indicates if this is the fsp thread or someother thread
-
-Return Value:
-
-    NTSTATUS - The return status for the operation
 
 --*/
 
 {
     NTSTATUS Status;
-    PIO_STACK_LOCATION IrpSp;
-    PIO_STACK_LOCATION NextIrpSp;
-    PMVCB Mvcb;
-    PVCB Vcb;
+
+    TYPE_OF_OPEN TypeOfOpen;
     PFCB Fcb;
     PCCB Ccb;
-    TYPE_OF_OPEN TypeOfOpen;
+
+    PIO_STACK_LOCATION IrpSp;
+    PIO_STACK_LOCATION NextIrpSp;
+
+    PVOID TargetBuffer;
+
+    PAGED_CODE();
 
     //
-    //  Get a pointer to the current Irp stack location
+    //  Extract and decode the file object.
     //
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "CdCommonDeviceControl:  Entered\n", 0);
-    DebugTrace( 0, Dbg, "Irp           = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "MinorFunction = %08lx\n", IrpSp->MinorFunction);
+    TypeOfOpen = CdDecodeFileObject( IrpContext,
+                                     IrpSp->FileObject,
+                                     &Fcb,
+                                     &Ccb );
 
     //
-    //  Decode the file object, the only type of opens we accept are
-    //  user volume opens.
+    //  The only type of opens we accept are user volume opens.
     //
 
-
-    TypeOfOpen = CdDecodeFileObject( IrpSp->FileObject, &Mvcb, &Vcb, &Fcb, &Ccb );
-
-    if (TypeOfOpen != UserVolumeOpen &&
-        TypeOfOpen != RawDiskOpen) {
+    if (TypeOfOpen != UserVolumeOpen) {
 
         CdCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
-
-        DebugTrace(-1, Dbg, "CdCommonDeviceControl -> %08lx\n", STATUS_INVALID_PARAMETER);
         return STATUS_INVALID_PARAMETER;
     }
 
     //
-    //  Get the next stack location, and copy over the stack location
+    //  If we have the TOC in the Vcb then copy it directly to the user's buffer.
+    //
+
+    if ((IrpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_CDROM_READ_TOC) &&
+        (Fcb->Vcb->CdromToc != NULL)) {
+
+        //
+        //  Verify the Vcb in this case to detect if the volume has changed.
+        //
+
+        CdVerifyVcb( IrpContext, Fcb->Vcb );
+
+        if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength < Fcb->Vcb->TocLength) {
+
+            CdCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+
+        //
+        //  Find the buffer for this request.
+        //
+
+        if (!FlagOn( Irp->Flags, IRP_ASSOCIATED_IRP ) &&
+                   (Irp->AssociatedIrp.SystemBuffer != NULL)) {
+
+            TargetBuffer = Irp->AssociatedIrp.SystemBuffer;
+
+        } else if (Irp->MdlAddress != NULL) {
+
+            TargetBuffer = MmGetSystemAddressForMdl( Irp->MdlAddress );
+        }
+
+        //
+        //  If we have a buffer then perform the copy and return.
+        //
+
+        if (TargetBuffer) {
+
+            RtlCopyMemory( TargetBuffer, Fcb->Vcb->CdromToc, Fcb->Vcb->TocLength );
+
+            Irp->IoStatus.Information = Fcb->Vcb->TocLength;
+
+            CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+            return STATUS_SUCCESS;
+        }
+
+    //
+    //  Handle the case of the disk type ourselves.
+    //
+
+    } else if (IrpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_CDROM_DISK_TYPE) {
+
+        //
+        //  Verify the Vcb in this case to detect if the volume has changed.
+        //
+
+        CdVerifyVcb( IrpContext, Fcb->Vcb );
+
+        //
+        //  Check the size of the output buffer.
+        //
+
+        if (IrpSp->Parameters.DeviceIoControl.OutputBufferLength < sizeof( CDROM_DISK_DATA )) {
+
+            CdCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+
+        //
+        //  Copy the data from the Vcb.
+        //
+
+        ((PCDROM_DISK_DATA) Irp->AssociatedIrp.SystemBuffer)->DiskData = Fcb->Vcb->DiskFlags;
+
+        Irp->IoStatus.Information = sizeof( CDROM_DISK_DATA );
+        CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+        return STATUS_SUCCESS;
+    }
+
+    //
+    //  Get the next stack location, and copy over the stack parameter
+    //  information.
     //
 
     NextIrpSp = IoGetNextIrpStackLocation( Irp );
@@ -248,7 +188,7 @@ Return Value:
     //
 
     IoSetCompletionRoutine( Irp,
-                            DeviceControlCompletionRoutine,
+                            CdDevCtrlCompletionRoutine,
                             NULL,
                             TRUE,
                             TRUE,
@@ -258,15 +198,13 @@ Return Value:
     //  Send the request.
     //
 
-    Status = IoCallDriver(Mvcb->TargetDeviceObject, Irp);
+    Status = IoCallDriver( IrpContext->Vcb->TargetDeviceObject, Irp );
 
     //
-    //  Free the IrpContext and return to the caller.
+    //  Cleanup our Irp Context.  The driver has completed the Irp.
     //
 
-    CdDeleteIrpContext( IrpContext );
-
-    DebugTrace(-1, Dbg, "CdCommonDeviceControl -> %08lx\n", Status);
+    CdCompleteRequest( IrpContext, NULL, STATUS_SUCCESS );
 
     return Status;
 }
@@ -277,7 +215,7 @@ Return Value:
 //
 
 NTSTATUS
-DeviceControlCompletionRoutine(
+CdDevCtrlCompletionRoutine (
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Contxt
@@ -288,13 +226,14 @@ DeviceControlCompletionRoutine(
     //  Add the hack-o-ramma to fix formats.
     //
 
-    if ( Irp->PendingReturned ) {
+    if (Irp->PendingReturned) {
 
         IoMarkIrpPending( Irp );
     }
 
-    UNREFERENCED_PARAMETER( DeviceObject );
-    UNREFERENCED_PARAMETER( Irp );
-
     return STATUS_SUCCESS;
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+    UNREFERENCED_PARAMETER( Contxt );
 }
+

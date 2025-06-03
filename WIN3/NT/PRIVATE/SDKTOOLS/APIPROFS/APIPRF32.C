@@ -198,7 +198,7 @@ BOOL WrapperInit( HINSTANCE DllHandle, DWORD Reason, LPVOID Context )
 	    strcpy (szDumpFile, MODULE_NAME);
 	    strcat (szDumpFile, ".end");
 	    ApfDumpData ((LPSTR)szDumpFile);
-#if !defined(WIN32s)
+#if !defined(WIN32S)
 	    //
 	    // Unmap and close sections, and close semaphores
 	    //
@@ -213,7 +213,7 @@ BOOL WrapperInit( HINSTANCE DllHandle, DWORD Reason, LPVOID Context )
 	    //
 	    fInitDone = FALSE;
 	}
-#if !defined(WIN32s)
+#if !defined(WIN32S)
 	//
 	// Release semaphore
 	//
@@ -304,7 +304,7 @@ void  ApfInitDll ()
     //
     // Allocate memory data and api arrays
     //
-    ulAllocationSize = (I_CALIBRATE + 1) * sizeof(APFDATA);
+    ulAllocationSize = (I_CALIBRATE + 1) * sizeof(APFDATA) + sizeof(APFCONTROL) ;
     hgMem = GlobalAlloc (GMEM_FIXED | GMEM_ZEROINIT, ulAllocationSize);
 	 ApfControl = (PAPFCONTROL)GlobalLock (hgMem);
     if( ApfControl ) 
@@ -914,10 +914,10 @@ BOOL APIPrelude( PAPICALLDATA pData )
 ** Returns: the value you wish returned from the API call
 **
 */
-DWORD APIPostlude( PAPICALLDATA pData )
+RETVAL APIPostlude( PAPICALLDATA pData )
 {
    SHORT sTimerHandle = (SHORT)pData->dwUserData ;
-   DWORD ulElapsedTime ;
+   ULONG ulElapsedTime ;
    NTSTATUS Status;
 
 
@@ -956,7 +956,12 @@ DWORD APIPostlude( PAPICALLDATA pData )
    /*
    ** If there is waste to remove - do it and reset waste time
    */
-   ulElapsedTime -= aWasteTime[pData->dwCallLevel] ;
+   if ( ulElapsedTime )
+   {
+      ulElapsedTime -= aWasteTime[pData->dwCallLevel] ;
+      if (ulElapsedTime > MAX_LONG)
+         ulElapsedTime = 0;
+   }
    aWasteTime[pData->dwCallLevel] = 0L ;
    
    // record valid info
@@ -987,6 +992,6 @@ DWORD APIPostlude( PAPICALLDATA pData )
 #endif   // !WIN32S
 
    TimerClose(sTimerHandle);
-	return pData->dwRet ;	
+	return pData->Ret ;	
 }
 

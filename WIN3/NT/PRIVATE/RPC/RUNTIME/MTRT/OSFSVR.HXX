@@ -28,7 +28,6 @@ private:
 
     OSF_ASSOCIATION_DICT Associations;
     int CallThreadCount;
-    int ActiveCallCount;
     int MinimumCallThreads;
     int ServerListeningFlag;
     int ReceiveDirectCount;
@@ -55,7 +54,7 @@ public:
                                             // receive occured.
         IN OUT void * * Buffer, // Buffer of data received from the
                                 // connection.
-	IN OUT unsigned int * BufferLength
+        IN OUT unsigned int * BufferLength
         ) = 0;
 
     virtual unsigned int // Returns the length of the secondary address.
@@ -65,7 +64,7 @@ public:
     virtual RPC_STATUS
     TransSecondary ( // Places the secondary address in the specified buffer.
         IN unsigned char * Address, // Buffer for the address.
-	IN unsigned int AddressLength // Length of the buffer.
+        IN unsigned int AddressLength // Length of the buffer.
         );
 
     RPC_STATUS
@@ -76,7 +75,8 @@ public:
     RPC_STATUS
     ServerStartingToListen (
         IN unsigned int MinimumCallThreads,
-        IN unsigned int MaximumConcurrentCalls
+        IN unsigned int MaximumConcurrentCalls,
+        IN int ServerThreadsStarted
         );
 
     void
@@ -118,24 +118,49 @@ public:
     NotifyReceiveDirectClosed (
         );
 
+
     virtual RPC_STATUS
     SetupAddressWithEndpoint (
         IN RPC_CHAR PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+        OUT unsigned int PAPI * NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         ) = 0;
 
     virtual RPC_STATUS
     SetupAddressUnknownEndpoint (
         OUT RPC_CHAR PAPI * PAPI * Endpoint,
-        OUT RPC_CHAR PAPI * PAPI * NetworkAddress,
+        OUT RPC_CHAR PAPI * PAPI * lNetworkAddress,
+        OUT unsigned int PAPI * NumNetworkAddress,
         IN void PAPI * SecurityDescriptor, OPTIONAL
         IN unsigned int PendingQueueSize,
-        IN RPC_CHAR PAPI * RpcProtocolSequence
+        IN RPC_CHAR PAPI * RpcProtocolSequence,
+        IN unsigned long EndpointFlags,
+        IN unsigned long NICFlags
         ) = 0;
+
+#if defined(NTENV) || defined(WIN96)
+    virtual RPC_STATUS
+    StartListening (
+        ) = 0;
+
+#endif
+
+    int
+    IsServerListening (
+        ) ;
 };
+
+inline int
+OSF_ADDRESS::IsServerListening (
+    )
+{
+    return ServerListeningFlag ;
+}
 
 void
 ReceiveLotsaCallsWrapper(
@@ -170,22 +195,27 @@ private:
 
     RPC_SYNTAX_IDENTIFIER InterfaceID;
     RPC_SYNTAX_IDENTIFIER TransferSyntaxID;
-    RPC_INTERFACE *	  Interface;
-    unsigned int		  PresentContext;
+    RPC_INTERFACE *       Interface;
+    unsigned int          PresentContext;
+    unsigned long         CurrentSecId;
+    unsigned long         CallbackAccepted;
 
 public:
+    unsigned long SequenceNumber ;
 
     OSF_SBINDING ( // Constructor.
         IN RPC_INTERFACE * TheInterface,
-	IN RPC_SYNTAX_IDENTIFIER * InterfaceSyntax,
-	IN RPC_SYNTAX_IDENTIFIER * TransferSyntax,
+        IN RPC_SYNTAX_IDENTIFIER * InterfaceSyntax,
+        IN RPC_SYNTAX_IDENTIFIER * TransferSyntax,
         IN int PContext
-	) {
-	   InterfaceID = *InterfaceSyntax;
-	   TransferSyntaxID = *TransferSyntax;
-	   PresentContext = PContext;
-	   Interface = TheInterface;
-	}
+        ) {
+           InterfaceID = *InterfaceSyntax;
+           TransferSyntaxID = *TransferSyntax;
+           PresentContext = PContext;
+           Interface = TheInterface;
+           CallbackAccepted = 0;
+           SequenceNumber = 0;
+        }
 
     RPC_INTERFACE *
     GetInterface (
@@ -197,17 +227,54 @@ public:
 
     void
     CopyTransferSyntax (
-	OUT RPC_SYNTAX_IDENTIFIER * TransferSyntax
-	) {
-	  *TransferSyntax = TransferSyntaxID;
-	}
+        OUT RPC_SYNTAX_IDENTIFIER * TransferSyntax
+        ) {
+          *TransferSyntax = TransferSyntaxID;
+        }
 
     RPC_SYNTAX_IDENTIFIER *
     TransferSyntax (
-	) {
-	  return(&TransferSyntaxID);
-	}
+        ) {
+          return(&TransferSyntaxID);
+        }
+
+    inline RPC_STATUS
+    CheckSecurity (
+       SCONNECTION * Connetion,
+       unsigned long AuthId
+       );
 };
+
+inline RPC_STATUS
+OSF_SBINDING::CheckSecurity(
+       SCONNECTION * Connection,
+       unsigned long AuthId
+       )
+{
+
+    if ( (Interface->IsSecurityCallbackReqd() == 0) ||
+         ((SequenceNumber == Interface->SequenceNumber)
+         && (AuthId == CurrentSecId)) )
+        {
+        return (RPC_S_OK);
+        }
+
+    if (Interface->CheckSecurityIfNecessary(Connection) == RPC_S_OK)
+        {
+        SequenceNumber = Interface->SequenceNumber ;
+        CallbackAccepted = 1;
+        CurrentSecId = AuthId;
+        return (RPC_S_OK);
+        }
+    else
+        {
+        SequenceNumber = 0;
+        }
+
+    return (RPC_S_ACCESS_DENIED);
+}
+
+
 
 NEW_SDICT(OSF_SBINDING);
 NEW_SDICT(SSECURITY_CONTEXT);
@@ -274,12 +341,12 @@ Fields:
 
     SavedPac - While a call is being dispatched to manager, the manager
         could query for a PAC. However, manager is not explicitly going
-        to free the PAC. Runtime is supposed to do that. This feild 
+        to free the PAC. Runtime is supposed to do that. This feild
         takes care of that.
 
     AuthzSvc - Authorization service
 
-    SavedHeader - Unbyte swapped header + - do that check sums work 
+    SavedHeader - Unbyte swapped header + - do that check sums work
 --*/
 {
 private:
@@ -295,13 +362,11 @@ private:
     unsigned int ObjectUuidSpecified;
     OSF_ASSOCIATION * Association;
 
-    SSECURITY_CONTEXT * OriginalSecurityContext;
+    unsigned AuthContextId;
+
     SSECURITY_CONTEXT * CurrentSecurityContext;
     SSECURITY_CONTEXT_DICT SecurityContextDict;
-    unsigned long AuthenticationLevel;
-    unsigned long AuthenticationService;
     unsigned int AdditionalSpaceForSecurity;
-    unsigned long AuthContextId;
     unsigned long RpcSecurityBeingUsed;
     unsigned long SecurityContextAltered;
 
@@ -313,16 +378,18 @@ private:
     unsigned int ImpersonatedClientFlag;
     unsigned int ReceiveDirectReady;
 
-    void PAPI * SavedPac;
-    unsigned long AuthzSvc;
     unsigned long SavedHeaderSize;
     void PAPI * SavedHeader;
+    unsigned int FragmentLength ;
+    unsigned int CurrentBufferLength ;
+    int FirstFrag ;
 
 protected:
 
     THREAD * Thread;
-    int AlertCount;
-    int CallOrphaned;
+    int      AlertCount;
+    int      CallOrphaned;
+    LONG     CancelPending;
 
     DCE_SECURITY_INFO DceSecurityInfo;
 
@@ -337,7 +404,9 @@ protected:
 
     MUTEX CachedBufferMutex;
 
-    OSF_SCONNECTION ( 
+    long ExtendedError;
+
+    OSF_SCONNECTION (
         IN OUT RPC_STATUS PAPI * RpcStatus
         );
 
@@ -362,14 +431,39 @@ public:
 
     RPC_STATUS
     GetBufferDo (
+        IN PRPC_MESSAGE Message,
         IN unsigned int culRequiredLength,
-        OUT void ** ppBuffer
+        OUT void ** ppBuffer,
+        IN unsigned long Extra
         );
 
     virtual void
     FreeBuffer (
         IN PRPC_MESSAGE Message
         );
+
+    virtual void
+    FreePipeBuffer (
+        IN PRPC_MESSAGE Message
+        ) ;
+
+    virtual RPC_STATUS
+    ReallocPipeBuffer (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int NewSize
+        ) ;
+
+    virtual RPC_STATUS
+    Receive (
+        IN OUT PRPC_MESSAGE Message,
+        IN unsigned int Size
+        ) ;
+
+    RPC_STATUS
+    ReceiveFirstFrag(
+        IN OUT PRPC_MESSAGE Message,
+        IN int Callback
+        ) ;
 
     RPC_STATUS
     MonitorAssociation (
@@ -416,13 +510,14 @@ public:
     virtual RPC_STATUS
     TransReceive ( // Receive a buffer of data from the transport.
         IN OUT void * * Buffer,
-	IN OUT unsigned int * BufferLength
+        IN OUT unsigned int * BufferLength,
+        IN         unsigned int CanMigrate
         ) = 0;
 
     virtual RPC_STATUS
     TransSend ( // Send a buffer of data on the transport.
         IN void * Buffer,
-	IN unsigned int BufferLength
+        IN unsigned int BufferLength
         ) = 0;
 
     virtual RPC_STATUS
@@ -430,20 +525,20 @@ public:
                   // receive a buffer of data from the transport.  Note: some
                   // transports allow this to be performed as one operation.
         IN void * SendBuffer,
-	IN unsigned int SendBufferLength,
+        IN unsigned int SendBufferLength,
         IN OUT void * * ReceiveBuffer,
-	IN OUT unsigned int * ReceiveBufferLength
+        IN OUT unsigned int * ReceiveBufferLength
         ) = 0;
 
     virtual RPC_STATUS
     TransGetBuffer ( // Allocate a buffer of the specified size.
         OUT void * * Buffer,
-	IN unsigned int BufferLength
+        IN unsigned int BufferLength
         );
 
     virtual void
     TransFreeBuffer ( // Free a buffer.
-	IN void PAPI * Buffer
+        IN void PAPI * Buffer
         );
 
     virtual unsigned int // Returns the maximum size of a send.
@@ -469,6 +564,22 @@ public:
         OUT RPC_CHAR ** NetworkAddress
         ) = 0;
 
+#if defined(NTENV) || defined(WIN96)
+    virtual unsigned int
+    TransGetReceiveDirectFlag (
+        ) = 0;
+
+    virtual void
+    SetReceiveAnyFlag (
+        IN unsigned int
+        ) = 0;
+
+    virtual void
+    SetReceiveDirectFlag(
+        IN unsigned int ReceiveAnyFlag
+        ) = 0;
+#endif
+
 // --------------------------------------------------------------------
 
     int
@@ -486,7 +597,7 @@ public:
     AlterContextRequested ( // Process the alter context request.  Send
                             // a reply.
         IN rpcconn_alter_context * pAlterContext,
-	IN unsigned int culAlterContextLength,
+        IN unsigned int culAlterContextLength,
         IN OSF_ADDRESS * Address
         );
 
@@ -499,6 +610,11 @@ public:
     unsigned int
     InqMaximumFragmentLength (
         );
+
+    void 
+    SetCallId(
+       unsigned long CallId
+       );
 
 private:
 
@@ -535,10 +651,6 @@ public:
         IN int DidNotExecute
         );
 
-    void
-    ServerTooBusy (
-        );
-
     RPC_STATUS
     ReceiveMessage (
         IN OUT PRPC_MESSAGE Message,
@@ -559,10 +671,37 @@ public:
         );
 
     RPC_STATUS
+    ReceiveNextChunk (
+        IN PRPC_MESSAGE Message,
+        IN unsigned int Size,
+        IN int FirstReceive = 0,
+        IN int SecurityFailureOccured = 0
+        );
+
+    RPC_STATUS
+    Send(
+        IN OUT PRPC_MESSAGE Message
+        ) ;
+
+    RPC_STATUS
     SendRequestOrResponse (
         IN OUT PRPC_MESSAGE Message,
-        IN unsigned char PacketType
+        IN unsigned char PacketType,
+        IN int IsPartial = 0
         );
+
+    RPC_STATUS
+    SendFragment(
+        IN OUT rpcconn_common PAPI *pFragment,
+        IN unsigned int LastFragmentFlag,
+        IN unsigned int HeaderSize,
+        IN unsigned int MaxSecuritySize,
+        IN unsigned int DataLength,
+        IN unsigned int MaximumFragmentLength,
+        IN unsigned char PAPI *ReservedForSecurity,
+        OUT void PAPI * PAPI *ReceiveBuffer,
+        OUT unsigned int *ReceiveBufferLength
+        ) ;
 
     OSF_ASSOCIATION *
     TheAssociation (
@@ -603,17 +742,48 @@ public:
     NotifyReceiveDirectReady (
         );
 
+#if defined(NTENV) || defined(WIN96)
+           void
+     NotifyReceiveDirectCancelled(
+                                 ) ;
+#endif
+
     void
     RemoveFromAssociation (
         );
     inline
-    SSECURITY_CONTEXT * 
+    SSECURITY_CONTEXT *
     FindSecurityContext(
         unsigned long Id,
         unsigned long Level,
         unsigned long Svc
        );
+
+    virtual RPC_STATUS
+    InqTransportType(
+        OUT unsigned int __RPC_FAR * Type
+        ) ;
+
+    RPC_STATUS
+    Cancel(
+        void * ThreadHandle
+        );
+
+    unsigned
+    TestCancel(
+        );
 };
+
+
+inline RPC_STATUS
+OSF_SCONNECTION::InqTransportType(
+        OUT unsigned int __RPC_FAR * Type
+        )
+{
+    *Type = TRANSPORT_TYPE_CN ;
+
+    return (RPC_S_OK) ;
+}
 
 
 inline unsigned int
@@ -633,6 +803,15 @@ Return Value:
 
 
 inline 
+void OSF_SCONNECTION::SetCallId(
+    unsigned long Call
+    )
+{
+    CallId = Call;
+}
+
+
+inline
 SSECURITY_CONTEXT *
 OSF_SCONNECTION::FindSecurityContext(
        unsigned long Id,
@@ -647,12 +826,12 @@ OSF_SCONNECTION::FindSecurityContext(
         {
         if ( (Sec->AuthContextId == Id)
            &&(Sec->AuthenticationLevel == Level)
-           &&(Sec->AuthenticationSvc == Svc) )
+           &&(Sec->AuthenticationService == Svc) )
            {
            break;
            }
         }
-  
+
    return (Sec);
 
 }
@@ -671,13 +850,14 @@ public:
 
     OSF_ASSOCIATION (
         IN OSF_ADDRESS * TheAddress,
-        IN RPC_CLIENT_PROCESS_IDENTIFIER * ClientProcess
+        IN RPC_CLIENT_PROCESS_IDENTIFIER * ClientProcess,
+        OUT RPC_STATUS * Status
         );
 
     ~OSF_ASSOCIATION ( // Destructor.
         );
 
-    int // Indicates success (0), or an internal error.
+    void
     AddConnection ( // Add a connection to the association.
         );
 

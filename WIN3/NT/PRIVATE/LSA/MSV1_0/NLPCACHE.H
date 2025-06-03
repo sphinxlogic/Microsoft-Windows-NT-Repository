@@ -71,6 +71,7 @@ typedef struct _LOGON_CACHE_ENTRY {
     ULONG           Revision;
     ULONG           SidCount;   // was Unused2
     BOOLEAN         Valid;
+    CHAR            Unused[3];
     ULONG           SidLength;
     ULONG           Unused1;    // unused - for later expansion
     ULONG           Unused2;    // unused - for later expansion
@@ -164,7 +165,7 @@ NlpAddCacheEntry(
 
 NTSTATUS
 NlpGetCacheEntry(
-    IN  PNETLOGON_INTERACTIVE_INFO LogonInfo,
+    IN  PNETLOGON_LOGON_IDENTITY_INFO LogonInfo,
     OUT PNETLOGON_VALIDATION_SAM_INFO2* AccountInfo,
     OUT PCACHE_PASSWORDS Passwords
     );

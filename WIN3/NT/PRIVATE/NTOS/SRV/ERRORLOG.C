@@ -22,23 +22,26 @@ Revision History:
 #pragma hdrstop
 
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text( PAGE, SrvLogInvalidSmb )
-#pragma alloc_text( PAGE, SrvLogServiceFailure )
+#pragma alloc_text( PAGE, SrvLogInvalidSmbDirect )
+#pragma alloc_text( PAGE, SrvLogServiceFailureDirect )
 #pragma alloc_text( PAGE, SrvLogTableFullError )
 #endif
 #if 0
 NOT PAGEABLE -- SrvLogError
 NOT PAGEABLE -- SrvCheckSendCompletionStatus
+NOT PAGEABLE -- SrvIsLoggableError
 #endif
 
 
 VOID
-SrvLogInvalidSmb (
-    IN PWORK_CONTEXT WorkContext
+SrvLogInvalidSmbDirect (
+    IN PWORK_CONTEXT WorkContext,
+    IN ULONG LineNumber
     )
 {
     UNICODE_STRING unknownClient;
     PUNICODE_STRING clientName;
+    ULONG LocalBuffer[ 13 ];
 
     PAGED_CODE( );
 
@@ -56,12 +59,20 @@ SrvLogInvalidSmb (
 
     if ( ARGUMENT_PRESENT(WorkContext) ) {
 
+        LocalBuffer[0] = LineNumber;
+
+        RtlCopyMemory(
+            &LocalBuffer[1],
+            WorkContext->RequestHeader,
+            MIN( WorkContext->RequestBuffer->DataLength, sizeof( LocalBuffer ) - sizeof( LocalBuffer[0] ) )
+            );
+
         SrvLogError(
             SrvDeviceObject,
             EVENT_SRV_INVALID_REQUEST,
             STATUS_INVALID_SMB,
-            WorkContext->RequestHeader,
-            (USHORT)MIN( WorkContext->RequestBuffer->DataLength, 0x40 ),
+            LocalBuffer,
+            (USHORT)MIN( WorkContext->RequestBuffer->DataLength + sizeof( LocalBuffer[0] ), sizeof( LocalBuffer ) ),
             clientName,
             1
             );
@@ -72,8 +83,8 @@ SrvLogInvalidSmb (
             SrvDeviceObject,
             EVENT_SRV_INVALID_REQUEST,
             STATUS_INVALID_SMB,
-            NULL,
-            0,
+            &LineNumber,
+            (USHORT)sizeof( LineNumber ),
             clientName,
             1
             );
@@ -82,12 +93,47 @@ SrvLogInvalidSmb (
     return;
 
 } // SrvLogInvalidSmb
+
+BOOLEAN
+SrvIsLoggableError( IN NTSTATUS Status )
+{
+    NTSTATUS *pstatus;
+    BOOLEAN ret = TRUE;
+
+    for( pstatus = SrvErrorLogIgnore; *pstatus; pstatus++ ) {
+        if( *pstatus == Status ) {
+            ret = FALSE;
+            break;
+        }
+    }
+
+    return ret;
+}
+
 
 VOID
-SrvLogServiceFailure (
-    IN ULONG Service,
+SrvLogServiceFailureDirect (
+    IN ULONG LineAndService,
     IN NTSTATUS Status
     )
+/*++
+
+Routine Description:
+
+    This function logs a srv svc error.  You should use the 'SrvLogServiceFailure'
+      macro instead of calling this routine directly.
+
+Arguments:
+    LineAndService consists of the line number of the original call in the highword, and
+      the service code in the lowword
+
+    Status is the status code of the called routine
+
+Return Value:
+
+    None.
+
+--*/
 {
     PAGED_CODE( );
 
@@ -95,25 +141,14 @@ SrvLogServiceFailure (
     // Don't log certain errors that are expected to happen occasionally.
     //
 
-    if ( (Status != STATUS_LOCAL_DISCONNECT) &&
-         (Status != STATUS_REMOTE_DISCONNECT) &&
-         (Status != STATUS_LINK_FAILED) &&
-         (Status != STATUS_LINK_TIMEOUT) &&
-         (Status != STATUS_PIPE_DISCONNECTED) &&
-         (Status != STATUS_PIPE_CLOSING) &&
-         (Status != STATUS_CANNOT_DELETE) &&
-         (Status != STATUS_IO_TIMEOUT) &&
-         (Status != STATUS_CANCELLED) &&
-         (Status != STATUS_OBJECT_NAME_NOT_FOUND) &&
-         (Status != STATUS_OBJECT_PATH_NOT_FOUND) &&
-         (Status != STATUS_ACCESS_DENIED) ) {
+    if( SrvIsLoggableError( Status ) ) {
 
         SrvLogError(
             SrvDeviceObject,
             EVENT_SRV_SERVICE_FAILED,
             Status,
-            &Service,
-            sizeof(ULONG),
+            &LineAndService,
+            sizeof(LineAndService),
             NULL,
             0
             );
@@ -269,7 +304,8 @@ Return Value:
 
 VOID
 SrvCheckSendCompletionStatus(
-    IN NTSTATUS Status
+    IN NTSTATUS Status,
+    IN ULONG LineNumber
     )
 
 /*++
@@ -288,17 +324,13 @@ Return Value:
 --*/
 
 {
-    if ( (Status != STATUS_LOCAL_DISCONNECT) &&
-         (Status != STATUS_REMOTE_DISCONNECT) &&
-         (Status != STATUS_LINK_FAILED) &&
-         (Status != STATUS_CONNECTION_DISCONNECTED) &&
-         (Status != STATUS_CONNECTION_ABORTED) &&
-         (Status != STATUS_INVALID_CONNECTION) &&
-         (Status != STATUS_CONNECTION_RESET) &&
-         (Status != STATUS_IO_TIMEOUT) &&
-         (Status != STATUS_LINK_TIMEOUT) ) {
+    if( SrvIsLoggableError( Status ) ) {
 
-        SrvLogSimpleEvent( EVENT_SRV_NETWORK_ERROR, Status );
+        SrvLogError( SrvDeviceObject,
+                     EVENT_SRV_NETWORK_ERROR,
+                     Status,
+                     &LineNumber, sizeof(LineNumber),
+                     NULL, 0 );
     }
 
 } // SrvCheckSendCompletionStatus

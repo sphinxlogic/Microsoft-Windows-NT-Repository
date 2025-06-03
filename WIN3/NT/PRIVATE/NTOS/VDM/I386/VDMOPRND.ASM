@@ -134,7 +134,7 @@ _PAGE   SEGMENT DWORD PUBLIC 'CODE'
 ;       opcode.  This is not a problem because it will only return one operand
 ;       address anyway.  It does not decode byte registers correctly!!.
 ;
-;       BUGBUG check grow down ss handling
+;       check grow down ss handling
 
         public VdmDecodeOperand
 VdmDecodeOperand proc
@@ -186,7 +186,7 @@ SIB     equ     [ebp] - 01ch
         shr     edx,MI_MODSHIFT         ; form jump table index from mod
         and     ecx,MI_RMMASK           ; form index for RM jump table
         test    [esi].RiPrefixFlags,PREFIX_ADDR32
-        ;bugbug 32 bit segments.
+        ; 32 bit segments.
         jnz     do210                   ; 32 bit instructions have diff form
 
         jmp     modtab16[edx * 4]
@@ -371,7 +371,7 @@ do160:  test    [esi].RiPrefixFlags,PREFIX_FS
         movzx   edx,word ptr [edi].TsSegFs
         jmp     do180
 
-do170:  ;bugbug assert that seg gs bit is set
+do170:  ; assert that seg gs bit is set
         movzx   edx,word ptr [edi].TsSegGs
 
 ;

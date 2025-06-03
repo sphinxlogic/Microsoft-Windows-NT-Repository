@@ -204,10 +204,10 @@ retry:
         goto bad2;
     }
     if (c != 0) {
-        write(2, *ahost, strlen(*ahost));
-        write(2, ": ", 2);
+        _write(2, *ahost, strlen(*ahost));
+        _write(2, ": ", 2);
         while (recv(s, &c, 1, 0) == 1) {
-            (void) write(2, &c, 1);
+            (void) _write(2, &c, 1);
             if (c == '\n')
                 break;
         }

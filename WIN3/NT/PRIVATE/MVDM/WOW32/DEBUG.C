@@ -68,6 +68,7 @@ BOOL    fWinDbg;
 /********* define the WINDBG API pointers *********/
 PWINDBG_OUTPUT_ROUTINE Print;
 PWINDBG_GET_EXPRESSION GetExpression;
+PWINDBG_GET_SYMBOL     GetSymbol;
 
 PWINDBG_READ_PROCESS_MEMORY_ROUTINE  ReadMem;
 PWINDBG_WRITE_PROCESS_MEMORY_ROUTINE WriteMem;
@@ -176,11 +177,15 @@ void help( ARGLIST )
 
     Print("WOW32 Debugger Extensions:\n");
 
-    Print("  AT 0xXXXX           - shows name associated with hex atom #\n");
-    Print("  ClearFilter         - All Filters Are turned OFF\n");
-    Print("  ClearFilterSpecific - Clears FilterSpecific function\n");
+    Print("  at 0xXXXX           - shows name associated with hex atom #\n");
+    Print("  cia                 - Dumps cursor/icon alias list\n");
+    Print("  ddte <addr>         - Dump dispatch table entry pointed to by <addr>\n");
+    Print("  dt <addr>           - Dump TD at <addr> or all if blank\n");
+    Print("  dwp <addr>          - Dump WOWPORT structure pointed to by <addr>\n");
     Print("  ww hwnd16           - Given a hwnd16 it dumps the WOW Window structure\n");
     Print("  wc hwnd16           - Given a hwnd16 it dumps the WOW Class structure\n");
+    Print("  ClearFilter         - All Filters Are turned OFF\n");
+    Print("  ClearFilterSpecific - Clears FilterSpecific function\n");
     Print("  FilterGDI           - Toggles Filtering of GDI Calls On/Off\n");
     Print("  FilterKernel        - Toggles Filtering of Kernel Calls On/Off\n");
     Print("  FilterKernel16      - Toggles Filtering of Kernel16 Calls On/Off\n");
@@ -199,7 +204,6 @@ void help( ARGLIST )
     Print("  ResetFilter         - All Filters are turned ON\n");
     Print("  SetLogLevel xx      - Sets the WOW Logging Level\n");
     Print("  StepTrace           - Toggles Single Step Tracing On/Off\n");
-    Print("  dwp <addr>          - Dump WOWPORT structure pointed to by <addr>\n");
 
     Print("  APIProfClr          - Clears the WOW API profiler table\n");
     Print("  APIProfDmp  help    - Dumps the WOW API profiler table\n");
@@ -208,6 +212,57 @@ void help( ARGLIST )
     Print("  MSGProfRT           - Toggles MSG prof round trip/thunks only\n");
 
     return;
+}
+
+//
+// 16:16 to flat pointer translation functions for debugger extensions.
+//
+
+#ifndef _X86_
+DWORD pIntelBase = 0;
+
+VOID WDInitIntelBase(HANDLE hCurrentProcess, PWINDBG_EXTENSION_APIS lpExtensionApis)
+{
+    GETEXPRVALUE(pIntelBase, "wow32!IntelMemoryBase", DWORD);
+}
+
+#define WD_INTEL_MEMORY_BASE (pIntelBase)
+#define WD_INIT_INTEL_BASE_IF_NEEDED                                       \
+{                                                                          \
+    if (!pIntelBase) {                                                     \
+        WDInitIntelBase(hCurrentProcess, lpExtensionApis);                 \
+    }                                                                      \
+}
+#else
+#define WD_INTEL_MEMORY_BASE (0)
+#define WD_INIT_INTEL_BASE_IF_NEEDED {}
+#endif
+
+
+#define FlatFromReal(vp) FlatFromRealPtr(lpExtensionApis, hCurrentProcess, (vp))
+PVOID FlatFromRealPtr(PWINDBG_EXTENSION_APIS lpExtensionApis, HANDLE hCurrentProcess, DWORD vp)
+{
+    UNREFERENCED_PARAMETER(hCurrentProcess);   // On x86 only.
+
+    WD_INIT_INTEL_BASE_IF_NEEDED;
+
+    return (PVOID) (WD_INTEL_MEMORY_BASE + (((vp) & 0xFFFF0000) >> 12) +
+                                            ((vp) & 0xFFFF));
+}
+
+
+#define FlatFromProt(vp) FlatFromProtPtr(lpExtensionApis, hCurrentProcess, (vp))
+PVOID FlatFromProtPtr(PWINDBG_EXTENSION_APIS lpExtensionApis, HANDLE hCurrentProcess, DWORD vp)
+{
+    PDWORD WDFlatAddress;
+    DWORD FlatAddrEntry;
+
+    GETEXPRADDR(WDFlatAddress, "ntvdm!FlatAddress");
+    READWOW2(FlatAddrEntry, (WDFlatAddress + (vp >> 19)), NULL);
+
+    return FlatAddrEntry
+        ? (PVOID)(FlatAddrEntry + (vp & 0xFFFF))
+        : NULL;
 }
 
 
@@ -228,6 +283,7 @@ VOID dwp( ARGLIST )
     pwp = (PWOWPORT) WDahtoi(lpArgumentString);
 
     Print("Dump of WOWPORT structure at 0x%x:\n\n", (unsigned)pwp);
+
 
     try {
 
@@ -264,6 +320,440 @@ VOID dwp( ARGLIST )
     Print("dwComDEB16    0x%x\n", (unsigned)wp.dwComDEB16);
     Print("lpComDEB16    0x%x\n", (unsigned)wp.lpComDEB16);
 
+    Print("\n");
+
+    return;
+}
+
+
+VOID dt( ARGLIST )  // dump WOW32 task database entry
+{
+
+    TD        td;
+    PTD       ptd;
+    PWOAINST  pWOA, pWOALast;
+    PTDB      ptdb;
+    BOOL      fAll = FALSE;
+    BYTE      SavedByte;
+
+    UNREFERENCED_PARAMETERS();
+
+    Print     = lpExtensionApis->lpOutputRoutine;
+    GetSymbol = lpExtensionApis->lpGetSymbolRoutine;
+
+    while (' ' == lpArgumentString[0]) {
+        lpArgumentString++;
+    }
+
+    ptd = (PTD) WDahtoi(lpArgumentString);
+
+
+    if (!ptd) {
+
+        fAll = TRUE;
+        GETEXPRVALUE(ptd, "wow32!gptdTaskHead", PTD);
+        if (!ptd) {
+            Print("Could not get wow32!gptdTaskHead");
+            return;
+        }
+        Print("Dump WOW task list\n\n");
+
+    }
+
+    do {
+
+        Print("Dump of TD at 0x%08x:\n\n", (unsigned)ptd);
+
+        try {
+
+            READWOW(td, ptd);
+
+        } except (1) {
+
+            Print("Exception 0x%08x reading TD at 0x%08x!\n\n",
+                  GetExceptionCode(), ptd);
+            return;
+        }
+
+
+        Print("vpStack             %04x:%04x\n", HIWORD(td.vpStack), LOWORD(td.vpStack));
+        Print("vpCBStack           %04x:%04x\n", HIWORD(td.vpCBStack), LOWORD(td.vpCBStack));
+        Print("ptdNext             0x%08x\n", td.ptdNext);
+        Print("dwFlags             0x%08x\n", td.dwFlags);
+
+        //
+        // Dump symbolic names for TDF_ manifests
+        //
+
+        if (td.dwFlags & TDF_INITCALLBACKSTACK) {
+            Print("                        TDF_INITCALLBACKSTACK\n");
+        }
+        if (td.dwFlags & TDF_IGNOREINPUT) {
+            Print("                        TDF_IGNOREINPUT\n");
+        }
+
+        Print("VDMInfoiTaskID      0x%08x\n", td.VDMInfoiTaskID);
+        Print("CommDlgTd (ptr)     0x%08x\n", td.CommDlgTd);
+
+        //
+        // Dump CommDlgTd structure if present
+        //
+
+        if (td.CommDlgTd) {
+
+            COMMDLGTD CommDlgTd;
+            BOOL fCopySuccessful = TRUE;
+
+            try {
+
+                READWOW(CommDlgTd, td.CommDlgTd);
+
+            } except (1) {
+
+                fCopySuccessful = FALSE;
+                Print("Exception 0x%08x reading COMMDLGTD at 0x%08x!\n\n",
+                      GetExceptionCode(), td.CommDlgTd);
+            }
+
+            if (fCopySuccessful) {
+
+                Print("\n");
+                Print("    Dump of CommDlgTd at 0x%08x:\n", td.CommDlgTd);
+                Print("    hdlg                  0x04x\n", CommDlgTd.hdlg);
+                Print("    vpfnHook              0x04x:0x04x\n", HIWORD(CommDlgTd.vpfnHook), LOWORD(CommDlgTd.vpfnHook));
+                Print("    vpData                0x04x:0x04x\n", HIWORD(CommDlgTd.vpData), LOWORD(CommDlgTd.vpData));
+                Print("    ExtendedErr           0x08x\n", CommDlgTd.ExtendedErr);
+                Print("    vpfnSetupHook (union) 0x04x:0x04x\n", HIWORD(CommDlgTd.vpfnSetupHook), LOWORD(CommDlgTd.vpfnSetupHook));
+                Print("    pRes          (union) 0x08x\n", CommDlgTd.pRes);
+                Print("    SetupHwnd             0x04x\n", CommDlgTd.SetupHwnd);
+                Print("    Previous              0x08x\n", CommDlgTd.Previous);
+                Print("    pData32               0x08x\n", CommDlgTd.pData32);
+                Print("    Flags                 0x08x\n", CommDlgTd.Flags);
+
+                //
+                // Dump symbolic names for WOWCD_ manifests
+                //
+
+                if (CommDlgTd.Flags & WOWCD_ISCHOOSEFONT) {
+                    Print("                          WOWCD_ISCHOOSEFONT\n");
+                }
+                if (CommDlgTd.Flags & WOWCD_ISOPENFILE) {
+                    Print("                          WOWCD_ISOPENFILE\n");
+                }
+
+                Print("\n");
+
+            }
+        }
+
+
+        Print("dwWOWCompatFlags    0x%08x\n", td.dwWOWCompatFlags);
+        Print("dwWOWCompatFlagsEx  0x%08x\n", td.dwWOWCompatFlags);
+        Print("dwThreadID          0x%08x\n", td.dwThreadID);
+        Print("hThread             0x%08x\n", td.hThread);
+        Print("hIdleHook           0x%08x\n", td.hIdleHook);
+        Print("hrgnClip            0x%08x\n", td.hrgnClip);
+        Print("ulLastDesktophDC    0x%08x\n", td.ulLastDesktophDC);
+        Print("pWOAList            0x%08x\n", td.pWOAList);
+
+        //
+        // Dump WOATD structure if present
+        //
+
+        pWOALast = NULL;
+        pWOA = td.pWOAList;
+
+        while (pWOA && pWOA != pWOALast) {
+
+            union {
+               WOAINST WOA;
+               char    buf[128+2+16];
+            } u;
+
+            BOOL fCopySuccessful = TRUE;
+
+            try {
+
+                READWOW(u.buf, pWOA);
+
+            } except (1) {
+
+                fCopySuccessful = FALSE;
+                Print("Exception 0x%08x reading WOAINST at 0x%08x!\n\n",
+                      GetExceptionCode(), pWOA);
+            }
+
+            if (fCopySuccessful) {
+
+                Print("\n");
+                Print("    Dump of WOAINST at 0x%08x:\n", pWOA);
+                Print("    pNext                 0x%08x\n", u.WOA.pNext);
+                Print("    ptdWOA                0x%08x\n", u.WOA.ptdWOA);
+                Print("    dwChildProcessID      0x%08x\n", u.WOA.dwChildProcessID);
+                Print("    hChildProcess         0x%08x\n", u.WOA.hChildProcess);
+                Print("    szModuleName          %s\n",     u.WOA.szModuleName);
+                Print("\n");
+
+                pWOALast = pWOA;
+                pWOA = u.WOA.pNext;
+
+            } else {
+
+                pWOA = NULL;
+
+            }
+
+        }
+
+        Print("htask16             0x%04x  (use \"!dtdb %x\" for complete dump)\n", td.htask16, td.htask16);
+
+        //
+        // Dump the most interesting TDB fields
+        //
+
+        if (ptdb = FlatFromProt(td.htask16 << 16)) {
+
+            TDB tdb;
+            BOOL fCopySuccessful = TRUE;
+
+            try {
+
+                READWOW(tdb, ptdb);
+
+            } except (1) {
+
+                fCopySuccessful = FALSE;
+                Print("Exception 0x%08x reading TDB at 0x%08x!\n\n",
+                      GetExceptionCode(), ptdb);
+            }
+
+            if (fCopySuccessful) {
+
+                Print("\n");
+                Print("    Highlights of TDB at 0x%08x:\n", ptdb);
+
+                if (tdb.TDB_sig != TDB_SIGNATURE) {
+                    Print("    TDB_sig signature is 0x%04x instead of 0x%04x, halting dump.\n",
+                          tdb.TDB_sig, TDB_SIGNATURE);
+                } else {
+
+                    PDOSPDB pPDB;
+                    DOSPDB  PDB;
+                    PBYTE   pJFT;
+                    BYTE    JFT[256];
+                    WORD    cbJFT;
+                    PDOSSF  pSFTHead, pSFTHeadCopy;
+                    DOSSF   SFTHead;
+                    PDOSSFT pSFT;
+                    WORD    fh;
+                    WORD    SFN;
+                    WORD    i;
+                    DWORD   cb;
+                    PDOSWOWDATA pDosWowData;
+                    DOSWOWDATA  DosWowData;
+
+                    SavedByte = tdb.TDB_ModName[8];
+                    tdb.TDB_ModName[8] = 0;
+                    Print("    Module name           \"%s\"\n", tdb.TDB_ModName);
+                    tdb.TDB_ModName[8] = SavedByte;
+
+                    Print("    ExpWinVer             0x%04x\n", tdb.TDB_ExpWinVer);
+                    Print("    Directory             \"%s\"\n", tdb.TDB_Directory);
+                    Print("    PDB (aka PSP)         0x%04x\n", tdb.TDB_PDB);
+
+                    //
+                    // Dump open file handle info
+                    //
+
+                    pPDB  = (PDOSPDB) FlatFromProt(tdb.TDB_PDB << 16);
+                    READWOW(PDB, pPDB);
+
+                    pJFT  = (PBYTE)   FlatFromReal(PDB.PDB_JFN_Pointer);
+                    cbJFT = PDB.PDB_JFN_Length;
+
+                    Print("    JFT                   %04x:%04x size 0x%x\n",
+                                                     HIWORD(PDB.PDB_JFN_Pointer),
+                                                     LOWORD(PDB.PDB_JFN_Pointer),
+                                                     cbJFT);
+
+                    try {
+                        READMEM(hCurrentProcess, pJFT, JFT, cbJFT, NULL);
+                    } except (1) {
+                        Print("Unable to read JFT from 0x%08x!\n", pJFT);
+                        return;
+                    }
+
+                    for (fh = 0; fh < cbJFT; fh++) {
+
+                        if (JFT[fh] != 0xFF) {
+
+                            //
+                            // Walk the SFT chain to find Nth entry
+                            // where N == JFT[fh]
+                            //
+
+                            SFN = 0;
+                            i = 0;
+
+                            GETEXPRVALUE(pSFTHead, "ntvdm!pSFTHead", PDOSSF);
+
+                            GETEXPRADDR(pDosWowData, "wow32!DosWowData");
+                            READWOW(DosWowData, pDosWowData);
+
+                            if ((DWORD)pSFTHead != DosWowData.lpSftAddr) {
+                                Print("ntvdm!pSFTHead is 0x%08x, DosWowData.lpSftAddr ix 0x%08x.\n",
+                                       pSFTHead, DosWowData.lpSftAddr);
+                            }
+
+                            try {
+                                READMEM(hCurrentProcess, pSFTHead, &SFTHead, sizeof(SFTHead), NULL);
+                            } except (1) {
+                                Print("Unable to read SFTHead from 0x%08x!\n", pSFTHead);
+                                return;
+                            }
+
+                            cb = sizeof(DOSSF) + SFTHead.SFCount * sizeof(DOSSFT);
+                            pSFTHeadCopy = malloc_w(cb);
+
+                            //Print("First DOSSF at 0x%08x, SFCount 0x%x, SFLink 0x%08x.\n",
+                            //      pSFTHead, SFTHead.SFCount, SFTHead.SFLink);
+
+                            try {
+                                READMEM(hCurrentProcess, pSFTHead, pSFTHeadCopy, cb, NULL);
+                            } except (1) {
+                                Print("Unable to read SFTHead from 0x%08x!\n", pSFTHead);
+                                return;
+                            }
+
+                            pSFT = (PDOSSFT) &(pSFTHeadCopy->SFTable);
+
+                            while (SFN < JFT[fh]) {
+                                SFN++;
+                                i++;
+                                pSFT++;
+                                if (i >= pSFTHeadCopy->SFCount) {
+
+                                    if (pSFTHeadCopy->SFLink & 0xFFFF == 0xFFFF) {
+                                        SFN = JFT[fh] - 1;
+                                        break;
+                                    }
+
+                                    pSFTHead = FlatFromReal(pSFTHeadCopy->SFLink);
+                                    i = 0;
+
+                                    try {
+                                        READMEM(hCurrentProcess, pSFTHead, &SFTHead, sizeof(SFTHead), NULL);
+                                    } except (1) {
+                                        Print("Unable to read SFTHead from 0x%08x!\n", pSFTHead);
+                                        return;
+                                    }
+
+                                    cb = sizeof(DOSSF) + SFTHead.SFCount * sizeof(DOSSFT);
+                                    free_w(pSFTHeadCopy);
+                                    pSFTHeadCopy = malloc_w(cb);
+
+                                    //Print("Next DOSSF at 0x%08x, SFCount 0x%x, SFLink 0x%08x.\n",
+                                    //      pSFTHead, SFTHead.SFCount, SFTHead.SFLink);
+
+                                    try {
+                                        READMEM(hCurrentProcess, pSFTHead, pSFTHeadCopy, cb, NULL);
+                                    } except (1) {
+                                        Print("Unable to read SFTHead from 0x%08x!\n", pSFTHead);
+                                        return;
+                                    }
+
+                                    pSFT = (PDOSSFT) &(pSFTHeadCopy->SFTable);
+                                }
+                            }
+
+                            if (SFN != JFT[fh]) {
+                                Print("    Unable to local SFT entry 0x%x for handle 0x%x.\n",
+                                      pJFT[fh], fh);
+                            } else {
+                                Print("    Handle 0x%02x SFN 0x%02x Refs 0x%x Mode 0x%04x Attr 0x%04x NT Handle 0x%08x\n",
+                                      fh, SFN, pSFT->SFT_Ref_Count, pSFT->SFT_Mode, pSFT->SFT_Attr, pSFT->SFT_NTHandle);
+                            }
+
+                            free_w(pSFTHeadCopy);
+                        }
+                    }
+
+                    Print("\n");
+                }
+            }
+
+        }
+
+        Print("hInst16             0x%04x\n", td.hInst16);
+        Print("hMod16              0x%04x\n", td.hMod16);
+
+        Print("\n");
+
+        ptd = td.ptdNext;
+
+    } while (fAll && ptd);
+
+    return;
+}
+
+
+VOID ddte( ARGLIST )  // dump dispatch table entry
+{
+
+    W32   dte;
+    PW32  pdte;
+    char  szW32[32];
+    char  szSymbol[256];
+    DWORD dwOffset;
+
+
+    UNREFERENCED_PARAMETERS();
+
+    Print     = lpExtensionApis->lpOutputRoutine;
+    GetSymbol = lpExtensionApis->lpGetSymbolRoutine;
+
+    while (' ' == lpArgumentString[0]) {
+        lpArgumentString++;
+    }
+
+    pdte = (PW32) WDahtoi(lpArgumentString);
+
+
+    if (pdte) {
+
+        Print("Dump of dispatch table entry at 0x%08x:\n\n", (unsigned)pdte);
+
+    } else {
+
+        GETEXPRADDR(pdte, "wow32!aw32WOW");
+        Print("Dump of first dispatch table entry at 0x%08x:\n\n", (unsigned)pdte);
+
+    }
+
+    try {
+
+        READWOW(dte, pdte);
+
+        if (dte.lpszW32) {
+            READWOW(szW32, dte.lpszW32);
+            dte.lpszW32 = szW32;
+            szW32[sizeof(szW32)-1] = '\0';
+        }
+
+    } except (1) {
+
+        Print("Exception 0x%08x reading dispatch table entry at 0x%08x!\n\n",
+              GetExceptionCode(), pdte);
+        return;
+    }
+
+    Print("Dispatches to address 0x%08x, ", (unsigned)dte.lpfnW32);
+    Print("supposedly function '%s'.\n", dte.lpszW32);
+
+    szSymbol[0] = '\0';
+    GetSymbol((LPVOID)dte.lpfnW32, szSymbol, &dwOffset);
+
+    Print("Debugger finds symbol '%s' for that address.\n", szSymbol);
     Print("\n");
 
     return;
@@ -379,7 +869,7 @@ BOOL WDGetAPIProfArgs(LPSZ lpszArgStr,
         return(0);
     }
 
-    if( !lstrcmpi(argv[0], "HELP") ) {
+    if( !_stricmp(argv[0], "HELP") ) {
         return(1);
     }
 
@@ -388,9 +878,9 @@ BOOL WDGetAPIProfArgs(LPSZ lpszArgStr,
 
 
     for (i = 0; i < nModNames; i++) {
-        if (!lstrcmpi(apszModNames[i], argv[0])) {
+        if (!_stricmp(apszModNames[i], argv[0])) {
 
-            lstrcpy(lpszTab, apszModNames[i]);
+            strcpy(lpszTab, apszModNames[i]);
             *bTblAll = 0;  // specify dump specific table
 
             /* if we got a table name match & only one arg, we're done */
@@ -412,13 +902,13 @@ BOOL WDGetAPIProfArgs(LPSZ lpszArgStr,
         READWOW2(szTabName, awThkTbl.lpszW32, 0);
 
         /* get rid of trailing spaces from table name string */
-        lstrcpy(temp, szTabName);
+        strcpy(temp, szTabName);
         WDParseArgStr(temp, TblEnt, 1);
 
         /* if we found a table name that matches the 1st arg...*/
-        if( !lstrcmpi(argv[0], TblEnt[0]) ) {
+        if( !_stricmp(argv[0], TblEnt[0]) ) {
 
-            lstrcpy(lpszTab, szTabName);
+            strcpy(lpszTab, szTabName);
             *bTblAll = 0;  // specify dump specific table
 
             /* if we got a table name match & only one arg, we're done */
@@ -441,7 +931,7 @@ BOOL WDGetAPIProfArgs(LPSZ lpszArgStr,
 
     /* try to convert API spec to a number */
     *iFunInd = atoi(argv[nArgs]);
-    lstrcpy(lpszFun, argv[nArgs]);
+    strcpy(lpszFun, argv[nArgs]);
 
     /* if API spec is not a number => it's a name */
     if( *iFunInd == 0 ) {
@@ -485,12 +975,12 @@ BOOL  WDGetMSGProfArgs(LPSZ lpszArgStr,
         return(0);
     }
 
-    if( !lstrcmpi(argv[0], "HELP") )
+    if( !_stricmp(argv[0], "HELP") )
         return(1);
 
     /* try to convert MSG spec to a number */
     *iMsgNum = atoi(argv[0]);
-    lstrcpy(lpszMsg, argv[0]);
+    strcpy(lpszMsg, argv[0]);
 
     /* if MSG spec is not a number => it's a name */
     if( *iMsgNum == 0 ) {
@@ -607,18 +1097,18 @@ VOID apiprofdmp( ARGLIST )
 
         /* if dump all tables || dump this specific table */
 
-       if( bTblAll || !lstrcmp(szTab, szTable) ) {
+       if( bTblAll || !strcmp(szTab, szTable) ) {
 
             pawAPIEntryTbl = awThkTbl.lpfnA32;
 #endif
     for (i = 0; i < nModNames; i++) {
 
         READWOW(awThkTbl, &ppaThkTbls[0]);
-        lstrcpy(szTable, apszModNames[i]);
+        strcpy(szTable, apszModNames[i]);
 
         /* if dump all tables || dump this specific table */
 
-        if (bTblAll || !lstrcmpi(szTab, apszModNames[i])) {
+        if (bTblAll || !_stricmp(szTab, apszModNames[i])) {
 
             INT    nFirst, nLast;
 
@@ -665,7 +1155,7 @@ VOID apiprofdmp( ARGLIST )
                 for(iFun = nFirst; iFun <= nLast; iFun++) {
                     READWOW(awAPIEntry, &pawAPIEntryTbl[iFun]);
                     READWOW(szFunName,  awAPIEntry.lpszW32);
-                    if ( !lstrcmpi(szFun, szFunName) ) {
+                    if ( !_stricmp(szFun, szFunName) ) {
                         Print("\n>>>> %s\n", szTable);
                         Print("%s  %s\n%s\n", szAPI, szTITLES, szDASHES);
                         Print("%4d %30s  %7ld  %15ld  ",
@@ -791,13 +1281,13 @@ VOID msgprofdmp( ARGLIST )
 
         /* if specific msg name, parse name from "WM_MSGNAME 0x00XX" format */
         if( iMsgNum == -2 ) {
-            lstrcpy(szMsg32, szMsgName);
+            strcpy(szMsg32, szMsgName);
             WDParseArgStr(szMsg32, argv, 1);
         }
 
         /* if 'all' msgs || specific msg # || specific msg name */
         if( (iMsgNum == -1) || (iMsg == iMsgNum) ||
-            ( (iMsgNum == -2) && (!lstrcmp(szMsg, argv[0])) ) ) {
+            ( (iMsgNum == -2) && (!strcmp(szMsg, argv[0])) ) ) {
             bFound = 1;
             if(aw32Msg.cCalls) {
                 Print("%35s  %7ld  %15ld  %15ld\n", szMsgName,
@@ -1019,13 +1509,12 @@ void ww ( ARGLIST )
                 Print("iClass        : %#lx (%s) \n", pww->iClass, aszWOWCLASS[pww->iClass]);
                 Print("dwStyle       : %08lX\n", pww->dwStyle);
                 Print("hInstance     : %08lX\n", pww->hInstance);
-                Print("PWW->         : %08lX\n", pww);
                 Print("16 bit handle : %#x\n",   h16);
 
             }
             except (EXCEPTION_ACCESS_VIOLATION == GetExceptionCode()) {
 
-                Print("!wow32.ww:  Invalid HWND16 %4.4x\n", h16);
+                Print("!wow32.ww:  Invalid HWND16 %04x\n", h16);
 
             }
         }
@@ -1068,7 +1557,7 @@ void wc ( ARGLIST )
             }
             except (EXCEPTION_ACCESS_VIOLATION == GetExceptionCode()) {
 
-                Print("!wow32.wc:  Invalid HWND16 %4.4x\n", h16);
+                Print("!wow32.wc:  Invalid HWND16 %04x\n", h16);
 
             }
         }
@@ -1201,10 +1690,10 @@ void logfile( ARGLIST )
     READWOW(fLog, lpfLog);
 
     if(nArgs) {
-        lstrcpy(szLogFile, argv[0]);
+        strcpy(szLogFile, argv[0]);
     }
     else {
-        lstrcpy(szLogFile, "c:\\ilog.log");
+        strcpy(szLogFile, "c:\\ilog.log");
     }
 
     if(fLog == 0) {
@@ -1222,7 +1711,7 @@ void logfile( ARGLIST )
     WRITEWOW(lpfLog, fLog);
 
     GETEXPRADDR(lpszLogFile, "wow32!szLogFile");
-    WRITENWOW(lpszLogFile, szLogFile, lstrlen(szLogFile)+1);
+    WRITENWOW(lpszLogFile, szLogFile, strlen(szLogFile)+1);
 
     return;
 }
@@ -1525,4 +2014,50 @@ void filtercommdlg( ARGLIST )
     return;
 }
 
+void cia( ARGLIST )
+{
+    CURSORICONALIAS cia;
+    PVOID lpAddress;
+    INT maxdump = 500;
+
+    Print         = lpExtensionApis->lpOutputRoutine;
+
+    GETEXPRADDR(lpAddress, "wow32!lpCIAlias");
+    READWOW(lpAddress, lpAddress);
+
+    if (!lpAddress) {
+
+        Print("Cursor/Icon alias list is empty.\n");
+
+    } else {
+
+        Print("Alias    tp H16  H32      inst mod  task res  szname\n");
+
+        READWOW(cia, lpAddress);
+
+        while ((lpAddress != NULL) && --maxdump) {
+
+            if (cia.fInUse) {
+                Print("%08X", lpAddress);
+                Print(" %02X", cia.flType);
+                Print(" %04X", cia.h16);
+                Print(" %08X", cia.h32);
+                Print(" %04X", cia.hInst16);
+                Print(" %04X", cia.hMod16);
+                Print(" %04X", cia.hTask16);
+                Print(" %04X", cia.hRes16);  
+                Print(" %08X\n", cia.lpszName);
+            }
+
+            lpAddress = cia.lpNext;
+            READWOW(cia, lpAddress);
+
+        }
+
+        if (!maxdump) {
+            Print("Dump ended prematurely - possible infinite loop \n");
+        }
+    }
+
+}
 #endif

@@ -24,16 +24,17 @@ Revision History:
 #ifndef _DEBUG_
 #define _DEBUG_
 
-#if RDRDBG_LOG
+#if DBG || RDRDBG_LOG
 VOID
-RdrLog (
+RdrLog2 (
     IN PSZ Event,
     IN PUNICODE_STRING Text,
-    IN ULONG Dword1,
-    IN ULONG Dword2
+    IN ULONG DwordCount,
+    ...
     );
+#define RdrLog(_x_) RdrLog2 _x_
 #else
-#define RdrLog(a,b,c,d)
+#define RdrLog(_x_)
 #endif
 
 #ifdef  MEMPRINT
@@ -260,6 +261,11 @@ extern ULONG ThisCodeCantBePaged;
 #define POOL_DISCITEM               'wdrL'
 #define POOL_TRANSPORT_EVENT        'etrL'
 #define POOL_CONNECT_CONTEXT        'xcrL'
+#define POOL_OLE_ALL_BUFFER         'aorL'
+#define POOL_PATH_BUFFER            'bprL'
+#define POOL_PNP_DATA               'ltrL'
+#define POOL_LOGONTERMINATION       'tlrL'
+
 #if !RDRPOOLDBG
 #if !POOL_TAGGING
 #define ALLOCATE_POOL(a,b, tag) ExAllocatePool(a, b)
@@ -331,12 +337,16 @@ extern ULONG RdrMaxDump;
 
 #define IFDEBUG(Function) if (RdrDebugTraceLevel & DPRT_ ## Function)
 
+#if !defined(BUILDING_RDR_KD_EXTENSIONS)
 #define dprintf(LEVEL,String) {                              \
     if (((LEVEL) == 0) || (RdrDebugTraceLevel & (LEVEL))) {  \
-        DbgPrint("Rdr: T:%08lx: ", PsGetCurrentThread());    \
+        if (0) {                                             \
+            DbgPrint("Rdr: T:%08lx: ", PsGetCurrentThread());\
+        }                                                    \
         DbgPrint String;                                     \
     }                                                        \
 }
+#endif
 
 #define InternalError(String) {                              \
     DbgPrint("Internal Redirector Error ");                  \
@@ -355,7 +365,9 @@ extern ULONG RdrMaxDump;
 
 #define IFDEBUG(Function) if (FALSE)
 
+#if !defined(BUILDING_RDR_KD_EXTENSIONS)
 #define dprintf(LEVEL, String) {NOTHING;}
+#endif
 
 #define InternalError(String) {NOTHING;}
 

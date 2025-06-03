@@ -20,12 +20,27 @@
 #include <cruntime.h>
 #include <oscalls.h>
 
+void __cdecl _initcon(void);
+void __cdecl _termcon(void);
+
+#ifdef	_MSC_VER
+
+#pragma data_seg(".CRT$XIC")
+static  void (__cdecl *pinit)(void) = _initcon;
+
+#pragma data_seg(".CRT$XPX")
+static  void (__cdecl *pterm)(void) = _termcon;
+
+#pragma data_seg()
+
+#endif	/* _MSC_VER */
+
 /*
  * define console handles. these definitions cause this file to be linked
  * in if one of the direct console I/O functions is referenced.
  */
-extern int _coninpfh;	/* console input */
-extern int _confh;	/* console output */
+int _coninpfh = -1;	/* console input */
+int _confh = -1;	/* console output */
 
 /***
 *void _initcon(void) - open handles for console I/O
@@ -44,7 +59,7 @@ extern int _confh;	/* console output */
 *
 *******************************************************************************/
 
-void _CALLTYPE1 _initcon (
+void __cdecl _initcon (
 	void
 	)
 {
@@ -84,7 +99,7 @@ void _CALLTYPE1 _initcon (
 *
 *******************************************************************************/
 
-void _CALLTYPE1 _termcon (
+void __cdecl _termcon (
 	void
 	)
 {

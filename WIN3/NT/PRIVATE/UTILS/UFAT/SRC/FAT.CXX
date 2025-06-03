@@ -1,8 +1,11 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _UFAT_MEMBER_
 
 #include "ulib.hxx"
+#include "ufat.hxx"
+
 #include "bitvect.hxx"
 #include "error.hxx"
 #include "fat.hxx"
@@ -35,7 +38,7 @@ Return Value:
 
 VOID
 FAT::Construct (
-	)
+        )
 /*++
 
 Routine Description:
@@ -138,8 +141,8 @@ Notes:
     ULONG       sector_size;
     ULONG       max_num_entries;
 
-    DbgAssert(Mem);
-    DbgAssert(Drive);
+    DebugAssert(Mem);
+    DebugAssert(Drive);
 
     Destroy();
 
@@ -173,11 +176,11 @@ Notes:
     if (NumSectors) {
         n = NumSectors;
         if (_is_big) {
-            max_num_entries = n*sector_size/2;
+            max_num_entries = (n*sector_size/2);
         } else {
-            max_num_entries = n*sector_size*2/3;
+            max_num_entries = (n*sector_size*2/3);
         }
-        _num_entries = min(_num_entries, max_num_entries);
+        _num_entries = (USHORT)min(_num_entries, max_num_entries);
     }
 
     if (!SECRUN::Initialize(Mem, Drive, StartSector, n)) {
@@ -191,42 +194,44 @@ Notes:
 }
 
 
+UFAT_EXPORT
 USHORT
 FAT::Index12(
-	IN  USHORT  ClusterNumber
-	) CONST
+        IN  USHORT  ClusterNumber
+        ) CONST
 /*++
 
 Routine Description:
 
-	This routine indexes the FAT as 12 bit little endian entries.
+        This routine indexes the FAT as 12 bit little endian entries.
 
 Arguments:
 
-	ClusterNumber   - Supplies the FAT entry desired.
+        ClusterNumber   - Supplies the FAT entry desired.
 
 Return Value:
 
-	The value of the FAT entry at ClusterNumber.
+        The value of the FAT entry at ClusterNumber.
 
 --*/
 {
-	ULONG   n;
+        ULONG   n;
     PUCHAR  p;
 
     p = (PUCHAR) _fat;
 
-    DbgAssert(p);
+    DebugAssert(p);
 
-	n = ClusterNumber*3;
-	if (n%2) {
- 		return (p[n/2]>>4) | (p[n/2 + 1]<<4);
-	} else {
- 		return p[n/2] | ((p[n/2 + 1]&0x0F)<<8);
+        n = ClusterNumber*3;
+        if (n%2) {
+                return (p[n/2]>>4) | (p[n/2 + 1]<<4);
+        } else {
+                return p[n/2] | ((p[n/2 + 1]&0x0F)<<8);
     }
 }
 
 
+UFAT_EXPORT
 VOID
 FAT::Set12(
     IN  USHORT  ClusterNumber,
@@ -254,15 +259,15 @@ Return Value:
 
     p = (PUCHAR) _fat;
 
-    DbgAssert(p);
+    DebugAssert(p);
 
     n = ClusterNumber*3;
     if (n%2) {
- 		p[n/2] = (p[n/2]&0x0F) | ((Value&0x000F)<<4);
+                p[n/2] = (p[n/2]&0x0F) | ((Value&0x000F)<<4);
         p[n/2 + 1] = (Value&0x0FF0)>>4;
     } else {
         p[n/2] = Value&0x00FF;
- 		p[n/2 + 1] = (p[n/2 + 1]&0xF0) | ((Value&0x0F00)>>8);
+                p[n/2 + 1] = (p[n/2 + 1]&0xF0) | ((Value&0x0F00)>>8);
     }
 }
 
@@ -371,7 +376,41 @@ Return Value:
     return r;
 }
 
+USHORT
+FAT::QueryAllocatedClusters(
+    ) CONST
+/*++
 
+Routine Description:
+
+    This routine computes the number of allocated clusters on the
+    disk by scanning the FAT and counting the entries marked allocated.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    The number of allocated clusters on the disk.
+
+--*/
+{
+    USHORT  i;
+    USHORT  r;
+
+    r = 0;
+    for (i = FirstDiskCluster; IsInRange(i); i++) {
+        if (!IsClusterReserved(i) && !IsClusterBad(i) && !IsClusterFree(i)) {
+            r++;
+        }
+    }
+
+    return r;
+}
+
+
+UFAT_EXPORT
 USHORT
 FAT::QueryNthCluster(
     IN  USHORT  StartingCluster,
@@ -411,6 +450,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 USHORT
 FAT::QueryLengthOfChain(
     IN  USHORT  StartingCluster,
@@ -528,7 +568,7 @@ Return Value:
 {
     USHORT  i;
 
-    DbgAssert( Cluster );
+    DebugAssert( Cluster );
 
     if ( !IsClusterFree( Cluster ) ) {
         for (i = FirstDiskCluster; IsInRange(i); i++) {
@@ -620,8 +660,8 @@ Return Value:
 {
     USHORT  clus, next;
 
-    DbgAssert(IsInRange(StartingCluster));
-    DbgAssert(ChangesMade);
+    DebugAssert(IsInRange(StartingCluster));
+    DebugAssert(ChangesMade);
 
     *ChangesMade = FALSE;
 
@@ -684,10 +724,10 @@ Return Value:
 {
     USHORT  clus, next;
 
-    DbgAssert(IsInRange(StartingCluster));
-    DbgAssert(ChangesMade);
-    DbgAssert(CrossLinkDetected);
-    DbgAssert(CrossLinkPreviousCluster);
+    DebugAssert(IsInRange(StartingCluster));
+    DebugAssert(ChangesMade);
+    DebugAssert(CrossLinkDetected);
+    DebugAssert(CrossLinkPreviousCluster);
 
     *ChangesMade = FALSE;
     *CrossLinkDetected = FALSE;
@@ -791,6 +831,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 USHORT
 FAT::AllocChain(
     IN  USHORT  Length,
@@ -950,6 +991,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 VOID
 FAT::FreeChain(
     IN  USHORT  StartOfChain

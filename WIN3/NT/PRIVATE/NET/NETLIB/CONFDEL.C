@@ -83,12 +83,12 @@ NetpDeleteConfigKeyword (
             return (NERR_CfgParamNotFound);
         }
         if (Error != ERROR_SUCCESS) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpConfigDeleteKeyword: unexpected status "
-                    FORMAT_LONG ".\n", Error );
+                    FORMAT_LONG ".\n", Error ));
         }
         NetpAssert( Error == ERROR_SUCCESS );  // BUGBUG
-        return (NO_ERROR);
+        return Error;
     }
 
 #elif defined(FAKE_PER_PROCESS_RW_CONFIG)

@@ -22,12 +22,12 @@ Revision History:
 
 --*/
 
+#define HEADER_FILE
+#include <kxmips.h>
+
 //
 // The R4000 requires colored page support.
 //
-
-#define COLORED_PAGES 1
-
 
 //
 // The R4000 supports large pages.
@@ -68,7 +68,6 @@ Revision History:
                  |                                    |
                  |                                    |
                  |                                    |
-                 |                                    |
                  +------------------------------------+
         C0000000 | Page Table Pages mapped through    |
                  |   this 4mb region                  |
@@ -93,9 +92,12 @@ Revision History:
                  |                                    |
                  |                                    |
                  +------------------------------------+
+        DE000000 | System mapped views                |
+                 |                                    |
+                 |                                    |
+                 +------------------------------------+
         E1000000 | Start of paged system area         |
                  |   Kernel mode access only.         |
-                 |                                    |
                  |                                    |
                  |                                    |
                  +------------------------------------+
@@ -135,24 +137,35 @@ Revision History:
 
 #define PDE_TOP 0xC03FFFFF
 
+#define MM_PAGES_IN_KSEG0 (((ULONG)KSEG1_BASE - (ULONG)KSEG0_BASE) >> PAGE_SHIFT)
+
 #define HYPER_SPACE ((PVOID)0xC0400000)
 
 #define HYPER_SPACE_END 0xC07fffff
 
 //
 // Define the start and maximum size for the system cache.
-// Maximum size 512MB.
+// Maximum size 464MB.
 //
 
 #define MM_SYSTEM_CACHE_START (0xC1000000)
-
-#define MM_MAXIMUM_SYSTEM_CACHE_SIZE ((512*1024*1024) >> PAGE_SHIFT)
 
 #define MM_SYSTEM_CACHE_WORKING_SET (0xC0C00000)
 
 #define MM_SYSTEM_CACHE_START (0xC1000000)
 
-#define MM_SYSTEM_CACHE_END (0xE1000000)
+#define MM_SYSTEM_CACHE_END (0xDE000000)
+
+#define MM_MAXIMUM_SYSTEM_CACHE_SIZE     \
+   (((ULONG)MM_SYSTEM_CACHE_END - (ULONG)MM_SYSTEM_CACHE_START) >> PAGE_SHIFT)
+
+//
+// Define area for mapping views into system space.
+//
+
+#define MM_SYSTEM_VIEW_START (0xDE000000)
+
+#define MM_SYSTEM_VIEW_SIZE (48*1024*1024)
 
 #define MM_PAGED_POOL_START ((PVOID)(0xE1000000))
 
@@ -168,17 +181,11 @@ Revision History:
 // Define absolute minumum and maximum count for system ptes.
 //
 
-#define MM_MINIMUM_SYSTEM_PTES 4000
+#define MM_MINIMUM_SYSTEM_PTES 9000
 
-#define MM_MAXIMUM_SYSTEM_PTES 28000
+#define MM_MAXIMUM_SYSTEM_PTES 50000
 
-#define MM_DEFAULT_SYSTEM_PTES 10000
-
-//
-// Number of PTEs to flush singularly before flushing the entire TB.
-//
-
-#define MM_MAXIMUM_FLUSH_COUNT 7
+#define MM_DEFAULT_SYSTEM_PTES 15000
 
 //
 // Pool limits
@@ -191,10 +198,10 @@ Revision History:
 #define MM_MAX_INITIAL_NONPAGED_POOL ((ULONG)(128*1024*1024))
 
 //
-// The total amount of nonpaged pool (initial pool + expansion + system PTEs).
+// The total amount of nonpaged pool (initial pool + expansion).
 //
 
-#define MM_MAX_ADDITIONAL_NONPAGED_POOL ((ULONG)(192*1024*1024))
+#define MM_MAX_ADDITIONAL_NONPAGED_POOL ((ULONG)(128*1024*1024))
 
 //
 // The maximum amount of paged pool that can be created.
@@ -244,7 +251,7 @@ Revision History:
 // On R4000 number of mapping PTEs must be a mulitple of 16 for alignment.
 //
 
-#define NUMBER_OF_MAPPING_PTES 127L
+#define NUMBER_OF_MAPPING_PTES 255
 #define LAST_MAPPING_PTE   \
      ((ULONG)((ULONG)FIRST_MAPPING_PTE + (NUMBER_OF_MAPPING_PTES * PAGE_SIZE)))
 
@@ -255,7 +262,13 @@ Revision History:
 #define IMAGE_MAPPING_PTE   ((PMMPTE)((ULONG)LAST_MAPPING_PTE + PAGE_SIZE))
 
 #define ZEROING_PAGE_PTE    ((PMMPTE)((ULONG)IMAGE_MAPPING_PTE + PAGE_SIZE))
+
 #define WORKING_SET_LIST   ((PVOID)((ULONG)ZEROING_PAGE_PTE + PAGE_SIZE))
+
+#define MM_MAXIMUM_WORKING_SET \
+       ((ULONG)((ULONG)2*1024*1024*1024 - 64*1024*1024) >> PAGE_SHIFT) //2Gb-64Mb
+
+#define MM_WORKING_SET_END ((ULONG)0xC07FF000)
 
 #define MM_PTE_GLOBAL_MASK        0x1
 #define MM_PTE_PROTOTYPE_MASK     0x4
@@ -296,7 +309,7 @@ Revision History:
 // Zero Kernel PTE
 //
 
-#define MM_ZERO_KERNEL_PTE 0
+#define MM_ZERO_KERNEL_PTE MM_PTE_GLOBAL_MASK
 
 
 //
@@ -357,6 +370,12 @@ Revision History:
 #define MM_COLOR_MASK 7
 
 //
+// Define secondary color stride.
+//
+
+#define MM_COLOR_STRIDE 11
+
+//
 // Boundary for aligned pages of like color upon.
 //
 
@@ -372,13 +391,17 @@ Revision History:
 //  Define 1mb worth of secondary colors
 //
 
-#define MM_SECONDARY_COLORS (256)
+#define MM_SECONDARY_COLORS_DEFAULT (256)
+
+#define MM_SECONDARY_COLORS_MIN (2)
+
+#define MM_SECONDARY_COLORS_MAX (2048)
 
 //
 // Mask for isolating secondary color from physical page number;
 //
 
-#define MM_SECONDARY_COLOR_MASK (MM_SECONDARY_COLORS - 1)
+extern ULONG MmSecondaryColorMask;
 
 
 
@@ -556,11 +579,81 @@ Revision History:
        }
 
 
+//++
+//VOID
+//MI_SET_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro sets the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set dirty.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_DIRTY(PTE) (PTE).u.Long |= HARDWARE_PTE_DIRTY_MASK
+
+
+//++
+//VOID
+//MI_SET_PTE_CLEAN (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro clears the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to set clear.
+//
+// Return Value:
+//
+//     None.
+//
+//--
+
+#define MI_SET_PTE_CLEAN(PTE) (PTE).u.Long &= ~HARDWARE_PTE_DIRTY_MASK
+
+
+
+//++
+//VOID
+//MI_IS_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro checks the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to check.
+//
+// Return Value:
+//
+//    TRUE if the page is dirty (modified), FALSE otherwise.
+//
+//--
+
+#define MI_IS_PTE_DIRTY(PTE) ((PTE).u.Hard.Dirty != 0)
+
 
 //++
 //VOID
 //MI_SET_GLOBAL_STATE (
-//    IN MMPTE PTE
+//    IN MMPTE PTE,
+//    IN ULONG STATE
 //    );
 //
 // Routine Description:
@@ -577,34 +670,8 @@ Revision History:
 //
 //--
 
-#define MI_SET_GLOBAL_STATE(PTE)                      \
-           (PTE).u.Hard.Global = 1;
-
-
-
-
-//++
-//VOID
-//MI_CLEAR_GLOBAL_STATE (
-//    IN MMPTE PTE
-//    );
-//
-// Routine Description:
-//
-//    This macro clears the global bit if the pointer PTE.
-//
-// Argments
-//
-//    PTE - Supplies the PTE to clear global state from.
-//
-// Return Value:
-//
-//     None.
-//
-//--
-
-#define MI_CLEAR_GLOBAL_STATE(PTE)                      \
-           (PTE).u.Hard.Global = 0;
+#define MI_SET_GLOBAL_STATE(PTE,STATE)                      \
+           (PTE).u.Hard.Global = STATE;
 
 
 
@@ -679,6 +746,28 @@ Revision History:
 
 #define MI_IS_CACHING_DISABLED(PPTE)   \
             ((PPTE)->u.Hard.CachePolicy == UNCACHED_POLICY)
+
+//++
+//VOID
+//MI_IS_PTE_DIRTY (
+//    IN MMPTE PTE
+//    );
+//
+// Routine Description:
+//
+//    This macro checks the dirty bit(s) in the specified PTE.
+//
+// Argments
+//
+//    PTE - Supplies the PTE to check.
+//
+// Return Value:
+//
+//    TRUE if the page is dirty (modified), FALSE otherwise.
+//
+//--
+
+#define MI_IS_PTE_DIRTY(PTE) ((PTE).u.Hard.Dirty != 0)
 
 
 //++
@@ -758,11 +847,15 @@ Revision History:
 #define MI_CHECK_PAGE_ALIGNMENT(PAGE,COLOR)                                \
 {                                                                          \
     PMMPFN PPFN;                                                           \
+    ULONG OldColor;                                                        \
     PPFN = MI_PFN_ELEMENT(PAGE);                                           \
-    KeChangeColorPage((PVOID)((ULONG)(COLOR) << PAGE_SHIFT),               \
-                      (PVOID)((ULONG)(PPFN->u3.e1.PageColor) << PAGE_SHIFT), \
-                      Page);                                               \
-    PPFN->u3.e1.PageColor = COLOR;                                         \
+    OldColor = PPFN->u3.e1.PageColor;                                      \
+    if ((COLOR) != OldColor) {                                             \
+        KeChangeColorPage((PVOID)((ULONG)(COLOR) << PAGE_SHIFT),           \
+                          (PVOID)((ULONG)(OldColor << PAGE_SHIFT)),        \
+                          Page);                                           \
+        PPFN->u3.e1.PageColor = COLOR;                                     \
+    }                                                                      \
 }
 
 
@@ -828,8 +921,8 @@ Revision History:
 //--
 
 #define MI_GET_PAGE_COLOR_FROM_PTE(PTEADDRESS)                  \
-         ((ULONG)((MmSystemPageColor++ << 3) &                  \
-                (MM_SECONDARY_COLOR_MASK & ~MM_COLOR_MASK)) |   \
+         ((ULONG)((MmSystemPageColor += MM_COLOR_STRIDE) &      \
+                   MmSecondaryColorMask) |                      \
          ((((ULONG)(PTEADDRESS)) >> 2) & MM_COLOR_MASK))
 
 //++
@@ -853,9 +946,9 @@ Revision History:
 //
 //--
 
-#define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)  \
-         ((ULONG)((MmSystemPageColor++ << 3) &                  \
-                (MM_SECONDARY_COLOR_MASK & ~MM_COLOR_MASK)) |   \
+#define MI_GET_PAGE_COLOR_FROM_VA(ADDRESS)                      \
+         ((ULONG)((MmSystemPageColor += MM_COLOR_STRIDE) &      \
+                   MmSecondaryColorMask) |                      \
          ((((ULONG)(ADDRESS)) >> PAGE_SHIFT) & MM_COLOR_MASK))
 
 
@@ -881,9 +974,9 @@ Revision History:
 //--
 
 
-#define MI_PAGE_COLOR_PTE_PROCESS(PTE,COLOR)  \
-         ((ULONG)((((*(COLOR))++) << 3) &                  \
-                (MM_SECONDARY_COLOR_MASK & ~MM_COLOR_MASK)) |   \
+#define MI_PAGE_COLOR_PTE_PROCESS(PTE,COLOR)                    \
+         ((ULONG)(((*(COLOR)) += MM_COLOR_STRIDE) &             \
+                    MmSecondaryColorMask) |                     \
          ((((ULONG)(PTE)) >> 2) & MM_COLOR_MASK))
 
 
@@ -910,8 +1003,8 @@ Revision History:
 //--
 
 #define MI_PAGE_COLOR_VA_PROCESS(ADDRESS,COLOR)                 \
-         ((ULONG)((((*(COLOR))++) << 3) &                       \
-                (MM_SECONDARY_COLOR_MASK & ~MM_COLOR_MASK)) |   \
+         ((ULONG)(((*(COLOR)) += MM_COLOR_STRIDE) &             \
+                    MmSecondaryColorMask) |                     \
          ((((ULONG)(ADDRESS)) >> PAGE_SHIFT) & MM_COLOR_MASK))
 
 
@@ -968,10 +1061,8 @@ Revision History:
 // in the case of fork.
 //
 
-#define MI_GET_SECONDARY_COLOR(PAGE,PFN)                       \
-         ((((ULONG)(PAGE) &                                   \
-                (MM_SECONDARY_COLOR_MASK & ~MM_COLOR_MASK)))    \
-                    | (PFN)->u3.e1.PageColor)
+#define MI_GET_SECONDARY_COLOR(PAGE,PFN)           \
+         ((((ULONG)(PAGE) & MmSecondaryColorMask)) | (PFN)->u3.e1.PageColor)
 
 
 
@@ -1256,12 +1347,9 @@ Revision History:
 //   This macro returns the address of the corresponding prototype which
 //   was encoded earlier into the supplied PTE.
 //
-// NOTE THAT AS PROTOPTE CAN RESIDE IN BOTH PAGED AND NONPAGED POOL
-// THIS MACRO LIMITS THE COMBINED SIZES OF TWO POOLS AND REQUIRES THEM
-// TO BE WITHIN THE MAX SIZE CONSTRAINTS
+//    NOTE THAT AS PROTOPTE CAN ONLY RESIDE IN PAGED POOL!!!!!!
 //
-//  MAX SIZE = 2^(2+7+20) = 2^29 = 512MB
-//  MAX SIZE OF KSEG_0 POOL is also 2^29 = 512MB
+//    MAX SIZE = 2^(2+7+21) = 2^30 = 1GB.
 //
 //    NOTE, that the valid bit must be zero!
 //
@@ -1281,11 +1369,9 @@ Revision History:
 //
 //
 
-#define MiPteToProto(lpte) ((((lpte)->u.Long) & 0x40000000) ?              \
-                         ((PMMPTE)((((lpte)->u.Long >> 1) & 0x1FFFFFFC) +  \
-                                        (ULONG)MmNonPagedPoolStart))                  \
-                       : ((PMMPTE)((((lpte)->u.Long >> 1) & 0x1FFFFFFC) +  \
-                                        MmProtopte_Base)))
+#define MiPteToProto(lpte)             \
+                       ((PMMPTE)((((lpte)->u.Long >> 1) & 0x3FFFFFFC) +  \
+                                        MmProtopte_Base))
 
 
 //++
@@ -1313,9 +1399,7 @@ Revision History:
 //--
 
 #define MiProtoAddressForPte(proto_va)  \
-            (((ULONG)(proto_va) < (ULONG)KSEG1_BASE) ?             \
-   ((ULONG)((((ULONG)proto_va - (ULONG)MmNonPagedPoolStart) << 1) | MM_PTE_PROTOTYPE_MASK | 0x40000000)) \
- : ((ULONG)((((ULONG)proto_va - MmProtopte_Base) << 1) | MM_PTE_PROTOTYPE_MASK)))
+  ((ULONG)((((ULONG)proto_va - MmProtopte_Base) << 1) | MM_PTE_PROTOTYPE_MASK))
 
 
 
@@ -1355,6 +1439,9 @@ Revision History:
 
 
 
+#define MM_SUBSECTION_MAP (128*1024*1024)
+
+
 //++
 //PSUBSECTION
 //MiGetSubsectionAddress (
@@ -1383,7 +1470,7 @@ Revision History:
 
 #define MiGetSubsectionAddress(lpte)                              \
     (((lpte)->u.Long & 0x1) ?                              \
-        ((PSUBSECTION)(((((lpte)->u.Long >> 8) << 3) + (ULONG)MmNonPagedPoolStart))) \
+        ((PSUBSECTION)(((((lpte)->u.Long >> 8) << 3) + (ULONG)MmSubsectionBase))) \
       : ((PSUBSECTION)((ULONG)MM_NONPAGED_POOL_END - ((((lpte)->u.Long) >> 8) << 3))))
 
 
@@ -1414,7 +1501,7 @@ Revision History:
 
 #define MiGetSubsectionAddressForPte(VA)                   \
             (((ULONG)(VA) < (ULONG)KSEG1_BASE) ?                  \
-             ((((ULONG)(VA) - (ULONG)MmNonPagedPoolStart)  << 5) | 0x1)           \
+             ((((ULONG)(VA) - (ULONG)MmSubsectionBase)  << 5) | 0x1)           \
             : (((ULONG)MM_NONPAGED_POOL_END - (ULONG)VA) << 5))
 
 
@@ -1878,7 +1965,7 @@ Revision History:
 //
 //--
 
-#define MI_CONVERT_PHYSICAL_TO_PFN(Va)    (((ULONG)Va << 2) >> 14)
+#define MI_CONVERT_PHYSICAL_TO_PFN(Va)    (((ULONG)Va << 3) >> 15)
 
 
 
@@ -1886,7 +1973,6 @@ Revision History:
 typedef struct _MMCOLOR_TABLES {
     ULONG Flink;
     PVOID Blink;
-    LIST_ENTRY PrimaryColor;
 } MMCOLOR_TABLES, *PMMCOLOR_TABLES;
 
 typedef struct _MMPRIMARY_COLOR_TABLES {
@@ -1894,9 +1980,11 @@ typedef struct _MMPRIMARY_COLOR_TABLES {
 } MMPRIMARY_COLOR_TABLES, *PMMPRIMARY_COLOR_TABLES;
 
 
-extern MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#if MM_MAXIMUM_NUMBER_OF_COLORS > 1
+extern MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+#endif
 
-extern MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
+extern PMMCOLOR_TABLES MmFreePagesByColor[2];
 
 extern ULONG MmTotalPagesForPagingFile;
 
@@ -1934,8 +2022,7 @@ typedef struct _MMPTE_PROTOTYPE {
     ULONG Valid : 1;
     ULONG Prototype : 1;
     ULONG ProtoAddressLow : 6;
-    ULONG ProtoAddressHigh : 21;
-    ULONG WhichPool : 1;
+    ULONG ProtoAddressHigh : 22;
     ULONG ReadOnly : 1;
 } MMPTE_PROTOTYPE;
 
@@ -1976,6 +2063,7 @@ typedef struct _MMPTE {
     union  {
         ULONG Long;
         HARDWARE_PTE Hard;
+        HARDWARE_PTE Flush;
         MMPTE_PROTOTYPE Proto;
         MMPTE_SOFTWARE Soft;
         MMPTE_TRANSITION Trans;

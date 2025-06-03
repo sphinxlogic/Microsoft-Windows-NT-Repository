@@ -25,11 +25,10 @@ Revision History:
 #define POOL_USAGE 2
 #define IO_USAGE 3
 #define SRV_USAGE 4
-#define LPC_USAGE 5
-#define CACHE_READS 6
-#define VDM_USAGE 8
-#define FILE_CACHE 9
-#define RESIDENT_MEM 10
+#define CACHE_READS 5
+#define VDM_USAGE 6
+#define FILE_CACHE 7
+#define RESIDENT_MEM 8
 
 //
 // Hi-Tech macro to figure out how much a field has changed by.
@@ -98,7 +97,8 @@ char *argv[];
     ULONG DisplayType = CPU_USAGE;
     INPUT_RECORD InputRecord;
     HANDLE ScreenHandle;
-    DWORD NumRead;
+    UCHAR LastKey;
+    ULONG NumberOfInputRecords;
 
     SRV_STATISTICS ServerInfo;
     SRV_STATISTICS PreviousServerInfo;
@@ -190,12 +190,6 @@ char *argv[];
                     PrintHelp = FALSE;
                     break;
 
-                case 'M':
-                case 'm':
-                    DisplayType = RESIDENT_MEM;
-                    PrintHelp = FALSE;
-                    break;
-
                 case 'F':
                 case 'f':
                     DisplayType = FILE_CACHE;
@@ -218,12 +212,6 @@ char *argv[];
                 case 'I':
                 case 'i':
                     DisplayType = IO_USAGE;
-                    PrintHelp = FALSE;
-                    break;
-
-                case 'L':
-                case 'l':
-                    DisplayType = LPC_USAGE;
                     PrintHelp = FALSE;
                     break;
 
@@ -253,7 +241,6 @@ char *argv[];
                     PrintHelp = FALSE;
                     printf("\nType :\n"
                            "\t'C'  for CPU usage\n"
-                           "\t'M'  for resident memory usage\n"
                            "\t'V'  for VM usage\n"
                            "\t'F'  for File Cache usage\n"
                            "\t'R'  for Cache Manager reads and writes\n"
@@ -262,7 +249,6 @@ char *argv[];
 #ifdef i386
                            "\t'X'  for x86 Vdm Stats\n"
 #endif
-                           "\t'L'  for LPC Stats\n"
                            "\t'S'  for Server Stats\n"
                            "\t'H'  for header\n"
                            "\t'Q'  to quit\n\n");
@@ -272,51 +258,45 @@ char *argv[];
 
     while(TRUE) {
 
-        Sleep(DelayTimeMsec);
+        while (WaitForSingleObject( ScreenHandle, DelayTimeMsec ) == STATUS_WAIT_0) {
 
-        while (PeekConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead) && NumRead != 0) {
-            if (!ReadConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead)) {
-                break;
-            }
-            if (InputRecord.EventType == KEY_EVENT) {
+            //
+            // Check for input record
+            //
+
+            if (ReadConsoleInput( ScreenHandle, &InputRecord, 1, &NumberOfInputRecords ) &&
+                InputRecord.EventType == KEY_EVENT &&
+                InputRecord.Event.KeyEvent.bKeyDown
+               ) {
+                LastKey = InputRecord.Event.KeyEvent.uChar.AsciiChar;
+
 
                 //
                 // Ignore control characters.
                 //
 
-                if (InputRecord.Event.KeyEvent.uChar.AsciiChar >= ' ') {
+                if (LastKey >= ' ') {
 
-                    switch (InputRecord.Event.KeyEvent.uChar.AsciiChar) {
+                    switch (toupper( LastKey )) {
 
                         case 'C':
-                        case 'c':
                             DisplayType = CPU_USAGE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             break;
 
-                        case 'M':
-                        case 'm':
-                            DisplayType = RESIDENT_MEM;
-                            PrintHeader = TRUE;
-                            PrintHelp = FALSE;
-                            break;
-
                         case 'F':
-                        case 'f':
                             DisplayType = FILE_CACHE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             PreviousFileCacheFaultCount = 0;
                             break;
 
-                        case 'h':
                         case 'H':
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             break;
 
-                        case 'v':
                         case 'V':
                             DisplayType = VM_USAGE;
                             PrintHeader = TRUE;
@@ -325,29 +305,19 @@ char *argv[];
                             break;
 
                         case 'P':
-                        case 'p':
                             DisplayType = POOL_USAGE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             break;
 
                         case 'I':
-                        case 'i':
                             DisplayType = IO_USAGE;
-                            PrintHeader = TRUE;
-                            PrintHelp = FALSE;
-                            break;
-
-                        case 'L':
-                        case 'l':
-                            DisplayType = LPC_USAGE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             break;
 
 #ifdef i386
                         case 'X':
-                        case 'x':
                             DisplayType = VDM_USAGE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
@@ -355,7 +325,6 @@ char *argv[];
 #endif
 
                         case 'S':
-                        case 's':
                             DisplayType = SRV_USAGE;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
@@ -363,13 +332,11 @@ char *argv[];
                             break;
 
                         case 'R':
-                        case 'r':
                             DisplayType = CACHE_READS;
                             PrintHeader = TRUE;
                             PrintHelp = FALSE;
                             break;
 
-                        case 'q':
                         case 'Q':
                             if (ServerDeviceHandle != NULL) {
                                 NtClose(ServerDeviceHandle);
@@ -385,7 +352,6 @@ char *argv[];
         if (PrintHelp) {
             printf("\nType :\n"
                    "\t'C'  for CPU usage\n"
-                   "\t'M'  for resident memory usage\n"
                    "\t'V'  for VM usage\n"
                    "\t'F'  for File Cache usage\n"
                    "\t'R'  for Cache Manager reads and writes\n"
@@ -394,7 +360,6 @@ char *argv[];
 #ifdef i386
                    "\t'X'  for x86 Vdm Stats\n"
 #endif
-                   "\t'L'  for LPC Stats\n"
                    "\t'S'  for Server Stats\n"
                    "\t'H'  for header\n"
                    "\t'Q'  to quit\n\n");
@@ -448,7 +413,7 @@ char *argv[];
             EndTime = *(PLARGE_INTEGER)&PerfInfo.IdleProcessTime;
             BeginTime = *(PLARGE_INTEGER)&PreviousPerfInfo.IdleProcessTime;
 
-            ElapsedTime = RtlLargeIntegerSubtract(EndTime,BeginTime);
+            ElapsedTime.QuadPart = EndTime.QuadPart - BeginTime.QuadPart;
             PercentIdle = ((ElapsedTime.LowPart/BasicInfo.NumberOfProcessors)*100) / DelayTimeTicks;
 
             //
@@ -604,35 +569,16 @@ char *argv[];
                     PerfInfo.IoReadOperationCount - PreviousPerfInfo.IoReadOperationCount,
                     PerfInfo.IoWriteOperationCount - PreviousPerfInfo.IoWriteOperationCount,
                     PerfInfo.IoOtherOperationCount - PreviousPerfInfo.IoOtherOperationCount,
-                    RtlLargeIntegerSubtract (
-                        PerfInfo.IoReadTransferCount,
-                        PreviousPerfInfo.IoReadTransferCount).LowPart,
-                    RtlLargeIntegerSubtract (
-                        PerfInfo.IoWriteTransferCount,
-                        PreviousPerfInfo.IoWriteTransferCount).LowPart,
-                    RtlLargeIntegerSubtract (
-                        PerfInfo.IoOtherTransferCount,
-                        PreviousPerfInfo.IoOtherTransferCount).LowPart,
+                        PerfInfo.IoReadTransferCount.QuadPart -
+                        PreviousPerfInfo.IoReadTransferCount.QuadPart,
+                        PerfInfo.IoWriteTransferCount.QuadPart -
+                        PreviousPerfInfo.IoWriteTransferCount.QuadPart,
+                        PerfInfo.IoOtherTransferCount.QuadPart -
+                        PreviousPerfInfo.IoOtherTransferCount.QuadPart,
                     FileCount,
                     ObjectInfo->TotalNumberOfHandles
                  );
 
-
-            break;
-
-        case LPC_USAGE:
-
-            if (PrintHeader) {
-                printf(" Reply    Receive    Waiting\n");
-                printf("Threads   Threads      EvPr\n");
-                PrintHeader = FALSE;
-            }
-
-            printf( "%9ld %9ld %6ld\n",
-                    PerfInfo.LpcThreadsWaitingForReply,
-                    PerfInfo.LpcThreadsWaitingInReceive,
-                    PerfInfo.EvPrWaitingLow
-                  );
 
             break;
 
@@ -704,14 +650,12 @@ char *argv[];
             {
                 LARGE_INTEGER BytesReceived, BytesSent;
 
-                BytesReceived = RtlLargeIntegerSubtract(
-                                    ServerInfo.TotalBytesReceived,
-                                    PreviousServerInfo.TotalBytesReceived
-                                    );
-                BytesSent = RtlLargeIntegerSubtract(
-                                ServerInfo.TotalBytesSent,
-                                PreviousServerInfo.TotalBytesSent
-                                );
+                BytesReceived.QuadPart =
+                                    ServerInfo.TotalBytesReceived.QuadPart -
+                                PreviousServerInfo.TotalBytesReceived.QuadPart;
+                BytesSent.QuadPart =
+                                ServerInfo.TotalBytesSent.QuadPart -
+                                PreviousServerInfo.TotalBytesSent.QuadPart;
 
                 printf( "%7ld %7ld %8ld %8ld %4ld %4ld %4ld %4ld %4ld\n",
                             BytesReceived.LowPart,

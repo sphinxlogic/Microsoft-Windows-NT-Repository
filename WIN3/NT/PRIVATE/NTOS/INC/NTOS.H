@@ -29,7 +29,6 @@ Revision History:
 #include "exboosts.h"
 #include "bugcodes.h"
 #include "init.h"
-#include "ntmp.h"
 #include "v86emul.h"
 
 #ifdef _X86_
@@ -63,6 +62,8 @@ Revision History:
 #include "cache.h"
 #include "hal.h"
 #include "cm.h"
+#include "pnp.h"
+#include "po.h"
 
 #define _NTDDK_
 

@@ -46,9 +46,12 @@ Revision History:
     ASSERT((E)->Type == EventPairObject);             \
 }
 
+
+#undef KeInitializeEvent
+
 VOID
 KeInitializeEvent (
-    IN PKEVENT Event,
+    IN PRKEVENT Event,
     IN EVENT_TYPE Type,
     IN BOOLEAN State
     )
@@ -82,15 +85,9 @@ Return Value:
     // state of event object, and set the type of event object.
     //
 
-    Event->Header.Type = (USHORT)Type;
-    Event->Header.Size = sizeof(KEVENT);
-    if (State == TRUE) {
-        Event->Header.SignalState = 1;
-
-    } else {
-        Event->Header.SignalState = 0;
-    }
-
+    Event->Header.Type = (UCHAR)Type;
+    Event->Header.Size = sizeof(KEVENT) / sizeof(LONG);
+    Event->Header.SignalState = State;
     InitializeListHead(&Event->Header.WaitListHead);
     return;
 }
@@ -135,7 +132,7 @@ Return Value:
 
 VOID
 KeClearEvent (
-    IN PKEVENT Event
+    IN PRKEVENT Event
     )
 
 /*++
@@ -168,7 +165,7 @@ Return Value:
 
 LONG
 KePulseEvent (
-    IN PKEVENT Event,
+    IN PRKEVENT Event,
     IN KPRIORITY Increment,
     IN BOOLEAN Wait
     )
@@ -203,24 +200,16 @@ Return Value:
 
     KIRQL OldIrql;
     LONG OldState;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     ASSERT_EVENT(Event);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
-    Thread = KeGetCurrentThread();
     KiLockDispatcherDatabase(&OldIrql);
-
-    //
-    // Capture the current signal state of event object and set the wait
-    // next value.
-    //
-
-    OldState = Event->Header.SignalState;
-    Thread->WaitNext = Wait;
 
     //
     // If the current state of the event object is Not-Signaled and
@@ -229,7 +218,8 @@ Return Value:
     // the state of the event to Not-Signaled.
     //
 
-    if ((OldState == 0) && (!IsListEmpty(&Event->Header.WaitListHead))) {
+    OldState = Event->Header.SignalState;
+    if ((OldState == 0) && (IsListEmpty(&Event->Header.WaitListHead) == FALSE)) {
         Event->Header.SignalState = 1;
         KiWaitTest(Event, Increment);
     }
@@ -239,12 +229,14 @@ Return Value:
     //
     // If the value of the Wait argument is TRUE, then return to the
     // caller with IRQL raised and the dispatcher database locked. Else
-    // release the dispatcher database lock and lower IRQL to its
+    // release the dispatcher database lock and lower IRQL to the
     // previous value.
     //
 
-    if (Wait) {
-       Thread->WaitIrql = OldIrql;
+    if (Wait != FALSE) {
+        Thread = KeGetCurrentThread();
+        Thread->WaitIrql = OldIrql;
+        Thread->WaitNext = Wait;
 
     } else {
        KiUnlockDispatcherDatabase(OldIrql);
@@ -259,7 +251,7 @@ Return Value:
 
 LONG
 KeReadStateEvent (
-    IN PKEVENT Event
+    IN PRKEVENT Event
     )
 
 /*++
@@ -291,7 +283,7 @@ Return Value:
 
 LONG
 KeResetEvent (
-    IN PKEVENT Event
+    IN PRKEVENT Event
     )
 
 /*++
@@ -318,6 +310,7 @@ Return Value:
     LONG OldState;
 
     ASSERT_EVENT(Event);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -348,7 +341,7 @@ Return Value:
 
 LONG
 KeSetEvent (
-    IN PKEVENT Event,
+    IN PRKEVENT Event,
     IN KPRIORITY Increment,
     IN BOOLEAN Wait
     )
@@ -382,9 +375,10 @@ Return Value:
 
     KIRQL OldIrql;
     LONG OldState;
-    PKTHREAD Thread;
+    PRKTHREAD Thread;
 
     ASSERT_EVENT(Event);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Collect call data.
@@ -408,11 +402,9 @@ Return Value:
     //
 
     OldState = Event->Header.SignalState;
-    if (OldState == 0) {
-        Event->Header.SignalState = 1;
-        if (IsListEmpty(&Event->Header.WaitListHead) == FALSE) {
-            KiWaitTest(Event, Increment);
-        }
+    Event->Header.SignalState = 1;
+    if ((OldState == 0) && (IsListEmpty(&Event->Header.WaitListHead) == FALSE)) {
+        KiWaitTest(Event, Increment);
     }
 
     //
@@ -440,8 +432,8 @@ Return Value:
 
 VOID
 KeSetEventBoostPriority (
-    IN PKEVENT Event,
-    IN PKTHREAD *Thread OPTIONAL
+    IN PRKEVENT Event,
+    IN PRKTHREAD *Thread OPTIONAL
     )
 
 /*++
@@ -472,10 +464,12 @@ Return Value:
 
 {
 
+    KPRIORITY Increment;
     KIRQL OldIrql;
-    PKTHREAD WaitThread;
+    PRKTHREAD WaitThread;
 
     ASSERT(Event->Header.Type == SynchronizationEvent);
+    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
 
     //
     // Raise IRQL to dispatcher level and lock dispatcher database.
@@ -512,12 +506,20 @@ Return Value:
         }
 
         //
-        // Clear the signal state of the event and unwait the thread with a
-        // boost of one.
+        // Clear the signal state of the event, give the new owner of the
+        // resource/fast mutex (the only callers) a full quantum, and unwait
+        // the thread with a standard event increment unless the system is
+        // a server system, in which case no boost if given.
         //
 
         Event->Header.SignalState = 0;
-        KiUnwaitThread(WaitThread, STATUS_SUCCESS, 1);
+        WaitThread->Quantum = WaitThread->ApcState.Process->ThreadQuantum;
+        Increment = 0;
+        if (MmProductType == 0) {
+            Increment = EVENT_INCREMENT;
+        }
+
+        KiUnwaitThread(WaitThread, STATUS_SUCCESS, Increment);
     }
 
     //

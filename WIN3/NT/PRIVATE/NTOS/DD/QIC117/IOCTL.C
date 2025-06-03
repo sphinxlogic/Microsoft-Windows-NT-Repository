@@ -78,22 +78,22 @@ Return Value:
 
     switch (context->CurrentOperation.Type) {
 
-        case BackupInProgress:
-            offset->LowPart = context->CurrentOperation.BytesOnTape;
-            break;
+	case BackupInProgress:
+	    offset->LowPart = context->CurrentOperation.BytesOnTape;
+	    break;
 
-        case RestoreInProgress:
-            offset->LowPart = context->CurrentOperation.BytesRead;
-            break;
+	case RestoreInProgress:
+	    offset->LowPart = context->CurrentOperation.BytesRead;
+	    break;
 
-        case NoOperation:
-            offset->LowPart = context->CurrentOperation.BytesRead;
-            break;
+	case NoOperation:
+	    offset->LowPart = context->CurrentOperation.BytesRead;
+	    break;
 
     }
     offset->LowPart /= BLOCK_SIZE;
 
-    CheckedDump(QIC117SHOWTD,("%d=GetPosition()",currentPosition->Offset.LowPart));
+    CheckedDump(QIC117SHOWAPI,("%d=GetPosition()",currentPosition->Offset.LowPart));
 
     return STATUS_SUCCESS;
 }
@@ -133,38 +133,38 @@ Return Value:
     //
     if (context->CurrentOperation.Type == NoOperation) {
 
-        //
-        // Because NTBackup pools using
-        // this function,  we need to error out
-        // this operation until a prepare load or prepare lock operation
-        // is performed
-        //
-        //
-        // Just check to see if a new tape has been inserted
-        //
-        ntStatus = q117ConvertStatus(
-            DeviceObject,
-            q117DoCmd(&ioreq, CMD_REPORT_STATUS, NULL, context));
+	//
+	// Because NTBackup pools using
+	// this function,  we need to error out
+	// this operation until a prepare load or prepare lock operation
+	// is performed
+	//
+	//
+	// Just check to see if a new tape has been inserted
+	//
+	ntStatus = q117ConvertStatus(
+	    DeviceObject,
+	    q117DoCmd(&ioreq, CMD_REPORT_STATUS, NULL, context));
 
-        if (ntStatus == STATUS_MEDIA_CHANGED) {
-            context->CurrentTape.State = NeedInfoLoaded;
-        }
+	if (ntStatus == STATUS_MEDIA_CHANGED) {
+	    context->CurrentTape.State = NeedInfoLoaded;
+	}
 
     } else {
 
-        ntStatus = STATUS_SUCCESS;
+	ntStatus = STATUS_SUCCESS;
 
     }
 
 
     if ( NT_SUCCESS( ntStatus ) ) {
-        //
-        // Copy already formed (by q117CheckNewTape) information into callers buffer
-        //
-        Irp->IoStatus.Information = sizeof(TAPE_GET_MEDIA_PARAMETERS);
+	//
+	// Copy already formed (by q117CheckNewTape) information into callers buffer
+	//
+	Irp->IoStatus.Information = sizeof(TAPE_GET_MEDIA_PARAMETERS);
 
-        *(PTAPE_GET_MEDIA_PARAMETERS)Irp->AssociatedIrp.SystemBuffer =
-            *context->CurrentTape.MediaInfo;
+	*(PTAPE_GET_MEDIA_PARAMETERS)Irp->AssociatedIrp.SystemBuffer =
+	    *context->CurrentTape.MediaInfo;
 
     }
 
@@ -201,8 +201,8 @@ Return Value:
 
     setMedia = (PTAPE_SET_MEDIA_PARAMETERS)Irp->AssociatedIrp.SystemBuffer;
 
-    CheckedDump((QIC117SHOWTD | QIC117WARN),("SetDriveParameters not implemented yet\n"));
-    CheckedDump(QIC117SHOWTD,("BlockSize: %x",setMedia->BlockSize));
+    CheckedDump((QIC117SHOWAPI | QIC117WARN),("SetDriveParameters not implemented yet\n"));
+    CheckedDump(QIC117SHOWAPI,("BlockSize: %x",setMedia->BlockSize));
 
     if (setMedia->BlockSize != BLOCK_SIZE)
         return STATUS_INVALID_PARAMETER;
@@ -253,34 +253,39 @@ Return Value:
     driveInfo->MaximumBlockSize = BLOCK_SIZE;
     driveInfo->MinimumBlockSize = BLOCK_SIZE;
     driveInfo->MaximumPartitionCount = 0;
+
     driveInfo->FeaturesLow =
-        TAPE_DRIVE_ERASE_SHORT |
-        TAPE_DRIVE_ERASE_BOP_ONLY |
-        TAPE_DRIVE_TAPE_CAPACITY |
-        TAPE_DRIVE_TAPE_REMAINING |
-        TAPE_DRIVE_FIXED_BLOCK |
-        TAPE_DRIVE_WRITE_PROTECT |
-        TAPE_DRIVE_ECC |
+	TAPE_DRIVE_ERASE_SHORT |
+	TAPE_DRIVE_ERASE_BOP_ONLY |
+	TAPE_DRIVE_TAPE_CAPACITY |
+	TAPE_DRIVE_TAPE_REMAINING |
+	TAPE_DRIVE_FIXED_BLOCK |
+	TAPE_DRIVE_WRITE_PROTECT |
+	TAPE_DRIVE_ECC |
 //        TAPE_DRIVE_COMPRESSION |
-        TAPE_DRIVE_REPORT_SMKS |
-        TAPE_DRIVE_GET_ABSOLUTE_BLK |
-        TAPE_DRIVE_GET_LOGICAL_BLK;
+	TAPE_DRIVE_REPORT_SMKS |
+	TAPE_DRIVE_GET_ABSOLUTE_BLK |
+	TAPE_DRIVE_GET_LOGICAL_BLK;
+
     driveInfo->FeaturesHigh =
 //        TAPE_DRIVE_LOAD_UNLOAD |
-        TAPE_DRIVE_TENSION |
-        TAPE_DRIVE_LOCK_UNLOCK |
-        TAPE_DRIVE_ABSOLUTE_BLK |
-        TAPE_DRIVE_LOGICAL_BLK |
-        TAPE_DRIVE_END_OF_DATA |
-        TAPE_DRIVE_RELATIVE_BLKS |
-        TAPE_DRIVE_FILEMARKS |
-        TAPE_DRIVE_SEQUENTIAL_FMKS |
-        TAPE_DRIVE_SETMARKS |
-        TAPE_DRIVE_SEQUENTIAL_SMKS |
-        TAPE_DRIVE_REVERSE_POSITION |
-        TAPE_DRIVE_WRITE_SETMARKS |
-        TAPE_DRIVE_WRITE_FILEMARKS |
-        TAPE_DRIVE_FORMAT;
+	TAPE_DRIVE_TENSION |
+	TAPE_DRIVE_LOCK_UNLOCK |
+	TAPE_DRIVE_ABSOLUTE_BLK |
+	TAPE_DRIVE_LOGICAL_BLK |
+	TAPE_DRIVE_END_OF_DATA |
+	TAPE_DRIVE_RELATIVE_BLKS |
+	TAPE_DRIVE_FILEMARKS |
+	TAPE_DRIVE_SEQUENTIAL_FMKS |
+	TAPE_DRIVE_SETMARKS |
+	TAPE_DRIVE_SEQUENTIAL_SMKS |
+	TAPE_DRIVE_REVERSE_POSITION |
+	TAPE_DRIVE_WRITE_SETMARKS |
+    TAPE_DRIVE_WRITE_FILEMARKS;
+
+    if (!context->Parameters.FormatDisabled) {
+        driveInfo->FeaturesHigh |= TAPE_DRIVE_FORMAT;
+    }
 
     driveInfo->FeaturesHigh &= ~TAPE_DRIVE_HIGH_FEATURES;
 
@@ -322,11 +327,11 @@ Return Value:
     //
     driveInfo = (PTAPE_SET_DRIVE_PARAMETERS)Irp->AssociatedIrp.SystemBuffer;
 
-    CheckedDump((QIC117SHOWTD | QIC117WARN),("SetDriveParameters not implemented yet\n"));
-    CheckedDump(QIC117SHOWTD,("ECC: %x",driveInfo->ECC));
-    CheckedDump(QIC117SHOWTD,("Compression: %x",driveInfo->Compression));
-    CheckedDump(QIC117SHOWTD,("DataPadding: %x",driveInfo->DataPadding));
-    CheckedDump(QIC117SHOWTD,("ReportSetmarks: %x",driveInfo->ReportSetmarks));
+    CheckedDump((QIC117SHOWAPI | QIC117WARN),("SetDriveParameters not implemented yet\n"));
+    CheckedDump(QIC117SHOWAPI,("ECC: %x",driveInfo->ECC));
+    CheckedDump(QIC117SHOWAPI,("Compression: %x",driveInfo->Compression));
+    CheckedDump(QIC117SHOWAPI,("DataPadding: %x",driveInfo->DataPadding));
+    CheckedDump(QIC117SHOWAPI,("ReportSetmarks: %x",driveInfo->ReportSetmarks));
     ntStatus = STATUS_SUCCESS;
     if (!driveInfo->ECC ||
         driveInfo->Compression ||
@@ -373,6 +378,15 @@ Return Value:
     context = DeviceObject->DeviceExtension;
 
     //
+    // We don't support immediate mode,  so error out if specified
+    //
+    if (tapeMarks->Immediate) {
+
+        return STATUS_INVALID_DEVICE_REQUEST;
+
+    }
+
+    //
     // Make sure we are in write mode
     //
     ntStatus = q117ConvertStatus(DeviceObject, q117OpenForWrite(context));
@@ -384,9 +398,9 @@ Return Value:
     // Don't allow long/short filemarks
     //
     switch(type) {
-        case TAPE_LONG_FILEMARKS:
-        case TAPE_SHORT_FILEMARKS:
-            ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+	case TAPE_LONG_FILEMARKS:
+	case TAPE_SHORT_FILEMARKS:
+	    ntStatus = STATUS_INVALID_DEVICE_REQUEST;
     }
 
     //
@@ -394,35 +408,70 @@ Return Value:
     //
     while (numMarks && NT_SUCCESS( ntStatus )) {
 
-        context->MarkArray.MarkEntry[
-            context->MarkArray.TotalMarks].Type = tapeMarks->Type;
+	// if there is not enough room to add the mark,  make the array bigger
+	if (context->MarkArray.TotalMarks+numMarks+1 > context->MarkArray.MarksAllocated) {
 
-        context->MarkArray.MarkEntry[
-            context->MarkArray.TotalMarks].Offset =
-            context->CurrentOperation.BytesOnTape;
+	    ntStatus = q117MakeMarkArrayBigger(context, numMarks);
 
-        --numMarks;
+	    // Must have run out of memory,  so abort
+	    if (!NT_SUCCESS( ntStatus)) return ntStatus;
 
-        ++context->MarkArray.TotalMarks;
-        ++context->CurrentMark;
+	}
 
-        //
-        // Always make the (last mark) huge so we don't have to check
-        // for the end of the table in the rest of the code.
-        //
-        context->MarkArray.MarkEntry[
-            context->MarkArray.TotalMarks].Offset = 0xffffffff;
+	// If there are no more marks,  set tape full condition
+	if (context->MarkArray.TotalMarks >= context->MarkArray.MaxMarks) {
+	    ntStatus = q117ConvertStatus(
+		DeviceObject,
+		ERROR_ENCODE(ERR_TAPE_FULL,FCT_ID, 1)
+	    );
+	} else {
 
-        //
-        // For each mark, write a "fake" block on the tape.  This
-        // is due to the ntBackup program assuming that a filemark
-        // takes a block
-        //
 
-        ntStatus = q117ConvertStatus(
-            DeviceObject,
-            q117WriteTape(NULL,BLOCK_SIZE,context)
-            );
+	    context->MarkArray.MarkEntry[
+		context->MarkArray.TotalMarks].Type = tapeMarks->Type;
+
+	    context->MarkArray.MarkEntry[
+		context->MarkArray.TotalMarks].Offset =
+		context->CurrentOperation.BytesOnTape;
+
+	    --numMarks;
+
+	    ++context->MarkArray.TotalMarks;
+	    ++context->CurrentMark;
+
+	    //
+	    // Always make the (last mark) huge so we don't have to check
+	    // for the end of the table in the rest of the code.
+	    //
+	    context->MarkArray.MarkEntry[
+		context->MarkArray.TotalMarks].Offset = 0xffffffff;
+
+	    //
+	    // For each mark, write a "fake" block on the tape.  This
+	    // is due to the ntBackup program assuming that a filemark
+	    // takes a block
+	    //
+
+	    ntStatus = q117ConvertStatus(
+		DeviceObject,
+		q117WriteTape(NULL,BLOCK_SIZE,context)
+		);
+	}
+    }
+
+    //
+    // If no other problems,  check for early warning on filemarks.
+    //
+    if (NT_SUCCESS( ntStatus)) {
+
+	// Give application an early warning when 10 marks are left
+	if (context->MarkArray.TotalMarks + 10 >= context->MarkArray.MaxMarks) {
+	    ntStatus = q117ConvertStatus(
+		DeviceObject,
+		ERROR_ENCODE(ERR_EARLY_WARNING,FCT_ID, 1)
+	    );
+	}
+
     }
 
     return ntStatus;
@@ -433,6 +482,91 @@ Return Value:
 
 #endif
 }
+
+NTSTATUS q117MakeMarkArrayBigger(
+    PQ117_CONTEXT       Context,
+    int MinimumToAdd
+    )
+{
+// go in chunks of 4K (what is a better value? 1K? Bob??)
+#define STEPPING_AMOUNT (4*1024)/sizeof(struct _MARKLIST);
+    struct _MARKLIST *newList;
+
+
+    // Allocate at least STEPPING_AMOUNT more to minimize the
+    // number of times the memory grows
+    MinimumToAdd += Context->MarkArray.MarksAllocated + MinimumToAdd + STEPPING_AMOUNT;
+
+    // Allocate the new array for the mark list
+    newList = ExAllocatePool(
+		NonPagedPool,
+		sizeof(struct _MARKLIST)*MinimumToAdd);
+
+    if (newList == NULL) {
+	return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    // If we have already allocated a mark array,  then copy it over to the
+    // new entry
+    if (Context->MarkArray.MarkEntry) {
+	// copy over all marks (+1,  so we don't forget the terminator mark)
+	RtlMoveMemory(newList, Context->MarkArray.MarkEntry, Context->MarkArray.TotalMarks+1);
+
+	// Now,  free the old mark array
+	ExFreePool(Context->MarkArray.MarkEntry);
+
+    }
+
+    // Now,  hook up the new entry,  and we are done
+    Context->MarkArray.MarkEntry = newList;
+    Context->MarkArray.MarksAllocated = MinimumToAdd;
+
+    return STATUS_SUCCESS;
+}
+
+#ifdef NOT_NOW
+NTSTATUS q117MakeBadSectorListBigger(
+    PQ117_CONTEXT       Context,
+    int MinimumToAdd
+    )
+{
+// go in chunks of 4K (what is a better value? 1K? Bob??)
+#define STEPPING_AMOUNT (4*1024)
+    BAD_MAP_PTR newList;
+
+
+    // Allocate at least STEPPING_AMOUNT more to minimize the
+    // number of times the memory grows
+    MinimumToAdd += Context->CurrentTape.BadSectorListSize +
+     ((MinimumToAdd*LIST_ENTRY_SIZE + STEPPING_AMOUNT - 1) / STEPPING_AMOUNT);
+
+    // Allocate the new array for the mark list
+    newList = ExAllocatePool(
+		NonPagedPool,
+		MinimumToAdd);
+
+    if (newList == NULL) {
+	return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    // If we have already allocated a mark array,  then copy it over to the
+    // new entry
+    if (Context->CurrentTape.BadSectorListPtr) {
+	// copy over all marks (+1,  so we don't forget the terminator mark)
+	RtlMoveMemory(newList, Context->CurrentTape.BadSectorListPtr, Context->CurrentTape.BadSectorListCount*LIST_ENTRY_SIZE);
+
+	// Now,  free the old mark array
+	ExFreePool(Context->CurrentTape.BadSectorListPtr);
+
+    }
+
+    // Now,  hook up the new entry,  and we are done
+    Context->CurrentTape.BadSectorListPtr = newList;
+    Context->CurrentTape.BadSectorListSize = MinimumToAdd;
+
+    return STATUS_SUCCESS;
+}
+#endif
 
 NTSTATUS
 q117IoCtlSetPosition (
@@ -471,34 +605,50 @@ Return Value:
     status = ERR_NO_ERR;
     ntStatus = STATUS_SUCCESS;
 
-    if (context->CurrentOperation.Type != NoOperation) {
-        switch(context->CurrentOperation.Type) {
+    //
+    // We don't support immediate mode,  so error out
+    //
+    if (tapePosition->Immediate) {
+
+        ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+
+    } else {
+
+        //
+        //  If we are in the middle of a read or write operation,
+        //  then we need to do some clean-up before processing
+        //  the tape position request.
+        //
+        //
+        if (context->CurrentOperation.Type != NoOperation) {
+
+            switch(context->CurrentOperation.Type) {
 
             case BackupInProgress:
                 status = q117EndWriteOperation(context);
                 break;
 
             case RestoreInProgress:
-                if (
-                    tapePosition->Method == TAPE_REWIND
-                    ) {
+                if (tapePosition->Method == TAPE_REWIND) {
+
                     status = q117EndReadOperation(context);
+
                 }
 
                 break;
+            }
         }
-    }
 
-    context->CurrentOperation.Position = tapePosition->Method;
-    switch(tapePosition->Method) {
+        context->CurrentOperation.Position = tapePosition->Method;
+        switch(tapePosition->Method) {
 
         case TAPE_REWIND:
 
-            CheckedDump(QIC117INFO,("Rewind()\n"));
+            CheckedDump(QIC117SHOWAPI,("Rewind()\n"));
             status = q117DoRewind(context);
 
-//            context->TapeStatus.Status |= TAPE_STATUS_BEGINNING_OF_MEDIA;
-//            context->TapeStatus.Status &= ~TAPE_STATUS_END_OF_MEDIA;
+//          context->TapeStatus.Status |= TAPE_STATUS_BEGINNING_OF_MEDIA;
+//          context->TapeStatus.Status &= ~TAPE_STATUS_END_OF_MEDIA;
 
             context->CurrentOperation.BytesRead = 0;
 
@@ -510,7 +660,7 @@ Return Value:
         case TAPE_LOGICAL_BLOCK:
         case TAPE_ABSOLUTE_BLOCK:
 
-            CheckedDump(QIC117SHOWTD,(
+            CheckedDump(QIC117SHOWAPI,(
                 "%s SeekBlock(%d)\n",
                 tapePosition->Method==TAPE_LOGICAL_BLOCK?"Logical":"Absolute",
                 tapePosition->Offset.LowPart
@@ -530,7 +680,7 @@ Return Value:
             // It is assumed that this function will only be called prior
             //  to a backup operation only.
 
-            CheckedDump(QIC117SHOWTD,("SeekEOD()\n"));
+            CheckedDump(QIC117SHOWAPI,("SeekEOD()\n"));
             context->CurrentOperation.BytesRead =
                 context->ActiveVolume.DataSize;
 
@@ -538,20 +688,20 @@ Return Value:
             context->CurrentMark = context->MarkArray.TotalMarks;
 #endif
 
-//            context->TapeStatus.Status |= TAPE_STATUS_END_OF_MEDIA;
-//            context->TapeStatus.Status &= ~TAPE_STATUS_BEGINNING_OF_MEDIA;
+//          context->TapeStatus.Status |= TAPE_STATUS_END_OF_MEDIA;
+//          context->TapeStatus.Status &= ~TAPE_STATUS_BEGINNING_OF_MEDIA;
             break;
 
 
         case TAPE_SPACE_RELATIVE_BLOCKS:
 
 
-            CheckedDump(QIC117SHOWTD,("SeekRelBlock(%d)\n",tapePosition->Offset.LowPart));
+            CheckedDump(QIC117SHOWAPI,("SeekRelBlock(%d)\n",tapePosition->Offset.LowPart));
             //
             // Convert relative offset into absolute
             //
             offset = (LONG)context->CurrentOperation.BytesRead +
-                    ((LONG)tapePosition->Offset.LowPart*BLOCK_SIZE);
+                ((LONG)tapePosition->Offset.LowPart*BLOCK_SIZE);
 
             //
             // Perform absolute seek.
@@ -568,13 +718,15 @@ Return Value:
         case TAPE_SPACE_SEQUENTIAL_FMKS:
             ++x;
         case TAPE_SPACE_SEQUENTIAL_SMKS:
-            if (1) {
+#if DBG
+            {
                 static char *type[4] = {"SequentialSet","SequentialFile","File","Set"};
 
-                CheckedDump(QIC117SHOWTD,("Seek%sMark(%d)\n",type[x],tapePosition->Offset.LowPart));
+                CheckedDump(QIC117SHOWAPI,("Seek%sMark(%d)\n",type[x],tapePosition->Offset.LowPart));
             }
+#endif
             ntStatus = q117FindMark(tapePosition->Method,
-                         tapePosition->Offset.LowPart, context, DeviceObject);
+                tapePosition->Offset.LowPart, context, DeviceObject);
             break;
 #else
         case TAPE_SPACE_SETMARKS:
@@ -589,7 +741,8 @@ Return Value:
             ntStatus = STATUS_INVALID_DEVICE_REQUEST;
             break;
 
-    } // end switch(tapePosition->Method)
+        } // end switch(tapePosition->Method)
+    }
 
     if (status)
         ntStatus = q117ConvertStatus(DeviceObject, status);
@@ -625,6 +778,8 @@ Return Value:
 {
     NTSTATUS ntStatus;
     BOOLEAN forwardSeek;
+	 int nummarks,count,left;
+	 struct _MARKLIST *prev,*next;
 
     ntStatus = STATUS_SUCCESS;
 
@@ -633,29 +788,58 @@ Return Value:
     //
     switch(Type) {
 
-        case TAPE_SPACE_SEQUENTIAL_FMKS:
+	case TAPE_SPACE_SEQUENTIAL_FMKS:
 
-            //
-            // If sequential mark,  then always start from the first mark.
-            //
-            Context->CurrentMark = 0;
+	    //
+	    //  Set the nummarks flag to the number of filemarks in a row
+				//  To look for.   Set the number of filemarks to one (we only
+				//  will allow scanning for one set of "Number" filemarks)
+				//
+				nummarks = Number;
+				Number = 1;
+				//
+				// Don't let a reverse seek work (no code to support it and
+				// I (kurt) don't know if SCSI drives allow this either.
+				//
+				if (nummarks < 1) {
+		ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+				}
+	    Type = TAPE_FILEMARKS;
 
-        case TAPE_SPACE_FILEMARKS:
+	    break;
 
-            Type = TAPE_FILEMARKS;
-            break;
+	case TAPE_SPACE_FILEMARKS:
 
-        case TAPE_SPACE_SEQUENTIAL_SMKS:
+	    Type = TAPE_FILEMARKS;
+				nummarks = 0;
+	    break;
 
-            //
-            // If sequential mark,  then always start from the first mark.
-            //
-            Context->CurrentMark = 0;
+	case TAPE_SPACE_SEQUENTIAL_SMKS:
 
-        case TAPE_SPACE_SETMARKS:
+	    //
+	    //  Set the nummarks flag to the number of filemarks in a row
+				//  To look for.   Set the number of filemarks to one (we only
+				//  will allow scanning for one set of "Number" filemarks)
+				//
+				nummarks = Number;
+				Number = 1;
+	    Type = TAPE_SETMARKS;
 
-            Type = TAPE_SETMARKS;
-            break;
+				//
+				// Don't let a reverse seek work (no code to support it and
+				// I (kurt) don't know if SCSI drives allow this either.
+				//
+				if (nummarks < 1) {
+		ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+				}
+
+	    break;
+
+	case TAPE_SPACE_SETMARKS:
+
+	    Type = TAPE_SETMARKS;
+				nummarks = 0;
+	    break;
 
     }
 
@@ -675,30 +859,74 @@ Return Value:
 
             if (Context->CurrentMark >= Context->MarkArray.TotalMarks) {
 
-                ntStatus = STATUS_END_OF_MEDIA;
+            ntStatus = STATUS_END_OF_MEDIA;
 
             } else {
 
                 if (Context->MarkArray.MarkEntry[Context->CurrentMark].Type ==
                     Type) {
 
-                    //
-                    // If we found one,  decrement the count
-                    //
 
-                    --Number;
+                    // If we are looking for sequential marks,  then
+                    // count the number of marks a this position and
+                    // Compare it with what we are looking for.
+                    if (nummarks) {
 
+                        count = 1;
+                        prev = &Context->MarkArray.MarkEntry[Context->CurrentMark];
+                        next = prev+1;
+                        left = Context->MarkArray.TotalMarks - Context->CurrentMark - 1;
 
-                    //
-                    // Don't increment the current mark on the last one we
-                    // find.  This is because current mark points to
-                    // the mark we are going to hit next.
-                    //
+                        while (left && next->Type == Type &&
+                            prev->Offset + BLOCK_SIZE == next->Offset) {
 
-                    if (Number) {
+                            ++count;
+                            ++prev;
+                            ++next;
+                            --left;
+                        }
 
-                        ++Context->CurrentMark;
+                        //
+                        // If we found a match,  stop here,  else skip
+                        // past all of the marks that we counted (that
+                        // are sequential)
+                        //
+                        if (count == nummarks) {
+                            //
+                            // Note: code below expects the mark pointer
+                            // to be just before the data that we are
+                            // positioning to.  So,  set the pointer
+                            // To the last mark.
+                            //
+                            Context->CurrentMark += count-1;
+                            Number = 0; // Signal completion
+                        } else {
+
+                            Context->CurrentMark += count;
+
+                        }
+
+                    } else {
+                        //
+                        // If we found one,  decrement the count
+                        //
+
+                        --Number;
+
+                        //
+                        // Don't increment the current mark on the last one we
+                        // find.  This is because current mark points to
+                        // the mark we are going to hit next.
+                        //
+
+                        if (Number) {
+
+                            ++Context->CurrentMark;
+                        }
+
                     }
+
+
 
                 } else {
 
@@ -748,10 +976,10 @@ Return Value:
             //
             ntStatus = q117SeekToOffset(
                 Context->MarkArray.MarkEntry[Context->CurrentMark].Offset+
-                    (forwardSeek?BLOCK_SIZE:0),
+                (forwardSeek?BLOCK_SIZE:0),
                 Context,
                 DeviceObject
-                );
+            );
 
         }
 
@@ -788,7 +1016,7 @@ Return Value:
     NTSTATUS ntStatus;
 
 
-    CheckedDump(QIC117SHOWTD,("Absolute seek: %x\n",Offset));
+    CheckedDump(QIC117SHOWAPI,("Absolute seek: %x\n",Offset));
 
     ntStatus = STATUS_SUCCESS;
 
@@ -831,7 +1059,7 @@ Return Value:
             // if there is no data on the tape
             //
             if (ntStatus == STATUS_NO_DATA_DETECTED) {
-                return ntStatus;
+            return ntStatus;
             }
 
             Context->CurrentOperation.Type = RestoreInProgress;
@@ -850,9 +1078,9 @@ Return Value:
         // Skip to the appropriate place
         //
         ntStatus = q117ConvertStatus(
-                        DeviceObject,
-                        q117SkipBlock(&Offset, Context)
-                        );
+                DeviceObject,
+                q117SkipBlock(&Offset, Context)
+                );
 
     }
 
@@ -885,21 +1113,32 @@ Return Value:
     PQ117_CONTEXT             context;
     NTSTATUS ntStatus;
     dStatus status;
+    PTAPE_ERASE tapeErase = Irp->AssociatedIrp.SystemBuffer;
 
     context = DeviceObject->DeviceExtension;
+
+    //
+    // We don't support immediate mode,  so error out if specified
+    //
+    if (tapeErase->Immediate) {
+
+        return STATUS_INVALID_DEVICE_REQUEST;
+
+    }
+
 
     //
     // Complete any operation in progress
     //
     switch(context->CurrentOperation.Type) {
 
-        case BackupInProgress:
-            status = q117EndWriteOperation(context);
-            break;
+	case BackupInProgress:
+	    status = q117EndWriteOperation(context);
+	    break;
 
-        case RestoreInProgress:
-            status = q117EndReadOperation(context);
-            break;
+	case RestoreInProgress:
+	    status = q117EndReadOperation(context);
+	    break;
     }
 
     //
@@ -969,13 +1208,13 @@ Return Value:
     //
     switch(context->CurrentOperation.Type) {
 
-        case BackupInProgress:
-            status = q117EndWriteOperation(context);
-            break;
+	case BackupInProgress:
+	    status = q117EndWriteOperation(context);
+	    break;
 
-        case RestoreInProgress:
-            status = q117EndReadOperation(context);
-            break;
+	case RestoreInProgress:
+	    status = q117EndReadOperation(context);
+	    break;
     }
 
     //
@@ -985,6 +1224,7 @@ Return Value:
 
     if ((tapePrepare->Operation != TAPE_LOCK) &&
         (tapePrepare->Operation != TAPE_UNLOCK)) {
+
         context->CurrentOperation.BytesRead = 0;
         context->CurrentOperation.Position = 0;
 #ifndef NO_MARKS
@@ -1001,51 +1241,52 @@ Return Value:
 
     switch (tapePrepare->Operation) {
 
-        case TAPE_LOCK:
-        case TAPE_LOAD:
-            CheckedDump(QIC117SHOWTD,("TAPE_%s  ... ",tapePrepare->Operation == TAPE_LOCK?"LOCK":"LOAD"));
-            ntStatus = q117ConvertStatus(DeviceObject, q117CheckNewTape(context));
-            break;
+	case TAPE_LOCK:
+	case TAPE_LOAD:
+        CheckedDump(QIC117SHOWAPI,("TAPE_%s  ... ",tapePrepare->Operation == TAPE_LOCK?"LOCK":"LOAD"));
+	    ntStatus = q117ConvertStatus(DeviceObject, q117CheckNewTape(context));
+	    break;
 
-        case TAPE_UNLOAD:
-        case TAPE_UNLOCK:
+	case TAPE_UNLOAD:
+	case TAPE_UNLOCK:
 
-            //
-            // Just rewind the tape
-            //
-            CheckedDump(QIC117SHOWTD,("TAPE_UN%  ... ",tapePrepare->Operation == TAPE_UNLOCK?"LOCK":"LOAD"));
-            ntStatus = q117ConvertStatus (
-                    DeviceObject,
-                    q117DoRewind(context) );
+	    //
+	    // Just rewind the tape
+	    //
+        CheckedDump(QIC117SHOWAPI,("TAPE_UN%  ... ",tapePrepare->Operation == TAPE_UNLOCK?"LOCK":"LOAD"));
+	    ntStatus = q117ConvertStatus (
+		    DeviceObject,
+		    q117DoRewind(context) );
 
-            break;
+	    break;
 
-        case TAPE_TENSION:
+	case TAPE_TENSION:
 
-            CheckedDump(QIC117SHOWTD,("TAPE_TENSION  ... "));
-            ntStatus = q117ConvertStatus (
-                    DeviceObject,
-                    q117DoCmd(&ioreq, CMD_RETENSION, NULL, context) );
+        CheckedDump(QIC117SHOWAPI,("TAPE_TENSION  ... "));
+	    ntStatus = q117ConvertStatus (
+		    DeviceObject,
+		    q117DoCmd(&ioreq, CMD_RETENSION, NULL, context) );
 
-            break;
+	    break;
 
 
-        case TAPE_FORMAT:
-            CheckedDump(QIC117SHOWTD,("TAPE_FORMAT  ... "));
+	case TAPE_FORMAT:
+        CheckedDump(QIC117SHOWAPI,("TAPE_FORMAT  ... "));
 
-            ntStatus = q117ConvertStatus (
-                        DeviceObject,
-                        q117Format(
-                            &numberBad,
-                            TRUE,
-                            &vendorUnique,
-                            context ) );
-            break;
+	    ntStatus = q117ConvertStatus (
+			DeviceObject,
+			q117Format(
+			    &numberBad,
+			    TRUE,
+			    &vendorUnique,
+			    context ) );
+	    break;
 
-        default:
-            CheckedDump(QIC117SHOWTD,("INVALID  ... "));
+	default:
+        CheckedDump(QIC117SHOWAPI,("INVALID  ... "));
 
-            ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+	    ntStatus = STATUS_INVALID_DEVICE_REQUEST;
+
 
     } // end switch (tapePrepare->Operation)
 
@@ -1107,20 +1348,20 @@ Return Value:
     //
     switch(context->CurrentOperation.Type) {
 
-        case BackupInProgress:
-            status = ERR_NO_ERR;
-            break;
+	case BackupInProgress:
+	    status = ERR_NO_ERR;
+	    break;
 
-        case RestoreInProgress:
-            status = ERR_NO_ERR;
-            break;
+	case RestoreInProgress:
+	    status = ERR_NO_ERR;
+	    break;
 
-        case NoOperation:
-            status = q117DoCmd(&ioreq, CMD_REPORT_STATUS, NULL, context);
-            break;
+	case NoOperation:
+	    status = q117DoCmd(&ioreq, CMD_REPORT_STATUS, NULL, context);
+	    break;
 
-        default:
-            status = ERROR_ENCODE(ERR_PROGRAM_FAILURE, FCT_ID, 1);
+	default:
+	    status = ERROR_ENCODE(ERR_PROGRAM_FAILURE, FCT_ID, 1);
 
     }
 
@@ -1178,12 +1419,12 @@ Return Value:
     scrbuf = q117GetFreeBuffer(&bufferInfo,context);
 
     status=q117IssIOReq(
-                scrbuf,
-                CMD_READ,
-                readWrite->Block,
-                bufferInfo,
-                context
-                );
+		scrbuf,
+		CMD_READ,
+		readWrite->Block,
+		bufferInfo,
+		context
+		);
 
     if (!status) {
 
@@ -1193,6 +1434,24 @@ Return Value:
         ioreq=q117Dequeue(WaitForItem,context);
 
         status = ioreq->x.adi_hdr.status;
+
+        if ((readWrite->flags & RW_ABS_DOECC) && (ERROR_DECODE(status) == ERR_BAD_BLOCK_DETECTED || status == ERR_NO_ERR)) {
+
+            if (q117DoCorrect(ioreq->x.adi_hdr.cmd_buffer_ptr,0l,ioreq->x.ioDeviceIO.crc)) {
+
+                status = ERROR_ENCODE(ERR_CORRECTION_FAILED, FCT_ID, 1);
+
+            } else {
+
+                status = ERR_NO_ERR;
+
+            }
+
+        }
+
+
+
+
 
     }
 
@@ -1215,6 +1474,82 @@ Return Value:
     Irp->IoStatus.Information = sizeof(CMS_RW_ABS)+len;
 
     return q117ConvertStatus(DeviceObject, status);
+
+
+}
+
+NTSTATUS
+q117IoCtlDetect (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    )
+/*++
+
+Routine Description:
+
+
+
+Arguments:
+
+    DeviceObject
+
+
+Return Value:
+
+    NT Status
+
+--*/
+
+{
+    PQ117_CONTEXT   context;
+    PSEGMENT_BUFFER bufferInfo;
+    PVOID           scrbuf;
+    IO_REQUEST      ioreq;
+    PCMS_DETECT     detect;
+    dStatus         status;
+    ULONG           len;
+    PIO_STACK_LOCATION  irpStack;
+    DriveCfgData    cfg;
+
+
+    context = DeviceObject->DeviceExtension;
+    detect = Irp->AssociatedIrp.SystemBuffer;
+    irpStack = IoGetCurrentIrpStackLocation(Irp);
+
+    if (sizeof(CMS_DETECT) > irpStack->Parameters.DeviceIoControl.OutputBufferLength)
+        return STATUS_INVALID_PARAMETER;
+
+
+    //
+    // Get the drive configuration info
+    //
+
+    memset(detect, 0, sizeof(*detect));
+    detect->driveConfigStatus = 0;
+    detect->driveDescriptorStatus = 0;
+
+    detect->driveConfig = context->DriveCfg.device_cfg;
+    detect->driveDescriptor = context->DriveCfg.device_descriptor;
+
+
+    //
+    // Now get the manufacture information from the drive
+    //
+    status = q117DoCmd(&ioreq, CMD_REPORT_DEVICE_INFO, NULL, context);
+    detect->driveInfoStatus = status;
+
+    detect->driveInfo = ioreq.x.ioDeviceInfo.device_info;
+
+    //
+    //  Now get the information about the tape
+    //
+    status = q117DoCmd(&ioreq, CMD_LOAD_TAPE, NULL, context);
+    detect->tapeConfigStatus = status;
+    detect->tapeConfig = ioreq.x.ioLoadTape.tape_cfg;
+
+    Irp->IoStatus.Information = sizeof(CMS_DETECT);
+
+    return STATUS_SUCCESS;
 
 
 }
@@ -1261,11 +1596,11 @@ Return Value:
         );
 
     status = q117IssIOReq(
-        scrbuf,
-        CMD_WRITE,
-        readWrite->Block,
-        bufferInfo,
-        context);
+                scrbuf,
+                CMD_WRITE,
+                readWrite->Block,
+                bufferInfo,
+                context);
 
     if (!status) {
 
@@ -1329,9 +1664,9 @@ Return Value:
     //   do it now.
     //
     if (ERROR_DECODE(stat) == ERR_NEW_TAPE ||
-            (stat == ERR_NO_ERR && Context->CurrentTape.State == NeedInfoLoaded) ) {
+	    (stat == ERR_NO_ERR && Context->CurrentTape.State == NeedInfoLoaded) ) {
 
-        CheckedDump(QIC117SHOWTD,("New Cart Detected\n"));
+        CheckedDump(QIC117SHOWAPI,("New Cart Detected\n"));
 
         //
         // Check to see if there is a tape in the drive
@@ -1350,15 +1685,15 @@ Return Value:
         Context->CurrentTape.MediaInfo->WriteProtected = ioreq.x.ioLoadTape.tape_cfg.write_protected;
 
 
-        if (stat) {
+         if (stat) {
             switch(ERROR_DECODE(stat)) {
-                case ERR_UNSUPPORTED_FORMAT:
-                    //
-                    // Check to see if tape is correct format
-                    //
-                    Context->CurrentTape.MediaInfo->WriteProtected = TRUE;
-                    //stat = ERR_NO_ERR;
-                    break;
+            case ERR_UNSUPPORTED_FORMAT:
+                //
+                // Check to see if tape is correct format
+                //
+                Context->CurrentTape.MediaInfo->WriteProtected = TRUE;
+                //stat = ERR_NO_ERR;
+                break;
             }
             if (stat)
                 return stat;
@@ -1369,16 +1704,6 @@ Return Value:
         Context->CurrentTape.LastSegment = (SEGMENT)tparms->formattable_segments - 1;
         Context->CurrentTape.TapeFormatCode = tparms->tape_format_code;
 
-        //
-        // If more than what can fit in the bad sector map,  then
-        // we got some real problems.
-        //
-        if ((Context->CurrentTape.LastSegment > MAX_BAD_BLOCKS) &&
-            (Context->CurrentTape.TapeFormatCode == QIC_FORMAT)) {
-
-            return ERROR_ENCODE(ERR_PROGRAM_FAILURE, FCT_ID, 1);
-
-        }
 
         //
         // Check to see if drive is formatted
@@ -1390,25 +1715,26 @@ Return Value:
         //
         // Now read the tape header (and bad sector map)
         //
-        if (stat = q117LoadTape(&header,Context)) {
+        if (stat = q117LoadTape(&header,Context,&ioreq.x.ioLoadTape.tape_cfg.tape_format_code)) {
 
             switch(ERROR_DECODE(stat)) {
 
-                // List of persistent errors (until new tape inserted) */
-                case ERR_BAD_TAPE:
-                case ERR_CORRECTION_FAILED:
-                case ERR_BAD_SIGNATURE:
-                case ERR_UNKNOWN_FORMAT_CODE:
-                case ERR_UNUSABLE_TAPE:
-                    Context->CurrentTape.State = BadTapeInDrive;
-                    Context->CurrentTape.BadTapeError = stat;
+            // List of persistent errors (until new tape inserted) */
+            case ERR_BAD_TAPE:
+            case ERR_CORRECTION_FAILED:
+            case ERR_BAD_SIGNATURE:
+            case ERR_UNKNOWN_FORMAT_CODE:
+            case ERR_UNUSABLE_TAPE:
+                Context->CurrentTape.State = BadTapeInDrive;
+                Context->CurrentTape.BadTapeError = stat;
 
-                default:
-                    return stat;
+            default:
+                return stat;
             }
 
         }
-        CheckedDump(QIC117SHOWTD,("LoadTape successful\n"));
+
+        CheckedDump(QIC117SHOWAPI,("LoadTape successful\n"));
 
         //
         // If this capacity not supported by this drive,
@@ -1416,16 +1742,9 @@ Return Value:
         // return invalid format
         //
         if (header->FormatCode != ioreq.x.ioLoadTape.tape_cfg.tape_format_code) {
+                CheckedDump(QIC117DBGP,("IOCTL format code mismatch\n"));
             return ERROR_ENCODE(ERR_UNRECOGNIZED_FORMAT, FCT_ID, 1);
         }
-
-        //
-        // Copy over bad sector map, etc.
-        //
-        RtlMoveMemory(
-            Context->CurrentTape.TapeHeader,
-            header,
-            sizeof(*Context->CurrentTape.TapeHeader) );
 
         //
         // Now scan volume list and get last volume on tape as well as the
@@ -1460,15 +1779,16 @@ Return Value:
                     tempVolume.Vendor.cms_QIC40.OpSysType == OP_WINDOWS_NT)) {
 
                     Context->CurrentOperation.BytesOnTape =
-                        Context->CurrentOperation.BytesRead = 0;
+                    Context->CurrentOperation.BytesRead = 0;
 
                     notNt = TRUE;
 
 #ifndef NO_MARKS
+                    // Zero out the mark array
                     Context->MarkArray.TotalMarks = 0;
                     Context->CurrentMark = Context->MarkArray.TotalMarks;
                     Context->MarkArray.MarkEntry[Context->CurrentMark].Offset =
-                        0xffffffff;
+                    0xffffffff;
 #endif
 
                     /* force the data size to be the entire backup */
@@ -1476,11 +1796,11 @@ Return Value:
                     curseg = tempVolume.StartSegment;
                     while (curseg <= tempVolume.EndingSegment) {
 
-                        tempVolume.DataSize +=
-                            q117GoodDataBytes(
-                                curseg,
-                                Context);
-                        ++curseg;
+                    tempVolume.DataSize +=
+                        q117GoodDataBytes(
+                        curseg,
+                        Context);
+                    ++curseg;
 
 
                     }
@@ -1490,8 +1810,10 @@ Return Value:
                     notNt = FALSE;
 
                 }
+
                 found = TRUE;
                 Context->ActiveVolume = tempVolume;
+
             }
 
         } while (!stat && volumesRead < Context->CurrentTape.MaximumVolumes);
@@ -1542,10 +1864,10 @@ Return Value:
     } else {
 
         if (stat == ERR_NO_TAPE) {
-//            Context->TapeStatus.Status |= TAPE_STATUS_NO_MEDIA;
+            // Context->TapeStatus.Status |= TAPE_STATUS_NO_MEDIA;
             Context->ActiveVolumeNumber = 0;
             Context->CurrentOperation.BytesOnTape =
-                Context->CurrentOperation.BytesRead = 0;
+            Context->CurrentOperation.BytesRead = 0;
 
 #ifndef NO_MARKS
             Context->MarkArray.TotalMarks = 0;

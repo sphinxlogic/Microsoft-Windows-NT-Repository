@@ -184,6 +184,8 @@ RtlpInheritAcl (
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerOwnerSid OPTIONAL,
+    IN PSID ServerGroupSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL *NewAcl
     );
@@ -194,6 +196,8 @@ RtlpLengthInheritAcl(
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerSid OPTIONAL,
+    IN PSID ClientSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PULONG NewAclLength
     );
@@ -204,10 +208,11 @@ RtlpGenerateInheritAcl(
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerSid OPTIONAL,
+    IN PSID ClientSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL NewAcl
     );
-
 
 NTSTATUS
 RtlpLengthInheritedAce (
@@ -215,8 +220,10 @@ RtlpLengthInheritedAce (
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerSid,
+    IN PSID ClientSid,
     IN PGENERIC_MAPPING GenericMapping,
-    OUT PULONG NewAceLength
+    IN PULONG NewAceLength
     );
 
 NTSTATUS
@@ -225,9 +232,12 @@ RtlpGenerateInheritedAce (
     IN BOOLEAN IsDirectoryObject,
     IN PSID OwnerSid,
     IN PSID GroupSid,
+    IN PSID ServerSid OPTIONAL,
+    IN PSID ClientSid OPTIONAL,
     IN PGENERIC_MAPPING GenericMapping,
     OUT PACL NewAcl
     );
+
 
 NTSTATUS
 RtlpInitializeAllowedAce(
@@ -263,6 +273,7 @@ BOOLEAN
 RtlpValidOwnerSubjectContext(
     IN HANDLE Token,
     IN PSID Owner,
+    IN BOOLEAN ServerObject,
     OUT PNTSTATUS ReturnStatus
     );
 

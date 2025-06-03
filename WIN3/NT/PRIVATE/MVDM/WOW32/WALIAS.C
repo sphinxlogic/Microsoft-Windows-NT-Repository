@@ -17,6 +17,10 @@
 
 MODNAME(walias.c);
 
+//BUGBUG - this must be removed once MM_MCISYSTEM_STRING is defined in MMSYSTEM.H.
+#ifndef MM_MCISYSTEM_STRING
+    #define MM_MCISYSTEM_STRING 0x3CA
+#endif
 
 #ifdef  DEBUG
 extern  BOOL fSkipLog;          // TRUE to temporarily skip certain logging
@@ -73,7 +77,7 @@ INT GetStdClassNumber(
         // They passed us a string
 
         for ( i = WOWCLASS_BUTTON; i < NUMEL(stdClasses); i++ ) {
-            if ( strcmpi(pszClass, stdClasses[i].lpszClassName) == 0 ) {
+            if ( _stricmp(pszClass, stdClasses[i].lpszClassName) == 0 ) {
                 return( i );
             }
         }
@@ -129,7 +133,8 @@ WNDPROC GetStdClassWndProc(
 
             WOW32ASSERT(*lpdw == SUBCLASS_MAGIC);   // Are we editing the right stuff?
 
-            *(lpdw+2) = (DWORD)lpfn32;
+            if (!lpdw)
+                *(lpdw+2) = (DWORD)lpfn32;
 
             FLUSHVDMCODEPTR( vp, sizeof(DWORD)*3, lpdw );
             FREEVDMPTR( lpdw );
@@ -254,27 +259,13 @@ PWC FindClass16(LPCSTR pszClass, HAND16 hInst)
 {
     register PWC pwc;
 
-    if (!(pwc = (PWC)(pfnOut.pfnGetClassWOWWords)(HMODINST32(hInst), pszClass))) {
-        LOGDEBUG(LOG_ALWAYS,("WOW::FindClass16(): *** pwc is NULL, pszClass -> %s and hInst -> %04x\n", pszClass, hInst));
-        WOW32ASSERT(FALSE);
-    }
+    pwc = (PWC)(pfnOut.pfnGetClassWOWWords)(HMODINST32(hInst), pszClass);
+    WOW32WARNMSGF(
+        pwc,
+        ("WOW32 warning: GetClassWOWWords('%s', %04x) returned NULL\n", pszClass, hInst)
+        );
 
     return (pwc);
-}
-
-
-/*
- * WOWCleanup(hModule16, fDll)
- *   is a ***private*** API for WOW only.  It cleans up any USER
- *   objects created by this hModule, most notably classes. The
- *   argument is a 32-bit handle, USER looks only at the upper
- *   16 bits to find the hModule16
- */
-VOID WOWCleanup(HANDLE hModule16, BOOL fDll);
-
-VOID DestroyClasses16(HAND16 hModule16, BOOL fDll)
-{
-    (pfnOut.pfnWOWCleanup)((HANDLE) MAKELONG(0, hModule16), fDll);
 }
 
 
@@ -417,21 +408,45 @@ BOOL MessageNeedsThunking(UINT uMsg)
 
 extern PTD gptdTaskHead;
 
-PTD ThreadID32toPTD(DWORD ThreadID32)
+PTD ThreadProcID32toPTD(DWORD dwThreadID, DWORD dwProcessID)
 {
-    PTD  ptd;
+    PTD ptd;
+    PWOAINST pWOA;
 
-    ptd = gptdTaskHead;
+    //
+    // If we have active child instances of WinOldAp,
+    // try to map the process ID of a child Win32 app
+    // to the corresponding WinOldAp PTD.
+    //
 
-    while(ptd) {
+    ptd = CURRENTPTD();
 
-        if(ptd->dwThreadID == ThreadID32)
-            return(ptd);
+    pWOA = ptd->pWOAList;
 
-        ptd = ptd->ptdNext;
+    while (pWOA && pWOA->dwChildProcessID != dwProcessID) {
+        pWOA = pWOA->pNext;
     }
 
-    return((PTD)NULL);
+    if (pWOA) {
+
+        ptd = pWOA->ptdWOA;
+
+    } else {
+
+        //
+        // We didn't find a WinOldAp PTD to return, see
+        // if the thread ID matches one of our app threads.
+        //
+
+        ptd = gptdTaskHead;
+
+        while (ptd && ptd->dwThreadID != dwThreadID) {
+            ptd = ptd->ptdNext;
+        }
+
+    }
+
+    return ptd;
 
 }
 
@@ -460,27 +475,29 @@ HTASK16 ThreadID32toHtask16(
     PTD ptd;
     HTASK16 htask16;
 
+
     if ( ThreadID32 == 0 ) {
-        LOGDEBUG (LOG_ALWAYS, ("WOW::ThreadID32tohTask16: Thread ID is 0\n"));
-        WOW32ASSERT (FALSE);
-        return( 0 );
+        WOW32ASSERTMSG(ThreadID32, "WOW::ThreadID32tohTask16: Thread ID is 0\n");
+        htask16 = 0;
+    } else {
+
+        ptd = ThreadProcID32toPTD( ThreadID32, (DWORD)-1 );
+        if ( ptd ) {
+            // Good, its one of our wow threads.
+            htask16 = ptd->htask16;
+        } else {
+            // Nope, its is some other 32-bit thread
+            htask16 = FindHtaskAlias( ThreadID32 );
+            if ( htask16 == 0 ) {
+                //
+                // See the comment in WOLE2.C for a nice description
+                //
+                htask16 = AddHtaskAlias( ThreadID32 );
+            }
+        }
     }
 
-    ptd = ThreadID32toPTD( ThreadID32 );
-    if ( ptd ) {
-        // Good, its one of our wow threads.
-        return( ptd->htask16 );
-    } else {
-        // Nope, its is some other 32-bit thread
-        htask16 = FindHtaskAlias( ThreadID32 );
-        if ( htask16 == 0 ) {
-            //
-            // See the comment in WOLE2.C for a nice description
-            //
-            htask16 = AddHtaskAlias( ThreadID32 );
-        }
-        return( htask16 );
-    }
+    return htask16;
 }
 
 DWORD Htask16toThreadID32(
@@ -510,12 +527,45 @@ WORD gUser16hInstance = 0;
 
 ULONG GetGCL_HMODULE(HWND hwnd)
 {
-    ULONG ul;
+    ULONG    ul;
+    PTD      ptd;
+    PWOAINST pWOA;
+    DWORD    dwProcessID;
 
     ul = (ULONG)GetClassLong(hwnd, GCL_HMODULE);
-    if (ul != 0 && (WORD)ul == 0) {          // hMod32 = 0xZZZZ0000
-        ul = (ULONG) gUser16hInstance;
-        WOW32ASSERT(ul);
+
+    //
+    // hMod32 = 0xZZZZ0000
+    //
+
+    if (ul != 0 && LOWORD(ul) == 0) {
+
+        //
+        // If we have active WinOldAp children, see if this window
+        // belongs to a Win32 process spawned by one of the
+        // active winoldap's.  If it is, return the hmodule
+        // of the corresponding winoldap.  Otherwise we
+        // return user.exe's hinstance (why not hmodule?)
+        //
+
+        dwProcessID = (DWORD)-1;
+        GetWindowThreadProcessId(hwnd, &dwProcessID);
+
+        ptd = CURRENTPTD();
+
+        pWOA = ptd->pWOAList;
+        while (pWOA && pWOA->dwChildProcessID != dwProcessID) {
+            pWOA = pWOA->pNext;
+        }
+
+        if (pWOA) {
+            ul = pWOA->ptdWOA->hMod16;
+            LOGDEBUG(LOG_ALWAYS, ("WOW32 GetClassLong(0x%x, GWW_HMODULE) returning 0x%04x\n",
+                                  hwnd, ul));
+        } else {
+            ul = (ULONG) gUser16hInstance;
+            WOW32ASSERT(ul);
+        }
     }
     else {
         ul = (ULONG)GETHMOD16(ul);      // 32-bit hmod is HMODINST32
@@ -563,7 +613,7 @@ HANDLE WOWHandle32 (WORD h16, WOW_HANDLE_TYPE htype)
         case WOW_TYPE_HTASK:
             return (HANDLE)HTASK32(h16);
         case WOW_TYPE_FULLHWND:
-            return FULLHWND32(h16);
+            return (HANDLE)FULLHWND32(h16);
         default:
             return(INVALID_HANDLE_VALUE);
     }
@@ -605,3 +655,32 @@ WORD WOWHandle16 (HANDLE h32, WOW_HANDLE_TYPE htype)
     }
 }
 
+PVOID gpGdiHandleInfo = (PVOID)-1;
+
+//WARNING: This structure must match ENTRY in ntgdi\inc\hmgshare.h
+
+typedef struct _ENTRYWOW
+{
+    LONG   l1;
+    LONG   l2;
+    USHORT FullUnique;
+    USHORT us1;
+    LONG   l3;
+} ENTRYWOW, *PENTRYWOW;
+
+//
+// this routine converts a 16bit GDI handle to a 32bit handle.  There
+// is no need to do any validation on the handle since the 14bit space
+// for handles ignoring the low two bits is completely contained in the
+// valid 32bit handle space.
+//
+
+HANDLE hConvert16to32(int h16)
+{
+    ULONG h32;
+    int i = h16 >> 2;
+
+    h32 = i | (ULONG)(((PENTRYWOW)gpGdiHandleInfo)[i].FullUnique) << 16;
+
+    return((HANDLE)h32);
+}

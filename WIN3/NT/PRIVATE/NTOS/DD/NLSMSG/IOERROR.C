@@ -30,7 +30,6 @@ Revision History:
 #include <stdlib.h>
 #include <process.h>    // exit
 #include <elfcommn.h>
-#include <wcstr.h>
 #include <windows.h>
 #include <ntiolog.h>
 #include <malloc.h>
@@ -116,7 +115,7 @@ DisplayEventRecords( PVOID Buffer,
     if (getenv("TZ") == NULL) {
         _putenv("TZ=PDT");
     }
-    
+
     while (Offset < BufSize && Count < *NumRecords) {
 
         printf("\nRecord # %lu\n", pLogRecord->RecordNumber);
@@ -125,25 +124,25 @@ DisplayEventRecords( PVOID Buffer,
             pLogRecord->DataLength < sizeof(IO_ERROR_LOG_PACKET)) {
 
             ioRecord = FALSE;
-            
+
             printf("Length: 0x%lx TimeGenerated: 0x%lx  EventID: 0x%lx EventType: 0x%x\n",
                     pLogRecord->Length, pLogRecord->TimeGenerated, pLogRecord->EventID,
                     pLogRecord->EventType);
-    
+
             printf("NumStrings: 0x%x StringOffset: 0x%lx UserSidLength: 0x%lx TimeWritten: 0x%lx\n",
                     pLogRecord->NumStrings, pLogRecord->StringOffset,
                     pLogRecord->UserSidLength, pLogRecord->TimeWritten);
-    
+
             printf("UserSidOffset: 0x%lx    DataLength: 0x%lx    DataOffset:  0x%lx \n",
                     pLogRecord->UserSidOffset, pLogRecord->DataLength,
                     pLogRecord->DataOffset);
         } else {
-            
+
             ioRecord = TRUE;
             errorPacket = (PIO_ERROR_LOG_PACKET)
                 ((PCHAR) pLogRecord + pLogRecord->DataOffset);
         }
-            
+
         //
         // Print out module name
         //
@@ -199,11 +198,11 @@ DisplayEventRecords( PVOID Buffer,
                 256,
                 NULL
                 );
-                
+
 #if 0
             printf("Event id: %8lx, => %s",
                 errorPacket->ErrorCode, MessageBuffer);
-#endif                
+#endif
             printf(MessageBuffer, errorPacket->DumpData[0], errorPacket->DumpData[1], errorPacket->DumpData[2]);
             printf("Major Function code: %2x, IoControlCode: %8x\n",
                 errorPacket->MajorFunctionCode, errorPacket->IoControlCode);
@@ -234,7 +233,7 @@ DisplayEventRecords( PVOID Buffer,
             printf("\n");
 
         }
-        
+
         // Get next record
         //
         Offset += pLogRecord->Length;

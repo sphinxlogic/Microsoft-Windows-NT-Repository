@@ -30,36 +30,26 @@ RINCS   = -I..\inc
 
 DEFINES = -DWOW -DBUILDDLL $(MVDMFLAGS)
 
-AOBJ	= -Mx -t $(DEFINES) $(INCS)
+AOBJ    = -Mx -t $(DEFINES) $(INCS)
 
 CW16    = -Asnw -G2sw -Os -W2 -Zp $(DEFINES) $(INCS)
 
 LINK    = /map
-LPATH   = ..\..\tools.os2
 
-# work around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
+########## Path definition so we find 16 bit tools ##########
+# Also works around stupid bug in RC 3.1 that doesn't allow rcpp.err to be
 # in a directory that is greater than 128 chars down the path, even if
 # rc 3.1 is running as an OS/2 app.
 
-PATH    = ..\..\tools16;$(PATH)
+PATH    = $(_NTBINDIR)\private\mvdm\tools16;$(PATH)
 
-!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail"
-!if "$(NTDEBUGTYPE)"=="windbg"
-AOBJ    = $(AOBJ) -Zi
-CW16    = $(CW16) /Od /Oi /Zi
-LINK    = $(LINK) /CO
-!else
+!if "$(NTDEBUG)"!="" && "$(NTDEBUG)"!="retail" && "$(NTDEBUG)" != "ntsdnodbg"
 AOBJ    = $(AOBJ) -Zd
 CW16    = $(CW16) /Od /Oi /Zd
 LINK    = $(LINK) /LI
 !endif
-!endif
 
-!ifdef LIB
-W16LIBS = snocrtd
-!else
 W16LIBS = ..\lib\snocrtd.lib
-!endif
 
 .asm.obj:
     masm $(AOBJ) $*;
@@ -74,18 +64,14 @@ W16LIBS = ..\lib\snocrtd.lib
     mapsym $*
 
 .rc.res:
-!IFDEF NTVDM_BASED_BUILD
     RC16 -r $(RINCS) $*.rc
-!ELSE
-    $(LPATH)\rc -r $(INCS) $*.rc
-!ENDIF
 
 
 all: shell.dll shell.sym
     -binplace shell.dll
     -binplace shell.sym
 
-clean: cleanup
+clean: cleanup all
 
 cleanup:
     if exist *.lrf del *.lrf
@@ -110,15 +96,9 @@ shell.lrf: makefile
     echo shell;>>shell.lrf
 
 shell.dll shell.map: shell.obj shell.lrf shell.def shell.res dragdrop.obj
-!IFDEF NTVDM_BASED_BUILD
     link16 @shell.lrf;
     rc16 -t shell.res shell.dll
-!ELSE
-    $(LPATH)\link @shell.lrf;
-    $(LPATH)\rc -t shell.res shell.dll
-!ENDIF
 
 shell.res: shell.rc shell.rcv ..\inc\common.ver
 
 !ENDIF
-

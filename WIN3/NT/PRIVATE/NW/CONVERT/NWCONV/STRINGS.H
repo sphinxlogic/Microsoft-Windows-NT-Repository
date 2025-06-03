@@ -58,9 +58,12 @@
 #define IDS_NO                      (IDS_STRINGBASE+37)
 
 #define IDS_E_NWLOG                 (IDS_STRINGBASE+38)
+#define IDS_NOEDITMAP               (IDS_STRINGBASE+39)
+
+#define IDS_LOCKED_OUT              (IDS_STRINGBASE+40)
 
 /////////////////
-#define IDS_D_STRINGBASE            (IDS_STRINGBASE+38)
+#define IDS_D_STRINGBASE            (IDS_STRINGBASE+40)
 
 #define IDS_D_1                     (IDS_D_STRINGBASE+1)
 #define IDS_D_2                     (IDS_D_STRINGBASE+2)
@@ -153,9 +156,16 @@
 #define IDS_S_42                    (IDS_S_STRINGBASE+42)
 #define IDS_S_43                    (IDS_S_STRINGBASE+43)
 
+#define IDS_S_44                    (IDS_S_STRINGBASE+44)
+#define IDS_S_45                    (IDS_S_STRINGBASE+45)
+#define IDS_S_46                    (IDS_S_STRINGBASE+46)
+#define IDS_S_47                    (IDS_S_STRINGBASE+47)
+#define IDS_S_48                    (IDS_S_STRINGBASE+48)
+
+#define IDS_S_49                    (IDS_S_STRINGBASE+49)
 
 ////////////
-#define IDS_E_STRINGBASE            (IDS_S_STRINGBASE+43)
+#define IDS_E_STRINGBASE            (IDS_S_STRINGBASE+49)
 
 #define IDS_E_1                     (IDS_E_STRINGBASE+1)
 #define IDS_E_2                     (IDS_E_STRINGBASE+2)
@@ -179,9 +189,24 @@
 #define IDS_E_15                    (IDS_E_STRINGBASE+15)
 #define IDS_E_16                    (IDS_E_STRINGBASE+16)
 
+#define IDS_E_17                    (IDS_E_STRINGBASE+17)
+
+#define IDS_E_18                    (IDS_E_STRINGBASE+18)
 
 ////////////
-#define IDS_L_STRINGBASE            (IDS_E_STRINGBASE+16)
+#define IDS_M_STRINGBASE            (IDS_E_STRINGBASE+18)
+
+#define IDS_M_1                     (IDS_M_STRINGBASE+1)
+#define IDS_M_2                     (IDS_M_STRINGBASE+2)
+#define IDS_M_3                     (IDS_M_STRINGBASE+3)
+#define IDS_M_4                     (IDS_M_STRINGBASE+4)
+#define IDS_M_5                     (IDS_M_STRINGBASE+5)
+#define IDS_M_6                     (IDS_M_STRINGBASE+6)
+#define IDS_M_7                     (IDS_M_STRINGBASE+7)
+#define IDS_M_8                     (IDS_M_STRINGBASE+8)
+
+////////////
+#define IDS_L_STRINGBASE            (IDS_M_STRINGBASE+8)
 
 #define IDS_L_1                     (IDS_L_STRINGBASE+1)
 #define IDS_L_2                     (IDS_L_STRINGBASE+2)
@@ -442,9 +467,12 @@
 #define IDS_L_215                   (IDS_L_STRINGBASE+215)
 #define IDS_L_216                   (IDS_L_STRINGBASE+216)
 
+#define IDS_L_217                   (IDS_L_STRINGBASE+217)
 
+#define IDS_L_218                   (IDS_L_STRINGBASE+218)
+#define IDS_L_219                   (IDS_L_STRINGBASE+219)
 
-#define STRING_TABLE_END            (IDS_L_STRINGBASE+216)
+#define STRING_TABLE_END            (IDS_L_STRINGBASE+219)
 
 #define TOTAL_STRINGS               (STRING_TABLE_END - IDS_STRINGBASE)
 #endif

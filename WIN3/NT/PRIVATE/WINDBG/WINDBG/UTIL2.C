@@ -23,7 +23,10 @@ Environment:
 #include "precomp.h"
 #pragma hdrstop
 
+extern LRESULT SendMessageNZ (HWND,UINT,WPARAM,LPARAM);
+
 static BOOL     FAddToSearchPath = FALSE;
+static BOOL     FAddToRootMap = FALSE;
 
 
 /***    BuildWindowItemString
@@ -434,7 +437,7 @@ BOOL FAR PASCAL SaveAsFile(int doc)
 
         for (k = 0 ; k < MAX_DOCUMENTS; k++) {
             if (Docs[k].FirstView != -1 && Docs[k].docType == DOC_WIN
-            && k != doc && stricmp(Docs[k].FileName, szPath) == 0) {
+            && k != doc && _stricmp(Docs[k].FileName, szPath) == 0) {
                 return ErrorBox(ERR_Duplicate_File_Name);
             }
         }
@@ -544,7 +547,7 @@ void FAR PASCAL InsertKeptFileNames(
         //First check if file is not already in list
         i = 0;
         while (i < nb && !found) {
-                found = (strcmpi(s[i], newName) == 0);
+                found = (_strcmpi(s[i], newName) == 0);
                 if (!found)
                         i++;
         }
@@ -587,7 +590,7 @@ void FAR PASCAL InsertKeptFileNames(
                 szTmp[0] = '&';
 
                 //Convert counter to string and append reduced path name
-                itoa(i + 1, szTmp + 1, 10);
+                _itoa(i + 1, szTmp + 1, 10);
                 strcat(szTmp, " ");
                 strcat(szTmp, tmp);
 
@@ -687,7 +690,7 @@ Return Value:
         if (d) {
             cur = d->FileName + strlen(d->FileName);
             szTmp[0] = '<';
-            itoa(view + 1, szTmp + 1, 10);
+            _itoa(view + 1, szTmp + 1, 10);
             strcat(szTmp, ">");
 
             /*
@@ -698,12 +701,29 @@ Return Value:
                 strcat(szTmp, " ");
             }
 
+#ifdef DBCS
+        if (IsDBCSLeadByte(d->FileName[0])) {
+            dep = strlen(szTmp);
+        } else {
+            dep = strlen(szTmp) + 1;
+        }
+        while (cur > d->FileName) {
+            cur = CharPrev(d->FileName, cur);
+            if (*cur == '\\') {
+                break;
+            }
+        }
+        if (*cur == '\\') {
+            cur++;
+        }
+#else   // !DBCS
             dep = strlen(szTmp) + 1;
 
             while ((cur >= d->FileName) && (*cur != '\\')) {
                 cur--;
             }
             cur++;
+#endif
             strcat(szTmp, cur);
             if (Views[view].Doc == DISASM_WIN) {
                 Dbg(LoadString( hInst, SYS_DisasmWin_Title, title, MAX_MSG_TXT ));
@@ -719,7 +739,7 @@ Return Value:
             }
         } else {
             szTmp[0] = '<';
-            itoa(view + 1, szTmp + 1, 10);
+            _itoa(view + 1, szTmp + 1, 10);
             strcat(szTmp, ">");
 
             /*
@@ -767,7 +787,7 @@ Return Value:
 
     Dbg(hDC = GetDC(hwnd));
     szTmp[0] = '<';
-    itoa(view + 1, szTmp + 1, 10);
+    _itoa(view + 1, szTmp + 1, 10);
     strcat(szTmp, "> ");
 
     /*
@@ -790,7 +810,7 @@ Return Value:
 
     if (duplicateNbr > 0) {
         strcat(trail, " : ");
-        itoa(duplicateNbr, trail + strlen(trail), 10);
+        _itoa(duplicateNbr, trail + strlen(trail), 10);
     }
 
     /*
@@ -1112,12 +1132,18 @@ Return Value:
     char                szBase[_MAX_PATH + 8];
     int                 indx;
     char                ch;
+    CHAR                fname[_MAX_FNAME];
+    CHAR                ext[_MAX_EXT];
     static              char *  szInitialDir = NULL;
 
     *pFlags |= OFN_NOCHANGEDIR;
 
 
-    strcpy (files,fileName);
+    if (DLG_Browse_Filebox_Title == titleId) {
+       _splitpath( fileName, NULL, NULL, fname, ext );
+       _makepath( files, NULL, NULL, fname, ext );
+    } else
+       strcpy (files,fileName);
 
     /*
      * Disable frame client
@@ -1220,6 +1246,7 @@ Return Value:
         }
 
         FAddToSearchPath = FALSE;
+        FAddToRootMap = FALSE;
 
         result = GetOpenFileName((LPOPENFILENAME)&OpenFileName) ;
 
@@ -1229,31 +1256,9 @@ Return Value:
          */
 
         if (FAddToSearchPath) {
-            char *  sz = GetDllName( DLL_SOURCE_PATH);
-            int     i;
-            char *  pch;
-
-            pch = OpenFileName.lpstrFile + strlen(OpenFileName.lpstrFile);
-            while (*pch != '\\') {
-                pch--;
-                DAssert(pch >= OpenFileName.lpstrFile);
-            }
-
-            i = pch - OpenFileName.lpstrFile;
-            pch = malloc( i + 2 + (sz?strlen(sz):0) );
-            ch = OpenFileName.lpstrFile[i];
-            OpenFileName.lpstrFile[i] = 0;
-            strcpy(pch, OpenFileName.lpstrFile);
-            OpenFileName.lpstrFile[i] = ch;
-            if (sz) {
-                *(pch + i) = ';';
-                *(pch + i + 1) = 0;
-                strcat(pch, sz );
-            }
-
-            SetDllName(DLL_SOURCE_PATH, pch);
-
-            free(pch);
+            AddToSearchPath(OpenFileName.lpstrFile);
+        } else if (FAddToRootMap) {
+            RootSetMapped(fileName, OpenFileName.lpstrFile);
         }
         break ;
 
@@ -1286,7 +1291,11 @@ Return Value:
             strcpy(szSearchPath, OpenFileName.lpstrFile);
             p1 = strrchr(szSearchPath, '\\');
             if (p1) {
+#ifdef DBCS
+                if (p1 == szSearchPath || *(CharPrev(szSearchPath,p1))==':') {
+#else
                 if (p1 == szSearchPath || *(p1-1) == ':') {
+#endif
                     p1++;
                 }
                 *p1++ = ';';
@@ -1320,15 +1329,21 @@ Return Value:
      *  Save directory for next time
      */
 
+#ifdef DBCS // to fix mskkbug#3909
+    if (result) {
+#endif
         ch = fileName[OpenFileName.nFileOffset-1];
         fileName[OpenFileName.nFileOffset-1] = 0;
         if ((szInitialDir == NULL) || (strcmp(szInitialDir, fileName) != 0)) {
             if (szInitialDir != NULL) {
                 free(szInitialDir);
             }
-            szInitialDir = strdup(fileName);
+            szInitialDir = _strdup(fileName);
         }
         fileName[OpenFileName.nFileOffset-1] = ch;
+#ifdef DBCS // to fix mskkbug#3909
+    }
+#endif
 
     /*
      * Get the output of flags
@@ -1354,6 +1369,39 @@ Return Value:
     return result;
 }                                       /* StartFileDlg() */
 
+
+void
+AddToSearchPath(
+   LPSTR lpstrFile
+)
+{
+   char *  sz = GetDllName( DLL_SOURCE_PATH);
+   int     i;
+   char *  pch;
+   char     ch;
+
+   pch = lpstrFile + strlen(lpstrFile);
+   while (*pch != '\\') {
+       pch--;
+       DAssert(pch >= lpstrFile);
+   }
+
+   i = pch - lpstrFile;
+   pch = malloc( i + 2 + (sz?strlen(sz):0) );
+   ch = lpstrFile[i];
+   lpstrFile[i] = 0;
+   strcpy(pch, lpstrFile);
+   lpstrFile[i] = ch;
+   if (sz) {
+       *(pch + i) = ';';
+       *(pch + i + 1) = 0;
+       strcat(pch, sz );
+   }
+
+   SetDllName(DLL_SOURCE_PATH, pch);
+
+   free(pch);
+}
 
 /***    matchExt
 **
@@ -1398,7 +1446,7 @@ Return Value:
 **                   queryExtension IS_IN source[k].right
 **
 **     where we define IS_IN to be a membership predicate (using strtok()
-**     and stricmp() in the implementation, eh?):
+**     and _stricmp() in the implementation, eh?):
 **
 **        x IS_IN y
 **     <=>
@@ -1439,7 +1487,7 @@ int matchExt (char* queryExtension, char* sourceList)
 
          tokenMatch = strtok (work, delims);
 
-         while (tokenMatch  &&  stricmp (tokenMatch, queryExtension))
+         while (tokenMatch  &&  _stricmp (tokenMatch, queryExtension))
             {
             tokenMatch = strtok (0, delims);
             }
@@ -1547,8 +1595,8 @@ GetOpenFileNameHookProc(
 
 Routine Description:
 
-    This routine is used to add the Add To Source list check box in the
-    browser dialog box.
+    This routine is handle the Add Directory To radio buttons in the
+    browser source file dialog box.
 
 Arguments:
 
@@ -1566,13 +1614,72 @@ Return Value:
 {
 
     switch( msg ) {
+      case  WM_INITDIALOG:
+        CheckRadioButton(hDlg, ID_BROWSE_ADDNONE, ID_BROWSE_ADDSOURCE,
+                         ID_BROWSE_ADDNONE);
+        break;
 
-    case WM_COMMAND:
+      case WM_COMMAND:
         switch( LOWORD( wParam )) {
-        case IDOK:
-            FAddToSearchPath = IsDlgButtonChecked( hDlg, ID_BROWSE_ADD );
+          case IDOK:
+            FAddToSearchPath = IsDlgButtonChecked( hDlg, ID_BROWSE_ADDSOURCE );
+            FAddToRootMap = IsDlgButtonChecked(hDlg, ID_BROWSE_ADDROOT);
+            if (FAddToSearchPath || FAddToRootMap) {
+               Assert(FAddToSearchPath != FAddToRootMap);
+               Assert(IsDlgButtonChecked(hDlg, ID_BROWSE_ADDNONE) == FALSE);
+            } else
+               Assert(IsDlgButtonChecked(hDlg, ID_BROWSE_ADDNONE));
             break;
-        }
+          }
+    }
+    return DlgFile(hDlg, msg, wParam, lParam);
+
+}                               /* GetOpenFileNameHookProc() */
+
+
+BOOL
+GetOpenDllNameHookProc(
+                        HWND    hDlg,
+                        UINT    msg,
+                        WPARAM  wParam,
+                        LPARAM  lParam
+                        )
+
+/*++
+
+Routine Description:
+
+    This routine is used to handle the Add Directory To radio
+    buttons in the browse Exe and Sym file dialog box.
+
+Arguments:
+
+    hDlg        - Supplies the handle to current dialog
+    msg         - Supplies the message to be processed
+    wParam      - Supplies info about the message
+    lParam      - Supplies info about the message
+
+Return Value:
+
+    TRUE if we replaced default processing of the message, FALSE otherwise
+
+--*/
+
+{
+
+    switch( msg ) {
+      case  WM_INITDIALOG:
+        CheckRadioButton(hDlg, ID_BROWSE_ADDNONE, ID_BROWSE_ADDSOURCE,
+                         ID_BROWSE_ADDNONE);
+        EnableWindow(GetDlgItem(hDlg, ID_BROWSE_ADDROOT), FALSE);
+        break;
+
+      case WM_COMMAND:
+        switch( LOWORD( wParam )) {
+          case IDOK:
+            FAddToSearchPath = IsDlgButtonChecked( hDlg, ID_BROWSE_ADDSOURCE );
+            break;
+          }
     }
     return DlgFile(hDlg, msg, wParam, lParam);
 
@@ -2097,7 +2204,7 @@ EnableRibbonControls(int Updates, BOOL LaunchingDebuggee)
                       !(d->untitled) &&
                       ControlOk(IDM_DEBUG_SETBREAK)) ?
                     WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL);
-        SendMessage(ribbon.hwndRibbon, EnableMsg, ID_RIBBON_BREAK, 0L);
+        SendMessageNZ(ribbon.hwndRibbon, EnableMsg, ID_RIBBON_BREAK, 0L);
     }
 
 
@@ -2110,7 +2217,7 @@ EnableRibbonControls(int Updates, BOOL LaunchingDebuggee)
     if (Updates & ERC_QWATCH) {
         EnableMsg = ((ControlOk(IDM_DEBUG_QUICKWATCH)) ?
                 WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL);
-        SendMessage(ribbon.hwndRibbon, EnableMsg, ID_RIBBON_QWATCH, 0L);
+        SendMessageNZ(ribbon.hwndRibbon, EnableMsg, ID_RIBBON_QWATCH, 0L);
     }
 
     /*
@@ -2120,25 +2227,25 @@ EnableRibbonControls(int Updates, BOOL LaunchingDebuggee)
 
     if (Updates & ERC_TRACESTEP) {
 
-        SendMessage(ribbon.hwndRibbon,
+        SendMessageNZ(ribbon.hwndRibbon,
                     (!LaunchingDebuggee && ControlOk(IDM_RUN_TRACEINTO)) ?
                         WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL,
                     ID_RIBBON_TRACE,
                     0L);
 
-        SendMessage(ribbon.hwndRibbon,
+        SendMessageNZ(ribbon.hwndRibbon,
                     (!LaunchingDebuggee && ControlOk(IDM_RUN_STEPOVER)) ?
                         WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL,
                     ID_RIBBON_STEP,
                     0L);
 
-        SendMessage(ribbon.hwndRibbon,
+        SendMessageNZ(ribbon.hwndRibbon,
                     (!LaunchingDebuggee && ControlOk(IDM_RUN_GO)) ?
                         WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL,
                     ID_RIBBON_GO,
                     0L);
 
-        SendMessage(ribbon.hwndRibbon,
+        SendMessageNZ(ribbon.hwndRibbon,
                     (!LaunchingDebuggee && ControlOk(IDM_RUN_HALT)) ?
                         WU_ENABLERIBBONCONTROL : WU_DISABLERIBBONCONTROL,
                     ID_RIBBON_HALT,
@@ -2147,13 +2254,13 @@ EnableRibbonControls(int Updates, BOOL LaunchingDebuggee)
 
     if (!status.fSrcMode)
        {
-        SendMessage(ribbon.hwndRibbon,WU_DISABLERIBBONCONTROL,ID_RIBBON_SMODE,0L);
-        SendMessage(ribbon.hwndRibbon,WU_ENABLERIBBONCONTROL, ID_RIBBON_AMODE,0L);
+        SendMessageNZ(ribbon.hwndRibbon,WU_DISABLERIBBONCONTROL,ID_RIBBON_SMODE,0L);
+        SendMessageNZ(ribbon.hwndRibbon,WU_ENABLERIBBONCONTROL, ID_RIBBON_AMODE,0L);
        }
        else
           {
-           SendMessage(ribbon.hwndRibbon,WU_ENABLERIBBONCONTROL,ID_RIBBON_SMODE,0L);
-           SendMessage(ribbon.hwndRibbon,WU_DISABLERIBBONCONTROL, ID_RIBBON_AMODE,0L);
+           SendMessageNZ(ribbon.hwndRibbon,WU_ENABLERIBBONCONTROL,ID_RIBBON_SMODE,0L);
+           SendMessageNZ(ribbon.hwndRibbon,WU_DISABLERIBBONCONTROL, ID_RIBBON_AMODE,0L);
           }
 
 
@@ -2209,12 +2316,12 @@ BOOL IntOutOfRange(PSTR text, int FAR *val, int min, int max, HWND hDlg,
 
     *val = atoi(text);
     if (*val < min) {
-        itoa(min, text, 10);
+        _itoa(min, text, 10);
         *val = min;
         outOfRange = TRUE;
     } else {
         if (*val > max) {
-            itoa(max, text, 10);
+            _itoa(max, text, 10);
             *val = max;
             outOfRange = TRUE;
         }
@@ -2247,13 +2354,13 @@ BOOL LongOutOfRange(
 
         *val = atol(text);
         if (*val < min) {
-                ltoa(min, text, 10);
+                _ltoa(min, text, 10);
                 *val = min;
                 outOfRange = TRUE;
         }
         else {
                 if (*val > max) {
-                        ltoa(max, text, 10);
+                        _ltoa(max, text, 10);
                         *val = max;
                         outOfRange = TRUE;
                 }
@@ -2292,8 +2399,8 @@ BOOL LongOutOfRange(
 int SetLanguage(int doc)
 {
     _splitpath(Docs[doc].FileName, szDrive, szDir, szFName, szExt);
-    _fstrupr(szExt);
-    if (strcmpi(szExt , szStarDotC + 1) == 0
+    _strupr(szExt);
+    if (_strcmpi(szExt , szStarDotC + 1) == 0
        || strcmp(szExt, szStarDotH + 1) == 0
        || strcmp(szExt, szStarDotCPP + 1) == 0
        || strcmp(szExt, szStarDotCXX + 1) == 0
@@ -2323,6 +2430,65 @@ BOOL GetWordAtXY(
         if (!FirstLine(v->Doc, &pl, &y, &pb))
                 return FALSE;
 
+#ifdef DBCS // ***************************************************************
+        //Line empty or cursor beyond line
+        if (pl->Length == LHD)
+                goto endFalse;
+
+        else if (x >= elLen) {
+                int iLastChar = -1;
+                int i;
+
+                //We could be one char after a word
+                if (x == elLen) {
+                        for (i = 0 ; i < elLen ; i++) {
+                                if (IsDBCSLeadByte((BYTE)el[i])) {
+                                        iLastChar = i;
+                                        i++;
+                                } else if (CHARINKANASET(el[i])) {
+                                        iLastChar = i;
+                                } else if (IsCharAlphaNumeric(el[i])) {
+                                        iLastChar = i;
+                                } else {
+                                        iLastChar = -1;
+                                }
+                        }
+                }
+                if (iLastChar >= 0) {
+                        x = iLastChar;
+                } else if (lookAround && *lookAround) {
+                        //If caller wants to look around, look left
+                        for (i = 0, x = -1 ; i < elLen ; i++) {
+                                if (IsDBCSLeadByte((BYTE)el[i])) {
+                                        x = i;
+                                        i++;
+                                } else if (el[i] != ' ') {
+                                        x = i;
+                                }
+                        }
+                        if (x < 0)
+                                goto endFalse;
+                        *lookAround = TRUE;
+                } else {
+                        goto endFalse;
+                }
+        } else {
+                int i;
+
+                //make sure if the cursor isn't on middle of DBCS char
+                for (i = 0 ; i < elLen && i < x ; i++) {
+                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                if (x == i + 1) {
+                                        x = i;
+                                        break;
+                                }
+                                i++;
+                        }
+                }
+        }
+
+#else   // !DBCS *************************************************************
+
         //Line empty or cursor beyond line
         if (pl->Length == LHD)
                 goto endFalse;
@@ -2350,6 +2516,85 @@ BOOL GetWordAtXY(
                         }
                 }
         }
+#endif  // !DBCS end *********************************************************
+
+#ifdef DBCS // ***************************************************************
+        //Cursor on a space
+        if (el[x] == ' ') {
+                int iLastChar = -1;
+                int i;
+
+                //Cursor on a space but just after a word
+                if (includeRightSpace) {
+                        for (i = 0 ; i < x ; i++) {
+                                if (IsDBCSLeadByte((BYTE)el[i])) {
+                                        iLastChar = i;
+                                        i++;
+                                } else if (CHARINKANASET(el[i])) {
+                                        iLastChar = i;
+                                } else if (CHARINALPHASET(el[i])) {
+                                        iLastChar = i;
+                                } else {
+                                        iLastChar = -1;
+                                }
+                        }
+                }
+                if (iLastChar >= 0 && includeRightSpace) {
+                        x = iLastChar;
+                } else if (lookAround && *lookAround) {
+                        xl = x;
+
+                        //We are on a space but the caller want to look first if
+                        //there is a word on the right and then on the left
+                        while (x < elLen && el[x] == ' '
+                            && !IsDBCSLeadByte((BYTE)el[x])) {
+                                x++;
+                        }
+
+                        //Nothing at right, try left
+                        if (x >= elLen) {
+                                x = xl;
+                                iLastChar = -1;
+                                for (i = 0 ; i < x ; i++) {
+                                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                                iLastChar = i;
+                                                i++;
+                                        } else if (CHARINKANASET(el[i])) {
+                                                iLastChar = i;
+                                        } else if (CHARINALPHASET(el[i])) {
+                                                iLastChar = i;
+                                        } else {
+                                                iLastChar = -1;
+                                        }
+                                }
+                                if (iLastChar < 0) {
+                                        goto endFalse;
+                                }
+                                x = iLastChar;
+                        }
+                        *lookAround = TRUE;
+                }
+                else {
+                        //We are going to return FALSE, but set right word to last space
+                        if (rightCol) {
+                                while (x < elLen && el[x] == ' '
+                                    && !IsDBCSLeadByte((BYTE)el[x])) {
+                                        x++;
+                                }
+                                *rightCol = x;
+                        }
+                        goto endFalse;
+                }
+                
+        }
+        else {
+
+                //Cursor was already on a word
+                if (lookAround)
+                        *lookAround = FALSE;
+        }
+
+#else   // !DBCS *************************************************************
 
         //Cursor on a space
         if (el[x] == ' ') {
@@ -2396,6 +2641,94 @@ BOOL GetWordAtXY(
                         *lookAround = FALSE;
         }
 
+#endif  // !DBCS end *********************************************************
+
+#ifdef DBCS // ***************************************************************
+
+        xl = xr = x;
+
+        if (IsDBCSLeadByte((BYTE)el[x])) {
+#ifdef DBCS_WORD_MULTI
+                int iLeftChar = -1;
+                int i;
+
+                for (i = 0 ; i < x ; i++) {
+                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                if (-1 == iLeftChar) {
+                                        iLeftChar = i;
+                                }
+                                i++;
+                        } else {
+                                iLeftChar = -1;
+                        }
+                }
+                if (-1 != iLeftChar) {
+                        xl = iLeftChar;
+                }
+                while (xr < elLen && IsDBCSLeadByte((BYTE)el[xr])) {
+                        xr += 2;
+                }
+#else
+                // Suppose one DBCS char is one word.
+                xr += 2;
+#endif
+        } else if (CHARINKANASET(el[x])) {
+                int iLeftChar = -1;
+                int i;
+
+                for (i = 0 ; i < x ; i++) {
+                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                iLeftChar = -1;
+                                i++;
+                        } else if (CHARINKANASET(el[i])) {
+                                if (-1 == iLeftChar) {
+                                        iLeftChar = i;
+                                }
+                        } else {
+                                iLeftChar = -1;
+                        }
+                }
+                if (-1 != iLeftChar) {
+                        xl = iLeftChar;
+                }
+                while (xr < elLen
+                    && !IsDBCSLeadByte((BYTE)el[xr])
+                    && CHARINKANASET(el[xr])) {
+                        xr++;
+                }
+
+        //Extract all alphanumerics characters
+        } else if (CHARINALPHASET(el[x])) {
+                int iLeftChar = -1;
+                int i;
+
+                for (i = 0 ; i < x ; i++) {
+                        if (IsDBCSLeadByte((BYTE)el[i])) {
+                                iLeftChar = -1;
+                                i++;
+                        } else if (CHARINALPHASET(el[i])) {
+                                if (-1 == iLeftChar) {
+                                        iLeftChar = i;
+                                }
+                        } else {
+                                iLeftChar = -1;
+                        }
+                }
+                if (-1 != iLeftChar) {
+                        xl = iLeftChar;
+                }
+                while (xr < elLen
+                    && !IsDBCSLeadByte((BYTE)el[xr])
+                    && CHARINALPHASET(el[xr])) {
+                        xr++;
+                }
+        }
+        else
+                //Separator
+                xr++;
+
+#else   // !DBCS *************************************************************
+
         xl = xr = x;
 
         //Extract all alphanumerics characters
@@ -2412,6 +2745,8 @@ BOOL GetWordAtXY(
 
                 //Separator
                 xr++;
+
+#endif  // !DBCS end *********************************************************
 
         //Send back cursor positions containing word
         if (leftCol)
@@ -2676,6 +3011,9 @@ void PASCAL NewFontInView(int view)
         v->aveCharWidth =tm.tmAveCharWidth;
         v->charSet = tm.tmCharSet;
         GetCharWidth(hDC, 0, MAX_CHARS_IN_FONT - 1, (LPINT)v->charWidth);
+#ifdef DBCS
+        GetDBCSCharWidth(hDC, &tm, v);
+#endif
         Dbg(ReleaseDC(v->hwndClient, hDC));
 
 
@@ -2712,6 +3050,14 @@ void PASCAL EscapeAmpersands(LPSTR AmpStr, int MaxLen)
 
                 i++;
                 j++;
+#ifdef DBCS
+                if (IsDBCSLeadByte(AmpStr[i])
+                && AmpStr[i+1] && j < sizeof(szBuffer)-2) {
+                    szBuffer[j] = AmpStr[i];
+                    i++;
+                    j++;
+                }
+#endif
         }
         szBuffer[j] = '\0';
 
@@ -2738,6 +3084,15 @@ void PASCAL UnescapeAmpersands(LPSTR AmpStr, int MaxLen)
                 szBuffer[j] = AmpStr[i];
 
                 j++;
+#ifdef DBCS
+                if (IsDBCSLeadByte(AmpStr[i])
+                && AmpStr[i+1] && j < sizeof(szBuffer)-2) {
+                    i++;
+                    szBuffer[j] = AmpStr[i];
+                    i++;
+                    j++;
+                }
+#endif
                 if (AmpStr[++i] == '&')
                 {
                         i++;
@@ -2865,7 +3220,7 @@ void PASCAL BuildTitleBar(LPSTR TitleBarStr, UINT MaxLen)
 
                 szFilePath[0] = ' ';
                 szFilePath[1] = '<';
-                itoa(view+1, szFilePath + 2, 10);
+                _itoa(view+1, szFilePath + 2, 10);
             } else {
                 // File on his own
 
@@ -2873,7 +3228,7 @@ void PASCAL BuildTitleBar(LPSTR TitleBarStr, UINT MaxLen)
                 szFilePath[1] = '-';
                 szFilePath[2] = ' ';
                 szFilePath[3] = '<';
-                itoa(view+1, szFilePath + 4, 10);
+                _itoa(view+1, szFilePath + 4, 10);
             }
 
             len = strlen(szFilePath);
@@ -3013,6 +3368,12 @@ int FAR PASCAL ConvertPosX(
                         j += (x - len);
                         break;
                 }
+#ifdef DBCS
+                if (IsDBCSLeadByte((BYTE)pcl->Text[i])) {
+                        j += 2;
+                        i++;
+                } else
+#endif
                 if (pcl->Text[i] == TAB)
                         j += tabSize - (j % tabSize);
                 else
@@ -3203,16 +3564,30 @@ Return Value:
 
         if ( Path ) {
             p = Path + strlen( Path );
+#ifdef DBCS
+            while (p > Path) {
+                p = CharPrev(Path, p);
+                if (*p == '\\' || *p == ':') {
+                    p++;
+                    break;
+                }
+            }
+#else
             while ( (p >= Path) && (*p != '\\') && (*p != ':')) {
                 p--;
             }
             p++;
+#endif
 
             strcpy( Base, p);
 
             p = Base;
             while ( (*p != '.') && (*p != '\0') ) {
+#ifdef DBCS
+                p = CharNext(p);
+#else
                 p++;
+#endif
             }
 
         } else {

@@ -23,6 +23,12 @@ Revision History:
 --*/
 
 #include "FsRtlP.h"
+//
+// Queue object that is used to hold work queue entries and synchronize
+// worker thread activity.
+//
+
+KQUEUE FsRtlWorkerQueues[2];
 
 
 //
@@ -32,6 +38,23 @@ Revision History:
 VOID
 FsRtlStackOverflowRead (
     IN PVOID Context
+    );
+
+VOID
+FsRtlpPostStackOverflow (
+    IN PVOID Context,
+    IN PKEVENT Event,
+    IN PFSRTL_STACK_OVERFLOW_ROUTINE StackOverflowRoutine,
+    IN BOOLEAN PagingFile
+    );
+
+//
+// Procedure prototype for the worker thread.
+//
+
+VOID
+FsRtlWorkerThread(
+    IN PVOID StartContext
     );
 
 //
@@ -58,6 +81,52 @@ typedef struct _STACK_OVERFLOW_ITEM {
 } STACK_OVERFLOW_ITEM;
 typedef STACK_OVERFLOW_ITEM *PSTACK_OVERFLOW_ITEM;
 
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(INIT, FsRtlInitializeWorkerThread)
+#endif
+
+
+
+NTSTATUS
+FsRtlInitializeWorkerThread (
+    VOID
+    )
+{
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE Thread;
+    ULONG i;
+
+    //
+    // Create worker threads to handle normal and paging overflow reads.
+    //
+
+    InitializeObjectAttributes(&ObjectAttributes, NULL, 0, NULL, NULL);
+
+    for (i=0; i < 2; i++) {
+
+        //
+        // Initialize the FsRtl stack overflow work Queue objects.
+        //
+
+        KeInitializeQueue(&FsRtlWorkerQueues[i], 0);
+
+        if (!NT_SUCCESS(PsCreateSystemThread(&Thread,
+                                             THREAD_ALL_ACCESS,
+                                             &ObjectAttributes,
+                                             0L,
+                                             NULL,
+                                             FsRtlWorkerThread,
+                                             (PVOID)i))) {
+
+            return FALSE;
+        }
+    }
+
+    ZwClose( Thread );
+
+    return TRUE;
+}
 
 VOID
 FsRtlPostStackOverflow (
@@ -70,19 +139,99 @@ FsRtlPostStackOverflow (
 
 Routine Description:
 
-    This routines post a stack overflow item to the stack overflow
+    This routines posts a stack overflow item to the stack overflow
     thread and returns.
 
 Arguments:
 
     Context - Supplies the context to pass to the stack overflow
-        call back routine.
+        call back routine.  If the low order bit is set, then
+        this overflow was a read to a paging file.
 
     Event - Supplies a pointer to an event to pass to the stack
         overflow call back routine.
 
     StackOverflowRoutine - Supplies the call back to use when
         processing the request in the overflow thread.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    FsRtlpPostStackOverflow( Context, Event, StackOverflowRoutine, FALSE );
+    return;
+}
+
+
+VOID
+FsRtlPostPagingFileStackOverflow (
+    IN PVOID Context,
+    IN PKEVENT Event,
+    IN PFSRTL_STACK_OVERFLOW_ROUTINE StackOverflowRoutine
+    )
+
+/*++
+
+Routine Description:
+
+    This routines posts a stack overflow item to the stack overflow
+    thread and returns.
+
+Arguments:
+
+    Context - Supplies the context to pass to the stack overflow
+        call back routine.  If the low order bit is set, then
+        this overflow was a read to a paging file.
+
+    Event - Supplies a pointer to an event to pass to the stack
+        overflow call back routine.
+
+    StackOverflowRoutine - Supplies the call back to use when
+        processing the request in the overflow thread.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    FsRtlpPostStackOverflow( Context, Event, StackOverflowRoutine, TRUE );
+    return;
+}
+
+
+VOID
+FsRtlpPostStackOverflow (
+    IN PVOID Context,
+    IN PKEVENT Event,
+    IN PFSRTL_STACK_OVERFLOW_ROUTINE StackOverflowRoutine,
+    IN BOOLEAN PagingFile
+    )
+
+/*++
+
+Routine Description:
+
+    This routines posts a stack overflow item to the stack overflow
+    thread and returns.
+
+Arguments:
+
+    Context - Supplies the context to pass to the stack overflow
+        call back routine.  If the low order bit is set, then
+        this overflow was a read to a paging file.
+
+    Event - Supplies a pointer to an event to pass to the stack
+        overflow call back routine.
+
+    StackOverflowRoutine - Supplies the call back to use when
+        processing the request in the overflow thread.
+
+    PagingFile - Indicates if the read is destined to a paging file.
 
 Return Value:
 
@@ -98,7 +247,10 @@ Return Value:
     //  the stack overflow thread
     //
 
-    StackOverflowItem = FsRtlAllocatePool(NonPagedPool, sizeof(STACK_OVERFLOW_ITEM));
+    StackOverflowItem = FsRtlAllocatePool( PagingFile ?
+                                           NonPagedPoolMustSucceed :
+                                           NonPagedPool,
+                                           sizeof(STACK_OVERFLOW_ITEM) );
 
     //
     //  Fill in the fields in the new item
@@ -116,7 +268,8 @@ Return Value:
     //  Safely add it to the overflow queue
     //
 
-    ExQueueWorkItem( &StackOverflowItem->Item, HyperCriticalWorkQueue );
+    KeInsertQueue( &FsRtlWorkerQueues[PagingFile],
+                   &StackOverflowItem->Item.List );
 
     //
     //  And return to our caller
@@ -178,6 +331,59 @@ Return Value:
 
     ExFreePool( StackOverflowItem );
 
-    PsGetCurrentThread()->TopLevelIrp = NULL;
+    PsGetCurrentThread()->TopLevelIrp = (ULONG)NULL;
 }
+
+VOID
+FsRtlWorkerThread(
+    IN PVOID StartContext
+    )
+
+{
+    PLIST_ENTRY Entry;
+    PWORK_QUEUE_ITEM WorkItem;
+    ULONG PagingFile = (ULONG)StartContext;
+
+    //
+    //  Set our priority to low realtime, or +1 for PagingFile.
+    //
+
+    (PVOID)KeSetPriorityThread( &PsGetCurrentThread()->Tcb,
+                                LOW_REALTIME_PRIORITY + PagingFile );
+
+    //
+    // Loop forever waiting for a work queue item, calling the processing
+    // routine, and then waiting for another work queue item.
+    //
+
+    do {
+
+        //
+        // Wait until something is put in the queue.
+        //
+        // By specifying a wait mode of KernelMode, the thread's kernel stack is
+        // NOT swappable
+        //
+
+        Entry = KeRemoveQueue(&FsRtlWorkerQueues[PagingFile], KernelMode, NULL);
+        WorkItem = CONTAINING_RECORD(Entry, WORK_QUEUE_ITEM, List);
+
+        //
+        // Execute the specified routine.
+        //
+
+        (WorkItem->WorkerRoutine)(WorkItem->Parameter);
+        if (KeGetCurrentIrql() != 0) {
+            KeBugCheckEx(
+                IRQL_NOT_LESS_OR_EQUAL,
+                (ULONG)WorkItem->WorkerRoutine,
+                (ULONG)KeGetCurrentIrql(),
+                (ULONG)WorkItem->WorkerRoutine,
+                (ULONG)WorkItem
+                );
+        }
+
+    } while(TRUE);
+}
+
 

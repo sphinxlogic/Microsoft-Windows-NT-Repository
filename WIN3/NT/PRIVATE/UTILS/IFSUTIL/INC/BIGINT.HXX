@@ -4,29 +4,42 @@ Copyright (c) 1991 Microsoft Corporation
 
 Module Name:
 
-	bigint.hxx
+        bigint.hxx
 
 Abstract:
 
-	The BIG_INT class models a 64 bit signed integer.
+        The BIG_INT class models a 64 bit signed integer.
 
-	This class is meant to be light and will occupy only 64 bits of space.
-	It should be manipulated exactly as an INT would be.
+        This class is meant to be light and will occupy only 64 bits of space.
+        It should be manipulated exactly as an INT would be.
 
-	There will be no constructor or destructor.  A BIG_INT will be
-	uninitialized until a value is assigned to it.
+        There will be no constructor or destructor.  A BIG_INT will be
+        uninitialized until a value is assigned to it.
 
-	This implementation of BIG_INT uses the NT LARGE_INTEGER structure.
+        This implementation of BIG_INT uses the NT LARGE_INTEGER structure.
 
 Author:
 
-	Norbert P. Kusters (norbertk) 8-Jul-91
+        Norbert P. Kusters (norbertk) 8-Jul-91
 
 --*/
+
 
 #if !defined(BIG_INT_DEFN)
 
 #define BIG_INT_DEFN
+
+#include <ulib.hxx>
+
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 
 DEFINE_POINTER_AND_REFERENCE_TYPES( LARGE_INTEGER );
 
@@ -34,7 +47,7 @@ DECLARE_CLASS( BIG_INT );
 
 class BIG_INT {
 
-	public:
+        public:
 
         NONVIRTUAL
         BIG_INT(
@@ -103,6 +116,7 @@ class BIG_INT {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         Set(
             IN  UCHAR   ByteCount,
@@ -125,6 +139,7 @@ class BIG_INT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         QueryCompressedInteger(
             OUT PUCHAR  ByteCount,
@@ -132,6 +147,7 @@ class BIG_INT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         operator+=(
             IN  RCBIG_INT   BigInt
@@ -143,12 +159,14 @@ class BIG_INT {
             ) CONST;
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         VOID
         operator-=(
             IN  RCBIG_INT   BigInt
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator+(
             IN  RCBIG_INT   Left,
@@ -156,6 +174,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator-(
             IN  RCBIG_INT   Left,
@@ -163,6 +182,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator*(
             IN  RCBIG_INT   Left,
@@ -170,6 +190,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator*(
             IN  RCSLONG     Left,
@@ -177,6 +198,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator/(
             IN  RCBIG_INT   Left,
@@ -184,6 +206,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BIG_INT
         operator%(
             IN  RCBIG_INT   Left,
@@ -191,6 +214,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator==(
             IN RCBIG_INT    Left,
@@ -198,6 +222,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator!=(
             IN RCBIG_INT    Left,
@@ -205,6 +230,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator<(
             IN RCBIG_INT    Left,
@@ -212,6 +238,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator<=(
             IN RCBIG_INT    Left,
@@ -219,6 +246,7 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator>(
             IN RCBIG_INT    Left,
@@ -226,15 +254,16 @@ class BIG_INT {
             );
 
         FRIEND
+        IFSUTIL_EXPORT
         BOOLEAN
         operator>=(
             IN RCBIG_INT    Left,
             IN RCBIG_INT    Right
             );
 
-	private:
+        private:
 
-		LARGE_INTEGER	x;
+                LARGE_INTEGER   x;
 
 };
 

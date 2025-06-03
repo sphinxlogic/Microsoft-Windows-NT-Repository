@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -22,61 +22,29 @@ Revision History:
 #define _CDFS_
 
 //
-//  The following nomenclature is used to describe the Cdrom on-disk
-//  structure:
-//
-//      LOGICAL_BLOCK - is the number of a logical block relative to the
-//                      start of the disk.
-//
-//      VBN - is the number of a logical block relative to the start of a
-//          file, directory, or allocation.
-//
-//      CD_LBO - is a byte offset relative to the start of the disk.
-//
-//      CD_VBO - is a byte offset relative to the start of a file, directory
-//          or allocation.
+//  Sector size on Cdrom disks is hard-coded to 2048
 //
 
-typedef ULONG CD_VBO;
-typedef ULONG CD_LBO;
+#ifndef SECTOR_SIZE
+#define SECTOR_SIZE                 (2048)
+#endif
 
-typedef CD_VBO *PCD_VBO;
-typedef CD_LBO *PCD_LBO;
+#define RAW_SECTOR_SIZE             (2352)
+#define SECTOR_MASK                 (SECTOR_SIZE - 1)
+#define INVERSE_SECTOR_MASK         ~(SECTOR_SIZE - 1)
 
-typedef ULONG LOGICAL_BLOCK;
+#ifndef SECTOR_SHIFT
+#define SECTOR_SHIFT                (11)
+#endif
 
-//
-//  The sectors on a CDROM disk are 2048 bytes.
-//
-
-#define CD_SECTOR_SIZE                  (2048)
-
-//
-//  A left shift of this value will convert sectors to bytes.
-//
-
-#define CD_SECTOR_SHIFT                 (11)
+#define XA_SECTOR_SIZE              (2352)
 
 //
-//  This macro takes a logical byte offset and rounds is down to a sector
-//  boundary.
+//  Cdfs file id is a large integer.
 //
 
-#define CD_ROUND_DOWN_TO_SECTOR( X )    ((X) & ~(CD_SECTOR_SIZE - 1))
-
-//
-//  This macro takes a logical byte and rounds it up to a sector boundary.
-//
-
-#define CD_ROUND_UP_TO_SECTOR( X )      \
-    CD_ROUND_DOWN_TO_SECTOR( X + CD_SECTOR_SIZE - 1)
-
-//
-//  The following is the volume label for a audio disk.
-//
-
-#define CDFS_AUDIO_LABEL            "Audio Disk"
-#define CDFS_AUDIO_LABEL_LENGTH     10
+typedef LARGE_INTEGER               FILE_ID;
+typedef FILE_ID                     *PFILE_ID;
 
 //
 //  The following constants are values from the disk.
@@ -84,9 +52,8 @@ typedef ULONG LOGICAL_BLOCK;
 
 #define FIRST_VD_SECTOR             (16)
 
-#define ISO_VOL_ID                  "CD001"
-#define HSG_VOL_ID                  "CDROM"
 #define VOL_ID_LEN                  (5)
+#define ESC_SEQ_LEN                 (3)
 
 #define VERSION_1                   (1)
 
@@ -97,40 +64,45 @@ typedef ULONG LOGICAL_BLOCK;
 #define VOLUME_ID_LENGTH            (32)
 
 //
-//  The following are the constant used to interpret the dirent information.
+//  Leave the following so that CdfsBoot.c will compile
 //
 
-#define YEAR_DIFF                   1900
-#define ISO_ATTR_HIDDEN             0x0001
-#define ISO_ATTR_DIRECTORY          0x0002
-#define ISO_ATTR_ASSOC              0x0004
+#define CD_SECTOR_SIZE              (2048)
+
+#define ISO_VOL_ID                  "CD001"
+#define HSG_VOL_ID                  "CDROM"
+
 #define ISO_ATTR_MULTI              0x0080
+#define ISO_ATTR_DIRECTORY          0x0002
+
+#define MIN_DIR_REC_SIZE        (sizeof( RAW_DIR_REC ) - MAX_FILE_ID_LENGTH)
+
+#define RVD_STD_ID( r, i )      (i ?    r->StandardId       : \
+                                        ((PRAW_HSG_VD) r)->StandardId )
+
+#define RVD_DESC_TYPE( r, i )   (i ?    r->DescType         : \
+                                        ((PRAW_HSG_VD) r)->DescType )
+
+#define RVD_VERSION( r, i )     (i ?    r->Version          : \
+                                        ((PRAW_HSG_VD) r)->Version )
+
+#define RVD_LB_SIZE( r, i )     (i ?    r->LogicalBlkSzI    : \
+                                        ((PRAW_HSG_VD) r)->LogicalBlkSzI )
+
+#define RVD_VOL_SIZE( r, i )    (i ?    r->VolSpaceI      : \
+                                        ((PRAW_HSG_VD) r)->VolSpaceI )
+
+#define RVD_ROOT_DE( r, i )     (i ?    r->RootDe           : \
+                                        ((PRAW_HSG_VD) r)->RootDe )
+
+#define DE_FILE_FLAGS( iso, de ) (iso ? de->FlagsISO : de->FlagsHSG)
 
 //
-//  Constants associated with the data in Path Entries
+//  Data track flag for track entries in TOC
 //
 
-#define PT_ROOT_DIR                 1
-#define PE_BASE                     8
-#define MAX_PE_LENGTH               45
-#define MIN_PE_LENGTH               9
-
-//
-//  Constants associated with the time/date field in the volume descriptor.
-//
-
-#define CR_YEAR_OFF                 (0)
-#define CR_YEAR_LEN                 (4)
-#define CR_MONTH_OFF                (4)
-#define CR_MONTH_LEN                (2)
-#define CR_DAY_OFF                  (6)
-#define CR_DAY_LEN                  (2)
-#define CR_HOUR_OFF                 (8)
-#define CR_HOUR_LEN                 (2)
-#define CR_MINUTE_OFF               (10)
-#define CR_MINUTE_LEN               (2)
-#define CR_SECOND_OFF               (12)
-#define CR_SECOND_LEN               (2)
+#define TOC_DATA_TRACK              (0x04)
+#define TOC_LAST_TRACK              (0xaa)
 
 
 //
@@ -142,23 +114,24 @@ typedef ULONG LOGICAL_BLOCK;
 //  special macros will be needed to unpack them.
 //
 
+//
 //  Declaration of length of root directory entry in volume descriptor
+//
 
-#define LEN_ROOT_DE                 34
+#define LEN_ROOT_DE                 (34)
 
-//  Maximum length of file ID on the disk
+//
+//  Maximum length of file ID on the disk.  We allow file size beyond the ISO 9660
+//  standard.
+//
 
-#define MAX_FILE_ID_LENGTH          37
-
-//  Maximum version number
-
-#define MAX_VERSION                 32767
+#define MAX_FILE_ID_LENGTH          (255)
 
 
 typedef struct _RAW_ISO_VD {
 
     UCHAR       DescType;           // volume type: 1 = standard, 2 = coded
-    UCHAR       StandardId[5];      // volume structure standard id = CDROM
+    UCHAR       StandardId[5];      // volume structure standard id = CD001
     UCHAR       Version;            // volume structure version number = 1
     UCHAR       VolumeFlags;        // volume flags
     UCHAR       SystemId[32];       // system identifier
@@ -189,7 +162,7 @@ typedef struct _RAW_ISO_VD {
     UCHAR       ModDate[17];        // volume modification date and time
     UCHAR       ExpireDate[17];     // volume expiration date and time
     UCHAR       EffectDate[17];     // volume effective date and time
-    UCHAR       FileStructVer;      // file structure version number
+    UCHAR       FileStructVer;      // file structure version number = 1
     UCHAR       Reserved3;          // reserved
     UCHAR       ResApp[512];        // reserved for application
     UCHAR       Reserved4[653];     // remainder of 2048 bytes reserved
@@ -200,8 +173,8 @@ typedef RAW_ISO_VD *PRAW_ISO_VD;
 
 typedef struct _RAW_HSG_VD {
 
-    LOGICAL_BLOCK BlkNumI;          // logical block number Intel
-    LOGICAL_BLOCK BlkNumM;          // logical block number Motorola
+    ULONG       BlkNumI;            // logical block number Intel
+    ULONG       BlkNumM;            // logical block number Motorola
     UCHAR       DescType;           // volume type: 1 = standard, 2 = coded
     UCHAR       StandardId[5];      // volume structure standard id = CDROM
     UCHAR       Version;            // volume structure version number = 1
@@ -242,35 +215,112 @@ typedef struct _RAW_HSG_VD {
 typedef RAW_HSG_VD *PRAW_HSG_VD;
 
 
+typedef struct _RAW_JOLIET_VD {
+
+    UCHAR       DescType;           // volume type: 2 = coded
+    UCHAR       StandardId[5];      // volume structure standard id = CD001
+    UCHAR       Version;            // volume structure version number = 1
+    UCHAR       VolumeFlags;        // volume flags
+    UCHAR       SystemId[32];       // system identifier
+    UCHAR       VolumeId[32];       // volume identifier
+    UCHAR       Reserved[8];        // reserved 8 = 0
+    ULONG       VolSpaceI;          // size of the volume in LBN's Intel
+    ULONG       VolSpaceM;          // size of the volume in LBN's Motorola
+    UCHAR       CharSet[32];        // character set bytes 0 = ASCII, Joliett Seq here
+    USHORT      VolSetSizeI;        // volume set size Intel
+    USHORT      VolSetSizeM;        // volume set size Motorola
+    USHORT      VolSeqNumI;         // volume set sequence number Intel
+    USHORT      VolSeqNumM;         // volume set sequence number Motorola
+    USHORT      LogicalBlkSzI;      // logical block size Intel
+    USHORT      LogicalBlkSzM;      // logical block size Motorola
+    ULONG       PathTableSzI;       // path table size in bytes Intel
+    ULONG       PathTableSzM;       // path table size in bytes Motorola
+    ULONG       PathTabLocI[2];     // LBN of 2 path tables Intel
+    ULONG       PathTabLocM[2];     // LBN of 2 path tables Motorola
+    UCHAR       RootDe[LEN_ROOT_DE];// dir entry of the root directory
+    UCHAR       VolSetId[128];      // volume set identifier
+    UCHAR       PublId[128];        // publisher identifier
+    UCHAR       PreparerId[128];    // data preparer identifier
+    UCHAR       AppId[128];         // application identifier
+    UCHAR       Copyright[37];      // file name of copyright notice
+    UCHAR       Abstract[37];       // file name of abstract
+    UCHAR       Bibliograph[37];    // file name of bibliography
+    UCHAR       CreateDate[17];     // volume creation date and time
+    UCHAR       ModDate[17];        // volume modification date and time
+    UCHAR       ExpireDate[17];     // volume expiration date and time
+    UCHAR       EffectDate[17];     // volume effective date and time
+    UCHAR       FileStructVer;      // file structure version number = 1
+    UCHAR       Reserved3;          // reserved
+    UCHAR       ResApp[512];        // reserved for application
+    UCHAR       Reserved4[653];     // remainder of 2048 bytes reserved
+
+} RAW_JOLIET_VD;
+typedef RAW_JOLIET_VD *PRAW_JOLIET_VD;
+
 //
-//  The following macros are used to recover data from the different
-//  volume descriptor structures.
+//  Macros to access the different volume descriptors.
 //
 
-#define RVD_DESC_TYPE( r, i )   (i ?    r->DescType         : \
-                                        ((PRAW_HSG_VD) r)->DescType )
-#define RVD_STD_ID( r, i )      (i ?    r->StandardId       : \
-                                        ((PRAW_HSG_VD) r)->StandardId )
-#define RVD_VERSION( r, i )     (i ?    r->Version          : \
-                                        ((PRAW_HSG_VD) r)->Version )
-#define RVD_VOL_FLAGS( r, i )   (i ?    r->VolumeFlags      : \
-                                        ((PRAW_HSG_VD) r)->VolumeFlags )
-#define RVD_VOL_ID( r, i )      (i ?    r->VolumeId         : \
-                                        ((PRAW_HSG_VD) r)->VolumeId )
-#define RVD_VOL_SIZE( r, i )    (i ?    r->VolSpaceI      : \
-                                        ((PRAW_HSG_VD) r)->VolSpaceI )
-#define RVD_LB_SIZE( r, i )     (i ?    r->LogicalBlkSzI    : \
-                                        ((PRAW_HSG_VD) r)->LogicalBlkSzI )
-#define RVD_PATH_SIZE( r, i )   (i ?    r->PathTableSzI     : \
-                                        ((PRAW_HSG_VD) r)->PathTableSzI )
-#define RVD_PATH_LOC( r, i )    (i ?    r->PathTabLocI[0]   : \
-                                        ((PRAW_HSG_VD) r)->PathTabLocI[0] )
-#define RVD_CR_DATE( r, i )     (i ?    r->CreateDate       : \
-                                        ((PRAW_HSG_VD) r)->CreateDate )
-#define RVD_CHARSET( r, i )     (i ?    r->CharSet          : \
-                                        ((PRAW_HSG_VD) r)->CharSet )
-#define RVD_ROOT_DE( r, i )     (i ?    r->RootDe           : \
-                                        ((PRAW_HSG_VD) r)->RootDe )
+#define CdRvdId(R,F) (                  \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->StandardId :   \
+    ((PRAW_ISO_VD) (R))->StandardId     \
+)
+
+#define CdRvdVersion(R,F) (             \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->Version :      \
+    ((PRAW_ISO_VD) (R))->Version        \
+)
+
+#define CdRvdDescType(R,F) (            \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->DescType :     \
+    ((PRAW_ISO_VD) (R))->DescType       \
+)
+
+#define CdRvdEsc(R,F) (                 \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->CharSet :      \
+    ((PRAW_ISO_VD) (R))->CharSet        \
+)
+
+#define CdRvdVolId(R,F) (               \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->VolumeId :     \
+    ((PRAW_ISO_VD) (R))->VolumeId       \
+)
+
+#define CdRvdBlkSz(R,F) (               \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->LogicalBlkSzI :\
+    ((PRAW_ISO_VD) (R))->LogicalBlkSzI  \
+)
+
+#define CdRvdPtLoc(R,F) (               \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->PathTabLocI[0]:\
+    ((PRAW_ISO_VD) (R))->PathTabLocI[0] \
+)
+
+#define CdRvdPtSz(R,F) (                \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->PathTableSzI : \
+    ((PRAW_ISO_VD) (R))->PathTableSzI   \
+)
+
+#define CdRvdDirent(R,F) (              \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->RootDe :       \
+    ((PRAW_ISO_VD) (R))->RootDe         \
+)
+
+#define CdRvdVolSz(R,F) (               \
+    FlagOn( (F), VCB_STATE_HSG ) ?      \
+    ((PRAW_HSG_VD) (R))->VolSpaceI :    \
+    ((PRAW_ISO_VD) (R))->VolSpaceI      \
+)
+
 
 //
 //  This structure is used to overlay a region of a disk sector
@@ -282,7 +332,7 @@ typedef RAW_HSG_VD *PRAW_HSG_VD;
 //  bit fields will be represented as an array of 16 bit fields.
 //
 
-typedef struct _RAW_DIR_REC {
+typedef struct _RAW_DIRENT {
 
     UCHAR       DirLen;
     UCHAR       XarLen;
@@ -300,16 +350,57 @@ typedef struct _RAW_DIR_REC {
     UCHAR       FileIdLen;
     UCHAR       FileId[MAX_FILE_ID_LENGTH];
 
-} RAW_DIR_REC;
-typedef RAW_DIR_REC *PRAW_DIR_REC;
+} RAW_DIRENT;
+typedef RAW_DIRENT RAW_DIR_REC;
+typedef RAW_DIRENT *PRAW_DIR_REC;
+typedef RAW_DIRENT *PRAW_DIRENT;
 
-#define MIN_DIR_REC_SIZE        (sizeof( RAW_DIR_REC ) - MAX_FILE_ID_LENGTH)
+#define CD_ATTRIBUTE_HIDDEN                         (0x01)
+#define CD_ATTRIBUTE_DIRECTORY                      (0x02)
+#define CD_ATTRIBUTE_ASSOC                          (0x04)
+#define CD_ATTRIBUTE_MULTI                          (0x80)
+
+#define CD_BASE_YEAR                                (1900)
+
+#define MIN_RAW_DIRENT_LEN  (FIELD_OFFSET( RAW_DIRENT, FileId ) + 1)
+
+#define BYTE_COUNT_8_DOT_3                          (24)
+
+#define SHORT_NAME_SHIFT                            (5)
 
 //
 //  The following macro recovers the correct flag field.
 //
 
-#define DE_FILE_FLAGS( iso, de ) (iso ? de->FlagsISO : de->FlagsHSG)
+#define CdRawDirentFlags(IC,RD) (                   \
+    FlagOn( (IC)->Vcb->VcbState, VCB_STATE_HSG) ?   \
+    (RD)->FlagsHSG :                                \
+    (RD)->FlagsISO                                  \
+)
+
+//
+//  The following macro converts from CD time to NT time.
+//
+//  VOID
+//  CdConvertCdTimeToNtTime (
+//      IN PIRP_CONTEXT IrpContext,
+//      IN PCHAR CdTime,
+//      OUT PLARGE_INTEGER NtTime
+//      );
+//
+
+#define CdConvertCdTimeToNtTime(IC,CD,NT) {                     \
+    TIME_FIELDS _TimeField;                                     \
+    _TimeField.Year = (CSHORT) *((PCHAR) CD) + CD_BASE_YEAR;    \
+    _TimeField.Month = (CSHORT) *(Add2Ptr( CD, 1, PCHAR ));     \
+    _TimeField .Day = (CSHORT) *(Add2Ptr( CD, 2, PCHAR ));      \
+    _TimeField.Hour = (CSHORT) *(Add2Ptr( CD, 3, PCHAR ));      \
+    _TimeField.Minute = (CSHORT) *(Add2Ptr( CD, 4, PCHAR ));    \
+    _TimeField.Second = (CSHORT) *(Add2Ptr( CD, 5, PCHAR ));    \
+    _TimeField.Milliseconds = (CSHORT) 0;                       \
+    RtlTimeFieldsToTime( &_TimeField, NT );                     \
+    ExLocalTimeToSystemTime( NT, NT );                          \
+}
 
 
 //
@@ -320,45 +411,116 @@ typedef RAW_DIR_REC *PRAW_DIR_REC;
 
 typedef struct _RAW_PATH_ISO {
 
-    UCHAR           LenDirId;
+    UCHAR           DirIdLen;
     UCHAR           XarLen;
-    USHORT          LocDir[2];
+    USHORT          DirLoc[2];
     USHORT          ParentNum;
     UCHAR           DirId[MAX_FILE_ID_LENGTH];
 
 } RAW_PATH_ISO;
 typedef RAW_PATH_ISO *PRAW_PATH_ISO;
+typedef RAW_PATH_ISO RAW_PATH_ENTRY;
+typedef RAW_PATH_ISO *PRAW_PATH_ENTRY;
 
 typedef struct _RAW_PATH_HSG {
 
-    USHORT          LocDir[2];
+    USHORT          DirLoc[2];
     UCHAR           XarLen;
-    UCHAR           LenDirId;
+    UCHAR           DirIdLen;
     USHORT          ParentNum;
     UCHAR           DirId[MAX_FILE_ID_LENGTH];
 
 } RAW_PATH_HSG;
 typedef RAW_PATH_HSG *PRAW_PATH_HSG;
 
+#define MIN_RAW_PATH_ENTRY_LEN      (FIELD_OFFSET( RAW_PATH_ENTRY, DirId ) + 1)
+
 //
 //  The following macros are used to recover the different fields of the
 //  Path Table entries.  The macro to recover the disk location of the
 //  directory must copy it into a different variable for alignment reasons.
 //
+//      CdRawPathIdLen - Length of directory name in bytes
+//      CdRawPathXar - Number of Xar blocks
+//      CdRawPathLoc - Address of unaligned ulong for disk offset in blocks
+//
 
-#define PT_LEN_DI( iso, rps )               \
-    (   iso ?                               \
-        ((PRAW_PATH_ISO) rps)->LenDirId :   \
-        ((PRAW_PATH_HSG) rps)->LenDirId )
+#define CdRawPathIdLen(IC, RP) (                    \
+    FlagOn( (IC)->Vcb->VcbState, VCB_STATE_HSG ) ?  \
+    ((PRAW_PATH_HSG) (RP))->DirIdLen :              \
+    (RP)->DirIdLen                                  \
+)
 
-#define PT_XAR_LEN( iso, rps )              \
-    (   iso ?                               \
-        ((PRAW_PATH_ISO) rps)->XarLen :     \
-        ((PRAW_PATH_HSG) rps)->XarLen )
+#define CdRawPathXar(IC, RP) (                      \
+    FlagOn( (IC)->Vcb->VcbState, VCB_STATE_HSG ) ?  \
+    ((PRAW_PATH_HSG) (RP))->XarLen :                \
+    (RP)->XarLen                                    \
+)
 
-#define PT_LOC_DIR( iso, rps )              \
-    (   iso ?                               \
-        ((PRAW_PATH_ISO) rps)->LocDir :     \
-        ((PRAW_PATH_HSG) rps)->LocDir )
+#define CdRawPathLoc(IC, RP) (                      \
+    FlagOn( (IC)->Vcb->VcbState, VCB_STATE_HSG ) ?  \
+    ((PRAW_PATH_HSG) (RP))->DirLoc :                \
+    (RP)->DirLoc                                    \
+)
+
+
+//
+//  System use are for XA data.  The following is the system use area for
+//  directory entries on XA data disks.
+//
+
+typedef struct _SYSTEM_USE_XA {
+
+    //
+    //  Owner ID.  Not used in this version.
+    //
+
+    UCHAR OwnerId[4];
+
+    //
+    //  Extent attributes.  Only interested if mode2 form2 or digital audio.
+    //  This is stored big endian.  We will define the attribute flags so
+    //  we can ignore this fact.
+    //
+
+    USHORT Attributes;
+
+    //
+    //  XA signature.  This value must be 'XA'.
+    //
+
+    USHORT Signature;
+
+    //
+    //  File Number.
+    //
+
+    UCHAR FileNumber;
+
+    //
+    //  Not used in this version.
+    //
+
+    UCHAR Reserved[5];
+
+} SYSTEM_USE_XA;
+typedef SYSTEM_USE_XA *PSYSTEM_USE_XA;
+
+#define SYSTEM_USE_XA_FORM1             (0x0008)
+#define SYSTEM_USE_XA_FORM2             (0x0010)
+#define SYSTEM_USE_XA_DA                (0x0040)
+
+#define SYSTEM_XA_SIGNATURE             (0x4158)
+
+typedef enum _XA_EXTENT_TYPE {
+
+    Form1Data = 0,
+    Mode2Form2Data,
+    CDAudio
+
+} XA_EXTENT_TYPE;
+typedef XA_EXTENT_TYPE *PXA_EXTENT_TYPE;
 
 #endif // _CDFS_
+
+

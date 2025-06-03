@@ -28,7 +28,6 @@ Revision History:
 
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE2VC, RdrMapSmbError)
-#pragma alloc_text(PAGE2VC, RdrMapNetworkError)
 #endif
 //
 
@@ -137,65 +136,3 @@ ReturnStatus:
     return Status;
 }
 
-NTSTATUS
-RdrMapNetworkError (
-    IN NTSTATUS TransportError
-    )
-
-/*++
-
-Routine Description:
-
-    This routine takes an error from a transport provider and maps it into a
-    valid NT error.
-
-
-Arguments:
-
-    IN NTSTATUS TransportError - Supplies the error to map
-
-Return Value:
-
-    NTSTATUS - Mapped NT error
-
---*/
-
-{
-    DISCARDABLE_CODE(RdrVCDiscardableSection);
-
-    return TransportError;
-}
-
-
-NTSTATUS
-RdrTdiErrorHandler (
-    IN PFILE_OBJECT TransportEndpoint,
-    IN NTSTATUS Status
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is called on any error indications passed back from the
-
-transport.
-Arguments:
-
-    IN PFILE_OBJECT TransportEndpoint, - Supplies the endpoints file object
-    IN NTSTATUS Status - Supplies the status indication of the event
-Return Value:
-
-    NTSTATUS - Status of event indication
-
---*/
-
-{
-    dprintf(DPRT_TDI, ("Error indication: Endpoint %lx\n", TransportEndpoint));
-
-//    DbgBreakPoint();
-
-    return STATUS_NOT_IMPLEMENTED;
-
-    if (TransportEndpoint || Status) {};
-}

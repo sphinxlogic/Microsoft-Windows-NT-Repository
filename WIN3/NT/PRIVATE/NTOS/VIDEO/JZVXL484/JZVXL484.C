@@ -38,11 +38,6 @@ Revision History:
 // the Bt484, ICS1494 clock chip and Board ROM.
 //
 
-#define VXL_JAGUAR_BASE ((PJAGUAR_REGISTERS)((ULONG)hwDeviceExtension->VideoAddress + VXL_JAGUAR_BASE_OFFSET))
-#define VXL_FIFO_BASE   ((PJAGUAR_FIFO)((ULONG)hwDeviceExtension->FrameAddress + VXL_FIFO_BASE_OFFSET))
-#define VXL_BT484_BASE  ((PBT484_REGISTERS)((ULONG)hwDeviceExtension->VideoAddress + VXL_BT484_BASE_OFFSET))
-#define VXL_CLOCK_BASE  ((PVXL_BYTE_REGISTER)((ULONG)hwDeviceExtension->VideoAddress + VXL_CLOCK_BASE_OFFSET))
-
 #define VXL_CURSOR_MIN_POS -32
 
 
@@ -53,15 +48,16 @@ Revision History:
 typedef struct _HW_DEVICE_EXTENSION {
     PHYSICAL_ADDRESS    PhysicalFrameAddress;
     PHYSICAL_ADDRESS    PhysicalFifoAddress;
+    ULONG               PhysicalFrameLength;
     ULONG               PhysicalFifoLength;
     PHYSICAL_ADDRESS    PhysicalControlAddress;
     union {
         VIDEO_CLUTDATA  RgbData;
         ULONG           RgbLong;
     } ColorMap[NUMBER_OF_COLORS];
-    PVOID  VideoAddress;
-    PVOID  FrameAddress;
-    ULONG  FrameLength;
+    PJAGUAR_REGISTERS  VxlJaguarBase;
+    PBT484_REGISTERS   VxlBT484Base;
+    PVXL_BYTE_REGISTER VxlClockBase;
     ULONG  PhysicalControlLength;
     USHORT FirstEntry;
     USHORT LastEntry;
@@ -431,6 +427,9 @@ Return Value:
     VIDEO_ACCESS_RANGE accessRanges[2];
     VP_STATUS status;
 
+    PUCHAR FrameAddress;
+    PHYSICAL_ADDRESS mapAddress;
+
 
     switch (DeviceDataType) {
 
@@ -498,7 +497,6 @@ Return Value:
 
         hwDeviceExtension->PhysicalFrameAddress.HighPart   = 0;
         hwDeviceExtension->PhysicalFrameAddress.LowPart    = 0x40000000;
-        hwDeviceExtension->FrameLength                     = 0x00400000;
 
         hwDeviceExtension->PhysicalFifoAddress.HighPart    = 0;
         hwDeviceExtension->PhysicalFifoAddress.LowPart     = 0x40400000;
@@ -509,14 +507,44 @@ Return Value:
         hwDeviceExtension->PhysicalControlLength           = 0x1000;
 
         //
-        // Map the video controller into the system virtual address space.
+        // Map the video controller registers into the system virtual address
+        // space.
         //
 
-        if ( (hwDeviceExtension->VideoAddress =
-              VideoPortGetDeviceBase(hwDeviceExtension,
-                                     accessRanges[0].RangeStart, // Control
-                                     accessRanges[0].RangeLength,
-                                     FALSE)) == NULL) {
+        mapAddress.QuadPart = accessRanges[0].RangeStart.QuadPart +
+                              VXL_JAGUAR_BASE_OFFSET;
+
+        if ( (hwDeviceExtension->VxlJaguarBase =
+                  VideoPortGetDeviceBase(hwDeviceExtension,
+                                         mapAddress,
+                                         sizeof(JAGUAR_REGISTERS),
+                                         FALSE)) == NULL) {
+
+            return ERROR_INVALID_PARAMETER;
+
+        }
+
+        mapAddress.QuadPart = accessRanges[0].RangeStart.QuadPart +
+                              VXL_BT484_BASE_OFFSET;
+
+        if ( (hwDeviceExtension->VxlBT484Base =
+                  VideoPortGetDeviceBase(hwDeviceExtension,
+                                         mapAddress,
+                                         sizeof(BT484_REGISTERS),
+                                         FALSE)) == NULL) {
+
+            return ERROR_INVALID_PARAMETER;
+
+        }
+
+        mapAddress.QuadPart = accessRanges[0].RangeStart.QuadPart +
+                              VXL_CLOCK_BASE_OFFSET;
+
+        if ( (hwDeviceExtension->VxlClockBase =
+                  VideoPortGetDeviceBase(hwDeviceExtension,
+                                         mapAddress,
+                                         256,
+                                         FALSE)) == NULL) {
 
             return ERROR_INVALID_PARAMETER;
 
@@ -527,11 +555,36 @@ Return Value:
         // can clear it out.
         //
 
-        if ( (hwDeviceExtension->FrameAddress =
-              VideoPortGetDeviceBase(hwDeviceExtension,
-                                     accessRanges[1].RangeStart, // Frame
-                                     accessRanges[1].RangeLength,
-                                     FALSE)) == NULL) {
+        FrameAddress = VideoPortGetDeviceBase(hwDeviceExtension,
+                                              accessRanges[1].RangeStart,
+                                              accessRanges[1].RangeLength,
+                                              FALSE);
+
+        if (FrameAddress) {
+
+            //
+            // Determine the length of video memory
+            // (if a second 2MB bank has been installed)
+            //
+
+            ULONG   TestValue;
+            PULONG  TestAddress;
+
+            TestAddress = (PULONG) (FrameAddress + 0x00200000);
+            TestValue = 0xdeadbeef;
+
+            VideoPortWriteRegisterUlong(TestAddress, TestValue);
+
+            if (TestValue == VideoPortReadRegisterUlong(TestAddress)) {
+                hwDeviceExtension->PhysicalFrameLength = 0x00400000;
+            } else {
+                hwDeviceExtension->PhysicalFrameLength = 0x00200000;
+            }
+
+            VideoPortFreeDeviceBase(hwDeviceExtension,
+                                    FrameAddress);
+
+        } else {
 
             return ERROR_INVALID_PARAMETER;
 
@@ -547,12 +600,13 @@ Return Value:
         VideoDebugPrint((2, "Vxl: getting monitor information\n"));
 
         //
-        // BUGBUG because we had a RESOURCE LIST header at the top.
+        // NOTE: because we had a RESOURCE LIST header at the top.
         // + 8 should be the offset of the paertial resource descriptor
         // in a full resource descriptor.
         //
 
-        monitorConfigData = (PMONITOR_CONFIG_DATA)(((PUCHAR)monitorConfigData) + 8);
+        monitorConfigData = (PMONITOR_CONFIG_DATA)
+                            ( ((PUCHAR)monitorConfigData) + 8);
 
         //
         // Initialize the monitor parameters.
@@ -590,7 +644,6 @@ Return Value:
 
         hwDeviceExtension->VerticalScreenSize =
                                 monitorConfigData->VerticalScreenSize;
-
 
         return NO_ERROR;
 
@@ -631,7 +684,7 @@ Return Value:
     ULONG i;
     PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
     UCHAR  DataChar;
-    PBT484_REGISTERS  Bt484  = VXL_BT484_BASE;
+    PBT484_REGISTERS  Bt484  = hwDeviceExtension->VxlBT484Base;
 
     //
     // Determine if this is a Bt484 or Bt485 board. To do this write a 1 to
@@ -709,12 +762,12 @@ Return Value:
     for (index = 0; index < NUMBER_OF_COLORS; index++) {
 
         hwDeviceExtension->ColorMap[index].RgbData.Red =
-                                ((index & 0x7) << 2) | ((index & 0x7) << 5);
+                                (UCHAR)(((index & 0x7) << 2) | ((index & 0x7) << 5));
         hwDeviceExtension->ColorMap[index].RgbData.Green =
-                                ((index & 0x38) >> 1) | ((index & 0x38) << 2);
+                                (UCHAR)(((index & 0x38) >> 1) | ((index & 0x38) << 2));
         hwDeviceExtension->ColorMap[index].RgbData.Blue =
-                                ((index & 0xc0) >> 6) | ((index & 0xc0) >> 4) |
-                                ((index & 0xc0) >> 2) | (index & 0xc0);
+                                (UCHAR)(((index & 0xc0) >> 6) | ((index & 0xc0) >> 4) |
+                                ((index & 0xc0) >> 2) | (index & 0xc0));
     }
 
     //
@@ -777,7 +830,7 @@ Return Value:
     //
 
     VideoPortEnableInterrupt(hwDeviceExtension);
-    VideoPortWriteRegisterUchar(&VXL_JAGUAR_BASE->InterruptEnable.Byte,
+    VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlJaguarBase->InterruptEnable.Byte,
                                 VXL_INTERRUPT_VERTICAL_RETRACE);
 
 
@@ -822,7 +875,7 @@ Return Value:
     PVIDEO_POINTER_CAPABILITIES VideoPointerCapabilities;
     PVIDEO_POINTER_POSITION pointerPostion;
     PVIDEO_CLUT clutBuffer;
-    ULONG index1;
+    USHORT index1;
     ULONG CursorMaskSize;
     UCHAR turnOnInterrupts = FALSE;
     ULONG i;
@@ -854,7 +907,7 @@ Return Value:
                     (RequestPacket->InputBuffer))->RequestedVirtualAddress;
 
             memoryInformation->VideoRamLength =
-                    hwDeviceExtension->FrameLength;
+                    hwDeviceExtension->PhysicalFrameLength;
 
             inIoSpace = 0;
 
@@ -1092,8 +1145,8 @@ Return Value:
                                                           VIDEO_MODE_MONO_POINTER);
             VideoPointerCapabilities->MaxWidth         = VXL_CURSOR_WIDTH;
             VideoPointerCapabilities->MaxHeight        = VXL_CURSOR_HEIGHT;
-            VideoPointerCapabilities->HWPtrBitmapStart = -1;
-            VideoPointerCapabilities->HWPtrBitmapEnd   = -1;
+            VideoPointerCapabilities->HWPtrBitmapStart = 0xffffffff;
+            VideoPointerCapabilities->HWPtrBitmapEnd   = 0xffffffff;
 
             status = NO_ERROR;
         }
@@ -1414,7 +1467,7 @@ Return Value:
             for (index1=0;index1<CursorMaskSize;index1++) {
 
                 pointerAttributes->Pixels[index1 + CursorMaskSize] =
-                        hwDeviceExtension->CursorPixels[index1];
+                                (UCHAR)hwDeviceExtension->CursorPixels[index1];
             }
 
 
@@ -1425,7 +1478,7 @@ Return Value:
             for (index1=0;index1<CursorMaskSize;index1++) {
 
                 pointerAttributes->Pixels[index1] =
-                hwDeviceExtension->CursorPixels[index1 + CursorMaskSize];
+                    (UCHAR)hwDeviceExtension->CursorPixels[index1 + CursorMaskSize];
             }
 
             status = NO_ERROR;
@@ -1507,27 +1560,6 @@ Return Value:
             ((PVIDEO_JAGUAR_INFO)RequestPacket->OutputBuffer)->FifoVirtualBase =
                                         UserVirtualAddress;
 
-            //
-            // Determine the length of video memory (if a second 2MB bank has been installed)
-            //
-
-            {
-                ULONG   TestValue;
-                PULONG  TestAddress;
-
-                TestAddress = (PULONG)((PUCHAR)hwDeviceExtension->FrameAddress + 0x00200000);
-                TestValue = 0xdeadbeef;
-                VideoPortWriteRegisterUlong(TestAddress,TestValue);
-
-                if (TestValue == VideoPortReadRegisterUlong(TestAddress)) {
-                    ((PVIDEO_JAGUAR_INFO)RequestPacket->OutputBuffer)->VideoMemoryLength = 0x00400000;
-                } else {
-                    ((PVIDEO_JAGUAR_INFO)RequestPacket->OutputBuffer)->VideoMemoryLength = 0x00200000;
-                }
-
-            }
-
-
         }
 
     break ;
@@ -1546,7 +1578,7 @@ Return Value:
 
     if (turnOnInterrupts) {
 
-        VideoPortWriteRegisterUchar(&VXL_JAGUAR_BASE->InterruptEnable.Byte,
+        VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlJaguarBase->InterruptEnable.Byte,
                                     VXL_INTERRUPT_VERTICAL_RETRACE);
 
     }
@@ -1589,7 +1621,7 @@ Return Value:
     SHORT y;
     UCHAR InterruptSource;
     ULONG Index;
-    PBT484_REGISTERS Bt484 = VXL_BT484_BASE;
+    PBT484_REGISTERS Bt484 = hwDeviceExtension->VxlBT484Base;
 
     //
     // Disable the verticle retrace interrupt.
@@ -1600,9 +1632,9 @@ Return Value:
     //
 
     InterruptSource =
-        VideoPortReadRegisterUchar(&VXL_JAGUAR_BASE->InterruptSource.Byte);
+        VideoPortReadRegisterUchar(&hwDeviceExtension->VxlJaguarBase->InterruptSource.Byte);
 
-    VideoPortWriteRegisterUchar(&VXL_JAGUAR_BASE->InterruptEnable.Byte, 0);
+    VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlJaguarBase->InterruptEnable.Byte, 0);
 
     // VideoPortDisableInterrupt(hwDeviceExtension);
 
@@ -1628,7 +1660,7 @@ Return Value:
         //  Clear this interrupt in the JAGUAR interrupt source register
         //
 
-        VideoPortWriteRegisterUchar(&VXL_JAGUAR_BASE->InterruptSource.Byte,InterruptSource);
+        VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlJaguarBase->InterruptSource.Byte,InterruptSource);
 
         //
         // If the color map should be updated, then load the color map into the
@@ -1642,7 +1674,7 @@ Return Value:
             // palette location to be updated.
             //
 
-            VideoPortWriteRegisterUchar(&VXL_BT484_BASE->PaletteCursorWrAddress.Byte,
+            VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->PaletteCursorWrAddress.Byte,
                             (UCHAR)(hwDeviceExtension->FirstEntry & 0xff));
 
             //
@@ -1652,13 +1684,13 @@ Return Value:
             for (index = hwDeviceExtension->FirstEntry;
                 index < hwDeviceExtension->LastEntry; index += 1) {
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->PaletteColor.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->PaletteColor.Byte,
                                         hwDeviceExtension->ColorMap[index].RgbData.Red);
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->PaletteColor.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->PaletteColor.Byte,
                                         hwDeviceExtension->ColorMap[index].RgbData.Green);
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->PaletteColor.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->PaletteColor.Byte,
                                         hwDeviceExtension->ColorMap[index].RgbData.Blue);
 
             }
@@ -1690,16 +1722,16 @@ Return Value:
                 y = hwDeviceExtension->CursorRow +
                     hwDeviceExtension->CursorYOrigin;
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorXLow.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorXLow.Byte,
                                              (x & 0xff));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorXHigh.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorXHigh.Byte,
                                              ((x & 0xff00) >> 8));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorYLow.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorYLow.Byte,
                                              (y & 0xff));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorYHigh.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorYHigh.Byte,
                                              ((y & 0xff00) >> 8));
 
             } else {
@@ -1736,16 +1768,16 @@ Return Value:
                 x = 0;
                 y = 0;
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorXLow.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorXLow.Byte,
                                              (x & 0xff));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorXHigh.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorXHigh.Byte,
                                              ((x & 0xff00) >> 8));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorYLow.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorYLow.Byte,
                                              (y & 0xff));
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorYHigh.Byte,
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorYHigh.Byte,
                                              ((y & 0xff00) >> 8));
 
 
@@ -1771,7 +1803,7 @@ Return Value:
                 //  Set the cursor RAM address pointer to location 0
                 //
 
-                VideoPortWriteRegisterUchar(&VXL_BT484_BASE->PaletteCursorWrAddress.Byte,0);
+                VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->PaletteCursorWrAddress.Byte,0);
 
                 //
                 //  Update both cursor planes.
@@ -1779,8 +1811,8 @@ Return Value:
 
                 for (index = 0; index < VXL_CURSOR_NUMBER_OF_BYTES ; index++) {
 
-                    VideoPortWriteRegisterUchar(&VXL_BT484_BASE->CursorRam.Byte,
-                                             hwDeviceExtension->CursorPixels[index]);
+                    VideoPortWriteRegisterUchar(&hwDeviceExtension->VxlBT484Base->CursorRam.Byte,
+                                 (UCHAR)hwDeviceExtension->CursorPixels[index]);
 
                 }
 
@@ -1827,9 +1859,9 @@ Return Value:
 
 {
     ULONG Index;
-    PJAGUAR_REGISTERS Jaguar = VXL_JAGUAR_BASE;
-    PBT484_REGISTERS  Bt484  = VXL_BT484_BASE;
-    PUCHAR            Clock  = (PUCHAR)VXL_CLOCK_BASE;
+    PJAGUAR_REGISTERS Jaguar = hwDeviceExtension->VxlJaguarBase;
+    PBT484_REGISTERS  Bt484  = hwDeviceExtension->VxlBT484Base;
+    PUCHAR            Clock  = (PUCHAR)hwDeviceExtension->VxlClockBase;
     UCHAR             DataChar,CmdReg0,CmdReg1;
 
     //

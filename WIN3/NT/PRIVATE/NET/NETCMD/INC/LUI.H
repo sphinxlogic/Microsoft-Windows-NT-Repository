@@ -27,7 +27,6 @@ Environment:
 
 #define LUI_FORMAT_DURATION_LEN  32
 #define LUI_FORMAT_TIME_LEN  	 32
-#define LUI_YES_VAL		  1
 #define LUI_ULFMT_NULNUL_UWLF	  0
 
 #define LUI_PMODE_EXIT		  2
@@ -47,8 +46,9 @@ Environment:
  * General word parsing functions and values
  */
 
-#define LUI_YES_VAL	1
-#define LUI_NO_VAL 	2
+#define LUI_UNDEFINED_VAL	0
+#define LUI_YES_VAL	        1
+#define LUI_NO_VAL 	        2
 
 #define MSG_BUFF_SIZE		512
 

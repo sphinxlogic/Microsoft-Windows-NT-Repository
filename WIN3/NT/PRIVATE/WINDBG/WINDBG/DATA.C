@@ -67,9 +67,6 @@ char szHelpFileName[_MAX_PATH];
 //Handle to accelerator table
 HANDLE hAccTable;
 
-//Handle to QcQp Colors Palette
-HPALETTE    hPal;
-
 //Handle to .INI file
 int iniHandle;
 
@@ -318,3 +315,5 @@ INT     LocalFrameNumber;
 HANDLE hEventIoctl;
 
 CRITICAL_SECTION     csLog;
+
+OSVERSIONINFO OsVersionInfo;

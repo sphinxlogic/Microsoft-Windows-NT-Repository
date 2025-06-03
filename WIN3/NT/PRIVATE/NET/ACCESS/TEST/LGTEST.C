@@ -1006,7 +1006,7 @@ void UnicodeToAnsi(WCHAR *in, char *out, int cchout)
 
 BOOL NameToSid(WCHAR *pszServer, WCHAR *pszName, BYTE *buffer, DWORD *bufsiz) 
 {
-    WCHAR szDomain[DNLEN+1] ;
+    WCHAR szDomain[MAX_PATH+1] ;
     DWORD cchDomain = sizeof(szDomain)/sizeof(szDomain[0]) ;
     SID_NAME_USE snu ;
     return (LookupAccountNameW(pszServer, 

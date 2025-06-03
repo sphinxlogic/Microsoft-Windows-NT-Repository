@@ -268,11 +268,11 @@ TestService(
             ServiceName );
 
     IF_DEBUG( SERVICE ) {
-        NetpDbgPrint(
+        NetpKdPrint((
                 "TestService: " FORMAT_LPTSTR " " FORMAT_LPSTR
                 " already started.\n",
                 ServiceName,
-                ServiceWasAlreadyStarted ? "was" : "was not" );
+                ServiceWasAlreadyStarted ? "was" : "was not" ));
     }
 
     if ( ! ServiceWasAlreadyStarted ) {
@@ -346,8 +346,8 @@ TestServiceControl(
     NET_API_STATUS Status;
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "\nTestServiceControl: trying control(" FORMAT_DWORD
-                ") on service " FORMAT_LPTSTR ".\n", OpCode, Service );
+        NetpKdPrint(( "\nTestServiceControl: trying control(" FORMAT_DWORD
+                ") on service " FORMAT_LPTSTR ".\n", OpCode, Service ));
     }
     Status = NetServiceControl(
             UncServerName,              // server name
@@ -356,10 +356,10 @@ TestServiceControl(
             0,                          // control arg
             (LPBYTE *) & Info);         // result (always level 2)
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint("TestServiceControl: back from NetServiceControl, Status="
-                FORMAT_API_STATUS ".\n", Status);
-        NetpDbgPrint("TestServiceControl: NetServiceControl alloc'ed buffer at "
-                FORMAT_LPVOID ".\n", (LPVOID) Info);
+        NetpKdPrint(("TestServiceControl: back from NetServiceControl, Status="
+                FORMAT_API_STATUS ".\n", Status));
+        NetpKdPrint(("TestServiceControl: NetServiceControl alloc'ed buffer at "
+                FORMAT_LPVOID ".\n", (LPVOID) Info));
     }
 
     if ( PossibleMissingService && RxTestMissingServiceStatus( Status ) ) {
@@ -400,8 +400,8 @@ TestServiceEnum(
     DWORD TotalEntries;
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "\nTestServiceEnum: starting level " FORMAT_DWORD
-                " test.\n", Level );
+        NetpKdPrint(( "\nTestServiceEnum: starting level " FORMAT_DWORD
+                " test.\n", Level ));
     }
     Status = NetServiceEnum(
             UncServerName,
@@ -412,21 +412,21 @@ TestServiceEnum(
             & TotalEntries,
             NULL);  // no resume handle
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "TestServiceEnum: back from NetServiceEnum, stat="
-                FORMAT_API_STATUS "\n", Status );
+        NetpKdPrint(( "TestServiceEnum: back from NetServiceEnum, stat="
+                FORMAT_API_STATUS "\n", Status ));
     }
     if (Status == ERROR_NOT_SUPPORTED) {
         return;   // WFW does not implement this API.
     } else if (Status != ExpectedStatus ) {
-        NetpDbgPrint( "TestServiceEnum: unexpected return code "
-                FORMAT_API_STATUS " from NetServiceEnum.\n", Status );
+        NetpKdPrint(( "TestServiceEnum: unexpected return code "
+                FORMAT_API_STATUS " from NetServiceEnum.\n", Status ));
         FailGotWrongStatus( "TestServiceEnum", ExpectedStatus, Status );
         /*NOTREACHED*/
     }
     if (Status == NERR_Success) {
         if (BufPtr == NULL) {
-            NetpDbgPrint( "TestServiceEnum: status as expected "
-                    "but null ptr from NetServiceEnum\n" );
+            NetpKdPrint(( "TestServiceEnum: status as expected "
+                    "but null ptr from NetServiceEnum\n" ));
             Fail( NERR_InternalError );
             /*NOTREACHED*/
         }
@@ -438,12 +438,12 @@ TestServiceEnum(
         }
 
         IF_DEBUG(SERVICE) {
-            NetpDbgPrint( "TestServiceEnum: Freeing buffer...\n" );
+            NetpKdPrint(( "TestServiceEnum: Freeing buffer...\n" ));
         }
         Status = NetApiBufferFree( BufPtr );
         if (Status != NERR_Success ) {
-            NetpDbgPrint( "TestServiceEnum: unexpected return code "
-                    FORMAT_API_STATUS " from NetApiBufferFree.\n", Status );
+            NetpKdPrint(( "TestServiceEnum: unexpected return code "
+                    FORMAT_API_STATUS " from NetApiBufferFree.\n", Status ));
             Fail( Status );
             /*NOTREACHED*/
         }
@@ -464,10 +464,10 @@ TestServiceGetInfo(
     NET_API_STATUS Status;
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint("\nTestServiceGetInfo: trying level " FORMAT_DWORD ".\n",
-                Level);
-        NetpDbgPrint("\nTestServiceGetInfo: expect " FORMAT_API_STATUS "\n", 
-                ExpectedStatus);
+        NetpKdPrint(("\nTestServiceGetInfo: trying level " FORMAT_DWORD ".\n",
+                Level));
+        NetpKdPrint(("\nTestServiceGetInfo: expect " FORMAT_API_STATUS "\n",
+                ExpectedStatus));
     }
     Status = NetServiceGetInfo(
             UncServerName,              // server name
@@ -475,12 +475,12 @@ TestServiceGetInfo(
             Level,                      // info level
             (LPBYTE *) & Info);
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint("TestServiceGetInfo: back from NetServiceGetInfo, Status="
-                FORMAT_API_STATUS ".\n", Status);
-        NetpDbgPrint("\nTestServiceGetInfo: expect " FORMAT_API_STATUS "\n", 
-                ExpectedStatus);
-        NetpDbgPrint("TestServiceGetInfo: NetServiceGetInfo alloc'ed buffer at "
-                FORMAT_LPVOID ".\n", (LPVOID) Info);
+        NetpKdPrint(("TestServiceGetInfo: back from NetServiceGetInfo, Status="
+                FORMAT_API_STATUS ".\n", Status));
+        NetpKdPrint(("\nTestServiceGetInfo: expect " FORMAT_API_STATUS "\n",
+                ExpectedStatus));
+        NetpKdPrint(("TestServiceGetInfo: NetServiceGetInfo alloc'ed buffer at "
+                FORMAT_LPVOID ".\n", (LPVOID) Info));
     }
 
     if ( PossibleMissingService && RxTestMissingServiceStatus( Status ) ) {
@@ -517,8 +517,8 @@ TestServiceInstall(
     NET_API_STATUS Status;
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "\nTestServiceInstall: trying to install "
-                FORMAT_LPTSTR ".\n", Service );
+        NetpKdPrint(( "\nTestServiceInstall: trying to install "
+                FORMAT_LPTSTR ".\n", Service ));
     }
     Status = NetServiceInstall(
             UncServerName,
@@ -528,10 +528,10 @@ TestServiceInstall(
             (LPBYTE *) (LPVOID *) &Info);
 
     IF_DEBUG(SERVICE) {
-        NetpDbgPrint( "TestServiceInstall: back from NetServiceInstall, Status="
-                FORMAT_API_STATUS ".\n", Status );
-        NetpDbgPrint( "TestServiceInstall: NetServiceInstall alloc'ed buffer"
-                " at " FORMAT_LPVOID ".\n", (LPVOID) Info );
+        NetpKdPrint(( "TestServiceInstall: back from NetServiceInstall, Status="
+                FORMAT_API_STATUS ".\n", Status ));
+        NetpKdPrint(( "TestServiceInstall: NetServiceInstall alloc'ed buffer"
+                " at " FORMAT_LPVOID ".\n", (LPVOID) Info ));
     }
 
     if (OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {

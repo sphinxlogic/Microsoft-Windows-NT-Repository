@@ -790,8 +790,8 @@ Return Value:
 
     AdaptP->ElnkiiHandleXmitCompleteRunning = TRUE;
 
-    if ( AdaptP->CurBufXmitting == -1 ) {
-
+    if (AdaptP->CurBufXmitting == -1)
+    {
         AdaptP->ElnkiiHandleXmitCompleteRunning = FALSE;
 
         return;
@@ -801,7 +801,6 @@ Return Value:
     // CurBufXmitting is not -1, which means nobody else
     // will touch it.
     //
-
     Packet = AdaptP->Packets[AdaptP->CurBufXmitting];
 
     ASSERT(Packet != (PNDIS_PACKET)NULL);
@@ -1426,17 +1425,11 @@ Return Value:
     //
 
     PacketLoc = AdaptP->PageStart +
-
             256*(AdaptP->NicNextPacket-AdaptP->NicPageStart);
 
 
-    if (!CardCopyUp(AdaptP, AdaptP->PacketHeader, PacketLoc, 4)) {
-
-        return CARD_BAD;
-
-    }
-
-
+    if (!CardCopyUp(AdaptP, AdaptP->PacketHeader, PacketLoc, 4))
+        return(CARD_BAD);
 
     //
     // Check if the next packet byte agress with the length, as
@@ -1514,101 +1507,99 @@ Return Value:
     //
     // Packet length is in bytes 3 and 4 of the header.
     //
-
-    PacketLen = AdaptP->PacketHeader[2] + AdaptP->PacketHeader[3]*256 - 4;
-
-    AdaptP->PacketLen = PacketLen;
-
-
-    //
-    // if not memory mapped, have to copy the lookahead data up first.
-    //
-
-    if (!AdaptP->MemMapped) {
+    PacketLen = AdaptP->PacketHeader[2] + AdaptP->PacketHeader[3] * 256;
+    if (0 == PacketLen)
+    {
+        //
+        //  Packet with no data...
+        //
+        IndicateLen = 0;
+    }
+    else
+    {
+        //
+        //  Don't count the header.
+        //
+        PacketLen -= 4;
 
         //
         // See how much to indicate (252 bytes max).
         //
         IndicateLen = PacketLen < AdaptP->MaxLookAhead ?
-                          PacketLen : AdaptP->MaxLookAhead;
+                            PacketLen : AdaptP->MaxLookAhead;
+    }
 
-        if (!CardCopyUp(AdaptP, AdaptP->Lookahead, PacketLoc+4, IndicateLen)) {
+    //
+    //  Save the length with the adapter block.
+    //
+    AdaptP->PacketLen = PacketLen;
 
-            NdisWriteErrorLogEntry(
-                AdaptP->NdisAdapterHandle,
-                NDIS_ERROR_CODE_HARDWARE_FAILURE,
-                1,
-                0x1
-                );
-
-            return CARD_BAD;
-
-        }
+    //
+    // if not memory mapped, have to copy the lookahead data up first.
+    //
+    if (!AdaptP->MemMapped)
+    {
+        if (!CardCopyUp(AdaptP, AdaptP->Lookahead, PacketLoc + 4, IndicateLen))
+            return(CARD_BAD);
 
         IndicateBuf = AdaptP->Lookahead;
-
-    } else {
-
-        IndicateLen = (PacketLen < 252)? PacketLen : 252;
-
-        NdisCreateLookaheadBufferFromSharedMemory(
+    }
+    else
+    {
+        if (IndicateLen != 0)
+        {
+            NdisCreateLookaheadBufferFromSharedMemory(
                 (PVOID)(PacketLoc + 4),
                 IndicateLen,
                 &IndicateBuf
-                );
-
+            );
+        }
     }
 
-    if (IndicateBuf != NULL) {
-
+    if (IndicateBuf != NULL)
+    {
         AdaptP->FramesRcvGood++;
 
-        if (IndicateLen < ELNKII_HEADER_SIZE) {
-
+        if (IndicateLen < ELNKII_HEADER_SIZE)
+        {
             //
             // Indicate packet
             //
-
             EthFilterIndicateReceive(
-                        AdaptP->FilterDB,
-                        (NDIS_HANDLE)AdaptP,
-                        (PCHAR)IndicateBuf,
-                        IndicateBuf,
-                        IndicateLen,
-                        NULL,
-                        0,
-                        0
-                        );
-
-        } else {
-
+                AdaptP->FilterDB,
+                (NDIS_HANDLE)AdaptP,
+                (PCHAR)IndicateBuf,
+                IndicateBuf,
+                IndicateLen,
+                NULL,
+                0,
+                0
+            );
+        }
+        else
+        {
             //
             // Indicate packet
             //
-
             EthFilterIndicateReceive(
-                        AdaptP->FilterDB,
-                        (NDIS_HANDLE)AdaptP,
-                        (PCHAR)IndicateBuf,
-                        IndicateBuf,
-                        ELNKII_HEADER_SIZE,
-                        IndicateBuf + ELNKII_HEADER_SIZE,
-                        IndicateLen - ELNKII_HEADER_SIZE,
-                        PacketLen - ELNKII_HEADER_SIZE
-                        );
-
+                AdaptP->FilterDB,
+                (NDIS_HANDLE)AdaptP,
+                (PCHAR)IndicateBuf,
+                IndicateBuf,
+                ELNKII_HEADER_SIZE,
+                IndicateBuf + ELNKII_HEADER_SIZE,
+                IndicateLen - ELNKII_HEADER_SIZE,
+                PacketLen - ELNKII_HEADER_SIZE
+            );
         }
 
-        if (AdaptP->MemMapped) {
-
-            NdisDestroyLookaheadBufferFromSharedMemory(
-                IndicateBuf
-                );
+        if (AdaptP->MemMapped && (IndicateLen != 0))
+        {
+            NdisDestroyLookaheadBufferFromSharedMemory(IndicateBuf);
         }
-
     }
 
-    return INDICATE_OK;
+    return(INDICATE_OK);
 }
 
 NDIS_STATUS
@@ -1783,19 +1774,11 @@ Notes:
         // Copy up the data.
         //
 
-        if (!CardCopyUp(AdaptP, BufStart+BufOff, CurCardLoc, BytesNow)) {
-
+        if (!CardCopyUp(AdaptP, BufStart+BufOff, CurCardLoc, BytesNow))
+        {
             *BytesTransferred = BytesWanted - BytesLeft;
 
-            NdisWriteErrorLogEntry(
-                AdaptP->NdisAdapterHandle,
-                NDIS_ERROR_CODE_HARDWARE_FAILURE,
-                1,
-                0x2
-                );
-
-            return NDIS_STATUS_FAILURE;
-
+            return(NDIS_STATUS_FAILURE);
         }
 
         CurCardLoc += BytesNow;
@@ -2124,15 +2107,14 @@ Return Value:
 
         NdisAcquireSpinLock(&AdaptP->Lock);
 
-        if (AdaptP->ResetInProgress) {
-
+        if (AdaptP->ResetInProgress)
+        {
             PELNKII_OPEN TmpOpen = (PELNKII_OPEN)((RESERVED(Packet)->Open));
 
             //
             // A reset just started, abort.
             //
             //
-
             AdaptP->BufferStatus[TmpBuf1] = EMPTY;       // to ack the reset
 
             NdisReleaseSpinLock(&AdaptP->Lock);
@@ -2140,12 +2122,11 @@ Return Value:
             //
             // Complete the send.
             //
-
             NdisCompleteSend(
-                            RESERVED(Packet)->Open->NdisBindingContext,
-                            Packet,
-                            NDIS_STATUS_SUCCESS
-                            );
+                RESERVED(Packet)->Open->NdisBindingContext,
+                Packet,
+                NDIS_STATUS_SUCCESS
+            );
 
             ElnkiiResetStageDone(AdaptP, BUFFERS_EMPTY);
 
@@ -2269,8 +2250,8 @@ Return Value:
     NdisDprAcquireSpinLock(&AdaptP->Lock);
 
     if ((AdaptP->WakeUpFoundTransmit) &&
-        (AdaptP->CurBufXmitting != -1)) {
-
+        (AdaptP->CurBufXmitting != -1))
+    {
         //
         // We had a transmit pending the last time we ran,
         // and it has not been completed...we need to complete
@@ -2281,20 +2262,21 @@ Return Value:
 
         IF_LOG( ElnkiiLog('K');)
 
-        if (AdaptP->TimeoutCount < 10) {
-
+        //
+        //  We log the first 5 of these.
+        //
+        if (AdaptP->TimeoutCount < 5)
+        {
             NdisWriteErrorLogEntry(
                 AdaptP->NdisAdapterHandle,
                 NDIS_ERROR_CODE_HARDWARE_FAILURE,
-                1,
-                0x3
+                2,
+                0x3,
+                AdaptP->TimeoutCount
                 );
-
-        } else {
-
-            AdaptP->TimeoutCount++;
-
         }
+
+        AdaptP->TimeoutCount++;
 
 #if DBG
 
@@ -2321,9 +2303,14 @@ Return Value:
         TmpBuf = NextBuf(AdaptP, AdaptP->CurBufXmitting);
 
         //
+        //  Set this so that we don't access the packets
+        //  somewhere else.
+        //
+        AdaptP->CurBufXmitting = -1;
+
+        //
         // Abort all sends
         //
-
         while (Packet != NULL) {
 
             Reserved = RESERVED(Packet);
@@ -2367,9 +2354,6 @@ Return Value:
         //
         // Set send variables correctly.
         //
-
-        AdaptP->CurBufXmitting = -1;
-
         AdaptP->NextBufToXmit = TmpBuf;
 
 

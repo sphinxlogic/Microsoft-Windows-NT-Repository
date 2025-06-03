@@ -7,7 +7,7 @@ Module Name:
     VDM.C
 
 Abstract:
-    
+
     This routine has a stub for the x86 only api NtStartVdmExecution.
 
 Author:
@@ -19,7 +19,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
+#include "ki.h"
 
 
 
@@ -38,11 +38,11 @@ NtVdmStartExecution (
 /*++
 
 Routine Description:
-    
+
     This routine returns STATUS_NOT_IMPLEMENTED
 
 Arguments:
-    
+
 Return Value:
 
     STATUS_NOT_IMPLEMENTED
@@ -50,5 +50,5 @@ Return Value:
 {
 
     return STATUS_NOT_IMPLEMENTED;
-    
+
 }

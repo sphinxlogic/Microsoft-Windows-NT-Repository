@@ -112,9 +112,7 @@ Return Value:
 
     treeConnect->NonpagedHeader = header;
 
-    SET_BLOCK_TYPE( treeConnect, BlockTypeTreeConnect );
-    SET_BLOCK_STATE( treeConnect, BlockStateActive );
-    SET_BLOCK_SIZE( treeConnect, sizeof(TREE_CONNECT) );
+    SET_BLOCK_TYPE_STATE_SIZE( treeConnect, BlockTypeTreeConnect, BlockStateActive, sizeof( TREE_CONNECT) );
     header->ReferenceCount = 2; // allow for Active status and caller's pointer
 
     //
@@ -141,7 +139,7 @@ Return Value:
 } // SrvAllocateTreeConnect
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceTreeConnect (
     PTREE_CONNECT TreeConnect
     )
@@ -255,6 +253,11 @@ Return Value:
             );
 
         //
+        // Close any cached directories on this connection
+        //
+        SrvCloseCachedDirectoryEntries( TreeConnect->Connection );
+
+        //
         // Dereference the tree connect (to indicate that it's no longer
         // open).
         //
@@ -361,7 +364,7 @@ Return Value:
 } // SrvCloseTreeConnectsOnShare
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceTreeConnect (
     IN PTREE_CONNECT TreeConnect
     )
@@ -389,7 +392,7 @@ Return Value:
 
 {
     PCONNECTION connection;
-    INTERLOCKED_RESULT result;
+    LONG result;
 
     PAGED_CODE( );
 
@@ -409,12 +412,11 @@ Return Value:
     ASSERT( TreeConnect->NonpagedHeader->ReferenceCount > 0 );
     UPDATE_REFERENCE_HISTORY( TreeConnect, TRUE );
 
-    result = ExInterlockedDecrementLong(
-                &TreeConnect->NonpagedHeader->ReferenceCount,
-                &connection->Interlock
+    result = InterlockedDecrement(
+                &TreeConnect->NonpagedHeader->ReferenceCount
                 );
 
-    if ( result == RESULT_ZERO ) {
+    if ( result == 0 ) {
 
         //
         // The new reference count is 0, meaning that it's time to
@@ -501,9 +503,7 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( TreeConnect, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( TreeConnect, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( TreeConnect, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( TreeConnect, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG TreeConnect->NonpagedHeader->ReferenceCount = -1;
 
     TERMINATE_REFERENCE_HISTORY( TreeConnect );

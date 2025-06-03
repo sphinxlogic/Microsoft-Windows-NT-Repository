@@ -122,15 +122,15 @@ TestConnection(
             102,
             (LPBYTE *) (LPVOID) &WkstaBufferPointer);
     if (Status != NERR_Success) {
-        NetpDbgPrint( "TestConnection: NetWkstaGetInfo failed!\n" );
+        NetpKdPrint(( "TestConnection: NetWkstaGetInfo failed!\n" ));
         Fail( Status );
     }
     TestAssert( *(WkstaBufferPointer->wki102_computername) != TCHAR_BACKSLASH);
     (void) STRCPY( MyServerName, (LPTSTR) TEXT("\\\\") );
     (void) STRCAT( MyServerName, WkstaBufferPointer->wki102_computername );
     IF_DEBUG(CONNECT) {
-        NetpDbgPrint( "TestConnection: my UNC server name is " FORMAT_LPTSTR
-                ".\n", MyServerName );
+        NetpKdPrint(( "TestConnection: my UNC server name is " FORMAT_LPTSTR
+                ".\n", MyServerName ));
     }
 
     //
@@ -269,8 +269,8 @@ TestConnectionEnum(
     DWORD TotalEntries;
 
     IF_DEBUG(CONNECT) {
-        NetpDbgPrint( "\nTestConnectionEnum: starting " FORMAT_LPTSTR
-                " test.\n", Header );
+        NetpKdPrint(( "\nTestConnectionEnum: starting " FORMAT_LPTSTR
+                " test.\n", Header ));
     }
     Status = NetConnectionEnum(
             UncServerName,
@@ -282,9 +282,9 @@ TestConnectionEnum(
             & TotalEntries,
             NULL);  // no resume handle
     IF_DEBUG(CONNECT) {
-        NetpDbgPrint( "TestConnectionEnum: back from NetConnectionEnum, stat="
+        NetpKdPrint(( "TestConnectionEnum: back from NetConnectionEnum, stat="
                 FORMAT_API_STATUS ", entries read=" FORMAT_DWORD "\n",
-                Status, EntriesRead );
+                Status, EntriesRead ));
     }
     if ( OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {
         return;                         // Must be testing as nonadmin; OK.
@@ -314,12 +314,12 @@ TestConnectionEnum(
             }
 
             IF_DEBUG(CONNECT) {
-                NetpDbgPrint( "TestConnectionEnum: Freeing buffer...\n" );
+                NetpKdPrint(( "TestConnectionEnum: Freeing buffer...\n" ));
             }
             Status = NetApiBufferFree( BufPtr );
             if (Status != NERR_Success ) {
-                NetpDbgPrint( "TestConnectionEnum: unexpected return code "
-                        FORMAT_API_STATUS " from NetApiBufferFree.\n", Status );
+                NetpKdPrint(( "TestConnectionEnum: unexpected return code "
+                        FORMAT_API_STATUS " from NetApiBufferFree.\n", Status ));
                 Fail( Status );
             }
         }

@@ -40,16 +40,15 @@
 #define TY_AGGR     (TY_CLASS | TY_STRUCT | TY_UNION)
 #define TY_SIGN     (TY_SIGNED | TY_UNSIGNED)
 
+#ifdef TARGET_PPC
+static char szAltSymName[512];
+#endif
 
 struct typrec {
     uchar   token[10];
     unsigned long flags;
 };
-#ifdef WIN32
 static struct typrec Predef[] = {
-#else
-static struct typrec _based(_segname("_CODE")) Predef[] = {
-#endif
     { "\006""signed",    TY_SIGNED},
     { "\010""unsigned",  TY_UNSIGNED},
     { "\004""void",      TY_VOID},
@@ -110,84 +109,83 @@ CV_typ_t eqop[OP_oreq + 1 - OP_multeq] = {
 #define PrePost PrePost_E
 #define Unary Unary_E
 
-LOCAL   bool_t  NEAR    FASTCALL  AddrOf (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  Arith (op_t);
-LOCAL   bool_t  NEAR    PASCAL    BinaryOverload (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  Bind (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindLChild (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindRchild (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindAddrOf (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindBinary (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindArray (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindAssign (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindBang (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindBasePtr (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindByteOps(bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindCast (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindConst (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindContext (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindExeContext (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindDot (bnode_t bn);
-LOCAL   bool_t  NEAR    FASTCALL  BindFetch (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindFunction (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindDMember (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindPlusMinus (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindPMember (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindPointsTo (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindPostIncDec (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindPreIncDec (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindRelat (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindBScope (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindSegOp (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindSizeOf (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindSymbol (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BindUnary (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  BuildType (CV_typ_t FAR *, ulong FAR *, ushort FAR *, ushort FAR *, ushort FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  BindUScope (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  CastBinary (op_t);
-LOCAL   bool_t  NEAR    PASCAL    CastPtrToPtr (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  ContextToken (char FAR * FAR *, char FAR * FAR *, short FAR *);
-LOCAL   HDEP    NEAR    PASCAL    DupETree (ushort, pstree_t FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  FastCallReg (pargd_t, peval_t, ushort FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  FcnCast (bnode_t bn);
-LOCAL   bool_t  NEAR    FASTCALL  Fetch (void);
-LOCAL   bool_t  NEAR    PASCAL    FindUDT (bnode_t, peval_t, char FAR *, char FAR *, uchar);
-LOCAL   bool_t  NEAR    FASTCALL  Function (bnode_t);
-LOCAL   uchar   NEAR    FASTCALL  GetID (char FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  GetStructTDef (char FAR *, int, pnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  MipsCallReg (pargd_t, peval_t, uint FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  AlphaCallReg (pargd_t, peval_t, uint FAR *);
-LOCAL   bool_t  NEAR    FASTCALL  ParseType (bnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  PlusMinus(op_t);
-LOCAL   bool_t  NEAR    FASTCALL  PrePost (op_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushCArgs (peval_t, pnode_t, UOFFSET FAR *, int, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushFArgs (peval_t, pnode_t, UOFFSET FAR *, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushMArgs (peval_t, pnode_t, UOFFSET FAR *, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushMArgs2 (peval_t, pnode_t, UOFFSET FAR *, int, uint, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushAArgs (peval_t, pnode_t, UOFFSET FAR *, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushAArgs2 (peval_t, pnode_t, UOFFSET FAR *, int, uint, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushPArgs (peval_t, pnode_t, UOFFSET FAR *, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  PushTArgs (peval_t, pnode_t, UOFFSET FAR *, int, peval_t);
-LOCAL   bool_t  NEAR    FASTCALL  SBitField (pnode_t);
-LOCAL   bool_t  NEAR    FASTCALL  SearchRight (bnode_t);
-LOCAL   CV_typ_t NEAR   PASCAL    SetImpClass (PCXT);
-LOCAL   bool_t  NEAR    FASTCALL  Unary (op_t);
-LOCAL   bool_t  NEAR    PASCAL    UnaryOverload (bnode_t);
-LOCAL   bool_t  NEAR    PASCAL    PointsToOverload (bnode_t);
+LOCAL   bool_t     FASTCALL  AddrOf (bnode_t);
+LOCAL   bool_t     FASTCALL  Arith (op_t);
+LOCAL   bool_t               BinaryOverload (bnode_t);
+LOCAL   bool_t     FASTCALL  Bind (bnode_t);
+LOCAL   bool_t     FASTCALL  BindLChild (bnode_t);
+LOCAL   bool_t     FASTCALL  BindRchild (bnode_t);
+LOCAL   bool_t     FASTCALL  BindAddrOf (bnode_t);
+LOCAL   bool_t     FASTCALL  BindBinary (bnode_t);
+LOCAL   bool_t     FASTCALL  BindArray (bnode_t);
+LOCAL   bool_t     FASTCALL  BindAssign (bnode_t);
+LOCAL   bool_t     FASTCALL  BindBang (bnode_t);
+LOCAL   bool_t     FASTCALL  BindBasePtr (bnode_t);
+LOCAL   bool_t     FASTCALL  BindByteOps(bnode_t);
+LOCAL   bool_t     FASTCALL  BindCast (bnode_t);
+LOCAL   bool_t     FASTCALL  BindConst (bnode_t);
+LOCAL   bool_t     FASTCALL  BindContext (bnode_t);
+LOCAL   bool_t     FASTCALL  BindExeContext (bnode_t);
+LOCAL   bool_t     FASTCALL  BindDot (bnode_t bn);
+LOCAL   bool_t     FASTCALL  BindFetch (bnode_t);
+LOCAL   bool_t     FASTCALL  BindFunction (bnode_t);
+LOCAL   bool_t     FASTCALL  BindDMember (bnode_t);
+LOCAL   bool_t     FASTCALL  BindPlusMinus (bnode_t);
+LOCAL   bool_t     FASTCALL  BindPMember (bnode_t);
+LOCAL   bool_t     FASTCALL  BindPointsTo (bnode_t);
+LOCAL   bool_t     FASTCALL  BindPostIncDec (bnode_t);
+LOCAL   bool_t     FASTCALL  BindPreIncDec (bnode_t);
+LOCAL   bool_t     FASTCALL  BindRelat (bnode_t);
+LOCAL   bool_t     FASTCALL  BindBScope (bnode_t);
+LOCAL   bool_t     FASTCALL  BindSegOp (bnode_t);
+LOCAL   bool_t     FASTCALL  BindSizeOf (bnode_t);
+LOCAL   bool_t     FASTCALL  BindSymbol (bnode_t);
+LOCAL   bool_t     FASTCALL  BindUnary (bnode_t);
+LOCAL   bool_t     FASTCALL  BuildType (CV_typ_t *, ulong *, ushort *, ushort *, ushort *);
+LOCAL   bool_t     FASTCALL  BindUScope (bnode_t);
+LOCAL   bool_t     FASTCALL  CastBinary (op_t);
+LOCAL   bool_t               CastPtrToPtr (bnode_t);
+LOCAL   bool_t     FASTCALL  ContextToken (char * *, char * *, short *);
+LOCAL   HDEP                 DupETree (ushort, pstree_t *);
+LOCAL   bool_t     FASTCALL  FastCallReg (pargd_t, peval_t, ushort *);
+LOCAL   bool_t     FASTCALL  FcnCast (bnode_t bn);
+LOCAL   bool_t     FASTCALL  Fetch (void);
+LOCAL   bool_t               FindUDT (bnode_t, peval_t, char *, char *, uchar);
+LOCAL   bool_t     FASTCALL  Function (bnode_t);
+LOCAL   uchar      FASTCALL  GetID (char *);
+LOCAL   bool_t     FASTCALL  GetStructTDef (char *, int, pnode_t);
+LOCAL   bool_t     FASTCALL  MipsCallReg (pargd_t, peval_t, uint *);
+LOCAL   bool_t     FASTCALL  AlphaCallReg (pargd_t, peval_t, uint *);
+LOCAL   bool_t     FASTCALL  PPCCallReg (pargd_t, peval_t, uint *);
+LOCAL   bool_t     FASTCALL  ParseType (bnode_t);
+LOCAL   bool_t     FASTCALL  PlusMinus(op_t);
+LOCAL   bool_t     FASTCALL  PrePost (op_t);
+LOCAL   bool_t     FASTCALL  PushCArgs (peval_t, pnode_t, UOFFSET *, int, peval_t);
+LOCAL   bool_t     FASTCALL  PushFArgs (peval_t, pnode_t, UOFFSET *, peval_t);
+LOCAL   bool_t     FASTCALL  PushMArgs (peval_t, pnode_t, UOFFSET *, peval_t);
+LOCAL   bool_t     FASTCALL  PushMArgs2 (peval_t, pnode_t, UOFFSET *, int, uint, peval_t);
+LOCAL   bool_t     FASTCALL  PushAArgs (peval_t, pnode_t, UOFFSET *, peval_t);
+LOCAL   bool_t     FASTCALL  PushAArgs2 (peval_t, pnode_t, UOFFSET *, int, uint, peval_t);
+LOCAL   bool_t     FASTCALL  PushPPCArgs (peval_t, pnode_t, UOFFSET *, peval_t);
+LOCAL   bool_t     FASTCALL  PushPPCArgs2 (peval_t, pnode_t, UOFFSET *, int, uint *, peval_t);
+LOCAL   bool_t     FASTCALL  PushPArgs (peval_t, pnode_t, UOFFSET *, peval_t);
+LOCAL   bool_t     FASTCALL  PushTArgs (peval_t, pnode_t, UOFFSET *, int, peval_t);
+LOCAL   bool_t     FASTCALL  SBitField (pnode_t);
+LOCAL   bool_t     FASTCALL  SearchRight (bnode_t);
+LOCAL   CV_typ_t             SetImpClass (PCXT, long *);
+LOCAL   bool_t     FASTCALL  Unary (op_t);
+LOCAL   bool_t               UnaryOverload (bnode_t);
+LOCAL   bool_t               PointsToOverload (bnode_t);
 
-LOCAL   bool_t  NEAR   FASTCALL    BindError (bnode_t);
-LOCAL   bool_t  NEAR   FASTCALL    BindTRUE (bnode_t);
+LOCAL   bool_t     FASTCALL  BindError (bnode_t);
+LOCAL   bool_t     FASTCALL  BindTRUE (bnode_t);
 
 static  bool_t  BindingFuncArgs = FALSE;
 bnode_t bnOp;       // based node pointer when binding the right side of
                     // ., ->,
 // Bind dispatch table
 
-#ifdef WIN32
-LOCAL bool_t (NEAR FASTCALL *pBind[]) (bnode_t) = {
-#else
-LOCAL bool_t (NEAR FASTCALL *_based(_segname("_CODE"))pBind[]) (bnode_t) = {
-#endif
+LOCAL bool_t (FASTCALL *pBind[]) (bnode_t) = {
 #define OPCNT(name, val)
 #define OPCDAT(opc)
 #define OPDAT(op, opfprec, opgprec, opclass, opbind, opeval, opwalk) opbind,
@@ -202,7 +200,8 @@ LOCAL bool_t (NEAR FASTCALL *_based(_segname("_CODE"))pBind[]) (bnode_t) = {
 /*
  *  Defines relating to the MIPS and ALPHA calling convention
  *  One nibble is used for each register argument position
- *  There are a max of four for MIPS, six for ALPHA
+ *  There are a max of four for MIPS, six for ALPHA, twenty-two
+ *  for PPC
  */
 
 
@@ -212,7 +211,11 @@ LOCAL bool_t (NEAR FASTCALL *_based(_segname("_CODE"))pBind[]) (bnode_t) = {
 #define PARAM_DOUBLE    3
 #define PARAM_SKIPPED   4
 
+#ifdef TARGET_PPC
+#define IS_PARAM_TYPE(mask, n, type) ((mask[(n) >> 3] & (7 << 4*((n) & 0x7))) == type)
+#else
 #define IS_PARAM_TYPE(mask, n, type) ((*mask & (3 << 4*n)) == type)
+#endif
 #define IS_PARAM_EMPTY(mask, n) (IS_PARAM_TYPE(mask, n, PARAM_EMPTY))
 #define IS_PARAM_INT(mask, n) (IS_PARAM_TYPE(mask, n, PARAM_INT))
 #define IS_PARAM_FLOAT(mask, n) (IS_PARAM_TYPE(mask, n, PARAM_FLOAT))
@@ -220,13 +223,156 @@ LOCAL bool_t (NEAR FASTCALL *_based(_segname("_CODE"))pBind[]) (bnode_t) = {
 #define IS_PARAM_SKIPPED(mask, n) (IS_PARAM_TYPE(mask, n, PARAM_SKIPPED))
 
 
+#ifdef TARGET_PPC
+#define SET_PARAM_TYPE(mask, n, type) (mask[(n) >> 3] |= (type << 4*((n) & 0x7)))
+#else
 #define SET_PARAM_TYPE(mask, n, type) (*mask |= (type << 4*n))
+#endif
 #define SET_PARAM_INT(mask, n) SET_PARAM_TYPE(mask, n, PARAM_INT)
 #define SET_PARAM_FLOAT(mask, n) SET_PARAM_TYPE(mask, n, PARAM_FLOAT)
 #define SET_PARAM_DOUBLE(mask, n) SET_PARAM_TYPE(mask, n, PARAM_DOUBLE)
 #define SET_PARAM_SKIPPED(mask, n) SET_PARAM_TYPE(mask, n, PARAM_SKIPPED)
 
+#if DBG
+ULONG fShowNodes;
+void
+PrintNodeOp(
+    int NodeOp
+    )
+{
+    char *szName;
 
+    switch (NodeOp) {
+        case OP_addrof       : szName = "OP_addrof       \n"; break;
+        case OP_lbrack       : szName = "OP_lbrack       \n"; break;
+        case OP_eq           : szName = "OP_eq           \n"; break;
+        case OP_multeq       : szName = "OP_multeq       \n"; break;
+        case OP_diveq        : szName = "OP_diveq        \n"; break;
+        case OP_modeq        : szName = "OP_modeq        \n"; break;
+        case OP_pluseq       : szName = "OP_pluseq       \n"; break;
+        case OP_minuseq      : szName = "OP_minuseq      \n"; break;
+        case OP_shleq        : szName = "OP_shleq        \n"; break;
+        case OP_shreq        : szName = "OP_shreq        \n"; break;
+        case OP_andeq        : szName = "OP_andeq        \n"; break;
+        case OP_xoreq        : szName = "OP_xoreq        \n"; break;
+        case OP_oreq         : szName = "OP_oreq         \n"; break;
+        case OP_bscope       : szName = "OP_bscope       \n"; break;
+        case OP_bang         : szName = "OP_bang         \n"; break;
+        case OP_baseptr      : szName = "OP_baseptr      \n"; break;
+        case OP_mult         : szName = "OP_mult         \n"; break;
+        case OP_div          : szName = "OP_div          \n"; break;
+        case OP_mod          : szName = "OP_mod          \n"; break;
+        case OP_shl          : szName = "OP_shl          \n"; break;
+        case OP_shr          : szName = "OP_shr          \n"; break;
+        case OP_and          : szName = "OP_and          \n"; break;
+        case OP_xor          : szName = "OP_xor          \n"; break;
+        case OP_or           : szName = "OP_or           \n"; break;
+        case OP_andand       : szName = "OP_andand       \n"; break;
+        case OP_oror         : szName = "OP_oror         \n"; break;
+        case OP_caststar     : szName = "OP_caststar     \n"; break;
+        case OP_castplus     : szName = "OP_castplus     \n"; break;
+        case OP_castminus    : szName = "OP_castminus    \n"; break;
+        case OP_castamp      : szName = "OP_castamp      \n"; break;
+        case OP_by           : szName = "OP_by           \n"; break;
+        case OP_wo           : szName = "OP_wo           \n"; break;
+        case OP_dw           : szName = "OP_dw           \n"; break;
+        case OP_cast         : szName = "OP_cast         \n"; break;
+        case OP_const        : szName = "OP_const        \n"; break;
+        case OP_context      : szName = "OP_context      \n"; break;
+        case OP_dotmember    : szName = "OP_dotmember    \n"; break;
+        case OP_dot          : szName = "OP_dot          \n"; break;
+        case OP_endofargs    : szName = "OP_endofargs    \n"; break;
+        case OP_grouped      : szName = "OP_grouped      \n"; break;
+        case OP_thisinit     : szName = "OP_thisinit     \n"; break;
+        case OP_thisconst    : szName = "OP_thisconst    \n"; break;
+        case OP_thisexpr     : szName = "OP_thisexpr     \n"; break;
+        case OP_noop         : szName = "OP_noop         \n"; break;
+        case OP_lparen       : szName = "OP_lparen       \n"; break;
+        case OP_rparen       : szName = "OP_rparen       \n"; break;
+        case OP_lcurly       : szName = "OP_lcurly       \n"; break;
+        case OP_rcurly       : szName = "OP_rcurly       \n"; break;
+        case OP_incr         : szName = "OP_incr         \n"; break;
+        case OP_decr         : szName = "OP_decr         \n"; break;
+        case OP_arg          : szName = "OP_arg          \n"; break;
+        case OP_fcnend       : szName = "OP_fcnend       \n"; break;
+        case OP_rbrack       : szName = "OP_rbrack       \n"; break;
+        case OP_lowprec      : szName = "OP_lowprec      \n"; break;
+        case OP_comma        : szName = "OP_comma        \n"; break;
+        case OP_execontext   : szName = "OP_execontext   \n"; break;
+        case OP_fetch        : szName = "OP_fetch        \n"; break;
+        case OP_function     : szName = "OP_function     \n"; break;
+        case OP_identFunc    : szName = "OP_identFunc    \n"; break;
+        case OP_pmember      : szName = "OP_pmember      \n"; break;
+        case OP_plus         : szName = "OP_plus         \n"; break;
+        case OP_minus        : szName = "OP_minus        \n"; break;
+        case OP_pointsto     : szName = "OP_pointsto     \n"; break;
+        case OP_postinc      : szName = "OP_postinc      \n"; break;
+        case OP_postdec      : szName = "OP_postdec      \n"; break;
+        case OP_preinc       : szName = "OP_preinc       \n"; break;
+        case OP_predec       : szName = "OP_predec       \n"; break;
+        case OP_lt           : szName = "OP_lt           \n"; break;
+        case OP_lteq         : szName = "OP_lteq         \n"; break;
+        case OP_gt           : szName = "OP_gt           \n"; break;
+        case OP_gteq         : szName = "OP_gteq         \n"; break;
+        case OP_eqeq         : szName = "OP_eqeq         \n"; break;
+        case OP_bangeq       : szName = "OP_bangeq       \n"; break;
+        case OP_segop        : szName = "OP_segop        \n"; break;
+        case OP_segopReal    : szName = "OP_segopReal    \n"; break;
+        case OP_sizeof       : szName = "OP_sizeof       \n"; break;
+        case OP_ident        : szName = "OP_ident        \n"; break;
+        case OP_hsym         : szName = "OP_hsym         \n"; break;
+        case OP_this         : szName = "OP_this         \n"; break;
+        case OP_Opmember     : szName = "OP_Opmember     \n"; break;
+        case OP_Orightequal  : szName = "OP_Orightequal  \n"; break;
+        case OP_Oleftequal   : szName = "OP_Oleftequal   \n"; break;
+        case OP_Ofunction    : szName = "OP_Ofunction    \n"; break;
+        case OP_Oarray       : szName = "OP_Oarray       \n"; break;
+        case OP_Oplusequal   : szName = "OP_Oplusequal   \n"; break;
+        case OP_Ominusequal  : szName = "OP_Ominusequal  \n"; break;
+        case OP_Otimesequal  : szName = "OP_Otimesequal  \n"; break;
+        case OP_Odivequal    : szName = "OP_Odivequal    \n"; break;
+        case OP_Opcentequal  : szName = "OP_Opcentequal  \n"; break;
+        case OP_Oandequal    : szName = "OP_Oandequal    \n"; break;
+        case OP_Oxorequal    : szName = "OP_Oxorequal    \n"; break;
+        case OP_Oorequal     : szName = "OP_Oorequal     \n"; break;
+        case OP_Oshl         : szName = "OP_Oshl         \n"; break;
+        case OP_Oshr         : szName = "OP_Oshr         \n"; break;
+        case OP_Oequalequal  : szName = "OP_Oequalequal  \n"; break;
+        case OP_Obangequal   : szName = "OP_Obangequal   \n"; break;
+        case OP_Olessequal   : szName = "OP_Olessequal   \n"; break;
+        case OP_Ogreatequal  : szName = "OP_Ogreatequal  \n"; break;
+        case OP_Oandand      : szName = "OP_Oandand      \n"; break;
+        case OP_Ooror        : szName = "OP_Ooror        \n"; break;
+        case OP_Oincrement   : szName = "OP_Oincrement   \n"; break;
+        case OP_Odecrement   : szName = "OP_Odecrement   \n"; break;
+        case OP_Opointsto    : szName = "OP_Opointsto    \n"; break;
+        case OP_Oplus        : szName = "OP_Oplus        \n"; break;
+        case OP_Ominus       : szName = "OP_Ominus       \n"; break;
+        case OP_Ostar        : szName = "OP_Ostar        \n"; break;
+        case OP_Odivide      : szName = "OP_Odivide      \n"; break;
+        case OP_Opercent     : szName = "OP_Opercent     \n"; break;
+        case OP_Oxor         : szName = "OP_Oxor         \n"; break;
+        case OP_Oand         : szName = "OP_Oand         \n"; break;
+        case OP_Oor          : szName = "OP_Oor          \n"; break;
+        case OP_Otilde       : szName = "OP_Otilde       \n"; break;
+        case OP_Obang        : szName = "OP_Obang        \n"; break;
+        case OP_Oequal       : szName = "OP_Oequal       \n"; break;
+        case OP_Oless        : szName = "OP_Oless        \n"; break;
+        case OP_Ogreater     : szName = "OP_Ogreater     \n"; break;
+        case OP_Ocomma       : szName = "OP_Ocomma       \n"; break;
+        case OP_Onew         : szName = "OP_Onew         \n"; break;
+        case OP_Odelete      : szName = "OP_Odelete      \n"; break;
+        case OP_typestr      : szName = "OP_typestr      \n"; break;
+        case OP_uscope       : szName = "OP_uscope       \n"; break;
+        case OP_tilde        : szName = "OP_tilde        \n"; break;
+        case OP_negate       : szName = "OP_negate       \n"; break;
+        case OP_uplus        : szName = "OP_uplus        \n"; break;
+        default              : szName = "UNKNOWN         \n"; break;
+    }
+    OutputDebugString(szName);
+}
+
+#endif  // DBG
 
 /***    DoBind - bind evaluation tree tree
  *
@@ -258,7 +404,12 @@ LOCAL bool_t (NEAR FASTCALL *_based(_segname("_CODE"))pBind[]) (bnode_t) = {
  */
 
 
-EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
+EESTATUS
+DoBind (
+    PHTM phTM,
+    PCXT pcxt,
+    uint flags
+    )
 {
     pstree_t    pSTree;
     ushort      error = EENOERROR;
@@ -288,7 +439,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
         pExState->err_num = 0;
         pExState->cxt = *pcxt;
         if ((pExState->state.bind_ok == FALSE) ||
-          (flags & BIND_fForceBind == BIND_fForceBind) ||
+          ((flags & BIND_fForceBind) == BIND_fForceBind) ||
           (pExState->state.nullcontext == TRUE)) {
             // the expression has not been successfully bound, the caller
             // has forced the bind or the expression contains a null
@@ -315,7 +466,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
 
                 DASSERT ( pExState->hETree != 0 );
                 pTree = MHMemLock (pExState->hETree);
-                _fmemcpy (pTree, pSTree, pSTree->size);
+                memcpy (pTree, pSTree, pSTree->size);
 
                 // set pointer to context and flag fact that it is not
                 // a pointer into the expression tree
@@ -323,7 +474,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
                 pCxt = &pExState->cxt;
                 bnCxt = 0;
                 ClassExp = T_NOTYPE;
-                ClassImp = SetImpClass (pCxt);
+                ClassImp = SetImpClass (pCxt, &ClassThisAdjust);
 
                 // indicate that the stack is not in use by the parser
 
@@ -338,7 +489,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
                 StackOffset = 0;
                 StackCkPoint = 0;
                 StackMax = 0;
-                _fmemset (pEStack, 0, (uint)StackLen);
+                memset (pEStack, 0, (uint)StackLen);
 
                 // clear the stack top, stack top previous, function argument
                 // list pointer and based pointer to operand node
@@ -364,7 +515,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
 
                             DASSERT ( *phTM != 0 );
                             pExState = MHMemLock (*phTM);
-                            _fmemcpy (&pExState->result, ST, sizeof (eval_t));
+                            memcpy (&pExState->result, ST, sizeof (eval_t));
                         }
                         else {
 
@@ -409,6 +560,7 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
  *      type = SetImpClass (pCxt);
  *
  *      Entry   pCxt = pointer to context packet
+ *              pThisAdjust = pointer to implicit this adjustor value
  *
  *      Exit    none
  *
@@ -416,7 +568,11 @@ EESTATUS PASCAL DoBind (PHTM phTM, PCXT pcxt, uint flags)
  *              0 if context is not method
  */
 
-LOCAL CV_typ_t NEAR PASCAL SetImpClass (PCXT pCxt)
+LOCAL CV_typ_t
+SetImpClass (
+    PCXT pCxt,
+    long *pThisAdjust
+    )
 {
     HSYM        hProc;
     SYMPTR      pProc;
@@ -425,25 +581,22 @@ LOCAL CV_typ_t NEAR PASCAL SetImpClass (PCXT pCxt)
     HTYPE       hMFunc;
     plfMFunc    pMFunc;
 
+    *pThisAdjust = 0;
     if ((hProc = (HSYM)SHHPROCFrompCXT (pCxt)) != (HSYM)0) {
         // the current context is within some function.  Set the node
         // to the type of the function and see if it is a method of a class
 
         pProc = (SYMPTR)MHOmfLock ((HDEP)hProc);
         switch (pProc->rectyp) {
-#if defined (ADDR_16) || defined (ADDR_MIXED)
             case S_LPROC16:
             case S_GPROC16:
                 type = ((PROCPTR16)pProc)->typind;
                 break;
-#endif
 
-#if defined (ADDR_32) || defined (ADDR_MIXED)
             case S_LPROC32:
             case S_GPROC32:
                 type = ((PROCPTR32)pProc)->typind;
                 break;
-#endif
 
             case S_LPROCMIPS:
             case S_GPROCMIPS:
@@ -465,6 +618,7 @@ LOCAL CV_typ_t NEAR PASCAL SetImpClass (PCXT pCxt)
             pMFunc = (plfMFunc)((&((TYPPTR)MHOmfLock ((HDEP)hMFunc))->leaf));
             if (pMFunc->leaf == LF_MFUNCTION) {
                 rettype = pMFunc->classtype;
+                *pThisAdjust = pMFunc->thisadjust;
             }
             MHOmfUnLock ((HDEP)hMFunc);
         }
@@ -491,8 +645,17 @@ LOCAL CV_typ_t NEAR PASCAL SetImpClass (PCXT pCxt)
  */
 
 
-LOCAL bool_t NEAR FASTCALL Bind (register bnode_t bn)
+LOCAL bool_t FASTCALL
+Bind (
+    register bnode_t bn
+    )
 {
+#if DBG
+    if (fShowNodes) {
+        OutputDebugString("M: ");
+        PrintNodeOp(NODE_OP(pnodeOfbnode(bn)));
+    }
+#endif
     return ((*pBind[NODE_OP(pnodeOfbnode(bn))])(bn));
 }
 
@@ -516,9 +679,18 @@ LOCAL bool_t NEAR FASTCALL Bind (register bnode_t bn)
 
 
 
-LOCAL bool_t NEAR FASTCALL BindLChild (register bnode_t bn)
+LOCAL bool_t FASTCALL
+BindLChild (
+    register bnode_t bn
+    )
 {
     register bnode_t bnL = NODE_LCHILD (pnodeOfbnode(bn));
+#if DBG
+    if (fShowNodes) {
+        OutputDebugString("R: ");
+        PrintNodeOp(NODE_OP(pnodeOfbnode(bnL)));
+    }
+#endif
 
     return ((*pBind[NODE_OP(pnodeOfbnode(bnL))])(bnL));
 }
@@ -543,9 +715,18 @@ LOCAL bool_t NEAR FASTCALL BindLChild (register bnode_t bn)
 
 
 
-LOCAL bool_t NEAR FASTCALL BindRChild (register bnode_t bn)
+LOCAL bool_t FASTCALL
+BindRChild (
+    register bnode_t bn
+    )
 {
     register bnode_t bnR = NODE_RCHILD (pnodeOfbnode(bn));
+#if DBG
+    if (fShowNodes) {
+        OutputDebugString("R: ");
+        PrintNodeOp(NODE_OP(pnodeOfbnode(bnR)));
+    }
+#endif
 
     return ((*pBind[NODE_OP(pnodeOfbnode(bnR))])(bnR));
 }
@@ -569,7 +750,10 @@ LOCAL bool_t NEAR FASTCALL BindRChild (register bnode_t bn)
 
 
 
-LOCAL bool_t NEAR FASTCALL BindError (register bnode_t bn)
+LOCAL bool_t FASTCALL
+BindError (
+    register bnode_t bn
+    )
 {
     Unreferenced( bn );
 
@@ -594,7 +778,10 @@ LOCAL bool_t NEAR FASTCALL BindError (register bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindTRUE (register bnode_t bn)
+LOCAL bool_t FASTCALL
+BindTRUE (
+    register bnode_t bn
+    )
 {
     Unreferenced( bn );
 
@@ -620,21 +807,22 @@ LOCAL bool_t NEAR FASTCALL BindTRUE (register bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindAddrOf (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindAddrOf (
+    bnode_t bn
+    )
 {
     CV_typ_t    type = 0;
 
     if (!BindLChild (bn)) {
         return (FALSE);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (ST) && (
       CLASS_PROP (ST).ovlops == TRUE)) {
         if (UnaryOverload (bn) == TRUE) {
             return (TRUE);
         }
     }
-#endif
     return (AddrOf (bn));
 }
 
@@ -654,7 +842,10 @@ LOCAL bool_t NEAR FASTCALL BindAddrOf (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindArray (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindArray (
+    bnode_t bn
+    )
 {
     eval_t      evalT = {0};
     peval_t     pvT;
@@ -663,13 +854,11 @@ LOCAL bool_t NEAR FASTCALL BindArray (bnode_t bn)
     uint        desc;
 
     if (BindLChild (bn) && BindRChild (bn)) {
-#if !defined (C_ONLY)
         if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (STP) &&
           (CLASS_PROP (STP).ovlops == TRUE)) {
             return (BinaryOverload (bn));
         }
         else
-#endif
             if (EVAL_IS_ARRAY (STP) || EVAL_IS_ARRAY (ST)) {
             // above check is for array[3] or 3[array]
             if (ValidateNodes (OP_lbrack, STP, ST) && PlusMinus (OP_plus)) {
@@ -719,7 +908,10 @@ LOCAL bool_t NEAR FASTCALL BindArray (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindAssign (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindAssign (
+    bnode_t bn
+    )
 {
     CV_typ_t    nop;
     op_t        op = NODE_OP (pnodeOfbnode(bn));
@@ -734,12 +926,10 @@ LOCAL bool_t NEAR FASTCALL BindAssign (bnode_t bn)
         pExState->err_num = ERR_NEEDLVALUE;
         return (FALSE);
     }
-#if !defined (C_ONLY)
     if (EVAL_IS_CLASS (STP)) {
         pExState->err_num = ERR_NOCLASSASSIGN;
         return (FALSE);
     }
-#endif
     if (EVAL_IS_REF (STP)) {
         RemoveIndir (STP);
     }
@@ -815,7 +1005,7 @@ LOCAL bool_t NEAR FASTCALL BindAssign (bnode_t bn)
     }
     else if (EVAL_IS_ADDR (STP)) {
         if (!EVAL_IS_ADDR (ST)) {
-            // M00FLAT32 - assumes equivalence between far pointer and long
+            // M00FLAT32 - assumes equivalence between pointer and long
             // M00FLAT32 - this is a problem for 32 bit model
 
             if (CastNode (ST, T_LONG, T_LONG) == FALSE) {
@@ -851,7 +1041,10 @@ LOCAL bool_t NEAR FASTCALL BindAssign (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindBang (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindBang (
+    bnode_t bn
+    )
 {
     if (!BindLChild (bn)) {
         return (FALSE);
@@ -863,12 +1056,10 @@ LOCAL bool_t NEAR FASTCALL BindBang (bnode_t bn)
     if (EVAL_IS_REF (ST)) {
         RemoveIndir (ST);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (ST) &&
       (CLASS_PROP (ST).ovlops == TRUE)) {
         return (UnaryOverload (bn));
     }
-#endif
     if (!ValidateNodes (OP_bang, ST, NULL)) {
         return (FALSE);
     }
@@ -902,7 +1093,10 @@ LOCAL bool_t NEAR FASTCALL BindBang (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindBasePtr (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindBasePtr (
+    bnode_t bn
+    )
 {
     return (BindSegOp (bn));
 }
@@ -922,7 +1116,10 @@ LOCAL bool_t NEAR FASTCALL BindBasePtr (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindBinary (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindBinary (
+    bnode_t bn
+    )
 {
     if (!BindLChild (bn) || !BindRChild (bn)) {
         return (FALSE);
@@ -933,13 +1130,11 @@ LOCAL bool_t NEAR FASTCALL BindBinary (bnode_t bn)
     if (EVAL_IS_REF (ST)) {
         RemoveIndir (ST);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) &&
       (EVAL_IS_CLASS (ST) && (CLASS_PROP (ST).ovlops == TRUE)) ||
       (EVAL_IS_CLASS (STP) && (CLASS_PROP (STP).ovlops == TRUE))) {
         return (BinaryOverload (bn));
     }
-#endif
     if (EVAL_IS_ENUM (ST)) {
         SetNodeType (ST, ENUM_UTYPE (ST));
     }
@@ -993,17 +1188,20 @@ LOCAL bool_t NEAR FASTCALL BindBinary (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindBScope (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindBScope (
+    bnode_t bn
+    )
 {
     CV_typ_t    oldClassExp;
     bool_t      retval;
     bnode_t     oldbnOp;
-    char FAR   *pbName;
+    char       *pbName;
     ushort      len;
     CV_typ_t    CurClass;
     HTYPE       hBase;          // handle to type record for base class
-    uchar FAR  *pField;         // pointer to field list
-    char FAR   *pc;
+    uchar      *pField;         // pointer to field list
+    char       *pc;
     uint        tSkip;
     ushort      cmpflag;
     peval_t     pv;
@@ -1042,16 +1240,16 @@ LOCAL bool_t NEAR FASTCALL BindBScope (bnode_t bn)
                 pExState->err_num = ERR_BADOMF;
                 return (FALSE);
             }
-            pField = (uchar FAR *)(&((TYPPTR)MHOmfLock ((HDEP)hBase))->leaf);
+            pField = (uchar *)(&((TYPPTR)MHOmfLock ((HDEP)hBase))->leaf);
             tSkip = offsetof (lfClass, data[0]);
             RNumLeaf (pField + tSkip, &tSkip);
-            pc = (char FAR *)pField + tSkip;
+            pc = (char *)pField + tSkip;
             if (len == (ushort)*pc) {
                 if (pExState->state.fCase == TRUE) {
-                   cmpflag = _fstrncmp (pbName, pc + 1, len);
+                   cmpflag = strncmp (pbName, pc + 1, len);
                 }
                 else {
-                    cmpflag = _fstrnicmp (pbName, pc + 1, len);
+                    cmpflag = _strnicmp (pbName, pc + 1, len);
                 }
             }
             MHOmfUnLock ((HDEP)hBase);
@@ -1178,7 +1376,10 @@ found:
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindByteOps (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindByteOps (
+    bnode_t bn
+    )
 {
     op_t        op;
     CV_typ_t    type;
@@ -1217,11 +1418,11 @@ LOCAL bool_t NEAR FASTCALL BindByteOps (bnode_t bn)
         }
     }
 
-    // Now cast the node to (char far *), (int far *) or
-    // (long far *).  If the type is char, uchar, short
+    // Now cast the node to (char *), (int *) or
+    // (long *).  If the type is char, uchar, short
     // or ushort, we want to first cast to (char *) so
     // that we properly DS-extend (casting (int)8 to (char
-    // far *) will give the result 0:8).
+    // *) will give the result 0:8).
 
     type = EVAL_TYP (ST);
 
@@ -1260,7 +1461,10 @@ LOCAL bool_t NEAR FASTCALL BindByteOps (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindCast (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindCast (
+    bnode_t bn
+    )
 {
     peval_t     pv;
     bnode_t     bnLeft;
@@ -1335,7 +1539,10 @@ LOCAL bool_t NEAR FASTCALL BindCast (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR PASCAL CastPtrToPtr (bnode_t bn)
+LOCAL bool_t
+CastPtrToPtr (
+    bnode_t bn
+    )
 {
     static eval_t      evalD = {0};
     static eval_t      evalB = {0};
@@ -1385,7 +1592,10 @@ LOCAL bool_t NEAR PASCAL CastPtrToPtr (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindConst (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindConst (
+    bnode_t bn
+    )
 {
     peval_t     pv = &(pnodeOfbnode(bn))->v[0];
 
@@ -1414,14 +1624,14 @@ LOCAL bool_t NEAR FASTCALL BindConst (bnode_t bn)
 }
 
 
-LOCAL   bool_t NEAR FASTCALL
+LOCAL   bool_t FASTCALL
 CxtHelper (
            bnode_t      bn,
            HMOD         hMod,
            HSF          hsf,
            int          cMod,
            int          cProc,
-           char FAR *   pProc
+           char *   pProc
            )
 {
     bool_t      error;
@@ -1436,6 +1646,7 @@ CxtHelper (
     HR_t        retval;
     pnode_t     pn;
     peval_t     pvT;
+    long        oldThisAdjust;
 
     /*
      * initialize the context packet in the node to have the same contents
@@ -1561,11 +1772,19 @@ CxtHelper (
     oldCxt = pCxt;
     oldbnCxt = bnCxt;
     oldClassImp = ClassImp;
+    oldThisAdjust = ClassThisAdjust;
     pCxt = SHpCXTFrompCXF (nCxf);
+
+    // BUGBUG: BRYANT-REVIEW
+    // Are the fixup/unfixup calls necessary for WOW?  Also, should there be a
+    //   BindingREG or BindingTLS test?
+
     SHFixupAddr(SHpADDRFrompCXT(pCxt));
     SHUnFixupAddr(SHpADDRFrompCXT(pCxt));
+    if (BindingBP && (cMod > 0))
+        pBindBPCxt = pCxt;
     bnCxt = bn;
-    ClassImp = SetImpClass (pCxt);
+    ClassImp = SetImpClass (pCxt, &ClassThisAdjust);
     pn = pnodeOfbnode(bn);
     pn->pcxf = nCxf;
 
@@ -1609,11 +1828,12 @@ CxtHelper (
         pCxt = oldCxt;
     }
     ClassImp = oldClassImp;
+    ClassThisAdjust = oldThisAdjust;
     return (error);
 }                               /* CxtHelper() */
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 BindContext(
             bnode_t bn
             )
@@ -1666,13 +1886,13 @@ Return Value:
 {
     int         instance = 0;
     bool_t      isnegative = FALSE;
-    char FAR *  pProc;
+    char *  pProc;
     short       cProc;
-    char FAR *  pMod;
+    char *  pMod;
     short       cMod;
-    char FAR *  pExe;
+    char *  pExe;
     short       cExe;
-    char FAR *  pb;
+    char *  pb;
     HEXE        hExe = 0;
     HMOD        hMod = 0;
     char        savedChar;
@@ -1864,7 +2084,7 @@ contextbad:
 
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 BindExeContext(
     bnode_t bn
     )
@@ -1932,7 +2152,10 @@ Return Value:
  *
  */
 
-LOCAL bool_t NEAR FASTCALL BindDMember (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindDMember (
+    bnode_t bn
+    )
 {
     bool_t      retval;
     CV_typ_t    oldClassExp;
@@ -1989,7 +2212,10 @@ LOCAL bool_t NEAR FASTCALL BindDMember (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindDot (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindDot (
+    bnode_t bn
+    )
 {
     bool_t      retval;
     CV_typ_t    oldClassExp;
@@ -1999,8 +2225,6 @@ LOCAL bool_t NEAR FASTCALL BindDot (bnode_t bn)
     pnode_t     pn;
     pnode_t     pnR;
     pnode_t     pnL;
-
-
 
     if (!BindLChild (bn)) {
         return (FALSE);
@@ -2091,7 +2315,10 @@ LOCAL bool_t NEAR FASTCALL BindDot (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindFetch (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindFetch (
+    bnode_t bn
+    )
 {
     pnode_t     pn;
     pnode_t     pnL;
@@ -2100,7 +2327,6 @@ LOCAL bool_t NEAR FASTCALL BindFetch (bnode_t bn)
     if (!BindLChild (bn)) {
         return (FALSE);
     }
-
     //
     // propogate the context from the left node to this node
     //
@@ -2127,24 +2353,25 @@ LOCAL bool_t NEAR FASTCALL BindFetch (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindFunction (
+    bnode_t bn
+    )
 {
     belem_t     oldStackCkPoint = StackCkPoint;
-#if !defined (C_ONLY)
     ushort      len;
     uint        OpDot;
     ushort      Right;
-    pnode_t     pn;
-#endif
+    pnode_t     pn = pnodeOfbnode(bn);
 
     CkPointStack ();
     if (Function (bn) == TRUE) {
         StackCkPoint = oldStackCkPoint;
         return (TRUE);
     }
+
     ResetStack ();
     StackCkPoint = oldStackCkPoint;
-#if !defined (C_ONLY)
     if (pExState->err_num != ERR_CLASSNOTFCN) {
         return (FALSE);
     }
@@ -2171,7 +2398,7 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
     // set operator node to OP_dot
 
     pn = pnodeOfbnode(OpDot);
-    _fmemset (pn, 0, sizeof (node_t) + sizeof (eval_t));
+    memset (pn, 0, sizeof (node_t) + sizeof (eval_t));
     NODE_OP (pn) = OP_dot;
     NODE_LCHILD (pn) = NODE_LCHILD (pnodeOfbnode(bn));
     NODE_RCHILD (pn) = (bnode_t)Right;
@@ -2180,15 +2407,11 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
     // insert OP_Ofunction node as right node
 
     pn = pnodeOfbnode((bnode_t)Right);
-    _fmemset (pn, 0, sizeof (node_t) + sizeof (eval_t));
+    memset (pn, 0, sizeof (node_t) + sizeof (eval_t));
     NODE_OP (pn) = OP_Ofunction;
 
     pTree->node_next += len;
     return (Function (bn));
-#else
-    pExState->err_num = ERR_SYNTAX;
-    return (FALSE);
-#endif
 }
 
 
@@ -2206,18 +2429,18 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
  *              char                        al
  *              short                       ax
  *              long                        dx:ax
- *              near float                  4 bytes pointed to by ds:ax
- *              far float                   4 bytes pointed to by dx:ax
- *              near double                 8 bytes pointed to by ds:ax
- *              far double                  8 bytes pointed to by dx:ax
+ *              float                       4 bytes pointed to by ds:ax
+ *              float                       4 bytes pointed to by dx:ax
+ *              double                      8 bytes pointed to by ds:ax
+ *              double                      8 bytes pointed to by dx:ax
  *              long double                 numeric coprocessor st0
  *              struct()  1|2|4 bytes       dx:ax
- *              near struct() 3 & > 4 bytes bytes pointed to by ds:ax
- *              far struct()  3 & > 4 bytes bytes pointed to by dx:ax
- *              near pointer                ax
- *              far pointer                 dx:ax
+ *              struct() 3 & > 4 bytes bytes pointed to by ds:ax
+ *              struct()  3 & > 4 bytes bytes pointed to by dx:ax
+ *              pointer                     ax
+ *              pointer                     dx:ax
  *
- *      Pascal calling sequence
+ *      pascal calling sequence
  *          Arguments are pushed left to right.  If the return value is a
  *          primitive type larger than 4 bytes or is real or is any user
  *          defined type that is not an alias for a primitive type, then
@@ -2234,11 +2457,11 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
  *              short                   ax
  *              long                    dx:ax
  *              float                   4 bytes pointed to by hidden argument
- *              near double             8 bytes pointed to by hidden argument
+ *              double                  8 bytes pointed to by hidden argument
  *              long double             10 bytes pointed to by hidden argument
  *              any UDT not primitive   bytes pointed to by hidden argument
- *              near pointer            ax
- *              far pointer             dx:ax
+ *              pointer                 ax
+ *              pointer                 dx:ax
  *
  *      fastcall - 16 calling sequence
  *          Arguments are pushed left to right.  If the return value is a
@@ -2256,8 +2479,8 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
  *              long                    dx:ax
  *              all real values         numeric coprocessor st0
  *              any UDT not primitive   bytes pointed to by hidden argument
- *              near pointer            ax
- *              far pointer             dx:ax
+ *              pointer            ax
+ *              pointer             dx:ax
  *
  *      fastcall - 32 calling sequence
  *          Arguments are pushed right to left.  If the return value is a
@@ -2274,13 +2497,16 @@ LOCAL bool_t NEAR FASTCALL BindFunction (bnode_t bn)
  *              long                    eax
  *              all real values         numeric coprocessor st0
  *              any UDT not primiate    bytes pointed to by hidden argument
- *              near pointer            eax
- *              far pointer             not valid
+ *              pointer            eax
+ *              pointer             not valid
  *
  */
 
 
-LOCAL bool_t NEAR FASTCALL Function (bnode_t bn)
+LOCAL bool_t FASTCALL
+Function (
+    bnode_t bn
+    )
 {
     bnode_t     bnT;
     pnode_t     pnT;
@@ -2297,26 +2523,21 @@ LOCAL bool_t NEAR FASTCALL Function (bnode_t bn)
     pargd_t     pa;
     bnode_t     bnRight = NODE_RCHILD (pnodeOfbnode(bn));
     BOOL        fTypeArgs = FALSE;
+    pnode_t     pnTmp = pnodeOfbnode(bn);
 
-    /*
-     *  Bind argument nodes until end of arguments reached and count arguments
-     */
+    //  Bind argument nodes until end of arguments reached and count arguments
 
-    /*
-     *  set BindingFuncArgs to true; notifies anybody who cares that
-     *  we are binding arguments (currently only BindConst cares)
-     */
+    //  set BindingFuncArgs to true; notifies anybody who cares that
+    //  we are binding arguments (currently only BindConst cares)
 
     BindingFuncArgs = TRUE;
 
-    for (bnT = bnRight;
+    for (bnT = bnRight, pnTmp = pnodeOfbnode(bnT);
          NODE_OP (pnodeOfbnode(bnT)) != OP_endofargs;
-         bnT = NODE_RCHILD (pnodeOfbnode(bnT))) {
+         bnT = NODE_RCHILD (pnodeOfbnode(bnT)), pnTmp = pnodeOfbnode(bnT)) {
 
-        /*
-         *   Check that this is an argument node.  If not then we have an
-         *      internal error
-         */
+        //   Check that this is an argument node.  If not then we have an
+        //      internal error
 
         if (NODE_OP (pnodeOfbnode(bnT)) != OP_arg) {
             pExState->err_num = ERR_INTERNAL;
@@ -2561,6 +2782,13 @@ LOCAL bool_t NEAR FASTCALL Function (bnode_t bn)
         break;
 #endif
 
+#ifdef TARGET_PPC
+    case FCN_PPC:
+        retval = PushPPCArgs (pvF, pnRight, &SPOff, ST);
+        break;
+
+#endif
+
     default:
         pExState->err_num = ERR_CALLSEQ;
         return (FALSE);
@@ -2626,18 +2854,19 @@ LOCAL bool_t NEAR FASTCALL Function (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindPlusMinus (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindPlusMinus (
+    bnode_t bn
+    )
 {
     if (!BindLChild (bn) || !BindRChild (bn)) {
         return (FALSE);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) &&
       (EVAL_IS_CLASS (ST) && (CLASS_PROP (ST).ovlops == TRUE)) ||
       (EVAL_IS_CLASS (STP) && (CLASS_PROP (STP).ovlops == TRUE))) {
         return (BinaryOverload (bn));
     }
-#endif
 
     if (EVAL_STATE (STP) == EV_type) {
         switch ( NODE_OP (pnodeOfbnode(bn)) ) {
@@ -2682,7 +2911,10 @@ LOCAL bool_t NEAR FASTCALL BindPlusMinus (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindPMember (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindPMember (
+    bnode_t bn
+    )
 {
     Unreferenced(bn);
 
@@ -2706,7 +2938,10 @@ LOCAL bool_t NEAR FASTCALL BindPMember (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindPointsTo (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindPointsTo (
+    bnode_t bn
+    )
 {
     eval_t      evalT = {0};
     peval_t     pvT;
@@ -2731,16 +2966,13 @@ LOCAL bool_t NEAR FASTCALL BindPointsTo (bnode_t bn)
     if (pnL && pnR) {
         pnR->pcxf = pnL->pcxf;
     }
-
     if (EVAL_IS_REF (ST)) {
         RemoveIndir (ST);
     }
 
-#if !defined (C_ONLY)
     if (EVAL_IS_CLASS (ST)) {
         return (PointsToOverload (bn));
     }
-#endif
 
     // Check to make sure the left operand is a struct/union pointer.
     // To do this, remove a level of indirection from the node's type
@@ -2810,7 +3042,10 @@ LOCAL bool_t NEAR FASTCALL BindPointsTo (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindPostIncDec (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindPostIncDec (
+    bnode_t bn
+    )
 {
     register op_t        nop = OP_plus;
 
@@ -2823,12 +3058,10 @@ LOCAL bool_t NEAR FASTCALL BindPostIncDec (bnode_t bn)
     if (!BindLChild (bn)) {
         return(FALSE);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (ST) &&
       (CLASS_PROP (ST).ovlops == TRUE)) {
         return (BinaryOverload (bn));
     }
-#endif
     if (!ValidateNodes (nop, ST, NULL)) {
         return(FALSE);
     }
@@ -2862,7 +3095,10 @@ LOCAL bool_t NEAR FASTCALL BindPostIncDec (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindPreIncDec (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindPreIncDec (
+    bnode_t bn
+    )
 {
     register op_t    nop = OP_plus;
 
@@ -2872,12 +3108,10 @@ LOCAL bool_t NEAR FASTCALL BindPreIncDec (bnode_t bn)
     if (!BindLChild (bn)) {
         return(FALSE);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (ST) &&
       (CLASS_PROP (ST).ovlops == TRUE)) {
         return (UnaryOverload (bn));
     }
-#endif
     if (!ValidateNodes (nop, ST, NULL)) {
         return(FALSE);
     }
@@ -2916,7 +3150,10 @@ LOCAL bool_t NEAR FASTCALL BindPreIncDec (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindRelat (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindRelat (
+    bnode_t bn
+    )
 {
     if (!BindLChild (bn) || !BindRChild (bn)) {
         return (FALSE);
@@ -2929,13 +3166,11 @@ LOCAL bool_t NEAR FASTCALL BindRelat (bnode_t bn)
         RemoveIndir (ST);
     }
 
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) &&
       (EVAL_IS_CLASS (ST) && (CLASS_PROP (ST).ovlops == TRUE)) ||
       (EVAL_IS_CLASS (STP) && (CLASS_PROP (STP).ovlops == TRUE))) {
         return (BinaryOverload (bn));
     }
-#endif
     if (EVAL_IS_ENUM (ST)) {
         SetNodeType (ST, ENUM_UTYPE (ST));
     }
@@ -2952,7 +3187,7 @@ LOCAL bool_t NEAR FASTCALL BindRelat (bnode_t bn)
         return (Arith (NODE_OP (pnodeOfbnode(bn))));
     }
 
-    // Both nodes should now be typed as either near or far
+    // Both nodes should now be typed as either or
     // pointers.
 
     //DASSERT ((CV_TYP_IS_PTR (EVAL_TYP (STP))) && (CV_TYP_IS_PTR (EVAL_TYP (ST))));
@@ -2983,12 +3218,15 @@ LOCAL bool_t NEAR FASTCALL BindRelat (bnode_t bn)
  *      DESCRIPTION
  *       Both operands must have integral values (but cannot
  *       be long or ulong).  The result of op1:op2 is a (char
- *       far *) with segment equal to op1 and offset equal to
+ *       *) with segment equal to op1 and offset equal to
  *       op2.
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindSegOp (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindSegOp (
+    bnode_t bn
+    )
 {
     /*
      * OP_segop and OP_segopReal use the same validate code so
@@ -3002,17 +3240,6 @@ LOCAL bool_t NEAR FASTCALL BindSegOp (bnode_t bn)
 
     // In addition, check to make sure that neither
     // operand is of type long or ulong.
-
-#ifndef WIN32
-    if ((EVAL_TYP (STP) == T_LONG) || (EVAL_TYP (STP) == T_ULONG) ||
-      (EVAL_TYP (ST) == T_LONG) || (EVAL_TYP (ST) == T_ULONG) ||
-      (EVAL_TYP (STP) == T_INT4) || (EVAL_TYP (STP) == T_UINT4) ||
-      (EVAL_TYP (ST) == T_INT4) || (EVAL_TYP (ST) == T_UINT4)) {
-        // M00BUG - I don't think this check is valid in 386 native mode
-        pExState->err_num = ERR_OPERANDTYPES;
-        return (FALSE);
-    }
-#endif
 
     //DASSERT((EVAL_TYP (STP) == T_SHORT) || (EVAL_TYP (STP) == T_USHORT));
     //DASSERT((EVAL_TYP (ST)  == T_SHORT) || (EVAL_TYP (ST)  == T_USHORT));
@@ -3043,7 +3270,10 @@ LOCAL bool_t NEAR FASTCALL BindSegOp (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindSizeOf (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindSizeOf (
+    bnode_t bn
+    )
 {
     bnode_t     bnLeft = NODE_LCHILD (pnodeOfbnode(bn));
     CV_typ_t    type;
@@ -3100,12 +3330,17 @@ LOCAL bool_t NEAR FASTCALL BindSizeOf (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindSymbol (
+    bnode_t bn
+    )
 {
     search_t    Name;
     token_t     Tok;
     peval_t     pv;
-
+#ifdef TARGET_PPC
+    bool_t  fFirstPass = TRUE;
+#endif
 
     if (ClassExp == T_NOTYPE) {
 
@@ -3115,12 +3350,12 @@ LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
         // be set to EV_lvalue
 
         InitSearchSym (bn, &pnodeOfbnode(bn)->v[0], &Name, ClassExp, SCP_all, CLS_defn);
-
+#ifdef TARGET_PPC
+SSStart:
+#endif
         switch (SearchSym (&Name)) {
             case HR_rewrite:
-#if !defined (C_ONLY)
-            return (Bind (bn));
-#endif
+                return (Bind (bn));
 
             case HR_error:
             case HR_ambiguous:
@@ -3131,10 +3366,9 @@ LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
                 if (!ParseType (bn)) {
                     // if the current radix is hex and the symbol potentially
                     // could be a number, then change the type of the node
-                    if (ParseConst (Name.sstr.lpName, &Tok,
-                      pExState->radix) == ERR_NONE) {
+                    if (ParseConst (Name.sstr.lpName, &Tok, pExState->radix) == ERR_NONE) {
                         if (Tok.pbEnd ==
-                          (char FAR *)Name.sstr.lpName + Name.sstr.cb) {
+                          (char *)Name.sstr.lpName + Name.sstr.cb) {
                             pExState->err_num = ERR_NONE;
                             NODE_OP (pnodeOfbnode(bn)) = OP_const;
                             pv = &(pnodeOfbnode(bn))->v[0];
@@ -3145,6 +3379,25 @@ LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
                             }
                         }
                     }
+#ifdef TARGET_PPC
+                    // The first pass through didn't find the symbol.  Try again,
+                    // this time looking for the .. name.  This is to fix the case
+                    // where the linker discards the function descriptor and COFFtoCV
+                    // wasn't able to generate a function record.
+
+                    if (fFirstPass) {
+                        InitSearchSym (bn, &pnodeOfbnode(bn)->v[0], &Name, ClassExp, SCP_all, CLS_defn);
+                        if (Name.sstr.cb < (sizeof(szAltSymName) - 3)) {
+                            memcpy(szAltSymName, "..", 2);
+                            memcpy(szAltSymName + 2, Name.sstr.lpName, Name.sstr.cb);
+                            *(szAltSymName + 2 + Name.sstr.cb) = '\0';
+                            Name.sstr.lpName = szAltSymName;
+                            Name.sstr.cb += 2;
+                        }
+                        fFirstPass = FALSE;
+                        goto SSStart;
+                    }
+#endif  // TARGET_PPC
                     pExState->err_num = ERR_UNKNOWNSYMBOL;
                     return (FALSE);
                 }
@@ -3167,9 +3420,8 @@ LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
         InitSearchRight (bnOp, bn, &Name, CLS_defn);
         switch (SearchSym (&Name)) {
             case HR_rewrite:
-#if !defined (C_ONLY)
                 return (Bind (bn));
-#endif
+
             default:
             case HR_ambiguous:
                 return (FALSE);
@@ -3214,7 +3466,10 @@ LOCAL bool_t NEAR FASTCALL BindSymbol (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindUnary (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindUnary (
+    bnode_t bn
+    )
 {
     if (!BindLChild (bn)) {
         return (FALSE);
@@ -3226,12 +3481,10 @@ LOCAL bool_t NEAR FASTCALL BindUnary (bnode_t bn)
     if (EVAL_IS_REF (ST)) {
         RemoveIndir (ST);
     }
-#if !defined (C_ONLY)
     if ((pExState->state.fSupOvlOps == FALSE) && EVAL_IS_CLASS (ST) &&
       (CLASS_PROP (ST).ovlops == TRUE)) {
         return (UnaryOverload (bn));
     }
-#endif
     if (!ValidateNodes (NODE_OP (pnodeOfbnode(bn)), ST, NULL)) {
         return (FALSE);
     }
@@ -3254,7 +3507,10 @@ LOCAL bool_t NEAR FASTCALL BindUnary (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL BindUScope (bnode_t bn)
+LOCAL bool_t FASTCALL
+BindUScope (
+    bnode_t bn
+    )
 {
     register bool_t retval;
     CXT         oldCxt;
@@ -3293,7 +3549,10 @@ LOCAL bool_t NEAR FASTCALL BindUScope (bnode_t bn)
  *
  */
 
-LOCAL bool_t NEAR FASTCALL AddrOf (bnode_t bn)
+LOCAL bool_t FASTCALL
+AddrOf (
+    bnode_t bn
+    )
 {
     CV_typ_t    type;
     eval_t      evalT = {0};
@@ -3362,8 +3621,8 @@ LOCAL bool_t NEAR FASTCALL AddrOf (bnode_t bn)
     }
     else if (CV_IS_PRIMITIVE (EVAL_TYP (ST))) {
         // if the node is primitive, then a pointer to the primitive type
-        // can be created.  We will create the pointer as a near pointer
-        // and assume that subsequent code will cast to a far pointer if
+        // can be created.  We will create the pointer as a pointer
+        // and assume that subsequent code will cast to a pointer if
         // necessary
 
         if (ADDR_IS_FLAT (pCxt->addr)) {
@@ -3393,7 +3652,7 @@ LOCAL bool_t NEAR FASTCALL AddrOf (bnode_t bn)
     }
     else {
         // we are punting here and calling the address of anything else
-        // a pointer to far character
+        // a pointer to character
 
         type = T_PFCHAR;
     }
@@ -3441,7 +3700,10 @@ LOCAL bool_t NEAR FASTCALL AddrOf (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR FASTCALL Arith (op_t op)
+LOCAL bool_t FASTCALL
+Arith (
+    op_t op
+    )
 {
     CV_typ_t    typRes;
     bool_t      fIsReal;
@@ -3557,7 +3819,10 @@ LOCAL bool_t NEAR FASTCALL Arith (op_t op)
 }
 
 
-LOCAL bool_t NEAR FASTCALL CastBinary (op_t op)
+LOCAL bool_t FASTCALL
+CastBinary (
+    op_t op
+    )
 {
     CV_typ_t    typRes;
     bool_t      fIsReal;
@@ -3622,7 +3887,10 @@ LOCAL bool_t NEAR FASTCALL CastBinary (op_t op)
  */
 
 
-LOCAL bool_t NEAR FASTCALL Fetch (void)
+LOCAL bool_t FASTCALL
+Fetch (
+    void
+    )
 {
 
     // validate the node type
@@ -3666,7 +3934,10 @@ LOCAL bool_t NEAR FASTCALL Fetch (void)
  *              Arith ().
  */
 
-LOCAL bool_t NEAR FASTCALL PlusMinus (op_t op)
+LOCAL bool_t FASTCALL
+PlusMinus (
+    op_t op
+    )
 {
     if (EVAL_IS_REF (STP)) {
         RemoveIndir (STP);
@@ -3777,7 +4048,10 @@ LOCAL bool_t NEAR FASTCALL PlusMinus (op_t op)
  */
 
 
-LOCAL bool_t NEAR FASTCALL PrePost (op_t op)
+LOCAL bool_t FASTCALL
+PrePost (
+    op_t op
+    )
 {
     eval_t      evalT = {0};
     peval_t     pvT;
@@ -3822,7 +4096,10 @@ LOCAL bool_t NEAR FASTCALL PrePost (op_t op)
  */
 
 
-LOCAL bool_t NEAR FASTCALL Unary (op_t op)
+LOCAL bool_t FASTCALL
+Unary (
+    op_t op
+    )
 {
     CV_typ_t        typRes;
     bool_t          fIsReal;
@@ -3916,11 +4193,11 @@ LOCAL bool_t NEAR FASTCALL Unary (op_t op)
 
 #ifdef TARGET_i386
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushTArgs(
           peval_t         pvF,
           pnode_t         pn,
-          UOFFSET FAR *   pSPOff,
+          UOFFSET *   pSPOff,
           int             argn,
           peval_t         pvScr
           )
@@ -3970,8 +4247,14 @@ return value:
  */
 
 
-LOCAL bool_t NEAR FASTCALL PushCArgs (peval_t pvF, pnode_t pn,
-  UOFFSET FAR *pSPOff, int argn, peval_t pvScr)
+LOCAL bool_t FASTCALL
+PushCArgs (
+    peval_t pvF,
+    pnode_t pn,
+    UOFFSET *pSPOff,
+    int argn,
+    peval_t pvScr
+    )
 {
     CV_typ_t    type;
     pargd_t     pa;
@@ -4080,13 +4363,13 @@ LOCAL bool_t NEAR FASTCALL PushCArgs (peval_t pvF, pnode_t pn,
  */
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushFArgs(
-          peval_t       pvF,
-          pnode_t       pnArg,
-          UOFFSET FAR * pSPOff,
-          peval_t pvScr
-          )
+    peval_t       pvF,
+    pnode_t       pnArg,
+    UOFFSET * pSPOff,
+    peval_t pvScr
+    )
 {
     ushort      regmask = 0;
     short       argn = 0;
@@ -4136,7 +4419,7 @@ PushFArgs(
     return (TRUE);
 }                               /* PushFArgs() */
 
-/**     PushPArgs - push arguments for Pascal call
+/**     PushPArgs - push arguments for        call
  *
  *      fSuccess = PushPArgs (pvF, pn, pSPOff);
  *
@@ -4152,8 +4435,13 @@ PushFArgs(
  */
 
 
-LOCAL bool_t NEAR FASTCALL PushPArgs (peval_t pvF, pnode_t pnArg,
- UOFFSET FAR *pSPOff, peval_t pvScr)
+LOCAL bool_t FASTCALL
+PushPArgs (
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    peval_t pvScr
+    )
 {
     pargd_t     pa;
     short       argn = 0;
@@ -4226,12 +4514,12 @@ LOCAL bool_t NEAR FASTCALL PushPArgs (peval_t pvF, pnode_t pnArg,
  */
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 FastCallReg (
-             pargd_t            pa,
-             peval_t            pv,
-             ushort FAR *       mask
-             )
+    pargd_t            pa,
+    peval_t            pv,
+    ushort *       mask
+    )
 {
 #define AX_PARAM        0x1
 #define DX_PARAM        0x2
@@ -4357,7 +4645,7 @@ FastCallReg (
                 DASSERT (FALSE);    // M00FLAT32
               }
             else {
-                //M00KLUDGE - it is assumed that far pointers go on the stack
+                //M00KLUDGE - it is assumed that pointers go on the stack
                   return (FALSE);
             }
             break;
@@ -4371,13 +4659,13 @@ FastCallReg (
 
 #ifdef TARGET_MIPS
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushMArgs (
-           peval_t pvF,
-           pnode_t pnArg,
-           UOFFSET FAR *pSPOff,
-           peval_t pvScr
-           )
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    peval_t pvScr
+    )
 
 /*++
 
@@ -4438,15 +4726,15 @@ Return Value:
 }
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushMArgs2 (
-           peval_t pvF,
-           pnode_t pnArg,
-           UOFFSET FAR *pSPOff,
-           int     argn,
-           uint    regmask,
-           peval_t pvScr
-           )
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    int     argn,
+    uint    regmask,
+    peval_t pvScr
+    )
 
 /*++
 
@@ -4649,11 +4937,12 @@ Return Value:
  *              FALSE if parameter is not passed in register
  */
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 MipsCallReg (
-             pargd_t    pa,
-             peval_t    pv,
-             uint FAR *mask)
+    pargd_t    pa,
+    peval_t    pv,
+    uint *mask
+    )
 {
 
     if (!SetNodeType (pv, pa->type)) {
@@ -4819,16 +5108,441 @@ MipsCallReg (
 
 #endif // TARGET_MIPS
 
+#ifdef TARGET_PPC
+
+LOCAL bool_t FASTCALL
+PushPPCArgs (
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    peval_t pvScr
+    )
+
+/*++
+
+Routine Description:
+
+    This routine computes the offsets for a PPC calling convention routine.
+
+Arguments:
+
+    pvF - Supplies a pointer to the function description
+    pn  - Supplies a pointer to the arugment node
+    pSPOff - Supplies pointer to the Stack Pointer relative offset counter
+                this value is updated to reflect pushed parameters
+
+Return Value:
+
+    TRUE if parameters pushed without error else FALSE
+
+--*/
+
+{
+    uint        regmask[3];
+    eval_t      evalRet;
+    peval_t     pvRet;
+
+    regmask[0] = regmask[1] = regmask[2] = 0;
+
+    /*
+     *  Must deal with return type and this parameters before
+     *  dealing with anything else.
+     */
+
+    pvRet = &evalRet;
+    *pvRet = *ST;
+    SetNodeType( pvRet, FCN_RETURN(pvRet));
+
+    if (EVAL_IS_METHOD(pvF)) {
+        SET_PARAM_INT(regmask, 0);
+    }
+
+    if (!EVAL_IS_REF(pvRet) &&
+        !CV_IS_PRIMITIVE(EVAL_TYP(pvRet)) &&
+        (TypeSize(pvRet) > 4) &&
+        (CV_TYPE ( EVAL_TYP (pvRet)) != CV_REAL)) {
+
+        if (IS_PARAM_EMPTY(regmask, 0)) {
+            SET_PARAM_INT(regmask, 0);
+        } else {
+            SET_PARAM_INT(regmask, 1);
+        }
+    }
+
+
+    /*
+     *  Now deal with the actual declared parameter list.
+     */
+
+    return PushPPCArgs2( pvF, pnArg, pSPOff, 0, regmask, pvScr);
+}
+
+
+LOCAL bool_t FASTCALL
+PushPPCArgs2 (
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    int     argn,
+    uint    *regmask,
+    peval_t pvScr
+    )
+
+/*++
+
+Routine Description:
+
+    This routine computes the offsets for a PPC calling convention routine.
+
+Arguments:
+
+    pvF - Supplies a pointer to the function description
+    pn  - Supplies a pointer to the arugment node
+    pSPOff - Supplies pointer to the Stack Pointer relative offset counter
+                this value is updated to reflect pushed parameters
+    argn   - Supplies the count of arguments pushed to date
+
+Return Value:
+
+    TRUE if parameters pushed without error else FALSE
+
+--*/
+
+{
+    int         argc;
+    CV_typ_t    type;
+    pargd_t     pa;
+    uint        cbVal;
+    int         cbR;
+    farg_t      argtype;
+    BOOL        fReg;
+
+    /*
+     *  Arguments are pushed in reverse (C) order
+     */
+
+    if (NODE_OP(pnArg) == OP_endofargs) {
+        /*
+         *      Set number of required parameters
+         */
+
+        argc = FCN_PCOUNT( pvF );
+        switch( argtype = GetArgType( pvF, (short) argc, &type ) ) {
+
+               /*
+                *    Error in the OMF or the number of arguments
+                *       exceeds the number of formals in an exact match list
+                */
+           case FARG_error:
+               pExState->err_num = ERR_FCNERROR;
+               return FALSE;
+
+               /*
+                *       return TRUE if number of actuals is 0
+                */
+
+           case FARG_none:
+               *pSPOff = 24;
+               return (argn == 0);
+
+               /*
+                *   if the formals count is zero then this can be
+                *       either voidargs or varargs.  We cannot tell
+                *       the difference so we allow either case.  If
+                *       varargs, then the number of acutals must
+                *       be at least one less than the number of formals
+                */
+
+               if ((argc == 0) || (argn >= argc - 1)) {
+                   return TRUE;
+               }
+               return FALSE;
+
+           case FARG_vararg:
+               // I putG_vararg back in because that's what GetArgType
+               // returns if there are no arguments. v-matth
+
+               // if the formals count is zero then this can be
+               // either voidargs or varargs.  We cannot tell the
+               // difference so we allow either case.  If varargs,
+               // then the number of actuals must be at least one
+               // less than the number of formals
+
+               if ((argc == 0) || (argn >= argc - 1)) {
+                   return (TRUE);
+               }
+               else {
+                   return (FALSE);
+               }
+
+           case FARG_exact:
+               *pSPOff = (*pSPOff + 8 - 1) & ~(8 - 1);
+               return (argc == argn);
+           }
+    }
+
+    /*
+     *  Need to get the size of the item to be pushed so that we can
+     *  do correct alignment of the stack for this data item.
+     */
+
+    switch ( argtype = GetArgType( pvF, (short) argn, &type )) {
+
+    default:
+        DASSERT(FALSE);
+
+        /*
+         *  If no type or error then return error
+         */
+    case FARG_error:
+    case FARG_none:
+        pExState->err_num = ERR_FCNERROR;
+        return FALSE;
+
+    case FARG_vararg:
+    case FARG_exact:
+        pa = (pargd_t)&pnArg->v[0];
+        pa->type = type;
+        pa->flags.isreg = FALSE;
+
+        SetNodeType (pvScr, type);
+
+        fReg = PPCCallReg( pa, pvScr, regmask);
+
+        /*
+         *  We always allocate space on the stack for any argument
+         *  even if it is placed in a register.
+         */
+
+        /*
+         *  To compute location on stack take the size of the
+         *  item and round to DWORDS.  The stack is DWORD aligned.
+         *
+         *  NOTENOTE??? - I don't know if this is correct for structures.
+         */
+
+
+        cbVal = (uint)(TypeSize(pvScr) + 3) & ~3;
+        cbR = (cbVal > 8) ? 8 : cbVal;
+        *pSPOff = (*pSPOff + cbR - 1 ) & ~(cbR - 1);
+
+        cbR = *pSPOff;
+        *pSPOff += cbVal;
+
+        break;
+
+    }
+
+
+    /*
+     *  At an actual arguement.  Recurse down the list to the end
+     *  and then process this argument
+     */
+
+    if (!PushPPCArgs2( pvF, pnodeOfbnode(NODE_RCHILD (pnArg)), pSPOff,
+                    argn+1, regmask, pvScr)) {
+        return FALSE;
+    } else {
+        DASSERT( ( argtype == FARG_exact ) || ( argtype == FARG_vararg ) );
+
+        /*
+         *   Allocate space on stack (in increments of 4) and
+         *   save the offset of the stack for the item.  Offsets
+         *  are saved backwards (i.e. from the end of the stack) so
+         *  we can push them on the stack easier.
+         */
+
+        pa->SPoff = *pSPOff - cbR;
+        // A little adjustment for linkage convention.   This function
+        // only allocates enough stack for the arguments.  We need 24
+        // bytes more.  v-matth
+        if( argn == 0 )
+        {
+                pa->SPoff = pa->SPoff + 24;
+        }
+
+        if (EVAL_IS_REF( pvScr )) {
+            pa->flags.ref = TRUE;
+            pa->utype = PTR_UTYPE ( pvScr );
+            SetNodeType (pvScr, pa->utype );
+            if (EVAL_IS_CLASS (pvScr)) {
+                pa->flags.utclass = TRUE;
+            }
+        }
+    }
+    return (TRUE);
+}                               /* PushPPCArgs2() */
+
+
+
+
+
+/***    PPCCallReg - assign  PPC call parameter to register
+ *
+ *      fSuccess = PPCCallReg (pa, pv, pmask)
+ *
+ *      Entry   pa = pointer to argument data
+ *              pv = pointer to value
+ *              pmask = pointer to allocation mask.  *pmask must be
+ *                      zero on first call
+ *
+ *      Exit    EVAL_IS_REG (pv) = TRUE if assigned to register
+ *              EVAL_REG (pv) = register ordinal if assigned to register
+ *              *pmask updated if assigned to register
+ *
+ *      Returns TRUE if parameter is passed in register
+ *              FALSE if parameter is not passed in register
+ */
+
+LOCAL bool_t FASTCALL
+PPCCallReg (
+    pargd_t    pa,
+    peval_t    pv,
+    uint *mask
+    )
+{
+    int i, j;
+
+    if (!SetNodeType (pv, pa->type)) {
+        DASSERT (FALSE);
+        return (FALSE);
+    }
+
+    pa->vallen = (ushort)TypeSize (pv);
+
+    /*
+     *  Depending on the type we need to allocate something to the
+     *  correct set of registers and to void other registers as
+     *  appriopirate
+     */
+
+    switch( pa->type ) {
+
+        default:
+            if (pa->vallen > 8) {
+                // Here is where we do the "painting across" registers
+                // trick, if we overflow, we spill into memory. FIXME
+                break;
+            }
+
+        case T_UCHAR:
+        case T_CHAR:
+        case T_RCHAR:
+        case T_USHORT:
+        case T_SHORT:
+        case T_INT2:
+        case T_UINT2:
+        case T_ULONG:
+        case T_LONG:
+        case T_INT4:
+        case T_UINT4:
+        case T_32PCHAR:
+        case T_32PUCHAR:
+        case T_32PRCHAR:
+        case T_32PWCHAR:
+        case T_32PINT2:
+        case T_32PUINT2:
+        case T_32PSHORT:
+        case T_32PUSHORT:
+        case T_32PINT4:
+        case T_32PUINT4:
+        case T_32PLONG:
+        case T_32PULONG:
+        case T_32PINT8:
+        case T_32PUINT8:
+        case T_32PREAL32:
+        case T_32PREAL48:
+        case T_32PREAL64:
+
+            if (!IS_PARAM_EMPTY(mask, 7))
+                return FALSE;
+
+            for (i = 0; i < 8; i++)
+                if (IS_PARAM_EMPTY(mask, i)) {
+                    SET_PARAM_INT(mask, i);
+                    pa->flags.isreg = TRUE;
+                    pa->reg = CV_PPC_GPR3 + i;
+                    break;
+                }
+
+            return TRUE;
+
+        case T_REAL32:
+
+            if (!IS_PARAM_EMPTY(mask, 8+13-1))
+                return FALSE;
+
+            for (i = 8; i < 8+13; i++) {
+                if (IS_PARAM_EMPTY(mask, i)) {
+                    SET_PARAM_FLOAT(mask, i);
+                    pa->flags.isreg = TRUE;
+                    pa->reg = CV_PPC_FPR1 + i - 8;
+
+                    if (IS_PARAM_EMPTY(mask, 7)) {
+                        for (j = 0; j < 8; j++) {
+                            if (IS_PARAM_EMPTY(mask, j)) {
+                                SET_PARAM_FLOAT(mask, j);
+                                pa->reg |= (CV_PPC_GPR3 + j) << 8;
+                                break;
+                            }
+                        }
+                    }
+                break;
+                }
+            }
+            return TRUE;
+
+        case T_REAL64:
+
+            if (!IS_PARAM_EMPTY(mask, 8+13-1))
+                return FALSE;
+
+            for (i = 8; i < 8+13; i++) {
+                if (IS_PARAM_EMPTY(mask, i)) {
+                    SET_PARAM_DOUBLE(mask, i);
+                    pa->flags.isreg = TRUE;
+                    pa->reg = CV_PPC_FPR1 + i - 8;
+
+                    if (IS_PARAM_EMPTY(mask, 7)) {
+                        for (j = 0; j < 8; j+= 2) {
+                            if (IS_PARAM_EMPTY(mask, j)) {
+                                SET_PARAM_DOUBLE(mask, j);
+                                pa->reg |= (CV_PPC_GPR3 + j) << 12;
+                                if (j < 7) {
+                                    SET_PARAM_DOUBLE(mask, j+1);
+                                    pa->reg |= (CV_PPC_GPR3 + j + 1) << 8;
+                                }
+                                if (IS_PARAM_EMPTY(mask, j-1)) {
+                                    SET_PARAM_SKIPPED(mask, j-1);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
+            return TRUE;
+    }
+
+    mask[0] = mask[1] = mask[2] = 0xffffffff;
+    return FALSE;
+}                               /* PPCCallReg() */
+
+#endif // TARGET_PPC
+
+
 
 #ifdef TARGET_ALPHA
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushAArgs (
-           peval_t pvF,
-           pnode_t pnArg,
-           UOFFSET FAR *pSPOff,
-           peval_t pvScr
-           )
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    peval_t pvScr
+    )
 
 /*++
 
@@ -4894,15 +5608,15 @@ Return Value:
 }
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 PushAArgs2 (
-           peval_t pvF,
-           pnode_t pnArg,
-           UOFFSET FAR *pSPOff,
-           int     argn,
-           uint    regmask,
-           peval_t pvScr
-           )
+    peval_t pvF,
+    pnode_t pnArg,
+    UOFFSET *pSPOff,
+    int     argn,
+    uint    regmask,
+    peval_t pvScr
+    )
 
 /*++
 
@@ -5111,11 +5825,12 @@ Return Value:
  *              FALSE if parameter is not passed in register
  */
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 AlphaCallReg (
-             pargd_t    pa,
-             peval_t    pv,
-             uint FAR *mask)
+    pargd_t    pa,
+    peval_t    pv,
+    uint *mask
+    )
 {
 
     if (!SetNodeType (pv, pa->type)) {
@@ -5312,18 +6027,12 @@ AlphaCallReg (
 #endif // TARGET_ALPHA
 
 
-#if !defined (C_ONLY)
-
 struct _OvlMap {
     op_t    op;
     op_t    ovlfcn;
 };
 
-#ifdef WIN32
 struct _OvlMap BinaryOvlMap[] = {
-#else
-struct _OvlMap _based (_segname("_CODE")) BinaryOvlMap[] = {
-#endif
     {OP_preinc      ,OP_Oincrement  },
     {OP_predec      ,OP_Odecrement  },
     {OP_postinc     ,OP_Oincrement  },
@@ -5389,7 +6098,10 @@ struct _OvlMap _based (_segname("_CODE")) BinaryOvlMap[] = {
  */
 
 
-LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
+LOCAL bool_t
+BinaryOverload (
+    bnode_t bn
+    )
 {
     ushort      lenClass;
     ushort      lenGlobal;
@@ -5479,15 +6191,15 @@ LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
     pTree = pClass;
 
     Fcn = (bnode_t)pTree->node_next;
-    Left = (bnode_t)((char FAR *)Fcn + sizeof (node_t) + sizeof (eval_t));
-    LeftRight = (bnode_t)((char FAR *)Left + sizeof (node_t) + sizeof (eval_t));
-    Arg1 = (bnode_t)((char FAR *)LeftRight + sizeof (node_t) + sizeof (eval_t));
-    EndArg = (bnode_t)((char FAR *)Arg1 + sizeof (node_t) + sizeof (argd_t));
+    Left = (bnode_t)((char *)Fcn + sizeof (node_t) + sizeof (eval_t));
+    LeftRight = (bnode_t)((char *)Left + sizeof (node_t) + sizeof (eval_t));
+    Arg1 = (bnode_t)((char *)LeftRight + sizeof (node_t) + sizeof (eval_t));
+    EndArg = (bnode_t)((char *)Arg1 + sizeof (node_t) + sizeof (argd_t));
     if (PostID == TRUE) {
         // if we are processing post increment/decrement, then we have to
         // supply the implicit zero second argument
 
-        Zero = (bnode_t)((char FAR *)EndArg + sizeof (node_t)); // M00BUG? - removal of based
+        Zero = (bnode_t)((char *)EndArg + sizeof (node_t)); // M00BUG? - removal of based
         NODE_OP (pnodeOfbnode(Zero)) = OP_const;
         pv = &pnodeOfbnode(Zero)->v[0];
         EVAL_STATE (pv) = EV_constant;
@@ -5530,6 +6242,7 @@ LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
     // the expression tree may have been altered during bind
 
     pClass = pTree;
+    hClass = pExState->hETree;
     pExState->err_num = ERR_NONE;
 
     if ((OldOper != OP_function) && (OldOper != OP_eq) &&
@@ -5542,15 +6255,15 @@ LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
         pTree = pGlobal;
 
         Fcn = (bnode_t)pTree->node_next;
-        Left = (bnode_t)((char FAR *)Fcn + sizeof (node_t) + sizeof (eval_t));
-        Arg1 = (bnode_t)((char FAR *)Left + sizeof (node_t) + sizeof (eval_t));
-        Arg2 = (bnode_t)((char FAR *)Arg1 + sizeof (node_t) + sizeof (argd_t));
-        EndArg = (bnode_t)((char FAR *)Arg2 + sizeof (node_t) + sizeof (argd_t));
+        Left = (bnode_t)((char *)Fcn + sizeof (node_t) + sizeof (eval_t));
+        Arg1 = (bnode_t)((char *)Left + sizeof (node_t) + sizeof (eval_t));
+        Arg2 = (bnode_t)((char *)Arg1 + sizeof (node_t) + sizeof (argd_t));
+        EndArg = (bnode_t)((char *)Arg2 + sizeof (node_t) + sizeof (argd_t));
         if (PostID == TRUE) {
             // if we are processing post increment/decrement, then we have to
             // supply the implicit zero second argument
 
-            Zero = (bnode_t)((char FAR *)EndArg + sizeof (node_t));
+            Zero = (bnode_t)((char *)EndArg + sizeof (node_t));
             NODE_OP (pnodeOfbnode(Zero)) = OP_const;
             pv = &pnodeOfbnode(Zero)->v[0];
             EVAL_STATE (pv) = EV_constant;
@@ -5593,6 +6306,7 @@ LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
         // the expression tree may have been altered during bind
 
         pGlobal = pTree;
+        hGlobal = pExState->hETree;
         pExState->err_num = ERR_NONE;
     }
 
@@ -5641,11 +6355,7 @@ LOCAL bool_t NEAR PASCAL BinaryOverload (bnode_t bn)
 
 
 
-#ifdef WIN32
 struct _OvlMap UnaryOvlMap[] = {
-#else
-struct _OvlMap _based (_segname("_CODE")) UnaryOvlMap[] = {
-#endif
     {OP_bang        ,OP_Obang       },
     {OP_tilde       ,OP_Otilde      },
     {OP_negate      ,OP_Ominus      },
@@ -5672,7 +6382,10 @@ struct _OvlMap _based (_segname("_CODE")) UnaryOvlMap[] = {
  */
 
 
-LOCAL bool_t NEAR PASCAL UnaryOverload (bnode_t bn)
+LOCAL bool_t
+UnaryOverload (
+    bnode_t bn
+    )
 {
     ushort      lenClass;
     ushort      lenGlobal;
@@ -5745,9 +6458,9 @@ LOCAL bool_t NEAR PASCAL UnaryOverload (bnode_t bn)
     pTree = pClass;
 
     Fcn = (bnode_t)pTree->node_next;
-    Left = (bnode_t)((char FAR *)Fcn + sizeof (node_t) + sizeof (eval_t));
-    LeftRight = (bnode_t)((char FAR *)Left + sizeof (node_t) + sizeof (eval_t));
-    Right = (bnode_t)((char FAR *)LeftRight + sizeof (node_t) + sizeof (eval_t));
+    Left = (bnode_t)((char *)Fcn + sizeof (node_t) + sizeof (eval_t));
+    LeftRight = (bnode_t)((char *)Left + sizeof (node_t) + sizeof (eval_t));
+    Right = (bnode_t)((char *)LeftRight + sizeof (node_t) + sizeof (eval_t));
     pTree->node_next += lenClass;
     NODE_OP (pnodeOfbnode(Fcn)) = OP_function;
     NODE_LCHILD (pnodeOfbnode(Fcn)) = Left;
@@ -5785,9 +6498,9 @@ LOCAL bool_t NEAR PASCAL UnaryOverload (bnode_t bn)
     pTree = pGlobal;
 
     Fcn = (bnode_t)pTree->node_next;
-    Left = (bnode_t)((char FAR *)Fcn + sizeof (node_t) + sizeof (eval_t));
-    Right = (bnode_t)((char FAR *)Left + sizeof (node_t) + sizeof (eval_t));
-    RightRight = (bnode_t)((char FAR *)Right + sizeof (node_t) + sizeof (argd_t));
+    Left = (bnode_t)((char *)Fcn + sizeof (node_t) + sizeof (eval_t));
+    Right = (bnode_t)((char *)Left + sizeof (node_t) + sizeof (eval_t));
+    RightRight = (bnode_t)((char *)Right + sizeof (node_t) + sizeof (argd_t));
     pTree->node_next += lenGlobal;
     NODE_OP (pnodeOfbnode(Fcn)) = OP_function;
     NODE_LCHILD (pnodeOfbnode(Fcn)) = Left;
@@ -5874,7 +6587,10 @@ LOCAL bool_t NEAR PASCAL UnaryOverload (bnode_t bn)
  */
 
 
-LOCAL bool_t NEAR PASCAL PointsToOverload (bnode_t bn)
+LOCAL bool_t
+PointsToOverload (
+    bnode_t bn
+    )
 {
     pExState->err_num = ERR_OVLPOINTSTO;
     return (FALSE);
@@ -5898,7 +6614,11 @@ LOCAL bool_t NEAR PASCAL PointsToOverload (bnode_t bn)
  *              memory handle if expression tree duplicated
  */
 
-LOCAL HDEP NEAR PASCAL DupETree (ushort count, pstree_t FAR *ppTree)
+LOCAL HDEP
+DupETree (
+    ushort count,
+    pstree_t *ppTree
+    )
 {
     HDEP        hNew;
 
@@ -5909,13 +6629,11 @@ LOCAL HDEP NEAR PASCAL DupETree (ushort count, pstree_t FAR *ppTree)
         return (hNew);
     }
     *ppTree = (pstree_t)MHMemLock (hNew);
-    _fmemcpy (*ppTree, pTree, pTree->node_next);
+    memcpy (*ppTree, pTree, pTree->node_next);
     (*ppTree)->size = pTree->node_next + count;
-    _fmemset ((char FAR *)*ppTree + (*ppTree)->node_next, 0, count);
+    memset ((char *)*ppTree + (*ppTree)->node_next, 0, count);
     return (hNew);
 }
-
-#endif
 
 
 
@@ -5941,7 +6659,10 @@ LOCAL HDEP NEAR PASCAL DupETree (ushort count, pstree_t FAR *ppTree)
  */
 
 
-LOCAL bool_t NEAR FASTCALL FcnCast (bnode_t bn)
+LOCAL bool_t FASTCALL
+FcnCast (
+    bnode_t bn
+    )
 {
     peval_t     pv;
     bnode_t     bnLeft = NODE_LCHILD (pnodeOfbnode(bn));
@@ -5992,9 +6713,12 @@ LOCAL bool_t NEAR FASTCALL FcnCast (bnode_t bn)
  */
 
 
-LOCAL uchar NEAR FASTCALL GetID (char FAR *pb)
+LOCAL uchar FASTCALL
+GetID (
+    char *pb
+    )
 {
-    char FAR   *start = pb;
+    char   *start = pb;
     char        c = *pb++;
 
     if (isdigit (c))
@@ -6023,11 +6747,14 @@ LOCAL uchar NEAR FASTCALL GetID (char FAR *pb)
  */
 
 
-LOCAL bool_t NEAR FASTCALL ParseType (bnode_t bn)
+LOCAL bool_t FASTCALL
+ParseType (
+    bnode_t bn
+    )
 {
     pnode_t     pn = pnodeOfbnode(bn);
-    char FAR   *pb;
-    char FAR   *pbEnd;
+    char   *pb;
+    char   *pbEnd;
     peval_t     pv;
     bool_t      cmpflag;
     uchar       len;
@@ -6036,7 +6763,7 @@ LOCAL bool_t NEAR FASTCALL ParseType (bnode_t bn)
     ushort      mode = 0;
     ushort      btype = 0;
     ushort      size = 0;
-    struct typrec FAR *p;
+    struct typrec *p;
     eval_t      evalT = {0};
     peval_t     pvT = &evalT;
     CV_modifier_t    Mod = {0};
@@ -6068,7 +6795,7 @@ LOCAL bool_t NEAR FASTCALL ParseType (bnode_t bn)
         else {
             for (p = Predef; p->token[0] != 0; p++) {
                 if ((p->token[0] == len) &&
-                  ((cmpflag = _fstrncmp ((char FAR *)&p->token[1], pb, len)) == 0)) {
+                  ((cmpflag = strncmp ((char *)&p->token[1], pb, len)) == 0)) {
                     break;
                 }
             }
@@ -6102,7 +6829,7 @@ LOCAL bool_t NEAR FASTCALL ParseType (bnode_t bn)
         goto typebad;
     }
     if (mask & TY_REF) {
-        //M00KLUDGE - what about int far&
+        //M00KLUDGE - what about int&
         if (mask & TY_PTR) {
             goto typebad;
         }
@@ -6359,7 +7086,14 @@ typebad:
 
 
 
-LOCAL bool_t NEAR FASTCALL BuildType (CV_typ_t FAR *type, ulong FAR *mask, ushort FAR *mode, ushort FAR *btype, ushort FAR *size)
+LOCAL bool_t FASTCALL
+BuildType (
+    CV_typ_t *type,
+    ulong *mask,
+    ushort *mode,
+    ushort *btype,
+    ushort *size
+    )
 {
 
     // type must be primitive or a pointer to a primitive type
@@ -6525,7 +7259,14 @@ LOCAL bool_t NEAR FASTCALL BuildType (CV_typ_t FAR *type, ulong FAR *mask, ushor
  */
 
 
-LOCAL bool_t NEAR PASCAL FindUDT (bnode_t bn, peval_t pv, char FAR *pStr, char FAR *pb, uchar len)
+LOCAL bool_t
+FindUDT (
+    bnode_t bn,
+    peval_t pv,
+    char *pStr,
+    char *pb,
+    uchar len
+    )
 {
     search_t    Name;
 
@@ -6561,12 +7302,12 @@ LOCAL bool_t NEAR PASCAL FindUDT (bnode_t bn, peval_t pv, char FAR *pStr, char F
 
 
 
-LOCAL bool_t NEAR FASTCALL
+LOCAL bool_t FASTCALL
 ContextToken(
-             char FAR * FAR *   ppStr,
-             char FAR * FAR *   ppTok,
-             short FAR *        pcTok
-             )
+    char * *   ppStr,
+    char * *   ppTok,
+    short *        pcTok
+    )
 /*++
 
 Routine Description:
@@ -6623,16 +7364,24 @@ Return Value:
     cchTok = 0;
     while (*pStr == '(') {
         cParenOpen += 1;
-        pStr;
+        pStr++;
         pdepth += 1;
     }
     *ppTok = pStr;
+#ifdef DBCS
+    while ((ch = *pStr, (pStr = CharNext(pStr)), ch) != 0) {
+        /*
+         * increment count of characters in token
+         */
+        cchTok += pStr - CharPrev(*ppTok,pStr);
+#else
     while ((ch = *pStr++) != 0) {
         /*
          * increment count of characters in token
          */
 
         cchTok += 1;
+#endif
         switch (ch) {
             /*
              * increment parentheses depth
@@ -6766,13 +7515,21 @@ Return Value:
  */
 
 
-void PASCAL InitSearchSym (bnode_t bn, peval_t pv, psearch_t pName, CV_typ_t iClass, ushort scope, ushort clsmask)
+void
+InitSearchSym (
+    bnode_t bn,
+    peval_t pv,
+    psearch_t pName,
+    CV_typ_t iClass,
+    ushort scope,
+    ushort clsmask
+    )
 {
     op_t    op = NODE_OP (pnodeOfbnode(bn));
 
     // set starting context for symbol search to current context
 
-    _fmemset (pName, 0, sizeof (*pName));
+    memset (pName, 0, sizeof (*pName));
     pName->initializer = INIT_sym;
     pName->pfnCmp = FNCMP;
     pName->pv = pv;
@@ -6785,11 +7542,11 @@ void PASCAL InitSearchSym (bnode_t bn, peval_t pv, psearch_t pName, CV_typ_t iCl
     // set pointer to symbol name
 
     if ((op >= OP_this) && (op <= OP_Odelete)) {
-        pName->sstr.lpName = (uchar FAR *)&OpName[op - OP_this].str[1];
+        pName->sstr.lpName = (uchar *)&OpName[op - OP_this].str[1];
         pName->sstr.cb = OpName[op - OP_this].str[0];
     }
     else {
-        pName->sstr.lpName = (uchar FAR *)pExStr + EVAL_ITOK (pv);
+        pName->sstr.lpName = (uchar *)pExStr + EVAL_ITOK (pv);
         pName->sstr.cb = EVAL_CBTOK (pv);
     }
     pName->state = SYM_init;
@@ -6819,7 +7576,13 @@ void PASCAL InitSearchSym (bnode_t bn, peval_t pv, psearch_t pName, CV_typ_t iCl
  */
 
 
-void PASCAL InitSearchRight (bnode_t bnOp, bnode_t bn, psearch_t pName, ushort clsmask)
+void
+InitSearchRight (
+    bnode_t bnOp,
+    bnode_t bn,
+    psearch_t pName,
+    ushort clsmask
+    )
 {
     peval_t     pv = &pnodeOfbnode(bn)->v[0];
     pnode_t     pn = pnodeOfbnode(bn);
@@ -6827,7 +7590,7 @@ void PASCAL InitSearchRight (bnode_t bnOp, bnode_t bn, psearch_t pName, ushort c
 
     // set starting context for symbol search to current context
 
-    _fmemset (pName, 0, sizeof (*pName));
+    memset (pName, 0, sizeof (*pName));
     pName->initializer = INIT_right;
     pName->pfnCmp = FNCMP;
     pName->pv = pv;
@@ -6839,11 +7602,11 @@ void PASCAL InitSearchRight (bnode_t bnOp, bnode_t bn, psearch_t pName, ushort c
 
     // set pointer to symbol name
     if ((op >= OP_this) && (op <= OP_Odelete)) {
-        pName->sstr.lpName = (uchar FAR *)&OpName[op - OP_this].str[1];
+        pName->sstr.lpName = (uchar *)&OpName[op - OP_this].str[1];
         pName->sstr.cb = OpName[op - OP_this].str[0];
     }
     else {
-        pName->sstr.lpName = (uchar FAR *)pExStr + EVAL_ITOK (pv);
+        pName->sstr.lpName = (uchar *)pExStr + EVAL_ITOK (pv);
         pName->sstr.cb = EVAL_CBTOK (pv);
     }
     pName->state = SYM_init;

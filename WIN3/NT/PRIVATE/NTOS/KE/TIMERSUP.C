@@ -24,30 +24,23 @@ Revision History:
 --*/
 
 #include "ki.h"
-
-//
-// There is an Alpha compiler bug that can cause a race condition
-// when using the KiQueryInterruptTime macro.  Until this is fixed,
-// provide an actual function to do this.
-//
-#ifdef _ALPHA_
-
-VOID
-KiSafeQueryInterruptTime(
-    PLARGE_INTEGER CurrentTime
-    );
-
-#else
-
-#define KiSafeQueryInterruptTime KiQueryInterruptTime
-
-#endif
-
 
-BOOLEAN
+//
+// Define forward referenced function prototypes.
+//
+
+LOGICAL
+FASTCALL
+KiInsertTimerTable (
+    LARGE_INTEGER Interval,
+    LARGE_INTEGER CurrentTime,
+    IN PRKTIMER Timer
+    );
+
+LOGICAL
 FASTCALL
 KiInsertTreeTimer (
-    IN PKTIMER Timer,
+    IN PRKTIMER Timer,
     IN LARGE_INTEGER Interval
     )
 
@@ -55,8 +48,7 @@ KiInsertTreeTimer (
 
 Routine Description:
 
-    This function inserts a timer object in the timer queue and reorders the
-    timer splay tree as appropriate.
+    This function inserts a timer object in the timer queue.
 
     N.B. This routine assumes that the dispatcher data lock has been acquired.
 
@@ -77,26 +69,19 @@ Return Value:
 {
 
     LARGE_INTEGER CurrentTime;
-    ULONG Index;
-    PLIST_ENTRY ListHead;
-    PLIST_ENTRY NextEntry;
-    PKTIMER NextTimer;
     LARGE_INTEGER SystemTime;
     LARGE_INTEGER TimeDifference;
 
-#if DBG
-
-    ULONG SearchCount;
-
-#endif
-
     //
-    // Set signal state of timer to Not-Signaled and set inserted state to
-    // TRUE.
+    // Clear the signal state of timer if the timer period is zero and set
+    // the inserted state to TRUE.
     //
 
-    Timer->Header.SignalState = FALSE;
-    Timer->Inserted = TRUE;
+    Timer->Header.Inserted = TRUE;
+    Timer->Header.Absolute = FALSE;
+    if (Timer->Period == 0) {
+        Timer->Header.SignalState = FALSE;
+    }
 
     //
     // If the specified interval is not a relative time (i.e., is an absolute
@@ -114,18 +99,130 @@ Return Value:
 
         if (TimeDifference.HighPart >= 0) {
             Timer->Header.SignalState = TRUE;
-            Timer->Inserted = FALSE;
+            Timer->Header.Inserted = FALSE;
             return FALSE;
         }
 
         Interval = TimeDifference;
+        Timer->Header.Absolute = TRUE;
     }
+
+    //
+    // Get the current interrupt time, insert the timer in the timer table,
+    // and return the inserted state.
+    //
+
+    KiQueryInterruptTime(&CurrentTime);
+    return KiInsertTimerTable(Interval, CurrentTime, Timer);
+}
+
+LOGICAL
+FASTCALL
+KiReinsertTreeTimer (
+    IN PRKTIMER Timer,
+    IN ULARGE_INTEGER DueTime
+    )
+
+/*++
+
+Routine Description:
+
+    This function reinserts a timer object in the timer queue.
+
+    N.B. This routine assumes that the dispatcher data lock has been acquired.
+
+Arguments:
+
+    Timer - Supplies a pointer to a dispatcher object of type timer.
+
+    DueTime - Supplies the absolute time the timer is to expire.
+
+Return Value:
+
+    If the timer is inserted in the timer tree, than a value of TRUE is
+    returned. Otherwise, a value of FALSE is returned.
+
+--*/
+
+{
+
+    LARGE_INTEGER CurrentTime;
+    LARGE_INTEGER Interval;
+
+    //
+    // Clear the signal state of timer if the timer period is zero and set
+    // the inserted state to TRUE.
+    //
+
+    Timer->Header.Inserted = TRUE;
+    if (Timer->Period == 0) {
+        Timer->Header.SignalState = FALSE;
+    }
+
+    //
+    // Compute the interval between the current time and the due time.
+    // If the resultant relative time is greater than or equal to zero,
+    // then the timer has already expired.
+    //
+
+    KiQueryInterruptTime(&CurrentTime);
+    Interval.QuadPart = CurrentTime.QuadPart - DueTime.QuadPart;
+    if (Interval.QuadPart >= 0) {
+        Timer->Header.SignalState = TRUE;
+        Timer->Header.Inserted = FALSE;
+        return FALSE;
+    }
+
+    //
+    // Insert the timer in the timer table and return the inserted state.
+    //
+
+    return KiInsertTimerTable(Interval, CurrentTime, Timer);
+}
+
+LOGICAL
+FASTCALL
+KiInsertTimerTable (
+    LARGE_INTEGER Interval,
+    LARGE_INTEGER CurrentTime,
+    IN PRKTIMER Timer
+    )
+
+/*++
+
+Routine Description:
+
+    This function inserts a timer object in the timer table.
+
+    N.B. This routine assumes that the dispatcher data lock has been acquired.
+
+Arguments:
+
+    Interval - Supplies the relative timer before the timer is to expire.
+
+    CurrentTime - supplies the current interrupt time.
+
+    Timer - Supplies a pointer to a dispatcher object of type timer.
+
+Return Value:
+
+    If the timer is inserted in the timer tree, than a value of TRUE is
+    returned. Otherwise, a value of FALSE is returned.
+
+--*/
+
+{
+
+    ULONG Index;
+    PLIST_ENTRY ListHead;
+    PLIST_ENTRY NextEntry;
+    PRKTIMER NextTimer;
+    ULONG SearchCount;
 
     //
     // Compute the timer table index and set the timer expiration time.
     //
 
-    KiQueryInterruptTime(&CurrentTime);
     Index = KiComputeTimerTableIndex(Interval, CurrentTime, Timer);
 
     //
@@ -147,10 +244,6 @@ Return Value:
 #if DBG
 
     SearchCount = 0;
-    KiCurrentTimerCount += 1;
-    if (KiCurrentTimerCount > KiMaximumTimerCount) {
-        KiMaximumTimerCount = KiCurrentTimerCount;
-    }
 
 #endif
 
@@ -185,21 +278,16 @@ Return Value:
     // the first entry in the list. Insert the entry in the computed
     // timer table list, then check if the timer has expired.
     //
-
-    //
     // Note that it is critical that the interrupt time not be captured
     // until after the timer has been completely inserted into the list.
-    // There is an Alpha compiler bug that reorders the instructions so
-    // that the interrupt time is actually captured before the timer is
-    // fully inserted.  This creates a one instruction window where the
-    // clock interrupt code thinks the list is empty, and the code here
-    // that checks if the timer has expired uses a stale interrupt time.
-    // By calling a function to get the interrupt time, the compiler is
-    // forced to generate correct code.
+    //
+    // Otherwise, the clock interrupt code can think the list is empty,
+    // and the code here that checks if the timer has expired will use
+    // a stale interrupt time.
     //
 
     InsertHeadList(ListHead, &Timer->TimerListEntry);
-    KiSafeQueryInterruptTime(&CurrentTime);
+    KiQueryInterruptTime(&CurrentTime);
     if (((Timer->DueTime.HighPart == (ULONG)CurrentTime.HighPart) &&
         (Timer->DueTime.LowPart <= CurrentTime.LowPart)) ||
         (Timer->DueTime.HighPart < (ULONG)CurrentTime.HighPart)) {
@@ -214,35 +302,5 @@ Return Value:
         Timer->Header.SignalState = TRUE;
     }
 
-    return Timer->Inserted;
+    return Timer->Header.Inserted;
 }
-
-#ifdef _ALPHA_
-VOID
-KiSafeQueryInterruptTime(
-    OUT PLARGE_INTEGER CurrentTime
-    )
-
-/*++
-
-Routine Description:
-
-    This function returns the current interrupt time.  It is only
-    a function to work around an Alpha compiler bug when the
-    KiQueryInterruptTime macro is used.
-
-Arguments:
-
-    CurrentTime - Returns the current interrup time.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    KiQueryInterruptTime(CurrentTime);
-
-}
-#endif

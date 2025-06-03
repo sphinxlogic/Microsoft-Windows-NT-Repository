@@ -199,7 +199,7 @@ argsame (
 
 	if (c1 == c2)
 		return( (UCHAR)(! ( (*((opkind & IGNORECASE)?
-			 memicmp: memcmp)) ( p1, p2, c1 )) ));
+                         _memicmp: memcmp)) ( p1, p2, c1 )) ));
 	else
 		return( FALSE );
 }

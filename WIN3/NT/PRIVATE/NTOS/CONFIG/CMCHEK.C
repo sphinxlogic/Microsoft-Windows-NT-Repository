@@ -275,7 +275,9 @@ Return Value:
 
         for (Index = 0; Index<pcell->u.KeyNode.SubKeyCounts[Stable]; Index++) {
 
-            SubKey = CmpFindSubKeyByNumber(CmpCheckHive, Cell, Index);
+            SubKey = CmpFindSubKeyByNumber(CmpCheckHive,
+                                           (PCM_KEY_NODE)HvGetCell(CmpCheckHive,Cell),
+                                           Index);
 
             //
             // "recurse" onto child
@@ -515,7 +517,8 @@ Return Value:
                                     pcell->u.KeyNode.SubKeyLists[Stable]
                                     );
             CmpCheckKeyDebug.RootPoint = Root;
-            if (Root->Signature == CM_KEY_INDEX_LEAF) {
+            if ((Root->Signature == CM_KEY_INDEX_LEAF) ||
+                (Root->Signature == CM_KEY_FAST_LEAF)) {
                 if ((ULONG)Root->Count != pcell->u.KeyNode.SubKeyCounts[Stable]) {
                     KdPrint(("CmpCheckKey: CmpCheckHive:%08lx Cell:%08lx\n", CmpCheckHive, Cell));
                     KdPrint(("\tBad Index count @%08lx\n", Root));
@@ -534,11 +537,10 @@ Return Value:
                         CmpCheckKeyDebug.Status = rc;
                         return rc;
                     }
-                    Leaf = (PCM_KEY_INDEX)HvGetCell(
-                                            CmpCheckHive,
-                                            Root->List[i]
-                                            );
-                    if (Leaf->Signature != CM_KEY_INDEX_LEAF) {
+                    Leaf = (PCM_KEY_INDEX)HvGetCell(CmpCheckHive,
+                                                    Root->List[i]);
+                    if ((Leaf->Signature != CM_KEY_INDEX_LEAF) &&
+                        (Leaf->Signature != CM_KEY_FAST_LEAF)) {
                         KdPrint(("CmpCheckKey: CmpCheckHive:%08lx Cell:%08lx\n", CmpCheckHive, Cell));
                         KdPrint(("\tBad Leaf Index @%08lx Root@%08lx\n", Leaf, Root));
                         rc = 4140;

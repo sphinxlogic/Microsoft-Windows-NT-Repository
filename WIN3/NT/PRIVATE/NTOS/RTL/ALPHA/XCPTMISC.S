@@ -471,8 +471,7 @@ CfFrameLength:                          // length of stack frame
 //--
 
         LEAF_ENTRY(RtlpGetStackLimits)
-
-        bgt     sp, 10f                 // if sp > 0, then running on user stack
+#if defined(NTOS_KERNEL_RUNTIME)
 
 //
 // Current mode is kernel - compute stack limits.
@@ -481,19 +480,21 @@ CfFrameLength:                          // length of stack frame
         GET_INITIAL_KERNEL_STACK        // get initial kernel stack in v0
 
         mov     v0, t1                  // copy high limit of kernel stack
-        lda     t2, -KERNEL_STACK_SIZE(t1) // compute low limit of kernel stack
-        br      zero, 20f               // finish in common code
+        GET_CURRENT_THREAD              // get current thread in v0
+        ldl     t2, ThStackLimit(v0)    // get low limit of kernel stack
+#else
 
 //
 // Current mode is user - get stack limits from the TEB.
 //
 
-10:     GET_THREAD_ENVIRONMENT_BLOCK    // get address of TEB in v0
+        GET_THREAD_ENVIRONMENT_BLOCK    // get address of TEB in v0
 
         ldl     t1, TeStackBase(v0)     // get high limit of user stack
         ldl     t2, TeStackLimit(v0)    // get low limit of user stack
+#endif
 
-20:     stl     t2, 0(a0)               // store low stack limit
+        stl     t2, 0(a0)               // store low stack limit
         stl     t1, 0(a1)               // store high stack limit
         ret     zero, (ra)              // return
 

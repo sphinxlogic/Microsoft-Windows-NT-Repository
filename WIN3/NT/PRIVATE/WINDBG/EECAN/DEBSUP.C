@@ -6,11 +6,11 @@
 
 
 
-LOCAL EESTATUS NEAR PASCAL CountClassElem (peval_t, long FAR *, uint);
-LOCAL ushort   NEAR PASCAL SetClassiName (peval_t, long, PEEHSTR, PEEHSTR, uint, ushort, uint);
-LOCAL ushort   NEAR PASCAL SetFcniParm (peval_t, long, PEEHSTR);
+LOCAL EESTATUS CountClassElem (peval_t, long *, uint);
+LOCAL ushort   SetClassiName (peval_t, long, PEEHSTR, PEEHSTR, uint, ushort, uint);
+LOCAL ushort   SetFcniParm (peval_t, long, PEEHSTR);
 
-static char FAR   *pExStrP;
+static char   *pExStrP;
 
 
 
@@ -28,7 +28,7 @@ static char FAR   *pExStrP;
  */
 
 
-bool_t PASCAL AreTypesEqual (HTM hTMLeft, HTM hTMRight)
+bool_t AreTypesEqual (HTM hTMLeft, HTM hTMRight)
 {
     bool_t      retval = FALSE;
     pexstate_t  pExLeft;
@@ -58,7 +58,7 @@ bool_t PASCAL AreTypesEqual (HTM hTMLeft, HTM hTMRight)
  *      Returns the HTYPE of the result or 0
  */
 
-HTYPE PASCAL
+HTYPE
 GetHtypeFromTM(
     HTM hTM
     )
@@ -91,7 +91,7 @@ GetHtypeFromTM(
  */
 
 
-EESTATUS PASCAL cChildrenTM (PHTM phTM, long FAR *pcChildren, PSHFLAG pVar)
+EESTATUS cChildrenTM (PHTM phTM, long *pcChildren, PSHFLAG pVar)
 {
     EESTATUS    retval = EENOERROR;
     eval_t      eval;
@@ -176,13 +176,14 @@ EESTATUS PASCAL cChildrenTM (PHTM phTM, long FAR *pcChildren, PSHFLAG pVar)
 
 
 
-ushort  PASCAL  cParamTM (HTM hTM, ushort FAR *pcParam, PSHFLAG pVarArg)
+ushort   cParamTM (HTM hTM, ushort *pcParam, PSHFLAG pVarArg)
 {
     peval_t     pv;
     ushort      retval = EECATASTROPHIC;
 
     DASSERT (hTM != 0);
     if (hTM != 0) {
+        DASSERT (pExState == NULL);
         pExState = MHMemLock (hTM);
         if (pExState->state.bind_ok == TRUE) {
             pv = &pExState->result;
@@ -191,8 +192,7 @@ ushort  PASCAL  cParamTM (HTM hTM, ushort FAR *pcParam, PSHFLAG pVarArg)
                     if ((*pcParam = FCN_PCOUNT (pv)) > 0) {
                         (*pcParam)--;
                     }
-                }
-                else {
+                } else {
                     *pcParam = FCN_PCOUNT (pv);
                 }
                 retval = EENOERROR;
@@ -205,8 +205,7 @@ ushort  PASCAL  cParamTM (HTM hTM, ushort FAR *pcParam, PSHFLAG pVarArg)
                 pExState->err_num = ERR_NOTFCN;
                 retval = EEGENERAL;
             }
-        }
-        else {
+        } else {
             pExState->err_num = ERR_NOTEVALUATABLE;
             retval = EEGENERAL;
         }
@@ -233,20 +232,21 @@ ushort  PASCAL  cParamTM (HTM hTM, ushort FAR *pcParam, PSHFLAG pVarArg)
  */
 
 
-ushort PASCAL DupTM (PHTM phTMIn, PHTM phTMOut)
+ushort DupTM (PHTM phTMIn, PHTM phTMOut)
 {
     ushort      retval = EENOMEMORY;
     pexstate_t  pExOut;
-    char FAR   *pStr;
-    char FAR   *pcName;
+    char   *pStr;
+    char   *pcName;
     uint        len;
 
+    DASSERT (pExState == NULL);
     pExState = MHMemLock (*phTMIn);
     pExStr = MHMemLock (pExState->hExStr);
     pTree = MHMemLock (pExState->hSTree);
     if ((*phTMOut = MHMemAllocate (sizeof (exstate_t))) != 0) {
         pExOut = MHMemLock (*phTMOut);
-        _fmemset (pExOut, 0, sizeof (exstate_t));
+        memset (pExOut, 0, sizeof (exstate_t));
         pExOut->ambiguous = pExState->ambiguous;
         pExOut->state.parse_ok = TRUE;
 
@@ -256,7 +256,7 @@ ushort PASCAL DupTM (PHTM phTMIn, PHTM phTMOut)
             goto failure;
         }
         pStr = MHMemLock (pExOut->hExStr);
-        _fmemcpy (pStr, pExStr, pExOut->ExLen);
+        memcpy (pStr, pExStr, pExOut->ExLen);
         MHMemUnLock (pExOut->hExStr);
 
         // copy syntax tree
@@ -265,20 +265,20 @@ ushort PASCAL DupTM (PHTM phTMIn, PHTM phTMOut)
             goto failure;
         }
         pStr = MHMemLock (pExOut->hSTree);
-        _fmemcpy (pStr, pTree, pTree->size);
+        memcpy (pStr, pTree, pTree->size);
         MHMemUnLock (pExOut->hSTree);
 
         // copy name string
 
         if (pExState->hCName != 0) {
             pcName = MHMemLock (pExState->hCName);
-            len = _fstrlen (pcName) + 1;
+            len = strlen (pcName) + 1;
             if ((pExOut->hCName = MHMemAllocate (len)) == 0) {
                 MHMemUnLock (pExState->hCName);
                 goto failure;
             }
             pStr = MHMemLock (pExOut->hCName);
-            _fmemcpy (pStr, pcName, len);
+            memcpy (pStr, pcName, len);
             MHMemUnLock (pExOut->hCName);
             MHMemUnLock (pExState->hCName);
         }
@@ -325,7 +325,7 @@ failure:
  */
 
 
-EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phName, uint radix)
+EESTATUS GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phName, uint radix)
 {
     eval_t      evalP;
     peval_t     pvP;
@@ -334,8 +334,8 @@ EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phNam
     ushort      len;
     ushort      plen;
     uint        excess;
-    char FAR   *pDStr;
-    char FAR   *pName;
+    char   *pDStr;
+    char   *pName;
     char        *fmtstr;
 
 
@@ -391,9 +391,9 @@ EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phNam
         }
         pName = MHMemLock (*phName);
         pDStr = MHMemLock (*phDStr);
-        _fstrcpy (pName, tempbuf);
-        _fmemcpy (pDStr, pExStrP, plen);
-        _fmemcpy (pDStr + plen, pName, len);
+        strcpy (pName, tempbuf);
+        memcpy (pDStr, pExStrP, plen);
+        memcpy (pDStr + plen, pName, len);
         *(pDStr + plen + len) = 0;
         MHMemUnLock (*phDStr);
         MHMemUnLock (*phName);
@@ -411,10 +411,10 @@ EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phNam
             pDStr = MHMemLock (*phDStr);
             *pName = 0;
             *pDStr++ = '(';
-            _fmemcpy (pDStr, pExStrP, plen);
+            memcpy (pDStr, pExStrP, plen);
             pDStr += plen;
             *pDStr++ = ')';
-            _fmemcpy (pDStr, pExStrP + plen, excess);
+            memcpy (pDStr, pExStrP + plen, excess);
             pDStr += excess;
             *pDStr = 0;
             MHMemUnLock (*phDStr);
@@ -447,10 +447,10 @@ EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phNam
             }
             pName = MHMemLock (*phName);
             pDStr = MHMemLock (*phDStr);
-            _fstrcpy (pName, tempbuf);
-            _fmemcpy (pDStr, pExStrP, plen);
-            _fmemcpy (pDStr + plen, pName, len);
-            _fmemcpy (pDStr + plen + len, pExStrP + plen, excess);
+            strcpy (pName, tempbuf);
+            memcpy (pDStr, pExStrP, plen);
+            memcpy (pDStr + plen, pName, len);
+            memcpy (pDStr + plen + len, pExStrP + plen, excess);
             *(pDStr + plen + len + excess) = 0;
             MHMemUnLock (*phDStr);
             MHMemUnLock (*phName);
@@ -473,12 +473,12 @@ EESTATUS PASCAL GetChildTM (HTM hTM, ulong iChild, PEEHSTR phDStr, PEEHSTR phNam
 
         if ((retval = SetFcniParm (pvP, iChild, phName)) == EENOERROR) {
             pName = MHMemLock (*phName);
-            if ((*phDStr = MHMemAllocate ((len = _fstrlen (pName)) + 1)) == 0) {
+            if ((*phDStr = MHMemAllocate ((len = strlen (pName)) + 1)) == 0) {
                 MHMemUnLock (*phName);
                 goto nomemory;
             }
             pDStr = MHMemLock (*phDStr);
-            _fmemcpy (pDStr, pName, len);
+            memcpy (pDStr, pName, len);
             *(pDStr + len) = 0;
             MHMemUnLock (*phDStr);
             MHMemUnLock (*phName);
@@ -526,16 +526,16 @@ general:
  */
 
 
-EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
+EESTATUS GetSymName (PHTM phTM, PEEHSTR phszName)
 {
     SYMPTR      pSym;
     short       len = 0;
     UOFFSET     offset = 0;
-    char FAR   *pExStr;
+    char   *pExStr;
     peval_t     pv;
     short       retval = EECATASTROPHIC;
     short       buflen = TYPESTRMAX - 1;
-    char FAR   *buf;
+    char   *buf;
     HSYM        hProc = 0;
     ADDR        addr;
 
@@ -547,7 +547,7 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
     if ((*phTM != 0) && ((*phszName = MHMemAllocate (TYPESTRMAX)) != 0)) {
         retval = EEGENERAL;
         buf = MHMemLock (*phszName);
-        _fmemset (buf, 0, TYPESTRMAX);
+        memset (buf, 0, TYPESTRMAX);
         DASSERT(pExState == NULL);
         pExState = MHMemLock (*phTM);
         if (pExState->state.bind_ok == TRUE) {
@@ -565,9 +565,9 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
                 // M00SYMBOL - hCName to hold the imbedded symbol name
 
                 pExStr = MHMemLock (pExState->hCName);
-                len = (int)_fstrlen (pExStr);
+                len = (int)strlen (pExStr);
                 len = min (len, buflen);
-                _fstrncpy (buf, pExStr, len);
+                strncpy (buf, pExStr, len);
                 MHMemUnLock (pExState->hCName);
                 retval = EENOERROR;
             }
@@ -609,7 +609,6 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
                         offset = offsetof (UDTSYM, name[1]);
                         break;
 
-#if defined (ADDR_16) || defined (ADDR_MIXED)
                     case S_BLOCK16:
                         len = ((BLOCKPTR16)pSym)->name[0];
                         offset = offsetof (BLOCKSYM16, name[1]);
@@ -637,7 +636,6 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
                         len = ((DATAPTR16)pSym)->name[0];
                         offset = offsetof (DATASYM16, name[1]);
                         break;
-#endif
 
                     case S_BLOCK32:
                         len = ((BLOCKPTR32)pSym)->name[0];
@@ -682,11 +680,13 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
 
                     default:
                         pExState->err_num = ERR_BADOMF;
+                        MHMemUnLock (*phTM);
+                        pExState = NULL;
                         /// BUGBUG -- Messed up return
                         return (EEGENERAL);
                 }
                 len = min (len, buflen);
-                _fstrncpy (buf, ((char FAR *)pSym) + offset, len);
+                strncpy (buf, ((char *)pSym) + offset, len);
                 MHOmfUnLock (EVAL_HSYM (pv));
                 *(buf + len) = 0;
                 retval = EENOERROR;
@@ -719,7 +719,7 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
 
             if (*pExStr != 0) {
                 len = min (buflen, len);
-                _fstrncpy (buf, pExStr, len);
+                strncpy (buf, pExStr, len);
                 buf += len;
                 buflen -= len;
                 retval = EENOERROR;
@@ -765,10 +765,15 @@ EESTATUS PASCAL GetSymName (PHTM phTM, PEEHSTR phszName)
  */
 
 
-EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
+EESTATUS
+InfoFromTM (
+    PHTM phTM,
+    PRI pReqInfo,
+    PHTI phTMInfo
+    )
 {
     EESTATUS    eestatus = EEGENERAL;
-    TI FAR *    pTMInfo;
+    TI *    pTMInfo;
     eval_t      evalT;
     peval_t     pvT;
 #ifdef TARGET_i386
@@ -806,7 +811,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
     }
     pTMInfo = MHMemLock( *phTMInfo );
     DASSERT( pTMInfo != NULL );
-    _fmemset( pTMInfo, 0, sizeof(TI) + sizeof(val_t) );
+    memset( pTMInfo, 0, sizeof(TI) + sizeof(val_t) );
 
     /*
      *  Lock down the TM passed in
@@ -912,7 +917,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
             } else {
                 Evaluating = TRUE;
                 if (CastNode( pvT, pReqInfo->Type, pReqInfo->Type )) {
-                    _fmemcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
+                    memcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
                     pTMInfo->fResponse.fValue   = TRUE;
                     pTMInfo->fResponse.Type     = EVAL_TYP( pvT );
                 }
@@ -941,7 +946,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
             } else {
                 Evaluating = TRUE;
                 if (CastNode( pvT, pReqInfo->Type, pReqInfo->Type )) {
-                    _fmemcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
+                    memcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
                     pTMInfo->fResponse.fValue   = TRUE;
                     pTMInfo->fResponse.Type     = EVAL_TYP( pvT );
                 }
@@ -960,7 +965,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
 
                     Evaluating = TRUE;
                     if (CastNode( pvT, pReqInfo->Type, pReqInfo->Type )) {
-                        _fmemcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
+                        memcpy( pTMInfo->Value, &pvT->val, sizeof( pvT->val ));
                         pTMInfo->fResponse.fValue = TRUE;
                         pTMInfo->fResponse.Type = EVAL_TYP( pvT );
                     }
@@ -1060,7 +1065,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
                     }
 
                     GetReg(&reg, pCxt);
-                    pTMInfo->u2.AI.addr.seg = reg.u.a.Byte2;
+                    pTMInfo->u2.AI.addr.seg = reg.Byte2;
 #else
                     pTMInfo->u2.AI.addr.seg = 0;
 #endif
@@ -1151,7 +1156,7 @@ EESTATUS PASCAL InfoFromTM (PHTM phTM, PRI pReqInfo, PHTI phTMInfo)
  */
 
 
-ushort PASCAL IsExpandablePtr (peval_t pv)
+ushort IsExpandablePtr (peval_t pv)
 {
     eval_t      evalT;
     peval_t     pvT;
@@ -1202,12 +1207,12 @@ ushort PASCAL IsExpandablePtr (peval_t pv)
  */
 
 
-LOCAL EESTATUS NEAR PASCAL CountClassElem (peval_t pv, long FAR *pcChildren,
+LOCAL EESTATUS CountClassElem (peval_t pv, long *pcChildren,
   uint search)
 {
     ushort          cnt;            // total number of elements in class
     HTYPE           hField;         // type record handle for class field list
-    char FAR       *pField;         // current position within field list
+    char       *pField;         // current position within field list
     uint            fSkip = 0;      // current offset in the field list
     uint            anchor;
     ushort          retval = EENOERROR;
@@ -1220,12 +1225,12 @@ LOCAL EESTATUS NEAR PASCAL CountClassElem (peval_t pv, long FAR *pcChildren,
         DASSERT (FALSE);
         return (0);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
 
     //  walk field list to the end counting elements
 
     for (cnt = CLASS_COUNT (pv); cnt > 0; cnt--) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
+        if ((pad = *(((char *)pField) + fSkip)) >= LF_PAD0) {
             // there is a pad field
             fSkip += pad & 0x0f;
         }
@@ -1240,7 +1245,7 @@ LOCAL EESTATUS NEAR PASCAL CountClassElem (peval_t pv, long FAR *pcChildren,
                     DASSERT (FALSE);
                     return (0);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 // the LF_INDEX is not part of the field count
                 cnt++;
@@ -1372,7 +1377,7 @@ LOCAL EESTATUS NEAR PASCAL CountClassElem (peval_t pv, long FAR *pcChildren,
  */
 
 
-EESTATUS PASCAL DereferenceTM (HTM hTM, PEEHSTR phDStr)
+EESTATUS DereferenceTM (HTM hTM, PEEHSTR phDStr)
 {
     peval_t     pvTM;
     EESTATUS    retval = EECATASTROPHIC;
@@ -1409,10 +1414,10 @@ EESTATUS PASCAL DereferenceTM (HTM hTM, PEEHSTR phDStr)
                 plen = pTM->strIndex;
                 excess = pTM->ExLen - plen;
                 pExStrP = MHMemLock (pTM->hExStr);
-                _fmemcpy (pExStr, pExStrP, plen);
+                memcpy (pExStr, pExStrP, plen);
                 pExStr += plen;
                 *pExStr++ = ')';
-                _fmemcpy (pExStr, pExStrP + plen, excess);
+                memcpy (pExStr, pExStrP + plen, excess);
                 pExStr += excess;
                 *pExStr = 0;
                 MHMemUnLock (pTM->hExStr);
@@ -1446,22 +1451,22 @@ EESTATUS PASCAL DereferenceTM (HTM hTM, PEEHSTR phDStr)
  */
 
 
-LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
+LOCAL ushort SetClassiName (peval_t pv, long ordinal,
   PEEHSTR phDStr, PEEHSTR phName, uint search, ushort plen, uint excess)
 {
     HTYPE           hField;         // handle to type record for struct field list
-    char FAR       *pField;         // current position withing field list
-    char FAR       *pMethod;
+    char       *pField;         // current position withing field list
+    char       *pMethod;
     uint            fSkip = 0;      // current offset in the field list
     uint            anchor;
     uint            len;
     bool_t          retval = ERR_NONE;
     CV_typ_t        newindex;
-    char FAR       *pName;
-    char FAR       *pc;
-    char FAR       *pDStr;
+    char       *pName;
+    char       *pc;
+    char       *pDStr;
     char            FName[255];
-    char FAR       *pFName = &FName[0];
+    char       *pFName = &FName[0];
     eval_t          evalT;
     peval_t         pvT;
     uchar           pad;
@@ -1473,12 +1478,12 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
         DASSERT (FALSE);
         return (ERR_BADOMF);
     }
-    pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+    pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
 
     //  walk field list to iElement-th field
 
     while (ordinal >= 0) {
-        if ((pad = *(((char FAR *)pField) + fSkip)) >= LF_PAD0) {
+        if ((pad = *(((char *)pField) + fSkip)) >= LF_PAD0) {
             // there is a pad field
             fSkip += pad & 0x0f;
         }
@@ -1492,7 +1497,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
                 if ((hField = THGetTypeFromIndex (EVAL_MOD (pv), newindex)) == 0) {
                     return (ERR_BADOMF);
                 }
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 break;
 
@@ -1615,17 +1620,17 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
                 goto nomemory;
             }
             pName = MHMemLock (*phName);
-            _fstrncpy (pName, pc + 1, len);
+            strncpy (pName, pc + 1, len);
             *(pName + len) = 0;
             pDStr = MHMemLock (*phDStr);
             *pDStr++ = '(';
-            _fmemcpy (pDStr, pExStrP, plen);
+            memcpy (pDStr, pExStrP, plen);
             pDStr += plen;
             *pDStr++ = ')';
             *pDStr++ = '.';
-            _fmemcpy (pDStr, pName, len);
+            memcpy (pDStr, pName, len);
             pDStr += len;
-            _fmemcpy (pDStr, pExStrP + plen, excess);
+            memcpy (pDStr, pExStrP + plen, excess);
             pDStr += excess;
             *pDStr = 0;
             MHMemUnLock (*phDStr);
@@ -1639,7 +1644,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
             if ((hField = THGetTypeFromIndex (EVAL_MOD (pv), newindex)) != 0) {
                 // find the name of the base class from the referenced class
 
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->leaf);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->leaf);
                 fSkip = offsetof (lfClass, data[0]);
                 RNumLeaf (pField + fSkip, &fSkip);
                 len = *(pField + fSkip);
@@ -1651,15 +1656,15 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
                     goto nomemory;
                 }
                 pName = MHMemLock (*phName);
-                _fstrncpy (pName, pField + fSkip + sizeof (char), len);
+                strncpy (pName, pField + fSkip + sizeof (char), len);
                 *(pName + len) = 0;
                 pDStr = MHMemLock (*phDStr);
-                _fmemcpy (pDStr, "(*(", 3);
-                _fmemcpy (pDStr + 3, pField + fSkip + sizeof (char), len);
-                _fmemcpy (pDStr + 3 + len, "*)(&", 4);
-                _fmemcpy (pDStr + 7 + len, pExStrP, plen);
-                _fmemcpy (pDStr + 7 + len + plen, "))", 2);
-                _fmemcpy (pDStr + 7 + len + plen + 2, pExStrP + plen, excess);
+                memcpy (pDStr, "(*(", 3);
+                memcpy (pDStr + 3, pField + fSkip + sizeof (char), len);
+                memcpy (pDStr + 3 + len, "*)(&", 4);
+                memcpy (pDStr + 7 + len, pExStrP, plen);
+                memcpy (pDStr + 7 + len + plen, "))", 2);
+                memcpy (pDStr + 7 + len + plen + 2, pExStrP + plen, excess);
                 *(pDStr + 9 + len + plen + excess) = 0;
                 MHMemUnLock (*phDStr);
                 MHMemUnLock (*phName);
@@ -1672,7 +1677,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
             if ((hField = THGetTypeFromIndex (EVAL_MOD (pv), newindex)) != 0) {
                 // find the name of the base class from the referenced class
 
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->leaf);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->leaf);
                 fSkip = offsetof (lfClass, data[0]);
                 RNumLeaf (pField + fSkip, &fSkip);
                 len = *(pField + fSkip);
@@ -1685,15 +1690,15 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
                 }
                 pName = MHMemLock (*phName);
                 //*pName = 0;
-                _fstrncpy (pName, pField + fSkip + sizeof (char), len);
+                strncpy (pName, pField + fSkip + sizeof (char), len);
                 *(pName + len) = 0;
                 pDStr = MHMemLock (*phDStr);
-                _fmemcpy (pDStr, "(*(", 3);
-                _fmemcpy (pDStr + 3, pField + fSkip + sizeof (char), len);
-                _fmemcpy (pDStr + 3 + len, "*)(&", 4);
-                _fmemcpy (pDStr + 7 + len, pExStrP, plen);
-                _fmemcpy (pDStr + 7 + len + plen, "))", 2);
-                _fmemcpy (pDStr + 7 + len + plen + 2, pExStrP + plen, excess);
+                memcpy (pDStr, "(*(", 3);
+                memcpy (pDStr + 3, pField + fSkip + sizeof (char), len);
+                memcpy (pDStr + 3 + len, "*)(&", 4);
+                memcpy (pDStr + 7 + len, pExStrP, plen);
+                memcpy (pDStr + 7 + len + plen, "))", 2);
+                memcpy (pDStr + 7 + len + plen + 2, pExStrP + plen, excess);
                 *(pDStr + 9 + len + plen + excess) = 0;
                 MHMemUnLock (*phDStr);
                 MHMemUnLock (*phName);
@@ -1707,7 +1712,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
             newindex = ((plfFriendCls)(pField + anchor))->index;
             MHOmfUnLock (hField);
             if ((hField = THGetTypeFromIndex (EVAL_MOD (pv), newindex)) != 0) {
-                pField = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->leaf);
+                pField = (char *)(&((TYPPTR)MHOmfLock (hField))->leaf);
                 fSkip = offsetof (lfClass, data[0]);
                 RNumLeaf (pField + fSkip, &fSkip);
                 len = *(pField + fSkip);
@@ -1719,14 +1724,14 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
             // M00KLUDGE - figure out what to do here - not bindable
 
             newindex = ((plfFriendFcn)(pField + anchor))->index;
-            pc = (char FAR *)(((plfFriendFcn)(pField + anchor))->Name[0]);
+            pc = (char *)(((plfFriendFcn)(pField + anchor))->Name[0]);
             break;
 
         case LF_METHOD:
             // copy function name to temporary buffer
 
             len = *pc;
-            _fmemcpy (FName, pc + 1, len);
+            memcpy (FName, pc + 1, len);
             FName[len] = 0;
             newindex = ((plfMethod)(pField + anchor))->mList;
             MHOmfUnLock (hField);
@@ -1734,7 +1739,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
             // index down method list to find correct method
 
             if ((hField = THGetTypeFromIndex (EVAL_MOD (pv), newindex)) != 0) {
-                pMethod = (char FAR *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
+                pMethod = (char *)(&((TYPPTR)MHOmfLock (hField))->data[0]);
                 fSkip = 0;
                 while (++ordinal < 0) {
                     if (((pmlMethod)(pMethod + fSkip))->attr.mprop == CV_MTvirtual) {
@@ -1762,7 +1767,7 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
 
                 pName = MHMemLock (*phName);
                 pHdr = (PHDR_TYPE)pName;
-                _fmemset (pName, 0, FCNSTRMAX + sizeof (HDR_TYPE));
+                memset (pName, 0, FCNSTRMAX + sizeof (HDR_TYPE));
                 pName = pName + sizeof (HDR_TYPE);
                 pc = pName;
                 len = FCNSTRMAX - 1;
@@ -1771,18 +1776,18 @@ LOCAL ushort NEAR PASCAL SetClassiName (peval_t pv, long ordinal,
 
                 // ignore buffer header from FormatType
 
-                _fmemmove ((char FAR *)pHdr, pc, len);
-                pc = (char FAR *)pHdr;
+                memmove ((char *)pHdr, pc, len);
+                pc = (char *)pHdr;
                 if ((*phDStr = MHMemAllocate (plen + FCNSTRMAX + 2)) == 0) {
                     MHMemUnLock (*phName);
                     goto nomemory;
                 }
 
                 pDStr = MHMemLock (*phDStr);
-                _fmemcpy (pDStr, pExStrP, plen);
-                _fmemcpy (pDStr + plen, ".", 1);
-                _fmemcpy (pDStr + 1 + plen, pc, len);
-                _fmemcpy (pDStr + 1 + plen + len, pExStrP + plen, excess);
+                memcpy (pDStr, pExStrP, plen);
+                memcpy (pDStr + plen, ".", 1);
+                memcpy (pDStr + 1 + plen, pc, len);
+                memcpy (pDStr + 1 + plen + len, pExStrP + plen, excess);
                 *(pDStr + len + plen + 1 + excess) = 0;
                 MHMemUnLock (*phDStr);
                 // truncate name to first (
@@ -1848,9 +1853,9 @@ nomemory:
  */
 
 
-LOCAL ushort NEAR PASCAL SetFcniParm (peval_t pv, long ordinal, PEEHSTR pHStr)
+LOCAL ushort SetFcniParm (peval_t pv, long ordinal, PEEHSTR pHStr)
 {
-    char FAR   *pStr;
+    char   *pStr;
     HSYM        hSym;
     SYMPTR      pSym;
     ushort      offset;
@@ -1936,7 +1941,7 @@ LOCAL ushort NEAR PASCAL SetFcniParm (peval_t pv, long ordinal, PEEHSTR pHStr)
 
     if ((*pHStr = MHMemAllocate (len + 1)) != 0) {
         pStr = MHMemLock (*pHStr);
-        _fstrncpy (pStr, ((char FAR *)pSym) + offset, len);
+        strncpy (pStr, ((char *)pSym) + offset, len);
         *(pStr + len) = 0;
         MHMemUnLock (*pHStr);
         retval = EENOERROR;
@@ -1950,7 +1955,7 @@ LOCAL ushort NEAR PASCAL SetFcniParm (peval_t pv, long ordinal, PEEHSTR pHStr)
 }
 
 
-bool_t PASCAL
+bool_t
 ResolveAddr(
             peval_t     pv
             )
@@ -1986,6 +1991,11 @@ ResolveAddr(
 
     else if (EVAL_IS_REGREL (pv)) {
         reg.hReg = EVAL_REGREL (pv);
+#ifdef TARGET_PPC
+        if (reg.hReg == CV_PPC_GPR1) {
+            ul = pExState->frame.BP.off;
+        } else
+#endif
 #ifdef TARGET_MIPS
         if (reg.hReg == CV_M4_IntSP) {
             ul = pExState->frame.BP.off;
@@ -1999,7 +2009,7 @@ ResolveAddr(
         if (GetReg (&reg, pCxt) == NULL) {
             DASSERT (FALSE);
         } else {
-            ul = reg.u.b.Byte4;
+            ul = reg.Byte4;
             if (!ADDR_IS_OFF32(*SHpADDRFrompCXT(pCxt))) {
                 ul &= 0xffff;
             }

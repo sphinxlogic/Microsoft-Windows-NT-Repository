@@ -123,7 +123,7 @@ CG_CONTEXT_HANDLE::GenMarshall(
 		Out_SContextMarshall( pCCB,
 							  pCCB->GetDestExpression(),
 							  pCCB->GetSourceExpression(),
-							  (_expr_node *) new _expr_variable( GetRundownRtnName(), 0 )
+							  (expr_node *) new expr_variable( GetRundownRtnName(), 0 )
 							);
 		}
 	return CG_OK;
@@ -148,17 +148,17 @@ CG_CONTEXT_HANDLE::GenUnMarshall(
 								pCCB->GetDestExpression(),
 								pCCB->GetSourceExpression(),
 								pCCB->GetStandardResource( ST_RES_BH_VARIABLE ),
-								(expr_node *)new _expr_variable( RPC_MESSAGE_DATA_REP ) );
+								(expr_node *)new expr_variable( RPC_MESSAGE_DATA_REP ) );
 		}
 	else
 		{
-		_expr_node	*	pExpr;
+		expr_node	*	pExpr;
 		Out_SContextUnMarshall( pCCB,
 								pCCB->GetDestExpression(),
 								pCCB->GetSourceExpression(),
-								(expr_node *)new _expr_variable( PRPC_MESSAGE_DATA_REP ));
+								(expr_node *)new expr_variable( PRPC_MESSAGE_DATA_REP ));
 								
-		pExpr	= new _expr_u_not( pCCB->GetDestExpression() );
+		pExpr	= new expr_u_not( pCCB->GetDestExpression() );
 		Out_If( pCCB, pExpr );
 		Out_RaiseException( pCCB, "RPC_X_SS_CONTEXT_MISMATCH" );
 		Out_Endif( pCCB );

@@ -482,4 +482,4 @@ int fOverride;
 	/* Override explicit extension */
     CchCopySz( szExt, pch );
 }
-
+

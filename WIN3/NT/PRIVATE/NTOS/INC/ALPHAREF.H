@@ -44,22 +44,6 @@ Revision History:
 #define SOUND_CHANNEL_A 0x2             // Sound DMA channel A
 #define SOUND_CHANNEL_B 0x3             // Sound DMA channel B
 
-
-//
-// Define default thread and process quantum values.
-//
-
-
-#define PROCESS_QUANTUM 2           // Process quantum in thread quantums
-#define THREAD_QUANTUM 2            // Thread quantum in ticks
-
-//
-// Define the default quantum decrement values.
-//
-
-#define CLOCK_QUANTUM_DECREMENT 1   // Decrement value at clock interrupt
-#define WAIT_QUANTUM_DECREMENT 1    // Decrement value at wait operation
-
 //
 // Define the interrupt request levels.
 //
@@ -177,11 +161,12 @@ Revision History:
 #define PC1_SECONDARY_VECTOR (13 + DEVICE_VECTORS) // Performance counter 1
 #define HALT_VECTOR  (14 + DEVICE_VECTORS)    // Halt Button interrupt vector
 #define PC2_VECTOR   (15 + DEVICE_VECTORS)    // Performance counter 2
-#define PC3_VECTOR   (16 + DEVICE_VECTORS)    // Performance counter 3
+#define PC2_SECONDARY_VECTOR   (16 + DEVICE_VECTORS) // Performance counter 2
 #define PC4_VECTOR   (17 + DEVICE_VECTORS)    // Performance counter 4
 #define PC5_VECTOR   (18 + DEVICE_VECTORS)    // Performance counter 5
+#define CORRECTABLE_VECTOR (19 + DEVICE_VECTORS) //correctable
 
-#define UNUSED_VECTOR (19 + DEVICE_VECTORS)   // Highest possible builtin vector
+#define UNUSED_VECTOR (20 + DEVICE_VECTORS)   // Highest possible builtin vector
 #define MAXIMUM_BUILTIN_VECTOR UNUSED_VECTOR // maximum builtin vector
 
 //

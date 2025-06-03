@@ -29,17 +29,15 @@ GetEncryptionKey (
     OUT CHAR EncryptionKey[MSV1_0_CHALLENGE_LENGTH]
     );
 
-VOID
+VOID SRVFASTCALL
 BlockingSessionSetupAndX (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-#ifdef _CAIRO_
-VOID
+VOID SRVFASTCALL
 BlockingSessionSetup (
     IN OUT PWORK_CONTEXT WorkContext
     );
-#endif // _CAIRO_
 
 //
 // EncryptionKeyCount is a monotonically increasing count of the number
@@ -56,10 +54,8 @@ ULONG EncryptionKeyCount = 0;
 #pragma alloc_text( PAGE, SrvSmbProcessExit )
 #pragma alloc_text( PAGE, SrvSmbSessionSetupAndX )
 #pragma alloc_text( PAGE, BlockingSessionSetupAndX )
-#ifdef _CAIRO_
 #pragma alloc_text( PAGE, SrvSmbSessionSetup )
 #pragma alloc_text( PAGE, BlockingSessionSetup )
-#endif // _CAIRO_
 #pragma alloc_text( PAGE, SrvSmbLogoffAndX )
 #pragma alloc_text( PAGE, GetEncryptionKey )
 #endif
@@ -98,7 +94,7 @@ Return Value:
     USHORT byteCount;
 
     PSZ s;
-    SMB_DIALECT bestDialect, serverDialect;
+    SMB_DIALECT bestDialect, serverDialect, firstDialect;
     USHORT consumerDialectChosen, consumerDialect;
     LARGE_INTEGER serverTime;
     SMB_DATE date;
@@ -154,6 +150,12 @@ Return Value:
     bestDialect = SmbDialectIllegal;
     consumerDialectChosen = (USHORT)0xFFFF;
 
+    if( endpoint->IsPrimaryName ) {
+        firstDialect = FIRST_DIALECT;
+    } else {
+        firstDialect = FIRST_DIALECT_EMULATED;
+    }
+
     for ( s = (PSZ)request->Buffer, consumerDialect = 0;
           s < SmbGetUshort( &request->ByteCount ) + (PSZ)request->Buffer;
           s += strlen(s) + 1, consumerDialect++ ) {
@@ -170,7 +172,7 @@ Return Value:
             return SmbStatusSendResponse;
         }
 
-        for ( serverDialect = FIRST_DIALECT;
+        for ( serverDialect = firstDialect;
              serverDialect < bestDialect;
              serverDialect++ ) {
 
@@ -187,6 +189,12 @@ Return Value:
     }
 
     connection->SmbDialect = bestDialect;
+
+    if( bestDialect <= SmbDialectNtLanMan ) {
+        connection->IpxDropDuplicateCount = MIN_IPXDROPDUP;
+    } else {
+        connection->IpxDropDuplicateCount = MAX_IPXDROPDUP;
+    }
 
     IF_SMB_DEBUG(ADMIN1) {
         SrvPrint2( "Choosing dialect #%ld, string = %s\n",
@@ -345,16 +353,16 @@ Return Value:
              bestDialect == SmbDialectDosLanMan21 ) {
 
             //
-            // Append the server's primary domain to the SMB.
+            // Append the domain to the SMB.
             //
 
             RtlCopyMemory(
                 response->Buffer + byteCount,
-                SrvOemPrimaryDomain.Buffer,
-                SrvOemPrimaryDomain.Length + sizeof(CHAR)
+                endpoint->OemDomainName.Buffer,
+                endpoint->OemDomainName.Length + sizeof(CHAR)
                 );
 
-            byteCount += SrvOemPrimaryDomain.Length + sizeof(CHAR);
+            byteCount += endpoint->OemDomainName.Length + sizeof(CHAR);
 
         }
 
@@ -368,7 +376,7 @@ Return Value:
     } else {
 
         //
-        // NT protocol has been negotiated.
+        // NT or better protocol has been negotiated.
         //
 
         ntResponse->WordCount = 17;
@@ -385,10 +393,19 @@ Return Value:
                        CAP_UNICODE              |
                        CAP_LARGE_FILES          |
                        CAP_NT_SMBS              |
+                       CAP_NT_FIND              |
                        CAP_RPC_REMOTE_APIS      |
                        CAP_NT_STATUS            |
                        CAP_LEVEL_II_OPLOCKS     |
                        CAP_LOCK_AND_READ;
+
+        //
+        // If we're supporting Dfs operations, let the client know about it.
+        //
+        if( SrvDfsFastIoDeviceControl ) {
+            capabilities |= CAP_DFS;
+        }
+
 
         if ( endpoint->IsConnectionless ) {
 
@@ -423,6 +440,18 @@ Return Value:
                 &ntResponse->MaxBufferSize,
                 SrvReceiveBufferLength
                 );
+
+                if( SrvSupportsBulkTransfer ) {
+
+                    capabilities |= CAP_BULK_TRANSFER;
+
+                    if( SrvSupportsCompression ) {
+                        capabilities |= CAP_COMPRESSED_DATA;
+
+                    }
+                }
+
+                capabilities |= CAP_LARGE_READX;
         }
 
         SmbPutUlong( &ntResponse->Capabilities, capabilities );
@@ -466,17 +495,33 @@ Return Value:
 
         {
             USHORT domainLength;
-            PWCH buffer = ALIGN_SMB_WSTR( ntResponse->Buffer+byteCount );
+            PWCH buffer = (PWCHAR)( ntResponse->Buffer+byteCount );
+            PWCH ptr;
 
-            domainLength = SrvPrimaryDomain.Length + sizeof(UNICODE_NULL);
+            //
+            // append either the Lanman domain or the Kerberos
+            // domain.
+            //
+
+            if((ptr = KerberosRealm.Buffer)
+                     &&
+               (bestDialect <= SmbDialectCairo)
+              )
+            {
+                domainLength = KerberosRealm.MaximumLength;
+            }
+            else
+            {
+                domainLength = endpoint->DomainName.Length +
+                                      sizeof(UNICODE_NULL);
+                ptr = endpoint->DomainName.Buffer;
+            }
 
             RtlCopyMemory(
                 buffer,
-                SrvPrimaryDomain.Buffer,
+                ptr,
                 domainLength
                 );
-
-            byteCount += (USHORT)((ULONG)buffer - (ULONG)(&ntResponse->Buffer+byteCount));
 
             byteCount += domainLength;
 
@@ -595,6 +640,11 @@ Return Value:
             );
 
     //
+    // Close any cached directories for this client
+    //
+    SrvCloseCachedDirectoryEntries( session->Connection );
+
+    //
     // Build the response SMB.
     //
 
@@ -648,7 +698,7 @@ Return Value:
 } // SrvSmbSessionSetupAndX
 
 
-VOID
+VOID SRVFASTCALL
 BlockingSessionSetupAndX(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -667,6 +717,12 @@ Arguments:
 Return Value:
 
     SMB_PROCESSOR_RETURN_TYPE - See smbprocs.h
+
+NOTE:
+    
+     We have disabled CAP_KERBEROS_BLOB until we decide exactly
+      how we want to do security negotiation.  Since NT 4.0 does
+      not ship kerberos, it is premature to turn it on now
 
 --*/
 
@@ -695,7 +751,7 @@ Return Value:
     USHORT byteCount;
     USHORT nameLength;
     BOOLEAN locksHeld;
-    BOOLEAN isUnicode;
+    BOOLEAN isUnicode, IsKerb;
 
     PAGED_CODE();
 
@@ -828,6 +884,7 @@ Return Value:
     // Get the client capabilities
     //
 
+
     if ( connection->SmbDialect <= SmbDialectNtLanMan ) {
 
         connection->ClientCapabilities =
@@ -835,8 +892,15 @@ Return Value:
                                     ( CAP_UNICODE |
                                       CAP_LARGE_FILES |
                                       CAP_NT_SMBS |
+                                      CAP_NT_FIND |
                                       CAP_NT_STATUS |
+#ifdef  CAP_KERBEROS_BLOB
+                                      CAP_KERBEROS_BLOB |
+#endif
                                       CAP_LEVEL_II_OPLOCKS );
+            if ( connection->ClientCapabilities & CAP_NT_SMBS ) {
+                connection->ClientCapabilities |= CAP_NT_FIND;
+            }
 
     }
 
@@ -914,9 +978,7 @@ Return Value:
 
         PCHAR smbInformation;
         USHORT length;
-#if SRVDBG_CLIENT
         PWCH infoBuffer;
-#endif
 
         smbInformation = userName + nameLength +
                                     ( isUnicode ? sizeof( WCHAR ) : 1 );
@@ -971,8 +1033,6 @@ Return Value:
         }
 
         smbInformation += length + ( isUnicode ? sizeof(WCHAR) : 1 );
-
-#if SRVDBG_CLIENT
 
         //
         // Get the client type strings if we do not already have this
@@ -1056,7 +1116,6 @@ Return Value:
             }
 
         }
-#endif
 
     } else {
 
@@ -1137,24 +1196,70 @@ Return Value:
     }
 
     //
-    // Try to find legitimate name/password combination.
+    // Ready to validate the credentials. We have either a Kerberos
+    // ticket, or something alleging to be a Kerberos ticket, or we
+    // have Lanman-style credentials. Check which and call the proper
+    // routine.
     //
 
-    status = SrvValidateUser(
-#ifdef _CAIRO_
-                &session->UserHandle,
-#else // _CAIRO_
-                &session->UserToken,
-#endif // _CAIRO_
-                session,
-                connection,
-                &nameString,
-                caseInsensitivePassword,
-                caseInsensitivePasswordLength,
-                caseSensitivePassword,
-                caseSensitivePasswordLength,
-                &action
-                );
+#ifdef CAP_KERBEROS_BLOB
+    if (SrvHaveKerberos) {
+        IsKerb =
+            (connection->ClientCapabilities & (CAP_NT_SMBS | CAP_KERBEROS_BLOB)) ==
+                (CAP_NT_SMBS | CAP_KERBEROS_BLOB);
+    } else
+#endif
+    {
+        IsKerb = FALSE;
+    }
+
+    if(IsKerb)
+    {
+        //
+        // Kerberos it is
+        //
+
+        status = SrvValidateBlob(  // We have a Kerberos Blob
+                    session,
+                    connection,
+                    &nameString,
+                    caseSensitivePassword,  // Where the blob is
+                    &caseSensitivePasswordLength);
+
+        if(byteCount = (USHORT)caseSensitivePasswordLength)
+        {
+            //
+            // Have something to return. Stick it in
+            //
+
+            RtlCopyMemory(response->Buffer,
+                          caseSensitivePassword,
+                          caseSensitivePasswordLength);
+            SmbPutUshort( &response->ByteCount, byteCount );
+
+            if(!NT_SUCCESS(status))
+            {
+                goto error_exit;
+            }
+        }
+
+    }
+    else
+    {
+        byteCount = 0;
+
+        status = SrvValidateUser(
+                    &session->UserHandle,
+                    session,
+                    connection,
+                    &nameString,
+                    caseInsensitivePassword,
+                    caseInsensitivePasswordLength,
+                    caseSensitivePassword,
+                    caseSensitivePasswordLength,
+                    &action
+                    );
+    }
 
     if ( !isUnicode ) {
         RtlFreeUnicodeString( &nameString );
@@ -1166,6 +1271,7 @@ Return Value:
     //
 
     if ( !NT_SUCCESS(status) ) {
+
 
         IF_DEBUG(ERRORS) {
             SrvPrint0( "BlockingSessionSetupAndX: Bad user/password "
@@ -1375,8 +1481,9 @@ Return Value:
     // respectively, can see it.
     //
 
-    reqAndXOffset = SmbGetUshort( &request->AndXOffset );
     nextCommand = request->AndXCommand;
+
+    reqAndXOffset = SmbGetUshort( &request->AndXOffset );
 
     SmbPutAlignedUshort( &WorkContext->RequestHeader->Uid, session->Uid );
     SmbPutAlignedUshort( &WorkContext->ResponseHeader->Uid, session->Uid );
@@ -1390,9 +1497,9 @@ Return Value:
     // to the response.
     //
 
-    byteCount = 0;
 
-    if ( connection->SmbDialect <= SmbDialectDosLanMan21 ) {
+    if (!IsKerb && (connection->SmbDialect <= SmbDialectDosLanMan21) )
+    {
 
         ULONG stringLength;
 
@@ -1445,11 +1552,11 @@ Return Value:
 
                 PWCH buffer = ALIGN_SMB_WSTR( response->Buffer + byteCount );
 
-                stringLength = SrvPrimaryDomain.Length + sizeof(UNICODE_NULL);
+                stringLength = endpoint->DomainName.Length + sizeof(UNICODE_NULL);
 
                 RtlCopyMemory(
                     buffer,
-                    SrvPrimaryDomain.Buffer,
+                    endpoint->DomainName.Buffer,
                     stringLength
                     );
 
@@ -1458,11 +1565,11 @@ Return Value:
 
             } else {
 
-                stringLength = SrvOemPrimaryDomain.Length + sizeof(CHAR);
+                stringLength = endpoint->OemDomainName.Length + sizeof(CHAR);
 
                 RtlCopyMemory(
                     (PVOID) (response->Buffer + byteCount),
-                    SrvOemPrimaryDomain.Buffer,
+                    endpoint->OemDomainName.Buffer,
                     stringLength
                     );
 
@@ -1499,6 +1606,7 @@ Return Value:
     WorkContext->ResponseParameters = (PCHAR)WorkContext->ResponseHeader +
                                         SmbGetUshort( &response->AndXOffset );
 
+
     //
     // Test for legal followon command.
     //
@@ -1517,6 +1625,7 @@ Return Value:
     case SMB_COM_FIND_UNIQUE:
     case SMB_COM_COPY:
     case SMB_COM_RENAME:
+    case SMB_COM_NT_RENAME:
     case SMB_COM_CHECK_DIRECTORY:
     case SMB_COM_QUERY_INFORMATION:
     case SMB_COM_SET_INFORMATION:
@@ -1591,7 +1700,6 @@ normal_exit:
 } // BlockingSessionSetupAndX
 
 
-#ifdef _CAIRO_
 SMB_TRANS_STATUS
 SrvSmbSessionSetup (
     IN OUT PWORK_CONTEXT WorkContext
@@ -1629,7 +1737,7 @@ Return Value:
 
 } // SrvSmbSessionSetup
 
-VOID
+VOID SRVFASTCALL
 BlockingSessionSetup (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1675,6 +1783,7 @@ Return Value:
     USHORT nameLength;
     ULONG capabilities;
     BOOLEAN locksHeld = FALSE;
+    USHORT SessId;
 
     PAGED_CODE();
 
@@ -1757,8 +1866,12 @@ Return Value:
                                     ( CAP_UNICODE |
                                       CAP_LARGE_FILES |
                                       CAP_NT_SMBS |
+                                      CAP_NT_FIND |
                                       CAP_NT_STATUS |
                                       CAP_LEVEL_II_OPLOCKS );
+    if ( connection->ClientCapabilities & CAP_NT_SMBS ) {
+        connection->ClientCapabilities |= CAP_NT_FIND;
+    }
 
     //
     // now get the blob, and its length ( I guess I never really thought
@@ -1780,12 +1893,12 @@ Return Value:
 
     nameLength = SrvGetStringLength(
                      userName,
-                     END_OF_REQUEST_SMB( WorkContext ),
+                     transaction->InData + transaction->DataCount,
                      SMB_IS_UNICODE( WorkContext ),
                      FALSE
                      );
 
-    if ( nameLength == -1 ) {
+    if ( nameLength == (USHORT)-1 ) {
         status = STATUS_INVALID_SMB;
         IF_SMB_DEBUG(TRANSACTION1) {
             SrvPrint0( "SESSSETUP -- namelength == -1\n");
@@ -1889,11 +2002,183 @@ Return Value:
         nameString.Buffer = NULL;
     }
 
-    //
-    // If a bad name/password combination was sent, return an error.
-    //
 
-    if ( !NT_SUCCESS(status) ) {
+    if(NT_SUCCESS(status)
+            ||
+       BlobLength)
+    {
+
+        if(!NT_SUCCESS(status))
+        {
+            transaction->cMaxBufferSize =  (CLONG)session->MaxBufferSize;
+            session->Connection = 0;
+            SessId = 0;
+        }
+        else
+        {
+
+            //
+            // If the client thinks that it is the first user on this
+            // connection, get rid of other connections (may be due to rebooting
+            // of client).  Also get rid of other sessions on this connection
+            // with the same user name--this handles a DOS "weirdness" where
+            // it sends multiple session setups if a tree connect fails.
+            //
+            // *** If VcNumber is non-zero, we do nothing special.  This is the
+            //     case even though the SrvMaxVcNumber configurable variable
+            //     should always be equal to one.  If a second VC is established
+            //     between machines, a new session must also be established.
+            //     This duplicates the LM 2.0 server's behavior.
+            //
+
+            if ( SmbGetUshort( &request->VcNumber ) == 0 ) {
+                SrvCloseConnectionsFromClient( connection );
+                SrvCloseSessionsOnConnection( connection, &session->UserName );
+            }
+
+            //
+            // Making a new session visible is a multiple-step operation.  It
+            // must be inserted in the global ordered tree connect list and the
+            // containing connection's session table, and the connection must be
+            // referenced.  We need to make these operations appear atomic, so
+            // that the session cannot be accessed elsewhere before we're done
+            // setting it up.  In order to do this, we hold all necessary locks
+            // the entire time we're doing the operations.  The first operation
+            // is protected by the global ordered list lock
+            // (SrvOrderedListLock), while the other operations are protected by
+            // the per-connection lock.  We take out the ordered list lock
+            // first, then the connection lock.  This ordering is required by
+            // lock levels (see lock.h).
+            //
+
+            ASSERT( SrvSessionList.Lock == &SrvOrderedListLock );
+            ACQUIRE_LOCK( SrvSessionList.Lock );
+
+            ACQUIRE_LOCK( &connection->Lock );
+
+            locksHeld = TRUE;
+
+            //
+            // Ready to try to find a UID for the session.  Check to see if the
+            // connection is being closed, and if so, terminate this operation.
+            //
+
+            if ( GET_BLOCK_STATE(connection) != BlockStateActive ) {
+
+                IF_DEBUG(ERRORS) {
+                    SrvPrint0( "SrvSmbSessionSetupAndX: Connection closing\n" );
+                }
+
+                status = STATUS_INVALID_PARAMETER;
+                goto error_exit;
+
+            }
+
+            //
+            // If this client speaks a dialect above LM 1.0, find a UID that can
+            // be used for this session.  Otherwise, just use location 0 of the
+            // table because those clients will not send a UID in SMBs and they
+            // can have only one session.
+            //
+
+            if ( pagedConnection->SessionTable.FirstFreeEntry == -1
+                 &&
+                 SrvGrowTable(
+                     &pagedConnection->SessionTable,
+                     SrvInitialSessionTableSize,
+                     SrvMaxSessionTableSize ) == FALSE
+               ) {
+
+                //
+                // No free entries in the user table.  Reject the request.
+                //
+
+                IF_DEBUG(ERRORS) {
+                    SrvPrint0( "SrvSmbSessionSetup: No more UIDs available.\n" );
+                }
+
+                status = STATUS_SMB_TOO_MANY_UIDS;
+                goto error_exit;
+
+            }
+
+            uidIndex = pagedConnection->SessionTable.FirstFreeEntry;
+
+            //
+            // Remove the UID slot from the free list and set its owner and
+            // sequence number.  Create a UID for the session.  Increment count
+            // of sessions.
+            //
+
+            entry = &pagedConnection->SessionTable.Table[uidIndex];
+
+            pagedConnection->SessionTable.FirstFreeEntry = entry->NextFreeEntry;
+            DEBUG entry->NextFreeEntry = -2;
+            if ( pagedConnection->SessionTable.LastFreeEntry == uidIndex ) {
+                pagedConnection->SessionTable.LastFreeEntry = -1;
+            }
+
+            INCREMENT_UID_SEQUENCE( entry->SequenceNumber );
+            session->Uid = MAKE_UID( uidIndex, entry->SequenceNumber );
+
+            IF_SMB_DEBUG(TRANSACTION1) {
+                SrvPrint1( "SESSSETUP -- made uid %x\n",session->Uid);
+            }
+
+            entry->Owner = session;
+
+            pagedConnection->CurrentNumberOfSessions++;
+
+            IF_SMB_DEBUG(ADMIN1) {
+                SrvPrint2( "Found UID.  Index = 0x%lx, sequence = 0x%lx\n",
+                            UID_INDEX( session->Uid ),
+                            UID_SEQUENCE( session->Uid ) );
+            }
+
+            //
+            // Insert the session on the global session list.
+            //
+
+            SrvInsertEntryOrderedList( &SrvSessionList, session );
+
+            //
+            // Reference the connection block to account for the new session.
+            //
+
+            SrvReferenceConnection( connection );
+            session->Connection = connection;
+
+            RELEASE_LOCK( &connection->Lock );
+            RELEASE_LOCK( SrvSessionList.Lock );
+
+            //
+            // Session successfully created.  Insert the session in the global
+            // list of active sessions.  Remember its address in the work
+            // context block.
+            //
+            // *** Note that the reference count on the session block is
+            //     initially set to 2, to allow for the active status on the
+            //     block and the pointer that we're maintaining.  In other
+            //     words, this is a referenced pointer, and the pointer must be
+            //     dereferenced when processing of this SMB is complete.
+            //
+            // It seems that perhaps we need another reference since we are
+            // doing this using a trans2 instead of a sessionsetup
+            //
+
+            SrvReferenceSession( session );
+
+            WorkContext->Session = session;
+            SessId = session->Uid;
+
+        }
+        status = S_OK;
+    }
+    else
+    {
+        //
+        // it failed
+        //
 
         IF_DEBUG(ERRORS) {
             SrvPrint0( "SrvSmbSessionSetupAndX: Bad user/password "
@@ -1903,161 +2188,7 @@ Return Value:
         SrvStatistics.LogonErrors++;
 
         goto error_exit;
-
     }
-
-    //
-    // If the client thinks that it is the first user on this
-    // connection, get rid of other connections (may be due to rebooting
-    // of client).  Also get rid of other sessions on this connection
-    // with the same user name--this handles a DOS "weirdness" where
-    // it sends multiple session setups if a tree connect fails.
-    //
-    // *** If VcNumber is non-zero, we do nothing special.  This is the
-    //     case even though the SrvMaxVcNumber configurable variable
-    //     should always be equal to one.  If a second VC is established
-    //     between machines, a new session must also be established.
-    //     This duplicates the LM 2.0 server's behavior.
-    //
-
-    if ( SmbGetUshort( &request->VcNumber ) == 0 ) {
-        SrvCloseConnectionsFromClient( connection );
-        SrvCloseSessionsOnConnection( connection, &session->UserName );
-    }
-
-    //
-    // Making a new session visible is a multiple-step operation.  It
-    // must be inserted in the global ordered tree connect list and the
-    // containing connection's session table, and the connection must be
-    // referenced.  We need to make these operations appear atomic, so
-    // that the session cannot be accessed elsewhere before we're done
-    // setting it up.  In order to do this, we hold all necessary locks
-    // the entire time we're doing the operations.  The first operation
-    // is protected by the global ordered list lock
-    // (SrvOrderedListLock), while the other operations are protected by
-    // the per-connection lock.  We take out the ordered list lock
-    // first, then the connection lock.  This ordering is required by
-    // lock levels (see lock.h).
-    //
-
-    ASSERT( SrvSessionList.Lock == &SrvOrderedListLock );
-    ACQUIRE_LOCK( SrvSessionList.Lock );
-
-    ACQUIRE_LOCK( &connection->Lock );
-
-    locksHeld = TRUE;
-
-    //
-    // Ready to try to find a UID for the session.  Check to see if the
-    // connection is being closed, and if so, terminate this operation.
-    //
-
-    if ( GET_BLOCK_STATE(connection) != BlockStateActive ) {
-
-        IF_DEBUG(ERRORS) {
-            SrvPrint0( "SrvSmbSessionSetupAndX: Connection closing\n" );
-        }
-
-        status = STATUS_INVALID_PARAMETER;
-        goto error_exit;
-
-    }
-
-    //
-    // If this client speaks a dialect above LM 1.0, find a UID that can
-    // be used for this session.  Otherwise, just use location 0 of the
-    // table because those clients will not send a UID in SMBs and they
-    // can have only one session.
-    //
-
-    if ( pagedConnection->SessionTable.FirstFreeEntry == -1
-         &&
-         SrvGrowTable(
-             &pagedConnection->SessionTable,
-             SrvInitialSessionTableSize,
-             SrvMaxSessionTableSize ) == FALSE
-       ) {
-
-        //
-        // No free entries in the user table.  Reject the request.
-        //
-
-        IF_DEBUG(ERRORS) {
-            SrvPrint0( "SrvSmbSessionSetup: No more UIDs available.\n" );
-        }
-
-        status = STATUS_SMB_TOO_MANY_UIDS;
-        goto error_exit;
-
-    }
-
-    uidIndex = pagedConnection->SessionTable.FirstFreeEntry;
-
-    //
-    // Remove the UID slot from the free list and set its owner and
-    // sequence number.  Create a UID for the session.  Increment count
-    // of sessions.
-    //
-
-    entry = &pagedConnection->SessionTable.Table[uidIndex];
-
-    pagedConnection->SessionTable.FirstFreeEntry = entry->NextFreeEntry;
-    DEBUG entry->NextFreeEntry = -2;
-    if ( pagedConnection->SessionTable.LastFreeEntry == uidIndex ) {
-        pagedConnection->SessionTable.LastFreeEntry = -1;
-    }
-
-    INCREMENT_UID_SEQUENCE( entry->SequenceNumber );
-    session->Uid = MAKE_UID( uidIndex, entry->SequenceNumber );
-
-    IF_SMB_DEBUG(TRANSACTION1) {
-        SrvPrint1( "SESSSETUP -- made uid %x\n",session->Uid);
-    }
-
-    entry->Owner = session;
-
-    pagedConnection->CurrentNumberOfSessions++;
-
-    IF_SMB_DEBUG(ADMIN1) {
-        SrvPrint2( "Found UID.  Index = 0x%lx, sequence = 0x%lx\n",
-                    UID_INDEX( session->Uid ),
-                    UID_SEQUENCE( session->Uid ) );
-    }
-
-    //
-    // Insert the session on the global session list.
-    //
-
-    SrvInsertEntryOrderedList( &SrvSessionList, session );
-
-    //
-    // Reference the connection block to account for the new session.
-    //
-
-    SrvReferenceConnection( connection );
-    session->Connection = connection;
-
-    RELEASE_LOCK( &connection->Lock );
-    RELEASE_LOCK( SrvSessionList.Lock );
-
-    //
-    // Session successfully created.  Insert the session in the global
-    // list of active sessions.  Remember its address in the work
-    // context block.
-    //
-    // *** Note that the reference count on the session block is
-    //     initially set to 2, to allow for the active status on the
-    //     block and the pointer that we're maintaining.  In other
-    //     words, this is a referenced pointer, and the pointer must be
-    //     dereferenced when processing of this SMB is complete.
-    //
-    // It seems that perhaps we need another reference since we are
-    // doing this using a trans2 instead of a sessionsetup
-    //
-
-    SrvReferenceSession( session );
-
-    WorkContext->Session = session;
 
     //
     // Build response SMB, making sure to save request fields first in
@@ -2067,10 +2198,10 @@ Return Value:
     // respectively, can see it.
     //
 
-    SmbPutAlignedUshort( &WorkContext->RequestHeader->Uid, session->Uid );
-    SmbPutAlignedUshort( &WorkContext->ResponseHeader->Uid, session->Uid );
+    SmbPutAlignedUshort( &WorkContext->RequestHeader->Uid, SessId );
+    SmbPutAlignedUshort( &WorkContext->ResponseHeader->Uid, SessId );
 
-    SmbPutUshort( &response->Uid, session->Uid );
+    SmbPutUshort( &response->Uid, SessId);
 
     IF_SMB_DEBUG(TRANSACTION1) {
         SrvPrint1( "SESSSETUP -- put uid for rdr =  %x\n",response->Uid);
@@ -2083,7 +2214,7 @@ Return Value:
     // to the response.
     //
 
-    RtlMoveMemory( response->Buffer,
+    RtlCopyMemory( response->Buffer,
                    Blob,
                    BlobLength );
 
@@ -2136,7 +2267,6 @@ error_exit:
     return;
 
 } // BlockingSessionSetup
-#endif // _CAIRO_
 
 
 SMB_PROCESSOR_RETURN_TYPE
@@ -2209,6 +2339,23 @@ Return Value:
 
         SrvSetSmbError( WorkContext, STATUS_SMB_BAD_UID );
         return SmbStatusSendResponse;
+    }
+
+    //
+    // If we need to visit the license server, get over to a blocking
+    // thread to ensure that we don't consume the nonblocking threads
+    //
+    if( WorkContext->UsingBlockingThread == 0 &&
+        session->IsLSNotified == TRUE ) {
+            //
+            // Insert the work item at the tail of the blocking work queue
+            //
+            SrvInsertWorkQueueTail(
+                &SrvBlockingWorkQueue,
+                (PQUEUEABLE_BLOCK_HEADER)WorkContext
+            );
+
+            return SmbStatusInProgress;
     }
 
     //

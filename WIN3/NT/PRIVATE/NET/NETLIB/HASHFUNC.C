@@ -50,7 +50,7 @@ HashUserName(
     NetpAssert( *UserNameW != L'\0' );
 
     // conv user name to unsigned char.
-    NetpCopyWStrToStr( (LPHASH_CHAR) UserNameA, UserNameW );
+    NetpCopyWStrToStrDBCSN( (LPHASH_CHAR) UserNameA, UserNameW, sizeof(UserNameA));
 
     // BUGBUG: Should UserNameA be converted to all upper case?
 

@@ -83,8 +83,9 @@ static HBRUSH  hRedBrush ;
 #define szTimePrototype          TEXT("12:34:56.9 pm  ")
 
 #define ALERTLOGMAXITEMS         1000
-
-#define szAlertFormat TEXT("%s %s %s %c %s %s,  %s,  %s,  %s,  %s")
+// enclose alert within double quotes to make it a single command line
+// argument rather then 10 args.
+#define szAlertFormat TEXT("\"%s %s %s %c %s %s,  %s,  %s,  %s,  %s\"")
 
 
 //==========================================================================//
@@ -198,7 +199,9 @@ BOOL AlertExec (LPTSTR lpszImageName, LPTSTR lpszCommandLine)
    STARTUPINFO    si ;
    PROCESS_INFORMATION  pi ;
    int            StringLen ;
-   TCHAR          TempBuffer [ 2 * FilePathLen ] ;
+   TCHAR          TempBuffer [ 5 * FilePathLen ] ;
+   BOOL           RetCode;
+   DWORD          dwCreationFlags = NORMAL_PRIORITY_CLASS;
 
    memset (&si, 0, sizeof (STARTUPINFO)) ;
    si.cb = sizeof (STARTUPINFO) ;
@@ -208,18 +211,52 @@ BOOL AlertExec (LPTSTR lpszImageName, LPTSTR lpszCommandLine)
 
    lstrcpy (TempBuffer, lpszImageName) ;
    StringLen = lstrlen (TempBuffer) ;
+    
+   // see if this is a CMD or a BAT file
+   // if it is then create a process with a console window, otherwise
+   // assume it's an executable file that will create it's own window
+   // or console if necessary
+   //
+   _tcslwr (TempBuffer);
+   if ((_tcsstr(TempBuffer, TEXT(".bat")) != NULL) ||
+       (_tcsstr(TempBuffer, TEXT(".cmd")) != NULL)){
+        dwCreationFlags |= CREATE_NEW_CONSOLE;
+   } else {
+        dwCreationFlags |= DETACHED_PROCESS;
+   }
+   // recopy the image name to the temp buffer since it was modified
+   // (i.e. lowercased) for the previous comparison.
+
+   lstrcpy (TempBuffer, lpszImageName) ;
+   StringLen = lstrlen (TempBuffer) ;
+
+   // now add on the alert text preceded with a space char
    TempBuffer [StringLen] = TEXT(' ') ;
    StringLen++ ;
    lstrcpy (&TempBuffer[StringLen], lpszCommandLine) ;
 
    // DETACHED_PROCESS is needed to get rid of the ugly console window
    // that SQL guys have been bitching..
-   return (CreateProcess (NULL, TempBuffer,
+   RetCode = CreateProcess (NULL, TempBuffer,
                           NULL, NULL, FALSE,
-                          (DWORD) NORMAL_PRIORITY_CLASS | DETACHED_PROCESS,
+                          dwCreationFlags,
+//                          (DWORD) NORMAL_PRIORITY_CLASS | DETACHED_PROCESS,
 //                          (DWORD) NORMAL_PRIORITY_CLASS,
                           NULL, NULL,
-                          &si, &pi)) ;
+                          &si, &pi) ;
+   if (RetCode)
+      {
+      if (pi.hProcess && pi.hProcess != INVALID_HANDLE_VALUE)
+         {
+         CloseHandle (pi.hProcess) ;
+         }
+      if (pi.hThread && pi.hThread != INVALID_HANDLE_VALUE)
+         {
+         CloseHandle (pi.hThread) ;
+         }
+      }
+
+   return RetCode ;
 
    }  // ExecProcess
 
@@ -251,6 +288,7 @@ BOOL SendNetworkMessage (LPTSTR pText, DWORD TextLen, LPTSTR pMessageName)
 
    if (SendFunction == NULL)
       {
+      FreeLibrary (dllHandle) ;
       return(TRUE) ;
       }
 
@@ -258,8 +296,11 @@ BOOL SendNetworkMessage (LPTSTR pText, DWORD TextLen, LPTSTR pMessageName)
       NULL, (LPBYTE)pText, TextLen * sizeof(TCHAR)) ;
    if (NetStatus != NERR_Success)
       {
+      FreeLibrary (dllHandle) ;
       return (FALSE) ;
       }
+
+   FreeLibrary (dllHandle) ;
 
    return (TRUE) ;   
 }
@@ -314,7 +355,7 @@ void SignalAlert (HWND hWnd,
    TCHAR          eAlertValueBuf [40] ;
    TCHAR          eAlertValueBuf1 [42] ;
    FLOAT          eLocalValue ;
-   DWORD          TextSize ;
+   DWORD          TextSize = 0; 
    LPTSTR         lpAlertMsg ;
    LPTSTR         lpEventLog[7] ;
    TCHAR          NullBuff [2] ;
@@ -575,9 +616,9 @@ void SignalAlert (HWND hWnd,
          ReportEvent (hEventLog,
             (WORD)EVENTLOG_INFORMATION_TYPE,
             (WORD)0,
-            pLine ? (DWORD) MSG_ALERT_OCCURRED : (DWORD) MSG_ALERT_SYSTEM,
+            (DWORD)(pLine ? MSG_ALERT_OCCURRED : MSG_ALERT_SYSTEM),
             (PSID)NULL,
-            pLine ? (WORD)7 : (WORD)2,
+            (WORD)(pLine ? 7 : 2),
             (DWORD)TextSize,
             (LPCTSTR *)lpEventLog,
             (LPVOID)(szText)) ;
@@ -723,8 +764,8 @@ void DrawAlertEntry (HWND hWnd,
 
    HBRUSH         hBrushPrevious ;
    FLOAT          eLocalValue ;
-   COLORREF       preBkColor ;
-   COLORREF       preTextColor ;
+   COLORREF       preBkColor = 0;
+   COLORREF       preTextColor = 0;
 
    pLine = pAlertEntry->pLine ;
 
@@ -983,8 +1024,10 @@ int static OnCtlColor (HWND hDlg,
                        HDC hDC)
    {
    SetTextColor (hDC, crBlack) ;
-   SetBkColor (hDC, crLightGray) ;
-   return ((int) hbLightGray) ;
+//   SetBkColor (hDC, crLightGray) ;
+//   return ((int) hbLightGray) ;
+   SetBkColor (hDC, ColorBtnFace) ;
+   return ((int) hBrushFace) ;
    }
 
 void AlertCreateThread (PALERT pAlert)
@@ -1248,47 +1291,45 @@ BOOL AlertInsertLine (HWND hWnd, PLINE pLine)
    pAlert->bModified = TRUE ;
 
    pLineEquivalent = FindEquivalentLine (pLine, pAlert->pLineFirst) ;
+    // alert view is not permitted to have duplicate entries
    if (pLineEquivalent)
-      {
-      LINESTRUCT  tempLine ;
+    {
+        LINESTRUCT  tempLine ;
 
-      tempLine = *pLineEquivalent ;
+        tempLine = *pLineEquivalent ;
 
-      // copy the new alert line attributes
-      pLineEquivalent->Visual = pLine->Visual ;
-      pLineEquivalent->bAlertOver = pLine->bAlertOver ;
-      pLineEquivalent->eAlertValue = pLine->eAlertValue ;
-      pLineEquivalent->bEveryTime = pLine->bEveryTime ;
+        // copy the new alert line attributes
+        pLineEquivalent->Visual = pLine->Visual ;
+        pLineEquivalent->bAlertOver = pLine->bAlertOver ;
+        pLineEquivalent->eAlertValue = pLine->eAlertValue ;
+        pLineEquivalent->bEveryTime = pLine->bEveryTime ;
 
-      pLineEquivalent->lpszAlertProgram = pLine->lpszAlertProgram ;
-      pLine->lpszAlertProgram = tempLine.lpszAlertProgram ;
+        pLineEquivalent->lpszAlertProgram = pLine->lpszAlertProgram ;
+        pLine->lpszAlertProgram = tempLine.lpszAlertProgram ;
 
-      pLineEquivalent->hBrush = pLine->hBrush ;
-      pLine->hBrush = tempLine.hBrush ;
+        pLineEquivalent->hBrush = pLine->hBrush ;
+        pLine->hBrush = tempLine.hBrush ;
 
-      if (PlayingBackLog ())
-         {
-         PlaybackAlert (hWnd, 0) ;
-         WindowInvalidate (hWnd) ;
-         }
+        if (PlayingBackLog ())
+            {
+            PlaybackAlert (hWnd, 0) ;
+            WindowInvalidate (hWnd) ;
+            }
 
-      return (FALSE) ;
-      }
-   else
-      {
-      SystemAdd (&pAlert->pSystemFirst, pLine->lnSystemName) ;
+        return (FALSE) ;
+    }
+    SystemAdd (&pAlert->pSystemFirst, pLine->lnSystemName, hWnd) ;
 
-      LineAppend (&pAlert->pLineFirst, pLine) ;
+    LineAppend (&pAlert->pLineFirst, pLine) ;
 
-      LegendAddItem (hWndAlertLegend, pLine) ;
+    LegendAddItem (hWndAlertLegend, pLine) ;
 
-      if (!bDelayAddAction)
-         {
-         SizeAlertComponents (hWndAlert) ;
-         LegendSetSelection (hWndAlertLegend, 
-                             LegendNumItems (hWndAlertLegend) - 1) ;
-         }
-      }
+    if (!bDelayAddAction)
+        {
+        SizeAlertComponents (hWndAlert) ;
+        LegendSetSelection (hWndAlertLegend, 
+                            LegendNumItems (hWndAlertLegend) - 1) ;
+        }
 
    if (!bDelayAddAction)
       {
@@ -1542,7 +1583,8 @@ INT PlaybackAlert (HWND hWndAlert, HANDLE hExportFile)
       if (!bFirstTime)
          {
          // check if it is time to do the alert checking
-         TimeDiff = (DWORD) SystemTimeDifference (&PreviousSystemTime, &SystemTime) ;
+         TimeDiff = (DWORD) SystemTimeDifference (&PreviousSystemTime,
+                &SystemTime, TRUE) ;
          if (TimeDiff * 1000 >= pAlert->iIntervalMSecs)
             {
             PlaybackLines (pAlert->pSystemFirst,
@@ -2462,4 +2504,4 @@ Exit0:
 
 }  // ExportAlert
 
-
+

@@ -3,10 +3,13 @@
 /*******************************************************************
     Filename: STDTYP.H
    (c) 1989, ATI Technologies Incorporated.
-  $Revision:   1.0  $
-      $Date:   31 Jan 1994 11:49:02  $
-   $Author:   RWOLFF  $
+  $Revision:   1.1  $
+      $Date:   23 Dec 1994 10:48:20  $
+   $Author:   ASHANMUG  $
       $Log:   S:/source/wnt/ms11/miniport/vcs/stdtyp.h  $
+ * 
+ *    Rev 1.1   23 Dec 1994 10:48:20   ASHANMUG
+ * ALPHA/Chrontel-DAC
  * 
  *    Rev 1.0   31 Jan 1994 11:49:02   RWOLFF
  * Initial revision.
@@ -126,9 +129,7 @@ DESCRIPTION
     #define near
 #endif
 #define NEAR    near
-#ifndef MSDOS
-    #define far
-#endif
+#define far
 #define FAR     far
 #ifndef huge
     #define huge
@@ -156,16 +157,6 @@ typedef unsigned char UCHAR;    /* At least 8 bits, unsigned */
 typedef signed char SCHAR;      /* At least 8 bits, signed */
 typedef unsigned short USHORT;  /* At least 16 bits, unsigned */
 typedef unsigned long ULONG;    /* At least 32 bits, signed */
-
-#ifdef MSDOS
-#ifndef NULL
-#ifdef __cplusplus
-#define NULL    0
-#else
-#define NULL    ((void *)0)
-#endif
-#endif // NULL
-#endif
 
 typedef unsigned char UTINY;    /* Scalar, at least 8 bits , unsigned */
 typedef char TINY;              /* Scalar, at least 8 bits, signed */
@@ -199,99 +190,6 @@ typedef int     PTRDIFF_T;      /* difference between pointers.
                                         Equivalent to ansi ptrdiff_t */
 #endif
 
-#ifdef MSDOS
-typedef BOOL BOOLEAN;
-
-typedef struct _PHYSICAL_ADDRESS {
-        ULONG LowPart;
-        LONG HighPart;
-} PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;
-
-
-//
-// The following structure is used to define access ranges. The ranges are
-// used to indicate which ports and memory adresses are being used by the
-// card.
-//
-
-typedef struct _VIDEO_ACCESS_RANGE {
-
-    //
-    // Indicates the starting memory address or port number of the range.
-    // This values should be stored before being transformed by
-    // VideoPortGetDeviceBase() which returns the logical address that must
-    // be used by the miniport driver when referencing physical addresses.
-    //
-
-    PHYSICAL_ADDRESS RangeStart;
-
-    //
-    // Indicates the length in bytes, or number of ports in the range. This
-    // value should indicate the range actually decoded by the adapter. For
-    // example, if the adapter uses 7 registers but responds to eight, the
-    // RangeLength should be set to 8.
-
-    ULONG RangeLength;
-
-    //
-    // Indicates if the range is in IO space (TRUE) or in memory space (FALSE).
-    //
-
-    UCHAR RangeInIoSpace;
-
-    //
-    // Indicates if the range should be visible by the Windows display driver.
-    // This is done so that a Windows display driver can access certain
-    // video ports directly. This will only be allowed if the caller has the
-    // required privileges (is a trusted subsystem) to access the range.
-    //
-    // Synchronization of access to ports or memory in the range must be
-    // done explicitly by the miniport driver and the user mode process so
-    // that they both don't try to program the device simultaneously.
-    //
-    // Non visible ranges should include video memory, ROM addresses, etc.
-    // which are not required to program the device for output purposes.
-    //
-    //
-
-    UCHAR RangeVisible;
-
-    //
-    // This field determines if the range can be shared with another device.
-    // The rule should be applied as follow.
-    //
-    // - If the range of memory or IO ports should be "owned" by this driver,
-    //   and that any other driver trying to access this range may cause
-    //   a problem, FALSE should be returned.
-    //
-    // - If the range can be shared with another co-operating device driver,
-    //   then the share field should be set to TRUE.
-    //
-    // As a guideline, the VGA miniport driver will claim all of its resources
-    // as shareable so that it can be used as a VGA compatible device with
-    // any other driver (such as an S3 or XGA.
-    //
-    // Super VGA miniport drivers that implement all the VGA functionality
-    // (declared in the Registry as VGACOMPATIBLE=1) should claim the range
-    // as non-shareable since they don't want the VGA to run at the same time.
-    //
-    // Miniports for cards such as an S3 or XGA that have an XGA on the board
-    // but do not implement the VGA functionality will run with the VGA
-    // miniport loaded and should therefore claim all the resources shared
-    // with the VGA as shareable.
-    //
-    // Miniports for cards that work with a pass-through and that can be
-    // connected to any VGA/SVGA card should not be using any VGA ports or
-    // memory ranges ! ... but if they do they should not claim those
-    // resources since they will cause a conflict in the system because the
-    // SVGA cards will have claimed them as non-shareable ...
-    //
-
-    UCHAR RangeShareable;
-
-} VIDEO_ACCESS_RANGE, *PVIDEO_ACCESS_RANGE;
-
-#endif
 
 /*
 ****************************
@@ -299,10 +197,6 @@ typedef struct _VIDEO_ACCESS_RANGE {
 ****************************
 */
 
-#ifdef MSDOS
-typedef UCHAR *PUCHAR;                 /* pointer to UCHAR */
-typedef USHORT *PUSHORT;               /* pointer to USHORT */
-#endif
 
 typedef void *PVOID;                   /* Generic untyped pointer */
 

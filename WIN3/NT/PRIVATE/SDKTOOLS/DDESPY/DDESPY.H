@@ -12,6 +12,7 @@
 #define MH_INTKEEP                  6
 #define MH_INTDELETE                7
 
+#define IDI_DDESPY                  100
 #define IDD_MSGFILTERS              300
 #define IDRB_WM_DDE_INITIATE        305
 #define IDRB_WM_DDE_TERMINATE       306
@@ -215,7 +216,9 @@
 #define IDS_FMT_TRS_MSG1            120
 #define IDS_FMT_TRS_MSG2            121
 #define IDS_FMT_TRS_STATUSIS        122
-#define IDS_LAST                    122
+#define IDS_FMT_SH_MSG1             123
+#define IDS_BADATOM                 124
+#define IDS_LAST                    124
 
 #define T_ATOM                      0x0001
 #define T_OPTIONHANDLE              0x0002
@@ -255,7 +258,7 @@
 #define MAX_MARK                    32
 #define MAX_DISPDATA                48      // max bytes of non-text data to dump
 
-#define CLINES                      100
+#define CLINES                      1000
 #define CCHARS                      200
 
 extern HINSTANCE hInst;
@@ -319,4 +322,12 @@ LONG CALLBACK StrWndProc(HWND hwnd, UINT msg, WPARAM wParam, UINT lParam);
 VOID scroll(HWND hwnd, UINT msg, UINT sliderpos, UINT style);
 BOOL StrWndCreate(HWND hwnd, INT cchLine, INT cLine);
 VOID PaintStrWnd(HWND hwnd, LPPAINTSTRUCT pps);
-
+
+#ifdef DBCS
+#define strchr      My_mbschr
+#ifdef stricmp
+#undef stricmp
+#endif
+#define stricmp     lstrcmpi
+LPTSTR _CRTAPI1 My_mbschr(LPTSTR, TCHAR);
+#endif  // DBCS

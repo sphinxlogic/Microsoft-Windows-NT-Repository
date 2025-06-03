@@ -54,7 +54,7 @@ SrvReferenceUnlockableCodeSection (
         //
 
         ASSERT( section->Handle == NULL );
-        section->Handle = MmLockPagableImageSection( section->Base );
+        section->Handle = MmLockPagableCodeSection( section->Base );
 
     } else {
 

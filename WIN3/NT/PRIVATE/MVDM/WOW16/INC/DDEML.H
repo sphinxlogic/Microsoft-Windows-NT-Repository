@@ -457,4 +457,3 @@ typedef struct tagMONCONVSTRUCT
 #endif  /* RC_INVOKED */
 
 #endif /* _INC_DDEML */
-

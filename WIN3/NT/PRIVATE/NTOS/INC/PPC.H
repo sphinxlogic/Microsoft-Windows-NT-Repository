@@ -23,12 +23,16 @@ Revision History:
 #ifndef _PPCH_
 #define _PPCH_
 
-// begin_ntddk begin_nthal begin_ntndis begin_updriver
+// begin_ntddk begin_nthal begin_ntndis
 
 #if defined(_PPC_)
 
-// end_ntddk end_nthal end_ntndis end_updriver (This is so the string "updriver" doesn't appear in nthal/ntddk/ntifs.)
-// begin_ntddk begin_nthal begin_ntndis
+//
+// Define maximum size of flush multple TB request.
+//
+
+#define FLUSH_MULTIPLE_MAXIMUM 48
+
 //
 // Indicate that the compiler (with MIPS front-end) supports
 // the pragma textout construct.
@@ -41,7 +45,7 @@ Revision History:
 // or a kernel component is being built.
 //
 
-#if defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
 
 #define NTKERNELAPI DECLSPEC_IMPORT
 
@@ -73,14 +77,6 @@ Revision History:
 
 #define IMPORT_NAME(name) __imp_##name
 
-// begin_ntndis
-//
-// Define function decoration for FASTCALL calling convention
-//
-
-#define FASTCALL
-
-// end_ntndis
 //
 // PowerPC specific interlocked operation result values.
 //
@@ -130,11 +126,104 @@ ExPpcInterlockedDecrementLong (
     );
 
 NTKERNELAPI
+LARGE_INTEGER
+ExInterlockedExchangeAddLargeInteger (
+    IN PLARGE_INTEGER Addend,
+    IN LARGE_INTEGER Increment,
+    IN PKSPIN_LOCK Lock
+    );
+
+NTKERNELAPI
 ULONG
 ExPpcInterlockedExchangeUlong (
     IN PULONG Target,
     IN ULONG Value
     );
+
+//
+// Intrinsic interlocked functions
+//
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000) && !defined(RC_INVOKED)
+
+#define InterlockedIncrement _InterlockedIncrement
+#define InterlockedDecrement _InterlockedDecrement
+#define InterlockedExchange _InterlockedExchange
+#define InterlockedExchangeAdd _InterlockedExchangeAdd
+#define InterlockedCompareExchange _InterlockedCompareExchange
+
+LONG
+InterlockedIncrement(
+    IN OUT PLONG Addend
+    );
+
+LONG
+InterlockedDecrement(
+    IN OUT PLONG Addend
+    );
+
+LONG
+InterlockedExchange(
+    IN OUT PLONG Target,
+    IN LONG Increment
+    );
+
+LONG
+InterlockedExchangeAdd(
+    IN OUT PLONG Addend,
+    IN LONG Value
+    );
+
+PVOID
+InterlockedCompareExchange (
+    IN OUT PVOID *Destination,
+    IN PVOID Exchange,
+    IN PVOID Comperand
+    );
+
+#pragma intrinsic(_InterlockedIncrement)
+#pragma intrinsic(_InterlockedDecrement)
+#pragma intrinsic(_InterlockedExchange)
+#pragma intrinsic(_InterlockedExchangeAdd)
+#pragma intrinsic(_InterlockedCompareExchange)
+
+#else
+
+NTKERNELAPI
+LONG
+InterlockedIncrement(
+    IN OUT PLONG Addend
+    );
+
+NTKERNELAPI
+LONG
+InterlockedDecrement(
+    IN OUT PLONG Addend
+    );
+
+NTKERNELAPI
+LONG
+InterlockedExchange(
+    IN OUT PLONG Target,
+    IN LONG Increment
+    );
+
+NTKERNELAPI
+LONG
+InterlockedExchangeAdd(
+    IN OUT PLONG Addend,
+    IN LONG Value
+    );
+
+NTKERNELAPI
+PVOID
+InterlockedCompareExchange (
+    IN OUT PVOID *Destination,
+    IN PVOID Exchange,
+    IN PVOID Comperand
+    );
+
+#endif
 
 //
 // PowerPC Interrupt Definitions.
@@ -147,7 +236,6 @@ ExPpcInterlockedExchangeUlong (
 //
 // Define Interrupt Request Levels.
 //
-// **FINISH**  Probably need adjustment for PowerPC
 
 #define PASSIVE_LEVEL   0               // Passive release level
 #define LOW_LEVEL       0               // Lowest interrupt level
@@ -158,6 +246,7 @@ ExPpcInterlockedExchangeUlong (
 #define POWER_LEVEL     30              // Power failure level
 #define FLOAT_LEVEL     31              // Floating interrupt level
 #define HIGH_LEVEL      31              // Highest interrupt level
+#define SYNCH_LEVEL     DISPATCH_LEVEL  // Synchronization level
 
 //
 // Define profile intervals.
@@ -170,21 +259,9 @@ ExPpcInterlockedExchangeUlong (
 #define MINIMUM_PROFILE_INTERVAL (10 * 40)           // 40 microseconds
 
 // end_ntddk end_nthal
-//
-// Define default thread and process quantum values.
-//
-// **FINISH**  MIPS values; use these unless there's a reason not to.
 
-#define PROCESS_QUANTUM  2              // Process quantum in thread quantums
-#define THREAD_QUANTUM   2              // Thread quantum in ticks
-
-//
-// Define the default quantum decrement values.
-//
-
-#define CLOCK_QUANTUM_DECREMENT 1       // Decrement value at clock interrupt
-#define MUTEX_QUANTUM_DECREMENT 1       // Decrement value at mutex release
-#define WAIT_QUANTUM_DECREMENT  1       // Decrement value at wait operation
+#define KiSynchIrql SYNCH_LEVEL         // enable portable code
+#define KiProfileIrql PROFILE_LEVEL     // enable portable code
 
 //
 // Define machine specific external references.
@@ -227,37 +304,41 @@ extern ULONG KiInterruptTemplate[];
 //  MSR -- Machine State Register
 //
 //     If kernel mode, then
-//         Force to 0:  reserved (0..12, 24, 28, 29)
+//         Force to 0:  reserved (0..12, 24, 28)
 //         Force to 1:  ILE (15), LE (31)
 //         Let caller specify:
 //                      POW (13), implementation-dependent (14),
 //                      EE (16), PR (17), FP (18), ME (19),
 //                      FE0 (20), SE (21), BE (22), FE1 (23),
-//                      IP (25), IR (26), DR (27), RI (30)
+//                      IP (25), IR (26), DR (27), PM (29), RI (30)
 //
 //     If user mode, then
 //         Force to 0:  POW (13), implementation-dependent (14), IP (25),
-//                      reserved (0..12, 24, 28, 29)
+//                      reserved (0..12, 24, 28)
 //         Force to 1:  ILE (15), EE (16), PR (17), FPE (18), ME (19),
 //                      IR (26), DR (27), RI (30), LE (31)
 //         Let caller specify:
-//                      FE0 (20), SE (21), BE (22), FE1 (23),
+//                      FE0 (20), SE (21), BE (22), FE1 (23), PM (29)
 //
 
 #define SANITIZE_MSR(msr, mode) \
     ((mode) == KernelMode ? \
-        ((0x00010001L) | ((msr) & 0x0007FF73L)) : \
-        ((0x0001F033L) | ((msr) & 0x0001FF33L)))
+        ((0x00010001L) | ((msr) & 0x0007FF77L)) : \
+        ((0x0001F033L) | ((msr) & 0x0001FF37L)))
 
-// begin_nthal
+// begin_ntddk begin_nthal
+//
+// Define length of interrupt vector table.
+//
+
+#define MAXIMUM_VECTOR 256
+
 //
 // Processor Control Region
 //
 //   On PowerPC, this cannot be at a fixed virtual address;
 //   it must be at a different address on each processor of an MP.
 //
-//   The address is held in SPRG1; we provide a hyper-fast
-//   system call (SC instruction) to retrieve it.
 
 #define PCR_MINOR_VERSION 1
 #define PCR_MAJOR_VERSION 1
@@ -280,7 +361,9 @@ typedef struct _KPCR {
 //
 
     PKINTERRUPT_ROUTINE InterruptRoutine[MAXIMUM_VECTOR];
-    PVOID XcodeDispatch[XCODE_VECTOR_LENGTH];
+    ULONG PcrPage2;
+    ULONG Kseg0Top;
+    ULONG Spare7[30];
 
 //
 // First and second level cache parameters.
@@ -358,7 +441,14 @@ typedef struct _KPCR {
 // register at startup.
 //
 
-    ULONG CachePolicy;
+    union {
+        ULONG CachePolicy;
+        struct {
+	        UCHAR IcacheMode;	// Dynamic cache mode for PPC
+	        UCHAR DcacheMode;	// Dynamic cache mode for PPC
+	        USHORT ModeSpare;
+    	};
+    };
 
 //
 // IRQL mapping tables.
@@ -412,10 +502,10 @@ typedef struct _KPCR {
     };
 
 //
-// Spare cell.
+// Complement of the processor affinity mask.
 //
 
-    ULONG Spare0;
+    KAFFINITY NotMember;
 
 //
 // Space reserved for the system.
@@ -434,6 +524,7 @@ typedef struct _KPCR {
 // may be directly addressed by vendor/platform specific HAL code and will
 // not change from version to version of NT.
 //
+// end_ntddk end_nthal
 
 //
 // Start of the operating system release dependent section of the PCR.
@@ -444,14 +535,6 @@ typedef struct _KPCR {
 //
 
     ULONG FirstLevelActive;
-    ULONG DpcRoutineActive;
-
-//
-// Spare cells.
-//
-
-    ULONG Spare1;
-    ULONG Spare2;
 
 //
 // System service dispatch start and end address used by get/set context.
@@ -467,26 +550,24 @@ typedef struct _KPCR {
     ULONG InterruptStack;
 
 //
-// Address of per processor quantum end DPC.
+// Quantum end flag.
 //
 
-    struct _KDPC *QuantumEndDpc;
+    ULONG QuantumEnd;
 
 //
 // Exception handler values.
 //
+
     PVOID InitialStack;
     PVOID PanicStack;
     ULONG BadVaddr;
-
-// **FINISH**  These require updating (labels are still MIPS-specific)
-// **FINISH**  (Actually I don't think we want them at all (plj)).
-
-    ULONG Spare3;
-    ULONG SavedEpc;
+    PVOID StackLimit;
+    PVOID SavedStackLimit;
     ULONG SavedV0;
     ULONG SavedV1;
-    PVOID SystemGp;
+    UCHAR DebugActive;
+    UCHAR Spare6[3];
 
 //
 // Save area for 6 GPRs on interrupt other than Storage interrupt.
@@ -501,6 +582,10 @@ typedef struct _KPCR {
     ULONG SiR2;
     ULONG SiR3;
     ULONG SiR4;
+    ULONG SiR5;
+
+    ULONG Spare0;
+    ULONG Spare8;
 
 //
 // Real address of current process's Page Directory Page,
@@ -516,8 +601,8 @@ typedef struct _KPCR {
 
     ULONG OnInterruptStack;
     ULONG SavedInitialStack;
-                                    // Removed extract comment for ddk h (CDB)
-} KPCR, *PKPCR;                     // nthal
+
+} KPCR, *PKPCR;                     // ntddk nthal
 
 //
 // The PCR address on a particular processor is contained in
@@ -533,13 +618,57 @@ typedef struct _KPCR {
 // KiGetPcr() is a two-instruction routine that just reads SPRG 1
 //   into reg 3 and returns.  Eventually this should be expanded in-line.
 
+KPCR * KiGetPcr(VOID);
+
 #define KIPCR2  0xffffe000              // kernel address of second PCR
-
-KPCR * KiGetPcr();
-
-#define PCR ((volatile KPCR * volatile) KiGetPcr())
-#define KI_USER_SHARED_DATA         0xffffe000
+#define KI_USER_SHARED_DATA KIPCR2
 #define SharedUserData ((KUSER_SHARED_DATA * const)KIPCR2)
+
+// begin_ntddk begin_nthal
+
+#define KIPCR   0xffffd000              // kernel address of first PCR
+
+#define PCR ((volatile KPCR * const)KIPCR)
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000)
+unsigned __sregister_get( unsigned const regnum );
+#define _PPC_SPRG1_ 273
+#define PCRsprg1 ((volatile KPCR * volatile)__sregister_get(_PPC_SPRG1_))
+#else
+KPCR * __builtin_get_sprg1(VOID);
+#define PCRsprg1 ((volatile KPCR * volatile)__builtin_get_sprg1())
+#endif
+
+//
+// Macros for enabling and disabling system interrupts.
+//
+//BUGBUG - work around 603e/ev errata #15
+//  The instructions __emit'ed in these macros are "cror 0,0,0" instructions
+//  that force the mtmsr to complete before allowing any subsequent loads to
+//  issue.   The condition register no-op is executed in the system unit on
+//  the 603.  This will not dispatch until the mtmsr completes and will halt
+//  further dispatch.   On a 601 or 604 this instruction executes in the
+//  branch unit and will run in parallel (i.e., no performance penalty except
+//  for code bloat).
+//
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000)
+
+unsigned __sregister_get( unsigned const regnum );
+void __sregister_set( unsigned const regnum, unsigned value );
+#define _PPC_MSR_ (unsigned)(~0x0)
+#define _enable()  (__sregister_set(_PPC_MSR_, __sregister_get(_PPC_MSR_) | 0x00008000), __emit(0x4C000382))
+#define _disable() (__sregister_set(_PPC_MSR_, __sregister_get(_PPC_MSR_) & 0xffff7fff), __emit(0x4C000382))
+#define __builtin_get_msr() __sregister_get(_PPC_MSR_)
+
+#else
+
+ULONG __builtin_get_msr(VOID);
+VOID  __builtin_set_msr(ULONG);
+#define _enable()  (__builtin_set_msr(__builtin_get_msr() | 0x00008000), __builtin_isync())
+#define _disable() (__builtin_set_msr(__builtin_get_msr() & 0xffff7fff), __builtin_isync())
+
+#endif
 
 //
 // Get current IRQL.
@@ -564,6 +693,19 @@ KPCR * KiGetPcr();
 //
 
 #define KeGetCurrentThread() PCR->CurrentThread
+
+//
+// Get Processor Version Register
+//
+
+#if defined(_M_PPC) && defined(_MSC_VER) && (_MSC_VER>=1000)
+unsigned __sregister_get( unsigned const regnum );
+#define _PPC_PVR_ 287
+#define KeGetPvr() __sregister_get(_PPC_PVR_)
+#else
+ULONG __builtin_get_pvr(VOID);
+#define KeGetPvr() __builtin_get_pvr()
+#endif
 
 // begin_ntddk
 
@@ -592,9 +734,32 @@ KPCR * KiGetPcr();
 // Test if executing a DPC.
 //
 
-#define KeIsExecutingDpc()  (PCR->DpcRoutineActive != FALSE)
+BOOLEAN
+KeIsExecutingDpc (
+    VOID
+    );
+
+//
+// Save & Restore floating point state
+//
+
+#define KeSaveFloatingPointState(a)         STATUS_SUCCESS
+#define KeRestoreFloatingPointState(a)      STATUS_SUCCESS
+
 
 // begin_nthal
+//
+// Fill TB random entry
+//
+
+NTKERNELAPI
+VOID
+KeFillEntryTb (
+    IN HARDWARE_PTE Pte[2],
+    IN PVOID Virtual,
+    IN BOOLEAN Invalid
+    );
+
 //
 // Data cache, instruction cache, I/O buffer, and write buffer flush routine
 // prototypes.
@@ -671,14 +836,22 @@ KeProfileInterrupt (
 
 NTKERNELAPI
 VOID
-KeUpdateRuntime (
+KeProfileInterruptWithSource (
+    IN struct _KTRAP_FRAME *TrapFrame,
+    IN KPROFILE_SOURCE ProfileSource
+    );
+
+NTKERNELAPI
+VOID
+KeUpdateRunTime (
     IN struct _KTRAP_FRAME *TrapFrame
     );
 
 NTKERNELAPI
 VOID
 KeUpdateSystemTime (
-    IN struct _KTRAP_FRAME *TrapFrame
+    IN struct _KTRAP_FRAME *TrapFrame,
+    IN ULONG TimeIncrement
     );
 
 //
@@ -722,39 +895,41 @@ KiReleaseSpinLock (
 // Drivers MUST use the kernel interfaces since they must be MP enabled on
 // all systems.
 //
-// begin_updriver
+// On PPC, raise/lower IRQL are in the HAL, but KeRaiseIrqlToDpcLevel (raising to a
+// software level) is in the kernel.
+//
 
-#if defined(NT_UP)
-#define ExAcquireSpinLock(Lock, OldIrql) \
-    KeRaiseIrql(DISPATCH_LEVEL, (OldIrql))
+// begin_ntddk begin_ntifs begin_nthal
+
+NTKERNELAPI
+KIRQL
+KfRaiseIrqlToDpcLevel (
+    VOID
+    );
+
+#define KeRaiseIrqlToDpcLevel(OldIrql) (*(OldIrql) = KfRaiseIrqlToDpcLevel())
+
+NTKERNELAPI
+KIRQL
+KeRaiseIrqlToSynchLevel (
+    VOID
+    );
+
+// end_nthal
+
+#if defined(NT_UP) && !defined(_NTDDK_) && !defined(_NTIFS_)
+#define ExAcquireSpinLock(Lock, OldIrql) KeRaiseIrqlToDpcLevel((OldIrql))
+#define ExReleaseSpinLock(Lock, OldIrql) KeLowerIrql((OldIrql))
+#define ExAcquireSpinLockAtDpcLevel(Lock)
+#define ExReleaseSpinLockFromDpcLevel(Lock)
 #else
-#define ExAcquireSpinLock(Lock, OldIrql) \
-    KeAcquireSpinLock((Lock), (OldIrql))
+#define ExAcquireSpinLock(Lock, OldIrql) KeAcquireSpinLock((Lock), (OldIrql))
+#define ExReleaseSpinLock(Lock, OldIrql) KeReleaseSpinLock((Lock), (OldIrql))
+#define ExAcquireSpinLockAtDpcLevel(Lock) KeAcquireSpinLockAtDpcLevel(Lock)
+#define ExReleaseSpinLockFromDpcLevel(Lock) KeReleaseSpinLockFromDpcLevel(Lock)
 #endif
 
-#if defined(NT_UP)
-#define ExReleaseSpinLock(Lock, OldIrql) \
-    KeLowerIrql((OldIrql))
-#else
-#define ExReleaseSpinLock(Lock, OldIrql) \
-    KeReleaseSpinLock((Lock), (OldIrql))
-#endif
-
-#if defined(NT_UP)
-#define ExAcquireSpinLockAtDpcLevel(SpinLock)
-#else
-#define ExAcquireSpinLockAtDpcLevel(SpinLock) \
-    KeAcquireSpinLockAtDpcLevel(SpinLock)
-#endif
-
-#if defined(NT_UP)
-#define ExReleaseSpinLockFromDpcLevel(SpinLock)
-#else
-#define ExReleaseSpinLockFromDpcLevel(SpinLock) \
-    KeReleaseSpinLockFromDpcLevel(SpinLock)
-#endif
-
-// end_updriver
+// end_ntddk end_ntifs
 
 //
 // The acquire and release fast lock macros disable and enable interrupts
@@ -763,9 +938,6 @@ KiReleaseSpinLock (
 //
 // N.B. Extreme caution should be observed when using these routines.
 //
-
-#define _enable()  KiRestoreInterrupts(1)
-#define _disable() KiDisableInterrupts()
 
 #if defined(NT_UP) && !DBG
 #define ExAcquireFastLock(Lock, OldIrql) _disable()
@@ -798,9 +970,9 @@ KiReleaseSpinLock (
 //
 // begin_ntddk begin_nthal
 
-#if defined(_NTDDK_) || defined(_NTIFS_)
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_)
 
-#define KiQueryTickCount(CurrentCount) { \
+#define KeQueryTickCount(CurrentCount) { \
     PKSYSTEM_TIME _TickCount = *((PKSYSTEM_TIME *)(&KeTickCount)); \
     do {                                                           \
         (CurrentCount)->HighPart = _TickCount->High1Time;          \
@@ -885,7 +1057,7 @@ KiSetRegisterValue (
 
 VOID
 KiRequestSoftwareInterrupt (
-    KIRQL RequestIrql
+    ULONG RequestIrql
     );
 
 
@@ -1057,6 +1229,30 @@ KiRequestSoftwareInterrupt (
 
 // end_ntddk end_nthal end_ntndis
 
+
+//
+// Masks for Dr7 and sanitize macros for various debug registers.
+//
+#define DR6_LEGAL   0x0000e00f
+
+#define DR7_LEGAL   0xffff0155
+
+#define DR7_ACTIVE  0x00000055  // If any of these bits are set a debug
+                                // register is active providing Dr6
+                                // indicates DR available
+#define SANITIZE_DR6(Dr6, mode) ((Dr6 & DR6_LEGAL));
+
+#define SANITIZE_DR7(Dr7, mode) ((Dr7 & DR7_LEGAL));
+
+#define SANITIZE_DRADDR(DrReg, mode) (                \
+    (mode) == KernelMode ?                            \
+        (DrReg):                                      \
+        (((PVOID)DrReg <= MM_HIGHEST_USER_ADDRESS) ?  \
+        (DrReg):                                      \
+            (0)                                       \
+        )                                             \
+    )
+
 //
 // Trap Frame  --  Volatile state
 //
@@ -1072,11 +1268,12 @@ KiRequestSoftwareInterrupt (
 
 typedef struct _KTRAP_FRAME {
 
-    ULONG OnInterruptStack;
+    PVOID TrapFrame;                    // previous trap frame address
 
     UCHAR OldIrql;
     UCHAR PreviousMode;
-    UCHAR FILL0[2];
+    UCHAR SavedApcStateIndex;
+    UCHAR SavedKernelApcDisable;
 
 // Exception Record embedded in the Trap Frame, on 8-byte boundary,
 // padded to multiple of 8 bytes
@@ -1132,13 +1329,53 @@ typedef struct _KTRAP_FRAME {
     ULONG  Lr;
     ULONG  Ctr;
 
+// Debug Registers
+
+    ULONG  Dr0;
+    ULONG  Dr1;
+    ULONG  Dr2;
+    ULONG  Dr3;
+    ULONG  Dr4;
+    ULONG  Dr5;
+    ULONG  Dr6;
+    ULONG  Dr7;
+
 } KTRAP_FRAME, *PKTRAP_FRAME;
 
-// **FINISH** The "arguments" #define is incorrect and possibly unneeded
-#define KTRAP_FRAME_ARGUMENTS (14 * 16)
 #define KTRAP_FRAME_LENGTH ((sizeof(KTRAP_FRAME) + 7) & (~7))
 #define KTRAP_FRAME_ALIGN (sizeof(DOUBLE))
 #define KTRAP_FRAME_ROUND (KTRAP_FRAME_ALIGN - 1)
+
+//
+// The frame saved by KiCallUserMode is defined here to allow
+// the kernel debugger to trace the entire kernel stack
+// when usermode callouts are pending.
+//
+
+typedef struct _KCALLOUT_FRAME {
+    STACK_FRAME_HEADER Frame;
+    ULONG   CbStk;              // saved callback stack address
+    ULONG   TrFr;               // saved callback trap frame address
+    ULONG   InStk;              // saved initial stack address
+    ULONG   TrIar;              // saved trap IAR
+    ULONG   TrToc;              // saved trap TOC
+    ULONG   R3;                 // saved R3 (OutputBuffer)
+    ULONG   R4;                 // saved R4 (OutputLength)
+    ULONG   Lr;                 // saved LR
+    ULONG   Gpr[18];            // all nonvolatile GPRs
+    DOUBLE  Fpr[18];            // all nonvolatile FPRs
+} KCALLOUT_FRAME, *PKCALLOUT_FRAME;
+
+typedef struct _UCALLOUT_FRAME {
+    STACK_FRAME_HEADER Frame;
+    PVOID Buffer;
+    ULONG Length;
+    ULONG ApiNumber;
+    ULONG Lr;
+    ULONG Toc;
+    ULONG Pad;
+} UCALLOUT_FRAME, *PUCALLOUT_FRAME;
+
 
 //
 // Exception frame  --  NON-VOLATILE state
@@ -1196,15 +1433,109 @@ typedef struct _KEXCEPTION_FRAME {
     DOUBLE Fpr31;
 
 } KEXCEPTION_FRAME, *PKEXCEPTION_FRAME;
+
+//
+// Special version of exception frame for use by SwapContext and
+// KiInitializeContextThread.
+//
+
+typedef struct _KSWAP_FRAME {
+    KEXCEPTION_FRAME ExceptionFrame;
+    ULONG ConditionRegister;
+    ULONG SwapReturn;
+} KSWAP_FRAME, *PKSWAP_FRAME;
 
+
+//
+// Non-volatile floating point state
+//
+
+typedef struct _KFLOATING_SAVE {
+    ULONG   Reserved;
+} KFLOATING_SAVE, *PKFLOATING_SAVE;
+
+//
+// Format of stack frame during exceptions.
+//
+
+#define STK_SLACK_SPACE 232
+
+typedef struct _KEXCEPTION_STACK_FRAME {
+    STACK_FRAME_HEADER Header;
+    ULONG AdditionalParameters[8];
+    KTRAP_FRAME TrapFrame;
+    KEXCEPTION_FRAME ExceptionFrame;
+    PVOID Lr;
+    PVOID Cr;
+    UCHAR SlackSpace[STK_SLACK_SPACE];
+} KEXCEPTION_STACK_FRAME, *PKEXCEPTION_STACK_FRAME;
+
 // begin_nthal
+// begin_windbgkd
+
+#ifdef _PPC_
+//
+// Special Registers for PowerPC
+//
+
+typedef struct _KSPECIAL_REGISTERS {
+    ULONG  KernelDr0;
+    ULONG  KernelDr1;
+    ULONG  KernelDr2;
+    ULONG  KernelDr3;
+    ULONG  KernelDr4;
+    ULONG  KernelDr5;
+    ULONG  KernelDr6;
+    ULONG  KernelDr7;
+    ULONG  Sprg0;
+    ULONG  Sprg1;
+    ULONG  Sr0;
+    ULONG  Sr1;
+    ULONG  Sr2;
+    ULONG  Sr3;
+    ULONG  Sr4;
+    ULONG  Sr5;
+    ULONG  Sr6;
+    ULONG  Sr7;
+    ULONG  Sr8;
+    ULONG  Sr9;
+    ULONG  Sr10;
+    ULONG  Sr11;
+    ULONG  Sr12;
+    ULONG  Sr13;
+    ULONG  Sr14;
+    ULONG  Sr15;
+    ULONG  DBAT0L;
+    ULONG  DBAT0U;
+    ULONG  DBAT1L;
+    ULONG  DBAT1U;
+    ULONG  DBAT2L;
+    ULONG  DBAT2U;
+    ULONG  DBAT3L;
+    ULONG  DBAT3U;
+    ULONG  IBAT0L;
+    ULONG  IBAT0U;
+    ULONG  IBAT1L;
+    ULONG  IBAT1U;
+    ULONG  IBAT2L;
+    ULONG  IBAT2U;
+    ULONG  IBAT3L;
+    ULONG  IBAT3U;
+    ULONG  Sdr1;
+    ULONG  Reserved[9];
+} KSPECIAL_REGISTERS, *PKSPECIAL_REGISTERS;
+
 //
 // Processor State structure.
 //
 
 typedef struct _KPROCESSOR_STATE {
     struct _CONTEXT ContextFrame;
+    struct _KSPECIAL_REGISTERS SpecialRegisters;
 } KPROCESSOR_STATE, *PKPROCESSOR_STATE;
+
+#endif // _PPC_
+// end_windbgkd
 
 //
 // Processor Control Block (PRCB)
@@ -1233,7 +1564,7 @@ typedef struct _KPRCB {
 //
 
     struct _KTHREAD *CurrentThread;
-    struct _KTHREAD *NextThread;
+    struct _KTHREAD *RESTRICTED_POINTER NextThread;
     struct _KTHREAD *IdleThread;
     CCHAR Number;
     CCHAR Reserved;
@@ -1241,7 +1572,7 @@ typedef struct _KPRCB {
     KAFFINITY SetMember;
     struct _RESTART_BLOCK *RestartBlock;
     ULONG PcrPage;
-    ULONG QuantumEnd;
+    ULONG PcrPage2;
 
 //
 // Space reserved for the system.
@@ -1263,25 +1594,24 @@ typedef struct _KPRCB {
     ULONG InterruptTime;
     ULONG KernelTime;
     ULONG UserTime;
+    ULONG AdjustDpcThreshold;
     ULONG InterruptCount;
-    KDPC QuantumEndDpc;
+    ULONG ApcBypassCount;
+    ULONG DpcBypassCount;
+    ULONG Spare6[5];
 
 //
 // MP information.
 //
 
-    volatile PVOID CurrentPacket[3];
-    volatile PKIPI_WORKER WorkerRoutine;
-
-    volatile ULONG RequestSummary;
-    volatile struct _KPRCB *SignalDone;
-
+    PVOID Spare1;
+    PVOID Spare2;
     volatile ULONG IpiFrozen;
     struct _KPROCESSOR_STATE ProcessorState;
 
 //
 //  Per-processor data for various hot code which resides in the
-//  kernel image. Each processor is given it's own copy of the data
+//  kernel image. Each processor is given its own copy of the data
 //  to lessen the cache impact of sharing the data between multiple
 //  processors.
 //
@@ -1290,8 +1620,8 @@ typedef struct _KPRCB {
 //  File system runtime variables.
 //
 
-    SINGLE_LIST_ENTRY   FsRtlFreeLockList;
-    SINGLE_LIST_ENTRY   FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeSharedLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeExclusiveLockList;
 
 //
 //  Cache manager performance counters.
@@ -1318,32 +1648,118 @@ typedef struct _KPRCB {
     ULONG KeSecondLevelTbFills;
     ULONG KeSystemCalls;
 
+    ULONG PagedPoolLookasideHits;
+
+//
+//  More filesystem runtime
+//
+
+    SINGLE_LIST_ENTRY   FsRtlFreeWaitingLockList;
+    SINGLE_LIST_ENTRY   FsRtlFreeLockTreeNodeList;
+
 //
 //  Reserved for future counters.
 //
 
-    ULONG ReservedCounter[32];
+    ULONG ReservedCounter[12];
 
 //
-// This array holds the address of a packet sent by this processor to a
-// target processor. It is used to synchronize when the target processor
-// has actually finished processing a packet.
+// Reserved pad.
 //
 
-    volatile PVOID RequestPacket[MAXIMUM_PROCESSORS];
+    union {
+        ULONG ReservedPad[16 * 8];
+        PVOID PagedFreeEntry[POOL_SMALL_LISTS];
+    };
+
+//
+// MP interprocessor request packet and summary.
+//
+// N.B. This is carefully aligned to be on a cache line boundary.
+//
+
+    volatile PVOID CurrentPacket[3];
+    volatile KAFFINITY TargetSet;
+    volatile PKIPI_WORKER WorkerRoutine;
+    ULONG CachePad1[3];
+
+//
+// N.B. These two longwords must be on a quadword boundary and adjacent.
+//
+
+    volatile ULONG RequestSummary;
+    volatile struct _KPRCB *SignalDone;
+    ULONG CachePad2[6];
+
+//
+// DPC interrupt requested.
+//
+
+    ULONG DpcInterruptRequested;
+    ULONG CachePad3[7];
+
+//
+// DPC batching parameters.
+//
+
+    ULONG MaximumDpcQueueDepth;
+    ULONG MinimumDpcRate;
+
+//
+// Spare counters.
+//
+
+    ULONG Spare4[2];
+
+//
+// I/O system per processor single entry lookaside lists.
+//
+
+    PVOID SmallIrpFreeEntry;
+    PVOID LargeIrpFreeEntry;
+    PVOID MdlFreeEntry;
+
+//
+// Object manager per processor single entry lookaside lists.
+//
+
+    PVOID CreateInfoFreeEntry;
+    PVOID NameBufferFreeEntry;
+
+//
+// Cache manager per processor single entry lookaside lists.
+//
+
+    PVOID SharedCacheMapEntry;
+
+//
+// Spares.
+//
+
+    ULONG Spare5[2];
+
+//
+// Address of MP interprocessor operation counters.
+//
+
     PKIPI_COUNTS IpiCounts;
     LARGE_INTEGER StartCount;
+
 //
 // DPC list head, spinlock, and count.
 //
 
-    LIST_ENTRY DpcListHead;
     KSPIN_LOCK DpcLock;
+    LIST_ENTRY DpcListHead;
+    ULONG DpcQueueDepth;
     ULONG DpcCount;
-    ULONG DpcVictim;
+    ULONG DpcLastCount;
+    ULONG DpcRequestRate;
+    ULONG DpcRoutineActive;
     BOOLEAN SkipTick;
+    ULONG CachePad4[5];
 
-} KPRCB, *PKPRCB;                               // nthal
+} KPRCB, *PKPRCB, *RESTRICTED_POINTER PRKPRCB;  // nthal
 
 // begin_ntddk begin_nthal begin_ntndis
 //
@@ -1392,6 +1808,9 @@ typedef struct _KPRCB {
 
 #define MM_LOWEST_USER_ADDRESS  (PVOID)0x00010000
 
+#define MmGetProcedureAddress(Address) *((PVOID *)(Address))
+#define MmLockPagableCodeSection(Address) MmLockPagableDataSection(*((PVOID *)(Address)))
+
 // end_ntddk
 //
 // Define the page table and the page directory base for
@@ -1406,13 +1825,12 @@ typedef struct _KPRCB {
 // The lowest address for system space.
 //
 
-#define MM_LOWEST_SYSTEM_ADDRESS (PVOID)0xD0000000
-#define SYSTEM_BASE 0xD0000000          // start of system space (no typecast)
+#define MM_LOWEST_SYSTEM_ADDRESS (PVOID)0x80000000
+#define SYSTEM_BASE 0x80000000          // start of system space (no typecast)
 
-// end_nthal end_ntddk (This is so the string "updriver" doesn't appear in nthal/ntddk/ntifs.)
-// begin_nthal begin_ntddk begin_ntndis begin_updriver
+// begin_ntndis
 #endif // defined(_PPC_)
-// end_ntddk end_nthal end_ntndis end_updriver
+// end_ntddk end_nthal end_ntndis
 // Special comment moved for hal.h since mips.h defines UNCACHED_POLICY
 // in  unconditional code which is placed in the hal header file.
 
@@ -1462,6 +1880,7 @@ void  KiSetDsisr (DSISR Value);  // Function to write the DSISR
 //              but for now we'll always save the FP state.
 //
 //--
+
 #define KiIsThreadNumericStateSaved(a)      TRUE
 
 //++
@@ -1472,308 +1891,16 @@ void  KiSetDsisr (DSISR Value);  // Function to write the DSISR
 //     )
 //
 //--
+
 #define KiRundownThread(a)
-
-// PowerPC specific probe function definitions.
-//
-// These are copied straight from the MIPS definitions
-//
 
 //
-// Probe for write functions definitions.
+// Define macro to test if x86 feature is present.
+//
+// N.B. All x86 features test TRUE on PPC systems.
 //
 
-//++
-//
-// BOOLEAN
-// ProbeForWriteBoolean(
-//     IN PBOOLEAN Address
-//     )
-//
-//--
-
-#define ProbeForWriteBoolean(Address) \
-    (((volatile BOOLEAN *)(Address) < (volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile BOOLEAN *)(Address) = *(volatile BOOLEAN *)(Address)) : \
-        (*(volatile BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// CHAR
-// ProbeForWriteChar(
-//     IN PCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteChar(Address) \
-    (((volatile CHAR *)(Address) < (volatile CHAR * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile CHAR *)(Address) = *(volatile CHAR *)(Address)) : \
-        (*(volatile CHAR * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// UCHAR
-// ProbeForWriteUchar(
-//     IN PUCHAR Address
-//     )
-//
-//--
-
-#define ProbeForWriteUchar(Address) \
-    (((volatile UCHAR *)(Address) < (volatile UCHAR * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile UCHAR *)(Address) = *(volatile UCHAR *)(Address)) : \
-        (*(volatile UCHAR * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// VOID
-// ProbeForWriteIoStatus(
-//     IN PIO_STATUS_BLOCK Address
-//     )
-//
-//--
-
-#define ProbeForWriteIoStatus(Address) {                                     \
-    if ((Address) >= (IO_STATUS_BLOCK * const)MM_USER_PROBE_ADDRESS) {       \
-        *(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0;                  \
-    }                                                                        \
-                                                                             \
-    *(volatile IO_STATUS_BLOCK *)(Address) = *(volatile IO_STATUS_BLOCK *)(Address); \
-}
-
-//++
-//
-// SHORT
-// ProbeForWriteShort(
-//     IN PSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteShort(Address) \
-    (((volatile SHORT *)(Address) < (volatile SHORT * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile SHORT *)(Address) = *(volatile SHORT *)(Address)) : \
-        (*(volatile SHORT * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// USHORT
-// ProbeForWriteUshort(
-//     IN PUSHORT Address
-//     )
-//
-//--
-
-#define ProbeForWriteUshort(Address) \
-    (((volatile USHORT *)(Address) < (volatile USHORT * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile USHORT *)(Address) = *(volatile USHORT *)(Address)) : \
-        (*(volatile USHORT * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// HANDLE
-// ProbeForWriteHandle(
-//     IN PHANDLE Address
-//     )
-//
-//--
-
-#define ProbeForWriteHandle(Address) \
-    (((volatile ULONG *)(Address) < (volatile ULONG * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile ULONG *)(Address) = *(volatile ULONG *)(Address)) : \
-        (*(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// LONG
-// ProbeForWriteLong(
-//     IN PLONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteLong(Address) \
-    (((volatile LONG *)(Address) < (volatile LONG * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile LONG *)(Address) = *(volatile LONG *)(Address)) : \
-        (*(volatile LONG * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// ULONG
-// ProbeForWriteUlong(
-//     IN PULONG Address
-//     )
-//
-//--
-
-#define ProbeForWriteUlong(Address) \
-    (((volatile ULONG *)(Address) < (volatile ULONG * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile ULONG *)(Address) = *(volatile ULONG *)(Address)) : \
-        (*(volatile ULONG * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// QUAD
-// ProbeForWriteQuad(
-//     IN PQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteQuad(Address) \
-    (((volatile QUAD *)(Address) < (volatile QUAD * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile QUAD *)(Address) = *(volatile QUAD *)(Address)) : \
-        (*(volatile QUAD * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// UQUAD
-// ProbeForWriteUquad(
-//     IN PUQUAD Address
-//     )
-//
-//--
-
-#define ProbeForWriteUquad(Address) \
-    (((volatile UQUAD *)(Address) < (volatile UQUAD * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(volatile UQUAD *)(Address) = *(volatile UQUAD *)(Address)) : \
-        (*(volatile UQUAD * const)MM_USER_PROBE_ADDRESS = 0))
-
-//
-// Probe and write functions definitions.
-//
-
-//++
-//
-// BOOLEAN
-// ProbeAndWriteBoolean(
-//     IN PBOOLEAN Address
-//     )
-//
-//--
-
-#define ProbeAndWriteBoolean(Address, Value) \
-    (((Address) < (BOOLEAN * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(BOOLEAN * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// CHAR
-// ProbeAndWriteChar(
-//     IN PCHAR Address
-//     )
-//
-//--
-
-#define ProbeAndWriteChar(Address, Value) \
-    (((Address) < (CHAR * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(CHAR * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// UCHAR
-// ProbeAndWriteUchar(
-//     IN PUCHAR Address
-//     )
-//
-//--
-
-#define ProbeAndWriteUchar(Address, Value) \
-    (((Address) < (UCHAR * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(UCHAR * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// SHORT
-// ProbeAndWriteShort(
-//     IN PSHORT Address
-//     )
-//
-//--
-
-#define ProbeAndWriteShort(Address, Value) \
-    (((Address) < (SHORT * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(SHORT * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// USHORT
-// ProbeAndWriteUshort(
-//     IN PUSHORT Address
-//     )
-//
-//--
-
-#define ProbeAndWriteUshort(Address, Value) \
-    (((Address) < (USHORT * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(USHORT * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// HANDLE
-// ProbeAndWriteHandle(
-//     IN PHANDLE Address
-//     )
-//
-//--
-
-#define ProbeAndWriteHandle(Address, Value) \
-    (((Address) < (HANDLE * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(HANDLE * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// LONG
-// ProbeAndWriteLong(
-//     IN PLONG Address
-//     )
-//
-//--
-
-#define ProbeAndWriteLong(Address, Value) \
-    (((Address) < (LONG * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(LONG * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// ULONG
-// ProbeAndWriteUlong(
-//     IN PULONG Address
-//     )
-//
-//--
-
-#define ProbeAndWriteUlong(Address, Value) \
-    (((Address) < (ULONG * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(ULONG * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// QUAD
-// ProbeAndWriteQuad(
-//     IN PQUAD Address
-//     )
-//
-//--
-
-#define ProbeAndWriteQuad(Address, Value) \
-    (((Address) < (QUAD * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(QUAD * const)MM_USER_PROBE_ADDRESS = 0))
-
-//++
-//
-// UQUAD
-// ProbeAndWriteUquad(
-//     IN PUQUAD Address
-//     )
-//
-//--
-
-#define ProbeAndWriteUquad(Address, Value) \
-    (((Address) < (UQUAD * const)MM_USER_PROBE_ADDRESS) ? \
-        (*(Address) = Value) : (*(UQUAD * const)MM_USER_PROBE_ADDRESS = 0))
-
+#define Isx86FeaturePresent(_f_) TRUE
 
 //
 // Symbolic values for exception entry

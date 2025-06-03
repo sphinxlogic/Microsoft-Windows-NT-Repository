@@ -25,6 +25,7 @@ ULONG MMPPTE_NAME = 'tPmM'; //MmPt
 ULONG MMDB = 'bDmM';
 extern ULONG MMVADKEY;
 
+
 NTSTATUS
 MiMapViewOfPhysicalSection (
     IN PCONTROL_AREA ControlArea,
@@ -43,19 +44,10 @@ MiSetPageModified (
     IN PVOID Address
     );
 
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE,NtMapViewOfSection)
-#pragma alloc_text(PAGE,MmMapViewOfSection)
-#pragma alloc_text(PAGELK,MiMapViewOfPhysicalSection)
-#endif
 
-#if DBG
 extern LIST_ENTRY MmLoadedUserImageList;
-#endif // DBG
 
 extern ULONG MmSharedCommit;
-
-extern KSPIN_LOCK KiDispatcherLock;
 
 #define X256MEG (256*1024*1024)
 
@@ -168,6 +160,44 @@ ULONG
 CacheImageSymbols(
     IN PVOID ImageBase
     );
+
+PVOID
+MiInsertInSystemSpace (
+    IN ULONG SizeIn64k,
+    IN PCONTROL_AREA ControlArea
+    );
+
+ULONG
+MiRemoveFromSystemSpace (
+    IN PVOID Base,
+    OUT PCONTROL_AREA *ControlArea
+    );
+
+NTSTATUS
+MiAddMappedPtes (
+    IN PMMPTE FirstPte,
+    IN ULONG NumberOfPtes,
+    IN PCONTROL_AREA ControlArea,
+    IN ULONG PteOffset,
+    IN ULONG SystemCache
+    );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(INIT,MiInitializeSystemSpaceMap)
+
+#pragma alloc_text(PAGE,NtMapViewOfSection)
+#pragma alloc_text(PAGE,MmMapViewOfSection)
+#pragma alloc_text(PAGE,MmSecureVirtualMemory)
+#pragma alloc_text(PAGE,MmUnsecureVirtualMemory)
+#pragma alloc_text(PAGE,CacheImageSymbols)
+
+#pragma alloc_text(PAGELK,MiMapViewOfPhysicalSection)
+#pragma alloc_text(PAGELK,MmMapViewInSystemSpace)
+#pragma alloc_text(PAGELK,MmUnmapViewInSystemSpace)
+#pragma alloc_text(PAGELK,MiInsertInSystemSpace)
+#pragma alloc_text(PAGELK,MiRemoveFromSystemSpace)
+
+#endif
 
 
 NTSTATUS
@@ -333,11 +363,11 @@ Return Value:
     // than 64k boundaries.
     //
 
-    if ((AllocationType & ~(MEM_TOP_DOWN | MEM_LARGE_PAGES | MEM_DOS_LIM)) != 0) {
+    if ((AllocationType & ~(MEM_TOP_DOWN | MEM_LARGE_PAGES | MEM_DOS_LIM | SEC_NO_CHANGE)) != 0) {
         return STATUS_INVALID_PARAMETER_9;
     }
 #else
-    if ((AllocationType & ~(MEM_TOP_DOWN | MEM_LARGE_PAGES)) != 0) {
+    if ((AllocationType & ~(MEM_TOP_DOWN | MEM_LARGE_PAGES | SEC_NO_CHANGE)) != 0) {
         return STATUS_INVALID_PARAMETER_9;
     }
 
@@ -639,6 +669,23 @@ Return Value:
         goto ErrorReturn;
     }
 
+#if 0 // test code...
+    if ((Status == STATUS_SUCCESS) &&
+        (Section->u.Flags.Image == 0)) {
+
+        PVOID Base;
+        ULONG Size = 0;
+        NTSTATUS Status;
+
+        Status = MmMapViewInSystemSpace ((PVOID)Section,
+                                        &Base,
+                                        &Size);
+        if (Status == STATUS_SUCCESS) {
+            MmUnmapViewInSystemSpace (Base);
+        }
+    }
+#endif //0
+
     {
 ErrorReturn:
         ObDereferenceObject (Section);
@@ -758,8 +805,6 @@ Return Value:
 
     PAGED_CODE();
 
-    DBG_UNREFERENCED_PARAMETER (AllocationType);
-
     Section = (PSECTION)SectionToMap;
 
     //
@@ -824,10 +869,8 @@ Return Value:
     ReleasedWsMutex = FALSE;
 
     if (ControlArea->u.Flags.PhysicalMemory) {
-        PVOID UnlockHandle;
 
-        UnlockHandle = MmLockPagableImageSection((PVOID)MiMapViewOfPhysicalSection);
-        ASSERT(UnlockHandle);
+        MmLockPagableSectionByHandle(ExPageLockHandle);
         status = MiMapViewOfPhysicalSection (ControlArea,
                                              Process,
                                              CapturedBase,
@@ -837,7 +880,7 @@ Return Value:
                                              ZeroBits,
                                              AllocationType,
                                              &ReleasedWsMutex);
-        MmUnlockPagableImageSection(UnlockHandle);
+        MmUnlockPagableImageSection(ExPageLockHandle);
 
     } else if (ControlArea->u.Flags.Image) {
 
@@ -884,16 +927,6 @@ ErrorReturn:
     if (Attached) {
         KeDetachProcess();
     }
-
-#if DBG
-    if (NT_SUCCESS (status)) {
-        if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-            DbgPrint("$$$SECTION MAP: %lx Section: %lx Start %lx Size %lx\n",
-                Process, Section, *CapturedBase, *CapturedViewSize);
-        }
-
-    }
-#endif //DBG
 
     return status;
 }
@@ -1030,8 +1063,9 @@ Environment:
                 PhysicalViewSize = Alignment;
             } else {
 #endif //LARGE_PAGES
-                PhysicalViewSize = (SectionOffset->LowPart + *CapturedViewSize) -
-                               (ULONG)MI_64K_ALIGN(SectionOffset->LowPart);
+
+                PhysicalViewSize = *CapturedViewSize +
+                                       (SectionOffset->LowPart & (X64K - 1));
 #ifdef LARGE_PAGES
             }
 #endif //LARGE_PAGES
@@ -1045,10 +1079,10 @@ Environment:
             return GetExceptionCode();
         }
 
-        StartingAddress = (PVOID)((ULONG)StartingAddress +
-                                     (SectionOffset->LowPart & (X64K - 1)));
         EndingAddress = (PVOID)(((ULONG)StartingAddress +
                                 PhysicalViewSize - 1L) | (PAGE_SIZE - 1L));
+        StartingAddress = (PVOID)((ULONG)StartingAddress +
+                                     (SectionOffset->LowPart & (X64K - 1)));
 
         if (ZeroBits > 0) {
             if (EndingAddress > (PVOID)((ULONG)0xFFFFFFFF >> ZeroBits)) {
@@ -1063,8 +1097,6 @@ Environment:
         // is currently unused.
         //
 
-        PhysicalViewSize = (SectionOffset->LowPart + *CapturedViewSize) -
-                                (ULONG)MI_64K_ALIGN(SectionOffset->LowPart);
         StartingAddress = (PVOID)((ULONG)MI_64K_ALIGN(*CapturedBase) +
                                     (SectionOffset->LowPart & (X64K - 1)));
         EndingAddress = (PVOID)(((ULONG)StartingAddress +
@@ -1119,7 +1151,8 @@ Environment:
 
     try  {
 
-        Vad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool, sizeof(MMVAD),
+        Vad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool,
+                                             sizeof(MMVAD),
                                              MMVADKEY);
         if (Vad == NULL) {
             ExRaiseStatus (STATUS_INSUFFICIENT_RESOURCES);
@@ -1129,11 +1162,11 @@ Environment:
         Vad->EndingVa = EndingAddress;
         Vad->ControlArea = ControlArea;
         Vad->u.LongFlags = 0;
-        Vad->u.VadFlags.Inherit = ViewUnmap;
+        Vad->u2.LongFlags2 = 0;
+        Vad->u.VadFlags.Inherit = MM_VIEW_UNMAP;
         Vad->u.VadFlags.PhysicalMapping = 1;
-        // Vad->u.VadFlags.ImageMap = 0;
         Vad->u.VadFlags.Protection = ProtectionMask;
-        // Vad->u.VadFlags.CopyOnWrite = 0;
+        Vad->Banked = NULL;
 
         //
         // Set the last contiguous PTE field in the Vad to the page frame
@@ -1190,6 +1223,7 @@ Environment:
 
     ControlArea->NumberOfMappedViews += 1;
     ControlArea->NumberOfUserReferences += 1;
+
     ASSERT (ControlArea->NumberOfSectionReferences != 0);
 
     UNLOCK_PFN (OldIrql);
@@ -1210,7 +1244,7 @@ Environment:
                        PointerPte);
 
     if (TempPte.u.Hard.Write) {
-        TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+        MI_SET_PTE_DIRTY (TempPte);
     }
 
 #ifdef LARGE_PAGES
@@ -1275,8 +1309,6 @@ Environment:
 
             *PointerPte = TempPte;
             Pfn2->u2.ShareCount += 1;
-            Pfn2->ValidPteCount += 1;
-            ASSERT (Pfn2->ValidPteCount < (USHORT)Pfn2->u2.ShareCount);
 
             //
             // Increment the count of non-zero page table entires for this
@@ -1379,6 +1411,16 @@ Environment:
 
     Subsection = (PSUBSECTION)(ControlArea + 1);
 
+    if (ControlArea->u.Flags.ImageMappedInSystemSpace) {
+
+        //
+        // Mapping in system space as a driver, hence copy on write does
+        // not work.  Don't allow user processes to map the image.
+        //
+
+        return STATUS_CONFLICTING_ADDRESSES;
+    }
+
     //
     // Check to see if a purge operation is in progress and if so, wait
     // for the purge to complete.  In addition, up the count of mapped
@@ -1470,6 +1512,7 @@ Environment:
         }
 
         if ((StartingAddress < MM_LOWEST_USER_ADDRESS) ||
+                (StartingAddress > MM_HIGHEST_VAD_ADDRESS) ||
                 (EndingAddress > MM_HIGHEST_VAD_ADDRESS)) {
 
             //
@@ -1478,11 +1521,7 @@ Environment:
             // the address range will be searched for a valid address.
             //
 
-#if DBG
-            Vad = PsGetCurrentProcess()->VadHint;
-#else
-            Vad = (PMMVAD)1;
-#endif //DBG
+            Vad = (PMMVAD)1;  //not NULL
         } else {
 
 #ifdef MIPS
@@ -1583,10 +1622,9 @@ Environment:
         Vad->StartingVa = StartingAddress;
         Vad->EndingVa = EndingAddress;
         Vad->u.LongFlags = 0;
-        Vad->u.VadFlags.Inherit = InheritDisposition;
-        // Vad->u.VadFlags.PhysicalMapping = 0;
+        Vad->u2.LongFlags2 = 0;
+        Vad->u.VadFlags.Inherit = (InheritDisposition == ViewShare);
         Vad->u.VadFlags.ImageMap = 1;
-        // Vad->u.VadFlags.CopyOnWrite = 0;
 
         //
         // Set the protection in the VAD as EXECUTE_WRITE_COPY.
@@ -1594,6 +1632,7 @@ Environment:
 
         Vad->u.VadFlags.Protection = MM_EXECUTE_WRITECOPY;
         Vad->ControlArea = ControlArea;
+        Vad->Banked = NULL;
 
         //
         // Set the first prototype PTE field in the Vad.
@@ -1711,26 +1750,18 @@ Environment:
 
     if (NT_SUCCESS(ReturnedStatus)) {
 
-#ifdef i386
-        if ((ControlArea->Segment->ImageInformation.Machine != IMAGE_FILE_MACHINE_I386)
-#endif //i386
+        //
+        // Check to see if this image is for the architecture of the current
+        // machine.
+        //
 
-#ifdef MIPS
-        if ((ControlArea->Segment->ImageInformation.Machine != IMAGE_FILE_MACHINE_R3000)
-#ifdef R4000
-            && (ControlArea->Segment->ImageInformation.Machine != IMAGE_FILE_MACHINE_R4000)
-#endif //R4000
-#endif //MIPS
-
-#ifdef _PPC_
-        if ((ControlArea->Segment->ImageInformation.Machine != IMAGE_FILE_MACHINE_POWERPC)
-#endif // _PPC_
-
-#ifdef _ALPHA_
-        if ((ControlArea->Segment->ImageInformation.Machine != IMAGE_FILE_MACHINE_ALPHA)
-#endif //_ALPHA_
-
-            ) {
+        if (ControlArea->Segment->ImageInformation.ImageContainsCode &&
+            ((ControlArea->Segment->ImageInformation.Machine <
+                                          USER_SHARED_DATA->ImageNumberLow) ||
+             (ControlArea->Segment->ImageInformation.Machine >
+                                          USER_SHARED_DATA->ImageNumberHigh)
+            )
+           ) {
             return STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
         }
 
@@ -1753,10 +1784,8 @@ Environment:
                     ControlArea->u.Flags.DebugSymbolsLoaded = 1;
                     UNLOCK_PFN (OldIrql);
 
-
                     FileName = (PUNICODE_STRING)&ControlArea->FilePointer->FileName;
-#if DBG
-                    if (FileName->Length != 0 && (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS)) {
+                    if (FileName->Length != 0 && (NtGlobalFlag & FLG_ENABLE_KDEBUG_SYMBOL_LOAD)) {
                         PLIST_ENTRY Head, Next;
                         PLDR_DATA_TABLE_ENTRY Entry;
 
@@ -1814,7 +1843,7 @@ Environment:
                         ExReleaseResource (&PsLoadedModuleResource);
                         KeLeaveCriticalRegion();
                     }
-#endif // DBG
+
                     Status = RtlUnicodeStringToAnsiString( &AnsiName,
                                                            FileName,
                                                            TRUE );
@@ -2099,7 +2128,8 @@ Environment:
     try  {
 
         Vad = (PMMVAD)NULL;
-        Vad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool, sizeof(MMVAD),
+        Vad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool,
+                                            sizeof(MMVAD),
                                             MMVADKEY);
         if (Vad == NULL) {
             ExRaiseStatus (STATUS_INSUFFICIENT_RESOURCES);
@@ -2116,11 +2146,16 @@ Environment:
         Vad->ControlArea = ControlArea;
 
         Vad->u.LongFlags = 0;
-        Vad->u.VadFlags.Inherit = InheritDisposition;
-        // Vad->u.VadFlags.PhysicalMapping = 0;
-        // Vad->u.VadFlags.ImageMap = 0;
+        Vad->u2.LongFlags2 = 0;
+        Vad->u.VadFlags.Inherit = (InheritDisposition == ViewShare);
         Vad->u.VadFlags.Protection = ProtectionMask;
         Vad->u.VadFlags.CopyOnWrite = CapturedCopyOnWrite;
+        Vad->Banked = NULL;
+
+        if ((AllocationType & SEC_NO_CHANGE) || (Section->u.Flags.NoChange)) {
+            Vad->u.VadFlags.NoChange = 1;
+            Vad->u2.VadFlags2.SecNoChange = 1;
+        }
 
         //
         // If the page protection is write-copy or execute-write-copy
@@ -2326,6 +2361,7 @@ Environment:
         // Release the pfn lock and wait for the event.
         //
 
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(&WaitEvent->Event,
@@ -2333,6 +2369,7 @@ Environment:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
         LOCK_PFN (OldIrql);
         MiFreeEventCounter (WaitEvent, FALSE);
     }
@@ -2343,6 +2380,7 @@ Environment:
 
     ControlArea->NumberOfMappedViews += 1;
     ControlArea->NumberOfUserReferences += 1;
+    ControlArea->u.Flags.HadUserReference = 1;
     ASSERT (ControlArea->NumberOfSectionReferences != 0);
 
     if (PurgedEvent != NULL) {
@@ -2373,6 +2411,8 @@ CacheImageSymbols(
 {
     PIMAGE_DEBUG_DIRECTORY DebugDirectory;
     ULONG DebugSize;
+
+    PAGED_CODE();
 
     try {
         DebugDirectory = (PIMAGE_DEBUG_DIRECTORY)
@@ -2468,19 +2508,19 @@ Environment:
     }
 
 #ifdef NT_UP
-    if (PteContents.u.Hard.Dirty == MM_PTE_DIRTY) {
+    if (MI_IS_PTE_DIRTY (PteContents)) {
 #endif //NT_UP
-        PteContents.u.Hard.Dirty = MM_PTE_CLEAN;
+        MI_SET_PTE_CLEAN (PteContents);
 
         //
-        // Clear the write bit in the PTE so new writes can be tracked.
+        // Clear the dirty bit in the PTE so new writes can be tracked.
         //
 
         (VOID)KeFlushSingleTb (Address,
                                FALSE,
                                TRUE,
                                (PHARDWARE_PTE)PointerPte,
-                               PteContents.u.Hard);
+                               PteContents.u.Flush);
 #ifdef NT_UP
     }
 #endif //NT_UP
@@ -2488,3 +2528,861 @@ Environment:
     UNLOCK_PFN (OldIrql);
     return;
 }
+
+
+
+typedef struct _MMVIEW {
+    ULONG Entry;
+    PCONTROL_AREA ControlArea;
+} MMVIEW, *PMMVIEW;
+
+
+PMMVIEW MmSystemSpaceViewTable;
+ULONG MmSystemSpaceHashSize;
+ULONG MmSystemSpaceHashEntries;
+ULONG MmSystemSpaceHashKey;
+PRTL_BITMAP MmSystemSpaceBitMap;
+PCHAR MmSystemSpaceViewStart;
+
+VOID
+MiRemoveMappedPtes (
+    IN PVOID BaseAddress,
+    IN ULONG NumberOfPtes,
+    IN PCONTROL_AREA ControlArea,
+    BOOLEAN SystemCache
+    );
+
+FAST_MUTEX MmSystemSpaceViewLock;
+
+#define MMLOCK_SYSTEM_SPACE() \
+            ExAcquireFastMutex( &MmSystemSpaceViewLock)
+
+#define MMUNLOCK_SYSTEM_SPACE() \
+            ExReleaseFastMutex(&MmSystemSpaceViewLock)
+
+
+
+NTSTATUS
+MmMapViewInSystemSpace (
+    IN PVOID Section,
+    OUT PVOID *MappedBase,
+    IN OUT PULONG ViewSize
+    )
+
+/*++
+
+Routine Description:
+
+    This routine maps the specified section into the system's address space.
+
+Arguments:
+
+    Section - Supplies a pointer to the section to map.
+
+    *MappedBase - Returns the address where the section was mapped.
+
+    ViewSize - Supplies the size of the view to map.  If this
+               is specified as zero, the whole section is mapped.
+               Returns the actual size mapped.
+
+    Protect - Supplies the protection for the view.  Must be
+              either PAGE_READWRITE or PAGE_READONLY.
+
+Return Value:
+
+    Status of the map view operation.
+
+Environment:
+
+    Kernel Mode, IRQL of dispatch level.
+
+--*/
+
+{
+    PVOID Base;
+    KIRQL OldIrql;
+    PSUBSECTION Subsection;
+    PCONTROL_AREA ControlArea;
+    PMMPTE LastPte;
+    MMPTE TempPte;
+    ULONG StartBit;
+    ULONG SizeIn64k;
+    PMMPTE BasePte;
+    ULONG NumberOfPtes;
+    PMMPTE FirstPde;
+    PMMPTE LastPde;
+    PMMPTE FirstSystemPde;
+    PMMPTE LastSystemPde;
+    ULONG PageFrameIndex;
+
+    PAGED_CODE();
+
+    //
+    // Check to see if a purge operation is in progress and if so, wait
+    // for the purge to complete.  In addition, up the count of mapped
+    // views for this control area.
+    //
+
+    ControlArea = ((PSECTION)Section)->Segment->ControlArea;
+    Subsection = (PSUBSECTION)(ControlArea + 1);
+
+    MmLockPagableSectionByHandle(ExPageLockHandle);
+
+    MiCheckPurgeAndUpMapCount (ControlArea);
+
+    if (*ViewSize == 0) {
+
+        *ViewSize = ((PSECTION)Section)->SizeOfSection.LowPart;
+
+    } else if (*ViewSize > ((PSECTION)Section)->SizeOfSection.LowPart) {
+
+        //
+        // Section offset or view size past size of section.
+        //
+
+        LOCK_PFN (OldIrql);
+        ControlArea->NumberOfMappedViews -= 1;
+        ControlArea->NumberOfUserReferences -= 1;
+        UNLOCK_PFN (OldIrql);
+        MmUnlockPagableImageSection(ExPageLockHandle);
+        return STATUS_INVALID_VIEW_SIZE;
+    }
+
+    //
+    // Calculate the first prototype PTE field in the Vad.
+    //
+
+    SizeIn64k = (*ViewSize / X64K) + ((*ViewSize & (X64K - 1)) != 0);
+
+    Base = MiInsertInSystemSpace (SizeIn64k, ControlArea);
+
+    if (Base == NULL) {
+        LOCK_PFN (OldIrql);
+        ControlArea->NumberOfMappedViews -= 1;
+        ControlArea->NumberOfUserReferences -= 1;
+        UNLOCK_PFN (OldIrql);
+        MmUnlockPagableImageSection(ExPageLockHandle);
+        return STATUS_NO_MEMORY;
+    }
+
+    BasePte = MiGetPteAddress (Base);
+    NumberOfPtes = BYTES_TO_PAGES (*ViewSize);
+
+    FirstPde = MiGetPdeAddress (Base);
+    LastPde = MiGetPdeAddress ((PVOID)(((PCHAR)Base) +
+                                                (SizeIn64k * X64K) - 1));
+    FirstSystemPde = &MmSystemPagePtes[((ULONG)FirstPde &
+                     ((PDE_PER_PAGE * sizeof(MMPTE)) - 1)) / sizeof(MMPTE) ];
+    LastSystemPde = &MmSystemPagePtes[((ULONG)LastPde &
+                     ((PDE_PER_PAGE * sizeof(MMPTE)) - 1)) / sizeof(MMPTE) ];
+
+    do {
+        if (FirstSystemPde->u.Hard.Valid == 0) {
+
+            //
+            // No page table page exists, get a page and map it in.
+            //
+
+            TempPte = ValidKernelPde;
+
+            LOCK_PFN (OldIrql);
+
+            if (((volatile MMPTE *)FirstSystemPde)->u.Hard.Valid == 0) {
+
+                if (MiEnsureAvailablePageOrWait (NULL, FirstPde)) {
+
+                    //
+                    // PFN_LOCK was dropped, redo this loop as another process
+                    // could have made this PDE valid.
+                    //
+
+                    UNLOCK_PFN (OldIrql);
+                    continue;
+                }
+
+                MiChargeCommitmentCantExpand (1, TRUE);
+                PageFrameIndex = MiRemoveAnyPage (
+                                    MI_GET_PAGE_COLOR_FROM_PTE (FirstSystemPde));
+                TempPte.u.Hard.PageFrameNumber = PageFrameIndex;
+                *FirstSystemPde = TempPte;
+                *FirstPde = TempPte;
+
+                MiInitializePfnForOtherProcess (PageFrameIndex,
+                                                FirstPde,
+                                                MmSystemPageDirectory);
+
+                RtlFillMemoryUlong (MiGetVirtualAddressMappedByPte (FirstPde),
+                                    PAGE_SIZE,
+                                    MM_ZERO_KERNEL_PTE);
+            }
+            UNLOCK_PFN (OldIrql);
+        }
+
+        FirstSystemPde += 1;
+        FirstPde += 1;
+    } while (FirstPde <= LastPde  );
+
+    //
+    // Setup PTEs to point to prototype PTEs.
+    //
+
+    if (((PSECTION)Section)->u.Flags.Image) {
+        LOCK_PFN (OldIrql)
+        ((PSECTION)Section)->Segment->ControlArea->u.Flags.ImageMappedInSystemSpace = 1;
+        UNLOCK_PFN (OldIrql);
+    }
+    MiAddMappedPtes (BasePte,
+                     NumberOfPtes,
+                     ControlArea,
+                     0,
+                     FALSE);
+
+    *MappedBase = Base;
+    MmUnlockPagableImageSection(ExPageLockHandle);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+MmUnmapViewInSystemSpace (
+    IN PVOID MappedBase
+    )
+
+/*++
+
+Routine Description:
+
+    This routine unmaps the specified section from the system's address space.
+
+Arguments:
+
+    MappedBase - Supplies the address of the view to unmap.
+
+Return Value:
+
+    Status of the map view operation.
+
+Environment:
+
+    Kernel Mode, IRQL of dispatch level.
+
+--*/
+
+{
+    ULONG StartBit;
+    ULONG Size;
+    PCONTROL_AREA ControlArea;
+
+    PAGED_CODE();
+
+    MmLockPagableSectionByHandle(ExPageLockHandle);
+    StartBit =  ((ULONG)MappedBase - (ULONG)MmSystemSpaceViewStart) >> 16;
+
+    MMLOCK_SYSTEM_SPACE ();
+
+    Size = MiRemoveFromSystemSpace (MappedBase, &ControlArea);
+
+    RtlClearBits (MmSystemSpaceBitMap,
+                  StartBit,
+                  Size);
+
+    //
+    // Zero PTEs.
+    //
+
+    Size = Size * (X64K >> PAGE_SHIFT);
+
+    MiRemoveMappedPtes (MappedBase, Size, ControlArea, FALSE);
+
+    MMUNLOCK_SYSTEM_SPACE ();
+
+    MmUnlockPagableImageSection(ExPageLockHandle);
+    return STATUS_SUCCESS;
+}
+
+
+PVOID
+MiInsertInSystemSpace (
+    IN ULONG SizeIn64k,
+    IN PCONTROL_AREA ControlArea
+    )
+
+/*++
+
+Routine Description:
+
+    This routine creates a view in system space for the specified control
+    area (file mapping).
+
+Arguments:
+
+    SizeIn64k - Supplies the size of the view to be created.
+
+    ControlArea - Supplies a pointer to the control area for this view.
+
+Return Value:
+
+    Base address where the view was mapped, NULL if the view could not be
+    mapped.
+
+Environment:
+
+    Kernel Mode.
+
+--*/
+
+{
+
+    PVOID Base;
+    ULONG Entry;
+    ULONG Hash;
+    ULONG i;
+    ULONG AllocSize;
+    PMMVIEW OldTable;
+    ULONG StartBit;
+
+    PAGED_CODE();
+
+    //
+    // CODE IS ALREADY LOCKED BY CALLER.
+    //
+
+    MMLOCK_SYSTEM_SPACE ();
+
+    StartBit = RtlFindClearBitsAndSet (MmSystemSpaceBitMap,
+                                       SizeIn64k,
+                                       0);
+
+    if (StartBit == 0xFFFFFFFF) {
+        MMUNLOCK_SYSTEM_SPACE ();
+        return NULL;
+    }
+
+    Base = (PVOID)((PCHAR)MmSystemSpaceViewStart + (StartBit * X64K));
+
+    Entry = ((ULONG)Base & 0xFFFF0000) + SizeIn64k;
+
+    Hash = (Entry >> 16) % MmSystemSpaceHashKey;
+
+    while (MmSystemSpaceViewTable[Hash].Entry != 0) {
+        Hash += 1;
+        if (Hash >= MmSystemSpaceHashSize) {
+            Hash = 0;
+        }
+    }
+
+    MmSystemSpaceHashEntries += 1;
+
+    MmSystemSpaceViewTable[Hash].Entry = Entry;
+    MmSystemSpaceViewTable[Hash].ControlArea = ControlArea;
+
+    if (MmSystemSpaceHashSize < (MmSystemSpaceHashEntries + 8)) {
+
+        //
+        // Less than 8 free slots, reallocate and rehash.
+        //
+
+        MmSystemSpaceHashSize += MmSystemSpaceHashSize;
+
+        AllocSize = sizeof(MMVIEW) * MmSystemSpaceHashSize;
+        ASSERT (AllocSize < PAGE_SIZE);
+
+        MmSystemSpaceHashKey = MmSystemSpaceHashSize - 1;
+        OldTable = MmSystemSpaceViewTable;
+
+        MmSystemSpaceViewTable = ExAllocatePoolWithTag (PagedPool,
+                                                        AllocSize,
+                                                        '  mM');
+
+        if (MmSystemSpaceViewTable == NULL) {
+            MmSystemSpaceViewTable = ExAllocatePoolWithTag (NonPagedPoolMustSucceed,
+                                                            AllocSize,
+                                                            '  mM');
+        }
+
+        RtlZeroMemory (MmSystemSpaceViewTable, AllocSize);
+
+        for (i = 0; i < (MmSystemSpaceHashSize / 2); i++) {
+            if (OldTable[i].Entry != 0) {
+                Hash = (OldTable[i].Entry >> 16) % MmSystemSpaceHashKey;
+
+                while (MmSystemSpaceViewTable[Hash].Entry != 0) {
+                    Hash += 1;
+                    if (Hash >= MmSystemSpaceHashSize) {
+                        Hash = 0;
+                    }
+                }
+                MmSystemSpaceViewTable[Hash] = OldTable[i];
+            }
+        }
+        ExFreePool (OldTable);
+    }
+
+    MMUNLOCK_SYSTEM_SPACE ();
+    return Base;
+}
+
+
+ULONG
+MiRemoveFromSystemSpace (
+    IN PVOID Base,
+    OUT PCONTROL_AREA *ControlArea
+    )
+
+/*++
+
+Routine Description:
+
+    This routine looks up the specified view in the system space hash
+    table and unmaps the view from system space and the table.
+
+Arguments:
+
+    Base - Supplies the base address for the view.  If this address is
+           NOT found in the hash table, the system bugchecks.
+
+    ControlArea - Returns the control area corresponding the the base
+                  address.
+
+Return Value:
+
+    Size of the view divided by 64k.
+
+Environment:
+
+    Kernel Mode, system view hash table locked.
+
+--*/
+
+{
+    ULONG Base16;
+    ULONG Hash;
+    ULONG Size;
+    ULONG count = 0;
+
+    PAGED_CODE();
+
+    //
+    // CODE IS ALREADY LOCKED BY CALLER.
+    //
+
+    Base16 = (ULONG)Base >> 16;
+    Hash = Base16 % MmSystemSpaceHashKey;
+
+    while ((MmSystemSpaceViewTable[Hash].Entry >> 16) != Base16) {
+        Hash += 1;
+        if (Hash >= MmSystemSpaceHashSize) {
+            Hash = 0;
+            count += 1;
+            if (count == 2) {
+                KeBugCheckEx (MEMORY_MANAGEMENT, 787, 0, 0, 0);
+            }
+        }
+    }
+
+    MmSystemSpaceHashEntries -= 1;
+    Size = MmSystemSpaceViewTable[Hash].Entry & 0xFFFF;
+    MmSystemSpaceViewTable[Hash].Entry = 0;
+    *ControlArea = MmSystemSpaceViewTable[Hash].ControlArea;
+    return Size;
+}
+
+
+VOID
+MiInitializeSystemSpaceMap (
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine initializes the tables for mapping views into system space.
+    Views are kept in multiple of 64k bytes in a growable hashed table.
+
+Arguments:
+
+    none.
+
+Return Value:
+
+    none.
+
+Environment:
+
+    Kernel Mode, initialization.
+
+--*/
+
+{
+    ULONG AllocSize;
+    ULONG Size;
+
+    Size = MM_SYSTEM_VIEW_SIZE;
+
+    ExInitializeFastMutex(&MmSystemSpaceViewLock);
+
+    MmSystemSpaceViewStart = (PCHAR)MM_SYSTEM_VIEW_START;
+    MiCreateBitMap (&MmSystemSpaceBitMap, Size / X64K, NonPagedPool);
+    RtlClearAllBits (MmSystemSpaceBitMap);
+
+    //
+    // Build the view table.
+    //
+
+    MmSystemSpaceHashSize = 31;
+    MmSystemSpaceHashKey = MmSystemSpaceHashSize - 1;
+
+    AllocSize = sizeof(MMVIEW) * MmSystemSpaceHashSize;
+    ASSERT (AllocSize < PAGE_SIZE);
+
+    MmSystemSpaceViewTable = ExAllocatePoolWithTag (PagedPool,
+                                                    AllocSize,
+                                                    '  mM');
+
+    ASSERT (MmSystemSpaceViewTable != NULL);
+    RtlZeroMemory (MmSystemSpaceViewTable, AllocSize);
+
+    return;
+}
+
+
+HANDLE
+MmSecureVirtualMemory (
+    IN PVOID Address,
+    IN ULONG Size,
+    IN ULONG ProbeMode
+    )
+
+/*++
+
+Routine Description:
+
+    This routine probes the requested address range and protects
+    the specified address range from having it's protection made
+    more restrited and being deleted.
+
+    MmUnsecureVirtualMemory is used to allow the range to return
+    to a normal state.
+
+Arguments:
+
+    Address - Supplies the base address to probe and secure.
+
+    Size - Supplies the size of the range to secure.
+
+    ProbeMode - Supples one of PAGE_READONLY or PAGE_READWRITE.
+
+Return Value:
+
+    Returns a handle to be used to unsecure the range.
+    If the range could not be locked because of protection
+    problems ornoncommitted memory, the value (HANDLE)0
+    is returned.
+
+Environment:
+
+    Kernel Mode.
+
+--*/
+
+{
+    ULONG EndAddress;
+    PVOID StartAddress;
+    CHAR Temp;
+    ULONG Probe;
+    HANDLE Handle = (HANDLE)0;
+    PMMVAD Vad;
+    PMMVAD NewVad;
+    PMMSECURE_ENTRY Secure;
+    PEPROCESS Process;
+
+    PAGED_CODE();
+
+    if (Address > MM_HIGHEST_USER_ADDRESS) {
+        return (HANDLE)0;
+    }
+
+    Probe = (ProbeMode == PAGE_READONLY);
+
+    Process = PsGetCurrentProcess();
+    StartAddress = Address;
+
+    LOCK_ADDRESS_SPACE (Process);
+    try {
+
+        if (ProbeMode == PAGE_READONLY) {
+
+            EndAddress = (ULONG)Address + Size - 1;
+            EndAddress = (EndAddress & ~(PAGE_SIZE - 1)) + PAGE_SIZE;
+
+            do {
+                Temp = *(volatile CHAR *)Address;
+                Address = (PVOID)(((ULONG)Address & ~(PAGE_SIZE - 1)) + PAGE_SIZE);
+            } while ((ULONG)Address != EndAddress);
+        } else {
+            ProbeForWrite (Address, Size, 1);
+        }
+
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+        goto Return1;
+    }
+
+    //
+    // Locate VAD and add in secure descriptor.
+    //
+
+    EndAddress = (ULONG)StartAddress + Size - 1;
+    Vad = MiLocateAddress (StartAddress);
+
+    if (Vad == NULL) {
+        goto Return1;
+    }
+
+    if ((StartAddress < Vad->StartingVa) ||
+        ((PVOID)EndAddress > Vad->EndingVa)) {
+
+        //
+        // Not withing the section virtual address descriptor,
+        // return an error.
+        //
+
+        goto Return1;
+    }
+
+    //
+    // If this is a short VAD, it needs to be reallocated as a large
+    // VAD.
+    //
+
+    if ((Vad->u.VadFlags.PrivateMemory) && (!Vad->u.VadFlags.NoChange)) {
+
+        NewVad = (PMMVAD)ExAllocatePoolWithTag (NonPagedPool,
+                                                sizeof(MMVAD),
+                                                MMVADKEY);
+        if (NewVad == NULL) {
+            goto Return1;
+        }
+
+        RtlCopyMemory (NewVad, Vad, sizeof(MMVAD_SHORT));
+        NewVad->u.VadFlags.NoChange = 1;
+        NewVad->u2.LongFlags2 = 0;
+        NewVad->u2.VadFlags2.OneSecured = 1;
+        NewVad->u2.VadFlags2.StoredInVad = 1;
+        NewVad->u2.VadFlags2.ReadOnly = Probe;
+        NewVad->u3.Secured.StartVa = StartAddress;
+        NewVad->u3.Secured.EndVa = (PVOID)EndAddress;
+        NewVad->Banked = NULL;
+
+        //
+        // Replace the current VAD with this expanded VAD.
+        //
+
+        LOCK_WS (Process);
+        if (Vad->Parent) {
+            if (Vad->Parent->RightChild == Vad) {
+                Vad->Parent->RightChild = NewVad;
+            } else {
+                ASSERT (Vad->Parent->LeftChild == Vad);
+                Vad->Parent->LeftChild = NewVad;
+            }
+        } else {
+            Process->VadRoot = NewVad;
+        }
+        if (Vad->LeftChild) {
+            Vad->LeftChild->Parent = NewVad;
+        }
+        if (Vad->RightChild) {
+            Vad->RightChild->Parent = NewVad;
+        }
+        if (Process->VadHint == Vad) {
+            Process->VadHint = NewVad;
+        }
+        if (Process->VadFreeHint == Vad) {
+            Process->VadFreeHint = NewVad;
+        }
+        UNLOCK_WS (Process);
+        ExFreePool (Vad);
+        Handle = (HANDLE)&NewVad->u2.LongFlags2;
+        goto Return1;
+    }
+
+    ASSERT (Vad->u2.VadFlags2.Reserved == 0);
+
+    //
+    // This is already a large VAD, add the secure entry.
+    //
+
+    if (Vad->u2.VadFlags2.OneSecured) {
+
+        //
+        // This VAD already is secured.  Move the info out of the
+        // block into pool.
+        //
+
+        Secure = ExAllocatePoolWithTag (NonPagedPool,
+                                        sizeof (MMSECURE_ENTRY),
+                                        'eSmM');
+        if (Secure == NULL) {
+            goto Return1;
+        }
+
+        ASSERT (Vad->u.VadFlags.NoChange == 1);
+        Vad->u2.VadFlags2.OneSecured = 0;
+        Vad->u2.VadFlags2.MultipleSecured = 1;
+        Secure->u2.LongFlags2 = Vad->u.LongFlags;
+        Secure->u2.VadFlags2.StoredInVad = 0;
+        Secure->StartVa = StartAddress;
+        Secure->EndVa = (PVOID)EndAddress;
+
+        InitializeListHead (&Vad->u3.List);
+        InsertTailList (&Vad->u3.List,
+                        &Secure->List);
+    }
+
+    if (Vad->u2.VadFlags2.MultipleSecured) {
+
+        //
+        // This VAD already has a secured element in it's list, allocate and
+        // add in the new secured element.
+        //
+
+        Secure = ExAllocatePoolWithTag (NonPagedPool,
+                                        sizeof (MMSECURE_ENTRY),
+                                        'eSmM');
+        if (Secure == NULL) {
+            goto Return1;
+        }
+
+        Secure->u2.LongFlags2 = 0;
+        Secure->u2.VadFlags2.ReadOnly = Probe;
+        Secure->StartVa = StartAddress;
+        Secure->EndVa = (PVOID)EndAddress;
+
+        InsertTailList (&Vad->u3.List,
+                        &Secure->List);
+        Handle = (HANDLE)Secure;
+
+    } else {
+
+        //
+        // This list does not have a secure element.  Put it in the VAD.
+        //
+
+        Vad->u.VadFlags.NoChange = 1;
+        Vad->u2.VadFlags2.OneSecured = 1;
+        Vad->u2.VadFlags2.StoredInVad = 1;
+        Vad->u2.VadFlags2.ReadOnly = Probe;
+        Vad->u3.Secured.StartVa = StartAddress;
+        Vad->u3.Secured.EndVa = (PVOID)EndAddress;
+        Handle = (HANDLE)&Vad->u2.LongFlags2;
+    }
+
+Return1:
+    UNLOCK_ADDRESS_SPACE (Process);
+    return Handle;
+}
+
+
+VOID
+MmUnsecureVirtualMemory (
+    IN HANDLE SecureHandle
+    )
+
+/*++
+
+Routine Description:
+
+    This routine unsecures memory previous secured via a call to
+    MmSecureVirtualMemory.
+
+Arguments:
+
+    SecureHandle - Supplies the handle returned in MmSecureVirtualMemory.
+
+Return Value:
+
+    None.
+
+Environment:
+
+    Kernel Mode.
+
+--*/
+
+{
+    PMMSECURE_ENTRY Secure;
+    PEPROCESS Process;
+    PMMVAD Vad;
+
+    PAGED_CODE();
+
+    Secure = (PMMSECURE_ENTRY)SecureHandle;
+    Process = PsGetCurrentProcess ();
+    LOCK_ADDRESS_SPACE (Process);
+
+    if (Secure->u2.VadFlags2.StoredInVad) {
+        Vad = CONTAINING_RECORD( Secure,
+                                 MMVAD,
+                                 u2.LongFlags2);
+    } else {
+        Vad = MiLocateAddress (Secure->StartVa);
+    }
+
+    ASSERT (Vad);
+    ASSERT (Vad->u.VadFlags.NoChange == 1);
+
+    if (Vad->u2.VadFlags2.OneSecured) {
+        ASSERT (Secure == (PMMSECURE_ENTRY)&Vad->u2.LongFlags2);
+        Vad->u2.VadFlags2.OneSecured = 0;
+        ASSERT (Vad->u2.VadFlags2.MultipleSecured == 0);
+        if (Vad->u2.VadFlags2.SecNoChange == 0) {
+
+            //
+            // No more secure entries in this list, remove the state.
+            //
+
+            Vad->u.VadFlags.NoChange = 0;
+        }
+    } else {
+        ASSERT (Vad->u2.VadFlags2.MultipleSecured == 1);
+
+        if (Secure == (PMMSECURE_ENTRY)&Vad->u2.LongFlags2) {
+
+            //
+            // This was a single block that got converted into a list.
+            // Reset the entry.
+            //
+
+            Secure = CONTAINING_RECORD (Vad->u3.List.Flink,
+                                        MMSECURE_ENTRY,
+                                        List);
+        }
+        RemoveEntryList (&Secure->List);
+        ExFreePool (Secure);
+        if (IsListEmpty (&Vad->u3.List)) {
+
+            //
+            // No more secure entries, reset the state.
+            //
+
+            Vad->u2.VadFlags2.MultipleSecured = 0;
+
+            if ((Vad->u2.VadFlags2.SecNoChange == 0) &&
+               (Vad->u.VadFlags.PrivateMemory == 0)) {
+
+                //
+                // No more secure entries in this list, remove the state
+                // if and only if this VAD is not private.  If this VAD
+                // is private, removing the state NoChange flag indicates
+                // that this is a short VAD which it no longer is.
+                //
+
+                Vad->u.VadFlags.NoChange = 0;
+            }
+        }
+    }
+
+    UNLOCK_ADDRESS_SPACE (Process);
+    return;
+}
+

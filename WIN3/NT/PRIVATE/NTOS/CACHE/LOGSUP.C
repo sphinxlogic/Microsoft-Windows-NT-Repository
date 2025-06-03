@@ -61,6 +61,7 @@ Return Value:
 
 {
     PSHARED_CACHE_MAP SharedCacheMap;
+    KIRQL OldIrql;
 
     //
     //  Get pointer to SharedCacheMap.
@@ -72,16 +73,18 @@ Return Value:
     //  Now set the flags and return.
     //
 
+    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
     if (DisableReadAhead) {
         SetFlag(SharedCacheMap->Flags, DISABLE_READ_AHEAD);
     } else {
         ClearFlag(SharedCacheMap->Flags, DISABLE_READ_AHEAD);
     }
     if (DisableWriteBehind) {
-        SetFlag(SharedCacheMap->Flags, DISABLE_WRITE_BEHIND);
+        SetFlag(SharedCacheMap->Flags, DISABLE_WRITE_BEHIND | MODIFIED_WRITE_DISABLED);
     } else {
         ClearFlag(SharedCacheMap->Flags, DISABLE_WRITE_BEHIND);
     }
+    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
 }
 
 
@@ -172,81 +175,188 @@ Return Value:
 
 {
     PSHARED_CACHE_MAP SharedCacheMap;
-    PBCB Bcb;
+    PBCB Bcb, BcbToUnpin;
     KIRQL OldIrql;
     NTSTATUS ExceptionStatus;
+    LARGE_INTEGER SavedFileOffset, SavedOldestLsn, SavedNewestLsn;
+    ULONG SavedByteLength;
+    ULONG LoopsWithLockHeld = 0;
     LARGE_INTEGER OldestLsn = {0,0};
 
     //
     //  Synchronize with changes to the SharedCacheMap list.
     //
 
-    ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
 
-    SharedCacheMap = CONTAINING_RECORD( CcDirtySharedCacheMapList.Flink,
+    SharedCacheMap = CONTAINING_RECORD( CcDirtySharedCacheMapList.SharedCacheMapLinks.Flink,
                                         SHARED_CACHE_MAP,
                                         SharedCacheMapLinks );
 
-    try {
+    BcbToUnpin = NULL;
+    while (&SharedCacheMap->SharedCacheMapLinks != &CcDirtySharedCacheMapList.SharedCacheMapLinks) {
 
-        while (&SharedCacheMap->SharedCacheMapLinks != &CcDirtySharedCacheMapList) {
+        //
+        //  Skip over cursors, SharedCacheMaps for other LogHandles, and ones with
+        //  no dirty pages
+        //
+
+        if (!FlagOn(SharedCacheMap->Flags, IS_CURSOR) && (SharedCacheMap->LogHandle == LogHandle) &&
+            (SharedCacheMap->DirtyPages != 0)) {
 
             //
-            //  Now point to first Bcb in List, and loop through it.
+            //  This SharedCacheMap should stick around for a while in the dirty list.
+            //
+
+            SharedCacheMap->OpenCount += 1;
+            SharedCacheMap->DirtyPages += 1;
+
+            //
+            //  Set our initial resume point and point to first Bcb in List.
             //
 
             Bcb = CONTAINING_RECORD( SharedCacheMap->BcbList.Flink, BCB, BcbLinks );
 
+            //
+            //  Scan to the end of the Bcb list.
+            //
+
             while (&Bcb->BcbLinks != &SharedCacheMap->BcbList) {
 
                 //
-                //  If the Bcb is dirty and it is for the right log file handle,
-                //  then capture the inputs for the callback routine since we
-                //  cannot call while holding a spinlock.
+                //  If the Bcb is dirty, then capture the inputs for the
+                //  callback routine so we can call without holding a spinlock.
                 //
 
-                if ((SharedCacheMap->LogHandle == LogHandle) && Bcb->Dirty) {
+                LoopsWithLockHeld += 1;
+                if ((Bcb->NodeTypeCode == CACHE_NTC_BCB) && Bcb->Dirty) {
+
+                    SavedFileOffset = Bcb->FileOffset;
+                    SavedByteLength = Bcb->ByteLength;
+                    SavedOldestLsn = Bcb->OldestLsn;
+                    SavedNewestLsn = Bcb->NewestLsn;
+
+                    //
+                    //  Increment PinCount so the Bcb sticks around
+                    //
+
+                    Bcb->PinCount += 1;
+
+                    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+
+                    //
+                    //  Any Bcb to unpin from a previous loop?
+                    //
+
+                    if (BcbToUnpin != NULL) {
+                        CcUnpinFileData( BcbToUnpin, TRUE, UNPIN );
+                        BcbToUnpin = NULL;
+                    }
+
+                    //
+                    //  Call the file system
+                    //
 
                     (*DirtyPageRoutine)( SharedCacheMap->FileObject,
-                                         &Bcb->FileOffset,
-                                         Bcb->ByteLength,
-                                         &Bcb->OldestLsn,
-                                         &Bcb->NewestLsn,
+                                         &SavedFileOffset,
+                                         SavedByteLength,
+                                         &SavedOldestLsn,
+                                         &SavedNewestLsn,
                                          Context1,
                                          Context2 );
 
-                    if (LiNeqZero(Bcb->OldestLsn) &&
-                        (LiEqlZero(OldestLsn) || LiLtr( Bcb->OldestLsn, OldestLsn ))) {
-                        OldestLsn = Bcb->OldestLsn;
+                    //
+                    //  Possibly update OldestLsn
+                    //
+
+                    if ((SavedOldestLsn.QuadPart != 0) &&
+                        ((OldestLsn.QuadPart == 0) || (SavedOldestLsn.QuadPart < OldestLsn.QuadPart ))) {
+                        OldestLsn = SavedOldestLsn;
                     }
+
+                    //
+                    //  Now reacquire the spinlock and scan from the resume point
+                    //  point to the next Bcb to return in the descending list.
+                    //
+
+                    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+
+                    //
+                    //  Normally the Bcb can stay around a while, but if not,
+                    //  we will just remember it for the next time we do not
+                    //  have the spin lock.  We cannot unpin it now, because
+                    //  we would lose our place in the list.
+                    //
+
+                    if (Bcb->Dirty || (Bcb->PinCount > 1)) {
+                        Bcb->PinCount -= 1;
+                    } else {
+                        BcbToUnpin = Bcb;
+                    }
+
+                    //
+                    //  Normally the Bcb is not going away now, but if it is
+                    //  we need to free it by calling the normal routine
+
+                    LoopsWithLockHeld = 0;
                 }
 
                 Bcb = CONTAINING_RECORD( Bcb->BcbLinks.Flink, BCB, BcbLinks );
             }
 
             //
-            //  Now loop back for the next cache map.
+            //  We need to unpin any Bcb we are holding before moving on to
+            //  the next SharedCacheMap, or else CcDeleteSharedCacheMap will
+            //  also delete this Bcb.
             //
 
-            SharedCacheMap =
-                CONTAINING_RECORD( SharedCacheMap->SharedCacheMapLinks.Flink,
-                                   SHARED_CACHE_MAP,
-                                   SharedCacheMapLinks );
+            if (BcbToUnpin != NULL) {
+
+                ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+
+                CcUnpinFileData( BcbToUnpin, TRUE, UNPIN );
+                BcbToUnpin = NULL;
+
+                ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+            }
+
+            //
+            //  Now release the SharedCacheMap, leaving it in the dirty list.
+            //
+
+            SharedCacheMap->OpenCount -= 1;
+            SharedCacheMap->DirtyPages -= 1;
         }
 
-    //
-    //  We must have our own exception filter, since our callers and their
-    //  filters may be paged.
-    //
+        //
+        //  Make sure we occassionally drop the lock.  Set WRITE_QUEUED
+        //  to keep the guy from going away, and increment DirtyPages to
+        //  keep in in this list.
+        //
 
-    } except( CcExceptionFilter( ExceptionStatus = GetExceptionCode() )) {
+        if ((++LoopsWithLockHeld >= 20) &&
+            !FlagOn(SharedCacheMap->Flags, WRITE_QUEUED | IS_CURSOR)) {
 
-        ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+            SetFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+            SharedCacheMap->DirtyPages += 1;
+            ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+            LoopsWithLockHeld = 0;
+            ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+            ClearFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+            SharedCacheMap->DirtyPages -= 1;
+        }
 
-        ExRaiseStatus( ExceptionStatus );
+        //
+        //  Now loop back for the next cache map.
+        //
+
+        SharedCacheMap =
+            CONTAINING_RECORD( SharedCacheMap->SharedCacheMapLinks.Flink,
+                               SHARED_CACHE_MAP,
+                               SharedCacheMapLinks );
     }
 
-    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
 
     return OldestLsn;
 }
@@ -278,36 +388,51 @@ Return Value:
 {
     PSHARED_CACHE_MAP SharedCacheMap;
     KIRQL OldIrql;
+    ULONG LoopsWithLockHeld = 0;
 
     //
     //  Synchronize with changes to the SharedCacheMap list.
     //
 
-    ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
 
-    SharedCacheMap = CONTAINING_RECORD( CcDirtySharedCacheMapList.Flink,
+    SharedCacheMap = CONTAINING_RECORD( CcDirtySharedCacheMapList.SharedCacheMapLinks.Flink,
                                         SHARED_CACHE_MAP,
                                         SharedCacheMapLinks );
 
-    while (&SharedCacheMap->SharedCacheMapLinks != &CcDirtySharedCacheMapList) {
+    while (&SharedCacheMap->SharedCacheMapLinks != &CcDirtySharedCacheMapList.SharedCacheMapLinks) {
 
         //
-        //  Look at this one if the Vpb matches.  Note that we could conceivably
-        //  skip scanning the Bcb list and just return TRUE now, except that the
-        //  SharedCacheMap may only be in the dirty list for a lazy close.  If we
-        //  incorrectly return TRUE, the file system may not check back for five
-        //  seconds.
-        //
-        //  Also only count Meta Data, ie. volume structure data that the
-        //  modified pager writer doesn't touch.
+        //  Look at this one if the Vpb matches and if there is dirty data.
+        //  For what it's worth, don't worry about dirty data in temporary files,
+        //  as that should not concern the caller if it wants to dismount.
         //
 
-        if ((SharedCacheMap->FileObject->Vpb == Vpb) &&
+        if (!FlagOn(SharedCacheMap->Flags, IS_CURSOR) &&
+            (SharedCacheMap->FileObject->Vpb == Vpb) &&
             (SharedCacheMap->DirtyPages != 0) &&
             !FlagOn(SharedCacheMap->FileObject->Flags, FO_TEMPORARY_FILE)) {
 
-            ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+            ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
             return TRUE;
+        }
+
+        //
+        //  Make sure we occassionally drop the lock.  Set WRITE_QUEUED
+        //  to keep the guy from going away, and increment DirtyPages to
+        //  keep in in this list.
+        //
+
+        if ((++LoopsWithLockHeld >= 20) &&
+            !FlagOn(SharedCacheMap->Flags, WRITE_QUEUED | IS_CURSOR)) {
+
+            SetFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+            SharedCacheMap->DirtyPages += 1;
+            ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+            LoopsWithLockHeld = 0;
+            ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+            ClearFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+            SharedCacheMap->DirtyPages -= 1;
         }
 
         //
@@ -320,7 +445,7 @@ Return Value:
                                SharedCacheMapLinks );
     }
 
-    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
 
     return FALSE;
 }
@@ -368,7 +493,7 @@ Return Value:
         return Oldest;
     }
 
-    ExAcquireSpinLock(&CcMasterSpinLock, &OldIrql);
+    ExAcquireFastLock(&CcMasterSpinLock, &OldIrql);
 
     //
     //  Now point to first Bcb in List, and loop through it.
@@ -383,22 +508,21 @@ Return Value:
         //
 
 
-        if (Bcb->Dirty) {
+        if ((Bcb->NodeTypeCode == CACHE_NTC_BCB) && Bcb->Dirty) {
 
             LARGE_INTEGER BcbLsn, BcbNewest;
 
             BcbLsn = Bcb->OldestLsn;
             BcbNewest = Bcb->NewestLsn;
 
-            if (!RtlLargeIntegerEqualToZero(BcbLsn) &&
-                 (RtlLargeIntegerEqualToZero(Oldest) ||
-                 RtlLargeIntegerLessThan(BcbLsn, Oldest))) {
+            if ((BcbLsn.QuadPart != 0) &&
+                ((Oldest.QuadPart == 0) ||
+                 (BcbLsn.QuadPart < Oldest.QuadPart))) {
 
                  Oldest = BcbLsn;
             }
 
-            if (!RtlLargeIntegerEqualToZero(BcbLsn) &&
-                 RtlLargeIntegerGreaterThan(BcbNewest, Newest)) {
+            if ((BcbLsn.QuadPart != 0) && (BcbNewest.QuadPart > Newest.QuadPart)) {
 
                 Newest = BcbNewest;
             }
@@ -413,7 +537,7 @@ Return Value:
     //  if we got something.
     //
 
-    ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
 
     if (ARGUMENT_PRESENT(OldestLsn)) {
 

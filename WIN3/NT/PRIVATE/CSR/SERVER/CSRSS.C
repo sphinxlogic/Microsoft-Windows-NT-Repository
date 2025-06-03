@@ -43,6 +43,7 @@ DisableErrorPopups(
 }
 
 int
+_cdecl
 main(
     IN ULONG argc,
     IN PCH argv[],
@@ -50,14 +51,9 @@ main(
     IN ULONG DebugFlag OPTIONAL
     )
 {
-    QUOTA_LIMITS QuotaLimits;
     NTSTATUS status;
-    SYSTEM_BASIC_INFORMATION BasicInfo;
-    ULONG MinQuota;
     ULONG ErrorResponse;
     KPRIORITY SetBasePriority;
-    NT_PRODUCT_TYPE NtProductType;
-    BOOLEAN PtOk;
 
     SetBasePriority = FOREGROUND_BASE_PRIORITY + 4;
     NtSetInformationProcess(
@@ -92,68 +88,6 @@ main(
 				   OptionOk,
 				   &ErrorResponse
 				   );
-    }
-
-    //
-    // Increase the working set size based on physical memory
-    // available.
-    //
-
-    status = NtQueryInformationProcess( NtCurrentProcess(),
-                                        ProcessQuotaLimits,
-                                        &QuotaLimits,
-                                        sizeof(QUOTA_LIMITS),
-                                        NULL );
-
-    if (NT_SUCCESS(status)) {
-
-        status = NtQuerySystemInformation(
-                    SystemBasicInformation,
-                    &BasicInfo,
-                    sizeof(BasicInfo),
-                    NULL
-                    );
-
-        if (NT_SUCCESS(status)) {
-
-            //
-            // Convert to megabytes.
-            //
-
-            BasicInfo.NumberOfPhysicalPages /= ((1024*1024)/BasicInfo.PageSize);
-
-            //
-            // Working set minimum is either 1mb or 2mb depending on
-            // how much memory is in the machine.
-            //
-            // For less than 15mb, your min working set is 1mb. For greater than
-            // this, the working set is 2mb. For LanmanNt systems, your min working
-            // set is not altered
-            //
-
-            if (BasicInfo.NumberOfPhysicalPages < 15) {
-                MinQuota = 1024 * 1024;
-            } else {
-                MinQuota = 2 * (1024 * 1024);
-            }
-
-            //
-            // Advanced server does not bias the working set size of csrss
-            //
-
-            PtOk = RtlGetNtProductType(&NtProductType);
-            if ( PtOk && NtProductType != NtProductWinNt ) {
-                MinQuota = QuotaLimits.MinimumWorkingSetSize;
-            }
-
-            QuotaLimits.MinimumWorkingSetSize = MinQuota;
-            QuotaLimits.MaximumWorkingSetSize = 1024*1024 + MinQuota;
-
-            NtSetInformationProcess( NtCurrentProcess(),
-                                     ProcessQuotaLimits,
-                                     &QuotaLimits,
-                                     sizeof(QUOTA_LIMITS) );
-        }
     }
 
     status = CsrServerInitialization( argc, argv );

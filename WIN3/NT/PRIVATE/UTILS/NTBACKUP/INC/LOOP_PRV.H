@@ -225,6 +225,10 @@ typedef struct t_item {
 #define LP_MsgLogBlock( pid, bsd_ptr, fsys, tpos, dblk_ptr )\
                ( lp->lis_ptr->message_handler( MSG_LOG_BLOCK, pid, bsd_ptr, fsys, tpos, dblk_ptr ) )
 
+#define LP_MsgLogStream( pid, bsd_ptr, fsys, tpos, string )\
+               ( lp->lis_ptr->message_handler( MSG_LOG_STREAM_NAME, pid, bsd_ptr, fsys, tpos, string ) )
+
+
 #define LP_MsgContinueVCB( pid, bsd_ptr, fsys, tpos, dblk_ptr )\
                ( lp->lis_ptr->message_handler( MSG_CONT_VCB, pid, bsd_ptr, fsys, tpos, dblk_ptr ) )
 

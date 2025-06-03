@@ -15,16 +15,6 @@
 
 #include "keyboard.hxx"
 
-// HPFS include files:
-
-#include "uhpfs.hxx"
-
-#include "bitmap.hxx"
-#include "store.hxx"
-#include "fnode.hxx"
-#include "hpfsvol.hxx"
-#include "hpfssa.hxx"
-
 #include "fatvol.hxx"
 #include "fatsa.hxx"
 #include "rfatsa.hxx"
@@ -37,87 +27,6 @@ extern "C" {
 ERRSTACK* perrstk;
 
 BOOLEAN HexOutput = FALSE;
-
-BOOLEAN
-HpfsSecList(
-    PWSTRING    NtDriveName,
-    PPATH       TargetPath,
-    PMESSAGE    Message
-    )
-{
-    HPFS_VOL HpfsVol;
-    PHPFS_SA SuperArea;
-    PFNODE Fnode;
-    PALLEAF pall;
-    PULONG Extents;
-
-    ULONG i, j, NumberOfExtents;
-
-    if( !HpfsVol.Initialize( NtDriveName, Message ) ) {
-
-        printf( "Cannot initialize HPFS volume.\n" );
-        return FALSE;
-    }
-
-    SuperArea = HpfsVol.GetHPFSSuperArea();
-
-    if( !SuperArea->SetupHelpers() ) {
-
-        printf( "Can't set up HPFS helper objects.\n" );
-        return FALSE;
-    }
-
-    Fnode = SuperArea->QueryFnodeFromName( TargetPath, Message );
-
-    if( Fnode == NULL ) {
-
-        printf( "Can't fetch FNODE.\n" );
-        return FALSE;
-    }
-
-    // Call QueryExtents once to determine the number of extents
-    // a second time to actually get the extents.
-    //
-    Fnode->QueryExtents( 0, NULL, &NumberOfExtents );
-
-    if( (Extents = (PULONG)MALLOC( NumberOfExtents * sizeof(ULONG) * 3 )) == NULL ) {
-
-        printf( "Can't allocate extent array.\n" );
-        DELETE( Fnode );
-        return FALSE;
-    }
-
-    if( !Fnode->QueryExtents( NumberOfExtents, Extents, &NumberOfExtents ) ) {
-
-        printf( "Can't query extents.\n" );
-        DELETE( Fnode);
-        FREE( Extents );
-        return FALSE;
-    }
-
-    for( i = 0; i < NumberOfExtents; i++ ) {
-
-        pall = (PALLEAF)( Extents + i * 3 );
-
-        for( j = 0; j < pall->csecRun; j++ ) {
-
-            if( HexOutput ) {
-
-                printf( "0x%x\n", pall->lbnPhys + j );
-
-            } else {
-
-                printf( "%d\n", pall->lbnPhys + j );
-
-            }
-
-        }
-    }
-
-    FREE( Extents );
-    DELETE( Fnode );
-    return TRUE;
-}
 
 BOOLEAN
 FatSecList(
@@ -279,19 +188,14 @@ main(
         exit(1);
     }
 
-    if( !HpfsString.Initialize( "HPFS" ) ||
-        !FatString.Initialize( "FAT" ) ||
+    if( !FatString.Initialize( "FAT" ) ||
         !NtfsString.Initialize( "NTFS" ) ) {
 
         printf( "Can't initialize file-system name strings.\n" );
         exit(1);
     }
 
-    if( FsName.Stricmp( &HpfsString ) == 0 ) {
-
-        Result = HpfsSecList( &NtDriveName, &Path, &Message );
-
-    } else if( FsName.Stricmp( &FatString ) == 0 ) {
+    if( FsName.Stricmp( &FatString ) == 0 ) {
 
         Result = FatSecList( &NtDriveName, &Path, &Message );
 

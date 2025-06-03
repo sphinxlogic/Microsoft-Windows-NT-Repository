@@ -167,17 +167,13 @@ stdENDP _KeSynchronizeExecution
 ; Routine Description:
 ;
 ;    This routine is entered as the result of an interrupt being generated
-;    via a vector that is connected to more than one interrupt object. Its
-;    function is to walk the list of connected interrupt objects and call
-;    each interrupt service routine. If the mode of the interrupt is latched,
-;    then a complete traversal of the chain must be performed. If any of the
-;    routines require saving the floating point machine state, then
-;    it is only saved once.
+;    via a vector that is connected to more than one interrupt object.
 ;
 ; Arguments:
 ;
 ;    edi - Supplies a pointer to the interrupt object.
 ;    esp - Supplies a pointer to the top of trap frame
+;    ebp - Supplies a pointer to the top of trap frame
 ;
 ; Return Value:
 ;
@@ -185,11 +181,6 @@ stdENDP _KeSynchronizeExecution
 ;
 ;--
 
-
-; local variables definition
-
-KcdPreviousIrql equ [ebp - 4]
-KcdVectorLock equ [ebp - 12]
 
 align 16
 cPublicProc _KiChainedDispatch      ,0
@@ -201,35 +192,82 @@ cPublicProc _KiChainedDispatch      ,0
 
         inc     dword ptr PCR[PcPrcbData+PbInterruptCount]
 
+;
 ; set ebp to the top of trap frame.  We don't need to save ebp because
 ; it is saved in trap frame already.
+;
 
         mov     ebp, esp                ; (ebp)->trap frame
 
+;
 ; Save previous IRQL and set new priority level
+;
 
         mov     eax, [edi].InVector     ; save vector
         push    eax
         sub     esp, 4                  ; make room for OldIrql
         mov     ecx, [edi].InIrql       ; Irql
 
+;
 ; esp - pointer to OldIrql
 ; eax - vector
 ; ecx - Irql
+;
 
         stdCall   _HalBeginSystemInterrupt, <ecx, eax, esp>
-
-.FPO (4, 0, 0, 0, 0, 1)
-        sub     esp, 8                  ; Make room for scratch value
-
         or      eax, eax                ; check for spurious int.
-        jz      kid_spuriousinterrupt1
+        jz      kid_spuriousinterrupt
 
-        lea     ebx, [edi].InInterruptListEntry ; (ebx)->Interrupt Head List
+        stdCall _KiChainedDispatch2ndLvl
+
+        INTERRUPT_EXIT                  ; will do an iret
+
+stdENDP _KiChainedDispatch
+
+
+        page ,132
+        subttl  "Chained Dispatch 2nd Level"
+;++
+;
+; Routine Description:
+;
+;    This routine is entered as the result of an interrupt being generated
+;    via a vector that is either connected to more than one interrupt object,
+;    or is being 2nd level dispatched.  Its function is to walk the list
+;    of connected interrupt objects and call each interrupt service routine.
+;    If the mode of the interrupt is latched, then a complete traversal of
+;    the chain must be performed. If any of the routines require saving the
+;    floating point machine state, then it is only saved once.
+;
+; Arguments:
+;
+;    edi - Supplies a pointer to the interrupt object.
+;
+; Return Value:
+;
+;   None.
+;   Uses all registers
+;
+;--
+
+
+public _KiInterruptDispatch2ndLvl@0
+_KiInterruptDispatch2ndLvl@0:
+        nop
+
+cPublicProc _KiChainedDispatch2ndLvl,0
+cPublicFpo 0, 3
+
+        push    ebp
+        sub     esp, 8                  ; Make room for scratch value
+        xor     ebp, ebp                ; init (ebp) = Interrupthandled = FALSE
+        lea     ebx, [edi].InInterruptListEntry
+                                        ; (ebx)->Interrupt Head List
 
 ;
 ; Walk the list of connected interrupt objects and call the appropriate dispatch
 ; routine.
+;
 
 kcd40:
 
@@ -243,12 +281,14 @@ kcd40:
         cmp     [edi+InSynchronizeIrql], cl ; Is SyncIrql > current IRQL?
         je      short kcd50             ; if e, no, go kcd50
 
+;
 ; Arg2 esp : Address of OldIrql
 ; Arg1 eax : Irql to raise to
+;
 
         mov     ecx, [edi+InSynchronizeIrql] ; (eax) = Irql to raise to
         fstCall KfRaiseIrql
-        mov     [esp], eax
+        mov     [esp], eax              ; Save OldIrql
 
 
 ;
@@ -270,7 +310,7 @@ if DBG
         mov     ecx, [esp+4]            ; (ecx) = time isr started
         add     ecx, _KiISRTimeout      ; adjust for timeout
         cmp     _KeTickCount, ecx       ; Did ISR timeout?
-        jnc     short kcd200
+        jnc     kcd200
 kcd51:
 endif
 
@@ -290,7 +330,10 @@ endif
 
         mov     esi, eax                ; save ISR returned value
 
+;
 ; Arg1 : Irql to Lower to
+;
+
         mov     ecx, [esp]
         fstCall KfLowerIrql
 
@@ -300,11 +343,30 @@ kcd55:
         je      short kcd60             ; if eq, interrupt not handled
         cmp     word ptr InMode[edi], InLevelSensitive
         je      short kcd70             ; if eq, level sensitive interrupt
-kcd60:  mov     edi, [edi].InInterruptListEntry ; (edi)->next obj's addr of listentry
+
+        mov     ebp, eax                ; else edge shared int is handled. Remember it.
+kcd60:  mov     edi, [edi].InInterruptListEntry
+                                        ; (edi)->next obj's addr of listentry
         cmp     ebx, edi                ; Are we at end of interrupt list?
-        je      short kcd70             ; if eq, reach end of list
+        je      short kcd65             ; if eq, reach end of list
         sub     edi, InInterruptListEntry; (edi)->addr of next interrupt object
         jmp     kcd40
+
+kcd65:
+;
+; If this is edge shared interrupt, we need to loop till no one handle the
+; interrupt.  In theory only shared edge triggered interrupts come here.
+;
+
+        sub     edi, InInterruptListEntry; (edi)->addr of next interrupt object
+        cmp     word ptr InMode[edi], InLevelSensitive
+        je      short kcd70             ; if level, exit.  No one handle the interrupt?
+
+        test    ebp, 0fh                ; does anyone handle the interrupt?
+        je      short kcd70             ; if e, no one, we can exit.
+
+        xor     ebp, ebp                ; init local var to no one handle the int
+        jmp     kcd40                   ; restart the loop.
 
 ;
 ; Either the interrupt is level sensitive and has been handled or the end of
@@ -315,10 +377,8 @@ kcd60:  mov     edi, [edi].InInterruptListEntry ; (edi)->next obj's addr of list
 
 kcd70:
         add     esp, 8                  ; clear local variable space
-
-; Do interrupt exit processing
-
-        INTERRUPT_EXIT                  ; will do an iret
+        pop     ebp
+        stdRet  _KiChainedDispatch2ndLvl
 
 
 ; Service routine Lock is currently owned, spin until free and then
@@ -343,8 +403,8 @@ kcd200: push    eax                     ; save return code
         jmp     kcd51                   ; continue
 endif
 
+stdENDP _KiChainedDispatch2ndLvl
 
-stdENDP _KiChainedDispatch
 
         page ,132
         subttl  "Floating Dispatch"
@@ -361,6 +421,7 @@ stdENDP _KiChainedDispatch
 ;
 ;    edi - Supplies a pointer to the interrupt object.
 ;    esp - Supplies a pointer to the top of trap frame
+;    ebp - Supplies a pointer to the top of trap frame
 ;
 ; Return Value:
 ;
@@ -469,6 +530,7 @@ stdENDP _KiFloatingDispatch
 ;
 ;    edi - Supplies a pointer to the interrupt object.
 ;    esp - Supplies a pointer to the top of trap frame
+;    ebp - Supplies a pointer to the top of trap frame
 ;
 ; Return Value:
 ;
@@ -551,8 +613,8 @@ endif
 
         INTERRUPT_EXIT                  ; will do an iret
 
-kid_spuriousinterrupt1:
         add     esp, 8                  ; clean stack
+
 kid_spuriousinterrupt:
         add     esp, 8                  ; Irql wasn't raised, exit interrupt
         SPURIOUS_INTERRUPT_EXIT         ; without eoi or lower irql
@@ -628,6 +690,8 @@ stdENDP _KiInterruptDispatch
 ;
 ;--
 
+_KiShutUpAssembler      proc
+
         public  _KiInterruptTemplate
 _KiInterruptTemplate    label   byte
 
@@ -641,6 +705,8 @@ _KiInterruptTemplate    label   byte
 ; interrupt object initialization time.
 ;       mov     edi, addr of interrupt object
 
+        public  _KiInterruptTemplate2ndDispatch
+_KiInterruptTemplate2ndDispatch equ     this dword
         db      MI_MOVEDI               ; MOV EDI opcode
 
         public  _KiInterruptTemplateObject
@@ -667,6 +733,8 @@ if  ($ - _KiInterruptTemplate) GT DISPATCH_LENGTH
     .err
     %out    <InterruptTemplate greater than dispatch_length>
 endif
+
+_KiShutUpAssembler      endp
 
         page ,132
         subttl  "Unexpected Interrupt"
@@ -695,8 +763,6 @@ endif
         public _KiUnexpectedInterrupt
 _KiUnexpectedInterrupt  proc
 cPublicFpo 0,0
-
-; BUGBUG shielint should have error code for UNEXPECTED_INTERRUPT
 
 ; stop the system
         stdCall   _KeBugCheck, <TRAP_CAUSE_UNKNOWN>

@@ -30,6 +30,13 @@ Revision History:
 
 #include "ki.h"
 
+VOID
+KiMachineCheck (
+    IN PEXCEPTION_RECORD ExceptionRecord,
+    IN PKEXCEPTION_FRAME ExceptionFrame,
+    IN PKTRAP_FRAME TrapFrame
+    );
+
 //
 // Alpha data misalignment exception (auto alignment fixup) control.
 //
@@ -56,8 +63,23 @@ ULONG KiEnableAlignmentFaultExceptions = FALSE;
 // N.B. These default values may be reset from the Registry during init.
 //
 
-ULONG KiForceQuadwordFixupsKernel = TRUE;
-ULONG KiForceQuadwordFixupsUser = TRUE;
+ULONG KiForceQuadwordFixupsKernel = FALSE;
+ULONG KiForceQuadwordFixupsUser = FALSE;
+
+//
+// Alpha byte/word emulation exception control.
+//
+// if KiEnableByteWordInstructionEmulation is false, then an 'illegal
+// instruction' exception is raised when a byte or word instruction
+// execution is attempted.
+//
+// if KiEnableByteWordInstructionEmulation ois true, then the byte or
+// word instruction will be emulated.
+//
+// N.B. This default value may be reset from the Registry during init.
+//
+
+ULONG KiEnableByteWordInstructionEmulation = FALSE;
 
 #if DBG
 
@@ -453,20 +475,23 @@ Return Value:
     ULONGLONG UserStack2;
 
     //
-    // If the exception is a data bus error then a machine check has
-    // been trapped by the PALcode. The error will be forwarded to the
-    // HAL eventually for logging or handling. If the handler returns
-    // it is assumed that the HAL successfully handled the error and
-    // execution may resume.
+    // If the exception is an illegal instruction exception, then check for
+    // a byte/word instruction that should be emulated.
     //
-    // N.B. A special exception code is used to signal a data bus error.
-    //      This code is equivalent to the bug check code merged with a
-    //      reserved facility code and the reserved bit set.
+    // N.B. The exception code STATUS_ILLEGAL_INSTRUCTION may be converted
+    //      into STATUS_DATATYPE_MISALIGNMENT in the case of unaligned word
+    //      access.
     //
 
-    if (ExceptionRecord->ExceptionCode == (DATA_BUS_ERROR | 0xdfff0000)) {
-        KiMachineCheck(ExceptionRecord, ExceptionFrame, TrapFrame);
-        goto Handled2;
+    if (ExceptionRecord->ExceptionCode == STATUS_ILLEGAL_INSTRUCTION) {
+        if (KiEnableByteWordInstructionEmulation == TRUE) {
+            if (KiEmulateByteWord(ExceptionRecord,
+                                  ExceptionFrame,
+                                  TrapFrame) != FALSE) {
+                KeGetCurrentPrcb()->KeByteWordEmulationCount += 1;
+                goto Handled2;
+            }
+        }
     }
 
     //
@@ -522,6 +547,19 @@ Return Value:
                 goto Handled2;
             }
 
+        } else if ((KeGetCurrentThread()->AutoAlignment != FALSE) ||
+                   (KeGetCurrentThread()->ApcState.Process->AutoAlignment != FALSE)) {
+            //
+            // The current thread has enabled automatic alignment fixup. Attempt to
+            // emulate both user and kernel references.
+            //
+            if (KiEmulateReference(ExceptionRecord,
+                                   ExceptionFrame,
+                                   TrapFrame,
+                                   FALSE) != FALSE) {
+                KeGetCurrentPrcb()->KeAlignmentFixupCount += 1;
+                goto Handled2;
+            }
         } else if (PreviousMode == KernelMode) {
 
             //
@@ -531,7 +569,6 @@ Return Value:
             // references only should be emulated. Otherwise, all kernel
             // mode alignment faults raise an exception.
             //
-
             if (KiForceQuadwordFixupsKernel != FALSE) {
                 if (KiEmulateReference(ExceptionRecord,
                                        ExceptionFrame,
@@ -547,24 +584,12 @@ Return Value:
             //
             // User mode.
             //
-            // If the current thread has enabled automatic alignment fixup,
-            // then attempt to emulate the unaligned reference. Otherwise,
-            // if user quadword fixups are enabled, then quadword data
+            // If user quadword fixups are enabled, then quadword data
             // references only should be emulated. Otherwise, all user mode
             // alignment faults raise an exception.
             //
 
-            if ((KeGetCurrentThread()->AutoAlignment != FALSE) ||
-                (KeGetCurrentThread()->ApcState.Process->AutoAlignment != FALSE)) {
-                if (KiEmulateReference(ExceptionRecord,
-                                       ExceptionFrame,
-                                       TrapFrame,
-                                       FALSE) != FALSE) {
-                    KeGetCurrentPrcb()->KeAlignmentFixupCount += 1;
-                    goto Handled2;
-                }
-
-            } else if (KiForceQuadwordFixupsUser != FALSE) {
+            if (KiForceQuadwordFixupsUser != FALSE) {
                 if (KiEmulateReference(ExceptionRecord,
                                        ExceptionFrame,
                                        TrapFrame,
@@ -574,6 +599,23 @@ Return Value:
                 }
             }
         }
+    }
+
+    //
+    // If the exception is a data bus error then a machine check has
+    // been trapped by the PALcode. The error will be forwarded to the
+    // HAL eventually for logging or handling. If the handler returns
+    // it is assumed that the HAL successfully handled the error and
+    // execution may resume.
+    //
+    // N.B. A special exception code is used to signal a data bus error.
+    //      This code is equivalent to the bug check code merged with a
+    //      reserved facility code and the reserved bit set.
+    //
+
+    if (ExceptionRecord->ExceptionCode == (DATA_BUS_ERROR | 0xdfff0000)) {
+        KiMachineCheck(ExceptionRecord, ExceptionFrame, TrapFrame);
+        goto Handled2;
     }
 
     //
@@ -662,7 +704,7 @@ Return Value:
         break;
 
         //
-        // If the exception is an arithmetic exception, then one more more
+        // If the exception is an arithmetic exception, then one or more
         // integer overflow or floating point traps has occurred. This
         // exception is an imprecise (asynchronous) trap.
         //
@@ -1007,4 +1049,40 @@ Return Value:
                   sizeof(EXCEPTION_RECORD));
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+
+NTSTATUS
+KeRaiseUserException(
+    IN NTSTATUS ExceptionCode
+    )
+
+/*++
+
+Routine Description:
+
+    This function causes an exception to be raised in the calling thread's user-mode
+    context. It does this by editing the trap frame the kernel was entered with to
+    point to trampoline code that raises the requested exception.
+
+Arguments:
+
+    ExceptionCode - Supplies the status value to be used as the exception
+        code for the exception that is to be raised.
+
+Return Value:
+
+    The status value that should be returned by the caller.
+
+--*/
+
+{
+    PKTRAP_FRAME TrapFrame;
+
+    ASSERT(KeGetPreviousMode() == UserMode);
+
+    TrapFrame = KeGetCurrentThread()->TrapFrame;
+
+    TrapFrame->Fir = (ULONGLONG)(LONG)KeRaiseUserExceptionDispatcher;
+    return(ExceptionCode);
 }

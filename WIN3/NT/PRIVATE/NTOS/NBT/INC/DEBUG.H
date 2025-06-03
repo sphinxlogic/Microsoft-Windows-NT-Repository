@@ -26,7 +26,9 @@ Revision History:
 // selectively enables and disables debugging in different parts of NBT
 // NbtDebug is a global ULONG declared in driver.c
 //
+#if DBG
 extern ULONG    NbtDebug;
+#endif // DBG
 
 #if DBG
 #define IF_DBG(flags)   if(NbtDebug & flags)
@@ -58,8 +60,11 @@ extern ULONG    NbtDebug;
 #define NBT_DEBUG_REFRESH      0x01000000    // refresh logic
 #define NBT_DEBUG_FASTPATH     0x02000000    // Rcv code - fast path
 #define NBT_DEBUG_WINS         0x04000000    // Wins Interface debug
+#ifdef _PNP_POWER
+#define NBT_DEBUG_PNP_POWER    0x08000000    // NT PNP debugging
+#endif // _PNP_POWER
+#define NBT_DEBUG_NETBIOS_EX   0x10000000    // NETBIOS_EX address type debugging
 #else
 #define IF_DBG(flags)
 #endif
 #endif
-

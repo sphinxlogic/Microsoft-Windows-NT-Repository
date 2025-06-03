@@ -50,6 +50,11 @@ Revision History:
 #include "pmnt.h"
 #endif
 
+NTSTATUS
+Od2AlertableWaitForSingleObject(
+        IN HANDLE handle
+        );
+
 #ifdef JAPAN
 // MSKK May.07.1993 V-AkihiS
 extern USHORT KbdType, KbdSubType;
@@ -113,7 +118,7 @@ ErrorAtWaitForAsyncComIOCtl(
     if (Status == STATUS_SUCCESS) {
         return (FALSE);
     } else if (Status == STATUS_PENDING) {
-        Status = NtWaitForSingleObject( ComEvent, TRUE, NULL );
+        Status = Od2AlertableWaitForSingleObject(ComEvent);
         if (!NT_SUCCESS(Status)) {
             *RetCode = ERROR_PROTECTION_VIOLATION;
             return(TRUE);
@@ -1838,13 +1843,13 @@ DosDevIOCtl2(
                         //Usually 103 for US, 189 for FR
                         memcpy((char *)pvData + 2*sizeof(USHORT) + 3,
                                 &SesGrp->KeyboardName[0],
-                                (((cbData - 2*sizeof(USHORT) - 3) < 5) ?
-                                    cbData - 2*sizeof(USHORT) - 3 : 5));
+                                (((cbData - 2*sizeof(USHORT) - 3) < 4) ?
+                                    cbData - 2*sizeof(USHORT) - 3 : 4));
 #if DBG
                         DbgPrint("Os2: KBD_GETCPANDCOUNTRY - keyboard name: <%s>\n",
                                     (char *)pvData + 2*sizeof(USHORT) + 3);
 #endif //DBG
-#endif
+#endif // not JAPAN
                     } except( EXCEPTION_EXECUTE_HANDLER )
                     {
                        Od2ExitGP();

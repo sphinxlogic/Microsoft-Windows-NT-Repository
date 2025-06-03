@@ -91,7 +91,7 @@ int read();
  * is returned in "result".
  */
 #define YY_INPUT(buf,result,max_size) \
-	if ( (result = read( fileno(yyin), (char *) buf, max_size )) < 0 ) \
+	if ( (result = read( _fileno(yyin), (char *) buf, max_size )) < 0 ) \
 	    YY_FATAL_ERROR( "read() in flex scanner failed" );
 #define YY_NULL 0
 

@@ -55,6 +55,8 @@ Environment:
 #define REGKEY_INSTRUCTIONS         "Instructions"
 #define REGKEY_VISUAL               "VisualNotification"
 #define REGKEY_SOUND                "SoundNotification"
+#define REGKEY_CRASH_DUMP           "CreateCrashDump"
+#define REGKEY_CRASH_FILE           "CrashDumpFile"
 #define REGKEY_WAVE_FILE            "WaveFile"
 #define REGKEY_NUM_CRASHES          "NumberOfCrashes"
 #define REGKEY_MAX_CRASHES          "MaximumCrashes"
@@ -66,6 +68,8 @@ Environment:
 #define REGKEY_AEDEBUG              "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\AeDebug"
 #define REGKEY_AUTO                 "Auto"
 #define REGKEY_DEBUGGER             "Debugger"
+#define REGKEY_PROCESSOR            "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0"
+#define REGKEY_PROCESSOR_ID         "Identifier"
 
 
 //
@@ -111,11 +115,13 @@ Return Value:
 {
     RegQuerySZ( hKeyDrWatson, REGKEY_LOG_PATH, o->szLogPath );
     RegQuerySZ( hKeyDrWatson, REGKEY_WAVE_FILE, o->szWaveFile );
+    RegQuerySZ( hKeyDrWatson, REGKEY_CRASH_FILE, o->szCrashDump );
     o->fDumpSymbols = RegQueryBOOL( hKeyDrWatson, REGKEY_DUMPSYMBOLS );
     o->fDumpAllThreads = RegQueryBOOL( hKeyDrWatson, REGKEY_DUMPALLTHREADS );
     o->fAppendToLogFile = RegQueryBOOL( hKeyDrWatson, REGKEY_APPENDTOLOGFILE );
     o->fVisual = RegQueryBOOL( hKeyDrWatson, REGKEY_VISUAL );
     o->fSound = RegQueryBOOL( hKeyDrWatson, REGKEY_SOUND );
+    o->fCrash = RegQueryBOOL( hKeyDrWatson, REGKEY_CRASH_DUMP );
     o->dwInstructions = RegQueryDWORD( hKeyDrWatson, REGKEY_INSTRUCTIONS );
     o->dwMaxCrashes = RegQueryDWORD( hKeyDrWatson, REGKEY_MAX_CRASHES );
 
@@ -147,11 +153,13 @@ Return Value:
 {
     RegSetSZ( hKeyDrWatson, REGKEY_LOG_PATH, o->szLogPath );
     RegSetSZ( hKeyDrWatson, REGKEY_WAVE_FILE, o->szWaveFile );
+    RegSetSZ( hKeyDrWatson, REGKEY_CRASH_FILE, o->szCrashDump );
     RegSetBOOL( hKeyDrWatson, REGKEY_DUMPSYMBOLS, o->fDumpSymbols );
     RegSetBOOL( hKeyDrWatson, REGKEY_DUMPALLTHREADS, o->fDumpAllThreads );
     RegSetBOOL( hKeyDrWatson, REGKEY_APPENDTOLOGFILE, o->fAppendToLogFile );
     RegSetBOOL( hKeyDrWatson, REGKEY_VISUAL, o->fVisual );
     RegSetBOOL( hKeyDrWatson, REGKEY_SOUND, o->fSound );
+    RegSetBOOL( hKeyDrWatson, REGKEY_CRASH_DUMP, o->fCrash );
     RegSetDWORD( hKeyDrWatson, REGKEY_INSTRUCTIONS, o->dwInstructions );
     RegSetDWORD( hKeyDrWatson, REGKEY_MAX_CRASHES, o->dwMaxCrashes );
 
@@ -182,12 +190,14 @@ Return Value:
     OPTIONS o;
 
     strcpy( o.szLogPath, "%windir%" );
+    strcpy( o.szCrashDump, "%windir%\\user.dmp" );
     o.szWaveFile[0] = '\0';
     o.fDumpSymbols = FALSE;
     o.fDumpAllThreads = TRUE;
     o.fAppendToLogFile = TRUE;
     o.fVisual = TRUE;
     o.fSound = FALSE;
+    o.fCrash = TRUE;
     o.dwInstructions = 10;
     o.dwMaxCrashes = 10;
 
@@ -786,6 +796,30 @@ RegLogCurrentVersion( void )
     lprintf( MSG_REG_ORGANIZATION, buf );
     RegQuerySZ( hKeyCurrentVersion,REGKEY_REG_OWNER,         buf );
     lprintf( MSG_REG_OWNER, buf );
+
+    return;
+}
+
+void
+RegLogProcessorType( void )
+{
+    char    buf[1024];
+    DWORD   rc;
+    HKEY    hKey;
+
+    rc = RegOpenKeyEx( HKEY_LOCAL_MACHINE,
+                       REGKEY_PROCESSOR,
+                       0,
+                       KEY_QUERY_VALUE,
+                       &hKey
+                     );
+
+    if (rc != ERROR_SUCCESS) {
+        return;
+    }
+
+    RegQuerySZ( hKey, REGKEY_PROCESSOR_ID, buf );
+    lprintf( MSG_SYSINFO_PROC_TYPE, buf );
 
     return;
 }

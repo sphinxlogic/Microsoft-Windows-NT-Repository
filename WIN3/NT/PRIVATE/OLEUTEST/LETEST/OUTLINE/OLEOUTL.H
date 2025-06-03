@@ -731,4 +731,4 @@ void RejectIncomingCommand(void);
 #endif
 
 #endif // _OLEOUTL_H_
-
+

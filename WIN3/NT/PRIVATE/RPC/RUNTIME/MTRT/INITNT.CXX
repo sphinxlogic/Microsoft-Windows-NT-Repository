@@ -20,29 +20,15 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcssp.h>
-#include <rpctran.h>
-#include <rpcuuid.hxx>
-#include <util.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
+#include <precomp.hxx>
 #include <hndlsvr.hxx>
 #include <thrdctx.hxx>
 #include <rpccfg.h>
-#include <spcpack.hxx>
-#include <spcclnt.hxx>
+#include <wmsgpack.hxx>
 
 int RpcHasBeenInitialized = 0;
 static RTL_CRITICAL_SECTION GlobalMutex;
+extern HINSTANCE hInstanceDLL ;
 
 extern "C" {
 
@@ -52,7 +38,7 @@ BOOL
 BOOLEAN
 #endif // DOSWIN32RPC
 InitializeDLL (
-    IN void * DllHandle,
+    IN HINSTANCE DllHandle,
     IN ULONG Reason,
     IN PCONTEXT Context OPTIONAL
     )
@@ -78,6 +64,8 @@ Return Value:
 
     if ( Reason == DLL_PROCESS_ATTACH )
         {
+        hInstanceDLL = DllHandle ;
+
         DisableThreadLibraryCalls((HMODULE)DllHandle);
         NtStatus = RtlInitializeCriticalSection(&GlobalMutex);
         if ( NT_SUCCESS(NtStatus) == 0 )
@@ -109,6 +97,8 @@ static unsigned int RecursionCount = 0;
 
 static unsigned long InitializationTime;
 
+extern int InitializeRpcAllocator(void);
+
 
 RPC_STATUS
 PerformRpcInitialization (
@@ -136,23 +126,27 @@ Return Value:
     LARGE_INTEGER CurrentTime;
     NTSTATUS NtStatus;
 
-    RequestGlobalMutex();
-    if ( RpcHasBeenInitialized == 0 )
+    if ( RpcHasBeenInitialized == 0 ) 
         {
-        if (   ( InitializeThreads() != 0 )
-            || ( InitializeServerDLL() != 0 ) )
+        RequestGlobalMutex();
+        if ( RpcHasBeenInitialized == 0 )
             {
-            ClearGlobalMutex();
-            return(RPC_S_OUT_OF_MEMORY);
+            if (   ( InitializeRpcAllocator() != 0)
+                || ( InitializeThreads() != 0 )
+                || ( InitializeServerDLL() != 0 ) )
+                {
+                ClearGlobalMutex();
+                return(RPC_S_OUT_OF_MEMORY);
+                }
+
+            NtStatus = NtQuerySystemTime(&CurrentTime);
+            ASSERT( NT_SUCCESS(NtStatus) );
+
+            RtlTimeToSecondsSince1980(&CurrentTime, &InitializationTime);
+            RpcHasBeenInitialized = 1;
             }
-
-        NtStatus = NtQuerySystemTime(&CurrentTime);
-        ASSERT( NT_SUCCESS(NtStatus) );
-
-        RtlTimeToSecondsSince1980(&CurrentTime, &InitializationTime);
-        RpcHasBeenInitialized = 1;
+        ClearGlobalMutex();
         }
-    ClearGlobalMutex();
     return(RPC_S_OK);
 }
 

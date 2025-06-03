@@ -149,7 +149,7 @@ class XCOPY : public PROGRAM {
             OUT PBOOLEAN        CopyingManyFiles
 			);
 
-		NONVIRTUAL
+        NONVIRTUAL
 		VOID
 		InitializeThings (
 			);
@@ -175,7 +175,21 @@ class XCOPY : public PROGRAM {
 			OUT PARRAY		ArgArray
 			);
 
-		NONVIRTUAL
+		STATIC
+        WINAPI
+        ProgressCallBack(
+            LARGE_INTEGER TotalFileSize,
+            LARGE_INTEGER TotalBytesTransferred,
+            LARGE_INTEGER StreamSize,
+            LARGE_INTEGER StreamBytesTransferred,
+            DWORD dwStreamNumber,
+            DWORD dwCallbackReason,
+            HANDLE hSourceFile,
+            HANDLE hDestinationFile,
+            LPVOID lpData OPTIONAL
+            );
+
+        NONVIRTUAL
 		PWSTRING
 		QueryMessageString (
 			IN MSGID	MsgId
@@ -194,6 +208,16 @@ class XCOPY : public PROGRAM {
             IN      PFSN_FILTER             DirectoryFilter,
             IN      BOOLEAN                 CopyDirectoryStreams
 			);
+
+		NONVIRTUAL
+		BOOLEAN
+		UpdateTraverse (
+			IN		PFSN_DIRECTORY			Directory,
+            IN OUT  PPATH                   DestinationPath,
+			IN		PFSN_FILTER 			FileFilter,
+            IN      PFSN_FILTER             DirectoryFilter,
+            IN      BOOLEAN                 CopyDirectoryStreams
+            );
 
 		NONVIRTUAL
 		BOOLEAN
@@ -254,7 +278,7 @@ class XCOPY : public PROGRAM {
         BOOLEAN         _UpdateSwitch;              //  Apdate existing
         BOOLEAN         _CopyAttrSwitch;            //  Copy attributes
         BOOLEAN         _UseShortSwitch;            //  Use short names
-
+        BOOLEAN         _RestartableSwitch;         //  Copy is restartable
         //
         //  Are we copying to diskette?
         //
@@ -293,6 +317,7 @@ class XCOPY : public PROGRAM {
         PSTRING_ARRAY   _ExclusionList;
         PITERATOR       _Iterator;
 
+        BOOLEAN         _Cancelled;
 };
 
 INLINE
@@ -324,6 +349,5 @@ Notes:
 		exit( EXIT_TERMINATED );
 	}
 }
-
 
 #endif // _XCOPY_

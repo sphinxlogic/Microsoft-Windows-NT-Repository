@@ -107,11 +107,14 @@ Return Value:
         status = NwlibMakeNcp(
                     GET_NT_HANDLE(),
                     NWR_ANY_HANDLE_NCP(0x1C),
-                    7, //  RequestSize
+                    15, //  RequestSize
                     0,  //  ResponseSize
-                    "b_",
+                    "b_wwww",
                     Function,
-                    6);             //  Leave space for NetWare handle
+                    6,              //  Leave space for NetWare handle
+                    getCX(),getDX(),
+                    getSI(),getDI());
+
         break;
 
     case 0xBE00:        //  Clear physical record
@@ -164,7 +167,7 @@ Return Value:
 
     case 0xC600:    //  Set/Get Lock mode
 
-        if (Function <= 1) {
+        if (Function != 2) {
             LockMode = Function;
         }
 

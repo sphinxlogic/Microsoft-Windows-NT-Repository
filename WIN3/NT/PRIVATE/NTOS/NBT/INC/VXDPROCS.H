@@ -29,6 +29,9 @@
 #ifndef NDIS_STDCALL
 #define NDIS_STDCALL    1
 #endif
+#include <vmm.h>
+#undef PAGE
+#define PAGE _PTEXT
 #endif
 
 #ifdef NDIS_STDCALL
@@ -233,6 +236,7 @@ typedef struct _RCV_CONTEXT
     NCB *              pNCB ;           // Pointer to NCB
     NDIS_BUFFER        ndisBuff ;       // Transport fills this buffer
     UCHAR              RTO ;            // 1/2 second ticks till timeout
+    USHORT             usFlags;         // in case different from default
 } RCV_CONTEXT, *PRCV_CONTEXT ;
 
 //
@@ -345,7 +349,15 @@ NCBERR MapTDIStatus2NCBErr( TDI_STATUS status ) ;
 //
 //  Get the correct adapter for this NCBs Lana
 //
-tDEVICECONTEXT * GetDeviceContext( NCB * pNCB ) ;
+tDEVICECONTEXT * 
+GetDeviceContext(
+	NCB * pNCB
+	);
+
+BOOL
+NbtWouldLoopback(
+	ULONG	IpAddr
+	);
 
 extern BOOL fNCBCompleted ;    // Wait NCB completed before returning to submitter
 extern BOOL fWaitingForNCB ;   // We are blocked waiting for a Wait NCB to complete
@@ -353,6 +365,13 @@ extern CTEBlockStruc WaitNCBBlock ;  // Wait on this until signaled in completio
 extern UCHAR LanaBase ;
 
 #define IPINFO_BUFF_SIZE  (sizeof(IPInfo) + MAX_IP_NETS * sizeof(NetInfo))
+
+//--------------------------------------------------------------------
+//
+//  externs from fileio.c
+//
+extern PUCHAR  pFileBuff;
+extern PUCHAR  pFilePath;
 
 //--------------------------------------------------------------------
 //
@@ -474,17 +493,25 @@ extern TDIDispatchTable * TdiDispatch ;
 //  These two definitions must be kept keep a couple of NT macros use
 //  the ExInterlocked* macros
 //
-#ifdef ExInterlockedIncrementLong
-#undef ExInterlockedIncrementLong
+#ifdef InterlockedIncrement
+#undef InterlockedIncrement
 #endif
-#define ExInterlockedIncrementLong(n,spinlock)                  \
-            CTEInterlockedIncrementLong( n, spinlock )
+#ifdef InterlockedIncrementLong
+#undef InterlockedIncrementLong
+#endif
+#define InterlockedIncrement(n)                  \
+            CTEInterlockedIncrementLong( n )
+#define InterlockedIncrementLong InterlockedIncrement
 
-#ifdef ExInterlockedDecrementLong
-#undef ExInterlockedDecrementLong
+#ifdef InterlockedDecrement
+#undef InterlockedDecrement
 #endif
-#define ExInterlockedDecrementLong(n,spinlock)                  \
-            CTEInterlockedDecrementLong( n, spinlock )
+#ifdef InterlockedDecrementLong
+#undef InterlockedDecrementLong
+#endif
+#define InterlockedDecrement(n)                  \
+            CTEInterlockedDecrementLong( n )
+#define InterlockedDecrementLong InterlockedDecrement
 
 //--------------------------------------------------------------------
 //
@@ -497,6 +524,7 @@ extern TDIDispatchTable * TdiDispatch ;
 
     extern DWORD DebugFlags ;
     extern char  DBOut[4096] ;
+    extern char  szOutput[1024];
     extern int   iCurPos ;
     void   NbtDebugOut( char * ) ;
 
@@ -509,14 +537,16 @@ extern TDIDispatchTable * TdiDispatch ;
     #define DbgPrint( s )                   \
        if ( DebugFlags & DBGFLAG_ALL )      \
        {                                    \
-          VxdSprintf( DBOut+iCurPos, s ) ;  \
+          VxdSprintf( szOutput, s ) ;       \
+          VxdCopyToDBOut() ;                \
           NbtDebugOut( DBOut+iCurPos ) ;    \
        }
 
     #define DbgPrintNum( n )                      \
        if ( DebugFlags & DBGFLAG_ALL )            \
        {                                          \
-          VxdSprintf( DBOut+iCurPos, "%x", n ) ;  \
+          VxdSprintf( szOutput, "%x", n ) ;       \
+          VxdCopyToDBOut() ;                      \
           NbtDebugOut( DBOut+iCurPos ) ;          \
        }
 
@@ -533,14 +563,16 @@ extern TDIDispatchTable * TdiDispatch ;
     #define CDbgPrint( flag, s )            \
        if ( DebugFlags & (flag) )           \
        {                                    \
-          VxdSprintf( DBOut+iCurPos, s ) ;  \
+          VxdSprintf( szOutput, s ) ;       \
+          VxdCopyToDBOut() ;                \
           NbtDebugOut( DBOut+iCurPos ) ;    \
        }
 
     #define CDbgPrintNum( flag, n )               \
        if ( DebugFlags & (flag) )                 \
        {                                          \
-          VxdSprintf( DBOut+iCurPos, "%x", n ) ;  \
+          VxdSprintf( szOutput, "%x", n ) ;       \
+          VxdCopyToDBOut() ;                      \
           NbtDebugOut( DBOut+iCurPos ) ;          \
        }
 
@@ -685,10 +717,10 @@ TdiErrorHandler (
     IN ULONG Status
     );
 
-NTSTATUS
+VOID
 CompletionRcvDgram(
     IN PVOID      Context,
-    IN TDI_STATUS tdistatus,
+    IN UINT       tdistatus,
     IN UINT       RcvdSize
     ) ;
 
@@ -699,7 +731,7 @@ CompletionRcvDgram(
 
 PVOID
 CTEAllocInitMem(
-    IN USHORT cbBuff ) ;
+    IN ULONG cbBuff ) ;
 
 NTSTATUS
 VxdReadIniString(
@@ -720,8 +752,10 @@ NTSTATUS CreateDeviceObject(
     ) ;
 
 void GetNameServerAddress( ULONG   IpAddr,
-                           PULONG  pIpNameServer,
-                           UINT    mode);
+                           PULONG  pIpNameServer);
+
+void GetDnsServerAddress( ULONG   IpAddr,
+                          PULONG  pIpNameServer);
 
 #define COUNT_NS_ADDR     4         // Maximum number of name server addresses
 //---------------------------------------------------------------------
@@ -742,6 +776,10 @@ VxdFileRead(
 VOID
 VxdFileClose(
     IN HANDLE hFile ) ;
+
+PUCHAR
+VxdWindowsPath(
+    );
 
 //---------------------------------------------------------------------
 //
@@ -778,7 +816,8 @@ NTSTATUS VxdDisconnectWait( tLOWERCONNECTION * pLowerConn,
 NTSTATUS VxdScheduleDelayedCall( tDGRAM_SEND_TRACKING * pTracker,
                                  PVOID                  pClientContext,
                                  PVOID                  ClientCompletion,
-                                 PVOID                  CallBackRoutine ) ;
+                                 PVOID                  CallBackRoutine,
+                                 tDEVICECONTEXT        *pDeviceContext ) ;
 
 //---------------------------------------------------------------------
 //
@@ -822,7 +861,19 @@ BOOL IPRegisterAddrChangeHandler( PVOID AddChangeHandler, BOOL );
 TDI_STATUS IPNotification( ULONG    IpAddress,
                            ULONG    IpMask,
                            PVOID    pDevNode,
+                           USHORT   IPContext,
                            BOOL     fNew );
+
+BOOL VxdInitLmHostsSupport( PUCHAR pchLmHostPath, USHORT ulPathSize );
+
+VOID SaveNameDnsServerAddrs( VOID );
+BOOL VxdOpenNdis( VOID );
+VOID VxdCloseNdis( VOID );
+
+
+VOID ReleaseNbtConfigMem( VOID );
+
+NTSTATUS VxdUnload( LPSTR pchModuleName );
 
 #endif //CHICAGO
 
@@ -838,11 +889,128 @@ NCBERR   VxdListen( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 NCBERR   VxdDgramSend( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 NCBERR   VxdDgramReceive( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 NCBERR   VxdReceiveAny( tDEVICECONTEXT  *pDeviceContext, NCB * pNCB ) ;
-NCBERR   VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   ) ;
+NCBERR   VxdReceive( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB, BOOL fReceive ) ;
 NCBERR   VxdHangup( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 NCBERR   VxdCancel( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
 NCBERR   VxdSend( tDEVICECONTEXT  * pDeviceContext, NCB * pNCB   ) ;
 NCBERR   VxdSessionStatus( tDEVICECONTEXT * pDeviceContext, NCB * pNCB ) ;
+VOID     DelayedSessEstablish( PVOID pContext );
+
+
+//--------------------------------------------------------------------
+//
+//  Procedures in dns.c
+//
+//
+PCHAR
+DnsStoreName(
+    OUT PCHAR            pDest,
+    IN  PCHAR            pName,
+    IN  PCHAR            pDomainName,
+    IN  enum eNSTYPE     eNsType
+    );
+
+VOID
+DnsExtractName(
+    IN  PCHAR            pNameHdr,
+    IN  LONG             NumBytes,
+    OUT PCHAR            pName,
+    OUT PULONG           pNameSize
+    );
+
+VOID
+ProcessDnsResponse(
+    IN  tDEVICECONTEXT      *pDeviceContext,
+    IN  PVOID               pSrcAddress,
+    IN  tNAMEHDR UNALIGNED  *pNameHdr,
+    IN  LONG                lNumBytes,
+    IN  USHORT              OpCodeFlags
+    );
+
+VOID
+DnsCompletion(
+    PVOID               pContext,
+    PVOID               pContext2,
+    tTIMERQENTRY        *pTimerQEntry
+    );
+
+//
+// These routines all have "Direct" at the end of the routine name
+// because they are used exclusively for name queries to the DNS
+// server to resolve DNS names and not NetBIOS names.
+//
+
+VOID
+ProcessDnsResponseDirect(
+    IN  tDEVICECONTEXT      *pDeviceContext,
+    IN  PVOID               pSrcAddress,
+    IN  tNAMEHDR UNALIGNED  *pNameHdr,
+    IN  LONG                lNumBytes,
+    IN  USHORT              OpCodeFlags
+    );
+
+ULONG
+DoDnsResolveDirect(
+        PNCB pncb,
+        PUCHAR pzDnsName,
+        PULONG pIpAddressList
+	);
+
+BOOL
+DoDnsCancelDirect(
+        PNCB pncb
+	);
+
+VOID
+DnsCompletionDirect(
+    PVOID               pContext,
+    PVOID               pContext2,
+    tTIMERQENTRY        *pTimerQEntry
+    );
+
+PDNS_DIRECT_WORK_ITEM_CONTEXT
+FindContextDirect(
+	USHORT	TransactionId
+	);
+
+VOID
+DnsActualCompletionDirect(
+    IN NBT_WORK_ITEM_CONTEXT * pnbtContext
+    );
+
+VOID
+DnsUnlinkAndCompleteDirect(
+    IN PDNS_DIRECT_WORK_ITEM_CONTEXT pContext
+    );
+
+NTSTATUS
+UdpSendDNSBcastDirect(
+	IN	PDNS_DIRECT_WORK_ITEM_CONTEXT	pContext,
+	IN	ULONG							Retries,
+	IN	ULONG							Timeout
+	);
+
+VOID
+SendDNSBcastDoneDirect(
+    IN  PVOID       pContext,
+    IN  NTSTATUS    status,
+    IN  ULONG       lInfo
+    );
+
+PDNS_DIRECT_SEND_CONTEXT
+CreateSendContextDirect(
+    IN  PCHAR       pName,
+    IN  PCHAR       pchDomainName,
+    OUT PVOID       *pHdrs,
+    OUT PULONG      pLength,
+    IN  PDNS_DIRECT_WORK_ITEM_CONTEXT	pContext
+    );
+
+VOID
+IpToAscii(
+	IN	DWORD		IpAddress,
+	IN OUT PCHAR	pzAscii
+	);
 
 //
 //  Flag passed to TdiSend indicating we are dealing with a chain send
@@ -936,6 +1104,18 @@ void VxdTearDownSession( tDEVICECONTEXT      * pDevCont,
 //
 VOID VxdIoComplete( PCTE_IRP pirp, NTSTATUS status, ULONG cbExtra ) ;
 
+ULONG
+_stdcall
+
+                  VNBT_NCB_X(       PNCB pNCB,
+                  PUCHAR pzDnsName,
+                  PULONG pIpAddress,
+                  PVOID pExtended,
+                  ULONG fFlag ) ;
+
+ULONG
+_stdcall
+VNBT_LANA_MASK(
+    );
 
 #endif //_VXDPROCS_H_
-

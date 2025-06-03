@@ -74,7 +74,7 @@ BOOL AnyMatches(char **ExtenList, char *Name, int Length)
 //
 
 #ifdef COMPILE_FOR_DOS
-void CreateNode(LinkedFileList *Node, struct find_t *Buff, char *Path)
+void CreateNode(LinkedFileList *Node, struct find_t *Buff)
 {    
     struct tm temptm;
                              
@@ -85,24 +85,19 @@ void CreateNode(LinkedFileList *Node, struct find_t *Buff, char *Path)
         temptm.tm_mon =  ((*Buff).wr_date >> 5) & 0x0f;
         temptm.tm_year = ((*Buff).wr_date >> 9) + 80;
 #else
-void CreateNode(LinkedFileList *Node, WIN32_FIND_DATA *Buff, char *Path)
+void CreateNode(LinkedFileList *Node, WIN32_FIND_DATA *Buff)
 {
 #endif
     (*Node) = malloc(sizeof(struct NodeStruct));
     if ((*Node) == NULL)
         OutOfMem();
-    (**Node).Name = strlwr(strdup((*Buff).cFileName));
+    (**Node).Name = _strlwr(_strdup((*Buff).cFileName));
     if ((**Node).Name == NULL)
         OutOfMem();
     strcpy((**Node).Flag, "");
-    if ((*Buff).dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-	(**Node).Directory = TRUE;
+    (**Node).Attributes = (*Buff).dwFileAttributes;
+    if ((*Buff).dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 	strcpy((**Node).Flag, "DIR");
-    }
-    else (**Node).Directory = FALSE;
-    (**Node).FullPathName = strlwr(strdup(Path));
-    if ((**Node).FullPathName == NULL)
-        OutOfMem();
 #ifdef COMPILE_FOR_DOS
     (**Node).SizeHigh = 0;
     (**Node).SizeLow = (*Buff).size;
@@ -124,24 +119,35 @@ void CreateNode(LinkedFileList *Node, WIN32_FIND_DATA *Buff, char *Path)
 
 LinkedFileList DeleteFromList(char *Name, LinkedFileList *List)
 {
+    LinkedFileList  Node     = NULL;
+    LinkedFileList *FindNode = NULL;
+
+    FindNode = FindInList(Name, List);
+
+    Node = RemoveFront(FindNode);
+    if (Node != NULL) {
+	(*Node).Next = NULL;
+    }
+    return Node;
+
+} /* DeleteFromList */
+
+LinkedFileList *FindInList(char *Name, LinkedFileList *List)
+{
     int Result;
     LinkedFileList *tmpptr = List;
-    LinkedFileList Node;
 
     while (*tmpptr != NULL) {
 	Result = strcmp((**tmpptr).Name, Name);
-	if (Result == 0) {
-	    Node = *tmpptr;
-            RemoveFront (tmpptr);
-	    (*Node).Next = NULL;
-	    return Node;
-	}
-	if (Result > 0) return NULL;
+	if (Result == 0)
+	    return tmpptr;
+	if (Result > 0)
+	    return NULL;
 	tmpptr = &(**tmpptr).Next;
     }
     return NULL;
 
-} /* DeleteFromList */
+} /* FindInList */
 
 //
 // Walk down list and free each entry
@@ -155,7 +161,6 @@ void FreeList(LinkedFileList *List)
 	Node = RemoveFront(List);
         FreeList(&(*Node).DiffNode);
         free((*Node).Name);
-        free((*Node).FullPathName);
         free(Node);
     }
     free (*List);

@@ -310,4 +310,3 @@ return ncvtu(IfndFromCp(doc, cp) - IfndFromCp(doc, vcpFirstSectCache) + 1,
     &pch);
 }
 #endif /* CASHMERE */
-

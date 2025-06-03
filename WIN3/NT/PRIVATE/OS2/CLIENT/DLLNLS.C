@@ -897,7 +897,7 @@ Note:
     APIRET          RetCode;
 //    UCHAR           LocalTable[256];
 #if DBG
-    APIRET          Rc;
+    APIRET	    Rc=0;
     PSZ             FuncName;
 
     FuncName = "Od2GetCollateTable";

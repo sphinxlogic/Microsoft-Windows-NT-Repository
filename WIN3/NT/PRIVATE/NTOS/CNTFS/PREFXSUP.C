@@ -70,7 +70,6 @@ NtfsFullCompareNames (
 
 VOID
 NtfsInsertPrefix (
-    IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb,
     IN BOOLEAN IgnoreCase
     )
@@ -105,8 +104,7 @@ Return Value:
     if (IgnoreCase) {
 
         if (!FlagOn( Lcb->LcbState, LCB_STATE_IGNORE_CASE_IN_TREE ) &&
-            NtfsInsertNameLink( IrpContext,
-                                &Lcb->Scb->ScbType.Index.IgnoreCaseNode,
+            NtfsInsertNameLink( &Lcb->Scb->ScbType.Index.IgnoreCaseNode,
                                 &Lcb->IgnoreCaseLink )) {
 
             SetFlag( Lcb->LcbState, LCB_STATE_IGNORE_CASE_IN_TREE );
@@ -114,8 +112,7 @@ Return Value:
 
     } else if (!FlagOn( Lcb->LcbState, LCB_STATE_EXACT_CASE_IN_TREE )) {
 
-        if (!NtfsInsertNameLink( IrpContext,
-                                 &Lcb->Scb->ScbType.Index.ExactCaseNode,
+        if (!NtfsInsertNameLink( &Lcb->Scb->ScbType.Index.ExactCaseNode,
                                  &Lcb->ExactCaseLink )) {
 
             NtfsBugCheck( 0, 0, 0 );
@@ -130,7 +127,6 @@ Return Value:
 
 VOID
 NtfsRemovePrefix (
-    IN PIRP_CONTEXT IrpContext,
     IN PLCB Lcb
     )
 
@@ -160,8 +156,7 @@ Return Value:
 
     if (FlagOn( Lcb->LcbState, LCB_STATE_IGNORE_CASE_IN_TREE )) {
 
-        NtfsRemoveNameLink( IrpContext,
-                            &Lcb->Scb->ScbType.Index.IgnoreCaseNode,
+        NtfsRemoveNameLink( &Lcb->Scb->ScbType.Index.IgnoreCaseNode,
                             &Lcb->IgnoreCaseLink );
 
         ClearFlag( Lcb->LcbState, LCB_STATE_IGNORE_CASE_IN_TREE );
@@ -173,8 +168,7 @@ Return Value:
 
     if (FlagOn( Lcb->LcbState, LCB_STATE_EXACT_CASE_IN_TREE )) {
 
-        NtfsRemoveNameLink( IrpContext,
-                            &Lcb->Scb->ScbType.Index.ExactCaseNode,
+        NtfsRemoveNameLink( &Lcb->Scb->ScbType.Index.ExactCaseNode,
                             &Lcb->ExactCaseLink );
 
         ClearFlag( Lcb->LcbState, LCB_STATE_EXACT_CASE_IN_TREE );
@@ -247,6 +241,8 @@ Return Value:
     PNAME_LINK NameLink;
     UNICODE_STRING NextComponent;
     UNICODE_STRING Tail;
+    BOOLEAN DroppedParent;
+    BOOLEAN NeedSnapShot = FALSE;
 
     PAGED_CODE();
 
@@ -278,8 +274,7 @@ Return Value:
         //  Get the next component off of the list.
         //
 
-        NtfsDissectName( IrpContext,
-                         *RemainingName,
+        NtfsDissectName( *RemainingName,
                          &NextComponent,
                          &Tail );
 
@@ -289,16 +284,14 @@ Return Value:
 
         if (IgnoreCase) {
 
-            NameLink = NtfsFindNameLink( IrpContext,
-                                         &StartingScb->ScbType.Index.IgnoreCaseNode,
+            NameLink = NtfsFindNameLink( &StartingScb->ScbType.Index.IgnoreCaseNode,
                                          &NextComponent );
 
             ThisLcb = CONTAINING_RECORD( NameLink, LCB, IgnoreCaseLink );
 
         } else {
 
-            NameLink = NtfsFindNameLink( IrpContext,
-                                         &StartingScb->ScbType.Index.ExactCaseNode,
+            NameLink = NtfsFindNameLink( &StartingScb->ScbType.Index.ExactCaseNode,
                                          &NextComponent );
 
             ThisLcb = CONTAINING_RECORD( NameLink, LCB, ExactCaseLink );
@@ -309,6 +302,16 @@ Return Value:
         //
 
         if (NameLink == NULL) {
+
+            if (NeedSnapShot) {
+
+                //
+                // NtfsCreateScb was not called on the StartingScb so take a
+                // snapshot now.
+                //
+
+                NtfsSnapshotScb( IrpContext, StartingScb );
+            }
 
             return LastLcb;
         }
@@ -338,7 +341,7 @@ Return Value:
         //
 
         if (LastLcb != NULL &&
-            LastLcb->FileNameFlags == FILE_NAME_DOS) {
+            LastLcb->FileNameAttr->Flags == FILE_NAME_DOS) {
 
             *DosOnlyComponent = TRUE;
         }
@@ -349,16 +352,14 @@ Return Value:
 
         LastLcb = ThisLcb;
 
+        DroppedParent = FALSE;
+
         //
         //  We want to acquire the next Fcb and release the one we currently
         //  have.  Try to do a fast acquire.
         //
 
-        if (!NtfsAcquireExclusiveFcb( IrpContext,
-                                      ThisLcb->Fcb,
-                                      NULL,
-                                      TRUE,
-                                      TRUE )) {
+        if (!NtfsAcquireFcbWithPaging( IrpContext, ThisLcb->Fcb, TRUE )) {
 
             //
             //  Reference the link and Fcb so they don't go away.
@@ -370,13 +371,19 @@ Return Value:
             ThisLcb->Fcb->ReferenceCount += 1;
             NtfsReleaseFcbTable( IrpContext, StartingScb->Vcb );
 
-            NtfsReleaseScb( IrpContext, StartingScb );
+            //
+            //  Set the IrpContext to acquire paging io resources if our target
+            //  has one.  This will lock the MappedPageWriter out of this file.
+            //
 
-            NtfsAcquireExclusiveFcb( IrpContext,
-                                     ThisLcb->Fcb,
-                                     NULL,
-                                     TRUE,
-                                     FALSE );
+            if (ThisLcb->Fcb->PagingIoResource != NULL) {
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING );
+            }
+
+            NtfsReleaseScbWithPaging( IrpContext, StartingScb );
+
+            NtfsAcquireFcbWithPaging( IrpContext, ThisLcb->Fcb, FALSE );
 
             NtfsAcquireExclusiveScb( IrpContext, StartingScb );
             ThisLcb->ReferenceCount -= 1;
@@ -386,17 +393,34 @@ Return Value:
             ThisLcb->Fcb->ReferenceCount -= 1;
             NtfsReleaseFcbTable( IrpContext, StartingScb->Vcb );
 
+            DroppedParent = TRUE;
+
         } else {
 
             //
             //  Don't forget to release the starting Scb.
             //
 
-            NtfsReleaseScb( IrpContext, StartingScb );
+            NtfsReleaseScbWithPaging( IrpContext, StartingScb );
         }
 
         *LcbForTeardown = ThisLcb;
         *CurrentFcb = ThisLcb->Fcb;
+
+        //
+        //  It is possible that the Lcb we just found could have been removed
+        //  from the prefix table in the window where we dropped the parent Scb.
+        //  In that case we need to check that it is still in the prefix
+        //  table.  If not then raise CANT_WAIT to force a rescan through the
+        //  prefix table.
+        //
+
+        if (DroppedParent &&
+            !FlagOn( ThisLcb->LcbState,
+                     LCB_STATE_IGNORE_CASE_IN_TREE | LCB_STATE_EXACT_CASE_IN_TREE )) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+        }
 
         //
         //  If we found a match but the Fcb is uninitialized or is not a directory
@@ -416,12 +440,31 @@ Return Value:
 
         LastScb = StartingScb;
 
-        StartingScb = NtfsCreateScb( IrpContext,
-                                     ThisLcb->Fcb->Vcb,
-                                     ThisLcb->Fcb,
-                                     $INDEX_ALLOCATION,
-                                     NtfsFileNameIndex,
-                                     NULL );
+        // Since the SCB is usually track on the end of the SCB look
+        // for it in the FCB first.
+
+        if (FlagOn( ThisLcb->Fcb->FcbState, FCB_STATE_COMPOUND_INDEX ) &&
+            (SafeNodeType( &((PFCB_INDEX) ThisLcb->Fcb)->Scb ) == NTFS_NTC_SCB_INDEX)) {
+
+            NeedSnapShot = TRUE;
+
+            StartingScb = (PSCB) &((PFCB_INDEX) ThisLcb->Fcb)->Scb;
+
+            ASSERT(!FlagOn( StartingScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED) &&
+                   (StartingScb->AttributeTypeCode == $INDEX_ALLOCATION) &&
+                   NtfsAreNamesEqual( IrpContext->Vcb->UpcaseTable, &StartingScb->AttributeName, &NtfsFileNameIndex, FALSE ));
+
+        } else {
+
+            NeedSnapShot = FALSE;
+
+            StartingScb = NtfsCreateScb( IrpContext,
+                                         ThisLcb->Fcb,
+                                         $INDEX_ALLOCATION,
+                                         &NtfsFileNameIndex,
+                                         FALSE,
+                                         NULL );
+        }
 
         //
         //  If there is no normalized name in this Scb, find it now.
@@ -430,7 +473,7 @@ Return Value:
         if (StartingScb->ScbType.Index.NormalizedName.Buffer == NULL &&
             LastScb->ScbType.Index.NormalizedName.Buffer != NULL) {
 
-            NtfsUpdateNormalizedName( IrpContext, LastScb, StartingScb, NULL );
+            NtfsUpdateNormalizedName( IrpContext, LastScb, StartingScb, NULL, FALSE );
         }
     }
 }
@@ -438,7 +481,6 @@ Return Value:
 
 BOOLEAN
 NtfsInsertNameLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PRTL_SPLAY_LINKS *RootNode,
     IN PNAME_LINK NameLink
     )
@@ -587,7 +629,6 @@ Return Value:
 
 PNAME_LINK
 NtfsFindNameLink (
-    IN PIRP_CONTEXT IrpContext,
     IN PRTL_SPLAY_LINKS *RootNode,
     IN PUNICODE_STRING Name
     )

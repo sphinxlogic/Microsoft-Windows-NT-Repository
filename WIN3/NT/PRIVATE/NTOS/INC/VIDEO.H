@@ -80,6 +80,7 @@ typedef struct _VIDEO_X86_BIOS_ARGUMENTS {
     ULONG Ebp;
 } VIDEO_X86_BIOS_ARGUMENTS, *PVIDEO_X86_BIOS_ARGUMENTS;
 
+
 //
 // Debugging statements. This will remove all the debug information from the
 // "free" version.
@@ -111,10 +112,6 @@ typedef struct _VIDEO_X86_BIOS_ARGUMENTS {
         VideoPortDebugPrint(0, "Video: Pageable code called at IRQL %d\n", VideoPortGetCurrentIrql() ); \
         ASSERT(FALSE); \
         }
-
-VIDEOPORT_API
-UCHAR
-VideoPortGetCurrentIrql();
 
 #else
 #define PAGED_CODE()
@@ -752,6 +749,21 @@ VideoPortGetBusData(
     );
 
 VIDEOPORT_API
+UCHAR
+VideoPortGetCurrentIrql();
+
+//
+// Flags that can be passed to VideoPortGetDeviceBase or VideoPortMapMemory.
+//
+
+#define VIDEO_MEMORY_SPACE_MEMORY    0x00  // Should not be set by display driver
+#define VIDEO_MEMORY_SPACE_IO        0x01  // Should not be set by display driver
+#define VIDEO_MEMORY_SPACE_USER_MODE 0x02  // Memory pointer for application use
+#define VIDEO_MEMORY_SPACE_DENSE     0x04  // Mapped dense, linearly (ALPHA)
+#define VIDEO_MEMORY_SPACE_P6CACHE   0x08  // P6 MTRR caching (kernel and user)
+
+
+VIDEOPORT_API
 PVOID
 VideoPortGetDeviceBase(
     PVOID HwDeviceExtension,
@@ -839,6 +851,20 @@ VideoPortLogError(
     PVIDEO_REQUEST_PACKET Vrp OPTIONAL,
     VP_STATUS ErrorCode,
     ULONG UniqueId
+    );
+
+VIDEOPORT_API
+VP_STATUS
+VideoPortMapBankedMemory(
+    PVOID HwDeviceExtension,
+    PHYSICAL_ADDRESS PhysicalAddress,
+    PULONG Length,
+    PULONG InIoSpace,
+    PVOID *VirtualAddress,
+    ULONG BankLength,
+    UCHAR ReadWriteBank,
+    PBANKED_SECTION_ROUTINE BankRoutine,
+    PVOID Context
     );
 
 VIDEOPORT_API
@@ -1132,4 +1158,4 @@ VideoPortZeroDeviceMemory(
     PVOID Destination,
     ULONG Length
     );
-
+

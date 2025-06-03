@@ -74,10 +74,10 @@ VOID group_enum(VOID)
     USHORT2ULONG                    num_read;   /* num entries read by API */
     USHORT2ULONG                    i;
     int                             t_err = 0;
-    TCHAR                           localserver[CNLEN+1];
+    TCHAR                           localserver[MAX_PATH+1];
     struct group_info_0 FAR *       group_entry;
     struct wksta_info_10 FAR *      wksta_entry;
-    TCHAR                           controller[UNCLEN+1];   /* DC name */
+    TCHAR                           controller[MAX_PATH+1];   /* DC name */
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;
@@ -124,7 +124,7 @@ VOID group_enum(VOID)
          i < num_read;
          i++, group_entry++)
     {
-        WriteToCon(TEXT("*%-25.25Fws"), group_entry->grpi0_name);
+        WriteToCon(TEXT("*%Fws"), PaddedString(25,group_entry->grpi0_name,NULL));
         if (((i + 1) % 3) == 0)
             PrintNL();
     }
@@ -186,7 +186,7 @@ VOID group_display(TCHAR * group)
     USHORT2ULONG                    i;
     struct group_users_info_0 FAR * users_entry;
     struct group_info_1 FAR *       group_entry;
-    TCHAR                            controller[UNCLEN+1];   /* name of DC */
+    TCHAR                            controller[MAX_PATH+1];   /* name of DC */
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;
@@ -224,10 +224,12 @@ VOID group_display(TCHAR * group)
 
     fsz = maxmsglen + (USHORT) 5;
 
-    WriteToCon( fmtPSZ, fsz, fsz, msglist[GROUPDISP_GROUPNAME].msg_text,
-        group_entry->grpi1_name );
-    WriteToCon( fmtPSZ, fsz, fsz, msglist[GROUPDISP_COMMENT].msg_text,
-        group_entry->grpi1_comment );
+    WriteToCon( fmtPSZ, 0, fsz,
+                PaddedString(fsz, msglist[GROUPDISP_GROUPNAME].msg_text, NULL),
+                group_entry->grpi1_name );
+    WriteToCon( fmtPSZ, 0, fsz,
+                PaddedString(fsz, msglist[GROUPDISP_COMMENT].msg_text, NULL),
+                group_entry->grpi1_comment );
 
     /*** The following call wipes out the group_info_1 data in
      *   group_entry, obtained above.
@@ -252,7 +254,7 @@ VOID group_display(TCHAR * group)
 
     for (i = 0, users_entry = (struct group_users_info_0 FAR *) group_entry;
 	i < num_read; i++, users_entry++) {
-	WriteToCon(TEXT("%-25.25Fws"), users_entry->grui0_name);
+	WriteToCon(TEXT("%Fws"), PaddedString(25, users_entry->grui0_name, NULL));
 	if (((i + 1) % 3) == 0)
 	    PrintNL();
     }
@@ -298,7 +300,7 @@ VOID group_add(TCHAR * group)
     struct group_info_1     group_info;
     int             i;
     TCHAR *          ptr;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;
@@ -363,7 +365,7 @@ VOID group_change(TCHAR * group)
     TCHAR *          comment = NULL;
     int             i;
     TCHAR *          ptr;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;
@@ -427,7 +429,7 @@ VOID group_change(TCHAR * group)
 VOID group_del(TCHAR * group)
 {
     USHORT          err;        /* API return status */
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
 
     /* block operation if attempted on local WinNT machine */
@@ -473,7 +475,7 @@ VOID group_add_users(TCHAR * group)
     USHORT          err;        /* API return status */
     int             err_cnt = 0;
     int             i;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;
@@ -547,7 +549,7 @@ VOID group_del_users(TCHAR * group)
     USHORT          err;        /* API return status */
     int             err_cnt = 0;
     int             i;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
     /* block operation if attempted on local WinNT machine */
     CheckForLanmanNT() ;

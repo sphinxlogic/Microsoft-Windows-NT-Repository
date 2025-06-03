@@ -42,8 +42,8 @@ CG_STATUS
 CG_BASETYPE::GenMarshall(
 	CCB		*	pCCB )
 {
-	_expr_node	*	pSource	= pCCB->GetSourceExpression();
-	_expr_node	*	pDest	= pCCB->GetDestExpression();
+	expr_node	*	pSource	= pCCB->GetSourceExpression();
+	expr_node	*	pDest	= pCCB->GetDestExpression();
 	STM_ACTION		Action;
 	
 
@@ -94,12 +94,12 @@ CG_BASETYPE::GenUnMarshall(
 
 	if( pCCB->IsRefAllocDone() )
 		{
-		_expr_node	*	pDest = pCCB->GetDestExpression();
+		expr_node	*	pDest = pCCB->GetDestExpression();
 		pDest	= MakeAddressOfPointer( pDest );
 		Out_IfAllocCopy( pCCB,
 						 pDest,
 						 pCCB->GetSourceExpression(),
-						 new _expr_constant( (long) Size ) );
+						 new expr_constant( (long) Size ) );
 		}
 	else
 		{
@@ -132,11 +132,11 @@ CG_BASETYPE::S_GenInitOutLocals(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pExpr;
+	expr_node	*	pExpr;
 
 	if( !pCCB->IsRefAllocDone() )
 		{
-		pExpr	= new _expr_sizeof( GetType() );
+		pExpr	= new expr_sizeof( GetType() );
 		Out_Alloc( pCCB, pCCB->GetSourceExpression(), 0, pExpr );
 		}
 	else
@@ -164,6 +164,7 @@ CG_BASETYPE::GetFormatChar( CCB * pCCB )
 		case NODE_SHORT :
 			return FC_SHORT;
 		case NODE_LONG :
+		case NODE_INT :
 			return FC_LONG;
 		case NODE_FLOAT :
 			return FC_FLOAT;
@@ -173,6 +174,36 @@ CG_BASETYPE::GetFormatChar( CCB * pCCB )
 			return FC_HYPER;
 		case NODE_DOUBLE :
 			return FC_DOUBLE;
+        default:
+            assert(pCommand->IsHookOleEnabled());
+            return FC_BLKHOLE;
+		}
+
+	return FC_ZERO;
+}
+
+FORMAT_CHARACTER
+CG_BASETYPE::GetSignedFormatChar()
+{
+    BOOL    IsUnsigned;
+
+    IsUnsigned = ((node_base_type *)GetType())->IsUnsigned();
+
+	switch ( GetFormatChar() )
+		{
+        case FC_BYTE :
+            // return FC_USMALL;
+        case FC_SMALL :
+        case FC_CHAR :
+            return (IsUnsigned ? FC_USMALL : FC_SMALL);
+        case FC_WCHAR :
+            // return FC_USHORT;
+        case FC_SHORT :
+            return (IsUnsigned ? FC_USHORT : FC_SHORT);
+        case FC_LONG :
+            return (IsUnsigned ? FC_ULONG : FC_LONG);
+        default :
+            assert(0);
 		}
 
 	return FC_ZERO;
@@ -185,7 +216,7 @@ CG_BASETYPE::GetTypeName()
 }
 
 void
-CG_BASETYPE::IncrementStackOffset( long * pOffset ) 
+CG_BASETYPE::IncrementStackOffset( long * pOffset )
 {
     unsigned short Env;
 
@@ -226,6 +257,18 @@ FORMAT_CHARACTER
 CG_ENUM::GetFormatChar( CCB * pCCB )
 {
 	return ( IsEnumLong() ? FC_ENUM32 : FC_ENUM16 );
+}
+
+FORMAT_CHARACTER
+CG_ENUM::GetSignedFormatChar()
+{
+    if ( pCommand->GetEnv() == ENV_MAC  ||
+         pCommand->GetEnv() == ENV_MPPC )
+        {
+        return ( IsEnumLong() ? FC_LONG : FC_ENUM16 );
+        }
+    else
+        return ( IsEnumLong() ? FC_LONG : FC_SHORT );
 }
 
 FORMAT_CHARACTER

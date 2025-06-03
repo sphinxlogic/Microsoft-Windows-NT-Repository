@@ -59,8 +59,8 @@ NetpDbgDisplayWksta(
     IN LPVOID Info
     )
 {
-    NetpDbgPrint("Workstation info (level " FORMAT_DWORD ") at "
-                FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(("Workstation info (level " FORMAT_DWORD ") at "
+                FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {
@@ -278,8 +278,8 @@ NetpDbgDisplayWkstaUser(
     IN LPVOID Info
     )
 {
-    NetpDbgPrint("Workstation user info (level " FORMAT_DWORD ") at "
-                FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(("Workstation user info (level " FORMAT_DWORD ") at "
+                FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
     NetpAssert(Info != NULL);
 
     switch (Level) {
@@ -328,8 +328,8 @@ NetpDbgDisplayWkstaUserArray(
         FixedEntrySize = sizeof(WKSTA_USER_INFO_1);
         break;
     default :
-        NetpDbgPrint( "NetpDbgDisplayWkstaUserArray: "
-                "**INVALID INFO LEVEL**\n");
+        NetpKdPrint(( "NetpDbgDisplayWkstaUserArray: "
+                "**INVALID INFO LEVEL**\n"));
         NetpAssert(FALSE);
     }
 

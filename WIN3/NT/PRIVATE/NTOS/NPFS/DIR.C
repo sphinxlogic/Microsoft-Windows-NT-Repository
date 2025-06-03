@@ -686,8 +686,8 @@ Return Value:
 
                         DirInfo = (PFILE_DIRECTORY_INFORMATION)&Buffer[NextEntry];
 
-                        DirInfo->EndOfFile = LiFromUlong( Fcb->OpenCount );
-                        DirInfo->AllocationSize = LiFromUlong( Fcb->Specific.Fcb.MaximumInstances );
+                        DirInfo->EndOfFile.QuadPart = Fcb->OpenCount;
+                        DirInfo->AllocationSize.QuadPart = Fcb->Specific.Fcb.MaximumInstances;
 
                         DirInfo->FileAttributes = FILE_ATTRIBUTE_NORMAL;
 
@@ -880,4 +880,3 @@ Return Value:
 
     return STATUS_PENDING;
 }
-

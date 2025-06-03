@@ -54,7 +54,7 @@ CG_PROC::C_BindingAnalysis(
 		{
 		pAna->AddStandardResource( ST_RES_AUTO_BH_VARIABLE );
 		}
-	else 
+	else
 		{
 		SetBindingResource( pAna->AddStandardResource( ST_RES_BH_VARIABLE ) );
 
@@ -62,7 +62,7 @@ CG_PROC::C_BindingAnalysis(
 
 		pID	= (node_id *)GetBindingResource()->GetType();
 
-		pID->SetExpr( new _expr_constant( 0L ) );
+		pID->SetExpr( new expr_constant( 0L ) );
 
 		}
 	return CG_OK;
@@ -78,7 +78,7 @@ CG_PROC::MarshallAnalysis(
 	CG_RETURN	*	pRT;
 	SIDE			Side	= pAna->GetCurrentSide();
 	short			NoOfMarshalledStuff;
-	_expr_node	*	pSE		= 0;
+	expr_node	*	pSE		= 0;
 	BOOL			fReturnNeedsMarshall = FALSE;
 	ALIGNMENT_PROPERTY	NextWireAl;
 
@@ -110,7 +110,7 @@ CG_PROC::MarshallAnalysis(
 			pCG->MarshallAnalysis( pAna );
 
 			if( pSE )
-				pSE	= new _expr_b_arithmetic( OP_PLUS,
+				pSE	= new expr_b_arithmetic( OP_PLUS,
 											  pSE,
 											  pCG->GetSizeExpression()
 											);
@@ -125,7 +125,7 @@ CG_PROC::MarshallAnalysis(
 		pAna->SetNextWireAlignment( AL_1 );
 		pRT->MarshallAnalysis( pAna );
 		if( pSE )
-			pSE	= new _expr_b_arithmetic( OP_PLUS,
+			pSE	= new expr_b_arithmetic( OP_PLUS,
 										  pSE,
 										  pRT->GetSizeExpression()
 										);
@@ -140,36 +140,8 @@ CG_PROC::MarshallAnalysis(
 	if( pSE )
 		SetSizeExpression( pSE );
 	else
-		SetSizeExpression( new _expr_constant( 0L,VALUE_TYPE_NUMERIC_U ));
+		SetSizeExpression( new expr_constant( 0L,VALUE_TYPE_NUMERIC_U ));
 
-	// In osf mode:
-	//		if( RpcSS is recommended by analysis || enable allocate specified )
-	//			Generate call to enable rpcss
-	// In ms_ext mode:
-	//		if( Enable allocate is specified )
-	//			Generate call to enable rpcss.
-
-	if( GetRpcBufSizeProperty( CGPHASE_MARSHALL ) & BSIZE_UNKNOWN )
-		{
-		pAna->SetRpcSSAllocateRecommended( 1 );
-		}
-	else
-		pAna->SetRpcSSAllocateRecommended( 0 );
-
-	SetMustInvokeRpcSSAllocate( 0 );
-	if( pAna->GetMode() == 0 )
-		{
-		if( pAna->IsRpcSSAllocateRecommended()	||
-			IsRpcSSSpecified() ||
-			HasFullPtr()
-		  )
-			SetMustInvokeRpcSSAllocate( 1 );
-		}
-	else
-		{
-		if( IsRpcSSSpecified() )
-			SetMustInvokeRpcSSAllocate( 1 );
-		}
 	return CG_OK;
 	}
 
@@ -223,6 +195,7 @@ CG_PROC::UnMarshallAnalysis(
 
 	return CG_OK;
 	}
+
 
 CG_STATUS
 CG_PROC::S_OutLocalAnalysis(
@@ -261,10 +234,109 @@ CG_PROC::S_OutLocalAnalysis(
 
 	return CG_OK;
 }
+
+
+void
+CG_PROC::RpcSsPackageAnalysis(
+	ANALYSIS_INFO	*	pAna )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+ 	Perform analysis for the need to invoke RpcSsm package at server.
+
+ Arguments:
+
+ 	pAna	- The analysis block.
+
+	
+ Return Value:
+	
+ Notes:
+
+   Note that we perform both sides analysis at once as the format string
+   is generated usually at the client pass.
+
+----------------------------------------------------------------------------*/
+{
+    //
+    // In ms_ext mode:
+    //    only if  Enable allocate is specified 
+    // In osf mode:
+    //    if( RpcSS is recommended by analysis || enable allocate specified )
+    //
+    SetMustInvokeRpcSSAllocate( 0 );
+
+    if ( IsRpcSSSpecified() )
+        SetMustInvokeRpcSSAllocate( 1 );
+
+#if 0
+    else
+        {
+        if ( pAna->GetMode() == 0 )
+            {
+            if( GetRpcBufSizeProperty( CGPHASE_MARSHALL ) & BSIZE_UNKNOWN )
+                {
+                pAna->SetRpcSSAllocateRecommended( 1 );
+                }
+            else
+                pAna->SetRpcSSAllocateRecommended( 0 );
+        
+            if ( pAna->IsRpcSSAllocateRecommended() || HasFullPtr() )
+               SetMustInvokeRpcSSAllocate( 1 );
+           }
+        }
+#endif
+
+    if ( MustInvokeRpcSSAllocate()  ||  pAna->GetMode() != 0 )
+        return;
+
+    // We analyze parameters in osf to boost performance by skipping
+    // unnecessary enable and disable operations.
+    //
+    
+    ITERATOR        ParamList;
+    CG_PARAM    *    pParam;
+
+    GetMembers( ParamList );
+
+    if( ITERATOR_GETCOUNT( ParamList ) )
+        {
+        ITERATOR_INIT( ParamList );
+
+        while( ITERATOR_GETNEXT( ParamList, pParam ) )
+            {
+            pParam->RpcSsPackageAnalysis( pAna );
+            }
+        }
+
+    CG_RETURN * pReturn = GetReturnType();
+
+    if ( pReturn )
+        {
+        if ( (pAna->GetOptimOption() & OPTIMIZE_INTERPRETER)  ||
+             (pReturn->GetChild()  &&
+                   ( ((CG_NDR *)pReturn->GetChild())->IsPointer()  ||
+                     ((CG_NDR *)pReturn->GetChild())->HasPointer() ||
+                     ((CG_NDR *)pReturn->GetChild())->GetCGID() == ID_CG_ENCAP_STRUCT ) )
+           )
+            {
+            // We could do a better job for Oi2 if we watched its stack.
+            // Encapsulated union is there as it was a hassle to make it
+            // know about its pointers.
+
+            pAna->SetRpcSSAllocateRecommended( 1 );
+            }
+        }
+
+    if ( pAna->IsRpcSSAllocateRecommended() )
+       SetMustInvokeRpcSSAllocate( 1 );
+}
+
 
 CG_STATUS
 CG_PROC::RefCheckAnalysis(
-	ANALYSIS_INFO	*	pAna )
+    ANALYSIS_INFO	*	pAna )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
  Routine Description:
@@ -496,11 +568,11 @@ void
 CG_PARAM::ConsolidateParamMarshallAnalysis(
 	ANALYSIS_INFO	*	pAna )
 {
-	_expr_node		*	pSE		= 0;
+	expr_node		*	pSE		= 0;
 	RPC_BUFFER_SIZE		Size;
 	
 
-	// Consolidate the result of the analysis from lower nodes, first into 
+	// Consolidate the result of the analysis from lower nodes, first into
 	// this node, and then into the analysis block.
 
 	SetRpcBufSizeProperty( pAna->GetRpcBufSizeProperty(), CGPHASE_MARSHALL );
@@ -508,11 +580,11 @@ CG_PARAM::ConsolidateParamMarshallAnalysis(
 
 	Size =  GetRpcBufferSize( CGPHASE_MARSHALL );
 
-	pSE	= new _expr_constant( Size, VALUE_TYPE_NUMERIC_U );
+	pSE	= new expr_constant( Size, VALUE_TYPE_NUMERIC_U );
 
 	SetSizeExpression( pSE );
 
-	if( pAna->GetOptimOption() == OPTIMIZE_SIZE )
+	if( pAna->GetOptimOption() & OPTIMIZE_SIZE )
 		{
 		pAna->ClearTransientResourceDict();
 		}
@@ -606,13 +678,13 @@ CG_PARAM::ConsolidateParamUnMarshallAnalysis(
 	ANALYSIS_INFO	*	pAna )
 {
 
-	// Consolidate the result of the analysis from lower nodes, first into 
+	// Consolidate the result of the analysis from lower nodes, first into
 	// this node, and then into the analysis block.
 
 	SetRpcBufSizeProperty( pAna->GetRpcBufSizeProperty(), CGPHASE_UNMARSHALL );
 	SetRpcBufferSize( pAna->GetRpcBufferSize(), CGPHASE_UNMARSHALL );
 
-	if( pAna->GetOptimOption() == OPTIMIZE_SIZE )
+	if( pAna->GetOptimOption() & OPTIMIZE_SIZE )
 		{
 		pAna->ClearTransientResourceDict();
 		}
@@ -653,6 +725,101 @@ CG_PARAM::S_OutLocalAnalysis(
 		}
 	return CG_OK;
 }
+
+
+void
+CG_PARAM::RpcSsPackageAnalysis(
+    ANALYSIS_INFO    *    pAna )
+/*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+ Routine Description:
+
+     Perform analysis for rpcss package enabling.
+
+ Arguments:
+    
+    pAna    - A pointer to the analysis block.
+
+ Return Value:
+    
+ Notes:
+
+    This routine should be called only in the osf mode.
+
+----------------------------------------------------------------------------*/
+{
+    //
+    // Package needs to be enabled (only is OSF mode) when the NDR engine
+    // is going to do any allocations whatsoever at the server side.
+    //
+    // In Os this may happen on
+    //    - anything other than simple type or pointer to simple type
+    //    - with simple type, if this happens to be enum16
+    // In Oi this may happen on
+    //    - anything [out]
+    //    - [in] like Os
+    // In Oi2 this may happen on
+    //    - anything [out] when lack of space on -Oi2 stack
+    //    - [in] like Os
+    //      (simple types and pointers to simple types are usually on
+    //      the interpreter stack, if there is space there).
+    //      However, this cannot be guaranteed.
+    
+    if( IsParamOut() &&
+        ( pAna->GetOptimOption() & OPTIMIZE_INTERPRETER) )
+        {
+        // We could do a better job for Oi2 if we watched the its stack.
+
+        pAna->SetRpcSSAllocateRecommended( 1 );
+        return;
+        }
+
+    // We are here with
+    //   [in] or [in,out] for Oi? 
+    //   any              for Os
+    // See if this is one of the simple cases mentioned above.
+    // This is really a check for the buffer reusage.
+
+    CG_NDR * pChild = (CG_NDR *)GetChild();
+
+    if ( pChild->IsSimpleType()  &&
+         ( pChild->GetCGID() != ID_CG_ENUM  ||
+           pChild->GetCGID() == ID_CG_ENUM  &&
+                                     ((CG_ENUM*)pChild)->IsEnumLong() )
+       )
+        {
+        // An [in] arg in the buffer.
+
+        return;
+        }
+
+    // Note that we don't have to check for allocate(allnodes) etc.
+    // as this is not an osf attribute.
+    // Also note that we handle top level pointers here.
+
+    if ( pChild->IsPointer()  &&  ((CG_POINTER *)pChild)->IsRef() )
+        {
+        // In args would stay in the buffer,
+        // out args would be on the Os stack.
+
+        CG_NDR * pPointee = (CG_NDR *)pChild->GetChild();
+
+        if ( ( pChild->GetCGID() == ID_CG_PTR  ||
+               pChild->GetCGID() == ID_CG_STRING_PTR  || 
+               pChild->GetCGID() == ID_CG_SIZE_PTR )
+             &&
+             pPointee->IsSimpleType()
+             &&
+             ( pPointee->GetCGID() != ID_CG_ENUM  ||
+               pPointee->GetCGID() == ID_CG_ENUM  &&
+                                      ((CG_ENUM*)pPointee)->IsEnumLong() )
+           )
+            return;
+        }
+
+    pAna->SetRpcSSAllocateRecommended( 1 );
+}
+
 
 void
 CG_PARAM::FinalizeEngineUsage(
@@ -717,7 +884,7 @@ CG_RETURN::MarshallAnalysis(
 	
  Notes:
 
-	For the return type, the size analysis contributes nothing on the 
+	For the return type, the size analysis contributes nothing on the
 	client side, yet we must declare a local variable for the return.
 ----------------------------------------------------------------------------*/
 {
@@ -775,11 +942,11 @@ CG_RETURN::MarshallAnalysis(
 	SetRpcBufSizeProperty( SavedBSizeProperty, CGPHASE_MARSHALL );
 	SetRpcBufferSize( pAna->GetRpcBufferSize(), CGPHASE_MARSHALL );
 	SetSizeExpression(
-         new _expr_constant( pAna->GetRpcBufferSize(), VALUE_TYPE_NUMERIC_U ) );
+         new expr_constant( pAna->GetRpcBufferSize(), VALUE_TYPE_NUMERIC_U ) );
 	
 	pAna->ResetReturnContext();
 
-	if( pAna->GetOptimOption() == OPTIMIZE_SIZE )
+	if( pAna->GetOptimOption() & OPTIMIZE_SIZE )
 		{
 		pAna->ClearTransientResourceDict();
 		}
@@ -805,7 +972,7 @@ CG_RETURN::UnMarshallAnalysis(
 	
  Notes:
 
-	For the return type, the size analysis contributes nothing on the 
+	For the return type, the size analysis contributes nothing on the
 	client side, yet we must declare a local variable for the return.
 ----------------------------------------------------------------------------*/
 {
@@ -834,7 +1001,7 @@ CG_RETURN::UnMarshallAnalysis(
 
 	pAna->ResetReturnContext();
 
-	if( pAna->GetOptimOption() == OPTIMIZE_SIZE )
+	if( pAna->GetOptimOption() & OPTIMIZE_SIZE )
 		{
 		pAna->ClearTransientResourceDict();
 		}

@@ -25,6 +25,14 @@ Author:
 
 #define FATDIR_DEFN
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 DECLARE_CLASS( FATDIR );
 DECLARE_CLASS( WSTRING );
 DEFINE_POINTER_TYPES( PFATDIR );
@@ -44,6 +52,7 @@ class FATDIR : public OBJECT {
             ) PURE;
 
         NONVIRTUAL
+        UFAT_EXPORT
         PVOID
         SearchForDirEntry(
             IN  PCWSTRING   FileName
@@ -65,6 +74,7 @@ class FATDIR : public OBJECT {
             ) PURE;
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         QueryLongName(
             IN  LONG        EntryNumber,
@@ -73,7 +83,7 @@ class FATDIR : public OBJECT {
 
     protected:
 
- 		DECLARE_CONSTRUCTOR( FATDIR );
+                DECLARE_CONSTRUCTOR( FATDIR );
 
 };
 

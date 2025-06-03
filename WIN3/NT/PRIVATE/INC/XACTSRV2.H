@@ -39,6 +39,7 @@ typedef struct _XACTSRV_REQUEST_MESSAGE {
         struct {
             struct _TRANSACTION *Transaction;
             WCHAR ClientMachineName[CNLEN + 1];
+            UCHAR ServerName[ NETBIOS_NAME_LEN ];
             ULONG TransportNameLength;
             PWSTR TransportName;
             UCHAR LanmanSessionKey[MSV1_0_LANMAN_SESSION_KEY_LENGTH];
@@ -70,6 +71,20 @@ typedef struct _XACTSRV_REQUEST_MESSAGE {
             USHORT BufferLength;
         } MessageBufferSend;
 
+        struct {
+            PWSTR UserName;
+            BOOL  IsAdmin;
+        } LSRequest;
+
+        struct {
+            HANDLE hLicense;
+        } LSRelease;
+
+        struct {
+            BOOLEAN Bind;
+            UNICODE_STRING TransportName;
+        } Pnp;
+    
     } Message;
 
 
@@ -108,6 +123,11 @@ typedef struct _XACTSRV_REPLY_MESSAGE {
             ULONG Error;
         } MessageBufferSend;
 
+        struct {
+            NTSTATUS Status;
+            HANDLE   hLicense;
+        } LSRequest;
+
     } Message;
 
 } XACTSRV_REPLY_MESSAGE, *PXACTSRV_REPLY_MESSAGE;
@@ -123,7 +143,10 @@ typedef struct _XACTSRV_REPLY_MESSAGE {
 #define XACTSRV_MESSAGE_CLOSE_PRINTER        5
 #define XACTSRV_MESSAGE_MESSAGE_SEND         6
 #define XACTSRV_MESSAGE_WAKEUP               7
-
+#define XACTSRV_MESSAGE_LSREQUEST            8
+#define XACTSRV_MESSAGE_LSRELEASE            9
+#define XACTSRV_MESSAGE_PNP                 10
+#define XACTSRV_MESSAGE_SERVER_THREAD_EXIT  11
 
 //
 // Request Flags definitions

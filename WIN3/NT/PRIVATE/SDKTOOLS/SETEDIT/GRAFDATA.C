@@ -42,6 +42,13 @@
 
 extern BOOL SaveFileHandler(HWND hWnd,DWORD type) ;
 
+// this macro is used in doing a simple DDA (Digital Differential Analyzer)
+// * 10 + 5 is to make the result round up with .5
+#define DDA_DISTRIBUTE(TotalTics, numOfData) \
+   ((TotalTics * 10 / numOfData) + 5) / 10
+
+#define szSmallValueFormat         TEXT("%10.3f")
+#define szLargeValueFormat         TEXT("%10.0f")
 
 //==========================================================================//
 //                                Local Data                                //
@@ -238,34 +245,35 @@ BOOL ChartInsertLine (PGRAPHSTRUCT pGraph,
    pLineEquivalent = FindEquivalentLine (pLine, pGraph->pLineFirst) ;
    if (pLineEquivalent)
       {
-      pLineEquivalent->Visual = pLine->Visual ;
-      pLineEquivalent->iScaleIndex = pLine->iScaleIndex ;
-      pLineEquivalent->eScale = pLine->eScale ;
+        if (bMonitorDuplicateInstances) {
+            pLine->dwInstanceIndex = pLineEquivalent->dwInstanceIndex + 1;
+        } else {
+            pLineEquivalent->Visual = pLine->Visual ;
+            pLineEquivalent->iScaleIndex = pLine->iScaleIndex ;
+            pLineEquivalent->eScale = pLine->eScale ;
 
-      tempPen = pLineEquivalent->hPen ;
-      pLineEquivalent->hPen =  pLine->hPen ;
-      pLine->hPen = tempPen ;
-      return FALSE ;
+            tempPen = pLineEquivalent->hPen ;
+            pLineEquivalent->hPen =  pLine->hPen ;
+            pLine->hPen = tempPen ;
+            return FALSE ;
+        }  
       }
-   else
-      {
 
-      LineAppend (&pGraph->pLineFirst, pLine) ;
+    LineAppend (&pGraph->pLineFirst, pLine) ;
 
-      // Add the line to the legend, resize the legend window, and then
-      // select the new line as the current legend item. Do it in this 
-      // sequence to avoid the legend scroll bar momentarily appearing and
-      // then disappearing, since the resize will obviate the scroll bar.
+    // Add the line to the legend, resize the legend window, and then
+    // select the new line as the current legend item. Do it in this 
+    // sequence to avoid the legend scroll bar momentarily appearing and
+    // then disappearing, since the resize will obviate the scroll bar.
 
-      LegendAddItem (hWndGraphLegend, pLine) ;
+    LegendAddItem (hWndGraphLegend, pLine) ;
 
-      if (!bDelayAddAction)
-         {
-         SizeGraphComponents (hWndGraph) ;
-         LegendSetSelection (hWndGraphLegend, 
-                          LegendNumItems (hWndGraphLegend) - 1) ;
-         }
-      }
+    if (!bDelayAddAction)
+        {
+        SizeGraphComponents (hWndGraph) ;
+        LegendSetSelection (hWndGraphLegend, 
+                        LegendNumItems (hWndGraphLegend) - 1) ;
+        }
 
    return (TRUE) ;
    }  // ChartInsertLine
@@ -403,9 +411,12 @@ void ResetGraph (PGRAPHSTRUCT pGraph)
 
 BOOL AddChart (HWND hWndParent)
    {
+   PLINE pCurrentLine = CurrentGraphLine (hWndGraph) ;
+
    return (AddLine (hWndParent, 
                     &(pGraphs->pSystemFirst), 
                     &(pGraphs->Visual), 
+                    pCurrentLine ? pCurrentLine->lnSystemName : NULL,
                     LineTypeChart)) ;
    }
 
@@ -689,4 +700,4 @@ BOOL GraphRefresh (HWND hWnd)
    }  // GraphRefresh
 
 
-
+

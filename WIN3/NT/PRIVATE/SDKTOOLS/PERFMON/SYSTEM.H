@@ -10,7 +10,8 @@ PPERFSYSTEM SystemGet (PPERFSYSTEM pSystemFirst,
 
 
 PPERFSYSTEM  SystemAdd (PPPERFSYSTEM ppSystemFirst,
-                        LPCTSTR lpszSystemName) ;
+                        LPCTSTR lpszSystemName,
+                        HWND    hDlg) ;
 
 
 DWORD SystemCount (PPERFSYSTEM pSystemFirst) ;
@@ -22,5 +23,5 @@ PPERFSYSTEM GetComputer (HDLG hDlg,
                          PPERFDATA *pPerfData,
                          PPERFSYSTEM *ppSystemFirst) ;
 
-
-
+
+

@@ -14,7 +14,13 @@
 #ifndef __DRT_HXX__
 #define __DRT_HXX__
 
-#include <dfmsp.hxx>
+//#include <dfmsp.hxx>      // remove dependency on internal header file
+#define OLEWIDECHAR
+#define DfGetScode(hr) GetScode(hr)
+typedef DWORD LPSTGSECURITY;
+// [later] typedef LPSECURITY_ATTRIBUTES LPSTGSECURITY;
+#define ULIGetLow(li)  ((li).LowPart)
+#define ULIGetHigh(li) ((li).HighPart)
 
 // Exit codes
 #define EXIT_BADSC 1
@@ -47,7 +53,7 @@
 #define ATOOLE(psz, ptcs, max) mbstowcs(ptcs, psz, max)
 #endif
 #ifndef OLETOA
-i#define OLETOA(ptcs, psz, max) wcstombs(psz, ptcs, max)
+#define OLETOA(ptcs, psz, max) wcstombs(psz, ptcs, max)
 #endif
 
 #ifndef olecscmp
@@ -98,6 +104,7 @@ typedef char TCHAR;
 
 extern DWORD dwTransacted, dwRootDenyWrite;
 extern BOOL fVerbose;
+extern BOOL fOfs;
 extern OLECHAR atcDrtDocfile[];
 
 #endif // #ifndef __DRT_HXX__

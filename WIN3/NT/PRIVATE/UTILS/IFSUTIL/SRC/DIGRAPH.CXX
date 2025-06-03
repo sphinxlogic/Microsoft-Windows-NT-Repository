@@ -1,8 +1,39 @@
+/*++
+
+Copyright (c) 1994 Microsoft Corporation
+
+Module Name:
+
+        digraph.cxx
+
+Abstract:
+
+        This module implements the Directed Graph class.
+
+Author:
+
+        Matthew Bradburn (mattbr)  11-Nov-1994
+
+Remarks:
+
+    The class is implemented as a mapping from parent to child.
+    There is a hash table of parents, with a linked-list of parent nodes
+    from each hash table bucket... each parent node then holds a pointer
+    to a tree of child nodes which share an edge with that parent.  In an
+    attempt to save memory, each child node actually has a starting value
+    and a bitmap which describes the possible children immediately following
+    that starting value.
+
+--*/
+
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "digraph.hxx"
 #include "numset.hxx"
 #include "bitvect.hxx"
@@ -12,14 +43,13 @@
 
 CONST NumHeads = 1024;
 
+DEFINE_EXPORTED_CONSTRUCTOR( DIGRAPH, OBJECT, IFSUTIL_EXPORT );
 
-DEFINE_CONSTRUCTOR( DIGRAPH, OBJECT );
-
-DEFINE_CONSTRUCTOR( DIGRAPH_EDGE, OBJECT );
+DEFINE_EXPORTED_CONSTRUCTOR( DIGRAPH_EDGE, OBJECT, IFSUTIL_EXPORT );
 
 VOID
 DIGRAPH::Construct (
- 	)
+        )
 /*++
 
 Routine Description:
@@ -65,6 +95,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 DIGRAPH::~DIGRAPH(
     )
 /*++
@@ -87,6 +118,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::Initialize(
     IN  ULONG   NumberOfNodes
@@ -113,7 +145,6 @@ Return Value:
     _num_nodes = NumberOfNodes;
 
     if (!(_parent_head = NEW PPARENT_ENTRY[NumHeads]) ||
-        !_child_mgr.Initialize(sizeof(CHILD_ENTRY)) ||
         !_parent_mgr.Initialize(sizeof(PARENT_ENTRY))) {
 
         return FALSE;
@@ -124,6 +155,59 @@ Return Value:
     return TRUE;
 }
 
+RTL_GENERIC_COMPARE_RESULTS
+GenericChildCompare(
+    RTL_GENERIC_TABLE *Table,
+    PVOID First,
+    PVOID Second
+    )
+/*++
+
+Routine Description:
+
+    This routine is required for use by the Generic Table package.
+    In this case it will be used only to find the node containing
+    a particular child, and the caller will search the bits in that
+    node after that.
+
+
+--*/
+{
+    PCHILD_ENTRY FirstChild = PCHILD_ENTRY(First);
+    PCHILD_ENTRY SecondChild = PCHILD_ENTRY(Second);
+
+    if (FirstChild->Child < SecondChild->Child) {
+        return GenericLessThan;
+    }
+    if (FirstChild->Child > SecondChild->Child) {
+        return GenericGreaterThan;
+    }
+    return GenericEqual;
+}
+
+PVOID
+NTAPI
+GenericChildAllocate(
+    RTL_GENERIC_TABLE *Table,
+    CLONG ByteSize
+    )
+{
+    // return MALLOC(ByteSize);
+
+    return NEW BYTE[ByteSize];
+}
+
+VOID
+NTAPI
+GenericChildDeallocate(
+    RTL_GENERIC_TABLE *Table,
+    PVOID Buffer
+    )
+{
+    // FREE(Buffer);
+
+    delete[] Buffer;
+}
 
 PPARENT_ENTRY
 DIGRAPH::GetParentEntry(
@@ -148,7 +232,7 @@ Return Value:
 {
     PPARENT_ENTRY   r;
 
-    for (r = _parent_head[Parent%NumHeads]; r; r = r->Next) {
+    for (r = _parent_head[Parent%NumHeads]; NULL != r; r = r->Next) {
         if (r->Parent == Parent) {
             break;
         }
@@ -158,6 +242,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::AddEdge(
     IN  ULONG   Parent,
@@ -181,11 +266,25 @@ Return Value:
 
 --*/
 {
-    PPARENT_ENTRY   parent_entry;
-    PCHILD_ENTRY    curr;
+    DebugAssert(Parent < _num_nodes);
+    DebugAssert(Child < _num_nodes);
 
-    DbgAssert(Parent < _num_nodes);
-    DbgAssert(Child < _num_nodes);
+    PPARENT_ENTRY   parent_entry;
+    CHILD_ENTRY     new_child;
+    PCHILD_ENTRY    pChild;
+    RTL_BITMAP      bitmap_hdr;
+
+    memset(&new_child, 0, sizeof(new_child));
+
+    //
+    // Figure out which node we're looking for by rounding Child down
+    // to the appropriate alignment.
+    //
+
+    new_child.Child = Child & ~(BITS_PER_CHILD_ENTRY - 1);
+
+    DebugAssert(new_child.Child <= Child);
+    DebugAssert(new_child.Child + BITS_PER_CHILD_ENTRY >= Child);
 
     if (!(parent_entry = GetParentEntry(Parent))) {
         if (!(parent_entry = (PPARENT_ENTRY) _parent_mgr.Alloc())) {
@@ -194,23 +293,31 @@ Return Value:
 
         parent_entry->Next = _parent_head[Parent%NumHeads];
         parent_entry->Parent = Parent;
-        parent_entry->Children = NULL;
+
+        RtlInitializeGenericTable(
+            &parent_entry->Children,
+            GenericChildCompare,
+            GenericChildAllocate,
+            GenericChildDeallocate,
+            0
+            );
+
         _parent_head[Parent%NumHeads] = parent_entry;
     }
 
-    for (curr = parent_entry->Children; curr; curr = curr->Next) {
-        if (curr->Child == Child) {
-            return TRUE;
-        }
-    }
-
-    if (!(curr = (PCHILD_ENTRY) _child_mgr.Alloc())) {
+    pChild = (PCHILD_ENTRY)RtlInsertElementGenericTable(
+                &parent_entry->Children,
+                &new_child,
+                sizeof(new_child),
+                NULL
+                );
+    if (NULL == pChild) {
         return FALSE;
     }
 
-    curr->Next = parent_entry->Children;
-    curr->Child = Child;
-    parent_entry->Children = curr;
+    RtlInitializeBitMap(&bitmap_hdr, pChild->ChildBits, BITS_PER_CHILD_ENTRY);
+
+    RtlSetBits(&bitmap_hdr, Child - new_child.Child, 1);
 
     return TRUE;
 }
@@ -239,34 +346,38 @@ Return Value:
 
 --*/
 {
-    PPARENT_ENTRY   parent_entry;
-    PCHILD_ENTRY    prev, curr;
+    DebugAssert(Parent < _num_nodes);
+    DebugAssert(Child < _num_nodes);
 
-    DbgAssert(Parent < _num_nodes);
-    DbgAssert(Child < _num_nodes);
+    PPARENT_ENTRY   parent_entry;
+    CHILD_ENTRY     curr;
+    PCHILD_ENTRY    pChild;
+    RTL_BITMAP      bitmap_hdr;
+
+    curr.Child = Child & ~(BITS_PER_CHILD_ENTRY - 1);
 
     if (!(parent_entry = GetParentEntry(Parent))) {
         return TRUE;
     }
 
-    prev = NULL;
-    curr = parent_entry->Children;
-    while (curr) {
+    pChild = (PCHILD_ENTRY)RtlLookupElementGenericTable(
+        &parent_entry->Children,
+        &curr);
+    if (NULL == pChild) {
+        return TRUE;
+    }
 
-        if (curr->Child == Child) {
+    RtlInitializeBitMap(&bitmap_hdr, pChild->ChildBits, BITS_PER_CHILD_ENTRY);
 
-            if (prev) {
-                prev->Next = curr->Next;
-            } else {
-                parent_entry->Children = curr->Next;
-            }
+    RtlClearBits(&bitmap_hdr, Child - curr.Child, 1);
 
-            _child_mgr.Free(curr);
-            break;
-        }
+    //
+    // Now if the entire bitmap for this node is clear, we'll delete
+    // the node itself.
+    //
 
-        prev = curr;
-        curr = curr->Next;
+    if ((ULONG)-1 == RtlFindSetBits(&bitmap_hdr, 1, 0)) {
+        RtlDeleteElementGenericTable(&parent_entry->Children, &curr);
     }
 
     return TRUE;
@@ -295,16 +406,33 @@ Return Value:
 --*/
 {
     PPARENT_ENTRY   parent_entry;
+    RTL_BITMAP      bitmap_hdr;
+    PVOID           restart_key;
+    PVOID           ptr;
     ULONG           r;
-    PCHILD_ENTRY    curr;
 
     if (!(parent_entry = GetParentEntry(Parent))) {
         return 0;
     }
 
+    //
+    // Need to enuerate through all the children and count the bits in
+    // each bitmap.
+    //
+
     r = 0;
-    for (curr = parent_entry->Children; curr; curr = curr->Next) {
-        r++;
+    restart_key = NULL;
+
+    for (ptr = RtlEnumerateGenericTableWithoutSplaying(
+            &parent_entry->Children, &restart_key);
+         ptr != NULL;
+         ptr = RtlEnumerateGenericTableWithoutSplaying(
+            &parent_entry->Children, &restart_key)) {
+
+        RtlInitializeBitMap(&bitmap_hdr, PCHILD_ENTRY(ptr)->ChildBits,
+             BITS_PER_CHILD_ENTRY);
+
+        r += RtlNumberOfSetBits(&bitmap_hdr);
     }
 
     return r;
@@ -328,21 +456,37 @@ Arguments:
 
 Return Value:
 
-    The number of parents pointed to by the child.
+    The number of parents that point to the child.
 
 --*/
 {
     ULONG           i, r;
     PPARENT_ENTRY   currp;
-    PCHILD_ENTRY    curr;
+    CHILD_ENTRY     curr;
+    RTL_BITMAP      bitmap_hdr;
+    PCHILD_ENTRY    pChild;
+
+    curr.Child = Child & ~(BITS_PER_CHILD_ENTRY - 1);
 
     r = 0;
     for (i = 0; i < NumHeads; i++) {
         for (currp = _parent_head[i]; currp; currp = currp->Next) {
-            for (curr = currp->Children; curr; curr = curr->Next) {
-                if (curr->Child == Child) {
-                    r++;
-                }
+
+            //
+            // Increment <r> if the child tree contains <Child>.
+            //
+
+            pChild = (PCHILD_ENTRY)RtlLookupElementGenericTable(
+                &currp->Children, &curr);
+            if (NULL == pChild) {
+                continue;
+            }
+
+            RtlInitializeBitMap(&bitmap_hdr, pChild->ChildBits,
+                BITS_PER_CHILD_ENTRY);
+
+            if (RtlCheckBit(&bitmap_hdr, Child - curr.Child)) {
+                r++;
             }
         }
     }
@@ -351,6 +495,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::QueryChildren(
     IN  ULONG       Parent,
@@ -375,7 +520,10 @@ Return Value:
 --*/
 {
     PPARENT_ENTRY   parent_entry;
-    PCHILD_ENTRY    curr;
+    RTL_BITMAP      bitmap_hdr;
+    PVOID           restart_key;
+    PVOID           ptr;
+    ULONG           i;
 
     if (!Children->Initialize()) {
         return FALSE;
@@ -385,9 +533,28 @@ Return Value:
         return TRUE;
     }
 
-    for (curr = parent_entry->Children; curr; curr = curr->Next) {
-        if (!Children->Add(curr->Child)) {
-            return FALSE;
+    restart_key = NULL;
+    for (ptr = RtlEnumerateGenericTableWithoutSplaying(
+            &parent_entry->Children, &restart_key);
+         ptr != NULL;
+         ptr = RtlEnumerateGenericTableWithoutSplaying(
+            &parent_entry->Children, &restart_key)) {
+
+        //
+        // Add a child for each set bit in this node.
+        //
+
+        RtlInitializeBitMap(&bitmap_hdr, PCHILD_ENTRY(ptr)->ChildBits,
+            BITS_PER_CHILD_ENTRY);
+
+        for (i = 0; i < BITS_PER_CHILD_ENTRY; ++i) {
+
+            if (RtlCheckBit(&bitmap_hdr, i)) {
+
+                if (!Children->Add(PCHILD_ENTRY(ptr)->Child + i)) {
+                    return FALSE;
+                }
+            }
         }
     }
 
@@ -395,6 +562,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::QueryParents(
     IN  ULONG       Child,
@@ -420,7 +588,11 @@ Return Value:
 {
     ULONG           i;
     PPARENT_ENTRY   currp;
-    PCHILD_ENTRY    curr;
+    CHILD_ENTRY     curr;
+    PCHILD_ENTRY    pChild;
+    RTL_BITMAP      bitmap_hdr;
+
+    curr.Child = Child & ~(BITS_PER_CHILD_ENTRY - 1);
 
     if (!Parents->Initialize()) {
         return FALSE;
@@ -428,8 +600,19 @@ Return Value:
 
     for (i = 0; i < NumHeads; i++) {
         for (currp = _parent_head[i]; currp; currp = currp->Next) {
-            for (curr = currp->Children; curr; curr = curr->Next) {
-                if (curr->Child == Child && !Parents->Add(currp->Parent)) {
+
+            pChild = (PCHILD_ENTRY)RtlLookupElementGenericTable(
+                &currp->Children, &curr);
+            if (NULL == pChild) {
+                continue;
+            }
+
+            RtlInitializeBitMap(&bitmap_hdr, pChild->ChildBits,
+                BITS_PER_CHILD_ENTRY);
+
+            if (RtlCheckBit(&bitmap_hdr, Child - curr.Child)) {
+
+                if (!Parents->Add(currp->Parent)) {
                     return FALSE;
                 }
             }
@@ -440,6 +623,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::QueryParentsWithChildren(
     OUT PNUMBER_SET Parents,
@@ -468,8 +652,10 @@ Return Value:
 {
     ULONG           i;
     PPARENT_ENTRY   currp;
-    PCHILD_ENTRY    curr;
     ULONG           count;
+    RTL_BITMAP      bitmap_hdr;
+    PVOID           ptr;
+    PVOID           restart_key;
 
     if (!Parents->Initialize()) {
         return FALSE;
@@ -481,13 +667,34 @@ Return Value:
 
     for (i = 0; i < NumHeads; i++) {
         for (currp = _parent_head[i]; currp; currp = currp->Next) {
+
+            //
+            // Need to enumerate nodes of the tree and count bits in
+            // each node.
+            //
+
+            restart_key = NULL;
             count = 0;
-            for (curr = currp->Children; curr; curr = curr->Next) {
-                if (++count == MinimumNumberOfChildren) {
-                    if (!Parents->Add(currp->Parent)) {
-                        return FALSE;
-                    }
+
+            for (ptr = RtlEnumerateGenericTableWithoutSplaying(
+                    &currp->Children, &restart_key);
+                 ptr != NULL;
+                 ptr = RtlEnumerateGenericTableWithoutSplaying(
+                    &currp->Children, &restart_key)) {
+
+                RtlInitializeBitMap(&bitmap_hdr, PCHILD_ENTRY(ptr)->ChildBits,
+                    BITS_PER_CHILD_ENTRY);
+
+                count += RtlNumberOfSetBits(&bitmap_hdr);
+
+                if (count >= MinimumNumberOfChildren) {
                     break;
+                }
+            }
+
+            if (count >= MinimumNumberOfChildren) {
+                if (!Parents->Add(currp->Parent)) {
+                    return FALSE;
                 }
             }
         }
@@ -497,6 +704,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 DIGRAPH::EliminateCycles(
     IN OUT  PCONTAINER  RemovedEdges
@@ -567,11 +775,12 @@ Return Value:
 --*/
 {
     PPARENT_ENTRY   parent_entry;
-    PCHILD_ENTRY    child_entry;
     PNUMBER_SET     nodes_to_delete;
     ULONG           i, set_card, child_node;
     PDIGRAPH_EDGE   p;
-
+    RTL_BITMAP      bitmap_hdr;
+    PVOID           restart_key;
+    PVOID           ptr;
 
     Visited->SetBit(CurrentNode);
     if (!Ancestors->Push(CurrentNode)) {
@@ -580,38 +789,58 @@ Return Value:
 
     nodes_to_delete = NULL;
 
-    if (parent_entry = GetParentEntry(CurrentNode)) {
-        child_entry = parent_entry->Children;
-    } else {
-        child_entry = NULL;
-    }
-    for (; child_entry; child_entry = child_entry->Next) {
+    if (NULL != (parent_entry = GetParentEntry(CurrentNode))) {
 
-        if (Visited->IsBitSet(child_entry->Child)) {
+        // traverse list
 
-            // Check for cycle.
+        restart_key = NULL;
+        for (ptr = RtlEnumerateGenericTableWithoutSplaying(
+                &parent_entry->Children, &restart_key);
+             ptr != NULL;
+             ptr = RtlEnumerateGenericTableWithoutSplaying(
+                &parent_entry->Children, &restart_key)) {
 
-            if (Ancestors->IsMember(child_entry->Child)) {
+            for (i = 0; i < BITS_PER_CHILD_ENTRY; ++i) {
 
-                // Cycle detected.
+                RtlInitializeBitMap(&bitmap_hdr, PCHILD_ENTRY(ptr)->ChildBits,
+                    BITS_PER_CHILD_ENTRY);
 
-                if (!nodes_to_delete) {
-                    if (!(nodes_to_delete = NEW NUMBER_SET) ||
-                        !nodes_to_delete->Initialize()) {
-
-                        return FALSE;
-                    }
+                if (0 == RtlCheckBit(&bitmap_hdr, i)) {
+                    continue;
                 }
 
-                if (!nodes_to_delete->Add(child_entry->Child)) {
+                //
+                // Child + i is a child of this parent.
+                //
+
+
+                if (Visited->IsBitSet(PCHILD_ENTRY(ptr)->Child + i)) {
+
+                    // Check for cycle.
+
+                    if (Ancestors->IsMember(PCHILD_ENTRY(ptr)->Child + i)) {
+
+                        // Cycle detected.
+
+                        if (!nodes_to_delete) {
+                            if (!(nodes_to_delete = NEW NUMBER_SET) ||
+                                !nodes_to_delete->Initialize()) {
+
+                                return FALSE;
+                            }
+                        }
+
+                        if (!nodes_to_delete->Add(PCHILD_ENTRY(ptr)->Child + i)) {
+                            return FALSE;
+                        }
+                    }
+
+                } else if (!DescendDigraph(PCHILD_ENTRY(ptr)->Child + i, Visited,
+                    Ancestors, RemovedEdges)) {
+
                     return FALSE;
                 }
             }
-
-        } else if (!DescendDigraph(child_entry->Child, Visited, Ancestors,
-                                   RemovedEdges)) {
-
-            return FALSE;
         }
     }
 

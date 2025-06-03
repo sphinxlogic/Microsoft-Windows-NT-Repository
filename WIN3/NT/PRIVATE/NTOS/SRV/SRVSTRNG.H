@@ -55,7 +55,7 @@ extern PWSTR StrServerDevice;
 extern PSTR StrLogonProcessName;
 extern PSTR StrLogonPackageName;
 
-extern PWSTR StrStarDotStar;
+extern WCHAR StrStarDotStar[];
 
 extern PSTR StrTransportAddress;
 extern PSTR StrConnectionContext;
@@ -76,9 +76,19 @@ extern PWSTR StrRegSrvDisplayName;
 extern PWSTR StrRegOsVersionPath;
 extern PWSTR StrRegVersionKeyName;
 
+#ifdef  SRV_PNP_POWER
+extern PWSTR StrRegSrvBindingsPath;
+extern PWSTR StrRegTransportBindingList;
+#endif
+
 extern PWSTR StrRegSrvParameterPath;
+extern PWSTR StrRegExtendedCharsInPath;
+extern PWSTR StrRegExtendedCharsInPathValue;
 extern PWSTR StrRegNullSessionPipes;
 extern PWSTR StrRegNullSessionShares;
+extern PWSTR StrRegPipesNeedLicense;
+
+extern PWSTR StrRegErrorLogIgnore;
 
 //
 // Pipes that are accessible by the NULL session.
@@ -87,6 +97,21 @@ extern PWSTR StrRegNullSessionShares;
 extern PWSTR StrDefaultNullSessionPipes[];
 extern PWSTR StrDefaultNullSessionShares[];
 
+//
+// DOS device names that can not be accessed by clients
+//
+extern UNICODE_STRING SrvDosDevices[];
+
+//
+// Pipes that require a license for access
+//
+extern PWSTR StrDefaultPipesNeedLicense[];
+
+//
+// Error codes that should not be logged
+//
+extern PWSTR StrDefaultErrorLogIgnore[];
+
 extern PSTR StrDialects[];
 extern PWSTR StrClientTypes[];
 
@@ -94,7 +119,7 @@ extern PWSTR StrClientTypes[];
 extern PWSTR StrWriteAndX;
 #endif
 
-extern PWSTR StrQuestionMarks;
+extern WCHAR StrQuestionMarks[];
 
 #define FS_CDFS L"CDFS"
 #define FS_FAT L"FAT"

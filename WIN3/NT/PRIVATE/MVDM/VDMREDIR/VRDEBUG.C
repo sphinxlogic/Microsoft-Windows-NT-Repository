@@ -1491,7 +1491,7 @@ Return Value:
                     DbgPrint("ParseString: syntax error\n");
                     return FALSE;
                 }
-                if (!IsValidDumpDescriptor(strupr(tib.RegValOrId.Id))) {
+                if (!IsValidDumpDescriptor(_strupr(tib.RegValOrId.Id))) {
                     DbgPrint("ParseString: Invalid memory dump descriptor:'%s'\n",
                         tib.RegValOrId.Id);
                     return FALSE;
@@ -1503,13 +1503,13 @@ Return Value:
                     DbgPrint("ParseString: syntax error\n");
                     return FALSE;
                 }
-                if (!IsValidStructDescriptor(strupr(tib.RegValOrId.Id))) {
+                if (!IsValidStructDescriptor(_strupr(tib.RegValOrId.Id))) {
                     DbgPrint("ParseString: Invalid structure dump descriptor:'%s'\n",
                         tib.RegValOrId.Id);
                     return FALSE;
                 }
                 strcpy(structure.StructureDescriptor, tib.RegValOrId.Id);
-                strupr(structure.StructureDescriptor);
+                _strupr(structure.StructureDescriptor);
                 --parts_to_collect;
             } else {
                 if (!(pFunc = FindFuncDiags(tib.RegValOrId.Id))) {
@@ -2007,7 +2007,7 @@ FindFuncDiags(
         }
     }
     for (ptr = FunctionList; ptr; ptr = ptr->Next) {
-        if (!stricmp(function_name, ptr->FunctionName)) {
+        if (!_stricmp(function_name, ptr->FunctionName)) {
             return ptr;
         }
     }
@@ -2145,7 +2145,7 @@ BOOL IsLexKeyword(LPSTR tokstr, TOKEN* pToken) {
     int i;
 
     for (i = 0; i < NUMBER_OF_RECOGNIZABLE_TOKENS; ++i) {
-        if (!stricmp(tokstr, DiagnosticTokens[i].TokenString)) {
+        if (!_stricmp(tokstr, DiagnosticTokens[i].TokenString)) {
             *pToken = DiagnosticTokens[i].Token;
             return TRUE;
         }
@@ -2158,7 +2158,7 @@ BOOL IsLexRegister(LPSTR tokstr, LPREGVAL lpRegVal) {
 
     if (strlen(tokstr) == 2) {
         for (i = 0; i < NUMBER_OF_CPU_REGISTERS; ++i) {
-            if (!stricmp(tokstr, Registers[i].RegisterName)) {
+            if (!_stricmp(tokstr, Registers[i].RegisterName)) {
                 lpRegVal->IsRegister = TRUE;
                 lpRegVal->RegOrVal.Register = Registers[i].Register;
                 return TRUE;
@@ -2178,7 +2178,7 @@ BOOL IsLexNumber(LPSTR tokstr, LPREGVAL lpRegVal) {
     // only debug code
     //
 
-    if (!strnicmp(tokstr, "0x", 2)) {
+    if (!_strnicmp(tokstr, "0x", 2)) {
         tokstr += 2;
         yes = isxdigit(*tokstr);
         while (isxdigit((int)*tokstr)) {

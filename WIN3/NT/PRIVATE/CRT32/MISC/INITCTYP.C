@@ -65,6 +65,10 @@ int _CRTAPI3 _init_ctype (
 	void
 	)
 {
+#if defined _POSIX_
+    return 0;
+
+#else /* _POSIX_ */
 	/* non-C locale table for char's    */
 	static unsigned short *ctype1 = NULL; /* keep around until next time */
 	unsigned short *newctype1; /* temp new table */
@@ -203,5 +207,6 @@ error_cleanup:
 
 		return 0;
 	}
+#endif /* _POSIX_ */
 }
 #endif /* _INTL */

@@ -1,10 +1,10 @@
 /*++
 
-Copyright (c) 1994  Microsoft Corporation
+Copyright (c) 1994-96  Microsoft Corporation
 
 Module Name:
 
-    bindi.c
+    map.c
 
 Abstract:
     Implementation for the MapAndLoad API
@@ -15,13 +15,7 @@ Revision History:
 
 --*/
 
-#define _NTSYSTEM_     // So RtlImageDirectoryEntryToData will not be imported
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <windows.h>
-#define _IMAGEHLP_SOURCE_
-#include <imagehlp.h>
+#include <private.h>
 
 
 BOOL
@@ -35,21 +29,15 @@ MapAndLoad(
 {
     HANDLE hFile;
     HANDLE hMappedFile;
-    PIMAGE_DOS_HEADER DosHeader;
     CHAR SearchBuffer[MAX_PATH];
     DWORD dw;
     LPSTR FilePart;
     LPSTR OpenName;
-    BOOL fRC;
 
-    //
     // open and map the file.
     // then fill in the loaded image descriptor
-    //
 
     LoadedImage->hFile = INVALID_HANDLE_VALUE;
-    LoadedImage->fSystemImage = FALSE;
-    LoadedImage->fDOSImage = FALSE;
 
     OpenName = ImageName;
     dw = 0;
@@ -57,7 +45,7 @@ retry:
     hFile = CreateFile(
                 OpenName,
                 ReadOnly ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
                 NULL,
                 OPEN_EXISTING,
                 0,
@@ -86,6 +74,34 @@ retry:
         }
         return FALSE;
     }
+
+    if (MapIt(hFile, LoadedImage, ReadOnly) == FALSE) {
+        CloseHandle(hFile);
+        return FALSE;
+    } else {
+        LoadedImage->ModuleName = (LPSTR) MemAlloc( strlen(OpenName)+16 );
+        strcpy( LoadedImage->ModuleName, OpenName );
+
+        // If readonly, no need to keep the file open..
+
+        if (ReadOnly) {
+            CloseHandle(hFile);
+        }
+
+        return TRUE;
+    }
+}
+
+
+BOOL
+MapIt(
+    HANDLE hFile,
+    PLOADED_IMAGE LoadedImage,
+    BOOL   ReadOnly
+    )
+{
+    HANDLE hMappedFile;
+
     hMappedFile = CreateFileMapping(
                     hFile,
                     NULL,
@@ -95,7 +111,6 @@ retry:
                     NULL
                     );
     if ( !hMappedFile ) {
-        CloseHandle(hFile);
         return FALSE;
     }
 
@@ -109,18 +124,36 @@ retry:
 
     CloseHandle(hMappedFile);
 
-    if ( !LoadedImage->MappedAddress ) {
-        CloseHandle(hFile);
-        return FALSE;
+    if (!LoadedImage->MappedAddress ||
+        !CalculateImagePtrs(LoadedImage)) {
+        return(FALSE);
     }
 
-    //
+    LoadedImage->SizeOfImage = GetFileSize(hFile, NULL);
+
+    if (ReadOnly) {
+        LoadedImage->hFile = INVALID_HANDLE_VALUE;
+    } else {
+        LoadedImage->hFile = hFile;
+    }
+
+    return(TRUE);
+}
+
+
+BOOL
+CalculateImagePtrs(
+    PLOADED_IMAGE LoadedImage
+    )
+{
+    PIMAGE_DOS_HEADER DosHeader;
+    BOOL fRC;
+
     // Everything is mapped. Now check the image and find nt image headers
-    //
 
     fRC = TRUE;  // Assume the best
 
-    try {
+    __try {
         DosHeader = (PIMAGE_DOS_HEADER)LoadedImage->MappedAddress;
 
         if ((DosHeader->e_magic != IMAGE_DOS_SIGNATURE) &&
@@ -152,6 +185,8 @@ retry:
 
             fRC = FALSE;
             goto tryout;
+        } else {
+            LoadedImage->fDOSImage = FALSE;
         }
 
         // No optional header indicates an object...
@@ -165,6 +200,8 @@ retry:
 
         if ( LoadedImage->FileHeader->OptionalHeader.ImageBase >= 0x80000000 ) {
             LoadedImage->fSystemImage = TRUE;
+        } else {
+            LoadedImage->fSystemImage = FALSE;
         }
 
         // Check for versions < 2.50
@@ -175,44 +212,94 @@ retry:
             goto tryout;
         }
 
+        InitializeListHead( &LoadedImage->Links );
         LoadedImage->Characteristics = LoadedImage->FileHeader->FileHeader.Characteristics;
         LoadedImage->NumberOfSections = LoadedImage->FileHeader->FileHeader.NumberOfSections;
         LoadedImage->Sections = (PIMAGE_SECTION_HEADER)((ULONG)LoadedImage->FileHeader + sizeof(IMAGE_NT_HEADERS));
         LoadedImage->LastRvaSection = LoadedImage->Sections;
 
-        // If readonly, no need to keep the file open..
-
-        if ( ReadOnly ) {
-            CloseHandle(hFile);
-            LoadedImage->SizeOfImage = 0;
-        }
-        else {
-            LoadedImage->hFile = hFile;
-            LoadedImage->SizeOfImage = GetFileSize(hFile, NULL);
-        }
 tryout:
         if (fRC == FALSE) {
             UnmapViewOfFile(LoadedImage->MappedAddress);
-            CloseHandle(hFile);
         }
 
-    } except ( EXCEPTION_EXECUTE_HANDLER ) {
+    } __except ( EXCEPTION_EXECUTE_HANDLER ) {
         fRC = FALSE;
     }
 
     return fRC;
 }
 
-VOID
+BOOL
 UnMapAndLoad(
     PLOADED_IMAGE pLi
     )
 {
+    UnMapIt(pLi);
+
+    if (pLi->hFile != INVALID_HANDLE_VALUE)
+        CloseHandle(pLi->hFile);
+
+    return TRUE;
+}
+
+BOOL
+GrowMap (
+    PLOADED_IMAGE   pLi,
+    LONG            lSizeOfDelta
+    )
+{
+    if (pLi->hFile == INVALID_HANDLE_VALUE) {
+        // Can't grow read/only files.
+        return FALSE;
+    } else {
+        HANDLE hMappedFile;
+        FlushViewOfFile(pLi->MappedAddress, pLi->SizeOfImage);
+        UnmapViewOfFile(pLi->MappedAddress);
+
+        pLi->SizeOfImage += lSizeOfDelta;
+
+        SetFilePointer(pLi->hFile, pLi->SizeOfImage, NULL, FILE_BEGIN);
+        SetEndOfFile(pLi->hFile);
+
+        hMappedFile = CreateFileMapping(
+                        pLi->hFile,
+                        NULL,
+                        PAGE_READWRITE,
+                        0,
+                        pLi->SizeOfImage,
+                        NULL
+                        );
+        if ( !hMappedFile ) {
+            return FALSE;
+        }
+
+        pLi->MappedAddress = (PUCHAR) MapViewOfFile(
+                                        hMappedFile,
+                                        FILE_MAP_WRITE,
+                                        0,
+                                        0,
+                                        0
+                                        );
+
+        CloseHandle(hMappedFile);
+
+        return TRUE;
+    }
+}
+
+
+VOID
+UnMapIt(
+    PLOADED_IMAGE pLi
+    )
+{
     DWORD HeaderSum, CheckSum;
+    BOOL bl;
+    DWORD dw;
 
     // Test for read-only
     if (pLi->hFile == INVALID_HANDLE_VALUE) {
-        FlushViewOfFile(pLi->MappedAddress, pLi->SizeOfImage);
         UnmapViewOfFile(pLi->MappedAddress);
     } else {
         CheckSumMappedFile( pLi->MappedAddress,
@@ -226,10 +313,140 @@ UnMapAndLoad(
         UnmapViewOfFile(pLi->MappedAddress);
 
         if (pLi->SizeOfImage != GetFileSize(pLi->hFile, NULL)) {
-            SetFilePointer(pLi->hFile, pLi->SizeOfImage, NULL, FILE_BEGIN);
-            SetEndOfFile(pLi->hFile);
+            dw = SetFilePointer(pLi->hFile, pLi->SizeOfImage, NULL, FILE_BEGIN);
+            dw = GetLastError();
+            bl = SetEndOfFile(pLi->hFile);
+            dw = GetLastError();
+        }
+    }
+}
+
+
+BOOL
+GetImageConfigInformation(
+    PLOADED_IMAGE LoadedImage,
+    PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigInformation
+    )
+{
+    PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigData;
+    ULONG i;
+
+    ImageConfigData = (PIMAGE_LOAD_CONFIG_DIRECTORY) ImageDirectoryEntryToData( LoadedImage->MappedAddress,
+                                                 FALSE,
+                                                 IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                                 &i
+                                               );
+    if (ImageConfigData != NULL && i == sizeof( *ImageConfigData )) {
+        memcpy( ImageConfigInformation, ImageConfigData, sizeof( *ImageConfigData ) );
+        return TRUE;
+        }
+    else {
+        return FALSE;
+        }
+}
+
+BOOL
+SetImageConfigInformation(
+    PLOADED_IMAGE LoadedImage,
+    PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigInformation
+    )
+{
+    PIMAGE_LOAD_CONFIG_DIRECTORY ImageConfigData;
+    ULONG i, DirectoryAddress;
+
+    if (LoadedImage->hFile == INVALID_HANDLE_VALUE) {
+        return FALSE;
+    }
+
+    ImageConfigData = (PIMAGE_LOAD_CONFIG_DIRECTORY) ImageDirectoryEntryToData( LoadedImage->MappedAddress,
+                                                 FALSE,
+                                                 IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG,
+                                                 &i
+                                               );
+    if (ImageConfigData != NULL && i == sizeof( *ImageConfigData )) {
+        memcpy( ImageConfigData, ImageConfigInformation, sizeof( *ImageConfigData ) );
+        return TRUE;
+    }
+
+    DirectoryAddress = GetImageUnusedHeaderBytes( LoadedImage, &i );
+    if (i < sizeof(*ImageConfigData)) {
+        return FALSE;
+    }
+
+    LoadedImage->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG ].VirtualAddress = DirectoryAddress;
+    LoadedImage->FileHeader->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG ].Size = sizeof( *ImageConfigData );
+    ImageConfigData = (PIMAGE_LOAD_CONFIG_DIRECTORY)
+        ((PCHAR)LoadedImage->MappedAddress + DirectoryAddress);
+    memcpy( ImageConfigData, ImageConfigInformation, sizeof( *ImageConfigData ) );
+    return TRUE;
+}
+
+
+BOOLEAN ImageLoadInit;
+LIST_ENTRY ImageLoadList;
+
+PLOADED_IMAGE
+ImageLoad(
+    LPSTR DllName,
+    LPSTR DllPath
+    )
+{
+    PLIST_ENTRY Head,Next;
+    PLOADED_IMAGE LoadedImage;
+
+    if (!ImageLoadInit) {
+        InitializeListHead( &ImageLoadList );
+        ImageLoadInit = TRUE;
         }
 
-        CloseHandle(pLi->hFile);
+    Head = &ImageLoadList;
+    Next = Head->Flink;
+
+    while (Next != Head) {
+        LoadedImage = CONTAINING_RECORD( Next, LOADED_IMAGE, Links );
+        if (!_stricmp( DllName, LoadedImage->ModuleName )) {
+            return LoadedImage;
+            }
+
+        Next = Next->Flink;
+        }
+
+    LoadedImage = (PLOADED_IMAGE) MemAlloc( sizeof( *LoadedImage ) + strlen( DllName ) + 1 );
+    if (LoadedImage != NULL) {
+        LoadedImage->ModuleName = (LPSTR)(LoadedImage + 1);
+        strcpy( LoadedImage->ModuleName, DllName );
+        if (MapAndLoad( DllName, DllPath, LoadedImage, TRUE, TRUE )) {
+            InsertTailList( &ImageLoadList, &LoadedImage->Links );
+            return LoadedImage;
+            }
+
+        MemFree( LoadedImage );
+        LoadedImage = NULL;
+        }
+
+    return LoadedImage;
+}
+
+BOOL
+ImageUnload(
+    PLOADED_IMAGE LoadedImage
+    )
+{
+    if (!IsListEmpty( &LoadedImage->Links )) {
+        RemoveEntryList( &LoadedImage->Links );
     }
+
+    UnMapAndLoad( LoadedImage );
+    MemFree( LoadedImage );
+
+    return TRUE;
+}
+
+BOOL
+MarkImageAsRunFromSwap(
+    LPSTR   ImageName,
+    ULONG   Flags
+    )
+{
+    return(FALSE);
 }

@@ -321,6 +321,12 @@ BOOL      gfServers;
 BOOL      gfNetworks    = FALSE;
 BOOL      gfEnhanced;
 
+#ifdef OEM_EMS
+BOOL      gfExchange;
+CHAR      gszDleDsName[MAX_UI_RESOURCE_SIZE];
+CHAR      gszDleIsName[MAX_UI_RESOURCE_SIZE];
+#endif
+
 HRIBBON   ghRibbonMain;
 HRIBBON   ghRibbonDoc;
 
@@ -336,6 +342,10 @@ INT16     gCatBsetChoice;
 INT16     gCatTapeChoice;
 
 INT16     gViewNetChoices ;
+
+#ifdef OEM_EMS
+INT16     gViewXchgChoices ;
+#endif
 
 INT       gfPWForPWDBState;
 
@@ -355,7 +365,8 @@ UINT64    gn64LastOperTotalBytes;
 // *************************** OLD TMENU GLOBAL ITEMS ************************
 
 AUTO_PASSWORD gb_auto_password = {
-     TEXT("­ì«%MÛì!>>"),
+//     TEXT("­ì«%MÛì!>>"),
+     {0xad, 0xec, 0xab, 0x25, 1, 0x4d, 0xdb, 0xec, 0x21, 0x3e, 0x3e, 0},
      {TEXT('\0'),TEXT('\0'),TEXT('\0'),TEXT('\0'),TEXT('\0'),TEXT('\0'),TEXT('\0'),TEXT('\0')}
 };
 
@@ -491,6 +502,12 @@ BOOL  GUI_InitGlobals ( VOID )
      gfTerminateApp     = FALSE;
      gfHWInitialized    = FALSE;
      gnMainRibbonHeight = 0;
+
+#ifdef OEM_EMS
+     gfExchange         = FALSE ;
+     RSM_StringCopy( IDS_XCHNG_DIR, gszDleDsName, MAX_UI_RESOURCE_LEN );
+     RSM_StringCopy( IDS_XCHNG_INFO_STORE, gszDleIsName, MAX_UI_RESOURCE_LEN );
+#endif 
 
      // Clear out the SubClass proc function pointers.
 

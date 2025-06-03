@@ -33,7 +33,7 @@ class RepAsPadExprDict;
 class RepAsSizeDict;
 class CG_NDR;
 
-#if defined(_MIPS_) || defined(_ALPHA_)     // winnt
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)   // winnt
 #define UNALIGNED __unaligned               // winnt
 #else                                       // winnt
 #define UNALIGNED                           // winnt
@@ -57,6 +57,8 @@ typedef enum
 	FS_SHORT_OFFSET,
 	FS_SHORT_TYPE_OFFSET,
     FS_SHORT_STACK_OFFSET,
+    FS_SMALL_STACK_OFFSET,
+    FS_SMALL_STACK_SIZE,
 	FS_PAD_MACRO,
 	FS_SIZE_MACRO,
     FS_UNKNOWN_STACK_SIZE
@@ -68,6 +70,8 @@ typedef struct
     short           FormatStringOffset;
     short           AlphaOffset;
     short           MipsOffset;
+    short           PpcOffset;
+    short           MacOffset;
     } OffsetDictElem;
 
 class OffsetDictionary : Dictionary 
@@ -122,9 +126,29 @@ public :
                         return pDictElem->MipsOffset;
                         }
 
+    short           LookupPpcOffset( short Offset )
+                        {
+                        OffsetDictElem *    pDictElem;
+
+                        pDictElem = LookupOffset( Offset );
+
+                        return pDictElem->PpcOffset;
+                        }
+
+    short           LookupMacOffset( short Offset )
+                        {
+                        OffsetDictElem *    pDictElem;
+
+                        pDictElem = LookupOffset( Offset );
+
+                        return pDictElem->MacOffset;
+                        }
+
     void            Insert( short FormatStringOffset, 
                             short AlphaOffset,
-                            short MipsOffset )
+                            short MipsOffset,
+                            short PpcOffset,
+                            short MacOffset )
                         {
                         OffsetDictElem * pElem;
                         OffsetDictElem * pElemSave;
@@ -134,6 +158,8 @@ public :
                         pElem->FormatStringOffset = FormatStringOffset;
                         pElem->AlphaOffset = AlphaOffset;
                         pElem->MipsOffset = MipsOffset;
+                        pElem->PpcOffset = PpcOffset;
+                        pElem->MacOffset = MacOffset;
 
                         //
                         // Delete any entries which currently match, this 
@@ -205,13 +231,41 @@ public :
                         }
     };
 
+typedef struct _CommentDictElem
+    {
+    struct _CommentDictElem *   Next;
+    short                       FormatStringOffset;
+    char *                      Comment;
+    } CommentDictElem;
+
+class CommentDictionary : Dictionary 
+    {
+   
+public :
+
+                    CommentDictionary() : Dictionary()
+                        {
+                        }
+
+    virtual 
+    int             Compare( pUserType p1, pUserType p2 )
+                        {
+                        return ((CommentDictElem *)p1)->FormatStringOffset - 
+                               ((CommentDictElem *)p2)->FormatStringOffset;
+                        }
+
+    char *          GetComments( short Offset );
+
+    void            Insert( short FormatStringOffset, char * Comment );
+    };
+
 class FRMTREG_DICT;
 
 class FORMAT_STRING 
 	{
 
 	// Format string buffer.
-	char *			pBuffer;
+	unsigned char *	pBuffer;
 	
 	FRMTREG_DICT *	pReuseDict;
 	friend class FRMTREG_DICT;
@@ -219,7 +273,7 @@ class FORMAT_STRING
 #ifdef FSDEBUG
 	// This tells us how to interpret the format string for debugging.
 	// purposes.
-	char *			pBufferType;
+	unsigned char *	pBufferType;
 #endif
 
 	// Total current allocated buffer size.
@@ -234,6 +288,8 @@ class FORMAT_STRING
     OffsetDictionary    OffsetDict;
 
     StackSizeDictionary StackSizeDict;
+
+    CommentDictionary   CommentDict;
 
 	//
 	// Increment CurrentOffset and update LastOffset if needed.
@@ -267,6 +323,12 @@ public:
 		if ( CurrentOffset % 2 ) 
 			PushFormatChar( FC_PAD );
 		}
+
+    void
+    AddComment( short FormatOffset, char * Comment )
+        {
+        CommentDict.Insert( FormatOffset, Comment );
+        }
 				
 	//
 	// Add a format char at the current offset.
@@ -482,14 +544,16 @@ public:
 		}
 
     //
-    // Push a stack offset.  We take an i386, a MIPS and an 
+    // Push a stack offset.  We take an i386, a MIPS, a PPC and an 
     // Alpha offset, since the Alpha calling convention is so wierd, and MIPS
     // aligns 8 byte dudes on the stack.
     //
     void
     PushShortStackOffset( short Offset, 
                           short AlphaOffset,
-                          short MipsOffset )
+                          short MipsOffset,
+                          short PpcOffset,
+                          short MacOffset )
         {
 		CheckSize();
 
@@ -499,7 +563,11 @@ public:
 
 		*((short UNALIGNED *)(pBuffer + CurrentOffset)) = Offset;
 
-        OffsetDict.Insert( (short) CurrentOffset, AlphaOffset, MipsOffset );
+        OffsetDict.Insert( (short) CurrentOffset, 
+                           AlphaOffset, 
+                           MipsOffset,
+                           PpcOffset,
+                           MacOffset );
 
 		IncrementOffset(2);
         }
@@ -508,12 +576,60 @@ public:
 	void
 	PushShortStackOffset( long Offset, 
                           long AlphaOffset,
-                          long MipsOffset )
+                          long MipsOffset,
+                          long PpcOffset,
+                          long MacOffset )
 		{
 		PushShortStackOffset( (short) Offset, 
                               (short) AlphaOffset,
-                              (short) MipsOffset );
+                              (short) MipsOffset,
+                              (short) PpcOffset,
+                              (short) MacOffset );
 		}
+
+	void
+	PushSmallStackOffset( long Offset, 
+                          long AlphaOffset,
+                          long MipsOffset,
+                          long PpcOffset,
+                          long MacOffset )
+        {
+		CheckSize();
+
+#ifdef FSDEBUG
+		pBufferType[CurrentOffset] = FS_SMALL_STACK_OFFSET;
+#endif
+
+		pBuffer[CurrentOffset] = (unsigned char) Offset;
+
+        OffsetDict.Insert( (short) CurrentOffset, 
+                           (short) AlphaOffset, 
+                           (short) MipsOffset,
+                           (short) PpcOffset,
+                           (short) MacOffset );
+
+		IncrementOffset(1);
+        }
+
+    //
+    // Push a parameter stack size expressed as the number of ints required
+    // for the parameter on the stack.  We have to emit a #ifdef ALPHA in
+    // the stub to make sure the number of ints is a multiple of 2 on that 
+    // platform (since params are aligned at 8 byte boundaries).
+    //
+    void
+    PushSmallStackSize( char StackSize )
+        {
+        CheckSize();
+
+#ifdef FSDEBUG
+        pBufferType[CurrentOffset] = FS_SMALL_STACK_SIZE;
+#endif
+
+        pBuffer[CurrentOffset] = StackSize;
+
+        IncrementOffset(1);
+        }
 
     //
     // Push an unknown rep as stack size.  We need the type name so we can
@@ -543,6 +659,15 @@ public:
 		}
 
 	//
+	// Get a short at a specific offset in the format string.
+	//
+	short
+	GetFormatShort( long offset )
+		{
+		return *(short UNALIGNED *)(pBuffer + offset);
+		}
+
+	//
 	// Get the current format string offset.
 	//
 	unsigned short
@@ -566,6 +691,7 @@ public:
 	// Output the format string structure to the given stream.
 	//
 	void	Output( ISTREAM *    		pStream,
+					char *				pTypeName,
 					char *				pName,
                     RepAsPadExprDict *	pPadDict,
                     RepAsSizeDict    *	pSizeDict );

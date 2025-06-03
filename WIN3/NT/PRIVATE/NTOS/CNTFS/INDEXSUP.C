@@ -19,6 +19,17 @@ Revision History:
 --*/
 
 #include "NtfsProc.h"
+#include "Index.h"
+
+//
+//  This constant affects the logic in NtfsRetrieveOtherFileName.
+//  If an index is greater than this size, then we retrieve the other
+//  name by reading the file record.  The number is arbitrary, but the
+//  below value should normally kick in for directories of around 150
+//  to 200 files, or fewer if the names are quite large.
+//
+
+#define MAX_INDEX_TO_SCAN_FOR_NAMES      (0x10000)
 
 #if DBG
 BOOLEAN NtfsIndexChecks = TRUE;
@@ -50,6 +61,12 @@ if (NtfsIndexChecks) {                                              \
 
 #endif
 
+#ifdef _CAIRO_
+#define BINARY_SEARCH_ENTRIES           (128)
+#else
+#define BINARY_SEARCH_ENTRIES           (50)
+#endif
+
 //
 //  Local debug trace level
 //
@@ -57,148 +74,11 @@ if (NtfsIndexChecks) {                                              \
 #define Dbg                              (DEBUG_TRACE_INDEXSUP)
 
 //
-//  Define all private support routines.  Documentation of routine interface
-//  is with the routine itself.
+//  Define a tag for general pool allocations from this module
 //
 
-VOID
-NtfsGrowLookupStack (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PINDEX_CONTEXT IndexContext,
-    IN PINDEX_LOOKUP_STACK *Sp
-    );
-
-BOOLEAN
-ReadIndexBuffer (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN VCN Vcn,
-    IN BOOLEAN Reread,
-    OUT PINDEX_LOOKUP_STACK Sp
-    );
-
-PINDEX_ALLOCATION_BUFFER
-GetIndexBuffer (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    OUT PINDEX_LOOKUP_STACK Sp,
-    OUT PLONGLONG EndOfValidData
-    );
-
-VOID
-DeleteIndexBuffer (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ALLOCATION_BUFFER IndexBuffer
-    );
-
-VOID
-FindFirstIndexEntry (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PVOID Value,
-    IN ULONG ValueLength,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-BOOLEAN
-FindNextIndexEntry (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PVOID Value,
-    IN ULONG ValueLength,
-    IN BOOLEAN ValueContainsWildcards,
-    IN BOOLEAN IgnoreCase,
-    IN OUT PINDEX_CONTEXT IndexContext,
-    IN BOOLEAN NextFlag,
-    OUT PBOOLEAN MustRestart OPTIONAL
-    );
-
-PATTRIBUTE_RECORD_HEADER
-FindMoveableIndexRoot (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-PINDEX_ENTRY
-BinarySearchIndex (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_LOOKUP_STACK Sp,
-    IN PVOID Value,
-    IN ULONG ValueLength
-    );
-
-VOID
-AddToIndex (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ENTRY InsertIndexEntry,
-    IN OUT PINDEX_CONTEXT IndexContext,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
-    );
-
-VOID
-InsertSimpleRoot (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ENTRY InsertIndexEntry,
-    IN BOOLEAN DeleteIt,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-VOID
-PushIndexRoot (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-VOID
-InsertSimpleAllocation (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ENTRY InsertIndexEntry,
-    IN BOOLEAN DeleteIt,
-    IN PINDEX_LOOKUP_STACK Sp,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
-    );
-
-PINDEX_ENTRY
-InsertWithBufferSplit (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ENTRY InsertIndexEntry,
-    IN BOOLEAN DeleteIt,
-    IN OUT PINDEX_CONTEXT IndexContext,
-    OUT PQUICK_INDEX QuickIndex OPTIONAL
-    );
-
-VOID
-DeleteFromIndex (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-VOID
-DeleteSimple (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN PINDEX_ENTRY IndexEntry,
-    IN OUT PINDEX_CONTEXT IndexContext
-    );
-
-VOID
-PruneIndex (
-    IN PIRP_CONTEXT IrpContext,
-    IN PSCB Scb,
-    IN OUT PINDEX_CONTEXT IndexContext,
-    OUT PINDEX_ENTRY *DeleteEntry
-    );
-
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('IFtN')
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsReinitializeIndexContext)
@@ -228,16 +108,19 @@ PruneIndex (
 #pragma alloc_text(PAGE, NtfsPushIndexRoot)
 #pragma alloc_text(PAGE, NtfsRestartDeleteSimpleAllocation)
 #pragma alloc_text(PAGE, NtfsRestartDeleteSimpleRoot)
+#pragma alloc_text(PAGE, NtfsRestartIndexEnumeration)
 #pragma alloc_text(PAGE, NtfsRestartInsertSimpleAllocation)
 #pragma alloc_text(PAGE, NtfsRestartInsertSimpleRoot)
-#pragma alloc_text(PAGE, NtfsRestartSetIndexVcn)
+#pragma alloc_text(PAGE, NtfsRestartSetIndexBlock)
 #pragma alloc_text(PAGE, NtfsRestartUpdateFileName)
 #pragma alloc_text(PAGE, NtfsRestartWriteEndOfIndex)
-#pragma alloc_text(PAGE, NtfsRetrieveOtherIndexEntry)
+#pragma alloc_text(PAGE, NtfsRetrieveOtherFileName)
 #pragma alloc_text(PAGE, NtfsUpdateFileNameInIndex)
+#pragma alloc_text(PAGE, NtfsUpdateIndexScbFromAttribute)
 #pragma alloc_text(PAGE, PruneIndex)
 #pragma alloc_text(PAGE, PushIndexRoot)
 #pragma alloc_text(PAGE, ReadIndexBuffer)
+#pragma alloc_text(PAGE, NtOfsRestartUpdateDataInIndex)
 #endif
 
 
@@ -247,7 +130,8 @@ NtfsCreateIndex (
     IN OUT PFCB Fcb,
     IN ATTRIBUTE_TYPE_CODE IndexedAttributeType,
     IN COLLATION_RULE CollationRule,
-    IN UCHAR ClustersPerIndexBuffer,
+    IN ULONG BytesPerIndexBuffer,
+    IN UCHAR BlocksPerIndexBuffer,
     IN PATTRIBUTE_ENUMERATION_CONTEXT Context OPTIONAL,
     IN USHORT AttributeFlags,
     IN BOOLEAN NewIndex,
@@ -271,9 +155,10 @@ Arguments:
 
     CollationRule - Collation Rule for this index.
 
-    ClustersPerIndexBuffer - Number of contiguous clusters to allocate
-                             for each index buffer allocated from the
-                             Index Allocation.
+    BytesPerIndexBuffer - Number of bytes in an index buffer.
+
+    BlocksPerIndexBuffer - Number of contiguous blocks to allocate for each
+        index buffer allocated from the index allocation.
 
     Context - If reinitializing an existing index, this context must
               currently describe the INDEX_ROOT attribute.  Must be
@@ -308,13 +193,14 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCreateIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "CollationRule = %08lx\n", CollationRule );
-    DebugTrace( 0, Dbg, "ClustersPerIndexBuffer = %08lx\n", ClustersPerIndexBuffer );
-    DebugTrace( 0, Dbg, "Context = %08lx\n", Context );
-    DebugTrace( 0, Dbg, "NewIndex = %02lx\n", NewIndex );
-    DebugTrace( 0, Dbg, "LogIt = %02lx\n", LogIt );
+    DebugTrace( +1, Dbg, ("NtfsCreateIndex\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("CollationRule = %08lx\n", CollationRule) );
+    DebugTrace( 0, Dbg, ("BytesPerIndexBuffer = %08lx\n", BytesPerIndexBuffer) );
+    DebugTrace( 0, Dbg, ("BlocksPerIndexBuffer = %08lx\n", BlocksPerIndexBuffer) );
+    DebugTrace( 0, Dbg, ("Context = %08lx\n", Context) );
+    DebugTrace( 0, Dbg, ("NewIndex = %02lx\n", NewIndex) );
+    DebugTrace( 0, Dbg, ("LogIt = %02lx\n", LogIt) );
 
     //
     //  First we will initialize the Index Root structure which is the value
@@ -326,9 +212,8 @@ Return Value:
 
     R.IndexRoot.IndexedAttributeType = IndexedAttributeType;
     R.IndexRoot.CollationRule = CollationRule;
-    R.IndexRoot.BytesPerIndexBuffer = BytesFromClusters( Fcb->Vcb,
-                                                         ClustersPerIndexBuffer );
-    R.IndexRoot.ClustersPerIndexBuffer = ClustersPerIndexBuffer;
+    R.IndexRoot.BytesPerIndexBuffer = BytesPerIndexBuffer;
+    R.IndexRoot.BlocksPerIndexBuffer = BlocksPerIndexBuffer;
 
     R.IndexRoot.IndexHeader.FirstIndexEntry = QuadAlign(sizeof(INDEX_HEADER));
     R.IndexRoot.IndexHeader.FirstFreeByte =
@@ -355,7 +240,7 @@ Return Value:
         //
 
         ASSERT( IndexedAttributeType < 0x10000000 );
-        ASSERT( IndexedAttributeType != 0 );
+        ASSERT( IndexedAttributeType != $UNUSED );
 
         //
         //  Initialize the attribute name.
@@ -438,11 +323,91 @@ Return Value:
         DebugUnwind( NtfsCreateIndex );
 
         if (NewIndex) {
-            NtfsCleanupAttributeContext( IrpContext, Context );
+            NtfsCleanupAttributeContext( Context );
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCreateIndex -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCreateIndex -> VOID\n") );
+
+    return;
+}
+
+
+VOID
+NtfsUpdateIndexScbFromAttribute (
+    IN PSCB Scb,
+    IN PATTRIBUTE_RECORD_HEADER IndexRootAttr
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when an Index Scb needs initialization.  Typically
+    once in the life of the Scb.  It will update the Scb out of the $INDEX_ROOT
+    attribute.
+
+Arguments:
+
+    Scb - Supplies the Scb for the index.
+
+    IndexRootAttr - Supplies the $INDEX_ROOT attribute.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PINDEX_ROOT IndexRoot = (PINDEX_ROOT) NtfsAttributeValue( IndexRootAttr );
+    PAGED_CODE();
+
+    //
+    //  Update the Scb out of the attribute.
+    //
+
+    if (FlagOn(IndexRootAttr->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK)) {
+
+        SetFlag(Scb->ScbState, SCB_STATE_COMPRESSED );
+        Scb->AttributeFlags |= IndexRootAttr->Flags & ATTRIBUTE_FLAG_COMPRESSION_MASK;
+
+    } else {
+
+        ClearFlag(Scb->ScbState, SCB_STATE_COMPRESSED );
+    }
+
+    //
+    //  Capture the values out of the attribute.  Note that we load the
+    //  BytesPerIndexBuffer last as a flag to indicate that the Scb is
+    //  loaded.
+    //
+
+#ifdef _CAIRO_
+    if (!FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX)) {
+#endif
+        Scb->ScbType.Index.AttributeBeingIndexed = IndexRoot->IndexedAttributeType;
+        Scb->ScbType.Index.CollationRule = IndexRoot->CollationRule;
+#ifdef _CAIRO_
+    }
+#endif
+
+    Scb->ScbType.Index.BlocksPerIndexBuffer = IndexRoot->BlocksPerIndexBuffer;
+
+    //
+    //  Compute the shift count for this index.
+    //
+
+    if (IndexRoot->BytesPerIndexBuffer >= Scb->Vcb->BytesPerCluster) {
+
+        Scb->ScbType.Index.IndexBlockByteShift = (UCHAR) Scb->Vcb->ClusterShift;
+
+    } else {
+
+        Scb->ScbType.Index.IndexBlockByteShift = DEFAULT_INDEX_BLOCK_BYTE_SHIFT;
+    }
+
+    Scb->ScbType.Index.BytesPerIndexBuffer = IndexRoot->BytesPerIndexBuffer;
 
     return;
 }
@@ -453,7 +418,6 @@ NtfsFindIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN BOOLEAN IgnoreCase,
     OUT PQUICK_INDEX QuickIndex OPTIONAL,
     OUT PBCB *Bcb,
@@ -472,8 +436,6 @@ Arguments:
     Scb - Supplies the Scb for the index.
 
     Value - Supplies a pointer to the value to lookup.
-
-    ValueLength - Supplies the length of the value in bytes.
 
     IgnoreCase - For indices with collation rules where character case
                  may be relevant, supplies whether character case is
@@ -505,13 +467,12 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFindIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase );
+    DebugTrace( +1, Dbg, ("NtfsFindIndexEntry\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
 
-    NtfsInitializeIndexContext( IrpContext, &IndexContext );
+    NtfsInitializeIndexContext( &IndexContext );
 
     try {
 
@@ -522,7 +483,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              Value,
-                             ValueLength,
                              &IndexContext );
 
         //
@@ -533,9 +493,9 @@ Return Value:
         if (IgnoreCase) {
 
             (*NtfsUpcaseValue[Scb->ScbType.Index.CollationRule])
-                              ( IrpContext,
-                                Value,
-                                ValueLength );
+                              ( IrpContext->Vcb->UpcaseTable,
+                                IrpContext->Vcb->UpcaseTableSize,
+                                Value );
         }
 
         //
@@ -545,7 +505,6 @@ Return Value:
         if (FindNextIndexEntry( IrpContext,
                                 Scb,
                                 Value,
-                                ValueLength,
                                 FALSE,
                                 IgnoreCase,
                                 &IndexContext,
@@ -585,7 +544,7 @@ Return Value:
                     QuickIndex->ChangeCount = Scb->ScbType.Index.ChangeCount;
                     QuickIndex->BufferOffset = PtrOffset( Sp->StartOfBuffer, Sp->IndexEntry );
                     QuickIndex->CapturedLsn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->Lsn;
-                    QuickIndex->Vcn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisVcn;
+                    QuickIndex->IndexBlock = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisBlock;
                 }
             }
 
@@ -605,9 +564,9 @@ Return Value:
         NtfsCleanupIndexContext( IrpContext, &IndexContext );
     }
 
-    DebugTrace( 0, Dbg, "Bcb < %08lx\n", *Bcb );
-    DebugTrace( 0, Dbg, "IndexEntry < %08lx\n", *IndexEntry );
-    DebugTrace(-1, Dbg, "NtfsFindIndexEntry -> %08lx\n", Result );
+    DebugTrace( 0, Dbg, ("Bcb < %08lx\n", *Bcb) );
+    DebugTrace( 0, Dbg, ("IndexEntry < %08lx\n", *IndexEntry) );
+    DebugTrace( -1, Dbg, ("NtfsFindIndexEntry -> %08lx\n", Result) );
 
     return Result;
 }
@@ -618,7 +577,6 @@ NtfsUpdateFileNameInIndex (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PFILE_NAME FileName,
-    IN ULONG FileNameLength,
     IN PDUPLICATED_INFORMATION Info,
     IN OUT PQUICK_INDEX QuickIndex OPTIONAL
     )
@@ -635,8 +593,6 @@ Arguments:
     Scb - Supplies the Scb for the index.
 
     FileName - Supplies a pointer to the file name to lookup.
-
-    FileNameLength - Supplies the length of the file name structure in bytes.
 
     Info - Supplies a pointer to the information for the update
 
@@ -658,17 +614,15 @@ Return Value:
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_SCB( Scb );
-    ASSERT_EXCLUSIVE_SCB( Scb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsUpdateFileNameInIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "FileName = %08lx\n", FileName );
-    DebugTrace( 0, Dbg, "FileNameLength = %08lx\n", FileNameLength );
-    DebugTrace( 0, Dbg, "Info = %08lx\n", Info );
+    DebugTrace( +1, Dbg, ("NtfsUpdateFileNameInIndex\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("FileName = %08lx\n", FileName) );
+    DebugTrace( 0, Dbg, ("Info = %08lx\n", Info) );
 
-    NtfsInitializeIndexContext( IrpContext, &IndexContext );
+    NtfsInitializeIndexContext( &IndexContext );
 
     try {
 
@@ -695,7 +649,7 @@ Return Value:
 
             ReadIndexBuffer( IrpContext,
                              Scb,
-                             QuickIndex->Vcn,
+                             QuickIndex->IndexBlock,
                              FALSE,
                              Sp );
 
@@ -717,7 +671,7 @@ Return Value:
 
                 NtfsPinMappedData( IrpContext,
                                    Scb,
-                                   LlBytesFromClusters(Scb->Vcb, IndexBuffer->ThisVcn),
+                                   LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                                    Scb->ScbType.Index.BytesPerIndexBuffer,
                                    &Sp->Bcb );
 
@@ -742,17 +696,16 @@ Return Value:
                               UpdateFileNameAllocation,
                               &FileNameInIndex->Info,
                               sizeof(DUPLICATED_INFORMATION),
-                              IndexBuffer->ThisVcn,
+                              LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                               0,
                               (PCHAR)IndexEntry - (PCHAR)IndexBuffer,
-                              Scb->ScbType.Index.ClustersPerIndexBuffer );
+                              Scb->ScbType.Index.BytesPerIndexBuffer );
 
                 //
                 //  Now call the Restart routine to do it.
                 //
 
-                NtfsRestartUpdateFileName( IrpContext,
-                                           IndexEntry,
+                NtfsRestartUpdateFileName( IndexEntry,
                                            Info );
 
                 try_return( NOTHING );
@@ -765,7 +718,7 @@ Return Value:
             } else {
 
                 NtfsCleanupIndexContext( IrpContext, &IndexContext );
-                NtfsInitializeIndexContext( IrpContext, &IndexContext );
+                NtfsInitializeIndexContext( &IndexContext );
             }
         }
 
@@ -776,7 +729,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              (PVOID)FileName,
-                             FileNameLength,
                              &IndexContext );
 
         //
@@ -786,7 +738,6 @@ Return Value:
         if (FindNextIndexEntry( IrpContext,
                                 Scb,
                                 (PVOID)FileName,
-                                FileNameLength,
                                 FALSE,
                                 FALSE,
                                 &IndexContext,
@@ -842,10 +793,10 @@ Return Value:
                               UpdateFileNameRoot,
                               &FileNameInIndex->Info,
                               sizeof(DUPLICATED_INFORMATION),
-                              NtfsMftVcn(Context, Vcb),
+                              NtfsMftOffset( Context ),
                               (PCHAR)Attribute - (PCHAR)FileRecord,
                               (PCHAR)IndexEntry - (PCHAR)Attribute,
-                              Vcb->ClustersPerFileRecordSegment );
+                              Vcb->BytesPerFileRecordSegment );
 
                 if (ARGUMENT_PRESENT( QuickIndex )) {
 
@@ -865,7 +816,7 @@ Return Value:
 
                 NtfsPinMappedData( IrpContext,
                                    Scb,
-                                   LlBytesFromClusters(Scb->Vcb, IndexBuffer->ThisVcn),
+                                   LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                                    Scb->ScbType.Index.BytesPerIndexBuffer,
                                    &Sp->Bcb );
 
@@ -890,17 +841,17 @@ Return Value:
                               UpdateFileNameAllocation,
                               &FileNameInIndex->Info,
                               sizeof(DUPLICATED_INFORMATION),
-                              IndexBuffer->ThisVcn,
+                              LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                               0,
                               (PCHAR)Sp->IndexEntry - (PCHAR)IndexBuffer,
-                              Scb->ScbType.Index.ClustersPerIndexBuffer );
+                              Scb->ScbType.Index.BytesPerIndexBuffer );
 
                 if (ARGUMENT_PRESENT( QuickIndex )) {
 
                     QuickIndex->ChangeCount = Scb->ScbType.Index.ChangeCount;
                     QuickIndex->BufferOffset = PtrOffset( Sp->StartOfBuffer, Sp->IndexEntry );
                     QuickIndex->CapturedLsn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->Lsn;
-                    QuickIndex->Vcn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisVcn;
+                    QuickIndex->IndexBlock = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisBlock;
                 }
             }
 
@@ -908,8 +859,7 @@ Return Value:
             //  Now call the Restart routine to do it.
             //
 
-            NtfsRestartUpdateFileName( IrpContext,
-                                       IndexEntry,
+            NtfsRestartUpdateFileName( IndexEntry,
                                        Info );
 
         //
@@ -929,7 +879,7 @@ Return Value:
         NtfsCleanupIndexContext( IrpContext, &IndexContext );
     }
 
-    DebugTrace(-1, Dbg, "NtfsUpdateFileNameInIndex -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsUpdateFileNameInIndex -> VOID\n") );
 
     return;
 }
@@ -977,6 +927,9 @@ Return Value:
     struct {
         INDEX_ENTRY IndexEntry;
         PVOID Value;
+#ifdef _CAIRO_
+        PVOID MustBeNull;
+#endif _CAIRO_
     } IE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
@@ -988,13 +941,13 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAddIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "FileReference = %08lx\n", FileReference );
+    DebugTrace( +1, Dbg, ("NtfsAddIndexEntry\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("ValueLength = %08lx\n", ValueLength) );
+    DebugTrace( 0, Dbg, ("FileReference = %08lx\n", FileReference) );
 
-    NtfsInitializeIndexContext( IrpContext, &IndexContext );
+    NtfsInitializeIndexContext( &IndexContext );
 
     try {
 
@@ -1005,7 +958,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              Value,
-                             ValueLength,
                              &IndexContext );
 
         //
@@ -1015,7 +967,6 @@ Return Value:
         if (FindNextIndexEntry( IrpContext,
                                 Scb,
                                 Value,
-                                ValueLength,
                                 FALSE,
                                 FALSE,
                                 &IndexContext,
@@ -1037,6 +988,9 @@ Return Value:
         IE.IndexEntry.Flags = INDEX_ENTRY_POINTER_FORM;
         IE.IndexEntry.Reserved = 0;
         IE.Value = Value;
+#ifdef _CAIRO_
+        IE.MustBeNull = NULL;
+#endif _CAIRO_
 
         //
         //  Now add it to the index.  We can only add to a leaf, so force our
@@ -1053,7 +1007,7 @@ Return Value:
         NtfsCleanupIndexContext( IrpContext, &IndexContext );
     }
 
-    DebugTrace(-1, Dbg, "NtfsAddIndexEntry -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsAddIndexEntry -> VOID\n") );
 
     return;
 }
@@ -1064,7 +1018,6 @@ NtfsDeleteIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN PFILE_REFERENCE FileReference
     )
 
@@ -1081,8 +1034,6 @@ Arguments:
     Scb - Supplies the Scb for the index.
 
     Value - Supplies a pointer to the value to delete from the index.
-
-    ValueLength - Supplies the length of the value in bytes.
 
     FileReference - Supplies the file reference of the index entry.
 
@@ -1102,13 +1053,12 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeleteIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "FileReference = %08lx\n", FileReference );
+    DebugTrace( +1, Dbg, ("NtfsDeleteIndexEntry\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("FileReference = %08lx\n", FileReference) );
 
-    NtfsInitializeIndexContext( IrpContext, &IndexContext );
+    NtfsInitializeIndexContext( &IndexContext );
 
     try {
 
@@ -1119,7 +1069,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              Value,
-                             ValueLength,
                              &IndexContext );
 
         //
@@ -1129,7 +1078,6 @@ Return Value:
         if (!FindNextIndexEntry( IrpContext,
                                  Scb,
                                  Value,
-                                 ValueLength,
                                  FALSE,
                                  FALSE,
                                  &IndexContext,
@@ -1168,7 +1116,7 @@ Return Value:
         NtfsCleanupIndexContext( IrpContext, &IndexContext );
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeleteIndexEntry -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDeleteIndexEntry -> VOID\n") );
 
     return;
 }
@@ -1199,7 +1147,6 @@ Return Value:
 
 {
     INDEX_CONTEXT IndexContext;
-    FILE_NAME FileName;
     PINDEX_LOOKUP_STACK Sp;
 
     ASSERT_IRP_CONTEXT( IrpContext );
@@ -1208,18 +1155,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPushIndexRoot\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
+    DebugTrace( +1, Dbg, ("NtfsPushIndexRoot\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
 
-    //
-    //  Initialize file name to look up '*'.
-    //
-
-    RtlZeroMemory( &FileName, sizeof(FILE_NAME) );
-    FileName.FileNameLength = 1;
-    FileName.FileName[0] = (WCHAR)'*';
-
-    NtfsInitializeIndexContext( IrpContext, &IndexContext );
+    NtfsInitializeIndexContext( &IndexContext );
 
     try {
 
@@ -1229,28 +1168,8 @@ Return Value:
 
         FindFirstIndexEntry( IrpContext,
                              Scb,
-                             (PVOID)&FileName,
-                             2,
+                             NULL,
                              &IndexContext );
-
-        //
-        //  See if there is an actual match.
-        //
-
-        if (!FindNextIndexEntry( IrpContext,
-                                 Scb,
-                                 (PVOID)&FileName,
-                                 2,
-                                 TRUE,
-                                 FALSE,
-                                 &IndexContext,
-                                 FALSE,
-                                 NULL )) {
-
-            ASSERTMSG( "NtfsPushIndexRoot index is empty", FALSE );
-
-            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
-        }
 
         //
         //  See if the stack will have to be grown to do the push
@@ -1259,8 +1178,7 @@ Return Value:
         Sp = IndexContext.Top + 1;
 
         if (Sp >= IndexContext.Base + (ULONG)IndexContext.NumberEntries) {
-            NtfsGrowLookupStack( IrpContext,
-                                 Scb,
+            NtfsGrowLookupStack( Scb,
                                  &IndexContext,
                                  &Sp );
         }
@@ -1274,7 +1192,7 @@ Return Value:
         NtfsCleanupIndexContext( IrpContext, &IndexContext );
     }
 
-    DebugTrace(-1, Dbg, "NtfsPushIndexRoot -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsPushIndexRoot -> VOID\n") );
 
     return;
 }
@@ -1286,10 +1204,10 @@ NtfsRestartIndexEnumeration (
     IN PCCB Ccb,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN BOOLEAN IgnoreCase,
     IN BOOLEAN NextFlag,
-    OUT PINDEX_ENTRY *IndexEntry
+    OUT PINDEX_ENTRY *IndexEntry,
+    IN PFCB AcquiredFcb
     )
 
 /*++
@@ -1324,8 +1242,6 @@ Arguments:
     Value - Pointer to the value containing the pattern which is to match
             all returns for enumerations on this Ccb.
 
-    ValueLength - Length of value.
-
     IgnoreCase - If FALSE, all returns will match the pattern value with
                  exact case (if relevant).  If TRUE, all returns will match
                  the pattern value ignoring case.  On a second or subsequent
@@ -1339,6 +1255,9 @@ Arguments:
 
     IndexEntry - Returns a pointer to a copy of the index entry.
 
+    AcquiredFcb - Supplies a pointer to an Fcb which has been preacquired to
+                  potentially aide NtfsRetrieveOtherFileName
+
 Return Value:
 
     FALSE - If no match is being returned, and the output pointer is undefined.
@@ -1349,11 +1268,15 @@ Return Value:
 {
     PINDEX_ENTRY FoundIndexEntry;
     INDEX_CONTEXT OtherContext;
-    BOOLEAN CleanupOtherContext = FALSE;
+    BOOLEAN WildCardsInExpression;
+    BOOLEAN SynchronizationError;
+    PWCH UpcaseTable = IrpContext->Vcb->UpcaseTable;
     PINDEX_CONTEXT IndexContext = NULL;
+    BOOLEAN CleanupOtherContext = FALSE;
     BOOLEAN Result = FALSE;
     BOOLEAN ContextJustCreated = FALSE;
-    BOOLEAN WildCardsInExpression;
+
+    PAGED_CODE();
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_CCB( Ccb );
@@ -1361,13 +1284,12 @@ Return Value:
     ASSERT_SHARED_SCB( Scb );
     ASSERT( ARGUMENT_PRESENT(Value) || (Ccb->IndexContext != NULL) );
 
-    DebugTrace(+1, Dbg, "NtfsRestartIndexEnumeration\n", 0 );
-    DebugTrace( 0, Dbg, "Ccb = %08lx\n", Ccb );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase );
-    DebugTrace( 0, Dbg, "NextFlag = %02lx\n", NextFlag );
+    DebugTrace( +1, Dbg, ("NtfsRestartIndexEnumeration\n") );
+    DebugTrace( 0, Dbg, ("Ccb = %08lx\n", Ccb) );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
+    DebugTrace( 0, Dbg, ("NextFlag = %02lx\n", NextFlag) );
 
     try {
 
@@ -1382,9 +1304,9 @@ Return Value:
             //  Allocate and initialize the index context.
             //
 
-            { PINDEX_CONTEXT t; NtfsAllocateIndexContext( &t ); Ccb->IndexContext = t; }
+            Ccb->IndexContext = (PINDEX_CONTEXT)ExAllocateFromPagedLookasideList( &NtfsIndexContextLookasideList );
 
-            NtfsInitializeIndexContext( IrpContext, Ccb->IndexContext );
+            NtfsInitializeIndexContext( Ccb->IndexContext );
             ContextJustCreated = TRUE;
 
             //
@@ -1411,7 +1333,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              Value,
-                             ValueLength,
                              IndexContext );
 
         //
@@ -1419,9 +1340,7 @@ Return Value:
         //
 
         if ((*NtfsContainsWildcards[Scb->ScbType.Index.CollationRule])
-                                    ( IrpContext,
-                                      Value,
-                                      ValueLength )) {
+                                    ( Value )) {
 
             WildCardsInExpression = TRUE;
 
@@ -1437,9 +1356,9 @@ Return Value:
         if (IgnoreCase) {
 
             (*NtfsUpcaseValue[Scb->ScbType.Index.CollationRule])
-                              ( IrpContext,
-                                Value,
-                                ValueLength );
+                              ( UpcaseTable,
+                                IrpContext->Vcb->UpcaseTableSize,
+                                Value );
         }
 
         //
@@ -1462,7 +1381,6 @@ Return Value:
             ItsThere = FindNextIndexEntry( IrpContext,
                                            Scb,
                                            Value,
-                                           ValueLength,
                                            WildCardsInExpression,
                                            IgnoreCase,
                                            IndexContext,
@@ -1526,20 +1444,24 @@ Return Value:
                 //
 
                 (FlagOn( NameInIndex->Flags, FILE_NAME_DOS ) ||
-                 !(*MatchRoutine)( IrpContext,
+                 !(*MatchRoutine)( UpcaseTable,
                                    Ccb->QueryBuffer,
-                                   Ccb->QueryLength,
                                    FoundIndexEntry,
                                    IgnoreCase ))) {
 
-                NtfsInitializeIndexContext( IrpContext, &OtherContext );
+                PFILE_NAME FileNameBuffer;
+                ULONG FileNameLength;
+
+                NtfsInitializeIndexContext( &OtherContext );
                 CleanupOtherContext = TRUE;
 
-                FoundIndexEntry = NtfsRetrieveOtherIndexEntry( IrpContext,
-                                                               Ccb,
-                                                               Scb,
-                                                               FoundIndexEntry,
-                                                               &OtherContext );
+                FileNameBuffer = NtfsRetrieveOtherFileName( IrpContext,
+                                                            Ccb,
+                                                            Scb,
+                                                            FoundIndexEntry,
+                                                            &OtherContext,
+                                                            AcquiredFcb,
+                                                            &SynchronizationError );
 
                 //
                 //  We have to position to the long name and actually
@@ -1554,16 +1476,27 @@ Return Value:
                 //  name, so we carry on.
                 //
 
-                ItsThere = (FoundIndexEntry != NULL);
+                ItsThere = (FileNameBuffer != NULL);
 
-                if (ItsThere && (*MatchRoutine)( IrpContext,
-                                                 Ccb->QueryBuffer,
-                                                 Ccb->QueryLength,
-                                                 FoundIndexEntry,
-                                                 IgnoreCase )) {
+                if (!ItsThere && SynchronizationError) {
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
 
-                    PFILE_NAME FileNameBuffer;
-                    ULONG FileNameLength;
+                if (ItsThere &&
+
+                    (FlagOn(Ccb->Flags, CCB_FLAG_WILDCARD_IN_EXPRESSION)  ?
+
+                     NtfsFileNameIsInExpression(UpcaseTable,
+                                                (PFILE_NAME)Ccb->QueryBuffer,
+                                                FileNameBuffer,
+                                                IgnoreCase) :
+
+
+
+                     NtfsFileNameIsEqual(UpcaseTable,
+                                         (PFILE_NAME)Ccb->QueryBuffer,
+                                         FileNameBuffer,
+                                         IgnoreCase))) {
 
                     ULONG SizeOfFileName = FIELD_OFFSET( FILE_NAME, FileName );
 
@@ -1574,8 +1507,7 @@ Return Value:
                     //  entry.
                     //
 
-                    FileNameBuffer = (PFILE_NAME)(FoundIndexEntry + 1);
-                    FileNameLength = FoundIndexEntry->AttributeLength - SizeOfFileName;
+                    FileNameLength = FileNameBuffer->FileNameLength * 2;
 
                     //
                     //  Call FindFirst/FindNext to position our context to the corresponding
@@ -1585,13 +1517,11 @@ Return Value:
                     FindFirstIndexEntry( IrpContext,
                                          Scb,
                                          (PVOID)FileNameBuffer,
-                                         FileNameLength,
                                          IndexContext );
 
                     ItsThere = FindNextIndexEntry( IrpContext,
                                                    Scb,
                                                    (PVOID)FileNameBuffer,
-                                                   FileNameLength,
                                                    FALSE,
                                                    FALSE,
                                                    IndexContext,
@@ -1654,7 +1584,6 @@ Return Value:
         if (!FindNextIndexEntry( IrpContext,
                                  Scb,
                                  Ccb->QueryBuffer,
-                                 Ccb->QueryLength,
                                  BooleanFlagOn( Ccb->Flags, CCB_FLAG_WILDCARD_IN_EXPRESSION ),
                                  BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
                                  IndexContext,
@@ -1683,7 +1612,7 @@ Return Value:
 
             if (Ccb->IndexEntry != NULL) {
 
-                NtfsFreePagedPool( Ccb->IndexEntry );
+                NtfsFreePool( Ccb->IndexEntry );
                 Ccb->IndexEntry = NULL;
                 Ccb->IndexEntryLength = 0;
             }
@@ -1693,7 +1622,7 @@ Return Value:
             //  some "padding" in case the next match is larger.
             //
 
-            Ccb->IndexEntry = (PINDEX_ENTRY)NtfsAllocatePagedPool( (ULONG)FoundIndexEntry->Length + 16 );
+            Ccb->IndexEntry = (PINDEX_ENTRY)NtfsAllocatePool(PagedPool, (ULONG)FoundIndexEntry->Length + 16 );
 
             Ccb->IndexEntryLength = (ULONG)FoundIndexEntry->Length + 16;
         }
@@ -1728,13 +1657,13 @@ Return Value:
         if (AbnormalTermination() && ContextJustCreated) {
 
             if (Ccb->IndexEntry != NULL) {
-                NtfsFreePagedPool( Ccb->IndexEntry );
+                NtfsFreePool( Ccb->IndexEntry );
                 Ccb->IndexEntry = NULL;
             }
 
             if (Ccb->IndexContext != NULL) {
                 NtfsCleanupIndexContext( IrpContext, Ccb->IndexContext );
-                NtfsFreeIndexContext( Ccb->IndexContext );
+                ExFreeToPagedLookasideList( &NtfsIndexContextLookasideList, Ccb->IndexContext );
                 Ccb->IndexContext = NULL;
             }
         }
@@ -1748,8 +1677,8 @@ Return Value:
         }
     }
 
-    DebugTrace( 0, Dbg, "*IndexEntry < %08lx\n", *IndexEntry );
-    DebugTrace(-1, Dbg, "NtfsRestartIndexEnumeration -> %08lx\n", Result );
+    DebugTrace( 0, Dbg, ("*IndexEntry < %08lx\n", *IndexEntry) );
+    DebugTrace( -1, Dbg, ("NtfsRestartIndexEnumeration -> %08lx\n", Result) );
 
     return Result;
 }
@@ -1806,10 +1735,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsContinueIndexEnumeration\n", 0 );
-    DebugTrace( 0, Dbg, "Ccb = %08lx\n", Ccb );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "NextFlag = %02lx\n", NextFlag );
+    DebugTrace( +1, Dbg, ("NtfsContinueIndexEnumeration\n") );
+    DebugTrace( 0, Dbg, ("Ccb = %08lx\n", Ccb) );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("NextFlag = %02lx\n", NextFlag) );
 
     //
     //  It seems many apps like to come back one more time and really get
@@ -1822,7 +1751,7 @@ Return Value:
 
     if ((Ccb->IndexEntry == NULL) || (Ccb->IndexEntry->Length == 0)) {
 
-        DebugTrace(-1, Dbg, "NtfsContinueIndexEnumeration -> FALSE\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsContinueIndexEnumeration -> FALSE\n") );
         return FALSE;
     }
 
@@ -1837,7 +1766,6 @@ Return Value:
         if (!FindNextIndexEntry( IrpContext,
                                  Scb,
                                  Ccb->QueryBuffer,
-                                 Ccb->QueryLength,
                                  BooleanFlagOn( Ccb->Flags, CCB_FLAG_WILDCARD_IN_EXPRESSION ),
                                  BooleanFlagOn( Ccb->Flags, CCB_FLAG_IGNORE_CASE ),
                                  IndexContext,
@@ -1859,10 +1787,10 @@ Return Value:
                                                                   Ccb,
                                                                   Scb,
                                                                   (PVOID)(Ccb->IndexEntry + 1),
-                                                                  (ULONG)Ccb->IndexEntry->AttributeLength,
                                                                   FALSE,
                                                                   NextFlag,
-                                                                  IndexEntry ));
+                                                                  IndexEntry,
+                                                                  NULL ));
 
             //
             //  Otherwise, there is nothing left to return.
@@ -1892,7 +1820,7 @@ Return Value:
 
             if (Ccb->IndexEntry != NULL) {
 
-                NtfsFreePagedPool( Ccb->IndexEntry );
+                NtfsFreePool( Ccb->IndexEntry );
                 Ccb->IndexEntry = NULL;
                 Ccb->IndexEntryLength = 0;
             }
@@ -1902,7 +1830,7 @@ Return Value:
             //  some "padding".
             //
 
-            Ccb->IndexEntry = (PINDEX_ENTRY)NtfsAllocatePagedPool( (ULONG)FoundIndexEntry->Length + 16 );
+            Ccb->IndexEntry = (PINDEX_ENTRY)NtfsAllocatePool(PagedPool, (ULONG)FoundIndexEntry->Length + 16 );
 
             Ccb->IndexEntryLength = (ULONG)FoundIndexEntry->Length + 16;
         }
@@ -1935,20 +1863,22 @@ Return Value:
         }
     }
 
-    DebugTrace( 0, Dbg, "*IndexEntry < %08lx\n", *IndexEntry );
-    DebugTrace(-1, Dbg, "NtfsContinueIndexEnumeration -> %08lx\n", Result );
+    DebugTrace( 0, Dbg, ("*IndexEntry < %08lx\n", *IndexEntry) );
+    DebugTrace( -1, Dbg, ("NtfsContinueIndexEnumeration -> %08lx\n", Result) );
 
     return Result;
 }
 
 
-PINDEX_ENTRY
-NtfsRetrieveOtherIndexEntry (
+PFILE_NAME
+NtfsRetrieveOtherFileName (
     IN PIRP_CONTEXT IrpContext,
     IN PCCB Ccb,
     IN PSCB Scb,
     IN PINDEX_ENTRY IndexEntry,
-    IN OUT PINDEX_CONTEXT OtherContext
+    IN OUT PINDEX_CONTEXT OtherContext,
+    IN PFCB AcquiredFcb OPTIONAL,
+    OUT PBOOLEAN SynchronizationError
     )
 
 /*++
@@ -1985,9 +1915,16 @@ Arguments:
                    by the caller after the information has been extracted from
                    the other index entry.
 
+    AcquiredFcb - An Fcb which has been acquired so that its file record may be
+                  read
+
+    SynchronizationError - Returns TRUE if no file name is being returned because
+                           of an error trying to acquire an Fcb to read its file
+                           record.
+
 Return Value:
 
-    Pointer to the other desired index entry.
+    Pointer to the other desired file name.
 
 --*/
 
@@ -2004,6 +1941,7 @@ Return Value:
 
     UNICODE_STRING OtherName;
     USHORT OtherFlag;
+    PVCB Vcb = Scb->Vcb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_CCB( Ccb );
@@ -2012,9 +1950,11 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRetrieveOtherIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Ccb = %08lx\n", Ccb );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
+    DebugTrace( +1, Dbg, ("NtfsRetrieveOtherFileName\n") );
+    DebugTrace( 0, Dbg, ("Ccb = %08lx\n", Ccb) );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+
+    *SynchronizationError = FALSE;
 
     //
     //  Calculate the other name space flag.
@@ -2066,13 +2006,148 @@ Return Value:
             if (NtfsEqualMftRef(&IndexTemp->FileReference, &IndexEntry->FileReference) &&
                 FlagOn(((PFILE_NAME)(IndexTemp + 1))->Flags, OtherFlag)) {
 
-                DebugTrace(-1, Dbg, "NtfsRetrieveOtherIndexEntry -> %08lx\n", IndexTemp );
+                DebugTrace( -1, Dbg, ("NtfsRetrieveOtherFileName -> %08lx\n", IndexTemp) );
 
-                return IndexTemp;
+                return (PFILE_NAME)(IndexTemp + 1);
             }
 
             IndexTemp = Add2Ptr(IndexTemp, IndexTemp->Length);
         }
+    }
+
+    //
+    //  If this is a pretty large directory, then it may be too expensive to
+    //  scan for the other name in the directory.  Note in the degenerate
+    //  case, we have actually do a sequential scan of the entire directory,
+    //  and if all the files in the directory start with the same 6 characters,
+    //  which is unfortunately common, then even our "pie-wedge" scan reads
+    //  the entire directory.
+    //
+    //  Thus we will just try to go read the file record in this case to get
+    //  the other name.  This is complicated from a synchronization standpoint -
+    //  if the file is open, we need to acquire it shared before we can read
+    //  it to get the other name.  Here is a summary of the strategy implemented
+    //  primarily here and in dirctrl:
+    //
+    //      1.  Read the file record, in an attempt to avoid a fault while
+    //          being synchronized.
+    //      2.  If the file reference we need to synchronize is the same as
+    //          in the optional AcquiredFcb parameter, go ahead and find/return
+    //          the other name.
+    //      3.  Else, acquire the Fcb Table to try to look up the Fcb.
+    //      4.  If there is no Fcb, hold the table while returning the name.
+    //      5.  If there is an Fcb, try to acquire it shared with Wait = FALSE,
+    //          and hold it while returning the name.
+    //      6.  If we cannot get the Fcb, and AcquiredFcb was not specified, then
+    //          store the File Reference we are trying to get and return
+    //          *SynchronizationError = TRUE.  Dirctrl must figure out how to
+    //          call us back with the FcbAcquired, by forcing a resume of the
+    //          enumeration.
+    //      7.  If we could not get the Fcb and there *was* a different AcquiredFcb
+    //          specified, then this is the only case where we give up and fall
+    //          through to find the other name in the directory.  This should be
+    //          extremely rare, but if we try to return *SynchronizationError = TRUE,
+    //          and force a resume, we could be unlucky and loop forever, essentially
+    //          toggling between synchronizing on two Fcbs.  Presumably this could
+    //          only happen if we have some kind of dumb client who likes to back
+    //          up a few files when he resumes.
+    //
+
+    if (Scb->Header.AllocationSize.QuadPart > MAX_INDEX_TO_SCAN_FOR_NAMES) {
+
+        FCB_TABLE_ELEMENT Key;
+        PFCB_TABLE_ELEMENT Entry;
+        PFCB FcbWeNeed;
+        PFILE_RECORD_SEGMENT_HEADER FileRecord;
+        PATTRIBUTE_RECORD_HEADER Attribute;
+        BOOLEAN Synchronized = TRUE;
+
+        //
+        //  Get the base file record active and valid before synchroniziing.
+        //
+
+        NtfsReadFileRecord( IrpContext,
+                            Vcb,
+                            &IndexEntry->FileReference,
+                            &OtherContext->AttributeContext.FoundAttribute.Bcb,
+                            &FileRecord,
+                            &Attribute,
+                            NULL );
+
+        //
+        //  If we are not synchronized with the correct Fcb, then try to
+        //  synchronize.
+        //
+
+        if (!ARGUMENT_PRESENT(AcquiredFcb) ||
+            !NtfsEqualMftRef(&AcquiredFcb->FileReference, &IndexEntry->FileReference)) {
+
+            //
+            //  Now look up the Fcb, and if it is there, reference it
+            //  and remember it.
+            //
+
+            Key.FileReference = IndexEntry->FileReference;
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            Entry = RtlLookupElementGenericTable( &Vcb->FcbTable, &Key );
+
+            if (Entry != NULL) {
+
+                FcbWeNeed = Entry->Fcb;
+
+                //
+                //  Now that it cannot go anywhere, try to acquire it.
+                //
+
+                Synchronized = ExAcquireResourceShared( FcbWeNeed->Resource, FALSE );
+
+                //
+                //  If we manage to acquire it, then increment its reference count
+                //  and remember it for subsequent cleanup.
+                //
+
+                if (Synchronized) {
+
+                    FcbWeNeed->ReferenceCount += 1;
+                    OtherContext->AcquiredFcb = FcbWeNeed;
+                }
+
+                NtfsReleaseFcbTable( IrpContext, Vcb );
+
+            } else {
+
+                SetFlag( OtherContext->Flags, INDX_CTX_FLAG_FCB_TABLE_ACQUIRED );
+            }
+        }
+
+        if (Synchronized) {
+
+            Attribute = (PATTRIBUTE_RECORD_HEADER)Add2Ptr(FileRecord, FileRecord->FirstAttributeOffset);
+
+            while (((PVOID)Attribute < Add2Ptr(FileRecord, FileRecord->FirstFreeByte)) &&
+                   (Attribute->TypeCode <= $FILE_NAME)) {
+
+                if ((Attribute->TypeCode == $FILE_NAME) &&
+                    FlagOn(((PFILE_NAME)NtfsAttributeValue(Attribute))->Flags, OtherFlag)) {
+
+                    return (PFILE_NAME)NtfsAttributeValue(Attribute);
+                }
+
+                Attribute = NtfsGetNextRecord(Attribute);
+            }
+
+        } else if (!ARGUMENT_PRESENT(AcquiredFcb)) {
+
+            Ccb->FcbToAcquire.FileReference = IndexEntry->FileReference;
+            *SynchronizationError = TRUE;
+            return NULL;
+        }
+
+        //
+        //  Cleanup from above before proceding.
+        //
+
+        NtfsReinitializeIndexContext( IrpContext, OtherContext );
     }
 
     //
@@ -2137,7 +2212,6 @@ Return Value:
         FindFirstIndexEntry( IrpContext,
                              Scb,
                              &OtherFileName,
-                             NameLength,
                              OtherContext );
 
         NextFlag = FALSE;
@@ -2147,12 +2221,11 @@ Return Value:
         //  Upcase our name structure.
         //
 
-        NtfsUpcaseName( IrpContext, &OtherName );
+        NtfsUpcaseName( Vcb->UpcaseTable, Vcb->UpcaseTableSize, &OtherName );
 
         while (FindNextIndexEntry( IrpContext,
                                    Scb,
                                    &OtherFileName,
-                                   NameLength,
                                    TRUE,
                                    TRUE,
                                    OtherContext,
@@ -2169,9 +2242,9 @@ Return Value:
             if (NtfsEqualMftRef(&IndexTemp->FileReference, &IndexEntry->FileReference) &&
                 FlagOn(((PFILE_NAME)(IndexTemp + 1))->Flags, OtherFlag)) {
 
-                DebugTrace(-1, Dbg, "NtfsRetrieveOtherIndexEntry -> %08lx\n", IndexTemp );
+                DebugTrace( -1, Dbg, ("NtfsRetrieveOtherFileName -> %08lx\n", IndexTemp) );
 
-                return IndexTemp;
+                return (PFILE_NAME)(IndexTemp + 1);
             }
 
             NextFlag = TRUE;
@@ -2263,8 +2336,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsIsIndexEmpty\n", 0 );
-    DebugTrace( 0, Dbg, "Attribute = %08lx\n", Attribute );
+    DebugTrace( +1, Dbg, ("NtfsIsIndexEmpty\n") );
+    DebugTrace( 0, Dbg, ("Attribute = %08lx\n", Attribute) );
 
     IndexRoot = (PINDEX_ROOT)NtfsAttributeValue( Attribute );
     IndexEntry = NtfsFirstIndexEntry( &IndexRoot->IndexHeader );
@@ -2272,7 +2345,7 @@ Return Value:
     Result = (BOOLEAN)(!FlagOn( IndexEntry->Flags, INDEX_ENTRY_NODE ) &&
                        FlagOn( IndexEntry->Flags, INDEX_ENTRY_END ));
 
-    DebugTrace(-1, Dbg, "NtfsIsIndexEmpty -> %02lx\n", Result );
+    DebugTrace( -1, Dbg, ("NtfsIsIndexEmpty -> %02lx\n", Result) );
 
     return Result;
 }
@@ -2312,21 +2385,24 @@ Return Value:
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_FCB( Fcb );
 
+    UNREFERENCED_PARAMETER( IrpContext );
+    UNREFERENCED_PARAMETER( Fcb );
+    UNREFERENCED_PARAMETER( AttributeName );
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeleteIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Fcb = %08lx\n", Fcb );
-    DebugTrace( 0, Dbg, "AttributeName = %08lx\n", AttributeName );
+    DebugTrace( +1, Dbg, ("NtfsDeleteIndex\n") );
+    DebugTrace( 0, Dbg, ("Fcb = %08lx\n", Fcb) );
+    DebugTrace( 0, Dbg, ("AttributeName = %08lx\n", AttributeName) );
 
     DbgDoit( DbgPrint("NtfsDeleteIndex is not yet implemented\n"); DbgBreakPoint(); );
 
-    DebugTrace(-1, Dbg, "NtfsDeleteIndex -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDeleteIndex -> VOID\n") );
 }
 
 
 VOID
 NtfsInitializeIndexContext (
-    IN PIRP_CONTEXT IrpContext,
     OUT PINDEX_CONTEXT IndexContext
     )
 
@@ -2349,7 +2425,6 @@ Return Value:
 {
     PAGED_CODE();
 
-    UNREFERENCED_PARAMETER(IrpContext);
     RtlZeroMemory( IndexContext, sizeof(INDEX_CONTEXT) );
     NtfsInitializeAttributeContext( &IndexContext->AttributeContext );
 
@@ -2390,8 +2465,29 @@ Return Value:
 
     PAGED_CODE();
 
+    //
+    //  Release the Fcb Table and/or an acquired Fcb.
+    //
+
+    if (FlagOn(IndexContext->Flags, INDX_CTX_FLAG_FCB_TABLE_ACQUIRED)) {
+        NtfsReleaseFcbTable( IrpContext, IrpContext->Vcb );
+        ClearFlag( IndexContext->Flags, INDX_CTX_FLAG_FCB_TABLE_ACQUIRED );
+    }
+
+    if (IndexContext->AcquiredFcb != NULL) {
+
+        NtfsAcquireFcbTable( IrpContext, IrpContext->Vcb );
+        ASSERT(IndexContext->AcquiredFcb->ReferenceCount > 0);
+        IndexContext->AcquiredFcb->ReferenceCount -= 1;
+        NtfsReleaseFcbTable( IrpContext, IrpContext->Vcb );
+
+        ExReleaseResource( IndexContext->AcquiredFcb->Resource );
+
+        IndexContext->AcquiredFcb = NULL;
+    }
+
     for (i = 0; i < IndexContext->NumberEntries; i++) {
-        NtfsUnpinBcb( IrpContext, &IndexContext->Base[i].Bcb );
+        NtfsUnpinBcb( &IndexContext->Base[i].Bcb );
     }
 
     //
@@ -2399,10 +2495,10 @@ Return Value:
     //
 
     if (IndexContext->Base != IndexContext->LookupStack) {
-        ExFreePool( IndexContext->Base );
+        NtfsFreePool( IndexContext->Base );
     }
 
-    NtfsCleanupAttributeContext( IrpContext, &IndexContext->AttributeContext );
+    NtfsCleanupAttributeContext( &IndexContext->AttributeContext );
 }
 
 
@@ -2434,18 +2530,38 @@ Return Value:
 
     PAGED_CODE();
 
-    for (i = 0; i < IndexContext->NumberEntries; i++) {
-        NtfsUnpinBcb( IrpContext, &IndexContext->Base[i].Bcb );
+    //
+    //  Release the Fcb Table and/or an acquired Fcb.
+    //
+
+    if (FlagOn(IndexContext->Flags, INDX_CTX_FLAG_FCB_TABLE_ACQUIRED)) {
+        NtfsReleaseFcbTable( IrpContext, IrpContext->Vcb );
+        ClearFlag( IndexContext->Flags, INDX_CTX_FLAG_FCB_TABLE_ACQUIRED );
     }
 
-    NtfsCleanupAttributeContext( IrpContext, &IndexContext->AttributeContext );
+    if (IndexContext->AcquiredFcb != NULL) {
+
+        NtfsAcquireFcbTable( IrpContext, IrpContext->Vcb );
+        ASSERT(IndexContext->AcquiredFcb->ReferenceCount > 0);
+        IndexContext->AcquiredFcb->ReferenceCount -= 1;
+        NtfsReleaseFcbTable( IrpContext, IrpContext->Vcb );
+
+        ExReleaseResource( IndexContext->AcquiredFcb->Resource );
+
+        IndexContext->AcquiredFcb = NULL;
+    }
+
+    for (i = 0; i < IndexContext->NumberEntries; i++) {
+        NtfsUnpinBcb( &IndexContext->Base[i].Bcb );
+    }
+
+    NtfsCleanupAttributeContext( &IndexContext->AttributeContext );
     NtfsInitializeAttributeContext( &IndexContext->AttributeContext );
 }
 
 
 VOID
 NtfsGrowLookupStack (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN OUT PINDEX_CONTEXT IndexContext,
     IN PINDEX_LOOKUP_STACK *Sp
@@ -2500,7 +2616,7 @@ Return Value:
     //  Allocate (may fail), initialize and copy over the old one.
     //
 
-    NewLookupStack = FsRtlAllocatePool( PagedPool, NumberEntries * sizeof(INDEX_LOOKUP_STACK) );
+    NewLookupStack = NtfsAllocatePool( PagedPool, NumberEntries * sizeof(INDEX_LOOKUP_STACK) );
 
     RtlZeroMemory( NewLookupStack, NumberEntries * sizeof(INDEX_LOOKUP_STACK) );
 
@@ -2513,7 +2629,7 @@ Return Value:
     //
 
     if (IndexContext->Base != IndexContext->LookupStack) {
-        ExFreePool( IndexContext->Base );
+        NtfsFreePool( IndexContext->Base );
     }
 
     //
@@ -2538,7 +2654,7 @@ BOOLEAN
 ReadIndexBuffer (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
-    IN VCN Vcn,
+    IN LONGLONG IndexBlock,
     IN BOOLEAN Reread,
     OUT PINDEX_LOOKUP_STACK Sp
     )
@@ -2554,7 +2670,8 @@ Arguments:
 
     Scb - Supplies the Scb for the index.
 
-    Vcn - Supplies the Vcn of the index buffer, ignored if Reread is TRUE.
+    IndexBlock - Supplies the index block of this index buffer, ignored if
+                 Reread is TRUE.
 
     Reread - Supplies TRUE if buffer is being reread, and the CapturedLsn
              should be checked.
@@ -2573,10 +2690,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "ReadIndexBuffer\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
-    DebugTrace( 0, Dbg, "Sp = %08lx\n", Sp );
+    DebugTrace( +1, Dbg, ("ReadIndexBuffer\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Sp = %08lx\n", Sp) );
 
     ASSERT(Sp->Bcb == NULL);
 
@@ -2597,13 +2713,24 @@ Return Value:
 
     if (Reread) {
         Sp->IndexEntry = (PINDEX_ENTRY)((PCHAR)Sp->IndexEntry - (PCHAR)Sp->StartOfBuffer);
-        Vcn = Sp->Vcn;
+        IndexBlock = Sp->IndexBlock;
     }
 
-    Sp->Vcn = Vcn;
+    Sp->IndexBlock = IndexBlock;
+
+    //
+    //  The vcn better only have 32 bits, other wise the the test in NtfsMapStream
+    //  may not catch this error.
+    //
+
+    if (((PLARGE_INTEGER) &IndexBlock)->HighPart != 0) {
+
+        NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+    }
+
     NtfsMapStream( IrpContext,
                    Scb,
-                   LlBytesFromClusters( Scb->Vcb, Vcn ),
+                   LlBytesFromIndexBlocks( IndexBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                    Scb->ScbType.Index.BytesPerIndexBuffer,
                    &Sp->Bcb,
                    &Sp->StartOfBuffer );
@@ -2611,7 +2738,7 @@ Return Value:
     IndexBuffer = (PINDEX_ALLOCATION_BUFFER)Sp->StartOfBuffer;
 
     if ((*(PULONG)IndexBuffer->MultiSectorHeader.Signature != *(PULONG)IndexSignature) ||
-        (IndexBuffer->ThisVcn != Vcn)) {
+        (IndexBuffer->ThisBlock != IndexBlock)) {
 
         NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
     }
@@ -2621,8 +2748,8 @@ Return Value:
 
         if (IndexBuffer->Lsn.QuadPart != Sp->CapturedLsn.QuadPart) {
 
-            NtfsUnpinBcb( IrpContext, &Sp->Bcb );
-            DebugTrace(-1, Dbg, "ReadIndexBuffer->TRUE\n", 0 );
+            NtfsUnpinBcb( &Sp->Bcb );
+            DebugTrace( -1, Dbg, ("ReadIndexBuffer->TRUE\n") );
             return FALSE;
         }
 
@@ -2635,7 +2762,7 @@ Return Value:
     }
 
 
-    DebugTrace(-1, Dbg, "ReadIndexBuffer->VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("ReadIndexBuffer->VOID\n") );
 
     return TRUE;
 }
@@ -2676,15 +2803,15 @@ Return Value:
     PINDEX_ALLOCATION_BUFFER IndexBuffer;
     ATTRIBUTE_ENUMERATION_CONTEXT BitMapContext;
     ULONG RecordIndex;
-    VCN Vcn;
+    LONGLONG BufferOffset;
 
     PUSHORT UsaSequenceNumber;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "GetIndexBuffer\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Sp = %08lx\n", Sp );
+    DebugTrace( +1, Dbg, ("GetIndexBuffer\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Sp = %08lx\n", Sp) );
 
     //
     //  Initialize the BitMap attribute context and insure cleanup on the
@@ -2704,6 +2831,7 @@ Return Value:
                                         &Scb->Fcb->FileReference,
                                         $BITMAP,
                                         &Scb->AttributeName,
+                                        NULL,
                                         FALSE,
                                         &BitMapContext )) {
 
@@ -2726,13 +2854,26 @@ Return Value:
 
         if (!Scb->ScbType.Index.AllocationInitialized) {
 
-          NtfsInitializeRecordAllocation( IrpContext,
-                                          Scb,
-                                          &BitMapContext,
-                                          Scb->ScbType.Index.BytesPerIndexBuffer,
-                                          1,
-                                          4,
-                                          &Scb->ScbType.Index.RecordAllocationContext );
+            ULONG ExtendGranularity = 1;
+            ULONG TruncateGranularity = 4;
+
+            if (Scb->ScbType.Index.BytesPerIndexBuffer < Scb->Vcb->BytesPerCluster) {
+
+                ExtendGranularity = Scb->Vcb->BytesPerCluster / Scb->ScbType.Index.BytesPerIndexBuffer;
+
+                if (ExtendGranularity > 4) {
+
+                    TruncateGranularity = ExtendGranularity;
+                }
+            }
+
+            NtfsInitializeRecordAllocation( IrpContext,
+                                            Scb,
+                                            &BitMapContext,
+                                            Scb->ScbType.Index.BytesPerIndexBuffer,
+                                            ExtendGranularity,
+                                            TruncateGranularity,
+                                            &Scb->ScbType.Index.RecordAllocationContext );
 
             Scb->ScbType.Index.AllocationInitialized = TRUE;
         }
@@ -2748,30 +2889,28 @@ Return Value:
                                           &BitMapContext );
 
         //
-        //  Calculate the Vcn.
+        //  Calculate the IndexBlock.
         //
 
-        Vcn = (LONGLONG)RecordIndex * Scb->ScbType.Index.BytesPerIndexBuffer;
-
-        Vcn = LlClustersFromBytes( Scb->Vcb, Vcn );
+        BufferOffset = Int32x32To64( RecordIndex, Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Now remember the offset of the end of the added record.
         //
 
-        *EndOfValidData = UInt32x32To64( (RecordIndex + 1), Scb->ScbType.Index.BytesPerIndexBuffer );
+        *EndOfValidData = BufferOffset + Scb->ScbType.Index.BytesPerIndexBuffer;
 
         //
         //  Now pin and zero the buffer, in order to initialize it.
         //
 
-        NtfsPreparePinWriteStream ( IrpContext,
-                                    Scb,
-                                    LlBytesFromClusters( Scb->Vcb, Vcn ),
-                                    Scb->ScbType.Index.BytesPerIndexBuffer,
-                                    TRUE,
-                                    &Sp->Bcb,
-                                    (PVOID *)&IndexBuffer );
+        NtfsPreparePinWriteStream( IrpContext,
+                                   Scb,
+                                   BufferOffset,
+                                   Scb->ScbType.Index.BytesPerIndexBuffer,
+                                   TRUE,
+                                   &Sp->Bcb,
+                                   (PVOID *)&IndexBuffer );
 
 
         //
@@ -2798,7 +2937,7 @@ Return Value:
         *UsaSequenceNumber = 1;
 
 
-        IndexBuffer->ThisVcn = Vcn;
+        IndexBuffer->ThisBlock = RecordIndex * Scb->ScbType.Index.BlocksPerIndexBuffer;
 
         IndexBuffer->IndexHeader.FirstIndexEntry =
         IndexBuffer->IndexHeader.FirstFreeByte =
@@ -2813,10 +2952,10 @@ Return Value:
 
         DebugUnwind( GetIndexBuffer );
 
-        NtfsCleanupAttributeContext( IrpContext, &BitMapContext );
+        NtfsCleanupAttributeContext( &BitMapContext );
     }
 
-    DebugTrace(-1, Dbg, "GetIndexBuffer -> %08lx\n", IndexBuffer );
+    DebugTrace( -1, Dbg, ("GetIndexBuffer -> %08lx\n", IndexBuffer) );
     return IndexBuffer;
 }
 
@@ -2854,9 +2993,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "DeleteIndexBuffer\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "IndexBuffer = %08lx\n", IndexBuffer );
+    DebugTrace( +1, Dbg, ("DeleteIndexBuffer\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("IndexBuffer = %08lx\n", IndexBuffer) );
 
     //
     //  Initialize the BitMap attribute context and insure cleanup on the
@@ -2876,6 +3015,7 @@ Return Value:
                                         &Scb->Fcb->FileReference,
                                         $BITMAP,
                                         &Scb->AttributeName,
+                                        NULL,
                                         FALSE,
                                         &BitMapContext )) {
 
@@ -2897,13 +3037,26 @@ Return Value:
 
         if (!Scb->ScbType.Index.AllocationInitialized) {
 
-          NtfsInitializeRecordAllocation( IrpContext,
-                                          Scb,
-                                          &BitMapContext,
-                                          Scb->ScbType.Index.BytesPerIndexBuffer,
-                                          1,
-                                          4,
-                                          &Scb->ScbType.Index.RecordAllocationContext );
+            ULONG ExtendGranularity = 1;
+            ULONG TruncateGranularity = 4;
+
+            if (Scb->ScbType.Index.BytesPerIndexBuffer < Scb->Vcb->BytesPerCluster) {
+
+                ExtendGranularity = Scb->Vcb->BytesPerCluster / Scb->ScbType.Index.BytesPerIndexBuffer;
+
+                if (ExtendGranularity > 4) {
+
+                    TruncateGranularity = ExtendGranularity;
+                }
+            }
+
+            NtfsInitializeRecordAllocation( IrpContext,
+                                            Scb,
+                                            &BitMapContext,
+                                            Scb->ScbType.Index.BytesPerIndexBuffer,
+                                            ExtendGranularity,
+                                            TruncateGranularity,
+                                            &Scb->ScbType.Index.RecordAllocationContext );
 
             Scb->ScbType.Index.AllocationInitialized = TRUE;
         }
@@ -2912,7 +3065,7 @@ Return Value:
         //  Calculate the record index for this buffer.
         //
 
-        RecordIndex = IndexBuffer->ThisVcn / Scb->ScbType.Index.ClustersPerIndexBuffer;
+        RecordIndex = IndexBuffer->ThisBlock / Scb->ScbType.Index.BlocksPerIndexBuffer;
 
 
         if (((PLARGE_INTEGER)&RecordIndex)->HighPart != 0) {
@@ -2953,9 +3106,9 @@ Return Value:
             }
         }
 
-        NtfsCleanupAttributeContext( IrpContext, &BitMapContext );
+        NtfsCleanupAttributeContext( &BitMapContext );
     }
-    DebugTrace(-1, Dbg, "DeleteIndexBuffer -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("DeleteIndexBuffer -> VOID\n") );
 }
 
 
@@ -2964,7 +3117,6 @@ FindFirstIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN OUT PINDEX_CONTEXT IndexContext
     )
 
@@ -2996,9 +3148,7 @@ Arguments:
     Scb - Supplies the Scb for the index.
 
     Value - Pointer to a value or value expression which should be used to position
-            the IndexContext.
-
-    ValueLength - Length of the value.
+            the IndexContext, or NULL to just describe the root for pushing.
 
     IndexContext - Address of the initialized IndexContext, to return the desired
                    position.
@@ -3016,11 +3166,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "FindFirstIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("FindFirstIndexEntry\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     //
     //  Lookup the attribute record from the Scb.
@@ -3031,10 +3180,11 @@ Return Value:
                                     &Scb->Fcb->FileReference,
                                     $INDEX_ROOT,
                                     &Scb->AttributeName,
+                                    NULL,
                                     FALSE,
                                     &IndexContext->AttributeContext )) {
 
-        DebugTrace(-1, 0, "FindFirstIndexEntry - Could *not* find attribute\n", 0 );
+        DebugTrace( -1, 0, ("FindFirstIndexEntry - Could *not* find attribute\n") );
 
         NtfsRaiseStatus( IrpContext, STATUS_OBJECT_PATH_NOT_FOUND, NULL, NULL );
     }
@@ -3059,15 +3209,19 @@ Return Value:
 
     if (Scb->ScbType.Index.BytesPerIndexBuffer == 0) {
 
-        Scb->ScbType.Index.AttributeBeingIndexed = IndexRoot->IndexedAttributeType;
-        Scb->ScbType.Index.CollationRule = IndexRoot->CollationRule;
-        Scb->ScbType.Index.BytesPerIndexBuffer = IndexRoot->BytesPerIndexBuffer;
-        Scb->ScbType.Index.ClustersPerIndexBuffer = IndexRoot->ClustersPerIndexBuffer;
-        ClearFlag(Scb->ScbState, SCB_STATE_COMPRESSED );
-        if (FlagOn(Attribute->Flags, ATTRIBUTE_FLAG_COMPRESSION_MASK)) {
-            SetFlag(Scb->ScbState, SCB_STATE_COMPRESSED );
-            Scb->AttributeFlags |= Attribute->Flags & ATTRIBUTE_FLAG_COMPRESSION_MASK;
-        }
+        NtfsUpdateIndexScbFromAttribute( Scb, Attribute );
+    }
+
+    //
+    //  If Value is not specified, this is a special call from NtfsPushIndexRoot.
+    //
+
+    if (!ARGUMENT_PRESENT(Value)) {
+
+        Sp->IndexEntry = NtfsFirstIndexEntry(Sp->IndexHeader);
+        IndexContext->Top =
+        IndexContext->Current = Sp;
+        return;
     }
 
     //
@@ -3084,8 +3238,7 @@ Return Value:
         Sp->IndexEntry = BinarySearchIndex( IrpContext,
                                             Scb,
                                             Sp,
-                                            Value,
-                                            ValueLength );
+                                            Value );
 
         //
         //  If this entry is not a node, then we are done.
@@ -3109,7 +3262,7 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
             }
 
-            DebugTrace(-1, Dbg, "FindFirstIndexEntry -> VOID\n", 0 );
+            DebugTrace( -1, Dbg, ("FindFirstIndexEntry -> VOID\n") );
 
             return;
         }
@@ -3153,8 +3306,7 @@ Return Value:
                 Sp += 1;
 
                 if (Sp >= IndexContext->Base + (ULONG)IndexContext->NumberEntries) {
-                    NtfsGrowLookupStack( IrpContext,
-                                         Scb,
+                    NtfsGrowLookupStack( Scb,
                                          IndexContext,
                                          &Sp );
                 }
@@ -3169,8 +3321,7 @@ Return Value:
 
         Sp += 1;
         if (Sp >= IndexContext->Base + (ULONG)IndexContext->NumberEntries) {
-            NtfsGrowLookupStack( IrpContext,
-                                 Scb,
+            NtfsGrowLookupStack( Scb,
                                  IndexContext,
                                  &Sp );
         }
@@ -3182,7 +3333,7 @@ Return Value:
 
         ReadIndexBuffer( IrpContext,
                          Scb,
-                         NtfsIndexEntryVcn((Sp-1)->IndexEntry),
+                         NtfsIndexEntryBlock((Sp-1)->IndexEntry),
                          FALSE,
                          Sp );
     }
@@ -3194,7 +3345,6 @@ FindNextIndexEntry (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN PVOID Value,
-    IN ULONG ValueLength,
     IN BOOLEAN ValueContainsWildcards,
     IN BOOLEAN IgnoreCase,
     IN OUT PINDEX_CONTEXT IndexContext,
@@ -3241,8 +3391,6 @@ Arguments:
     Value - Pointer to a value or value expression which should be used to position
             the IndexContext.
 
-    ValueLength - Length of the value.
-
     ValueContainsWildCards - Indicates if the value expression contains wild
                              cards.  We can do a direct compare if it
                              doesn't.
@@ -3273,16 +3421,17 @@ Return Value:
     PINDEX_LOOKUP_STACK Sp;
     FSRTL_COMPARISON_RESULT BlindResult;
     BOOLEAN LocalMustRestart;
+    PWCH UpcaseTable = IrpContext->Vcb->UpcaseTable;
+    ULONG UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "FindNextIndexEntry\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
-    DebugTrace( 0, Dbg, "IgnoreCase = %02lx\n", IgnoreCase );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
-    DebugTrace( 0, Dbg, "NextFlag = %02lx\n", NextFlag );
+    DebugTrace( +1, Dbg, ("FindNextIndexEntry\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
+    DebugTrace( 0, Dbg, ("IgnoreCase = %02lx\n", IgnoreCase) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
+    DebugTrace( 0, Dbg, ("NextFlag = %02lx\n", NextFlag) );
 
     if (!ARGUMENT_PRESENT(MustRestart)) {
         MustRestart = &LocalMustRestart;
@@ -3292,7 +3441,7 @@ Return Value:
 
     if (IndexContext->ScbChangeCount != Scb->ScbType.Index.ChangeCount) {
 
-        DebugTrace (-1, me, "FindNextIndexEntry -> FALSE (must restart)\n", 0 );
+        DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (must restart)\n") );
 
         *MustRestart = TRUE;
         return FALSE;
@@ -3326,7 +3475,7 @@ Return Value:
             if (Sp->CapturedLsn.QuadPart !=
                 NtfsContainingFileRecord(&IndexContext->AttributeContext)->Lsn.QuadPart) {
 
-                DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (must restart)\n", 0 );
+                DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (must restart)\n") );
 
                 *MustRestart = TRUE;
                 return FALSE;
@@ -3343,9 +3492,9 @@ Return Value:
             //  unchanged.
             //
 
-            if (!ReadIndexBuffer ( IrpContext, Scb, 0, TRUE, Sp )) {
+            if (!ReadIndexBuffer( IrpContext, Scb, 0, TRUE, Sp )) {
 
-                DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (must restart)\n", 0 );
+                DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (must restart)\n") );
 
                 *MustRestart = TRUE;
                 return FALSE;
@@ -3377,14 +3526,22 @@ Return Value:
         //
 
         if (NextFlag) {
-            VCN Vcn;
+
+            LONGLONG IndexBlock;
+
+            if (IndexEntry->Length == 0) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+            }
 
             Sp->IndexEntry =
-            IndexEntry = NtfsNextIndexEntry ( IndexEntry );
+            IndexEntry = NtfsNextIndexEntry( IndexEntry );
+
+            NtfsCheckIndexBound( IndexEntry, Sp->IndexHeader );
 
             while (FlagOn(IndexEntry->Flags, INDEX_ENTRY_NODE)) {
 
-                Vcn = NtfsIndexEntryVcn(IndexEntry);
+                IndexBlock = NtfsIndexEntryBlock(IndexEntry);
                 Sp += 1;
 
                 //
@@ -3398,15 +3555,16 @@ Return Value:
                     NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
                 }
 
-                NtfsUnpinBcb( IrpContext, &Sp->Bcb );
+                NtfsUnpinBcb( &Sp->Bcb );
 
-                ReadIndexBuffer ( IrpContext,
-                                  Scb,
-                                  Vcn,
-                                  FALSE,
-                                  Sp );
+                ReadIndexBuffer( IrpContext,
+                                 Scb,
+                                 IndexBlock,
+                                 FALSE,
+                                 Sp );
 
                 IndexEntry = Sp->IndexEntry;
+                NtfsCheckIndexBound( IndexEntry, Sp->IndexHeader );
             }
 
             //
@@ -3419,7 +3577,7 @@ Return Value:
 
                 FlagOn(NtfsFirstIndexEntry(Sp->IndexHeader)->Flags, INDEX_ENTRY_END)) {
 
-                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, NULL );
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
             }
         }
 
@@ -3436,7 +3594,7 @@ Return Value:
 
             if (Sp == IndexContext->Base) {
 
-                DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (End of Index)\n", 0 );
+                DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (End of Index)\n") );
 
                 return FALSE;
             }
@@ -3469,7 +3627,7 @@ Return Value:
                     if (Sp->CapturedLsn.QuadPart !=
                         NtfsContainingFileRecord(&IndexContext->AttributeContext)->Lsn.QuadPart) {
 
-                        DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (must restart)\n", 0 );
+                        DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (must restart)\n") );
 
                         *MustRestart = TRUE;
                         return FALSE;
@@ -3486,9 +3644,9 @@ Return Value:
                     //  unchanged.
                     //
 
-                    if (!ReadIndexBuffer ( IrpContext, Scb, 0, TRUE, Sp )) {
+                    if (!ReadIndexBuffer( IrpContext, Scb, 0, TRUE, Sp )) {
 
-                        DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (must restart)\n", 0 );
+                        DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (must restart)\n") );
 
                         *MustRestart = TRUE;
                         return FALSE;
@@ -3497,7 +3655,73 @@ Return Value:
             }
 
             IndexEntry = Sp->IndexEntry;
+            NtfsCheckIndexBound( IndexEntry, Sp->IndexHeader );
         }
+
+#ifdef _CAIRO_
+
+        //
+        //  For a view Index, we either need to call the MatchFunction in the Index
+        //  Context (if ValueContainsWildCards is TRUE), or else we look for equality
+        //  from the CollateFunction in the Scb.
+        //
+
+        if (FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX)) {
+
+            INDEX_ROW IndexRow;
+            NTSTATUS Status;
+
+            IndexRow.KeyPart.Key = IndexEntry + 1;
+            IndexRow.KeyPart.KeyLength = IndexEntry->AttributeLength;
+
+            //
+            //  Now, if ValueContainsWildcards is TRUE, then we are doing multiple
+            //  returns via the match function (for NtOfsReadRecords).
+            //
+
+            if (ValueContainsWildcards) {
+
+                IndexRow.DataPart.Data = Add2Ptr( IndexEntry, IndexEntry->DataOffset );
+                IndexRow.DataPart.DataLength = IndexEntry->DataLength;
+
+                if ((Status = IndexContext->MatchFunction(&IndexRow,
+                                                          IndexContext->MatchData)) == STATUS_SUCCESS) {
+
+                    IndexContext->Current = Sp;
+                    Sp->IndexEntry = IndexEntry;
+
+                    return TRUE;
+
+                //
+                //  Get out if no more matches.
+                //
+
+                } else if (Status == STATUS_NO_MORE_MATCHES) {
+                    return FALSE;
+                }
+                BlindResult = GreaterThan;
+
+            //
+            //  Otherwise, we are looking for an exact match via the CollateFunction.
+            //
+
+            } else {
+
+                if ((BlindResult =
+                     Scb->ScbType.Index.CollationFunction((PINDEX_KEY)Value,
+                                                          &IndexRow.KeyPart,
+                                                          Scb->ScbType.Index.CollationData)) == EqualTo) {
+
+                    IndexContext->Current = Sp;
+                    Sp->IndexEntry = IndexEntry;
+
+                    return TRUE;
+                }
+            }
+
+        } else
+
+#endif _CAIRO_
 
         //
         //  At this point, we have a real live entry that we have to check
@@ -3508,17 +3732,16 @@ Return Value:
         if (ValueContainsWildcards) {
 
             if ((*NtfsIsInExpression[Scb->ScbType.Index.CollationRule])
-                                     ( IrpContext,
+                                     ( UpcaseTable,
                                        Value,
-                                       ValueLength,
                                        IndexEntry,
                                        IgnoreCase )) {
 
                 IndexContext->Current = Sp;
                 Sp->IndexEntry = IndexEntry;
 
-                DebugTrace ( 0, Dbg, "IndexEntry < %08lx\n", IndexEntry );
-                DebugTrace (-1, Dbg, "FindNextIndexEntry -> TRUE\n", 0 );
+                DebugTrace( 0, Dbg, ("IndexEntry < %08lx\n", IndexEntry) );
+                DebugTrace( -1, Dbg, ("FindNextIndexEntry -> TRUE\n") );
 
                 return TRUE;
             }
@@ -3526,17 +3749,16 @@ Return Value:
         } else {
 
             if ((*NtfsIsEqual[Scb->ScbType.Index.CollationRule])
-                              ( IrpContext,
+                              ( UpcaseTable,
                                 Value,
-                                ValueLength,
                                 IndexEntry,
                                 IgnoreCase )) {
 
                 IndexContext->Current = Sp;
                 Sp->IndexEntry = IndexEntry;
 
-                DebugTrace ( 0, Dbg, "IndexEntry < %08lx\n", IndexEntry );
-                DebugTrace (-1, Dbg, "FindNextIndexEntry -> TRUE\n", 0 );
+                DebugTrace( 0, Dbg, ("IndexEntry < %08lx\n", IndexEntry) );
+                DebugTrace( -1, Dbg, ("FindNextIndexEntry -> TRUE\n") );
 
                 return TRUE;
             }
@@ -3551,10 +3773,24 @@ Return Value:
 
         NextFlag = TRUE;
 
+#ifdef _CAIRO_
+
+        //
+        //  For enumerations in view indices, keep going and only terminate
+        //  on the MatchFunction (BlindResult was set to GreaterThan above).
+        //  If it is not an enumeration (no wild cards), we already set BlindResult
+        //  when we called the colation routine above.
+        //
+
+        if (!FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX))
+
+
+#endif _CAIRO_
+
         BlindResult = (*NtfsCompareValues[Scb->ScbType.Index.CollationRule])
-                                          ( IrpContext,
+                                          ( UpcaseTable,
+                                            UpcaseTableSize,
                                             Value,
-                                            ValueLength,
                                             IndexEntry,
                                             GreaterThan,
                                             TRUE );
@@ -3588,14 +3824,15 @@ Return Value:
 
                             ||
 
-                ((*NtfsCompareValues[Scb->ScbType.Index.CollationRule])( IrpContext,
+                ((*NtfsCompareValues[Scb->ScbType.Index.CollationRule])
+                                                         ( UpcaseTable,
+                                                           UpcaseTableSize,
                                                            Value,
-                                                           ValueLength,
                                                            IndexEntry,
                                                            GreaterThan,
                                                            FALSE ) != LessThan))));
 
-    DebugTrace (-1, Dbg, "FindNextIndexEntry -> FALSE (end of expression)\n", 0 );
+    DebugTrace( -1, Dbg, ("FindNextIndexEntry -> FALSE (end of expression)\n") );
 
     return FALSE;
 }
@@ -3653,7 +3890,7 @@ Return Value:
     SavedBcb = IndexContext->AttributeContext.FoundAttribute.Bcb;
     IndexContext->AttributeContext.FoundAttribute.Bcb = NULL;
 
-    NtfsCleanupAttributeContext( IrpContext, &IndexContext->AttributeContext );
+    NtfsCleanupAttributeContext( &IndexContext->AttributeContext );
     NtfsInitializeAttributeContext( &IndexContext->AttributeContext );
 
     try {
@@ -3664,6 +3901,7 @@ Return Value:
                                    &Scb->Fcb->FileReference,
                                    $INDEX_ROOT,
                                    &Scb->AttributeName,
+                                   NULL,
                                    FALSE,
                                    &IndexContext->AttributeContext );
 
@@ -3695,7 +3933,7 @@ Return Value:
                                                         ((PCHAR)Attribute - (PCHAR)OldAttribute));
     } finally {
 
-        NtfsUnpinBcb( IrpContext, &SavedBcb );
+        NtfsUnpinBcb( &SavedBcb );
     }
 
     return Attribute;
@@ -3707,8 +3945,7 @@ BinarySearchIndex (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
     IN OUT PINDEX_LOOKUP_STACK Sp,
-    IN PVOID Value,
-    IN ULONG ValueLength
+    IN PVOID Value
     )
 
 /*++
@@ -3728,8 +3965,6 @@ Arguments:
     Value - Pointer to a value or value expression which should be used to position
             the IndexContext.
 
-    ValueLength - Length of the value.
-
 Return Value:
 
     None.
@@ -3740,17 +3975,16 @@ Return Value:
     PINDEX_HEADER IndexHeader;
     PINDEX_ENTRY IndexTemp, IndexLast;
     ULONG LowIndex, HighIndex, TryIndex;
-    PINDEX_ENTRY LocalEntries[50];
+    PINDEX_ENTRY LocalEntries[BINARY_SEARCH_ENTRIES];
     PINDEX_ENTRY *Table = LocalEntries;
-    ULONG SizeOfTable = 50;
+    ULONG SizeOfTable = BINARY_SEARCH_ENTRIES;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "BinarySearchIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Sp = %08lx\n", Sp );
-    DebugTrace( 0, Dbg, "Value = %08lx\n", Value );
-    DebugTrace( 0, Dbg, "ValueLength = %08lx\n", ValueLength );
+    DebugTrace( +1, Dbg, ("BinarySearchIndex\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Sp = %08lx\n", Sp) );
+    DebugTrace( 0, Dbg, ("Value = %08lx\n", Value) );
 
     //
     //  Set up to fill in our binary search vector.
@@ -3795,7 +4029,7 @@ Return Value:
         if (Table != LocalEntries) {
 
             ASSERT( Table != LocalEntries );
-            NtfsFreePagedPool( Table );
+            NtfsFreePool( Table );
 
             NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
         }
@@ -3807,8 +4041,8 @@ Return Value:
 
         SizeOfTable = (IndexHeader->BytesAvailable /
                         (sizeof(INDEX_ENTRY) + sizeof(LARGE_INTEGER))) + 2;
-        Table = (PINDEX_ENTRY *)NtfsAllocatePagedPool( SizeOfTable * sizeof(PINDEX_ENTRY));
-        RtlMoveMemory( Table, LocalEntries, 50 * sizeof(PINDEX_ENTRY) );
+        Table = (PINDEX_ENTRY *)NtfsAllocatePool(PagedPool, SizeOfTable * sizeof(PINDEX_ENTRY));
+        RtlMoveMemory( Table, LocalEntries, BINARY_SEARCH_ENTRIES * sizeof(PINDEX_ENTRY) );
     }
 
     //
@@ -3823,7 +4057,45 @@ Return Value:
     HighIndex -= 1;
     LowIndex = 0;
 
+#ifdef _CAIRO_
+
+    //
+    //  For view indices, we collate via the CollationFunction in the Scb.
+    //
+
+    if (FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX)) {
+
+        INDEX_KEY IndexKey;
+
+        while (LowIndex != HighIndex) {
+
+            TryIndex = LowIndex + (HighIndex - LowIndex) / 2;
+
+            IndexKey.Key = Table[TryIndex] + 1;
+            IndexKey.KeyLength = Table[TryIndex]->AttributeLength;
+
+            if (!FlagOn( Table[TryIndex]->Flags, INDEX_ENTRY_END )
+
+                    &&
+
+                (Scb->ScbType.Index.CollationFunction((PINDEX_KEY)Value,
+                                                      &IndexKey,
+                                                      Scb->ScbType.Index.CollationData) == GreaterThan)) {
+                LowIndex = TryIndex + 1;
+            }
+            else {
+                HighIndex = TryIndex;
+            }
+        }
+
+    } else
+
+#endif _CAIRO_
+
     while (LowIndex != HighIndex) {
+
+        PWCH UpcaseTable = IrpContext->Vcb->UpcaseTable;
+        ULONG UpcaseTableSize = IrpContext->Vcb->UpcaseTableSize;
 
         TryIndex = LowIndex + (HighIndex - LowIndex) / 2;
 
@@ -3832,9 +4104,9 @@ Return Value:
                 &&
 
             (*NtfsCompareValues[Scb->ScbType.Index.CollationRule])
-                                ( IrpContext,
+                                ( UpcaseTable,
+                                  UpcaseTableSize,
                                   Value,
-                                  ValueLength,
                                   Table[TryIndex],
                                   LessThan,
                                   TRUE ) == GreaterThan) {
@@ -3852,20 +4124,20 @@ Return Value:
     IndexTemp = Table[LowIndex];
 
     if (Table != LocalEntries) {
-        NtfsFreePagedPool( Table );
+        NtfsFreePool( Table );
     }
 
     //
     //  When we exit the loop, we have the answer.
     //
 
-    DebugTrace(-1, Dbg, "BinarySearchIndex -> %08lx\n", IndexTemp );
+    DebugTrace( -1, Dbg, ("BinarySearchIndex -> %08lx\n", IndexTemp) );
 
     return IndexTemp;
 }
 
 
-VOID
+BOOLEAN
 AddToIndex (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB Scb,
@@ -3914,7 +4186,8 @@ Arguments:
 
 Return Value:
 
-    None
+    FALSE -- if the stack did not have to be pushed
+    TRUE -- if the stack was pushed
 
 --*/
 
@@ -3923,13 +4196,14 @@ Return Value:
     PINDEX_LOOKUP_STACK Sp = IndexContext->Current;
     BOOLEAN DeleteIt = FALSE;
     BOOLEAN FirstPass = TRUE;
+    BOOLEAN StackWasPushed = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "AddToIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("AddToIndex\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     //
     //  This routine uses "tail-end" recursion, so we just want to keep looping
@@ -4002,9 +4276,9 @@ Return Value:
                     QuickIndex->BufferOffset = 0;
                 }
 
-                DebugTrace(-1, Dbg, "AddToIndex -> VOID\n", 0 );
+                DebugTrace( -1, Dbg, ("AddToIndex -> VOID\n") );
 
-                return;
+                return StackWasPushed;
 
             //
             //  Otherwise we have to push the current root down a level into
@@ -4021,13 +4295,13 @@ Return Value:
                 Sp += 1;
 
                 if (Sp >= IndexContext->Base + (ULONG)IndexContext->NumberEntries) {
-                    NtfsGrowLookupStack( IrpContext,
-                                         Scb,
+                    NtfsGrowLookupStack( Scb,
                                          IndexContext,
                                          &Sp );
                 }
 
                 PushIndexRoot( IrpContext, Scb, IndexContext );
+                StackWasPushed = TRUE;
                 continue;
             }
 
@@ -4052,9 +4326,9 @@ Return Value:
                                         Sp,
                                         QuickIndex );
 
-                DebugTrace(-1, Dbg, "AddToIndex -> VOID\n", 0 );
+                DebugTrace( -1, Dbg, ("AddToIndex -> VOID\n") );
 
-                return;
+                return StackWasPushed;
 
             //
             //  Otherwise, we have to do a buffer split in the allocation.
@@ -4151,10 +4425,10 @@ Return Value:
 
     Vcb = Scb->Vcb;
 
-    DebugTrace(+1, Dbg, "InsertSimpleRoot\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("InsertSimpleRoot\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     try {
 
@@ -4202,10 +4476,10 @@ Return Value:
                       DeleteIndexEntryRoot,
                       NULL,
                       0,
-                      NtfsMftVcn(Context, Vcb),
+                      NtfsMftOffset( Context ),
                       (PCHAR)Attribute - (PCHAR)FileRecord,
                       (PCHAR)BeforeIndexEntry - (PCHAR)Attribute,
-                      Vcb->ClustersPerFileRecordSegment );
+                      Vcb->BytesPerFileRecordSegment );
 
     } finally {
 
@@ -4228,11 +4502,11 @@ Return Value:
 
         if (DeleteIt) {
 
-            NtfsFreePagedPool(InsertIndexEntry);
+            NtfsFreePool(InsertIndexEntry);
         }
     }
 
-    DebugTrace(-1, Dbg, "InsertSimpleRoot -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("InsertSimpleRoot -> VOID\n") );
 }
 
 
@@ -4277,11 +4551,11 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartInsertSimpleRoot\n", 0 );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "Attribute = %08lx\n", Attribute );
-    DebugTrace( 0, Dbg, "BeforeIndexEntry = %08lx\n", BeforeIndexEntry );
+    DebugTrace( +1, Dbg, ("NtfsRestartInsertSimpleRoot\n") );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("Attribute = %08lx\n", Attribute) );
+    DebugTrace( 0, Dbg, ("BeforeIndexEntry = %08lx\n", BeforeIndexEntry) );
 
     //
     //  Form some pointers within the attribute value.
@@ -4317,9 +4591,28 @@ Return Value:
     if (FlagOn(InsertIndexEntry->Flags, INDEX_ENTRY_POINTER_FORM)) {
 
         RtlMoveMemory( BeforeIndexEntry, InsertIndexEntry, sizeof(INDEX_ENTRY) );
+#ifndef _CAIRO_
         RtlMoveMemory( (PVOID)(BeforeIndexEntry + 1),
                        *(PVOID *)(InsertIndexEntry + 1),
                        (ULONG)InsertIndexEntry->Length - sizeof(INDEX_ENTRY) );
+#else _CAIRO_
+        RtlMoveMemory( (PVOID)(BeforeIndexEntry + 1),
+                       *(PVOID *)(InsertIndexEntry + 1),
+                       InsertIndexEntry->AttributeLength );
+
+        //
+        //  In pointer form the Data Pointer follows the key pointer, but there is
+        //  none for normal directory indices.
+        //
+
+        if (*(PVOID *)((PCHAR)InsertIndexEntry + sizeof(INDEX_ENTRY) + sizeof(ULONG)) != NULL) {
+            RtlMoveMemory( (PVOID)((PCHAR)BeforeIndexEntry + InsertIndexEntry->DataOffset),
+                           *(PVOID *)((PCHAR)InsertIndexEntry + sizeof(INDEX_ENTRY) + sizeof(ULONG)),
+                           InsertIndexEntry->DataLength );
+        }
+
+#endif _CAIRO_
+
         ClearFlag( BeforeIndexEntry->Flags, INDEX_ENTRY_POINTER_FORM );
 
     } else {
@@ -4335,7 +4628,7 @@ Return Value:
     IndexHeader->FirstFreeByte += InsertIndexEntry->Length;
     IndexHeader->BytesAvailable += InsertIndexEntry->Length;
 
-    DebugTrace(-1, Dbg, "NtfsRestartInsertSimpleRoot -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartInsertSimpleRoot -> VOID\n") );
 }
 
 
@@ -4383,14 +4676,14 @@ Return Value:
     struct {
         INDEX_ROOT IndexRoot;
         INDEX_ENTRY IndexEntry;
-        VCN Vcn;
+        LONGLONG IndexBlock;
     } R;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "PushIndexRoot\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("PushIndexRoot\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     //
     //  Initialize everything (only Mcb can fail), then set up to cleanup
@@ -4408,7 +4701,7 @@ Return Value:
     //
 
     SizeToMove = IndexContext->Base->IndexHeader->FirstFreeByte;
-    IndexHeaderR = NtfsAllocatePagedPool( SizeToMove );
+    IndexHeaderR = NtfsAllocatePool(PagedPool, SizeToMove );
 
     try {
 
@@ -4439,12 +4732,21 @@ Return Value:
                                         &Scb->Fcb->FileReference,
                                         $INDEX_ALLOCATION,
                                         &Scb->AttributeName,
+                                        NULL,
                                         FALSE,
                                         &AllocationContext )) {
 
             //
-            //  Allocate the Index Allocation attribute.
+            //  Allocate the Index Allocation attribute.  Always allocate at
+            //  least one cluster.
             //
+
+            EndOfValidData = Scb->ScbType.Index.BytesPerIndexBuffer;
+
+            if ((ULONG) EndOfValidData < Scb->Vcb->BytesPerCluster) {
+
+                EndOfValidData = Scb->Vcb->BytesPerCluster;
+            }
 
             NtfsAllocateAttribute( IrpContext,
                                    Scb,
@@ -4453,10 +4755,10 @@ Return Value:
                                    0,
                                    TRUE,
                                    TRUE,
-                                   (LONGLONG)(Scb->ScbType.Index.BytesPerIndexBuffer),
+                                   EndOfValidData,
                                    NULL );
 
-            Scb->Header.AllocationSize.QuadPart = Scb->ScbType.Index.BytesPerIndexBuffer;
+            Scb->Header.AllocationSize.QuadPart = EndOfValidData;
 
             SetFlag( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED );
 
@@ -4477,23 +4779,41 @@ Return Value:
         }
 
         //
-        //  We are guaranteed to be done with the Index Lookup Stack after
-        //  the first (current) entry.  We will overwrite the second entry
-        //  in the stack and thus have exactly two entries in use: a new
-        //  root with just an End entry, and an index buffer containing
-        //  the pushed down root.
+        //  Take some pains here to preserve the IndexContext for the case that
+        //  we are called from AddToIndex, when it is called from DeleteFromIndex,
+        //  because we still need some of the stack then.  The caller must have
+        //  insured the stack is big enough for him.  Move all but two entries,
+        //  because we do not need to move the root, and we cannot move the last
+        //  entry since it would go off the end of the structure!
         //
 
-        Sp =
-        IndexContext->Top =
-        IndexContext->Current = IndexContext->Base + 1;
+        ASSERT(IndexContext->NumberEntries > 2);
 
         //
-        //  Allocate a buffer to hold the pushed down entries.  (Unpin
-        //  anything that already happens to be pinned first!)
+        //  Do an unpin on the entry that will be overwritten.
         //
 
-        NtfsUnpinBcb( IrpContext, &Sp->Bcb );
+        NtfsUnpinBcb( &IndexContext->Base[IndexContext->NumberEntries - 1].Bcb );
+
+        RtlMoveMemory( IndexContext->Base + 2,
+                       IndexContext->Base + 1,
+                       (IndexContext->NumberEntries - 2) * sizeof(INDEX_LOOKUP_STACK) );
+
+        //
+        //  Now point our local pointer to where the root will be pushed to, and
+        //  clear the Bcb pointer in the stack there, since it was copied above.
+        //  Advance top and current because of the move.
+        //
+
+        Sp = IndexContext->Base + 1;
+        Sp->Bcb = NULL;
+        IndexContext->Top += 1;
+        IndexContext->Current += 1;
+
+        //
+        //  Allocate a buffer to hold the pushed down entries.
+        //
+
         IndexBuffer = GetIndexBuffer( IrpContext, Scb, Sp, &EndOfValidData );
 
         //
@@ -4537,10 +4857,10 @@ Return Value:
                       Noop,
                       NULL,
                       0,
-                      IndexBuffer->ThisVcn,
+                      LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                       0,
                       0,
-                      Scb->ScbType.Index.ClustersPerIndexBuffer );
+                      Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Remember if we extended the valid data for this Scb.
@@ -4552,8 +4872,7 @@ Return Value:
 
             NtfsWriteFileSizes( IrpContext,
                                 Scb,
-                                Scb->Header.FileSize.QuadPart,
-                                EndOfValidData,
+                                &Scb->Header.ValidDataLength.QuadPart,
                                 TRUE,
                                 TRUE );
         }
@@ -4562,27 +4881,36 @@ Return Value:
         //  Now initialize an image of the new root.
         //
 
-        R.IndexRoot.IndexedAttributeType = Scb->ScbType.Index.AttributeBeingIndexed;
-        R.IndexRoot.CollationRule = Scb->ScbType.Index.CollationRule;
+#ifdef _CAIRO_
+        if (!FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX)) {
+#endif _CAIRO_
+            R.IndexRoot.IndexedAttributeType = Scb->ScbType.Index.AttributeBeingIndexed;
+            R.IndexRoot.CollationRule = Scb->ScbType.Index.CollationRule;
+#ifdef _CAIRO_
+        } else {
+            R.IndexRoot.IndexedAttributeType = $UNUSED;
+            R.IndexRoot.CollationRule = 0;
+        }
+#endif _CAIRO_
         R.IndexRoot.BytesPerIndexBuffer = Scb->ScbType.Index.BytesPerIndexBuffer;
-        R.IndexRoot.ClustersPerIndexBuffer = Scb->ScbType.Index.ClustersPerIndexBuffer;
+        R.IndexRoot.BlocksPerIndexBuffer = Scb->ScbType.Index.BlocksPerIndexBuffer;
         R.IndexRoot.IndexHeader.FirstIndexEntry = (PCHAR)&R.IndexEntry -
                                                   (PCHAR)&R.IndexRoot.IndexHeader;
         R.IndexRoot.IndexHeader.FirstFreeByte =
         R.IndexRoot.IndexHeader.BytesAvailable = QuadAlign(sizeof(INDEX_HEADER)) +
                                                  QuadAlign(sizeof(INDEX_ENTRY)) +
-                                                 sizeof(VCN);
+                                                 sizeof(LONGLONG);
         SetFlag( R.IndexRoot.IndexHeader.Flags, INDEX_NODE );
 
-        R.IndexEntry.Length = sizeof(INDEX_ENTRY) + sizeof(VCN);
+        R.IndexEntry.Length = sizeof(INDEX_ENTRY) + sizeof(LONGLONG);
         R.IndexEntry.Flags = INDEX_ENTRY_NODE | INDEX_ENTRY_END;
-        R.Vcn = IndexBuffer->ThisVcn;
+        R.IndexBlock = IndexBuffer->ThisBlock;
 
         //
         //  Now recreate the index root.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &IndexContext->AttributeContext );
+        NtfsCleanupAttributeContext( &IndexContext->AttributeContext );
         NtfsCreateAttributeWithValue( IrpContext,
                                       Scb->Fcb,
                                       $INDEX_ROOT,
@@ -4608,13 +4936,13 @@ Return Value:
 
         DebugUnwind( PushIndexRoot );
 
-        NtfsFreePagedPool( IndexHeaderR );
+        NtfsFreePool( IndexHeaderR );
         FsRtlUninitializeLargeMcb( &Mcb );
-        NtfsCleanupAttributeContext( IrpContext, &AllocationContext );
-        NtfsCleanupAttributeContext( IrpContext, &BitMapContext );
+        NtfsCleanupAttributeContext( &AllocationContext );
+        NtfsCleanupAttributeContext( &BitMapContext );
     }
 
-    DebugTrace(-1, Dbg, "PushIndexRoot -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("PushIndexRoot -> VOID\n") );
 }
 
 
@@ -4661,10 +4989,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "InsertSimpleAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "Sp = %08lx\n", Sp );
+    DebugTrace( +1, Dbg, ("InsertSimpleAllocation\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("Sp = %08lx\n", Sp) );
 
     try {
 
@@ -4682,7 +5010,7 @@ Return Value:
 
         NtfsPinMappedData( IrpContext,
                            Scb,
-                           LlBytesFromClusters(Scb->Vcb, IndexBuffer->ThisVcn),
+                           LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                            Scb->ScbType.Index.BytesPerIndexBuffer,
                            &Sp->Bcb );
 
@@ -4691,8 +5019,7 @@ Return Value:
         //  update.
         //
 
-        NtfsRestartInsertSimpleAllocation( IrpContext,
-                                           InsertIndexEntry,
+        NtfsRestartInsertSimpleAllocation( InsertIndexEntry,
                                            IndexBuffer,
                                            BeforeIndexEntry );
 
@@ -4714,10 +5041,10 @@ Return Value:
                       DeleteIndexEntryAllocation,
                       NULL,
                       0,
-                      IndexBuffer->ThisVcn,
+                      LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                       0,
                       (PCHAR)BeforeIndexEntry - (PCHAR)IndexBuffer,
-                      Scb->ScbType.Index.ClustersPerIndexBuffer );
+                      Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Update the quick index buffer if we have it.
@@ -4728,7 +5055,7 @@ Return Value:
             QuickIndex->ChangeCount = Scb->ScbType.Index.ChangeCount;
             QuickIndex->BufferOffset = PtrOffset( Sp->StartOfBuffer, Sp->IndexEntry );
             QuickIndex->CapturedLsn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->Lsn;
-            QuickIndex->Vcn = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisVcn;
+            QuickIndex->IndexBlock = ((PINDEX_ALLOCATION_BUFFER) Sp->StartOfBuffer)->ThisBlock;
         }
 
     } finally {
@@ -4744,24 +5071,22 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            NtfsRestartDeleteSimpleAllocation( IrpContext,
-                                               BeforeIndexEntry,
+            NtfsRestartDeleteSimpleAllocation( BeforeIndexEntry,
                                                IndexBuffer );
         }
 
         if (DeleteIt) {
 
-            NtfsFreePagedPool(InsertIndexEntry);
+            NtfsFreePool(InsertIndexEntry);
         }
     }
 
-    DebugTrace(-1, Dbg, "InsertSimpleAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("InsertSimpleAllocation -> VOID\n") );
 }
 
 
 VOID
 NtfsRestartInsertSimpleAllocation (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY InsertIndexEntry,
     IN PINDEX_ALLOCATION_BUFFER IndexBuffer,
     IN PINDEX_ENTRY BeforeIndexEntry
@@ -4794,14 +5119,12 @@ Return Value:
 {
     PINDEX_HEADER IndexHeader;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartInsertSimpleAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "IndexBuffer = %08lx\n", IndexBuffer );
-    DebugTrace( 0, Dbg, "BeforeIndexEntry = %08lx\n", BeforeIndexEntry );
+    DebugTrace( +1, Dbg, ("NtfsRestartInsertSimpleAllocation\n") );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexBuffer = %08lx\n", IndexBuffer) );
+    DebugTrace( 0, Dbg, ("BeforeIndexEntry = %08lx\n", BeforeIndexEntry) );
 
     //
     //  Form some pointers within the attribute value.
@@ -4826,9 +5149,28 @@ Return Value:
     if (FlagOn(InsertIndexEntry->Flags, INDEX_ENTRY_POINTER_FORM)) {
 
         RtlMoveMemory( BeforeIndexEntry, InsertIndexEntry, sizeof(INDEX_ENTRY) );
+#ifndef _CAIRO_
         RtlMoveMemory( (PVOID)(BeforeIndexEntry + 1),
                        *(PVOID *)(InsertIndexEntry + 1),
                        (ULONG)InsertIndexEntry->Length - sizeof(INDEX_ENTRY) );
+#else _CAIRO_
+        RtlMoveMemory( (PVOID)(BeforeIndexEntry + 1),
+                       *(PVOID *)(InsertIndexEntry + 1),
+                       InsertIndexEntry->AttributeLength );
+
+        //
+        //  In pointer form the Data Pointer follows the key pointer, but there is
+        //  none for normal directory indices.
+        //
+
+        if (*(PVOID *)((PCHAR)InsertIndexEntry + sizeof(INDEX_ENTRY) + sizeof(ULONG)) != NULL) {
+            RtlMoveMemory( (PVOID)((PCHAR)BeforeIndexEntry + InsertIndexEntry->DataOffset),
+                           *(PVOID *)((PCHAR)InsertIndexEntry + sizeof(INDEX_ENTRY) + sizeof(ULONG)),
+                           InsertIndexEntry->DataLength );
+        }
+
+#endif _CAIRO_
+
         ClearFlag( BeforeIndexEntry->Flags, INDEX_ENTRY_POINTER_FORM );
 
     } else {
@@ -4842,7 +5184,7 @@ Return Value:
 
     IndexHeader->FirstFreeByte += InsertIndexEntry->Length;
 
-    DebugTrace(-1, Dbg, "NtfsRestartInsertSimpleAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartInsertSimpleAllocation -> VOID\n") );
 }
 
 
@@ -4898,7 +5240,7 @@ Return Value:
 
     struct {
         INDEX_ENTRY IndexEntry;
-        VCN Vcn;
+        LONGLONG IndexBlock;
     } NewEnd;
 
     PVCB Vcb;
@@ -4907,10 +5249,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "InsertWithBufferSplit\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "InsertIndexEntry = %08lx\n", InsertIndexEntry );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("InsertWithBufferSplit\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("InsertIndexEntry = %08lx\n", InsertIndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     Stack2.Bcb = NULL;
     Sp = IndexContext->Current;
@@ -4932,7 +5274,7 @@ Return Value:
 
         NtfsPinMappedData( IrpContext,
                            Scb,
-                           LlBytesFromClusters(Vcb,IndexBuffer->ThisVcn),
+                           LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                            Scb->ScbType.Index.BytesPerIndexBuffer,
                            &Sp->Bcb );
 
@@ -4954,12 +5296,25 @@ Return Value:
         //
 
         MiddleIndexEntry = NtfsFirstIndexEntry(IndexHeader);
+        NtfsCheckIndexBound( MiddleIndexEntry, IndexHeader );
+
+        if (MiddleIndexEntry->Length == 0) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+        }
 
         while (((ULONG)((PCHAR)MiddleIndexEntry - (PCHAR)IndexHeader) +
                  (ULONG)MiddleIndexEntry->Length) < IndexHeader->BytesAvailable / 2) {
 
             MovingIndexEntry = MiddleIndexEntry;
             MiddleIndexEntry = NtfsNextIndexEntry(MiddleIndexEntry);
+
+            NtfsCheckIndexBound( MiddleIndexEntry, IndexHeader );
+
+            if (MiddleIndexEntry->Length == 0) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+            }
         }
 
         //
@@ -4973,20 +5328,26 @@ Return Value:
         }
         MovingIndexEntry = NtfsNextIndexEntry(MiddleIndexEntry);
 
+        NtfsCheckIndexBound( MovingIndexEntry, IndexHeader );
+
+        if (MovingIndexEntry->Length == 0) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+        }
         //
         //  Allocate space to hold this middle entry, and copy it out.
         //
 
-        ReturnIndexEntry = FsRtlAllocatePool( NonPagedPool,
+        ReturnIndexEntry = NtfsAllocatePool( NonPagedPool,
                                               MiddleIndexEntry->Length +
-                                                sizeof(VCN) );
+                                                sizeof(LONGLONG) );
         RtlMoveMemory( ReturnIndexEntry,
                        MiddleIndexEntry,
                        MiddleIndexEntry->Length );
 
         if (!FlagOn(ReturnIndexEntry->Flags, INDEX_ENTRY_NODE)) {
             SetFlag( ReturnIndexEntry->Flags, INDEX_ENTRY_NODE );
-            ReturnIndexEntry->Length += sizeof(VCN);
+            ReturnIndexEntry->Length += sizeof(LONGLONG);
         }
 
         //
@@ -5023,10 +5384,10 @@ Return Value:
                       Noop,
                       NULL,
                       0,
-                      IndexBuffer2->ThisVcn,
+                      LlBytesFromIndexBlocks( IndexBuffer2->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                       0,
                       0,
-                      Scb->ScbType.Index.ClustersPerIndexBuffer );
+                      Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Remember if we extended the valid data for this Scb.
@@ -5038,8 +5399,7 @@ Return Value:
 
             NtfsWriteFileSizes( IrpContext,
                                 Scb,
-                                Scb->Header.FileSize.QuadPart,
-                                EndOfValidData,
+                                &Scb->Header.ValidDataLength.QuadPart,
                                 TRUE,
                                 TRUE );
         }
@@ -5054,9 +5414,9 @@ Return Value:
         NewEnd.IndexEntry.Flags = INDEX_ENTRY_END;
 
         if (FlagOn(MiddleIndexEntry->Flags, INDEX_ENTRY_NODE)) {
-            NewEnd.IndexEntry.Length += sizeof(VCN);
+            NewEnd.IndexEntry.Length += sizeof(LONGLONG);
             SetFlag( NewEnd.IndexEntry.Flags, INDEX_ENTRY_NODE );
-            NewEnd.Vcn = NtfsIndexEntryVcn(MiddleIndexEntry);
+            NewEnd.IndexBlock = NtfsIndexEntryBlock(MiddleIndexEntry);
         }
 
         //
@@ -5073,18 +5433,17 @@ Return Value:
                       WriteEndOfIndexBuffer,
                       MiddleIndexEntry,
                       MiddleIndexEntry->Length + LengthToMove,
-                      IndexBuffer->ThisVcn,
+                      LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                       0,
                       (PCHAR)MiddleIndexEntry - (PCHAR)IndexBuffer,
-                      Scb->ScbType.Index.ClustersPerIndexBuffer );
+                      Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Now call the restart routine to write the new end of the index
         //  buffer.
         //
 
-        NtfsRestartWriteEndOfIndex( IrpContext,
-                                    IndexHeader,
+        NtfsRestartWriteEndOfIndex( IndexHeader,
                                     MiddleIndexEntry,
                                     (PINDEX_ENTRY)&NewEnd,
                                     NewEnd.IndexEntry.Length );
@@ -5138,7 +5497,7 @@ Return Value:
         //                               IndexBuffer        IndexBuffer2
         //
 
-        NtfsSetIndexEntryVcn( ReturnIndexEntry, IndexBuffer->ThisVcn );
+        NtfsSetIndexEntryBlock( ReturnIndexEntry, IndexBuffer->ThisBlock );
 
         //
         //  Decrement our stack pointer to point to the stack entry describing
@@ -5176,15 +5535,15 @@ Return Value:
                           Vcb->MftScb,
                           NtfsFoundBcb(Context),
                           SetIndexEntryVcnRoot,
-                          &IndexBuffer2->ThisVcn,
-                          sizeof(VCN),
+                          &IndexBuffer2->ThisBlock,
+                          sizeof(LONGLONG),
                           SetIndexEntryVcnRoot,
-                          &IndexBuffer->ThisVcn,
-                          sizeof(VCN),
-                          NtfsMftVcn(Context, Vcb),
+                          &IndexBuffer->ThisBlock,
+                          sizeof(LONGLONG),
+                          NtfsMftOffset( Context ),
                           (PCHAR)Attribute - (PCHAR)FileRecord,
                           (PCHAR)Sp->IndexEntry - (PCHAR)Attribute,
-                          Vcb->ClustersPerFileRecordSegment );
+                          Vcb->BytesPerFileRecordSegment );
 
         //
         //  Otherwise, our parent is also an Index Buffer.
@@ -5202,7 +5561,8 @@ Return Value:
 
             NtfsPinMappedData( IrpContext,
                                Scb,
-                               LlBytesFromClusters(Vcb, ParentIndexBuffer->ThisVcn),
+                               LlBytesFromIndexBlocks( ParentIndexBuffer->ThisBlock,
+                                                       Scb->ScbType.Index.IndexBlockByteShift ),
                                Scb->ScbType.Index.BytesPerIndexBuffer,
                                &Sp->Bcb );
 
@@ -5215,38 +5575,38 @@ Return Value:
                           Scb,
                           Sp->Bcb,
                           SetIndexEntryVcnAllocation,
-                          &IndexBuffer2->ThisVcn,
-                          sizeof(VCN),
+                          &IndexBuffer2->ThisBlock,
+                          sizeof(LONGLONG),
                           SetIndexEntryVcnAllocation,
-                          &IndexBuffer->ThisVcn,
-                          sizeof(VCN),
-                          ParentIndexBuffer->ThisVcn,
+                          &IndexBuffer->ThisBlock,
+                          sizeof(LONGLONG),
+                          LlBytesFromIndexBlocks( ParentIndexBuffer->ThisBlock,
+                                                  Scb->ScbType.Index.IndexBlockByteShift ),
                           0,
                           (PCHAR)Sp->IndexEntry - (PCHAR)ParentIndexBuffer,
-                          Scb->ScbType.Index.ClustersPerIndexBuffer );
+                          Scb->ScbType.Index.BytesPerIndexBuffer );
         }
 
         //
         //  Now call the Restart routine to do it.
         //
 
-        NtfsRestartSetIndexVcn( IrpContext,
-                                Sp->IndexEntry,
-                                IndexBuffer2->ThisVcn );
+        NtfsRestartSetIndexBlock( Sp->IndexEntry,
+                                  IndexBuffer2->ThisBlock );
 
     } finally {
 
         DebugUnwind( InsertWithBufferSplit );
 
-        NtfsUnpinBcb( IrpContext, &Stack2.Bcb );
+        NtfsUnpinBcb( &Stack2.Bcb );
 
         if (DeleteIt) {
 
-            NtfsFreePagedPool(InsertIndexEntry);
+            NtfsFreePool(InsertIndexEntry);
         }
     }
 
-    DebugTrace(-1, Dbg, "InsertWithBufferSplit -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("InsertWithBufferSplit -> VOID\n") );
 
     return ReturnIndexEntry;
 }
@@ -5254,7 +5614,6 @@ Return Value:
 
 VOID
 NtfsRestartWriteEndOfIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_HEADER IndexHeader,
     IN PINDEX_ENTRY OverwriteIndexEntry,
     IN PINDEX_ENTRY FirstNewIndexEntry,
@@ -5290,43 +5649,40 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartWriteEndOfIndex\n", 0 );
-    DebugTrace( 0, Dbg, "IndexHeader = %08lx\n", IndexHeader );
-    DebugTrace( 0, Dbg, "OverwriteIndexEntry = %08lx\n", OverwriteIndexEntry );
-    DebugTrace( 0, Dbg, "FirstNewIndexEntry = %08lx\n", FirstNewIndexEntry );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
+    DebugTrace( +1, Dbg, ("NtfsRestartWriteEndOfIndex\n") );
+    DebugTrace( 0, Dbg, ("IndexHeader = %08lx\n", IndexHeader) );
+    DebugTrace( 0, Dbg, ("OverwriteIndexEntry = %08lx\n", OverwriteIndexEntry) );
+    DebugTrace( 0, Dbg, ("FirstNewIndexEntry = %08lx\n", FirstNewIndexEntry) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
 
     IndexHeader->FirstFreeByte = ((PCHAR)OverwriteIndexEntry - (PCHAR)IndexHeader) +
                                  Length;
     RtlMoveMemory( OverwriteIndexEntry, FirstNewIndexEntry, Length );
 
-    DebugTrace(-1, Dbg, "NtfsRestartWriteEndOfIndex -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartWriteEndOfIndex -> VOID\n") );
 }
 
 
 VOID
-NtfsRestartSetIndexVcn(
-    IN PIRP_CONTEXT IrpContext,
+NtfsRestartSetIndexBlock(
     IN PINDEX_ENTRY IndexEntry,
-    IN VCN Vcn
+    IN LONGLONG IndexBlock
     )
 
 /*++
 
 Routine Description:
 
-    This routine updates the Vcn in an index entry, for both normal operation and
+    This routine updates the IndexBlock in an index entry, for both normal operation and
     restart.  Therefore it does no logging.
 
 Arguments:
 
     IndexEntry - Supplies a pointer to the index entry whose Vcn is to be overwritten.
 
-    Vcn - The Vcn which is to be written to the index entry.
+    IndexBlock - The index block which is to be written to the index entry.
 
 Return Value:
 
@@ -5335,23 +5691,20 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartSetIndexVcn\n", 0 );
-    DebugTrace( 0, Dbg, "IndexEntry = %08lx\n", IndexEntry );
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
+    DebugTrace( +1, Dbg, ("NtfsRestartSetIndexBlock\n") );
+    DebugTrace( 0, Dbg, ("IndexEntry = %08lx\n", IndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexBlock = %016I64x\n", IndexBlock) );
 
-    NtfsSetIndexEntryVcn( IndexEntry, Vcn );
+    NtfsSetIndexEntryBlock( IndexEntry, IndexBlock );
 
-    DebugTrace(-1, Dbg, "NtfsRestartSetIndexEntryVcn -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartSetIndexEntryBlock -> VOID\n") );
 }
 
 
 VOID
 NtfsRestartUpdateFileName(
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY IndexEntry,
     IN PDUPLICATED_INFORMATION Info
     )
@@ -5376,19 +5729,17 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartUpdateFileName\n", 0 );
-    DebugTrace( 0, Dbg, "IndexEntry = %08lx\n", IndexEntry );
-    DebugTrace( 0, Dbg, "Info = %08lx\n", Info );
+    DebugTrace( +1, Dbg, ("NtfsRestartUpdateFileName\n") );
+    DebugTrace( 0, Dbg, ("IndexEntry = %08lx\n", IndexEntry) );
+    DebugTrace( 0, Dbg, ("Info = %08lx\n", Info) );
 
     RtlMoveMemory( &((PFILE_NAME)(IndexEntry + 1))->Info,
                    Info,
                    sizeof(DUPLICATED_INFORMATION) );
 
-    DebugTrace(-1, Dbg, "NtfsRestartUpdateFileName -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartUpdateFileName -> VOID\n") );
 }
 
 
@@ -5477,9 +5828,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "DeleteFromIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("DeleteFromIndex\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     //
     //  Use try-finally to free pool on the way out.
@@ -5523,10 +5874,19 @@ Return Value:
             IndexBuffer = (PINDEX_ALLOCATION_BUFFER)Sp->StartOfBuffer;
             IndexHeader = &IndexBuffer->IndexHeader;
             NextEntry = NtfsFirstIndexEntry(IndexHeader);
+            NtfsCheckIndexBound( NextEntry, IndexHeader );
 
             do {
+
                 DeleteEntry = NextEntry;
                 NextEntry = NtfsNextIndexEntry(NextEntry);
+
+                NtfsCheckIndexBound( NextEntry, IndexHeader );
+                if (NextEntry->Length == 0) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+                }
+
             } while (!FlagOn(NextEntry->Flags, INDEX_ENTRY_END));
 
             //
@@ -5534,9 +5894,10 @@ Return Value:
             //  reinsert him later.
             //
 
-            ReinsertEntry = (PINDEX_ENTRY)FsRtlAllocatePool( NonPagedPool,
+            ReinsertEntry = (PINDEX_ENTRY)NtfsAllocatePool( NonPagedPool,
                                                              DeleteEntry->Length +
-                                                               sizeof(VCN) );
+                                                               sizeof(LONGLONG) );
+
             RtlMoveMemory( ReinsertEntry, DeleteEntry, DeleteEntry->Length );
         }
 
@@ -5584,13 +5945,21 @@ Return Value:
 
         if (TargetEntry != NULL) {
 
-            VCN SavedVcn;
+            LONGLONG SavedBlock;
+
+            //
+            //  Reload in case root moved
+            //
+
+            if (TargetSp == IndexContext->Base) {
+                TargetEntry = TargetSp->IndexEntry;
+            }
 
             //
             //  Save the Vcn in case we need it for the reinsert.
             //
 
-            SavedVcn = NtfsIndexEntryVcn(TargetEntry);
+            SavedBlock = NtfsIndexEntryBlock(TargetEntry);
 
             //
             //  Delete it.
@@ -5608,19 +5977,22 @@ Return Value:
 
                 //
                 //  We know the replacement entry was a leaf, so give him the
-                //  Vcn now.
+                //  block number now.
                 //
 
                 SetFlag( ReinsertEntry->Flags, INDEX_ENTRY_NODE );
-                ReinsertEntry->Length += sizeof(VCN);
-                NtfsSetIndexEntryVcn( ReinsertEntry, SavedVcn );
+                ReinsertEntry->Length += sizeof(LONGLONG);
+                NtfsSetIndexEntryBlock( ReinsertEntry, SavedBlock );
 
                 //
                 //  Now we are all set up to just call our local routine to
-                //  go insert our replacement.
+                //  go insert our replacement.  If the stack gets pushed,
+                //  we have to increment our DeleteSp.
                 //
 
-                AddToIndex( IrpContext, Scb, ReinsertEntry, IndexContext, NULL );
+                if (AddToIndex( IrpContext, Scb, ReinsertEntry, IndexContext, NULL )) {
+                    DeleteSp += 1;
+                }
 
                 //
                 //  We may need to save someone else away below, but it could
@@ -5628,7 +6000,7 @@ Return Value:
                 //  current ReinsertEntry now.
                 //
 
-                NtfsFreePagedPool( ReinsertEntry );
+                NtfsFreePool( ReinsertEntry );
                 ReinsertEntry = NULL;
 
             //
@@ -5664,7 +6036,7 @@ Return Value:
             //  reinsert him later.
             //
 
-            ReinsertEntry = (PINDEX_ENTRY)FsRtlAllocatePool( NonPagedPool,
+            ReinsertEntry = (PINDEX_ENTRY)NtfsAllocatePool( NonPagedPool,
                                                              DeleteEntry->Length );
             RtlMoveMemory( ReinsertEntry, DeleteEntry, DeleteEntry->Length );
 
@@ -5678,7 +6050,7 @@ Return Value:
             //
 
             ClearFlag( ReinsertEntry->Flags, INDEX_ENTRY_NODE );
-            ReinsertEntry->Length -= sizeof(VCN);
+            ReinsertEntry->Length -= sizeof(LONGLONG);
 
             //
             //  Delete it.
@@ -5704,12 +6076,34 @@ Return Value:
 
         if (ReinsertEntry != NULL) {
 
-            NtfsAddIndexEntry( IrpContext,
-                               Scb,
-                               (PVOID)(ReinsertEntry + 1),
-                               NtfsFileNameSize((PFILE_NAME)(ReinsertEntry + 1)),
-                               &ReinsertEntry->FileReference,
-                               NULL );
+#ifdef _CAIRO_
+            if (!FlagOn(Scb->ScbState, SCB_STATE_VIEW_INDEX)) {
+#endif _CAIRO_
+
+                NtfsAddIndexEntry( IrpContext,
+                                   Scb,
+                                   (PVOID)(ReinsertEntry + 1),
+                                   NtfsFileNameSize((PFILE_NAME)(ReinsertEntry + 1)),
+                                   &ReinsertEntry->FileReference,
+                                   NULL );
+
+#ifdef _CAIRO_
+            } else {
+
+                INDEX_ROW IndexRow;
+
+                IndexRow.KeyPart.Key = ReinsertEntry + 1;
+                IndexRow.KeyPart.KeyLength = ReinsertEntry->AttributeLength;
+                IndexRow.DataPart.Data = Add2Ptr(ReinsertEntry, ReinsertEntry->DataOffset);
+                IndexRow.DataPart.DataLength = ReinsertEntry->DataLength;
+
+                NtOfsAddRecords( IrpContext,
+                                 Scb,
+                                 1,
+                                 &IndexRow,
+                                 FALSE );
+            }
+#endif _CAIRO_
         }
 
     //
@@ -5723,11 +6117,11 @@ Return Value:
 
         if (ReinsertEntry != NULL) {
 
-            NtfsFreePagedPool( ReinsertEntry );
+            NtfsFreePool( ReinsertEntry );
         }
     }
 
-    DebugTrace(-1, Dbg, "DeleteFromIndex -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("DeleteFromIndex -> VOID\n") );
 }
 
 
@@ -5767,10 +6161,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "DeleteSimple\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "IndexEntry = %08lx\n", IndexEntry );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
+    DebugTrace( +1, Dbg, ("DeleteSimple\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("IndexEntry = %08lx\n", IndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
 
     //
     //  Our caller never checks if he is deleting in the root or in the
@@ -5815,10 +6209,10 @@ Return Value:
                       AddIndexEntryRoot,
                       IndexEntry,
                       IndexEntry->Length,
-                      NtfsMftVcn(Context, Vcb),
+                      NtfsMftOffset( Context ),
                       (PCHAR)Attribute - (PCHAR)FileRecord,
                       (PCHAR)IndexEntry - (PCHAR)Attribute,
-                      Vcb->ClustersPerFileRecordSegment );
+                      Vcb->BytesPerFileRecordSegment );
 
         //
         //  Now call the same routine as Restart to actually delete it.
@@ -5848,7 +6242,7 @@ Return Value:
 
         NtfsPinMappedData( IrpContext,
                            Scb,
-                           LlBytesFromClusters(Scb->Vcb, IndexBuffer->ThisVcn),
+                           LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                            Scb->ScbType.Index.BytesPerIndexBuffer,
                            &Sp->Bcb );
 
@@ -5867,21 +6261,21 @@ Return Value:
                       AddIndexEntryAllocation,
                       IndexEntry,
                       IndexEntry->Length,
-                      IndexBuffer->ThisVcn,
+                      LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                       0,
                       (PCHAR)IndexEntry - (PCHAR)IndexBuffer,
-                      Scb->ScbType.Index.ClustersPerIndexBuffer );
+                      Scb->ScbType.Index.BytesPerIndexBuffer );
 
         //
         //  Now call the same routine as Restart to delete the entry.
         //
 
-        NtfsRestartDeleteSimpleAllocation( IrpContext, IndexEntry, IndexBuffer );
+        NtfsRestartDeleteSimpleAllocation( IndexEntry, IndexBuffer );
 
         CheckBuffer(IndexBuffer);
     }
 
-    DebugTrace(-1, Dbg, "DeleteSimple -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("DeleteSimple -> VOID\n") );
 }
 
 
@@ -5922,10 +6316,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartDeleteSimpleRoot\n", 0 );
-    DebugTrace( 0, Dbg, "IndexEntry = %08lx\n", IndexEntry );
-    DebugTrace( 0, Dbg, "FileRecord = %08lx\n", FileRecord );
-    DebugTrace( 0, Dbg, "Attribute = %08lx\n", Attribute );
+    DebugTrace( +1, Dbg, ("NtfsRestartDeleteSimpleRoot\n") );
+    DebugTrace( 0, Dbg, ("IndexEntry = %08lx\n", IndexEntry) );
+    DebugTrace( 0, Dbg, ("FileRecord = %08lx\n", FileRecord) );
+    DebugTrace( 0, Dbg, ("Attribute = %08lx\n", Attribute) );
 
     //
     //  Form some pointers within the attribute value.
@@ -5962,13 +6356,12 @@ Return Value:
                                     Attribute,
                                     Attribute->RecordLength - SavedLength );
 
-    DebugTrace(-1, Dbg, "NtfsRestartDeleteSimpleRoot -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartDeleteSimpleRoot -> VOID\n") );
 }
 
 
 VOID
 NtfsRestartDeleteSimpleAllocation (
-    IN PIRP_CONTEXT IrpContext,
     IN PINDEX_ENTRY IndexEntry,
     IN PINDEX_ALLOCATION_BUFFER IndexBuffer
     )
@@ -5998,13 +6391,11 @@ Return Value:
     PINDEX_ENTRY EntryAfter;
     ULONG SavedLength;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRestartDeleteSimpleAllocation\n", 0 );
-    DebugTrace( 0, Dbg, "IndexEntry = %08lx\n", IndexEntry );
-    DebugTrace( 0, Dbg, "IndexBuffer = %08lx\n", IndexBuffer );
+    DebugTrace( +1, Dbg, ("NtfsRestartDeleteSimpleAllocation\n") );
+    DebugTrace( 0, Dbg, ("IndexEntry = %08lx\n", IndexEntry) );
+    DebugTrace( 0, Dbg, ("IndexBuffer = %08lx\n", IndexBuffer) );
 
     //
     //  Form some pointers within the attribute value.
@@ -6029,7 +6420,7 @@ Return Value:
 
     IndexHeader->FirstFreeByte -= SavedLength;
 
-    DebugTrace(-1, Dbg, "NtfsRestartDeleteSimpleAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsRestartDeleteSimpleAllocation -> VOID\n") );
 }
 
 
@@ -6070,16 +6461,16 @@ Return Value:
     PINDEX_ALLOCATION_BUFFER IndexBuffer;
     PINDEX_HEADER IndexHeader;
     PFILE_RECORD_SEGMENT_HEADER FileRecord;
-    PATTRIBUTE_RECORD_HEADER Attribute;
+    PATTRIBUTE_RECORD_HEADER Attribute = NULL;
     PINDEX_LOOKUP_STACK Sp = IndexContext->Current;
     PVCB Vcb = Scb->Vcb;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "PruneIndex\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "IndexContext = %08lx\n", IndexContext );
-    DebugTrace( 0, Dbg, "DeleteEntry = %08lx\n", DeleteEntry );
+    DebugTrace( +1, Dbg, ("PruneIndex\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("IndexContext = %08lx\n", IndexContext) );
+    DebugTrace( 0, Dbg, ("DeleteEntry = %08lx\n", DeleteEntry) );
 
     //
     //  We do not allow ourselves to be called if the index has no
@@ -6117,7 +6508,7 @@ Return Value:
         if (FlagOn(NtfsFirstIndexEntry(IndexHeader)->Flags, INDEX_ENTRY_END)) {
 
             DeleteIndexBuffer( IrpContext, Scb, IndexBuffer );
-            NtfsUnpinBcb( IrpContext, &Sp->Bcb );
+            NtfsUnpinBcb( &Sp->Bcb );
 
         } else {
             break;
@@ -6191,9 +6582,17 @@ Return Value:
             PINDEX_ENTRY NextEntry;
 
             NextEntry = NtfsFirstIndexEntry(IndexHeader);
+            NtfsCheckIndexBound( NextEntry, IndexHeader );
             do {
                 *DeleteEntry = NextEntry;
                 NextEntry = NtfsNextIndexEntry(NextEntry);
+
+                NtfsCheckIndexBound( NextEntry, IndexHeader );
+                if (NextEntry->Length == 0) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+                }
+
             } while (!FlagOn(NextEntry->Flags, INDEX_ENTRY_END));
 
             //
@@ -6219,15 +6618,15 @@ Return Value:
                               Vcb->MftScb,
                               NtfsFoundBcb(Context),
                               SetIndexEntryVcnRoot,
-                              &NtfsIndexEntryVcn(*DeleteEntry),
-                              sizeof(VCN),
+                              &NtfsIndexEntryBlock(*DeleteEntry),
+                              sizeof(LONGLONG),
                               SetIndexEntryVcnRoot,
-                              &NtfsIndexEntryVcn(NextEntry),
-                              sizeof(VCN),
-                              NtfsMftVcn(Context, Vcb),
+                              &NtfsIndexEntryBlock(NextEntry),
+                              sizeof(LONGLONG),
+                              NtfsMftOffset( Context ),
                               (PCHAR)Attribute - (PCHAR)FileRecord,
                               (PCHAR)NextEntry - (PCHAR)Attribute,
-                              Vcb->ClustersPerFileRecordSegment );
+                              Vcb->BytesPerFileRecordSegment );
 
             //
             //  Otherwise, our parent is also an Index Buffer.
@@ -6241,7 +6640,7 @@ Return Value:
 
                 NtfsPinMappedData( IrpContext,
                                    Scb,
-                                   LlBytesFromClusters(Vcb, IndexBuffer->ThisVcn),
+                                   LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                                    Scb->ScbType.Index.BytesPerIndexBuffer,
                                    &Sp->Bcb );
 
@@ -6254,24 +6653,23 @@ Return Value:
                               Scb,
                               Sp->Bcb,
                               SetIndexEntryVcnAllocation,
-                              &NtfsIndexEntryVcn(*DeleteEntry),
-                              sizeof(VCN),
+                              &NtfsIndexEntryBlock(*DeleteEntry),
+                              sizeof(LONGLONG),
                               SetIndexEntryVcnAllocation,
-                              &NtfsIndexEntryVcn(NextEntry),
-                              sizeof(VCN),
-                              IndexBuffer->ThisVcn,
+                              &NtfsIndexEntryBlock(NextEntry),
+                              sizeof(LONGLONG),
+                              LlBytesFromIndexBlocks( IndexBuffer->ThisBlock, Scb->ScbType.Index.IndexBlockByteShift ),
                               0,
                               (PCHAR)NextEntry - (PCHAR)IndexBuffer,
-                              Scb->ScbType.Index.ClustersPerIndexBuffer );
+                              Scb->ScbType.Index.BytesPerIndexBuffer );
             }
 
             //
             //  Now call the Restart routine to do it.
             //
 
-            NtfsRestartSetIndexVcn( IrpContext,
-                                    NextEntry,
-                                    NtfsIndexEntryVcn(*DeleteEntry) );
+            NtfsRestartSetIndexBlock( NextEntry,
+                                      NtfsIndexEntryBlock(*DeleteEntry) );
 
             break;
 
@@ -6287,7 +6685,8 @@ Return Value:
                              Scb->Fcb,
                              Scb->ScbType.Index.AttributeBeingIndexed,
                              Scb->ScbType.Index.CollationRule,
-                             Scb->ScbType.Index.ClustersPerIndexBuffer,
+                             Scb->ScbType.Index.BytesPerIndexBuffer,
+                             Scb->ScbType.Index.BlocksPerIndexBuffer,
                              Context,
                              Scb->AttributeFlags,
                              FALSE,
@@ -6319,6 +6718,48 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "PruneIndex -> VOID\n", 0 );
+    //
+    //  If it looks like we did some work, and did not already find the root again,
+    //  then make sure the stack is correct for return.
+    //
+
+    if ((*DeleteEntry != NULL) && (Attribute == NULL)) {
+        FindMoveableIndexRoot( IrpContext, Scb, IndexContext );
+    }
+
+    DebugTrace( -1, Dbg, ("PruneIndex -> VOID\n") );
+}
+
+
+VOID
+NtOfsRestartUpdateDataInIndex(
+    IN PINDEX_ENTRY IndexEntry,
+    IN PVOID IndexData,
+    IN ULONG Length )
+
+/*++
+
+Routine Description:
+
+    This is the restart routine used to apply updates to the data in a row,
+    both in run time and at restart.
+
+Arguments:
+
+    IndexEntry - Supplies a pointer to the IndexEntry to be updated.
+
+    IndexData - Supplies the data for the update.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    PAGED_CODE();
+
+    RtlMoveMemory( Add2Ptr(IndexEntry, IndexEntry->DataOffset),
+                   IndexData,
+                   Length );
 }
 

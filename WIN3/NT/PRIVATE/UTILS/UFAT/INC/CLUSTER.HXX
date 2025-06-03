@@ -27,6 +27,14 @@ Author:
 #include "secrun.hxx"
 #include "hmem.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
 //    Forward references
 //
@@ -41,13 +49,16 @@ class CLUSTER_CHAIN : public OBJECT {
 
     public:
 
+        UFAT_EXPORT
         DECLARE_CONSTRUCTOR( CLUSTER_CHAIN );
 
         VIRTUAL
+        UFAT_EXPORT
         ~CLUSTER_CHAIN(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PMEM                Mem,
@@ -59,11 +70,13 @@ class CLUSTER_CHAIN : public OBJECT {
             );
 
         VIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Read(
             );
 
         VIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Write(
             );

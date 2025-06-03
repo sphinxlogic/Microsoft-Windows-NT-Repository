@@ -104,7 +104,7 @@ Return Value:
         // is [Pp][Ii][Pp][Ee][\\/]
         //
 
-        if (!strnicmp(Name, "PIPE", 4)) {
+        if (!_strnicmp(Name, "PIPE", 4)) {
             Name += 4;
             if (IS_ASCII_PATH_SEPARATOR(*Name)) {
                 return TRUE;
@@ -181,7 +181,7 @@ SECURITY_ATTRIBUTES sa;
     //
 
     if (strchr(lpFileName, '/')) {
-        lpFileName = strdup(lpFileName);
+        lpFileName = _strdup(lpFileName);
         if (lpFileName == NULL) {
             SetLastError(ERROR_NOT_ENOUGH_MEMORY);
             demClientError(INVALID_HANDLE_VALUE, *lpFileName);
@@ -478,9 +478,14 @@ DWORD   dwAttr;
         if ((dwAttr = GetFileAttributesOem(lpFileName)) == -1)
             goto dcerr;
 
-        // sudeepb 19-Feb-1993 DOS attr_normal and nt attr_normal are different
-        if (dwAttr == FILE_ATTRIBUTE_NORMAL)
+
+        if (dwAttr == FILE_ATTRIBUTE_NORMAL) {
             dwAttr = 0;
+            }
+        else {
+            dwAttr &= DOS_ATTR_MASK;
+            }
+
         setCX((USHORT)dwAttr);
         setCF(0);
         return;
@@ -489,7 +494,8 @@ DWORD   dwAttr;
     if((dwAttr = getCX()) == 0)
         dwAttr = FILE_ATTRIBUTE_NORMAL;
 
-    if (!SetFileAttributes(lpFileName,dwAttr))
+    dwAttr &= DOS_ATTR_MASK;
+    if (!SetFileAttributesOem(lpFileName,dwAttr))
         goto dcerr;
 
     setCF(0);
@@ -543,7 +549,7 @@ LPSTR   lpSrc,lpDst;
 
     // Now check that SRC and DEST are not pointing to the same file.
     // if they do return error 5.
-    if (!stricmp (lpSrc, lpDst)) {
+    if (!_stricmp (lpSrc, lpDst)) {
         setCF(1);
         setAX(0x5);
         return;
@@ -671,9 +677,9 @@ DWORD   dwLastError;
                 lpDot = strrchr(lpFileName,'.');
 
                 if (lpDot) {
-                    if ( (!strcmpi(lpDot,".TTF")) ||
-                         (!strcmpi(lpDot,".FON")) ||
-                         (!strcmpi(lpDot,".FOT")) ) {
+                    if ( (!_strcmpi(lpDot,".TTF")) ||
+                         (!_strcmpi(lpDot,".FON")) ||
+                         (!_strcmpi(lpDot,".FOT")) ) {
 
                         if ( RemoveFontResourceOem(lpFileName) ) {
                             PostMessage(HWND_BROADCAST, WM_FONTCHANGE, 0, 0);
@@ -684,7 +690,7 @@ DWORD   dwLastError;
                         // We failed to remove the .TTF file probably because
                         // the .FOT file was loaded, so try to remove it
 
-                        if (!strcmpi(lpDot,".TTF")) {
+                        if (!_strcmpi(lpDot,".TTF")) {
 
                             RtlZeroMemory(cFOTName,sizeof(cFOTName));
                             RtlCopyMemory(cFOTName,lpFileName,(ULONG)lpDot-(ULONG)lpFileName);
@@ -754,7 +760,7 @@ BOOL IsCdRomFile (PSTR pszPath)
 
     if (GetVolumeInformationOem(pszRootDir, NULL, 0, NULL, NULL, NULL,
                                 file_system, MAX_PATH) &&
-        !stricmp(file_system, "CDFS")) {
+        !_stricmp(file_system, "CDFS")) {
 
         return TRUE;
     }
@@ -1034,7 +1040,7 @@ HANDLE  ntHandle;
         pPDB = (ULONG) (*pusCurrentPDB) << 16;
     }
 
-    ntHandle = VDDRetrieveNtHandle(pPDB,hFile,&pSFT,&pJFT);
+    ntHandle = VDDRetrieveNtHandle(pPDB,hFile,(PVOID *)&pSFT,&pJFT);
     if (!ntHandle) {
         return(FALSE);
     }
@@ -1152,4 +1158,3 @@ ULONG   ulSFLink;
 
     return (HANDLE) pSftFlat[usSFN].SFT_NTHandle;
 }
-

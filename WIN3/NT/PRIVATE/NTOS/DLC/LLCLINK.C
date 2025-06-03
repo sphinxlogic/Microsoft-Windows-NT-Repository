@@ -108,7 +108,7 @@ Return Value:
     ACQUIRE_SPIN_LOCK(&pAdapterContext->ObjectDataBase);
     ACQUIRE_SPIN_LOCK(&pAdapterContext->SendSpinLock);
 
-    pLink = (PDATA_LINK)AllocatePacket(pAdapterContext->hLinkPool);
+    pLink = (PDATA_LINK)ALLOCATE_PACKET_LLC_LNK(pAdapterContext->hLinkPool);
 
     if (pLink == NULL) {
         LlcStatus = DLC_STATUS_NO_MEMORY;
@@ -310,7 +310,9 @@ Return Value:
 
     if (*ppLink != NULL) {
         LlcStatus = DLC_STATUS_INVALID_SAP_VALUE;
-        DeallocatePacket(pAdapterContext->hLinkPool, pLink);
+
+        DEALLOCATE_PACKET_LLC_LNK(pAdapterContext->hLinkPool, pLink);
+
     } else {
         pLink->Gen.pNext = (PLLC_OBJECT)pSap->pActiveLinks;
         pSap->pActiveLinks = pLink;
@@ -331,7 +333,9 @@ Return Value:
 
             TerminateTimer(pAdapterContext, &pLink->T1);
             TerminateTimer(pAdapterContext, &pLink->T2);
-            DeallocatePacket(pAdapterContext->hLinkPool, pLink);
+
+            DEALLOCATE_PACKET_LLC_LNK(pAdapterContext->hLinkPool, pLink);
+
         } else {
 
             //

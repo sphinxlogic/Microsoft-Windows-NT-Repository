@@ -15,18 +15,18 @@
 
 /**	File Attributes **/
 
-#define ATTR_NORMAL		  0x0
-#define ATTR_READ_ONLY		  0x1
-#define ATTR_HIDDEN		  0x2
-#define ATTR_SYSTEM		  0x4
-#define ATTR_VOLUME_ID		  0x8
-#define ATTR_DIRECTORY		  0x10
-#define ATTR_ARCHIVE		  0x20
-#define ATTR_DEVICE		  0x40
+#define ATTR_NORMAL          0x0
+#define ATTR_READ_ONLY       0x1
+#define ATTR_HIDDEN          0x2
+#define ATTR_SYSTEM          0x4
+#define ATTR_VOLUME_ID       0x8
+#define ATTR_DIRECTORY       0x10
+#define ATTR_ARCHIVE         0x20
+#define ATTR_DEVICE          0x40
 
-#define ATTR_ALL		  (ATTR_HIDDEN | ATTR_SYSTEM | ATTR_DIRECTORY)
-#define DOS_ATTR_MASK		  0x3f	    // ATTR_DEVICE is of no use on
-					    // 32 bit side.
+#define ATTR_ALL             (ATTR_HIDDEN | ATTR_SYSTEM | ATTR_DIRECTORY)
+#define DOS_ATTR_MASK        0x0037  // ATTR_DEVICE isn't used on 32 bit side.
+                                     // ATTR_VOL maps to FILE_ATTRIBUTES_NORMAL.
 
 /**	File Modes  **/
 
@@ -37,7 +37,7 @@
 #define EXEC_OPEN	     0x03  /* access code of 3 indicates that
 				      open was made from exec */
 
-#define SHARING_MASK	     0xF0
+#define SHARING_MASK         0x70
 #define SHARING_COMPAT	     0x00
 #define SHARING_DENY_BOTH    0x10
 #define SHARING_DENY_WRITE   0x20

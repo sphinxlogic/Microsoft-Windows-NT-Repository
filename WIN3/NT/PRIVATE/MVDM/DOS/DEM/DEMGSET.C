@@ -24,13 +24,19 @@
 #include <softpc.h>
 #include <mvdm.h>
 #include <winbase.h>
-#include <winioctl.h>
 #include "demdasd.h"
+
+#define BOOTDRIVE_PATH "Software\\Microsoft\\Windows\\CurrentVersion\\Setup"
+#define BOOTDRIVE_VALUE "BootDir"
+
 
 #define     SUCCESS 0
 #define     NODISK  1
 #define     FAILURE 2
 BYTE demGetDpbI(BYTE Drive, DPB UNALIGNED *pDpb);
+
+
+UCHAR PhysicalDriveTypes[26]={0};
 
 extern PDOSSF pSFTHead;
 
@@ -88,13 +94,59 @@ LPSTR   lpPath;
  *
  * Exit  - CLIENT (AL) has 1 base boot drive (i.e. C=3)
  *
+ * We try to read the registry value that indicates the real boot drive. This
+ * should be the location of autoexec.bat, etc. If we can't find the key,
+ * or if the value indicates some drive letter that is not a fixed drive,
+ * then we use a fallback plan of just saying drive C.
  *
  */
 
 VOID demGetBootDrive (VOID)
 {
-    setAL(3);       // 'C' is the fixed boot drive
+    HKEY hKey;
+    DWORD retCode;
+    DWORD dwType, cbData = MAX_PATH;
+    CHAR szBootDir[MAX_PATH];
+    BYTE Drive = 3;     // default it to 'C:'
+
+    retCode = RegOpenKeyEx (HKEY_LOCAL_MACHINE,
+                            BOOTDRIVE_PATH,
+                            0,
+                            KEY_EXECUTE, // Requesting read access.
+                            &hKey);
+
+
+    if (retCode) {
+        // error: can't find section
+        goto DefaultBootDrive;
+    }
+
+    retCode = RegQueryValueEx(hKey,
+                              BOOTDRIVE_VALUE,
+                              NULL,
+                              &dwType,
+                              szBootDir,
+                              &cbData);
+
+    RegCloseKey(hKey);
+
+    if (retCode) {
+        // error: can't find key
+        goto DefaultBootDrive;
+    }
+
+    if (GetDriveType(szBootDir) != DRIVE_FIXED) {
+        // error: drive is not a valid boot drive
+        goto DefaultBootDrive;
+    }
+
+    Drive = (BYTE)(tolower(szBootDir[0])-'a')+1;
+
+DefaultBootDrive:
+
+    setAL(Drive);
     return;
+
 }
 
 /* demGetDriveFreeSpace - Get free Space on the drive
@@ -158,8 +210,132 @@ PBDS	pbds;
     return;
 }
 
+
+//
+//  retrieves drive type for physical drives
+//  substd, redir drives are returned as unknown
+//  uses same DriveType definitions as win32 GetDriveTypeW
+//
+UCHAR
+demGetPhysicalDriveType(
+      UCHAR DriveNum)
+{
+    return DriveNum < 26 ? PhysicalDriveTypes[DriveNum] : DRIVE_UNKNOWN;
+}
+
+
+
+
+//
+// worker function for DemGetDrives
+//
+UCHAR GetPhysicalDriveType(UCHAR DriveNum)
+{
+
+    NTSTATUS Status;
+    HANDLE Handle;
+    UCHAR  uchRet;
+    OBJECT_ATTRIBUTES Obja;
+    IO_STATUS_BLOCK IoStatusBlock;
+    OEM_STRING OemString;
+    UNICODE_STRING UniString;
+    UNICODE_STRING FileName;
+    FILE_FS_DEVICE_INFORMATION DeviceInfo;
+    CHAR  RootName[] = "A:\\";
+    WCHAR wRootName[sizeof(RootName)*sizeof(WCHAR)];
+
+    OemString.Buffer = RootName;
+    OemString.Length = sizeof(RootName) - 1;
+    OemString.MaximumLength = sizeof(RootName);
+    UniString.Buffer = wRootName;
+    UniString.MaximumLength = sizeof(wRootName);
+
+    RootName[0] = 'A' + DriveNum;
+    Status = RtlOemStringToUnicodeString(&UniString,&OemString,FALSE);
+    if (!NT_SUCCESS(Status) ||
+        !RtlDosPathNameToNtPathName_U(wRootName, &FileName, NULL, NULL) )
+       {
+        return DRIVE_UNKNOWN;
+        }
+
+    uchRet = DRIVE_UNKNOWN;
+    InitializeObjectAttributes(&Obja,
+                               &FileName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL
+                               );
+
+    //
+    // Open the file, excluding directories
+    //
+    FileName.Length -= sizeof(WCHAR);
+    Status = NtOpenFile(
+                &Handle,
+                FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+                &Obja,
+                &IoStatusBlock,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE
+                );
+
+        // subst drives are not physical drives (actually dirs)
+    if (!NT_SUCCESS(Status)) {
+        goto GPDExitClean;
+        }
+
+    //
+    // Determine if this is a network or disk file system. If it
+    // is a disk file system determine if this is removable or not
+    //
+
+    Status = NtQueryVolumeInformationFile(
+                Handle,
+                &IoStatusBlock,
+                &DeviceInfo,
+                sizeof(DeviceInfo),
+                FileFsDeviceInformation
+                );
+
+    NtClose(Handle);
+    if (!NT_SUCCESS(Status) ||
+        DeviceInfo.Characteristics & FILE_REMOTE_DEVICE)
+       {
+        goto GPDExitClean;
+        }
+
+    switch ( DeviceInfo.DeviceType ) {
+
+        case FILE_DEVICE_CD_ROM:
+        case FILE_DEVICE_CD_ROM_FILE_SYSTEM:
+            uchRet = DRIVE_CDROM;
+            break;
+
+        case FILE_DEVICE_VIRTUAL_DISK:
+            uchRet = DRIVE_RAMDISK;
+            break;
+
+        case FILE_DEVICE_DISK:
+        case FILE_DEVICE_DISK_FILE_SYSTEM:
+            uchRet = DeviceInfo.Characteristics & FILE_REMOVABLE_MEDIA
+                      ? DRIVE_REMOVABLE : DRIVE_FIXED;
+            break;
+        }
+
+GPDExitClean:
+    RtlFreeHeap(RtlProcessHeap(), 0, FileName.Buffer);
+
+    return uchRet;
+}
+
+
+
+
 /* demGetDrives - Get number of logical drives in the system
- *
+ *                called by ntdos from msinit to get numio
+ *                initializes the physical drive list, which consists
+ *                of drive types for true physical drives. subst
+ *                and redir drives are classed as DRIVE_UNKNOWN.
  *
  * Entry - None
  *
@@ -174,60 +350,83 @@ PBDS	pbds;
 
 VOID demGetDrives (VOID)
 {
-UCHAR   uchDrive;
-CHAR    chRoot[]="?:\\";
-DWORD   DriveType;
+    UCHAR    DriveType;
+    UCHAR    DriveNum;
+    char     RootName[]="?:\\";
+    BOOL     bCounting;
+
+    //
+    // Initialize the local drive list with Drive type
+    //
+    DriveNum = 0;
+
+    //
+    // Use win32 for A and B, to prevent the fs from trying to
+    // read floppy drives. Make a special check for subst drives
+    // which get returned as DRIVE_FIXED. (subst drives don't qualify
+    // as physical drives).
+    //
+    do {
+
+        RootName[0] = 'A' + DriveNum;
+        DriveType = GetDriveTypeOem(RootName);
+
+        switch (DriveType) {
+            case DRIVE_NO_ROOT_DIR:
+            case DRIVE_REMOTE:
+                 DriveType = DRIVE_UNKNOWN;
+                 break;
+
+            case DRIVE_FIXED:  // check for substd drive ...
+                 DriveType = GetPhysicalDriveType(DriveNum);
+                 break;
+            }
+
+        PhysicalDriveTypes[DriveNum] = DriveType;
+
+        } while (++DriveNum < 2);
 
 
-    uchDrive = 'a';
-    while (TRUE) {
-    chRoot[0] = uchDrive;
-    DriveType = GetDriveTypeOem ((LPSTR)chRoot);
-
-    // Drive Type == 0 if invalid; DriveType == 1 if that
-    // drive does'nt exist.
-
-    if (DriveType == 0)
-        break;
-
-    // A: and B: can be missing.
-    if (DriveType == 1) {
-
-        // If A does'nt exist means b also does'nt exist
-        if(uchDrive == 'a') {
-           IsAPresent = FALSE;
-           IsBPresent = FALSE;
-           nDrives = nDrives + 2;
-           uchDrive += 2;
-           continue;
+        // if A doesn't exist means b also doesn't exist
+    DriveType = PhysicalDriveTypes[0];
+    if (DriveType == DRIVE_UNKNOWN) {
+        IsAPresent = FALSE;
+        IsBPresent = FALSE;
         }
 
-        // If B does'nt exist still add it as a drive.
-        if(uchDrive == 'b') {
-           IsBPresent = FALSE;
-           nDrives = nDrives + 1;
-           uchDrive += 1;
-           continue;
+    DriveType = PhysicalDriveTypes[1];
+    if (DriveType == DRIVE_UNKNOWN) {
+        IsBPresent = FALSE;
         }
-    }
 
-    if(DriveType == DRIVE_REMOVABLE ||
-       DriveType == DRIVE_FIXED ||
-       DriveType == DRIVE_CDROM ||
-       DriveType == DRIVE_RAMDISK ){
-        nDrives++;
-        uchDrive += 1;
-    }
-    else{
-        break;
-    }
-    }
+    nDrives = 2;
+    bCounting = TRUE;
+
+    do {
+        DriveType = GetPhysicalDriveType(DriveNum);
+
+        RootName[0] = 'A' + DriveNum;
+
+        PhysicalDriveTypes[DriveNum] = DriveType;
+        if (bCounting) {
+            if (DriveType == DRIVE_REMOVABLE ||
+                DriveType == DRIVE_FIXED ||
+                DriveType == DRIVE_CDROM ||
+                DriveType == DRIVE_RAMDISK )
+              {
+                nDrives++;
+                }
+            else {
+                bCounting = FALSE;
+                }
+            }
+
+      } while (++DriveNum < 26);
 
     setAX(nDrives);
     setCF(0);
     return;
 }
-
 
 
 /* demQueryDate - Get The Date
@@ -404,7 +603,7 @@ PVOLINFO pVolInfo;
     Drive = (CHAR)getBL();
 
     if (!GetMediaId(Drive, pVolInfo)) {
-        demClientError(INVALID_HANDLE_VALUE, Drive + 'A');
+        demClientError(INVALID_HANDLE_VALUE, (CHAR)(Drive + 'A'));
         return;
         }
 
@@ -757,9 +956,8 @@ ULONG   ulTotal,ulTemp;
  */
 VOID demGetDPBList (VOID)
 {
-    DWORD DriveType;
-    USHORT i, DriveStringLength;
-    UCHAR chRoot[256];
+    UCHAR DriveType;
+    UCHAR DriveNum;
     DPB UNALIGNED *pDpb;
     USHORT usDpbOffset, usDpbSeg;
 
@@ -768,30 +966,21 @@ VOID demGetDPBList (VOID)
     pDpb = (PDPB)GetVDMAddr(usDpbSeg, usDpbOffset);
 
     //
-    // Get the strings for all of the drives
-    //
-    if (!GetLogicalDriveStrings(256, chRoot)) {
-        return;
-    }
-
-    //
     // Iterate over all of the drive letters.
     //
-    i = 0;
-    DriveStringLength = strlen(chRoot);
+    DriveNum = 0;
     do {
-
-        DriveType = GetDriveTypeOem ((LPSTR)&(chRoot[i]));
+        DriveType = demGetPhysicalDriveType(DriveNum);
 
         //
-        // Only include the local non cd rom drives
+        // Only include the local non cd rom drives ?? ramdisk ???
         //
         if ((DriveType == DRIVE_REMOVABLE) || (DriveType == DRIVE_FIXED)) {
 
             //
             // Fake the Dpb for the drive
             //
-            pDpb->DriveNum = pDpb->Unit = tolower(chRoot[i]) - 'a';
+            pDpb->DriveNum = pDpb->Unit = DriveNum;
 
             //
             // Link it to the next dpb
@@ -806,8 +995,8 @@ VOID demGetDPBList (VOID)
 
             ASSERT(usDpbOffset < 0xFFFF);
         }
-        i += DriveStringLength + 1;
-    } while (DriveStringLength = strlen(&chRoot[i]));
+
+    } while (++DriveNum < 26);
 
     //
     // Terminate the list if necessary

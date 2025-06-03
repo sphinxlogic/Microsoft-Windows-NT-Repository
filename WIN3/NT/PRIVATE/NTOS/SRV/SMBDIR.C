@@ -15,12 +15,6 @@ Abstract:
         Delete Directory
         Check Directory
 
-Author:
-
-    David Treadwell (davidtr) 08-Feb-1990
-
-Revision History:
-
 --*/
 
 #include "precomp.h"
@@ -101,7 +95,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -127,21 +122,25 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &directoryName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             SrvPrint1( "SrvSmbCreateDirectory: illegal path name: %s\n",
                         (PSZ)request->Buffer + 1 );
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
@@ -210,7 +209,8 @@ Return Value:
     // Special error mapping to return correct error.
     //
 
-    if ( status == STATUS_OBJECT_NAME_COLLISION ) {
+    if ( status == STATUS_OBJECT_NAME_COLLISION &&
+            !CLIENT_CAPABLE_OF(NT_STATUS, WorkContext->Connection)) {
         status = STATUS_ACCESS_DENIED;
     }
 
@@ -359,21 +359,25 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             request->Buffer,
             END_OF_TRANSACTION_PARAMETERS( transaction ),
             TRUE,
             isUnicode,
             &directoryName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             SrvPrint1( "SrvSmbCreateDirectory2: illegal path name: %s\n",
                           directoryName.Buffer );
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbTransStatusErrorWithoutData;
     }
 
@@ -443,24 +447,39 @@ Return Value:
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
 
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &directoryHandle,
-                 FILE_TRAVERSE,                   // DesiredAccess
-                 &objectAttributes,
-                 &ioStatusBlock,
-                 0L,                              // AllocationSize
-                 FILE_ATTRIBUTE_NORMAL,           // FileAttributes
-                 0L,                              // ShareAccess
-                 FILE_CREATE,                     // Disposition
-                 FILE_DIRECTORY_FILE,             // CreateOptions
-                 ntFullEa,                        // EaBuffer
-                 ntFullEaLength,                  // EaLength
-                 CreateFileTypeNone,
-                 NULL,                            // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,           // Options
-                 share
-                 );
+    //
+    // Ensure the EaBuffer is correctly formatted.  Since we are a kernel mode
+    //  component, the Io subsystem does not check it for us.
+    //
+    if( ARGUMENT_PRESENT( ntFullEa ) ) {
+        ULONG ntEaErrorOffset = 0;
+        status = IoCheckEaBufferValidity( ntFullEa, ntFullEaLength, &ntEaErrorOffset );
+        eaErrorOffset = (USHORT)ntEaErrorOffset;
+    } else {
+        status = STATUS_SUCCESS;
+    }
+
+    if( NT_SUCCESS( status ) ) {
+
+        status = SrvIoCreateFile(
+                     WorkContext,
+                     &directoryHandle,
+                     FILE_TRAVERSE,                   // DesiredAccess
+                     &objectAttributes,
+                     &ioStatusBlock,
+                     0L,                              // AllocationSize
+                     FILE_ATTRIBUTE_NORMAL,           // FileAttributes
+                     0L,                              // ShareAccess
+                     FILE_CREATE,                     // Disposition
+                     FILE_DIRECTORY_FILE,             // CreateOptions
+                     ntFullEa,                        // EaBuffer
+                     ntFullEaLength,                  // EaLength
+                     CreateFileTypeNone,
+                     NULL,                            // ExtraCreateParameters
+                     IO_FORCE_ACCESS_CHECK,           // Options
+                     share
+                     );
+    }
 
     if ( !isUnicode ) {
         RtlFreeUnicodeString( &directoryName );
@@ -594,7 +613,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -620,21 +640,25 @@ Return Value:
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
 
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &directoryName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             SrvPrint1( "SrvSmbDeleteDirectory: illegal path name: %s\n",
                           (PSZ)request->Buffer + 1 );
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
@@ -776,6 +800,13 @@ Return Value:
 
         SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
+
+    } else {
+
+        //
+        // Remove this directory name from the cache, since it has been deleted
+        //
+        SrvRemoveCachedDirectoryName( WorkContext, &directoryName );
     }
 
     IF_SMB_DEBUG(DIRECTORY2) {
@@ -847,7 +878,6 @@ Return Value:
     SMB_PROCESSOR_RETURN_TYPE - See smbtypes.h
 
 --*/
-
 {
     PREQ_CHECK_DIRECTORY request;
     PRESP_CHECK_DIRECTORY response;
@@ -856,8 +886,7 @@ Return Value:
     OBJECT_ATTRIBUTES objectAttributes;
     IO_STATUS_BLOCK ioStatusBlock;
     UNICODE_STRING directoryName;
-    HANDLE directoryHandle;
-
+    FILE_NETWORK_OPEN_INFORMATION fileInformation;
     PTREE_CONNECT treeConnect;
     PSESSION session;
     PSHARE share;
@@ -893,7 +922,8 @@ Return Value:
     status = SrvVerifyUidAndTid(
                 WorkContext,
                 &session,
-                &treeConnect
+                &treeConnect,
+                ShareTypeDisk
                 );
 
     if ( !NT_SUCCESS(status) ) {
@@ -906,7 +936,7 @@ Return Value:
 
     //
     // Get the share block from the tree connect block.  This doesn't need
-    // to be a referenced pointer becsue the tree connect has it referenced,
+    // to be a referenced pointer because the tree connect has it referenced,
     // and we just referenced the tree connect.
     //
 
@@ -918,128 +948,113 @@ Return Value:
     //
 
     isUnicode = SMB_IS_UNICODE( WorkContext );
-    if ( !SrvCanonicalizePathName(
+    status = SrvCanonicalizePathName(
             WorkContext,
+            share,
+            NULL,
             (PVOID)(request->Buffer + 1),
             END_OF_REQUEST_SMB( WorkContext ),
             TRUE,
             isUnicode,
             &directoryName
-            ) ) {
+            );
+
+    if( !NT_SUCCESS( status ) ) {
 
         IF_DEBUG(SMB_ERRORS) {
             SrvPrint1( "SrvSmbCheckDirectory: illegal path name: %s\n",
                           (PSZ)request->Buffer + 1 );
         }
 
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_SYNTAX_BAD );
+        SrvSetSmbError( WorkContext, status );
         return SmbStatusSendResponse;
     }
 
     //
-    // Initialize the object attributes structure.  Open relative to the
-    // share root directory handle.
+    // See if we can find this directory in the CachedDirectoryList
     //
+    if( SrvIsDirectoryCached( WorkContext, &directoryName ) == FALSE ) {
 
-    SrvInitializeObjectAttributes_U(
-        &objectAttributes,
-        &directoryName,
-        (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE ||
-            WorkContext->Session->UsingUppercasePaths) ?
-            OBJ_CASE_INSENSITIVE : 0L,
-        NULL,
-        NULL
-        );
+        //
+        // Is not in the cache, must really check.
+        //
+        SrvInitializeObjectAttributes_U(
+            &objectAttributes,
+            &directoryName,
+            (WorkContext->RequestHeader->Flags & SMB_FLAGS_CASE_INSENSITIVE ||
+                WorkContext->Session->UsingUppercasePaths) ?
+                OBJ_CASE_INSENSITIVE : 0L,
+            NULL,
+            NULL
+            );
 
-    //
-    // Attempt to open the directory.  We just need FILE_TRAVERSE access
-    // to find out if the directory exists.
-    //
+        IMPERSONATE( WorkContext );
 
-    IF_SMB_DEBUG(DIRECTORY2) {
-        SrvPrint1( "Opening directory %wZ\n", &directoryName );
+        status = SrvGetShareRootHandle( share );
+
+        if( NT_SUCCESS( status ) ) {
+            //
+            // The file name is always relative to the share root
+            //
+            objectAttributes.RootDirectory = share->RootDirectoryHandle;
+
+            //
+            // Find out what this thing is
+            //
+
+            if( IoFastQueryNetworkAttributes( &objectAttributes,
+                                              FILE_TRAVERSE,
+                                              FILE_DIRECTORY_FILE,
+                                              &ioStatusBlock,
+                                              &fileInformation
+                                                ) == FALSE ) {
+
+                SrvLogServiceFailure( SRV_SVC_IO_FAST_QUERY_NW_ATTRS, 0 );
+                ioStatusBlock.Status = STATUS_OBJECT_PATH_NOT_FOUND;
+            }
+
+            status = ioStatusBlock.Status;
+
+            SrvReleaseShareRootHandle( share );
+        }
+
+        REVERT();
     }
 
-    INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpenAttempts );
-    INCREMENT_DEBUG_STAT( SrvDbgStatistics.TotalOpensForPathOperations );
-
-    status = SrvIoCreateFile(
-                 WorkContext,
-                 &directoryHandle,
-                 FILE_TRAVERSE,                             // DesiredAccess
-                 &objectAttributes,
-                 &ioStatusBlock,
-                 NULL,                                      // AllocationSize
-                 0L,                                        // FileAttributes
-                 FILE_SHARE_READ | FILE_SHARE_WRITE,        // ShareAccess
-                 FILE_OPEN,                                 // Disposition
-                 FILE_DIRECTORY_FILE,                       // CreateOptions
-                 NULL,                                      // EaBuffer
-                 0L,                                        // EaLength
-                 CreateFileTypeNone,
-                 NULL,                                      // ExtraCreateParameters
-                 IO_FORCE_ACCESS_CHECK,                     // Options
-                 share
-                 );
 
     if ( !isUnicode ) {
         RtlFreeUnicodeString( &directoryName );
     }
 
-    //
-    // If the user didn't have this permission, update the
-    // statistics database.
-    //
+    if ( NT_SUCCESS(status) ) {
 
-    if ( status == STATUS_ACCESS_DENIED ) {
-        SrvStatistics.AccessPermissionErrors++;
-    }
+        response->WordCount = 0;
+        SmbPutUshort( &response->ByteCount, 0 );
 
-    if ( !NT_SUCCESS(status) ) {
+        WorkContext->ResponseParameters = NEXT_LOCATION(
+                                            response,
+                                            RESP_CHECK_DIRECTORY,
+                                            0
+                                            );
+    } else {
 
-        IF_DEBUG(ERRORS) {
-            SrvPrint2( "SrvCheckDirectory: SrvIoCreateFile (%s) failed, "
-                        "status = %X\n", (PSZ)request->Buffer + 1, status );
+        //
+        // If the user didn't have this permission, update the
+        // statistics database.
+        //
+        if ( status == STATUS_ACCESS_DENIED ) {
+            SrvStatistics.AccessPermissionErrors++;
         }
 
-        //
-        // *** DOS clients depend on this SMB_ERR_BAD_PATH being returned!
-        //
-
-        SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_NOT_FOUND );
-        return SmbStatusSendResponse;
+        if (CLIENT_CAPABLE_OF(NT_STATUS, WorkContext->Connection)) {
+            SrvSetSmbError( WorkContext, status );
+        } else {
+            SrvSetSmbError( WorkContext, STATUS_OBJECT_PATH_NOT_FOUND );
+        }
     }
-
-    IF_SMB_DEBUG(DIRECTORY2) {
-        SrvPrint1( "SrvIoCreateFile succeeded, handle = 0x%lx\n",
-                    directoryHandle );
-    }
-
-    //
-    // Close the directory handle.  We just needed to verify that the
-    // directory exists.
-    //
-
-    SRVDBG_CLAIM_HANDLE( directoryHandle, "DIR", 26, 0 );
-    SRVDBG_RELEASE_HANDLE( directoryHandle, "DIR", 40, 0 );
-    SrvNtClose( directoryHandle, TRUE );
-
-    //
-    // Build the response SMB.
-    //
-
-    response->WordCount = 0;
-    SmbPutUshort( &response->ByteCount, 0 );
-
-    WorkContext->ResponseParameters = NEXT_LOCATION(
-                                        response,
-                                        RESP_CHECK_DIRECTORY,
-                                        0
-                                        );
 
     IF_DEBUG(TRACE2) SrvPrint0( "SrvSmbCheckDirectory complete.\n" );
 
     return SmbStatusSendResponse;
 
 } // SrvSmbCheckDirectory
-

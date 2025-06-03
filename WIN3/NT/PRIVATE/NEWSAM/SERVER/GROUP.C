@@ -208,7 +208,7 @@ Return Values:
     SAMP_OBJECT_TYPE        FoundType;
     ACCESS_MASK             DesiredAccess;
     ULONG                   i;
-    SAMP_V1_FIXED_LENGTH_GROUP V1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed;
 
     //
     // Used for tracking allocated blocks of memory - so we can deallocate
@@ -546,7 +546,7 @@ Return Values:
 
     ACCESS_MASK             DesiredAccess;
 
-    SAMP_V1_FIXED_LENGTH_GROUP V1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed;
 
     UNICODE_STRING          OldAccountName,
                             NewAdminComment,
@@ -659,7 +659,7 @@ Return Values:
             MustUpdateAccountDisplay = TRUE;
             OldGroupAttributes = V1Fixed.Attributes;
             break; //out of switch
-            
+
 
         default:
             NtStatus = STATUS_SUCCESS;
@@ -836,7 +836,7 @@ Return Values:
     if ( NT_SUCCESS(NtStatus) ) {
 
         NtStatus = SampCommitAndRetainWriteLock();
-                 
+
 
         if ( NT_SUCCESS(NtStatus) ) {
 
@@ -896,7 +896,7 @@ Return Values:
 
         }
     }
-    
+
 
     //
     // Release the write lock
@@ -999,7 +999,7 @@ Return Values:
 --*/
 {
 
-    SAMP_V1_FIXED_LENGTH_GROUP  GroupV1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP  GroupV1Fixed;
     NTSTATUS                NtStatus, TmpStatus;
     PSAMP_OBJECT            AccountContext;
     SAMP_OBJECT_TYPE        FoundType;
@@ -1060,7 +1060,8 @@ Return Values:
                            ObjectRid,
                            Attributes,
                            MemberId,
-                           GroupV1Fixed.AdminGroup,
+                           (GroupV1Fixed.AdminCount == 0) ? NoChange : AddToAdmin,
+                           (GroupV1Fixed.OperatorCount == 0) ? NoChange : AddToAdmin,
                            &UserAccountActive
                            );
 
@@ -1421,6 +1422,18 @@ Return Values:
                         }
 
                         //
+                        // Do delete auditing
+                        //
+
+                        if (NT_SUCCESS(NtStatus)) {
+                            (VOID) NtDeleteObjectAuditAlarm(
+                                        &SampSamSubsystem,
+                                        *GroupHandle,
+                                        AccountContext->AuditOnClose
+                                        );
+                        }
+
+                        //
                         // Notify netlogon of the change
                         //
 
@@ -1508,7 +1521,7 @@ Return Value:
 
 --*/
 {
-    SAMP_V1_FIXED_LENGTH_GROUP  GroupV1Fixed;
+    SAMP_V1_0A_FIXED_LENGTH_GROUP  GroupV1Fixed;
     NTSTATUS                NtStatus, TmpStatus;
     PSAMP_OBJECT            AccountContext;
     SAMP_OBJECT_TYPE        FoundType;
@@ -1568,7 +1581,8 @@ Return Value:
             NtStatus = SampRemoveMembershipUser(
                            ObjectRid,
                            MemberId,
-                           GroupV1Fixed.AdminGroup,
+                           (GroupV1Fixed.AdminCount == 0) ? NoChange : RemoveFromAdmin,
+                           (GroupV1Fixed.OperatorCount == 0) ? NoChange : RemoveFromAdmin,
                            &UserAccountActive
                            );
 
@@ -1806,11 +1820,20 @@ Return Values:
 
             for ( i=0; (i<((*GetMembersBuffer)->MemberCount) && NT_SUCCESS(NtStatus)); i++) {
 
-                NtStatus = SampRetrieveUserGroupAttribute(
-                               (*GetMembersBuffer)->Members[i],
-                               ObjectRid,
-                               &(*GetMembersBuffer)->Attributes[i]
-                               );
+                (*GetMembersBuffer)->Attributes[i] = SAMP_DEFAULT_GROUP_ATTRIBUTES;
+
+                //
+                // Don't call the user code to get the attribute - this is too
+                // expensive. Since group attributes are not really used we
+                // hardwire the result to be the default.
+                //
+
+//
+//              NtStatus = SampRetrieveUserGroupAttribute(
+//                               (*GetMembersBuffer)->Members[i],
+//                               ObjectRid,
+//                               &(*GetMembersBuffer)->Attributes[i]
+//                               );
             }
 
             if (!NT_SUCCESS(NtStatus)) {
@@ -2196,7 +2219,7 @@ Return Value:
 NTSTATUS
 SampRetrieveGroupV1Fixed(
     IN PSAMP_OBJECT GroupContext,
-    IN PSAMP_V1_FIXED_LENGTH_GROUP V1Fixed
+    IN PSAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed
     )
 
 /*++
@@ -2244,13 +2267,13 @@ Return Value:
 
         //
         // Copy data into return buffer
-        // *V1Fixed = *((PSAMP_V1_FIXED_LENGTH_GROUP)FixedData);
+        // *V1Fixed = *((PSAMP_V1_0A_FIXED_LENGTH_GROUP)FixedData);
         //
 
         RtlMoveMemory(
             V1Fixed,
             FixedData,
-            sizeof(SAMP_V1_FIXED_LENGTH_GROUP)
+            sizeof(SAMP_V1_0A_FIXED_LENGTH_GROUP)
             );
     }
 
@@ -2265,7 +2288,7 @@ Return Value:
 NTSTATUS
 SampReplaceGroupV1Fixed(
     IN PSAMP_OBJECT Context,
-    IN PSAMP_V1_FIXED_LENGTH_GROUP V1Fixed
+    IN PSAMP_V1_0A_FIXED_LENGTH_GROUP V1Fixed
     )
 
 /*++
@@ -2594,7 +2617,7 @@ Return Value:
     //         |
     //         +--  (GroupRid) [Revision,SecurityDescriptor]
     //               ---+-----
-    //                  +--  V1_Fixed [,SAM_V1_FIXED_LENGTH_GROUP]
+    //                  +--  V1_Fixed [,SAM_V1_0A_FIXED_LENGTH_GROUP]
     //                  +--  Name [,Name]
     //                  +--  AdminComment [,unicode string]
     //                  +--  Members [Count,(Member0Rid, (...), MemberX-1Rid)]

@@ -156,10 +156,10 @@ Return Value:
     ResourceList    = ( ( PIO_RESOURCE_REQUIREMENTS_LIST )Data )->List;
 
     TmpList = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ) {
-        DbgPrintf("REGEDT32: Out of memory" );
+        DebugPrintf("REGEDT32: Out of memory" );
         DELETE( TmpList );
         return( FALSE );
     }
@@ -186,7 +186,7 @@ Return Value:
                                             BufferSize,
                                             &ResourceListSize )
           ) {
-            DbgPrint( "REGEDT32: Unable to create or initialize IoDescriptorList \n" );
+            DebugPrint( "REGEDT32: Unable to create or initialize IoDescriptorList \n" );
             DELETE( IoDescriptorList );
             TmpList->DeleteAllMembers();
             DELETE( TmpList );
@@ -195,7 +195,7 @@ Return Value:
         TmpList->Put( IoDescriptorList );
 #if DBG
         if( BufferSize < ResourceListSize ) {
-            DbgPrintf( "REGEDT32: incorrect sizes, BufferSize = %d, ResourceListSize = %d \n",
+            DebugPrintf( "REGEDT32: incorrect sizes, BufferSize = %d, ResourceListSize = %d \n",
                        BufferSize, ResourceListSize );
         }
 #endif
@@ -231,13 +231,13 @@ Return Value:
     PITERATOR           Iterator;
     PIO_DESCRIPTOR_LIST DescriptorList;
 
-    DbgPrintf( "*** Dumping IO_REQUIREMENTS_LIST \n\n" );
-    DbgPrintf( "InterfaceType = %d \n", _InterfaceType );
-    DbgPrintf( "BusNumber = %#lx \n", _BusNumber );
-    DbgPrintf( "SlotNumber = %#lx \n", _SlotNumber );
-    DbgPrintf( "Reserved1 = %#x \n", _Reserved1 );
-    DbgPrintf( "Reserved2 = %#x \n", _Reserved2 );
-    DbgPrintf( "Reserved3 = %#x \n", _Reserved3 );
+    DebugPrintf( "*** Dumping IO_REQUIREMENTS_LIST \n\n" );
+    DebugPrintf( "InterfaceType = %d \n", _InterfaceType );
+    DebugPrintf( "BusNumber = %#lx \n", _BusNumber );
+    DebugPrintf( "SlotNumber = %#lx \n", _SlotNumber );
+    DebugPrintf( "Reserved1 = %#x \n", _Reserved1 );
+    DebugPrintf( "Reserved2 = %#x \n", _Reserved2 );
+    DebugPrintf( "Reserved3 = %#x \n", _Reserved3 );
     if( _AlternativeLists != NULL ) {
         Iterator = _AlternativeLists->QueryIterator();
         while( DescriptorList = ( PIO_DESCRIPTOR_LIST ) Iterator->GetNext() ) {
@@ -245,7 +245,7 @@ Return Value:
         }
         DELETE( Iterator );
     } else {
-        DbgPrintf( "IO_REQUIREMENTS_LIST is empty \n\n" );
+        DebugPrintf( "IO_REQUIREMENTS_LIST is empty \n\n" );
     }
 
 }

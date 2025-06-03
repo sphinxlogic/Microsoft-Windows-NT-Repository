@@ -38,9 +38,9 @@ CsrInitializeWait(
     Length = sizeof( *WaitBlock ) - sizeof( WaitBlock->WaitReplyMessage ) +
              WaitReplyMessage->h.u1.s1.TotalLength;
 
-    WaitBlock = RtlAllocateHeap( CsrHeap, 0, Length );
+    WaitBlock = RtlAllocateHeap( CsrHeap, MAKE_TAG( PROCESS_TAG ), Length );
     if (WaitBlock == NULL) {
-        WaitReplyMessage->ReturnValue = STATUS_NO_MEMORY;
+        WaitReplyMessage->ReturnValue = (ULONG)STATUS_NO_MEMORY;
         return( FALSE );
         }
 

@@ -59,13 +59,13 @@ scanstruc (
 		/* Output <n> DUP( */
 		(*disp) (dupr);
 	/* 1st default value for STRUC */
-	fldptr = recptr->symu.rsmsym.rsmtype.rsmstruc.strucbody->duptype.dupnext.dup;
+        fldptr = recptr->symu.rsmsym.rsmtype.rsmstruc.strucbody->duptype.dupnext.dup;
 	/* 1st initialize value */
 	initptr = strucoveride;
 	if (initptr) {
 		/* process initialization fields for structure */
 		while (fldptr) {
-			if (fldptr->itemcnt == 1 && fldptr->duptype.dupnext.dup->itemcnt == 0
+                        if (fldptr->itemcnt == 1 && fldptr->duptype.dupnext.dup->itemcnt == 0
 			    && initptr->duptype.dupitem.ddata)
 				/* Use default */
 				ptr = initptr;
@@ -209,14 +209,14 @@ oblitdup (
 
 VOID	PASCAL CODESIZE
 displlong (
-	struct duprec FARSYM  *dup
+        struct duprec FARSYM  *dup
 ){
 	register USHORT  cnt;
 	register char *p;
 
-	p = dup->duptype.duplong.ldata;
+        p = dup->duptype.duplong.ldata;
 
-	for (cnt = dup->duptype.duplong.llen; cnt;  cnt--) {
+        for (cnt = dup->duptype.duplong.llen; cnt;  cnt--) {
 
 		if (optyp == TDW || optyp == TDD)
 
@@ -247,7 +247,7 @@ displlong (
 
 VOID	PASCAL CODESIZE
 begdupdisplay (
-	struct duprec FARSYM  *dup
+        struct duprec FARSYM  *dup
 ){
 	/* flush line if data already displayed */
 
@@ -260,7 +260,7 @@ begdupdisplay (
 	if (highWord(pcoffset))
 	    listindex += 4;
 
-	offsetAscii (dup->rptcnt);   /* display repeat count in four bytes */
+        offsetAscii (dup->rptcnt);   /* display repeat count in four bytes */
 	copyascii ();
 	listbuffer[listindex] = '[';
 	duplevel++;		     /* Indent another level */
@@ -307,16 +307,16 @@ enddupdisplay (
 
 VOID PASCAL CODESIZE
 itemdisplay (
-	struct duprec FARSYM  *dup
+        struct duprec FARSYM  *dup
 ){
 	if (listindex > LSTMAX)
 		resetobjidx ();
 
-	if (dup->dupkind == ITEM)
+        if (dup->dupkind == ITEM)
 
-	    emitOP (&dup->duptype.dupitem.ddata->dsckind.opnd);
+            emitOP (&dup->duptype.dupitem.ddata->dsckind.opnd);
 	else
-	    displlong (dup);
+            displlong (dup);
 
 	if (duplevel)
 	     resetobjidx ();
@@ -367,9 +367,9 @@ linkfield (
 	struct duprec FARSYM  *ptr;
 
 	if (strucprev->itemcnt++ == 0)/* 1st item in field */
-		strucprev->duptype.dupnext.dup = nitem;
+                strucprev->duptype.dupnext.dup = nitem;
 	else {
-		ptr = strucprev->duptype.dupnext.dup;
+                ptr = strucprev->duptype.dupnext.dup;
 		while (ptr->itemlst)
 			ptr = ptr->itemlst;
 		/* Add to end of list */
@@ -716,7 +716,7 @@ datadup (
 	dupptr->type = 0;
 	dupptr->dupkind = NEST;
 	dupptr->itemlst = NULL;
-	dupptr->duptype.dupnext.dup = NULL;
+        dupptr->duptype.dupnext.dup = NULL;
 
 	/* copy repeat count and release parse stack descriptor */
 	dupptr->rptcnt = pso->doffset;
@@ -736,7 +736,7 @@ datadup (
 		    dupptr->type = dupdsc->type;
 
 		if (!listend)
-			dupptr->duptype.dupnext.dup = dupdsc;
+                        dupptr->duptype.dupnext.dup = dupdsc;
 		else
 			listend->itemlst = dupdsc;
 

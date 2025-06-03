@@ -701,11 +701,9 @@ Return Value:
 
 
     for (i=0;i<LoopCount;i++) {
-
-        MultiByteString[i] = (WCHAR)((UCHAR)(UnicodeString[i]));
+        MultiByteString[i] = (CHAR)(UnicodeString[i]);
     }
 
     return STATUS_SUCCESS;
 
 }
-

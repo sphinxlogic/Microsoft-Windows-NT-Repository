@@ -28,7 +28,7 @@ Revision History:
 #include "video.h"
 #include "v7.h"
 
-// BUGBUG should be a variable
+// NOTE: should be a variable
 #define POINTER_BANK 1
 
 
@@ -231,6 +231,20 @@ VgaQueryPointerAttributes(
     PVIDEO_POINTER_ATTRIBUTES pVideoPointerAttributes,
     ULONG PointerAttributesSize,
     PULONG OutputSize
+    );
+
+VOID
+vBankMap_1RW(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
+VOID
+vBankMap_2RW(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
     );
 
 #if defined(ALLOC_PRAGMA)
@@ -631,6 +645,15 @@ Return Value:
 
     VgaSizeMemory(HwDeviceExtension);
 
+    //
+    // Write amount of memory to registry
+    //
+
+    VideoPortSetRegistryParameters(hwDeviceExtension,
+                                   L"HardwareInformation.MemorySize",
+                                   &hwDeviceExtension->AdapterMemorySize,
+                                   sizeof(ULONG));
+
     VgaValidateModes(HwDeviceExtension);
 
     //
@@ -683,12 +706,126 @@ Return Value:
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
 
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
+    ULONG ulBankSize;
+
+    VOID (*pfnBank)(LONG,LONG,PVOID);
+
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
     // function must be performed by the driver.
     //
 
     switch (RequestPacket->IoControlCode) {
+
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INSUFFICIENT_BUFFER\n"));
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->AdapterMemorySize) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->AdapterMemorySize) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INVALID_PARAMETER\n"));
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameBase.QuadPart;
+
+        switch(hwDeviceExtension->CurrentMode->banktype) {
+
+            case VideoBanked1RW:
+    
+                ulBankSize = 0x10000;   // 64K bank granularity
+                pfnBank = vBankMap_1RW;
+                break;
+    
+            case VideoBanked2RW:
+    
+                ulBankSize = 0x1000;    // 4K bank granularity
+                pfnBank = vBankMap_2RW;
+                break;
+
+            default:
+
+                VideoDebugPrint((0, "IOCTL_VIDEO_SHARE_VIDEO_MEMORY - Unsupported bank type\n"));
+                return ERROR_INVALID_PARAMETER;
+        }
+
+        status = VideoPortMapBankedMemory(hwDeviceExtension,
+                                          shareAddress,
+                                          &sharedViewSize,
+                                          &inIoSpace,
+                                          &virtualAddress,
+                                          ulBankSize,   // bank size                  
+                                          TRUE,         // we don't have separate read/write
+                                          pfnBank,
+                                          (PVOID)hwDeviceExtension);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -5146,7 +5283,7 @@ Return Value:
     //
     // Normally, this would be mode based, but the hardware pointer works in
     // all modes, even text.
-    // BUGBUG when we support 256-color modes, the pointer load address will
+    // WARNING when we support 256-color modes, the pointer load address will
     // change; also, this should change depending on how much memory is present
     //
 
@@ -5233,7 +5370,7 @@ Return Value:
 
     //
     // Move the pointer.
-    // BUGBUG shouldn't be hardwired for bank.
+    // LATER: shouldn't be hardwired for bank.
     //
 
     V7DrawPointer((ULONG)pPointerPosition->Column,
@@ -5245,7 +5382,7 @@ Return Value:
             &HwDeviceExtension->hwPtrShiftInfo);
 
     V7EnablePointer(HwDeviceExtension);  // make sure the pointer is on
-                        // BUGBUG should this be part of this function?
+                                         // LATER: should this be part of this function?
 
     return NO_ERROR;
 
@@ -5434,7 +5571,7 @@ Return Value:
 
     //
     // Load the pointer and Set the position.
-    // BUGBUG shouldn't be hardwired for bank.
+    // LATER: shouldn't be hardwired for bank.
     //
 
     V7DrawPointer(pVideoPointerAttributes->Column,
@@ -5849,4 +5986,72 @@ Return Value:
     return TRUE;
 
 } // V7IsPresent()
-
+
+//---------------------------------------------------------------------------
+//
+// The memory manager needs a "C" interface to the banking function
+//
+
+/*++
+
+Routine Description:
+
+    These functions are a "C" callable interface to the ASM banking
+    functions.  They are NON paged because they are called from the
+    Memory Manager during some page faults.
+
+Arguments:
+
+    iBankRead -     Index of bank we want mapped in to read from.
+    iBankWrite -    Index of bank we want mapped in to write to.
+
+Return Value:
+
+    None.
+
+--*/
+
+
+VOID
+vBankMap_1RW(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap_1RW(%d,%d) - enter\n",iBankRead,iBankWrite));
+
+    //
+    // This adapter doesn't support separate read and write banks.  We'll use
+    // the read bank requested since they should be the same.
+    //
+
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        lea     ebx,BankSwitchStart256
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap_1RW - exit\n"));
+}
+
+VOID
+vBankMap_2RW(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap_2RW(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,eax
+        inc     edx
+        lea     ebx,BankSwitchStart256_2RW
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap_2RW - exit\n"));
+}

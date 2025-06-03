@@ -91,6 +91,28 @@ LARGE_INTEGER MupKnownPrefixTimeout = {0};
 
 BOOLEAN MupOrderInitialized = {0};
 
+//
+// When we need to ask several rdrs to do an operation, and they all fail,
+//  we need to return a single error code.  MupOrderedErrorList is a list
+//  of status codes, from least important to most important, to guide in
+//  determining which error codes should be returned.  An error code
+//  at a higher index will replace an error code at a lower index.  An error
+//  code not in the list always wins.  This processing is in MupDereferenceMasterIoContext()
+//
+NTSTATUS MupOrderedErrorList[] = {
+        STATUS_UNSUCCESSFUL,
+        STATUS_INVALID_PARAMETER,
+        STATUS_REDIRECTOR_NOT_STARTED,
+        STATUS_BAD_NETWORK_PATH,
+        0
+};
+
+//
+// This boolean indicates whether to enable the Dfs client or not.
+//
+
+BOOLEAN MupEnableDfs = FALSE;
+
 #ifdef MUPDBG
 MUP_LOCK MupDebugLock = {0};
 ULONG MupDebugTraceLevel = 0;

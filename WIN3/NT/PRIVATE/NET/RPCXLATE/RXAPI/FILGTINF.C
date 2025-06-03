@@ -42,7 +42,7 @@ Revision History:
 #include <apinums.h>            // API_ equates.
 #include <lmapibuf.h>           // NetApiBufferAllocate().
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // DBGSTATIC, NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // DBGSTATIC, NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>             // NetpSetParmError().
 #include <rap.h>                // LPDESC.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
@@ -89,8 +89,8 @@ Return Value:
     DWORD TotalAvail;
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint("RxNetFileGetInfo: starting, server=" FORMAT_LPTSTR
-                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level);
+        NetpKdPrint(("RxNetFileGetInfo: starting, server=" FORMAT_LPTSTR
+                ", lvl=" FORMAT_DWORD ".\n", UncServerName, Level));
     }
 
     //
@@ -135,8 +135,8 @@ Return Value:
         return (Status);
     }
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "RxNetFileGetInfo: allocated buffer at "
-                FORMAT_LPVOID "\n", (LPVOID) ApiBuffer32 );
+        NetpKdPrint(( "RxNetFileGetInfo: allocated buffer at "
+                FORMAT_LPVOID "\n", (LPVOID) ApiBuffer32 ));
     }
 
     //

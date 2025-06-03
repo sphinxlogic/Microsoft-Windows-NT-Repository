@@ -1,25 +1,21 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                  File / Directory Tree copy routines                    |
-  +-------------------------------------------------------------------------+
-  |                     (c) Copyright 1993-1994                             |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [FCopy.c]                                       |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Dec 01, 1993]                                  |
-  | Last Update           : [Jun 16, 1994]                                  |
-  |                                                                         |
-  | Version:  1.00                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jun 16, 1993    1.00    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
+
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   FCopy.c
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 16-Jun-1994
+
+Revision History:
+
+--*/
 
 
 #include "globals.h"
@@ -34,11 +30,18 @@
 #include "statbox.h"
 #include "filedlg.h"
 
-TCHAR *fastcopy( HANDLE hfSrcParm, HANDLE hfDstParm );
+//
+// Defines used in CopyNode routine - used for figuring out if we are doing
+// the home-directories in the MAIL sub-dir of the SYS vol.
+//
+#define DIR_TYPE_NORMAL 0
+#define DIR_TYPE_MAIL   1
+#define DIR_TYPE_LOGIN  2
 
 static TCHAR SourcePath[MAX_UNC_PATH];
 static LPTSTR spPtr;
 static FILE_OPTIONS *FileOptions = NULL;
+static CONVERT_OPTIONS *CurrentConvertOptions = NULL;
 static ULONG Count;
 static ULONG ServShareLen = 0;
 
@@ -60,16 +63,47 @@ static BOOL SysVol = FALSE;
 extern UINT TotFiles;
 extern TCHAR UserServerName[];
 
-USER_LIST *FindUserMatch(LPTSTR Name, USER_LIST *UserList, DWORD UserCount, BOOL NewName);
-GROUP_LIST *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, DWORD GroupCount, BOOL NewName);
-BOOL NTFile_AccessRightsAdd(LPTSTR ServerName, LPTSTR pUserName, LPTSTR pFileName, ULONG Rights, BOOL Dir);
-void ErrorIt(LPTSTR szFormat, ...);
+#define NWRIGHTSALL 0xFF
 
-/*+-------------------------------------------------------------------------+
-  | ConvertFilesInit()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ConvertFilesInit(HWND hDlg) {
+#define BASE_16     16
+
+#define SWAPWORD(w)         ((WORD)((w & 0xFF) << 8)|(WORD)(w >> 8))
+#define SWAPLONG(l)         MAKELONG(SWAPWORD(HIWORD(l)),SWAPWORD(LOWORD(l)))
+
+
+TCHAR *fastcopy( HANDLE hfSrcParm, HANDLE hfDstParm );
+
+USER_BUFFER *FindUserMatch(LPTSTR Name, USER_LIST *UserList, BOOL NewName);
+GROUP_BUFFER *FindGroupMatch(LPTSTR Name, GROUP_LIST *GroupList, BOOL NewName);
+BOOL NTFile_AccessRightsAdd(LPTSTR ServerName, LPTSTR pUserName, LPTSTR pFileName, ULONG Rights, BOOL Dir);
+VOID ErrorIt(LPTSTR szFormat, ...);
+
+TCHAR SrcPath[MAX_UNC_PATH];  // +3 for slashes
+TCHAR DestPath[MAX_UNC_PATH];  // +3 for slashes
+
+
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ConvertFilesInit(
+   HWND hDlg
+   )
+
+/*++
+
+Routine Description:
+
+   Initialization routine called before doing the file copying.  Sets up
+   the information panel dialog and fills in the directory tree structures.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_UNC_PATH];
    SOURCE_SERVER_BUFFER *SServ;
    DEST_SERVER_BUFFER *DServ;
@@ -91,7 +125,7 @@ void ConvertFilesInit(HWND hDlg) {
    CurrentConvertList = ConvertListStart;
    while (CurrentConvertList) {
       SServ = CurrentConvertList->SourceServ;
-      DServ = CurrentConvertList->DestServ;
+      DServ = CurrentConvertList->FileServ;
       ShareList = SServ->ShareList;
 
       FileOptions = (FILE_OPTIONS *) CurrentConvertList->FileOptions;
@@ -141,11 +175,27 @@ void ConvertFilesInit(HWND hDlg) {
 } // ConvertFilesInit
 
 
-/*+-------------------------------------------------------------------------+
-  | SecurityDescriptorCreate()                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-PSECURITY_DESCRIPTOR SecurityDescriptorCreate(LPTSTR ServerName) {
+/////////////////////////////////////////////////////////////////////////
+PSECURITY_DESCRIPTOR 
+SecurityDescriptorCreate(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+   Creates a security descriptor.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
     DWORD cbACL = 1024;
     DWORD cbSID = 1024;
     LPTSTR lpszAccount;
@@ -221,12 +271,29 @@ Cleanup:
 } // SecurityDescriptorCreate
 
 
+/////////////////////////////////////////////////////////////////////////
+VOID
+MakeDir (
+   DEST_SERVER_BUFFER *DServ, 
+   VIRTUAL_SHARE_BUFFER *VShare
+   )
 
-/*+-------------------------------------------------------------------------+
-  | MakeDir()                                                               |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void MakeDir (DEST_SERVER_BUFFER *DServ, VIRTUAL_SHARE_BUFFER *VShare) {
+/*++
+
+Routine Description:
+
+   Given a path, this will start at the root of the path and create a
+   directory tree up to the ending node.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NewPath[MAX_UNC_PATH];
    TCHAR oc;
    LPTSTR ptr;
@@ -290,15 +357,39 @@ void MakeDir (DEST_SERVER_BUFFER *DServ, VIRTUAL_SHARE_BUFFER *VShare) {
 } // MakeDir
 
 
-/*+-------------------------------------------------------------------------+
-  | VSharesCreate()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void VSharesCreate(DEST_SERVER_BUFFER *DServ, BOOL TConversion) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+VSharesCreate(
+   DEST_SERVER_BUFFER *DServ, 
+   BOOL TConversion
+   )
+
+/*++
+
+Routine Description:
+
+   Given a virtual share struct, creates the share on the destination
+   server, include both an NT share and FPNW share if applicable.  Will
+   also create any directories to point the share at if needed.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   CONVERT_OPTIONS *cvo;
    VIRTUAL_SHARE_BUFFER *VShare;
+   BOOL FPNWChk;
 
    LogWriteLog(0, Lids(IDS_L_7));
-   VShare = CurrentConvertList->DestServ->VShareStart;
+   VShare = CurrentConvertList->FileServ->VShareStart;
+   cvo = (CONVERT_OPTIONS *) CurrentConvertList->ConvertOptions;
+
+   FPNWChk = DServ->IsFPNW;
 
    while (VShare) {
       if (VShare->UseCount > 0) {
@@ -307,6 +398,9 @@ void VSharesCreate(DEST_SERVER_BUFFER *DServ, BOOL TConversion) {
 
          if (!TConversion) {
             MakeDir(DServ, VShare);
+            if ((cvo->NetWareInfo) && FPNWChk)
+               FPNWShareAdd(VShare->Name, VShare->Path);
+
             NTShareAdd(VShare->Name, VShare->Path);
          }
 
@@ -319,19 +413,40 @@ void VSharesCreate(DEST_SERVER_BUFFER *DServ, BOOL TConversion) {
 
 } // VSharesCreate
 
-#define NWRIGHTSALL 0xFF
-/*+-------------------------------------------------------------------------+
-  | FileSecurityTransfer()                                                  |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void FileSecurityTransfer(LPTSTR SrcPath, LPTSTR DestPath, BOOL TConversion, BOOL Dir) {
+
+/////////////////////////////////////////////////////////////////////////
+VOID 
+FileSecurityTransfer(
+   LPTSTR SrcPath, 
+   LPTSTR DestPath, 
+   BOOL TConversion, 
+   BOOL Dir
+   )
+
+/*++
+
+Routine Description:
+
+   Given a source and destination path, will take all the file permissions
+   from the source and apply them to the destination.  Will automatically
+   convert any user names to their new equivalence.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL match;
    LPTSTR fnPtr;
    USER_RIGHTS_LIST *secUsers = NULL;
    ULONG secUserCount;
    ULONG i;
-   USER_LIST *FoundUser;
-   GROUP_LIST *FoundGroup;
+   USER_BUFFER *FoundUser;
+   GROUP_BUFFER *FoundGroup;
    LPTSTR NewName;
    ACCESS_MASK AccessMask;
    NTSTATUS ntstatus;
@@ -359,14 +474,14 @@ dprintf(TEXT("Getting Rights for: %s\n"), SourcePath);
 #endif
 
          match = FALSE;
-         FoundUser = FindUserMatch(secUsers[i].Name, Users, UserCount, FALSE);
+         FoundUser = FindUserMatch(secUsers[i].Name, Users, FALSE);
 
          // Check if this is "EVERYONE"
          if (!lstrcmpi(secUsers[i].Name, Lids(IDS_S_31)))
             DidEveryone = TRUE;
 
          if (FoundUser == NULL) {
-            FoundGroup = FindGroupMatch(secUsers[i].Name, Groups, GroupCount, FALSE);
+            FoundGroup = FindGroupMatch(secUsers[i].Name, Groups, FALSE);
             if (FoundGroup != NULL) {
                match = TRUE;
                NewName = FoundGroup->NewName;
@@ -410,18 +525,25 @@ dprintf(TEXT("Server: %s\n"), UserServerName);
       FreeMemory(secUsers);
    }
 
-   // If this is the root of the sys vol, and the rights for Everyone weren't transferred, then
-   // Give everyone access.  This is the default on NW servers.
+   //
+   // If this is the root of the sys vol, and the rights for Everyone weren't 
+   // transferred, then Give everyone access.  NT and NetWare handle 
+   // permissions a bit differently.  In NW if a user has permission
+   // nested down in a sub-dir, then NW will back-port S permission down
+   // to the root so the user can get access into the sub-dir.  NT does
+   // access from the root up.  Giving the user RX access provides a
+   // workaround.
+   //
    if (SysRoot && !DidEveryone) {
       // Use "Domain Users" for the user - equiv of everyone.
       NewName = Lids(IDS_S_33);
       // Map the NW rights to NT access mask
       AccessMask =  0x0;
 
-      ntstatus = MapNwRightsToNTAccess(NWRIGHTSALL, &DirRightsMapping, &AccessMask);
+      ntstatus = MapNwRightsToNTAccess(NW_FILE_READ, &DirRightsMapping, &AccessMask);
 
       if (VerboseFileLogging())
-         LogWriteLog(3, TEXT("%s %-20s -> %-20s %s\r\n"), NWRightsLog(NWRIGHTSALL), Lids(IDS_S_31), NewName, NTAccessLog(AccessMask));
+         LogWriteLog(3, TEXT("%s %-20s -> %-20s %s\r\n"), NWRightsLog(NW_FILE_READ), Lids(IDS_S_31), NewName, NTAccessLog(AccessMask));
 
       if (NT_SUCCESS(ntstatus) && !TConversion)
          NTFile_AccessRightsAdd(UserServerName, NewName, DestPath, AccessMask, Dir);
@@ -433,16 +555,33 @@ dprintf(TEXT("Server: %s\n"), UserServerName);
 } // FileSecurityTransfer
 
 
-// fcopy (source file, destination file) copies the source to the destination
-// preserving attributes and filetimes.  Returns NULL if OK or a char pointer
-// to the corresponding text of the error
-/*+-------------------------------------------------------------------------+
-  | fcopy()                                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR fcopy (LPTSTR src, LPTSTR dst) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+fcopy (
+   LPTSTR src, 
+   LPTSTR dst
+   )
+
+/*++
+
+Routine Description:
+
+   fcopy (source file, destination file) copies the source to the destination
+   preserving attributes and filetimes.  Returns NULL if OK or a char pointer
+   to the corresponding text of the error
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR fcopyErrorText[128];
-   HANDLE srcfh, dstfh;
+   HANDLE srcfh = INVALID_HANDLE_VALUE;
+   HANDLE dstfh = INVALID_HANDLE_VALUE;
    LPTSTR result = NULL;
    DWORD attribs;
    FILETIME CreationTime, LastAccessTime, LastWriteTime;
@@ -504,14 +643,148 @@ done:
 } // fcopy
 
 
-TCHAR SrcPath[MAX_UNC_PATH];  // +3 for slashes
-TCHAR DestPath[MAX_UNC_PATH];  // +3 for slashes
+/////////////////////////////////////////////////////////////////////////
+BOOL
+LoginDirConvert(
+   LPTSTR OldName,
+   LPTSTR NewName
+   )
 
-/*+-------------------------------------------------------------------------+
-  | CopyNode()                                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void CopyNode(DIR_BUFFER *Dir, BOOL First, BOOL TConversion) {
+/*++
+
+Routine Description:
+
+   We need to copy login scripts, these reside in the mail directory on
+   the NetWare server.  Each user's OBJECT_ID is a sub-directory.  What
+   needs to be done is scan the sub-directories and convert the 
+   OBJECT_ID for each user to the corresponding new OBJECT_ID on the 
+   NT Server and rename the sub-dir to this new OBJECT_ID value.  Then
+   copy the files.
+
+   The copy of the files and saving of the directory is done in 
+   CopyNode, this routine converts the OBJECT-ID's.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   DWORD OldID, NewID;
+   USER_BUFFER *FoundUser;
+   char aOldName[MAX_PATH + 1];
+   TCHAR OldUserName[MAX_PATH + 1];
+   LPTSTR NewUserName;
+   BOOL ret = TRUE;
+
+   // 
+   // Need to take several conversion steps.  We are passed in a string
+   // representation of the OBJECT-ID.  This needs to be changed into
+   // the new string represenation of the new OBJECT-ID as follows:
+   //
+   //    1.  Str-OBJECTID -> OBJECT-ID (DWORD)
+   //    2.  OBJECT-ID -> Name (User Name on NW server)
+   //    3.  Name -> New Name (on NT Server)
+   //    4.  New Name -> OBJECT-ID (DWORD)
+   //    5.  OBJECT-ID -> Str-OBJECTID
+   //
+
+   //
+   // Init just in case
+   //
+   lstrcpy(NewName, TEXT(""));
+   strcpy(aOldName, "");
+   OldID = NewID = 0;
+
+   //
+   // 1.  Str-OBJECTID -> OBJECT-ID (DWORD)
+   // 
+   WideCharToMultiByte(CP_ACP, 0, OldName, -1, aOldName, sizeof(aOldName), NULL, NULL);
+   RtlCharToInteger(aOldName, BASE_16, &OldID);
+   SWAPWORDS(OldID);
+
+   //
+   // If we didn't convert it, or not an Object ID, then use original string
+   //
+   if (OldID == 0) {
+      lstrcpy(NewName, OldName);
+      ret = FALSE;
+      goto LoginDirConvertExit;
+   }
+
+   //
+   // 2.  OBJECT-ID -> Name (User Name on NW server)
+   // 
+   if (!NWObjectNameGet(OldID, OldUserName)) {
+      lstrcpy(NewName, OldName);
+      ret = FALSE;
+      goto LoginDirConvertExit;
+   }
+
+   //
+   // 3.  Name -> New Name (on NT Server)
+   // 
+   FoundUser = FindUserMatch(OldUserName, Users, FALSE);
+   NewUserName = OldUserName;
+
+   if (FoundUser != NULL)
+      NewUserName = FoundUser->NewName;
+
+   //
+   // 4.  New Name -> OBJECT-ID (DWORD)
+   // 
+   NewID = NTObjectIDGet(NewUserName);
+
+   if (NewID == 0) {
+      lstrcpy(NewName, OldName);
+      ret = FALSE;
+      goto LoginDirConvertExit;
+   }
+
+   //
+   // 5.  OBJECT-ID -> Str-OBJECTID
+   // 
+   wsprintf(NewName, TEXT("%lX"), MAKELONG(HIWORD(NewID),SWAPWORD(LOWORD(NewID))) );
+
+LoginDirConvertExit:
+#ifdef DEBUG
+   if (ret)
+      dprintf(TEXT("Converting Login Dir for [%s]: %s -> %s\n"), OldUserName, OldName, NewName);
+#endif
+
+   return ret;
+
+}  // LoginDirConvert
+
+
+/////////////////////////////////////////////////////////////////////////
+VOID 
+CopyNode(
+   DIR_BUFFER *Dir, 
+   BOOL First, 
+   BOOL TConversion,
+   DWORD DirType
+   )
+
+/*++
+
+Routine Description:
+
+   A node in this case is a sub-directory.  This is a recursive function that
+   will copy all files and sub-directories under a given sub-directory.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    LPTSTR ErrText;
    DIR_LIST *DirList = NULL;
    FILE_LIST *FileList = NULL;
@@ -520,6 +793,8 @@ void CopyNode(DIR_BUFFER *Dir, BOOL First, BOOL TConversion) {
    LPTSTR pSrcPath, pDestPath;
    TCHAR Attributes[10];
    ULONG i;
+   DWORD ChildDirType;
+   DWORD attribs;
 
    if (Dir == NULL)
       return;
@@ -533,13 +808,33 @@ void CopyNode(DIR_BUFFER *Dir, BOOL First, BOOL TConversion) {
    // 2. Copy all files in this dir
    // 3. For each sub-dir recurse into this function, building up the path
 
-   // (1) Make Dir
+   //
+   // 1. Make Dir
+   //
    if (!First) {
       lstrcat(SrcPath, Dir->Name);
-      lstrcat(DestPath, Dir->Name);
 
-      if (!TConversion)
+      //
+      // If a HOME directory, then we need to convert the name to the new
+      // USER-ID
+      //
+      if (DirType == DIR_TYPE_LOGIN) {
+         TCHAR NewDirName[MAX_PATH + 1];
+
+         if (!LoginDirConvert(Dir->Name, NewDirName))
+            return;
+
+         lstrcat(DestPath, NewDirName);
+      } else
+         lstrcat(DestPath, Dir->Name);
+
+      if (!TConversion) {
+         attribs = GetFileAttributes(SrcPath);
          CreateDirectory(DestPath, NULL);
+
+         if (attribs != 0xFFFFFFFF)
+            SetFileAttributes(DestPath, attribs);
+      }
 
    } else {
       lstrcat(DestPath, TEXT("\\"));
@@ -581,7 +876,9 @@ void CopyNode(DIR_BUFFER *Dir, BOOL First, BOOL TConversion) {
 
    Status_CurNum((UINT) Count+1);
 
-   // (2) Copy All Files in this dir
+   //
+   // 2. Copy All Files in this dir
+   //
    FileList = Dir->FileList;
    if (FileList) {
 
@@ -649,14 +946,31 @@ dprintf(TEXT("FC: %s -> %s\n"), SrcPath, DestPath);
 
    }
 
-   // (3) Recurse the sub-dirs
+   //
+   // 3. Recurse the sub-dirs
+   //
    DirList = Dir->DirList;
    if (DirList) {
       DList = DirList->DirBuffer;
       for (i = 0; i < DirList->Count; i++)
          if (DList[i].Convert) {
-            // recurse into this dir
-            CopyNode(&DList[i], FALSE, TConversion);
+
+            //
+            // Reset child dir type...
+            //
+            ChildDirType = DIR_TYPE_NORMAL;
+
+            //
+            // If this is the mail sub-dir, then the children are home-dirs
+            //
+            if (DirType == DIR_TYPE_MAIL)
+               ChildDirType = DIR_TYPE_LOGIN;
+
+            // recurse into this dir - check if this is the mail dir
+            if (SysVol && First && !lstrcmpi(DList[i].Name, TEXT("MAIL")) && CurrentConvertList->FileServ->IsFPNW )
+               ChildDirType = DIR_TYPE_MAIL;
+
+            CopyNode(&DList[i], FALSE, TConversion, ChildDirType);
 
             // reset our paths to the right place
             *pSrcPath = TEXT('\0');
@@ -667,11 +981,29 @@ dprintf(TEXT("FC: %s -> %s\n"), SrcPath, DestPath);
 } // CopyNode
 
 
-/*+-------------------------------------------------------------------------+
-  | ConvertFiles()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCount, GROUP_LIST *iGroups, ULONG iGroupCount) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+ConvertFiles(
+   HWND hDlg, 
+   BOOL TConversion, 
+   USER_LIST *iUsers, 
+   GROUP_LIST *iGroups
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DIR_LIST *DirList = NULL;
    SOURCE_SERVER_BUFFER *SServ;
    DEST_SERVER_BUFFER *DServ;
@@ -683,13 +1015,22 @@ void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCou
 
    Users = iUsers;
    Groups = iGroups;
-   UserCount = iUserCount;
-   GroupCount = iGroupCount;
+
+   if (iUsers != NULL)
+      UserCount = iUsers->Count;
+   else
+      UserCount = 0;
+
+   if (iGroups != NULL)
+      GroupCount = iGroups->Count;
+   else
+      GroupCount = 0;
 
    Count = 0;
    FileOptions = (FILE_OPTIONS *) CurrentConvertList->FileOptions;
+   CurrentConvertOptions = (CONVERT_OPTIONS *) CurrentConvertList->ConvertOptions;
    SServ = CurrentConvertList->SourceServ;
-   DServ = CurrentConvertList->DestServ;
+   DServ = CurrentConvertList->FileServ;
 
    // Synchronize the domain
    NTDomainSynch(DServ);
@@ -771,7 +1112,14 @@ void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCou
 
             if (CurrentShare->Virtual) {
                VShare = (VIRTUAL_SHARE_BUFFER *) CurrentShare->DestShare;
-               wsprintf(DestPath, TEXT("\\\\%s\\%s"), DServ->Name, VShare->Name);
+               //
+               // NOTE: The DestShare->Name may be that of the ncp server so
+               // instead of formatting the destination \\server\share\<foo>,
+               // which means nothing to the smb server if the share is fpnw,
+               // we format the destination \\server\d$\path\<foo>.
+               // 
+               wsprintf(DestPath, TEXT("\\\\%s\\%s"), DServ->Name, VShare->Path);
+               DestPath[2+lstrlen(DServ->Name)+1+1] = TEXT('$'); // replace ':' with '$' in unc path
 
                if (VShare->Drive != NULL)
                   IsNTFSDrive = (VShare->Drive->Type == DRIVE_TYPE_NTFS);
@@ -781,7 +1129,14 @@ void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCou
                LogWriteLog(1, Lids(IDS_L_53), VShare->Name);
                LogWriteSummary(1, Lids(IDS_L_53), VShare->Name);
             } else {
-               wsprintf(DestPath, TEXT("\\\\%s\\%s"), DServ->Name, CurrentShare->DestShare->Name);
+               //
+               // NOTE: The DestShare->Name may be that of the ncp server so
+               // instead of formatting the destination \\server\share\<foo>,
+               // which means nothing to the smb server if the share is fpnw,
+               // we format the destination \\server\d$\path\<foo>.
+               // 
+               wsprintf(DestPath, TEXT("\\\\%s\\%s"), DServ->Name, CurrentShare->DestShare->Path);
+               DestPath[2+lstrlen(DServ->Name)+1+1] = TEXT('$'); // replace ':' with '$' in unc path
 
                if (CurrentShare->DestShare->Drive != NULL)
                   IsNTFSDrive = (CurrentShare->DestShare->Drive->Type == DRIVE_TYPE_NTFS);
@@ -794,7 +1149,7 @@ void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCou
 
             CurSizeTotal = 0;
             CurNumFiles = 0;
-            CopyNode(CurrentShare->Root, TRUE, TConversion);
+            CopyNode(CurrentShare->Root, TRUE, TConversion, (DWORD) DIR_TYPE_NORMAL);
             LogWriteSummary(2, Lids(IDS_L_54), lToStr(CurNumFiles));
             LogWriteSummary(2, Lids(IDS_L_55), lToStr(CurSizeTotal));
 
@@ -805,5 +1160,3 @@ void ConvertFiles(HWND hDlg, BOOL TConversion, USER_LIST *iUsers, ULONG iUserCou
    }
 
 } // ConvertFiles
-
-

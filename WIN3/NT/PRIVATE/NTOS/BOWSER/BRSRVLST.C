@@ -139,15 +139,31 @@ BowserCheckForPrimaryBrowserServer(
 
     PAGED_CODE();
 
+    //
+    // Grab a lock on the BrowserServerList for this transport.
+    //
+    // Since this call is made with the BrowserServerList exclusively locked for one of the
+    // transports, we can't wait for the lock (there would be an implicit violation of the
+    // locking order).
+    //
+    // However, since this call is simply being used as an optimization, we'll simply skip
+    //  the check when we have contention.
+    //
+
+    if (!ExAcquireResourceShared(&Transport->BrowserServerListResource, FALSE)) {
+        return STATUS_SUCCESS;
+    }
+
     if (Transport->PagedTransport->BrowserServerListBuffer != NULL) {
 
-        if (!wcsicmp(ServerName, Transport->PagedTransport->BrowserServerListBuffer[0])) {
-
+        if (!_wcsicmp(ServerName, Transport->PagedTransport->BrowserServerListBuffer[0])) {
+            ExReleaseResource(&Transport->BrowserServerListResource);
             return STATUS_UNSUCCESSFUL;
 
         }
     }
 
+    ExReleaseResource(&Transport->BrowserServerListResource);
     return STATUS_SUCCESS;
 }
 
@@ -555,9 +571,12 @@ Return Value:
         //  to ensure some degree of randomness in the choice.
         //
 
-        BowserShuffleBrowserServerList(*BrowserServerList,
-                                       *BrowserServerListLength,
-                                       (BOOLEAN)((DomainName == NULL) || RtlEqualUnicodeString(&Transport->PrimaryDomain->PagedTransportName->Name->Name, DomainName, TRUE)));
+        BowserShuffleBrowserServerList(
+            *BrowserServerList,
+            *BrowserServerListLength,
+            (BOOLEAN)((DomainName == NULL) ||
+                (Transport->PrimaryDomain != NULL &&
+                RtlEqualUnicodeString(&Transport->PrimaryDomain->PagedTransportName->Name->Name, DomainName, TRUE))));
 
         try_return(Status = STATUS_SUCCESS);
 
@@ -841,6 +860,7 @@ BowserGetBackupListWorker(
         BowserDereferenceTransportName(Context->TransportName);
         BowserDereferenceTransport(Transport);
 
+        InterlockedDecrement( &BowserPostedDatagramCount );
         FREE_POOL(Context);
 
         return;
@@ -866,6 +886,7 @@ BowserGetBackupListWorker(
         BowserDereferenceTransportName(Context->TransportName);
         BowserDereferenceTransport(Transport);
 
+        InterlockedDecrement( &BowserPostedDatagramCount );
         FREE_POOL(Context);
 
         return;
@@ -992,7 +1013,7 @@ BowserGetBackupListWorker(
 
                     &&
 
-                wcsicmp(ServerEntry->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)
+                _wcsicmp(ServerEntry->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)
                ) {
 
                 Status = AddBackupToBackupList(&BackupPointer, (PCHAR)BackupListResponse, ServerEntry);
@@ -1089,7 +1110,7 @@ BowserGetBackupListWorker(
 
                     &&
 
-                wcsicmp(ServerEntry->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)
+                _wcsicmp(ServerEntry->ServerName, Transport->ComputerName->PagedTransportName->Name->Name.Buffer)
                ) {
 
                 Status = AddBackupToBackupList(&BackupPointer, (PCHAR)BackupListResponse, ServerEntry);
@@ -1168,6 +1189,7 @@ try_exit:NOTHING;
         BowserDereferenceTransportName(Context->TransportName);
         BowserDereferenceTransport(Transport);
 
+        InterlockedDecrement( &BowserPostedDatagramCount );
         FREE_POOL(Context);
     }
 

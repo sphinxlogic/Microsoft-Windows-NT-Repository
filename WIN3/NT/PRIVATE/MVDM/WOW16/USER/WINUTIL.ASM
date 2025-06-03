@@ -29,7 +29,9 @@ ifdef WOW
 NOEXTERNS equ 1
 SEGNAME equ <TEXT>
 endif
+.xlist
 include user.inc
+.list
 
 
 ;*==========================================================================*

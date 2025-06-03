@@ -2,14 +2,13 @@
 *                                                                           *
 * windef.h -- Basic Windows Type Definitions                                *
 *                                                                           *
-* Copyright (c) 1985-1994, Microsoft Corp. All rights reserved.             *
+* Copyright (c) 1985-1996, Microsoft Corp. All rights reserved.             *
 *                                                                           *
 ****************************************************************************/
 
 
 #ifndef _WINDEF_        
 #define _WINDEF_
-
 
 #ifndef NO_STRICT
 #ifndef STRICT
@@ -21,6 +20,9 @@
 extern "C" {
 #endif
 
+#ifndef WINVER
+#define WINVER 0x0400
+#endif /* WINVER */
 
 /*
  * BASETYPES is defined in ntdef.h if these types are already defined
@@ -73,7 +75,7 @@ typedef char *PSZ;
 
 #define far
 #define near
-#if (_MSC_VER >= 800)
+#if (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED)
 #define pascal __stdcall
 #else
 #define pascal
@@ -91,7 +93,7 @@ typedef char *PSZ;
 #endif
 #endif
 
-#if (_MSC_VER >= 800)
+#if (_MSC_VER >= 800) || defined(_STDCALL_SUPPORTED)
 #define CALLBACK    __stdcall
 #define WINAPI      __stdcall
 #define WINAPIV     __cdecl
@@ -192,6 +194,9 @@ DECLARE_HANDLE(HGDIOBJ);
 DECLARE_HANDLE(HACCEL);
 DECLARE_HANDLE(HBITMAP);
 DECLARE_HANDLE(HBRUSH);
+#if(WINVER >= 0x0400)
+DECLARE_HANDLE(HCOLORSPACE);
+#endif /* WINVER >= 0x0400 */
 DECLARE_HANDLE(HDC);
 DECLARE_HANDLE(HGLRC);          // OpenGL
 DECLARE_HANDLE(HDESK);
@@ -227,6 +232,7 @@ typedef struct tagRECT
     LONG    bottom;
 } RECT, *PRECT, NEAR *NPRECT, FAR *LPRECT;
 
+typedef const RECT FAR* LPCRECT;
 
 typedef struct _RECTL       /* rcl */
 {
@@ -236,6 +242,7 @@ typedef struct _RECTL       /* rcl */
     LONG    bottom;
 } RECTL, *PRECTL, *LPRECTL;
 
+typedef const RECTL FAR* LPCRECTL;
 
 typedef struct tagPOINT
 {
@@ -298,6 +305,5 @@ typedef struct tagPOINTS
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif /* _WINDEF_ */   

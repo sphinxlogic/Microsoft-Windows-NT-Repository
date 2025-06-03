@@ -31,7 +31,7 @@ Revision History:
 //  Set this to TRUE when ready to pack the log records.
 //
 
-BOOLEAN LfsPackLogRecords = FALSE;
+BOOLEAN LfsPackLogRecords = TRUE;
 
 PLFCB
 LfsRestartLogFile (
@@ -105,6 +105,14 @@ LfsCheckSubsequentLogPage (
     );
 
 VOID
+LfsFlushLogPage (
+    IN PLFCB Lfcb,
+    PVOID LogPage,
+    IN LONGLONG FileOffset,
+    OUT PBCB *Bcb
+    );
+
+VOID
 LfsRemoveClientFromList (
     IN PLFS_CLIENT_RECORD ClientArray,
     IN PLFS_CLIENT_RECORD ClientRecord,
@@ -122,7 +130,9 @@ LfsAddClientToList (
 #pragma alloc_text(PAGE, LfsAddClientToList)
 #pragma alloc_text(PAGE, LfsCheckSubsequentLogPage)
 #pragma alloc_text(PAGE, LfsCloseLogFile)
+#pragma alloc_text(PAGE, LfsDeleteLogHandle)
 #pragma alloc_text(PAGE, LfsFindLastLsn)
+#pragma alloc_text(PAGE, LfsFlushLogPage)
 #pragma alloc_text(PAGE, LfsInitializeLogFile)
 #pragma alloc_text(PAGE, LfsInitializeLogFilePriv)
 #pragma alloc_text(PAGE, LfsNormalizeBasicLogFile)
@@ -337,7 +347,7 @@ Return Value:
 }
 
 
-VOID
+ULONG
 LfsOpenLogFile (
     IN PFILE_OBJECT LogFile,
     IN UNICODE_STRING ClientName,
@@ -388,7 +398,7 @@ Arguments:
 
 Return Value:
 
-    None
+    ULONG - Amount to add to reservation value for header for log record.
 
 --*/
 
@@ -403,6 +413,8 @@ Return Value:
     PLFS_CLIENT_RECORD ClientRecord;
 
     PLCH Lch = NULL;
+
+    ULONG ReservedHeader;
 
     PAGED_CODE();
 
@@ -545,6 +557,7 @@ Return Value:
 
             Lch->Lfcb = ThisLfcb;
             Lch->Sync = ThisLfcb->Sync;
+            Lch->Sync->UserCount += 1;
 
             //
             //  If a match isn't found, take a client block off the free list
@@ -613,6 +626,18 @@ Return Value:
 
             if (ThisLfcb != NULL) {
 
+                //
+                //  Pass information back to our caller for the number
+                //  of bytes to add to the reserved amount for a
+                //  log header.
+                //
+
+                ReservedHeader = ThisLfcb->RecordHeaderLength;
+                if (FlagOn( ThisLfcb->Flags, LFCB_PACK_LOG )) {
+
+                    ReservedHeader *= 2;
+                }
+
                 LfsReleaseLfcb( ThisLfcb );
             }
 
@@ -625,6 +650,7 @@ Return Value:
                 if (Lch != NULL) {
 
                     LfsDeallocateLch( Lch );
+                    ThisLfcb->Sync->UserCount -= 1;
                 }
 
                 if (NewLfcb != NULL) {
@@ -653,7 +679,7 @@ Return Value:
         ExRaiseStatus( Status );
     }
 
-    return;
+    return ReservedHeader;
 }
 
 
@@ -762,7 +788,7 @@ Return Value:
             //  Remember if this client wrote a restart area.
             //
 
-            FlushRestart = (BOOLEAN) ( LfsZeroLsn.QuadPart != ClientRecord->ClientRestartLsn.QuadPart );               //**** xxNeq( LfsZeroLsn, ClientRecord->ClientRestartLsn )
+            FlushRestart = (BOOLEAN) ( LfsZeroLsn.QuadPart != ClientRecord->ClientRestartLsn.QuadPart );
 
             //
             //  Remove the client from the log file in use list.
@@ -786,6 +812,12 @@ Return Value:
             //
 
             if (Lfcb->RestartArea->ClientInUseList == LFS_NO_CLIENT) {
+
+                //
+                //  Set the flag to indicate we are at the final close.
+                //
+
+                SetFlag( Lfcb->Flags, LFCB_FINAL_SHUTDOWN );
 
                 //
                 //  Walk through the active queue and remove any Lbcb's with
@@ -816,7 +848,7 @@ Return Value:
                                                   ThisLbcb->ResourceThread );
                         }
 
-                        LfsDeallocateLbcb( ThisLbcb );
+                        LfsDeallocateLbcb( Lfcb, ThisLbcb );
                     }
                 }
 
@@ -876,7 +908,7 @@ Return Value:
 
                             RemoveEntryList( &ThisLbcb->WorkqueLinks );
 
-                            LfsDeallocateLbcb( ThisLbcb );
+                            LfsDeallocateLbcb( Lfcb, ThisLbcb );
                         }
                     }
 
@@ -947,9 +979,85 @@ Return Value:
         Status = GetExceptionCode();
     }
 
-    if (Status != STATUS_SUCCESS) {
+    //
+    //  We always let this operation succeed.
+    //
 
-        ExRaiseStatus( Status );
+    return;
+}
+
+VOID
+LfsDeleteLogHandle (
+    IN LFS_LOG_HANDLE LogHandle
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when a client is tearing down the last of
+    his volume structures.  There will be no more references to this
+    handle.  If it is the last handle for the log file then we will
+    deallocate the Sync structure as well.
+
+Arguments:
+
+    LogHandle - Pointer to private Lfs structure used to identify this
+                client.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PLCH Lch;
+
+    PAGED_CODE();
+
+    //
+    //  If the log handle is null then return immediately.
+    //
+
+    Lch = (PLCH) LogHandle;
+
+    if ((Lch == NULL) ||
+        (Lch->NodeTypeCode != LFS_NTC_LCH)) {
+
+        return;
+    }
+
+    //
+    //  Ignore all errors from now on.
+    //
+
+    try {
+
+        LfsAcquireLch( Lch );
+
+        Lch->Sync->UserCount -= 1;
+
+        //
+        //  If we are the last user then deallocate the sync structure.
+        //
+
+        if (Lch->Sync->UserCount == 0) {
+
+            ExDeleteResource( &Lch->Sync->Resource );
+
+            ExFreePool( Lch->Sync );
+
+        } else {
+
+            LfsReleaseLch( Lch );
+        }
+
+        LfsDeallocateLch( Lch );
+
+    } except (LfsExceptionFilter( GetExceptionInformation() )) {
+
+        NOTHING;
     }
 
     return;
@@ -1192,11 +1300,11 @@ Return Value:
         //
 
         LfsHeaderBytes = NumberRecords * Lfcb->RecordHeaderLength;
+        LfsHeaderBytes *= 2;
 
         if (!FlagOn( Lfcb->Flags, LFCB_PACK_LOG )) {
 
             ResetTotal *= 2;
-            LfsHeaderBytes *= 2;
         }
 
         //
@@ -1210,7 +1318,7 @@ Return Value:
             //  commit if he is setting his value exactly.
             //
 
-            Lfcb->TotalUndoCommitment = Lfcb->TotalUndoCommitment - Lch->ClientUndoCommitment;                         //**** xxSub( Lfcb->TotalUndoCommitment, Lch->ClientUndoCommitment );
+            Lfcb->TotalUndoCommitment = Lfcb->TotalUndoCommitment - Lch->ClientUndoCommitment;
 
             //
             //  We can clear the values in the user's handle at this
@@ -1235,11 +1343,11 @@ Return Value:
         //  Now we adjust the Lfcb and Lch values by the adjustment amount.
         //
 
-        AdjustedUndoTotal = ResetTotal;                                                                                //**** xxFromLong( ResetTotal );
+        AdjustedUndoTotal = ResetTotal;
 
-        Lfcb->TotalUndoCommitment = Lfcb->TotalUndoCommitment + AdjustedUndoTotal;                                     //**** xxAdd( Lfcb->TotalUndoCommitment, AdjustedUndoTotal );
+        Lfcb->TotalUndoCommitment = Lfcb->TotalUndoCommitment + AdjustedUndoTotal;
 
-        Lch->ClientUndoCommitment = Lch->ClientUndoCommitment + AdjustedUndoTotal;                                     //**** xxAdd( Lch->ClientUndoCommitment, AdjustedUndoTotal );
+        Lch->ClientUndoCommitment = Lch->ClientUndoCommitment + AdjustedUndoTotal;
 
     } finally {
 
@@ -1387,6 +1495,10 @@ Return Value:
 
         ThisLfcb->FileObject = LogFile;
 
+        SetFlag( ThisLfcb->Flags,
+                 (LFCB_READ_FIRST_RESTART |
+                  LFCB_READ_SECOND_RESTART) );
+
         //
         //  Look for a restart area on the disk.
         //
@@ -1417,7 +1529,9 @@ Return Value:
             //  won't look for a second restart.
             //
 
-            if ( FirstRestartOffset == 0 ) {                                                                           //**** xxEqlZero( FirstRestartOffset )
+            if (FirstRestartOffset == 0) {
+
+                ClearFlag( ThisLfcb->Flags, LFCB_READ_FIRST_RESTART );
 
                 DoubleRestart = LfsReadRestart( ThisLfcb,
                                                 FileSize,
@@ -1431,8 +1545,14 @@ Return Value:
                                                 &SecondLogPacked,
                                                 &SecondRestartLastLsn );
 
+                if (DoubleRestart) {
+
+                    ClearFlag( ThisLfcb->Flags, LFCB_READ_SECOND_RESTART );
+                }
+
             } else {
 
+                ClearFlag( ThisLfcb->Flags, LFCB_READ_SECOND_RESTART );
                 DoubleRestart = FALSE;
             }
 
@@ -1441,14 +1561,53 @@ Return Value:
             //
 
             if (DoubleRestart
-                && ( SecondRestartLastLsn.QuadPart > FirstRestartLastLsn.QuadPart )) {                                 //**** xxGtr( SecondRestartLastLsn, FirstRestartLastLsn )
+                && (SecondRestartLastLsn.QuadPart > FirstRestartLastLsn.QuadPart)) {
 
-                FirstRestartOffset = SecondRestartOffset;
-                FirstRestartPage = SecondRestartPage;
-                FirstChkdskWasRun = SecondChkdskWasRun;
-                FirstValidPage = SecondValidPage;
-                FirstLogPacked = SecondLogPacked;
-                FirstRestartLastLsn = SecondRestartLastLsn;
+                BOOLEAN UseSecondPage = TRUE;
+                PULONG SecondPage;
+                PBCB SecondPageBcb = NULL;
+                BOOLEAN UsaError;
+
+                //
+                //  In a very strange case we could have crashed on a system with
+                //  a different page size and then run chkdsk on the new system.
+                //  The second restart page may not have the chkdsk signature in
+                //  that case but could have a higher final Lsn.
+                //  We want to ignore the second restart area in that case.
+                //
+
+                if (FirstChkdskWasRun &&
+                    (SecondRestartOffset != PAGE_SIZE)) {
+
+                    if (NT_SUCCESS( LfsPinOrMapData( ThisLfcb,
+                                                     PAGE_SIZE,
+                                                     PAGE_SIZE,
+                                                     FALSE,
+                                                     TRUE,
+                                                     TRUE,
+                                                     &UsaError,
+                                                     &SecondPage,
+                                                     &SecondPageBcb )) &&
+                        (*SecondPage == LFS_SIGNATURE_MODIFIED_ULONG)) {
+
+                        UseSecondPage = FALSE;
+                    }
+
+                    if (SecondPageBcb != NULL) {
+
+                        CcUnpinData( SecondPageBcb );
+                    }
+                }
+
+                if (UseSecondPage) {
+
+                    FirstRestartOffset = SecondRestartOffset;
+                    FirstRestartPage = SecondRestartPage;
+                    FirstChkdskWasRun = SecondChkdskWasRun;
+                    FirstValidPage = SecondValidPage;
+                    FirstLogPacked = SecondLogPacked;
+                    FirstRestartLastLsn = SecondRestartLastLsn;
+                }
             }
 
             //
@@ -1456,7 +1615,7 @@ Return Value:
             //  the second restart area out first.
             //
 
-            if ( FirstRestartOffset != 0 ) {                                                                           //**** xxNeqZero( FirstRestartOffset )
+            if ( FirstRestartOffset != 0 ) {
 
                 ThisLfcb->InitialRestartArea = TRUE;
             }
@@ -1489,7 +1648,7 @@ Return Value:
                 BOOLEAN ClearLogFile = TRUE;
 
                 LONGLONG StartOffsetForClear;
-                StartOffsetForClear = PAGE_SIZE * 2;                                                                   //**** xxFromUlong( PAGE_SIZE * 2 );
+                StartOffsetForClear = PAGE_SIZE * 2;
 
                 //
                 //  Version numbers.  We always go to a packed version number
@@ -1523,7 +1682,7 @@ Return Value:
                     //  at which point we want to start clearing the file.
                     //
 
-                    if ( FileSize != DiskRestartArea->FileSize ) {                                                     //**** xxNeq( FileSize, DiskRestartArea->FileSize )
+                    if ( FileSize != DiskRestartArea->FileSize ) {
 
                         StartOffsetForClear = FileSize;
 
@@ -1620,7 +1779,7 @@ Return Value:
             //  If the file size has shrunk then we won't mount it.
             //
 
-            } else if ( FileSize < DiskRestartArea->FileSize ) {                                                       //**** xxLtr( FileSize, DiskRestartArea->FileSize )
+            } else if ( FileSize < DiskRestartArea->FileSize ) {
 
                 DebugTrace( 0, Dbg, "Log file has shrunk without clean shutdown\n", 0 );
                 ExRaiseStatus( STATUS_DISK_CORRUPT_ERROR );
@@ -1697,7 +1856,7 @@ Return Value:
                 //  Remember which restart area to write out first.
                 //
 
-                if ( FirstRestartOffset != 0 ) {                                                                       //**** xxNeqZero( FirstRestartOffset )
+                if ( FirstRestartOffset != 0 ) {
 
                     ThisLfcb->InitialRestartArea = TRUE;
                 }
@@ -1885,7 +2044,7 @@ Return Value:
     //  set the log file size to the maximum size.
     //
 
-    if ( *FileSize > LfsMaximumFileSize ) {                                                                            //**** xxGtr( *FileSize, LfsMaximumFileSize )
+    if ( *FileSize > LfsMaximumFileSize ) {
 
         *FileSize = LfsMaximumFileSize;
     }
@@ -1901,9 +2060,9 @@ Return Value:
     //  There better be at least 2 restart pages.
     //
 
-    RestartPageBytes = 2 * PAGE_SIZE;                                                                                  //**** xxFromUlong( 2 * PAGE_SIZE );
+    RestartPageBytes = 2 * PAGE_SIZE;
 
-    if ( *FileSize <= RestartPageBytes ) {                                                                             //**** xxLeq( *FileSize, RestartPageBytes )
+    if ( *FileSize <= RestartPageBytes ) {
 
         DebugTrace(  0, Dbg, "Log file is too small\n", 0 );
         DebugTrace( -1, Dbg, "LfsValidateBasicLogFile:  Abnormal Exit\n", 0 );
@@ -1915,13 +2074,13 @@ Return Value:
     //  Now compute the number of log pages.
     //
 
-    LogPages = *FileSize - RestartPageBytes;                                                                           //**** xxSub( *FileSize, RestartPageBytes );
+    LogPages = *FileSize - RestartPageBytes;
     LocalLogPageSize = *LogPageSize >> 1;
 
     while (LocalLogPageSize) {
 
         LocalLogPageSize = LocalLogPageSize >> 1;
-        LogPages = ((ULONGLONG)(LogPages)) >> 1;                                                                       //**** xxShr( LogPages, 1 );
+        LogPages = ((ULONGLONG)(LogPages)) >> 1;
     }
 
     //
@@ -2014,7 +2173,7 @@ Return Value:
     //  Compute the restart page values.
     //
 
-    Lfcb->SystemPageSize = SystemPageSize;                                                                             //**** xxFromUlong( SystemPageSize );
+    Lfcb->SystemPageSize = SystemPageSize;
     Lfcb->SystemPageMask = SystemPageSize - 1;
     Lfcb->SystemPageInverseMask = ~Lfcb->SystemPageMask;
 
@@ -2022,7 +2181,7 @@ Return Value:
     //  Do the same for the log pages.
     //
 
-    Lfcb->LogPageSize = LogPageSize;                                                                                   //**** xxFromUlong( LogPageSize );
+    Lfcb->LogPageSize = LogPageSize;
     Lfcb->LogPageMask = LogPageSize - 1;
     Lfcb->LogPageInverseMask = ~Lfcb->LogPageMask;
 
@@ -2046,11 +2205,11 @@ Return Value:
     //  Usa values.
     //
 
-    Lfcb->FirstLogPage = Lfcb->SystemPageSize << 1;                                                                    //**** xxShl( Lfcb->SystemPageSize, 1 );
+    Lfcb->FirstLogPage = Lfcb->SystemPageSize << 1;
 
     if (PackLog) {
 
-        Lfcb->FirstLogPage = ( Lfcb->LogPageSize << 1 ) + Lfcb->FirstLogPage;                                          //**** xxAdd( xxShl( Lfcb->LogPageSize, 1 ), Lfcb->FirstLogPage );
+        Lfcb->FirstLogPage = ( Lfcb->LogPageSize << 1 ) + Lfcb->FirstLogPage;
 
         Lfcb->LogRecordUsaOffset = (USHORT) LFS_PACKED_RECORD_PAGE_HEADER_SIZE;
 
@@ -2141,9 +2300,9 @@ Return Value:
     //
 
     for (Count = 0;
-         ( FileSize != 0 );                                                                                            //**** xxNeqZero( FileSize );
+         ( FileSize != 0 );
          Count += 1,
-         FileSize = ((ULONGLONG)(FileSize)) >> 1) {                                                                    //**** xxShr( FileSize, 1 )
+         FileSize = ((ULONGLONG)(FileSize)) >> 1) {
     }
 
     Lfcb->FileDataBits = Count - 3;
@@ -2155,9 +2314,9 @@ Return Value:
     //  We add 2 to this for our starting sequence number.
     //
 
-    Lfcb->SeqNumber = LfsLsnToSeqNumber( Lfcb, LastLsn ) + 2;                                                          //**** xxAdd( LfsLsnToSeqNumber( Lfcb, LastLsn ), Lfsxx2 );
+    Lfcb->SeqNumber = LfsLsnToSeqNumber( Lfcb, LastLsn ) + 2;
 
-    Lfcb->SeqNumberForWrap = Lfcb->SeqNumber + 1;                                                                      //**** xxAdd( Lfcb->SeqNumber, LfsLi1 );
+    Lfcb->SeqNumberForWrap = Lfcb->SeqNumber + 1;
 
     Lfcb->NextLogPage = Lfcb->FirstLogPage;
 
@@ -2193,7 +2352,7 @@ Return Value:
     (ULONG)Lfcb->LogPageDataOffset = QuadAlign( Lfcb->LogRecordUsaOffset
                                                  + (sizeof( UPDATE_SEQUENCE_NUMBER ) * Lfcb->LogRecordUsaArraySize) );
 
-    Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;                                               //**** xxSub( Lfcb->LogPageSize, Lfcb->LogPageDataOffset );
+    Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;
     Lfcb->RecordHeaderLength = LFS_RECORD_HEADER_SIZE;
 
     if (FlagOn( Lfcb->Flags, LFCB_PACK_LOG )) {
@@ -2202,11 +2361,11 @@ Return Value:
         //  Allocate the Lbcb for the tail of the packed log file.
         //
 
-        LfsAllocateLbcb( &Lfcb->PrevTail );
-        Lfcb->PrevTail->FileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;                                           //**** xxSub( Lfcb->FirstLogPage, Lfcb->LogPageSize );
+        LfsAllocateLbcb( Lfcb, &Lfcb->PrevTail );
+        Lfcb->PrevTail->FileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;
 
-        LfsAllocateLbcb( &Lfcb->ActiveTail );
-        Lfcb->ActiveTail->FileOffset = Lfcb->PrevTail->FileOffset - Lfcb->LogPageSize;                                 //**** xxSub( Lfcb->PrevTail->FileOffset, Lfcb->LogPageSize );
+        LfsAllocateLbcb( Lfcb, &Lfcb->ActiveTail );
+        Lfcb->ActiveTail->FileOffset = Lfcb->PrevTail->FileOffset - Lfcb->LogPageSize;
 
         //
         //  Remember the different page sizes for reservation.
@@ -2240,8 +2399,8 @@ Return Value:
     //  the space available on each page.
     //
 
-    Lfcb->TotalAvailInPages = Lfcb->FileSize - Lfcb->FirstLogPage;                                                     //**** xxSub( Lfcb->FileSize, Lfcb->FirstLogPage );
-    Lfcb->TotalAvailable = ((ULONGLONG)(Lfcb->TotalAvailInPages)) >> Lfcb->LogPageShift;                               //**** xxShr( Lfcb->TotalAvailInPages, Lfcb->LogPageShift );
+    Lfcb->TotalAvailInPages = Lfcb->FileSize - Lfcb->FirstLogPage;
+    Lfcb->TotalAvailable = Int64ShrlMod32(((ULONGLONG)(Lfcb->TotalAvailInPages)), Lfcb->LogPageShift);
 
     //
     //  If the log file is packed we assume that we can't use the end of the
@@ -2249,9 +2408,9 @@ Return Value:
     //  than the caller asks for.
     //
 
-    Lfcb->MaxCurrentAvail = Lfcb->TotalAvailable * (ULONG)Lfcb->ReservedLogPageSize;                                   //**** xxXMul( Lfcb->TotalAvailable, Lfcb->ReservedLogPageSize.LowPart );
+    Lfcb->MaxCurrentAvail = Lfcb->TotalAvailable * (ULONG)Lfcb->ReservedLogPageSize;
 
-    Lfcb->TotalAvailable = Lfcb->TotalAvailable * (ULONG)Lfcb->LogPageDataSize;                                        //**** xxXMul( Lfcb->TotalAvailable, Lfcb->LogPageDataSize.LowPart );
+    Lfcb->TotalAvailable = Lfcb->TotalAvailable * (ULONG)Lfcb->LogPageDataSize;
 
     Lfcb->CurrentAvailable = Lfcb->MaxCurrentAvail;
 
@@ -2320,7 +2479,7 @@ Return Value:
     Lfcb->LastFlushedLsn = RestartArea->CurrentLsn;
 
     Lfcb->SeqNumber = LfsLsnToSeqNumber( Lfcb, Lfcb->LastFlushedLsn );
-    Lfcb->SeqNumberForWrap = Lfcb->SeqNumber + 1;                                                                      //**** xxAdd( Lfcb->SeqNumber, LfsLi1 );
+    Lfcb->SeqNumberForWrap = Lfcb->SeqNumber + 1;
 
     //
     //  The restart area size depends on the number of clients and whether the
@@ -2350,7 +2509,7 @@ Return Value:
         Lfcb->RestartAreaSize = RestartArea->RestartAreaLength;
 
         (ULONG)Lfcb->LogPageDataOffset = RestartArea->LogPageDataOffset;
-        Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;                                           //**** xxSub( Lfcb->LogPageSize, Lfcb->LogPageDataOffset );
+        Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;
 
         //
         //  For packed files we allocate the tail Lbcbs.
@@ -2360,11 +2519,11 @@ Return Value:
         //  Allocate the Lbcb for the tail of the packed log file.
         //
 
-        LfsAllocateLbcb( &Lfcb->PrevTail );
-        Lfcb->PrevTail->FileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;                                           //**** xxSub( Lfcb->FirstLogPage, Lfcb->LogPageSize );
+        LfsAllocateLbcb( Lfcb, &Lfcb->PrevTail );
+        Lfcb->PrevTail->FileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;
 
-        LfsAllocateLbcb( &Lfcb->ActiveTail );
-        Lfcb->ActiveTail->FileOffset = Lfcb->PrevTail->FileOffset - Lfcb->LogPageSize;                                 //**** xxSub( Lfcb->PrevTail->FileOffset, Lfcb->LogPageSize );
+        LfsAllocateLbcb( Lfcb, &Lfcb->ActiveTail );
+        Lfcb->ActiveTail->FileOffset = Lfcb->PrevTail->FileOffset - Lfcb->LogPageSize;
 
         //
         //  Remember the different page sizes for reservation.
@@ -2383,7 +2542,7 @@ Return Value:
         (ULONG)Lfcb->LogPageDataOffset = QuadAlign( Lfcb->LogRecordUsaOffset
                                                      + (sizeof( UPDATE_SEQUENCE_NUMBER ) * Lfcb->LogRecordUsaArraySize) );
 
-        Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;                                           //**** xxSub( Lfcb->LogPageSize, Lfcb->LogPageDataOffset );
+        Lfcb->LogPageDataSize = Lfcb->LogPageSize - Lfcb->LogPageDataOffset;
 
         (ULONG)Lfcb->ReservedLogPageSize = (ULONG)Lfcb->LogPageDataSize;
     }
@@ -2395,7 +2554,7 @@ Return Value:
 
     LsnFileOffset = LfsLsnToFileOffset( Lfcb, Lfcb->LastFlushedLsn );
 
-    if ( LsnFileOffset < Lfcb->FirstLogPage ) {                                                                        //**** xxLtr( LsnFileOffset, Lfcb->FirstLogPage )
+    if ( LsnFileOffset < Lfcb->FirstLogPage ) {
 
         SetFlag( Lfcb->Flags, LFCB_NO_LAST_LSN );
         Lfcb->NextLogPage = Lfcb->FirstLogPage;
@@ -2427,9 +2586,9 @@ Return Value:
         //  If we wrapped in the file then increment the sequence number.
         //
 
-        if ( LsnFinalOffset <= LsnFileOffset ) {                                                                       //**** xxLeq( LsnFinalOffset, LsnFileOffset )
+        if ( LsnFinalOffset <= LsnFileOffset ) {
 
-            Lfcb->SeqNumber = 1 + Lfcb->SeqNumber;                                                                     //**** xxAdd( LfsLi1, Lfcb->SeqNumber );
+            Lfcb->SeqNumber = 1 + Lfcb->SeqNumber;
 
             SetFlag( Lfcb->Flags, LFCB_LOG_WRAPPED );
         }
@@ -2478,7 +2637,7 @@ Return Value:
     //  If there is no oldest client Lsn, then update the flag in the Lfcb.
     //
 
-    if ( Lfcb->OldestLsnOffset < Lfcb->FirstLogPage ) {                                                                //**** xxLtr( Lfcb->OldestLsnOffset, Lfcb->FirstLogPage )
+    if ( Lfcb->OldestLsnOffset < Lfcb->FirstLogPage ) {
 
         SetFlag( Lfcb->Flags, LFCB_NO_OLDEST_LSN );
     }
@@ -2498,9 +2657,9 @@ Return Value:
     //  the space available on each page.
     //
 
-    Lfcb->TotalAvailInPages = Lfcb->FileSize - Lfcb->FirstLogPage;                                                     //**** xxSub( Lfcb->FileSize, Lfcb->FirstLogPage);
+    Lfcb->TotalAvailInPages = Lfcb->FileSize - Lfcb->FirstLogPage;
 
-    Lfcb->TotalAvailable = ((ULONGLONG)(Lfcb->TotalAvailInPages)) >> Lfcb->LogPageShift;                               //**** xxShr( Lfcb->TotalAvailInPages, Lfcb->LogPageShift );
+    Lfcb->TotalAvailable = Int64ShrlMod32(((ULONGLONG)(Lfcb->TotalAvailInPages)), Lfcb->LogPageShift);
 
     //
     //  If the log file is packed we assume that we can't use the end of the
@@ -2508,9 +2667,9 @@ Return Value:
     //  than the caller asks for.
     //
 
-    Lfcb->MaxCurrentAvail = Lfcb->TotalAvailable * (ULONG)Lfcb->ReservedLogPageSize;                                   //**** xxXMul( Lfcb->TotalAvailable, Lfcb->ReservedLogPageSize.LowPart );
+    Lfcb->MaxCurrentAvail = Lfcb->TotalAvailable * (ULONG)Lfcb->ReservedLogPageSize;
 
-    Lfcb->TotalAvailable = Lfcb->TotalAvailable * (ULONG)Lfcb->LogPageDataSize;                                        //**** xxXMul( Lfcb->TotalAvailable, Lfcb->LogPageDataSize.LowPart );
+    Lfcb->TotalAvailable = Lfcb->TotalAvailable * (ULONG)Lfcb->LogPageDataSize;
 
     LfsFindCurrentAvail( Lfcb );
 
@@ -2694,11 +2853,10 @@ Return Value:
 
         PCHAR LogPage;
         PBCB LogPageBcb = NULL;
-        IO_STATUS_BLOCK Iosb;
 
         try {
 
-            while ( StartOffsetForClear < Lfcb->FileSize ) {                                                           //**** xxLtr( StartOffsetForClear, Lfcb->FileSize )
+            while ( StartOffsetForClear < Lfcb->FileSize ) {
 
                 BOOLEAN UsaError;
 
@@ -2720,17 +2878,12 @@ Return Value:
                                         (ULONG)Lfcb->LogPageSize,
                                         LFS_SIGNATURE_UNINITIALIZED_ULONG );
 
-                    CcSetDirtyPinnedData( LogPageBcb, NULL );
+                    LfsFlushLogPage( Lfcb,
+                                     LogPage,
+                                     StartOffsetForClear,
+                                     &LogPageBcb );
 
-                    CcUnpinData( LogPageBcb );
-                    LogPageBcb = NULL;
-
-                    CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
-                                  (PLARGE_INTEGER)&StartOffsetForClear,
-                                  (ULONG)Lfcb->LogPageSize,
-                                  &Iosb );
-
-                    StartOffsetForClear = Lfcb->LogPageSize + StartOffsetForClear;                                     //**** xxAdd( Lfcb->LogPageSize, StartOffsetForClear );
+                    StartOffsetForClear = Lfcb->LogPageSize + StartOffsetForClear;
                 }
             }
 
@@ -2827,11 +2980,11 @@ Return Value:
 
     PLFS_RECORD_PAGE_HEADER TailPage;
 
-    IO_STATUS_BLOCK Iosb;
-
     BOOLEAN UsaError;
     BOOLEAN ReplacePage = FALSE;
     BOOLEAN ValidFile = FALSE;
+
+    BOOLEAN InitialReusePage = FALSE;
 
     NTSTATUS Status;
 
@@ -2841,7 +2994,9 @@ Return Value:
     DebugTrace(  0, Dbg, "Lfcb  -> %08lx\n", Lfcb );
 
     //
-    //  Indicate that we don't have incomplete Io transfers.
+    //  The page count and page position are from the last page
+    //  sucessfully read.  Initialize these to indicate the
+    //  'previous' transfer was complete.
     //
 
     PageCount = 1;
@@ -2861,10 +3016,10 @@ Return Value:
     //  have wrapped in the log file.
     //
 
-    if (( CurrentLogPageOffset == Lfcb->FirstLogPage )                                                                 //**** xxEql( CurrentLogPageOffset, Lfcb->FirstLogPage )
+    if (( CurrentLogPageOffset == Lfcb->FirstLogPage )
         && !FlagOn( Lfcb->Flags, LFCB_NO_LAST_LSN | LFCB_REUSE_TAIL )) {
 
-        ExpectedSeqNumber = Lfcb->SeqNumber + 1;                                                                       //**** xxAdd( Lfcb->SeqNumber, LfsLi1 );
+        ExpectedSeqNumber = Lfcb->SeqNumber + 1;
         WrappedLogFile = TRUE;
 
     } else {
@@ -2880,6 +3035,14 @@ Return Value:
     if (FlagOn( Lfcb->Flags, LFCB_REUSE_TAIL )) {
 
         LastKnownLsn = Lfcb->LastFlushedLsn;
+
+        //
+        //  There are some special conditions allowed for this page when
+        //  we read it.  It could be either the first or last of the transfer.
+        //  It may also have a tail copy.
+        //
+
+        InitialReusePage = TRUE;
 
     } else {
 
@@ -2902,7 +3065,7 @@ Return Value:
             //  Start with the second page.
             //
 
-            SecondTailFileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;                                             //**** xxSub( Lfcb->FirstLogPage, Lfcb->LogPageSize );
+            SecondTailFileOffset = Lfcb->FirstLogPage - Lfcb->LogPageSize;
 
             if (NT_SUCCESS( LfsPinOrMapData( Lfcb,
                                              SecondTailFileOffset,
@@ -2930,7 +3093,7 @@ Return Value:
                 }
             }
 
-            FirstTailFileOffset = SecondTailFileOffset - Lfcb->LogPageSize;                                            //**** xxSub( SecondTailFileOffset, Lfcb->LogPageSize );
+            FirstTailFileOffset = SecondTailFileOffset - Lfcb->LogPageSize;
 
             //
             //  Now try the first.
@@ -3011,30 +3174,30 @@ Return Value:
             //  if we wrote a subsequent tail copy.
             //
 
-            if (FlagOn( Lfcb->Flags, LFCB_PACK_LOG )
-                && (PageCount == PagePosition
-                    || PageCount == PagePosition + 1)) {
+            if (FlagOn( Lfcb->Flags, LFCB_PACK_LOG ) &&
+                ((PageCount == PagePosition) ||
+                 (PageCount == PagePosition + 1))) {
 
                 //
                 //  Check if the offset matches either the first or second
                 //  tail copy.  It is possible it will match both.
                 //
 
-                if ( CurrentLogPageOffset == FirstTailOffset ) {                                                       //**** xxEql( CurrentLogPageOffset, FirstTailOffset )
+                if (CurrentLogPageOffset == FirstTailOffset) {
 
                     TailPage = FirstTailPage;
                 }
 
-                if ( CurrentLogPageOffset == SecondTailOffset ) {                                                      //**** xxEql( CurrentLogPageOffset, SecondTailOffset )
+                if (CurrentLogPageOffset == SecondTailOffset) {
 
                     //
                     //  If we already matched on the first page then
                     //  check the ending Lsn's.
                     //
 
-                    if (TailPage == NULL
-                        || ( SecondTailPage->Header.Packed.LastEndLsn.QuadPart >
-                             FirstTailPage->Header.Packed.LastEndLsn.QuadPart )) {                                     //**** xxGtr( SecondTailPage->Header.Packed.LastEndLsn, FirstTailPage->Header.Packed.LastEndLsn )
+                    if ((TailPage == NULL) ||
+                        (SecondTailPage->Header.Packed.LastEndLsn.QuadPart >
+                         FirstTailPage->Header.Packed.LastEndLsn.QuadPart )) {
 
                         TailPage = SecondTailPage;
                     }
@@ -3050,7 +3213,7 @@ Return Value:
 
                 if (TailPage) {
 
-                    if ( LastKnownLsn.QuadPart <= TailPage->Header.Packed.LastEndLsn.QuadPart ) {                      //**** xxLeq( LastKnownLsn, TailPage->Header.Packed.LastEndLsn )
+                    if (LastKnownLsn.QuadPart < TailPage->Header.Packed.LastEndLsn.QuadPart) {
 
                         ActualSeqNumber = LfsLsnToSeqNumber( Lfcb, TailPage->Header.Packed.LastEndLsn );
 
@@ -3059,7 +3222,7 @@ Return Value:
                         //  copy.
                         //
 
-                        if ( ExpectedSeqNumber != ActualSeqNumber ) {                                                  //**** xxNeq( ExpectedSeqNumber, ActualSeqNumber )
+                        if (ExpectedSeqNumber != ActualSeqNumber) {
 
                             TailPage = NULL;
                         }
@@ -3069,7 +3232,7 @@ Return Value:
                     //  then forget this tail.
                     //
 
-                    } else {
+                    } else if (LastKnownLsn.QuadPart > TailPage->Header.Packed.LastEndLsn.QuadPart) {
 
                         TailPage = NULL;
                     }
@@ -3077,11 +3240,11 @@ Return Value:
             }
 
             //
-            //  If we have an error we will break out of this loop.
+            //  If we have an error on the current page, we will break out of
+            //  this loop.
             //
 
-            if (!NT_SUCCESS( Status )
-                || UsaError) {
+            if (!NT_SUCCESS( Status ) || UsaError) {
 
                 break;
             }
@@ -3095,8 +3258,8 @@ Return Value:
             ActualSeqNumber = LfsLsnToSeqNumber( Lfcb,
                                                  LogPageHeader->Copy.LastLsn );
 
-            if (( LastKnownLsn.QuadPart != LogPageHeader->Copy.LastLsn.QuadPart )                                      //**** xxNeq( LastKnownLsn, LogPageHeader->Copy.LastLsn )
-                && ( ActualSeqNumber != ExpectedSeqNumber )) {                                                         //**** xxNeq( ActualSeqNumber, ExpectedSeqNumber )
+            if ((LastKnownLsn.QuadPart != LogPageHeader->Copy.LastLsn.QuadPart) &&
+                (ActualSeqNumber != ExpectedSeqNumber)) {
 
                 break;
             }
@@ -3109,7 +3272,16 @@ Return Value:
 
             if (PageCount == PagePosition) {
 
-                if (LogPageHeader->PagePosition != 1) {
+                //
+                //  If the current page is the first page we are looking at
+                //  and we are reusing this page then it can be either the
+                //  first or last page of a transfer.  Otherwise it can only
+                //  be the first.
+                //
+
+                if ((LogPageHeader->PagePosition != 1) &&
+                    (!InitialReusePage ||
+                     (LogPageHeader->PagePosition != LogPageHeader->PageCount))) {
 
                     break;
                 }
@@ -3119,8 +3291,8 @@ Return Value:
             //  and the page count better match.
             //
 
-            } else if (LogPageHeader->PageCount != PageCount
-                       || LogPageHeader->PagePosition != PagePosition + 1) {
+            } else if ((LogPageHeader->PageCount != PageCount) ||
+                       (LogPageHeader->PagePosition != PagePosition + 1)) {
 
                 break;
             }
@@ -3131,15 +3303,14 @@ Return Value:
             //  the page in the file then break out of the loop.
             //
 
-            if (TailPage
-                && ( TailPage->Header.Packed.LastEndLsn.QuadPart > LogPageHeader->Copy.LastLsn.QuadPart )) {           //**** xxGtr( TailPage->Header.Packed.LastEndLsn, LogPageHeader->Copy.LastLsn )
+            if (TailPage &&
+                (TailPage->Header.Packed.LastEndLsn.QuadPart > LogPageHeader->Copy.LastLsn.QuadPart)) {
 
                 //
-                //  If we are replacing a page, remember some data from the page.
+                //  Remember if we will replace the page.
                 //
 
                 ReplacePage = TRUE;
-
                 break;
             }
 
@@ -3170,8 +3341,8 @@ Return Value:
                     //  remember we want to reuse the page.
                     //
 
-                    if (((ULONG)Lfcb->LogPageSize - LogPageHeader->Header.Packed.NextRecordOffset )
-                        >= Lfcb->RecordHeaderLength) {
+                    if (Lfcb->RecordHeaderLength <=
+                        ((ULONG)Lfcb->LogPageSize - LogPageHeader->Header.Packed.NextRecordOffset )) {
 
                         SetFlag( Lfcb->Flags, LFCB_REUSE_TAIL );
                         Lfcb->ReusePageOffset = LogPageHeader->Header.Packed.NextRecordOffset;
@@ -3227,7 +3398,7 @@ Return Value:
 
             if (Wrapped) {
 
-                ExpectedSeqNumber = ExpectedSeqNumber + 1;                                                             //**** xxAdd( ExpectedSeqNumber, LfsLi1 );
+                ExpectedSeqNumber = ExpectedSeqNumber + 1;
                 WrappedLogFile = TRUE;
             }
 
@@ -3239,6 +3410,8 @@ Return Value:
 
             CcUnpinData( LogPageHeaderBcb );
             LogPageHeaderBcb = NULL;
+
+            InitialReusePage = FALSE;
         }
 
         //
@@ -3311,7 +3484,7 @@ Return Value:
 
         if (Wrapped) {
 
-            ExpectedSeqNumber = ExpectedSeqNumber + 1;                                                                 //**** xxAdd( ExpectedSeqNumber, LfsLi1 );
+            ExpectedSeqNumber = ExpectedSeqNumber + 1;
         }
 
         //
@@ -3327,31 +3500,53 @@ Return Value:
         //  If we have a tail copy or are performing single page I/O
         //  we can immediately look at the next page.
         //
-        if (ReplacePage
-            || FlagOn( Lfcb->RestartArea->Flags, RESTART_SINGLE_PAGE_IO )) {
+
+        if (ReplacePage ||
+            FlagOn( Lfcb->RestartArea->Flags, RESTART_SINGLE_PAGE_IO )) {
+
+            //
+            //  Fudge the counts to show that we don't need swallow any pages.
+            //
 
             PageCount = 2;
             PagePosition = 1;
 
         //
-        //  If the counts are the same then walk through file until we find a
-        //  page that could not be part of the original transfer.
+        //  If the counts match it means the current page should be the first
+        //  page of a transfer.  We need to walk forward enough to guarantee
+        //  that there was no subsequent transfer that made it out to disk.
         //
 
         } else if (PagePosition == PageCount) {
 
             USHORT CurrentPosition;
 
+            //
+            //  If the next page causes us to wrap to the beginning of the log
+            //  file then we know which page to check next.
+            //
+
             if (Wrapped) {
+
+                //
+                //  Fudge the counts to show that we don't need swallow any pages.
+                //
 
                 PageCount = 2;
                 PagePosition = 1;
+
+            //
+            //  Walk forward looking for a page which is from a different IO transfer
+            //  from the page we failed on.
+            //
 
             } else {
 
                 //
                 //  We need to find a log page we know is not part of the log
                 //  page which caused the original error.
+                //
+                //  Maintain the count within the current transfer.
                 //
 
                 CurrentPosition = 2;
@@ -3381,12 +3576,21 @@ Return Value:
                                               &TestPageHeaderBcb );
 
                     //
+                    //  If we get a USA error then assume that we correctly
+                    //  found the end of the original transfer.
+                    //
+
+                    if (UsaError) {
+
+                        ValidFile = TRUE;
+                        break;
+
+                    //
                     //  If we were able to read the page, we examine it to see
                     //  if it is in the same or different Io block.
                     //
 
-                    if (NT_SUCCESS( Status )
-                        && !UsaError) {
+                    } else if (NT_SUCCESS( Status )) {
 
                         //
                         //  If this page is part of the error causing I/O, we will
@@ -3431,9 +3635,18 @@ Return Value:
                                               &NextLogPageOffset,
                                               &Wrapped );
 
+                        //
+                        //  If the file wrapped then initialize the page count
+                        //  and position so that we will not skip over any
+                        //  pages in the final verification below.
+                        //
+
                         if (Wrapped) {
 
-                            ExpectedSeqNumber = ExpectedSeqNumber + 1;                                                 //**** xxAdd( ExpectedSeqNumber, LfsLi1 );
+                            ExpectedSeqNumber = ExpectedSeqNumber + 1;
+
+                            PageCount = 2;
+                            PagePosition = 1;
                         }
 
                         CurrentPosition += 1;
@@ -3476,7 +3689,7 @@ Return Value:
 
                 if (Wrapped) {
 
-                    ExpectedSeqNumber = ExpectedSeqNumber + 1;                                                         //**** xxAdd( ExpectedSeqNumber, LfsLi1 );
+                    ExpectedSeqNumber = ExpectedSeqNumber + 1;
                 }
             }
 
@@ -3555,26 +3768,21 @@ Return Value:
                            (ULONG)Lfcb->LogPageSize );
 
             //
-            //  Fill in last flushed lsn value.
+            //  Fill in last flushed lsn value flush the page.
             //
 
             LogPageHeader->Copy.LastLsn = TailPage->Header.Packed.LastEndLsn;
 
-            CcSetDirtyPinnedData( LogPageHeaderBcb, NULL );
-
-            CcUnpinData( LogPageHeaderBcb );
-            LogPageHeaderBcb = NULL;
-
-            CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
-                          (PLARGE_INTEGER)&TailPage->Copy.FileOffset,
-                          (ULONG)Lfcb->LogPageSize,
-                          &Iosb );
+            LfsFlushLogPage( Lfcb,
+                             LogPageHeader,
+                             TailPage->Copy.FileOffset,
+                             &LogPageHeaderBcb );
         }
 
         //
         //  We also want to write over any partial I/O so it doesn't cause
         //  us problems on a subsequent restart.  We have the starting offset
-        //  and the number of blocks.  We will simply write a zero Lsn into
+        //  and the number of blocks.  We will simply write a Baad signature into
         //  each of these pages.  Any subsequent reads will have a Usa error.
         //
 
@@ -3597,21 +3805,16 @@ Return Value:
 
                 *((PULONG) &LogPageHeader->MultiSectorHeader.Signature) = LFS_SIGNATURE_BAD_USA_ULONG;
 
-                CcSetDirtyPinnedData( LogPageHeaderBcb, NULL );
-
-                CcUnpinData( LogPageHeaderBcb );
-                LogPageHeaderBcb = NULL;
-
-                CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
-                              (PLARGE_INTEGER)&FirstPartialIo,
-                              (ULONG)Lfcb->LogPageSize,
-                              &Iosb );
-
-                LfsNextLogPageOffset( Lfcb,
-                                      FirstPartialIo,
-                                      &FirstPartialIo,
-                                      &Wrapped );
+                LfsFlushLogPage( Lfcb,
+                                 LogPageHeader,
+                                 FirstPartialIo,
+                                 &LogPageHeaderBcb );
             }
+
+            LfsNextLogPageOffset( Lfcb,
+                                  FirstPartialIo,
+                                  &FirstPartialIo,
+                                  &Wrapped );
         }
 
         //
@@ -3623,32 +3826,20 @@ Return Value:
 
             *((PULONG) &FirstTailPage->MultiSectorHeader.Signature) = LFS_SIGNATURE_BAD_USA_ULONG;
 
-            CcSetDirtyPinnedData( FirstTailPageBcb, NULL );
-
-            CcUnpinData( FirstTailPageBcb );
-            FirstTailPageBcb = NULL;
-
-            CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
-                          (PLARGE_INTEGER)&FirstTailFileOffset,
-                          (ULONG)Lfcb->LogPageSize,
-                          &Iosb );
-
+            LfsFlushLogPage( Lfcb,
+                             FirstTailPage,
+                             FirstTailFileOffset,
+                             &FirstTailPageBcb );
         }
 
         if (SecondTailPageBcb != NULL) {
 
             *((PULONG) &SecondTailPage->MultiSectorHeader.Signature) = LFS_SIGNATURE_BAD_USA_ULONG;
 
-            CcSetDirtyPinnedData( SecondTailPageBcb, NULL );
-
-            CcUnpinData( SecondTailPageBcb );
-            SecondTailPageBcb = NULL;
-
-            CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
-                          (PLARGE_INTEGER)&SecondTailFileOffset,
-                          (ULONG)Lfcb->LogPageSize,
-                          &Iosb );
-
+            LfsFlushLogPage( Lfcb,
+                             SecondTailPage,
+                             SecondTailFileOffset,
+                             &SecondTailPageBcb );
         }
 
     } finally {
@@ -3782,14 +3973,14 @@ Return Value:
     LfsTruncateLsnToLogPage( Lfcb, Lsn, &LogPageFileOffset );
     LsnSeqNumber = LfsLsnToSeqNumber( Lfcb, Lsn );
 
-    SeqNumberMinus1 = SequenceNumber - 1;                                                                              //**** xxSub( SequenceNumber, LfsLi1 );
+    SeqNumberMinus1 = SequenceNumber - 1;
 
     //
     //  If the sequence number for the Lsn in the page is equal or greater than
     //  Lsn we expect, then this is a subsequent write.
     //
 
-    if ( LsnSeqNumber >= SequenceNumber ) {                                                                            //**** xGeq( LsnSeqNumber, SequenceNumber )
+    if ( LsnSeqNumber >= SequenceNumber ) {
 
         IsSubsequent = TRUE;
 
@@ -3806,9 +3997,9 @@ Return Value:
     //      3 - The log record didn't begin on the current page.
     //
 
-    } else if (( LsnSeqNumber == SeqNumberMinus1 )                                                                     //**** xxEql( LsnSeqNumber, SeqNumberMinus1 )
-               && ( Lfcb->FirstLogPage == LogFileOffset )                                                              //**** xxEql( Lfcb->FirstLogPage, LogFileOffset )
-               && ( LogFileOffset != LogPageFileOffset )) {                                                            //**** xxNeq( LogFileOffset, LogPageFileOffset )
+    } else if (( LsnSeqNumber == SeqNumberMinus1 )
+               && ( Lfcb->FirstLogPage == LogFileOffset )
+               && ( LogFileOffset != LogPageFileOffset )) {
 
         IsSubsequent = TRUE;
 
@@ -3820,6 +4011,65 @@ Return Value:
     DebugTrace( -1, Dbg, "LfsCheckSubsequentLogPage:  Exit -> %08x\n", IsSubsequent );
 
     return IsSubsequent;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+LfsFlushLogPage (
+    IN PLFCB Lfcb,
+    PVOID LogPage,
+    IN LONGLONG FileOffset,
+    OUT PBCB *Bcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to write a single log page to the log file.  We will
+    mark it dirty in the cache, unpin it and call our flush routine.
+
+Arguments:
+
+    Lfcb - Log file control block for this log file.
+
+    LogPage - Pointer to the log page in the cache.
+
+    FileOffset - Offset of the page in the stream.
+
+    Bcb - Address of the Bcb pointer for the cache.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Set the page dirty and unpin it.
+    //
+
+    CcSetDirtyPinnedData( *Bcb, NULL );
+    CcUnpinData( *Bcb );
+    *Bcb = NULL;
+
+    //
+    //  Now flush the data.
+    //
+
+    CcFlushCache( Lfcb->FileObject->SectionObjectPointer,
+                  (PLARGE_INTEGER) &FileOffset,
+                  (ULONG) Lfcb->LogPageSize,
+                  NULL );
+
+    return;
 }
 
 

@@ -55,6 +55,7 @@ Revision History:
 #define     IDD_DBLSPACE_CANCEL     214
 #define     IDD_DBLSPACE_FULL       215
 #define     IDD_CDROM               216
+#define     IDD_INITIALIZING        217
 
 // menu IDs
 
@@ -101,6 +102,10 @@ Revision History:
 #if DBG && DEVL
 #define     IDM_DEBUGALLOWDELETES   10001
 #endif
+
+// accelerator keys
+
+#define     IDM_HELP                6000
 
 //controls
 
@@ -168,7 +173,7 @@ Revision History:
 
 // buttons
 
-#define     IDHELP                  22
+#define     FD_IDHELP               22
 #define     IDADD                   23
 #define     IDDELETE                24
 #define     ID_MOUNT_OR_DISMOUNT    25
@@ -257,6 +262,8 @@ Revision History:
 #define     IDS_PARTITION_OS2_BOOT  123
 #define     IDS_PARTITION_EISA      124
 #define     IDS_PARTITION_UNIX      125
+#define     IDS_PARTITION_POWERPC   126
+
 
 // Double space support strings
 
@@ -277,6 +284,11 @@ Revision History:
 #define     IDS_FORMATCOMPLETE      173
 #define     IDS_FORMAT_TITLE        174
 #define     IDS_LABEL_TITLE         175
+
+// Registry paths.
+
+#define     IDS_SOURCE_PATH         180
+#define     IDS_SOURCE_PATH_NAME    181
 
 #if i386
 #define     IDS_ACTIVEPARTITION     200

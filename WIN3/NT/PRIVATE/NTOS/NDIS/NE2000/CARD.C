@@ -27,6 +27,7 @@ Revision History:
 #include "ne2000hw.h"
 #include "ne2000sw.h"
 
+
 BOOLEAN
 CardSlotTest(
     IN PNE2000_ADAPTER Adapter
@@ -40,10 +41,9 @@ CardRamTest(
 
 #pragma NDIS_INIT_FUNCTION(CardCheckParameters)
 
-BOOLEAN
-CardCheckParameters(
+BOOLEAN CardCheckParameters(
     IN PNE2000_ADAPTER Adapter
-    )
+)
 
 /*++
 
@@ -71,43 +71,32 @@ Return Value:
     //
     // Turn off interrupts first.
     //
-
-    NdisRawWritePortUchar(
-                          Adapter->IoPAddr + NIC_INTR_MASK,
-                          0
-                         );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_MASK, 0);
 
     //
     // Stop the card.
     //
-
     SyncCardStop(Adapter);
 
     //
     // Pause
     //
-
     NdisStallExecution(2000);
 
     //
     // Read response
     //
-
-    NdisRawReadPortUchar(
-                         Adapter->IoPAddr + NIC_COMMAND,
-                         &Tmp
-                        );
-
+    NdisRawReadPortUchar(Adapter->IoPAddr + NIC_COMMAND, &Tmp);
 
     if ((Tmp == (CR_NO_DMA | CR_STOP)) ||
-        (Tmp == (CR_NO_DMA | CR_STOP | CR_START))) {
-
+        (Tmp == (CR_NO_DMA | CR_STOP | CR_START))
+    )
+    {
         return(TRUE);
-
-    } else {
-
+    }
+    else
+    {
         return(FALSE);
-
     }
 }
 #ifdef NE2000
@@ -115,10 +104,9 @@ Return Value:
 #pragma NDIS_INIT_FUNCTION(CardSlotTest)
 
 
-BOOLEAN
-CardSlotTest(
+BOOLEAN CardSlotTest(
     IN PNE2000_ADAPTER Adapter
-    )
+)
 
 /*++
 
@@ -141,168 +129,122 @@ Return Value:
     UCHAR Tmp;
     UCHAR RomCopy[32];
     UCHAR i;
+	BOOLEAN found;
 
     //
     // Reset the chip
     //
-
-    NdisRawReadPortUchar(
-                      Adapter->IoPAddr + NIC_RESET,
-                      &Tmp
-                     );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RESET,
-                       0xFF
-                      );
+    NdisRawReadPortUchar(Adapter->IoPAddr + NIC_RESET, &Tmp);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RESET, 0xFF);
 
     //
     // Go to page 0 and stop
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_STOP | CR_NO_DMA
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_STOP | CR_NO_DMA);
 
     //
     // Pause
     //
-
     NdisStallExecution(2000);
 
     //
     // Check that it is stopped
     //
-
-    NdisRawReadPortUchar(
-                      Adapter->IoPAddr + NIC_COMMAND,
-                      &Tmp
-                     );
-
-    if (Tmp != (CR_NO_DMA | CR_STOP)) {
+    NdisRawReadPortUchar(Adapter->IoPAddr + NIC_COMMAND, &Tmp);
+    if (Tmp != (CR_NO_DMA | CR_STOP))
+    {
+        IF_LOUD(DbgPrint("Could not stop the card\n");)
 
         return(FALSE);
-
     }
 
     //
     // Setup to read from ROM
     //
-
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_DATA_CONFIG,
-                       DCR_BYTE_WIDE | DCR_FIFO_8_BYTE | DCR_NORMAL
-                      );
+        Adapter->IoPAddr + NIC_DATA_CONFIG,
+        DCR_BYTE_WIDE | DCR_FIFO_8_BYTE | DCR_NORMAL
+    );
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_INTR_MASK,
-                       0x0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_MASK, 0x0);
 
     //
     // Ack any interrupts that may be hanging around
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_INTR_STATUS,
-                       0xFF
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_STATUS, 0xFF);
 
     //
     // Setup to read in the ROM, the address and byte count.
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                       0x0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_LSB, 0x0);
+
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_MSB, 0x0);
+
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 32);
+
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0);
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
-                       0x0
-                      );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                       32
-                      );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                       0x0
-                      );
-
-    NdisRawWritePortUchar(
-                      Adapter->IoPAddr + NIC_COMMAND,
-                      CR_DMA_READ | CR_START
-                     );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_DMA_READ | CR_START
+    );
 
     //
     // Read first 32 bytes in 16 bit mode
     //
-
-    for (i = 0; i < 32; i++) {
-
-        NdisRawReadPortUchar(
-                       Adapter->IoPAddr + NIC_RACK_NIC,
-                       RomCopy + i
-                      );
-
-    }
+	for (i = 0; i < 32; i++)
+	{
+		NdisRawReadPortUchar(Adapter->IoPAddr + NIC_RACK_NIC, RomCopy + i);
+	}
 
     IF_VERY_LOUD( DbgPrint("Resetting the chip\n"); )
 
     //
     // Reset the chip
     //
-
-    NdisRawReadPortUchar(
-                      Adapter->IoPAddr + NIC_RESET,
-                      &Tmp
-                     );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RESET,
-                       0xFF
-                      );
+    NdisRawReadPortUchar(Adapter->IoPAddr + NIC_RESET, &Tmp);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RESET, 0xFF);
 
     //
     // Check ROM for 'B' (byte) or 'W' (word)
-    //
-
+    // NOTE: If the buffer has bot BB and WW then use WW instead of BB
     IF_VERY_LOUD( DbgPrint("Checking slot type\n"); )
 
-    for (i = 6; i < 31; i++) {
+	found = FALSE;
+	for (i = 16; i < 31; i++)
+	{
+		if (((RomCopy[i] == 'B') && (RomCopy[i+1] == 'B')) ||
+			((RomCopy[i] == 'W') && (RomCopy[i+1] == 'W'))
+		)
+		{
+			if (RomCopy[i] == 'B')
+			{
+				Adapter->EightBitSlot = TRUE;
+				found = TRUE;
+			}
+			else
+			{
+				Adapter->EightBitSlot = FALSE;
+				found = TRUE;
+				break;		// Go no farther
+			}
+		}
+	}
 
-        if (((RomCopy[i] == 'B') && (RomCopy[i+1] == 'B')) ||
-            ((RomCopy[i] == 'W') && (RomCopy[i+1] == 'W'))){
+	if (found)
+	{
+		IF_VERY_LOUD( (Adapter->EightBitSlot?DbgPrint("8 bit slot\n"):
+							  DbgPrint("16 bit slot\n")); )
+	}
+	else
+	{
+		//
+		// If neither found -- then not an NE2000
+		//
+		IF_VERY_LOUD( DbgPrint("Failed slot type\n"); )
+	}
 
-            if (RomCopy[i] == 'B') {
-
-                Adapter->EightBitSlot = TRUE;
-
-            } else {
-
-                Adapter->EightBitSlot = FALSE;
-
-            }
-
-            IF_VERY_LOUD( (Adapter->EightBitSlot?DbgPrint("8 bit slot\n"):
-                              DbgPrint("16 bit slot\n")); )
-
-            return(TRUE);
-
-        }
-
-    }
-
-    IF_VERY_LOUD( DbgPrint("Failed slot type\n"); )
-
-    //
-    // If neither found -- then not an NE2000
-    //
-
-    return(FALSE);
+    return(found);
 }
 
 #endif // NE2000
@@ -339,8 +281,10 @@ Return Value:
     PUCHAR RamBase, RamPointer;
     PUCHAR RamEnd;
 
-    UCHAR TestPattern[]={ 0xAA, 0x55, 0xFF, 0x00 };
-    UCHAR ReadPattern[4];
+	UCHAR TestPattern[]={ 0xAA, 0x55, 0xFF, 0x00 };
+	PULONG pTestPattern = (PULONG)TestPattern;
+	UCHAR ReadPattern[4];
+	PULONG pReadPattern = (PULONG)ReadPattern;
 
     for (RamBase = (PUCHAR)0x400; RamBase < (PUCHAR)0x10000; RamBase += 0x400) {
 
@@ -378,10 +322,7 @@ Return Value:
         // If they are the same, find the end
         //
 
-        if ((ReadPattern[0] == TestPattern[0]) &&
-            (ReadPattern[1] == TestPattern[1]) &&
-            (ReadPattern[2] == TestPattern[2]) &&
-            (ReadPattern[3] == TestPattern[3])) {
+        if (*pReadPattern == *pTestPattern) {
 
             for (RamEnd = RamBase; !((ULONG)RamEnd & 0xFFFF0000); RamEnd += 0x400) {
 
@@ -405,10 +346,7 @@ Return Value:
 
                 }
 
-                if ((ReadPattern[0] != TestPattern[0]) ||
-                    (ReadPattern[1] != TestPattern[1]) ||
-                    (ReadPattern[2] != TestPattern[2]) ||
-                    (ReadPattern[3] != TestPattern[3])) {
+                if (*pReadPattern != *pTestPattern) {
 
                     break;
 
@@ -470,10 +408,7 @@ Return Value:
 
         }
 
-        if ((ReadPattern[0] != TestPattern[0]) ||
-            (ReadPattern[1] != TestPattern[1]) ||
-            (ReadPattern[2] != TestPattern[2]) ||
-            (ReadPattern[3] != TestPattern[3])) {
+        if (*pReadPattern != *pTestPattern) {
 
             return(FALSE);
 
@@ -522,166 +457,105 @@ Return Value:
     //
     // Stop the card.
     //
-
     SyncCardStop(Adapter);
 
     //
     // Initialize the Data Configuration register.
     //
-
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_DATA_CONFIG,
-                       DCR_AUTO_INIT | DCR_FIFO_8_BYTE
-                      );
+        Adapter->IoPAddr + NIC_DATA_CONFIG,
+        DCR_AUTO_INIT | DCR_FIFO_8_BYTE
+    );
 
     //
     // Set Xmit start location
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_START,
-                       0xA0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_START, 0xA0);
 
     //
     // Set Xmit configuration
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_CONFIG,
-                       0x0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_CONFIG, 0x0);
 
     //
     // Set Receive configuration
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RCV_CONFIG,
-                       RCR_MONITOR
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RCV_CONFIG, RCR_MONITOR);
 
     //
     // Set Receive start
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_PAGE_START,
-                       0x4
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_PAGE_START, 0x4);
 
     //
     // Set Receive end
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_PAGE_STOP,
-                       0xFF
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_PAGE_STOP, 0xFF);
 
     //
     // Set Receive boundary
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_BOUNDARY,
-                       0x4
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_BOUNDARY, 0x4);
 
     //
     // Set Xmit bytes
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_COUNT_LSB,
-                       0x3C
-                      );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_COUNT_MSB,
-                       0x0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_COUNT_LSB, 0x3C);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_COUNT_MSB, 0x0);
 
     //
     // Pause
     //
-
     NdisStallExecution(2000);
 
     //
     // Ack all interrupts that we might have produced
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_INTR_STATUS,
-                       0xFF
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_STATUS, 0xFF);
 
     //
     // Change to page 1
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_PAGE1 | CR_STOP
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_PAGE1 | CR_STOP);
 
     //
     // Set current
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_CURRENT,
-                       0x4
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_CURRENT, 0x4);
 
     //
     // Back to page 0
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_PAGE0 | CR_STOP
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0 | CR_STOP);
 
     //
     // Pause
     //
-
     NdisStallExecution(2000);
 
     //
     // Check that Command register reflects this last command
     //
-
-    NdisRawReadPortUchar(
-                      Adapter->IoPAddr + NIC_COMMAND,
-                      &Tmp
-                     );
-
-    if (!(Tmp & CR_STOP)){
+    NdisRawReadPortUchar(Adapter->IoPAddr + NIC_COMMAND, &Tmp);
+    if (!(Tmp & CR_STOP))
+    {
+        IF_LOUD(DbgPrint("Invalid command register\n");)
 
         return(FALSE);
-
     }
 
     //
     // Do initialization errata
     //
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                       55
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 55);
 
     //
     // Setup for a read
     //
-
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_DMA_READ | CR_START
-                      );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_DMA_READ | CR_START
+    );
 
 #ifdef NE2000
 
@@ -689,22 +563,24 @@ Return Value:
     // Check if the slot is 8 or 16 bit (affects data transfer rate).
     //
 
-    if(Adapter->BusType == NdisInterfaceMca) {
-
+    if ((Adapter->BusType == NdisInterfaceMca) ||
+		(NE2000_PCMCIA == Adapter->CardType))
+    {
         Adapter->EightBitSlot = FALSE;
+    }
+    else
+    {
+        IF_VERY_LOUD(DbgPrint("CardSlotTest\n");)
 
-    } else {
-
-        if (CardSlotTest(Adapter) == FALSE) {
-
+        if (CardSlotTest(Adapter) == FALSE)
+        {
             //
             // Stop chip
             //
-
             SyncCardStop(Adapter);
 
+            IF_LOUD(DbgPrint("  -- Failed\n");)
             return(FALSE);
-
         }
 
     }
@@ -719,155 +595,126 @@ Return Value:
     // Mask Interrupts
     //
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_INTR_MASK,
-                       0x0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_MASK, 0x0);
 
     //
     // Setup the Adapter for reading ram
     //
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_PAGE0
-                      );
+// NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0);   // robin
 
-    if (Adapter->EightBitSlot) {
-
+    if (Adapter->EightBitSlot)
+    {
         NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_DATA_CONFIG,
-                       DCR_FIFO_8_BYTE | DCR_NORMAL | DCR_BYTE_WIDE
-                      );
-
-    } else {
-
+            Adapter->IoPAddr + NIC_DATA_CONFIG,
+            DCR_FIFO_8_BYTE | DCR_NORMAL | DCR_BYTE_WIDE
+        );
+    }
+    else
+    {
         NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_DATA_CONFIG,
-                       DCR_FIFO_8_BYTE | DCR_NORMAL | DCR_WORD_WIDE
-                      );
-
+            Adapter->IoPAddr + NIC_DATA_CONFIG,
+            DCR_FIFO_8_BYTE | DCR_NORMAL | DCR_WORD_WIDE
+        );
     }
 
     //
     // Clear transmit configuration.
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_CONFIG,
-                       0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_CONFIG, 0);
 
     //
     // Clear receive configuration.
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RCV_CONFIG,
-                       0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RCV_CONFIG, 0);
 
     //
     // Clear any interrupts
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_INTR_STATUS,
-                       0xFF
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_STATUS, 0xFF);
 
     //
     // Stop the chip
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_NO_DMA | CR_STOP
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_NO_DMA | CR_STOP);
 
     //
     // Clear any DMA values
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                       0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0);
 
     //
     // Clear any DMA values
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                       0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0);
 
     //
     // Wait for the reset to complete.
     //
     i = 0x3FFF;
 
-    while (--i) {
+    while (--i)
+    {
+        NdisRawReadPortUchar(Adapter->IoPAddr + NIC_INTR_STATUS, &Tmp);
 
-        NdisRawReadPortUchar(
-                          Adapter->IoPAddr + NIC_INTR_STATUS,
-                          &Tmp
-                         );
-
-        if (Tmp & ISR_RESET) {
-
+        if (Tmp & ISR_RESET)
             break;
 
-        }
-
         NdisStallExecution(4);
-
     }
 
     //
     // Put card in loopback mode
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_XMIT_CONFIG,
-                       TCR_LOOPBACK
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_CONFIG, TCR_LOOPBACK);
 
     //
     // Start the chip.
     //
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_NO_DMA | CR_START
-                      );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_NO_DMA | CR_START
+    );
 
     //
     // Test for the amount of RAM
     //
+    if (NE2000_ISA == Adapter->CardType)
+    {
+        if (CardRamTest(Adapter) == FALSE)
+        {
+            //
+            // Stop the chip
+            //
+            SyncCardStop(Adapter);
 
-    if (CardRamTest(Adapter) == FALSE) {
-
+            return(FALSE);
+        }
+    }
+    else
+    {
         //
-        // Stop the chip
+        //  We know what it is for the pcmcia adapters,
+        //  so don't waste time on detecting it.
         //
-
-        SyncCardStop(Adapter);
-
-        return(FALSE);
-
+        Adapter->RamBase = (PUCHAR)0x4000;
+        Adapter->RamSize = 0x4000;
     }
 
     //
     // Stop the chip
     //
-
     SyncCardStop(Adapter);
 
     return(TRUE);
-
 }
 
 
 #pragma NDIS_INIT_FUNCTION(CardReadEthernetAddress)
 
-VOID
-CardReadEthernetAddress(
+BOOLEAN CardReadEthernetAddress(
     IN PNE2000_ADAPTER Adapter
-    )
+)
 
 /*++
 
@@ -887,54 +734,90 @@ Return Value:
 --*/
 
 {
-    UINT i;
+    UINT    c;
 
     //
-    // Setup to read the ethernet address
+    //  Things are done a little differently for PCMCIA adapters.
     //
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                       12
-                      );
+    if (NE2000_PCMCIA == Adapter->CardType)
+    {
+        NDIS_STATUS             Status;
+        PUCHAR                  pAttributeWindow;
+        NDIS_PHYSICAL_ADDRESS   AttributePhysicalAddress;
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                       0
-                      );
+        //
+        //  Setup the physical address for the attribute window.
+        //
+        NdisSetPhysicalAddressHigh(AttributePhysicalAddress, 0);
+        NdisSetPhysicalAddressLow(
+            AttributePhysicalAddress,
+            Adapter->AttributeMemoryAddress
+        );
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                       0
-                      );
+        //
+        //  We need to get the pcmcia information from the tuple.
+        //
+        Status = NdisMMapIoSpace(
+                     (PVOID *)&pAttributeWindow,
+                     Adapter->MiniportAdapterHandle,
+                     AttributePhysicalAddress,
+                     Adapter->AttributeMemorySize
+                 );
+        if (NDIS_STATUS_SUCCESS != Status)
+        {
+            //
+            //  Failed to setup the attribute window.
+            //
+            return(FALSE);
+        }
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
-                       0
-                      );
+        //
+        //  Read the ethernet address from the card.
+        //
+        for (c = 0; c < ETH_LENGTH_OF_ADDRESS; c++)
+        {
+			NdisReadRegisterUchar(
+				(PUCHAR)(pAttributeWindow + CIS_NET_ADDR_OFFSET + c * 2),
+				&Adapter->PermanentAddress[c]);
+        }
+    }
+    else
+    {
+        //
+        // Setup to read the ethernet address
+        //
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 12);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_LSB, 0);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_MSB, 0);
+        NdisRawWritePortUchar(
+            Adapter->IoPAddr + NIC_COMMAND,
+            CR_START | CR_DMA_READ
+        );
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_START | CR_DMA_READ
-                      );
-
-    //
-    // Read in the station address. (We have to read words -- 2 * 6 -- bytes)
-    //
-    for (i=0; i<NE2000_LENGTH_OF_ADDRESS; i++) {
-
-        NdisRawReadPortUchar(
-                          Adapter->IoPAddr + NIC_RACK_NIC,
-                          &Adapter->PermanentAddress[i]);
-
+        //
+        // Read in the station address. (We have to read words -- 2 * 6 -- bytes)
+        //
+        for (c = 0; c < NE2000_LENGTH_OF_ADDRESS; c++)
+        {
+            NdisRawReadPortUchar(
+                Adapter->IoPAddr + NIC_RACK_NIC,
+                &Adapter->PermanentAddress[c]
+            );
+        }
     }
 
-    IF_LOUD( DbgPrint(" [ %x-%x-%x-%x-%x-%x ]\n",
-                        Adapter->PermanentAddress[0],
-                        Adapter->PermanentAddress[1],
-                        Adapter->PermanentAddress[2],
-                        Adapter->PermanentAddress[3],
-                        Adapter->PermanentAddress[4],
-                        Adapter->PermanentAddress[5]);)
+    IF_LOUD(
+        DbgPrint(
+            "Ne2000: PermanentAddress [ %02x-%02x-%02x-%02x-%02x-%02x ]\n",
+            Adapter->PermanentAddress[0],
+            Adapter->PermanentAddress[1],
+            Adapter->PermanentAddress[2],
+            Adapter->PermanentAddress[3],
+            Adapter->PermanentAddress[4],
+            Adapter->PermanentAddress[5]
+        );
+    )
 
     //
     // Use the burned in address as the station address, unless the
@@ -945,17 +828,18 @@ Return Value:
         (Adapter->StationAddress[2] == 0x00) &&
         (Adapter->StationAddress[3] == 0x00) &&
         (Adapter->StationAddress[4] == 0x00) &&
-        (Adapter->StationAddress[5] == 0x00)) {
-
+        (Adapter->StationAddress[5] == 0x00)
+    )
+    {
         Adapter->StationAddress[0] = Adapter->PermanentAddress[0];
         Adapter->StationAddress[1] = Adapter->PermanentAddress[1];
         Adapter->StationAddress[2] = Adapter->PermanentAddress[2];
         Adapter->StationAddress[3] = Adapter->PermanentAddress[3];
         Adapter->StationAddress[4] = Adapter->PermanentAddress[4];
         Adapter->StationAddress[5] = Adapter->PermanentAddress[5];
-
     }
 
+    return(TRUE);
 }
 
 
@@ -989,98 +873,97 @@ Return Value:
     //
     // Write to and read from CR to make sure it is there.
     //
-    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_COMMAND, CR_STOP | CR_NO_DMA | CR_PAGE0);
-    NdisRawReadPortUchar( Adapter->IoPAddr+NIC_COMMAND, &Tmp);
+    NdisRawWritePortUchar(
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_STOP | CR_NO_DMA | CR_PAGE0
+    );
 
+    NdisRawReadPortUchar(
+        Adapter->IoPAddr + NIC_COMMAND,
+        &Tmp
+    );
     if ((Tmp & (CR_STOP | CR_NO_DMA | CR_PAGE0)) !=
-        (CR_STOP | CR_NO_DMA | CR_PAGE0)) {
-
-        return FALSE;
-
+        (CR_STOP | CR_NO_DMA | CR_PAGE0)
+    )
+    {
+        return(FALSE);
     }
 
     //
     // Set up the registers in the correct sequence, as defined by
     // the 8390 specification.
     //
-    if (Adapter->EightBitSlot) {
-
-        NdisRawWritePortUchar(Adapter->IoPAddr+NIC_DATA_CONFIG,
-                    DCR_BYTE_WIDE | DCR_NORMAL | DCR_FIFO_8_BYTE);
-
-    } else {
-
-        NdisRawWritePortUchar(Adapter->IoPAddr+NIC_DATA_CONFIG,
-                    DCR_WORD_WIDE | DCR_NORMAL | DCR_FIFO_8_BYTE);
-
+    if (Adapter->EightBitSlot)
+    {
+        NdisRawWritePortUchar(
+            Adapter->IoPAddr + NIC_DATA_CONFIG,
+            DCR_BYTE_WIDE | DCR_NORMAL | DCR_FIFO_8_BYTE
+        );
+    }
+    else
+    {
+        NdisRawWritePortUchar(
+            Adapter->IoPAddr + NIC_DATA_CONFIG,
+            DCR_WORD_WIDE | DCR_NORMAL | DCR_FIFO_8_BYTE
+        );
     }
 
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_RMT_COUNT_MSB,
-                       0
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0);
+
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0);
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_RMT_COUNT_LSB,
-                       0
-                      );
+        Adapter->IoPAddr + NIC_RCV_CONFIG,
+        Adapter->NicReceiveConfig
+    );
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_RCV_CONFIG,
-                       Adapter->NicReceiveConfig
-                      );
+        Adapter->IoPAddr + NIC_XMIT_CONFIG,
+        TCR_LOOPBACK
+    );
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_XMIT_CONFIG,
-                       TCR_LOOPBACK
-                      );
+        Adapter->IoPAddr + NIC_BOUNDARY,
+        Adapter->NicPageStart
+    );
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_BOUNDARY,
-                       Adapter->NicPageStart
-                      );
+        Adapter->IoPAddr + NIC_PAGE_START,
+        Adapter->NicPageStart
+    );
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_PAGE_START,
-                       Adapter->NicPageStart
-                      );
-
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_PAGE_STOP,
-                       Adapter->NicPageStop
-                      );
+        Adapter->IoPAddr + NIC_PAGE_STOP,
+        Adapter->NicPageStop
+    );
 
     Adapter->Current = Adapter->NicPageStart + (UCHAR)1;
     Adapter->NicNextPacket = Adapter->NicPageStart + (UCHAR)1;
     Adapter->BufferOverflow = FALSE;
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_INTR_STATUS,
-                       0xff
-                      );
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_INTR_STATUS, 0xff);
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_INTR_MASK,
-                       Adapter->NicInterruptMask
-                      );
+        Adapter->IoPAddr + NIC_INTR_MASK,
+        Adapter->NicInterruptMask
+    );
 
 
     //
     // Move to page 1 to write the station address
     //
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_COMMAND,
-                       CR_STOP | CR_NO_DMA | CR_PAGE1
-                      );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_STOP | CR_NO_DMA | CR_PAGE1
+    );
 
-    for (i=0; i<NE2000_LENGTH_OF_ADDRESS; i++) {
-
+    for (i = 0; i < NE2000_LENGTH_OF_ADDRESS; i++)
+    {
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr+(NIC_PHYS_ADDR+i),
-                           Adapter->StationAddress[i]
-                          );
-
+            Adapter->IoPAddr + (NIC_PHYS_ADDR + i),
+            Adapter->StationAddress[i]
+        );
     }
 
     Filter = Adapter->PacketFilter;
@@ -1088,50 +971,46 @@ Return Value:
     //
     // Write out the multicast addresses
     //
-    for (i=0; i<8; i++) {
-
+    for (i = 0; i < 8; i++)
+    {
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr+(NIC_MC_ADDR+i),
-                           (UCHAR)((Filter & NDIS_PACKET_TYPE_ALL_MULTICAST)
-                              ? 0xff : Adapter->NicMulticastRegs[i])
-                          );
-
+            Adapter->IoPAddr + (NIC_MC_ADDR + i),
+            (UCHAR)((Filter & NDIS_PACKET_TYPE_ALL_MULTICAST) ?
+                    0xff : Adapter->NicMulticastRegs[i])
+        );
     }
 
     //
     // Write out the current receive buffer to receive into
     //
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_CURRENT,
-                       Adapter->Current
-                      );
+        Adapter->IoPAddr + NIC_CURRENT,
+        Adapter->Current
+    );
 
 
     //
     // move back to page 0 and start the card...
     //
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_COMMAND,
-                       CR_STOP | CR_NO_DMA | CR_PAGE0
-                      );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_STOP | CR_NO_DMA | CR_PAGE0
+    );
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_COMMAND,
-                       CR_START | CR_NO_DMA | CR_PAGE0
-                      );
-
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_START | CR_NO_DMA | CR_PAGE0
+    );
 
     //
     // ... but it is still in loopback mode.
     //
-
-    return TRUE;
+    return(TRUE);
 }
 
-VOID
-CardStop(
+VOID CardStop(
     IN PNE2000_ADAPTER Adapter
-    )
+)
 
 /*++
 
@@ -1158,13 +1037,12 @@ Return Value:
     //
     SyncCardStop(Adapter);
 
-
     //
     // Clear the Remote Byte Count register so that ISR_RESET
     // will come on.
     //
-    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_RMT_COUNT_MSB, 0);
-    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_RMT_COUNT_LSB, 0);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0);
 
 
     //
@@ -1173,44 +1051,35 @@ Return Value:
     // is the maximum time for a software reset to occur.
     //
     //
-    for (i=0; i<4; i++) {
-
-        NdisRawReadPortUchar( Adapter->IoPAddr+NIC_INTR_STATUS, &Tmp);
-        if (Tmp & ISR_RESET) {
-
+    for (i = 0; i < 4; i++)
+    {
+        NdisRawReadPortUchar(Adapter->IoPAddr+NIC_INTR_STATUS, &Tmp);
+        if (Tmp & ISR_RESET)
             break;
 
-        }
-
-
         NdisStallExecution(500);
-
     }
 
-    if (i == 4) {
-
+    if (i == 4)
+    {
         IF_LOUD( DbgPrint("RESET\n");)
         IF_LOG( Ne2000Log('R');)
-
     }
-
 
     //
     // Put the card in loopback mode, then start it.
     //
-    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_XMIT_CONFIG, TCR_LOOPBACK);
-    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_COMMAND, CR_START | CR_NO_DMA);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_XMIT_CONFIG, TCR_LOOPBACK);
+    NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_START | CR_NO_DMA);
 
     //
     // At this point the card is still in loopback mode.
     //
-
 }
 
-BOOLEAN
-CardReset(
+BOOLEAN CardReset(
     IN PNE2000_ADAPTER Adapter
-    )
+)
 
 /*++
 
@@ -1229,7 +1098,6 @@ Return Value:
 --*/
 
 {
-
     //
     // Stop the chip
     //
@@ -1243,18 +1111,17 @@ Return Value:
     //
     // CardSetup() does a software reset.
     //
-    if (!CardSetup(Adapter)) {
-
+    if (!CardSetup(Adapter))
+    {
         NdisWriteErrorLogEntry(
             Adapter->MiniportAdapterHandle,
             NDIS_ERROR_CODE_HARDWARE_FAILURE,
             2,
             cardReset,
             NE2000_ERRMSG_CARD_SETUP
-            );
+        );
 
-        return FALSE;
-
+        return(FALSE);
     }
 
     //
@@ -1267,12 +1134,11 @@ Return Value:
 
 
 
-BOOLEAN
-CardCopyDownPacket(
-    IN PNE2000_ADAPTER Adapter,
-    IN PNDIS_PACKET Packet,
-    OUT UINT * Length
-    )
+BOOLEAN CardCopyDownPacket(
+    IN PNE2000_ADAPTER  Adapter,
+    IN PNDIS_PACKET     Packet,
+    OUT PUINT           Length
+)
 
 /*++
 
@@ -1390,19 +1256,25 @@ Return Value:
             // Set Count and Source address
             //
 
-            NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND,
-                                  CR_PAGE0
-                                 );
+//          NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0);  // robin
 
-            NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                                  LSB((XmitBufAddress - 1))
-                                 );
+            NdisRawWritePortUchar(
+                Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
+                LSB((XmitBufAddress - 1))
+            );
 
             NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
                                   MSB((XmitBufAddress - 1))
                                  );
 
-            NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x1 );
+// NE2000 PCMCIA CHANGE START
+
+            //
+            //  NE2000 PCMCIA CHANGE!!!
+            //
+            //NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x1 );
+            //NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0 );
+            NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x2 );
             NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0 );
 
             //
@@ -1412,7 +1284,14 @@ Return Value:
             NdisRawWritePortUchar( Adapter->IoPAddr + NIC_COMMAND,
                            CR_START | CR_PAGE0 | CR_DMA_READ );
 
-            NdisRawReadPortUchar( Adapter->IoPAddr + NIC_RACK_NIC, &Tmp1 );
+            //
+            //  NE2000 PCMCIA CHANGE!!!
+            //
+            //NdisRawReadPortUchar( Adapter->IoPAddr + NIC_RACK_NIC, &Tmp1 );
+            NdisRawReadPortUshort( Adapter->IoPAddr + NIC_RACK_NIC, &TmpShort );
+            Tmp1 = LSB(TmpShort);
+
+// NE2000 PCMCIA CHANGE END
 
             //
             // Do Write errata as described on pages 1-143 and
@@ -1426,9 +1305,9 @@ Return Value:
 
             OldAddr = NewAddr = (USHORT)(ReadBuffer);
 
-            NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND,
-                                  CR_PAGE0
-                                 );
+//          NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND,   // robin
+//                                CR_PAGE0                          // robin
+//                                );                                // robin
             NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
                                   LSB(ReadBuffer)
                                  );
@@ -1554,9 +1433,9 @@ Return Value:
 
         OldAddr = NewAddr = (USHORT)(ReadBuffer);
 
-        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND,
-                              CR_PAGE0
-                             );
+//      NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND,   // robin
+//                            CR_PAGE0                          // robin
+//                           );                                 // robin
         NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
                               LSB(ReadBuffer)
                              );
@@ -1637,7 +1516,7 @@ Return Value:
         // Set Count and destination address
         //
 
-        NdisRawWritePortUchar( Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0 );
+//      NdisRawWritePortUchar( Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0 ); // robin
 
         NdisRawWritePortUchar( Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
                            LSB(XmitBufAddress) );
@@ -1759,13 +1638,39 @@ Return Value:
     //
     // Write trailing byte (if necessary)
     //
-    if (OddBufLen) {
+    if (OddBufLen)
+    {
+      UINT    Count;
+      UCHAR   Tmp;
+      USHORT  TmpShort;
 
-       NdisRawWritePortUchar(
-            Adapter->IoPAddr + NIC_RACK_NIC,
-            *OddBufAddress
-            );
+      if (NE2000_PCMCIA == Adapter->CardType) {
+//  NE2000 PCMCIA CHANGE!!! start
+          TmpShort = (USHORT)*OddBufAddress;
+          NdisRawWritePortUshort(Adapter->IoPAddr + NIC_RACK_NIC, TmpShort);
+//  NE2000 PCMCIA CHANGE!!! end
+      }
+      else {
+          NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RACK_NIC, *OddBufAddress);
+      }
 
+      //
+      // Wait for DMA to complete                      robin-2
+      //
+      Count = 0xFFFF;
+      while (Count) {
+
+          NdisRawReadPortUchar(
+              Adapter->IoPAddr + NIC_INTR_STATUS,
+              &Tmp );
+
+          if (Tmp & ISR_DMA_DONE) {
+              break;
+          } else {
+              Count--;
+              NdisStallExecution(4);
+          }
+      }
     }
 
     //
@@ -1851,40 +1756,36 @@ Return Value:
         //
         // Set Count and Source address
         //
+        NdisRawWritePortUchar(
+            Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
+            LSB((TargetBuffer - 1))
+        );
 
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                           LSB((TargetBuffer - 1))
-                          );
+            Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
+            MSB((TargetBuffer - 1))
+        );
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
-                           MSB((TargetBuffer - 1))
-                          );
-
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                           0x1
-                          );
-
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                           0x0
-                          );
+// NE2000 PCMCIA CHANGE!!!  start
+        //NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x1);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x2);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0);
+// NE2000 PCMCIA CHANGE!!!  end
 
         //
         // Set direction (Read)
         //
 
         NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_START | CR_PAGE0 | CR_DMA_READ
-                      );
+            Adapter->IoPAddr + NIC_COMMAND,
+            CR_START | CR_PAGE0 | CR_DMA_READ
+        );
 
-        NdisRawReadPortUchar(
-                       Adapter->IoPAddr + NIC_RACK_NIC,
-                       &TmpSave
-                       );
+// NE2000 PCMCIA CHANGE!!!  start
+        //NdisRawReadPortUchar(Adapter->IoPAddr + NIC_RACK_NIC, &TmpSave);
+        NdisRawReadPortUshort(Adapter->IoPAddr + NIC_RACK_NIC, &TmpShort);
+        TmpSave = LSB(TmpShort);
+// NE2000 PCMCIA CHANGE!!!  end
 
         //
         // Do Write errata as described on pages 1-143 and 1-144 of the 1992
@@ -1899,48 +1800,35 @@ Return Value:
 
         OldAddr = NewAddr = (USHORT)(ReadBuffer);
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_COMMAND,
-                           CR_PAGE0
-                          );
+//      NdisRawWritePortUchar(Adapter->IoPAddr + NIC_COMMAND, CR_PAGE0); // robin
 
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                           LSB(ReadBuffer)
-                          );
+            Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
+            LSB(ReadBuffer)
+        );
 
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
-                           MSB(ReadBuffer)
-                          );
+            Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
+            MSB(ReadBuffer)
+        );
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                           0x2
-                          );
-
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                           0x0
-                          );
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x2);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0);
 
         //
         // Set direction (Read)
         //
 
         NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_START | CR_PAGE0 | CR_DMA_READ
-                      );
+            Adapter->IoPAddr + NIC_COMMAND,
+            CR_START | CR_PAGE0 | CR_DMA_READ
+        );
 
         //
         // Read from port
         //
 
-        NdisRawReadPortUshort(
-                           Adapter->IoPAddr + NIC_RACK_NIC,
-                           &TmpShort
-                          );
+        NdisRawReadPortUshort(Adapter->IoPAddr + NIC_RACK_NIC, &TmpShort);
 
         //
         // Wait for addr to change
@@ -1984,35 +1872,27 @@ Return Value:
         //
         // Set Count and destination address
         //
+        NdisRawWritePortUchar(
+            Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
+            LSB((TargetBuffer - 1))
+        );
 
         NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
-                           LSB((TargetBuffer - 1))
-                          );
+            Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
+            MSB((TargetBuffer - 1))
+        );
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_ADDR_MSB,
-                           MSB((TargetBuffer - 1))
-                          );
-
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                           0x2
-                          );
-
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                           0x0
-                          );
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_LSB, 0x2);
+        NdisRawWritePortUchar(Adapter->IoPAddr + NIC_RMT_COUNT_MSB, 0x0);
 
         //
         // Set direction (Write)
         //
 
         NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_START | CR_PAGE0 | CR_DMA_WRITE
-                      );
+            Adapter->IoPAddr + NIC_COMMAND,
+            CR_START | CR_PAGE0 | CR_DMA_WRITE
+        );
 
         //
         // It seems that the card stores words in LOW:HIGH order
@@ -2069,10 +1949,10 @@ Return Value:
 
     OldAddr = NewAddr = (USHORT)(ReadBuffer);
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_PAGE0
-                      );
+//  NdisRawWritePortUchar(                              // robin
+//                     Adapter->IoPAddr + NIC_COMMAND,  // robin
+//                     CR_PAGE0                         // robin
+//                    );                                // robin
 
     NdisRawWritePortUchar(
                        Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
@@ -2176,10 +2056,10 @@ Return Value:
     // Set Count and destination address
     //
 
-    NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_COMMAND,
-                       CR_PAGE0
-                      );
+//  NdisRawWritePortUchar(                              // robin
+//                     Adapter->IoPAddr + NIC_COMMAND,  // robin
+//                     CR_PAGE0                         // robin
+//                    );                                // robin
 
     NdisRawWritePortUchar(
                        Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
@@ -2219,8 +2099,7 @@ Return Value:
         NdisRawWritePortBufferUchar(
                        Adapter->IoPAddr + NIC_RACK_NIC,
                        SourceBuffer,
-                       Length
-                      );
+                       Length);
 
     } else {
 
@@ -2236,15 +2115,24 @@ Return Value:
         //
         // Write trailing byte (if necessary)
         //
-
-        if (Length & 0x1) {
-
+        if (Length & 0x1)
+        {
             SourceBuffer += (Length - 1);
 
-            NdisRawWritePortUchar(
-                       Adapter->IoPAddr + NIC_RACK_NIC,
-                       *SourceBuffer
-                      );
+// NE2000 PCMCIA CHANGE!!!  start
+
+            //NdisRawWritePortUchar(
+            //    Adapter->IoPAddr + NIC_RACK_NIC,
+            //    *SourceBuffer
+            //);
+
+            TmpShort = (USHORT)(*SourceBuffer);
+            NdisRawWritePortUshort(
+                Adapter->IoPAddr + NIC_RACK_NIC,
+                TmpShort
+            );
+// NE2000 PCMCIA CHANGE!!!  end
+
 
         }
 
@@ -2359,10 +2247,10 @@ Return Value:
         // Set Count and destination address
         //
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_COMMAND,
-                           CR_PAGE0
-                          );
+//      NdisRawWritePortUchar(                               // robin
+//                         Adapter->IoPAddr + NIC_COMMAND,   // robin
+//                         CR_PAGE0                          // robin
+//                        );                                 // robin
 
         NdisRawWritePortUchar(
                            Adapter->IoPAddr + NIC_RMT_ADDR_LSB,
@@ -2410,10 +2298,10 @@ Return Value:
 
         USHORT Tmp;
 
-        NdisRawWritePortUchar(
-                               Adapter->IoPAddr + NIC_COMMAND,
-                               CR_PAGE0
-                              );
+//      NdisRawWritePortUchar(                                   // robin
+//                             Adapter->IoPAddr + NIC_COMMAND,   // robin
+//                             CR_PAGE0                          // robin
+//                            );                                 // robin
 
         //
         // Avoid transfers to odd addresses
@@ -2520,15 +2408,45 @@ Return Value:
                            MSB(SourceBuffer)
                           );
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
-                           LSB(BufferLength)
-                          );
+// NE2000 PCMCIA CHANGE!!!  start
 
-        NdisRawWritePortUchar(
-                           Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
-                           MSB(BufferLength)
-                          );
+//        NdisRawWritePortUchar(
+//            Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
+//            LSB(BufferLength)
+//        );
+//
+//        NdisRawWritePortUchar(
+//            Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
+//            MSB(BufferLength)
+//        );
+
+        if (BufferLength & 1)
+        {
+            NdisRawWritePortUchar(
+                Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
+                LSB(BufferLength + 1)
+            );
+
+            NdisRawWritePortUchar(
+                Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
+                MSB(BufferLength + 1)
+            );
+        }
+        else
+        {
+            NdisRawWritePortUchar(
+                Adapter->IoPAddr + NIC_RMT_COUNT_LSB,
+                LSB(BufferLength)
+            );
+
+            NdisRawWritePortUchar(
+                Adapter->IoPAddr + NIC_RMT_COUNT_MSB,
+                MSB(BufferLength)
+            );
+        }
+
+// NE2000 PCMCIA CHANGE!!!  end
+
 
         //
         // Set direction (Read)
@@ -2556,11 +2474,21 @@ Return Value:
 
             TargetBuffer += (BufferLength - 1);
 
-            NdisRawReadPortUchar(
-                       Adapter->IoPAddr + NIC_RACK_NIC,
-                       TargetBuffer
-                      );
+// NE2000 PCMCIA CHANGE!!!  start
 
+            //NdisRawReadPortUchar(
+            //    Adapter->IoPAddr + NIC_RACK_NIC,
+            //    TargetBuffer
+            //);
+
+            NdisRawReadPortUshort(
+                Adapter->IoPAddr + NIC_RACK_NIC,
+                &Tmp
+            );
+
+            *TargetBuffer = LSB(Tmp);
+
+// NE2000 PCMCIA CHANGE!!!  end
         }
 
     }
@@ -2780,10 +2708,9 @@ Return Value:
 
 
 
-BOOLEAN
-SyncCardStop(
+BOOLEAN SyncCardStop(
     IN PVOID SynchronizeContext
-    )
+)
 
 /*++
 
@@ -2805,11 +2732,11 @@ Return Value:
     PNE2000_ADAPTER Adapter = ((PNE2000_ADAPTER)SynchronizeContext);
 
     NdisRawWritePortUchar(
-                       Adapter->IoPAddr+NIC_COMMAND,
-                       CR_STOP | CR_NO_DMA
-                      );
+        Adapter->IoPAddr + NIC_COMMAND,
+        CR_STOP | CR_NO_DMA
+    );
 
-    return FALSE;
+    return(FALSE);
 }
 
 VOID

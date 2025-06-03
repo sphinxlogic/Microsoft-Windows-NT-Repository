@@ -912,10 +912,12 @@ Inp10:
 
 stdENDP _KiIsNpxPresent
 
+.586p
+
 ;++
 ;
 ; VOID
-; Ke386CpuID (
+; CPUID (
 ;     ULONG   InEax,
 ;     PULONG  OutEax,
 ;     PULONG  OutEbx,
@@ -934,13 +936,14 @@ stdENDP _KiIsNpxPresent
 ; Return Value:
 ;
 ;--
-cPublicProc _Ke386CpuID,5
+cPublicProc _CPUID,5
 
     push    ebx
     push    esi
 
     mov     eax, [esp+12]
-    db      0fh, 0a2h       ; CPUID
+
+    cpuid
 
     mov     esi, [esp+16]   ; return EAX
     mov     [esi], eax
@@ -957,10 +960,78 @@ cPublicProc _Ke386CpuID,5
     pop     esi
     pop     ebx
 
-    stdRET  _Ke386CpuID
+    stdRET  _CPUID
 
-stdENDP _Ke386CpuID
+stdENDP _CPUID
 
+;++
+;
+; LONGLONG
+; RDTSC (
+;       VOID
+;     );
+;
+; Routine Description:
+;
+; Arguments:
+;
+; Return Value:
+;
+;--
+cPublicProc _RDTSC
+    rdtsc
+    stdRET  _RDTSC
+
+stdENDP _RDTSC
 
 INIT    ENDS
+
+_TEXT   SEGMENT DWORD PUBLIC 'CODE'      ; Put IdleLoop in text section
+        ASSUME  DS:FLAT, ES:FLAT, SS:NOTHING, FS:NOTHING, GS:NOTHING
+
+;++
+;
+; ULONGLONG
+; FASTCALL
+; RDMSR (
+;   IN ULONG MsrRegister
+;   );
+;
+; Routine Description:
+;
+; Arguments:
+;
+; Return Value:
+;
+;--
+cPublicFastCall RDMSR, 1
+    rdmsr
+    fstRET  RDMSR
+fstENDP RDMSR
+
+
+;++
+;
+; VOID
+; WRMSR (
+;   IN ULONG MsrRegister
+;   IN LONGLONG MsrValue
+;   );
+;
+; Routine Description:
+;
+; Arguments:
+;
+; Return Value:
+;
+;--
+cPublicProc _WRMSR, 3
+    mov     ecx, [esp+4]
+    mov     eax, [esp+8]
+    mov     edx, [esp+12]
+    wrmsr
+    stdRET  _WRMSR
+stdENDP _WRMSR
+
+_TEXT   ENDS
         END

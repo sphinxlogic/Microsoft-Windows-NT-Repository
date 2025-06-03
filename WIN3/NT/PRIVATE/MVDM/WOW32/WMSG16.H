@@ -16,6 +16,8 @@
 #define WIN30_MN_MSGMAX      WM_USER+200
 #define WIN30_MN_FINDMENUWINDOWFROMPOINT    WIN30_MN_MSGMAX+2   // 0x602
 
+#define WIN30_MN_GETHMENU    WM_USER+2
+
 
 /* Message number/name association (for debug output only)
  */

@@ -365,8 +365,7 @@ typedef struct _WINSINTF_STAT_T {
 		DWORD			NoOfPnrs;
 
 #if defined(MIDL_PASS)
-		[unique, size_is(NoOfPnrs)] PWINSINTF_RPL_COUNTERS_T  
-							pRplPnrs;  
+		[unique, size_is(NoOfPnrs)] PWINSINTF_RPL_COUNTERS_T   pRplPnrs;  
 #else
 		PWINSINTF_RPL_COUNTERS_T	pRplPnrs;
 #endif
@@ -390,10 +389,28 @@ typedef struct _WINSINTF_RESULTS_T {
 		WINSINTF_STAT_T		WinsStat;
 		} WINSINTF_RESULTS_T, *PWINSINTF_RESULTS_T;	
 
+typedef struct _WINSINTF_RESULTS_NEW_T {
+		DWORD			NoOfOwners;
+#if defined(MIDL_PASS)
+		[unique, size_is(NoOfOwners)] PWINSINTF_ADD_VERS_MAP_T	pAddVersMaps;
+#else
+		PWINSINTF_ADD_VERS_MAP_T	pAddVersMaps;
+#endif
+		LARGE_INTEGER		MyMaxVersNo;
+		DWORD			RefreshInterval;
+		DWORD			TombstoneInterval;
+		DWORD			TombstoneTimeout;
+		DWORD			VerifyInterval;
+		DWORD			WinsPriorityClass;
+		DWORD			NoOfWorkerThds;
+		WINSINTF_STAT_T		WinsStat;
+		} WINSINTF_RESULTS_NEW_T, *PWINSINTF_RESULTS_NEW_T;	
+
 typedef enum _WINSINTF_CMD_E {
 		WINSINTF_E_ADDVERSMAP = 0,
 		WINSINTF_E_CONFIG,
-		WINSINTF_E_STAT		//get statistics
+		WINSINTF_E_STAT,		//get statistics
+		WINSINTF_E_CONFIG_ALL_MAPS
 		} WINSINTF_CMD_E, *PWINSINTF_CMD_E;
 
 
@@ -469,7 +486,19 @@ typedef struct _WINSINTF_BROWSER_NAMES_T {
 #endif
 	} WINSINTF_BROWSER_NAMES_T, *PWINSINTF_BROWSER_NAMES_T;
 
+typedef enum _WINSINTF_SCV_OPC_E {
+          WINSINTF_E_SCV_GENERAL,
+          WINSINTF_E_SCV_VERIFY 
+  } WINSINTF_SCV_OPC_E, *PWINSINTF_SCV_OPC_E;
 
+//
+// To send a scavenge request
+//
+typedef struct _WINSINTF_SCV_REQ_T {
+          WINSINTF_SCV_OPC_E  Opcode_e;
+          DWORD               Age;
+          DWORD               fForce;
+   } WINSINTF_SCV_REQ_T, *PWINSINTF_SCV_REQ_T;
 	
 
 /* 
@@ -516,6 +545,8 @@ R_WinsStatus(
 	WINSINTF_CMD_E	    Cmd_e,
 	PWINSINTF_RESULTS_T pResults
 		 );
+
+
 extern
 DWORD
 #if !defined(MIDL_PASS)
@@ -525,8 +556,36 @@ __RPC_API
 WinsStatus(
 //	LPTSTR	    pWinsAddStr,
 	WINSINTF_CMD_E	    Cmd_e,
-	PWINSINTF_RESULTS_T pResults
+	LPVOID              pResults
 		 );
+extern
+DWORD
+R_WinsStatusNew(
+	WINSINTF_CMD_E	    Cmd_e,
+	PWINSINTF_RESULTS_NEW_T pResults
+		 );
+extern
+DWORD
+#if !defined(MIDL_PASS)
+__RPC_API
+#endif // MIDL_PASS
+
+WinsStatusNew(
+	WINSINTF_CMD_E	    Cmd_e,
+	PWINSINTF_RESULTS_NEW_T pResults
+		 );
+extern 
+DWORD
+#if !defined(MIDL_PASS)
+__RPC_API
+#endif // MIDL_PASS
+
+WinsStatusWHdl(
+    PWINSINTF_BIND_DATA_T    pWinsHdl,
+	WINSINTF_CMD_E	    Cmd_e,
+	PWINSINTF_RESULTS_NEW_T pResults
+	);
+
 extern
 DWORD
 R_WinsTrigger (
@@ -624,6 +683,22 @@ __RPC_API
 WinsDoScavenging (
 	VOID
 	);
+extern
+DWORD
+R_WinsDoScavengingNew (
+	PWINSINTF_SCV_REQ_T pScvReq
+	);
+
+extern
+DWORD
+#if !defined(MIDL_PASS)
+__RPC_API
+#endif // MIDL_PASS
+
+WinsDoScavengingNew (
+	PWINSINTF_SCV_REQ_T pScvReq
+	);
+
 extern
 VOID
 #if !defined(MIDL_PASS)
@@ -753,13 +828,16 @@ WinsWorkerThdUpd (
 	);
 extern
 DWORD
-#if !defined(MIDL_PASS)
-__RPC_API
-#endif // MIDL_PASS
-
 WinsRestore (
 	LPBYTE BackupPath 
 	);
+
+extern
+DWORD
+WinsRestoreO (
+	LPBYTE BackupPath 
+	);
+
 extern
 DWORD
 #if !defined(MIDL_PASS)
@@ -800,6 +878,13 @@ WinsGetBrowserNames(
     PWINSINTF_BIND_DATA_T    pWinsHdl,
 	PWINSINTF_BROWSER_NAMES_T	pNames
 	);
+
+
+extern
+VOID
+R_WinsGetBrowserNames_notify(
+ VOID
+);
 
 extern 
 DWORD

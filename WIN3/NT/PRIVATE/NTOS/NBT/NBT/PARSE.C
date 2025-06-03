@@ -29,12 +29,6 @@ Revision History:
 #include <string.h>
 
 #ifdef VXD
-WORD GetInDosFlag( void ) ;
-int InDosRetries = 0 ;
-
-VOID DnsCompletion(  PVOID         pContext,
-                     PVOID         pContext2,
-                     tTIMERQENTRY *pTimerQEntry);
 extern BOOL fInInit;
 extern BOOLEAN CachePrimed;
 #endif
@@ -43,7 +37,7 @@ extern BOOLEAN CachePrimed;
 //  Returns 0 if equal, 1 if not equal.  Used to avoid using c-runtime
 //
 #define strncmp( pch1, pch2, length ) \
-    (CTEMemCmp( pch1, pch2, length ) != length)
+    (!CTEMemEqu( pch1, pch2, length ) )
 
 
 //
@@ -201,7 +195,7 @@ UCHAR Suffix[] = {                                  // LAN Manager Component
 // to resolve via DnsQueries
 //
 tDNS_QUERIES    DnsQueries;
-
+tCHECK_ADDR     CheckAddr;
 #endif
 
 //
@@ -238,19 +232,6 @@ LONG
 HandleSpecial(
     IN char **pch);
 
-NTSTATUS
-DoDnsResolve (
-    IN  NBT_WORK_ITEM_CONTEXT   *Context
-    );
-
-ULONG
-LmGetDomainList (
-    IN PUCHAR           path,
-    IN PUCHAR           target,
-    IN BOOLEAN          recurse,
-    IN PVOID            pIpAddrlist
-    );
-
 ULONG
 AddToDomainList (
     IN PUCHAR           pName,
@@ -267,6 +248,7 @@ ChangeStateInRemoteTable (
 VOID
 ChangeStateOfName (
     IN  ULONG                   IpAddress,
+    IN NBT_WORK_ITEM_CONTEXT    *Context,
     OUT PVOID                   *pContext,
     IN  BOOLEAN                 LmHosts
     );
@@ -307,11 +289,6 @@ MakeNewListCurrent (
     );
 
 VOID
-ClearCancelRoutine (
-    IN  PCTE_IRP        pIrp
-    );
-
-VOID
 RemoveNameAndCompleteReq (
     IN NBT_WORK_ITEM_CONTEXT    *pContext,
     IN NTSTATUS                 status
@@ -327,7 +304,6 @@ Nbtstrcat( PUCHAR pch, PUCHAR pCat, LONG Len );
 #pragma CTEMakePageable(PAGE, LmpGetTokens)
 #pragma CTEMakePageable(PAGE, LmpIsKeyWord)
 #pragma CTEMakePageable(PAGE, LmpBreakRecursion)
-#pragma CTEMakePageable(PAGE, LmGetDomainList)
 #pragma CTEMakePageable(PAGE, AddToDomainList)
 #pragma CTEMakePageable(PAGE, LmExpandName)
 #pragma CTEMakePageable(PAGE, LmInclude)
@@ -394,6 +370,18 @@ Return Value:
         return((unsigned long)0);
     }
 
+#ifdef VXD
+    //
+    // if we came here via nbtstat -R and InDos is set, report error: user
+    // can try nbtstat -R again.  (since nbtstat can only be run from DOS box,
+    // can InDos be ever set???  Might as well play safe)
+    //
+    if ( !fInInit && GetInDosFlag() )
+    {
+       return(0);
+    }
+#endif
+
     pfile = LmOpenFile(path);
 
     if (!pfile)
@@ -411,7 +399,7 @@ Return Value:
         nwords   = MaxTokens;
         current = LmpGetTokens(buffer, token, &nwords);
 
-        switch (current.l_category)
+        switch ((ULONG)current.l_category)
         {
         case ErrorLine:
             continue;
@@ -1138,6 +1126,11 @@ Return Value:
 
                     pIpAddr = (PULONG)((PUCHAR)pIpAddr + pNameAddr->MaxDomainAddrLength);
 
+                    //
+                    // our last entry was -1: overwrite that one
+                    //
+                    pIpAddr--;
+
                     *pIpAddr++ = IpAddress;
                     *pIpAddr = (ULONG)-1;
 
@@ -1219,6 +1212,7 @@ Return Value:
     CTELockHandle   OldIrq;
     tNAMEADDR       *pNameAddr;
     PLIST_ENTRY     pEntry;
+    PLIST_ENTRY     pHead;
 
 
     CTESpinLock(&NbtConfig.JointLock,OldIrq);
@@ -1228,10 +1222,21 @@ Return Value:
         //
         // free the old list elements
         //
-        while (!IsListEmpty(&DomainNames.DomainList))
+        pHead = &DomainNames.DomainList;
+        pEntry = pHead->Flink;
+        while (pEntry != pHead)
         {
-            pEntry = RemoveHeadList(&DomainNames.DomainList);
             pNameAddr = CONTAINING_RECORD(pEntry,tNAMEADDR,Linkage);
+            pEntry = pEntry->Flink;
+
+            RemoveEntryList(&pNameAddr->Linkage);
+            //
+            // initialize linkage so that if the nameaddr is being
+            // referenced now, when it does get freed in a subsequent
+            // call to NbtDereferenceName it will not
+            // remove it from any lists
+            //
+            InitializeListHead(&pNameAddr->Linkage);
 
             //
             // Since the name could be in use now we must dereference rather
@@ -1250,176 +1255,6 @@ Return Value:
     CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
 }
-//----------------------------------------------------------------------------
-
-ULONG
-LmGetDomainList (
-    IN PUCHAR           path,
-    IN PUCHAR           target,
-    IN BOOLEAN          recurse,
-    IN PVOID            pIpAddrlist
-    )
-
-/*++
-
-Routine Description:
-
-    This function reads a lmhosts file and gets the list of domain
-    names from the file that match the name passed in - essentially
-    making up an internet group name for the passed in name.
-
-    This function is called recursively, via LmInclude() !!
-
-Arguments:
-
-    path        -  a fully specified path to a lmhosts file
-    recurse     -  TRUE if process #INCLUDE, FALSE otherwise
-
-Return Value:
-
-    Number of new cache entries that were added, or -1 if there was an
-    i/o error.
-
---*/
-
-
-{
-    int                        nentries;
-    int                        domtoklen;
-    PUCHAR                     buffer;
-    PLM_FILE                   pfile;
-    NTSTATUS                   status;
-    int                        count, nwords;
-    ULONG                      NewAddrCount;
-    INCLUDE_STATE              incstate;
-    PUCHAR                     token[MaxTokens];
-    LINE_CHARACTERISTICS       current;
-    ULONG                      (*pIpAddr)[MAX_MEMBERS_INTERNET_GROUP];
-    UCHAR                      temp[NETBIOS_NAME_SIZE+1];
-    ULONG                      AddrCount = 0;
-    LIST_ENTRY                 TmpDomainList;
-
-    CTEPagedCode();
-    // initialize the array of addresses to the memory block passed into this
-    // routine.
-    //
-    pIpAddr = pIpAddrlist;
-
-    InitializeListHead(&TmpDomainList);
-
-    pfile = LmOpenFile(path);
-
-    if (!pfile)
-    {
-        return((unsigned long) -1);
-    }
-
-    domtoklen = strlen(DOMAIN_TOKEN);
-    nentries  = 0;
-    incstate  = MustInclude;
-
-    while (buffer = LmFgets(pfile, &count))
-    {
-
-        nwords   = MaxTokens;
-        current = LmpGetTokens(buffer, token, &nwords);
-
-        if (current.l_category == ErrorLine)
-        {
-            IF_DBG(NBT_DEBUG_LMHOST)
-            KdPrint(("Nbt:Syntax error in the Lmhosts file, line # = %d\n",
-                    pfile->f_lineno));
-            continue;
-        }
-
-        switch (current.l_category)
-        {
-        case Domain:
-            if ((nwords - 1) < GroupName)
-            {
-                continue;
-            }
-
-            //
-            // attempt to match, in a case insensitive manner, the first 15
-            // bytes of the lmhosts entry with the target name. So expand
-            // the name out and add '1C' on the end, then do a string compare.
-            //
-            LmExpandName(&temp[0], token[GroupName]+ domtoklen, SPECIAL_GROUP_SUFFIX);
-
-            if (strncmp(&temp[0], target, NETBIOS_NAME_SIZE - 1) == 0)
-            {
-                ULONG   Tmp;
-
-                status = ConvertDottedDecimalToUlong(token[IpAddress],&Tmp);
-                if (NT_SUCCESS(status))
-                {
-                    (*pIpAddr)[AddrCount++] = Tmp;
-                }
-            }
-
-            continue;
-
-        case Include:
-            if (!recurse)
-            {
-                IF_DBG(NBT_DEBUG_LMHOST)
-                KdPrint(("NBT: ignoring nested #INCLUDE in \"%wZ\"\n", path));
-                continue;
-            }
-
-            if ((incstate == SkipInclude) || (nwords < 2))
-            {
-                continue;
-            }
-
-            NewAddrCount = LmInclude(token[1],
-                                     LmGetDomainList,
-                                     target,
-                                     (PUCHAR)&(*pIpAddr)[AddrCount]);
-
-            if (NewAddrCount != -1)
-            {
-
-                if (incstate == TryToInclude)
-                {
-                    incstate = SkipInclude;
-                }
-                AddrCount += NewAddrCount;
-                continue;
-            }
-
-            if (incstate == MustInclude)
-            {
-
-                IF_DBG(NBT_DEBUG_LMHOST)
-                KdPrint(("NBT: LmOpenFile(\"%s\") failed (logged)\n",
-                            token[1]));
-            }
-            continue;
-
-        case BeginAlternate:
-            ASSERT(nwords == 1);
-            incstate = TryToInclude;
-            continue;
-
-        case EndAlternate:
-            ASSERT(nwords == 1);
-            incstate = MustInclude;
-            continue;
-
-        default:
-            continue;
-        }
-    }
-
-    status = LmCloseFile(pfile);
-    ASSERT(status == STATUS_SUCCESS);
-
-    ASSERT(nentries >= 0);
-
-    return(AddrCount);
-} //
 
 //----------------------------------------------------------------------------
 
@@ -1776,7 +1611,7 @@ Notes:
             path = CTEAllocInitMem(Len);
             if (path)
             {
-                ULONG   Length=sizeof("\\DosDevices\\")-1; // -1 not to count null
+                ULONG   Length=sizeof("\\DosDevices\\"); // Took out -1
 
                 strncpy(path,"\\DosDevices\\",Length);
                 Nbtstrcat(path,target,Len);
@@ -1850,19 +1685,25 @@ Notes:
 } // LmGetFullPath
 
 //----------------------------------------------------------------------------
-VOID
-ClearCancelRoutine (
+NTSTATUS
+NtCheckForIPAddr (
+    IN  tDEVICECONTEXT  *pDeviceContext,
+    IN  PVOID           *pBuffer,
+    IN  LONG            Size,
     IN  PCTE_IRP        pIrp
     )
 /*++
 
 Routine Description:
 
-    This function clears the irps cancel routine.
+    This function is used to allow NBT to ping multiple IP addrs, by returning the buffer
+    passed into this routine with the IP list in it to lmhsvc.dll
 
 Arguments:
 
 Return Value:
+
+    STATUS_PENDING if the buffer is to be held on to, the normal case.
 
 Notes:
 
@@ -1870,15 +1711,143 @@ Notes:
 --*/
 
 {
-    CTELockHandle   OldIrq;
+    NTSTATUS                status;
+    NTSTATUS                Locstatus;
+    CTELockHandle           OldIrq;
+    tIPADDR_BUFFER_DNS      *pIpAddrBuf;
+    PVOID                   pClientCompletion;
+    PVOID                   pClientContext;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    ULONG                   IpAddrsList[MAX_IPADDRS_PER_HOST+1];
+    PVOID                   Context;
+    BOOLEAN                 CompletingAnotherQuery = FALSE;
 
-    if (pIrp)
+
+    pIpAddrBuf = (tIPADDR_BUFFER_DNS *)pBuffer;
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+    CheckAddr.QueryIrp = pIrp;
+
+    status = STATUS_PENDING;
+
+    if (CheckAddr.ResolvingNow)
     {
-        IoAcquireCancelSpinLock(&OldIrq);
-        IoSetCancelRoutine(pIrp,NULL);
-        IoReleaseCancelSpinLock(OldIrq);
+
+        //
+        // if the client got tired of waiting for DNS, the WaitForDnsIrpCancel
+        // in ntisol.c will have cleared the Context value when cancelling the
+        // irp, so check for that here.
+        //
+        if (CheckAddr.Context)
+        {
+            Context = CheckAddr.Context;
+
+            CheckAddr.Context = NULL;
+
+            NTClearContextCancel( Context );
+
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+#if DBG
+            if (!pIpAddrBuf->Resolved) {
+                ASSERT(pIpAddrBuf->IpAddrsList[0] == 0);
+            }
+#endif
+            StartConnWithBestAddr(Context,
+                                 pIpAddrBuf->IpAddrsList,
+                                 (BOOLEAN)pIpAddrBuf->Resolved);
+
+            CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+        }
+        else
+        {
+            KdPrint(("Nbt: NtDnsNameResolve: No Context!! *******\r\n"));
+        }
+
+        CheckAddr.ResolvingNow = FALSE;
+        //
+        // are there any more name query requests to process?
+        //
+        while (TRUE)
+        {
+            if (!IsListEmpty(&CheckAddr.ToResolve))
+            {
+                PLIST_ENTRY     pEntry;
+
+                pEntry = RemoveHeadList(&CheckAddr.ToResolve);
+                Context = CONTAINING_RECORD(pEntry,NBT_WORK_ITEM_CONTEXT,Item.List);
+
+                CTESpinFree(&NbtConfig.JointLock,OldIrq);
+
+                Locstatus = DoCheckAddr(Context);
+
+                //
+                // if it failed then complete the irp now
+                //
+                if (!NT_SUCCESS(Locstatus))
+                {
+                    KdPrint(("NtDnsNameResolve: DoDnsResolve failed with %x\r\n",Locstatus));
+                    pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)Context)->ClientCompletion;
+                    pClientContext = ((NBT_WORK_ITEM_CONTEXT *)Context)->pClientContext;
+                    pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
+                    //
+                    // Clear the Cancel Routine now
+                    //
+                    (VOID)NTCancelCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
+
+                    DereferenceTracker(pTracker);
+
+                    CompleteClientReq(pClientCompletion,
+                                      pClientContext,
+                                      STATUS_BAD_NETWORK_PATH);
+
+                    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+                }
+                else
+                {
+                    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+                    CompletingAnotherQuery = TRUE;
+                    break;
+                }
+
+            }
+            else
+            {
+                break;
+            }
+        }
+
     }
+
+    //
+    // We are holding onto the Irp, so set the cancel routine.
+    if (!CompletingAnotherQuery)
+    {
+        status = NTCheckSetCancelRoutine(pIrp,CheckAddrIrpCancel,pDeviceContext);
+        if (!NT_SUCCESS(status))
+        {
+            // the irp got cancelled so complete it now
+            //
+            CheckAddr.QueryIrp = NULL;
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+            NTIoComplete(pIrp,status,0);
+        }
+        else
+        {
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+            status = STATUS_PENDING;
+        }
+
+    }
+    else
+    {
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+    return(status);
+
 }
+
 //----------------------------------------------------------------------------
 NTSTATUS
 NtDnsNameResolve (
@@ -1902,7 +1871,7 @@ Arguments:
 
 Return Value:
 
-    STATUS_PENDING if the buffer is to be held on to , the normal case.
+    STATUS_PENDING if the buffer is to be held on to, the normal case.
 
 Notes:
 
@@ -1913,15 +1882,16 @@ Notes:
     NTSTATUS                status;
     NTSTATUS                Locstatus;
     CTELockHandle           OldIrq;
-    tIPADDR_BUFFER          *pIpAddrBuf;
+    tIPADDR_BUFFER_DNS      *pIpAddrBuf;
     PVOID                   pClientCompletion;
     PVOID                   pClientContext;
     tDGRAM_SEND_TRACKING    *pTracker;
-    ULONG                   IpAddr;
+    ULONG                   IpAddrsList[MAX_IPADDRS_PER_HOST+1];
     PVOID                   Context;
     BOOLEAN                 CompletingAnotherQuery = FALSE;
 
-    pIpAddrBuf = (tIPADDR_BUFFER *)pBuffer;
+
+    pIpAddrBuf = (tIPADDR_BUFFER_DNS *)pBuffer;
 
     CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
@@ -1931,7 +1901,6 @@ Notes:
 
     if (DnsQueries.ResolvingNow)
     {
-        DnsQueries.ResolvingNow = FALSE;
 
         //
         // if the client got tired of waiting for DNS, the WaitForDnsIrpCancel
@@ -1941,50 +1910,26 @@ Notes:
         if (DnsQueries.Context)
         {
             Context = DnsQueries.Context;
-            pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
 
-            if (pIpAddrBuf->Resolved)
-            {
-                PVOID   Temp;
+            DnsQueries.Context = NULL;
 
-                IpAddr = pIpAddrBuf->IpAddress;
-                //
-                // since the name resolved, change the state in the remote table
-                //
-                ChangeStateOfName(IpAddr,&Temp,FALSE);
-                Locstatus = STATUS_SUCCESS;
-            }
-            else
-            {
-                // name did not resolve, so delete from table
-                NbtDereferenceName(pTracker->pNameAddr);
-                DnsQueries.Context = NULL;
-                Locstatus = STATUS_BAD_NETWORK_PATH;
-            }
-
+            NTClearContextCancel( Context );
 
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
 
-            pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)Context)->ClientCompletion;
-            pClientContext = ((NBT_WORK_ITEM_CONTEXT *)Context)->pClientContext;
-
-            //
-            // Clear the Cancel Routine now
-            //
-            ClearCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
-
-
-            DereferenceTracker(pTracker);
-
-            CompleteClientReq(pClientCompletion,
-                              pClientContext,
-                              Locstatus);
-
-            CTEMemFree(Context);
+            StartIpAddrToSrvName(Context,
+                                 pIpAddrBuf->IpAddrsList,
+                                 (BOOLEAN)pIpAddrBuf->Resolved);
 
             CTESpinLock(&NbtConfig.JointLock,OldIrq);
+
+        }
+        else
+        {
+            KdPrint(("Nbt: NtDnsNameResolve: No Context!! *******\r\n"));
         }
 
+        DnsQueries.ResolvingNow = FALSE;
         //
         // are there any more name query requests to process?
         //
@@ -2006,13 +1951,14 @@ Notes:
                 //
                 if (!NT_SUCCESS(Locstatus))
                 {
+                    KdPrint(("NtDnsNameResolve: DoDnsResolve failed with %x\r\n",Locstatus));
                     pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)Context)->ClientCompletion;
                     pClientContext = ((NBT_WORK_ITEM_CONTEXT *)Context)->pClientContext;
                     pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
                     //
                     // Clear the Cancel Routine now
                     //
-                    ClearCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
+                    (VOID)NTCancelCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
 
                     DereferenceTracker(pTracker);
 
@@ -2095,10 +2041,14 @@ Notes:
 
 {
     NTSTATUS                status;
-    tIPADDR_BUFFER          *pIpAddrBuf;
+    tIPADDR_BUFFER_DNS      *pIpAddrBuf;
     PCTE_IRP                pIrp;
     tDGRAM_SEND_TRACKING    *pTracker;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
     CTELockHandle           OldIrq;
+    PCHAR                   pDestName;
+    ULONG                   NameLen;
+
 
     CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
@@ -2109,6 +2059,7 @@ Notes:
         // the irp either never made it down here, or it was cancelled,
         // so pretend the name query timed out.
         //
+        KdPrint(("DoDnsResolve: QueryIrp is NULL, returning\r\n"));
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
         return(STATUS_BAD_NETWORK_PATH);
     }
@@ -2119,28 +2070,78 @@ Notes:
         DnsQueries.Context = Context;
         pIrp = DnsQueries.QueryIrp;
 
+        // this is the session setup tracker
+        pClientTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+
         // this is the name query tracker
         pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
+
+        //
+        // whenever dest. name is 16 bytes long (or smaller), we have no
+        // way of knowing if its a netbios name or a dns name, so we presume
+        // it's netbios name, go to wins, broadcast etc. and then come to dns
+        // In this case, the name query tracker will be setup, so be non-null
+        //
+        if (pTracker)
+        {
+            pDestName = pTracker->pNameAddr->Name;
+
+            //
+            // Ignore the 16th byte only if it is a non-DNS name character (we should be
+            // safe below 0x20). This will allow queries to DNS names which are exactly 16
+            // characters long.
+            //
+            if ((pDestName[NETBIOS_NAME_SIZE-1] <= 0x20 ) ||
+                (pDestName[NETBIOS_NAME_SIZE-1] >= 0x7f )) {
+                NameLen = NETBIOS_NAME_SIZE-1;          // ignore 16th byte
+            } else {
+                NameLen = NETBIOS_NAME_SIZE;
+            }
+        }
+
+        //
+        // if the dest name is longer than 16 bytes, it's got to be dns name so
+        // we bypass wins etc. and come straight to dns.  In this case, we didn't
+        // set up a name query tracker so it will be null.  Use the session setup
+        // tracker (i.e. pClientTracker) to get the dest name
+        //
+        else
+        {
+            ASSERT(pClientTracker);
+
+            pDestName = pClientTracker->SendBuffer.pBuffer;
+
+            NameLen = pClientTracker->SendBuffer.Length;
+
+            //
+            // Ignore the 16th byte only if it is a non-DNS name character (we should be
+            // safe below 0x20). This will allow queries to DNS names which are exactly 16
+            // characters long.
+            //
+            if (NameLen == NETBIOS_NAME_SIZE) {
+               if ((pDestName[NETBIOS_NAME_SIZE-1] <= 0x20 ) ||
+                   (pDestName[NETBIOS_NAME_SIZE-1] >= 0x7f )) {
+                   NameLen = NETBIOS_NAME_SIZE-1;          // ignore 16th byte
+               }
+            }
+        }
+
+
+        pIpAddrBuf = MmGetSystemAddressForMdl(pIrp->MdlAddress);
+
+        ASSERT(NameLen < 260);
 
         //
         // copy the name to the Irps return buffer for lmhsvc to resolve with
         // a gethostbyname call
         //
-        pIpAddrBuf = MmGetSystemAddressForMdl(pIrp->MdlAddress);
-        CTEMemCopy(pIpAddrBuf->Name,
-                   pTracker->pNameAddr->Name,
-                   NETBIOS_NAME_SIZE);
+        CTEMemCopy(pIpAddrBuf->pName,
+                   pDestName,
+                   NameLen);
 
-        // truncate the last byte off the name, so we just search for the
-        // first 15 bytes of the name
-        //
-        pIpAddrBuf->Name[NETBIOS_NAME_SIZE-1] = 0;
+        pIpAddrBuf->pName[NameLen] = 0;
 
-        //
-        // this is the session setup tracker
-        //
-        pTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
-
+        pIpAddrBuf->NameLen = NameLen;
 
         //
         // Since datagrams are buffered there is no client irp to get cancelled
@@ -2150,14 +2151,14 @@ Notes:
         // be cancelled.
         //
         status = STATUS_SUCCESS;
-        if (pTracker->pClientIrp)
+        if (pClientTracker->pClientIrp)
         {
             //
             // allow the client to cancel the name query Irp - no need to check
             // if the client irp was already cancelled or not since the DNS query
             // will complete and find no client request and stop.
             //
-            status = NTCheckSetCancelRoutine(pTracker->pClientIrp,
+            status = NTCheckSetCancelRoutine(pClientTracker->pClientIrp,
                                WaitForDnsIrpCancel,NULL);
         }
 
@@ -2177,6 +2178,7 @@ Notes:
             // We failed to set the cancel routine, so undo setting up the
             // the DnsQueries structure.
             //
+            KdPrint(("DoDnsResolve: CheckSet (submitting) failed with %x\r\n",status));
             DnsQueries.ResolvingNow = FALSE;
             DnsQueries.Context = NULL;
             CTESpinFree(&NbtConfig.JointLock,OldIrq);
@@ -2188,7 +2190,7 @@ Notes:
         //
         // this is the session setup tracker
         //
-        pTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+        pClientTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
         //
         // Since datagrams are buffered there is no client irp to get cancelled
         // since the client's irp is returned immediately -so this check
@@ -2196,12 +2198,12 @@ Notes:
         // be cancelled.
         //
         status = STATUS_SUCCESS;
-        if (pTracker->pClientIrp)
+        if (pClientTracker->pClientIrp)
         {
             //
             // allow the client to cancel the name query Irp
             //
-            status = NTCheckSetCancelRoutine(pTracker->pClientIrp,
+            status = NTCheckSetCancelRoutine(pClientTracker->pClientIrp,
                                WaitForDnsIrpCancel,NULL);
         }
         if (NT_SUCCESS(status))
@@ -2212,106 +2214,477 @@ Notes:
             InsertTailList(&DnsQueries.ToResolve,&Context->Item.List);
 
         }
+        else
+        {
+            KdPrint(("DoDnsResolve: CheckSet (queuing) failed with %x\r\n",status));
+        }
 
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        status = STATUS_PENDING;
     }
 
     return(status);
 
 }
 
-#else  // Vxd-version of the function DoDnsResolve()
-
 //----------------------------------------------------------------------------
 NTSTATUS
-DoDnsResolve (
+DoCheckAddr (
     IN  NBT_WORK_ITEM_CONTEXT   *Context
     )
 /*++
 
 Routine Description:
 
-    This function is used to allow NBT to query DNS.  This is very much like
-    the name query sent out to WINS server or broadcast.  Response from the
-    DNS server, if any, is handled by the QueryFromNet() routine.
+    This function is used to allow NBT to ping IP addrs, by returning the buffer
+    passed into this routine with the IP list in it.
 
 Arguments:
 
-    *Context  (NBT_WORK_ITEM_CONTEXT)
+Return Value:
+
+    STATUS_PENDING if the buffer is to be held on to , the normal case.
+
+Notes:
+
+
+--*/
+
+{
+    NTSTATUS                status;
+    tIPADDR_BUFFER_DNS      *pIpAddrBuf;
+    PCTE_IRP                pIrp;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
+    CTELockHandle           OldIrq;
+    PCHAR                   pDestName;
+    ULONG                   NameLen;
+
+    CTESpinLock(&NbtConfig.JointLock,OldIrq);
+    Context->TimedOut = FALSE;
+    if (!CheckAddr.QueryIrp)
+    {
+        //
+        // the irp either never made it down here, or it was cancelled,
+        // so pretend the name query timed out.
+        //
+        KdPrint(("DoCheckAddr: QueryIrp is NULL, returning\r\n"));
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        return(STATUS_BAD_NETWORK_PATH);
+    }
+    else
+    if (!CheckAddr.ResolvingNow)
+    {
+        CheckAddr.ResolvingNow = TRUE;
+        CheckAddr.Context = Context;
+        pIrp = CheckAddr.QueryIrp;
+
+        // this is the session setup tracker
+        pClientTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+
+        // this is the name query tracker
+        pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
+
+        pIpAddrBuf = MmGetSystemAddressForMdl(pIrp->MdlAddress);
+
+        ASSERT(pTracker == NULL);
+
+        //
+        // copy the IP addrs for lmhsvc to ping...
+        //
+        CTEMemCopy(pIpAddrBuf->IpAddrsList,
+                   pClientTracker->IpList,
+                   (pClientTracker->NumAddrs+1) * sizeof(ULONG));
+
+        //
+        // Since datagrams are buffered there is no client irp to get cancelled
+        // since the client's irp is returned immediately -so this check
+        // is only for connections being setup or QueryFindname or
+        // nodestatus, where we allow the irp to
+        // be cancelled.
+        //
+        status = STATUS_SUCCESS;
+        if (pClientTracker->pClientIrp)
+        {
+            //
+            // allow the client to cancel the name query Irp - no need to check
+            // if the client irp was already cancelled or not since the DNS query
+            // will complete and find no client request and stop.
+            //
+            status = NTCheckSetCancelRoutine(pClientTracker->pClientIrp,
+                               WaitForDnsIrpCancel,NULL);
+        }
+
+        //
+        // pass the irp up to lmhsvc.dll to do a gethostbyname call to
+        // sockets
+        // The Irp will return to NtDnsNameResolve, above
+        //
+        if (NT_SUCCESS(status))
+        {
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+            NTIoComplete(CheckAddr.QueryIrp,STATUS_SUCCESS,0);
+        }
+        else
+        {
+            //
+            // We failed to set the cancel routine, so undo setting up the
+            // the CheckAddr structure.
+            //
+            KdPrint(("DoCheckAddr: CheckSet (submitting) failed with %x\r\n",status));
+            CheckAddr.ResolvingNow = FALSE;
+            CheckAddr.Context = NULL;
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+        }
+
+    }
+    else
+    {
+        //
+        // this is the session setup tracker
+        //
+        pClientTracker = (tDGRAM_SEND_TRACKING *)Context->pClientContext;
+        //
+        // Since datagrams are buffered there is no client irp to get cancelled
+        // since the client's irp is returned immediately -so this check
+        // is only for connections being setup, where we allow the irp to
+        // be cancelled.
+        //
+        status = STATUS_SUCCESS;
+        if (pClientTracker->pClientIrp)
+        {
+            //
+            // allow the client to cancel the name query Irp
+            //
+            status = NTCheckSetCancelRoutine(pClientTracker->pClientIrp,
+                               WaitForDnsIrpCancel,NULL);
+        }
+        if (NT_SUCCESS(status))
+        {
+            // the irp is busy resolving another name, so wait for it to return
+            // down here again, mean while, Queue the name query
+            //
+            InsertTailList(&CheckAddr.ToResolve,&Context->Item.List);
+
+        }
+        else
+        {
+            KdPrint(("DoCheckAddr: CheckSet (queuing) failed with %x\r\n",status));
+        }
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+
+    if (NT_SUCCESS(status))
+    {
+        status = STATUS_PENDING;
+    }
+
+    return(status);
+
+}
+#endif // !VXD
+
+//----------------------------------------------------------------------------
+VOID
+StartIpAddrToSrvName(
+    IN  NBT_WORK_ITEM_CONTEXT   *Context,
+    IN  ULONG                   *IpList,
+    IN  BOOLEAN                  IpAddrResolved
+    )
+/*++
+
+Routine Description:
+
+    If the destination name is of the form 11.101.4.25 or is a dns name (i.e. of
+    the form ftp.microsoft.com) then we come to this function.  In addition to
+    doing some house keeping, if the name did resolve then we also send out
+    a nodestatus request to find out the server name for that ipaddr
+
+Arguments:
+
+    Context        - (NBT_WORK_ITEM_CONTEXT)
+    IpList         - Array of ipaddrs if resolved (i.e. IpAddrResolved is TRUE)
+    IpAddrResolved - TRUE if ipaddr could be resolved, FALSE otherwise
 
 Return Value:
 
-    STATUS_PENDING (unless something goes wrong)
+    Nothing
 
 Notes:
+
+
 --*/
 
 {
 
-   tDGRAM_SEND_TRACKING  *pTracker;
-   tDEVICECONTEXT        *pDeviceContext;
-   ULONG                  Timeout;
-   USHORT                 Retries;
-   NTSTATUS               status;
-   PVOID                  pClientCompletion;
-   PVOID                  pCompletionRoutine;
-   PVOID                  pClientContext;
+    NTSTATUS                status;
+    CTELockHandle           OldIrq;
+    PVOID                   pClientCompletion;
+    PVOID                   pClientContext;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
+    ULONG                   TdiAddressType;
+    CHAR                    szName[NETBIOS_NAME_SIZE];
+    ULONG                   IpAddrsList[MAX_IPADDRS_PER_HOST+1];
+    tDEVICECONTEXT          *pDeviceContext;
+    int                     i;
 
 
+    pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
 
-   KdPrint(("DoDnsResolve entered\r\n"));
+    pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)Context)->ClientCompletion;
+    pClientContext = ((NBT_WORK_ITEM_CONTEXT *)Context)->pClientContext;
+    pClientTracker = (tDGRAM_SEND_TRACKING    *)pClientContext;
 
-   pTracker = Context->pTracker;
-   pDeviceContext = pTracker->pDeviceContext;
+    pDeviceContext = ((tDGRAM_SEND_TRACKING *)pClientContext)->pDeviceContext;
+    ASSERT(pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT);
 
-      // if the primary DNS server is not defined, just return error
-   if ( (!pDeviceContext->lDnsServerAddress) ||
-        ( pDeviceContext->lDnsServerAddress == LOOP_BACK) )
-   {
-      CDbgPrint(DBGFLAG_ERROR,("Primary DNS server not defined\r\n"));
+    CTEMemFree(Context);
 
-      return( STATUS_UNSUCCESSFUL );
-   }
+    TdiAddressType = ((pTracker == NULL) &&
+                     (pClientTracker->AddressType == TDI_ADDRESS_TYPE_NETBIOS_EX))
+                    ? TDI_ADDRESS_TYPE_NETBIOS_EX
+                    : TDI_ADDRESS_TYPE_NETBIOS;
 
-   pTracker->Flags &= ~(NBT_BROADCAST|NBT_NAME_SERVER|NBT_NAME_SERVER_BACKUP);
-   pTracker->Flags |= NBT_DNS_SERVER;
 
-   pClientContext = Context->pClientContext;
-   pClientCompletion = Context->ClientCompletion;
-   pCompletionRoutine = DnsCompletion;
+    // whether or not name resolved, we don't need this nameaddr anymore
+    // (if name resolved, then we do a node status to that addr and create
+    // a new nameaddr for the server name in ExtractServerName)
+    // pTracker is null if we went straight to dns (without wins etc)
+    if (pTracker)
+    {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+        NbtDereferenceName(pTracker->pNameAddr);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
 
-   //
-   // Put on the pending name queries list again so that when the query
-   // response comes in from DNS we can find the pNameAddr record.
-   //
-   ExInterlockedInsertTailList(&NbtConfig.PendingNameQueries,
-                               &pTracker->pNameAddr->Linkage,
-                               &NbtConfig.JointLock.SpinLock);
+#ifndef VXD
+    (VOID)NTCancelCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
+#endif
 
-   Timeout = (ULONG)pNbtGlobConfig->uRetryTimeout;
-   Retries = pNbtGlobConfig->uNumRetries;
+    status = STATUS_BAD_NETWORK_PATH;
 
-   pTracker->RefCount++;
-   status = UdpSendNSBcast(pTracker->pNameAddr,
-                           NbtConfig.pScope,
-                           pTracker,
-                           pCompletionRoutine,
-                           pClientContext,
-                           pClientCompletion,
-                           Retries,
-                           Timeout,
-                           eDNS_NAME_QUERY);
+    if (IpAddrResolved)
+    {
+        if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS) {
+           for (i=0; i<MAX_IPADDRS_PER_HOST; i++)
+           {
+               IpAddrsList[i] = IpList[i];
+               if (IpAddrsList[i] == 0)
+                   break;
+           }
+           IpAddrsList[MAX_IPADDRS_PER_HOST] = 0;
 
-   DereferenceTracker(pTracker);
+           CTEZeroMemory(szName,NETBIOS_NAME_SIZE);
+           szName[0] = '*';
 
-   KdPrint(("Leaving DoDnsResolve\r\n"));
+           status = NbtSendNodeStatus(pDeviceContext,
+                                      szName,
+                                      NULL,
+                                      &IpAddrsList[0],
+                                      pClientContext,
+                                      pClientCompletion);
+        } else {
+            tNAMEADDR   *pNameAddr;
+            PCHAR       pRemoteName;
+            tCONNECTELE *pConnEle;
 
-   return( status );
+            pConnEle = pClientTracker->Connect.pConnEle;
+            pRemoteName = pConnEle->RemoteName;
 
+            //
+            // add this server name to the remote hashtable
+            //
+            pNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('8'));
+            if (pNameAddr != NULL)
+            {
+               tNAMEADDR *pTableAddress;
+
+               CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
+               InitializeListHead(&pNameAddr->Linkage);
+               CTEMemCopy(pNameAddr->Name,pRemoteName,NETBIOS_NAME_SIZE);
+               pNameAddr->Verify = REMOTE_NAME;
+               pNameAddr->RefCount = 1;
+               pNameAddr->NameTypeState = STATE_RESOLVED | NAMETYPE_UNIQUE;
+               pNameAddr->AdapterMask = (CTEULONGLONG)-1;
+               pNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+               pNameAddr->IpAddress = IpList[0];
+
+               status = AddToHashTable(
+                               NbtConfig.pRemoteHashTbl,
+                               pNameAddr->Name,
+                               NbtConfig.pScope,
+                               0,
+                               0,
+                               pNameAddr,
+                               &pTableAddress);
+
+               IF_DBG(NBT_DEBUG_NETBIOS_EX)
+                   KdPrint(("StartIpAddrToSrv...AddRecordToHashTable Status %lx\n",status));
+            } else {
+               status = STATUS_INSUFFICIENT_RESOURCES;
+            }
+
+            CompleteClientReq(pClientCompletion,
+                              pClientContext,
+                              status);
+        }
+    } else {
+       if (TdiAddressType == TDI_ADDRESS_TYPE_NETBIOS_EX) {
+          tCONNECTELE *pConnEle;
+          pConnEle = pClientTracker->Connect.pConnEle;
+          pConnEle->RemoteNameDoesNotExistInDNS = TRUE;
+       }
+    }
+
+    // pTracker is null if we went straight to dns (without wins etc)
+    if (pTracker)
+    {
+        DereferenceTracker(pTracker);
+    }
+
+    if (!NT_SUCCESS(status))
+    {
+        CompleteClientReq(pClientCompletion,
+                          pClientContext,
+                          status);
+    }
 
 }
 
-#endif // !VXD
+//----------------------------------------------------------------------------
+VOID
+StartConnWithBestAddr(
+    IN  NBT_WORK_ITEM_CONTEXT   *Context,
+    IN  ULONG                   *IpList,
+    IN  BOOLEAN                  IpAddrResolved
+    )
+/*++
+
+Routine Description:
+
+    If the destination name is of the form 11.101.4.25 or is a dns name (i.e. of
+    the form ftp.microsoft.com) then we come to this function.  In addition to
+    doing some house keeping, if the name did resolve then we also send out
+    a nodestatus request to find out the server name for that ipaddr
+
+Arguments:
+
+    Context        - (NBT_WORK_ITEM_CONTEXT)
+    IpList         - Array of ipaddrs if resolved (i.e. IpAddrResolved is TRUE)
+    IpAddrResolved - TRUE if ipaddr could be resolved, FALSE otherwise
+
+Return Value:
+
+    Nothing
+
+Notes:
+
+
+--*/
+
+{
+
+    NTSTATUS                status;
+    CTELockHandle           OldIrq;
+    PVOID                   pClientCompletion;
+    PVOID                   pClientContext;
+    tDGRAM_SEND_TRACKING    *pTracker;
+    tDGRAM_SEND_TRACKING    *pClientTracker;
+    ULONG                   TdiAddressType;
+    CHAR                    szName[NETBIOS_NAME_SIZE];
+    ULONG                   IpAddrsList[MAX_IPADDRS_PER_HOST+1];
+    tDEVICECONTEXT          *pDeviceContext;
+    int                     i;
+
+   // IF_DBG(NBT_DEBUG_NAMESRV)
+       KdPrint(("Entered StartIpAddrToSrv\n"));
+
+    pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
+
+    pClientCompletion = ((NBT_WORK_ITEM_CONTEXT *)Context)->ClientCompletion;
+    pClientContext = ((NBT_WORK_ITEM_CONTEXT *)Context)->pClientContext;
+    pClientTracker = (tDGRAM_SEND_TRACKING    *)pClientContext;
+
+    pDeviceContext = ((tDGRAM_SEND_TRACKING *)pClientContext)->pDeviceContext;
+    ASSERT(pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT);
+
+    CTEMemFree(Context);
+
+    // whether or not name resolved, we don't need this nameaddr anymore
+    // (if name resolved, then we do a node status to that addr and create
+    // a new nameaddr for the server name in ExtractServerName)
+    // pTracker is null if we went straight to dns (without wins etc)
+    if (pTracker)
+    {
+        CTESpinLock(&NbtConfig.JointLock,OldIrq);
+        NbtDereferenceName(pTracker->pNameAddr);
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
+
+#ifndef VXD
+    (VOID)NTCancelCancelRoutine(((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
+#endif
+
+    status = STATUS_BAD_NETWORK_PATH;
+
+    if (IpAddrResolved)
+    {
+        tNAMEADDR   *pNameAddr;
+        PCHAR       pRemoteName;
+        tCONNECTELE *pConnEle;
+
+        pConnEle = pClientTracker->Connect.pConnEle;
+        pRemoteName = pConnEle->RemoteName;
+
+        //
+        // add this server name to the remote hashtable
+        //
+        pNameAddr = NbtAllocMem(sizeof(tNAMEADDR),NBT_TAG('8'));
+        if (pNameAddr != NULL)
+        {
+           tNAMEADDR *pTableAddress;
+
+           CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
+           InitializeListHead(&pNameAddr->Linkage);
+           CTEMemCopy(pNameAddr->Name,pRemoteName,NETBIOS_NAME_SIZE);
+           pNameAddr->Verify = REMOTE_NAME;
+           pNameAddr->RefCount = 1;
+           pNameAddr->NameTypeState = STATE_RESOLVED | NAMETYPE_UNIQUE;
+           pNameAddr->AdapterMask = (CTEULONGLONG)-1;
+           pNameAddr->TimeOutCount  = NbtConfig.RemoteTimeoutCount;
+           pNameAddr->IpAddress = IpList[0];
+
+           status = AddToHashTable(
+                           NbtConfig.pRemoteHashTbl,
+                           pNameAddr->Name,
+                           NbtConfig.pScope,
+                           0,
+                           0,
+                           pNameAddr,
+                           &pTableAddress);
+
+           // IF_DBG(NBT_DEBUG_NAMESRV)
+               KdPrint(("StartIpAddrToSrv...AddRecordToHashTable Status %lx\n",status));
+        } else {
+           status = STATUS_INSUFFICIENT_RESOURCES;
+        }
+    }
+
+    CompleteClientReq(pClientCompletion,
+                      pClientContext,
+                      status);
+
+    // pTracker is null if we went straight to dns (without wins etc)
+    if (pTracker)
+    {
+        DereferenceTracker(pTracker);
+    }
+}
 
 //----------------------------------------------------------------------------
 VOID
@@ -2351,6 +2724,7 @@ Return Value:
         pTracker = ((NBT_WORK_ITEM_CONTEXT *)Context)->pTracker;
         pNameAddr = pTracker->pNameAddr;
         LmHostQueries.Context = NULL;
+        NTClearContextCancel( Context );
 
         pNameAddr->pIpList = pIpList;
         pNameAddr->NameTypeState &= ~NAME_STATE_MASK;
@@ -2422,22 +2796,10 @@ Return Value:
     }
     for (nentries = 0; nentries < NumberToAdd; nentries++)
     {
-        //
-        // add a new unused name to the hash to account for this preloaded
-        // entry.
-        //
-        pNameAddr = CTEAllocInitMem(sizeof(tNAMEADDR));
-        if (!pNameAddr)
-        {
-            return(STATUS_INSUFFICIENT_RESOURCES);
-        }
-        CTEZeroMemory(pNameAddr,sizeof(tNAMEADDR));
-        //
-        // set the state to released so that the AddToHashTable routine will
-        // actually use this entry
-        //
-        pNameAddr->NameTypeState = STATE_RELEASED;
-        pNameAddr->Verify        = REMOTE_NAME;
+
+//
+// don't allocate memory here: AddToHashTable allocates, and this memory leaks!
+//
 
         // for names less than 16 bytes, expand out to 16 and put a 16th byte
         // on according to the suffix array
@@ -2452,11 +2814,6 @@ Return Value:
         }
 
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
-
-        // this element is not in a hash table bucket yet, so initialize
-        // the linkage, then add to the circular list.
-        //
-        InitializeListHead(&pNameAddr->Linkage);
 
         // do not add the name if it is already in the hash table
         status = AddNotFoundToHashTable(NbtConfig.pRemoteHashTbl,
@@ -2631,20 +2988,6 @@ Return Value:
         return((unsigned long)0);
     }
 
-#ifdef VXD
-    //
-    // if we came here via nbtstat -R and InDos is set, report error: user
-    // can try nbtstat -R again.  (since nbtstat can only be run from DOS box,
-    // can InDos be ever set???  Might as well play safe)
-    //
-    if ( !fInInit && GetInDosFlag() )
-    {
-       ASSERT(0);
-       return(-1);
-    }
-#endif
-
-
     pfile = LmOpenFile(path);
 
     if (!pfile)
@@ -2699,7 +3042,7 @@ Return Value:
                 }
             }
         }
-        switch (current.l_category)
+        switch ((ULONG)current.l_category)
         {
         case Domain:
             if ((nwords - 1) < GroupName)
@@ -2826,11 +3169,20 @@ Return Value:
 
     if (Context = LmHostQueries.Context)
     {
-        LmHostQueries.Context = NULL;
-        *pContext = Context;
+#ifndef VXD
+        if ( NTCancelCancelRoutine(
+            ((tDGRAM_SEND_TRACKING *)(Context->pClientContext))->pClientIrp )
+                == STATUS_CANCELLED )
+        {
+            Context = NULL;
+        }
+        else
+#endif // VXD
+        {
+            LmHostQueries.Context = NULL;
+        }
     }
-    else
-        *pContext = NULL;
+    *pContext = Context;
 
     CTESpinFree(&NbtConfig.JointLock,OldIrq);
 }
@@ -2840,6 +3192,7 @@ Return Value:
 VOID
 ChangeStateOfName (
     IN  ULONG                   IpAddress,
+    IN NBT_WORK_ITEM_CONTEXT    *Context,
     OUT PVOID                   *pContext,
     BOOLEAN                     Lmhosts
     )
@@ -2867,25 +3220,29 @@ Return Value:
 {
     NTSTATUS                status;
     CTELockHandle           OldIrq;
-    NBT_WORK_ITEM_CONTEXT   *Context=NULL;
     tDGRAM_SEND_TRACKING    *pTracker;
 
-    //
-    // change the state in the remote hash table
-    //
-    if (Lmhosts)
+    if ( Context == NULL )
     {
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
-        Context = LmHostQueries.Context;
-        LmHostQueries.Context = NULL;
-    }
+        //
+        // change the state in the remote hash table
+        //
+        if (Lmhosts)
+        {
+            Context = LmHostQueries.Context;
+            LmHostQueries.Context = NULL;
+        }
 #ifndef VXD
-    else
-    {
-        Context = DnsQueries.Context;
-        DnsQueries.Context = NULL;
-    }
+        else
+        {
+            Context = DnsQueries.Context;
+            DnsQueries.Context = NULL;
+        }
+        NTClearContextCancel( Context );
 #endif
+        CTESpinFree(&NbtConfig.JointLock,OldIrq);
+    }
     if (Context)
     {
 
@@ -2921,12 +3278,8 @@ Return Value:
     }
     else
         *pContext = NULL;
-
-    if (Lmhosts)
-    {
-        CTESpinFree(&NbtConfig.JointLock,OldIrq);
-    }
 }
+
 //----------------------------------------------------------------------------
 VOID
 LmHostTimeout(
@@ -2973,6 +3326,18 @@ Return Value:
             pWiContext = (NBT_WORK_ITEM_CONTEXT *)LmHostQueries.Context;
             LmHostQueries.Context = NULL;
 
+            //
+            // This asserts if the Irp has already been cancelled, which is bogus since
+            // it is possible to have the foll. swquence of events:
+            //      1. the Irp cancels into WaitForDnsIrpCancel; before it calls into DnsIrpCancelPaged,
+            //         this routine is called. WaitForDnsIrpCancel waits at the JointLock.
+            //      2. so, here we try to clear the spinlock and discover that the Irp is cancelled, which is
+            //         totally feasible.
+            //
+
+            // NTClearContextCancel( pWiContext );
+            (VOID)NTCancelCancelRoutine( ((tDGRAM_SEND_TRACKING *)(pWiContext->pClientContext))->pClientIrp );
+
             CTESpinFreeAtDpc(&NbtConfig.JointLock);
             RemoveNameAndCompleteReq(pWiContext,STATUS_TIMEOUT);
             CTESpinLockAtDpc(&NbtConfig.JointLock);
@@ -2999,6 +3364,17 @@ Return Value:
 
             pWiContext = (NBT_WORK_ITEM_CONTEXT *)DnsQueries.Context;
             DnsQueries.Context = NULL;
+            //
+            // This asserts if the Irp has already been cancelled, which is bogus since
+            // it is possible to have the foll. swquence of events:
+            //      1. the Irp cancels into WaitForDnsIrpCancel; before it calls into DnsIrpCancelPaged,
+            //         this routine is called. WaitForDnsIrpCancel waits at the JointLock.
+            //      2. so, here we try to clear the spinlock and discover that the Irp is cancelled, which is
+            //         totally feasible.
+            //
+
+            // NTClearContextCancel( pWiContext );
+            (VOID)NTCancelCancelRoutine( ((tDGRAM_SEND_TRACKING *)(pWiContext->pClientContext))->pClientIrp );
 
             CTESpinFreeAtDpc(&NbtConfig.JointLock);
             RemoveNameAndCompleteReq(pWiContext,STATUS_TIMEOUT);
@@ -3182,7 +3558,9 @@ LmHostQueueRequest(
     IN  tDGRAM_SEND_TRACKING    *pTracker,
     IN  PVOID                   pClientContext,
     IN  PVOID                   ClientCompletion,
-    IN  PVOID                   CallBackRoutine
+    IN  PVOID                   CallBackRoutine,
+    IN  PVOID                   pDeviceContext,
+    IN  CTELockHandle           OldIrq
     )
 /*++
 
@@ -3198,6 +3576,7 @@ Routine Description:
 Arguments:
     pTracker        - the tracker block for context
     CallbackRoutine - the routine for the Workerthread to call
+    pDeviceContext  - dev context that initiated this
 
 Return Value:
 
@@ -3212,7 +3591,8 @@ Return Value:
     PCTE_IRP                pIrp;
     BOOLEAN                 OnList;
 
-    pContext = (NBT_WORK_ITEM_CONTEXT *)CTEAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT));
+
+    pContext = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('V'));
     if (pContext)
     {
 
@@ -3236,7 +3616,7 @@ Return Value:
             OnList = FALSE;
 
 #ifndef VXD
-            pContext2 = (NBT_WORK_ITEM_CONTEXT *)CTEAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT));
+            pContext2 = (NBT_WORK_ITEM_CONTEXT *)NbtAllocMem(sizeof(NBT_WORK_ITEM_CONTEXT),NBT_TAG('W'));
 
             if (pContext2)
             {
@@ -3244,7 +3624,9 @@ Return Value:
                 ExQueueWorkItem(&pContext2->Item,DelayedWorkQueue);
             }
 #else
-            VxdScheduleDelayedCall( pTracker, pClientContext, ClientCompletion, CallBackRoutine );
+            CTESpinFree(&NbtConfig.JointLock,OldIrq);
+            VxdScheduleDelayedCall( pTracker, pClientContext, ClientCompletion, CallBackRoutine,pDeviceContext );
+            CTESpinLock(&NbtConfig.JointLock,OldIrq);
 #endif
         }
 
@@ -3400,14 +3782,24 @@ Return Value:
 {
     NTSTATUS                status;
     LONG                    IpAddress;
+    ULONG                   IpAddrsList[2];
     BOOLEAN                 bFound;
     BOOLEAN                 bRecurse = TRUE;
     PVOID                   pContext;
     BOOLEAN                 DoingDnsResolve = FALSE;
     UCHAR                   pName[NETBIOS_NAME_SIZE];
     ULONG                   LoopCount;
+    tDEVICECONTEXT         *pDeviceContext;
+    tDGRAM_SEND_TRACKING   *pTracker;
+    tDGRAM_SEND_TRACKING   *pTracker0;
 
     CTEPagedCode();
+
+
+#ifdef VXD
+    pDeviceContext = ((DELAYED_CALL_CONTEXT *)Context)->pDeviceContext;
+    ASSERT( pDeviceContext->Verify == NBT_VERIFY_DEVCONTEXT );
+#endif
 
     //
     // There is no useful info in Context,  all the queued requests are on
@@ -3419,7 +3811,6 @@ Return Value:
     while (TRUE)
     {
 
-RetryNextName:
         // get the next name on the linked list of LmHost name queries that
         // are pending
         //
@@ -3431,53 +3822,6 @@ RetryNextName:
         LOCATION(0x63);
 
         LoopCount ++;
-#ifdef VXD
-        //
-        //  DOS isn't reentrant so reschedule the event if we're already in dos.
-        //  We will reschedule x times before failing the call.  Multiple clients
-        //  could be failing which will have the effect of shortenning the wait
-        //  time and hopefully freeing up the client stuck in DOS.
-        //
-        if ( GetInDosFlag() )
-        {
-            // clear the name that we are currently trying to resolve from the
-            // lmhostqueries structure if we have retried enough times
-            //
-            if ( InDosRetries++ > 10 )
-            {
-                InDosRetries = 0 ;
-                if (NbtConfig.ResolveWithDns)
-                {
-                   //
-                   // InDos was set all through: skip lmhosts (and hosts!) and do DNS query
-                   //
-                   goto tryDNS;
-                }
-                else
-                {
-                   GetContext(&pContext);
-                   RemoveNameAndCompleteReq((NBT_WORK_ITEM_CONTEXT *)pContext,
-                                STATUS_TIMEOUT);
-                   goto RetryNextName;
-                }
-            }
-            else
-            {
-                CDbgPrint( DBGFLAG_ERROR, ("ScanLmHostFile: Rescheduling scan because InDos is set\r\n")) ;
-                status = CTEQueueForNonDispProcessing( NULL,
-                                       NULL,
-                                       NULL,
-                                       ScanLmHostFile ) ;
-                if ( !NT_SUCCESS( status ) )
-                {
-                    // Let the request timeout
-                }
-
-                return ;
-            }
-        }
-        InDosRetries = 0 ;
-#endif
 
         IF_DBG(NBT_DEBUG_LMHOST)
         KdPrint(("Nbt: Lmhosts pName = %15.15s<%X>,LoopCount=%X\n",
@@ -3511,54 +3855,104 @@ RetryNextName:
                                     pName,
                                     bRecurse,
                                     &bFound);
-        }
-        if (IpAddress == (ULONG)0)
-        {
-            // check if the name query has been cancelled
+
+#ifdef VXD
             //
-            LOCATION(0x61);
-#ifndef VXD
-            GetContext(&pContext);
-
-            if (NbtConfig.ResolveWithDns && pContext)
-            {
-#else
-
-            if (NbtConfig.ResolveWithDns)
+            // hmmm.. didn't find it in lmhosts: try hosts (if Dns is enabled)
+            //
+            if ( (IpAddress == (ULONG)0) && (NbtConfig.ResolveWithDns) )
             {
                 IpAddress = LmGetIpAddr(NbtConfig.pHosts,
                                         pName,
                                         bRecurse,
                                         &bFound);
+            }
+#endif
+        }
 
-                if (IpAddress == (ULONG)0)
+
+        if (IpAddress == (ULONG)0)
+        {
+            // check if the name query has been cancelled
+            //
+            LOCATION(0x61);
+            GetContext(&pContext);
+            //
+            // for some reason we didn't find our context: maybe cancelled.
+            // Go back to the big while loop...
+            //
+            if (!pContext)
+                continue;
+
+            //
+            // see if the name is in the 11.101.4.26 format: if so, we got the
+            // ipaddr!  Use that ipaddr to get the server name
+            //
+            pTracker = ((NBT_WORK_ITEM_CONTEXT *)pContext)->pTracker;
+
+            pTracker0 = (tDGRAM_SEND_TRACKING *)((NBT_WORK_ITEM_CONTEXT *)pContext)->pClientContext;
+
+            if ( pTracker0->Flags & (REMOTE_ADAPTER_STAT_FLAG|SESSION_SETUP_FLAG|DGRAM_SEND_FLAG) )
+            {
+                IpAddress = Nbt_inet_addr(pTracker->pNameAddr->Name);
+            }
+            else
+            {
+                IpAddress = 0;
+            }
+            //
+            // yes, the name is the ipaddr: StartIpAddrToSrvName() starts
+            // the process of finding out server name for this ipaddr
+            //
+            if (IpAddress)
+            {
+                IpAddrsList[0] = IpAddress;
+                IpAddrsList[1] = 0;
+
+		//
+		// if this is in response to an adapter stat command (e.g.nbtstat -a) then
+		// don't try to find the server name (using remote adapter status!)
+		//
+		if (pTracker0->Flags & REMOTE_ADAPTER_STAT_FLAG)
+		{
+		    //
+		    // change the state to resolved if the name query is still pending
+		    //
+		    ChangeStateOfName(IpAddress,(NBT_WORK_ITEM_CONTEXT *)pContext,&pContext,TRUE);
+
+		    status = STATUS_SUCCESS;
+		}
+		else
+		{
+
+		    StartIpAddrToSrvName(pContext, IpAddrsList, TRUE);
+		    //
+		    // done with this name query: go back to the big while loop
+		    //
+		    continue;
+		}
+            }
+
+            //
+            //
+            // inet_addr failed.  If DNS resolution is enabled, try DNS
+            else if (NbtConfig.ResolveWithDns)
+            {
+                status = DoDnsResolve(pContext);
+
+                if (NT_SUCCESS(status))
                 {
-//
-// we need this label to try dns if lmhost parsing fails due to InDos flag
-// Note that in coming here, we skipped parsing hosts file, too (because InDos
-// flag was set)
-//
-tryDNS:
-                    GetContext(&pContext);
-#endif
-                    status = DoDnsResolve(pContext);
-
-                    if (NT_SUCCESS(status))
-                    {
-                        DoingDnsResolve = TRUE;
-                    }
-#ifdef VXD
+                    DoingDnsResolve = TRUE;
                 }
-#endif
             }
         }
 
-        if (IpAddress != (ULONG)0)
+        else   // if (IpAddress != (ULONG)0)
         {
             //
             // change the state to resolved if the name query is still pending
             //
-            ChangeStateOfName(IpAddress,&pContext,TRUE);
+            ChangeStateOfName(IpAddress,NULL,&pContext,TRUE);
 
             status = STATUS_SUCCESS;
         }
@@ -3622,11 +4016,6 @@ Return Value:
 
         CTEMemFree(pContext);
 
-        // remove the name from the hash table, since it did not resolve
-        if ((status != STATUS_SUCCESS) && pTracker->pNameAddr)
-        {
-            RemoveName(pTracker->pNameAddr);
-        }
 #ifndef VXD
 
         //
@@ -3634,13 +4023,22 @@ Return Value:
         //
         CTESpinLock(&NbtConfig.JointLock,OldIrq);
 
-        ClearCancelRoutine( ((tDGRAM_SEND_TRACKING *)pClientContext)->pClientIrp);
+        NTCancelCancelRoutine( ((tDGRAM_SEND_TRACKING *)(pClientContext))->pClientIrp );
 
         CTESpinFree(&NbtConfig.JointLock,OldIrq);
 #endif
+
+        // remove the name from the hash table, since it did not resolve
+        if ((status != STATUS_SUCCESS) && pTracker && pTracker->pNameAddr)
+        {
+            RemoveName(pTracker->pNameAddr);
+        }
         // free the tracker and call the completion routine.
         //
-        DereferenceTracker(pTracker);
+        if (pTracker)
+        {
+            DereferenceTracker(pTracker);
+        }
 
         if (pClientCompletion)
         {
@@ -3736,7 +4134,7 @@ Nbtstrcat( PUCHAR pch, PUCHAR pCat, LONG Len )
 #else
 #define Nbtstrcat( a,b,c ) strcat( a,b )
 #endif
-
-
-
-
+
+
+
+

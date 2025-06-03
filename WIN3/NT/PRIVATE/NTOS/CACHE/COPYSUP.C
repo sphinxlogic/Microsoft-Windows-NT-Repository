@@ -107,6 +107,7 @@ Return Value:
     PVACB ActiveVacb;
     ULONG ActivePage;
     ULONG PageIsDirty;
+    ULONG SavedState;
     KIRQL OldIrql;
     NTSTATUS Status;
     ULONG OriginalLength = Length;
@@ -115,6 +116,8 @@ Return Value:
     BOOLEAN GotAMiss = FALSE;
 
     DebugTrace(+1, me, "CcCopyRead\n", 0 );
+
+    MmSavePageFaultReadAhead( Thread, &SavedState );
 
     //
     //  Get pointer to shared and private cache maps
@@ -148,7 +151,7 @@ Return Value:
     //
 
     if (Wait) {
-        HOT_STATISTIC(CcCopyReadWait) += PageCount;
+        HOT_STATISTIC(CcCopyReadWait) += 1;
 
         //
         //  This is not an exact solution, but when IoPageRead gets a miss,
@@ -161,16 +164,14 @@ Return Value:
         CcMissCounter = &CcCopyReadWaitMiss;
 
     } else {
-        HOT_STATISTIC(CcCopyReadNoWait) += PageCount;
+        HOT_STATISTIC(CcCopyReadNoWait) += 1;
     }
 
     //
     //  See if we have an active Vacb, that we can just copy to.
     //
 
-    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
-    GetActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
-    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
     if (ActiveVacb != NULL) {
 
@@ -182,7 +183,7 @@ Return Value:
 
                 PVOID NeedToZero;
 
-                ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+                ExAcquireFastLock( &SharedCacheMap->ActiveVacbSpinLock, &OldIrql );
 
                 //
                 //  Note that the NeedToZero could be cleared, since we
@@ -196,7 +197,7 @@ Return Value:
                     SharedCacheMap->NeedToZero = NULL;
                 }
 
-                ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+                ExReleaseFastLock( &SharedCacheMap->ActiveVacbSpinLock, OldIrql );
 
                 if (NeedToZero != NULL) {
                     MmUnlockCachedPage( (PVOID)((PCHAR)NeedToZero - 1) );
@@ -226,7 +227,7 @@ Return Value:
             } except( CcCopyReadExceptionFilter( GetExceptionInformation(),
                                                  &Status ) ) {
 
-                MmResetPageFaultReadAhead(Thread);
+                MmResetPageFaultReadAhead( Thread, SavedState );
 
                 SetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
@@ -244,8 +245,6 @@ Return Value:
                                                            STATUS_UNEXPECTED_IO_ERROR ));
                 }
             }
-
-            MmResetPageFaultReadAhead(Thread);
 
             //
             //  Now adjust FOffset and Length by what we copied.
@@ -318,7 +317,7 @@ Return Value:
 
             DebugTrace(-1, me, "CcCopyRead -> FALSE\n", 0 );
 
-            HOT_STATISTIC(CcCopyReadNoWaitMiss) += PageCount;
+            HOT_STATISTIC(CcCopyReadNoWaitMiss) += 1;
 
             //
             //  Enable ReadAhead if we missed.
@@ -399,11 +398,8 @@ Return Value:
                     //  we are after before doing the move.
                     //
 
-                    if (!MmCheckCachedPageState( CacheBuffer, FALSE )) {
-
-                        GotAMiss = TRUE;
-                        MmSetPageFaultReadAhead( Thread, PagesToGo );
-                    }
+                    MmSetPageFaultReadAhead( Thread, PagesToGo );
+                    GotAMiss = (BOOLEAN)!MmCheckCachedPageState( CacheBuffer, FALSE );
 
                     RtlCopyBytes( Buffer, CacheBuffer, MoveLength );
 
@@ -426,11 +422,8 @@ Return Value:
                 //  we are after before doing the move.
                 //
 
-                if (!MmCheckCachedPageState( CacheBuffer, FALSE )) {
-
-                    GotAMiss = TRUE;
-                    MmSetPageFaultReadAhead( Thread, 0 );
-                }
+                MmSetPageFaultReadAhead( Thread, 0 );
+                GotAMiss = (BOOLEAN)!MmCheckCachedPageState( CacheBuffer, FALSE );
 
                 RtlCopyBytes( Buffer, CacheBuffer, ReceivedLength );
 
@@ -448,7 +441,8 @@ Return Value:
             //  clustering and unmap on the way out.
             //
 
-            MmResetPageFaultReadAhead(Thread);
+            MmResetPageFaultReadAhead( Thread, SavedState );
+
 
             if (Wait) {
                 CcFreeVirtualAddress( Vacb );
@@ -470,8 +464,6 @@ Return Value:
                                                        STATUS_UNEXPECTED_IO_ERROR ));
             }
         }
-
-        MmResetPageFaultReadAhead(Thread);
 
         //
         //  Update number of bytes transferred.
@@ -514,6 +506,8 @@ Return Value:
 
         FOffset = BeyondLastByte;
     }
+
+    MmResetPageFaultReadAhead( Thread, SavedState );
 
     CcMissCounter = &CcThrowAway;
 
@@ -607,6 +601,7 @@ Return Value:
     PVACB ActiveVacb;
     ULONG ActivePage;
     ULONG PageIsDirty;
+    ULONG SavedState;
     KIRQL OldIrql;
     NTSTATUS Status;
     LARGE_INTEGER OriginalOffset;
@@ -615,6 +610,8 @@ Return Value:
     BOOLEAN GotAMiss = FALSE;
 
     DebugTrace(+1, me, "CcFastCopyRead\n", 0 );
+
+    MmSavePageFaultReadAhead( Thread, &SavedState );
 
     //
     //  Get pointer to shared and private cache maps
@@ -658,15 +655,13 @@ Return Value:
     //  Increment performance counters
     //
 
-    HOT_STATISTIC(CcCopyReadWait) += PageCount;
+    HOT_STATISTIC(CcCopyReadWait) += 1;
 
     //
     //  See if we have an active Vacb, that we can just copy to.
     //
 
-    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
-    GetActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
-    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
     if (ActiveVacb != NULL) {
 
@@ -678,7 +673,7 @@ Return Value:
 
                 PVOID NeedToZero;
 
-                ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+                ExAcquireFastLock( &SharedCacheMap->ActiveVacbSpinLock, &OldIrql );
 
                 //
                 //  Note that the NeedToZero could be cleared, since we
@@ -692,7 +687,7 @@ Return Value:
                     SharedCacheMap->NeedToZero = NULL;
                 }
 
-                ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+                ExReleaseFastLock( &SharedCacheMap->ActiveVacbSpinLock, OldIrql );
 
                 if (NeedToZero != NULL) {
                     MmUnlockCachedPage( (PVOID)((PCHAR)NeedToZero - 1) );
@@ -722,7 +717,8 @@ Return Value:
             } except( CcCopyReadExceptionFilter( GetExceptionInformation(),
                                                  &Status ) ) {
 
-                MmResetPageFaultReadAhead(Thread);
+                MmResetPageFaultReadAhead( Thread, SavedState );
+
 
                 SetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
@@ -740,8 +736,6 @@ Return Value:
                                                            STATUS_UNEXPECTED_IO_ERROR ));
                 }
             }
-
-            MmResetPageFaultReadAhead(Thread);
 
             //
             //  Now adjust FileOffset and Length by what we copied.
@@ -863,11 +857,8 @@ Return Value:
                     //  we are after before doing the move.
                     //
 
-                    if (!MmCheckCachedPageState( CacheBuffer, FALSE )) {
-
-                        GotAMiss = TRUE;
-                        MmSetPageFaultReadAhead( Thread, PagesToGo );
-                    }
+                    MmSetPageFaultReadAhead( Thread, PagesToGo );
+                    GotAMiss = (BOOLEAN)!MmCheckCachedPageState( CacheBuffer, FALSE );
 
                     RtlCopyBytes( Buffer, CacheBuffer, MoveLength );
 
@@ -890,11 +881,8 @@ Return Value:
                 //  we are after before doing the move.
                 //
 
-                if (!MmCheckCachedPageState( CacheBuffer, FALSE )) {
-
-                    GotAMiss = TRUE;
-                    MmSetPageFaultReadAhead( Thread, 0 );
-                }
+                MmSetPageFaultReadAhead( Thread, 0 );
+                GotAMiss = (BOOLEAN)!MmCheckCachedPageState( CacheBuffer, FALSE );
 
                 RtlCopyBytes( Buffer, CacheBuffer, ReceivedLength );
 
@@ -911,7 +899,8 @@ Return Value:
             //  clustering and unmap on the way out.
             //
 
-            MmResetPageFaultReadAhead(Thread);
+            MmResetPageFaultReadAhead( Thread, SavedState );
+
 
             CcFreeVirtualAddress( Vacb );
 
@@ -929,8 +918,6 @@ Return Value:
                                                        STATUS_UNEXPECTED_IO_ERROR ));
             }
         }
-
-        MmResetPageFaultReadAhead(Thread);
 
         //
         //  Update number of bytes transferred.
@@ -968,6 +955,8 @@ Return Value:
         FOffset.LowPart = BeyondLastByte;
     }
 
+    MmResetPageFaultReadAhead( Thread, SavedState );
+
     CcMissCounter = &CcThrowAway;
 
     //
@@ -988,8 +977,8 @@ Return Value:
 
     PrivateCacheMap->FileOffset1.LowPart = PrivateCacheMap->FileOffset2.LowPart;
     PrivateCacheMap->BeyondLastByte1.LowPart = PrivateCacheMap->BeyondLastByte2.LowPart;
-    PrivateCacheMap->FileOffset2.LowPart = FileOffset;
-    PrivateCacheMap->BeyondLastByte2.LowPart = FileOffset + OriginalLength;
+    PrivateCacheMap->FileOffset2.LowPart = OriginalOffset.LowPart;
+    PrivateCacheMap->BeyondLastByte2.LowPart = OriginalOffset.LowPart + OriginalLength;
 
     IoStatus->Status = STATUS_SUCCESS;
     IoStatus->Information = OriginalLength;
@@ -1081,7 +1070,7 @@ Raises:
     DebugTrace(+1, me, "CcCopyWrite\n", 0 );
 
     //
-    //  If the caller specified Wait, but the FileObject is WriteThrough,
+    //  If the caller specified Wait == FALSE, but the FileObject is WriteThrough,
     //  then we need to just get out.
     //
 
@@ -1103,13 +1092,18 @@ Raises:
     //  See if we have an active Vacb, that we can just copy to.
     //
 
-    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
-    GetActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
-    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
     if (ActiveVacb != NULL) {
 
-        if (((ULONG)(FOffset.QuadPart >> PAGE_SHIFT) == ActivePage) && (Length != 0)) {
+        //
+        //  See if the request starts in the ActivePage.  WriteThrough requests must
+        //  go the longer route through CcMapAndCopy, where WriteThrough flushes are
+        //  implemented.
+        //
+
+        if (((ULONG)(FOffset.QuadPart >> PAGE_SHIFT) == ActivePage) && (Length != 0) &&
+            !FlagOn( FileObject->Flags, FO_WRITE_THROUGH )) {
 
             ULONG LengthToCopy = PAGE_SIZE - (FOffset.LowPart & (PAGE_SIZE - 1));
 
@@ -1146,7 +1140,7 @@ Raises:
 
                     OldIrql = 0;
 
-                    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+                    ExAcquireFastLock( &SharedCacheMap->ActiveVacbSpinLock, &OldIrql );
 
                     //
                     //  Note that the NeedToZero could be cleared, since we
@@ -1169,7 +1163,7 @@ Raises:
                         SharedCacheMap->NeedToZero = (PVOID)((PCHAR)CacheBuffer + LengthToCopy);
                     }
 
-                    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+                    ExReleaseFastLock( &SharedCacheMap->ActiveVacbSpinLock, OldIrql );
                 }
 
                 RtlCopyBytes( CacheBuffer, Buffer, LengthToCopy );
@@ -1183,7 +1177,7 @@ Raises:
                 //
 
                 if (OldIrql != 0xFF) {
-                    RtlZeroMemory( CacheBuffer, LengthToCopy );
+                    RtlZeroBytes( CacheBuffer, LengthToCopy );
                 }
 
                 SetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, ACTIVE_PAGE_IS_DIRTY );
@@ -1229,6 +1223,15 @@ Raises:
         }
 
         CcFreeActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
+
+    //
+    //  Else someone else could have the active page, and may want to zero
+    //  the range we plan to write!
+    //
+
+    } else if (SharedCacheMap->NeedToZero != NULL) {
+
+        CcFreeActiveVacb( SharedCacheMap, NULL, 0, FALSE );
     }
 
     //
@@ -1252,8 +1255,7 @@ Raises:
 
     Temp = FOffset;
     Temp.LowPart &= ~(PAGE_SIZE -1);
-    Temp.QuadPart = ((PFSRTL_COMMON_FCB_HEADER)
-                    ((ULONG)FileObject->FsContext & 0xfffffff8))->ValidDataLength.QuadPart -
+    Temp.QuadPart = ((PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext)->ValidDataLength.QuadPart -
                     Temp.QuadPart;
 
     if (Temp.QuadPart <= 0) {
@@ -1443,13 +1445,18 @@ Raises:
     //  See if we have an active Vacb, that we can just copy to.
     //
 
-    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
-    GetActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
-    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+    GetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, PageIsDirty );
 
     if (ActiveVacb != NULL) {
 
-        if (((FileOffset >> PAGE_SHIFT) == ActivePage) && (Length != 0)) {
+        //
+        //  See if the request starts in the ActivePage.  WriteThrough requests must
+        //  go the longer route through CcMapAndCopy, where WriteThrough flushes are
+        //  implemented.
+        //
+
+        if (((FileOffset >> PAGE_SHIFT) == ActivePage) && (Length != 0) &&
+            !FlagOn( FileObject->Flags, FO_WRITE_THROUGH )) {
 
             ULONG LengthToCopy = PAGE_SIZE - (FileOffset & (PAGE_SIZE - 1));
 
@@ -1486,7 +1493,7 @@ Raises:
 
                     OldIrql = 0;
 
-                    ExAcquireFastLock( &CcMasterSpinLock, &OldIrql );
+                    ExAcquireFastLock( &SharedCacheMap->ActiveVacbSpinLock, &OldIrql );
 
                     //
                     //  Note that the NeedToZero could be cleared, since we
@@ -1509,7 +1516,7 @@ Raises:
                         SharedCacheMap->NeedToZero = (PVOID)((PCHAR)CacheBuffer + LengthToCopy);
                     }
 
-                    ExReleaseFastLock( &CcMasterSpinLock, OldIrql );
+                    ExReleaseFastLock( &SharedCacheMap->ActiveVacbSpinLock, OldIrql );
                 }
 
                 RtlCopyBytes( CacheBuffer, Buffer, LengthToCopy );
@@ -1523,7 +1530,7 @@ Raises:
                 //
 
                 if (OldIrql != 0xFF) {
-                    RtlZeroMemory( CacheBuffer, LengthToCopy );
+                    RtlZeroBytes( CacheBuffer, LengthToCopy );
                 }
 
                 SetActiveVacb( SharedCacheMap, OldIrql, ActiveVacb, ActivePage, ACTIVE_PAGE_IS_DIRTY );
@@ -1569,6 +1576,15 @@ Raises:
         }
 
         CcFreeActiveVacb( SharedCacheMap, ActiveVacb, ActivePage, PageIsDirty );
+
+    //
+    //  Else someone else could have the active page, and may want to zero
+    //  the range we plan to write!
+    //
+
+    } else if (SharedCacheMap->NeedToZero != NULL) {
+
+        CcFreeActiveVacb( SharedCacheMap, NULL, 0, FALSE );
     }
 
     //
@@ -1578,8 +1594,10 @@ Raises:
     FOffset.LowPart = FileOffset;
     FOffset.HighPart = 0;
 
-    ValidDataLength = ((PFSRTL_COMMON_FCB_HEADER)
-                       ((ULONG)FileObject->FsContext & 0xfffffff8))->ValidDataLength.LowPart;
+    ValidDataLength = ((PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext)->ValidDataLength.LowPart;
+
+    ASSERT((ValidDataLength == MAXULONG) ||
+           (((PFSRTL_COMMON_FCB_HEADER)FileObject->FsContext)->ValidDataLength.HighPart == 0));
 
     //
     //  At this point we can calculate the ReadOnly flag for

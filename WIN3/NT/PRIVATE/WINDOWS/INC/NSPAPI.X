@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1991-1994  Microsoft Corporation
+Copyright (c) 1991-1996  Microsoft Corporation
 
 Module Name:
 
@@ -11,11 +11,7 @@ Abstract:
     Name Space Provider API prototypes and manifests. See the
     "Windows NT NameSpace Provider Specification" document for
     details.
-    
 
-Author:
-
-    Chuck Y Chan (ChuckC)   19-Apr-1994
 
 Environment:
 
@@ -26,14 +22,6 @@ Notes:
     You must include "basetyps.h" first. Some types should
     use definitions from base files rather than redefine here.
     Unfortunately, so such base file exists.
-
-Revision History:
-
-    19-Apr-1994     ChuckC       Created first cut.
-    28-Apr-1994     DavidTr      Various enahncements for actual
-                                 implementation.
-    25-May-1994     ChuckC       Added structures for Get/Set Service.
-                                 Misc cleanup.
 
 --*/
 
@@ -48,7 +36,7 @@ extern "C" {
 #define _tagBLOB_DEFINED
 #define _BLOB_DEFINED
 #define _LPBLOB_DEFINED
-typedef struct _BLOB {                 
+typedef struct _BLOB {
     ULONG cbSize ;
 #ifdef MIDL_PASS
     [size_is(cbSize)] BYTE *pBlobData;
@@ -69,10 +57,10 @@ typedef struct _GUID
 } GUID;
 #endif /* GUID_DEFINED */
 
-#ifndef __LPGUID_DEFINED__ 
+#ifndef __LPGUID_DEFINED__
 #define __LPGUID_DEFINED__
-typedef GUID *LPGUID;          
-#endif 
+typedef GUID *LPGUID;
+#endif
 
 
 //
@@ -126,6 +114,7 @@ typedef GUID *LPGUID;
 
 #define NS_SAP                      (1)
 #define NS_NDS                      (2)
+#define NS_PEER_BROWSE              (3)
 
 #define NS_TCPIP_LOCAL              (10)
 #define NS_TCPIP_HOSTS              (11)
@@ -134,13 +123,15 @@ typedef GUID *LPGUID;
 #define NS_WINS                     (14)
 
 #define NS_NBP                      (20)
-                                               
+
 #define NS_MS                       (30)
 #define NS_STDA                     (31)
 #define NS_CAIRO                    (32)
 
 #define NS_X500                     (40)
 #define NS_NIS                      (41)
+
+#define NS_VNS                      (50)
 
 //
 // Name space attributes.
@@ -176,7 +167,7 @@ typedef GUID *LPGUID;
 #define RES_SERVICE                 (0x00000004)
 
 //
-// Well known value names for Service Types 
+// Well known value names for Service Types
 //
 
 #define SERVICE_TYPE_VALUE_SAPIDA        "SapId"
@@ -193,19 +184,19 @@ typedef GUID *LPGUID;
 
 #ifdef UNICODE
 
-#define SERVICE_TYPE_VALUE_SAPID        SERVICE_TYPE_VALUE_SAPIDW 
+#define SERVICE_TYPE_VALUE_SAPID        SERVICE_TYPE_VALUE_SAPIDW
 #define SERVICE_TYPE_VALUE_CONN         SERVICE_TYPE_VALUE_CONNW
 #define SERVICE_TYPE_VALUE_TCPPORT      SERVICE_TYPE_VALUE_TCPPORTW
-#define SERVICE_TYPE_VALUE_UDPPORT      SERVICE_TYPE_VALUE_UDPPORTW  
+#define SERVICE_TYPE_VALUE_UDPPORT      SERVICE_TYPE_VALUE_UDPPORTW
 
 #else // not UNICODE
 
-#define SERVICE_TYPE_VALUE_SAPID        SERVICE_TYPE_VALUE_SAPIDA 
+#define SERVICE_TYPE_VALUE_SAPID        SERVICE_TYPE_VALUE_SAPIDA
 #define SERVICE_TYPE_VALUE_CONN         SERVICE_TYPE_VALUE_CONNA
 #define SERVICE_TYPE_VALUE_TCPPORT      SERVICE_TYPE_VALUE_TCPPORTA
-#define SERVICE_TYPE_VALUE_UDPPORT      SERVICE_TYPE_VALUE_UDPPORTA  
+#define SERVICE_TYPE_VALUE_UDPPORT      SERVICE_TYPE_VALUE_UDPPORTA
 
-#endif 
+#endif
 
 
 //
@@ -220,7 +211,7 @@ typedef struct _NS_INFO% {
     DWORD dwNameSpace ;
     DWORD dwNameSpaceFlags ;
     LPTSTR% lpNameSpace ;
-} NS_INFO%, PNS_INFO%, FAR * LPNS_INFO%;
+} NS_INFO%,  * PNS_INFO%, FAR * LPNS_INFO%;
 
 //
 // Service Type Values. The structures are used to define named Service
@@ -243,8 +234,8 @@ typedef struct _SERVICE_TYPE_VALUE_ABS%  {
     DWORD dwValueSize ;
     LPTSTR% lpValueName ;
     PVOID lpValue ;
-} SERVICE_TYPE_VALUE_ABS%,  
-  *PSERVICE_TYPE_VALUE_ABS%, 
+} SERVICE_TYPE_VALUE_ABS%,
+  *PSERVICE_TYPE_VALUE_ABS%,
   FAR *LPSERVICE_TYPE_VALUE_ABS%;
 
 //
@@ -270,7 +261,7 @@ typedef struct _SERVICE_TYPE_INFO_ABS% {
 //
 // A Single Address definition.
 //
-typedef struct _SERVICE_ADDRESS {    
+typedef struct _SERVICE_ADDRESS {
     DWORD   dwAddressType ;
     DWORD   dwAddressFlags ;
     DWORD   dwAddressLength ;
@@ -290,7 +281,7 @@ typedef struct _SERVICE_ADDRESS {
 //
 // Addresses used by the service. Contains array of SERVICE_ADDRESS.
 //
-typedef struct _SERVICE_ADDRESSES {    
+typedef struct _SERVICE_ADDRESSES {
     DWORD           dwAddressCount ;
 #ifdef MIDL_PASS
     [size_is(dwAddressCount)] SERVICE_ADDRESS Addressses[*];
@@ -301,7 +292,7 @@ typedef struct _SERVICE_ADDRESSES {
 
 
 //
-// Service Information. 
+// Service Information.
 //
 typedef struct _SERVICE_INFO% {
     LPGUID lpServiceType ;
@@ -325,6 +316,9 @@ typedef struct _NS_SERVICE_INFO% {
     SERVICE_INFO% ServiceInfo ;
 } NS_SERVICE_INFO%, *PNS_SERVICE_INFO%, FAR * LPNS_SERVICE_INFO% ;
 
+#ifndef __CSADDR_DEFINED__
+#define __CSADDR_DEFINED__
+
 //
 // SockAddr Information
 //
@@ -343,6 +337,7 @@ typedef struct _CSADDR_INFO {
     INT iProtocol ;
 } CSADDR_INFO, *PCSADDR_INFO, FAR * LPCSADDR_INFO ;
 
+#endif
 
 //
 // Protocol Information
@@ -392,7 +387,7 @@ typedef struct _SERVICE_ASYNC_INFO {
     LPARAM lParam;
     HANDLE hAsyncTaskHandle;
 } SERVICE_ASYNC_INFO, *PSERVICE_ASYNC_INFO, FAR * LPSERVICE_ASYNC_INFO;
-                            
+
 //
 // Public NSP API prototypes.
 //
@@ -435,7 +430,7 @@ GetNameByType% (
     );
 
 INT
-APIENTRY 
+APIENTRY
 SetService% (
     IN     DWORD                dwNameSpace,
     IN     DWORD                dwOperation,
@@ -446,7 +441,7 @@ SetService% (
     );
 
 INT
-APIENTRY 
+APIENTRY
 GetService% (
     IN     DWORD                dwNameSpace,
     IN     LPGUID               lpGuid,

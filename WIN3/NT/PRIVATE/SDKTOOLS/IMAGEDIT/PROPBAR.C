@@ -255,7 +255,7 @@ VOID PropBarUpdate(VOID)
      * Fill the combo box with the images.
      */
     for (pImage = gpImageHead; pImage; pImage = pImage->pImageNext) {
-        i = (INT)SendMessage(hwndCombo, CB_INSERTSTRING, -1,
+        i = (INT)SendMessage(hwndCombo, CB_INSERTSTRING, (WPARAM)-1,
                 pImage->pDevice ?
                 (DWORD)(LPSTR)pImage->pDevice->szDesc :
                 (DWORD)(LPSTR)ids(IDS_UNKNOWNIMAGEFORMAT));
@@ -300,10 +300,10 @@ VOID PropBarSetImage(
 {
     if (pImage)
         SendDlgItemMessage(ghwndPropBar, DID_PROPBARIMAGE, CB_SELECTSTRING,
-                -1, (DWORD)(LPSTR)pImage->pDevice->szDesc);
+                (WPARAM)-1, (DWORD)(LPSTR)pImage->pDevice->szDesc);
     else
         SendDlgItemMessage(ghwndPropBar, DID_PROPBARIMAGE, CB_SETCURSEL,
-                -1, 0);
+                (WPARAM)-1, (LPARAM)0);
 }
 
 

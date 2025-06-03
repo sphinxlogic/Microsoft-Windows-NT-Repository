@@ -50,8 +50,6 @@ _TEXT$00   ENDS
 _PAGE   SEGMENT DWORD USE32 PUBLIC 'CODE'
         ASSUME DS:NOTHING, ES:NOTHING, SS:NOTHING, FS:NOTHING, GS:NOTHING
 
-; BUGBUG transitionary
-
         extrn OpcodeInvalid:proc
 VdmOpcodeInvalid equ OpcodeInvalid
 
@@ -59,7 +57,8 @@ VdmOpcodeInvalid equ OpcodeInvalid
         extrn VdmDecodeOperand:proc
         extrn RegTab:dword
         EXTRNP _KeGetCurrentThread,0
-        extrn  SetUserCR0:proc
+        extrn  KiVdmSetUserCR0:proc
+        extrn _VdmUserCr0MapOut:byte
 _PAGE   ENDS
 
 _DATA	SEGMENT  DWORD PUBLIC 'DATA'
@@ -67,7 +66,7 @@ _DATA	SEGMENT  DWORD PUBLIC 'DATA'
 ;
 ; This table is used to dispatch the special register moves
 ;
-; BUGBUG Trx not implemented yet.
+; WARNING Trx not implemented.
 
 SpecialRegTab dd offset VdmOpcodeGetCrx
         dd offset VdmOpcodeGetDrx
@@ -233,18 +232,7 @@ VdmOpcodeLmsw proc
         mov     edi,[esi].RiOperand
         mov     eax,[edi]
 
-        call    SetUserCR0
-        ; moved to non-paged code in worker function SetUserCR0
-        ; mov     edx,fs:PcInitialStack
-        ; and     eax,CR0_MP OR CR0_EM
-        ; cli                             ; insure that CR0 does not change
-        ; and     [edx].FpCr0NpxState,NOT (CR0_MP OR CR0_EM)
-        ; or      [edx].FpCr0NpxState,eax
-        ; mov     ebx,CR0
-        ; and     ebx,NOT (CR0_MP OR CR0_EM) ; turn off bits we will change
-        ; or      ebx,eax                 ; set user's bits
-        ; mov     CR0,ebx
-        ; sti
+        call    KiVdmSetUserCR0
 
         mov     eax,1                   ; indicate success
 ol30:   pop     ebx
@@ -321,16 +309,22 @@ VdmOpcodeGetCrx proc
 ;
         and     edx,MI_MODMASK
         cmp     edx,MI_MODMOVSPEC       ; require for mov to/from special
-        jne     ogc50                   ; return error
+        jne     short ogc50             ; return error
 
         movzx   edx,byte ptr [edi]
         test    edx,MI_REGMASK          ; mov from CR0?
-        jne     ogc20
+        mov     eax,0                   ; assume 0
+        jne     short ogc30
 
-        mov     eax,CR0
-        jmp     ogc30
+        mov     edi,PCR[PcInitialStack]         ; (edi) = fp save area
+        mov     edi,[edi].FpCr0NpxState         ; get users bits
+        and     edi, CR0_MP+CR0_EM+CR0_PE       ; mask
+        movzx   edi,_VdmUserCr0MapOut[edi]      ; map to real settings
 
-ogc20:  mov     eax,0
+        mov     eax, cr0                        ; read CR0
+        and     eax, not (CR0_MP+CR0_EM+CR0_TS) ; clear npx bits
+        or      eax, edi                        ; set npx bits
+
 ;
 ; Pull the destination register from the R/M field
 ;
@@ -406,18 +400,7 @@ VdmOpcodeSetCrx proc
         mov     edx,RegTab[edx * 4]     ; get register offset
         mov     eax,[edx + edi]         ; get CR? contents from register
 
-        call SetUserCR0
-        ; moved to non-paged code in worker function SetUserCR0
-        ; mov     edx,fs:PcInitialStack
-        ; and     eax,CR0_MP OR CR0_EM
-        ; cli                             ; insure that CR0 does not change
-        ; and     [edx].FpCr0NpxState,NOT (CR0_MP OR CR0_EM)
-        ; or      [edx].FpCr0NpxState,eax
-        ; mov     ebx,CR0
-        ; and     ebx,NOT (CR0_MP OR CR0_EM) ; turn off bits we will change
-        ; or      ebx,eax                 ; set user's bits
-        ; mov     CR0,ebx
-        ; sti
+        call    KiVdmSetUserCR0
 
         mov     eax,1
 osc40:  pop     edi

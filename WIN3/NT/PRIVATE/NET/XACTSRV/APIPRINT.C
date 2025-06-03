@@ -77,6 +77,8 @@ STATIC const LPDESC Desc16_printQ_4 = REM16_printQ_4;
 STATIC const LPDESC Desc32_printQ_4 = REM32_printQ_4;
 STATIC const LPDESC Desc16_printQ_5 = REM16_printQ_5;
 STATIC const LPDESC Desc32_printQ_5 = REM32_printQ_5;
+STATIC const LPDESC Desc16_printQ_52 = REM16_printQ_52;
+STATIC const LPDESC Desc32_printQ_52 = REM32_printQ_52;
 
 //
 // DosPrint calls behave differently from Net api calls.  On Net api calls,
@@ -124,12 +126,12 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestAdd: header at " FORMAT_LPVOID
+        NetpKdPrint(( "XsNetPrintDestAdd: header at " FORMAT_LPVOID
                       ", params at " FORMAT_LPVOID ", "
                       "level " FORMAT_DWORD "\n",
                       Header,
                       parameters,
-                      SmbGetUshort( &parameters->Level ) );
+                      SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -156,7 +158,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetPrintDestAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -183,7 +185,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetPrintDestAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -191,8 +193,8 @@ Return Value:
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestAdd: buffer of " FORMAT_DWORD " bytes at " FORMAT_LPVOID "\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetPrintDestAdd: buffer of " FORMAT_DWORD " bytes at " FORMAT_LPVOID "\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -219,8 +221,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestAdd: RapConvertSingleEntry failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestAdd: RapConvertSingleEntry failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -240,9 +242,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestAdd: DosPrintDestAdd failed: "
+            NetpKdPrint(( "XsNetPrintDestAdd: DosPrintDestAdd failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -292,10 +294,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestControl: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintDestControl: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->DestName ));
+                      SmbGetUlong( &parameters->DestName )));
     }
 
     //
@@ -319,8 +321,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestControl: DosPrintDestControl failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestControl: DosPrintDestControl failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
     }
 
@@ -369,10 +371,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintDestDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->PrinterName ));
+                      SmbGetUlong( &parameters->PrinterName )));
     }
 
     //
@@ -395,9 +397,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestDel: DosPrintDestDel failed: "
+            NetpKdPrint(( "XsNetPrintDestDel: DosPrintDestDel failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -453,10 +455,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintDestEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "level " FORMAT_DWORD ", buf size " FORMAT_DWORD "\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -477,7 +479,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              || outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestEnum: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintDestEnum: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -498,16 +500,16 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestEnum: DosPrintDestEnum failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestEnum: DosPrintDestEnum failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetPrintDestEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -563,10 +565,10 @@ Return Value:
         );
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
+        NetpKdPrint(( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
                       " Entries " FORMAT_DWORD " of " FORMAT_DWORD "\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -656,9 +658,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintDestGetInfo: header at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintDestGetInfo: header at " FORMAT_LPVOID ", "
                       "params at " FORMAT_LPVOID ", level " FORMAT_DWORD "\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -684,7 +686,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              || outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestGetInfo: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintDestGetInfo: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -705,8 +707,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestGetInfo: DosPrintDestGetInfo failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestGetInfo: DosPrintDestGetInfo failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -772,8 +774,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsDosPrintDestGetInfo: RapConvertSingleEntry failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsDosPrintDestGetInfo: RapConvertSingleEntry failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -781,9 +783,9 @@ Return Value:
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR\n",
+        NetpKdPrint(( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -797,14 +799,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetPrintDestGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestGetInfo: More data available.\n" );
+            NetpKdPrint(( "XsNetPrintDestGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -918,8 +920,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestSetInfo: Problem with conversion: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestSetInfo: Problem with conversion: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -941,8 +943,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintDestSetInfo: DosPrintDestSetInfo failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintDestSetInfo: DosPrintDestSetInfo failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -996,9 +998,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobContinue: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintJobContinue: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "job " FORMAT_WORD_ONLY "\n",
-                      Header, parameters, SmbGetUshort( &parameters->JobId ));
+                      Header, parameters, SmbGetUshort( &parameters->JobId )));
     }
 
     //
@@ -1012,8 +1014,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobContinue: DosPrintJobContinue failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintJobContinue: DosPrintJobContinue failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
     }
 
@@ -1058,9 +1060,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintJobDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "job " FORMAT_WORD_ONLY "\n",
-                      Header, parameters, SmbGetUshort( &parameters->JobId ));
+                      Header, parameters, SmbGetUshort( &parameters->JobId )));
     }
 
     //
@@ -1074,9 +1076,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobDel: DosPrintJobDel failed: "
+            NetpKdPrint(( "XsNetPrintJobDel: DosPrintJobDel failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -1131,10 +1133,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintJobEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "level " FORMAT_DWORD ", buf size " FORMAT_DWORD "\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -1162,7 +1164,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              || outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobEnum: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintJobEnum: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -1184,16 +1186,16 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobEnum: DosPrintJobEnum failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintJobEnum: DosPrintJobEnum failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetPrintJobEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -1243,10 +1245,10 @@ Return Value:
         );
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
+        NetpKdPrint(( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
                       " Entries " FORMAT_DWORD " of " FORMAT_DWORD "\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -1337,9 +1339,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobGetInfo: header at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintJobGetInfo: header at " FORMAT_LPVOID ", "
                       "params at " FORMAT_LPVOID ", level " FORMAT_DWORD "\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1360,7 +1362,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              || outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobGetInfo: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintJobGetInfo: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -1380,8 +1382,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobGetInfo: DosPrintJobGetInfo failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintJobGetInfo: DosPrintJobGetInfo failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1447,8 +1449,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsDosPrintJobGetInfo: RapConvertSingleEntry failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsDosPrintJobGetInfo: RapConvertSingleEntry failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -1456,9 +1458,9 @@ Return Value:
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR\n",
+        NetpKdPrint(( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -1472,7 +1474,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetPrintJobGetInfo: Buffer too small.\n" ));
         }
 
         Header->Status = NERR_BufTooSmall;
@@ -1480,7 +1482,7 @@ Return Value:
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobGetInfo: More data available.\n" );
+            NetpKdPrint(( "XsNetPrintJobGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -1557,9 +1559,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintJobPause: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintJobPause: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "job " FORMAT_WORD_ONLY "\n",
-                      Header, parameters, SmbGetUshort( &parameters->JobId ));
+                      Header, parameters, SmbGetUshort( &parameters->JobId )));
     }
 
     //
@@ -1573,9 +1575,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobPause: DosPrintJobPause failed: "
+            NetpKdPrint(( "XsNetPrintJobPause: DosPrintJobPause failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -1708,8 +1710,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobSetInfo: Problem with conversion: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintJobSetInfo: Problem with conversion: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1731,8 +1733,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintJobSetInfo: DosPrintJobSetInfo failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintJobSetInfo: DosPrintJobSetInfo failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1791,11 +1793,11 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQAdd: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQAdd: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "level " FORMAT_DWORD "\n",
                       Header,
                       parameters,
-                      SmbGetUshort( &parameters->Level ) );
+                      SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1831,7 +1833,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetPrintQAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -1858,7 +1860,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetPrintQAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -1866,8 +1868,8 @@ Return Value:
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQAdd: buffer of " FORMAT_DWORD " bytes at " FORMAT_LPVOID "\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetPrintQAdd: buffer of " FORMAT_DWORD " bytes at " FORMAT_LPVOID "\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -1894,8 +1896,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQAdd: RapConvertSingleEntry failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintQAdd: RapConvertSingleEntry failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -1915,9 +1917,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQAdd: DosPrintQAdd failed: "
+            NetpKdPrint(( "XsNetPrintQAdd: DosPrintQAdd failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1967,10 +1969,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQContinue: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQContinue: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->QueueName ));
+                      SmbGetUlong( &parameters->QueueName )));
     }
 
     //
@@ -1993,8 +1995,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQContinue: DosPrintQContinue failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintQContinue: DosPrintQContinue failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
     }
 
@@ -2043,9 +2045,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", name " FORMAT_LPSTR "\n",
+        NetpKdPrint(( "XsNetPrintQDel: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->QueueName ));
+                      SmbGetUlong( &parameters->QueueName )));
     }
 
     //
@@ -2068,9 +2070,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQDel: DosPrintQDel failed: "
+            NetpKdPrint(( "XsNetPrintQDel: DosPrintQDel failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -2128,10 +2130,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQEnum: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "level " FORMAT_DWORD ", buf size " FORMAT_DWORD "\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -2153,7 +2155,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              ||  outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQEnum: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintQEnum: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -2174,16 +2176,16 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintQEnum: DosPrintQEnum failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintQEnum: DosPrintQEnum failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetPrintQEnum: received " FORMAT_DWORD " entries at " FORMAT_LPVOID "\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -2261,10 +2263,10 @@ Return Value:
         );
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
+        NetpKdPrint(( "32-bit data at " FORMAT_LPVOID ", 16-bit data at " FORMAT_LPVOID ", " FORMAT_DWORD " BR,"
                       " Entries " FORMAT_DWORD " of " FORMAT_DWORD "\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -2370,16 +2372,20 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQGetInfo: header at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQGetInfo: header at " FORMAT_LPVOID ", "
                       "params at " FORMAT_LPVOID ", level " FORMAT_DWORD "\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
     // Translate parameters, check for errors.
     //
 
-    if ( XsWordParamOutOfRange( parameters->Level, 0, 5 )) {
+    //
+    // Level 52 supported for Win95 clients
+    //
+    if ( XsWordParamOutOfRange( parameters->Level, 0, 5 ) &&
+         (DWORD) SmbGetUshort(&parameters->Level) != 52 ) {
 
         Header->Status = ERROR_INVALID_LEVEL;
         goto cleanup;
@@ -2398,7 +2404,7 @@ Return Value:
     if ( NetapipBufferAllocate( outBufferSize, &outBuffer ) != NERR_Success
              || outBuffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQGetInfo: cannot allocate memory\n" );
+            NetpKdPrint(( "XsNetPrintQGetInfo: cannot allocate memory\n" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -2419,8 +2425,8 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetPrintQGetInfo: DosPrintQGetInfo failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsNetPrintQGetInfo: DosPrintQGetInfo failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -2473,6 +2479,13 @@ Return Value:
         nativeStructureDesc = Desc32_printQ_5;
         StructureDesc = Desc16_printQ_5;
         break;
+
+    case 52:
+
+        nativeStructureDesc = Desc32_printQ_52;
+        StructureDesc = Desc16_printQ_52;
+        break;
+
     }
 
     //
@@ -2507,7 +2520,7 @@ Return Value:
 
         if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetPrintQGetInfo: failed to allocate memory" );
+                NetpKdPrint(( "XsNetPrintQGetInfo: failed to allocate memory" ));
             }
             Header->Status = (WORD)NERR_NoRoom;
             goto cleanup;
@@ -2553,8 +2566,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsDosPrintQGetInfo: RapConvertSingleEntry failed: "
-                          FORMAT_API_STATUS "\n", status );
+            NetpKdPrint(( "XsDosPrintQGetInfo: RapConvertSingleEntry failed: "
+                          FORMAT_API_STATUS "\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -2572,14 +2585,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetPrintQGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQGetInfo: More data available.\n" );
+            NetpKdPrint(( "XsNetPrintQGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -2660,10 +2673,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQPause: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQPause: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->QueueName ));
+                      SmbGetUlong( &parameters->QueueName )));
     }
 
     //
@@ -2686,9 +2699,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQPause: DosPrintQPause failed: "
+            NetpKdPrint(( "XsNetPrintQPause: DosPrintQPause failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -2737,10 +2750,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(PRINT) {
-        NetpDbgPrint( "XsNetPrintQPurge: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
+        NetpKdPrint(( "XsNetPrintQPurge: header at " FORMAT_LPVOID ", params at " FORMAT_LPVOID ", "
                       "name " FORMAT_LPSTR "\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->QueueName ));
+                      SmbGetUlong( &parameters->QueueName )));
     }
 
     //
@@ -2763,9 +2776,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQPurge: DosPrintQPurge failed: "
+            NetpKdPrint(( "XsNetPrintQPurge: DosPrintQPurge failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
     }
 
@@ -2893,9 +2906,9 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQSetInfo: Problem with conversion: "
+            NetpKdPrint(( "XsNetPrintQSetInfo: Problem with conversion: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -2917,9 +2930,9 @@ Return Value:
 
     if ( !XsPrintApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetPrintQSetInfo: DosPrintQSetInfo failed: "
+            NetpKdPrint(( "XsNetPrintQSetInfo: DosPrintQSetInfo failed: "
                     FORMAT_API_STATUS "\n",
-                          status );
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

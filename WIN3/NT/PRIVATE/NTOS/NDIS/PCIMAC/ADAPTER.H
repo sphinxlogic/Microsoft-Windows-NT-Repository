@@ -30,13 +30,18 @@ typedef struct tagDRIVER_BLOCK
 	NDIS_HANDLE			NdisMacHandle;
 	NDIS_HANDLE			NdisWrapperHandle;
 	struct _ADAPTER*	AdapterTbl[MAX_ADAPTERS_IN_SYSTEM];
+	ULONG				InDriverFlag;
+	ULONG				NumberOfAdaptersInSystem;
+	ULONG				NextAdapterToPoll;
+	struct _ADAPTER*	CurrentAdapter;
+	NDIS_SPIN_LOCK		lock;
 } DRIVER_BLOCK;
 
 typedef struct _ADAPTER
 {
-	NDIS_HANDLE		AdapterHandle;
-	ULONG			InDriverFlag;
-	NDIS_SPIN_LOCK	InDriverLock;
+	NDIS_HANDLE		Handle;
+//	ULONG			InDriverFlag;
+//	NDIS_SPIN_LOCK	InDriverLock;
 	CHAR			Name[64];
 	ULONG			BaseIO;
 	PVOID			VBaseIO;
@@ -44,7 +49,8 @@ typedef struct _ADAPTER
 	PVOID			VBaseMem;
 	ULONG			BoardType;
 	ULONG			TapiBaseID;
-//	VOID			*TapiLineInfo[MAX_IDD_PER_ADAPTER];	// 4
+	ULONG			NumberOfIddOnAdapter;
+	ULONG			LastIddPolled;
 	VOID			*TapiLineInfo[MAX_CM_PER_ADAPTER];	// 8
 	VOID			*IddTbl[MAX_IDD_PER_ADAPTER];		// 4
 	VOID			*CmTbl[MAX_CM_PER_ADAPTER];			// 8
@@ -68,9 +74,24 @@ typedef struct _CONFIGPARAM
 VOID	StopTimers(ADAPTER* Adapter);
 VOID	StartTimers(ADAPTER* Adapter);
 
+//VOID
+//SetInDriverFlag(
+//	ADAPTER *Adapter
+//	);
+//
+//VOID
+//ClearInDriverFlag(
+//	ADAPTER *Adapter
+//	);
+//
+//ULONG
+//CheckInDriverFlag(
+//	ADAPTER *Adapter
+//	);
+
 VOID
 SetInDriverFlag(
-	ADAPTER *Adapter
+	ADAPTER	*Adapter
 	);
 
 VOID
@@ -165,6 +186,11 @@ EnumAdaptersInSystem(
 	VOID
 	);
 
+ADAPTER*
+GetNextAdapter(
+	ADAPTER	*Adapter
+	);
+
 VOID
 AdapterDestroy(
 	ADAPTER	*Adapter
@@ -202,4 +228,3 @@ LanOidProc(
 
 
 #endif	/* _ADAPTER_ */
-

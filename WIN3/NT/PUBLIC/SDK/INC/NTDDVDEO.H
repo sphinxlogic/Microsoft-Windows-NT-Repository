@@ -131,6 +131,11 @@ Revision History:
 #define IOCTL_VIDEO_GET_POWER_MANAGEMENT \
     CTL_CODE(FILE_DEVICE_VIDEO, 0x11c, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+#define IOCTL_VIDEO_SHARE_VIDEO_MEMORY \
+    CTL_CODE(FILE_DEVICE_VIDEO, 0x11d, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY \
+    CTL_CODE(FILE_DEVICE_VIDEO, 0x11e, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
 
 //
 // Many of the video ICOTLs are modal. When ever the palette is set, or the
@@ -229,9 +234,9 @@ Revision History:
 
 
 //
-// VIDEO_IOCTL_ENABLE_VDM
-// VIDEO_IOCTL_DISABLE_VDM
-// VIDEO_IOCTL_REGISTER_VDM
+// IOCTL_VIDEO_ENABLE_VDM
+// IOCTL_VIDEO_DISABLE_VDM
+// IOCTL_VIDEO_REGISTER_VDM
 //
 // These IOCTLs are used to enable or disable a VDM's access to the video
 // hardware. This call will cause the real video frame buffer to be mapped
@@ -272,8 +277,8 @@ typedef struct _VIDEO_REGISTER_VDM {
 // These IOCTLs are used by the VDM and the console to communicate state
 // changes between the VDM and the kernel video driver.
 //
-// VIDEO_IOCTL_SAVE_HARDWARE_STATE -
-// VIDEO_IOCTL_RESTORE_HARDWARE_STATE -
+// IOCTL_VIDEO_SAVE_HARDWARE_STATE -
+// IOCTL_VIDEO_RESTORE_HARDWARE_STATE -
 //
 //
 // This structure is at the start of the block used when saving or restoring
@@ -452,7 +457,7 @@ typedef struct _VIDEO_HARDWARE_STATE {
 //
 
 //
-// VIDEO_IOCTL_QUERY_NUM_AVAIL_MODES - Returns number of different modes
+// IOCTL_VIDEO_QUERY_NUM_AVAIL_MODES - Returns number of different modes
 //                                     available on the controller.
 //
 // Information used by this function is passed using the following structure:
@@ -467,11 +472,11 @@ typedef struct _VIDEO_NUM_MODES {
 //NumModes - Returns the number of modes supported by the kernel driver.
 //
 //ModeInformationLength - Length of the VIDEO_MODE_INFORMATION structure
-//    for the VIDEO_IOCTL QUERY_AVAILABLE_MODES IOCTL.
+//    for the IOCTL_VIDEO QUERY_AVAILABLE_MODES IOCTL.
 
 
 //
-// VIDEO_IOCTL_SET_CURRENT_MODE - Is used to set the mode of the controller.
+// IOCTL_VIDEO_SET_CURRENT_MODE - Is used to set the mode of the controller.
 //
 // Information used by this function is passed using the following structure:
 //
@@ -487,13 +492,21 @@ typedef struct _VIDEO_MODE {
                                              // zeroed out simultaneously to
                                              // the set mode operation.
 
+#define VIDEO_MODE_MAP_MEM_LINEAR 0x40000000 // Miniports which support this
+                                             // flag will set a linear mode
+                                             // if possible when this flag
+                                             // is set.  Note: Some miniports
+                                             // may return a linear mode even
+                                             // if this flag is not set.
+
+
 //
 //RequestedMode - Indicates in which mode the adapter should be initialized.
 //
 
 
 //
-// VIDEO_IOCTL_RESET_DEVICE - Is used to reset the mode of the adapter when GDI
+// IOCTL_VIDEO_RESET_DEVICE - Is used to reset the mode of the adapter when GDI
 //                            gives up control of the device to allow a VDM to
 //                            access the hardware. x86 only.
 //                            The default mode should be whatever is the
@@ -505,10 +518,10 @@ typedef struct _VIDEO_MODE {
 
 
 //
-// VIDEO_IOCTL_QUERY_AVAIL_MODES - Returns information about each available
+// IOCTL_VIDEO_QUERY_AVAIL_MODES - Returns information about each available
 //                                 mode on the controller.
 //
-// VIDEO_IOCTL_QUERY_CURRENT_MODE - Returns the information for the current
+// IOCTL_VIDEO_QUERY_CURRENT_MODE - Returns the information for the current
 //                                  controller mode.
 //
 // Information used by this function is passed using the following structure:
@@ -538,24 +551,29 @@ typedef struct _VIDEO_MODE_INFORMATION {
     ULONG AttributeFlags;
     ULONG VideoMemoryBitmapWidth;
     ULONG VideoMemoryBitmapHeight;
+    ULONG DriverSpecificAttributeFlags;
 } VIDEO_MODE_INFORMATION, *PVIDEO_MODE_INFORMATION;
 
 //
 // Bit definitions for Attribute Flags
 //
 
-#define VIDEO_MODE_COLOR           0x0001  // 0 = Mono-compatible, 1 = Color
-#define VIDEO_MODE_GRAPHICS        0x0002  // 0 = Text mode, 1 = Graphics
-#define VIDEO_MODE_PALETTE_DRIVEN  0x0004  // 0 = Colors are direct
-                                           // 1 = Colors are index to a palette
-#define VIDEO_MODE_MANAGED_PALETTE 0x0008  // 0 = Palette is fixed (must be
-                                           //     queried from miniport
-                                           // 1 = Palette is settable.
-#define VIDEO_MODE_INTERLACED      0x0010  // 1 = Mode is interlaced
-                                           // 0 = non-interlaced
-#define VIDEO_MODE_NO_OFF_SCREEN   0x0020  // 1 = Offscreen memory CAN NOT be
-                                           //     used to store information.
-                                           // 0 = Offscreen memory is available
+#define VIDEO_MODE_COLOR            0x0001  // 0 = Mono-compatible, 1 = Color
+#define VIDEO_MODE_GRAPHICS         0x0002  // 0 = Text mode, 1 = Graphics
+#define VIDEO_MODE_PALETTE_DRIVEN   0x0004  // 0 = Colors are direct
+                                            // 1 = Colors are index to a palette
+#define VIDEO_MODE_MANAGED_PALETTE  0x0008  // 0 = Palette is fixed (must be
+                                            //     queried from miniport
+                                            // 1 = Palette is settable.
+#define VIDEO_MODE_INTERLACED       0x0010  // 1 = Mode is interlaced
+                                            // 0 = non-interlaced
+#define VIDEO_MODE_NO_OFF_SCREEN    0x0020  // 1 = Offscreen memory CAN NOT be
+                                            //     used to store information.
+                                            // 0 = Offscreen memory is available
+#define VIDEO_MODE_NO_64_BIT_ACCESS 0x0040  // 1 = 64 bit memory writes to frame
+                                            //     buffer are not handled properly.
+                                            // 0 = 64 bit memory writes to frame
+                                            //     buffer are handled properly.
 
 //
 //Length - Length of the structure in bytes. Also used to do verisioning.
@@ -605,10 +623,13 @@ typedef struct _VIDEO_MODE_INFORMATION {
 //VideoMemoryBitmapHeight - Height of the video memory bitmap.
 //   VisScreenHeight <= VideoMemoryBitmapHeight = VideoRamLength / ScreenStride
 //
+//DriverSpecificAttributeFlags - Flags indicating certain behavior for the
+//   device that are private to the miniport\display driver.
+//
 
 
 //
-// VIDEO_IOCTL_LOAD_AND_SET_FONT - Is used to load a user-defined font.
+// IOCTL_VIDEO_LOAD_AND_SET_FONT - Is used to load a user-defined font.
 //
 // Information used by this function is passed using the following structure:
 //
@@ -632,7 +653,7 @@ typedef struct _VIDEO_LOAD_FONT_INFORMATION {
 
 
 //
-// VIDEO_IOCTL_SET_PALETTE_REGISTERS - Takes buffer containing
+// IOCTL_VIDEO_SET_PALETTE_REGISTERS - Takes buffer containing
 //                                     VIDEO_PALETTE_DATA where Colors[]
 //                                     specifies the array containing the
 //                                     color values for the palette registers.
@@ -660,7 +681,7 @@ typedef struct _VIDEO_PALETTE_DATA {
 //
 
 //
-// VIDEO_IOCTL_SET_COLOR_REGISTERS - Takes buffer containing VIDEO_CLUT.
+// IOCTL_VIDEO_SET_COLOR_REGISTERS - Takes buffer containing VIDEO_CLUT.
 //
 // Information used by this function is passed using the following structure:
 //
@@ -712,10 +733,10 @@ typedef struct {
 //
 
 //
-// VIDEO_IOCTL_QUERY_CURSOR_POSITION - Returns the location of the cursor on
+// IOCTL_VIDEO_QUERY_CURSOR_POSITION - Returns the location of the cursor on
 //                                     the screen.
 //
-// VIDEO_IOCTL_SET_CURSOR_POSITION - Is used to set the location of the
+// IOCTL_VIDEO_SET_CURSOR_POSITION - Is used to set the location of the
 //                                   cursor on the screen.
 //
 // Information used by this function is passed using the following structure:
@@ -734,9 +755,9 @@ typedef struct _VIDEO_CURSOR_POSITION {
 
 
 //
-// VIDEO_IOCTL_QUERY_CURSOR_ATTR - Returns all attributes of the cursor.
+// IOCTL_VIDEO_QUERY_CURSOR_ATTR - Returns all attributes of the cursor.
 //
-// VIDEO_IOCTL_SET_CURSOR_ATTR - Is used to set the attributes of the cursor.
+// IOCTL_VIDEO_SET_CURSOR_ATTR - Is used to set the attributes of the cursor.
 //
 // Information used by this function is passed using the following structure:
 //
@@ -771,10 +792,10 @@ typedef struct _VIDEO_CURSOR_ATTRIBUTES {
 //
 
 //
-// VIDEO_IOCTL_QUERY_POINTER_POSITION - Returns the location of the pointer
+// IOCTL_VIDEO_QUERY_POINTER_POSITION - Returns the location of the pointer
 //                                      on the screen
 //
-// VIDEO_IOCTL_SET_POINTER_POSITION - Is used to set the location of the
+// IOCTL_VIDEO_SET_POINTER_POSITION - Is used to set the location of the
 //                                    pointer on the screen.
 //
 // Information used by this function is passed using the following structure:
@@ -793,9 +814,9 @@ typedef struct _VIDEO_POINTER_POSITION {
 
 
 //
-// VIDEO_IOCTL_QUERY_POINTER_ATTR - Returns all attributes of the pointer.
+// IOCTL_VIDEO_QUERY_POINTER_ATTR - Returns all attributes of the pointer.
 //
-// VIDEO_IOCTL_SET_POINTER_ATTR - Is used to set the attributes of the
+// IOCTL_VIDEO_SET_POINTER_ATTR - Is used to set the attributes of the
 //                                pointer.
 //
 // Information used by this function is passed using the following structure:
@@ -833,7 +854,7 @@ typedef struct _VIDEO_POINTER_ATTRIBUTES {
 
 
 //
-// VIDEO_IOCTL_QUERY_POINTER_CAPABILITIES - Returns capabilities of miniport
+// IOCTL_VIDEO_QUERY_POINTER_CAPABILITIES - Returns capabilities of miniport
 //                                          hardware cursor
 //
 
@@ -881,7 +902,7 @@ typedef struct _VIDEO_POINTER_CAPABILITIES {
 
 
 //
-// VIDEO_IOCTL_GET_BANK_SELECT_CODE - Called by the Windows display driver
+// IOCTL_VIDEO_GET_BANK_SELECT_CODE - Called by the Windows display driver
 //                                    to get a block of executable code used
 //                                    to perform bank-switching in high
 //                                    resolution SVGA drivers.
@@ -893,7 +914,7 @@ typedef struct _VIDEO_POINTER_CAPABILITIES {
 
 //
 // The input from the caller in the input buffer is a VIDEO_MODE structure, as
-// described under VIDEO_IOCTL_SET_CURRENT_MODE.
+// described under IOCTL_VIDEO_SET_CURRENT_MODE.
 //
 // RequestedMode - mode index for which banking information is desired.
 //
@@ -1051,7 +1072,7 @@ typedef enum _VIDEO_BANK_TYPE {
 //
 //    Input:
 //      EAX = bank number to which to map window #0
-//      EBX = bank number to which to map window #1
+//      EDX = bank number to which to map window #1
 //      interpreted according to BankingType as follows:
 //        VideoBanked1RW - the single window is mapped to bank EAX,
 //            EBX is ignored.
@@ -1073,9 +1094,9 @@ typedef enum _VIDEO_BANK_TYPE {
 
 
 //
-// VIDEO_IOCTL_MAP_VIDEO_MEMORY - Maps the frame buffer into the callers
+// IOCTL_VIDEO_MAP_VIDEO_MEMORY - Maps the frame buffer into the callers
 //                                address space.
-// VIDEO_IOCTL_UNMAP_VIDEO_MEMORY - Unmaps the frame buffer from the callers
+// IOCTL_VIDEO_UNMAP_VIDEO_MEMORY - Unmaps the frame buffer from the callers
 //                                  address space.
 //
 // Information used by this function is passed using the following structure:
@@ -1093,8 +1114,31 @@ typedef struct _VIDEO_MEMORY {
 //    change (you can not add video memory dynamically!).
 //
 
+// IOCTL_VIDEO_SHARE_VIDEO_MEMORY - Maps the frame buffer to another process'
+//                                  address space.  This IOCTL is initally
+//                                  defined to support DCI.
+// IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY - Unmaps a previously shared buffer.
 //
-// VIDEO_IOCTL_MAP_VIDEO_MEMORY - Returns the virtual address and size of
+// Note: for the MAP_VIDEO_MEMORY_IOCTL, the process handle is passed in
+// the VirtualAddress filed, while for this IOCTL the handle is explicit.
+//
+
+typedef struct _VIDEO_SHARE_MEMORY {
+    HANDLE ProcessHandle;
+    ULONG ViewOffset;
+    ULONG ViewSize;
+    PVOID RequestedVirtualAddress;
+} VIDEO_SHARE_MEMORY, *PVIDEO_SHARE_MEMORY;
+
+typedef struct _VIDEO_SHARE_MEMORY_INFORMATION {
+    ULONG SharedViewOffset;
+    ULONG SharedViewSize;
+    PVOID VirtualAddress;
+} VIDEO_SHARE_MEMORY_INFORMATION, *PVIDEO_SHARE_MEMORY_INFORMATION;
+
+
+//
+// IOCTL_VIDEO_MAP_VIDEO_MEMORY - Returns the virtual address and size of
 //                                the frame buffer and video memory in the
 //                                caller's address space.
 //                                This IOCTL must be called after a call
@@ -1276,3 +1320,4 @@ typedef struct _VIDEO_POWER_MANAGEMENT {
 // to the miniport will be intercepted by the port driver and will return
 // failiure, until the power on the device has been turned back on.
 //
+

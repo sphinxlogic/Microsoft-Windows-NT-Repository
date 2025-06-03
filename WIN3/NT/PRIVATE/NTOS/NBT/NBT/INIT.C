@@ -33,9 +33,15 @@ ReadLmHostFile(
 //*******************  Pageable Routine Declarations ****************
 #ifdef ALLOC_PRAGMA
 #pragma CTEMakePageable(INIT, InitNotOs)
+#ifdef _PNP_POWER
+#pragma CTEMakePageable(PAGE, InitTimersNotOs)
+#pragma CTEMakePageable(PAGE, StopInitTimers)
+#else //  _PNP_POWER
 #pragma CTEMakePageable(INIT, InitTimersNotOs)
 #pragma CTEMakePageable(INIT, StopInitTimers)
+#endif //  _PNP_POWER
 #pragma CTEMakePageable(PAGE, ReadParameters)
+#pragma CTEMakePageable(PAGE, ReadParameters2)
 #pragma CTEMakePageable(PAGE, ReadScope)
 #pragma CTEMakePageable(PAGE, ReadLmHostFile)
 #endif
@@ -91,8 +97,16 @@ Return Value:
 
     InitializeListHead(&pNbtGlobConfig->DeviceContexts);
 
+#ifndef _IO_DELETE_DEVICE_SUPPORTED
+    InitializeListHead(&pNbtGlobConfig->FreeDevCtx);
+#endif
+
     InitializeListHead(&NbtConfig.AddressHead);
     InitializeListHead(&NbtConfig.PendingNameQueries);
+
+#ifdef VXD
+    InitializeListHead(&NbtConfig.DNSDirectNameQueries);
+#endif
 
     // initialize the spin lock
     CTEInitLock(&pNbtGlobConfig->SpinLock);
@@ -149,9 +163,9 @@ Return Value:
         // Setup the default disconnect timeout - 10 seconds - convert
         // to negative 100 Ns.
         //
-        DefaultDisconnectTimeout = RtlEnlargedIntegerMultiply(DEFAULT_DISC_TIMEOUT,
-                                                              MILLISEC_TO_100NS);
-        DefaultDisconnectTimeout = RtlLargeIntegerNegate(DefaultDisconnectTimeout);
+        DefaultDisconnectTimeout.QuadPart = Int32x32To64(DEFAULT_DISC_TIMEOUT,
+                                                          MILLISEC_TO_100NS);
+        DefaultDisconnectTimeout.QuadPart = -(DefaultDisconnectTimeout.QuadPart);
     }
 
 #else
@@ -211,13 +225,6 @@ Return Value:
     if ( !NT_SUCCESS( status ) )
         return status ;
 
-#if 0
-    // create various memory strutures associated with the tracker structures
-    status = NbtAllocMemForTrackers(&NbtConfig.DgramTrackerFreeQ);
-
-    if ( !NT_SUCCESS( status ) )
-        return status ;
-#endif
 
     CTEZeroMemory(&LmHostQueries,sizeof(tLMHOST_QUERIES));
     InitializeListHead(&DomainNames.DomainList);
@@ -245,10 +252,15 @@ Return Value:
         //
         CTEZeroMemory(&DnsQueries,sizeof(tDNS_QUERIES));
 
-        ExInitializeResource(&DnsQueries.Resource);
-
         InitializeListHead(&DnsQueries.ToResolve);
-#endif
+
+        //
+        // this resource is used to synchronize access to the Dns structure
+        //
+        CTEZeroMemory(&CheckAddr,sizeof(tCHECK_ADDR));
+
+        InitializeListHead(&CheckAddr.ToResolve);
+#endif // VXD
 
     return status ;
 }
@@ -461,6 +473,18 @@ Return Value:
                                                      WS_DNS_PORT_NUM,
                                                      NBT_DNSSERVER_UDP_PORT,
                                                      0);
+
+    pConfig->lRegistryMaxNames = (USHORT)CTEReadSingleIntParameter( NULL,
+                                       VXD_NAMETABLE_SIZE_NAME,
+                                       VXD_DEF_NAMETABLE_SIZE,
+                                       VXD_MIN_NAMETABLE_SIZE ) ;
+
+    pConfig->lRegistryMaxSessions = (USHORT)CTEReadSingleIntParameter( NULL,
+                                       VXD_SESSIONTABLE_SIZE_NAME,
+                                       VXD_DEF_SESSIONTABLE_SIZE,
+                                       VXD_MIN_SESSIONTABLE_SIZE ) ;
+
+
 #endif
 
     pConfig->RemoteHashTimeout =  CTEReadSingleIntParameter(ParmHandle,
@@ -512,6 +536,10 @@ Return Value:
                                                WS_ENABLE_DNS,
                                                0,
                                                0);
+    pConfig->TryAllAddr =  (BOOLEAN)CTEReadSingleIntParameter(ParmHandle,
+                                               WS_TRY_ALL_ADDRS,
+                                               1,
+                                               1);  // enabled by default
     pConfig->LmHostsTimeout =  CTEReadSingleIntParameter(ParmHandle,
                                                WS_LMHOSTS_TIMEOUT,
                                                DEFAULT_LMHOST_TIMEOUT,
@@ -530,6 +558,28 @@ Return Value:
                                                WS_WINS_DOWN_TIMEOUT,
                                                DEFAULT_WINS_DOWN_TIMEOUT,
                                                MIN_WINS_DOWN_TIMEOUT);
+
+    pConfig->MaxBackLog =  (ULONG)CTEReadSingleIntParameter(ParmHandle,
+                                               WS_MAX_CONNECTION_BACKLOG,
+                                               DEFAULT_CONN_BACKLOG,
+                                               MIN_CONN_BACKLOG);
+
+    pConfig->SpecialConnIncrement =  (ULONG)CTEReadSingleIntParameter(ParmHandle,
+                                                           WS_CONNECTION_BACKLOG_INCREMENT,
+                                                           DEFAULT_CONN_BACKLOG_INCREMENT,
+                                                           MIN_CONN_BACKLOG_INCREMENT);
+
+    //
+    // Cap the upper limit
+    //
+    if (pConfig->MaxBackLog > MAX_CONNECTION_BACKLOG) {
+        pConfig->MaxBackLog = MAX_CONNECTION_BACKLOG;
+    }
+
+    if (pConfig->SpecialConnIncrement > MAX_CONNECTION_BACKLOG_INCREMENT) {
+        pConfig->SpecialConnIncrement = MAX_CONNECTION_BACKLOG_INCREMENT;
+    }
+
 
     //
     // Since UB chose the wrong opcode (9) we have to allow configuration
@@ -683,8 +733,8 @@ Return Value:
     ULONG           ReadOne;
     ULONG           ReadTwo;
 
-
     CTEPagedCode();
+
     Node = CTEReadSingleIntParameter(ParmHandle,     // handle of key to look under
                                      WS_NODE_TYPE,   // wide string name
                                      0,              // default value
@@ -805,7 +855,7 @@ Return Value:
         //
         if (Len <= MAX_SCOPE_LENGTH)
         {
-            pScope = CTEAllocInitMem((USHORT)(Len+2));
+            pScope = CTEAllocInitMem(Len+2);
             if (pScope)
             {
                 CTEMemCopy((pScope+1),pBuffer,Len);
@@ -979,12 +1029,9 @@ Return Value:
         NbtConfig.pLmHosts = NULL;
         NbtConfig.PathLength = 0;
     }
-#if 0
-    status = PreloadEntries();
-#endif
 }
 #ifdef VXD
 #pragma END_INIT
 #endif
 
-
+

@@ -92,6 +92,7 @@
 #define FUN_GETTEMPDRIVE        92  //
 #define FUN_GETTEMPFILENAME     97  //
 #define FUN_GETVERSION          3   //
+#define FUN_GETVERSIONEX        149 //
 #define FUN_GETWINDOWSDIRECTORY     134 //
 #define FUN_GETWINFLAGS         132 //
 #define FUN_GLOBALALLOC         15  //
@@ -163,6 +164,10 @@
 #define FUN_POSTEVENT           31  // Internal
 #define FUN_PRESTOCHANGOSELECTOR    177 // Internal
 #define FUN_REGISTERPTRACE      202 // Internal
+#define FUN_REGENUMKEY32        216
+#define FUN_REGOPENKEY32        217
+#define FUN_REGCLOSEKEY32       220
+#define FUN_REGENUMVALUE32      223
 #define FUN_REPLACEINST         201 // Internal
 #define FUN_RESERVED1           77  // ANSINEXT
 #define FUN_RESERVED2           78  // ANSIPREV
@@ -217,15 +222,15 @@
 #define FUN___WINFLAGS          178 // No proto
 
 //  private kernel thunks
-#define FUN_WOWKILLPROCESS      215 // internal
-#define FUN_WOWINITTASK         216 // internal
-#define FUN_WOWKILLTASK         217 // internal
+#define FUN_WOWSHOULDWESAYWIN95 215 // internal
+#define FUN_WOWINITTASK         287 // internal
+#define FUN_WOWKILLTASK         288 // internal
 #define FUN_WOWFREERESOURCE     218 // internal
 #define FUN_WOWFILEREAD         219 // internal
-#define FUN_WOWFILEWRITE        220 // internal
+#define FUN_WOWFILEWRITE        290 // internal
 #define FUN_WOWFILELSEEK        221 // internal
 #define FUN_WOWKERNELTRACE      222 // internal
-#define FUN_WOWGETNEXTVDMCOMMAND    223 // internal
+#define FUN_WOWGETNEXTVDMCOMMAND    293 // internal
 #define FUN_WOWREGISTERSHELLWINDOWHANDLE 224 // internal
 #define FUN_WOWLOADMODULE       225 // internal
 #define FUN_WOWQUERYPERFORMANCECOUNTER  226 // internal
@@ -234,12 +239,12 @@
 #define FUN_WOWFAILEDEXEC   229 // internal
 #define FUN_WOWGETFASTADDRESS   230 // internal
 #define FUN_WOWCLOSECOMPORT     231 // internal
-#define FUN_WOWDELFILE		232 // internal
-#define FUN_VIRTUALALLOC	233 // internal
-#define FUN_VIRTUALFREE 	234 // internal
-#define FUN_VIRTUALLOCK 	235 // internal
-#define FUN_VIRTUALUNLOCK	236 // internal
-#define FUN_GLOBALMEMORYSTATUS	237 // internal
+#define FUN_WOWDELFILE          232 // internal
+#define FUN_VIRTUALALLOC        233 // internal
+#define FUN_VIRTUALFREE         234 // internal
+#define FUN_VIRTUALLOCK         235 // internal
+#define FUN_VIRTUALUNLOCK       236 // internal
+#define FUN_GLOBALMEMORYSTATUS  237 // internal
 #define FUN_WOWGETFASTCBRETADDRESS  238 // internal
 #define FUN_WOWGETTABLEOFFSETS  239     // internal
 #define FUN_WOWKILLREMOTETASK   240 // internal
@@ -249,15 +254,15 @@
 #define FUN_WOWSETIDLEHOOK      244 // internal: set the hook for system idle detection
 #define FUN_KSYSERRORBOX        245 // Internal
 #define FUN_WOWISKNOWNDLL       246 // internal
-#define FUN_WOWDDEFREEHANDLE	247 // internal
+#define FUN_WOWDDEFREEHANDLE    247 // internal
 #define FUN_WOWFILEGETATTRIBUTES    248 // internal
 #define FUN_WOWFILEGETDATETIME      249 // internal
 #define FUN_WOWFILELOCK         250 // internal
-#define FUN_LOADLIBRARYEX32W	251 //
-#define FUN_FREELIBRARY32W	252 //
-#define FUN_GETPROCADDRESS32W	253 //
-#define FUN_GETVDMPOINTER32W	254 //
-#define FUN_ICALLPROC32W	255 //
+#define FUN_LOADLIBRARYEX32W    251 //
+#define FUN_FREELIBRARY32W      252 //
+#define FUN_GETPROCADDRESS32W   253 //
+#define FUN_GETVDMPOINTER32W    254 //
+#define FUN_ICALLPROC32W        255 //
 
 #define FUN_EXITWINDOWSEXECCONTINUE 256 // To continue ExitWindowsExec in USER
 
@@ -270,13 +275,17 @@
 #define FUN_WOWMSGBOX                 263 // internal
 #define FUN_WOWGETFLATADDRESSARRAY    264 // internal
 #define FUN_WOWGETCURRENTDATE         265 // internal
-#define FUN_WOWGETCURRENTTIME         266 // internal
+
 #define FUN_WOWDEVICEIOCTL            267 // internal
 #define FUN_WOWFILESETATTRIBUTES      268 // internal
 #define FUN_WOWFILESETDATETIME        269 // internal
 #define FUN_WOWFILECREATE             270 // internal
 #define FUN_WOWDOSWOWINIT             271 // internal
 #define FUN_WOWCHECKUSERGDI           272 // internal
+#define FUN_WOWPARTYBYNUMBER          273 // internal
+#define FUN_GETSHORTPATHNAME          274
+#define FUN_FINDANDRELEASEDIB         275 // internal
+#define FUN_WOWRESERVEHTASK           276 // internal
 
 /* XLATOFF */
 #pragma pack(2)
@@ -325,6 +334,11 @@ typedef struct _DELETEATOM16 {          /* k71 */
     ATOM f1;
 } DELETEATOM16;
 typedef DELETEATOM16 UNALIGNED *PDELETEATOM16;
+
+typedef struct _EXITKERNEL16 {        /* k2 */
+    WORD wExitCode;
+} EXITKERNEL16;
+typedef EXITKERNEL16 UNALIGNED *PEXITKERNEL16;
 
 typedef struct _FATALEXIT16 {           /* k1 */
     SHORT f1;
@@ -433,10 +447,10 @@ typedef struct _GETMODULEFILENAME16 {       /* k49 */
 } GETMODULEFILENAME16;
 typedef GETMODULEFILENAME16 UNALIGNED *PGETMODULEFILENAME16;
 
-typedef struct _GETMODULEHANDLE16 {     /* k47 */
-    VPSTR f1;
-} GETMODULEHANDLE16;
-typedef GETMODULEHANDLE16 UNALIGNED *PGETMODULEHANDLE16;
+typedef struct _WOWGETMODULEHANDLE16 {     /* k47 */
+    VPSTR lpszModuleName;
+} WOWGETMODULEHANDLE16;
+typedef WOWGETMODULEHANDLE16 UNALIGNED *PWOWGETMODULEHANDLE16;
 
 typedef struct _GETMODULEUSAGE16 {      /* k48 */
     HAND16 f1;
@@ -459,7 +473,7 @@ typedef GETPRIVATEPROFILEINT16 UNALIGNED *PGETPRIVATEPROFILEINT16;
 
 typedef struct _GETPRIVATEPROFILESTRING16 { /* k128 */
     VPSTR f6;
-    SHORT f5;
+    USHORT f5;
     VPSTR f4;
     VPSTR f3;
     VPSTR f2;
@@ -481,7 +495,7 @@ typedef struct _GETPROFILEINT16 {       /* k57 */
 typedef GETPROFILEINT16 UNALIGNED *PGETPROFILEINT16;
 
 typedef struct _GETPROFILESTRING16 {        /* k58 */
-    SHORT f5;
+    USHORT f5;
     VPSTR f4;
     VPSTR f3;
     VPSTR f2;
@@ -513,6 +527,11 @@ typedef struct _GETVERSION16 {          /* k3 */
 } GETVERSION16;
 typedef GETVERSION16 UNALIGNED *PGETVERSION16;
 #endif
+
+typedef struct _GETVERSIONEX16 {          /* k149 */
+    VPVOID lpVersionInfo;
+} GETVERSIONEX16;
+typedef GETVERSIONEX16 UNALIGNED *PGETVERSIONEX16;
 
 typedef struct _GETWINDOWSDIRECTORY16 {     /* k134 */
     WORD f2;
@@ -911,7 +930,7 @@ typedef struct _FILEIOREAD16 {      /* K211 */
 } FILEIOREAD16;
 typedef FILEIOREAD16 UNALIGNED *PFILEIOREAD16;
 
-typedef struct _FILEIOWRITE16 {     /* K212 */
+typedef struct _FILEIOWRITE16 {     /* K290 */
     DWORD lpSFT;
     DWORD lpPDB;
     DWORD  bufsize;
@@ -936,21 +955,22 @@ typedef struct _KERNELTRACE16 {     /* K214 */
 } KERNELTRACE16;
 typedef KERNELTRACE16 UNALIGNED *PKERNELTRACE16;
 
-typedef struct _WOWGETNEXTVDMCOMMAND16 {    /* k503 */
+typedef struct _WOWGETNEXTVDMCOMMAND16 {    /* k293 */
     VPVOID  lpWowInfo;
 } WOWGETNEXTVDMCOMMAND16;
 typedef WOWGETNEXTVDMCOMMAND16 UNALIGNED *PWOWGETNEXTVDMCOMMAND16;
 
 typedef struct _WOWREGISTERSHELLWINDOWHANDLE16 {        /* k504 */
+    HWND16 hwndFax;
     VPWORD lpwCmdShow;
     HWND16 hwndShell;
 } WOWREGISTERSHELLWINDOWHANDLE16;
 typedef WOWREGISTERSHELLWINDOWHANDLE16 UNALIGNED *PWOWREGISTERSHELLWINDOWHANDLE16;
 
 typedef struct _WOWLOADMODULE16 {          /* k505 */
-    HWND16 hwndWinOldAp;
+    VPSTR  lpWinOldAppCmd;
     VPVOID lpParameterBlock;
-    VPSTR lpModuleName;
+    VPSTR  lpModuleName;
 } WOWLOADMODULE16;
 typedef WOWLOADMODULE16 UNALIGNED *PWOWLOADMODULE16;
 
@@ -967,7 +987,7 @@ typedef struct _WOWCURSORICONOP16 {      /* K507 */
 typedef WOWCURSORICONOP16 UNALIGNED *PWOWCURSORICONOP16;
 
 
-typedef struct _WOWINITTASK16 {     /* K216 */
+typedef struct _WOWINITTASK16 {     /* K287 */
     DWORD dwExpWinVer;
 } WOWINITTASK16;
 typedef WOWINITTASK16 UNALIGNED *PWOWINITTASK16;
@@ -1012,7 +1032,7 @@ typedef struct _WOWCLOSECOMPORT16 {           /* k509 */
 } WOWCLOSECOMPORT16;
 typedef WOWCLOSECOMPORT16 UNALIGNED *PWOWCLOSECOMPORT16;
 
-typedef struct _WOWDELFILE16 {		/* k510 */
+typedef struct _WOWDELFILE16 {          /* k510 */
     VPSTR lpFile;
 } WOWDELFILE16;
 typedef WOWDELFILE16 UNALIGNED *PWOWDELFILE16;
@@ -1056,7 +1076,7 @@ typedef struct _FILEIOLOCK16 { /* k250 */
 } FILEIOLOCK16;
 typedef FILEIOLOCK16 UNALIGNED *PFILEIOLOCK16;
 
-typedef struct _VIRTUALALLOC16 {	  /* i1 */
+typedef struct _VIRTUALALLOC16 {          /* i1 */
     DWORD fdwProtect;
     DWORD fdwAllocationType;
     DWORD cbSize;
@@ -1064,26 +1084,26 @@ typedef struct _VIRTUALALLOC16 {	  /* i1 */
 } VIRTUALALLOC16;
 typedef VIRTUALALLOC16 UNALIGNED *PVIRTUALALLOC16;
 
-typedef struct _VIRTUALFREE16 { 	 /* i2 */
+typedef struct _VIRTUALFREE16 {          /* i2 */
     DWORD fdwFreeType;
     DWORD cbSize;
     DWORD lpvAddress;
 } VIRTUALFREE16;
 typedef VIRTUALFREE16 UNALIGNED *PVIRTUALFREE16;
 
-typedef struct _VIRTUALLOCK16 { 	 /* i3 */
+typedef struct _VIRTUALLOCK16 {          /* i3 */
     DWORD cbSize;
     DWORD lpvAddress;
 } VIRTUALLOCK16;
 typedef VIRTUALLOCK16 UNALIGNED *PVIRTUALLOCK16;
 
-typedef struct _VIRTUALUNLOCK16 {	   /* i4 */
+typedef struct _VIRTUALUNLOCK16 {          /* i4 */
     DWORD cbSize;
     DWORD lpvAddress;
 } VIRTUALUNLOCK16;
 typedef VIRTUALUNLOCK16 UNALIGNED *PVIRTUALUNLOCK16;
 
-typedef struct _GLOBALMEMORYSTATUS16 {		/* i5 */
+typedef struct _GLOBALMEMORYSTATUS16 {          /* i5 */
     VPVOID lpmstMemStat;
 } GLOBALMEMORYSTATUS16;
 typedef GLOBALMEMORYSTATUS16 UNALIGNED *PGLOBALMEMORYSTATUS16;
@@ -1129,7 +1149,7 @@ typedef struct _WOWISKNOWNDLL16 {       /* k246 */
     VPVOID lpszPath;
 } WOWISKNOWNDLL16;
 
-typedef struct _LOADLIBRARYEX32 {	/* k248 */
+typedef struct _LOADLIBRARYEX32 {       /* k248 */
     DWORD  dwFlags;
     DWORD  hFile;
     VPVOID lpszLibFile;
@@ -1142,20 +1162,20 @@ typedef struct _FREELIBRARY32 {       /* k249 */
 typedef FREELIBRARY32 UNALIGNED *PFREELIBRARY32;
 
 
-typedef struct _GETPROCADDRESS32 {	 /* k250 */
+typedef struct _GETPROCADDRESS32 {       /* k250 */
     VPVOID lpszProc;
     DWORD  hModule;
 } GETPROCADDRESS32;
 typedef GETPROCADDRESS32 UNALIGNED *PGETPROCADDRESS32;
 
-typedef struct _GETVDMPOINTER32 {	/* k251 */
+typedef struct _GETVDMPOINTER32 {       /* k251 */
     SHORT  fMode;
     VPVOID lpAddress;
 } GETVDMPOINTER32;
 typedef GETVDMPOINTER32 UNALIGNED *PGETVDMPOINTER32;
 
 
-typedef struct _ICALLPROC32 {	    /* k252 */
+typedef struct _ICALLPROC32 {       /* k252 */
     WORD  rbp;
     DWORD retaddr;
     DWORD cParams;
@@ -1281,6 +1301,69 @@ typedef struct _WOWCHECKUSERGDI16 {      /* k272 */
     WORD  pszPathSegment;
 } WOWCHECKUSERGDI16;
 typedef WOWCHECKUSERGDI16 UNALIGNED *PWOWCHECKUSERGDI16;
+
+typedef struct _WOWPARTYBYNUMBER16 {       /* k273 */
+    VPSZ  psz;
+    DWORD dw;
+} WOWPARTYBYNUMBER16;
+typedef WOWPARTYBYNUMBER16 UNALIGNED *PWOWPARTYBYNUMBER16;
+
+typedef struct _WOWSHOULDWESAYWIN9516 {       /* k215 */
+    WORD  wCallerDS;
+    VPSZ  pszFilename;
+} WOWSHOULDWESAYWIN9516;
+typedef WOWSHOULDWESAYWIN9516 UNALIGNED *PWOWSHOULDWESAYWIN9516;
+
+typedef struct _GETSHORTPATHNAME16 {       /* k274 */
+    WORD  cchShortPath;
+    VPSZ  pszShortPath;
+    VPSZ  pszLongPath;
+} GETSHORTPATHNAME16;
+typedef GETSHORTPATHNAME16 UNALIGNED *PGETSHORTPATHNAME16;
+
+typedef struct _FINDANDRELEASEDIB16 {      /* k275 */
+	WORD wFunId;
+	HAND16 hdib;     /* handle which we are messing with */
+} FINDANDRELEASEDIB16;
+typedef FINDANDRELEASEDIB16 UNALIGNED *PFINDANDRELEASEDIB16;
+
+
+typedef struct _WOWRESERVEHTASK16 {       /* k276 */
+    WORD  htask;
+} WOWRESERVEHTASK16;
+typedef WOWRESERVEHTASK16 UNALIGNED *PWOWRESERVEHTASK16;
+
+typedef struct _REGENUMKEY3216 {           /* k216 */
+    DWORD  cchName;
+    VPSTR  lpszName;
+    DWORD  iSubKey;
+    DWORD  hKey;
+} REGENUMKEY3216;
+typedef REGENUMKEY3216 UNALIGNED *PREGENUMKEY3216;
+
+typedef struct _REGOPENKEY3216 {           /* k217 */
+    VPVOID  phkResult;
+    VPSTR   lpszSubKey;
+    DWORD   hKey;
+} REGOPENKEY3216;
+typedef REGOPENKEY3216 UNALIGNED *PREGOPENKEY3216;
+
+typedef struct _REGCLOSEKEY3216 {          /* k220 */
+    DWORD  hKey;
+} REGCLOSEKEY3216;
+typedef REGCLOSEKEY3216 UNALIGNED *PREGCLOSEKEY3216;
+
+typedef struct _REGENUMVALUE3216 {         /* k223 */
+    VPVOID lpcbData;
+    VPVOID lpbData;
+    DWORD  lpdwType;
+    DWORD  lpdwReserved;
+    DWORD  lpcchValue;
+    VPSTR  lpszValue;
+    DWORD  iValue;
+    DWORD  hKey;
+} REGENUMVALUE3216;
+typedef REGENUMVALUE3216 UNALIGNED *PREGENUMVALUE3216;
 
 /* XLATOFF */
 #pragma pack()

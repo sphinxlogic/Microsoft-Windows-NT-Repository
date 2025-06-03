@@ -19,5 +19,7 @@ Revision History:
 
 --*/
 
+#include <precomp.hxx>
 #define RPC_CLIENT_SIDE_ONLY
 #include <dcecmmn.cxx>
+

@@ -102,4 +102,4 @@ Revision History:
 #define IW      (INOUT+IO+BW)           // input word
 #define IWM     (INOUT+IO+BW+MULTI)     // input multiple words
 
-
+

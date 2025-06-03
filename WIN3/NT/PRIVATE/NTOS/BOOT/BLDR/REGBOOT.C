@@ -30,20 +30,22 @@ CMHIVE BootHive;
 ULONG CmLogLevel=100;
 ULONG CmLogSelect=0;
 
+ULONG ScreenWidth=80;
+ULONG ScreenHeight=25;
+
+ULONG LkgStartTime;
+
 
 //
 // defines for doing console I/O
 //
 #define ASCII_CR 0x0d
 #define ASCII_LF 0x0a
-#define CSI 0x9B
 #define ESC 0x1B
 #define SGR_INVERSE 7
 #define SGR_INTENSE 1
 #define SGR_NORMAL 0
 
-
-PCHAR MenuOptions[MENU_OPTIONS];
 
 //
 // Private function prototypes
@@ -54,6 +56,11 @@ BlInitializeHive(
     IN PVOID HiveImage,
     IN PCMHIVE Hive,
     IN BOOLEAN IsAlternate
+    );
+
+BOOLEAN
+BlpCheckRestartSetup(
+    VOID
     );
 
 PVOID
@@ -72,7 +79,12 @@ BlpClearScreen(
     );
 
 VOID
-BlpClearToEndOfScreen(
+BlClearToEndOfScreen(
+    VOID
+    );
+
+VOID
+BlpClearToEndOfLine(
     VOID
     );
 
@@ -88,8 +100,8 @@ BlpSetInverseMode(
     );
 
 
-BOOLEAN
-BlCheckBreakInKey(
+VOID
+BlStartConfigPrompt(
     VOID
     )
 
@@ -97,8 +109,52 @@ BlCheckBreakInKey(
 
 Routine Description:
 
-    This routine checks to see if the spacebar has been pressed.  It gives
-    the user a little over one second to press the spacebar.
+    This routine displays the LKG prompt, records the current time,
+    and returns. The prompt is displayed before the kernel and HAL
+    are loaded, and then removed afterwards.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    ULONG Count;
+    PCHAR LkgPrompt;
+
+    LkgPrompt = BlFindMessage(BL_LKG_MENU_PROMPT);
+    if (LkgPrompt==NULL) {
+        return;
+    }
+    //
+    // display LKG prompt
+    //
+    BlpPositionCursor(1,3);
+    ArcWrite(BlConsoleOutDeviceId,
+             LkgPrompt,
+             strlen(LkgPrompt),
+             &Count);
+    BlpPositionCursor(1,2);
+    LkgStartTime = ArcGetRelativeTime();
+}
+
+
+BOOLEAN
+BlEndConfigPrompt(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine waits until the LKG timeout has expired or the
+    user presses a key and then removes the LKG prompt.
 
 Arguments:
 
@@ -111,74 +167,169 @@ Return Value:
     FALSE - Space bar was not pressed.
 
 --*/
-
 {
-    ULONG StartTime;
     ULONG EndTime;
-    UCHAR Key=0;
     ULONG Count;
-    PCHAR LkgPrompt;
+    UCHAR Key;
+    ULONG Status;
 
-    LkgPrompt = BlFindMessage(BL_LKG_MENU_PROMPT);
-    if (LkgPrompt==NULL) {
-        return(FALSE);
+    EndTime = LkgStartTime + 3;
+    if (EndTime <= ArcGetRelativeTime()) {
+        EndTime = ArcGetRelativeTime()+1;
     }
-    //
-    // display LKG prompt
-    //
-    BlpPositionCursor(1,2);
-    ArcWrite(BlConsoleOutDeviceId,
-             LkgPrompt,
-             strlen(LkgPrompt),
-             &Count);
-    StartTime = ArcGetRelativeTime();
-    EndTime = StartTime + 3;
+
     do {
-        if (ArcGetReadStatus(BlConsoleInDeviceId) == ESUCCESS) {
+        if ((Status = ArcGetReadStatus(ARC_CONSOLE_INPUT)) == ESUCCESS) {
             //
             // There is a key pending, so see if it's the spacebar.
             //
-            ArcRead(BlConsoleInDeviceId,
+            ArcRead(ARC_CONSOLE_INPUT,
                     &Key,
                     sizeof(Key),
                     &Count);
+            if (Key == ' ') {
+                return(TRUE);
+            }
         }
-
-    } while ( (EndTime > ArcGetRelativeTime()) &&
-              (Key != ' '));
+    } while (ArcGetRelativeTime() < EndTime);
 
     //
     // make LKG prompt go away, so as not to startle the user.
     //
-    BlpPositionCursor(1,2);
-    BlpClearToEndOfScreen();
-    if (Key==' ') {
-        return(TRUE);
-    } else {
-        return(FALSE);
-    }
+    BlClearToEndOfScreen();
 
+    return(FALSE);
 }
 
-
 
-BOOLEAN
-BlLastKnownGoodPrompt(
-    IN OUT PBOOLEAN UseLastKnownGood
+VOID
+BlpSwitchControlSet(
+    OUT PCM_HARDWARE_PROFILE_LIST *ProfileList,
+    IN BOOLEAN UseLastKnownGood,
+    OUT PHCELL_INDEX ControlSet
     )
 
 /*++
 
 Routine Description:
 
-    This routine provides the user-interface for the LastKnownGood prompt.
-    The prompt is given if the user hits the break-in key, or if the
-    LastKnownGood environment variable is TRUE and AutoSelect is FALSE.
+    Switches the current control set to the specified control
+    set and rebuilds the hardware profile list.
 
 Arguments:
 
+    ProfileList - Returns the new hardware profile list
+
+    UseLastKnownGood - Supplies whether the LKG control set is to be used.
+
+    ControlSet - Returns the HCELL_INDEX of the new control set.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    UNICODE_STRING ControlName;
+    HCELL_INDEX NewControlSet;
+    BOOLEAN AutoSelect;         // ignored
+    ULONG ProfileTimeout;       // ignored
+
+    //
+    // Find the new control set.
+    //
+    if (UseLastKnownGood) {
+        RtlInitUnicodeString(&ControlName, L"LastKnownGood");
+    } else {
+        RtlInitUnicodeString(&ControlName, L"Default");
+    }
+    NewControlSet = CmpFindControlSet(&BootHive.Hive,
+                                      BootHive.Hive.BaseBlock->RootCell,
+                                      &ControlName,
+                                      &AutoSelect);
+    if (NewControlSet == HCELL_NIL) {
+        return;
+    }
+
+    CmpFindProfileOption(&BootHive.Hive,
+                         NewControlSet,
+                         ProfileList,
+                         NULL);
+    *ControlSet = NewControlSet;
+}
+
+
+ULONG
+BlpCountLines(
+    IN PCHAR Lines
+    )
+
+/*++
+
+Routine Description:
+
+    Counts the number of lines in the given string.
+
+Arguments:
+
+    Lines - Supplies a pointer to the start of the string
+
+Return Value:
+
+    The number of lines in the string.
+
+--*/
+
+{
+    PCHAR p;
+    ULONG NumLines = 0;
+
+    p=Lines;
+    while (*p != 0) {
+        if ((*p == '\r') && (*(p+1) == '\n')) {
+            ++NumLines;
+            ++p;            // move forward to \n
+        }
+        ++p;
+    }
+    return(NumLines);
+}
+
+
+BOOLEAN
+BlConfigMenuPrompt(
+    IN ULONG Timeout,
+    IN OUT PBOOLEAN UseLastKnownGood,
+    IN OUT PHCELL_INDEX ControlSet,
+    OUT PCM_HARDWARE_PROFILE_LIST *ProfileList,
+    OUT PCM_HARDWARE_PROFILE *HardwareProfile
+    )
+
+/*++
+
+Routine Description:
+
+    This routine provides the user-interface for the configuration menu.
+    The prompt is given if the user hits the break-in key, or if the
+    LastKnownGood environment variable is TRUE and AutoSelect is FALSE, or
+    if the timeout value on the hardware profile configuration is non-zero
+
+Arguments:
+
+    Timeout - Supplies the timeout value for the menu. -1 or 0 implies the menu
+              will never timeout.
+
     UseLastKnownGood - Returns the LastKnownGood setting that should be
         used for the boot.
+
+    ControlSet - Returns the control set (either Default or LKG)
+
+    ProfileList - Supplies the default list of profiles.
+                  Returns the current list of profiles.
+                  (may change due to switching to/from the LKG controlset)
+
+    HardwareProfile - Returns the hardware profile that should be used.
 
 Return Value:
 
@@ -193,32 +344,90 @@ Return Value:
     ULONG TrailerLines;
     ULONG i;
     ULONG Count;
-    ULONG CurrentSelection = 0;
     UCHAR Key;
-    BOOLEAN ReturnValue;
     PCHAR MenuHeader;
-    PCHAR MenuTrailer;
+    PCHAR MenuTrailer1;
+    PCHAR MenuTrailer2;
     PCHAR p;
+    ULONG OptionLength;
+    CHAR MenuOption[80];
+    PCM_HARDWARE_PROFILE Profile;
+    ULONG ProfileCount;
+    UCHAR LkgMnemonic;
+    UCHAR DefaultMnemonic;
+    PCHAR Temp;
+    ULONG DisplayLines;
+    ULONG TopProfileLine=0;
+    ULONG CurrentSelection = 0;
+    ULONG CurrentProfile;
+    ULONG EndTime;
+    ULONG CurrentTime;
+    PCHAR TimeoutPrompt;
 
+    if ((Timeout != (ULONG)-1) && (Timeout != 0)) {
+        CurrentTime = ArcGetRelativeTime();
+        EndTime = CurrentTime + Timeout;
+        TimeoutPrompt = BlFindMessage(BL_LKG_TIMEOUT);
+        p=strchr(TimeoutPrompt, '\n');
+        if (p) {
+            *p = '\0';
+        }
+        p=strchr(TimeoutPrompt, '\r');
+        if (p) {
+            *p = '\0';
+        }
+    } else {
+        TimeoutPrompt = NULL;
+    }
     MenuHeader = BlFindMessage(BL_LKG_MENU_HEADER);
-    MenuTrailer = BlFindMessage(BL_LKG_MENU_TRAILER);
-    if ((MenuHeader==NULL) || (MenuTrailer==NULL)) {
+    Temp = BlFindMessage(BL_LKG_SELECT_MNEMONIC);
+    if (Temp == NULL) {
         return(TRUE);
     }
+    LkgMnemonic = toupper(Temp[0]);
+    Temp = BlFindMessage(BL_DEFAULT_SELECT_MNEMONIC);
+    if (Temp == NULL) {
+        return(TRUE);
+    }
+    DefaultMnemonic = toupper(Temp[0]);
+
+Restart:
+    if (*ProfileList == NULL) {
+        ProfileCount = 0;
+    } else {
+        ProfileCount = (*ProfileList)->CurrentProfileCount;
+    }
+    if (ProfileCount == 0) {
+        MenuTrailer1 = BlFindMessage(BL_LKG_MENU_TRAILER_NO_PROFILES);
+    } else {
+        MenuTrailer1 = BlFindMessage(BL_LKG_MENU_TRAILER);
+    }
+    if (*UseLastKnownGood) {
+        MenuTrailer2 = BlFindMessage(BL_SWITCH_DEFAULT_TRAILER);
+    } else {
+        MenuTrailer2 = BlFindMessage(BL_SWITCH_LKG_TRAILER);
+    }
+    if ((MenuHeader==NULL) || (MenuTrailer1==NULL) || (MenuTrailer2==NULL)) {
+        return(TRUE);
+    }
+    //
+    // strip trailing /r/n from MenuTrailer2 to prevent it from scrolling
+    // the screen when we output it.
+    //
+#if 0
+    p=MenuTrailer2 + strlen(MenuTrailer2) - 1;
+    while ((*p == '\r') || (*p == '\n')) {
+        *p = '\0';
+        --p;
+    }
+#endif
     BlpClearScreen();
+    BlpSetInverseMode(FALSE);
 
     //
     // Count the number of lines in the header.
     //
-    p=MenuHeader;
-    HeaderLines=0;
-    while (*p != 0) {
-        if ((*p == '\r') && (*(p+1) == '\n')) {
-            ++HeaderLines;
-            ++p;            // move forward to \n
-        }
-        ++p;
-    }
+    HeaderLines=BlpCountLines(MenuHeader);
 
     //
     // Display the menu header.
@@ -232,31 +441,31 @@ Return Value:
     //
     // Count the number of lines in the trailer.
     //
-    p=MenuTrailer;
-    TrailerLines=0;
-    while (*p != 0) {
-        if ((*p == '\r') && (*(p+1) == '\n')) {
-            ++TrailerLines;
-            ++p;            // move forward to \n
-        }
-        ++p;
-    }
+    TrailerLines=BlpCountLines(MenuTrailer1) + BlpCountLines(MenuTrailer2);
 
     //
     // Display the trailing prompt.
     //
+    if (TimeoutPrompt) {
+        TrailerLines += 1;
+    }
 
-    BlpPositionCursor(1, HeaderLines + MENU_OPTIONS + 4);
+    BlpPositionCursor(1, ScreenHeight-TrailerLines);
     ArcWrite(BlConsoleOutDeviceId,
-             MenuTrailer,
-             strlen(MenuTrailer),
+             MenuTrailer1,
+             strlen(MenuTrailer1),
+             &Count);
+    ArcWrite(BlConsoleOutDeviceId,
+             MenuTrailer2,
+             strlen(MenuTrailer2),
              &Count);
 
     //
-    // Initialize array of options.
+    // Compute number of selections that can be displayed
     //
-    for (i=0;i<MENU_OPTIONS;i++) {
-        MenuOptions[i] = BlFindMessage(BL_LKG_MENU_OPTION0 + i);
+    DisplayLines = ScreenHeight-HeaderLines-TrailerLines-3;
+    if (ProfileCount < DisplayLines) {
+        DisplayLines = ProfileCount;
     }
 
     //
@@ -264,19 +473,89 @@ Return Value:
     //
 
     do {
-        for (i=0; i<MENU_OPTIONS; i++) {
-            BlpPositionCursor(5, HeaderLines+i+3);
-            BlpSetInverseMode(i==CurrentSelection);
+        if (ProfileCount > 0) {
+            //
+            // Display options with current selection highlighted
+            //
+            for (i=0; i < DisplayLines; i++) {
+                CurrentProfile = i+TopProfileLine;
+                Profile = &(*ProfileList)->Profile[CurrentProfile];
+                RtlUnicodeToMultiByteN(MenuOption,
+                                       sizeof(MenuOption),
+                                       &OptionLength,
+                                       Profile->FriendlyName,
+                                       Profile->NameLength);
+                BlpPositionCursor(5, HeaderLines+i+2);
+                BlpSetInverseMode((BOOLEAN)(CurrentProfile == CurrentSelection));
+                ArcWrite(BlConsoleOutDeviceId,
+                         MenuOption,
+                         OptionLength,
+                         &Count);
+                BlpSetInverseMode(FALSE);
+                BlpClearToEndOfLine();
+            }
+        } else {
+            //
+            // No profile options available, just display the default
+            // highlighted to indicate that ENTER will start the system.
+            //
+            Temp = BlFindMessage(BL_BOOT_DEFAULT_PROMPT);
+            if (Temp != NULL) {
+                BlpPositionCursor(5, HeaderLines+3);
+                BlpSetInverseMode(TRUE);
+                ArcWrite(BlConsoleOutDeviceId,
+                         Temp,
+                         strlen(Temp),
+                         &Count);
+                BlpSetInverseMode(FALSE);
+            }
+        }
+        if (TimeoutPrompt) {
+            CurrentTime = ArcGetRelativeTime();
+            sprintf(MenuOption, TimeoutPrompt, EndTime-CurrentTime);
+            BlpPositionCursor(1, ScreenHeight);
             ArcWrite(BlConsoleOutDeviceId,
-                     MenuOptions[i],
-                     strlen(MenuOptions[i]),
+                     MenuOption,
+                     strlen(MenuOption),
                      &Count);
+            BlpClearToEndOfLine();
         }
 
-        ArcRead(BlConsoleInDeviceId,
-                &Key,
-                sizeof(Key),
-                &Count);
+        //
+        // Loop waiting for keypress or time change.
+        //
+        do {
+            if (ArcGetReadStatus(ARC_CONSOLE_INPUT) == ESUCCESS) {
+                TimeoutPrompt = NULL;               // turn off timeout prompt
+                BlpPositionCursor(1,ScreenHeight);
+                BlpClearToEndOfLine();
+                ArcRead(ARC_CONSOLE_INPUT,
+                        &Key,
+                        sizeof(Key),
+                        &Count);
+                break;
+            }
+
+            if (TimeoutPrompt) {
+                if (ArcGetRelativeTime() != CurrentTime) {
+                    //
+                    // Time has changed, update the countdown and check for timeout
+                    //
+                    CurrentTime = ArcGetRelativeTime();
+                    sprintf(MenuOption, TimeoutPrompt, EndTime-CurrentTime);
+                    BlpPositionCursor(1, ScreenHeight);
+                    ArcWrite(BlConsoleOutDeviceId,
+                             MenuOption,
+                             strlen(MenuOption),
+                             &Count);
+                    BlpClearToEndOfLine();
+                    if (EndTime == CurrentTime) {
+                        goto ProcessSelection;
+                    }
+                }
+            }
+
+        } while ( TRUE );
 
         switch (Key) {
             case ESC:
@@ -286,7 +565,7 @@ Return Value:
                 // have a special control sequence.
                 //
 
-                ArcRead(BlConsoleInDeviceId,
+                ArcRead(ARC_CONSOLE_INPUT,
                         &Key,
                         sizeof(Key),
                         &Count);
@@ -299,9 +578,9 @@ Return Value:
                 // deliberate fall-through
                 //
 
-            case CSI:
+            case ASCI_CSI_IN:
 
-                ArcRead(BlConsoleInDeviceId,
+                ArcRead(ARC_CONSOLE_INPUT,
                         &Key,
                         sizeof(Key),
                         &Count);
@@ -311,10 +590,20 @@ Return Value:
                         //
                         // Cursor up
                         //
-                        if (CurrentSelection==0) {
-                            CurrentSelection = MENU_OPTIONS-1;
-                        } else {
-                            --CurrentSelection;
+                        if (ProfileCount > 0) {
+                            if (CurrentSelection==0) {
+                                CurrentSelection = ProfileCount - 1;
+                                if (TopProfileLine + DisplayLines <= CurrentSelection) {
+                                    TopProfileLine = CurrentSelection - DisplayLines + 1;
+                                }
+                            } else {
+                                if (--CurrentSelection < TopProfileLine) {
+                                    //
+                                    // Scroll up
+                                    //
+                                    TopProfileLine = CurrentSelection;
+                                }
+                            }
                         }
                         break;
 
@@ -324,8 +613,34 @@ Return Value:
                         // Cursor down
                         //
 
-                        CurrentSelection = (CurrentSelection+1) % MENU_OPTIONS;
+                        if (ProfileCount > 0) {
+                            CurrentSelection = (CurrentSelection+1) % ProfileCount;
+                            if (CurrentSelection == 0) {
+                                TopProfileLine = 0;
+                            } else if (TopProfileLine + DisplayLines <= CurrentSelection) {
+                                TopProfileLine = CurrentSelection - DisplayLines + 1;
+                            }
+                        }
                         break;
+
+                    case 'O':
+                        //
+                        // Function key
+                        //
+                        ArcRead(ARC_CONSOLE_INPUT,
+                                &Key,
+                                sizeof(Key),
+                                &Count);
+                        switch (Key) {
+                            case 'w':
+                                //
+                                // F3
+                                //
+                                *ControlSet = HCELL_NIL;
+                                return(FALSE);
+                            default:
+                                break;
+                        }
 
                     default:
                         break;
@@ -335,46 +650,36 @@ Return Value:
                 continue;
 
             default:
-
+                if ((toupper(Key) == LkgMnemonic) && (*UseLastKnownGood == FALSE)) {
+                    *UseLastKnownGood = TRUE;
+                    BlpSwitchControlSet(ProfileList,
+                                        TRUE,
+                                        ControlSet);
+                    goto Restart;
+                    //
+                    // regenerate profile list here
+                    //
+                } else if ((toupper(Key) == DefaultMnemonic) && (*UseLastKnownGood)) {
+                    *UseLastKnownGood = FALSE;
+                    BlpSwitchControlSet(ProfileList,
+                                        FALSE,
+                                        ControlSet);
+                    goto Restart;
+                }
                 break;
 
         }
 
     } while ( (Key != ASCII_CR) && (Key != ASCII_LF) );
 
-    switch (CurrentSelection) {
-        case 0:
-            //
-            // Use Current Configuration
-            //
-
-            *UseLastKnownGood = FALSE;
-            ReturnValue = TRUE;
-            break;
-
-        case 1:
-            //
-            // Use Last Known Good configuration
-            //
-
-            *UseLastKnownGood = TRUE;
-            ReturnValue = TRUE;
-            break;
-
-        case 2:
-            //
-            // Return to firmware/flexboot menu
-            //
-
-            ReturnValue = FALSE;
-            break;
-
+ProcessSelection:
+    if (ProfileCount > 0) {
+        CmpSetCurrentProfile(&BootHive.Hive,
+                             *ControlSet,
+                             &(*ProfileList)->Profile[CurrentSelection]);
     }
 
-    BlpSetInverseMode(FALSE);
-    BlpPositionCursor(1, HeaderLines+TrailerLines+MENU_OPTIONS+4);
-
-    return(ReturnValue);
+    return(TRUE);
 }
 
 
@@ -540,7 +845,8 @@ BlLoadAndInitSystemHive(
     IN PCHAR DeviceName,
     IN PCHAR DirectoryPath,
     IN PCHAR HiveName,
-    IN BOOLEAN IsAlternate
+    IN BOOLEAN IsAlternate,
+    OUT PBOOLEAN RestartSetup
     )
 
 /*++
@@ -559,11 +865,16 @@ Arguments:
     DirectoryPath - Supplies a pointer to the zero-terminated directory path
         of the root of the NT tree.
 
-    HiveName - Supplies the name of the system hive ("SYSTEM" or "SYSTEM.ALT")
+    HiveName - Supplies the name of the system hive (ie, "SYSTEM",
+        "SYSTEM.ALT", or "SYSTEM.SAV").
 
     IsAlternate - Supplies whether or not the hive to be loaded is the
-        alternate hive, in which case the primary hive is corrupt and must
-        be rewritten by the system.
+        alternate hive.
+
+    RestartSetup - if the hive to be loaded is not the alternate, then
+        this routine will check for a value of RestartSetup in the Setup
+        key. If present and non-0, then this variable receives TRUE.
+        Otherwise it receives FALSE.
 
 Return Value:
 
@@ -575,6 +886,9 @@ Return Value:
 {
     ARC_STATUS Status;
 
+    *RestartSetup = FALSE;
+
+    BlpClearToEndOfLine();
     Status = BlLoadSystemHive(DeviceId,
                               DeviceName,
                               DirectoryPath,
@@ -588,13 +902,221 @@ Return Value:
                           IsAlternate)) {
         return(EINVAL);
     }
+
+    //
+    // See whether we need to switch to the backup setup hive.
+    //
+    *RestartSetup = BlpCheckRestartSetup();
+
     return(ESUCCESS);
 }
 
+HCELL_INDEX
+BlpDetermineControlSet(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    Determines the appropriate control set and static hardware profile.
+    This routine ends the configuration prompt. If the user has hit a
+    key, the configuration menu is displayed. If the user has not hit
+    a key, but the default controlset specifies a non-zero timeout for
+    the configuration menu, the configuration menu is displayed.
+
+    If the configuration menu is displayed, further modifications to the
+    control set and hardware profile can be made by the user. If not,
+    the default hardware profile is selected.
+
+Arguments:
+
+    None
+
+Return Value:
+
+    HCELL_INDEX of control set to boot from.
+    HCELL_NIL on error.
+
+--*/
+
+{
+    BOOLEAN UseLastKnownGood;
+    BOOLEAN ConfigMenu = FALSE;
+    PCHAR LastKnownGood;
+    HCELL_INDEX ControlSet;
+    HCELL_INDEX ProfileControl;
+    UNICODE_STRING DefaultControlName;
+    UNICODE_STRING LkgControlName;
+    PUNICODE_STRING ControlName;
+    BOOLEAN AutoSelect;
+    ULONG ProfileTimeout = (ULONG)0;
+    PCM_HARDWARE_PROFILE_LIST ProfileList;
+    PCM_HARDWARE_PROFILE SelectedProfile;
+
+    RtlInitUnicodeString(&DefaultControlName, L"Default");
+    RtlInitUnicodeString(&LkgControlName, L"LastKnownGood");
+    //
+    // The initial decision of whether to use LKG is based on the
+    // LastKnownGood environment variable
+    //
+    LastKnownGood = ArcGetEnvironmentVariable("LastKnownGood");
+    if (LastKnownGood == NULL) {
+        UseLastKnownGood = FALSE;
+    } else {
+        UseLastKnownGood = (_stricmp(LastKnownGood, "TRUE") == 0);
+    }
+
+    //
+    // Get the appropriate control set
+    // and check the hardware profile timeout value.
+    //
+    if (UseLastKnownGood) {
+        ControlName = &LkgControlName;
+    } else {
+        ControlName = &DefaultControlName;
+    }
+    ControlSet = CmpFindControlSet(&BootHive.Hive,
+                                   BootHive.Hive.BaseBlock->RootCell,
+                                   ControlName,
+                                   &AutoSelect);
+    if (ControlSet == HCELL_NIL) {
+        return(HCELL_NIL);
+    }
+
+    //
+    // Check the hardware profile configuration options to
+    // determine the timeout value for the config menu.
+    //
+    ProfileList = NULL;
+    ProfileControl = CmpFindProfileOption(&BootHive.Hive,
+                                          ControlSet,
+                                          &ProfileList,
+                                          &ProfileTimeout);
+
+    //
+    // Now check to see whether the config menu should be displayed.
+    // Display the menu if:
+    //  - user has pressed a key OR
+    //  - we are booting from LKG and AutoSelect is FALSE. OR
+    //  - ProfileTimeout != 0
+    //
+    if (BlEndConfigPrompt() ||
+        (UseLastKnownGood && !AutoSelect) ||
+        ((ProfileTimeout != 0) &&
+         (ProfileList != NULL) &&
+         (ProfileList->CurrentProfileCount > 1))) {
+        //
+        // Display the configuration menu.
+        //
+        BlRebootSystem = !BlConfigMenuPrompt(ProfileTimeout,
+                                             &UseLastKnownGood,
+                                             &ControlSet,
+                                             &ProfileList,
+                                             &SelectedProfile);
+        BlpClearScreen();
+    } else {
+
+        if ((ProfileControl != HCELL_NIL) &&
+            (ProfileList != NULL)) {
+            //
+            // The system is configured to boot the default
+            // profile directly. Since the returned profile
+            // list is sorted by priority, the first entry in
+            // the list is our default.
+            //
+            CmpSetCurrentProfile(&BootHive.Hive,
+                                 ControlSet,
+                                 &ProfileList->Profile[0]);
+        }
+    }
+
+    return(ControlSet);
+}
+
 
+BOOLEAN
+BlpCheckRestartSetup(
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    Examine the system hive loaded and described by BootHive, to see
+    whether it contains a Setup key, and if so, whether that key has
+    a "RestartSetup" value that is non-0.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    Boolean value indicating whether the above condition is satisfied.
+
+--*/
+
+{
+    HCELL_INDEX KeyCell;
+    HCELL_INDEX ValueCell;
+    UNICODE_STRING UnicodeString;
+    PCM_KEY_VALUE Value;
+    PULONG Data;
+    ULONG DataSize;
+
+    //
+    // Address the Setup key
+    //
+    RtlInitUnicodeString(&UnicodeString,L"Setup");
+    KeyCell = CmpFindSubKeyByName(
+                &BootHive.Hive,
+                (PCM_KEY_NODE)HvGetCell(&BootHive.Hive,BootHive.Hive.BaseBlock->RootCell),
+                &UnicodeString
+                );
+
+    if(KeyCell == HCELL_NIL) {
+        return(FALSE);
+    }
+
+    //
+    // Find RestartSetup value in Setup key
+    //
+    RtlInitUnicodeString(&UnicodeString,L"RestartSetup");
+    ValueCell = CmpFindValueByName(
+                    &BootHive.Hive,
+                    (PCM_KEY_NODE)HvGetCell(&BootHive.Hive,KeyCell),
+                    &UnicodeString
+                    );
+
+    if(ValueCell == HCELL_NIL) {
+        return(FALSE);
+    }
+
+    //
+    // Validate value and check.
+    //
+    Value = (PCM_KEY_VALUE)HvGetCell(&BootHive.Hive,ValueCell);
+    if(Value->Type != REG_DWORD) {
+        return(FALSE);
+    }
+
+    Data = (PULONG)(CmpIsHKeyValueSmall(DataSize,Value->DataLength)
+                  ? (struct _CELL_DATA *)&Value->Data
+                  : HvGetCell(&BootHive.Hive,Value->Data));
+
+    if(DataSize != sizeof(ULONG)) {
+        return(FALSE);
+    }
+
+    return((BOOLEAN)(*Data != 0));
+}
+
+
 PCHAR
 BlScanRegistry(
-    IN BOOLEAN UseLastKnownGood,
     IN PWSTR BootFileSystemPath,
     OUT PLIST_ENTRY BootDriverListHead,
     OUT PUNICODE_STRING AnsiCodepage,
@@ -607,12 +1129,11 @@ BlScanRegistry(
 
 Routine Description:
 
-    Scans the SYSTEM hive and computes the list of drivers to be loaded.
+    Scans the SYSTEM hive, determines the control set and static hardware
+    profile (with appropriate input from the user) and finally
+    computes the list of boot drivers to be loaded.
 
 Arguments:
-
-    UseLastKnownGood - Supplies whether or not the user wishes to boot
-        the last configuration known to be good.  (default is FALSE)
 
     BootFileSystemPath - Supplies the name of the image the filesystem
         for the boot volume was read from.  The last entry in
@@ -648,18 +1169,14 @@ Return Value:
     BOOLEAN AutoSelect;
     BOOLEAN KeepGoing;
 
-    if (UseLastKnownGood) {
-        RtlInitUnicodeString(&ControlName, L"LastKnownGood");
-    } else {
-        RtlInitUnicodeString(&ControlName, L"Default");
-    }
-    ControlSet = CmpFindControlSet(&BootHive.Hive,
-                                   BootHive.Hive.BaseBlock->RootCell,
-                                   &ControlName,
-                                   &AutoSelect);
+    ControlSet = BlpDetermineControlSet();
+
     if (ControlSet == HCELL_NIL) {
         return("CmpFindControlSet");
     }
+
+#if 0
+    need to move this to BlpDetermineControlSet()
 
     if (UseLastKnownGood && !AutoSelect) {
         KeepGoing = BlLastKnownGoodPrompt(&UseLastKnownGood);
@@ -674,6 +1191,7 @@ Return Value:
             }
         }
     }
+#endif
 
     if (!CmpFindNLSData(&BootHive.Hive,
                         ControlSet,
@@ -762,7 +1280,7 @@ Return Value:
         return FALSE;
     }
 
-    HiveCheckCode = CmCheckRegistry(Hive,FALSE);
+    HiveCheckCode = CmCheckRegistry(Hive,TRUE);
     if (HiveCheckCode != 0) {
         return(FALSE);
     } else {
@@ -830,7 +1348,7 @@ Return Value:
     CHAR Buffer[16];
     ULONG Count;
 
-    sprintf(Buffer, "%c2J",CSI);
+    sprintf(Buffer, ASCI_CSI_OUT "2J");
 
     ArcWrite(BlConsoleOutDeviceId,
              Buffer,
@@ -841,14 +1359,30 @@ Return Value:
 
 
 VOID
-BlpClearToEndOfScreen(
+BlClearToEndOfScreen(
     VOID
     )
 {
     CHAR Buffer[16];
     ULONG Count;
 
-    sprintf(Buffer, "%cJ",CSI);
+    sprintf(Buffer, ASCI_CSI_OUT "J");
+    ArcWrite(BlConsoleOutDeviceId,
+             Buffer,
+             strlen(Buffer),
+             &Count);
+}
+
+
+VOID
+BlpClearToEndOfLine(
+    VOID
+    )
+{
+    CHAR Buffer[16];
+    ULONG Count;
+
+    sprintf(Buffer, ASCI_CSI_OUT "K");
     ArcWrite(BlConsoleOutDeviceId,
              Buffer,
              strlen(Buffer),
@@ -884,7 +1418,7 @@ Return Value:
     CHAR Buffer[16];
     ULONG Count;
 
-    sprintf(Buffer, "%c%d;%dH", CSI, Row, Column);
+    sprintf(Buffer, ASCI_CSI_OUT "%d;%dH", Row, Column);
 
     ArcWrite(BlConsoleOutDeviceId,
              Buffer,
@@ -921,7 +1455,7 @@ Return Value:
     CHAR Buffer[16];
     ULONG Count;
 
-    sprintf(Buffer, "%c;%dm", CSI, InverseOn ? SGR_INVERSE : SGR_INTENSE);
+    sprintf(Buffer, ASCI_CSI_OUT ";%dm", InverseOn ? SGR_INVERSE : SGR_INTENSE);
 
     ArcWrite(BlConsoleOutDeviceId,
              Buffer,
@@ -1043,4 +1577,12 @@ IN HCELL_INDEX Cell
 {
     return(FALSE);
 }
-
+PHBIN
+HvpAddBin(
+    IN PHHIVE  Hive,
+    IN ULONG   NewSize,
+    IN HSTORAGE_TYPE   Type
+    )
+{
+    return(NULL);
+}

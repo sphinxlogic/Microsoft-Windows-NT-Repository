@@ -62,6 +62,7 @@ static const char szOwnerLinkData[] = "PBrush\0foo.bmp\00 0 200 160\0\0";
 CGenDataObject::CGenDataObject( )
 {
 	m_refs = 0;
+	m_fQICalled = FALSE;
 
 	// now set up the formats that we support
 
@@ -132,6 +133,8 @@ CGenDataObject::CGenDataObject( )
 STDMETHODIMP CGenDataObject::QueryInterface( REFIID riid, LPVOID *ppvObj )
 {
 	HRESULT		hresult = NOERROR;
+
+	m_fQICalled = TRUE;
 
 	if( IsEqualIID(riid, IID_IUnknown) ||
 		IsEqualIID(riid, IID_IDataObject) )
@@ -1334,7 +1337,127 @@ HRESULT CGenDataObject::SetOle1ToClipboard( void )
 
 	return hresult;
 }
-			
+
+//+-------------------------------------------------------------------------
+//
+//  Member:	CGenDataObject::HasQIBeenCalled (public)
+//
+//  Synopsis:	returns wether or not QueryInterface has been called on
+//		this data object.  Used in testing OleQueryCreateFromData
+//
+//  Effects:
+//
+//  Arguments:	none
+//
+//  Requires:
+//
+//  Returns: 	TRUE/FALSE
+//
+//  Signals:
+//
+//  Modifies:
+//
+//  Derivation:
+//
+//  Algorithm:
+//
+//  History:    dd-mmm-yy Author    Comment
+//  		23-Aug-94 alexgo    author
+//
+//  Notes:
+//
+//--------------------------------------------------------------------------
+
+BOOL CGenDataObject::HasQIBeenCalled()
+{
+	return m_fQICalled;	
+}
+
+//+-------------------------------------------------------------------------
+//
+//  Member: 	CGenDataObject::SetDatFormats
+//
+//  Synopsis:  	sets the formats that the data object will offer
+//
+//  Effects:
+//
+//  Arguments: 	[fFlags]	-- formats to offer
+//
+//  Requires:
+//
+//  Returns: 	void
+//	     	
+//  Signals:
+//
+//  Modifies:
+//
+//  Derivation:
+//
+//  Algorithm:
+//
+//  History:    dd-mmm-yy Author    Comment
+// 		23-Aug-94 alexgo    author
+//
+//  Notes:
+//
+//--------------------------------------------------------------------------
+
+void CGenDataObject::SetDataFormats( DataFlags fFlags )
+{
+	DWORD 		cFormats = 0;
+	DWORD	 	flags = (DWORD)fFlags;
+	DWORD 		i =0;
+
+	if( m_rgFormats )
+	{
+		delete m_rgFormats;
+		m_rgFormats = NULL;
+	}
+
+	if( flags == 0 )
+	{
+		return;
+	}
+
+	// count the number of formats to offer
+
+	cFormats++;
+
+	while( flags &= (flags -1) )
+	{
+		cFormats++;
+	}
+
+   	m_rgFormats = new FORMATETC[cFormats];
+
+	assert(m_rgFormats);
+
+	memset(m_rgFormats, 0, sizeof(FORMATETC)*cFormats);
+
+	if( fFlags & OFFER_TESTSTORAGE )
+	{
+		m_rgFormats[i].cfFormat = m_cfTestStorage;
+		m_rgFormats[i].ptd = NULL;
+		m_rgFormats[i].dwAspect = DVASPECT_CONTENT;
+		m_rgFormats[i].lindex = -1;
+		m_rgFormats[i].tymed = TYMED_ISTORAGE;
+
+		i++;
+	}
+
+	if( fFlags & OFFER_EMBEDDEDOBJECT )
+	{
+		m_rgFormats[i].cfFormat = m_cfEmbeddedObject;
+		m_rgFormats[i].ptd = NULL;
+		m_rgFormats[i].dwAspect = DVASPECT_CONTENT;
+		m_rgFormats[i].lindex = -1;
+		m_rgFormats[i].tymed = TYMED_ISTORAGE;
+		i++;
+	}
+
+	m_cFormats = i;
+}
+
 //
 // Generic Data Object formatetc enumerator
 //
@@ -1805,4 +1928,3 @@ HRESULT CGenEnumFormatEtc::Create( IEnumFORMATETC **ppIEnum,
 }
 
 
-

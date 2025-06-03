@@ -382,6 +382,8 @@ Notes:
     ArgLex.PutSwitches( "/" );
     ArgLex.PutSeparators( " /\t" );
 	ArgLex.SetCaseSensitive( FALSE );
+    ArgLex.PutStartQuotes( "\"" );
+    ArgLex.PutEndQuotes( "\"" );
 
 	//
 	//	Parse the arguments

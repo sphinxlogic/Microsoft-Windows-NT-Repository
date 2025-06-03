@@ -41,7 +41,7 @@ ULONG LastPagedPoolFailureCount = 0;
 ULONG SrvScavengerCheckRfcbActive = 5;
 LONG ScavengerUpdateQosCount = 0;
 LONG ScavengerCheckRfcbActive = 0;
-ULONG FailedWorkItemAllocations = 0;
+LONG FailedWorkItemAllocations = 0;
 
 BOOLEAN EventSwitch = TRUE;
 
@@ -154,11 +154,6 @@ ProcessConnectionDisconnects (
     );
 
 VOID
-ProcessNeedResourceQueue (
-    VOID
-    );
-
-VOID
 ProcessOrphanedBlocks (
     VOID
     );
@@ -189,9 +184,8 @@ UpdateSessionLastUseTime(
     );
 
 VOID
-FreeIdleWorkItems (
-    IN BOOLEAN FreeNormalWorkItems,
-    IN ULONG CurrentTick
+LazyFreeQueueDataStructures (
+    PWORK_QUEUE queue
     );
 
 VOID
@@ -271,9 +265,9 @@ NOT PAGEABLE -- ScavengerTimerRoutine
 NOT PAGEABLE -- SrvResourceThread
 NOT PAGEABLE -- ScavengerThread
 NOT PAGEABLE -- ProcessConnectionDisconnects
-NOT PAGEABLE -- ProcessNeedResourceQueue
-NOT PAGEABLE -- FreeIdleWorkItems
-NOT PAGEABLE -- SrvUpdateStatisticsFromShadow
+NOT PAGEABLE -- SrvServiceWorkItemShortage
+NOT PAGEABLE -- LazyFreeQueueDataStructures
+NOT PAGEABLE -- SrvUpdateStatisticsFromQueues
 #endif
 
 
@@ -510,60 +504,15 @@ Return Value:
         // of different things.  Currently, this event is signaled for
         // the following reasons:
         //
-        // 1.  The TDI receive event handler was called, but no receive
-        //     work items were available.  The receiving connection was
-        //     marked.  It is up to the scavenger to make some receive
-        //     work items available and post one to the pended
-        //     connection.
-        //
-        // 2.  The TDI disconnect event handler was called.  The
+        // 1.  The TDI disconnect event handler was called.  The
         //     disconnected connection was marked.  It is up to the
         //     scavenger shutdown the connection.
         //
-        // 3.  The receive work item queue is nearly empty.
-        //
-        // 4.  A connection has been accepted.
+        // 2.  A connection has been accepted.
         //
 
         IF_DEBUG(SCAV1) {
             KdPrint(( "SrvResourceThread: Resource event signaled!\n" ));
-        }
-
-        //
-        // Generate more receive work items until we have reached the
-        // minimum acceptable number on the free queue, or until we
-        // cannot generate any more.
-        //
-
-        if ( SrvResourceWorkItem ) {
-
-            SrvResourceWorkItem = FALSE;
-
-            while ( SrvFreeWorkItems < SrvMinReceiveQueueLength ) {
-
-                SrvAllocateNormalWorkItem( &workContext );
-                if ( workContext == NULL ) {
-                    FailedWorkItemAllocations++;
-                    break;
-                } else {
-                    IF_DEBUG(SCAV2) {
-                        KdPrint(( "SrvResourceThread:  Created new work context "
-                                    "block\n" ));
-                    }
-                    SrvPrepareReceiveWorkItem( workContext, TRUE );
-                }
-
-            }
-
-        }
-
-        //
-        // Service the need resource queue.
-        //
-
-        if ( SrvResourceNeedResourceQueue ) {
-            SrvResourceNeedResourceQueue = FALSE;
-            ProcessNeedResourceQueue( );
         }
 
         //
@@ -589,7 +538,6 @@ Return Value:
         //
 
         if ( SrvResourceOrphanedBlocks ) {
-            SrvResourceOrphanedBlocks = FALSE;
             ProcessOrphanedBlocks( );
         }
 
@@ -602,9 +550,7 @@ Return Value:
 
         if ( !SrvResourceDisconnectPending &&
              !SrvResourceOrphanedBlocks &&
-             !SrvResourceFreeConnection &&
-             !SrvResourceWorkItem &&
-             !SrvResourceNeedResourceQueue ) {
+             !SrvResourceFreeConnection ) {
 
             //
             // No more work to do.  If the server is shutting down,
@@ -651,7 +597,7 @@ ScavengerTimerRoutine (
     // Query the system time (in ticks).
     //
 
-    SET_SERVER_TIME( );
+    SET_SERVER_TIME( SrvWorkQueues );
 
     //
     // Capture the current time (in 100ns units).
@@ -737,6 +683,208 @@ ScavengerTimerRoutine (
 
 } // ScavengerTimerRoutine
 
+#if DBG_STUCK
+
+//
+// This keeps a record of the operation which has taken the longest time
+// in the server
+//
+struct {
+    ULONG   Seconds;
+    UCHAR   Command;
+    UCHAR   ClientName[ 16 ];
+} SrvMostStuck;
+
+VOID
+SrvLookForStuckOperations()
+{
+    CSHORT index;
+    PLIST_ENTRY listEntry;
+    PLIST_ENTRY connectionListEntry;
+    PENDPOINT endpoint;
+    PCONNECTION connection;
+    KIRQL oldIrql;
+    BOOLEAN printed = FALSE;
+    ULONG stuckCount = 0;
+
+    //
+    // Look at all of the InProgress work items and chatter about any
+    //  which look stuck
+    //
+
+    ACQUIRE_LOCK( &SrvEndpointLock );
+
+    listEntry = SrvEndpointList.ListHead.Flink;
+
+    while ( listEntry != &SrvEndpointList.ListHead ) {
+
+        endpoint = CONTAINING_RECORD(
+                        listEntry,
+                        ENDPOINT,
+                        GlobalEndpointListEntry
+                        );
+
+        //
+        // If this endpoint is closing, skip to the next one.
+        // Otherwise, reference the endpoint so that it can't go away.
+        //
+
+        if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ) {
+            listEntry = listEntry->Flink;
+            continue;
+        }
+
+        SrvReferenceEndpoint( endpoint );
+
+        index = (CSHORT)-1;
+
+        while ( TRUE ) {
+
+            PLIST_ENTRY wlistEntry, wlistHead;
+            KIRQL oldIrql;
+            LARGE_INTEGER now;
+
+            //
+            // Get the next active connection in the table.  If no more
+            // are available, WalkConnectionTable returns NULL.
+            // Otherwise, it returns a referenced pointer to a
+            // connection.
+            //
+
+            connection = WalkConnectionTable( endpoint, &index );
+            if ( connection == NULL ) {
+                break;
+            }
+
+            //
+            // Now walk the InProgressWorkItemList to see if any work items
+            //  look stuck
+            //
+            wlistHead = &connection->InProgressWorkItemList;
+            wlistEntry = wlistHead;
+
+            KeQuerySystemTime( &now );
+
+            ACQUIRE_SPIN_LOCK( connection->EndpointSpinLock, &oldIrql )
+
+            while ( wlistEntry->Flink != wlistHead ) {
+
+                PWORK_CONTEXT workContext;
+                PSMB_HEADER header;
+                LARGE_INTEGER interval;
+
+                wlistEntry = wlistEntry->Flink;
+
+                workContext = CONTAINING_RECORD(
+                                             wlistEntry,
+                                             WORK_CONTEXT,
+                                             InProgressListEntry
+                                             );
+
+                interval.QuadPart = now.QuadPart - workContext->OpStartTime.QuadPart;
+
+                //
+                // Any operation over 30 seconds is VERY stuck....
+                //
+
+                if( workContext->IsNotStuck || interval.LowPart < 30 * 10000000 ) {
+                    continue;
+                }
+
+                header = workContext->RequestHeader;
+
+                if ( (workContext->BlockHeader.ReferenceCount != 0) &&
+                     (workContext->ProcessingCount != 0) &&
+                     header != NULL ) {
+
+                    //
+                    // Convert to seconds
+                    //
+                    interval.LowPart /= 10000000;
+
+                    if( !printed ) {
+                        DbgPrint( "--- Potential stuck SRV.SYS Operations ---\n" );
+                        printed = TRUE;
+                    }
+
+                    if( interval.LowPart > SrvMostStuck.Seconds ) {
+                        SrvMostStuck.Seconds = interval.LowPart;
+                        RtlCopyMemory( SrvMostStuck.ClientName,
+                                       connection->OemClientMachineNameString.Buffer,
+                                       MIN( 16, connection->OemClientMachineNameString.Length )),
+                        SrvMostStuck.ClientName[ MIN( 15, connection->OemClientMachineNameString.Length ) ] = 0;
+                        SrvMostStuck.Command = header->Command;
+                    }
+
+                    if( stuckCount++ < 5 ) {
+                        DbgPrint( "Client %s, %u secs, Context %X",
+                                   connection->OemClientMachineNameString.Buffer,
+                                   interval.LowPart, workContext );
+
+                        switch( header->Command ) {
+                        case SMB_COM_NT_CREATE_ANDX:
+                            DbgPrint( " NT_CREATE_ANDX\n" );
+                            break;
+                        case SMB_COM_OPEN_PRINT_FILE:
+                            DbgPrint( " OPEN_PRINT_FILE\n" );
+                            break;
+                        case SMB_COM_CLOSE_PRINT_FILE:
+                            DbgPrint( " CLOSE_PRINT_FILE\n" );
+                            break;
+                        case SMB_COM_CLOSE:
+                            DbgPrint( " CLOSE\n" );
+                            break;
+                        case SMB_COM_SESSION_SETUP_ANDX:
+                            DbgPrint( " SESSION_SETUP\n" );
+                            break;
+                        case SMB_COM_OPEN_ANDX:
+                            DbgPrint( " OPEN_ANDX\n" );
+                            break;
+                        case SMB_COM_NT_TRANSACT:
+                        case SMB_COM_NT_TRANSACT_SECONDARY:
+                            DbgPrint( " NT_TRANSACT\n" );
+                            break;
+                        case SMB_COM_TRANSACTION2:
+                        case SMB_COM_TRANSACTION2_SECONDARY:
+                            DbgPrint( " TRANSACTION2\n" );
+                            break;
+                        case SMB_COM_TRANSACTION:
+                        case SMB_COM_TRANSACTION_SECONDARY:
+                            DbgPrint( " TRANSACTION\n" );
+                            break;
+                        default:
+                            DbgPrint( " Cmd %X\n", header->Command );
+                            break;
+                        }
+                    }
+                }
+            }
+
+            RELEASE_SPIN_LOCK( connection->EndpointSpinLock, oldIrql );
+
+            SrvDereferenceConnection( connection );
+
+        } // walk connection list
+
+        //
+        // Capture a pointer to the next endpoint in the list (that one
+        // can't go away because we hold the endpoint list), then
+        // dereference the current endpoint.
+        //
+
+        listEntry = listEntry->Flink;
+        SrvDereferenceEndpoint( endpoint );
+
+    } // walk endpoint list
+
+    if( printed && SrvMostStuck.Seconds ) {
+        DbgPrint( "Longest so far: %s, %u secs, cmd %u\n", SrvMostStuck.ClientName, SrvMostStuck.Seconds, SrvMostStuck.Command );
+    }
+
+    RELEASE_LOCK( &SrvEndpointLock );
+}
+#endif
+
 
 VOID
 ScavengerThread (
@@ -775,14 +923,17 @@ Return Value:
     // which unlike the srv worker threads, don't have popups disabled.
     //
 
-    oldPopupStatus = PsGetCurrentThread()->HardErrorsAreDisabled;
-    PsGetCurrentThread()->HardErrorsAreDisabled = TRUE;
+    oldPopupStatus = IoSetThreadHardErrorMode( FALSE );
 
     //
     // Main loop, executed until no scavenger events are set.
     //
 
     do {
+
+#if DBG_STUCK
+        SrvLookForStuckOperations();
+#endif
 
         //
         // If the short-term timer expired, run that algorithm now.
@@ -867,7 +1018,7 @@ Return Value:
     // reset popup status.
     //
 
-    PsGetCurrentThread()->HardErrorsAreDisabled = oldPopupStatus;
+    IoSetThreadHardErrorMode( oldPopupStatus );
 
     return;
 
@@ -885,13 +1036,14 @@ ScavengerAlgorithm (
     WCHAR secondsBuffer[20];
     WCHAR shortageBuffer[20];
     BOOLEAN logError = FALSE;
+    PWORK_QUEUE queue;
 
     PAGED_CODE( );
 
-    IF_DEBUG(SCAV1) KdPrint(( "AlerterAlgorithm entered\n" ));
+    IF_DEBUG(SCAV1) KdPrint(( "ScavengerAlgorithm entered\n" ));
 
     KeQuerySystemTime( &currentTime );
-    GET_SERVER_TIME( &currentTick );
+    GET_SERVER_TIME( SrvWorkQueues, &currentTick );
 
     //
     // EventSwitch is used to schedule parts of the scavenger algorithm
@@ -917,8 +1069,52 @@ ScavengerAlgorithm (
     // See if we can free some work items at this time.
     //
 
-    FreeIdleWorkItems( TRUE, currentTick );
-    FreeIdleWorkItems( FALSE, currentTick );
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+        LazyFreeQueueDataStructures( queue );
+    }
+
+    //
+    // See if we can decommission some threads at this time.
+    //
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+        if( (queue->AvailableThreads > 1) &&
+            (queue->AvgQueueDepthSum >> LOG2_QUEUE_SAMPLES) == 0 &&
+            KeReadStateQueue( &queue->Queue ) == 0 &&
+            GET_BLOCK_TYPE( &queue->KillOneThreadWorkItem ) == BlockTypeGarbage ) {
+
+            //
+            // This queue has available worker threads, the
+            // average queue depth is zero, and the current queue depth
+            // is zero.  Kill off one thread.
+            //
+
+            SET_BLOCK_TYPE( &queue->KillOneThreadWorkItem, BlockTypeWorkContextSpecial );
+
+            queue->KillOneThreadWorkItem.FspRestartRoutine = SrvTerminateWorkerThread;
+
+            SrvInsertWorkQueueHead( queue, &queue->KillOneThreadWorkItem );
+        }
+    }
+
+    //
+    // See if we can decommission one thread from the blocking work queue
+    //
+    if( SrvBlockingWorkQueue.AvailableThreads > 1 &&
+        KeReadStateQueue( &SrvBlockingWorkQueue.Queue ) == 0 &&
+        GET_BLOCK_TYPE( &SrvBlockingWorkQueue.KillOneThreadWorkItem ) == BlockTypeGarbage ) {
+
+        //
+        // We have available worker threads, the queue length is zero.
+        //  Kill off one thread.
+        //
+        SET_BLOCK_TYPE( &SrvBlockingWorkQueue.KillOneThreadWorkItem,
+                        BlockTypeWorkContextSpecial );
+
+        SrvBlockingWorkQueue.KillOneThreadWorkItem.FspRestartRoutine = SrvTerminateWorkerThread;
+
+        SrvInsertWorkQueueHead( &SrvBlockingWorkQueue,
+                                &SrvBlockingWorkQueue.KillOneThreadWorkItem );
+    }
 
     //
     // See if we need to update QOS information.
@@ -967,16 +1163,19 @@ ScavengerAlgorithm (
     }
 
     if ( EventSwitch ) {
+        ULONG FailedCount;
 
         //
         // If we were unable to allocate any work items during
         // the last two scavenger intervals, log an error.
         //
 
-        if ( FailedWorkItemAllocations > 0 ) {
+        FailedCount = InterlockedExchange( &FailedWorkItemAllocations, 0 );
+
+        if ( FailedCount != 0 ) {
 
             (VOID) RtlIntegerToUnicodeString(
-                                FailedWorkItemAllocations,
+                                FailedCount,
                                 10,
                                 &insertionString[0]
                                 );
@@ -990,8 +1189,6 @@ ScavengerAlgorithm (
                 insertionString,
                 2
                 );
-
-            FailedWorkItemAllocations = 0;
         }
 
         //
@@ -1100,11 +1297,10 @@ ScavengerAlgorithm (
         TimeoutSessions( &currentTime );
 
         //
-        // Update the statistics from the 'shadow', in which large
-        // integer statistics are kept as integers.
+        // Update the statistics from the the queues
         //
 
-        SrvUpdateStatisticsFromShadow( NULL );
+        SrvUpdateStatisticsFromQueues( NULL );
 
     }
 
@@ -1164,7 +1360,7 @@ CloseIdleConnection (
 Routine Description:
 
     The routine checks to see if some sessions need to be closed becaused
-    it has been idle too long or has exceeded it's logon hours.
+    it has been idle too long or has exceeded its logon hours.
 
     Endpoint lock assumed held.
 
@@ -1189,6 +1385,8 @@ Return Value:
     BOOLEAN sessionClosed = FALSE;
     PPAGED_CONNECTION pagedConnection = Connection->PagedConnection;
     LONG i;
+    ULONG AllSessionsIdle = TRUE;
+    ULONG HasSessions = FALSE;
 
     PAGED_CODE( );
 
@@ -1207,9 +1405,12 @@ Return Value:
         // kill the connection.
         //
 
-        GET_SERVER_TIME( (PULONG)&i );
+        GET_SERVER_TIME( Connection->CurrentWorkQueue, (PULONG)&i );
         i -= Connection->LastRequestTime;
-        if ( (ULONG)i > SrvIpxAutodisconnectTimeout ) {
+        if ( i > 0 && (ULONG)i > SrvIpxAutodisconnectTimeout ) {
+            IF_DEBUG( IPX2 ) {
+                KdPrint(("CloseIdleConnection: closing IPX conn %X, idle %u\n", Connection, i ));
+            }
             SrvCloseConnection( Connection, FALSE );
             return;
         }
@@ -1228,8 +1429,13 @@ Return Value:
 
         PSESSION session = (PSESSION)tableHeader->Table[i].Owner;
 
-        if ( session != NULL &&
-             GET_BLOCK_STATE( session ) == BlockStateActive ) {
+        if( session == NULL ) {
+            continue;
+        }
+
+        HasSessions = TRUE;
+
+        if ( GET_BLOCK_STATE( session ) == BlockStateActive ) {
 
             SrvReferenceSession( session );
             RELEASE_LOCK( &Connection->Lock );
@@ -1243,16 +1449,16 @@ Return Value:
             // requests as well as files actually opened.
             //
 
-            if ( session->LastUseTime.QuadPart < DisconnectTime->QuadPart &&
-                 session->CurrentFileOpenCount == 0 &&
-                 session->CurrentSearchOpenCount == 0 ) {
+            if ( AllSessionsIdle == TRUE &&
+                 (session->LastUseTime.QuadPart >= DisconnectTime->QuadPart ||
+                  session->CurrentFileOpenCount != 0 ||
+                  session->CurrentSearchOpenCount != 0 )
+               ) {
 
-                SrvStatistics.SessionsTimedOut++;
+                AllSessionsIdle = FALSE;
+            }
 
-                SrvCloseSession( session );
-                sessionClosed = TRUE;
-
-            } else if ( !SrvEnableForcedLogoff &&
+            if ( !SrvEnableForcedLogoff &&
                         !session->LogoffAlertSent &&
                         PastExpirationTime->QuadPart <
                                session->LastExpirationMessage.QuadPart ) {
@@ -1280,7 +1486,7 @@ Return Value:
                     SrvUserAlertRaise(
                         MTXT_Past_Expiration_Message,
                         2,
-                        &SrvPrimaryDomain,
+                        &session->Connection->Endpoint->DomainName,
                         &timeString,
                         &pagedConnection->ClientMachineNameString
                         );
@@ -1298,7 +1504,7 @@ Return Value:
                 SrvUserAlertRaise(
                     MTXT_Expiration_Message,
                     1,
-                    &SrvPrimaryDomain,
+                    &session->Connection->Endpoint->DomainName,
                     NULL,
                     &pagedConnection->ClientMachineNameString
                     );
@@ -1362,7 +1568,7 @@ Return Value:
                         SrvUserAlertRaise(
                             MTXT_Kickoff_Warning,
                             1,
-                            &SrvPrimaryDomain,
+                            &session->Connection->Endpoint->DomainName,
                             NULL,
                             &pagedConnection->ClientMachineNameString
                             );
@@ -1386,7 +1592,7 @@ Return Value:
                     SrvUserAlertRaise(
                         MTXT_Expiration_Warning,
                         2,
-                        &SrvPrimaryDomain,
+                        &session->Connection->Endpoint->DomainName,
                         &timeString,
                         &pagedConnection->ClientMachineNameString
                         );
@@ -1398,7 +1604,7 @@ Return Value:
             SrvDereferenceSession( session );
             ACQUIRE_LOCK( &Connection->Lock );
 
-        } // if session != NULL
+        } // if GET_BLOCK_STATE(session) == BlockStateActive
 
     } // for
 
@@ -1406,7 +1612,14 @@ Return Value:
     // Nuke the connection if no sessions are active.
     //
 
-    if ( sessionClosed && (pagedConnection->CurrentNumberOfSessions == 0) ) {
+    if ( (sessionClosed && (pagedConnection->CurrentNumberOfSessions == 0)) ||
+         (HasSessions == TRUE && AllSessionsIdle == TRUE) ) {
+
+        //
+        // Update the statistics for the 'AllSessionsIdle' case
+        //
+        SrvStatistics.SessionsTimedOut += pagedConnection->CurrentNumberOfSessions;
+
         RELEASE_LOCK( &Connection->Lock );
 #if SRVDBG29
         UpdateConnectionHistory( "IDLE", Connection->Endpoint, Connection );
@@ -1419,6 +1632,7 @@ Return Value:
         // If this connection has more than 20 core searches, we go in and
         // try to remove dups.  20 is an arbitrary number.
         //
+
 
         if ( (pagedConnection->CurrentNumberOfCoreSearches > 20) &&
              SrvRemoveDuplicateSearches ) {
@@ -1746,198 +1960,162 @@ Return Value:
 } // ProcessConnectionDisconnects
 
 
-VOID
-ProcessNeedResourceQueue (
-    VOID
+VOID SRVFASTCALL
+SrvServiceWorkItemShortage (
+    IN PWORK_CONTEXT workContext
     )
-
-/*++
-
-Routine Description:
-
-    This function attempts to service all connections with outstanding
-    receive requests.
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    None.
-
---*/
-
 {
-    PWORK_CONTEXT workContext = NULL;
     PLIST_ENTRY listEntry;
     PCONNECTION connection;
     KIRQL oldIrql;
+    BOOLEAN moreWork;
+    PWORK_QUEUE queue;
+
+    ASSERT( workContext );
+
+    queue = workContext->CurrentWorkQueue;
+
+    IF_DEBUG( WORKITEMS ) {
+        KdPrint(("SrvServiceWorkItemShortage: Processor %d\n",
+                 queue - SrvWorkQueues ));
+    }
+
+    workContext->FspRestartRoutine = SrvRestartReceive;
+
+    ASSERT( queue >= SrvWorkQueues && queue < eSrvWorkQueues );
 
     //
-    // Run through the list of pending receives.  Keep going until
-    // we have successfully serviced all the outstanding requests,
-    // or until the first failure.
+    // If we got called, it's likely that we're running short of WorkItems.
+    //  Allocate more if it makes sense.
     //
 
-    IF_DEBUG(OPLOCK) KdPrint(( "ProcessNeedResourceQueue entered\n" ));
+    do {
+        PWORK_CONTEXT NewWorkContext;
+
+        SrvAllocateNormalWorkItem( &NewWorkContext, queue );
+        if ( NewWorkContext != NULL ) {
+
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(( "SrvServiceWorkItemShortage:  Created new work context "
+                        "block\n" ));
+            }
+
+            SrvPrepareReceiveWorkItem( NewWorkContext, TRUE );
+
+        } else {
+            InterlockedIncrement( &FailedWorkItemAllocations );
+            break;
+        }
+
+    } while ( queue->FreeWorkItems < queue->MinFreeWorkItems );
+
+    if( GET_BLOCK_TYPE(workContext) == BlockTypeWorkContextSpecial ) {
+        //
+        // We've been called with a special workitem telling us to allocate
+        // more standby WorkContext structures. Since our passed-in workContext
+        // is not a "standard one", we can't use it for any further work
+        // on starved connections.  Just release this workContext and return.
+        //
+        ACQUIRE_SPIN_LOCK( &queue->SpinLock, &oldIrql );
+        SET_BLOCK_TYPE( workContext, BlockTypeGarbage );
+        RELEASE_SPIN_LOCK( &queue->SpinLock, oldIrql );
+        return;
+    }
 
     ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
 
-    while ( !IsListEmpty( &SrvNeedResourceQueue ) ) {
+    //
+    // Run through the list of queued connections and find one that
+    // we can service with this workContext.  This will ignore processor
+    // affinity, but we're in exceptional times.  The workContext will
+    // be freed back to the correct queue when done.
+    //
 
-        //
-        // TRUE, if there is still work to be done for this connection.
-        //
+    while( !IsListEmpty( &SrvNeedResourceQueue ) ) {
 
-        BOOLEAN moreWork;
+        connection = CONTAINING_RECORD( SrvNeedResourceQueue.Flink, CONNECTION, ListEntry );
 
-        //
-        // This thread owns the need-resource queue spin lock and there
-        // is at least one entry on the queue.  Proceed.
-        //
-
-        listEntry = SrvNeedResourceQueue.Flink;
-
-        connection = CONTAINING_RECORD(
-                                 listEntry,
-                                 CONNECTION,
-                                 ListEntry
-                                 );
+        IF_DEBUG( WORKITEMS ) {
+             KdPrint(("SrvServiceWorkItemShortage: Processing connection %x.\n",
+                       connection ));
+        }
 
         ASSERT( connection->OnNeedResourceQueue );
         ASSERT( connection->BlockHeader.ReferenceCount > 0 );
 
-        //
-        // Reference this connection so no one can delete this from under us.
-        //
+        if( GET_BLOCK_STATE( connection ) != BlockStateActive ) {
 
-        ACQUIRE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
-        SrvReferenceConnectionLocked( connection );
-
-        IF_DEBUG( OPLOCK ) {
-            KdPrint(("ProcessNeedResourceQueue: Processing connection %x.\n",
-                     connection ));
-        }
-
-        moreWork = (BOOLEAN)(!IsListEmpty(&connection->OplockWorkList) ||
-                                connection->ReceivePending);
-
-        //
-        // Attempt to service the receive request.
-        //
-
-        while ( moreWork ) {
-
-            //
-            // If the connection is closing, go to the next connection.
-            //
-
-            if ( GET_BLOCK_STATE(connection) != BlockStateActive ) {
-
-                IF_DEBUG( OPLOCK ) {
-                    KdPrint(("ProcessNeedResourceQueue: Connection %x "
+                IF_DEBUG( WORKITEMS ) {
+                    KdPrint(("SrvServiceWorkItemShortage: Connection %x "
                              "closing.\n", connection ));
                 }
 
+                //
+                // Take it off the queue
+                //
+                SrvRemoveEntryList(
+                    &SrvNeedResourceQueue,
+                    &connection->ListEntry
+                );
+                connection->OnNeedResourceQueue = FALSE;
+
+                RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
+
+                //
+                // Remove the queue reference
+                //
+                SrvDereferenceConnection( connection );
+
+                ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
+                continue;
+        }
+
+        //
+        // Reference this connection so no one can delete this from under us.
+        //
+        ACQUIRE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        SrvReferenceConnectionLocked( connection );
+
+        //
+        // Service the connection
+        //
+        do {
+
+            if( IsListEmpty( &connection->OplockWorkList ) && !connection->ReceivePending )
                 break;
+
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("Work to do on connection %X\n", connection ));
             }
 
-            //
-            // Allocate a work context block if we don't have one
-            //
-
-            if ( workContext == NULL ) {
-
-                workContext = SrvFsdGetReceiveWorkItem2( );
-
-                if ( workContext == NULL ) {
-
-                    RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
-                    RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
-
-                    //
-                    // Third attempt.  Attempt to allocate memory for
-                    // and format a new receive work item.
-                    //
-
-                    SrvAllocateNormalWorkItem( &workContext );
-
-                    if ( workContext == NULL ) {
-
-                        //
-                        // We have failed.  Return to the caller.
-                        //
-
-                        IF_DEBUG( OPLOCK ) {
-                            KdPrint(("ProcessNeedResourceQueue: Unable to "
-                                     "allocate work item.\n" ));
-                        }
-
-                        //
-                        // Remove this routine's reference.
-                        //
-
-                        SrvDereferenceConnection( connection );
-
-                        return;
-
-                    }
-
-                    SrvPrepareReceiveWorkItem( workContext, FALSE );
-
-                    ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
-                    ACQUIRE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
-
-                    //
-                    // Make sure the connection is still on the queue.
-                    //
-
-                    if ( !connection->OnNeedResourceQueue ) {
-
-                        IF_DEBUG( OPLOCK ) {
-                            KdPrint(("ProcessNeedResourceQueue: Connection %x "
-                                     "removed by another thread.\n", connection ));
-                        }
-                        break;
-                    }
-                }
-
-            } // workContext == NULL
+            workContext->BlockHeader.ReferenceCount = 1;
 
             //
             // Reference connection here.
             //
-
             workContext->Connection = connection;
             SrvReferenceConnectionLocked( connection );
             workContext->Endpoint = connection->Endpoint;
 
-            IF_DEBUG( OPLOCK ) {
-                KdPrint(("ProcessNeedResourceQueue: Got work item %x.\n",
-                         workContext ));
-            }
-
             //
             // Service this connection.
             //
-
             SrvFsdServiceNeedResourceQueue( &workContext, &oldIrql );
 
-            moreWork = (BOOLEAN) ((!IsListEmpty(&connection->OplockWorkList) ||
+            moreWork = (BOOLEAN) (    workContext != NULL &&
+                                      (!IsListEmpty(&connection->OplockWorkList) ||
                                       connection->ReceivePending) &&
                                       connection->OnNeedResourceQueue);
 
-        } // while ( moreWork )
+        } while( moreWork );
 
         //
-        // Has someone else taken it off the queue?
+        // Is it now off the queue?
         //
-
         if ( !connection->OnNeedResourceQueue ) {
 
-            IF_DEBUG( OPLOCK ) {
-                KdPrint(("ProcessNeedResourceQueue: connection %x "
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("SrvServiceWorkItemShortage: connection %x "
                          "removed by another thread.\n", connection ));
             }
 
@@ -1950,6 +2128,13 @@ Return Value:
 
             SrvDereferenceConnection( connection );
 
+            if( workContext == NULL ) {
+                IF_DEBUG( WORKITEMS ) {
+                    KdPrint(("SrvServiceWorkItemShortage:  DONE at %d\n", __LINE__ ));
+                }
+                return;
+            }
+
             ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
             continue;
         }
@@ -1957,8 +2142,36 @@ Return Value:
         RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
 
         //
-        // Take the connection off the queue.
+        // The connection is still on the queue.  Keep it on the queue if there is more
+        //  work to be done for it.
         //
+        if( !IsListEmpty(&connection->OplockWorkList) || connection->ReceivePending ) {
+
+            RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
+
+            if( workContext ) {
+                RETURN_FREE_WORKITEM( workContext );
+            }
+
+            //
+            // Remove this routine's reference.
+            //
+            SrvDereferenceConnection( connection );
+
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("SrvServiceWorkItemShortage:  More to do for %X."
+                         "  LATER\n", connection ));
+            }
+
+            return;
+        }
+
+        //
+        // All the work has been done for this connection.  Get it off the resource queue
+        //
+        IF_DEBUG( WORKITEMS ) {
+            KdPrint(("SrvServiceWorkItemShortage:  Take %X off resource queue\n", connection ));
+        }
 
         SrvRemoveEntryList(
             &SrvNeedResourceQueue,
@@ -1972,20 +2185,7 @@ Return Value:
         //
         // Remove queue reference
         //
-
         SrvDereferenceConnection( connection );
-
-        //
-        // Either we successfully serviced a connection, or we
-        // skipped the current connection.  Reacquire the need-resource
-        // queue spin lock, so we can see if there is another connection
-        // to service.
-        //
-
-        IF_DEBUG( OPLOCK ) {
-            KdPrint(("ProcessNeedResourceQueue: Connection %x "
-                     "removed from queue.\n", connection ));
-        }
 
         //
         // Remove this routine's reference.
@@ -1993,38 +2193,40 @@ Return Value:
 
         SrvDereferenceConnection( connection );
 
-        ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
+        IF_DEBUG( WORKITEMS ) {
+            KdPrint(("SrvServiceWorkItemShortage: Connection %x "
+                     "removed from queue.\n", connection ));
+        }
 
+        if( workContext == NULL ) {
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("SrvServiceWorkItemShortage: DONE at %d\n", __LINE__ ));
+            }
+            return;
+        }
+
+        ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
     }
 
     RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
 
     //
-    // See if we need to queue a receive work item to the FSD list.
+    // See if we need to free the workContext
     //
 
     if ( workContext != NULL ) {
 
-        IF_DEBUG( OPLOCK ) {
-            KdPrint(("ProcessNeedResourceQueue: WorkContext block %x "
-                     " requeued.\n", workContext ));
+        IF_DEBUG( WORKITEMS ) {
+            KdPrint(("SrvServiceWorkItemShortage: Freeing WorkContext block %x\n",
+                     workContext ));
         }
-
-        //
-        // Dereference the work item manually.  We cannot call
-        // SrvDereferenceWorkItem from here.
-        //
-
-        ASSERT( workContext->BlockHeader.ReferenceCount == 1 );
         workContext->BlockHeader.ReferenceCount = 0;
-
         RETURN_FREE_WORKITEM( workContext );
     }
 
-    IF_DEBUG(OPLOCK) KdPrint(( "ProcessNeedResourceQueue complete\n" ));
-    return;
+    IF_DEBUG(WORKITEMS) KdPrint(( "SrvServiceWorkItemShortage DONE at %d\n", __LINE__ ));
 
-} // ProcessNeedResourceQueue
+} // SrvServiceWorkItemShortage
 
 VOID
 TimeoutSessions (
@@ -2087,7 +2289,7 @@ Return Value:
                                         SrvAutodisconnectTimeout.QuadPart;
     }
 
-    searchCutoffTime = LiSub( *CurrentTime, SrvSearchMaxTimeout );
+    searchCutoffTime.QuadPart = (*CurrentTime).QuadPart - SrvSearchMaxTimeout.QuadPart;
 
     RELEASE_LOCK( &SrvConfigurationLock );
 
@@ -2207,7 +2409,7 @@ TimeoutWaitingOpens (
 Routine Description:
 
     This function times out opens that are waiting for another client
-    or local process to release it's oplock.  This opener's wait for
+    or local process to release its oplock.  This opener's wait for
     oplock break IRP is cancelled, causing the opener to return the
     failure to the client.
 
@@ -2490,17 +2692,17 @@ Return Value:
 } // UpdateConnectionQos
 
 VOID
-FreeIdleWorkItems (
-    IN BOOLEAN FreeNormalWorkItems,
-    IN ULONG CurrentTick
+LazyFreeQueueDataStructures (
+    PWORK_QUEUE queue
     )
 
 /*++
 
 Routine Description:
 
-    This function frees work context blocks that have been in the free
-    list for a long time.
+    This function frees work context blocks and other per-queue data
+    structures that are held on linked lists when otherwise free.  It
+    only frees a few at a time, to allow a slow ramp-down.
 
 Arguments:
 
@@ -2513,132 +2715,135 @@ Return Value:
 --*/
 
 {
-    ULONG itemsFreed;
-    ULONG maxToFree;
-    ULONG timeoutTime;
-    PULONG pMinCount;
-    PULONG pFreeCount;
-    PSINGLE_LIST_ENTRY listHead;
     PSINGLE_LIST_ENTRY listEntry;
-    PSINGLE_LIST_ENTRY nextToLastEntry;
-    PWORK_CONTEXT workContext;
     KIRQL oldIrql;
-
-    VOID
-    (*freeRoutine) (
-        IN PWORK_CONTEXT WorkContext
-        );
+    ULONG i;
+    PWORK_CONTEXT workContext;
 
     //
-    // If a timestamp on a work context block is earlier than
-    // currentTick - MaxIdleTime, we will free it.
+    // Clean out the queue->FreeContext
+    //
+    workContext = NULL;
+    workContext = (PWORK_CONTEXT)InterlockedExchange( (PLONG)&queue->FreeContext, (LONG)workContext );
+
+    if( workContext != NULL ) {
+        ExInterlockedPushEntrySList( workContext->FreeList,
+                                     &workContext->SingleListEntry,
+                                     &queue->SpinLock
+                                   );
+        InterlockedIncrement( &queue->FreeWorkItems );
+    }
+
+    //
+    // Free 1 normal work item, if appropriate
+    //
+    if( queue->FreeWorkItems > queue->MinFreeWorkItems ) {
+
+
+        listEntry = ExInterlockedPopEntrySList( &queue->NormalWorkItemList,
+                                                &queue->SpinLock );
+
+        if( listEntry != NULL ) {
+            PWORK_CONTEXT workContext;
+
+            InterlockedDecrement( &queue->FreeWorkItems );
+
+            workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
+
+            SrvFreeNormalWorkItem( workContext );
+        }
+    }
+
+    //
+    // Free 1 raw mode work item, if appropriate
     //
 
-    timeoutTime = CurrentTick - SrvWorkItemMaxIdleTime;
+    if( (ULONG)queue->AllocatedRawModeWorkItems > SrvMaxRawModeWorkItemCount / SrvNumberOfProcessors ) {
 
-    //
-    // We will only free so many idle work items per scavenger pass.
-    // We'll always try to free at least one, even if maxFreeCount is 0.
-    //
+        PWORK_CONTEXT workContext;
 
-    if ( FreeNormalWorkItems ) {
+        listEntry = ExInterlockedPopEntrySList( &queue->RawModeWorkItemList, &queue->SpinLock );
 
-        listHead = &SrvNormalReceiveWorkItemList;
-        pMinCount =  &SrvMinReceiveQueueLength;
-        pFreeCount =  &SrvFreeWorkItems;
-        freeRoutine = SrvFreeNormalWorkItem;
-
-        maxToFree = SrvReceiveWorkItems / 10;
-
-    } else {
-
-        listHead = &SrvRawModeWorkItemList;
-        pMinCount = &SrvInitialRawModeWorkItemCount;
-        pFreeCount = &SrvFreeRawModeWorkItems;
-        freeRoutine = SrvFreeRawModeWorkItem;
-
-        maxToFree = SrvRawModeWorkItems / 10;
+        if( listEntry != NULL ) {
+            InterlockedDecrement( &queue->FreeRawModeWorkItems );
+            ASSERT( queue->FreeRawModeWorkItems >= 0 );
+            workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
+            SrvFreeRawModeWorkItem( workContext );
+        }
 
     }
 
-    itemsFreed = 0;
-
     //
-    // Look at the tail of the free list and delete an idle work item
-    // block if it's been there long enough.
+    // Free 1 rfcb off the list
     //
+    {
+        PRFCB rfcb = NULL;
 
-    ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );
+        rfcb = (PRFCB)InterlockedExchange( (PLONG)&queue->CachedFreeRfcb, (LONG)rfcb );
 
-    while ( (listHead->Next != NULL ) && (*pFreeCount > *pMinCount) ) {
-
-        //
-        // Get the tail
-        //
-
-        for ( nextToLastEntry = listHead, listEntry = listHead->Next;
-              listEntry->Next != NULL;
-              nextToLastEntry = listEntry, listEntry = listEntry->Next ) {
-            ;
+        if( rfcb != NULL ) {
+            ExInterlockedPushEntrySList( &queue->RfcbFreeList,
+                                         &rfcb->SingleListEntry,
+                                         &queue->SpinLock
+                                       );
+            InterlockedIncrement( &queue->FreeRfcbs );
         }
 
-        workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
+        listEntry = ExInterlockedPopEntrySList( &queue->RfcbFreeList,
+                                                &queue->SpinLock );
 
-        //
-        // See if we can free this block.
-        //
-
-        if ( (LONG)(timeoutTime - workContext->Timestamp) < 0 ) {
-
-            //
-            // The oldest work item isn't old enough.  Nothing to free.
-            //
-
-            RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
-            return;
-
+        if( listEntry ) {
+            InterlockedDecrement( &queue->FreeRfcbs );
+            rfcb = CONTAINING_RECORD( listEntry, RFCB, SingleListEntry );
+            INCREMENT_DEBUG_STAT( SrvDbgStatistics.RfcbInfo.Frees );
+            FREE_HEAP( rfcb->PagedRfcb );
+            DEALLOCATE_NONPAGED_POOL( rfcb );
         }
-
-        //
-        // The oldest work item is old enough to be deleted.  Remove it
-        // from the list, decrement the count of free work items, and
-        // free this work item.
-        //
-
-        nextToLastEntry->Next = NULL;
-
-        (*pFreeCount)--;
-
-        RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
-
-        freeRoutine( workContext );
-
-        //
-        // Check to see if we've freed as many work items as allowed.
-        //
-        // *** Note that we do the IsListEmpty and SrvFreeWorkItems
-        //     calculations twice in the loop case, but it should be
-        //     more typical to not loop, so we'll avoid reacquiring
-        //     and releasing the spin lock.
-        //
-
-        itemsFreed++;
-
-        if ( (listHead->Next == NULL) ||
-             (*pFreeCount <= *pMinCount) ||
-             (itemsFreed >= maxToFree) ) {
-            return;
-        }
-
-        ACQUIRE_GLOBAL_SPIN_LOCK( WorkItem, &oldIrql );
-
     }
 
-    RELEASE_GLOBAL_SPIN_LOCK( WorkItem, oldIrql );
+    //
+    // Free 1 Mfcb off the list
+    //
+    {
 
-    return;
+        PNONPAGED_MFCB nonpagedMfcb = NULL;
 
-} // FreeIdleWorkItems
+        nonpagedMfcb = (PNONPAGED_MFCB)InterlockedExchange((PLONG)&queue->CachedFreeMfcb,
+                                                           (LONG)nonpagedMfcb);
+
+        if( nonpagedMfcb != NULL ) {
+            ExInterlockedPushEntrySList( &queue->MfcbFreeList,
+                                         &nonpagedMfcb->SingleListEntry,
+                                         &queue->SpinLock
+                                       );
+            InterlockedIncrement( &queue->FreeMfcbs );
+        }
+
+        listEntry = ExInterlockedPopEntrySList( &queue->MfcbFreeList,
+                                                &queue->SpinLock );
+        if( listEntry ) {
+            InterlockedDecrement( &queue->FreeMfcbs );
+            nonpagedMfcb = CONTAINING_RECORD( listEntry, NONPAGED_MFCB, SingleListEntry );
+            DEALLOCATE_NONPAGED_POOL( nonpagedMfcb );
+        }
+    }
+
+    //
+    // Free memory in the per-queue pool free lists
+    //
+    {
+        //
+        // Free the paged pool chunks
+        //
+        SrvClearLookAsideList( &queue->PagedPoolLookAsideList, SrvFreePagedPool );
+
+        //
+        // Free the non paged pool chunks
+        //
+        SrvClearLookAsideList( &queue->NonPagedPoolLookAsideList, SrvFreeNonPagedPool );
+    }
+
+} // LazyFreeQueueDataStructures
 
 VOID
 SrvUserAlertRaise (
@@ -3066,7 +3271,7 @@ Return Value:
             //
             // We need a third string for the network name.
             //
-            // BUGBUG: This is a temporary hack.  We need to maintain
+            // This allocation is unfortunate.  We need to maintain
             // per xport error count so we can print out the actual
             // xport name.
             //
@@ -3134,7 +3339,7 @@ Return Value:
     UNICODE_STRING insert1, insert2;
     WCHAR buffer2[20];
     UNICODE_STRING pathName;
-    WCHAR dosPathPrefix[] = L"\\DosDevices\\C:\\";
+    WCHAR dosPathPrefix[] = L"\\DosDevices\\A:\\";
     NTSTATUS status;
     OBJECT_ATTRIBUTES objectAttributes;
     IO_STATUS_BLOCK iosb;
@@ -3143,10 +3348,11 @@ Return Value:
     HANDLE handle;
     ULONG percentFree;
     PWCH currentDrive;
+    DWORD diskconfiguration;
 
     PAGED_CODE( );
 
-    diskMask = 0x20000000;  // Start at C:
+    diskMask = 0x80000000;  // Start at A:
 
     pathName.Buffer = dosPathPrefix;
     pathName.MaximumLength = 32;
@@ -3156,9 +3362,16 @@ Return Value:
     insert1.Buffer = &dosPathPrefix[12];
     insert1.Length = 4;
 
+    //
+    // SrvDiskConfiguration is a bitmask of drives that are
+    // administratively shared.  It is updated by NetShareAdd and
+    // NetShareDel.
+    //
+    diskconfiguration = SrvDiskConfiguration;
+
     for ( ; diskMask >= 0x40; diskMask >>= 1, dosPathPrefix[12]++ ) {
 
-        if ( !(SrvDiskConfiguration & diskMask) ) {
+        if ( !(diskconfiguration & diskMask) ) {
             continue;
         }
 
@@ -3201,7 +3414,7 @@ Return Value:
         SrvNtClose( handle, FALSE );
         if ( !NT_SUCCESS( status ) ||
              (deviceInformation.Characteristics &
-                (FILE_READ_ONLY_DEVICE | FILE_WRITE_ONCE_MEDIA)) ||
+                (FILE_FLOPPY_DISKETTE | FILE_READ_ONLY_DEVICE | FILE_WRITE_ONCE_MEDIA)) ||
              !(deviceInformation.Characteristics &
                 FILE_DEVICE_IS_MOUNTED) ) {
             continue;
@@ -3435,30 +3648,40 @@ extern ULONG Trapped512s;
 #endif
 
 VOID
-SrvUpdateStatisticsFromShadow (
+SrvUpdateStatisticsFromQueues (
     OUT PSRV_STATISTICS CapturedSrvStatistics OPTIONAL
     )
 {
-    SRV_STATISTICS_SHADOW shadowStats;
     KIRQL oldIrql;
+    PWORK_QUEUE queue;
 
     ACQUIRE_GLOBAL_SPIN_LOCK( Statistics, &oldIrql );
 
-    shadowStats = SrvStatisticsShadow;
-    RtlZeroMemory( &SrvStatisticsShadow, sizeof(SrvStatisticsShadow) );
+    SrvStatistics.TotalBytesSent.QuadPart = 0;
+    SrvStatistics.TotalBytesReceived.QuadPart = 0;
+    SrvStatistics.TotalWorkContextBlocksQueued.Time.QuadPart = 0;
+    SrvStatistics.TotalWorkContextBlocksQueued.Count = 0;
 
-    SrvStatistics.TotalBytesSent.QuadPart += shadowStats.BytesSent;
-    SrvStatistics.TotalBytesReceived.QuadPart += shadowStats.BytesReceived;
+    //
+    // Get the nonblocking statistics
+    //
 
-    SrvStatistics.TotalWorkContextBlocksQueued.Count +=
-        shadowStats.WorkItemsQueued.Count * STATISTICS_SMB_INTERVAL;
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+
+        SrvStatistics.TotalBytesSent.QuadPart += queue->stats.BytesSent;
+        SrvStatistics.TotalBytesReceived.QuadPart += queue->stats.BytesReceived;
+
+        SrvStatistics.TotalWorkContextBlocksQueued.Count +=
+            queue->stats.WorkItemsQueued.Count * STATISTICS_SMB_INTERVAL;
+
+        SrvStatistics.TotalWorkContextBlocksQueued.Time.QuadPart +=
+            queue->stats.WorkItemsQueued.Time.QuadPart;
+    }
+
 #if SRVDBG_PERF
     SrvStatistics.TotalWorkContextBlocksQueued.Count += Trapped512s;
     Trapped512s = 0;
 #endif
-    SrvStatistics.TotalWorkContextBlocksQueued.Time.QuadPart +=
-//        shadowStats.WorkItemsQueued.Time.LowPart * STATISTICS_SMB_INTERVAL;
-        shadowStats.WorkItemsQueued.Time.LowPart;
 
     if ( ARGUMENT_PRESENT(CapturedSrvStatistics) ) {
         *CapturedSrvStatistics = SrvStatistics;
@@ -3468,16 +3691,26 @@ SrvUpdateStatisticsFromShadow (
 
     ACQUIRE_SPIN_LOCK( (PKSPIN_LOCK)IoStatisticsLock, &oldIrql );
 
-    *(PULONG)IoReadOperationCount += shadowStats.ReadOperations;
-    **(PLONGLONG *)&IoReadTransferCount += shadowStats.BytesRead;
-    *(PULONG)IoWriteOperationCount += shadowStats.WriteOperations;
-    **(PLONGLONG *)&IoWriteTransferCount += shadowStats.BytesWritten;
+    for( queue = SrvWorkQueues; queue < eSrvWorkQueues; queue++ ) {
+
+        *(PULONG)IoReadOperationCount += (ULONG)(queue->stats.ReadOperations - queue->saved.ReadOperations );
+        queue->saved.ReadOperations = queue->stats.ReadOperations;
+
+        **(PLONGLONG *)&IoReadTransferCount += (queue->stats.BytesRead - queue->saved.BytesRead );
+        queue->saved.BytesRead = queue->stats.BytesRead;
+
+        *(PULONG)IoWriteOperationCount += (ULONG)(queue->stats.WriteOperations - queue->saved.WriteOperations );
+        queue->saved.WriteOperations = queue->stats.WriteOperations;
+
+        **(PLONGLONG *)&IoWriteTransferCount += (queue->stats.BytesWritten - queue->saved.BytesWritten );
+        queue->saved.BytesWritten = queue->stats.BytesWritten;
+    }
 
     RELEASE_SPIN_LOCK( (PKSPIN_LOCK)IoStatisticsLock, oldIrql );
 
     return;
 
-} // SrvUpdateStatisticsFromShadow
+} // SrvUpdateStatisticsFromQueues
 
 VOID
 ProcessOrphanedBlocks (
@@ -3516,14 +3749,16 @@ Return Value:
 
     while ( TRUE ) {
 
-        listEntry = ExInterlockedPopEntryList(
+        listEntry = ExInterlockedPopEntrySList(
                                 &SrvBlockOrphanage,
                                 &GLOBAL_SPIN_LOCK(Fsd)
                                 );
 
-        if ( listEntry == NULL ) {
+        if( listEntry == NULL ) {
             break;
         }
+
+        InterlockedDecrement( &SrvResourceOrphanedBlocks );
 
         block = CONTAINING_RECORD(
                             listEntry,

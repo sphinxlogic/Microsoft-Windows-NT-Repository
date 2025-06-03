@@ -129,11 +129,11 @@ Return Value:
     // if the WINs endpoint structure is not allocated, then allocate it
     // and initialize it.
     //
-    status == STATUS_UNSUCCESSFUL;
+    status = STATUS_UNSUCCESSFUL;
     if (!pWinsInfo)
     {
 
-        pWins = CTEAllocMem(sizeof(tWINS_INFO));
+        pWins = NbtAllocMem(sizeof(tWINS_INFO),NBT_TAG('v'));
         if (pWins)
         {
 
@@ -141,7 +141,7 @@ Return Value:
             //
             if (!NbtDiscardableCodeHandle)
             {
-                NbtDiscardableCodeHandle = MmLockPagableImageSection( NTCloseWinsAddr );
+                NbtDiscardableCodeHandle = MmLockPagableCodeSection( NTCloseWinsAddr );
             }
 
             // it could fail to lock the pages so check for that
@@ -385,12 +385,12 @@ Notes:
                 // 2 sec*3 retries * 8 names / 5 = 9 seconds a shot.
                 // for a total of 90 seconds max.
                 //
-                Timout = RtlEnlargedIntegerMultiply(
-                                   MILLISEC_TO_100NS/(COUNT_MAX/2),
-                                   (NbtConfig.uRetryTimeout*NbtConfig.uNumRetries)
-                                   *NumberNames);
+                Timout.QuadPart = Int32x32To64(
+                             MILLISEC_TO_100NS/(COUNT_MAX/2),
+                             (NbtConfig.uRetryTimeout*NbtConfig.uNumRetries)
+                             *NumberNames);
 
-                Timout = RtlLargeIntegerNegate(*(PLARGE_INTEGER)&Timout);
+                Timout.QuadPart = -(Timout.QuadPart);
 
                 //
                 // wait for a few seconds and try again.
@@ -650,7 +650,7 @@ Notes:
             {
                 tWINSRCV_BUFFER    *pBuffer;
 
-                pBuffer = CTEAllocMem(uNumBytes + sizeof(tWINSRCV_BUFFER)+8);
+                pBuffer = NbtAllocMem(uNumBytes + sizeof(tWINSRCV_BUFFER)+8,NBT_TAG('v'));
                 if (pBuffer)
                 {
                     //
@@ -765,24 +765,6 @@ Notes:
             IF_DBG(NBT_DEBUG_WINS)
             KdPrint(("Nbt:Returning Wins Rcv Irp - data from net, Length=%X,pIrp=%X\n"
                     ,uNumBytes,pIrp));
-    #if 0
-            CTESpinLock(&NbtConfig.JointLock,OldIrq);
-            if (NbtDebug & NBT_DEBUG_WINS)
-            {
-                ULONG   i;
-                PUCHAR  pBuff;
-                i = uNumBytes;
-                pBuff = (PUCHAR)pNameSrv;
-                KdPrint(("Rcv Buffer passed to Wins\n"));
-                while (i--)
-                {
-                    KdPrint(("%02.2X",pBuff[uNumBytes-i]));
-                }
-                KdPrint(("end\n"));
-            }
-            CTESpinFree(&NbtConfig.JointLock,OldIrq);
-    #endif
-
 
             NTIoComplete(pIrp,status,CopyLength);
 
@@ -1207,9 +1189,9 @@ Return Values:
                 if (pNameHdr->OpCodeFlags & OP_RESPONSE)
                 {
                     if (NT_SUCCESS(status) &&
-                       (pResp->NameTypeState & (STATE_RESOLVED | STATE_CONFLICT)))
+                       (pResp->NameTypeState & STATE_RESOLVED))
                     {
-                        NbtLogEvent(EVENT_NBT_NAME_RELEASE,0);
+                        NbtLogEvent(EVENT_NBT_NAME_RELEASE,pSendAddr->IpAddress);
 
                         pResp->NameTypeState &= ~NAME_STATE_MASK;
                         pResp->NameTypeState |= STATE_CONFLICT;
@@ -1349,7 +1331,7 @@ Return Value:
         else
         {
             pWinsInfo->RcvMemoryAllocated += Size;
-            return (CTEAllocMem(Size));
+            return (NbtAllocMem(Size,NBT_TAG('v')));
         }
     }
     else
@@ -1361,7 +1343,7 @@ Return Value:
         else
         {
             pWinsInfo->SendMemoryAllocated += Size;
-            return(CTEAllocMem(Size));
+            return(NbtAllocMem(Size,NBT_TAG('v')));
         }
     }
 }
@@ -1406,106 +1388,3 @@ Return Value:
 
     CTEMemFree(pBuffer);
 }
-#if 0
-//----------------------------------------------------------------------------
-NTSTATUS
-WinsRegisterName(
-    IN  tDEVICECONTEXT *pDeviceContext,
-    IN  tNAMEADDR      *pNameAddr,
-    IN  PUCHAR         pScope,
-    IN  enum eNSTYPE   eNsType
-    )
-
-/*++
-Routine Description:
-
-    This Routine handles registering a name with the local WINS server.
-
-Arguments:
-
-
-Return Value:
-
-    none
-
---*/
-
-{
-    NTSTATUS                    status;
-    USHORT                      NameType;
-    ULONG   UNALIGNED           *pHdrIpAddress;
-    tNAMEHDR                    *pNameHdr;
-    tDGRAM_SEND_TRACKING        Tracker;
-    ULONG                       uLength;
-    TRANSPORT_ADDRESS           SourceAddress;
-
-
-    status = STATUS_UNSUCCESSFUL;
-
-    //
-    // Create the Name Registration Pdu
-    //
-    if (pNameAddr->NameTypeState & (NAMETYPE_GROUP | NAMETYPE_INET_GROUP))
-    {
-        NameType = NBT_GROUP;
-    }
-    else
-    {
-        NameType = NBT_UNIQUE;
-    }
-
-    Tracker.TransactionId = 0;
-    pHdrIpAddress = (ULONG UNALIGNED *)CreatePdu(
-                                           pNameAddr->Name,
-                                           pScope,
-                                           0L,     // we don't know the IP address yet
-                                           NameType,
-                                           eNsType,
-                                           (PVOID)&pNameHdr,
-                                           &uLength,
-                                           &Tracker);
-
-    if (pHdrIpAddress)
-    {
-        //
-        // change the dgram header for name refreshes
-        //
-        if (eNsType == eNAME_REFRESH)
-        {
-            pNameHdr->OpCodeFlags = OP_REFRESH;
-        }
-        else
-        if (eNsType == eNAME_QUERY)
-        {
-            pHdrIpAddress = NULL;
-        }
-    }
-    else
-    {
-        IF_DBG(NBT_DEBUG_NAMESRV)
-        KdPrint(("Nbt:Failed to Create Pdu to send to WINS PduType= %X\n",
-            eNsType));
-        return(STATUS_INSUFFICIENT_RESOURCES);
-    }
-
-    ((PTDI_ADDRESS_IP)&SourceAddress.Address[0].Address[0])->in_addr =
-                            pDeviceContext->IpAddress;
-
-    ((PTDI_ADDRESS_IP)&SourceAddress.Address[0].Address[0])->sin_port =
-                                                NbtConfig.NameServerPort;
-
-    status = PassNamePduToWins (
-                                pDeviceContext,
-                                &SourceAddress,
-                                (tNAMEHDR UNALIGNED *)pNameHdr,
-                                uLength);
-
-    //
-    // Since the above call buffers the datagram
-    // we need to free the memory
-    //
-    CTEMemFree(pNameHdr);
-    return(status);
-}
-#endif
-

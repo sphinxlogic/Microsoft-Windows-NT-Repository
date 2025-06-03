@@ -64,13 +64,13 @@ NetpDbgDisplayConfigSection (
 
     NetpAssert( MyHandle != NULL );
 
-    NetpDbgPrint( "Net config data, private handle at " FORMAT_LPVOID ":\n",
-            (LPVOID) MyHandle );
+    NetpKdPrint(( "Net config data, private handle at " FORMAT_LPVOID ":\n",
+            (LPVOID) MyHandle ));
 
 #if defined(USE_WIN32_CONFIG)
 
     // BUGBUG: Add support for Win32!
-    NetpDbgPrint( "   (print of Win32 section not supported yet.)\n" );
+    NetpKdPrint(( "   (print of Win32 section not supported yet.)\n" ));
 
 #elif defined(FAKE_PER_PROCESS_RW_CONFIG)
 
@@ -81,27 +81,27 @@ NetpDbgDisplayConfigSection (
                 = MyHandle->FakeRWDataForThisSection;
 
         NetpAssert( SectionData != NULL );
-        NetpDbgPrint( "  config section for '" FORMAT_LPTSTR "' at "
+        NetpKdPrint(( "  config section for '" FORMAT_LPTSTR "' at "
                 FORMAT_LPVOID ":\n",
-                SectionData->SectionName, (LPVOID) SectionData );
+                SectionData->SectionName, (LPVOID) SectionData ));
         Array = SectionData->KeyValueArrayPtr;
-        NetpDbgPrint( "  array starts at " FORMAT_LPVOID ".\n",
-                (LPVOID) Array );
+        NetpKdPrint(( "  array starts at " FORMAT_LPVOID ".\n",
+                (LPVOID) Array ));
         NetpAssert( Array != NULL );
         CurrentEntry = (LPVOID) Array;
 
         if (*CurrentEntry == TCHAR_EOS) {
-            NetpDbgPrint("    (empty)\n");
+            NetpKdPrint(("    (empty)\n"));
         } else {
             while (*CurrentEntry != TCHAR_EOS) {
-                NetpDbgPrint( "    "  FORMAT_LPTSTR "=",
-                        (LPTSTR) CurrentEntry );
+                NetpKdPrint(( "    "  FORMAT_LPTSTR "=",
+                        (LPTSTR) CurrentEntry ));
                 CurrentEntry += ( STRLEN( CurrentEntry ) + 1 );
                 if (*CurrentEntry == TCHAR_EOS) {
-                    NetpDbgPrint( "*****INVALID****\n" );
+                    NetpKdPrint(( "*****INVALID****\n" ));
                     break;
                 }
-                NetpDbgPrint( FORMAT_LPTSTR "\n", (LPTSTR) CurrentEntry);
+                NetpKdPrint(( FORMAT_LPTSTR "\n", (LPTSTR) CurrentEntry));
                 CurrentEntry += ( STRLEN( CurrentEntry ) + 1 );
             }
         }
@@ -152,8 +152,8 @@ NetpDbgDisplayConfigSection (
             //
             // Print the keyword and value.
             //
-            NetpDbgPrint("  " FORMAT_LPTSTR "=" FORMAT_LPTSTR ".\n",
-                    KeywordCopy, ValueCopy );
+            NetpKdPrint(("  " FORMAT_LPTSTR "=" FORMAT_LPTSTR ".\n",
+                    KeywordCopy, ValueCopy ));
 
             //
             // Free up memory from copies.

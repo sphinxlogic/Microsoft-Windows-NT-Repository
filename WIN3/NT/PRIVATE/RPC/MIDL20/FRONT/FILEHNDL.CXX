@@ -58,6 +58,9 @@ extern	"C"
 
 short  		DebugLine = 0;
 char	*	pDebugFile;
+int			StdoutSave = -1;
+int			StderrSave = -1;
+FILE 	*	pNullFile  = NULL;
 
 /****************************************************************************
  ***		extern procs
@@ -66,6 +69,8 @@ char	*	pDebugFile;
 extern void			StripSlashes( char * );
 extern void			ChangeToForwardSlash( char *, char * ); 
 extern STATUS_T		CreateFullPathAndFName( char *, char **, char ** );
+extern "C" long     __stdcall    GetTempPathA( long, char * );
+extern "C" long     __stdcall    GetTempFileNameA( const char*, const char*, unsigned int, char * );
 
 
 /****************************************************************************
@@ -75,6 +80,9 @@ extern STATUS_T		CreateFullPathAndFName( char *, char **, char ** );
 extern int			errno;
 extern CCONTROL	*	pCompiler;
 extern CMD_ARG	*	pCommand;
+extern short		curr_line_G;
+extern FILE		*	hFile_G;
+extern BOOL			fRedundantImport;
 
 
 /*** _nfa_info *************************************************************
@@ -173,12 +181,6 @@ _nfa_info::Init()
 	{
 
 	CMD_ARG	*	pCommandProcessor = pCompiler->GetCommandProcessor();
-
-#if 0
-	if( pCommandProcessor->IsSwitchDefined( SWITCH_I ) )
-		pCommandProcessor->RegisterPaths();
-
-#endif // 0
 
 	// set preprocessing on or off depending upon the need
 
@@ -283,12 +285,16 @@ NFA_INFO::PushLexLevel ( void )
 
 	assert( Flags.fFileSet == 1 );
 
+	// if we are in a deep imports heirarchy,
 	// close the current file, record its position so that we can start
 	// reading at the same place when we come back to it on a poplexlevel
 
-	pStack->ulPos		= ftell( pStack->hFile );
-//	fclose(pStack->hFile);
-//	pStack->fOpen		= 0;
+	if ( iCurLexLevel > 12 )
+		{
+		pStack->ulPos		= ftell( pStack->hFile );
+		fclose(pStack->hFile);
+		pStack->fOpen		= 0;
+		}
 	Flags.fFileSet		= 0;
 	iCurLexLevel++;
 	return 0;
@@ -320,7 +326,14 @@ NFA_INFO::PopLexLevel( void )
 	iCurLexLevel--;
 
 	if( ! pStack->fRedundantImport )
+		{
 		EndOneOperation( pStack );
+		}
+	else	// close the nul file
+		{
+//		if ( pStack->hFile && pStack->fOpen && )
+//			fclose( pStack->hFile );
+		}
 
 	pCurStack = pStack	= pStack->pPrev;
 	delete pStack->pNext;
@@ -335,28 +348,40 @@ NFA_INFO::PopLexLevel( void )
 	if( !pStack->fOpen )
 		{
 
-		if( (pStack->hFile = fopen( pName, "rb" )) == (FILE *)NULL)
+		if( (pStack->hFile = fopen( pStack->pIFileName, "rb" )) == (FILE *)NULL)
 			{
 			RpcError((char *)NULL, 0, INPUT_OPEN, pName);
 			return INPUT_OPEN;
 			}
+		if ( !pStack->pBuffer )
+			pStack->pBuffer = new char [MIDL_RD_BUFSIZE];
+		setvbuf( pStack->hFile, pStack->pBuffer,_IOFBF, MIDL_RD_BUFSIZE );
 
 		// restore the system-wide file handle
 
 		pStack->fOpen	= 1;
 
+		// the input file is open now, position it to where it was before
+		// we changed current lexical level
+
+		if( fseek( pStack->hFile, pStack->ulPos, SEEK_SET) )
+			{
+			RpcError((char *)NULL, 0, INPUT_READ, pName);
+			return INPUT_READ;
+			}
+		
 		}
 
-	// the input file is open now, position it to where it was before
-	// we changed current lexical level
+#if 0
+	// see where the file really is
+	char 	tmp;
+	tmp = getc( pStack->hFile );
+	ungetc( tmp, pStack->hFile );
+#endif
 
-	if( fseek( pStack->hFile, pStack->ulPos, SEEK_SET) )
-		{
-		RpcError((char *)NULL, 0, INPUT_READ, pName);
-		return INPUT_READ;
-		}
-	
 	// update the line number information, and set current file
+	curr_line_G = pStack->uLine;
+	hFile_G = pStack->hFile;
 	AddFileToDB( pName );
 
 	// everything is fine , lets go
@@ -427,6 +452,9 @@ NFA_INFO::SetNewInputFile(
 	char			 fMunged = 0;
 	char			*pFullName	= new char[ strlen( pFullInputName ) + 1];
 
+	// make sure everything opened in binary mode
+	_fmode = _O_BINARY;
+
 	//
 	// if the filename has any forward slashes, change them to back-slashes.
 	//
@@ -443,6 +471,7 @@ NFA_INFO::SetNewInputFile(
 			{
 			pStackCur->pNext	= pStack;
 			pStack->pPrev		= pStackCur;
+			pStackCur->uLine	= curr_line_G;
 			}
 		else
 			{
@@ -452,19 +481,28 @@ NFA_INFO::SetNewInputFile(
 		pStack->pNext		= (IN_STACK_ELEMENT *)NULL;
 		pStack->fNewLine	= 0;
 		pStack->fRedundantImport	= 1;
+		fRedundantImport = 1;
+
+		// make the next read get eof
+		if ( !pNullFile )
+			{
+			pNullFile = fopen("nul", "rb");
+			hFile = 0;
+			}
+			 
+		// fseek(hFile, 0, SEEK_END );
 		pStack->fOpen		= 1;
+		pStack->fShadow		= 0;
 		pStack->ulPos		= 
-		pStack->fShadow		= 
-		pStack->uShadowLine	=
-		pStack->uShadowCol	= 0;
+		pStack->uShadowLine	= 0;
 	
-		pStack->uCol		=
-		pStack->uLine		= 1;
+		curr_line_G		= 1;
 
 		pStack->pShadowName = 
 		pStack->pName		= pFullName;
 		pStack->pIFileName	= pIFileName;
 		pStack->hFile		= hFile;
+		hFile_G				= pNullFile;
 		Flags.fFileSet		= 1;
 		return STATUS_OK;
 		}
@@ -559,6 +597,7 @@ NFA_INFO::SetNewInputFile(
 			{
 			pStackCur->pNext	= pStack;
 			pStack->pPrev		= pStackCur;
+			pStackCur->uLine	= curr_line_G;
 			}
 		else
 			{
@@ -576,21 +615,24 @@ NFA_INFO::SetNewInputFile(
 		fclose(pStack->hFile);
 		}
 
+	if ( !pStack->pBuffer )
+		pStack->pBuffer = new char [MIDL_RD_BUFSIZE];
+	setvbuf( hFile, pStack->pBuffer,_IOFBF, MIDL_RD_BUFSIZE );
+
 	pStack->fOpen		= 1;
 	pStack->fRedundantImport	= 0;
-	pStack->ulPos		= 
-	pStack->fShadow		= 
-	pStack->uShadowLine	=
-	pStack->uShadowCol	= 0;
+	fRedundantImport 	= 0;
+	pStack->fShadow		= 0;
+	pStack->uShadowLine	= 0;
 
-	pStack->uCol		=
-	pStack->uLine		= 1;
+	curr_line_G		= 1;
 
 	pStack->pShadowName = 
 	pStack->pName		= pFullName;
 	pStack->pIFileName	= pIFileName;
 	pStack->pMIFileName	= pMIFileName;
 	pStack->hFile		= hFile;
+	hFile_G				= hFile;
 
 	// update the line number information, and set current file
 	AddFileToDB( pFullName );
@@ -600,6 +642,29 @@ NFA_INFO::SetNewInputFile(
 	AddFileToFileList(pFullName, pPath);
 	return STATUS_OK;
 	}
+
+/*** SetLineFilename ******************************************************
+ * Purpose	: to add filename to the list of files we have input from
+ * Input	: filename to add to the list of files, file path
+ * Output	: STATUS_OK if all is well, error otherwise
+ * Notes	:
+ ****************************************************************************/
+void
+NFA_INFO::SetLineFilename(
+	char *	pFName
+	)
+{
+	if(strcmp(pFName, pStack->pName) != 0)
+		{
+		pStack->pName = new char[strlen( pFName ) + 1 ];
+		strcpy(pStack->pName, pFName);
+		
+		// update the line number information, and set current file
+		AddFileToDB( pStack->pName );
+
+		}
+}
+
 
 /*** AddFileToFileList ******************************************************
  * Purpose	: to add filename to the list of files we have input from
@@ -668,14 +733,8 @@ NFA_INFO::AddFileToFileList(
 	else
 		pFileList	= pTemp;
 	pList			= pTemp;
-#if 0
-	pList->pName	= new char[ strlen( pName ) + 1];
-	strcpy(pList->pName, pName);
-	pList->pPath	= pPath;
-#else // 0
 	pList->pName = pN;
 	pList->pPath = pP;
-#endif // 0
 	pList->pNext	= (FNAME_LIST *)NULL;
 	return	STATUS_OK;
 	}
@@ -746,10 +805,6 @@ NFA_INFO::IsDuplicateInput(
 
 	while( pList && pList->pName )
 		{
-#if 0
-		if( strcmp( pList->pName, pThisName ) == 0 )
-			return 1;
-#else // 0
 		if( (_stricmp( pList->pName , pN ) == 0 ) &&
 			(_stricmp( pList->pPath , pP ) == 0 ) 
 		  )
@@ -757,7 +812,6 @@ NFA_INFO::IsDuplicateInput(
 		  f = TRUE;
 		  break;
 		  }
-#endif // 0
 		pList = pList->pNext;
 		}
 	delete pN;
@@ -842,14 +896,6 @@ NFA_INFO::SearchForFile(
 	while(pPathTemp)
 		{
 		sprintf(agNameBuf, "%s%s", pPathTemp->pPath, pName);
-#if 0
-		FILE		*hFile;
-		if( hFile = fopen( agNameBuf, "rb"))
-			{
-			fclose(hFile);						// dont use up file handle
-			return pPathTemp->pPath;
-			}
-#endif // 0
 		// check for existence only. The read errors need to be checked
 		// only at read time.
 
@@ -889,18 +935,45 @@ NFA_INFO::PreProcess(
 	char	*	pCppOptions;
 	char	*	pCppBaseOptions;
 	int			SpawnError;
-	int			StdoutSave;
-	int			StderrSave;
 	int			IFHandle;
 	BOOL		fStderrSaved	= FALSE;
 	FILE	*	hIFile;
 	int			XHandle;
 	FILE	*	hXHandle;
 	BOOL		fEraseFile		= FALSE;
+	char        TempPathBuffer[1000];
 
+
+    // build up the arguments
+	strcpy( agNameBuf, pDrive );
+	strcat(agNameBuf,pPath);
+	if( *pPath &&  (pPath[ strlen(pPath)-1 ] != '\\'))
+		strcat(agNameBuf,"\\");
+	strcat( agNameBuf, pName );
+	strcat( agNameBuf, pExt );
+
+	pCppBaseOptions = pCommand->GetCPPOpt();
+	pCppOptions = new char[ strlen( pCppBaseOptions ) + 40 ];
+    strcpy( pCppOptions, "-D__midl=300 ");
+	if (pCommand->IsSwitchDefined(SWITCH_MKTYPLIB))
+        strcat( pCppOptions, "-D__MKTYPLIB__=300 ");
+	strcat( pCppOptions, pCppBaseOptions );
+	
 	// generate the name of the intermediate file into a buffer
 
-	pIFileName = _tempnam( NULL, "MIDL" );
+//	pIFileName = _tempnam( NULL, "MIDL" );
+	GetTempPathA( 1000, TempPathBuffer );
+	pIFileName = new char[1000];
+	if ( GetTempFileNameA( TempPathBuffer, "MIDL", 0, pIFileName ) == 0)
+		{
+		RpcError(	(char *)NULL,
+					0,
+					Status = INTERMEDIATE_FILE_CREATE,
+					pIFileName);
+		return Status;
+		}
+
+//    printf(" filename is %s\n agNameBuf is %s\n pCppOptions is %s\n", pIFileName, agNameBuf, pCppOptions );
 
 	// open the intermediate file for writing.
 
@@ -917,14 +990,17 @@ NFA_INFO::PreProcess(
 
 	// save the current stdout handle
 
-	if( (StdoutSave = _dup(1)) == -1 )
+	if ( StdoutSave == -1 )
 		{
-		RpcError(	(char *)NULL,
-					0,
-					Status = OUT_OF_SYSTEM_FILE_HANDLES,
-					(char *)NULL);
+		if( (StdoutSave = _dup(1)) == -1 )
+			{
+			RpcError(	(char *)NULL,
+						0,
+						Status = OUT_OF_SYSTEM_FILE_HANDLES,
+						(char *)NULL);
 
-		return Status;
+			return Status;
+			}
 		}
 
 	// now force the stdout to refer to the intermediate file handle,
@@ -958,15 +1034,17 @@ NFA_INFO::PreProcess(
 		XHandle = MIDL_FILENO( hXHandle );
 	
 		// save the current stderr handle
-	
-		if( (StderrSave = _dup(2)) == -1 )
+		if ( StderrSave = -1 )
 			{
-			RpcError(	(char *)NULL,
-						0,
-						Status = OUT_OF_SYSTEM_FILE_HANDLES,
-						(char *)NULL);
+			if( (StderrSave = _dup(2)) == -1 )
+				{
+				RpcError(	(char *)NULL,
+							0,
+							Status = OUT_OF_SYSTEM_FILE_HANDLES,
+							(char *)NULL);
 	
-			return Status;
+				return Status;
+				}
 			}
 	
 		// now force the stdout to refer to the intermediate file handle,
@@ -990,17 +1068,6 @@ NFA_INFO::PreProcess(
 	// From now on, stderr is no longer stderr, till we restore it back.
 	// stderr MUST be restored before returning.
 
-	strcpy( agNameBuf, pDrive );
-	strcat(agNameBuf,pPath);
-	if( *pPath &&  (pPath[ strlen(pPath)-1 ] != '\\'))
-		strcat(agNameBuf,"\\");
-	strcat( agNameBuf, pName );
-	strcat( agNameBuf, pExt );
-
-	pCppBaseOptions = pCommand->GetCPPOpt();
-	pCppOptions = new char[ strlen( pCppBaseOptions ) + 12 ];
-	strcpy( pCppOptions, "-D__midl ");
-	strcat( pCppOptions, pCppBaseOptions );
 	SpawnError = MIDL_SPAWNLP(	 P_WAIT
 							,pCppCmd
 							,pCppCmd
@@ -1074,7 +1141,6 @@ short
 NFA_INFO::GetChar( void )
 	{
 		short	ch;
-		extern BOOL	fRedundantImport;
 
 		if( pStack->fRedundantImport )
 			{
@@ -1087,6 +1153,7 @@ NFA_INFO::GetChar( void )
 		if( ( (ch=getc(pStack->hFile)) == EOF ) && feof(pStack->hFile) )
 			return 0;
 
+#if 0
 		// if the line starts off with a '#', it may be a line number
 		// indicator.
 
@@ -1146,7 +1213,6 @@ NFA_INFO::GetChar( void )
 						buffer[Count++] = (char) ch;
 						}
 					buffer[Count] = 0;
-//					fgetc(pStack->hFile);		// skip the quote again
 
 					// make the collected filename as the new name
 
@@ -1164,21 +1230,6 @@ NFA_INFO::GetChar( void )
 					}
 
 				while( (ch = getc( pStack->hFile )) != '\n');
-/**** 
-				if( !Flags.fBaseFileName )
-					{
-					pBaseName	= new char[ Count+1 ];
-					strcpy( pBaseName, buffer );
-					Flags.fBaseFileName = 1;
-					}
-
-				if( strcmp( pBaseName, pStack->pName ) )
-					{
-					Flags.fInInclude = 1;
-					}
-				else
-					Flags.fInInclude = 0;
-****/
 				goto newline;
 				}
 			else
@@ -1192,16 +1243,15 @@ newline:
 			{
 			DebugLine = pStack->uLine++;
 			pDebugFile= pStack->pName;
-			pStack->uCol = 1;
 			pStack->fNewLine = 1;
 
 			}
 		else
 			{
-			pStack->uCol++;
 			// leave fNewLine set for leading white space
 			pStack->fNewLine = pStack->fNewLine && isspace( ch );
 			}
+#endif // 0
 		return ch;
 	}
 
@@ -1219,13 +1269,13 @@ NFA_INFO::UnGetChar(
 	if( !Flags.fFileSet || !pStack->fOpen) return 0;
 	ungetc( c, pStack->hFile );
 
+#if 0
 	if(c == '\n')
 		{
 		pStack->uLine--;
 		// dont know what to do with column, really
 		}
-	else
-		pStack->uCol--;
+#endif
 	return c;
 	}
 
@@ -1250,8 +1300,8 @@ NFA_INFO::GetCurrentInputDetails(
 		}
 
 	(*ppName)	= pStack->pName;
-	(*pLineNo)	= pStack->uLine;
-	(*pColNo)	= pStack->uCol;
+	(*pLineNo)	= curr_line_G;
+	(*pColNo)	= 0;
 	return STATUS_OK;
 	}
 /*** GetInputDetails ********************************************************
@@ -1273,7 +1323,7 @@ NFA_INFO::GetInputDetails(
 		}
 
 	(*ppName)	= pStack->pShadowName;
-	(*pLineNo)	= pStack->uLine;
+	(*pLineNo)	= curr_line_G;
 	return STATUS_OK;
 	}
 /*** GetInputDetails ********************************************************

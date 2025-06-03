@@ -466,8 +466,9 @@ VOID BytesToK (
 DWORD *pDW )
 
 {
-     *((WORD *)pDW) = (LOWORD(*pDW) >> 10) + (HIWORD(*pDW) << 6);
-     *(((WORD *)pDW)+1) >>= 10;
+     *pDW = *pDW / 1024 ;
+//     *((WORD *)pDW) = (LOWORD(*pDW) >> 10) + (HIWORD(*pDW) << 6);
+//     *(((WORD *)pDW)+1) >>= 10;
 }
 
 
@@ -616,6 +617,60 @@ HWND hDlg )
 
                if ( ! err ) {
                     SetDlgItemText(hDlg, IDD_ABOUTPROCESSOR, lpRegInfoValue);
+               }
+
+               LocalFree ( lpRegInfoValue );
+          }
+
+          RegCloseKey ( hkey );
+     }
+
+     RSM_StringCopy ( IDS_IDENTIFIERIDENTIFIER, szRegInfo, sizeof(szRegInfo) );
+
+     if ( ! RegOpenKeyEx ( HKEY_LOCAL_MACHINE, szRegInfo, 0, KEY_READ, &hkey ) ) {
+
+          cb = MAX_REG_VALUE;
+
+          if ( lpRegInfoValue = (LPSTR)LocalAlloc ( LPTR, cb ) ) {
+
+               RSM_StringCopy ( IDS_PROCESSORIDENTIFIER, szRegInfo, sizeof(szRegInfo));
+
+               err = RegQueryValueEx ( hkey, szRegInfo, 0, 0, (LPBYTE)lpRegInfoValue, &cb );
+
+               if ( err == ERROR_MORE_DATA ) {
+                    LocalFree ( lpRegInfoValue );
+                    lpRegInfoValue = (LPSTR)LocalAlloc ( LPTR, cb );
+                    err = RegQueryValueEx ( hkey, szRegInfo, 0, 0, (LPBYTE)lpRegInfoValue, &cb );
+               }
+
+               if ( ! err ) {
+                    SetDlgItemText(hDlg, IDD_ABOUTIDENT, lpRegInfoValue);
+               }
+
+               LocalFree ( lpRegInfoValue );
+          }
+
+          RegCloseKey ( hkey );
+     }
+
+     RSM_StringCopy ( IDS_PRODUCTIDINFOKEY, szRegInfo, sizeof(szRegInfo) );
+
+     if ( ! RegOpenKeyEx ( HKEY_LOCAL_MACHINE, szRegInfo, 0, KEY_READ, &hkey ) ) {
+
+          if ( lpRegInfoValue = (LPSTR)LocalAlloc ( LPTR, cb ) ) {
+
+               RSM_StringCopy ( IDS_PRODUCTIDENTIFIER, szRegInfo, sizeof(szRegInfo));
+
+               err = RegQueryValueEx ( hkey, szRegInfo, 0, 0, (LPBYTE)lpRegInfoValue, &cb );
+
+               if ( err == ERROR_MORE_DATA ) {
+                    LocalFree ( lpRegInfoValue );
+                    lpRegInfoValue = (LPSTR)LocalAlloc ( LPTR, cb );
+                    err = RegQueryValueEx ( hkey, szRegInfo, 0, 0, (LPBYTE)lpRegInfoValue, &cb );
+               }
+
+               if ( ! err ) {
+                    SetDlgItemText(hDlg, IDD_ABOUTPRODID, lpRegInfoValue);
                }
 
                LocalFree ( lpRegInfoValue );

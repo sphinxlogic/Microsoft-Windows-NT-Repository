@@ -35,6 +35,7 @@
 
 expr_constant	*	pZero	= NULL;
 expr_constant	*	pOne	= NULL;
+node_skl		*	pInt	= NULL;
 
 /****************************************************************************
  *	externs
@@ -60,13 +61,23 @@ CreateSimpleBinaryArithExpression(
 	assert( pL );
 	assert( pR );
 
+
 	if ( pR->IsConstant() && (pR->GetValue() == 0) )
 		return pL;
 
 	if ( pL->IsConstant() && (pL->GetValue() == 0) )
 		return pR;
 
-	return new expr_b_arithmetic( Op, pL, pR );
+	expr_node	*	pRet	= new expr_b_arithmetic( Op, pL, pR );
+
+	if ( pL->GetType() )
+		pRet->SetType( pL->GetType() );
+	else if ( pR->GetType() )
+		pRet->SetType( pR->GetType() );
+	else
+		assert( !"no type for expression" );
+
+	return pRet;
 
 }
 
@@ -78,6 +89,11 @@ GetConstant0()
 	if ( pZero )	return pZero;
 
 	pZero	= new expr_constant( 0L, VALUE_TYPE_NUMERIC );
+	
+	if ( !pInt )
+		GetBaseTypeNode( &pInt, SIGN_SIGNED, SIZE_UNDEF, TYPE_INT );
+
+	pZero->SetType( pInt );
 	return pZero; 
 }
 	
@@ -88,6 +104,10 @@ GetConstant1()
 	if ( pOne )	return pOne;
 
 	pOne	= new expr_constant( 1L, VALUE_TYPE_NUMERIC );
+	if ( !pInt )
+		GetBaseTypeNode( &pInt, SIGN_SIGNED, SIZE_UNDEF, TYPE_INT );
+
+	pOne->SetType( pInt );
 	return pOne; 
 }
 	
@@ -148,7 +168,9 @@ BOOL Xxx_Is_Type_OK( node_skl * pType )
 			// make sure that there is no transmit_as or represent_as
 			case NODE_DEF:
 				if ( pType->FInSummary( ATTR_TRANSMIT ) ||
-				     pType->FInSummary( ATTR_REPRESENT_AS ) )
+				     pType->FInSummary( ATTR_REPRESENT_AS ) ||
+				     pType->FInSummary( ATTR_USER_MARSHAL ) ||
+				     pType->FInSummary( ATTR_WIRE_MARSHAL ) )
 					return FALSE;
 
 				break;
@@ -163,10 +185,7 @@ BOOL Xxx_Is_Type_OK( node_skl * pType )
 				break;
 				}
 			case NODE_ENUM:
-			case NODE_HYPER:
-			case NODE_INT64:
 			case NODE_LONG:
-			case NODE_LONGLONG:
 			case NODE_SHORT:
 			case NODE_INT:
 			case NODE_SMALL:
@@ -203,7 +222,9 @@ BOOL IID_Is_Type_OK( node_skl * pType )
 
 			case NODE_DEF:
 				if ( pType->FInSummary( ATTR_TRANSMIT ) ||
-				     pType->FInSummary( ATTR_REPRESENT_AS ) )
+				     pType->FInSummary( ATTR_REPRESENT_AS ) ||
+				     pType->FInSummary( ATTR_USER_MARSHAL ) ||
+				     pType->FInSummary( ATTR_WIRE_MARSHAL )  )
 					return FALSE;
 
 				break;
@@ -246,14 +267,14 @@ FIELD_ATTR_INFO::Validate( SEM_ANALYSIS_CTXT * pCtxt )
 			SemError( pParent, *pCtxt, ATTRIBUTE_ID_UNRESOLVED, NULL );
 
 		if ( MaxCtxt.AnyUpFlags( EX_OUT_ONLY_PARAM ) && IsInValidOutOnly( pCtxt ) )
-			SemError( pParent, *pCtxt, SIZE_SPECIFIER_CANT_BE_OUT, NULL );
+			RpcSemError( pParent, *pCtxt, SIZE_SPECIFIER_CANT_BE_OUT, NULL );
 
 		if ( !MaxCtxt.AnyUpFlags( EX_VALUE_INVALID ) )
 			SemError( pParent, *pCtxt, ATTRIBUTE_ID_MUST_BE_VAR, NULL );
 
 		if ( !Xxx_Is_Type_OK( pMaxIsExpr->GetType() ) &&
 			 pCtxt->AnyAncestorBits( IN_RPC ) )
-			SemError( pParent, *pCtxt, ATTR_MUST_BE_INT, NULL );
+			RpcSemError( pParent, *pCtxt, ATTR_MUST_BE_INT, NULL );
 
 		}
 
@@ -264,7 +285,7 @@ FIELD_ATTR_INFO::Validate( SEM_ANALYSIS_CTXT * pCtxt )
 		pMinIsExpr->ExprAnalyze( &MinCtxt );
 
 		if ( MinCtxt.AnyUpFlags( EX_UNSAT_FWD ) )
-			SemError( pParent, *pCtxt, ATTRIBUTE_ID_UNRESOLVED, NULL );
+			RpcSemError( pParent, *pCtxt, ATTRIBUTE_ID_UNRESOLVED, NULL );
 
 		if ( MinCtxt.AnyUpFlags( EX_OUT_ONLY_PARAM ) && IsInValidOutOnly( pCtxt ) )
 			SemError( pParent, *pCtxt, SIZE_SPECIFIER_CANT_BE_OUT, NULL );
@@ -704,15 +725,9 @@ FIELD_ATTR_INFO::Normalize(expr_node * pLower, expr_node * pUpper)
 
 	if ( ! pMaxIsExpr && ! pSizeIsExpr && pUpper )
 		{
-		if (OneBound)
-			{
+            // note that the [n..m] case has m already incremented by 1
 			pTmp1		= GetConstant1();
 			pMaxIsExpr	= CreateSimpleBinaryArithExpression( OP_MINUS, pUpper, pTmp1 );
-			}
-		else
-			{
-			pMaxIsExpr	= pUpper; 
-			}
 		}
 
 	// size_is = (max_is - min_is) + 1;

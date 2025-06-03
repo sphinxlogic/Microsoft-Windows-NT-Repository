@@ -1,7 +1,7 @@
 						Application WIN32 Logger
 							32 bit version
 
-Copyright(C) 1993, 1994 Microsoft Corporation, All Rights Reserved.
+Copyright(C) 1993-1995 Microsoft Corporation, All Rights Reserved.
 
 What is Logger?
 ---------------
@@ -16,11 +16,11 @@ Getting Ready for Logger
 ------------------------
 
 To use logger you will need the following binaries somewhere on your path - 
-apf32cvt.exe, logger32.dll, zser32.dll, zdi32.dll, zdvapi32.dll, zernel32.dll 
+apfcvt.exe, logger32.dll, zser32.dll, zdi32.dll, zdvapi32.dll, zernel32.dll
 and zrtdll.dll.  For each binary that you are interested in logging run 
-apf32cvt.exe against it.  Apf32cvt.exe will modify the binary to dynamically 
+apfcvt.exe against it.  apfcvt.exe will modify the binary to dynamically
 link to the z-dlls rather than the actual Win32 dlls.  To see how to use 
-apf32cvt.exe run "apf32cvt -?" from the cmd line.
+apfcvt.exe run "apfcvt -?" from the cmd line.
 
 Customizing Logger
 ------------------
@@ -80,7 +80,7 @@ entered in win.ini to get the listed functionality.
 Putting It All Together
 -----------------------
 
-After you binaries have been converted with apf32cvt and you have placed the 
+After you binaries have been converted with apfcvt and you have placed the
 z-dlls and Logger32.dll in your path you create the logger output file by 
 simply running your application.  When you exit your application the record of
 your execution will be in the output file.  The format of logger lines are -

@@ -52,9 +52,6 @@ typedef struct _MAILSLOT_BUFFER {
     CHAR Buffer[1];                             // Buffer
 } MAILSLOT_BUFFER, *PMAILSLOT_BUFFER;
 
-extern
-ULONG
-BowserMaxDatagramSize;
 
 NTSTATUS
 NetlogonMailslotEnable (
@@ -68,17 +65,28 @@ NetlogonMailslotRead (
     );
 
 VOID
+BowserNetlogonDeleteTransportFromMessageQueue (
+    PTRANSPORT Transport
+    );
+
+VOID
 BowserProcessMailslotWrite (
     IN PVOID WorkHeader
     );
 
 PMAILSLOT_BUFFER
 BowserAllocateMailslotBuffer(
-    IN PTRANSPORT_NAME TransportName
+    IN PTRANSPORT_NAME TransportName,
+    IN ULONG BufferSize
     );
 
 VOID
 BowserFreeMailslotBuffer(
+    IN PMAILSLOT_BUFFER Buffer
+    );
+
+VOID
+BowserFreeMailslotBufferHighIrql(
     IN PMAILSLOT_BUFFER Buffer
     );
 

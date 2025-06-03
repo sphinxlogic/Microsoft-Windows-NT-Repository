@@ -90,48 +90,48 @@ BOOL FASTCALL ThunkEMMsg16(LPMSGPARAMEX lpmpex)
 
     if (wMsg < (EM_GETPASSWORDCHAR - EM_GETSEL + 1)) {
         switch(lpmpex->uMsg = wMsg + EM_GETSEL) {
-    
+
         case EM_GETSEL:
             // 16 bit apps cannot pass non-zero values in wParam or lParam for this
             // message to NT since they will be considered long pointers.
             // This is a hack for ReportWin - MarkRi
-    
+
             // NOTE: There is a case possible where the app is trying to pass
             // thru a GETSEL msg that NT has sent it in which case things get more
             // complicated but we haven't found an app YET that has this problem.
             lpmpex->uParam = 0 ;
             lpmpex->lParam = 0 ;
             break ;
-    
-    
+
+
         case EM_SETSEL:
             lpmpex->uParam = LOWORD(lpmpex->Parm16.WndProc.lParam);
             lpmpex->lParam = HIWORD(lpmpex->Parm16.WndProc.lParam);
             break;
-    
+
         case EM_GETLINE:
             GETMISCPTR(lpmpex->Parm16.WndProc.lParam, (LPSZ)lpmpex->lParam);
             break;
-    
+
         case EM_GETRECT:
             lpmpex->lParam = (LONG)lpmpex->MsgBuffer;
             break;
-    
+
         case EM_LINESCROLL:
             lpmpex->uParam = INT32(HIWORD(lpmpex->Parm16.WndProc.lParam));
             lpmpex->lParam = INT32(LOWORD(lpmpex->Parm16.WndProc.lParam));
             break;
-    
+
         case EM_SETHANDLE:
             lpmpex->uParam = (UINT)MAKELONG(lpmpex->Parm16.WndProc.wParam,
                                   LOWORD((DWORD)lpmpex->pww->hInstance) | 1);
              break;
-    
+
         case EM_REPLACESEL:
             {   PSZ psz;
                 int i;
                 GETPSZPTR(lpmpex->Parm16.WndProc.lParam, psz);
-        
+
                 if (psz) {
                     i = strlen(psz)+1;
                     lpmpex->lParam = (LONG) LocalAlloc (LMEM_FIXED, i);
@@ -140,7 +140,7 @@ BOOL FASTCALL ThunkEMMsg16(LPMSGPARAMEX lpmpex)
                 FREEPSZPTR(psz);
             }
             break;
-    
+
         case EM_SETRECT:
         case EM_SETRECTNP:
             if (lpmpex->Parm16.WndProc.lParam) {
@@ -148,25 +148,25 @@ BOOL FASTCALL ThunkEMMsg16(LPMSGPARAMEX lpmpex)
                 getrect16((VPRECT16)lpmpex->Parm16.WndProc.lParam, (LPRECT)lpmpex->lParam);
             }
             break;
-    
+
         case EM_SETTABSTOPS:
             {
                 INT cItems = INT32(lpmpex->Parm16.WndProc.wParam);
                 if (cItems > 0) {
-                    (PVOID)lpmpex->lParam = STACKORHEAPALLOC(cItems * sizeof(INT), 
+                    (PVOID)lpmpex->lParam = STACKORHEAPALLOC(cItems * sizeof(INT),
                                    sizeof(lpmpex->MsgBuffer), lpmpex->MsgBuffer);
                     getintarray16((VPINT16)lpmpex->Parm16.WndProc.lParam, cItems, (LPINT)lpmpex->lParam);
                 }
             }
             break;
-    
+
         case EM_SETWORDBREAKPROC:
             if (lpmpex->Parm16.WndProc.lParam) {
-    
+
                 LONG l;
-    
+
                 l = lpmpex->Parm16.WndProc.lParam;
-    
+
                 //
                 // FEATURE-O-RAMA
                 //
@@ -174,18 +174,18 @@ BOOL FASTCALL ThunkEMMsg16(LPMSGPARAMEX lpmpex)
                 // of the selector (the LDT bit, which should always be on).  we
                 // need a way to not blindly strip off the high bit in our wndproc.
                 //
-    
+
                 if (l & WNDPROC_WOW) {
                     WOW32ASSERT(l & WOWCLASS_VIRTUAL_NOT_BIT31);
                     l &= ~WOWCLASS_VIRTUAL_NOT_BIT31;
                 }
-    
+
                 lpmpex->lParam = l | WNDPROC_WOW;
                 LOGDEBUG (0, ("WOW::WMSGEM.C: EM_SETWORDBREAKPROC: lpmpex->Parm16.WndProc.lParam = %08lx, new lpmpex->Parm16.WndProc.lParam = %08lx\n", lpmpex->Parm16.WndProc.lParam, lpmpex->lParam));
-    
+
             }
             break;
-    
+
         case EM_GETSEL + 0x07:
         case EM_GETSEL + 0x0F:
         case EM_GETSEL + 0x10:
@@ -204,6 +204,24 @@ VOID FASTCALL UnThunkEMMsg16(LPMSGPARAMEX lpmpex)
     LPARAM lParamNew = lpmpex->lParam;
 
     switch(lpmpex->uMsg) {
+
+    case EM_SETSEL:
+
+        // EM_SETSEL no longer positions the caret on NT as Win3.1 did.  The new
+        // procedure is to post or send an EM_SETSEL message and then if you
+        // want the caret to be scrolled into view you send an EM_SCROLLCARET
+        // message.  This code will do this to emulate the Win 3.1 EM_SETSEL
+        // correctly on NT.
+
+       if (!lpmpex->Parm16.WndProc.wParam) {
+           DWORD dwT;
+
+           if (POSTMSG(dwT))
+              PostMessage(lpmpex->hwnd, EM_SCROLLCARET, 0, 0 );
+           else
+              SendMessage(lpmpex->hwnd, EM_SCROLLCARET, 0, 0 );
+       }
+       break;
 
     case EM_GETHANDLE:
         lpmpex->lReturn = GETHMEM16(lpmpex->lReturn);

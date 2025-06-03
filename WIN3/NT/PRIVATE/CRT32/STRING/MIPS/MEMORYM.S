@@ -336,14 +336,14 @@ CompareUnalignedS1AndS2:                //
         addu    a0,a0,1                 //
         bne     a0,t2,110b              // if ne, more 1-byte block to zero
 
-120:	move	v0,zero			// source1 == source2
+120:    move    v0,zero                 // source1 == source2
         j       ra                      // return
 
 130:    sltu    v0,t1,t0                // compare source1 to source2
-	beq	v0,zero,140f
+        beq     v0,zero,140f
         j       ra                      // return, source1 > source2
 140:
-	li	v0,-1
+        li      v0,-1
         j       ra                      // return, source1 < source2
 
         .end    memcmp
@@ -383,10 +383,13 @@ CompareUnalignedS1AndS2:                //
 //         routines.
 //--
 
-        LEAF_ENTRY(memcpy)
-        ALTERNATE_ENTRY(memmove)
+        LEAF_ENTRY(memmove)
+        j      memcpy
+        .end   memmove
 
-	move	v0,a0			// return destination
+        LEAF_ENTRY(memcpy)
+
+        move    v0,a0                   // return destination
 
 //
 // If the source address is less than the destination address and source
@@ -1045,7 +1048,7 @@ MoveBackwardUnaligned:                  //
         move    a3,a1                   // swap length and fill arguments
         move    a1,a2                   //
         move    a2,a3                   //
-	move	v0,a0			// return destination
+        move    v0,a0                   // return destination
 
         and     a2,a2,0xff              // clear excess bits
         sll     t0,a2,8                 // duplicate fill byte

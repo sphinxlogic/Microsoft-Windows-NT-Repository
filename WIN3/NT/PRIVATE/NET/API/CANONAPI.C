@@ -89,7 +89,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
     BOOL nullDelimiter = FALSE;
     TCHAR ch;
@@ -244,7 +244,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
     TCHAR ch;
 
@@ -332,7 +332,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
 
     //
@@ -404,7 +404,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
 
     //
@@ -483,7 +483,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
     TCHAR ch;
 
@@ -583,7 +583,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
 
     //
@@ -657,7 +657,7 @@ Return Value:
 {
     NET_API_STATUS status = 0;
     DWORD location;
-    TCHAR serverName[UNCLEN+1];
+    TCHAR serverName[MAX_PATH];
     DWORD val;
 
     //

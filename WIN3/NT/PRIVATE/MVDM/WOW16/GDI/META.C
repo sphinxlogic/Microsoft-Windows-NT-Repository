@@ -995,7 +995,7 @@ errPlayMetaFileRecord40:;
             lb.lbColor = *((COLORREF *)&lpMR->rdParm[1]);
             lb.lbHatch = lpMR->rdParm[3];
 
-            if (hObject = CreateBrushIndirect(&lb));
+            if (hObject = CreateBrushIndirect(&lb))
             #else
             if (hObject = CreateBrushIndirect((LPLOGBRUSH)&lpMR->rdParm[0]))
             #endif

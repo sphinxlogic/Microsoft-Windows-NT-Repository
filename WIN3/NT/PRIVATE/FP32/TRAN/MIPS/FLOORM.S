@@ -19,18 +19,18 @@
 
 #define one 1.0
 
-.text
 
 /*
    An alternate algorithm would to check for numbers < 2**53,
    set the rounding mode, add 2**53, and subtract 2**53.
  */
 
+.text .text$floorm
 .globl trunc
 .ent trunc
 trunc:
 	.frame	sp, 0, ra
-    .prologue 0
+	.prologue 0
 	mfc1	t1, $f13
 	mfc1	t0, $f12
 	srl	t2, t1, 20
@@ -64,6 +64,7 @@ trunc3:
 
 #undef  FSIZE
 #define FSIZE 16
+.text .text$floorm
 .globl floor
 .ent floor
 floor:
@@ -71,7 +72,7 @@ floor:
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	cfc1	t4, $31			/* save FCSR, */
 	li  	t2, 3			/* set rounding to down, */
 	ctc1	t2, $31			/* and no exceptions */
@@ -92,6 +93,7 @@ floor:
 
 #undef  FSIZE
 #define FSIZE 16
+.text .text$floorm
 .globl ceil
 .ent ceil
 ceil:
@@ -99,7 +101,7 @@ ceil:
 	.mask   0x80000000, -4
 	subu    sp, FSIZE
 	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	.prologue 1
 	cfc1	t4, $31			/* save FCSR, */
 	li  	t2, 2			/* set rounding to up, */
 	ctc1	t2, $31			/* and no exceptions */

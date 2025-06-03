@@ -135,7 +135,7 @@ Return Value:
     //
     ReadControlSpace(
                 (USHORT)Processor,
-                (PVOID)DEBUG_CONTROL_SPACE_PCR,
+                DEBUG_CONTROL_SPACE_PCR,
                 (PVOID)&Pkpcr,
                 sizeof(PKPCR) );
 

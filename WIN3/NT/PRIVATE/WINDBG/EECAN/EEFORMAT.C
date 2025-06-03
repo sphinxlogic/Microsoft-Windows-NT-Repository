@@ -144,19 +144,29 @@ LargeIntegerFormat(LARGE_INTEGER li,
    // operate on its inverse, and prepend a '-' sign when complete.
    //
 
-   if ( signe && ( RtlLargeIntegerLessThanZero (li) ) ) {
-
-       li = RtlLargeIntegerNegate(li);
+   if (signe && li.QuadPart < 0) {
+       li.QuadPart = li.QuadPart * -1;
        needsign = TRUE;
    }
 
+   if (li.HighPart)
+        sprintf(buf, "-%x%08x", li.HighPart, li.LowPart);
+   else
+        sprintf(buf, "-%x", li.LowPart);
+
+   if (needsign)
+       return buf;
+   else
+       return buf+1;    // skip minus skip if not needed
+
+#if 0
    //
    // Starting with LSD, pull the digits out
    // and put them in the string at the right end.
    //
-
    do {
-       li = RtlLargeIntegerDivide(li, radixli, &remain);
+       remain.QuadPart = li.QuadPart - (li.QuadPart / radixli.QuadPart);
+       li.QuadPart = li.QuadPart / radixli.QuadPart;
 
        //
        // If remainder is > 9, then radix was 16, and
@@ -171,12 +181,12 @@ LargeIntegerFormat(LARGE_INTEGER li,
 
    } while ( li.LowPart || li.HighPart );
 
-
    if (needsign) {
       buf[max-digit++] = '-';
    }
 
    return(&buf[max-digit+1]);
+#endif
 }
 
 
@@ -319,7 +329,7 @@ Return Value:
 //
 
           case 8:
-	    {
+            {
                 //
                 // Handle 64-bits out of band, since sprintf
                 // cannot handle it.
@@ -411,7 +421,7 @@ Return Value:
         if (cBits != 16) {
             return EEBADFORMAT;
         }
-        DASSERT(MB_CUR_MAX <= cchTarget);
+        DASSERT((uint)MB_CUR_MAX <= cchTarget);
 //        DASSERT(cchTarget >= 2);
         if ((wctomb(lpchTarget, *(LPWCH)lpbSource) == -1) ||
             (lpchTarget[0] < ' ') ||

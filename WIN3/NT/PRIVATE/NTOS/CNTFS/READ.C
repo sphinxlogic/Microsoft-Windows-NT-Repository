@@ -31,11 +31,15 @@ Revision History:
 //  Define stack overflow read threshhold.
 //
 
+#ifdef _X86_
 #if DBG
-#define OVERFLOW_READ_THRESHHOLD         (0xE00)
+#define OVERFLOW_READ_THRESHHOLD         (0xB80)
 #else
 #define OVERFLOW_READ_THRESHHOLD         (0xA00)
 #endif
+#else
+#define OVERFLOW_READ_THRESHHOLD         (0x1000)
+#endif // _X86_
 
 //
 //  Local procedure prototypes
@@ -69,6 +73,36 @@ NtfsStackOverflowRead (
     } except(EXCEPTION_EXECUTE_HANDLER) {                          \
          NtfsRaiseStatus( IrpContext, STATUS_INVALID_USER_BUFFER, NULL, NULL );\
     }                                                              \
+}
+
+#define CollectReadStats(VCB,OPEN_TYPE,SCB,FCB,BYTE_COUNT) {                            \
+    PFILESYSTEM_STATISTICS FsStats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()]; \
+    if (!FlagOn( (FCB)->FcbState, FCB_STATE_SYSTEM_FILE)) {                             \
+        if (NtfsIsTypeCodeUserData( (SCB)->AttributeTypeCode )) {                       \
+            FsStats->UserFileReads += 1;                                                \
+            FsStats->UserFileReadBytes += (ULONG)(BYTE_COUNT);                          \
+        } else {                                                                        \
+            FsStats->Ntfs.UserIndexReads += 1;                                          \
+            FsStats->Ntfs.UserIndexReadBytes += (ULONG)(BYTE_COUNT);                    \
+        }                                                                               \
+    } else {                                                                            \
+        FsStats->MetaDataReads += 1;                                                    \
+        FsStats->MetaDataReadBytes += (ULONG)(BYTE_COUNT);                              \
+                                                                                        \
+        if ((SCB) == (VCB)->MftScb) {                                                   \
+            FsStats->Ntfs.MftReads += 1;                                                \
+            FsStats->Ntfs.MftReadBytes += (ULONG)(BYTE_COUNT);                          \
+        } else if ((SCB) == (VCB)->RootIndexScb) {                                      \
+            FsStats->Ntfs.RootIndexReads += 1;                                          \
+            FsStats->Ntfs.RootIndexReadBytes += (ULONG)(BYTE_COUNT);                    \
+        } else if ((SCB) == (VCB)->BitmapScb) {                                         \
+            FsStats->Ntfs.BitmapReads += 1;                                             \
+            FsStats->Ntfs.BitmapReadBytes += (ULONG)(BYTE_COUNT);                       \
+        } else if ((SCB) == (VCB)->MftBitmapScb) {                                      \
+            FsStats->Ntfs.MftBitmapReads += 1;                                          \
+            FsStats->Ntfs.MftBitmapReadBytes += (ULONG)(BYTE_COUNT);                    \
+        }                                                                               \
+    }                                                                                   \
 }
 
 
@@ -108,11 +142,13 @@ Return Value:
 
     NTSTATUS Status = STATUS_SUCCESS;
     PIRP_CONTEXT IrpContext = NULL;
+    ULONG RetryCount = 0;
 
     UNREFERENCED_PARAMETER( VolumeDeviceObject );
+
     ASSERT_IRP( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsFsdRead\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdRead\n") );
 
     //
     //  Call the common Read routine
@@ -157,19 +193,12 @@ Return Value:
             //  common read.
             //
 
+            ASSERT(!FlagOn( IrpContext->MinorFunction, IRP_MN_DPC ));
+
             if (FlagOn( IrpContext->MinorFunction, IRP_MN_COMPLETE )) {
 
-                DebugTrace(0, Dbg, "Calling NtfsCompleteMdl\n", 0 );
+                DebugTrace( 0, Dbg, ("Calling NtfsCompleteMdl\n") );
                 Status = NtfsCompleteMdl( IrpContext, Irp );
-
-            //
-            //  We can't handle DPC calls yet, post it.
-            //
-
-            } else if (FlagOn( IrpContext->MinorFunction, IRP_MN_DPC )) {
-
-                DebugTrace(0, Dbg, "Passing DPC call to Fsp\n", 0 );
-                Status = NtfsPostRequest( IrpContext, Irp );
 
             //
             //  Check if we have enough stack space to process this request.  If there
@@ -177,16 +206,18 @@ Return Value:
             //  request
             //
 
-            } else if (GetRemainingStackSize(Status) < OVERFLOW_READ_THRESHHOLD) {
+            } else if (IoGetRemainingStackSize() < OVERFLOW_READ_THRESHHOLD) {
 
                 PKEVENT Event;
                 PFILE_OBJECT FileObject;
                 TYPE_OF_OPEN TypeOfOpen;
                 PVCB Vcb;
+                PFCB Fcb;
                 PSCB Scb;
+                PCCB Ccb;
                 PERESOURCE Resource;
 
-                DebugTrace(0, Dbg, "Getting too close to stack limit pass request to Fsp\n", 0 );
+                DebugTrace( 0, Dbg, ("Getting too close to stack limit pass request to Fsp\n") );
 
                 //
                 //  Decode the file object to get the Scb
@@ -194,18 +225,29 @@ Return Value:
 
                 FileObject = IoGetCurrentIrpStackLocation(Irp)->FileObject;
 
-                TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, NULL, &Scb, NULL, TRUE );
+                TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
+
+                //
+                //  We cannot post any compressed reads, because that would interfere
+                //  with our reserved buffer strategy.  We may currently own
+                //  NtfsReservedBufferResource, and it is important for our read to
+                //  be able to get a buffer.
+                //
+
+                ASSERT(Scb->CompressionUnit == 0);
 
                 //
                 //  Allocate an event and get shared on the scb.  We won't grab the
-                //  Scb for the paging file path.
+                //  Scb for the paging file path or for non-cached io for our
+                //  system files.
                 //
 
-                NtfsAllocateKevent( &Event );
+                Event = (PKEVENT)ExAllocateFromNPagedLookasideList( &NtfsKeventLookasideList );
                 KeInitializeEvent( Event, NotificationEvent, FALSE );
 
-                if (FlagOn( Scb->Fcb->FcbState, FCB_STATE_PAGING_FILE )
-                    && FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+                if ((FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE )
+                     && FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) ||
+                    (NtfsLeqMftRef( &Fcb->FileReference, &VolumeFileReference ))) {
 
                     //
                     //  There is nothing to release in this case.
@@ -215,17 +257,7 @@ Return Value:
 
                 } else {
 
-                    if ( FlagOn(Irp->Flags, IRP_PAGING_IO) &&
-                         FlagOn(Scb->ScbState, SCB_STATE_USE_PAGING_IO_RESOURCE) &&
-                         !FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT) ) {
-
-                        Resource = Scb->Header.PagingIoResource;
-
-                    } else {
-
-                        Resource = Scb->Header.Resource;
-                    }
-
+                    Resource = Scb->Header.Resource;
                     ExAcquireResourceShared( Resource, TRUE );
                 }
 
@@ -241,7 +273,15 @@ Return Value:
 
                     NtfsPrePostIrp( IrpContext, Irp );
 
-                    FsRtlPostStackOverflow( IrpContext, Event, NtfsStackOverflowRead );
+                    if (FlagOn( Fcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+                        FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+
+                        FsRtlPostPagingFileStackOverflow( IrpContext, Event, NtfsStackOverflowRead );
+
+                    } else {
+
+                        FsRtlPostStackOverflow( IrpContext, Event, NtfsStackOverflowRead );
+                    }
 
                     //
                     //  And wait for the worker thread to complete the item
@@ -258,7 +298,7 @@ Return Value:
                         ExReleaseResource( Resource );
                     }
 
-                    NtfsFreeKevent( Event );
+                    ExFreeToNPagedLookasideList( &NtfsKeventLookasideList, Event );
                 }
 
             //
@@ -268,18 +308,22 @@ Return Value:
 
             } else {
 
-                TYPE_OF_OPEN TypeOfOpen;
-                PVCB Vcb;
-                PFCB Fcb;
-                PSCB Scb;
+                //
+                //  Capture the auxiliary buffer and clear its address if it
+                //  is not supposed to be deleted by the I/O system on I/O completion.
+                //
 
-                TypeOfOpen = NtfsDecodeFileObject( IrpContext,
-                                                   IoGetCurrentIrpStackLocation( Irp )->FileObject,
-                                                   &Vcb,
-                                                   &Fcb,
-                                                   &Scb,
-                                                   NULL,
-                                                   TRUE );
+                if (Irp->Tail.Overlay.AuxiliaryBuffer != NULL) {
+
+                    IrpContext->Union.AuxiliaryBuffer =
+                      (PFSRTL_AUXILIARY_BUFFER)Irp->Tail.Overlay.AuxiliaryBuffer;
+
+                    if (!FlagOn(IrpContext->Union.AuxiliaryBuffer->Flags,
+                                FSRTL_AUXILIARY_FLAG_DEALLOCATE)) {
+
+                        Irp->Tail.Overlay.AuxiliaryBuffer = NULL;
+                    }
+                }
 
                 Status = NtfsCommonRead( IrpContext, Irp, TRUE );
             }
@@ -310,8 +354,15 @@ Return Value:
                                            ExceptionCode );
         }
 
-    } while (Status == STATUS_CANT_WAIT ||
-             Status == STATUS_LOG_FILE_FULL);
+    //
+    //  Retry if this is a top level request, and the Irp was not completed due
+    //  to a retryable error.
+    //
+
+    RetryCount += 1;
+
+    } while ((Status == STATUS_CANT_WAIT || Status == STATUS_LOG_FILE_FULL) &&
+             TopLevelContext.TopLevelRequest);
 
     if (ThreadTopLevelContext == &TopLevelContext) {
         NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
@@ -323,7 +374,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdRead -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdRead -> %08lx\n", Status) );
 
     return Status;
 }
@@ -360,6 +411,8 @@ Return Value:
 --*/
 
 {
+    TOP_LEVEL_CONTEXT TopLevelContext;
+    PTOP_LEVEL_CONTEXT ThreadTopLevelContext;
     PIRP_CONTEXT IrpContext = Context;
 
     //
@@ -367,12 +420,21 @@ Return Value:
     //
 
     SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+    ThreadTopLevelContext = NtfsSetTopLevelIrp( &TopLevelContext, TRUE, FALSE  );
 
     //
     //  Do the read operation protected by a try-except clause
     //
 
     try {
+
+        NtfsUpdateIrpContextWithTopLevel( IrpContext, ThreadTopLevelContext );
+
+        //
+        //  Set the flag to indicate that we are in the overflow thread.
+        //
+
+        TopLevelContext.OverflowReadThread = TRUE;
 
         (VOID) NtfsCommonRead( IrpContext, IrpContext->OriginatingIrp, FALSE );
 
@@ -397,6 +459,8 @@ Return Value:
 
         (VOID) NtfsProcessException( IrpContext, IrpContext->OriginatingIrp, ExceptionCode );
     }
+
+    NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
 
     //
     //  Set the stack overflow item's event to tell the original
@@ -446,19 +510,26 @@ Return Value:
 
     ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
 
-    PFSRTL_COMMON_FCB_HEADER Header;
+    EOF_WAIT_BLOCK EofWaitBlock;
+    PFSRTL_ADVANCED_FCB_HEADER Header;
+
+    PTOP_LEVEL_CONTEXT TopLevelContext;
 
     VBO StartingVbo;
     LONGLONG ByteCount;
     LONGLONG ByteRange;
     ULONG RequestedByteCount;
 
+    PBCB Bcb = NULL;
+
     BOOLEAN FoundAttribute = FALSE;
     BOOLEAN PostIrp = FALSE;
     BOOLEAN OplockPostIrp = FALSE;
 
     BOOLEAN ScbAcquired = FALSE;
+    BOOLEAN ReleaseScb;
     BOOLEAN PagingIoAcquired = FALSE;
+    BOOLEAN DoingIoAtEof = FALSE;
 
     BOOLEAN Wait;
     BOOLEAN PagingIo;
@@ -487,12 +558,11 @@ Return Value:
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
 
-    DebugTrace(+1, Dbg, "NtfsCommonRead\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp        = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "ByteCount  = %08lx\n", IrpSp->Parameters.Read.Length);
-    DebugTrace2(0, Dbg, "ByteOffset = %08lx %08lx\n", IrpSp->Parameters.Read.ByteOffset.LowPart,
-                                                      IrpSp->Parameters.Read.ByteOffset.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsCommonRead\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp        = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("ByteCount  = %08lx\n", IrpSp->Parameters.Read.Length) );
+    DebugTrace( 0, Dbg, ("ByteOffset = %016I64x\n", IrpSp->Parameters.Read.ByteOffset) );
     //
     //  Extract and decode the file object
     //
@@ -501,24 +571,18 @@ Return Value:
     TypeOfOpen = NtfsDecodeFileObject( IrpContext, FileObject, &Vcb, &Fcb, &Scb, &Ccb, TRUE );
 
     //
-    //  Let's map all open by File Id opens to UserFileOpens to save future tests.
-    //
-
-    if (TypeOfOpen == UserOpenFileById) {
-
-        TypeOfOpen = UserFileOpen;
-    }
-
-    //
     //  Let's kill invalid read requests.
     //
 
-    if (TypeOfOpen != UserFileOpen
-        && TypeOfOpen != UserVolumeOpen
-        && TypeOfOpen != StreamFileOpen) {
+    if (TypeOfOpen != UserFileOpen &&
+#ifdef _CAIRO_
+        DebugDoit( TypeOfOpen != UserPropertySetOpen && )
+#endif  //  _CAIRO_
+        TypeOfOpen != UserVolumeOpen &&
+        TypeOfOpen != StreamFileOpen) {
 
-        DebugTrace( 0, Dbg, "Invalid file object for read\n", 0 );
-        DebugTrace( -1, Dbg, "NtfsCommonRead:  Exit -> %08lx\n", STATUS_INVALID_DEVICE_REQUEST );
+        DebugTrace( 0, Dbg, ("Invalid file object for read\n") );
+        DebugTrace( -1, Dbg, ("NtfsCommonRead:  Exit -> %08lx\n", STATUS_INVALID_DEVICE_REQUEST) );
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_INVALID_DEVICE_REQUEST );
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -550,8 +614,8 @@ Return Value:
 
     if ((ULONG)ByteCount == 0) {
 
-        DebugTrace( 0, Dbg, "No bytes to read\n", 0 );
-        DebugTrace( -1, Dbg, "NtfsCommonRead:  Exit -> %08lx\n", STATUS_SUCCESS );
+        DebugTrace( 0, Dbg, ("No bytes to read\n") );
+        DebugTrace( -1, Dbg, ("NtfsCommonRead:  Exit -> %08lx\n", STATUS_SUCCESS) );
 
         NtfsCompleteRequest( &IrpContext, &Irp, STATUS_SUCCESS );
         return STATUS_SUCCESS;
@@ -584,7 +648,7 @@ Return Value:
 
             } else {
 
-                NtfsAllocateIoContext( &IrpContext->Union.NtfsIoContext );
+                IrpContext->Union.NtfsIoContext = (PNTFS_IO_CONTEXT)ExAllocateFromNPagedLookasideList( &NtfsIoContextLookasideList );
                 SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT );
             }
         }
@@ -625,30 +689,38 @@ Return Value:
         NTSTATUS Status;
 
         //
-        //  If the starting vbo is past the end of the volume, we are done.
+        //  If the caller has not asked for extended DASD IO access then
+        //  limit with the volume size.
         //
 
-        if (Scb->Header.FileSize.QuadPart <= StartingVbo) {
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_ALLOW_XTENDED_DASD_IO )) {
 
-            DebugTrace( 0, Dbg, "No bytes to read\n", 0 );
-            DebugTrace( -1, Dbg, "NtfsCommonRead:  Exit -> %08lx\n", STATUS_END_OF_FILE );
+            //
+            //  If the starting vbo is past the end of the volume, we are done.
+            //
 
-            NtfsCompleteRequest( &IrpContext, &Irp, STATUS_END_OF_FILE );
-            return STATUS_END_OF_FILE;
+            if (Scb->Header.FileSize.QuadPart <= StartingVbo) {
 
-        //
-        //  If the write extends beyond the end of the volume, truncate the
-        //  bytes to write.
-        //
+                DebugTrace( 0, Dbg, ("No bytes to read\n") );
+                DebugTrace( -1, Dbg, ("NtfsCommonRead:  Exit -> %08lx\n", STATUS_END_OF_FILE) );
 
-        } else if (Scb->Header.FileSize.QuadPart < ByteRange) {
+                NtfsCompleteRequest( &IrpContext, &Irp, STATUS_END_OF_FILE );
+                return STATUS_END_OF_FILE;
 
-            ByteCount = Scb->Header.FileSize.QuadPart - StartingVbo;
+            //
+            //  If the write extends beyond the end of the volume, truncate the
+            //  bytes to write.
+            //
 
-            if (!Wait) {
+            } else if (Scb->Header.FileSize.QuadPart < ByteRange) {
 
-                IrpContext->Union.NtfsIoContext->Wait.Async.RequestedByteCount =
-                    (ULONG)ByteCount;
+                ByteCount = Scb->Header.FileSize.QuadPart - StartingVbo;
+
+                if (!Wait) {
+
+                    IrpContext->Union.NtfsIoContext->Wait.Async.RequestedByteCount =
+                        (ULONG)ByteCount;
+                }
             }
         }
 
@@ -666,11 +738,11 @@ Return Value:
         if (SynchronousIo && !PagingIo &&
             NT_SUCCESS(Status)) {
 
-            FileObject->CurrentByteOffset.QuadPart = StartingVbo + Irp->IoStatus.Information;
+            IrpSp->FileObject->CurrentByteOffset.QuadPart = StartingVbo + Irp->IoStatus.Information;
         }
 
-        DebugTrace( 0, Dbg, "Complete with %08lx bytes read\n", Irp->IoStatus.Information );
-        DebugTrace( -1, Dbg, "NtfsCommonRead:  Exit -> %08lx\n", Status );
+        DebugTrace( 0, Dbg, ("Complete with %08lx bytes read\n", Irp->IoStatus.Information) );
+        DebugTrace( -1, Dbg, ("NtfsCommonRead:  Exit -> %08lx\n", Status) );
 
         if (Wait) {
 
@@ -725,6 +797,15 @@ Return Value:
     }
 
     //
+    //  Accumulate interesting statistics.
+    //
+
+    if (PagingIo) {
+        CollectReadStats( Vcb, TypeOfOpen, Scb, Fcb, ByteCount );
+    }
+
+
+    //
     //  Use a try-finally to free Scb and buffers on the way out.
     //  At this point we can treat all requests identically since we
     //  have a usable Scb for each of them.  (Volume, User or Stream file)
@@ -741,50 +822,61 @@ Return Value:
 
         //
         //  If this is a noncached transfer and is not a paging I/O, and
-        //  the file has been opened cached, then we will do a flush here
+        //  the file has a data section, then we will do a flush here
         //  to avoid stale data problems.  Note that we must flush before
         //  acquiring the Fcb shared since the write may try to acquire
-        //  it exclusive.
-        //
-        //  We also flush page faults if not originating from the cache
-        //  manager to avoid stale data problems.
-        //  For example, if we are faulting in a page of an executable
-        //  that was just written, there are two seperate sections, so
-        //  we must flush the Data section so that we fault the correct
-        //  data into the Image section.
+        //  it exclusive.  This is not necessary for compressed files, since
+        //  we will turn user noncached writes into cached writes.
         //
 
-        if (NonCachedIo
-            && (!PagingIo || (!MmIsRecursiveIoFault() &&
-                              (FileObject->SectionObjectPointer->ImageSectionObject != NULL)))
-            && TypeOfOpen != StreamFileOpen
-            && (FileObject->SectionObjectPointer->DataSectionObject != NULL)) {
+        if (!PagingIo &&
+            NonCachedIo &&
+            (FileObject->SectionObjectPointer->DataSectionObject != NULL)) {
 
-            CcFlushCache( FileObject->SectionObjectPointer,
-                          (PLARGE_INTEGER)&StartingVbo,
-                          (ULONG)ByteCount,
-                          &Irp->IoStatus );
+            ExAcquireResourceShared( Scb->Header.PagingIoResource, TRUE );
 
-            if (!NT_SUCCESS(Irp->IoStatus.Status)) {
+            if (Scb->CompressionUnit == 0) {
 
-                NtfsNormalizeAndRaiseStatus( IrpContext,
-                                             Irp->IoStatus.Status,
-                                             STATUS_UNEXPECTED_IO_ERROR );
-            }
+                //
+                //  It is possible that this read is part of a top level request or
+                //  is being called by MM to create an image section.  We will update
+                //  the top-level context to reflect this.  All of the exception
+                //  handling will correctly handle the log file full in this case.
+                //
 
-            //
-            //  Make sure the data got out to disk.
-            //
+                TopLevelContext = NtfsGetTopLevelContext();
 
-            ExAcquireResourceExclusive( Scb->Header.Resource, TRUE );
+                if (TopLevelContext->SavedTopLevelIrp != NULL) {
 
-            if (Scb->Header.PagingIoResource != NULL) {
+                    TopLevelContext->TopLevelRequest = FALSE;
+                }
 
+                CcFlushCache( FileObject->SectionObjectPointer,
+                              (PLARGE_INTEGER)&StartingVbo,
+                              (ULONG)ByteCount,
+                              &Irp->IoStatus );
+
+                //
+                //  Make sure the data got out to disk.
+                //
+
+                ExReleaseResource( Scb->Header.PagingIoResource );
                 ExAcquireResourceExclusive( Scb->Header.PagingIoResource, TRUE );
                 ExReleaseResource( Scb->Header.PagingIoResource );
-            }
 
-            ExReleaseResource( Scb->Header.Resource );
+                //
+                //  Check for errors in the flush.
+                //
+
+                NtfsNormalizeAndCleanupTransaction( IrpContext,
+                                                    &Irp->IoStatus.Status,
+                                                    TRUE,
+                                                    STATUS_UNEXPECTED_IO_ERROR );
+
+            } else {
+
+                ExReleaseResource( Scb->Header.PagingIoResource );
+            }
         }
 
         //
@@ -797,28 +889,89 @@ Return Value:
 
             (!NonCachedIo || NtfsGtrMftRef( &Fcb->FileReference, &VolumeFileReference))) {
 
-            if ( PagingIo &&
-                 FlagOn(Scb->ScbState, SCB_STATE_USE_PAGING_IO_RESOURCE) &&
-                 !FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT) ) {
+            //
+            //  Figure out if we have been entered during the posting
+            //  of a top level request.
+            //
 
-                (VOID)ExAcquireResourceShared( Scb->Header.PagingIoResource, TRUE );
+            TopLevelContext = NtfsGetTopLevelContext();
+
+            //
+            //  Initially we always force reads to appear to be top level
+            //  requests.  If we reach this point the read not to the paging
+            //  file so it is safe to determine if we are really a top level
+            //  request.  If there is an Ntfs request above us we will clear
+            //  the TopLevelRequest field in the TopLevelContext.
+            //
+
+            if (TopLevelContext->ValidSavedTopLevel) {
+                TopLevelContext->TopLevelRequest = FALSE;
+            }
+
+            //
+            //  If this is not a paging I/O (cached or user noncached I/O),
+            //  then acquire the paging I/O resource.  (Note, you can only
+            //  do cached I/O to user streams, and they always have a paging
+            //  I/O resource.
+            //
+
+            if (!PagingIo) {
+
+                //
+                //  If we cannot acquire the resource, then raise.
+                //
+
+                if (!ExAcquireSharedWaitForExclusive( Scb->Header.PagingIoResource, Wait )) {
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
                 PagingIoAcquired = TRUE;
 
                 //
-                //  Now check if the attribute has been deleted.
+                //  Check if we have already gone through cleanup on this handle.
                 //
 
-                if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+                if (FlagOn( Ccb->Flags, CCB_FLAG_CLEANUP )) {
 
-                    NtfsRaiseStatus( IrpContext, STATUS_FILE_DELETED, NULL, NULL );
+                    NtfsRaiseStatus( IrpContext, STATUS_FILE_CLOSED, NULL, NULL );
                 }
 
-                if (NonCachedIo && !Wait) {
+                //
+                //  The reason that we always handle the user requests through the cache,
+                //  is that there is no better way to deal with alignment issues, for
+                //  the frequent case where the user noncached I/O is not an integral of
+                //  the Compression Unit.  Also, the way we synchronize the case where
+                //  a compression unit is being moved to a different spot on disk during
+                //  a write, is to keep the pages locked in memory during the write, so
+                //  that there will be no need to read the disk at the same time.  (If
+                //  we allowed real noncached I/O, then we would somehow have to synchronize
+                //  the noncached read with the write of the same data.)
+                //
+                //  Bottom line is we can only really support cached reads to compresed
+                //  files.
+                //
 
-                    IrpContext->Union.NtfsIoContext->Wait.Async.Resource = Scb->Header.PagingIoResource;
+                if ((Scb->CompressionUnit != 0) && NonCachedIo) {
+
+                    NonCachedIo = FALSE;
+
+                    if (Scb->FileObject == NULL) {
+
+                        //
+                        //  Make sure we are serialized with the FileSizes, and
+                        //  will remove this condition if we abort.
+                        //
+
+                        FsRtlLockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = (PFCB)Scb;
+
+                        NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
+
+                        FsRtlUnlockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = NULL;
+                    }
+
+                    FileObject = Scb->FileObject;
                 }
-
-            } else {
 
                 //
                 //  If this is async I/O directly to the disk we need to check that
@@ -828,29 +981,68 @@ Return Value:
 
                 if (!Wait && NonCachedIo) {
 
-                    if (!ExAcquireSharedWaitForExclusive( Scb->Header.Resource, FALSE )) {
-
+                    if (ExIsResourceAcquiredShared(Scb->Header.PagingIoResource) > MAX_SCB_ASYNC_ACQUIRE) {
                         NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
                     }
 
-                    ScbAcquired = TRUE;
+                    IrpContext->Union.NtfsIoContext->Wait.Async.Resource = Scb->Header.PagingIoResource;
+                }
 
-                    if (ExIsResourceAcquiredShared( Scb->Header.Resource )
-                        > MAX_SCB_ASYNC_ACQUIRE) {
+                //
+                //  Now check if the attribute has been deleted or if the
+                //  volume has been dismounted.
+                //
 
-                        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED | SCB_STATE_VOLUME_DISMOUNTED)) {
+
+                    if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+                    
+                        NtfsRaiseStatus( IrpContext, STATUS_FILE_DELETED, NULL, NULL );
+                        
+                    } else {
+                    
+                        NtfsRaiseStatus( IrpContext, STATUS_VOLUME_DISMOUNTED, NULL, NULL );
                     }
+                }
 
-                    IrpContext->Union.NtfsIoContext->Wait.Async.Resource = Scb->Header.Resource;
+            //
+            //  If this is a paging I/O, and there is a paging I/O resource, then
+            //  we acquire the main resource here.  Note that for most paging I/Os
+            //  (like faulting for cached I/O), we already own the paging I/O resource,
+            //  so we acquire nothing here!  But, for other cases like user-mapped files,
+            //  we do check if paging I/O is acquired, and acquire the main resource if
+            //  not.  The point is, we need some guarantee still that the file will not
+            //  be truncated.
+            //
 
-                } else {
+            } else if ((Scb->Header.PagingIoResource != NULL) &&
+                       !ExIsResourceAcquiredShared(Scb->Header.PagingIoResource)) {
 
-                    if (!ExAcquireResourceShared( Scb->Header.Resource, Wait )) {
+                //
+                //  If we cannot acquire the resource, then raise.
+                //
 
-                        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                if (!ExAcquireResourceShared( Scb->Header.Resource, Wait )) {
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
+
+                ScbAcquired = TRUE;
+
+                //
+                //  Now check if the attribute has been deleted or if the
+                //  volume has been dismounted.
+                //
+
+                if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED | SCB_STATE_VOLUME_DISMOUNTED)) {
+
+                    if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED )) {
+                    
+                        NtfsRaiseStatus( IrpContext, STATUS_FILE_DELETED, NULL, NULL );
+                        
+                    } else {
+                    
+                        NtfsRaiseStatus( IrpContext, STATUS_VOLUME_DISMOUNTED, NULL, NULL );
                     }
-
-                    ScbAcquired = TRUE;
                 }
             }
         }
@@ -861,8 +1053,24 @@ Return Value:
 
         if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
-            DebugTrace( 0, Dbg, "Initializing Scb  ->  %08lx\n", Scb );
+            DebugTrace( 0, Dbg, ("Initializing Scb  ->  %08lx\n", Scb) );
+
+            ReleaseScb = FALSE;
+
+            if (AcquireScb && !ScbAcquired) {
+
+                ExAcquireResourceShared( Scb->Header.Resource, TRUE );
+                ScbAcquired = TRUE;
+                ReleaseScb = TRUE;
+            }
+
             NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+
+            if (ReleaseScb) {
+
+                ExReleaseResource( Scb->Header.Resource );
+                ScbAcquired = FALSE;
+            }
         }
 
         //
@@ -886,6 +1094,20 @@ Return Value:
             }
 
             //
+            //  This oplock call can affect whether fast IO is possible.
+            //  We may have broken an oplock to no oplock held.  If the
+            //  current state of the file is FastIoIsNotPossible then
+            //  recheck the fast IO state.
+            //
+
+            if (Scb->Header.IsFastIoPossible == FastIoIsNotPossible) {
+
+                NtfsAcquireFsrtlHeader( Scb );
+                Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+                NtfsReleaseFsrtlHeader( Scb );
+            }
+
+            //
             // We have to check for read access according to the current
             // state of the file locks.
             //
@@ -897,13 +1119,53 @@ Return Value:
 
                 try_return( Status = STATUS_FILE_LOCK_CONFLICT );
             }
+        }
+
+        //
+        //  Now synchronize with the FsRtl Header
+        //
+
+        ExAcquireFastMutex( Header->FastMutex );
+
+        //
+        //  Now see if we are reading beyond ValidDataLength.  We have to
+        //  do it now so that our reads are not nooped.  We only need to block
+        //  on nonrecursive I/O (cached or page fault to user section, because
+        //  if it is paging I/O, we must be part of a reader or writer who is
+        //  synchronized.
+        //
+
+        if ((ByteRange > Header->ValidDataLength.QuadPart) && !PagingIo) {
 
             //
-            //  Set the flag indicating if Fast I/O is possible
+            //  We must serialize with anyone else doing I/O at beyond
+            //  ValidDataLength, and then remember if we need to declare
+            //  when we are done.  If our caller has already serialized
+            //  with EOF then there is nothing for us to do here.
             //
 
-            Header->IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+            if ((IrpContext->TopLevelIrpContext->FcbWithPagingExclusive == Fcb) ||
+                (IrpContext->TopLevelIrpContext->FcbWithPagingExclusive == (PFCB) Scb)) {
 
+                DoingIoAtEof = TRUE;
+
+            } else {
+
+                DoingIoAtEof = !FlagOn( Header->Flags, FSRTL_FLAG_EOF_ADVANCE_ACTIVE ) ||
+                               NtfsWaitForIoAtEof( Header,
+                                                   (PLARGE_INTEGER)&StartingVbo,
+                                                   (ULONG)ByteCount,
+                                                   &EofWaitBlock );
+
+                //
+                //  Set the Flag if we are in fact beyond ValidDataLength.
+                //
+
+                if (DoingIoAtEof) {
+                    SetFlag( Header->Flags, FSRTL_FLAG_EOF_ADVANCE_ACTIVE );
+                    IrpContext->FcbWithPagingExclusive = (PFCB) Scb;
+                }
+            }
         }
 
         //
@@ -917,13 +1179,29 @@ Return Value:
         ValidDataLength = Header->ValidDataLength.QuadPart;
         FileSize = Header->FileSize.QuadPart;
 
+        ExReleaseFastMutex( Header->FastMutex );
+
+        //
+        //  Optimize for the case where we are trying to fault in an entire
+        //  compression unit, even if past the end of the file.  Go ahead
+        //  and round the local FileSize to a compression unit boundary.
+        //  This will allow all of these pages to come into memory when
+        //  CC touches the first page out of memory.  Otherwise CC will
+        //  force them into memory one page at a time.
+        //
+
+        if (PagingIo && (Scb->CompressionUnit != 0) && !FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT)) {
+            FileSize += (Scb->CompressionUnit - 1);
+            ((PLARGE_INTEGER) &FileSize)->LowPart &= ~(Scb->CompressionUnit - 1);
+        }
+
         //
         // If the read starts beyond End of File, return EOF.
         //
 
         if (StartingVbo >= FileSize) {
 
-            DebugTrace( 0, Dbg, "End of File\n", 0 );
+            DebugTrace( 0, Dbg, ("End of File\n") );
 
             try_return ( Status = STATUS_END_OF_FILE );
         }
@@ -962,46 +1240,67 @@ Return Value:
         //  read ahead.
         //
 
-        if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )
-            && NonCachedIo) {
+        if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT | SCB_STATE_CONVERT_UNDERWAY )  &&
+            NonCachedIo) {
 
-            PUCHAR AttrValue;
+            ReleaseScb = FALSE;
 
-            //
-            //  Get hold of the user's buffer.
-            //
+            if (AcquireScb && !ScbAcquired) {
+                ExAcquireResourceShared( Scb->Header.Resource, TRUE );
+                ScbAcquired = TRUE;
+                ReleaseScb = TRUE;
+            }
 
-            SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+            if (FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )
+                && NonCachedIo) {
 
-            //
-            //  This is a resident attribute, we need to look it up
-            //  and copy the desired range of bytes to the user's
-            //  buffer.
-            //
+                PUCHAR AttrValue;
 
-            NtfsInitializeAttributeContext( &AttrContext );
-            FoundAttribute = TRUE;
+                //
+                //  Get hold of the user's buffer.
+                //
 
-            NtfsLookupAttributeForScb( IrpContext,
-                                       Scb,
-                                       &AttrContext );
+                SystemBuffer = NtfsMapUserBuffer( Irp );
 
-            AttrValue = NtfsAttributeValue( NtfsFoundAttribute( &AttrContext ));
+                //
+                //  This is a resident attribute, we need to look it up
+                //  and copy the desired range of bytes to the user's
+                //  buffer.
+                //
 
-            RtlCopyMemory( SystemBuffer,
-                           Add2Ptr( AttrValue, ((ULONG)StartingVbo) ),
-                           (ULONG)ByteCount );
+                NtfsInitializeAttributeContext( &AttrContext );
+                FoundAttribute = TRUE;
 
-            Irp->IoStatus.Information = (ULONG)ByteCount;
+                NtfsLookupAttributeForScb( IrpContext,
+                                           Scb,
+                                           NULL,
+                                           &AttrContext );
 
-            try_return( Status = STATUS_SUCCESS );
+                AttrValue = NtfsAttributeValue( NtfsFoundAttribute( &AttrContext ));
+
+                RtlCopyMemory( SystemBuffer,
+                               Add2Ptr( AttrValue, ((ULONG)StartingVbo) ),
+                               (ULONG)ByteCount );
+
+                Irp->IoStatus.Information = (ULONG)ByteCount;
+
+                try_return( Status = STATUS_SUCCESS );
+
+            } else {
+
+                if (ReleaseScb) {
+                    ExReleaseResource( Scb->Header.Resource );
+                    ScbAcquired = FALSE;
+                }
+            }
+        }
 
 
         //
         //  HANDLE THE NON-CACHED CASE
         //
 
-        } else if (NonCachedIo) {
+        if (NonCachedIo) {
 
             ULONG BytesToRead;
 
@@ -1010,7 +1309,19 @@ Return Value:
             ULONG ZeroOffset;
             ULONG ZeroLength = 0;
 
-            DebugTrace(0, Dbg, "Non cached read.\n", 0);
+            DebugTrace( 0, Dbg, ("Non cached read.\n") );
+
+            //
+            //  For a compressed stream, which is user-mapped, reserve space
+            //  as pages come in.
+            //
+
+            if (FlagOn(Header->Flags, FSRTL_FLAG_USER_MAPPED_FILE) &&
+                FlagOn(Scb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK)  &&
+                !NtfsReserveClusters(IrpContext, Scb, StartingVbo, (ULONG)ByteCount)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+            }
 
             //
             //  Start by zeroing any part of the read after Valid Data
@@ -1018,67 +1329,106 @@ Return Value:
 
             if (ByteRange > ValidDataLength) {
 
-                SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+                ReleaseScb = FALSE;
 
-                if (StartingVbo < ValidDataLength) {
+                //
+                //  We need to look at ValidDataToDisk, because it could be higher.
+                //
 
-                    //
-                    //  Assume we will zero the entire amount.
-                    //
+                //
+                //  We have to have the main resource to look at ValidDataToDisk.
+                //
 
-                    ZeroLength = (ULONG)ByteCount;
+                if (AcquireScb && !ScbAcquired) {
+                    ExAcquireResourceShared( Scb->Header.Resource, TRUE );
+                    ScbAcquired = TRUE;
+                    ReleaseScb = TRUE;
+                }
 
-                    //
-                    //  The new byte count and the offset to start filling with zeroes.
-                    //
+                //
+                //  If ValidDataToDisk is actually greater than
+                //  ValidDataLength, then we must have lost a page
+                //  during the middle of a write, and we should not
+                //  zero that data on the way back in!
+                //
 
-                    ByteCount = ValidDataLength - StartingVbo;
-                    ZeroOffset = (ULONG)ByteCount;
+                if (ValidDataLength < Scb->ValidDataToDisk) {
+                    ValidDataLength = Scb->ValidDataToDisk;
+                }
 
-                    //
-                    //  Now reduce the amount to zero by the zero offset.
-                    //
+                if (ByteRange > ValidDataLength) {
 
-                    ZeroLength -= ZeroOffset;
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
 
-                    //
-                    //  If this was non-cached I/O then convert it to synchronous.
-                    //  This is because we don't want to zero the buffer now or
-                    //  we will lose the data when the driver purges the cache.
-                    //
-
-                    if (!Wait) {
-
-                        Wait = TRUE;
-                        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
-
-                        RtlZeroMemory( IrpContext->Union.NtfsIoContext, sizeof( NTFS_IO_CONTEXT ));
+                    if (StartingVbo < ValidDataLength) {
 
                         //
-                        //  Store whether we allocated this context structure in the structure
-                        //  itself.
+                        //  Assume we will zero the entire amount.
                         //
 
-                        IrpContext->Union.NtfsIoContext->AllocatedContext =
-                            BooleanFlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT );
+                        ZeroLength = (ULONG)ByteCount;
 
-                        KeInitializeEvent( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent,
-                                           NotificationEvent,
-                                           FALSE );
+                        //
+                        //  The new byte count and the offset to start filling with zeroes.
+                        //
+
+                        ByteCount = ValidDataLength - StartingVbo;
+                        ZeroOffset = (ULONG)ByteCount;
+
+                        //
+                        //  Now reduce the amount to zero by the zero offset.
+                        //
+
+                        ZeroLength -= ZeroOffset;
+
+                        //
+                        //  If this was non-cached I/O then convert it to synchronous.
+                        //  This is because we don't want to zero the buffer now or
+                        //  we will lose the data when the driver purges the cache.
+                        //
+
+                        if (!Wait) {
+
+                            Wait = TRUE;
+                            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+
+                            RtlZeroMemory( IrpContext->Union.NtfsIoContext, sizeof( NTFS_IO_CONTEXT ));
+
+                            //
+                            //  Store whether we allocated this context structure in the structure
+                            //  itself.
+                            //
+
+                            IrpContext->Union.NtfsIoContext->AllocatedContext =
+                                BooleanFlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ALLOC_CONTEXT );
+
+                            KeInitializeEvent( &IrpContext->Union.NtfsIoContext->Wait.SyncEvent,
+                                               NotificationEvent,
+                                               FALSE );
+                        }
+
+                    } else {
+
+                        //
+                        //  All we have to do now is sit here and zero the
+                        //  user's buffer, no reading is required.
+                        //
+
+                        SafeZeroMemory( (PUCHAR)SystemBuffer, (ULONG)ByteCount );
+
+                        Irp->IoStatus.Information = (ULONG)ByteCount;
+
+                        try_return ( Status = STATUS_SUCCESS );
                     }
+                }
 
-                } else {
+                //
+                //  Now free the Scb if we only acquired it here.
+                //
 
-                    //
-                    //  All we have to do now is sit here and zero the
-                    //  user's buffer, no reading is required.
-                    //
-
-                    SafeZeroMemory( (PUCHAR)SystemBuffer, (ULONG)ByteCount );
-
-                    Irp->IoStatus.Information = (ULONG)ByteCount;
-
-                    try_return ( Status = STATUS_SUCCESS );
+                if (ReleaseScb) {
+                    ExReleaseResource( Scb->Header.Resource );
+                    ScbAcquired = FALSE;
                 }
             }
 
@@ -1092,8 +1442,7 @@ Return Value:
             //  Round up to a sector boundry
             //
 
-            BytesToRead = ((ULONG)ByteCount + (SectorSize - 1))
-                           & ~(SectorSize - 1);
+            BytesToRead = ((ULONG)ByteCount + (SectorSize - 1)) & ~(SectorSize - 1);
 
             //
             //  Call a special routine if we do not have sector alignment
@@ -1119,6 +1468,8 @@ Return Value:
                 //
                 //  Do the physical read.
                 //
+
+                ASSERT(FileObject->SectionObjectPointer == &Scb->NonpagedScb->SegmentObject);
 
                 NtfsNonCachedNonAlignedIo( IrpContext,
                                            Irp,
@@ -1153,9 +1504,12 @@ Return Value:
                                      Irp,
                                      Scb,
                                      StartingVbo,
-                                     BytesToRead ) == STATUS_PENDING) {
+                                     BytesToRead,
+                                     (FileObject->SectionObjectPointer != &Scb->NonpagedScb->SegmentObject) )
+                                         == STATUS_PENDING) {
 
                     IrpContext->Union.NtfsIoContext = NULL;
+                    PagingIoAcquired = FALSE;
                     Irp = NULL;
 
                     try_return( Status = STATUS_PENDING );
@@ -1191,7 +1545,7 @@ Return Value:
 
                 if (SystemBuffer == NULL) {
 
-                    SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
                 }
 
                 SafeZeroMemory( (PUCHAR)SystemBuffer + (ULONG)ByteCount,
@@ -1207,7 +1561,7 @@ Return Value:
 
                 if (SystemBuffer == NULL) {
 
-                    SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
                 }
 
                 SafeZeroMemory( Add2Ptr( SystemBuffer, ZeroOffset ), ZeroLength );
@@ -1230,97 +1584,249 @@ Return Value:
 
             //
             //  We need to go through the cache for this
-            //  file object.
+            //  file object.  First handle the noncompressed calls.
             //
 
-            //
-            // We delay setting up the file cache until now, in case the
-            // caller never does any I/O to the file, and thus
-            // FileObject->PrivateCacheMap == NULL.
-            //
-
-            if (FileObject->PrivateCacheMap == NULL) {
-
-                DebugTrace(0, Dbg, "Initialize cache mapping.\n", 0);
+#ifdef _CAIRO_
+            if (!FlagOn(IrpContext->MinorFunction, IRP_MN_COMPRESSED)) {
+#endif _CAIRO_
 
                 //
-                //  TEMPCODE   I'm assuming the Scb header has valid
-                //  allocation, valid data and file sizes.
+                // We delay setting up the file cache until now, in case the
+                // caller never does any I/O to the file, and thus
+                // FileObject->PrivateCacheMap == NULL.
                 //
 
-                //
-                //  Now initialize the cache map.
-                //
+                if (FileObject->PrivateCacheMap == NULL) {
 
-                CcInitializeCacheMap( FileObject,
-                                      (PCC_FILE_SIZES)&Header->AllocationSize,
-                                      FALSE,
-                                      &NtfsData.CacheManagerCallbacks,
-                                      Scb );
+                    DebugTrace( 0, Dbg, ("Initialize cache mapping.\n") );
 
-                CcSetReadAheadGranularity( FileObject, READ_AHEAD_GRANULARITY );
-            }
+                    //
+                    //  Now initialize the cache map.
+                    //
+                    //  Make sure we are serialized with the FileSizes, and
+                    //  will remove this condition if we abort.
+                    //
 
-            //
-            // DO A NORMAL CACHED READ, if the MDL bit is not set,
-            //
+                    if (!DoingIoAtEof) {
+                        FsRtlLockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = (PFCB)Scb;
+                    }
 
-            DebugTrace(0, Dbg, "Cached read.\n", 0);
+                    CcInitializeCacheMap( FileObject,
+                                          (PCC_FILE_SIZES)&Header->AllocationSize,
+                                          FALSE,
+                                          &NtfsData.CacheManagerCallbacks,
+                                          Scb );
 
-            if (!FlagOn( IrpContext->MinorFunction, IRP_MN_MDL )) {
+                    if (!DoingIoAtEof) {
+                        FsRtlUnlockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = NULL;
+                    }
 
-                //
-                //  Get hold of the user's buffer.
-                //
-
-                SystemBuffer = NtfsMapUserBuffer( IrpContext, Irp );
-
-                //
-                // Now try to do the copy.
-                //
-
-                if (!CcCopyRead( FileObject,
-                                 (PLARGE_INTEGER)&StartingVbo,
-                                 (ULONG)ByteCount,
-                                 Wait,
-                                 SystemBuffer,
-                                 &Irp->IoStatus )) {
-
-                    DebugTrace( 0, Dbg, "Cached Read could not wait\n", 0 );
-
-                    try_return( PostIrp = TRUE );
+                    CcSetReadAheadGranularity( FileObject, READ_AHEAD_GRANULARITY );
                 }
 
-                Status = Irp->IoStatus.Status;
+                //
+                // DO A NORMAL CACHED READ, if the MDL bit is not set,
+                //
 
-                ASSERT( NT_SUCCESS( Status ));
+                DebugTrace( 0, Dbg, ("Cached read.\n") );
 
-                try_return( Status );
-            }
+                if (!FlagOn(IrpContext->MinorFunction, IRP_MN_MDL)) {
 
-
+                    //
+                    //  Get hold of the user's buffer.
+                    //
+
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
+
+                    //
+                    // Now try to do the copy.
+                    //
+
+                    if (!CcCopyRead( FileObject,
+                                     (PLARGE_INTEGER)&StartingVbo,
+                                     (ULONG)ByteCount,
+                                     Wait,
+                                     SystemBuffer,
+                                     &Irp->IoStatus )) {
+
+                        DebugTrace( 0, Dbg, ("Cached Read could not wait\n") );
+
+                        try_return( PostIrp = TRUE );
+                    }
+
+                    Status = Irp->IoStatus.Status;
+
+                    ASSERT( NT_SUCCESS( Status ));
+
+                    try_return( Status );
+                }
+
+                //
+                //  HANDLE A MDL READ
+                //
+
+                else {
+
+                    DebugTrace( 0, Dbg, ("MDL read.\n") );
+
+                    ASSERT( Wait );
+
+                    CcMdlRead( FileObject,
+                               (PLARGE_INTEGER)&StartingVbo,
+                               (ULONG)ByteCount,
+                               &Irp->MdlAddress,
+                               &Irp->IoStatus );
+
+                    Status = Irp->IoStatus.Status;
+
+                    ASSERT( NT_SUCCESS( Status ));
+
+                    try_return( Status );
+                }
+
             //
-            //  HANDLE A MDL READ
+            //  Handle the compressed calls.
             //
 
-            else {
+#ifdef _CAIRO_
+            } else {
 
-                DebugTrace(0, Dbg, "MDL read.\n", 0);
+                PCOMPRESSED_DATA_INFO CompressedDataInfo;
+                PMDL *NewMdl;
 
-                ASSERT( Wait );
+                ASSERT((StartingVbo & (NTFS_CHUNK_SIZE - 1)) == 0);
 
-                CcMdlRead( FileObject,
-                           (PLARGE_INTEGER)&StartingVbo,
-                           (ULONG)ByteCount,
-                           &Irp->MdlAddress,
-                           &Irp->IoStatus );
+                if (FlagOn(Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT)) {
+                    try_return(Status = STATUS_INVALID_READ_MODE);
+                }
 
-                Status = Irp->IoStatus.Status;
+                if ((Header->FileObjectC == NULL) ||
+                    (Header->FileObjectC->PrivateCacheMap == NULL)) {
 
-                ASSERT( NT_SUCCESS( Status ));
+                    //
+                    //  Make sure we are serialized with the FileSizes, and
+                    //  will remove this condition if we abort.
+                    //
 
-                try_return( Status );
+                    if (!DoingIoAtEof) {
+                        FsRtlLockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = (PFCB)Scb;
+                    }
+
+                    NtfsCreateInternalCompressedStream( IrpContext, Scb, FALSE );
+
+                    if (!DoingIoAtEof) {
+                        FsRtlUnlockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = NULL;
+                    }
+                }
+
+                //
+                //  Assume success.
+                //
+
+                Irp->IoStatus.Status = Status = STATUS_SUCCESS;
+                Irp->IoStatus.Information = (ULONG)(ByteRange - StartingVbo);
+
+                //
+                //  Based on the Mdl minor function, set up the appropriate
+                //  parameters for the call below.
+                //
+
+                if (!FlagOn(IrpContext->MinorFunction, IRP_MN_MDL)) {
+
+                    //
+                    //  Get hold of the user's buffer.
+                    //
+
+                    SystemBuffer = NtfsMapUserBuffer( Irp );
+                    NewMdl = NULL;
+
+                } else {
+
+                    //
+                    //  We will deliver the Mdl directly to the Irp.
+                    //
+
+                    SystemBuffer = NULL;
+                    NewMdl = &Irp->MdlAddress;
+                }
+
+                CompressedDataInfo = (PCOMPRESSED_DATA_INFO)IrpContext->Union.AuxiliaryBuffer->Buffer;
+
+                CompressedDataInfo->CompressionFormatAndEngine =
+                    (USHORT)((Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) + 1);
+                CompressedDataInfo->CompressionUnitShift = (UCHAR)(Scb->CompressionUnitShift + Vcb->ClusterShift);
+                CompressedDataInfo->ChunkShift = NTFS_CHUNK_SHIFT;
+                CompressedDataInfo->ClusterShift = (UCHAR)Vcb->ClusterShift;
+                CompressedDataInfo->Reserved = 0;
+                CompressedDataInfo->NumberOfChunks = 0;
+
+                //
+                //  Do the compressed read in common code with the Fast Io path.
+                //  We do it from a loop because we may need to create the other
+                //  data stream.
+                //
+
+                while (TRUE) {
+
+                    Status = NtfsCompressedCopyRead( FileObject,
+                                                     (PLARGE_INTEGER)&StartingVbo,
+                                                     (ULONG)ByteCount,
+                                                     SystemBuffer,
+                                                     NewMdl,
+                                                     CompressedDataInfo,
+                                                     IrpContext->Union.AuxiliaryBuffer->Length,
+                                                     IoGetRelatedDeviceObject(FileObject),
+                                                     Header,
+                                                     Scb->CompressionUnit,
+                                                     NTFS_CHUNK_SIZE );
+
+                    //
+                    //  On successful Mdl requests we hang on to the PagingIo resource.
+                    //
+
+                    if ((NewMdl != NULL) && NT_SUCCESS(Status)) {
+                        PagingIoAcquired = FALSE;
+                    }
+
+                    //
+                    //  Check for the status that says we need to create the normal
+                    //  data stream, else we are done.
+                    //
+
+                    if (Status != STATUS_NOT_MAPPED_DATA) {
+                        break;
+                    }
+
+                    //
+                    //  Create the normal data stream and loop back to try again.
+                    //
+
+                    ASSERT(Scb->FileObject == NULL);
+
+                    //
+                    //  Make sure we are serialized with the FileSizes, and
+                    //  will remove this condition if we abort.
+                    //
+
+                    if (!DoingIoAtEof) {
+                        FsRtlLockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = (PFCB)Scb;
+                    }
+
+                    NtfsCreateInternalAttributeStream( IrpContext, Scb, FALSE );
+
+                    if (!DoingIoAtEof) {
+                        FsRtlUnlockFsRtlHeader( Header );
+                        IrpContext->FcbWithPagingExclusive = NULL;
+                    }
+                }
             }
+#endif _CAIRO_
         }
 
     try_exit: NOTHING;
@@ -1335,11 +1841,11 @@ Return Value:
 
                 LONGLONG ActualBytesRead;
 
-                DebugTrace( 0, Dbg, "Completing request with status = %08lx\n",
-                            Status);
+                DebugTrace( 0, Dbg, ("Completing request with status = %08lx\n",
+                            Status));
 
-                DebugTrace( 0, Dbg, "                   Information = %08lx\n",
-                            Irp->IoStatus.Information);
+                DebugTrace( 0, Dbg, ("                   Information = %08lx\n",
+                            Irp->IoStatus.Information));
 
                 //
                 //  Record the total number of bytes actually read
@@ -1349,40 +1855,36 @@ Return Value:
 
                 //
                 //  If the file was opened for Synchronous IO, update the current
-                //  file position.
+                //  file position.  Make sure to use the original file object
+                //  not an internal stream we may use within this routine.
                 //
 
-                if (SynchronousIo && !PagingIo) {
+                if (!PagingIo) {
 
-                    FileObject->CurrentByteOffset.QuadPart = StartingVbo + ActualBytesRead;
-                }
+                    if (SynchronousIo) {
 
-                //
-                // If we are caching and got success, then do read ahead.
-                //
-
-                if (NT_SUCCESS( Status )) {
+                        IrpSp->FileObject->CurrentByteOffset.QuadPart = StartingVbo + ActualBytesRead;
+                    }
 
                     //
-                    //  If this is the unnamed data attribute for a user
-                    //  file, update the last access in the Fcb.
+                    //  On success, do the following to let us update last access time.
                     //
 
-                    if (TypeOfOpen == UserFileOpen
-                        && FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+                    if (NT_SUCCESS( Status )) {
 
-                        if (!FlagOn( Ccb->Flags, CCB_FLAG_USER_SET_LAST_ACCESS_TIME )) {
-
-                            NtfsGetCurrentTime( IrpContext, Fcb->CurrentLastAccess );
-                        }
-
-                        ClearFlag( FileObject->Flags, FO_FILE_FAST_IO_READ );
+                        SetFlag( IrpSp->FileObject->Flags, FO_FILE_FAST_IO_READ );
                     }
                 }
 
+                //
+                //  Abort transaction on error by raising.
+                //
+
+                NtfsCleanupTransaction( IrpContext, Status, FALSE );
+
             } else {
 
-                DebugTrace( 0, Dbg, "Passing request to Fsp\n", 0 );
+                DebugTrace( 0, Dbg, ("Passing request to Fsp\n") );
 
                 if (!OplockPostIrp) {
 
@@ -1391,26 +1893,29 @@ Return Value:
             }
         }
 
-        //
-        //  Abort transaction on error by raising.
-        //
-
-        NtfsCleanupTransaction( IrpContext, Status );
-
     } finally {
 
         DebugUnwind( NtfsCommonRead );
 
         //
+        //  Clean up any Bcb from read compressed.
+        //
+
+        if (Bcb != NULL) {
+
+            CcUnpinData( Bcb );
+        }
+
+        //
         // If the Scb has been acquired, release it.
         //
 
+        if (PagingIoAcquired) {
+
+            ExReleaseResource( Scb->Header.PagingIoResource );
+        }
+
         if (Irp) {
-
-            if (PagingIoAcquired) {
-
-                ExReleaseResource( Scb->Header.PagingIoResource );
-            }
 
             if (ScbAcquired) {
 
@@ -1425,7 +1930,7 @@ Return Value:
 
         if (FoundAttribute) {
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+            NtfsCleanupAttributeContext( &AttrContext );
         }
 
         //
@@ -1442,7 +1947,7 @@ Return Value:
                                  Status );
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonRead -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsCommonRead -> %08lx\n", Status) );
     }
 
     return Status;

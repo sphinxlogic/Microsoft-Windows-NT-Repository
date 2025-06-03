@@ -333,7 +333,6 @@ EndProc        _VxdUnlockBuffer
 ; BUGBUG: VxdValidateBuffer is currently not used.  Unifdef it if needed
 ;
 
-IF 0
 
 ;*******************************************************************
 ;
@@ -417,13 +416,10 @@ vub_Exit:
 
 vub_Failure:
 
-				Trace_Out "VxdValidateBuffer: _PageCheckLinRange failed"
                 xor     eax, eax
                 jmp     vub_Exit
 
 EndProc         _VxdValidateBuffer
-
-ENDIF
 
 VXD_LOCKED_CODE_ENDS
 

@@ -241,6 +241,7 @@ OEM_MSOFT: fixed problem with tape name not being saved
 *****************************************************/
 
 #include "all.h"
+#include "ctl3d.h"
 
 #ifdef SOME
 #include "some.h"
@@ -272,6 +273,9 @@ OEM_MSOFT: fixed problem with tape name not being saved
 
 WORD     RT_BSD_index;
 WORD     RT_max_BSD_index;
+#ifdef OEM_EMS
+INT32    RT_BSD_OsId;
+#endif
 
 static BOOL  mwfCancelRequestDelayed;
 
@@ -362,12 +366,68 @@ DLGRESULT APIENTRY DM_BackupSet(
     CHAR       reenter_password[ MAX_TAPE_PASSWORD_SIZE ];
 #endif                     //  unused variables
 
+#ifdef OEM_EMS
+     static DLG_CTRL_ENTRY DefaultCtrlTable[] = {
+          { IDD_BKUP_XCHG_NAME_TEXT,    0,  CM_HIDE },
+          { IDD_BKUP_XCHG_NAME,         0,  CM_HIDE },
+          { IDD_XCHG_BKUP_METHOD,       0,  CM_HIDE },
+          { IDD_BKUP_DRIVE_NAME_TEXT,   0,  CM_ENABLE },
+          { IDD_BKUP_DRIVE_NAME,        0,  CM_ENABLE },
+          { IDD_BKUP_METHOD,            0,  CM_ENABLE }
+     };
+
+     static DLG_CTRL_ENTRY EMSCtrlTable[] = {
+          { IDD_BKUP_DRIVE_NAME_TEXT,   0,  CM_HIDE },
+          { IDD_BKUP_DRIVE_NAME,        0,  CM_HIDE },
+          { IDD_BKUP_METHOD,            0,  CM_HIDE },
+          { IDD_BKUP_XCHG_NAME_TEXT,    0,  CM_ENABLE },
+          { IDD_BKUP_XCHG_NAME,         0,  CM_ENABLE },
+          { IDD_XCHG_BKUP_METHOD,       0,  CM_ENABLE }
+     };
+
+     // FS_UNKNOWN_OS must be last w/ no other iDispType == FS_UNKNOWN_OS (or its value).
+     static DLG_DISPLAY_ENTRY BkupDispTable[] = {
+           { FS_EMS_MDB_ID,   EMSCtrlTable, 
+             sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            IDH_DB_XCHG_BACKUPSET },
+           { FS_EMS_DSA_ID,   EMSCtrlTable,
+             sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            IDH_DB_XCHG_BACKUPSET },
+           { FS_UNKNOWN_OS,   DefaultCtrlTable, 
+             sizeof(DefaultCtrlTable)/sizeof(DefaultCtrlTable[0]),    HELPID_DIALOGBACKUPSET }
+     };
+
+     static DLG_DISPLAY_ENTRY ArchDispTable[] = {
+           { FS_EMS_MDB_ID,   EMSCtrlTable,
+             sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            IDH_DB_XCHG_BACKUPSET },
+           { FS_EMS_DSA_ID,   EMSCtrlTable,
+             sizeof(EMSCtrlTable)/sizeof(EMSCtrlTable[0]),            IDH_DB_XCHG_BACKUPSET },
+           { FS_UNKNOWN_OS,   DefaultCtrlTable,
+             sizeof(DefaultCtrlTable)/sizeof(DefaultCtrlTable[0]),    HELPID_DIALOGTRANSFER }
+     };
+
+     static DLG_MODE ModeTable[] = {
+          { ARCHIVE_BACKUP_OPER,   ArchDispTable,  
+            sizeof(ArchDispTable)/sizeof(ArchDispTable[0]),   &(ArchDispTable[2]) },   
+          { BACKUP_OPER,           BkupDispTable,  
+            sizeof(BkupDispTable)/sizeof(BkupDispTable[0]),   &(ArchDispTable[2]) },
+          { 0,                     BkupDispTable,
+            sizeof(BkupDispTable)/sizeof(BkupDispTable[0]),   &(ArchDispTable[2]) }
+     };
+
+     static UINT16 cModeTblSize = sizeof( ModeTable ) / sizeof( ModeTable[0] );
+     static DLG_MODE *pCurMode;
+     DWORD  help_id;
+
+#endif     
+
     switch ( message )
     {
 /****************************************************************************
     INIT THE DIALOG
 /***************************************************************************/
        case WM_INITDIALOG:     /* message: initialize dialog box */
+
+            // Let's go 3-D!!
+            Ctl3dSubclassDlgEx( hDlg, CTL3D_ALL );
 
             DM_CenterDialog( hDlg );
 
@@ -377,6 +437,10 @@ DLGRESULT APIENTRY DM_BackupSet(
             EnableSecurityDlgFlag             = 0;
             mwfCancelRequestDelayed           = FALSE;
 
+#ifdef OEM_EMS
+            pCurMode = DM_InitCtrlTables( hDlg, ModeTable, cModeTblSize, 
+                              backup_set_temp_ptr->mode_flag );
+#endif
 
             EnableWindow( GetDlgItem( hDlg, IDD_BKUP_HARDCOMP ) ,                                        // chs: 04-22-93
                           ( thw_list->drv_info.drv_features & TDI_DRV_COMPRESSION ) ? ON : OFF   );      // chs: 04-22-93
@@ -401,13 +465,19 @@ DLGRESULT APIENTRY DM_BackupSet(
                 RSM_StringCopy( IDS_METHOD_NORMAL, buffer, sizeof(buffer) );
                 SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_ADDSTRING,
                                     0, MP2FROMPVOID ( buffer ) );
+#ifdef OEM_EMS
+                SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_ADDSTRING,
+                                    0, MP2FROMPVOID ( buffer ) );
+#endif                   
             }
 
             RSM_StringCopy( IDS_METHOD_COPY, buffer, sizeof(buffer) );
             SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_ADDSTRING,
                                0, MP2FROMPVOID ( buffer ) );
-
-
+#ifdef OEM_EMS
+            SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_ADDSTRING,
+                                    0, MP2FROMPVOID ( buffer ) );
+#endif                   
 
             /* Differential/Incremental not allowed with Transfer operation */
             if( backup_set_temp_ptr->mode_flag != ARCHIVE_BACKUP_OPER ) {
@@ -415,10 +485,18 @@ DLGRESULT APIENTRY DM_BackupSet(
                 RSM_StringCopy( IDS_METHOD_DIFFERENTIAL, buffer, sizeof(buffer) );
                 SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_ADDSTRING,
                                     0, MP2FROMPVOID ( buffer ) );
+#ifdef OEM_EMS
+                SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_ADDSTRING,
+                                    0, MP2FROMPVOID ( buffer ) );
+#endif                   
 
                 RSM_StringCopy( IDS_METHOD_INCREMENTAL, buffer, sizeof(buffer) );
                 SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_ADDSTRING,
                                     0, MP2FROMPVOID ( buffer ) );
+#ifdef OEM_EMS
+                SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_ADDSTRING,
+                                    0, MP2FROMPVOID ( buffer ) );
+#endif                   
 
                 RSM_StringCopy( IDS_METHOD_DAILY, buffer, sizeof(buffer) );
                 SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_ADDSTRING,
@@ -427,10 +505,16 @@ DLGRESULT APIENTRY DM_BackupSet(
             else {
                   /* Transfer operation - disable the combo box */
                   EnableWindow( GetDlgItem( hDlg, IDD_BKUP_METHOD  ) , OFF );
+#ifdef OEM_EMS
+                  EnableWindow( GetDlgItem( hDlg, IDD_XCHG_BKUP_METHOD  ) , OFF );
+#endif                   
             }
 
             /* select the first item in the list */
             SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_SETCURSEL, 0, 0 );
+#ifdef OEM_EMS
+            SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_SETCURSEL, 0, 0 );
+#endif                   
 
 #if defined ( TDEMO )
 
@@ -441,9 +525,15 @@ DLGRESULT APIENTRY DM_BackupSet(
 
                 /* select copy from the list */
                 SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_SETCURSEL, 1, 0 );
+#ifdef OEM_EMS
+                SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_SETCURSEL, 1, 0 );
+#endif                   
 
                 /* tdemo exe - disable the combo box */
                 EnableWindow( GetDlgItem( hDlg, IDD_BKUP_METHOD  ) , OFF );
+#ifdef OEM_EMS
+                EnableWindow( GetDlgItem( hDlg, IDD_XCHG_BKUP_METHOD  ) , OFF );
+#endif                   
             }
 #endif
 
@@ -562,7 +652,11 @@ DLGRESULT APIENTRY DM_BackupSet(
             }
 
             /* display the state of the first BSD */
+#ifndef OEM_EMS
             BackupSetRetrieve( hDlg );
+#else            
+            BackupSetRetrieve( hDlg, pCurMode );
+#endif            
 
             /* retrieve any password that a job may have passed in */
             generic_str_ptr = &backup_set_temp_ptr->job_password[0];
@@ -604,7 +698,12 @@ DLGRESULT APIENTRY DM_BackupSet(
                   }
                 }
                 /* Check default log file radio button            */
-                CheckDlgButton( hDlg, IDD_BKUP_LOG_SUMMARY, 1 );
+
+                CheckRadioButton ( hDlg, IDD_BKUP_LOG_FULL, 
+                                        IDD_BKUP_LOG_NONE,
+                                        IDD_BKUP_LOG_SUMMARY );
+
+//              CheckDlgButton( hDlg, IDD_BKUP_LOG_SUMMARY, 1 );
 
             }
 #           endif //defined ( OEM_MSOFT ) // special feature
@@ -635,14 +734,22 @@ DLGRESULT APIENTRY DM_BackupSet(
                             while( thumbposition != backup_set_temp_ptr->BSD_index ) {
                                 ScrollLineUp( );
                             }
-                            BackupSetRetrieve( hDlg );
+#ifndef OEM_EMS
+                                BackupSetRetrieve( hDlg );
+#else            
+                                BackupSetRetrieve( hDlg, pCurMode );
+#endif            
                         }
                         else {
                             BackupSetSave( hDlg );
                             while( thumbposition != backup_set_temp_ptr->BSD_index ) {
                                 ScrollLineDown( );
                             }
+#ifndef OEM_EMS
                             BackupSetRetrieve( hDlg );
+#else            
+                            BackupSetRetrieve( hDlg, pCurMode );
+#endif            
                         }
                         return ( TRUE );
 
@@ -651,7 +758,11 @@ DLGRESULT APIENTRY DM_BackupSet(
 
                         BackupSetSave( hDlg );
                         ScrollLineDown( );
-                        BackupSetRetrieve( hDlg );
+#ifndef OEM_EMS
+                           BackupSetRetrieve( hDlg );
+#else            
+                           BackupSetRetrieve( hDlg, pCurMode );
+#endif            
                         SetScrollPos( hScrollbar, SB_CTL, backup_set_temp_ptr->BSD_index, REDRAW );
                         return ( TRUE );
 
@@ -660,7 +771,11 @@ DLGRESULT APIENTRY DM_BackupSet(
 
                         BackupSetSave( hDlg );
                         ScrollLineUp( );
-                        BackupSetRetrieve( hDlg );
+#ifndef OEM_EMS
+                           BackupSetRetrieve( hDlg );
+#else            
+                           BackupSetRetrieve( hDlg, pCurMode );
+#endif            
                         SetScrollPos( hScrollbar, SB_CTL, backup_set_temp_ptr->BSD_index, REDRAW );
                         return ( TRUE );
 
@@ -697,11 +812,14 @@ DLGRESULT APIENTRY DM_BackupSet(
 
                     /* if the user selects replace operation , */
                     /* place the default name into the field */
-                    RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, buffer, MAX_TAPE_NAME_LEN );
-                    generic_str_ptr = buffer;
-                    while ( *generic_str_ptr )
-                          generic_str_ptr++;
-                    UI_CurrentDate( generic_str_ptr );
+
+                    {
+                         CHAR tmp_buf1[ MAX_TAPE_NAME_LEN ];
+                         CHAR tmp_buf2[ MAX_TAPE_NAME_LEN ];
+                         RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, tmp_buf1, MAX_TAPE_NAME_LEN );
+                         UI_CurrentDate( tmp_buf2 );
+                         wsprintf( buffer, tmp_buf1, tmp_buf2 ) ;
+                    }
 
                     bsd_ptr = GetBSDPointer( 0 );
 
@@ -919,6 +1037,8 @@ DLGRESULT APIENTRY DM_BackupSet(
 // For all of the selected drives...
 // Do some checking to make sure the readonly drives.
 
+                    BackupSetSave( hDlg );
+
                     bsd_ptr = BSD_GetFirst(bsd_list);
                     while(bsd_ptr != NULL)
                     {
@@ -939,6 +1059,80 @@ DLGRESULT APIENTRY DM_BackupSet(
 
                           WM_MsgBox( buffer2, szTemp, WMMB_OK, WMMB_ICONEXCLAMATION ) ;
                         }
+
+                      }
+                      if ( ((BSD_GetOsId( bsd_ptr )== FS_EMS_DSA_ID) ||
+                           (BSD_GetOsId( bsd_ptr )== FS_EMS_MDB_ID)) &&
+                           ((BSD_GetBackupType(bsd_ptr) == BSD_BACKUP_DIFFERENTIAL ) ||
+                           (BSD_GetBackupType(bsd_ptr) == BSD_BACKUP_INCREMENTAL) ) )
+                      {
+                           INT16      return_status ;
+                           FSYS_HAND  fsh ;          
+                           CHAR       buf1[ MAX_UI_RESOURCE_SIZE ];
+                           CHAR       buf2[ MAX_UI_RESOURCE_SIZE ];
+
+                           be_cfg_ptr = BSD_GetConfigData( bsd_ptr );
+
+                           BEC_SetModifiedOnlyFlag( be_cfg_ptr, TRUE ) ;
+                           
+                           return_status = FS_AttachToDLE( &fsh, dle_ptr, be_cfg_ptr, NULL, NULL ) ;
+
+                           BEC_SetModifiedOnlyFlag( be_cfg_ptr, FALSE ) ;
+
+                           switch( return_status ) {
+                                case SUCCESS:
+                                     FS_DetachDLE( fsh ) ;
+                                     break ;
+                                case FS_EMS_CIRC_LOG:
+                                     if (BSD_GetOsId( bsd_ptr )== FS_EMS_DSA_ID ) {
+                                          RSM_StringCopy( IDS_EMS_CIRC_LOGS_DS, buf1, sizeof(buf1) );
+                                     } else {
+                                          RSM_StringCopy( IDS_EMS_CIRC_LOGS_IS, buf1, sizeof(buf1) );
+                                     }
+
+                                     wsprintf( buf2, buf1, DLE_GetDeviceName(DLE_GetParent(dle_ptr)));
+                                     RSM_StringCopy( IDS_BACKUPERRORTITLE, buf1, sizeof(buf1) );
+
+                                     break;
+
+                                case FS_EMS_NO_LOG_BKUP:
+                                     if (BSD_GetOsId( bsd_ptr )== FS_EMS_DSA_ID ) {
+                                          RSM_StringCopy( IDS_EMS_NO_INC_DS_BACKUP, buf1, sizeof(buf1) );
+                                     } else {
+                                          RSM_StringCopy( IDS_EMS_NO_INC_IS_BACKUP, buf1, sizeof(buf1) );
+                                     }
+
+                                     wsprintf( buf2, buf1, DLE_GetDeviceName(DLE_GetParent(dle_ptr)));
+                                     RSM_StringCopy( IDS_BACKUPERRORTITLE, buf1, sizeof(buf1) );
+
+                                     break;
+
+                                case FS_ACCESS_DENIED:          
+
+                                     RSM_StringCopy( RES_EMS_BKU_ACCESS_FAILURE, buf1, sizeof(buf1) );
+
+                                     wsprintf( buf2, buf1, DLE_GetDeviceName(DLE_GetParent(dle_ptr)));
+                                     RSM_StringCopy( IDS_BACKUPERRORTITLE, buf1, sizeof(buf1) );
+
+                                     break;
+
+                                default:
+                                     if (BSD_GetOsId( bsd_ptr )== FS_EMS_DSA_ID ) {
+                                          RSM_StringCopy( IDS_EMS_NOT_RESPONDING_DS, buf1, sizeof(buf1) );
+                                     } else {
+                                          RSM_StringCopy( IDS_EMS_NOT_RESPONDING_IS, buf1, sizeof(buf1) );
+                                     }
+
+                                     wsprintf( buf2, buf1, DLE_GetDeviceName(DLE_GetParent(dle_ptr)));
+                                     RSM_StringCopy( IDS_BACKUPERRORTITLE, buf1, sizeof(buf1) );
+
+                                     break;
+                           }
+                           if ( return_status ) {
+                                WM_MsgBox( buf1, buf2, WMMB_OK, WMMB_ICONEXCLAMATION );
+                                return ( TRUE );
+                           }
+
                       }
                       bsd_ptr = BSD_GetNext(bsd_ptr);
                     }
@@ -1081,7 +1275,7 @@ DLGRESULT APIENTRY DM_BackupSet(
                            // make sure the log file can be opened for
                            // writting.
 
-                           if ( fpLog = fopen ( szFullLogFile, TEXT("a") ) )
+                           if ( fpLog = UNI_fopen ( szFullLogFile, _O_TEXT|_O_APPEND ) )
                            {
                               LOG_SetCurrentLogName ( szFullLogFile );
                               fclose ( fpLog );
@@ -1203,12 +1397,16 @@ DLGRESULT APIENTRY DM_BackupSet(
                case IDD_BKUP_HELP_BUTTON:
                case IDHELP:
 
+#ifndef OEM_EMS
                     if ( bTransfer ) {
                         HM_DialogHelp( HELPID_DIALOGTRANSFER );
                     } else {
                         HM_DialogHelp( HELPID_DIALOGBACKUPSET );
                     }
-
+#else
+                    help_id = DM_ModeGetHelpId( pCurMode );
+                    HM_DialogHelp( help_id );
+#endif
                     return( TRUE );
 
 #ifdef OEM_MSOFT //special feature
@@ -1336,6 +1534,7 @@ HWND hDlg )                        /* window handle of the dialog box */
                if ( DLE_HasFeatures( BSD_GetDLE( bsd_ptr ),
                                      DLE_FEAT_BKUP_SPECIAL_FILES ) ) {
 
+                  UI_AddSpecialIncOrExc( bsd_ptr, button_state ) ;
                   BSD_SetProcSpecialFlg( bsd_ptr, button_state );
 
                } else {
@@ -1374,7 +1573,22 @@ HWND hDlg )                        /* window handle of the dialog box */
      /*              BSD_BACKUP_DIFFERENTIAL  3 */
      /*              BSD_BACKUP_INCREMENTAL   4 */
      /* entries in the combo box start at 0 */
-     backup_type = (WORD)SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_GETCURSEL, 0, 0 );
+
+     switch( BSD_GetOsId( bsd_ptr ) ) {
+
+#ifdef OEM_EMS
+         case FS_EMS_DSA_ID:
+         case FS_EMS_MDB_ID:
+              backup_type = (WORD)SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, 
+                                                         CB_GETCURSEL, 0, 0 );
+              break;
+#endif              
+
+         default: 
+         
+              backup_type = (WORD)SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, 
+                                                         CB_GETCURSEL, 0, 0 );
+     }
 
      if( backup_set_temp_ptr->mode_flag == ARCHIVE_BACKUP_OPER ) {
          backup_type += 2;
@@ -1395,8 +1609,14 @@ HWND hDlg )                        /* window handle of the dialog box */
         Returns:        VOID
 
 *****************************************************/
+#ifndef OEM_EMS
 VOID BackupSetRetrieve(
-HWND hDlg )                            /* window handle of the dialog box */
+     HWND hDlg )                            /* window handle of the dialog box */
+#else
+VOID BackupSetRetrieve(
+     HWND hDlg,
+     DLG_MODE * pModeTable )
+#endif      
 {
      WORD              status;
      WORD              backup_type;
@@ -1407,6 +1627,9 @@ HWND hDlg )                            /* window handle of the dialog box */
      CDS_PTR           cds_ptr;
      BE_CFG_PTR        be_cfg_ptr;
      GENERIC_DLE_PTR   dle_ptr;
+     GENERIC_DLE_PTR   parent_dle;
+     CHAR              szFormat[ MAX_UI_RESOURCE_SIZE ];
+     CHAR              szName[ MAX_DEVICE_NAME_SIZE ];
 
      bsd_ptr    = GetBSDPointer( backup_set_temp_ptr->BSD_index );
      cds_ptr    = CDS_GetCopy();
@@ -1419,7 +1642,25 @@ HWND hDlg )                            /* window handle of the dialog box */
      DLE_GetVolName( dle_ptr, buffer );
      SetDlgItemText( hDlg, IDD_BKUP_DRIVE_NAME, buffer );
 
+     // Create the string for the Exchange Component field.
+     DLE_DeviceDispName( dle_ptr, buffer, MAX_DEVICE_NAME_LEN, 0 );
+     
+     parent_dle = DLE_GetParent( dle_ptr );
 
+     if ( NULL != parent_dle ) {
+     
+        DLE_DeviceDispName( parent_dle, buffer2, MAX_DEVICE_NAME_LEN, 0 );
+
+     } else {
+
+        buffer2[0] = TEXT( '\0' );
+
+     }
+
+     RSM_StringCopy( IDS_XCHG_BKUP_NAME, szFormat, MAX_UI_RESOURCE_LEN );
+     wsprintf( szName, szFormat, buffer, buffer2 );
+
+     SetDlgItemText( hDlg, IDD_BKUP_XCHG_NAME, szName );
 
 #    if defined ( OS_WIN32 )
      {
@@ -1521,6 +1762,18 @@ HWND hDlg )                            /* window handle of the dialog box */
      }
      SendDlgItemMessage( hDlg, IDD_BKUP_METHOD, CB_SETCURSEL,
                          backup_type , 0 );
+
+#ifdef OEM_EMS
+     SendDlgItemMessage( hDlg, IDD_XCHG_BKUP_METHOD, CB_SETCURSEL,
+                         backup_type , 0 );
+
+#endif                   
+
+#ifdef OEM_EMS
+     BSD_SetOsId( bsd_ptr, DLE_GetOsId( dle_ptr ) );
+     DM_DispShowControls( hDlg, pModeTable, (INT)DLE_GetOsId( dle_ptr ) );
+#endif
+
 }
 /***************************************************
 
@@ -1561,12 +1814,13 @@ INT BackupSetDefaultDescription( VOID )
 
              /* set default tape name */
 
-             RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, buffer, MAX_TAPE_NAME_LEN );
-             s = buffer;
-             while ( *s )
-                   s++;
-             UI_CurrentDate( s );
-
+             {
+                  CHAR tmp_buf1[ MAX_TAPE_NAME_LEN ];
+                  CHAR tmp_buf2[ MAX_TAPE_NAME_LEN ];
+                  RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, tmp_buf1, MAX_TAPE_NAME_LEN );
+                  UI_CurrentDate( tmp_buf2 );
+                  wsprintf( buffer, tmp_buf1, tmp_buf2 ) ;
+             }
              //
              // Append the time to the tape label to give it uniqueness
              //
@@ -1764,12 +2018,11 @@ VOID PropagateTapeName( VOID )
 
      /* if tape name field blank or all spaces - replace with the default name */
      if( *generic_str_ptr == 0 && character_counter == 0 ) {
-
-         RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, buffer, MAX_TAPE_NAME_LEN );
-         s = buffer;
-         while ( *s )
-            s++;
-         UI_CurrentDate( s );
+          CHAR tmp_buf1[ MAX_TAPE_NAME_LEN ];
+          CHAR tmp_buf2[ MAX_TAPE_NAME_LEN ];
+          RSM_StringCopy( IDS_DEFAULT_TAPE_NAME, tmp_buf1, MAX_TAPE_NAME_LEN );
+          UI_CurrentDate( tmp_buf2 );
+          wsprintf( buffer, tmp_buf1, tmp_buf2 ) ;
      }
 
      while( bsd_ptr != NULL ) {
@@ -2174,3 +2427,164 @@ static VOID ScrollLineUp( VOID )
     }
 }
 
+#ifdef OEM_EMS
+/***************************************************
+ ** These functions are used to display multiple sets
+ ** of controls in the Backup dialog.
+ 
+/***************************************************
+
+        Name:         DM_InitCtrlTables
+
+        Description:  sets up the control window handles in the tables
+
+        Returns:      A DLG_MODE pointer to the DLG_MODE Table entry that has the 
+                      matching value to mode.  NULL if no entry exists.
+
+*****************************************************/
+DLG_MODE *DM_InitCtrlTables (
+     HWND hDlg,
+     DLG_MODE *ModeTable,
+     UINT16 cModeTblSize,
+     WORD mode )
+{
+
+     DLG_DISPLAY_ENTRY *pDispEntry;
+     DLG_MODE *pMode;
+     UINT16 uModeTable;
+     UINT16 uDispTable;
+     DLG_CTRL_ENTRY *pCtlTable;
+     UINT16 uCtrl;
+     HWND hDlgCtl;
+     DLG_MODE *pCurMode = NULL;
+
+     for ( uModeTable = 0; uModeTable < cModeTblSize; uModeTable++ ) {
+
+          if ( ModeTable[uModeTable].wModeType == mode ) {
+
+               pCurMode = &(ModeTable[uModeTable]);
+          }
+
+          pMode = &(ModeTable[uModeTable]);
+          pDispEntry = pMode->DispTable;
+          
+          for (uDispTable = 0; uDispTable < pMode->ucDispTables; uDispTable++) {
+
+               pCtlTable = pDispEntry[uDispTable].CtlTable;
+
+               if ( NULL != pCtlTable ) {
+
+                    for ( uCtrl = 0; uCtrl < pDispEntry[uDispTable].ucCtrls; uCtrl++, pCtlTable++ ) {
+
+                         hDlgCtl = GetDlgItem( hDlg, pCtlTable->iCtlId );
+
+                         pCtlTable->hCtlWnd = hDlgCtl;
+
+                         if( hDlgCtl ) {
+
+                              ShowWindow( hDlgCtl, SW_HIDE );
+                         }
+                    }
+               }
+          }
+     }
+     
+     return ( pCurMode );
+     
+}
+
+
+/***************************************************
+
+        Name:         DM_BSDShowControls
+
+        Description:  Displays the correct controls based on the Os ID of the BSD
+
+        Returns:      void
+
+*****************************************************/
+VOID DM_DispShowControls ( 
+     HWND hDlg, 
+     DLG_MODE * pCurMode,
+     INT iType
+)
+{
+     UINT16 uDispTable;
+     DLG_CTRL_ENTRY *pCtlTable;
+     UINT16 uCtrl;
+     DLG_DISPLAY_ENTRY *pDispTable;
+
+     // Get the right display table for the mode.
+     pDispTable = pCurMode->DispTable;
+
+     // Find the control table for the new BSD.
+
+     for ( uDispTable = 0; uDispTable < pCurMode->ucDispTables; uDispTable++ ) {
+
+          if ( pDispTable[uDispTable].iDispType == iType )
+
+               break;
+     }
+
+     uDispTable = ( uDispTable < pCurMode->ucDispTables ) ? uDispTable : (pCurMode->ucDispTables - 1) ;
+
+     pCurMode->pCurDisp = &(pDispTable[uDispTable]);
+
+     pCtlTable = pDispTable[uDispTable].CtlTable;
+
+     if ( NULL != pCtlTable ) {
+
+          for ( uCtrl = 0; uCtrl < pDispTable[uDispTable].ucCtrls; uCtrl++, pCtlTable++ ) {
+
+               if ( pCtlTable->hCtlWnd ) {
+
+                    switch ( pCtlTable->iCtlDispStyle ) {
+
+                         case CM_HIDE:
+                              ShowWindow( pCtlTable->hCtlWnd, SW_HIDE );
+                              break;
+
+                         case CM_ENABLE:
+                              ShowWindow( pCtlTable->hCtlWnd, SW_SHOW );
+                              EnableWindow( pCtlTable->hCtlWnd, TRUE );
+                              break;
+
+                         case CM_DISABLE:
+                              ShowWindow( pCtlTable->hCtlWnd, SW_SHOW );
+                              EnableWindow( pCtlTable->hCtlWnd, FALSE );
+                              break;
+
+                         default:
+                              ;
+                    }
+               }
+          }
+     }
+}
+
+
+/***************************************************
+
+        Name:         DM_ModeGetHelpId
+
+        Description:  Returns the correct Help ID for the current mode and BSD
+
+        Returns:      DWORD ( Help ID )
+
+*****************************************************/
+DWORD DM_ModeGetHelpId( 
+     DLG_MODE * pCurMode
+)
+{
+     
+     if ( NULL != pCurMode->pCurDisp ) {
+
+          return pCurMode->pCurDisp->help_id;
+          
+     } else {
+
+          return 0;
+     }
+}
+
+#endif OEM_EMS

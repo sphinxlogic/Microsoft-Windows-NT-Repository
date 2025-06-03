@@ -67,4 +67,3 @@ int wcstomb(LPSTR str, LPWSTR wstr) {
     return 0; //?
 }
 #endif
-

@@ -874,7 +874,7 @@ Return Value:
 
     for ( i=0; i<LsapWellKnownPrivilegeCount; i++) {
 
-        if (RtlLargeIntegerEqualTo( *Value, LsapKnownPrivilege[i].LocalValue)) {
+        if (RtlEqualLuid(Value, &LsapKnownPrivilege[i].LocalValue)) {
 
             ReturnName = MIDL_user_allocate( sizeof(UNICODE_STRING) );
             if (ReturnName == NULL) {
@@ -1349,7 +1349,7 @@ Return Value:
         }
     }
 
-    
+
     if (DisplayResource == NULL) {
 
         //
@@ -1595,144 +1595,144 @@ Return Value:
     //
 
     i=0;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_CREATE_TOKEN_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_CREATE_TOKEN_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_CREATE_TOKEN_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_ASSIGNPRIMARYTOKEN_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name);
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_LOCK_MEMORY_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_LOCK_MEMORY_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_LOCK_MEMORY_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_INCREASE_QUOTA_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_INCREASE_QUOTA_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_INCREASE_QUOTA_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_MACHINE_ACCOUNT_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_MACHINE_ACCOUNT_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_MACHINE_ACCOUNT_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_TCB_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_TCB_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_TCB_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_SECURITY_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_SECURITY_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_SECURITY_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_TAKE_OWNERSHIP_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_TAKE_OWNERSHIP_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_TAKE_OWNERSHIP_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_LOAD_DRIVER_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_LOAD_DRIVER_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_LOAD_DRIVER_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_SYSTEM_PROFILE_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_SYSTEM_PROFILE_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_SYSTEM_PROFILE_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_SYSTEMTIME_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_SYSTEMTIME_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_SYSTEMTIME_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_PROF_SINGLE_PROCESS_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_INC_BASE_PRIORITY_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_INC_BASE_PRIORITY_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_INC_BASE_PRIORITY_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_CREATE_PAGEFILE_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_CREATE_PAGEFILE_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_CREATE_PAGEFILE_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_CREATE_PERMANENT_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_CREATE_PERMANENT_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_CREATE_PERMANENT_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_BACKUP_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_BACKUP_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_BACKUP_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_RESTORE_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_RESTORE_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_RESTORE_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_SHUTDOWN_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_SHUTDOWN_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_SHUTDOWN_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_DEBUG_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_DEBUG_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_DEBUG_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_AUDIT_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_AUDIT_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_AUDIT_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_SYSTEM_ENVIRONMENT_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_CHANGE_NOTIFY_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_CHANGE_NOTIFY_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_CHANGE_NOTIFY_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
 
     i++;
-    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLargeInteger(SE_REMOTE_SHUTDOWN_PRIVILEGE);
+    LsapKnownPrivilege[i].LocalValue = RtlConvertLongToLuid(SE_REMOTE_SHUTDOWN_PRIVILEGE);
     NtStatus = LsapDbInitWellKnownPrivilegeName( SE_REMOTE_SHUTDOWN_PRIVILEGE,
                                                 &LsapKnownPrivilege[i].Name );
                                                 ASSERT(NT_SUCCESS(NtStatus));
@@ -2326,7 +2326,7 @@ Return Values:
 
         for ( i=0; i<LsapWellKnownPrivilegeCount; i++) {
 
-            if (RtlLargeIntegerEqualTo( (*Privilege), LsapKnownPrivilege[i].LocalValue)) {
+            if (RtlEqualLuid(Privilege, &LsapKnownPrivilege[i].LocalValue)) {
 
                 (*PrivName) = &LsapKnownPrivilege[i].Name;
 
@@ -2533,7 +2533,7 @@ Return Value:
     for ( i=0; i<LsapPrivilegeDlls[ DllIndex ].Count; i++) {
 
         ASSERT( i == (*NextWord) );  // Expect this to be the index;
-        
+
 
         //
         // Skip index

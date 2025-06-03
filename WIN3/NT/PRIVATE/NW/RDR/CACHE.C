@@ -52,6 +52,7 @@ OkToReadAhead(
 #pragma alloc_text( PAGE, OkToReadAhead )
 #pragma alloc_text( PAGE, CalculateReadAheadSize )
 #pragma alloc_text( PAGE, FlushCache )
+#pragma alloc_text( PAGE, AcquireFcbAndFlushCache )
 #endif
 
 
@@ -61,9 +62,7 @@ CacheRead(
     IN ULONG FileOffset,
     IN ULONG BytesToRead,
     IN PVOID UserBuffer
-#if NWFASTIO
     , IN BOOLEAN WholeBufferOnly
-#endif
     )
 /*++
 
@@ -95,6 +94,8 @@ Return Value:
 
     PAGED_CODE();
 
+    if (DisableReadCache) return 0 ;
+
     DebugTrace(0, Dbg, "CacheRead...\n", 0 );
     DebugTrace( 0, Dbg, "FileOffset = %d\n", FileOffset );
     DebugTrace( 0, Dbg, "ByteCount  = %d\n", BytesToRead );
@@ -111,23 +112,36 @@ Return Value:
          FileOffset >= NpFcb->CacheFileOffset &&
          FileOffset <= NpFcb->CacheFileOffset + NpFcb->CacheDataSize ) {
 
-        BytesToCopy =
-            MIN ( BytesToRead,
-                  NpFcb->CacheFileOffset + NpFcb->CacheDataSize - FileOffset );
+        if ( NpFcb->CacheBuffer ) {
 
-#if NWFASTIO
-        if ( WholeBufferOnly && BytesToCopy != BytesToRead ) {
-            NwReleaseFcb( NpFcb );
-            return( 0 );
+            //
+            // Make sure we have a CacheBuffer.
+            //
+
+            BytesToCopy =
+                MIN ( BytesToRead,
+                      NpFcb->CacheFileOffset +
+                          NpFcb->CacheDataSize - FileOffset );
+
+            if ( WholeBufferOnly && BytesToCopy != BytesToRead ) {
+                NwReleaseFcb( NpFcb );
+                return( 0 );
+            }
+
+            RtlCopyMemory(
+                UserBuffer,
+                NpFcb->CacheBuffer + ( FileOffset - NpFcb->CacheFileOffset ),
+                BytesToCopy );
+
+            DebugTrace(0, Dbg, "CacheRead -> %d\n", BytesToCopy );
+
+        } else {
+
+            ASSERT(FALSE);      // we should never get here
+            DebugTrace(0, Dbg, "CacheRead -> %08lx\n", 0 );
+            BytesToCopy = 0;
         }
-#endif
 
-        RtlCopyMemory(
-            UserBuffer,
-            NpFcb->CacheBuffer + ( FileOffset - NpFcb->CacheFileOffset ),
-            BytesToCopy );
-
-        DebugTrace(0, Dbg, "CacheRead -> %d\n", BytesToCopy );
 
     } else {
 
@@ -227,6 +241,8 @@ Return Value:
 
     PAGED_CODE();
 
+    if (DisableWriteCache) return FALSE ;
+
     DebugTrace( +1, Dbg, "CacheWrite...\n", 0 );
     DebugTrace(  0, Dbg, "FileOffset = %d\n", FileOffset );
     DebugTrace(  0, Dbg, "ByteCount  = %d\n", BytesToWrite );
@@ -254,21 +270,24 @@ TryAgain:
 
     if ( NpFcb->CacheBuffer == NULL ) {
 
-#if NWFASTIO
         if ( IrpContext == NULL ) {
             DebugTrace(  0, Dbg, "No cache buffer\n", 0 );
             DebugTrace( -1, Dbg, "CacheWrite -> FALSE\n", 0 );
             NwReleaseFcb( NpFcb );
             return( FALSE );
         }
-#endif
 
         NpFcb->CacheType = WriteBehind;
 
-        if ( IrpContext->pNpScb->BurstModeEnabled ) {
+        if (( IrpContext->pNpScb->SendBurstModeEnabled ) ||
+            ( IrpContext->pNpScb->ReceiveBurstModeEnabled )) {
+
            CacheSize = IrpContext->pNpScb->MaxReceiveSize;
+
         } else {
+
            CacheSize = IrpContext->pNpScb->BufferSize;
+
         }
 
         try {
@@ -277,6 +296,7 @@ TryAgain:
             NpFcb->CacheSize = CacheSize;
 
             NpFcb->CacheMdl = ALLOCATE_MDL( NpFcb->CacheBuffer, CacheSize, FALSE, FALSE, NULL );
+
             if ( NpFcb->CacheMdl == NULL ) {
                 ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
             }
@@ -287,10 +307,16 @@ TryAgain:
 
             if ( NpFcb->CacheBuffer != NULL) {
                 FREE_POOL( NpFcb->CacheBuffer );
+
+                NpFcb->CacheBuffer = NULL;
+                NpFcb->CacheSize = 0;
+
             }
 
             DebugTrace(  0, Dbg, "Allocate failed\n", 0 );
             DebugTrace( -1, Dbg, "CacheWrite -> FALSE\n", 0 );
+
+            NpFcb->CacheDataSize = 0;
             NwReleaseFcb( NpFcb );
             return( FALSE );
         }
@@ -316,28 +342,26 @@ TryAgain:
            FileOffset > NpFcb->CacheFileOffset + NpFcb->CacheDataSize ) ) {
 
         //
-        //  Release the FCB before calling FlushCache.
+        // Release and then AcquireFcbAndFlush() will get us to the front
+        // of the queue before re-acquiring. This avoids potential deadlocks.
         //
 
         NwReleaseFcb( NpFcb );
 
-
-#if NWFASTIO
         if ( IrpContext != NULL ) {
-#endif
             DebugTrace(  0, Dbg, "Data is not sequential, flushing data\n", 0 );
 
-            status = FlushCache( IrpContext, NpFcb );
+            status = AcquireFcbAndFlushCache( IrpContext, NpFcb );
 
             if ( !NT_SUCCESS( status ) ) {
                 ExRaiseStatus( status );
             }
-#if NWFASTIO
-        }
-#endif
 
-        DebugTrace( -1, Dbg, "CacheWrite -> FALSE\n", 0 );
-        return( FALSE );
+        }
+
+    DebugTrace( -1, Dbg, "CacheWrite -> FALSE\n", 0 );
+    return( FALSE );
+
     }
 
     //
@@ -345,6 +369,21 @@ TryAgain:
     //
 
     if ( SpaceForWriteBehind( NpFcb, FileOffset, BytesToWrite ) ) {
+
+        try {
+
+            RtlCopyMemory(
+                NpFcb->CacheBuffer + ( FileOffset - NpFcb->CacheFileOffset ),
+                UserBuffer,
+                BytesToWrite );
+
+        } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+            DebugTrace( 0, Dbg, "Bad user mode buffer in CacheWrite.\n", 0 );
+            DebugTrace(-1, Dbg, "CacheWrite -> FALSE\n", 0 );
+            NwReleaseFcb( NpFcb );
+            return ( FALSE );
+        }
 
         if ( NpFcb->CacheDataSize <
              (FileOffset - NpFcb->CacheFileOffset + BytesToWrite) ) {
@@ -354,20 +393,11 @@ TryAgain:
 
         }
 
-        RtlCopyMemory(
-            NpFcb->CacheBuffer + ( FileOffset - NpFcb->CacheFileOffset ),
-            UserBuffer,
-            BytesToWrite );
-
         DebugTrace(-1, Dbg, "CacheWrite -> TRUE\n", 0 );
         NwReleaseFcb( NpFcb );
         return( TRUE );
 
-#if NWFASTIO
     } else if ( IrpContext != NULL ) {
-#else
-    } else {
-#endif
 
         //
         //  The data didn't fit in the cache. If the cache is empty
@@ -390,12 +420,12 @@ TryAgain:
         DebugTrace(  0, Dbg, "Cache is full, flushing data\n", 0 );
 
         //
-        //  Release the FCB before calling FlushCache.
+        //  We must be at the front of the Queue before writing.
         //
 
         NwReleaseFcb( NpFcb );
 
-        status = FlushCache( IrpContext, NpFcb );
+        status = AcquireFcbAndFlushCache( IrpContext, NpFcb );
 
         if ( !NT_SUCCESS( status ) ) {
             ExRaiseStatus( status );
@@ -409,12 +439,10 @@ TryAgain:
 
         goto TryAgain;
 
-#if NWFASTIO
     } else {
         DebugTrace(-1, Dbg, "CacheWrite full -> FALSE\n", 0 );
         NwReleaseFcb( NpFcb );
         return( FALSE );
-#endif
     }
 }
 
@@ -478,6 +506,8 @@ Routine Description:
     This routine determines the amount of data that can be read ahead,
     and sets up for the read.
 
+    Note: Fcb must be acquired exclusive before calling.
+
 Arguments:
 
     NpFcb - A pointer the the nonpaged FCB of the file being read.
@@ -497,13 +527,16 @@ Return Value:
 
     DebugTrace(+1, Dbg, "CalculateReadAheadSize\n", 0 );
 
-    if ( IrpContext->pNpScb->BurstModeEnabled ) {
-        CacheSize = IrpContext->pNpScb->MaxReceiveSize;
-    } else {
-        CacheSize = IrpContext->pNpScb->BufferSize;
-    }
+    if (( IrpContext->pNpScb->SendBurstModeEnabled ) ||
+        ( IrpContext->pNpScb->ReceiveBurstModeEnabled )) {
 
-    NwAcquireExclusiveFcb( NpFcb, TRUE );
+        CacheSize = IrpContext->pNpScb->MaxReceiveSize;
+
+    } else {
+
+        CacheSize = IrpContext->pNpScb->BufferSize;
+
+    }
 
     if ( OkToReadAhead( NpFcb->Fcb, FileOffset - CacheReadSize, ReadAhead ) &&
          ByteCount < CacheSize ) {
@@ -518,7 +551,6 @@ Return Value:
 
         DebugTrace( 0, Dbg, "No read ahead\n", 0 );
         DebugTrace(-1, Dbg, "CalculateReadAheadSize -> %d\n", ByteCount );
-        NwReleaseFcb( NpFcb );
         return ( ByteCount );
 
     }
@@ -545,20 +577,23 @@ Return Value:
 
             if ( NpFcb->CacheBuffer != NULL) {
                 FREE_POOL( NpFcb->CacheBuffer );
+
+                NpFcb->CacheBuffer = NULL;
             }
+
+            NpFcb->CacheSize = 0;
+            NpFcb->CacheDataSize = 0;
 
             DebugTrace( 0, Dbg, "Failed to allocated buffer\n", 0 );
             DebugTrace(-1, Dbg, "CalculateReadAheadSize -> %d\n", ByteCount );
-            NwReleaseFcb( NpFcb );
             return( ByteCount );
         }
 
     } else {
-        ASSERT( NpFcb->CacheSize == ReadSize );
+        ReadSize = MIN ( NpFcb->CacheSize, ReadSize );
     }
 
     DebugTrace(-1, Dbg, "CalculateReadAheadSize -> %d\n", ReadSize );
-    NwReleaseFcb( NpFcb );
     return( ReadSize );
 }
 
@@ -571,7 +606,62 @@ FlushCache(
 
 Routine Description:
 
-    This routine flushes the cache buffer for the NpFcb.
+    This routine flushes the cache buffer for the NpFcb.  The caller must
+    have acquired the FCB exclusive prior to making this call!
+
+Arguments:
+
+    IrpContext - A pointer to request parameters.
+
+    NpFcb - A pointer the the nonpaged FCB of the file to flush.
+
+Return Value:
+
+    The amount of data to read.
+
+--*/
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+
+    if ( NpFcb->CacheDataSize != 0 && NpFcb->CacheType == WriteBehind ) {
+
+        LARGE_INTEGER ByteOffset;
+
+        ByteOffset.QuadPart = NpFcb->CacheFileOffset;
+
+        status = DoWrite(
+                    IrpContext,
+                    ByteOffset,
+                    NpFcb->CacheDataSize,
+                    NpFcb->CacheBuffer,
+                    NpFcb->CacheMdl );
+
+        //
+        // DoWrite leaves us at the head of the queue.  The caller
+        // is responsible for dequeueing the irp context appropriately.
+        //
+
+        if ( NT_SUCCESS( status ) ) {
+            NpFcb->CacheDataSize = 0;
+        }
+    }
+
+    return( status );
+}
+
+NTSTATUS
+AcquireFcbAndFlushCache(
+    PIRP_CONTEXT IrpContext,
+    PNONPAGED_FCB NpFcb
+    )
+/*++
+
+Routine Description:
+
+    This routine acquires the FCB exclusive and flushes the cache
+    buffer for the acquired NpFcb.
 
 Arguments:
 
@@ -593,18 +683,7 @@ Return Value:
 
     NwAcquireExclusiveFcb( NpFcb, TRUE );
 
-    if ( NpFcb->CacheDataSize != 0 && NpFcb->CacheType == WriteBehind ) {
-        status = DoWrite(
-                    IrpContext,
-                    LiFromUlong( NpFcb->CacheFileOffset ),
-                    NpFcb->CacheDataSize,
-                    NpFcb->CacheBuffer,
-                    NpFcb->CacheMdl );
-
-        if ( NT_SUCCESS( status ) ) {
-            NpFcb->CacheDataSize = 0;
-        }
-    }
+    status = FlushCache( IrpContext, NpFcb );
 
     //
     //  Release the FCB and remove ourselves from the queue.

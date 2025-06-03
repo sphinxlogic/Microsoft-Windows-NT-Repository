@@ -6,23 +6,12 @@
  *
  */
 
-#if defined(_WIN32)
- #include <windows.h>
- #include <wcstr.h>
- #define UNICODE
- #include <lm.h>
- #undef UNICODE
- void UnicodeToAnsi(LPWSTR Unicode, LPSTR Ansi, INT Size);
-#elif defined(DOS) || defined(OS2)
- #define INCL_DOS
- #define INCL_DOSERRORS
- #include <os2.h>
- #include <netcons.h>
- #include <wksta.h>
-#endif
-#if defined(DOS)
- #include <dos.h>
-#endif
+#include <windows.h>
+#include <stdlib.h>
+#define UNICODE
+#include <lm.h>
+#undef UNICODE
+void UnicodeToAnsi(LPWSTR Unicode, LPSTR Ansi, INT Size);
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,59 +68,6 @@ char   *get_station_name(void);
 
 /**************************************************************************
 *
-*                        getmach ()
-*
-*   find and return the workstation "name"
-*
-*          parameters-
-*
-*                   sz - variable for machine name
-*
-*          return-
-*
-*                   character name of workstation or NULL if error
-*
-*
-*
-***************************************************************************/
-
-#if defined(DOS)
-int getmach(char *sz)
-{
-    char far *p,far *fsz=sz;
-    int iCount;
-    struct SREGS segregs;
-    union REGS inregs,outregs;
-
-    inregs.x.ax=0x5e00;             /* get machine name */
-    segregs.ds=FP_SEG(fsz);
-    inregs.x.dx=FP_OFF(fsz);
-    int86x(0x21,&inregs,&outregs,&segregs);
-    if (outregs.x.cflag)               /* return error code if failure */
-        return (outregs.x.ax);
-    p=MAKEP(segregs.ds,outregs.x.dx);
-
-    iCount=0;
-    while (*p&&iCount<16)                /* search for space in net name */
-        {                                /* search at most 16 chars      */
-        if (*p==' ')
-            {
-            *p=0;
-            break;
-            }
-        else
-            {
-            iCount++;
-            p++;
-            }
-        }
-    return (0);
-}
-#endif
-
-
-/**************************************************************************
-*
 *                        get_station_name ()
 *
 *   find and return the workstation "name"
@@ -150,52 +86,27 @@ int getmach(char *sz)
 char *get_station_name(void)
 {
     char    *pszLogName = (char *)NULL;
-#if defined(OS2)
-    unsigned short      avail;
-    char                wkb[LINE_LEN];
-    struct wksta_info_0 *wp;
-#elif defined(_WIN32)
-    WKSTA_INFO_100      *wp;
-#endif
+    char    szComputerName[MAX_COMPUTERNAME_LENGTH + 1];
+    DWORD   cbName = MAX_COMPUTERNAME_LENGTH + 1;
 
     /*
      * Get the workstation name.
      * First see if LOGNAME is defined.  If so, that's the one SLM will use.
      * If not, get his workstation name.
      */
-    if ((pszLogName = getenv("LOGNAME")) != NULL)
-        {
-        pszLogName = strdup(pszLogName);
-        strlwr(pszLogName);
+    if ((pszLogName = getenv("LOGNAME")) != NULL) {
+        pszLogName = _strdup(pszLogName);
+        _strlwr(pszLogName);
         return (pszLogName);
-        }
+    }
 
-#if defined(OS2)
-    if (NetWkstaGetInfo((char far *)NULL, 0, (char far *)wkb,
-                        sizeof(wkb), &avail))
+    if (!GetComputerName(szComputerName, &cbName))
         return ((char *)NULL);
 
-    pszLogName = malloc(CNLEN+1);
-    if (pszLogName == (char *)NULL)
-        return ((char *)NULL);
-    wp = (struct wksta_info_0 *)wkb;
-    _fstrcpy((char far *)pszLogName, (char far *)wp->wki0_computername);
-#elif defined(DOS)
-    pszLogName = malloc(CNLEN+1);
-    if (pszLogName == (char *) NULL)
-        return ((char *)NULL);
-    if (getmach(pszLogName))
-        return ((char *)NULL);
-#elif defined(_WIN32)
-    if (NetWkstaGetInfo(NULL, 100, (PCHAR *)&wp))
-        return ((char *)NULL);
+    pszLogName = _strdup(szComputerName);
 
-    pszLogName = malloc(wcslen((WCHAR *) wp->wki100_computername)+1);
-    UnicodeToAnsi((WCHAR *)wp->wki100_computername, pszLogName, wcslen((WCHAR *)wp->wki100_computername)+1);
-#endif
-
-    strlwr(pszLogName);
-    return (pszLogName);
+    _strlwr(pszLogName);
+    return pszLogName;
 }
 
 
@@ -237,7 +148,7 @@ int add_cookie_lock(char *Lockname, char *Lockbuf, int Locktype, int autotype)
     if ((hfCookieFile=open_cookie()) < 0)
         return (OP_SYSERR);
 
-    while ((bufbytes=read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
+    while ((bufbytes=_read(hfCookieFile, LFreadbuf, (LINE_LEN/2)-1)) > 0)
         {
         char *cp;
         char c;
@@ -320,7 +231,7 @@ int add_cookie_lock(char *Lockname, char *Lockbuf, int Locktype, int autotype)
  * All that means truncate the file before making the additional lock
  */
         if ((Locktype == WRITE_LOCK) && (TotLocks > 0)) {
-            Dres = chsize(hfCookieFile, 0);
+            Dres = _chsize(hfCookieFile, 0);
             if (Dres != 0) {
                 if (verbose)
                 {
@@ -333,7 +244,7 @@ int add_cookie_lock(char *Lockname, char *Lockbuf, int Locktype, int autotype)
         }
 
 
-        newFptr = lseek(hfCookieFile,0L,(USHORT) 2);
+        newFptr = _lseek(hfCookieFile,0L,(USHORT) 2);
         if (newFptr == -1) {
             if (verbose)
             {
@@ -344,7 +255,7 @@ int add_cookie_lock(char *Lockname, char *Lockbuf, int Locktype, int autotype)
             close_cookie(hfCookieFile);
             return (OP_SYSERR);
         } else {
-            bufbytes = write(hfCookieFile, Lockbuf, strlen(Lockbuf));
+            bufbytes = _write(hfCookieFile, Lockbuf, strlen(Lockbuf));
             if (bufbytes != (int)strlen(Lockbuf)) {
                 if (verbose)
                 {
@@ -448,19 +359,13 @@ int open_cookie(void)
     int hfCookieFile;
     int i = 0;
 
-    while (((hfCookieFile = open(pszCookieFile,O_CREAT|O_RDWR|O_BINARY,
+    while (((hfCookieFile = _open(pszCookieFile,O_CREAT|O_RDWR|O_BINARY,
                                  S_IREAD|S_IWRITE)) == -1)
                         && i < OPEN_MAXTRIES) {
                 if (verbose) {
                     fprintf(stderr, "cookie: waiting for access..\n");
                 }
-#if defined(OS2)
-                DosSleep(3000L);
-#elif defined(DOS)
-                Pause(60);
-#elif defined(_WIN32)
                 Sleep(3000L);
-#endif
                 i++;
     }
     if (hfCookieFile== -1 && verbose)
@@ -492,7 +397,7 @@ int open_cookie(void)
 
 void close_cookie(int hfCookieFile)
 {
-    close(hfCookieFile);
+    _close(hfCookieFile);
     hfCook_glbl = -1;
 }
 
@@ -557,19 +462,12 @@ int set_cookie_config(void)
         {
         int     Dnum;
         int     Dres = 0;
-#if defined(OS2)
-        ULONG Dmap;
-        Dres = DosQCurDisk(&Dnum, &Dmap);
-#elif defined(DOS)
-        _dos_getdrive(&Dnum);
-#elif defined(_WIN32)
         char    szDir[MAX_PATH];
 
         if (GetCurrentDirectory(sizeof szDir, szDir) > sizeof szDir)
             Dres = -1;
         else
             Dnum = toupper(szDir[0]) - 'A' + 1;
-#endif
         if (Dres == 0)
             SLM_Localdrive = Dnum + (int) 'a' - 1;
         else
@@ -590,13 +488,6 @@ int set_cookie_config(void)
  * close the sucker (NULL FILE) and reopen for reading.
  */
 
-#if defined(DOS)
-    if (fFirsttime && !SLM_Localdrive)
-        {
-        fFirsttime = fFalse;
-        return (C_SHAREDENY);
-        }
-#endif
     fh_cnf = fopen(pszCookieCnf, "rt");
     if (fh_cnf == NULL)
         {
@@ -637,8 +528,8 @@ int set_cookie_config(void)
             continue;   /* ignore line if no '=' char */
 
         *value++ = '\0';
-        strlwr(fbuf);
-        strlwr(value);
+        _strlwr(fbuf);
+        _strlwr(value);
 
         if (strcmp(fbuf, "lock_control_level") == 0) {
             if (strcmp(value,"none") == 0) {
@@ -718,7 +609,7 @@ int set_cookie_config(void)
                 char *newval;
                 char **fword = read_ops;
 
-                if ((newval = strdup(value)) == NULL) {
+                if ((newval = _strdup(value)) == NULL) {
                     fclose(fh_cnf);
                     return (C_SYSERR);
                 } else {
@@ -744,7 +635,7 @@ int set_cookie_config(void)
                 char *newval;
                 char **fword = write_ops;
 
-                if ((newval = strdup(value)) == NULL) {
+                if ((newval = _strdup(value)) == NULL) {
                     fclose(fh_cnf);
                     return (C_SYSERR);
                 } else {
@@ -763,7 +654,7 @@ int set_cookie_config(void)
             continue;
         }
         if (strcmp(fbuf, "deny_msg_file") == 0) {
-            pszMsgFile=strdup(value);
+            pszMsgFile=_strdup(value);
             continue;
         }
     }
@@ -851,7 +742,7 @@ int open_slm_ini()
                     return (OP_SYSERR);
                     }
 
-                strlwr(fbuf);
+                _strlwr(fbuf);
                 *value++ = '\0';
 
                 if ((strcmp(fbuf, "slmroot") == 0) && (pszBase == NULL)) {
@@ -930,7 +821,7 @@ int open_slm_ini()
                 }
 
                 if ((strcmp(fbuf, "project") == 0) && (pszProject == NULL)) {
-                        pszProject = strdup(value);
+                        pszProject = _strdup(value);
                         if (pszProject == NULL) {
                                 fprintf(stderr,"%s ",strerror(errno));
                                 fprintf(stderr,"system error, stop.\n");

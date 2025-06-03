@@ -553,12 +553,15 @@ DosCloseEventSem(
         // return an error.
         //
 
-        if (!(Od2Process->Pib.Status & PS_EXITLIST) && (Od2SearchForWaitingThread( Semaphore )) ) {
-            Semaphore->OpenCount++;
-            ReleaseHandleTableLock( SemaphoreTable );
-            rc = ERROR_SEM_BUSY;
-            }
-        else {
+
+        //if { !(Od2Process->Pib.Status & PS_EXITLIST) && (Od2SearchForWaitingThread( Semaphore )) ) {
+        //    Semaphore->OpenCount++;
+        //    ReleaseHandleTableLock( SemaphoreTable );
+        //    rc = ERROR_SEM_BUSY;
+        //    }
+        //
+        //else {
+
             //
             // Okay to really close this event semaphore.  First destroy
             // the handle, which will unlock the handle table.
@@ -581,7 +584,7 @@ DosCloseEventSem(
                                        sizeof( *a )
                                      );
                 }
-            }
+        //    }
         }
     else {
         //
@@ -862,6 +865,7 @@ DosWaitEventSem(
     HANDLE NtEventHandle;
     LARGE_INTEGER CapturedTimeout;
     PLARGE_INTEGER NtTimeout;
+    LARGE_INTEGER StartTimeStamp;
 
     //
     // Validate the passed OS/2 2.0 semaphore handle and extract the
@@ -889,7 +893,10 @@ DosWaitEventSem(
     // Table must exist.  Return an error if it does not.
     //
 
-//retry:
+DosWaitEventSem_retry:
+    if (NtTimeout) {
+        Od2StartTimeout(&StartTimeStamp);
+    }
     SemaphoreTable = Od2GetSemaphoreTable( SharedSem, FALSE );
     if (!SemaphoreTable) {
         return( ERROR_INVALID_HANDLE );
@@ -971,14 +978,18 @@ DosWaitEventSem(
             }
         else
         if (Status == STATUS_USER_APC) {
-            // goto retry;
-            // We don't use user APC. Just in the case ...
 #if DBG
-            DbgPrint("[%d,%d] DosWaitEventSem BUGBUG User APC\n",
-                Od2Process->Pib.ProcessId,
-                Od2CurrentThreadId());
+            DbgPrint("[%d,%d] WARNING !!! DosWaitEventSem was broken by APC\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId()
+                    );
 #endif
-            rc = ERROR_INTERRUPT;
+            if (Od2ContinueTimeout(&StartTimeStamp, NtTimeout) == STATUS_SUCCESS) {
+                goto DosWaitEventSem_retry;
+            }
+            else {
+                rc = ERROR_TIMEOUT;
+            }
         }
         else
         if (Status == STATUS_ALERTED) {

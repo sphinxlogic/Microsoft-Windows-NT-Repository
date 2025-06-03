@@ -8,8 +8,9 @@ Module Name:
 
 Abstract:
 
-    This module contains the code to implement the NtQueryDirectoryFile and the
-    NtNotifyChangeDirectoryFile system services for the NT I/O system.
+    This module contains the code to implement the NtQueryDirectoryFile,
+    NtQueryOleDirectoryFile and the NtNotifyChangeDirectoryFile system
+    services for the NT I/O system.
 
 Author:
 
@@ -26,13 +27,29 @@ Revision History:
 
 #include "iop.h"
 
-#ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, NtQueryDirectoryFile)
-#pragma alloc_text(PAGE, NtNotifyChangeDirectoryFile)
-#endif
-
 NTSTATUS
-NtQueryDirectoryFile(
+BuildQueryDirectoryIrp(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID FileInformation,
+    IN ULONG Length,
+    IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PUNICODE_STRING FileName OPTIONAL,
+    IN BOOLEAN RestartScan,
+    IN UCHAR MinorFunction,
+    OUT BOOLEAN *SynchronousIo,
+    OUT PDEVICE_OBJECT *DeviceObject,
+    OUT PIRP *Pirp,
+    OUT PFILE_OBJECT *FileObject,
+    OUT KPROCESSOR_MODE *RequestorMode
+    );
+
+NTSTATUS
+NtQueryOleDirectoryFile(
     IN HANDLE FileHandle,
     IN HANDLE Event OPTIONAL,
     IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
@@ -44,47 +61,70 @@ NtQueryDirectoryFile(
     IN BOOLEAN ReturnSingleEntry,
     IN PUNICODE_STRING FileName OPTIONAL,
     IN BOOLEAN RestartScan
+    );
+
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, BuildQueryDirectoryIrp)
+#pragma alloc_text(PAGE, NtQueryDirectoryFile)
+#pragma alloc_text(PAGE, NtQueryOleDirectoryFile)
+#pragma alloc_text(PAGE, NtNotifyChangeDirectoryFile)
+#endif
+
+NTSTATUS
+BuildQueryDirectoryIrp(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID FileInformation,
+    IN ULONG Length,
+    IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PUNICODE_STRING FileName OPTIONAL,
+    IN BOOLEAN RestartScan,
+    IN UCHAR MinorFunction,
+    OUT BOOLEAN *SynchronousIo,
+    OUT PDEVICE_OBJECT *DeviceObject,
+    OUT PIRP *Pirp,
+    OUT PFILE_OBJECT *FileObject,
+    OUT KPROCESSOR_MODE *RequestorMode
     )
 
 /*++
 
 Routine Description:
 
-    This service operates on a directory file specified by the FileHandle
-    parameter.  The service returns information about files in the directory
-    specified by the file handle.  The ReturnSingleEntry parameter specifies
-    that only a single entry should be returned rather than filling the buffer.
-    The actual number of files whose information is returned, is the smallest
-    of the following:
+    This service operates on a directory file or OLE container specified by the
+    FileHandle parameter.  The service returns information about files in the
+    directory or embeddings and streams in the container specified by the file
+    handle.  The ReturnSingleEntry parameter specifies that only a single entry
+    should be returned rather than filling the buffer.  The actual number of
+    files whose information is returned, is the smallest of the following:
 
         o  One entry, if the ReturnSingleEntry parameter is TRUE.
 
-        o  The number of files whose information fitst into the specified
+        o  The number of entries whose information fits into the specified
            buffer.
 
-        o  The number of files that exist.
+        o  The number of entries that exist.
 
         o  One entry if the optional FileName parameter is specified.
 
     If the optional FileName parameter is specified, then the only information
-    that is returned is for that single file, if it exists.  Note that the
+    that is returned is for that single entries, if it exists.  Note that the
     file name may not specify any wildcard characters according to the naming
     conventions of the target file system.  The ReturnSingleEntry parameter is
     simply ignored.
 
-    The information that is obtained about the files in the directory is based
-    on the FileInformationClass parameter.  The legal values are as follows:
-
-        o  FileNamesInformation
-
-        o  FileDirectoryInformation
-
-        o  FileFullDirectoryInformation
+    The information that is obtained about the entries in the directory or OLE
+    container is based on the FileInformationClass parameter.  Legal values are
+    hard coded based on the MinorFunction.
 
 Arguments:
 
-    FileHandle - Supplies a handle to the directory file for which information
-        should be returned.
+    FileHandle - Supplies a handle to the directory file or OLE container for
+        which information should be returned.
 
     Event - Supplies an optional event to be set to the Signaled state when
         the query is complete.
@@ -103,22 +143,34 @@ Arguments:
     Length - Supplies the length, in bytes, of the FileInformation buffer.
 
     FileInformationClass - Specfies the type of information that is to be
-        returned about the files in the specified directory.
+        returned about the files in the specified directory or OLE container.
 
     ReturnSingleEntry - Supplies a BOOLEAN value that, if TRUE, indicates that
         only a single entry should be returned.
 
-    FileName - Optionally supplies a file name within the specified directory.
+    FileName - Optionally supplies a file name within the specified directory
+        or OLE container.
 
     RestartScan - Supplies a BOOLEAN value that, if TRUE, indicates that the
         scan should be restarted from the beginning.  This parameter must be
         set to TRUE by the caller the first time the service is invoked.
 
+    MinorFunction - IRP_MN_QUERY_DIRECTORY or IRP_MN_QUERY_OLE_DIRECTORY
+
+    SynchronousIo - pointer to returned BOOLEAN; TRUE if synchronous I/O
+
+    DeviceObject - pointer to returned pointer to device object
+
+    Pirp - pointer to returned pointer to device object
+
+    FileObject - pointer to returned pointer to file object
+
+    RequestorMode - pointer to returned requestor mode
+
 Return Value:
 
-    The status returned is success if the query operation was properly queued
-    to the I/O system.  Once the operation completes, the status of the query
-    can be determined by examining the Status field of the I/O status block.
+    The status returned is STATUS_SUCCESS if a valid irp was created for the
+    query operation.
 
 --*/
 
@@ -132,7 +184,6 @@ Return Value:
     PCHAR auxiliaryBuffer = (PCHAR) NULL;
     PIO_STACK_LOCATION irpSp;
     PMDL mdl;
-    BOOLEAN synchronousIo;
 
     PAGED_CODE();
 
@@ -141,10 +192,13 @@ Return Value:
     //
 
     requestorMode = KeGetPreviousMode();
+    *RequestorMode = requestorMode;
 
     try {
 
         if (requestorMode != KernelMode) {
+
+            ULONG operationlength = 0;  // assume invalid
 
             //
             // The caller's access mode is not kernel so probe and validate
@@ -161,18 +215,36 @@ Return Value:
             ProbeForWriteIoStatus( IoStatusBlock );
 
             //
-            // The FileInformation buffer must be writeable by the caller.
-            //
-
-            ProbeForWrite( FileInformation, Length, sizeof( ULONG ) );
-
-            //
             // Ensure that the FileInformationClass parameter is legal for
-            // querying information about files in the directory.
+            // querying information about files in the directory or object.
             //
 
-            if (FileInformationClass >= FileMaximumInformation ||
-                !IopQueryDirOperationLength[FileInformationClass]) {
+            if (FileInformationClass == FileDirectoryInformation) {
+                operationlength = sizeof(FILE_DIRECTORY_INFORMATION);
+            } else if (FileInformationClass == FileOleDirectoryInformation) {
+                operationlength = sizeof(FILE_OLE_DIR_INFORMATION);
+            } else if (MinorFunction == IRP_MN_QUERY_DIRECTORY) {
+                switch (FileInformationClass)
+                {
+                case FileFullDirectoryInformation:
+                    operationlength = sizeof(FILE_FULL_DIR_INFORMATION);
+                    break;
+
+                case FileBothDirectoryInformation:
+                    operationlength = sizeof(FILE_BOTH_DIR_INFORMATION);
+                    break;
+
+                case FileNamesInformation:
+                    operationlength = sizeof(FILE_NAMES_INFORMATION);
+                    break;
+                }
+            }
+
+            //
+            // If the FileInformationClass parameter is illegal, fail now.
+            //
+
+            if (operationlength == 0) {
                 return STATUS_INVALID_INFO_CLASS;
             }
 
@@ -182,9 +254,22 @@ Return Value:
             // query.
             //
 
-            if (Length < (ULONG) IopQueryDirOperationLength[FileInformationClass]) {
+            if (Length < operationlength) {
                 return STATUS_INFO_LENGTH_MISMATCH;
             }
+
+
+            //
+            // The FileInformation buffer must be writeable by the caller.
+            //
+
+#if defined(_X86_)
+            ProbeForWrite( FileInformation, Length, sizeof( ULONG ) );
+#else
+            ProbeForWrite( FileInformation,
+                           Length,
+                           IopQuerySetAlignmentRequirement[FileInformationClass] );
+#endif
         }
 
         //
@@ -273,6 +358,12 @@ Return Value:
             ExFreePool( auxiliaryBuffer );
         }
 
+#if DBG
+        if (GetExceptionCode() == STATUS_DATATYPE_MISALIGNMENT) {
+            DbgBreakPoint();
+        }
+#endif // DBG
+
         return GetExceptionCode();
     }
 
@@ -295,6 +386,7 @@ Return Value:
         }
         return status;
     }
+    *FileObject = fileObject;
 
     //
     // If this file has an I/O completion port associated w/it, then ensure
@@ -362,9 +454,9 @@ Return Value:
                 return status;
             }
         }
-        synchronousIo = TRUE;
+        *SynchronousIo = TRUE;
     } else {
-        synchronousIo = FALSE;
+        *SynchronousIo = FALSE;
     }
 
     //
@@ -378,6 +470,7 @@ Return Value:
     //
 
     deviceObject = IoGetRelatedDeviceObject( fileObject );
+    *DeviceObject = deviceObject;
 
     //
     // Allocate and initialize the I/O Request Packet (IRP) for this operation.
@@ -396,6 +489,8 @@ Return Value:
 
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    *Pirp = irp;
+
     irp->Tail.Overlay.OriginalFileObject = fileObject;
     irp->Tail.Overlay.Thread = PsGetCurrentThread();
     irp->RequestorMode = requestorMode;
@@ -416,7 +511,7 @@ Return Value:
 
     irpSp = IoGetNextIrpStackLocation( irp );
     irpSp->MajorFunction = IRP_MJ_DIRECTORY_CONTROL;
-    irpSp->MinorFunction = IRP_MN_QUERY_DIRECTORY;
+    irpSp->MinorFunction = MinorFunction;
     irpSp->FileObject = fileObject;
 
     // Also, copy the caller's parameters to the service-specific portion of
@@ -567,17 +662,290 @@ Return Value:
     irp->Flags |= IRP_DEFER_IO_COMPLETION;
 
     //
-    // Queue the packet, call the driver, and synchronize appopriately with
-    // I/O completion.
+    // Return with everything set up for the caller to complete the I/O.
     //
 
-    return IopSynchronousServiceTail( deviceObject,
-                                      irp,
-                                      fileObject,
-                                      TRUE,
-                                      requestorMode,
-                                      synchronousIo,
-                                      OtherTransfer );
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+NtQueryDirectoryFile(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID FileInformation,
+    IN ULONG Length,
+    IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PUNICODE_STRING FileName OPTIONAL,
+    IN BOOLEAN RestartScan
+    )
+
+/*++
+
+Routine Description:
+
+    This service operates on a directory file specified by the FileHandle
+    parameter.  The service returns information about files in the directory
+    specified by the file handle.  The ReturnSingleEntry parameter specifies
+    that only a single entry should be returned rather than filling the buffer.
+    The actual number of files whose information is returned, is the smallest
+    of the following:
+
+        o  One entry, if the ReturnSingleEntry parameter is TRUE.
+
+        o  The number of files whose information fits into the specified
+           buffer.
+
+        o  The number of files that exist.
+
+        o  One entry if the optional FileName parameter is specified.
+
+    If the optional FileName parameter is specified, then the only information
+    that is returned is for that single file, if it exists.  Note that the
+    file name may not specify any wildcard characters according to the naming
+    conventions of the target file system.  The ReturnSingleEntry parameter is
+    simply ignored.
+
+    The information that is obtained about the files in the directory is based
+    on the FileInformationClass parameter.  The legal values are as follows:
+
+        o  FileNamesInformation
+
+        o  FileDirectoryInformation
+
+        o  FileFullDirectoryInformation
+
+        o  FileOleDirectoryInformation
+
+Arguments:
+
+    FileHandle - Supplies a handle to the directory file for which information
+        should be returned.
+
+    Event - Supplies an optional event to be set to the Signaled state when
+        the query is complete.
+
+    ApcRoutine - Supplies an optional APC routine to be executed when the
+        query is complete.
+
+    ApcContext - Supplies a context parameter to be passed to the ApcRoutine,
+        if an ApcRoutine was specified.
+
+    IoStatusBlock - Address of the caller's I/O status block.
+
+    FileInformation - Supplies a buffer to receive the requested information
+        returned about the contents of the directory.
+
+    Length - Supplies the length, in bytes, of the FileInformation buffer.
+
+    FileInformationClass - Specfies the type of information that is to be
+        returned about the files in the specified directory.
+
+    ReturnSingleEntry - Supplies a BOOLEAN value that, if TRUE, indicates that
+        only a single entry should be returned.
+
+    FileName - Optionally supplies a file name within the specified directory.
+
+    RestartScan - Supplies a BOOLEAN value that, if TRUE, indicates that the
+        scan should be restarted from the beginning.  This parameter must be
+        set to TRUE by the caller the first time the service is invoked.
+
+Return Value:
+
+    The status returned is success if the query operation was properly queued
+    to the I/O system.  Once the operation completes, the status of the query
+    can be determined by examining the Status field of the I/O status block.
+
+--*/
+
+{
+    NTSTATUS status;
+    BOOLEAN synchronousIo;
+    PDEVICE_OBJECT deviceObject;
+    PIRP irp;
+    PFILE_OBJECT fileObject;
+    KPROCESSOR_MODE requestorMode;
+
+    PAGED_CODE();
+
+    //
+    // Build the irp with the appropriate minor function & allowed info levels.
+    //
+
+    status = BuildQueryDirectoryIrp( FileHandle,
+                                     Event,
+                                     ApcRoutine,
+                                     ApcContext,
+                                     IoStatusBlock,
+                                     FileInformation,
+                                     Length,
+                                     FileInformationClass,
+                                     ReturnSingleEntry,
+                                     FileName,
+                                     RestartScan,
+                                     IRP_MN_QUERY_DIRECTORY,
+                                     &synchronousIo,
+                                     &deviceObject,
+                                     &irp,
+                                     &fileObject,
+                                     &requestorMode);
+    if (NT_SUCCESS( status )) {
+
+        //
+        // Queue the packet, call the driver, and synchronize appopriately with
+        // I/O completion.
+        //
+        status = IopSynchronousServiceTail( deviceObject,
+                                            irp,
+                                            fileObject,
+                                            TRUE,
+                                            requestorMode,
+                                            synchronousIo,
+                                            OtherTransfer );
+    }
+    return status;
+}
+
+NTSTATUS
+NtQueryOleDirectoryFile(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID FileInformation,
+    IN ULONG Length,
+    IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PUNICODE_STRING FileName OPTIONAL,
+    IN BOOLEAN RestartScan
+    )
+
+/*++
+
+Routine Description:
+
+    This service operates on a directory file specified by the FileHandle
+    parameter.  The service returns information about OLE embeddings and
+    streams in the container specified by the file handle.  The
+    ReturnSingleEntry parameter specifies that only a single entry should be
+    returned rather than filling the buffer.  The actual number of entries
+    whose information is returned, is the smallest of the following:
+
+        o  One entry, if the ReturnSingleEntry parameter is TRUE.
+
+        o  The number of entries whose information fits into the specified
+           buffer.
+
+        o  The number of OLE embeddings and streams that exist.
+
+        o  One entry if the optional FileName parameter is specified.
+
+    If the optional FileName parameter is specified, then the only information
+    that is returned is for that single entry, if it exists.  Note that the
+    file name may not specify any wildcard characters according to the naming
+    conventions of the target file system.  The ReturnSingleEntry parameter is
+    simply ignored.
+
+    The information that is obtained about the OLE embeddings and streams in
+    the container is based on the FileInformationClass parameter.  The legal
+    values are as follows:
+
+        o  FileDirectoryInformation
+
+        o  FileOleDirectoryInformation
+
+Arguments:
+
+    FileHandle - Supplies a handle to the container for which information
+        should be returned.
+
+    Event - Supplies an optional event to be set to the Signaled state when
+        the query is complete.
+
+    ApcRoutine - Supplies an optional APC routine to be executed when the
+        query is complete.
+
+    ApcContext - Supplies a context parameter to be passed to the ApcRoutine,
+        if an ApcRoutine was specified.
+
+    IoStatusBlock - Address of the caller's I/O status block.
+
+    FileInformation - Supplies a buffer to receive the requested information
+        returned about the contents of the container.
+
+    Length - Supplies the length, in bytes, of the FileInformation buffer.
+
+    FileInformationClass - Specfies the type of information that is to be
+        returned about the embeddings and streams in the specified container.
+
+    ReturnSingleEntry - Supplies a BOOLEAN value that, if TRUE, indicates that
+        only a single entry should be returned.
+
+    FileName - Optionally supplies an embeeding/stream name within the
+        specified container.
+
+    RestartScan - Supplies a BOOLEAN value that, if TRUE, indicates that the
+        scan should be restarted from the beginning.  This parameter must be
+        set to TRUE by the caller the first time the service is invoked.
+
+Return Value:
+
+    The status returned is success if the query operation was properly queued
+    to the I/O system.  Once the operation completes, the status of the query
+    can be determined by examining the Status field of the I/O status block.
+
+--*/
+
+{
+    NTSTATUS status;
+    BOOLEAN synchronousIo;
+    PDEVICE_OBJECT deviceObject;
+    PIRP irp;
+    PFILE_OBJECT fileObject;
+    KPROCESSOR_MODE requestorMode;
+
+    PAGED_CODE();
+
+    //
+    // Build the irp with the appropriate minor function & allowed info levels.
+    //
+
+    status = BuildQueryDirectoryIrp( FileHandle,
+                                     Event,
+                                     ApcRoutine,
+                                     ApcContext,
+                                     IoStatusBlock,
+                                     FileInformation,
+                                     Length,
+                                     FileInformationClass,
+                                     ReturnSingleEntry,
+                                     FileName,
+                                     RestartScan,
+                                     IRP_MN_QUERY_OLE_DIRECTORY,
+                                     &synchronousIo,
+                                     &deviceObject,
+                                     &irp,
+                                     &fileObject,
+                                     &requestorMode);
+    if (NT_SUCCESS( status )) {
+
+        //
+        // Queue the packet, call the driver, and synchronize appopriately with
+        // I/O completion.
+        //
+        status = IopSynchronousServiceTail( deviceObject,
+                                            irp,
+                                            fileObject,
+                                            TRUE,
+                                            requestorMode,
+                                            synchronousIo,
+                                            OtherTransfer );
+    }
+    return status;
 }
 
 NTSTATUS

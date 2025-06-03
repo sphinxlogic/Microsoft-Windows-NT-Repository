@@ -91,7 +91,7 @@ Return Value:
                     AdminsStringBuffer,
                     AdminsStringBufferLength ) == 0 ) {
 
-        DbgPrintf( "ACLCONV: LoadString failed--error %d.\n", GetLastError() );
+        DebugPrintf( "ACLCONV: LoadString failed--error %d.\n", GetLastError() );
         return FALSE;
     }
 
@@ -101,7 +101,7 @@ Return Value:
                                 AdminsImplicitAce.acl_ugname,
                                 UNLEN+1 ) ) {
 
-        DbgPrintf( "ACLCONV: can't convert admins string to STR.\n" );
+        DebugPrintf( "ACLCONV: can't convert admins string to STR.\n" );
         return FALSE;
     }
 
@@ -295,6 +295,41 @@ AclconvLookupAccountName(
     }
 
     Initialized = TRUE;
+
+    //
+    // Check for SIDs mapped by userconv.
+    //
+
+    DSTRING UserConvDomain;
+
+    if (!UserConvDomain.Initialize("UserConv")) {
+        return FALSE;
+    }
+    
+    if (Aclconv->GetAclWorkSids()->IsNamePresent(&UserConvDomain,
+        AccountName, &CachedSidLength)) {
+
+        DebugAssert(CachedSidLength != 0);
+
+        if ( CachedSidLength > *SidLength ) {
+
+            // The client's buffer is not big enough.
+            //
+            SetLastError( ERROR_INSUFFICIENT_BUFFER );
+            *SidLength = CachedSidLength;
+            return FALSE;
+
+        } else {
+
+            // The name is in the cache and the client's buffer
+            // is big enough.  Get it out:
+            //
+            return( Aclconv->GetAclWorkSids()->QueryCachedSid(&UserConvDomain,
+                                                            AccountName,
+                                                            Sid,
+                                                            SidLength ) );
+        }
+    }
 
     // Check for well-known SID's.  Note that ADMIN is not mapped,
     // since an account ADMIN is created by PORTUAS.  (And a good
@@ -609,7 +644,7 @@ Return Value:
                             sizeof( ACL_REVISION_INFORMATION ),
                             AclRevisionInformation ) ) {
 
-        DbgPrintf( "ACLCONV: GetAclInformation failed.\n" );
+        DebugPrintf( "ACLCONV: GetAclInformation failed.\n" );
         return FALSE;
     }
 
@@ -628,7 +663,7 @@ Return Value:
                         AclInfo.AclBytesInUse,
                         AclRevisionInfo.AclRevision ) ) {
 
-        DbgPrintf( "ACLCONV: InitializeAcl failed.\n" );
+        DebugPrintf( "ACLCONV: InitializeAcl failed.\n" );
         return FALSE;
     }
 
@@ -651,7 +686,7 @@ Return Value:
 
         if( !GetAce( Source, CurrentAceIndex, &CurrentAce ) ) {
 
-            DbgPrintf( "ACLCONV: GetAce failed.\n" );
+            DebugPrintf( "ACLCONV: GetAce failed.\n" );
             return FALSE;
         }
 
@@ -662,7 +697,7 @@ Return Value:
     //
     if( !GetAce( Source, 0, &CurrentAce ) ) {
 
-        DbgPrintf( "ACLCONV: GetAce failed.\n" );
+        DebugPrintf( "ACLCONV: GetAce failed.\n" );
         return FALSE;
     }
 
@@ -672,7 +707,7 @@ Return Value:
                  CurrentAce,
                  AceSize ) ) {
 
-        DbgPrintf( "ACLCONV: AddAce failed.\n" );
+        DebugPrintf( "ACLCONV: AddAce failed.\n" );
         return FALSE;
     }
 
@@ -879,8 +914,8 @@ Return Value:
 
         if( _AccessEntryCount != 0 ) {
 
-            DbgPtrAssert( _AccessEntries );
-            DbgPtrAssert( _AceConversionResults );
+            DebugPtrAssert( _AccessEntries );
+            DebugPtrAssert( _AceConversionResults );
 
             memcpy( NewAccessEntries,
                     _AccessEntries,
@@ -1102,13 +1137,13 @@ Return Value:
                     PagefileNameBuffer,
                     PagefileNameBufferLength ) == 0 ) {
 
-        DbgPrintf( "ACLCONV: LoadString failed--error %d.\n", GetLastError() );
+        DebugPrintf( "ACLCONV: LoadString failed--error %d.\n", GetLastError() );
         return FALSE;
     }
 
     if( !PagefileString.Initialize( PagefileNameBuffer ) ) {
 
-        DbgPrintf( "ACLCONV: Can't initialize PagefileNameString.\n" );
+        DebugPrintf( "ACLCONV: Can't initialize PagefileNameString.\n" );
         return FALSE;
     }
 
@@ -1140,7 +1175,7 @@ Return Value:
         if( (CurrentPath = NEW PATH) == NULL ||
             !CurrentPath->Initialize( &_ComponentName ) ) {
 
-            DbgPrint( "ACLCONV: Cannot initialize path object for root." );
+            DebugPrint( "ACLCONV: Cannot initialize path object for root." );
             return FALSE;
         }
 
@@ -1150,7 +1185,7 @@ Return Value:
 
         if( !CurrentPath->AppendBase( &_ComponentName ) ) {
 
-            DbgPrintf( "ACLCONV: Cannot append to path" );
+            DebugPrintf( "ACLCONV: Cannot append to path" );
             return FALSE;
         }
     }
@@ -1206,7 +1241,7 @@ Return Value:
                                      _AceConversionResults,
                                      _AccessEntries ) ) {
 
-            DbgPrint( "ACLCONV--LogConversion failed.\n" );
+            DebugPrint( "ACLCONV--LogConversion failed.\n" );
             NoError = FALSE;
         }
 
@@ -1315,7 +1350,7 @@ Return Value:
                                          _AceConversionResults,
                                          _AccessEntries ) ) {
 
-                DbgPrint( "ACLCONV--LogConversion failed.\n" );
+                DebugPrint( "ACLCONV--LogConversion failed.\n" );
                 NoError = FALSE;
 
             } else {
@@ -1465,7 +1500,7 @@ Return Value:
 
         if( _AceConversionResults[i] == ACE_CONVERT_ERROR ) {
 
-            DbgPrint( "ACLCONV: ConvertOneAce failed.\n" );
+            DebugPrint( "ACLCONV: ConvertOneAce failed.\n" );
             return FALSE;
         }
     }
@@ -1935,7 +1970,7 @@ Return Value:
     if( (PathString = ResourceName->GetPathString()) == NULL ||
         PathString->QueryChCount() > MAX_RESOURCE_NAME_LENGTH ) {
 
-        DbgPrintf( "ACLCONV: Unable to query path string.\n" );
+        DebugPrintf( "ACLCONV: Unable to query path string.\n" );
         return FALSE;
     }
 
@@ -1972,7 +2007,7 @@ Return Value:
                           &SelfRelativeSDLength ) ||
         SelfRelativeSDLength > SecurityDescriptorBufferSize ) {
 
-        DbgPrintf( "ACLCONV: GetFileSecurity failed (error %d).\n", GetLastError() );
+        DebugPrintf( "ACLCONV: GetFileSecurity failed (error %d).\n", GetLastError() );
         return FALSE;
     }
 
@@ -1983,7 +2018,7 @@ Return Value:
     if( !InitializeSecurityDescriptor( &AbsoluteSD,
                                        SECURITY_DESCRIPTOR_REVISION ) ) {
 
-        DbgPrintf( "ACLCONV: InitializeSecurityDescriptor failed.\n" );
+        DebugPrintf( "ACLCONV: InitializeSecurityDescriptor failed.\n" );
         return FALSE;
     }
 
@@ -2072,7 +2107,7 @@ Return Value:
                                         BoiledSacl,
                                         ByDefault ) ) {
 
-            DbgPrintf( "ACLCONV: SetSecurityDescriptorSacl failed (error %d).\n", GetLastError() );
+            DebugPrintf( "ACLCONV: SetSecurityDescriptorSacl failed (error %d).\n", GetLastError() );
             return FALSE;
         }
     }
@@ -2085,7 +2120,7 @@ Return Value:
 
         if( !InitializeAcl( NewDacl, AclBufferSize, ACL_REVISION ) ) {
 
-            DbgPrintf( "ACLCONV: InitializeAcl failed.\n" );
+            DebugPrintf( "ACLCONV: InitializeAcl failed.\n" );
             return FALSE;
         }
 
@@ -2106,7 +2141,7 @@ Return Value:
                        Inheritance->DominantDeniedAces,
                        Inheritance->DominantDeniedLength ) ) ) {
 
-            DbgPrintf( "ACLCONV: Cannot add access-denied ACE's\n" );
+            DebugPrintf( "ACLCONV: Cannot add access-denied ACE's\n" );
             return FALSE;
         }
 
@@ -2126,7 +2161,7 @@ Return Value:
                        Inheritance->DominantAllowedAces,
                        Inheritance->DominantAllowedLength ) ) ) {
 
-            DbgPrintf( "ACLCONV: Cannot add access-allowed ACE's\n" );
+            DebugPrintf( "ACLCONV: Cannot add access-allowed ACE's\n" );
             return FALSE;
         }
 
@@ -2147,7 +2182,7 @@ Return Value:
                                         BoiledDacl,
                                         ByDefault ) ) {
 
-            DbgPrintf( "ACLCONV: SetSecurityDescriptorDacl failed (error %d).\n", GetLastError() );
+            DebugPrintf( "ACLCONV: SetSecurityDescriptorDacl failed (error %d).\n", GetLastError() );
             return FALSE;
         }
     }
@@ -2158,7 +2193,7 @@ Return Value:
                           RequestedInformation,
                           &AbsoluteSD ) ) {
 
-        DbgPrintf( "ACLCONV: SetFileSecurity failed (error %d).\n", GetLastError() );
+        DebugPrintf( "ACLCONV: SetFileSecurity failed (error %d).\n", GetLastError() );
         return FALSE;
     }
 

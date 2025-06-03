@@ -156,7 +156,7 @@ int WINAPI WinMain(
 
 HINSTANCE hInstance,        // I - handle of application instance
 HINSTANCE hPrevInstance,    // I - handle of any previous instance
-LPASTR    lpCmdLine,        // I - long pointer to the command line
+char *    lpCmdLine,        // I - long pointer to the command line
 int       nCmdShow )        // I - how to show the window
 
 {

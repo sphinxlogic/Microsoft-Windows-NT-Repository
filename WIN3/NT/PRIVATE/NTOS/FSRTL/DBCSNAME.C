@@ -818,17 +818,26 @@ Routine Description:
 
          where S is any single character
 
-               S-. is any single character except .
+               S-. is any single character except the final .
 
                e is a null character transition
 
                EOF is the end of the name string
 
+    In words:
 
-    The last construction, ~? (the DOS question mark), can either match any
-    single character, or upon encountering a period or end of input string,
-    advances the expression to the end of the set of contiguous ~?s.  This may
-    seem somewhat convoluted, but is what DOS needs.
+        * matches 0 or more characters.
+
+        ? matches exactly 1 character.
+
+        DOS_STAR matches 0 or more characters until encountering and matching
+            the final . in the name.
+
+        DOS_QM matches any single character, or upon encountering a period or
+            end of name string, advances the expression to the end of the
+            set of contiguous DOS_QMs.
+
+        DOS_DOT matches either a . or zero characters beyond name string.
 
 Arguments:
 
@@ -923,7 +932,6 @@ Return Value:
 
         if ( !FsRtlDoesDbcsContainWildCards( &LocalExpression ) ) {
 
-            ULONG BytesEqual;
             ULONG StartingNameOffset;
 
             if (Name->Length < (USHORT)(Expression->Length - 1)) {
@@ -959,11 +967,9 @@ Return Value:
             //  we have got to check this one character at a time.
             //
 
-            BytesEqual = RtlCompareMemory( LocalExpression.Buffer,
-                                           Name->Buffer + StartingNameOffset,
-                                           LocalExpression.Length );
-
-            return (BOOLEAN)(BytesEqual == LocalExpression.Length);
+            return (BOOLEAN) RtlEqualMemory( LocalExpression.Buffer,
+                                             Name->Buffer + StartingNameOffset,
+                                             LocalExpression.Length );
         }
     }
 
@@ -1288,7 +1294,7 @@ Return Value:
 
                 while (PreviousDestCount < DestCount) {
 
-                    if ( PreviousMatches[SrcCount] <
+                    while ( PreviousMatches[SrcCount] <
                          CurrentMatches[PreviousDestCount] ) {
 
 

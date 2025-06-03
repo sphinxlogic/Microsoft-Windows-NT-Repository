@@ -24,9 +24,6 @@ Revision History:
 --*/
 
 #include "iop.h"
-#include "ntiodump.h"
-#include "ntdddisk.h"
-#include "stdio.h"
 
 //
 // Forward declarations
@@ -43,6 +40,8 @@ MapPhysicalMemory(
 
 extern PULONG MmPfnDatabase;
 
+NTSTATUS IopFinalCrashDumpStatus = -1;
+
 #if 0
 #if DBG
 ULONG BreakDiskByteOffset;
@@ -50,13 +49,14 @@ ULONG BreakPfn;
 #endif // DBG
 #endif // 0
 
-VOID
+BOOLEAN
 IoWriteCrashDump(
     IN ULONG BugCheckCode,
     IN ULONG BugCheckParameter1,
     IN ULONG BugCheckParameter2,
     IN ULONG BugCheckParameter3,
-    IN ULONG BugCheckParameter4
+    IN ULONG BugCheckParameter4,
+    IN PVOID ContextSave
     )
 
 /*++
@@ -83,9 +83,10 @@ Return Value:
     PMINIPORT_NODE mpNode;
     PDUMP_DRIVER_OPEN open;
     PDUMP_DRIVER_WRITE write;
+    PDUMP_DRIVER_FINISH finishUp;
     PDUMP_HEADER header;
     EXCEPTION_RECORD exception;
-    PCONTEXT context;
+    PCONTEXT context = ContextSave;
     PULONG block;
     LARGE_INTEGER diskByteOffset;
     PULONG page;
@@ -100,7 +101,7 @@ Return Value:
     PMAPPED_ADDRESS addresses;
     ULONG addressCount;
     ULONG addressChecksum;
-    UCHAR messageBuffer[64];
+    UCHAR messageBuffer[128];
 
     //
     // Begin by determining whether or not crash dumps are enabled.  If not,
@@ -110,10 +111,12 @@ Return Value:
 
     dcb = IopDumpControlBlock;
     if (!dcb) {
-        return;
+        return FALSE;
     }
 
     if (dcb->Flags & DCB_DUMP_ENABLED || dcb->Flags & DCB_SUMMARY_ENABLED) {
+
+        IopFinalCrashDumpStatus = STATUS_PENDING;
 
         //
         // A dump is to be written to the paging file.  Ensure that all of the
@@ -191,7 +194,8 @@ Return Value:
             DbgPrint( "           No dump will be created\n" );
 #endif // DBG
 
-            return;
+            IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+            return FALSE;
         }
 
         //
@@ -214,7 +218,8 @@ Return Value:
 #if DBG
             DbgPrint( "Mapped address count or checksum failed\n" );
 #endif // DBG
-            return;
+            IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+            return FALSE;
         }
 
         //
@@ -240,7 +245,8 @@ Return Value:
 #if DBG
             DbgPrint( "CRASHDUMP: Unable to initialize disk dump driver; error = %x\n", status );
 #endif // DBG
-            return;
+            IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+            return FALSE;
         }
 
         //
@@ -249,8 +255,15 @@ Return Value:
 
         open = initContext.OpenRoutine;
         write = initContext.WriteRoutine;
+        finishUp = initContext.FinishRoutine;
 
-        HalDisplayString( "\nCRASHDUMP: Initializing miniport driver" );
+        //
+        // Display message on screen that we are starting the crashdump
+        //
+
+        sprintf( messageBuffer, "%Z\n", &dcb->PssInitMsg );
+        HalDisplayString( messageBuffer );
+
 
         //
         // Now initialize each of the miniport drivers.
@@ -265,7 +278,8 @@ Return Value:
                                         ListEntry );
 
             if (IopChecksum( mpNode->DriverEntry->DllBase, mpNode->DriverEntry->SizeOfImage ) != mpNode->DriverChecksum) {
-                return;
+                IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+                return FALSE;
             }
 
             status = ((PDRIVER_INITIALIZE) (mpNode->DriverEntry->EntryPoint))( NULL, NULL );
@@ -274,7 +288,8 @@ Return Value:
 #if DBG
                 DbgPrint( "CRASHDUMP: Could not initialize miniport; error = %x\n", status );
 #endif // DBG
-                return;
+                IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+                return FALSE;
             }
 
             nextEntry = nextEntry->Flink;
@@ -290,7 +305,8 @@ Return Value:
 #if DBG
             DbgPrint( "CRASHDUMP: Could not find/open partition offset\n" );
 #endif // DBG
-            return;
+            IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+            return FALSE;
         }
 
         //
@@ -344,7 +360,6 @@ Return Value:
                        ((dcb->MemoryDescriptor->NumberOfRuns - 1) *
                        sizeof( PHYSICAL_MEMORY_RUN )) );
 
-        context = (PCONTEXT) &KeGetCurrentPrcb()->ProcessorState.ContextFrame;
         RtlCopyMemory( &block[DH_CONTEXT_RECORD],
                        context,
                        sizeof( CONTEXT ) );
@@ -413,18 +428,12 @@ Return Value:
         // etc.
         //
 
-        //
-        // Display message on screen.
-        //
-
-        HalDisplayString( "\nCRASHDUMP: Writing header to disk\r" );
-
 #if DBG
         DbgPrint( "IoWriteCrashDump: Writing dump header to disk\n" );
 #endif
         while (bytesRemaining) {
 
-            if (LiLeq( mcb[0],  LiFromUlong( bytesRemaining ) ) ) {
+            if (mcb[0].QuadPart <= bytesRemaining) {
                 byteCount = mcb[0].LowPart;
             } else {
                 byteCount = bytesRemaining;
@@ -438,7 +447,10 @@ Return Value:
             // Write to disk.
             //
 
-            write( &mcb[1], mdl );
+            if (!NT_SUCCESS( write( &mcb[1], mdl ) )) {
+                IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+                return FALSE;
+            }
 
             //
             // Adjust bytes remaining.
@@ -446,10 +458,10 @@ Return Value:
 
             bytesRemaining -= byteCount;
             memoryAddress += byteCount;
-            mcb[0] = LiSub( mcb[0], LiFromUlong( byteCount ) );
-            mcb[1] = LiAdd( mcb[1], LiFromUlong( byteCount ) );
+            mcb[0].QuadPart = mcb[0].QuadPart - byteCount;
+            mcb[1].QuadPart = mcb[1].QuadPart + byteCount;
 
-            if (LiEqlZero( mcb[0] )) {
+            if (!mcb[0].QuadPart) {
                 mcb += 2;
             }
         }
@@ -464,6 +476,10 @@ Return Value:
 
         if (dcb->Flags & DCB_DUMP_ENABLED) {
 
+            ULONG pagesDoneSoFar = 0;
+            ULONG currentPercentage = 0;
+            ULONG maximumPercentage = 0;
+
 #if DBG
             DbgPrint( "IoWriteCrashDump: Writing memory dump\n" );
 #endif
@@ -472,14 +488,14 @@ Return Value:
             // constants.
             //
 
-            mdl->MdlFlags &= ~MDL_MAPPED_TO_SYSTEM_VA;
+          //mdl->MdlFlags &= ~MDL_MAPPED_TO_SYSTEM_VA;
             memoryAddress = dcb->MemoryDescriptor->Run[0].BasePage * PAGE_SIZE;
 
             //
             // Now loop, writing all of physical memory to the paging file.
             //
 
-            while (LiNeqZero( mcb[0] )) {
+            while (mcb[0].QuadPart) {
 
                 diskByteOffset = mcb[1];
 
@@ -489,21 +505,29 @@ Return Value:
 
                 byteOffset = memoryAddress & (PAGE_SIZE - 1);
 
-                if (LiLeq( LiFromUlong( 32768 ), mcb[0] )) {
+                if (32768 <= mcb[0].QuadPart) {
                     byteCount = 32768 - byteOffset;
                 } else {
                     byteCount = mcb[0].LowPart;
                 }
 
-                //
-                // Update message on screen.
-                //
+                pagesDoneSoFar += byteCount / PAGE_SIZE;
 
-                sprintf( messageBuffer,
-                         "CRASHDUMP: Dumping physical memory to disk: %8x\r",
-                         mcb[0] );
+                currentPercentage =
+                    (pagesDoneSoFar * 100) /
+                    dcb->MemoryDescriptor->NumberOfPages;
 
-                HalDisplayString( messageBuffer );
+                if (currentPercentage > maximumPercentage) {
+
+                    maximumPercentage = currentPercentage;
+                    //
+                    // Update message on screen.
+                    //
+
+                    sprintf( messageBuffer, "%Z: %3d\r", &dcb->PssProgressMsg, maximumPercentage );
+                    HalDisplayString( messageBuffer );
+
+                }
 
                 //
                 // Map the physical memory and write it to the
@@ -519,19 +543,29 @@ Return Value:
                 // Write the next segment.
                 //
 
-                write( &diskByteOffset, mdl );
+                if (!NT_SUCCESS( write( &diskByteOffset, mdl ) )) {
+                    IopFinalCrashDumpStatus = STATUS_UNSUCCESSFUL;
+                    return FALSE;
+                }
 
                 //
                 // Adjust pointers for next part.
                 //
 
                 memoryAddress += byteCount;
-                mcb[0] = LiSub( mcb[0], LiFromUlong( byteCount ) );
-                mcb[1] = LiAdd( mcb[1], LiFromUlong( byteCount ) );
+                mcb[0].QuadPart = mcb[0].QuadPart - byteCount;
+                mcb[1].QuadPart = mcb[1].QuadPart + byteCount;
 
-                if (LiEqlZero( mcb[0] )) {
+                if (!mcb[0].QuadPart) {
                     mcb += 2;
                 }
+
+                if (pagesDoneSoFar >= dcb->MemoryDescriptor->NumberOfPages) {
+
+                    break;
+
+                }
+
             }
 
 #if DBG
@@ -539,7 +573,8 @@ Return Value:
 #endif
         }
 
-        HalDisplayString( "\nCRASHDUMP: Physical memory dump complete\n" );
+        sprintf( messageBuffer, "%Z", &dcb->PssDoneMsg );
+        HalDisplayString( messageBuffer );
 
         //
         // Sweep the cache so the debugger will work.
@@ -548,6 +583,17 @@ Return Value:
         KeSweepCurrentDcache();
         KeSweepCurrentIcache();
 
+        //
+        // Have the dump flush the adapter and disk caches.
+        //
+        finishUp();
+
+        //
+        // Indicate to the debugger that the dump has been successfully
+        // written.
+        //
+
+        IopFinalCrashDumpStatus = STATUS_SUCCESS;
     }
 
     //
@@ -560,10 +606,10 @@ Return Value:
 #if DBG
         DbgPrint( "IoWriteCrashDump: Autorebooting\n" );
 #endif
-        HalReturnToFirmware( HalRebootRoutine );
+        KeReturnToFirmware( HalRebootRoutine );
     }
 
-    return;
+    return TRUE;
 }
 
 static
@@ -611,7 +657,7 @@ Return Value:
     // range and filling in the MDL appropriately.
     //
 
-    Mdl->StartVa = (PVOID) (MemoryAddress & ~(PAGE_SIZE - 1));
+    Mdl->StartVa = (PVOID) (MemoryAddress);
     Mdl->ByteOffset = MemoryAddress & (PAGE_SIZE - 1);
     Mdl->ByteCount = Length;
 

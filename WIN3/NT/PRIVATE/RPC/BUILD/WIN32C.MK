@@ -19,29 +19,29 @@
 #
 # --------------------------------------------------------------------
 
-CC            =CL386
-LIBRARIAN     =LIB
-LINK          =LINK32
-MASM          =MASM386
-ML            =ml -c -coff -Cx -nologo -Zm
-MIDL          =MIDL
-INCLUDES      =INCLUDES
-RC            =RC
-MAPSYM        =$(CHICODEV)\tools\common\MAPSYM
+CHICOTOOLS=$(CHICODEV)\tools
+CHICOBIN=$(CHICOTOOLS)\c1032\bin
 
-CFLAGSBASE    =$(CFLAGSBASE) -nologo -Gz -Zp8 /QI6
+CC            =$(CHICOBIN)\CL
+LIBRARIAN     =$(CHICOBIN)\LIB
+LINK          =$(CHICOBIN)\LINK
+ML            =$(CHICOTOOLS)\masm611c\mlx
+RC            =$(CHICOBIN)\RC
+MAPSYM        =$(CHICOTOOLS)\common\MAPSYM
 
-AFLAGS        =$(AFLAGS)
-LIBFLAGS      =$(LIBFLAGS)
+CFLAGSBASE    =$(CFLAGSBASE) -nologo /Gz /Zp8 /QI6 /MT
+
+AFLAGS        =$(AFLAGS) -c -coff -Cx -nologo -Zm
+LIBFLAGS      =$(LIBFLAGS) -nologo -machine:IX86 -nodefaultlib
 LINKFLAGS     =$(LINKFLAGS) -out:$@ -map:$(@B).map -nodefaultlib -machine:i386 -subsystem:console
 MIDLFLAGS     =$(MIDLFLAGS) -Zp8 -env win32 -DWIN32 -I.. -cpp_cmd $(CC)
-RCFLAGS       =$(RCFLAGS) /nologo -I$(WINSDK_INC)
-MAPSYMFLAGS   =$(MAPSYMGLAGS)
+RCFLAGS       =$(RCFLAGS) -I$(CHICODEV)\inc
+MAPSYMFLAGS   =$(MAPSYMGLAGS) -nologo
 IMPLIBFLAGS   =$(IMPLIBFLAGS) /nologo
 
 INCLUDESFLAGS =$(INCLUDESFLAGS) -e -S -L $(CINC) \
-               -P$$(PUBLIC)=$(PUBLIC) -P$$(RPC)=$(RPC) \
-               -nwindows.h -nsecurity.h -nnt.h -nntrtl.h -nnturtl.h
+               -P$$(CHICODEV)=$(CHICODEV) -P$$(RPC)=$(RPC) \
+               -nwindows.h -nnt.h -nntrtl.h -nnturtl.h -nissper16.h
 
 !ifdef RELEASE
 
@@ -49,21 +49,28 @@ INCLUDESFLAGS =$(INCLUDESFLAGS) -e -S -L $(CINC) \
 # G4 - will run on a 386, but possibly not as fast as G3.
 # Oy - FPO optimizations, harder to debug.  EBP is just another register...
 
-CFLAGSBASE    =$(CFLAGSBASE) /Gf /QI6 /G4 /Gy -Oy -Oxs
-AFLAGS        =$(AFLAGS)
+CFLAGSBASE    =$(CFLAGSBASE) /Gf /G4 /Gy /Oy /Oxs
+
+!ifdef LEGO
+!message "Lego build"
+CFLAGSBASE    =$(CFLAGSBASE) /Z7
+AFLAGS        =$(AFLAGS) /Zi
+LINKFLAGS     =$(LINKFLAGS) -debug:full -debugtype:cv,fixup -pdb:none
+LIBFLAGS      =$(LIBFLAGS) -debugtype:cv,fixup
+!endif # LEGO
 
 !else # ! RELEASE
 
-CFLAGSBASE    =$(CFLAGSBASE) -Z7 -Od
-CDEF          =$(CDEF) -DDEBUGRPC
-AFLAGS        =$(AFLAGS) -Zi
-LINKFLAGS     =$(LINKFLAGS) -debug:full -debugtype:both
+CFLAGSBASE    =$(CFLAGSBASE) /Z7 /Od
+CDEF          =$(CDEF) -DDEBUGRPC -DDBG
+AFLAGS        =$(AFLAGS) /Zi
+LINKFLAGS     =$(LINKFLAGS) -debug:full -debugtype:CV
+LIBFLAGS      =$(LIBFLAGS) -debugtype:CV
 
 !endif # RELEASE
 
-CINC          =$(CINC) -I. -I.. -I$(RPC)\runtime\mtrt\win32c -I$(RPC)\runtime\mtrt -I$(PUBLIC)\inc -I$(PUBLIC)\inc\crt
-CDEF          =$(CDEF) -DWIN32_LEAN_AND_MEAN -DSTD_CALL -DDOSWIN32RPC -DWIN32 -DWIN32RPC -D_X86_ -Di386 -Dfar= -Dpascal=
-
+CINC	      =$(CINC) -I. -I.. -I$(RPC)\runtime\mtrt\win32c -I$(RPC)\runtime\mtrt -I$(CHICODEV)\inc -I$(CHICODEV)\tools\c1032\inc -I$(CHICODEV)\sdk\inc
+CDEF          =$(CDEF) -DWIN32_LEAN_AND_MEAN -DSTD_CALL -DDOSWIN32RPC -DWIN32 -DWIN32RPC -D_X86_ -Di386
 CFLAGS        =$(CFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
 CXXFLAGS      =$(CXXFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
 
@@ -72,6 +79,9 @@ CXXFLAGS      =$(CXXFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
 #
 
 # Note the order is important, see mtrt\win\makefile if you're changing this.
+
+{..\i386\}.c{}.obj :
+    $(CC) $(CFLAGS) -Fo$@ -c $<
 
 {..\}.cxx{}.obj :
     $(CC) $(CXXFLAGS) -Fo$@ -c $<
@@ -86,10 +96,10 @@ CXXFLAGS      =$(CXXFLAGS) $(CFLAGSBASE) $(CINC) $(CDEF)
     $(CC) $(CFLAGS) -Fo$@ -c $<
 
 {..\}.asm{}.obj :
-    $(ML) $<
+    $(ML) $(AFLAGS) $<
 
 .asm.obj :
-    $(ML) $<
+    $(ML) $(AFLAGS) $<
 
 {..\}.c{}.i :
     $(CC) $(CFLAGS) -P -c $<
@@ -148,4 +158,3 @@ clobber:: clean
         -del *.lib *.exe 2>nul
 
 !endif
-

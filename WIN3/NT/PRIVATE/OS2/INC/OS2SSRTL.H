@@ -473,3 +473,4 @@ Or2UnicodeStringToMBString(
 //Or2FreeMBString(
 //    PANSI_STRING AnsiString);
 
+#include "os2crt.h"

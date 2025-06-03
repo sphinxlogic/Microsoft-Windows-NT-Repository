@@ -80,7 +80,7 @@ ServerHandleConnectionRequest(
         LARGE_INTEGER MaximumSize;
 
         fprintf( stderr, "Creating Port Memory Section" );
-        MaximumSize = RtlConvertUlongToLargeInteger( 0x4000 );
+        MaximumSize.QuadPart = 0x4000;
         Status = NtCreateSection( &ServerView.SectionHandle,
                                   SECTION_MAP_READ | SECTION_MAP_WRITE,
                                   NULL,

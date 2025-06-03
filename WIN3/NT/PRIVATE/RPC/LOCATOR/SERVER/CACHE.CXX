@@ -42,50 +42,48 @@ extern NATIVE_CLASS_LOCATOR * Locator;
 
 extern "C" {
 void CLIENT_I_nsi_lookup_begin(
-	handle_t hrpcPrimaryLocatorHndl,
-	UNSIGNED32 entry_name_syntax,
-	STRING_T entry_name,
-	NSI_SYNTAX_ID_T *interfaceid,
-	NSI_SYNTAX_ID_T *xfersyntax,
-	NSI_UUID_P_T obj_uuid,
-	UNSIGNED32 binding_max_count,
-	UNSIGNED32 ignore,
-	NSI_NS_HANDLE_T *import_context,
-	UNSIGNED16 *status);
+    handle_t hrpcPrimaryLocatorHndl,
+    UNSIGNED32 entry_name_syntax,
+    STRING_T entry_name,
+    NSI_SYNTAX_ID_T *interfaceid,
+    NSI_SYNTAX_ID_T *xfersyntax,
+    NSI_UUID_P_T obj_uuid,
+    UNSIGNED32 binding_max_count,
+    UNSIGNED32 ignore,
+    NSI_NS_HANDLE_T *import_context,
+    UNSIGNED16 *status);
 void CLIENT_I_nsi_lookup_done(
-	handle_t hrpcPrimaryLocatorHndl,
-	NSI_NS_HANDLE_T *import_context,
-	UNSIGNED16 *status);
+    handle_t hrpcPrimaryLocatorHndl,
+    NSI_NS_HANDLE_T *import_context,
+    UNSIGNED16 *status);
 void CLIENT_I_nsi_lookup_next(
-	handle_t hrpcPrimaryLocatorHndl,
-	NSI_NS_HANDLE_T import_context,
-	NSI_BINDING_VECTOR_P_T *binding_vector,
-	UNSIGNED16 *status);
+    handle_t hrpcPrimaryLocatorHndl,
+    NSI_NS_HANDLE_T import_context,
+    NSI_BINDING_VECTOR_P_T *binding_vector,
+    UNSIGNED16 *status);
 
 void CLIENT_I_nsi_entry_object_inq_begin(
         handle_t   hrpcPrimaryLocatorHndl,
-	UNSIGNED32 EntryNameSyntax,
-	STRING_T EntryName,
-	NSI_NS_HANDLE_T *InqContext,
-	UNSIGNED16 *status);
+    UNSIGNED32 EntryNameSyntax,
+    STRING_T EntryName,
+    NSI_NS_HANDLE_T *InqContext,
+    UNSIGNED16 *status);
 
 void CLIENT_I_nsi_entry_object_inq_done(
-	NSI_NS_HANDLE_T *InqContext,
-	UNSIGNED16 *status);
+    NSI_NS_HANDLE_T *InqContext,
+    UNSIGNED16 *status);
 
 void CLIENT_I_nsi_entry_object_inq_next(
-	handle_t hrpcPrimaryLoctorHndl,
-	NSI_NS_HANDLE_T InqContext,
-	NSI_UUID_VECTOR_P_T *uuid_vec,
-	UNSIGNED16 *status);
+    handle_t hrpcPrimaryLoctorHndl,
+    NSI_NS_HANDLE_T InqContext,
+    NSI_UUID_VECTOR_P_T *uuid_vec,
+    UNSIGNED16 *status);
 }
 
-defModule
-
 READ_MAIL_SLOT *hMailSlot;
-const long idlePenlity = 5000L;	// time to idle if you are too pushy
+const long idlePenlity = 5000L; // time to idle if you are too pushy
 
-typedef struct {	       // format of the PS back on the net
+typedef struct {           // format of the PS back on the net
     UICHAR Domain[DOMAIN_MAX]; // buffer for machine name
     char Buffer[1000];
 } NetReply;
@@ -205,18 +203,18 @@ Routine Description:
 
     while (1) {
 
-	ASSERT(AssertHeap());
+    ASSERT(AssertHeap());
 
-	MailStatus = hMailslotAdvertize.Read((PB) &NetQuery, cbReturnName);
+    MailStatus = hMailslotAdvertize.Read((PB) &NetQuery, cbReturnName);
 
-	if (MailStatus)
-	    AbortServer("Mailslot read error", MailStatus);
+    if (MailStatus)
+        AbortServer("Mailslot read error", MailStatus);
 
-	// ignore messages to self, sending a request on a mailslote
-	// by a lookUp request will be delivered to the local slot too.
+    // ignore messages to self, sending a request on a mailslote
+    // by a lookUp request will be delivered to the local slot too.
 
-	if (!CmpUZ(NetQuery.WkstaName, SelfName))
-	    continue;
+    if (!CmpUZ(NetQuery.WkstaName, SelfName))
+        continue;
 
         //Since the machine broadcasted, it is probably a master locator
         //If we are not a master locator, insert the broadcaster in
@@ -227,9 +225,9 @@ Routine Description:
               Locator->CacheThisServer(NetQuery.WkstaName);
            }
 
-	// form a query and call the normal lookup to get a reply
+    // form a query and call the normal lookup to get a reply
 
-	perf.cNetRequests++;
+    perf.cNetRequests++;
 
         {
             ENTRY_KEY Entry(NetQuery.EntryName, TRUE, &Status);
@@ -243,49 +241,49 @@ Routine Description:
                                    (Entry.IsNil())? 0: NS_FULLPATH_INTERFACE,
                                    &Status);
 
-	    if (Status)
+        if (Status)
                 continue;
 
             DLIST(3, NetQuery.WkstaName  << " requested " << NetQuery.Interface << nl);
 
-	    cbPSback = sizeof(NRback.Buffer);
+        cbPSback = sizeof(NRback.Buffer);
 
-	    LookupStatus = NetLookUp(&LookupHandle, pQuery);
+        LookupStatus = NetLookUp(&LookupHandle, pQuery);
 
             if (LookupStatus != NSI_S_OK)
                delete pQuery;
 
-	    // form the name of the return mail slot, from the request
+        // form the name of the return mail slot, from the request
 
             UICHAR ReturnName[sizeof(MAILNAME(c)) + sizeof(NetQuery.WkstaName)];
 
             ReturnName[0] = NIL;
             CatUZ(CatUZ(ReturnName, NetQuery.WkstaName), PMAILNAME_C);
 
-	    {
-	        WRITE_MAIL_SLOT MSReply(ReturnName, NIL, &Status);
+        {
+            WRITE_MAIL_SLOT MSReply(ReturnName, NIL, &Status);
 
-	        // for all the return PS, write then back to the net
+            // for all the return PS, write then back to the net
 
-	        while (LookupStatus == 0 && Status == 0) {
+            while (LookupStatus == 0 && Status == 0) {
 
-	    	cbPSback = sizeof(NRback.Buffer);
+            cbPSback = sizeof(NRback.Buffer);
 
-	    	LookupStatus = NetLookUpNext(LookupHandle,
+            LookupStatus = NetLookUpNext(LookupHandle,
                         NRback.Buffer, &cbPSback);
 
                     if (! LookupStatus)
-	    	        MailStatus = MSReply.Write((char *) &NRback,
+                    MailStatus = MSReply.Write((char *) &NRback,
                             (WORD) sizeof(NRback.Buffer) - cbPSback +
                             sizeof(NRback.Domain));
 
-	    	if (MailStatus)
-	    	    break;
-	        }
+            if (MailStatus)
+                break;
+            }
 
-	        if (LookupHandle)
-	    	    NetLookUpClose(LookupHandle);
-	    }
+            if (LookupHandle)
+                NetLookUpClose(LookupHandle);
+        }
         }
     }
 }
@@ -520,10 +518,10 @@ Returns:
     // first determine the size of buffer needed for this object.
 
     cbNeeded = sizeof(long) +
-	       sizeof(ENTRY_SERVER_ITEM) +
-	       TheEntry().MarshallSize() +
-	       TheObjectDA().MarshallSize() +
-	       StringBinding.Size();
+           sizeof(ENTRY_SERVER_ITEM) +
+           TheEntry().MarshallSize() +
+           TheObjectDA().MarshallSize() +
+           StringBinding.Size();
 
     if (cbNeeded > *cbBuffer)
         return(FALSE);
@@ -638,9 +636,9 @@ Returns:
     // first determine the size of buffer needed for this object.
 
     cbNeeded = sizeof(long) +
-	       sizeof(ENTRY_GROUP_ITEM) +
-	       EntryNode->TheEntry().MarshallSize() +
-	       Member.Size();
+           sizeof(ENTRY_GROUP_ITEM) +
+           EntryNode->TheEntry().MarshallSize() +
+           Member.Size();
 
     if (cbNeeded > *cbBuffer)
         return(FALSE);
@@ -740,10 +738,10 @@ Returns:
     PB Buffer;
     int MailStatus;
     BOOL fReturn = FALSE;
-    static long timeLast;	// last time the GID was queried for
-    static long timeTotal;	// total time querying the net
-    long timeStart;		// time started the query
-    ULONG waitCur = waitOnRead;	// current wait time for replys
+    static long timeLast;   // last time the GID was queried for
+    static long timeTotal;  // total time querying the net
+    long timeStart;     // time started the query
+    ULONG waitCur = waitOnRead; // current wait time for replys
     PUZ ForeignDomain, Domain;
     long Type;
     UICHAR DomainBuffer[DOMAIN_MAX];
@@ -751,8 +749,8 @@ Returns:
     int cbRead;
     NetReply NRquery;
 
-    if (!hMailSlot)		// net not started, just return
-	return(NSI_S_ENTRY_NOT_FOUND);
+    if (!hMailSlot)     // net not started, just return
+    return(NSI_S_ENTRY_NOT_FOUND);
 
     NetRequest.WkstaName[0] = NIL;
     CatUZ(NetRequest.WkstaName, SelfName);
@@ -762,7 +760,7 @@ Returns:
     CLAIM_MUTEX Update(pESnet);
 
     timeStart = CurrentTimeMS();
-    timeLast =	CurrentTime();
+    timeLast =  CurrentTime();
 
     WRITE_MAIL_SLOT MSquery(PMAILNAME_S, Domain, &Status);
     if (Status)
@@ -820,12 +818,12 @@ Returns:
             }
         }
 
-	cbRead = sizeof(NRquery);
-	fReturn = TRUE;
+    cbRead = sizeof(NRquery);
+    fReturn = TRUE;
 
-	// half the wait period everytime you get a response from the net
+    // half the wait period everytime you get a response from the net
 
-	waitCur >>= 1;
+    waitCur >>= 1;
     }
 
     timeTotal += CurrentTimeMS() - timeStart;
@@ -927,7 +925,10 @@ Routine Description:
 
        if ( (Status) || (PrimaryLocHandle == 0) )
          {
-           ASSERT(Status == RPC_S_SERVER_UNAVAILABLE);
+         // BUGBUG I don't understand why this assert is too restrictive
+         // in a Cairo domain.
+         //
+         // ASSERT(Status == RPC_S_SERVER_UNAVAILABLE);
            return(NSI_S_NO_MASTER_LOCATOR);
          }
 
@@ -994,7 +995,7 @@ Routine Description:
                 break;
 
 
-             for (int i = 0; i < BindingVector->count; i++)
+             for (unsigned int i = 0; i < BindingVector->count; i++)
                {
 
                  DLIST(3, " upding local w/\n" <<
@@ -1039,7 +1040,7 @@ Routine Description:
                                        &Error
                                        );
 
-                   for (int j = 0; UuidVector && j < UuidVector->count; j++)
+                   for (unsigned int j = 0; UuidVector && j < UuidVector->count; j++)
                       MIDL_user_free((void *) UuidVector->uuid[j]);
 
                    if (UuidVector != 0)
@@ -1181,7 +1182,7 @@ Returns:
     CLAIM_MUTEX Update(pESaccess);
 
     if (pRP)
-	delete(pRP);
+    delete(pRP);
 
     ASSERT(AssertHeap());
 
@@ -1189,10 +1190,10 @@ Returns:
 }
 
 
-ostream& operator << (		// output a formated STATICTS structure
+ostream& operator << (      // output a formated STATICTS structure
 
-OUT ostream& pSB,		// stream buffer to write to
-IN  STATICTS& pSTAT		// and the STATICS
+OUT ostream& pSB,       // stream buffer to write to
+IN  STATICTS& pSTAT     // and the STATICS
 
 )/*-----------------------------------------------------------------------*/
 {
@@ -1210,4 +1211,3 @@ IN  STATICTS& pSTAT		// and the STATICS
     outField(cTimeOut);
     return (pSB  << nl);
 }
-

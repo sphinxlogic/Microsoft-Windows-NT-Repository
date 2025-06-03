@@ -122,9 +122,17 @@ Return Value:
 
         tparms = &ioreq2.x.ioFormatRequest.tape_cfg;
         Context->CurrentTape.LastSegment = (SEGMENT)tparms->log_segments - 1;
+
+        // NOTE; format code must be set before the next call.  This
+        // will allow the next call to correctly select the location for
+        // the bad sector map.
         Context->CurrentTape.TapeFormatCode = tparms->tape_format_code;
 
-        CheckedDump(QIC117SHOWTD,(
+        // Select location and type for bad sector map
+        ASSERT(q117SelectBSMLocation(Context) != 0);
+
+
+        CheckedDump(QIC117INFO,(
             "q117Format: Done with format of %x tracks. Last seg %x,%x\n",
             ioreq2.x.ioFormatRequest.tracks,
             tparms->formattable_segments - 1,
@@ -136,7 +144,7 @@ Return Value:
         // we got some real problems.
         //
         if ((Context->CurrentTape.LastSegment > MAX_BAD_BLOCKS) &&
-            (Context->CurrentTape.TapeFormatCode == QIC_FORMAT)) {
+            (Context->CurrentTape.BadSectorMapFormat == BadMap4ByteArray)) {
 
             ret = ERROR_ENCODE(ERR_PROGRAM_FAILURE, FCT_ID, 1);
 
@@ -151,7 +159,9 @@ Return Value:
 
         RtlZeroMemory(
             Context->CurrentTape.BadMapPtr,
-            sizeof(BAD_MAP));
+            Context->CurrentTape.BadSectorMapSize);
+        Context->CurrentTape.CurBadListIndex = 0;
+
 
         //
         // verify the tape (this will set up the bad sector map)
@@ -280,6 +290,7 @@ Return Value:
 
 {
     dStatus ret = ERR_NO_ERR;         // Return value from other routines called.
+    int BsmOffset;
 
     //
     //      In two of the following calculations, we are changing from the number
@@ -388,13 +399,21 @@ Return Value:
     // set format lot code
     //
 
-    if (Context->drive_type == QIC40_DRIVE) {
+    switch (Context->CurrentTape.TapeFormatCode) {
+    case QIC_FORMAT:
+        strcpy(Header->LotCode,"User Formatted,  205 foot tape");
+        break;
 
-        strcpy(Header->LotCode,"User Formatted,  QIC 40 rev G.");
+    case QICEST_FORMAT:
+        strcpy(Header->LotCode,"User Formatted,  1100 foot tape");
+        break;
 
-    } else {
+    case QICFLX_FORMAT:
+        strcpy(Header->LotCode,"User Formatted,  Variable sector format");
 
-        strcpy(Header->LotCode,"User Formatted,  QIC 80 rev D.");
+    case QIC_XLFORMAT:
+        strcpy(Header->LotCode,"User Formatted,  Flex-Format");
+        break;
 
     }
 
@@ -404,10 +423,18 @@ Return Value:
     // fill in bad sector map just generated
     //
 
+    BsmOffset = (char *)Context->CurrentTape.BadMapPtr-(char *)(Context->CurrentTape.TapeHeader);
+
+    CheckedDump(QIC117INFO,(
+        "q117Format: Updating tape header.  Format code: %x, BSM Offset: %x\n",
+        Context->CurrentTape.TapeFormatCode,
+        BsmOffset
+        ));
+
     RtlMoveMemory(
-        &(Header->BadMap),
+        ((char *)Header)+BsmOffset,
         Context->CurrentTape.BadMapPtr,
-        sizeof(BAD_MAP));
+        Context->CurrentTape.BadSectorMapSize);
 
     return(ret);
 }

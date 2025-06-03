@@ -22,8 +22,7 @@ BOOL	 fBlock = FALSE;
 PCHAR	 pCommand32;
 PCHAR	 pEnv32;
 DWORD	 dwExitCode32;
-BOOL	 IsPifCallOut = TRUE;
-CHAR	 cmdHomeDirectory [] = "C:\\";
+CHAR     cmdHomeDirectory [] = "C:\\";
 CHAR	 chDefaultDrive;
 CHAR	 comspec[]="COMSPEC=";
 BOOL     fSoftpcRedirection;
@@ -36,7 +35,7 @@ BOOL	 IsFirstVDM = TRUE;
 BOOL	 DontCheckDosBinaryType = FALSE;
 WORD	 Exe32ActiveCount = 0;
 
-ULONG	iWOWTaskId; // Temporary variable till we get multitasking in WOW
+
 
 // Redirection Support variables
 

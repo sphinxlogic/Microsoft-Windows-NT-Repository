@@ -23,6 +23,7 @@ Revision History:
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cvtoem.h>
 
 BOOL fVerbose;
 
@@ -191,8 +192,8 @@ DisplayAlias(
 
 int _CRTAPI1
 CmpNamesRoutine(
-    PVOID Element1,
-    PVOID Element2
+    const VOID *Element1,
+    const VOID *Element2
     )
 {
     return( strcmp( *(LPSTR *)Element1, *(LPSTR *)Element2 ) );
@@ -229,7 +230,7 @@ DisplayAliases(
         nExeNames = 0;
         s = ExeName;
         while (*s) {
-            strupr( s );
+            _strupr( s );
             nExeNames++;
             while (*s++) {
                 }
@@ -506,4 +507,3 @@ main(
     exit( rc );
     return rc;
 }
-

@@ -42,6 +42,7 @@ NtfsDeleteAllocationInternal (
     );
 
 #ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE, NtfsPreloadAllocation)
 #pragma alloc_text(PAGE, NtfsAddAllocation)
 #pragma alloc_text(PAGE, NtfsAllocateAttribute)
 #pragma alloc_text(PAGE, NtfsBuildMappingPairs)
@@ -52,6 +53,111 @@ NtfsDeleteAllocationInternal (
 #endif
 
 
+ULONG
+NtfsPreloadAllocation (
+    IN PIRP_CONTEXT IrpContext,
+    IN OUT PSCB Scb,
+    IN VCN StartingVcn,
+    IN VCN EndingVcn
+    )
+
+/*++
+
+Routine Description:
+
+    This routine assures that all ranges of the Mcb are loaded in the specified
+    Vcn range
+
+Arguments:
+
+    Scb - Specifies which Scb is to be preloaded
+
+    StartingVcn - Specifies the first Vcn to be loaded
+
+    EndingVcn - Specifies the last Vcn to be loaded
+
+Return Value:
+
+    Number of ranges spanned by the load request.
+
+--*/
+
+{
+    VCN CurrentVcn, LastCurrentVcn;
+    LCN Lcn;
+    LONGLONG Count;
+    PVOID RangePtr;
+    ULONG RunIndex;
+    ULONG RangesLoaded = 0;
+
+    PAGED_CODE();
+
+    //
+    //  Start with starting Vcn
+    //
+
+    CurrentVcn = StartingVcn;
+
+    //
+    //  Always load the nonpaged guys from the front, so we don't
+    //  produce an Mcb with a "known hole".
+    //
+
+    if (FlagOn(Scb->Fcb->FcbState, FCB_STATE_NONPAGED)) {
+        CurrentVcn = 0;
+    }
+
+    //
+    //  Loop until it's all loaded.
+    //
+
+    while (CurrentVcn <= EndingVcn) {
+
+        //
+        //  Remember this CurrentVcn as a way to know when we have hit the end
+        //  (stopped making progress).
+        //
+
+        LastCurrentVcn = CurrentVcn;
+
+        //
+        //  Load range with CurrentVcn, and if it is not there, get out.
+        //
+
+        (VOID)NtfsLookupAllocation(IrpContext, Scb, CurrentVcn, &Lcn, &Count, &RangePtr, &RunIndex);
+
+        //
+        //  Find out how many runs there are in this range
+        //
+
+        if (!NtfsNumberOfRunsInRange(&Scb->Mcb, RangePtr, &RunIndex) || (RunIndex == 0)) {
+            break;
+        }
+
+        //
+        //  Get the highest run in this range and calculate the next Vcn beyond this range.
+        //
+
+        NtfsGetNextNtfsMcbEntry(&Scb->Mcb, &RangePtr, RunIndex - 1, &CurrentVcn, &Lcn, &Count);
+
+        CurrentVcn += Count;
+
+        //
+        //  If we are making no progress, we must have hit the end of the allocation,
+        //  and we are done.
+        //
+
+        if (CurrentVcn == LastCurrentVcn) {
+            break;
+        }
+
+        RangesLoaded += 1;
+    }
+
+    return RangesLoaded;
+}
+
+
 BOOLEAN
 NtfsLookupAllocation (
     IN PIRP_CONTEXT IrpContext,
@@ -59,7 +165,8 @@ NtfsLookupAllocation (
     IN VCN Vcn,
     OUT PLCN Lcn,
     OUT PLONGLONG ClusterCount,
-    OUT PULONG Index OPTIONAL
+    OUT PVOID *RangePtr OPTIONAL,
+    OUT PULONG RunIndex OPTIONAL
     )
 
 /*++
@@ -84,7 +191,9 @@ Arguments:
                    specifies the number of unallocated Vcns exist beginning with
                    the specified Vcn.
 
-    Index - If specified, we return the run number for the start of the mapping.
+    RangePtr - If specified, we return the range index for the start of the mapping.
+
+    RunIndex - If specified, we return the run index within the range for the start of the mapping.
 
 Return Value:
 
@@ -100,15 +209,20 @@ Return Value:
     VCN HighestCandidate;
 
     BOOLEAN Found;
+    BOOLEAN EntryAdded;
+
+    VCN CapturedLowestVcn;
+    VCN CapturedHighestVcn;
 
     PVCB Vcb = Scb->Vcb;
+    BOOLEAN McbMutexAcquired = FALSE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_SCB( Scb );
 
-    DebugTrace(+1, Dbg, "NtfsLookupAllocation\n", 0);
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb);
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
+    DebugTrace( +1, Dbg, ("NtfsLookupAllocation\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Vcn = %I64x\n", Vcn) );
 
     //
     //  First try to look up the allocation in the mcb, and return the run
@@ -119,15 +233,7 @@ Return Value:
     //
 
     HighestCandidate = MAXLONGLONG;
-    if (((Found = FsRtlLookupLargeMcbEntry ( &Scb->Mcb, Vcn, Lcn, ClusterCount, NULL, NULL, Index ))
-
-            &&
-
-        (*Lcn != UNUSED_LCN))
-
-          ||
-
-        (Vcn < Scb->FirstUnknownVcn)
+    if ((Found = NtfsLookupNtfsMcbEntry( &Scb->Mcb, Vcn, Lcn, ClusterCount, NULL, NULL, RangePtr, RunIndex ))
 
           ||
 
@@ -165,28 +271,12 @@ Return Value:
             Found = FALSE;
         }
 
-        //
-        //  Now, if the Scb is owned exclusive, update the Highest Known Vcn, so we
-        //  will never lookup beyond that again.  We cannot maintain this field
-        //  during restart.
-        //
-
-        if (NtfsIsExclusiveScb(Scb) && !FlagOn(Scb->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS)) {
-
-            HighestCandidate = Vcn + *ClusterCount;
-
-            if (HighestCandidate > Scb->FirstUnknownVcn) {
-
-                Scb->FirstUnknownVcn = HighestCandidate;
-            }
-        }
-
         ASSERT( !Found ||
                 (*Lcn != 0) ||
-                (Scb == Scb->Vcb->BootFileScb) ||
-                (Scb->Vcb->BootFileScb == NULL) );
+                (NtfsEqualMftRef( &Scb->Fcb->FileReference, &BootFileReference )) ||
+                (NtfsEqualMftRef( &Scb->Fcb->FileReference, &VolumeFileReference )));
 
-        DebugTrace(-1, Dbg, "NtfsLookupAllocation -> %02lx\n", Found);
+        DebugTrace( -1, Dbg, ("NtfsLookupAllocation -> %02lx\n", Found) );
 
         return Found;
     }
@@ -198,42 +288,46 @@ Return Value:
     //  information.
     //
 
+    CapturedLowestVcn = MAXLONGLONG;
     NtfsInitializeAttributeContext( &Context );
 
     //
-    //  Lookup the attribute record for this Scb.
+    //  Make sure we have the main resource acquired shared so that the
+    //  attributes in the file record are not moving around.  We blindly
+    //  use Wait = TRUE.  Most of the time when we go to the disk for I/O
+    //  (and thus need mapping) we are synchronous, and otherwise, the Mcb
+    //  is virtually always loaded anyway and we do not get here.
     //
 
-    NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
-
-    //
-    //  If the allocation size in the Fcb is zero, then let's copy all of the
-    //  file sizes from the Attribute Record.
-    //
-
-    Attribute = NtfsFoundAttribute( &Context );
-
-    //
-    //  The desired Vcn is not currently in the Mcb.  We will loop to lookup all
-    //  the allocation, and we need to make sure we cleanup on the way out.
-    //
-    //  It is important to note that if we ever optimize this lookup to do random
-    //  access to the mapping pairs, rather than sequentially loading up the Mcb
-    //  until we get the Vcn he asked for, then NtfsDeleteAllocation will have to
-    //  be changed.
-    //
+    ExAcquireResourceShared( Scb->Header.Resource, TRUE );
 
     try {
 
         //
-        //  The first record must have LowestVcn == 0, or else something is wrong.
+        //  Lookup the attribute record for this Scb.
         //
 
-        ASSERT(Attribute->Form.Nonresident.LowestVcn == 0);
+        NtfsLookupAttributeForScb( IrpContext, Scb, &Vcn, &Context );
 
-        if (Attribute->Form.Nonresident.LowestVcn != 0) {
+        //
+        //  The desired Vcn is not currently in the Mcb.  We will loop to lookup all
+        //  the allocation, and we need to make sure we cleanup on the way out.
+        //
+        //  It is important to note that if we ever optimize this lookup to do random
+        //  access to the mapping pairs, rather than sequentially loading up the Mcb
+        //  until we get the Vcn he asked for, then NtfsDeleteAllocation will have to
+        //  be changed.
+        //
 
-            NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, Scb->Fcb );
+        //
+        //  Acquire exclusive access to the mcb to keep others from looking at
+        //  it while it is not fully loaded.  Otherwise they might see a hole
+        //  while we're still filling up the mcb
+        //
+
+        if (!FlagOn(Scb->Fcb->FcbState, FCB_STATE_NONPAGED)) {
+            NtfsAcquireNtfsMcbMutex( &Scb->Mcb );
+            McbMutexAcquired = TRUE;
         }
 
         //
@@ -255,6 +349,15 @@ Return Value:
             ASSERT( !NtfsIsAttributeResident(Attribute) );
 
             //
+            //  Define the new range.
+            //
+
+            NtfsDefineNtfsMcbRange( &Scb->Mcb,
+                                    CapturedLowestVcn = Attribute->Form.Nonresident.LowestVcn,
+                                    CapturedHighestVcn = Attribute->Form.Nonresident.HighestVcn,
+                                    McbMutexAcquired );
+
+            //
             //  Implement the decompression algorithm, as defined in ntfs.h.
             //
 
@@ -266,6 +369,7 @@ Return Value:
             //  Loop to process mapping pairs.
             //
 
+            EntryAdded = FALSE;
             while (!IsCharZero(*ch)) {
 
                 //
@@ -350,10 +454,25 @@ Return Value:
 
                         ASSERT( ((ULONG)CurrentLcn) != 0xffffffff );
 
-                        if (!FsRtlAddLargeMcbEntry( &Scb->Mcb,
-                                                    CurrentVcn,
-                                                    CurrentLcn,
-                                                    ClustersToAdd )) {
+#ifdef NTFS_CHECK_BITMAP
+                        //
+                        //  Make sure these bits are allocated in our copy of the bitmap.
+                        //
+
+                        if ((Vcb->BitmapCopy != NULL) &&
+                            !NtfsCheckBitmap( Vcb,
+                                              (ULONG) CurrentLcn,
+                                              (ULONG) ClustersToAdd,
+                                              TRUE )) {
+
+                            NtfsBadBitmapCopy( IrpContext, (ULONG) CurrentLcn, (ULONG) ClustersToAdd );
+                        }
+#endif
+                        if (!NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                                                  CurrentVcn,
+                                                  CurrentLcn,
+                                                  ClustersToAdd,
+                                                  McbMutexAcquired )) {
 
                             ASSERTMSG( "Unable to add entry to Mcb\n", FALSE );
 
@@ -363,9 +482,21 @@ Return Value:
                                              Scb->Fcb );
                         }
 
-
+                        EntryAdded = TRUE;
                     }
                 }
+            }
+
+            //
+            //  Make sure that at least the Mcb gets loaded.
+            //
+
+            if (!EntryAdded) {
+                NtfsAddNtfsMcbEntry( &Scb->Mcb,
+                                     CapturedLowestVcn,
+                                     UNUSED_LCN,
+                                     1,
+                                     McbMutexAcquired );
             }
 
         } while (( Vcn >= HighestCandidate )
@@ -376,62 +507,83 @@ Return Value:
                                                 Scb,
                                                 &Context ));
 
+        //
+        //  Now free the mutex and lookup in the Mcb while we still own
+        //  the resource.
+        //
+
+        if (McbMutexAcquired) {
+            NtfsReleaseNtfsMcbMutex( &Scb->Mcb );
+            McbMutexAcquired = FALSE;
+        }
+
+        if (NtfsLookupNtfsMcbEntry( &Scb->Mcb, Vcn, Lcn, ClusterCount, NULL, NULL, RangePtr, RunIndex )) {
+
+            Found = (BOOLEAN)(*Lcn != UNUSED_LCN);
+
+            if (Found) { ASSERT_LCN_RANGE_CHECKING( Scb->Vcb, (*Lcn + *ClusterCount) ); }
+
+        } else {
+
+            Found = FALSE;
+
+            //
+            //  At the end of file, we pretend there is one large hole!
+            //
+
+            if (HighestCandidate >=
+                LlClustersFromBytes(Vcb, Scb->Header.AllocationSize.QuadPart)) {
+                HighestCandidate = MAXLONGLONG;
+            }
+
+            *ClusterCount = HighestCandidate - Vcn;
+        }
+
     } finally {
 
         DebugUnwind( NtfsLookupAllocation );
 
         //
+        //  If this is an error case then we better unload what we've just
+        //  loaded
+        //
+
+        if (AbnormalTermination() &&
+            (CapturedLowestVcn != MAXLONGLONG) ) {
+
+            NtfsUnloadNtfsMcbRange( &Scb->Mcb,
+                                    CapturedLowestVcn,
+                                    CapturedHighestVcn,
+                                    FALSE,
+                                    McbMutexAcquired );
+        }
+
+        //
+        //  In all cases we free up the mcb that we locked before entering
+        //  the try statement
+        //
+
+        if (McbMutexAcquired) {
+            NtfsReleaseNtfsMcbMutex( &Scb->Mcb );
+        }
+
+        ExReleaseResource( Scb->Header.Resource );
+
+        //
         // Cleanup the attribute context on the way out.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
-
-    }
-
-    if (FsRtlLookupLargeMcbEntry ( &Scb->Mcb, Vcn, Lcn, ClusterCount, NULL, NULL, Index )) {
-
-        Found = (BOOLEAN)(*Lcn != UNUSED_LCN);
-
-        if (Found) { ASSERT_LCN_RANGE_CHECKING( Scb->Vcb, (Lcn->QuadPart + *ClusterCount) ); }
-
-    } else {
-
-        Found = FALSE;
-
-        //
-        //  At the end of file, we pretend there is one large hole!
-        //
-
-        if (HighestCandidate >=
-            LlClustersFromBytes(Vcb, Scb->Header.AllocationSize.QuadPart)) {
-            HighestCandidate = MAXLONGLONG;
-        }
-
-        *ClusterCount = HighestCandidate - Vcn;
-    }
-
-    //
-    //  Now, if the Scb is owned exclusive, update the Highest Known Vcn, so we
-    //  will never lookup beyond that again.  We cannot maintain this field
-    //  during restart.
-    //
-
-    if (NtfsIsExclusiveScb(Scb) && !FlagOn(Scb->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS)) {
-
-        if (HighestCandidate > Scb->FirstUnknownVcn) {
-
-            Scb->FirstUnknownVcn = HighestCandidate;
-        }
+        NtfsCleanupAttributeContext( &Context );
     }
 
     ASSERT( !Found ||
             (*Lcn != 0) ||
-            (Scb == Scb->Vcb->BootFileScb) ||
-            (Scb->Vcb->BootFileScb == NULL) );
+            (NtfsEqualMftRef( &Scb->Fcb->FileReference, &BootFileReference )) ||
+            (NtfsEqualMftRef( &Scb->Fcb->FileReference, &VolumeFileReference )));
 
-    DebugTrace2(0, Dbg, "Lcn < %08lx, %08lx\n", Lcn->LowPart, Lcn->HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount < %08lx, %08lx\n", ClusterCount->LowPart, ClusterCount->HighPart);
-    DebugTrace(-1, Dbg, "NtfsLookupAllocation -> %02lx\n", Found);
+    DebugTrace( 0, Dbg, ("Lcn < %0I64x\n", *Lcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount < %0I64x\n", *ClusterCount) );
+    DebugTrace( -1, Dbg, ("NtfsLookupAllocation -> %02lx\n", Found) );
 
     return Found;
 }
@@ -491,20 +643,28 @@ Return Value:
     BOOLEAN NewLocationSpecified;
     ATTRIBUTE_ENUMERATION_CONTEXT Context;
     LONGLONG ClusterCount, SavedClusterCount;
+    BOOLEAN FullAllocation;
     PFCB Fcb = Scb->Fcb;
-    PLARGE_MCB Mcb = &Scb->Mcb;
 
     PAGED_CODE();
 
+    //
+    //  Either there is no compression taking place or the attribute
+    //  type code allows compression to be specified in the header.
+    //  $INDEX_ROOT is a special hack to store the inherited-compression
+    //  flag.
+    //
+
     ASSERT( AttributeFlags == 0
             || AttributeTypeCode == $INDEX_ROOT
-            || AttributeTypeCode == $DATA );
+            || NtfsIsTypeCodeCompressible( AttributeTypeCode ));
+
     //
     //  If the file is being created compressed, then we need to round its
     //  size to a compression unit boundary.
     //
 
-    if (FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED) &&
+    if ((Scb->CompressionUnit != 0) &&
         (Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA)) {
 
         ((ULONG)Size) |= Scb->CompressionUnit - 1;
@@ -541,7 +701,7 @@ Return Value:
 
         if (!FlagOn( Scb->ScbState, SCB_STATE_FILE_SIZE_LOADED )) {
 
-            Scb->HighestVcnToDisk =
+            Scb->ValidDataToDisk =
             Scb->Header.AllocationSize.QuadPart =
             Scb->Header.FileSize.QuadPart =
             Scb->Header.ValidDataLength.QuadPart = 0;
@@ -560,7 +720,23 @@ Return Value:
 
         NtfsSnapshotScb( IrpContext, Scb );
 
+        if (UninitializeOnClose &&
+            NtfsPerformQuotaOperation( Fcb ) &&
+            !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE ) &&
+            FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+            ASSERT( NtfsIsTypeCodeSubjectToQuota( AttributeTypeCode ));
+
+            //
+            //  This is a new stream with zero size indicate
+            //  the quota is based on allocation size.
+            //
+
+            SetFlag( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED );
+        }
+
         UninitializeOnClose = FALSE;
+
         //
         //  First allocate the space he wants.
         //
@@ -568,35 +744,68 @@ Return Value:
         SavedClusterCount =
         ClusterCount = LlClustersFromBytes(Fcb->Vcb, Size);
 
+        Scb->TotalAllocated = 0;
+
         if (Size != 0) {
 
             ASSERT( NtfsIsExclusiveScb( Scb ));
 
             Scb->ScbSnapshot->LowestModifiedVcn = 0;
+            Scb->ScbSnapshot->HighestModifiedVcn = MAXLONGLONG;
 
             NtfsAllocateClusters( IrpContext,
                                   Fcb->Vcb,
-                                  Mcb,
+                                  Scb,
                                   (LONGLONG)0,
-                                  (BOOLEAN)(AttributeTypeCode != $DATA),
+                                  (BOOLEAN)!NtfsIsTypeCodeUserData( AttributeTypeCode ),
                                   ClusterCount,
                                   &ClusterCount );
+
+#ifdef _CAIRO_
+
+            //
+            //  Make sure the owner is allowed to have these
+            //  clusters.
+            //
+
+            if (FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+                LONGLONG Delta = LlBytesFromClusters(Fcb->Vcb, ClusterCount);
+
+                ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+                ASSERT( !NtfsPerformQuotaOperation( Fcb ) ||
+                        FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED) ||
+                        FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE ));
+
+                NtfsConditionallyUpdateQuota( IrpContext,
+                                              Fcb,
+                                              &Delta,
+                                              LogIt,
+                                              TRUE );
+            }
+
+#endif // _CAIRO_
+
         }
 
         //
-        //  Now create the attribute.
+        //  Now create the attribute.  Remember if this routine
+        //  cut the allocation because of logging problems.
         //
 
-        NtfsCreateAttributeWithAllocation( IrpContext,
-                                           Scb,
-                                           AttributeTypeCode,
-                                           AttributeName,
-                                           AttributeFlags,
-                                           LogIt,
-                                           NewLocationSpecified,
-                                           NewLocation );
+        FullAllocation = NtfsCreateAttributeWithAllocation( IrpContext,
+                                                            Scb,
+                                                            AttributeTypeCode,
+                                                            AttributeName,
+                                                            AttributeFlags,
+                                                            LogIt,
+                                                            NewLocationSpecified,
+                                                            NewLocation );
 
-        if (AllocateAll && (ClusterCount < SavedClusterCount)) {
+        if (AllocateAll &&
+            (!FullAllocation ||
+             (ClusterCount < SavedClusterCount))) {
 
             //
             //  If we are creating the attribute, then we only need to pass a
@@ -610,6 +819,13 @@ Return Value:
                                ClusterCount,
                                (SavedClusterCount - ClusterCount),
                                FALSE );
+
+            //
+            //  Show that we allocated all of the space.
+            //
+
+            ClusterCount = SavedClusterCount;
+            FullAllocation = TRUE;
         }
 
     } finally {
@@ -622,7 +838,7 @@ Return Value:
 
         if (!NewLocationSpecified) {
 
-            NtfsCleanupAttributeContext( IrpContext, &Context );
+            NtfsCleanupAttributeContext( &Context );
         }
 
         //
@@ -637,7 +853,7 @@ Return Value:
         }
     }
 
-    return (SavedClusterCount >= ClusterCount);
+    return (FullAllocation && (SavedClusterCount <= ClusterCount));
 }
 
 
@@ -681,13 +897,9 @@ Return Value:
 {
     LONGLONG DesiredClusterCount;
 
-    LCN TempLcn;
-    LONGLONG Clusters;
     ATTRIBUTE_ENUMERATION_CONTEXT Context;
     BOOLEAN Extending;
-    BOOLEAN Allocated;
 
-    BOOLEAN ClustersOnlyInMcb = FALSE;
 
     PVCB Vcb = IrpContext->Vcb;
 
@@ -699,7 +911,7 @@ Return Value:
     ASSERT_SCB( Scb );
     ASSERT_EXCLUSIVE_SCB( Scb );
 
-    DebugTrace(+1, Dbg, "NtfsAddAllocation\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsAddAllocation\n") );
 
     //
     //  We cannot add space in this high level routine during restart.
@@ -708,7 +920,7 @@ Return Value:
 
     if (FlagOn(Scb->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS)) {
 
-        DebugTrace(-1, Dbg, "NtfsAddAllocation (Nooped for Restart) -> VOID\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsAddAllocation (Nooped for Restart) -> VOID\n") );
 
         return;
     }
@@ -728,16 +940,10 @@ Return Value:
     }
 
     //
-    //
-    //  First call NtfsLookupAllocation to make sure the Mcb is loaded up.
+    //  First make sure the Mcb is loaded.
     //
 
-    Allocated = NtfsLookupAllocation( IrpContext,
-                                      Scb,
-                                      StartingVcn,
-                                      &TempLcn,
-                                      &Clusters,
-                                      NULL );
+    NtfsPreloadAllocation( IrpContext, Scb, StartingVcn,  StartingVcn + ClusterCount - 1 );
 
     //
     //  Now make the call to add the new allocation, and get out if we do
@@ -747,8 +953,8 @@ Return Value:
     //  clusters for the Mft.
     //
 
-    Extending = LlBytesFromClusters(Vcb, (StartingVcn + ClusterCount)) >=
-                                                            Scb->Header.AllocationSize.QuadPart;
+    Extending = (BOOLEAN)((LONGLONG)LlBytesFromClusters(Vcb, (StartingVcn + ClusterCount)) >
+                          Scb->Header.AllocationSize.QuadPart);
 
     //
     //  Check if we need to modified the base Vcn value stored in the snapshot for
@@ -762,10 +968,26 @@ Return Value:
         NtfsSnapshotScb( IrpContext, Scb );
     }
 
-    if (StartingVcn < Scb->ScbSnapshot->LowestModifiedVcn) {
+    if (Scb->ScbSnapshot != NULL) {
 
-        Scb->ScbSnapshot->LowestModifiedVcn = StartingVcn;
+        if (StartingVcn < Scb->ScbSnapshot->LowestModifiedVcn) {
+
+            Scb->ScbSnapshot->LowestModifiedVcn = StartingVcn;
+        }
+
+        LlTemp1 -= 1;
+        if (LlTemp1 > Scb->ScbSnapshot->HighestModifiedVcn) {
+
+            if (Extending) {
+                Scb->ScbSnapshot->HighestModifiedVcn = MAXLONGLONG;
+            } else {
+                Scb->ScbSnapshot->HighestModifiedVcn = LlTemp1;
+            }
+        }
     }
+
+    ASSERT( (Scb->ScbSnapshot != NULL) ||
+            !NtfsIsTypeCodeUserData( Scb->AttributeTypeCode ));
 
     if (AskForMore) {
 
@@ -811,6 +1033,33 @@ Return Value:
 
         DesiredClusterCount = ClusterCount << 5;
 
+#ifdef _CAIRO_
+
+        if (NtfsPerformQuotaOperation(Scb->Fcb)) {
+
+            NtfsGetRemainingQuota( IrpContext,
+                                   Scb->Fcb->OwnerId,
+                                   &LlTemp1,
+                                   &Scb->Fcb->QuotaControl->QuickIndexHint );
+
+            LlTemp1 =  LlClustersFromBytesTruncate( Vcb, LlTemp1 );
+
+            if (DesiredClusterCount > LlTemp1) {
+
+                //
+                //  The owner is near their quota limit.  Do not grow the
+                //  file past the requested amount.  Note we do not bother
+                //  calculating a desired amount based on the remaining quota.
+                //  This keeps us from using up a bunch of quota that we may
+                //  not need when the user is near the limit.
+                //
+
+                DesiredClusterCount = ClusterCount;
+            }
+        }
+
+#endif _CAIRO_
+
         //
         //  Make sure we don't extend this request into more than 32 bits.
         //
@@ -849,15 +1098,21 @@ Return Value:
     //  adjustment could cause us to noop the call.
     //
 
-    if (FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED) &&
-        (Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA) &&
-        (StartingVcn <= Scb->HighestVcnToDisk)) {
+    if ((Scb->CompressionUnit != 0) &&
+        (StartingVcn < LlClustersFromBytes(Vcb, (Scb->ValidDataToDisk + Scb->CompressionUnit - 1) &
+                                                ~(Scb->CompressionUnit - 1)))) {
 
         ULONG CompressionUnitDeficit;
 
         CompressionUnitDeficit = ClustersFromBytes( Scb->Vcb, Scb->CompressionUnit );
 
         if (((ULONG)StartingVcn) & (CompressionUnitDeficit - 1)) {
+
+            //
+            //  BUGBUG: It appears this code is never called.
+            //
+
+            ASSERT(FALSE);
 
             CompressionUnitDeficit -= ((ULONG)StartingVcn) & (CompressionUnitDeficit - 1);
             if (ClusterCount <= CompressionUnitDeficit) {
@@ -879,6 +1134,24 @@ Return Value:
     //
 
     NtfsInitializeAttributeContext( &Context );
+
+#ifdef _CAIRO_
+    if (Extending &&
+        FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA ) &&
+        NtfsPerformQuotaOperation( Scb->Fcb )) {
+
+        ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+        //
+        //  The quota index must be acquired before the mft scb is acquired.
+        //
+
+        ASSERT(!NtfsIsExclusiveScb( Vcb->MftScb ) || ExIsResourceAcquiredSharedLite( Vcb->QuotaTableScb->Fcb->Resource ));
+
+        NtfsAcquireQuotaControl( IrpContext, Scb->Fcb->QuotaControl );
+
+    }
+#endif // _CAIRO_
 
     try {
 
@@ -917,27 +1190,29 @@ Return Value:
             //  Remember that the clusters are only in the Scb now.
             //
 
-            ClustersOnlyInMcb = TRUE;
-
             if (NtfsAllocateClusters( IrpContext,
                                       Scb->Vcb,
-                                      &Scb->Mcb,
+                                      Scb,
                                       StartingVcn,
-                                      (BOOLEAN) (Scb->AttributeTypeCode != $DATA),
+                                      (BOOLEAN)!NtfsIsTypeCodeUserData( Scb->AttributeTypeCode ),
                                       ClusterCount,
                                       &DesiredClusterCount )) {
+
 
                 //
                 //  We defer looking up the attribute to make the "already-allocated"
                 //  case faster.
                 //
 
-                NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
+                NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &Context );
 
                 //
                 //  Now add the space to the file record, if any was allocated.
                 //
+
                 if (Extending) {
+
+                    LlTemp1 = Scb->Header.AllocationSize.QuadPart;
 
                     NtfsAddAttributeAllocation( IrpContext,
                                                 Scb,
@@ -945,6 +1220,34 @@ Return Value:
                                                 NULL,
                                                 NULL );
 
+#ifdef _CAIRO_
+
+                    //
+                    //  Make sure the owner is allowed to have these
+                    //  clusters.
+                    //
+
+                    if (FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+                        ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+                        //
+                        //  Note the allocated clusters cannot be used
+                        //  here because StartingVcn may be greater
+                        //  then allocation size.
+                        //
+
+                        LlTemp1 = Scb->Header.AllocationSize.QuadPart - LlTemp1;
+
+                        ASSERT( !NtfsPerformQuotaOperation( Scb->Fcb ) || FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED));
+
+                        NtfsConditionallyUpdateQuota( IrpContext,
+                                                      Scb->Fcb,
+                                                      &LlTemp1,
+                                                      TRUE,
+                                                      TRUE );
+                    }
+#endif
                 } else {
 
                     NtfsAddAttributeAllocation( IrpContext,
@@ -961,8 +1264,6 @@ Return Value:
             } else {
                 DesiredClusterCount = ClusterCount;
             }
-
-            ClustersOnlyInMcb = FALSE;
 
             //  Toplevel action is currently incompatible with our error recovery.
             //
@@ -1037,7 +1338,7 @@ Return Value:
 
             if (DesiredClusterCount < ClusterCount) {
 
-                NtfsCleanupAttributeContext( IrpContext, &Context );
+                NtfsCleanupAttributeContext( &Context );
 
                 //
                 //  Commit the current transaction if we have one.
@@ -1067,26 +1368,16 @@ Return Value:
 
     } finally {
 
-        //
-        //  If we failed in NtfsAddAttributeAllocation, then we must free
-        //  the space in the Mcb.
-        //
-
-        if (ClustersOnlyInMcb) {
-
-            FsRtlRemoveLargeMcbEntry( &Scb->Mcb, StartingVcn, ClusterCount );
-        }
-
         DebugUnwind( NtfsAddAllocation );
 
         //
         //  Cleanup the attribute context on the way out.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        NtfsCleanupAttributeContext( &Context );
     }
 
-    DebugTrace(-1, Dbg, "NtfsAddAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsAddAllocation -> VOID\n") );
 
     return;
 }
@@ -1140,43 +1431,22 @@ Return Value:
 --*/
 
 {
-    VCN MyStartingVcn;
-    ULONG CurrentMcbIndex;
-    ULONG FirstMcbIndex = 0;
-    ULONG LastMcbIndex = 0;
+    VCN MyStartingVcn, MyEndingVcn;
+    VCN BlockStartingVcn = 0;
+    PVOID FirstRangePtr;
+    ULONG FirstRunIndex;
+    PVOID LastRangePtr;
+    ULONG LastRunIndex;
     BOOLEAN BreakingUp = FALSE;
 
-    VCN TempVcn;
     LCN TempLcn;
     LONGLONG TempCount;
+    ULONG CompressionUnitInClusters = 1;
 
     PAGED_CODE();
 
-    //
-    //  First we call NtfsLookupAllocation to make sure the Mcb is loaded up.
-    //  It is important to note that this call relies on the *current* fact
-    //  that NtfsLookupAllocation brings in all of the run information up
-    //  to the Vcn we call him with.
-    //
-
-    NtfsLookupAllocation( IrpContext, Scb, EndingVcn, &TempLcn, &TempCount, NULL );
-
-    //
-    //  Check if the starting Vcn is lower than the value captured in
-    //  the snapshot.
-    //
-
-    ASSERT( NtfsIsExclusiveScb( Scb ));
-
-    if (Scb->ScbSnapshot == NULL) {
-
-        NtfsSnapshotScb( IrpContext, Scb );
-    }
-
-    if (Scb->ScbSnapshot != NULL &&
-        StartingVcn < Scb->ScbSnapshot->LowestModifiedVcn) {
-
-        Scb->ScbSnapshot->LowestModifiedVcn = StartingVcn;
+    if (Scb->CompressionUnit != 0) {
+        CompressionUnitInClusters = ClustersFromBytes( Scb->Vcb, Scb->CompressionUnit );
     }
 
     //
@@ -1188,8 +1458,7 @@ Return Value:
     //  adjustment could cause us to noop the call.
     //
 
-    if (FlagOn(Scb->ScbState, SCB_STATE_COMPRESSED) &&
-        (Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA)) {
+    if (Scb->CompressionUnit != 0) {
 
         //
         //  Now check if we are truncating at the end of the file.
@@ -1197,131 +1466,303 @@ Return Value:
 
         if (EndingVcn == MAXLONGLONG) {
 
-            ULONG CompressionUnitInClusters;
-
-            CompressionUnitInClusters = ClustersFromBytes( Scb->Vcb, Scb->CompressionUnit );
             StartingVcn = StartingVcn + (CompressionUnitInClusters - 1);
             ((ULONG)StartingVcn) &= ~(CompressionUnitInClusters - 1);
         }
     }
 
     //
-    //  See if we are possibly breaking up our calls.
+    //  Make sure we have a snapshot and update it with the range of this deallocation.
     //
 
-    if (BreakupAllowed &&
-        (FsRtlNumberOfRunsInLargeMcb(&Scb->Mcb) > MAXIMUM_RUNS_AT_ONCE)) {
+    ASSERT( NtfsIsExclusiveScb( Scb ));
 
-        //
-        //  Find first affected Mcb run.
-        //
+    if (Scb->ScbSnapshot == NULL) {
 
-        while (FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                          FirstMcbIndex,
-                                          &TempVcn,
-                                          &TempLcn,
-                                          &TempCount )
-
-                &&
-
-               (StartingVcn >= (TempVcn + TempCount))) {
-
-            FirstMcbIndex += 1;
-        }
-
-        //
-        //  Now find the last affected Mcb run.
-        //
-
-        LastMcbIndex = FirstMcbIndex + 1;
-
-        while ((EndingVcn >= (TempVcn + TempCount))
-
-                &&
-
-               FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                          LastMcbIndex,
-                                          &TempVcn,
-                                          &TempLcn,
-                                          &TempCount )) {
-
-            LastMcbIndex += 1;
-        }
-
-        LastMcbIndex -= 1;
+        NtfsSnapshotScb( IrpContext, Scb );
     }
 
     //
-    //  Loop to do one or more deallocate calls.
+    //  Make sure update the VCN range in the snapshot.  We need to
+    //  do it each pass through the loop
+    //
+
+    if (Scb->ScbSnapshot != NULL) {
+
+        if (StartingVcn < Scb->ScbSnapshot->LowestModifiedVcn) {
+
+            Scb->ScbSnapshot->LowestModifiedVcn = StartingVcn;
+        }
+
+        if (EndingVcn > Scb->ScbSnapshot->HighestModifiedVcn) {
+
+            Scb->ScbSnapshot->HighestModifiedVcn = EndingVcn;
+        }
+    }
+
+    ASSERT( (Scb->ScbSnapshot != NULL) ||
+            !NtfsIsTypeCodeUserData( Scb->AttributeTypeCode ));
+
+    //
+    //  We may not be able to preload the entire allocation for an
+    //  extremely large fragmented file.  The number of Mcb's may exhaust
+    //  available pool.  We will break the range to deallocate into smaller
+    //  ranges when preloading the allocation.
     //
 
     do {
 
+        LONGLONG ClustersPer4Gig;
+
         //
-        //  Now see if we can deallocate everything at once.
+        //  If this is a large file and breakup is allowed then see if we
+        //  want to break up the range of the deallocation.
         //
 
-        MyStartingVcn = StartingVcn;
-        CurrentMcbIndex = FirstMcbIndex;
-
-        if (BreakupAllowed &&
-            ((LastMcbIndex - CurrentMcbIndex) > MAXIMUM_RUNS_AT_ONCE)) {
+        if ((Scb->Header.AllocationSize.HighPart != 0) && BreakupAllowed) {
 
             //
-            //  Figure out where we can afford to truncate to.
+            //  If this is the first pass through then determine the starting point
+            //  for this range.
             //
 
-            CurrentMcbIndex = LastMcbIndex - MAXIMUM_RUNS_AT_ONCE;
-            FsRtlGetNextLargeMcbEntry( &Scb->Mcb,
-                                       CurrentMcbIndex,
-                                       &MyStartingVcn,
-                                       &TempLcn,
-                                       &TempCount );
+            if (BlockStartingVcn == 0) {
 
-            ASSERT(MyStartingVcn > StartingVcn);
+                ClustersPer4Gig = LlClustersFromBytesTruncate( Scb->Vcb,
+                                                               0x0000000100000000 );
+                MyEndingVcn = EndingVcn;
 
-            //
-            //  Adjust LastMcbIndex for next pass through the loop.
-            //  (Note the value of this field is only used now to
-            //  "pace" ourselves through the truncation, it is no
-            //  longer important if it actually knows where the last
-            //  Vcn is.)
-            //
+                if (EndingVcn == MAXLONGLONG) {
 
-            LastMcbIndex = CurrentMcbIndex;
+                    MyEndingVcn = LlClustersFromBytesTruncate( Scb->Vcb,
+                                                               Scb->Header.AllocationSize.QuadPart ) - 1;
+                }
 
-            //
-            //  Remember we are breaking up now, and that as a result
-            //  we have to log everything.
-            //
+                BlockStartingVcn = MyEndingVcn - ClustersPer4Gig;
 
-            BreakingUp = TRUE;
-            LogIt = TRUE;
+                //
+                //  Remember we are breaking up now, and that as a result
+                //  we have to log everything.
+                //
+
+                BreakingUp = TRUE;
+                LogIt = TRUE;
+
+            } else {
+
+                //
+                //  If we are truncating from the end of the file then raise CANT_WAIT.  This will
+                //  cause us to release our resources periodically when deleting a large file.
+                //
+
+                if (BreakingUp && (EndingVcn == MAXLONGLONG)) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
+
+                BlockStartingVcn -= ClustersPer4Gig;
+            }
+
+            if (BlockStartingVcn < StartingVcn) {
+
+                BlockStartingVcn = StartingVcn;
+
+            } else if (Scb->CompressionUnit != 0) {
+
+                //
+                //  Now check if we are truncating at the end of the file.
+                //  Always truncate to a compression unit boundary.
+                //
+
+                if (EndingVcn == MAXLONGLONG) {
+
+                    BlockStartingVcn += (CompressionUnitInClusters - 1);
+                    ((ULONG)BlockStartingVcn) &= ~(CompressionUnitInClusters - 1);
+                }
+            }
+
+        } else {
+
+            BlockStartingVcn = StartingVcn;
         }
 
         //
-        //  Now deallocate a range of clusters
+        //  First make sure the Mcb is loaded.  Note it is possible that
+        //  we could need the previous range loaded if the delete starts
+        //  at the beginning of a file record boundary, thus the -1.
         //
 
-        NtfsDeleteAllocationInternal( IrpContext,
-                                      FileObject,
-                                      Scb,
-                                      MyStartingVcn,
-                                      EndingVcn,
-                                      LogIt );
+        NtfsPreloadAllocation( IrpContext, Scb, ((BlockStartingVcn != 0) ? (BlockStartingVcn - 1) : 0), EndingVcn );
 
         //
-        //  Now, if we are breaking up this deallocation, then do some
-        //  transaction cleanup.
+        //  Loop to do one or more deallocate calls.
         //
 
-        if (BreakingUp) {
+        MyEndingVcn = EndingVcn;
+        do {
 
-            NtfsCheckpointCurrentTransaction( IrpContext );
-        }
+            //
+            //  Now lookup and get the indices for the first Vcn being deleted.
+            //  If we are off the end, get out.  We do this in the loop, because
+            //  conceivably deleting space could change the range pointer and
+            //  index of the first entry.
+            //
 
-    } while (MyStartingVcn != StartingVcn);
+            if (!NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                         BlockStartingVcn,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         &FirstRangePtr,
+                                         &FirstRunIndex )) {
 
+                break;
+            }
+
+            //
+            //  Now see if we can deallocate everything at once.
+            //
+
+            MyStartingVcn = BlockStartingVcn;
+            LastRunIndex = MAXULONG;
+
+            if (BreakupAllowed) {
+
+                //
+                //  Now lookup and get the indices for the last Vcn being deleted.
+                //  If we are off the end, get the last index.
+                //
+
+                if (!NtfsLookupNtfsMcbEntry( &Scb->Mcb,
+                                             MyEndingVcn,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             &LastRangePtr,
+                                             &LastRunIndex )) {
+
+                    NtfsNumberOfRunsInRange(&Scb->Mcb, LastRangePtr, &LastRunIndex);
+                }
+
+                //
+                //  If the Vcns to delete span multiple ranges, or there
+                //  are too many in the last range to delete, then we
+                //  will calculate the index of a run to start with for
+                //  this pass through the loop.
+                //
+
+                if ((FirstRangePtr != LastRangePtr) ||
+                    ((LastRunIndex - FirstRunIndex) > MAXIMUM_RUNS_AT_ONCE)) {
+
+                    //
+                    //  Figure out where we can afford to truncate to.
+                    //
+
+                    if (LastRunIndex >= MAXIMUM_RUNS_AT_ONCE) {
+                        LastRunIndex -= MAXIMUM_RUNS_AT_ONCE;
+                    } else {
+                        LastRunIndex = 0;
+                    }
+
+                    //
+                    //  Now lookup the first Vcn in this run.
+                    //
+
+                    NtfsGetNextNtfsMcbEntry( &Scb->Mcb,
+                                             &LastRangePtr,
+                                             LastRunIndex,
+                                             &MyStartingVcn,
+                                             &TempLcn,
+                                             &TempCount );
+
+                    ASSERT(MyStartingVcn > BlockStartingVcn);
+
+                    //
+                    //  If compressed, round down to a compression unit boundary.
+                    //
+
+                    ((ULONG)MyStartingVcn) &= ~(CompressionUnitInClusters - 1);
+
+                    //
+                    //  Remember we are breaking up now, and that as a result
+                    //  we have to log everything.
+                    //
+
+                    BreakingUp = TRUE;
+                    LogIt = TRUE;
+                }
+            }
+
+#ifdef _CAIRO_
+            //
+            // CAIROBUG Consider optimizing this code when the cairo ifdef's
+            // are removed.
+            //
+
+            //
+            // If this is a user data stream and we are truncating to end the
+            // return the quota to the owner.
+            //
+
+            if (FlagOn( Scb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA ) &&
+                EndingVcn == MAXLONGLONG) {
+
+                ASSERT( NtfsIsTypeCodeSubjectToQuota( Scb->AttributeTypeCode ));
+
+                ASSERT( !NtfsPerformQuotaOperation( Scb->Fcb ) ||
+                        FlagOn( Scb->ScbState, SCB_STATE_QUOTA_ENLARGED) ||
+                        FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE ));
+
+                //
+                //  Calculate the amount that allocation size is being reduced.
+                //
+
+                TempCount = LlBytesFromClusters( Scb->Vcb, MyStartingVcn ) -
+                            Scb->Header.AllocationSize.QuadPart;
+
+                NtfsConditionallyUpdateQuota( IrpContext,
+                                              Scb->Fcb,
+                                              &TempCount,
+                                              TRUE,
+                                              FALSE );
+
+            }
+#endif  //  _CAIRO_
+
+            //
+            //  Now deallocate a range of clusters
+            //
+
+            NtfsDeleteAllocationInternal( IrpContext,
+                                          FileObject,
+                                          Scb,
+                                          MyStartingVcn,
+                                          EndingVcn,
+                                          LogIt );
+
+            //
+            //  Now, if we are breaking up this deallocation, then do some
+            //  transaction cleanup.
+            //
+
+            if (BreakingUp) {
+
+                NtfsCheckpointCurrentTransaction( IrpContext );
+
+                //
+                //  Move the ending Vcn backwards in the file.  This will
+                //  let us move down to the next earlier file record if
+                //  this case spans multiple file records.
+                //
+
+                MyEndingVcn = MyStartingVcn - 1;
+            }
+
+        } while (MyStartingVcn != BlockStartingVcn);
+
+    } while (BlockStartingVcn != StartingVcn);
 }
 
 
@@ -1376,6 +1817,7 @@ Return Value:
     PATTRIBUTE_RECORD_HEADER Attribute;
     LONGLONG SizeInBytes, SizeInClusters;
     VCN Vcn1;
+    PVCB Vcb = Scb->Vcb;
     BOOLEAN AddSpaceBack = FALSE;
     BOOLEAN SplitMcb = FALSE;
     BOOLEAN UpdatedAllocationSize = FALSE;
@@ -1386,13 +1828,16 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeleteAllocation\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsDeleteAllocation\n") );
 
     //
     //  Calculate new allocation size, assuming truncate.
     //
 
-    SizeInBytes = LlBytesFromClusters( Scb->Vcb, StartingVcn );
+    SizeInBytes = LlBytesFromClusters( Vcb, StartingVcn );
+
+    ASSERT( (Scb->ScbSnapshot == NULL) ||
+            (Scb->ScbSnapshot->LowestModifiedVcn <= StartingVcn) );
 
     //
     //  If this is a sparse deallocation, then we will have to call
@@ -1408,54 +1853,131 @@ Return Value:
         //  deleted, then we can actually call FsRtlSplitLargeMcb to
         //  slide the allocated space up and keep the file contiguous!
         //
-        //  Ignore this if this is the Mft and we are creating a hole.
+        //  Ignore this if this is the Mft and we are creating a hole or
+        //  if we are in the process of changing the compression state.
+        //
+        //  If we were called from either SetEOF or SetAllocation for a
+        //  compressed file then we can be doing a flush for the last
+        //  page of the file as a result of a call to CcSetFileSizes.
+        //  In this case we don't want to split the Mcb because we could
+        //  reenter CcSetFileSizes and throw away the last page.
         //
 
-        if (Scb != Scb->Vcb->MftScb
-            && (EndingVcn > Scb->HighestVcnToDisk)) {
+        if (Scb != Vcb->MftScb &&
+            !FlagOn( Scb->ScbState, SCB_STATE_REALLOCATE_ON_WRITE ) &&
+            (Scb->CompressionUnit != 0) &&
+            (EndingVcn >= LlClustersFromBytes(Vcb, (Scb->ValidDataToDisk + Scb->CompressionUnit - 1) &
+                                                   ~(Scb->CompressionUnit - 1))) &&
+            ((IrpContext == IrpContext->TopLevelIrpContext) ||
+             (IrpContext->TopLevelIrpContext->MajorFunction != IRP_MJ_SET_INFORMATION))) {
 
-            SizeInClusters = (EndingVcn - StartingVcn) + 1;
-
-            ASSERT( Scb->AttributeTypeCode == $DATA );
-            SplitMcb = FsRtlSplitLargeMcb( &Scb->Mcb, StartingVcn, SizeInClusters );
+            ASSERT( FlagOn( Scb->ScbState, SCB_STATE_COMPRESSED ));
 
             //
-            //  If the delete is off the end, we can get out.
+            //  If we are going to split the Mcb, then make sure it is fully loaded.
+            //  Do not bother to split if there are multiple ranges involved, so we
+            //  do not end up rewriting lots of file records.
             //
 
-            if (!SplitMcb) {
-                return;
+            if (NtfsPreloadAllocation(IrpContext, Scb, StartingVcn, MAXLONGLONG) <= 1) {
+
+                SizeInClusters = (EndingVcn - StartingVcn) + 1;
+
+                ASSERT( NtfsIsTypeCodeUserData( Scb->AttributeTypeCode ));
+
+                SplitMcb = NtfsSplitNtfsMcb( &Scb->Mcb, StartingVcn, SizeInClusters );
+
+                //
+                //  If the delete is off the end, we can get out.
+                //
+
+                if (!SplitMcb) {
+                    return;
+                }
+
+                //
+                //  We must protect the call below with a try-finally in
+                //  order to unload the Split Mcb.  If there is no transaction
+                //  underway then a release of the Scb would cause the
+                //  snapshot to go away.
+                //
+
+                try {
+
+                    //
+                    //  We are not properly synchronized to change AllocationSize,
+                    //  so we will delete any clusters that may have slid off the
+                    //  end.  Since we are going to smash EndingVcn soon anyway,
+                    //  use it as a scratch to hold AllocationSize in Vcns...
+                    //
+
+                    EndingVcn = LlClustersFromBytes(Vcb, Scb->Header.AllocationSize.QuadPart);
+
+                    NtfsDeallocateClusters( IrpContext,
+                                            Vcb,
+                                            &Scb->Mcb,
+                                            EndingVcn,
+                                            MAXLONGLONG,
+                                            &Scb->TotalAllocated );
+
+                } finally {
+
+                    if (AbnormalTermination()) {
+
+                        NtfsUnloadNtfsMcbRange( &Scb->Mcb,
+                                                StartingVcn,
+                                                MAXLONGLONG,
+                                                FALSE,
+                                                FALSE );
+                    }
+                }
+
+                NtfsUnloadNtfsMcbRange( &Scb->Mcb,
+                                        EndingVcn,
+                                        MAXLONGLONG,
+                                        TRUE,
+                                        FALSE );
+
+                //
+                //  Since we did a split, jam highest modified all the way up.
+                //
+
+                Scb->ScbSnapshot->HighestModifiedVcn = MAXLONGLONG;
+
+                //
+                //  We will have to redo all of the allocation to the end now.
+                //
+
+                EndingVcn = MAXLONGLONG;
             }
-
-            //
-            //  Now create new allocation size, and remember that there is
-            //  this much space we can free.
-            //
-
-            SizeInBytes = LlBytesFromClusters(Scb->Vcb, SizeInClusters);
-            Scb->ExcessFromSplitMcb = Scb->ExcessFromSplitMcb + SizeInBytes;
-            SizeInBytes = Scb->Header.AllocationSize.QuadPart + SizeInBytes;
-
-            //
-            //  We will have to redo all of the allocation to the end now.
-            //
-
-            EndingVcn = MAXLONGLONG;
         }
     }
 
     //
     //  Now make the call to delete the allocation (if we did not just split
-    //  the Mcb), and get out if we didn't have to do anything.
+    //  the Mcb), and get out if we didn't have to do anything, because a
+    //  hole is being created where there is already a hole.
     //
 
-    if (!SplitMcb && !NtfsDeallocateClusters( IrpContext,
-                                              Scb->Vcb,
-                                              &Scb->Mcb,
-                                              StartingVcn,
-                                              EndingVcn )) {
+    if (!SplitMcb &&
+        !NtfsDeallocateClusters( IrpContext,
+                                 Vcb,
+                                 &Scb->Mcb,
+                                 StartingVcn,
+                                 EndingVcn,
+                                 &Scb->TotalAllocated ) &&
+         EndingVcn != MAXLONGLONG) {
 
         return;
+    }
+
+    //
+    //  On successful truncates, we nuke the entire range here.
+    //
+
+    if (!SplitMcb && (EndingVcn == MAXLONGLONG)) {
+
+        NtfsUnloadNtfsMcbRange( &Scb->Mcb, StartingVcn, MAXLONGLONG, TRUE, FALSE );
     }
 
     //
@@ -1472,7 +1994,7 @@ Return Value:
         //  Lookup the attribute record so we can ultimately delete space to it.
         //
 
-        NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
+        NtfsLookupAttributeForScb( IrpContext, Scb, &StartingVcn, &Context );
 
         //
         //  Now loop to delete the space to the file record.  Do not do this if LogIt
@@ -1503,7 +2025,6 @@ Return Value:
                 //
 
                 } else if ((Attribute->Form.Nonresident.LowestVcn >= StartingVcn) &&
-                           (Attribute->Form.Nonresident.HighestVcn <= EndingVcn) &&
                            (EndingVcn == MAXLONGLONG) &&
                            (Attribute->Form.Nonresident.LowestVcn != 0)) {
 
@@ -1554,10 +2075,10 @@ Return Value:
                         SizeInClusters = (Vcn1 - Attribute->Form.Nonresident.LowestVcn) + 1;
                         Vcn1 = Attribute->Form.Nonresident.LowestVcn;
 
-                        NtfsCleanupAttributeContext( IrpContext, &TempContext );
+                        NtfsCleanupAttributeContext( &TempContext );
                         NtfsInitializeAttributeContext( &TempContext );
 
-                        NtfsLookupAttributeForScb( IrpContext, Scb, &TempContext );
+                        NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &TempContext );
 
                         NtfsAddAttributeAllocation( IrpContext,
                                                     Scb,
@@ -1580,10 +2101,10 @@ Return Value:
                             break;
                         }
 
-                        NtfsCleanupAttributeContext( IrpContext, &Context );
+                        NtfsCleanupAttributeContext( &Context );
                         NtfsInitializeAttributeContext( &Context );
 
-                        NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
+                        NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &Context );
                         continue;
 
                     //
@@ -1647,10 +2168,10 @@ Return Value:
                     SizeInClusters = (Vcn1 - Attribute->Form.Nonresident.LowestVcn) + 1;
                     Vcn1 = Attribute->Form.Nonresident.LowestVcn;
 
-                    NtfsCleanupAttributeContext( IrpContext, &Context );
+                    NtfsCleanupAttributeContext( &Context );
                     NtfsInitializeAttributeContext( &Context );
 
-                    NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
+                    NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &Context );
 
                     NtfsAddAttributeAllocation( IrpContext,
                                                 Scb,
@@ -1660,10 +2181,10 @@ Return Value:
 
                 } else {
 
-                    NtfsCleanupAttributeContext( IrpContext, &Context );
+                    NtfsCleanupAttributeContext( &Context );
                     NtfsInitializeAttributeContext( &Context );
 
-                    NtfsLookupAttributeForScb( IrpContext, Scb, &Context );
+                    NtfsLookupAttributeForScb( IrpContext, Scb, NULL, &Context );
 
                     NtfsAddAttributeAllocation( IrpContext,
                                                 Scb,
@@ -1691,13 +2212,11 @@ Return Value:
                 }
 
                 //
-                //  Possibly update HighestVcnToDisk
+                //  Possibly update ValidDataToDisk
                 //
 
-                SizeInClusters = LlClustersFromBytes( Scb->Vcb, SizeInBytes );
-
-                if (SizeInClusters <= Scb->HighestVcnToDisk) {
-                    Scb->HighestVcnToDisk = SizeInClusters - 1;
+                if (SizeInBytes < Scb->ValidDataToDisk) {
+                    Scb->ValidDataToDisk = SizeInBytes;
                 }
             }
         }
@@ -1707,7 +2226,7 @@ Return Value:
         //  have fixed up the allocation information.
         //
 
-        if (EndingVcn != MAXLONGLONG) {
+        if (SplitMcb || (EndingVcn != MAXLONGLONG)) {
             try_return(NOTHING);
         }
 
@@ -1720,8 +2239,7 @@ Return Value:
 
             NtfsWriteFileSizes( IrpContext,
                                 Scb,
-                                Scb->Header.FileSize.QuadPart,
-                                Scb->Header.ValidDataLength.QuadPart,
+                                &Scb->Header.ValidDataLength.QuadPart,
                                 FALSE,
                                 TRUE );
         }
@@ -1737,8 +2255,20 @@ Return Value:
                             (PCC_FILE_SIZES)&Scb->Header.AllocationSize );
         }
 
-    try_exit: NOTHING;
+        //
+        //  Free any reserved clusters in the space freed.
+        //
 
+        if ((EndingVcn == MAXLONGLONG) &&
+            FlagOn(Scb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK) &&
+            (Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA)) {
+
+            NtfsFreeReservedClusters( Scb,
+                                      LlBytesFromClusters(Vcb, StartingVcn),
+                                      0 );
+        }
+
+    try_exit: NOTHING;
     } finally {
 
         DebugUnwind( NtfsDeleteAllocation );
@@ -1747,11 +2277,11 @@ Return Value:
         //  Cleanup the attribute context on the way out.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
-        NtfsCleanupAttributeContext( IrpContext, &TempContext );
+        NtfsCleanupAttributeContext( &Context );
+        NtfsCleanupAttributeContext( &TempContext );
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeleteAllocation -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsDeleteAllocation -> VOID\n") );
 
     return;
 }
@@ -1759,8 +2289,7 @@ Return Value:
 
 ULONG
 NtfsGetSizeForMappingPairs (
-    IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN ULONG BytesAvailable,
     IN VCN LowestVcn,
     IN PVCN StopOnVcn OPTIONAL,
@@ -1812,11 +2341,10 @@ Return Value:
     BOOLEAN Found;
     LONGLONG RunCount;
     VCN HighestVcn;
-    ULONG RunIndex = 0;
+    PVOID RangePtr;
+    ULONG RunIndex;
     ULONG MSize = 0;
     ULONG LastSize = 0;
-
-    UNREFERENCED_PARAMETER(IrpContext);
 
     PAGED_CODE();
 
@@ -1829,7 +2357,7 @@ Return Value:
     CurrentLcn = 0;
     NextVcn = RunVcn = LowestVcn;
 
-    Found = FsRtlLookupLargeMcbEntry ( Mcb, RunVcn, &RunLcn, &RunCount, NULL, NULL, &RunIndex );
+    Found = NtfsLookupNtfsMcbEntry( Mcb, RunVcn, &RunLcn, &RunCount, NULL, NULL, &RangePtr, &RunIndex );
 
     //
     //  Loop through the Mcb to calculate the size of the mapping array.
@@ -1864,8 +2392,6 @@ Return Value:
             RunCount = (*StopOnVcn - RunVcn) + 1;
             RunIndex = MAXULONG - 1;
         }
-
-        ASSERT_LCN_RANGE_CHECKING( IrpContext->Vcb, (RunLcn.QuadPart + RunCount) );
 
         //
         //  If we were asked to stop after a certain Vcn, do it here.
@@ -1992,7 +2518,7 @@ Return Value:
 
         LastSize = MSize;
 
-        Found = FsRtlGetNextLargeMcbEntry( Mcb, RunIndex, &RunVcn, &RunLcn, &RunCount );
+        Found = NtfsGetSequentialMcbEntry( Mcb, &RangePtr, RunIndex, &RunVcn, &RunLcn, &RunCount );
     }
 
     //
@@ -2015,8 +2541,7 @@ Return Value:
 
 VOID
 NtfsBuildMappingPairs (
-    IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN LowestVcn,
     IN OUT PVCN HighestVcn,
     OUT PCHAR MappingPairs
@@ -2057,9 +2582,8 @@ Return Value:
     LCN RunLcn;
     BOOLEAN Found;
     LONGLONG RunCount;
-    ULONG RunIndex = 0;
-
-    UNREFERENCED_PARAMETER(IrpContext);
+    PVOID RangePtr;
+    ULONG RunIndex;
 
     PAGED_CODE();
 
@@ -2070,7 +2594,7 @@ Return Value:
     CurrentLcn = 0;
     NextVcn = RunVcn = LowestVcn;
 
-    Found = FsRtlLookupLargeMcbEntry ( Mcb, RunVcn, &RunLcn, &RunCount, NULL, NULL, &RunIndex );
+    Found = NtfsLookupNtfsMcbEntry( Mcb, RunVcn, &RunLcn, &RunCount, NULL, NULL, &RangePtr, &RunIndex );
 
     //
     //  Loop through the Mcb to calculate the size of the mapping array.
@@ -2107,8 +2631,6 @@ Return Value:
             RunCount = *HighestVcn - NextVcn;
             RunIndex = MAXULONG - 1;
         }
-
-        ASSERT_LCN_RANGE_CHECKING( IrpContext->Vcb, (RunLcn.QuadPart + RunCount) );
 
         //
         //  Advance the RunIndex for the next call.
@@ -2222,7 +2744,7 @@ Return Value:
             SizeL -= 1;
         }
 
-        Found = FsRtlGetNextLargeMcbEntry( Mcb, RunIndex, &RunVcn, &RunLcn, &RunCount );
+        Found = NtfsGetSequentialMcbEntry( Mcb, &RangePtr, RunIndex, &RunVcn, &RunLcn, &RunCount );
     }
 
     //
@@ -2328,3 +2850,535 @@ Return Value:
     return *(PVCN)&Change;
 }
 
+
+BOOLEAN
+NtfsReserveClusters (
+    IN PIRP_CONTEXT IrpContext OPTIONAL,
+    IN PSCB Scb,
+    IN LONGLONG FileOffset,
+    IN ULONG ByteCount
+    )
+
+/*++
+
+Routine Description:
+
+    This routine reserves all clusters that would be required to write
+    the full range of compression units covered by the described range
+    of Vcns.  All clusters in the range are reserved, without regard to
+    how many clusters are already reserved in that range.  Not paying
+    attention to how many clusters are already allocated in that range
+    is not only a simplification, but it is also necessary, since we
+    sometimes deallocate all existing clusters anyway, and make them
+    ineligible for reallocation in the same transaction.  Thus in the
+    worst case you do always need an additional 16 clusters when a
+    compression unit is first modified. Note that although we could
+    specifically reserve (double-reserve, in fact) the entire allocation
+    size of the stream, when reserving from the volume, we never reserve
+    more than AllocationSize + MM_MAXIMUM_DISK_IO_SIZE - size actually
+    allocated, since the worst we could ever need to doubly allocate is
+    limited by the maximum flush size.
+
+    For user-mapped streams, we have no way of keeping track of dirty
+    pages, so we effectivel always reserve AllocationSize +
+    MM_MAXIMUM_DISK_IO_SIZE.
+
+    This routine is called from FastIo, and therefore has no IrpContext.
+
+Arguments:
+
+    IrpContext - If IrpContext is not specified, then not all data is
+                 available to determine if the clusters can be reserved,
+                 and FALSE may be returned unnecessarily.  This case
+                 is intended for the fast I/O path, which will just
+                 force us to take the long path to write.
+
+    Scb - Address of a compressed stream for which we are reserving space
+
+    FileOffset - Starting byte being modified by caller
+
+    ByteCount - Number of bytes being modified by caller
+
+Return Value:
+
+    FALSE if not all clusters could be reserved
+    TRUE if all clusters were reserved
+
+--*/
+
+{
+    ULONG FirstBit, LastBit;
+    PRTL_BITMAP NewBitMap;
+    LONGLONG SizeOfNewBitMap;
+    ULONG CompressionShift;
+    PVCB Vcb = Scb->Vcb;
+    ULONG SizeTemp = 0;
+    LONGLONG TempL;
+
+    ASSERT(Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA);
+
+    //
+    //  Nothing to do if byte count is zero.
+    //
+
+    if (ByteCount == 0) { return TRUE; }
+
+    //
+    //  Calculate first and last bits to reserve.
+    //
+
+    CompressionShift = Vcb->ClusterShift + (ULONG)Scb->CompressionUnitShift;
+    FirstBit = (ULONG)Int64ShraMod32(FileOffset, (CompressionShift));
+    LastBit = (ULONG)Int64ShraMod32((FileOffset + (LONGLONG)ByteCount - 1), (CompressionShift));
+
+    //
+    //  Make sure we started with numbers in range.
+    //
+
+    ASSERT( ((LONGLONG)(FirstBit + 1) << CompressionShift) > FileOffset );
+    ASSERT( LastBit >= FirstBit );
+
+    ExAcquireResourceExclusive( Vcb->BitmapScb->Header.Resource, TRUE );
+
+    NtfsAcquireReservedClusters( Vcb );
+
+    //
+    //  See if we have to allocate a new or bigger bitmap.
+    //
+
+    if ((Scb->ScbType.Data.ReservedBitMap == NULL) ||
+        ((SizeTemp = Scb->ScbType.Data.ReservedBitMap->SizeOfBitMap) <= LastBit)) {
+
+        //
+        //  Round the size we need to the nearest quad word since we will
+        //  use that much anyway, and want to reduce the number of times
+        //  we grow the bitmap.  Convert old size to bytes.
+        //
+
+        SizeOfNewBitMap = FileOffset + (LONGLONG)ByteCount;
+        if (SizeOfNewBitMap < Scb->Header.AllocationSize.QuadPart) {
+            SizeOfNewBitMap = Scb->Header.AllocationSize.QuadPart;
+        }
+        SizeOfNewBitMap = (ULONG)((Int64ShraMod32(SizeOfNewBitMap, CompressionShift) + 64) & ~63) / 8;
+        SizeTemp /= 8;
+
+        //
+        //  Allocate and initialize the new bitmap.
+        //
+
+        NewBitMap = ExAllocatePool( PagedPool, (ULONG)SizeOfNewBitMap + sizeof(RTL_BITMAP) );
+
+        //
+        //  Check for alloacation error
+        //
+
+        if (NewBitMap == NULL) {
+
+            NtfsReleaseReservedClusters( Vcb );
+            ExReleaseResource( Vcb->BitmapScb->Header.Resource );
+
+            //
+            //  If we have an Irp Context then we can raise insufficient resources.  Otherwise
+            //  return FALSE.
+            //
+
+            if (ARGUMENT_PRESENT( IrpContext )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+
+            } else {
+
+                return FALSE;
+            }
+        }
+
+        RtlInitializeBitMap( NewBitMap, Add2Ptr(NewBitMap, sizeof(RTL_BITMAP)), (ULONG)SizeOfNewBitMap * 8 );
+
+        //
+        //  Copy the old bitmap over and delete it.  Zero the new part.
+        //
+
+        if (SizeTemp != 0) {
+
+            RtlCopyMemory( Add2Ptr(NewBitMap, sizeof(RTL_BITMAP)),
+                           Add2Ptr(Scb->ScbType.Data.ReservedBitMap, sizeof(RTL_BITMAP)),
+                           SizeTemp );
+            NtfsFreePool( Scb->ScbType.Data.ReservedBitMap );
+        }
+
+        RtlZeroMemory( Add2Ptr(NewBitMap, sizeof(RTL_BITMAP) + SizeTemp),
+                       (ULONG)SizeOfNewBitMap - SizeTemp );
+        Scb->ScbType.Data.ReservedBitMap = NewBitMap;
+    }
+
+    NewBitMap = Scb->ScbType.Data.ReservedBitMap;
+
+    //
+    //  One problem with the reservation strategy, is that we cannot precisely reserve
+    //  for metadata.  If we reserve too much, we will return premature disk full, if
+    //  we reserve too little, the Lazy Writer can get an error.  As we add compression
+    //  units to a file, large files will eventually require additional File Records.
+    //  If each compression unit required 0x20 bytes of run information (fairly pessimistic)
+    //  then a 0x400 size file record would fill up with less than 0x20 runs requiring
+    //  (worst case) two additional clusters for another file record.  So each 0x20
+    //  compression units require 0x200 reserved clusters, and a separate 2 cluster
+    //  file record.  0x200/2 = 0x100.  So the calculations below tack a 1/0x100 (about
+    //  .4% "surcharge" on the amount reserved both in the Scb and the Vcb, to solve
+    //  the Lazy Writer popups like the ones Alan Morris gets in the print lab.
+    //
+
+    //
+    //  Figure out the worst case reservation required for this Scb, in bytes.
+    //
+
+    TempL = Scb->Header.AllocationSize.QuadPart +
+               MM_MAXIMUM_DISK_IO_SIZE + Scb->CompressionUnit -
+               (FlagOn( Scb->Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ) ?
+                   Scb->Header.AllocationSize.QuadPart :
+                   Scb->TotalAllocated) +
+               (Scb->ScbType.Data.TotalReserved / 0x100);
+
+    //
+    //  Now loop to reserve the space, a compression unit at a time.
+    //  We use the security fast mutex as a convenient end resource.
+    //
+
+    while (FirstBit <= LastBit) {
+
+        //
+        //  If this compression unit is not already reserved, do it now.
+        //
+
+        if (!RtlCheckBit( NewBitMap, FirstBit )) {
+
+            //
+            //  If there is not sufficient space on the volume, then
+            //  we must see if this Scb is totally reserved anyway.
+            //
+
+            if (((Vcb->TotalReserved + (Vcb->TotalReserved / 0x100) +
+                 (1 << Scb->CompressionUnitShift)) >= Vcb->FreeClusters) &&
+                (Scb->ScbType.Data.TotalReserved < TempL) &&
+                (FlagOn(Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN))) {
+
+                NtfsReleaseReservedClusters( Vcb );
+                ExReleaseResource( Vcb->BitmapScb->Header.Resource );
+                return FALSE;
+            }
+
+            //
+            //  Reserve this compression unit.
+            //
+
+            SetFlag( NewBitMap->Buffer[FirstBit / 32], 1 << (FirstBit % 32) );
+
+            //
+            //  Increased TotalReserved bytes in the Scb.
+            //
+
+            Scb->ScbType.Data.TotalReserved += Scb->CompressionUnit;
+            ASSERT( Scb->CompressionUnit != 0 );
+            ASSERT( Scb->CompressionUnitShift != 0 );
+
+            //
+            //  Increase total reserved clusters in the Vcb, if the user has
+            //  write access.  (Otherwise this must be a call from a read
+            //  to a usermapped section.)
+            //
+
+            if (FlagOn(Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN)) {
+                Vcb->TotalReserved += 1 << Scb->CompressionUnitShift;
+            }
+        }
+        FirstBit += 1;
+    }
+
+    NtfsReleaseReservedClusters( Vcb );
+    ExReleaseResource( Vcb->BitmapScb->Header.Resource );
+
+    return TRUE;
+}
+
+
+
+VOID
+NtfsFreeReservedClusters (
+    IN PSCB Scb,
+    IN LONGLONG FileOffset,
+    IN ULONG ByteCount
+    )
+
+/*++
+
+Routine Description:
+
+    This routine frees any previously reserved clusters in the specified range.
+
+Arguments:
+
+    Scb - Address of a compressed stream for which we are freeing reserved space
+
+    FileOffset - Starting byte being freed
+
+    ByteCount - Number of bytes being freed by caller, or 0 if to end of file
+
+Return Value:
+
+    None (all errors simply raise)
+
+--*/
+
+{
+    ULONG FirstBit, LastBit;
+    PRTL_BITMAP BitMap;
+    ULONG CompressionShift;
+    PVCB Vcb = Scb->Vcb;
+
+    ASSERT(Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA);
+
+    NtfsAcquireReservedClusters( Vcb );
+
+    //
+    //  If there is no bitmap, we can get out.
+    //
+
+    CompressionShift = Vcb->ClusterShift + (ULONG)Scb->CompressionUnitShift;
+    BitMap = Scb->ScbType.Data.ReservedBitMap;
+    if (BitMap == NULL) {
+        NtfsReleaseReservedClusters( Vcb );
+        return;
+    }
+
+    //
+    //  Calculate first bit to free, and initialize LastBit
+    //
+
+    FirstBit = (ULONG)Int64ShraMod32(FileOffset, (CompressionShift));
+    LastBit = MAXULONG;
+
+    //
+    //  If ByteCount was specified, then calculate LastBit.
+    //
+
+    if (ByteCount != 0) {
+        LastBit = (ULONG)Int64ShraMod32((FileOffset + (LONGLONG)ByteCount - 1), (CompressionShift));
+    }
+
+    //
+    //  Make sure we started with numbers in range.
+    //
+
+    ASSERT( ((LONGLONG)(FirstBit + 1) << CompressionShift) > FileOffset );
+    ASSERT( LastBit >= FirstBit );
+
+    //
+    //  Under no circumstances should we go off the end!
+    //
+
+    if (LastBit >= Scb->ScbType.Data.ReservedBitMap->SizeOfBitMap) {
+        LastBit = Scb->ScbType.Data.ReservedBitMap->SizeOfBitMap - 1;
+    }
+
+    //
+    //  Now loop to free the space, a compression unit at a time.
+    //  We use the security fast mutex as a convenient end resource.
+    //
+
+    while (FirstBit <= LastBit) {
+
+        //
+        //  If this compression unit is reserved, then free it.
+        //
+
+        if (RtlCheckBit( BitMap, FirstBit )) {
+
+            //
+            //  Free this compression unit.
+            //
+
+            ClearFlag( BitMap->Buffer[FirstBit / 32], 1 << (FirstBit % 32) );
+
+            //
+            //  Decrease TotalReserved bytes in the Scb.
+            //
+
+            ASSERT(Scb->ScbType.Data.TotalReserved >= Scb->CompressionUnit);
+            Scb->ScbType.Data.TotalReserved -= Scb->CompressionUnit;
+            ASSERT( Scb->CompressionUnit != 0 );
+            ASSERT( Scb->CompressionUnitShift != 0 );
+
+            //
+            //  Decrease total reserved clusters in the Vcb, if we are counting
+            //  against the Vcb.
+            //
+
+            if (FlagOn(Scb->ScbState, SCB_STATE_WRITE_ACCESS_SEEN)) {
+                ASSERT(Vcb->TotalReserved >= (1  << Scb->CompressionUnitShift));
+                Vcb->TotalReserved -= 1 << Scb->CompressionUnitShift;
+            }
+        }
+        FirstBit += 1;
+    }
+
+    NtfsReleaseReservedClusters( Vcb );
+}
+
+
+VOID
+NtfsFreeFinalReservedClusters (
+    IN PVCB Vcb,
+    IN LONGLONG ClusterCount
+    )
+
+/*++
+
+Routine Description:
+
+    This routine frees any previously reserved clusters in the specified range.
+
+Arguments:
+
+    Vcb - Volume to which clusters are to be freed
+
+    ClusterCount - Number of clusters being freed by caller
+
+Return Value:
+
+    None (all errors simply raise)
+
+--*/
+
+{
+    //
+    //  Use the security fast mutex as a convenient end resource.
+    //
+
+    NtfsAcquireReservedClusters( Vcb );
+
+    ASSERT(Vcb->TotalReserved >= ClusterCount);
+    Vcb->TotalReserved -= ClusterCount;
+
+    NtfsReleaseReservedClusters( Vcb );
+}
+
+
+#ifdef SYSCACHE
+
+BOOLEAN
+FsRtlIsSyscacheFile (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns to the caller whether or not the specified
+    file object is a file for the Syscache stress test.  It is considered
+    a syscache file, if the last component of the file name in the FileObject
+    matches "cac*.tmp", case insensitive.
+
+Arguments:
+
+    FileObject - supplies the FileObject to be tested (it must not be
+                 cleaned up yet).
+
+Return Value:
+
+    FALSE - if the file is not a Syscache file.
+    TRUE - if the file is a Syscache file.
+
+--*/
+
+{
+    if ((FileObject != NULL) && (FileObject->FileName.Length >= 8*2)) {
+
+        ULONG iM = 0;
+        ULONG iF;
+        PWSTR MakName = L"cac*.tmp";
+
+        iF = FileObject->FileName.Length / 2;
+        while ((iF != 0) && (FileObject->FileName.Buffer[iF - 1] != '\\')) {
+            iF--;
+        }
+
+        while (TRUE) {
+
+            if ((iM == 8) && ((LONG)iF == FileObject->FileName.Length / 2)) {
+
+                return TRUE;
+
+            } else if (MakName[iM] == '*') {
+                if (FileObject->FileName.Buffer[iF] == '.') {
+                    iM++; iM++; iF++;
+                } else {
+                    iF++;
+                    if ((LONG)iF == FileObject->FileName.Length / 2) {
+                        break;
+                    }
+                }
+            } else if (MakName[iM] == (WCHAR)(FileObject->FileName.Buffer[iF] | ('a' - 'A'))) {
+                iM++; iF++;
+            } else {
+                break;
+            }
+        }
+    }
+
+    return FALSE;
+}
+
+
+VOID
+FsRtlVerifySyscacheData (
+    IN PFILE_OBJECT FileObject,
+    IN PVOID Buffer,
+    IN ULONG Length,
+    IN ULONG Offset
+    )
+
+/*
+
+Routine Description:
+
+    This routine scans a buffer to see if it is valid data for a syscache
+    file, and stops if it sees bad data.
+
+    HINT TO CALLERS: Make sure (Offset + Length) <= FileSize!
+
+Arguments:
+
+    Buffer - Pointer to the buffer to be checked
+
+    Length - Length of the buffer to be checked in bytes
+
+    Offset - File offset at which this data starts (syscache files are currently
+             limited to 24 bits of file offset).
+
+Return Value:
+
+    None (stops on error)
+
+--*/
+
+{
+    PULONG BufferEnd;
+
+    BufferEnd = (PULONG)((PCHAR)Buffer + (Length & ~3));
+
+    while ((PULONG)Buffer < BufferEnd) {
+
+        if ((*(PULONG)Buffer != 0) && (((*(PULONG)Buffer & 0xFFFFFF) ^ Offset) != 0xFFFFFF) &&
+            ((Offset & 0x1FF) != 0)) {
+
+            DbgPrint("Bad Data, FileObject = %08lx, Offset = %08lx, Buffer = %08lx\n",
+                     FileObject, Offset, (PULONG)Buffer );
+            DbgBreakPoint();
+        }
+        Offset += 4;
+        Buffer = (PVOID)((PULONG)Buffer + 1);
+    }
+}
+
+
+#endif

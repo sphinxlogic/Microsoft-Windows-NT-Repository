@@ -89,7 +89,7 @@ size_t _CRTAPI1 _msize(void *);
 #define alloca	   _alloca
 #endif	/* __STDC__*/
 
-#ifdef _MIPS_
+#if defined(_M_MRX000) || defined(_M_PPC)
 #pragma intrinsic(_alloca)
 #endif
 

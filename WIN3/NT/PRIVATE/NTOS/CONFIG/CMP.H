@@ -30,8 +30,7 @@ Revision History:
 #include "hive.h"
 #include "wchar.h"
 #include "zwapi.h"
-#include "stdio.h"
-#include    <stdio.h>
+#include <stdio.h>
 
 #ifdef POOL_TAGGING
 //
@@ -183,6 +182,10 @@ extern  UNICODE_STRING  CmRegistrySystemCloneName;
 #define CM_MAX_STASH           1024*1024        // If size of data for a set
                                                 // is bigger than this,
 
+#define CM_MAX_REASONABLE_VALUES    100         // If number of values for a
+                                                // key is greater than this,
+                                                // round up value list size
+
 
 //
 // Limit on the number of layers of hive there may be.  We allow only
@@ -238,12 +241,11 @@ extern  POBJECT_TYPE CmpKeyObjectType;
                         (pkcb)->FullName.MaximumLength)
 
 typedef struct _CM_KEY_CONTROL_BLOCK {
-    USHORT                      Signature;
     BOOLEAN                     Delete;
+    SHORT                       RefCount;
     PHHIVE                      KeyHive;        // Hive containing CM_KEY_NODE
     HCELL_INDEX                 KeyCell;        // Cell containing CM_KEY_NODE
-    LONG                        RefCount;
-
+    struct _CM_KEY_NODE         *KeyNode;       // pointer to CM_KEY_NODE
 
     struct _CM_KEY_CONTROL_BLOCK    *Parent;    // parent in binary tree
     struct _CM_KEY_CONTROL_BLOCK    *Left;      // left child
@@ -284,24 +286,37 @@ typedef struct _CM_NOTIFY_BLOCK {
 //  event signalled, etc.)
 //
 
+typedef enum _POST_BLOCK_TYPE {
+    PostSynchronous,
+    PostAsyncUser,
+    PostAsyncKernel
+} POST_BLOCK_TYPE;
+
 typedef struct _CM_SYNC_POST_BLOCK {
     PKEVENT                 SystemEvent;
     NTSTATUS                Status;
 } CM_SYNC_POST_BLOCK, *PCM_SYNC_POST_BLOCK;
 
-typedef struct _CM_ASYNC_POST_BLOCK {
+typedef struct _CM_ASYNC_USER_POST_BLOCK {
     PKEVENT                 UserEvent;
     PKAPC                   Apc;
     PIO_STATUS_BLOCK        IoStatusBlock;
-} CM_ASYNC_POST_BLOCK, *PCM_ASYNC_POST_BLOCK;
+} CM_ASYNC_USER_POST_BLOCK, *PCM_ASYNC_USER_POST_BLOCK;
+
+typedef struct _CM_ASYNC_KERNEL_POST_BLOCK {
+    PKEVENT                 Event;
+    PWORK_QUEUE_ITEM        WorkItem;
+    WORK_QUEUE_TYPE         QueueType;
+} CM_ASYNC_KERNEL_POST_BLOCK, *PCM_ASYNC_KERNEL_POST_BLOCK;
 
 typedef struct _CM_POST_BLOCK {
     LIST_ENTRY              NotifyList;
     LIST_ENTRY              ThreadList;
-    BOOLEAN                 IsSynchronous;
+    POST_BLOCK_TYPE         NotifyType;
     union {
         CM_SYNC_POST_BLOCK  Sync;
-        CM_ASYNC_POST_BLOCK Async;
+        CM_ASYNC_USER_POST_BLOCK AsyncUser;
+        CM_ASYNC_KERNEL_POST_BLOCK AsyncKernel;
     } u;
 } CM_POST_BLOCK, *PCM_POST_BLOCK;
 
@@ -367,15 +382,49 @@ typedef struct _CHILD_LIST {
 typedef struct  _CM_KEY_REFERENCE {
     PHHIVE      KeyHive;
     HCELL_INDEX KeyCell;
-} CM_KEY_REFERENCE, *PCM_KEY_REFERENCE;
+} CM_KEY_REFERENCE , *PCM_KEY_REFERENCE;
 
 
 //
 // ----- CM_KEY_INDEX -----
 //
+// A leaf index may be one of two types. The "old" CM_KEY_INDEX type is used for
+// hives circa NT3.1, 3.5, and 3.51. NT4.0 introduces the newer CM_KEY_FAST_INDEX
+// which is used for all leaf indexes that have less than CM_MAX_FAST_INDEX leaves.
+//
+// The main advantage of the fast index is that the first four characters of the
+// names are stored within the index itself. This almost always saves us from having
+// to fault in a number of unneccessary pages when searching for a given key.
+//
+// The main disadvantage is that each subkey requires twice as much storage. One dword
+// for the HCELL_INDEX and one dword to hold the first four characters of the subkey
+// name. If one of the first four characters in the subkey name is a unicode character
+// where the high byte is non-zero, the actual subkey must be examined to determine the
+// name.
+//
+// Hive version 1 & 2 do not support the fast index. Version 3 adds support for the
+// fast index. All hives that are newly created on a V3-capable system are therefore
+// unreadable on V1 & 2 systems.
+//
+// N.B. There is code in cmindex.c that relies on the Signature and Count fields of
+//      CM_KEY_INDEX and CM_KEY_FAST_INDEX being at the same offset in the structure!
+
+#define UseFastIndex(Hive) ((Hive)->Version>=3)
 
 #define CM_KEY_INDEX_ROOT   0x6972      // ir
 #define CM_KEY_INDEX_LEAF   0x696c      // il
+#define CM_KEY_FAST_LEAF    0x666c      // fl
+
+typedef struct _CM_INDEX {
+    HCELL_INDEX Cell;
+    UCHAR NameHint[4];                  // upcased first four chars of name
+} CM_INDEX, *PCM_INDEX;
+
+typedef struct _CM_KEY_FAST_INDEX {
+    USHORT      Signature;              // also type selector
+    USHORT      Count;
+    CM_INDEX    List[1];                // Variable sized array
+} CM_KEY_FAST_INDEX, *PCM_KEY_FAST_INDEX;
 
 typedef struct _CM_KEY_INDEX {
     USHORT      Signature;              // also type selector
@@ -394,6 +443,19 @@ typedef struct _CM_KEY_INDEX {
 
 #define CM_MAX_LEAF_SIZE ((sizeof(HCELL_INDEX)*CM_MAX_INDEX) + \
                           (FIELD_OFFSET(CM_KEY_INDEX, List)))
+
+//
+// Allow index to grow to size that will cause allocation of exactly
+// one logical block.  Works out to be approx. 500 entries.
+//
+#define CM_MAX_FAST_INDEX                                                    \
+ ( (HBLOCK_SIZE-                                                             \
+    (sizeof(HBIN)+FIELD_OFFSET(HCELL,u)+FIELD_OFFSET(CM_KEY_FAST_INDEX,List))) /  \
+    sizeof(CM_INDEX) )
+
+#define CM_MAX_FAST_LEAF_SIZE ((sizeof(CM_INDEX)*CM_MAX_FAST_INDEX) + \
+                          (FIELD_OFFSET(CM_KEY_FAST_INDEX, List)))
+
 
 
 //
@@ -493,8 +555,8 @@ typedef struct _CM_KEY_NODE {
 //
 #define CmpIsHKeyValueSmall(realsize, size)                   \
         ((size >= CM_KEY_VALUE_SPECIAL_SIZE) ?                       \
-        (realsize = size - CM_KEY_VALUE_SPECIAL_SIZE, TRUE) :       \
-        (realsize = size, FALSE))
+        ((realsize) = size - CM_KEY_VALUE_SPECIAL_SIZE, TRUE) :       \
+        ((realsize) = size, FALSE))
 
 typedef struct _CM_KEY_VALUE {
     USHORT      Signature;
@@ -863,6 +925,16 @@ CmQueryValueKey(
     );
 
 NTSTATUS
+CmQueryMultipleValueKey(
+    IN PCM_KEY_CONTROL_BLOCK KeyControlBlock,
+    IN PKEY_VALUE_ENTRY ValueEntries,
+    IN ULONG EntryCount,
+    IN PVOID ValueBuffer,
+    IN OUT PULONG BufferLength,
+    IN OPTIONAL PULONG ResultLength
+    );
+
+NTSTATUS
 CmRenameValueKey(
     IN PCM_KEY_CONTROL_BLOCK KeyControlBlock,
     IN UNICODE_STRING SourceValueName,
@@ -894,8 +966,7 @@ CmSaveKey(
 NTSTATUS
 CmSetValueKey(
     IN PCM_KEY_CONTROL_BLOCK KeyControlBlock,
-    IN UNICODE_STRING ValueName,
-    IN ULONG TitleIndex OPTIONAL,
+    IN PUNICODE_STRING ValueName,
     IN ULONG Type,
     IN PVOID Data,
     IN ULONG DataSize
@@ -920,7 +991,8 @@ CmpNotifyChangeKey(
 NTSTATUS
 CmLoadKey(
     IN POBJECT_ATTRIBUTES TargetKey,
-    IN POBJECT_ATTRIBUTES SourceFile
+    IN POBJECT_ATTRIBUTES SourceFile,
+    IN ULONG Flags
     );
 
 NTSTATUS
@@ -951,6 +1023,16 @@ CmpLazyFlush(
     VOID
     );
 
+VOID
+CmpQuotaWarningWorker(
+    IN PVOID WorkItem
+    );
+
+VOID
+CmpComputeGlobalQuotaAllowed(
+    VOID
+    );
+
 BOOLEAN
 CmpClaimGlobalQuota(
     IN ULONG    Size
@@ -972,7 +1054,9 @@ CmpSetGlobalQuotaAllowed(
 
 NTSTATUS
 CmpAssignSecurityDescriptor(
-    IN PCM_KEY_REFERENCE Key,
+    IN PHHIVE Hive,
+    IN HCELL_INDEX Cell,
+    IN PCM_KEY_NODE Node,
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
     IN POOL_TYPE PoolType
     );
@@ -989,9 +1073,9 @@ CmpCheckCreateAccess(
 
 BOOLEAN
 CmpCheckNotifyAccess(
-    PCM_NOTIFY_BLOCK        NotifyBlock,
-    PHHIVE                  Hive,
-    HCELL_INDEX             Cell
+    IN PCM_NOTIFY_BLOCK NotifyBlock,
+    IN PHHIVE Hive,
+    IN PCM_KEY_NODE Node
     );
 
 PSECURITY_DESCRIPTOR
@@ -1006,18 +1090,28 @@ CmpFreeSecurityDescriptor(
     );
 
 
+//
+// Access to the registry is serialized by a shared resource, CmpRegistryLock.
+//
+extern ERESOURCE CmpRegistryLock;
+
+#if 0
+#define CmpLockRegistry() KeEnterCriticalRegion(); \
+                          ExAcquireResourceShared(&CmpRegistryLock, TRUE)
+
+#define CmpLockRegistryExclusive() KeEnterCriticalRegion(); \
+                                   ExAcquireResourceExclusive(&CmpRegistryLock,TRUE)
+
+#else
+VOID
+CmpLockRegistryExclusive(
+    VOID
+    );
 VOID
 CmpLockRegistry(
     VOID
     );
-
-BOOLEAN
-CmpTryLockRegistryExclusive(
-    IN BOOLEAN CanWait
-    );
-
-#define CmpLockRegistryExclusive() CmpTryLockRegistryExclusive(TRUE)
-
+#endif
 BOOLEAN
 CmpIsLastKnownGoodBoot(
     VOID
@@ -1041,7 +1135,7 @@ CmpTestRegistryLockExclusive(
 NTSTATUS
 CmpQueryKeyData(
     PHHIVE Hive,
-    HCELL_INDEX Cell,
+    PCM_KEY_NODE Node,
     KEY_INFORMATION_CLASS KeyInformationClass,
     PVOID KeyInformation,
     ULONG Length,
@@ -1070,15 +1164,13 @@ CmpFreeValue(
     HCELL_INDEX Cell
     );
 
-NTSTATUS
-CmpFindChildByName(
-    PHHIVE  Hive,
-    HCELL_INDEX Cell,
-    UNICODE_STRING  Name,
-    NODE_TYPE   Type,
-    PHCELL_INDEX    ChildCell,
-    PHCELL_INDEX    *ChildIndexPointer
+HCELL_INDEX
+CmpFindValueByName(
+    PHHIVE Hive,
+    PCM_KEY_NODE KeyNode,
+    PUNICODE_STRING Name
     );
+#define CmpFindValueByName(h,k,n) CmpFindNameInList(h,&((k)->ValueList),n,NULL,NULL)
 
 NTSTATUS
 CmpDeleteChildByName(
@@ -1095,24 +1187,13 @@ CmpFreeKeyByCell(
     BOOLEAN Unlink
     );
 
-NTSTATUS
-CmpFindChildByNumber(
-    PHHIVE  Hive,
-    HCELL_INDEX Cell,
-    ULONG  Index,
-    NODE_TYPE   Type,
-    PHCELL_INDEX ChildCell
-    );
-
-NTSTATUS
+HCELL_INDEX
 CmpFindNameInList(
-    PHHIVE  Hive,
-    PCELL_DATA List,
-    ULONG Count,
-    UNICODE_STRING  Name,
-    PHCELL_INDEX    ChildCell,
-    PCELL_DATA *ChildAddress,
-    PULONG ChildIndex
+    IN PHHIVE  Hive,
+    IN PCHILD_LIST ChildList,
+    IN PUNICODE_STRING Name,
+    IN OPTIONAL PCELL_DATA *ChildAddress,
+    IN OPTIONAL PULONG ChildIndex
     );
 
 HCELL_INDEX
@@ -1175,7 +1256,8 @@ CmpInitializeRegistryNode(
     IN HANDLE ParentHandle,
     OUT PHANDLE NewHandle,
     IN INTERFACE_TYPE InterfaceType,
-    IN ULONG BusNumber
+    IN ULONG BusNumber,
+    IN PUCHAR DeviceIndexTable
     );
 
 BOOLEAN
@@ -1192,7 +1274,7 @@ CmpInitializeHive(
     PUNICODE_STRING FileName
     );
 
-VOID
+BOOLEAN
 CmpDestroyHive(
     IN PHHIVE Hive,
     IN HCELL_INDEX Cell
@@ -1207,9 +1289,11 @@ PCM_KEY_CONTROL_BLOCK
 CmpCreateKeyControlBlock(
     PHHIVE          Hive,
     HCELL_INDEX     Cell,
+    PCM_KEY_NODE    Node,
     PUNICODE_STRING BaseName,
     PUNICODE_STRING KeyName
     );
+
 
 BOOLEAN
 CmpSearchForOpenSubKeys(
@@ -1235,6 +1319,11 @@ CmpRemoveKeyControlBlock(
     );
 
 VOID
+CmpReinsertKeyControlBlock(
+    PCM_KEY_CONTROL_BLOCK   KeyControlBlock
+    );
+
+VOID
 CmpReportNotify(
     UNICODE_STRING  Name,
     PHHIVE          Hive,
@@ -1252,7 +1341,7 @@ CmpPostNotify(
 
 PCM_POST_BLOCK
 CmpAllocatePostBlock(
-    IN BOOLEAN AllocateEvent
+    IN POST_BLOCK_TYPE BlockType
     );
 
 VOID
@@ -1332,6 +1421,24 @@ CmpValidateHiveSecurityDescriptors(
 //
 // cmboot - functions for determining driver load lists
 //
+
+//
+// structure definitions shared with the boot loader
+// to select the hardware profile.
+//
+typedef struct _CM_HARDWARE_PROFILE {
+    ULONG NameLength;
+    PWSTR FriendlyName;
+    ULONG PreferenceOrder;
+    ULONG Id;
+} CM_HARDWARE_PROFILE, *PCM_HARDWARE_PROFILE;
+
+typedef struct _CM_HARDWARE_PROFILE_LIST {
+    ULONG MaxProfileCount;
+    ULONG CurrentProfileCount;
+    CM_HARDWARE_PROFILE Profile[1];
+} CM_HARDWARE_PROFILE_LIST, *PCM_HARDWARE_PROFILE_LIST;
+
 HCELL_INDEX
 CmpFindControlSet(
      IN PHHIVE SystemHive,
@@ -1359,6 +1466,21 @@ CmpFindNLSData(
     OUT PUNICODE_STRING OemHalFilename
     );
 
+HCELL_INDEX
+CmpFindProfileOption(
+    IN PHHIVE Hive,
+    IN HCELL_INDEX ControlSet,
+    OUT PCM_HARDWARE_PROFILE_LIST *ProfileList,
+    OUT PULONG Timeout
+    );
+
+VOID
+CmpSetCurrentProfile(
+    IN PHHIVE Hive,
+    IN HCELL_INDEX ControlSet,
+    IN PCM_HARDWARE_PROFILE Profile
+    );
+
 BOOLEAN
 CmpResolveDriverDependencies(
     IN PLIST_ENTRY DriverListHead
@@ -1374,14 +1496,14 @@ CmpSortDriverList(
 HCELL_INDEX
 CmpFindSubKeyByName(
     PHHIVE          Hive,
-    HCELL_INDEX     Parent,
+    PCM_KEY_NODE    Parent,
     PUNICODE_STRING SearchName
     );
 
 HCELL_INDEX
 CmpFindSubKeyByNumber(
     PHHIVE          Hive,
-    HCELL_INDEX     Parent,
+    PCM_KEY_NODE    Parent,
     ULONG           Number
     );
 

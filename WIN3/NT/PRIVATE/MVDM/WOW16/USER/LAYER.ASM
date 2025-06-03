@@ -8,6 +8,8 @@ LAYER_INCLUDE=1 	; to suppress including most of the crap in user.inc
 include user.inc
 ;include usermenu.inc
 
+.list
+
 LAYER_START
 
 include user.api

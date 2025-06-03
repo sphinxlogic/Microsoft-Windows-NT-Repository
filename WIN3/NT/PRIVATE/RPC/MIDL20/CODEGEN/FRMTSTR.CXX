@@ -24,7 +24,7 @@ extern CMD_ARG			*	pCommand;
 
 
 #ifdef FSDEBUG
-static char *	pFormatCharNames[] = 
+static char * pFormatCharNames[] =
 				{
 				"",							// FC_ZERO
     			"FC_BYTE",
@@ -90,16 +90,16 @@ static char *	pFormatCharNames[] =
 				"FC_BIND_PRIMITIVE",
 				"FC_AUTO_HANDLE",
 				"FC_CALLBACK_HANDLE",
-				"FC_PICKLE_HANDLE",
+				"FC_UNUSED1",
 	
 				"FC_POINTER",
 
 				"FC_ALIGNM2",
 				"FC_ALIGNM4",
 				"FC_ALIGNM8",
-				"FC_ALIGNB2",
-				"FC_ALIGNB4",
-				"FC_ALIGNB8",			
+				"FC_UNUSED2",
+				"FC_UNUSED3",
+				"FC_UNUSED4",			
 		
 				"FC_STRUCTPAD1",
 				"FC_STRUCTPAD2",
@@ -110,7 +110,7 @@ static char *	pFormatCharNames[] =
 				"FC_STRUCTPAD7",
 
 				"FC_STRING_SIZED",
-				"FC_STRING_NO_SIZE",		
+				"FC_UNUSED5",		
 
 				"FC_NO_REPEAT",
 				"FC_FIXED_REPEAT",
@@ -142,13 +142,30 @@ static char *	pFormatCharNames[] =
 				"FC_END",
 				"FC_PAD",
 
-				//
-				// Catch errors.
-				// 
-				0,
-				0,
-				0,
-				0
+                0,
+                0,
+                0,
+
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+                0,
+
+                "FC_HARD_STRUCT",
+
+                "FC_TRANSMIT_AS_PTR",
+                "FC_REPRESENT_AS_PTR",
+
+                "FC_USER_MARSHAL",
+
+                "FC_PIPE",
+
+                "FC_BLKHOLE",
+
+                "FC_END_OF_UNIVERSE"
 				};
 #endif
 
@@ -157,7 +174,7 @@ static char *	pFormatCharNames[] =
 // To construct the correct name concatenate the name in this table with
 // "Marshall", "Unmarshall", "BufferSize" etc.
 //
-char *		pNdrRoutineNames[] = 
+char *		pNdrRoutineNames[] =
 			{
 			"",								// FC_ZERO
 			"NdrSimpleType",				// FC_BYTE
@@ -218,7 +235,54 @@ char *		pNdrRoutineNames[] =
             "NdrXmitOrRepAs",               // FC_TRANSMIT_AS
             "NdrXmitOrRepAs",	            // FC_REPRESENT_AS
 
-			"NdrInterfacePointer"			// FC_INTERFACE_POINTER
+			"NdrInterfacePointer",			// FC_INTERFACE_POINTER
+
+            0, 0, 0, 0, 0, 0,
+
+            0,
+
+            0, 0, 0, 0, 0, 0,
+
+            0, 0, 0, 0, 0, 0, 0,
+
+            0, 0,
+
+            0, 0, 0, 0, 0,
+
+            0,
+
+            0,
+
+            0, 0, 0, 0, 0, 0, 0,
+
+            0, 0, 0, 0, 0, 0,
+
+            0,
+
+            0, 0,                       // FC_END & FC_PAD
+
+            0,
+            0,
+            0,
+
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+
+            0,
+
+            "NdrHardStruct",            // FC_HARD_STRUCT
+
+            "NdrXmitOrRepAs",           // FC_TRANSMIT_AS_PTR
+            "NdrXmitOrRepAs",           // FC_REPRESENT_AS_PTR
+
+            "NdrUserMarshal",           // FC_USER_MARSHAL
+
+            "NdrPipe",           // FC_PIPE
+
+            0
 			};
 
 //
@@ -226,13 +290,13 @@ char *		pNdrRoutineNames[] =
 FORMAT_STRING::FORMAT_STRING()
 {
 	// Allocate the buffer and align it on a short boundary.
-	pBuffer = new char[ DEFAULT_FORMAT_STRING_SIZE ];
-	pBuffer = (char *)((long)(pBuffer + 1) & ~ 0x1);
+	pBuffer = new unsigned char[ DEFAULT_FORMAT_STRING_SIZE ];
+	pBuffer = (unsigned char *)((long)(pBuffer + 1) & ~ 0x1);
 
 #ifdef FSDEBUG
 	// Allocate the cousin buffer type array.  This does not need to
 	// be aligned.
-	pBufferType = new char[ DEFAULT_FORMAT_STRING_SIZE ];
+	pBufferType = new unsigned char[ DEFAULT_FORMAT_STRING_SIZE ];
 #endif
 
 	BufferSize = DEFAULT_FORMAT_STRING_SIZE;
@@ -241,13 +305,13 @@ FORMAT_STRING::FORMAT_STRING()
 	pReuseDict = new FRMTREG_DICT( this );
 }
 
-void 
+void
 FORMAT_STRING::CheckSize()
 /*++
 
 Routine Description :
 	
-	Reallocates a new format string buffer if the current buffer is within 
+	Reallocates a new format string buffer if the current buffer is within
 	4 bytes of overflowing.
 
 Arguments :
@@ -262,10 +326,10 @@ Arguments :
     //
     if ( CurrentOffset + 3 > BufferSize )
         {
-        char *      pBufferNew;
+        unsigned char * pBufferNew;
 
-        pBufferNew = new char[ BufferSize * 2 ];
-		pBufferNew = (char *)((long)(pBufferNew + 1) & ~ 0x1);
+        pBufferNew = new unsigned char[ BufferSize * 2 ];
+		pBufferNew = (unsigned char *)((long)(pBufferNew + 1) & ~ 0x1);
 
         memcpy( pBufferNew,
                 pBuffer,
@@ -276,7 +340,7 @@ Arguments :
         pBuffer = pBufferNew;
 
 #ifdef FSDEBUG
-        pBufferNew = new char[ BufferSize * 2 ];
+        pBufferNew = new unsigned char[ BufferSize * 2 ];
 
         memcpy( pBufferNew,
                 pBufferType,
@@ -291,9 +355,10 @@ Arguments :
 		}
 }
 
-void 
+void
 FORMAT_STRING::Output(
     ISTREAM *           pStream,
+	char *				pTypeName,
 	char *				pName,
     RepAsPadExprDict *  pPadDict,
     RepAsSizeDict    *  pSizeDict )
@@ -309,33 +374,36 @@ Arguments :
 
  --*/
 {
-	unsigned long	        Offset; 
+	unsigned long	        Offset;
 	unsigned long			LastPrinted	= 0;
-	char			        Buf[80];
+	char			        Buf[102];
 	BOOL			        InPP = FALSE;
     REP_AS_PAD_EXPR_DESC *  pPadExprDesc;
     REP_AS_SIZE_DESC     *  pSizeDesc;
     unsigned long           AlphaOffset;
     unsigned long           MipsOffset;
     unsigned long           i386Offset;
+    unsigned long           PpcOffset;
+    unsigned long           MacOffset;
+    char *                  pComment;
 
 	pStream->NewLine();
 	pStream->Write( "static const " );
-	pStream->Write( FORMAT_STRING_TYPE_NAME );
-	pStream->Write( " " );
+	pStream->Write( pTypeName );
+	pStream->Write( ' ' );
 	pStream->Write( pName );
 	pStream->Write( " =");
 	pStream->IndentInc();
 	pStream->NewLine();
 
-	pStream->Write( "{" );
+	pStream->Write( '{' );
 	pStream->IndentInc();
 	pStream->NewLine();
 
 	pStream->Write( "0," );
 	pStream->NewLine();
 
-	pStream->Write( "{" );
+	pStream->Write( '{' );
 	pStream->IndentInc();
 
     // Reset the pad and size macro dictionaries
@@ -343,27 +411,71 @@ Arguments :
     pPadExprDesc = pPadDict->GetFirst();
     pSizeDesc    = pSizeDict->GetFirst();
 
-#ifdef FSDEBUG 
 	pStream->IndentDec();
 	pStream->IndentDec();
 	pStream->IndentDec();
+
+    BOOL f32bitServer = (pCommand->GetEnv() != ENV_DOS)  &&
+                        (pCommand->GetEnv() != ENV_WIN16)  &&
+                        (! pCommand->IsAnyMac() );
+    BOOL fMac = pCommand->IsAnyMac();
+
 
 	for ( Offset = 0; Offset < LastOffset; )
 		{
 		pStream->NewLine();
 
-        if ( pBufferType[Offset] == FS_SHORT_STACK_OFFSET )
+        pComment = CommentDict.GetComments( (short) Offset );
+
+        if ( pComment )
+            pStream->Write( pComment );
+
+        if ( (pBufferType[Offset] == FS_SHORT_STACK_OFFSET) ||
+             (pBufferType[Offset] == FS_SMALL_STACK_OFFSET) )
             {
             AlphaOffset = OffsetDict.LookupAlphaOffset( (short) Offset );
             MipsOffset = OffsetDict.LookupMipsOffset( (short) Offset );
-            i386Offset = *((short UNALIGNED *)(pBuffer + Offset));
+            PpcOffset = OffsetDict.LookupPpcOffset( (short) Offset );
+            MacOffset = OffsetDict.LookupMacOffset( (short) Offset );
 
-            pStream->Write( "#ifndef _ALPHA_" );
-            pStream->NewLine();
+            // A Mac offset can be different from a Mips offset,
+            // but doesn't have to.
+            // When it is, mips and ppc may be the same and mac may be
+            // different than both.
 
-            if ( i386Offset != MipsOffset )
+            if ( pBufferType[Offset] == FS_SHORT_STACK_OFFSET )
+                i386Offset = *((short UNALIGNED *)(pBuffer + Offset));
+            else
+                i386Offset = pBuffer[Offset];
+
+            if ( f32bitServer )
                 {
-                pStream->Write( "#ifndef _MIPS_" );
+                pStream->Write( "#ifndef _ALPHA_" );
+                pStream->NewLine();
+
+                if ( (i386Offset != MipsOffset) || (i386Offset != PpcOffset) )
+                    {
+                    if ( MipsOffset != PpcOffset )
+                        {
+                        pStream->Write( "#if !defined(_MIPS_)" );
+                        pStream->NewLine();
+                        pStream->Write( "#ifndef _PPC_" );
+                        pStream->NewLine();
+                        }
+                    else
+                        {
+                        pStream->Write(
+                            "#if !defined(_MIPS_) && !defined(_PPC_)" );
+                        pStream->NewLine();
+                        }
+                    }
+                }
+            }
+        if ( pBufferType[Offset] == FS_SMALL_STACK_SIZE )
+            {
+            if ( f32bitServer )
+                {
+                pStream->Write( "#ifndef _ALPHA_" );
                 pStream->NewLine();
                 }
             }
@@ -379,12 +491,12 @@ Arguments :
 			pStream->Write("\t\t\t");
 			}
 
-		switch ( pBufferType[Offset] ) 
+		switch ( pBufferType[Offset] )
 			{
 			case FS_FORMAT_CHARACTER :
 				// Make the format string readable.
-				switch ( pBuffer[Offset] ) 
-					{ 
+				switch ( pBuffer[Offset] )
+					{
 					case FC_IN_PARAM :
 					case FC_IN_OUT_PARAM :
 					case FC_OUT_PARAM :
@@ -428,13 +540,13 @@ Arguments :
 						// a new line.
 						//
 						if	( ! InPP &&
-							  ( Offset && 
+							  ( Offset &&
 								pBuffer[Offset - 1] != FC_IN_PARAM &&
 							    pBuffer[Offset - 1] != FC_IN_OUT_PARAM &&
 							    pBuffer[Offset - 1] != FC_OUT_PARAM &&
                                 pBuffer[Offset - 1] != FC_IN_PARAM_NO_FREE_INST &&
 							    pBuffer[Offset - 1] != FC_RETURN_PARAM    )
-							) 
+							)
 							{
 							pStream->NewLine();
 							pStream->Write("\t\t\t");
@@ -448,7 +560,7 @@ Arguments :
 						break;
 
 					case FC_END :
-						if ( InPP ) 
+						if ( InPP )
 							{
 							pStream->NewLine();
 							pStream->Write("\t\t\t");
@@ -465,7 +577,7 @@ Arguments :
 				pStream->Write( pFormatCharNames[pBuffer[Offset]] );
 				pStream->Write( " */");
 
-				if ( (pBuffer[Offset] == FC_END) && InPP ) 
+				if ( (pBuffer[Offset] == FC_END) && InPP )
 					{
 					pStream->NewLine();
 					InPP = FALSE;
@@ -481,12 +593,12 @@ Arguments :
 				// a new line.
 				//
 				if	( ! InPP &&
-					  ( Offset && 
+					  ( Offset &&
 						pBuffer[Offset - 1] != FC_IN_PARAM &&
 					    pBuffer[Offset - 1] != FC_IN_OUT_PARAM &&
 					    pBuffer[Offset - 1] != FC_OUT_PARAM &&
 					    pBuffer[Offset - 1] != FC_RETURN_PARAM    )
-					) 
+					)
 					{
 					pStream->NewLine();
 					pStream->Write("\t\t\t");
@@ -528,12 +640,11 @@ Arguments :
 				break;
 
 			case FS_SHORT :
-				pStream->Write( "0x" );
-				pStream->Write(MIDL_ITOA(pBuffer[Offset] & 0x00ff, Buf, 16));
-				pStream->Write( ", 0x" );
-				pStream->Write(MIDL_ITOA(pBuffer[Offset+1] & 0x00ff, Buf, 16));
-				pStream->Write( ",\t/* ");
-				pStream->Write( 
+                pStream->Write( "NdrFcShort( 0x" );
+                pStream->Write(
+                    MIDL_ITOA(*((short UNALIGNED *)(pBuffer+Offset)), Buf, 16));
+				pStream->Write( " ),\t/* ");
+				pStream->Write(
 					MIDL_ITOA(*((short UNALIGNED *)(pBuffer+Offset)), Buf, 10));
 				pStream->Write( " */");
 
@@ -545,11 +656,9 @@ Arguments :
 				{
 				short 		ItsOffset = *((short UNALIGNED *)(pBuffer + Offset));
 
-				pStream->Write( "0x" );
-				pStream->Write(MIDL_ITOA( pBuffer[Offset] & 0x00ff, Buf, 16));
-				pStream->Write( ", 0x" );
-				pStream->Write(MIDL_ITOA( pBuffer[Offset+1] & 0x00ff, Buf, 16));
-				pStream->Write( ",\t/* Offset= ");
+                pStream->Write( "NdrFcShort( 0x" );
+                pStream->Write( MIDL_ITOA( ItsOffset, Buf, 16 ) );
+				pStream->Write( " ),\t/* Offset= ");
 				pStream->Write( MIDL_ITOA( ItsOffset, Buf, 10 ) );
 				pStream->Write( " (");
 				pStream->Write( MIDL_ITOA( ItsOffset+Offset, Buf, 10 ) );
@@ -563,13 +672,9 @@ Arguments :
 				{
 				short 		ItsOffset = *((short UNALIGNED *)(pBuffer + Offset));
 
-				pStream->Write( "0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ", 0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset + 1] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ",\t/* Type Offset=");
+                pStream->Write( "NdrFcShort( 0x" );
+                pStream->Write( MIDL_ITOA( ItsOffset, Buf, 16 ) );
+				pStream->Write( " ),\t/* Type Offset=");
 				pStream->Write( MIDL_ITOA( ItsOffset, Buf, 10 ) );
 				pStream->Write( " */");
 
@@ -578,86 +683,192 @@ Arguments :
 				break;
 				}
 			case FS_SHORT_STACK_OFFSET :
+			case FS_SMALL_STACK_OFFSET :
                 {
-                //
-                // We have already emitted the #ifndef _ALPHA_ and the 
-                // #ifndef _MIPS_ (if needed).
-                //
+                char *  pString;
+                BOOL    IsShortOffset;
+
+                IsShortOffset = (pBufferType[Offset] == FS_SHORT_STACK_OFFSET);
 
                 //
-                // The i386 and possibly MIPS offset.
+                // For a 32 bit platform, we have already emitted
+                // the #ifndef _ALPHA_, the #ifndef _MIPS_ (if needed),
+                // and the #ifndef _PPC_ (if needed).
+                //
+                // Note that PPC, MIPS, i386 & Alpha constitute 32 platform.
+                // This is actually a server group.
+                // Mac clusters with DOS and WIN16.
                 //
 
-				pStream->Write( "0x" );
-				pStream->Write(MIDL_ITOA( pBuffer[Offset] & 0x00ff, Buf, 16));
-				pStream->Write( ", 0x" );
-				pStream->Write(MIDL_ITOA( pBuffer[Offset+1] & 0x00ff, Buf, 16));
-				pStream->Write( ",\t/* Stack offset= ");
-				pStream->Write( 
-					MIDL_ITOA(*((short UNALIGNED *)(pBuffer+Offset)), Buf, 10));
+                if ( f32bitServer )
+                    {
+                    //
+                    // The i386 and possibly MIPS and PPC offset.
+                    //
+
+                    if ( (i386Offset == PpcOffset) && (i386Offset == MipsOffset) )
+                        pString = "x86, MIPS, PPC";
+                    else if ( i386Offset == MipsOffset )
+                        pString = "x86, MIPS";
+                    else if ( i386Offset == PpcOffset )
+                        pString = "x86 & PPC";
+                    else
+                        pString = "x86";
+                    }
+                else
+                    pString = "";
+
+                // Emit plain i386 offset, including Dos and Win16, or Mac.
+
+                unsigned long  OffsetValue = (fMac) ? MacOffset
+                                                    : i386Offset;
+
+                if ( IsShortOffset )
+                    pStream->Write( "NdrFcShort( " );
+                pStream->Write( "0x" );
+                pStream->Write( MIDL_ITOA( OffsetValue, Buf, 16) );
+                if ( IsShortOffset )
+				    pStream->Write( " )" );
+				pStream->Write( ",\t/* " );
+                pStream->Write( pString );
+                pStream->Write( " Stack size/offset = " );
+				pStream->Write( MIDL_ITOA( OffsetValue, Buf, 10) );
 				pStream->Write( " */");
 
-                //
-                // Do a separate MIPS offset if needed.
-                //
-                if ( i386Offset != MipsOffset )
+                if ( f32bitServer )
                     {
-                    pStream->NewLine();
-                    pStream->Write( "#else" );
+                    //
+                    // Do a separate PPC and MIPS-Mac offset if needed.
+                    //
+                    if ( (i386Offset != PpcOffset) || (i386Offset != MipsOffset) )
+                        {
+                        if ( PpcOffset != MipsOffset )
+                            {
+                            pStream->NewLine();
+                            pStream->Write( "#else" );
+
+                            pStream->NewLine();
+                            pStream->Write( "\t\t\t" );
+
+                            if ( IsShortOffset )
+                                pStream->Write( "NdrFcShort( " );
+                            pStream->Write( "0x" );
+                            pStream->Write( MIDL_ITOA( PpcOffset, Buf, 16));
+                            if ( IsShortOffset )
+    				            pStream->Write( " )");
+    				        pStream->Write( ",\t/* PPC Stack size/offset = ");
+                            pStream->Write( MIDL_ITOA( PpcOffset, Buf, 10));
+    				        pStream->Write( " */");
+
+                            pStream->NewLine();
+                            pStream->Write( "#endif" );
+                            }
+
+                        pStream->NewLine();
+                        pStream->Write( "#else" );
+
+                        pString = (PpcOffset == MipsOffset) ? "MIPS & PPC"
+                                                            : "MIPS";
+
+                        pStream->NewLine();
+                        pStream->Write( "\t\t\t" );
+
+                        if ( IsShortOffset )
+                            pStream->Write( "NdrFcShort( " );
+                        pStream->Write( "0x" );
+                        pStream->Write( MIDL_ITOA( MipsOffset, Buf, 16));
+                        if ( IsShortOffset )
+    				        pStream->Write( " )" );
+    				    pStream->Write( ",\t/* " );
+                        pStream->Write( pString );
+                        pStream->Write( " Stack size/offset = " );
+                        pStream->Write( MIDL_ITOA( MipsOffset, Buf, 10));
+    				    pStream->Write( " */");
+
+                        pStream->NewLine();
+                        pStream->Write( "#endif" );
+                        }
 
                     pStream->NewLine();
+                    pStream->Write( "#else" );
+                    pStream->NewLine();
+
+                    //
+                    // The Alpha Offset.
+                    //
+
                     pStream->Write( "\t\t\t" );
-				    pStream->Write( "0x" );
-				    pStream->Write( MIDL_ITOA( MipsOffset & 0x00ff, Buf, 16));
-				    pStream->Write( ", 0x" );
-				    pStream->Write( MIDL_ITOA( MipsOffset >> 8, Buf, 16));
-				    pStream->Write( ",\t/* Stack offset= ");
-				    pStream->Write( MIDL_ITOA( MipsOffset, Buf, 10));
-				    pStream->Write( " */");
+
+                    if ( IsShortOffset )
+                        pStream->Write( "NdrFcShort( " );
+                    pStream->Write( "0x" );
+                    pStream->Write( MIDL_ITOA( AlphaOffset, Buf, 16));
+                    if ( IsShortOffset )
+    				    pStream->Write( " )");
+    				pStream->Write( ",\t/* Alpha Stack size/offset = ");
+    				pStream->Write( MIDL_ITOA( AlphaOffset, Buf, 10));
+    				pStream->Write( " */");
+
+                    pStream->NewLine();
+                    pStream->Write( "#endif" );
+
+                    } // if f32bitServer
+
+				Offset += IsShortOffset ? 2 : 1;
+
+				break;
+				}
+			case FS_SMALL_STACK_SIZE :
+                {
+                long    StackSize;
+
+                StackSize = (long) pBuffer[Offset];
+
+                //
+                // Non-Alpha stack size.
+                //
+				pStream->Write( "0x" );
+				pStream->Write( MIDL_ITOA(StackSize, Buf, 16) );
+
+                if ( f32bitServer )
+    				pStream->Write( ",\t\t/* x86, MIPS & PPC Stack size = ");
+                else
+	    			pStream->Write( ",\t\t/* Stack size = ");
+				pStream->Write( MIDL_ITOA(StackSize, Buf, 10) );
+				pStream->Write( " */");
+
+                pStream->NewLine();
+
+                if ( f32bitServer )
+                    {
+                    pStream->Write( "#else" );
+                    pStream->NewLine();
+
+                    //
+                    // Alpha stack size.
+                    //
+                    StackSize = (StackSize + 1) & ~ 0x1;
+
+                    pStream->Write( "\t\t\t" );
+    				pStream->Write( "0x" );
+    				pStream->Write( MIDL_ITOA(StackSize, Buf, 16) );
+    				pStream->Write( ",\t\t/* Alpha Stack size = ");
+    				pStream->Write( MIDL_ITOA(StackSize, Buf, 10) );
+    				pStream->Write( " */");
 
                     pStream->NewLine();
                     pStream->Write( "#endif" );
                     }
-
-                pStream->NewLine();
-                pStream->Write( "#else" );
-                pStream->NewLine();
-
-                //
-                // The Alpha Offset.
-                //
-
-                pStream->Write( "\t\t\t" );
-				pStream->Write( "0x" );
-				pStream->Write( MIDL_ITOA( AlphaOffset & 0x00ff, Buf, 16));
-				pStream->Write( ", 0x" );
-				pStream->Write( MIDL_ITOA( AlphaOffset >> 8, Buf, 16));
-				pStream->Write( ",\t/* Stack offset= ");
-				pStream->Write( MIDL_ITOA( AlphaOffset, Buf, 10));
-				pStream->Write( " */");
-
-                pStream->NewLine();
-                pStream->Write( "#endif" );
-
-				Offset += 2;
+				Offset++;
 
 				break;
 				}
 			case FS_LONG :
-				pStream->Write( "0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ", 0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset + 1] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ", 0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset + 2] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ", 0x" );
-				pStream->Write( 
-                        MIDL_ITOA( pBuffer[Offset + 3] & 0x00ff, Buf, 16 ) );
-				pStream->Write( ",\t/* ");
-				pStream->Write( 
+                pStream->Write( "NdrFcLong( 0x" );
+                pStream->Write(
+                    MIDL_LTOA( *((long UNALIGNED *)(pBuffer+Offset)), Buf, 16));
+				pStream->Write( " ),\t/* ");
+				pStream->Write(
 					MIDL_LTOA(*((long UNALIGNED *)(pBuffer+Offset)), Buf, 10));
 				pStream->Write( " */");
 		
@@ -666,25 +877,29 @@ Arguments :
 				break;
 
             case FS_PAD_MACRO :
-    
+
                 if ( pPadExprDesc )
                     {
+                    assert( Offset == pPadExprDesc->KeyOffset );
+
                     pPadDict->WriteCurrentPadDesc( pStream );
                     pPadExprDesc = pPadDict->GetNext();
                     }
                 else
                     {
             		pStream->Write( "0x0,\t\t/* macro */" );
-                    assert( 0  &&  "Size macro missing" );
+                    assert( 0  &&  "Pad macro missing" );
                     }
 
                 Offset++;
                 break;
 
             case FS_SIZE_MACRO :
-    
+
                 if ( pSizeDesc )
                     {
+                    assert( Offset == pSizeDesc->KeyOffset );
+
                     pSizeDict->WriteCurrentSizeDesc( pStream );
                     pSizeDesc = pSizeDict->GetNext();
                     }
@@ -698,24 +913,29 @@ Arguments :
                 break;
 
             case FS_UNKNOWN_STACK_SIZE :
+                {
+                char * LongBuf = Buf;
+                long   NameLen = strlen(
+                                 StackSizeDict.LookupTypeName( (short) Offset ));
+                if ( NameLen > 25 )
+                    LongBuf = new char[ 75 + NameLen ];
 
-                sprintf( 
-                    Buf, 
+                sprintf(
+                    LongBuf,
                     "%s ( (sizeof(%s) + %s) & ~ (%s) ),",
                     "(unsigned char)",
                     StackSizeDict.LookupTypeName( (short) Offset ),
                     "sizeof(int) - 1",
                     "sizeof(int) - 1" );
-                            
-                pStream->Write( Buf );
 
+                pStream->Write( LongBuf );
+                }
                 Offset++;
                 break;
-			} 
+			}
 		}
 
-	pStream->NewLine();
-	pStream->NewLine();
+	pStream->NewLine( 2 );
 
 	//
 	// Spit out a terminating 0 so we don't ever fall off the end
@@ -727,44 +947,10 @@ Arguments :
 	pStream->IndentInc();
 	pStream->IndentInc();
 
-#else
-
-	for ( Offset = 0; Offset < LastOffset; )
-		{
-		pStream->NewLine();
-        if ( pPadExprDesc  &&
-             pPadExprDesc->KeyOffset == Offset )
-            {
-            pDict->WriteCurrentPadDesc( pStream );
-            pPadExprDesc = pDict->GetNext();
-            }
-        else
-        if ( pSizeDesc  &&
-             pSizeDesc->KeyOffset == Offset )
-            {
-            pSizeDict->WriteCurrentSizeDesc( pStream );
-            pSizeDesc = pSizeDict->GetNext();
-            }
-        else
-            {
-    		sprintf( Buf,
-	    			 "%#x,",
-		    		 pBuffer[Offset++] );
-    		pStream->Write(Buf);
-            }
-		}
-
-	//
-	// Spit out a terminating 0 so we don't ever fall off the end
-	// of the world.
-	//
-	pStream->Write( "0x0" );
-#endif
-		
 	pStream->IndentDec();
 	pStream->NewLine();
 
-	pStream->Write( "}" );
+	pStream->Write( '}' );
 	pStream->IndentDec();
 	pStream->NewLine();
 
@@ -777,7 +963,7 @@ Arguments :
 
 
 unsigned short	
-FORMAT_STRING::OptimizeFragment( 
+FORMAT_STRING::OptimizeFragment(
 	CG_NDR	*		pNode )
 /*++
 
@@ -787,27 +973,24 @@ Routine Description :
 
 Arguments :
 	
-	pNode				- CG_NDR node, with format string start 
+	pNode				- CG_NDR node, with format string start
 							and end offsets already set.
 
  --*/
 {
-	unsigned short		StartOffset		= (unsigned short) 
+	unsigned short		StartOffset		= (unsigned short)
 												pNode->GetFormatStringOffset();
-	unsigned short		EndOffset		= (unsigned short) 
+	unsigned short		EndOffset		= (unsigned short)
 												pNode->GetFormatStringEndOffset();
 	FRMTREG_ENTRY		NewFragment( StartOffset, EndOffset );
 	FRMTREG_ENTRY	*	pOldFragment;
 
 	// perform format string optimization
-#ifdef FORMAT_COMPRESSION_OFF
-	if ( !pCommand->IsSwitchDefined( SWITCH_NO_FMT_OPT ) )
-#else
+
 	if ( pCommand->IsSwitchDefined( SWITCH_NO_FMT_OPT ) )
-#endif
 		return StartOffset;
 
-	assert( ( ((short) StartOffset) >= 0 ) && 
+	assert( ( ((short) StartOffset) >= 0 ) &&
 		    ( ((short) EndOffset) >= 0 ) );
 	assert ( EndOffset <= LastOffset );
 
@@ -837,7 +1020,7 @@ Arguments :
 
 
 unsigned short	
-FORMAT_STRING::RegisterFragment( 
+FORMAT_STRING::RegisterFragment(
 	CG_NDR	*		pNode )
 /*++
 
@@ -852,9 +1035,9 @@ Arguments :
 
  --*/
 {
-	unsigned short		StartOffset		= (unsigned short) 
+	unsigned short		StartOffset		= (unsigned short)
 												pNode->GetFormatStringOffset();
-	unsigned short		EndOffset		= (unsigned short) 
+	unsigned short		EndOffset		= (unsigned short)
 												pNode->GetFormatStringEndOffset();
 	FRMTREG_ENTRY		NewFragment( StartOffset, EndOffset );
 	FRMTREG_ENTRY	*	pOldFragment;
@@ -863,7 +1046,7 @@ Arguments :
 	if ( pCommand->IsSwitchDefined( SWITCH_NO_FMT_OPT ) )
 		return StartOffset;
 
-	assert( ( ((short) StartOffset) != -1 ) && 
+	assert( ( ((short) StartOffset) != -1 ) &&
 		    ( ((short) EndOffset) != -1 ) );
 	assert ( EndOffset <= LastOffset );
 
@@ -873,3 +1056,75 @@ Arguments :
 	return StartOffset;
 
 }
+
+char *
+CommentDictionary::GetComments(
+    short Offset
+    )
+{
+    CommentDictElem     Elem;
+    CommentDictElem *   pHead;
+    CommentDictElem *   pElem;
+    Dict_Status         DictStatus;
+    char *              Comments;
+    long                Length;
+
+    Elem.FormatStringOffset = Offset;
+
+    DictStatus = Dict_Find( &Elem );
+
+    if ( DictStatus != SUCCESS )
+        return 0;
+
+    pHead = (CommentDictElem *) Dict_Item();
+
+    Length = 0;
+
+    for ( pElem = pHead; pElem; pElem = pElem->Next )
+        Length += strlen( pElem->Comment );
+
+    Comments = new char[Length+1];
+    Comments[0] = 0;
+
+    for ( pElem = pHead; pElem; pElem = pElem->Next )
+        strcat( Comments, pElem->Comment );
+
+    return Comments;
+}
+
+void
+CommentDictionary::Insert(
+    short FormatStringOffset,
+    char * Comment
+    )
+{
+    CommentDictElem     Elem;
+    CommentDictElem *   pHead;
+    CommentDictElem *   pElem;
+    Dict_Status         DictStatus;
+
+    Elem.FormatStringOffset = FormatStringOffset;
+
+    DictStatus = Dict_Find( &Elem );
+
+    if ( DictStatus == SUCCESS )
+        pHead = (CommentDictElem *) Dict_Item();
+    else
+        pHead = 0;
+
+    pElem = new CommentDictElem;
+
+    pElem->Next = pHead;
+    pElem->FormatStringOffset = FormatStringOffset;
+    pElem->Comment = Comment;
+
+    //
+    // We delete any current entry and add a new entry so that comments
+    // are always prepended to the list.
+    //
+    if ( pHead )
+        Dict_Delete( (pUserType *) &pHead );
+
+    Dict_Insert( pElem  );
+}
+

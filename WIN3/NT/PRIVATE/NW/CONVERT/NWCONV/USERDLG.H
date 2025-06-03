@@ -5,6 +5,10 @@
 #ifndef _USERDLG_
 #define _USERDLG_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 
 typedef struct _CONVERT_OPTIONS {
    BOOL TransferUserInfo;
@@ -24,7 +28,7 @@ typedef struct _CONVERT_OPTIONS {
 
    BOOL SupervisorDefaults;
    BOOL AdminAccounts;
-//   BOOL NetWareInfo;
+   BOOL NetWareInfo;
 
    BOOL UseTrustedDomain;
    DOMAIN_BUFFER *TrustedDomain; 
@@ -36,6 +40,10 @@ void UserOptionsInit(void **cvto);
 void UserOptionsLoad(HANDLE hFile, void **lpcvto);
 void UserOptionsSave(HANDLE hFile, void *cvto);
 
-void UserOptions_Do(HWND hDlg, void *ConvOptions, LPTSTR SourceServer, LPTSTR DestServer);
+void UserOptions_Do(HWND hDlg, void *ConvOptions, SOURCE_SERVER_BUFFER *SourceServer, DEST_SERVER_BUFFER *DestServer);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

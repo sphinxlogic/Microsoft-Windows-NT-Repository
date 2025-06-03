@@ -27,7 +27,8 @@ Revision History:
 #include <zwapi.h>
 #include "vdmp.h"
 
-
+// thread priority boost for vdm hardware interrupt.
+#define VDM_HWINT_INCREMENT	EVENT_INCREMENT
 
   //
   // internal function prototypes
@@ -113,6 +114,13 @@ VdmpNullRundownRoutine(
     IN PKAPC Apc
     );
 
+
+int
+VdmpExceptionHandler(
+    IN PEXCEPTION_POINTERS ExceptionInfo
+    );
+
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, VdmpQueueInterrupt)
 #pragma alloc_text(PAGE, VdmpQueueIntApcRoutine)
@@ -127,6 +135,7 @@ VdmpNullRundownRoutine(
 #pragma alloc_text(PAGE, VdmpDispatchableIntPending)
 #pragma alloc_text(PAGE, VdmpIsThreadTerminating)
 #pragma alloc_text(PAGE, VdmpNullRundownRoutine)
+#pragma alloc_text(PAGE, VdmpExceptionHandler)
 #endif
 
 extern POBJECT_TYPE ExSemaphoreObjectType;
@@ -246,7 +255,7 @@ Routine Description:
 
 Arguments:
 
-    Apc - NOT USED
+    Apc -
         Supplies a pointer to the APC object used to invoke this routine.
 
     NormalRoutine -
@@ -277,6 +286,8 @@ Return Value:
 
     PAGED_CODE();
 
+    Ke386VdmClearApcObject(Apc);
+
 
     try {
 
@@ -291,6 +302,12 @@ Return Value:
         if (PsIsThreadTerminating(Thread))
             return;
 
+	//
+	// if no pending interrupts, ignore this APC.
+	//
+	if (!(*pNtVDMState & VDM_INTERRUPT_PENDING)) {
+	    return;
+	    }
 
         TrapFrame = VdmGetTrapFrame(&Thread->Tcb);
 
@@ -317,13 +334,13 @@ Return Value:
                              (PVOID)UserMode,       // NormalContext
                              NULL,                  // sysarg1
                              NULL,                  // sysarg2
-                             (*pNtVDMState & VDM_INT_HARDWARE) // PrBoost
-                              ? 2 : 0
+			     (*pNtVDMState & VDM_INT_HARDWARE) // PrBoost
+			      ? VDM_HWINT_INCREMENT : 0
                              );
 
                     }
                 else  {
-                     ASSERT(*NormalContext == UserMode);
+                     ASSERT(*NormalContext == (PVOID)UserMode);
 
 
                      VdmTib = NtCurrentTeb()->Vdm;
@@ -357,19 +374,23 @@ Return Value:
                 }
 
             }
-        // BUGBUG this may set VIP for flat if VPI is ever set in CR4
-        else if (((KeI386VirtualIntExtensions & V86_VIRTUAL_INT_EXTENSIONS) &&
+        // WARNING this may set VIP for flat if VPI is ever set in CR4
+	else if (((KeI386VirtualIntExtensions & V86_VIRTUAL_INT_EXTENSIONS) &&
                   (TrapFrame->EFlags & EFLAGS_V86_MASK)) ||
                  ((KeI386VirtualIntExtensions & PM_VIRTUAL_INT_EXTENSIONS) &&
                   !(TrapFrame->EFlags & EFLAGS_V86_MASK)) )
            {
+	    // The CPU traps EVERY instruction if VIF and VIP are both ON.
+	    // Make sure that you set VIP ON only when	there are pending
+	    // interrupts, i.e. (*pNtVDMState & VDM_INTERRUPT_PENDING) != 0.
+	    ASSERT(*pNtVDMState & VDM_INTERRUPT_PENDING);
+
             TrapFrame->EFlags |= EFLAGS_VIP;
             }
         }
-    except(EXCEPTION_EXECUTE_HANDLER) {
-        Status = GetExceptionCode();
+    except(VdmpExceptionHandler(GetExceptionInformation()))  {
         VdmDispatchException(TrapFrame,
-                             Status,
+                             GetExceptionCode(),
                              (PVOID)TrapFrame->Eip,
                              0,0,0,0   // no parameters
                              );
@@ -429,7 +450,7 @@ Return Value:
             }
 
         }
-    except(EXCEPTION_EXECUTE_HANDLER) {
+    except(VdmpExceptionHandler(GetExceptionInformation()))  {
         Thread    = PsGetCurrentThread();
         TrapFrame = VdmGetTrapFrame(&Thread->Tcb);
         VdmDispatchException(TrapFrame,
@@ -639,7 +660,7 @@ VDIretry:
 
         TrapFrame->EFlags &= ~(EFLAGS_NT_MASK | EFLAGS_TF_MASK);
 
-        KeBoostPriorityThread(KeGetCurrentThread(), 2);
+	KeBoostPriorityThread(KeGetCurrentThread(), VDM_HWINT_INCREMENT);
 
 
         //
@@ -656,11 +677,8 @@ VDIretry:
             VdmEndExecution(TrapFrame, VdmTib);
             }
         }
-    except(EXCEPTION_EXECUTE_HANDLER) {
+    except(VdmpExceptionHandler(GetExceptionInformation())) {
         Status = GetExceptionCode();
-        }
-
-    if (!NT_SUCCESS(Status)) {
         VdmDispatchException(TrapFrame,
                              Status,
                              (PVOID)TrapFrame->Eip,
@@ -743,6 +761,7 @@ Return Value:
    int   i,line;
    UCHAR bit;
    ULONG IrrImrDelay;
+   ULONG ActiveIsr;
 
    PAGED_CODE();
 
@@ -754,33 +773,29 @@ Return Value:
    IrrImrDelay = pIcaAdapter->ica_irr & ~(pIcaAdapter->ica_imr | (UCHAR)IrrImrDelay);
 
    if (IrrImrDelay)  {
-             //
-             // Special Mask Mode case
-             //
-       if (pIcaAdapter->ica_mode & ICA_SMM) {
-           for(i = 0; i < 8; i++) {
-               line = (pIcaAdapter->ica_hipri + i) & 7;
-               if (IrrImrDelay & (1 << line)) {
-                   return line;
-                   }
-               }
-           }
-       else  {
-           for(i = 0; i < 8; i++)  {
-               line = (pIcaAdapter->ica_hipri + i) & 7;
-               bit = 1 << line;
-               if (pIcaAdapter->ica_isr & bit)  {
-                   if ((pIcaAdapter->ica_mode & ICA_SFNM) &&
-                       (IrrImrDelay & bit))
-                      {
-                       return line;
-                       }
-                   return -1;
-                   }
 
-               if (IrrImrDelay & bit) {
-                   return line;
-                   }
+        /*
+         * Does the current mode require the ica to prevent
+         * interrupts if that line is still active (ie in the isr)?
+         *
+         * Normal Case: Used by DOS and Win3.1/S the isr prevents interrupts.
+         * Special Mask Mode, Special Fully Nested Mode do not block
+         * interrupts using bits in the isr. SMM is the mode used
+         * by Windows95 and Win3.1/E.
+         *
+         */
+       ActiveIsr = (pIcaAdapter->ica_mode & (ICA_SMM|ICA_SFNM))
+                      ? 0 : pIcaAdapter->ica_isr;
+
+       for(i = 0; i < 8; i++)  {
+           line = (pIcaAdapter->ica_hipri + i) & 7;
+           bit = 1 << line;
+           if (ActiveIsr & bit) {
+               break;            /* No nested interrupt possible */
+               }
+
+           if (IrrImrDelay & bit) {
+               return line;
                }
            }
        }
@@ -1013,19 +1028,21 @@ Return Value:
     ULONG   Flags,Base,Limit;
     ULONG   VdmSp, VdmSpOrg;
     PUSHORT VdmStackPointer;
+    ULONG   StackOffset;
+    BOOLEAN Frame32 = (BOOLEAN) pPmStackInfo->Flags;
 
     PAGED_CODE();
 
     //
     // Switch to "locked" dpmi stack if lock count is zero
-    // This emulates win3.1 behavior. If you change this code, you must
-    // look at the monitor and dosx, which rely on this behavior.
+    // This emulates the win3.1 Begin_Use_Locked_PM_Stack function.
     //
 
     if (!pPmStackInfo->LockCount++) {
         pPmStackInfo->SaveEsp        = TrapFrame->HardwareEsp;
+        pPmStackInfo->SaveEip        = TrapFrame->Eip;
         pPmStackInfo->SaveSsSelector = (USHORT) TrapFrame->HardwareSegSs;
-        TrapFrame->HardwareEsp       = pPmStackInfo->Esp;
+        TrapFrame->HardwareEsp       = 0x1000;
         TrapFrame->HardwareSegSs     = (ULONG) pPmStackInfo->SsSelector;
     }
 
@@ -1056,19 +1073,26 @@ Return Value:
 
 
     //
-    // Calculate the new sp
+    // Create enough room for iret hook frame
     //
     VdmSpOrg = VdmSp;
     if (IretHookAddress) {
-        VdmSp -= 8;
+        if (Frame32) {
+            VdmSp -= 3*sizeof(ULONG);
+        } else {
+            VdmSp -= 3*sizeof(USHORT);
         }
+    }
 
     //
-    // Create enough room for a 32-bit iret frame, which is reflected
-    // regardless of the "bit'dness" of the handler.
+    // Create enough room for 2 iret frames
     //
 
-    VdmSp -= 12;
+    if (Frame32) {
+        VdmSp -= 6*sizeof(ULONG);
+    } else {
+        VdmSp -= 6*sizeof(USHORT); 
+    }
 
     //
     // Set Final Value of Sp\Esp, do this before checking stack
@@ -1098,46 +1122,28 @@ Return Value:
         return STATUS_ACCESS_VIOLATION;
         }
 
-
-
-    //
-    // Build the Irethook Iret frame, if one exists
-    //
-    if (IretHookAddress) {
-
-        // Increment the lock count so that DOSX will not switch stacks back.
-        // This will be done in the Monitor's iret hook completion routine.
-        pPmStackInfo->LockCount++;
-
-        *(--VdmStackPointer) = (USHORT) TrapFrame->EFlags;
-        *(--VdmStackPointer) = (USHORT) TrapFrame->SegCs;
-        *(--(PULONG)VdmStackPointer) =  TrapFrame->Eip;
-
-        //
-        // Point cs and eip at the iret hook, so when we build
-        // the frame below, the correct contents are set
-        //
-        TrapFrame->SegCs = IretHookAddress >> 16;
-        TrapFrame->Eip   = IretHookAddress & 0xFFFF;
-
-        //
-        // Turn off trace bit so we don't trace the iret hook
-        //
-        TrapFrame->EFlags &= ~EFLAGS_TF_MASK;
-        }
-
-
     //
     // Build the Hw Int iret frame
     //
-    // Here, a 32-bit frame is built even if the vdm is running in 16-bit
-    // mode. This solves the problem of mixed mode programs where the upper
-    // half of EIP gets lost. The 32-bit frame is handled by DOSX.
-    //
 
-    *(--(PULONG)VdmStackPointer)          = TrapFrame->EFlags;
-    *(PUSHORT)(--(PULONG)VdmStackPointer) = (USHORT)TrapFrame->SegCs;
-    *(--(PULONG)VdmStackPointer)          = TrapFrame->Eip;
+    if (Frame32) {
+
+       *(--(PULONG)VdmStackPointer)          = TrapFrame->EFlags;
+       *(PUSHORT)(--(PULONG)VdmStackPointer) = (USHORT)TrapFrame->SegCs;
+       *(--(PULONG)VdmStackPointer)          = TrapFrame->Eip;
+       *(--(PULONG)VdmStackPointer)          = TrapFrame->EFlags & ~EFLAGS_TF_MASK;
+       *(--(PULONG)VdmStackPointer)          = pPmStackInfo->DosxIntIretD >> 16;
+       *(--(PULONG)VdmStackPointer)          = pPmStackInfo->DosxIntIretD & 0xffff;
+
+    } else {
+
+       *(--(PUSHORT)VdmStackPointer) = (USHORT)TrapFrame->EFlags;
+       *(--(PUSHORT)VdmStackPointer) = (USHORT)TrapFrame->SegCs;
+       *(--(PUSHORT)VdmStackPointer) = (USHORT)TrapFrame->Eip;
+       *(--(PUSHORT)VdmStackPointer) = (USHORT)(TrapFrame->EFlags & ~EFLAGS_TF_MASK);
+       *(--(PULONG)VdmStackPointer)          = pPmStackInfo->DosxIntIret;
+
+    }
 
     //
     // Point cs and ip at interrupt handler
@@ -1145,6 +1151,38 @@ Return Value:
     TrapFrame->SegCs = pInterruptHandler->CsSelector;
     TrapFrame->Eip   = pInterruptHandler->Eip;
 
+    //
+    // Turn off trace bit so we don't trace the iret hook
+    //
+    TrapFrame->EFlags &= ~EFLAGS_TF_MASK;
+
+    //
+    // Build the Irethook Iret frame, if one exists
+    //
+    if (IretHookAddress) {
+        ULONG SegCs, Eip;
+
+        //
+        // Point cs and eip at the iret hook, so when we build
+        // the frame below, the correct contents are set
+        //
+        SegCs = IretHookAddress >> 16;
+        Eip   = IretHookAddress & 0xFFFF;
+
+        if (Frame32) {
+    
+           *(--(PULONG)VdmStackPointer)          = TrapFrame->EFlags;
+           *(PUSHORT)(--(PULONG)VdmStackPointer) = (USHORT)SegCs;
+           *(--(PULONG)VdmStackPointer)          = Eip;
+    
+        } else {
+    
+           *(--(PUSHORT)VdmStackPointer) = (USHORT)TrapFrame->EFlags;
+           *(--(PUSHORT)VdmStackPointer) = (USHORT)SegCs;
+           *(--(PUSHORT)VdmStackPointer) = (USHORT)Eip;
+    
+        }
+    }
     return STATUS_SUCCESS;
 }
 
@@ -1160,8 +1198,7 @@ VdmpDelayInterrupt(
 Routine Description:
 
     Sets a timer to dispatch the delayed interrupt through KeSetTimer.
-    When the timer fires a user mode APC is queued to the HearBeat
-    thread which is in an alertable wait.
+    When the timer fires a user mode APC is queued to queue the interrupt.
 
     This function uses lazy allocation routines to allocate internal
     data structures (nonpaged pool) on a per Irq basis, and needs to
@@ -1170,6 +1207,14 @@ Routine Description:
 
     The caller must own the IcaLock to synchronize access to the
     Irq lists.
+
+    WARNING: - Until the Delayed interrupt fires or is cancelled,
+               the specific Irq line will not generate any interrupts.
+
+             - The APC routine, does not take the HostIca lock, when
+               unblocking the IrqLine. Devices which use delayed Interrupts
+               should not queue ANY additional interrupts for the same IRQ
+               line until the delayed interrupt has fired or been cancelled.
 
 Arguments:
 
@@ -1202,17 +1247,22 @@ Return Value:
     PULONG        pDelayIrq;
     PULONG        pUndelayIrq;
     LARGE_INTEGER liDelay;
+    BOOLEAN       FreeIrqLine;
+    BOOLEAN       TakeIrqLine;
 
 
     //
     // Get a pointer to pVdmObjects
     //
     Process = PsGetCurrentProcess();
-    if (Process->Pcb.VdmFlag != TRUE) {
+    pVdmObjects = Process->VdmObjects;
+    if (Process->Pcb.VdmFlag != TRUE || !pVdmObjects) {
         return STATUS_INVALID_PARAMETER_1;
         }
-    pVdmObjects = Process->VdmObjects;
 
+    ExAcquireFastMutex(&pVdmObjects->DelayIntFastMutex);
+    Status = STATUS_INVALID_PARAMETER_2;
+    Thread = NULL;
 
     try {
 
@@ -1226,7 +1276,7 @@ Return Value:
         //
         IrqLine = 1 << pdsd->DelayIrqLine;
         if (!IrqLine) {
-            return STATUS_INVALID_PARAMETER_2;
+            goto VidEarlyExit;
             }
 
         //
@@ -1253,20 +1303,20 @@ Return Value:
                 // the due time.
                 //
              if (Delay < 150000) {
-                 ULONG ul;
+                 ULONG ul = Delay >> 1;
 
-                 ul = Delay >> 1;
                  if (ul < KeTimeIncrement && KeTimeIncrement > KeMinimumIncrement) {
                      ZwSetTimerResolution(ul, TRUE, (PULONG)&liDelay.LowPart);
                      }
 
-                 if (ul >= KeTimeIncrement) {
-                     // fudge by 1/2 msec to ensure we wake up by due time
-                     Delay -= 5000;
-                     }
-                 else {
+                 if (Delay < KeTimeIncrement) {
                      // can't set system clock rate low enuf, so use half delay
                      Delay >>= 1;
+                     }
+                 else if (Delay < (KeTimeIncrement << 1)) {
+                     // Real close to the system clock rate, lower delay
+                     // proportionally, to avoid missing clock cycles.
+                     Delay -= KeTimeIncrement >> 1;
                      }
                  }
              }
@@ -1283,169 +1333,180 @@ Return Value:
                          &Thread,
                          NULL
                          );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
+        if (NT_SUCCESS(Status)) {
+            pDelayIrq = pVdmObjects->pIcaUserData->pDelayIrq;
+            ProbeForWriteUlong(pDelayIrq);
+            pUndelayIrq = pVdmObjects->pIcaUserData->pUndelayIrq;
+            ProbeForWriteUlong(pUndelayIrq);
             }
 
-
-        //
-        // Force pDelayIrq to be paged in while in the spinlock
-        //
-        pDelayIrq = pVdmObjects->pIcaUserData->pDelayIrq;
-        pUndelayIrq = pVdmObjects->pIcaUserData->pUndelayIrq;
-
-        while (TRUE) {
-            KeAcquireSpinLock(&pVdmObjects->DelayIntSpinLock, &OldIrql);
-            if (MmIsAddressValid(pDelayIrq) &&
-                MmIsAddressValid(pUndelayIrq) )
-              {
-                break;   // we got it!
-                }
-
-            KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-
-            _asm {
-                 mov eax, pDelayIrq
-                 mov eax, [eax]
-                 mov eax, pUndelayIrq
-                 mov eax, [eax]
-                 }
-            }
+VidEarlyExit:;
         }
-    except(EXCEPTION_EXECUTE_HANDLER) {
+   except(EXCEPTION_EXECUTE_HANDLER) {
         Status = GetExceptionCode();
-        if (KeGetCurrentIrql() > OldIrql) {
-            KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-            }
         }
 
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-        }
-
-
-
-    //
-    // Search the DelayedIntList for a matching Irq Line.
-    //
-    Next = pVdmObjects->DelayIntListHead.Flink;
-    while ( Next != &pVdmObjects->DelayIntListHead) {
-        pDelayIntIrq = CONTAINING_RECORD(Next, DELAYINTIRQ, DelayIntListEntry);
-        if (pDelayIntIrq->IrqLine == IrqLine) {
-            break;
-            }
-        Next = Next->Flink;
-        }
-
-
-    //
-    //  if Delay is 0xFFFFFFFF then remove the DelayIntIrq from DelayIntList
-    //  and free the memory used. cancel pending timers, apcs.
-    //
-    if (Delay == 0xFFFFFFFF) {
-        if (Next != &pVdmObjects->DelayIntListHead) {
-            if (pDelayIntIrq->InUse) {
-                switch (pDelayIntIrq->InUse) {
-                   case VDMDELAY_KTIMER:
-                        KeCancelTimer(&pDelayIntIrq->Timer);
-                        KeRemoveQueueDpc(&pDelayIntIrq->Dpc);
-                        break;
-
-                   case VDMDELAY_KAPC:
-                        KeRemoveQueueApc(&pDelayIntIrq->Apc);
-                        break;
-                   }
-                *pDelayIrq &= ~IrqLine;
-
-                _asm {
-                   mov eax, pUndelayIrq
-                   mov ebx, IrqLine
-                   lock or [eax], ebx
-                   }
-                }
-            RemoveEntryList(&pDelayIntIrq->DelayIntListEntry);
-            ExFreePool(pDelayIntIrq);
-            PsReturnPoolQuota(Process, NonPagedPool, sizeof(DELAYINTIRQ));
-            }
-
-        goto VidExit;
-        }
-
-
-    //
-    // If a DelayIntIrq does not exist for this irql, allocate from nonpaged
-    // pool and initialize it
-    //
-
-    if (Next == &pVdmObjects->DelayIntListHead) {
-
-        pDelayIntIrq = ExAllocatePool(
-                                     NonPagedPool,
-                                     sizeof(DELAYINTIRQ)
-                                     );
-        if (pDelayIntIrq) {
-        
-            try {
-                PsChargePoolQuota(Process, NonPagedPool, sizeof(DELAYINTIRQ));
-            } except(EXCEPTION_EXECUTE_HANDLER) {
-                Status = GetExceptionCode();
-                ExFreePool(pDelayIntIrq);
-                goto VidExit;
-            }
-            RtlZeroMemory(pDelayIntIrq, sizeof(DELAYINTIRQ));
-            pDelayIntIrq->IrqLine = IrqLine;
-
-            KeInitializeTimer(&pDelayIntIrq->Timer);
-
-            KeInitializeDpc(&pDelayIntIrq->Dpc,
-                            VdmpDelayIntDpcRoutine,
-                            Process
-                            );
-
-            InsertTailList(&pVdmObjects->DelayIntListHead,
-                           &pDelayIntIrq->DelayIntListEntry
-                           );
-            }
-        else {
-            Status = STATUS_NO_MEMORY;
-            goto VidExit;
-            }
-        }
-
-    //
-    // Save PKTHREAD of Target thread for the dpc routine
-    //
-    pDelayIntIrq->Thread = &Thread->Tcb;
-
-
-    //
-    // If the DelayIntIrq is already in use then we have nothing to do
-    // else set the appropriate timer
-    //
-    if (pDelayIntIrq->InUse == VDMDELAY_NOTINUSE) {
-        *pDelayIrq |= IrqLine;
-
-        _asm {
-           mov eax, pUndelayIrq
-           mov ebx, IrqLine
-           not ebx
-           lock and [eax], ebx
+   if (!NT_SUCCESS(Status)) {
+       ExReleaseFastMutex(&pVdmObjects->DelayIntFastMutex);
+       if (Thread) {
+           ObDereferenceObject(Thread);
            }
 
-        liDelay = RtlEnlargedIntegerMultiply(Delay, -1);
-        pDelayIntIrq->InUse = VDMDELAY_KTIMER;
-        KeSetTimer(&pDelayIntIrq->Timer,
-                   liDelay,
-                   &pDelayIntIrq->Dpc
-                   );
+       return Status;
+       }
 
+
+
+   KeAcquireSpinLock(&pVdmObjects->DelayIntSpinLock, &OldIrql);
+   FreeIrqLine = FALSE;
+   TakeIrqLine = FALSE;
+
+   try {
+
+        //
+        // Search the DelayedIntList for a matching Irq Line.
+        //
+        Next = pVdmObjects->DelayIntListHead.Flink;
+        while ( Next != &pVdmObjects->DelayIntListHead) {
+            pDelayIntIrq = CONTAINING_RECORD(Next, DELAYINTIRQ, DelayIntListEntry);
+            if (pDelayIntIrq->IrqLine == IrqLine) {
+                break;
+                }
+            Next = Next->Flink;
+            }
+
+
+        //
+        //  if Delay is 0xFFFFFFFF then remove the DelayIntIrq from DelayIntList
+        //  and free the memory used. cancel pending timers, apcs.
+        //
+        if (Delay == 0xFFFFFFFF) {
+            if (Next != &pVdmObjects->DelayIntListHead) {
+                if (pDelayIntIrq->InUse) {
+                    switch (pDelayIntIrq->InUse) {
+                       case VDMDELAY_KTIMER:
+                            KeCancelTimer(&pDelayIntIrq->Timer);
+                            KeRemoveQueueDpc(&pDelayIntIrq->Dpc);
+                            break;
+
+                       case VDMDELAY_KAPC:
+                            KeRemoveQueueApc(&pDelayIntIrq->Apc);
+                            break;
+                       }
+
+                    FreeIrqLine = TRUE;
+
+                    }
+
+                RemoveEntryList(&pDelayIntIrq->DelayIntListEntry);
+                ExFreePool(pDelayIntIrq);
+                PsReturnPoolQuota(Process, NonPagedPool, sizeof(DELAYINTIRQ));
+                }
+
+            goto VidExit;
+            }
+
+
+        //
+        // If a DelayIntIrq does not exist for this irql, allocate from nonpaged
+        // pool and initialize it
+        //
+
+        if (Next == &pVdmObjects->DelayIntListHead) {
+
+            pDelayIntIrq = ExAllocatePool(
+                                         NonPagedPool,
+                                         sizeof(DELAYINTIRQ)
+                                         );
+            if (pDelayIntIrq) {
+
+                try {
+                    PsChargePoolQuota(Process, NonPagedPool, sizeof(DELAYINTIRQ));
+                    }
+                except(EXCEPTION_EXECUTE_HANDLER) {
+                    Status = GetExceptionCode();
+                    ExFreePool(pDelayIntIrq);
+                    goto VidExit;
+                    }
+                RtlZeroMemory(pDelayIntIrq, sizeof(DELAYINTIRQ));
+                pDelayIntIrq->IrqLine = IrqLine;
+
+                KeInitializeTimer(&pDelayIntIrq->Timer);
+
+                KeInitializeDpc(&pDelayIntIrq->Dpc,
+                                VdmpDelayIntDpcRoutine,
+                                Process
+                                );
+
+                InsertTailList(&pVdmObjects->DelayIntListHead,
+                               &pDelayIntIrq->DelayIntListEntry
+                               );
+                }
+            else {
+                Status = STATUS_NO_MEMORY;
+                goto VidExit;
+                }
+            }
+
+        //
+        // Save PKTHREAD of Target thread for the dpc routine
+        //
+        pDelayIntIrq->Thread = &Thread->Tcb;
+
+
+        //
+        // If the DelayIntIrq is already in use then we have nothing to do
+        // else set the appropriate timer
+        //
+        if (pDelayIntIrq->InUse == VDMDELAY_NOTINUSE) {
+
+            liDelay = RtlEnlargedIntegerMultiply(Delay, -1);
+            pDelayIntIrq->InUse = VDMDELAY_KTIMER;
+            KeSetTimer(&pDelayIntIrq->Timer,
+                       liDelay,
+                       &pDelayIntIrq->Dpc
+                       );
+
+            TakeIrqLine = TRUE;
+            }
+
+VidExit:;
+        }
+    except(EXCEPTION_EXECUTE_HANDLER)  {
+        Status = GetExceptionCode();
         }
 
-
-VidExit:
-    ObDereferenceObject(Thread);
     KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
+
+    try {
+        if (TakeIrqLine) {
+            *pDelayIrq |= IrqLine;
+            _asm {
+               mov eax, pUndelayIrq
+               mov ebx, IrqLine
+               not ebx
+               lock and [eax], ebx
+               }
+            }
+        else if (FreeIrqLine) {
+            *pDelayIrq &= ~IrqLine;
+            _asm {
+               mov eax, pUndelayIrq
+               mov ebx, IrqLine
+               lock or [eax], ebx
+               }
+            }
+        }
+    except(EXCEPTION_EXECUTE_HANDLER)  {
+        Status = GetExceptionCode();
+        }
+
+    ExReleaseFastMutex(&pVdmObjects->DelayIntFastMutex);
+
+    ObDereferenceObject(Thread);
+
     return Status;
+
 }
 
 
@@ -1554,7 +1615,7 @@ Return Value:
                                    NULL,            // NormalContext
                                    NULL,            // sysarg1
                                    NULL,            // sysarg2
-                                   2 );             // Increment
+				   VDM_HWINT_INCREMENT ); // Increment
 
             }
         else {
@@ -1616,48 +1677,22 @@ Return Value:
     PULONG           pUndelayIrq;
     PULONG           pDelayIret;
     ULONG            IrqLine;
+    BOOLEAN          FreeIrqLine;
 
+
+    Ke386VdmClearApcObject(Apc);
+
+
+    //
+    // Get a pointer to pVdmObjects
+    //
+    pVdmObjects = PsGetCurrentProcess()->VdmObjects;
+    ExAcquireFastMutex(&pVdmObjects->DelayIntFastMutex);
+
+    KeAcquireSpinLock(&pVdmObjects->DelayIntSpinLock, &OldIrql);
+    FreeIrqLine = FALSE;
 
     try {
-
-
-       //
-       // Get a pointer to pVdmObjects
-       //
-       pVdmObjects = PsGetCurrentProcess()->VdmObjects;
-
-       //
-       //  Grap the spinlock, but first Force DelayIrq, DelayIret and
-       //  NtvdmState to be paged in so that we can modify while in
-       //  the spinlock at DPC level
-       //
-       pDelayIrq = pVdmObjects->pIcaUserData->pDelayIrq;
-       pUndelayIrq = pVdmObjects->pIcaUserData->pUndelayIrq;
-       pDelayIret = pVdmObjects->pIcaUserData->pDelayIret;
-
-       while (TRUE) {
-           KeAcquireSpinLock(&pVdmObjects->DelayIntSpinLock, &OldIrql);
-           if (MmIsAddressValid(pDelayIrq) &&
-               MmIsAddressValid(pUndelayIrq) &&
-               MmIsAddressValid(pDelayIret))
-              {
-               break;   // we got it!
-               }
-
-           KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-
-           //
-           // Touch the memory we want paged in
-           //
-           _asm {
-                mov eax, pDelayIrq
-                mov eax, [eax]
-                mov eax, pUndelayIrq
-                mov eax, [eax]
-                mov eax, pDelayIret
-                mov eax, [eax]
-                }
-           }
 
        //
        // Search the DelayedIntList for the pDelayIntIrq.
@@ -1671,6 +1706,7 @@ Return Value:
            Next = Next->Flink;
            }
 
+
        //
        // If we found the IrqLine in the DelayedIntList,
        // restart interrupts.
@@ -1678,27 +1714,46 @@ Return Value:
        if (Next != &pVdmObjects->DelayIntListHead && pDelayIntIrq->InUse) {
            pDelayIntIrq->InUse  = VDMDELAY_NOTINUSE;
            IrqLine = pDelayIntIrq->IrqLine;
-           *pDelayIrq &= ~IrqLine;
+           FreeIrqLine = TRUE;
+           }
 
-           _asm {
-              mov eax, pUndelayIrq
-              mov ebx, IrqLine
-              lock or [eax], ebx
-              }
+       }
+    except(VdmpExceptionHandler(GetExceptionInformation())) {
+       ; // fall thru
+       }
+
+    KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
 
 
+    try {
 
-           //
-           // If we are waiting for an iret hook we have nothing left to do
-           // since the iret hook will restart interrupts.
-           //
-           if (IrqLine & *pDelayIret) {
-               KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-               return;
-               }
+        if (!FreeIrqLine) {
+            leave;
+            }
 
-           KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
+        pDelayIrq = pVdmObjects->pIcaUserData->pDelayIrq;
+        pUndelayIrq = pVdmObjects->pIcaUserData->pUndelayIrq;
+        pDelayIret = pVdmObjects->pIcaUserData->pDelayIret;
 
+        //
+        // These variables are being modified without holding the
+        // ICA lock. This should be OK because none of the ntvdm
+        // devices (timer, mouse etc. should ever do a delayed int
+        // while a previous delayed interrupt is still pending.
+        //
+
+        *pDelayIrq &= ~IrqLine;
+        _asm {
+           mov eax, pUndelayIrq
+           mov ebx, IrqLine
+           lock or [eax], ebx
+           }
+
+        //
+        // If we are waiting for an iret hook we have nothing left to do
+        // since the iret hook will restart interrupts.
+        //
+        if (!(IrqLine & *pDelayIret)) {
 
            //
            // set hardware int pending
@@ -1719,16 +1774,12 @@ Return Value:
                                   SystemArgument2
                                   );
            }
-       else {
-           KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-           }
+        }
+    except(VdmpExceptionHandler(GetExceptionInformation())) {
+       ; // fall thru
        }
 
-    except(EXCEPTION_EXECUTE_HANDLER) {
-        if (KeGetCurrentIrql() > OldIrql) {
-            KeReleaseSpinLock(&pVdmObjects->DelayIntSpinLock, OldIrql);
-            }
-        }
+    ExReleaseFastMutex(&pVdmObjects->DelayIntFastMutex);
 
     return;
 }
@@ -1764,40 +1815,20 @@ Return Value:
         (KeI386VirtualIntExtensions & (V86_VIRTUAL_INT_EXTENSIONS |
         PM_VIRTUAL_INT_EXTENSIONS)))));
 
-    if (*pNtVDMState & VDM_INTERRUPT_PENDING) {
-        if (EFlags & EFLAGS_V86_MASK) {
-            if (KeI386VirtualIntExtensions & V86_VIRTUAL_INT_EXTENSIONS) {
-                if (EFlags & EFLAGS_VIF) {
-                    return TRUE;
-                } else {
-                    return FALSE;
-                }
-            } else if (KeI386VdmIoplAllowed) {
-                if (EFlags & EFLAGS_INTERRUPT_MASK) {
-                    return TRUE;
-                } else {
-                    return FALSE;
-                }
-            } else if (*pNtVDMState & VDM_VIRTUAL_INTERRUPTS) {
-                return TRUE;
-            } else {
-                return FALSE;
-            }
-        } else {
-            if (KeI386VirtualIntExtensions & PM_VIRTUAL_INT_EXTENSIONS) {
-                if (EFlags & EFLAGS_VIF) {
-                    return TRUE;
-                } else {
-                    return FALSE;
-                }
-            } else if (*pNtVDMState & VDM_VIRTUAL_INTERRUPTS) {
-                return TRUE;
-            } else {
-                return FALSE;
-            }
-        }
+    if (EFlags & EFLAGS_V86_MASK) {
+	if (KeI386VirtualIntExtensions & V86_VIRTUAL_INT_EXTENSIONS) {
+	    return(0 != (EFlags & EFLAGS_VIF));
+	} else if (KeI386VdmIoplAllowed) {
+	    return (0 != (EFlags & EFLAGS_INTERRUPT_MASK));
+	} else {
+	    return (0 != (*pNtVDMState & VDM_VIRTUAL_INTERRUPTS));
+	}
     } else {
-        return FALSE;
+	if (KeI386VirtualIntExtensions & PM_VIRTUAL_INT_EXTENSIONS) {
+	    return(0 != (EFlags & EFLAGS_VIF));
+	} else {
+	    return (0 != (*pNtVDMState & VDM_VIRTUAL_INTERRUPTS));
+	}
     }
 }
 
@@ -1806,7 +1837,7 @@ Return Value:
 
 
 
-BOOLEAN
+NTSTATUS
 VdmpIsThreadTerminating(
     HANDLE ThreadId
     )
@@ -1814,11 +1845,9 @@ VdmpIsThreadTerminating(
 
 Routine Description:
 
-    This routine determines if the specified thread is terminating or not
+    This routine determines if the specified thread is terminating or not.
 
 Arguments:
-
-
 
 Return Value:
 
@@ -1829,22 +1858,64 @@ Return Value:
 {
     CLIENT_ID     Cid;
     PETHREAD      Thread;
-    BOOLEAN       bRet;
     NTSTATUS      Status;
 
     PAGED_CODE();
+
+        //
+        // If the owning thread juest exited the IcaLock the
+        // OwningThread Tid may be NULL, return success, since
+        // we don't know what the owning threads state was.
+        //
+    if (!ThreadId) {
+        return STATUS_SUCCESS;
+        }
 
     Cid.UniqueProcess = NtCurrentTeb()->ClientId.UniqueProcess;
     Cid.UniqueThread  = ThreadId;
 
     Status = PsLookupProcessThreadByCid(&Cid, NULL, &Thread);
-    if (!NT_SUCCESS(Status))
-        return TRUE;
+    if (NT_SUCCESS(Status)) {
+        Status = PsIsThreadTerminating(Thread) ? STATUS_THREAD_IS_TERMINATING
+                                               : STATUS_SUCCESS;
+        ObDereferenceObject(Thread);
+        }
+#if DBG
+    else {
+       ULONG  dwIcaLock[4];
 
-    bRet = PsIsThreadTerminating(Thread);
+       dwIcaLock[0] = 0xfaaafaaa;
+       dwIcaLock[1] = 0xfaaafaaa;
+       dwIcaLock[2] = 0xfaaafaaa;
+       dwIcaLock[3] = 0xfaaafaaa;
 
-    ObDereferenceObject(Thread);
-    return bRet;
+       try {
+          PVDM_PROCESS_OBJECTS pVdmObjects;
+          PULONG pIcaLock;
+
+          pVdmObjects = PsGetCurrentProcess()->VdmObjects;
+          pIcaLock    = pVdmObjects->pIcaUserData->pIcaLock;
+
+          dwIcaLock[0] = *pIcaLock++;
+          dwIcaLock[1] = *pIcaLock++;
+          dwIcaLock[2] = *pIcaLock++;
+          dwIcaLock[3] = *pIcaLock;
+          }
+       except (EXCEPTION_EXECUTE_HANDLER) {
+          }
+
+       DbgPrint("VdmpIsThreadTerm: St %x Tid %x IcaLock %x %x %x %x\n",
+                Status,
+                ThreadId,
+                dwIcaLock[0],
+                dwIcaLock[1],
+                dwIcaLock[2],
+                dwIcaLock[3]
+                );
+       }
+#endif
+
+    return Status;
 }
 
 VOID
@@ -1870,5 +1941,46 @@ Return Value:
 
 --*/
 {
-    UNREFERENCED_PARAMETER(Apc);
+    Ke386VdmClearApcObject(Apc);
+}
+
+
+
+
+int
+VdmpExceptionHandler(
+    IN PEXCEPTION_POINTERS ExceptionInfo
+    )
+{
+#if DBG
+    PEXCEPTION_RECORD ExceptionRecord;
+    PCONTEXT ContextRecord;
+    ULONG NumberParameters;
+    PULONG ExceptionInformation;
+#endif
+
+    PAGED_CODE();
+
+#if DBG
+
+    ExceptionRecord = ExceptionInfo->ExceptionRecord;
+    DbgPrint("VdmExRecord ExCode %x Flags %x Address %x\n",
+             ExceptionRecord->ExceptionCode,
+             ExceptionRecord->ExceptionFlags,
+             ExceptionRecord->ExceptionAddress
+             );
+
+    NumberParameters = ExceptionRecord->NumberParameters;
+    if (NumberParameters) {
+        DbgPrint("VdmExRecord Parameters:\n");
+
+        ExceptionInformation = ExceptionRecord->ExceptionInformation;
+        while (NumberParameters--) {
+           DbgPrint("\t%x\n", *ExceptionInformation);
+           }
+        }
+
+#endif
+
+    return EXCEPTION_EXECUTE_HANDLER;
 }

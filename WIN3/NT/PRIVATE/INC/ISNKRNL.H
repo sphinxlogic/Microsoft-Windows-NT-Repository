@@ -31,11 +31,42 @@ Revision History:
 //
 //
 
+//
+// [SanjayAn] Changed LocalTarget to include a NicHandle
+//
+
+#ifdef	_PNP_POWER
+
+typedef	struct _NIC_HANDLE {
+	USHORT	NicId;
+
+#ifdef  _PNP_LATER
+	ULONG	Version;
+	CSHORT	Signature;
+#endif  _PNP_LATER
+
+} NIC_HANDLE, *PNIC_HANDLE;
+
+
+typedef struct _IPX_LOCAL_TARGET {
+    union {
+        USHORT      NicId;
+    	NIC_HANDLE	NicHandle;
+    };
+    UCHAR MacAddress[6];
+} IPX_LOCAL_TARGET, *PIPX_LOCAL_TARGET;
+
+#else
+
+typedef USHORT  NIC_HANDLE;
+typedef PUSHORT PNIC_HANDLE;
+
 typedef struct _IPX_LOCAL_TARGET {
     USHORT NicId;
     UCHAR MacAddress[6];
 } IPX_LOCAL_TARGET, *PIPX_LOCAL_TARGET;
 
+#endif	_PNP_POWER
 
 //
 // Definition of the options on a TDI datagram. These
@@ -81,12 +112,144 @@ typedef struct _IPX_ADDRESS_EXTENDED_FLAGS {
     UCHAR Flags;
 } IPX_ADDRESS_EXTENDED_FLAGS, *PIPX_ADDRESS_EXTENDED_FLAGS;
 
+//
+// Just appends Nic to the above structure.
+//
+typedef struct _IPX_ADDRESS_EXTENDED_FLAGS2 {
+    TA_IPX_ADDRESS IpxAddress;
+    UCHAR PacketType;
+    UCHAR Flags;
+    ULONG Nic;
+} IPX_ADDRESS_EXTENDED_FLAGS2, *PIPX_ADDRESS_EXTENDED_FLAGS2;
+
 #define IPX_EXTENDED_FLAG_BROADCAST   0x01   // the frame was sent as a broadcast
 #define IPX_EXTENDED_FLAG_LOCAL       0x02   // the frame was sent from this machine
 
+
+
+//
+// The various states of the NICs (LAN/WAN)
+//
+#define NIC_CREATED         1
+#define NIC_DELETED         2
+#define NIC_CONNECTED       3
+#define NIC_DISCONNECTED    4
+#define NIC_LINE_DOWN       5
+#define NIC_LINE_UP         6
+#define NIC_CONFIGURED      7
+
+//
+// BUGBUG - Move the isnipx.h definitions over here
+//
+// Frame types.  For now these mirror those in isnipx.h.
+//
+#define MISN_FRAME_TYPE_ETHERNET_II  0
+#define MISN_FRAME_TYPE_802_3        1
+#define MISN_FRAME_TYPE_802_2        2
+#define MISN_FRAME_TYPE_SNAP         3
+#define MISN_FRAME_TYPE_ARCNET       4    // we ignore this
+#define MISN_FRAME_TYPE_MAX          4    // of the four standard ones
+
+#define ISN_FRAME_TYPE_AUTO         0xff
+
 #include <packoff.h>
 
+//***NIC  Info ***
 
+
+//
+// For now, we assume that there will not be more than 256 bindings.
+// This is a big enough number for most cases that we will encounter now
+// or the foreseeable future.  We allocate an array of ULONGS of the above
+// dimension. This array stores in its first n elements pointers to the
+// bindings created for the various LAN and WAN adapters.
+//
+#define IPX_MAXIMUM_BINDINGS               256
+
+
+//
+// This is the interface that the Router process in address space uses
+// to open an address end point.  Only one point can currently be opened.
+// The ea buffer should have the end point information in exactly the same
+// format as is used for TdiTransportAddress endpoint.
+//
+#define ROUTER_INTERFACE  "RouterInterface"
+#define ROUTER_INTERFACE_LENGTH  (sizeof("RouterInterface") - 1)
+
+//
+// Max. no. of ports that the Router can open
+//
+#define IPX_RT_MAX_ADDRESSES         16
+//
+// IPX_NIC_INFO.  One or more such structures can be retrieved by a user
+//                app through the MIPX_GETNEWNICS ioctl.
+//
+
+typedef struct _IPX_NIC_INFO {
+
+    ULONG   InterfaceIndex; // relevant only for demand dial WAN interfaces
+    ULONG   NetworkAddress;           //network number
+    UCHAR   LocalNodeAddress[6];         //nic address
+    UCHAR   RemoteNodeAddress[6];        //remote nic address (only for WAN)
+    ULONG   LinkSpeed;            //speed of link
+    ULONG   PacketType;           //packet type 802.3 or whatever
+    ULONG   MaxPacketSize;        //Max. pkt size allowed on the link
+    ULONG   NdisMediumType;       //Medium type
+    ULONG   NdisMediumSubtype;    //
+    USHORT  NicId;                //Nic Id.
+    BOOLEAN Status;
+    ULONG ConnectionId; 	 // used to match TimeSinceLastActivity IOCtls
+    ULONG IpxwanConfigRequired;	 // 1 - IPXWAN Required
+    } IPX_NIC_INFO, *PIPX_NIC_INFO;
+
+//
+// structure to be passed in the input buffer for the MIPX_GETNEWNICS IOCTL
+//
+typedef struct _IPX_NICS {
+       ULONG NoOfNics;
+       ULONG TotalNoOfNics;
+       ULONG fAllNicsDesired;   //indicates that the client wants
+                                  //ipx to start afresh
+       UCHAR Data[1];              //memory holding an array of IPX_NIC_INFO
+                                   //structures starts here
+       } IPX_NICS, *PIPX_NICS;
+
+//
+// Enhanced OPTIONS structure for use with the MIPX_GETNEWNICS ioctl
+//
+typedef struct _IPX_DATAGRAM_OPTIONS2 {
+    IPX_DATAGRAM_OPTIONS DgrmOptions;
+    TDI_ADDRESS_IPX  RemoteAddress;
+    ULONG            LengthOfExtraOpInfo;  //set it to the size of the extra
+                                           //option info.
+    char             Data[1];          //for future extensibility
+} IPX_DATAGRAM_OPTIONS2, *PIPX_DATAGRAM_OPTIONS2;
+
+//
+// Invalid NicId passed down only once so IPX can map the ConnectionId
+// to a NicId, which is used later.
+//
+#define INVALID_NICID   0xffffffff
+
+//
+// Structure to be passed with the MIPX_QUERY_WAN_INACTIVITY IOCTL
+//
+typedef struct _IPX_QUERY_WAN_INACTIVITY {
+    ULONG   ConnectionId;
+    USHORT  NicId;                  // if equals INVALID_NICID, AdapterIndex is filled in
+                                    // adapter index; should change to NicHandle [ZZ]
+    ULONG   WanInactivityCounter;   // filled in on return
+} IPX_QUERY_WAN_INACTIVITY, *PIPX_QUERY_WAN_INACTIVITY;
+
+//
+// Structure to be passed with the MIPX_IPXWAN_CONFIG_DONE IOCTL
+//
+typedef struct _IPXWAN_CONFIG_DONE {
+    USHORT  NicId;           // adapter index; should change to NicHandle [ZZ]
+    ULONG   Network;
+    UCHAR   LocalNode[6];
+    UCHAR   RemoteNode[6];
+} IPXWAN_CONFIG_DONE, *PIPXWAN_CONFIG_DONE;
 
 //
 // Definitions for TDI_ACTION calls supported by ISN.
@@ -258,6 +421,9 @@ typedef struct _NWLINK_ACTION {
 #define MIPX_RERIPNETNUM    (I_MIPX | 144) /* ReRip a network         */
 #define MIPX_GETNETINFO_NR  (I_MIPX | 145) /* Get info on a net num - NO RIP */
 
+#define MIPX_SETNIC         (I_MIPX | 146)
+#define MIPX_NOSETNIC       (I_MIPX | 147)
+
 /** For Source Routing Support **/
 
 #define MIPX_SRCLEAR       (I_MIPX | 200) /* Clear the source routing table*/
@@ -288,6 +454,30 @@ typedef struct _NWLINK_ACTION {
 #define MIPX_GETCARDINFO2  (I_MIPX | 311) /* Get info, return real send size for token-ring */
 #define MIPX_ADAPTERNUM2   (I_MIPX | 312) /* Max. number including duplicates */
 
+
+//
+// Used by a user mode process to get nic info defined by the IPX_NIC_INFO
+// structure.
+//
+// NOTE NOTE NOTE
+//
+// This is supposed to be used only by the FWRDR process and nobody else.
+// If some other app. uses it, the FWRDR will be affected
+//
+//
+#define MIPX_GETNEWNICINFO  (I_MIPX | 313) /*Get any new NIC info that might
+                                            *be there*/
+
+//
+// IOCTL to be used if the interface is  ROUTER_INTERFACE
+//
+#define MIPX_SEND_DATAGRAM     _TDI_CONTROL_CODE((I_MIPX | 314), METHOD_IN_DIRECT) // send dgram
+#define MIPX_RCV_DATAGRAM     _TDI_CONTROL_CODE((I_MIPX | 315), METHOD_OUT_DIRECT) // send dgram
+
+#define MIPX_RT_CREATE      (I_MIPX | 316)
+#define MIPX_IPXWAN_CONFIG_DONE   (I_MIPX | 317)
+#define MIPX_QUERY_WAN_INACTIVITY (I_MIPX | 318)
+
 /** Ioctls for SPX **/
 
 #define I_MSPX          (('S' << 24) | ('P' << 16) | ('P' << 8))
@@ -317,4 +507,22 @@ typedef struct _NWLINK_ACTION {
 #define MSPX_GETSTATS      (I_MSPX | 119) /* Get connection stats         */
 #define MSPX_NOACKWAIT     (I_MSPX | 120) /* Disable piggyback wait       */
 #define MSPX_ACKWAIT       (I_MSPX | 121) /* Enable pback wait (default)  */
+
+//
+// Taken out of isn\inc\bind.h
+//
+typedef struct _IPXCP_CONFIGURATION {
+    USHORT Version;
+    USHORT Length;
+    UCHAR Network[4];
+    UCHAR LocalNode[6];
+    UCHAR RemoteNode[6];
+    ULONG ConnectionClient;  // 0 - Server, 1 - Client
+    ULONG InterfaceIndex;
+    ULONG ConnectionId; 	 // used to match TimeSinceLastActivity IOCtls
+    ULONG IpxwanConfigRequired;	 // 1 - IPXWAN Required
+} IPXCP_CONFIGURATION, *PIPXCP_CONFIGURATION;
+
+#define IPXWAN_SOCKET   (USHORT)0x490
+
 

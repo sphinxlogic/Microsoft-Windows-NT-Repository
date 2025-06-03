@@ -150,7 +150,7 @@ disasm (PADDR poffset, PUCHAR bufptr, BOOLEAN fEAout)
         *pBuf++ = ',';
         OutputHex(disinstr.Jump.Hint, (WIDTH_HINT + 3)/4, TRUE);
 
-        Ea = GetRegValue(GetIntRegNumber(disinstr.Jump.Rb)) & (~3);
+        Ea = (ULONG)GetRegValue(GetIntRegNumber(disinstr.Jump.Rb)) & (~3);
         OutputEffectiveAddress(Ea);
         break;
 
@@ -460,7 +460,7 @@ void OutputEffectiveAddress(ULONG offset)
     PUCHAR pch = chAddrBuffer;
 
     BlankFill(EACOL);
-    GetSymbol(offset, pch, &displacement);
+    GetSymbolStdCall(offset, pch, &displacement, NULL);
 
     if (chAddrBuffer[0]) {
         pszTemp = chAddrBuffer;
@@ -520,7 +520,7 @@ GetNextOffset (PADDR result, BOOLEAN fStep)
     // Get current address
     //
 
-    firaddr = GetRegValue(REGFIR);
+    firaddr = (ULONG)GetRegValue(REGFIR);
 
     //
     // relative addressing updates PC first
@@ -559,7 +559,7 @@ GetNextOffset (PADDR result, BOOLEAN fStep)
         case JMP_FUNC:
         case RET_FUNC:
 
-            GetQuadRegValue(GetIntRegNumber(disinstr.Jump.Rb), &Rbv.li);
+            Rbv.li.QuadPart = GetRegValue( GetIntRegNumber(disinstr.Jump.Rb) );
             rv = (Rbv.li.LowPart & (~3));
             break;
 
@@ -571,7 +571,7 @@ GetNextOffset (PADDR result, BOOLEAN fStep)
 
         branchTarget = (updatedpc + (disinstr.Branch.BranchDisp * 4));
 
-        GetQuadRegValue(GetIntRegNumber(disinstr.Branch.Ra), &Rav.li);
+        Rav.li.QuadPart = GetRegValue(GetIntRegNumber(disinstr.Branch.Ra));
 
         //
         // set up a canonical value for computing the branch test

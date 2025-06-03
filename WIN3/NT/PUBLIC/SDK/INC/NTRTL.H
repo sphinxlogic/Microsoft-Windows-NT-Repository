@@ -28,12 +28,16 @@ Revision History:
 #ifndef _NTRTL_
 #define _NTRTL_
 
-// begin_ntddk begin_winnt begin_ntifs
+// begin_ntddk begin_winnt begin_ntifs begin_nthal
 //
 // for move macros
 //
 #include <string.h>
-// end_ntddk end_winnt end_ntifs
+// end_ntddk end_winnt end_ntifs end_nthal
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 // begin_ntddk begin_nthal begin_ntifs begin_ntndis
@@ -295,8 +299,8 @@ typedef RTL_SPLAY_LINKS *PRTL_SPLAY_LINKS;
 //      );
 //
 
-#define RtlIsRoot(Links) (                                      \
-    (RtlParent(Links) == (PRTL_SPLAY_LINKS)(Links) ? TRUE : FALSE ) \
+#define RtlIsRoot(Links) (                          \
+    (RtlParent(Links) == (PRTL_SPLAY_LINKS)(Links)) \
     )
 
 //
@@ -310,8 +314,8 @@ typedef RTL_SPLAY_LINKS *PRTL_SPLAY_LINKS;
 //      );
 //
 
-#define RtlIsLeftChild(Links) (                                            \
-    (RtlLeftChild(RtlParent(Links)) == (PRTL_SPLAY_LINKS)(Links) ? TRUE : FALSE ) \
+#define RtlIsLeftChild(Links) (                                   \
+    (RtlLeftChild(RtlParent(Links)) == (PRTL_SPLAY_LINKS)(Links)) \
     )
 
 //
@@ -325,8 +329,8 @@ typedef RTL_SPLAY_LINKS *PRTL_SPLAY_LINKS;
 //      );
 //
 
-#define RtlIsRightChild(Links) (                                            \
-    (RtlRightChild(RtlParent(Links)) == (PRTL_SPLAY_LINKS)(Links) ? TRUE : FALSE ) \
+#define RtlIsRightChild(Links) (                                   \
+    (RtlRightChild(RtlParent(Links)) == (PRTL_SPLAY_LINKS)(Links)) \
     )
 
 //
@@ -400,6 +404,23 @@ PRTL_SPLAY_LINKS
 NTAPI
 RtlDelete (
     PRTL_SPLAY_LINKS Links
+    );
+
+//
+//  The DeleteNoSplay function takes as input a pointer to a splay link in a tree,
+//  the caller's pointer to the root of the tree and deletes that node from the
+//  tree.  Upon return the caller's pointer to the root node will correctly point
+//  at the root of the tree.
+//
+//  It operationally differs from RtlDelete only in that it will not splay the tree.
+//
+
+NTSYSAPI
+VOID
+NTAPI
+RtlDeleteNoSplay (
+    PRTL_SPLAY_LINKS Links,
+    PRTL_SPLAY_LINKS *Root
     );
 
 //
@@ -737,6 +758,7 @@ RtlIsGenericTableEmpty (
 
 // end_ntifs
 
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -746,6 +768,13 @@ RtlInitializeHeapManager(
 
 // begin_ntifs
 
+typedef NTSTATUS
+(*PRTL_HEAP_COMMIT_ROUTINE)(
+    IN PVOID Base,
+    IN OUT PVOID *CommitAddress,
+    IN OUT PULONG CommitSize
+    );
+
 typedef struct _RTL_HEAP_PARAMETERS {
     ULONG Length;
     ULONG SegmentReserve;
@@ -754,7 +783,10 @@ typedef struct _RTL_HEAP_PARAMETERS {
     ULONG DeCommitTotalFreeThreshold;
     ULONG MaximumAllocationSize;
     ULONG VirtualMemoryThreshold;
-    ULONG Reserved[ 1 ];
+    ULONG InitialCommit;
+    ULONG InitialReserve;
+    PRTL_HEAP_COMMIT_ROUTINE CommitRoutine;
+    ULONG Reserved[ 2 ];
 } RTL_HEAP_PARAMETERS, *PRTL_HEAP_PARAMETERS;
 
 NTSYSAPI
@@ -778,6 +810,9 @@ RtlCreateHeap(
 #define HEAP_FREE_CHECKING_ENABLED      0x00000040      // winnt
 #define HEAP_DISABLE_COALESCE_ON_FREE   0x00000080      // winnt
 
+#define HEAP_CREATE_ALIGN_16            0x00010000      // winnt Create heap with 16 byte alignment
+#define HEAP_CREATE_ENABLE_TRACING      0x00020000      // winnt Create heap call tracing enabled
+
 #define HEAP_SETTABLE_USER_VALUE        0x00000100
 #define HEAP_SETTABLE_USER_FLAG1        0x00000200
 #define HEAP_SETTABLE_USER_FLAG2        0x00000400
@@ -795,7 +830,24 @@ RtlCreateHeap(
 #define HEAP_CLASS_8                    0x00008000      // Csr Port heap
 #define HEAP_CLASS_MASK                 0x0000F000
 
-#define HEAP_TAG_MASK                   0xFFFF0000
+#define HEAP_MAXIMUM_TAG                0x0FFF              // winnt
+#define HEAP_GLOBAL_TAG                 0x0800
+#define HEAP_PSEUDO_TAG_FLAG            0x8000              // winnt
+#define HEAP_TAG_SHIFT                  16                  // winnt
+#define HEAP_MAKE_TAG_FLAGS( b, o ) ((ULONG)((b) + ((o) << 16)))  // winnt
+#define HEAP_TAG_MASK                  (HEAP_MAXIMUM_TAG << HEAP_TAG_SHIFT)
+
+#define HEAP_CREATE_VALID_MASK         (HEAP_NO_SERIALIZE |             \
+                                        HEAP_GROWABLE |                 \
+                                        HEAP_GENERATE_EXCEPTIONS |      \
+                                        HEAP_ZERO_MEMORY |              \
+                                        HEAP_REALLOC_IN_PLACE_ONLY |    \
+                                        HEAP_TAIL_CHECKING_ENABLED |    \
+                                        HEAP_FREE_CHECKING_ENABLED |    \
+                                        HEAP_DISABLE_COALESCE_ON_FREE | \
+                                        HEAP_CLASS_MASK |               \
+                                        HEAP_CREATE_ALIGN_16 |          \
+                                        HEAP_CREATE_ENABLE_TRACING)
 
 NTSYSAPI
 PVOID
@@ -813,75 +865,6 @@ RtlAllocateHeap(
     IN ULONG Size
     );
 
-// end_ntifs
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlLockHeap(
-    IN PVOID HeapHandle
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlUnlockHeap(
-    IN PVOID HeapHandle
-    );
-
-NTSYSAPI
-PVOID
-NTAPI
-RtlReAllocateHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress,
-    IN ULONG Size
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlSetUserValueHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress,
-    IN PVOID UserValue
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlGetUserValueHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress,
-    OUT PVOID *UserValue
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlSetUserFlagsHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress,
-    IN ULONG UserFlagsReset,
-    IN ULONG UserFlagsSet
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlGetUserFlagsHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress,
-    OUT ULONG *UserFlags
-    );
-
-// begin_ntifs
-
 NTSYSAPI
 BOOLEAN
 NTAPI
@@ -894,69 +877,16 @@ RtlFreeHeap(
 // end_ntifs
 
 NTSYSAPI
-ULONG
-RtlCreateTagHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PCHAR TagName,
-    IN UCHAR SmallTagIndex OPTIONAL
-    );
-
-NTSYSAPI
-ULONG
+VOID
 NTAPI
-RtlSizeHeap(
+RtlProtectHeap(
     IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress
+    IN BOOLEAN MakeReadOnly
     );
 
-NTSYSAPI
-ULONG
-NTAPI
-RtlCompactHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags
-    );
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlZeroHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags
-    );
-
-typedef struct _RTL_HEAP_WALK_ENTRY {
-    PVOID   DataAddress;
-    ULONG   DataSize;
-    UCHAR   OverheadBytes;
-    UCHAR   SegmentIndex;
-    USHORT  Flags;
-    union   {
-        struct {
-            ULONG Settable;
-            USHORT TagIndex;
-            USHORT AllocatorBackTraceIndex;
-            ULONG Reserved[ 2 ];
-        } Block;
-        struct {
-            ULONG CommittedSize;
-            ULONG UnCommittedSize;
-            PVOID FirstEntry;
-            PVOID LastEntry;
-        } Segment;
-    };
-} RTL_HEAP_WALK_ENTRY, *PRTL_HEAP_WALK_ENTRY;
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlWalkHeap(
-    IN PVOID HeapHandle,
-    IN OUT PRTL_HEAP_WALK_ENTRY Entry
-    );
-
+//
+// See NTURTL.H for remaining, user mode only heap functions.
+//
 
 //
 // The types PACQUIRE_LOCK_ROUTINE and PRELEASE_LOCK_ROUTINE are prototypes
@@ -992,87 +922,6 @@ BOOLEAN
 (NTAPI *PRTL_OKAY_TO_LOCK_ROUTINE) (
     IN PVOID Lock
     );
-
-extern PRTL_INITIALIZE_LOCK_ROUTINE RtlInitializeLockRoutine;
-extern PRTL_ACQUIRE_LOCK_ROUTINE RtlAcquireLockRoutine;
-extern PRTL_RELEASE_LOCK_ROUTINE RtlReleaseLockRoutine;
-extern PRTL_DELETE_LOCK_ROUTINE RtlDeleteLockRoutine;
-extern PRTL_OKAY_TO_LOCK_ROUTINE RtlOkayToLockRoutine;
-
-#if DEVL
-typedef struct _RTL_PROCESS_HEAPS {
-    ULONG NumberOfHeaps;
-    PVOID Heaps[ 1 ];
-} RTL_PROCESS_HEAPS, *PRTL_PROCESS_HEAPS;
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlQueryProcessHeapInformation(
-    OUT PRTL_PROCESS_HEAPS HeapInformation,
-    IN ULONG HeapInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
-    );
-
-typedef struct _RTL_HEAP_ENTRY {
-    ULONG Size;
-    USHORT Flags;
-    USHORT AllocatorBackTraceIndex;
-    union {
-        struct {
-            ULONG Settable;
-            ULONG Tag;
-        } s1;
-        struct {
-            ULONG CommittedSize;
-            PVOID FirstBlock;
-        } s2;
-    } u;
-} RTL_HEAP_ENTRY, *PRTL_HEAP_ENTRY;
-
-#define RTL_HEAP_BUSY               (USHORT)0x0001
-#define RTL_HEAP_SEGMENT            (USHORT)0x0002
-#define RTL_HEAP_SETTABLE_VALUE     (USHORT)0x0010
-#define RTL_HEAP_SETTABLE_FLAG1     (USHORT)0x0020
-#define RTL_HEAP_SETTABLE_FLAG2     (USHORT)0x0040
-#define RTL_HEAP_SETTABLE_FLAG3     (USHORT)0x0080
-#define RTL_HEAP_SETTABLE_FLAGS     (USHORT)0x00E0
-#define RTL_HEAP_UNCOMMITTED_RANGE  (USHORT)0x0100
-
-typedef struct _RTL_HEAP_INFORMATION {
-    ULONG SizeOfHeader;
-    USHORT Flags;
-    USHORT CreatorBackTraceIndex;
-    ULONG NumberOfEntries;
-    ULONG NumberOfFreeEntries;
-    ULONG TotalAllocated;
-    ULONG TotalFree;
-    ULONG Reserved[ 8 ];
-    RTL_HEAP_ENTRY HeapEntries[ 1 ];
-} RTL_HEAP_INFORMATION, *PRTL_HEAP_INFORMATION;
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlSnapShotHeap(
-    IN PVOID HeapHandle,
-    IN PRTL_HEAP_INFORMATION HeapInformation,
-    IN ULONG Length,
-    OUT PULONG ReturnLength OPTIONAL
-    );
-
-NTSYSAPI
-BOOLEAN
-NTAPI
-RtlValidateHeap(
-    IN PVOID HeapHandle,
-    IN ULONG Flags,
-    IN PVOID BaseAddress
-    );
-
-#endif // DEVL
-
-#define RtlProcessHeap() (NtCurrentPeb()->ProcessHeap)
 
 NTSYSAPI
 ULONG
@@ -1110,6 +959,7 @@ RtlGetCallersAddress(
 
 // end_ntddk end_nthal end_ntifs end_ntndis
 
+#if i386
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -1148,6 +998,7 @@ RtlCaptureStackBackTrace(
    OUT PVOID *BackTrace,
    OUT PULONG BackTraceHash
    );
+#endif // i386
 
 #define MAX_STACK_DEPTH 16
 
@@ -1167,14 +1018,84 @@ typedef struct _RTL_PROCESS_BACKTRACES {
     RTL_PROCESS_BACKTRACE_INFORMATION BackTraces[ 1 ];
 } RTL_PROCESS_BACKTRACES, *PRTL_PROCESS_BACKTRACES;
 
-NTSYSAPI
+
+//
+// Subroutines for dealing with Win32 ATOMs.  Used by kernel mode window
+// manager and user mode implementation of Win32 ATOM API calls in KERNEL32
+//
+
+#define RTL_ATOM_MAXIMUM_INTEGER_ATOM   (RTL_ATOM)0xC000
+#define RTL_ATOM_INVALID_ATOM           (RTL_ATOM)0x0000
+#define RTL_ATOM_TABLE_DEFAULT_NUMBER_OF_BUCKETS 37
+#define RTL_ATOM_MAXIMUM_NAME_LENGTH    255
+#define RTL_ATOM_PINNED 0x01
+
 NTSTATUS
-NTAPI
-RtlQueryProcessBackTraceInformation(
-    OUT PRTL_PROCESS_BACKTRACES BackTraceInformation,
-    IN ULONG BackTraceInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
+RtlInitializeAtomPackage(
+    IN ULONG AllocationTag
     );
+
+NTSTATUS
+RtlCreateAtomTable(
+    IN ULONG NumberOfBuckets,
+    OUT PVOID *AtomTableHandle
+    );
+
+NTSTATUS
+RtlDestroyAtomTable(
+    IN PVOID AtomTableHandle
+    );
+
+NTSTATUS
+RtlEmptyAtomTable(
+    IN PVOID AtomTableHandle,
+    IN BOOLEAN IncludePinnedAtoms
+    );
+
+NTSTATUS
+RtlAddAtomToAtomTable(
+    IN PVOID AtomTableHandle,
+    IN PWSTR AtomName OPTIONAL,
+    IN OUT PRTL_ATOM Atom OPTIONAL
+    );
+
+NTSTATUS
+RtlLookupAtomInAtomTable(
+    IN PVOID AtomTableHandle,
+    IN PWSTR AtomName,
+    OUT PRTL_ATOM Atom OPTIONAL
+    );
+
+NTSTATUS
+RtlDeleteAtomFromAtomTable(
+    IN PVOID AtomTableHandle,
+    IN RTL_ATOM Atom
+    );
+
+NTSTATUS
+RtlPinAtomInAtomTable(
+    IN PVOID AtomTableHandle,
+    IN RTL_ATOM Atom
+    );
+
+NTSTATUS
+RtlQueryAtomInAtomTable(
+    IN PVOID AtomTableHandle,
+    IN RTL_ATOM Atom,
+    OUT PULONG AtomUsage OPTIONAL,
+    OUT PULONG AtomFlags OPTIONAL,
+    IN OUT PWSTR AtomName OPTIONAL,
+    IN OUT PULONG AtomNameLength OPTIONAL
+    );
+
+NTSTATUS
+RtlQueryAtomsInAtomTable(
+    IN PVOID AtomTableHandle,
+    IN ULONG MaximumNumberOfAtoms,
+    OUT PULONG NumberOfAtoms,
+    OUT PRTL_ATOM Atoms
+    );
+
 
 // begin_ntddk begin_nthal
 //
@@ -1376,14 +1297,16 @@ RtlLargeIntegerToChar (
     PSZ String
     );
 
-NTSYSAPI                                            // ntddk nthal ntifs
-NTSTATUS                                            // ntddk nthal ntifs
-NTAPI                                               // ntddk nthal ntifs
-RtlIntegerToUnicodeString (                         // ntddk nthal ntifs
-    ULONG Value,                                    // ntddk nthal ntifs
-    ULONG Base,                                     // ntddk nthal ntifs
-    PUNICODE_STRING String                          // ntddk nthal ntifs
-    );                                              // ntddk nthal ntifs
+// begin_ntddk begin_nthal begin_ntifs
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlIntegerToUnicodeString (
+    ULONG Value,
+    ULONG Base,
+    PUNICODE_STRING String
+    );
 
 NTSYSAPI
 NTSTATUS
@@ -1395,18 +1318,24 @@ RtlUnicodeStringToInteger (
     );
 
 
-// begin_ntddk begin_nthal begin_ntifs
 //
 //  String manipulation routines
 //
 
 #ifdef _NTSYSTEM_
-extern BOOLEAN  NlsMbCodePageTag;    // TRUE -> Multibyte CP, FALSE -> Singlebyte
-extern BOOLEAN  NlsMbOemCodePageTag; // TRUE -> Multibyte CP, FALSE -> Singlebyte
+
+#define NLS_MB_CODE_PAGE_TAG NlsMbCodePageTag
+#define NLS_MB_OEM_CODE_PAGE_TAG NlsMbOemCodePageTag
+
 #else
-extern BOOLEAN  *NlsMbCodePageTag;    // TRUE -> Multibyte CP, FALSE -> Singlebyte
-extern BOOLEAN  *NlsMbOemCodePageTag; // TRUE -> Multibyte CP, FALSE -> Singlebyte
+
+#define NLS_MB_CODE_PAGE_TAG (*NlsMbCodePageTag)
+#define NLS_MB_OEM_CODE_PAGE_TAG (*NlsMbOemCodePageTag)
+
 #endif // _NTSYSTEM_
+
+extern BOOLEAN NLS_MB_CODE_PAGE_TAG;     // TRUE -> Multibyte CP, FALSE -> Singlebyte
+extern BOOLEAN NLS_MB_OEM_CODE_PAGE_TAG; // TRUE -> Multibyte CP, FALSE -> Singlebyte
 
 NTSYSAPI
 VOID
@@ -1476,16 +1405,12 @@ RtlCopyString(
     PSTRING SourceString
     );
 
-// end_ntddk end_ntifs
-
 NTSYSAPI
 CHAR
 NTAPI
 RtlUpperChar (
     CHAR Character
     );
-
-// begin_ntddk begin_ntifs
 
 NTSYSAPI
 LONG
@@ -1569,7 +1494,7 @@ RtlAnsiCharToUnicodeChar(
     PUCHAR *SourceCharacter
     );
 
-// begin_ntddk begin_nthal begin_ntifs
+// begin_ntddk begin_nthal begin_ntifs begin_ntndis
 
 NTSYSAPI
 NTSTATUS
@@ -1580,7 +1505,7 @@ RtlUnicodeStringToAnsiString(
     BOOLEAN AllocateDestinationString
     );
 
-// end_ntddk end_nthal end_ntifs
+// end_ntddk end_nthal end_ntifs end_ntndis
 
 NTSYSAPI
 NTSTATUS
@@ -1667,8 +1592,6 @@ RtlEqualUnicodeString(
     BOOLEAN CaseInSensitive
     );
 
-// end_ntddk end_ntifs
-
 NTSYSAPI
 BOOLEAN
 NTAPI
@@ -1677,8 +1600,6 @@ RtlPrefixUnicodeString(
     IN PUNICODE_STRING String2,
     IN BOOLEAN CaseInSensitive
     );
-
-// begin_ntddk begin_ntifs
 
 NTSYSAPI
 NTSTATUS
@@ -1778,19 +1699,11 @@ RtlxUnicodeStringToAnsiSize(
 //      );
 //
 
-#ifdef _NTSYSTEM_
 #define RtlUnicodeStringToAnsiSize(STRING) (                  \
-    NlsMbCodePageTag ?                                        \
+    NLS_MB_CODE_PAGE_TAG ?                                    \
     RtlxUnicodeStringToAnsiSize(STRING) :                     \
     ((STRING)->Length + sizeof(UNICODE_NULL)) / sizeof(WCHAR) \
 )
-#else
-#define RtlUnicodeStringToAnsiSize(STRING) (                  \
-    *(PBOOLEAN)NlsMbCodePageTag ?                             \
-    RtlxUnicodeStringToAnsiSize(STRING) :                     \
-    ((STRING)->Length + sizeof(UNICODE_NULL)) / sizeof(WCHAR) \
-)
-#endif // _NTSYSTEM_
 
 
 NTSYSAPI
@@ -1809,19 +1722,11 @@ RtlxUnicodeStringToOemSize(
 //      );
 //
 
-#ifdef _NTSYSTEM_
 #define RtlUnicodeStringToOemSize(STRING) (                   \
-    NlsMbOemCodePageTag ?                                     \
+    NLS_MB_OEM_CODE_PAGE_TAG ?                                \
     RtlxUnicodeStringToOemSize(STRING) :                      \
     ((STRING)->Length + sizeof(UNICODE_NULL)) / sizeof(WCHAR) \
 )
-#else
-#define RtlUnicodeStringToOemSize(STRING) (                   \
-    *(PBOOLEAN)NlsMbOemCodePageTag ?                          \
-    RtlxUnicodeStringToOemSize(STRING) :                      \
-    ((STRING)->Length + sizeof(UNICODE_NULL)) / sizeof(WCHAR) \
-)
-#endif // _NTSYSTEM_
 
 // end_ntifs
 
@@ -1854,19 +1759,11 @@ RtlxAnsiStringToUnicodeSize(
 //      );
 //
 
-#ifdef _NTSYSTEM_
 #define RtlAnsiStringToUnicodeSize(STRING) (                 \
-    NlsMbCodePageTag ?                                       \
+    NLS_MB_CODE_PAGE_TAG ?                                   \
     RtlxAnsiStringToUnicodeSize(STRING) :                    \
     ((STRING)->Length + sizeof((UCHAR)NULL)) * sizeof(WCHAR) \
 )
-#else
-#define RtlAnsiStringToUnicodeSize(STRING) (                 \
-    *(PBOOLEAN)NlsMbCodePageTag ?                            \
-    RtlxAnsiStringToUnicodeSize(STRING) :                    \
-    ((STRING)->Length + sizeof((UCHAR)NULL)) * sizeof(WCHAR) \
-)
-#endif // _NTSYSTEM_
 
 // end_ntddk
 
@@ -1885,19 +1782,11 @@ RtlxOemStringToUnicodeSize(
 //      );
 //
 
-#ifdef _NTSYSTEM_
 #define RtlOemStringToUnicodeSize(STRING) (                  \
-    NlsMbOemCodePageTag ?                                    \
+    NLS_MB_OEM_CODE_PAGE_TAG ?                               \
     RtlxOemStringToUnicodeSize(STRING) :                     \
     ((STRING)->Length + sizeof((UCHAR)NULL)) * sizeof(WCHAR) \
 )
-#else
-#define RtlOemStringToUnicodeSize(STRING) (                  \
-    *(PBOOLEAN)NlsMbOemCodePageTag ?                         \
-    RtlxOemStringToUnicodeSize(STRING) :                     \
-    ((STRING)->Length + sizeof((UCHAR)NULL)) * sizeof(WCHAR) \
-)
-#endif // _NTSYSTEM_
 
 //
 //  ULONG
@@ -1994,6 +1883,15 @@ RtlUpcaseUnicodeToOemN(
     ULONG BytesInUnicodeString
     );
 
+NTSTATUS
+RtlConsoleMultiByteToUnicodeN(
+    OUT PWCH UnicodeString,
+    IN ULONG MaxBytesInUnicodeString,
+    OUT PULONG BytesInUnicodeString OPTIONAL,
+    IN PCH MultiByteString,
+    IN ULONG BytesInMultiByteString,
+    OUT PULONG pdwSpecialChar );
+
 // begin_winnt
 
 #define IS_TEXT_UNICODE_ASCII16               0x0001
@@ -2083,6 +1981,14 @@ RtlGenerate8dot3Name (
     IN BOOLEAN AllowExtendedCharacters,
     IN OUT PGENERATE_NAME_CONTEXT Context,
     OUT PUNICODE_STRING Name8dot3
+    );
+NTSYSAPI
+BOOLEAN
+NTAPI
+RtlIsNameLegalDOS8Dot3 (
+    IN PUNICODE_STRING Name,
+    IN OUT POEM_STRING OemName OPTIONAL,
+    IN OUT PBOOLEAN NameContainsSpaces OPTIONAL
     );
 // end_ntifs
 
@@ -2344,6 +2250,68 @@ RtlNextUnicodePrefix (
 #define COMPRESSION_ENGINE_STANDARD      (0x0000)   // winnt
 #define COMPRESSION_ENGINE_MAXIMUM       (0x0100)   // winnt
 
+//
+//  Compressed Data Information structure.  This structure is
+//  used to describe the state of a compressed data buffer,
+//  whose uncompressed size is known.  All compressed chunks
+//  described by this structure must be compressed with the
+//  same format.  On compressed reads, this entire structure
+//  is an output, and on compressed writes the entire structure
+//  is an input.
+//
+
+typedef struct _COMPRESSED_DATA_INFO {
+
+    //
+    //  Code for the compression format (and engine) as
+    //  defined in ntrtl.h.  Note that COMPRESSION_FORMAT_NONE
+    //  and COMPRESSION_FORMAT_DEFAULT are invalid if
+    //  any of the described chunks are compressed.
+    //
+
+    USHORT CompressionFormatAndEngine;
+
+    //
+    //  Since chunks and compression units are expected to be
+    //  powers of 2 in size, we express then log2.  So, for
+    //  example (1 << ChunkShift) == ChunkSizeInBytes.  The
+    //  ClusterShift indicates how much space must be saved
+    //  to successfully compress a compression unit - each
+    //  successfully compressed compression unit must occupy
+    //  at least one cluster less in bytes than an uncompressed
+    //  compression unit.
+    //
+
+    UCHAR CompressionUnitShift;
+    UCHAR ChunkShift;
+    UCHAR ClusterShift;
+    UCHAR Reserved;
+
+    //
+    //  This is the number of entries in the CompressedChunkSizes
+    //  array.
+    //
+
+    USHORT NumberOfChunks;
+
+    //
+    //  This is an array of the sizes of all chunks resident
+    //  in the compressed data buffer.  There must be one entry
+    //  in this array for each chunk possible in the uncompressed
+    //  buffer size.  A size of FSRTL_CHUNK_SIZE indicates the
+    //  corresponding chunk is uncompressed and occupies exactly
+    //  that size.  A size of 0 indicates that the corresponding
+    //  chunk contains nothing but binary 0's, and occupies no
+    //  space in the compressed data.  All other sizes must be
+    //  less than FSRTL_CHUNK_SIZE, and indicate the exact size
+    //  of the compressed data in bytes.
+    //
+
+    ULONG CompressedChunkSizes[ANYSIZE_ARRAY];
+
+} COMPRESSED_DATA_INFO;
+typedef COMPRESSED_DATA_INFO *PCOMPRESSED_DATA_INFO;
+
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -2379,7 +2347,6 @@ RtlDecompressBuffer (
     OUT PULONG FinalUncompressedSize
     );
 
-
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -2391,6 +2358,54 @@ RtlDecompressFragment (
     IN ULONG CompressedBufferSize,
     IN ULONG FragmentOffset,
     OUT PULONG FinalUncompressedSize,
+    IN PVOID WorkSpace
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlDescribeChunk (
+    IN USHORT CompressionFormat,
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    OUT PULONG ChunkSize
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlReserveChunk (
+    IN USHORT CompressionFormat,
+    IN OUT PUCHAR *CompressedBuffer,
+    IN PUCHAR EndOfCompressedBufferPlus1,
+    OUT PUCHAR *ChunkBuffer,
+    IN ULONG ChunkSize
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlDecompressChunks (
+    OUT PUCHAR UncompressedBuffer,
+    IN ULONG UncompressedBufferSize,
+    IN PUCHAR CompressedBuffer,
+    IN ULONG CompressedBufferSize,
+    IN PUCHAR CompressedTail,
+    IN ULONG CompressedTailSize,
+    IN PCOMPRESSED_DATA_INFO CompressedDataInfo
+    );
+
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlCompressChunks (
+    IN PUCHAR UncompressedBuffer,
+    IN ULONG UncompressedBufferSize,
+    OUT PUCHAR CompressedBuffer,
+    IN ULONG CompressedBufferSize,
+    IN OUT PCOMPRESSED_DATA_INFO CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
     IN PVOID WorkSpace
     );
 
@@ -2473,6 +2488,7 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
 #define RTL_USER_PROC_RESERVE_16MB          0x00000040
 #define RTL_USER_PROC_CASE_SENSITIVE        0x00000080
 #define RTL_USER_PROC_DISABLE_HEAP_DECOMMIT 0x00000100
+
 
 NTSYSAPI
 NTSTATUS
@@ -2560,6 +2576,13 @@ RtlCreateUserThread(
     );
 
 NTSYSAPI
+VOID
+RtlFreeUserThreadStack(
+    HANDLE hProcess,
+    HANDLE hThread
+    );
+
+NTSYSAPI
 PVOID
 NTAPI
 RtlPcToFileHeader(
@@ -2602,38 +2625,19 @@ RtlImageDirectoryEntryToData(
     PULONG Size
     );
 
-
-//
-// Primitives to access symbolic debug information in an image file
-//
-
-typedef struct _RTL_SYMBOL_INFORMATION {
-    ULONG Type;
-    ULONG SectionNumber;
-    ULONG Value;
-    STRING Name;
-} RTL_SYMBOL_INFORMATION, *PRTL_SYMBOL_INFORMATION;
-
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlLookupSymbolByAddress(
-    IN PVOID ImageBase,
-    IN PVOID MappedBase OPTIONAL,
-    IN PVOID Address,
-    IN ULONG ClosenessLimit,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation,
-    OUT PRTL_SYMBOL_INFORMATION NextSymbolInformation OPTIONAL
+PIMAGE_SECTION_HEADER
+RtlImageRvaToSection(
+    IN PIMAGE_NT_HEADERS NtHeaders,
+    IN PVOID Base,
+    IN ULONG Rva
     );
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlLookupSymbolByName(
-    IN PVOID ImageBase,
-    IN PVOID MappedBase OPTIONAL,
-    IN PSTRING SymbolName,
-    OUT PRTL_SYMBOL_INFORMATION SymbolInformation
+PVOID
+RtlImageRvaToVa(
+    IN PIMAGE_NT_HEADERS NtHeaders,
+    IN PVOID Base,
+    IN ULONG Rva,
+    IN OUT PIMAGE_SECTION_HEADER *LastRvaSection OPTIONAL
     );
 
 
@@ -2644,19 +2648,61 @@ RtlLookupSymbolByName(
 
 // begin_winnt begin_ntndis
 #if defined(_M_IX86) || defined(_M_MRX000) || defined(_M_ALPHA)
+
+#if defined(_M_MRX000)
+NTSYSAPI
+ULONG
+NTAPI
+RtlEqualMemory (
+    CONST VOID *Source1,
+    CONST VOID *Source2,
+    ULONG Length
+    );
+
+#else
+#define RtlEqualMemory(Destination,Source,Length) (!memcmp((Destination),(Source),(Length)))
+#endif
+
 #define RtlMoveMemory(Destination,Source,Length) memmove((Destination),(Source),(Length))
 #define RtlCopyMemory(Destination,Source,Length) memcpy((Destination),(Source),(Length))
 #define RtlFillMemory(Destination,Length,Fill) memset((Destination),(Fill),(Length))
 #define RtlZeroMemory(Destination,Length) memset((Destination),0,(Length))
-#else
-#define RtlCopyMemory(Destination,Source,Length) RtlMoveMemory((Destination),(Source),(Length))
+
+#else // _M_PPC
+
+NTSYSAPI
+ULONG
+NTAPI
+RtlEqualMemory (
+    CONST VOID *Source1,
+    CONST VOID *Source2,
+    ULONG Length
+    );
+
+NTSYSAPI
+VOID
+NTAPI
+RtlCopyMemory (
+   VOID UNALIGNED *Destination,
+   CONST VOID UNALIGNED *Source,
+   ULONG Length
+   );
+
+NTSYSAPI
+VOID
+NTAPI
+RtlCopyMemory32 (
+   VOID UNALIGNED *Destination,
+   CONST VOID UNALIGNED *Source,
+   ULONG Length
+   );
 
 NTSYSAPI
 VOID
 NTAPI
 RtlMoveMemory (
-   PVOID Destination,
-   CONST VOID *Source,
+   VOID UNALIGNED *Destination,
+   CONST VOID UNALIGNED *Source,
    ULONG Length
    );
 
@@ -2664,7 +2710,7 @@ NTSYSAPI
 VOID
 NTAPI
 RtlFillMemory (
-   PVOID Destination,
+   VOID UNALIGNED *Destination,
    ULONG Length,
    UCHAR Fill
    );
@@ -2673,7 +2719,7 @@ NTSYSAPI
 VOID
 NTAPI
 RtlZeroMemory (
-   PVOID Destination,
+   VOID UNALIGNED *Destination,
    ULONG Length
    );
 #endif
@@ -2703,9 +2749,36 @@ RtlCopyBytes (
    ULONG Length
    );
 
+//
+// Guaranteed byte granularity memory zero function.
+//
+
+NTSYSAPI
+VOID
+NTAPI
+RtlZeroBytes (
+   PVOID Destination,
+   ULONG Length
+   );
+
+//
+// Guaranteed byte granularity memory fill function.
+//
+
+NTSYSAPI
+VOID
+NTAPI
+RtlFillBytes (
+    PVOID Destination,
+    ULONG Length,
+    UCHAR Fill
+    );
+
 #else
 
 #define RtlCopyBytes RtlCopyMemory
+#define RtlZeroBytes RtlZeroMemory
+#define RtlFillBytes RtlFillMemory
 
 #endif
 
@@ -2735,15 +2808,11 @@ RtlFillMemoryUlong (
 //  Debugging support functions.
 //
 
-#if DEVL
 typedef struct _RTL_PROCESS_LOCK_INFORMATION {
-    PCHAR SymbolicBackTrace;        // Not filled in
     PVOID Address;
-    ULONG CreatorBackTraceIndex;
     USHORT Type;
-    USHORT Depth;
+    USHORT CreatorBackTraceIndex;
 
-    PVOID OwnerBackTrace[ 4 ];
     HANDLE OwningThread;        // from the thread's ClientId->UniqueThread
     LONG LockCount;
     ULONG ContentionCount;
@@ -2770,23 +2839,28 @@ typedef struct _RTL_PROCESS_LOCKS {
 } RTL_PROCESS_LOCKS, *PRTL_PROCESS_LOCKS;
 
 
-NTSYSAPI
-NTSTATUS
-NTAPI
-RtlQueryModuleInformation(
-    IN PLIST_ENTRY LoadOrderListHead,
-    IN PLIST_ENTRY InitOrderListHead OPTIONAL,
-    IN PLIST_ENTRY ExtraLoadOrderListHead OPTIONAL,
-    OUT PRTL_PROCESS_MODULES ModuleInformation,
-    IN ULONG ModuleInformationLength,
-    OUT PULONG ReturnLength OPTIONAL
+
+//
+// Exception dispatcher's log of recent exceptions
+//
+
+#define MAX_EXCEPTION_LOG 10
+#define MAX_EXCEPTION_LOG_DATA_SIZE 5
+typedef struct _LAST_EXCEPTION_LOG {
+    EXCEPTION_RECORD ExceptionRecord;
+    CONTEXT ContextRecord;
+    ULONG   ControlPc;
+    EXCEPTION_DISPOSITION Disposition;
+    // On x86 this contains a frame registration record; 4 dwords
+    // on RISC machines, it is a RUNTIME_FUNCTION record.
+    ULONG HandlerData[MAX_EXCEPTION_LOG_DATA_SIZE];
+} LAST_EXCEPTION_LOG, *PLAST_EXCEPTION_LOG;
+
+VOID
+RtlInitializeExceptionLog(
+    IN ULONG Entries
     );
 
-VOID                                        // ntddk nthal ntifs
-NTAPI                                       // ntddk nthal ntifs
-DbgBreakPoint(                              // ntddk nthal ntifs
-    VOID                                    // ntddk nthal ntifs
-    );                                      // ntddk nthal ntifs
 
 VOID
 NTAPI
@@ -2799,20 +2873,41 @@ DbgUserBreakPoint(
 // Define kernel debugger print prototypes and macros.
 //
 
+VOID
+NTAPI
+DbgBreakPoint(
+    VOID
+    );
+
+VOID
+NTAPI
+DbgBreakPointWithStatus(
+    IN ULONG Status
+    );
+
+#define DBG_STATUS_CONTROL_C        1
+#define DBG_STATUS_SYSRQ            2
+#define DBG_STATUS_BUGCHECK_FIRST   3
+#define DBG_STATUS_BUGCHECK_SECOND  4
+#define DBG_STATUS_FATAL            5
+
 #if DBG
 
 #define KdPrint(_x_) DbgPrint _x_
 #define KdBreakPoint() DbgBreakPoint()
+#define KdBreakPointWithStatus(s) DbgBreakPointWithStatus(s)
 
 #else
 
 #define KdPrint(_x_)
 #define KdBreakPoint()
+#define KdBreakPointWithStatus(s)
 
 #endif
 
 #ifndef _DBGNT_
 ULONG
+_cdecl
 DbgPrint(
     PCH Format,
     ...
@@ -2845,8 +2940,6 @@ DbgUnLoadImageSymbols(
     PVOID ImageBase,
     ULONG ProcessId
     );
-
-#endif // DEVL
 
 
 // begin_ntddk begin_nthal begin_ntifs
@@ -2944,7 +3037,7 @@ RtlLargeIntegerAdd (
     LARGE_INTEGER Addend2
     )
 {
-    _asm {
+    __asm {
         mov     eax,Addend1.LowPart     ; (eax)=add1.low
         mov     edx,Addend1.HighPart    ; (edx)=add1.hi
         add     eax,Addend2.LowPart     ; (eax)=sum.low
@@ -2963,7 +3056,7 @@ RtlEnlargedIntegerMultiply (
     LONG Multiplier
     )
 {
-    _asm {
+    __asm {
         mov     eax, Multiplicand
         imul    Multiplier
     }
@@ -2980,7 +3073,7 @@ RtlEnlargedUnsignedMultiply (
     ULONG Multiplier
     )
 {
-    _asm {
+    __asm {
         mov     eax, Multiplicand
         mul     Multiplier
     }
@@ -2998,7 +3091,7 @@ RtlEnlargedUnsignedDivide (
     IN PULONG Remainder
     )
 {
-    _asm {
+    __asm {
         mov     eax, Dividend.LowPart
         mov     edx, Dividend.HighPart
         mov     ecx, Remainder
@@ -3021,10 +3114,10 @@ RtlLargeIntegerNegate (
     LARGE_INTEGER Subtrahend
     )
 {
-    _asm {
+    __asm {
         mov     eax, Subtrahend.LowPart
         mov     edx, Subtrahend.HighPart
-        neg     edx                 ; (edx) = 2's comp of hi part
+        neg     edx                 ; (edx) = 2s comp of hi part
         neg     eax                 ; if ((eax) == 0) CF = 0
                                     ; else CF = 1
         sbb     edx,0               ; (edx) = (edx) - CF
@@ -3042,7 +3135,7 @@ RtlLargeIntegerSubtract (
     LARGE_INTEGER Subtrahend
     )
 {
-    _asm {
+    __asm {
         mov     eax, Minuend.LowPart
         mov     edx, Minuend.HighPart
         sub     eax, Subtrahend.LowPart
@@ -3186,7 +3279,7 @@ RtlConvertLongToLargeInteger (
     LONG SignedInteger
     )
 {
-    _asm {
+    __asm {
         mov     eax, SignedInteger
         cdq                 ; (edx:eax) = signed LargeInt
     }
@@ -3202,7 +3295,7 @@ RtlConvertUlongToLargeInteger (
     ULONG UnsignedInteger
     )
 {
-    _asm {
+    __asm {
         sub     edx, edx    ; zero highpart
         mov     eax, UnsignedInteger
     }
@@ -3219,7 +3312,7 @@ RtlLargeIntegerShiftLeft (
     CCHAR ShiftCount
     )
 {
-    _asm    {
+    __asm    {
         mov     cl, ShiftCount
         and     cl, 0x3f                    ; mod 64
 
@@ -3248,7 +3341,7 @@ RtlLargeIntegerShiftRight (
     CCHAR ShiftCount
     )
 {
-    _asm    {
+    __asm    {
         mov     cl, ShiftCount
         and     cl, 0x3f               ; mod 64
 
@@ -3277,7 +3370,7 @@ RtlLargeIntegerArithmeticShift (
     CCHAR ShiftCount
     )
 {
-    _asm {
+    __asm {
         mov     cl, ShiftCount
         and     cl, 3fh                 ; mod 64
 
@@ -4068,6 +4161,7 @@ RtlAreBitsSet (
 
 // end_nthal end_ntifs
 
+// begin_ntsrv
 //
 //  Security ID RTL routine definitions
 //
@@ -4097,7 +4191,6 @@ RtlEqualPrefixSid (
     PSID Sid1,
     PSID Sid2
     );
-
 
 NTSYSAPI
 ULONG
@@ -4202,20 +4295,50 @@ RtlConvertSidToUnicodeString(
     BOOLEAN AllocateDestinationString
     );
 
-
+// end_ntsrv
 
 // begin_ntifs
 //
 // LUID RTL routine definitions
 //
 
-NTSYSAPI
-BOOLEAN
+// begin_ntddk
+
+#define RtlEqualLuid(L1, L2) (((L1)->HighPart == (L2)->HighPart) && \
+                              ((L1)->LowPart  == (L2)->LowPart))
+
+#if !defined(MIDL_PASS)
+
+__inline LUID
 NTAPI
-RtlEqualLuid (
-    PLUID Luid1,
-    PLUID Luid2
-    );
+RtlConvertLongToLuid(
+    LONG Long
+    )
+{
+    LUID TempLuid;
+    LARGE_INTEGER TempLi;
+
+    TempLi = RtlConvertLongToLargeInteger(Long);
+    TempLuid.LowPart = TempLi.LowPart;
+    TempLuid.HighPart = TempLi.HighPart;
+    return(TempLuid);
+}
+
+__inline LUID
+NTAPI
+RtlConvertUlongToLuid(
+    ULONG Ulong
+    )
+{
+    LUID TempLuid;
+
+    TempLuid.LowPart = Ulong;
+    TempLuid.HighPart = 0;
+    return(TempLuid);
+}
+#endif
+
+// end_ntddk
 
 NTSYSAPI
 VOID
@@ -4259,6 +4382,7 @@ RtlAreAnyAccessesGranted(
     ACCESS_MASK DesiredAccess
     );
 
+// begin_ntddk begin_ntifs begin_ntsrv
 NTSYSAPI
 VOID
 NTAPI
@@ -4266,6 +4390,7 @@ RtlMapGenericMask(
     PACCESS_MASK AccessMask,
     PGENERIC_MAPPING GenericMapping
     );
+// end_ntddk end_ntifs end_ntsrv
 
 
 //
@@ -4377,6 +4502,18 @@ RtlFirstFreeAce (
     PVOID *FirstFree
     );
 
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlAddCompoundAce (
+    IN PACL Acl,
+    IN ULONG AceRevision,
+    IN UCHAR AceType,
+    IN ACCESS_MASK AccessMask,
+    IN PSID ServerSid,
+    IN PSID ClientSid
+    );
+
 
 // begin_ntddk begin_ntifs
 //
@@ -4417,6 +4554,15 @@ RtlGetControlSecurityDescriptor (
     PULONG Revision
     );
 
+NTSYSAPI
+NTSTATUS
+NTAPI
+RtlSetAttributesSecurityDescriptor(
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN SECURITY_DESCRIPTOR_CONTROL Control,
+    IN OUT PULONG Revision
+    );
+
 // begin_ntddk begin_ntifs
 
 NTSYSAPI
@@ -4431,6 +4577,7 @@ RtlSetDaclSecurityDescriptor (
 
 // end_ntddk end_ntifs
 
+// begin_ntsrv
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -4440,6 +4587,7 @@ RtlGetDaclSecurityDescriptor (
     PACL *Dacl,
     PBOOLEAN DaclDefaulted
     );
+// end_ntsrv
 
 
 NTSYSAPI
@@ -4474,6 +4622,7 @@ RtlSetOwnerSecurityDescriptor (                 // ntifs
     );                                          // ntifs
 
 
+// begin_ntsrv
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -4482,6 +4631,7 @@ RtlGetOwnerSecurityDescriptor (
     PSID *Owner,
     PBOOLEAN OwnerDefaulted
     );
+// end_ntsrv
 
 
 NTSYSAPI
@@ -4598,6 +4748,41 @@ RtlEraseUnicodeString(
     PUNICODE_STRING String
     );
 
+//
+//  Macro to make a known ACE type ready for applying to a specific object type.
+//  This is done by mapping any generic access types, and clearing
+//  the special access types field.
+//
+//  This routine should only be used on DSA define ACEs.
+//
+//  Parameters:
+//
+//      Ace - Points to an ACE to be applied.  Only ACEs that are not
+//          InheritOnly are mapped.
+//
+//      Mapping - Points to a generic mapping array for the type of
+//           object the ACE is being applied to.
+//
+
+                //
+                // Clear invalid bits.  Note that ACCESS_SYSTEM_SECURITY is
+                // valid in SACLs, but not in DACLs.  So, leave it in audit and
+                // alarm ACEs, but clear it in access allowed and denied ACEs.
+                //
+
+#define RtlApplyAceToObject(Ace,Mapping) {                                                  \
+            if (!FlagOn((Ace)->AceFlags, INHERIT_ONLY_ACE) ) {                          \
+                RtlMapGenericMask( &((PKNOWN_ACE)(Ace))->Mask, (Mapping));                  \
+                                                                                            \
+                if ( (((PKNOWN_ACE)(Ace))->Header.AceType == ACCESS_ALLOWED_ACE_TYPE) ||    \
+                     (((PKNOWN_ACE)(Ace))->Header.AceType == ACCESS_DENIED_ACE_TYPE)  ||    \
+                     (((PKNOWN_ACE)(Ace))->Header.AceType == ACCESS_ALLOWED_COMPOUND_ACE_TYPE)  ) {   \
+                    ((PKNOWN_ACE)(Ace))->Mask &= (Mapping)->GenericAll;                     \
+                } else {                                                                    \
+                    ((PKNOWN_ACE)(Ace))->Mask &= ((Mapping)->GenericAll |                   \
+                                                  ACCESS_SYSTEM_SECURITY);                  \
+                }                                                                           \
+            } }
 
 //
 // Service to get the primary domain name/sid of the local machine
@@ -4670,6 +4855,15 @@ RtlpNtMakeTemporaryKey(                                                //
     );                                                                 //
                                                                        //
 /////////////////////////////////////////////////////////////////////////
+
+
+//
+// Extract the SIDs from a compound ACE.
+//
+
+#define RtlCompoundAceServerSid( Ace ) ((PSID)&((PKNOWN_COMPOUND_ACE)(Ace))->SidStart)
+
+#define RtlCompoundAceClientSid( Ace ) ((PSID)(((ULONG)(&((PKNOWN_COMPOUND_ACE)(Ace))->SidStart))+RtlLengthSid( RtlCompoundAceServerSid((Ace)))))
 
 
 
@@ -4829,6 +5023,7 @@ RtlApplyRXactNoFlush(
 //
 // Routine for converting NT status codes to DOS/OS|2 equivalents.
 //
+// begin_ntsrv
 
 NTSYSAPI
 ULONG
@@ -4843,6 +5038,8 @@ NTAPI
 RtlNtStatusToDosErrorNoTeb (
    NTSTATUS Status
    );
+
+// begin_ntifs
 
 NTSYSAPI
 NTSTATUS
@@ -4888,6 +5085,8 @@ RtlInitCodePageTable(
     OUT PCPTABLEINFO CodePageTable
     );
 
+// end_ntsrv end_ntifs
+
 NTSYSAPI
 VOID
 NTAPI
@@ -4903,6 +5102,15 @@ VOID
 NTAPI
 RtlResetRtlTranslations(
     PNLSTABLEINFO TableInfo
+    );
+
+
+NTSYSAPI
+VOID
+NTAPI
+RtlGetDefaultCodePage(
+    OUT PUSHORT AnsiCodePage,
+    OUT PUSHORT OemCodePage
     );
 
 typedef struct _RTL_EVENT {
@@ -4993,6 +5201,7 @@ typedef struct _RTL_EVENT_ID_INFO {
 } RTL_EVENT_ID_INFO, *PRTL_EVENT_ID_INFO;
 
 PRTL_EVENT_ID_INFO
+_cdecl
 RtlCreateEventId(
     IN OUT PVOID *Buffer OPTIONAL,
     IN PULONG Size OPTIONAL,
@@ -5013,6 +5222,7 @@ RtlAreLogging(
 
 NTSYSAPI
 NTSTATUS
+_cdecl
 RtlLogEvent(
     IN PRTL_EVENT_ID_INFO EventId,
     IN ULONG EventClassMask,
@@ -5055,13 +5265,8 @@ RtlCloseEventLog( VOID );
 
 #endif // ndef NTOS_KERNEL_RUNTIME
 
-#if defined(USE_NEW_LARGE_INTEGERS) && defined(__cplusplus)
-
-//
-// LARGE_INTEGER support routines
-
-#include "lintfunc.hxx"
-
+#ifdef __cplusplus
+}       // extern "C"
 #endif
 
 #endif  // _NTRTL_

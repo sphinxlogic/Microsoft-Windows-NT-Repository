@@ -18,6 +18,27 @@ BASEDIR=$(_NTDRIVE)$(_NTROOT)
 BUILDMSG=
 !ENDIF
 
+!if ("$(NTDEBUG)" == "") || ("$(NTDEBUG)" == "retail") || ("$(NTDEBUG)" == "ntsdnodbg")
+FREEBUILD=1
+!else
+FREEBUILD=0
+!endif
+
+
+# Allow alternate object directories.
+
+!ifndef BUILD_ALT_DIR
+BUILD_ALT_DIR=
+! ifdef CHECKED_ALT_DIR
+! if !$(FREEBUILD)
+BUILD_ALT_DIR=d
+!  endif
+! endif
+!endif
+
+_OBJ_DIR = obj$(BUILD_ALT_DIR)
+
+
 #
 # Determine which target is being built (i386, Mips or Alpha) and define
 # the appropriate target variables.
@@ -87,7 +108,7 @@ ASM_SUFFIX=asm
 ASM_INCLUDE_SUFFIX=inc
 
 TARGET_BRACES=
-TARGET_CPP=cl386
+TARGET_CPP=cl
 TARGET_DEFINES=-Di386 -D_X86_
 TARGET_DIRECTORY=i386
 TARGET_NTTREE=$(_NT386TREE)
@@ -115,7 +136,7 @@ ASM_SUFFIX=s
 ASM_INCLUDE_SUFFIX=h
 
 TARGET_BRACES=-B
-TARGET_CPP=claxp
+TARGET_CPP=cl
 TARGET_DEFINES=-DALPHA -D_ALPHA_
 TARGET_DIRECTORY=alpha
 TARGET_NTTREE=$(_NTALPHATREE)
@@ -129,7 +150,7 @@ ASM_SUFFIX=s
 ASM_INCLUDE_SUFFIX=h
 
 TARGET_BRACES=-B
-TARGET_CPP=mcl
+TARGET_CPP=cl
 TARGET_DEFINES=-DPPC -D_PPC_
 TARGET_DIRECTORY=ppc
 TARGET_NTTREE=$(_NTPPCTREE)

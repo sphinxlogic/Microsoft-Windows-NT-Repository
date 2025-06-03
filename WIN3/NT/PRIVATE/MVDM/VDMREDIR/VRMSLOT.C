@@ -949,7 +949,7 @@ Return Value:
         // is [Mm][Aa][Ii][Ll][Ss][Ll][Oo][Tt][\\/]
         //
 
-        if (!strnicmp(Name, "MAILSLOT", 8)) {
+        if (!_strnicmp(Name, "MAILSLOT", 8)) {
             Name += 8;
             if (IS_ASCII_PATH_SEPARATOR(*Name)) {
 
@@ -1007,7 +1007,7 @@ Return Value:
 --*/
 
 {
-    if (!strnicmp(lpName, MAILSLOT_PREFIX, MAILSLOT_PREFIX_LENGTH)) {
+    if (!_strnicmp(lpName, MAILSLOT_PREFIX, MAILSLOT_PREFIX_LENGTH)) {
         strcpy(lpBuffer, LOCAL_MAILSLOT_PREFIX);
         strcat(lpBuffer, lpName);
     }
@@ -1224,7 +1224,7 @@ Return Value:
     NameLength = strlen(Name) - MAILSLOT_PREFIX_LENGTH;
     for (ptr = MailslotInfoList; ptr; ptr = ptr->Next) {
         if (ptr->NameLength == NameLength) {
-            if (!stricmp(ptr->Name, Name)) {
+            if (!_stricmp(ptr->Name, Name)) {
                 break;
             }
         }

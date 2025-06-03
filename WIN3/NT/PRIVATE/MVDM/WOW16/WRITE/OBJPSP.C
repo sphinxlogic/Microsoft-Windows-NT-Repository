@@ -352,4 +352,3 @@ static BOOL IsFormatAvailable(WORD cfFormat)
     return bRetval;
 }
 
-

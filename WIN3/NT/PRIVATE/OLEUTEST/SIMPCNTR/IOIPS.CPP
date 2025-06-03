@@ -43,7 +43,7 @@
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::QueryInterface SITE.CPP
 //
 //
@@ -51,7 +51,7 @@
 
 STDMETHODIMP COleInPlaceSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In IOIPS::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In IOIPS::QueryInterface\r\n"));
 
     // delegate to the container Site
     return m_pSite->QueryInterface(riid, ppvObj);
@@ -79,7 +79,7 @@ STDMETHODIMP COleInPlaceSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::QueryInterface SITE.CPP
 //
 //
@@ -87,7 +87,7 @@ STDMETHODIMP COleInPlaceSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) COleInPlaceSite::AddRef()
 {
-    OutputDebugString(TEXT("In IOIPS::AddRef\r\n"));
+    TestDebugOut(TEXT("In IOIPS::AddRef\r\n"));
 
     // delegate to the container Site
     return m_pSite->AddRef();
@@ -115,7 +115,7 @@ STDMETHODIMP_(ULONG) COleInPlaceSite::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::Release        SITE.CPP
 //
 //
@@ -123,7 +123,7 @@ STDMETHODIMP_(ULONG) COleInPlaceSite::AddRef()
 
 STDMETHODIMP_(ULONG) COleInPlaceSite::Release()
 {
-    OutputDebugString(TEXT("In IOIPS::Release\r\n"));
+    TestDebugOut(TEXT("In IOIPS::Release\r\n"));
 
     // delegate to the container Site
     return m_pSite->Release();
@@ -148,7 +148,7 @@ STDMETHODIMP_(ULONG) COleInPlaceSite::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 //
@@ -156,7 +156,7 @@ STDMETHODIMP_(ULONG) COleInPlaceSite::Release()
 
 STDMETHODIMP COleInPlaceSite::GetWindow (HWND FAR* lphwnd)
 {
-    OutputDebugString(TEXT("In IOIPS::GetWindow\r\n"));
+    TestDebugOut(TEXT("In IOIPS::GetWindow\r\n"));
 
     // return the handle to our editing window.
     *lphwnd = m_pSite->m_lpDoc->m_hDocWnd;
@@ -182,7 +182,7 @@ STDMETHODIMP COleInPlaceSite::GetWindow (HWND FAR* lphwnd)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 // Comments:
@@ -193,7 +193,7 @@ STDMETHODIMP COleInPlaceSite::GetWindow (HWND FAR* lphwnd)
 
 STDMETHODIMP COleInPlaceSite::ContextSensitiveHelp (BOOL fEnterMode)
 {
-    OutputDebugString(TEXT("In IOIPS::ContextSensitiveHelp\r\n"));
+    TestDebugOut(TEXT("In IOIPS::ContextSensitiveHelp\r\n"));
 
     if (m_pSite->m_lpDoc->m_lpApp->m_fCSHMode != fEnterMode)
         m_pSite->m_lpDoc->m_lpApp->m_fCSHMode = fEnterMode;
@@ -220,7 +220,7 @@ STDMETHODIMP COleInPlaceSite::ContextSensitiveHelp (BOOL fEnterMode)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //
 //
@@ -228,7 +228,7 @@ STDMETHODIMP COleInPlaceSite::ContextSensitiveHelp (BOOL fEnterMode)
 
 STDMETHODIMP COleInPlaceSite::CanInPlaceActivate ()
 {
-    OutputDebugString(TEXT("In IOIPS::CanInPlaceActivate\r\n"));
+    TestDebugOut(TEXT("In IOIPS::CanInPlaceActivate\r\n"));
 
     // return S_OK to indicate we can in-place activate
     return ResultFromScode(S_OK);
@@ -254,7 +254,7 @@ STDMETHODIMP COleInPlaceSite::CanInPlaceActivate ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IOleObject::QueryInterface  Object
 //
@@ -264,7 +264,7 @@ STDMETHODIMP COleInPlaceSite::CanInPlaceActivate ()
 STDMETHODIMP COleInPlaceSite::OnInPlaceActivate ()
 {
     HRESULT hrErr;
-    OutputDebugString(TEXT("In IOIPS::OnInPlaceActivate\r\n"));
+    TestDebugOut(TEXT("In IOIPS::OnInPlaceActivate\r\n"));
 
     hrErr = m_pSite->m_lpOleObject->QueryInterface(
            IID_IOleInPlaceObject, (LPVOID FAR *)&m_pSite->m_lpInPlaceObject);
@@ -294,7 +294,7 @@ STDMETHODIMP COleInPlaceSite::OnInPlaceActivate ()
 // Function Calls:
 //      Function                      Location
 //
-//      OutputDebugString             Windows API
+//      TestDebugOut             Windows API
 //      ResultFromScode               OLE API
 //      IOleInPlaceObject::GetWindow  Object
 //
@@ -303,7 +303,7 @@ STDMETHODIMP COleInPlaceSite::OnInPlaceActivate ()
 
 STDMETHODIMP COleInPlaceSite::OnUIActivate ()
 {
-    OutputDebugString(TEXT("In IOIPS::OnUIActivate\r\n"));
+    TestDebugOut(TEXT("In IOIPS::OnUIActivate\r\n"));
 
     m_pSite->m_lpDoc->m_fAddMyUI=FALSE;
     m_pSite->m_lpDoc->m_fInPlaceActive = TRUE;
@@ -348,7 +348,7 @@ STDMETHODIMP COleInPlaceSite::OnUIActivate ()
 //
 //      COleInPlaceFrame::AddRef    IOIPF.CPP
 //      CSimpleSite::GetObjRect     SITE.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CopyRect                    Windows API
 //      GetClientRect               Windows API
 //      ResultFromScode             OLE API
@@ -365,7 +365,7 @@ STDMETHODIMP COleInPlaceSite::GetWindowContext (
 {
     RECT rect;
 
-    OutputDebugString(TEXT("In IOIPS::GetWindowContext\r\n"));
+    TestDebugOut(TEXT("In IOIPS::GetWindowContext\r\n"));
 
     // the frame is associated with the application object.
     // need to AddRef() it...
@@ -384,6 +384,12 @@ STDMETHODIMP COleInPlaceSite::GetWindowContext (
     CopyRect(lprcClipRect, &rect);
 
     // fill the FRAMEINFO
+    if (sizeof(OLEINPLACEFRAMEINFO) != lpFrameInfo->cb)
+    {
+        TestDebugOut(TEXT("WARNING IOIPS::GetWindowContext "
+                               "lpFrameInfo->cb size may be incorrect\r\n"));
+    }
+
     lpFrameInfo->fMDIApp = FALSE;
     lpFrameInfo->hwndFrame = m_pSite->m_lpDoc->m_lpApp->m_hAppWnd;
     lpFrameInfo->haccel = m_pSite->m_lpDoc->m_lpApp->m_hAccel;
@@ -411,14 +417,14 @@ STDMETHODIMP COleInPlaceSite::GetWindowContext (
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP COleInPlaceSite::Scroll (SIZE scrollExtent)
 {
-    OutputDebugString(TEXT("In IOIPS::Scroll\r\n"));
+    TestDebugOut(TEXT("In IOIPS::Scroll\r\n"));
     return ResultFromScode(E_FAIL);
 }
 
@@ -441,7 +447,7 @@ STDMETHODIMP COleInPlaceSite::Scroll (SIZE scrollExtent)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleAPP::QueryNewPalette APP.CPP
 //      CSimpleAPP::AddFrameLevelUI APP.CPP
 //      ResultFromScode             OLE API
@@ -451,7 +457,7 @@ STDMETHODIMP COleInPlaceSite::Scroll (SIZE scrollExtent)
 
 STDMETHODIMP COleInPlaceSite::OnUIDeactivate (BOOL fUndoable)
 {
-    OutputDebugString(TEXT("In IOIPS::OnUIDeactivate\r\n"));
+    TestDebugOut(TEXT("In IOIPS::OnUIDeactivate\r\n"));
 
     // need to clear this flag first
     m_pSite->m_lpDoc->m_fInPlaceActive = FALSE;
@@ -481,7 +487,7 @@ STDMETHODIMP COleInPlaceSite::OnUIDeactivate (BOOL fUndoable)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      ResultFromScode             OLE API
 //      IOleInPlaceObject::Release  Object
 //
@@ -490,7 +496,7 @@ STDMETHODIMP COleInPlaceSite::OnUIDeactivate (BOOL fUndoable)
 
 STDMETHODIMP COleInPlaceSite::OnInPlaceDeactivate ()
 {
-    OutputDebugString(TEXT("In IOIPS::OnInPlaceDeactivate\r\n"));
+    TestDebugOut(TEXT("In IOIPS::OnInPlaceDeactivate\r\n"));
 
     if (m_pSite->m_lpInPlaceObject)
     {
@@ -519,14 +525,14 @@ STDMETHODIMP COleInPlaceSite::OnInPlaceDeactivate ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP COleInPlaceSite::DiscardUndoState ()
 {
-    OutputDebugString(TEXT("In IOIPS::DiscardUndoState\r\n"));
+    TestDebugOut(TEXT("In IOIPS::DiscardUndoState\r\n"));
     return ResultFromScode(E_FAIL);
 }
 
@@ -549,14 +555,14 @@ STDMETHODIMP COleInPlaceSite::DiscardUndoState ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP COleInPlaceSite::DeactivateAndUndo ()
 {
-    OutputDebugString(TEXT("In IOIPS::DeactivateAndUndo\r\n"));
+    TestDebugOut(TEXT("In IOIPS::DeactivateAndUndo\r\n"));
     return ResultFromScode(E_FAIL);
 }
 
@@ -580,7 +586,7 @@ STDMETHODIMP COleInPlaceSite::DeactivateAndUndo ()
 // Function Calls:
 //      Function                            Location
 //
-//      OutputDebugString                   Windows API
+//      TestDebugOut                   Windows API
 //      GetClientRect                       Windows API
 //      IOleObject::GetExtent               Object
 //      IOleInPlaceObject::SetObjectRects   Object
@@ -591,7 +597,7 @@ STDMETHODIMP COleInPlaceSite::DeactivateAndUndo ()
 
 STDMETHODIMP COleInPlaceSite::OnPosRectChange (LPCRECT lprcPosRect)
 {
-    OutputDebugString(TEXT("In IOIPS::OnPosRectChange\r\n"));
+    TestDebugOut(TEXT("In IOIPS::OnPosRectChange\r\n"));
 
     // update the size in the document object
     // NOTE: here we must call IOleObject::GetExtent to get actual extents
@@ -606,4 +612,4 @@ STDMETHODIMP COleInPlaceSite::OnPosRectChange (LPCRECT lprcPosRect)
 
     return ResultFromScode(S_OK);
 }
-
+

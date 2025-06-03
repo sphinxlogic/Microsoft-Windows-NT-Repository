@@ -244,13 +244,12 @@ Return Value:
 
         if ((cDiff = ((LONG)c1 - (LONG)c2)) != 0) {
             return( cDiff );
-            }
+        }
 
         n1--;
         n2--;
-        }
+    }
 
     return( n1 - n2 );
 }
 
-

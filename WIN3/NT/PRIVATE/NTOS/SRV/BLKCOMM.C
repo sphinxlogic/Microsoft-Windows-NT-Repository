@@ -97,9 +97,7 @@ Return Value:
 
     RtlZeroMemory( commDevice, blockLength );
 
-    SET_BLOCK_TYPE( commDevice, BlockTypeCommDevice );
-    SET_BLOCK_STATE( commDevice, BlockStateActive );
-    SET_BLOCK_SIZE( commDevice, blockLength );
+    SET_BLOCK_TYPE_STATE_SIZE( commDevice, BlockTypeCommDevice, BlockStateActive, blockLength );
 
     //
     // Set the reference count to 1 to account for the caller's pointer.
@@ -136,7 +134,7 @@ Return Value:
 } // SrvAllocateCommDevice
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceCommDevice (
     PCOMM_DEVICE CommDevice
     )
@@ -192,7 +190,7 @@ Return Value:
 } // SrvCheckAndReferenceCommDevice
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceCommDevice (
     IN PCOMM_DEVICE CommDevice
     )
@@ -291,9 +289,7 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( CommDevice, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( CommDevice, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( CommDevice, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( CommDevice, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG CommDevice->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( CommDevice );
 

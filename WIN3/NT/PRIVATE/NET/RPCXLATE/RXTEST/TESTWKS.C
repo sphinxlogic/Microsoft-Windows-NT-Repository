@@ -149,7 +149,7 @@ TestWksta(
 {
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("\nTestWksta: first test beginning...\n");
+        NetpKdPrint(("\nTestWksta: first test beginning...\n"));
     }
 
     //
@@ -334,8 +334,8 @@ ChangeOtherDomains(
                 STRLEN(DomainToAddOrChange));
     }
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "ChangeOtherDomains: changed to '" FORMAT_LPTSTR "'\n",
-                OtherDomains );
+        NetpKdPrint(( "ChangeOtherDomains: changed to '" FORMAT_LPTSTR "'\n",
+                OtherDomains ));
     }
 
 } // ChangeOtherDomains
@@ -356,18 +356,18 @@ TestWkstaGetInfo(
     NET_API_STATUS Status;
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("\nTestWkstaGetInfo: trying level " FORMAT_DWORD ".\n",
-                Level);
+        NetpKdPrint(("\nTestWkstaGetInfo: trying level " FORMAT_DWORD ".\n",
+                Level));
     }
     Status = NetWkstaGetInfo(
             UncServerName,              // server name
             Level,                      // info level
             (LPBYTE *) & Info);
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("TestWkstaGetInfo: back from NetWkstaGetInfo, Status="
-                FORMAT_API_STATUS ".\n", Status);
-        NetpDbgPrint("TestWkstaGetInfo: NetWkstaGetInfo alloc'ed buffer at "
-                FORMAT_LPVOID ".\n", (LPVOID) Info);
+        NetpKdPrint(("TestWkstaGetInfo: back from NetWkstaGetInfo, Status="
+                FORMAT_API_STATUS ".\n", Status));
+        NetpKdPrint(("TestWkstaGetInfo: NetWkstaGetInfo alloc'ed buffer at "
+                FORMAT_LPVOID ".\n", (LPVOID) Info));
     }
 
     if ( OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {
@@ -415,16 +415,16 @@ TestWkstaSetInfo(
     DWORD TempDword;
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "\nTestWkstaSetInfo: getting old version (level "
-                FORMAT_DWORD ")...\n", NewLevel );
+        NetpKdPrint(( "\nTestWkstaSetInfo: getting old version (level "
+                FORMAT_DWORD ")...\n", NewLevel ));
     }
     Status = NetWkstaGetInfo(
             UncServerName,
             NewLevel,
             (LPBYTE *) (LPVOID) &InfoStruct);
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "TestWkstaSetInfo: back from NetWkstaGetInfo, Status="
-                FORMAT_API_STATUS ".\n", Status );
+        NetpKdPrint(( "TestWkstaSetInfo: back from NetWkstaGetInfo, Status="
+                FORMAT_API_STATUS ".\n", Status ));
     }
 
     if (OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {
@@ -446,27 +446,27 @@ TestWkstaSetInfo(
     switch (ParmNum) {
     case PARMNUM_ALL :
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: changing ALL fields...\n");
+            NetpKdPrint(("TestWkstaSetInfo: changing ALL fields...\n"));
         }
         ++ (InfoStruct->wki402_char_wait);
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: changed char_wait...\n");
+            NetpKdPrint(("TestWkstaSetInfo: changed char_wait...\n"));
         }
 
 #ifdef TRY_OTHER_DOMAINS
         (void) STRCPY( OtherDomains, InfoStruct->wki402_oth_domains );
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: original OtherDomains: "
-                    FORMAT_LPTSTR "...\n", OtherDomains);
+            NetpKdPrint(("TestWkstaSetInfo: original OtherDomains: "
+                    FORMAT_LPTSTR "...\n", OtherDomains));
         }
         ChangeOtherDomains( OtherDomains, (LPTSTR) BOGUS_DOMAIN_PARMNUM_ALL );
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: modified OtherDomains: "
-                    FORMAT_LPTSTR "...\n", OtherDomains);
+            NetpKdPrint(("TestWkstaSetInfo: modified OtherDomains: "
+                    FORMAT_LPTSTR "...\n", OtherDomains));
         }
         InfoStruct->wki402_oth_domains = (LPTSTR) OtherDomains;
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: changed oth_domains...\n");
+            NetpKdPrint(("TestWkstaSetInfo: changed oth_domains...\n"));
         }
 #endif
 
@@ -478,7 +478,7 @@ TestWkstaSetInfo(
 
     case WKSTA_CHARTIME_PARMNUM + PARMNUM_BASE_INFOLEVEL:
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: changing CHARTIME only...\n");
+            NetpKdPrint(("TestWkstaSetInfo: changing CHARTIME only...\n"));
         }
         TempDword = InfoStruct->wki402_collection_time + 10;
         NewInfo = (LPVOID) & TempDword;
@@ -487,7 +487,7 @@ TestWkstaSetInfo(
 #ifdef TRY_OTHER_DOMAINS
     case WKSTA_OTH_DOMAINS_PARMNUM + PARMNUM_BASE_INFOLEVEL:
         IF_DEBUG(WKSTA) {
-            NetpDbgPrint("TestWkstaSetInfo: changing OTH_DOMAINS only...\n");
+            NetpKdPrint(("TestWkstaSetInfo: changing OTH_DOMAINS only...\n"));
         }
         (void) STRCPY( OtherDomains, InfoStruct->wki402_oth_domains );
         ChangeOtherDomains( OtherDomains, (LPTSTR) BOGUS_DOMAIN_PARMNUM_ONE );
@@ -500,14 +500,14 @@ TestWkstaSetInfo(
     }
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "TestWkstaSetInfo: setting using buffer:\n" );
+        NetpKdPrint(( "TestWkstaSetInfo: setting using buffer:\n" ));
         NetpDbgHexDump( NewInfo, 4 );  // Arbitrary number of bytes.
     }
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "TestWkstaSetInfo: trying set info level "
+        NetpKdPrint(( "TestWkstaSetInfo: trying set info level "
                 FORMAT_DWORD " parm num " FORMAT_DWORD ".\n",
-                NewLevel, ParmNum );
+                NewLevel, ParmNum ));
     }
 
     Status = NetWkstaSetInfo (
@@ -517,8 +517,8 @@ TestWkstaSetInfo(
             & ParmError);
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint( "TestWkstaSetInfo: back from NetWkstaSetInfo, Status="
-                FORMAT_API_STATUS ".\n", Status );
+        NetpKdPrint(( "TestWkstaSetInfo: back from NetWkstaSetInfo, Status="
+                FORMAT_API_STATUS ".\n", Status ));
     }
     if (ParmNum == PARMNUM_ALL) {
         (void) NetApiBufferFree( NewInfo );
@@ -538,7 +538,7 @@ TestWkstaSetInfo(
     }
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("\nTestWkstaSetInfo: getting new version...\n");
+        NetpKdPrint(("\nTestWkstaSetInfo: getting new version...\n"));
     }
     Status = NetWkstaGetInfo(
             UncServerName,
@@ -573,8 +573,8 @@ TestWkstaUserEnum(
     DWORD TotalEntries;
 
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("\nTestWkstaUserEnum: trying level " FORMAT_DWORD ".\n",
-                Level);
+        NetpKdPrint(("\nTestWkstaUserEnum: trying level " FORMAT_DWORD ".\n",
+                Level));
     }
     Status = NetWkstaUserEnum(
             UncServerName,              // server name
@@ -585,12 +585,12 @@ TestWkstaUserEnum(
             & TotalEntries,
             NULL);                      // no resume handle
     IF_DEBUG(WKSTA) {
-        NetpDbgPrint("TestWkstaUserEnum: back from NetWkstaUserEnum, Status="
-                FORMAT_API_STATUS ".\n", Status);
-        NetpDbgPrint(INDENT "NetWkstaUserEnum alloc'ed buffer at "
-                FORMAT_LPVOID ".\n", (LPVOID) Info);
-        NetpDbgPrint(INDENT "Entries read=" FORMAT_DWORD ", total="
-                FORMAT_DWORD ".\n", EntriesRead, TotalEntries);
+        NetpKdPrint(("TestWkstaUserEnum: back from NetWkstaUserEnum, Status="
+                FORMAT_API_STATUS ".\n", Status));
+        NetpKdPrint((INDENT "NetWkstaUserEnum alloc'ed buffer at "
+                FORMAT_LPVOID ".\n", (LPVOID) Info));
+        NetpKdPrint((INDENT "Entries read=" FORMAT_DWORD ", total="
+                FORMAT_DWORD ".\n", EntriesRead, TotalEntries));
     }
 
     if (OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {

@@ -68,7 +68,8 @@ LoopRegisterAdapter(
     IN NDIS_HANDLE LoopMacHandle,
     IN PNDIS_STRING AdapterName,
     IN NDIS_MEDIUM AdapterMedium,
-    IN PVOID NetAddress
+    IN PVOID NetAddress,
+	IN NDIS_HANDLE ConfigurationHandle
     );
 
 STATIC
@@ -198,152 +199,136 @@ LoopAddAdapter(
     )
 {
     NDIS_STATUS Status = NDIS_STATUS_SUCCESS;
+	NDIS_HANDLE ConfigHandle;
+	PNDIS_CONFIGURATION_PARAMETER Parameter;
+	NDIS_STRING MediumKey = NDIS_STRING_CONST("Medium");
+	PUCHAR NetAddressBuffer[6];
+	PVOID NetAddress;
+	UINT  Length;
+	NDIS_MEDIUM AdapterMedium;
 
     DBGPRINT(DBG_COMP_INIT, DBG_LEVEL_INFO, (" --> LoopAddAdapter\n"));
+    DBGPRINT(DBG_COMP_INIT, DBG_LEVEL_INFO, ("Reading Config Info\n"));
 
-    if (ConfigurationHandle == NULL)  {
+	// configuration info present, let's get it
 
-        NDIS_STRING DefaultName = NDIS_STRING_CONST("\\Device\\Loop01");
-        Status = LoopRegisterAdapter(
-                     LoopMacHandle,
-                     &DefaultName,
-                     NdisMedium802_3,
-                     NULL
-                     );
-        }
+	NdisOpenConfiguration(
+		&Status,
+		&ConfigHandle,
+		ConfigurationHandle
+		);
 
-    else  {
+	if (Status != NDIS_STATUS_SUCCESS)  {
 
-        NDIS_HANDLE ConfigHandle;
-        PNDIS_CONFIGURATION_PARAMETER Parameter;
-        NDIS_STRING MediumKey = NDIS_STRING_CONST("Medium");
-        PUCHAR NetAddressBuffer[6];
-        PVOID NetAddress;
-        UINT  Length;
-        NDIS_MEDIUM AdapterMedium;
+		// would like to log this, but adapter not registered yet
+		DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
+			("Unable to open configuration database!\n"));
 
-        DBGPRINT(DBG_COMP_INIT, DBG_LEVEL_INFO, ("Reading Config Info\n"));
+		return Status;
+		}
 
-        // configuration info present, let's get it
+	NdisReadConfiguration(
+		&Status,
+		&Parameter,
+		ConfigHandle,
+		&MediumKey,
+		NdisParameterInteger
+		);
 
-        NdisOpenConfiguration(
-            &Status,
-            &ConfigHandle,
-            ConfigurationHandle
-            );
+	AdapterMedium = (NDIS_MEDIUM)Parameter->ParameterData.IntegerData;
 
-        if (Status != NDIS_STATUS_SUCCESS)  {
+	if ((Status != NDIS_STATUS_SUCCESS) ||
+		!((AdapterMedium == NdisMedium802_3) ||
+		  (AdapterMedium == NdisMedium802_5) ||
+		  (AdapterMedium == NdisMediumFddi)  ||
+		  (AdapterMedium == NdisMediumLocalTalk)  ||
+		  (AdapterMedium == NdisMediumArcnet878_2))) {
 
-            // would like to log this, but adapter not registered yet
-            DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
-                ("Unable to open configuration database!\n"));
+		// would like to log this, but adapter not registered yet
+		DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
+			("Unable to find 'Medium' keyword or invalid value!\n"));
 
-            return Status;
-            }
+		NdisCloseConfiguration(ConfigHandle);
+		return Status;
+		}
 
-        NdisReadConfiguration(
-            &Status,
-            &Parameter,
-            ConfigHandle,
-            &MediumKey,
-            NdisParameterInteger
-            );
+	NdisReadNetworkAddress(
+		&Status,
+		&NetAddress,
+		&Length,
+		ConfigHandle
+		);
 
-        AdapterMedium = (NDIS_MEDIUM)Parameter->ParameterData.IntegerData;
+	if (Status == NDIS_STATUS_SUCCESS)  {
 
-        if ((Status != NDIS_STATUS_SUCCESS) ||
-            !((AdapterMedium == NdisMedium802_3) ||
-              (AdapterMedium == NdisMedium802_5) ||
-              (AdapterMedium == NdisMediumFddi)  ||
-              (AdapterMedium == NdisMediumLocalTalk)  ||
-              (AdapterMedium == NdisMediumArcnet878_2))) {
+		// verify the address is appropriate for the specific media and
+		// ensure that the locally administered address bit is set
 
-            // would like to log this, but adapter not registered yet
-            DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
-                ("Unable to find 'Medium' keyword or invalid value!\n"));
+		switch (AdapterMedium)  {
+			case NdisMedium802_3:
+				if ((Length != ETH_LENGTH_OF_ADDRESS) ||
+					ETH_IS_MULTICAST(NetAddress) ||
+					!(((PUCHAR)NetAddress)[0] & 0x02))  {   // U/L bit
+					Length = 0;
+					}
+				break;
+			case NdisMedium802_5:
+				if ((Length != TR_LENGTH_OF_ADDRESS) ||
+					(((PUCHAR)NetAddress)[0] & 0x80) ||     // I/G bit
+					!(((PUCHAR)NetAddress)[0] & 0x40))  {   // U/L bit
+					Length = 0;
+					}
+				break;
+			case NdisMediumFddi:
+				if ((Length != FDDI_LENGTH_OF_LONG_ADDRESS) ||
+					(((PUCHAR)NetAddress)[0] & 0x01) ||     // I/G bit
+					!(((PUCHAR)NetAddress)[0] & 0x02))  {   // U/L bit
+					Length = 0;
+					}
+				break;
+			case NdisMediumLocalTalk:
+				if ((Length != 1) || LOOP_LT_IS_BROADCAST(*(PUCHAR)NetAddress))  {
+					Length = 0;
+					}
+				break;
+			case NdisMediumArcnet878_2:
+				if ((Length != 1) || LOOP_ARC_IS_BROADCAST(*(PUCHAR)NetAddress))  {
+					Length = 0;
+					}
+				break;
+			}
 
-            NdisCloseConfiguration(ConfigHandle);
-            return Status;
-            }
+		if (Length == 0)  {
+			DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
+				("Invalid NetAddress in registry!\n"));
+			NdisCloseConfiguration(ConfigHandle);
+			return NDIS_STATUS_FAILURE;
+			}
 
-        NdisReadNetworkAddress(
-            &Status,
-            &NetAddress,
-            &Length,
-            ConfigHandle
-            );
+		// have to save away the address as the info may be gone
+		// when we close the registry.  we assume the length will
+		// be 6 bytes max
 
-        if (Status == NDIS_STATUS_SUCCESS)  {
+		NdisMoveMemory(
+			NetAddressBuffer,
+			NetAddress,
+			Length
+			);
+		NetAddress = (PVOID)NetAddressBuffer;
 
-            // verify the address is appropriate for the specific media and
-            // ensure that the locally administered address bit is set
+		}
+	else
+		NetAddress = NULL;
 
-            switch (AdapterMedium)  {
-                case NdisMedium802_3:
-                    if ((Length != ETH_LENGTH_OF_ADDRESS) ||
-                        ETH_IS_MULTICAST(NetAddress) ||
-                        !(((PUCHAR)NetAddress)[0] & 0x02))  {   // U/L bit
-                        Length = 0;
-                        }
-                    break;
-                case NdisMedium802_5:
-                    if ((Length != TR_LENGTH_OF_ADDRESS) ||
-                        (((PUCHAR)NetAddress)[0] & 0x80) ||     // I/G bit
-                        !(((PUCHAR)NetAddress)[0] & 0x40))  {   // U/L bit
-                        Length = 0;
-                        }
-                    break;
-                case NdisMediumFddi:
-                    if ((Length != FDDI_LENGTH_OF_LONG_ADDRESS) ||
-                        (((PUCHAR)NetAddress)[0] & 0x01) ||     // I/G bit
-                        !(((PUCHAR)NetAddress)[0] & 0x02))  {   // U/L bit
-                        Length = 0;
-                        }
-                    break;
-                case NdisMediumLocalTalk:
-                    if ((Length != 1) || LOOP_LT_IS_BROADCAST(*(PUCHAR)NetAddress))  {
-                        Length = 0;
-                        }
-                    break;
-                case NdisMediumArcnet878_2:
-                    if ((Length != 1) || LOOP_ARC_IS_BROADCAST(*(PUCHAR)NetAddress))  {
-                        Length = 0;
-                        }
-                    break;
-                }
+	NdisCloseConfiguration(ConfigHandle);
 
-            if (Length == 0)  {
-                DBGPRINT(DBG_COMP_REGISTRY, DBG_LEVEL_FATAL,
-                    ("Invalid NetAddress in registry!\n"));
-                NdisCloseConfiguration(ConfigHandle);
-                return NDIS_STATUS_FAILURE;
-                }
-
-            // have to save away the address as the info may be gone
-            // when we close the registry.  we assume the length will
-            // be 6 bytes max
-
-            NdisMoveMemory(
-                NetAddressBuffer,
-                NetAddress,
-                Length
-                );
-            NetAddress = (PVOID)NetAddressBuffer;
-
-            }
-        else
-            NetAddress = NULL;
-
-        NdisCloseConfiguration(ConfigHandle);
-
-        Status = LoopRegisterAdapter(
-                     LoopMacHandle,
-                     AdapterName,
-                     AdapterMedium,
-                     NetAddress
-                     );
-        }
-
+	Status = LoopRegisterAdapter(
+				 LoopMacHandle,
+				 AdapterName,
+				 AdapterMedium,
+				 NetAddress,
+				 ConfigurationHandle
+				 );
      return Status;
 }
 
@@ -890,7 +875,8 @@ LoopRegisterAdapter(
     IN NDIS_HANDLE LoopMacHandle,
     IN PNDIS_STRING AdapterName,
     IN NDIS_MEDIUM AdapterMedium,
-    IN PVOID NetAddress
+    IN PVOID NetAddress,
+	IN NDIS_HANDLE ConfigurationHandle
     )
 {
 static const MEDIA_INFO MediaParams[] = {
@@ -993,7 +979,7 @@ static const MEDIA_INFO MediaParams[] = {
                               &Adapter->NdisAdapterHandle,
                               Adapter->NdisMacHandle,
                               Adapter,
-                              LoopWrapperHandle,
+                              ConfigurationHandle,
                               AdapterName,
                               &AdapterInfo
                               )) == NDIS_STATUS_SUCCESS)  {

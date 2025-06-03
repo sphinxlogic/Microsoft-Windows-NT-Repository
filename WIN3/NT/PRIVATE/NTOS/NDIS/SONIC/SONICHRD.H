@@ -627,7 +627,7 @@ typedef struct _SONIC_CAM_DESCRIPTOR_AREA {
 //
 
 #define SONIC_GET_LOW_PART_ADDRESS(Adr) ((USHORT)((Adr) & 0xffff))
-#define SONIC_GET_HIGH_PART_ADDRESS(Adr) ((UCHAR)(((Adr) & 0xffff0000) >> 16))
+#define SONIC_GET_HIGH_PART_ADDRESS(Adr) ((USHORT)(((Adr) & 0xffff0000) >> 16))
 
 
 //

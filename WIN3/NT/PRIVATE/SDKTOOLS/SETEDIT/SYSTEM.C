@@ -33,6 +33,63 @@ SystemCount(
     return iNumSystems ;
 }
 
+BOOL
+SystemSetupThread (PPERFSYSTEM pSystem)
+{
+    DWORD           dwThreadID ;
+    HANDLE          hThread ;
+    HANDLE          hStateDataMutex ;
+    HANDLE          hPerfDataEvent ;
+    SECURITY_ATTRIBUTES  SecAttr ;
+    PPERFDATA       pSystemPerfData ;
+
+
+    SecAttr.nLength = sizeof (SecAttr) ;
+    SecAttr.bInheritHandle = TRUE ;
+    SecAttr.lpSecurityDescriptor = NULL ;
+
+    hThread = CreateThread (&SecAttr, 1024L,
+        (LPTHREAD_START_ROUTINE)PerfDataThread, (LPVOID)(pSystem), 0L, &dwThreadID);
+
+    if (!hThread) {
+        SystemFree (pSystem, TRUE);
+        return (FALSE) ;
+    }
+
+    // create a State Data Lock mutex
+    hStateDataMutex = CreateMutex (&SecAttr, FALSE, NULL);
+    if (!hStateDataMutex) {
+        CloseHandle (hThread) ;
+        SystemFree (pSystem, TRUE);
+        return (FALSE);
+    }
+    hPerfDataEvent = CreateEvent (&SecAttr, TRUE, 0L, NULL) ;
+    if (!hPerfDataEvent) {
+        CloseHandle (hStateDataMutex) ;
+        CloseHandle (hThread) ;
+        SystemFree (pSystem, TRUE);
+        return (FALSE);
+    }
+
+    // allocate Perfdata
+    pSystemPerfData = (PPERFDATA) MemoryAllocate (4096L) ;
+    if (!pSystemPerfData) {
+        CloseHandle (hPerfDataEvent) ;
+        CloseHandle (hStateDataMutex) ;
+        CloseHandle (hThread) ;
+        SystemFree (pSystem, TRUE);
+        return (FALSE);
+    }
+    // now setup the pSystem..
+    pSystem->dwThreadID = dwThreadID ;
+    pSystem->hThread = hThread ;
+    pSystem->hPerfDataEvent = hPerfDataEvent ;
+    pSystem->pSystemPerfData = pSystemPerfData ;
+    pSystem->hStateDataMutex = hStateDataMutex ;
+
+    return (TRUE) ;
+}
+
 PPERFSYSTEM
 SystemCreate (
     LPCTSTR lpszSystemName
@@ -88,8 +145,8 @@ SystemCreate (
 
         pLocalPerfData = MemoryAllocate (STARTING_SYSINFO_SIZE);
         if (pLocalPerfData == NULL) { // no mem so give up
-            SetLastError (ERROR_OUTOFMEMORY);
             SystemFree (pSystem, TRUE);
+            SetLastError (ERROR_OUTOFMEMORY);
             return (NULL);
         } else {
             pSystem->sysDataKey = HKEY_PERFORMANCE_DATA; // local machine
@@ -128,8 +185,8 @@ SystemCreate (
             Status = GetSystemNames(pSystem);   // get counter names & explain text
             if (Status != ERROR_SUCCESS) {
                 // unable to get names so bail out
-                SetLastError (Status);
                 SystemFree (pSystem, TRUE);
+                SetLastError (Status);
                 return (NULL) ;
             }
 
@@ -141,8 +198,8 @@ SystemCreate (
             pSystem->lpszValue = MemoryAllocate (TEMP_BUF_LEN*sizeof(WCHAR));
             if (!pSystem->lpszValue) {
                 // unable to allocate memory
-                SetLastError (ERROR_OUTOFMEMORY);
                 SystemFree (pSystem, TRUE);
+                SetLastError (ERROR_OUTOFMEMORY);
                 return (NULL) ;
             } else {
                 lstrcpy (pSystem->lpszValue, ForeignValueBuffer);
@@ -157,8 +214,8 @@ SystemCreate (
         Status = GetSystemNames(pSystem);   
         if (Status != ERROR_SUCCESS) {
             // unable to get names so bail out
-            SetLastError (Status);
             SystemFree (pSystem, TRUE);
+            SetLastError (Status);
             return (NULL) ;
         }
 
@@ -167,8 +224,8 @@ SystemCreate (
 
         if (!pSystem->lpszValue) {
             // unable to allocate memory
-            SetLastError (ERROR_OUTOFMEMORY);
             SystemFree (pSystem, TRUE);
+            SetLastError (ERROR_OUTOFMEMORY);
             return (NULL) ;
         } else {
             SetSystemValueNameToGlobal (pSystem);
@@ -211,29 +268,43 @@ SystemGet (
 PPERFSYSTEM
 SystemAdd (
     PPPERFSYSTEM ppSystemFirst,
-    LPCTSTR lpszSystemName
+    LPCTSTR lpszSystemName,
+    HWND    hDlg
 )
 {
     PPERFSYSTEM       pSystem ;
     PPERFSYSTEM       pSystemPrev ;
+    TCHAR             szMessage[256];
+    DWORD             dwLastError;
 
 
     if (!*ppSystemFirst) {
         *ppSystemFirst = SystemCreate (lpszSystemName) ;
+        dwLastError = GetLastError();
+        // save return value
         return (*ppSystemFirst) ;
+    } else {
+        for (pSystem = *ppSystemFirst ;
+            pSystem ;
+            pSystem = pSystem->pSystemNext) {
+            pSystemPrev = pSystem ;
+            if (strsamei (pSystem->sysName, lpszSystemName)) {
+                return (pSystem) ;
+            }
+        }  // for
+    }
+    // display message box here if an error occured trying to add
+    // this system
+
+    if (pSystem == NULL) {
+        dwLastError = GetLastError();
+        if (dwLastError == ERROR_ACCESS_DENIED) {
+            DlgErrorBox (hDlg, ERR_ACCESS_DENIED);
+            SetLastError (dwLastError); // to propogate up to caller
+        }
     }
 
-    for (pSystem = *ppSystemFirst ;
-         pSystem ;
-         pSystem = pSystem->pSystemNext) {
-        pSystemPrev = pSystem ;
-        if (strsamei (pSystem->sysName, lpszSystemName)) {
-            return (pSystem) ;
-        }
-    }  // for
-
-    pSystemPrev->pSystemNext = SystemCreate (lpszSystemName) ;
-    return (pSystemPrev->pSystemNext) ;
+    return (pSystem);
 }
 
 void
@@ -374,7 +445,7 @@ GetComputer (
     // If necessary, add the system to the lists for this view.
     pSystem = SystemGet (*ppSystemFirst, szComputer) ;
     if (!pSystem) {
-        pSystem = SystemAdd (ppSystemFirst, szComputer) ;
+        pSystem = SystemAdd (ppSystemFirst, szComputer, hDlg) ;
     }
 
     if (!pSystem && bWarn) {
@@ -386,7 +457,7 @@ GetComputer (
     
         pSystem = SystemGet (*ppSystemFirst, LocalComputerName) ;
         if (!pSystem) {
-            pSystem = SystemAdd (ppSystemFirst, LocalComputerName) ;
+            pSystem = SystemAdd (ppSystemFirst, LocalComputerName, hDlg) ;
         }
 
 //        MessageBoxResource (hDlg, IDS_COMPUTERNOTFOUND, IDS_APPNAME, MB_OK) ;
@@ -423,4 +494,4 @@ GetComputer (
     return (pSystem) ;
 
 }  // GetComputer
-
+

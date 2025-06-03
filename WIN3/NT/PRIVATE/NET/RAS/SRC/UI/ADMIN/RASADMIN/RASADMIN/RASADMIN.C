@@ -1,1 +1,0 @@
-/* rasadmin.c */

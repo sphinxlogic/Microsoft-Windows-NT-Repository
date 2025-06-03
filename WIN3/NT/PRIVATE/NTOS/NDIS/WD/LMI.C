@@ -5155,6 +5155,9 @@ Return:
     //
 
     CurrentCardLoc = (PUCHAR)(Adapt->IndicatingPacket) + Offset;
+    if (CurrentCardLoc > Adapt->ReceiveStop) {
+        CurrentCardLoc = Adapt->ReceiveStart + (CurrentCardLoc - Adapt->ReceiveStop);
+    }
 
     NdisQueryPacket(Packet, NULL, NULL, &CurrentBuffer, NULL);
 

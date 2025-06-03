@@ -1233,8 +1233,8 @@ cstrncmp(char * s1, char * s2, int n)
         if (!reg_ic)
                 return (strncmp(s1, s2, n));
 
-        S1 = strdup(s1);
-        S2 = strdup(s2);
+        S1 = _strdup(s1);
+        S2 = _strdup(s2);
 
         for (p = S1; *p ;p++)
                 if (islower(*p))

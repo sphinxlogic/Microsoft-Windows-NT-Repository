@@ -120,6 +120,20 @@
 #define IDC_STATUS10   550
 
 /*
+**	Extended EDIT Control IDs
+*/
+#define IDC_EDT1    551
+#define IDC_EDT2    552
+#define IDC_EDT3    553
+#define IDC_EDT4    554
+#define IDC_EDT5    555
+#define IDC_EDT6    556
+#define IDC_EDT7    557
+#define IDC_EDT8    558
+#define IDC_EDT9    559
+#define IDC_EDT10   560
+
+/*
 ** Dialog IDs
 */
 #define WELCOME                     100
@@ -180,3 +194,12 @@
 #define WelcomRuntime               2600
 #define Hlp                         2700
 #define ExitSuccessRuntime          2800
+
+#define DlgDosSdkPath               3000
+#define DlgDosSdkPathHelp           3001
+
+#define DlgMacSdkPath               3100
+#define DlgMacSdkPathHelp           3101
+
+#define DlgWinSdkPath               3200
+#define DlgWinSdkPathHelp           3201

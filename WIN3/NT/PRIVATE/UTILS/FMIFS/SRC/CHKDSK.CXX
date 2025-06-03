@@ -22,6 +22,7 @@ Chkdsk(
     IN  BOOLEAN             OnlyIfDirty,
     IN  BOOLEAN             Recover,
     IN  PWSTR               PathToCheck,
+    IN  BOOLEAN             Extend,
     IN  FMIFS_CALLBACK      Callback
     )
 
@@ -44,6 +45,7 @@ Arguments:
     OnlyIfDirty     - Whether to check consistency only if the volume is dirty
     Recover         - Whether to perform a full sector read test
     PathToCheck     - Supplies a path to check for fragmentation
+    Extend          - Whether the volume is being extended
     Callback        - Supplies the necessary call back for
                         communication with the client
 
@@ -104,6 +106,9 @@ Return Value:
                              OnlyIfDirty,
                              Recover,
                              (NULL == PathToCheck) ? NULL : &check_path,
+                             Extend,
+                             FALSE,
+                             0,
                              &chkdsk_result);
 
     // Enable hard-error popups.
@@ -116,3 +121,4 @@ Return Value:
              sizeof(FMIFS_FINISHED_INFORMATION),
              &finished_info);
 }
+

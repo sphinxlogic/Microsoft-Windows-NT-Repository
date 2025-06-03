@@ -27,9 +27,9 @@ extern	"C"	{
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <malloc.h>
+    #include <excpt.h>
 }
 
-#include "midlvers.h"
 #include "allnodes.hxx"
 #include "cmdana.hxx"
 #include "filehndl.hxx"
@@ -51,7 +51,7 @@ extern STATUS_T				MIDL_4();
 extern void					CGMain( node_skl	*	pNode );
 
 /****************************************************************************
-	extern data 
+	extern data
  ****************************************************************************/
 
 extern unsigned long			TotalAllocation;
@@ -63,9 +63,10 @@ extern PASS_2				*	pPass2;
 extern PASS_3				*	pPass3;
 extern CMD_ARG				*	pCommand;
 extern node_source			*	pSourceNode;
+extern BOOL						fNoLogo;
 
 /****************************************************************************
-	extern functions 
+	extern functions
  ****************************************************************************/
 
 extern	void					print_memstats();
@@ -75,15 +76,11 @@ extern	void					print_typegraph();
 	local data
  ****************************************************************************/
 
+#define szVerName	""
 
-#if rup != 0
-#define PRINT_RUP ".%02d"
-#else
-#define PRINT_RUP ""
-#endif
 
-char *pSignon1 = "Microsoft (R) MIDL Compiler Version %d.%02d" PRINT_RUP " " szVerName " " "\n";
-char *pSignon2 = "Copyright (c) Microsoft Corp 1991-1994. All rights reserved.\n";
+const char *pSignon1 = "Microsoft (R) MIDL Compiler Version %s " szVerName " " "\n";
+const char *pSignon2 = "Copyright (c) Microsoft Corp 1991-1995. All rights reserved.\n";
 
 /****************************************************************************/
 
@@ -93,11 +90,27 @@ main(
 	int			argc,
 	char	*	argv[] )
 	{
+    unsigned long Status = STATUS_OK;
 
-	pCompiler	= new ccontrol( argc, argv );
+#ifndef DISABLE_MAIN_EXCEPTION_HANDLER
+    __try
+        {
+#endif
+        pCompiler = new ccontrol( argc, argv );
 
-	exit( pCompiler->Go() );
+        Status = pCompiler->Go();
+#ifndef DISABLE_MAIN_EXCEPTION_HANDLER
+        }
+    __except(1)
+        {
+        Status = GetExceptionCode();
+        printf( "\nMIDL error 0x%lx: unexpected compiler problem.",
+                Status );
+        printf( " Try to find a work around.\n" );
+        }
+#endif
 
+    exit( Status );
 	}
 
 /****************************************************************************
@@ -109,13 +122,6 @@ ccontrol::ccontrol(
 	char	*	argv[] )
 	{
 
-	// the signon
-
-	fprintf( stderr, pSignon1, rmj, rmm, rup );
-	fprintf( stderr, pSignon2 );
-
-	fflush( stderr );
-
 	// initialize
 
 	ErrorCount	= 0;
@@ -125,6 +131,17 @@ ccontrol::ccontrol(
 
 	pCommand = SetCommandProcessor(new CMD_ARG );
 	pCommand->RegisterArgs( argv+1, argc -1 );
+
+	// /nologo is specially detected by RegisterArgs
+	if ( !fNoLogo )
+		{
+		// the signon
+
+		fprintf( stderr, pSignon1, GetCompilerVersion() );
+		fprintf( stderr, pSignon2 );
+
+		fflush( stderr );
+		}
 
 	// set up the lexeme table
 
@@ -150,21 +167,6 @@ ccontrol::Go()
 
 	Status	= pCommand->ProcessArgs();
 
-
-#ifdef debug_dump_files
-
-if( Status == STATUS_OK )
-	{
-	printf( "OutputPath = %s\n", pCommand->GetOutputPath() );
-	printf( "InputFileName = %s\n", pCommand->GetInputFileName() );
-	printf( "CStubFileName = %s\n", pCommand->GetCstubFName() );
-	printf( "SStubFileName = %s\n", pCommand->GetSstubFName() );
-	printf( "HeaderFileName = %s\n", pCommand->GetHeader() );
-	printf( "CauxFileName = %s\n", pCommand->GetCauxFName() );
-	printf( "SauxFileName = %s\n", pCommand->GetSauxFName() );
-	}
-
-#endif // debug_dump_files
 
 	if( Status == STATUS_OK )
 		{
@@ -218,7 +220,7 @@ if( Status == STATUS_OK )
 #endif // MIDL_INTERNAL
 
 #ifndef NOBACKEND
-					if( !pCommand->IsSwitchDefined( SWITCH_SYNTAX_CHECK ) && 
+					if( !pCommand->IsSwitchDefined( SWITCH_SYNTAX_CHECK ) &&
 						!pCommand->IsSwitchDefined( SWITCH_ZS ) )
 						{
 #ifdef MIDL_INTERNAL
@@ -232,7 +234,6 @@ if( Status == STATUS_OK )
 				}
 			}
 	
-		Test();
 		}
 
 	if((pCompiler->GetCommandProcessor())->IsSwitchDefined( SWITCH_DUMP ) )
@@ -241,72 +242,6 @@ if( Status == STATUS_OK )
 		// print_typegraph();
 		};
 
-	return Status;
+  	return Status;
 	}
 
-/////////////////////////////////////////////////////////////////////
-
-#ifdef RPCDEBUG
-
-void
-Test()
-	{
-	extern SymTable	*	pBaseSymTbl;
-	SymKey				SKey( "proc1", NAME_PROC );
-	node_proc	*	pProc	= (node_proc *)pBaseSymTbl->SymSearch( SKey );
-	type_node_list	*	pTNList	= new type_node_list;
-	short				Count;
-	node_skl		*	pNode;
-	HDL_TYPE			HdlType;
-	su				*	pSU;
-
-	SKey.SetKind( NAME_TAG );
-	SKey.SetString( "foo");
-
-	pSU	= (su *)pBaseSymTbl->SymSearch( SKey );
-
-	if( pProc )
-		{
-		if( pProc->HasPtrToCompWEmbeddedPtr() )
-			printf("Proc has a PtrToCompWEmbeddedPtr\n");
-		else
-			printf("Proc has no PtrToCompWEmbeddedPtr\n");
-
-		if( pProc->HasSizedComponent() )
-			printf("Proc has a sized component\n");
-		else
-			printf("Proc has no sized component\n");
-		if( pProc->HasLengthedComponent() )
-			printf("Proc has a lengthed component\n");
-		else
-			printf("Proc has no lengthed component\n");
-
-		if( pProc->CheckNodeStateInMembers( NODE_STATE_UNION ) )
-			printf("At least 1 param has a union\n");
-		else
-			printf("No param has a union\n");
-		}
-
-	if( pSU )
-		{
-		if( pSU->HasPtrToCompWEmbeddedPtr() )
-			printf("Struct has a PtrToCompWEmbeddedPtr\n");
-		else
-			printf("Struct has no PtrToCompWEmbeddedPtr\n");
-
-		if( pSU->HasSizedComponent() )
-			printf("struct has a sized component\n");
-		else
-			printf("struct has no sized component\n");
-		if( pSU->HasLengthedComponent() )
-			printf("struct has a lengthed component\n");
-		else
-			printf("struct has no lengthed component\n");
-		}
-	}
-#else  // RPCDEBUG
-
-void
-Test() { }
-
-#endif // RPCDEBUG

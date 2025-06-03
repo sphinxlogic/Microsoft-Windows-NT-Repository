@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1995  Microsoft Corporation
 
 Module Name:
 
@@ -69,6 +69,9 @@ Revision History:
 //       01            Registers in range 3d4-3df
 //       02            Registers in range 4ae8-4ae9
 //
+//   50              Misc.
+//       00            Reset CRTC 5C register to POST value
+//
 //   F0              Nop
 //
 //---------------------------------------------------------------------------
@@ -117,3 +120,7 @@ Revision History:
 #define IBM     (INOUT+IO+MULTI)        // input multiple bytes
 #define IW      (INOUT+IO+BW)           // input word
 #define IWM     (INOUT+IO+BW+MULTI)     // input multiple words
+
+// Misc
+
+#define RESET_CR5C 0x50                 // reset CR5C value to POST value

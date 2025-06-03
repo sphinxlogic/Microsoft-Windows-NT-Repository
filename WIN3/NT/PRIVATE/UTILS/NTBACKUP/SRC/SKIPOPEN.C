@@ -221,7 +221,7 @@ static VOID clock_routine( VOID )
    /* try to open the file */
    error = skip_temp_ptr->TryOpen( skip_temp_ptr->parm ) ;
 
-   if ( error == SUCCESS || error == FS_NOT_FOUND ) {
+   if ( error == SUCCESS || error == FS_NOT_FOUND || error == FS_OPENED_INUSE ) {
 
        /* the file was opened, set the return status */
        skip_temp_ptr->status = error;

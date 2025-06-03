@@ -336,7 +336,7 @@ void display_object ()
       for (i=0; i<16; i++) {
 	printf ("%06lx ", (currobj.offset + (i * 8)) * 8);
 	for (j=0; j<8; j++) {
-	  itoa ((unsigned int)(p [i*8+j]), scratch, 2);
+	  _itoa ((unsigned int)(p [i*8+j]), scratch, 2);
 	  strrev (scratch);
 	  while (strlen (scratch) < 8)
 	    strcat (scratch, "0");
@@ -366,7 +366,7 @@ void display_object ()
 	printf ("%06lx ",
 		(currobj.scratch * 2048L + currobj.offset + (i * 8)) * 8);
 	for (j=0; j<8; j++) {
-	  itoa ((unsigned int)(p [i*8+j]), scratch, 2);
+	  _itoa ((unsigned int)(p [i*8+j]), scratch, 2);
 	  strrev (scratch);
 	  while (strlen (scratch) < 8)
 	    strcat (scratch, "0");

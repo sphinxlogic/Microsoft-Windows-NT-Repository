@@ -105,26 +105,27 @@ typedef struct _MPX_ENTRY {
     ULONG       Signature;              // Type of structure.
     USHORT      Mid;                    // MPX Id of outgoing request.
     USHORT      Tid;
-
     USHORT      Uid;                    // Save the TID and UID for cancel.
     USHORT      Pid;                    // Low 8 bits of the PID for cancel.
     ULONG       Flags;                  // Flags describing the request.
+
     ULONG       StartTime;              // Time to start timeout
     ULONG       TimeoutTime;            // Time to timeout the request.
     ULONG       TransferSize;           // Used to calculate timeout length
+    ULONG       ReferenceCount;         // Used to synchronize with cancel
 
     PIRP        SendIrp;                // I/O request packet for Send.
     PIRP        ReceiveIrp;             // I/O request packet for Receive.
     PIRP        OriginatingIrp;         // I/O request packet for user request.
+    PIRP        SendIrpToFree;          // IRP to be freed at end of tranceive.
+
+    KEVENT      SendCompleteEvent;      // Send completion event.
+
     PFILE_OBJECT FileObject;            // Used to cancel MTE's for a file.
     ERESOURCE_THREAD RequestorsThread;  // Thread that initiated I/O.
     PSERVERLISTENTRY SLE;               // ServerList Entry for request.
-    KEVENT      SendCompleteEvent;      // Send completion event.
     PTRANCEIVE_HEADER   RequestContext; // Context information about request.
     PNETTRANCEIVE_CALLBACK Callback;
-//    PTRANSPORT_CONNECTION Connection;   // Connection I/O is on.
-    USHORT      SendIrpReferenceCount;  // Used to synchronize with cancel
-    BOOLEAN     SendIrpAllocated;
 } MPX_ENTRY, *PMPX_ENTRY;
 
 typedef struct _MPX_TABLE {
@@ -153,6 +154,7 @@ typedef struct _MPX_TABLE {
 #define NT_NOKNOWSEAS           0x00000008 // This app doesn't knows EAs.
 #define NT_NOKNOWSLONGNAMES     0x00000010 // This app doesn't knows Long Names
 #define NT_NOSENDRESPONSE       0x00000020 // This is a one-way SMB send.
+#define NT_DFSFILE              0x00000040 // This SMB contains a Dfs pathname
 #define NT_CANNOTCANCEL         0x08000000 // This request cannot be canceled.
 #define NT_PREFER_LONGTERM      0x10000000 // This should be a longterm request if possible.
 #define NT_RECONNECTING         0x20000000 // This is the initiation of a connection.

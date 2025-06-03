@@ -82,7 +82,13 @@ BeepDeviceControl(
     );
 
 NTSTATUS
-BeepOpenClose(
+BeepOpen(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+BeepClose(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp
     );
@@ -95,8 +101,8 @@ BeepStartIo(
 
 VOID
 BeepTimeOut(
+    IN PKDPC Dpc,
     IN PDEVICE_OBJECT DeviceObject,
-    IN PVOID Context,
     IN PVOID SystemArgument1,
     IN PVOID SystemArgument2
     );
@@ -191,6 +197,18 @@ Return Value:
             );
 
     KeInitializeTimer(&deviceExtension->Timer);
+    deviceExtension->TimerSet = FALSE;
+
+    //
+    // Initialize the fast mutex and set the reference count to zero.
+    //
+    ExInitializeFastMutex(&deviceExtension->Mutex);
+    deviceExtension->ReferenceCount = 0;
+
+    //
+    // Set the driver to be completely paged out.
+    //
+    MmPageEntireDriver(DriverEntry);
 
     //
     // Set up the device driver entry points.
@@ -198,11 +216,20 @@ Return Value:
 
     DriverObject->DriverStartIo = BeepStartIo;
     DriverObject->DriverUnload = BeepUnload;
-    DriverObject->MajorFunction[IRP_MJ_CREATE] = BeepOpenClose;
-    DriverObject->MajorFunction[IRP_MJ_CLOSE]  = BeepOpenClose;
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = BeepOpen;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]  = BeepClose;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] =
                                              BeepDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_CLEANUP] = BeepCleanup;
+
+#ifdef _PNP_POWER_
+    //
+    // The HAL is in charge of the beeping, it will take care
+    // of the power management on the device
+    //
+
+    deviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
 
     BeepPrint((2,"BEEP-BeepInitialize: exit\n"));
 
@@ -548,7 +575,7 @@ Return Value:
 }
 
 NTSTATUS
-BeepOpenClose(
+BeepOpen(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp
     )
@@ -557,8 +584,8 @@ BeepOpenClose(
 
 Routine Description:
 
-    This routine is the dispatch routine for create/open and close requests.
-    Open/close requests are completed here.
+    This routine is the dispatch routine for create/open requests.
+    Open requests are completed here.
 
 Arguments:
 
@@ -573,7 +600,93 @@ Return Value:
 --*/
 
 {
+    PDEVICE_EXTENSION deviceExtension;
+    PFAST_MUTEX mutex;
+
     BeepPrint((2,"BEEP-BeepOpenClose: enter\n"));
+
+    //
+    // Increment the reference count. If this is the first reference,
+    // reset the driver paging.
+    //
+    deviceExtension = DeviceObject->DeviceExtension;
+    mutex = &deviceExtension->Mutex;
+    ExAcquireFastMutex(mutex);
+    if (++deviceExtension->ReferenceCount == 1) {
+        MmResetDriverPaging(BeepOpen);
+    }
+    ExReleaseFastMutex(mutex);
+
+    //
+    // Complete the request and return status.
+    //
+
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+    BeepPrint((2,"BEEP-BeepOpenClose: exit\n"));
+
+    return(STATUS_SUCCESS);
+}
+
+NTSTATUS
+BeepClose(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is the dispatch routine for close requests.
+    Close requests are completed here.
+
+Arguments:
+
+    DeviceObject - Pointer to class device object.
+
+    Irp - Pointer to the request packet.
+
+Return Value:
+
+    Status is returned.
+
+--*/
+
+{
+    PDEVICE_EXTENSION deviceExtension;
+    PFAST_MUTEX mutex;
+
+    BeepPrint((2,"BEEP-BeepOpenClose: enter\n"));
+
+    //
+    // Decrement the reference count. If this is the last reference,
+    // page the driver out
+    //
+    deviceExtension = DeviceObject->DeviceExtension;
+    mutex = &deviceExtension->Mutex;
+    ExAcquireFastMutex(mutex);
+    if (--deviceExtension->ReferenceCount == 0) {
+
+        //
+        // If there is a timer queued, attempt to cancel it before paging out
+        // the driver.  If we cannot cancel it, it may already be queued for
+        // execution on another processor.  This is highly unlikely, so just
+        // don't page out the entire driver if a timer has been set but cannot
+        // be canceled.
+        //
+
+        if ((!deviceExtension->TimerSet) ||
+            (deviceExtension->TimerSet &&
+             KeCancelTimer(&deviceExtension->Timer))) {
+
+            MmPageEntireDriver(BeepClose);
+        }
+
+    }
+    ExReleaseFastMutex(mutex);
 
     //
     // Complete the request and return status.
@@ -686,7 +799,24 @@ Return Value:
             // Cancel the current timer (if any).
             //
 
-            (VOID) KeCancelTimer(&deviceExtension->Timer);
+            if (deviceExtension->TimerSet) {
+                if (KeCancelTimer(&deviceExtension->Timer)) {
+
+                    //
+                    // Timer successfully cancelled
+                    //
+
+                    deviceExtension->TimerSet = FALSE;
+                } else {
+
+                    //
+                    // The timer has already expired and
+                    // been queued, it will reset the
+                    // TimerSet flag when it runs.
+                    //
+
+                }
+            }
 
             //
             // Call the HAL to actually start the beep (synchronizes
@@ -703,18 +833,7 @@ Return Value:
                 // to 100ns resolution).
                 //
 
-                time.HighPart = 0;
-                time.LowPart = beepParameters->Duration;
-                time = RtlExtendedIntegerMultiply(time, 10000);
-
-                BeepPrint((
-                    3,
-                    "BEEP-BeepStartIo: duration in 100ns %x.%x\n",
-                    time.HighPart,
-                    time.LowPart
-                    ));
-
-                time = RtlLargeIntegerNegate(time);
+                time.QuadPart = (LONGLONG)beepParameters->Duration * -10000;
 
                 BeepPrint((
                     3,
@@ -722,6 +841,8 @@ Return Value:
                     time.HighPart,
                     time.LowPart
                     ));
+
+                deviceExtension->TimerSet = TRUE;
 
                 (VOID) KeSetTimer(
                            &deviceExtension->Timer,
@@ -762,8 +883,8 @@ Return Value:
 
 VOID
 BeepTimeOut(
+    IN PKDPC Dpc,
     IN PDEVICE_OBJECT DeviceObject,
-    IN PVOID Context,
     IN PVOID SystemArgument1,
     IN PVOID SystemArgument2
     )
@@ -794,13 +915,22 @@ Return Value:
 --*/
 
 {
+    PDEVICE_EXTENSION deviceExtension;
+
     BeepPrint((2, "BEEP-BeepTimeOut: enter\n"));
+
+    deviceExtension = DeviceObject->DeviceExtension;
 
     //
     // Stop the beep.
     //
 
     (VOID) HalMakeBeep(0);
+
+    //
+    // Clear the TimerSet flag
+    //
+    deviceExtension->TimerSet = FALSE;
 
     //
     // We don't have a request at this point -- it was completed in StartIo
@@ -846,7 +976,24 @@ Return Value:
     // Cancel the timer.
     //
 
-    KeCancelTimer(&deviceExtension->Timer);
+    if (deviceExtension->TimerSet) {
+        if (KeCancelTimer(&deviceExtension->Timer)) {
+
+            //
+            // Timer successfully cancelled
+            //
+
+            deviceExtension->TimerSet = FALSE;
+        } else {
+
+            //
+            // The timer has already expired and
+            // been queued, it will reset the
+            // TimerSet flag when it runs.
+            //
+
+        }
+    }
 
     //
     // Delete the device object.

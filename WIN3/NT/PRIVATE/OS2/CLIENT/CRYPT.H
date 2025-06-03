@@ -577,4 +577,3 @@ RtlGetUserSessionKeyServer(
 
 #endif // _NTCRYPT_
 
-

@@ -276,6 +276,7 @@ Initial revision.
 #define IDS_OPERATIONSHARDWARE          (IDM_OPERATIONSHARDWARE)
 #define IDS_OPERATIONSEXIT              (IDM_OPERATIONSEXIT)
 #define IDS_OPERATIONSFORMAT            (IDM_OPERATIONSFORMAT)
+#define IDS_OPERATIONSEXCHANGE          (IDM_OPERATIONSEXCHANGE)
 
 #define IDS_TREEEXPANDONE               (IDM_TREEEXPANDONE)
 #define IDS_TREEEXPANDBRANCH            (IDM_TREEEXPANDBRANCH)
@@ -349,10 +350,13 @@ Initial revision.
 #define IDS_DEBUG                       (IDS_ABOUT_ENHANCED_MODE+12)
 #define IDS_PROCESSORINFOKEY            (IDS_ABOUT_ENHANCED_MODE+13)
 #define IDS_PROCESSORIDENTIFIER         (IDS_ABOUT_ENHANCED_MODE+14)
+#define IDS_IDENTIFIERIDENTIFIER        (IDS_ABOUT_ENHANCED_MODE+15)
+#define IDS_PRODUCTIDINFOKEY            (IDS_ABOUT_ENHANCED_MODE+16)
+#define IDS_PRODUCTIDENTIFIER           (IDS_ABOUT_ENHANCED_MODE+17)
 
 //  defines for launcher
 
-#define IDS_LCHAPPNAME                   550
+#define IDS_LCHAPPNAME                   540
 #define IDS_LCHEXITAPP                   (IDS_LCHAPPNAME+1)
 #define IDS_LCHDELAYTITLE                (IDS_LCHEXITAPP+1)
 #define IDS_LCHEXECUTIONERROR            (IDS_LCHDELAYTITLE+1)
@@ -366,9 +370,33 @@ Initial revision.
 #define IDS_LCHMISSED                    (IDS_LCHDELAYED+1)
 #define IDS_LCHSKIPMSG                   (IDS_LCHMISSED+1)
 
-#define IDS_RESTOREPATHINVALID           590
+#define IDS_RESTOREPATHINVALID           560
 #define IDS_DONT_SPECIFY_DRIVE           (IDS_RESTOREPATHINVALID+1)
 #define IDS_DONT_SPECIFY_FNAME           (IDS_DONT_SPECIFY_DRIVE+1)
+#define IDS_RESTOREEMSSERVERINVALID		 (IDS_DONT_SPECIFY_FNAME+1)
+#define IDS_RESTOREEMSNOWIPE             (IDS_RESTOREEMSSERVERINVALID	 +1)
+#define IDS_RESTOREEMSWARNING            (IDS_RESTOREEMSNOWIPE +1)
+#define IDS_RESTORESTOPEXCHANGE          (IDS_RESTOREEMSWARNING +1)
+#define IDS_RESTORESTARTEXCHANGE         (IDS_RESTORESTOPEXCHANGE +1)
+#define IDS_STARTEXCHANGE                (IDS_RESTORESTARTEXCHANGE +1)
+#define IDS_RESTOREBEGINEXCHANGE         (IDS_STARTEXCHANGE+1) 
+#define RES_EMS_COMM_FAILURE             (IDS_RESTOREBEGINEXCHANGE+1)
+#define RES_EMS_BKU_ACCESS_FAILURE       (RES_EMS_COMM_FAILURE+1)
+#define RES_EMS_RST_ACCESS_FAILURE       (RES_EMS_BKU_ACCESS_FAILURE+1)
+#define IDS_EMS_MUST_PUB_OR_PRI          ( RES_EMS_RST_ACCESS_FAILURE +1)
+#define IDS_EMS_NO_DEST_DRIVE            ( IDS_EMS_MUST_PUB_OR_PRI +1)
+#define IDS_EMS_CIRC_LOGS_DS             ( IDS_EMS_NO_DEST_DRIVE +1)
+#define IDS_EMS_CIRC_LOGS_IS             ( IDS_EMS_CIRC_LOGS_DS +1)
+#define IDS_EMS_NO_INC_DS_BACKUP         ( IDS_EMS_CIRC_LOGS_IS +1)
+#define IDS_EMS_NO_INC_IS_BACKUP         ( IDS_EMS_NO_INC_DS_BACKUP +1)
+#define IDS_EMS_NOT_RESPONDING_DS        ( IDS_EMS_NO_INC_IS_BACKUP +1)
+#define IDS_EMS_NOT_RESPONDING_IS        ( IDS_EMS_NOT_RESPONDING_DS +1)
+ 
+#define IDS_BACKUP_TYPE                  ( IDS_EMS_NOT_RESPONDING_IS +1)
+#define IDS_WIPE_SPECIFIED               ( IDS_BACKUP_TYPE +1)
+#define IDS_RESTOREEMSMUSTWIPE           ( IDS_WIPE_SPECIFIED +1)
+#define IDS_EMS_NO_PUBLIC_SERVICE        ( IDS_RESTOREEMSMUSTWIPE +1)
+#define IDS_EMS_NO_PRIVATE_SERVICE        ( IDS_EMS_NO_PUBLIC_SERVICE +1)
 
 // DEFINES FOR CREATING/EDITING/SCHEDULING JOBS
 
@@ -520,6 +548,7 @@ Initial revision.
 #define IDS_TAPE_SECURITY_TITLE         (IDS_METHOD_NORMAL+14)
 #define IDS_GENERAL_TAPE_SECURITY       (IDS_METHOD_NORMAL+15)
 #define IDS_ERASE_TAPE_SECURITY         (IDS_METHOD_NORMAL+16)
+#define IDS_XCHG_BKUP_NAME              (IDS_METHOD_NORMAL+17)
 
 //  Catalog defines
 
@@ -577,6 +606,20 @@ Initial revision.
 #define IDS_ADVNOTAPESCATALOGEDCAPTION   (IDS_SELECTION_START+21)
 #define IDS_SELECTNOTFOUND               (IDS_SELECTION_START+22)
 #define IDS_NONETWORKFOUND               (IDS_SELECTION_START+23)
+
+// EXCHANGE SERVER SELECTION STRINGS
+#define IDS_XCHNG_NO_CONNECT             (IDS_SELECTION_START+24)
+#define IDS_XCHNG_STOP_RECOVER           (IDS_SELECTION_START+25)
+#define IDS_XCHNG_RECOVER_TITLE          (IDS_SELECTION_START+26)
+#define IDS_XCHNG_DIR                    (IDS_SELECTION_START+27)
+#define IDS_XCHNG_INFO_STORE             (IDS_SELECTION_START+28)
+#define IDS_XCHNG_NO_SERVICE             (IDS_SELECTION_START+29)
+#define IDS_XCHNG_NO_SERVER              (IDS_SELECTION_START+30)
+#define IDS_XCHNG_NO_SERVICE_RUNNING     (IDS_SELECTION_START+31)
+#define IDS_XCHNG_BKUP_IN_PROG           (IDS_SELECTION_START+32) 
+#define IDS_XCHNG_NO_SERVICE_ACCESS      (IDS_SELECTION_START+33)
+#define IDS_XCHNG_SERVICE_NO_START       (IDS_SELECTION_START+34)
+#define IDS_XCHNG_SERVICE_RUNNING        (IDS_SELECTION_START+35)
 
 //  selection error messages
 
@@ -786,6 +829,18 @@ Initial revision.
 #define  IDS_VLMFUTURETEXT                (IDS_VLMSTART+58)
 #define  IDS_VLMACCESSDENIEDMSG           (IDS_VLMSTART+59)
 #define  IDS_VLMSQLTEXT                   (IDS_VLMSTART+60)
+#define  IDS_VLMNAME_EXCHANGE             (IDS_VLMSTART+61)
+#define  IDS_VLMEMSTITLE		  (IDS_VLMSTART+62)
+#define  IDS_VLMEMSMINTITLE               IDS_VLMEMSTITLE
+#define  IDS_VLMMSG_SELECTVOLSFAILED      (IDS_VLMSTART+63)
+#define  IDS_VLMMSG_SELECTVOLFAILED       (IDS_VLMSTART+64)
+#define  IDS_VLMSCANNETWORK               (IDS_VLMSTART+65)  
+#define  IDS_VLMSCANDEVICE                (IDS_VLMSTART+66)  
+#define  IDS_VLMSCANSTATUS                (IDS_VLMSTART+67)  
+#define  IDS_VLMMSG_SCANCANCEL            (IDS_VLMSTART+68)  
+#define  IDS_VLMSCANEXPAND                (IDS_VLMSTART+69)
+#define  IDS_VLMSCANSELECT                (IDS_VLMSTART+70)
+#define  IDS_VLMMSG_SELECTNOVOLS          (IDS_VLMSTART+71)
 
 
 /* RES_ strings start at 3000 (eng_msg.h)  */
@@ -815,6 +870,9 @@ Initial revision.
 #define  IDS_MSGTITLE_TAPEPSWD            (IDS_MSGTITLE_WARNING       + 1)
 #define  IDS_MSGTITLE_XFERMETHOD          (IDS_MSGTITLE_TAPEPSWD      + 1)
 #define  IDS_MSGTITLE_ABORT               (IDS_MSGTITLE_XFERMETHOD    + 1)    // chs:02-05-93
+#define  IDS_MSGTITLE_BADEXCHNG           (IDS_MSGTITLE_ABORT         + 1)    // kmw:09-21-94
+#define  IDS_MSGTITLE_SELECT              (IDS_MSGTITLE_BADEXCHNG     + 1)    // kmw:09-22-94
+#define  IDS_MSGTITLE_EXPANDBRANCH        (IDS_MSGTITLE_SELECT        + 1)    // kmw:09-23-94
 
 //  International defaults
 
@@ -852,16 +910,22 @@ Initial revision.
    // Batch mode operation - the only operation allowed is 'Backup'.
 
 #define IDS_OEMBATCH_BACKUP      IDS_OEMBATCH_FIRST
+#define IDS_OEMBATCH_EJECT       (IDS_OEMBATCH_FIRST+1)
 
    // This string holds the list of prefix chars which must be used to
    // to mark an option (eg. the slash and dash in /APPEND and -D).
 
-#define IDS_OEMOPT_PREFIXES      (IDS_OEMBATCH_FIRST+1)
+#define IDS_OEMOPT_PREFIXES      (IDS_OEMBATCH_FIRST+2)
 
    // This string holds the list of tokens (characters) which seperate
    // one command line item from another - eg. spaces, tabs, commas, etc.
 
-#define IDS_OEMOPT_TOKENSEPS     (IDS_OEMBATCH_FIRST+2)
+#define IDS_OEMOPT_TOKENSEPS     (IDS_OEMBATCH_FIRST+3)
+
+	// These strings specify DSA or Monolithic backup of Exchange servers.
+
+#define IDS_OEMOPT_DSA           (IDS_OEMBATCH_FIRST+4)
+#define IDS_OEMOPT_MONOLITHIC    (IDS_OEMBATCH_FIRST+5)
 
    // Batch mode command options.  NOTE: These must be consecutive and
    //    there must be *exactly* IDS_OEMOPT_COUNT number of them.
@@ -869,8 +933,8 @@ Initial revision.
 #define IDS_OEMOPT_FIRST         (IDS_OEMBATCH_FIRST + 10)
 #define IDS_OEMOPT_COUNT         8
 
-#define IDS_OEMOPT_UNKNOWN       -1    //special id - NOT A STRING!
-#define IDS_OEMOPT_NOTANOPTION   -2    //special id - NOT A STRING!
+#define IDS_OEMOPT_UNKNOWN        -1    //special id - NOT A STRING!
+#define IDS_OEMOPT_NOTANOPTION    -2    //special id - NOT A STRING!
 #define IDS_OEMOPT_VALIDGUIOPTION  -3  //special id - NOT A STRING!
 #define IDS_OEMOPT_USAGE           -4  //special id - NOT A STRING!
 #define IDS_OEMOPT_NOPOLLOPTION    -5  //special id - NOT A STRING!

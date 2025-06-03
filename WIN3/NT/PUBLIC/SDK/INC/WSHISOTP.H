@@ -1,6 +1,7 @@
 /* File: .streams.include.src/mod  wshisotp.h            Version: Initial */
 /*
  *   wshisotp.h
+ *   Copyright (c) 1994-1996, Microsoft Corp. All rights reserved.
  *
  *   Windows Sockets include file for ISO TP4.  This file contains all
  *   standardized ISO TP4 information.  Include this header file after
@@ -60,7 +61,7 @@
 
 typedef struct sockaddr_tp {
    u_short tp_family;          /* Always AF_ISO */
-   u_short tp_addr_type;       /* ISO_HIERARCHICAL or ISO_NON_HIERARCHICAL 
+   u_short tp_addr_type;       /* ISO_HIERARCHICAL or ISO_NON_HIERARCHICAL
 */
    u_short tp_taddr_len;       /* Length of transport address, <= 52 */
    u_short tp_tsel_len;        /* Length of transport selector, <= 32 */

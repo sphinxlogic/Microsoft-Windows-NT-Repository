@@ -27,6 +27,8 @@ Revision History:
 #include <ntos.h>
 #include <status.h>
 #include <tdikrnl.h>
+#include <ndis.h>
+#include "tdipnp.h"
 
 #if DBG
 
@@ -46,6 +48,8 @@ ULONG TdiDebug;
 #define IF_TDIDBG(sts) \
     if (0)
 #endif
+
+ULONG	TdiInitializationCount;
 
 
 NTSTATUS
@@ -208,6 +212,8 @@ Return Value:
         {
             PTDI_REQUEST_QUERY_INFORMATION userRequest;
             PTDI_REQUEST_KERNEL_QUERY_INFORMATION request;
+            PTDI_CONNECTION_INFORMATION connInfo;
+            PCHAR ptr;
 
             if (Irp->AssociatedIrp.SystemBuffer) {
 
@@ -219,7 +225,20 @@ Return Value:
 
                 request = (PTDI_REQUEST_KERNEL_QUERY_INFORMATION)&IrpSp->Parameters;
                 request->QueryType = userRequest->QueryType;
-                request->RequestConnectionInformation = NULL;
+                if (IrpSp->Parameters.DeviceIoControl.InputBufferLength > 
+                    sizeof (TDI_REQUEST_QUERY_INFORMATION))
+                {
+                    connInfo = (PTDI_CONNECTION_INFORMATION)(userRequest + 1);
+                    ptr = (PCHAR)(connInfo + 1);
+                    connInfo->UserData = ptr;
+                    ptr += connInfo->UserDataLength;
+                    connInfo->Options = ptr;
+                    ptr += connInfo->OptionsLength;
+                    connInfo->RemoteAddress = ptr;
+                    request->RequestConnectionInformation = connInfo;
+                }
+                else
+                    request->RequestConnectionInformation = NULL;
 
                 Status = STATUS_SUCCESS;
 
@@ -272,6 +291,8 @@ Return Value:
                 request = (PTDI_REQUEST_KERNEL_RECEIVEDG)&IrpSp->Parameters;
                 request->ReceiveLength = receiveLength;
                 request->ReceiveFlags = userRequest->ReceiveFlags;
+                request->ReceiveDatagramInformation = userRequest->ReceiveDatagramInformation;
+                request->ReturnDatagramInformation = userRequest->ReturnInformation;
 
                 Status = STATUS_SUCCESS;
 
@@ -306,8 +327,11 @@ Return Value:
 
         case IOCTL_TDI_SEND_DATAGRAM:
         {
+            PTDI_REQUEST_SEND_DATAGRAM userRequest;
             PTDI_REQUEST_KERNEL_SENDDG request;
             ULONG sendLength;
+
+            if (Irp->AssociatedIrp.SystemBuffer) {
 
             sendLength = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
 
@@ -317,7 +341,10 @@ Return Value:
             request = (PTDI_REQUEST_KERNEL_SENDDG)&IrpSp->Parameters;
             request->SendLength = sendLength;
 
+            userRequest = (PTDI_REQUEST_SEND_DATAGRAM)Irp->AssociatedIrp.SystemBuffer;
+            request->SendDatagramInformation = userRequest->SendDatagramInformation;
             Status = STATUS_SUCCESS;
+            }
             break;
         }
 
@@ -563,13 +590,24 @@ Routine Description:
 
 Arguments:
 
-    TransportEndpoint - Pointer to open file object.
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_RECEIVE.
 
     ConnectionContext - The client-supplied context associated with
         the connection on which this connection-oriented TSDU was received.
 
-    ReceiveIndicators - Bitflags which indicate the circumstances surrounding
+    ReceiveFlags - Bitflags which indicate the circumstances surrounding
         this TSDU's reception.
+
+    BytesIndicated - The number of bytes of this TSDU that are being presented
+        to the client in this indication.This value is always less than
+        or equal to BytesAvailable.
+
+    BytesAvailable - The total number of bytes of this TSDU presently
+        available from the transport.
+
+    BytesTaken - Return value indicating the number of bytes of data that the
+        client copied from the indication data.
 
     Tsdu - Pointer to an MDL chain that describes the (first) part of the
         (partially) received Transport Service Data Unit, less headers.
@@ -629,7 +667,8 @@ Routine Description:
 
 Arguments:
 
-    TransportEndpoint - Pointer to open file object.
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_RECEIVE_DATAGRAM.
 
     DestinationAddress - Pointer to the network name of the destination
         to which the datagram was directed.
@@ -689,13 +728,46 @@ TdiDefaultRcvExpeditedHandler(
 
 Routine Description:
 
+    This routine is used as the default expedited receive event handler
+    for the transport endpoint.  It is pointed to by a field in the
+    TP_ENDPOINT structure for an endpoint when the endpoint is
+    created, and also whenever the TdiSetEventHandler request is
+    submitted with a NULL EventHandler field.
+
 Arguments:
 
-    TdiEventContext - the context value passed in by the user in the Set Event Handler call
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_RECEIVE.
+
+    ConnectionContext - The client-supplied context associated with
+        the connection on which this connection-oriented TSDU was received.
+
+    ReceiveFlags - Bitflags which indicate the circumstances surrounding
+        this TSDU's reception.
+
+    BytesIndicated - The number of bytes of this TSDU that are being presented
+        to the client in this indication.This value is always less than
+        or equal to BytesAvailable.
+
+    BytesAvailable - The total number of bytes of this TSDU presently
+        available from the transport.
+
+    BytesTaken - Return value indicating the number of bytes of data that the
+        client copied from the indication data.
+
+    Tsdu - Pointer to an MDL chain that describes the (first) part of the
+        (partially) received Transport Service Data Unit, less headers.
+
+    IoRequestPacket - Pointer to a location where the event handler may
+        chose to return a pointer to an I/O Request Packet (IRP) to satisfy
+        the incoming data.  If returned, this IRP must be formatted as a
+        valid TdiReceive request, except that the ConnectionId field of
+        the TdiRequest is ignored and is automatically filled in by the
+        transport provider.
 
 Return Value:
 
-    The function value is the final status from the initialization operation.
+    NTSTATUS - status of operation.
 
 --*/
 {
@@ -711,6 +783,206 @@ Return Value:
     return STATUS_DATA_NOT_ACCEPTED;
 
 } /* DefaultRcvExpeditedHandler */
+
+NTSTATUS
+TdiDefaultChainedReceiveHandler (
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,
+    IN ULONG StartingOffset,
+    IN PMDL  Tsdu,
+    IN PVOID TsduDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used as the default chanied receive event handler
+    for the transport endpoint.  It is pointed to by a field in the
+    TP_ENDPOINT structure for an endpoint when the endpoint is
+    created, and also whenever the TdiSetEventHandler request is
+    submitted with a NULL EventHandler field.
+
+Arguments:
+
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_CHAINED_RECEIVE.
+
+    ConnectionContext - The client-supplied context associated with
+        the connection on which this connection-oriented TSDU was received.
+
+    ReceiveFlags - Bitflags which indicate the circumstances surrounding
+        this TSDU's reception.
+
+    ReceiveLength - The length in bytes of client data in the TSDU.
+
+    StartingOffset - The offset, in bytes from the beginning of the TSDU,
+        at which the client data begins.
+
+    Tsdu - Pointer to an MDL chain that describes the entire received
+        Transport Service Data Unit.
+
+    TsduDescriptor - A descriptor for the TSDU which must be passed to
+        TdiReturnChainedReceives in order to return the TSDU for reuse.
+
+Return Value:
+
+    NTSTATUS - status of operation.
+
+--*/
+
+{
+    UNREFERENCED_PARAMETER (TdiEventContext);
+    UNREFERENCED_PARAMETER (ConnectionContext);
+    UNREFERENCED_PARAMETER (ReceiveFlags);
+    UNREFERENCED_PARAMETER (ReceiveLength);
+    UNREFERENCED_PARAMETER (StartingOffset);
+    UNREFERENCED_PARAMETER (Tsdu);
+    UNREFERENCED_PARAMETER (TsduDescriptor);
+
+    return STATUS_DATA_NOT_ACCEPTED;
+
+} /* DefaultChainedReceiveHandler */
+
+
+NTSTATUS
+TdiDefaultChainedRcvDatagramHandler(
+    IN PVOID TdiEventContext,
+    IN LONG SourceAddressLength,
+    IN PVOID SourceAddress,
+    IN LONG OptionsLength,
+    IN PVOID Options,
+    IN ULONG ReceiveDatagramFlags,
+    IN ULONG ReceiveDatagramLength,
+    IN ULONG StartingOffset,
+    IN PMDL  Tsdu,
+    IN PVOID TsduDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used as the default chained receive datagram
+    event handler for the transport endpoint. It is pointed to by
+    a field in the TP_ENDPOINT structure for an endpoint when the
+    endpoint is created, and also whenever the TdiSetEventHandler
+    request is submitted with a NULL EventHandler field.
+
+Arguments:
+
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_CHAINED_RECEIVE_DATAGRAM.
+
+    SourceAddressLength - The length of the source network address.
+
+    SourceAddress - Pointer to the network address of the source from which
+        the datagram originated.
+
+    OptionsLength - The length of the transport options accompanying this TSDU.
+
+    Options - Pointer to the transport options accompanying this TSDU.
+
+    ReceiveDatagramFlags - Bitflags which indicate the circumstances
+        surrounding this TSDU's reception.
+
+    ReceiveDatagramLength - The length, in bytes, of the client data in
+        this TSDU.
+
+    StartingOffset - The offset, in bytes from the start of the TSDU, at
+        which the client data begins.
+
+    Tsdu - Pointer to an MDL chain that describes the received Transport
+        Service Data Unit.
+
+    TsduDescriptor - A descriptor for the TSDU which must be passed to
+        TdiReturnChainedReceives in order to return the TSDU for reuse.
+
+Return Value:
+
+    NTSTATUS - status of operation.
+
+--*/
+
+{
+    UNREFERENCED_PARAMETER (TdiEventContext);
+    UNREFERENCED_PARAMETER (SourceAddressLength);
+    UNREFERENCED_PARAMETER (SourceAddress);
+    UNREFERENCED_PARAMETER (OptionsLength);
+    UNREFERENCED_PARAMETER (Options);
+    UNREFERENCED_PARAMETER (ReceiveDatagramLength);
+    UNREFERENCED_PARAMETER (StartingOffset);
+    UNREFERENCED_PARAMETER (Tsdu);
+    UNREFERENCED_PARAMETER (TsduDescriptor);
+
+    return STATUS_DATA_NOT_ACCEPTED;
+
+} /* DefaultChainedRcvDatagramHandler */
+
+
+NTSTATUS
+TdiDefaultChainedRcvExpeditedHandler(
+    IN PVOID TdiEventContext,
+    IN CONNECTION_CONTEXT ConnectionContext,
+    IN ULONG ReceiveFlags,
+    IN ULONG ReceiveLength,
+    IN ULONG StartingOffset,
+    IN PMDL  Tsdu,
+    IN PVOID TsduDescriptor
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is used as the default chained expedited receive event
+    handler for the transport endpoint.  It is pointed to by a field
+    in the TP_ENDPOINT structure for an endpoint when the endpoint is
+    created, and also whenever the TdiSetEventHandler request is
+    submitted with a NULL EventHandler field.
+
+Arguments:
+
+    TdiEventContext - Pointer to the client-provided context value specified
+        in the TdiSetEventHandler call for TDI_EVENT_CHAINED_RECEIVE_EXPEDITED.
+
+    ConnectionContext - The client-supplied context associated with
+        the connection on which this connection-oriented TSDU was received.
+
+    ReceiveFlags - Bitflags which indicate the circumstances surrounding
+        this TSDU's reception.
+
+    ReceiveLength - The length in bytes of client data in the TSDU.
+
+    StartingOffset - The offset, in bytes from the beginning of the TSDU,
+        at which the client data begins.
+
+    Tsdu - Pointer to an MDL chain that describes the entire received
+        Transport Service Data Unit.
+
+    TsduDescriptor - A descriptor for the TSDU which must be passed to
+        TdiReturnChainedReceives in order to return the TSDU for reuse.
+
+Return Value:
+
+    NTSTATUS - status of operation.
+
+--*/
+{
+    UNREFERENCED_PARAMETER (TdiEventContext);
+    UNREFERENCED_PARAMETER (ConnectionContext);
+    UNREFERENCED_PARAMETER (ReceiveFlags);
+    UNREFERENCED_PARAMETER (ReceiveLength);
+    UNREFERENCED_PARAMETER (StartingOffset);
+    UNREFERENCED_PARAMETER (Tsdu);
+    UNREFERENCED_PARAMETER (TsduDescriptor);
+
+    return STATUS_DATA_NOT_ACCEPTED;
+
+} /* DefaultRcvExpeditedHandler */
+
 
 NTSTATUS
 TdiDefaultSendPossibleHandler (
@@ -791,7 +1063,7 @@ Return Value:
                                                TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
     }
 
-    RtlMoveMemory (
+    RtlCopyMemory (
         NetworkName->Address[0].Address[0].NetbiosName,
         NetbiosName,
         16);
@@ -853,7 +1125,7 @@ Return Value:
         EaBuffer->EaNameLength = TDI_TRANSPORT_ADDRESS_LENGTH;
         EaBuffer->EaValueLength = sizeof (TA_NETBIOS_ADDRESS);
 
-        RtlMoveMemory (
+        RtlCopyMemory (
             EaBuffer->EaName,
             TdiTransportAddress,
             EaBuffer->EaNameLength + 1);
@@ -1062,17 +1334,17 @@ Return Value:
         // PANIC ("TdiCopyMdlToBuffer: Copying a chunk.\n");
         if (DestBytesLeft == SrcBytesLeft) {
             // PANIC ("TdiCopyMdlToBuffer: Copying exact amount.\n");
-            RtlMoveMemory (Dest, Src, DestBytesLeft);
+            RtlCopyBytes (Dest, Src, DestBytesLeft);
             *BytesCopied += DestBytesLeft;
             return STATUS_SUCCESS;
         } else if (DestBytesLeft < SrcBytesLeft) {
             // PANIC ("TdiCopyMdlToBuffer: Buffer overflow, copying some.\n");
-            RtlMoveMemory (Dest, Src, DestBytesLeft);
+            RtlCopyBytes (Dest, Src, DestBytesLeft);
             *BytesCopied += DestBytesLeft;
             return STATUS_BUFFER_OVERFLOW;
         } else {
             // PANIC ("TdiCopyMdlToBuffer: Copying all of this MDL, & more.\n");
-            RtlMoveMemory (Dest, Src, SrcBytesLeft);
+            RtlCopyBytes (Dest, Src, SrcBytesLeft);
             *BytesCopied += SrcBytesLeft;
             DestBytesLeft -= SrcBytesLeft;
             Dest += SrcBytesLeft;
@@ -1199,12 +1471,12 @@ Return Value:
         // PANIC ("TdiCopyMdlToBuffer: Copying a chunk.\n");
         if (DestBytesLeft >= SourceBytesToCopy) {
             // PANIC ("TdiCopyMdlToBuffer: Copying exact amount.\n");
-            RtlMoveMemory (Dest, Src, SourceBytesToCopy);
+            RtlCopyBytes (Dest, Src, SourceBytesToCopy);
             *BytesCopied += SourceBytesToCopy;
             return STATUS_SUCCESS;
         } else {
             // PANIC ("TdiCopyMdlToBuffer: Copying all of this MDL, & more.\n");
-            RtlMoveMemory (Dest, Src, DestBytesLeft);
+            RtlCopyBytes (Dest, Src, DestBytesLeft);
             *BytesCopied += DestBytesLeft;
             SourceBytesToCopy -= DestBytesLeft;
             Src += DestBytesLeft;
@@ -1286,7 +1558,7 @@ Return Value:
             EaBuffer->EaNameLength = TDI_TRANSPORT_ADDRESS_LENGTH;
             EaBuffer->EaValueLength = sizeof (TA_NETBIOS_ADDRESS);
 
-            RtlMoveMemory(
+            RtlCopyMemory(
                 EaBuffer->EaName,
                 TdiTransportAddress,
                 EaBuffer->EaNameLength + 1
@@ -1303,13 +1575,13 @@ Return Value:
                                                 sizeof (TDI_ADDRESS_NETBIOS);
             NetbiosAddress.Address[0].Address[0].NetbiosNameType =
                                             TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
-            RtlMoveMemory(
+            RtlCopyMemory(
                 NetbiosAddress.Address[0].Address[0].NetbiosName,
                 Name,
                 16
                 );
 
-            RtlMoveMemory (
+            RtlCopyMemory (
                 &EaBuffer->EaName[EaBuffer->EaNameLength + 1],
                 &NetbiosAddress,
                 sizeof(TA_NETBIOS_ADDRESS)
@@ -1366,3 +1638,100 @@ Return Value:
 
     return Status;
 } /* TdiOpenNetbiosAddress */
+
+
+
+VOID
+TdiReturnChainedReceives(
+    IN PVOID *TsduDescriptors,
+    IN ULONG  NumberOfTsdus
+    )
+
+/*++
+
+Routine Description:
+
+   Used by a TDI client to return ownership of a set of chained receive TSDUs
+   to the NDIS layer. This routine may only be called if the client took
+   ownership of the TSDUs by returning STATUS_PENDING to one of the
+   CHAINED_RECEIVE indications.
+
+Arguments:
+
+    TsduDescriptors - An array of TSDU descriptors. Each descriptor was
+        provided in one of the CHAINED_RECEIVE indications. The descriptors
+        are actually pointers to the NDIS_PACKETS containing the TSDUs.
+
+    NumberOfTsdus - The count of TSDU descriptors in the TsduDescriptors array.
+
+Return Value:
+
+    None.
+--*/
+
+{
+    NdisReturnPackets(
+        (PNDIS_PACKET *) TsduDescriptors,
+        (UINT) NumberOfTsdus
+        );
+}
+
+VOID
+TdiInitialize(
+	VOID
+    )
+
+/*++
+
+Routine Description:
+
+	The TDI initialization routine, since our DriverEntry isn't called.
+	If we're not already initialized we'll initialize our lists heads.
+
+Arguments:
+
+	Nothing.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+	// See if we're already initialized. If we're not,
+	// we won't have an initalized spinlock so we can't use that
+	// to serialize this. Instead, we interlocked increment a counter
+	// that is initially 0. If the counter goes to 1, we're the
+	// first one through here, so we'll do the initialization. Otherwise
+	// it's already been done, so we'll decrement the counter back
+	// to it's original state.
+
+	if (InterlockedIncrement(&TdiInitializationCount) == 1) {
+
+		// We're the first ones.
+		// Initialize the variables the register/deregister code uses.
+	
+		KeInitializeSpinLock(&TDIListLock);
+	
+		InitializeListHead(&BindClientList);
+	
+		InitializeListHead(&NetAddressClientList);
+	
+		InitializeListHead(&BindProviderList);
+	
+		InitializeListHead(&NetAddressProviderList);
+	
+		InitializeListHead(&BindRequestList);
+	
+		InitializeListHead(&NetAddressRequestList);
+
+		NdisRegisterTdiCallBack(TdiRegisterDeviceObject);
+	
+	} else {
+
+		// Already been done, just decrement the counter.
+		InterlockedDecrement(&TdiInitializationCount);
+	}
+}
+

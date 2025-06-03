@@ -46,9 +46,8 @@ Routine Description:
     too easy), we have to open the client thread and then open that thread's
     token.
 
-
-
-
+    If the ConnectInfo message is all zeros, then the client is asking
+    for an untrusted connection and the privilege check is omitted.
 
 Arguments:
 
@@ -80,6 +79,15 @@ Return Value:
     HANDLE ClientThread, ClientProcess, ClientToken;
     PRIVILEGE_SET Privilege;
     OBJECT_ATTRIBUTES NullAttributes;
+    UNICODE_STRING Unicode;
+    STRING Ansi;
+    LSAP_AU_REGISTER_CONNECT_INFO NullConnectInfo;
+
+    RtlZeroMemory(
+        &NullConnectInfo,
+        sizeof(NullConnectInfo)
+        );
+
 
     InitializeObjectAttributes( &NullAttributes, NULL, 0, NULL, NULL );
 
@@ -106,6 +114,48 @@ Return Value:
         return Status;
     }
 
+
+    //
+    // If the connect message is all zeros, setup an untrusted connection.
+    //
+
+    if (RtlCompareMemory(
+            &NullConnectInfo,
+            ConnectInfo,
+            sizeof(NullConnectInfo)) == sizeof(NullConnectInfo)) {
+
+        //
+        // Allocate a mostly empty fill in a new logon process context.
+        //
+
+        (*LogonProcessContext) =
+            LsapAllocateLsaHeap( (ULONG)sizeof(LSAP_LOGON_PROCESS) );
+        if ( (*LogonProcessContext) == NULL ) {
+            TempStatus = NtClose( ClientProcess );
+            ASSERT( NT_SUCCESS(TempStatus) );
+            return(STATUS_INSUFFICIENT_RESOURCES);
+        }
+
+        RtlZeroMemory(
+            *LogonProcessContext,
+            sizeof(LSAP_LOGON_PROCESS)
+            );
+
+        //
+        // Save the handle to the client process.
+        // The CommPort field of LogonProcessContext will be filled in
+        // when the connection is accepted.
+        //
+
+        (*LogonProcessContext)->ClientProcess = ClientProcess;
+
+
+        (*LogonProcessContext)->TrustedClient = FALSE;
+
+        return(STATUS_SUCCESS);
+
+
+    }
 
 
     //
@@ -218,6 +268,22 @@ Return Value:
     }
 
 
+    //
+    // Convert the LogonProcessName to Unicode.
+    //
+
+    Ansi.Buffer = ConnectInfo->LogonProcessName;
+    Ansi.Length = Ansi.MaximumLength =
+        (USHORT) ConnectInfo->LogonProcessNameLength;
+    Status = RtlAnsiStringToUnicodeString( &Unicode, &Ansi, TRUE );
+
+    if ( !NT_SUCCESS( Status )) {
+        TempStatus = NtClose( ClientProcess );
+        ASSERT( NT_SUCCESS(TempStatus) );
+        return(STATUS_INSUFFICIENT_RESOURCES);
+    }
+
+
 
 
 
@@ -227,8 +293,10 @@ Return Value:
     //
 
     (*LogonProcessContext) =
-        LsapAllocateLsaHeap( (ULONG)sizeof(LSAP_LOGON_PROCESS) );
+        LsapAllocateLsaHeap( (ULONG)sizeof(LSAP_LOGON_PROCESS) +
+                             Unicode.Length );
     if ( (*LogonProcessContext) == NULL ) {
+        RtlFreeUnicodeString( &Unicode );
         TempStatus = NtClose( ClientProcess );
         ASSERT( NT_SUCCESS(TempStatus) );
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -242,18 +310,38 @@ Return Value:
 
     (*LogonProcessContext)->ClientProcess = ClientProcess;
 
+
+    //
+    // Save the LogonProcessName in the context
+    //
+
+    RtlCopyMemory( (*LogonProcessContext)->LogonProcessName,
+                   Unicode.Buffer,
+                   Unicode.Length );
+    (*LogonProcessContext)->LogonProcessName[Unicode.Length/sizeof(WCHAR)] = L'\0';
+
+    //
+    // Set the contex to be trusted.
+    //
+
+    (*LogonProcessContext)->TrustedClient = TRUE;
+
     //
     // Audit the registration of the logon process
     //
 
     LsapAdtAuditLogonProcessRegistration( ConnectInfo );
+    RtlFreeUnicodeString( &Unicode );
+
+
 
     return(STATUS_SUCCESS);
 }
 
 NTSTATUS
 LsapAuApiDeregisterLogonProcess(
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     )
 
 /*++
@@ -347,7 +435,7 @@ Return Value:
     // And free the client's context block.
     //
 
-    LsaFreeMemory( Context );
+    LsapFreeLsaHeap( Context );
 
     return(Status);
 

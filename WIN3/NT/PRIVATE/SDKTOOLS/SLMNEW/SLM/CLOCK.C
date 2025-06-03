@@ -1,23 +1,9 @@
 //   CLOCK.C - set read and write locks in the cookie file
 
-#if defined(DOS) || defined(OS2)
-#define INCL_DOS
-#include <os2.h>
-#endif
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <fcntl.h>
-
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "cookie.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
 #include "messages.h"
+EnableAssert
 
 /*----------------------------------------------------------------------------
  * Name: cookie_free
@@ -58,7 +44,7 @@ int cookie_free(F fAutotype)
 
     if ((char *)NULL == Cookiebuf)
         {
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         Error(szOutOfMem);
         return (OP_SYSERR);
         }
@@ -68,7 +54,7 @@ int cookie_free(F fAutotype)
     if ((char *)NULL == NewCookiebuf)
         {
         free(Cookiebuf);
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         Error(szOutOfMem);
         return (OP_SYSERR);
         }
@@ -76,13 +62,13 @@ int cookie_free(F fAutotype)
     Cookiebuf[0] = '\0';
     NewCookiebuf[0] = '\0';
 
-    while ((bufbytes=read(hfCookieFile, NewCookiebuf, cbCookieMax)) > 0)
+    while ((bufbytes=_read(hfCookieFile, NewCookiebuf, cbCookieMax)) > 0)
         {
         Totread += bufbytes;
         if (Totread >= cbCookieMax)
             {
             FatalError(szCookieTooBig, pszCookieFile);
-            close_cookie(hfCookieFile);
+            _close(hfCookieFile);
             free(Cookiebuf);
             free(NewCookiebuf);
             return (OP_SYSERR);
@@ -102,7 +88,7 @@ int cookie_free(F fAutotype)
                        &wMon, &wDay, &wHour, &wMin, Lcomm) != 7)
                 {
                 Error(szCookieCorrupt, pszCookieFile);
-                close_cookie(hfCookieFile);
+                _close(hfCookieFile);
                 free(Cookiebuf);
                 free(NewCookiebuf);
                 return (OP_SYSERR);
@@ -151,18 +137,18 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
 
     free(Cookiebuf);    /* only the new buffer needed now */
 
-    if (chsize(hfCookieFile, 0) != 0)
+    if (_chsize(hfCookieFile, 0) != 0)
         {
         Error(szCookieTrunc, pszCookieFile, SzForEn(errno));
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         free(NewCookiebuf);
         return (OP_SYSERR);
         }
 
-    if (lseek(hfCookieFile, 0, SEEK_SET) == -1)
+    if (_lseek(hfCookieFile, 0, SEEK_SET) == -1)
         {
         Error(szCookieSeek, pszCookieFile, SzForEn(errno));
-        close_cookie(hfCookieFile);
+        _close(hfCookieFile);
         free(NewCookiebuf);
         return (OP_SYSERR);
         }
@@ -171,14 +157,14 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
     pbWrite = NewCookiebuf;
     while (cbWrite)
         {
-        cbWritten = write(hfCookieFile, pbWrite, cbWrite);
+        cbWritten = _write(hfCookieFile, pbWrite, cbWrite);
         if (-1 == cbWritten || 0 == cbWritten)
             {
             if (WRetryError(eoWrite, "writing", 0, pszCookieFile) != 0)
                 continue;
             else
                 {
-                close_cookie(hfCookieFile);
+                _close(hfCookieFile);
                 free(NewCookiebuf);
                 return (OP_SYSERR);
                 }
@@ -189,7 +175,7 @@ passlock:   /* do not free this lock, just move into next buffer and loop */
         }
 
     free(NewCookiebuf);
-    close_cookie(hfCookieFile);
+    _close(hfCookieFile);
     if (TotLocks == 0)
         {
         if (fAutotype)

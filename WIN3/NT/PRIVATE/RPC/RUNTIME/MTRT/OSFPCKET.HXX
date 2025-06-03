@@ -105,6 +105,7 @@ typedef unsigned short p_reject_reason_t;
 #define local_limit_exceeded_reject 2
 #define protocol_version_not_supported 4
 #define authentication_type_not_recognized 8
+#define invalid_checksum 9
 
 typedef struct
 {
@@ -155,7 +156,7 @@ typedef struct
     unsigned long assoc_group_id;
 } rpcconn_bind;
 
-#ifdef WIN32RPC
+#if defined(WIN32RPC) || defined(MAC)
 #pragma pack(2)
 #endif // WIN32RPC
 typedef struct
@@ -166,7 +167,7 @@ typedef struct
     unsigned long assoc_group_id;
     unsigned short sec_addr_length;
 } rpcconn_bind_ack;
-#ifdef WIN32RPC
+#if defined(WIN32RPC) || defined(MAC)
 #pragma pack()
 #endif // WIN32RPC
 
@@ -252,6 +253,16 @@ typedef struct
 #define NDR_DREP_CRAY 0x02
 #define NDR_DREP_IBM 0x03
 
+#ifdef MAC
+#define NDR_LOCAL_CHAR_DREP  NDR_DREP_ASCII
+#define NDR_LOCAL_INT_DREP   NDR_DREP_BIG_ENDIAN
+#define NDR_LOCAL_FP_DREP    NDR_DREP_IEEE
+#else
+#define NDR_LOCAL_CHAR_DREP  NDR_DREP_ASCII
+#define NDR_LOCAL_INT_DREP   NDR_DREP_LITTLE_ENDIAN
+#define NDR_LOCAL_FP_DREP    NDR_DREP_IEEE
+#endif
+
 /*++
 
 Routine Description:
@@ -270,7 +281,7 @@ Return Value:
 
 --*/
 #define DataConvertEndian(drep) \
-    ( (drep[0] & NDR_DREP_ENDIAN_MASK) == NDR_DREP_BIG_ENDIAN )
+    ( (drep[0] & NDR_DREP_ENDIAN_MASK) != NDR_LOCAL_INT_DREP )
 
 /*++
 
@@ -290,7 +301,7 @@ Return Value:
 
 --*/
 #define DataConvertCharacter(drep) \
-    ( (drep[0] & NDR_DREP_CHARACTER_MASK) == NDR_DREP_EBCDIC )
+    ( (drep[0] & NDR_DREP_CHARACTER_MASK) != NDR_LOCAL_CHAR_DREP)
 
 void
 ConstructPacket (
@@ -324,9 +335,6 @@ void
 ConvertStringEbcdicToAscii (
     IN unsigned char * String
     );
-
-extern unsigned char Align4[];
-extern unsigned char Align16[];
 
 extern unsigned long __RPC_FAR
 MapToNcaStatusCode (

@@ -105,4 +105,3 @@ extern int wwHelp;
 
 #define wwdCurrentDoc   (rgwwd [wwDocument])
 #define wwdClipboard    (rgwwd [wwClipboard])
-

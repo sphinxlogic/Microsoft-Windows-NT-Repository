@@ -49,8 +49,9 @@ Environment:
 #define PROCESSID_COUNTER   "id process"
 #define UNKNOWN_TASK        "unknown"
 
+PUCHAR                       CommonLargeBuffer;
+ULONG                        CommonLargeBufferSize;
 
-#if INTERNAL
 //
 // prototypes
 //
@@ -71,15 +72,15 @@ EnumDesktopsFunc(
     LPSTR  lpstr,
     LPARAM lParam
     );
-#endif
 
 
 #if INTERNAL
 
 DWORD
-GetTaskList(
+GetTaskListEx(
     PTASK_LIST  pTask,
-    DWORD       dwNumTasks
+    DWORD       dwNumTasks,
+    BOOL        fThreadInfo
     )
 
 /*++
@@ -102,20 +103,39 @@ Return Value:
 
 {
     PSYSTEM_PROCESS_INFORMATION  ProcessInfo;
-    UCHAR                        LargeBuffer1[64*1024];
     NTSTATUS                     status;
     ANSI_STRING                  pname;
     PCHAR                        p;
     ULONG                        TotalOffset;
     ULONG                        totalTasks = 0;
 
+retry:
+
+    if (CommonLargeBuffer == NULL) {
+        CommonLargeBufferSize = 64*1024;
+        CommonLargeBuffer = VirtualAlloc (NULL,
+                                          CommonLargeBufferSize,
+                                          MEM_COMMIT,
+                                          PAGE_READWRITE);
+        if (CommonLargeBuffer == NULL) {
+            return 0;
+        }
+    }
     status = NtQuerySystemInformation(
                 SystemProcessInformation,
-                LargeBuffer1,
-                sizeof(LargeBuffer1),
+                CommonLargeBuffer,
+                CommonLargeBufferSize,
                 NULL
                 );
-    ProcessInfo = (PSYSTEM_PROCESS_INFORMATION) LargeBuffer1;
+
+    if (status == STATUS_INFO_LENGTH_MISMATCH) {
+        CommonLargeBufferSize += 8192;
+        VirtualFree (CommonLargeBuffer, 0, MEM_RELEASE);
+        CommonLargeBuffer = NULL;
+        goto retry;
+    }
+
+    ProcessInfo = (PSYSTEM_PROCESS_INFORMATION) CommonLargeBuffer;
     TotalOffset = 0;
     while (TRUE) {
         pname.Buffer = NULL;
@@ -134,7 +154,38 @@ Return Value:
         }
 
         strcpy( pTask->ProcessName, p );
+        pTask->flags = 0;
         pTask->dwProcessId = (DWORD)ProcessInfo->UniqueProcessId;
+        pTask->dwInheritedFromProcessId = (DWORD)ProcessInfo->InheritedFromUniqueProcessId;
+        pTask->CreateTime.QuadPart = (ULONGLONG)ProcessInfo->CreateTime.QuadPart;
+
+        pTask->PeakVirtualSize = ProcessInfo->PeakVirtualSize;
+        pTask->VirtualSize = ProcessInfo->VirtualSize;
+        pTask->PageFaultCount = ProcessInfo->PageFaultCount;
+        pTask->PeakWorkingSetSize = ProcessInfo->PeakWorkingSetSize;
+        pTask->WorkingSetSize = ProcessInfo->WorkingSetSize;
+        pTask->NumberOfThreads = ProcessInfo->NumberOfThreads;
+
+        if (fThreadInfo) {
+            if (pTask->pThreadInfo = malloc(pTask->NumberOfThreads * sizeof(THREAD_INFO))) {
+
+                UINT nThread = pTask->NumberOfThreads;
+                PTHREAD_INFO pThreadInfo = pTask->pThreadInfo;
+                PSYSTEM_THREAD_INFORMATION pSysThreadInfo =
+                    (PSYSTEM_THREAD_INFORMATION)(ProcessInfo + 1);
+
+                while (nThread--) {
+                    pThreadInfo->ThreadState = pSysThreadInfo->ThreadState;
+                    pThreadInfo->UniqueThread = pSysThreadInfo->ClientId.UniqueThread;
+
+                    pThreadInfo++;
+                    pSysThreadInfo++;
+                }
+            }
+        } else {
+            pTask->pThreadInfo = NULL;
+        }
+
         pTask++;
         totalTasks++;
         if (totalTasks == dwNumTasks) {
@@ -144,15 +195,22 @@ Return Value:
             break;
         }
         TotalOffset += ProcessInfo->NextEntryOffset;
-        ProcessInfo = (PSYSTEM_PROCESS_INFORMATION)&LargeBuffer1[TotalOffset];
+        ProcessInfo = (PSYSTEM_PROCESS_INFORMATION)&CommonLargeBuffer[TotalOffset];
     }
 
     return totalTasks;
 }
 
+DWORD
+GetTaskList(
+    PTASK_LIST  pTask,
+    DWORD       dwNumTasks
+    )
+{
+    return GetTaskListEx(pTask, dwNumTasks, FALSE);
+}
 
 #else
-
 
 DWORD
 GetTaskList(
@@ -273,7 +331,10 @@ Return Value:
 
     p = buf;
     while (*p) {
-        if (stricmp(p, PROCESS_COUNTER) == 0) {
+        if (p > buf) {
+            for( p2=p-2; isdigit(*p2); p2--) ;
+        }
+        if (_stricmp(p, PROCESS_COUNTER) == 0) {
             //
             // look backwards for the counter number
             //
@@ -281,7 +342,7 @@ Return Value:
             strcpy( szSubKey, p2+1 );
         }
         else
-        if (stricmp(p, PROCESSID_COUNTER) == 0) {
+        if (_stricmp(p, PROCESSID_COUNTER) == 0) {
             //
             // look backwards for the counter number
             //
@@ -409,6 +470,7 @@ Return Value:
         // get the process id
         //
         pCounter = (PPERF_COUNTER_BLOCK) ((DWORD)pInst + pInst->ByteLength);
+        pTask->flags = 0;
         pTask->dwProcessId = *((LPDWORD) ((DWORD)pCounter + dwProcessIdCounter));
         if (pTask->dwProcessId == 0) {
             pTask->dwProcessId = (DWORD)-2;
@@ -435,6 +497,32 @@ exit:
 
 #endif
 
+BOOL
+DetectOrphans(
+    PTASK_LIST  pTask,
+    DWORD       dwNumTasks
+    )
+{
+    DWORD i, j;
+    BOOL Result = FALSE;
+
+    for (i=0; i<dwNumTasks; i++) {
+        if (pTask[i].dwInheritedFromProcessId != 0) {
+            for (j=0; j<dwNumTasks; j++) {
+                if (i != j && pTask[i].dwInheritedFromProcessId == pTask[j].dwProcessId) {
+                    if (pTask[i].CreateTime.QuadPart <= pTask[j].CreateTime.QuadPart) {
+                        pTask[i].dwInheritedFromProcessId = 0;
+                        Result = TRUE;
+                        }
+
+                    break;
+                    }
+                }
+            }
+        }
+
+    return Result;
+}
 
 BOOL
 EnableDebugPriv(
@@ -462,7 +550,6 @@ Return Value:
     LUID DebugValue;
     TOKEN_PRIVILEGES tkp;
 
-
     //
     // Retrieve a handle of the access token
     //
@@ -488,17 +575,16 @@ Return Value:
     tkp.Privileges[0].Luid = DebugValue;
     tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
-    AdjustTokenPrivileges(hToken,
-        FALSE,
-        &tkp,
-        sizeof(TOKEN_PRIVILEGES),
-        (PTOKEN_PRIVILEGES) NULL,
-        (PDWORD) NULL);
-
-    //
-    // The return value of AdjustTokenPrivileges be texted
-    //
-    if (GetLastError() != ERROR_SUCCESS) {
+    if (!AdjustTokenPrivileges(
+            hToken,
+            FALSE,
+            &tkp,
+            sizeof(TOKEN_PRIVILEGES),
+            (PTOKEN_PRIVILEGES) NULL,
+            (PDWORD) NULL)) {
+        //
+        // The return value of AdjustTokenPrivileges be texted
+        //
         printf("AdjustTokenPrivileges failed with %d\n", GetLastError());
         return FALSE;
     }
@@ -537,7 +623,16 @@ KillProcess(
         }
     }
 
-#if INTERNAL
+    //
+    // save the current windowstation
+    //
+    hwinstaSave = GetProcessWindowStation();
+
+    //
+    // save the current desktop
+    //
+    hdeskSave = GetThreadDesktop( GetCurrentThreadId() );
+
     //
     // open the windowstation
     //
@@ -545,11 +640,6 @@ KillProcess(
     if (!hwinsta) {
         return FALSE;
     }
-
-    //
-    // save the current windowstation
-    //
-    hwinstaSave = GetProcessWindowStation();
 
     //
     // change the context to the new windowstation
@@ -565,22 +655,15 @@ KillProcess(
     }
 
     //
-    // save the current desktop
-    //
-    hdeskSave = GetThreadDesktop( GetCurrentThreadId() );
-
-    //
     // change the context to the new desktop
     //
     SetThreadDesktop( hdesk );
-#endif
 
     //
     // kill the process
     //
     PostMessage( tlist->hwnd, WM_CLOSE, 0, 0 );
 
-#if INTERNAL
     //
     // restore the previous desktop
     //
@@ -596,7 +679,6 @@ KillProcess(
         SetProcessWindowStation( hwinstaSave );
         CloseWindowStation( hwinsta );
     }
-#endif
 
     return TRUE;
 }
@@ -607,17 +689,13 @@ GetWindowTitles(
     PTASK_LIST_ENUM te
     )
 {
-#if INTERNAL
     //
     // enumerate all windows and try to get the window
     // titles for each task
     //
     EnumWindowStations( EnumWindowStationsFunc, (LPARAM)te );
-#endif
 }
 
-
-#if INTERNAL
 
 BOOL CALLBACK
 EnumWindowStationsFunc(
@@ -666,7 +744,7 @@ Return Value:
     //
     SetProcessWindowStation( hwinsta );
 
-    te->lpWinsta = strdup( lpstr );
+    te->lpWinsta = _strdup( lpstr );
 
     //
     // enumerate all the desktops for this windowstation
@@ -735,12 +813,12 @@ Return Value:
     //
     SetThreadDesktop( hdesk );
 
-    te->lpDesk = strdup( lpstr );
+    te->lpDesk = _strdup( lpstr );
 
     //
     // enumerate all windows in the new desktop
     //
-    EnumWindows( EnumWindowsProc, lParam );
+    EnumWindows( (WNDENUMPROC)EnumWindowsProc, lParam );
 
     //
     // restore the previous desktop
@@ -787,32 +865,48 @@ Return Value:
 
 
     //
-    // get the processid for this window
+    // Use try/except block when enumerating windows,
+    // as a window may be destroyed by another thread
+    // when being enumerated.
     //
-    if (!GetWindowThreadProcessId( hwnd, &pid )) {
-        return TRUE;
-    }
-
-    //
-    // look for the task in the task list for this window
-    //
-    for (i=0; i<numTasks; i++) {
-        if (tlist[i].dwProcessId == pid) {
-            tlist[i].hwnd = hwnd;
-            tlist[i].lpWinsta = te->lpWinsta;
-            tlist[i].lpDesk = te->lpDesk;
-            //
-            // we found the task no lets try to get the
-            // window text
-            //
-            if (GetWindowText( tlist[i].hwnd, buf, sizeof(buf) )) {
-                //
-                // go it, so lets save it
-                //
-                strcpy( tlist[i].WindowTitle, buf );
-            }
-            break;
+    try {
+        //
+        // get the processid for this window
+        //
+        if (!GetWindowThreadProcessId( hwnd, &pid )) {
+            return TRUE;
         }
+
+        if ((GetWindow( hwnd, GW_OWNER )) ||
+            (!(GetWindowLong(hwnd, GWL_STYLE) & WS_VISIBLE))) {
+            //
+            // not a top level window
+            //
+            return TRUE;
+        }
+
+        //
+        // look for the task in the task list for this window
+        //
+        for (i=0; i<numTasks; i++) {
+            if (tlist[i].dwProcessId == pid) {
+                tlist[i].hwnd = hwnd;
+                tlist[i].lpWinsta = te->lpWinsta;
+                tlist[i].lpDesk = te->lpDesk;
+                //
+                // we found the task no lets try to get the
+                // window text
+                //
+                if (GetWindowText( tlist[i].hwnd, buf, sizeof(buf) )) {
+                    //
+                    // go it, so lets save it
+                    //
+                    strcpy( tlist[i].WindowTitle, buf );
+                }
+                break;
+            }
+        }
+    } except(EXCEPTION_EXECUTE_HANDLER) {
     }
 
     //
@@ -820,8 +914,6 @@ Return Value:
     //
     return TRUE;
 }
-
-#endif
 
 BOOL
 MatchPattern(
@@ -911,10 +1003,30 @@ EmptyProcessWorkingSet(
         return FALSE;
     }
 
-    printf("WorkingSetSize = %d %d\n",dwMinimumWorkingSetSize,dwMaximumWorkingSetSize);
 
     SetProcessWorkingSetSize( hProcess, 0xffffffff, 0xffffffff );
     CloseHandle( hProcess );
 
+    return TRUE;
+}
+
+BOOL
+EmptySystemWorkingSet(
+    VOID
+    )
+
+{
+
+    SYSTEM_FILECACHE_INFORMATION info;
+    NTSTATUS status;
+
+    info.MinimumWorkingSet = 0xffffffff;
+    info.MaximumWorkingSet = 0xffffffff;
+    if (!NT_SUCCESS (status = NtSetSystemInformation(
+                                    SystemFileCacheInformation,
+                                    &info,
+                                    sizeof (info)))) {
+        return FALSE;
+    }
     return TRUE;
 }

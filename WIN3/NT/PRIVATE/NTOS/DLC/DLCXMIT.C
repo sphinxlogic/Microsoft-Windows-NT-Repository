@@ -198,7 +198,8 @@ Return Value:
     // frames have been sent or acknowledged (if we are sending I-frames)
     //
 
-    pXmitNode = pRootXmitNode = AllocatePacket(pFileContext->hPacketPool);
+    pXmitNode = pRootXmitNode = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
     if (pRootXmitNode == NULL) {
         return DLC_STATUS_NO_MEMORY;
     }
@@ -337,7 +338,9 @@ Return Value:
                     pTransmitObject->PendingLlcRequests--;
                     pRootXmitNode->Node.FrameCount--;
                     if (pXmitNode != pRootXmitNode) {
-                        DeallocatePacket(pFileContext->hPacketPool, pXmitNode);
+
+                        DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pXmitNode);
+
                         pXmitNode = NULL;
                     }
                     pIrp->IoStatus.Status = Status;
@@ -436,7 +439,8 @@ Return Value:
                     pIrp->IoStatus.Status = DLC_STATUS_CANCELLED_BY_SYSTEM_ACTION;
                     break;
                 }
-                pXmitNode = AllocatePacket(pFileContext->hPacketPool);
+                pXmitNode = ALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool);
+
                 if (pXmitNode == NULL) {
                     pIrp->IoStatus.Status = DLC_STATUS_NO_MEMORY;
                     break;
@@ -475,6 +479,17 @@ DlcTransmit_Exit:
     if (pRootXmitNode->Node.FrameCount == 0) {
         CompleteTransmitCommand(pFileContext, pIrp, pTransmitObject, pRootXmitNode);
     }
+#if DBG
+	else
+	{
+		//
+		// this IRP is cancellable
+		//
+
+		SetIrpCancelRoutine(pIrp, TRUE);
+
+	}
+#endif	// DBG
 
     Status = STATUS_PENDING;
 
@@ -528,7 +543,7 @@ DlcTransmit_ErrorExit:
 
     ASSERT(pRootXmitNode->Node.FrameCount == 0);
 
-    DeallocatePacket(pFileContext->hPacketPool, pRootXmitNode);
+    DEALLOCATE_PACKET_DLC_PKT(pFileContext->hPacketPool, pRootXmitNode);
 
     pIrp->IoStatus.Status = STATUS_SUCCESS;
     if (Status >= DLC_STATUS_ERROR_BASE && Status <= DLC_STATUS_MAX_ERROR) {

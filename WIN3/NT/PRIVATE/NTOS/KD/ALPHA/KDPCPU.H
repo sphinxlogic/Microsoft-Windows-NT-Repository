@@ -33,10 +33,6 @@ Revision History:
 
 PKPCR KdpGetPcr();
 
-BOOLEAN KeIsExecutingDpc(VOID);
-
-BOOLEAN KdpIsExecutingDpc(VOID);
-
 ULONG KdpReadInternalProcessorState(PVOID, ULONG);
 ULONG KdpReadInternalProcessorCounters(PVOID, ULONG);
 
@@ -59,7 +55,6 @@ KdpGetCurrentThread();
 #define KeGetPcr() KdpGetPcr()
 #define KeGetCurrentPrcb() KdpGetCurrentPrcb()
 #define KeGetCurrentThread() KdpGetCurrentThread()
-#define KeIsExecutingDpc() KdpIsExecutingDpc()
 
 //
 // Define TYPES

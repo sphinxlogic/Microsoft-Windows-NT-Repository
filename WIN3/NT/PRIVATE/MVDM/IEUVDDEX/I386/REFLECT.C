@@ -72,7 +72,7 @@ Return Value:
             );
 
         if ((!Status) || (BytesRead != sizeof(ULONG))) {
-            (ULONG)Address = (*GetExpression)("ntvdm!_InitialVdmTibFlags");
+            (ULONG)Address = (*GetExpression)("ntvdm!InitialVdmTibFlags");
             Status = ReadProcessMem(
                 CurrentProcess,
                 (PVOID)Address,
@@ -171,7 +171,7 @@ Return Value:
             );
 
         if ((!Status) || (BytesRead != sizeof(ULONG))) {
-            (ULONG)Address = (*GetExpression)("ntvdm!_InitialVdmTibFlags");
+            (ULONG)Address = (*GetExpression)("ntvdm!InitialVdmTibFlags");
             Status = ReadProcessMem(
                 CurrentProcess,
                 (PVOID)Address,

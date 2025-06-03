@@ -33,6 +33,11 @@ RtlAssert(
 {
 #if DBG
     char Response[ 2 ];
+    CONTEXT Context;
+
+#ifndef BLDR_KERNEL_RUNTIME
+    RtlCaptureContext( &Context );
+#endif
 
     while (TRUE) {
         DbgPrint( "\n*** Assertion failed: %s%s\n***   Source File: %s, line %ld\n\n",
@@ -49,6 +54,9 @@ RtlAssert(
         switch (Response[0]) {
             case 'B':
             case 'b':
+                DbgPrint( "Execute '!cxr %lx' to dump context\n",
+                          &Context
+                        );
                 DbgBreakPoint();
                 break;
 

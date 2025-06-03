@@ -56,7 +56,7 @@ Return Value:
     KPCR Kpcr;
     PKPCR Pkpcr;
     ULONG ProcessorNumber = 0;
-    ULONG ProcessorType;
+    ULONG ProcessorLevel;
     ULONG ProcessorRevision;
 
 
@@ -73,24 +73,24 @@ Return Value:
         return;
     }
 
-    ProcessorType       = Kpcr.ProcessorType;
+    ProcessorLevel	= Kpcr.ProcessorType;
     ProcessorRevision   = Kpcr.ProcessorRevision;
 
     dprintf( "Processor %d : Type = %d, Revision = %d\n",
-             ProcessorNumber, ProcessorType, ProcessorRevision );
+             ProcessorNumber, ProcessorLevel, ProcessorRevision );
 
     //
     // Read and format the internal processor data based upon the type
     // of the processor.
     //
 
-    switch( ProcessorType ){
+    switch( ProcessorLevel ){
 
         //
         // 21064 a.k.a. EV4
         //
 
-        case PROCESSOR_ALPHA_21064:
+        case 21064:
             DumpIpr21064( ProcessorNumber, ProcessorRevision );
             break;
 
@@ -144,7 +144,7 @@ Return Value:
     //
 
     ReadControlSpace((USHORT)Processor,
-                     (PVOID)DEBUG_CONTROL_SPACE_IPRSTATE,
+                     DEBUG_CONTROL_SPACE_IPRSTATE,
                      (PVOID)&InternalState,
                      sizeof(PROCESSOR_STATE_21064) );
 

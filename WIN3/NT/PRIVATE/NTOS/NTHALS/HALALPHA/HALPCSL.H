@@ -133,8 +133,13 @@ typedef struct _SP_LINE_CONTROL {
 // from the 82C106.
 //
 
+#define BAUD_RATE_2400  48              // divisor for 2400 baud
+#define BAUD_RATE_4800  24              // divisor for 4800 baud
 #define BAUD_RATE_9600  12              // divisor for 9600 baud
 #define BAUD_RATE_19200  6              // divisor for 19200 baud
+#define BAUD_RATE_38400  3              // divisor for 38400 baud
+#define BAUD_RATE_57600  2              // divisor for 57600 baud
+#define BAUD_RATE_115200 1              // divisor for 115200 baud
 
 //
 // Define serial port modem control register structure.

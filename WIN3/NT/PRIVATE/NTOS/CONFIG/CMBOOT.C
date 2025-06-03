@@ -93,9 +93,11 @@ BlPrint(
 #pragma alloc_text(INIT,CmpSortDriverList)
 #pragma alloc_text(INIT,CmpDoSort)
 #pragma alloc_text(INIT,CmpResolveDriverDependencies)
+#pragma alloc_text(INIT,CmpSetCurrentProfile)
 #pragma alloc_text(INIT,CmpOrderGroup)
 #pragma alloc_text(INIT,CmpFindControlSet)
 #pragma alloc_text(INIT,CmpFindTagIndex)
+#pragma alloc_text(INIT,CmpFindProfileOption)
 #endif
 
 
@@ -146,8 +148,8 @@ Return Value:
     HCELL_INDEX CodePage;
     HCELL_INDEX Language;
     HCELL_INDEX ValueCell;
-    PCM_KEY_VALUE Value;
     PHCELL_INDEX Index;
+    PCM_KEY_VALUE Value;
     NTSTATUS Status;
     ULONG realsize;
 
@@ -155,13 +157,10 @@ Return Value:
     // Find CONTROL node
     //
     RtlInitUnicodeString(&Name, L"Control");
-    Status = CmpFindChildByName(Hive,
-                                ControlSet,
-                                Name,
-                                KeyBodyNode,
-                                &Control,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Control = CmpFindSubKeyByName(Hive,
+                                 (PCM_KEY_NODE)HvGetCell(Hive,ControlSet),
+                                 &Name);
+    if (Control == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -169,13 +168,10 @@ Return Value:
     // Find NLS node
     //
     RtlInitUnicodeString(&Name, L"NLS");
-    Status = CmpFindChildByName(Hive,
-                                Control,
-                                Name,
-                                KeyBodyNode,
-                                &Nls,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Nls = CmpFindSubKeyByName(Hive,
+                             (PCM_KEY_NODE)HvGetCell(Hive,Control),
+                             &Name);
+    if (Nls == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -183,13 +179,10 @@ Return Value:
     // Find CodePage node
     //
     RtlInitUnicodeString(&Name, L"CodePage");
-    Status = CmpFindChildByName(Hive,
-                                Nls,
-                                Name,
-                                KeyBodyNode,
-                                &CodePage,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    CodePage = CmpFindSubKeyByName(Hive,
+                                  (PCM_KEY_NODE)HvGetCell(Hive,Nls),
+                                  &Name);
+    if (CodePage == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -197,13 +190,10 @@ Return Value:
     // Find ACP value
     //
     RtlInitUnicodeString(&Name, L"ACP");
-    Status = CmpFindChildByName(Hive,
-                                CodePage,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,CodePage),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -219,13 +209,10 @@ Return Value:
     //
     // Find ACP filename
     //
-    Status = CmpFindChildByName(Hive,
-                                CodePage,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,CodePage),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -237,13 +224,10 @@ Return Value:
     // Find OEMCP node
     //
     RtlInitUnicodeString(&Name, L"OEMCP");
-    Status = CmpFindChildByName(Hive,
-                                CodePage,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,CodePage),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -259,13 +243,10 @@ Return Value:
     //
     // Find OEMCP filename
     //
-    Status = CmpFindChildByName(Hive,
-                                CodePage,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,CodePage),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -277,13 +258,10 @@ Return Value:
     // Find Language node
     //
     RtlInitUnicodeString(&Name, L"Language");
-    Status = CmpFindChildByName(Hive,
-                                Nls,
-                                Name,
-                                KeyBodyNode,
-                                &Language,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Language = CmpFindSubKeyByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,Nls),
+                                   &Name);
+    if (Language == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -291,13 +269,10 @@ Return Value:
     // Find Default value
     //
     RtlInitUnicodeString(&Name, L"Default");
-    Status = CmpFindChildByName(Hive,
-                                Language,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,Language),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -314,13 +289,10 @@ Return Value:
     //
     // Find default filename
     //
-    Status = CmpFindChildByName(Hive,
-                                Language,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,Language),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -332,13 +304,10 @@ Return Value:
     // Find OEMHAL filename
     //
     RtlInitUnicodeString(&Name, L"OEMHAL");
-    Status = CmpFindChildByName(Hive,
-                                CodePage,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,CodePage),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
 #ifdef i386
         OemHalFont->Buffer = NULL;
         OemHalFont->Length = 0;
@@ -401,7 +370,6 @@ Return Value:
     HCELL_INDEX Control;
     HCELL_INDEX GroupOrder;
     HCELL_INDEX DriverCell;
-    NTSTATUS Status;
     UNICODE_STRING Name;
     PHCELL_INDEX Index;
     int i;
@@ -409,32 +377,30 @@ Return Value:
     UNICODE_STRING BasePath;
     WCHAR BaseBuffer[128];
     PBOOT_DRIVER_NODE BootFileSystemNode;
+    PCM_KEY_NODE ControlNode;
+    PCM_KEY_NODE ServicesNode;
 
     //
     // Find SERVICES node.
     //
+    ControlNode = (PCM_KEY_NODE)HvGetCell(Hive,ControlSet);
     RtlInitUnicodeString(&Name, L"Services");
-    Status = CmpFindChildByName(Hive,
-                                ControlSet,
-                                Name,
-                                KeyBodyNode,
-                                &Services,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Services = CmpFindSubKeyByName(Hive,
+                                   ControlNode,
+                                   &Name);
+    if (Services == HCELL_NIL) {
         return(FALSE);
     }
+    ServicesNode = (PCM_KEY_NODE)HvGetCell(Hive,Services);
 
     //
     // Find CONTROL node.
     //
     RtlInitUnicodeString(&Name, L"Control");
-    Status = CmpFindChildByName(Hive,
-                                ControlSet,
-                                Name,
-                                KeyBodyNode,
-                                &Control,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Control = CmpFindSubKeyByName(Hive,
+                                  ControlNode,
+                                  &Name);
+    if (Control == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -442,13 +408,10 @@ Return Value:
     // Find GroupOrderList node.
     //
     RtlInitUnicodeString(&Name, L"GroupOrderList");
-    Status = CmpFindChildByName(Hive,
-                                Control,
-                                Name,
-                                KeyBodyNode,
-                                &GroupOrder,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    GroupOrder = CmpFindSubKeyByName(Hive,
+                                     (PCM_KEY_NODE)HvGetCell(Hive,Control),
+                                     &Name);
+    if (GroupOrder == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -460,12 +423,8 @@ Return Value:
 
     i=0;
     do {
-        Status = CmpFindChildByNumber(Hive,
-                                      Services,
-                                      i++,
-                                      KeyBodyNode,
-                                      &DriverCell);
-        if (NT_SUCCESS(Status)) {
+        DriverCell = CmpFindSubKeyByNumber(Hive,ServicesNode,i++);
+        if (DriverCell != HCELL_NIL) {
             if (CmpIsLoadType(Hive, DriverCell, LoadType)) {
                 CmpAddDriverToList(Hive,
                                    DriverCell,
@@ -475,7 +434,7 @@ Return Value:
 
             }
         }
-    } while ( NT_SUCCESS(Status) );
+    } while ( DriverCell != HCELL_NIL );
 
     if (ARGUMENT_PRESENT(BootFileSystem)) {
         //
@@ -483,13 +442,10 @@ Return Value:
         //
 
         RtlInitUnicodeString(&UnicodeString, BootFileSystem);
-        Status = CmpFindChildByName(Hive,
-                                    Services,
-                                    UnicodeString,
-                                    KeyBodyNode,
-                                    &DriverCell,
-                                    &Index);
-        if (NT_SUCCESS(Status)) {
+        DriverCell = CmpFindSubKeyByName(Hive,
+                                         ServicesNode,
+                                         &UnicodeString);
+        if (DriverCell != HCELL_NIL) {
             CmpAddDriverToList(Hive,
                                DriverCell,
                                GroupOrder,
@@ -556,13 +512,10 @@ Return Value:
     // look for that first.
     //
     RtlInitUnicodeString(&Name, L"Start");
-    Status = CmpFindChildByName(Hive,
-                                Cell,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,Cell),
+                                   &Name);
+    if (ValueCell == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -666,13 +619,10 @@ Return Value:
     // if it is present.
     //
     RtlInitUnicodeString(&UnicodeString, L"ImagePath");
-    Status = CmpFindChildByName(Hive,
-                                DriverCell,
-                                UnicodeString,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,DriverCell),
+                                   &UnicodeString);
+    if (ValueCell == HCELL_NIL) {
 
         //
         // No ImagePath, so generate default filename.
@@ -729,13 +679,10 @@ Return Value:
     //
 
     RtlInitUnicodeString(&UnicodeString, L"ErrorControl");
-    Status = CmpFindChildByName(Hive,
-                                DriverCell,
-                                UnicodeString,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,DriverCell),
+                                   &UnicodeString);
+    if (ValueCell == HCELL_NIL) {
         DriverNode->ErrorControl = NormalError;
     } else {
         Value = (PCM_KEY_VALUE)HvGetCell(Hive, ValueCell);
@@ -746,13 +693,10 @@ Return Value:
     // Find "Group" value
     //
     RtlInitUnicodeString(&UnicodeString, L"group");
-    Status = CmpFindChildByName(Hive,
-                                DriverCell,
-                                UnicodeString,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,DriverCell),
+                                   &UnicodeString);
+    if (ValueCell == HCELL_NIL) {
         DriverNode->Group.Length = 0;
         DriverNode->Group.MaximumLength = 0;
         DriverNode->Group.Buffer = NULL;
@@ -770,13 +714,10 @@ Return Value:
     // group.
     //
     RtlInitUnicodeString(&UnicodeString, L"Tag");
-    Status = CmpFindChildByName(Hive,
-                                DriverCell,
-                                UnicodeString,
-                                KeyValueNode,
-                                &Tag,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Tag = CmpFindValueByName(Hive,
+                             (PCM_KEY_NODE)HvGetCell(Hive,DriverCell),
+                             &UnicodeString);
+    if (Tag == HCELL_NIL) {
         DriverNode->Tag = LOAD_LAST;
     } else {
         //
@@ -845,13 +786,10 @@ Return Value:
     // Find "CONTROL" node.
     //
     RtlInitUnicodeString(&Name, L"Control");
-    Status = CmpFindChildByName(Hive,
-                                ControlSet,
-                                Name,
-                                KeyBodyNode,
-                                &Controls,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Controls = CmpFindSubKeyByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,ControlSet),
+                                   &Name);
+    if (Controls == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -859,13 +797,10 @@ Return Value:
     // Find "SERVICE_GROUP_ORDER" subkey
     //
     RtlInitUnicodeString(&Name, L"ServiceGroupOrder");
-    Status = CmpFindChildByName(Hive,
-                                Controls,
-                                Name,
-                                KeyBodyNode,
-                                &GroupOrder,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    GroupOrder = CmpFindSubKeyByName(Hive,
+                                     (PCM_KEY_NODE)HvGetCell(Hive,Controls),
+                                     &Name);
+    if (GroupOrder == HCELL_NIL) {
         return(FALSE);
     }
 
@@ -873,13 +808,10 @@ Return Value:
     // Find "list" value
     //
     RtlInitUnicodeString(&Name, L"list");
-    Status = CmpFindChildByName(Hive,
-                                GroupOrder,
-                                Name,
-                                KeyValueNode,
-                                &ListCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ListCell = CmpFindValueByName(Hive,
+                                  (PCM_KEY_NODE)HvGetCell(Hive,GroupOrder),
+                                  &Name);
+    if (ListCell == HCELL_NIL) {
         return(FALSE);
     }
     ListNode = (PCM_KEY_VALUE)HvGetCell(Hive, ListCell);
@@ -1204,13 +1136,10 @@ Return Value:
     // Find \SYSTEM\SELECT node.
     //
     RtlInitUnicodeString(&Name, L"select");
-    Status = CmpFindChildByName(SystemHive,
-                                RootCell,
-                                Name,
-                                KeyBodyNode,
-                                &Select,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    Select = CmpFindSubKeyByName(SystemHive,
+                                (PCM_KEY_NODE)HvGetCell(SystemHive,RootCell),
+                                &Name);
+    if (Select == HCELL_NIL) {
         return(HCELL_NIL);
     }
 
@@ -1218,13 +1147,10 @@ Return Value:
     // Find AutoSelect value
     //
     RtlInitUnicodeString(&Name, L"AutoSelect");
-    Status = CmpFindChildByName(SystemHive,
-                                Select,
-                                Name,
-                                KeyValueNode,
-                                &AutoSelectCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    AutoSelectCell = CmpFindValueByName(SystemHive,
+                                        (PCM_KEY_NODE)HvGetCell(SystemHive,Select),
+                                        &Name);
+    if (AutoSelectCell == HCELL_NIL) {
         //
         // It's not there, we don't care.  Set autoselect to TRUE
         //
@@ -1234,13 +1160,10 @@ Return Value:
         *AutoSelect = *(PBOOLEAN)(CmpValueToData(SystemHive,Value,realsize));
     }
 
-    Status = CmpFindChildByName(SystemHive,
-                                Select,
-                                *SelectName,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(SystemHive,
+                                   (PCM_KEY_NODE)HvGetCell(SystemHive,Select),
+                                   SelectName);
+    if (ValueCell == HCELL_NIL) {
         return(HCELL_NIL);
     }
     Value = (PCM_KEY_VALUE)HvGetCell(SystemHive, ValueCell);
@@ -1265,13 +1188,10 @@ Return Value:
     if (!NT_SUCCESS(Status)) {
         return(HCELL_NIL);
     }
-    Status = CmpFindChildByName(SystemHive,
-                                RootCell,
-                                Name,
-                                KeyBodyNode,
-                                &ControlSet,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    ControlSet = CmpFindSubKeyByName(SystemHive,
+                                     (PCM_KEY_NODE)HvGetCell(SystemHive,RootCell),
+                                     &Name);
+    if (ControlSet == HCELL_NIL) {
         return(HCELL_NIL);
     }
 
@@ -1280,13 +1200,10 @@ Return Value:
     // to reflect the control set we are going to use.
     //
     RtlInitUnicodeString(&Name, L"Current");
-    Status = CmpFindChildByName(SystemHive,
-                                Select,
-                                Name,
-                                KeyValueNode,
-                                &ValueCell,
-                                &Index);
-    if (NT_SUCCESS(Status)) {
+    ValueCell = CmpFindValueByName(SystemHive,
+                                   (PCM_KEY_NODE)HvGetCell(SystemHive,Select),
+                                   &Name);
+    if (ValueCell != HCELL_NIL) {
         Value = (PCM_KEY_VALUE)HvGetCell(SystemHive, ValueCell);
         if (Value->Type == REG_DWORD) {
             CurrentControl = (PULONG)CmpValueToData(SystemHive, Value,realsize);
@@ -1295,6 +1212,294 @@ Return Value:
     }
     return(ControlSet);
 
+}
+
+
+VOID
+CmpSetCurrentProfile(
+    IN PHHIVE Hive,
+    IN HCELL_INDEX ControlSet,
+    IN PCM_HARDWARE_PROFILE Profile
+    )
+
+/*++
+
+Routine Description:
+
+    Edits the in-memory copy of the registry to reflect the hardware
+    profile that the system is booting from.
+
+Arguments:
+
+    Hive - Supplies a pointer to the hive control structure
+
+    ControlSet - Supplies the HCELL_INDEX of the current control set.
+
+    Profile - Supplies a pointer to the selected hardware profile
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    HCELL_INDEX IDConfigDB;
+    PCM_KEY_NODE IDConfigNode;
+    HCELL_INDEX CurrentConfigCell;
+    PCM_KEY_VALUE CurrentConfigValue;
+    UNICODE_STRING Name;
+    PULONG CurrentConfig;
+    ULONG realsize;
+
+    IDConfigDB = CmpFindProfileOption(Hive,
+                                      ControlSet,
+                                      NULL,
+                                      NULL);
+    if (IDConfigDB != HCELL_NIL) {
+        IDConfigNode = (PCM_KEY_NODE)HvGetCell(Hive, IDConfigDB);
+        RtlInitUnicodeString(&Name, L"CurrentConfig");
+        CurrentConfigCell = CmpFindValueByName(Hive,
+                                               IDConfigNode,
+                                               &Name);
+        if (CurrentConfigCell != HCELL_NIL) {
+            CurrentConfigValue = (PCM_KEY_VALUE)HvGetCell(Hive, CurrentConfigCell);
+            if (CurrentConfigValue->Type == REG_DWORD) {
+                CurrentConfig = (PULONG)CmpValueToData(Hive,
+                                                       CurrentConfigValue,
+                                                       realsize);
+                *CurrentConfig = Profile->Id;
+            }
+        }
+    }
+
+
+}
+
+
+HCELL_INDEX
+CmpFindProfileOption(
+     IN PHHIVE SystemHive,
+     IN HCELL_INDEX ControlSet,
+     OUT OPTIONAL PCM_HARDWARE_PROFILE_LIST *ReturnedProfileList,
+     OUT OPTIONAL PULONG ProfileTimeout
+     )
+
+/*++
+
+Routine Description:
+
+    This routines parses the SYSTEM hive and locates the
+    "CurrentControlSet\Control\IDConfigDB" node to determine the
+    hardware profile configuration settings.
+
+Arguments:
+
+    SystemHive - Supplies the hive control structure for the SYSTEM hive.
+
+    ControlSet - Supplies the HCELL_INDEX of the root cell of the hive.
+
+    ProfileList - Returns the list of available hardware profiles sorted
+                  by preference. Will be allocated by this routine if
+                  NULL is passed in, or a pointer to a CM_HARDWARE_PROFILE_LIST
+                  structure that is too small is passed in.
+
+    ProfileTimeout - Returns the timeout value for the config menu.
+
+Return Value:
+
+    != HCELL_NIL - Cell Index of the IDConfigDB node.
+    == HCELL_NIL - Indicates IDConfigDB does not exist
+
+--*/
+{
+    HCELL_INDEX ControlCell;
+    HCELL_INDEX IDConfigDB;
+    HCELL_INDEX DefaultCell;
+    HCELL_INDEX TimeoutCell;
+    HCELL_INDEX ProfileCell;
+    HCELL_INDEX HWCell;
+    PCM_KEY_NODE HWNode;
+    PCM_KEY_NODE ProfileNode;
+    PCM_KEY_NODE ConfigDBNode;
+    PCM_KEY_NODE Control;
+    PCM_KEY_VALUE TimeoutValue;
+    UNICODE_STRING Name;
+    ULONG realsize;
+    PCM_HARDWARE_PROFILE_LIST ProfileList;
+    ULONG ProfileCount;
+    ULONG i,j;
+    WCHAR NameBuf[20];
+
+    //
+    // Find Control node
+    //
+    RtlInitUnicodeString(&Name, L"Control");
+    ControlCell = CmpFindSubKeyByName(SystemHive,
+                                      (PCM_KEY_NODE)HvGetCell(SystemHive,ControlSet),
+                                      &Name);
+    if (ControlCell == HCELL_NIL) {
+        return(HCELL_NIL);
+    }
+    Control = (PCM_KEY_NODE)HvGetCell(SystemHive, ControlCell);
+
+    //
+    // Find IDConfigDB node
+    //
+    RtlInitUnicodeString(&Name, L"IDConfigDB");
+    IDConfigDB = CmpFindSubKeyByName(SystemHive,
+                                     Control,
+                                     &Name);
+    if (IDConfigDB == HCELL_NIL) {
+        return(HCELL_NIL);
+    }
+    ConfigDBNode = (PCM_KEY_NODE)HvGetCell(SystemHive, IDConfigDB);
+
+    if (ARGUMENT_PRESENT(ProfileTimeout)) {
+        //
+        // Find UserWaitInterval value. This is the timeout
+        //
+        RtlInitUnicodeString(&Name, L"UserWaitInterval");
+        TimeoutCell = CmpFindValueByName(SystemHive,
+                                         ConfigDBNode,
+                                         &Name);
+        if (TimeoutCell == HCELL_NIL) {
+            *ProfileTimeout = 0;
+        } else {
+            TimeoutValue = (PCM_KEY_VALUE)HvGetCell(SystemHive, TimeoutCell);
+            if (TimeoutValue->Type != REG_DWORD) {
+                *ProfileTimeout = 0;
+            } else {
+                *ProfileTimeout = *(PULONG)CmpValueToData(SystemHive, TimeoutValue, realsize);
+            }
+        }
+    }
+
+    if (ARGUMENT_PRESENT(ReturnedProfileList)) {
+        ProfileList = *ReturnedProfileList;
+        //
+        // Enumerate the keys under IDConfigDB\Hardware Profiles
+        // and build the list of available hardware profiles.  The list
+        // is built sorted by PreferenceOrder.  Therefore, when the
+        // list is complete, the default hardware profile is at the
+        // head of the list.
+        //
+        RtlInitUnicodeString(&Name, L"Hardware Profiles");
+        ProfileCell = CmpFindSubKeyByName(SystemHive,
+                                          ConfigDBNode,
+                                          &Name);
+        if (ProfileCell == HCELL_NIL) {
+            ProfileCount = 0;
+            if (ProfileList != NULL) {
+                ProfileList->CurrentProfileCount = 0;
+            }
+        } else {
+            ProfileNode = (PCM_KEY_NODE)HvGetCell(SystemHive, ProfileCell);
+            ProfileCount = ProfileNode->SubKeyCounts[Stable];
+            if ((ProfileList == NULL) || (ProfileList->MaxProfileCount < ProfileCount)) {
+                //
+                // Allocate a larger ProfileList
+                //
+                ProfileList = (SystemHive->Allocate)(sizeof(CM_HARDWARE_PROFILE_LIST)
+                                                     + (ProfileCount-1) * sizeof(CM_HARDWARE_PROFILE),
+                                                     FALSE);
+                if (ProfileList == NULL) {
+                    return(HCELL_NIL);
+                }
+                ProfileList->MaxProfileCount = ProfileCount;
+            }
+            ProfileList->CurrentProfileCount = 0;
+
+            //
+            // Enumerate the keys and fill in the profile list.
+            //
+            for (i=0; i<ProfileCount; i++) {
+                CM_HARDWARE_PROFILE TempProfile;
+                HCELL_INDEX ValueCell;
+                PCM_KEY_VALUE ValueNode;
+                UNICODE_STRING KeyName;
+                ULONG realsize;
+
+                HWCell = CmpFindSubKeyByNumber(SystemHive, ProfileNode, i);
+                if (HWCell == HCELL_NIL) {
+                    //
+                    // This should never happen.
+                    //
+                    ProfileList->CurrentProfileCount = i;
+                    break;
+                }
+                HWNode = (PCM_KEY_NODE)HvGetCell(SystemHive, HWCell);
+                if (HWNode->Flags & KEY_COMP_NAME) {
+                    KeyName.Length = CmpCompressedNameSize(HWNode->Name,
+                                                           HWNode->NameLength);
+                    KeyName.MaximumLength = sizeof(NameBuf);
+                    if (KeyName.MaximumLength < KeyName.Length) {
+                        KeyName.Length = KeyName.MaximumLength;
+                    }
+                    KeyName.Buffer = NameBuf;
+                    CmpCopyCompressedName(KeyName.Buffer,
+                                          KeyName.Length,
+                                          HWNode->Name,
+                                          HWNode->NameLength);
+                } else {
+                    KeyName.Length = KeyName.MaximumLength = HWNode->NameLength;
+                    KeyName.Buffer = HWNode->Name;
+                }
+
+                //
+                // Fill in the temporary profile structure with this
+                // profile's data.
+                //
+                RtlUnicodeStringToInteger(&KeyName, 0, &TempProfile.Id);
+                RtlInitUnicodeString(&Name, L"PreferenceOrder");
+                ValueCell = CmpFindValueByName(SystemHive,
+                                               HWNode,
+                                               &Name);
+                if (ValueCell == HCELL_NIL) {
+                    TempProfile.PreferenceOrder = (ULONG)-1;
+                } else {
+                    ValueNode = (PCM_KEY_VALUE)HvGetCell(SystemHive, ValueCell);
+                    TempProfile.PreferenceOrder = *(PULONG)CmpValueToData(SystemHive,
+                                                                          ValueNode,
+                                                                          realsize);
+                }
+                RtlInitUnicodeString(&Name, L"FriendlyName");
+                ValueCell = CmpFindValueByName(SystemHive,
+                                               HWNode,
+                                               &Name);
+                if (ValueCell == HCELL_NIL) {
+                    TempProfile.FriendlyName = L"-------";
+                } else {
+                    ValueNode = (PCM_KEY_VALUE)HvGetCell(SystemHive, ValueCell);
+                    TempProfile.FriendlyName = (PWSTR)CmpValueToData(SystemHive,
+                                                                     ValueNode,
+                                                                     realsize);
+                    TempProfile.NameLength = realsize - sizeof(WCHAR);
+                }
+
+                //
+                // Insert this new profile into the appropriate spot in the
+                // profile array. Entries are sorted by preference order.
+                //
+                for (j=0; j<ProfileList->CurrentProfileCount; j++) {
+                    if (ProfileList->Profile[j].PreferenceOrder >= TempProfile.PreferenceOrder) {
+                        //
+                        // Insert at position j.
+                        //
+                        RtlMoveMemory(&ProfileList->Profile[j+1],
+                                      &ProfileList->Profile[j],
+                                      sizeof(CM_HARDWARE_PROFILE)*(ProfileList->MaxProfileCount-j-1));
+                        break;
+                    }
+                }
+                ProfileList->Profile[j] = TempProfile;
+                ++ProfileList->CurrentProfileCount;
+            }
+        }
+        *ReturnedProfileList = ProfileList;
+    }
+
+    return(IDConfigDB);
 }
 
 
@@ -1342,7 +1547,6 @@ Return Value:
     HCELL_INDEX OrderCell;
     PULONG OrderVector;
     PULONG DriverTag;
-    PHCELL_INDEX Index;
     NTSTATUS Status;
     ULONG CurrentTag;
     ULONG realsize;
@@ -1351,13 +1555,10 @@ Return Value:
     DriverTagValue = (PCM_KEY_VALUE)HvGetCell(Hive, TagCell);
     DriverTag = (PULONG)CmpValueToData(Hive, DriverTagValue, realsize);
 
-    Status = CmpFindChildByName(Hive,
-                                GroupOrderCell,
-                                *GroupName,
-                                KeyValueNode,
-                                &OrderCell,
-                                &Index);
-    if (!NT_SUCCESS(Status)) {
+    OrderCell = CmpFindValueByName(Hive,
+                                   (PCM_KEY_NODE)HvGetCell(Hive,GroupOrderCell),
+                                   GroupName);
+    if (OrderCell == HCELL_NIL) {
         return(LOAD_NEXT_TO_LAST);
     }
 
@@ -1381,4 +1582,3 @@ Return Value:
 
 }
 
-

@@ -35,4 +35,3 @@ void     WINAPI OpenFileError(HWND hDlg, UINT nErrCode, LPTSTR lpszFile);
 
 
 #endif //_UTILITY_H_
-

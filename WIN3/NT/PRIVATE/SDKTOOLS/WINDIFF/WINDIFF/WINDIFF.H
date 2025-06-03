@@ -12,7 +12,14 @@
 /* this is the section name in the win.ini file to which we
  * write profile info
  */
-#define APPNAME "WinDiff"
+#define APPNAME szWinDiff
+extern const CHAR szWinDiff[];
+
+#ifdef WIN32
+/* Map profile calls to the registry
+ */
+#include "profile.h"
+#endif
 
 /* a gmem_init() heap shared by the app. call gmem_get to alloc. */
 extern HANDLE hHeap;
@@ -48,6 +55,10 @@ extern int expand_mode;
 
 /* TRUE if marked compitems are to be excluded from the view */
 extern BOOL hide_markedfiles;
+
+
+// tab expansion width in characters
+extern int g_tabwidth;
 
 /*--- colour scheme ----------------------------------------------  */
 
@@ -175,3 +186,4 @@ BOOL __BERR;
                                 windiff_UI(FALSE),                     \
                                 __BERR                                 \
                               )
+

@@ -53,7 +53,7 @@ Return Value:
 --*/
 
 {
-    KIRQL oldirql;
+    KIRQL oldirql, cancelIrql;
     PTP_CONNECTION connection;
     PIO_STACK_LOCATION irpSp;
     PTDI_REQUEST_KERNEL_SEND parameters;
@@ -134,14 +134,8 @@ Return Value:
         NbfReferenceConnection ("Verify Temp Use", connection, CREF_BY_ID);
         RELEASE_DPC_C_SPIN_LOCK (&connection->SpinLock);
 
+        IoAcquireCancelSpinLock(&cancelIrql);
         ACQUIRE_DPC_SPIN_LOCK (connection->LinkSpinLock);
-
-        //
-        // Insert onto the send queue, and make the IRP
-        // cancellable.
-        //
-
-        InsertTailList (&connection->SendQueue,&Irp->Tail.Overlay.ListEntry);
 
 #if DBG
         NbfSends[NbfSendsNext].Irp = Irp;
@@ -177,25 +171,10 @@ Return Value:
 #endif
 
         //
-        // Set this the quick way, without the cancel lock.
-        //
-
-        Irp->CancelRoutine = NbfCancelSend;
-
-        //
-        // If this IRP has been cancelled, then call the
-        // cancel routine.
+        // If this IRP has been cancelled already, complete it now.
         //
 
         if (Irp->Cancel) {
-
-            //
-            // Take it off the list before we drop the
-            // connection lock, so NbfCancelSend won't
-            // find it.
-            //
-
-            (VOID)RemoveTailList (&connection->SendQueue);
 
 #if DBG
             NbfCompletedSends[NbfCompletedSendsNext].Irp = Irp;
@@ -205,14 +184,30 @@ Return Value:
 
             NbfReferenceConnection("TdiSend cancelled", connection, CREF_SEND_IRP);
             RELEASE_DPC_SPIN_LOCK (connection->LinkSpinLock);
+            IoReleaseCancelSpinLock(cancelIrql);
 
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
             NbfCompleteSendIrp (Irp, STATUS_CANCELLED, 0);
             KeLowerIrql (oldirql);
 
             NbfDereferenceConnection ("IRP cancelled", connection, CREF_BY_ID);   // release lookup hold.
             return STATUS_PENDING;
         }
+
+        //
+        // Insert onto the send queue, and make the IRP
+        // cancellable.
+        //
+
+        InsertTailList (&connection->SendQueue,&Irp->Tail.Overlay.ListEntry);
+        IoSetCancelRoutine(Irp, NbfCancelSend);
+
+        //
+        // Release the cancel spinlock out of order. We were at DPC level
+        // when we acquired both the cancel and link spinlocks, so the irqls
+        // don't need to be swapped.
+        //
+        ASSERT(cancelIrql == DISPATCH_LEVEL);
+        IoReleaseCancelSpinLock(cancelIrql);
 
         //
         // If this connection is waiting for an EOR to appear because a non-EOR

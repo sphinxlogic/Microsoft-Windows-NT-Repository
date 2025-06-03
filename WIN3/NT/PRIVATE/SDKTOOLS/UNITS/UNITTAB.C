@@ -402,6 +402,7 @@ char *UnitTab[] = {
 "noggin                 1|8 qt                  ",
 "nox                    1-3 lux                 ",
 "ns                     nanosec                 ",
+"nttime                 100 nanosec             ",
 "oersted                2.5+2 pi-amp/m          ",
 "oe                     oersted                 ",
 "pace                   36 in                   ",
@@ -495,5 +496,7 @@ char *UnitTab[] = {
 "mb                     megabyte                ",
 "gigabyte               1024 mb                 ",
 "gb                     gigabyte                ",
+"terabyte               1024 gb                 ",
+"tb                     terabyte                ",
 NULL
 };

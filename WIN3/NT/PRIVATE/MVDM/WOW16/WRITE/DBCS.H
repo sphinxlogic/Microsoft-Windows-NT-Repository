@@ -11,4 +11,3 @@
 #define MAKEWORD(_bHi, _bLo) ((((WORD) _bHi) << 8) | ((WORD) _bLo))
 
 #endif
-

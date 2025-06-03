@@ -406,5 +406,4 @@ vfSeeSel = true;
 return 0;
 }
 #endif /* STYLES */
-
-
+

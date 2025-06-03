@@ -1690,4 +1690,3 @@ Routine Description:
 
     return(UnicodeToAscii((unsigned short *) *Annotation));
 }
-

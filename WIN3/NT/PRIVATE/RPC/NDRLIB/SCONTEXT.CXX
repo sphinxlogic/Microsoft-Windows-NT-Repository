@@ -1,7 +1,7 @@
 /* --------------------------------------------------------------------
 
                       Microsoft OS/2 LAN Manager
-		   Copyright(c) Microsoft Corp., 1991
+           Copyright(c) Microsoft Corp., 1991
 
 -------------------------------------------------------------------- */
 /* --------------------------------------------------------------------
@@ -12,7 +12,7 @@ Provides RPC server side stub context management
 
 History :
 
-stevez	01-15-91	First bits into the bucket.
+stevez  01-15-91    First bits into the bucket.
 
 -------------------------------------------------------------------- */
 
@@ -24,11 +24,14 @@ stevez	01-15-91	First bits into the bucket.
 #include <util.hxx>
 #include <linklist.hxx>
 #include <osfpcket.hxx>
+#include <rpcuuid.hxx>
+#include <binding.hxx>
+#include <handle.hxx>
 #include <threads.hxx>
 
-enum {				/* states for NDRCONTEXT.type */
-    PendingAlloc = -1,		/* new context being allocated */
-    CompletedAlloc = 0		/* allocated context */
+enum {              /* states for NDRCONTEXT.type */
+    PendingAlloc = -1,      /* new context being allocated */
+    CompletedAlloc = 0      /* allocated context */
 };
 
 typedef struct _WIRE_CONTEXT
@@ -41,8 +44,8 @@ LINK_LIST(SCONTEXT,
 
     SCONTEXTItem();
 
-    void * userContext; 	/* context for the user */
-    NDR_RUNDOWN userRunDown;	/* user routine to call */
+    void * userContext;     /* context for the user */
+    NDR_RUNDOWN userRunDown;    /* user routine to call */
 
     WIRE_CONTEXT NDR;
     CRITICAL_SECTION CriticalSection;
@@ -52,14 +55,14 @@ LINK_LIST(SCONTEXT,
 );
 
 typedef struct {
-    I_RPC_MUTEX access;		/* multi thread protection */
-    SCONTEXTList List;		/* context link list header */
+    I_RPC_MUTEX access;     /* multi thread protection */
+    SCONTEXTList List;      /* context link list header */
 } SCONTEXT;
 
 // Server context handle
 
-static WIRE_CONTEXT SContextNil;		// all zeros
-static I_RPC_MUTEX newContext = 0;	// protection for new contexts
+static WIRE_CONTEXT SContextNil;        // all zeros
+static I_RPC_MUTEX newContext = 0;  // protection for new contexts
 
 static unsigned int DontSerializeContext = 0;
 
@@ -69,9 +72,9 @@ static unsigned int DontSerializeContext = 0;
 
 
 void
-DestoryContext( 		// perform association closed processing
+DestoryContext(         // perform association closed processing
 
-IN SCONTEXT * pSContext		// context chain to process
+IN SCONTEXT * pSContext     // context chain to process
 
 ) //-----------------------------------------------------------------------//
 {
@@ -81,21 +84,21 @@ IN SCONTEXT * pSContext		// context chain to process
     // rundown routine for the context
 
     for (pSC = pSContext->List.First(); pSC; pSC = pSCNext)
-	{
+    {
 
-	// Only contexts which have a rundown and
-	// are valid are cleaned up.
+    // Only contexts which have a rundown and
+    // are valid are cleaned up.
 
-	if (pSC->userRunDown != Nil && pSC->userContext)
-	   (*pSC->userRunDown)(pSC->userContext);
+    if (pSC->userRunDown != Nil && pSC->userContext)
+       (*pSC->userRunDown)(pSC->userContext);
 
-	pSCNext = pSC->Next();
+    pSCNext = pSC->Next();
         if ( DontSerializeContext == 0 )
             {
             DeleteCriticalSection(&(pSC->CriticalSection));
             }
         I_RpcFree(pSC);
-	}
+    }
 
     I_RpcDeleteMutex(pSContext->access);
     I_RpcFree(pSContext);
@@ -183,10 +186,10 @@ Arguments:
 
 
 NDR_SCONTEXT RPC_ENTRY
-NDRSContextUnmarshall (		// translate a NDR context to a handle
+NDRSContextUnmarshall (     // translate a NDR context to a handle
 
-IN void *pBuff,			// pointer to NDR context
-IN unsigned long DataRepresentation	// specifies the NDR data representation
+IN void *pBuff,         // pointer to NDR context
+IN unsigned long DataRepresentation // specifies the NDR data representation
 
   // The stub calls this routine to lookup a NDR wire format context into
   // a context handle that can be used with the other context functions
@@ -200,83 +203,89 @@ IN unsigned long DataRepresentation	// specifies the NDR data representation
     // make sure the public structure and our private ones agree
 
     ASSERT(((PVOID)&((SCONTEXTItem *)0)->userContext)
-    	== ((PVOID)NDRSContextValue((NDR_SCONTEXT)0)));
+        == ((PVOID)NDRSContextValue((NDR_SCONTEXT)0)));
 
     ByteSwapWireContext((WIRE_CONTEXT PAPI *) pBuff,
             (unsigned char PAPI *) &DataRepresentation);
 
     I_RpcGetAssociationContext((void **) &pSContext);
 
-    if (!pSContext)		// initial context list
-	{
+    if (!pSContext)     // initial context list
+    {
 
-	// newContext is used to serialize creation of new contexts
+    // newContext is used to serialize creation of new contexts
 
-	I_RpcRequestMutex(&newContext);
-	I_RpcGetAssociationContext((void **) &pSContext);
+    I_RpcRequestMutex(&newContext);
+    I_RpcGetAssociationContext((void **) &pSContext);
 
-	if (!pSContext)		// if there still isn't a context
-	    {
+    if (!pSContext)     // if there still isn't a context
+        {
 
-	    pSContext = (SCONTEXT *) I_RpcAllocate(sizeof(SCONTEXT));
-	    if (!pSContext)
-		RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+        pSContext = (SCONTEXT *) I_RpcAllocate(sizeof(SCONTEXT));
+        if (!pSContext)
+            {
+            I_RpcClearMutex(newContext);
+            RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+            }
 
-            memset(pSContext,0,sizeof(SCONTEXT));
+        memset(pSContext,0,sizeof(SCONTEXT));
 
-	    // Use the context field to point the head of the list of
-	    // contexts and set the cleanup routine to be our own
+        // Use the context field to point the head of the list of
+        // contexts and set the cleanup routine to be our own
 
-	    I_RpcMonitorAssociation(I_RpcGetCurrentCallHandle(),
-				  (PRPC_RUNDOWN) DestoryContext, pSContext);
-	    }
+        I_RpcMonitorAssociation(I_RpcGetCurrentCallHandle(),
+                  (PRPC_RUNDOWN) DestoryContext, pSContext);
+        }
 
-	I_RpcClearMutex(newContext);
-	}
+    I_RpcClearMutex(newContext);
+    }
 
     I_RpcRequestMutex(&(pSContext->access));
 
     if (!pBuff || memcmp(pBuff, &SContextNil, sizeof(SContextNil)) == 0)
-	{
-	// allocate a new context for the Nil GUID context
+    {
+    // allocate a new context for the Nil GUID context
 
-        pSC = (SCONTEXTItem *) I_RpcAllocate(sizeof(SCONTEXTItem));
-	if (!pSC)
-	     RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+    pSC = (SCONTEXTItem *) I_RpcAllocate(sizeof(SCONTEXTItem));
+    if (!pSC)
+        {
+        I_RpcClearMutex(pSContext->access);
+        RpcRaiseException(RPC_S_OUT_OF_MEMORY);
+        }
 
-        memset(pSC,0,sizeof(SCONTEXTItem));
-	pSC->NDR.ContextType = (unsigned long) PendingAlloc;
-	pSContext->List.Add(pSC);
+    memset(pSC,0,sizeof(SCONTEXTItem));
+    pSC->NDR.ContextType = (unsigned long) PendingAlloc;
+    pSContext->List.Add(pSC);
         if ( DontSerializeContext == 0 )
             {
             InitializeCriticalSection(&(pSC->CriticalSection));
             pSC->ReferenceCount = 0;
             pSC->DeletedFlag = 0;
             }
-	}
+    }
     else
-	{
-	int cSearched = 0;		// how far we look on this list
+    {
+    int cSearched = 0;      // how far we look on this list
 
-	// search the linked list for the GUID that matchs
+    // search the linked list for the GUID that matchs
 
-	for (pSC = pSContext->List.First(); pSC; pSC = pSC->Next(), cSearched++)
+    for (pSC = pSContext->List.First(); pSC; pSC = pSC->Next(), cSearched++)
 
-	    if (memcmp(pBuff, &pSC->NDR, sizeof(WIRE_CONTEXT)) == 0)
-		goto found;
+        if (memcmp(pBuff, &pSC->NDR, sizeof(WIRE_CONTEXT)) == 0)
+        goto found;
 
-	I_RpcClearMutex(pSContext->access);
-	RpcRaiseException(RPC_X_SS_CONTEXT_MISMATCH);
+    I_RpcClearMutex(pSContext->access);
+    RpcRaiseException(RPC_X_SS_CONTEXT_MISMATCH);
 
 found:;
-	// speed optimization: put found SC at head of list
+    // speed optimization: put found SC at head of list
 
-	if (cSearched > 10)
-	    {
-	    pSC->Remove(pSContext->List);
-	    pSContext->List.Add(pSC);
-	    }
-	}
+    if (cSearched > 10)
+        {
+        pSC->Remove(pSContext->List);
+        pSContext->List.Add(pSC);
+        }
+    }
 
     if ( DontSerializeContext == 0 )
         {
@@ -312,11 +321,11 @@ found:;
 
 
 void RPC_ENTRY
-NDRSContextMarshall (		// copy out a server context
+NDRSContextMarshall (       // copy out a server context
 
-IN OUT NDR_SCONTEXT hContext,	// stub context to update
-OUT void *pBuff,		// buffer to marshell to
-IN NDR_RUNDOWN userRunDownIn	// user function to bind to context
+IN OUT NDR_SCONTEXT hContext,   // stub context to update
+OUT void *pBuff,        // buffer to marshell to
+IN NDR_RUNDOWN userRunDownIn    // user function to bind to context
 
   // This is called by the stubs after a OUT or IN/OUT context call.  It
   // will do the final allocation or delete destory contexts & marshall the
@@ -328,14 +337,14 @@ IN NDR_RUNDOWN userRunDownIn	// user function to bind to context
     SCONTEXT * pSContext;
 
     if (pSC->userContext == Nil)
-	{
-	// the server code deleted this context, thus remove this context
-	// from the list of active contexts
+    {
+    // the server code deleted this context, thus remove this context
+    // from the list of active contexts
 
-	I_RpcGetAssociationContext((void **) &pSContext);
+    I_RpcGetAssociationContext((void **) &pSContext);
 
-	I_RpcRequestMutex(&(pSContext->access));
-	pSC->Remove(pSContext->List);
+    I_RpcRequestMutex(&(pSContext->access));
+    pSC->Remove(pSContext->List);
         if ( DontSerializeContext == 0 )
             {
             pSC->DeletedFlag = 1;
@@ -344,28 +353,32 @@ IN NDR_RUNDOWN userRunDownIn	// user function to bind to context
             {
             I_RpcFree(pSC);
             }
-	hContext = Nil;
+    hContext = Nil;
 
-	I_RpcClearMutex(pSContext->access);
-	}
+    I_RpcClearMutex(pSContext->access);
+    }
 
-    if (!pSC)		// return Nil content when deleted
-	{
-	memcpy(pBuff, &SContextNil, sizeof(WIRE_CONTEXT));
-	return;
-	}
+    if (!pSC)       // return Nil content when deleted
+    {
+    memcpy(pBuff, &SContextNil, sizeof(WIRE_CONTEXT));
+    return;
+    }
 
     if (pSC->NDR.ContextType == PendingAlloc)
-	{
+    {
 
-	pSC->userRunDown = userRunDownIn;
+    pSC->userRunDown = userRunDownIn;
 
-	// this is a new context, allocate the GUID now
+    // this is a new context, allocate the GUID now
 
-	pSC->NDR.ContextType = CompletedAlloc;
+    pSC->NDR.ContextType = CompletedAlloc;
 
+#ifdef DOSWIN32RPC
+        UuidCreate((UUID PAPI *) &(pSC->NDR.ContextUuid));
+#else
         I_UuidCreate((UUID PAPI *) &(pSC->NDR.ContextUuid));
-	}
+#endif
+    }
 
     memcpy(pBuff, &pSC->NDR, sizeof(WIRE_CONTEXT));
 
@@ -391,4 +404,3 @@ Routine Description:
     DontSerializeContext = 1;
 }
 
-

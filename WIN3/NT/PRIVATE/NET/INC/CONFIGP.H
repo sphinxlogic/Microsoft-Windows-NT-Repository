@@ -153,7 +153,7 @@ typedef struct _NET_CONFIG_HANDLE {
     //
     // Server name if remote, TCHAR_EOS if local.
     //
-    TCHAR UncServerName[UNCLEN+1];
+    TCHAR UncServerName[MAX_PATH+1];
 
 } NET_CONFIG_HANDLE;
 

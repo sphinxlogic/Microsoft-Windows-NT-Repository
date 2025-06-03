@@ -37,4 +37,3 @@ the endmark */
 #define yaSubSuper	60
 
 #define dxaInfoSize	1800
-

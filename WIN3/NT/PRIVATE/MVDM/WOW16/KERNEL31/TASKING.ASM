@@ -37,7 +37,9 @@ DataBegin
 externB Kernel_InDOS
 externB Kernel_flags
 externB InScheduler
+ifndef WOW
 externB fProfileDirty
+endif
 externW WinFlags
 externW cur_drive_owner
 externW curTDB
@@ -74,18 +76,20 @@ externNP LoadSegment
 externNP DeleteTask
 externNP InsertTask
 if PMODE32
-externNP DiscardFreeBlocks
 externNP ShrinkHeap
 endif
 
+ifdef WOW
+externFP ExitKernelThunk
 externFP WowInitTask
 externFP Yield
 externFP WOW16CallNewTaskRet
 externFP WowKillTask
-externFP WowKillProcess
 externFP WOW16DoneBoot
 externNP Int21Handler
 externFP GlobalCompact
+externFP WOWGetCurrentDirectory
+endif
 
 if SDEBUG
 externNP DebugSwitchOut
@@ -224,13 +228,17 @@ StartW16Task:
 
 ;   ExitKernel
 ;
-;   Enter When the 16 bit Kernel is going away - treaded same as task exit.
+;   Enter When the 16 bit Kernel is going away -- never returns.
+;   In WOW this is a register-args wrapper for the stack-args
+;   thunk ExitKernelThunk.
 
     public  ExitKernel
-ExitKernel:
-    SetKernelDS ds
-    mov [curTDB],0      ; Make No Task the Current Task
-    jmp WowKillProcess      ; Go Kill the WOW Process (NEVER RETURNS)
+    ExitKernel:
+
+    cCall   ExitKernelThunk, <ax>
+
+    INT3_NEVER                ; ExitKernel never returns.
+
 
 ;   BootSchedule
 ;
@@ -259,10 +267,6 @@ ExitSchedule:
     mov [curTDB],0	; Make No Task the Current Task
 if PMODE32
     call    ShrinkHeap
-    test    PagingFlags, 1
-    jz	    short NoDiscarding
-    call    DiscardFreeBlocks
-NoDiscarding:
 endif; PMODE32
     jmp WowKillTask     ; Go Kill Myself (NEVER RETURNS)
 
@@ -405,7 +409,7 @@ dont_restore_state:
 ;
 ; In some cases we are switching tasks while returning to a callback.
 ; When this happens our stack is a CBVDMFRAME instead of a VDMFRAME.
-; We only want to shove a safe ES value when it's a VDMFRAME and
+; We only want to shove a safe ES,FS,GS value when it's a VDMFRAME and
 ; we're returning from an API call rather than calling back to
 ; 16-bit code.
 ;
@@ -414,11 +418,16 @@ dont_restore_state:
 
     mov     bx, sp
     cmp     WORD PTR ss:[bx], RET_DEBUGRETURN  ; if (wRetID > RET_DEBUGRETURN)
-    ja      dont_stuff_es                      ;     goto dont_stuff_es
+    ja      dont_stuff_regs                    ;     goto dont_stuff_regs
 
     sub     bx,vf_wTDB + 2       ;bx is now start of VDMFRAME struct
     mov     ss:[bx+vf_wES],es    ;put something safe in there
-dont_stuff_es:
+;Win31 does not save fs, gs over task switches, so we zero them out here
+    mov     word ptr ss:[bx+vf_wFS],0    ;put something safe in there
+    mov     word ptr ss:[bx+vf_wGS],0    ;put something safe in there
+dont_stuff_regs:
+
+
 if KDEBUG
     mov     bx, sp
     cmp     WORD PTR ss:[bx], RET_TASKSTARTED
@@ -508,12 +517,14 @@ no_fstcw:
     inc dl
     or  al,10000000b
     mov ds:[TDB_Drive],al   ; save it (A=0, B=1, etc.)
-    mov si,TDB_Directory
+
+    mov si,TDB_LFNDirectory
     mov byte ptr [si],'\'   ; set "\"
     inc si
-    mov ah,47h		; get current directory...
-    DOSCALL
-    jnc short ss_ret
+    ; get Long path
+    cCall WowGetCurrentDirectory,<80h, ds, si>
+    or  dx, dx
+    jz  short ss_ret
     mov byte ptr [si-1],0   ; indicate error with null byte
 ss_ret: mov ax,ds
 cEnd

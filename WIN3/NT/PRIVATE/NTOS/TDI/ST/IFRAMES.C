@@ -487,9 +487,8 @@ NormalReceive:;
     if (linkage != NULL) {
         ndisPacket = CONTAINING_RECORD( linkage, NDIS_PACKET, ProtocolReserved[0] );
     } else {
-        (VOID)ExInterlockedIncrementLong(
-            (PLONG)&deviceContext->ReceivePacketExhausted,
-            &deviceContext->Interlock);
+        (VOID)InterlockedIncrement((PLONG)&deviceContext->ReceivePacketExhausted);
+
         StDereferenceRequest ("No receive packet", Connection->CurrentReceiveRequest);
 
         // We could not get a receive packet.

@@ -18,12 +18,7 @@ mikemon    02-02-91    Created.
 
 -------------------------------------------------------------------- */
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
+#include <precomp.hxx>
 
 void RPC_ENTRY
 I_RpcRequestMutex (
@@ -38,6 +33,7 @@ I_RpcRequestMutex (
         *Mutex = new MUTEX(&RpcStatus);
         if ( *Mutex == 0 )
             {
+            ClearGlobalMutex();
             RpcRaiseException(RPC_S_OUT_OF_MEMORY);
             }
 
@@ -71,4 +67,3 @@ I_RpcDeleteMutex (
 }
 
 
-

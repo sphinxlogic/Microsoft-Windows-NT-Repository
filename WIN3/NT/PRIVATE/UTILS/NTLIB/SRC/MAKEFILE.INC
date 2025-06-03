@@ -44,6 +44,9 @@ list.cxx : ..\..\ulib\src\list.cxx
 listit.cxx : ..\..\ulib\src\listit.cxx
     copy ..\..\ulib\src\listit.cxx .
 
+machine.cxx : ..\..\ulib\src\machine.cxx
+    copy ..\..\ulib\src\machine.cxx .
+
 mem.cxx : ..\..\ulib\src\mem.cxx
     copy ..\..\ulib\src\mem.cxx .
 
@@ -147,94 +150,6 @@ rcache.cxx :     ..\..\ifsutil\src\rcache.cxx
 
 rwcache.cxx :     ..\..\ifsutil\src\rwcache.cxx
     copy ..\..\ifsutil\src\rwcache.cxx .
-
-
-
-
-#
-#   From UHPFS
-#
-alsec.cxx          : ..\..\uhpfs\src\alsec.cxx
-    copy ..\..\uhpfs\src\alsec.cxx .
-
-badblk.cxx         : ..\..\uhpfs\src\badblk.cxx
-    copy ..\..\uhpfs\src\badblk.cxx .
-
-bitmap.cxx         : ..\..\uhpfs\src\bitmap.cxx
-    copy ..\..\uhpfs\src\bitmap.cxx .
-
-bmind.cxx          : ..\..\uhpfs\src\bmind.cxx
-    copy ..\..\uhpfs\src\bmind.cxx .
-
-cpinfo.cxx         : ..\..\uhpfs\src\cpinfo.cxx
-    copy ..\..\uhpfs\src\cpinfo.cxx .
-
-defer.cxx          : ..\..\uhpfs\src\defer.cxx
-    copy ..\..\uhpfs\src\defer.cxx .
-
-dirblk.cxx         : ..\..\uhpfs\src\dirblk.cxx
-    copy ..\..\uhpfs\src\dirblk.cxx .
-
-dircache.cxx       : ..\..\uhpfs\src\dircache.cxx
-    copy ..\..\uhpfs\src\dircache.cxx .
-
-dirmap.cxx         : ..\..\uhpfs\src\dirmap.cxx
-    copy ..\..\uhpfs\src\dirmap.cxx .
-
-dirtree.cxx        : ..\..\uhpfs\src\dirtree.cxx
-    copy ..\..\uhpfs\src\dirtree.cxx .
-
-fnode.cxx          : ..\..\uhpfs\src\fnode.cxx
-    copy ..\..\uhpfs\src\fnode.cxx .
-
-hfsecrun.cxx       : ..\..\uhpfs\src\hfsecrun.cxx
-    copy ..\..\uhpfs\src\hfsecrun.cxx .
-
-hotfix.cxx         : ..\..\uhpfs\src\hotfix.cxx
-    copy ..\..\uhpfs\src\hotfix.cxx .
-
-hpfsacl.cxx        : ..\..\uhpfs\src\hpfsacl.cxx
-    copy ..\..\uhpfs\src\hpfsacl.cxx .
-
-hpfschk.cxx        : ..\..\uhpfs\src\hpfschk.cxx
-    copy ..\..\uhpfs\src\hpfschk.cxx .
-
-hpfsea.cxx         : ..\..\uhpfs\src\hpfsea.cxx
-    copy ..\..\uhpfs\src\hpfsea.cxx .
-
-hpfseal.cxx        : ..\..\uhpfs\src\hpfseal.cxx
-    copy ..\..\uhpfs\src\hpfseal.cxx .
-
-hpfsname.cxx       : ..\..\uhpfs\src\hpfsname.cxx
-    copy ..\..\uhpfs\src\hpfsname.cxx .
-
-hpfssa.cxx         : ..\..\uhpfs\src\hpfssa.cxx
-    copy ..\..\uhpfs\src\hpfssa.cxx .
-
-hpfsvol.cxx        : ..\..\uhpfs\src\hpfsvol.cxx
-    copy ..\..\uhpfs\src\hpfsvol.cxx .
-
-orphan.cxx         : ..\..\uhpfs\src\orphan.cxx
-    copy ..\..\uhpfs\src\orphan.cxx .
-
-sid.cxx            : ..\..\uhpfs\src\sid.cxx
-    copy ..\..\uhpfs\src\sid.cxx .
-
-spareb.cxx         : ..\..\uhpfs\src\spareb.cxx
-    copy ..\..\uhpfs\src\spareb.cxx .
-
-store.cxx          : ..\..\uhpfs\src\store.cxx
-    copy ..\..\uhpfs\src\store.cxx .
-
-superb.cxx         : ..\..\uhpfs\src\superb.cxx
-    copy ..\..\uhpfs\src\superb.cxx .
-
-hpcensus.cxx       : ..\..\uhpfs\src\hpcensus.cxx
-    copy ..\..\uhpfs\src\hpcensus.cxx .
-
-uhpfs.cxx          : ..\..\uhpfs\src\uhpfs.cxx
-    copy ..\..\uhpfs\src\uhpfs.cxx .
-
 
 
 #
@@ -356,7 +271,10 @@ indxroot.cxx    : ..\..\untfs\src\indxroot.cxx
 indxtree.cxx    : ..\..\untfs\src\indxtree.cxx
     copy ..\..\untfs\src\indxtree.cxx .
 
-logfile.cxx    : ..\..\untfs\src\logfile.cxx
+largemcb.c      : ..\..\untfs\src\largemcb.c
+    copy ..\..\untfs\src\largemcb.c
+
+logfile.cxx     : ..\..\untfs\src\logfile.cxx
     copy ..\..\untfs\src\logfile.cxx .
 
 mft.cxx         : ..\..\untfs\src\mft.cxx
@@ -379,6 +297,9 @@ ntfssa.cxx      : ..\..\untfs\src\ntfssa.cxx
 
 ntfsvol.cxx     : ..\..\untfs\src\ntfsvol.cxx
     copy ..\..\untfs\src\ntfsvol.cxx .
+
+sdchk.cxx     : ..\..\untfs\src\sdchk.cxx
+    copy ..\..\untfs\src\sdchk.cxx .
 
 untfs.cxx       : ..\..\untfs\src\untfs.cxx
     copy ..\..\untfs\src\untfs.cxx .
@@ -403,28 +324,3 @@ cufat.cxx       : ..\..\cufat\src\cufat.cxx
 fatntfs.cxx     : ..\..\cufat\src\fatntfs.cxx
     copy ..\..\cufat\src\fatntfs.cxx .
 
-
-
-#
-#   From CUHPFS
-#
-cuhpfs.cxx     : ..\..\cuhpfs\cuhpfs.cxx
-    copy ..\..\cuhpfs\cuhpfs.cxx .
-
-cvtdir.cxx     : ..\..\cuhpfs\cvtdir.cxx
-    copy ..\..\cuhpfs\cvtdir.cxx .
-
-cvteas.cxx     : ..\..\cuhpfs\cvteas.cxx
-    copy ..\..\cuhpfs\cvteas.cxx .
-
-cvtfnode.cxx   : ..\..\cuhpfs\cvtfnode.cxx
-    copy ..\..\cuhpfs\cvtfnode.cxx .
-
-cvthpfs.cxx    : ..\..\cuhpfs\cvthpfs.cxx
-    copy ..\..\cuhpfs\cvthpfs.cxx .
-
-getacp.c     : ..\..\cuhpfs\getacp.c
-    copy ..\..\cuhpfs\getacp.c .
-
-nametab.cxx : ..\..\cuhpfs\nametab.cxx
-    copy ..\..\cuhpfs\nametab.cxx

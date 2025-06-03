@@ -66,8 +66,18 @@ extern ULONG LpcCallOperationCount;
 extern ULONG LpcCallBackOperationCount;
 extern ULONG LpcDatagramOperationCount;
 
-typedef struct _LPCP_PORT_QUEUE {
+//
+// Nonpagable portion of a port queue
+//
+typedef struct _LPCP_NONPAGED_PORT_QUEUE {
     KSEMAPHORE Semaphore;       // Counting semaphore that is incremented
+                                // whenever a message is put in receive queue
+    struct _LPCP_PORT_OBJECT *BackPointer;
+} LPCP_NONPAGED_PORT_QUEUE, *PLPCP_NONPAGED_PORT_QUEUE;
+
+typedef struct _LPCP_PORT_QUEUE {
+    PLPCP_NONPAGED_PORT_QUEUE NonPagedPortQueue;
+    PKSEMAPHORE Semaphore;      // Counting semaphore that is incremented
                                 // whenever a message is put in receive queue
     LIST_ENTRY ReceiveHead;     // list of messages to receive
 } LPCP_PORT_QUEUE, *PLPCP_PORT_QUEUE;
@@ -120,10 +130,17 @@ typedef struct _LPCP_PORT_OBJECT {
 #define UNCONNECTED_COMMUNICATION_PORT      0x00000002
 #define SERVER_COMMUNICATION_PORT           0x00000003
 #define CLIENT_COMMUNICATION_PORT           0x00000004
+#define PORT_NAME_DELETED                   0x40000000
 #define PORT_DYNAMIC_SECURITY               0x80000000
 
 typedef struct _LPCP_MESSAGE {
-    LIST_ENTRY Entry;
+    union {
+        LIST_ENTRY Entry;
+        struct {
+            SINGLE_LIST_ENTRY FreeEntry;
+            ULONG Reserved0;
+        };
+    };
     USHORT Reserved1;
     USHORT ZoneIndex;
     ULONG Reserved;

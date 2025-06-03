@@ -39,7 +39,7 @@
 .extern	_exptable
 
 .extern _d_ind 8
-#define D_IND       _d_ind
+#define D_IND	_d_ind
 
 .text	
 
@@ -49,8 +49,8 @@ pow:
 	.frame	sp, FSIZE, ra
 	.mask   0x80000000, -4
 	subu	sp, FSIZE
-	sw      ra, FSIZE-4(sp)
-    .prologue 1
+	sw	ra, FSIZE-4(sp)
+	.prologue 1
 
 #define X   $f12
 #define Xhi $f13
@@ -67,47 +67,45 @@ pow:
 	mfc1	t3, Yhi
 	mfc1	t2, Ylo
 	mfc1	t1, Xhi
+	mfc1	t0, Xlo
 	li.d	one, 1.0
 	bc1t	XYNaN
 	nop
 
-	bne     t2, 0, 10f	/* fast test to rule out special cases */
-	sll     t4, t3, 12	/* that is Y != +-0.0, +-1.0, 2.0, Infinity */
-	sll     t8, t3, 1
-	bne     t4, 0, 10f
+	bne	t2, 0, 10f	/* fast test to rule out special cases */
+	sll	t4, t3, 12	/* that is Y != +-0.0, +-1.0, 2.0, Infinity */
+	bne	t4, 0, 10f
+	sll	t8, t3, 1
 	/* Y may be a special case */
-	li      t7, 0x3ff00000
-	beq     t8, 0, retOne		/* Y = +-0 */
-	li      t8, 0x40000000
-	beq     t3, t7, retX		/* Y = 1 */
-	li      t7, 0xbff00000
-	beq     t3, t8, retXsq		/* Y = 2 */
-	sll     t4, t3, 1
-	beq     t3, t7, retooX		/* Y = -1 */
-	li      t8, 0x7ff00000<<1
-	beq     t4, t8, Yinfinite	/* Y = +-Infinity */
+	beq	t8, 0, retOne		/* Y = +-0 */
+	li	t7, 0x3ff00000
+	beq	t3, t7, retX		/* Y = 1 */
+	li	t8, 0x40000000
+	beq	t3, t8, retXsq		/* Y = 2 */
+	sll	t4, t3, 1
+	li	t8, 0x7ff00000<<1
+	beq	t4, t8, Yinfinite	/* Y = +-Infinity */
 	nop
 10:
-	mfc1	t0, Xlo
 	cfc1	t6, $31			/* save rounding mode, etc. */
 	ctc1	$0, $31			/* set round to nearest */
 
 	bltz	t1, Xnegative
-	li      t5, 0			/* result sign */
+	li	t5, 0			/* result sign */
 12:
-	bne     t0, 0, 14f		/* eliminate X = 0 and X = Infinity */
-	li      t7, 0x7ff00000
-	beq     t1, 0, Xzero		/* X = +-0 */
+	bne	t0, 0, 14f		/* eliminate X = 0 and X = Infinity */
+	li	t7, 0x7ff00000
+	beq	t1, 0, Xzero		/* X = +-0 */
 	nop
-	beq     t1, t7, Xinfinite	/* X = Infinity */
+	beq	t1, t7, Xinfinite	/* X = Infinity */
 	nop
 
 .set reorder
 
 14:	/* save registers */
-	s.d     $f20, 0*8(sp)
-	s.d     $f22, 1*8(sp)
-	s.d     $f24, 2*8(sp)
+	s.d	$f20, 0*8(sp)
+	s.d	$f22, 1*8(sp)
+	s.d	$f24, 2*8(sp)
 	/*s.d	$f30, 5*8(sp)*/
 
 	abs.d	$f4, Y
@@ -477,19 +475,19 @@ M:	/* restore registers */
 	add.d	$f0, $f4
 
 .set noreorder
-	ctc1	t6, $31				/* restore rounding mode */
+	ctc1	t6, $31			/* restore rounding mode */
 	slt	t7, t4, 2047
 	blez	t4, 90f
-	add.d	$f0, $f2			/* add in high part */
+	add.d	$f0, $f2		/* add in high part */
 	beq	t7, 0, 90f
 	nop
-	mul.d	$f0, $f8			/* sign and exponent */
-	cfc1    t0, $31                 /* Check for overflow/underflow */
+	mul.d	$f0, $f8		/* sign and exponent */
+	cfc1	t0, $31			/* Check for overflow/underflow */
 	nop
-	and     t1, t0, OVERFLOW_EXC_BIT
-	bne     t1, 0, Overflow
-	and    t2, t0, UNDERFLOW_EXC_BIT
-	bne     t2, 0, Underflow
+	and	t1, t0, OVERFLOW_EXC_BIT
+	bne	t1, 0, Overflow
+	and	t2, t0, UNDERFLOW_EXC_BIT
+	bne	t2, 0, Underflow
 	nop
 	j	ret
 	nop
@@ -520,12 +518,12 @@ M:	/* restore registers */
 	li.d	$f2, 5.4210108624275222e-20	/* 2^-64 */
 	nop
 	mul.d   $f0, $f2
-	cfc1    t0, $31                 /* Check for overflow/underflow */
+	cfc1	t0, $31			/* Check for overflow/underflow */
 	nop
-	and     t1, t0, OVERFLOW_EXC_BIT
-	bne     t1, 0, Overflow
-	and    t2, t0, UNDERFLOW_EXC_BIT
-	bne     t2, 0, Underflow
+	and	t1, t0, OVERFLOW_EXC_BIT
+	bne	t1, 0, Overflow
+	and	t2, t0, UNDERFLOW_EXC_BIT
+	bne	t2, 0, Underflow
 	nop
 	j	ret
 	nop
@@ -544,46 +542,45 @@ Ybig:
 Overflow:
 	ctc1	t6, $31				/* restore rounding mode */
 94:	li.d	$f0, 8.9884656743115795e+307
-	bne     t5, 0, 96f
+	bne	t5, 0, 96f
 	mov.d	$f0, Y
 	li.d	$f2, 0.0
-	l.d     $f12,5*8(sp)
+	l.d	$f12,5*8(sp)
 	c.le.d	$f0, $f2
 	nop
 	bc1t	Underf
 	nop
-	li      t8, FP_O
-	j       Calerr
+	li	t8, FP_O
+	j	Calerr
 	nop
 Underf:
-    li      t8, FP_U
+	li	t8, FP_U
 Calerr:
-    mov.d	$f0, Y
+	jal	set_pow_err
 	nop
-	j       set_pow_err
-	nop
-	j       ret
-    mul.d	$f0, $f0
+	j	ret
+	mul.d	$f0, $f0
+
 96:	neg.d	$f2, $f0
-	l.d     $f12,5*8(sp)
-	li      t8, FP_O
-	j       set_pow_err
+	l.d	$f12,5*8(sp)
+	li	t8, FP_O
+	jal	set_pow_err
 	mul.d	$f0, $f2
-	j       ret
+	j	ret
 	nop
 
 Underflow:
 	li.d	$f0, 0.0
-	beq     t5, 0, 1f
+	beq	t5, 0, 1f
 	ctc1	t6, $31
 	nop
 	neg.d	$f0
 1:
-	l.d     $f12,5*8(sp)
-	li      t8, FP_U
-	j       set_pow_err
+	l.d	$f12,5*8(sp)
+	li	t8, FP_U
+	jal	set_pow_err
 	nop
-	j       ret
+	j	ret
 	nop
 
 .set reorder
@@ -617,7 +614,7 @@ Xnegative:
 				   an even integer */
 	c.lt.d	$f0, $f2
 	add.d	$f4, $f2, $f0
-	li      t5, 0x80000000	/* result is negative */
+	li	t5, 0x80000000	/* result is negative */
 	bc1f	12b		/* if abs(Y) >= 2^52, then it is an integer */
 	sub.d	$f4, $f2
 	c.eq.d	$f4, $f0
@@ -626,9 +623,9 @@ Xnegative:
 				   an integer */
 	nop
 	/* Y is not an integer */
-	bne     t1, 0, retNaN
+	bne	t1, 0, retNaN
 	ctc1	t6, $31
-	bne	    t0, 0, retNaN
+	bne	t0, 0, retNaN
 	nop
 	bgez	t3, 1f
 	mov.d	$f0, X		/* +0 */
@@ -638,19 +635,22 @@ Xnegative:
 	nop
 
 Xzero:	/* X = +-0 */
-	li.d	$f0, 0.0
-    c.lt.d	Y, $f0
-	ctc1	t6, $31
-	bc1f    1f
+	/* t3 = Yhi */
+	/* t2 = Ylo */
+	bnez	t2, 1f
 	nop
-	bgez	t3, 1f
+	beqz	t3, retOne
+	nop
+1:
+	bgtz	t3, retZero
 	nop
 	div.d	$f0, one, X
-1:	beq     t5, 0, 2f
-	nop
+	bnel	t5, 0, 2f
 	neg.d	$f0
-2:	li      t8, FP_I
-	j  	    set_pow_err
+2:	li	t8, FP_Z
+	jal	set_pow_err
+	nop
+	j	ret
 	nop
 
 Xinfinite:
@@ -704,44 +704,41 @@ Yinfinite:
 retNaN:
 	li.d	$f0, 0.0	// generate a NaN
 	div.d	$f0, $f0
-	l.d     Y, 5*8(sp)  // restore the second argument
-    li      t8, FP_I
-	j       set_pow_err
-	j       ret
-.set noreorder
+	l.d	Y, 5*8(sp)	// restore the second argument
+	li	t8, FP_I
+	jal	set_pow_err
+	j	ret
+
+retXsq:
+	/* t1 = Xhi */
+	/* t0 = Xlo */
+	bnez	t0, 1f
+	beqz	t1, retZero	/* x = +-0 */
+1:
+	mul.d	$f0, X, X
+	j	ret
 
 retOne:
 	mov.d	$f0, one
-	nop
 	j	ret
-	nop
+
 retZero:
 	li.d	$f0, 0.0
-	nop
 	j	ret
-	nop
 
 retX:
 	mov.d	$f0, X
-	nop
 	j	ret
-	nop
-retXsq:
-	mul.d	$f0, X, X
-	nop
-	j	ret
-	nop
+
 retooX:
 	div.d	$f0, one, X
-	bne     t1, 0, ret			/* X = +-0 */
-	li      t8, FP_I
-	l.d     $f12, 5*8(sp)
-	j       set_pow_err
-	nop
-/* fall through to ret */
+	bne	t1, 0, ret			/* X = +-0 */
+	li	t8, FP_I
+	l.d	$f12, 5*8(sp)
+	jal	set_pow_err
+	j	ret
 
-.set reorder
-ret:	lw      ra, FSIZE-4(sp)
+ret:	lw	ra, FSIZE-4(sp)
 	addu	sp, FSIZE
 	j	ra
 
@@ -760,20 +757,20 @@ set_pow_err:
 #define FMSIZE 48
 	.frame  sp, FMSIZE, ra
 	.mask   0x80000000, -4
-	subu    sp, FMSIZE
-	sw      ra, FMSIZE-4(sp)
-    .prologue 1
-	move	$4, t8          // exception mask
-	li      $5, OP_POW 	    // operation code (funtion name index)
-	mfc1.d	$6, $f12        // arg1 
-	s.d     $f14, 16(sp)    // arg2
-	s.d     $f0, 24(sp)     // default result
-	cfc1    t7, $31         // floating point control/status register
-	xor     t7, t7, 0xf80   // inverse exception enable bits
-	sw      t7, 32(sp)
+	subu	sp, FMSIZE
+	sw	ra, FMSIZE-4(sp)
+	.prologue 1
+	move	$4, t8		// exception mask
+	li	$5, OP_POW 	// operation code (funtion name index)
+	mfc1.d	$6, $f12	// arg1 
+	s.d	$f14, 16(sp)	// arg2
+	s.d	$f0, 24(sp)	// default result
+	cfc1	t7, $31		// floating point control/status register
+	xor	t7, t7, 0xf80   // inverse exception enable bits
+	sw	t7, 32(sp)
 	jal  	_except2
-	lw      ra, FMSIZE-4(sp)
-	addu	sp,FMSIZE
-	j       ret
+	lw	ra, FMSIZE-4(sp)
+	addu	sp, FMSIZE
+	j	ra
 .end set_pow_err
 

@@ -113,8 +113,11 @@ Return Value:
 
 {
     PMMVAD Vad;
+    PMMVAD PreviousVad;
+    PMMVAD NextVad;
     ULONG RegionSize;
     PVOID UnMapImageBase;
+    NTSTATUS status;
 
     PAGED_CODE();
 
@@ -124,6 +127,7 @@ Return Value:
     // If the specified process is not the current process, attach
     // to the specified process.
     //
+
 
     KeAttachProcess (&Process->Pcb);
 
@@ -138,6 +142,7 @@ Return Value:
     // working set mutex released.
     //
 
+
     LOCK_WS_AND_ADDRESS_SPACE (Process);
 
     //
@@ -145,10 +150,8 @@ Return Value:
     //
 
     if (Process->AddressSpaceDeleted != 0) {
-        UNLOCK_WS (Process);
-        UNLOCK_ADDRESS_SPACE (Process);
-        KeDetachProcess();
-        return STATUS_PROCESS_IS_TERMINATING;
+        status = STATUS_PROCESS_IS_TERMINATING;
+        goto ErrorReturn;
     }
 
     //
@@ -163,10 +166,25 @@ Return Value:
         // No Virtual Address Descriptor located for Base Address.
         //
 
-        UNLOCK_WS (Process);
-        UNLOCK_ADDRESS_SPACE (Process);
-        KeDetachProcess();
-        return STATUS_NOT_MAPPED_VIEW;
+        status = STATUS_NOT_MAPPED_VIEW;
+        goto ErrorReturn;
+    }
+
+    if (Vad->u.VadFlags.NoChange == 1) {
+
+        //
+        // An attempt is being made to delete a secured VAD, check
+        // to see if this deletion is allowed.
+        //
+
+        status = MiCheckSecuredVad ((PMMVAD)Vad,
+                                    Vad->StartingVa,
+                                    1,
+                                    MM_SECURE_DELETE_CHECK);
+
+        if (!NT_SUCCESS (status)) {
+            goto ErrorReturn;
+        }
     }
 
     //
@@ -180,6 +198,9 @@ Return Value:
 
     RegionSize = 1 + (ULONG)Vad->EndingVa - (ULONG)Vad->StartingVa;
 
+    PreviousVad = MiGetPreviousVad (Vad);
+    NextVad = MiGetNextVad (Vad);
+
     MiRemoveVad (Vad);
 
     //
@@ -188,16 +209,11 @@ Return Value:
 
     MiReturnPageTablePageCommitment (Vad->StartingVa,
                                      Vad->EndingVa,
-                                     Process);
+                                     Process,
+                                     PreviousVad,
+                                     NextVad);
 
     MiRemoveMappedView (Process, Vad);
-
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$SECTION UNMAP: %lx Start %lx Size %lx\n",
-            Process, Vad->StartingVa, RegionSize);
-    }
-#endif
 
     ExFreePool (Vad);
 
@@ -206,6 +222,9 @@ Return Value:
     //
 
     Process->VirtualSize -= RegionSize;
+    status = STATUS_SUCCESS;
+
+ErrorReturn:
 
     UNLOCK_WS (Process);
     UNLOCK_ADDRESS_SPACE (Process);
@@ -214,7 +233,8 @@ Return Value:
         DbgkUnMapViewOfSection(UnMapImageBase);
     }
     KeDetachProcess();
-    return STATUS_SUCCESS;
+
+    return status;
 }
 
 VOID
@@ -256,6 +276,7 @@ Environment:
     PMMPTE PointerPde;
     PMMPTE LastPte;
     ULONG PageTableOffset;
+    ULONG PdePage;
     PKEVENT PurgeEvent = NULL;
     PVOID TempVa;
     BOOLEAN DeleteOnClose = FALSE;
@@ -264,6 +285,10 @@ Environment:
     ControlArea = Vad->ControlArea;
 
     if (Vad->u.VadFlags.PhysicalMapping == 1) {
+
+        if (Vad->Banked) {
+            ExFreePool (Vad->Banked);
+        }
 
 #ifdef LARGE_PAGES
         if (Vad->u.VadFlags.LargePages == 1) {
@@ -299,8 +324,8 @@ Environment:
             //
 
             PointerPde = MiGetPdeAddress (Vad->StartingVa);
+            PdePage = PointerPde->u.Hard.PageFrameNumber;
             PointerPte = MiGetPteAddress (Vad->StartingVa);
-
             LastPte = MiGetPteAddress (Vad->EndingVa);
             PageTableOffset = MiGetPteOffset( PointerPte );
 
@@ -310,14 +335,15 @@ Environment:
 
                     PointerPde = MiGetPteAddress (PointerPte);
                     PageTableOffset = MiGetPteOffset( PointerPte );
+                    PdePage = PointerPde->u.Hard.PageFrameNumber;
                 }
 
                 *PointerPte = ZeroPte;
-                MiDecrementShareAndValidCount (PointerPde->u.Hard.PageFrameNumber);
+                MiDecrementShareAndValidCount (PdePage);
 
                 //
-                // Increment the count of non-zero page table entires for this
-                // page table and the number of private pages for the process.
+                // Decrement the count of non-zero page table entires for this
+                // page table.
                 //
 
                 MmWorkingSetList->UsedPageTableEntries[PageTableOffset] -= 1;
@@ -333,12 +359,6 @@ Environment:
                                                                             0) {
 
                     TempVa = MiGetVirtualAddressMappedByPte(PointerPde);
-
-                    //
-                    // Add in a private page - delete PTE will subtract it.
-                    //
-
-                    CurrentProcess->NumberOfPrivatePages += 1;
 
                     PteFlushList.Count = MM_MAXIMUM_FLUSH_COUNT;
 
@@ -524,7 +544,7 @@ Environment:
                         // modified or is no longer in protopte format.
                         //
 
-                        if (Pfn1->ReferenceCount != 0) {
+                        if (Pfn1->u3.e2.ReferenceCount != 0) {
 
                             //
                             // There must be an I/O in progress on this
@@ -572,7 +592,7 @@ Environment:
 
                         MI_SET_PFN_DELETED (Pfn1);
 
-                        MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                        MiDecrementShareCount (Pfn1->PteFrame);
 
                         //
                         // If the reference count for the page is zero, insert
@@ -581,7 +601,7 @@ Environment:
                         // the page will go to the free list.
                         //
 
-                        if (Pfn1->ReferenceCount == 0) {
+                        if (Pfn1->u3.e2.ReferenceCount == 0) {
                             MiReleasePageFileSpace (Pfn1->OriginalPte);
                             MiInsertPageInList (MmPageLocationList[FreePageList],
                                                 PteContents.u.Trans.PageFrameNumber);

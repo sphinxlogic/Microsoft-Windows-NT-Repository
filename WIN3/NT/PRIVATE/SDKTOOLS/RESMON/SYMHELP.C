@@ -30,6 +30,27 @@ Revision History:
 #include <stdio.h>
 #include <stdlib.h>
 
+//
+// Primitives to access symbolic debug information in an image file
+//
+
+typedef struct _RTL_SYMBOL_INFORMATION {
+    ULONG Type;
+    ULONG SectionNumber;
+    ULONG Value;
+    STRING Name;
+} RTL_SYMBOL_INFORMATION, *PRTL_SYMBOL_INFORMATION;
+
+NTSTATUS
+RtlLookupSymbolByAddress(
+    IN PVOID ImageBase,
+    IN PVOID MappedBase OPTIONAL,
+    IN PVOID Address,
+    IN ULONG ClosenessLimit,
+    OUT PRTL_SYMBOL_INFORMATION SymbolInformation,
+    OUT PRTL_SYMBOL_INFORMATION NextSymbolInformation OPTIONAL
+    );
+
 typedef struct _PROCESS_DEBUG_INFORMATION {
     LIST_ENTRY List;
     HANDLE UniqueProcess;
@@ -42,12 +63,16 @@ typedef struct _PROCESS_DEBUG_INFORMATION {
 
 PLOAD_SYMBOLS_FILTER_ROUTINE LoadSymbolsFilterRoutine;
 
-
 RTL_CRITICAL_SECTION LoadedImageDebugInfoListCritSect;
 LIST_ENTRY LoadedImageDebugInfoListHead;
 LIST_ENTRY LoadedProcessDebugInfoListHead;
 
 LPSTR SymbolSearchPath;
+
+// This variable tracks how many times InitializeImageDebugInformation has been
+//  called. Certain operations are performed only on the first call (as
+//  NumInitCalls transitions from -1 to 0).
+LONG NumInitCalls = -1;
 
 LPSTR
 GetEnvVariable(
@@ -60,7 +85,7 @@ GetEnvVariable(
 
     RtlInitString( &Name, VariableName );
     RtlInitUnicodeString( &UnicodeValue, NULL );
-    Status = RtlAnsiStringToUnicodeString(&UnicodeName, &Name, TRUE);
+    Status = RtlAnsiStringToUnicodeString( &UnicodeName, &Name, TRUE );
     if (!NT_SUCCESS( Status )) {
         return NULL;
         }
@@ -71,8 +96,9 @@ GetEnvVariable(
         return NULL;
         }
 
-    UnicodeValue.Buffer = RtlAllocateHeap( RtlProcessHeap(), 0, UnicodeValue.Length + sizeof(UNICODE_NULL) );
-    if (Value.Buffer == NULL) {
+    UnicodeValue.MaximumLength = UnicodeValue.Length + sizeof( UNICODE_NULL );
+    UnicodeValue.Buffer = RtlAllocateHeap( RtlProcessHeap(), 0, UnicodeValue.MaximumLength );
+    if (UnicodeValue.Buffer == NULL) {
         RtlFreeHeap( RtlProcessHeap(), 0, UnicodeName.Buffer );
         return NULL;
         }
@@ -84,7 +110,7 @@ GetEnvVariable(
         return NULL;
         }
 
-    Status = RtlUnicodeStringToAnsiString(&Value, &UnicodeValue, TRUE);
+    Status = RtlUnicodeStringToAnsiString( &Value, &UnicodeValue, TRUE );
     RtlFreeHeap( RtlProcessHeap(), 0, UnicodeValue.Buffer );
     RtlFreeHeap( RtlProcessHeap(), 0, UnicodeName.Buffer );
     if (!NT_SUCCESS( Status )) {
@@ -173,11 +199,18 @@ InitializeImageDebugInformation(
     PRTL_PROCESS_MODULE_INFORMATION ModuleInfo1;
     ULONG RequiredLength, ModuleNumber;
 
-    SetSymbolSearchPath();
+    // Is this the first call?
+    if ( InterlockedIncrement ( &NumInitCalls ) == 0 )
+    {
+        // Yes
+        SetSymbolSearchPath();
+        InitializeListHead( &LoadedImageDebugInfoListHead );
+        InitializeListHead( &LoadedProcessDebugInfoListHead );
+        RtlInitializeCriticalSection( &LoadedImageDebugInfoListCritSect );
+    }
+
+    // The filter routine can be superceded at any time.
     LoadSymbolsFilterRoutine = LoadSymbolsFilter;
-    InitializeListHead( &LoadedImageDebugInfoListHead );
-    InitializeListHead( &LoadedProcessDebugInfoListHead );
-    RtlInitializeCriticalSection( &LoadedImageDebugInfoListCritSect );
 
     if (GetKernelSymbols) {
         ModuleInfo = &ModuleInfoBuffer;
@@ -242,6 +275,12 @@ InitializeImageDebugInformation(
             }
         }
 
+    if (TargetProcess == NULL) {
+
+        // Load module information for this process.
+
+        TargetProcess = GetCurrentProcess();
+        }
 
     Status = NtQueryInformationProcess( TargetProcess,
                                         ProcessBasicInformation,
@@ -254,30 +293,6 @@ InitializeImageDebugInformation(
         }
 
     Peb = ProcessInformation.PebBaseAddress;
-
-    LdrDataTableEntry = CONTAINING_RECORD( NtCurrentPeb()->Ldr->InLoadOrderModuleList.Flink->Flink,
-                                           LDR_DATA_TABLE_ENTRY,
-                                           InLoadOrderLinks
-                                         );
-
-    RtlUnicodeStringToAnsiString( &AnsiString,
-                                  &LdrDataTableEntry->FullDllName,
-                                  TRUE
-                                );
-    if (ImageFilePath = strchr( AnsiString.Buffer, ':')) {
-        ImageFilePath -= 1;
-        }
-    else {
-        ImageFilePath = AnsiString.Buffer;
-        }
-
-    AddImageDebugInformation( (HANDLE)ProcessInformation.UniqueProcessId,
-                              ImageFilePath,
-                              (DWORD)LdrDataTableEntry->DllBase,
-                              LdrDataTableEntry->SizeOfImage
-                            );
-
-    RtlFreeAnsiString( &AnsiString );
 
     if (NewProcess) {
         return TRUE;
@@ -420,7 +435,7 @@ AddImageDebugInformation(
     while (Next != Head) {
         DebugInfo = CONTAINING_RECORD( Next, IMAGE_DEBUG_INFORMATION, List );
         if (DebugInfo->ImageBase == ImageBase &&
-            !stricmp( PathBuffer, DebugInfo->ImageFilePath )
+            !_stricmp( PathBuffer, DebugInfo->ImageFilePath )
            ) {
             break;
             }
@@ -437,7 +452,7 @@ AddImageDebugInformation(
     while (Next != Head) {
         ProcessInfo = CONTAINING_RECORD( Next, PROCESS_DEBUG_INFORMATION, List );
         if (ProcessInfo->UniqueProcess == UniqueProcess &&
-            !stricmp( PathBuffer, ProcessInfo->ImageFilePath )
+            !_stricmp( PathBuffer, ProcessInfo->ImageFilePath )
            ) {
             return TRUE;
             }
@@ -477,7 +492,7 @@ RemoveImageDebugInformation(
         ProcessInfo = CONTAINING_RECORD( Next, PROCESS_DEBUG_INFORMATION, List );
         if (ProcessInfo->UniqueProcess == UniqueProcess &&
             (!ARGUMENT_PRESENT( ImageFilePath ) ||
-             !stricmp( ImageFilePath, ProcessInfo->ImageFilePath )
+             !_stricmp( ImageFilePath, ProcessInfo->ImageFilePath )
             )
            ) {
             if (LoadSymbolsFilterRoutine != NULL) {
@@ -546,6 +561,7 @@ FindImageDebugInformation(
     if (DebugInfo == NULL) {
         DebugInfo = MapDebugInformation( NULL, ProcessInfo->ImageFilePath, SymbolSearchPath, ProcessInfo->ImageBase );
         if (DebugInfo != NULL) {
+            DebugInfo->ImageBase = ProcessInfo->ImageBase;
             ProcessInfo->DebugInfo = DebugInfo;
             if (LoadSymbolsFilterRoutine != NULL) {
                 (*LoadSymbolsFilterRoutine)( UniqueProcess,
@@ -575,7 +591,7 @@ FindImageDebugInformation(
 }
 
 
-BOOL
+ULONG
 GetSymbolicNameForAddress(
     IN HANDLE UniqueProcess,
     IN ULONG Address,
@@ -586,22 +602,38 @@ GetSymbolicNameForAddress(
     NTSTATUS Status;
     PIMAGE_DEBUG_INFORMATION DebugInfo;
     RTL_SYMBOL_INFORMATION SymbolInformation;
-    ULONG i, ModuleNameLength;
+    ULONG i, ModuleNameLength, Result, Offset;
     LPSTR s;
 
     DebugInfo = FindImageDebugInformation( UniqueProcess,
                                            Address
                                          );
     if (DebugInfo != NULL) {
-        Status = RtlLookupSymbolByAddress( (PVOID)DebugInfo->ImageBase,
-                                           DebugInfo->CoffSymbols,
-                                           (PVOID)Address,
-                                           0x4000,
-                                           &SymbolInformation,
-                                           NULL
-                                         );
+        if (s = strchr( DebugInfo->ImageFileName, '.' )) {
+            ModuleNameLength = s - DebugInfo->ImageFileName;
+            }
+        else {
+            ModuleNameLength = strlen( DebugInfo->ImageFileName );
+            }
+
+        // BUGBUG [mikese] RtlLookupSymbolByAddress will fault if there is
+        //  no COFF symbol information.
+        if ( DebugInfo->CoffSymbols != NULL ) {
+            Status = RtlLookupSymbolByAddress( (PVOID)DebugInfo->ImageBase,
+                                       DebugInfo->CoffSymbols,
+                                       (PVOID)Address,
+                                       0x4000,
+                                       &SymbolInformation,
+                                       NULL
+                                     );
+
+            }
+        else {
+            Status = STATUS_UNSUCCESSFUL;
+             }
         }
     else {
+        ModuleNameLength = 0;
         Status = STATUS_UNSUCCESSFUL;
         }
 
@@ -618,30 +650,365 @@ GetSymbolicNameForAddress(
             SymbolInformation.Name.Length = (USHORT)(SymbolInformation.Name.Length - i);
             }
 
-        if (s = strchr( DebugInfo->ImageFileName, '.' )) {
-            ModuleNameLength = s - DebugInfo->ImageFileName;
-            }
-        else {
-            ModuleNameLength = strlen( DebugInfo->ImageFileName );
-            }
-
         s = Name;
-        i = _snprintf( s, MaxNameLength,
-                       "%.*s!%Z",
-                       ModuleNameLength,
-                       DebugInfo->ImageFileName,
-                       &SymbolInformation.Name
-                     );
-        if (SymbolInformation.Value != Address) {
-            _snprintf( s + i, MaxNameLength - i,
-                       "+0x%x",
-                       Address - DebugInfo->ImageBase - SymbolInformation.Value
-                     );
+        Result = _snprintf( s, MaxNameLength,
+                            "%.*s!%Z",
+                            ModuleNameLength,
+                            DebugInfo->ImageFileName,
+                            &SymbolInformation.Name
+                          );
+        Offset = Address - DebugInfo->ImageBase - SymbolInformation.Value;
+        if (Offset != 0) {
+            Result += _snprintf( s + Result, MaxNameLength - Result, "+0x%x", Offset );
             }
         }
     else {
-        _snprintf( Name, MaxNameLength, "0x%08x", Address );
+        if (ModuleNameLength != 0) {
+            Result = _snprintf( Name, MaxNameLength,
+                                "%.*s!0x%08x",
+                                ModuleNameLength,
+                                DebugInfo->ImageFileName,
+                                Address
+                              );
+            }
+        else {
+            Result = _snprintf( Name, MaxNameLength, "0x%08x", Address );
+            }
         }
 
-    return TRUE;
+    return Result;
+}
+
+ULONG
+TranslateAddress (
+    IN ULONG Address,
+    OUT LPSTR Name,
+    IN ULONG MaxNameLength )
+{
+    PRTL_DEBUG_INFORMATION p;
+    NTSTATUS Status;
+    DWORD ProcessId;
+    ULONG Result = 0;
+    ULONG Attempts = 0;
+
+    // We need to call Initialize once to ensure that GetSymbolicNameForAddress
+    //  does not fault.
+    if ( NumInitCalls == -1 )
+    {
+        InitializeImageDebugInformation( LoadSymbolsFilterRoutine,
+                                         NULL, FALSE, FALSE );
+    }
+
+    ProcessId = GetCurrentProcessId();
+
+    while ( Result == 0 )
+    {
+        Result = GetSymbolicNameForAddress ( (HANDLE)ProcessId, Address,
+                                             Name, MaxNameLength );
+        if ( Result == 0 )
+        {
+            if ( ++Attempts < 2 )
+            {
+                // Try reintialising, to load any modules we missed on a previous
+                //  occasion (or if we haven't initialised yet).
+                // I don't need a load-symbols-filter, so just use whatever is
+                //  already there, if any
+                InitializeImageDebugInformation( LoadSymbolsFilterRoutine,
+                                                 NULL, FALSE, FALSE );
+            }
+            else
+            {
+                // Apparently we are unable to do the right thing, so just return
+                //  the address as hex.
+                Result = _snprintf( Name, MaxNameLength, "0x%08x", Address );
+            }
+        }
+    }
+
+    return Result;
+}
+
+
+NTSTATUS
+RtlpCaptureSymbolInformation(
+    IN PIMAGE_SYMBOL SymbolEntry,
+    IN PCHAR StringTable,
+    OUT PRTL_SYMBOL_INFORMATION SymbolInformation
+    );
+
+PIMAGE_COFF_SYMBOLS_HEADER
+RtlpGetCoffDebugInfo(
+    IN PVOID ImageBase,
+    IN PVOID MappedBase OPTIONAL
+    );
+
+NTSTATUS
+RtlLookupSymbolByAddress(
+    IN PVOID ImageBase,
+    IN PVOID MappedBase OPTIONAL,
+    IN PVOID Address,
+    IN ULONG ClosenessLimit,
+    OUT PRTL_SYMBOL_INFORMATION SymbolInformation,
+    OUT PRTL_SYMBOL_INFORMATION NextSymbolInformation OPTIONAL
+    )
+/*++
+
+Routine Description:
+
+    Given a code address, this routine returns the nearest symbol
+    name and the offset from the symbol to that name.  If the
+    nearest symbol is not within ClosenessLimit of the location,
+    STATUS_ENTRYPOINT_NOT_FOUND is returned.
+
+Arguments:
+
+    ImageBase - Supplies the base address of the image containing
+                Address
+
+    MappedBase - Optional parameter, that if specified means the image
+                 was mapped as a data file and the MappedBase gives the
+                 location it was mapped.  If this parameter does not
+                 point to an image file base, then it is assumed that
+                 this is a pointer to the coff debug info.
+
+    ClosenessLimit - Specifies the maximum distance that Address can be
+                     from the value of a symbol to be considered
+                     "found".  Symbol's whose value is further away then
+                     this are not "found".
+
+    SymbolInformation - Points to a structure that is filled in by
+                        this routine if a symbol table entry is found.
+
+    NextSymbolInformation - Optional parameter, that if specified, is
+                            filled in with information about these
+                            symbol whose value is the next address above
+                            Address
+
+
+Return Value:
+
+    Status of operation.
+
+--*/
+
+{
+    NTSTATUS Status;
+    ULONG AddressOffset, i;
+    PIMAGE_SYMBOL PreviousSymbolEntry;
+    PIMAGE_SYMBOL SymbolEntry;
+    IMAGE_SYMBOL Symbol;
+    PUCHAR StringTable;
+    BOOLEAN SymbolFound;
+    PIMAGE_COFF_SYMBOLS_HEADER DebugInfo;
+
+    DebugInfo = RtlpGetCoffDebugInfo( ImageBase, MappedBase );
+    if (DebugInfo == NULL) {
+        return STATUS_INVALID_IMAGE_FORMAT;
+    }
+
+    //
+    // Crack the symbol table.
+    //
+
+    SymbolEntry = (PIMAGE_SYMBOL)
+        ((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
+
+    StringTable = (PUCHAR)
+        ((ULONG)SymbolEntry + DebugInfo->NumberOfSymbols * (ULONG)IMAGE_SIZEOF_SYMBOL);
+
+
+    //
+    // Find the "header" symbol (skipping all the section names)
+    //
+
+    for (i = 0; i < DebugInfo->NumberOfSymbols; i++) {
+        if (!strcmp( &SymbolEntry->N.ShortName[ 0 ], "header" )) {
+            break;
+            }
+
+        SymbolEntry = (PIMAGE_SYMBOL)((ULONG)SymbolEntry +
+                        IMAGE_SIZEOF_SYMBOL);
+        }
+
+    //
+    // If no "header" symbol found, just start at the first symbol.
+    //
+
+    if (i >= DebugInfo->NumberOfSymbols) {
+        SymbolEntry = (PIMAGE_SYMBOL)((ULONG)DebugInfo + DebugInfo->LvaToFirstSymbol);
+        i = 0;
+        }
+
+    //
+    // Loop through all symbols in the symbol table.  For each symbol,
+    // if it is within the code section, subtract off the bias and
+    // see if there are any hits within the profile buffer for
+    // that symbol.
+    //
+
+    AddressOffset = (ULONG)Address - (ULONG)ImageBase;
+    SymbolFound = FALSE;
+    for (; i < DebugInfo->NumberOfSymbols; i++) {
+
+        //
+        // Skip over any Auxilliary entries.
+        //
+        try {
+            while (SymbolEntry->NumberOfAuxSymbols) {
+                i = i + 1 + SymbolEntry->NumberOfAuxSymbols;
+                SymbolEntry = (PIMAGE_SYMBOL)
+                    ((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL +
+                     SymbolEntry->NumberOfAuxSymbols * IMAGE_SIZEOF_SYMBOL
+                    );
+
+                }
+
+            RtlMoveMemory( &Symbol, SymbolEntry, IMAGE_SIZEOF_SYMBOL );
+            }
+        except(EXCEPTION_EXECUTE_HANDLER) {
+            return GetExceptionCode();
+            }
+
+        //
+        // If this symbol value is less than the value we are looking for.
+        //
+
+        if (Symbol.Value <= AddressOffset) {
+            //
+            // Then remember this symbol entry.
+            //
+
+            PreviousSymbolEntry = SymbolEntry;
+            SymbolFound = TRUE;
+            }
+        else {
+            //
+            // All done looking if value of symbol is greater than
+            // what we are looking for, as symbols are in address order
+            //
+
+            break;
+            }
+
+        SymbolEntry = (PIMAGE_SYMBOL)
+            ((ULONG)SymbolEntry + IMAGE_SIZEOF_SYMBOL);
+
+        }
+
+    if (!SymbolFound || (AddressOffset - PreviousSymbolEntry->Value) > ClosenessLimit) {
+        return STATUS_ENTRYPOINT_NOT_FOUND;
+        }
+
+    Status = RtlpCaptureSymbolInformation( PreviousSymbolEntry, StringTable, SymbolInformation );
+    if (NT_SUCCESS( Status ) && ARGUMENT_PRESENT( NextSymbolInformation )) {
+        Status = RtlpCaptureSymbolInformation( SymbolEntry, StringTable, NextSymbolInformation );
+        }
+
+    return Status;
+}
+
+
+NTSTATUS
+RtlpCaptureSymbolInformation(
+    IN PIMAGE_SYMBOL SymbolEntry,
+    IN PCHAR StringTable,
+    OUT PRTL_SYMBOL_INFORMATION SymbolInformation
+    )
+{
+    USHORT MaximumLength;
+    PCHAR s;
+
+    SymbolInformation->SectionNumber = SymbolEntry->SectionNumber;
+    SymbolInformation->Type = SymbolEntry->Type;
+    SymbolInformation->Value = SymbolEntry->Value;
+
+    if (SymbolEntry->N.Name.Short) {
+        MaximumLength = 8;
+        s = &SymbolEntry->N.ShortName[ 0 ];
+        }
+
+    else {
+        MaximumLength = 64;
+        s = &StringTable[ SymbolEntry->N.Name.Long ];
+        }
+
+#if i386
+    if (*s == '_') {
+        s++;
+        MaximumLength--;
+        }
+#endif
+
+    SymbolInformation->Name.Buffer = s;
+    SymbolInformation->Name.Length = 0;
+    while (*s && MaximumLength--) {
+        SymbolInformation->Name.Length++;
+        s++;
+        }
+
+    SymbolInformation->Name.MaximumLength = SymbolInformation->Name.Length;
+    return( STATUS_SUCCESS );
+}
+
+
+PIMAGE_COFF_SYMBOLS_HEADER
+RtlpGetCoffDebugInfo(
+    IN PVOID ImageBase,
+    IN PVOID MappedBase OPTIONAL
+    )
+{
+    PIMAGE_COFF_SYMBOLS_HEADER DebugInfo;
+    PIMAGE_DOS_HEADER DosHeader;
+    PIMAGE_DEBUG_DIRECTORY DebugDirectory;
+    ULONG DebugSize;
+    ULONG NumberOfDebugDirectories;
+
+    DosHeader = (PIMAGE_DOS_HEADER)MappedBase;
+    if ( !DosHeader || DosHeader->e_magic == IMAGE_DOS_SIGNATURE ) {
+        //
+        // Locate debug section.
+        //
+
+        DebugDirectory = (PIMAGE_DEBUG_DIRECTORY)
+            RtlImageDirectoryEntryToData( (PVOID)(MappedBase == NULL ? ImageBase : MappedBase),
+                                          (BOOLEAN)(MappedBase == NULL ? TRUE : FALSE),
+                                          IMAGE_DIRECTORY_ENTRY_DEBUG,
+                                          &DebugSize
+                                        );
+
+        if (!DebugDirectory ||
+            (DebugSize < sizeof(IMAGE_DEBUG_DIRECTORY)) ||
+            ((DebugSize % sizeof(IMAGE_DEBUG_DIRECTORY)) != 0)) {
+            return NULL;
+        }
+        //
+        // point debug directory at coff debug directory
+        //
+        NumberOfDebugDirectories = DebugSize / sizeof(*DebugDirectory);
+
+        while ( NumberOfDebugDirectories-- ) {
+            if ( DebugDirectory->Type == IMAGE_DEBUG_TYPE_COFF ) {
+                break;
+            }
+            DebugDirectory++;
+        }
+
+        if (DebugDirectory->Type != IMAGE_DEBUG_TYPE_COFF ) {
+            return NULL;
+        }
+
+        if (MappedBase == NULL) {
+            if (DebugDirectory->AddressOfRawData == 0) {
+                return(NULL);
+            }
+            DebugInfo = (PIMAGE_COFF_SYMBOLS_HEADER)
+                        ((ULONG) ImageBase + DebugDirectory->AddressOfRawData);
+        } else {
+            DebugInfo = (PIMAGE_COFF_SYMBOLS_HEADER)
+                        ((ULONG) MappedBase + DebugDirectory->PointerToRawData);
+        }
+    } else {
+        DebugInfo = (PIMAGE_COFF_SYMBOLS_HEADER)MappedBase;
+    }
+    return DebugInfo;
 }

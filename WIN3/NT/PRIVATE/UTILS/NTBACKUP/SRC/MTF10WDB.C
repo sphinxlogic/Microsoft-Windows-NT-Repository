@@ -205,7 +205,6 @@ Half of mayn40wt.c.
 /* Adjusts offset to next 4 byte boundary */
 #define LongAlignOffset( x ) ( (x) += PadToBoundary( (x), 4 ) )
 
-
 /**/
 /**
 
@@ -684,11 +683,19 @@ INT16 F40_WtVOLB(
      */
      cur_volb->volume_name.data_size = FS_SizeofVolNameInVCB( (VCB_PTR)cur_dblk ) ;
      if( cur_volb->volume_name.data_size != 0 ) {
+          CHAR UNALIGNED *temp_vol_name;
 
           /* Device Name */
-          FS_GetVolNameInVCB( cur_dblk, (CHAR_PTR)( (INT8_PTR)vstr_ptr + v_offset ) ) ;
+          temp_vol_name = (CHAR_PTR)( (INT8_PTR)vstr_ptr + v_offset ) ;
+          FS_GetVolNameInVCB( cur_dblk, temp_vol_name ) ;
           cur_volb->device_name.data_offset = v_offset ;
-          cur_volb->device_name.data_size = 2 * sizeof( CHAR ) ;
+
+          if ( temp_vol_name[1] == TEXT(':') )  {
+               cur_volb->device_name.data_size = 2 * sizeof( CHAR ) ;
+          } else {
+               cur_volb->device_name.data_size =  cur_volb->volume_name.data_size  ;
+          }
+
           if( ( ret_val = F40_SaveLclName( &cur_env->device_name,
                                (UINT8_PTR)( vstr_ptr + v_offset ),
                                &cur_env->device_name_size,
@@ -701,7 +708,9 @@ INT16 F40_WtVOLB(
 
           cur_volb->volume_name.data_size -= cur_volb->device_name.data_size
                                              + sizeof( CHAR ) ;
-          if( cur_volb->volume_name.data_size > sizeof( CHAR ) ) {
+
+          if( ( temp_vol_name[1] == TEXT(':') ) && 
+               (cur_volb->volume_name.data_size > sizeof( CHAR ) ) ) {
 
                /* Shift Volume Name back over the space character */
                cur_volb->volume_name.data_size -= sizeof( CHAR ) ;
@@ -1099,6 +1108,17 @@ INT16 F40_WtDIRB(
      UINT8_PTR      vstr_ptr = ( BM_NextBytePtr( buffer ) ) ;
      DATE_TIME      temp_date ;
 
+     cur_dir->directory_attribs = FS_GetAttribFromDBLK( cur_fsys, cur_dblk ) ;
+
+     if( cur_dir->directory_attribs & DIR_IS_REALLY_DB ) {
+          /* This is a Database DBLK, but the boys upstairs don't want to
+             know about such silly things!  So the File System lies and
+             calls it a DDB to get it passed on to us.  Now we're going
+             to call the appropriate function to write a Database DBLK
+             (DBDB) to tape.
+          */
+          return( F40_WtDBDB( channel, buffer, continuation ) ) ;
+     }
 
      if( !continuation ) {
           channel->running_lba += F40_CalcRunningLBA( cur_env ) ;
@@ -1113,8 +1133,6 @@ INT16 F40_WtDIRB(
      DateToTapeDate( &cur_dir->backup_date, &temp_date ) ;
      FS_GetADateFromDBLK( cur_fsys, cur_dblk, &temp_date ) ;
      DateToTapeDate( &cur_dir->last_access_date, &temp_date ) ;
-
-     cur_dir->directory_attribs = FS_GetAttribFromDBLK( cur_fsys, cur_dblk ) ;
 
      /* dir_name */
      if( ! ( cur_dir->directory_attribs & DIR_PATH_IN_STREAM_BIT ) ) {
@@ -1155,6 +1173,70 @@ INT16 F40_WtDIRB(
 
      return( ret_val ) ;
 }
+
+
+/**/
+/**
+
+     Unit:          Translators
+
+     Name:          F40_WtDBDB
+
+     Description:   Translates an OSDBLK DDB into an MTF DBDB.
+
+     Returns:       INT16 TFLE_xxx error code.
+
+     Notes:
+
+**/
+INT16 F40_WtDBDB(
+     CHANNEL_PTR    channel,
+     BUF_PTR        buffer,
+     BOOLEAN        continuation )
+{
+     F40_ENV_PTR    cur_env = (F40_ENV_PTR)( channel->fmt_env ) ;
+     INT16          ret_val = TFLE_NO_ERR ;
+     DBLK_PTR       cur_dblk = channel->cur_dblk ;
+     FSYS_HAND      cur_fsys = channel->cur_fsys ;
+     F40_DBDB_PTR   cur_dbdb = (F40_DBDB_PTR)( BM_NextBytePtr( buffer ) ) ;
+     UINT16         offset = sizeof( F40_DBDB ) ;
+     UINT8_PTR      vstr_ptr = ( BM_NextBytePtr( buffer ) ) ;
+     DATE_TIME      temp_date ;
+
+     if( !continuation ) {
+          channel->running_lba += F40_CalcRunningLBA( cur_env ) ;
+     }
+
+     FS_GetBDateFromDBLK( cur_fsys, cur_dblk, &temp_date ) ;
+     DateToTapeDate( &cur_dbdb->backup_date, &temp_date ) ;
+
+     cur_dbdb->database_attribs = FS_GetAttribFromDBLK( cur_fsys, cur_dblk ) ;
+
+     vstr_ptr += cur_dbdb->database_name.data_offset = offset ;
+     FS_GetOSPathFromDDB( cur_fsys, cur_dblk, (CHAR_PTR)( vstr_ptr ) ) ;
+     offset += cur_dbdb->database_name.data_size =
+                                 FS_SizeofOSPathInDDB( cur_fsys, cur_dblk ) ;
+
+     /* Setup DB header */
+     offset = SetupDBHeader( F40_DBDB_N, channel, cur_dblk,
+                             (MTF_DB_HDR_PTR)cur_dbdb, offset, TRUE, continuation ) ;
+
+     BM_UpdCnts( buffer, offset ) ;
+
+     /* For later pad calculations */
+     if( !continuation ) {
+          cur_env->used_so_far = U64_Init( offset, 0L ) ;
+     }
+
+     /* Write OTC FDD entry */
+     if( ret_val == TFLE_NO_ERR && cur_env->cur_otc_level == TCL_FULL
+                                && !cur_env->fdd_aborted ) {
+          ret_val = OTC_GenDBDBEntry( channel, cur_dbdb, channel->ts_num ) ;
+     }
+
+     return( ret_val ) ;
+}
+
 
 /**/
 /**
@@ -1358,7 +1440,7 @@ INT16 F40_WtCFIL(
      UINT16         offset = sizeof( MTF_CFIL ) ;
 
      if( !continuation ) {
-          cur_env->corrupt_file_count++ ;
+          cur_env->corrupt_obj_count++ ;
           channel->running_lba += F40_CalcRunningLBA( cur_env ) ;
      }
 
@@ -1394,7 +1476,7 @@ INT16 F40_WtCFIL(
      /* Adjust OTC FDD entry */
      if( ret_val == TFLE_NO_ERR && cur_env->cur_otc_level == TCL_FULL
                                 && !cur_env->fdd_aborted ) {
-          ret_val = OTC_MarkFileEntryCorrupt( cur_env ) ;
+          ret_val = OTC_MarkLastEntryCorrupt( cur_env ) ;
      }
 
      return( ret_val ) ;
@@ -1439,7 +1521,7 @@ INT16 F40_WtESET(
      offset   = sizeof( MTF_ESET ) ;
      LongAlignOffset( offset ) ;
 
-     cur_eset->corrupt_file_count = cur_env->corrupt_file_count ;
+     cur_eset->corrupt_file_count = cur_env->corrupt_obj_count ;
      cur_eset->set_map_phys_blk_adr = U64_Init( 0L, 0L ) ;
      cur_eset->fdd_phys_blk_adr = U64_Init( 0L, 0L ) ;
 

@@ -101,6 +101,26 @@ Return Value:
     if (requestorMode != KernelMode) {
 
         //
+        // Ensure that the FsInformationClass parameter is legal for querying
+        // information about the volume.
+        //
+
+        if (FsInformationClass >= FileFsMaximumInformation ||
+            IopQueryFsOperationLength[FsInformationClass] == 0) {
+            return STATUS_INVALID_INFO_CLASS;
+        }
+
+        //
+        // Finally, ensure that the supplied buffer is large enough to contain
+        // the information associated with the specified query operation that
+        // is to be performed.
+        //
+
+        if (Length < (ULONG) IopQueryFsOperationLength[FsInformationClass]) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        //
         // The caller's access mode is not kernel so probe each of the arguments
         // and capture them as necessary.  If any failures occur, the condition
         // handler will be invoked to handle them.  It will simply cleanup and
@@ -120,7 +140,13 @@ Return Value:
             // The FsInformation buffer must be writeable by the caller.
             //
 
+#if defined(_X86_)
             ProbeForWrite( FsInformation, Length, sizeof( ULONG ) );
+#else
+            ProbeForWrite( FsInformation,
+                           Length,
+                           IopQuerySetFsAlignmentRequirement[FsInformationClass] );
+#endif
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
 
@@ -129,32 +155,14 @@ Return Value:
             // Simply return an appropriate error status code.
             //
 
+#if DBG
+            if (GetExceptionCode() == STATUS_DATATYPE_MISALIGNMENT) {
+                DbgBreakPoint();
+            }
+#endif // DBG
+
             return GetExceptionCode();
 
-        }
-
-        //
-        // Ensure that the FsInformationClass parameter is legal for querying
-        // information about the volume.
-        //
-
-        if (FsInformationClass != FileFsVolumeInformation &&
-            FsInformationClass != FileFsSizeInformation &&
-            FsInformationClass != FileFsDeviceInformation &&
-            FsInformationClass != FileFsAttributeInformation &&
-            FsInformationClass != FileFsQuotaQueryInformation &&
-            FsInformationClass != FileFsControlQueryInformation) {
-            return STATUS_INVALID_INFO_CLASS;
-        }
-
-        //
-        // Finally, ensure that the supplied buffer is large enough to contain
-        // the information associated with the specified query operation that
-        // is to be performed.
-        //
-
-        if (Length < (ULONG) IopQuerySetFsOperationLength[FsInformationClass]) {
-            return STATUS_INFO_LENGTH_MISMATCH;
         }
     }
 
@@ -166,7 +174,7 @@ Return Value:
     //
 
     status = ObReferenceObjectByHandle( FileHandle,
-                                        IopQuerySetFsOperationAccess[FsInformationClass],
+                                        IopQueryFsOperationAccess[FsInformationClass],
                                         IoFileObjectType,
                                         requestorMode,
                                         (PVOID *) &fileObject,
@@ -529,6 +537,26 @@ Return Value:
     if (requestorMode != KernelMode) {
 
         //
+        // Ensure that the FsInformationClass parameter is legal for setting
+        // information about the volume.
+        //
+
+        if (FsInformationClass >= FileFsMaximumInformation ||
+            IopSetFsOperationLength[FsInformationClass] == 0) {
+            return STATUS_INVALID_INFO_CLASS;
+        }
+
+        //
+        // Finally, ensure that the supplied buffer is large enough to contain
+        // the information associated with the specified set operation that is
+        // to be performed.
+        //
+
+        if (Length < (ULONG) IopSetFsOperationLength[FsInformationClass]) {
+            return STATUS_INFO_LENGTH_MISMATCH;
+        }
+
+        //
         // The caller's access mode is user, so probe each of the arguments
         // and capture them as necessary.  If any failures occur, the condition
         // handler will be invoked to handle them.  It will simply cleanup and
@@ -548,7 +576,13 @@ Return Value:
             // The FsInformation buffer must be readable by the caller.
             //
 
+#if defined(_X86_)
             ProbeForRead( FsInformation, Length, sizeof( ULONG ) );
+#else
+            ProbeForRead( FsInformation,
+                          Length,
+                          IopQuerySetFsAlignmentRequirement[FsInformationClass] );
+#endif
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
 
@@ -557,29 +591,15 @@ Return Value:
             // Simply return an appropriate error status code.
             //
 
+
+#if DBG
+            if (GetExceptionCode() == STATUS_DATATYPE_MISALIGNMENT) {
+                DbgBreakPoint();
+            }
+#endif DBG
+
             return GetExceptionCode();
 
-        }
-
-        //
-        // Ensure that the FsInformationClass parameter is legal for setting
-        // information about the volume.
-        //
-
-        if (FsInformationClass != FileFsLabelInformation &&
-	    FsInformationClass != FileFsQuotaSetInformation &&
-	    FsInformationClass != FileFsControlSetInformation) {
-            return STATUS_INVALID_INFO_CLASS;
-        }
-
-        //
-        // Finally, ensure that the supplied buffer is large enough to contain
-        // the information associated with the specified set operation that is
-        // to be performed.
-        //
-
-        if (Length < (ULONG) IopQuerySetFsOperationLength[FsInformationClass]) {
-            return STATUS_INFO_LENGTH_MISMATCH;
         }
     }
 
@@ -591,7 +611,7 @@ Return Value:
     //
 
     status = ObReferenceObjectByHandle( FileHandle,
-                                        IopQuerySetFsOperationAccess[FsInformationClass],
+                                        IopSetFsOperationAccess[FsInformationClass],
                                         IoFileObjectType,
                                         requestorMode,
                                         (PVOID *) &fileObject,
@@ -740,7 +760,7 @@ Return Value:
     //
 
     if (requestorMode != KernelMode &&
-	FsInformationClass == FileFsLabelInformation) {
+        FsInformationClass == FileFsLabelInformation) {
 
         //
         // The previous mode was something other than kernel.  Check to see

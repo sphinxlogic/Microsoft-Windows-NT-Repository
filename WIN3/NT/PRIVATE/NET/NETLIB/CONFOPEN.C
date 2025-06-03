@@ -35,8 +35,8 @@ Revision History:
         Added support for using the real Win32 registry.
         Added debug code to print the fake array.
         Fixed a UNICODE bug which PC-LINT caught.
-        Fixed double close of RTL config file.
-        Fixed memory access error in setting fake end of array.
+        Fixed double _close of RTL config file.
+        Fixed memory _access error in setting fake end of array.
         Use DBGSTATIC where applicable.
     05-May-1992 JohnRo
         Reflect movement of keys to under System\CurrentControlSet\Services.
@@ -178,7 +178,8 @@ NetpOpenConfigDataEx(
     NetpAssert( (ReadOnly==TRUE) || (ReadOnly==FALSE) );
 
     if ( (UncServerName != NULL ) && ((*UncServerName) != TCHAR_EOS) ) {
-        if ( STRLEN(UncServerName) > UNCLEN ) {
+
+        if( STRLEN(UncServerName) > MAX_PATH ) {
             return (ERROR_INVALID_PARAMETER);
         }
 
@@ -193,9 +194,9 @@ NetpOpenConfigDataEx(
             NULL,               // dont need output (canon name)
             0);                 // flags: normal
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB "NetpOpenConfigDataEx: canon status is "
+            NetpKdPrint(( PREFIX_NETLIB "NetpOpenConfigDataEx: canon status is "
                     FORMAT_API_STATUS ", Lcl/rmt=" FORMAT_HEX_DWORD ".\n",
-                    ApiStatus, LocalOrRemote);
+                    ApiStatus, LocalOrRemote));
         }
         if (ApiStatus != NO_ERROR) {
             return (ApiStatus);
@@ -213,10 +214,10 @@ NetpOpenConfigDataEx(
                     & RootKey );        // result key
 
             if (Error != ERROR_SUCCESS) {
-                NetpDbgPrint(  PREFIX_NETLIB
+                NetpKdPrint((  PREFIX_NETLIB
                         "NetpOpenConfigDataEx: RegConnectRegistry(machine '"
                         FORMAT_LPTSTR "') ret error " FORMAT_LONG ".\n",
-                        UncServerName, Error );
+                        UncServerName, Error ));
                 return ((NET_API_STATUS) Error);
             }
             NetpAssert( RootKey != DEFAULT_ROOT_KEY );
@@ -290,12 +291,12 @@ NetpOpenConfigDataEx(
                 DesiredAccess,
                 & SectionKey );
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint(  PREFIX_NETLIB
+            NetpKdPrint((  PREFIX_NETLIB
                     "NetpOpenConfigDataEx: RegOpenKeyEx(subkey '"
                     FORMAT_LPTSTR "') ret " FORMAT_LONG ", win reg handle at "
                     FORMAT_LPVOID " is " FORMAT_HEX_DWORD ".\n",
                     SubKeyString, Error, (LPVOID) &(MyHandle->WinRegKey),
-                    (DWORD) SectionKey );
+                    (DWORD) SectionKey ));
         }
         if (Error == ERROR_FILE_NOT_FOUND) {
             ApiStatus = NERR_CfgCompNotFound;
@@ -318,9 +319,9 @@ NetpOpenConfigDataEx(
 #if 0
         IF_DEBUG(CONFIG) {
             if (SectionKey != NULL) {
-                NetpDbgPrint( PREFIX_NETLIB
+                NetpKdPrint(( PREFIX_NETLIB
                         "NetpOpenConfigDataEx: First part of winreg handle is "
-                        FORMAT_HEX_DWORD ".\n", * (LPDWORD) (SectionKey) );
+                        FORMAT_HEX_DWORD ".\n", * (LPDWORD) (SectionKey) ));
             }
         }
 #endif
@@ -403,9 +404,9 @@ NetpSetupConfigSection (
              & TheRtlConfigFileHandle );
 
     if (! NT_SUCCESS( NtStatus ) ) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpSetupConfigSection: RtlOpenConfigFile failed "
-                FORMAT_NTSTATUS "\n", NtStatus);
+                FORMAT_NTSTATUS "\n", NtStatus));
         return (NetpNtStatusToApiStatus( NtStatus ));
     }
     NetpAssert( TheRtlConfigFileHandle != NULL );
@@ -434,9 +435,9 @@ NetpSetupConfigSection (
 
     if (TheRtlConfigSectionHandle == NULL) {
 
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpSetupConfigSection: RtlLocateSectionConfigFile ["
-                FORMAT_LPTSTR "] failed\n", lptstrSectionName );
+                FORMAT_LPTSTR "] failed\n", lptstrSectionName ));
 
         RtlCloseConfigFile( TheRtlConfigFileHandle );
         return (NERR_CfgCompNotFound);
@@ -515,9 +516,9 @@ NetpSetupConfigSection (
                         MyHandle->FakeRWDataForThisSection = ThisSection;
                         NetpFakeRWSectionCount = NewSectionCount;
                         IF_DEBUG(CONFIG) {
-                            NetpDbgPrint(PREFIX_NETLIB
+                            NetpKdPrint((PREFIX_NETLIB
                                     "NetpSetupConfigSection: "
-                                    "built fake section:\n");
+                                    "built fake section:\n"));
                         }
                     }
 
@@ -525,8 +526,8 @@ NetpSetupConfigSection (
             }
         } else {  // found match on section
             IF_DEBUG(CONFIG) {
-                NetpDbgPrint( PREFIX_NETLIB
-                        "NetpSetupConfigSection: found fake section:\n" );
+                NetpKdPrint(( PREFIX_NETLIB
+                        "NetpSetupConfigSection: found fake section:\n" ));
             }
             KeyValueArray = ThisSection->KeyValueArrayPtr;
         }
@@ -537,9 +538,9 @@ NetpSetupConfigSection (
         MyHandle->NextFakeEnumEntry = KeyValueArray;
 
         IF_DEBUG(CONFIG) {
-            NetpDbgPrint( PREFIX_NETLIB
+            NetpKdPrint(( PREFIX_NETLIB
                     "NetpSetupConfigSection: returning status "
-                    FORMAT_API_STATUS ".\n", ApiStatus );
+                    FORMAT_API_STATUS ".\n", ApiStatus ));
             NetpDbgDisplayConfigSection( MyHandle );
         }
 

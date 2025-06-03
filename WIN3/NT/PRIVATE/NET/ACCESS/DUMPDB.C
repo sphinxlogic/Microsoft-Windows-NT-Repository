@@ -41,7 +41,6 @@ Revision History:
 #include <lmaccess.h>
 #include <lmerr.h>
 #include <ntsam.h>
-#include <wcstr.h>
 
 #include "accessp.h"
 #include "netlogon.h"

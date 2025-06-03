@@ -37,11 +37,9 @@ Environment:
 #include "regdesc.hxx"
 #include "regedit.hxx"
 
-extern "C" {
-    #include <wchar.h>
-    #include <stdio.h>
-    #include <ctype.h>
-}
+#include <wchar.h>
+#include <stdio.h>
+#include <ctype.h>
 
 
 #define MAX_SIZE_OF_BINARY_DATA     8
@@ -141,161 +139,161 @@ Return Value:
     _InitTextMetrics = TRUE;
 
     if( !_EmptyLine.Initialize( ( PWSTR )L" " ) ) {
-        DbgPrint( "_EmptyLine.Initialize() failed \n" );
+        DebugPrint( "_EmptyLine.Initialize() failed \n" );
         return( FALSE );
     }
 
     if( !_Separator.Initialize( ( PWSTR )L"\\" ) ) {
-        DbgPrint( "_Separator.Initialize() failed \n" );
+        DebugPrint( "_Separator.Initialize() failed \n" );
         return( FALSE );
     }
 
     if( !_DateTimeSeparator.Initialize( ( PWSTR )L" - " ) ) {
-        DbgPrint( "_DateTimeSeparator.Initialize() failed \n" );
+        DebugPrint( "_DateTimeSeparator.Initialize() failed \n" );
         return( FALSE );
     }
 
     _StringNodeName = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_NAME, "" );
-    DbgPtrAssert( _StringNodeName );
+    DebugPtrAssert( _StringNodeName );
     _StringClassName = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_CLASS_NAME, "" );
-    DbgPtrAssert( _StringClassName );
+    DebugPtrAssert( _StringClassName );
     _StringTitleIndex = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_TITLE_INDEX, "" );
-    DbgPtrAssert( _StringTitleIndex );
+    DebugPtrAssert( _StringTitleIndex );
     _StringTitle = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_TITLE, "" );
-    DbgPtrAssert( _StringTitle );
+    DebugPtrAssert( _StringTitle );
     _StringLastWriteTime = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_LAST_WRITE_TIME, "" );
-    DbgPtrAssert( _StringLastWriteTime );
+    DebugPtrAssert( _StringLastWriteTime );
     _StringValue = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_NUMBER, "" );
-    DbgPtrAssert( _StringValue );
+    DebugPtrAssert( _StringValue );
     _StringValueName = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_NAME, "" );
-    DbgPtrAssert( _StringValueName );
+    DebugPtrAssert( _StringValueName );
     _StringValueTitleIndex = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_TITLE_INDEX, "" );
-    DbgPtrAssert( _StringValueTitleIndex );
+    DebugPtrAssert( _StringValueTitleIndex );
     _StringValueTitle = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_TITLE, "" );
-    DbgPtrAssert( _StringValueTitle );
+    DebugPtrAssert( _StringValueTitle );
     _StringValueType = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_TYPE, "" );
-    DbgPtrAssert( _StringValueType );
+    DebugPtrAssert( _StringValueType );
     _StringDataLength = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_DATA_SIZE, "" );
-    DbgPtrAssert( _StringDataLength );
+    DebugPtrAssert( _StringDataLength );
     _StringData = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_DATA, "" );
-    DbgPtrAssert( _StringData );
+    DebugPtrAssert( _StringData );
 
     _StringTypeRegExpandSZ = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_EXPAND_SZ, "" );
-    DbgPtrAssert( _StringTypeRegExpandSZ );
+    DebugPtrAssert( _StringTypeRegExpandSZ );
     _StringTypeRegMultiSZ = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_MULTI_SZ, "" );
-    DbgPtrAssert( _StringTypeRegMultiSZ );
+    DebugPtrAssert( _StringTypeRegMultiSZ );
     _StringTypeRegSZ = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_SZ, "" );
-    DbgPtrAssert( _StringTypeRegSZ );
+    DebugPtrAssert( _StringTypeRegSZ );
     _StringTypeRegBinary = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_BINARY, "" );
-    DbgPtrAssert( _StringTypeRegBinary );
+    DebugPtrAssert( _StringTypeRegBinary );
     _StringTypeRegDWORD = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_DWORD, "" );
-    DbgPtrAssert( _StringTypeRegDWORD );
+    DebugPtrAssert( _StringTypeRegDWORD );
     _StringTypeRegFullResourceDescriptor = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_FULL_RESOURCE_DESCRIPTOR, "" );
-    DbgPtrAssert( _StringTypeRegFullResourceDescriptor );
+    DebugPtrAssert( _StringTypeRegFullResourceDescriptor );
     _StringTypeRegResourceList = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_RESOURCE_LIST, "" );
-    DbgPtrAssert( _StringTypeRegResourceList );
+    DebugPtrAssert( _StringTypeRegResourceList );
     _StringTypeRegResourceRequirementsList = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_RESOURCE_REQUIREMENTS_LIST, "" );
-    DbgPtrAssert( _StringTypeRegResourceRequirementsList );
+    DebugPtrAssert( _StringTypeRegResourceRequirementsList );
     _StringTypeRegColorRGB = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_COLOR_RGB, "" );
-    DbgPtrAssert( _StringTypeRegColorRGB );
+    DebugPtrAssert( _StringTypeRegColorRGB );
     _StringTypeRegFileName = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_FILE_NAME, "" );
-    DbgPtrAssert( _StringTypeRegFileName );
+    DebugPtrAssert( _StringTypeRegFileName );
     _StringTypeRegFileTime = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_FILE_TIME, "" );
-    DbgPtrAssert( _StringTypeRegFileTime );
+    DebugPtrAssert( _StringTypeRegFileTime );
     _StringTypeRegUnknown = REGEDIT_BASE_SYSTEM::QueryString( MSG_VALUE_TYPE_REG_UNKNOWN, "" );
-    DbgPtrAssert( _StringTypeRegUnknown );
+    DebugPtrAssert( _StringTypeRegUnknown );
     _StringValueNoName = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VALUE_NO_NAME, "" );
-    DbgPtrAssert( _StringValueNoName );
+    DebugPtrAssert( _StringValueNoName );
     _StringNodeNoClass = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_NODE_NO_CLASS, "" );
-    DbgPtrAssert( _StringNodeNoClass );
+    DebugPtrAssert( _StringNodeNoClass );
     _StringAllFiles = REGEDIT_BASE_SYSTEM::QueryString( MSG_FILTER_ALL_FILES, "" );
-    DbgPtrAssert( _StringAllFiles );
+    DebugPtrAssert( _StringAllFiles );
     _StringTextFiles = REGEDIT_BASE_SYSTEM::QueryString( MSG_FILTER_TXT_FILES, "" );
-    DbgPtrAssert( _StringTextFiles );
+    DebugPtrAssert( _StringTextFiles );
     _StringStarDotStar = REGEDIT_BASE_SYSTEM::QueryString( MSG_FILTER_STAR_DOT_STAR, "" );
-    DbgPtrAssert( _StringStarDotStar );
+    DebugPtrAssert( _StringStarDotStar );
     _StringStarDotTxt = REGEDIT_BASE_SYSTEM::QueryString( MSG_FILTER_STAR_DOT_TXT, "" );
-    DbgPtrAssert( _StringStarDotTxt );
+    DebugPtrAssert( _StringStarDotTxt );
 
     _StringFullDescriptor = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_FULL_DESCRIPTOR, "" );
-    DbgPtrAssert( _StringFullDescriptor );
+    DebugPtrAssert( _StringFullDescriptor );
     _StringPartialDescriptor = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_PARTIAL_DESCRIPTOR, "" );
-    DbgPtrAssert( _StringPartialDescriptor );
+    DebugPtrAssert( _StringPartialDescriptor );
     _StringInterfaceType = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_INTERFACE_TYPE, "" );
-    DbgPtrAssert( _StringInterfaceType );
+    DebugPtrAssert( _StringInterfaceType );
     _StringBusNumber = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_BUS_NUMBER, "" );
-    DbgPtrAssert( _StringBusNumber );
+    DebugPtrAssert( _StringBusNumber );
     _StringVersion = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VERSION, "" );
-    DbgPtrAssert( _StringVersion );
+    DebugPtrAssert( _StringVersion );
     _StringRevision = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_REVISION, "" );
-    DbgPtrAssert( _StringRevision );
+    DebugPtrAssert( _StringRevision );
 
     _StringResource = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_RESOURCE, "" );
-    DbgPtrAssert( _StringResource );
+    DebugPtrAssert( _StringResource );
     _StringDisposition = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_DISPOSITION, "" );
-    DbgPtrAssert( _StringDisposition );
+    DebugPtrAssert( _StringDisposition );
     _StringType = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_TYPE, "" );
-    DbgPtrAssert( _StringType );
+    DebugPtrAssert( _StringType );
     _StringStart = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_START, "" );
-    DbgPtrAssert( _StringStart );
+    DebugPtrAssert( _StringStart );
     _StringLength = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_LENGTH, "" );
-    DbgPtrAssert( _StringLength );
+    DebugPtrAssert( _StringLength );
     _StringLevel = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_LEVEL, "" );
-    DbgPtrAssert( _StringLevel );
+    DebugPtrAssert( _StringLevel );
     _StringVector = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_VECTOR, "" );
-    DbgPtrAssert( _StringVector );
+    DebugPtrAssert( _StringVector );
     _StringAffinity = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_AFFINITY, "" );
-    DbgPtrAssert( _StringAffinity );
+    DebugPtrAssert( _StringAffinity );
     _StringChannel = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_CHANNEL, "" );
-    DbgPtrAssert( _StringChannel );
+    DebugPtrAssert( _StringChannel );
     _StringPort = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_PORT, "" );
-    DbgPtrAssert( _StringPort );
+    DebugPtrAssert( _StringPort );
     _StringReserved1 = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_RESERVED1, "" );
-    DbgPtrAssert( _StringReserved1 );
+    DebugPtrAssert( _StringReserved1 );
     _StringReserved2 = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_RESERVED2, "" );
-    DbgPtrAssert( _StringReserved2 );
+    DebugPtrAssert( _StringReserved2 );
     _StringDevSpecificData = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_DEV_SPECIFIC_DATA, "" );
-    DbgPtrAssert( _StringDevSpecificData );
+    DebugPtrAssert( _StringDevSpecificData );
 
     _StringIoInterfaceType = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_INTERFACE_TYPE, "" );
-    DbgPtrAssert( _StringIoInterfaceType );
+    DebugPtrAssert( _StringIoInterfaceType );
     _StringIoBusNumber = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_BUS_NUMBER, "" );
-    DbgPtrAssert( _StringIoBusNumber );
+    DebugPtrAssert( _StringIoBusNumber );
     _StringIoSlotNumber = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_SLOT_NUMBER, "" );
-    DbgPtrAssert( _StringIoSlotNumber );
+    DebugPtrAssert( _StringIoSlotNumber );
     _StringIoListNumber = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_LIST_NUMBER, "" );
-    DbgPtrAssert( _StringIoListNumber );
+    DebugPtrAssert( _StringIoListNumber );
     _StringIoOption = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_OPTION, "" );
-    DbgPtrAssert( _StringIoOption );
+    DebugPtrAssert( _StringIoOption );
     _StringIoDescriptorNumber = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_DESCRIPTOR_NUMBER, "" );
-    DbgPtrAssert( _StringIoDescriptorNumber );
+    DebugPtrAssert( _StringIoDescriptorNumber );
     _StringIoAlignment = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_ALIGNMENT, "" );
-    DbgPtrAssert( _StringIoAlignment );
+    DebugPtrAssert( _StringIoAlignment );
     _StringIoMinimumAddress = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MINIMUM_ADDRESS, "" );
-    DbgPtrAssert( _StringIoMinimumAddress );
+    DebugPtrAssert( _StringIoMinimumAddress );
     _StringIoMaximumAddress = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MAXIMUM_ADDRESS, "" );
-    DbgPtrAssert( _StringIoMaximumAddress );
+    DebugPtrAssert( _StringIoMaximumAddress );
     _StringIoMinimumVector = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MINIMUM_VECTOR, "" );
-    DbgPtrAssert( _StringIoMinimumVector );
+    DebugPtrAssert( _StringIoMinimumVector );
     _StringIoMaximumVector = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MAXIMUM_VECTOR, "" );
-    DbgPtrAssert( _StringIoMaximumVector );
+    DebugPtrAssert( _StringIoMaximumVector );
     _StringIoMinimumChannel = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MINIMUM_CHANNEL, "" );
-    DbgPtrAssert( _StringIoMinimumChannel );
+    DebugPtrAssert( _StringIoMinimumChannel );
     _StringIoMaximumChannel = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_IO_MAXIMUM_CHANNEL, "" );
-    DbgPtrAssert( _StringIoMaximumChannel );
+    DebugPtrAssert( _StringIoMaximumChannel );
 
 
 
 
     Size = _StringNodeName->QueryChCount();
     Buffer = ( PWSTR ) MALLOC( ( size_t )(( Size + 1 )*sizeof( WCHAR )) );
-    DbgPtrAssert( Buffer );
+    DebugPtrAssert( Buffer );
     for( Count = 0; Count < Size; Count++ ) {
         Buffer[ Count ] = ( WCHAR )' ';
     }
     Buffer[ Size ] = ( WCHAR )'\0';
     if( !_IndentString.Initialize( Buffer ) ) {
-        DbgPrint( "_IndentString.Initialize() failed \n" );
+        DebugPrint( "_IndentString.Initialize() failed \n" );
         FREE( Buffer );
         return( FALSE );
     }
@@ -330,7 +328,7 @@ Return Value:
 {
     if( _InitTextMetrics ) {
         if( !GetTextMetrics( _pd.hDC, &_TextMetrics ) ) {
-            DbgPrint( "GetTextMetrics failed" );
+            DebugPrint( "GetTextMetrics failed" );
             return( FALSE );
         }
         //
@@ -350,7 +348,7 @@ Return Value:
 
         _CharacterWidth = _TextMetrics.tmAveCharWidth;
         _CharactersPerLine = ( GetDeviceCaps( _pd.hDC, HORZRES ) - _LeftMargin - _RightMargin ) / _CharacterWidth;
-//        DbgPrintf( "CharactersPerLine = %d \n", _CharactersPerLine );
+//        DebugPrintf( "CharactersPerLine = %d \n", _CharactersPerLine );
         _CurrentLine = 0;
 
 //        _InitTextMetrics = FALSE;
@@ -390,14 +388,14 @@ Return Value:
     //
 
     Buffer = ( PWSTR )MALLOC( ( size_t )(( _CharactersPerLine - 10 + 1 )*sizeof( WCHAR )) );
-    DbgPtrAssert( Buffer );
+    DebugPtrAssert( Buffer );
     for( Count = 0; Count < _CharactersPerLine - 10; Count++ ) {
         *( Buffer + Count ) = ( WCHAR )' ';
     }
     *( Buffer + _CharactersPerLine - 10 ) = '\0';
 
     if( !_StringFooter.Initialize( Buffer ) ) {
-        DbgPrint( "_StringFooter.Initialize() failed \n" );
+        DebugPrint( "_StringFooter.Initialize() failed \n" );
         FREE( Buffer );
         return( FALSE );
     }
@@ -450,7 +448,7 @@ Return Value:
                            RootName, NULL ) ) == -1 ) {
         FREE( RootName );
         PrintErrorDialog( Status );
-        DbgPrint( "Escape( _pd.hDC, STARTDOC, String->QueryChCount(), RootName, NULL ) failed" );
+        DebugPrint( "Escape( _pd.hDC, STARTDOC, String->QueryChCount(), RootName, NULL ) failed" );
         return( FALSE );
     }
     FREE( RootName );
@@ -499,7 +497,7 @@ Return Value:
 
     if( _PrintToFile ) {
         Pointer = String->QuerySTR();
-        DbgPtrAssert( Pointer );
+        DebugPtrAssert( Pointer );
         if( ( _lwrite( _FileHandle, Pointer, ( INT )(String->QueryChCount()) ) == HFILE_ERROR ) ||
             ( _lwrite( _FileHandle, "\r\n", 2 ) == HFILE_ERROR )
           ) {
@@ -541,37 +539,37 @@ Return Value:
     //
 
     if( !TmpString.Initialize( String ) ) {
-        DbgPrint( "TmpString.Initialize() failed \n" );
+        DebugPrint( "TmpString.Initialize() failed \n" );
         return( FALSE );
     }
     if( !NullString.Initialize( (LPWSTR)L"" ) ) {
-        DbgPrint( "NullString.Initialize() failed \n" );
+        DebugPrint( "NullString.Initialize() failed \n" );
         return( FALSE );
     }
     if( !PrintStringTruncate( &TmpString ) ) {
-        DbgPrint( "PrintStringTruncate() failed \n" );
+        DebugPrint( "PrintStringTruncate() failed \n" );
         return( FALSE );
     }
     if( !TmpString.Replace( 0, _CharactersPerLine, &NullString ) ) {
-        DbgPrint( "TmpString.Replace() failed \n" );
+        DebugPrint( "TmpString.Replace() failed \n" );
         return( FALSE );
     }
 
     if( Indent ) {
         if( !TmpString.Replace( 0, 0, &_IndentString ) ) {
-            DbgPrint( "TmpString.Replace() failed \n" );
+            DebugPrint( "TmpString.Replace() failed \n" );
             return( FALSE );
         }
 
         do {
             if( !PrintStringTruncate( &TmpString ) ) {
-                DbgPrint( "PrintStringTruncate() failed \n" );
+                DebugPrint( "PrintStringTruncate() failed \n" );
                 return( FALSE );
             }
             StringLength = min( TmpString.QueryChCount(), _CharactersPerLine );
             StringLength -= _IndentString.QueryChCount();
             if( !TmpString.Replace( _IndentString.QueryChCount(), StringLength, &NullString ) ) {
-                DbgPrint( "TmpString.Replace() failed \n" );
+                DebugPrint( "TmpString.Replace() failed \n" );
                 return( FALSE );
             }
         } while( TmpString.QueryChCount() != _IndentString.QueryChCount() );
@@ -579,12 +577,12 @@ Return Value:
     } else {
         do {
             if( !PrintStringTruncate( &TmpString ) ) {
-                DbgPrint( "PrintStringTruncate() failed \n" );
+                DebugPrint( "PrintStringTruncate() failed \n" );
                 return( FALSE );
             }
             StringLength = min( TmpString.QueryChCount(), _CharactersPerLine );
             if( !TmpString.Replace( 0, StringLength, &NullString ) ) {
-                DbgPrint( "TmpString.Replace() failed \n" );
+                DebugPrint( "TmpString.Replace() failed \n" );
                 return( FALSE );
             }
         } while( TmpString.QueryChCount() != 0 );
@@ -646,7 +644,7 @@ Return Value:
                  PrintableString,
                  Length ) == 0 ) {
         FREE( PrintableString );
-        DbgPrint( "TextOut() failed" );
+        DebugPrint( "TextOut() failed" );
         return( FALSE );
     }
     FREE( PrintableString );
@@ -654,21 +652,21 @@ Return Value:
     if( _CurrentLine >= _LinesPerPage ) {
 
         if( !Footer.Initialize( &_StringFooter ) ) {
-            DbgPrint( "Footer.Initialize() failed \n" );
+            DebugPrint( "Footer.Initialize() failed \n" );
             return( FALSE );
         }
         Buffer = ( PWSTR )MALLOC( (10 + 1)*sizeof( WCHAR ) );
-        DbgPtrAssert( Buffer );
+        DebugPtrAssert( Buffer );
         swprintf( Buffer, (LPWSTR)L"%10d", _CurrentPage );
         if( !PageNumber.Initialize( Buffer ) ) {
-            DbgPrint( "PageNumber.Initialize() failed \n" );
+            DebugPrint( "PageNumber.Initialize() failed \n" );
             FREE( Buffer );
             return( FALSE );
         }
         FREE( Buffer );
         Footer.Strcat( &PageNumber );
         PrintableString = Footer.QueryWSTR();
-        DbgPtrAssert( PrintableString );
+        DebugPtrAssert( PrintableString );
 
         if( TextOut( _pd.hDC,
                      ( int )_LeftMargin,
@@ -676,7 +674,7 @@ Return Value:
                      PrintableString,
                      (INT)( Footer.QueryChCount() ) ) == 0 ) {
             FREE( PrintableString );
-            DbgPrint( "TextOut() failed" );
+            DebugPrint( "TextOut() failed" );
             return( FALSE );
         }
         FREE( PrintableString );
@@ -684,7 +682,7 @@ Return Value:
         _CurrentPage++;
         if( ( Status = Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL ) ) < 0 ) {
             PrintErrorDialog( Status );
-            DbgPrint( "Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL ) failed" );
+            DebugPrint( "Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL ) failed" );
             return( FALSE );
         }
         _CurrentLine = 0;
@@ -722,12 +720,12 @@ Return Value:
     Status = Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL );
     if( Status <= 0 ) {
         PrintErrorDialog( Status );
-        DbgPrint( "Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL ) failed" );
+        DebugPrint( "Escape( _pd.hDC, NEWFRAME, NULL, NULL, NULL ) failed" );
     }
     Status = Escape( _pd.hDC, ENDDOC, NULL, NULL, NULL );
     if( Status < 0 ) {
         PrintErrorDialog( Status );
-        DbgPrint( "Escape( _pd.hDC, ENDDOC, NULL, NULL, NULL ) failed" );
+        DebugPrint( "Escape( _pd.hDC, ENDDOC, NULL, NULL, NULL ) failed" );
         return( FALSE );
     }
     return( TRUE );
@@ -915,7 +913,7 @@ Return Value:
     LONG            Status;
     BOOLEAN         StartPrintFlag;
 
-    DbgPtrAssert( StartNode );
+    DebugPtrAssert( StartNode );
 
     MDIHandle = MDIHandle;
     _hWnd = hWnd;
@@ -923,7 +921,7 @@ Return Value:
     _PrintToFile = FALSE;
     if( _IR->GetParent( StartNode ) == NULL ) {
         NodeName = _IR->GetRootName();
-        DbgPtrAssert( NodeName );
+        DebugPtrAssert( NodeName );
     } else {
         NodeName = _IR->GetNodeName( StartNode );
         DbgWinPtrAssert( NodeName );
@@ -938,7 +936,7 @@ Return Value:
     }
 
         if( !InitializeTextMetrics() ) {
-            DbgPrint( "InitializeTextMetrics failed" );
+            DebugPrint( "InitializeTextMetrics failed" );
             DbgWinPrint( "InitializeTextMetrics failed" );
             return( FALSE );
         }
@@ -949,7 +947,7 @@ Return Value:
         Status = Escape( _pd.hDC, SETABORTPROC, 0, (LPSTR)PointerToAbortProc, NULL );
         if( Status < 0 ) {
             PrintErrorDialog( Status );
-            DbgPrint( "Escape( _pd.hDC, ENDDOC, NULL, NULL, NULL ) failed" );
+            DebugPrint( "Escape( _pd.hDC, ENDDOC, NULL, NULL, NULL ) failed" );
             return( FALSE );
         }
 
@@ -960,7 +958,7 @@ Return Value:
         PointerToPrintDlgProc =  MakeProcInstance( ( FARPROC )&PRINT_MANAGER::PrintDlgProc, Instance );
         _DlgPrint = CreateDialog( (HINSTANCE)Instance, (LPWSTR)L"PrintDlgBox", hWnd, (DLGPROC)PointerToPrintDlgProc );
         if( _DlgPrint == 0 ) {
-            DbgPrint( "_DlgPrint == NULL" );
+            DebugPrint( "_DlgPrint == NULL" );
         }
         EnableWindow( hWnd, FALSE );
 
@@ -1029,7 +1027,7 @@ Return Value:
 
 
 
-    DbgPtrAssert( Node );
+    DebugPtrAssert( Node );
 
     if( !PrintNode( Node ) ) {
         return( FALSE );
@@ -1054,11 +1052,11 @@ Return Value:
         DELETE( Iterator );
 /*
         if( UnloadChildrenFlag ) {
-//            DbgPrint( "UnloadChildrenFlag is TRUE" );
+//            DebugPrint( "UnloadChildrenFlag is TRUE" );
             _IR->UnloadChildren( Node );
         }
 //        else {
-//            DbgPrint( "UnloadChildrenFlag is FALSE" );
+//            DebugPrint( "UnloadChildrenFlag is FALSE" );
 //        }
 */
     }
@@ -1122,16 +1120,16 @@ Return Value:
         Status = TRUE;
         if( _pd.hDC != NULL ) {
             if ( !DeleteDC( _pd.hDC ) ) {
-                DbgPrint( "DeleteDC() failed" );
+                DebugPrint( "DeleteDC() failed" );
             }
 #if 0
             if( GlobalFree( _pd.hDevMode ) != NULL ) {
-                DbgPrintf( "GlobalFree( _pd.hDevMode ) failed, Error = %#x \n", GetLastError() );
-                DbgPrint( "GlobalFree( _pd.hDevMode ) failed" );
+                DebugPrintf( "GlobalFree( _pd.hDevMode ) failed, Error = %#x \n", GetLastError() );
+                DebugPrint( "GlobalFree( _pd.hDevMode ) failed" );
             }
             if( GlobalFree( _pd.hDevNames ) != NULL ) {
-                DbgPrintf( "GlobalFree( _pd.hDevNames ) failed, Error = %#x \n", GetLastError() );
-                DbgPrint( "GlobalFree( _pd.hDevNames ) failed" );
+                DebugPrintf( "GlobalFree( _pd.hDevNames ) failed, Error = %#x \n", GetLastError() );
+                DebugPrint( "GlobalFree( _pd.hDevNames ) failed" );
             }
 #endif
         }
@@ -1141,8 +1139,8 @@ Return Value:
         Status = FALSE;
         ErrorCode = CommDlgExtendedError();
         if( ErrorCode != 0 ) {
-            DbgPrintf( "Common dialog PrintDlg() failed, ErrorCode = %#x \n", ErrorCode );
-            DbgPrint( "Common dialog PrintDlg() failed." );
+            DebugPrintf( "Common dialog PrintDlg() failed, ErrorCode = %#x \n", ErrorCode );
+            DebugPrint( "Common dialog PrintDlg() failed." );
         }
     }
     return( Status );
@@ -1203,19 +1201,19 @@ Return Value:
 
 
     if( !Name.Initialize( _StringNodeName ) ) {
-        DbgPrint( "Name.Initialize() failed" );
+        DebugPrint( "Name.Initialize() failed" );
         return( FALSE );
     }
     if( !Title.Initialize( _StringTitleIndex ) ) {
-        DbgPrint( "Title.Initialize() failed" );
+        DebugPrint( "Title.Initialize() failed" );
         return( FALSE );
     }
     if( !Class.Initialize( _StringClassName ) ) {
-        DbgPrint( "Class.Initialize() failed" );
+        DebugPrint( "Class.Initialize() failed" );
         return( FALSE );
     }
     if( !LastWriteTime.Initialize( _StringLastWriteTime ) ) {
-        DbgPrint( "LastWriteTime.Initialize() failed" );
+        DebugPrint( "LastWriteTime.Initialize() failed" );
         return( FALSE );
     }
 
@@ -1224,16 +1222,16 @@ Return Value:
     //  Build a string that contains the node name, and print it.
     //
     ParentName = _IR->GetParentName( Node );
-    DbgPtrAssert( ParentName );
+    DebugPtrAssert( ParentName );
     KeyName = _IR->GetNodeName( Node );
-    DbgPtrAssert( KeyName );
+    DebugPtrAssert( KeyName );
 
     if( ( ParentName->QueryChCount() == 0 ) && ( KeyName->QueryChCount() == 0 ) ) {
         //
         // This is a root node
         //
         RootName = _IR->GetRootName();
-        DbgPtrAssert( RootName );
+        DebugPtrAssert( RootName );
         Name.Strcat( RootName );
     } else if( ParentName->QueryChCount() == 0 ) {
         //
@@ -1256,7 +1254,7 @@ Return Value:
     //
     if( _IR->IsNodeViewable( Node ) ) {
         TmpClass = _IR->GetNodeClass( Node );
-        DbgPtrAssert( TmpClass );
+        DebugPtrAssert( TmpClass );
         if( TmpClass->QueryChCount() != 0 ) {
             Class.Strcat( TmpClass );
         } else {
@@ -1273,23 +1271,15 @@ Return Value:
 
     if( _IR->IsNodeViewable( Node ) ) {
         TimeInfo = _IR->GetNodeLastWriteTime( Node );
-        DbgPtrAssert( TimeInfo );
+        DebugPtrAssert( TimeInfo );
 
-// #if 0 // UTC
         if( !SYSTEM::QueryLocalTimeFromUTime( TimeInfo, &LocalTimeInfo ) ||
             !LocalTimeInfo.QueryDate( &DateString ) ||
             !LocalTimeInfo.QueryTime( &TimeString ) ) {
-            DbgPrint( "TimeInfo.QueryDate() or TimeInfo.QueryTime() failed" );
-            return( FALSE );
+            DebugPrint( "TimeInfo.QueryDate() or TimeInfo.QueryTime() failed" );
+//            return( FALSE );
         }
-// #endif // UTC
 
-#if 0  // UTC
-        if( !TimeInfo->QueryDate( &DateString ) || !TimeInfo->QueryTime( &TimeString ) ) {
-            DbgPrint( "TimeInfo->QueryDate() or TimeInfo->QueryTime() failed" );
-            return( FALSE );
-        }
-#endif // UTC
 
         LastWriteTime.Strcat( &DateString );
         LastWriteTime.Strcat( &_DateTimeSeparator );
@@ -1307,36 +1297,38 @@ Return Value:
         ( _IR->GetNumberOfValues( Node ) != 0 ) ) {
 //        UnloadValuesFlag = !_IR->AreValuesInMemory( Node );
         ValuesList = _IR->GetValues( Node, &ErrorCode );
-        DbgPtrAssert( ValuesList );
-        Iterator = ValuesList->QueryIterator();
-        DbgWinPtrAssert( Iterator );
+        // DebugPtrAssert( ValuesList );
+        if( ValuesList != NULL ) {
+            Iterator = ValuesList->QueryIterator();
+            DbgWinPtrAssert( Iterator );
 
-        Count = 0;
-        while( ( Value = ( PCREGEDIT_FORMATTED_VALUE_ENTRY )( Iterator->GetNext() ) ) != NULL ) {
-            if( !PrintValue( Value, Count ) ) {
-                DELETE( Iterator );
+            Count = 0;
+            while( ( Value = ( PCREGEDIT_FORMATTED_VALUE_ENTRY )( Iterator->GetNext() ) ) != NULL ) {
+                if( !PrintValue( Value, Count ) ) {
+                    DELETE( Iterator );
 /*
-                if( UnloadValuesFlag ) {
-                    _IR->UnloadValues( Node );
+                    if( UnloadValuesFlag ) {
+                        _IR->UnloadValues( Node );
+                    }
+*/
+                    return( FALSE );
                 }
-*/
-                return( FALSE );
+                Count++;
             }
-            Count++;
-        }
-        DELETE( Iterator );
+            DELETE( Iterator );
 /*
-        if( UnloadValuesFlag ) {
-//            DbgPrint( "UnloadValuesFlag is TRUE" );
-            _IR->UnloadValues( Node );
-        }
-//        else {
-//              DbgPrint( "UnloadValuesFlag is FALSE" );
-//        }
+            if( UnloadValuesFlag ) {
+//                DebugPrint( "UnloadValuesFlag is TRUE" );
+                _IR->UnloadValues( Node );
+            }
+//            else {
+//                  DebugPrint( "UnloadValuesFlag is FALSE" );
+//            }
 */
+        }
     }
     if( !PrintString( &_EmptyLine ) ) {
-        DbgPrint( "PrintString() failed \n" );
+        DebugPrint( "PrintString() failed \n" );
         return( FALSE );
     }
     return( TRUE );
@@ -1390,16 +1382,16 @@ Return Value:
     DbgWinPtrAssert( Value );
 
     if( !ValueNumberString.Initialize( _StringValue ) ) {
-        DbgPrint( "ValueNumberString.Initialize() failed" );
+        DebugPrint( "ValueNumberString.Initialize() failed" );
         return( FALSE );
     }
     if( !Name.Initialize( _StringValueName ) ) {
-        DbgPrint( "Name.Initialize() failed" );
+        DebugPrint( "Name.Initialize() failed" );
         return( FALSE );
     }
 
     if( !Type.Initialize( _StringValueType ) ) {
-        DbgPrint( "Type.Initialize() failed" );
+        DebugPrint( "Type.Initialize() failed" );
         return( FALSE );
     }
 
@@ -1409,10 +1401,10 @@ Return Value:
     //  and print it
     //
     AuxNumber = ( PWSTR )MALLOC( (10 + 1)*sizeof( WCHAR ) );
-    DbgPtrAssert( AuxNumber );
+    DebugPtrAssert( AuxNumber );
     wsprintf( AuxNumber, (LPWSTR)L"%d", ValueNumber );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         FREE( AuxNumber );
         return( FALSE );
     }
@@ -1429,7 +1421,7 @@ Return Value:
     //  Build a string that contains the value name, and print it.
     //
     Pointer = Value->GetName();
-    DbgPtrAssert( Pointer );
+    DebugPtrAssert( Pointer );
     if( Pointer->QueryChCount() != 0 ) {
         Name.Strcat( Pointer );
     } else {
@@ -1618,7 +1610,7 @@ Return Value:
         case WM_COMMAND:
 
             _UserAbort = TRUE;
-            DbgPrint( "_UserAbort was set" );
+            DebugPrint( "_UserAbort was set" );
             EnableWindow( GetParent( Handle ), TRUE  );
             DestroyWindow( Handle );
             _DlgPrint = 0;
@@ -1733,21 +1725,21 @@ Return Value:
             case SP_ERROR:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_ERROR_LINE1, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 TmpString = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_ERROR_LINE2, "" );
-                DbgPtrAssert( TmpString );
+                DebugPtrAssert( TmpString );
                 Message->Strcat( TmpString );
                 DELETE( TmpString );
                 TmpString = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_ERROR_LINE3, "" );
-                DbgPtrAssert( TmpString );
+                DebugPtrAssert( TmpString );
                 Message->Strcat( TmpString );
                 DELETE( TmpString );
                 TmpString = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_ERROR_LINE4, "" );
-                DbgPtrAssert( TmpString );
+                DebugPtrAssert( TmpString );
                 Message->Strcat( TmpString );
                 DELETE( TmpString );
                 TmpString = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_ERROR_LINE5, "" );
-                DbgPtrAssert( TmpString );
+                DebugPtrAssert( TmpString );
                 Message->Strcat( TmpString );
                 DELETE( TmpString );
 
@@ -1758,44 +1750,44 @@ Return Value:
             case SP_OUTOFDISK:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_OUTOFDISK, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 break;
 
 
             case SP_OUTOFMEMORY:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_OUTOFMEMORY, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 break;
 
 
             case SP_APPABORT:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_APPABORT, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 break;
 
             case SP_USERABORT:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_SP_USERABORT, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 break;
 
             default:
 
                 Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_UNKNOWN_ERROR, "" );
-                DbgPtrAssert( Message );
+                DebugPtrAssert( Message );
                 break;
 
         }
 
         String = Message->QueryWSTR();
-        DbgPtrAssert( String );
+        DebugPtrAssert( String );
         DELETE( Message );
 
         Message = NULL;
         Message = REGEDIT_BASE_SYSTEM::QueryString( MSG_PRINT_ERROR_DIALOG_TITLE, "" );
-        DbgPtrAssert( Message );
+        DebugPtrAssert( Message );
         Title = Message->QueryWSTR();
         DELETE( Message );
         MessageBox( _DlgPrint, String, Title, ( UINT )( MB_APPLMODAL | MB_OK ) );
@@ -1837,7 +1829,7 @@ Return Value:
 
 
     if( !Type.Initialize( L"Value Type = " ) ) {
-        DbgPrint( "Type.Initialize() failed" );
+        DebugPrint( "Type.Initialize() failed" );
         return( FALSE );
     }
     Type.Strcat( ValueType );
@@ -1908,7 +1900,7 @@ Return Value:
 
     if( PrintDataLabel ) {
         if( !PrintString( _StringData ) ) {
-            DbgPrint( "PrintString( &_StringData ) failed \n" );
+            DebugPrint( "PrintString( &_StringData ) failed \n" );
             return( FALSE );
         }
     }
@@ -1918,7 +1910,7 @@ Return Value:
     }
 
     if( ValueData == NULL ) {
-        DbgPrint( "ValueData is NULL \n" );
+        DebugPrint( "ValueData is NULL \n" );
         return( TRUE );
     }
 
@@ -1991,13 +1983,13 @@ Return Value:
                     ? ValueData[ DataIndex2 + 15 ]  : ( WCHAR )'.'
                 );
         if( !FormattedData.Initialize( AuxData ) ) {
-            DbgPrint( "FormattedData.Initialize() failed \n" );
+            DebugPrint( "FormattedData.Initialize() failed \n" );
             FREE( AuxData );
             return( FALSE );
         }
 
         if( !PrintString( &FormattedData, FALSE ) ) {
-            DbgPrint( "PrintString( &FormattedData ) failed \n" );
+            DebugPrint( "PrintString( &FormattedData ) failed \n" );
             FREE( AuxData );
             return( FALSE );
         }
@@ -2080,12 +2072,12 @@ Return Value:
 
         }
         if( !FormattedData.Initialize( AuxData ) ) {
-            DbgPrint( "FormattedData.Initialize( AuxData ) failed \n" );
+            DebugPrint( "FormattedData.Initialize( AuxData ) failed \n" );
             FREE( AuxData );
             return( FALSE );
         }
         if( !PrintString( &FormattedData, FALSE ) ) {
-            DbgPrint( "PrintString( &FormattedData ) failed \n" );
+            DebugPrint( "PrintString( &FormattedData ) failed \n" );
             FREE( AuxData );
             return( FALSE );
         }
@@ -2132,19 +2124,19 @@ Return Value:
 
 
     if( !Data.Initialize( _StringData ) ) {
-        DbgPrint( "Data.Initialize() failed" );
+        DebugPrint( "Data.Initialize() failed" );
         return( FALSE );
     }
     if( ( ValueDataLength >= sizeof( DWORD ) ) &&
         ( ValueData != NULL ) ) {
         AuxData = ( PWSTR )MALLOC( (10 + 1)*sizeof( WCHAR ) );
-        DbgPtrAssert( AuxData );
+        DebugPtrAssert( AuxData );
 
         swprintf( AuxData, (LPWSTR)L"%#x", *( ( PULONG )ValueData ) );
 
         if( !FormattedData.Initialize( AuxData ) ) {
             FREE( AuxData );
-            DbgPrint( "FormattedData.Initialize() failed" );
+            DebugPrint( "FormattedData.Initialize() failed" );
             return( FALSE );
         }
         FREE( AuxData );
@@ -2195,7 +2187,7 @@ Return Value:
 
 
     if( !FormattedData.Initialize( _StringData ) ) {
-        DbgPrint( "FormattedData.Initialize() failed" );
+        DebugPrint( "FormattedData.Initialize() failed" );
         return( FALSE );
     }
 
@@ -2205,7 +2197,7 @@ Return Value:
         //
         //
         if( !AuxData.Initialize( Pointer ) ) {
-            DbgPrint( "AuxData.Initialize() failed" );
+            DebugPrint( "AuxData.Initialize() failed" );
             return( FALSE );
         }
         Length = AuxData.QueryChCount();
@@ -2217,12 +2209,12 @@ Return Value:
         Pointer += Length + 1;
         while( ( ULONG )Pointer < ( ULONG )( Data + Size ) ) {
             if( !AuxData.Initialize( Pointer ) ) {
-                DbgPrint( "AuxData.Initialize() failed" );
+                DebugPrint( "AuxData.Initialize() failed" );
                 return( FALSE );
             }
             Length = AuxData.QueryChCount();
             if( !AuxData.Replace( 0, 0, &_IndentString ) ) {
-                DbgPrint( "TmpString.Replace() failed \n" );
+                DebugPrint( "TmpString.Replace() failed \n" );
                 return( FALSE );
             }
             if( !PrintString( &AuxData, FALSE ) ) {
@@ -2277,7 +2269,7 @@ Return Value:
 
 
     if( !FormattedData.Initialize( _StringData ) ) {
-        DbgPrint( "FormattedData.Initialize() failed" );
+        DebugPrint( "FormattedData.Initialize() failed" );
         return( FALSE );
     }
 
@@ -2288,13 +2280,13 @@ Return Value:
     if( ( Size == 0 ) ||
         ( Data == NULL ) ||
         !ResourceList.Initialize( Data, Size ) ) {
-        DbgPrintf( "REGEDT32: Unable to initialize ResourceList \n" );
+        DebugPrintf( "REGEDT32: Unable to initialize ResourceList \n" );
         return( FALSE );
     }
 
     if( ( ( FullResourceDescriptors = ResourceList.GetFullResourceDescriptors() ) == NULL ) ||
         ( ( Iterator = FullResourceDescriptors->QueryIterator() ) == NULL ) ) {
-        DbgPrintf( "REGEDT32: Out of memory! \n" );
+        DebugPrintf( "REGEDT32: Out of memory! \n" );
         return( FALSE );
     }
     DescriptorNumber = 0;
@@ -2368,7 +2360,7 @@ Return Value:
         !Revision.Initialize( &_IndentString ) ||
         !Revision.Strcat( _StringRevision )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -2379,7 +2371,7 @@ Return Value:
     if( PrintDescriptorNumber ) {
         wsprintf( AuxNumber, (LPWSTR)L"%d", DescriptorNumber );
         if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
             return( FALSE );
         }
         FullDescriptorNumberString.Strcat( &AuxString );
@@ -2462,7 +2454,7 @@ Return Value:
     TypeString =  REGEDIT_BASE_SYSTEM::QueryString( InterfaceId, "" );
 
     if( TypeString == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     InterfaceType.Strcat( TypeString );
@@ -2476,7 +2468,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", FullDescriptor->GetBusNumber() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     BusNumber.Strcat( &AuxString );
@@ -2490,7 +2482,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", FullDescriptor->GetVersion() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     Version.Strcat( &AuxString );
@@ -2503,7 +2495,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", FullDescriptor->GetRevision() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     Revision.Strcat( &AuxString );
@@ -2528,7 +2520,7 @@ Return Value:
     DELETE( Iterator );
 
     if( !PrintString( &_EmptyLine ) ) {
-        DbgPrint( "PrintString() failed \n" );
+        DebugPrint( "PrintString() failed \n" );
         return( FALSE );
     }
     return( TRUE );
@@ -2579,7 +2571,7 @@ Return Value:
         !DispositionString.Initialize( &_IndentString ) ||
         !DispositionString.Strcat( _StringDisposition )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -2589,7 +2581,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", DescriptorNumber );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     PartialDescriptorNumberString.Strcat( &AuxString );
@@ -2616,7 +2608,7 @@ Return Value:
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
 
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     ResourceString.Strcat( String );
@@ -2642,7 +2634,7 @@ Return Value:
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
 
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     DispositionString.Strcat( String );
@@ -2674,7 +2666,7 @@ Return Value:
     }
 
     if( !PrintString( &_EmptyLine ) ) {
-        DbgPrint( "PrintString() failed \n" );
+        DebugPrint( "PrintString() failed \n" );
         return( FALSE );
     }
     return( TRUE );
@@ -2726,7 +2718,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -2735,7 +2727,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", Descriptor->GetVector() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     VectorString.Strcat( &AuxString );
@@ -2748,7 +2740,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", Descriptor->GetLevel() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     LevelString.Strcat( &AuxString );
@@ -2761,7 +2753,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"0x%08x", Descriptor->GetAffinity() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     AffinityString.Strcat( &AuxString );
@@ -2774,7 +2766,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -2828,7 +2820,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -2844,7 +2836,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PPORT_DESCRIPTOR )Descriptor )->GetPhysicalAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     StartAddressString.Strcat( &AuxString );
@@ -2857,7 +2849,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetLength() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     LengthString.Strcat( &AuxString );
@@ -2874,7 +2866,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -2928,7 +2920,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -2944,7 +2936,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PMEMORY_DESCRIPTOR )Descriptor )->GetStartAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     StartAddressString.Strcat( &AuxString );
@@ -2957,7 +2949,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetLength() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     LengthString.Strcat( &AuxString );
@@ -2975,7 +2967,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -3024,7 +3016,7 @@ Return Value:
         !PortString.Initialize( &_IndentString ) ||
         !PortString.Strcat( _StringPort )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3034,7 +3026,7 @@ Return Value:
     wsprintf( AuxNumber, (LPWSTR)L"%d", Descriptor->GetChannel() );
 
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     ChannelString.Strcat( &AuxString );
@@ -3047,7 +3039,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", Descriptor->GetPort() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     PortString.Strcat( &AuxString );
@@ -3102,7 +3094,7 @@ Return Value:
         !DataString.Initialize( &_IndentString ) ||
         !DataString.Strcat( _StringDevSpecificData )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3112,7 +3104,7 @@ Return Value:
     wsprintf( AuxNumber, (LPWSTR)L"0x%08x", Descriptor->GetReserved1() );
 
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     Reserved1String.Strcat( &AuxString );
@@ -3125,7 +3117,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"0x%08x", Descriptor->GetReserved2() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     Reserved2String.Strcat( &AuxString );
@@ -3183,7 +3175,7 @@ Return Value:
 
 
     if( !FormattedData.Initialize( _StringData ) ) {
-        DbgPrint( "FormattedData.Initialize() failed" );
+        DebugPrint( "FormattedData.Initialize() failed" );
         return( FALSE );
     }
 
@@ -3191,18 +3183,18 @@ Return Value:
         if( Size >= sizeof( WCHAR ) ) {
             if( *( Data + Size - sizeof( WCHAR ) ) == ( WCHAR )'\0' ) {
                 if( !AuxData.Initialize( ( PWSTR )Data ) ) {
-                    DbgPrint( "AuxData.Initialize() failed" );
+                    DebugPrint( "AuxData.Initialize() failed" );
                     return( FALSE );
                 }
             } else {
                 if( !AuxData.Initialize( ( PWSTR )Data, Size/sizeof( WCHAR ) ) ) {
-                    DbgPrint( "AuxData.Initialize() failed" );
+                    DebugPrint( "AuxData.Initialize() failed" );
                     return( FALSE );
                 }
             }
         } else {
             if( !AuxData.Initialize( ( PWSTR )Data, Size ) ) {
-                DbgPrint( "AuxData.Initialize() failed" );
+                DebugPrint( "AuxData.Initialize() failed" );
                 return( FALSE );
             }
         }
@@ -3261,7 +3253,7 @@ Return Value:
 
 
     if( !FormattedData.Initialize( _StringData ) ) {
-        DbgPrint( "FormattedData.Initialize() failed" );
+        DebugPrint( "FormattedData.Initialize() failed" );
         return( FALSE );
     }
 
@@ -3272,7 +3264,7 @@ Return Value:
     if( ( Size == 0 ) ||
         ( Data == NULL ) ||
         !RequirementsList.Initialize( Data, Size ) ) {
-        DbgPrintf( "REGEDT32: Unable to initialize RequirementsList \n" );
+        DebugPrintf( "REGEDT32: Unable to initialize RequirementsList \n" );
         return( FALSE );
     }
 
@@ -3283,7 +3275,7 @@ Return Value:
         !SlotNumber.Initialize( &_IndentString ) ||
         !SlotNumber.Strcat( _StringIoSlotNumber )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3362,7 +3354,7 @@ Return Value:
     TypeString =  REGEDIT_BASE_SYSTEM::QueryString( InterfaceId, "" );
 
     if( TypeString == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     InterfaceType.Strcat( TypeString );
@@ -3377,7 +3369,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", RequirementsList.GetBusNumber() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     BusNumber.Strcat( &AuxString );
@@ -3391,7 +3383,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", RequirementsList.GetSlotNumber() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     SlotNumber.Strcat( &AuxString );
@@ -3406,7 +3398,7 @@ Return Value:
 
     if( ( ( AlternativeLists = RequirementsList.GetAlternativeLists() ) == NULL ) ||
         ( ( Iterator = AlternativeLists->QueryIterator() ) == NULL ) ) {
-        DbgPrintf( "REGEDT32: Out of memory! \n" );
+        DebugPrintf( "REGEDT32: Out of memory! \n" );
         return( FALSE );
     }
     ListNumber = 0;
@@ -3463,7 +3455,7 @@ Return Value:
     if( !ListNumberString.Initialize( &_IndentString ) ||
         !ListNumberString.Strcat( _StringIoListNumber )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3473,7 +3465,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", ListNumber );
     if( !AuxString.Initialize( AuxNumber ) ) {
-    DbgPrint( "AuxString.Initialize() failed" );
+    DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     ListNumberString.Strcat( &AuxString );
@@ -3497,7 +3489,7 @@ Return Value:
     DELETE( Iterator );
 
     if( !PrintString( &_EmptyLine ) ) {
-        DbgPrint( "PrintString() failed \n" );
+        DebugPrint( "PrintString() failed \n" );
         return( FALSE );
     }
     return( TRUE );
@@ -3552,7 +3544,7 @@ Return Value:
         !DispositionString.Initialize( &_IndentString ) ||
         !DispositionString.Strcat( _StringDisposition )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3562,7 +3554,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%d", DescriptorNumber );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     IoDescriptorNumberString.Strcat( &AuxString );
@@ -3587,7 +3579,7 @@ Return Value:
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
 
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     ResourceString.Strcat( String );
@@ -3602,7 +3594,7 @@ Return Value:
 
     wsprintf( AuxNumber, (LPWSTR)L"0x%08x", IoDescriptor->GetOption() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     OptionString.Strcat( &AuxString );
@@ -3628,7 +3620,7 @@ Return Value:
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
 
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     DispositionString.Strcat( String );
@@ -3656,7 +3648,7 @@ Return Value:
     }
 
     if( !PrintString( &_EmptyLine ) ) {
-        DbgPrint( "PrintString() failed \n" );
+        DebugPrint( "PrintString() failed \n" );
         return( FALSE );
     }
     return( TRUE );
@@ -3706,7 +3698,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3719,7 +3711,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -3733,7 +3725,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetMinimumVector() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MinimumVectorString.Strcat( &AuxString );
@@ -3746,7 +3738,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetMaximumVector() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MaximumVectorString.Strcat( &AuxString );
@@ -3806,7 +3798,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3819,7 +3811,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -3833,7 +3825,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetLength() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     LengthString.Strcat( &AuxString );
@@ -3846,7 +3838,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetAlignment() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     AlignmentString.Strcat( &AuxString );
@@ -3866,7 +3858,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PIO_PORT_DESCRIPTOR )Descriptor )->GetMinimumAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MinimumAddressString.Strcat( &AuxString );
@@ -3886,7 +3878,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PIO_PORT_DESCRIPTOR )Descriptor )->GetMaximumAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MaximumAddressString.Strcat( &AuxString );
@@ -3946,7 +3938,7 @@ Return Value:
         !TypeString.Initialize( &_IndentString ) ||
         !TypeString.Strcat( _StringType )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -3960,7 +3952,7 @@ Return Value:
 
     String =  REGEDIT_BASE_SYSTEM::QueryString( StringId, "" );
     if( String == NULL ) {
-        DbgPrintf( "REGEDT32: Unable to retrieve string \n" );
+        DebugPrintf( "REGEDT32: Unable to retrieve string \n" );
         return( FALSE );
     }
     TypeString.Strcat( String );
@@ -3974,7 +3966,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetLength() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     LengthString.Strcat( &AuxString );
@@ -3987,7 +3979,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetAlignment() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     AlignmentString.Strcat( &AuxString );
@@ -4007,7 +3999,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PIO_PORT_DESCRIPTOR )Descriptor )->GetMinimumAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MinimumAddressString.Strcat( &AuxString );
@@ -4027,7 +4019,7 @@ Return Value:
         wsprintf( AuxNumber, (LPWSTR)L"0x%08x", ( ( ( PIO_PORT_DESCRIPTOR )Descriptor )->GetMaximumAddress() )->LowPart );
     }
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MaximumAddressString.Strcat( &AuxString );
@@ -4076,7 +4068,7 @@ Return Value:
         !MaximumChannelString.Initialize( &_IndentString ) ||
         !MaximumChannelString.Strcat( _StringIoMaximumChannel )
       ) {
-        DbgPrint( "REGEDT32: Initialization failure" );
+        DebugPrint( "REGEDT32: Initialization failure" );
         return( FALSE );
     }
 
@@ -4085,7 +4077,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetMinimumChannel() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MinimumChannelString.Strcat( &AuxString );
@@ -4098,7 +4090,7 @@ Return Value:
     //
     wsprintf( AuxNumber, (LPWSTR)L"%#x", Descriptor->GetMaximumChannel() );
     if( !AuxString.Initialize( AuxNumber ) ) {
-        DbgPrint( "AuxString.Initialize() failed" );
+        DebugPrint( "AuxString.Initialize() failed" );
         return( FALSE );
     }
     MaximumChannelString.Strcat( &AuxString );

@@ -118,6 +118,11 @@ FatIsPathnameValid (
     IN PIRP Irp
     );
 
+NTSTATUS
+FatInvalidateVolumes (
+    IN PIRP Irp
+    );
+
 BOOLEAN
 FatPerformVerifyDiskRead (
     IN PIRP_CONTEXT IrpContext,
@@ -137,7 +142,7 @@ FatMountDblsVolume (
 NTSTATUS
 FatAutoMountDblsVolume (
     IN PIRP_CONTEXT IrpContext,
-    IN PVPB Vpb
+   IN PVPB Vpb
     );
 
 BOOLEAN
@@ -147,6 +152,24 @@ FatIsAutoMountEnabled (
 
 NTSTATUS
 FatQueryRetrievalPointers (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FatQueryBpb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FatGetStatistics (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FatAllowExtendedDasdIo (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp
     );
@@ -164,6 +187,52 @@ FatGetDoubleSpaceConfigurationValue(
     IN OUT PULONG Value
     );
 
+//
+//  Local support routine prototypes
+//
+
+NTSTATUS
+FatGetVolumeBitmap (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FatGetRetrievalPointers (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+NTSTATUS
+FatMoveFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    );
+
+VOID
+FatComputeMoveFileSplicePoints (
+    PIRP_CONTEXT IrpContext,
+    PFCB FcbOrDcb,
+    ULONG FileOffset,
+    ULONG TargetCluster,
+    ULONG BytesToReallocate,
+    PULONG FirstSpliceSourceCluster,
+    PULONG FirstSpliceTargetCluster,
+    PULONG SecondSpliceSourceCluster,
+    PULONG SecondSpliceTargetCluster,
+    PMCB SourceMcb
+);
+
+VOID
+FatComputeMoveFileParameter (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB FcbOrDcb,
+    IN ULONG FileOffset,
+    IN OUT PULONG ByteCount,
+    OUT PULONG BytesToReallocate,
+    OUT PULONG BytesToWrite
+);
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FatCommonFileSystemControl)
 #pragma alloc_text(PAGE, FatDirtyVolume)
@@ -180,11 +249,22 @@ FatGetDoubleSpaceConfigurationValue(
 #pragma alloc_text(PAGE, FatVerifyVolume)
 #pragma alloc_text(PAGE, FatQueryRetrievalPointers)
 #pragma alloc_text(PAGE, FatDismountVolume)
+#pragma alloc_text(PAGE, FatQueryBpb)
+#pragma alloc_text(PAGE, FatInvalidateVolumes)
+#pragma alloc_text(PAGE, FatGetStatistics)
 #ifdef WE_WON_ON_APPEAL
 #pragma alloc_text(PAGE, FatMountDblsVolume)
 #pragma alloc_text(PAGE, FatAutoMountDblsVolume)
 #endif // WE_WON_ON_APPEAL
+#pragma alloc_text(PAGE, FatGetVolumeBitmap)
+#pragma alloc_text(PAGE, FatGetRetrievalPointers)
+#pragma alloc_text(PAGE, FatMoveFile)
+#pragma alloc_text(PAGE, FatComputeMoveFileSplicePoints)
+#pragma alloc_text(PAGE, FatComputeMoveFileParameter)
+#pragma alloc_text(PAGE, FatAllowExtendedDasdIo)
 #endif
+
+BOOLEAN FatMoveFileDebug = 0;
 
 
 NTSTATUS
@@ -244,9 +324,30 @@ Return Value:
 
     try {
 
-        IrpContext = FatCreateIrpContext( Irp, Wait );
+        PIO_STACK_LOCATION IrpSp;
 
-        Status = FatCommonFileSystemControl( IrpContext, Irp );
+        IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+        //
+        //  We need to made a special check here for the InvalidateVolumes
+        //  FSCTL as that comes in with a FileSystem device object instead
+        //  of a volume device object.
+        //
+
+        if ((IrpSp->DeviceObject->Size == (USHORT)sizeof(DEVICE_OBJECT)) &&
+            (IrpSp->MajorFunction == IRP_MJ_FILE_SYSTEM_CONTROL) &&
+            (IrpSp->MinorFunction == IRP_MN_USER_FS_REQUEST) &&
+            (IrpSp->Parameters.FileSystemControl.FsControlCode ==
+             FSCTL_INVALIDATE_VOLUMES)) {
+
+            Status = FatInvalidateVolumes( Irp );
+
+        } else {
+
+            IrpContext = FatCreateIrpContext( Irp, Wait );
+
+            Status = FatCommonFileSystemControl( IrpContext, Irp );
+        }
 
     } except(FatExceptionFilter( IrpContext, GetExceptionInformation() )) {
 
@@ -541,6 +642,12 @@ Return Value:
         PVPB OldVpb;
 
         //
+        //  Synchronize with FatCheckForDismount(), which modifies the vpb.
+        //
+
+        (VOID)FatAcquireExclusiveGlobal( IrpContext );
+
+        //
         //  Create a new volume device object.  This will have the Vcb
         //  hanging off of its end, and set its alignment requirement
         //  from the device we talk to.
@@ -556,6 +663,15 @@ Return Value:
 
             try_return( Status );
         }
+
+#ifdef _PNP_POWER_
+        //
+        // This driver doesn't talk directly to a device, and (at the moment)
+        // isn't otherwise concerned about power management.
+        //
+
+        VolDo->DeviceObject.DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
 
         //
         //  Our alignment requirement is the larger of the processor alignment requirement
@@ -653,10 +769,19 @@ Return Value:
         }
 
         //
+        //  Stash a copy of the first 0x24 bytes
+        //
+
+        RtlCopyMemory( Vcb->First0x24BytesOfBootSector,
+                       BootSector,
+                       0x24 );
+
+        //
         //  Verify that all the Fats are REALLY FATs
         //
 
-        {
+        if (!FatData.FujitsuFMR) {
+
             UCHAR i;
             ULONG BytesPerSector;
             ULONG BytesPerFat;
@@ -678,6 +803,7 @@ Return Value:
             Fat = FsRtlAllocatePool( NonPagedPoolCacheAligned,
                                      ROUND_TO_PAGES( BytesPerSector ));
 
+
             for (i=0; i < Bpb->Fats[0]; i++) {
 
                 (VOID)FatPerformVerifyDiskRead( IrpContext,
@@ -689,21 +815,27 @@ Return Value:
 
 
                 //
-                //  Make sure the media byte is correct and that the
+                //  Make sure the media byte is 0xf0-0xff and that the
                 //  next two bytes are 0xFF (16 bit fat get a freebe byte).
                 //
 
-                if ((Fat[0] & 0xffffff) != (0xffff00 + (ULONG)Bpb->Media[0])) {
+                if ((Fat[0] & 0xfffff0) != 0xfffff0) {
 
                     try_return( Status = STATUS_UNRECOGNIZED_VOLUME );
                 }
             }
 
             //
-            //  Set the file size in out device object.
+            //  Set the bytes per sector in our device object.
             //
 
             VolDo->DeviceObject.SectorSize = (USHORT)BytesPerSector;
+
+        } else {
+
+            VolDo->DeviceObject.SectorSize =
+                BootSector->PackedBpb.BytesPerSector[0] +
+                BootSector->PackedBpb.BytesPerSector[1]*0x100;
         }
 
         //
@@ -783,6 +915,8 @@ Return Value:
             Vpb->VolumeLabelLength = 0;
         }
 
+        Vcb->ChangeCount = 0;
+
         //
         //  Now scan the list of previously mounted volumes and compare
         //  serial numbers and volume labels off not currently mounted
@@ -790,8 +924,6 @@ Return Value:
         //
         //  Note we never attempt a remount of a DoubleSpace volume.
         //
-
-        (VOID)FatAcquireExclusiveGlobal( IrpContext );
 
         if (Dscb == NULL) {
 
@@ -827,13 +959,12 @@ Return Value:
                      (OldVcb->VcbCondition == VcbNotMounted) &&
                      (OldVpb->RealDevice == RealDevice) &&
                      (OldVpb->VolumeLabelLength == Vpb->VolumeLabelLength) &&
-                     (RtlCompareMemory(&OldVpb->VolumeLabel[0],
-                                       &Vpb->VolumeLabel[0],
-                                       Vpb->VolumeLabelLength) == (ULONG)Vpb->VolumeLabelLength) &&
-                     (RtlCompareMemory(&OldVcb->Bpb,
-                                       &Vcb->Bpb,
-                                       sizeof(BIOS_PARAMETER_BLOCK)) ==
-                                       sizeof(BIOS_PARAMETER_BLOCK)) ) {
+                     (RtlEqualMemory(&OldVpb->VolumeLabel[0],
+                                     &Vpb->VolumeLabel[0],
+                                     Vpb->VolumeLabelLength)) &&
+                     (RtlEqualMemory(&OldVcb->Bpb,
+                                     &Vcb->Bpb,
+                                     sizeof(BIOS_PARAMETER_BLOCK))) ) {
 
                     DoARemount = TRUE;
 
@@ -889,20 +1020,14 @@ Return Value:
             Vcb->RootDcb->Specific.Dcb.DirectoryFile->Vpb = NULL;
 
             //
-            //  We no longer need to synchonize
-            //
-
-            FatReleaseGlobal( IrpContext );
-
-            //
             //  Reinitialize the volume file cache and allocation support.
             //
 
             {
                 CC_FILE_SIZES FileSizes;
 
-                FileSizes.AllocationSize =
-                FileSizes.FileSize = LiFromUlong( 0x40000 + 0x1000 );
+                FileSizes.AllocationSize.QuadPart =
+                FileSizes.FileSize.QuadPart = ( 0x40000 + 0x1000 );
                 FileSizes.ValidDataLength = FatMaxLarge;
 
                 DebugTrace(0, Dbg, "Truncate and reinitialize the volume file\n", 0);
@@ -945,8 +1070,6 @@ Return Value:
 
             try_return( Status = STATUS_SUCCESS );
         }
-
-        FatReleaseGlobal( IrpContext );
 
         DebugTrace(0, Dbg, "Mount a new volume\n", 0);
 
@@ -1075,6 +1198,8 @@ Return Value:
 
             SetFlag(RealDevice->Flags, DO_VERIFY_VOLUME);
         }
+
+        FatReleaseGlobal( IrpContext );
 
         DebugTrace(-1, Dbg, "FatMountVolume -> %08lx\n", Status);
     }
@@ -1319,10 +1444,9 @@ Return Value:
         FatUnpackBios( &Bpb, &BootSector->PackedBpb );
         if (Bpb.Sectors != 0) { Bpb.LargeSectors = 0; }
 
-        if ( RtlCompareMemory( &Bpb,
-                               &Vcb->Bpb,
-                               sizeof(BIOS_PARAMETER_BLOCK) ) !=
-                               sizeof(BIOS_PARAMETER_BLOCK) ) {
+        if ( !RtlEqualMemory( &Bpb,
+                              &Vcb->Bpb,
+                              sizeof(BIOS_PARAMETER_BLOCK) ) ) {
 
             DebugTrace(0, Dbg, "Bpb is different\n", 0);
 
@@ -1427,9 +1551,9 @@ Return Value:
             }
 
             if ( (VolumeLabelLength != (ULONG)Vpb->VolumeLabelLength) ||
-                 (RtlCompareMemory(&UnicodeBuffer[0],
-                                   &Vpb->VolumeLabel[0],
-                                   VolumeLabelLength) != VolumeLabelLength) ) {
+                 (!RtlEqualMemory(&UnicodeBuffer[0],
+                                  &Vpb->VolumeLabel[0],
+                                  VolumeLabelLength)) ) {
 
                 DebugTrace(0, Dbg, "Wrong volume label\n", 0);
 
@@ -1620,6 +1744,7 @@ Return Value:
             ClearFlag( Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
         }
 
+
     } finally {
 
         DebugUnwind( FatVerifyVolume );
@@ -1700,15 +1825,18 @@ Return Value:
     FatUnpackBios( &Bpb, &BootSector->PackedBpb );
     if (Bpb.Sectors != 0) { Bpb.LargeSectors = 0; }
 
-    if ( (BootSector->Jump[0] != 0xe9) &&
-         (BootSector->Jump[0] != 0xeb) ) {
+    if ((BootSector->Jump[0] != 0xe9) &&
+        (BootSector->Jump[0] != 0xeb) &&
+        (BootSector->Jump[0] != 0x49)) {
 
         Result = FALSE;
 
     } else if ((Bpb.BytesPerSector !=  128) &&
                (Bpb.BytesPerSector !=  256) &&
                (Bpb.BytesPerSector !=  512) &&
-               (Bpb.BytesPerSector != 1024)) {
+               (Bpb.BytesPerSector != 1024) &&
+               (Bpb.BytesPerSector != 2048) &&
+               (Bpb.BytesPerSector != 4096)) {
 
         Result = FALSE;
 
@@ -1735,8 +1863,12 @@ Return Value:
 
         Result = FALSE;
 
-    } else if (((Bpb.Sectors == 0) && (Bpb.LargeSectors == 0)) ||
-               ((Bpb.Sectors != 0) && (Bpb.LargeSectors != 0))) {
+    //
+    // Prior to DOS 3.2 might contains value in both of Sectors and
+    // Sectors Large.
+    //
+
+    } else if ((Bpb.Sectors == 0) && (Bpb.LargeSectors == 0)) {
 
         Result = FALSE;
 
@@ -1751,7 +1883,10 @@ Return Value:
                (Bpb.Media != 0xfc) &&
                (Bpb.Media != 0xfd) &&
                (Bpb.Media != 0xfe) &&
-               (Bpb.Media != 0xff)) {
+               (Bpb.Media != 0xff) &&
+               (!FatData.FujitsuFMR || ((Bpb.Media != 0x00) &&
+                                        (Bpb.Media != 0x01) &&
+                                        (Bpb.Media != 0xfa)))) {
 
         Result = FALSE;
     }
@@ -2014,6 +2149,30 @@ Return Value:
 
     case FSCTL_QUERY_RETRIEVAL_POINTERS:
         Status = FatQueryRetrievalPointers( IrpContext, Irp );
+        break;
+
+    case FSCTL_QUERY_FAT_BPB:
+        Status = FatQueryBpb( IrpContext, Irp );
+        break;
+
+    case FSCTL_FILESYSTEM_GET_STATISTICS:
+        Status = FatGetStatistics( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_VOLUME_BITMAP:
+        Status = FatGetVolumeBitmap( IrpContext, Irp );
+        break;
+
+    case FSCTL_GET_RETRIEVAL_POINTERS:
+        Status = FatGetRetrievalPointers( IrpContext, Irp );
+        break;
+
+    case FSCTL_MOVE_FILE:
+        Status = FatMoveFile( IrpContext, Irp );
+        break;
+
+    case FSCTL_ALLOW_EXTENDED_DASD_IO:
+        Status = FatAllowExtendedDasdIo( IrpContext, Irp );
         break;
 
     default :
@@ -2565,6 +2724,12 @@ Return Value:
     ASSERT( Vcb->OpenFileCount == 1 );
 
     //
+    //  First, tell the device to flush anything from its buffers.
+    //
+
+    (VOID)FatHijackIrpAndFlushDevice( IrpContext, Irp, Vcb->TargetDeviceObject );
+
+    //
     //  Get rid of any cached data, without flushing
     //
 
@@ -2783,6 +2948,8 @@ Return Value:
 
         Status = STATUS_INVALID_PARAMETER;
 
+        FatCompleteRequest( IrpContext, Irp, Status );
+
         DebugTrace(-1, Dbg, "FatIsPathnameValid -> %08lx\n", Status);
 
         return Status;
@@ -2810,6 +2977,8 @@ Return Value:
 
     if ( !NT_SUCCESS( Status) ) {
 
+        FatCompleteRequest( IrpContext, Irp, Status );
+
         DebugTrace(-1, Dbg, "FatIsPathnameValid -> %08lx\n", Status);
 
         return Status;
@@ -2829,6 +2998,294 @@ Return Value:
 
     return Status;
 }
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatQueryBpb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine simply returns the first 0x24 bytes of sector 0.
+
+Arguments:
+
+    Irp - Supplies the Irp to process
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    PIO_STACK_LOCATION IrpSp;
+
+    PVCB Vcb;
+
+    PFSCTL_QUERY_FAT_BPB_BUFFER BpbBuffer;
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatIsPathnameValid...\n", 0);
+
+    //
+    // Extract the buffer
+    //
+
+    BpbBuffer = (PFSCTL_QUERY_FAT_BPB_BUFFER)Irp->AssociatedIrp.SystemBuffer;
+
+    //
+    //  Make sure the buffer is big enough.
+    //
+
+    if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < 0x24) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+
+        DebugTrace(-1, Dbg, "FatIsPathnameValid -> %08lx\n", STATUS_BUFFER_TOO_SMALL );
+
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Get the Vcb.
+    //
+
+    Vcb = &((PVOLUME_DEVICE_OBJECT)IrpSp->DeviceObject)->Vcb;
+
+    //
+    //  Fill in the output buffer
+    //
+
+    RtlCopyMemory( BpbBuffer->First0x24BytesOfBootSector,
+                   Vcb->First0x24BytesOfBootSector,
+                   0x24 );
+
+    Irp->IoStatus.Information = 0x24;
+
+    FatCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+
+    DebugTrace(-1, Dbg, "FatIsPathnameValid -> %08lx\n", STATUS_SUCCESS);
+
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatInvalidateVolumes (
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine searches for all the volumes mounted on the same real device
+    of the current DASD handle, and marks them all bad.  The only operation
+    that can be done on such handles is cleanup and close.
+
+Arguments:
+
+    Irp - Supplies the Irp to process
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    NTSTATUS Status;
+    IRP_CONTEXT IrpContext;
+    PIO_STACK_LOCATION IrpSp;
+
+    LUID TcbPrivilege = {SE_TCB_PRIVILEGE, 0};
+
+    HANDLE Handle;
+
+    PVPB NewVpb;
+
+    PLIST_ENTRY Links;
+
+    PFILE_OBJECT FileToMarkBad;
+    PDEVICE_OBJECT DeviceToMarkBad;
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatInvalidateVolumes...\n", 0);
+
+    //
+    //  Check for the correct security access.
+    //  The caller must have the SeTcbPrivilege.
+    //
+
+    if (!SeSinglePrivilegeCheck(TcbPrivilege, Irp->RequestorMode)) {
+
+        FatCompleteRequest( FatNull, Irp, STATUS_PRIVILEGE_NOT_HELD );
+
+        DebugTrace(-1, Dbg, "FatInvalidateVolumes -> %08lx\n", STATUS_PRIVILEGE_NOT_HELD);
+        return STATUS_PRIVILEGE_NOT_HELD;
+    }
+
+    //
+    //  Try to get a pointer to the device object from the handle passed in.
+    //
+
+    if (IrpSp->Parameters.FileSystemControl.InputBufferLength != sizeof(HANDLE)) {
+
+        FatCompleteRequest( FatNull, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatInvalidateVolumes -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    Handle = *(PHANDLE)Irp->AssociatedIrp.SystemBuffer;
+
+    Status = ObReferenceObjectByHandle( Handle,
+                                        0,
+                                        *IoFileObjectType,
+                                        KernelMode,
+                                        &FileToMarkBad,
+                                        NULL );
+
+    if (!NT_SUCCESS(Status)) {
+
+        FatCompleteRequest( FatNull, Irp, Status );
+
+        DebugTrace(-1, Dbg, "FatInvalidateVolumes -> %08lx\n", Status);
+        return Status;
+
+    } else {
+
+        //
+        //  We only needed the pointer, not a reference.
+        //
+
+        ObDereferenceObject( FileToMarkBad );
+
+        //
+        //  Grab the DeviceObject from the FileObject.
+        //
+
+        DeviceToMarkBad = FileToMarkBad->DeviceObject;
+    }
+
+    //
+    //  Create a new Vpb for this device so that any new opens will mount
+    //  a new volume.
+    //
+
+    NewVpb = ExAllocatePoolWithTag( NonPagedPoolMustSucceed,
+                                    sizeof( VPB ),
+                                    ' bpV' );
+    RtlZeroMemory( NewVpb, sizeof( VPB ) );
+    NewVpb->Type = IO_TYPE_VPB;
+    NewVpb->Size = sizeof( VPB );
+    NewVpb->RealDevice = DeviceToMarkBad;
+
+    RtlZeroMemory( &IrpContext, sizeof(IRP_CONTEXT) );
+
+    SetFlag( IrpContext.Flags, IRP_CONTEXT_FLAG_WAIT );
+    IrpContext.MajorFunction = IrpSp->MajorFunction;
+    IrpContext.MinorFunction = IrpSp->MinorFunction;
+
+    FatAcquireExclusiveGlobal( &IrpContext );
+
+    //
+    //  Nothing can go wrong now.
+    //
+
+    DeviceToMarkBad->Vpb = NewVpb;
+
+    //
+    //  First acquire the FatData resource shared, then walk through all the
+    //  mounted VCBs looking for candidates to mark BAD.
+    //
+    //  On volumes we mark bad, check for dismount possibility (which is
+    //  why we have to get the next link early).
+    //
+
+    Links = FatData.VcbQueue.Flink;
+
+    while (Links != &FatData.VcbQueue) {
+
+        PVCB ExistingVcb;
+
+        ExistingVcb = CONTAINING_RECORD(Links, VCB, VcbLinks);
+
+        Links = Links->Flink;
+
+        //
+        //  If we get a match, mark the volume Bad, and also check to
+        //  see if the volume should go away.
+        //
+
+        if (ExistingVcb->Vpb->RealDevice == DeviceToMarkBad) {
+
+            PVPB Vpb;
+
+            //
+            //  Here we acquire the Vcb exclusive and try to purge
+            //  all the open files.  The idea is to have as little as
+            //  possible stale data visible and to hasten the volume
+            //  going away.
+            //
+
+            (VOID)FatAcquireExclusiveVcb( &IrpContext, ExistingVcb );
+
+            ExistingVcb->VcbCondition = VcbBad;
+
+            FatMarkFcbCondition( &IrpContext, ExistingVcb->RootDcb, FcbBad );
+
+            FatPurgeReferencedFileObjects( &IrpContext,
+                                           ExistingVcb->RootDcb,
+                                           FALSE );
+
+            //
+            //  If the volume was not deleted, drop the resource.
+            //
+
+            if (Links->Blink == &ExistingVcb->VcbLinks) {
+
+                FatReleaseVcb( &IrpContext, ExistingVcb );
+
+                //
+                //  If the volume does go away now, then we have to free
+                //  up the Vpb as nobody else will.
+                //
+
+                Vpb = ExistingVcb->Vpb;
+
+                if (FatCheckForDismount( &IrpContext, ExistingVcb )) {
+
+                    ExFreePool( Vpb );
+                }
+            }
+        }
+    }
+
+    FatReleaseGlobal( &IrpContext );
+
+    FatCompleteRequest( FatNull, Irp, STATUS_SUCCESS );
+
+    DebugTrace(-1, Dbg, "FatInvalidateVolumes -> STATUS_SUCCESS\n", 0);
+
+    return STATUS_SUCCESS;
+}
+
 
 
 //
@@ -2894,7 +3351,7 @@ Return Value:
     //  Build the irp for the operation and also set the overrride flag
     //
 
-    ByteOffset = LiFromUlong( Lbo );
+    ByteOffset.QuadPart = Lbo;
 
     Irp = IoBuildSynchronousFsdRequest( IRP_MJ_READ,
                                         Vcb->TargetDeviceObject,
@@ -3118,7 +3575,7 @@ Return Value:
         UnicodeFileName.MaximumLength = (USHORT)Buffer->CvfNameLength;
         UnicodeFileName.Buffer = &Buffer->CvfName[0];
 
-        Status = RtlUpcaseUnicodeStringToCountedOemString( &FileName,
+        Status = FatUpcaseUnicodeStringToCountedOemString( &FileName,
                                                            &UnicodeFileName,
                                                            TRUE );
 
@@ -3217,7 +3674,7 @@ Return Value:
                           CvfFcb,
                           NULL );
 
-        Cvf->SectionObjectPointer = CvfFcb->NonPaged->SectionObjectPointers;
+        Cvf->SectionObjectPointer = &CvfFcb->NonPaged->SectionObjectPointers;
 
         //
         //  Now attempt a double space pre-mount.  If there are any
@@ -3286,6 +3743,17 @@ Return Value:
                                  &NewDevice );
 
         CreatedDevice = NewDevice;
+
+#ifdef _PNP_POWER_
+        if (NT_SUCCESS(Status)) {
+            //
+            // This driver doesn't talk directly to a device, and (at the moment)
+            // isn't otherwise concerned about power management.
+            //
+
+            NewDevice->DeviceObjectExtension->PowerControlNeeded = FALSE;
+        }
+#endif
 
         //
         //  We got a colision, so there must be another DeviceObject with
@@ -3463,7 +3931,7 @@ Return Value:
 
         if (Bcb != NULL) { FatUnpinBcb( IrpContext, Bcb ); }
 
-        RtlFreeOemString( &FileName );
+        FatFreeOemString( &FileName );
 
         FatReleaseVcb( IrpContext, HostVcb );
 
@@ -3602,7 +4070,7 @@ Return Value:
                           CvfFcb,
                           NULL );
 
-        Cvf->SectionObjectPointer = CvfFcb->NonPaged->SectionObjectPointers;
+        Cvf->SectionObjectPointer = &CvfFcb->NonPaged->SectionObjectPointers;
 
         //
         //  Now attempt a double space pre-mount.  If there are any
@@ -3662,6 +4130,17 @@ Return Value:
                                  &NewDevice );
 
         CreatedDevice = NewDevice;
+
+#ifdef _PNP_POWER_
+        if (NT_SUCCESS(Status)) {
+            //
+            // This driver doesn't talk directly to a device, and (at the moment)
+            // isn't otherwise concerned about power management.
+            //
+
+            NewDevice->DeviceObjectExtension->PowerControlNeeded = FALSE;
+        }
+#endif
 
         if (Status == STATUS_OBJECT_NAME_COLLISION) {
 
@@ -4172,7 +4651,7 @@ Return Value:
         //  Check if the mapping the caller requested is too large
         //
 
-        if (LiGtr(*RequestedMapSize, Fcb->Header.FileSize)) {
+        if ((*RequestedMapSize).QuadPart > Fcb->Header.FileSize.QuadPart) {
 
             try_return( Status = STATUS_INVALID_PARAMETER );
         }
@@ -4183,9 +4662,9 @@ Return Value:
         //  output mapping pairs
         //
 
-        (VOID)FsRtlLookupMcbEntry( &Fcb->Mcb, RequestedMapSize->LowPart, &Lbo, NULL, &Index );
+        (VOID)FsRtlLookupMcbEntry( &Fcb->Mcb, RequestedMapSize->LowPart - 1, &Lbo, NULL, &Index );
 
-        *MappingPairs = ExAllocatePool( NonPagedPool, (Index + 2) * (2 * sizeof(LARGE_INTEGER)) );
+        *MappingPairs = FsRtlAllocatePool( NonPagedPool, (Index + 2) * (2 * sizeof(LARGE_INTEGER)) );
 
         //
         //  Now copy over the mapping pairs from the mcb
@@ -4203,13 +4682,13 @@ Return Value:
                 SectorCount = MapSize;
             }
 
-            (*MappingPairs)[ i*2 + 0 ] = LiFromUlong(SectorCount);
-            (*MappingPairs)[ i*2 + 1 ] = LiFromUlong(Lbo);
+            (*MappingPairs)[ i*2 + 0 ].QuadPart = SectorCount;
+            (*MappingPairs)[ i*2 + 1 ].QuadPart = Lbo;
 
             MapSize -= SectorCount;
         }
 
-        (*MappingPairs)[ i*2 + 0 ] = FatLargeZero;
+        (*MappingPairs)[ i*2 + 0 ].QuadPart = 0;
 
         Status = STATUS_SUCCESS;
 
@@ -4236,4 +4715,1712 @@ Return Value:
     }
 
     return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatGetStatistics (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns the filesystem performance counters from the
+    appropriate VCB.
+
+Arguments:
+
+    Irp - Supplies the Irp to process
+
+Return Value:
+
+    NTSTATUS - The return status for the operation
+
+--*/
+
+{
+    PIO_STACK_LOCATION IrpSp;
+
+    PVCB Vcb;
+
+    PFILESYSTEM_STATISTICS Stats;
+    ULONG StatsSize;
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatGetStatistics...\n", 0);
+
+    //
+    // Extract the buffer
+    //
+
+    Stats = (PFILESYSTEM_STATISTICS)Irp->AssociatedIrp.SystemBuffer;
+
+    //
+    //  Make sure the buffer is big enough.
+    //
+
+    StatsSize = sizeof(FILESYSTEM_STATISTICS) * *KeNumberProcessors;
+
+    if (IrpSp->Parameters.FileSystemControl.OutputBufferLength < StatsSize) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+
+        DebugTrace(-1, Dbg, "FatGetStatistics -> %08lx\n", STATUS_BUFFER_TOO_SMALL );
+
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Get the Vcb.
+    //
+
+    Vcb = &((PVOLUME_DEVICE_OBJECT)IrpSp->DeviceObject)->Vcb;
+
+    //
+    //  Fill in the output buffer
+    //
+
+    RtlCopyMemory( Stats, Vcb->Statistics, StatsSize );
+
+    Irp->IoStatus.Information = StatsSize;
+
+    FatCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+
+    DebugTrace(-1, Dbg, "FatGetStatistics -> %08lx\n", STATUS_SUCCESS);
+
+    return STATUS_SUCCESS;
+}
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatGetVolumeBitmap(
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine returns the volume allocation bitmap.
+
+        Input = the STARTING_LCN_INPUT_BUFFER data structure is passed in
+            through the input buffer.
+        Output = the VOLUME_BITMAP_BUFFER data structure is returned through
+            the output buffer.
+
+    We return as much as the user buffer allows starting the specified input
+    LCN (trucated to a byte).  If there is no input buffer, we start at zero.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    PVCB Vcb;
+    PFCB Fcb;
+    PCCB Ccb;
+
+    ULONG BytesToCopy;
+    ULONG TotalClusters;
+    ULONG DesiredClusters;
+    ULONG StartingCluster;
+    ULONG InputBufferLength;
+    ULONG OutputBufferLength;
+    LARGE_INTEGER StartingLcn;
+    PVOLUME_BITMAP_BUFFER OutputBuffer;
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatGetVolumeBitmap, FsControlCode = %08lx\n",
+               IrpSp->Parameters.FileSystemControl.FsControlCode);
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    if (FatDecodeFileObject( IrpSp->FileObject, &Vcb, &Fcb, &Ccb ) != UserVolumeOpen) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+    OutputBuffer = (PVOLUME_BITMAP_BUFFER)FatMapUserBuffer( IrpContext, Irp );
+
+    //
+    //  Check for a minimum length on the input and output buffers.
+    //
+
+    if ((InputBufferLength < sizeof(STARTING_LCN_INPUT_BUFFER)) ||
+        (OutputBufferLength < sizeof(VOLUME_BITMAP_BUFFER))) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Check if a starting cluster was specified.
+    //
+
+    TotalClusters = Vcb->AllocationSupport.NumberOfClusters;
+
+    //
+    //  Check for a valid buffers
+    //
+
+    try {
+
+        ProbeForRead( IrpSp->Parameters.FileSystemControl.Type3InputBuffer,
+                      InputBufferLength,
+                      sizeof(UCHAR) );
+
+        ProbeForWrite( OutputBuffer, OutputBufferLength, sizeof(UCHAR) );
+
+        StartingLcn = ((PSTARTING_LCN_INPUT_BUFFER)IrpSp->Parameters.FileSystemControl.Type3InputBuffer)->StartingLcn;
+
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+
+        Status = GetExceptionCode();
+
+        FatRaiseStatus( IrpContext,
+                        FsRtlIsNtstatusExpected(Status) ?
+                        Status : STATUS_INVALID_USER_BUFFER );
+    }
+
+    if (StartingLcn.HighPart || StartingLcn.LowPart >= TotalClusters) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+
+    } else {
+
+        StartingCluster = StartingLcn.LowPart & ~7;
+    }
+
+    //
+    //  Acquire exclusive access to the Vcb and enqueue the Irp if we
+    //  didn't get access.
+    //
+
+    if (!FatAcquireExclusiveVcb( IrpContext, Vcb )) {
+
+        DebugTrace( 0, Dbg, "Cannot acquire Vcb\n", 0);
+
+        Status = FatFsdPostRequest( IrpContext, Irp );
+
+        DebugTrace(-1, Dbg, "FatGetVolumeBitmap -> %08lx\n", Status);
+        return Status;
+    }
+
+    //
+    //  Only return what will fit in the user buffer.
+    //
+
+    OutputBufferLength -= FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer);
+    DesiredClusters = TotalClusters - StartingCluster;
+
+    if (OutputBufferLength < (DesiredClusters + 7) / 8) {
+
+        BytesToCopy = OutputBufferLength;
+        Status = STATUS_BUFFER_OVERFLOW;
+
+    } else {
+
+        BytesToCopy = (DesiredClusters + 7) / 8;
+        Status = STATUS_SUCCESS;
+    }
+
+    try {
+
+        //
+        //  Fill in the fixed part of the output buffer
+        //
+
+        OutputBuffer->StartingLcn.QuadPart = StartingCluster;
+        OutputBuffer->BitmapSize.QuadPart = DesiredClusters;
+
+        //
+        //  Now copy the volume bitmap into the user buffer.
+        //
+
+        ASSERT( Vcb->FreeClusterBitMap.Buffer != NULL );
+
+        RtlCopyMemory( &OutputBuffer->Buffer[0],
+                       (PUCHAR)Vcb->FreeClusterBitMap.Buffer + StartingCluster/8,
+                       BytesToCopy );
+
+    } except(EXCEPTION_EXECUTE_HANDLER) {
+
+        Status = GetExceptionCode();
+
+        FatRaiseStatus( IrpContext,
+                        FsRtlIsNtstatusExpected(Status) ?
+                        Status : STATUS_INVALID_USER_BUFFER );
+    }
+
+    Irp->IoStatus.Information = FIELD_OFFSET(VOLUME_BITMAP_BUFFER, Buffer) +
+                                BytesToCopy;
+
+    FatReleaseVcb( IrpContext, Vcb );
+
+    FatCompleteRequest( IrpContext, Irp, Status );
+
+    DebugTrace(-1, Dbg, "FatGetVolumeBitmap -> VOID\n", 0);
+
+    return Status;
+}
+
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatGetRetrievalPointers (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine scans the MCB and builds an extent list.  The first run in
+    the output extent list will start at the begining of the contiguous
+    run specified by the input parameter.
+
+        Input = STARTING_VCN_INPUT_BUFFER;
+        Output = RETRIEVAL_POINTERS_BUFFER.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    PVCB Vcb;
+    PFCB FcbOrDcb;
+    PCCB Ccb;
+    TYPE_OF_OPEN TypeOfOpen;
+
+    ULONG Index;
+    ULONG ClusterShift;
+    ULONG AllocationSize;
+
+    ULONG Run;
+    ULONG RunCount;
+    ULONG StartingRun;
+    LARGE_INTEGER StartingVcn;
+
+    ULONG InputBufferLength;
+    ULONG OutputBufferLength;
+
+    PRETRIEVAL_POINTERS_BUFFER OutputBuffer;
+
+    //
+    // Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatGetRetrievalPointers, FsControlCode = %08lx\n",
+               IrpSp->Parameters.FileSystemControl.FsControlCode);
+
+    //
+    // Extract and decode the file object and check for type of open.
+    //
+
+    TypeOfOpen = FatDecodeFileObject( IrpSp->FileObject, &Vcb, &FcbOrDcb, &Ccb );
+
+    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserDirectoryOpen)) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Get the input aand output buffer lengths and pointers.
+    //  Initialize some variables.
+    //
+
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    OutputBufferLength = IrpSp->Parameters.FileSystemControl.OutputBufferLength;
+
+    OutputBuffer = (PRETRIEVAL_POINTERS_BUFFER)FatMapUserBuffer( IrpContext, Irp );
+
+    //
+    //  Check for a minimum length on the input and ouput buffers.
+    //
+
+    if ((InputBufferLength < sizeof(STARTING_VCN_INPUT_BUFFER)) ||
+        (OutputBufferLength < sizeof(RETRIEVAL_POINTERS_BUFFER))) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    //
+    //  Acquire exclusive access to the Fcb and enqueue the Irp if we
+    //  didn't get access.
+    //
+
+    if (!FatAcquireExclusiveFcb( IrpContext, FcbOrDcb )) {
+
+        DebugTrace( 0, Dbg, "Cannot acquire Vcb\n", 0);
+
+        Status = FatFsdPostRequest( IrpContext, Irp );
+
+        DebugTrace(-1, Dbg, "FatGetRetrievalPointers -> %08lx\n", Status);
+        return Status;
+    }
+
+    try {
+
+        //
+        //  If we haven't yet set the correct AllocationSize, do so.
+        //
+
+        if (FcbOrDcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+            FatLookupFileAllocationSize( IrpContext, FcbOrDcb );
+
+            //
+            //  If this is a non-root directory, we have a bit more to
+            //  do since it has not gone through FatOpenDirectoryFile().
+            //
+
+            if (NodeType(FcbOrDcb) == FAT_NTC_DCB) {
+
+                FcbOrDcb->Header.FileSize.LowPart =
+                    FcbOrDcb->Header.AllocationSize.LowPart;
+
+                //
+                //  Setup the Bitmap buffer.
+                //
+
+                FatCheckFreeDirentBitmap( IrpContext, FcbOrDcb );
+            }
+        }
+
+        //
+        //  Check if a starting cluster was specified.
+        //
+
+        ClusterShift = Vcb->AllocationSupport.LogOfBytesPerCluster;
+        AllocationSize = FcbOrDcb->Header.AllocationSize.LowPart;
+
+        try {
+
+            ProbeForRead( IrpSp->Parameters.FileSystemControl.Type3InputBuffer,
+                          InputBufferLength,
+                          sizeof(UCHAR) );
+
+            ProbeForWrite( OutputBuffer, OutputBufferLength, sizeof(UCHAR) );
+
+            StartingVcn = ((PSTARTING_VCN_INPUT_BUFFER)IrpSp->Parameters.FileSystemControl.Type3InputBuffer)->StartingVcn;
+
+        } except(EXCEPTION_EXECUTE_HANDLER) {
+
+            Status = GetExceptionCode();
+
+            FatRaiseStatus( IrpContext,
+                            FsRtlIsNtstatusExpected(Status) ?
+                            Status : STATUS_INVALID_USER_BUFFER );
+        }
+
+        if (StartingVcn.HighPart ||
+            StartingVcn.LowPart >= (AllocationSize >> ClusterShift)) {
+
+            try_return( Status = STATUS_END_OF_FILE );
+
+        } else {
+
+            //
+            //  If we don't find the run, something is very wrong.
+            //
+
+            LBO Lbo;
+
+            if (!FsRtlLookupMcbEntry( &FcbOrDcb->Mcb,
+                                      StartingVcn.LowPart << ClusterShift,
+                                      &Lbo,
+                                      NULL,
+                                      &StartingRun)) {
+
+                FatBugCheck( (ULONG)FcbOrDcb, (ULONG)&FcbOrDcb->Mcb, StartingVcn.LowPart );
+            }
+        }
+
+        //
+        //  Now go fill in the ouput buffer with run information
+        //
+
+        RunCount = FsRtlNumberOfRunsInMcb(&FcbOrDcb->Mcb);
+
+        for (Index = 0, Run = StartingRun; Run < RunCount; Index++, Run++) {
+
+            ULONG Vcn;
+            LBO Lbo;
+            ULONG ByteLength;
+
+            //
+            //  Check for an exhausted output buffer.
+            //
+
+            if (FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[Index+1]) > OutputBufferLength) {
+
+                //
+                //  We've run out of space, so we won't be storing as many runs to the 
+                //  user's buffer as we had originally planned.  We need to return the
+                //  number of runs that we did have room for.
+                //
+                
+                try {
+                
+                    OutputBuffer->ExtentCount = Index;
+                    
+                } except(EXCEPTION_EXECUTE_HANDLER) {
+
+                    Status = GetExceptionCode();
+
+                    FatRaiseStatus( IrpContext,
+                                    FsRtlIsNtstatusExpected(Status) ?
+                                    Status : STATUS_INVALID_USER_BUFFER );
+                }                   
+                
+                Irp->IoStatus.Information = FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[Index]);
+                try_return( Status = STATUS_BUFFER_OVERFLOW );
+            }
+
+            //
+            //  Get the extent.  If it's not there or malformed, something is very wrong.
+            //
+
+            if (!FsRtlGetNextMcbEntry(&FcbOrDcb->Mcb, Run, &Vcn, &Lbo, &ByteLength)) {
+                FatBugCheck( (ULONG)FcbOrDcb, (ULONG)&FcbOrDcb->Mcb, Run );
+            }
+
+            //
+            //  Fill in the next array element.
+            //
+
+            try {
+
+                OutputBuffer->Extents[Index].NextVcn.QuadPart = (Vcn + ByteLength) >> ClusterShift;
+                OutputBuffer->Extents[Index].Lcn.QuadPart = FatGetIndexFromLbo( Vcb, Lbo ) - 2;
+
+                //
+                //  If this is the first run, fill in the starting Vcn
+                //
+
+                if (Index == 0) {
+                    OutputBuffer->ExtentCount = RunCount - StartingRun;
+                    OutputBuffer->StartingVcn.QuadPart = Vcn >> ClusterShift;
+                }
+
+            } except(EXCEPTION_EXECUTE_HANDLER) {
+
+                Status = GetExceptionCode();
+
+                FatRaiseStatus( IrpContext,
+                                FsRtlIsNtstatusExpected(Status) ?
+                                Status : STATUS_INVALID_USER_BUFFER );
+            }
+        }
+
+        //
+        //  We successfully retrieved extent info to the end of the allocation.
+        //
+
+        Irp->IoStatus.Information = FIELD_OFFSET(RETRIEVAL_POINTERS_BUFFER, Extents[Index]);
+        Status = STATUS_SUCCESS;
+
+    try_exit: NOTHING;
+
+    } finally {
+
+        DebugUnwind( FatGetRetrievalPointers );
+
+        //
+        //  Release resources
+        //
+
+        FatReleaseFcb( IrpContext, FcbOrDcb );
+
+        //
+        //  If nothing raised then complete the irp.
+        //
+
+        if (!AbnormalTermination()) {
+
+            FatCompleteRequest( IrpContext, Irp, Status );
+        }
+
+        DebugTrace(-1, Dbg, "FatGetRetrievalPointers -> VOID\n", 0);
+    }
+
+    return Status;
+}
+
+//
+//  Local Support Routine
+//
+
+NTSTATUS
+FatMoveFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    The major parts of the following routine were extracted from NtfsSetCompression. This
+    routine moves a file to the requested Starting Lcn from Starting Vcn for the length
+    of cluster count. These values are passed in through the the input buffer as a MOVE_DATA
+    structure.
+
+    The call must be made with a DASD handle.  The file to move is passed in as a
+    parameter.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    PFILE_OBJECT FileObject;
+    TYPE_OF_OPEN TypeOfOpen;
+    PVCB Vcb;
+    PFCB FcbOrDcb;
+    PCCB Ccb;
+
+    ULONG InputBufferLength;
+    PMOVE_FILE_DATA InputBuffer;
+
+    ULONG ClusterShift;
+    ULONG MaxClusters;
+
+    ULONG FileOffset;
+    LARGE_INTEGER LargeFileOffset;
+
+    ULONG TargetLbo;
+    ULONG TargetCluster;
+    LARGE_INTEGER LargeTargetLbo;
+
+    ULONG ByteCount;
+    ULONG BytesToWrite;
+    ULONG BytesToReallocate;
+    ULONG TargetAllocation;
+
+    ULONG FirstSpliceSourceCluster;
+    ULONG FirstSpliceTargetCluster;
+    ULONG SecondSpliceSourceCluster;
+    ULONG SecondSpliceTargetCluster;
+
+    MCB SourceMcb;
+    MCB TargetMcb;
+
+    KEVENT StackEvent;
+
+    PBCB Bcb = NULL;
+    PMDL Mdl = NULL;
+    PVOID Buffer;
+
+    BOOLEAN SourceMcbInitialized = FALSE;
+    BOOLEAN TargetMcbInitialized = FALSE;
+    BOOLEAN CacheMapInitialized = FALSE;
+
+    BOOLEAN FcbAcquired = FALSE;
+    BOOLEAN LockedPages = FALSE;
+    BOOLEAN EventArmed = FALSE;
+    BOOLEAN DiskSpaceAllocated = FALSE;
+
+    PDIRENT Dirent;
+    PBCB DirentBcb = NULL;
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    DebugTrace(+1, Dbg, "FatMoveFile, FsControlCode = %08lx\n",
+               IrpSp->Parameters.FileSystemControl.FsControlCode);
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    if (FatDecodeFileObject( IrpSp->FileObject, &Vcb, &FcbOrDcb, &Ccb ) != UserVolumeOpen) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    InputBufferLength = IrpSp->Parameters.FileSystemControl.InputBufferLength;
+    InputBuffer = (PMOVE_FILE_DATA)Irp->AssociatedIrp.SystemBuffer;
+
+    //
+    //  Do a quick check on the input buffer.
+    //
+
+    MaxClusters = Vcb->AllocationSupport.NumberOfClusters;
+    TargetCluster = InputBuffer->StartingLcn.LowPart + 2;
+
+    if (InputBufferLength < sizeof(MOVE_FILE_DATA)) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_BUFFER_TOO_SMALL );
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    if (InputBuffer->StartingVcn.HighPart ||
+        InputBuffer->StartingLcn.HighPart ||
+        (TargetCluster + InputBuffer->ClusterCount < TargetCluster) ||
+        (TargetCluster + InputBuffer->ClusterCount > MaxClusters + 2) ||
+        (InputBuffer->StartingVcn.LowPart >= MaxClusters)) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Try to get a pointer to the file object from the handle passed in.
+    //
+
+    Status = ObReferenceObjectByHandle( InputBuffer->FileHandle,
+                                        0,
+                                        *IoFileObjectType,
+                                        Irp->RequestorMode,
+                                        &FileObject,
+                                        NULL );
+
+    if (!NT_SUCCESS(Status)) {
+
+        FatCompleteRequest( IrpContext, Irp, Status );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", Status);
+        return Status;
+    }
+
+    //
+    //  We only needed the pointer, not a reference.
+    //
+
+    ObDereferenceObject( FileObject );
+
+    //
+    //  Check that this file object is opened on the same volume as the
+    //  DASD handle used to call this routine.
+    //
+
+    if (FileObject->Vpb != Vcb->Vpb) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    TypeOfOpen = FatDecodeFileObject( FileObject, &Vcb, &FcbOrDcb, &Ccb );
+
+    if ((TypeOfOpen != UserFileOpen) && (TypeOfOpen != UserDirectoryOpen)) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    //  If this is a directory, verify that it's not the root and that we
+    //  are not trying to move the first cluster.  We cannot move the first
+    //  cluster because sub-directories have this cluster number in them
+    //  and there is no safe way to simultaneously update them all.
+    //
+
+    if ((TypeOfOpen == UserDirectoryOpen) &&
+        ((NodeType(FcbOrDcb) == FAT_NTC_ROOT_DCB) || (InputBuffer->StartingVcn.QuadPart == 0))) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+
+        DebugTrace(-1, Dbg, "FatMoveFile -> %08lx\n", STATUS_INVALID_PARAMETER);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    ClusterShift = Vcb->AllocationSupport.LogOfBytesPerCluster;
+
+    try {
+
+        //
+        //  Initialize our state variables and the event.
+        //
+
+        FileOffset = InputBuffer->StartingVcn.LowPart << ClusterShift;
+        LargeFileOffset.QuadPart = FileOffset;
+
+        ByteCount = InputBuffer->ClusterCount << ClusterShift;
+
+        TargetLbo = FatGetLboFromIndex( Vcb, TargetCluster );
+        LargeTargetLbo.QuadPart = TargetLbo;
+
+        //
+        //  Do a quick check on parameters here
+        //
+
+        if (FileOffset + ByteCount < FileOffset) {
+
+            try_return( Status = STATUS_INVALID_PARAMETER );
+        }
+
+        KeInitializeEvent( &StackEvent, NotificationEvent, FALSE );
+
+        //
+        //  Initialize two MCBs we will be using
+        //
+
+        FsRtlInitializeMcb( &SourceMcb, PagedPool );
+        SourceMcbInitialized = TRUE;
+
+        FsRtlInitializeMcb( &TargetMcb, PagedPool );
+        TargetMcbInitialized = TRUE;
+
+        //
+        //  Force WAIT to true
+        //
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
+
+        while (ByteCount) {
+
+            VBO TempVbo;
+            LBO TempLbo;
+            ULONG TempByteCount;
+
+            //
+            //  We must throttle our writes.
+            //
+
+            CcCanIWrite( FileObject, 0x40000, TRUE, FALSE );
+
+            //
+            //  Aqcuire file resource exclusive to freeze FileSize and block
+            //  user non-cached I/O.
+            //
+
+            (VOID)FatAcquireExclusiveFcb( IrpContext, FcbOrDcb );
+            FcbAcquired = TRUE;
+
+            //
+            //  Analyzes the range of file allocation we are moving
+            //  and determines the actual amount of allocation to be
+            //  moved and how much needs to be written.  In addition
+            //  it guarantees that the Mcb in the file is large enough
+            //  so that later MCB operations cannot fail.
+            //
+
+            FatComputeMoveFileParameter( IrpContext,
+                                         FcbOrDcb,
+                                         FileOffset,
+                                         &ByteCount,
+                                         &BytesToReallocate,
+                                         &BytesToWrite );
+
+            //
+            //  If ByteCount comes back zero, break here.
+            //
+
+            if (ByteCount == 0) {
+                break;
+            }
+
+            //
+            //  At this point (before actually doing anything with the disk
+            //  meta data), calculate the FAT splice clusters and build an
+            //  MCB describing the space to be deallocated.
+            //
+
+            FatComputeMoveFileSplicePoints( IrpContext,
+                                            FcbOrDcb,
+                                            FileOffset,
+                                            TargetCluster,
+                                            BytesToReallocate,
+                                            &FirstSpliceSourceCluster,
+                                            &FirstSpliceTargetCluster,
+                                            &SecondSpliceSourceCluster,
+                                            &SecondSpliceTargetCluster,
+                                            &SourceMcb );
+
+            //
+            //  Now attempt to allocate the new disk storage using the
+            //  Target Lcn as a hint.
+            //
+
+            TempByteCount = BytesToReallocate;
+            FatAllocateDiskSpace( IrpContext,
+                                  Vcb,
+                                  TargetCluster,
+                                  &TempByteCount,
+                                  &TargetMcb );
+
+            DiskSpaceAllocated = TRUE;
+
+            //
+            //  If we didn't get EXACTLY what we wanted, return immediately.
+            //
+
+            if ((FsRtlNumberOfRunsInMcb(&TargetMcb) != 1) ||
+                !FsRtlGetNextMcbEntry(&TargetMcb, 0, &TempVbo, &TempLbo, &TempByteCount) ||
+                (FatGetIndexFromLbo(Vcb, TempLbo) != TargetCluster) ||
+                (TempByteCount != BytesToReallocate)) {
+
+                break;
+            }
+
+            //
+            //  We are going to attempt a move, note it.
+            //
+
+            if (FatMoveFileDebug) {
+                DbgPrint("%lx: Vcn 0x%lx, Lcn 0x%lx, Count 0x%lx.\n",
+                         PsGetCurrentThread(),
+                         FileOffset >> ClusterShift,
+                         TargetCluster,
+                         BytesToReallocate >> ClusterShift );
+            }
+
+            //
+            //  Now attempt to commit the new allocation to disk.  If this
+            //  raises, the allocation will be deallocated.
+            //
+
+            FatFlushFatEntries( IrpContext,
+                                Vcb,
+                                TargetCluster,
+                                BytesToReallocate >> ClusterShift );
+
+            //
+            //  If we are going to write, we have to lock the pages down BEFORE
+            //  closing off the paging I/O path to avoid a deadlock from
+            //  colided page faults.
+            //
+
+            if (BytesToWrite) {
+
+                //
+                //  If a shared cache map is not initialized, do so.
+                //
+
+                if (FileObject->SectionObjectPointer->SharedCacheMap == NULL ) {
+
+                    CC_FILE_SIZES TempSizes;
+
+                    //
+                    // Indicate that valid data length tracking and callbacks are not desired.
+                    //
+
+                    TempSizes = *(PCC_FILE_SIZES)&FcbOrDcb->Header.AllocationSize;
+
+                    TempSizes.ValidDataLength = FatMaxLarge;
+
+                    CcInitializeCacheMap( FileObject,
+                                          (PCC_FILE_SIZES)&FcbOrDcb->Header.AllocationSize,
+                                          TRUE,
+                                          &FatData.CacheManagerNoOpCallbacks,
+                                          FcbOrDcb );
+
+                    CacheMapInitialized = TRUE;
+                }
+
+                //
+                //  Map the next range of the file.
+                //
+
+                CcMapData( FileObject, &LargeFileOffset, BytesToWrite, TRUE, &Bcb, &Buffer );
+
+                //
+                //  Now attempt to allocate an Mdl to describe the mapped data.
+                //
+
+                Mdl = IoAllocateMdl( Buffer, (ULONG)BytesToWrite, FALSE, FALSE, NULL );
+
+                if (Mdl == NULL) {
+                    FatRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
+                }
+
+                //
+                //  Lock the data into memory so that we can safely reallocate the
+                //  space.
+                //
+
+                MmProbeAndLockPages( Mdl, KernelMode, IoReadAccess );
+                LockedPages = TRUE;
+            }
+
+            //
+            //  Aqcuire both resources exclusive now, guaranteeing that NOBODY
+            //  is in either the read or write paths.
+            //
+
+            ExAcquireResourceExclusive( FcbOrDcb->Header.PagingIoResource, TRUE );
+
+            //
+            //  This is the first part of some tricky synchronization.
+            //
+            //  Set the Event pointer in the FCB.  Any paging I/O will block on
+            //  this event (if set in FCB) after acquiring the PagingIo resource.
+            //
+            //  This is how I keep ALL I/O out of this path without holding the
+            //  PagingIo resource exclusive for an extended time.
+            //
+
+            FcbOrDcb->MoveFileEvent = &StackEvent;
+            EventArmed = TRUE;
+
+            ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
+
+            //
+            //  Now write out the data, but only if we have to.  We don't have
+            //  to copy any file data if the range being reallocated is wholly
+            //  beyond valid data length.
+            //
+
+            if (BytesToWrite) {
+
+                PIRP IoIrp;
+                KEVENT IoEvent;
+                IO_STATUS_BLOCK Iosb;
+
+                KeInitializeEvent( &IoEvent, NotificationEvent, FALSE );
+
+                IoIrp = IoBuildSynchronousFsdRequest( IRP_MJ_WRITE,
+                                                      Vcb->TargetDeviceObject,
+                                                      Buffer,
+                                                      BytesToWrite,
+                                                      &LargeTargetLbo,
+                                                      &IoEvent,
+                                                      &Iosb );
+
+                if (!IoIrp) {
+                    FatRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES );
+                }
+
+                //
+                //  Set a flag indicating that we want to write through any
+                //  cache on the controller.  This eliminates the need for
+                //  an explicit flush-device after the write.
+                //
+
+                SetFlag( IoGetNextIrpStackLocation(IoIrp)->Flags, SL_WRITE_THROUGH );
+
+                Status = IoCallDriver( Vcb->TargetDeviceObject, IoIrp );
+
+                if (Status == STATUS_PENDING) {
+                    (VOID)KeWaitForSingleObject( &IoEvent, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+                    Status = Iosb.Status;
+                }
+
+                if (!NT_SUCCESS(Status)) {
+                    FatNormalizeAndRaiseStatus( IrpContext, Status );
+                }
+
+                //
+                //  Now we can get rid of this Mdl.
+                //
+
+                MmUnlockPages( Mdl );
+                LockedPages = FALSE;
+                IoFreeMdl( Mdl );
+                Mdl = NULL;
+
+                //
+                //  Now we can safely unpin.
+                //
+
+                CcUnpinData( Bcb );
+                Bcb = NULL;
+            }
+
+            //
+            //  Now that the file data has been moved successfully, we'll go
+            //  to fix up the links in the FAT table and perhaps change the
+            //  entry in the parent directory.
+            //
+            //  First we'll do the second splice and commit it.  At that point,
+            //  while the volume is in an inconsistent state, the file is
+            //  still OK.
+            //
+
+            FatSetFatEntry( IrpContext,
+                            Vcb,
+                            SecondSpliceSourceCluster,
+                            (FAT_ENTRY)SecondSpliceTargetCluster );
+
+            FatFlushFatEntries( IrpContext, Vcb, SecondSpliceSourceCluster, 1 );
+
+            //
+            //  Now do the first splice OR update the dirent in the parent
+            //  and flush the respective object.  After this flush the file
+            //  now points to the new allocation.
+            //
+
+            if (FirstSpliceSourceCluster == 0) {
+
+                //
+                //  We are moving the first cluster of the file, so we need
+                //  to update our parent directory.
+                //
+
+                FatGetDirentFromFcbOrDcb( IrpContext, FcbOrDcb, &Dirent, &DirentBcb );
+                Dirent->FirstClusterOfFile = FirstSpliceTargetCluster;
+
+                FatSetDirtyBcb( IrpContext, DirentBcb, Vcb );
+
+                FatUnpinBcb( IrpContext, DirentBcb );
+                DirentBcb = NULL;
+
+                FatFlushDirentForFile( IrpContext, FcbOrDcb );
+
+                FcbOrDcb->FirstClusterOfFile = FirstSpliceTargetCluster;
+
+            } else {
+
+                FatSetFatEntry( IrpContext,
+                                Vcb,
+                                FirstSpliceSourceCluster,
+                                (FAT_ENTRY)FirstSpliceTargetCluster );
+
+                FatFlushFatEntries( IrpContext, Vcb, FirstSpliceSourceCluster, 1 );
+            }
+
+            //
+            //  This was successfully committed.  We no longer want to free
+            //  this allocation on error.
+            //
+
+            DiskSpaceAllocated = FALSE;
+
+            //
+            //  Now we just have to free the orphaned space.  We don't have
+            //  to commit this right now as the integrity of the file doesn't
+            //  depend on it.
+            //
+
+            FatDeallocateDiskSpace( IrpContext, Vcb, &SourceMcb );
+
+            FatUnpinRepinnedBcbs( IrpContext );
+
+            Status = FatHijackIrpAndFlushDevice( IrpContext,
+                                                 Irp,
+                                                 Vcb->TargetDeviceObject );
+
+            if (!NT_SUCCESS(Status)) {
+                FatNormalizeAndRaiseStatus( IrpContext, Status );
+            }
+
+            //
+            //  Finally we must replace the old MCB extent information with
+            //  the new.  If this fails from pool allocation, we fix it in
+            //  the finally clause by resetting the file's Mcb.
+            //
+
+            FsRtlRemoveMcbEntry( &FcbOrDcb->Mcb,
+                                 FileOffset,
+                                 BytesToReallocate );
+
+            FsRtlAddMcbEntry( &FcbOrDcb->Mcb,
+                              FileOffset,
+                              TargetLbo,
+                              BytesToReallocate );
+
+            //
+            //  Now this is the second part of the tricky synchronization.
+            //
+            //  We drop the paging I/O here and signal the notification
+            //  event which allows all waiters (present or future) to proceed.
+            //  Then we block again on the PagingIo exclusive.  When
+            //  we have it, we again know that there can be nobody in the
+            //  read/write path and thus nobody touching the event, so we
+            //  NULL the pointer to it and then drop the PagingIo resource.
+            //
+            //  This combined with our synchronization before the write above
+            //  guarantees that while we were moving the allocation, there
+            //  was no other I/O to this file and because we do not hold
+            //  the paging resource across a flush, we are not exposed to
+            //  a deadlock.
+            //
+
+            KeSetEvent( &StackEvent, 0, FALSE );
+
+            ExAcquireResourceExclusive( FcbOrDcb->Header.PagingIoResource, TRUE );
+
+            FcbOrDcb->MoveFileEvent = NULL;
+            EventArmed = FALSE;
+
+            ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
+
+            //
+            //  Release the resources and let anyone else access the file before
+            //  looping back.
+            //
+
+            FatReleaseFcb( IrpContext, FcbOrDcb );
+            FcbAcquired = FALSE;
+
+            //
+            //  Advance the state variables.
+            //
+
+            TargetCluster += BytesToReallocate >> ClusterShift;
+
+            FileOffset += BytesToReallocate;
+            TargetLbo += BytesToReallocate;
+            ByteCount -= BytesToReallocate;
+
+            LargeFileOffset.LowPart += BytesToReallocate;
+            LargeTargetLbo.LowPart += BytesToReallocate;
+
+            //
+            //  Clear the two Mcbs
+            //
+
+            FsRtlRemoveMcbEntry( &SourceMcb, 0, 0xFFFFFFFF );
+            FsRtlRemoveMcbEntry( &TargetMcb, 0, 0xFFFFFFFF );
+
+            //
+            //  Make the event blockable again.
+            //
+
+            KeClearEvent( &StackEvent );
+        }
+
+        Status = STATUS_SUCCESS;
+
+    try_exit: NOTHING;
+
+    } finally {
+
+        DebugUnwind( FatMoveFile );
+
+        //
+        //  Cleanup the Mdl, Bcb, and cache map as appropriate.
+        //
+
+        if (Mdl != NULL) {
+            ASSERT(AbnormalTermination());
+            if (LockedPages) {
+                MmUnlockPages( Mdl );
+            }
+            IoFreeMdl( Mdl );
+        }
+
+        if (Bcb != NULL) {
+            ASSERT(AbnormalTermination());
+            CcUnpinData( Bcb );
+        }
+
+        if (CacheMapInitialized) {
+            CcUninitializeCacheMap( FileObject, NULL, NULL );
+        }
+
+        //
+        //  If we have some new allocation hanging around, remove it.  The
+        //  pages needed to do this are guaranteed to be resident because
+        //  we have already repinned them.
+        //
+
+        if (DiskSpaceAllocated) {
+            FatDeallocateDiskSpace( IrpContext, Vcb, &TargetMcb );
+            FatUnpinRepinnedBcbs( IrpContext );
+        }
+
+        //
+        //  Check on the directory Bcb
+        //
+
+        if (DirentBcb != NULL) {
+            FatUnpinBcb( IrpContext, DirentBcb );
+        }
+
+        //
+        //  Uninitialize our MCBs
+        //
+
+        if (SourceMcbInitialized) {
+            FsRtlUninitializeMcb( &SourceMcb );
+        }
+
+        if (TargetMcbInitialized) {
+            FsRtlUninitializeMcb( &TargetMcb );
+        }
+
+        //
+        //  If we broke out of the loop with the Event armed, defuse it
+        //  in the same way we do it after a write.
+        //
+
+        if (EventArmed) {
+            KeSetEvent( &StackEvent, 0, FALSE );
+            ExAcquireResourceExclusive( FcbOrDcb->Header.PagingIoResource, TRUE );
+            FcbOrDcb->MoveFileEvent = NULL;
+            ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
+        }
+
+        //
+        //  If this is an abnormal termination then presumably something
+        //  bad happened.  Set the Allocation size to unknown and clear
+        //  the Mcb, but only if we still own the Fcb.
+        //
+
+        if (AbnormalTermination() && FcbAcquired) {
+
+            FcbOrDcb->Header.AllocationSize.LowPart = 0xffffffff;
+            FsRtlRemoveMcbEntry( &FcbOrDcb->Mcb, 0, 0xFFFFFFFF );
+        }
+
+        //
+        //  Finally release the main file resource.
+        //
+
+        if (FcbAcquired) {
+            FatReleaseFcb( IrpContext, FcbOrDcb );
+        }
+
+        //
+        //  Complete the irp if we terminated normally.
+        //
+
+        if (!AbnormalTermination()) {
+
+            FatCompleteRequest( IrpContext, Irp, Status );
+        }
+    }
+
+    return Status;
+}
+
+//
+//  Local Support Routine
+//
+
+VOID
+FatComputeMoveFileParameter (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB FcbOrDcb,
+    IN ULONG FileOffset,
+    IN OUT PULONG ByteCount,
+    OUT PULONG BytesToReallocate,
+    OUT PULONG BytesToWrite
+)
+
+/*++
+
+Routine Description:
+
+    This is a helper routine for FatMoveFile that analyses the range of
+    file allocation we are moving and determines the actual amount
+    of allocation to be moved and how much needs to be written.
+
+Arguments:
+
+    FcbOrDcb - Supplies the file and its various sizes.
+
+    FileOffset - Supplies the beginning Vbo of the reallocation zone.
+
+    ByteCount - Supplies the request length to reallocate.  This will
+        be bounded by allocation size on return.
+
+    BytesToReallocate - Receives ByteCount bounded by the file allocation size
+        and a 0x40000 boundry.
+
+    BytesToWrite - Receives BytesToReallocate bounded by ValidDataLength.
+
+Return Value:
+
+    VOID
+
+--*/
+
+{
+    ULONG ClusterSize;
+
+    ULONG AllocationSize;
+    ULONG ValidDataLength;
+    ULONG ClusterAlignedVDL;
+
+    //
+    //  If we haven't yet set the correct AllocationSize, do so.
+    //
+
+    if (FcbOrDcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+        FatLookupFileAllocationSize( IrpContext, FcbOrDcb );
+
+        //
+        //  If this is a non-root directory, we have a bit more to
+        //  do since it has not gone through FatOpenDirectoryFile().
+        //
+
+        if (NodeType(FcbOrDcb) == FAT_NTC_DCB) {
+
+            FcbOrDcb->Header.FileSize.LowPart =
+                FcbOrDcb->Header.AllocationSize.LowPart;
+
+            //
+            //  Setup the Bitmap buffer.
+            //
+
+            FatCheckFreeDirentBitmap( IrpContext, FcbOrDcb );
+        }
+    }
+
+    //
+    //  Get the number of bytes left to write and ensure that it does
+    //  not extend beyond allocation size.  We return here if FileOffset
+    //  is beyond AllocationSize which can happn on a truncation.
+    //
+
+    AllocationSize = FcbOrDcb->Header.AllocationSize.LowPart;
+    ValidDataLength = FcbOrDcb->Header.ValidDataLength.LowPart;
+
+    if (FileOffset + *ByteCount > AllocationSize) {
+
+        if (FileOffset >= AllocationSize) {
+            *ByteCount = 0;
+            *BytesToReallocate = 0;
+            *BytesToWrite = 0;
+
+            return;
+        }
+
+        *ByteCount = AllocationSize - FileOffset;
+    }
+
+    //
+    //  If there is more than our max, then reduce the byte count for this
+    //  pass to our maximum. We must also align the file offset to a 0x40000
+    //  byte boundary.
+    //
+
+    if ((FileOffset & 0x3ffff) + *ByteCount > 0x40000) {
+
+        *BytesToReallocate = 0x40000 - (FileOffset & 0x3ffff);
+
+    } else {
+
+        *BytesToReallocate = *ByteCount;
+    }
+
+    //
+    //  We may be able to skip some (or all) of the write
+    //  if allocation size is significantly greater than valid data length.
+    //
+
+    ClusterSize = 1 << FcbOrDcb->Vcb->AllocationSupport.LogOfBytesPerCluster;
+
+    ClusterAlignedVDL = (ValidDataLength + (ClusterSize - 1)) & ~(ClusterSize - 1);
+
+    if ((NodeType(FcbOrDcb) == FAT_NTC_FCB) &&
+        (FileOffset + *BytesToReallocate > ClusterAlignedVDL)) {
+
+        if (FileOffset > ClusterAlignedVDL) {
+
+            *BytesToWrite = 0;
+
+        } else {
+
+            *BytesToWrite = ClusterAlignedVDL - FileOffset;
+        }
+
+    } else {
+
+        *BytesToWrite = *BytesToReallocate;
+    }
+}
+
+
+//
+//  Local Support Routine
+//
+
+VOID
+FatComputeMoveFileSplicePoints (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB FcbOrDcb,
+    IN ULONG FileOffset,
+    IN ULONG TargetCluster,
+    IN ULONG BytesToReallocate,
+    OUT PULONG FirstSpliceSourceCluster,
+    OUT PULONG FirstSpliceTargetCluster,
+    OUT PULONG SecondSpliceSourceCluster,
+    OUT PULONG SecondSpliceTargetCluster,
+    IN OUT PMCB SourceMcb
+)
+
+/*++
+
+Routine Description:
+
+    This is a helper routine for FatMoveFile that analyzes the range of
+    file allocation we are moving and generates the splice points in the
+    FAT table.
+
+Arguments:
+
+    FcbOrDcb - Supplies the file and thus Mcb.
+
+    FileOffset - Supplies the beginning Vbo of the reallocation zone.
+
+    TargetCluster - Supplies the beginning cluster of the reallocation target.
+
+    BytesToReallocate - Suppies the length of the reallocation zone.
+
+    FirstSpliceSourceCluster - Receives the last cluster in previous allocation
+        or zero if we are reallocating from VBO 0.
+
+    FirstSpliceTargetCluster - Receives the target cluster (i.e. new allocation)
+
+    SecondSpliceSourceCluster - Receives the final target cluster.
+
+    SecondSpliceTargetCluster - Receives the first cluster of the remaining
+        source allocation or FAT_CLUSTER_LAST if the reallocation zone
+        extends to the end of the file.
+
+    SourceMcb - This supplies an MCB that will be filled in with run
+        information describing the file allocation being replaced.  The Mcb
+        must be initialized by the caller.
+
+Return Value:
+
+    VOID
+
+--*/
+
+{
+    VBO SourceVbo;
+    LBO SourceLbo;
+    ULONG SourceIndex;
+    ULONG SourceBytesInRun;
+    ULONG SourceBytesRemaining;
+
+    ULONG SourceMcbVbo;
+    ULONG SourceMcbBytesInRun;
+
+    PVCB Vcb;
+
+    Vcb = FcbOrDcb->Vcb;
+
+    //
+    //  Get information on the final cluster in the previous allocation and
+    //  prepare to enumerate it in the follow loop.
+    //
+
+    if (FileOffset == 0) {
+
+        SourceIndex = 0;
+        *FirstSpliceSourceCluster = 0;
+        FsRtlGetNextMcbEntry( &FcbOrDcb->Mcb,
+                              0,
+                              &SourceVbo,
+                              &SourceLbo,
+                              &SourceBytesInRun );
+
+    } else {
+
+        FsRtlLookupMcbEntry( &FcbOrDcb->Mcb,
+                             FileOffset-1,
+                             &SourceLbo,
+                             &SourceBytesInRun,
+                             &SourceIndex);
+
+        *FirstSpliceSourceCluster = FatGetIndexFromLbo( Vcb, SourceLbo );
+
+        if (SourceBytesInRun == 1) {
+
+            SourceIndex += 1;
+            FsRtlGetNextMcbEntry( &FcbOrDcb->Mcb,
+                                  SourceIndex,
+                                  &SourceVbo,
+                                  &SourceLbo,
+                                  &SourceBytesInRun);
+
+        } else {
+
+            SourceVbo = FileOffset;
+            SourceLbo += 1;
+            SourceBytesInRun -= 1;
+        }
+    }
+
+    //
+    //  At this point the variables:
+    //
+    //  - SourceIndex - SourceLbo - SourceBytesInRun -
+    //
+    //  all correctly decribe the allocation to be removed.  In the loop
+    //  below we will start here and continue enumerating the Mcb runs
+    //  until we are finished with the allocation to be relocated.
+    //
+
+    *FirstSpliceTargetCluster = TargetCluster;
+
+    *SecondSpliceSourceCluster =
+         *FirstSpliceTargetCluster +
+         (BytesToReallocate >> Vcb->AllocationSupport.LogOfBytesPerCluster) - 1;
+
+    for (SourceBytesRemaining = BytesToReallocate, SourceMcbVbo = 0;
+
+         SourceBytesRemaining > 0;
+
+         SourceIndex += 1,
+         SourceBytesRemaining -= SourceMcbBytesInRun,
+         SourceMcbVbo += SourceMcbBytesInRun) {
+
+        if (SourceMcbVbo != 0) {
+            FsRtlGetNextMcbEntry( &FcbOrDcb->Mcb,
+                                  SourceIndex,
+                                  &SourceVbo,
+                                  &SourceLbo,
+                                  &SourceBytesInRun );
+        }
+
+        ASSERT( SourceVbo == SourceMcbVbo + FileOffset );
+
+        SourceMcbBytesInRun =
+            SourceBytesInRun < SourceBytesRemaining ?
+            SourceBytesInRun : SourceBytesRemaining;
+
+        FsRtlAddMcbEntry( SourceMcb,
+                          SourceMcbVbo,
+                          SourceLbo,
+                          SourceMcbBytesInRun );
+    }
+
+    //
+    //  Now compute the cluster of the target of the second
+    //  splice.  If the final run in the above loop was
+    //  more than we needed, then we can just do arithmetic,
+    //  otherwise we have to look up the next run.
+    //
+
+    if (SourceMcbBytesInRun < SourceBytesInRun) {
+
+        *SecondSpliceTargetCluster =
+            FatGetIndexFromLbo( Vcb, SourceLbo + SourceMcbBytesInRun );
+
+    } else {
+
+        if (FsRtlGetNextMcbEntry( &FcbOrDcb->Mcb,
+                                  SourceIndex,
+                                  &SourceVbo,
+                                  &SourceLbo,
+                                  &SourceBytesInRun )) {
+
+            *SecondSpliceTargetCluster = FatGetIndexFromLbo( Vcb, SourceLbo );
+
+        } else {
+
+            *SecondSpliceTargetCluster = FAT_CLUSTER_LAST;
+        }
+    }
+}
+
+NTSTATUS
+FatAllowExtendedDasdIo(
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+/*++
+
+Routine Description:
+
+    This routine marks the CCB to indicate that the handle
+    may be used to read past the end of the volume file.  The
+    handle must be a dasd handle.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed.
+
+Return Value:
+
+    NTSTATUS - The return status for the operation.
+
+--*/
+{
+    PIO_STACK_LOCATION IrpSp;
+    PVCB Vcb;
+    PFCB Fcb;
+    PCCB Ccb;
+
+    //
+    //  Get the current Irp stack location and save some references.
+    //
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    //
+    //  Extract and decode the file object and check for type of open.
+    //
+
+    if (FatDecodeFileObject( IrpSp->FileObject, &Vcb, &Fcb, &Ccb ) != UserVolumeOpen) {
+
+        FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    SetFlag( Ccb->Flags, CCB_FLAG_ALLOW_EXTENDED_DASD_IO );
+
+    FatCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+    return STATUS_SUCCESS;
 }

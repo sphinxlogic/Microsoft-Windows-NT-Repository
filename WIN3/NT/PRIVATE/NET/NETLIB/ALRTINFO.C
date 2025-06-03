@@ -36,7 +36,7 @@ Revision History:
 #include <debuglib.h>   // IF_DEBUG().
 #include <lmerr.h>      // NO_ERROR, ERROR_ and NERR_ equates.
 #include <lmalert.h>    // ALERT_xxx_EVENT equates.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>     // NetpSetOptionalArg().
 #include <rxp.h>        // MAX_TRANSACT_ equates.
 //#include <rxprint.h>    // PDLEN, QNLEN, JOBSTLEN.
@@ -97,7 +97,7 @@ NetpAlertStructureInfo(
     } else if (STRICMP( AlertType, ALERT_USER_EVENT ) == 0) {
 
         fixedPartSize = sizeof(USER_OTHER_INFO);
-        variablePartLen = UNLEN+1 + CNLEN+1;
+        variablePartLen = UNLEN+1 + MAX_PATH+1;
 
     } else {
 
@@ -106,9 +106,9 @@ NetpAlertStructureInfo(
     }
 
     IF_DEBUG( STRUCINF ) {
-        NetpDbgPrint( "NETLIB: NetpAlertStructureInfo: " FORMAT_LPTSTR
+        NetpKdPrint(( "NETLIB: NetpAlertStructureInfo: " FORMAT_LPTSTR
                 " has fixed size " FORMAT_DWORD ", variable len "
-                FORMAT_DWORD ".\n", AlertType, fixedPartSize, variablePartLen );
+                FORMAT_DWORD ".\n", AlertType, fixedPartSize, variablePartLen ));
     }
 
     NetpSetOptionalArg(

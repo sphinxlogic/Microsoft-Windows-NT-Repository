@@ -37,15 +37,12 @@ Revision History:
 
 --*/
 
-#ifndef DOSWIN32RPC
-#define UNICODE
-#endif
-
-#include<sysinc.h>
-#include<rpc.h>
+#include <precomp.hxx>
 #include<nb30.h>      // for ADAPTER_STATUS
+#ifdef NTENV
 #include<tdi.h>
-#include<uuidsup.hxx>
+#endif
+#include <uuidsup.hxx>
 
 
 //
@@ -53,23 +50,36 @@ Revision History:
 // These keys are opened as needed and closed by UuidGetValues()
 //
 
+#ifndef KERNEL_UUIDS
 static HKEY PersistentKey = 0;
-static HKEY VolatileKey = 0;
 
 // The clock sequence and time persist between boots.
-static const RPC_CHAR *RPC_UUID_PERSISTENT_DATA
-    = RPC_CONST_STRING("Software\\Description\\Microsoft\\Rpc\\UuidPersistentData");
-static const RPC_CHAR *CLOCK_SEQUENCE      = RPC_CONST_STRING("ClockSequence");
-static const RPC_CHAR *LAST_TIME_ALLOCATED = RPC_CONST_STRING("LastTimeAllocated");
+static const char *RPC_UUID_PERSISTENT_DATA
+    = "Software\\Description\\Microsoft\\Rpc\\UuidPersistentData";
+static const char *CLOCK_SEQUENCE      = "ClockSequence";
+static const char *LAST_TIME_ALLOCATED = "LastTimeAllocated";
 
-// The node id should not persisten between boots.
-static const RPC_CHAR *RPC_UUID_TEMPORARY_DATA
-    = RPC_CONST_STRING("Software\\Description\\Microsoft\\Rpc\\UuidTemporaryData");
-static const RPC_CHAR *SAVED_NODE_ID       = RPC_CONST_STRING("NetworkAddress");
+static const char *UuidGlobalMutexName = "Microsoft RPC UUID Mutex";
+static HANDLE UuidGlobalMutex = 0;
+#endif
+
+// The node id should not persist between boots.
+static HKEY VolatileKey = 0;
+static const char *RPC_UUID_TEMPORARY_DATA
+    = "Software\\Description\\Microsoft\\Rpc\\UuidTemporaryData";
+static const char *NETWORK_ADDRESS       = "NetworkAddress";
+static const char *NETWORK_ADDRESS_LOCAL = "NetworkAddressLocal";
 
 
-static const RPC_CHAR *UuidGlobalMutexName = RPC_CONST_STRING("Microsoft RPC UUID Mutex");
-static HANDLE UuidGlobalMutex = 0;
+#ifdef DOSWIN32RPC
+
+typedef unsigned char (*NETBIOS_FN_T)(NCB *);
+
+static NETBIOS_FN_T NetbiosFn = NULL;
+
+#endif
+
+#ifndef KERNEL_UUIDS
 
 RPC_STATUS __RPC_API
 UuidGlobalMutexRequest(void)
@@ -139,13 +149,13 @@ Return Value:
 
         UuidGlobalMutex = CreateMutex(&SecurityAttributes,   // Security
                                       FALSE,                 // Initial Owner
-                                      UuidGlobalMutexName);  // Name
+                                      (LPCTSTR)UuidGlobalMutexName);  // Name
 
         if (UuidGlobalMutex == 0)
             {
             Status = GetLastError();
 #ifdef DEBUGRPC
-            DbgPrint("RPC: CreateMutex - %x\n", Status);
+            PrintToDebugger("RPC: CreateMutex - %x\n", Status);
 #endif
             ASSERT( (Status == ERROR_OUTOFMEMORY) );
 
@@ -161,9 +171,9 @@ Return Value:
         if ( Status != WAIT_OBJECT_0 )
             {
 #ifdef DEBUGRPC
-            DbgPrint("RPC: Wait failed - %x\n", Status);
+            PrintToDebugger("RPC: Wait failed - %x\n", Status);
 #endif
-            ASSERT(Status == WAIT_ABANDONED);
+            ASSERT( (Status == WAIT_ABANDONED) || (Status == WAIT_TIMEOUT) );
             Status = RPC_S_UUID_NO_ADDRESS;
             }
         else
@@ -202,6 +212,8 @@ Return Value:
     ASSERT(Status == TRUE);
 }
 
+#endif // KERNEL_UUIDS
+
 
 int OpenUuidKeysIfNecessary()
 /*++
@@ -219,18 +231,19 @@ Return Value:
     RPC_STATUS Status;
     ULONG Disposition;
 
+#ifndef KERNEL_UUIDS
     if (PersistentKey == 0)
         {
         Status =
         RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-                       RPC_UUID_PERSISTENT_DATA,
-                       0,
-                       L"",
-                       REG_OPTION_NON_VOLATILE,
-                       KEY_SET_VALUE | KEY_QUERY_VALUE,
-                       0,
-                       &PersistentKey,
-                       &Disposition);
+                      (LPCTSTR)RPC_UUID_PERSISTENT_DATA,
+                      0,
+                      (LPTSTR)"",
+                      REG_OPTION_NON_VOLATILE,
+                      KEY_SET_VALUE | KEY_QUERY_VALUE,
+                      0,
+                      &PersistentKey,
+                      &Disposition);
 
         if (Status != ERROR_SUCCESS)
             {
@@ -238,7 +251,7 @@ Return Value:
             if (Status != ERROR_NOT_ENOUGH_MEMORY &&
                 Status != ERROR_OUTOFMEMORY)
                 {
-                DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegCreateKeyEx - %x\n", Status);
                 }
 #endif
             ASSERT(Status == ERROR_OUTOFMEMORY ||
@@ -249,14 +262,15 @@ Return Value:
         ASSERT(   (Disposition == REG_CREATED_NEW_KEY)
                || (Disposition == REG_OPENED_EXISTING_KEY) );
         }
+#endif // ! KERNEL_UUIDS
 
     if (VolatileKey == 0)
         {
         Status =
         RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-                       RPC_UUID_TEMPORARY_DATA,
+                       (LPCTSTR)RPC_UUID_TEMPORARY_DATA,
                        0,
-                       L"",
+                       (LPTSTR)"",
                        REG_OPTION_VOLATILE,
                        KEY_SET_VALUE | KEY_QUERY_VALUE,
                        0,
@@ -269,13 +283,15 @@ Return Value:
             if (Status != ERROR_NOT_ENOUGH_MEMORY &&
                 Status != ERROR_OUTOFMEMORY)
                 {
-                DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegCreateKeyEx - 0x%x\n", Status);
                 }
 #endif
             ASSERT(   (Status == ERROR_OUTOFMEMORY)
                    || (Status == ERROR_NOT_ENOUGH_MEMORY) );
+#ifndef KERNEL_UUIDS
             RegCloseKey(PersistentKey);
             PersistentKey = 0;
+#endif
             return(FALSE);
             }
 
@@ -292,12 +308,14 @@ CloseUuidKeys()
 {
     RPC_STATUS Status;
 
+#ifndef KERNEL_UUIDS
     if (PersistentKey)
         {
         Status = RegCloseKey(PersistentKey);
         ASSERT(Status == ERROR_SUCCESS);
         PersistentKey = 0;
         }
+#endif
 
     if (VolatileKey)
         {
@@ -328,12 +346,15 @@ Return Value:
 
     RPC_S_OK - Normally if you've got a saved NodeId.
 
+    RPC_S_UUID_LOCAL_ONLY - Local only NodeId saved in registry.
+
     RPC_S_UUID_NO_ADDRESS - On any error.
 
 --*/
 {
     RPC_STATUS Status;
     ULONG Length;
+    DWORD Local;
 
     if (OpenUuidKeysIfNecessary() == 0)
         {
@@ -343,7 +364,7 @@ Return Value:
     Length = 6;
     Status =
     RegQueryValueEx(VolatileKey,
-                    (RPC_CHAR *)SAVED_NODE_ID,
+                    (LPTSTR)NETWORK_ADDRESS,
                     0,
                     0,
                     (LPBYTE)NodeId,
@@ -351,19 +372,42 @@ Return Value:
 
     if (Status == ERROR_SUCCESS)
         {
-        return(RPC_S_OK);
+        Length = 4;
+
+        Status =
+        RegQueryValueEx(VolatileKey,
+                        (LPTSTR)NETWORK_ADDRESS_LOCAL,
+                        0,
+                        0,
+                        (LPBYTE)&Local,
+                        &Length);
+
+        if (Status == ERROR_SUCCESS)
+            {
+            ASSERT(Local == 0 || Local == 1);
+            if (Local)
+                {
+                return(RPC_S_UUID_LOCAL_ONLY);
+                }
+            else
+                {
+                return(RPC_S_OK);
+                }
+            }
         }
 
 #ifdef DEBUGRPC
             if (Status != ERROR_NOT_ENOUGH_MEMORY &&
                 Status != ERROR_OUTOFMEMORY &&
+                Status != ERROR_CANTREAD &&
                 Status != ERROR_FILE_NOT_FOUND)
                 {
-                DbgPrint("RPC UUID: RegQueryValueEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegQueryValueEx - %x\n", Status);
                 }
 #endif
     ASSERT(   (Status == ERROR_OUTOFMEMORY)
            || (Status == ERROR_NOT_ENOUGH_MEMORY)
+           || (Status == ERROR_CANTREAD)
            || (Status == ERROR_FILE_NOT_FOUND) );
 
     return(RPC_S_UUID_NO_ADDRESS);
@@ -372,7 +416,8 @@ Return Value:
 
 void __RPC_API
 SaveNodeIdInRegistry(
-    IN unsigned char *NodeId
+    IN unsigned char *NodeId,
+    IN DWORD LocalOnly
     )
 /*++
 
@@ -390,6 +435,9 @@ Arguments:
 
     NodeId - Contains the IEEE 802 address to save.
 
+    LocalOnly - Contains 1 if the address was cooked up.  0 if it's
+        a real IEEE 802 address.
+
 Return Value:
 
     n/a
@@ -400,24 +448,37 @@ Return Value:
 
     if (VolatileKey == 0)
        {
-       //Means OpenUuidKeys failed and we got nodeid from netbios
-       return; 
+       // Means OpenUuidKeys failed and we won't bother trying to save it now.
+       return;
        }
 
     Status =
     RegSetValueEx(VolatileKey,
-                  SAVED_NODE_ID,
+                  (LPCTSTR)NETWORK_ADDRESS,
                   0,
                   REG_BINARY,
                   (LPBYTE)NodeId,
                   6 );
+
+
+    if (Status == ERROR_SUCCESS)
+        {
+        Status =
+        RegSetValueEx(VolatileKey,
+                      (LPCTSTR)NETWORK_ADDRESS_LOCAL,
+                      0,
+                      REG_DWORD,
+                      (LPBYTE)&LocalOnly,
+                      4
+                     );
+        }
 
 #ifdef DEBUGRPC
             if (Status != ERROR_NOT_ENOUGH_MEMORY &&
                 Status != ERROR_OUTOFMEMORY &&
                 Status != ERROR_SUCCESS)
                 {
-                DbgPrint("RPC UUID: RegSetValueEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegSetValueEx - %x\n", Status);
                 }
 #endif
     ASSERT( (Status == ERROR_OUTOFMEMORY)
@@ -425,13 +486,15 @@ Return Value:
            || (Status == ERROR_SUCCESS));
 }
 
+#ifdef NTENV
+
 
-static const RPC_CHAR *NETBIOS_LINKAGE
-    = RPC_CONST_STRING("SYSTEM\\CurrentControlSet\\Services\\NetBIOS\\Linkage");
-static const RPC_CHAR *NETBIOS_BINDINGS = RPC_CONST_STRING("Bind");
+static const RPC_CHAR *BINDINGS_LINKAGE
+    = RPC_CONST_STRING("SYSTEM\\CurrentControlSet\\Services\\LanmanWorkstation\\Linkage");
+static const RPC_CHAR *BINDINGS_NAME = RPC_CONST_STRING("Bind");
 
 RPC_CHAR * __RPC_API
-ReadNetbiosBindings()
+ReadBindings()
 {
     HKEY       hKey;
     ULONG      Type;
@@ -440,11 +503,11 @@ ReadNetbiosBindings()
     UCHAR     *pBuffer;
 
     Status =
-    RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-                 NETBIOS_LINKAGE,
-                 0,
-                 KEY_READ,
-                 &hKey);
+    RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                  (PWSTR)BINDINGS_LINKAGE,
+                  0,
+                  KEY_READ,
+                  &hKey);
 
     if (Status != ERROR_SUCCESS)
         {
@@ -453,22 +516,23 @@ ReadNetbiosBindings()
                 Status != ERROR_OUTOFMEMORY &&
                 Status != ERROR_FILE_NOT_FOUND)
                 {
-                DbgPrint("RPC UUID: RegOpenKeyEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegOpenKeyEx - %x\n", Status);
                 }
 #endif
         ASSERT(   (Status == ERROR_OUTOFMEMORY)
                || (Status == ERROR_NOT_ENOUGH_MEMORY)
+               || (Status == ERROR_CANTREAD)
                || (Status == ERROR_FILE_NOT_FOUND) );
         return(0);
         }
 
     Status =
-    RegQueryValueEx(hKey,
-                    (RPC_CHAR *)NETBIOS_BINDINGS,
-                    0,
-                    &Type,
-                    0,     // no buffer yet
-                    &Size);
+    RegQueryValueExW(hKey,
+                     (PWSTR)BINDINGS_NAME,
+                     0,
+                     &Type,
+                     0,     // no buffer yet
+                     &Size);
 
 #ifdef DEBUGRPC
         if (Status != ERROR_SUCCESS &&
@@ -476,11 +540,11 @@ ReadNetbiosBindings()
             Status != ERROR_OUTOFMEMORY &&
             Status != ERROR_FILE_NOT_FOUND)
             {
-            DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+            PrintToDebugger("RPC UUID: RegCreateKeyEx - %x\n", Status);
             }
 #endif
     ASSERT(   (Status == ERROR_SUCCESS)
-           || (Status == ERROR_OUTOFMEMORY)
+           || (Status == ERROR_CANTREAD)
            || (Status == ERROR_NOT_ENOUGH_MEMORY)
            || (Status == ERROR_FILE_NOT_FOUND) );
 
@@ -494,12 +558,12 @@ ReadNetbiosBindings()
     pBuffer = new UCHAR[Size];
 
     Status =
-    RegQueryValueEx(hKey,
-                    (RPC_CHAR *)NETBIOS_BINDINGS,
-                    0,
-                    &Type,
-                    pBuffer,
-                    &Size);
+    RegQueryValueExW(hKey,
+                     (PWSTR)BINDINGS_NAME,
+                     0,
+                     &Type,
+                     pBuffer,
+                     &Size);
 
     RegCloseKey(hKey);
 
@@ -508,7 +572,7 @@ ReadNetbiosBindings()
             Status != ERROR_NOT_ENOUGH_MEMORY &&
             Status != ERROR_OUTOFMEMORY)
             {
-            DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+            PrintToDebugger("RPC UUID: RegCreateKeyEx - %x\n", Status);
             }
 #endif
     ASSERT(   ( (Status == ERROR_SUCCESS) && (Type == REG_MULTI_SZ) )
@@ -524,6 +588,7 @@ ReadNetbiosBindings()
     return((RPC_CHAR *)pBuffer);
 }
 
+#endif
 
 
 #if !defined(_MIPS_) && !defined(_ALPHA_)  && !defined(_PPC_)
@@ -539,6 +604,7 @@ ReadNetbiosBindings()
                                *(unsigned short UNALIGNED *)&((id)[4]) ) ? RPC_S_OK : RPC_S_UUID_NO_ADDRESS)
 
 
+#ifdef NTENV
 // A REG_MULTI_SZ is a buffer containing zero terminated strings.  The last
 // string in the buffer has two terminators.  This helper returns a pointer to
 // the next string or a pointer to NULL when the list is empty.
@@ -550,6 +616,7 @@ static inline RPC_CHAR *NextMultiSz(RPC_CHAR *p)
     return(p);
 }
 
+
 RPC_STATUS __RPC_API
 GetNodeIdFromNetbios(
     OUT unsigned char *NodeId)
@@ -557,10 +624,9 @@ GetNodeIdFromNetbios(
 
 Routine Description:
 
-    This routine loads the devices netbios is bound to from the
-    registry and asks them for an adapter status.  (This is very
-    similar to sumitting a NCB ASTAT).  Much of this is borrowed
-    from nbtstat.
+    This routine loads the bindings from the registry and querys them for an
+    adapter status.  (This is very similar to sumitting a NCB ASTAT).
+    Much of this is borrowed from nbtstat/netbios.
 
 Arguments:
 
@@ -587,10 +653,10 @@ Return Value:
     NTSTATUS NtStatus;
     RPC_STATUS Status;
 
-    // First thing, read NetBios device names from the registry.
+    // First thing, read the device names we want to query from the registry.
     // This pointer will point to a RPC_CHAR REG_MULTI_SZ buffer.
 
-    pDeviceNames = ReadNetbiosBindings();
+    pDeviceNames = ReadBindings();
 
     if (pDeviceNames == 0)
         return(RPC_S_UUID_NO_ADDRESS);
@@ -693,6 +759,138 @@ Return Value:
     delete pDeviceNames;
     return(RPC_S_UUID_NO_ADDRESS);
 }
+#endif
+
+#ifdef DOSWIN32RPC
+RPC_STATUS __RPC_API
+GetNodeIdFromNetbios(
+    OUT unsigned char PAPI * NodeId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine retrieves the node id from netbios. This submits a
+    synchronous adapter status ncb which returns a 384 byte status block
+    (well, astat can return more, but we only care about the first
+    6 bytes anyways and we must get at least 384 bytes back). See the
+    IBM LAN Technical reference for more information about the NCB.STATUS
+    command.
+
+    Note that this returns info for only lana 0.
+
+Arguments:
+
+    Pointer to where to place the node id.
+
+Return Value:
+
+    UUID_S_OK - Everything went ok
+    UUID_S_NO_ADDRESS - Couldn't retrieve some information
+
+--*/
+
+{
+    int i;
+    NCB AnNcb;
+    HINSTANCE hNetapiDll;
+
+    struct {
+        ADAPTER_STATUS AdapterStatus;
+        NAME_BUFFER NameBuffer[32];
+    } AdapterStatusBlock;
+
+// LoadLibrary is used so to avoid bringing in NETAPI32.DLL everytime
+// RPCRT4.DLL is loaded.
+
+    if (NetbiosFn == NULL) {
+        hNetapiDll = LoadLibrary("NETAPI32.DLL");
+        if (hNetapiDll == NULL) {
+            return (RPC_S_UUID_NO_ADDRESS);
+        }
+        NetbiosFn = (NETBIOS_FN_T) GetProcAddress(hNetapiDll, "Netbios");
+        if (NetbiosFn == NULL) {
+            return (RPC_S_UUID_NO_ADDRESS);
+        }
+    }
+
+    ASSERT(NetbiosFn != NULL);
+
+    for (i = 0; i < 8; i++) {
+        AnNcb.ncb_command = NCBASTAT;
+        AnNcb.ncb_buffer = (unsigned char *)&AdapterStatusBlock;
+        AnNcb.ncb_length = sizeof(AdapterStatusBlock);
+        AnNcb.ncb_callname[0] = '*';         // '*' -> local netbios
+        AnNcb.ncb_callname[1] = '\0';
+        AnNcb.ncb_lana_num = i;
+
+        (*NetbiosFn)( &AnNcb );
+        if (AnNcb.ncb_retcode == NRC_GOODRET) {
+            break;
+        }
+    }
+
+    if (i == 8) {
+#ifdef DEBUGRPC
+        PrintToDebugger("Unable to obtain ethernet address from NetBIOS\n");
+#endif
+        return (RPC_S_UUID_NO_ADDRESS);
+    }
+
+    RpcpMemoryCopy(NodeId,
+                   AdapterStatusBlock.AdapterStatus.adapter_address, 6);
+
+    return (RPC_S_OK);
+}
+
+RPC_STATUS __RPC_API
+GetNodeIdFromIPX(
+    OUT unsigned char PAPI * NodeId
+    )
+{
+    HANDLE VxDHandle;
+    DWORD IpxCmd;
+    char lpvOutBuffer[10];
+    DWORD cbInBuffer = sizeof(DWORD);
+    DWORD cbOutBuffer = 10;
+    ULONG cbOutReturned;
+    LPOVERLAPPED lpvOverLapped=NULL;
+
+    VxDHandle = CreateFile( "\\\\.\\NWLINK",
+                            GENERIC_WRITE,
+                            FILE_SHARE_WRITE,
+                            NULL,
+                            OPEN_EXISTING,
+                            FILE_ATTRIBUTE_NORMAL,
+                            NULL );
+
+    if ( VxDHandle == INVALID_HANDLE_VALUE ) {
+        return (RPC_S_UUID_NO_ADDRESS);
+    }
+
+    IpxCmd = 9; // GetInternetAddress
+
+    if ( !DeviceIoControl(
+                          VxDHandle,
+                          0x100, // NWLINK_SUBMIT_IPX_CMD
+                          &IpxCmd,
+                          cbInBuffer,
+                          lpvOutBuffer,
+                          cbOutBuffer,
+                          &cbOutReturned,
+                          lpvOverLapped)) {
+        CloseHandle( VxDHandle );
+        return (RPC_S_UUID_NO_ADDRESS);
+     }
+
+    RpcpMemoryCopy(NodeId, &lpvOutBuffer[4], 6);
+
+    CloseHandle( VxDHandle );
+
+    return (RPC_S_OK);
+}
+#endif
 
 
 RPC_STATUS __RPC_API
@@ -715,9 +913,10 @@ Arguments:
              The computer name.
              The value of the performance counter.
              The system memory status.
+             The total bytes and free bytes on C:
              The stack pointer (value).
              An LUID (locally unique ID)
-             Plus whatever random crap was in the NodeId to begin with.
+             Plus whatever random stuff was in the NodeId to begin with.
 
              The NodeId returned is explicity made into a Multicast IEEE 802
              address so that it will not conflict with a 'real' IEEE 802
@@ -732,11 +931,16 @@ Return Value:
     unsigned char LocalNodeId[6];                            // NOT initialized.
     unsigned char ComputerName[MAX_COMPUTERNAME_LENGTH + 1];
     BOOL BoolResult;
-    ULONG i;
+    ULONG i = MAX_COMPUTERNAME_LENGTH+1;
     LARGE_INTEGER largeInt;
+    LUID luid;
     ULONG UNALIGNED *NodeIdPart1 = (ULONG *)&LocalNodeId[0]; // Bytes 0 - 3
     ULONG UNALIGNED *NodeIdPart2 = (ULONG *)&LocalNodeId[2]; // Bytes 2 - 5
     MEMORYSTATUS memStatus;
+    ULONG SectorsPerCluster;
+    ULONG BytesPerSector;
+    ULONG TotalClusters;
+    ULONG FreeClusters;
 
     // The computer name is xor'ed in until it runs out.
 
@@ -759,7 +963,7 @@ Return Value:
 #ifdef DEBGURPC
     else
         {
-        DbgPrint("RPC: GetComputerName failed - %d\n", GetLastError());
+        PrintToDebugger("RPC: GetComputerName failed - %d\n", GetLastError());
         ASSERT(!"RPC: GetComputerName failed\n");
         }
 #endif
@@ -777,7 +981,7 @@ Return Value:
 #ifdef DEBUGRPC
     else
         {
-        DbgPrint("QueryPreformanceCount failed - %d\n", GetLastError());
+        PrintToDebugger("QueryPreformanceCount failed - %d\n", GetLastError());
         ASSERT(!"RPC: QueryPerformanceCounter failed.\n");
         }
 #endif
@@ -803,18 +1007,40 @@ Return Value:
     // LUID's are good on this machine during this boot only.
 
     BoolResult =
-    AllocateLocallyUniqueId(&largeInt);
+    AllocateLocallyUniqueId(&luid);
 
     if (BoolResult)
         {
-        *NodeIdPart1 ^= largeInt.LowPart;
-        *NodeIdPart2 ^= largeInt.HighPart;
+        *NodeIdPart1 ^= luid.LowPart;
+        *NodeIdPart2 ^= luid.HighPart;
         }
 #ifdef DEBGURPC
     else
         {
-        DbgPrint("Status %d\n", GetLastError());
+        PrintToDebugger("Status %d\n", GetLastError());
         ASSERT(!"RPC: AllocateLocallyUniqueId failed.\n");
+        }
+#endif
+
+    // Disk parameters and free space
+
+    BoolResult =
+    GetDiskFreeSpaceA("c:\\",
+                      &SectorsPerCluster,
+                      &BytesPerSector,
+                      &FreeClusters,
+                      &TotalClusters
+                     );
+
+    if (BoolResult)
+        {
+        *NodeIdPart2 ^= TotalClusters * SectorsPerCluster * BytesPerSector;
+        *NodeIdPart1 ^= FreeClusters * SectorsPerCluster * BytesPerSector;
+        }
+#ifdef DEBUGRPC
+    else
+        {
+        PrintToDebugger("RPC dceuuid.cxx: GetDiskFreeSpace failed - %d\n", GetLastError());
         }
 #endif
 
@@ -824,12 +1050,12 @@ Return Value:
     LocalNodeId[0] |= 0x80;
 
 #if 0
-    DbgPrint("RPC cooked up the following NodeId: ");
+    PrintToDebugger("RPC cooked up the following NodeId: ");
     for(i = 0; i < 6; i++)
         {
-        DbgPrint("%02x", (unsigned int)LocalNodeId[i]);
+        PrintToDebugger("%02x", (unsigned int)LocalNodeId[i]);
         }
-    DbgPrint("\n");
+    PrintToDebugger("\n");
 #endif
 
     RpcpMemoryCopy(NodeId, LocalNodeId, 6);
@@ -866,20 +1092,25 @@ Return Value:
 --*/
 {
     RPC_STATUS Status;
+    BOOL GotLocalId = 0;
 
-    // Try looking up the NodeId in the registry.  This saves time
-    // since querying DHCP and NetBios are expensive in both
-    // time and size.
+    // Try looking up the NodeId in the registry.  Querying the system for
+    // the network address is expensive in both time and size.
 
     Status = GetNodeIdFromRegistry(NodeId);
 
-    if (Status == RPC_S_OK)
-        Status = CHECK_NON_ZERO(NodeId);
+    if (Status == RPC_S_UUID_LOCAL_ONLY)
+        {
+        // We'll try to get a real address, if that fails then we'll
+        // use the local id in the registry.
+        GotLocalId = 1;
+        }
 
     if (Status == RPC_S_OK)
         return(Status);
 
-    ASSERT(Status == RPC_S_UUID_NO_ADDRESS);
+    ASSERT(   Status == RPC_S_UUID_NO_ADDRESS
+           || Status == RPC_S_UUID_LOCAL_ONLY);
 
     Status = GetNodeIdFromNetbios(NodeId);
 
@@ -888,26 +1119,60 @@ Return Value:
 
     if (Status == RPC_S_OK)
         {
-        SaveNodeIdInRegistry(NodeId);
+#ifdef DEBUGRPC
+        if (GotLocalId)
+            {
+            PrintToDebugger("RPC: Network address found (network started)\n");
+            }
+#endif
+        SaveNodeIdInRegistry(NodeId, 0);
         return(RPC_S_OK);
         }
 
+#ifdef DOSWIN32RPC
+    Status = GetNodeIdFromIPX(NodeId);
+    if (Status == RPC_S_OK)
+        Status = CHECK_NON_ZERO(NodeId);
+
+    if (Status == RPC_S_OK)
+        {
+#ifdef DEBUGRPC
+        if (GotLocalId)
+            {
+            PrintToDebugger("RPC: Network address found (network started)\n");
+            }
+#endif
+        SaveNodeIdInRegistry(NodeId, 0);
+        return(RPC_S_OK);
+        }
+#endif
+
     ASSERT(Status == RPC_S_UUID_NO_ADDRESS);
 
+    if (GotLocalId == 1)
+        {
+        // We found a local id from the registry, and we don't have a real address
+        // so we'll use it.
+        return(RPC_S_UUID_LOCAL_ONLY);
+        }
+
 #ifdef DEBUGRPC
-    DbgPrint("RPC: If you have a netcard installed and configured and you see\n");
-    DbgPrint("     this message, please contact an RPC developer. (uuidsup.cxx)\n");
+    PrintToDebugger("RPC: No network address found.\n");
 #endif
 
     Status = CookupNodeId(NodeId);
 
-    // We don't want to save cooked-up node id's in the registry.
-
     ASSERT( (Status == RPC_S_UUID_LOCAL_ONLY) );
+
+    // Save cooked ID but mark it as being local.  This way we'll generate
+    // at most 1 cooked ID/boot.
+
+    SaveNodeIdInRegistry(NodeId, 1);
 
     return (Status);
 }
 
+#ifndef KERNEL_UUIDS
 
 void __RPC_API
 UuidTime(
@@ -940,11 +1205,11 @@ Return Value:
 
 #ifdef DOSWIN32RPC
     SYSTEMTIME SystemTime;
-    QuerySystemTime(&SystemTime);
-    if (SystemTimeToFileTime(&SystemTime, pTime) == FALSE)
+    GetLocalTime(&SystemTime);
+    if (SystemTimeToFileTime(&SystemTime, (LPFILETIME)pTime) == FALSE)
         {
 #ifdef DEBUGRPC
-        DbgPrint("LastError: %d\n", GetLastError());
+        PrintToDebugger("LastError: %d\n", GetLastError());
 #endif
         ASSERT(!"SystemTimeToFileTimeFailed")
         }
@@ -1007,13 +1272,13 @@ Return Value:
     Length = sizeof(*pClockSeq);
     Status =
     RegQueryValueEx(PersistentKey,
-                    (RPC_CHAR *)CLOCK_SEQUENCE,  //BUGBUG: Why do I need the cast
+                    (LPTSTR)CLOCK_SEQUENCE,
                     0,
                     0,
                     (LPBYTE)pClockSeq,
                     &Length);
 
-    if (Status == ERROR_FILE_NOT_FOUND)
+    if (Status == ERROR_FILE_NOT_FOUND || Status == ERROR_CANTREAD)
         {
         // The 14bit ClockSeq should start as a random number, as per the AES.
 
@@ -1025,7 +1290,7 @@ Return Value:
         Length = sizeof(*pTime);
         Status =
         RegQueryValueEx(PersistentKey,
-                        (RPC_CHAR *)LAST_TIME_ALLOCATED,
+                        (LPTSTR)LAST_TIME_ALLOCATED,
                         0,
                         0,
                         (LPBYTE)pTime,
@@ -1039,14 +1304,15 @@ Return Value:
                 Status != ERROR_OUTOFMEMORY &&
                 Status != ERROR_FILE_NOT_FOUND)
                 {
-                DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegCreateKeyEx - %x\n", Status);
                 }
 #endif
         ASSERT(   (Status == ERROR_OUTOFMEMORY)
                || (Status == ERROR_NOT_ENOUGH_MEMORY)
+               || (Status == ERROR_CANTREAD)
                || (Status == ERROR_FILE_NOT_FOUND) );
 
-        if (Status != ERROR_FILE_NOT_FOUND)
+        if (!(Status == ERROR_FILE_NOT_FOUND || Status == ERROR_CANTREAD))
             {
             return(RPC_S_OUT_OF_MEMORY);
             }
@@ -1093,7 +1359,7 @@ Return Value:
 
     Status =
     RegSetValueEx(PersistentKey,
-                  (RPC_CHAR *)CLOCK_SEQUENCE,
+                  (LPTSTR)CLOCK_SEQUENCE,
                   0,
                   REG_DWORD,
                   (LPBYTE)pClockSeq,
@@ -1103,7 +1369,7 @@ Return Value:
         {
         Status =
         RegSetValueEx(PersistentKey,
-                      (RPC_CHAR *)LAST_TIME_ALLOCATED,
+                      (LPTSTR)LAST_TIME_ALLOCATED,
                       0,
                       REG_BINARY,
                       (LPBYTE)pTime,
@@ -1116,7 +1382,7 @@ Return Value:
             if (Status != ERROR_NOT_ENOUGH_MEMORY &&
                 Status != ERROR_OUTOFMEMORY)
                 {
-                DbgPrint("RPC UUID: RegCreateKeyEx - %x\n", Status);
+                PrintToDebugger("RPC UUID: RegCreateKeyEx - %x\n", Status);
                 }
 #endif
         ASSERT(  (Status == ERROR_OUTOFMEMORY)
@@ -1237,3 +1503,90 @@ Return Value:
     return(RPC_S_OK);
 }
 
+#endif // KERNEL_UUIDS
+
+#ifdef KERNEL_UUIDS
+RPC_STATUS __RPC_API
+UuidGetValues(
+    OUT UUID_CACHED_VALUES_STRUCT __RPC_FAR *Values
+    )
+/*++
+
+Routine Description:
+
+    This routine allocates a block of uuids for UuidCreate to handout.
+
+Arguments:
+
+    Values - Set to contain everything needed to allocate a block of uuids.
+             The following fields will be updated here:
+
+    NextTimeLow -   Together with LastTimeLow, this denotes the boundaries
+                    of a block of Uuids. The values between NextTimeLow
+                    and LastTimeLow are used in a sequence of Uuids returned
+                    by UuidCreate().
+
+    LastTimeLow -   See NextTimeLow.
+
+    ClockSequence - Clock sequence field in the uuid.  This is changed
+                    when the clock is set backward.
+
+Return Value:
+
+    RPC_S_OK - We successfully allocated a block of uuids.
+
+    RPC_S_OUT_OF_MEMORY - As needed.
+--*/
+{
+    NTSTATUS NtStatus;
+    ULARGE_INTEGER Time;
+    ULONG Range;
+    ULONG Sequence;
+    int Tries = 0;
+
+    CloseUuidKeys();
+
+    do {
+        NtStatus = NtAllocateUuids(&Time, &Range, &Sequence);
+
+        if (NtStatus == STATUS_RETRY)
+            {
+            Sleep(1);
+            }
+
+        Tries++;
+
+        if (Tries == 20)
+            {
+#ifdef DEBUGRPC
+            PrintToDebugger("Rpc: NtAllocateUuids retried 20 times!\n");
+            ASSERT(Tries < 20);
+#endif
+            NtStatus = STATUS_UNSUCCESSFUL;
+            }
+
+        } while(NtStatus == STATUS_RETRY);
+
+    if (!NT_SUCCESS(NtStatus))
+        {
+        return(RPC_S_OUT_OF_MEMORY);
+        }
+
+    // NtAllocateUuids keeps time in SYSTEM_TIME format which is 100ns ticks since
+    // Jan 1, 1601.  UUIDs use time in 100ns ticks since Oct 15, 1582.
+
+    // 17 Days in Oct + 30 (Nov) + 31 (Dec) + 18 years and 5 leap days.
+
+    Time.QuadPart +=   (unsigned __int64) (1000*1000*10)       // seconds
+                     * (unsigned __int64) (60 * 60 * 24)       // days
+                     * (unsigned __int64) (17+30+31+365*18+5); // # of days
+
+    ASSERT(Range);
+
+    Values->NextTime.QuadPart = Time.QuadPart;
+    Values->LastTime.QuadPart = Time.QuadPart + (Range - 1);
+    Values->ClockSequence     = (unsigned short)(Sequence & 0x3FFFUL);
+
+    return(RPC_S_OK);
+}
+#endif // KERNEL_UUIDS

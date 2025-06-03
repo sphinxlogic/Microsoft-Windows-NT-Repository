@@ -1237,6 +1237,20 @@ Return Value:
     HwDeviceExtension->PhysicalFrameBase.LowPart =
             MemoryMaps[pRequestedMode->MemMap].Start;
 
+    //
+    // Enable memory-mapped I/O if required
+    //
+
+    if ((Mode->RequestedMode != DEFAULT_MODE) &&
+        (HwDeviceExtension->PhysicalMemoryMappedLength != 0)) {
+
+        VideoPortWritePortUchar((PUCHAR) CTRL_REG_2, 0x10);
+
+        VideoPortWritePortUchar((PUCHAR) MEMORY_MAP_BASE,
+            (UCHAR) (HwDeviceExtension->PhysicalMemoryMappedBase.LowPart / 4096 - 0x80));
+
+        VideoPortWritePortUchar((PUCHAR) CTRL_REG_2, 0x11);
+    }
 
     VideoDebugPrint((1,"QVision.sys: VgaSetMode - EXIT.\n"));
     return NO_ERROR;

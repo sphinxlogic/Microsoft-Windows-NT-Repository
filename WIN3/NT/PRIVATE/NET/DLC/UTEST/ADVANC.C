@@ -3754,6 +3754,8 @@ CompareReceiveBuffers(
                 //Source[Length - 1] = 0;
                 //Dest[Length - 1] = 0;
 
+                for (i = 0; Source[i] == Dest[i];  i++);
+
                 puts("The data is corrupted!!");
                 printf("data offset   : %u\n", DataOffset);
                 printf("packet number : %u\n", *pIndex);

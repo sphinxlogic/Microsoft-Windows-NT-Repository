@@ -23,7 +23,6 @@ Revision History:
 --*/
 
 #include "ki.h"
-#include "stdio.h"
 
 //
 // Define forward referenced prototypes.
@@ -39,7 +38,6 @@ KiScanBugCheckCallbackList (
 //
 
 ULONG KeBugCheckCount = 1;
-KSPIN_LOCK  KiBugCheckInterlock;
 
 
 VOID
@@ -68,17 +66,19 @@ Return Value:
 
 ULONG KiBugCheckData[5];
 
-
-VOID
-KiGetBugMessageText(
-        IN ULONG MessageId
-        )
+BOOLEAN
+KeGetBugMessageText(
+    IN ULONG MessageId,
+    IN PANSI_STRING ReturnedString OPTIONAL
+    )
 {
     ULONG   i;
     PUCHAR  s;
     PMESSAGE_RESOURCE_BLOCK MessageBlock;
     PUCHAR Buffer;
+    BOOLEAN Result;
 
+    Result = FALSE;
     try {
         if (KiBugCodeMessages != NULL) {
             MessageBlock = &KiBugCodeMessages->Blocks[0];
@@ -94,24 +94,36 @@ KiGetBugMessageText(
                     Buffer = ((PMESSAGE_RESOURCE_ENTRY)s)->Text;
 
                     i = strlen(Buffer) - 1;
-                    while (i > 0  &&
-                        (Buffer[i] == '\n'  ||
-                         Buffer[i] == '\r'  ||
-                         Buffer[i] == 0)) {
+                    while (i > 0 && (Buffer[i] == '\n'  ||
+                                     Buffer[i] == '\r'  ||
+                                     Buffer[i] == 0
+                                    )
+                          ) {
+                        if (!ARGUMENT_PRESENT( ReturnedString )) {
                             Buffer[i] = 0;
-                            i -= 1;
+                        }
+                        i -= 1;
                     }
 
-                    HalDisplayString(Buffer);
-                    goto bailonmessages2;
+                    if (!ARGUMENT_PRESENT( ReturnedString )) {
+                        HalDisplayString(Buffer);
+                        }
+                    else {
+                        ReturnedString->Buffer = Buffer;
+                        ReturnedString->Length = (USHORT)(i+1);
+                        ReturnedString->MaximumLength = (USHORT)(i+1);
+                    }
+                    Result = TRUE;
+                    break;
                 }
                 MessageBlock++;
             }
         }
-bailonmessages2:;
     } except ( EXCEPTION_EXECUTE_HANDLER ) {
         ;
     }
+
+    return Result;
 }
 
 
@@ -181,6 +193,7 @@ Return Value:
     ULONG TargetSet;
 
 #endif
+    BOOLEAN hardErrorCalled;
 
     //
     // Capture the callers context as closely as possible into the debugger's
@@ -190,7 +203,12 @@ Return Value:
     //      they get destroyed.
     //
 
+#if defined(i386)
+    KiSetHardwareTrigger();
+#else
     KiHardwareTrigger = 1;
+#endif
+
     RtlCaptureContext(&KeGetCurrentPrcb()->ProcessorState.ContextFrame);
     KiSaveProcessorControlState(&KeGetCurrentPrcb()->ProcessorState);
 
@@ -201,6 +219,37 @@ Return Value:
     //
 
     ContextSave = KeGetCurrentPrcb()->ProcessorState.ContextFrame;
+
+    //
+    // if we are called by hard error then we don't want to dump the
+    // processor state on the machine.
+    //
+    // We know that we are called by hard error because the bug check
+    // code will be FATAL_UNHANDLED_HARD_ERROR.  If this is so then the
+    // error status passed to harderr is the second parameter, and a pointer
+    // to the parameter array from hard error is passed as the third
+    // argument.
+    //
+
+    if (BugCheckCode == FATAL_UNHANDLED_HARD_ERROR) {
+
+        PULONG parameterArray;
+
+        hardErrorCalled = TRUE;
+
+        parameterArray = (PULONG)BugCheckParameter2;
+        BugCheckCode = BugCheckParameter1;
+        BugCheckParameter1 = parameterArray[0];
+        BugCheckParameter2 = parameterArray[1];
+        BugCheckParameter3 = parameterArray[2];
+        BugCheckParameter4 = parameterArray[3];
+
+
+    } else {
+
+        hardErrorCalled = FALSE;
+
+    }
 
     KiBugCheckData[0] = BugCheckCode;
     KiBugCheckData[1] = BugCheckParameter1;
@@ -228,7 +277,7 @@ Return Value:
                 BugCheckParameter3,
                 BugCheckParameter4
                 );
-            DbgBreakPoint();
+            DbgBreakPointWithStatus(DBG_STATUS_BUGCHECK_FIRST);
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
             for (;;) {
@@ -252,7 +301,7 @@ Return Value:
     // Don't attempt to display message more than once.
     //
 
-    if (ExInterlockedDecrementLong (&KeBugCheckCount, &KiBugCheckInterlock) == ResultZero) {
+    if (InterlockedDecrement (&KeBugCheckCount) == 0) {
 
 #if !defined(NT_UP)
 
@@ -277,17 +326,19 @@ Return Value:
 
 #endif
 
-        sprintf((char *)Buffer,
-                "\n*** STOP: 0x%08lX (0x%08lX,0x%08lX,0x%08lX,0x%08lX)\n",
-                BugCheckCode,
-                BugCheckParameter1,
-                BugCheckParameter2,
-                BugCheckParameter3,
-                BugCheckParameter4
-                );
+        if (!hardErrorCalled) {
+            sprintf((char *)Buffer,
+                    "\n*** STOP: 0x%08lX (0x%08lX,0x%08lX,0x%08lX,0x%08lX)\n",
+                    BugCheckCode,
+                    BugCheckParameter1,
+                    BugCheckParameter2,
+                    BugCheckParameter3,
+                    BugCheckParameter4
+                    );
 
-        HalDisplayString((char *)Buffer);
-        KiGetBugMessageText(BugCheckCode);
+            HalDisplayString((char *)Buffer);
+            KeGetBugMessageText(BugCheckCode, NULL);
+        }
 
         //
         // Process the bug check callback list.
@@ -300,12 +351,16 @@ Return Value:
         // attempt to enable the debbugger.
         //
 
-        KeDumpMachineState(
-            &KeGetCurrentPrcb()->ProcessorState,
-            (char *)Buffer,
-            BugCheckParameters,
-            4,
-            KeBugCheckUnicodeToAnsi);
+        if (!hardErrorCalled) {
+
+            KeDumpMachineState(
+                &KeGetCurrentPrcb()->ProcessorState,
+                (char *)Buffer,
+                BugCheckParameters,
+                4,
+                KeBugCheckUnicodeToAnsi);
+
+        }
 
         if (KdDebuggerEnabled == FALSE && KdPitchDebugger == FALSE ) {
             KdInitSystem(NULL, FALSE);
@@ -315,24 +370,24 @@ Return Value:
         }
 
         //
-        // display the PSS message
-        //
-
-        KiGetBugMessageText(BUGCODE_PSS_MESSAGE);
-
-        //
         // Write a crash dump and optionally reboot if the system has been
         // so configured.
         //
 
         KeGetCurrentPrcb()->ProcessorState.ContextFrame = ContextSave;
-        IoWriteCrashDump(BugCheckCode,
-                         BugCheckParameter1,
-                         BugCheckParameter2,
-                         BugCheckParameter3,
-                         BugCheckParameter4
-                         );
+        if (!IoWriteCrashDump(BugCheckCode,
+                              BugCheckParameter1,
+                              BugCheckParameter2,
+                              BugCheckParameter3,
+                              BugCheckParameter4,
+                              &ContextSave
+                              )) {
+            //
+            // If no crashdump take, display the PSS message
+            //
 
+            KeGetBugMessageText(BUGCODE_PSS_MESSAGE, NULL);
+        }
     }
 
     //
@@ -341,7 +396,7 @@ Return Value:
 
     while(TRUE) {
         try {
-            DbgBreakPoint();
+            DbgBreakPointWithStatus(DBG_STATUS_BUGCHECK_SECOND);
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
             for (;;) {
@@ -389,7 +444,7 @@ Return Value:
 #if !defined(i386)
     KeRaiseIrql(HIGH_LEVEL, &OldIrql);
 #endif
-    if (ExInterlockedDecrementLong (&KeBugCheckCount, &KiBugCheckInterlock) == ResultZero) {
+    if (InterlockedDecrement (&KeBugCheckCount) == 0) {
         if (KdDebuggerEnabled == FALSE) {
             if ( KdPitchDebugger == FALSE ) {
                 KdInitSystem(NULL, FALSE);
@@ -399,7 +454,7 @@ Return Value:
 
     while(TRUE) {
         try {
-            DbgBreakPoint();
+            DbgBreakPointWithStatus(DBG_STATUS_FATAL);
 
         } except(EXCEPTION_EXECUTE_HANDLER) {
             for (;;) {
@@ -486,6 +541,9 @@ Routine Description:
     processing so it may dump additional state in the specified bug check
     buffer.
 
+    N.B. Bug check callback routines are called in reverse order of
+         registration, i.e., in LIFO order.
+
 Arguments:
 
     CallbackRecord - Supplies a pointer to a callback record.
@@ -520,7 +578,7 @@ Return Value:
     KiAcquireSpinLock(&KeBugCheckCallbackLock);
 
     //
-    // If the specified callback record is currently not register, then
+    // If the specified callback record is currently not registered, then
     // register the callback record.
     //
 
@@ -534,7 +592,7 @@ Return Value:
             (ULONG)CallbackRoutine + (ULONG)Buffer + Length + (ULONG)Component;
 
         CallbackRecord->State = BufferInserted;
-        InsertTailList(&KeBugCheckCallbackListHead, &CallbackRecord->Entry);
+        InsertHeadList(&KeBugCheckCallbackListHead, &CallbackRecord->Entry);
         Inserted = TRUE;
     }
 

@@ -1,47 +1,29 @@
+/*++
+
+Copyright (c) 1992-1996  Microsoft Corporation
+
+Module Name:
+
+    lmcache.h
+
+Abstract:
+
+    This routine declares all of the structures required to cache the Lan
+    Manager function calls.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 #ifndef lmcache_h
 #define lmcache_h
-
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  lmcache.h
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//	This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//	Dynamics. Unauthorized distribution, adaptation or use may be
-//	subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  This routine declares all of the structures required to cache the Lan
-//  Manager function calls.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.0  $
-//  $Date:   20 May 1992 15:11:24  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/lmcache.h_v  $
-//  
-//     Rev 1.0   20 May 1992 15:11:24   mlk
-//  Initial revision.
-//
-//     Rev 1.1   30 Apr 1992 10:00:08   Chip
-//  Added cacheing.
-//
-//     Rev 1.0   29 Apr 1992 13:34:42   Chip
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
-
-//--------------------------- VERSION INFO ----------------------------------
-
-static char *lmcache__h = "@(#) $Logfile:   N:/lmmib2/vcs/lmcache.h_v  $ $Revision:   1.0  $";
 
 //--------------------------- PUBLIC CONSTANTS ------------------------------
 

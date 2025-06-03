@@ -196,7 +196,7 @@ Return Value:
     // Strict check that command is correct one for this worker.
     //
 
-/* BUGBUG - SCOTTBI - Auditing is disabled
+/* BUGWARNING - SCOTTBI - Auditing is disabled
 
     ASSERT( CommandMessage->CommandNumber == RmSetAuditLogCommand );
 

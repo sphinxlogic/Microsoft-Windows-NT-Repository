@@ -95,12 +95,12 @@ Routine Description:
 Arguments:
 
     IoNode - supplies a pointer to the ionode of the pipe for which stat is
-	requested.
+        requested.
 
     FileHandle - supplies the Nt file handle of the pipe. NULL for local pipes.
 
     StatBuf - Supplies the address of the statbuf portion of the message
-	associated with the request.
+        associated with the request.
 
 Return Value:
 
@@ -196,65 +196,65 @@ Return Value:
 --*/
 
 {
-	PLOCAL_PIPE Pipe;
-	PINTCB IntCb;
-	PPSX_PROCESS WaitingProc;
-	PLIST_ENTRY Next;
+        PLOCAL_PIPE Pipe;
+        PINTCB IntCb;
+        PPSX_PROCESS WaitingProc;
+        PLIST_ENTRY Next;
 
-	Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
+        Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
 
-	RtlEnterCriticalSection(&Pipe->CriticalSection);
+        RtlEnterCriticalSection(&Pipe->CriticalSection);
 
-	if ((Fd->SystemOpenFileDesc->Flags & PSX_FD_READ) &&
-		(0 == --Pipe->ReadHandleCount)) {
+        if ((Fd->SystemOpenFileDesc->Flags & PSX_FD_READ) &&
+                (0 == --Pipe->ReadHandleCount)) {
 
-		//
-		// Last reader close; any writers hanging around
-		// get EPIPE and a SIGPIPE
-		//
+                //
+                // Last reader close; any writers hanging around
+                // get EPIPE and a SIGPIPE
+                //
 
-		RtlEnterCriticalSection(&BlockLock);
+                RtlEnterCriticalSection(&BlockLock);
 
-		Next = Pipe->WaitingWriters.Flink;
-		while (Next != &Pipe->WaitingWriters) {
-			IntCb = CONTAINING_RECORD(Next, INTCB, Links);
-		
-			WaitingProc = (PPSX_PROCESS)IntCb->IntContext;
-			UnblockProcess(WaitingProc, IoCompletionInterrupt,
-				TRUE, 0);
-			RtlEnterCriticalSection(&BlockLock);
+                Next = Pipe->WaitingWriters.Flink;
+                while (Next != &Pipe->WaitingWriters) {
+                        IntCb = CONTAINING_RECORD(Next, INTCB, Links);
 
-			Next = Pipe->WaitingWriters.Flink;
-		}
+                        WaitingProc = (PPSX_PROCESS)IntCb->IntContext;
+                        UnblockProcess(WaitingProc, IoCompletionInterrupt,
+                                TRUE, 0);
+                        RtlEnterCriticalSection(&BlockLock);
 
-		RtlLeaveCriticalSection(&BlockLock);
-	}
+                        Next = Pipe->WaitingWriters.Flink;
+                }
 
-	if ((Fd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) &&
-		(0 == --Pipe->WriteHandleCount)) {
+                RtlLeaveCriticalSection(&BlockLock);
+        }
 
-		//
-		// Last writer close; any readers hanging around
-		// get 0.
-		//
+        if ((Fd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) &&
+                (0 == --Pipe->WriteHandleCount)) {
 
-		RtlEnterCriticalSection(&BlockLock);
+                //
+                // Last writer close; any readers hanging around
+                // get 0.
+                //
 
-		Next = Pipe->WaitingReaders.Flink;
-		while (Next != &Pipe->WaitingReaders) {
-			IntCb = CONTAINING_RECORD(Next, INTCB, Links);
+                RtlEnterCriticalSection(&BlockLock);
 
-			WaitingProc = (PPSX_PROCESS)IntCb->IntContext;
-			UnblockProcess(WaitingProc, IoCompletionInterrupt,
-				TRUE, 0);
-			RtlEnterCriticalSection(&BlockLock);
+                Next = Pipe->WaitingReaders.Flink;
+                while (Next != &Pipe->WaitingReaders) {
+                        IntCb = CONTAINING_RECORD(Next, INTCB, Links);
 
-			Next = Pipe->WaitingReaders.Flink;
-		}
+                        WaitingProc = (PPSX_PROCESS)IntCb->IntContext;
+                        UnblockProcess(WaitingProc, IoCompletionInterrupt,
+                                TRUE, 0);
+                        RtlEnterCriticalSection(&BlockLock);
 
-		RtlLeaveCriticalSection(&BlockLock);
-	}
-	RtlLeaveCriticalSection(&Pipe->CriticalSection);
+                        Next = Pipe->WaitingReaders.Flink;
+                }
+
+                RtlLeaveCriticalSection(&BlockLock);
+        }
+        RtlLeaveCriticalSection(&Pipe->CriticalSection);
 }
 
 
@@ -328,7 +328,7 @@ Return Value:
 --*/
 
 {
-    NTSTATUS	st;
+    NTSTATUS    st;
 
     st = RtlInitializeCriticalSection(&Pipe->CriticalSection);
     ASSERT(NT_SUCCESS(st));
@@ -349,7 +349,7 @@ LocalPipeWriteHandler(
     IN PPSX_PROCESS p,
     IN PINTCB IntControlBlock,
     IN PSX_INTERRUPTREASON InterruptReason,
-    IN int Signal			// signal causing wakeup, if any
+    IN int Signal                       // signal causing wakeup, if any
     )
 
 /*++
@@ -396,7 +396,7 @@ Return Value:
         RtlFreeHeap(PsxHeap, 0,IntControlBlock);
 
         m->Error = EINTR;
-	m->Signal = Signal;
+        m->Signal = Signal;
 
         ApiReply(p,m,NULL);
         RtlFreeHeap(PsxHeap, 0,m);
@@ -476,11 +476,11 @@ Return Value:
 
     if (0 == Pipe->ReadHandleCount) {
         RtlLeaveCriticalSection(&Pipe->CriticalSection);
-	m->Error = EPIPE;
-	AcquireProcessStructureLock();
-	PsxSignalProcess(p, SIGPIPE);
-	ReleaseProcessStructureLock();
-	return TRUE;
+        m->Error = EPIPE;
+        AcquireProcessStructureLock();
+        PsxSignalProcess(p, SIGPIPE);
+        ReleaseProcessStructureLock();
+        return TRUE;
     }
 
     //
@@ -503,31 +503,31 @@ Return Value:
         //
         // There is not enough space in the pipe for the write to
         // succeed.  If the O_NONBLOCK flag is set, write whatever
-	// will fit.  Otherwise, block the write and wait for a read
-	// to empty some of the data.
-	//
+        // will fit.  Otherwise, block the write and wait for a read
+        // to empty some of the data.
+        //
 
-	if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
-		args->Nbytes = 1;
-		if (args->Nbytes > RoomInPipe) {
-			m->Error = EAGAIN;
-			return TRUE;
-		}
-		// continue below to write
-	} else {
+        if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+                args->Nbytes = 1;
+                if (args->Nbytes > RoomInPipe) {
+                        m->Error = EAGAIN;
+                        return TRUE;
+                }
+                // continue below to write
+        } else {
 
-	        Status = BlockProcess(p, (PVOID)p, LocalPipeWriteHandler, m,
-	        	&Pipe->WaitingWriters, &Pipe->CriticalSection);
-		if (!NT_SUCCESS(Status)) {
-			m->Error = PsxStatusToErrno(Status);
-			return TRUE;
-		}
-		
-		//
-		// Successfully blocked -- don't reply to message.
-		//
-	        return FALSE;
-	}
+                Status = BlockProcess(p, (PVOID)p, LocalPipeWriteHandler, m,
+                        &Pipe->WaitingWriters, &Pipe->CriticalSection);
+                if (!NT_SUCCESS(Status)) {
+                        m->Error = PsxStatusToErrno(Status);
+                        return TRUE;
+                }
+
+                //
+                // Successfully blocked -- don't reply to message.
+                //
+                return FALSE;
+        }
     }
 
     //
@@ -542,7 +542,9 @@ Return Value:
 
         Chunk = (ULONG) &Pipe->Buffer[Pipe->BufferSize-1] -
             (ULONG)WriteDataPoint + 1;
+
     } else {
+
         Chunk = args->Nbytes;
     }
 
@@ -564,6 +566,7 @@ Return Value:
 
     if (Chunk < args->Nbytes) {
         Chunk = args->Nbytes - Chunk;
+
         WriteDataPoint = &Pipe->Buffer[0];
 
         st = NtReadVirtualMemory(p->Process, ProcessBuffer, WriteDataPoint,
@@ -579,7 +582,6 @@ Return Value:
             m->Error = EIO;
             return TRUE;
         }
-
         Pipe->WritePointer = (PUCHAR)((ULONG)WriteDataPoint + Chunk);
     } else {
         Pipe->WritePointer = (PUCHAR)((ULONG)WriteDataPoint + Chunk);
@@ -599,13 +601,16 @@ Return Value:
 
     NtQuerySystemTime(&Time);
     if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
-        PosixTime = 0L;		// Time not within range of 1970 - 2105
+        PosixTime = 0L;         // Time not within range of 1970 - 2105
     }
 
     RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
     Fd->SystemOpenFileDesc->IoNode->ModifyDataTime =
     Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = PosixTime;
     RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+
+    m->ReturnValue += args->Nbytes;
+    args->Buf += args->Nbytes;
 
     //
     // Check for WaitingReaders. If any are found, then kick em
@@ -619,7 +624,6 @@ Return Value:
         WaitingReader = (PPSX_PROCESS) IntCb->IntContext;
 
         RtlLeaveCriticalSection(&Pipe->CriticalSection);
-        m->ReturnValue = args->Nbytes;
 
         UnblockProcess(WaitingReader, IoCompletionInterrupt, TRUE, 0);
 
@@ -630,27 +634,22 @@ Return Value:
         // iteration.
         //
 
-        if ( args->Scratch1 ) {
-            args->Scratch1 += m->ReturnValue;
-            args->Buf += m->ReturnValue;
-            m->ReturnValue = args->Scratch1;
-        }
+    } else {
 
-        if ( args->Scratch2 ) {
-            args->Nbytes = args->Scratch2;
-            args->Scratch2 = 0;
+        RtlLeaveCriticalSection(&BlockLock);
 
-            return LocalPipeWrite(p,m,Fd);
-        }
-
-        return TRUE;
-
+        RtlLeaveCriticalSection(&Pipe->CriticalSection);
     }
 
-    RtlLeaveCriticalSection(&BlockLock);
+    //
+    // If we're doing non-blocking io, we've written what will fit into
+    // the pipe and we should return to the user now.
+    //
 
-    RtlLeaveCriticalSection(&Pipe->CriticalSection);
-    m->ReturnValue = args->Nbytes;
+    if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+
+        return TRUE;
+    }
 
     //
     // Determine if this is a broken up long write. If Scratch2 is
@@ -659,19 +658,11 @@ Return Value:
     // iteration.
     //
 
-    if (args->Scratch1) {
-        args->Scratch1 += m->ReturnValue;
-        args->Buf += m->ReturnValue;
-        m->ReturnValue = args->Scratch1;
-    }
-
     if (args->Scratch2) {
-        // args->Nbytes = args->Scratch2;
-        // args->Scratch2 = 0;
-        // return LocalPipeWrite(p, m, Fd);
+        args->Nbytes = args->Scratch2;
+        args->Scratch2 = 0;
 
-	m->ReturnValue = args->Nbytes;
-	return TRUE;
+        return LocalPipeWrite(p, m, Fd);
     }
 
     return TRUE;
@@ -682,7 +673,7 @@ LocalPipeReadHandler(
     IN PPSX_PROCESS p,
     IN PINTCB IntControlBlock,
     IN PSX_INTERRUPTREASON InterruptReason,
-    IN int Signal			// signal causing wakeup, if any
+    IN int Signal                       // signal causing wakeup, if any
     )
 
 /*++
@@ -727,7 +718,7 @@ Return Value:
         RtlFreeHeap(PsxHeap, 0, IntControlBlock);
 
         m->Error = EINTR;
-	m->Signal = Signal;
+        m->Signal = Signal;
 
         ApiReply(p, m, NULL);
         RtlFreeHeap(PsxHeap, 0, m);
@@ -784,81 +775,81 @@ Return Value:
 --*/
 
 {
-	PPSX_READ_MSG args, WaitingArgs;
-	PPSX_PROCESS WaitingWriter;
-	PLOCAL_PIPE Pipe;
-	LONG Chunk, RoomInPipe, LargestRead;
-	LONG cb;
-	PUCHAR ReadDataPoint, ProcessBuffer;
-	NTSTATUS st;
-	PPSX_API_MSG WaitingM;
-	PLIST_ENTRY Next;
-	PINTCB IntCb;
-	LARGE_INTEGER Time;
-	ULONG PosixTime;
-	
-	args = &m->u.Read;
+        PPSX_READ_MSG args, WaitingArgs;
+        PPSX_PROCESS WaitingWriter;
+        PLOCAL_PIPE Pipe;
+        LONG Chunk, RoomInPipe, LargestRead;
+        LONG cb;
+        PUCHAR ReadDataPoint, ProcessBuffer;
+        NTSTATUS st;
+        PPSX_API_MSG WaitingM;
+        PLIST_ENTRY Next;
+        PINTCB IntCb;
+        LARGE_INTEGER Time;
+        ULONG PosixTime;
 
-	//
-	// check to see if any process has the pipe open for write
-	//
+        args = &m->u.Read;
 
-	Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
-	ASSERT(NULL != Pipe);
+        //
+        // check to see if any process has the pipe open for write
+        //
 
-	RtlEnterCriticalSection(&Pipe->CriticalSection);
+        Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
+        ASSERT(NULL != Pipe);
 
-	if (0 == Pipe->WriteHandleCount && !Pipe->DataInPipe) {
-		//
-		// Reading from an empty pipe with no writers attached gets you
-		// 0 (EOF).
-		//
-		RtlLeaveCriticalSection(&Pipe->CriticalSection);
-		m->ReturnValue = 0;
-		return TRUE;
-	}
+        RtlEnterCriticalSection(&Pipe->CriticalSection);
 
-	if (!Pipe->DataInPipe) {
-		//
-		// if we have the pipe open O_NOBLOCK, then simply
-		// return EAGAIN
-		//
+        if (0 == Pipe->WriteHandleCount && !Pipe->DataInPipe) {
+                //
+                // Reading from an empty pipe with no writers attached gets you
+                // 0 (EOF).
+                //
+                RtlLeaveCriticalSection(&Pipe->CriticalSection);
+                m->ReturnValue = 0;
+                return TRUE;
+        }
 
-		if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
-			RtlLeaveCriticalSection(&Pipe->CriticalSection);
-			m->Error = EAGAIN;
-			return TRUE;
-		}
+        if (!Pipe->DataInPipe) {
+                //
+                // if we have the pipe open O_NOBLOCK, then simply
+                // return EAGAIN
+                //
 
-		//
-		// There is no data in the pipe. Set up an interrupt control
-		// block to wait for data and then block.
-		//
+                if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+                        RtlLeaveCriticalSection(&Pipe->CriticalSection);
+                        m->Error = EAGAIN;
+                        return TRUE;
+                }
 
-		st = BlockProcess(p, (PVOID)p, LocalPipeReadHandler, m,
-            		 &Pipe->WaitingReaders, &Pipe->CriticalSection);
-		if (!NT_SUCCESS(st)) {
-			m->Error = PsxStatusToErrno(st);
-			return TRUE;
-		}
+                //
+                // There is no data in the pipe. Set up an interrupt control
+                // block to wait for data and then block.
+                //
 
-		//
-		// Successfully blocked -- don't reply to api request.
-		//
-		return FALSE;
-	}
+                st = BlockProcess(p, (PVOID)p, LocalPipeReadHandler, m,
+                         &Pipe->WaitingReaders, &Pipe->CriticalSection);
+                if (!NT_SUCCESS(st)) {
+                        m->Error = PsxStatusToErrno(st);
+                        return TRUE;
+                }
 
-	//
+                //
+                // Successfully blocked -- don't reply to api request.
+                //
+                return FALSE;
+        }
+
+        //
         // If there is any data in the pipe, then compute the largest
         // read size. Then figure out if it has to be broken into two
         // transfers in order to turn the circular buffer boundary.
         //
 
-	if (args->Nbytes > Pipe->DataInPipe) {
-		LargestRead = Pipe->DataInPipe;
-	} else {
-		LargestRead = args->Nbytes;
-	}
+        if (args->Nbytes > Pipe->DataInPipe) {
+                LargestRead = Pipe->DataInPipe;
+        } else {
+                LargestRead = args->Nbytes;
+        }
 
         ReadDataPoint = Pipe->ReadPointer;
         ProcessBuffer = (PUCHAR)args->Buf;
@@ -881,7 +872,7 @@ Return Value:
         //
 
         st = NtWriteVirtualMemory(p->Process, ProcessBuffer, ReadDataPoint,
-		(ULONG)Chunk, (PULONG)&cb);
+                (ULONG)Chunk, (PULONG)&cb);
         if (!NT_SUCCESS(st) || cb != Chunk ) {
 
             //
@@ -897,35 +888,35 @@ Return Value:
 
         if (Chunk < LargestRead) {
 
-		//
-		// the read wraps the pipe boundry. Transfer the second part of
-		// the read.
-		//
+                //
+                // the read wraps the pipe boundry. Transfer the second part of
+                // the read.
+                //
 
-		Chunk = LargestRead - Chunk;
-		ReadDataPoint = &Pipe->Buffer[0];
+                Chunk = LargestRead - Chunk;
+                ReadDataPoint = &Pipe->Buffer[0];
 
-		st = NtWriteVirtualMemory(p->Process, ProcessBuffer,
-			ReadDataPoint, (ULONG)Chunk, (PULONG)&cb);
+                st = NtWriteVirtualMemory(p->Process, ProcessBuffer,
+                        ReadDataPoint, (ULONG)Chunk, (PULONG)&cb);
 
-		if (!NT_SUCCESS(st) || cb != Chunk) {
+                if (!NT_SUCCESS(st) || cb != Chunk) {
 
-			//
-			// If the read did not work, then report as IO error
-			//
+                        //
+                        // If the read did not work, then report as IO error
+                        //
 
-			RtlLeaveCriticalSection(&Pipe->CriticalSection);
-			m->Error = EIO;
-			return TRUE;
-		}
+                        RtlLeaveCriticalSection(&Pipe->CriticalSection);
+                        m->Error = EIO;
+                        return TRUE;
+                }
 
-		Pipe->ReadPointer = (PUCHAR)((ULONG)ReadDataPoint + Chunk);
-	} else {
+                Pipe->ReadPointer = (PUCHAR)((ULONG)ReadDataPoint + Chunk);
+        } else {
             Pipe->ReadPointer = (PUCHAR)((ULONG)ReadDataPoint + Chunk);
         }
 
         if (Pipe->ReadPointer > &Pipe->Buffer[Pipe->BufferSize - 1]) {
-		Pipe->ReadPointer = &Pipe->Buffer[0];
+                Pipe->ReadPointer = &Pipe->Buffer[0];
         }
 
         //
@@ -939,18 +930,18 @@ Return Value:
 
         RoomInPipe = Pipe->BufferSize - Pipe->DataInPipe;
 
-	// Update atime in IoNode - done in subsystem for local pipes
+        // Update atime in IoNode - done in subsystem for local pipes
 
         NtQuerySystemTime(&Time);
         if ( !RtlTimeToSecondsSince1970(&Time, &PosixTime) ) {
-	    PosixTime = 0L;		// Time not within range of 1970 - 2105
-  	}
+            PosixTime = 0L;             // Time not within range of 1970 - 2105
+        }
 
         RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
         Fd->SystemOpenFileDesc->IoNode->AccessDataTime = PosixTime;
         RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-     	//
+        //
         // Check for WaitingWriters. If any are found, then kick em
         //
 
@@ -958,31 +949,31 @@ Return Value:
 
         if (!IsListEmpty(&Pipe->WaitingWriters)) {
 
-		//
-		// If there are waiting writers, then pick a writer
-		// and unblock him. The first writer whose current
-		// write count that is less than or equal to the room
-		// in pipe is chosen.
-		//
-	
-		Next = Pipe->WaitingWriters.Flink;
+                //
+                // If there are waiting writers, then pick a writer
+                // and unblock him. The first writer whose current
+                // write count that is less than or equal to the room
+                // in pipe is chosen.
+                //
 
-		while (Next != &Pipe->WaitingWriters) {
-	                IntCb = CONTAINING_RECORD(Next, INTCB, Links);
+                Next = Pipe->WaitingWriters.Flink;
 
-	                WaitingM = IntCb->IntMessage;
-	                WaitingArgs = &WaitingM->u.Read;
-	                WaitingWriter = (PPSX_PROCESS) IntCb->IntContext;
+                while (Next != &Pipe->WaitingWriters) {
+                        IntCb = CONTAINING_RECORD(Next, INTCB, Links);
 
-	                if (WaitingArgs->Nbytes <= RoomInPipe) {
-	                	RtlLeaveCriticalSection(&Pipe->CriticalSection);
-	                	UnblockProcess(WaitingWriter,
-					IoCompletionInterrupt, TRUE, 0);
-                		return TRUE;
-                	}
+                        WaitingM = IntCb->IntMessage;
+                        WaitingArgs = &WaitingM->u.Read;
+                        WaitingWriter = (PPSX_PROCESS) IntCb->IntContext;
 
-                	Next = Next->Flink;
-            	}
+                        if (WaitingArgs->Nbytes <= RoomInPipe) {
+                                RtlLeaveCriticalSection(&Pipe->CriticalSection);
+                                UnblockProcess(WaitingWriter,
+                                        IoCompletionInterrupt, TRUE, 0);
+                                return TRUE;
+                        }
+
+                        Next = Next->Flink;
+                }
         }
 
         RtlLeaveCriticalSection(&BlockLock);
@@ -994,45 +985,45 @@ Return Value:
 
 BOOLEAN
 LocalPipeDup(
-	IN PPSX_PROCESS p,
-	IN OUT PPSX_API_MSG m,
-	IN PFILEDESCRIPTOR Fd,
-	IN PFILEDESCRIPTOR FdDup
-	)
+        IN PPSX_PROCESS p,
+        IN OUT PPSX_API_MSG m,
+        IN PFILEDESCRIPTOR Fd,
+        IN PFILEDESCRIPTOR FdDup
+        )
 {
-	PPSX_DUP_MSG args;
-	PLOCAL_PIPE Pipe;
+        PPSX_DUP_MSG args;
+        PLOCAL_PIPE Pipe;
 
-	args = &m->u.Dup;
+        args = &m->u.Dup;
 
-	//
-	// Copy contents of source file descriptor
+        //
+        // Copy contents of source file descriptor
     // Note that FD_CLOEXEC must be CLEAR in FdDup.
-	//
-	*FdDup = *Fd;
+        //
+        *FdDup = *Fd;
     FdDup->Flags &= ~PSX_FD_CLOSE_ON_EXEC;
 
-	//
-	// Increment reference count assocated with the SystemOpenFile
-	// descriptor for this file.
-	//
+        //
+        // Increment reference count assocated with the SystemOpenFile
+        // descriptor for this file.
+        //
 
-	RtlEnterCriticalSection(&SystemOpenFileLock);
-	Fd->SystemOpenFileDesc->HandleCount++;
-	RtlLeaveCriticalSection(&SystemOpenFileLock);
+        RtlEnterCriticalSection(&SystemOpenFileLock);
+        Fd->SystemOpenFileDesc->HandleCount++;
+        RtlLeaveCriticalSection(&SystemOpenFileLock);
 
-	Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
+        Pipe = (PLOCAL_PIPE)Fd->SystemOpenFileDesc->IoNode->Context;
 
-	RtlEnterCriticalSection(&Pipe->CriticalSection);
-	if (Fd->SystemOpenFileDesc->Flags & PSX_FD_READ) {
-		++Pipe->ReadHandleCount;
-	}
-	if (Fd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) {
-		++Pipe->WriteHandleCount;
-	}
-	RtlLeaveCriticalSection(&Pipe->CriticalSection);
+        RtlEnterCriticalSection(&Pipe->CriticalSection);
+        if (Fd->SystemOpenFileDesc->Flags & PSX_FD_READ) {
+                ++Pipe->ReadHandleCount;
+        }
+        if (Fd->SystemOpenFileDesc->Flags & PSX_FD_WRITE) {
+                ++Pipe->WriteHandleCount;
+        }
+        RtlLeaveCriticalSection(&Pipe->CriticalSection);
 
-	return TRUE;
+        return TRUE;
 }
 
 
@@ -1047,7 +1038,7 @@ NamedPipeOpenHandler(
     IN PPSX_PROCESS p,
     IN PINTCB IntControlBlock,
     IN PSX_INTERRUPTREASON InterruptReason,
-    IN int Signal			// Signal causing interruption, if any
+    IN int Signal                       // Signal causing interruption, if any
     )
 
 /*++
@@ -1099,7 +1090,7 @@ Return Value:
         //
 
         m->Error = EINTR;
-	m->Signal = Signal;
+        m->Signal = Signal;
 
         DeallocateFd(p, m->ReturnValue);
 
@@ -1237,16 +1228,16 @@ NamedPipeOpenNewHandle (
         if (!*CountToTest) {
 
             Status = BlockProcess(p, (PVOID)p, NamedPipeOpenHandler, m,
-		 ListToBlockOn, &Pipe->CriticalSection);
-	    if (!NT_SUCCESS(Status)) {
-		m->Error = PsxStatusToErrno(Status);
-		return TRUE;
-	    }
+                 ListToBlockOn, &Pipe->CriticalSection);
+            if (!NT_SUCCESS(Status)) {
+                m->Error = PsxStatusToErrno(Status);
+                return TRUE;
+            }
 
-	    //
-	    // The process is successfully blocked -- do not reply to the api
-	    // request.
- 	    //
+            //
+            // The process is successfully blocked -- do not reply to the api
+            // request.
+            //
             return FALSE;
 
         } else {
@@ -1268,7 +1259,7 @@ NamedPipeOpenNewHandle (
                     if (WaitingM->ApiNumber == PsxOpenApi) {
                         Waiter = (PPSX_PROCESS) IntCb->IntContext;
                         RtlLeaveCriticalSection(&Pipe->CriticalSection);
-		        UnblockProcess(Waiter, IoCompletionInterrupt, TRUE, 0);
+                        UnblockProcess(Waiter, IoCompletionInterrupt, TRUE, 0);
                         return TRUE;
                     }
                     Next = Next->Flink;

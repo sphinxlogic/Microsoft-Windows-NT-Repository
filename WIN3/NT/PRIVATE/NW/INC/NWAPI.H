@@ -27,14 +27,33 @@ Revision History:
 //
 // Bitmask for print options
 //
+
 #define NW_PRINT_SUPPRESS_FORMFEED    0x08
 #define NW_PRINT_PRINT_BANNER         0x80
 #define NW_PRINT_PRINT_NOTIFY         0x10
 
 //
+// Flags for logon script support.
+//
+
+#define NW_LOGONSCRIPT_DISABLED       0x00000000
+#define NW_LOGONSCRIPT_ENABLED        0x00000001
+#define NW_LOGONSCRIPT_4X_ENABLED     0x00000002
+#define NW_LOGONSCRIPT_DEFAULT        NW_LOGONSCRIPT_DISABLED
+#define NW_LOGONSCRIPT_DEBUG          0x00000800 
+
+//
+// Values for turning on Sync login script flags.
+//
+
+#define SYNC_LOGONSCRIPT             0x1
+#define RESET_SYNC_LOGONSCRIPT       0x2
+
+//
 // Bitmask for gateway redirections
 //
 #define NW_GW_UPDATE_REGISTRY         0x01
+#define NW_GW_CLEANUP_DELETED         0x02
 
 
 DWORD
@@ -50,9 +69,24 @@ NwSetInfoInRegistry(
     );
 
 DWORD
+NwSetLogonOptionsInRegistry(
+    IN DWORD  nLogonScriptOptions
+    );
+
+DWORD
+NwQueryLogonOptions(
+    OUT PDWORD  pnLogonScriptOptions
+    );
+
+DWORD
 NwSetInfoInWksta(
     IN DWORD  nPrintOption,
     IN LPWSTR pszPreferredSrv
+    );
+
+DWORD
+NwSetLogonScript(
+    IN DWORD  ScriptOptions
     );
 
 DWORD
@@ -139,5 +173,25 @@ NwCleanupGatewayShares(
     );
 
     
+VOID 
+MapSpecialJapaneseChars(
+    LPSTR       lpszA,
+    WORD        length
+    );
+
+VOID 
+UnmapSpecialJapaneseChars(
+    LPSTR       lpszA,
+    WORD        length
+    );
+
+LPSTR
+NwDupStringA(
+    const LPSTR lpszA,
+    WORD        length
+    );
+
+#define NwFreeStringA(lp) if((lp) != NULL) { (void)LocalFree((lp)); }
+
 
 #endif

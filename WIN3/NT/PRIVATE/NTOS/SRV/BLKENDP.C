@@ -42,7 +42,8 @@ SrvAllocateEndpoint (
     OUT PENDPOINT *Endpoint,
     IN PUNICODE_STRING NetworkName,
     IN PUNICODE_STRING TransportName,
-    IN PANSI_STRING TransportAddress
+    IN PANSI_STRING TransportAddress,
+    IN PUNICODE_STRING DomainName
     )
 
 /*++
@@ -67,6 +68,8 @@ Arguments:
         NETBIOS-compatible networks, the caller must upcase and
         blank-fill the name.  E.g., "\Device\Nbf\NTSERVERbbbbbbbb".
 
+    DomainName - the domain being serviced by this endpoint
+
 Return Value:
 
     None.
@@ -76,6 +79,7 @@ Return Value:
 {
     CLONG length;
     PENDPOINT endpoint;
+    NTSTATUS status;
 
     PAGED_CODE( );
 
@@ -86,7 +90,9 @@ Return Value:
     length = sizeof(ENDPOINT) +
                 NetworkName->Length + sizeof(*NetworkName->Buffer) +
                 TransportName->Length + sizeof(*TransportName->Buffer) +
-                TransportAddress->Length + sizeof(*TransportAddress->Buffer);
+                TransportAddress->Length + sizeof(*TransportAddress->Buffer) +
+                DomainName->Length + sizeof(*DomainName->Buffer) +
+                RtlUnicodeStringToOemSize( DomainName ) + sizeof(CHAR);
 
     endpoint = ALLOCATE_NONPAGED_POOL( length, BlockTypeEndpoint );
     *Endpoint = endpoint;
@@ -113,11 +119,9 @@ Return Value:
     // Initialize the endpoint block.  Zero it first.
     //
 
-    RtlZeroMemory( endpoint, sizeof(ENDPOINT) );
+    RtlZeroMemory( endpoint, length );
 
-    SET_BLOCK_TYPE( endpoint, BlockTypeEndpoint );
-    SET_BLOCK_STATE( endpoint, BlockStateActive );
-    SET_BLOCK_SIZE( endpoint, length );
+    SET_BLOCK_TYPE_STATE_SIZE( endpoint, BlockTypeEndpoint, BlockStateActive, length );
     endpoint->BlockHeader.ReferenceCount = 2;       // allow for Active status
                                                     //  and caller's pointer
 
@@ -142,8 +146,8 @@ Return Value:
 #endif
 
     //
-    // Copy the network name, transport name, and server address into
-    // the block.
+    // Copy the network name, transport name, and server address, and domain
+    // name into the block.
     //
 
     endpoint->NetworkName.Length = NetworkName->Length;
@@ -155,7 +159,6 @@ Return Value:
         NetworkName->Buffer,
         NetworkName->Length
         );
-    *(PWCH)((PCHAR)endpoint->NetworkName.Buffer + NetworkName->Length) = 0;
 
     endpoint->TransportName.Length = TransportName->Length;
     endpoint->TransportName.MaximumLength =
@@ -168,7 +171,6 @@ Return Value:
         TransportName->Buffer,
         TransportName->Length
         );
-    *(PWCH)((PCHAR)endpoint->TransportName.Buffer + TransportName->Length) = 0;
 
     endpoint->TransportAddress.Length = TransportAddress->Length;
     endpoint->TransportAddress.MaximumLength =
@@ -181,15 +183,41 @@ Return Value:
         TransportAddress->Buffer,
         TransportAddress->Length
         );
-    *(endpoint->TransportAddress.Buffer + TransportAddress->Length) = 0;
+
+
+    endpoint->DomainName.Length = DomainName->Length;
+    endpoint->DomainName.MaximumLength = 
+            (SHORT)(DomainName->Length + sizeof(*DomainName->Buffer));
+    endpoint->DomainName.Buffer = (PWCH)((PCHAR)endpoint->TransportAddress.Buffer +
+                                         TransportAddress->MaximumLength);
+    RtlCopyMemory(
+        endpoint->DomainName.Buffer,
+        DomainName->Buffer,
+        DomainName->Length
+    );
+
+
+    endpoint->OemDomainName.Length = (SHORT)RtlUnicodeStringToOemSize( DomainName );
+    endpoint->OemDomainName.MaximumLength =
+            endpoint->OemDomainName.Length + sizeof( CHAR );
+    endpoint->OemDomainName.Buffer = (PCHAR)endpoint->DomainName.Buffer +
+                                     DomainName->MaximumLength;
+    status = RtlUnicodeStringToOemString(
+                &endpoint->OemDomainName,
+                &endpoint->DomainName,
+                FALSE     // Do not allocate the OEM string
+                );
+    ASSERT( NT_SUCCESS(status) );
+            
 
     //
     // Initialize the network address field.
     //
 
     endpoint->NetworkAddress.Buffer = endpoint->NetworkAddressData;
-    endpoint->NetworkAddress.Length = 12 * sizeof(WCHAR);
-    endpoint->NetworkAddress.MaximumLength = (12+1) * sizeof(WCHAR);
+    endpoint->NetworkAddress.Length = sizeof( endpoint->NetworkAddressData ) -
+                                      sizeof(endpoint->NetworkAddressData[0]);
+    endpoint->NetworkAddress.MaximumLength = sizeof( endpoint->NetworkAddressData );
 
     //
     // Increment the count of endpoints in the server.
@@ -208,7 +236,7 @@ Return Value:
 } // SrvAllocateEndpoint
 
 
-BOOLEAN
+BOOLEAN SRVFASTCALL
 SrvCheckAndReferenceEndpoint (
     PENDPOINT Endpoint
     )
@@ -392,7 +420,7 @@ Return Value:
 } // SrvCloseEndpoint
 
 
-VOID
+VOID SRVFASTCALL
 SrvDereferenceEndpoint (
     IN PENDPOINT Endpoint
     )
@@ -516,9 +544,7 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( Endpoint, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Endpoint, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Endpoint, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Endpoint, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Endpoint->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Endpoint );
 

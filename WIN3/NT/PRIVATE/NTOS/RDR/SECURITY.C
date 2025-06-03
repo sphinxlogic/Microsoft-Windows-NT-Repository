@@ -46,10 +46,11 @@ Notes:
 #ifdef _CAIRO_
 
 #define SECURITY_KERBEROS
+#endif // _CAIRO_
+
 #define SECURITY_NTLM
 #include <security.h>
 
-#endif // _CAIRO_
 
 DBGSTATIC
 KSPIN_LOCK
@@ -85,7 +86,6 @@ RdrGetNumberSessionsForServer(
     IN PVOID Ctx
     );
 
-#ifdef _CAIRO_
 
 #define CONTEXT_INVALID(x)  (((x).dwLower == -1) && ((x).dwUpper == -1))
 
@@ -103,6 +103,8 @@ RdrDeleteSecurityContexts(
     IN PCtxtHandle KHandle,
     IN PCredHandle CHandle
     );
+
+#ifdef _CAIRO_
 
 UNICODE_STRING
 RdrKerberosPackageName;
@@ -143,6 +145,7 @@ RdrKerberosPackageName;
 #pragma alloc_text(PAGE, RdrGetChallengeResponse)
 #pragma alloc_text(PAGE, RdrCopyUserName)
 #pragma alloc_text(PAGE, RdrCopyUnicodeUserName)
+#pragma alloc_text(PAGE, RdrGetUnicodeDomainName)
 #pragma alloc_text(PAGE, AllocateSecurityEntry)
 #pragma alloc_text(PAGE, RdrLogoffDefaultSecurityEntry)
 #pragma alloc_text(PAGE, RdrLogoffAllDefaultSecurityEntry)
@@ -150,7 +153,6 @@ RdrKerberosPackageName;
 
 #pragma alloc_text(PAGE, RdrpInitializeSecurity)
 #pragma alloc_text(PAGE, RdrpUninitializeSecurity)
-#pragma alloc_text(PAGE, RdrUnloadSecurity)
 
 #pragma alloc_text(PAGE1CONN, RdrReferenceSecurityEntry)
 #pragma alloc_text(PAGE1CONN, RdrDereferenceSecurityEntry)
@@ -158,10 +160,12 @@ RdrKerberosPackageName;
 #ifdef _CAIRO_
 
 #pragma alloc_text(PAGE, RdrGetKerberosBlob)
+
+#endif // _CAIRO_
+
 #pragma alloc_text(PAGE, RdrFreeSecurityContexts)
 #pragma alloc_text(PAGE, RdrDeleteSecurityContexts)
 
-#endif // _CAIRO
 
 #endif
 
@@ -338,6 +342,26 @@ Return Value:
 
         if (!FlagOn(Icb->Fcb->Connection->Server->Capabilities, DF_NT_SMBS)) {
             try_return(Status = STATUS_NOT_SUPPORTED);
+        }
+
+        //
+        //  Make sure we have a valid handle
+        //
+
+        if (FlagOn(Icb->Flags, ICB_DEFERREDOPEN)) {
+            Status = RdrCreateFile(
+                                Irp,
+                                Icb,
+                                Icb->u.d.OpenOptions,
+                                Icb->u.d.ShareAccess,
+                                Icb->u.d.FileAttributes,
+                                Icb->u.d.DesiredAccess,
+                                Icb->u.d.Disposition,
+                                NULL,
+                                FALSE);
+            if (!NT_SUCCESS(Status)) {
+                try_return(Status);
+            }
         }
 
         Status = RdrIsOperationValid(ICB_OF(IrpSp), IRP_MJ_SET_SECURITY, IrpSp->FileObject);
@@ -585,6 +609,26 @@ Return Value:
             try_return(Status = STATUS_NOT_SUPPORTED);
         }
 
+        //
+        //  Make sure we have a valid handle
+        //
+
+        if (FlagOn(Icb->Flags, ICB_DEFERREDOPEN)) {
+            Status = RdrCreateFile(
+                                Irp,
+                                Icb,
+                                Icb->u.d.OpenOptions,
+                                Icb->u.d.ShareAccess,
+                                Icb->u.d.FileAttributes,
+                                Icb->u.d.DesiredAccess,
+                                Icb->u.d.Disposition,
+                                NULL,
+                                FALSE);
+            if (!NT_SUCCESS(Status)) {
+                try_return(Status);
+            }
+        }
+
         Status = RdrIsOperationValid(ICB_OF(IrpSp), IRP_MJ_QUERY_SECURITY, IrpSp->FileObject);
 
         if (!NT_SUCCESS(Status)) {
@@ -704,6 +748,7 @@ Note:
 {
     NTSTATUS Status = STATUS_SUCCESS;
     PSERVERLISTENTRY Sle = NULL;
+    BOOLEAN sessionStateModifiedAcquired = FALSE;
     BOOLEAN SecurityDatabaseLocked = FALSE;
     BOOLEAN ConnectionAllocated = FALSE;
 
@@ -720,6 +765,9 @@ Note:
     try {
         if (ARGUMENT_PRESENT(Cle)) {
             Sle = Cle->Server;
+
+            ExAcquireResourceExclusive(&Sle->SessionStateModifiedLock, TRUE);
+            sessionStateModifiedAcquired = TRUE;
 
             *Se = RdrFindDefaultSecurityEntry(Cle, LogonId);
 
@@ -822,11 +870,11 @@ Note:
         //  appropriate).
         //
 
-        if (ARGUMENT_PRESENT(Sle)) {
+        if (ARGUMENT_PRESENT(Cle)) {
             if (Sle->UserSecurity) {
-                *Se = RdrFindSecurityEntry(Sle, LogonId, NULL);
+                *Se = RdrFindSecurityEntry(Cle, NULL, LogonId, NULL);
             } else {
-                *Se = RdrFindSecurityEntry(Sle, LogonId, Password);
+                *Se = RdrFindSecurityEntry(Cle, NULL, LogonId, Password);
             }
         } else {
 
@@ -901,6 +949,9 @@ Note:
                 //
 
                 (*Se)->Server = Sle;
+                if (!Sle->UserSecurity) {
+                    (*Se)->Connection = Cle;
+                }
 
                 RdrSetPotentialSecurityEntry(Sle, *Se);
 
@@ -949,6 +1000,9 @@ try_exit:NOTHING;
             UNLOCK_SECURITY_DATABASE();
         }
 
+        if (sessionStateModifiedAcquired) {
+            ExReleaseResource(&Sle->SessionStateModifiedLock);
+        }
     }
 
     return Status;
@@ -1007,17 +1061,13 @@ Note:
 
 {
     NTSTATUS status = STATUS_SUCCESS;
-    BOOLEAN sessionStateModifiedAcquired = FALSE;
     BOOLEAN securityDatabaseLocked = FALSE;
     PLIST_ENTRY seList;
 
     PAGED_CODE();
 
     try {
-        ExAcquireResourceExclusive(&Sle->SessionStateModifiedLock, TRUE);
-
-        sessionStateModifiedAcquired = TRUE;
-
+        RdrLog(("csl find",NULL,4,PsGetCurrentThread(),Sle,LogonId->LowPart,LogonId->HighPart));
         *Se = RdrFindActiveSecurityEntry(Sle, LogonId);
 
         if (*Se != NULL) {
@@ -1028,8 +1078,6 @@ Note:
 
             uid = (*Se)->UserId;
             flags = (*Se)->Flags;
-
-//            ASSERT (Connection == (*Se)->TransportConnection);
 
             //
             //  We've got the information we need from the security entry, now
@@ -1054,6 +1102,15 @@ Note:
                  seList = seList->Flink) {
 
                 PSECURITY_ENTRY seToCheck = CONTAINING_RECORD(seList, SECURITY_ENTRY, PotentialNext);
+
+                //
+                //  On share-level servers, security entries are per-connection,
+                //  so check that this entry is for the correct connection.
+                //
+
+                if (seToCheck->Connection != Cle) {
+                    continue;
+                }
 
                 //
                 //  Check to see if this security entry is for a different user
@@ -1111,6 +1168,10 @@ Note:
                             dprintf(DPRT_SECURITY, ("Found default security entry %lx\n", seToCheck));
 
                             RdrReferenceSecurityEntry(seToCheck->NonPagedSecurityEntry);
+                            //RdrLog(( "csl fd", NULL, 12, se2, Cle, Sle, se2->Connection, se2->Server, Cle->Server,
+                            //                Sle->DefaultSeList.Flink, Sle->DefaultSeList.Blink,
+                            //                Cle->DefaultSeList.Flink, Cle->DefaultSeList.Blink,
+                            //                se2->DefaultSeNext.Flink, se2->DefaultSeNext.Blink ));
 
                             *Se = seToCheck;
 
@@ -1148,6 +1209,10 @@ Note:
                     //
 
                     RdrReferenceSecurityEntry(seToCheck->NonPagedSecurityEntry);
+                    //RdrLog(( "csl fnd", NULL, 12, seToCheck, Cle, Sle, seToCheck->Connection, seToCheck->Server, Cle->Server,
+                    //                Sle->DefaultSeList.Flink, Sle->DefaultSeList.Blink,
+                    //                Cle->DefaultSeList.Flink, Cle->DefaultSeList.Blink,
+                    //                seToCheck->DefaultSeNext.Flink, seToCheck->DefaultSeNext.Blink ));
 
                     *Se = seToCheck;
 
@@ -1169,6 +1234,10 @@ Note:
                 //
 
                 *Se = AllocateSecurityEntry(UserName, LogonId, Password, Domain);
+                //RdrLog(( "csl new", NULL, 12, *Se, Cle, Sle, (*Se)->Connection, (*Se)->Server, Cle->Server,
+                //                Sle->DefaultSeList.Flink, Sle->DefaultSeList.Blink,
+                //                Cle->DefaultSeList.Flink, Cle->DefaultSeList.Blink,
+                //                (*Se)->DefaultSeNext.Flink, (*Se)->DefaultSeNext.Blink ));
 
             }
 
@@ -1179,23 +1248,13 @@ Note:
             }
 
             //
-            //  In order to guarantee that the transport connection is
-            //  accurate, seed the value in the transport.
-            //
-
-//#if DBG
-//            ASSERT (Connection == Sle->Connection);
-//#endif
-
-            //
             // Copy the information from the master Se into this new one.
             //
 
             (*Se)->Server = Sle;
+            (*Se)->Connection = Cle;
 
             (*Se)->UserId = uid;
-
-//            (*Se)->TransportConnection = Connection;
 
             //
             //  Mask off the default user, default password, and
@@ -1221,6 +1280,11 @@ Note:
 
                     ASSERT ((*Se)->ActiveNext.Flink == NULL);
 
+                    {
+                        PVOID caller,callerscaller;
+                        RtlGetCallersAddress(&caller,&callerscaller);
+                        RdrLog(("csl add",NULL,5,PsGetCurrentThread(),Sle,Se,caller,callerscaller));
+                    }
                     InsertTailList(&Sle->ActiveSecurityList, &(*Se)->ActiveNext);
 
                     RdrReferenceSecurityEntry((*Se)->NonPagedSecurityEntry);
@@ -1238,9 +1302,6 @@ Note:
 
             if ((*Se)->PotentialNext.Flink == NULL) {
                 RdrSetPotentialSecurityEntry(Sle, *Se);
-
-//            } else {
-//                ASSERT ((*Se)->TransportConnection == Connection);
             }
 
             try_return(status = STATUS_SUCCESS);
@@ -1263,10 +1324,6 @@ try_exit:NOTHING;
                 RdrDereferenceSecurityEntry((*Se)->NonPagedSecurityEntry);
                 *Se = NULL;
             }
-        }
-
-        if (sessionStateModifiedAcquired) {
-            ExReleaseResource(&Sle->SessionStateModifiedLock);
         }
 
         if (securityDatabaseLocked) {
@@ -1412,6 +1469,7 @@ Return Value:
 
 PSECURITY_ENTRY
 RdrFindSecurityEntry (
+    IN PCONNECTLISTENTRY Cle OPTIONAL,
     IN PSERVERLISTENTRY Server OPTIONAL,
     IN PLUID LogonId,
     IN PUNICODE_STRING Password OPTIONAL
@@ -1450,6 +1508,10 @@ Note:
 
     PAGED_CODE();
 
+    if (ARGUMENT_PRESENT(Cle)) {
+        Server = Cle->Server;
+    }
+
     if (!ARGUMENT_PRESENT(Server)) {
         return NULL;
     }
@@ -1472,30 +1534,41 @@ Note:
 
             Se = CONTAINING_RECORD(SeList, SECURITY_ENTRY, PotentialNext);
 
-            //
-            //  If this Se matches this Logon Id, return it.
-            //
-            //  If the logon ID's match, then if the user specified a
-            //  user name, make sure that the user name matches the
-            //  supplied user name as well.
-            //
+            if ( !ARGUMENT_PRESENT(Cle) ||
+                 Server->UserSecurity ||
+                 (Se->Connection == Cle) ) {
 
-            if (RtlEqualLuid(LogonId, &Se->LogonId)) {
+                //
+                //  If this Se matches this Logon Id, return it.
+                //
+                //  If the logon ID's match, then if the user specified a
+                //  user name, make sure that the user name matches the
+                //  supplied user name as well.
+                //
 
-                if (!ARGUMENT_PRESENT(Password) ||
-                    RtlEqualUnicodeString(Password, &Se->Password, FALSE)) {
+                if (RtlEqualLuid(LogonId, &Se->LogonId)) {
 
-                    RdrReferenceSecurityEntry(Se->NonPagedSecurityEntry);
+                    if (!ARGUMENT_PRESENT(Password) ||
+                        RtlEqualUnicodeString(Password, &Se->Password, FALSE)) {
 
-                    dprintf(DPRT_SECURITY, ("Return %lx\n", Se));
+                        RdrReferenceSecurityEntry(Se->NonPagedSecurityEntry);
 
-                    try_return(Se);
+                        //RdrLog(( "find sec", NULL, 12, Se, Cle, Server, Se->Connection, Se->Server,
+                        //                Cle ? Cle->Server : NULL,
+                        //                Server->DefaultSeList.Flink, Server->DefaultSeList.Blink,
+                        //                Cle ? Cle->DefaultSeList.Flink : 0,
+                        //                Cle ? Cle->DefaultSeList.Blink : 0,
+                        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
+                        dprintf(DPRT_SECURITY, ("Return %lx\n", Se));
 
+                        try_return(Se);
+
+                    }
                 }
-
             }
         }
 
+        //RdrLog(( "find sec", NULL, 0 ));
         dprintf(DPRT_SECURITY, ("Entry not found - return NULL\n"));
 
         try_return(Se = NULL);
@@ -1569,12 +1642,16 @@ Return Value:
                 RdrReferenceSecurityEntry(Se->NonPagedSecurityEntry);
 
                 dprintf(DPRT_SECURITY, ("Return %lx\n", Se));
+                RdrLog(("found",NULL,5,PsGetCurrentThread(),Server,Se,
+                        ARGUMENT_PRESENT(LogonId)?LogonId->LowPart:0,
+                        ARGUMENT_PRESENT(LogonId)?LogonId->HighPart:0));
 
                 try_return(Se);
             }
 
         }
 
+        //RdrLog(("notfound",NULL,PsGetCurrentThread(),Server,LogonId->LowPart,LogonId->HighPart));
         dprintf(DPRT_SECURITY, ("Entry not found - return NULL\n"));
 
         Se = NULL;
@@ -1640,10 +1717,15 @@ Return Value:
             if (RtlEqualLuid(LogonId, &Se->LogonId)) {
 
                 RdrReferenceSecurityEntry(Se->NonPagedSecurityEntry);
+                //RdrLog(( "find def", NULL, 12, Se, Connection, 0, Se->Connection, Se->Server, Connection->Server,
+                //                Connection->Server->DefaultSeList.Flink, Connection->Server->DefaultSeList.Blink,
+                //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+                //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
 
                 try_return(ReturnValue = Se);
             }
         }
+        //RdrLog(( "find def", NULL, 0 ));
 
 try_exit:NOTHING;
     } finally {
@@ -1734,12 +1816,19 @@ Return Value:
                           !RtlEqualUnicodeString(&Se->Domain, &SeToCheck->Domain, TRUE) ) ) {
 
                         dprintf(DPRT_SECURITY, ("Security entry conflicts. Returning error\n"));
+                        //RdrLog(( "set conf", NULL, 12, Se, Connection, SeToCheck, Se->Connection, Se->Server, Connection->Server,
+                        //                Connection->Server->DefaultSeList.Flink, Connection->Server->DefaultSeList.Blink,
+                        //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+                        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
                         try_return(Status = STATUS_NETWORK_CREDENTIAL_CONFLICT);
                     }
-// BUGBUG: What do we do if the credentials match?  How can this happen?
 
                 } else {
                     dprintf(DPRT_SECURITY, ("Security entry already set.  Returning success\n"));
+                    //RdrLog(( "set alrd", NULL, 12, Se, Connection, 0, Se->Connection, Se->Server, Connection->Server,
+                    //                Connection->Server->DefaultSeList.Flink, Connection->Server->DefaultSeList.Blink,
+                    //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+                    //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
                     try_return(Status = STATUS_SUCCESS);
                 }
 
@@ -1754,6 +1843,10 @@ Return Value:
 
         ASSERT (Se->DefaultSeNext.Blink == NULL);
 
+        //RdrLog(( "set new", NULL, 12, Se, Connection, 0, Se->Connection, Se->Server, Connection->Server,
+        //                Connection->Server->DefaultSeList.Flink, Connection->Server->DefaultSeList.Blink,
+        //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
         InsertHeadList((UserSecurity ? &Connection->Server->DefaultSeList
                                      : &Connection->DefaultSeList), &Se->DefaultSeNext);
         try_return(Status = STATUS_SUCCESS);
@@ -1785,6 +1878,12 @@ RdrUnsetDefaultSecurityEntry(
         //  remove it from the default chain.
         //
 
+        //RdrLog(( "unset", NULL, 12, Se, 0, 0, Se->Connection, Se->Server, 0,
+        //                Se->Server ? Se->Server->DefaultSeList.Flink : 0,
+        //                Se->Server ? Se->Server->DefaultSeList.Blink : 0,
+        //                Se->Connection ? Se->Connection->DefaultSeList.Flink : 0,
+        //                Se->Connection ? Se->Connection->DefaultSeList.Blink : 0,
+        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
         RemoveEntryList(&Se->DefaultSeNext);
 
         Se->DefaultSeNext.Flink = NULL;
@@ -1807,6 +1906,12 @@ RdrUnsetDefaultSecurityEntry(
         //
 
         ASSERT (Se->DefaultSeNext.Blink == NULL);
+        //RdrLog(( "unset ig", NULL, 12, Se, 0, 0, Se->Connection, Se->Server, 0,
+        //                Se->Server ? Se->Server->DefaultSeList.Flink : 0,
+        //                Se->Server ? Se->Server->DefaultSeList.Blink : 0,
+        //                Se->Connection ? Se->Connection->DefaultSeList.Flink : 0,
+        //                Se->Connection ? Se->Connection->DefaultSeList.Blink : 0,
+        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
 
         ExReleaseResource(&RdrDefaultSeLock);
 
@@ -1817,6 +1922,8 @@ RdrUnsetDefaultSecurityEntry(
 typedef struct _COUNT_SESSIONS_CONTEXT {
     USHORT NumberOfSessions;
     PUNICODE_STRING ServerName;
+    PUNICODE_STRING NBName;
+    PTDI_ADDRESS_IP IPAddress;
 } COUNT_SESSIONS_CONTEXT, *PCOUNT_SESSIONS_CONTEXT;
 
 USHORT
@@ -1854,6 +1961,14 @@ Return Value:
     context.NumberOfSessions = 0;
     context.ServerName = &Server->Text;
 
+    if (FlagOn(Server->Flags, SLE_HAS_IP_ADDR)) {
+        context.NBName = &Server->NBName;
+        context.IPAddress = &Server->IPAddress;
+    } else {
+        context.NBName = NULL;
+        context.IPAddress = NULL;
+    }
+
     RdrForeachServer(&RdrGetNumberSessionsForServer, &context);
 
     return context.NumberOfSessions;
@@ -1867,17 +1982,49 @@ RdrGetNumberSessionsForServer(
     )
 {
     PCOUNT_SESSIONS_CONTEXT context = Ctx;
+    BOOLEAN serverMatch = FALSE;
 
     PAGED_CODE();
 
-    if (!RtlEqualUnicodeString(context->ServerName, &Server->Text, TRUE)) {
-        return STATUS_SUCCESS;
+    //
+    // The code below decides a match based on the following:
+    //
+    // The name being searched for matches the SLE's name (Text field)
+    //     - Obvious case
+    // The NetBIOS name being searched for matches the SLE's name
+    //     - Catches the case where we are connecting to the DNS or IP name
+    //       and we already connected via the NetBIOS name
+    // The name being searched for matches the SLE's NetBIOS name
+    //     - Catches the case where we are connecting to the NetBIOS name
+    //       and we have already connected to the DNS or IP name
+    // The IP address being searched for matches the SLE's IP address
+    //     - Catches the case where we are connecting to the DNS name and
+    //       we already connected IP name (or vice versa)
+
+    if (RtlEqualUnicodeString(context->ServerName, &Server->Text, TRUE)) {
+        serverMatch = TRUE;
+    } else if (context->NBName != NULL &&
+                RtlEqualUnicodeString(context->NBName, &Server->Text, TRUE)) {
+        serverMatch = TRUE;
+    } else if (FlagOn(Server->Flags, SLE_HAS_IP_ADDR)) {
+        //
+        // This server has IP and NB addressing info. See if we match
+        //
+        if (RtlEqualUnicodeString(context->ServerName, &Server->NBName, TRUE)) {
+            serverMatch = TRUE;
+        } else if (context->IPAddress != NULL &&
+                    context->IPAddress->in_addr == Server->IPAddress.in_addr) {
+            serverMatch = TRUE;
+        }
     }
 
-    context->NumberOfSessions += (USHORT)Server->SecurityEntryCount;
+    if (serverMatch) {
+        context->NumberOfSessions += (USHORT)Server->SecurityEntryCount;
+    }
 
     return STATUS_SUCCESS;
 }
+
 VOID
 RdrInsertSecurityEntryList (
     IN PSERVERLISTENTRY Server,
@@ -1927,6 +2074,11 @@ Return Value:
     Se->Flags &= ~SE_RETURN_ON_ERROR;
 #endif // _CAIRO_
 
+    {
+        PVOID caller,callerscaller;
+        RtlGetCallersAddress(&caller,&callerscaller);
+        RdrLog(("ise add",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+    }
     InsertTailList(&Server->ActiveSecurityList, &Se->ActiveNext);
 
 
@@ -2084,6 +2236,8 @@ Return Value:
 
         RdrRemovePotentialSecurityEntry(Se);
 
+        ASSERT ((Se->Flags & SE_HAS_CONTEXT) == 0);
+
         ASSERT (Se->DefaultSeNext.Flink == NULL);
         ASSERT (Se->DefaultSeNext.Blink == NULL);
 
@@ -2148,7 +2302,7 @@ Return Value:
     PAGED_CODE();
 
     if (Se->Server != NULL) {
-        ExInterlockedIncrementLong(&Se->OpenFileReferenceCount, NULL);
+        InterlockedIncrement(&Se->OpenFileReferenceCount);
     }
 }
 
@@ -2179,7 +2333,7 @@ Return Value:
     PAGED_CODE();
 
     if (Se->Server != NULL) {
-        ExInterlockedDecrementLong(&Se->OpenFileReferenceCount, NULL);
+        InterlockedDecrement(&Se->OpenFileReferenceCount);
 #if DBG
     } else {
         ASSERT (Se->OpenFileReferenceCount == 0);
@@ -2249,7 +2403,7 @@ Return Value:
 
     dprintf(DPRT_CAIRO, (" -- RdrGetKerberosBlob\n"));
 
-    if(Principal->Length > 16) {
+    if (Principal->Length > 16) {
        RegionSize += Principal->Length + sizeof(WCHAR);
     } else {
        RegionSize += 18;
@@ -2261,7 +2415,7 @@ Return Value:
 // LSA can find it. So, get its size as well
 //
 
-    if(RemoteBlob != NULL) {
+    if (RemoteBlob != NULL) {
        RegionSize += RemoteBlobLength;
        InHandle = &Se->Khandle;
     } else {
@@ -2282,12 +2436,14 @@ Return Value:
       }
 
       Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &Pluid, 0L, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-      if(!NT_SUCCESS(Status)) {
+      if (!NT_SUCCESS(Status)) {
          try_return(Status);
       }
+      dprintf(DPRT_SECURITY, ("RdrGetKerberosBlob: Allocate VM %08lx in process %8lx\n", Pluid, NtCurrentProcess()));
+
       PName.Buffer = (PWCHAR)(Pluid + sizeof(LUID));
       PName.MaximumLength = (USHORT) RegionSize;
-      if(!(Se->Flags & SE_HAS_CRED_HANDLE)) {
+      if (!(Se->Flags & SE_HAS_CRED_HANDLE)) {
 
          //
          // Need to get a handle
@@ -2310,8 +2466,9 @@ Return Value:
                                 &Se->Chandle,
                                 &LifeTime);
 
-         if(SecStatus != STATUS_SUCCESS) {
-         Status = STATUS_ACCESS_DENIED;
+         Status = MapSecurityError( SecStatus );
+
+         if (!NT_SUCCESS(Status)) {
              try_return(Status);
          }
          Se->Flags |= SE_HAS_CRED_HANDLE;
@@ -2319,7 +2476,7 @@ Return Value:
 
       RtlCopyUnicodeString(&PName, Principal);
 
-      if(RemoteBlob != NULL) {
+      if (RemoteBlob != NULL) {
          TempBlob = Pluid + Region1Size;
          RtlMoveMemory(TempBlob, RemoteBlob, RemoteBlobLength);
       }
@@ -2355,15 +2512,15 @@ Return Value:
       dprintf(DPRT_CAIRO, ("                        RemoteBlobLength = %ld\n",RemoteBlobLength ));
       dprintf(DPRT_CAIRO, ("                        Length           = %ld\n",*Length ));
 
-      if((SecStatus != STATUS_SUCCESS) && (SecStatus != SEC_I_CONTINUE_NEEDED)) {
+      Status = MapSecurityError( SecStatus );
 
-         Status = STATUS_ACCESS_DENIED;
+      if ((Status != STATUS_SUCCESS) && (SecStatus != SEC_I_CONTINUE_NEEDED)) {
+
          try_return(Status);
 
       } else {
 
-      Status = STATUS_SUCCESS;
-      Se->Flags |= SE_HAS_CONTEXT;
+          Se->Flags |= SE_HAS_CONTEXT;
 
       }
 
@@ -2382,7 +2539,7 @@ Return Value:
 
       *Length = OutputBuffer.cbBuffer;
 
-      if(Allocate && OutputBuffer.cbBuffer) {
+      if (Allocate && OutputBuffer.cbBuffer) {
          *Response = ExAllocatePool(PagedPool, OutputBuffer.cbBuffer);
          if (*Response == NULL) {
              Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -2402,6 +2559,8 @@ try_exit:NOTHING;
        if (Pluid != NULL) {
           NTSTATUS Stat;
 
+
+          dprintf(DPRT_SECURITY, ("RdrGetKerberosBlob: Free VM %08lx in process %8lx\n", Pluid, NtCurrentProcess()));
           Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &Pluid, &RegionSize, MEM_RELEASE);
 
           ASSERT (NT_SUCCESS(Stat));
@@ -2499,13 +2658,9 @@ Return Value:
 {
     PLIST_ENTRY SeEntry, NextEntry;
     PNONPAGED_SECURITY_ENTRY NonPagedSe;
-
-#ifdef _CAIRO_
-
     CtxtHandle KHandle;
     CredHandle CHandle;
 
-#endif
 
 
     PAGED_CODE();
@@ -2526,7 +2681,7 @@ Return Value:
 
         NonPagedSe = Se->NonPagedSecurityEntry;
 
-        dprintf(DPRT_SECURITY, ("Invalidating Se: %lx, Next: %lx\n", Se, NextEntry));
+        dprintf(DPRT_SECURITY, ("Invalidating Se: %lx\n", Se));
 
         ASSERT(Se->Signature == STRUCTURE_SIGNATURE_SECURITYENTRY);
         ASSERT(NonPagedSe->Signature == STRUCTURE_SIGNATURE_NONPAGED_SECURITYENTRY);
@@ -2570,6 +2725,11 @@ Return Value:
 
                NextEntry = Se->ActiveNext.Flink;
 
+               {
+                   PVOID caller,callerscaller;
+                   RtlGetCallersAddress(&caller,&callerscaller);
+                   RdrLog(("inv del",NULL,5,PsGetCurrentThread(),Sle,Se,caller,callerscaller));
+               }
                RemoveEntryList(&Se->ActiveNext);
 
                Sle->SecurityEntryCount -= 1 ;
@@ -2591,18 +2751,12 @@ Return Value:
                //  Mark that this Se no longer has a valid logon session.
                //
 
-#ifdef _CAIRO_
                Se->Flags &= ~(SE_HAS_SESSION | SE_RETURN_ON_ERROR);
 
-           RdrFreeSecurityContexts(Se, &KHandle, &CHandle);
+               RdrFreeSecurityContexts(Se, &KHandle, &CHandle);
 
-           RdrDeleteSecurityContexts(&KHandle, &CHandle);
+               RdrDeleteSecurityContexts(&KHandle, &CHandle);
 
-#else // _CAIRO_
-
-               Se->Flags &= ~SE_HAS_SESSION;
-
-#endif // _CAIRO_
 
                //
                //  Remove the reference to this security entry we applied
@@ -2775,8 +2929,6 @@ Return Value:
 
         Se = CONTAINING_RECORD(SeEntry, SECURITY_ENTRY, PotentialNext);
 
-        dprintf(DPRT_SECURITY, ("Invalidating potential Se: %lx, Next: %lx\n", Se, NextEntry));
-
         ASSERT(Se->Signature == STRUCTURE_SIGNATURE_SECURITYENTRY);
 
         //
@@ -2786,6 +2938,7 @@ Return Value:
 
         NextEntry = Se->PotentialNext.Flink;
 
+        dprintf(DPRT_SECURITY, ("Invalidating potential Se: %lx, Next: %lx\n", Se, NextEntry));
         dprintf(DPRT_SECURITY, ("Unlinking Se %lx from Connection %lx\n", Se, Server));
 
         RdrRemovePotentialSecurityEntry(Se);
@@ -2943,22 +3096,12 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PVOID GetInfoBuffer = NULL;
-    PVOID GetInfoResponseBuffer = NULL;
-    PMSV1_0_GETUSERINFO_REQUEST GetInfoRequest;
-    PMSV1_0_GETUSERINFO_RESPONSE GetInfoResponse;
-    ULONG ResponseSize;
-    ULONG RegionSize = sizeof(MSV1_0_GETUSERINFO_REQUEST);
     BOOLEAN ProcessAttached = FALSE;
-    NTSTATUS FinalStatus;
+    PSecurityUserData   pUser;
 
     PAGED_CODE();
 
-#ifdef _CAIRO_
 
-    return(STATUS_NOT_IMPLEMENTED);
-
-#endif
 
     try {
 
@@ -2979,41 +3122,12 @@ Return Value:
                 ProcessAttached = TRUE;
             }
 
-            //
-            //  Allocate virtual memory for the response buffer.
-            //
-
-            Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &GetInfoBuffer, 0L, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-
-            GetInfoRequest = GetInfoBuffer;
-
+            Status = GetSecurityUserInfo(LogonId, UNDERSTANDS_LONG_NAMES, &pUser);
             if (!NT_SUCCESS(Status)) {
                 try_return(Status);
             }
 
-            GetInfoRequest->MessageType = MsV1_0GetUserInfo;
-
-            RtlCopyLuid(&GetInfoRequest->LogonId, LogonId);
-
-            Status = LsaCallAuthenticationPackage(RdrLsaHandle, RdrAuthenticationPackage,
-                        GetInfoRequest, RegionSize,
-                        &GetInfoResponseBuffer, &ResponseSize, &FinalStatus);
-
-            GetInfoResponse = GetInfoResponseBuffer;
-
-            if (!NT_SUCCESS(Status)) {
-                GetInfoResponseBuffer = NULL;
-                try_return(Status);
-            }
-
-
-            if (!NT_SUCCESS(FinalStatus)) {
-                try_return(Status = FinalStatus);
-            }
-
-            ASSERT(GetInfoResponse->MessageType == MsV1_0GetUserInfo);
-
-            Status = RdrpDuplicateUnicodeStringWithString(UserName, &GetInfoResponse->UserName, PagedPool, FALSE);
+            Status = RdrpDuplicateUnicodeStringWithString(UserName, &pUser->UserName, PagedPool, FALSE);
 
             try_return(Status);
         }
@@ -3021,16 +3135,8 @@ Return Value:
 try_exit:NOTHING;
     } finally {
 
-        if (GetInfoResponseBuffer != NULL) {
-            LsaFreeReturnBuffer(GetInfoResponseBuffer);
-        }
-
-        if (GetInfoBuffer != NULL) {
-            NTSTATUS Stat;
-
-            Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &GetInfoBuffer, &RegionSize, MEM_RELEASE);
-
-            ASSERT (NT_SUCCESS(Stat));
+        if (pUser != NULL) {
+            LsaFreeReturnBuffer(pUser);
         }
 
         if (ProcessAttached) {
@@ -3039,6 +3145,9 @@ try_exit:NOTHING;
     }
 
     return Status;
+
+
+
 }
 NTSTATUS
 RdrGetDomain (
@@ -3069,20 +3178,17 @@ Return Value:
 
 {
     NTSTATUS Status;
-    PVOID GetInfoBuffer = NULL;
-    PVOID GetInfoResponseBuffer = NULL;
-    PMSV1_0_GETUSERINFO_REQUEST GetInfoRequest;
-    PMSV1_0_GETUSERINFO_RESPONSE GetInfoResponse;
-    ULONG ResponseSize;
-    ULONG RegionSize = sizeof(MSV1_0_GETUSERINFO_REQUEST);
-    NTSTATUS FinalStatus;
     BOOLEAN ProcessAttached = FALSE;
+    PSecurityUserData   pUser;
 
     PAGED_CODE();
+
+
 
     try {
 
         if (!RdrData.NtSecurityEnabled) {
+//            Status = RdrpDuplicateUnicodeStringWithString(UserName, &RdrUserName, PagedPool, FALSE);
 
             try_return(Status = STATUS_NO_SUCH_PACKAGE);
 
@@ -3098,41 +3204,13 @@ Return Value:
                 ProcessAttached = TRUE;
             }
 
-            //
-            //  Allocate virtual memory for the response buffer.
-            //
-
-            Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &GetInfoBuffer, 0L, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-
-            GetInfoRequest = GetInfoBuffer;
-
-            if (!NT_SUCCESS(Status)) {
+            Status = GetSecurityUserInfo(LogonId, UNDERSTANDS_LONG_NAMES, &pUser);
+            if (!NT_SUCCESS(Status))
+            {
                 try_return(Status);
             }
 
-            GetInfoRequest->MessageType = MsV1_0GetUserInfo;
-
-            RtlCopyLuid(&GetInfoRequest->LogonId, LogonId);
-
-            Status = LsaCallAuthenticationPackage(RdrLsaHandle, RdrAuthenticationPackage,
-                        GetInfoRequest, RegionSize,
-                        &GetInfoResponseBuffer, &ResponseSize, &FinalStatus);
-
-            GetInfoResponse = GetInfoResponseBuffer;
-
-            if (!NT_SUCCESS(Status)) {
-                GetInfoResponseBuffer = NULL;
-                try_return(Status);
-            }
-
-
-            if (!NT_SUCCESS(FinalStatus)) {
-                try_return(Status = FinalStatus);
-            }
-
-            ASSERT(GetInfoResponse->MessageType == MsV1_0GetUserInfo);
-
-            Status = RdrpDuplicateUnicodeStringWithString(Domain, &GetInfoResponse->LogonDomainName, PagedPool, FALSE);
+            Status = RdrpDuplicateUnicodeStringWithString(Domain, &pUser->LogonDomainName, PagedPool, FALSE);
 
             try_return(Status);
         }
@@ -3140,16 +3218,8 @@ Return Value:
 try_exit:NOTHING;
     } finally {
 
-        if (GetInfoResponseBuffer != NULL) {
-            LsaFreeReturnBuffer(GetInfoResponseBuffer);
-        }
-
-        if (GetInfoBuffer != NULL) {
-            NTSTATUS Stat;
-
-            Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &GetInfoBuffer, &RegionSize, MEM_RELEASE);
-
-            ASSERT (NT_SUCCESS(Stat));
+        if (pUser != NULL) {
+            LsaFreeReturnBuffer(pUser);
         }
 
         if (ProcessAttached) {
@@ -3158,6 +3228,7 @@ try_exit:NOTHING;
     }
 
     return Status;
+
 }
 
 NTSTATUS
@@ -3197,9 +3268,6 @@ Return Value:
 
 {
     NTSTATUS Status = STATUS_SUCCESS;
-
-#ifdef _CAIRO_
-
     PSERVERLISTENTRY    Server = Se->Server;
     ULONG LsaFlags = ISC_REQ_ALLOCATE_MEMORY;
     TimeStamp Expiry;
@@ -3215,17 +3283,7 @@ Return Value:
     SecBuffer       OutputBuffer[2];
     PUCHAR          p = NULL;
     ULONG           AllocateSize;
-#else
-
-    PVOID ChallengeBuffer = NULL;
-    PVOID ResponseBuffer = NULL;
-    PMSV1_0_GETCHALLENRESP_REQUEST ChallengeRequest = NULL;
-    PMSV1_0_GETCHALLENRESP_RESPONSE ChallengeResponse = NULL;
-    ULONG ResponseSize;
-    ULONG RegionSize = sizeof(MSV1_0_GETCHALLENRESP_REQUEST);
-    ULONG PasswordSize;
-
-#endif
+    UNICODE_STRING  TargetName;
 
     NTSTATUS FinalStatus;
     BOOLEAN ProcessAttached = FALSE;
@@ -3260,7 +3318,6 @@ Return Value:
             ProcessAttached = TRUE;
         }
 
-#ifdef _CAIRO_
 
         //
         // we are using CAIRO security packages
@@ -3320,8 +3377,18 @@ Return Value:
             }
 
         } else {
+
+            ULONG ulTargetSize;
+
+
+            ulTargetSize = Server->DomainName.Length ?
+                            Server->DomainName.Length :
+                              Server->Text.Length;
+
+
             InTokenSize = sizeof(CHALLENGE_MESSAGE) +
-                Server->Text.Length;
+                            Server->DomainName.Length +
+                            Server->Text.Length;
             if ((Se->Flags & (SE_USE_DEFAULT_PASS | SE_USE_DEFAULT_USER | SE_USE_DEFAULT_DOMAIN)) !=
                   (SE_USE_DEFAULT_PASS | SE_USE_DEFAULT_USER | SE_USE_DEFAULT_DOMAIN)) {
 
@@ -3338,8 +3405,9 @@ Return Value:
 
                 LsaFlags |= ISC_REQ_USE_SUPPLIED_CREDS;
 
+            } else {
+                NtlmInTokenSize = 0;
             }
-            else NtlmInTokenSize = 0;
 
             //
             // For Alignment purposes, we want InTokenSize rounded up to
@@ -3361,13 +3429,18 @@ Return Value:
                try_return(Status);
             }
 
+            RtlZeroMemory(
+                InToken,
+                InTokenSize
+                );
+
+            dprintf(DPRT_SECURITY, ("RdrGetChallengeResponse: Allocate VM %08lx in process %8lx\n", InToken, NtCurrentProcess()));
             //
             // partition off the NTLM in token part of the
             // buffer
             //
 
-            if (LsaFlags & ISC_REQ_USE_SUPPLIED_CREDS)
-            {
+            if (LsaFlags & ISC_REQ_USE_SUPPLIED_CREDS) {
                 NtlmInToken = (PNTLM_CHALLENGE_MESSAGE) ((PUCHAR) InToken + InTokenSize);
                 NtlmInToken = (PNTLM_CHALLENGE_MESSAGE) (((ULONG) NtlmInToken + 3) & ~3);
                 RtlZeroMemory(NtlmInToken,NtlmInTokenSize);
@@ -3380,14 +3453,14 @@ Return Value:
             // there is no point allocating a new one.
             //
 
-            if(!(Se->Flags & SE_HAS_CRED_HANDLE)) {
+            if (!(Se->Flags & SE_HAS_CRED_HANDLE)) {
                UNICODE_STRING LMName;
                TimeStamp LifeTime;
 
                LMName.Buffer = (PWSTR) InToken;
-               LMName.Length = NTLMSSP_NAME_SIZE;
+               LMName.Length = NTLMSP_NAME_SIZE;
                LMName.MaximumLength = LMName.Length;
-               RtlCopyMemory(LMName.Buffer, NTLMSSP_NAME, NTLMSSP_NAME_SIZE);
+               RtlCopyMemory(LMName.Buffer, NTLMSP_NAME, NTLMSP_NAME_SIZE);
 
                Status = AcquireCredentialsHandle(
                                         NULL,
@@ -3399,20 +3472,17 @@ Return Value:
                                         NULL,
                                         &Se->Chandle,
                                         &LifeTime);
-               if(!NT_SUCCESS(Status)) {
+               if (!NT_SUCCESS(Status)) {
                   try_return(Status);
                }
                Se->Flags |= SE_HAS_CRED_HANDLE;
             }
 
-
-
-
             //
             // Copy in the pass,user,domain if they were specified
             //
 
-            if(!(Se->Flags & SE_USE_DEFAULT_PASS)) {
+            if (!(Se->Flags & SE_USE_DEFAULT_PASS)) {
                NtlmInToken->Password.Buffer = (PWSTR) p;
                NtlmInToken->Password.MaximumLength = Se->Password.Length;
                RtlCopyUnicodeString(&NtlmInToken->Password, &Se->Password);
@@ -3420,7 +3490,7 @@ Return Value:
                p += Se->Password.Length;
             }
 
-            if(!(Se->Flags & SE_USE_DEFAULT_USER)) {
+            if (!(Se->Flags & SE_USE_DEFAULT_USER)) {
                NtlmInToken->UserName.Buffer = (PWSTR) p;
                NtlmInToken->UserName.MaximumLength = Se->UserName.Length;
                RtlCopyUnicodeString(&NtlmInToken->UserName, &Se->UserName);
@@ -3447,20 +3517,50 @@ Return Value:
             InToken->NegotiateFlags = NTLMSSP_NEGOTIATE_UNICODE |
                                         NTLMSSP_NEGOTIATE_OEM |
                                         NTLMSSP_REQUEST_INIT_RESPONSE |
-                                        NTLMSSP_TARGET_TYPE_SERVER;
+                                        (Server->DomainName.Length ?
+                                            NTLMSSP_TARGET_TYPE_DOMAIN :
+                                            NTLMSSP_TARGET_TYPE_SERVER);
+
+            if (!FlagOn(Se->Server->Capabilities, DF_NT_SMBS)) {
+                InToken->NegotiateFlags |= NTLMSSP_REQUEST_NON_NT_SESSION_KEY;
+            }
+
 
             RtlCopyMemory(InToken->Challenge, Challenge, MSV1_0_CHALLENGE_LENGTH);
 
             InToken->TargetName.Length =
-               InToken->TargetName.MaximumLength = Server->Text.Length;
+               InToken->TargetName.MaximumLength = (USHORT)ulTargetSize;
             InToken->TargetName.Buffer = (PCHAR) sizeof(CHALLENGE_MESSAGE);
 
             RtlCopyMemory(  InToken->TargetName.Buffer + (ULONG) InToken,
-                            Server->Text.Buffer,
-                            Server->Text.Length);
+                            Server->DomainName.Length ?
+                             Server->DomainName.Buffer :
+                               Server->Text.Buffer,
+                            ulTargetSize);
+
+            //
+            // Build a unicode string containing the target server name. If
+            // we are already sending in the target server name, don't
+            // bother to do it again.
+            //
+
+            if (Server->DomainName.Length != 0) {
+                TargetName.Length = Server->Text.Length;
+                TargetName.MaximumLength = Server->Text.Length;
+                TargetName.Buffer = (LPWSTR) ((PBYTE) InToken + sizeof(CHALLENGE_MESSAGE) + ulTargetSize);
+                RtlCopyMemory(
+                    TargetName.Buffer,
+                    Server->Text.Buffer,
+                    Server->Text.Length
+                    );
+
+            } else {
+                TargetName = * (PUNICODE_STRING) &InToken->TargetName;
+                TargetName.Buffer = (LPWSTR) ((PBYTE) TargetName.Buffer + (ULONG) InToken);
+            }
 
 
-            if(Se->Flags & SE_RETURN_ON_ERROR) {
+            if (Se->Flags & SE_RETURN_ON_ERROR) {
                dprintf(DPRT_SMBTRACE, ("Second try for down-level credentials\n"));
                LsaFlags |= ISC_REQ_PROMPT_FOR_CREDS;
             }
@@ -3472,8 +3572,7 @@ Return Value:
             InputBuffer[0].cbBuffer = InTokenSize;
             InputBuffer[0].BufferType = SECBUFFER_TOKEN;
 
-            if (LsaFlags & ISC_REQ_USE_SUPPLIED_CREDS)
-            {
+            if (LsaFlags & ISC_REQ_USE_SUPPLIED_CREDS) {
                 InputToken.cBuffers = 2;
                 InputBuffer[1].pvBuffer = NtlmInToken;
                 InputBuffer[1].cbBuffer = NtlmInTokenSize;
@@ -3492,7 +3591,7 @@ Return Value:
 
             Status = InitializeSecurityContext(&Se->Chandle,
                                                (PCtxtHandle)NULL,
-                                               NULL,
+                                               &TargetName,
                                                LsaFlags,
                                                0,
                                                SECURITY_NATIVE_DREP,
@@ -3503,24 +3602,23 @@ Return Value:
                                                &FinalStatus,
                                                &Expiry);
 
-            if(!NT_SUCCESS(Status) && (Status != SEC_I_CONTINUE_NEEDED)) {
-               Status = STATUS_ACCESS_DENIED;
+            if (!NT_SUCCESS(Status) && (Status != SEC_I_CONTINUE_NEEDED)) {
+               Status = MapSecurityError(Status);
                try_return(Status);
             } else {
-        Se->Flags |= SE_HAS_CONTEXT;
-        }
+               Se->Flags |= SE_HAS_CONTEXT;
+            }
             OutToken = (PAUTHENTICATE_MESSAGE) OutputBuffer[0].pvBuffer;
 
             ASSERT(OutToken != NULL);
-
+            dprintf(DPRT_SECURITY, ("RdrGetChallengeResponse: InitSecCtxt OutToken is %8lx\n", OutToken));
             //
             // The commented-out code will enable retrying on authorization
             // failures. It needs to be coordinated with the NTLM
             // package. ASM
             //
 
-
-            if( !( Se->Flags & SE_RETURN_ON_ERROR) &&
+            if ( !( Se->Flags & SE_RETURN_ON_ERROR) &&
                 !( LsaFlags & ISC_REQ_USE_SUPPLIED_CREDS)) {
                Se->Flags |= SE_RETURN_ON_ERROR;
             } else {
@@ -3530,7 +3628,6 @@ Return Value:
             //
             // End of the commented-out code
             // ASM
-            //
             //
 
             if (ARGUMENT_PRESENT(CaseSensitiveChallengeResponse)) {
@@ -3597,190 +3694,16 @@ Return Value:
 
         } // not null session
 
-#else   // _CAIRO_
-
-        if (!(Se->Flags & SE_USE_DEFAULT_PASS)) {
-            PasswordSize = Se->Password.Length;
-
-            RegionSize += PasswordSize;
-        } else if (DisableDefaultPassword) {
-            PasswordSize = 0;
-        }
-
-        //
-        //  If a username, domain, and password were explicitly specified,
-        //  and they were all specified as NULL, this means that the
-        //  application is attempting to establish a null session to the
-        //  server.
-        //
-        //  Special case this, and return empty strings for the password.
-        //
-        //  The username and domain will fall out.
-        //
-
-        if (!(Se->Flags & SE_USE_DEFAULT_PASS) &&
-            !(Se->Flags & SE_USE_DEFAULT_USER) &&
-            !(Se->Flags & SE_USE_DEFAULT_DOMAIN) &&
-            (Se->Password.Length == 0) &&
-            (Se->UserName.Length == 0) &&
-            (Se->Domain.Length == 0)) {
-
-            if (ARGUMENT_PRESENT(CaseSensitiveChallengeResponse)) {
-                STRING EmptyBuffer;
-
-                RtlInitString(&EmptyBuffer, "");
-
-                Status = RdrpDuplicateStringWithString(CaseSensitiveChallengeResponse, &EmptyBuffer, PagedPool, FALSE);
-
-                if (!NT_SUCCESS(Status)) {
-                    try_return(Status);
-                }
-            }
-
-            if (ARGUMENT_PRESENT(CaseInsensitiveChallengeResponse)) {
-                STRING EmptyBuffer;
-
-                RtlInitString(&EmptyBuffer, "");
-
-                EmptyBuffer.Length = sizeof(CHAR);
-
-                Status = RdrpDuplicateStringWithString(CaseInsensitiveChallengeResponse, &EmptyBuffer, PagedPool, FALSE);
-
-                if (!NT_SUCCESS(Status)) {
-                    try_return(Status);
-                }
-            }
-
-        } else {
-
-            //
-            //  Allocate virtual memory for the response buffer.
-            //
-
-            Status = ZwAllocateVirtualMemory(NtCurrentProcess(), &ChallengeBuffer, 0L, &RegionSize, MEM_COMMIT, PAGE_READWRITE);
-
-            ChallengeRequest = ChallengeBuffer;
-
-            if (!NT_SUCCESS(Status)) {
-                try_return(Status);
-            }
-
-            ChallengeRequest->MessageType = MsV1_0Lm20GetChallengeResponse;
-
-            ChallengeRequest->Password.Buffer = NULL;
-
-            RtlCopyLuid(&ChallengeRequest->LogonId, &Se->LogonId);
-
-            if ((Se->Flags & SE_USE_DEFAULT_PASS) && !DisableDefaultPassword) {
-
-                ChallengeRequest->ParameterControl = USE_PRIMARY_PASSWORD;
-
-            } else {
-                ChallengeRequest->ParameterControl = 0;
-
-                ChallengeRequest->Password.MaximumLength = (USHORT )PasswordSize;
-
-                ChallengeRequest->Password.Buffer = (PWSTR)(ChallengeRequest+1);
-
-                RtlCopyUnicodeString(&ChallengeRequest->Password, &Se->Password);
-
-            }
-
-            if (!FlagOn(Se->Server->Capabilities, DF_NT_SMBS)) {
-                ChallengeRequest->ParameterControl |= RETURN_NON_NT_USER_SESSION_KEY;
-            }
-
-            if (ARGUMENT_PRESENT(UserName) &&
-                Se->Flags & SE_USE_DEFAULT_USER) {
-                ChallengeRequest->ParameterControl |= RETURN_PRIMARY_USERNAME;
-
-            }
-
-            if (ARGUMENT_PRESENT(LogonDomainName) &&
-                Se->Flags & SE_USE_DEFAULT_DOMAIN) {
-                ChallengeRequest->ParameterControl |= RETURN_PRIMARY_LOGON_DOMAINNAME;
-            }
-
-            RtlCopyMemory(&ChallengeRequest->ChallengeToClient, Challenge, MSV1_0_CHALLENGE_LENGTH);
-
-            Status = LsaCallAuthenticationPackage(RdrLsaHandle, RdrAuthenticationPackage,
-                            ChallengeRequest, RegionSize,
-                            &ResponseBuffer, &ResponseSize, &FinalStatus);
-
-            ChallengeResponse = ResponseBuffer;
-
-            if (!NT_SUCCESS(Status)) {
-                ResponseBuffer = NULL;
-                try_return(Status);
-            }
-
-            if (!NT_SUCCESS(FinalStatus)) {
-                try_return(Status = FinalStatus);
-            }
-
-            ASSERT(ChallengeResponse->MessageType == MsV1_0Lm20GetChallengeResponse);
-
-            if (ARGUMENT_PRESENT(CaseSensitiveChallengeResponse)) {
-                Status = RdrpDuplicateStringWithString(CaseSensitiveChallengeResponse, &ChallengeResponse->CaseSensitiveChallengeResponse, NonPagedPool, FALSE);
-            }
-
-            if (!NT_SUCCESS(Status)) {
-                try_return(Status);
-            }
-
-            if (ARGUMENT_PRESENT(CaseInsensitiveChallengeResponse)) {
-                Status = RdrpDuplicateStringWithString(CaseInsensitiveChallengeResponse, &ChallengeResponse->CaseInsensitiveChallengeResponse, NonPagedPool, FALSE);
-            }
-
-            if (!NT_SUCCESS(Status)) {
-                try_return(Status);
-            }
-
-        }
-
-        if (ARGUMENT_PRESENT(LogonDomainName)) {
-
-            if (Se->Flags & SE_USE_DEFAULT_DOMAIN) {
-                Status = RdrpDuplicateUnicodeStringWithString(LogonDomainName, &ChallengeResponse->LogonDomainName, NonPagedPool, FALSE);
-            } else {
-                Status = RdrpDuplicateUnicodeStringWithString(LogonDomainName, &Se->Domain, NonPagedPool, FALSE);
-            }
-        }
-
-        if (!NT_SUCCESS(Status)) {
-            try_return(Status);
-        }
-
-        if (ARGUMENT_PRESENT(UserName)) {
-            if (Se->Flags & SE_USE_DEFAULT_USER) {
-                Status = RdrpDuplicateUnicodeStringWithString(UserName, &ChallengeResponse->UserName, NonPagedPool, FALSE);
-            } else {
-                Status = RdrpDuplicateUnicodeStringWithString(UserName, &Se->UserName, NonPagedPool, FALSE);
-            }
-        }
-
-        if (!NT_SUCCESS(Status)) {
-            try_return(Status);
-        }
-
-        if (ChallengeResponse != NULL) {
-            RtlCopyMemory(Se->UserSessionKey, ChallengeResponse->UserSessionKey, MSV1_0_USER_SESSION_KEY_LENGTH);
-            RtlCopyMemory(Se->LanmanSessionKey, ChallengeResponse->LanmanSessionKey, MSV1_0_LANMAN_SESSION_KEY_LENGTH);
-        }
-
-#endif  // _CAIRO_
 
         try_return(Status = STATUS_SUCCESS);
 
 try_exit:NOTHING;
     } finally {
 
-
-#ifdef _CAIRO_
-
         if (InToken) {
             NTSTATUS Stat;
 
+            dprintf(DPRT_SECURITY, ("RdrGetChallengeRespose: Free VM %08lx in process %8lx\n", InToken, NtCurrentProcess()));
             Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &InToken, &InTokenSize, MEM_RELEASE);
 
             ASSERT (NT_SUCCESS(Stat));
@@ -3788,37 +3711,22 @@ try_exit:NOTHING;
 
         if (OutToken) {
             NTSTATUS Stat;
-            ULONG OutTokenSize = 1;
+            ULONG OutTokenSize = 0;              // 0 means free everything
 
-            Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &OutToken, &OutTokenSize, MEM_RELEASE);
+            dprintf(DPRT_SECURITY, ("RdrGetChallengeRespose: Free VM %08lx in process %8lx\n", OutToken, NtCurrentProcess()));
+            FreeContextBuffer(OutToken);
 
-            ASSERT (NT_SUCCESS(Stat));
         }
 
         if (NtlmOutToken) {
             NTSTATUS Stat;
-            ULONG NtlmOutTokenSize = 1;
+            ULONG NtlmOutTokenSize = 0;          // 0 means free everything
 
-            Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &NtlmOutToken, &NtlmOutTokenSize, MEM_RELEASE);
+            dprintf(DPRT_SECURITY, ("RdrGetChallengeRespose: Free VM %08lx in process %8lx\n", NtlmOutToken, NtCurrentProcess()));
+            FreeContextBuffer(NtlmOutToken);
 
-            ASSERT (NT_SUCCESS(Stat));
         }
 
-#else // _CAIRO_
-
-        if (ResponseBuffer != NULL) {
-            LsaFreeReturnBuffer(ResponseBuffer);
-        }
-
-        if (ChallengeBuffer != NULL) {
-            NTSTATUS Stat;
-
-            Stat = ZwFreeVirtualMemory(NtCurrentProcess(), &ChallengeBuffer, &RegionSize, MEM_RELEASE);
-
-            ASSERT (NT_SUCCESS(Stat));
-        }
-
-#endif  // _CAIRO_
 
         if (!NT_SUCCESS(Status)) {
 
@@ -3841,6 +3749,16 @@ try_exit:NOTHING;
             }
 
         }
+
+        //
+        // For NTLM SSP, we don't need to hold on to the context any
+        // longer.
+        //
+        if (Se->Flags & SE_HAS_CONTEXT) {
+            DeleteSecurityContext( &Se->Khandle );
+            Se->Flags &= ~SE_HAS_CONTEXT;
+        }
+
         if (ProcessAttached) {
             KeDetachProcess();
         }
@@ -3920,7 +3838,7 @@ Note:
 
             Address = &RdrData.ComputerName->Address[0].Address[0];
 
-            for (i = 0;i < NETBIOS_NAME_LEN ; i ++) {
+            for (i = 0;i < sizeof(Address->NetbiosName) ; i ++) {
                 if (Address->NetbiosName[i] == ' ' || Address->NetbiosName[i] == '\0') {
                     break;
                 }
@@ -4009,13 +3927,13 @@ Note:
             PTDI_ADDRESS_NETBIOS Address;
             OEM_STRING AString;
             UNICODE_STRING UString;
-            UCHAR Computername[NETBIOS_NAME_LEN];
+            UCHAR Computername[ sizeof( Address->NetbiosName ) ];
 
             ExAcquireResourceShared(&RdrDataResource, TRUE);
 
             Address = &RdrData.ComputerName->Address[0].Address[0];
 
-            for (i = 0;i < NETBIOS_NAME_LEN ; i ++) {
+            for (i = 0;i < sizeof(Address->NetbiosName) ; i ++) {
                 if (Address->NetbiosName[i] == ' ' || Address->NetbiosName[i] == '\0') {
                     break;
                 }
@@ -4026,10 +3944,10 @@ Note:
 
             AString.Buffer = Computername;
             AString.Length = (USHORT)i;
-            AString.MaximumLength = NETBIOS_NAME_LEN;
+            AString.MaximumLength = sizeof( Computername );
 
             UString.Buffer = *Pointer;
-            UString.MaximumLength = (USHORT)(NETBIOS_NAME_LEN*sizeof(WCHAR));
+            UString.MaximumLength = (USHORT)(sizeof( Computername )*sizeof(WCHAR));
 
             Status = RtlOemStringToUnicodeString(&UString, &AString, FALSE);
 
@@ -4048,6 +3966,64 @@ Note:
         }
     }
     return STATUS_SUCCESS;
+}
+
+VOID
+RdrGetUnicodeDomainName(
+    IN OUT PUNICODE_STRING String,
+    IN PSECURITY_ENTRY Se
+    )
+/*++
+
+Routine Description:
+
+    This routine will copy the domain name associated with the given security
+    entry to the buffer.
+
+
+Arguments:
+
+    IN OUT PWSTR *Pointer - Specifies the destination of the pointer.
+    IN PSECURITY_ENTRY Se - Supplies a security entry describing this user.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    NTSTATUS Status;
+
+    PAGED_CODE();
+
+    String->Length = 0;
+
+    if( Se->Domain.Length != 0 ) {
+
+        String->Buffer = ALLOCATE_POOL(PagedPool, Se->Domain.Length, POOL_DOMAINNAME );
+
+        if( String->Buffer != 0 ) {
+
+            String->MaximumLength = String->Length = Se->Domain.Length;
+            RtlCopyMemory( String->Buffer, Se->Domain.Buffer, Se->Domain.Length );
+        }
+
+    } else if (Se->Flags & SE_USE_DEFAULT_DOMAIN) {
+
+        RdrGetDomain(&Se->LogonId, String );
+    }
+
+    if( String->Length == 0 ) {
+        String->Buffer = ALLOCATE_POOL( PagedPool, sizeof( *String->Buffer ), POOL_DOMAINNAME );
+        if( String->Buffer != NULL ) {
+            String->Buffer[0] = UNICODE_NULL;
+            String->MaximumLength = String->Length = sizeof( String->Buffer[0] );
+        }
+    }
+
+
+    return;
 }
 
 DBGSTATIC
@@ -4121,6 +4097,11 @@ Return Value:
         Se->NonPagedSecurityEntry = NonPagedSe;
 
         Se->Flags = 0;
+
+        Se->Chandle.dwLower = Se->Chandle.dwUpper = (ULONG)(-1);
+
+        Se->Khandle.dwLower = Se->Khandle.dwUpper = (ULONG)(-1);
+
 
         //
         //  Always copy in the logon id if it is present.
@@ -4198,6 +4179,7 @@ Return Value:
         Se->OpenFileReferenceCount = 0;
 
         Se->Server = NULL;
+        Se->Connection = NULL;
 
         //
         //  Initialize the ActiveNext pointer to a known value to allow us to
@@ -4216,6 +4198,7 @@ Return Value:
         InsertHeadList(&RdrGlobalSecurityList, &Se->GlobalNext);
 #endif
 
+        //RdrLog(( "alloc se", NULL, 1, Se ));
         dprintf(DPRT_SECURITY, ("Allocated Se at %lx\n", Se));
 try_exit:NOTHING;
     } finally {
@@ -4282,6 +4265,10 @@ RdrLogoffDefaultSecurityEntry(
         CLONG NumberOfSeWithUserId = 0;
 
         RemoveEntryList(&Se->DefaultSeNext);
+        //RdrLog(( "logoff", NULL, 12, Se, Connection, Server, Se->Connection, Se->Server, Connection->Server,
+        //                Server->DefaultSeList.Flink, Server->DefaultSeList.Blink,
+        //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
 
         Se->DefaultSeNext.Flink = NULL;
 
@@ -4367,6 +4354,10 @@ RdrLogoffAllDefaultSecurityEntry(
                                                : &Connection->DefaultSeList));
 
         Se = CONTAINING_RECORD(SeEntry, SECURITY_ENTRY, DefaultSeNext);
+        //RdrLog(( "logoff a", NULL, 12, Se, Connection, Server, Se->Connection, Se->Server, Connection->Server,
+        //                Server->DefaultSeList.Flink, Server->DefaultSeList.Blink,
+        //                Connection->DefaultSeList.Flink, Connection->DefaultSeList.Blink,
+        //                Se->DefaultSeNext.Flink, Se->DefaultSeNext.Blink ));
 
         ASSERT (Se->Signature == STRUCTURE_SIGNATURE_SECURITYENTRY);
 
@@ -4417,7 +4408,26 @@ RdrLogoffAllDefaultSecurityEntry(
 
 
 
-#ifdef _CAIRO_
+
+BOOL
+RdrCleanSecurityContexts(
+    IN PSECURITY_ENTRY Se
+    )
+{
+/*
+ * Reset an Se by releasing all security package handles. Used by
+ * the connect code when reverting from Kerberos to LanMan
+ * authentication. Mainly this is a wrapper for the two
+ * internal routines ...
+ */
+
+    CtxtHandle KHandle;
+    CredHandle Chandle;
+
+    RdrFreeSecurityContexts(Se, &KHandle, &Chandle);
+    RdrDeleteSecurityContexts(&KHandle, &Chandle);
+    return(TRUE);
+}
 
 DBGSTATIC
 VOID
@@ -4445,16 +4455,14 @@ Return Value:
 
 --*/
 {
-    if(Se->Flags & SE_HAS_CONTEXT) {
-
-    *KHandle = Se->Khandle;
-    Se->Khandle.dwLower = Se->Khandle.dwUpper = (ULONG)(-1);
-
+    if (Se->Flags & SE_HAS_CONTEXT) {
+        *KHandle = Se->Khandle;
+        Se->Khandle.dwLower = Se->Khandle.dwUpper = (ULONG)(-1);
     } else {
         KHandle->dwLower = KHandle->dwUpper = (ULONG)(-1);
     }
 
-    if(Se->Flags & SE_HAS_CRED_HANDLE) {
+    if (Se->Flags & SE_HAS_CRED_HANDLE) {
         *CHandle = Se->Chandle;
         Se->Chandle.dwLower = Se->Chandle.dwUpper = (ULONG)(-1);
     } else {
@@ -4473,28 +4481,28 @@ void RdrDeleteSecurityContexts(
     NTSTATUS Status;
     BOOLEAN ProcessAttached = FALSE;
 
+    if (PsGetCurrentProcess() != RdrFspProcess) {
+        KeAttachProcess(RdrFspProcess);
+
+        ProcessAttached = TRUE;
+    }
+
     if (!CONTEXT_INVALID(*KHandle)) {
-        if (PsGetCurrentProcess() != RdrFspProcess) {
-            KeAttachProcess(RdrFspProcess);
-
-            ProcessAttached = TRUE;
-        }
-
         Status = DeleteSecurityContext(KHandle);
         dprintf(DPRT_CAIRO, ("DeleteSecurityContext Status = %08lx\n", Status));
-
-        if (ProcessAttached) {
-            KeDetachProcess();
-        }
     }
 
     if (!CONTEXT_INVALID(*CHandle)) {
         Status = FreeCredentialsHandle(CHandle);
         dprintf(DPRT_CAIRO, ("FreeCredentialHandle Status = %08lx\n", Status));
     }
+
+    if (ProcessAttached) {
+        KeDetachProcess();
+    }
+
 }
 
-#endif // _CAIRO_
 
 
 NTSTATUS
@@ -4536,7 +4544,16 @@ Return Value:
 
     if (Se->Flags & SE_HAS_SESSION) {
 
-        Se->Flags &= ~SE_HAS_SESSION;
+
+        CtxtHandle KHandle;
+        CredHandle CHandle;
+
+        Se->Flags &= ~(SE_HAS_SESSION | SE_RETURN_ON_ERROR);
+
+        RdrFreeSecurityContexts(Se, &KHandle, &CHandle);
+
+        RdrDeleteSecurityContexts(&KHandle, &CHandle);
+
 
         //
         //  The user has been logged off, now remove the reference to
@@ -4545,6 +4562,11 @@ Return Value:
         //  call DereferenceSecurityEntry.
         //
 
+        {
+            PVOID caller,callerscaller;
+            RtlGetCallersAddress(&caller,&callerscaller);
+            RdrLog(("ulo del1",NULL,5,PsGetCurrentThread(),Server,Se,caller,callerscaller));
+        }
         RemoveEntryList(&Se->ActiveNext);
 
         Se->ActiveNext.Flink = NULL;
@@ -4631,6 +4653,11 @@ Return Value:
 
                     Entry = Entry->Blink;
 
+                    {
+                        PVOID caller,callerscaller;
+                        RtlGetCallersAddress(&caller,&callerscaller);
+                        RdrLog(("ulo del2",NULL,5,PsGetCurrentThread(),Server,Se2,caller,callerscaller));
+                    }
                     RemoveEntryList(&Se2->ActiveNext);
 
                     Se2->ActiveNext.Flink = NULL;
@@ -4720,7 +4747,6 @@ Note:
 
     KeInitializeMutex(&RdrSecurityMutex, MUTEX_LEVEL_RDR_FILESYS_SECURITY);
 
-#ifdef _CAIRO_
 
     if ( NULL == InitSecurityInterface() ) {
         ASSERT(FALSE);
@@ -4728,6 +4754,7 @@ Note:
 
     RdrData.NtSecurityEnabled = TRUE;
 
+#ifdef _CAIRO_
     RtlInitUnicodeString(&KerberosName, L"Kerberos");
 
     RdrKerberosPackageName.MaximumLength = KerberosName.MaximumLength;
@@ -4746,45 +4773,8 @@ Note:
     RtlCopyUnicodeString(&RdrKerberosPackageName, &KerberosName);
 
 
-#else  // _CAIRO_
+#endif // _CAIRO_
 
-    RtlInitString(&RedirectorName, "Lan Manager Redirector");
-    RtlInitString(&AuthenticationName, MSV1_0_PACKAGE_NAME);
-
-    Status = LsaRegisterLogonProcess(&RedirectorName, &RdrLsaHandle, &SecurityMode);
-
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-
-//      BUGBUG: SecurityMode is not currently implemented in LSA.
-
-//    if (SecurityMode & LSA_MODE_PASSWORD_PROTECTED) {
-//        RdrData.NtSecurityEnabled = TRUE;
-//    } else {
-//        RdrData.NtSecurityEnabled = FALSE;
-//
-//        NtClose(RdrLsaHandle);
-//
-//        return Status;
-//    }
-
-    Status = LsaLookupAuthenticationPackage(RdrLsaHandle, &AuthenticationName, &RdrAuthenticationPackage);
-
-    if (!NT_SUCCESS(Status)) {
-        RdrData.NtSecurityEnabled = FALSE;
-
-        ZwClose(RdrLsaHandle);
-
-        //
-        //      Continue loading without security support.
-        //
-
-        return Status;
-    }
-
-#endif  // _CAIRO_
 
     RdrData.NtSecurityEnabled = TRUE;
 
@@ -4800,12 +4790,6 @@ Note:
     RdrAdminAcl = ALLOCATE_POOL(PagedPool, AclLength, POOL_RDRACL);
 
     if (RdrAdminAcl == NULL) {
-
-#ifndef _CAIRO_
-
-        ZwClose(RdrLsaHandle);
-
-#endif // !_CAIRO_
 
         return(Status = STATUS_INSUFFICIENT_RESOURCES);
 
@@ -4840,12 +4824,6 @@ Note:
     if (RdrAdminSecurityDescriptor == NULL) {
 
         FREE_POOL(RdrAdminAcl);
-
-#ifndef _CAIRO_
-
-        ZwClose(RdrLsaHandle);
-
-#endif // !_CAIRO_
 
         return(Status = STATUS_INSUFFICIENT_RESOURCES);
     }
@@ -4902,21 +4880,8 @@ Note:
 
     PAGED_CODE();
 
-#ifdef _CAIRO_
 
     Status = STATUS_SUCCESS;
-
-#else // _CAIRO_
-
-    Status = LsaDeregisterLogonProcess(RdrLsaHandle);
-
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-    ZwClose(RdrLsaHandle);
-
-#endif
 
     RdrData.NtSecurityEnabled = FALSE;
 
@@ -4930,19 +4895,4 @@ Note:
 
 }
 
-
-VOID
-RdrUnloadSecurity(
-    VOID
-    )
-{
-    PAGED_CODE();
-
-    //
-    //  Make sure we don't have any Se leaks
-    //
-
-    ASSERT (IsListEmpty(&RdrGlobalSecurityList));
-
-}
 

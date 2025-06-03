@@ -6,34 +6,60 @@
 /************************************************************************/
 
 /**********************       PolyTron RCS Utilities
-
-  $Revision:   1.2  $
-      $Date:   31 Mar 1994 15:06:42  $
-        $Author:   RWOLFF  $
-           $Log:   S:/source/wnt/ms11/miniport/vcs/detect_m.c  $
- *
+   
+  $Revision:   1.9  $
+      $Date:   31 Mar 1995 11:55:44  $
+	$Author:   RWOLFF  $
+	   $Log:   S:/source/wnt/ms11/miniport/vcs/detect_m.c  $
+ * 
+ *    Rev 1.9   31 Mar 1995 11:55:44   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.8   11 Jan 1995 13:58:46   RWOLFF
+ * Fixed bug introduced in rev. 1.4 - COM4: was detected as being a Mach8
+ * or Mach32 card, which would leave the triple-boot with no valid video
+ * driver.
+ * 
+ *    Rev 1.7   04 Jan 1995 12:02:06   RWOLFF
+ * Get_BIOS_Seg() moved to SERVICES.C as part of fix for non-ATI cards
+ * being detected as Mach64.
+ * 
+ *    Rev 1.6   23 Dec 1994 10:48:10   ASHANMUG
+ * ALPHA/Chrontel-DAC
+ * 
+ *    Rev 1.5   19 Aug 1994 17:10:56   RWOLFF
+ * Added support for Graphics Wonder, fixed search for BIOS signature,
+ * removed dead code.
+ * 
+ *    Rev 1.4   22 Jul 1994 17:46:56   RWOLFF
+ * Merged with Richard's non-x86 code stream.
+ * 
+ *    Rev 1.3   20 Jul 1994 13:03:44   RWOLFF
+ * Fixed debug print statment.
+ * 
  *    Rev 1.2   31 Mar 1994 15:06:42   RWOLFF
  * Added debugging code.
- *
+ * 
  *    Rev 1.1   07 Feb 1994 14:06:42   RWOLFF
  * Added alloc_text() pragmas to allow miniport to be swapped out when
  * not needed.
- *
+ * 
  *    Rev 1.0   31 Jan 1994 11:05:48   RWOLFF
  * Initial revision.
- *
+ * 
  *    Rev 1.3   05 Nov 1993 13:23:36   RWOLFF
  * Fixed BIOS segment detection (used to always get C000).
- *
+ * 
  *    Rev 1.2   08 Oct 1993 11:09:26   RWOLFF
  * Added "_m" to function names to identify them as being specific to the
  * 8514/A-compatible family of ATI accelerators.
- *
+ * 
  *    Rev 1.1   24 Sep 1993 11:41:58   RWOLFF
  * Removed mapping of identification-only registers for all card families,
  * added additional 8514/A-compatible information gathering formerly done
  * in ATIMP.C.
- *
+ * 
  *    Rev 1.0   03 Sep 1993 14:22:48   RWOLFF
  * Initial revision.
 
@@ -54,11 +80,6 @@ OTHER FILES
 #endif
 
 #include "dderror.h"
-
-/*
- * Different include files are needed for the Windows NT device driver
- * and device drivers for other operating systems.
- */
 
 #include "miniport.h"
 #include "video.h"
@@ -82,7 +103,6 @@ OTHER FILES
  */
 #if defined (ALLOC_PRAGMA)
 #pragma alloc_text(PAGE_M, WhichATIAccelerator_m)
-#pragma alloc_text(PAGE_M, Get_BIOS_Seg)
 #pragma alloc_text(PAGE_M, GetExtraData_m)
 #pragma alloc_text(PAGE_M, ATIFindExtFcn_m)
 #pragma alloc_text(PAGE_M, ATIFindEEPROM_m)
@@ -93,8 +113,8 @@ OTHER FILES
 /*
  * Static variables used by this module.
  */
-static BYTE far *p;             // Used to address ROM directly
-static BYTE ati_signature[] = "761295520";
+static BYTE far *p;             // Used to address ROM directly  
+static BYTE GraphicsWonderSignature[] = "GRAPHICS WONDER";
 
 
 /*
@@ -111,7 +131,7 @@ static BYTE ati_signature[] = "761295520";
  */
 int WhichATIAccelerator_m(void)
 {
-        int     status;
+	int	status;
     WORD    Scratch;        /* Temporary variable */
 
     /*
@@ -142,20 +162,21 @@ int WhichATIAccelerator_m(void)
  *   type adapter.
  ************************************************************************/
 
-        OUTP(DAC_R_INDEX,0xa4);
-        short_delay();  /* This delay must be greater than      */
-                        /* than the minimum delay required      */
-                        /* by the DAC (see the DAC spec)        */
-        if (INP(DAC_W_INDEX) == 0xa5)
+	OUTP(DAC_R_INDEX,0xa4);
+	short_delay();	/* This delay must be greater than	*/
+			/* than the minimum delay required	*/
+			/* by the DAC (see the DAC spec)	*/
+	if (INP(DAC_W_INDEX) == 0xa5)
         {
         /*
          * Reading back A5 from DAC_W_INDEX always means an 8514-compatible
          * card is present, but not all 8514-compatible cards will
          * produce this value.
          */
-            status=TRUE;
+        status=TRUE;
+        VideoDebugPrint((DEBUG_DETAIL, "First test - this is an 8514/A\n"));
         }
-        else{
+	else{
         /*
          * Secondary test for 8514/compatible card. Reset the draw engine,
          * then write an alternating bit pattern to the ERR_TERM register.
@@ -172,15 +193,22 @@ int WhichATIAccelerator_m(void)
          */
         if (INPW(ERR_TERM) != 0x5555)
             {
-                status=FALSE;
+            status=FALSE;
+            VideoDebugPrint((DEBUG_DETAIL, "Second test - 0x5555 not found, no 8514/A\n"));
             }
         else{
             OUTPW(ERR_TERM, 0x0AAAA);
             WaitForIdle_m();
             if (INPW(ERR_TERM) != 0x0AAAA)
+                {
                 status=FALSE;
+                VideoDebugPrint((DEBUG_DETAIL, "Second test - 0xAAAA not found, no 8514/A\n"));
+                }
             else
+                {
                 status=TRUE;
+                VideoDebugPrint((DEBUG_DETAIL, "Second test - this is an 8514/A\n"));
+                }
             }
         }
 
@@ -190,9 +218,10 @@ int WhichATIAccelerator_m(void)
     Passth8514_m(SHOW_VGA);
 
     if (status == FALSE)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "No 8514/A-compatible card found\n"));
         return NO_ATI_ACCEL;
-
-
+        }
 
 
     /*
@@ -208,33 +237,39 @@ int WhichATIAccelerator_m(void)
 
     OUTPW  (ROM_ADDR_1, Scratch);
     if (status == FALSE)
+        {
+        VideoDebugPrint((DEBUG_DETAIL, "8514/A-compatible card found, but it doesn't have ATI extensions\n"));
         return NO_ATI_ACCEL;
-
-
+        }
 
 
     /*
      * We know that an ATI accelerator is present. Determine which one.
      */
 
-#if defined(ALPHA) || defined(_ALPHA_)
+    VideoDebugPrint((DEBUG_DETAIL, "8514/A-compatible card found with ATI extensions\n"));
+#if !defined (i386) && !defined (_i386_)
     /*
      * Alpha Jensen under test falsely reports Mach 32 as Mach 8
      */
     Scratch = 0x02aa;
 #else
     // This is not a R/W register in the Mach 8 but it is in the Mach 32
-    OUTPW (SRC_X,0xaaaa);               // fill with a dummy value
+    OUTPW (SRC_X,0xaaaa);		// fill with a dummy value
     WaitForIdle_m();
     Scratch = INPW(R_SRC_X);
 #endif
     if (Scratch == 0x02aa)
         {
-        status          = MACH32_ULTRA;
-        if (INPW(CONFIG_STATUS_1) & 1)      //is 8514 or VGA enabled decides eeprom
+        status = MACH32_ULTRA;
+    	if (INPW(CONFIG_STATUS_1) & 1)	    //is 8514 or VGA enabled decides eeprom
+            {
             Mach32DescribeEEPROM(STYLE_8514);
+            }
         else
+            {
             Mach32DescribeEEPROM(STYLE_VGA);
+            }
         }
 
     else{
@@ -252,23 +287,27 @@ int WhichATIAccelerator_m(void)
          */
         if (INPW(CONFIG_STATUS_2) & SHARE_CLOCK)
             {
-            status          = _8514_ULTRA;
+            status = _8514_ULTRA;
             /*
              * Only the 8514/Ultra has a hardware bug that prevents it
              * from writing to the EEPROM when it is in an 8 bit ISA bus.
              */
-            if (   ((INPW(CONFIG_STATUS_1) & MC_BUS) == 0)     // ISA  bus only
-                && ((INPW(CONFIG_STATUS_1) & BUS_16) == 0))    // 8 bit BUS
+    	    if (   ((INPW(CONFIG_STATUS_1) & MC_BUS) == 0)     // ISA  bus only
+	    	&& ((INPW(CONFIG_STATUS_1) & BUS_16) == 0))    // 8 bit BUS
+                {
                 Mach8UltraDescribeEEPROM(BUS_8BIT);
+                }
             else
+                {
                 Mach8UltraDescribeEEPROM(BUS_16BIT);
+                }
             }
         else{
             /*
              * Graphics ULTRA or Graphics VANTAGE found. For our purposes,
              * they are identical.
              */
-            status              = GRAPHICS_ULTRA;
+            status = GRAPHICS_ULTRA;
             Mach8ComboDescribeEEPROM();
             }
         }
@@ -282,115 +321,6 @@ int WhichATIAccelerator_m(void)
 
 
 /*
- * unsigned short far *Get_BIOS_Seg(void);          (Other operating systems)
- *
- * PVOID ProcessedBases;    Virtual address of start of BIOS area
- *
- * Verify BIOS presence and return BIOS segment
- * Check for ATI Video BIOS, by checking for product signature
- * after BIOS offset 0x30.  It should be ASCII string  "761295520"
- *
- * Returns:
- *  Segment of BIOS code. If multiple ATI Video BIOS segments are
- *  found, return the highest one (probable cause: VGAWonder and
- *  8514/ULTRA, this will return the BIOS segment for the 8514/ULTRA).
- */
-
-unsigned short far *Get_BIOS_Seg(void)
-
-{
-    /*
-     * Offset of the start of the video BIOS segment
-     * from the start of the BIOS area
-     */
-    long SegmentOffset;
-    PUCHAR SegmentStart;    /* Start address of the BIOS segment being tested */
-    ULONG SigOffset;        /* Offset of signature string from start of BIOS segment */
-    ULONG SigLoop;          /* Counter to check for match */
-
-
-    /*
-     * Try to allocate the block of address space where the BIOS
-     * is found. If we can't, report that we didn't find the BIOS.
-     */
-    if ((phwDeviceExtension->RomBaseRange =
-        VideoPortGetDeviceBase(phwDeviceExtension,
-            RawRomBaseRange.RangeStart,
-            RawRomBaseRange.RangeLength,
-            RawRomBaseRange.RangeInIoSpace)) == (PVOID) -1)
-        {
-        return FALSE;
-        }
-
-    /*
-     * For each candidate for the start of the video BIOS segment,
-     * check to see if it is the start of a BIOS segment. Start at
-     * the top and work down because if the system contains both a
-     * VGAWonder and an 8514/ULTRA, the 8514/ULTRA BIOS will be at
-     * a higher address than the VGAWonder BIOS, and we want to get
-     * information from the 8514/ULTRA BIOS.
-     */
-    for (SegmentOffset = MAX_BIOS_START; SegmentOffset >= 0; SegmentOffset -= ROM_GRANULARITY)
-        {
-        SegmentStart = (PUCHAR)phwDeviceExtension->RomBaseRange + SegmentOffset;
-
-        /*
-         * If this candidate does not begin with the "start of BIOS segment"
-         * identifier, then it is not the start of the video BIOS segment.
-         */
-        if (VideoPortReadRegisterUshort((PUSHORT)SegmentStart) == VIDEO_ROM_ID)
-            {
-            /*
-             * We've found the start of a BIOS segment. Search through
-             * the range of offsets from the start of the segment where
-             * the ATI signature string can start. If we find it,
-             * then we know that this is the video BIOS segment.
-             */
-            for (SigOffset = SIG_AREA_START; SigOffset <= SIG_AREA_END; SigOffset++)
-                {
-                /*
-                 * If the first character of the signature string isn't at the
-                 * current offset into the segment, then we haven't found the
-                 * signature string yet.
-                 */
-                if (VideoPortReadRegisterUchar(SegmentStart + SigOffset) != ati_signature[0])
-                    continue;
-
-                /*
-                 * We have found the first character of the signature string. Scan
-                 * through the following characters to see if they contain the
-                 * remainder of the signature string. If, before we reach the
-                 * null terminator on the test string, we find a character that
-                 * does not match the test string, then what we thought was the
-                 * signature string is actually unrelated data that happens to
-                 * match the first few characters.
-                 */
-                for (SigLoop = 1; ati_signature[SigLoop] != 0; SigLoop++)
-                    {
-                    if (VideoPortReadRegisterUchar(SegmentStart + SigOffset + SigLoop) != ati_signature[SigLoop])
-                        continue;
-                    }   /* end for (checking for entire signature string) */
-
-                /*
-                 * We have found the entire signature string.
-                 */
-                return (unsigned short far *)SegmentStart;
-
-                }   /* end for (checking BIOS segment for signature string) */
-
-            }   /* end if (a BIOS segment starts here) */
-
-        }   /* end for (check each possible BIOS start address) */
-
-    /*
-     * We have checked all the candidates for the start of the BIOS segment,
-     * and none contained the signature string.
-     */
-    return FALSE;
-
-}   /* Get_BIOS_Seg() */
-
-/*
  * void GetExtraData_m(void);
  *
  * Collect additional data (register locations and revision-specific
@@ -400,7 +330,7 @@ void GetExtraData_m(void)
 {
     struct query_structure *QueryPtr;   /* Query information for the card */
 
-
+    
     QueryPtr = (struct query_structure *) (phwDeviceExtension->CardInfo);
     ati_reg  = reg1CE;              // ATI VGA extended register
     vga_chip = VideoPortReadRegisterUchar (&((QueryPtr->q_bios)[VGA_CHIP_OFFSET]));     /* VGA chip revision as ASCII */
@@ -433,20 +363,15 @@ BOOL ATIFindExtFcn_m(struct query_structure *QueryPtr)
      * to make an absolute far call to real mode code. To avoid
      * branching into code which depends on this service being available,
      * report that no extended BIOS functions are available.
+     *
+     * Once this hook becomes available so that we can use
+     * extended BIOS functions, we can check the BIOS to see
+     * if it contains entry points. On Mach 8 and Mach 32
+     * accelerators with extended BIOS functions, there will
+     * be an unconditional jump located at the entry point
+     * for each extended function.
      */
-#ifndef MSDOS
     return FALSE;
-#endif
-
-    /*
-     * On accelerators with extended BIOS functions, there will
-     * be an unconditional jump located at the entry point for
-     * each extended function.
-     */
-    if (QueryPtr->q_bios[LOAD_SHADOW_OFFSET] == INTEL_JMP)
-        return TRUE;
-    else
-        return FALSE;
 
 }   /* ATIFindExtFcn_m() */
 
@@ -477,15 +402,15 @@ BOOL ATIFindEEPROM_m(struct query_structure *QueryPtr)
      * accelerator type (8514/ULTRA, Graphics Ultra, or Mach 32).
      */
     ValueRead = (ee.EEread) (2);
-VideoDebugPrint((1, "Value read from second EEPROM word is 0x%d\n", ValueRead));
+    VideoDebugPrint((DEBUG_NORMAL, "Value read from second EEPROM word is 0x%X\n", ValueRead));
     if ((ValueRead == 0x0FFFF) || !ValueRead)
         {
-VideoDebugPrint((1, "Will check for OEM accelerator\n"));
+        VideoDebugPrint((DEBUG_NORMAL, "Will check for OEM accelerator\n"));
         return FALSE;
         }
     else
         {
-VideoDebugPrint((1, "Won't check for OEM accelerator\n"));
+        VideoDebugPrint((DEBUG_NORMAL, "Won't check for OEM accelerator\n"));
         return TRUE;
         }
 
@@ -505,6 +430,10 @@ VideoDebugPrint((1, "Won't check for OEM accelerator\n"));
  */
 void ATIGetSpecialHandling_m(struct query_structure *QueryPtr)
 {
+    USHORT SearchLoop;  /* Used in finding beginning of Graphics Wonder ID string */
+    USHORT ScanLoop;    /* Used in stepping through Graphics Wonder ID string */
+
+
     /*
      * Check the BIOS revision number. Mach 8 cards with a BIOS
      * revision prior to 1.4 can't do 1280x1024, but use the same
@@ -521,7 +450,6 @@ void ATIGetSpecialHandling_m(struct query_structure *QueryPtr)
         (VideoPortReadRegisterUchar (&((QueryPtr->q_bios)[MACH8_REV_OFFSET+1])) < 4) || // Single-digit minor revision
         ((VideoPortReadRegisterUchar (&((QueryPtr->q_bios)[MACH8_REV_OFFSET+1])) >= 10) &&  // 2-digit minor revision
         (VideoPortReadRegisterUchar (&((QueryPtr->q_bios)[MACH8_REV_OFFSET+1])) < 40)))
-
         QueryPtr->q_ignore1280 = TRUE;
     else
         QueryPtr->q_ignore1280 = FALSE;
@@ -541,6 +469,72 @@ void ATIGetSpecialHandling_m(struct query_structure *QueryPtr)
     else
         QueryPtr->q_m32_aper_calc = FALSE;
 
+    /*
+     * The Graphics Wonder (low-cost version of the Mach 32) is
+     * available with either the BT48x or the TI34075 DAC.
+     *
+     * These cards may be built with ASICs which passed tests on
+     * modes supported by the BT48x DAC but failed tests on modes
+     * only supported by the TI34075. Such a card may appear to work
+     * in TI-only modes, but experience problems (not necessarily
+     * reproducable on other Graphics Wonder cards, even from the
+     * same production run) ranging from drawing bugs to hardware
+     * damage. For this reason, Graphics Wonder cards MUST NOT be
+     * run in modes not supported by the BT48x DAC.
+     *
+     * Initially assume that we do not have a Graphics Wonder. If
+     * we find the beginning of the ID string, we can change our
+     * assumption.
+     */
+    QueryPtr->q_GraphicsWonder = FALSE;
+    for (SearchLoop = GW_AREA_START; SearchLoop < GW_AREA_END; SearchLoop++)
+        {
+        /*
+         * Loop until we have found what might be the Graphics Wonder
+         * identification string, but might also be a byte which
+         * happens to match the first character in the string.
+         * If we find a match, initially assume that we have
+         * found the start of the string.
+         */
+        if (VideoPortReadRegisterUchar(&((QueryPtr->q_bios)[SearchLoop])) != GraphicsWonderSignature[0])
+            continue;
+
+        QueryPtr->q_GraphicsWonder = TRUE;
+        /*
+         * Check to see whether this is actually the start of the
+         * Graphics Wonder identification string. If it isn't,
+         * keep looking.
+         */
+        for (ScanLoop = 0; GraphicsWonderSignature[ScanLoop] != 0; ScanLoop++)
+            {
+            if (VideoPortReadRegisterUchar(&((QueryPtr->q_bios)[SearchLoop + ScanLoop]))
+                != GraphicsWonderSignature[ScanLoop])
+                {
+                QueryPtr->q_GraphicsWonder = FALSE;
+                break;
+                }
+            }
+
+        /*
+         * If this is a Graphics Wonder, restrict the maximum pixel
+         * depth of the TI34075 DAC to that supported by the BT48x.
+         *
+         * Once we have found the Graphics Wonder ID string, we don't
+         * need to keep looking for it.
+         */
+        if (QueryPtr->q_GraphicsWonder == TRUE)
+            {
+            for (ScanLoop = RES_640; ScanLoop <= RES_1280; ScanLoop++)
+                {
+                MaxDepth[DAC_TI34075][ScanLoop] = MaxDepth[DAC_BT48x][ScanLoop];
+                }
+            QueryPtr->q_GraphicsWonder = TRUE;
+            break;
+            }
+
+        }   /* end search for Graphics Wonder */
+
     return;
 
 }   /* ATIGetSpecialHandling_m() */
+

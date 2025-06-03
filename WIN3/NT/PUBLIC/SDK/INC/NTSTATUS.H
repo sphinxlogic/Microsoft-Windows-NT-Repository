@@ -28,7 +28,12 @@ Notes:
 #ifndef _NTSTATUS_
 #define _NTSTATUS_
 
+#ifndef WIN32_NO_STATUS // winnt
+// begin_ntsecapi
+
 /*lint -save -e767 */  // Don't complain about different definitions // winnt
+
+
 
 /////////////////////////////////////////////////////////////////////////
 //
@@ -41,7 +46,7 @@ Notes:
 //
 // The success status codes 0 - 63 are reserved for wait completion status.
 //
-#define STATUS_SUCCESS                          ((NTSTATUS)0x00000000L)
+#define STATUS_SUCCESS                          ((NTSTATUS)0x00000000L) // ntsubauth
 
 //
 //  Values are 32 bit values layed out as follows:
@@ -360,7 +365,7 @@ Notes:
 //
 // MessageText:
 //
-//  Page fault was a satisfied by reading from a secondary storage device.
+//  Page fault was satisfied by reading from a secondary storage device.
 //
 #define STATUS_PAGE_FAULT_PAGING_FILE    ((NTSTATUS)0x00000114L)
 
@@ -390,6 +395,16 @@ Notes:
 //  Specified buffer contains all zeros.
 //
 #define STATUS_BUFFER_ALL_ZEROS          ((NTSTATUS)0x00000117L)
+
+//
+// MessageId: STATUS_REPARSE_OBJECT
+//
+// MessageText:
+//
+//  A reparse should be performed by the Object Manager since the name of the
+//  file resulted in a symbolic link.
+//
+#define STATUS_REPARSE_OBJECT            ((NTSTATUS)0x00000118L)
 
 
 
@@ -464,7 +479,7 @@ Notes:
 //  or Win16 program segment image. An exception is raised so a debugger can
 //  load, unload or track symbols and breakpoints within these 16-bit segments.
 //
-#define STATUS_SEGMENT_NOTIFICATION      ((NTSTATUS)0x40000005L)
+#define STATUS_SEGMENT_NOTIFICATION      ((NTSTATUS)0x40000005L)    // winnt
 
 //
 // MessageId: STATUS_LOCAL_USER_SESSION_KEY
@@ -483,7 +498,7 @@ Notes:
 // MessageText:
 //
 //  {Invalid Current Directory}
-//  The process can not switch to the startup current directory %s.
+//  The process cannot switch to the startup current directory %s.
 //  Select OK to set current directory to %s, or select CANCEL
 //  to exit.
 //
@@ -564,8 +579,8 @@ Notes:
 //
 // MessageText:
 //
-//  The specified image file is valid, but is for a machine type other than
-//  the current machine.
+//  {Machine Type Mismatch}
+//  The image file %s is valid, but is for a machine type other than the current machine. Select OK to continue, or CANCEL to fail the DLL load.
 //
 #define STATUS_IMAGE_MACHINE_TYPE_MISMATCH ((NTSTATUS)0x4000000EL)
 
@@ -690,6 +705,106 @@ Notes:
 //
 #define STATUS_LOG_HARD_ERROR            ((NTSTATUS)0x4000001AL)
 
+//
+// MessageId: STATUS_ALREADY_WIN32
+//
+// MessageText:
+//
+//  STATUS_ALREADY_WIN32
+//
+#define STATUS_ALREADY_WIN32             ((NTSTATUS)0x4000001BL)
+
+//
+// MessageId: STATUS_WX86_UNSIMULATE
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_UNSIMULATE           ((NTSTATUS)0x4000001CL)
+
+//
+// MessageId: STATUS_WX86_CONTINUE
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_CONTINUE             ((NTSTATUS)0x4000001DL)
+
+//
+// MessageId: STATUS_WX86_SINGLE_STEP
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_SINGLE_STEP          ((NTSTATUS)0x4000001EL)
+
+//
+// MessageId: STATUS_WX86_BREAKPOINT
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_BREAKPOINT           ((NTSTATUS)0x4000001FL)
+
+//
+// MessageId: STATUS_WX86_EXCEPTION_CONTINUE
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_EXCEPTION_CONTINUE   ((NTSTATUS)0x40000020L)
+
+//
+// MessageId: STATUS_WX86_EXCEPTION_LASTCHANCE
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_EXCEPTION_LASTCHANCE ((NTSTATUS)0x40000021L)
+
+//
+// MessageId: STATUS_WX86_EXCEPTION_CHAIN
+//
+// MessageText:
+//
+//  Exception status code used by Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_EXCEPTION_CHAIN      ((NTSTATUS)0x40000022L)
+
+//
+// MessageId: STATUS_IMAGE_MACHINE_TYPE_MISMATCH_EXE
+//
+// MessageText:
+//
+//  {Machine Type Mismatch}
+//  The image file %s is valid, but is for a machine type other than the current machine.
+//
+#define STATUS_IMAGE_MACHINE_TYPE_MISMATCH_EXE ((NTSTATUS)0x40000023L)
+
+//
+// MessageId: STATUS_NO_YIELD_PERFORMED
+//
+// MessageText:
+//
+//  A yield execution was performed and no thread was available to run.
+//
+#define STATUS_NO_YIELD_PERFORMED        ((NTSTATUS)0x40000024L)
+
+//
+// MessageId: STATUS_TIMER_RESUME_IGNORED
+//
+// MessageText:
+//
+//  The resumeable flag to a timer API was ignored.
+//
+#define STATUS_TIMER_RESUME_IGNORED      ((NTSTATUS)0x40000025L)
+
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -804,7 +919,7 @@ Notes:
 // MessageText:
 //
 //  {GUID Substitution}
-//  During the translation of an HPFS global identifier (GUID) to a Windows NT
+//  During the translation of a global identifier (GUID) to a Windows NT
 //  security ID (SID), no administratively-defined GUID prefix was found.
 //  A substitute prefix was used, which will not compromise system security.
 //  However, this may provide a more restrictive access than intended.
@@ -1100,7 +1215,7 @@ Notes:
 //  The specified information class is not a valid information class for
 //  the specified object.
 //
-#define STATUS_INVALID_INFO_CLASS        ((NTSTATUS)0xC0000003L)
+#define STATUS_INVALID_INFO_CLASS        ((NTSTATUS)0xC0000003L)    // ntsubauth
 
 //
 // MessageId: STATUS_INFO_LENGTH_MISMATCH
@@ -1120,7 +1235,7 @@ Notes:
 //  The instruction at "0x%08lx" referenced memory at "0x%08lx". The memory
 //  could not be "%s".
 //
-#define STATUS_ACCESS_VIOLATION          ((NTSTATUS)0xC0000005L)    // winnt
+#define STATUS_ACCESS_VIOLATION          ((NTSTATUS)0xC0000005L)    // winnt ntsubauth
 
 //
 // MessageId: STATUS_IN_PAGE_ERROR
@@ -1148,7 +1263,7 @@ Notes:
 //
 //  An invalid HANDLE was specified.
 //
-#define STATUS_INVALID_HANDLE            ((NTSTATUS)0xC0000008L)
+#define STATUS_INVALID_HANDLE            ((NTSTATUS)0xC0000008L)    // winnt
 
 //
 // MessageId: STATUS_BAD_INITIAL_STACK
@@ -1193,7 +1308,7 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function.
+//  An invalid parameter was passed to a service or function.
 //
 #define STATUS_INVALID_PARAMETER         ((NTSTATUS)0xC000000DL)
 
@@ -1541,7 +1656,7 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid combination of parameters was specified
+//  An invalid combination of parameters was specified.
 //
 #define STATUS_INVALID_PARAMETER_MIX     ((NTSTATUS)0xC0000030L)
 
@@ -1570,7 +1685,7 @@ Notes:
 //
 // MessageText:
 //
-//  Object Name invalid
+//  Object Name invalid.
 //
 #define STATUS_OBJECT_NAME_INVALID       ((NTSTATUS)0xC0000033L)
 
@@ -1579,7 +1694,7 @@ Notes:
 //
 // MessageText:
 //
-//  Object Name not found
+//  Object Name not found.
 //
 #define STATUS_OBJECT_NAME_NOT_FOUND     ((NTSTATUS)0xC0000034L)
 
@@ -1588,7 +1703,7 @@ Notes:
 //
 // MessageText:
 //
-//  Object Name already exists
+//  Object Name already exists.
 //
 #define STATUS_OBJECT_NAME_COLLISION     ((NTSTATUS)0xC0000035L)
 
@@ -1597,7 +1712,7 @@ Notes:
 //
 // MessageText:
 //
-//  Attempt the send a message to a disconnected communication port
+//  Attempt to send a message to a disconnected communication port.
 //
 #define STATUS_PORT_DISCONNECTED         ((NTSTATUS)0xC0000037L)
 
@@ -1616,7 +1731,7 @@ Notes:
 //
 // MessageText:
 //
-//  Object Path Component was not a directory object
+//  Object Path Component was not a directory object.
 //
 #define STATUS_OBJECT_PATH_INVALID       ((NTSTATUS)0xC0000039L)
 
@@ -1635,7 +1750,7 @@ Notes:
 //
 // MessageText:
 //
-//  Object Path Component was not a directory object
+//  Object Path Component was not a directory object.
 //
 #define STATUS_OBJECT_PATH_SYNTAX_BAD    ((NTSTATUS)0xC000003BL)
 
@@ -1781,7 +1896,7 @@ Notes:
 // MessageText:
 //
 //  An attempt was made to suspend a thread whose suspend count
-//  was at its maximum
+//  was at its maximum.
 //
 #define STATUS_SUSPEND_COUNT_EXCEEDED    ((NTSTATUS)0xC000004AL)
 
@@ -1821,7 +1936,7 @@ Notes:
 // MessageText:
 //
 //  A view to a section specifies a protection which is incompatible
-//  with the initial views protection.
+//  with the initial view's protection.
 //
 #define STATUS_SECTION_PROTECTION        ((NTSTATUS)0xC000004EL)
 
@@ -1840,7 +1955,7 @@ Notes:
 //
 // MessageText:
 //
-//  An EA operation failed because ea set is too large
+//  An EA operation failed because EA set is too large.
 //
 #define STATUS_EA_TOO_LARGE              ((NTSTATUS)0xC0000050L)
 
@@ -1849,7 +1964,7 @@ Notes:
 //
 // MessageText:
 //
-//  An EA operation failed because the name or ea index is invalid
+//  An EA operation failed because the name or EA index is invalid.
 //
 #define STATUS_NONEXISTENT_EA_ENTRY      ((NTSTATUS)0xC0000051L)
 
@@ -1867,7 +1982,7 @@ Notes:
 //
 // MessageText:
 //
-//  The EA is corrupt and non-readable
+//  The EA is corrupt and non-readable.
 //
 #define STATUS_EA_CORRUPT_ERROR          ((NTSTATUS)0xC0000053L)
 
@@ -1876,7 +1991,7 @@ Notes:
 //
 // MessageText:
 //
-//  A requested read/write cannot be granted due to a conflicting file lock
+//  A requested read/write cannot be granted due to a conflicting file lock.
 //
 #define STATUS_FILE_LOCK_CONFLICT        ((NTSTATUS)0xC0000054L)
 
@@ -1885,7 +2000,7 @@ Notes:
 //
 // MessageText:
 //
-//  A requested file lock cannot be granted due to other existing locks
+//  A requested file lock cannot be granted due to other existing locks.
 //
 #define STATUS_LOCK_NOT_GRANTED          ((NTSTATUS)0xC0000055L)
 
@@ -1895,7 +2010,7 @@ Notes:
 // MessageText:
 //
 //  A non close operation has been requested of a file object with a
-//  delete pending
+//  delete pending.
 //
 #define STATUS_DELETE_PENDING            ((NTSTATUS)0xC0000056L)
 
@@ -2031,7 +2146,7 @@ Notes:
 //
 //  The specified user does not exist.
 //
-#define STATUS_NO_SUCH_USER              ((NTSTATUS)0xC0000064L)
+#define STATUS_NO_SUCH_USER              ((NTSTATUS)0xC0000064L)     // ntsubauth
 
 //
 // MessageId: STATUS_GROUP_EXISTS
@@ -2057,7 +2172,7 @@ Notes:
 // MessageText:
 //
 //  The specified user account is already in the specified group account.
-//  Also used to indicate a group can not be deleted because it contains
+//  Also used to indicate a group cannot be deleted because it contains
 //  a member.
 //
 #define STATUS_MEMBER_IN_GROUP           ((NTSTATUS)0xC0000067L)
@@ -2090,7 +2205,7 @@ Notes:
 //  When trying to update a password, this return status indicates that
 //  the value provided as the current password is not correct.
 //
-#define STATUS_WRONG_PASSWORD            ((NTSTATUS)0xC000006AL)
+#define STATUS_WRONG_PASSWORD            ((NTSTATUS)0xC000006AL)     // ntsubauth
 
 //
 // MessageId: STATUS_ILL_FORMED_PASSWORD
@@ -2112,7 +2227,7 @@ Notes:
 //  password update rule has been violated.  For example, the password
 //  may not meet length criteria.
 //
-#define STATUS_PASSWORD_RESTRICTION      ((NTSTATUS)0xC000006CL)
+#define STATUS_PASSWORD_RESTRICTION      ((NTSTATUS)0xC000006CL)     // ntsubauth
 
 //
 // MessageId: STATUS_LOGON_FAILURE
@@ -2122,7 +2237,7 @@ Notes:
 //  The attempted logon is invalid.  This is either due to a bad username
 //  or authentication information.
 //
-#define STATUS_LOGON_FAILURE             ((NTSTATUS)0xC000006DL)
+#define STATUS_LOGON_FAILURE             ((NTSTATUS)0xC000006DL)     // ntsubauth
 
 //
 // MessageId: STATUS_ACCOUNT_RESTRICTION
@@ -2133,7 +2248,7 @@ Notes:
 //  valid, but some user account restriction has prevented successful
 //  authentication (such as time-of-day restrictions).
 //
-#define STATUS_ACCOUNT_RESTRICTION       ((NTSTATUS)0xC000006EL)
+#define STATUS_ACCOUNT_RESTRICTION       ((NTSTATUS)0xC000006EL)     // ntsubauth
 
 //
 // MessageId: STATUS_INVALID_LOGON_HOURS
@@ -2143,7 +2258,7 @@ Notes:
 //  The user account has time restrictions and may not be logged onto
 //  at this time.
 //
-#define STATUS_INVALID_LOGON_HOURS       ((NTSTATUS)0xC000006FL)
+#define STATUS_INVALID_LOGON_HOURS       ((NTSTATUS)0xC000006FL)     // ntsubauth
 
 //
 // MessageId: STATUS_INVALID_WORKSTATION
@@ -2153,7 +2268,7 @@ Notes:
 //  The user account is restricted such that it may not be used to
 //  log on from the source workstation.
 //
-#define STATUS_INVALID_WORKSTATION       ((NTSTATUS)0xC0000070L)
+#define STATUS_INVALID_WORKSTATION       ((NTSTATUS)0xC0000070L)     // ntsubauth
 
 //
 // MessageId: STATUS_PASSWORD_EXPIRED
@@ -2162,7 +2277,7 @@ Notes:
 //
 //  The user account's password has expired.
 //
-#define STATUS_PASSWORD_EXPIRED          ((NTSTATUS)0xC0000071L)
+#define STATUS_PASSWORD_EXPIRED          ((NTSTATUS)0xC0000071L)     // ntsubauth
 
 //
 // MessageId: STATUS_ACCOUNT_DISABLED
@@ -2171,7 +2286,7 @@ Notes:
 //
 //  The referenced account is currently disabled and may not be logged on to.
 //
-#define STATUS_ACCOUNT_DISABLED          ((NTSTATUS)0xC0000072L)
+#define STATUS_ACCOUNT_DISABLED          ((NTSTATUS)0xC0000072L)     // ntsubauth
 
 //
 // MessageId: STATUS_NONE_MAPPED
@@ -2242,8 +2357,8 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates the specified procedure address can not be found in the
-//  DLL
+//  Indicates the specified procedure address cannot be found in the
+//  DLL.
 //
 #define STATUS_PROCEDURE_NOT_FOUND       ((NTSTATUS)0xC000007AL)
 
@@ -2263,7 +2378,7 @@ Notes:
 //
 // MessageText:
 //
-//  An attempt was made to reference a token that doesn't exist was made.
+//  An attempt was made to reference a token that doesn't exist.
 //  This is typically done by referencing the token associated with a thread
 //  when the thread is not impersonating a client.
 //
@@ -2361,7 +2476,7 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid volume label has been specified
+//  An invalid volume label has been specified.
 //
 #define STATUS_INVALID_VOLUME_LABEL      ((NTSTATUS)0xC0000086L)
 
@@ -2398,7 +2513,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates the specified resource type can not be found in the
+//  Indicates the specified resource type cannot be found in the
 //  image file.
 //
 #define STATUS_RESOURCE_TYPE_NOT_FOUND   ((NTSTATUS)0xC000008AL)
@@ -2408,7 +2523,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates the specified resource name can not be found in the
+//  Indicates the specified resource name cannot be found in the
 //  image file.
 //
 #define STATUS_RESOURCE_NAME_NOT_FOUND   ((NTSTATUS)0xC000008BL)
@@ -2563,16 +2678,16 @@ Notes:
 //
 // MessageText:
 //
-//  Insufficient system resources exist to complete the API
+//  Insufficient system resources exist to complete the API.
 //
-#define STATUS_INSUFFICIENT_RESOURCES    ((NTSTATUS)0xC000009AL)
+#define STATUS_INSUFFICIENT_RESOURCES    ((NTSTATUS)0xC000009AL)     // ntsubauth
 
 //
 // MessageId: STATUS_DFS_EXIT_PATH_FOUND
 //
 // MessageText:
 //
-//  An attempt has been made to open a DFS exit path control file
+//  An attempt has been made to open a DFS exit path control file.
 //
 #define STATUS_DFS_EXIT_PATH_FOUND       ((NTSTATUS)0xC000009BL)
 
@@ -2727,7 +2842,7 @@ Notes:
 //
 // MessageText:
 //
-//  The maximum named pipe instance count has been reached
+//  The maximum named pipe instance count has been reached.
 //
 #define STATUS_INSTANCE_NOT_AVAILABLE    ((NTSTATUS)0xC00000ABL)
 
@@ -2736,7 +2851,7 @@ Notes:
 //
 // MessageText:
 //
-//  An instance of a named pipe cannot be found in the listening state
+//  An instance of a named pipe cannot be found in the listening state.
 //
 #define STATUS_PIPE_NOT_AVAILABLE        ((NTSTATUS)0xC00000ACL)
 
@@ -2745,7 +2860,7 @@ Notes:
 //
 // MessageText:
 //
-//  The named pipe is not in the connected or closing state
+//  The named pipe is not in the connected or closing state.
 //
 #define STATUS_INVALID_PIPE_STATE        ((NTSTATUS)0xC00000ADL)
 
@@ -2764,7 +2879,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified handle is not open to the server end of the named pipe
+//  The specified handle is not open to the server end of the named pipe.
 //
 #define STATUS_ILLEGAL_FUNCTION          ((NTSTATUS)0xC00000AFL)
 
@@ -2773,7 +2888,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified named pipe is in the disconnected state
+//  The specified named pipe is in the disconnected state.
 //
 #define STATUS_PIPE_DISCONNECTED         ((NTSTATUS)0xC00000B0L)
 
@@ -2782,7 +2897,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified named pipe is in the closing state
+//  The specified named pipe is in the closing state.
 //
 #define STATUS_PIPE_CLOSING              ((NTSTATUS)0xC00000B1L)
 
@@ -2791,7 +2906,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified named pipe is in the connected state
+//  The specified named pipe is in the connected state.
 //
 #define STATUS_PIPE_CONNECTED            ((NTSTATUS)0xC00000B2L)
 
@@ -2800,7 +2915,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified named pipe is in the listening state
+//  The specified named pipe is in the listening state.
 //
 #define STATUS_PIPE_LISTENING            ((NTSTATUS)0xC00000B3L)
 
@@ -2809,7 +2924,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified named pipe is not in message mode
+//  The specified named pipe is not in message mode.
 //
 #define STATUS_INVALID_READ_MODE         ((NTSTATUS)0xC00000B4L)
 
@@ -2829,7 +2944,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified file has been closed by another process
+//  The specified file has been closed by another process.
 //
 #define STATUS_FILE_FORCED_CLOSED        ((NTSTATUS)0xC00000B6L)
 
@@ -2856,7 +2971,7 @@ Notes:
 //
 // MessageText:
 //
-//  The passed ACL did not contain the minimum required information
+//  The passed ACL did not contain the minimum required information.
 //
 #define STATUS_COULD_NOT_INTERPRET       ((NTSTATUS)0xC00000B9L)
 
@@ -3150,7 +3265,7 @@ Notes:
 // MessageText:
 //
 //  Used to indicate that an operation cannot continue without blocking
-//  for I/O
+//  for I/O.
 //
 #define STATUS_CANT_WAIT                 ((NTSTATUS)0xC00000D8L)
 
@@ -3237,7 +3352,7 @@ Notes:
 //
 // MessageText:
 //
-//  An attempt to exceed the limit on the number of domains per server
+//  An attempt was made to exceed the limit on the number of domains per server
 //  for this release.
 //
 #define STATUS_DOMAIN_LIMIT_EXCEEDED     ((NTSTATUS)0xC00000E1L)
@@ -3247,7 +3362,7 @@ Notes:
 //
 // MessageText:
 //
-//   Error status returned when oplock request is denied
+//  Error status returned when oplock request is denied.
 //
 #define STATUS_OPLOCK_NOT_GRANTED        ((NTSTATUS)0xC00000E2L)
 
@@ -3256,8 +3371,8 @@ Notes:
 //
 // MessageText:
 //
-//   Error status returned when an invalid oplock acknowledgment
-//   is received by a file system
+//  Error status returned when an invalid oplock acknowledgment
+//  is received by a file system.
 //
 #define STATUS_INVALID_OPLOCK_PROTOCOL   ((NTSTATUS)0xC00000E3L)
 
@@ -3268,7 +3383,7 @@ Notes:
 //
 //  This error indicates that the requested operation cannot be
 //  completed due to a catastrophic media failure or on-disk data
-//  structure corruption
+//  structure corruption.
 //
 #define STATUS_INTERNAL_DB_CORRUPTION    ((NTSTATUS)0xC00000E4L)
 
@@ -3279,7 +3394,7 @@ Notes:
 //
 //  This error indicates that the SAM server has encountered an
 //  internal consistency error in its database.  This catastrophic
-//  failure will prevent further operation of SAM
+//  failure will prevent further operation of SAM.
 //
 #define STATUS_INTERNAL_ERROR            ((NTSTATUS)0xC00000E5L)
 
@@ -3381,7 +3496,7 @@ Notes:
 //
 // MessageText:
 //
-//  A attempt has been made to start a new session manager or
+//  An attempt has been made to start a new session manager or
 //  LSA logon session with an ID that is already in use.
 //
 #define STATUS_LOGON_SESSION_EXISTS      ((NTSTATUS)0xC00000EEL)
@@ -3391,8 +3506,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the first argument
+//  An invalid parameter was passed to a service or function as
+//  the first argument.
 //
 #define STATUS_INVALID_PARAMETER_1       ((NTSTATUS)0xC00000EFL)
 
@@ -3401,8 +3516,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the second argument
+//  An invalid parameter was passed to a service or function as
+//  the second argument.
 //
 #define STATUS_INVALID_PARAMETER_2       ((NTSTATUS)0xC00000F0L)
 
@@ -3411,8 +3526,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the third argument
+//  An invalid parameter was passed to a service or function as
+//  the third argument.
 //
 #define STATUS_INVALID_PARAMETER_3       ((NTSTATUS)0xC00000F1L)
 
@@ -3421,8 +3536,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the fourth argument
+//  An invalid parameter was passed to a service or function as
+//  the fourth argument.
 //
 #define STATUS_INVALID_PARAMETER_4       ((NTSTATUS)0xC00000F2L)
 
@@ -3431,8 +3546,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the fifth argument
+//  An invalid parameter was passed to a service or function as
+//  the fifth argument.
 //
 #define STATUS_INVALID_PARAMETER_5       ((NTSTATUS)0xC00000F3L)
 
@@ -3441,8 +3556,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the sixth argument
+//  An invalid parameter was passed to a service or function as
+//  the sixth argument.
 //
 #define STATUS_INVALID_PARAMETER_6       ((NTSTATUS)0xC00000F4L)
 
@@ -3451,8 +3566,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the seventh argument
+//  An invalid parameter was passed to a service or function as
+//  the seventh argument.
 //
 #define STATUS_INVALID_PARAMETER_7       ((NTSTATUS)0xC00000F5L)
 
@@ -3461,8 +3576,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the eighth argument
+//  An invalid parameter was passed to a service or function as
+//  the eighth argument.
 //
 #define STATUS_INVALID_PARAMETER_8       ((NTSTATUS)0xC00000F6L)
 
@@ -3471,8 +3586,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the ninth argument
+//  An invalid parameter was passed to a service or function as
+//  the ninth argument.
 //
 #define STATUS_INVALID_PARAMETER_9       ((NTSTATUS)0xC00000F7L)
 
@@ -3481,8 +3596,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the tenth argument
+//  An invalid parameter was passed to a service or function as
+//  the tenth argument.
 //
 #define STATUS_INVALID_PARAMETER_10      ((NTSTATUS)0xC00000F8L)
 
@@ -3491,8 +3606,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the eleventh argument
+//  An invalid parameter was passed to a service or function as
+//  the eleventh argument.
 //
 #define STATUS_INVALID_PARAMETER_11      ((NTSTATUS)0xC00000F9L)
 
@@ -3501,8 +3616,8 @@ Notes:
 //
 // MessageText:
 //
-//  An invalid parameter was passed to the a service or function as
-//  the twelfth argument
+//  An invalid parameter was passed to a service or function as
+//  the twelfth argument.
 //
 #define STATUS_INVALID_PARAMETER_12      ((NTSTATUS)0xC00000FAL)
 
@@ -3540,7 +3655,7 @@ Notes:
 //
 // MessageText:
 //
-//  A specified authentication package is unknown
+//  A specified authentication package is unknown.
 //
 #define STATUS_NO_SUCH_PACKAGE           ((NTSTATUS)0xC00000FEL)
 
@@ -3568,7 +3683,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates that the directory trying to be deleted is not empty
+//  Indicates that the directory trying to be deleted is not empty.
 //
 #define STATUS_DIRECTORY_NOT_EMPTY       ((NTSTATUS)0xC0000101L)
 
@@ -3588,7 +3703,7 @@ Notes:
 //
 // MessageText:
 //
-//  A requested opened file is not a directory
+//  A requested opened file is not a directory.
 //
 #define STATUS_NOT_A_DIRECTORY           ((NTSTATUS)0xC0000103L)
 
@@ -3649,7 +3764,7 @@ Notes:
 //
 // MessageText:
 //
-//  RtlFindMessage could not locate the requested message Id in the
+//  RtlFindMessage could not locate the requested message ID in the
 //  message table resource.
 //
 #define STATUS_MESSAGE_NOT_FOUND         ((NTSTATUS)0xC0000109L)
@@ -3660,7 +3775,7 @@ Notes:
 // MessageText:
 //
 //  An attempt was made to duplicate an object handle into or out
-//  of an exiting process
+//  of an exiting process.
 //
 #define STATUS_PROCESS_IS_TERMINATING    ((NTSTATUS)0xC000010AL)
 
@@ -3669,7 +3784,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates an invalid value has been provided for LogonType has been
+//  Indicates an invalid value has been provided for the LogonType
 //  requested.
 //
 #define STATUS_INVALID_LOGON_TYPE        ((NTSTATUS)0xC000010BL)
@@ -3679,10 +3794,10 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates that an attempt was made to assign protection to an HPFS
+//  Indicates that an attempt was made to assign protection to a
 //  file system file or directory and one of the SIDs in the security
 //  descriptor could not be translated into a GUID that could be stored
-//  in HPFS.
+//  by the file system.
 //  This causes the protection attempt to fail, which may cause a file
 //  creation attempt to fail.
 //
@@ -3793,7 +3908,7 @@ Notes:
 // MessageText:
 //
 //  Indicates that an attempt was made to change the size of the LDT for
-//  a process that has no LDT
+//  a process that has no LDT.
 //
 #define STATUS_NO_LDT                    ((NTSTATUS)0xC0000117L)
 
@@ -3803,7 +3918,7 @@ Notes:
 // MessageText:
 //
 //  Indicates that an attempt was made to grow an LDT by setting its size,
-//  or that the size was not an even number of selectors
+//  or that the size was not an even number of selectors.
 //
 #define STATUS_INVALID_LDT_SIZE          ((NTSTATUS)0xC0000118L)
 
@@ -3813,7 +3928,7 @@ Notes:
 // MessageText:
 //
 //  Indicates that the starting value for the LDT information was not
-//  an integral multiple of the selector size
+//  an integral multiple of the selector size.
 //
 #define STATUS_INVALID_LDT_OFFSET        ((NTSTATUS)0xC0000119L)
 
@@ -3823,7 +3938,7 @@ Notes:
 // MessageText:
 //
 //  Indicates that the user supplied an invalid descriptor when trying
-//  to set up Ldt descriptors
+//  to set up Ldt descriptors.
 //
 #define STATUS_INVALID_LDT_DESCRIPTOR    ((NTSTATUS)0xC000011AL)
 
@@ -3832,7 +3947,7 @@ Notes:
 //
 // MessageText:
 //
-//  The specified image file did not have the correct format, it
+//  The specified image file did not have the correct format. It
 //  appears to be NE format.
 //
 #define STATUS_INVALID_IMAGE_NE_FORMAT   ((NTSTATUS)0xC000011BL)
@@ -3845,8 +3960,8 @@ Notes:
 //  Indicates that the transaction state of a registry sub-tree is
 //  incompatible with the requested operation.
 //  For example, a request has been made to start a new transaction with
-//  one already in progress, or a request to apply a transaction when one
-//  is not currently in progress.
+//  one already in progress, or a request has been made to apply a transaction
+//  when one is not currently in progress.
 //  This status value is returned by the runtime library (RTL) registry
 //  transaction package (RXact).
 //
@@ -3932,7 +4047,7 @@ Notes:
 //
 //  Indicates an operation has been attempted on a built-in (special)
 //  SAM account which is incompatible with built-in accounts.  For
-//  example, built-in accounts can not be deleted.
+//  example, built-in accounts cannot be deleted.
 //
 #define STATUS_SPECIAL_ACCOUNT           ((NTSTATUS)0xC0000124L)
 
@@ -3952,7 +4067,7 @@ Notes:
 // MessageText:
 //
 //  The operation requested may not be performed on the specified
-//  user  because it is a built-in special user.
+//  user because it is a built-in special user.
 //
 #define STATUS_SPECIAL_USER              ((NTSTATUS)0xC0000126L)
 
@@ -3961,7 +4076,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates a member can not be removed from a group because the
+//  Indicates a member cannot be removed from a group because the
 //  group is currently the member's primary group.
 //
 #define STATUS_MEMBERS_PRIMARY_GROUP     ((NTSTATUS)0xC0000127L)
@@ -4067,7 +4182,7 @@ Notes:
 // MessageText:
 //
 //  The specified image file did not have the correct format, it
-//  looks like a 16-bit windows image.
+//  appears to be a 16-bit Windows image.
 //
 #define STATUS_INVALID_IMAGE_WIN_16      ((NTSTATUS)0xC0000131L)
 
@@ -4086,7 +4201,7 @@ Notes:
 //
 // MessageText:
 //
-//  The time at the Primary Domain Controller is different then the
+//  The time at the Primary Domain Controller is different than the
 //  time at the Backup Domain Controller or member server by too large
 //  an amount.
 //
@@ -4473,7 +4588,7 @@ Notes:
 //
 // MessageText:
 //
-//  The Local Security Authority (LSA) database contains in internal inconsistency.
+//  The Local Security Authority (LSA) database contains an internal inconsistency.
 //
 #define STATUS_INTERNAL_DB_ERROR         ((NTSTATUS)0xC0000158L)
 
@@ -4504,7 +4619,7 @@ Notes:
 // MessageText:
 //
 //  A user has requested a type of logon (e.g., interactive or network) that
-//  has not be granted.  An administrator has control over who may logon
+//  has not been granted.  An administrator has control over who may logon
 //  interactively and through the network.
 //
 #define STATUS_LOGON_TYPE_NOT_GRANTED    ((NTSTATUS)0xC000015BL)
@@ -4905,7 +5020,7 @@ Notes:
 //
 // MessageText:
 //
-//  Log file space is insufficient to support this operation
+//  Log file space is insufficient to support this operation.
 //
 #define STATUS_LOG_FILE_FULL             ((NTSTATUS)0xC0000188L)
 
@@ -4914,7 +5029,7 @@ Notes:
 //
 // MessageText:
 //
-//  A write operation was attempted to a volume after it was shutdown.
+//  A write operation was attempted to a volume after it was dismounted.
 //
 #define STATUS_TOO_LATE                  ((NTSTATUS)0xC0000189L)
 
@@ -4924,7 +5039,7 @@ Notes:
 // MessageText:
 //
 //  The workstation does not have a trust secret for the primary domain in
-//  local LSA database.
+//  the local LSA database.
 //
 #define STATUS_NO_TRUST_LSA_SECRET       ((NTSTATUS)0xC000018AL)
 
@@ -4963,7 +5078,7 @@ Notes:
 //
 // MessageText:
 //
-//  The Eventlog logfile is corrupt.
+//  The Eventlog log file is corrupt.
 //
 #define STATUS_EVENTLOG_FILE_CORRUPT     ((NTSTATUS)0xC000018EL)
 
@@ -4981,8 +5096,8 @@ Notes:
 //
 // MessageText:
 //
-//  The network logon failed. This may be due the validation authority can't
-//  be reached
+//  The network logon failed. This may be because the validation authority can't
+//  be reached.
 //
 #define STATUS_TRUST_FAILURE             ((NTSTATUS)0xC0000190L)
 
@@ -5012,7 +5127,7 @@ Notes:
 //
 //  The user's account has expired.
 //
-#define STATUS_ACCOUNT_EXPIRED           ((NTSTATUS)0xC0000193L)
+#define STATUS_ACCOUNT_EXPIRED           ((NTSTATUS)0xC0000193L)    // ntsubauth
 
 //
 // MessageId: STATUS_POSSIBLE_DEADLOCK
@@ -5048,7 +5163,7 @@ Notes:
 //
 // MessageText:
 //
-//  The logfile has changed between reads.
+//  The log file has changed between reads.
 //
 #define STATUS_EVENTLOG_FILE_CHANGED     ((NTSTATUS)0xC0000197L)
 
@@ -5120,7 +5235,7 @@ Notes:
 //
 // MessageText:
 //
-//  Indicates the specified resource language Id can not be found in the
+//  Indicates the specified resource language ID cannot be found in the
 //  image file.
 //
 #define STATUS_RESOURCE_LANG_NOT_FOUND   ((NTSTATUS)0xC0000204L)
@@ -5240,7 +5355,7 @@ Notes:
 //
 // MessageText:
 //
-//  The transport did not receive a release for a pending response
+//  The transport did not receive a release for a pending response.
 //
 #define STATUS_TRANSACTION_NO_RELEASE    ((NTSTATUS)0xC0000211L)
 
@@ -5322,7 +5437,7 @@ Notes:
 // MessageText:
 //
 //  {Unexpected Failure in DebugActiveProcess}
-//  An unexpected failure occured while processing a DebugActiveProcess API
+//  An unexpected failure occurred while processing a DebugActiveProcess API
 //  request.  You may choose OK to terminate the process, or Cancel to
 //  ignore the error.
 //
@@ -5336,7 +5451,7 @@ Notes:
 //  {Fatal System Error}
 //  The %s system process terminated unexpectedly
 //  with a status of 0x%08x (0x%08x 0x%08x).
-//  The system has been shutdown.
+//  The system has been shut down.
 //
 #define STATUS_SYSTEM_PROCESS_TERMINATED ((NTSTATUS)0xC000021AL)
 
@@ -5387,7 +5502,7 @@ Notes:
 //
 //  {Reply Message Mismatch}
 //  An attempt was made to reply to an LPC message, but the thread specified
-//  by the client Id in the message was not waiting on that message.
+//  by the client ID in the message was not waiting on that message.
 //
 #define STATUS_REPLY_MESSAGE_MISMATCH    ((NTSTATUS)0xC000021FL)
 
@@ -5444,7 +5559,7 @@ Notes:
 //
 //  The user must change his password before he logs on the first time.
 //
-#define STATUS_PASSWORD_MUST_CHANGE      ((NTSTATUS)0xC0000224L)
+#define STATUS_PASSWORD_MUST_CHANGE      ((NTSTATUS)0xC0000224L)    // ntsubauth
 
 //
 // MessageId: STATUS_NOT_FOUND
@@ -5460,7 +5575,7 @@ Notes:
 //
 // MessageText:
 //
-//  The steam is not a tiny stream.
+//  The stream is not a tiny stream.
 //
 #define STATUS_NOT_TINY_STREAM           ((NTSTATUS)0xC0000226L)
 
@@ -5496,8 +5611,8 @@ Notes:
 //
 // MessageText:
 //
-//  The attempt to insert the id in the index failed because the
-//  id is already in the index.
+//  The attempt to insert the ID in the index failed because the
+//  ID is already in the index.
 //
 #define STATUS_DUPLICATE_OBJECTID        ((NTSTATUS)0xC000022AL)
 
@@ -5506,8 +5621,8 @@ Notes:
 //
 // MessageText:
 //
-//  The attempt to set the object's id failed because the object
-//  already has an id.
+//  The attempt to set the object's ID failed because the object
+//  already has an ID.
 //
 #define STATUS_OBJECTID_EXISTS           ((NTSTATUS)0xC000022BL)
 
@@ -5518,7 +5633,7 @@ Notes:
 //
 //  Internal OFS status codes indicating how an allocation operation is
 //  handled.  Either it is retried after the containing onode is moved
-//  or the extent stream is converted to a large stream
+//  or the extent stream is converted to a large stream.
 //
 #define STATUS_CONVERT_TO_LARGE          ((NTSTATUS)0xC000022CL)
 
@@ -5536,9 +5651,9 @@ Notes:
 //
 // MessageText:
 //
-//  The attempt to find the object found an object matching by id
+//  The attempt to find the object found an object matching by ID
 //  on the volume but it is out of the scope of the handle used
-//  to send the fsctl.
+//  for the operation.
 //
 #define STATUS_FOUND_OUT_OF_SCOPE        ((NTSTATUS)0xC000022EL)
 
@@ -5547,7 +5662,7 @@ Notes:
 //
 // MessageText:
 //
-//  The bucket array must be grown.  Retry transaction after doing so
+//  The bucket array must be grown.  Retry transaction after doing so.
 //
 #define STATUS_ALLOCATE_BUCKET           ((NTSTATUS)0xC000022FL)
 
@@ -5556,7 +5671,7 @@ Notes:
 //
 // MessageText:
 //
-//  the property set specified does not exist on the object
+//  The property set specified does not exist on the object.
 //
 #define STATUS_PROPSET_NOT_FOUND         ((NTSTATUS)0xC0000230L)
 
@@ -5565,7 +5680,7 @@ Notes:
 //
 // MessageText:
 //
-//  the user/kernel marshalling buffer has overflowed
+//  The user/kernel marshalling buffer has overflowed.
 //
 #define STATUS_MARSHALL_OVERFLOW         ((NTSTATUS)0xC0000231L)
 
@@ -5574,7 +5689,7 @@ Notes:
 //
 // MessageText:
 //
-//  the supplied variant structure contains invalid data
+//  The supplied variant structure contains invalid data.
 //
 #define STATUS_INVALID_VARIANT           ((NTSTATUS)0xC0000232L)
 
@@ -5592,9 +5707,10 @@ Notes:
 //
 // MessageText:
 //
-//  The user acocount has been automatically locked because too many invalid logon attempts or password change attempts have been requested.
+//  The user account has been automatically locked because too many invalid logon
+//  attempts or password change attempts have been requested.
 //
-#define STATUS_ACCOUNT_LOCKED_OUT        ((NTSTATUS)0xC0000234L)
+#define STATUS_ACCOUNT_LOCKED_OUT        ((NTSTATUS)0xC0000234L)    // ntsubauth
 
 //
 // MessageId: STATUS_HANDLE_NOT_CLOSABLE
@@ -5646,7 +5762,7 @@ Notes:
 //
 // MessageText:
 //
-//  An operation was attempted on a non-existent transport connection.
+//  An operation was attempted on a nonexistent transport connection.
 //
 #define STATUS_CONNECTION_INVALID        ((NTSTATUS)0xC000023AL)
 
@@ -5785,8 +5901,8 @@ Notes:
 // MessageText:
 //
 //  {UP/MP Image Mismatch}
-//  The image %s has been modified for use on a uni-processor system,
-//  but you are running it on a multi-processor machine.
+//  The image %s has been modified for use on a uniprocessor system,
+//  but you are running it on a multiprocessor machine.
 //  Please reinstall the image file.
 //
 #define STATUS_IMAGE_MP_UP_MISMATCH      ((NTSTATUS)0xC0000249L)
@@ -5858,6 +5974,277 @@ Notes:
 #define STATUS_IP_ADDRESS_CONFLICT2      ((NTSTATUS)0xC0000255L)
 
 //
+// MessageId: STATUS_REGISTRY_QUOTA_LIMIT
+//
+// MessageText:
+//
+//  {Low on Registry Quota}
+//  Your system is running low on registry quota.
+//  Start the System option in the Control Panel and choose the Virtual Memory button to increase the registry quota.
+//
+#define STATUS_REGISTRY_QUOTA_LIMIT      ((NTSTATUS)0xC0000256L)
+
+//
+// MessageId: STATUS_PATH_NOT_COVERED
+//
+// MessageText:
+//
+//  The contacted server does not support the indicated part of the DFS namespace.
+//
+#define STATUS_PATH_NOT_COVERED          ((NTSTATUS)0xC0000257L)
+
+//
+// MessageId: STATUS_NO_CALLBACK_ACTIVE
+//
+// MessageText:
+//
+//  A callback return system service cannot be executed when no callback is active.
+//
+#define STATUS_NO_CALLBACK_ACTIVE        ((NTSTATUS)0xC0000258L)
+
+//
+// MessageId: STATUS_LICENSE_QUOTA_EXCEEDED
+//
+// MessageText:
+//
+//  The service being accessed is licensed for a particular number of connections.
+//  No more connections can be made to the service at this time
+//  because there are already as many connections as the service can accept.
+//
+#define STATUS_LICENSE_QUOTA_EXCEEDED    ((NTSTATUS)0xC0000259L)
+
+//
+// MessageId: STATUS_PWD_TOO_SHORT
+//
+// MessageText:
+//
+//  The password provided is too short to meet the policy of your user account.
+//  Please choose a longer password.
+//
+#define STATUS_PWD_TOO_SHORT             ((NTSTATUS)0xC000025AL)
+
+//
+// MessageId: STATUS_PWD_TOO_RECENT
+//
+// MessageText:
+//
+//  The policy of your user account does not allow you to change passwords too
+//  frequently.  This is done to prevent users from changing back to a familiar, but
+//  potentially discovered, password.  If you feel your password has been compromised
+//  then please contact your administrator immediately to have a new one assigned.
+//
+#define STATUS_PWD_TOO_RECENT            ((NTSTATUS)0xC000025BL)
+
+//
+// MessageId: STATUS_PWD_HISTORY_CONFLICT
+//
+// MessageText:
+//
+//  You have attempted to change your password to one that you have used in the past.
+//  The policy of your user account does not allow this.  Please select a password
+//  that you have not previously used.
+//
+#define STATUS_PWD_HISTORY_CONFLICT      ((NTSTATUS)0xC000025CL)
+
+//
+// MessageId: STATUS_PLUGPLAY_NO_DEVICE
+//
+// MessageText:
+//
+//  You have attempted to load a legacy device driver while its device instance had
+//  been disabled.
+//
+#define STATUS_PLUGPLAY_NO_DEVICE        ((NTSTATUS)0xC000025EL)
+
+//
+// MessageId: STATUS_UNSUPPORTED_COMPRESSION
+//
+// MessageText:
+//
+//  The specified compression format is unsupported.
+//
+#define STATUS_UNSUPPORTED_COMPRESSION   ((NTSTATUS)0xC000025FL)
+
+//
+// MessageId: STATUS_INVALID_HW_PROFILE
+//
+// MessageText:
+//
+//  The specified hardware profile configuration is invalid.
+//
+#define STATUS_INVALID_HW_PROFILE        ((NTSTATUS)0xC0000260L)
+
+//
+// MessageId: STATUS_INVALID_PLUGPLAY_DEVICE_PATH
+//
+// MessageText:
+//
+//  The specified Plug and Play registry device path is invalid.
+//
+#define STATUS_INVALID_PLUGPLAY_DEVICE_PATH ((NTSTATUS)0xC0000261L)
+
+//
+// MessageId: STATUS_DRIVER_ORDINAL_NOT_FOUND
+//
+// MessageText:
+//
+//  {Driver Entry Point Not Found}
+//  The %s device driver could not locate the ordinal %ld in driver %s.
+//
+#define STATUS_DRIVER_ORDINAL_NOT_FOUND  ((NTSTATUS)0xC0000262L)
+
+//
+// MessageId: STATUS_DRIVER_ENTRYPOINT_NOT_FOUND
+//
+// MessageText:
+//
+//  {Driver Entry Point Not Found}
+//  The %s device driver could not locate the entry point %s in driver %s.
+//
+#define STATUS_DRIVER_ENTRYPOINT_NOT_FOUND ((NTSTATUS)0xC0000263L)
+
+//
+// MessageId: STATUS_RESOURCE_NOT_OWNED
+//
+// MessageText:
+//
+//  {Application Error}
+//  The application attempted to release a resource it did not own.  Click on OK to
+//  terminate the application.
+//
+#define STATUS_RESOURCE_NOT_OWNED        ((NTSTATUS)0xC0000264L)
+
+//
+// MessageId: STATUS_TOO_MANY_LINKS
+//
+// MessageText:
+//
+//  An attempt was made to create more links on a file than
+//  the file system supports.
+//
+#define STATUS_TOO_MANY_LINKS            ((NTSTATUS)0xC0000265L)
+
+//
+// MessageId: STATUS_QUOTA_LIST_INCONSISTENT
+//
+// MessageText:
+//
+//  The specified quota list is internally inconsistent with its descriptor.
+//
+#define STATUS_QUOTA_LIST_INCONSISTENT   ((NTSTATUS)0xC0000266L)
+
+//
+// MessageId: STATUS_FILE_IS_OFFLINE
+//
+// MessageText:
+//
+//  The specified file has been relocated to offline storage.
+//
+#define STATUS_FILE_IS_OFFLINE           ((NTSTATUS)0xC0000267L)
+
+//
+// MessageId: STATUS_EVALUATION_EXPIRATION
+//
+// MessageText:
+//
+//  {Windows NT Evaluation Notification}
+//  The evaluation period for this installation of Windows NT has expired.
+//  This system will shutdown in 1 hour. To restore access to this installation
+//  of Windows NT, please upgrade this installation using a licensed distribution
+//  of this product.
+//
+#define STATUS_EVALUATION_EXPIRATION     ((NTSTATUS)0xC0000268L)
+
+//
+// MessageId: STATUS_ILLEGAL_DLL_RELOCATION
+//
+// MessageText:
+//
+//  {Illegal System DLL Relocation}
+//  The system DLL %s was relocated in memory. The application will not run properly.
+//  The relocation occured because the DLL %s occupied an address range reserved for
+//  Windows NT system DLL's. The vendor supplying the DLL should be contacted for a new DLL.
+//
+#define STATUS_ILLEGAL_DLL_RELOCATION    ((NTSTATUS)0xC0000269L)
+
+//
+// MessageId: STATUS_LICENSE_VIOLATION
+//
+// MessageText:
+//
+//  {License Violation}
+//  The system has detected tampering with your registered product type. This is a violation
+//  of your software license. Tampering with product type is not permitted.
+//
+#define STATUS_LICENSE_VIOLATION         ((NTSTATUS)0xC000026AL)
+
+//
+// MessageId: STATUS_DLL_INIT_FAILED_LOGOFF
+//
+// MessageText:
+//
+//  {DLL Initialization Failed}
+//  The application failed to initialize because the window station is shutting down.
+//
+#define STATUS_DLL_INIT_FAILED_LOGOFF    ((NTSTATUS)0xC000026BL)
+
+//
+// MessageId: STATUS_DRIVER_UNABLE_TO_LOAD
+//
+// MessageText:
+//
+//  {Unable to Load Device Driver}
+//  %s device driver could not be loaded.
+//  Error Status was 0x%x
+//
+#define STATUS_DRIVER_UNABLE_TO_LOAD     ((NTSTATUS)0xC000026CL)
+
+//
+// MessageId: STATUS_DFS_UNAVAILABLE
+//
+// MessageText:
+//
+//  DFS is unavailable on the contacted server.
+//
+#define STATUS_DFS_UNAVAILABLE           ((NTSTATUS)0xC000026DL)
+
+//
+// MessageId: STATUS_VOLUME_DISMOUNTED
+//
+// MessageText:
+//
+//  An operation was attempted to a volume after it was dismounted.
+//
+#define STATUS_VOLUME_DISMOUNTED         ((NTSTATUS)0xC000026EL)
+
+//
+// MessageId: STATUS_WX86_INTERNAL_ERROR
+//
+// MessageText:
+//
+//  An internal error occurred in the Win32 x86 emulation subsystem.
+//
+#define STATUS_WX86_INTERNAL_ERROR       ((NTSTATUS)0xC000026FL)
+
+//
+// MessageId: STATUS_WX86_FLOAT_STACK_CHECK
+//
+// MessageText:
+//
+//  Win32 x86 emulation subsystem Floating-point stack check.
+//
+#define STATUS_WX86_FLOAT_STACK_CHECK    ((NTSTATUS)0xC0000270L)
+
+//
+// MessageId: STATUS_WOW_ASSERTION
+//
+// MessageText:
+//
+//  WOW Assertion Error.
+//
+#define STATUS_WOW_ASSERTION             ((NTSTATUS)0xC0009898L)
+
+//
 // MessageId: RPC_NT_INVALID_STRING_BINDING
 //
 // MessageText:
@@ -5889,7 +6276,7 @@ Notes:
 //
 // MessageText:
 //
-//  The Rpc protocol sequence is not supported.
+//  The RPC protocol sequence is not supported.
 //
 #define RPC_NT_PROTSEQ_NOT_SUPPORTED     ((NTSTATUS)0xC0020004L)
 
@@ -5898,7 +6285,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc protocol sequence is invalid.
+//  The RPC protocol sequence is invalid.
 //
 #define RPC_NT_INVALID_RPC_PROTSEQ       ((NTSTATUS)0xC0020005L)
 
@@ -5907,7 +6294,7 @@ Notes:
 //
 // MessageText:
 //
-//  The string uuid is invalid.
+//  The string UUID is invalid.
 //
 #define RPC_NT_INVALID_STRING_UUID       ((NTSTATUS)0xC0020006L)
 
@@ -5952,7 +6339,7 @@ Notes:
 //
 // MessageText:
 //
-//  The object uuid was not found.
+//  The object UUID was not found.
 //
 #define RPC_NT_OBJECT_NOT_FOUND          ((NTSTATUS)0xC002000BL)
 
@@ -5961,7 +6348,7 @@ Notes:
 //
 // MessageText:
 //
-//  The object uuid has already been registered.
+//  The object UUID has already been registered.
 //
 #define RPC_NT_ALREADY_REGISTERED        ((NTSTATUS)0xC002000CL)
 
@@ -5970,7 +6357,7 @@ Notes:
 //
 // MessageText:
 //
-//  The type uuid has already been registered.
+//  The type UUID has already been registered.
 //
 #define RPC_NT_TYPE_ALREADY_REGISTERED   ((NTSTATUS)0xC002000DL)
 
@@ -5979,7 +6366,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc server is already listening.
+//  The RPC server is already listening.
 //
 #define RPC_NT_ALREADY_LISTENING         ((NTSTATUS)0xC002000EL)
 
@@ -5997,7 +6384,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc server is not listening.
+//  The RPC server is not listening.
 //
 #define RPC_NT_NOT_LISTENING             ((NTSTATUS)0xC0020010L)
 
@@ -6042,7 +6429,7 @@ Notes:
 //
 // MessageText:
 //
-//  The endpoint can not be created.
+//  The endpoint cannot be created.
 //
 #define RPC_NT_CANT_CREATE_ENDPOINT      ((NTSTATUS)0xC0020015L)
 
@@ -6060,7 +6447,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc server is unavailable.
+//  The RPC server is unavailable.
 //
 #define RPC_NT_SERVER_UNAVAILABLE        ((NTSTATUS)0xC0020017L)
 
@@ -6069,7 +6456,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc server is too busy to complete this operation.
+//  The RPC server is too busy to complete this operation.
 //
 #define RPC_NT_SERVER_TOO_BUSY           ((NTSTATUS)0xC0020018L)
 
@@ -6114,7 +6501,7 @@ Notes:
 //
 // MessageText:
 //
-//  An rpc protocol error occurred.
+//  An RPC protocol error occurred.
 //
 #define RPC_NT_PROTOCOL_ERROR            ((NTSTATUS)0xC002001DL)
 
@@ -6123,7 +6510,7 @@ Notes:
 //
 // MessageText:
 //
-//  The transfer syntax is not supported by the rpc server.
+//  The transfer syntax is not supported by the RPC server.
 //
 #define RPC_NT_UNSUPPORTED_TRANS_SYN     ((NTSTATUS)0xC002001FL)
 
@@ -6132,7 +6519,7 @@ Notes:
 //
 // MessageText:
 //
-//  The type uuid is not supported.
+//  The type UUID is not supported.
 //
 #define RPC_NT_UNSUPPORTED_TYPE          ((NTSTATUS)0xC0020021L)
 
@@ -6186,7 +6573,7 @@ Notes:
 //
 // MessageText:
 //
-//  No network address is available to use to construct a uuid.
+//  No network address is available to use to construct a UUID.
 //
 #define RPC_NT_UUID_NO_ADDRESS           ((NTSTATUS)0xC0020028L)
 
@@ -6231,7 +6618,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc protocol sequence was not found.
+//  The RPC protocol sequence was not found.
 //
 #define RPC_NT_PROTSEQ_NOT_FOUND         ((NTSTATUS)0xC002002DL)
 
@@ -6303,7 +6690,7 @@ Notes:
 //
 // MessageText:
 //
-//  The operation can not be performed.
+//  The operation cannot be performed.
 //
 #define EPT_NT_CANT_PERFORM_OP           ((NTSTATUS)0xC0020035L)
 
@@ -6312,7 +6699,7 @@ Notes:
 //
 // MessageText:
 //
-//  There are not more endpoints available from the endpoint mapper.
+//  There are no more endpoints available from the endpoint mapper.
 //
 #define EPT_NT_NOT_REGISTERED            ((NTSTATUS)0xC0020036L)
 
@@ -6429,7 +6816,7 @@ Notes:
 //
 // MessageText:
 //
-//  An internal error occurred in rpc.
+//  An internal error occurred in RPC.
 //
 #define RPC_NT_INTERNAL_ERROR            ((NTSTATUS)0xC0020043L)
 
@@ -6438,7 +6825,7 @@ Notes:
 //
 // MessageText:
 //
-//  The rpc server attempted an integer divide by zero.
+//  The RPC server attempted an integer divide by zero.
 //
 #define RPC_NT_ZERO_DIVIDE               ((NTSTATUS)0xC0020044L)
 
@@ -6447,7 +6834,7 @@ Notes:
 //
 // MessageText:
 //
-//  An addressing error occurred in the rpc server.
+//  An addressing error occurred in the RPC server.
 //
 #define RPC_NT_ADDRESS_ERROR             ((NTSTATUS)0xC0020045L)
 
@@ -6456,7 +6843,7 @@ Notes:
 //
 // MessageText:
 //
-//  A floating point operation at the rpc server caused a divide by zero.
+//  A floating point operation at the RPC server caused a divide by zero.
 //
 #define RPC_NT_FP_DIV_ZERO               ((NTSTATUS)0xC0020046L)
 
@@ -6465,7 +6852,7 @@ Notes:
 //
 // MessageText:
 //
-//  A floating point underflow occurred at the rpc server.
+//  A floating point underflow occurred at the RPC server.
 //
 #define RPC_NT_FP_UNDERFLOW              ((NTSTATUS)0xC0020047L)
 
@@ -6474,7 +6861,7 @@ Notes:
 //
 // MessageText:
 //
-//  A floating point overflow occurred at the rpc server.
+//  A floating point overflow occurred at the RPC server.
 //
 #define RPC_NT_FP_OVERFLOW               ((NTSTATUS)0xC0020048L)
 
@@ -6483,7 +6870,7 @@ Notes:
 //
 // MessageText:
 //
-//  The list of rpc servers available for auto_handle binding has been exhausted.
+//  The list of RPC servers available for auto-handle binding has been exhausted.
 //
 #define RPC_NT_NO_MORE_ENTRIES           ((NTSTATUS)0xC0030001L)
 
@@ -6574,7 +6961,7 @@ Notes:
 //
 // MessageText:
 //
-//  The byte count is too small
+//  The byte count is too small.
 //
 #define RPC_NT_BYTE_COUNT_TOO_SMALL      ((NTSTATUS)0xC003000BL)
 
@@ -6628,7 +7015,7 @@ Notes:
 //
 // MessageText:
 //
-//  The object uuid is the nil uuid.
+//  The object UUID is the nil UUID.
 //
 #define RPC_NT_INVALID_OBJECT            ((NTSTATUS)0xC002004DL)
 
@@ -6700,7 +7087,7 @@ Notes:
 //
 // MessageText:
 //
-//  A Uuid that is valid only on this computer has been allocated.
+//  A UUID that is valid only on this computer has been allocated.
 //
 #define RPC_NT_UUID_LOCAL_ONLY           ((NTSTATUS)0x40020056L)
 
@@ -6709,7 +7096,7 @@ Notes:
 //
 // MessageText:
 //
-//  A security package specific error occured.
+//  A security package specific error occurred.
 //
 #define RPC_NT_SEC_PKG_ERROR             ((NTSTATUS)0xC0020057L)
 
@@ -6749,7 +7136,44 @@ Notes:
 //
 #define RPC_NT_WRONG_STUB_VERSION        ((NTSTATUS)0xC003005BL)
 
+//
+// MessageId: RPC_NT_INVALID_PIPE_OBJECT
+//
+// MessageText:
+//
+//  The idl pipe object is invalid or corrupted.
+//
+#define RPC_NT_INVALID_PIPE_OBJECT       ((NTSTATUS)0xC003005CL)
+
+//
+// MessageId: RPC_NT_INVALID_PIPE_OPERATION
+//
+// MessageText:
+//
+//  The operation is invalid for a given idl pipe object.
+//
+#define RPC_NT_INVALID_PIPE_OPERATION    ((NTSTATUS)0xC003005DL)
+
+//
+// MessageId: RPC_NT_WRONG_PIPE_VERSION
+//
+// MessageText:
+//
+//  The idl pipe version is not supported.
+//
+#define RPC_NT_WRONG_PIPE_VERSION        ((NTSTATUS)0xC003005EL)
+
+//
+// MessageId: RPC_NT_SEND_INCOMPLETE
+//
+// MessageText:
+//
+//  Some data remains to be sent in the request buffer.
+//
+#define RPC_NT_SEND_INCOMPLETE           ((NTSTATUS)0x400200AFL)
+
 /*lint -restore */  // Resume checking for different macro definitions // winnt
+// end_ntsecapi
 
-
+#endif // WIN32_NO_STATUS // winnt
 #endif // _NTSTATUS_

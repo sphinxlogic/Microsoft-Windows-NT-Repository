@@ -128,6 +128,14 @@ Return Value:
     NTSTATUS status;
     PFAST_IO_DISPATCH fastIoDispatch;
 
+    PAGED_CODE();
+
+    //
+    // Mark the entire driver as pagable.
+    //
+
+    MmPageEntireDriver ((PVOID)DriverEntry);
+
     //
     // Create the device object.
     //
@@ -143,6 +151,10 @@ Return Value:
     if (!NT_SUCCESS( status )) {
         return status;
     }
+
+#ifdef _PNP_POWER_
+    deviceObject->DeviceObjectExtension->PowerControlNeeded = FALSE;
+#endif
 
     //
     // Setting the following flag changes the timing of how many I/O's per
@@ -221,6 +233,8 @@ Return Value:
     PFILE_OBJECT fileObject;
 
     UNREFERENCED_PARAMETER( DeviceObject );
+
+    PAGED_CODE();
 
     //
     // Get a pointer to the current stack location in the IRP.  This is where
@@ -338,6 +352,8 @@ Return Value:
 {
     PFILE_STANDARD_INFORMATION standardBuffer;
 
+    PAGED_CODE();
+
     //
     // Switch on the type of information that the caller would like to query
     // about the file.
@@ -421,6 +437,8 @@ Return Value:
 --*/
 
 {
+    PAGED_CODE();
+
     //
     // Simply indicate that the read operation worked, but the end of the file
     // was encountered.
@@ -476,6 +494,8 @@ Return Value:
 --*/
 
 {
+    PAGED_CODE();
+
     //
     // Simply return TRUE, indicating that the fast I/O path was taken, and
     // that the write operation worked.

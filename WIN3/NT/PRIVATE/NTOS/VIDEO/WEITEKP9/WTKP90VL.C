@@ -20,45 +20,35 @@ Revision History may be found at the end of this file.
 --*/
 
 
-#include "dderror.h"
-#include "devioctl.h"
-
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "p9000.h"
-#include "wtkp90vl.h"
 #include "vga.h"
+
+//
+// Default memory addresses for the P9 registers/frame buffer.
+//
+
+#define MemBase         0xC0000000
+
+//
+// Bit to write to the sequencer control register to enable/disable P9
+// video output.
+//
+
+#define P9_VIDEO_ENB   0x10
+
+//
+// Define the bit in the sequencer control register which determines
+// the sync polarities. For Weitek board, 1 = positive.
+//
+
+#define HSYNC_POL_MASK  0x20
 
 //
 // OEM specific static data.
 //
 
-//
-// The default adapter description structure for the Weitek P9000 VL board.
-//
-
-ADAPTER_DESC    WtkVLDesc =
-{
-    0L,                                 // P9 Memconf value (un-initialized)
-    HSYNC_INTERNAL | VSYNC_INTERNAL |
-    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
-    0L,                                 // Number of OEM specific registers
-    FALSE,                              // Should autodetection be attempted?
-    VLGetBaseAddr,                      // Routine to detect/map P9 base addr
-    VLSetMode,                          // Routine to set the P9 mode
-    VLEnableP9,                         // Routine to enable P9 video
-    VLDisableP9,                        // Routine to disable P9 video
-    (PVOID) 0,                          // Routine to enable P9 memory
-    4,                                  // Clock divisor value
-    TRUE                                // Is a Wtk 5x86 VGA present?
-};
-
-#define WTK_AUTODETECT
-#ifdef WTK_AUTODETECT
 //
 // List of valid base addresses for different Weitek based designs.
 //
@@ -76,7 +66,6 @@ ULONG   ulWtkAddrRanges[] =
     0xE0000000L,
     0xF0000000L
 };
-#endif
 
 
 //
@@ -87,7 +76,7 @@ ULONG   ulWtkAddrRanges[] =
 VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
 {
      {
-        RS_0_ADDR,                      // Low address
+        0x03C8,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -95,7 +84,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_1_ADDR,                      // Low address
+        0x03C9,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -103,7 +92,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_2_ADDR,                      // Low address
+        0x03C6,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -111,7 +100,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_3_ADDR,                      // Low address
+        0x03C7,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -119,7 +108,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_4_ADDR,                      // Low address
+        0x43C8,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -127,7 +116,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_5_ADDR,                      // Low address
+        0x43C9,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -135,7 +124,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_6_ADDR,                      // Low address
+        0x43C6,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -143,7 +132,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_7_ADDR,                      // Low address
+        0x43C7,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -151,7 +140,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_8_ADDR,                      // Low address
+        0x83C8,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -159,7 +148,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_9_ADDR,                      // Low address
+        0x83C9,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -167,7 +156,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_A_ADDR,                      // Low address
+        0x83C6,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -175,7 +164,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_B_ADDR,                      // Low address
+        0x83C7,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -183,7 +172,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_C_ADDR,                      // Low address
+        0xC3C8,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -191,7 +180,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_D_ADDR,                      // Low address
+        0xC3C9,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -199,7 +188,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_E_ADDR,                      // Low address
+        0xC3C6,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -207,7 +196,7 @@ VIDEO_ACCESS_RANGE VLDefDACRegRange[] =
         1                               // Range should be shareable
      },
      {
-        RS_F_ADDR,                      // Low address
+        0xC3C7,                         // Low address
         0x00000000,                     // Hi address
         0x01,                           // length
         1,                              // Is range in i/o space?
@@ -241,40 +230,18 @@ FALSE   - Board not found.
 
 --*/
 {
-    REGISTRY_DATA_INFO  BaseAddrInfo;
-    VP_STATUS           status;
     SHORT               i;
 
     //
-    // Set up the info structure so the base address parameter
-    // can be obtained from the Registry. This code is encapsulated
-    // here so that OEMs may use a different method to get
-    // the physical address of the P9000 (e.g. EISA based boards).
+    // Only the viper p9000 works on the Siemens boxes
     //
 
-    BaseAddrInfo.pwsDataName = MEMBASE_KEY;
-    BaseAddrInfo.usDataSize = sizeof(ULONG);
-    BaseAddrInfo.pvDataValue = &(HwDeviceExtension->P9PhysAddr.LowPart);
+    if_SIEMENS_VLB()
+    {
+        return FALSE;
+    }
 
-    //
-    // Get the P9 base address from the Registry.
-    //
-
-    status = VideoPortGetRegistryParameters((PVOID) HwDeviceExtension,
-                BaseAddrInfo.pwsDataName,
-                FALSE,
-                P9QueryNamedValueCallback,
-                (PVOID) &(BaseAddrInfo));
-
-
-    //
-    // Initialize the high order dword of the device extension base
-    // address field.
-    //
-
-    HwDeviceExtension->P9PhysAddr.HighPart = 0;
-
-    if (status != NO_ERROR)
+    if (HwDeviceExtension->P9PhysAddr.LowPart == 0)
     {
         //
         // The base address was not found in the registry, so copy the
@@ -285,9 +252,8 @@ FALSE   - Board not found.
     }
 
     if (!VLP90CoprocDetect(HwDeviceExtension,
-                        HwDeviceExtension->P9PhysAddr.LowPart))
+                           HwDeviceExtension->P9PhysAddr.LowPart))
     {
-#ifdef WTK_AUTODETECT
         //
         // Scan all possible base addresses to see if the coprocessor is
         // present.
@@ -316,9 +282,6 @@ FALSE   - Board not found.
         {
             return(FALSE);
         }
-#else   // #ifdef WTK_AUTODETECT
-        return(FALSE);
-#endif  // #ifdef WTK_AUTODETECT
     }
 
     //
@@ -463,7 +426,10 @@ Return Value:
     // Set the dot clock.
     //
 
-    DevSetClock(HwDeviceExtension, HwDeviceExtension->VideoData.dotfreq1);
+    DevSetClock(HwDeviceExtension,
+                (USHORT) HwDeviceExtension->VideoData.dotfreq1,
+                FALSE,
+                TRUE);
 
     //
     // If this mode uses the palette, clear it to all 0s.
@@ -545,7 +511,7 @@ Return Value:
     // Set the sync polarity. First clear the sync polarity bits.
     //
 
-    holdit &= ~POL_MASK;
+    holdit &= ~HSYNC_POL_MASK;
 
     if (HwDeviceExtension->VideoData.hp == POSITIVE)
     {
@@ -568,7 +534,7 @@ Return Value:
 }
 
 
-VOID
+BOOLEAN
 VLDisableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     )
@@ -587,7 +553,7 @@ Arguments:
 
 Return Value:
 
-    None.
+    TRUE, indicating *no* int10 is needed to complete the switch
 
 --*/
 
@@ -610,7 +576,7 @@ Return Value:
     //  Disable P9000 video output.
     //
 
-    holdit &= P9_VIDEO_DIS;
+    holdit &= ~P9_VIDEO_ENB;
     VGA_WR_REG(SEQ_INDEX_PORT, SEQ_OUTCNTL_INDEX);
     VGA_WR_REG(SEQ_DATA_PORT, holdit);
 
@@ -629,16 +595,5 @@ Return Value:
         LockVGARegs(HwDeviceExtension);
     }
 
-    return;
+    return TRUE;
 }
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/wtkp90vl.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:28   robk
- * Initial revision.
-
---*/

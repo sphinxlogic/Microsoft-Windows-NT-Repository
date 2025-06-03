@@ -44,6 +44,7 @@ Revision History:
 #define IO_TYPE_VPB                     0x0000000a
 #define IO_TYPE_ERROR_LOG               0x0000000b
 #define IO_TYPE_ERROR_MESSAGE           0x0000000c
+#define IO_TYPE_DEVICE_OBJECT_EXTENSION 0x0000000d
 
 //
 // Define the major function codes for IRPs.  The lower 128 codes, from 0x00 to
@@ -73,7 +74,13 @@ Revision History:
 #define IRP_MJ_CREATE_MAILSLOT          0x13
 #define IRP_MJ_QUERY_SECURITY           0x14
 #define IRP_MJ_SET_SECURITY             0x15
-#define IRP_MJ_MAXIMUM_FUNCTION         0x15
+#define IRP_MJ_QUERY_POWER              0x16
+#define IRP_MJ_SET_POWER                0x17
+#define IRP_MJ_DEVICE_CHANGE            0x18
+#define IRP_MJ_QUERY_QUOTA              0x19
+#define IRP_MJ_SET_QUOTA                0x1a
+#define IRP_MJ_PNP_POWER                0x1b
+#define IRP_MJ_MAXIMUM_FUNCTION         0x1b
 
 //
 // Make the Scsi major code the same as internal device control.
@@ -93,6 +100,7 @@ Revision History:
 
 #define IRP_MN_QUERY_DIRECTORY          0x01
 #define IRP_MN_NOTIFY_CHANGE_DIRECTORY  0x02
+#define IRP_MN_QUERY_OLE_DIRECTORY      0x03
 
 //
 // File system control minor function codes.  Note that "user request" is
@@ -128,6 +136,7 @@ Revision History:
 #define IRP_MN_DPC                      0x01
 #define IRP_MN_MDL                      0x02
 #define IRP_MN_COMPLETE                 0x04
+#define IRP_MN_COMPRESSED               0x08
 
 #define IRP_MN_MDL_DPC                  (IRP_MN_MDL | IRP_MN_DPC)
 #define IRP_MN_COMPLETE_MDL             (IRP_MN_COMPLETE | IRP_MN_MDL)
@@ -139,6 +148,18 @@ Revision History:
 //
 
 #define IRP_MN_SCSI_CLASS               0x01
+
+//
+// PNP/Power minor function codes.
+//
+
+#define IRP_MN_START_DEVICE             0x00
+#define IRP_MN_QUERY_REMOVE_DEVICE      0x01
+#define IRP_MN_REMOVE_DEVICE            0x02
+#define IRP_MN_CANCEL_REMOVE_DEVICE     0x03
+#define IRP_MN_STOP_DEVICE              0x04
+#define IRP_MN_QUERY_STOP_DEVICE        0x05
+#define IRP_MN_CANCEL_STOP_DEVICE       0x06
 
 //
 // Define option flags for IoCreateFile.  Note that these values must be
@@ -160,6 +181,13 @@ Revision History:
 
 #define IO_NO_PARAMETER_CHECKING        0x0100
 #define IO_CHECK_CREATE_PARAMETERS      0x0200
+#define IO_ATTACH_DEVICE                0x0400
+
+//
+// Define kernel-only, internal option flags
+//
+
+#define IO_ATTACH_DEVICE_API            0x80000000
 
 //
 // Define Information fields for whether or not a REPARSE or a REMOUNT has
@@ -202,6 +230,13 @@ NTSTATUS
     IN PMDL Mdl
     );
 
+
+typedef
+VOID
+(*PDUMP_DRIVER_FINISH) (
+    VOID
+    );
+
 struct _ADAPTER_OBJECT;
 
 //
@@ -218,6 +253,7 @@ typedef struct _INITIALIZATION_CONTEXT {
     PSTALL_ROUTINE StallRoutine;
     PDUMP_DRIVER_OPEN OpenRoutine;
     PDUMP_DRIVER_WRITE WriteRoutine;
+    PDUMP_DRIVER_FINISH FinishRoutine;
     struct _ADAPTER_OBJECT *AdapterObject;
     PVOID MappedRegisterBase;
     PVOID PortConfiguration;
@@ -407,7 +443,58 @@ VOID
     IN struct _DRIVER_OBJECT *DriverObject
     );
 
+#ifdef _PNP_POWER_
+
+//
+// Define driver reconfiguration operations
+//
+
+typedef enum _DRIVER_RECONFIGURE_OPERATION {
+    QueryReconfigureResources,
+    ReconfigureResources,
+    CancelReconfigureQuery,
+    QueryHardwareProfileChange,
+    HardwareProfileChanged
+} DRIVER_RECONFIGURE_OPERATION;
+
+//
+// Define driver ReconfigureDevice routine type
+//
+
+typedef
+NTSTATUS
+(*PDRIVER_RECONFIGURE_DEVICE) (
+    IN struct _DRIVER_OBJECT *DriverObject,
+    IN struct _DEVICE_OBJECT *DeviceObject OPTIONAL,
+    IN DRIVER_RECONFIGURE_OPERATION Operation,
+    IN PCM_RESOURCE_LIST CmResources
+    );
+
+#endif // _PNP_POWER_
+
+//
+// Define driver AddDevice routine type.
+//
+
+typedef
+NTSTATUS
+(*PDRIVER_ADD_DEVICE) (
+    IN struct _DRIVER_OBJECT *DriverObject,
+    IN OUT struct _DEVICE_OBJECT **PhysicalDeviceObject
+    );
+
 // end_ntddk end_nthal
+
+//
+// Define driver FS notification change routine type.
+//
+
+typedef
+VOID
+(*PDRIVER_FS_NOTIFICATION) (
+    IN struct _DEVICE_OBJECT *DeviceObject,
+    IN BOOLEAN FsActive
+    );
 
 // begin_ntddk
 
@@ -566,6 +653,177 @@ VOID
     );
 
 //
+// Define callback for drivers that have device objects attached to lower-
+// level drivers' device objects.  This callback is made when the lower-level
+// driver is deleting its device object.
+//
+
+typedef
+VOID
+(*PFAST_IO_DETACH_DEVICE) (
+    IN struct _DEVICE_OBJECT *SourceDevice,
+    IN struct _DEVICE_OBJECT *TargetDevice
+    );
+
+//
+// This structure is used by the server to quickly get the information needed
+// to service a server open call.  It is takes what would be two fast io calls
+// one for basic information and the other for standard information and makes
+// it into one call.
+//
+
+typedef
+BOOLEAN
+(*PFAST_IO_QUERY_NETWORK_OPEN_INFO) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN BOOLEAN Wait,
+    OUT struct _FILE_NETWORK_OPEN_INFORMATION *Buffer,
+    OUT struct _IO_STATUS_BLOCK *IoStatus,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+//
+//  Define Mdl-based routines for the server to call
+//
+
+typedef
+BOOLEAN
+(*PFAST_IO_MDL_READ) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_MDL_READ_COMPLETE) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_PREPARE_MDL_WRITE) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_MDL_WRITE_COMPLETE) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+//
+//  If this routine is present, it will be called by FsRtl
+//  to acquire the file for the mapped page writer.
+//
+
+typedef
+NTSTATUS
+(*PFAST_IO_ACQUIRE_FOR_MOD_WRITE) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER EndingOffset,
+    OUT struct _ERESOURCE **ResourceToRelease,
+    IN struct _DEVICE_OBJECT *DeviceObject
+             );
+
+typedef
+NTSTATUS
+(*PFAST_IO_RELEASE_FOR_MOD_WRITE) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN struct _ERESOURCE *ResourceToRelease,
+    IN struct _DEVICE_OBJECT *DeviceObject
+             );
+
+//
+//  If this routine is present, it will be called by FsRtl
+//  to acquire the file for the mapped page writer.
+//
+
+typedef
+NTSTATUS
+(*PFAST_IO_ACQUIRE_FOR_CCFLUSH) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN struct _DEVICE_OBJECT *DeviceObject
+             );
+
+typedef
+NTSTATUS
+(*PFAST_IO_RELEASE_FOR_CCFLUSH) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN struct _DEVICE_OBJECT *DeviceObject
+             );
+
+typedef
+BOOLEAN
+(*PFAST_IO_READ_COMPRESSED) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PVOID Buffer,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    OUT struct _COMPRESSED_DATA_INFO *CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_WRITE_COMPRESSED) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    IN PVOID Buffer,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN struct _COMPRESSED_DATA_INFO *CompressedDataInfo,
+    IN ULONG CompressedDataInfoLength,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_MDL_READ_COMPLETE_COMPRESSED) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_MDL_WRITE_COMPLETE_COMPRESSED) (
+    IN struct _FILE_OBJECT *FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+typedef
+BOOLEAN
+(*PFAST_IO_QUERY_OPEN) (
+    IN struct _IRP *Irp,
+    OUT PFILE_NETWORK_OPEN_INFORMATION NetworkInformation,
+    IN struct _DEVICE_OBJECT *DeviceObject
+    );
+
+//
 // Define the structure to describe the Fast I/O dispatch routines.  Any
 // additions made to this structure MUST be added monotonically to the end
 // of the structure, and fields CANNOT be removed from the middle.
@@ -585,6 +843,21 @@ typedef struct _FAST_IO_DISPATCH {
     PFAST_IO_DEVICE_CONTROL FastIoDeviceControl;
     PFAST_IO_ACQUIRE_FILE AcquireFileForNtCreateSection;
     PFAST_IO_RELEASE_FILE ReleaseFileForNtCreateSection;
+    PFAST_IO_DETACH_DEVICE FastIoDetachDevice;
+    PFAST_IO_QUERY_NETWORK_OPEN_INFO FastIoQueryNetworkOpenInfo;
+    PFAST_IO_ACQUIRE_FOR_MOD_WRITE AcquireForModWrite;
+    PFAST_IO_MDL_READ MdlRead;
+    PFAST_IO_MDL_READ_COMPLETE MdlReadComplete;
+    PFAST_IO_PREPARE_MDL_WRITE PrepareMdlWrite;
+    PFAST_IO_MDL_WRITE_COMPLETE MdlWriteComplete;
+    PFAST_IO_READ_COMPRESSED FastIoReadCompressed;
+    PFAST_IO_WRITE_COMPRESSED FastIoWriteCompressed;
+    PFAST_IO_MDL_READ_COMPLETE_COMPRESSED MdlReadCompleteCompressed;
+    PFAST_IO_MDL_WRITE_COMPLETE_COMPRESSED MdlWriteCompleteCompressed;
+    PFAST_IO_QUERY_OPEN FastIoQueryOpen;
+    PFAST_IO_RELEASE_FOR_MOD_WRITE ReleaseForModWrite;
+    PFAST_IO_ACQUIRE_FOR_CCFLUSH AcquireForCcFlush;
+    PFAST_IO_RELEASE_FOR_CCFLUSH ReleaseForCcFlush;
 } FAST_IO_DISPATCH, *PFAST_IO_DISPATCH;
 
 // end_ntddk
@@ -637,6 +910,7 @@ typedef struct _IO_SECURITY_CONTEXT {
     PSECURITY_QUALITY_OF_SERVICE SecurityQos;
     PACCESS_STATE AccessState;
     ACCESS_MASK DesiredAccess;
+    ULONG FullCreateOptions;
 } IO_SECURITY_CONTEXT, *PIO_SECURITY_CONTEXT;
 
 // end_ntddk end_ntifs
@@ -717,7 +991,6 @@ typedef struct _CONTROLLER_OBJECT {
 // Define Device Object (DO) flags
 //
 
-#define DO_UNLOAD_PENDING               0x00000001
 #define DO_VERIFY_VOLUME                0x00000002
 #define DO_BUFFERED_IO                  0x00000004
 #define DO_EXCLUSIVE                    0x00000008
@@ -768,16 +1041,133 @@ typedef struct _DEVICE_OBJECT {
 
     USHORT SectorSize;
     USHORT Spare1;
-    LARGE_INTEGER Spare2;
 
+    struct _DEVOBJ_EXTENSION  *DeviceObjectExtension;
+    PVOID  Reserved;
 } DEVICE_OBJECT;
 typedef struct _DEVICE_OBJECT *PDEVICE_OBJECT; // ntndis
+
+
+//
+// Define the Device Object Extension Flags
+//
+
+#define DOE_UNLOAD_PENDING              0x00000001
+#define DOE_DELETE_PENDING              0x00000002
+
+typedef struct _DEVOBJ_EXTENSION {
+
+    //
+    //
+    //
+
+    CSHORT          Type;
+    USHORT          Size;
+
+    //
+    // Public part of the DeviceObjectExtension structure
+    //
+
+    PDEVICE_OBJECT  DeviceObject;               // owning device object
+
+#ifdef _PNP_POWER_
+
+    //
+    // Shared Power Management fields
+    //
+
+    ULONG           IdleCount;                  // SHARED field via PoSetDeviceBusy()
+    POWER_STATE     CurrentPowerState;
+    ULONG           CurrentDevicePowerState;
+    BOOLEAN         StartIoQueueHolding;        // PO & IO
+    BOOLEAN         UseAsyncPowerUp;
+    BOOLEAN         PowerControlNeeded;
+    BOOLEAN         PowerControlPagable;
+
+    //
+    // Note: any new shared fields get added here.
+    //
+
+
+// end_ntddk end_nthal end_ntifs
+
+    //
+    // Internal fields for the DeviceObjectExtension.  These fields
+    // are not exported outside the system and no driver or filesystem
+    // will touch them.
+    //
+
+    //
+    // Internal Power Management fields
+    //
+
+    // holding queue for StartIO
+    KDEVICE_QUEUE   DeviceHoldingQueue;
+
+    // power state information
+    LIST_ENTRY      PowerStateChange;
+    POWER_STATE     PendingPowerState;
+    ULONG           PendingDevicePowerState;
+    BOOLEAN         SetPowerUpPending;
+    struct _IRP     *CurrentSetPowerIrp; // shared between PO & IO
+
+    // suspend/hibernate
+    LIST_ENTRY      AllDeviceObjects;
+    BOOLEAN         Suspending;
+
+    // idle state information
+    LIST_ENTRY      IdleList;
+    ULONG           MaxIdleCount;
+
+// begin_ntddk begin_nthal begin_ntifs
+
+#endif // _PNP_POWER_
+
+    //
+    // Device object extension flags.  Protected by the IopDatabaseLock.
+    //
+
+    ULONG ExtensionFlags;
+
+} DEVOBJ_EXTENSION, *PDEVOBJ_EXTENSION;
 
 //
 // Define Driver Object (DRVO) flags
 //
 
 #define DRVO_UNLOAD_INVOKED             0x00000001
+
+typedef struct _DRIVER_EXTENSION {
+
+    //
+    // Back pointer to Driver Object
+    //
+
+    struct _DRIVER_OBJECT *DriverObject;
+
+    //
+    // The AddDevice entry point is called by the Plug & Play manager
+    // to inform the driver when a new device instance arrives that this
+    // driver must control.
+    //
+
+    PDRIVER_ADD_DEVICE AddDevice;
+
+    //
+    // The count field is used to count the number of times the driver has
+    // had its registered reinitialization routine invoked.
+    //
+
+    ULONG Count;
+
+    //
+    // The service name field is used by the pnp manager to determine
+    // where the driver related info is stored in the registry.
+    //
+
+    UNICODE_STRING ServiceKeyName;
+
+} DRIVER_EXTENSION, *PDRIVER_EXTENSION;
 
 typedef struct _DRIVER_OBJECT {
     CSHORT Type;
@@ -801,7 +1191,7 @@ typedef struct _DRIVER_OBJECT {
     PVOID DriverStart;
     ULONG DriverSize;
     PVOID DriverSection;
-    ULONG Count;
+    PDRIVER_EXTENSION DriverExtension;
 
     //
     // The driver name field is used by the error log thread
@@ -838,8 +1228,55 @@ typedef struct _DRIVER_OBJECT {
     PDRIVER_STARTIO DriverStartIo;
     PDRIVER_UNLOAD DriverUnload;
     PDRIVER_DISPATCH MajorFunction[IRP_MJ_MAXIMUM_FUNCTION + 1];
+
 } DRIVER_OBJECT;
 typedef struct _DRIVER_OBJECT *PDRIVER_OBJECT; // ntndis
+
+
+// end_ntddk end_ntifs
+
+//
+// Device Handler Object.   There is one of these objects per PnP
+// device.  This object is given to the device driver as a PVOID
+// and is used by the driver to refer to a particular device.
+//
+
+typedef struct _DEVICE_HANDLER_OBJECT {
+    CSHORT Type;
+    USHORT Size;
+
+    //
+    // Indentifies which bus extender this device handler
+    // object is associated with
+    //
+
+    struct _BUS_HANDLER *BusHandler;
+
+    //
+    // The associated SlotNumber for this device handler
+    //
+
+    ULONG SlotNumber;
+
+// end_nthal
+
+    //
+    // System internal fields
+    //
+
+    //
+    // Pnp stuff
+    //
+
+    UNICODE_STRING ServiceKeyName;
+    ULONG InstanceOrdinal;
+
+// begin_nthal
+
+
+} DEVICE_HANDLER_OBJECT, *PDEVICE_HANDLER_OBJECT;
+
+// begin_ntddk begin_ntifs
 
 //
 // The following structure is pointed to by the SectionObject pointer field
@@ -886,6 +1323,7 @@ typedef struct _IO_COMPLETION_CONTEXT {
 #define FO_OPENED_CASE_SENSITIVE        0x00020000
 #define FO_HANDLE_CREATED               0x00040000
 #define FO_FILE_FAST_IO_READ            0x00080000
+#define FO_FILE_OLE_ACCESS              0x00100000
 
 typedef struct _FILE_OBJECT {
     CSHORT Type;
@@ -937,6 +1375,15 @@ typedef struct _FILE_OBJECT *PFILE_OBJECT; // ntndis
 #define IRP_CLOSE_OPERATION             0x00000400
 #define IRP_DEFER_IO_COMPLETION         0x00000800
 #define IRP_OB_QUERY_NAME               0x00001000
+#define IRP_HOLD_DEVICE_QUEUE           0x00002000
+
+//
+// Define I/O request packet (IRP) alternate flags for allocation control.
+//
+
+#define IRP_QUOTA_CHARGED               0x01
+#define IRP_ALLOCATED_MUST_SUCCEED      0x02
+#define IRP_ALLOCATED_FIXED_SIZE        0x04
 
 //
 // I/O Request Packet (IRP) definition
@@ -1036,10 +1483,10 @@ typedef struct _IRP {
     CCHAR ApcEnvironment;
 
     //
-    // Zoned - packet was allocated from a zone.
+    // Allocation control flags.
     //
 
-    BOOLEAN Zoned;
+    UCHAR AllocationFlags;
 
     //
     // User parameters.
@@ -1086,12 +1533,28 @@ typedef struct _IRP {
 
         struct {
 
-            //
-            // DeviceQueueEntry - The device queue entry field is used to queue
-            // the IRP to the device driver device queue.
-            //
+            union {
 
-            KDEVICE_QUEUE_ENTRY DeviceQueueEntry;
+                //
+                // DeviceQueueEntry - The device queue entry field is used to
+                // queue the IRP to the device driver device queue.
+                //
+
+                KDEVICE_QUEUE_ENTRY DeviceQueueEntry;
+
+                struct {
+
+                    //
+                    // The following are available to the driver to use in
+                    // whatever manner is desired, while the driver owns the
+                    // packet.
+                    //
+
+                    PVOID DriverContext[4];
+
+                } ;
+
+            } ;
 
             //
             // Thread - pointer to caller's Thread Control Block.
@@ -1100,7 +1563,7 @@ typedef struct _IRP {
             PETHREAD Thread;
 
             //
-            // Auxillary buffer - pointer to any auxillary buffer that is
+            // Auxiliary buffer - pointer to any auxiliary buffer that is
             // required to pass information to a driver that is not contained
             // in a normal buffer.
             //
@@ -1371,13 +1834,14 @@ typedef struct _IO_STACK_LOCATION {
             ULONG Length;
             FILE_INFORMATION_CLASS FileInformationClass;
             PFILE_OBJECT FileObject;
-        union {
-        struct {
-            BOOLEAN ReplaceIfExists;
-            BOOLEAN AdvanceOnly;
-        };
-        ULONG ClusterCount;
-        };
+            union {
+                struct {
+                    BOOLEAN ReplaceIfExists;
+                    BOOLEAN AdvanceOnly;
+                };
+                ULONG ClusterCount;
+                HANDLE DeleteHandle;
+            };
         } SetFile;
 
 // end_ntddk end_nthal
@@ -1525,6 +1989,34 @@ typedef struct _IO_STACK_LOCATION {
             struct _SCSI_REQUEST_BLOCK *Srb;
         } Scsi;
 
+#ifdef _PNP_POWER_
+        //
+        // Parameters for device power control.
+        //
+
+        struct {
+            POWER_STATE PowerState;
+            ULONG DevicePowerState;
+        } SetPower;
+
+        //
+        // Parameters for device removal irp
+        //
+
+        struct {
+            PDEVICE_OBJECT DeviceToRemove;
+        } RemoveDevice;
+
+#endif // _PNP_POWER_
+
+        //
+        // Parameters for StartDevice
+        //
+
+        struct {
+            PCM_RESOURCE_LIST AllocatedResources;
+        } StartDevice;
+
         //
         // Parameters for Cleanup
         //
@@ -1631,7 +2123,6 @@ typedef struct _CONFIGURATION_INFORMATION {
 
 // end_ntddk end_nthal
 
-
 //
 // The following are global counters used by the I/O system to indicate the
 // amount of I/O being performed in the system.  The first three counters
@@ -1647,7 +2138,6 @@ extern ULONG IoOtherOperationCount;
 extern LARGE_INTEGER IoReadTransferCount;
 extern LARGE_INTEGER IoWriteTransferCount;
 extern LARGE_INTEGER IoOtherTransferCount;
-
 
 //
 // It is difficult for cached file systems to properly charge quota
@@ -1801,6 +2291,12 @@ IoAttachDevice(
 NTKERNELAPI
 NTSTATUS
 IoAttachDeviceByPointer(
+    IN PDEVICE_OBJECT SourceDevice,
+    IN PDEVICE_OBJECT TargetDevice
+    );
+
+PDEVICE_OBJECT
+IoAttachDeviceToDeviceStack(
     IN PDEVICE_OBJECT SourceDevice,
     IN PDEVICE_OBJECT TargetDevice
     );
@@ -1990,6 +2486,13 @@ IoCreateStreamFileObject(
 // begin_ntddk begin_nthal
 
 NTKERNELAPI
+PKEVENT
+IoCreateNotificationEvent(
+    IN PUNICODE_STRING EventName,
+    OUT PHANDLE EventHandle
+    );
+
+NTKERNELAPI
 NTSTATUS
 IoCreateSymbolicLink(
     IN PUNICODE_STRING SymbolicLinkName,
@@ -2075,6 +2578,20 @@ IoEnqueueIrp(
     IN PIRP Irp
     );
 
+// begin_ntsrv
+
+NTKERNELAPI
+BOOLEAN
+IoFastQueryNetworkAttributes(
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    IN ACCESS_MASK DesiredAccess,
+    IN ULONG OpenOptions,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    OUT PFILE_NETWORK_OPEN_INFORMATION Buffer
+    );
+
+// end_ntsrv
+
 // begin_ntddk begin_nthal
 
 NTKERNELAPI
@@ -2101,6 +2618,12 @@ NTKERNELAPI
 PDEVICE_OBJECT
 IoGetAttachedDevice(
     IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTKERNELAPI
+PDEVICE_OBJECT
+IoGetBaseFileSystemDeviceObject(
+    IN PFILE_OBJECT FileObject
     );
 
 NTKERNELAPI                                 // ntddk nthal
@@ -2206,6 +2729,31 @@ PVOID
 IoGetInitialStack(
     VOID
     );
+
+NTKERNELAPI
+VOID
+IoGetStackLimits (
+    OUT PULONG LowLimit,
+    OUT PULONG HighLimit
+    );
+
+
+//
+//  The following function is used to tell the caller how much stack is available
+//
+
+__inline
+ULONG
+IoGetRemainingStackSize (
+    VOID
+    )
+{
+    ULONG Top;
+    ULONG Bottom;
+
+    IoGetStackLimits( &Bottom, &Top );
+    return((ULONG)(&Top) - Bottom );
+}
 
 //++
 //
@@ -2475,7 +3023,17 @@ IoQueryVolumeInformation(
     OUT PULONG ReturnedLength
     );
 
-// begin_ntddk begin_nthal
+// end_ntifs
+// begin_ntsrv
+
+NTKERNELAPI
+VOID
+IoQueueThreadIrp(
+    IN PIRP Irp
+    );
+
+// end_ntsrv
+// begin_ntddk begin_nthal begin_ntifs
 
 NTKERNELAPI
 VOID
@@ -2486,11 +3044,17 @@ IoRaiseHardError(
     );
 
 NTKERNELAPI
-VOID
+BOOLEAN
 IoRaiseInformationalHardError(
     IN NTSTATUS ErrorStatus,
     IN PUNICODE_STRING String OPTIONAL,
     IN PKTHREAD Thread OPTIONAL
+    );
+
+NTKERNELAPI
+BOOLEAN
+IoSetThreadHardErrorMode(
+    IN BOOLEAN EnableHardErrors
     );
 
 NTKERNELAPI
@@ -2509,6 +3073,13 @@ IoRegisterFileSystem(
     IN OUT PDEVICE_OBJECT DeviceObject
     );
 
+NTKERNELAPI
+NTSTATUS
+IoRegisterFsRegistrationChange(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDRIVER_FS_NOTIFICATION DriverNotificationRoutine
+    );
+
 // begin_ntddk begin_nthal
 
 NTKERNELAPI
@@ -2522,6 +3093,23 @@ VOID
 IoReleaseCancelSpinLock(
     IN KIRQL Irql
     );
+
+#if _PNP_POWER_
+
+NTKERNELAPI
+VOID
+IoHoldDeviceQueue (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN struct _IRP *Irp
+    );
+
+NTKERNELAPI
+VOID
+IoReleaseStartIoHoldingQueue (
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+#endif
 
 // end_ntddk end_nthal
 
@@ -2603,7 +3191,7 @@ IoReportResourceUsage(
 
 //++
 //
-// VOID
+// PDRIVER_CANCEL
 // IoSetCancelRoutine(
 //     IN PIRP Irp,
 //     IN PDRIVER_CANCEL CancelRoutine
@@ -2623,16 +3211,12 @@ IoReportResourceUsage(
 //
 // Return Value:
 //
-//     None.
-//
-// Note:
-//
-//     The I/O cancel spin lock must be held when this routine is invoked.
+//     Previous value of CancelRoutine field in the IRP.
 //
 //--
 
 #define IoSetCancelRoutine( Irp, NewCancelRoutine ) (  \
-    (Irp)->CancelRoutine = (NewCancelRoutine) )
+    (PDRIVER_CANCEL) InterlockedExchange( (PLONG) &(Irp)->CancelRoutine, (LONG) (NewCancelRoutine) ) )
 
 //++
 //
@@ -2858,6 +3442,13 @@ IoUnregisterFileSystem(
     IN OUT PDEVICE_OBJECT DeviceObject
     );
 
+NTKERNELAPI
+VOID
+IoUnregisterFsRegistrationChange(
+    IN PDRIVER_OBJECT DriverObject,
+    IN PDRIVER_FS_NOTIFICATION DriverNotificationRoutine
+    );
+
 // begin_ntddk begin_nthal
 
 NTKERNELAPI
@@ -2883,13 +3474,14 @@ IoVerifyVolume(
     );
 
 NTKERNELAPI
-VOID
+BOOLEAN
 IoWriteCrashDump(
     IN ULONG BugCheckCode,
     IN ULONG BugCheckParameter1,
     IN ULONG BugCheckParameter2,
     IN ULONG BugCheckParameter3,
-    IN ULONG BugCheckParameter4
+    IN ULONG BugCheckParameter4,
+    IN PVOID Context
     );
 
 NTKERNELAPI                                     // ntddk nthal
@@ -2901,4 +3493,3 @@ IoWriteErrorLogEntry(                           // ntddk nthal
 //end_ntifs
 
 #endif // _IO_
-

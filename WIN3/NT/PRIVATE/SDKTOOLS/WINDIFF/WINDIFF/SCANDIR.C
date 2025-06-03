@@ -100,6 +100,7 @@ struct diritem {
         DWORD checksum;         /* checksum of file */
         FILETIME ft_lastwrite;  /* last write time, set whenever size is set */
         BOOL sumvalid;          /* TRUE if checksum calculated */
+        BOOL fileerror;	        // true if some file error occurred
         struct direct FAR * direct; /* containing directory */
         LPSTR localname;        /* name of temp copy of file */
         BOOL bLocalIsTemp;      /* true if localname is tempfile. not
@@ -565,6 +566,8 @@ dir_findnextfile(DIRLIST dl, DIRECT curdir)
 {
         DIRITEM curfile;
 
+        if (bAbort) return NULL;  /* user requested abort */
+
         if ((dl == NULL) || (curdir == NULL)) {
                 return(NULL);
         }
@@ -727,8 +730,10 @@ DIRLIST dir_getlist(DIRITEM item)
         }
 }
 
+
 /*
  * return the name of the current file relative to tree root
+ * This allocates storage.  Call dir_freerelname to release it.
  */
 LPSTR
 dir_getrelname(DIRITEM cur)
@@ -774,10 +779,6 @@ dir_freerelname(DIRITEM cur, LPSTR name)
                 }
         }
 } /* dir_freerelname */
-
-
-
-
 
 
 /*
@@ -937,11 +938,62 @@ dir_closefile(DIRITEM item, int fh)
 
 
 
+/* Recreate all the checksums and status for di as though
+   it had never been looked at before
+*/
+void dir_rescanfile(DIRITEM di)
+{
+    LPSTR fullname;
+
+    if (di==NULL) return;
+
+    /* start with it invalid, erroneous and zero */
+    di->sumvalid = FALSE;
+    di->fileerror = TRUE;
+    di->checksum = 0;
+
+    fullname = dir_getopenname(di);
+    if ( di->direct->head->bRemote) {
+        LPSTR fname;
+
+        fname = gmem_get(hHeap, MAX_PATH);
+        lstrcpy(fname, di->direct->head->rootname);
+        // relname is empty for remote names - just add
+        // the rootname and the name to make a complete
+        // remote name, and then make a local copy of this.
+
+        /* avoid the . or .\ at the start of the relname */
+        if (fname[lstrlen(fname) -1] == '\\') {
+            lstrcat(fname, &di->name[2]);
+        } else {
+            lstrcat(fname, &di->name[1]);
+        }
+        di->direct->head->hpipe = ss_connect( di->direct->head->server);
+        di->fileerror = !ss_checksum_remote( di->direct->head->hpipe, fname
+                                           , &(di->checksum), &(di->ft_lastwrite), &(di->size));
+    }
+    else {
+        di->size = dir_getpathsizeetc(fullname, &(di->ft_lastwrite));
+        di->checksum = dir_getchecksum(di);
+    }
+
+    dir_freeopenname(di, fullname);
+
+    di->sumvalid = !(di->fileerror);
+
+} /* dir_rescanfile */
+
 
 /* return a TRUE iff item has a valid checksum */
 BOOL dir_validchecksum(DIRITEM item)
 {
         return (item!=NULL) && (item->sumvalid);
+}
+
+
+BOOL dir_fileerror(DIRITEM item)
+{
+    return (item == NULL) || (item->fileerror);
 }
 
 
@@ -976,7 +1028,9 @@ dir_getchecksum(DIRITEM cur)
                         cur->checksum = checksum_file(fullname, &err);
                         if (err==0) {
                             cur->sumvalid = TRUE;
+                            cur->fileerror = FALSE;
                         } else {
+                            cur->fileerror = TRUE;
                             return 0;
                         }
 
@@ -1138,18 +1192,14 @@ static int nLocalCopies;        /* cleared in startcopy, ++d in copy
                                 */
 
 /* start a bulk copy */
-BOOL dir_startcopy(DIRLIST dl, HFILE hfLog)
+BOOL dir_startcopy(DIRLIST dl)
 {
         nLocalCopies = 0;
 #ifdef WIN32
 
 
         if (dl->bRemote) {
-            return  ss_startcopy( dl->server,
-                              dl->uncname,
-                              dl->password,
-                              hfLog
-                              );
+            return  ss_startcopy( dl->server,dl->uncname,dl->password);
         } else
 #endif
         {
@@ -1178,7 +1228,7 @@ int dir_endcopy(DIRLIST dl)
 /* Build the real path from item and newroot into newpath.
  * Create directories as needed so that it is valid.
  * If mkdir fails, return FALSE, but return the full path that we were
- * trying to make anyway.  (Log file may need to log what failed).
+ * trying to make anyway.
  */
 BOOL dir_MakeValidPath(LPSTR newpath, DIRITEM item, LPSTR newroot)
 {
@@ -1227,8 +1277,8 @@ BOOL dir_MakeValidPath(LPSTR newpath, DIRITEM item, LPSTR newroot)
                                 }
                         }
 
-         // now insert the backslash
-         lstrcat(pdest, "\\");
+                        // now insert the backslash
+                        lstrcat(pdest, "\\");
                 }
 
                 /* found another element ending in slash. incr past the \\ */
@@ -1256,7 +1306,7 @@ BOOL dir_MakeValidPath(LPSTR newpath, DIRITEM item, LPSTR newroot)
  *
  * returns TRUE for success and FALSE for failure.
  */
-BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttributes, HFILE hfLog)
+BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttributes)
 {
         /*
          * newpath must be static for Win 3.1 so that it is in the
@@ -1295,13 +1345,9 @@ BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttribut
                                         (LPSTR) newpath);
 
                         windiff_UI(TRUE);
-                        if (HitReadOnly) {
-                            windiff_UI(FALSE);
-                            SetFileAttributes(newpath, fa & ~FILE_ATTRIBUTE_READONLY);
-                            DeleteFile(newpath);
-                        }
-                        else if (MessageBox(hwndClient, msg, "Copy Files",
-                            MB_OKCANCEL|MB_ICONSTOP) == IDOK) {
+                        if ((HitReadOnly)
+			    || (MessageBox(hwndClient, msg, "Copy Files",
+                            MB_OKCANCEL|MB_ICONSTOP) == IDOK)) {
                                 windiff_UI(FALSE);
                                 SetFileAttributes(newpath, fa & ~FILE_ATTRIBUTE_READONLY);
                                 DeleteFile(newpath);
@@ -1324,6 +1370,10 @@ BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttribut
                 }
                 if (bOK) {
                         ++nLocalCopies;
+        	        if (CopyNoAttributes) {
+        	            // kill the attributes preserved by CopyFile
+        	            SetFileAttributes(newpath, FILE_ATTRIBUTE_NORMAL);
+			}
                 }
                 else {
                         char fullname[MAX_PATH];
@@ -1354,6 +1404,9 @@ BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttribut
                         /*
                          * remember the local copy name so that he can
                          * now rapidly expand the file also.
+			 * It is more difficult to clear the remotely
+			 * copied attributes as we do not know here
+			 * when the file copy has completed.
                          */
                         item->localname = gmem_get(hHeap, MAX_PATH);
                         lstrcpy(item->localname, newpath);
@@ -1370,39 +1423,71 @@ BOOL dir_copy(DIRITEM item, LPSTR newroot, BOOL HitReadOnly, BOOL CopyNoAttribut
 
 
 #ifdef WIN32
-
-                bOK = CopyFile(pOpenName, newpath, FALSE);
-		// The attributes are copied by CopyFile
-
-                /* having copied the file, now copy the times */
-                hfile = CreateFile(pOpenName, GENERIC_READ, 0, NULL,
-                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                /*
-                 * bug in GetFileInformationByHandle causes trap if
-                 * file is not on local machine (in build 297).
-                 * code around:
+                /* if the target file already exists and is readonly,
+                 * warn the user, and delete if ok (remembering to clear
+                 * the read-only flag
                  */
-                //NOT NEEDED
-		//bhfi.dwFileAttributes = GetFileAttributes(pOpenName);
+		bOK = TRUE;
+                fa = GetFileAttributes(newpath);
+                if ( (fa != -1) &&  (fa & FILE_ATTRIBUTE_READONLY)) {
+                        wsprintf(msg, "%s is read-only. Overwrite ?",
+                                        (LPSTR) newpath);
 
-                GetFileTime(hfile, &bhfi.ftCreationTime,
-                                &bhfi.ftLastAccessTime, &bhfi.ftLastWriteTime);
-                CloseHandle(hfile);
+                        windiff_UI(TRUE);
+                        if ((HitReadOnly)
+			    || (MessageBox(hwndClient, msg, "Copy Files",
+                            MB_OKCANCEL|MB_ICONSTOP) == IDOK)) {
+                                windiff_UI(FALSE);
+                                SetFileAttributes(newpath, fa & ~FILE_ATTRIBUTE_READONLY);
+                                DeleteFile(newpath);
+				// This of course is an unsafe copy...
+				// we have deleted the target file before
+				// we copy the new one over the top.
+				// Should we omit the DeleteFile ??
+                        }
+                        else {
+                                windiff_UI(FALSE);
+                                bOK = FALSE; /* don't overwrite */
+				// abort the copy... go and release resources
+                        }
+                }
 
-		// Note: CopyFile does not preserve all the file times...
-                hfile = CreateFile(newpath, GENERIC_WRITE, 0, NULL,
-                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                SetFileTime(hfile, &bhfi.ftCreationTime,
-                                   &bhfi.ftLastAccessTime,
-                                   &bhfi.ftLastWriteTime);
-                CloseHandle(hfile);
+		if (bOK) {
+                    bOK = CopyFile(pOpenName, newpath, FALSE);
+		}
+		// The attributes are copied by CopyFile
+		if (bOK) {
 
-		if (CopyNoAttributes) {
-		    // Prepare to kill the attributes...
-		    SetFileAttributes(newpath, FILE_ATTRIBUTE_NORMAL);
-		} else {
-		    // Attributes were preserved by CopyFile
-		    //SetFileAttributes(newpath, bhfi.dwFileAttributes);
+                    /* having copied the file, now copy the times */
+                    hfile = CreateFile(pOpenName, GENERIC_READ, 0, NULL,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                    /*
+                     * bug in GetFileInformationByHandle causes trap if
+                     * file is not on local machine (in build 297).
+                     * code around:
+                     */
+                    //NOT NEEDED
+		    //bhfi.dwFileAttributes = GetFileAttributes(pOpenName);
+
+                    GetFileTime(hfile, &bhfi.ftCreationTime,
+                                    &bhfi.ftLastAccessTime, &bhfi.ftLastWriteTime);
+                    CloseHandle(hfile);
+
+		    // Note: CopyFile does not preserve all the file times...
+                    hfile = CreateFile(newpath, GENERIC_WRITE, 0, NULL,
+                                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                    SetFileTime(hfile, &bhfi.ftCreationTime,
+                                       &bhfi.ftLastAccessTime,
+                                       &bhfi.ftLastWriteTime);
+                    CloseHandle(hfile);
+
+		    if (CopyNoAttributes) {
+			// Prepare to kill the attributes...
+			SetFileAttributes(newpath, FILE_ATTRIBUTE_NORMAL);
+		    } else {
+			// Attributes were preserved by CopyFile
+			//SetFileAttributes(newpath, bhfi.dwFileAttributes);
+		    }
 		}
 
 #else
@@ -1688,7 +1773,12 @@ dir_scan(DIRECT dir, BOOL bRecurse)
         size += lstrlen(dir->relname);
 
         /* add on one null and \*.* */
-        size += 5;
+	// in fact, we need space for pPattern instead of *.* but add an
+	// extra few in case pPattern is less than *.*
+	if (dir->head->pPattern != NULL) {
+	    size += lstrlen(dir->head->pPattern);
+	}
+	size += 5;
 
         path = LocalLock(LocalAlloc(LHND, size));
         completepath = LocalLock(LocalAlloc(LHND, size));
@@ -1748,6 +1838,7 @@ dir_scan(DIRECT dir, BOOL bRecurse)
                         dir_adddirect(dir, name);
                     }
                 }
+                if (bAbort) break;  /* User requested abort */
 
 #ifdef WIN32
                 bMore = FindNextFile(hFind, &finddata);
@@ -1790,6 +1881,7 @@ dir_scan(DIRECT dir, BOOL bRecurse)
 
 
         while (bMore) {
+                if (bAbort) break;  /* user requested abort */
 
 #ifdef WIN32
                 bIsDir = (finddata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
@@ -1802,24 +1894,24 @@ dir_scan(DIRECT dir, BOOL bRecurse)
                 filesize = fs.size;
                 ft.dwHighDateTime = 0;
 
-      {
-          // separate out the hour, mins, and secs etc from
-          // the date and time, and conver to time_t
-          struct tm tm;
+                {
+                    // separate out the hour, mins, and secs etc from
+                    // the date and time, and conver to time_t
+                    struct tm tm;
 
-          tm.tm_sec = (fs.wr_time & 0x1f) * 2;
-          tm.tm_min = (fs.wr_time & 0x7e0) >>5;
-          tm.tm_hour = (fs.wr_time & 0xf800) >> 11;
-          tm.tm_mday = fs.wr_date & 0x1f;
+                    tm.tm_sec = (fs.wr_time & 0x1f) * 2;
+                    tm.tm_min = (fs.wr_time & 0x7e0) >>5;
+                    tm.tm_hour = (fs.wr_time & 0xf800) >> 11;
+                    tm.tm_mday = fs.wr_date & 0x1f;
 
-          // month is 1-12: need 0-11
-          tm.tm_mon = ((fs.wr_date & 0x1e0) >> 5) - 1;
+                    // month is 1-12: need 0-11
+                    tm.tm_mon = ((fs.wr_date & 0x1e0) >> 5) - 1;
 
-          // year 0 is 1980 - convert to 1900 base
-          tm.tm_year = ((fs.wr_date & 0xfe00) >> 9) + 80;
+                    // year 0 is 1980 - convert to 1900 base
+                    tm.tm_year = ((fs.wr_date & 0xfe00) >> 9) + 80;
 
-          ft.dwLowDateTime = mktime(&tm);
-      }
+                    ft.dwLowDateTime = mktime(&tm);
+                }
 
 #endif
                 if (!bIsDir) {
@@ -1845,6 +1937,7 @@ dir_scan(DIRECT dir, BOOL bRecurse)
 
         if (bRecurse) {
                 List_TRAVERSE(dir->directs, child) {
+                        if (bAbort) break;  /* user requested abort */
                         dir_scan(child, TRUE);
                 }
         }
@@ -1868,18 +1961,32 @@ dir_addfile(DIRECT dir, LPSTR path, DWORD size, FILETIME ft)
 
         AnsiLowerBuff(path, lstrlen(path));  // needless?
 
-        List_TRAVERSE(dir->diritems, pfile) {
-                /////if (lstrcmpi(pfile->name, path) > 0) {
-                if (utils_CompPath(pfile->name, path) > 0) {
 
-                        /* goes before this one */
-                        pfile = List_NewBefore(dir->diritems, pfile, sizeof(struct diritem));
-                        dir_fileinit(pfile, dir, path, size, ft);
-                        return;
+
+        /* The names are often (always?) handed to us in alphabetical order.
+           It therefore is silly traversing the list from the start.  MikeTri
+           noticed a marked slowing down after the first few thousand files
+           of a large (remote) diff.  Did over 4000 in the first hour, but only
+           1500 in the second hour.  Reverse scan seems to fix it.
+        */
+#define SCANREVERSEORDER
+#if defined(SCANREVERSEORDER)
+        List_REVERSETRAVERSE(dir->diritems, pfile) {
+                if (utils_CompPath(pfile->name, path) <= 0) {
+                        break;     /* goes after this one */
                 }
         }
-        /* goes at end */
-        pfile = List_NewLast(dir->diritems, sizeof(struct diritem));
+        /* goes after pfile, NULL => goes at start */
+        pfile = List_NewAfter(dir->diritems, pfile, sizeof(struct diritem));
+#else
+        List_TRAVERSE(dir->diritems, pfile) {
+                if (utils_CompPath(pfile->name, path) > 0) {
+                        break;    /* goes before this one */
+                }
+        }
+        /* goes before pfile, NULL => goes at end */
+        pfile = List_NewBefore(dir->diritems, pfile, sizeof(struct diritem));
+#endif
         dir_fileinit(pfile, dir, path, size, ft);
 } /* dir_addfile */
 
@@ -2314,7 +2421,13 @@ dir_remoteinit(DIRLIST dl, LPSTR server, LPSTR path, BOOL fDeep)
                 return(FALSE);
 
         case SSRESP_ERROR:
-                wsprintf(msg, "Checksum server could not read %s", resp.szFile);
+                if (resp.ulSize!=0) {
+                    wsprintf( msg, "Checksum server could not read %s win32 code %d"
+                            , resp.szFile, resp.ulSize
+                            );
+                }
+                else
+                    wsprintf(msg, "Checksum server could not read %s", resp.szFile);
                 TRACE_ERROR(msg, FALSE);
 
                 /* error as first response means we are getting a null list -
@@ -2335,6 +2448,9 @@ dir_remoteinit(DIRLIST dl, LPSTR server, LPSTR path, BOOL fDeep)
                 pfile->name = gmem_get(hHeap, lstrlen(resp.szFile)+1);
                 lstrcpy(pfile->name, resp.szFile);
                 AnsiLowerBuff(pfile->name, lstrlen(pfile->name));
+
+		// mark the file as having an error
+                pfile->fileerror = TRUE;
 
                 pfile->direct = dl->dot;
                 pfile->size = resp.ulSize;
@@ -2362,6 +2478,9 @@ dir_remoteinit(DIRLIST dl, LPSTR server, LPSTR path, BOOL fDeep)
                 pfile->ft_lastwrite = resp.ft_lastwrite;
                 pfile->checksum = resp.ulSum;
                 pfile->sumvalid = dl->bSum;
+
+		// no errors yet
+                pfile->fileerror = FALSE;
 
 #ifdef WIN32
                 pfile->localname = NULL;
@@ -2445,7 +2564,9 @@ dir_remotenext(DIRLIST dl, DIRITEM cur)
                 case SSRESP_ERROR:
                 case SSRESP_CANTOPEN:
                         /* alloc a new item at end of list */
-                        /* same as next case now except sumvalid is FALSE */
+                        /* same as next case now except sumvalid is FALSE
+                         * and fileerror is true
+                         */
                         pfile = List_NewLast(dl->dot->diritems, sizeof(struct diritem));
 
                         /* make copy of lowercased filename */
@@ -2458,6 +2579,7 @@ dir_remotenext(DIRLIST dl, DIRITEM cur)
                         pfile->ft_lastwrite = resp.ft_lastwrite;
                         pfile->checksum = resp.ulSum;
                         pfile->sumvalid = FALSE;
+                        pfile->fileerror = TRUE;
 #ifdef WIN32
                         pfile->localname = NULL;
 #endif
@@ -2477,6 +2599,7 @@ dir_remotenext(DIRLIST dl, DIRITEM cur)
                         pfile->ft_lastwrite = resp.ft_lastwrite;
                         pfile->checksum = resp.ulSum;
                         pfile->sumvalid = dl->bSum;
+                        pfile->fileerror = FALSE;
 #ifdef WIN32
                         pfile->localname = NULL;
 #endif
@@ -2489,6 +2612,7 @@ dir_remotenext(DIRLIST dl, DIRITEM cur)
                 }
         }
 #endif
-        return(NULL);
+        // return(NULL); - unreachable!
 } /* dir_remotenext */
+
 

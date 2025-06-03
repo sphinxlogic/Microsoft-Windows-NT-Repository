@@ -486,6 +486,12 @@ Return Value:
 
     MsAcquireGlobalLock();
     MsReferenceNode ( &Vcb->Header );
+    if (Vcb->Header.ReferenceCount == 2) {
+        //
+        // Set the driver paging back to normal
+        //
+        MmResetDriverPaging(MsCreateFcb);
+    }
     MsReleaseGlobalLock();
 
     fcb->CreatorProcess =  CreatorProcess;
@@ -862,6 +868,13 @@ Return Value:
                    DEBUG_TRACE_REFCOUNT,
                    "Reference count = %lx\n",
                    Vcb->Header.ReferenceCount );
+
+        if (Vcb->Header.ReferenceCount == 1) {
+            //
+            // Set driver to be paged completely out
+            //
+            MmPageEntireDriver(MsDereferenceVcb);
+        }
 
         MsReleaseGlobalLock();
 

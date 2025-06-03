@@ -60,14 +60,31 @@ Return Value:
     PUCHAR DataAddress;
 
     union {
+        ULONGLONG Longlong;
         ULONG Long;
-        SHORT Short;
+        USHORT Short;
     } DataReference;
 
     PUCHAR DataValue;
     PVOID ExceptionAddress;
     MIPS_INSTRUCTION FaultInstruction;
     ULONG Rt;
+    KIRQL  OldIrql;
+
+    //
+    // If alignment profiling is active, then call the proper profile
+    // routine.
+    //
+
+    if (KiProfileAlignmentFixup) {
+        KiProfileAlignmentFixupCount += 1;
+        if (KiProfileAlignmentFixupCount >= KiProfileAlignmentFixupInterval) {
+            KeRaiseIrql(PROFILE_LEVEL, &OldIrql);
+            KiProfileAlignmentFixupCount = 0;
+            KeProfileInterruptWithSource(TrapFrame, ProfileAlignmentFixup);
+            KeLowerIrql(OldIrql);
+        }
+    }
 
     //
     // Save the original exception address in case another exception
@@ -109,14 +126,19 @@ Return Value:
         //
 
         FaultInstruction.Long = *((PULONG)ExceptionRecord->ExceptionAddress);
-        DataAddress = (PUCHAR)KiGetRegisterValue(FaultInstruction.i_format.Rs,
-                                                 ExceptionFrame,
-                                                 TrapFrame);
+        DataAddress = (PUCHAR)KiGetRegisterValue64(FaultInstruction.i_format.Rs,
+                                                   ExceptionFrame,
+                                                   TrapFrame);
 
         DataAddress = (PUCHAR)((LONG)DataAddress +
                                     (LONG)FaultInstruction.i_format.Simmediate);
 
-        if ((ULONG)DataAddress < MM_USER_PROBE_ADDRESS) {
+        //
+        // The emulated data reference must be in user space and must be less
+        // than 16 types from the end of user space.
+        //
+
+        if ((ULONG)DataAddress < 0x7ffffff0) {
 
             //
             // Dispatch on the opcode value.
@@ -133,10 +155,10 @@ Return Value:
             case LH_OP:
                 DataValue[0] = DataAddress[0];
                 DataValue[1] = DataAddress[1];
-                KiSetRegisterValue(Rt,
-                                   (ULONG)((LONG)DataReference.Short),
-                                   ExceptionFrame,
-                                   TrapFrame);
+                KiSetRegisterValue64(Rt,
+                                     (SHORT)DataReference.Short,
+                                     ExceptionFrame,
+                                     TrapFrame);
 
                 break;
 
@@ -147,10 +169,10 @@ Return Value:
             case LHU_OP:
                 DataValue[0] = DataAddress[0];
                 DataValue[1] = DataAddress[1];
-                KiSetRegisterValue(Rt,
-                                   (ULONG)((USHORT)DataReference.Short),
-                                   ExceptionFrame,
-                                   TrapFrame);
+                KiSetRegisterValue64(Rt,
+                                     DataReference.Short,
+                                     ExceptionFrame,
+                                     TrapFrame);
 
                 break;
 
@@ -159,7 +181,16 @@ Return Value:
                 //
 
             case LWC1_OP:
-                Rt += 32;
+                DataValue[0] = DataAddress[0];
+                DataValue[1] = DataAddress[1];
+                DataValue[2] = DataAddress[2];
+                DataValue[3] = DataAddress[3];
+                KiSetRegisterValue(Rt + 32,
+                                   DataReference.Long,
+                                   ExceptionFrame,
+                                   TrapFrame);
+
+                break;
 
                 //
                 // Load word integer.
@@ -170,10 +201,30 @@ Return Value:
                 DataValue[1] = DataAddress[1];
                 DataValue[2] = DataAddress[2];
                 DataValue[3] = DataAddress[3];
-                KiSetRegisterValue(Rt,
-                                   DataReference.Long,
-                                   ExceptionFrame,
-                                   TrapFrame);
+                KiSetRegisterValue64(Rt,
+                                     (LONG)DataReference.Long,
+                                     ExceptionFrame,
+                                     TrapFrame);
+
+                break;
+
+                //
+                // Load double integer.
+                //
+
+            case LD_OP:
+                DataValue[0] = DataAddress[0];
+                DataValue[1] = DataAddress[1];
+                DataValue[2] = DataAddress[2];
+                DataValue[3] = DataAddress[3];
+                DataValue[4] = DataAddress[4];
+                DataValue[5] = DataAddress[5];
+                DataValue[6] = DataAddress[6];
+                DataValue[7] = DataAddress[7];
+                KiSetRegisterValue64(Rt,
+                                     DataReference.Longlong,
+                                     ExceptionFrame,
+                                     TrapFrame);
 
                 break;
 
@@ -208,9 +259,9 @@ Return Value:
                 //
 
             case SH_OP:
-                DataReference.Long = KiGetRegisterValue(Rt,
-                                                        ExceptionFrame,
-                                                        TrapFrame);
+                DataReference.Longlong = KiGetRegisterValue64(Rt,
+                                                              ExceptionFrame,
+                                                              TrapFrame);
 
                 DataAddress[0] = DataValue[0];
                 DataAddress[1] = DataValue[1];
@@ -221,14 +272,7 @@ Return Value:
                 //
 
             case SWC1_OP:
-                Rt += 32;
-
-                //
-                // Store word integer.
-                //
-
-            case SW_OP:
-                DataReference.Long = KiGetRegisterValue(Rt,
+                DataReference.Long = KiGetRegisterValue(Rt + 32,
                                                         ExceptionFrame,
                                                         TrapFrame);
 
@@ -236,6 +280,40 @@ Return Value:
                 DataAddress[1] = DataValue[1];
                 DataAddress[2] = DataValue[2];
                 DataAddress[3] = DataValue[3];
+                break;
+
+                //
+                // Store word integer.
+                //
+
+            case SW_OP:
+                DataReference.Longlong = KiGetRegisterValue64(Rt,
+                                                              ExceptionFrame,
+                                                              TrapFrame);
+
+                DataAddress[0] = DataValue[0];
+                DataAddress[1] = DataValue[1];
+                DataAddress[2] = DataValue[2];
+                DataAddress[3] = DataValue[3];
+                break;
+
+                //
+                // Store double integer.
+                //
+
+            case SD_OP:
+                DataReference.Longlong = KiGetRegisterValue64(Rt,
+                                                              ExceptionFrame,
+                                                              TrapFrame);
+
+                DataAddress[0] = DataValue[0];
+                DataAddress[1] = DataValue[1];
+                DataAddress[2] = DataValue[2];
+                DataAddress[3] = DataValue[3];
+                DataAddress[4] = DataValue[4];
+                DataAddress[5] = DataValue[5];
+                DataAddress[6] = DataValue[6];
+                DataAddress[7] = DataValue[7];
                 break;
 
                 //
@@ -295,4 +373,3 @@ Return Value:
 
     return FALSE;
 }
-

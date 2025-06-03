@@ -37,6 +37,11 @@ ObInitProcess(
     );
 
 VOID
+ObInitProcess2(
+    PEPROCESS NewProcess
+    );
+
+VOID
 ObKillProcess(
     BOOLEAN AcquireLock,
     PEPROCESS Process
@@ -201,7 +206,30 @@ typedef struct _OBJECT_DIRECTORY {
     struct _OBJECT_DIRECTORY_ENTRY *HashBuckets[ NUMBER_HASH_BUCKETS ];
     struct _OBJECT_DIRECTORY_ENTRY **LookupBucket;
     BOOLEAN LookupFound;
+    USHORT SymbolicLinkUsageCount;
 } OBJECT_DIRECTORY, *POBJECT_DIRECTORY;
+
+//
+// Object Directory Entry Structure
+//
+typedef struct _OBJECT_DIRECTORY_ENTRY {
+    struct _OBJECT_DIRECTORY_ENTRY *ChainLink;
+    PVOID Object;
+} OBJECT_DIRECTORY_ENTRY, *POBJECT_DIRECTORY_ENTRY;
+
+
+//
+// Symbolic Link Object Structure
+//
+
+typedef struct _OBJECT_SYMBOLIC_LINK {
+    LARGE_INTEGER CreationTime;
+    UNICODE_STRING LinkTarget;
+    UNICODE_STRING LinkTargetRemaining;
+    PVOID LinkTargetObject;
+    ULONG DosDeviceDriveIndex;  // 1-based index into KUSER_SHARED_DATA.DosDeviceDriveType
+} OBJECT_SYMBOLIC_LINK, *POBJECT_SYMBOLIC_LINK;
+
 
 //
 // Object Handle Count Database
@@ -234,25 +262,6 @@ typedef struct _OBJECT_HANDLE_COUNT_DATABASE {
 //
 //
 
-//
-// Two fields are accessed using the ObpLock spin lock and therefore
-// must be in nonpaged pool.  Store them in a separate structure pointed
-// to by a field in the object header.
-//
-// N.B. The pad fields are used to overlay an executive worker item.
-//
-
-typedef struct _NONPAGED_OBJECT_HEADER {
-    PVOID Object;
-    union {
-        struct {
-            LONG PointerCount;
-            LONG HandleCount;
-        };
-        LIST_ENTRY Entry;
-    };
-    POBJECT_TYPE Type;
-} NONPAGED_OBJECT_HEADER, *PNONPAGED_OBJECT_HEADER;
 
 typedef struct _OBJECT_CREATE_INFORMATION {
     ULONG Attributes;
@@ -268,21 +277,25 @@ typedef struct _OBJECT_CREATE_INFORMATION {
 } OBJECT_CREATE_INFORMATION, *POBJECT_CREATE_INFORMATION;
 
 typedef struct _OBJECT_HEADER {
-    ULONG Size : 24;
-    ULONG Flags : 8;
+    union {
+        struct {
+            LONG PointerCount;
+            LONG HandleCount;
+        };
+        LIST_ENTRY Entry;
+    };
+    POBJECT_TYPE Type;
     UCHAR NameInfoOffset;
     UCHAR HandleInfoOffset;
     UCHAR QuotaInfoOffset;
-    UCHAR CreatorInfoOffset;
+    UCHAR Flags;
 
     union {
         POBJECT_CREATE_INFORMATION ObjectCreateInfo;
         PVOID QuotaBlockCharged;
     };
-    PNONPAGED_OBJECT_HEADER NonPagedObjectHeader;
 
     PSECURITY_DESCRIPTOR SecurityDescriptor;
-    PEPROCESS ExclusiveProcess;
 
     QUAD Body;
 } OBJECT_HEADER, *POBJECT_HEADER;
@@ -291,12 +304,14 @@ typedef struct _OBJECT_HEADER_QUOTA_INFO {
     ULONG PagedPoolCharge;
     ULONG NonPagedPoolCharge;
     ULONG SecurityDescriptorCharge;
-    ULONG Reserved;
+    PEPROCESS ExclusiveProcess;
 } OBJECT_HEADER_QUOTA_INFO, *POBJECT_HEADER_QUOTA_INFO;
 
 typedef struct _OBJECT_HEADER_HANDLE_INFO {
-    POBJECT_HANDLE_COUNT_DATABASE HandleCountDataBase;
-    OBJECT_HANDLE_COUNT_DATABASE SingleEntryHandleCountDataBase;
+    union {
+        POBJECT_HANDLE_COUNT_DATABASE HandleCountDataBase;
+        OBJECT_HANDLE_COUNT_ENTRY SingleEntry;
+    };
 } OBJECT_HEADER_HANDLE_INFO, *POBJECT_HEADER_HANDLE_INFO;
 
 typedef struct _OBJECT_HEADER_NAME_INFO {
@@ -312,32 +327,33 @@ typedef struct _OBJECT_HEADER_CREATOR_INFO {
     USHORT Reserved;
 } OBJECT_HEADER_CREATOR_INFO, *POBJECT_HEADER_CREATOR_INFO;
 
-#define OB_FLAG_NEW_OBJECT              0x0001
-#define OB_FLAG_KERNEL_OBJECT           0x0002
-#define OB_FLAG_NAMED_OBJECT            0x0008
-#define OB_FLAG_PERMANENT_OBJECT        0x0010
-#define OB_FLAG_DEFAULT_SECURITY_QUOTA  0x0020
+#define OB_FLAG_NEW_OBJECT              0x01
+#define OB_FLAG_KERNEL_OBJECT           0x02
+#define OB_FLAG_CREATOR_INFO            0x04
+#define OB_FLAG_EXCLUSIVE_OBJECT        0x08
+#define OB_FLAG_PERMANENT_OBJECT        0x10
+#define OB_FLAG_DEFAULT_SECURITY_QUOTA  0x20
+#define OB_FLAG_SINGLE_HANDLE_ENTRY     0x40
 
 #define OBJECT_TO_OBJECT_HEADER( o ) \
     CONTAINING_RECORD( (o), OBJECT_HEADER, Body )
 
-#define OBJECT_TO_NONPAGED_OBJECT_HEADER( o ) \
-    OBJECT_TO_OBJECT_HEADER( (o) )->NonPagedObjectHeader
-
-#define OBJECT_HEADER_TO_QUOTA_INFO( oh ) (POBJECT_HEADER_QUOTA_INFO) \
-    ((oh)->QuotaInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->QuotaInfoOffset))
-
-#define OBJECT_HEADER_TO_HANDLE_INFO( oh ) (POBJECT_HEADER_HANDLE_INFO) \
-    ((oh)->HandleInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->HandleInfoOffset))
-
-#define OBJECT_HEADER_TO_NAME_INFO( oh ) (POBJECT_HEADER_NAME_INFO) \
-    ((oh)->NameInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->NameInfoOffset))
-
-#define OBJECT_HEADER_TO_CREATOR_INFO( oh ) (POBJECT_HEADER_CREATOR_INFO) \
-    ((oh)->CreatorInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->CreatorInfoOffset))
+#define OBJECT_HEADER_TO_EXCLUSIVE_PROCESS( oh ) ((oh->Flags & OB_FLAG_EXCLUSIVE_OBJECT) == 0 ? \
+    NULL : (((POBJECT_HEADER_QUOTA_INFO)((PCHAR)(oh) - (oh)->QuotaInfoOffset))->ExclusiveProcess))
 
 
-// begin_ntifs
+#define OBJECT_HEADER_TO_QUOTA_INFO( oh ) ((POBJECT_HEADER_QUOTA_INFO) \
+    ((oh)->QuotaInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->QuotaInfoOffset)))
+
+#define OBJECT_HEADER_TO_HANDLE_INFO( oh ) ((POBJECT_HEADER_HANDLE_INFO) \
+    ((oh)->HandleInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->HandleInfoOffset)))
+
+#define OBJECT_HEADER_TO_NAME_INFO( oh ) ((POBJECT_HEADER_NAME_INFO) \
+    ((oh)->NameInfoOffset == 0 ? NULL : ((PCHAR)(oh) - (oh)->NameInfoOffset)))
+
+#define OBJECT_HEADER_TO_CREATOR_INFO( oh ) ((POBJECT_HEADER_CREATOR_INFO) \
+    (((oh)->Flags & OB_FLAG_CREATOR_INFO) == 0 ? NULL : ((PCHAR)(oh) - sizeof(OBJECT_HEADER_CREATOR_INFO))))
+
 
 NTKERNELAPI
 NTSTATUS
@@ -349,6 +365,12 @@ ObCreateObjectType(
     );
 
 // begin_nthal
+
+NTKERNELAPI
+VOID
+ObDeleteCapturedInsertInfo(
+    IN PVOID Object
+    );
 
 NTKERNELAPI
 NTSTATUS
@@ -377,7 +399,6 @@ ObInsertObject(
     );
 
 // end_nthal
-// end_ntifs
 
 NTKERNELAPI                                                     // ntddk nthal ntifs
 NTSTATUS                                                        // ntddk nthal ntifs
@@ -433,10 +454,63 @@ ObMakeTemporaryObject(                                          // ntifs
     IN PVOID Object                                             // ntifs
     );                                                          // ntifs
 
+
+BOOLEAN
+ObFindHandleForObject(
+    IN PEPROCESS Process,
+    IN PVOID Object,
+    IN POBJECT_TYPE ObjectType OPTIONAL,
+    IN POBJECT_HANDLE_INFORMATION MatchCriteria OPTIONAL,
+    OUT PHANDLE Handle
+    );
+
+//
+// Object handles consist of two fields:
+//
+//  - handle table index (OBJ_HANDLE_HANDLE_INDEX)       (i=bits 2-31)  30 bits
+//  - user specified bit(s) (OBJ_HANDLE_HANDLE_TAGBITS)  (t=bits 0-1)    2 bits
+//                                                       Total =        32 bits
+//   3         2         1
+//  10987654321098765432109876543210
+//
+//  iiiiiiiiiiiiiiiiiiiiiiiiiiiiiitt
+//
+
+#define OBJ_HANDLE_HANDLE_INDEX_BIT 2
+#define OBJ_HANDLE_HANDLE_INDEX     0xFFFFFFFCL
+
+#define MAKE_OBJECT_HANDLE( handle_index ) (HANDLE)( \
+        ((ULONG)(handle_index) << OBJ_HANDLE_HANDLE_INDEX_BIT) \
+        )
+
+#define OBJ_HANDLE_TO_HANDLE_INDEX( h ) ( \
+        ((ULONG)(h) >> OBJ_HANDLE_HANDLE_INDEX_BIT) \
+        )
+
 // begin_ntddk begin_nthal begin_ntifs
 
-#define ObDereferenceObject(a)                  \
+#define ObDereferenceObject(a)                                     \
         ObfDereferenceObject(a)
+
+#if defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTSRV_) || defined(_NTHAL_)
+
+#define ObReferenceObject(Object) ObfReferenceObject(Object)
+
+NTKERNELAPI
+VOID
+FASTCALL
+ObfReferenceObject(
+    IN PVOID Object
+    );
+
+#else
+
+#define ObReferenceObject(Object) {                                \
+    POBJECT_HEADER ObjectHeader = OBJECT_TO_OBJECT_HEADER(Object); \
+    InterlockedIncrement(&ObjectHeader->PointerCount);             \
+}
+
+#endif
 
 NTKERNELAPI
 NTSTATUS
@@ -514,15 +588,33 @@ ObDumpObjectByPointer(
     IN POB_DUMP_CONTROL Control OPTIONAL
     );
 
-BOOLEAN
-ObCheckCreateInstanceAccess(
+// begin_ntddk begin_ntifs
+NTSTATUS
+ObGetObjectSecurity(
     IN PVOID Object,
-    IN ACCESS_MASK CreateInstanceAccess,
-    IN PACCESS_STATE AccessState,
-    IN BOOLEAN TypeMutexLocked,
-    IN KPROCESSOR_MODE PreviousMode,
-    OUT PNTSTATUS AccessStatus
-   );
+    OUT PSECURITY_DESCRIPTOR *SecurityDescriptor,
+    OUT PBOOLEAN MemoryAllocated
+    );
+
+VOID
+ObReleaseObjectSecurity(
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
+    IN BOOLEAN MemoryAllocated
+    );
+// end_ntddk end_ntifs
+
+NTSTATUS
+ObAssignObjectSecurityDescriptor(
+    IN PVOID Object,
+    IN PSECURITY_DESCRIPTOR SecurityDescriptor OPTIONAL,
+    IN POOL_TYPE PoolType
+    );
+
+NTSTATUS
+ObValidateSecurityQuota(
+    IN PVOID Object,
+    IN ULONG NewSize
+    );
 
 BOOLEAN
 ObCheckCreateObjectAccess(
@@ -536,16 +628,6 @@ ObCheckCreateObjectAccess(
    );
 
 BOOLEAN
-ObCheckTraverseAccess(
-    IN PVOID DirectoryObject,
-    IN ACCESS_MASK TraverseAccess,
-    IN PACCESS_STATE AccessState,
-    IN BOOLEAN TypeMutexLocked,
-    IN KPROCESSOR_MODE PreviousMode,
-    OUT PNTSTATUS AccessStatus
-    );
-
-BOOLEAN
 ObCheckObjectAccess(
     IN PVOID Object,
     IN PACCESS_STATE AccessState,
@@ -554,64 +636,6 @@ ObCheckObjectAccess(
     OUT PNTSTATUS AccessStatus
     );
 
-PSECURITY_DESCRIPTOR
-ObQueryObjectSecurityDescriptor(
-    IN PVOID Object
-    );
-
-NTSTATUS
-ObAssignObjectSecurityDescriptor(
-    IN PVOID Object,
-    IN PSECURITY_DESCRIPTOR SecurityDescriptor OPTIONAL,
-    IN POOL_TYPE PoolType
-    );
-
-NTSTATUS
-ObGetObjectSecurity(
-    IN PVOID Object,
-    OUT PSECURITY_DESCRIPTOR *SecurityDescriptor,
-    OUT PBOOLEAN MemoryAllocated
-    );
-
-VOID
-ObReleaseObjectSecurity(
-    IN PSECURITY_DESCRIPTOR SecurityDescriptor,
-    IN BOOLEAN MemoryAllocated
-    );
-
-VOID
-ObLockSecurityDescriptor(
-    IN PVOID Object
-    );
-
-VOID
-ObUnlockSecurityDescriptor(
-    IN PVOID Object
-    );
-
-NTSTATUS
-ObValidateSecurityQuota(
-    IN PVOID Object,
-    IN ULONG NewSize
-    );
-
-//BOOLEAN
-//ObCheckImplicitObjectAccess(
-//    IN PVOID Object,
-//    IN OUT PACCESS_STATE AccessState,
-//    IN BOOLEAN TypeMutexLocked,
-//    IN KPROCESSOR_MODE AccessMode,
-//    OUT PNTSTATUS AccessStatus
-//    );
-
-BOOLEAN
-ObCheckObjectReference(
-    IN PVOID Object,
-    IN OUT PACCESS_STATE AccessState,
-    IN BOOLEAN TypeMutexLocked,
-    IN KPROCESSOR_MODE AccessMode,
-    OUT PNTSTATUS AccessStatus
-    );
 
 NTSTATUS
 ObAssignSecurity(
@@ -619,6 +643,12 @@ ObAssignSecurity(
     IN PSECURITY_DESCRIPTOR ParentDescriptor OPTIONAL,
     IN PVOID Object,
     IN POBJECT_TYPE ObjectType
+    );
+
+NTSTATUS
+ObQueryObjectAuditingByHandle(
+    IN HANDLE Handle,
+    OUT PBOOLEAN GenerateOnClose
     );
 
 #if DEVL

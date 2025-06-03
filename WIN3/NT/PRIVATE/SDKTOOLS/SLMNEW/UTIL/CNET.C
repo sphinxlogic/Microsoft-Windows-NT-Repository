@@ -2,23 +2,16 @@
  *
  *      Network specific routines for cookie operations
  */
-#if defined(_WIN32)
- #include <windows.h>
- #define INCL_NETUSE
- #define INCL_NETWKSTA
- #include <wcstr.h>
- #define UNICODE
- #include <lm.h>
- #undef UNICODE
- void AnsiToUnicode(LPSTR Ansi, LPWSTR Unicode, INT Size);
- void UnicodeToAnsi(LPWSTR Unicode, LPSTR Ansi, INT Size);
- #include <lmerr.h>
-#elif defined(DOS) || defined(OS2)
- #define INCL_DOS
- #include <os2.h>
- #include <netcons.h>
- #include <use.h>
-#endif
+#include <windows.h>
+#define INCL_NETUSE
+#define INCL_NETWKSTA
+#include <stdlib.h>
+#define UNICODE
+#include <lm.h>
+#undef UNICODE
+void AnsiToUnicode(LPSTR Ansi, LPWSTR Unicode, INT Size);
+void UnicodeToAnsi(LPWSTR Unicode, LPSTR Ansi, INT Size);
+#include <lmerr.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -27,23 +20,15 @@
 
 #include "cookie.h"
 
-#if defined(DOS)
-#include <dos.h>
-#endif
-
 #define enAccessDenied 5
 #define enInvaildPassword 86
 
 char  QpassBuf[32];
 
 int   mkredir(char *, char *);
-int   Make_SLM_Redir(char *);
-int   Check_SLM_Redir(char *);
-int   SLM_endredir(char *);
 char *QuizPass(char *);
 char *FindPass(char *);
 int   PullPass(char *, char *, char *);
-int   DosCheckRedir(char *);
 
  /**************************************************************************
 *
@@ -60,47 +45,16 @@ int   DosCheckRedir(char *);
 *
 ***************************************************************************/
 
-int Make_SLM_Redir(char *Nbase)
+int
+Make_SLM_Redir(
+    char *Nbase
+    )
 {
     int DriveNo;
     char NetBase[LINE_LEN/2];
     int i;
     char *Np;
 
-#if defined(OS2)
-    ULONG Dmap;
-    USHORT Dnum;
-
-    if (DosQCurDisk(&Dnum, &Dmap) != 0)
-        return (-1);
-
-    DriveNo = 4;            /* start with drive D: */
-
-    Dmap = Dmap >> 3;       /* start with drive D: */
-
-    /* Now begin shifting the drive map to find the
-     * first available drive (==0)
-     */
-
-    while (((Dmap & 1) == 1) && DriveNo <= 26)
-        {
-        DriveNo++;
-        Dmap = Dmap >> 1;
-        }
-#elif defined(DOS)
-    int NumDrives, CurrentDrive, OriginalDrive;
-
-    /* find next avail drive */
-    _dos_getdrive(&OriginalDrive);
-    for (DriveNo = 4; DriveNo < 27; DriveNo++)
-        {
-        _dos_setdrive(DriveNo, &NumDrives);
-        _dos_getdrive(&CurrentDrive);
-        if (CurrentDrive != DriveNo)
-            break;
-        }
-    _dos_setdrive(OriginalDrive, &NumDrives);
-#elif defined(_WIN32)
     int     dt;
     char    Drivepath[] = "Z:\\";
 
@@ -116,35 +70,31 @@ int Make_SLM_Redir(char *Nbase)
         return (-1);
 
     DriveNo = Drivepath[0]-'A'+1;
-#endif /* _WIN32 */
 
     SLMdev[0] = (char) ((int) 'A' + DriveNo - 1);
     SLMdev[1] = ':';
     SLMdev[2] = '\0';
 
-    if (strlen(Nbase) >= LINE_LEN/2)
-        {
+    if (strlen(Nbase) >= LINE_LEN/2) {
         if (verbose)
             fprintf(stderr,"SLM base directory path too long.");
         return (-1);
-        }
+    }
 
     strcpy(NetBase,Nbase);
-    if (strncmp(NetBase, "\\\\", 2) == 0 && SLM_Localdrive == 0)
-        {
-        for (i=0,Np=NetBase;;)
-            {
+    if (strncmp(NetBase, "\\\\", 2) == 0 && SLM_Localdrive == 0) {
+        for (i=0,Np=NetBase;;) {
             if ((Np=strchr(Np,'\\')) == NULL)
                 break;
             i++;
-            if (i > 3)
-                {   /* 3 slashes only in \\server\sharename */
+            if (i > 3) {
+                /* 3 slashes only in \\server\sharename */
                 *Np = '\0';
                 break;
-                }
-            Np++;
             }
+            Np++;
         }
+    }
     Nbase = NetBase;
     if (mkredir(SLMdev, Nbase) == 0)
         return (DriveNo);
@@ -152,194 +102,6 @@ int Make_SLM_Redir(char *Nbase)
         return (-1);
 }
 
-#if defined(DOS)
-int DosCheckRedir(char *szPath)
-{
-    char szDev[16], szNetName[128];
-    int  iIndex = -1;
-    int  wRet;
-
-    _asm
-        {
-        push  ds
-        push  es
-        push  si
-        push  di
-
-
-    loop1:
-        mov   ax, 5f02h    /* get redir entry */
-        inc   iIndex
-        mov   bx,iIndex
-        lea   di,word ptr szNetName[0]
-        push  ds
-        pop   es
-        lea   si,word ptr szDev[0]
-        int   21h
-        jc    error
-        push  di
-        push  word ptr szPath
-        call  strcmpi
-        add   sp, 4
-
-        cmp   ax, 0        /* Found a match   */
-        jne   loop1
-        xor   ax,ax
-        mov   bx, si
-        mov   al, byte ptr ds:[bx]
-        push  ax
-        call  toupper      /* Convert drive letter to uppercase */
-        add   sp, 2
-        sub   ax, '@'     /* Convert drive letter to drive number */
-        jmp   noerr
-    error: mov   ax, -1
-    noerr:
-        pop   di
-        pop   si
-        pop   es
-        pop   ds
-        mov   wRet,ax
-        }
-    return (wRet);
-}
-#endif /* DOS */
-
- /**************************************************************************
-*
-*                        Check_SLM_Redir()
-*
-*
-*
-*          parameters-
-*                   Nbase name of base level share for SLM
-*
-*          return-
-*                   Drive number of existing network drive for Nbase or
-*                   -1 if failure
-*
-***************************************************************************/
-
-int
-Check_SLM_Redir(char *Nbase)
-{
-#if defined(DOS) || defined(OS2)
-    char NetBase[LINE_LEN/2];
-    char *Np;
-    int i;
-#if defined(OS2)
-    char EnumList[1024];
-    USHORT Numgiven, Numtotal;
-    struct use_info_0 *u;
-    USHORT  Mres;
-#endif
-
-    if (strlen(Nbase) >= LINE_LEN/2) {
-        if (verbose) fprintf(stderr,"SLM base directory path too long.");
-        return (-1);
-    }
-    strcpy(NetBase,Nbase);
-    if (strncmp(NetBase,"\\\\",2) == 0 && SLM_Localdrive == 0) {
-        for (i=0,Np=NetBase;;) {
-                if ((Np=strchr(Np,'\\')) == NULL)
-                        break;
-                i++;
-                if (i > 3)
-                    {            /* 3 slashes only in \\server\sharename */
-                    *Np = '\0';
-                    break;
-                    }
-                Np++;
-        }
-    }
-    Nbase = NetBase;
-#if defined(OS2)
-    Mres= NetUseEnum((char far *) NULL, (short) 0, (char far *) EnumList,
-                    (USHORT) sizeof(EnumList), (unsigned short far *) &Numgiven,
-                    (unsigned short far *) &Numtotal);
-
-    if (Mres != 0)
-        return (-1);
-
-    u = (struct use_info_0 *) EnumList;
-
-    while (--Numgiven > 0) {
-        char ShareName[64];
-
-        /* imitate strcpy function for far/near ptr combo..
-         * strcpy(ShareName,u->ui0_remote);  <-- small model only
-         */
-        { char far *s, *d;
-                ShareName[0] = '\0';
-                for (s=u->ui0_remote, d=ShareName; *s;) *d++ = *s++;
-                *d = '\0';
-        }
-        strlwr(ShareName);
-        if (strcmp(Nbase,ShareName) == 0) {
-            char Drive;
-            strlwr(u->ui0_local);
-            Drive = *(u->ui0_local);
-            return ( (int) Drive - (int) 'a' + 1);
-        }
-        u++;
-    }
-    return (-1);
-#else
-    return (DosCheckRedir(Nbase));
-#endif
-#elif defined(_WIN32)
-    /*  Since NetUseEnum is a lot of work to implement, it was decided
-     *  that SLM could do without it because this function just checks
-     *  to see if a net connection has already been established.  If
-     *  it determines that there isn't a net connection then it establishes
-     *  one.  In other words, it's trying to be smart and save reconnection.
-     *  But, to save the LAN guys some work we throw away this functionality.
-     */
-    Nbase;
-    return (-1);
-#endif /* _WIN32 */
-}
-
-
-#if defined(DOS)
- /**************************************************************************
-*
-*                       Dosmkredir()
-*
-*          parameters-
-*                   szDev   - Drive to redirect (eg: H:)
-*                   DosPath - UNC path to network drive and password (if any)
-*
-*          return-
-*                   0 if success
-*                   DOS errorcode if failure
-***************************************************************************/
-
-int DosMkredir(char *szDosPath, char *szDev)
-{
-    int     wRet;
-
-    _asm    /* assumes small model */
-        {
-        mov     ax,5f03h        ; redirect device
-        mov     bl,4            ; file device
-        push    ds
-        push    es
-
-        mov     si,word ptr szDev
-        mov     di,word ptr szDosPath
-
-        int     21h
-        pop     es
-        pop     ds
-        jb      mkredir_ret     ; return non-zero if error
-        xor     ax,ax           ; return zero if success
-    mkredir_ret:
-        mov     wRet,ax
-        }
-    return (wRet);
-}
-
-#endif /* DOS */
 
  /**************************************************************************
 *
@@ -356,84 +118,44 @@ int DosMkredir(char *szDosPath, char *szDev)
 *                   -1 if failure
 *
 ***************************************************************************/
-int mkredir(char *szDev, char *pthNet)
+int
+mkredir(
+    char *szDev,
+    char *pthNet
+    )
 {
-    int     UseResult;
-    char    *NetPass;
-#if defined(DOS)
-    char    szDosNet[100];
+    char       *Password;
+    int         i;
+    DWORD       rc;
+    NETRESOURCE nr;
 
-    strcpy(szDosNet, pthNet);
-    strcpy(szDosNet+strlen(szDosNet)+1, "");
-    UseResult = DosMkredir(szDosNet, szDev);
-    if (UseResult == enAccessDenied || UseResult == enInvaildPassword)
-        {
-        if ((NetPass = FindPass(pthNet)) == NULL)
-            NetPass = QuizPass(pthNet);
+    nr.lpRemoteName = pthNet;
+    nr.lpLocalName = szDev;
+    nr.lpProvider = NULL;
+    nr.dwType = RESOURCETYPE_DISK;
 
-        if (NetPass == NULL)
-            return (UseResult);
+    i = 0;
 
-        NetPass = strupr(NetPass);
-        strcpy(szDosNet, pthNet);
-        strcpy(szDosNet+strlen(szDosNet)+1, NetPass);
-        UseResult = DosMkredir(szDosNet, szDev);
+    for (i=0; nr.lpRemoteName[i]; i++) {
+        if (nr.lpRemoteName[i] == '/') {
+            nr.lpRemoteName[i] = '\\';
         }
-#elif defined(OS2)
-    struct  use_info_1 u;   /* defined in ..lanman\netsrc\h\use.h */
+    }
 
-    strcpy(u.ui1_local, szDev);   /* copy local drive name */
+    // Password follows immediately after resource name
+    Password = pthNet + strlen(pthNet) + 1;
 
-    u.ui1_remote = (char far *)pthNet;
-    u.ui1_password = (char far *)NULL;
-    u.ui1_asg_type = 0;
+    if (*Password == '\0') {
+        Password = NULL;    // Use default password if none is specified...
+    }
 
-    UseResult = NetUseAdd((char far *)NULL, 1, (char far *)&u, sizeof(u));
+    rc = WNetAddConnection2( &nr, Password, NULL, 0 );
 
-    if (UseResult != 0)
-        {
-        if ((NetPass = FindPass(pthNet)) == NULL)
-            NetPass = QuizPass(pthNet);
+    if (rc == ERROR_DEVICE_ALREADY_REMEMBERED ||
+        rc == ERROR_CONNECTION_UNAVAIL)
+        rc = ERROR_ALREADY_ASSIGNED;
 
-        if (NetPass == NULL)
-            return (UseResult);
-        NetPass = strupr(NetPass);
-        u.ui1_password = (char far *)NetPass;
-        UseResult = NetUseAdd((char far *)NULL, 1, (char far *) &u, sizeof(u));
-        }
-#elif defined(_WIN32)
-    USE_INFO_1  u;
-    WCHAR       szDevU[MAX_PATH];
-    WCHAR       pthNetU[MAX_PATH];
-    WCHAR       NetPassU[MAX_PATH];
-
-    AnsiToUnicode(szDev, szDevU, MAX_PATH);
-    AnsiToUnicode(pthNet, pthNetU, MAX_PATH);
-
-    u.ui1_local     = (char *) szDevU;
-    u.ui1_remote    = (char *) pthNetU;
-    u.ui1_password  = NULL;
-    u.ui1_asg_type  = 0;
-
-    UseResult = NetUseAdd(NULL, 1, (char *)&u, NULL);
-
-    if (UseResult == NERR_BadPassword || UseResult == ERROR_INVALID_PASSWORD)
-        {
-        if ((NetPass = FindPass(pthNet)) == NULL)
-            NetPass = QuizPass(pthNet);
-
-        if (NetPass == NULL)
-            return (UseResult);
-
-        NetPass = strupr(NetPass);
-
-        AnsiToUnicode(NetPass, NetPassU, MAX_PATH);
-        u.ui1_password  = (char *) NetPassU;
-        UseResult = NetUseAdd(NULL, 1, (CHAR *)&u, NULL);
-        }
-#endif
-
-    return (UseResult);
+    return ((int)rc);
 }
 
 
@@ -453,40 +175,18 @@ int mkredir(char *szDev, char *pthNet)
 *
 ***************************************************************************/
 int
-SLM_endredir(char *szDev)
+SLM_endredir(
+    char *szDev
+    )
 {
-    int wRet;
+    DWORD rc;
 
-#if defined(OS2)
-    wRet = NetUseDel((char far *)NULL, (char far *)szDev,
-                     (USHORT)USE_LOTS_OF_FORCE);
-#elif defined(DOS)
-    _asm    /* assumes Small model */
-        {
-        mov     ax,5f04h        ; cancel redirection table entry
-        push    ds
-        push    si
+    // Disconnect.  Make sure it's not stored as persistant and ignore open files, etc.
 
-        mov     si,word ptr szDev
+    rc = WNetCancelConnection2(szDev, CONNECT_UPDATE_PROFILE, TRUE);
+    szDev[0] = '\0';
 
-        int     21h
-
-        pop     si
-        pop     ds
-        jb      endredir_ret    ; return non-zero if error
-        xor     ax,ax           ; return zero if success
-    endredir_ret:
-        mov     wRet,ax
-        }
-#elif defined(_WIN32)
-    WCHAR   szDevU[4];
-
-    AnsiToUnicode(szDev, szDevU, 4);
-
-    wRet = NetUseDel(NULL, (CHAR *)szDevU, USE_LOTS_OF_FORCE);
-#endif
-
-    return (wRet);
+    return((int)rc);
 }
 
 
@@ -504,61 +204,44 @@ SLM_endredir(char *szDev)
 *
 *
 ***************************************************************************/
-char *QuizPass(char *szUNC)
+char *
+QuizPass(
+    char *szUNC
+    )
 {
-/*
-  -- Get password string into szInput, return true if entered
-  -- return fFalse if empty password, ^C aborted, or no tty stream available
-  -- note : ^U restarts, BACKSPACE deletes last character
+    char *pchNext = QpassBuf;
+    char chInput;
 
-  -- stolen from nc from enabftp/disabftp
-*/
-        {
-        char *pchNext = QpassBuf;
-        char chInput;
+    /* Make sure there are input and output streams to a terminal. */
 
-        /* Make sure there are input and output streams to a terminal. */
-#if 0
-        if (!FCanPrompt())
-                {
-                Error("must be interactive to prompt for password\n");
-                return (char *) NULL;
-                }
-#endif
+    fprintf(stderr,"Password for %s: ",szUNC);
+    for (;;) {
+        chInput = (char) _getch();
 
-        fprintf(stderr,"Password for %s: ",szUNC);
-        for (;;)
-                {
-                chInput = (char) getch();
-
-                switch(chInput)
-                        {
-                default:
-                        /* password limit is eight characters */
-                        if (pchNext - QpassBuf < 8)
-                                *pchNext++ = chInput;
-                        break;
-                case '\003':    /* ^C */
-                        fprintf(stderr,"^C\n");
-                        return ((char *)NULL);
-                case '\r':
-                case '\n':      /* Enter */
-                        *pchNext = '\0';        /* terminate string */
-                        fprintf(stderr,"\n");
-                        return (QpassBuf);
-                case '\025':    /* ^U */
-                        pchNext = QpassBuf;
-                        fprintf(stderr,"\nPassword for %s: ",szUNC);
-                        break;
-                case '\b':      /* BACKSPACE */
-                        if (pchNext != QpassBuf)
-                                pchNext--;
-                        break;
-                        }
-                }
-        /*NOTREACHED*/
+        switch(chInput) {
+            default:
+                /* password limit is eight characters */
+                if (pchNext - QpassBuf < 8)
+                    *pchNext++ = chInput;
+                break;
+            case '\003':    /* ^C */
+                fprintf(stderr,"^C\n");
+                return ((char *)NULL);
+            case '\r':
+            case '\n':      /* Enter */
+                *pchNext = '\0';        /* terminate string */
+                fprintf(stderr,"\n");
+                return (QpassBuf);
+            case '\025':    /* ^U */
+                pchNext = QpassBuf;
+                fprintf(stderr,"\nPassword for %s: ",szUNC);
+                break;
+            case '\b':      /* BACKSPACE */
+                if (pchNext != QpassBuf)
+                    pchNext--;
+                break;
         }
-
+    }
 }
 
  /**************************************************************************
@@ -575,7 +258,10 @@ char *QuizPass(char *szUNC)
 *
 *
 ***************************************************************************/
-char *FindPass(char *pthNet)
+char *
+FindPass(
+    char *pthNet
+    )
 {
 #define ACFILE "accounts.net"
 
@@ -622,7 +308,12 @@ char *FindPass(char *pthNet)
 ***************************************************************************/
 
 
-int PullPass(char *Fname, char *Pbuf, char *pthNet)
+int
+PullPass(
+    char *Fname,
+    char *Pbuf,
+    char *pthNet
+    )
 {
     char Fline[PATHMAX];
     char Mname[CMAXNAME];
@@ -660,38 +351,28 @@ int PullPass(char *Fname, char *Pbuf, char *pthNet)
 }
 
 
-#if defined(_WIN32)
 /**************************************************************************
 *
-*                        Query_Free_Space()
+*                        Query_Free_Space(int)
 *
 *
 *          parameters-
-*                   none
+*                   drive no
 *
 *          return-
 *                   LONG - free space
 *
 ***************************************************************************/
-unsigned long Query_Free_Space(void)
+unsigned long
+Query_Free_Space(
+    int drive_no
+    )
 {
-    int drive_no;
     __int64 cbFree;
     DWORD Qres;
     DWORD SecsPerClust, BytesPerSec, FreeClusts, TotClusts;
-    char *root = "X:\\";
-
-    if (SLM_Localdrive > 0)
-        drive_no = SLM_Localdrive - (int) 'a' + 1 ;
-    else if ((drive_no = Check_SLM_Redir(pszBase)) <= 0 || drive_no >26)
-        drive_no = Make_SLM_Redir(pszBase);
-
-    if (drive_no <= 0 || drive_no > 26)
-        {
-        if (verbose)
-            fprintf(stderr,"%s: cannot stat disk, check net connects and slm.ini\n",pszProject);
-        return (unsigned long)(-1);
-        }
+    char root[] = "X:\\";
+    BOOL fNetUsed = FALSE;
 
     root[0] = (char)('A' - 1) + (char)drive_no;
     if (GetDiskFreeSpace(root, &SecsPerClust, &BytesPerSec,
@@ -700,69 +381,71 @@ unsigned long Query_Free_Space(void)
 
         if (verbose)
             fprintf(stderr,"Local drive info failure (%hd)\n",Qres);
-            return (unsigned long)( -1 );
-        }
+        return (unsigned long)( -1 );
+    }
 
-        cbFree = (__int64) BytesPerSec * (__int64) SecsPerClust * (__int64) FreeClusts;
-        if (cbFree >> 32) {
-            return ((unsigned long) -1);
-        } else {
-            return((unsigned long) cbFree);
-        }
+    cbFree = (__int64) BytesPerSec * (__int64) SecsPerClust * (__int64) FreeClusts;
+    if (cbFree >> 32) {
+        return ((unsigned long) -1);
+    } else {
+        return((unsigned long) cbFree);
+    }
 }
 
 
-void AnsiToUnicode(LPSTR Ansi, LPWSTR Unicode, INT Size)
+void
+AnsiToUnicode(
+    LPSTR Ansi,
+    LPWSTR Unicode,
+    INT Size
+    )
 {
     int     Len;
     LPSTR   p = Ansi;
     LPWSTR  q = Unicode;
 
-    if (Ansi)
-        {
+    if (Ansi) {
         Len = strlen(Ansi);
-        if (Len >= Size)
-            {
+        if (Len >= Size) {
             fprintf(stderr,
                     "SLM Error: Cannot convert string, File %s Line %d\n"
                     "           String: '%s' buffer size: %d\n",
                     __FILE__, __LINE__, Ansi, Size);
             exit(1);
-            }
+        }
 
         Len++;
         while (Len--)
             *q++ = *p++;
-        }
-    else
+    } else
         Unicode[0] = 0;
 }
 
 
 
-void UnicodeToAnsi(LPWSTR Unicode, LPSTR Ansi, INT Size)
+void
+UnicodeToAnsi(
+    LPWSTR Unicode,
+    LPSTR Ansi,
+    INT Size
+    )
 {
     int     Len;
     LPSTR   p = Ansi;
     LPWSTR  q = Unicode;
 
-    if (Unicode)
-        {
+    if (Unicode) {
         Len = wcslen(Unicode);
-        if (Len >= Size)
-            {
+        if (Len >= Size) {
             fprintf(stderr,
                     "SLM Error: Cannot convert string, File %s Line %d\n"
                     "           Buffer size: %d, required:%d\n",
                     __FILE__, __LINE__, Size, Len+1);
-            }
+        }
 
         Len++;
         while (Len--)
             *p++ = (char) *q++;
-        }
-    else
+    } else
         Ansi[0] = 0;
 }
-
-#endif /* _WIN32 */

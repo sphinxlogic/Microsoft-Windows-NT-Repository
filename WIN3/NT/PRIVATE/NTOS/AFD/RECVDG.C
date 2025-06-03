@@ -43,13 +43,25 @@ AfdRestartBufferReceiveDatagram (
 #pragma alloc_text( PAGEAFD, AfdSetupReceiveDatagramIrp )
 #pragma alloc_text( PAGEAFD, AfdRestartBufferReceiveDatagram )
 #pragma alloc_text( PAGEAFD, AfdCancelReceiveDatagram )
+#pragma alloc_text( PAGEAFD, AfdCleanupReceiveDatagramIrp )
 #endif
+
+//
+// Macros to make the receive datagram code more maintainable.
+//
+
+#define AfdRecvDatagramInfo         DeviceIoControl
+
+#define AfdRecvAddressLength        InputBufferLength
+#define AfdRecvAddressPointer       Type3InputBuffer
 
 
 NTSTATUS
 AfdReceiveDatagram (
     IN PIRP Irp,
-    IN PIO_STACK_LOCATION IrpSp
+    IN PIO_STACK_LOCATION IrpSp,
+    IN ULONG RecvFlags,
+    IN ULONG AfdFlags
     )
 {
     NTSTATUS status;
@@ -58,6 +70,13 @@ AfdReceiveDatagram (
     PLIST_ENTRY listEntry;
     BOOLEAN peek;
     PAFD_BUFFER afdBuffer;
+    ULONG recvFlags;
+    ULONG afdFlags;
+    ULONG recvLength;
+    PVOID addressPointer;
+    PULONG addressLength;
+    PMDL addressMdl;
+    PMDL lengthMdl;
 
     //
     // Set up some local variables.
@@ -67,6 +86,9 @@ AfdReceiveDatagram (
     ASSERT( endpoint->Type == AfdBlockTypeDatagram );
 
     Irp->IoStatus.Information = 0;
+
+    addressMdl = NULL;
+    lengthMdl = NULL;
 
     //
     // If receive has been shut down or the endpoint aborted, fail.
@@ -87,30 +109,16 @@ AfdReceiveDatagram (
 #endif
 
     //
-    // Do some special processing based on whether this is a receive 
-    // datagram IRP, a receive IRP, or a read IRP.  
+    // Do some special processing based on whether this is a receive
+    // datagram IRP, a receive IRP, or a read IRP.
     //
 
     if ( IrpSp->Parameters.DeviceIoControl.IoControlCode ==
-             IOCTL_TDI_RECEIVE_DATAGRAM &&
+             IOCTL_AFD_RECEIVE_DATAGRAM &&
          IrpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL ) {
-        
-        PAFD_RECEIVE_DATAGRAM_INPUT receiveInput;
 
-        //
-        // Make sure that the caller specified a sufficiently large input
-        // buffer.
-        //
-    
-        receiveInput = Irp->AssociatedIrp.SystemBuffer;
+        PAFD_RECV_DATAGRAM_INFO recvInfo;
 
-        if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength <
-                 AFD_FAST_RECVDG_BUFFER_LENGTH ) {
-    
-            status = STATUS_INVALID_PARAMETER;
-            goto complete;
-        }
-    
         //
         // Make sure that the endpoint is in the correct state.
         //
@@ -121,23 +129,227 @@ AfdReceiveDatagram (
         }
 
         //
-        // If this is a receive datagram IRP, then set up the IRP so 
-        // that the IO system will copy the output information (source 
-        // address, receive length) to the user's buffer at IO 
-        // completion.  We do this to save the performance overhead of 
-        // allocating an MDL to describe the user buffer then doing a 
-        // probe and lock on the buffer.  
+        // Grab the parameters from the input structure.
         //
-        // If this is not a receive datagram IRP, then we don't want to 
-        // copy any output information--the caller does not care about 
-        // the source address, probably because the endpoint is 
-        // connected.  
-        //
-    
-        Irp->UserBuffer = receiveInput->OutputBuffer;
-        Irp->Flags |= IRP_INPUT_OPERATION;
 
-        peek = (BOOLEAN)( (receiveInput->ReceiveFlags & TDI_RECEIVE_PEEK) != 0 );
+        if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength >=
+                sizeof(*recvInfo) ) {
+
+            try {
+
+                //
+                // Probe the input structure.
+                //
+
+                recvInfo = IrpSp->Parameters.DeviceIoControl.Type3InputBuffer;
+
+                if( Irp->RequestorMode != KernelMode ) {
+
+                    ProbeForRead(
+                        recvInfo,
+                        sizeof(*recvInfo),
+                        sizeof(ULONG)
+                        );
+
+                }
+
+                //
+                // Snag the receive flags.
+                //
+
+                recvFlags = recvInfo->TdiFlags;
+                afdFlags = recvInfo->AfdFlags;
+
+                //
+                // Setup the address fields so we can return the datagram
+                // address to the user.
+                //
+
+                addressPointer = recvInfo->Address;
+                addressLength = recvInfo->AddressLength;
+
+                //
+                // Validate the WSABUF parameters.
+                //
+
+                if ( recvInfo->BufferArray != NULL &&
+                    recvInfo->BufferCount > 0 ) {
+
+                    //
+                    // Create the MDL chain describing the WSABUF array.
+                    //
+
+                    status = AfdAllocateMdlChain(
+                                 Irp,
+                                 recvInfo->BufferArray,
+                                 recvInfo->BufferCount,
+                                 IoWriteAccess,
+                                 &recvLength
+                                 );
+
+                } else {
+
+                    //
+                    // Zero-length input buffer. This is OK for datagrams.
+                    //
+
+                    ASSERT( Irp->MdlAddress == NULL );
+                    status = STATUS_SUCCESS;
+
+                }
+
+            } except ( EXCEPTION_EXECUTE_HANDLER ) {
+
+                //
+                // Exception accessing input structure.
+                //
+
+                status = GetExceptionCode();
+
+            }
+
+        } else {
+
+            //
+            // Invalid input buffer length.
+            //
+
+            status = STATUS_INVALID_PARAMETER;
+
+        }
+
+        //
+        // If only one of addressPointer or addressLength are NULL, then
+        // fail the request.
+        //
+
+        if( (addressPointer == NULL) ^ (addressLength == NULL) ) {
+
+            status = STATUS_INVALID_PARAMETER;
+            goto complete;
+
+        }
+
+        if( !NT_SUCCESS(status) ) {
+
+            goto complete;
+
+        }
+
+        //
+        // If the user wants the source address from the receive datagram,
+        // then create MDLs for the address & address length, then probe
+        // and lock the MDLs.
+        //
+
+        if( addressPointer != NULL ) {
+
+            ASSERT( addressLength != NULL );
+
+            //
+            // Setup so we know how to cleanup after the try/except block.
+            //
+
+            status = STATUS_SUCCESS;
+
+            try {
+
+                //
+                // Bomb off if the user is trying to do something stupid, like
+                // specify a zero-length address, or one that's unreasonably
+                // huge. Here, we (arbitrarily) define "unreasonably huge" as
+                // anything 64K or greater.
+                //
+
+                if( *addressLength == 0 ||
+                    *addressLength >= 65536 ) {
+
+                    ExRaiseStatus( STATUS_INVALID_PARAMETER );
+
+                }
+
+                //
+                // Create a MDL describing the address buffer, then probe
+                // it for write access.
+                //
+
+                addressMdl = IoAllocateMdl(
+                                 addressPointer,            // VirtualAddress
+                                 *addressLength,            // Length
+                                 FALSE,                     // SecondaryBuffer
+                                 TRUE,                      // ChargeQuota
+                                 NULL                       // Irp
+                                 );
+
+                if( addressMdl == NULL ) {
+
+                    ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+
+                }
+
+                MmProbeAndLockPages(
+                    addressMdl,                             // MemoryDescriptorList
+                    Irp->RequestorMode,                     // AccessMode
+                    IoWriteAccess                           // Operation
+                    );
+
+                //
+                // Create a MDL describing the length buffer, then probe it
+                // for write access.
+                //
+
+                lengthMdl = IoAllocateMdl(
+                                 addressLength,             // VirtualAddress
+                                 sizeof(*addressLength),    // Length
+                                 FALSE,                     // SecondaryBuffer
+                                 TRUE,                      // ChargeQuota
+                                 NULL                       // Irp
+                                 );
+
+                if( lengthMdl == NULL ) {
+
+                    ExRaiseStatus( STATUS_INSUFFICIENT_RESOURCES );
+
+                }
+
+                MmProbeAndLockPages(
+                    lengthMdl,                              // MemoryDescriptorList
+                    Irp->RequestorMode,                     // AccessMode
+                    IoWriteAccess                           // Operation
+                    );
+
+            } except( EXCEPTION_EXECUTE_HANDLER ) {
+
+                status = GetExceptionCode();
+
+            }
+
+            if( !NT_SUCCESS(status) ) {
+
+                goto complete;
+
+            }
+
+            ASSERT( addressMdl != NULL );
+            ASSERT( lengthMdl != NULL );
+
+        } else {
+
+            ASSERT( addressMdl == NULL );
+            ASSERT( lengthMdl == NULL );
+
+        }
+
+        //
+        // Validate the receive flags.
+        //
+
+        if( ( recvFlags & TDI_RECEIVE_EITHER ) != TDI_RECEIVE_NORMAL ) {
+            status = STATUS_NOT_SUPPORTED;
+            goto complete;
+        }
+
+        peek = (BOOLEAN)( (recvFlags & TDI_RECEIVE_PEEK) != 0 );
 
     } else {
 
@@ -146,35 +358,29 @@ AfdReceiveDatagram (
         if ( IrpSp->MajorFunction == IRP_MJ_DEVICE_CONTROL ) {
 
             //
-            // Grab the input parameters from the IRP.  If a too-small 
-            // input buffer was used, assume that the user wanted a 
-            // default receive.  
+            // Grab the input parameters from the IRP.
             //
-        
-            if ( IrpSp->Parameters.DeviceIoControl.InputBufferLength <
-                     sizeof(TDI_REQUEST_RECEIVE) ) {
 
-                peek = FALSE;
+            ASSERT( IrpSp->Parameters.DeviceIoControl.IoControlCode ==
+                        IOCTL_AFD_RECEIVE );
 
-            } else {
+            recvFlags = RecvFlags;
+            afdFlags = AfdFlags;
 
-                PTDI_REQUEST_RECEIVE receiveRequest;
-    
-                receiveRequest = Irp->AssociatedIrp.SystemBuffer;
+            //
+            // It is illegal to attempt to receive expedited data on a
+            // datagram endpoint.
+            //
 
-                //
-                // It is illegal to attempt to receive expedited data on a
-                // datagram endpoint.
-                //
-        
-                if ( (receiveRequest->ReceiveFlags & TDI_RECEIVE_EXPEDITED) != 0 ) {
-                    status = STATUS_NOT_SUPPORTED;
-                    goto complete;
-                }
-        
-                peek = (BOOLEAN)( (receiveRequest->ReceiveFlags & TDI_RECEIVE_PEEK) != 0 );
+            if ( (recvFlags & TDI_RECEIVE_EXPEDITED) != 0 ) {
+                status = STATUS_NOT_SUPPORTED;
+                goto complete;
             }
-        
+
+            ASSERT( ( recvFlags & TDI_RECEIVE_EITHER ) == TDI_RECEIVE_NORMAL );
+
+            peek = (BOOLEAN)( (recvFlags & TDI_RECEIVE_PEEK) != 0 );
+
         } else {
 
             //
@@ -184,22 +390,64 @@ AfdReceiveDatagram (
 
             ASSERT( IrpSp->MajorFunction == IRP_MJ_READ );
 
+            recvFlags = TDI_RECEIVE_NORMAL;
+            afdFlags = AFD_OVERLAPPED;
             peek = FALSE;
+
         }
+
+        ASSERT( addressMdl == NULL );
+        ASSERT( lengthMdl == NULL );
+
     }
 
     //
-    // Determine whether there are any datagrams already bufferred on 
-    // this endpoint.  If there is a bufferred datagram, we'll use it to 
-    // complete the IRP.  
+    // Save the address & length MDLs in the current IRP stack location.
+    // These will be used later in SetupReceiveDatagramIrp().  Note that
+    // they should either both be NULL or both be non-NULL.
     //
 
     IoAcquireCancelSpinLock( &Irp->CancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+
+    ASSERT( !( ( addressMdl == NULL ) ^ ( lengthMdl == NULL ) ) );
+
+    IrpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressPointer =
+        (PVOID)addressMdl;
+    IrpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressLength =
+        (ULONG)lengthMdl;
+
+    //
+    // Determine whether there are any datagrams already bufferred on
+    // this endpoint.  If there is a bufferred datagram, we'll use it to
+    // complete the IRP.
+    //
 
     if ( endpoint->BufferredDatagramCount != 0 ) {
 
         KIRQL saveIrql;
+
+        //
+        // There is at least one datagram bufferred on the endpoint.
+        // Use it for this receive.
+        //
+
+        ASSERT( !IsListEmpty( &endpoint->ReceiveDatagramBufferListHead ) );
+
+        listEntry = endpoint->ReceiveDatagramBufferListHead.Flink;
+        afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
+
+        //
+        // Prepare the user's IRP for completion.
+        //
+
+        status = AfdSetupReceiveDatagramIrp (
+                     Irp,
+                     afdBuffer->Buffer,
+                     afdBuffer->DataLength,
+                     afdBuffer->SourceAddress,
+                     afdBuffer->SourceAddressLength
+                     );
 
         //
         // Release the cancel spin lock, since we don't need it.
@@ -210,16 +458,6 @@ AfdReceiveDatagram (
         saveIrql = Irp->CancelIrql;
         IoReleaseCancelSpinLock( oldIrql );
         oldIrql = saveIrql;
-
-        ASSERT( !IsListEmpty( &endpoint->ReceiveDatagramBufferListHead ) );
-
-        //
-        // There is at least one datagram bufferred on the endpoint.
-        // Use it for this receive.
-        //
-
-        listEntry = endpoint->ReceiveDatagramBufferListHead.Flink;
-        afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
 
         //
         // If this wasn't a peek IRP, remove the buffer from the endpoint's
@@ -236,55 +474,64 @@ AfdReceiveDatagram (
 
             endpoint->BufferredDatagramCount--;
             endpoint->BufferredDatagramBytes -= afdBuffer->DataLength;
+            endpoint->EventsActive &= ~AFD_POLL_RECEIVE;
+
+            IF_DEBUG(EVENT_SELECT) {
+                KdPrint((
+                    "AfdReceiveDatagram: Endp %08lX, Active %08lX\n",
+                    endpoint,
+                    endpoint->EventsActive
+                    ));
+            }
+
+            if( endpoint->BufferredDatagramCount > 0 ) {
+
+                AfdIndicateEventSelectEvent(
+                    endpoint,
+                    AFD_POLL_RECEIVE_BIT,
+                    STATUS_SUCCESS
+                    );
+
+            }
         }
 
         //
-        // Prepare the user's IRP for completion.
+        // We've set up all return information.  Clean up and complete
+        // the IRP.
         //
 
-        status = AfdSetupReceiveDatagramIrp (
-                     Irp,
-                     afdBuffer->Buffer,
-                     afdBuffer->DataLength,
-                     afdBuffer->SourceAddress,
-                     afdBuffer->SourceAddressLength
-                     );
-
-        //
-        // We've set up all return information.  Clean up and complete 
-        // the IRP.  
-        //
-
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
         if ( !peek ) {
             AfdReturnBuffer( afdBuffer );
         }
 
         IoCompleteRequest( Irp, 0 );
-    
+
         return status;
     }
 
     //
-    // There were no datagrams bufferred on the endpoint.  If this is a 
-    // nonblocking endpoint and the request was a normal receive (as 
-    // opposed to a read IRP), fail the request.  We don't fail reads 
-    // under the asumption that if the application is doing reads they 
-    // don't want nonblocking behavior.  
+    // There were no datagrams bufferred on the endpoint.  If this is a
+    // nonblocking endpoint and the request was a normal receive (as
+    // opposed to a read IRP), fail the request.  We don't fail reads
+    // under the asumption that if the application is doing reads they
+    // don't want nonblocking behavior.
     //
 
     if ( endpoint->NonBlocking && !ARE_DATAGRAMS_ON_ENDPOINT( endpoint ) &&
-             IrpSp->MajorFunction != IRP_MJ_READ ) {
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+             !( afdFlags & AFD_OVERLAPPED ) ) {
+
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( Irp->CancelIrql );
+
         status = STATUS_DEVICE_NOT_READY;
         goto complete;
     }
 
     //
-    // We'll have to pend the IRP.  Place the IRP on the appropriate IRP 
-    // list in the endpoint.  
+    // We'll have to pend the IRP.  Place the IRP on the appropriate IRP
+    // list in the endpoint.
     //
 
     if ( peek ) {
@@ -307,19 +554,36 @@ AfdReceiveDatagram (
     //
 
     if ( Irp->Cancel ) {
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-        AfdCancelReceiveDatagram( IrpSp->FileObject->DeviceObject, Irp );
-        return STATUS_CANCELLED;
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdCancelReceiveDatagram( IrpSp->DeviceObject, Irp );
+        status = STATUS_CANCELLED;
+        goto complete;
     }
 
     IoSetCancelRoutine( Irp, AfdCancelReceiveDatagram );
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( Irp->CancelIrql );
 
     return STATUS_PENDING;
 
 complete:
+
+    ASSERT( !NT_SUCCESS(status) );
+
+    if( addressMdl != NULL ) {
+        if( (addressMdl->MdlFlags & MDL_PAGES_LOCKED) != 0 ) {
+            MmUnlockPages( addressMdl );
+        }
+        IoFreeMdl( addressMdl );
+    }
+
+    if( lengthMdl != NULL ) {
+        if( (lengthMdl->MdlFlags & MDL_PAGES_LOCKED) != 0 ) {
+            MmUnlockPages( lengthMdl );
+        }
+        IoFreeMdl( lengthMdl );
+    }
 
     Irp->IoStatus.Status = status;
     IoCompleteRequest( Irp, 0 );
@@ -336,7 +600,7 @@ AfdReceiveDatagramEventHandler (
     IN PVOID SourceAddress,
     IN int OptionsLength,
     IN PVOID Options,
-    IN ULONG ReceiveDatagramFlags,  
+    IN ULONG ReceiveDatagramFlags,
     IN ULONG BytesIndicated,
     IN ULONG BytesAvailable,
     OUT ULONG *BytesTaken,
@@ -369,6 +633,7 @@ Return Value:
     BOOLEAN userIrp;
 
     endpoint = TdiEventContext;
+    ASSERT( endpoint != NULL );
     ASSERT( endpoint->Type == AfdBlockTypeDatagram );
 
 #if AFD_PERF_DBG
@@ -380,25 +645,26 @@ Return Value:
 #endif
 
     //
-    // If this endpoint is connected and the datagram is for a different 
-    // address than the one the endpoint is connected to, drop the 
-    // datagram.  Also, if we're in the process of connecting the 
-    // endpoint to a remote address, the MaximumDatagramCount field will 
-    // be 0, in which case we shoul drop the datagram.  
+    // If this endpoint is connected and the datagram is for a different
+    // address than the one the endpoint is connected to, drop the
+    // datagram.  Also, if we're in the process of connecting the
+    // endpoint to a remote address, the MaximumDatagramCount field will
+    // be 0, in which case we shoul drop the datagram.
     //
 
     IoAcquireCancelSpinLock( &cancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
     if ( (endpoint->State == AfdEndpointStateConnected &&
           !AfdAreTransportAddressesEqual(
                endpoint->Common.Datagram.RemoteAddress,
                endpoint->Common.Datagram.RemoteAddressLength,
                SourceAddress,
-               SourceAddressLength )) ||
+               SourceAddressLength,
+               TRUE )) ||
          (endpoint->Common.Datagram.MaxBufferredReceiveCount == 0) ) {
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( cancelIrql );
 
         *BytesTaken = BytesAvailable;
@@ -406,8 +672,8 @@ Return Value:
     }
 
     //
-    // Check whether there are any IRPs waiting on the endpoint.  If 
-    // there is such an IRP, use it to receive the datagram.  
+    // Check whether there are any IRPs waiting on the endpoint.  If
+    // there is such an IRP, use it to receive the datagram.
     //
 
     if ( !IsListEmpty( &endpoint->ReceiveDatagramIrpListHead ) ) {
@@ -427,20 +693,20 @@ Return Value:
         IoSetCancelRoutine( irp, NULL );
 
         //
-        // If the entire datagram is being indicated to us here, just 
-        // copy the information to the MDL in the IRP and return.  
+        // If the entire datagram is being indicated to us here, just
+        // copy the information to the MDL in the IRP and return.
+        //
+        // Note that we'll also take the entire datagram if the user
+        // has pended a zero-byte datagram receive (detectable as a
+        // NULL Irp->MdlAddress). We'll eat the datagram and fall
+        // through to AfdSetupReceiveDatagramIrp(), which will store
+        // an error status in the IRP since the user's buffer is
+        // insufficient to hold the datagram.
         //
 
-        if ( BytesIndicated == BytesAvailable ) {
+        if( BytesIndicated == BytesAvailable ||
+            irp->MdlAddress == NULL ) {
 
-            //
-            // The IRP is off the endpoint's list and is no longer 
-            // cancellable.  We can release the locks we hold.  
-            //
-
-            KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-            IoReleaseCancelSpinLock( cancelIrql );
-    
             //
             // Set BytesTaken to indicate that we've taken all the
             // data.  We do it here because we already have
@@ -451,12 +717,12 @@ Return Value:
             *BytesTaken = BytesAvailable;
 
             //
-            // Copy the datagram and source address to the IRP.  This 
-            // prepares the IRP to be completed.  
+            // Copy the datagram and source address to the IRP.  This
+            // prepares the IRP to be completed.
             //
-            // !!! do we need a special version of this routine to 
-            //     handle special RtlCopyMemory, like for 
-            //     TdiCopyLookaheadBuffer?  
+            // !!! do we need a special version of this routine to
+            //     handle special RtlCopyMemory, like for
+            //     TdiCopyLookaheadBuffer?
             //
 
             (VOID)AfdSetupReceiveDatagramIrp (
@@ -466,7 +732,15 @@ Return Value:
                       SourceAddress,
                       SourceAddressLength
                       );
-    
+
+            //
+            // The IRP is off the endpoint's list and is no longer
+            // cancellable.  We can release the locks we hold.
+            //
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            IoReleaseCancelSpinLock( cancelIrql );
+
             //
             // Complete the IRP.  We've already set BytesTaken
             // to tell the provider that we have taken all the data.
@@ -505,21 +779,56 @@ Return Value:
          endpoint->BufferredDatagramBytes >=
              endpoint->Common.Datagram.MaxBufferredReceiveBytes ) {
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
-        IoReleaseCancelSpinLock( cancelIrql );
-        *BytesTaken = BytesAvailable;
-        return STATUS_SUCCESS;
+        //
+        // If circular queueing is not enabled, then just drop the
+        // datagram on the floor.
+        //
+
+
+        if( !endpoint->Common.Datagram.CircularQueueing ) {
+
+            AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+            IoReleaseCancelSpinLock( cancelIrql );
+            *BytesTaken = BytesAvailable;
+            return STATUS_SUCCESS;
+
+        }
+
+        //
+        // Circular queueing is enabled, so drop packets at the head of
+        // the receive queue until we're below the receive limit.
+        //
+
+        while( endpoint->BufferredDatagramCount >=
+                   endpoint->Common.Datagram.MaxBufferredReceiveCount ||
+               endpoint->BufferredDatagramBytes >=
+                   endpoint->Common.Datagram.MaxBufferredReceiveBytes ) {
+
+            listEntry = RemoveHeadList( &endpoint->ReceiveDatagramBufferListHead );
+            afdBuffer = CONTAINING_RECORD( listEntry, AFD_BUFFER, BufferListEntry );
+
+            endpoint->BufferredDatagramCount--;
+            endpoint->BufferredDatagramBytes -= afdBuffer->DataLength;
+
+            AfdReturnBuffer( afdBuffer );
+
+        }
+
+        //
+        // Proceed to accept the incoming packet.
+        //
+
     }
 
     //
-    // We're able to buffer the datagram.  Now acquire a buffer of 
-    // appropriate size.  
+    // We're able to buffer the datagram.  Now acquire a buffer of
+    // appropriate size.
     //
 
     afdBuffer = AfdGetBuffer( requiredAfdBufferSize, SourceAddressLength );
 
     if ( afdBuffer == NULL ) {
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
         IoReleaseCancelSpinLock( cancelIrql );
         *BytesTaken = BytesAvailable;
         return STATUS_SUCCESS;
@@ -535,15 +844,15 @@ Return Value:
         ASSERT( !userIrp );
 
         //
-        // If there is a peek IRP on the endpoint, remove it from the 
-        // list and prepare to complete it.  We can't complete it now 
-        // because we hold a spin lock.  
+        // If there is a peek IRP on the endpoint, remove it from the
+        // list and prepare to complete it.  We can't complete it now
+        // because we hold a spin lock.
         //
 
         if ( !IsListEmpty( &endpoint->PeekDatagramIrpListHead ) ) {
 
             //
-            // Remove the first peek IRP from the list and get a pointer 
+            // Remove the first peek IRP from the list and get a pointer
             // to it.
             //
 
@@ -551,15 +860,15 @@ Return Value:
             irp = CONTAINING_RECORD( listEntry, IRP, Tail.Overlay.ListEntry );
 
             //
-            // Reset the cancel routine in the IRP.  The IRP is no 
+            // Reset the cancel routine in the IRP.  The IRP is no
             // longer cancellable, since we're about to complete it.
             //
-    
+
             IoSetCancelRoutine( irp, NULL );
-    
+
             //
-            // Copy the datagram and source address to the IRP.  This 
-            // prepares the IRP to be completed.  
+            // Copy the datagram and source address to the IRP.  This
+            // prepares the IRP to be completed.
             //
 
             (VOID)AfdSetupReceiveDatagramIrp (
@@ -569,26 +878,26 @@ Return Value:
                       SourceAddress,
                       SourceAddressLength
                       );
-    
+
         } else {
 
             irp = NULL;
         }
 
         //
-        // We don't need the cancel spin lock any more, so we can 
-        // release it.  However, since we acquired the cancel spin lock 
-        // after the endpoint spin lock and we still need the endpoint 
-        // spin lock, be careful to switch the IRQLs.  
+        // We don't need the cancel spin lock any more, so we can
+        // release it.  However, since we acquired the cancel spin lock
+        // after the endpoint spin lock and we still need the endpoint
+        // spin lock, be careful to switch the IRQLs.
         //
 
         IoReleaseCancelSpinLock( oldIrql );
         oldIrql = cancelIrql;
-    
+
         //
-        // Use the special function to copy the data instead of 
-        // RtlCopyMemory in case the data is coming from a special place 
-        // (DMA, etc.) which cannot work with RtlCopyMemory.  
+        // Use the special function to copy the data instead of
+        // RtlCopyMemory in case the data is coming from a special place
+        // (DMA, etc.) which cannot work with RtlCopyMemory.
         //
 
         TdiCopyLookaheadData(
@@ -632,17 +941,21 @@ Return Value:
         endpoint->BufferredDatagramBytes += BytesAvailable;
 
         //
-        // All done.  Release the lock and tell the provider that we 
-        // took all the data.  
+        // All done.  Release the lock and tell the provider that we
+        // took all the data.
         //
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
         //
         // Indicate that it is possible to receive on the endpoint now.
         //
 
-        AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE, STATUS_SUCCESS );
+        AfdIndicatePollEvent(
+            endpoint,
+            AFD_POLL_RECEIVE_BIT,
+            STATUS_SUCCESS
+            );
 
         //
         // If there was a peek IRP on the endpoint, complete it now.
@@ -658,19 +971,19 @@ Return Value:
     }
 
     //
-    // We'll have to format up an IRP and give it to the provider to 
-    // handle.  We don't need any locks to do this--the restart routine 
-    // will check whether new receive datagram IRPs were pended on the 
-    // endpoint.  
+    // We'll have to format up an IRP and give it to the provider to
+    // handle.  We don't need any locks to do this--the restart routine
+    // will check whether new receive datagram IRPs were pended on the
+    // endpoint.
     //
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( cancelIrql );
 
     //
-    // Use the IRP in the AFD buffer if appropriate.  If userIrp is 
-    // TRUE, then the local variable irp will already point to the 
-    // user's IRP which we'll use for this IO.  
+    // Use the IRP in the AFD buffer if appropriate.  If userIrp is
+    // TRUE, then the local variable irp will already point to the
+    // user's IRP which we'll use for this IO.
     //
 
     if ( !userIrp ) {
@@ -698,7 +1011,7 @@ Return Value:
 
     TdiBuildReceiveDatagram(
         irp,
-        endpoint->AddressFileObject->DeviceObject,
+        endpoint->AddressDeviceObject,
         endpoint->AddressFileObject,
         AfdRestartBufferReceiveDatagram,
         afdBuffer,
@@ -748,8 +1061,8 @@ Arguments:
 
 Return Value:
 
-    NTSTATUS - if this is our IRP, then always 
-    STATUS_MORE_PROCESSING_REQUIRED to indicate to the IO system that we 
+    NTSTATUS - if this is our IRP, then always
+    STATUS_MORE_PROCESSING_REQUIRED to indicate to the IO system that we
     own the IRP and the IO system should stop processing the it.
 
     If this is a user's IRP, then STATUS_SUCCESS to indicate that
@@ -799,6 +1112,8 @@ Return Value:
         // Set up the IRP for completion.
         //
 
+        IoAcquireCancelSpinLock( &cancelIrql );
+
         (VOID)AfdSetupReceiveDatagramIrp (
                   Irp,
                   NULL,
@@ -807,6 +1122,8 @@ Return Value:
                   afdBuffer->SourceAddressLength
                   );
 
+        IoReleaseCancelSpinLock( cancelIrql );
+
         //
         // Free the AFD buffer we've been using to track this request.
         //
@@ -814,10 +1131,10 @@ Return Value:
         AfdReturnBuffer( afdBuffer );
 
         //
-        // If pending has be returned for this irp then mark the current 
-        // stack as pending.  
+        // If pending has be returned for this irp then mark the current
+        // stack as pending.
         //
-    
+
         if ( Irp->PendingReturned ) {
             IoMarkIrpPending(Irp);
         }
@@ -846,18 +1163,18 @@ Return Value:
     //
 
     IoAcquireCancelSpinLock( &cancelIrql );
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
 
     if ( !IsListEmpty( &endpoint->ReceiveDatagramIrpListHead ) ) {
 
         //
-        // There was a pended receive datagram IRP.  Remove it from the 
+        // There was a pended receive datagram IRP.  Remove it from the
         // head of the list.
         //
 
         listEntry = RemoveHeadList( &endpoint->ReceiveDatagramIrpListHead );
 
-        KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+        AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
         //
         // Get a pointer to the IRP and reset the cancel routine in
@@ -867,7 +1184,6 @@ Return Value:
         pendedIrp = CONTAINING_RECORD( listEntry, IRP, Tail.Overlay.ListEntry );
 
         IoSetCancelRoutine( pendedIrp, NULL );
-        IoReleaseCancelSpinLock( cancelIrql );
 
         //
         // Set up the user's IRP for completion.
@@ -880,6 +1196,8 @@ Return Value:
                   afdBuffer->SourceAddress,
                   afdBuffer->SourceAddressLength
                   );
+
+        IoReleaseCancelSpinLock( cancelIrql );
 
         //
         // Complete the user's IRP, free the AFD buffer we used for
@@ -902,8 +1220,8 @@ Return Value:
     if ( !IsListEmpty( &endpoint->PeekDatagramIrpListHead ) ) {
 
         //
-        // There was a pended peek receive datagram IRP.  Remove it from 
-        // the head of the list.  
+        // There was a pended peek receive datagram IRP.  Remove it from
+        // the head of the list.
         //
 
         listEntry = RemoveHeadList( &endpoint->PeekDatagramIrpListHead );
@@ -957,10 +1275,14 @@ Return Value:
     // on the endpoint.
     //
 
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
     IoReleaseCancelSpinLock( cancelIrql );
 
-    AfdIndicatePollEvent( endpoint, AFD_POLL_RECEIVE, STATUS_SUCCESS );
+    AfdIndicatePollEvent(
+        endpoint,
+        AFD_POLL_RECEIVE_BIT,
+        STATUS_SUCCESS
+        );
 
     //
     // If there was a pended peek IRP to complete, complete it now.
@@ -1008,6 +1330,7 @@ Return Value:
     PIO_STACK_LOCATION irpSp;
     PAFD_ENDPOINT endpoint;
     KIRQL oldIrql;
+    PMDL mdl;
 
     //
     // Get the endpoint pointer from our IRP stack location.
@@ -1027,15 +1350,21 @@ Return Value:
     // routine to NULL before releasing the cancel spin lock.
     //
 
-    KeAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
+    AfdAcquireSpinLock( &endpoint->SpinLock, &oldIrql );
     RemoveEntryList( &Irp->Tail.Overlay.ListEntry );
-    KeReleaseSpinLock( &endpoint->SpinLock, oldIrql );
+    AfdReleaseSpinLock( &endpoint->SpinLock, oldIrql );
 
     //
     // Reset the cancel routine in the IRP.
     //
 
     IoSetCancelRoutine( Irp, NULL );
+
+    //
+    // Free any MDL chains attached to the IRP stack location.
+    //
+
+    AfdCleanupReceiveDatagramIrp( Irp );
 
     //
     // Release the cancel spin lock and complete the IRP with a
@@ -1054,6 +1383,64 @@ Return Value:
 } // AfdCancelReceiveDatagram
 
 
+VOID
+AfdCleanupReceiveDatagramIrp(
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    Performs any cleanup specific to receive datagram IRPs.
+
+Arguments:
+
+    Irp - the IRP to cleanup.
+
+Return Value:
+
+    None.
+
+Notes:
+
+    This routine may be called at raised IRQL from AfdCompleteIrpList().
+
+--*/
+
+{
+    PIO_STACK_LOCATION irpSp;
+    PMDL mdl;
+
+    //
+    // Get the endpoint pointer from our IRP stack location.
+    //
+
+    irpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    //
+    // Free any MDL chains attached to the IRP stack location.
+    //
+
+    mdl = (PMDL)irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressPointer;
+
+    if( mdl != NULL ) {
+        irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressPointer = NULL;
+        MmUnlockPages( mdl );
+        IoFreeMdl( mdl );
+    }
+
+    mdl = (PMDL)irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressLength;
+
+    if( mdl != NULL ) {
+        irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressLength = 0;
+        MmUnlockPages( mdl );
+        IoFreeMdl( mdl );
+    }
+
+} // AfdCleanupReceiveDatagramIrp
+
+
 NTSTATUS
 AfdSetupReceiveDatagramIrp (
     IN PIRP Irp,
@@ -1069,6 +1456,8 @@ Routine Description:
 
     Copies the datagram to the MDL in the IRP and the datagram sender's
     address to the appropriate place in the system buffer.
+
+    NOTE: This function MUST be called with the I/O cancel spinlock held!
 
 Arguments:
 
@@ -1094,27 +1483,35 @@ Return Value:
     NTSTATUS status;
     PIO_STACK_LOCATION irpSp;
     ULONG bytesCopied;
+    PMDL addressPointer;
+    PMDL addressLength;
+    PTRANSPORT_ADDRESS tdiAddress;
+    ULONG addressBytesCopied;
+    NTSTATUS status2;
+    KIRQL cancelIrql;
+
+    ASSERT( KeGetCurrentIrql() == DISPATCH_LEVEL );
 
     //
-    // If necessary, copy the datagram in the buffer to the MDL in the 
-    // user's IRP.  If there is no MDL in the buffer, then fail if the 
-    // datagram is larger than 0 bytes.  
+    // If necessary, copy the datagram in the buffer to the MDL in the
+    // user's IRP.  If there is no MDL in the buffer, then fail if the
+    // datagram is larger than 0 bytes.
     //
 
     if ( ARGUMENT_PRESENT( DatagramBuffer ) ) {
-        
+
         if ( Irp->MdlAddress == NULL ) {
-    
+
             if ( DatagramLength != 0 ) {
                 status = STATUS_BUFFER_OVERFLOW;
             } else {
                 status = STATUS_SUCCESS;
             }
-    
+
             bytesCopied = 0;
-    
+
         } else {
-    
+
             status = TdiCopyBufferToMdl(
                          DatagramBuffer,
                          0,
@@ -1128,9 +1525,9 @@ Return Value:
     } else {
 
         //
-        // The information was already copied to the MDL chain in the 
-        // IRP.  Just remember the IO status block so we can do the 
-        // right thing with it later.  
+        // The information was already copied to the MDL chain in the
+        // IRP.  Just remember the IO status block so we can do the
+        // right thing with it later.
         //
 
         status = Irp->IoStatus.Status;
@@ -1138,84 +1535,113 @@ Return Value:
     }
 
     //
-    // To determine how to complete setting up the IRP for completion, 
-    // figure out whether this IRP was for regular datagram information, 
-    // in which case we need to return an address, or for data only, in 
-    // which case we will not return the source address.  NtReadFile() 
-    // and recv() on connected datagram sockets will result in the 
+    // To determine how to complete setting up the IRP for completion,
+    // figure out whether this IRP was for regular datagram information,
+    // in which case we need to return an address, or for data only, in
+    // which case we will not return the source address.  NtReadFile()
+    // and recv() on connected datagram sockets will result in the
     // latter type of IRP.
     //
-    // The IRP_INPUT_INFORMATION is set appropriately when pending the 
-    // IRP so that we know here whether we need to return the address 
-    // information.  
-    //
 
-    if ( (Irp->Flags & IRP_INPUT_OPERATION) != 0 ) {
-        
-        PAFD_RECEIVE_DATAGRAM_OUTPUT receiveOutput;
+    irpSp = IoGetCurrentIrpStackLocation( Irp );
 
-        ASSERT( Irp->UserBuffer != NULL );
+    addressPointer =
+        (PMDL)irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressPointer;
+    addressLength =
+        (PMDL)irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressLength;
+
+    irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressPointer = NULL;
+    irpSp->Parameters.AfdRecvDatagramInfo.AfdRecvAddressLength = 0;
+
+    if( addressPointer != NULL ) {
+
+        ASSERT( irpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_AFD_RECEIVE_DATAGRAM );
+
+        ASSERT( addressPointer->Next == NULL );
+        ASSERT( ( addressPointer->MdlFlags & MDL_PAGES_LOCKED ) != 0 );
+        ASSERT( addressPointer->Size > 0 );
+
+        ASSERT( addressLength != NULL );
+        ASSERT( addressLength->Next == NULL );
+        ASSERT( ( addressLength->MdlFlags & MDL_PAGES_LOCKED ) != 0 );
+        ASSERT( addressLength->Size > 0 );
 
         //
-        // We'll use the system buffer to return output information to the 
-        // caller.  
+        // Extract the real SOCKADDR structure from the TDI address.
+        // This duplicates MSAFD.DLL's SockBuildSockaddr() function.
         //
-    
-        receiveOutput = Irp->AssociatedIrp.SystemBuffer;
-        receiveOutput->ReceiveLength = bytesCopied;
-    
+
+        tdiAddress = SourceAddress;
+
+        ASSERT( sizeof(tdiAddress->Address[0].AddressType) == sizeof(u_short) );
+        ASSERT( FIELD_OFFSET( TA_ADDRESS, AddressLength ) == 0 );
+        ASSERT( FIELD_OFFSET( TA_ADDRESS, AddressType ) == sizeof(USHORT) );
+        ASSERT( FIELD_OFFSET( TRANSPORT_ADDRESS, Address[0] ) == sizeof(int) );
+        ASSERT( SourceAddressLength >=
+                    (tdiAddress->Address[0].AddressLength + sizeof(u_short)) );
+
+        SourceAddressLength = tdiAddress->Address[0].AddressLength +
+                                  sizeof(u_short);  // sa_family
+        SourceAddress = &tdiAddress->Address[0].AddressType;
+
         //
-        // Find the IRP stack location that has AFD information.  We'll 
-        // need it to ensure that the output buffer is large enough to 
-        // hold the source address.  
+        // Copy the address to the user's buffer, then unlock and
+        // free the MDL describing the user's buffer.
         //
-    
-        irpSp = IoGetCurrentIrpStackLocation( Irp );
-    
+
+        status2 = TdiCopyBufferToMdl(
+                      SourceAddress,
+                      0,
+                      SourceAddressLength,
+                      addressPointer,
+                      0,
+                      &addressBytesCopied
+                      );
+
+        MmUnlockPages( addressPointer );
+        IoFreeMdl( addressPointer );
+
         //
-        // If the caller used a sufficiently large input buffer, copy 
-        // the address of the datagram's sender into the system buffer.  
-        // The IO system will copy this information into the user's 
-        // buffer at IO completion.  
+        // If the above TdiCopyBufferToMdl was successful, then
+        // copy the address length to the user's buffer, then unlock
+        // and free the MDL describing the user's buffer.
         //
-        // If the caller did not use a large enough input buffer, don't 
-        // copy the address at all and set a warning status code.  The 
-        // user-mode code which calls this routine should specify a 
-        // sufficiently large system buffer on input so that we can 
-        // write necessary output information to it.  
-        //
-    
-        if ( irpSp->Parameters.DeviceIoControl.InputBufferLength >=
-                 AFD_REQUIRED_RECVDG_BUFFER_LENGTH(SourceAddressLength) ) {
-    
-            RtlCopyMemory(
-                &receiveOutput->Address,
-                SourceAddress,
-                SourceAddressLength
-                );
-        } else {
-            status = STATUS_BUFFER_OVERFLOW;
+
+        if( NT_SUCCESS(status2) ) {
+
+            status2 = TdiCopyBufferToMdl(
+                          &SourceAddressLength,
+                          0,
+                          sizeof(SourceAddressLength),
+                          addressLength,
+                          0,
+                          &addressBytesCopied
+                          );
+
         }
-    
-        receiveOutput->AddressLength = SourceAddressLength;
-    
+
+        MmUnlockPages( addressLength );
+        IoFreeMdl( addressLength );
+
         //
-        // Set up the information field of the IO status block in the 
-        // IRP so that the IO system will copy the output information to 
-        // the user's output buffer.  
+        // If either of the above TdiCopyBufferToMdl calls failed,
+        // then use its status code as the completion code.
         //
-    
-        Irp->IoStatus.Status = status;
-        Irp->IoStatus.Information =
-            FIELD_OFFSET( AFD_RECEIVE_DATAGRAM_OUTPUT, Address ) +
-            SourceAddressLength;
-    
-        return status;
-    } 
+
+        if( !NT_SUCCESS(status2) ) {
+
+            status = status2;
+
+        }
+
+    } else {
+
+        ASSERT( addressLength == NULL );
+
+    }
 
     //
-    // Just set up the IRP for completion.  We don't need to do anything
-    // with the source address.
+    // Set up the IRP for completion.
     //
 
     Irp->IoStatus.Status = status;
@@ -1224,3 +1650,4 @@ Return Value:
     return status;
 
 } // AfdSetupReceiveDatagramIrp
+

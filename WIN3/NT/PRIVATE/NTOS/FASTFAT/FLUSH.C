@@ -40,6 +40,9 @@ Revision History:
 #pragma alloc_text(PAGE, FatFlushFile)
 #pragma alloc_text(PAGE, FatFlushVolume)
 #pragma alloc_text(PAGE, FatFsdFlushBuffers)
+#pragma alloc_text(PAGE, FatFlushDirentForFile)
+#pragma alloc_text(PAGE, FatFlushFatEntries)
+#pragma alloc_text(PAGE, FatHijackIrpAndFlushDevice)
 #endif
 
 //
@@ -47,7 +50,14 @@ Revision History:
 //
 
 NTSTATUS
-FatFlushCompletionRoutine(
+FatFlushCompletionRoutine (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Contxt
+    );
+
+NTSTATUS
+FatHijackCompletionRoutine (
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Contxt
@@ -259,10 +269,13 @@ Return Value:
                     KeQuerySystemTime( &Fcb->LastWriteTime );
 
                     (VOID)FatNtTimeToFatTime( IrpContext,
-                                              Fcb->LastWriteTime,
-                                              &Dirent->LastWriteTime );
+                                              &Fcb->LastWriteTime,
+                                              TRUE,
+                                              &Dirent->LastWriteTime,
+                                              NULL );
 
                     Dirent->Attributes |= FILE_ATTRIBUTE_ARCHIVE;
+                    Fcb->DirentFatFlags |= FILE_ATTRIBUTE_ARCHIVE;
 
                     FatSetDirtyBcb( IrpContext, DirentBcb, Fcb->Vcb );
 
@@ -354,12 +367,28 @@ Return Value:
             Status = FatFlushVolume( IrpContext, Vcb );
 
             //
-            //  The volume is now clean, note it.
+            //  If the volume was dirty, do the processing that the delayed
+            //  callback would have done.
             //
 
-            if (!FlagOn(Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY)) {
+            if (FlagOn(Vcb->VcbState, VCB_STATE_FLAG_VOLUME_DIRTY)) {
 
-                FatMarkVolumeClean( IrpContext, Vcb );
+                //
+                //  Cancel any pending clean volumes.
+                //
+
+                (VOID)KeCancelTimer( &Vcb->CleanVolumeTimer );
+                (VOID)KeRemoveQueueDpc( &Vcb->CleanVolumeDpc );
+
+                //
+                //  The volume is now clean, note it.
+                //
+
+                if (!FlagOn(Vcb->VcbState, VCB_STATE_FLAG_MOUNTED_DIRTY)) {
+
+                    FatMarkVolumeClean( IrpContext, Vcb );
+                    ClearFlag( Vcb->VcbState, VCB_STATE_FLAG_VOLUME_DIRTY );
+                }
             }
 
             break;
@@ -469,9 +498,9 @@ Return Value:
     NTSTATUS ReturnStatus = STATUS_SUCCESS;
 
     BOOLEAN ClearWriteThroughOnExit = FALSE;
+    BOOLEAN ClearWaitOnExit = FALSE;
 
     ASSERT( FatVcbAcquiredExclusive(IrpContext, Dcb->Vcb) );
-    ASSERT( FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT) );
 
     DebugTrace(+1, Dbg, "FatFlushDirectory, Dcb = %08lx\n", Dcb);
 
@@ -488,6 +517,12 @@ Return Value:
 
         ClearWriteThroughOnExit = TRUE;
         SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WRITE_THROUGH);
+    }
+
+    if (!FlagOn(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT)) {
+
+        ClearWaitOnExit = TRUE;
+        SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT);
     }
 
     Vcb = Dcb->Vcb;
@@ -650,6 +685,10 @@ Return Value:
 
         ClearFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WRITE_THROUGH);
     }
+    if (ClearWaitOnExit) {
+
+        ClearFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT);
+    }
 
     DebugTrace(-1, Dbg, "FatFlushDirectory -> 0x%08lx\n", ReturnStatus);
 
@@ -745,7 +784,7 @@ Return Value:
                           (PAGE_SIZE - 1) ) / PAGE_SIZE;
 
 
-        for ( Page = 0, Offset = FatLargeZero;
+        for ( Page = 0, Offset.QuadPart = 0;
               Page < NumberOfPages;
               Page++, Offset.LowPart += PAGE_SIZE ) {
 
@@ -757,7 +796,6 @@ Return Value:
                                  TRUE,
                                  &Bcb,
                                  &DontCare );
-
 
                 CcSetDirtyPinnedData( Bcb, NULL );
                 CcRepinBcb( Bcb );
@@ -783,7 +821,7 @@ Return Value:
         //  We read in the entire fat in the 12 bit case.
         //
 
-        Offset = LiFromUlong( FatReservedBytes( &Vcb->Bpb ) );
+        Offset.QuadPart = FatReservedBytes( &Vcb->Bpb );
 
         try {
 
@@ -793,6 +831,8 @@ Return Value:
                              TRUE,
                              &Bcb,
                              &DontCare );
+
+            //ASSERT(Bcb->NodeTypeCode == CACHE_NTC_BCB);
 
                 CcSetDirtyPinnedData( Bcb, NULL );
                 CcRepinBcb( Bcb );
@@ -926,12 +966,210 @@ Return Value:
 }
 
 
+NTSTATUS
+FatHijackIrpAndFlushDevice (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp,
+    IN PDEVICE_OBJECT TargetDeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when we need to send a flush to a device but
+    we don't have a flush Irp.  What this routine does is make a copy
+    of its current Irp stack location, but changes the Irp Major code
+    to a IRP_MJ_FLUSH_BUFFERS amd then send it down, but cut it off at
+    the knees in the completion routine, fix it up and return to the
+    user as if nothing had happened.
+
+Arguments:
+
+    Irp - The Irp to hijack
+
+    TargetDeviceObject - The device to send the request to.
+
+Return Value:
+
+    NTSTATUS - The Status from the flush in case anybody cares.
+
+--*/
+
+{
+    KEVENT Event;
+    NTSTATUS Status;
+    PIO_STACK_LOCATION NextIrpSp;
+
+    //
+    //  Get the next stack location, and copy over the stack location
+    //
+
+    NextIrpSp = IoGetNextIrpStackLocation( Irp );
+
+    *NextIrpSp = *IoGetCurrentIrpStackLocation( Irp );
+
+    NextIrpSp->MajorFunction = IRP_MJ_FLUSH_BUFFERS;
+    NextIrpSp->MinorFunction = 0;
+
+    //
+    //  Set up the completion routine
+    //
+
+    KeInitializeEvent( &Event, NotificationEvent, FALSE );
+
+    IoSetCompletionRoutine( Irp,
+                            FatHijackCompletionRoutine,
+                            &Event,
+                            TRUE,
+                            TRUE,
+                            TRUE );
+
+    //
+    //  Send the request.
+    //
+
+    Status = IoCallDriver( TargetDeviceObject, Irp );
+
+    if (Status == STATUS_PENDING) {
+
+        KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, NULL );
+
+        Status = Irp->IoStatus.Status;
+    }
+
+    //
+    //  If the driver doesn't support flushes, return SUCCESS.
+    //
+
+    if (Status == STATUS_INVALID_DEVICE_REQUEST) {
+        Status = STATUS_SUCCESS;
+    }
+
+    Irp->IoStatus.Status = 0;
+    Irp->IoStatus.Information = 0;
+
+    return Status;
+}
+
+
+VOID
+FatFlushFatEntries (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN ULONG Cluster,
+    IN ULONG Count
+)
+
+/*++
+
+Routine Description:
+
+    This macro flushes the FAT page(s) containing the passed in run.
+
+Arguments:
+
+    Vcb - Supplies the volume being flushed
+
+    Cluster - The starting cluster
+
+    Count -  The number of FAT entries in the run
+
+Return Value:
+
+    VOID
+
+--*/
+
+{
+    ULONG ByteCount;
+    LARGE_INTEGER FileOffset;
+
+    IO_STATUS_BLOCK Iosb;
+
+    FileOffset.HighPart = 0;
+    FileOffset.LowPart = FatReservedBytes( &Vcb->Bpb );
+
+    if (Vcb->AllocationSupport.FatIndexBitSize == 12) {
+
+        FileOffset.LowPart += Cluster * 3 / 2;
+        ByteCount = (Count * 3 / 2) + 1;
+
+    } else {
+
+        FileOffset.LowPart += Cluster * sizeof( FAT_ENTRY );
+        ByteCount = Count * sizeof( FAT_ENTRY );
+
+    }
+
+    CcFlushCache( &Vcb->SectionObjectPointers,
+                  &FileOffset,
+                  ByteCount,
+                  &Iosb );
+
+    if (NT_SUCCESS(Iosb.Status)) {
+        Iosb.Status = FatHijackIrpAndFlushDevice( IrpContext,
+                                                  IrpContext->OriginatingIrp,
+                                                  Vcb->TargetDeviceObject );
+    }
+
+    if (!NT_SUCCESS(Iosb.Status)) {
+        FatNormalizeAndRaiseStatus(IrpContext, Iosb.Status);
+    }
+}
+
+
+VOID
+FatFlushDirentForFile (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb
+)
+
+/*++
+
+Routine Description:
+
+    This macro flushes the page containing a file's DIRENT in its parent.
+
+Arguments:
+
+    Fcb - Supplies the file whose DIRENT is being flushed
+
+Return Value:
+
+    VOID
+
+--*/
+
+{
+    LARGE_INTEGER FileOffset;
+    IO_STATUS_BLOCK Iosb;
+
+    FileOffset.QuadPart = Fcb->DirentOffsetWithinDirectory;
+
+    CcFlushCache( &Fcb->ParentDcb->NonPaged->SectionObjectPointers,
+                  &FileOffset,
+                  sizeof( DIRENT ),
+                  &Iosb );
+
+    if (NT_SUCCESS(Iosb.Status)) {
+        Iosb.Status = FatHijackIrpAndFlushDevice( IrpContext,
+                                                  IrpContext->OriginatingIrp,
+                                                  Fcb->Vcb->TargetDeviceObject );
+    }
+
+    if (!NT_SUCCESS(Iosb.Status)) {
+        FatNormalizeAndRaiseStatus(IrpContext, Iosb.Status);
+    }
+}
+
+
 //
 //  Local support routine
 //
 
 NTSTATUS
-FatFlushCompletionRoutine(
+FatFlushCompletionRoutine (
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp,
     IN PVOID Contxt
@@ -958,7 +1196,31 @@ FatFlushCompletionRoutine(
     }
 
     UNREFERENCED_PARAMETER( DeviceObject );
-    UNREFERENCED_PARAMETER( Irp );
+    UNREFERENCED_PARAMETER( Contxt );
 
     return STATUS_SUCCESS;
+}
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+FatHijackCompletionRoutine (
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PIRP Irp,
+    IN PVOID Contxt
+    )
+
+{
+    //
+    //  Set the event so that our call will wake up.
+    //
+
+    KeSetEvent( (PKEVENT)Contxt, 0, FALSE );
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+    UNREFERENCED_PARAMETER( Irp );
+
+    return STATUS_MORE_PROCESSING_REQUIRED;
 }

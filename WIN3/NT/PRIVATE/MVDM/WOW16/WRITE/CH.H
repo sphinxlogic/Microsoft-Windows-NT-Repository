@@ -213,4 +213,4 @@ strings. */
 /* ANSI block character, see FWriteExtTextScrap! ..pault */
 
 #define chBlock 0x7f
-
+

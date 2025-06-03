@@ -44,6 +44,7 @@ Revision History:
 
    21.Jul.93 - mglass - Define access bit to fail attempt to reassign blocks.
    12.May.94 - Venkat - Added code to drop of writes to DISK (CHKDSK testing)
+   22.Nov.94 - kpeery - Added code to force hardware reset (for restarts)
 --*/
 #include "stdlib.h"
 #include "stdio.h"
@@ -72,6 +73,7 @@ Revision History:
 #define FROM_FILE 'f'
 #define RANDOM	  'n'
 #define BUGCHECK  'b'
+#define FIRMWARE_RESET 't'
 
 #define MAX_DEV_NAME 128
 
@@ -82,6 +84,7 @@ WCHAR whattodo=LIST;
 ULONG Seed, accessType=0;
 int   hdnum=0, partnum=1;
 ULONG sectors[MAXIMUM_SIMBAD_SECTORS];
+
 
 VOID
 InputSectorList (
@@ -156,9 +159,10 @@ Return value:
         "\tr Fail read  access (enter sector list)\n"
         "\tw Fail write access (enter sector list)\n"
         "\tv Fail verify access (enter sector list)\n"
-	"\to Orphan entire device (return DEVICE FAILURE)\n"
-	"\tn Dropping writes randomly\n"
-	"\tb BugChecks the system\n"
+        "\to Orphan entire device (return DEVICE FAILURE)\n"
+        "\tn Dropping writes randomly\n"
+        "\tb BugChecks the system\n"
+        "\tt Reset the system\n"
         "\te Enable  (previously entered) bad sectors\n"
         "\td Disable (previously enabled) bad sectors\n"
         "\tl List bad sectors\n"
@@ -180,6 +184,7 @@ Return value:
         );
     exit(-1);
 } // ShowUsage();
+
 
 VOID
 ParseCmdArgs (
@@ -368,23 +373,24 @@ Return value:
             // switch value
             //
             case LIST:
-	    case ORPHAN:
-
-	    case BUGCHECK:
+            case ORPHAN:
+            case BUGCHECK:
+            case FIRMWARE_RESET:
             case ENABLE:
             case DISABLE:
             case CLEAR:
 
                 whattodo=argv[i++][1];
                 break;
-	    case RANDOM:
-		whattodo=argv[i++][1];
-		if  ( i< argc ){
-		      sscanf( argv[i++],"%lu", &Seed);
-		}else{
-		      Seed=100;
-		}
-		break;
+
+            case RANDOM:
+                whattodo=argv[i++][1];
+                if  ( i< argc ){
+                    sscanf( argv[i++],"%lu", &Seed);
+                }else{
+                    Seed=100;
+                }
+                break;
 
             //
             // any other switch, show usage
@@ -417,6 +423,7 @@ Return value:
     } // while
 
 } // ParseCmdArgs()
+
 
 //
 // Some of this code was taken directly from simbad.cxx (older version)
@@ -491,16 +498,17 @@ Return value:
 //
 
 BOOLEAN
-BugCheckTheSystem(HANDLE _handle )
-
+BugCheckOrResetTheSystem(HANDLE _handle, ULONG simbadFunction)
 
 /*++
 
 Routine Description:
 
-    This routine setup SIMBAD fopr bug checking the system.
+    This routine will setup SIMBAD for bug checking or reseting the system.
 
 Arguments:
+    _handle       - a device handle
+    simbadFunction - the desired function to call in the driver
 
 Return Value:
 
@@ -508,34 +516,33 @@ Return Value:
 
 --*/
 {
-    SIMBAD_DATA         SimbadData;
-    IO_STATUS_BLOCK     StatusBlock;
-    NTSTATUS		Status;
-    SimbadData.Function = SIMBAD_BUG_CHECK;
+    SIMBAD_DATA     SimbadData;
+    IO_STATUS_BLOCK StatusBlock;
+    NTSTATUS        Status;
+
+    SimbadData.Function = simbadFunction;
 
     Status= NtDeviceIoControlFile(_handle,
-                                             0,
-                                             NULL,
-                                             NULL,
-                                             &StatusBlock,
-                                             IOCTL_DISK_SIMBAD,
-                                             &SimbadData,
-                                             sizeof(SIMBAD_DATA),
-                                             NULL,
-					     0);
+                                  0,
+                                  NULL,
+                                  NULL,
+                                  &StatusBlock,
+                                  IOCTL_DISK_SIMBAD,
+                                  &SimbadData,
+                                  sizeof(SIMBAD_DATA),
+                                  NULL,
+                                  0);
 
-	   if ((BOOLEAN)NT_SUCCESS(Status)){
+    if ((BOOLEAN)NT_SUCCESS(Status)){
 		return TRUE;
-	   }else{
-		fprintf(stderr,
-			"BugCheckTheSystem function  %s failed (%lX)\n",
-			devname, Status);
-		return FALSE;
-	   }
+    }else{
+        fprintf(stderr,
+                "BugCheckOrResetTheSystem(0x%08x) function  %s failed (%lX)\n",
+                simbadFunction, devname, Status);
+        return FALSE;
+    }
 
-
-
-} //BugCheckTheSystem
+} //BugCheckOrRestTheSystem
 
 
 //
@@ -1153,7 +1160,6 @@ Return value:
                     printf("Enable bad sectors on %s failed (%lx)\n",
                            devname,
                            GetLastError());
-
                 } // if
                 break;
 
@@ -1183,39 +1189,51 @@ Return value:
                            GetLastError());
                 } // if
                 break;
-	    //
-	    // RANDOM	causes the partition to drop writes randomly
+
             //
-	    case RANDOM:
+            // RANDOM   causes the partition to drop writes randomly
+            //
+            case RANDOM:
 
-		if (!RandomWriteFailure(_handle )) {
+                if (!RandomWriteFailure(_handle )) {
 
-		    printf ("RandomWriteFailure disk on %s failed (%lx)\n",
-                            devname,
+                    printf ("RandomWriteFailure disk on %s failed (%lx)\n",
+                            devname, 
                             GetLastError());
 
                 } // if
-		break;
+                break;
 
-	    //
-	    //	BUGCHECK sets up the system for bug check
-	    //
+	        //
+            //  BUGCHECK sets up the system for bug check
+            //  
 
-	    case BUGCHECK:
-		if (!BugCheckTheSystem(_handle)){
-		    printf ("BugCheckTheSystem function failed.\n");
-		} // if
-		break;
-	    //
+            case BUGCHECK:
+                if (!BugCheckOrResetTheSystem(_handle, SIMBAD_BUG_CHECK)){
+                    printf ("BugCheckTheSystem function failed.\n");
+                } // if
+                break;
+
+            //
+            //  FIRMWARE_RESET setup for firmware reset when enabled.
+            //
+
+            case FIRMWARE_RESET:
+                if (!BugCheckOrResetTheSystem(_handle, SIMBAD_FIRMWARE_RESET)){
+                    printf ("ResetTheSystem function failed.\n");
+                } // if
+                break;
+
             // any other action, just close the handle and show usage
-	    //
+	        //
 
-	default:
+            default:
 
                 NtClose(_handle);
                 ShowUsage();
 
             } // switch (whattodo)
+
 
             NtClose(_handle);
         } else {

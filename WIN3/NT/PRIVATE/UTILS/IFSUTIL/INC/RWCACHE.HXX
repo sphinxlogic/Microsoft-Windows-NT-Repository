@@ -25,6 +25,14 @@ Author:
 #include "hmem.hxx"
 #include "numset.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
 
 struct RW_CACHE_BLOCK {
     BOOLEAN InUse;
@@ -42,6 +50,7 @@ class READ_WRITE_CACHE : public DRIVE_CACHE {
 
     public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( READ_WRITE_CACHE );
 
         VIRTUAL
@@ -49,6 +58,7 @@ class READ_WRITE_CACHE : public DRIVE_CACHE {
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PIO_DP_DRIVE    Drive,
@@ -56,19 +66,19 @@ class READ_WRITE_CACHE : public DRIVE_CACHE {
             );
 
         VIRTUAL
-		BOOLEAN
-		Read(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			OUT PVOID       Buffer
-			);
+                BOOLEAN
+                Read(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        OUT PVOID       Buffer
+                        );
 
         VIRTUAL
-		BOOLEAN
-		Write(
-			IN  BIG_INT     StartingSector,
-			IN  SECTORCOUNT NumberOfSectors,
-			IN  PVOID       Buffer
+                BOOLEAN
+                Write(
+                        IN  BIG_INT     StartingSector,
+                        IN  SECTORCOUNT NumberOfSectors,
+                        IN  PVOID       Buffer
             );
 
         VIRTUAL
@@ -102,9 +112,9 @@ class READ_WRITE_CACHE : public DRIVE_CACHE {
             );
 
         NONVIRTUAL
-		VOID
-		Construct(
-			);
+                VOID
+                Construct(
+                        );
 
         NONVIRTUAL
         VOID

@@ -14,8 +14,8 @@
 
 /* Function prototypes
  */
-HANDLE  APIENTRY W32LocalAlloc(DWORD dwFlags, DWORD dwBytes, HANDLE hInstance);
-HANDLE	APIENTRY W32LocalReAlloc(HANDLE hMem, DWORD dwBytes, DWORD dwFlags, HANDLE hInstance);
+HANDLE  APIENTRY W32LocalAlloc(UINT dwFlags, UINT dwBytes, HANDLE hInstance);
+HANDLE	APIENTRY W32LocalReAlloc(HANDLE hMem, UINT dwBytes, UINT dwFlags, HANDLE hInstance, PVOID* ppv);
 LPSTR	APIENTRY W32LocalLock(HANDLE hMem, HANDLE hInstance);
 BOOL	APIENTRY W32LocalUnlock(HANDLE hMem, HANDLE hInstance);
 DWORD	APIENTRY W32LocalSize(HANDLE hMem, HANDLE hInstance);

@@ -19,25 +19,14 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <rpcssp.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
+#include <precomp.hxx>
 #include <rpcobj.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
-#include <sdict.hxx>
-#include <interlck.hxx>
-#include <secclnt.hxx>
 #include <hndlsvr.hxx>
 #include <mgmt.h>
 
-static RPC_SERVER * GlobalRpcServer;
+RPC_SERVER * GlobalRpcServer;
+
+long GroupIdCounter;
 
 RPC_INTERFACE * GlobalManagementInterface;
 
@@ -426,7 +415,82 @@ Return Value:
 
     return(GlobalRpcServer->RegisterInterface(
                     (RPC_SERVER_INTERFACE PAPI *) IfSpec,
-                    (RPC_UUID PAPI *) MgrTypeUuid, MgrEpv));
+                    (RPC_UUID PAPI *) MgrTypeUuid, MgrEpv, 0,
+                    MAX_IF_CALLS, 0));
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerRegisterIfEx (
+    IN RPC_IF_HANDLE IfSpec,
+    IN UUID PAPI * MgrTypeUuid,
+    IN RPC_MGR_EPV PAPI * MgrEpv,
+    IN unsigned int Flags,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_CALLBACK_FN PAPI *IfCallbackFn
+    )
+/*++
+
+Routine Description:
+
+    This routine is used by server application to register a manager
+    entry point vector and  an interface.  If the interface
+    has not been registered, then it will be registered.  If it has
+    already been registered, the manager entry point vector will be
+    added to it under the specified type uuid. If the IF_AUTOLISTEN flag
+    has been specified, then the registered interface will be treated as an
+    auto-listen interface. 
+
+Arguments:
+
+    IfSpec - Supplies a description of the interface.  This is actually
+        a pointer to an opaque data structure which the runtime knows
+        how to interpret.
+
+    MgrTypeUuid - Optionally supplies the type uuid for the specified
+        manager entry point vector.  If no type uuid is supplied, then
+        the null uuid will be used as the type uuid.
+
+    MgrEpv - Optionally supplies a manager entry point vector corresponding
+        to the type uuid.  If a manager entry point vector is not supplied,
+        then the manager entry point vector in the interface will be
+        used.
+
+    Flags -
+        RPC_IF_OLE - the interface is an OLE interface. Calls need to be dispatched
+                      to procnum 0
+        RPC_IF_AUTOLISTEN - the interface is an auto-listen inteface, calls may be
+                      dispatched on this inteface as soon as it is registered. 
+
+    MaxCalls -
+        Maximum number of calls that can be simulaneously dispatched on this interface
+
+Return Value:
+
+    RPC_S_OK - The specified rpc interface has been successfully
+        registered with the rpc server.  It is now ready to accept
+        remote procedure calls.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to register
+        the rpc interface with the rpc server.
+
+    RPC_S_TYPE_ALREADY_REGISTERED - A manager entry point vector has
+        already been registered for the supplied rpc interface and
+        manager type UUID.
+
+--*/
+{
+    InitializeIfNecessary();
+
+    if (Flags & RPC_IF_OLE)
+        {
+        Flags |= RPC_IF_AUTOLISTEN ;
+        }
+
+    return(GlobalRpcServer->RegisterInterface(
+                    (RPC_SERVER_INTERFACE PAPI *) IfSpec,
+                    (RPC_UUID PAPI *) MgrTypeUuid, MgrEpv, Flags,
+                    MaxCalls, IfCallbackFn));
 }
 
 
@@ -483,9 +547,10 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseAllProtseqs (
+RpcServerUseAllProtseqsEx (
     IN unsigned int MaxCalls,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -529,6 +594,11 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     Status = RpcNetworkInqProtseqsW(&RpcProtseqVector);
     if (Status != RPC_S_OK)
         return(Status);
@@ -537,7 +607,7 @@ Return Value:
         {
         Status = GlobalRpcServer->UseRpcProtocolSequence(
                 RpcProtseqVector->Protseq[Index], MaxCalls, 0,
-                SecurityDescriptor);
+                SecurityDescriptor, Policy->EndpointFlags, Policy->NICFlags);
         if ( Status == RPC_S_OK )
             {
             ValidProtocolSequences += 1;
@@ -562,10 +632,27 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseAllProtseqsIf (
+RpcServerUseAllProtseqs (
+    IN unsigned int MaxCalls,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseAllProtseqsEx (MaxCalls, SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseAllProtseqsIfEx (
     IN unsigned int MaxCalls,
     IN RPC_IF_HANDLE IfSpec,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -619,6 +706,11 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     RpcServerInfo = (RPC_SERVER_INTERFACE PAPI *) IfSpec;
 
     if (RpcServerInfo->RpcProtseqEndpointCount == 0)
@@ -629,10 +721,10 @@ Return Value:
     for (Index = 0; Index < RpcServerInfo->RpcProtseqEndpointCount;
             Index++)
         {
-        Status = RpcServerUseProtseqEpA(
+        Status = RpcServerUseProtseqEpExA(
                 RpcServerInfo->RpcProtseqEndpoint[Index].RpcProtocolSequence,
                 MaxCalls, RpcServerInfo->RpcProtseqEndpoint[Index].Endpoint,
-                SecurityDescriptor);
+                SecurityDescriptor, Policy);
         if ( Status == RPC_S_OK )
             {
             SupportedProtseqCount += 1;
@@ -658,10 +750,28 @@ Return Value:
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqW (
+RpcServerUseAllProtseqsIf (
+    IN unsigned int MaxCalls,
+    IN RPC_IF_HANDLE IfSpec,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseAllProtseqsIfEx ( MaxCalls, IfSpec, SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqExW (
     IN RPC_CHAR PAPI * Protseq,
     IN unsigned int MaxCalls,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -707,17 +817,41 @@ Return Value:
 {
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     return(GlobalRpcServer->UseRpcProtocolSequence(Protseq, MaxCalls, 0,
-                    SecurityDescriptor));
+                    SecurityDescriptor, Policy->EndpointFlags, Policy->NICFlags));
 }
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqEpW (
+RpcServerUseProtseqW (
+    IN RPC_CHAR PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+
+    return RpcServerUseProtseqExW(Protseq, MaxCalls, SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqEpExW (
     IN RPC_CHAR PAPI * Protseq,
     IN unsigned int MaxCalls,
     IN RPC_CHAR PAPI * Endpoint,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -770,17 +904,43 @@ Return Value:
 {
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
     return(GlobalRpcServer->UseRpcProtocolSequence(Protseq, MaxCalls,
-                    Endpoint, SecurityDescriptor));
+                    Endpoint, SecurityDescriptor,
+                    Policy->EndpointFlags, Policy->NICFlags));
 }
 
 
 RPC_STATUS RPC_ENTRY
-RpcServerUseProtseqIfW (
+RpcServerUseProtseqEpW (
+    IN RPC_CHAR PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN RPC_CHAR PAPI * Endpoint,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseProtseqEpExW(Protseq, MaxCalls, Endpoint,
+                SecurityDescriptor, &Policy) ;
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqIfExW (
     IN RPC_CHAR PAPI * Protseq,
     IN unsigned int MaxCalls,
     IN RPC_IF_HANDLE IfSpec,
-    IN void PAPI * SecurityDescriptor OPTIONAL
+    IN void PAPI * SecurityDescriptor,
+    IN PRPC_POLICY Policy
     )
 /*++
 
@@ -840,6 +1000,12 @@ Return Value:
 
     InitializeIfNecessary();
 
+    if (Policy->Length < sizeof(RPC_POLICY))
+        {
+        return RPC_S_INVALID_BOUND ;
+        }
+
+
     RpcServerInfo = (RPC_SERVER_INTERFACE PAPI *) IfSpec;
 
     for (Index = 0; Index < RpcServerInfo->RpcProtseqEndpointCount;
@@ -861,12 +1027,10 @@ Return Value:
 #ifdef NTENV
             RtlFreeUnicodeString(&UnicodeString);
 #endif
-            RpcStatus = RpcServerUseProtseqEpA(
-                    RpcServerInfo->RpcProtseqEndpoint[
-                            Index].RpcProtocolSequence,
-                    MaxCalls,
-                    RpcServerInfo->RpcProtseqEndpoint[Index].Endpoint,
-                    SecurityDescriptor);
+            RpcStatus = RpcServerUseProtseqEpExA(
+                    RpcServerInfo->RpcProtseqEndpoint[ Index].RpcProtocolSequence,
+                    MaxCalls, RpcServerInfo->RpcProtseqEndpoint[Index].Endpoint,
+                    SecurityDescriptor, Policy);
             if ( RpcStatus != RPC_S_OK )
                 {
                 return(RpcStatus);
@@ -886,6 +1050,25 @@ Return Value:
         return(RPC_S_PROTSEQ_NOT_SUPPORTED);
         }
     return(RPC_S_OK);
+}
+
+
+RPC_STATUS RPC_ENTRY
+RpcServerUseProtseqIfW (
+    IN RPC_CHAR PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_HANDLE IfSpec,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    Policy.Length = sizeof(RPC_POLICY) ;
+    Policy.EndpointFlags = 0;
+    Policy.NICFlags = 0;
+
+    return RpcServerUseProtseqIfExW (Protseq, MaxCalls, IfSpec,
+                SecurityDescriptor, &Policy) ;
 }
 
 
@@ -1387,6 +1570,42 @@ Return Values:
 
 
 RPC_STATUS RPC_ENTRY
+RpcRevertToSelfEx (
+    IN RPC_BINDING_HANDLE ClientBinding OPTIONAL
+    )
+/*++
+
+Routine Description:
+
+Return Value:
+
+--*/
+{
+    SCONNECTION * SConnection ;
+
+    InitializeIfNecessary();
+
+    ASSERT(!RpcpCheckHeap());
+
+    if ( ClientBinding == 0 )
+        {
+        SConnection = (SCONNECTION *) RpcpGetThreadContext();
+        if ( SConnection == 0 )
+            return(RPC_S_NO_CALL_ACTIVE);
+        }
+    else
+        {
+        SConnection = (SCONNECTION *) ClientBinding;
+        if (SConnection->InvalidHandle(SCONNECTION_TYPE))
+            return(RPC_S_INVALID_BINDING);
+        
+        }
+
+    return(SConnection->RevertToSelf());
+}
+
+
+RPC_STATUS RPC_ENTRY
 RpcRevertToSelf (
     )
 /*++
@@ -1397,16 +1616,9 @@ Return Value:
 
 --*/
 {
-    SCONNECTION * SConnection = (SCONNECTION *) RpcpGetThreadContext();
 
-    InitializeIfNecessary();
+    return(RpcRevertToSelfEx((RPC_BINDING_HANDLE) 0)); 
 
-    ASSERT(!RpcpCheckHeap());
-
-    if ( SConnection == 0 )
-        return(RPC_S_NO_CALL_ACTIVE);
-
-    return(SConnection->RevertToSelf());
 }
 
 
@@ -1652,9 +1864,11 @@ Return Value:
                 AnsiPrincName, (unsigned long *)&Status);
 
     *ServerPrincName = 0;
+
     if ( Status == RPC_S_OK )
         {
 
+#ifdef NTENV
         *ServerPrincName = StringToWideCharString(AnsiPrincName, &Status);
 
         if (*ServerPrincName == 0)
@@ -1663,12 +1877,95 @@ Return Value:
             ASSERT(Status == RPC_S_OUT_OF_MEMORY);
             return(RPC_S_OUT_OF_MEMORY);
             }
+#else
+        *ServerPrincName = AnsiPrincName;
+        return (Status);
+#endif
         }
 
     delete AnsiPrincName;
 
     return(Status);
 }
+
+#ifdef DOSWIN32RPC
+
+RPC_STATUS RPC_ENTRY
+RpcServerInqDefaultPrincNameW (
+    IN unsigned long AuthnSvc,
+    OUT RPC_CHAR __RPC_FAR * __RPC_FAR * PrincName
+    )
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+    PrincName - Returns
+
+
+Return Value:
+
+    RPC_S_OK - Everything worked just fine, and you now know the interfaces
+        supported by this server.
+
+    RPC_S_OUT_OF_MEMORY - Insufficient memory is available to complete
+        the operation.
+
+--*/
+{
+    RPC_STATUS Status;
+    SECURITY_CREDENTIALS Credentials;
+    SEC_CHAR * DefaultPrincName;
+    RPC_CHAR *CopyPrincName;
+
+    InitializeIfNecessary();
+
+    Status = Credentials.AcquireCredentialsForServer(NULL,
+                                                     NULL,
+                                                     AuthnSvc,
+                                                     0,
+                                                     NULL);
+    if (Status != RPC_S_OK) {
+        return (Status);
+    }
+
+    DefaultPrincName = Credentials.InquireDefaultPrincName();
+    if (DefaultPrincName == NULL) {
+        return (RPC_S_OUT_OF_MEMORY);
+    }
+
+    CopyPrincName = DuplicateString((RPC_CHAR *)DefaultPrincName);
+    if (CopyPrincName == 0)
+        return(RPC_S_OUT_OF_MEMORY);
+
+    *PrincName = CopyPrincName;
+
+    return (RPC_S_OK);
+}
+
+#else
+
+RPC_STATUS RPC_ENTRY
+RpcServerInqDefaultPrincNameW (
+    IN unsigned long AuthnSvc,
+    OUT unsigned short __RPC_FAR * __RPC_FAR * PrincName
+    )
+{
+    return (RPC_S_CANNOT_SUPPORT);
+}
+
+RPC_STATUS RPC_ENTRY
+RpcServerInqDefaultPrincNameA (
+    IN unsigned long AuthnSvc,
+    OUT unsigned char __RPC_FAR * __RPC_FAR * PrincName
+    )
+{
+    return (RPC_S_CANNOT_SUPPORT);
+}
+
+#endif
 
 
 RPC_STATUS RPC_ENTRY
@@ -1756,6 +2053,17 @@ Revision History:
 
     return RPC_S_OK;
 }
+
+RPC_STATUS RPC_ENTRY
+I_RpcServerUnregisterEndpointW (
+    IN RPC_CHAR * Protseq,
+    IN RPC_CHAR * Endpoint
+    )
+{
+    InitializeIfNecessary();
+
+    return GlobalRpcServer->UnregisterEndpoint(Protseq, Endpoint);
+}
 
 
 int
@@ -1786,13 +2094,15 @@ Return Value:
         return(1);
         }
 
+    GroupIdCounter = GetTickCount();
+    
     // If we can't create the global management interface
     // don't worry about it; it probably won't be used anyway.
     // When it is used, it should be checked for NULL.
 
     GlobalManagementInterface = new RPC_INTERFACE(
         (RPC_SERVER_INTERFACE *)mgmt_ServerIfHandle,
-        GlobalRpcServer);
+        GlobalRpcServer, 0, MAX_IF_CALLS, 0);
 
     if (GlobalManagementInterface)
         {

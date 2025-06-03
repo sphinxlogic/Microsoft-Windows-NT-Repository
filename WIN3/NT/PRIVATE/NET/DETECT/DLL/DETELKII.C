@@ -35,7 +35,6 @@ Revision History:
 #include "ntddnetd.h"
 #include "detect.h"
 
-
 //
 // Individual card detection routines
 //
@@ -49,7 +48,9 @@ BOOLEAN
 ElnkiiCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG MemoryAddress
     );
 
 ULONG
@@ -104,7 +105,27 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"ELNKII",
-        L"IRQ\0000\00080\0IRQTYPE\0002\000100\0IOADDR\0001\000100\0IOADDRLENGTH\0002\000100\0MEMADDRLENGTH\0002\000100\0MEMADDR\0001\000100\0TRANSCEIVER\0000\0000\0",
+        L"IRQ\0"
+        L"0\0"
+        L"80\0"
+        L"IRQTYPE\0"
+        L"2\0"
+        L"100\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"100\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"MEMADDR\0"
+        L"1\0"
+        L"100\0"
+        L"TRANSCEIVER\0"
+        L"0\0"
+        L"0\0",
         NULL,
         300
 
@@ -118,11 +139,14 @@ static ADAPTER_INFO Adapters[] = {
 // Structure for holding state of a search
 //
 
-typedef struct _SEARCH_STATE {
-
-    ULONG IoBaseAddress;
-
-} SEARCH_STATE, *PSEARCH_STATE;
+typedef struct _SEARCH_STATE
+{
+    ULONG	IoBaseAddress;
+	ULONG	MemoryAddress;
+	UCHAR	Interrupt;
+}
+	SEARCH_STATE,
+	*PSEARCH_STATE;
 
 
 //
@@ -136,14 +160,17 @@ static SEARCH_STATE SearchStates[sizeof(Adapters) / sizeof(ADAPTER_INFO)] = {0};
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _ELNKII_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-    ULONG IoBaseAddress;
-
-} ELNKII_ADAPTER, *PELNKII_ADAPTER;
+typedef struct _ELNKII_ADAPTER
+{
+    LONG 			CardType;
+    INTERFACE_TYPE	InterfaceType;
+    ULONG 			BusNumber;
+    ULONG 			IoBaseAddress;
+	ULONG			MemoryAddress;
+	UCHAR 			Interrupt;
+}
+	ELNKII_ADAPTER,
+	*PELNKII_ADAPTER;
 
 
 extern
@@ -319,51 +346,51 @@ Return Value:
 --*/
 
 {
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
+	NETDTECT_RESOURCE	Resource;
 
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
-    if (lNetcardId != 1000) {
-
+    if (lNetcardId != 1000)
+	{
         *lConfidence = 0;
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     //
     // If fFirst, reset search state
     //
-
-    if (fFirst) {
-
+	if (fFirst)
+	{
         SearchStates[0].IoBaseAddress = 0x250;
-
-    } else if (SearchStates[0].IoBaseAddress < 0x400) {
-
+    }
+	else if (SearchStates[0].IoBaseAddress < 0x400)
+	{
         SearchStates[0].IoBaseAddress = ElnkiiNextIoAddr(SearchStates[0].IoBaseAddress);
     }
 
-    while (SearchStates[0].IoBaseAddress < 0x400) {
-
-        if (ElnkiiCardAt(InterfaceType, BusNumber, SearchStates[0].IoBaseAddress)) {
-
+    while (SearchStates[0].IoBaseAddress < 0x400)
+	{
+        if (ElnkiiCardAt(
+				InterfaceType,
+				BusNumber,
+				SearchStates[0].IoBaseAddress,
+				&SearchStates[0].Interrupt,
+				&SearchStates[0].MemoryAddress))
+		{
             break;
-
         }
 
         SearchStates[0].IoBaseAddress = ElnkiiNextIoAddr(SearchStates[0].IoBaseAddress);
-
     }
 
-    if (SearchStates[0].IoBaseAddress == 0x400) {
-
+    if (SearchStates[0].IoBaseAddress == 0x400)
+	{
         *lConfidence = 0;
         return(0);
-
     }
 
     //
@@ -378,13 +405,12 @@ Return Value:
     // NOTE: This presumes that there are < 129 buses in the
     // system. Is this reasonable?
     //
-
-    if (InterfaceType == Isa) {
-
+    if (InterfaceType == Isa)
+	{
         *ppvToken = (PVOID)0x8000;
-
-    } else {
-
+    }
+	else
+	{
         *ppvToken = (PVOID)0x0;
     }
 
@@ -432,15 +458,13 @@ Return Value:
     //
     // Get info from the token
     //
-
-    if (((ULONG)pvToken) & 0x8000) {
-
+    if (((ULONG)pvToken) & 0x8000)
+	{
         InterfaceType = Isa;
-
-    } else {
-
+    }
+	else
+	{
         InterfaceType = Eisa;
-
     }
 
     BusNumber = (ULONG)(((ULONG)pvToken >> 8) & 0x7F);
@@ -450,22 +474,18 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PELNKII_ADAPTER)DetectAllocateHeap(
-                                 sizeof(ELNKII_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PELNKII_ADAPTER)DetectAllocateHeap(sizeof(ELNKII_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->IoBaseAddress = SearchStates[(ULONG)AdapterNumber].IoBaseAddress;
+    Handle->Interrupt = SearchStates[(ULONG)AdapterNumber].Interrupt;
+    Handle->MemoryAddress = SearchStates[(ULONG)AdapterNumber].MemoryAddress;
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -511,49 +531,61 @@ Return Value:
     PELNKII_ADAPTER Handle;
     LONG NumberOfAdapters;
     LONG i;
+	NETDTECT_RESOURCE	Resource;
 
-    if ((InterfaceType != Isa) &&
-        (InterfaceType != Eisa)) {
-
+    if ((InterfaceType != Isa) && (InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
+            Handle = (PELNKII_ADAPTER)DetectAllocateHeap(sizeof(ELNKII_ADAPTER));
 
-            Handle = (PELNKII_ADAPTER)DetectAllocateHeap(
-                                         sizeof(ELNKII_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
-            Handle->IoBaseAddress = 0x250;
+            Handle->IoBaseAddress = 0x300;
+			Handle->Interrupt = 3;
+			Handle->MemoryAddress = 0;
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
 
+			Resource.InterfaceType = InterfaceType;
+			Resource.BusNumber = BusNumber;
+			Resource.Type = NETDTECT_PORT_RESOURCE;
+			Resource.Value = SearchStates[0].IoBaseAddress;
+			Resource.Length = 0x10;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Value += 0x400;
+
+			DetectTemporaryClaimResource(&Resource);
+
+			Resource.Type = NETDTECT_IRQ_RESOURCE;
+			Resource.Value = 2;
+			Resource.Length = 0;
+
+			DetectTemporaryClaimResource(&Resource);
+
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -617,210 +649,14 @@ Return Value:
 
 {
     PELNKII_ADAPTER Adapter = (PELNKII_ADAPTER)(pvHandle);
-    NTSTATUS NtStatus;
-    UCHAR Interrupt = 0;
-    ULONG RamAddr = 0;
-    HANDLE TrapHandle;
-    UCHAR InterruptList[4];
-    UCHAR ResultList[4] = {0};
     LONG OutputLengthLeft = cwchBuffSize;
     LONG CopyLength;
-    UCHAR Value;
-    UCHAR i;
-
     ULONG StartPointer = (ULONG)pwchBuffer;
 
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
-
-    //
-    // Verify the IoBaseAddress
-    //
-
-    if (!ElnkiiCardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  Adapter->IoBaseAddress
-                 )) {
-
-        if (Adapter->IoBaseAddress < 0x400) {
-
-            Adapter->IoBaseAddress = ElnkiiNextIoAddr(Adapter->IoBaseAddress);
-
-        }
-
-        while (Adapter->IoBaseAddress < 0x400) {
-
-            if (ElnkiiCardAt(Adapter->InterfaceType,
-                         Adapter->BusNumber,
-                         Adapter->IoBaseAddress
-                        )) {
-
-                //
-                // Found one!
-                //
-
-                break;
-
-            }
-
-            Adapter->IoBaseAddress = ElnkiiNextIoAddr(Adapter->IoBaseAddress);
-
-        }
-
-        if (Adapter->IoBaseAddress == 0x400) {
-
-            //
-            // No card
-            //
-
-            if (cwchBuffSize < 2) {
-
-                return(ERROR_INSUFFICIENT_BUFFER);
-
-            }
-
-            wsprintf(pwchBuffer, L"\0");
-
-            return(0);
-
-        }
-
-    }
-
-
-
-    //
-    // Check if we are in memory mapped mode or in programmed i/o mode.
-    // GetRamBase();  A ram base of 0 implies programmed i/o mode.
-    //
-
-    //
-    // Read from GA_MEM_BASE
-    //
-
-    NtStatus = DetectReadPortUchar(
-                        Adapter->InterfaceType,
-                        Adapter->BusNumber,
-                        Adapter->IoBaseAddress + 0x404,
-                        &Value
-                        );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        goto BuildBuffer;
-
-    }
-
-    switch (Value) {
-
-        case 0x80:
-
-            RamAddr = 0xDC000;
-            break;
-
-        case 0x40:
-
-            RamAddr = 0xD8000;
-            break;
-
-        case 0x20:
-
-            RamAddr = 0xCC000;
-            break;
-
-        case 0x10:
-
-            RamAddr = 0xC8000;
-            break;
-
-        case 0x00:
-
-            RamAddr = 0x0;
-            break;
-
-        default:
-
-            //
-            // ERROR!
-            //
-
-            if (cwchBuffSize < 2) {
-
-                return(ERROR_INSUFFICIENT_BUFFER);
-
-            }
-
-            wsprintf(pwchBuffer, L"\0");
-
-            return(0);
-
-    }
-
-    //
-    // Get an open interrupt
-    //
-
-
-    InterruptList[0] = 3;
-    InterruptList[1] = 2;
-    InterruptList[2] = 4;
-    InterruptList[3] = 5;
-
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
-
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       InterruptList,
-                       4
-                       );
-
-    if (NtStatus == STATUS_SUCCESS) {
-
-        //
-        // Check for free ones
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           ResultList,
-                           4
-                           );
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        for (i=0; i < 4; i++) {
-
-            if (ResultList[i] != 3) {
-
-                Interrupt = InterruptList[i];
-
-                break;
-
-            }
-
-        }
-
-    }
-
-BuildBuffer:
-
-    //
-    // Build resulting buffer
-    //
 
     //
     // First put in memory addr
@@ -830,19 +666,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(MemAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)MemAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -850,28 +683,22 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 8) {
-
+    if (OutputLengthLeft < 8)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    CopyLength = wsprintf(pwchBuffer,L"0x%x",(ULONG)(RamAddr));
+    CopyLength = wsprintf(pwchBuffer,L"0x%x", Adapter->MemoryAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
-
-
-
 
     //
     // Now the amount of memory
@@ -880,19 +707,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(MemLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)MemLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -900,29 +724,23 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 8) {
-
+    if (OutputLengthLeft < 8)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
-    if (RamAddr != 0x0) {
-
+    if (Adapter->MemoryAddress != 0x0)
+	{
         CopyLength = wsprintf(pwchBuffer,L"0x2000");
-
-    } else {
-
+    }
+	else
+	{
         CopyLength = wsprintf(pwchBuffer,L"0x0");
-
     }
 
-
-
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -930,27 +748,21 @@ BuildBuffer:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
-
-
     //
     // Copy in the title string (IRW)
     //
-
-    if (Interrupt != 0) {
-
+    if (Adapter->Interrupt != 0)
+	{
         CopyLength = UnicodeStrLen(IrqString) + 1;
 
-        if (OutputLengthLeft < CopyLength) {
-
+        if (OutputLengthLeft < CopyLength)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         RtlMoveMemory((PVOID)pwchBuffer,
                       (PVOID)IrqString,
-                      (CopyLength * sizeof(WCHAR))
-                     );
+                      (CopyLength * sizeof(WCHAR)));
 
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
@@ -958,19 +770,16 @@ BuildBuffer:
         //
         // Copy in the value
         //
-
-        if (OutputLengthLeft < 3) {
-
+        if (OutputLengthLeft < 3)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
-        CopyLength = wsprintf(pwchBuffer,L"%d",Interrupt);
+        CopyLength = wsprintf(pwchBuffer,L"%d", Adapter->Interrupt);
 
-        if (CopyLength < 0) {
-
+        if (CopyLength < 0)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         CopyLength++;  // Add in the \0
@@ -978,23 +787,19 @@ BuildBuffer:
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
 
-
         //
         // Copy in title  (IRQTYPE)
         //
-
         CopyLength = UnicodeStrLen(IrqTypeString) + 1;
 
-        if (OutputLengthLeft < CopyLength) {
-
+        if (OutputLengthLeft < CopyLength)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         RtlMoveMemory((PVOID)pwchBuffer,
                       (PVOID)IrqTypeString,
-                      (CopyLength * sizeof(WCHAR))
-                     );
+                      (CopyLength * sizeof(WCHAR)));
 
         pwchBuffer = &(pwchBuffer[CopyLength]);
         OutputLengthLeft -= CopyLength;
@@ -1002,19 +807,16 @@ BuildBuffer:
         //
         // Copy in the value
         //
-
-        if (OutputLengthLeft < 2) {
-
+        if (OutputLengthLeft < 2)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         CopyLength = wsprintf(pwchBuffer,L"0");
 
-        if (CopyLength < 0) {
-
+        if (CopyLength < 0)
+		{
             return(ERROR_INSUFFICIENT_BUFFER);
-
         }
 
         CopyLength++;  // Add in the \0
@@ -1030,19 +832,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoAddrString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoAddrString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1050,19 +849,16 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 6) {
-
+    if (OutputLengthLeft < 6)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x%x",Adapter->IoBaseAddress);
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1073,19 +869,16 @@ BuildBuffer:
     //
     // Copy in the title string
     //
-
     CopyLength = UnicodeStrLen(IoLengthString) + 1;
 
-    if (OutputLengthLeft < CopyLength) {
-
+    if (OutputLengthLeft < CopyLength)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     RtlMoveMemory((PVOID)pwchBuffer,
                   (PVOID)IoLengthString,
-                  (CopyLength * sizeof(WCHAR))
-                 );
+                  (CopyLength * sizeof(WCHAR)));
 
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
@@ -1093,19 +886,16 @@ BuildBuffer:
     //
     // Copy in the value
     //
-
-    if (OutputLengthLeft < 5) {
-
+    if (OutputLengthLeft < 5)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = wsprintf(pwchBuffer,L"0x10");
 
-    if (CopyLength < 0) {
-
+    if (CopyLength < 0)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength++;  // Add in the \0
@@ -1113,15 +903,12 @@ BuildBuffer:
     pwchBuffer = &(pwchBuffer[CopyLength]);
     OutputLengthLeft -= CopyLength;
 
-
     //
     // Copy in final \0
     //
-
-    if (OutputLengthLeft < 1) {
-
+    if (OutputLengthLeft < 1)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     CopyLength = (ULONG)pwchBuffer - StartPointer;
@@ -1129,6 +916,7 @@ BuildBuffer:
 
     return(0);
 }
+
 
 extern
 LONG
@@ -1171,17 +959,15 @@ Return Value:
     NTSTATUS NtStatus;
     BOOLEAN ExternalTransceiver;
     BOOLEAN Found;
+	NETDTECT_RESOURCE	Resource;
 
-
-    if ((Adapter->InterfaceType != Isa) &&
-        (Adapter->InterfaceType != Eisa)) {
-
+    if ((Adapter->InterfaceType != Isa) && (Adapter->InterfaceType != Eisa))
+	{
         return(0);
-
     }
 
-    if (Adapter->CardType == 1000) {
-
+    if (Adapter->CardType == 1000)
+	{
         //
         // Parse out the parameter.
         //
@@ -1189,13 +975,11 @@ Return Value:
         //
         // Get the IoBaseAddress
         //
-
         Place = FindParameterString(pwchBuffer, IoAddrString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IoAddrString) + 1;
@@ -1203,41 +987,35 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &IoBaseAddress, &Found);
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
 
         //
         // Get Memory base address
         //
-
         Place = FindParameterString(pwchBuffer, MemAddrString);
 
-        if (Place != NULL) {
-
-
+        if (Place != NULL)
+		{
             Place += UnicodeStrLen(MemAddrString) + 1;
 
             //
             // Now parse the thing.
             //
-
             ScanForNumber(Place, &MemoryBaseAddress, &Found);
 
-            if (Found == FALSE) {
-
+            if (Found == FALSE)
+			{
                 return(ERROR_INVALID_DATA);
-
             }
-
-        } else {
-
+        }
+		else
+		{
             MemoryBaseAddress = 0;
         }
 
@@ -1245,13 +1023,11 @@ Return Value:
         //
         // Get Interrupt number
         //
-
         Place = FindParameterString(pwchBuffer, IrqString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(IrqString) + 1;
@@ -1259,28 +1035,24 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &InterruptLong, &Found);
 
         Interrupt = (UCHAR)InterruptLong;
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
 
         //
         // Get Transceiver type
         //
-
         Place = FindParameterString(pwchBuffer, TransceiverString);
 
-        if (Place == NULL) {
-
+        if (Place == NULL)
+		{
             return(ERROR_INVALID_DATA);
-
         }
 
         Place += UnicodeStrLen(TransceiverString) + 1;
@@ -1288,162 +1060,58 @@ Return Value:
         //
         // Now parse the thing.
         //
-
         ScanForNumber(Place, &TransceiverLong, &Found);
 
-        if (TransceiverLong == 0x1) {
-
+        if (TransceiverLong == 0x1)
+		{
             ExternalTransceiver = TRUE;
-
-        } else {
-
+        }
+		else
+		{
             ExternalTransceiver = FALSE;
-
         }
 
-        if (Found == FALSE) {
-
+        if (Found == FALSE)
+		{
             return(ERROR_INVALID_DATA);
-
         }
-
-    } else {
-
+    }
+	else
+	{
         //
         // Error!
         //
-
         return(ERROR_INVALID_DATA);
-
     }
 
-    //
-    // Verify IoAddress
-    //
+	if (IoBaseAddress != Adapter->IoBaseAddress)
+	{
+		return(ERROR_INVALID_DATA);
+	}
 
-    if (!ElnkiiCardAt(Adapter->InterfaceType,
-                  Adapter->BusNumber,
-                  IoBaseAddress)) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    //
-    // Verify MemoryMapped
-    //
-    // Read from GA_MEM_BASE
-    //
-
-    NtStatus = DetectReadPortUchar(
-                        Adapter->InterfaceType,
-                        Adapter->BusNumber,
-                        IoBaseAddress + 0x404,
-                        &Value
-                        );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(ERROR_INVALID_DATA);
-
-    }
-
-    switch (Value) {
-
-        case 0x80:
-
-            RamAddr = 0xDC000;
-            break;
-
-        case 0x40:
-
-            RamAddr = 0xD8000;
-            break;
-
-        case 0x20:
-
-            RamAddr = 0xCC000;
-            break;
-
-        case 0x10:
-
-            RamAddr = 0xC8000;
-            break;
-
-        case 0x00:
-
-            RamAddr = 0x0;
-            break;
-
-        default:
-
-            //
-            // ERROR!
-            //
-
-            return(ERROR_INVALID_DATA);
-
-    }
-
-    if ((RamAddr != 0) && (MemoryBaseAddress != 0)) {
-
-        MemoryBaseAddress = RamAddr;
-
-    } else if ((RamAddr == 0) && (MemoryBaseAddress != 0)) {
-
+	if ((Adapter->MemoryAddress == 0) && (MemoryBaseAddress != 0))
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
+	if (Adapter->Interrupt != Interrupt)
+	{
+		Resource.InterfaceType = Adapter->InterfaceType;
+		Resource.BusNumber = Adapter->BusNumber;
+		Resource.Type = NETDTECT_IRQ_RESOURCE;
+		Resource.Value = Adapter->Interrupt;
+		Resource.Length = 0;
+		Resource.Flags = 0;
 
-    //
-    // Set the interrupt trap -- we are checking the interrupt number now
-    //
+		DetectFreeSpecificTemporaryResource(&Resource);
 
-    NtStatus = DetectSetInterruptTrap(
-                       Adapter->InterfaceType,
-                       Adapter->BusNumber,
-                       &TrapHandle,
-                       &Interrupt,
-                       1
-                       );
+		Adapter->Interrupt = Interrupt;
+		Resource.Value = Adapter->Interrupt;
 
-    if (NtStatus == STATUS_SUCCESS) {
-
-        UCHAR NetworkAddress[6];
-
-        //
-        // First check that it was available.
-        //
-
-        DetectQueryInterruptTrap(
-                           TrapHandle,
-                           &Result,
-                           1
-                           );
-
-        //
-        // Remove interrupt trap
-        //
-
-        DetectRemoveInterruptTrap(
-                           TrapHandle
-                           );
-
-        if (Result == 3) {
-
-            return(ERROR_INVALID_DATA);
-
-        }
-
-    } else {
-
-        return(ERROR_INVALID_DATA);
-
-    }
+		DetectTemporaryClaimResource(&Resource);
+	}
 
     return(0);
-
 }
 
 extern
@@ -1696,7 +1364,9 @@ BOOLEAN
 ElnkiiCardAt(
     IN INTERFACE_TYPE InterfaceType,
     IN ULONG BusNumber,
-    IN ULONG IoBaseAddress
+    IN ULONG IoBaseAddress,
+	OUT PUCHAR Interrupt,
+	OUT PULONG MemoryAddress
     )
 
 /*++
@@ -1721,32 +1391,30 @@ Return Value:
 --*/
 
 {
-    NTSTATUS NtStatus;
+	NTSTATUS 			NtStatus;
+    UCHAR 				Value;
+    ULONG 				RamAddr = 0;
+	NETDTECT_RESOURCE	Resource;
 
     if (DetectCheckPortUsage(InterfaceType,
                              BusNumber,
                              IoBaseAddress,
-                             0x10
-                            ) != STATUS_SUCCESS) {
-
+                             0x10) != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     if (DetectCheckPortUsage(InterfaceType,
                              BusNumber,
                              IoBaseAddress + 0x400,
-                             0x10
-                            ) != STATUS_SUCCESS) {
-
+                             0x10) != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
     //
     // Un-Window the PROM into the NIC ports.
     //
-
     NtStatus = DetectWritePortUchar(
                       InterfaceType,
                       BusNumber,
@@ -1754,26 +1422,107 @@ Return Value:
                       0x00  // CTRL_AIX
                       );
 
-    if (NtStatus != STATUS_SUCCESS) {
-
+    if (NtStatus != STATUS_SUCCESS)
+	{
         return(FALSE);
-
     }
 
-    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress)) {
-
+    if (!CheckFor8390(InterfaceType, BusNumber, IoBaseAddress))
+	{
         return(FALSE);
-
     }
 
-    if (!CheckFor3ComAddress(InterfaceType, BusNumber, IoBaseAddress)) {
-
+    if (!CheckFor3ComAddress(InterfaceType, BusNumber, IoBaseAddress))
+	{
         return(FALSE);
-
     }
+
+	//
+	//	Acquire the resource
+	//
+	Resource.InterfaceType = InterfaceType;
+	Resource.BusNumber = BusNumber;
+	Resource.Type = NETDTECT_PORT_RESOURCE;
+	Resource.Value = IoBaseAddress;
+	Resource.Length = 0x10;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	Resource.Value += 0x400;
+
+	DetectTemporaryClaimResource(&Resource);
+
+    //
+    // Check if we are in memory mapped mode or in programmed i/o mode.
+    // GetRamBase();  A ram base of 0 implies programmed i/o mode.
+    //
+
+    //
+    // Read from GA_MEM_BASE
+    //
+    NtStatus = DetectReadPortUchar(
+                        InterfaceType,
+                        BusNumber,
+                        IoBaseAddress + 0x404,
+                        &Value);
+
+    if (NtStatus != STATUS_SUCCESS)
+	{
+		return(FALSE);
+    }
+
+    switch (Value)
+	{
+		case 0x80:
+
+            RamAddr = 0xDC000;
+            break;
+
+        case 0x40:
+
+            RamAddr = 0xD8000;
+            break;
+
+        case 0x20:
+
+            RamAddr = 0xCC000;
+            break;
+
+        case 0x10:
+
+            RamAddr = 0xC8000;
+            break;
+
+        case 0x00:
+
+            RamAddr = 0x0;
+            break;
+
+        default:
+
+            return(FALSE);
+    }
+
+	*MemoryAddress = RamAddr;
+
+	Resource.Type = NETDTECT_MEMORY_RESOURCE;
+	Resource.Value = RamAddr;
+	Resource.Length = 0x2000;
+
+	DetectTemporaryClaimResource(&Resource);
+
+	//
+	//	There is no interrupt to detect (we can set it to whatever we want).
+	//
+	*Interrupt = 3;
+
+	Resource.Type = NETDTECT_IRQ_RESOURCE;
+	Resource.Value = 3;
+	Resource.Length = 0;
+
+	DetectTemporaryClaimResource(&Resource);
 
     return(TRUE);
-
 }
 
 BOOLEAN
@@ -1787,7 +1536,7 @@ CheckFor3ComAddress(
 Routine Description:
 
     This routine will determine if the network address of the card is
-    (indeed) the SMC/WD prefix.
+    (indeed) the 3Com prefix.
 
 Arguments:
 
@@ -1799,109 +1548,85 @@ Arguments:
 
 Return:
 
-    TRUE if it is an SMC/WD identification, else FALSE.
+    TRUE if it is an 3Com identification, else FALSE.
 
 --*/
 
 {
-    UCHAR Value;
-    NTSTATUS NtStatus;
-    BOOLEAN Result = TRUE;
+    UCHAR       Value1;             // First byte of nic address.
+    UCHAR       Value2;             // Second byte of nic address.
+    UCHAR       Value3;             // Third byte of nic address.
+    NTSTATUS    NtStatus;
+    BOOLEAN     Result = TRUE;
 
     //
     // Window the PROM into the NIC ports.
     //
-
     NtStatus = DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x406,
-                      0x04  // CTRL_PROM_SEL | CTRL_AIX
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                   InterfaceType,
+                   BusNumber,
+                   IoBaseAddress + 0x406,
+                   0x04  // CTRL_PROM_SEL | CTRL_AIX
+               );
+    if (NtStatus != STATUS_SUCCESS)
         return(FALSE);
-
-    }
 
     //
-    // Read in the station address.
+    // Read in the first byte of the station address.
     //
-
     NtStatus = DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0,
-                      &Value
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                   InterfaceType,
+                   BusNumber,
+                   IoBaseAddress + 0,
+                   &Value1
+               );
+    if (NtStatus != STATUS_SUCCESS)
         return(FALSE);
 
-    }
-
-    if (Value != 0x02) {
-
-        Result = FALSE;
-
-    }
-
+    //
+    // Read in the second byte of the station address.
+    //
     NtStatus = DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 1,
-                      &Value
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                   InterfaceType,
+                   BusNumber,
+                   IoBaseAddress + 1,
+                   &Value2
+               );
+    if (NtStatus != STATUS_SUCCESS)
         return(FALSE);
 
-    }
-
-    if (Value != 0x60) {
-
-        Result = FALSE;
-
-    }
-
+    //
+    // Read in the third byte of the station address.
+    //
     NtStatus = DetectReadPortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 2,
-                      &Value
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
+                   InterfaceType,
+                   BusNumber,
+                   IoBaseAddress + 2,
+                   &Value3
+               );
+    if (NtStatus != STATUS_SUCCESS)
         return(FALSE);
 
-    }
 
-    if (Value != 0x8C) {
-
+    //
+    //  Verify the station address.
+    //
+    if (!((Value1 == 0x02) && (Value2 == 0x60) && (Value3 == 0x8C)) &&
+        !((Value1 == 0x00) && (Value2 == 0x20) && (Value3 == 0xAF))
+    )
+    {
         Result = FALSE;
-
     }
 
     //
     // Window the NIC registers into the NIC ports.
     //
-
     NtStatus = DetectWritePortUchar(
-                      InterfaceType,
-                      BusNumber,
-                      IoBaseAddress + 0x406,
-                      0x02              // CTRL_GA_SEL | CTRL_BNC
-                      );
-
-    if (NtStatus != STATUS_SUCCESS) {
-
-        return(Result);
-
-    }
+                   InterfaceType,
+                   BusNumber,
+                   IoBaseAddress + 0x406,
+                   0x02                     // CTRL_GA_SEL | CTRL_BNC
+               );
 
     return(Result);
 }

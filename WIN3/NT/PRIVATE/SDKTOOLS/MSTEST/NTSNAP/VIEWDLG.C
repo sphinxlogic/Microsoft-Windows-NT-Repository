@@ -175,7 +175,7 @@ HWND hDlg;
 {
           INT  retCode;
           INT  errCode;
-          INT  fErrorQuit;
+//        INT  fErrorQuit;
           RECT rFileInfo;
           BOOL bFlag;
           HWND hWndView;
@@ -233,10 +233,10 @@ HWND hDlg;
                              hListWinHandle[NumHandles++] = hWndView;
                         } else {
 
-                             if (fErrorQuit == IDCANCEL) {
-                                 BringWindowToTop(hDlg);
-                                 return (TRUE);
-                             }
+//                           if (fErrorQuit == IDCANCEL) {
+//                               BringWindowToTop(hDlg);
+//                               return (TRUE);
+//                           }
 
                         }
 

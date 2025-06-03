@@ -27,7 +27,9 @@ Revision History:
 #include "cdfsboot.h"
 #include "ntfsboot.h"
 #include "hpfsboot.h"
-#include "ofsboot.h"
+#if defined(ELTORITO)
+#include "etfsboot.h"
+#endif
 
 //
 // Define partition context structure.
@@ -97,6 +99,9 @@ typedef struct _BL_FILE_FLAGS {
     ULONG Open : 1;
     ULONG Read : 1;
     ULONG Write : 1;
+#ifdef DBLSPACE_LEGAL
+    ULONG DoubleSpace : 1;
+#endif
 } BL_FILE_FLAGS, *PBL_FILE_FLAGS;
 
 #define MAXIMUM_FILE_NAME_LENGTH 32
@@ -112,9 +117,11 @@ typedef struct _BL_FILE_TABLE {
     union {
         HPFS_FILE_CONTEXT HpfsFileContext;
         NTFS_FILE_CONTEXT NtfsFileContext;
-        OFS_FILE_CONTEXT OfsFileContext;
         FAT_FILE_CONTEXT FatFileContext;
         CDFS_FILE_CONTEXT CdfsFileContext;
+#if defined(ELTORITO)
+        ETFS_FILE_CONTEXT EtfsFileContext;
+#endif
         PARTITION_CONTEXT PartitionContext;
         SERIAL_CONTEXT SerialContext;
         DRIVE_CONTEXT DriveContext;
@@ -127,4 +134,3 @@ typedef struct _BL_FILE_TABLE {
 extern BL_FILE_TABLE BlFileTable[BL_FILE_TABLE_SIZE];
 
 #endif  _BOOTLIB_
-

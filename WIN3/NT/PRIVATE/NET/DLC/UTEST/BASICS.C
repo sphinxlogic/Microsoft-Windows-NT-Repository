@@ -506,7 +506,7 @@ DebugCheck(
         fclose(fp);
 
         printf("error %x (%s.%d): Go/Break/Quit [gbq]: ", ErrorCode, sphpling(fname), line);
-        for (ch = tolower(getch()); ch != 'b' && ch != 'g' && ch != 'q'; ch = tolower(getch())) {
+        for (ch = tolower(_getch()); ch != 'b' && ch != 'g' && ch != 'q'; ch = tolower(_getch())) {
             putchar('\a');
         }
         putchar(ch);
@@ -827,7 +827,7 @@ DlcDebugBreak() {
 
     printf("DlcDebugBreak: break? [yn]: ");
 
-    for (ch = tolower(getch()); ch != 'y' && ch != 'n'; ch = tolower(getch())) {
+    for (ch = tolower(_getch()); ch != 'y' && ch != 'n'; ch = tolower(_getch())) {
         putchar('\a');
     }
     putchar(ch);

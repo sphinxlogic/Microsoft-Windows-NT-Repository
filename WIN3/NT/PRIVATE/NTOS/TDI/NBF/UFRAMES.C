@@ -318,7 +318,7 @@ Return Value:
 
     ConstructAddNameResponse (
         (PNBF_HDR_CONNECTIONLESS)&(RawFrame->Header[HeaderLength]),
-        NETBIOS_NAME_TYPE_GROUP,        // type of name is GROUP.
+        NETBIOS_NAME_TYPE_UNIQUE,       // type of name is UNIQUE.
         RESPONSE_CORR(Header),          // correlator from rec'd frame.
         (PUCHAR)Header->SourceName);    // NetBIOS name being responded to.
 
@@ -708,17 +708,18 @@ Return Value:
             if (DatagramInformation &&
                 (DatagramInformation->RemoteAddress) &&
                 (DatagramAddress = NbfParseTdiAddress(DatagramInformation->RemoteAddress, FALSE)) &&
-                (RtlCompareMemory(
+                (!RtlEqualMemory(
                     Header->SourceName,
                     DatagramAddress->NetbiosName,
-                    NETBIOS_NAME_LENGTH) !=
-                        NETBIOS_NAME_LENGTH)) {
+                    NETBIOS_NAME_LENGTH))) {
                 continue;
             }
             break;
         }
 
         if (q != &addressFile->ReceiveDatagramQueue) {
+            KIRQL  cancelIrql;
+
 
             RemoveEntryList (q);
             RELEASE_DPC_SPIN_LOCK (&Address->SpinLock);
@@ -797,7 +798,9 @@ Return Value:
 
             }
 
-            irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            IoAcquireCancelSpinLock(&cancelIrql);
+            IoSetCancelRoutine(irp, NULL);
+            IoReleaseCancelSpinLock(cancelIrql);
             irp->IoStatus.Information = MdlBytesCopied;
             irp->IoStatus.Status = STATUS_SUCCESS;
             IoCompleteRequest (irp, IO_NETWORK_INCREMENT);
@@ -1233,7 +1236,7 @@ Return Value:
 
                             if ((Connection->Flags2 & CONNECTION_FLAGS2_DISCONNECT) != 0) {
 
-                                Connection->Flags2 &= ~CONNECTION_FLAGS2_DISCONNECT;
+//                                Connection->Flags2 &= ~CONNECTION_FLAGS2_DISCONNECT;
                                 RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
                                 NbfPrint0("STATUS_MORE_PROCESSING, disconnect\n");
                                 addressFile->ConnectIndicationInProgress = FALSE;
@@ -1661,7 +1664,6 @@ whileend:
             // that reference in NbfDisconnectFromLink, so do it here.
 
             NbfDereferenceLink ("No more LSNS", Link, LREF_CONNECTION);
-            NbfDereferenceLinkSpecial ("No more LSNS", Link, LREF_SPECIAL_TEMP);
 
             ASSERT (Connection->Lsn == 0);
 
@@ -1802,10 +1804,10 @@ Return Value:
 
             RtlMoveMemory(Address->UniqueResponseAddress, SourceAddress->Address, 6);
 
-        } else if (RtlCompareMemory(
+        } else if (!RtlEqualMemory(
                        Address->UniqueResponseAddress,
                        SourceAddress->Address,
-                       6) != 6) {
+                       6)) {
 
             if (!Address->NameInConflictSent) {
                 SendNameInConflict = TRUE;
@@ -2050,16 +2052,13 @@ Return Value:
                     // that reference in NbfDisconnectFromLink, so do it here.
 
                     NbfDereferenceLink ("Can't connect to link", Link, LREF_CONNECTION);       // most likely destroys this.
-                    NbfDereferenceLinkSpecial ("Can't connect to link", Link, LREF_SPECIAL_TEMP);       // most likely destroys this.
 
                     NbfStopConnection (Connection, STATUS_INSUFFICIENT_RESOURCES);
                     NbfDereferenceConnection ("Cant connect to link", Connection, CREF_BY_ID);
                     return STATUS_ABANDONED;
                 }
 
-                (VOID)ExInterlockedIncrementLong(
-                    &Link->NumberOfConnectors,
-                    &DeviceContext->Interlock);
+                (VOID)InterlockedIncrement(&Link->NumberOfConnectors);
 
             } else {
 
@@ -2118,10 +2117,10 @@ Return Value:
 
             if (Connection->Link) {
 
-                if (RtlCompareMemory(
+                if (RtlEqualMemory(
                         Connection->Link->HardwareAddress.Address,
                         SourceAddress->Address,
-                        6) == 6) {
+                        6)) {
 
                     //
                     // Unfortunately, he's telling us that he doesn't have resources
@@ -2189,10 +2188,10 @@ Return Value:
 
             if (Connection->Link) {
 
-                if (RtlCompareMemory(
+                if (!RtlEqualMemory(
                         Connection->Link->HardwareAddress.Address,
                         SourceAddress->Address,
-                        6) != 6) {
+                        6)) {
 
                     //
                     // This response comes from a different remote from the
@@ -2398,7 +2397,6 @@ Return Value:
                     // that reference in NbfDisconnectFromLink, so do it here.
 
                     NbfDereferenceLink ("Can't connect to link", Link, LREF_CONNECTION);       // most likely destroys this.
-                    NbfDereferenceLinkSpecial ("Can't connect to link", Link, LREF_SPECIAL_TEMP);       // most likely destroys this.
 
                     NbfStopConnection (Connection, STATUS_INSUFFICIENT_RESOURCES);
                     NbfDereferenceConnection ("Cant connect to link", Connection, CREF_BY_ID);
@@ -2407,9 +2405,7 @@ Return Value:
 
                 RELEASE_DPC_C_SPIN_LOCK (&Connection->SpinLock);
 
-                (VOID)ExInterlockedIncrementLong(
-                    &Link->NumberOfConnectors,
-                    &DeviceContext->Interlock);
+                (VOID)InterlockedIncrement(&Link->NumberOfConnectors);
 
             } else {
 
@@ -2594,11 +2590,10 @@ Return Value:
         // if not, drop it.
         //
 
-        if (RtlCompareMemory(
+        if (RtlEqualMemory(
                 UiFrame->DestinationName,
                 DeviceContext->ReservedNetBIOSAddress,
-                NETBIOS_NAME_LENGTH) ==
-                        NETBIOS_NAME_LENGTH) {
+                NETBIOS_NAME_LENGTH)) {
 
             return NbfProcessQueryNameRecognized(
                        DeviceContext,
@@ -2622,11 +2617,10 @@ Return Value:
         // if not, drop it.
         //
 
-        if (RtlCompareMemory(
+        if (RtlEqualMemory(
                 UiFrame->DestinationName,
                 DeviceContext->ReservedNetBIOSAddress,
-                NETBIOS_NAME_LENGTH) ==
-                        NETBIOS_NAME_LENGTH) {
+                NETBIOS_NAME_LENGTH)) {
 
             return STATUS_MORE_PROCESSING_REQUIRED;
 
@@ -2647,11 +2641,10 @@ Return Value:
 
     if (UiFrame->Command == NBF_CMD_STATUS_QUERY) {
 
-        if (RtlCompareMemory(
+        if (RtlEqualMemory(
                 UiFrame->DestinationName,
                 DeviceContext->ReservedNetBIOSAddress,
-                NETBIOS_NAME_LENGTH) ==
-                        NETBIOS_NAME_LENGTH) {
+                NETBIOS_NAME_LENGTH)) {
 
             return NbfProcessStatusQuery(
                        DeviceContext,
@@ -2828,11 +2821,10 @@ Return Value:
             // do any processing of it.
             //
 
-            if (RtlCompareMemory (
+            if (RtlEqualMemory (
                     SourceAddress,
                     DeviceContext->LocalAddress.Address,
-                    DeviceContext->MacInfo.AddressLength) ==
-                                        DeviceContext->MacInfo.AddressLength) {
+                    DeviceContext->MacInfo.AddressLength)) {
 
                 if ((Address->Flags & ADDRESS_FLAGS_REGISTERING) != 0) {
                     IF_NBFDBG (NBF_DEBUG_UFRAMES) {
@@ -2859,11 +2851,10 @@ Return Value:
             // do any processing of it.
             //
 
-            if (RtlCompareMemory (
+            if (RtlEqualMemory (
                     SourceAddress,
                     DeviceContext->LocalAddress.Address,
-                    DeviceContext->MacInfo.AddressLength) ==
-                                        DeviceContext->MacInfo.AddressLength) {
+                    DeviceContext->MacInfo.AddressLength)) {
 
                 if ((Address->Flags & ADDRESS_FLAGS_REGISTERING) != 0) {
                     IF_NBFDBG (NBF_DEBUG_UFRAMES) {

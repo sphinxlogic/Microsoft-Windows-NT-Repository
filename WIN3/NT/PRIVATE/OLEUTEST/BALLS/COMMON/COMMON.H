@@ -11,22 +11,15 @@
 //  History:	04-Feb-94 Rickhi	Created
 //
 //--------------------------------------------------------------------------
-
 #include    <windows.h>
 #include    <ole2.h>
 
-extern "C" const GUID IID_IStdIdentity;
+#ifdef THREADING_SUPPORT
+#include    <olecairo.h>    //
+#include    <oleext.h>	    // OleInitializeEx, etc.
+#endif
 
-extern void Display(TCHAR *pszFmt, ...);
-
-extern void GlobalRefs(BOOL fAdd);
-
-extern int SrvMain(
-    HANDLE hInstance,
-    REFCLSID rclsid,
-    DWORD dwClsRegParm,
-    TCHAR *pwszAppName,
-    IClassFactory *pCF);
+#include    <srvmain.hxx>   // COM Server entry points
 
 
 #ifdef WIN32

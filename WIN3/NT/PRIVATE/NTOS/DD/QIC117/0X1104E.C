@@ -14,6 +14,12 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x1104e.c  $
 *	
+*	   Rev 1.7   23 Nov 1994 10:10:32   MARKMILL
+*	Set new device_descriptor structure element native_class to match the
+*	drive_class setting.  This new data element is used to store the native
+*	class of the drive in the event of a "combo" drive (e.g. 3020/3010 drive).
+*	
+*
 *	   Rev 1.6   17 Feb 1994 11:36:40   KEVINKES
 *	Added an extra parameter to WaitCC and added support for QIC3010.
 *
@@ -80,7 +86,8 @@ dStatus cqd_ReportSummitVendorInfo
    if ((vendor_id & ~VENDOR_MASK) == SUMMIT_QIC3010) {
 
       cqd_context->drive_parms.seek_mode = SEEK_SKIP_EXTENDED;
-      cqd_context->device_descriptor.drive_class = QIC3010_DRIVE;
+		cqd_context->device_descriptor.native_class = QIC3010_DRIVE;
+		cqd_context->device_descriptor.drive_class = QIC3010_DRIVE;
 		kdi_CheckedDump(
 			QIC117INFO,
 			"Q117i: Drive Type QIC3010_DRIVE\n", 0l);
@@ -109,7 +116,8 @@ dStatus cqd_ReportSummitVendorInfo
 
                	if (drive_config == TAPE_1Mbps) {
 
-                  	cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
+							cqd_context->device_descriptor.native_class = QIC80_DRIVE;
+							cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
 							kdi_CheckedDump(
 								QIC117INFO,
 								"Q117i: Drive Type QIC80_DRIVE\n", 0l);
@@ -117,6 +125,7 @@ dStatus cqd_ReportSummitVendorInfo
                	} else {
 
       					cqd_context->device_cfg.speed_change = dFALSE;
+							cqd_context->device_descriptor.native_class = QIC40_DRIVE;
                   	cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
 							kdi_CheckedDump(
 								QIC117INFO,
@@ -129,6 +138,7 @@ dStatus cqd_ReportSummitVendorInfo
          	} else if (kdi_GetErrorType(status) == ERR_UNSUPPORTED_RATE) {
 
       			cqd_context->device_cfg.speed_change = dFALSE;
+					cqd_context->device_descriptor.native_class = QIC40_DRIVE;
             	cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
 					kdi_CheckedDump(
 						QIC117INFO,

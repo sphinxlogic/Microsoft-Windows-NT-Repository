@@ -21,7 +21,7 @@ extern char	*strncmp();
 extern int	fseek();
 extern int	fputs();
 extern int	fflush();
-extern int	unlink();
+extern int	_unlink();
 
 
 /* Forward Functions */
@@ -159,7 +159,7 @@ char *foldername;
 		tmpnam = mktmpnam();
 		pf = fopen(tmpnam, "w+");
 #ifdef XENIX
-		unlink("dhtmp");
+		_unlink("dhtmp");
 #endif
 
 		/* copy message into presentation file */
@@ -178,13 +178,13 @@ char *foldername;
 			fprintf(stderr, "Can't create document\n");
 			exit(1);
 		}
-		puttext(dh, fileno(pf));
+		puttext(dh, _fileno(pf));
 
 		adddl(fh, getid(dh));
 		putdoc(dh);
 		fclose(pf);
 #ifdef MSDOS
-		unlink(tmpnam);
+		_unlink(tmpnam);
 #endif
 		free(tmpnam);
 	}

@@ -71,4 +71,4 @@ VOID UpdateValueBarData (PGRAPHSTRUCT pGraph) ;
 
 void GraphAddAction (void) ;
 
-
+

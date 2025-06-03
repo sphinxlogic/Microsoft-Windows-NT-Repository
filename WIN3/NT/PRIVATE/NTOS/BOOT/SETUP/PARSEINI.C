@@ -175,6 +175,13 @@ SearchSectionByName(
    IN PCHAR SectionName
    );
 
+PCHAR
+ProcessForStringSubs(
+    IN PINF  pInf,
+    IN PCHAR String
+    );
+
+
 //
 // ROUTINE DEFINITIONS
 //
@@ -305,13 +312,30 @@ Return Value:
 
     //
     // allocate a descriptor large enough to hold the entire file.
+    // On x86 this has an unfortunate tendency to slam txtsetup.sif
+    // into a free block at 1MB, which means the kernel can't be
+    // loaded (it's linked for 0x100000 without relocations).
     //
-    PageCount = ROUND_TO_PAGES(Size) >> PAGE_SHIFT;
+#ifdef _X86_
+    {
+        extern ALLOCATION_POLICY BlMemoryAllocationPolicy;
+        ALLOCATION_POLICY policy;
 
-    Status = BlAllocateDescriptor(LoaderOsloaderHeap,
-                                  0,
-                                  PageCount,
-                                  &ActualBase);
+        policy = BlMemoryAllocationPolicy;
+        BlMemoryAllocationPolicy = BlAllocateHighestFit;
+#endif
+
+        PageCount = ROUND_TO_PAGES(Size) >> PAGE_SHIFT;
+
+        Status = BlAllocateDescriptor(LoaderOsloaderHeap,
+                                      0,
+                                      PageCount,
+                                      &ActualBase);
+#ifdef _X86_
+        BlMemoryAllocationPolicy = policy;
+    }
+#endif
+
     if (Status != ESUCCESS) {
         BlClose(FileID);
         goto xx0;
@@ -347,7 +371,6 @@ Return Value:
     //
     // Clean up and return
     //
-
     SpFree(Buffer);
     BlClose(FileID);
 
@@ -636,7 +659,7 @@ Return Value:
                       == (PVALUE)NULL)
        return((PCHAR)NULL);
 
-   return (pValue->pName);
+   return(ProcessForStringSubs(INFHandle,pValue->pName));
 
 }
 
@@ -790,8 +813,7 @@ Return Value:
                       == (PVALUE)NULL)
        return((PCHAR)NULL);
 
-   return (pValue->pName);
-
+   return(ProcessForStringSubs(INFHandle,pValue->pName));
 }
 
 
@@ -882,7 +904,7 @@ Return Value:
 
    pLine = pSection->pLine;
    LineOrdinal = 0;
-   while ((pLine != (PLINE)NULL) && (pLine->pName == NULL || strcmpi(pLine->pName, Key))) {
+   while ((pLine != (PLINE)NULL) && (pLine->pName == NULL || _strcmpi(pLine->pName, Key))) {
        pLine = pLine->pNext;
        LineOrdinal++;
    }
@@ -990,7 +1012,7 @@ Return Value:
    // name mentioned
    //
 
-   while ((pSection != (PSECTION)NULL) && strcmpi(pSection->pName, SectionName)) {
+   while ((pSection != (PSECTION)NULL) && _strcmpi(pSection->pName, SectionName)) {
        pSection = pSection->pNext;
    }
 
@@ -1002,6 +1024,58 @@ Return Value:
    return pSection;
 
 }
+
+
+PCHAR
+ProcessForStringSubs(
+    IN PINF  pInf,
+    IN PCHAR String
+    )
+{
+    unsigned Len;
+    PCHAR ReturnString;
+    PSECTION pSection;
+    PLINE pLine;
+
+    //
+    // Assume no substitution necessary.
+    //
+    ReturnString = String;
+
+    //
+    // If it starts and ends with % then look it up in the
+    // strings section. Note the initial check before doing a
+    // strlen, to preserve performance in the 99% case where
+    // there is no substitution.
+    //
+    if((String[0] == '%') && ((Len = strlen(String)) > 2) && (String[Len-1] == '%')) {
+
+        for(pSection = pInf->pSection; pSection; pSection=pSection->pNext) {
+            if(pSection->pName && !_stricmp(pSection->pName,"Strings")) {
+                break;
+            }
+        }
+
+        if(pSection) {
+
+            for(pLine = pSection->pLine; pLine; pLine=pLine->pNext) {
+                if(pLine->pName
+                && !_strnicmp(pLine->pName,String+1,Len-2)
+                && (pLine->pName[Len-2] == 0))
+                {
+                    break;
+                }
+            }
+
+            if(pLine && pLine->pValue && pLine->pValue->pName) {
+                ReturnString = pLine->pValue->pName;
+            }
+        }
+    }
+
+    return(ReturnString);
+}
+
 
 
 // what follows was alparse.c
@@ -1324,11 +1398,42 @@ Return Value:
            break;
        //
        // STATE 8: Equal received, Expecting another string
+       //          If none, assume there is a single empty string on the RHS
        //
-       // Valid Tokens: TOK_STRING
+       // Valid Tokens: TOK_STRING, TOK_EOL, TOK_EOF
        //
        case 8:
            switch (Token.Type) {
+              case TOK_EOF:
+                  Token.pValue = BlAllocateHeap(1);
+                  if(Token.pValue == NULL) {
+                      Error = Done = TRUE;
+                      ErrorCode = ENOMEM;
+                      break;
+                  }
+                  Token.pValue[0] = 0;
+                  if((ErrorCode = SpAppendValue(Token.pValue)) != ESUCCESS) {
+                      Error = TRUE;
+                  }
+                  Done = TRUE;
+                  break;
+
+              case TOK_EOL:
+                  Token.pValue = BlAllocateHeap(1);
+                  if(Token.pValue == NULL) {
+                      Error = Done = TRUE;
+                      ErrorCode = ENOMEM;
+                      break;
+                  }
+                  Token.pValue[0] = 0;
+                  if((ErrorCode = SpAppendValue(Token.pValue)) != ESUCCESS) {
+                      Error = TRUE;
+                      Done = TRUE;
+                  } else {
+                      State = 5;
+                  }
+                  break;
+
               case TOK_STRING:
                   if ((ErrorCode = SpAppendValue(Token.pValue)) != ESUCCESS)
                       Error = Done = TRUE;
@@ -1484,8 +1589,8 @@ Return Value:
             SlFriendlyError(
                 EINVAL,
                 pchINFName,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
         } else {
             SlError(EINVAL);
@@ -1493,45 +1598,57 @@ Return Value:
         return EINVAL;
     }
 
-
     //
-    // Allocate memory for the new section
+    // See if we already have a section by this name. If so we want
+    // to merge sections.
     //
-
-    if ((pNewSection = (PSECTION)BlAllocateHeap(sizeof(SECTION))) == (PSECTION)NULL) {
-        SlNoMemoryError();
-        return ENOMEM;
+    for(pNewSection=pINF->pSection; pNewSection; pNewSection=pNewSection->pNext) {
+        if(pNewSection->pName && !_stricmp(pNewSection->pName,pSectionName)) {
+            break;
+        }
     }
+    if(pNewSection) {
+        //
+        // Set pLineRecord to point to the list line currently in the section.
+        //
+        for(pLineRecord = pNewSection->pLine;
+            pLineRecord && pLineRecord->pNext;
+            pLineRecord = pLineRecord->pNext)
+            ;
 
-    //
-    // initialise the new section
-    //
-    pNewSection->pNext = (PSECTION)NULL;
-    pNewSection->pLine  = (PLINE)NULL;
-    pNewSection->pName = pSectionName;
+    } else {
+        //
+        // Allocate memory for the new section
+        //
 
-    //
-    // link it in
-    //
+        if ((pNewSection = (PSECTION)BlAllocateHeap(sizeof(SECTION))) == (PSECTION)NULL) {
+            SlNoMemoryError();
+            return ENOMEM;
+        }
 
-    if (pSectionRecord == (PSECTION)NULL) {
+        //
+        // initialise the new section
+        //
+        pNewSection->pNext = NULL;
+        pNewSection->pLine = NULL;
+        pNewSection->pName = pSectionName;
+
+        //
+        // link it in
+        //
+        pNewSection->pNext = pINF->pSection;
         pINF->pSection = pNewSection;
-    }
-    else {
-        pSectionRecord->pNext = pNewSection;
+
+        //
+        // reset the current line record
+        //
+        pLineRecord = NULL;
     }
 
     pSectionRecord = pNewSection;
-
-    //
-    // reset the current line record and current value record field
-    //
-
-    pLineRecord    = (PLINE)NULL;
-    pValueRecord   = (PVALUE)NULL;
+    pValueRecord = NULL;
 
     return ESUCCESS;
-
 }
 
 
@@ -1575,8 +1692,8 @@ Return Value:
             SlFriendlyError(
                 EINVAL,
                 pchINFName,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
         } else {
             SlError(EINVAL);
@@ -1657,8 +1774,8 @@ Return Value:
             SlFriendlyError(
                 EINVAL,
                 pchINFName,
-                0,
-                NULL
+                __LINE__,
+                __FILE__
                 );
         } else {
             SlError(EINVAL);
@@ -1749,7 +1866,7 @@ Return Value:
     // value
     //
 
-    if ( pch >= MaxStream ) {
+    if ((pch >= MaxStream) || (*pch == 26)) {
         *Stream = pch;
         Token.Type  = TOK_EOF;
         Token.pValue = NULL;

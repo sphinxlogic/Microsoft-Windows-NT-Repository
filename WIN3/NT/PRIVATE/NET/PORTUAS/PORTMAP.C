@@ -61,7 +61,7 @@ PortUasMapTableInit(
     IgnoreAllNamesInError = FALSE;
 
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "Initial map table:\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "Initial map table:\n" ));
         PortUasDbgDisplayMapTable( );
     }
     return (NO_ERROR);
@@ -180,13 +180,13 @@ PortUasReallocateMapTable(
 
 Cleanup:
     if (ApiStatus != NO_ERROR) {
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasReallocateMapTable: "
-                " returning " FORMAT_API_STATUS ".\n", ApiStatus );
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasReallocateMapTable: "
+                " returning " FORMAT_API_STATUS ".\n", ApiStatus ));
     }
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasReallocateMapTable: "
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasReallocateMapTable: "
                 " exiting with table at " FORMAT_LPVOID ", " FORMAT_DWORD
-                " entries.\n", (LPVOID) MapTableStart, MapTableEntryCount );
+                " entries.\n", (LPVOID) MapTableStart, MapTableEntryCount ));
     }
     return (ApiStatus);
 
@@ -295,7 +295,7 @@ PortUasFindOrCreateMapEntry(
     *MapEntryOut = TableEntry;
 
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "Updated map table:\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "Updated map table:\n" ));
         PortUasDbgDisplayMapTable( );
     }
 
@@ -391,11 +391,11 @@ PortUasDeleteBadMapEntry(
 
 Cleanup:
     if (ApiStatus != NO_ERROR) {
-        NetpDbgPrint( PREFIX_PORTUAS "PortUasDeleteBadMapTableEntry: "
-                " returning " FORMAT_API_STATUS ".\n", ApiStatus );
+        NetpKdPrint(( PREFIX_PORTUAS "PortUasDeleteBadMapTableEntry: "
+                " returning " FORMAT_API_STATUS ".\n", ApiStatus ));
     }
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "Map table (after entry delete):\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "Map table (after entry delete):\n" ));
         PortUasDbgDisplayMapTable( );
     }
     return (ApiStatus);
@@ -415,7 +415,7 @@ PortUasFreeMapTable(
         NetpAssert( MapTableEntryCount != 0 );
 
         if (Verbose) {
-            NetpDbgPrint( PREFIX_PORTUAS "Final map table (before free):\n" );
+            NetpKdPrint(( PREFIX_PORTUAS "Final map table (before free):\n" ));
             PortUasDbgDisplayMapTable( );
         }
 
@@ -442,7 +442,7 @@ PortUasFreeMapTable(
     }
 
     if (Verbose) {
-        NetpDbgPrint( PREFIX_PORTUAS "Final map table (after free):\n" );
+        NetpKdPrint(( PREFIX_PORTUAS "Final map table (after free):\n" ));
         PortUasDbgDisplayMapTable( );
     }
 
@@ -458,8 +458,8 @@ PortUasDbgDisplayMapTable(
 {
     DWORD EntriesLeft;
     LPMAP_ENTRY TableEntry;
-    NetpDbgPrint( PREFIX_PORTUAS "Map table: (" FORMAT_DWORD " entries)...\n",
-            MapTableEntryCount );
+    NetpKdPrint(( PREFIX_PORTUAS "Map table: (" FORMAT_DWORD " entries)...\n",
+            MapTableEntryCount ));
     if (MapTableEntryCount == 0) {
         NetpAssert( MapTableStart == NULL );
         return;
@@ -481,9 +481,9 @@ PortUasDbgDisplayMapEntry(
     NetpAssert( Entry != NULL );
     NetpAssert( (Entry->OldName)  != NULL );
 
-    NetpDbgPrint( "  map entry at " FORMAT_LPVOID ":\n", (LPVOID) Entry );
-    NetpDbgPrint( "    old name : " FORMAT_LPWSTR "\n", Entry->OldName );
-    NetpDbgPrint( "    new name : " FORMAT_LPWSTR "\n",
-            (Entry->NewName) ? (Entry->NewName) : L"(**IGNORE**)" );
+    NetpKdPrint(( "  map entry at " FORMAT_LPVOID ":\n", (LPVOID) Entry ));
+    NetpKdPrint(( "    old name : " FORMAT_LPWSTR "\n", Entry->OldName ));
+    NetpKdPrint(( "    new name : " FORMAT_LPWSTR "\n",
+            (Entry->NewName) ? (Entry->NewName) : L"(**IGNORE**)" ));
 
 }

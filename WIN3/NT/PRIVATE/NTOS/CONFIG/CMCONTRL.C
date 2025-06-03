@@ -119,15 +119,10 @@ Return Value:
     }
 
     RtlInitUnicodeString(&Name, L"control");
-    status = CmpFindChildByName(
-                SystemHive,
-                BaseCell,
-                Name,
-                KeyBodyNode,
-                &BaseCell,
-                &Index
-                );
-    if (!NT_SUCCESS(status)) {
+    BaseCell = CmpFindSubKeyByName(SystemHive,
+                                   (PCM_KEY_NODE)HvGetCell(SystemHive,BaseCell),
+                                   &Name);
+    if (BaseCell == HCELL_NIL) {
         KeBugCheckEx(BAD_SYSTEM_CONFIG_INFO,1,3,0,0);
     }
 
@@ -155,16 +150,10 @@ Return Value:
             // found the key, look for the value entry
             //
             RtlInitUnicodeString(&Name, ControlVector->ValueName);
-            status = CmpFindChildByName(
-                        SystemHive,
-                        KeyCell,
-                        Name,
-                        KeyValueNode,
-                        &ValueCell,
-                        &Index
-                        );
-
-            if (NT_SUCCESS(status)) {
+            ValueCell = CmpFindValueByName(SystemHive,
+                                           (PCM_KEY_NODE)HvGetCell(SystemHive,KeyCell),
+                                           &Name);
+            if (ValueCell != HCELL_NIL) {
 
                 //
                 // SystemHive.ValueCell is value entry body
@@ -299,24 +288,17 @@ Return Value:
 
     while (TRUE) {
 
-        if (! CmpGetNextName(&PathString, &NextName, &Last) ) {
-            return HCELL_NIL;
-        }
+        CmpGetNextName(&PathString, &NextName, &Last);
 
         if (NextName.Length == 0) {
             return KeyCell;
         }
 
-        status = CmpFindChildByName(
-                    SystemHive,
-                    KeyCell,
-                    NextName,
-                    KeyBodyNode,
-                    &KeyCell,
-                    &Index
-                    );
+        KeyCell = CmpFindSubKeyByName(SystemHive,
+                                      (PCM_KEY_NODE)HvGetCell(SystemHive,KeyCell),
+                                      &NextName);
 
-        if (!NT_SUCCESS(status)) {
+        if (KeyCell == HCELL_NIL) {
             return HCELL_NIL;
         }
     }

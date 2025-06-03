@@ -40,7 +40,7 @@ Revision History:
 #include <rpc.h>        // rpc prototypes
 #include <ntrpcp.h>
 
-#include <wcstr.h>      // for wcscpy wcscat
+#include <stdlib.h>      // for wcscpy wcscat
 #include <tstr.h>       // WCSSIZE
 
 
@@ -99,7 +99,10 @@ Return Value:
 
     if (ServerName != NULL) {
         if (GetComputerNameW(ComputerName,&bufLen)) {
-            if (wcsicmp(ComputerName,&(ServerName[2]))==0) {
+            if ((_wcsicmp(ComputerName,ServerName) == 0) ||
+                ((ServerName[0] == '\\') &&
+                 (ServerName[1] == '\\') &&
+                 (_wcsicmp(ComputerName,&(ServerName[2]))==0))) {
                 NewServerName = NULL;
             }
             else {

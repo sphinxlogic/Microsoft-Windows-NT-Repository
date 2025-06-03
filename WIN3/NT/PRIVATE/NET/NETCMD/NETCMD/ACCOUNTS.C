@@ -39,6 +39,8 @@
 #include "netcmds.h"
 #include "nettext.h"
 
+#include "swtchtxt.h"
+
 #define SECS_PER_DAY    ((ULONG) 3600 * 24)
 #define SECS_PER_MIN    ((ULONG) 60 )
 #define NOT_SET     (0xFFFF)
@@ -51,7 +53,7 @@
 /* local function prototype */
 
 VOID CheckAndSetSwitches(struct user_modals_info_0 FAR *,
-    			 struct user_modals_info_1 FAR *,
+    			 struct user_modals_info_1 FAR *, 
                          struct user_modals_info_3 FAR *,
 			 USHORT *,
 			 BOOL *);
@@ -66,13 +68,13 @@ VOID accounts_change(VOID)
 {
     USHORT       err;        /* API return status */
     USHORT       APIMask = 0;    /* maks for API that we call */
-    TCHAR         controller[UNCLEN+1];   /* name of domain controller */
+    TCHAR         controller[MAX_PATH];   /* name of domain controller */
     BOOL         fPasswordAgeChanged ;   /* has the min/max ages been set? */
 
     struct user_modals_info_0 FAR * modals_0;
     char modals_0_buffer[sizeof(struct user_modals_info_0)];
     struct user_modals_info_1 FAR * modals_1;
-    char modals_1_buffer[sizeof(struct user_modals_info_1) + CNLEN];
+    char modals_1_buffer[sizeof(struct user_modals_info_1) + MAX_PATH];
     struct user_modals_info_3 FAR * modals_3;
     char modals_3_buffer[sizeof(struct user_modals_info_3)];
 
@@ -89,7 +91,7 @@ VOID accounts_change(VOID)
     /* if we need to call level 0, try to get DC name to remote to. */
     if (APIMask & (CALL_LEVEL_0 | CALL_LEVEL_3))
     {
-        if (err = GetSAMLocation(controller, DIMENSION(controller),
+        if (err = GetSAMLocation(controller, DIMENSION(controller), 
                                  NULL, 0, TRUE))
             ErrorExit(err);
     }
@@ -138,8 +140,8 @@ VOID accounts_change(VOID)
 	/* call the API to do its thing */
         err = MNetUserModalsSet(controller, 0, (LPBYTE)modals_0,
 		    sizeof(struct user_modals_info_0), MODAL0_PARMNUM_ALL);
-
-        switch (err)
+    
+        switch (err) 
         {
             case NERR_Success:
                 break;
@@ -156,8 +158,8 @@ VOID accounts_change(VOID)
 	/* call the API to do its thing */
         err = MNetUserModalsSet(controller, 3, (LPBYTE)modals_3,
 		    sizeof(struct user_modals_info_3), 0);
-
-        switch (err)
+    
+        switch (err) 
         {
             case NERR_Success:
                 break;
@@ -210,17 +212,12 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
 {
     USHORT  i;      			   /* generic index loop */
     USHORT  err;    			   /* API return code */
-    TCHAR *  ptr;    			   /* pointer to start of arg,
+    USHORT  yesno ;
+    TCHAR *  ptr;    			   /* pointer to start of arg, 
 					      set by FindColon */
-    static TCHAR nlsNo[20] = { 0 } ;	   /* buffer to hold NLS no string */
 
     /* set to FALSE initially */
-    *pfPasswordAgeChanged = FALSE ;
-
-    /* get NLS no string for comparison */
-    if (nlsNo[0] == NULLC)   /* if not allocated yet */
-    if (err = LUI_GetMsg(nlsNo, DIMENSION(nlsNo), APE2_GEN_NO))
-        ErrorExit(err);
+    *pfPasswordAgeChanged = FALSE ;  
 
     /* for each switch in switchlist */
     for (i = 0; SwitchList[i]; i++)
@@ -236,7 +233,7 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
     if (!(_tcscmp(SwitchList[i], swtxt_SW_ACCOUNTS_FORCELOGOFF)))
     {
         (*APIMask) |= CALL_LEVEL_0;
-        if (!stricmpf(ptr, nlsNo))
+        if ((LUI_ParseYesNo(ptr,&yesno)==0) && (yesno == LUI_NO_VAL))
             modals_0->usrmod0_force_logoff = TIMEQ_FOREVER;
         else
         {
@@ -313,7 +310,7 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
     else if (!(_tcscmp(SwitchList[i], swtxt_SW_ACCOUNTS_LOCKOUT_DURATION)))
     {
         (*APIMask) |= CALL_LEVEL_3;
-        if (!stricmpf(ptr, nlsNo))
+        if ((LUI_ParseYesNo(ptr,&yesno)==0) && (yesno == LUI_NO_VAL))
             modals_3->usrmod3_lockout_duration = TIMEQ_FOREVER;
         else
         {
@@ -330,7 +327,7 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
     else if (!(_tcscmp(SwitchList[i], swtxt_SW_ACCOUNTS_LOCKOUT_WINDOW)))
     {
         (*APIMask) |= CALL_LEVEL_3;
-        if (!stricmpf(ptr, nlsNo))
+        if ((LUI_ParseYesNo(ptr,&yesno)==0) && (yesno == LUI_NO_VAL))
             modals_3->usrmod3_lockout_observation_window = TIMEQ_FOREVER;
         else
         {
@@ -347,7 +344,7 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
     else if (!(_tcscmp(SwitchList[i], swtxt_SW_ACCOUNTS_LOCKOUT_THRESHOLD)))
     {
         (*APIMask) |= CALL_LEVEL_3;
-        if (!stricmpf(ptr, nlsNo))
+        if ((LUI_ParseYesNo(ptr,&yesno)==0) && (yesno == LUI_NO_VAL))
         modals_3->usrmod3_lockout_threshold = LOCKOUT_NEVER;
         else
         modals_3->usrmod3_lockout_threshold =
@@ -358,7 +355,7 @@ VOID CheckAndSetSwitches(struct  user_modals_info_0 FAR * modals_0,
     else if (!(_tcscmp(SwitchList[i], swtxt_SW_ACCOUNTS_LOCKOUT)))
     {
         (*APIMask) |= CALL_LEVEL_0;
-        if (!stricmpf(ptr, nlsNo))
+        if ((LUI_ParseYesNo(ptr,&yesno)==0) && (yesno == LUI_NO_VAL))
         modals_0->usrmod0_lockout_count = LOCKOUT_NEVER;
         else
         modals_0->usrmod0_lockout_count =
@@ -399,7 +396,7 @@ static MESSAGE accMsgList[] = {
     { APE2_ACCOUNTS_ROLE,       NULL },
     { APE2_ACCOUNTS_CONTROLLER,     NULL },
     { APE2_GEN_UNLIMITED,       NULL },
-    { APE2_GEN_NEVER,           NULL },
+    { APE2_NEVER_FORCE_LOGOFF,  NULL },
     { APE2_GEN_NONE,            NULL },
     { APE2_GEN_UNKNOWN,         NULL },
     { APE2_ACCOUNTS_LOCKOUT_COUNT,  NULL },
@@ -429,11 +426,11 @@ VOID accounts_display(VOID)
     USHORT      len;              /* max message string size */
     USHORT      err;              /* API return status */
     TCHAR *      rolePtr;          /* points to text for role */
-    TCHAR        controller[UNCLEN+1]; /* name of domain controller */
+    TCHAR        controller[MAX_PATH]; /* name of domain controller */
     TCHAR *      pBuffer = NULL ;
 
     /* determine where to call the API. FALSE => no need PDC */
-    if (err = GetSAMLocation(controller, DIMENSION(controller),
+    if (err = GetSAMLocation(controller, DIMENSION(controller), 
                              NULL, 0, FALSE))
          ErrorExit(err);
 
@@ -470,60 +467,74 @@ VOID accounts_display(VOID)
     len += 5; /* text should be 5 further to right than largest str */
 
     if (modals_0->usrmod0_force_logoff == TIMEQ_FOREVER)
-	    WriteToCon(fmtNPSZ, len, len, accMsgList[FORCE_LOGOFF].msg_text,
-	        accMsgList[MSG_NEVER].msg_text);
+	    WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[FORCE_LOGOFF].msg_text, NULL),
+	               accMsgList[MSG_NEVER].msg_text);
     else
-	    WriteToCon(fmtULONG, len, len, accMsgList[FORCE_LOGOFF].msg_text,
-	        forceLogoff);
+	    WriteToCon(fmtULONG, 0, len,
+                   PaddedString(len, accMsgList[FORCE_LOGOFF].msg_text, NULL),
+	               forceLogoff);
 
 #if !defined(NTENV)
     if (modals_0->usrmod0_lockout_count == LOCKOUT_NEVER)
-	    WriteToCon(fmtNPSZ, len, len, accMsgList[LOCKOUT_CNT].msg_text,
-	        accMsgList[MSG_NEVER].msg_text);
+	    WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_CNT].msg_text, NULL),
+	               accMsgList[MSG_NEVER].msg_text);
     else
-	    WriteToCon(fmtUSHORT, len, len, accMsgList[LOCKOUT_CNT].msg_text,
-	        modals_0->usrmod0_lockout_count);
+	    WriteToCon(fmtUSHORT, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_CNT].msg_text, NULL),
+	               modals_0->usrmod0_lockout_count);
 #endif /* !NTENV */
 
-    WriteToCon(fmtULONG, len, len, accMsgList[MIN_PW_AGE].msg_text,
-    minPasswdAge);
+    WriteToCon(fmtULONG, 0, len,
+               PaddedString(len, accMsgList[MIN_PW_AGE].msg_text, NULL),
+               minPasswdAge);
     if (modals_0->usrmod0_max_passwd_age == 0xffffffff )
     {
-        WriteToCon(fmtNPSZ, len, len, accMsgList[MAX_PW_AGE].msg_text,
-            accMsgList[MSG_UNLIMITED].msg_text );
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[MAX_PW_AGE].msg_text, NULL),
+                   accMsgList[MSG_UNLIMITED].msg_text );
     }
     else
     {
-        WriteToCon(fmtULONG, len, len, accMsgList[MAX_PW_AGE].msg_text,
-            maxPasswdAge);
+        WriteToCon(fmtULONG, 0, len,
+                   PaddedString(len, accMsgList[MAX_PW_AGE].msg_text, NULL),
+                   maxPasswdAge);
     }
-    WriteToCon(fmtUSHORT, len, len, accMsgList[MIN_PW_LEN].msg_text,
-    modals_0->usrmod0_min_passwd_len);
+    WriteToCon(fmtUSHORT, 0, len,
+               PaddedString(len, accMsgList[MIN_PW_LEN].msg_text, NULL),
+               modals_0->usrmod0_min_passwd_len);
 
     if (modals_0->usrmod0_password_hist_len == 0)
-        WriteToCon(fmtNPSZ, len, len, accMsgList[PW_HIST_LEN].msg_text,
-            accMsgList[MSG_NONE].msg_text);
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[PW_HIST_LEN].msg_text, NULL),
+                   accMsgList[MSG_NONE].msg_text);
     else
-        WriteToCon(fmtUSHORT, len, len, accMsgList[PW_HIST_LEN].msg_text,
-            modals_0->usrmod0_password_hist_len);
+        WriteToCon(fmtUSHORT, 0, len,
+                   PaddedString(len, accMsgList[PW_HIST_LEN].msg_text, NULL),
+                   modals_0->usrmod0_password_hist_len);
 
     if (modals_3->usrmod3_lockout_threshold == LOCKOUT_NEVER)
-        WriteToCon(fmtNPSZ, len, len, accMsgList[LOCKOUT_THRESHOLD].msg_text,
-            accMsgList[MSG_NEVER].msg_text);
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_THRESHOLD].msg_text, NULL),
+                   accMsgList[MSG_NEVER].msg_text);
     else
-        WriteToCon(fmtUSHORT, len, len, accMsgList[LOCKOUT_THRESHOLD].msg_text,
-            modals_3->usrmod3_lockout_threshold);
+        WriteToCon(fmtUSHORT, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_THRESHOLD].msg_text, NULL),
+                   modals_3->usrmod3_lockout_threshold);
 
     if ( modals_3->usrmod3_lockout_duration ==  TIMEQ_FOREVER )
-        WriteToCon(fmtNPSZ, len, len, accMsgList[LOCKOUT_DURATION].msg_text,
-            accMsgList[MSG_NEVER].msg_text); // BUGBUG
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_DURATION].msg_text, NULL),
+                   accMsgList[MSG_NEVER].msg_text); // BUGBUG
     else
-        WriteToCon(fmtULONG, len, len, accMsgList[LOCKOUT_DURATION].msg_text,
-            modals_3->usrmod3_lockout_duration / SECS_PER_MIN);
+        WriteToCon(fmtULONG, 0, len,
+                   PaddedString(len, accMsgList[LOCKOUT_DURATION].msg_text, NULL),
+                   modals_3->usrmod3_lockout_duration / SECS_PER_MIN);
 
-    WriteToCon(fmtULONG, len, len, accMsgList[LOCKOUT_WINDOW].msg_text,
-            modals_3->usrmod3_lockout_observation_window / SECS_PER_MIN);
-
+    WriteToCon(fmtULONG, 0, len,
+               PaddedString(len, accMsgList[LOCKOUT_WINDOW].msg_text, NULL),
+               modals_3->usrmod3_lockout_observation_window / SECS_PER_MIN);
 
 
     switch (modals_1->usrmod1_role) {
@@ -548,24 +559,26 @@ VOID accounts_display(VOID)
             break;
     }
 
-    WriteToCon(fmtNPSZ, len, len, accMsgList[ROLE].msg_text, rolePtr);
+    WriteToCon(fmtNPSZ, 0, len, PaddedString(len, accMsgList[ROLE].msg_text,NULL), rolePtr);
 
     /* if MEMBER or BACKUP, display the domain controller */
     if ((modals_1->usrmod1_role == UAS_ROLE_MEMBER) ||
         (modals_1->usrmod1_role == UAS_ROLE_BACKUP))
-    {
+    {   
          if (*pBuffer)
          {
              /* got a DC back */
-             WriteToCon(fmtNPSZ, len, len, accMsgList[CONTROLLER].msg_text,
-                    pBuffer);
+             WriteToCon(fmtNPSZ, 0, len,
+                        PaddedString(len, accMsgList[CONTROLLER].msg_text, NULL),
+                        pBuffer);
              NetApiBufferFree(pBuffer);
          }
          else
          {
             /* Unknown domain */
-            WriteToCon(fmtNPSZ, len, len, accMsgList[CONTROLLER].msg_text,
-                accMsgList[MSG_UNKNOWN].msg_text);
+            WriteToCon(fmtNPSZ, 0, len,
+                       PaddedString(len, accMsgList[CONTROLLER].msg_text, NULL),
+                       accMsgList[MSG_UNKNOWN].msg_text);
          }
     }
 
@@ -585,7 +598,7 @@ VOID accounts_synch(VOID)
 
     /* retrieve modals to find role */
     err = MNetUserModalsGet(NULL, 1, (LPBYTE *) &modals);
-    switch (err)
+    switch (err) 
     {
     case NERR_Success:
 	break;

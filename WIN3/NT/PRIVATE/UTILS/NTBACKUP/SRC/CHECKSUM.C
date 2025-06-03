@@ -85,12 +85,13 @@ VOID Checksum_Init ( UINT32_PTR checksum_ptr )
    Notes:
 
 **/
-UINT32 Checksum_Block ( UINT32_PTR  checksum_ptr,
+UINT32 Checksum_Block ( UINT32_PTR  checksum_optr,
                			VOID_PTR    data_ptr,
                			UINT32      data_len )
 {
+     UINT32 UNALIGNED * checksum_ptr = (UINT32 UNALIGNED *)checksum_optr ;
      UINT32     checksum = *checksum_ptr ;
-     UINT32_PTR p ;           /* data pointer            */
+     UINT32 UNALIGNED * p ;           /* data pointer            */
      UINT8_PTR  rp ;          /* Remainder pointer       */
      UINT32     len ;         /* Number of 4-byte chunks */
 
@@ -98,13 +99,15 @@ UINT32 Checksum_Block ( UINT32_PTR  checksum_ptr,
 
      while( mwChecksumBytesNeeded && data_len ) {
      
-          checksum ^= ( UINT32 )( *rp ) << ( ( 4 - mwChecksumBytesNeeded ) << 3 ) ;
+          p = ( UINT32 UNALIGNED *)rp ;
+
+          checksum ^= (*p & 0xFF) << ( ( 4 - mwChecksumBytesNeeded ) << 3 ) ;
           mwChecksumBytesNeeded -- ;
           data_len -- ;
           rp ++ ;
      }
 
-     p = ( UINT32_PTR )rp ;
+     p = ( UINT32 UNALIGNED *)rp ;
      len = data_len >> 2 ;
 
      while ( len ) {
@@ -122,7 +125,8 @@ UINT32 Checksum_Block ( UINT32_PTR  checksum_ptr,
 
           while ( data_len ) {
 
-               checksum ^= ( UINT32 )*rp << ( ( 4 - mwChecksumBytesNeeded ) << 3 ) ;
+               p = ( UINT32 UNALIGNED *)rp ;
+               checksum ^= (*p & 0xFF) << ( ( 4 - mwChecksumBytesNeeded ) << 3 ) ;
                mwChecksumBytesNeeded -- ;
                data_len -- ;
                rp ++ ;

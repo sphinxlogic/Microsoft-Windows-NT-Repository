@@ -58,19 +58,17 @@ typedef char *	va_list;
 #define _VA_LIST_DEFINED
 #endif
 
-#ifdef _M_IX86
+#if defined(_M_IX86)
 
 /* Use these types and definitions if generating code for x86 */
 
-#define _INTSIZEOF(n)	( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) ) 
+#define _INTSIZEOF(n)	( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) )
 
 #define va_start(ap,v)	( ap = (va_list)&v + _INTSIZEOF(v) )
 #define va_arg(ap,t)	( *(t *)((ap += _INTSIZEOF(t)) - _INTSIZEOF(t)) )
 #define va_end(ap)	( ap = (va_list)0 )
 
-#endif
-
-#ifdef _M_MRX000
+#elif defined(_M_MRX000)
 
 /* Use these types and definitions if generating code for MIPS */
 
@@ -88,9 +86,8 @@ typedef char *	va_list;
     +++++++++++++++++++++++++++++++++++++++++++ */
 
 
-#endif /* _M_MRX000 */
+#elif defined(_M_ALPHA)
 
-#ifdef _M_ALPHA
 
 /* Use these types and definitions if generating code for ALPHA */
 
@@ -105,11 +102,10 @@ typedef char *	va_list;
  * by a pointer like any arguments passed on the stack).
  */
 
+extern void * __builtin_va_start(va_list, ...);
+
 #ifdef _CFRONT
-extern __builtin_va_start(va_list, ...);
 #define __builtin_isfloat(a) __builtin_alignof(a)
-#elif defined(__cplusplus)
-extern __builtin_va_start(va_list, ...);
 #endif
 
 #define va_start(list, v) __builtin_va_start(list, v, 1)
@@ -123,7 +119,31 @@ extern __builtin_va_start(va_list, ...);
        ) \
     )
 
-#endif /* _M_ALPHA */
+#elif defined(_M_PPC)
+
+/* Microsoft C8 front end (used in Motorola Merged compiler) */
+/* bytes that a type occupies in the argument list */
+#define _INTSIZEOF(n)   ( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) )
+/* return 'ap' adjusted for type 't' in arglist */
+#define	_ALIGNIT(ap,t) \
+	((((int)(ap))+(sizeof(t)<8?3:7)) & (sizeof(t)<8?~3:~7))
+
+#define va_start(ap,v)  ( ap = (va_list)&v + _INTSIZEOF(v) )
+#define va_arg(ap,t)    ( *(t *)((ap = (char *) (_ALIGNIT(ap, t) + _INTSIZEOF(t))) - _INTSIZEOF(t)) )
+#define va_end(ap)      ( ap = (va_list)0 )
+
+#else
+
+/* A guess at the proper definitions for other platforms */
+
+#define _INTSIZEOF(n)	( (sizeof(n) + sizeof(int) - 1) & ~(sizeof(int) - 1) )
+
+#define va_start(ap,v)	( ap = (va_list)&v + _INTSIZEOF(v) )
+#define va_arg(ap,t)	( *(t *)((ap += _INTSIZEOF(t)) - _INTSIZEOF(t)) )
+#define va_end(ap)	( ap = (va_list)0 )
+
+
+#endif
 
 #ifdef __cplusplus
 }

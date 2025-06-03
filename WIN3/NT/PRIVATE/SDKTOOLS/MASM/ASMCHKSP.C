@@ -260,7 +260,7 @@ scanlist (
 		iptr = ptr->itemlst;
 		if (ptr->dupkind == NEST)
 			/* dptr = pointer to duplicated item */
-			dptr = ptr->duptype.dupnext.dup;
+                        dptr = ptr->duptype.dupnext.dup;
 		else
 			dptr = (struct duprec FARSYM *)NULL;
 		if (!(ptr->rptcnt == 1 && ptr->itemcnt) ||
@@ -308,7 +308,7 @@ calcsize (
 
 	    if (p->dupkind == NEST) {
 		    /* Process nested dup */
-		    nextSize = calcsize (p->duptype.dupnext.dup);
+                    nextSize = calcsize (p->duptype.dupnext.dup);
 
 		    if (nextSize && (p->rptcnt > limit / nextSize))
 			errorc(E_VOR);

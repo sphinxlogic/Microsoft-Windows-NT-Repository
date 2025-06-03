@@ -49,6 +49,10 @@ extern  CHAR    ResourceUsage[LDT_DISJOINT_ENTRIES];
 extern  USHORT  Os2DebugSel;
 #endif
 
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 260
+#endif
+
 BOOLEAN
 Od2ExpandOd2LibPathElements(
     OUT PCHAR ExpandedString,
@@ -273,7 +277,11 @@ DosLoadModuleNE(
     STRING  ModuleNameString;
     STRING  FailNameString;
     STRING  LibPathNameString;
-    CHAR    ExpandedLibPath[512];
+    // Remember that \OS2SS\DRIVES\ is added for each path element !
+    // Let's assume the smallest component is 5 chars long (like C:\X;)
+    // (although it could be less, like "." or "\")
+    // => we need to add 14 * (MAXPATHLEN/5) = MAXPATHLEN*3
+    CHAR    ExpandedLibPath[MAXPATHLEN*4];
     BOOLEAN MemAllocatedForModName;
     ULONG   FileFlags;
     ULONG   FileType;
@@ -480,6 +488,17 @@ DosLoadModuleNE(
     }
 #endif
 
+//#if DBG
+//    {
+//        OS2_API_MSG m;
+//        P_LDRDUMPSEGMENTS_MSG a = &m.u.LdrDumpSegments;
+//
+//        DbgPrint("DosLoadModuleNE: dumping segments !\n");
+//
+//        Od2CallSubsystem( &m, NULL, Ol2LdrDumpSegments, sizeof( *a ) );
+//    }
+//#endif
+
     if (Rc == NO_ERROR) {
         //
         // Go over all DLLs init routines
@@ -592,7 +611,11 @@ DosQueryModuleHandleNE(
     POS2_CAPTURE_HEADER CaptureBuffer;
     STRING  ModuleNameString;
     STRING  LibPathNameString;
-    CHAR ExpandedLibPath[512];
+    // Remember that \OS2SS\DRIVES\ is added for each path element !
+    // Let's assume the smallest component is 5 chars long (like C:\X;)
+    // (although it could be less, like "." or "\")
+    // => we need to add 14 * (MAXPATHLEN/5) = MAXPATHLEN*3
+    CHAR    ExpandedLibPath[MAXPATHLEN*4];
     BOOLEAN MemAllocatedForModName;
     ULONG   FileFlags;
     ULONG   FileType;
@@ -793,7 +816,11 @@ DosQueryAppTypeNE(
     POS2_CAPTURE_HEADER CaptureBuffer;
     STRING  AppNameString;
     STRING  PathNameString;
-    CHAR    ExpandedPath[1024];
+    // Remember that \OS2SS\DRIVES\ is added for each path element !
+    // Let's assume the smallest component is 5 chars long (like C:\X;)
+    // (although it could be less, like "." or "\")
+    // => we need to add 14 * (MAXPATHLEN/5) = MAXPATHLEN*3
+    CHAR    ExpandedPath[MAXPATHLEN*4];
     BOOLEAN MemAllocatedForAppName;
     ULONG   FileFlags;
     ULONG   FileType;

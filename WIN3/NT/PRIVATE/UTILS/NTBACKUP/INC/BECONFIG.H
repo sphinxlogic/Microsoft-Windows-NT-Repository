@@ -213,6 +213,11 @@ Initial revision.
 #define BEC_UNIC_STR                   2
 #define BEC_WIDE_STR                   BEC_UNIC_STR
 
+/* EMS stuff */
+#define BEC_EMS_PUBLIC        1
+#define BEC_EMS_PRIVATE       2
+#define BEC_EMS_BOTH          3
+
 #if defined(OS_NLM)
 /* NRL Protocol types are bit-mapped flags */
 #define NRL_PROT_SPX            0x01
@@ -247,6 +252,7 @@ typedef struct BE_CFG {
      INT16     hidden_flg ;                  /* don't read hidden files    */
      INT16     special_flg ;                 /* don't read system files    */
      INT16     set_archive_flg ;             /* set archive bit            */
+     INT16     modified_only_flg ;               /* backup modified stuff only */
      INT16     proc_empty_flg ;              /* restore empty directorys   */
      INT16     exist_flg ;                   /* restore existing files?    */
      INT16     prompt_flg ;                  /* prompt on restore          */
@@ -305,6 +311,9 @@ typedef struct BE_CFG {
 #endif
      BOOLEAN   process_special_files;        /* process registry, etc.                        */
      INT16     sypl_ecc_flg ;                /* process sytron ecc */
+     INT16     ems_pub_pri ;
+     INT16     ems_rip_kick ;                
+     INT16     ems_wipe_clean ;                
 } BE_CFG;
 
 
@@ -396,6 +405,10 @@ extern INT16  gnProcessSytronECC ;
 
 #define BEC_GetSetArchiveFlag( x )           ( (x)->set_archive_flg )
 #define BEC_SetSetArchiveFlag( x, v )        ( (x)->set_archive_flg = \
+                                                  BEC_MAX( BEC_MIN( (v), uw_max_cfg.set_archive_flg), uw_min_cfg.set_archive_flg ) )
+
+#define BEC_GetModifiedOnlyFlag( x )           ( (x)->modified_only_flg )
+#define BEC_SetModifiedOnlyFlag( x, v )        ( (x)->modified_only_flg = \
                                                   BEC_MAX( BEC_MIN( (v), uw_max_cfg.set_archive_flg), uw_min_cfg.set_archive_flg ) )
 
 #define BEC_GetProcEmptyFlag( x )            ( (x)->proc_empty_flg )
@@ -570,5 +583,16 @@ extern INT16  gnProcessSytronECC ;
 #define BEC_SetProcessSytronECCFlag( x, v )     ( (x)->sypl_ecc_flg = \
                                                   BEC_MAX( BEC_MIN( (v), uw_max_cfg.sypl_ecc_flg), uw_min_cfg.sypl_ecc_flg ) )
 
+#define BEC_GetEmsPubPri( x )               ( (x)->ems_pub_pri )
+#define BEC_SetEmsPubPri( x, v )            ( (x)->ems_pub_pri = \
+                                                  BEC_MAX( BEC_MIN( (v), uw_max_cfg.ems_pub_pri), uw_min_cfg.ems_pub_pri ) )
+
+#define BEC_GetEmsRipKick( x )               ( (x)->ems_rip_kick )
+#define BEC_SetEmsRipKick( x, v )            ( (x)->ems_rip_kick = \
+                                                  BEC_MAX( BEC_MIN( (v), uw_max_cfg.ems_rip_kick), uw_min_cfg.ems_rip_kick ) )
+
+#define BEC_GetEmsWipeClean( x )               ( (x)->ems_wipe_clean )
+#define BEC_SetEmsWipeClean( x, v )            ( (x)->ems_wipe_clean = \
+                                                  BEC_MAX( BEC_MIN( (v), uw_max_cfg.ems_wipe_clean), uw_min_cfg.ems_wipe_clean ) )
 #endif    /* BECONFIG_H */
-
+

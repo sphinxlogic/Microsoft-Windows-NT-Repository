@@ -102,7 +102,7 @@ Client(
     WRITEF((VBuff,"**************************************\n"));
 
     if ((Connection=EstablishSession(Server,Pipe))==NULL)
-    	return;
+        return;
 
 
     ReadPipe=Connection[0];
@@ -144,8 +144,6 @@ Client(
 
     WaitForMultipleObjects(2,iothreads,FALSE,INFINITE);
 
-    CloseHandle(ReadPipe);
-    CloseHandle(WritePipe);
     TerminateThread(iothreads[0],1);
     TerminateThread(iothreads[1],1);
     WRITEF((VBuff,"*** SESSION OVER ***\n"));
@@ -279,26 +277,27 @@ EstablishSession(
     sprintf(pipenameSrvIn ,SERVER_READ_PIPE ,server,srvpipename);
     sprintf(pipenameSrvOut,SERVER_WRITE_PIPE,server,srvpipename);
 
-    PipeH[0]=CreateFile(pipenameSrvOut,GENERIC_READ ,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
-    PipeH[1]=CreateFile(pipenameSrvIn ,GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+    if ((INVALID_HANDLE_VALUE==(PipeH[0]=CreateFile(pipenameSrvOut,
+        GENERIC_READ ,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL))) ||
+        (INVALID_HANDLE_VALUE==(PipeH[1]=CreateFile(pipenameSrvIn ,
+        GENERIC_WRITE,0,NULL,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL)))) {
 
-    if ((PipeH[0]==INVALID_HANDLE_VALUE)||(PipeH[1]==INVALID_HANDLE_VALUE))
-    {
         DWORD Err=GetLastError();
         char msg[128];
 
         Errormsg("*** Unable to Connect ***");
         //
-        // Print a helpfull message
+        // Print a helpful message
         //
         switch(Err)
         {
             case 2: sprintf(msg,"Invalid PipeName %s",srvpipename);break;
-            case 5: sprintf(msg,"Access Denied to %s",server);break;
             case 53:sprintf(msg,"Server %s not found",server);break;
-            case 240:sprintf(msg,"Session Cancelled by %s",server);break;
-            case 1311:sprintf(msg,"No logon servers available");break;
-            default:sprintf(msg,"None");break;
+            default:
+                FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|
+                               FORMAT_MESSAGE_IGNORE_INSERTS,
+                               NULL, Err, 0, msg, 128, NULL);
+                break;
 
         }
         WRITEF((VBuff,"Diagnosis:%s\n",msg));

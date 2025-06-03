@@ -40,6 +40,8 @@ typedef struct _EPROFILE {
     PVOID LockedBufferAddress;
     PMDL Mdl;
     ULONG Segment;
+    KPROFILE_SOURCE ProfileSource;
+    KAFFINITY Affinity;
 } EPROFILE, *PEPROFILE;
 
 //
@@ -129,6 +131,7 @@ Return Value:
 
     RtlZeroMemory(&ObjectTypeInitializer,sizeof(ObjectTypeInitializer));
     ObjectTypeInitializer.Length = sizeof(ObjectTypeInitializer);
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.PoolType = NonPagedPool;
     ObjectTypeInitializer.DefaultNonPagedPoolCharge = sizeof(EPROFILE);
     ObjectTypeInitializer.ValidAccessMask = PROFILE_ALL_ACCESS;
@@ -207,7 +210,9 @@ NtCreateProfile (
     IN ULONG RangeSize,
     IN ULONG BucketSize,
     IN PULONG Buffer,
-    IN ULONG BufferSize
+    IN ULONG BufferSize,
+    IN KPROFILE_SOURCE ProfileSource,
+    IN KAFFINITY Affinity
     )
 
 /*++
@@ -248,6 +253,9 @@ Arguments:
 
     BufferSize - Size in bytes of Buffer.
 
+    ProfileSource - Supplies the source for the profile interrupt
+
+    Affinity - Supplies the processor set for the profile interrupt
 
 Return Value:
 
@@ -411,7 +419,7 @@ Return Value:
                                  (PVOID *)&Profile);
 
         //
-        // If the profile object was successfully allocated, initilize
+        // If the profile object was successfully allocated, initialize
         // the profile object.
         //
 
@@ -425,6 +433,8 @@ Return Value:
             Profile->BucketSize = BucketSize;
             Profile->LockedBufferAddress = NULL;
             Profile->Segment = Segment;
+            Profile->ProfileSource = ProfileSource;
+            Profile->Affinity = Affinity;
 
             Status = ObInsertObject(Profile,
                                     NULL,
@@ -590,8 +600,9 @@ Return Value:
                          Profile->RangeBase,
                          Profile->RangeSize,
                          Profile->BucketSize,
-                         Profile->Segment
-                         );
+                         Profile->Segment,
+                         Profile->ProfileSource,
+                         Profile->Affinity);
     try {
         State = KeStartProfile (ProfileObject, LockedVa);
         ASSERT (State != FALSE);
@@ -693,7 +704,8 @@ Return Value:
 
 NTSTATUS
 NtSetIntervalProfile (
-    IN ULONG Interval
+    IN ULONG Interval,
+    IN KPROFILE_SOURCE Source
     )
 
 /*++
@@ -707,6 +719,8 @@ Arguments:
 
     Interval - Supplies the sampling interval in 100ns units.
 
+    Source - Specifies the profile source to be set.
+
 Return Value:
 
     TBS
@@ -715,12 +729,13 @@ Return Value:
 
 {
 
-    KeSetIntervalProfile (Interval);
+    KeSetIntervalProfile (Interval, Source);
     return STATUS_SUCCESS;
 }
 
 NTSTATUS
 NtQueryIntervalProfile (
+    IN KPROFILE_SOURCE ProfileSource,
     OUT PULONG Interval
     )
 
@@ -733,6 +748,8 @@ Routine Description:
 
 Arguments:
 
+    Source - Specifies the profile source to be queried.
+
     Interval - Returns the sampling interval in 100ns units.
 
 Return Value:
@@ -744,7 +761,6 @@ Return Value:
 {
     ULONG CapturedInterval;
     KPROCESSOR_MODE PreviousMode;
-
 
     PreviousMode = KeGetPreviousMode ();
     if (PreviousMode != KernelMode) {
@@ -768,7 +784,7 @@ Return Value:
         }
     }
 
-    CapturedInterval = KeQueryIntervalProfile ();
+    CapturedInterval = KeQueryIntervalProfile (ProfileSource);
 
     try {
         *Interval = CapturedInterval;

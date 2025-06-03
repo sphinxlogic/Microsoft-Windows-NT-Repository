@@ -33,4 +33,3 @@ typedef struct {
 	int widMax;
 	int leading;
 } FONTINFO;
-

@@ -22,10 +22,53 @@ Revision History:
 --*/
 
 #include "kdp.h"
+
+
+//
+// globals
+//
+ULONG           KdpPageInAddress;
+WORK_QUEUE_ITEM KdpPageInWorkItem;
+
+//
+// externs
+//
+extern BOOLEAN KdpControlCPressed;
+
+
 
-//
-// Define breakpoint instruction masks.
-//
+#pragma optimize( "", off )
+VOID
+KdpPageInData (
+    IN PUCHAR volatile DataAddress
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to page in data at the supplied address.
+    It is called either directly from KdpTrap() or from a worker
+    thread that is queued by KdpTrap().
+
+Arguments:
+
+    DataAddress - Supplies a pointer to the data to be paged in.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    if (MmIsSystemAddressAccessable(DataAddress)) {
+        UCHAR c = *DataAddress;
+        DataAddress = &c;
+    }
+    KdpControlCPending = TRUE;
+}
+#pragma optimize( "", on )
 
 
 BOOLEAN
@@ -83,6 +126,7 @@ Return Value:
     // Enter debugger and synchronize processor execution.
     //
 
+re_enter_debugger:
     Enable = KdEnterDebugger(TrapFrame, ExceptionFrame);
     Prcb = KeGetCurrentPrcb();
 
@@ -120,7 +164,7 @@ Return Value:
                     ContextRecord->IntV0 = (ULONG)STATUS_SUCCESS;
                 }
             } else {
-                ContextRecord->IntV0 = STATUS_DEVICE_NOT_CONNECTED;
+                ContextRecord->IntV0 = (ULONG)STATUS_DEVICE_NOT_CONNECTED;
             }
 
             KdExitDebugger(Enable);
@@ -230,8 +274,52 @@ Return Value:
                     &Prcb->ProcessorState.ContextFrame,
                     sizeof (CONTEXT) );
 
-
     KdExitDebugger(Enable);
+
+
+    //
+    // check to see if the user of the remote debugger
+    // requested memory to be paged in
+    //
+    if (KdpPageInAddress) {
+
+        if (KeGetCurrentIrql() <= APC_LEVEL) {
+
+            //
+            // if the IQRL is below DPC level then cause
+            // the page fault to occur and then re-enter
+            // the debugger.  this whole process is transparent
+            // to the user.
+            //
+            KdpPageInData( (PUCHAR)KdpPageInAddress );
+            KdpPageInAddress = 0;
+            KdpControlCPending = FALSE;
+            goto re_enter_debugger;
+
+        } else {
+
+            //
+            // we cannot take a page fault
+            // here so a worker item is queued to take the
+            // page fault.  after the worker item takes the
+            // page fault it sets the contol-c flag so that
+            // the user re-enters the debugger just as if
+            // control-c was pressed.
+            //
+            if (KdpControlCPressed) {
+                ExInitializeWorkItem(
+                    &KdpPageInWorkItem,
+                    (PWORKER_THREAD_ROUTINE) KdpPageInData,
+                    (PVOID) KdpPageInAddress
+                    );
+                ExQueueWorkItem( &KdpPageInWorkItem, DelayedWorkQueue );
+                KdpPageInAddress = 0;
+            }
+
+        }
+    }
+
+    KdpControlCPressed = FALSE;
 
     //
     // Always return TRUE if this is the first chance to handle the

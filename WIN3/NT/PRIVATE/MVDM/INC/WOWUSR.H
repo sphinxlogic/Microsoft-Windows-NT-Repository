@@ -13,7 +13,6 @@
  *
 --*/
 
-
 /* User API IDs
  */
 #define FUN_ADJUSTWINDOWRECT        102 //
@@ -472,6 +471,8 @@
 #define FUN_NOTIFYWOW                   533
 #define FUN_WOWGETIDFROMDIRECTORY       534
 #define FUN_WOWWORDBREAKPROC            535
+#define FUN_MOUSEEVENT                  537
+#define FUN_KEYBDEVENT                  538
 
 /* XLATOFF */
 #pragma pack(2)
@@ -1042,8 +1043,8 @@ typedef struct _DLGDIRSELECTCOMBOBOXEX16 {    /* u423 */
 typedef DLGDIRSELECTCOMBOBOXEX16 UNALIGNED *PDLGDIRSELECTCOMBOBOXEX16;
 
 typedef struct _DRAGDETECT16 {          /* u465 */
-    POINT16 f2;
-    HWND16  f1;
+    POINT16 pt;
+    HWND16  hwnd;
 } DRAGDETECT16;
 typedef DRAGDETECT16 UNALIGNED *PDRAGDETECT16;
 
@@ -1562,12 +1563,6 @@ typedef struct _GETMESSAGETIME16 {      /* u120 */
 typedef GETMESSAGETIME16 UNALIGNED *PGETMESSAGETIME16;
 #endif
 
-#ifdef NULLSTRUCT
-typedef struct _GETMOUSEEVENTPROC16 {   /* u337 */
-} GETMOUSEEVENTPROC16;
-typedef GETMOUSEEVENTPROC16 UNALIGNED *PGETMOUSEEVENTPROC16;
-#endif
-
 typedef struct _GETNEXTDLGGROUPITEM16 {     /* u227 */
     BOOL16  f3;
     HWND16  f2;
@@ -1959,6 +1954,13 @@ typedef struct _KEYBD_EVENT16 {         /* u289 */
 typedef KEYBD_EVENT16 UNALIGNED *PKEYBD_EVENT16;
 #endif
 
+typedef struct _KEYBDEVENT16 {          /* u538 */
+    DWORD dwExtraInfo;
+    WORD bScanCode;
+    WORD bVirtualKey;
+} KEYBDEVENT16;
+typedef KEYBDEVENT16 UNALIGNED *PKEYBDEVENT16;
+
 typedef struct _KILLSYSTEMTIMER16 {     /* u182 */
     SHORT  f2;
     HWND16 f1;
@@ -2140,6 +2142,16 @@ typedef struct _MOUSE_EVENT16 {         /* u299 */
 } MOUSE_EVENT16;
 typedef MOUSE_EVENT16 UNALIGNED *PMOUSE_EVENT16;
 #endif
+
+typedef struct _MOUSEEVENT16 {          /* u537 */
+    DWORD dwExtraInfo;
+    WORD cButtons;
+    WORD dy;
+    WORD dx;
+    WORD wFlags;
+} MOUSEEVENT16;
+typedef MOUSEEVENT16 UNALIGNED *PMOUSEEVENT16;
+
 
 typedef struct _MOVEWINDOW16 {          /* u56 */
     BOOL16 f6;
@@ -3060,6 +3072,14 @@ typedef struct _SETEVENTHOOK16 {     /* u321 */
 } SETEVENTHOOK16;
 typedef SETEVENTHOOK16 UNALIGNED *PSETEVENTHOOK16;
 
+typedef struct _FILLWINDOW16 {     /* u324 */
+    HBRSH16  f4;
+    HDC16    f3;
+    HWND16   f2;
+    HWND16   f1;
+} FILLWINDOW16;
+typedef FILLWINDOW16 UNALIGNED *PFILLWINDOW16;
+
 typedef struct _SETWINDOWPLACEMENT16 {     /* u371 */
     VPVOID f2;
     HAND16 f1;
@@ -3178,11 +3198,14 @@ typedef struct _WORDBREAKPROC16 {   /* wordbreakproc */
 } WORDBREAKPROC16;
 typedef WORDBREAKPROC16 UNALIGNED *PWORDBREAKPROC16;
 
-
 typedef struct _USERCLIENTGLOBALS {   /* uclg */
-    WORD    hInstance;
+    WORD             hInstance;
     BYTE UNALIGNED **lpgpsi;
     BYTE UNALIGNED **lpCsrFlag;
+    DWORD            dwBldInfo;
+    VPWORD           lpwMaxDWPMsg;
+    VPSTR            lpDWPBits;
+    WORD             cbDWPBits;
 } USERCLIENTGLOBALS;
 typedef USERCLIENTGLOBALS UNALIGNED *PUSERCLIENTGLOBALS;
 

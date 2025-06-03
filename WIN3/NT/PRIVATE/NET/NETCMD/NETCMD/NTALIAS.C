@@ -57,8 +57,8 @@ VOID ntalias_enum(VOID)
     USHORT          err ;
     ALIAS_ENTRY     *aliases, *next_alias ;
     USHORT2ULONG    num_read, i ;
-    TCHAR           controller[UNCLEN+1];
-    TCHAR           localserver[CNLEN+1];
+    TCHAR           controller[MAX_PATH+1];
+    TCHAR           localserver[MAX_PATH+1];
     struct wksta_info_10 FAR *      wksta_entry;
 
     /* get localserver name for display */
@@ -95,7 +95,7 @@ VOID ntalias_enum(VOID)
          i < num_read;
          i++, next_alias++)
     {
-        WriteToCon(TEXT("*%-25.25Fws"), next_alias->name);
+        WriteToCon(TEXT("*%Fws"), PaddedString(25,next_alias->name,NULL));
         if (((i + 1) % 3) == 0)
             PrintNL();
     }
@@ -138,7 +138,7 @@ static MESSAGE  msglist[] = {
 VOID ntalias_display(TCHAR * ntalias)
 {
     USHORT          err ;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
     ALIAS_ENTRY     Alias ;
     TCHAR **         alias_members ;
     USHORT2ULONG    num_members, i ;
@@ -167,10 +167,13 @@ VOID ntalias_display(TCHAR * ntalias)
     /* display name & comment */
     GetMessageList(NUM_ALIAS_MSGS, msglist, &maxmsglen);
     fsz = maxmsglen + (USHORT) 5;
-    WriteToCon( fmtPSZ, fsz, fsz, msglist[ALIASDISP_ALIASNAME].msg_text,
-        Alias.name );
-    WriteToCon( fmtPSZ, fsz, fsz, msglist[ALIASDISP_COMMENT].msg_text,
-        (Alias.comment ? Alias.comment : TEXT("")) );
+
+    WriteToCon( fmtPSZ, 0, fsz,
+                PaddedString(fsz, msglist[ALIASDISP_ALIASNAME].msg_text, NULL),
+                Alias.name );
+    WriteToCon( fmtPSZ, 0, fsz,
+                PaddedString(fsz, msglist[ALIASDISP_COMMENT].msg_text, NULL),
+                (Alias.comment ? Alias.comment : TEXT("")) );
 
     /* free if need. would have been alloc-ed by GetInfo */
     if (Alias.comment)
@@ -190,7 +193,7 @@ VOID ntalias_display(TCHAR * ntalias)
     PrintLine();
     for (i = 0 ; i < num_members; i++)
     {
-        WriteToCon(TEXT("%-25.25Fws"), alias_members[i]);
+        WriteToCon(TEXT("%Fws"), PaddedString(25,alias_members[i],NULL));
         if (((i + 1) % 3) == 0)
             PrintNL();
     }
@@ -221,7 +224,7 @@ VOID ntalias_display(TCHAR * ntalias)
  */
 VOID ntalias_add(TCHAR * ntalias)
 {
-    TCHAR            controller[UNCLEN+1], *ptr;
+    TCHAR            controller[MAX_PATH+1], *ptr;
     ALIAS_ENTRY     alias_entry ;
     USHORT          err, i ;
 
@@ -279,7 +282,7 @@ VOID ntalias_add(TCHAR * ntalias)
  */
 VOID ntalias_change(TCHAR * ntalias)
 {
-    TCHAR            controller[UNCLEN+1], *comment, *ptr ;
+    TCHAR            controller[MAX_PATH+1], *comment, *ptr ;
     ALIAS_ENTRY     alias_entry ;
     USHORT          i, err ;
 
@@ -349,7 +352,7 @@ VOID ntalias_change(TCHAR * ntalias)
  */
 VOID ntalias_del(TCHAR * ntalias)
 {
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
     USHORT          err ;
 
     /* determine where to make the API call */
@@ -394,7 +397,7 @@ VOID ntalias_add_users(TCHAR * ntalias)
 {
     USHORT          err ;
     int             i, err_cnt = 0 ;
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
 
     /* determine where to make the API call */
     if (err = GetSAMLocation(controller, DIMENSION(controller), 
@@ -477,7 +480,7 @@ VOID ntalias_add_users(TCHAR * ntalias)
  */
 VOID ntalias_del_users(TCHAR * ntalias)
 {
-    TCHAR            controller[UNCLEN+1];
+    TCHAR            controller[MAX_PATH+1];
     USHORT          err ;
     int             i, err_cnt = 0 ;
 

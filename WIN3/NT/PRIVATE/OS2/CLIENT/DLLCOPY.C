@@ -352,7 +352,6 @@ Return Value:
          }
          if (RetCode) {
             RtlFreeHeap(Od2Heap,0,SourceCanonicalName.Buffer);
-            RtlFreeHeap(Od2Heap,0,TargetCanonicalName.Buffer);
             return RetCode;
          }
     }
@@ -374,6 +373,7 @@ Return Value:
                                   NULL,
                                   &TargetFlags,
                                   &TargetType) != NO_ERROR) {
+        RtlFreeHeap(Od2Heap,0,SourceCanonicalName.Buffer);
         return RetCode;
     }
     //

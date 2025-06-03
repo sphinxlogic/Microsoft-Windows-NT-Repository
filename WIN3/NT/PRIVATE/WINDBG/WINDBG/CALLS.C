@@ -226,7 +226,7 @@ Calls_Goto:
                 }
                 break;
 
-              case IDHELP:
+              case IDWINDBGHELP:
                 Dbg(WinHelp(hDlg, szHelpFileName, HELP_CONTEXT, ID_CALLS_HELP));
                 return TRUE;
             }

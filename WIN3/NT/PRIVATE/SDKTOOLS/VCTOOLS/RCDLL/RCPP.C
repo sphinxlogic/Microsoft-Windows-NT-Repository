@@ -8,8 +8,7 @@
 /*                                                                      */
 /************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 
 /************************************************************************/
@@ -44,6 +43,7 @@ struct cmdtab cmdtab[] = {
     L"-C",               (char *)&Cflag,                 1,      FLAG,
     L"-CP#",             (char *)&uiCodePage,            1,      NUMBER,
     L"-D#",              (char *)&Defs,                  1,      PSHSTR,
+    L"-U#",              (char *)&UnDefs,                1,      PSHSTR,
     L"-E",               (char *)&Eflag,                 1,      FLAG,
     L"-I#",              (char *)&Includes,              1,      PSHSTR,
     L"-P",               (char *)&Pflag,                 1,      FLAG,
@@ -117,7 +117,7 @@ int _CRTAPI1 rcpp_main(int argc, PWCHAR*argv)
 
     wcsncpy(Filename,Input_file,128);
 
-    p0_init(Input_file, Output_file, &Defs);
+    p0_init(Input_file, Output_file, &Defs, &UnDefs);
     to_human();
 
     if( Prep_ifstack >= 0 ) {
@@ -149,7 +149,7 @@ void to_human(void)
                 fatal(1011);
             }
             value = Tokstrings[Basic_token - L_NOTOKEN].k_text;
-            fwrite(value, wcslen(value) * sizeof(WCHAR), 1, OUTPUTFILE);
+            myfwrite(value, wcslen(value) * sizeof(WCHAR), 1, OUTPUTFILE);
             break;
         }
     }

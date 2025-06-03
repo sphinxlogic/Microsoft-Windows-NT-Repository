@@ -777,7 +777,10 @@ BOOL FAR PASCAL PlayRec(int doc, WORD recType, BOOL untilUserMark, BOOL prompt)
     //stop condition, but at least, we play one
     more = TRUE;
     while (more) {
-
+#ifdef DBCS
+        STREAMREC *pstSave = (STREAMREC *)((LPSTR)p.pRec + p.offset);
+#endif
+        
         //Get rec from buffer
         ReadFromBuf(&p, (LPSTR)&st, (WORD)sizeof(st));
 
@@ -834,6 +837,11 @@ BOOL FAR PASCAL PlayRec(int doc, WORD recType, BOOL untilUserMark, BOOL prompt)
                     line++;
                     col = 0;
                 }
+#ifdef DBCS
+                if (action & REPLACEDBCS) {
+                    col += st.x.s.len;
+                }
+#endif
                 break;
 
               case INSERTCHAR :
@@ -896,6 +904,16 @@ BOOL FAR PASCAL PlayRec(int doc, WORD recType, BOOL untilUserMark, BOOL prompt)
             }
         }
 
+#ifdef DBCS
+        // Restore "REPLACEDBCS" flag.
+        // Because some action can modify this flag.
+        pstSave = (STREAMREC *)((LPSTR)p.pRec + p.offset);
+        if (action & REPLACEDBCS) {
+            pstSave->action |= REPLACEDBCS;
+        } else {
+            pstSave->action &= ~(REPLACEDBCS);
+        }
+#endif
         pass1 = FALSE;
         if (recType == REC_UNDO)
               docs->undo = p;
@@ -1133,6 +1151,12 @@ void FAR PASCAL DumpRec(int doc, WORD recType)
                       (LPSTR)s, st.x.s.len, p.bufferSize);
                 s[st.x.s.len] = '\0';
                 for (j = 0; j < (int)strlen(s); j++) {
+#ifdef DBCS
+                    if (IsDBCSLeadByte(s[j]) && s[j+1]) {
+                        j++;
+                        continue;
+                    }
+#endif
                     if (s[j] == CR)
                         s[j] = 'Ä';
                     if (s[j] == LF)

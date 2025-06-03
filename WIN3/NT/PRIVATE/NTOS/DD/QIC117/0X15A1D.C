@@ -14,6 +14,11 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a1d.c  $
 *	
+*	   Rev 1.2   10 Aug 1994 09:56:28   BOBLEHMA
+*	Added a switch statement to no error out for the following cases:
+*	QIC117_NOTAPE, QIC117_NEWCART, QIC117_DABORT, QIC117_UNFORMAT,
+*	QIC117_UNKNOWNFORMAT, QIC117_CMDFLT.
+*	
 *	   Rev 1.1   18 Jan 1994 16:30:52   KEVINKES
 *	Fixed compile errors and added debug changes.
 *
@@ -67,7 +72,7 @@ kdi_TranslateError
         log_status = q117MapStatus(return_value);
 
 		  switch (log_status) {
-			
+			  
 			   case QIC117_NOTAPE:
 			   case QIC117_NEWCART:
 			   case QIC117_DABORT:
@@ -88,8 +93,8 @@ kdi_TranslateError
                     nt_status,
                     log_status
                     );
+
         }
-        nt_status = STATUS_CRC_ERROR;
 
 	 } else {
 
@@ -99,3 +104,10 @@ kdi_TranslateError
 
 	 return nt_status;
 }
+
+
+
+
+
+
+

@@ -8,7 +8,7 @@
  Abstract:
 
     Contains routines for the generation of the new NDR format strings for
-    the code generation procedure class. 
+    the code generation procedure class.
 
  Notes:
 
@@ -21,6 +21,9 @@
 #include "becls.hxx"
 #pragma hdrstop
 
+#include "szbuffer.h"
+#include "walkctxt.hxx"
+
 extern CMD_ARG * pCommand;
 
 void
@@ -29,9 +32,7 @@ CG_PROC::GenNdrFormat( CCB * pCCB )
 
 Routine Description :
 
-	This routine is only called when using the "single call" optimizations,
-	in which case it is used for both the client and server side generation
-	of the format string for the single call case.
+    Interpreted procedure format string descriptions.
 
 Arguments :
 
@@ -39,20 +40,44 @@ Arguments :
 
  --*/
 {
-    ITERATOR			Iterator;
-    CG_PARAM *			pParam;
-	FORMAT_STRING *		pProcFormatString;
-	CG_NDR *			pOldCGNodeContext;
+    CG_ITERATOR			    Iterator;
+    CG_PARAM *			    pParam;
+	FORMAT_STRING *		    pProcFormatString;
+	CG_NDR *			    pOldCGNodeContext;
+    short                   ParamNum;
+    long                    ServerBufferSize;
+    long                    ClientBufferSize;
+    long                    BufSize;
+    BOOL                    fServerMustSize;
+    BOOL                    fClientMustSize;
+    INTERPRETER_OPT_FLAGS   InterpreterOptFlags;
 
-	if ( GetFormatStringOffset() != -1 ) 
+    // make sure that call-as proc targets get processed when necessary.
+    CG_PROC * pCallAs = GetCallAsCG();
+    if (pCallAs)
+        pCallAs->GenNdrFormat(pCCB);
+        
+    SetupFormatStrings(pCCB);
+
+    if ( ! (GetOptimizationFlags() & OPTIMIZE_INTERPRETER_V2) )
+        {
+        GenNdrFormatV1( pCCB );
+        UnsetupFormatStrings(pCCB);
+        return;
+        }
+
+	if ( GetFormatStringOffset() != -1 )
+    {
+        UnsetupFormatStrings(pCCB);
 		return;
+    }
 
     pCCB->SetInObjectInterface( IsObject() );
 
 	pOldCGNodeContext = pCCB->SetCGNodeContext( this );
 
 	//
-	// If this procedure uses an explicit handle then set the 
+	// If this procedure uses an explicit handle then set the
 	// NdrBindDescriptionOffset to 0 so that it will not try to output it's
 	// description when given the GenNdrParamOffLine method in the loop below.
 	// It's description must be part of the procedure description.
@@ -64,6 +89,16 @@ Arguments :
 
     GetMembers( Iterator );
 
+    ParamNum = 0;
+
+    ServerBufferSize = 0;
+    ClientBufferSize = 0;
+
+    fServerMustSize = FALSE;
+    fClientMustSize = FALSE;
+
+    pCCB->SetInterpreterOutSize( 0 );
+
 	//
 	// Generate the offline portion of the format string for all of the params.
 	//
@@ -71,13 +106,70 @@ Arguments :
         {
 		CG_NDR *	pChild;
 		CG_NDR *	pOldPlaceholder;
-        
+
 		pChild = (CG_NDR *) pParam->GetChild();
 
+        //
+        // Primitive handles are totally ignored.
+        //
+        if ( pChild->GetCGID() == ID_CG_PRIMITIVE_HDL )
+            continue;
+
+        pParam->SetParamNumber( ParamNum++ );
+
+        pCCB->SetCurrentParam( (CG_PARAM *) pParam );
 		pOldPlaceholder = pCCB->SetLastPlaceholderClass( pParam );
 
 		pChild->GenNdrParamOffline( pCCB );
+                               
+        // A procedure's buffer size does not depend on pipe arguments
+        if (pChild->IsPipeOrPipeReference())
+            {
+                if (pChild->GetChild()->HasAFixedBufferSize())
+                    pParam->SetInterpreterMustSize(FALSE);
+                else
+                    // There must be a union in there somewhere 
+                    pParam->SetInterpreterMustSize(TRUE);
+            }
+        else
+            {            
 
+            BufSize = pChild->FixedBufferSize( pCCB );
+
+            if ( BufSize != -1 )
+                {
+                //
+                // If either the client's or server's fixed buffer size gets too
+                // big then we force the parameter to be sized.
+                //
+                if ( (pParam->IsParamIn() &&
+                    ((ClientBufferSize + BufSize) >= 65356)) ||
+                    (pParam->IsParamOut() &&
+                    ((ServerBufferSize + BufSize) >= 65356)) )
+                    {
+                    fClientMustSize = TRUE;
+                    fServerMustSize = TRUE;
+                    }
+                else
+                    {
+                    pParam->SetInterpreterMustSize( FALSE );
+    
+                    if ( pParam->IsParamIn() )
+                        ClientBufferSize += BufSize;
+                    if ( pParam->IsParamOut() )
+                        ServerBufferSize += BufSize;
+                    }
+                }
+            else
+                {
+                if ( pParam->IsParamIn() )
+                    fClientMustSize = TRUE;
+                if ( pParam->IsParamOut() )
+                    fServerMustSize = TRUE;
+                }
+            }
+
+        pCCB->SetCurrentParam( 0 );
 		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
         }
 
@@ -88,17 +180,40 @@ Arguments :
 		{
 		CG_NDR *	pChild;
 		CG_NDR *	pOldPlaceholder;
+
+        GetReturnType()->SetParamNumber( ParamNum++ );
 		
 		pChild = (CG_NDR *) GetReturnType()->GetChild();
 
+        pCCB->SetCurrentParam( GetReturnType() );
 		pOldPlaceholder = pCCB->SetLastPlaceholderClass( GetReturnType() );
 
 		pChild->GenNdrParamOffline( pCCB );
 
+        BufSize = pChild->FixedBufferSize( pCCB );
+
+        if ( BufSize != -1 )
+            {
+            if ( (ServerBufferSize + BufSize) >= 65536 )
+                {
+                fServerMustSize = TRUE;
+                }
+            else
+                {
+                ServerBufferSize += BufSize;
+                GetReturnType()->SetInterpreterMustSize( FALSE );
+                }
+            }
+        else
+            fServerMustSize = TRUE;
+
+        pCCB->SetCurrentParam( 0 );
 		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
 		}
 
-	pProcFormatString = pCCB->GetProcFormatString();
+    pCCB->SetCurrentParam( 0 );
+    
+    pProcFormatString = pCCB->GetProcFormatString();
 
 	SetFormatStringOffset( pProcFormatString->GetCurrentOffset() );
 
@@ -107,11 +222,33 @@ Arguments :
 	//
 	if ( (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER)
          ||  HasAPicklingAttribute() )
+        {
 		GenNdrFormatProcInfo( pCCB );
+
+        // Client side constant buffer size.
+        pProcFormatString->PushShort( ClientBufferSize );
+
+        // Server side constant buffer size.
+        pProcFormatString->PushShort( ServerBufferSize );
+        }
 
 	ITERATOR_INIT( Iterator );
 
+    InterpreterOptFlags.ServerMustSize = fServerMustSize;
+    InterpreterOptFlags.ClientMustSize = fClientMustSize;
+    InterpreterOptFlags.HasReturn = GetReturnType() != 0 ? 1 : 0;
+    InterpreterOptFlags.HasPipes = HasPipes();
+    InterpreterOptFlags.Unused = 0;
+
+    // New procedure flags.
+    pProcFormatString->PushByte( *((char *)&InterpreterOptFlags) );
+
+    // Number of parameters.
+    pProcFormatString->PushByte( ParamNum );
+
 	SetFormatStringParamStart( pProcFormatString->GetCurrentOffset() );
+
+    pCCB->SetInterpreterOutSize( 0 );
 
 	//
 	// Now generate the param info at the end of the format string.
@@ -120,35 +257,11 @@ Arguments :
         {
 		CG_NDR *	pChild;
 		CG_NDR *	pOldPlaceholder;
-        
+
 		pChild = (CG_NDR *) pParam->GetChild();
 
         if ( pChild->GetCGID() == ID_CG_GENERIC_HDL )
 		    pChild = (CG_NDR *) pChild->GetChild();
-
-		//
-		// Ouput the param directional attribute.
-		//
-
-        if ( ! pParam->IsParamOut() )
-            {
-            if ( pParam->GetDontCallFreeInst() )
-    		    pProcFormatString->PushFormatChar( FC_IN_PARAM_NO_FREE_INST );
-            else
-                if ( pChild->IsSimpleType() ||
-                     pChild->GetCGID() == ID_CG_PRIMITIVE_HDL )
-                    pProcFormatString->PushFormatChar( FC_IN_PARAM_BASETYPE );
-                else
-    				pProcFormatString->PushFormatChar( FC_IN_PARAM );
-            }
-        else
-            {
-            if ( ! pParam->IsParamIn() )
-			    pProcFormatString->PushFormatChar( FC_OUT_PARAM );
-
-		    if ( pParam->IsParamIn() && pParam->IsParamOut() )
-			    pProcFormatString->PushFormatChar( FC_IN_OUT_PARAM );
-            }
 
 		pOldPlaceholder = pCCB->SetLastPlaceholderClass( pParam );
 
@@ -157,7 +270,7 @@ Arguments :
 		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
         }
 
-	if ( GetReturnType() ) 
+	if ( GetReturnType() )
 		{
 		CG_NDR *	pChild;
 		CG_NDR *	pOldPlaceholder;
@@ -167,22 +280,12 @@ Arguments :
         if ( pChild->GetCGID() == ID_CG_GENERIC_HDL )
 		    pChild = (CG_NDR *) pChild->GetChild();
 
-        if ( pChild->IsSimpleType() )
-		    pProcFormatString->PushFormatChar( FC_RETURN_PARAM_BASETYPE );
-        else
-		    pProcFormatString->PushFormatChar( FC_RETURN_PARAM );
-
 		pOldPlaceholder = pCCB->SetLastPlaceholderClass( GetReturnType() );
 
 		pChild->GenNdrParamDescription( pCCB );
 
 		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
 		}
-    else
-        {
-        pProcFormatString->PushFormatChar( FC_END );
-        pProcFormatString->PushFormatChar( FC_PAD );
-        }
 
 	pCCB->SetCGNodeContext( pOldCGNodeContext );
 
@@ -198,6 +301,46 @@ Arguments :
 
     // Set param start!!!
     SetFormatStringParamStart( GetFormatStringOffset() + usParamStartDelta );
+
+    //
+    // For interpreted procs we add some comments to the procedure format
+    // strings to make the stubs easier to read.
+    //
+
+	if ( ! (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER) )
+        return;
+
+    char *  pComment;
+    short   FormatOffset;
+    short   Bytes;
+
+    Bytes = 32 + strlen( GetSymName() );
+    pComment = new char[Bytes];
+
+    sprintf( pComment, "\n\t/* Procedure %s */\n\n", GetSymName() );
+    pProcFormatString->AddComment( (short) GetFormatStringOffset(), pComment );
+
+    GetMembers( Iterator );
+
+    FormatOffset = (short) GetFormatStringParamStart();
+
+    while( ITERATOR_GETNEXT( Iterator, pParam ) )
+        {
+        Bytes = 32 + strlen( pParam->GetSymName() );
+        pComment = new char[Bytes];
+        sprintf( pComment,
+                 "\n\t/* Parameter %s */\n\n",
+                 pParam->GetSymName() );
+        pProcFormatString->AddComment( FormatOffset, pComment );
+        FormatOffset += 6;
+        }
+
+    if ( GetReturnType() )
+        {
+        pProcFormatString->AddComment(
+                FormatOffset, "\n\t/* Return value */\n\n" );
+        }
+    UnsetupFormatStrings(pCCB);
 }
 
 void
@@ -207,14 +350,15 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
 
         handle type<1>
         Oi and pickling flags <1>
-        rpc flags<4>
+        [ rpc flags<4> ]
         proc num <2>
         stack size<2>
         [ explicit handle description <> ]
 --*/
 {
 	FORMAT_STRING *	pProcFormatString;
-
+    
+    SetupFormatStrings(pCCB);
 	pProcFormatString = pCCB->GetProcFormatString();
 
 	if ( pCCB->IsInCallback() )
@@ -228,12 +372,19 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
 			//
 			// Implicit handle type.
 			//
-			if ( IsAutoHandle() ) 
+			if ( IsAutoHandle() )
 				pProcFormatString->PushFormatChar( FC_AUTO_HANDLE );
-			if ( IsPrimitiveHandle() ) 
+			if ( IsPrimitiveHandle() )
 				pProcFormatString->PushFormatChar( FC_BIND_PRIMITIVE );
 			if ( IsGenericHandle() )
-				pProcFormatString->PushFormatChar( FC_BIND_GENERIC );
+                {
+                pProcFormatString->PushFormatChar( FC_BIND_GENERIC );
+
+                // implicit generic handle needs to be registered.
+
+                pCCB->RegisterGenericHandleType(
+                                    GetHandleClassPtr()->GetHandleType() );
+                }
 			}
 		else
 			pProcFormatString->PushByte( 0 );
@@ -255,6 +406,10 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
 
         if ( !ReturnsHRESULT() )
             OiFlags |= Oi_IGNORE_OBJECT_EXCEPTION_HANDLING;
+
+        if ( (GetOptimizationFlags() & OPTIMIZE_INTERPRETER)  &&
+             (GetOptimizationFlags() & OPTIMIZE_INTERPRETER_V2) )
+            OiFlags |= Oi_OBJ_USE_V2_INTERPRETER;
         }
 
     if ( TranslateOpBitsIntoUnsignedInt() )
@@ -271,6 +426,9 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
     // Always do this.
     OiFlags |= Oi_USE_NEW_INIT_ROUTINES;
 
+    if ( HasStatuses() )
+        OiFlags |= Oi_HAS_COMM_OR_FAULT;
+
 	pProcFormatString->PushByte( OiFlags );
 
 	// Rpc flags type.  Only emitted if it's non-zero.
@@ -280,69 +438,28 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
 	// Proc num.
 	pProcFormatString->PushShort( (short) GetProcNum() );
 
-    //
-    // Figure out the total stack size of all parameters.
-    //
-    ITERATOR    Iterator;
-    CG_PARAM *  pParam;
     long        Size;
     long        AlphaSize;
     long        MipsSize;
+    long        PpcSize;
+    long        MacSize;
 
-    GetMembers( Iterator );
-
-    Size = AlphaSize = MipsSize = 0;
-
-    pParam = 0;
-
-    while ( ITERATOR_GETNEXT( Iterator, pParam ) )
-        ;
-
-    if ( pParam )
-        {
-        Size += pParam->GetStackOffset( pCCB, FALSE ) + 
-                pParam->GetStackSize();
-        Size = (Size + 3) & ~ 0x3;
-
-        AlphaSize += pParam->GetStackOffset( pCCB, TRUE ) + 
-                     pParam->GetStackSize();
-        AlphaSize = (AlphaSize + 7) & ~ 0x7;
-
-        MipsSize += pParam->GetStackOffset( pCCB, FALSE, TRUE ) + 
-                    pParam->GetStackSize();
-        MipsSize = (MipsSize + 3) & ~ 0x3;
-        }
-    else
-        if ( IsObject() )
-            {
-            //
-            // If our stack size is still 0 and we're an object proc then 
-            // add in the 'this' pointer size.
-            //
-            Size = sizeof(long);
-            MipsSize = sizeof(long);
-            AlphaSize = sizeof(double);
-            }
-
-    if ( pParam = GetReturnType() )
-        {
-        Size += pParam->GetStackSize();
-        Size = (Size + 3) & ~ 0x3;
-
-        AlphaSize += pParam->GetStackSize();
-        AlphaSize = (AlphaSize + 7) & ~ 0x7;
-
-        MipsSize += pParam->GetStackSize();
-        MipsSize = (Size + 3) & ~ 0x3;
-        }
+    GetTotalStackSize( pCCB,
+                       &Size,
+                       &AlphaSize,
+                       &MipsSize,
+                       &PpcSize,
+                       &MacSize );
 
     //
-    // Use the push short stack offset method which outputs a #ifdef for 
-    // Alpha and for MIPS, for which stack offsets are often different.
+    // Use the push short stack offset method which outputs a #ifdef for
+    // Alpha, MIPS, and PPC, for which stack offsets are often different.
     //
-    pProcFormatString->PushShortStackOffset( (short) Size, 
+    pProcFormatString->PushShortStackOffset( (short) Size,
                                              (short) AlphaSize,
-                                             (short) MipsSize );
+                                             (short) MipsSize,
+                                             (short) PpcSize,
+                                             (short) MacSize );
 
 	//
 	// Output explicit handle description.
@@ -385,12 +502,13 @@ CG_PROC::GenNdrFormatProcInfo( CCB * pCCB )
 			
 				OffsetField = pPointer->GetFormatStringOffset() + 2;
 
-				pCCB->GetFormatString()->PushShort( 
+				pCCB->GetFormatString()->PushShort(
 						pHandle->GetFormatStringOffset() - OffsetField,
 						OffsetField );
 				}
 			}
 		}
+    UnsetupFormatStrings(pCCB);
 }
 
 //
@@ -415,9 +533,10 @@ Arguments :
  --*/
 {
 	ISTREAM *			pStream;
-	ITERATOR			Iterator;
-    CG_PARAM *			pLastParam;
-	_expr_node		*	pExpr;
+	CG_ITERATOR			Iterator;
+	expr_node       *   pFinalExpr;
+	CG_PARAM        *   pLastParam;
+	expr_node       *   pExpr;
 
 	pStream = pCCB->GetStream();
 
@@ -428,11 +547,11 @@ Arguments :
 		{
 		// The delcaration.
 		pStream->Write( "CLIENT_CALL_RETURN " RETURN_VALUE_VAR_NAME );
-		pStream->Write( ";" );
-		pStream->NewLine();
-		pStream->NewLine();
+		pStream->Write( ';' );
+		pStream->NewLine( 2 );
 		}
 
+	
 	// For alpha, we need to emit a va_list.
 
 	pStream->IndentDec();
@@ -451,7 +570,10 @@ Arguments :
 	pStream->IndentInc();
 	pStream->NewLine();
 	
-	// Get the last parameter.
+	//
+	// Emit the call into the stub in 2 flavors. One - with strict varags and
+	// one without. The strict varargs stuff will be emitted for the alpha.
+	//
 
 	GetMembers(Iterator);
 
@@ -459,12 +581,6 @@ Arguments :
 
 	while ( ITERATOR_GETNEXT( Iterator, pLastParam ) )
         ;
-
-	//
-	// Emit the call into the stub in 2 flavors. One - with strict varags and
-	// one without.
-	//
-	_expr_node	*	pFinalExpr;
 
 	pStream->IndentDec();
 	pStream->NewLine();
@@ -477,38 +593,56 @@ Arguments :
     // Do no emit the va_start if we have no parameters.
     //
 
-    pFinalExpr = new _expr_proc_call( VA_START_PROC_NAME );
-    ((_expr_proc_call *)pFinalExpr)->SetParam( new _expr_param(
-							 new _expr_variable( VLIST_VAR_NAME,0)));
+    pFinalExpr = new expr_proc_call( VA_START_PROC_NAME );
+    ((expr_proc_call *)pFinalExpr)->SetParam( new expr_param(
+							 new expr_variable( VLIST_VAR_NAME,0)));
     if ( pLastParam )
         {
-	    pExpr = new _expr_variable(
+	    pExpr = new expr_variable(
 					    pLastParam->GetResource()->GetResourceName(), 0 );
 
-	    ((_expr_proc_call *)pFinalExpr)->SetParam( new _expr_param( pExpr ) );
-    
+	    ((expr_proc_call *)pFinalExpr)->SetParam( new expr_param( pExpr ) );
+
 	    pFinalExpr->PrintCall( pStream, 0, 0 );
         }
      else if( IsObject() )
         {
-	    pExpr = new _expr_variable("This");
-	    ((_expr_proc_call *)pFinalExpr)->SetParam( new _expr_param( pExpr ) );
+	    pExpr = new expr_variable("This");
+	    ((expr_proc_call *)pFinalExpr)->SetParam( new expr_param( pExpr ) );
 	    pFinalExpr->PrintCall( pStream, 0, 0 );
         }
 
 	// Generate alpha specific NdrClientCall.
 
 	pStream->NewLine();
-	pFinalExpr = GenCoreNdrSingleClientCall( pCCB, 1 );
-	pFinalExpr->PrintCall( pStream, 0, 0 ); 
+	pFinalExpr = GenCoreNdrSingleClientCall( pCCB, 2 );
+	pFinalExpr->PrintCall( pStream, 0, 0 );
+
+	// For a risc platform, we need to ensure a spill of every param on the
+	// stack. For this we generate code that takes the address of every param.
+
 	pStream->IndentDec();
 	pStream->NewLine();
-	pStream->Write( "#else" );
-
+	pStream->Write( ELSE_IF_PPC_OR_MIPS );
+	pStream->NewLine();
+	
 	pStream->IndentInc();
 	pStream->NewLine();
-	pFinalExpr = GenCoreNdrSingleClientCall( pCCB, 0 );
-	pFinalExpr->PrintCall( pStream, 0, 0 ); 
+	
+	// Generate an expression suitable for risc platforms.
+
+	pFinalExpr = GenCoreNdrSingleClientCall( pCCB, 1 ); // 1 for RISC PLATFORMS
+	pFinalExpr->PrintCall( pStream, 0, 0 );
+	pStream->IndentDec();
+	pStream->NewLine();
+
+	// Now emit code for non-risc platforms.
+
+	pStream->Write( "#else" );
+	pStream->IndentInc();
+	pStream->NewLine();
+	pFinalExpr = GenCoreNdrSingleClientCall( pCCB, 0 ); // 0 for NON RISC PLATS.
+	pFinalExpr->PrintCall( pStream, 0, 0 );
 	pStream->IndentDec();
 	pStream->NewLine();
 	pStream->Write( "#endif" );
@@ -530,7 +664,7 @@ Arguments :
 		//
 		// Base type return value.
 		//
-		if ( pNdr->IsSimpleType() ) 
+		if ( pNdr->IsSimpleType() )
 			{
 			switch ( ((CG_BASETYPE *)pNdr)->GetFormatChar() )
 				{
@@ -558,15 +692,15 @@ Arguments :
 		//
 		if ( pNdr->IsStruct() || pNdr->IsUnion() )
 			{
-			_expr_node * pExpr;
+			expr_node * pExpr;
 
-			pExpr = new _expr_variable( RETURN_VALUE_VAR_NAME ".Pointer" );
+			pExpr = new expr_variable( RETURN_VALUE_VAR_NAME ".Pointer" );
 
 			pExpr = MakeDerefExpressionOfCastPtrToType( pType, pExpr );
 
 			pExpr->Print( pStream );
 
-			pStream->Write( ";" );
+			pStream->Write( ';' );
 			pStream->NewLine();
 			return;
 			}
@@ -602,14 +736,13 @@ Arguments :
  --*/
 {
 	ISTREAM *			pStream;
-	ITERATOR			Iterator;
 //    CG_PARAM *			pParam;
-	_expr_proc_call *	pCallExpr;
+	expr_proc_call *	pCallExpr;
 	char				FormatStringExpr[80];
 
 	//
 	// On the server side we just use the format string that was generated
-	// during client stub generation if such generation occured.  
+	// during client stub generation if such generation occured.
 	//
 	if ( GetFormatStringOffset() == -1 )
 		GenNdrFormat( pCCB );
@@ -629,49 +762,49 @@ Arguments :
 	//
 	// Make the single unmarshall call.
 	//
-	pCallExpr = new _expr_proc_call( S_NDR_UNMARSHALL_RTN_NAME );
+	pCallExpr = new expr_proc_call( S_NDR_UNMARSHALL_RTN_NAME );
 
 	// Rpc message.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_variable( PRPC_MESSAGE_VAR_NAME ) ) );
 
 	// Stub message.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_u_address (
-						 new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_u_address (
+						 new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
 	// Stub descriptor.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_u_address (
-						 new _expr_variable( 
+	pCallExpr->SetParam( new expr_param(
+						 new expr_u_address (
+						 new expr_variable(
                             pCCB->GetInterfaceCG()->GetStubDescName() ) ) ) );
 
-	sprintf( FormatStringExpr, 
-			 "&%s[%d]", 
-			 PROC_FORMAT_STRING_STRING_FIELD, 
+	sprintf( FormatStringExpr,
+			 "&%s[%d]",
+			 PROC_FORMAT_STRING_STRING_FIELD,
 			 GetFormatStringOffset() );
 
 	// Format string pointer.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_variable( FormatStringExpr ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_variable( FormatStringExpr ) ) );
 
 	// Parameter structure pointer.
 	if ( ! IsNullCall() )
 		{
-		pCallExpr->SetParam( new _expr_param(
-						 	 new _expr_u_address ( 
-						 	 new _expr_variable( "ParamStruct" ) ) ) );
+		pCallExpr->SetParam( new expr_param(
+						 	 new expr_u_address (
+						 	 new expr_variable( "ParamStruct" ) ) ) );
 		}
 	else
 		{
-		pCallExpr->SetParam( new _expr_param(
-						 	 new _expr_variable( "0" ) ) );
+		pCallExpr->SetParam( new expr_param(
+						 	 new expr_variable( "0" ) ) );
 		}
 
 	// Print the unmarshall call.
 	pCallExpr->PrintCall( pCCB->GetStream(),
 						  0,
-						  0 ); 
+						  0 );
 
 	pStream->NewLine();
 
@@ -683,24 +816,23 @@ Arguments :
 	//
 	// Make the single marshall call.
 	//
-	pCallExpr = new _expr_proc_call( S_NDR_MARSHALL_RTN_NAME );
+	pCallExpr = new expr_proc_call( S_NDR_MARSHALL_RTN_NAME );
 
 	// Stub message.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_u_address (
-						 new _expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_u_address (
+						 new expr_variable( STUB_MESSAGE_VAR_NAME ) ) ) );
 
 	// Format string pointer.
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_variable( FormatStringExpr ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_variable( FormatStringExpr ) ) );
 
-	pStream->NewLine();
-	pStream->NewLine();
+	pStream->NewLine( 2 );
 
 	// Print the marshall routine call.
 	pCallExpr->PrintCall( pCCB->GetStream(),
 						  0,
-						  0 ); 
+						  0 );
 }
 
 void
@@ -752,7 +884,7 @@ Arguments :
 
  --*/
 {
-	ITERATOR		Iterator;
+	CG_ITERATOR		Iterator;
 	ISTREAM *		pStream;
 	CG_PARAM *		pParam;
 	CG_PARAM *		pParamPrev;
@@ -769,7 +901,7 @@ Arguments :
 
 	Env = pCommand->GetEnv();
 
-    if ( ! fForAlpha && Env == ENV_WIN32 ) 
+    if ( ! fForAlpha && Env == ENV_WIN32 )
         {
         pStream->IndentDec();
         pStream->NewLine();
@@ -788,12 +920,12 @@ Arguments :
 	pStream->Write( PARAM_STRUCT_TYPE_NAME );
 	pStream->IndentInc();
 	pStream->NewLine();
-	pStream->Write( "{" );
+	pStream->Write( '{' );
 	pStream->NewLine();
 
 	PadNumber = 0;
 
-	IntMask = fForAlpha ? 
+	IntMask = fForAlpha ?
                 0x7 : ((Env == ENV_DOS) || (Env == ENV_WIN16)) ? 0x1 : 0x3;
 
 	GetMembers( Iterator );
@@ -828,20 +960,20 @@ Arguments :
         // We have to do some special stuff for MIPS for 8 byte aligned things
         // on the stack.
         //
-        if ( (pNdr->GetMemoryAlignment() == 8) && ! fForAlpha && 
-             (pParamPrev || IsObject()) ) 
+        if ( (pNdr->GetMemoryAlignment() == 8) && ! fForAlpha &&
+             (pParamPrev || IsObject()) )
             {
             long    PrevEndOffset;
 
             if ( pParamPrev )
                 {
-                PrevEndOffset = pParamPrev->GetStackOffset( pCCB, FALSE, TRUE );
+                PrevEndOffset = pParamPrev->GetStackOffset( pCCB, MIPS_STACK_SIZING );
                 PrevEndOffset += pParamPrev->GetStackSize();
                 PrevEndOffset += PadPrev;
                 }
             else
                 {
-                // 
+                //
                 // If this is the first param, but we're in an object proc,
                 // then don't forget about the 'this' pointer.
                 //
@@ -859,28 +991,60 @@ Arguments :
 
                 pStream->Write( "#endif" );
 			    pStream->NewLine();
+
+                pStream->Write( "#ifdef _PPC_" );
+			    pStream->NewLine();
+
+			    sprintf( Buffer, "char Pad%d[4];", PadNumber++ );
+			    pStream->Write( Buffer );
+			    pStream->NewLine();
+
+                pStream->Write( "#endif" );
+			    pStream->NewLine();
                 }
             }
 
+        // For Mac, the padding has to go before the parameter, not after.
+
+        if ( pCommand->IsAnyMac() )
+            {
+            Pad = 0;
+
+    		//
+    		// Generate some padding if needed.
+    		//
+    		if ( pParam->GetStackSize() & IntMask )
+    			{
+    			Pad = (IntMask + 1) - (pParam->GetStackSize() & IntMask);
+
+    			pStream->NewLine();
+    			sprintf( Buffer, "char Pad%d[%d];", PadNumber++, Pad );
+    			pStream->Write( Buffer );
+    			}
+            }
+
         // Print the field declaration.
-	    pParam->GetResource()->GetType()->PrintType( 
+	    pParam->GetResource()->GetType()->PrintType(
                     PRT_PARAM_OR_ID_DECLARATION,
 				    pStream,
 				    (node_skl *)0 );
-    
-        Pad = 0;
 
-		//
-		// Generate some padding if needed.
-		//
-		if ( pParam->GetStackSize() & IntMask )
-			{
-			Pad = (IntMask + 1) - (pParam->GetStackSize() & IntMask);
+        if ( ! pCommand->IsAnyMac() )
+            {
+            Pad = 0;
 
-			sprintf( Buffer, "char Pad%d[%d];", PadNumber++, Pad );
-			pStream->Write( Buffer );
-			pStream->NewLine();
-			}
+    		//
+    		// Generate some padding if needed.
+    		//
+    		if ( pParam->GetStackSize() & IntMask )
+    			{
+    			Pad = (IntMask + 1) - (pParam->GetStackSize() & IntMask);
+
+    			sprintf( Buffer, "char Pad%d[%d];", PadNumber++, Pad );
+    			pStream->Write( Buffer );
+    			pStream->NewLine();
+    			}
+            }
 
         pParamPrev = pParam;
         PadPrev = Pad;
@@ -889,9 +1053,9 @@ Arguments :
 	// Add the return type if one is present.
 	if ( pReturn = GetReturnType() )
 		{
-		pReturn->GetResource()->GetType()->PrintType( 
+		pReturn->GetResource()->GetType()->PrintType(
                 PRT_PARAM_OR_ID_DECLARATION,	
-				pStream,        
+				pStream,
                 (node_skl *)0 );
 		}
 
@@ -901,23 +1065,22 @@ Arguments :
 
 	pStream->Write( "#pragma pack()" );
 
-    if ( Env == ENV_WIN32 ) 
+    if ( Env == ENV_WIN32 )
         pStream->IndentDec();
 
 	pStream->NewLine();
 
-    if ( ! fForAlpha && Env == ENV_WIN32 ) 
+    if ( ! fForAlpha && Env == ENV_WIN32 )
         {
         pStream->Write( "#else" );
         pStream->IndentInc();
         pStream->NewLine();
 
         GenNdrInterpreterParamStruct( pCCB, TRUE );
-        
+
         pStream->Write( "#endif" );
         pStream->IndentInc();
-        pStream->NewLine();
-        pStream->NewLine();
+        pStream->NewLine( 2 );
         }
 }
 
@@ -935,18 +1098,18 @@ Arguments :
 
  --*/
 {
-	ITERATOR			Iterator;
+	CG_ITERATOR			Iterator;
 	CG_PARAM *			pParam;
 //	CG_RETURN *			pReturn;
-	_expr_proc_call *	pCall;
-	_expr_node *		pExpr;
+	expr_proc_call *	pCall;
+	expr_node *		pExpr;
 	
 	if ( GetCallAsName() )
 		{
-		pCall = new _expr_proc_call( GenMangledCallAsName( pCCB ) );
+		pCall = new expr_proc_call( GenMangledCallAsName( pCCB ) );
 		}
 	else
-		pCall = new _expr_proc_call( GetType()->GetSymName() );
+		pCall = new expr_proc_call( GetType()->GetSymName() );
 
 	GetMembers( Iterator );
 
@@ -954,7 +1117,7 @@ Arguments :
 		{
 		CG_NDR *		pNdr;
 		char * 			pName;
-		_expr_node *	pExpr;
+		expr_node *	pExpr;
 
 		pNdr = (CG_NDR *) pParam->GetChild();
 
@@ -963,42 +1126,50 @@ Arguments :
 		strcpy( pName, "pParamStruct->" );
 		strcat( pName, pParam->GetResource()->GetResourceName() );
 
-		pExpr = new _expr_variable( pName );
+		pExpr = new expr_variable( pName );
 
-    	pCall->SetParam( new _expr_param ( pExpr ) );
+    	pCall->SetParam( new expr_param ( pExpr ) );
 		}
 
     //
-    // epv stuff 
+    // epv stuff
     //
 
-	_expr_node * pExprTemp;
+	expr_node * pExprTemp;
 
 	if( pCCB->IsMEpV() && (GetCGID() != ID_CG_CALLBACK_PROC)  )
 		{
 		unsigned short M, m;
-		char Buffer[ 100 ];
+		CSzBuffer Buffer;
 		char * pTemp;
 
 		pCCB->GetVersion( &M, &m );
 
-		sprintf( Buffer,
-			 	"((%s%s_%s *)(%s))",
-			 	pCCB->GetInterfaceName(),
-			 	pCCB->GenMangledName(),
-			 	pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t",
-			 	PRPC_MESSAGE_MANAGER_EPV_NAME );
+        Buffer.Set("((");
+        Buffer.Append(pCCB->GetInterfaceName());
+        Buffer.Append(pCCB->GenMangledName());
+        Buffer.Append("_");
+        Buffer.Append(pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t");
+        Buffer.Append(" *)(");
+        Buffer.Append(PRPC_MESSAGE_MANAGER_EPV_NAME);
+        Buffer.Append("))");
+//        sprintf( Buffer,
+//                "((%s%s_%s *)(%s))",
+//                pCCB->GetInterfaceName(),
+//                pCCB->GenMangledName(),
+//                pCCB->IsOldNames() ? "SERVER_EPV" : "epv_t",
+//                PRPC_MESSAGE_MANAGER_EPV_NAME );
 
 		pTemp = new char [ strlen( Buffer ) + 1 ];
 		strcpy( pTemp, Buffer );
 
 		pExprTemp = new expr_variable( pTemp );//this has the rhs expr for the
-										   // manager epv call. Sneaky shit !
-		pCall = (expr_proc_call *)new _expr_pointsto( pExprTemp, pCall );
+                                               // manager epv call. Sneaky !
+		pCall = (expr_proc_call *)new expr_pointsto( pExprTemp, pCall );
 		}
 
     //
-    // end epv stuff 
+    // end epv stuff
     //
 
 	if ( GetReturnType() )
@@ -1007,10 +1178,10 @@ Arguments :
 
     	if( pC->GetCGID() == ID_CG_CONTEXT_HDL )
             {
-            _expr_proc_call * pProc = new _expr_proc_call( "NDRSContextValue" );
+            expr_proc_call * pProc = new expr_proc_call( "NDRSContextValue" );
 
-            pProc->SetParam( new _expr_param(
-                             new _expr_variable(
+            pProc->SetParam( new expr_param(
+                             new expr_variable(
                                 "pParamStruct->" RETURN_VALUE_VAR_NAME ) ) );
 
 	    	// cast the proc call to this type.
@@ -1018,12 +1189,12 @@ Arguments :
 		    pExpr   = MakeDerefExpressionOfCastPtrToType(
                                                  GetReturnType()->GetType(),
                                                  pProc );
-    		pExpr = new _expr_assign (pExpr, pCall );
+    		pExpr = new expr_assign (pExpr, pCall );
             }
         else
             {
-        	pExpr = new _expr_assign( 
-					    new _expr_variable( 
+        	pExpr = new expr_assign(
+					    new expr_variable(
                             "pParamStruct->" RETURN_VALUE_VAR_NAME ),
                         pCall );
             }
@@ -1039,7 +1210,7 @@ Arguments :
 }
 
 
-void 
+void
 CG_PROC::GenNdrThunkInterpretedServerStub( CCB * pCCB )
 {
     ISTREAM *   pStream;
@@ -1056,11 +1227,11 @@ CG_PROC::GenNdrThunkInterpretedServerStub( CCB * pCCB )
     pStream->NewLine();
 
     pStream->Write( pCCB->GetInterfaceName() );
-    pStream->Write( "_" );
+    pStream->Write( '_' );
     pStream->Write( GetType()->GetSymName() );
-	if ( IsObject() )
+//	if ( IsObject() )
 		pStream->Write( "_Thunk" );
-    pStream->Write( "(" );
+    pStream->Write( '(' );
     pStream->IndentInc();
     pStream->NewLine();
 
@@ -1068,32 +1239,70 @@ CG_PROC::GenNdrThunkInterpretedServerStub( CCB * pCCB )
     pStream->IndentDec();
     pStream->NewLine();
 
-    pStream->Write( "{" );
+    pStream->Write( '{' );
     pStream->IndentInc();
     pStream->NewLine();
 
     GenNdrInterpreterParamStruct( pCCB );
 
     pStream->Write( PARAM_STRUCT_TYPE_NAME " * pParamStruct;" );
-    pStream->NewLine();
-    pStream->NewLine();
+    pStream->NewLine( 2 );
 
     pStream->Write( "pParamStruct = (" PARAM_STRUCT_TYPE_NAME " *) " );
     pStream->Write( PSTUB_MESSAGE_PAR_NAME "->StackTop;" );
     pStream->NewLine();
-    
+
     GenNdrInterpretedManagerCall( pCCB );
 
     pStream->IndentDec();
     pStream->NewLine();
 
-    pStream->Write( "}" );
+    pStream->Write( '}' );
     pStream->NewLine();
 }
 
-void 
+void
 CG_PROC::GenNdrOldInterpretedServerStub( CCB * pCCB )
 {
+#ifdef TEMPORARY_OI_SERVER_STUBS
+
+    // This code is being generated temporarily to enable easier debugging
+    // of server side -Oi stubs. Normally server side stubs do not exist. And
+    // the server side runtime calls the Server side interpreter directly. This
+    // causes debugging problems if we want to breakpoint on a method on an
+    // interface. Therefore till we get the system converted to -Oi and the
+    // stress stabilizes, we will emit a server side procedure which will
+    // enable breakpointing per interface proc.
+
+
+    // This emits just the server side prolog for -Oi.
+
+    S_GenProlog( pCCB );
+
+    // Emit the call to NdrStubCall or NdrServerCall.
+
+    PNAME               pProcName = IsObject() ? S_OBJECT_NDR_CALL_RTN_NAME :
+                                                 S_NDR_CALL_RTN_NAME;
+    expr_proc_call  *   pProc = new expr_proc_call( pProcName );
+    ITERATOR            ParamList;
+    expr_node       *   pParam;
+
+    // Set the parameters.
+
+    pCCB->GetListOfParamResources( ParamList );
+
+    while( ITERATOR_GETNEXT( ParamList, pParam ) )
+        {
+        pProc->SetParam( pParam );
+        }
+
+    // Emit the call to the interpreter.
+
+    pProc->PrintCall( pCCB->GetStream(), 0, 0 );
+    Out_IndentDec( pCCB );
+    Out_ProcClosingBrace( pCCB );
+
+#else TEMPORARY_OI_SERVER_STUBS
     //
     // Generate the function header.
     //
@@ -1109,6 +1318,8 @@ CG_PROC::GenNdrOldInterpretedServerStub( CCB * pCCB )
     // Generate end stuff.
     Out_IndentDec( pCCB );
     Out_ProcClosingBrace( pCCB );
+
+#endif // TEMPORARY_OI_SERVER_STUBS
 }
 
 //
@@ -1129,7 +1340,7 @@ Arguments :
 
  --*/
 {
-	if ( GetFormatStringOffset() != -1 ) 
+	if ( GetFormatStringOffset() != -1 )
 		return;
 
 	//
@@ -1166,7 +1377,8 @@ Arguments :
     FORMAT_STRING *     pFormatString;
     PNAME               pParamName;
 	ID_CG				ParamId;
-	long				Index;
+	long				NameIndex;
+    long                FormatOffset;
 	BOOL				fTakeAddress;
 	BOOL				fDereference;
     NDR_ALIGN_ACTION    AlignAction;
@@ -1179,7 +1391,9 @@ Arguments :
 
     pParamName = GetResource()->GetResourceName();
 
-	if ( ParamId == ID_CG_PRIMITIVE_HDL )
+ 	if ( (ParamId == ID_CG_PRIMITIVE_HDL) ||
+         ((ParamId == ID_CG_PTR) &&
+          (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_PRIMITIVE_HDL)) )
 		return;
 
 	//
@@ -1195,11 +1409,13 @@ Arguments :
     // Since a ref pointer is not shipped, we must use it's child to figure
     // out the alignment action and next alignment state.
     //
-    if ( pChild->IsPointer() && 
+    if ( pChild->IsPointer() &&
          (pChild->GetCGID() != ID_CG_INTERFACE_PTR) &&
          (pChild->GetCGID() != ID_CG_STRING_PTR) &&
          (pChild->GetCGID() != ID_CG_STRUCT_STRING_PTR) &&
          (pChild->GetCGID() != ID_CG_SIZE_STRING_PTR) &&
+         (pChild->GetCGID() != ID_CG_SIZE_PTR) &&
+         (pChild->GetCGID() != ID_CG_SIZE_LENGTH_PTR) &&
          (((CG_POINTER *)pChild)->GetPtrType() == PTR_REF) )
         {
         CG_NDR * pPtrChild = (CG_NDR *) pChild->GetChild();
@@ -1214,12 +1430,12 @@ Arguments :
         }
 
 	if ( (ParamId == ID_CG_CONTEXT_HDL) ||
-		 ((ParamId == ID_CG_PTR) && 
+		 ((ParamId == ID_CG_PTR) &&
 		  (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_CONTEXT_HDL)) )
 		{
 		if ( pCCB->GetCodeGenSide() == CGSIDE_CLIENT )
 			{
-			Out_CContextHandleMarshall( pCCB, 
+			Out_CContextHandleMarshall( pCCB,
 										pParamName,
 										(ParamId == ID_CG_PTR) );
 			}
@@ -1227,7 +1443,7 @@ Arguments :
 			{
 			CG_CONTEXT_HANDLE * pContextHandle;
 
-			pContextHandle = (ParamId == ID_CG_PTR) ? 
+			pContextHandle = (ParamId == ID_CG_PTR) ?
 							 (CG_CONTEXT_HANDLE *) pChild->GetChild() :
 							 (CG_CONTEXT_HANDLE *) pChild;
 
@@ -1242,27 +1458,27 @@ Arguments :
 
 	if ( pChild->GetCGID() == ID_CG_ENUM )
 		{
-		_expr_proc_call *	pCall;
+		expr_proc_call *	pCall;
 		long				fc;
-		_expr_node		*	pExpr;
+		expr_node		*	pExpr;
 
 		fc = (long) ((CG_ENUM *)pChild)->GetFormatChar();
 
-		pCall = new _expr_proc_call( "NdrSimpleTypeMarshall" );
+		pCall = new expr_proc_call( "NdrSimpleTypeMarshall" );
 
-		pExpr = new _expr_u_address (
-						 new _expr_variable( STUB_MESSAGE_VAR_NAME ) );
+		pExpr = new expr_u_address (
+						 new expr_variable( STUB_MESSAGE_VAR_NAME ) );
 		pExpr = MakeExpressionOfCastToTypeName(PSTUB_MESSAGE_TYPE_NAME , pExpr);
 
-		pCall->SetParam( new _expr_param( pExpr ) );
+		pCall->SetParam( new expr_param( pExpr ) );
 
-		pExpr =  new _expr_u_address ( new _expr_variable( pParamName ) );
+		pExpr =  new expr_u_address ( new expr_variable( pParamName ) );
 		pExpr = MakeCastExprPtrToUChar( pExpr );
 
-		pCall->SetParam( new _expr_param( pExpr ) );
+		pCall->SetParam( new expr_param( pExpr ) );
 
-		pCall->SetParam( new _expr_param(
-						 new _expr_constant( fc ) ) );
+		pCall->SetParam( new expr_param(
+						 new expr_constant( fc ) ) );
 
 		pStream->NewLine();
 
@@ -1271,7 +1487,7 @@ Arguments :
 		return;
 		}
 
-	if ( pChild->IsSimpleType() ) 
+	if ( pChild->IsSimpleType() )
 		{
 		pStream->NewLine();
 
@@ -1282,26 +1498,26 @@ Arguments :
 		//
 		//   *((<type> *)_StubMsg.Buffer)++ = <var>;
 		//
-		_expr_node *		pExpr;
-		_expr_variable *	pBufVar;
-		_expr_variable *	pVar;
+		expr_node *		pExpr;
+		expr_variable *	pBufVar;
+		expr_variable *	pVar;
 
-		pBufVar = new _expr_variable( STUB_MSG_BUFFER_VAR_NAME );
+		pBufVar = new expr_variable( STUB_MSG_BUFFER_VAR_NAME );
 
-		pVar = new _expr_variable( pParamName );
+		pVar = new expr_variable( pParamName );
 
 		pExpr = MakeExpressionOfCastPtrToType( pChild->GetType(), pBufVar );
 
-		pExpr = new _expr_post_incr( pExpr );
-		pExpr = new _expr_u_deref( pExpr );
-		pExpr = new _expr_assign( pExpr, pVar );
+		pExpr = new expr_post_incr( pExpr );
+		pExpr = new expr_u_deref( pExpr );
+		pExpr = new expr_assign( pExpr, pVar );
 
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		pStream->NewLine();
 
 		return;
-		} 
+		}
 
     if ( pChild->IsPointerToBaseType() &&
          (((CG_POINTER *)pChild)->GetPtrType() == PTR_REF) &&
@@ -1309,9 +1525,9 @@ Arguments :
         {
         CG_POINTER *        pPointer;
         CG_NDR *            pBasetype;
-		_expr_node *		pExpr;
-		_expr_variable *	pBufVar;
-		_expr_variable *	pVar;
+		expr_node *		pExpr;
+		expr_variable *	pBufVar;
+		expr_variable *	pVar;
 
         pPointer = (CG_POINTER *) pChild;
 
@@ -1320,41 +1536,13 @@ Arguments :
 	    if ( pBasetype->GetCGID() == ID_CG_GENERIC_HDL )
 		    pBasetype = (CG_NDR *) pBasetype->GetChild();
 
-		pBufVar = new _expr_variable( STUB_MSG_BUFFER_VAR_NAME );
+		pBufVar = new expr_variable( STUB_MSG_BUFFER_VAR_NAME );
 
-		pVar = new _expr_variable( pParamName );
+		pVar = new expr_variable( pParamName );
 
 		pStream->NewLine();
 
         OutputNdrAlignmentAction( pCCB, AlignAction );
-
-/***
- ***
-        if ( pPointer->GetPtrType() == PTR_UNIQUE )
-            {
-            //
-            // Marshall the node id.
-            //
-		    pExpr = MakeExpressionOfCastPtrToType(pPointer->GetType(),pBufVar);
-		    pExpr = new _expr_post_incr( pExpr );
-		    pExpr = new _expr_u_deref( pExpr );
-		    pExpr = new _expr_assign( pExpr, pVar );
-		    pExpr->Print( pStream );
-		    pStream->Write( ";" );
-		    pStream->NewLine();
-
-            //
-            // This can only do something for a pointer to a double/hyper.
-            //
-            AlignAction = pCCB->NdrAlignmentAction( 
-                                pBasetype->GetWireAlignment() );
-
-            OutputNdrAlignmentAction( pCCB, AlignAction );
-
-            pBasetype->SetNextNdrAlignment( pCCB );
-            }
- ***
- ***/
 
 		//
 		// Now make the assignment expression and increment with cast, like :
@@ -1364,12 +1552,12 @@ Arguments :
 
 		pExpr = MakeExpressionOfCastPtrToType( pBasetype->GetType(), pBufVar );
 
-		pExpr = new _expr_post_incr( pExpr );
-		pExpr = new _expr_u_deref( pExpr );
-		pExpr = new _expr_assign( pExpr, new _expr_u_deref(pVar) );
+		pExpr = new expr_post_incr( pExpr );
+		pExpr = new expr_u_deref( pExpr );
+		pExpr = new expr_assign( pExpr, new expr_u_deref(pVar) );
 
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		pStream->NewLine();
 
         return;
@@ -1379,28 +1567,65 @@ Arguments :
 	
     pFormatString = pCCB->GetFormatString();
 
-    Index = (long) pFormatString->GetFormatChar( 
-								pChild->GetFormatStringOffset() );
+    FormatOffset = pChild->GetFormatStringOffset();
+    NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
 
 	//
 	// If the param is a by-value struct or union then set the fTakeAddress
 	// flag.
 	//
 	fTakeAddress =  pChild->IsStruct() || pChild->IsUnion()
-                    || pChild->GetCGID() == ID_CG_TRANSMIT_AS
-                    || pChild->GetCGID() == ID_CG_REPRESENT_AS;
+                    || pChild->IsXmitRepOrUserMarshal();
 
 	//
 	// If the param is an array and we're in the server stub then we
 	// must dereference it.
 	//
-	fDereference =  (pCCB->GetCodeGenSide() == CGSIDE_SERVER) && 
+	fDereference =  (pCCB->GetCodeGenSide() == CGSIDE_SERVER) &&
 		 			pChild->IsArray();
 
+    //
+    // For ref pointers with no funky attributes, we optimize by calling
+    // the pointee's routine directly.
+    //
+    if ( pChild->IsPointer() && ((CG_POINTER *)pChild)->IsBasicRefPointer() )
+        {
+        CG_POINTER *    pPointer;
+
+        pPointer = (CG_POINTER *) pChild;
+
+        switch ( pPointer->GetCGID() )
+            {
+            case ID_CG_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetFormatStringOffset() + 2;
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_SIZE_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_STRUCT_STRING_PTR :
+                break;
+
+            default :
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+            }
+        }
+
     Out_NdrMarshallCall( pCCB,
-                         pNdrRoutineNames[Index],
+                         pNdrRoutineNames[NameIndex],
                          pParamName,
-                         pChild->GetFormatStringOffset(),
+                         FormatOffset,
 						 fTakeAddress,
 						 fDereference );
 }
@@ -1424,7 +1649,8 @@ Arguments :
     FORMAT_STRING *     pFormatString;
     PNAME               pParamName;
 	ID_CG				ParamId;
-	long				Index;
+	long				NameIndex;
+    long                FormatOffset;
 	BOOL				fMustAllocFlag = FALSE;
 	BOOL				fTakeAddress = TRUE;
     NDR_ALIGN_ACTION    AlignAction;
@@ -1437,7 +1663,9 @@ Arguments :
 	
     pParamName = GetResource()->GetResourceName();
 
-	if ( ParamId == ID_CG_PRIMITIVE_HDL )
+ 	if ( (ParamId == ID_CG_PRIMITIVE_HDL) ||
+         ((ParamId == ID_CG_PTR) &&
+          (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_PRIMITIVE_HDL)) )
 		return;
 
 	//
@@ -1457,11 +1685,13 @@ Arguments :
     // Since a ref pointer is not shipped, we must use it's child to figure
     // out the alignment action and next alignment state.
     //
-    if ( pChild->IsPointer() && 
+    if ( pChild->IsPointer() &&
          (pChild->GetCGID() != ID_CG_INTERFACE_PTR) &&
          (pChild->GetCGID() != ID_CG_STRING_PTR) &&
          (pChild->GetCGID() != ID_CG_STRUCT_STRING_PTR) &&
          (pChild->GetCGID() != ID_CG_SIZE_STRING_PTR) &&
+         (pChild->GetCGID() != ID_CG_SIZE_PTR) &&
+         (pChild->GetCGID() != ID_CG_SIZE_LENGTH_PTR) &&
          (((CG_POINTER *)pChild)->GetPtrType() == PTR_REF) )
         {
         CG_NDR * pPtrChild = (CG_NDR *) pChild->GetChild();
@@ -1476,7 +1706,7 @@ Arguments :
         }
 
 	if ( (ParamId == ID_CG_CONTEXT_HDL) ||
-		 ( (ParamId == ID_CG_PTR) && 
+		 ( (ParamId == ID_CG_PTR) &&
 		   (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_CONTEXT_HDL) ) )
 		{
 		if ( pCCB->GetCodeGenSide() == CGSIDE_CLIENT )
@@ -1485,7 +1715,7 @@ Arguments :
 
 			Initialize = IsOutOnly && (ParamId == ID_CG_PTR);
 
-			Out_CContextHandleUnmarshall( pCCB, 
+			Out_CContextHandleUnmarshall( pCCB,
 										  pParamName,
 										  Initialize,
 										  GetCGID() == ID_CG_RETURN );
@@ -1501,26 +1731,26 @@ Arguments :
 
 	if ( pChild->GetCGID() == ID_CG_ENUM )
 		{
-		_expr_proc_call *	pCall;
+		expr_proc_call *	pCall;
 		long				fc;
-		_expr_node		*	pExpr;
+		expr_node		*	pExpr;
 
 		fc = (long) ((CG_ENUM *)pChild)->GetFormatChar();
 
-		pCall = new _expr_proc_call( "NdrSimpleTypeUnmarshall" );
+		pCall = new expr_proc_call( "NdrSimpleTypeUnmarshall" );
 
-		pExpr = new _expr_u_address(new _expr_variable(STUB_MESSAGE_VAR_NAME));
+		pExpr = new expr_u_address(new expr_variable(STUB_MESSAGE_VAR_NAME));
 		pExpr = MakeExpressionOfCastToTypeName(PSTUB_MESSAGE_TYPE_NAME , pExpr);
 
-		pCall->SetParam( new _expr_param( pExpr ) );
+		pCall->SetParam( new expr_param( pExpr ) );
 
-		pExpr =  new _expr_u_address ( new _expr_variable( pParamName ) );
+		pExpr =  new expr_u_address ( new expr_variable( pParamName ) );
 		pExpr = MakeCastExprPtrToUChar( pExpr );
 
-		pCall->SetParam( new _expr_param( pExpr ) );
+		pCall->SetParam( new expr_param( pExpr ) );
 
-		pCall->SetParam( new _expr_param(
-						 new _expr_constant( fc ) ) );
+		pCall->SetParam( new expr_param(
+						 new expr_constant( fc ) ) );
 
 		pStream->NewLine();
 
@@ -1540,37 +1770,36 @@ Arguments :
 		//
 		//   <var> = *((<type> *)_StubMsg.Buffer)++;
 		//
-		_expr_node *		pExpr;
-		_expr_variable *	pBufVar;
-		_expr_variable *	pVar;
+		expr_node *		pExpr;
+		expr_variable *	pBufVar;
+		expr_variable *	pVar;
 
-		pBufVar = new _expr_variable( STUB_MSG_BUFFER_VAR_NAME );
+		pBufVar = new expr_variable( STUB_MSG_BUFFER_VAR_NAME );
 
-		pVar = new _expr_variable( pParamName );
+		pVar = new expr_variable( pParamName );
 
 		pExpr = MakeExpressionOfCastPtrToType( pChild->GetType(), pBufVar );
 
-		pExpr = new _expr_post_incr( pExpr );
-		pExpr = new _expr_u_deref( pExpr );
-		pExpr = new _expr_assign( pVar, pExpr );
+		pExpr = new expr_post_incr( pExpr );
+		pExpr = new expr_u_deref( pExpr );
+		pExpr = new expr_assign( pVar, pExpr );
 
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		pStream->NewLine();
 
 		return;
-		} 
+		}
 
     if ( pChild->IsPointerToBaseType() &&
          (((CG_POINTER *)pChild)->GetPtrType() == PTR_REF) &&
          (((CG_NDR *)pChild->GetChild())->GetCGID() != ID_CG_ENUM) )
         {
-		//	char		        Buffer[256];
         CG_POINTER *        pPointer;
         CG_NDR *            pBasetype;
-		_expr_node *		pExpr;
-		_expr_variable *	pBufVar;
-		_expr_variable *	pVar;
+		expr_node *		pExpr;
+		expr_variable *	pBufVar;
+		expr_variable *	pVar;
 
 		pStream->NewLine();
 
@@ -1581,87 +1810,49 @@ Arguments :
 	    if ( pBasetype->GetCGID() == ID_CG_GENERIC_HDL )
 		    pBasetype = (CG_NDR *) pBasetype->GetChild();
 
-		pBufVar = new _expr_variable( STUB_MSG_BUFFER_VAR_NAME );
+		pBufVar = new expr_variable( STUB_MSG_BUFFER_VAR_NAME );
 
-		pVar = new _expr_variable( pParamName );
+		pVar = new expr_variable( pParamName );
 
         OutputNdrAlignmentAction( pCCB, AlignAction );
 
-/***
- ***
-        if ( pPointer->GetPtrType() == PTR_UNIQUE )
-            {
-            sprintf( Buffer, 
-                     "if ( *((void **)%s)++ )",
-                     STUB_MSG_BUFFER_VAR_NAME );
-            pStream->Write( Buffer );
-
-            pStream->IndentInc();
-            pStream->NewLine();
-            pStream->Write( "{" );
-            pStream->NewLine();
-
-            //
-            // This can only do something for a pointer to a double/hyper.
-            //
-            AlignAction = pCCB->NdrAlignmentAction( 
-                                pBasetype->GetWireAlignment() );
-
-            OutputNdrAlignmentAction( pCCB, AlignAction );
-
-            pBasetype->SetNextNdrAlignment( pCCB );
-            }
- ***
- ***/
-
 		//
-		// Now make the assignment of the pointer to the current buffer 
-        // pointer (server) or copy the incomming referent's value (client) 
-        // and increment the buffer pointer. 
+		// Now make the assignment of the pointer to the current buffer
+        // pointer (server) or copy the incomming referent's value (client)
+        // and increment the buffer pointer.
 		//
 
 		pExpr = MakeExpressionOfCastPtrToType( pBasetype->GetType(), pBufVar );
 
         if ( pCCB->GetCodeGenSide() == CGSIDE_SERVER )
             {
-            pExpr = new _expr_assign( pVar, pExpr );
+            pExpr = new expr_assign( pVar, pExpr );
             }
         else
             {
-		    pExpr = new _expr_post_incr( pExpr );
-            pExpr = new _expr_assign( 
-                        new _expr_u_deref( pVar ),
-                        new _expr_u_deref( pExpr ) );
+		    pExpr = new expr_post_incr( pExpr );
+            pExpr = new expr_assign(
+                        new expr_u_deref( pVar ),
+                        new expr_u_deref( pExpr ) );
             }
 
         pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		pStream->NewLine();
 
         if ( pCCB->GetCodeGenSide() == CGSIDE_SERVER )
             {
             pStream->Write( STUB_MSG_BUFFER_VAR_NAME " += " );
 
-		    pExpr = new _expr_sizeof( pBasetype->GetType() );
+		    pExpr = new expr_sizeof( pBasetype->GetType() );
 
-            // pExpr = new _expr_b_arithmetic( OP_PLUS, pBufVar, pExpr );
-            // pExpr = new _expr_assign( pBufVar, pExpr );
+            // pExpr = new expr_b_arithmetic( OP_PLUS, pBufVar, pExpr );
+            // pExpr = new expr_assign( pBufVar, pExpr );
 
 		    pExpr->Print( pStream );
 		    pStream->Write( ";" );
 		    pStream->NewLine();
             }
-
-/***
- ***
-        if ( pPointer->GetPtrType() == PTR_UNIQUE )
-            {
-            pStream->Write( "}" );
-            pStream->IndentDec();
-            pStream->NewLine();
-            }
- ***
- ***/
 
         return;
         }
@@ -1671,16 +1862,12 @@ Arguments :
 	
     pFormatString = pCCB->GetFormatString();
 
-    Index = (long) pFormatString->GetFormatChar( 
-								pChild->GetFormatStringOffset() );
-
-	// 
+	//
 	// If this is a by-value structure or union then use the mangled
 	// local pointer variable to the same type.
 	//
-	if ( pChild->IsStruct() || pChild->IsUnion() || 
-         (pChild->GetCGID() == ID_CG_TRANSMIT_AS) || 
-         (pChild->GetCGID() == ID_CG_REPRESENT_AS) )
+	if ( pChild->IsStruct() || pChild->IsUnion() ||
+         pChild->IsXmitRepOrUserMarshal() )
 		{
 		char *	pName;
 
@@ -1692,23 +1879,64 @@ Arguments :
 		pParamName = pName;
 
 		//
-		// If this is a regular structure or an encapsulated struct (union) 
+		// If this is a regular structure or an encapsulated struct (union)
         // being returned, then zero it out.
 		//
 		if( (GetCGID() == ID_CG_RETURN) &&
             (pChild->IsStruct() || pChild->IsUnion()) )
 			{
 			Out_MemsetToZero( pCCB,
-							  new _expr_variable( pParamName, 0 ),
-							  new _expr_sizeof( pChild->GetType() ) );
+							  new expr_variable( pParamName, 0 ),
+							  new expr_sizeof( pChild->GetType() ) );
 
 			}
 		}
 
+    FormatOffset = pChild->GetFormatStringOffset();
+    NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+
+    //
+    // For ref pointers with no funky attributes, we optimize by calling
+    // the pointee's routine directly.
+    //
+    if ( pChild->IsPointer() && ((CG_POINTER *)pChild)->IsBasicRefPointer() )
+        {
+        CG_POINTER *    pPointer;
+
+        pPointer = (CG_POINTER *) pChild;
+
+        switch ( pPointer->GetCGID() )
+            {
+            case ID_CG_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetFormatStringOffset() + 2;
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_SIZE_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_STRUCT_STRING_PTR :
+                break;
+
+            default :
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+            }
+        }
+
     Out_NdrUnmarshallCall( pCCB,
-                           pNdrRoutineNames[Index],
+                           pNdrRoutineNames[NameIndex],
                            pParamName,
-                           pChild->GetFormatStringOffset(),
+                           FormatOffset,
 						   fTakeAddress,
 						   fMustAllocFlag );
 }
@@ -1731,7 +1959,8 @@ Arguments :
     FORMAT_STRING *     pFormatString;
     PNAME               pParamName;
 	ID_CG				ParamId;
-	long				Index;
+	long				NameIndex;
+    long                FormatOffset;
 	BOOL				fTakeAddress;
 	BOOL				fDereference;
 
@@ -1742,7 +1971,9 @@ Arguments :
 	//
 	// Primitive handle contributes no size.
 	//
-	if ( ParamId == ID_CG_PRIMITIVE_HDL ) 
+	if ( (ParamId == ID_CG_PRIMITIVE_HDL) ||
+         ((ParamId == ID_CG_PTR) &&
+          (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_PRIMITIVE_HDL)) )
 		return;
 
 	//
@@ -1755,7 +1986,7 @@ Arguments :
 		}
 
 	if ( ParamId == ID_CG_CONTEXT_HDL ||
-		 ((ParamId == ID_CG_PTR) && 
+		 ((ParamId == ID_CG_PTR) &&
 		  (((CG_NDR *)pChild->GetChild())->GetCGID() == ID_CG_CONTEXT_HDL)) )
 		{
 		ISTREAM *	pStream = pCCB->GetStream();
@@ -1767,7 +1998,7 @@ Arguments :
 		pStream->NewLine();
 
 		return;
-		} 
+		}
 
 	if ( pChild->IsSimpleType() )
 		{
@@ -1780,9 +2011,9 @@ Arguments :
 		pStream->NewLine();
 
 		return;
-		} 
+		}
 
-	if ( pChild->IsPointerToBaseType() ) 
+	if ( pChild->IsPointerToBaseType() )
 		{
 		ISTREAM *	pStream = pCCB->GetStream();
 
@@ -1793,14 +2024,14 @@ Arguments :
 		pStream->NewLine();
 
 		return;
-		} 
+		}
 
 	GenNdrTopLevelAttributeSupport( pCCB );
 	
     pFormatString = pCCB->GetFormatString();
 
-    Index = (long) pFormatString->GetFormatChar( 
-								pChild->GetFormatStringOffset() );
+    FormatOffset = pChild->GetFormatStringOffset();
+    NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
 	
     pParamName = GetResource()->GetResourceName();
 
@@ -1809,20 +2040,57 @@ Arguments :
 	// flag.
 	//
 	fTakeAddress =  pChild->IsStruct() || pChild->IsUnion()
-                    || pChild->GetCGID() == ID_CG_TRANSMIT_AS
-                    || pChild->GetCGID() == ID_CG_REPRESENT_AS;
+                    || pChild->IsXmitRepOrUserMarshal();
 
 	//
 	// If the param is an array and we're in the server stub then we
 	// must dereference it.
 	//
-	fDereference =  (pCCB->GetCodeGenSide() == CGSIDE_SERVER) && 
-		 			pChild->IsArray();
+	fDereference = (pCCB->GetCodeGenSide() == CGSIDE_SERVER) &&
+                   pChild->IsArray();
+
+    //
+    // For ref pointers with no funky attributes, we optimize by calling
+    // the pointee's routine directly.
+    //
+    if ( pChild->IsPointer() && ((CG_POINTER *)pChild)->IsBasicRefPointer() )
+        {
+        CG_POINTER *    pPointer;
+
+        pPointer = (CG_POINTER *) pChild;
+
+        switch ( pPointer->GetCGID() )
+            {
+            case ID_CG_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetFormatStringOffset() + 2;
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_SIZE_STRING_PTR :
+                if ( ((CG_STRING_POINTER *)pPointer)->IsStringableStruct() )
+                    break;
+
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+
+            case ID_CG_STRUCT_STRING_PTR :
+                break;
+
+            default :
+                FormatOffset = pPointer->GetPointeeFormatStringOffset();
+                NameIndex = (long) pFormatString->GetFormatChar( FormatOffset );
+                break;
+            }
+        }
 
     Out_NdrBufferSizeCall( pCCB,
-                           pNdrRoutineNames[Index],
+                           pNdrRoutineNames[NameIndex],
                            pParamName,
-                           pChild->GetFormatStringOffset(),
+                           FormatOffset,
 						   fTakeAddress,
 						   fDereference,
                            FALSE );     // _StubMsg
@@ -1876,7 +2144,7 @@ Arguments :
     // If the proc uses RpcSs then don't emit any freeing code.
     //
     if ( pProc->MustInvokeRpcSSAllocate() )
-        return; 
+        return;
 
 	pChild = (CG_NDR *) GetChild();
 
@@ -1895,7 +2163,7 @@ Arguments :
 	
     	pFormatString = pCCB->GetFormatString();
 
-    	Index = (long) pFormatString->GetFormatChar( 
+    	Index = (long) pFormatString->GetFormatChar(
 								pChild->GetFormatStringOffset() );
 
     	pParamName = GetResource()->GetResourceName();
@@ -1905,8 +2173,7 @@ Arguments :
 		// flag.
 		//
 		fTakeAddress =  pChild->IsStruct() || pChild->IsUnion()
-                    	|| pChild->GetCGID() == ID_CG_TRANSMIT_AS
-                    	|| pChild->GetCGID() == ID_CG_REPRESENT_AS;
+                    	|| pChild->IsXmitRepOrUserMarshal();
 
 		fDereference = FALSE;
 
@@ -1931,14 +2198,16 @@ Arguments :
 }
 
 void
-CG_PARAM::GenNdrTopLevelAttributeSupport( CCB * pCCB )
+CG_PARAM::GenNdrTopLevelAttributeSupport(
+    CCB *   pCCB,
+    BOOL    fForClearOut )
 /*++
 
 Routine Description :
 
 	Outputs the assignment(s) to the stub message MaxCount, ActualCount,
-	and/or Offset fields, for support of top level conformant and/or 
-	varying arrays, attributed pointers, and non-encapsulated unions for 
+	and/or Offset fields, for support of top level conformant and/or
+	varying arrays, attributed pointers, and non-encapsulated unions for
 	mixed model stubs.
 
 Arguments :
@@ -1949,10 +2218,10 @@ Arguments :
 {
 	CG_NDR *			pChild;
 	ISTREAM *		    pStream = pCCB->GetStream();
-	_expr_node *	    pExpr;
-	_expr_node *		pSizeOrSwitchIsExpr;
-	_expr_node *		pFirstIsExpr;
-	_expr_node *		pLengthIsExpr;
+	expr_node *	    pExpr;
+	expr_node *		pSizeOrSwitchIsExpr;
+	expr_node *		pFirstIsExpr;
+	expr_node *		pLengthIsExpr;
 	ID_CG				ParamId;
 
 	pChild = (CG_NDR *)GetChild();
@@ -1966,36 +2235,39 @@ Arguments :
 		}
 
     //
-    // Multidimensional conformant/varying arrays and sized pointers of 
+    // Multidimensional conformant/varying arrays and sized pointers of
     // sized pointers need some special handling.
     //
-    if ( (pChild->IsArray() && ((CG_ARRAY *)pChild)->IsMultiConfOrVar()) || 
+    if ( (pChild->IsArray() && ((CG_ARRAY *)pChild)->IsMultiConfOrVar()) ||
          (pChild->IsPointer() && ((CG_POINTER *)pChild)->IsMultiSize()) )
         {
-        char Buffer[256];
+        CSzBuffer Buffer;
 
         pStream->NewLine();
 
         if ( (ParamId == ID_CG_CONF_ARRAY) ||
              (ParamId == ID_CG_CONF_VAR_ARRAY) ||
-             (ParamId == ID_CG_SIZE_PTR) || 
+             (ParamId == ID_CG_SIZE_PTR) ||
              (ParamId == ID_CG_SIZE_LENGTH_PTR) )
             {
-            sprintf( Buffer, 
-                     "%s_maxcount_%s", 
-                     pChild->IsArray() ? "(unsigned long) " : "",
-                     GetType()->GetSymName() );
+            Buffer.Set(pChild->IsArray() ? "(unsigned long) " : "");
+            Buffer.Append("_maxcount_");
+            Buffer.Append(GetType()->GetSymName());
+//            sprintf( Buffer,
+//                     "%s_maxcount_%s",
+//                     pChild->IsArray() ? "(unsigned long) " : "",
+//                     GetType()->GetSymName() );
 
             if ( pChild->IsPointer() )
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                                 STUB_MESSAGE_VAR_NAME ".SizePtrCountArray" );
             else
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                                 STUB_MESSAGE_VAR_NAME ".MaxCount" );
 
-		    pExpr = new _expr_assign( pExpr, new _expr_variable( Buffer ) );
+		    pExpr = new expr_assign( pExpr, new expr_variable( Buffer ) );
 		    pExpr->Print( pStream );
-		    pStream->Write( ";" );
+		    pStream->Write( ';' );
 		    pStream->NewLine();
             }
 
@@ -2003,38 +2275,44 @@ Arguments :
              (ParamId == ID_CG_VAR_ARRAY) ||
              (ParamId == ID_CG_SIZE_LENGTH_PTR) )
             {
-            sprintf( Buffer, 
-                     "%s_offset_%s", 
-                     pChild->IsArray() ? "(unsigned long) " : "",
-                     GetType()->GetSymName() );
+            Buffer.Set(pChild->IsArray() ? "(unsigned long) " : "");
+            Buffer.Append("_offset_");
+            Buffer.Append(GetType()->GetSymName());
+//            sprintf( Buffer,
+//                     "%s_offset_%s",
+//                     pChild->IsArray() ? "(unsigned long) " : "",
+//                     GetType()->GetSymName() );
 
             if ( pChild->IsPointer() )
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                             STUB_MESSAGE_VAR_NAME ".SizePtrOffsetArray" );
             else
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                             STUB_MESSAGE_VAR_NAME ".Offset" );
 
-		    pExpr = new _expr_assign( pExpr, new _expr_variable( Buffer ) );
+		    pExpr = new expr_assign( pExpr, new expr_variable( Buffer ) );
 		    pExpr->Print( pStream );
-		    pStream->Write( ";" );
+		    pStream->Write( ';' );
 		    pStream->NewLine();
 
-            sprintf( Buffer, 
-                     "%s_length_%s", 
-                     pChild->IsArray() ? "(unsigned long) " : "",
-                     GetType()->GetSymName() );
+            Buffer.Set(pChild->IsArray() ? "(unsigned long) " : "");
+            Buffer.Append("_length_");
+            Buffer.Append(GetType()->GetSymName());
+//            sprintf( Buffer,
+//                     "%s_length_%s",
+//                     pChild->IsArray() ? "(unsigned long) " : "",
+//                     GetType()->GetSymName() );
 
             if ( pChild->IsPointer() )
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                             STUB_MESSAGE_VAR_NAME ".SizePtrLengthArray" );
             else
-			    pExpr = new _expr_variable( 
+			    pExpr = new expr_variable(
                             STUB_MESSAGE_VAR_NAME ".ActualCount" );
 
-		    pExpr = new _expr_assign( pExpr, new _expr_variable( Buffer ) );
+		    pExpr = new expr_assign( pExpr, new expr_variable( Buffer ) );
 		    pExpr->Print( pStream );
-		    pStream->Write( ";" );
+		    pStream->Write( ';' );
 		    pStream->NewLine();
             }
 
@@ -2043,7 +2321,7 @@ Arguments :
 
 	//
 	// We check here if the parameter is a top level attributed array or
-	// pointer, a non-encapsulated union or a pointer to a non-encapsulated 
+	// pointer, a non-encapsulated union or a pointer to a non-encapsulated
 	// union.  If it isn't, then return.
 	//
 	switch ( ParamId )
@@ -2064,19 +2342,19 @@ Arguments :
 
 			{
 			ISTREAM * 		pStream = pCCB->GetStream();
-			_expr_node *	pExpr;
+			expr_node *	pExpr;
 			CG_BYTE_COUNT_POINTER *		pByteCount;
 
 			pByteCount = (CG_BYTE_COUNT_POINTER *) pChild;
 
-			pExpr = new _expr_assign(
-						new _expr_variable( STUB_MESSAGE_VAR_NAME ".MaxCount" ),
-						new _expr_variable( 
+			pExpr = new expr_assign(
+						new expr_variable( STUB_MESSAGE_VAR_NAME ".MaxCount" ),
+						new expr_variable(
 							pByteCount->GetByteCountParam()->GetSymName() ) );
 
 			pStream->NewLine();
 			pExpr->Print( pStream );
-			pStream->Write( ";" );
+			pStream->Write( ';' );
 			pStream->NewLine();
 			}
 
@@ -2093,10 +2371,10 @@ Arguments :
 				return;
 
 			pStream->NewLine();
-			pStream->Write( STUB_MESSAGE_VAR_NAME 
+			pStream->Write( STUB_MESSAGE_VAR_NAME
 							".MaxCount = (unsigned long) " );
 			pIfPointer->GetIIDExpr()->Print( pStream );
-			pStream->Write( ";" );
+			pStream->Write( ';' );
 			pStream->NewLine();
 			}
 
@@ -2111,54 +2389,54 @@ Arguments :
 	switch ( pChild->GetCGID() )
 		{
 		case ID_CG_CONF_ARRAY :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_CONFORMANT_ARRAY *)pChild)->GetSizeIsExpr();
 			pFirstIsExpr = NULL;
 			pLengthIsExpr = NULL;
 			break;
 
 		case ID_CG_CONF_VAR_ARRAY :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_CONFORMANT_VARYING_ARRAY *)pChild)->GetSizeIsExpr();
-			pFirstIsExpr = 
+			pFirstIsExpr =
 				((CG_CONFORMANT_VARYING_ARRAY *)pChild)->GetFirstIsExpr();
-			pLengthIsExpr = 
+			pLengthIsExpr =
 				((CG_CONFORMANT_VARYING_ARRAY *)pChild)->GetLengthIsExpr();
 			break;
 
 		case ID_CG_VAR_ARRAY :
 			pSizeOrSwitchIsExpr = NULL;
-			pFirstIsExpr = 
+			pFirstIsExpr =
 				((CG_VARYING_ARRAY *)pChild)->GetFirstIsExpr();
-			pLengthIsExpr = 
+			pLengthIsExpr =
 				((CG_VARYING_ARRAY *)pChild)->GetLengthIsExpr();
 			break;
 
 		case ID_CG_CONF_STRING_ARRAY :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_CONFORMANT_STRING_ARRAY *)pChild)->GetSizeIsExpr();
 			pFirstIsExpr = NULL;
 			pLengthIsExpr = NULL;
 			break;
 
 		case ID_CG_SIZE_PTR :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_SIZE_POINTER *)pChild)->GetSizeIsExpr();
 			pFirstIsExpr = NULL;
 			pLengthIsExpr = NULL;
 			break;
 
 		case ID_CG_SIZE_LENGTH_PTR :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_SIZE_LENGTH_POINTER *)pChild)->GetSizeIsExpr();
-			pFirstIsExpr = 
+			pFirstIsExpr =
 				((CG_SIZE_LENGTH_POINTER *)pChild)->GetFirstIsExpr();
-			pLengthIsExpr = 
+			pLengthIsExpr =
 				((CG_SIZE_LENGTH_POINTER *)pChild)->GetLengthIsExpr();
 			break;
 
 		case ID_CG_SIZE_STRING_PTR :
-			pSizeOrSwitchIsExpr = 
+			pSizeOrSwitchIsExpr =
 				((CG_SIZE_STRING_POINTER *)pChild)->GetSizeIsExpr();
 			pFirstIsExpr = NULL;
 			pLengthIsExpr = NULL;
@@ -2174,29 +2452,45 @@ Arguments :
 
 	if ( pSizeOrSwitchIsExpr )
 		{
-		pExpr = new _expr_assign( 
-					new _expr_variable( STUB_MESSAGE_VAR_NAME ".MaxCount" ),
+		pSizeOrSwitchIsExpr = MakeAttrExprWithNullPtrChecks(
+                                                     pSizeOrSwitchIsExpr );
+		pExpr = new expr_assign(
+					new expr_variable( STUB_MESSAGE_VAR_NAME ".MaxCount" ),
 					pSizeOrSwitchIsExpr );
 		pExpr->Print( pStream );
-		pStream->Write( ";" );
+		pStream->Write( ';' );
 		pStream->NewLine();
 		}
 		
 	if ( pFirstIsExpr )
 		{
-		pExpr = new _expr_assign( 
-					new _expr_variable( STUB_MESSAGE_VAR_NAME ".Offset" ),
-					pFirstIsExpr );
-		pExpr->Print( pStream );
-		pStream->Write( ";" );
-		pStream->NewLine();
+        //
+        // For NdrClearOutParams we ignore the first_is() & length_is()
+        // attributes in case these are [out] and therefore unitialized.
+        //
+        if ( fForClearOut )
+            {
+            pStream->Write( STUB_MESSAGE_VAR_NAME ".Offset = 0;" );
+            pStream->NewLine();
+            }
+        else
+            {
+		    pFirstIsExpr = MakeAttrExprWithNullPtrChecks( pFirstIsExpr );
+
+		    pExpr = new expr_assign(
+					    new expr_variable( STUB_MESSAGE_VAR_NAME ".Offset" ),
+					    pFirstIsExpr );
+		    pExpr->Print( pStream );
+		    pStream->Write( ';' );
+		    pStream->NewLine();
+            }
 
 		//
 		// Create a LengthIsExpr if one does not already exist.
 		//
-		if ( ! pLengthIsExpr ) 
+		if ( ! pLengthIsExpr )
 			{
-			_expr_node * pSize;
+			expr_node * pSize;
 
 			if ( pChild->IsPointer() )
 				{
@@ -2209,8 +2503,8 @@ Arguments :
 				pSize = ((CG_ARRAY *)pChild)->GetSizeIsExpr();
 				}
 
-			pLengthIsExpr = 
-				new _expr_b_arithmetic( OP_MINUS,
+			pLengthIsExpr =
+				new expr_b_arithmetic( OP_MINUS,
 										pSize,
 										pFirstIsExpr );
 			}
@@ -2218,19 +2512,34 @@ Arguments :
 		
 	if ( pLengthIsExpr )
 		{
-		pExpr = new _expr_assign( 
-					new _expr_variable( STUB_MESSAGE_VAR_NAME ".ActualCount" ),
-					pLengthIsExpr );
-		pExpr->Print( pStream );
-		pStream->Write( ";" );
-		pStream->NewLine();
+        //
+        // For NdrClearOutParams we ignore the first_is() & length_is()
+        // attributes in case these are [out] and therefore unitialized.
+        //
+        if ( fForClearOut )
+            {
+            pStream->Write( STUB_MESSAGE_VAR_NAME ".ActualCount" " = " );
+            pStream->Write( STUB_MESSAGE_VAR_NAME ".MaxCount;" );
+            pStream->NewLine();
+            }
+        else
+            {
+		    pLengthIsExpr = MakeAttrExprWithNullPtrChecks( pLengthIsExpr );
+
+		    pExpr = new expr_assign(
+					    new expr_variable(STUB_MESSAGE_VAR_NAME ".ActualCount"),
+					    pLengthIsExpr );
+		    pExpr->Print( pStream );
+		    pStream->Write( ";" );
+		    pStream->NewLine();
+            }
 		}
 }
 
 expr_node *
 CG_PROC::GenCoreNdrSingleClientCall(
     CCB *   pCCB,
-	BOOL	fForAlpha )
+	int 	WhichRisc )
 
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -2240,7 +2549,7 @@ CG_PROC::GenCoreNdrSingleClientCall(
 
  Arguments:
 
- 	fForAlpha	- 1 if code for Alpha , 0 otherwise.
+ 	WhichRisc	- 2 if alpha, 1 if Mips or PPC , 0 otherwise.
 
  Return Value:
 
@@ -2248,92 +2557,432 @@ CG_PROC::GenCoreNdrSingleClientCall(
 	
  Notes:
 
-	We need to emit the real varargs stuff on alpha, so that float arguments
-	etc work fine. The varargs stuff is weirdly handled on the alpha.
+    On risc machines, the compiler passes the parameters in registers,
+    therefore the client stub is passed the parameters in registers. The
+    interpreter needs arguments on the stack. In order to force a spill of the
+    parameters from the registers to the stack, we need to pass addr all the
+    parameters to NdrClientCall.
+
+        stub_proc( p1, p2, p3 )
+            {
+            ...
+            NdrClientCall( STUB_DESC *,
+                           FORMAT_STRING *,
+                           &p1,
+                           &p2,
+                           &p3 );
+            ...
+            }
+
+    On Alpha the varargs is simply weird. The code generated needs to be
+
+        stub_proc( p1, p2, p3 )
+            {
+            ...
+            NdrClientCall( STUB_DESC *,
+                           FORMAT_STRING *,
+                           vlist.a0 );
+            ...
+            }
+
 ----------------------------------------------------------------------------*/
 {
 	char				FormatStringExpr[80];
-	_expr_proc_call	*	pCallExpr;
-	_expr_node		*	pExpr;
+	expr_proc_call	*	pCallExpr;
+	expr_node		*	pExpr;
 	CG_PARAM		*	pParam;
 	PNAME				pFormatName;
+    OPTIM_OPTION        OptimOptions;
+
+    OptimOptions = GetOptimizationFlags();
 
 	//
 	// Now construct the expression for the Ndr call.
 	//
 
-	pCallExpr = new _expr_proc_call( C_NDR_CALL_RTN_NAME );
+    if ( OptimOptions & OPTIMIZE_INTERPRETER_V2 )
+	    pCallExpr = new expr_proc_call( C_NDR_CALL_RTN_NAME_V2 );
+    else
+	    pCallExpr = new expr_proc_call( C_NDR_CALL_RTN_NAME );
 
 	//
 	// Stub Descriptor
 	//
 
-	pExpr = new _expr_variable( pCCB->GetInterfaceCG()->GetStubDescName() );
+	pExpr = new expr_variable( pCCB->GetInterfaceCG()->GetStubDescName() );
 	pExpr = MakeAddressExpressionNoMatterWhat( pExpr );
 	pExpr = MakeExpressionOfCastToTypeName(PSTUB_DESC_STRUCT_TYPE_NAME, pExpr);
 
-	pCallExpr->SetParam( new _expr_param( pExpr ) );
+	pCallExpr->SetParam( new expr_param( pExpr ) );
 
-	sprintf( FormatStringExpr, 
-			 "(PFORMAT_STRING) &%s[%d]", 
+	sprintf( FormatStringExpr,
+			 "(PFORMAT_STRING) &%s[%d]",
 			 PROC_FORMAT_STRING_STRING_FIELD,
 			 GetFormatStringOffset() );
 
 	pFormatName	= new char [strlen( FormatStringExpr) + 1];
 	strcpy( pFormatName, FormatStringExpr );
-	pCallExpr->SetParam( new _expr_param( 
-						 new _expr_variable( pFormatName ) ) );
+	pCallExpr->SetParam( new expr_param(
+						 new expr_variable( pFormatName ) ) );
 
-	//
-	// Finally add the address of the first param to the single call 
-	// parameter list.
-	//
-	if( fForAlpha )
+	if( 2 == WhichRisc )
 		{
-		pExpr	= new _expr_variable( VLIST_A0, 0 );
-		pCallExpr->SetParam( new _expr_param( pExpr ));
+		pExpr	= new expr_variable( VLIST_A0, 0 );
+		pCallExpr->SetParam( new expr_param( pExpr ));
 		}
-	else
-		{
-		if(IsObject())
+    else
+        {
+		// If this is an object interface the first param is an implicit
+		// this param.
+	
+		if( IsObject() )
 			{
-				pExpr = new _expr_u_address (
-							 	 	new _expr_variable("This"));
+			pExpr = new expr_u_address(new expr_variable("This"));
+			pExpr = MakeCastExprPtrToUChar( pExpr );
+			pCallExpr->SetParam( new expr_param( pExpr ) );
 			}
-		else
-			{
-			pParam = (CG_PARAM *) GetChild();
+	
+	    /************************************************************************
+	     If this is a risc platform, then
+	        if there are actual parameters,
+	            take the address of each of them
+	        else
+	            if it is not an object interface,
+	                push a 0
+	            else
+	                do nothing. since we have already pushed &this.
+		
+		else // if this is not a risc platform
+		    if there are actual parameters
+		        take address of first.
+		    else
+		        if it is non object procedure,
+		            push a 0,
+		        else
+		            do nothing since for an object proc we have already pushed &this.
+		************************************************************************/
+	
+		if( 1 == WhichRisc )
+		    {
+		    ITERATOR I;
+	
+		    if( GetMembers( I ) )
+		        {
+			    while( ITERATOR_GETNEXT( I, pParam ) )
+			        {
+			       pExpr = new expr_u_address (
+				                    new expr_variable(
+		                                pParam->GetResource()->GetResourceName()));
+			       pExpr = MakeCastExprPtrToUChar( pExpr );
+			       pCallExpr->SetParam( new expr_param( pExpr ) );
+	    	
+		            }
+		        }
+		    else if( !IsObject() )
+			    {
+			    pExpr = new expr_constant( 0L );
+			    pExpr = MakeCastExprPtrToUChar( pExpr );
+			    pCallExpr->SetParam( new expr_param( pExpr ) );
+			    }
+		    }
+		else if( !IsObject() )
+		    {
+		    if( pParam = (CG_PARAM *) GetChild() )
+		        {
+			    pExpr = new expr_u_address (
+				                    new expr_variable(
+		                                pParam->GetResource()->GetResourceName()));
 
-			if ( pParam )
-				{
-				pExpr = new _expr_u_address (
-							 	 	new _expr_variable(
-										pParam->GetResource()->GetResourceName() ));
-				}
-			else
-				{
-				pExpr = new _expr_constant( 0L );
-				}
-			}
+                if ( pCommand->IsAnyMac() )
+                    {
+                    CG_NDR *    pNdr;
 
-		pExpr = MakeCastExprPtrToUChar( pExpr );
-		pCallExpr->SetParam( new _expr_param( pExpr ) );
+                    pNdr = (CG_NDR *) pParam->GetChild();
+                    if ( pNdr->GetCGID() == ID_CG_GENERIC_HDL )
+                        pNdr = (CG_NDR *) pNdr->GetChild();
 
-		}
+                    if ( pNdr->GetCGID() == ID_CG_BT )
+                        {
+                        FORMAT_CHARACTER    Format;
 
-	_expr_node * pFinalExpr;
+                        Format = ((CG_BASETYPE *)pNdr)->GetFormatChar( pCCB );
+
+                        if ( (FC_BYTE <= Format) && (Format <= FC_USMALL) )
+                            {
+                            pExpr = new expr_b_arithmetic(
+                                            OP_MINUS,
+                                            pExpr,
+                                            new expr_constant(3UL) );
+                            }
+                        if ( (FC_WCHAR <= Format) && (Format <= FC_USHORT) )
+                            {
+                            pExpr = new expr_b_arithmetic(
+                                            OP_MINUS,
+                                            pExpr,
+                                            new expr_constant(1UL) );
+                            }
+                        }
+                    }
+
+			    pExpr = MakeCastExprPtrToUChar( pExpr );
+			    pCallExpr->SetParam( new expr_param( pExpr ) );
+		        }
+		    else
+		        {
+			    pExpr = new expr_constant( 0L );
+			    pExpr = MakeCastExprPtrToUChar( pExpr );
+			    pCallExpr->SetParam( new expr_param( pExpr ) );
+		        }
+		    }
+	    }
+
+	// Assign the return value if one exists.
+
+	expr_node * pFinalExpr;
 	
 	if ( GetReturnType() )
 		{
 
-		pFinalExpr = new _expr_assign( 
-				 			new _expr_variable( RETURN_VALUE_VAR_NAME ),
+		pFinalExpr = new expr_assign(
+				 			new expr_variable( RETURN_VALUE_VAR_NAME ),
 							pCallExpr );
 		}
-	else 
+	else
 		pFinalExpr = pCallExpr;
 	
 	return pFinalExpr;
 
 }
+
+void CG_PROC::SetupFormatStrings( CCB * pCCB )
+{
+    if (!cRefSaved++)
+    {
+        if(!pSavedProcFormatString)
+        {
+            pSavedProcFormatString = pCCB->GetProcFormatString();
+            pSavedFormatString = pCCB->GetFormatString();
+        }
+        if (IsHookOleLocal())
+        {
+            CG_FILE * pFile = pCCB->GetFileCG();
+            pCCB->SetFormatString( pFile->GetLocalFormatString());
+            pCCB->SetProcFormatString(pFile->GetLocalProcFormatString());
+        }
+    }
+}
+
+void CG_PROC::UnsetupFormatStrings(CCB * pCCB )
+{
+    if (cRefSaved)
+        cRefSaved--;
+    if (!cRefSaved)
+    {
+        pCCB->SetProcFormatString(pSavedProcFormatString);
+        pCCB->SetFormatString(pSavedFormatString);
+    }
+}
+
+
+// --------------------------------------------------
+// Routine used for generation of NT 3.5 and NT 3.51
+// procedure format strings.
+// --------------------------------------------------
+void
+CG_PROC::GenNdrFormatV1( CCB * pCCB )
+/*++
+
+Routine Description :
+
+    Generates the procedure format strings usable on NT 3.5 and
+    NT 3.51 systems.
+
+Arguments :
+
+	pCCB	 - pointer to the code control block
+
+ --*/
+{
+    CG_ITERATOR			Iterator;
+    CG_PARAM *			pParam;
+	FORMAT_STRING *		pProcFormatString;
+	CG_NDR *			pOldCGNodeContext;
+    short               ParamNum;
+
+
+    SetupFormatStrings(pCCB);
+	
+    if ( GetFormatStringOffset() != -1 )
+    {
+        UnsetupFormatStrings(pCCB);
+		return;
+    }
+
+    pCCB->SetInObjectInterface( IsObject() );
+
+	pOldCGNodeContext = pCCB->SetCGNodeContext( this );
+
+	//
+	// If this procedure uses an explicit handle then set the
+	// NdrBindDescriptionOffset to 0 so that it will not try to output it's
+	// description when given the GenNdrParamOffLine method in the loop below.
+	// It's description must be part of the procedure description.
+	//
+	if ( GetHandleUsage() == HU_EXPLICIT )
+		{
+		GetHandleClassPtr()->SetNdrBindDescriptionOffset( 0 );
+		}
+
+    GetMembers( Iterator );
+
+    ParamNum = 0;
+
+	//
+	// Generate the offline portion of the format string for all of the params.
+	//
+    while( ITERATOR_GETNEXT( Iterator, pParam ) )
+        {
+		CG_NDR *	pChild;
+		CG_NDR *	pOldPlaceholder;
+
+
+        pParam->SetParamNumber( ParamNum++ );
+
+		pChild = (CG_NDR *) pParam->GetChild();
+
+        pCCB->SetCurrentParam( (CG_PARAM *) pParam );
+		pOldPlaceholder = pCCB->SetLastPlaceholderClass( pParam );
+
+		pChild->GenNdrParamOffline( pCCB );
+
+        pCCB->SetCurrentParam( 0 );
+		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
+        }
+
+	//
+	// Generate the format string for the return type if needed.
+	//
+	if ( GetReturnType() )
+		{
+		CG_NDR *	pChild;
+		CG_NDR *	pOldPlaceholder;
+
+        GetReturnType()->SetParamNumber( ParamNum );
+		
+		pChild = (CG_NDR *) GetReturnType()->GetChild();
+
+        pCCB->SetCurrentParam( GetReturnType() );
+		pOldPlaceholder = pCCB->SetLastPlaceholderClass( GetReturnType() );
+
+		pChild->GenNdrParamOffline( pCCB );
+
+        pCCB->SetCurrentParam( 0 );
+		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
+		}
+
+	pProcFormatString = pCCB->GetProcFormatString();
+
+	SetFormatStringOffset( pProcFormatString->GetCurrentOffset() );
+
+	//
+	// Generate procedure description stuff for the interpreter if needed.
+	//
+	if ( (pCCB->GetOptimOption() & OPTIMIZE_INTERPRETER)
+         ||  HasAPicklingAttribute() )
+		GenNdrFormatProcInfo( pCCB );
+
+	ITERATOR_INIT( Iterator );
+
+	SetFormatStringParamStart( pProcFormatString->GetCurrentOffset() );
+
+	//
+	// Now generate the param info at the end of the format string.
+	//
+    while( ITERATOR_GETNEXT( Iterator, pParam ) )
+        {
+		CG_NDR *	pChild;
+		CG_NDR *	pOldPlaceholder;
+
+		pChild = (CG_NDR *) pParam->GetChild();
+
+        if ( pChild->GetCGID() == ID_CG_GENERIC_HDL )
+		    pChild = (CG_NDR *) pChild->GetChild();
+
+		//
+		// Ouput the param directional attribute.
+		//
+
+        if ( ! pParam->IsParamOut() )
+            {
+            if ( pParam->GetDontCallFreeInst() )
+    		    pProcFormatString->PushFormatChar( FC_IN_PARAM_NO_FREE_INST );
+            else
+                if ( pChild->IsSimpleType() ||
+                     pChild->GetCGID() == ID_CG_PRIMITIVE_HDL )
+                    pProcFormatString->PushFormatChar( FC_IN_PARAM_BASETYPE );
+                else
+    				pProcFormatString->PushFormatChar( FC_IN_PARAM );
+            }
+        else
+            {
+            if ( ! pParam->IsParamIn() )
+			    pProcFormatString->PushFormatChar( FC_OUT_PARAM );
+
+		    if ( pParam->IsParamIn() && pParam->IsParamOut() )
+			    pProcFormatString->PushFormatChar( FC_IN_OUT_PARAM );
+            }
+
+		pOldPlaceholder = pCCB->SetLastPlaceholderClass( pParam );
+
+		pChild->GenNdrParamDescriptionOld( pCCB );
+
+		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
+        }
+
+	if ( GetReturnType() )
+		{
+		CG_NDR *	pChild;
+		CG_NDR *	pOldPlaceholder;
+		
+		pChild = (CG_NDR *) GetReturnType()->GetChild();
+
+        if ( pChild->GetCGID() == ID_CG_GENERIC_HDL )
+		    pChild = (CG_NDR *) pChild->GetChild();
+
+        if ( pChild->IsSimpleType() )
+		    pProcFormatString->PushFormatChar( FC_RETURN_PARAM_BASETYPE );
+        else
+		    pProcFormatString->PushFormatChar( FC_RETURN_PARAM );
+
+		pOldPlaceholder = pCCB->SetLastPlaceholderClass( GetReturnType() );
+
+		pChild->GenNdrParamDescriptionOld( pCCB );
+
+		pCCB->SetLastPlaceholderClass( pOldPlaceholder );
+		}
+    else
+        {
+        pProcFormatString->PushFormatChar( FC_END );
+        pProcFormatString->PushFormatChar( FC_PAD );
+        }
+
+	pCCB->SetCGNodeContext( pOldCGNodeContext );
+
+    pCCB->SetInObjectInterface( FALSE );
+
+	SetFormatStringEndOffset( pProcFormatString->GetCurrentOffset() );
+
+	// save delta, in case the routine is optimized
+	short	usParamStartDelta	= (short) ( GetFormatStringParamStart() -
+											GetFormatStringOffset() );
+
+	SetFormatStringOffset( pProcFormatString->OptimizeFragment( this ) );
+
+    // Set param start!!!
+    SetFormatStringParamStart( GetFormatStringOffset() + usParamStartDelta );
+    UnsetupFormatStrings(pCCB);
+}
+
+
+
 

@@ -37,7 +37,7 @@ ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[ ] =
     0,                                                  // Display rule
     0,                                                  // Collation rule
     ATTRIBUTE_DEF_MUST_BE_RESIDENT,                     // Flags
-    sizeof(STANDARD_INFORMATION),                       // Minimum length
+    SIZEOF_OLD_STANDARD_INFORMATION,                    // Minimum length
     sizeof(STANDARD_INFORMATION)},                      // Maximum length
 
     {{'$','A','T','T','R','I','B','U','T','E','_','L','I','S','T'},
@@ -56,13 +56,13 @@ ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[ ] =
     sizeof(FILE_NAME),                                  // Minimum length
     sizeof(FILE_NAME) + (255 * sizeof(WCHAR))},         // Maximum length
 
-    {{'$','V','O','L','U','M','E','_','V','E','R','S','I','O','N'},
-    $VOLUME_VERSION,                                    // Attribute code
+    {{'$','O','B','J','E','C','T','_','I','D'},
+    $OBJECT_ID,                                         // Attribute code
     0,                                                  // Display rule
     0,                                                  // Collation rule
     ATTRIBUTE_DEF_MUST_BE_RESIDENT,                     // Flags
-    sizeof(VOLUME_VERSION),                             // Minimum length
-    sizeof(VOLUME_VERSION)},                            // Maximum length
+    0,                                                  // Minimum length
+    256},                                               // Maximum length
 
     {{'$','S','E','C','U','R','I','T','Y','_','D','E','S','C','R','I','P','T','O','R'},
     $SECURITY_DESCRIPTOR,                               // Attribute code
@@ -142,7 +142,24 @@ ATTRIBUTE_DEFINITION_COLUMNS NtfsAttributeDefinitions[ ] =
     0,                                                  // Collation rule
     0,                                                  // Flags
     0,                                                  // Minimum length
-    0x10000}                                            // Maximum length
+    0x10000},                                           // Maximum length
+
+#ifdef _CAIRO_
+    {{'$','P','R','O','P','E','R','T','Y','_','S','E','T'},
+    $PROPERTY_SET,                                      // Attribute code
+    0,                                                  // Display rule
+    0,                                                  // Collation rule
+    0,                                                  // Flags
+    0,                                                  // Minimum length
+    256*1024},                                          // Maximum length
+#endif  //  _CAIRO_
+
+    {{0, 0, 0, 0},
+    $UNUSED,                                            // Attribute code
+    0,                                                  // Display rule
+    0,                                                  // Collation rule
+    0,                                                  // Flags
+    0,                                                  // Minimum length
+    0},                                                 // Maximum length
 };
 
-

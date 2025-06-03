@@ -10,7 +10,12 @@ Module Name:
 Abstract:
 
     This module implements machine dependent functions to flush
-    the data and instruction cache.
+    the translation buffers in an Intel x86 system.
+
+    N.B. This module contains only MP versions of the TB flush routines.
+         The UP versions are macros in ke.h
+         KeFlushEntireTb remains a routine for the UP system since it is
+         exported from the kernel for backwards compatibility.
 
 Author:
 
@@ -31,22 +36,33 @@ Revision History:
 
 VOID
 KiFlushTargetEntireTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Invalid,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
 
 VOID
 KiFlushTargetMultipleTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
 
 
 VOID
 KiFlushTargetSingleTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
+
+#if defined(NT_UP)
+#undef KeFlushEntireTb
+#endif
+
 
 VOID
 KeFlushEntireTb (
@@ -80,85 +96,102 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    KAFFINITY TargetProcessors;
     PKPRCB Prcb;
-    PKPROCESS CurrentProcess;
+    PKPROCESS Process;
+    KAFFINITY TargetProcessors;
 
+    //
+    // Compute the target set of processors, disable context switching,
+    // and send the flush entire parameters to the target processors,
+    // if any, for execution.
+    //
 
-#ifdef NT_UP
+#if defined(NT_UP)
 
-    KeFlushCurrentTb();
-    return;
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
 #else
-    //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
-    //
 
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        Prcb = KeGetCurrentPrcb();
+        TargetProcessors = KeActiveProcessors;
 
-    Prcb = KeGetCurrentPrcb();
-
-    if (AllProcessors) {
-        TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
     } else {
-        CurrentProcess = Prcb->CurrentThread->ApcState.Process;
-        TargetProcessors = CurrentProcess->ActiveProcessors &
-                            ~Prcb->SetMember;
+        KiLockContextSwap(&OldIrql);
+        Prcb = KeGetCurrentPrcb();
+        Process = Prcb->CurrentThread->ApcState.Process;
+        TargetProcessors = Process->ActiveProcessors;
     }
 
+    TargetProcessors &= ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        KiAcquireSpinLock (&KiFreezeExecutionLock);
-        KiIpiPacket.Arguments.FlushEntireTb.Invalid = Invalid;
-        KiIpiPacket.Arguments.FlushEntireTb.ReverseStall =
-                                (PVULONG) &Prcb->IpiReverseStall;
+        KiIpiSendPacket(TargetProcessors,
+                        KiFlushTargetEntireTb,
+                        NULL,
+                        NULL,
+                        NULL);
 
-        KiIpiSendPacket(TargetProcessors, KiFlushTargetEntireTb);
         IPI_INSTRUMENT_COUNT (Prcb->Number, FlushEntireTb);
     }
 
+#endif
+
+    //
+    // Flush TB on current processor.
+    //
+
     KeFlushCurrentTb();
 
+    //
+    // Wait until all target processors have finished and complete packet.
+    //
+
+#if defined(NT_UP)
+
+    KeLowerIrql(OldIrql);
+
+#else
+
     if (TargetProcessors != 0) {
-        //
-        //  Stall until target processor(s) release us
-        //
-
-        KiIpiStallOnPacketTargets ();
-
-        //
-        // Let the target processors go, and free ExecutionLock
-        //
-
-        Prcb->IpiReverseStall++;
-        KiReleaseSpinLock(&KiFreezeExecutionLock);
+        KiIpiStallOnPacketTargets();
     }
 
-    KiReleaseSpinLock(&KiDispatcherLock);
-    KeLowerIrql(OldIrql);
-    return;
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
+    }
+
 #endif
+
+    return;
 }
+
+#if !defined(NT_UP)
+
 
 VOID
 KiFlushTargetEntireTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     )
 
 /*++
 
 Routine Description:
 
-    This function flushes the entire translation buffer (TB) on the local
-    processor, informs sender we are done and finally waits for sender's
-    GO signal.
+    This is the target function for flushing the entire TB.
 
 Arguments:
 
-    Argument  - In reality a pointer to the FlushEntireTb argument block.
-    ReadyFlag - Pointer to flag to be set once TB flushed
+    SignalDone - Supplies a pointer to a variable that is cleared when the
+        requested operation has been performed.
+
+    Parameter1 - Parameter3 - Not used.
 
 Return Value:
 
@@ -167,19 +200,13 @@ Return Value:
 --*/
 
 {
-    ULONG   ReverseStall;
-    PKIPI_FLUSH_ENTIRE_TB FlushEntireTbArgument = Argument;
 
+    //
+    // Flush the entire TB on the current processor.
+    //
+
+    KiIpiSignalPacketDone(SignalDone);
     KeFlushCurrentTb();
-    ReverseStall = *FlushEntireTbArgument->ReverseStall;
-    *ReadyFlag = TRUE;
-
-    while (ReverseStall == *FlushEntireTbArgument->ReverseStall) {
-#if DBGMP
-        KiPollDebugger();
-#endif
-    }
-
     return;
 }
 
@@ -230,131 +257,115 @@ Return Value:
 --*/
 
 {
-    KIRQL OldIrql;
-    KAFFINITY TargetProcessors;
-    PKPRCB Prcb;
-    PKPROCESS CurrentProcess;
+
     ULONG Index;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+    PKPROCESS Process;
+    KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
-
-#ifdef NT_UP
+    ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);
 
     //
-    // Flush the specified entries from the TB, and set the specified
-    // page table entries to the specific value if a page table entry
-    // address array is psecified.
+    // Compute target set of processors.
     //
 
-    for (Index = 0; Index < Number; Index += 1) {
-        KiFlushSingleTb(Invalid, Virtual[Index]);
-        if (ARGUMENT_PRESENT(PtePointer)) {
+    Prcb = KeGetCurrentPrcb();
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        TargetProcessors = KeActiveProcessors;
+
+    } else {
+        KiLockContextSwap(&OldIrql);
+        Process = Prcb->CurrentThread->ApcState.Process;
+        TargetProcessors = Process->ActiveProcessors;
+    }
+
+    TargetProcessors &= ~Prcb->SetMember;
+
+    //
+    // If a page table entry address array is specified, then set the
+    // specified page table entries to the specific value.
+    //
+
+    if (ARGUMENT_PRESENT(PtePointer)) {
+        for (Index = 0; Index < Number; Index += 1) {
             *PtePointer[Index] = PteValue;
         }
     }
 
-#else
-
     //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
+    // If any target processors are specified, then send a flush multiple
+    // packet to the target set of processors.
     //
-
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
-
-    Prcb = KeGetCurrentPrcb();
-
-    if (AllProcessors) {
-        TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
-    } else {
-        CurrentProcess = Prcb->CurrentThread->ApcState.Process;
-        TargetProcessors = CurrentProcess->ActiveProcessors &
-                            ~Prcb->SetMember;
-    }
 
     if (TargetProcessors != 0) {
-        KiAcquireSpinLock (&KiFreezeExecutionLock);
-        KiIpiPacket.Arguments.FlushMultipleTb.Invalid = Invalid;
-        KiIpiPacket.Arguments.FlushMultipleTb.Number = Number;
-        KiIpiPacket.Arguments.FlushMultipleTb.VirtualAddress = Virtual;
-        KiIpiPacket.Arguments.FlushMultipleTb.ReverseStall =
-                            (PVULONG) &Prcb->IpiReverseStall;
+        KiIpiSendPacket(TargetProcessors,
+                        KiFlushTargetMultipleTb,
+                        (PVOID)Invalid,
+                        (PVOID)Number,
+                        (PVOID)Virtual);
 
-        KiIpiSendPacket(TargetProcessors, KiFlushTargetMultipleTb);
         IPI_INSTRUMENT_COUNT (Prcb->Number, FlushMultipleTb);
-
-        //
-        // Flush the specified entries from the TB on the current processor.
-        //
-
-        for (Index = 0; Index < Number; Index += 1) {
-            KiFlushSingleTb(Invalid, Virtual[Index]);
-        }
-
-        //
-        //  Stall until target processor(s) have also flush the TB entries
-        //
-
-        KiIpiStallOnPacketTargets();
-
-        //
-        // If a page table entry address array is specified, then set the
-        // specified page table entries to the specific value.
-        //
-
-        if (ARGUMENT_PRESENT(PtePointer)) {
-            for (Index = 0; Index < Number; Index += 1) {
-                *PtePointer[Index] = PteValue;
-            }
-        }
-
-        //
-        // Let the target processors go, and free ExecutionLock
-        //
-
-        Prcb->IpiReverseStall++;
-        KiReleaseSpinLock(&KiFreezeExecutionLock);
-
-    } else {
-
-        //
-        // There are no target processors, flush the specified entries
-        // from the current processors TB, and set the specified page
-        // table entries to the specific value if a page table entry
-        // address array is specified.
-        //
-
-        for (Index = 0; Index < Number; Index += 1) {
-            KiFlushSingleTb(Invalid, Virtual[Index]);
-            if (ARGUMENT_PRESENT(PtePointer)) {
-                *PtePointer[Index] = PteValue;
-            }
-        }
     }
 
-    KiReleaseSpinLock(&KiDispatcherLock);
-    KeLowerIrql(OldIrql);
-#endif
+    //
+    // Flush the specified entries from the TB on the current processor.
+    //
+
+    for (Index = 0; Index < Number; Index += 1) {
+        KiFlushSingleTb(Invalid, Virtual[Index]);
+    }
+
+    //
+    // Wait until all target processors have finished and complete packet.
+    //
+
+    if (TargetProcessors != 0) {
+        KiIpiStallOnPacketTargets();
+    }
+
+    //
+    // Release the context swap lock.
+    //
+
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
+    }
+
+    return;
 }
 
 VOID
 KiFlushTargetMultipleTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Invalid,
+    IN PVOID Number,
+    IN PVOID Virtual
     )
 
 /*++
 
 Routine Description:
 
-    This function flushes a single entry from translation buffer (TB) on
-    the local processor, informs sender we are done and finally waits
-    for sender's GO signal.
+    This is the target function for flushing multiple TB entries.
 
 Arguments:
 
-    Argument  - In reality a pointer to the FlushSingleTb argument block.
-    ReadyFlag - pointer to flag to set once KiFlushSingleTb has completed
+    SignalDone - Supplies a pointer to a variable that is cleared when the
+        requested operation has been performed.
+
+    Invalid - Supplies a bollean value that determines whether the virtual
+        address is invalid.
+
+    Number - Supplies the number of TB entries to flush.
+
+    Virtual - Supplies a pointer to an array of virtual addresses that
+        are within the pages whose translation buffer entries are to be
+        flushed.
 
 Return Value:
 
@@ -363,34 +374,29 @@ Return Value:
 --*/
 
 {
-    PKIPI_FLUSH_MULTIPLE_TB FlushMultipleTbArgument = Argument;
-    ULONG       ReverseStall, Index;
+
+    ULONG Index;
+    PVOID VirtualAddress[FLUSH_MULTIPLE_MAXIMUM];
 
     //
-    // Flush the specified entries from the TB on the current processor.
+    // Capture the virtual addresses that are to be flushed from the TB
+    // on the current processor and signal pack done.
     //
 
-    for (Index = 0; Index < FlushMultipleTbArgument->Number; Index += 1) {
-        KiFlushSingleTb(
-            FlushMultipleTbArgument->Invalid,
-            FlushMultipleTbArgument->VirtualAddress[Index]
-            );
+    for (Index = 0; Index < (ULONG) Number; Index += 1) {
+        VirtualAddress[Index] = ((PVOID *)(Virtual))[Index];
     }
 
+    KiIpiSignalPacketDone(SignalDone);
+
     //
-    // Pickup reverse stall count, then signal the processor is done
+    // Flush the specified virtual address for the TB on the current
+    // processor.
     //
 
-    ReverseStall = *FlushMultipleTbArgument->ReverseStall;
-    *ReadyFlag = TRUE;
-
-    while (ReverseStall == *FlushMultipleTbArgument->ReverseStall) {
-#if DBGMP
-        KiPollDebugger();
-#endif
+    for (Index = 0; Index < (ULONG) Number; Index += 1) {
+        KiFlushSingleTb((BOOLEAN)Invalid, VirtualAddress [Index]);
     }
-
-    return;
 }
 
 HARDWARE_PTE
@@ -435,113 +441,110 @@ Return Value:
 --*/
 
 {
+
     KIRQL OldIrql;
-    KAFFINITY TargetProcessors;
     PKPRCB Prcb;
-    PKPROCESS CurrentProcess;
+    PKPROCESS Process;
     HARDWARE_PTE OldPteValue;
+    KAFFINITY TargetProcessors;
 
-    //ASSERT(KeGetCurrentIrql() == DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() >= DISPATCH_LEVEL);
 
-#ifdef NT_UP
+    //
+    // Compute target set of processors.
+    //
 
-    KiFlushSingleTb(Invalid, Virtual);
+    Prcb = KeGetCurrentPrcb();
+    if (AllProcessors != FALSE) {
+        OldIrql = KeRaiseIrqlToSynchLevel();
+        TargetProcessors = KeActiveProcessors;
+
+    } else {
+        KiLockContextSwap(&OldIrql);
+        Process = Prcb->CurrentThread->ApcState.Process;
+        TargetProcessors = Process->ActiveProcessors;
+    }
+
+    TargetProcessors &= ~Prcb->SetMember;
+
+    //
+    // Capture the previous contents of the page table entry and set the
+    // page table entry to the new value.
+    //
 
     OldPteValue = *PtePointer;
     *PtePointer = PteValue;
 
-#else
-
     //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
+    // If any target processors are specified, then send a flush single
+    // packet to the target set of processors.
     //
-
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
-
-    Prcb = KeGetCurrentPrcb();
-
-    if (AllProcessors) {
-        TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
-    } else {
-        CurrentProcess = Prcb->CurrentThread->ApcState.Process;
-        TargetProcessors = CurrentProcess->ActiveProcessors &
-                            ~Prcb->SetMember;
-    }
 
     if (TargetProcessors != 0) {
-        KiAcquireSpinLock (&KiFreezeExecutionLock);
-        KiIpiPacket.Arguments.FlushSingleTb.Invalid = Invalid;
-        KiIpiPacket.Arguments.FlushSingleTb.VirtualAddress = Virtual;
-        KiIpiPacket.Arguments.FlushSingleTb.ReverseStall =
-                            (PVULONG) &Prcb->IpiReverseStall;
+        KiIpiSendPacket(TargetProcessors,
+                        KiFlushTargetSingleTb,
+                        (PVOID)Invalid,
+                        (PVOID)Virtual,
+                        NULL);
 
-        KiIpiSendPacket(TargetProcessors, KiFlushTargetSingleTb);
-        IPI_INSTRUMENT_COUNT (Prcb->Number, FlushSingleTb);
-
-        KiFlushSingleTb(Invalid, Virtual);
-
-        //
-        //  Stall until target processor(s) release us
-        //
-
-        KiIpiStallOnPacketTargets();
-
-        //
-        // Target processors have now flush the virtual address and
-        // are stalled.  Install new PteValue, and release any waiting
-        // processors
-        //
-
-        OldPteValue = *PtePointer;
-        *PtePointer = PteValue;
-
-        //
-        // Let the target processors go, and free ExecutionLock
-        //
-
-        Prcb->IpiReverseStall++;
-        KiReleaseSpinLock(&KiFreezeExecutionLock);
-
-    } else {
-        //
-        // There are no target processors, flush current processor,
-        // install new PteValue, and exit
-        //
-
-        KiFlushSingleTb(Invalid, Virtual);
-
-        OldPteValue = *PtePointer;
-        *PtePointer = PteValue;
+        IPI_INSTRUMENT_COUNT(Prcb->Number, FlushSingleTb);
     }
 
-    KiReleaseSpinLock(&KiDispatcherLock);
-    KeLowerIrql(OldIrql);
 
-#endif
+    //
+    // Flush the specified entry from the TB on the current processor.
+    //
+
+    KiFlushSingleTb(Invalid, Virtual);
+
+    //
+    // Wait until all target processors have finished and complete packet.
+    //
+
+    if (TargetProcessors != 0) {
+        KiIpiStallOnPacketTargets();
+    }
+
+    //
+    // Release the context swap lock.
+    //
+
+    if (AllProcessors != FALSE) {
+        KeLowerIrql(OldIrql);
+
+    } else {
+        KiUnlockContextSwap(OldIrql);
+    }
 
     return(OldPteValue);
-
 }
 
 VOID
 KiFlushTargetSingleTb (
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Invalid,
+    IN PVOID VirtualAddress,
+    IN PVOID Parameter3
     )
 
 /*++
 
 Routine Description:
 
-    This function flushes a single entry from translation buffer (TB) on
-    the local processor, informs sender we are done and finally waits
-    for sender's GO signal.
+    This is the target function for flushing a single TB entry.
 
 Arguments:
 
-    Argument  - In reality a pointer to the FlushSingleTb argument block.
-    ReadyFlag - pointer to flag to set once KiFlushSingleTb has completed
+    SignalDone Supplies a pointer to a variable that is cleared when the
+        requested operation has been performed.
+
+    Invalid - Supplies a bollean value that determines whether the virtual
+        address is invalid.
+
+    Virtual - Supplies a virtual address that is within the page whose
+        translation buffer entry is to be flushed.
+
+    Parameter3 - Not used.
 
 Return Value:
 
@@ -550,23 +553,13 @@ Return Value:
 --*/
 
 {
-    PKIPI_FLUSH_SINGLE_TB FlushSingleTbArgument = Argument;
-    ULONG       ReverseStall;
 
-    KiFlushSingleTb(
-        FlushSingleTbArgument->Invalid,
-        FlushSingleTbArgument->VirtualAddress
-        );
+    //
+    // Flush a single entry from the TB on the current processor.
+    //
 
-    ReverseStall = *FlushSingleTbArgument->ReverseStall;
-    *ReadyFlag = TRUE;
-
-    while (ReverseStall == *FlushSingleTbArgument->ReverseStall) {
-#if DBGMP
-        KiPollDebugger();
-#endif
-    }
-
-    return;
+    KiIpiSignalPacketDone(SignalDone);
+    KiFlushSingleTb((BOOLEAN)Invalid, (PVOID)VirtualAddress);
 }
-
+
+#endif

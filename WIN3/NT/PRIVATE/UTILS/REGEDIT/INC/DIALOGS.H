@@ -27,7 +27,7 @@
 #define IDD_BINARY                  706
 #define IDD_DECIMAL                 707
 #define IDD_HEX                     708
-#define IDHELP                      109
+#define IDB_HELP                    109
 #define IDD_BINARY_RULER            709
 #define IDD_VERTICAL_RULER          710
 #define GET_KEY_DLG                 1000

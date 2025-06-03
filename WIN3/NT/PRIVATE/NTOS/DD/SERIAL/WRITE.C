@@ -304,24 +304,15 @@ Return Value:
             // as a write.
             //
 
-            TotalTime.QuadPart = UInt32x32To64(
-                            (IrpSp->MajorFunction == IRP_MJ_WRITE)?
-                                (IrpSp->Parameters.Write.Length):
-                                (1),
-                            Timeouts.WriteTotalTimeoutMultiplier
-                            );
-
-            TotalTime = RtlLargeIntegerAdd(
-                            TotalTime,
-                            RtlConvertUlongToLargeInteger(
-                                Timeouts.WriteTotalTimeoutConstant
-                                )
-                            );
-
-            TotalTime = RtlExtendedIntegerMultiply(
-                            TotalTime,
-                            -10000
-                            );
+            TotalTime.QuadPart =
+                ((LONGLONG)((UInt32x32To64(
+                                 (IrpSp->MajorFunction == IRP_MJ_WRITE)?
+                                     (IrpSp->Parameters.Write.Length):
+                                     (1),
+                                 Timeouts.WriteTotalTimeoutMultiplier
+                                 )
+                                 + Timeouts.WriteTotalTimeoutConstant)))
+                * -10000;
 
         }
 
@@ -605,14 +596,16 @@ Return Value:
 
                 if (Xc->Timeout) {
 
+                    LARGE_INTEGER delta;
+
+                    delta.QuadPart = -((LONGLONG)UInt32x32To64(
+                                                     1000,
+                                                     Xc->Timeout
+                                                     ));
+
                     KeSetTimer(
                         &Extension->XoffCountTimer,
-                        RtlLargeIntegerNegate(
-                            RtlEnlargedUnsignedMultiply(
-                                10000,
-                                Xc->Timeout
-                                )
-                            ),
+                        delta,
                         &Extension->XoffCountTimeoutDpc
                         );
 

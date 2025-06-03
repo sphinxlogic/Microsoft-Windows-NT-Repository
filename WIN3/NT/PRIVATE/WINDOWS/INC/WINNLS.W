@@ -2,13 +2,13 @@
 *                                                                         *
 * winnls.h -- NLS procedure declarations, constant definitions and macros *
 *                                                                         *
-* Copyright (c) 1991-1994, Microsoft Corp. All rights reserved.           *
+* Copyright (c) 1991-1996, Microsoft Corp. All rights reserved.           *
 *                                                                         *
 **************************************************************************/
 
 /*++ BUILD Version: 0003    // Increment this if a change has global effects    ;internal_NT
                                                                                 ;internal_NT
-Copyright (c) 1991, Microsoft Corporation                                       ;internal_NT
+Copyright (c) 1991-1996, Microsoft Corporation                                  ;internal_NT
                                                                                 ;internal_NT
 Module Name:                                                                    ;internal_NT
                                                                                 ;internal_NT
@@ -18,10 +18,6 @@ Abstract:                                                                       
                                                                                 ;internal_NT
     Procedure declarations, constant definitions, and macros for the            ;internal_NT
     NLS component.                                                              ;internal_NT
-                                                                                ;internal_NT
-Author:                                                                         ;internal_NT
-                                                                                ;internal_NT
-    Julie Bennett (julieb) 31-May-1991                                          ;internal_NT
                                                                                 ;internal_NT
 --*/                                                                            ;internal_NT
 
@@ -133,48 +129,58 @@ extern "C" {
 /*
  *  String Flags.
  */
-#define NORM_IGNORECASE         0x00000001  /* ignore case */
-#define NORM_IGNORENONSPACE     0x00000002  /* ignore nonspacing chars */
-#define NORM_IGNORESYMBOLS      0x00000004  /* ignore symbols */
+#define NORM_IGNORECASE           0x00000001  /* ignore case */
+#define NORM_IGNORENONSPACE       0x00000002  /* ignore nonspacing chars */
+#define NORM_IGNORESYMBOLS        0x00000004  /* ignore symbols */
 
-#define NORM_IGNOREKANATYPE     0x00010000  /* ignore kanatype */
-#define NORM_IGNOREWIDTH        0x00020000  /* ignore width */
+#define NORM_IGNOREKANATYPE       0x00010000  /* ignore kanatype */
+#define NORM_IGNOREWIDTH          0x00020000  /* ignore width */
+
+#define NORM_STOP_ON_NULL         0x10000000   /* stop at the null termination */    ;internal_NT
 
 
 /*
  *  Locale Independent Mapping Flags.
  */
-#define MAP_FOLDCZONE           0x00000010  /* fold compatibility zone chars */
-#define MAP_PRECOMPOSED         0x00000020  /* convert to precomposed chars */
-#define MAP_COMPOSITE           0x00000040  /* convert to composite chars */
-#define MAP_FOLDDIGITS          0x00000080  /* all digits to ASCII 0-9 */
+#define MAP_FOLDCZONE             0x00000010  /* fold compatibility zone chars */
+#define MAP_PRECOMPOSED           0x00000020  /* convert to precomposed chars */
+#define MAP_COMPOSITE             0x00000040  /* convert to composite chars */
+#define MAP_FOLDDIGITS            0x00000080  /* all digits to ASCII 0-9 */
 
 
 /*
  *  Locale Dependent Mapping Flags.
  */
-#define LCMAP_LOWERCASE         0x00000100  /* lower case letters */
-#define LCMAP_UPPERCASE         0x00000200  /* upper case letters */
-#define LCMAP_SORTKEY           0x00000400  /* WC sort key (normalize) */
-#define LCMAP_BYTEREV           0x00000800  /* byte reversal */
+#define LCMAP_LOWERCASE           0x00000100  /* lower case letters */
+#define LCMAP_UPPERCASE           0x00000200  /* upper case letters */
+#define LCMAP_SORTKEY             0x00000400  /* WC sort key (normalize) */
+#define LCMAP_BYTEREV             0x00000800  /* byte reversal */
 
-#define LCMAP_HIRAGANA          0x00100000  /* map katakana to hiragana */
-#define LCMAP_KATAKANA          0x00200000  /* map hiragana to katakana */
-#define LCMAP_HALFWIDTH         0x00400000  /* map double byte to single byte */
-#define LCMAP_FULLWIDTH         0x00800000  /* map single byte to double byte */
+#define LCMAP_HIRAGANA            0x00100000  /* map katakana to hiragana */
+#define LCMAP_KATAKANA            0x00200000  /* map hiragana to katakana */
+#define LCMAP_HALFWIDTH           0x00400000  /* map double byte to single byte */
+#define LCMAP_FULLWIDTH           0x00800000  /* map single byte to double byte */
+
+#define LCMAP_LINGUISTIC_CASING   0x01000000  /* use linguistic rules for casing */
+
+#define LCMAP_SIMPLIFIED_CHINESE  0x02000000  /* map traditional chinese to simplified chinese */
+#define LCMAP_TRADITIONAL_CHINESE 0x04000000  /* map simplified chinese to traditional chinese */
+
+#define LCMAP_IGNOREDBCS          0x01000000  /* don't casemap DBCS characters */        ;internal_win40
 
 
 /*
  *  Locale Enumeration Flags.
  */
-#define LCID_INSTALLED          0x00000001  /* installed locale ids */
-#define LCID_SUPPORTED          0x00000002  /* supported locale ids */
+#define LCID_INSTALLED            0x00000001  /* installed locale ids */
+#define LCID_SUPPORTED            0x00000002  /* supported locale ids */
+
 
 /*
  *  Code Page Enumeration Flags.
  */
-#define CP_INSTALLED            0x00000001  /* installed code page ids */
-#define CP_SUPPORTED            0x00000002  /* supported code page ids */
+#define CP_INSTALLED              0x00000001  /* installed code page ids */
+#define CP_SUPPORTED              0x00000002  /* supported code page ids */
 
 
 /*
@@ -207,7 +213,7 @@ extern "C" {
  *                        went
  *                        were
  */
-#define SORT_STRINGSORT         0x00001000  /* use string sort method */
+#define SORT_STRINGSORT           0x00001000  /* use string sort method */
 
 
 /*
@@ -216,6 +222,9 @@ extern "C" {
 #define CP_ACP               0              /* default to ANSI code page */
 #define CP_OEMCP             1              /* default to OEM  code page */
 #define CP_MACCP             2              /* default to MAC  code page */
+
+#define CP_UTF7              65000          /* UTF-7 translation */
+#define CP_UTF8              65001          /* UTF-8 translation */
 
 
 /*
@@ -276,21 +285,25 @@ extern "C" {
  */
 #define LOCALE_NOUSEROVERRIDE       0x80000000   /* do not use user overrides */
 #define LOCALE_USE_CP_ACP           0x40000000   /* use the system ACP */
+#define LOCALE_RETURN_NUMBER        0x20000000   /* return number instead of string */    ;internal_NT
 
 #define LOCALE_ILANGUAGE            0x00000001   /* language id */
 #define LOCALE_SLANGUAGE            0x00000002   /* localized name of language */
 #define LOCALE_SENGLANGUAGE         0x00001001   /* English name of language */
 #define LOCALE_SABBREVLANGNAME      0x00000003   /* abbreviated language name */
 #define LOCALE_SNATIVELANGNAME      0x00000004   /* native name of language */
+
 #define LOCALE_ICOUNTRY             0x00000005   /* country code */
 #define LOCALE_SCOUNTRY             0x00000006   /* localized name of country */
 #define LOCALE_SENGCOUNTRY          0x00001002   /* English name of country */
 #define LOCALE_SABBREVCTRYNAME      0x00000007   /* abbreviated country name */
 #define LOCALE_SNATIVECTRYNAME      0x00000008   /* native name of country */
+
 #define LOCALE_IDEFAULTLANGUAGE     0x00000009   /* default language id */
 #define LOCALE_IDEFAULTCOUNTRY      0x0000000A   /* default country code */
 #define LOCALE_IDEFAULTCODEPAGE     0x0000000B   /* default oem code page */
 #define LOCALE_IDEFAULTANSICODEPAGE 0x00001004   /* default ansi code page */
+#define LOCALE_IDEFAULTMACCODEPAGE  0x00001011   /* default mac code page */
 
 #define LOCALE_SLIST                0x0000000C   /* list item separator */
 #define LOCALE_IMEASURE             0x0000000D   /* 0 = metric, 1 = US */
@@ -385,7 +398,9 @@ extern "C" {
 #define LOCALE_INEGSEPBYSPACE       0x00000057   /* mon sym sep by space from neg amt */
 
 ;begin_winver_400
-#define LOCALE_FONTSIGNATURE       0x00000058   /* font signature */
+#define LOCALE_FONTSIGNATURE        0x00000058   /* font signature */
+#define LOCALE_SISO639LANGNAME      0x00000059   /* ISO abbreviated language name */
+#define LOCALE_SISO3166CTRYNAME     0x0000005A   /* ISO abbreviated country name */
 ;end_winver_400
 
 /*
@@ -472,6 +487,9 @@ extern "C" {
 #define CAL_JAPAN            3         /* Japanese Emperor Era calendar */
 #define CAL_TAIWAN           4         /* Republic of China Era calendar */
 #define CAL_KOREA            5         /* Korean Tangun Era calendar */
+#define CAL_HIJRI            6         /* Hijri (Arabic Lunar) calendar */
+#define CAL_THAI             7         /* Thai calendar */
+#define CAL_HEBREW           8         /* Hebrew calendar */
 
 
 
@@ -830,7 +848,10 @@ LCID
 WINAPI
 GetUserDefaultLCID(void);
 
-
+WINBASEAPI							;internal_win40
+WINAPI								;internal_win40
+InvalidateNLSCache(void);					;internal_win40
+								;internal_win40
 /*
  *  Locale Independent APIs.
  */
@@ -849,7 +870,7 @@ GetStringTypeEx%(
  *  NOTE: The parameters for GetStringTypeA and GetStringTypeW are
  *        NOT the same.  The W version was shipped in NT 3.1.  The
  *        A version was then shipped in 16-bit OLE with the wrong
- *        parameters (ported from Chicago).  To be compatible, we
+ *        parameters (ported from Win95).  To be compatible, we
  *        must break the relationship between the A and W versions
  *        of GetStringType.  There will be NO function call for the
  *        generic GetStringType.
@@ -910,3 +931,4 @@ EnumSystemCodePages%(
 
 #endif   // _WINNLS_
 #endif   // _WINNLSP_ ;internal_NT
+

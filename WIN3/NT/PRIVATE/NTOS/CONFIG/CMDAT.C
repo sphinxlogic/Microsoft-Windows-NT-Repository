@@ -168,11 +168,18 @@ UNICODE_STRING CmRegistryMachineHardwareDescriptionName = { 0 };
 UNICODE_STRING CmRegistryMachineHardwareDescriptionSystemName = { 0 };
 UNICODE_STRING CmRegistryMachineHardwareDeviceMapName = { 0 };
 UNICODE_STRING CmRegistryMachineHardwareResourceMapName = { 0 };
+UNICODE_STRING CmRegistryMachineHardwareOwnerMapName = { 0 };
 UNICODE_STRING CmRegistryMachineSystemName = { 0 };
 UNICODE_STRING CmRegistryMachineSystemCurrentControlSet = { 0 };
+UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumName = { 0 };
+UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumRootName = { 0 };
+UNICODE_STRING CmRegistryMachineSystemCurrentControlSetServices = { 0 };
+UNICODE_STRING CmRegistryMachineSystemCurrentControlSetHardwareProfilesCurrent = { 0 };
+UNICODE_STRING CmRegistryMachineSystemCurrentControlSetControlClass = { 0 };
 UNICODE_STRING CmRegistryUserName = { 0 };
 UNICODE_STRING CmRegistrySystemCloneName = { 0 };
 UNICODE_STRING CmpSystemFileName = { 0 };
+UNICODE_STRING CmSymbolicLinkValueName = { 0 };
 
 PWCHAR CmpRegistryRootString = L"\\REGISTRY";
 PWCHAR CmpRegistryMachineString = L"\\REGISTRY\\MACHINE";
@@ -186,10 +193,22 @@ PWCHAR CmpRegistryMachineHardwareDeviceMapString =
                     L"\\REGISTRY\\MACHINE\\HARDWARE\\DEVICEMAP";
 PWCHAR CmpRegistryMachineHardwareResourceMapString =
                     L"\\REGISTRY\\MACHINE\\HARDWARE\\RESOURCEMAP";
+PWCHAR CmpRegistryMachineHardwareOwnerMapString =
+                    L"\\REGISTRY\\MACHINE\\HARDWARE\\OWNERMAP";
 PWCHAR CmpRegistryMachineSystemString =
                     L"\\REGISTRY\\MACHINE\\SYSTEM";
 PWCHAR CmpRegistryMachineSystemCurrentControlSetString =
                     L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET";
+PWCHAR CmpRegistryMachineSystemCurrentControlSetEnumString =
+                    L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\ENUM";
+PWCHAR CmpRegistryMachineSystemCurrentControlSetEnumRootString =
+                    L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\ENUM\\ROOT";
+PWCHAR CmpRegistryMachineSystemCurrentControlSetServicesString =
+                    L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\SERVICES";
+PWCHAR CmpRegistryMachineSystemCurrentControlSetHardwareProfilesCurrentString =
+                    L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\HARDWARE PROFILES\\CURRENT";
+PWCHAR CmpRegistryMachineSystemCurrentControlSetControlClassString =
+                    L"\\REGISTRY\\MACHINE\\SYSTEM\\CURRENTCONTROLSET\\CONTROL\\CLASS";
 PWCHAR CmpRegistryUserString = L"\\REGISTRY\\USER";
 PWCHAR CmpRegistrySystemCloneString = L"\\REGISTRY\\MACHINE\\CLONE";
 PWCHAR CmpRegistrySystemFileNameString = L"SYSTEM";
@@ -197,6 +216,8 @@ PWCHAR CmpRegistryPerflibString = L"\\REGISTRY\\MACHINE\\SOFTWARE\\MICROSOFT\\WI
 
 PWCHAR CmpProcessorControl = L"ProcessorControl";
 PWCHAR CmpControlSessionManager = L"Control\\Session Manager";
+PWCHAR CmpSymbolicLinkValueName = L"SymbolicLinkValue";
+
 
 HIVE_LIST_ENTRY CmpMachineHiveList[] = {
     { L"HARDWARE", L"MACHINE\\", NULL, HIVE_VOLATILE },

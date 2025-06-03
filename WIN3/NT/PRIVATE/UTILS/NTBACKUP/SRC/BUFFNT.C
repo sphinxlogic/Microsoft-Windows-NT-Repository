@@ -249,11 +249,13 @@ BUF_PTR  BM_Alloc(
 /*
 ** add new BUF to pool
 */
-   EnQueueElem( &pool_ptr->list_header, &BM_BMQElem( buf_ptr ), FALSE );
+   if ( buf_ptr ) {
+      EnQueueElem( &pool_ptr->list_header, &BM_BMQElem( buf_ptr ), FALSE );
 /*
-** update pool memory count
+**    update pool memory count
 */
-   pool_ptr->memory_used += BM_RequiredSize( br_ptr );
+      pool_ptr->memory_used += BM_RequiredSize( br_ptr );
+   }   
 
    return buf_ptr;
 }

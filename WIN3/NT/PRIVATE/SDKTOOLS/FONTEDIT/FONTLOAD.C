@@ -566,7 +566,7 @@ FontLoad(
 #endif
         }
     }
-    font.WidthBytes = (WORD) (((offset + 15) >> 4) << 1);
+    font.WidthBytes = (WORD) CJ_DIB_SCAN(offset);
        /* fixup NEWFON error */
 
     GlobalFree(lpFontBody);
@@ -804,6 +804,12 @@ FontSave(
     size = cHeader + cTable;
     iMax = font.LastChar - font.FirstChar + 1;
 
+#ifdef JAPAN
+    // Recreate maximum character width when the font is proportional
+    // since the WIDTH.. command may grow maxwidth but may not reduce.
+    if (font.Family & 1)
+	font.MaxWidth = 0;
+#endif
     /* create offsets table of font file */
     for (i = 0; i <= iMax; i++){
 
@@ -834,6 +840,18 @@ FontSave(
 			pjGlyphData += lSizeOfOldGlyph30;
          }
 
+#ifdef JAPAN // DBCS_FIX
+        // update max width
+        if(font.Family & 1 ) {
+            if(width > font.MaxWidth )
+                font.MaxWidth = (WORD)width ;
+        }
+        if(i == 0x81 && font.CharSet == SHIFTJIS_CHARSET) {
+            if(width * 2 > font.MaxWidth) {
+                font.MaxWidth = (WORD)width * 2 ;
+            }
+        }
+#endif
          charSize = height * ((width + 7) >> 3);  /* size in bytes */
 
          if ((size + charSize) < size){           /* Overflow? */
@@ -1202,7 +1220,7 @@ ResizeWidths(
 
     /* Create a new bitmap to move the font definition bits into */
     width = (font.LastChar - font.FirstChar + 1) * wChar; /* In pixels */
-    width = (width + 15) >> 4 << 1;     /* In even bytes */
+    width = CJ_DIB_SCAN(width);
     if (!GetNewMap(width, font.PixHeight))
         return (FALSE);
 
@@ -1228,6 +1246,10 @@ ResizeWidths(
     font.HorizRes = (WORD) Proport(font.HorizRes, wChar, font.PixWidth, 999);
     font.WidthBytes = (WORD) width;            /* Misc. ajustments */
     font.PixWidth = font.AvgWidth = (font.MaxWidth = (WORD) wChar);
+
+#ifdef JAPAN
+    font.MaxWidth = (WORD) wChar * 2;	// set MaxWidth as DBCS width.
+#endif
 
     return (TRUE);
 }
@@ -1264,7 +1286,7 @@ SpreadWidths(
         newWidths[i] = Proport(oldWidth, wChar, font.MaxWidth, wBoxLim - 1);
         width += newWidths[i];
         }
-    width = (width + 15) >> 4 << 1;     /* In even bytes */
+    width = CJ_DIB_SCAN(width);
     if (!GetNewMap(width, font.PixHeight))
         return(FALSE);
 
@@ -1339,6 +1361,11 @@ NewAverage(
     if (font.AvgWidth == 0) {
        font.AvgWidth++;
     }
+#ifdef JAPAN
+    if (font.AvgWidth < 1) {
+        font.AvgWidth = 1;
+    }
+#endif
 }
 
 
@@ -1425,7 +1452,7 @@ NewFirstChar(
     wDefault = offsets[font.DefaultChar + 1] - offsets[font.DefaultChar];
     dw = wDefault * (font.FirstChar - first);           /* Extra width */
     width = offsets[font.LastChar + 1] + dw;    /* New width (pixels) */
-    width = (width + 15) >> 4 << 1;             /* Width - even bytes */
+    width = CJ_DIB_SCAN(width);
     if (!GetNewMap(width, font.PixHeight))
         return(FALSE);           /* New work area */
 
@@ -1486,7 +1513,7 @@ ShrinkFont(
 
     dw = offsets[first] - offsets[font.FirstChar];      /* left shift if any */
     widthPixels = offsets[last + 1] - offsets[first];   /* Width in pixels */
-    width = (widthPixels + 15) >> 4 << 1;               /* Width - even bytes */
+    width = CJ_DIB_SCAN(widthPixels);
     if (!GetNewMap(width, font.PixHeight))
         return;           /* New work area.*/
 
@@ -1545,7 +1572,7 @@ NewLastChar(
     dw = wDefault * (last - font.LastChar);             /* Extra width */
     offset = offsets[font.LastChar + 1];        /* Current end */
     width = offset + dw;                        /* New width (pixels) */
-    width = (width + 15) >> 4 << 1;             /* Width - even bytes */
+    width = CJ_DIB_SCAN(width);
     if (!GetNewMap(width, font.PixHeight))
         return(FALSE);           /* New work area */
 
@@ -1604,7 +1631,7 @@ CharWidth(
     nChars = font.LastChar - font.FirstChar + 1;        /* Character count */
     dw = wBox - (offsets[iChar + 1] - offsets[iChar]);  /* Width change */
     width = offsets[font.LastChar + 1] + dw;            /* New width (pixels) */
-    width = (width + 15) >> 4 << 1;                     /* Width - even bytes */
+    width = CJ_DIB_SCAN(width);
     if (!GetNewMap(width, font.PixHeight))
         return(FALSE);                   /* New work area */
 

@@ -84,7 +84,7 @@ Return Value:
     } else {
 
         Ccb->SecurityQos.Length              = sizeof(SECURITY_QUALITY_OF_SERVICE);
-        Ccb->SecurityQos.ImpersonationLevel  = SecurityIdentification;
+        Ccb->SecurityQos.ImpersonationLevel  = SecurityImpersonation;
         Ccb->SecurityQos.ContextTrackingMode = SECURITY_DYNAMIC_TRACKING;
         Ccb->SecurityQos.EffectiveOnly       = TRUE;
     }

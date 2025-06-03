@@ -81,4 +81,3 @@ RCFLAGS     = /DNOTREADY
 CFLAGS=$(CFLAGS) /D_INC_OLE
 !endif
 
-

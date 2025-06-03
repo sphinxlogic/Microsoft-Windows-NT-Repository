@@ -89,6 +89,11 @@
 #define MSR_RI          0x40       // bit for RI
 #define MSR_DCD         0x80       // bit for DCD
 
+// Win3.1 constants for RLSD, CTS, and DSR timeout support
+#define CE_RLSDTO       0x0080
+#define CE_CTSTO        0x0020
+#define CE_DSRTO        0x0040
+
 // constants for the Event Word 
 #define EV_CTSS     0x00000400 // bit for Win3.1 showing CTS state
 #define EV_DSRS     0x00000800 // bit for Win3.1 showing DSR state
@@ -97,6 +102,7 @@
 
 #define ERR_XMIT         0x4000 // can't xmit a char Win3.1
 #define INFINITE_TIMEOUT 0xFFFF // infinite timeout Win3.1
+#define IGNORE_TIMEOUT   0x0000 // Win3.1 ignore RLSD, CTS, & DSR timeouts
 
 #define COMBUF 2 // max. # of bytes we'll queue for WriteComm()
 
@@ -138,6 +144,10 @@ typedef struct _WOWPORT {
     PCOMDEB16  lpComDEB16;     // flat address to above
   // for XonLim & XoffLim checking in SetCommState
     DWORD      cbInQ;          // Actual size of in Queue set in WU32OpenComm
+  // for RLSD, CTS, DSR timeout support
+    WORD       RLSDTimeout;    // max time in msec to wait for RLSD (0->ignore)
+    WORD       CTSTimeout;     // max time in msec to wait for CTS (0->ignore)
+    WORD       DSRTimeout;     // max time in msec to wait for DSR (0->ignore)
 } WOWPORT, *PWOWPORT;
 
 // Table of above structs, one entry needed for each comm port

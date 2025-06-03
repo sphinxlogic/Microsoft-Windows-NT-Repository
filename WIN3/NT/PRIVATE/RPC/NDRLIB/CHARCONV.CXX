@@ -82,6 +82,11 @@ unsigned char ebcdic_to_ascii[] =
 0x38, 0x39, 0x7c, 0x3f, 0x3f, 0x3f, 0x3f, 0x3f
 };
 
+#if !defined(DOS) || defined(WIN)
+//
+// Due to the DOS NDR1/NDR2 split, this function is now defined for DOS
+// in ndr20\dos
+//
 size_t RPC_ENTRY
 MIDL_wchar_strlen (
     IN wchar_t      s[]
@@ -97,6 +102,7 @@ MIDL_wchar_strlen (
 
     return i;
 }
+#endif
 
 void RPC_ENTRY
 MIDL_wchar_strcpy (

@@ -15,12 +15,11 @@
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
+#include <snmputil.h>
 #include "dhcpmib.h"
 
 //--------------------------- SELF-DEPENDENCY -- ONE #include"module.h" -----
@@ -53,18 +52,14 @@ _cdecl main(
     DWORD  timeZeroReference;
     HANDLE hPollForTrapEvent;
     View   supportedView;
-    UINT   Val;
+//    UINT   Val;
     DWORD  Choice;
     DWORD  Oper;
-    BYTE   Name[255];
 
     INT numQueries = 10;
 
-    extern INT nLogLevel;
-    extern INT nLogType;
-
-    nLogLevel = 15;
-    nLogType  = 1;
+    SnmpSvcSetLogLevel(SNMP_LOG_TRACE);
+    SnmpSvcSetLogType(SNMP_OUTPUT_TO_CONSOLE);
 
     // avoid compiler warning...
     UNREFERENCED_PARAMETER(argumentCount);
@@ -121,7 +116,7 @@ _cdecl main(
          RFC1157VarBindList varBinds;
          AsnInteger         errorStatus;
          AsnInteger         errorIndex;
-	 DWORD i;
+	// DWORD i;
          UINT OID_Prefix[] = { 1, 3, 6, 1, 4, 1, 311, 2 };
 	 UINT OID_Suffix1[] = { 1, 2, 0};
 	 UINT OID_Suffix2[] = { 1, 3, 0};
@@ -134,11 +129,11 @@ _cdecl main(
 
 	 errorStatus = 0;
 	 errorIndex  = 0;
-         varBinds.list = (RFC1157VarBind *)malloc( sizeof(RFC1157VarBind));
-//         varBinds.list = (RFC1157VarBind *)malloc( sizeof(RFC1157VarBind) * 4);
+         varBinds.list = (RFC1157VarBind *)SnmpUtilMemAlloc( sizeof(RFC1157VarBind));
+//         varBinds.list = (RFC1157VarBind *)SnmpUtilMemAlloc( sizeof(RFC1157VarBind) * 4);
 //         varBinds.len = 4;
          varBinds.len = 1;
-         SNMP_oidcpy( &varBinds.list[0].name, &MIB_OidPrefix );
+         SnmpUtilOidCpy( &varBinds.list[0].name, &MIB_OidPrefix );
          varBinds.list[0].value.asnType = ASN_NULL;
 
 	 printf("Walk ? (1 for yes) -- ");
@@ -147,28 +142,28 @@ _cdecl main(
 	 {
           do
           {
-	    printf( "\nGET-NEXT of:  " ); SNMP_oiddisp( &varBinds.list[0].name );
+	    printf( "\nGET-NEXT of:  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
                                         printf( "   " );
             (*queryAddr)( (AsnInteger)ASN_RFC1157_GETNEXTREQUEST,
                           &varBinds,
 		          &errorStatus,
 		          &errorIndex
                           );
-            printf( "\n  is  " ); SNMP_oiddisp( &varBinds.list[0].name );
+            printf( "\n  is  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
 	    if ( errorStatus )
 	       {
                printf( "\nErrorstatus:  %lu\n\n", errorStatus );
 	       }
 	    else
 	       {
-               printf( "\n  =  " ); SNMP_printany( &varBinds.list[0].value );
+               printf( "\n  =  " ); SnmpUtilPrintAsnAny( &varBinds.list[0].value );
 	       }
 //            putchar( '\n' );
 
          } while ( varBinds.list[0].name.ids[MIB_PREFIX_LEN-1] == 2 );
 
          // Free the memory
-         SNMP_FreeVarBindList( &varBinds );
+         SnmpUtilVarBindListFree( &varBinds );
 	 }
        } // block
 
@@ -176,8 +171,7 @@ _cdecl main(
        {
 
 
-       MIB_ENTRY *pMyMib;
-       char String[80];
+//       char String[80];
        DWORD i;
        RFC1157VarBindList varBinds;
        UINT OID_Prefix[] = { 1, 3, 6, 1, 4, 1, 311, 2 };
@@ -187,11 +181,9 @@ _cdecl main(
        AsnInteger errorStatus;
        AsnInteger errorIndex;
        UINT	Code;
-       DWORD Group;
-       DWORD VarNum;
 
 
-        varBinds.list = (RFC1157VarBind *)malloc( sizeof(RFC1157VarBind) );
+        varBinds.list = (RFC1157VarBind *)SnmpUtilMemAlloc( sizeof(RFC1157VarBind) );
         varBinds.len = 1;
 Loop:
        printf("Enter Code for Group \nPar\t1\nScope\t2\nCode is --");
@@ -200,7 +192,7 @@ Loop:
        {
 	  goto Loop;
        }
-LoopLT:
+//LoopLT:
 #if 0
        printf("Leaf or Table access (0/1) -- ");
        scanf("%d", &Code);
@@ -234,11 +226,11 @@ LoopLT:
 	//
 	// Construct OID with complete prefix for comparison purposes
 	//
-	SNMP_oidcpy( &varBinds.list[0].name, &MIB_OidPrefix );
-	SNMP_oidappend( &varBinds.list[0].name, &MIB_Suffix );
+	SnmpUtilOidCpy( &varBinds.list[0].name, &MIB_OidPrefix );
+	SnmpUtilOidAppend( &varBinds.list[0].name, &MIB_Suffix );
  
-	SNMP_oiddisp( &varBinds.list[0].name );
-Loop1:
+	SnmpUtilPrintOid( &varBinds.list[0].name );
+//Loop1:
 	printf("\nGET/GET_NEXT - 0/? -- ");
 	scanf("%d", &Oper);
 #if 0
@@ -315,10 +307,10 @@ Loop1:
 	{
 		case(0): 
 			Code = ASN_RFC1157_GETREQUEST;
-       			printf( "GET:  " ); SNMP_oiddisp( &varBinds.list[0].name );
+       			printf( "GET:  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
 			break;
 		default:
-       			printf( "GETNEXT:  " ); SNMP_oiddisp( &varBinds.list[0].name );
+       			printf( "GETNEXT:  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
 			Code = ASN_RFC1157_GETNEXTREQUEST;
 			break;
 
@@ -335,16 +327,16 @@ Loop1:
           if ( errorStatus == SNMP_ERRORSTATUS_NOERROR )
           {
             printf( "Value:  " );
-	    SNMP_printany( &varBinds.list[0].value ); putchar( '\n' );
-	    SNMP_oidfree(&varBinds.list[0].name);
+	    SnmpUtilPrintAsnAny( &varBinds.list[0].value ); putchar( '\n' );
+	    SnmpUtilOidFree(&varBinds.list[0].name);
 	  }
        }
 	
 #if 0
-       varBinds.list = (RFC1157VarBind *)malloc( sizeof(RFC1157VarBind) );
+       varBinds.list = (RFC1157VarBind *)SnmpUtilMemAlloc( sizeof(RFC1157VarBind) );
        varBinds.len = 1;
        varBinds.list[0].name.idLength = sizeof itemn / sizeof(UINT);
-       varBinds.list[0].name.ids = (UINT *)malloc( sizeof(UINT)*
+       varBinds.list[0].name.ids = (UINT *)SnmpUtilMemAlloc( sizeof(UINT)*
                                              varBinds.list[0].name.idLength );
        memcpy( varBinds.list[0].name.ids, &itemn,
                sizeof(UINT)*varBinds.list[0].name.idLength );
@@ -352,8 +344,8 @@ Loop1:
        printf("Value ? -- ");
        scanf("%d", &Val);
        varBinds.list[0].value.asnValue.number = Val;
-       printf( "SET:  " ); SNMP_oiddisp( &varBinds.list[0].name );
-       printf( " to " ); SNMP_printany( &varBinds.list[0].value );
+       printf( "SET:  " ); SnmpUtilPrintOid( &varBinds.list[0].name );
+       printf( " to " ); SnmpUtilPrintAsnAny( &varBinds.list[0].value );
        (*queryAddr)( ASN_RFC1157_SETREQUEST,
                               &varBinds,
 			      &errorStatus,
@@ -369,15 +361,15 @@ Loop1:
        if ( errorStatus == SNMP_ERRORSTATUS_NOERROR )
        {
           printf( "Value:  " );
-	  SNMP_printany( &varBinds.list[0].value ); putchar( '\n' );
-	  SNMP_oidfree(&varBinds.list[0].name);
+	  SnmpUtilPrintAsnAny( &varBinds.list[0].value ); putchar( '\n' );
+	  SnmpUtilOidFree(&varBinds.list[0].name);
 	}
        printf( "\nGET Errorstatus:  %lu\n\n", errorStatus );
 
 #endif
 #if 0
        // Free the memory
-       SNMP_FreeVarBindList( &varBinds );
+       SnmpUtilVarBindListFree( &varBinds );
 #endif
        
        printf( "\n\n" );
@@ -395,4 +387,3 @@ Loop1:
 
 
 //-------------------------------- END --------------------------------------
-

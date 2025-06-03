@@ -28,7 +28,8 @@ Environment:
 #undef _MIPS_
 #undef ALPHA
 #undef _ALPHA_
-
+#undef PPC
+#undef _PPC_
 
 //-----------------------------------------------------------------------------------------
 //
@@ -149,7 +150,43 @@ extern "C" {
 #if !defined(_M_ALPHA)
 #undef _ALPHA_
 #endif
+//-----------------------------------------------------------------------------------------
+//
+// ppc
+//
+//-----------------------------------------------------------------------------------------
+#elif defined(TARGET_PPC)
 
+#pragma message( "Compiling for target = ppc" )
+
+#define _PPC_
+
+#if defined(_M_PPC)
+#define PPC
+#endif
+
+#if defined(_M_IX86)
+#define __unaligned
+#endif
+
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+#include <ntos.h>
+#include <ppcinst.h>
+#include <windows.h>
+#include <imagehlp.h>
+
+#if !defined(_M_PPC)
+#undef PPC
+#undef _PPC_
+#endif
+
+#if defined(_M_IX86)
+#undef _cdecl
+#undef UNALIGNED
+#define UNALIGNED
+#endif
 
 #else
 

@@ -26,7 +26,7 @@ Revision History:
 #define DELL_DGX_1_ID_HIGH 0x1140
 #define DELL_DGX_2_ID_HIGH 0x0160
 
-#define PANEL_MESSAGE  0x20544e20  // " NT "
+#define PANEL_MESSAGE  " NT "
 
 #define CURSOR_WIDTH   64
 #define CURSOR_HEIGHT  64
@@ -39,6 +39,12 @@ Revision History:
 #define DAC_HWCURSORPOS    0x000031c
 #define DAC_PALETTE        0x0000400
 #define DAC_HWCURSORSHAPE  0x0000800
+
+// macro string constants to prevent mishandling
+
+#define CHIPNAME1          L"DGX mod 1"
+#define CHIPNAME2          L"DGX mod 2"
+#define DELL_DGX_DACNAME   L"Inmos G332"
 
 
 //

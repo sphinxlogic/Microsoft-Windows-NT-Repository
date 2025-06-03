@@ -25,9 +25,18 @@ Author:
 #include "secrun.hxx"
 #include "volume.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
 enum PHYSTYPE { // ptype
-	PHYS_REMOVABLE,		// physical drive is removable
-	PHYS_FIXED = 0x80	// physical drive is fixed
+        PHYS_REMOVABLE,         // physical drive is removable
+        PHYS_FIXED = 0x80       // physical drive is fixed
 };
 
 //
@@ -37,9 +46,10 @@ enum PHYSTYPE { // ptype
 
 #define CHKDSK_EXIT_SUCCESS         0
 #define CHKDSK_EXIT_ERRS_FIXED      1
-#define CHKDSK_EXIT_COULD_NOT_CHK   2
-#define CHKDSK_EXIT_ERRS_NOT_FIXED  2
-#define CHKDSK_EXIT_COULD_NOT_FIX   2
+#define CHKDSK_EXIT_MINOR_ERRS      2       // whether or not "/f"
+#define CHKDSK_EXIT_COULD_NOT_CHK   3
+#define CHKDSK_EXIT_ERRS_NOT_FIXED  3
+#define CHKDSK_EXIT_COULD_NOT_FIX   3
 
 
 DECLARE_CLASS( SUPERAREA );
@@ -52,7 +62,8 @@ class SUPERAREA : public SECRUN {
 
     public:
 
-	    VIRTUAL
+            VIRTUAL
+            IFSUTIL_EXPORT
         ~SUPERAREA(
             );
 
@@ -68,7 +79,7 @@ class SUPERAREA : public SECRUN {
             IN OUT  PMESSAGE        Message,
             IN      PCWSTRING       Label       DEFAULT NULL,
             IN      ULONG           ClusterSize DEFAULT 0,
-            IN 	    ULONG	    VirtualSize DEFAULT 0
+            IN      ULONG           VirtualSize DEFAULT 0
             ) PURE;
 
         VIRTUAL
@@ -80,7 +91,10 @@ class SUPERAREA : public SECRUN {
             IN      BOOLEAN     OnlyIfDirty     DEFAULT FALSE,
             IN      BOOLEAN     RecoverFree     DEFAULT FALSE,
             IN      BOOLEAN     RecoverAlloc    DEFAULT FALSE,
-            OUT     PULONG      ExitStatus      DEFAULT NULL
+            IN      BOOLEAN     ResizeLogFile   DEFAULT FALSE,
+            IN      ULONG       LogFileSize     DEFAULT 0,
+            OUT     PULONG      ExitStatus      DEFAULT NULL,
+            IN      PCWSTRING   DriveLetter     DEFAULT NULL
             ) PURE;
 
         VIRTUAL
@@ -92,10 +106,11 @@ class SUPERAREA : public SECRUN {
 
         VIRTUAL
         PARTITION_SYSTEM_ID
-	    QuerySystemId(
+            QuerySystemId(
             ) CONST PURE;
 
         STATIC
+        IFSUTIL_EXPORT
         VOLID
         ComputeVolId(
             IN  VOLID   Seed    DEFAULT 0
@@ -103,9 +118,11 @@ class SUPERAREA : public SECRUN {
 
     protected:
 
-		DECLARE_CONSTRUCTOR( SUPERAREA );
+                IFSUTIL_EXPORT
+                DECLARE_CONSTRUCTOR( SUPERAREA );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PMEM                Mem,
@@ -116,9 +133,9 @@ class SUPERAREA : public SECRUN {
 
 #if !defined( _SETUP_LOADER_ )
 
-	    NONVIRTUAL
-	    BOOLEAN
-	    SetSystemId(
+            NONVIRTUAL
+            BOOLEAN
+            SetSystemId(
             );
 
 #endif // _SETUP_LOADER_
@@ -127,10 +144,10 @@ class SUPERAREA : public SECRUN {
 
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct(
-			);
+                NONVIRTUAL
+                VOID
+                Construct(
+                        );
 
         NONVIRTUAL
         VOID
@@ -183,11 +200,11 @@ Routine Description:
 
     The current on disk file system subtypes are:
 
-		UNKNOWN, no format done yet
-		12 bit fat
-		16 bit fat on a < 32M volume
-		16 bit fat on a >= 32M volume
-		IFS
+                UNKNOWN, no format done yet
+                12 bit fat
+                16 bit fat on a < 32M volume
+                16 bit fat on a >= 32M volume
+                IFS
 
    OS/2 2.0 does not support this interface so we must set the
    information via the MBR, NT will provide an ioctl to set this

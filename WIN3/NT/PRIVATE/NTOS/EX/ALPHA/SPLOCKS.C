@@ -23,7 +23,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
+#include "exp.h"
 
 
 
@@ -43,7 +43,6 @@ KSPIN_LOCK  CcBcbSpinLock = 0;
 
 KSPIN_LOCK  ExpLuidLock = 0;                    // luid.c
 KSPIN_LOCK  PoolTraceLock = 0;                  // pool.c
-KSPIN_LOCK  ExpEnvironmentLock = 0;             // sysenv.c
 
 //
 // Static SpinLocks from ntos\io\iodata.c
@@ -67,7 +66,6 @@ KSPIN_LOCK  KiFreezeExecutionLock = 0;
 KSPIN_LOCK  KiFreezeLockBackup = 0;
 ULONG       KiHardwareTrigger = 0;
 KSPIN_LOCK  KiPowerNotifyLock = 0;
-KSPIN_LOCK  KiPowerStatusLock = 0;
 KSPIN_LOCK  KiProfileLock = 0;
 
 //
@@ -89,4 +87,3 @@ KSPIN_LOCK  PsLoadedModuleSpinLock = 0;
 //
 
 KSPIN_LOCK  FsRtlStrucSupSpinLock = 0;          // fsrtlp.c
-KSPIN_LOCK  FsRtlStackOverflowSpinLock = 0;     // stackovf.c

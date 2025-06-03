@@ -9,8 +9,8 @@ Module Name :
 Abstract :
 
     This file contains the routines for marshalling an array's or a structure's
-	embedded pointers and for computing conformance and variance counts and 
-	union switch values.
+    embedded pointers and for computing conformance and variance counts and 
+    union switch values.
 
 Author :
 
@@ -22,142 +22,144 @@ Revision History :
 
 #include "ndrp.h"
 
+
 PFORMAT_STRING
 NdrpEmbeddedPointerMarshall( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-	uchar *				pMemory,
-	PFORMAT_STRING		pFormat )
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
-	
-	Marshalls an array's or a structure's embedded pointers.
+
+    Marshalls an array's or a structure's embedded pointers.
 
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
     pMemory     - Pointer to the structure or array whose embedded pointers 
-				  are being marshalled. 
-	pFormat     - The format string pointer layout.  Should point to the 
-				  pointer layout's beginning FC_PP character upon entry. 
+                  are being marshalled. 
+    pFormat     - The format string pointer layout.  Should point to the 
+                  pointer layout's beginning FC_PP character upon entry. 
 
 Return :
 
-	Format string pointer after the pointer layout.
+    Format string pointer after the pointer layout.
 
  --*/
 {
-    uchar **		ppMemPtr;
-	uchar * 		pBufPtr;
-	uchar *			pBufferMark;
-	uchar *			pMemorySave;
-	uchar *			pBufferSave;
+    uchar **        ppMemPtr;
+    uchar *         pBufPtr;
+    uchar *         pBufferMark;
+    uchar *         pMemorySave;
+    uchar *         pBufferSave;
     long            MaxCountSave, OffsetSave;
 
     MaxCountSave = pStubMsg->MaxCount;
     OffsetSave = pStubMsg->Offset;
 
-	//
-	// Check if we're handling pointers in a complex struct or array, 
-	// and re-set the stub message buffer pointer if so.
-	//
-	if ( pStubMsg->PointerBufferMark )
-		{
-		pBufferSave = pStubMsg->Buffer;
+    //
+    // Check if we're handling pointers in a complex struct or array, 
+    // and re-set the stub message buffer pointer if so.
+    //
+    if ( pStubMsg->PointerBufferMark )
+        {
+        pBufferSave = pStubMsg->Buffer;
 
-		pStubMsg->Buffer = pStubMsg->PointerBufferMark;
-	
-		pStubMsg->PointerBufferMark = 0;
-		}
-	else
-		pBufferSave = 0;
+        pStubMsg->Buffer = pStubMsg->PointerBufferMark;
+    
+        pStubMsg->PointerBufferMark = 0;
+        }
+    else
+        pBufferSave = 0;
 
-	pMemorySave = pStubMsg->Memory;
+    pMemorySave = pStubMsg->Memory;
 
-	// This is where the embedding structure or array begins in the buffer.
-	pBufferMark = pStubMsg->BufferMark;
+    // This is where the embedding structure or array begins in the buffer.
+    pBufferMark = pStubMsg->BufferMark;
 
-	//
-	// The Memory field in the stub message keeps track of the pointer to 
-	// the current embedding structure or array.  This is needed to handle 
-	// size/length pointers, so that we can get a pointer to the current 
-	// embedding struct when computing conformance and variance.
-	//
-	pStubMsg->Memory = pMemory;
+    //
+    // The Memory field in the stub message keeps track of the pointer to 
+    // the current embedding structure or array.  This is needed to handle 
+    // size/length pointers, so that we can get a pointer to the current 
+    // embedding struct when computing conformance and variance.
+    //
+    pStubMsg->Memory = pMemory;
 
-	// Skip FC_PP and FC_PAD.
-	pFormat += 2;
+    // Skip FC_PP and FC_PAD.
+    pFormat += 2;
 
     for (;;) 
-		{
+        {
 
         if ( *pFormat == FC_END ) 
-			{
-			pStubMsg->Memory = pMemorySave;
+            {
+            pStubMsg->Memory = pMemorySave;
 
-			if ( pBufferSave )
-				{
-				pStubMsg->PointerBufferMark = pStubMsg->Buffer;
+            if ( pBufferSave )
+                {
+                pStubMsg->PointerBufferMark = pStubMsg->Buffer;
 
-				pStubMsg->Buffer = pBufferSave;
-				}
+                pStubMsg->Buffer = pBufferSave;
+                }
 
             return pFormat;
-			}
+            }
 
-		//
-		// Check for FC_FIXED_REPEAT and FC_VARIABLE_REPEAT.
-		//
-		if ( *pFormat != FC_NO_REPEAT ) 
-			{
+        //
+        // Check for FC_FIXED_REPEAT and FC_VARIABLE_REPEAT.
+        //
+        if ( *pFormat != FC_NO_REPEAT ) 
+            {
             pStubMsg->MaxCount = MaxCountSave;
             pStubMsg->Offset = OffsetSave;
 
             pStubMsg->BufferMark = pBufferMark;
 
-			pFormat = NdrpEmbeddedRepeatPointerMarshall( pStubMsg,
-											 		     pMemory,
-											 		     pFormat );
-			// Continue to the next pointer.
-			continue;
-			} 
+            pFormat = NdrpEmbeddedRepeatPointerMarshall( pStubMsg,
+                                                         pMemory,
+                                                         pFormat );
+            // Continue to the next pointer.
+            continue;
+            } 
 
         // Compute the pointer to the pointer to marshall.
         ppMemPtr = (uchar **)(pMemory + *((signed short *)(pFormat + 2)));
 
-		//
+        //
         // Compute the location in the buffer where the pointer's value will be 
-		// marshalled.  Needed for full pointers.
-		//
+        // marshalled.  Needed for full pointers.
+        //
         pBufPtr = pBufferMark + *((signed short *)(pFormat + 4));
 
-		// Increment to the pointer description.
-		pFormat += 6;
+        // Increment to the pointer description.
+        pFormat += 6;
 
-		//
-		// Now marshall the pointer.  
-		//
-		NdrpPointerMarshall( pStubMsg,
-							 pBufPtr,
-		  					 *ppMemPtr,
-		  					 pFormat );
+        //
+        // Now marshall the pointer.  
+        //
+        NdrpPointerMarshall( pStubMsg,
+                             pBufPtr,
+                             *ppMemPtr,
+                             pFormat );
 
-		// Increment to the next pointer description.
-		pFormat += 4;
+        // Increment to the next pointer description.
+        pFormat += 4;
 
-    	} // for
+        } // for
 }
 
+
 PFORMAT_STRING
 NdrpEmbeddedRepeatPointerMarshall( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-	uchar *				pMemory,
-	PFORMAT_STRING		pFormat )
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
-	
-	Marshalls an array's embedded pointers.
+
+    Marshalls an array's embedded pointers.
 
 Arguments :
 
@@ -167,226 +169,270 @@ Arguments :
 
 Return :
 
-	Format string pointer after the pointer layout.
+    Format string pointer after the pointer layout.
 
 --*/
 {
-	uchar **		ppMemPtr;
-	uchar * 		pBufPtr;
-	PFORMAT_STRING	pFormatSave;
-	uchar *			pMemorySave;
-	uchar *			pBufferMark;
-    ulong			RepeatCount, RepeatIncrement, Pointers, PointersSave;
+    uchar **        ppMemPtr;
+    uchar *         pBufPtr;
+    PFORMAT_STRING  pFormatSave;
+    uchar *         pMemorySave;
+    uchar *         pBufferMark;
+    ulong           RepeatCount, RepeatIncrement, Pointers, PointersSave;
 
-	pMemorySave = pStubMsg->Memory;
+    pMemorySave = pStubMsg->Memory;
 
-	//
-	// This is where the current embedding structure or array begins in 
-	// the buffer.
-	//
-	pBufferMark = pStubMsg->BufferMark;
+    //
+    // This is where the current embedding structure or array begins in 
+    // the buffer.
+    //
+    pBufferMark = pStubMsg->BufferMark;
 
-	// Get the number of shipped elements in the array.
-	switch ( *pFormat ) 
-		{
-		case FC_FIXED_REPEAT :
-			pFormat += 2;
+    // Get the number of shipped elements in the array.
+    switch ( *pFormat ) 
+        {
+        case FC_FIXED_REPEAT :
+            pFormat += 2;
 
-			RepeatCount = *((ushort *)pFormat);
+            RepeatCount = *((ushort *)pFormat);
 
-			break;
+            break;
 
-		case FC_VARIABLE_REPEAT :
-			RepeatCount = pStubMsg->MaxCount;
+        case FC_VARIABLE_REPEAT :
+            RepeatCount = pStubMsg->MaxCount;
 
-			//
-			// Check if this variable repeat instance also has a variable
-			// offset (this would be the case for a conformant varying array
-			// of pointers).  If so then increment the memory pointer by the
-			// increment size time the variance offset.
-			//
-			if ( pFormat[1] == FC_VARIABLE_OFFSET ) 
-				pMemory += *((ushort *)(pFormat + 2)) * pStubMsg->Offset;
+            //
+            // Check if this variable repeat instance also has a variable
+            // offset (this would be the case for a conformant varying array
+            // of pointers).  If so then increment the memory pointer by the
+            // increment size time the variance offset.
+            //
+            if ( pFormat[1] == FC_VARIABLE_OFFSET ) 
+                pMemory += *((ushort *)(pFormat + 2)) * pStubMsg->Offset;
 
-			// else pFormat[1] == FC_FIXED_OFFSET - do nothing
-			
-			break;
+            // else pFormat[1] == FC_FIXED_OFFSET - do nothing
 
-		default :
-			NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerMarshall : bad format char");
-		}
+            break;
 
-	// Increment format string to increment field.
-	pFormat += 2;
+        default :
+            NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerMarshall : bad format char");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
+        }
 
-	// Get the increment amount between successive pointers.
-	RepeatIncrement = *((ushort *)pFormat)++;
+    // Increment format string to increment field.
+    pFormat += 2;
 
-	//
-	// Add the offset to the beginning of this array to the Memory
-	// pointer.  This is the offset from the current embedding structure
-	// or array to the array whose pointers we're marshalling.
-	//
-	pStubMsg->Memory += *((ushort *)pFormat)++;
+    // Get the increment amount between successive pointers.
+    RepeatIncrement = *((ushort *)pFormat)++;
 
-	// Get the number of pointers in this repeat instance.
-	PointersSave = Pointers = *((ushort *)pFormat)++;
+    //
+    // Add the offset to the beginning of this array to the Memory
+    // pointer.  This is the offset from the current embedding structure
+    // or array to the array whose pointers we're marshalling.
+    //
+    pStubMsg->Memory += *((ushort *)pFormat)++;
 
-	pFormatSave = pFormat;
+    // Get the number of pointers in this repeat instance.
+    PointersSave = Pointers = *((ushort *)pFormat)++;
 
-	//
-	// Loop over the number of shipped elements of the array.
-	//
-	for ( ; RepeatCount--;  
-			pBufferMark += RepeatIncrement,
-			pMemory += RepeatIncrement,
-			pStubMsg->Memory += RepeatIncrement ) 
-		{
-		pFormat = pFormatSave;
-		Pointers = PointersSave;
+    pFormatSave = pFormat;
 
-		//
-		// Loop over the number of pointer per array element (could be 
-		// greater than one for an array of structures).
-		//
-		for ( ; Pointers--; ) 
-			{
-   			ppMemPtr = (uchar **)(pMemory + *((signed short *)pFormat)++); 
+    //
+    // Loop over the number of shipped elements of the array.
+    //
+    for ( ; RepeatCount--;  
+            pBufferMark += RepeatIncrement,
+            pMemory += RepeatIncrement,
+            pStubMsg->Memory += RepeatIncrement ) 
+        {
+        pFormat = pFormatSave;
+        Pointers = PointersSave;
 
-   			pBufPtr = pBufferMark + *((signed short *)pFormat)++;
+        //
+        // Loop over the number of pointer per array element (could be 
+        // greater than one for an array of structures).
+        //
+        for ( ; Pointers--; ) 
+            {
+            ppMemPtr = (uchar **)(pMemory + *((signed short *)pFormat)++); 
 
-			NdrpPointerMarshall( pStubMsg,
-						 		 pBufPtr,
-						 		 *ppMemPtr,
-						 		 pFormat );
+            pBufPtr = pBufferMark + *((signed short *)pFormat)++;
 
-			pFormat += 4;
-			}
-		}
+            NdrpPointerMarshall( pStubMsg,
+                                 pBufPtr,
+                                 *ppMemPtr,
+                                 pFormat );
 
-	pStubMsg->Memory = pMemorySave;
+            pFormat += 4;
+            }
+        }
 
-	// Return the format string pointer past the pointer descriptions.
-	return pFormatSave + PointersSave * 8;
+    pStubMsg->Memory = pMemorySave;
+
+    // Return the format string pointer past the pointer descriptions.
+    return pFormatSave + PointersSave * 8;
 }
 
+
 ulong 
 NdrpComputeConformance ( 
-	PMIDL_STUB_MESSAGE	pStubMsg,
-	uchar *				pMemory,
-	PFORMAT_STRING		pFormat )
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
 
-	This routine computes the conformant size for an array or the switch_is
-	value for a union.
+    This routine computes the conformant size for an array or the switch_is
+    value for a union.
 
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
     pMemory     - Pointer to the array, string, or union whose size or switch_is
-				  is being computed.  This is ignored for top level parameters.
+                  is being computed.  This is ignored for top level parameters.
     pFormat     - Format string description of the array, string, or union.
 
 Return :
 
-	The array or string size or the union switch_is.
+    The array or string size or the union switch_is.
 
 --*/
 {
-	void *		pCount;
-	long		Count;
+    void *          pCount;
+    long            Count;
 
-	static uchar	Increments[] = 
-							{ 
-							4, 			// Conformant array.
-							4, 			// Conformant varying array.
-						 	0, 0, 		// Fixed arrays - unused.
-							0, 0, 		// Varying arrays - unused.
-							4, 			// Complex array.
+    static uchar    Increments[] = 
+                            { 
+                            4,              // Conformant array.
+                            4,              // Conformant varying array.
+                            0, 0,           // Fixed arrays - unused.
+                            0, 0,           // Varying arrays - unused.
+                            4,              // Complex array.
 
-							2,          // Conformant char string. 
-                            2,          // Conformant byte string.
-                            4,          // Conformant stringable struct. 
-                            2,	        // Conformant wide char string.
+                            2,              // Conformant char string. 
+                            2,              // Conformant byte string.
+                            4,              // Conformant stringable struct. 
+                            2,              // Conformant wide char string.
 
-							0, 0, 0, 0, // Non-conformant strings - unused.
+                            0, 0, 0, 0,     // Non-conformant strings - unused.
 
-							0,			// Encapsulated union - unused. 
-							2,			// Non-encapsulated union.
-							2,			// Byte count pointer.
-							0, 0, 		// Xmit/Rep as - unused.
-							2			// Interface pointer.
-							};
+                            0,              // Encapsulated union - unused. 
+                            2,              // Non-encapsulated union.
+                            2,              // Byte count pointer.
+                            0, 0,           // Xmit/Rep as - unused.
+                            2               // Interface pointer.
+                            };
 
-	//
-	// Advance the format string to the size_is, switch_is, iid_is, or
-	// byte count description.
-	//
-	pFormat += Increments[*pFormat - FC_CARRAY];
+    //
+    // Advance the format string to the size_is, switch_is, iid_is, or
+    // byte count description.
+    //
+    pFormat += Increments[*pFormat - FC_CARRAY];
 
-	//
-	// Check for constant size/switch.
-	//
-	if ( (*pFormat & 0xf0) == FC_CONSTANT_CONFORMANCE )
-		{
-		//
-		// The size/switch is contained in the lower three bytes of the 
-		// long currently pointed to by pFormat.
-		//
-		Count = (long)pFormat[1] << 16;
-		Count |= (long) *((ushort *)(pFormat + 2));
+    pCount = 0;
 
-		goto ComputeConformanceEnd;
-		}
+    //
+    // First check if this is a callback.
+    //
+    if ( pFormat[1] == FC_CALLBACK ) 
+        {
+        uchar *     pOldStackTop;
+        ushort      Index;
 
-	//
-	// If we're computing the size of an embedded sized pointer then we
-	// use the memory pointer in the stub message, which points to the 
-	// beginning of the embedding structure.
-	//
-	if ( (*pFormat & 0xf0) == FC_POINTER_CONFORMANCE )
-		pMemory = pStubMsg->Memory;
+        // Index into expression callback routines table.
+        Index = *((ushort *)(pFormat + 2));
 
-	//
-	// First check if this is a callback.
-	//
-	if ( pFormat[1] == FC_CALLBACK ) 
-		{
-		uchar *	pOldStackTop;
-		ushort	Index;
+        NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval != 0,
+                   "NdrpComputeConformance : no expr eval routines");
+        NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval[Index] != 0,
+                   "NdrpComputeConformance : bad expr eval routine index");
 
-		// Index into expression callback routines table.
-		Index = *((ushort *)(pFormat + 2));
+        pOldStackTop = pStubMsg->StackTop;
 
-		NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval != 0,
-				   "NdrpComputeConformance : no expr eval routines");
-		NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval[Index] != 0,
-				   "NdrpComputeConformance : bad expr eval routine index");
+        //
+        // The callback routine uses the StackTop field of the stub message
+        // to base it's offsets from.  So if this is a complex attribute for 
+        // an embedded field of a structure then set StackTop equal to the 
+        // pointer to the structure.
+        //
+        if ( (*pFormat & 0xf0) != FC_TOP_LEVEL_CONFORMANCE ) 
+            {
+            if ( (*pFormat & 0xf0) == FC_POINTER_CONFORMANCE )
+                pMemory = pStubMsg->Memory;
+            pStubMsg->StackTop = pMemory;
+            }
 
-		pOldStackTop = pStubMsg->StackTop;
+        //
+        // This call puts the result in pStubMsg->MaxCount.
+        //
+        (*pStubMsg->StubDesc->apfnExprEval[Index])( pStubMsg );
 
-		//
-		// The callback routine uses the StackTop field of the stub message
-		// to base it's offsets from.  So if this is a complex attribute for 
-		// an embedded field of a structure then set StackTop equal to the 
-		// pointer to the structure.
-		//
-		if ( (*pFormat & 0xf0) != FC_TOP_LEVEL_CONFORMANCE ) 
-			{
-			pStubMsg->StackTop = pMemory;
-			}
+        pStubMsg->StackTop = pOldStackTop;
 
-		//
-		// This call puts the result in pStubMsg->MaxCount.
-		//
-		(*pStubMsg->StubDesc->apfnExprEval[Index])( pStubMsg );
+        return pStubMsg->MaxCount;
+        }
 
-		pStubMsg->StackTop = pOldStackTop;
+    if ( (*pFormat & 0xf0) == FC_NORMAL_CONFORMANCE )
+        {
+        // Get the address where the conformance variable is in the struct.
+        pCount = pMemory + *((signed short *)(pFormat + 2));
+        goto ComputeConformantGetCount;
+        }
 
-		return pStubMsg->MaxCount;
-		}
+    //
+    // Get a pointer to the conformance describing variable.
+    //
+    if ( (*pFormat & 0xf0) == FC_TOP_LEVEL_CONFORMANCE ) 
+        {
+        //
+        // Top level conformance.  For /Os stubs, the stubs put the max
+        // count in the stub message.  For /Oi stubs, we get the max count
+        // via an offset from the stack top.
+        //
+        if ( pStubMsg->StackTop ) 
+            {
+            pCount = pStubMsg->StackTop + *((signed short *)(pFormat + 2));
+            goto ComputeConformantGetCount;
+            }
+        else
+            {
+            //
+            // If this is top level conformance with /Os then we don't have 
+            // to do anything, the proper conformance count is placed in the 
+            // stub message inline in the stubs.
+            //
+            return pStubMsg->MaxCount;
+            }
+        }
+
+    //
+    // If we're computing the size of an embedded sized pointer then we
+    // use the memory pointer in the stub message, which points to the 
+    // beginning of the embedding structure.
+    //
+    if ( (*pFormat & 0xf0) == FC_POINTER_CONFORMANCE )
+        {
+        pMemory = pStubMsg->Memory;
+        pCount = pMemory + *((signed short *)(pFormat + 2));
+        goto ComputeConformantGetCount;
+        }
+
+    //
+    // Check for constant size/switch.
+    //
+    if ( (*pFormat & 0xf0) == FC_CONSTANT_CONFORMANCE )
+        {
+        //
+        // The size/switch is contained in the lower three bytes of the 
+        // long currently pointed to by pFormat.
+        //
+        Count = (long)pFormat[1] << 16;
+        Count |= (long) *((ushort *)(pFormat + 2));
+
+        goto ComputeConformanceEnd;
+        }
 
     //
     // Check for conformance of a multidimensional array element in 
@@ -414,208 +460,240 @@ Return :
         return pStubMsg->MaxCount;
         }
 
-	//
-	// Get a pointer to the conformance describing variable.
-	//
-	if ( (*pFormat & 0xf0) == FC_TOP_LEVEL_CONFORMANCE ) 
-		{
-		//
-		// Top level conformance.  For /Os stubs, the stubs put the max
-		// count in the stub message.  For /Oi stubs, we get the max count
-		// via an offset from the stack top.
-		//
-		if ( pStubMsg->StackTop ) 
-			pCount = pStubMsg->StackTop + *((signed short *)(pFormat + 2));
-		else
-			{
-			//
-			// If this is top level conformance with /Os then we don't have 
-			// to do anything, the proper conformance count is placed in the 
-			// stub message inline in the stubs.
-			//
-			return pStubMsg->MaxCount;
-			}
-		}
-	else // *pFormat & 0xf0 == FC_NORMAL_CONFORMANCE
-		{
-		// Get the address where the conformance variable is in the struct.
-		pCount = pMemory + *((signed short *)(pFormat + 2));
-		}
+ComputeConformantGetCount:
 
-	//
-	// Must check now if there is a dereference op.
-	//
-	if ( pFormat[1] == FC_DEREFERENCE )
-		{
-		pCount = *(void **)pCount;
-		}
+    //
+    // Must check now if there is a dereference op.
+    //
+    if ( pFormat[1] == FC_DEREFERENCE )
+        {
+        pCount = *(void **)pCount;
+        }
 
-	//
-	// Now get the conformance count.
-	//
-	switch ( *pFormat & 0x0f ) 
-		{
-		case FC_ULONG :
-		case FC_LONG :
-			Count = *((long *)pCount);
-			break;
+    //
+    // Now get the conformance count.
+    //
+    switch ( *pFormat & 0x0f ) 
+        {
+        case FC_ULONG :
+        case FC_LONG :
+            Count = *((long *)pCount);
+            break;
 
-		case FC_USHORT :
-			Count = (long) *((ushort *)pCount);
-			break;
+        case FC_ENUM16:
+            #if defined(__RPC_MAC__)
+                // Take it from the other half of the long.
 
-		case FC_SHORT :
-			Count = (long) *((short *)pCount);
-			break;
+                Count = (long) *( ((short *)pCount) + 1);
+                break;
+            #endif
 
-		case FC_USMALL :
-			Count = (long) *((uchar *)pCount);
-			break;
+            // For non Mac platforms just fall thru to ushort
 
-		case FC_SMALL :
-			Count = (long) *((char *)pCount);
-			break;
+        case FC_USHORT :
+            Count = (long) *((ushort *)pCount);
+            break;
 
-		default :
-			NDR_ASSERT(0,"NdrpComputeConformance : bad count type");
-		} 
+        case FC_SHORT :
+            Count = (long) *((short *)pCount);
+            break;
 
-	//
-	// Check the operator.
-	//
-	switch ( pFormat[1] ) 
-		{
-		case FC_DIV_2 :
-			Count /= 2;
-			break;
-		case FC_MULT_2 :
-			Count *= 2;
-			break;
-		case FC_SUB_1 :
-			Count -= 1;
-			break;
-		case FC_ADD_1 :
-			Count += 1;
-			break;
-		default :
-			// OK
-			break;
-		}
+        case FC_USMALL :
+            Count = (long) *((uchar *)pCount);
+            break;
+
+        case FC_SMALL :
+            Count = (long) *((char *)pCount);
+            break;
+
+        default :
+            NDR_ASSERT(0,"NdrpComputeConformance : bad count type");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
+        } 
+
+    //
+    // Check the operator.
+    //
+    switch ( pFormat[1] ) 
+        {
+        case FC_DIV_2 :
+            Count /= 2;
+            break;
+        case FC_MULT_2 :
+            Count *= 2;
+            break;
+        case FC_SUB_1 :
+            Count -= 1;
+            break;
+        case FC_ADD_1 :
+            Count += 1;
+            break;
+        default :
+            // OK
+            break;
+        }
 
 ComputeConformanceEnd:
 
-	if ( pStubMsg ) 
-		pStubMsg->MaxCount = (ulong) Count;
+    if ( pStubMsg ) 
+        pStubMsg->MaxCount = (ulong) Count;
 
-	return (ulong) Count;
+    return (ulong) Count;
 }
 
+
 void 
-NdrpComputeVariance ( PMIDL_STUB_MESSAGE	pStubMsg,
-				  	  uchar *				pMemory,
-				  	  PFORMAT_STRING		pFormat )
+NdrpComputeVariance ( 
+    PMIDL_STUB_MESSAGE  pStubMsg,
+    uchar *             pMemory,
+    PFORMAT_STRING      pFormat )
 /*++
 
 Routine Description :
 
-	Computes the variance (offset and actual count) for an array.
+    Computes the variance (offset and actual count) for an array.
 
 Arguments :
 
     pStubMsg    - Pointer to the stub message.
     pMemory     - Pointer to the array whose variance is being computed.  This
-			      is unused for a top level parameter.
+                  is unused for a top level parameter.
     pFormat     - Format string description of the array.
 
 Return :
 
-	None.
+    None.
 
 --*/
 {
-	void *		pLength;
-	long		Length;
+    void *  pLength;
+    long    Length;
 
-	//
-	// Advance the format string to the variance description.
-	//
-		
-	static uchar	Increments[] = { 8, 
-									 0, 0, 8, 12, 
-									 8 };
+    //
+    // Advance the format string to the variance description.
+    //
 
-	pFormat += Increments[*pFormat - FC_CVARRAY];
+    static uchar    Increments[] = { 8,     // Conformant varying array.
+                                     0, 0,  // Fixed arrays - unsed.
+                                     8, 12, // Varying array.
+                                     8      // Complex array. 
+                                   };
 
-	//
-	// Check for constant length.
-	//
-	if ( (*pFormat & 0xf0) == FC_CONSTANT_VARIANCE )
-		{
-		//
-		// The length is contained in the lower three bytes of the 
-		// long currently pointed to by pFormat.
-		//
-		Length = (long)pFormat[1] << 16;
-		Length |= (long) *((ushort *)(pFormat + 2));
+    pFormat += Increments[*pFormat - FC_CVARRAY];
 
-		goto ComputeVarianceEnd;
-		}
+    pLength = 0;
 
-	//
-	// If we're computing the length of an embedded size/length pointer then we
-	// use the memory pointer in the stub message, which points to the 
-	// beginning of the embedding structure.
-	//
-	if ( (*pFormat & 0xf0) == FC_POINTER_VARIANCE )
-		pMemory = pStubMsg->Memory;
+    //
+    // First check if this is a callback.
+    //
+    if ( pFormat[1] == FC_CALLBACK ) 
+        {
+        long        OldMaxCount;
+        uchar *     pOldStackTop;
+        ushort      Index;
 
-	//
-	// First check if this is a callback.
-	//
-	if ( pFormat[1] == FC_CALLBACK ) 
-		{
-		long	OldMaxCount;
-		uchar *	pOldStackTop;
-		ushort	Index;
+        Index = *((ushort *)(pFormat + 2));
 
-		Index = *((ushort *)(pFormat + 2));
+        NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval != 0,
+                   "NdrpComputeConformance : no expr eval routines");
+        NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval[Index] != 0,
+                   "NdrpComputeConformance : bad expr eval routine index");
 
-		NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval != 0,
-				   "NdrpComputeConformance : no expr eval routines");
-		NDR_ASSERT(pStubMsg->StubDesc->apfnExprEval[Index] != 0,
-				   "NdrpComputeConformance : bad expr eval routine index");
+        pOldStackTop = pStubMsg->StackTop;
 
-		pOldStackTop = pStubMsg->StackTop;
+        // This gets trampled by the callback routine.
+        OldMaxCount = pStubMsg->MaxCount;
 
-		// This gets trampled by the callback routine.
-		OldMaxCount = pStubMsg->MaxCount;
+        //
+        // The callback routine uses the StackTop field of the stub message
+        // to base it's offsets from.  So if this is a complex attribute for 
+        // an embedded field of a structure then set StackTop equal to the 
+        // pointer to the structure.
+        //
+        if ( (*pFormat & 0xf0) != FC_TOP_LEVEL_CONFORMANCE ) 
+            {
+            if ( (*pFormat & 0xf0) == FC_POINTER_VARIANCE )
+                pMemory = pStubMsg->Memory;
+            pStubMsg->StackTop = pMemory;
+            }
 
-		//
-		// The callback routine uses the StackTop field of the stub message
-		// to base it's offsets from.  So if this is a complex attribute for 
-		// an embedded field of a structure then set StackTop equal to the 
-		// pointer to the structure.
-		//
-		if ( (*pFormat & 0xf0) != FC_TOP_LEVEL_CONFORMANCE ) 
-			{
-			pStubMsg->StackTop = pMemory;
-			}
+        //
+        // This puts the computed offset in pStubMsg->Offset and the length 
+        // in pStubMsg->MaxCount.
+        //
+        (*pStubMsg->StubDesc->apfnExprEval[Index])( pStubMsg );
 
-		//
-		// This puts the computed offset in pStubMsg->Offset and the length 
-		// in pStubMsg->MaxCount.
-		//
-		(*pStubMsg->StubDesc->apfnExprEval[Index])( pStubMsg );
+        // Put the length in the proper field.
+        pStubMsg->ActualCount = pStubMsg->MaxCount;
 
-		// Put the length in the proper field.
-		pStubMsg->ActualCount = pStubMsg->MaxCount;
+        pStubMsg->MaxCount = OldMaxCount;
 
-		pStubMsg->MaxCount = OldMaxCount;
+        pStubMsg->StackTop = pOldStackTop;
 
-		pStubMsg->StackTop = pOldStackTop;
+        return;
+        }
 
-		return;
-		}
+    if (  (*pFormat & 0xf0) == FC_NORMAL_VARIANCE  )
+        {
+        // Get the address where the variance variable is in the struct.
+        pLength = pMemory + *((signed short *)(pFormat + 2));
+        goto ComputeVarianceGetCount;
+        }
+
+    //
+    // Get a pointer to the variance variable.
+    //
+    if ( (*pFormat & 0xf0) == FC_TOP_LEVEL_VARIANCE ) 
+        {
+        //
+        // Top level variance.  For /Os stubs, the stubs put the actual
+        // count and offset in the stub message.  For /Oi stubs, we get the 
+        // actual count via an offset from the stack top.  The first_is must
+        // be zero if we get here.
+        //
+        if ( pStubMsg->StackTop ) 
+            {
+            pLength = pStubMsg->StackTop + *((signed short *)(pFormat + 2));
+            goto ComputeVarianceGetCount;
+            }
+        else
+            {
+            //
+            // If this is top level variance with /Os then we don't have 
+            // to do anything, the proper variance values are placed in the 
+            // stub message inline in the stubs.
+            //
+            return;
+            }
+        }
+
+    //
+    // If we're computing the length of an embedded size/length pointer then we
+    // use the memory pointer in the stub message, which points to the 
+    // beginning of the embedding structure.
+    //
+    if ( (*pFormat & 0xf0) == FC_POINTER_VARIANCE )
+        {
+        pMemory = pStubMsg->Memory;
+        pLength = pMemory + *((signed short *)(pFormat + 2));
+        goto ComputeVarianceGetCount;
+        }
+
+    //
+    // Check for constant length.
+    //
+    if ( (*pFormat & 0xf0) == FC_CONSTANT_VARIANCE )
+        {
+        //
+        // The length is contained in the lower three bytes of the 
+        // long currently pointed to by pFormat.
+        //
+        Length = (long)pFormat[1] << 16;
+        Length |= (long) *((ushort *)(pFormat + 2));
+
+        goto ComputeVarianceEnd;
+        }
 
     //
     // Check for variance of a multidimensional array element in 
@@ -649,98 +727,73 @@ Return :
         return;
         }
 
-	//
-	// Get a pointer to the variance variable.
-	//
-	if ( (*pFormat & 0xf0) == FC_TOP_LEVEL_VARIANCE ) 
-		{
-		//
-		// Top level variance.  For /Os stubs, the stubs put the actual
-		// count and offset in the stub message.  For /Oi stubs, we get the 
-		// actual count via an offset from the stack top.  The first_is must
-		// be zero if we get here.
-		//
-		if ( pStubMsg->StackTop ) 
-			pLength = pStubMsg->StackTop + *((signed short *)(pFormat + 2));
-		else
-			{
-			//
-			// If this is top level variance with /Os then we don't have 
-			// to do anything, the proper variance values are placed in the 
-			// stub message inline in the stubs.
-			//
-			return;
-			}
-		}
-	else // *pFormat & 0xf0 == FC_NORMAL_VARIANCE 
-		{
-		// Get the address where the variance variable is in the struct.
-		pLength = pMemory + *((signed short *)(pFormat + 2));
-		}
+ComputeVarianceGetCount:
 
-	//
-	// Must check now if there is a dereference op.
-	//
-	if ( pFormat[1] == FC_DEREFERENCE )
-		{
-		pLength = *(void **)pLength;
-		}
+    //
+    // Must check now if there is a dereference op.
+    //
+    if ( pFormat[1] == FC_DEREFERENCE )
+        {
+        pLength = *(void **)pLength;
+        }
 
-	//
-	// Now get the conformance count.
-	//
-	switch ( *pFormat & 0x0f ) 
-		{
-		case FC_ULONG :
-		case FC_LONG :
-			Length = *((long *)pLength);
-			break;
+    //
+    // Now get the conformance count.
+    //
+    switch ( *pFormat & 0x0f ) 
+        {
+        case FC_ULONG :
+        case FC_LONG :
+            Length = *((long *)pLength);
+            break;
 
-		case FC_USHORT :
-			Length = (long) *((ushort *)pLength);
-			break;
+        case FC_USHORT :
+            Length = (long) *((ushort *)pLength);
+            break;
 
-		case FC_SHORT :
-			Length = (long) *((short *)pLength);
-			break;
+        case FC_SHORT :
+            Length = (long) *((short *)pLength);
+            break;
 
-		case FC_USMALL :
-			Length = (long) *((uchar *)pLength);
-			break;
+        case FC_USMALL :
+            Length = (long) *((uchar *)pLength);
+            break;
 
-		case FC_SMALL :
-			Length = (long) *((char *)pLength);
-			break;
+        case FC_SMALL :
+            Length = (long) *((char *)pLength);
+            break;
 
-		default :
-			NDR_ASSERT(0,"Internal error");
-		} 
+        default :
+            NDR_ASSERT(0,"NdrpComputeVariance : bad format");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return;
+        } 
 
-	//
-	// Check the operator.
-	//
-	switch ( pFormat[1] ) 
-		{
-		case FC_DIV_2 :
-			Length /= 2;
-			break;
-		case FC_MULT_2 :
-			Length *= 2;
-			break;
-		case FC_SUB_1 :
-			Length -= 1;
-			break;
-		case FC_ADD_1 :
-			Length += 1;
-			break;
-		default :
-			// OK
-			break;
-		}
+    //
+    // Check the operator.
+    //
+    switch ( pFormat[1] ) 
+        {
+        case FC_DIV_2 :
+            Length /= 2;
+            break;
+        case FC_MULT_2 :
+            Length *= 2;
+            break;
+        case FC_SUB_1 :
+            Length -= 1;
+            break;
+        case FC_ADD_1 :
+            Length += 1;
+            break;
+        default :
+            // OK
+            break;
+        }
 
 ComputeVarianceEnd:
 
-	// Get here if the length was computed directly.
-	pStubMsg->Offset = 0;
-	pStubMsg->ActualCount = (ulong) Length;
+    // Get here if the length was computed directly.
+    pStubMsg->Offset = 0;
+    pStubMsg->ActualCount = (ulong) Length;
 }

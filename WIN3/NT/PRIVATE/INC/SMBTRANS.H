@@ -78,19 +78,12 @@ Revision History:
 #define TRANS2_FIND_NOTIFY_FIRST        0x0B
 #define TRANS2_FIND_NOTIFY_NEXT         0x0C
 #define TRANS2_CREATE_DIRECTORY         0x0D
-
-#ifdef _CAIRO_
-
 #define TRANS2_SESSION_SETUP            0x0E
-#define TRANS2_QUERY_FS_INFORMATION_FID	0x0F
+#define TRANS2_QUERY_FS_INFORMATION_FID 0x0F
+#define TRANS2_GET_DFS_REFERRAL         0x10
+#define TRANS2_REPORT_DFS_INCONSISTENCY 0x11
 
-#define TRANS2_MAX_FUNCTION             0x0F
-
-#else // _CAIRO_
-
-#define TRANS2_MAX_FUNCTION             0x0D
-
-#endif // _CAIRO_
+#define TRANS2_MAX_FUNCTION             0x11
 
 //
 // Nt Transaction function codes
@@ -132,17 +125,28 @@ Revision History:
 #define SMB_QUERY_FILE_ALL_INFO            0x107
 #define SMB_QUERY_FILE_ALT_NAME_INFO       0x108
 #define SMB_QUERY_FILE_STREAM_INFO         0x109
+#define SMB_QUERY_FILE_OLE_ALL_INFO        0x10A
+#define SMB_QUERY_FILE_COMPRESSION_INFO    0x10B
+#define SMB_QUERY_FILE_OLE_INFO            0x10C
 
-#define SMB_SET_FILE_BASIC_INFO            0x101
-#define SMB_SET_FILE_DISPOSITION_INFO      0x102
-#define SMB_SET_FILE_ALLOCATION_INFO       0x103
-#define SMB_SET_FILE_END_OF_FILE_INFO      0x104
+#define SMB_SET_FILE_BASIC_INFO                 0x101
+#define SMB_SET_FILE_DISPOSITION_INFO           0x102
+#define SMB_SET_FILE_ALLOCATION_INFO            0x103
+#define SMB_SET_FILE_END_OF_FILE_INFO           0x104
+#define SMB_SET_FILE_OLE_CLASSID_INFO           0x105
+#define SMB_SET_FILE_OLE_STATE_BITS_INFO        0x106
+#define SMB_SET_FILE_OBJECTID_INFO              0x107
+#define SMB_SET_FILE_CONTENT_INDEX_INFO         0x108
+#define SMB_SET_FILE_INHERIT_CONTENT_INDEX_INFO 0x109
+#define SMB_SET_FILE_OLE_INFO                   0x10A
 
 #define SMB_QUERY_FS_LABEL_INFO            0x101
 #define SMB_QUERY_FS_VOLUME_INFO           0x102
 #define SMB_QUERY_FS_SIZE_INFO             0x103
 #define SMB_QUERY_FS_DEVICE_INFO           0x104
 #define SMB_QUERY_FS_ATTRIBUTE_INFO        0x105
+#define SMB_QUERY_FS_QUOTA_INFO            0x106
+#define SMB_QUERY_FS_CONTROL_INFO          0x107
 
 //
 // Volume information levels.
@@ -150,6 +154,16 @@ Revision History:
 
 #define SMB_INFO_ALLOCATION             1
 #define SMB_INFO_VOLUME                 2
+
+//
+// Rename2 information levels.
+//
+
+#define SMB_NT_RENAME_SET_COPY_ON_WRITE   0x101
+#define SMB_NT_RENAME_MOVE_CLUSTER_INFO   0x102
+#define SMB_NT_RENAME_SET_LINK_INFO       0x103
+#define SMB_NT_RENAME_RENAME_FILE         0x104 // Server internal
+#define SMB_NT_RENAME_MOVE_FILE           0x105 // Server internal
 
 
 #ifdef INCLUDE_SMB_CAIRO
@@ -162,7 +176,7 @@ Revision History:
 
 typedef struct _REQ_CAIRO_TRANS2_SESSION_SETUP {
     UCHAR WordCount;                    // Count of parameter words = 6
-    UCHAR Pad;				// So things are aligned
+    UCHAR Pad;                          // So things are aligned
     _USHORT ( MaxBufferSize );          // Max transmit buffer size
     _USHORT ( MaxMpxCount );            // Max pending multiplexed requests
     _USHORT ( VcNumber );               // 0 = first (only), nonzero=additional VC number
@@ -176,7 +190,7 @@ typedef REQ_CAIRO_TRANS2_SESSION_SETUP *PREQ_CAIRO_TRANS2_SESSION_SETUP;  // ***
 
 typedef struct _RESP_CAIRO_TRANS2_SESSION_SETUP {
     UCHAR WordCount;                    // Count of parameter words = 0
-    UCHAR Pad;				// So things are aligned
+    UCHAR Pad;                          // So things are aligned
     _USHORT( Uid );                     // Unauthenticated user id
     _ULONG ( BufferLength );
     UCHAR Buffer[1];
@@ -220,6 +234,93 @@ typedef REQ_CAIRO_IO_CONTROL SMB_UNALIGNED *PREQ_CAIRO_IO_CONTROL;
 #endif // INCLUDE_SMB_CAIRO
 
 //
+// Dfs Transactions
+//
+
+//
+// Request for Referral.
+//
+typedef struct {
+    USHORT MaxReferralLevel;            // Latest version of referral understood
+    UCHAR RequestFileName[1];           // Dfs name for which referral is sought
+} REQ_GET_DFS_REFERRAL;
+typedef REQ_GET_DFS_REFERRAL SMB_UNALIGNED *PREQ_GET_DFS_REFERRAL;
+
+//
+// The format of an individual referral contains version and length information
+//  allowing the client to skip referrals it does not understand.
+//
+// !! All referral elements must have VersionNumber and Size as the first 2 elements !!
+//
+
+typedef struct {
+    USHORT  VersionNumber;              // == 1
+    USHORT  Size;                       // Size of this whole element
+    USHORT  ServerType;                 // Type of server: 0 == Don't know, 1 == SMB, 2 == Netware
+    struct {
+        USHORT StripPath : 1;           // Strip off PathConsumed characters from front of
+                                        // DfsPathName prior to submitting name to UncShareName
+    };
+    WCHAR   ShareName[1];               // The server+share name go right here.  NULL terminated.
+} DFS_REFERRAL_V1;
+typedef DFS_REFERRAL_V1 SMB_UNALIGNED *PDFS_REFERRAL_V1;
+
+typedef struct {
+    USHORT  VersionNumber;              // == 2
+    USHORT  Size;                       // Size of this whole element
+    USHORT  ServerType;                 // Type of server: 0 == Don't know, 1 == SMB, 2 == Netware
+    struct {
+        USHORT StripPath : 1;           // Strip off PathConsumed characters from front of
+                                        // DfsPathName prior to submitting name to UncShareName
+    };
+    ULONG   Proximity;                  // Hint of transport cost
+    ULONG   TimeToLive;                 // In number of seconds
+    USHORT  DfsPathOffset;              // Offset from beginning of this element to Path to access
+    USHORT  DfsAlternatePathOffset;     // Offset from beginning of this element to 8.3 path
+    USHORT  NetworkAddressOffset;       // Offset from beginning of this element to Network path
+} DFS_REFERRAL_V2;
+typedef DFS_REFERRAL_V2 SMB_UNALIGNED *PDFS_REFERRAL_V2;
+
+typedef struct {
+    USHORT  PathConsumed;               // Number of WCHARs consumed in DfsPathName
+    USHORT  NumberOfReferrals;          // Number of referrals contained here
+    struct {
+            ULONG ReferralServers : 1;  // Elements in Referrals[] are referral servers
+            ULONG StorageServers : 1;   // Elements in Referrals[] are storage servers
+    };
+    union {                             // The vector of referrals
+        DFS_REFERRAL_V1 v1;
+        DFS_REFERRAL_V2 v2;
+    } Referrals[1];                     // [ NumberOfReferrals ]
+
+    //
+    // WCHAR StringBuffer[];            // Used by DFS_REFERRAL_V2
+    //
+
+} RESP_GET_DFS_REFERRAL;
+typedef RESP_GET_DFS_REFERRAL SMB_UNALIGNED *PRESP_GET_DFS_REFERRAL;
+
+//
+// During Dfs operations, a client may discover a knowledge inconsistency in the Dfs.
+// The parameter portion of the TRANS2_REPORT_DFS_INCONSISTENCY SMB is
+// encoded in this way
+//
+
+typedef struct {
+    UCHAR RequestFileName[1];           // Dfs name for which inconsistency is being reported
+    union {
+        DFS_REFERRAL_V1 v1;             // The single referral thought to be in error
+    } Referral;
+} REQ_REPORT_DFS_INCONSISTENCY;
+typedef REQ_REPORT_DFS_INCONSISTENCY SMB_UNALIGNED *PREQ_REPORT_DFS_INCONSISTENCY;
+
+//
+// The client also needs to send to this server the referral which it believes to be
+//  in error.  The data part of this transaction contains the errant referral(s), encoded
+//  as above in the DFS_REFERRAL_* structures.
+//
+
+//
 // Find First, information levels
 //
 
@@ -227,6 +328,7 @@ typedef REQ_CAIRO_IO_CONTROL SMB_UNALIGNED *PREQ_CAIRO_IO_CONTROL;
 #define SMB_FIND_FILE_FULL_DIRECTORY_INFO  0x102
 #define SMB_FIND_FILE_NAMES_INFO           0x103
 #define SMB_FIND_FILE_BOTH_DIRECTORY_INFO  0x104
+#define SMB_FIND_FILE_OLE_DIRECTORY_INFO   0x105
 
 #ifdef INCLUDE_SMB_DIRECTORY
 
@@ -269,7 +371,7 @@ typedef struct _REQ_FIND_FIRST2 {
                                         //  1 - close search if end reached
                                         //  2 - return resume keys
     _USHORT( InformationLevel );
-    _ULONG( Reserved );
+    _ULONG(SearchStorageType);
     UCHAR Buffer[1];                    // File name
 } REQ_FIND_FIRST2;
 typedef REQ_FIND_FIRST2 SMB_UNALIGNED *PREQ_FIND_FIRST2;
@@ -747,13 +849,7 @@ typedef struct _REQ_NT_IO_CONTROL {
     _ULONG( FunctionCode );
     _USHORT( Fid );
     BOOLEAN IsFsctl;
-
-#ifdef _CAIRO_
-
     UCHAR   IsFlags;
-
-#endif // _CAIRO_
-
 } REQ_NT_IO_CONTROL;
 typedef REQ_NT_IO_CONTROL SMB_UNALIGNED *PREQ_NT_IO_CONTROL;
 

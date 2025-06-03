@@ -1,3 +1,4 @@
+#include <stdlib.h>
 
 #define   WIDER_LEFT 1
 #define   WIDER_RIGHT 2
@@ -186,6 +187,10 @@
                                            loaded must be <= this */
 #define CCHCOLORSTRING             15   /* size of App Workspace color inf.
                                            string loaded from win.ini */
+#ifdef JAPAN
+#define ID_SHIFTJIS                76
+#endif
+
 /*****************************************************************************/
 /*              Typedef's etc.                                               */
 /*****************************************************************************/
@@ -331,7 +336,7 @@ BOOL NewFirstChar(DWORD);            /* MAde return type BOOL istead of VOID - L
 #define szNamesMax 32
 #define BLACK (LONG)0
 #define WHITE (LONG)0x00FFFFFF          /* For SetPixel rgbColor */
-#define FILENAMEMAX 64          /* Maximum allowed length of file names */
+#define FILENAMEMAX MAX_PATH          /* Maximum allowed length of file names */
 
 
 /*********
@@ -522,3 +527,14 @@ vBufferFromGlyphInfo30 (
              GLYPHINFO_30    *pgi3SrcGI3Struct,
             PBYTE           pjDestBuff
         );
+
+#ifdef JAPAN
+// dword alligned size of DIB scan in bytes
+
+#define CJ_DIB_SCAN(cx)  ((((cx) + 31) & ~31) >> 3)
+
+#else /* not JAPAN */
+
+#define CJ_DIB_SCAN(cx)  ((cx + 15) >> 4 << 1)
+
+#endif

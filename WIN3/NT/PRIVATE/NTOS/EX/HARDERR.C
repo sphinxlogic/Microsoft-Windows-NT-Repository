@@ -19,10 +19,9 @@ Revision History:
 --*/
 
 #include "exp.h"
-#include "zwapi.h"
-#include "stdio.h"
 
 extern ULONG KiBugCheckData[5];
+extern ULONG KeBugCheckCount;
 
 NTSTATUS
 ExpRaiseHardError(
@@ -56,7 +55,7 @@ ExpSystemErrorHandler(
             sizeof(HARDERROR_MSG)<<16 | (HARDERROR_MSG_OVERHEAD)
 
 PEPROCESS ExpDefaultErrorPortProcess;
-BOOLEAN ExpReadyForErrors = FALSE;
+BOOLEAN ExReadyForErrors = FALSE;
 BOOLEAN ExpTooLateForErrors = FALSE;
 HANDLE ExpDefaultErrorPort;
 extern PVOID PsSystemDllDllBase;
@@ -87,6 +86,7 @@ ExpSystemErrorHandler(
     PSZ OemMessage;
     PSZ UnknownHardError = "Unknown Hard Error";
     PVOID UnlockHandle;
+    CONTEXT ContextSave;
 
     //
     // This handler is called whenever a hard error occurs before the
@@ -107,6 +107,7 @@ ExpSystemErrorHandler(
     // this code is here only for crash dumps
     RtlCaptureContext(&KeGetCurrentPrcb()->ProcessorState.ContextFrame);
     KiSaveProcessorControlState(&KeGetCurrentPrcb()->ProcessorState);
+    ContextSave = KeGetCurrentPrcb()->ProcessorState.ContextFrame;
 
 
     DefaultFormatBuffer[0] = '\0';
@@ -132,9 +133,23 @@ ExpSystemErrorHandler(
     //
 
     if ( PsSystemDllDllBase ) {
+
         try {
-            Status = RtlFindMessage(PsSystemDllDllBase, 11, 0,
-                                    ErrorStatus, &MessageEntry);
+
+            //
+            // If we are on a DBCS code page, we have to use ENGLISH resource
+            // instead of default resource because HalDisplayString() can only
+            // display ASCII characters on the blue screen.
+            //
+
+            Status = RtlFindMessage(PsSystemDllDllBase,
+                                    11,
+                                    NlsMbCodePageTag ?
+                                    MAKELANGID(LANG_ENGLISH,SUBLANG_ENGLISH_US) :
+                                    0,
+                                    ErrorStatus,
+                                    &MessageEntry);
+
             if (!NT_SUCCESS(Status)) {
                 ErrorFormatString = UnknownHardError;
                 ErrorCaption = UnknownHardError;
@@ -171,7 +186,7 @@ ExpSystemErrorHandler(
                    "\nHardError %lx\n", ErrorStatus);
         }
 
-    UnlockHandle = MmLockPagableImageSection((PVOID)ExpSystemErrorHandler);
+    UnlockHandle = MmLockPagableCodeSection((PVOID)ExpSystemErrorHandler);
     ASSERT(UnlockHandle);
 
     if (CallShutdown) {
@@ -246,42 +261,21 @@ punt2:;
 #endif
         }
 
-    //
-    // Attempt to enter the kernel debugger.
-    //
 
-    KiBugCheckData[0] = ErrorStatus;
-    KiBugCheckData[1] = ParameterVector[0];
-    KiBugCheckData[2] = ParameterVector[1];
-    KiBugCheckData[3] = ParameterVector[2];
-    KiBugCheckData[4] = ParameterVector[3];
+    ASSERT(sizeof(PVOID) == sizeof(ULONG));
+    ASSERT(sizeof(ULONG) == sizeof(NTSTATUS));
 
     //
-    // attempt to write a crash dump
-    //
-    IoWriteCrashDump( ErrorStatus,
-                      ParameterVector[0],
-                      ParameterVector[1],
-                      ParameterVector[2],
-                      ParameterVector[3]
-                    );
-
-    //
-    // if we get here then a crash dump was not invoked
+    // We don't come back from here.
     //
 
-    while(TRUE) {
-        try {
-
-            DbgBreakPoint();
-
-        } except(EXCEPTION_EXECUTE_HANDLER) {
-
-            for (;;) {
-            }
-
-        }
-    }
+    KeBugCheckEx(
+        FATAL_UNHANDLED_HARD_ERROR,
+        (ULONG)ErrorStatus,
+        (ULONG)&(ParameterVector[0]),
+        0,
+        0
+        );
 }
 
 NTSTATUS
@@ -316,7 +310,7 @@ ExpRaiseHardError(
             return STATUS_PRIVILEGE_NOT_HELD;
             }
 
-        ExpReadyForErrors = FALSE;
+        ExReadyForErrors = FALSE;
         }
 
     Process = PsGetCurrentProcess();
@@ -326,15 +320,21 @@ ExpRaiseHardError(
     // call the fatal hard error handler if the error
     // status is error
     //
+    // Let GDI override this since it does not want to crash the machine
+    // when a bad driver was loaded via MmLoadSystemImage.
+    //
 
-    if (ExpReadyForErrors == FALSE && NT_ERROR(ErrorStatus)){
-        ExpSystemErrorHandler(
-            ErrorStatus,
-            NumberOfParameters,
-            UnicodeStringParameterMask,
-            Parameters,
-            (BOOLEAN)((PreviousMode != KernelMode) ? TRUE : FALSE)
-            );
+    if ( !(PsGetCurrentThread()->HardErrorsAreDisabled) ) {
+
+        if (ExReadyForErrors == FALSE && NT_ERROR(ErrorStatus)){
+            ExpSystemErrorHandler(
+                ErrorStatus,
+                NumberOfParameters,
+                UnicodeStringParameterMask,
+                Parameters,
+                (BOOLEAN)((PreviousMode != KernelMode) ? TRUE : FALSE)
+                );
+            }
         }
 
     //
@@ -385,6 +385,19 @@ ExpRaiseHardError(
 
     if ( PsGetCurrentThread()->HardErrorsAreDisabled ) {
         ErrorPort = NULL;
+        }
+
+    if ( !IS_SYSTEM_THREAD(PsGetCurrentThread()) ) {
+        try {
+            PTEB Teb;
+            Teb = (PTEB)PsGetCurrentThread()->Tcb.Teb;
+            if ( Teb->HardErrorsAreDisabled ) {
+                ErrorPort = NULL;
+                }
+            }
+        except (EXCEPTION_EXECUTE_HANDLER) {
+            ;
+            }
         }
 
     if ( ErrorPort ) {
@@ -794,7 +807,7 @@ NtSetDefaultHardErrorPort(
         return STATUS_PRIVILEGE_NOT_HELD;
         }
 
-    if ( ExpReadyForErrors ) {
+    if ( ExReadyForErrors ) {
         return STATUS_UNSUCCESSFUL;
         }
 
@@ -814,7 +827,7 @@ NtSetDefaultHardErrorPort(
         return Status;
         }
 
-    ExpReadyForErrors = TRUE;
+    ExReadyForErrors = TRUE;
     ExpDefaultErrorPortProcess = PsGetCurrentProcess();
 
     return STATUS_SUCCESS;

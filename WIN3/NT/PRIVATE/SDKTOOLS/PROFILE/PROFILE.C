@@ -23,7 +23,22 @@ _CRTAPI1 main(
     envp;
 
     if ( argc < 2 ) {
-        printf("Usage: profile [-a] name-of-image [parameters]...\n");
+        printf("Usage: profile [/a] [/innn] [/k] name-of-image [parameters]...\n");
+        printf("       /a       All hits\n");
+        printf("       /bnnn    Set profile bucket size to 2 to the nnn bytes\n");
+        printf("       /ffilename Output to filename\n");
+        printf("       /innn    Set profile interval to nnn (in 100ns units)\n");
+        printf("       /k		profile system modules\n");
+        printf("       /s[profilesource] Use profilesource instead of clock interrupt\n");
+        printf("       /S[profilesource] Use profilesource as secondary profile source\n\n");
+#if defined (_ALPHA_)
+        printf("Currently supported profile sources are 'align', 'totalissues', 'pipelinedry'\n");
+        printf("  'loadinstructions', 'pipelinefrozen', 'branchinstructions', 'totalnonissues',\n");
+        printf("  'dcachemisses', 'icachemisses', 'branchmispredicts', 'storeinstructions'\n");
+#elif defined (_MIPS_)
+        printf("Currently supported profile sources are 'align'\n");
+#endif
+
         ExitProcess(1);
         }
 
@@ -39,7 +54,8 @@ _CRTAPI1 main(
     //
     while(*s<=' ')s++;
 
-    if ( *s == '-' ) {
+    while ((*s == '-') ||
+           (*s == '/')) {
         s++;
         while (*s>' '){
             s++;
@@ -93,7 +109,7 @@ _CRTAPI1 main(
         printf("CreateProcess(%s) failed %lx\n",s,GetLastError());
         ExitProcess(GetLastError());
         }
-    WaitForSingleObject(ProcessInformation.hProcess,-1);
+    WaitForSingleObject(ProcessInformation.hProcess, (DWORD)-1);
 
     if (MappingHandle) {
         if (SharedMemory) {

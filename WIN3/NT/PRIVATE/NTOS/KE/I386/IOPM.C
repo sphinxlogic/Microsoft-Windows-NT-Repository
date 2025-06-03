@@ -27,17 +27,23 @@ Revision History:
 
 #include "ki.h"
 
+//
+// Our notion of alignment is different, so force use of ours
+//
+
+#undef  ALIGN_UP
+#undef  ALIGN_DOWN
 #define ALIGN_DOWN(address,amt) ((ULONG)(address) & ~(( amt ) - 1))
 #define ALIGN_UP(address,amt) (ALIGN_DOWN( (address + (amt) - 1), (amt) ))
 
 //
 // Note on synchronization:
 //
-//  IOPM edits are always done by code running at DISPATCH_LEVEL on
+//  IOPM edits are always done by code running at synchronization level on
 //  the processor whose TSS (map) is being edited.
 //
 //  IOPM only affects user mode code.  User mode code can never interrupt
-//  DISPATCH_LEVEL code, therefore, edits and user code never race.
+//  synchronization level code, therefore, edits and user code never race.
 //
 //  Likewise, switching from one map to another occurs on the processor
 //  for which the switch is being done by IPI_LEVEL code.  The active
@@ -51,38 +57,31 @@ Revision History:
 //
 
 //
-// Private prototypes
+// Define forward referenced function prototypes.
 //
-
 
 VOID
 KiSetIoMap(
-    IN PVOID Argument,
-    IN PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID MapSource,
+    IN PVOID MapNumber,
+    IN PVOID Parameter3
     );
-
 
 VOID
 KiLoadIopmOffset(
-    IN PVOID Argument,
-    IN PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     );
-
-
-//
-// KiIopmLock - This is the spinlock that quards setting and querying
-//	i/o permission masks.
-//
-
-KSPIN_LOCK  KiIopmLock = 0;
-
-
 
 BOOLEAN
 Ke386SetIoAccessMap (
-    ULONG		MapNumber,
-    PKIO_ACCESS_MAP	IoAccessMap
+    ULONG MapNumber,
+    PKIO_ACCESS_MAP IoAccessMap
     )
+
 /*++
 
 Routine Description:
@@ -95,15 +94,13 @@ Routine Description:
     Ke386SetIoAccessMap does not give any process enhanced I/O
     access, it merely defines a particular access map.
 
-    Caller must be at IRQL <= DISPATCH_LEVEL.
-
 Arguments:
 
     MapNumber - Number of access map to set.  Map 0 is fixed.
 
     IoAccessMap - Pointer to bitvector (64K bits, 8K bytes) which
-		   defines the specified access map.  Must be in
-		   non-paged pool.
+           defines the specified access map.  Must be in
+           non-paged pool.
 
 Return Value:
 
@@ -111,30 +108,28 @@ Return Value:
     which does not exist, attempt to set map 0)
 
 --*/
+
 {
-    KIRQL   OldIrql;
-    PKPRCB   Prcb;
-    PVOID   pt;
-    KAFFINITY	TargetProcessors;
-    PKPROCESS	CurrentProcess;
+
+    PKPROCESS CurrentProcess;
+    KIRQL OldIrql;
+    PKPRCB Prcb;
+    PVOID pt;
+    KAFFINITY TargetProcessors;
 
     //
     // Reject illegal requests
     //
 
-    if ((MapNumber > IOPM_COUNT) ||
-	(MapNumber == IO_ACCESS_MAP_NONE)) {
-	return FALSE;
+    if ((MapNumber > IOPM_COUNT) || (MapNumber == IO_ACCESS_MAP_NONE)) {
+        return FALSE;
     }
 
     //
-    // Raise IRQL and acquire KiIopmLock
+    // Acquire the context swap lock so a context switch will not occur.
     //
 
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiIopmLock);
-    KiAcquireSpinLock (&KiDispatcherLock);
-    KiAcquireSpinLock (&KiFreezeExecutionLock);
+    KiLockContextSwap(&OldIrql);
 
     //
     // Compute set of active processors other than this one, if non-empty
@@ -142,52 +137,59 @@ Return Value:
     //
 
     Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
 
+#if !defined(NT_UP)
+
+    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        KiIpiPacket.Arguments.SetIopm.MapSource = (PVOID)IoAccessMap;
-        KiIpiPacket.Arguments.SetIopm.MapNumber = MapNumber;
-        KiIpiSendPacket(TargetProcessors, KiSetIoMap);
+        KiIpiSendPacket(TargetProcessors,
+                        KiSetIoMap,
+                        IoAccessMap,
+                        (PVOID)MapNumber,
+                        NULL);
     }
 
+#endif
+
     //
-    // Deal with the local case
-    //
-    //	first, copy in the map
+    // Copy the IOPM map and load the map for the current process.
     //
 
     pt = &(KiPcr()->TSS->IoMaps[MapNumber-1].IoMap);
     RtlMoveMemory(pt, (PVOID)IoAccessMap, IOPM_SIZE);
-
-    //
-    //	second, load map for current process (may be a noop)
-    //
-
     CurrentProcess = Prcb->CurrentThread->ApcState.Process;
     KiPcr()->TSS->IoMapBase = CurrentProcess->IopmOffset;
 
     //
-    // Wait for other procs to finish
+    // Wait until all of the target processors have finished copying the
+    // new map.
     //
+
+#if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
         KiIpiStallOnPacketTargets();
     }
 
+#endif
+
     //
-    // release KiIopmLock, lower irql, return
+    // Restore IRQL and unlock the context swap lock.
     //
-    KiReleaseSpinLock(&KiFreezeExecutionLock);
-    KiReleaseSpinLock(&KiDispatcherLock);
-    ExReleaseSpinLock(&KiIopmLock, OldIrql);
+
+    KiUnlockContextSwap(OldIrql);
     return TRUE;
 }
+
+#if !defined(NT_UP)
 
 
 VOID
 KiSetIoMap(
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID MapSource,
+    IN PVOID MapNumber,
+    IN PVOID Parameter3
     )
 /*++
 
@@ -206,139 +208,33 @@ Return Value:
     none
 
 --*/
+
 {
-    PVOID   ps;
-    PVOID   pt;
-    PKIPI_SET_IOPM  EditIopm;
-    PKPRCB  Prcb;
+
     PKPROCESS CurrentProcess;
-    ULONG   MapNumber;
+    PKPRCB Prcb;
+    PVOID pt;
 
     //
-    // copy the map in
+    // Copy the IOPM map and load the map for the current process.
     //
 
-    EditIopm = (PKIPI_SET_IOPM) Argument;
     Prcb = KeGetCurrentPrcb();
-
-    ps = EditIopm->MapSource;
-    MapNumber = EditIopm->MapNumber;
-    pt = &(KiPcr()->TSS->IoMaps[MapNumber-1].IoMap);
-    RtlMoveMemory(pt, ps, IOPM_SIZE);
-
-    //
-    // Update IOPM field in TSS from current process
-    //
-
+    pt = &(KiPcr()->TSS->IoMaps[((ULONG) MapNumber)-1].IoMap);
+    RtlMoveMemory(pt, MapSource, IOPM_SIZE);
     CurrentProcess = Prcb->CurrentThread->ApcState.Process;
     KiPcr()->TSS->IoMapBase = CurrentProcess->IopmOffset;
-
-    //
-    // Tell calling CPU we are done
-    //
-
-    *ReadyFlag = TRUE;
+    KiIpiSignalPacketDone(SignalDone);
+    return;
 }
 
-// BUGBUG kenr 22jan91 - the old code was trying to postpone the
-//  copy of the iopm from ipi-isr time to dpc time, but you can't
-//  be sure which processor the queued dpc will run on.  The dpc
-//  issue needs to be straightned out.
-//
-//
-//VOID
-//KiSetIoMap(
-//    IN PVOID Argument
-//    )
-//
-//    PKPRCB  Prcb;
-//
-//    Prcb = KeGetCurrentPrcb();
-//    KeInsertQueueDpc (
-//	  &(Prcb->EditIopmDpc),
-//	  Argument,
-//	  NULL
-//	  );
-//}
-//
-//
-
-//VOID
-//KiEditIopmDpc (
-//    IN struct _KDPC *Dpc,
-//    IN PVOID DeferredContext,
-//    IN PVOID SystemArgument1,
-//    IN PVOID SystemArgument2
-//    )
-///*++
-//
-//Routine Description:
-//
-//    This is a DPC procedure.	It's function is to copy a bit vector
-//    in an iopm for the processor it runs on.	It will then reload
-//    the iopm for the current process of the processor, so that edits
-//    will immediately take effect.
-//
-//    N.B. - This DPC must execute on the processor which enqueues it.
-//
-//Arguments:
-//
-//    Dpc - Supplies a pointer to a control object of type DPC - IGNORED.
-//
-//    DeferredContext - Supplies a pointer to an arbitrary data structure that
-//	  was specified when the DPC was initialized - IGNORED.
-//
-//    SystemArgument1 - points to a KIPI_SET_IOPM structure.
-//
-//    SystemArgument2 - ignored.
-//
-//Return Value:
-//
-//    none
-//
-//--*/
-//{
-//    PVOID   ps;
-//    PVOID   pt;
-//    UCHAR Value;
-//    KAFFINITY *TargetProcessors;
-//    PKPRCB  Prcb;
-//    PKPROCESS CurrentProcess;
-//    ULONG   MapNumber;
-//
-//    //
-//    // copy the map in
-//    //
-//
-//    ps = ((PKIPI_SET_IOPM)SystemArgument1)->MapSource;
-//    MapNumber = ((PKIPI_SET_IOPM)SystemArgument1)->MapNumber;
-//    pt = &(KiPcr()->TSS->IoMaps[MapNumber-1]);
-//    RtlMoveMemory(pt, ps, IOPM_SIZE);
-//
-//    //
-//    // Update IOPM field in TSS from current process
-//    //
-//
-//    Prcb = KeGetCurrentPrcb();
-//    CurrentProcess = Prcb->CurrentThread->ApcState.Process;
-//    KiPcr()->TSS->IoMapBase = CurrentProcess->IopmOffset;
-//
-//    //
-//    // Tell calling CPU we are done
-//    //
-//
-//    Value = (UCHAR)~(1 << Prcb->Number);
-//    TargetProcessors = ((PKIPI_LOAD_IOPM_OFFSET)SystemArgument1)->TargetProcessors;
-//    KiAtomicAndUchar(TargetProcessors, Value);
-//}
-
-
+#endif
 
 
 BOOLEAN
 Ke386QueryIoAccessMap (
-    ULONG	       MapNumber,
-    PKIO_ACCESS_MAP    IoAccessMap
+    ULONG MapNumber,
+    PKIO_ACCESS_MAP IoAccessMap
     )
 
 /*++
@@ -353,8 +249,8 @@ Arguments:
     MapNumber - Number of access map to set.  map 0 is fixed.
 
     IoAccessMap - Pointer to buffer (64K bits, 8K bytes) which
-		   is to receive the definition of the access map.
-		   Must be in non-paged pool.
+           is to receive the definition of the access map.
+           Must be in non-paged pool.
 
 Return Value:
 
@@ -362,25 +258,27 @@ Return Value:
     which does not exist)
 
 --*/
+
 {
-    PUCHAR  p;
-    KIRQL   OldIrql;
-    PVOID   Map;
-    ULONG   i;
+
+    ULONG i;
+    PVOID Map;
+    KIRQL OldIrql;
+    PUCHAR p;
 
     //
     // Reject illegal requests
     //
 
     if (MapNumber > IOPM_COUNT) {
-	return FALSE;
+        return FALSE;
     }
 
     //
-    // Raise IRQL and acquire KiIopmLock
+    // Acquire the context swap lock so a context switch will not occur.
     //
 
-    ExAcquireSpinLock(&KiIopmLock, &OldIrql);
+    KiLockContextSwap(&OldIrql);
 
     //
     // Copy out the map
@@ -388,39 +286,38 @@ Return Value:
 
     if (MapNumber == IO_ACCESS_MAP_NONE) {
 
-	//
-	// no access case, simply return a map of all 1s
-	//
+        //
+        // no access case, simply return a map of all 1s
+        //
 
-	p = (PUCHAR)IoAccessMap;
-	for (i = 0; i < IOPM_SIZE; i++) {
-	    p[i] = -1;
-	}
+        p = (PUCHAR)IoAccessMap;
+        for (i = 0; i < IOPM_SIZE; i++) {
+            p[i] = (UCHAR)-1;
+        }
 
     } else {
 
-	//
-	// normal case, just copy the bits
-	//
+        //
+        // normal case, just copy the bits
+        //
 
-	Map = (PVOID)&(KiPcr()->TSS->IoMaps[MapNumber-1].IoMap);
-	RtlMoveMemory((PVOID)IoAccessMap, Map, IOPM_SIZE);
+        Map = (PVOID)&(KiPcr()->TSS->IoMaps[MapNumber-1].IoMap);
+        RtlMoveMemory((PVOID)IoAccessMap, Map, IOPM_SIZE);
     }
 
     //
-    // release KiIopmLock, lower irql, return
+    // Restore IRQL and unlock the context swap lock.
     //
 
-    ExReleaseSpinLock(&KiIopmLock, OldIrql);
-
+    KiUnlockContextSwap(OldIrql);
     return TRUE;
 }
 
 
 BOOLEAN
 Ke386IoSetAccessProcess (
-    PKPROCESS	Process,
-    ULONG	MapNumber
+    PKPROCESS Process,
+    ULONG MapNumber
     )
 /*++
 
@@ -432,41 +329,41 @@ Routine Description:
 Arguments:
 
     Process - Pointer to kernel process object describing the
-	process which for which a map is to be set.
+    process which for which a map is to be set.
 
     MapNumber - Number of the map to set.  Value of map is
-	defined by Ke386IoSetAccessProcess.  Setting MapNumber
-	to IO_ACCESS_MAP_NONE will disallow any user mode i/o
-	access from the process.
+    defined by Ke386IoSetAccessProcess.  Setting MapNumber
+    to IO_ACCESS_MAP_NONE will disallow any user mode i/o
+    access from the process.
 
 Return Value:
 
     TRUE if success, FALSE if failure (illegal MapNumber)
 
 --*/
+
 {
-    USHORT  MapOffset;
-    KIRQL   OldIrql;
-    KAFFINITY TargetProcessors;
+
+    USHORT MapOffset;
+    KIRQL OldIrql;
     PKPRCB Prcb;
+    KAFFINITY TargetProcessors;
 
     //
     // Reject illegal requests
     //
 
     if (MapNumber > IOPM_COUNT) {
-	return FALSE;
+        return FALSE;
     }
 
     MapOffset = KiComputeIopmOffset(MapNumber);
 
     //
-    // We raise to IPI_LEVEL-1 so we don't deadlock with device interrupts.
+    // Acquire the context swap lock so a context switch will not occur.
     //
 
-    KeRaiseIrql (IPI_LEVEL-1, &OldIrql);
-    KiAcquireSpinLock (&KiDispatcherLock);
-    KiAcquireSpinLock (&KiFreezeExecutionLock);
+    KiLockContextSwap(&OldIrql);
 
     //
     // Store new offset in process object,  compute current set of
@@ -477,9 +374,8 @@ Return Value:
 
     TargetProcessors = Process->ActiveProcessors;
     Prcb = KeGetCurrentPrcb();
-
     if (TargetProcessors & Prcb->SetMember) {
-	KiPcr()->TSS->IoMapBase = MapOffset;
+        KiPcr()->TSS->IoMapBase = MapOffset;
     }
 
     //
@@ -487,28 +383,40 @@ Return Value:
     // IPI them to load their IOPMs, wait for them.
     //
 
-    TargetProcessors = TargetProcessors & ~Prcb->SetMember;
+#if !defined(NT_UP)
 
+    TargetProcessors = TargetProcessors & ~Prcb->SetMember;
     if (TargetProcessors != 0) {
-        KiIpiSendPacket(TargetProcessors, KiLoadIopmOffset);
+        KiIpiSendPacket(TargetProcessors,
+                        KiLoadIopmOffset,
+                        NULL,
+                        NULL,
+                        NULL);
+
         KiIpiStallOnPacketTargets();
     }
 
-    //
-    // release dispatcher lock and restore irql
-    //
-    KiReleaseSpinLock(&KiFreezeExecutionLock);
-    KiUnlockDispatcherDatabase(OldIrql);
+#endif
 
+    //
+    // Restore IRQL and unlock the context swap lock.
+    //
+
+    KiUnlockContextSwap(OldIrql);
     return TRUE;
 }
+
+#if !defined(NT_UP)
 
 
 VOID
 KiLoadIopmOffset(
-    IN PVOID Argument,
-    OUT PVBOOLEAN ReadyFlag
+    IN PKIPI_CONTEXT SignalDone,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
     )
+
 /*++
 
 Routine Description:
@@ -525,9 +433,11 @@ Return Value:
     none
 
 --*/
+
 {
-    PKPROCESS	CurrentProcess;
-    PKPRCB  Prcb;
+
+    PKPROCESS CurrentProcess;
+    PKPRCB Prcb;
 
     //
     // Update IOPM field in TSS from current process
@@ -536,19 +446,18 @@ Return Value:
     Prcb = KeGetCurrentPrcb();
     CurrentProcess = Prcb->CurrentThread->ApcState.Process;
     KiPcr()->TSS->IoMapBase = CurrentProcess->IopmOffset;
-
-    //
-    // Tell calling CPU we are done
-    //
-
-    *ReadyFlag = TRUE;
+    KiIpiSignalPacketDone(SignalDone);
+    return;
 }
+
+#endif
 
 
 VOID
 Ke386SetIOPL(
     IN PKPROCESS Process
     )
+
 /*++
 
 Routine Description:
@@ -577,7 +486,9 @@ Return Value:
     none
 
 --*/
+
 {
+
     PKTHREAD    Thread;
     PKPROCESS   Process2;
     PKTRAP_FRAME    TrapFrame;
@@ -586,6 +497,7 @@ Return Value:
     //
     // get current thread and Process2, set flag for IOPL in both of them
     //
+
     Thread = KeGetCurrentThread();
     Process2 = Thread->ApcState.Process;
 
@@ -595,26 +507,23 @@ Return Value:
     //
     // Force IOPL to be on for current thread
     //
+
     TrapFrame = (PKTRAP_FRAME)((PUCHAR)Thread->InitialStack -
                 ALIGN_UP(sizeof(KTRAP_FRAME),KTRAP_FRAME_ALIGN) -
                 sizeof(FLOATING_SAVE_AREA));
 
     Context.ContextFlags = CONTEXT_CONTROL;
-    KeContextFromKframes(
-        TrapFrame,
-        NULL,
-        &Context
-        );
+    KeContextFromKframes(TrapFrame,
+                         NULL,
+                         &Context);
 
     Context.EFlags |= (EFLAGS_IOPL_MASK & -1);  // IOPL == 3
 
-    KeContextToKframes(
-        TrapFrame,
-        NULL,
-        &Context,
-        CONTEXT_CONTROL,
-        UserMode
-        );
+    KeContextToKframes(TrapFrame,
+                       NULL,
+                       &Context,
+                       CONTEXT_CONTROL,
+                       UserMode);
 
     return;
 }

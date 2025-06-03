@@ -19,6 +19,24 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11024.c  $
 *	
+*	   Rev 1.9   15 May 1995 10:47:12   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.8.1.0   11 Apr 1995 18:03:50   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.9   30 Jan 1995 14:25:06   BOBLEHMA
+*	Changed vendor defines to ARCHIVE_CONNER, WANGTEK_REXON and MOUNTAIN_SUMMIT.
+*	
+*	   Rev 1.8   23 Nov 1994 10:10:22   MARKMILL
+*	Set new device_descriptor structure element native_class to match the
+*	drive_class setting.  This new data element is used to store the native
+*	class of the drive in the event of a "combo" drive (e.g. 3020/3010 drive).
+*	
+*
+*	   Rev 1.7   21 Oct 1994 09:51:26   BOBLEHMA
+*	Added recognition of the Wangtek 3010 drive.
+*
 *	   Rev 1.6   17 Feb 1994 11:48:30   KEVINKES
 *	Added an extra parameter to WaitCC and added QIC3010 and 3020 support
 *	for alien drives.
@@ -47,6 +65,7 @@
 #define FCT_ID 0x11024
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -90,38 +109,51 @@ dStatus cqd_GetDeviceInfo
 
       break;
 
-   case VENDOR_SUMMIT:
+   case VENDOR_MOUNTAIN_SUMMIT:
 
 		status = cqd_ReportSummitVendorInfo(cqd_context, vendor_id);
 
       break;
 
-   case VENDOR_WANGTEK:
+   case VENDOR_WANGTEK_REXON:
 
       cqd_context->drive_parms.seek_mode = SEEK_SKIP;
 
       if (!report_failed &&
             ((vendor_id & ~VENDOR_MASK) == WANGTEK_QIC80)) {
 
-         cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
+			cqd_context->device_descriptor.native_class = QIC80_DRIVE;
+			cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
 				"Q117i: Drive Type QIC80_DRIVE\n", 0l);
 
       } else {
 
-      	cqd_context->device_cfg.speed_change = dFALSE;
-         cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
-			kdi_CheckedDump(
-				QIC117INFO,
-				"Q117i: Drive Type QIC40_DRIVE\n", 0l);
+	      if (!report_failed &&
+            	((vendor_id & ~VENDOR_MASK) == WANGTEK_QIC3010)) {
 
+				cqd_context->device_descriptor.native_class = QIC3010_DRIVE;
+				cqd_context->device_descriptor.drive_class = QIC3010_DRIVE;
+				kdi_CheckedDump(
+					QIC117INFO,
+					"Q117i: Drive Type QIC3010_DRIVE\n", 0l);
+
+         } else {
+      		cqd_context->device_cfg.speed_change = dFALSE;
+				cqd_context->device_descriptor.native_class = QIC40_DRIVE;
+         	cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
+				kdi_CheckedDump(
+					QIC117INFO,
+					"Q117i: Drive Type QIC40_DRIVE\n", 0l);
+			}
       }
       break;
 
    case VENDOR_EXABYTE:
 
       cqd_context->drive_parms.seek_mode = SEEK_SKIP_EXTENDED;
+		cqd_context->device_descriptor.native_class = QIC3020_DRIVE;
       cqd_context->device_descriptor.drive_class = QIC3020_DRIVE;
 		kdi_CheckedDump(
 			QIC117INFO,
@@ -135,14 +167,16 @@ dStatus cqd_GetDeviceInfo
 
       if ((vendor_id & ~VENDOR_MASK) == CORE_QIC80) {
 
-         cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
+			cqd_context->device_descriptor.native_class = QIC80_DRIVE;
+			cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
 				"Q117i: Drive Type QIC80_DRIVE\n", 0l);
 
    	} else {
 
-         cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
+			cqd_context->device_descriptor.native_class = QIC40_DRIVE;
+			cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
 				"Q117i: Drive Type QIC40_DRIVE\n", 0l);
@@ -157,6 +191,7 @@ dStatus cqd_GetDeviceInfo
 		case IOMEGA_QIC80:
 
       	cqd_context->drive_parms.seek_mode = SEEK_SKIP;
+			cqd_context->device_descriptor.native_class = QIC80_DRIVE;
       	cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
@@ -167,6 +202,7 @@ dStatus cqd_GetDeviceInfo
 		case IOMEGA_QIC3010:
 
       	cqd_context->drive_parms.seek_mode = SEEK_SKIP_EXTENDED;
+			cqd_context->device_descriptor.native_class = QIC3010_DRIVE;
       	cqd_context->device_descriptor.drive_class = QIC3010_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
@@ -177,6 +213,7 @@ dStatus cqd_GetDeviceInfo
 		case IOMEGA_QIC3020:
 
       	cqd_context->drive_parms.seek_mode = SEEK_SKIP_EXTENDED;
+			cqd_context->device_descriptor.native_class = QIC3020_DRIVE;
       	cqd_context->device_descriptor.drive_class = QIC3020_DRIVE;
 			kdi_CheckedDump(
 				QIC117INFO,
@@ -188,9 +225,9 @@ dStatus cqd_GetDeviceInfo
 
       break;
 
-   case VENDOR_CONNER:
+   case VENDOR_ARCHIVE_CONNER:
 
-		status = cqd_ReportConnerVendorInfo(cqd_context);
+		status = cqd_ReportConnerVendorInfo(cqd_context, vendor_id);
 
       break;
 
@@ -212,14 +249,16 @@ dStatus cqd_GetDeviceInfo
 
                if ((drive_config & CONFIG_QIC80) != 0) {
 
-                  cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
+						cqd_context->device_descriptor.native_class = QIC80_DRIVE;
+						cqd_context->device_descriptor.drive_class = QIC80_DRIVE;
 						kdi_CheckedDump(
 							QIC117INFO,
 							"Q117i: Drive Type QIC80_DRIVE\n", 0l);
 
       	      } else {
 
-                  cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
+						cqd_context->device_descriptor.native_class = QIC40_DRIVE;
+						cqd_context->device_descriptor.drive_class = QIC40_DRIVE;
 						kdi_CheckedDump(
 							QIC117INFO,
 							"Q117i: Drive Type QIC40_DRIVE\n", 0l);

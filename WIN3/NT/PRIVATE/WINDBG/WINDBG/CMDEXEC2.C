@@ -142,6 +142,8 @@ static char *HelpText[] = {
     "    U      Unfreeze thread ",
     "    X      Find symbols ",
     "    Z      Freeze/Thaw thread ",
+    "   <addr>  Address expression ",
+    "   <range> Range expression ",
     " ",
     "[ ?     ] ",
     "    ? <expression>      -   Evaluates an expression ",
@@ -374,6 +376,31 @@ static char *HelpText[] = {
     "            of listing loaded modules, i.e. it is equivalent ",
     "            to the LM command. ",
     " ",
+    "[ <addr> ] ",
+    "    Any valid expression may be used where an address ",
+    "    is required.  Windbg recognizes standard C/C++ expressions, ",
+    "    so any of the following are syntactically valid: ",
+    " ",
+    "            0x55000 ",
+    "            MyDll!MyFunc ",
+    "            szBuffer+6 ",
+    " ",
+    "[ <range> ] ",
+    "    A range expression is one of: ",
+    " ",
+    "            <addr1> <addr2> ",
+    "               Addresses from addr1 to addr2, inclusive ",
+    " ",
+    "            <addr> L <count> ",
+    "               Addresses from addr extending for <count> items. The ",
+    "               size of the item is determined by the command; for ",
+    "               example, the dd command has a size of 4, while db has ",
+    "               an item size of 1. "
+    " ",
+    "            <addr> I <integer expression> ",
+    "               only valid in the U command: specifies a count in ",
+    "               instructions rather than a fixed byte size. ",
+    " ",
     "[__END__]"
 };
 
@@ -388,7 +415,7 @@ static  ADDR    addrLastDumpEnd;
 static  ADDR    addrLastEnterStart;
 static  ADDR    addrLastEnterEnd;
 
-static  ADDR    addrLastDisasmStart;
+ADDR    addrLastDisasmStart;
 static  ADDR    addrLastDisasmEnd;
 
 static  ADDR    addrAsm;          // for assemble and enter commands
@@ -406,11 +433,11 @@ extern  EI       Ei;
 
 
 
-/************************************************************************************
+/******************************************************************************
  *
  * Functions for displaying help
  *
- ************************************************************************************/
+ ******************************************************************************/
 
 BOOL
 TopicMatch (
@@ -441,7 +468,7 @@ TopicMatch (
             *p = 0;
         }
 
-        Match = !stricmp( HdrBuf, TopicBuf );
+        Match = !_stricmp( HdrBuf, TopicBuf );
     }
 
     return Match;
@@ -1383,9 +1410,6 @@ Return Value:
         goto done;
     }
 
-    SYFixupAddr(&addr0);
-    SYFixupAddr(&addr1);
-
     if (GetAddrOff(addr1) < GetAddrOff(addr0)) {
         CmdLogVar(ERR_RangeExpr_Invalid);
         rVal = LOGERROR_QUIET;
@@ -1611,14 +1635,11 @@ Return Value:
     if (*lpsz == 0) {
 
         if (addrLastDisasmEnd.addr.seg == 0 && addrLastDisasmEnd.addr.off == 0) {
-            addrLastDisasmEnd = addrLastDumpStart;
-        }
-        if (addrLastDisasmEnd.addr.seg == 0 && addrLastDisasmEnd.addr.off == 0) {
-            addrLastDisasmEnd = addrLastEnterStart;
-        }
-        if (addrLastDisasmEnd.addr.seg == 0 && addrLastDisasmEnd.addr.off == 0) {
-            OSDGetAddr(LptdCur->lppd->hpid, LptdCur->htid, (ADR)adrPC, &addrLastDisasmEnd);
+            OSDGetAddr(LptdCur->lppd->hpid, LptdCur->htid, (ADR)adrPC,
+                                                           &addrLastDisasmEnd);
             SYFixupAddr(&addrLastDisasmEnd);
+        } else {
+            SYSanitizeAddr(&addrLastDisasmEnd);
         }
         addr = addrLastDisasmEnd;
 
@@ -1661,11 +1682,9 @@ Return Value:
 
         } else {
 
-            SYFixupAddr(&endAddr);
             fAddr = TRUE;
         }
 
-        SYFixupAddr(&addr);
         lpsz += cch;
     }
 
@@ -1880,7 +1899,7 @@ Return Value:
         if (lpszLastSearch[strlen(lpszLastSearch)-1] != '*') {
             strcat(lpszLastSearch,"*");
         }
-        strupr( lpszLastSearch );
+        _strupr( lpszLastSearch );
     }
 
     return LogDisasm( "", TRUE );
@@ -1927,6 +1946,11 @@ Return Value:
     int     err;
     int     type;
     BOOL    fQuit;
+#ifdef DBCS
+    BOOL    bDBCS = FALSE;
+    BYTE    chSave;
+    static  UINT uiCodePage = (UINT)-1;
+#endif
 
 
     CmdInsertInit();
@@ -1978,6 +2002,8 @@ Return Value:
         }
         if (addrLastDumpEnd.addr.seg == 0 && addrLastDumpEnd.addr.off == 0) {
             OSDGetAddr(LppdCur->hpid, LptdCur->htid, (ADR)adrData, &addrLastDumpEnd);
+        } else {
+            SYSanitizeAddr(&addrLastDumpEnd);
         }
         addr = addrLastDumpEnd;
 
@@ -1994,17 +2020,6 @@ Return Value:
             rVal = LOGERROR_QUIET;
             goto done;
         }
-
-        SYFixupAddr(&addr);
-        SYFixupAddr(&addr1);
-
-        // NOTENOTE a-kentf segment/selectors don't really work
-        //if (addr.addr.seg != addr1.addr.seg) {
-            //CmdInsertInit();
-            //CmdLogVar(ERR_Addr_NotSameSeg);
-            //rVal = LOGERROR_QUIET;
-            //goto done;
-        //}
 
         if (GetAddrOff(addr1) < GetAddrOff(addr)) {
             CmdInsertInit();
@@ -2038,6 +2053,11 @@ Return Value:
     addrLastDumpStart = addr;
 
     SetCtrlCTrap();
+
+#ifdef DBCS
+    //Initialize
+    bDBCS = FALSE;
+#endif
 
     //
     // Be sure to leave this loop normally, or ClearCtrlCTrap()
@@ -2114,7 +2134,36 @@ Return Value:
                 } else {
                     EEFormatMemory(rgch, dmfi[type].cchItem + 1, rgb, dmfi[type].cBytes*8,
                         dmfi[type].fmtType, dmfi[type].radix);
+#ifdef DBCS
+                    if (bDBCS) {
+                        if (j == 0) {
+                            //This means that current *pszSrc is the 2nd byte
+                            //of a splited DBCS
+                            rgch[0] = '.';
+                        } else {
+                            //This DBC is changed to '.' by EEFormatMemory().
+                            //So I restore it.
+                            rgch[0] = chSave;
+                            rgch[1] = rgb[0];
+                            rgch[2] = '\0';
+                        }
+                        CmdLogFmt("%s", rgch);
+                        bDBCS = FALSE;
+                    } else if (IsDBCSLeadByte((BYTE)(0x00ff & rgb[0]))) {
+                        chSave = rgb[0];
+                        bDBCS = TRUE;
+                    }
+                    else if ((BYTE)rgb[0] >= (BYTE)0xa1 && (BYTE)rgb[0] <= (BYTE)0xdf) {
+                        //'Hankaku Kana' is changed to '.' by EEFormatMemory().
+                        rgch[0] = rgb[0];
+                        CmdLogFmt("%s", rgch);
+                    }
+                    else {
+                        CmdLogFmt("%s", rgch);
+                    }
+#else
                     CmdLogFmt("%s", rgch);
+#endif
                 }
                 break;
 
@@ -2123,8 +2172,40 @@ Return Value:
                 if (*(LPWCH)rgb == '\0') {
                     fQuit = TRUE;
                 } else {
+#ifdef DBCS
+                    /*
+                     * This is too bad. These kind of proccess should be done
+                     * in EEFormatMemory(). But eecan???.dll shouldn't use
+                     * WideCharToMultiByte() of GetACP() somehow.
+                     */
+                    int iCount;
+
+                    if (uiCodePage == (UINT)-1) {
+                        uiCodePage = GetACP();
+                    }
+                    iCount = WideCharToMultiByte(
+                                uiCodePage,         // CodePage
+                                0,                  // dwFlags
+                                (LPWCH)rgb,         // lpWideCharStr
+                                1,                  // cchWideCharLength
+                                rgch,               // lpMultiByteStr
+                                MB_CUR_MAX,         // cchMultiByteLength
+                                NULL,               // lpDefaultChar
+                                NULL                // lpUseDefaultChar
+                                );
+
+                    //This criterion should be same as one in EEFormatMemory().
+                    if (iCount == 0
+                    || (rgch[0] < ' ' || rgch[0] > 0x7e)
+                    &&  !IsDBCSLeadByte(rgch[0])) {
+                        rgch[0] = '.';
+                        iCount = 1;
+                    }
+                    rgch[iCount] = 0;
+#else
                     EEFormatMemory(rgch, dmfi[type].cchItem + 1, rgb, dmfi[type].cBytes*8,
                         dmfi[type].fmtType, dmfi[type].radix);
+#endif
                     CmdLogFmt("%s", rgch);
                 }
                 break;
@@ -2144,12 +2225,76 @@ Return Value:
                 switch (type) {
                   case LOG_DM_BYTE:
                     EEFormatMemory(&rgch3[j], 1, rgb, 8, fmtAscii, 0);
+#ifdef DBCS
+                    if (bDBCS) {
+                        if (j == 0) {
+                            //This means that current *pszSrc is the 2nd byte
+                            //of a splited DBCS
+                            rgch3[j] = '.';
+                        } else {
+                            //This DBC is changed to '.' by EEFormatMemory().
+                            //So I restore it.
+                            rgch3[j] = rgb[0];
+                        }
+                        bDBCS = FALSE;
+                    } else if (IsDBCSLeadByte((BYTE)(0x00ff & rgb[0]))) {
+                        rgch3[j] = rgb[0];
+                        bDBCS = TRUE;
+                    }
+                    else if ((BYTE)rgb[0] >= (BYTE)0xa1 && (BYTE)rgb[0] <= (BYTE)0xdf) {
+                        //'Hankaku Kana' is changed to '.' by EEFormatMemory().
+                        rgch3[j] = rgb[0];
+                    }
+#endif  // DBCS
                     rgch3[j+1] = 0;
                     break;
 
                   case LOG_DM_WORD:
+#if defined(DBCS) && defined(DW_COMMAND_SUPPORT)
+                  /*
+                   * This functionarity shouldn't be supported.
+                   * If you want support this functionarity,
+                   * Just define "DW_COMMAND_SUPPORT".
+                   */
+                  {
+                    /*
+                     * This is too bad. These kind of proccess should be done
+                     * in EEFormatMemory(). But eecan???.dll shouldn't use
+                     * WideCharToMultiByte() of GetACP() somehow.
+                     */
+                    int iCount;
+
+                    if (uiCodePage == (UINT)-1) {
+                        uiCodePage = GetACP();
+                    }
+                    iCount = WideCharToMultiByte(
+                                uiCodePage,         // CodePage
+                                0,                  // dwFlags
+                                (LPWCH)rgb,         // lpWideCharStr
+                                1,                  // cchWideCharLength
+                                &rgch3[j],          // lpMultiByteStr
+                                MB_CUR_MAX,         // cchMultiByteLength
+                                NULL,               // lpDefaultChar
+                                NULL                // lpUseDefaultChar
+                                );
+
+                    //This criterion should be same as one in EEFormatMemory().
+                    if (iCount == 0
+                    || (rgch[0] < ' ' || rgch[0] > 0x7e)
+                    && !IsDBCSLeadByte(rgch[0])) {
+                        rgch3[j]   = '.';
+                        rgch3[j+1] = ' ';
+                    }
+                    else if (iCount == 1) {
+                        rgch3[j+1] = ' ';
+                    }
+                    rgch3[j+2] = 0;
+                    j++;
+                  }
+#else
                     EEFormatMemory(&rgch3[j], 1, rgb, 16, fmtUnicode, 0);
                     rgch3[j+1] = 0;
+#endif
                     break;
 
                   case LOG_DM_DWORD:
@@ -2165,6 +2310,28 @@ Return Value:
 
         // if at end of line or end of list:
         if ( fQuit || ++j >= (int)dmfi[type].cAcross  ||  i >= cItems - 1) {
+#ifdef DBCS
+            if (bDBCS) {
+                //If DBC is separated by new line, add 2nd byte.
+                if (type == LOG_DM_BYTE) {
+                    GetAddrOff(addr) += dmfi[type].cBytes;
+                    Dbg(OSDSetAddr( LppdCur->hpid, LptdCur->htid, (ADR)adrCurrent, &addr) == xosdNone);
+                    cb = OSDPtrace( osdReadBuf, dmfi[type].cBytes, rgb, LppdCur->hpid, LptdCur->htid);
+                    GetAddrOff(addr) -= dmfi[type].cBytes;
+                    rgch3[j] = rgb[0];
+                    rgch3[j+1] = '\0';
+                } else if (type == LOG_DM_ASCII) {
+                    GetAddrOff(addr) += dmfi[type].cBytes;
+                    Dbg(OSDSetAddr( LppdCur->hpid, LptdCur->htid, (ADR)adrCurrent, &addr) == xosdNone);
+                    cb = OSDPtrace( osdReadBuf, dmfi[type].cBytes, rgb, LppdCur->hpid, LptdCur->htid);
+                    GetAddrOff(addr) -= dmfi[type].cBytes;
+                    rgch[0] = chSave;
+                    rgch[1] = rgb[0];
+                    rgch[2] = '\0';
+                    CmdLogFmt("%s", rgch);
+                }
+            }
+#endif  // DBCS
 
             // if in a hex mode, fill line and display ASCII version
 
@@ -2391,9 +2558,6 @@ Return Value:
         goto done;
     }
 
-    SYFixupAddr(&addr0);
-    SYFixupAddr(&addr1);
-
     if (GetAddrOff(addr1) < GetAddrOff(addr0)) {
         CmdLogVar(ERR_RangeExpr_Invalid);
         rVal = LOGERROR_QUIET;
@@ -2506,9 +2670,6 @@ LogMovemem(
         rVal = LOGERROR_QUIET;
         goto done;
     }
-
-    SYFixupAddr(&addr0);
-    SYFixupAddr(&addr1);
 
     if (GetAddrOff(addr1) < GetAddrOff(addr0)) {
         CmdLogVar(ERR_RangeExpr_Invalid);
@@ -2760,16 +2921,25 @@ Return Value:
 
     lpsz = CPSkipWhitespace(lpsz);
 
+#ifdef DBCS
+    for (lpch = lpsz; (*lpch != 0) && (*lpch != '=') && (*lpch != ' ');
+                        lpch = CharNext(lpch));
+#else
     for (lpch = lpsz; (*lpch != 0) && (*lpch != '=') && (*lpch != ' '); lpch++);
+#endif
     ch = *lpch;
     *lpch = 0;
 
-    lpsz = _fstrupr(lpsz);          // Convert to uppercase name
+#ifdef DBCS
+    lpsz = CharUpper(lpsz);          // Convert to uppercase name
+#else
+    lpsz = _strupr(lpsz);          // Convert to uppercase name
+#endif
 
     for (i=0; i<cRegs; i++) {
         Dbg( OSDGetRegDesc( LppdCur->hpid, LptdCur->htid, i, &rd) == xosdNone );
         // match name and CPU; all groups allowed.
-        if (_fstricmp(lpsz, rd.lpsz) == 0
+        if (_stricmp(lpsz, rd.lpsz) == 0
            && (rd.rt & rtProcessMask) == (rtMask & rtProcessMask) ) {
             break;
         }
@@ -2969,9 +3139,6 @@ Return Value:
         goto done;
     }
 
-    SYFixupAddr(&addr0);
-    SYFixupAddr(&addr1);
-
     if (GetAddrOff(addr1) < GetAddrOff(addr0)) {
         CmdLogVar(ERR_RangeExpr_Invalid);
         rVal = LOGERROR_QUIET;
@@ -3097,7 +3264,7 @@ Return Value:
 
     CmdInsertInit();
 
-    if ( !strnicmp( lpsz, "elp",3 ) ) {
+    if ( !_strnicmp( lpsz, "elp",3 ) ) {
         lpsz+=3;
     } else {
         rVal = LOGERROR_UNKNOWN;

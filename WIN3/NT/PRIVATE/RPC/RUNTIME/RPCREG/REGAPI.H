@@ -27,6 +27,12 @@ Revision History:
 extern "C" {
 #endif
 
+#ifdef MAC
+#define _fmalloc malloc
+#define _ffree   free
+#define far
+#endif
+
 typedef unsigned long       DWORD;
 typedef char far*           LPSTR;
 
@@ -44,11 +50,11 @@ typedef const char far*     LPCSTR;
 #define RegSetValue   RpcRegSetValue
 #define RegQueryValue RpcRegQueryValue
 
-long WINAPI RegOpenKey(HKEY, LPCSTR, PHKEY);
-long WINAPI RegCreateKey(HKEY, LPCSTR, PHKEY);
-long WINAPI RegCloseKey(HKEY);
-long WINAPI RegSetValue(HKEY, LPCSTR, DWORD, LPCSTR, DWORD);
-long WINAPI RegQueryValue(HKEY, LPCSTR, LPSTR, DWORD far *);
+long RPC_ENTRY RegOpenKey(HKEY, LPCSTR, PHKEY);
+long RPC_ENTRY RegCreateKey(HKEY, LPCSTR, PHKEY);
+long RPC_ENTRY RegCloseKey(HKEY);
+long RPC_ENTRY RegSetValue(HKEY, LPCSTR, DWORD, LPCSTR, DWORD);
+long RPC_ENTRY RegQueryValue(HKEY, LPCSTR, LPSTR, DWORD far *);
 
 #define ERROR_SUCCESS           0L
 #define ERROR_BADDB             1L

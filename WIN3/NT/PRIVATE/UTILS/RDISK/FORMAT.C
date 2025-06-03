@@ -1,7 +1,5 @@
-#include "windows.h"
-#include "rdisk.h"
-#include "resource.h"
-#include <stdio.h>
+#include "precomp.h"
+#pragma hdrstop
 
 BOOL
 InitializeFloppySup(
@@ -58,16 +56,24 @@ Return Value:
 {
     HANDLE          Handle;
     WIN32_FIND_DATA FindData;
-    WCHAR           DiskTag[ MAX_PATH ];
 
-    BOOL err,Fatal;
+    BOOL Fatal;
     BOOL res;
     WCHAR Warning[256];
     UINT OldErrorMode;
     HCURSOR Cursor;
     WCHAR   DriveLetter[3];
 
-    err = FALSE;
+    PWSTR SetupFloppyTags[4] = { L"?:\\DISK10?",
+                                 L"?:\\DISK*.S",
+                                 L"?:\\DISK*.W",
+                                 NULL
+                               };
+    WCHAR FloppyTag[128];
+
+    unsigned i;
+
+
     DriveLetter[0] = *Drive;
     DriveLetter[1] = (WCHAR)':';
     DriveLetter[2] = (WCHAR)'\0';
@@ -100,24 +106,36 @@ Return Value:
     }
 
     //
-    // Perform a cursory check to make sure the setup floppy is not
-    // in the drive.  Look for the text setup inf file -- if it's
-    // found, tell the user to remove it.
+    // Attempt to prevent the user from using a setup floppy
+    // as the repair disk by looking for known tag values on
+    // the floppy the user inserted.
     //
-    swprintf( DiskTag,
-              (LPWSTR)L"%wc:\\disk?",
-              *Drive );
-    while((Handle = FindFirstFile(DiskTag, &FindData)) != INVALID_HANDLE_VALUE) {
-        FindClose( Handle );
-        if( DisplayMsgBox( _hWndMain,
-                           IDS_SECONDREPAIRDISKPROMPT,
-                           MB_OKCANCEL | MB_DEFBUTTON1 | MB_ICONEXCLAMATION,
-                           DriveLetter,
-                           Warning) != IDOK ) {
-            return( FALSE );
+    do {
+
+        for(i=0; SetupFloppyTags[i]; i++) {
+            //
+            // Make writable copy of floppy tag before writing into it.
+            //
+            lstrcpy(FloppyTag,SetupFloppyTags[i]);
+            FloppyTag[0] = *Drive;
+
+            if((Handle = FindFirstFile(FloppyTag,&FindData)) != INVALID_HANDLE_VALUE) {
+
+                FindClose(Handle);
+
+                if( DisplayMsgBox( _hWndMain,
+                                   IDS_SECONDREPAIRDISKPROMPT,
+                                   MB_OKCANCEL | MB_DEFBUTTON1 | MB_ICONEXCLAMATION,
+                                   DriveLetter,
+                                   Warning) != IDOK ) {
+                    return( FALSE );
+                }
+
+                break;
+            }
         }
 
-    }
+    } while(Handle != INVALID_HANDLE_VALUE);
 
     do {
         if(!(res = FormatFloppyDisk(*Drive,_hWndMain,&Fatal))) {
@@ -151,7 +169,7 @@ Return Value:
 
     SetErrorMode(OldErrorMode);
 
-    return(!err);
+    return(TRUE);
 
 }
 
@@ -175,7 +193,7 @@ InsertSpecialBootCode(
     DWORD Offset;
     PUCHAR MsgAddr;
 
-    swprintf(DriveName,L"%ls%wc:",DRIVENAME_PREFIX,Drive);
+    wsprintf(DriveName,L"%ls%wc:",DRIVENAME_PREFIX,Drive);
 
     //
     // Open the drive DASD

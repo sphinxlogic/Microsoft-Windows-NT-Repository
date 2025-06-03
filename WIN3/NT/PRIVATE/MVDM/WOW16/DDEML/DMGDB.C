@@ -7,8 +7,6 @@
 *
 * Copyright (c) 1988, 1989  Microsoft Corporation
 \***************************************************************************/
-#include <string.h>
-#include <memory.h>
 #include "ddemlp.h"
 
 /***************************** Private Function ****************************\
@@ -562,7 +560,7 @@ WORD cItemsPerBlock;
         SEMLEAVE();
         return(NULL);
     }
-    ppile->pBlockFirst = (PLITEM)NULL;
+    ppile->pBlockFirst = NULL;
     ppile->hheap = hheap;
     ppile->cbBlock = cbItem * cItemsPerBlock + sizeof(PILEB);
     ppile->cSubItemsMax = cItemsPerBlock;
@@ -659,7 +657,7 @@ WORD afCmd;
                         /*
                          * copy last subitem in the block over the removed item.
                          */
-                        _fmemmove(psi, (LPBYTE)pBlockCur + sizeof(PILEB) +
+                        hmemcpy(psi, (LPBYTE)pBlockCur + sizeof(PILEB) +
                                 pPile->cbSubItem * pBlockCur->cItems,
                                 pPile->cbSubItem);
                     }
@@ -700,7 +698,7 @@ BOOL (*npfnCmp)(LPBYTE pb, LPBYTE pbSearch);
     SEMENTER();
     if (npfnCmp != NULL &&  (pbDst = FindPileItem(pPile, npfnCmp, pb, 0)) !=
         NULL) {
-        _fmemmove(pbDst, pb, pPile->cbSubItem);
+        hmemcpy(pbDst, pb, pPile->cbSubItem);
         SEMLEAVE();
         return(API_FOUND);
     }
@@ -725,7 +723,7 @@ BOOL (*npfnCmp)(LPBYTE pb, LPBYTE pbSearch);
     /*
      * add the subitem
      */
-    _fmemmove((LPBYTE)ppb + sizeof(PILEB) + pPile->cbSubItem * ppb->cItems++,
+    hmemcpy((LPBYTE)ppb + sizeof(PILEB) + pPile->cbSubItem * ppb->cItems++,
                 pb, pPile->cbSubItem);
 
     SEMLEAVE();
@@ -755,7 +753,7 @@ LPBYTE pb;
 
     SEMENTER();
     pSrc = (LPBYTE)pPile->pBlockFirst + sizeof(PILEB);
-    _fmemmove(pb, pSrc, pPile->cbSubItem);
+    hmemcpy(pb, pSrc, pPile->cbSubItem);
     /*
      * remove entire block if this was the last subitem in it.
      */
@@ -766,7 +764,7 @@ LPBYTE pb;
          * move last item in block to replace copied subitem and decrement
          * subitem count.
          */
-        _fmemmove(pSrc, pSrc + pPile->cbSubItem * --pPile->pBlockFirst->cItems,
+        hmemcpy(pSrc, pSrc + pPile->cbSubItem * --pPile->pBlockFirst->cItems,
                             pPile->cbSubItem);
     }
     SEMLEAVE();
@@ -864,7 +862,7 @@ DWORD cb;
     cFirst = (DWORD)min(~LOWORD((DWORD)pSrc), ~LOWORD((DWORD)pDst)) + 1L;
     /* cFirst is # of bytes to end of seg, for buffer w/ biggest offset */
     if (cb < cFirst) {
-        _fmemmove(pDst, pSrc, (WORD)cb);
+        hmemcpy(pDst, pSrc, (WORD)cb);
         return(TRUE);
     }
 
@@ -889,12 +887,12 @@ copyit:
              *  ^dst                               ^
              */
             cFirst >>= 1;           /* half the span */
-            _fmemmove(pDst, pSrc, (WORD)cFirst);
+            hmemcpy(pDst, pSrc, (WORD)cFirst);
             pSrc += cFirst;     /* inc ptrs */
             pDst += cFirst;
             cb -= cFirst;           /* dec bytecount */
         }
-        _fmemmove(pDst, pSrc, (WORD)cFirst);
+        hmemcpy(pDst, pSrc, (WORD)cFirst);
         pSrc = HugeOffset(pSrc, cFirst);
         pDst = HugeOffset(pDst, cFirst);
         cb -= cFirst;
@@ -939,7 +937,8 @@ void _loadds fAssert(
 BOOL f,
 LPSTR pszComment,
 WORD line,
-LPSTR szfile)
+LPSTR szfile,
+BOOL fWarning)
 {
     char szT[90];
 
@@ -947,19 +946,9 @@ LPSTR szfile)
         wsprintf(szT, "\n\rAssertion failure: %s:%d %s\n\r",
                 szfile, line, pszComment);
         OutputDebugString((LPSTR)szT);
-        DEBUGBREAK();
+        if (!fWarning)
+            DEBUGBREAK();
     }
 }
-
-
 #endif /* DEBUG */
 
-
-
-
-
-
-
-
-
-

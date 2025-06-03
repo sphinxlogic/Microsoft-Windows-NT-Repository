@@ -21,8 +21,6 @@ Revision History:
 
 
 #include "mi.h"
-#include <zwapi.h>
-#include <string.h>
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,MiSectionInitialization)
@@ -30,6 +28,22 @@ Revision History:
 
 MMEVENT_COUNT_LIST MmEventCountList;
 
+NTSTATUS
+MiFlushSectionInternal (
+    IN PMMPTE StartingPte,
+    IN PMMPTE FinalPte,
+    IN PSUBSECTION FirstSubsection,
+    IN PSUBSECTION LastSubsection,
+    IN ULONG Synchronize,
+    OUT PIO_STATUS_BLOCK IoStatus
+    );
+
+ULONG
+FASTCALL
+MiCheckProtoPtePageState (
+    IN PMMPTE PrototypePte,
+    IN ULONG PfnLockHeld
+    );
 
 ULONG MmSharedCommit = 0;
 extern ULONG MMCONTROL;
@@ -45,8 +59,6 @@ typedef enum _SEGMENT_DERFERENCE_OBJECT {
     } BALANCE_OBJECT;
 
 extern POBJECT_TYPE IoFileObjectType;
-
-extern KSPIN_LOCK KiDispatcherLock;
 
 GENERIC_MAPPING MiSectionMapping = {
     STANDARD_RIGHTS_READ |
@@ -229,7 +241,7 @@ Return Value:
     LastPte = PointerPte + Segment->NonExtendedPtes;
 
 #if DBG
-    if (MmDebug & 0x100) {
+    if (MmDebug & MM_DBG_SECTIONS) {
         DbgPrint("MM:deleting segment %lx control %lx\n",Segment, Segment->ControlArea);
     }
 #endif
@@ -366,7 +378,9 @@ Return Value:
                 MmSharedCommit -= Segment->NumberOfCommittedPages;
             }
 
+            RtlZeroMemory (Segment->ControlArea, sizeof (CONTROL_AREA)); //fixfix remove
             ExFreePool (Segment->ControlArea);
+            RtlZeroMemory (Segment, sizeof (SEGMENT)); //fixfix remove
             ExFreePool (Segment);
 
             //
@@ -426,7 +440,7 @@ Return Value:
 
                 MI_SET_PFN_DELETED (Pfn1);
 
-                MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                MiDecrementShareCount (Pfn1->PteFrame);
 
                 //
                 // Check the reference count for the page, if the reference
@@ -437,7 +451,7 @@ Return Value:
                 // free list.
                 //
 
-                if (Pfn1->ReferenceCount == 0) {
+                if (Pfn1->u3.e2.ReferenceCount == 0) {
                     MiUnlinkPageFromList (Pfn1);
                     MiReleasePageFileSpace (Pfn1->OriginalPte);
                     MiInsertPageInList (MmPageLocationList[FreePageList],
@@ -510,7 +524,6 @@ Return Value:
     PSECTION Section;
     volatile PCONTROL_AREA ControlArea;
     ULONG DereferenceSegment = FALSE;
-    ULONG DeleteOnClose = FALSE;
     KIRQL OldIrql;
     ULONG UserRef;
 
@@ -529,13 +542,8 @@ Return Value:
     ControlArea = (volatile PCONTROL_AREA)Section->Segment->ControlArea;
 
 #if DBG
-    if (MmDebug & 0x100) {
+    if (MmDebug & MM_DBG_SECTIONS) {
         DbgPrint("MM:deleting section %lx control %lx\n",Section, ControlArea);
-    }
-#endif
-#if DBG
-    if (NtGlobalFlag & FLG_TRACE_PAGING_INFO) {
-        DbgPrint("$$$SECTION TERMINATION: %lx\n",Section);
     }
 #endif
 
@@ -679,7 +687,7 @@ Return Value:
                 //
 
 #if DBG
-                if (MmDebug & 0x100) {
+                if (MmDebug & MM_DBG_SECTIONS) {
                     DbgPrint("MM:dereferencing segment %lx control %lx\n",
                         ControlArea->Segment, ControlArea);
                 }
@@ -746,7 +754,7 @@ Return Value:
 }
 
 
-BOOLEAN
+ULONG
 MiSectionInitialization (
     )
 
@@ -792,6 +800,7 @@ Return Value:
 
     RtlZeroMemory( &ObjectTypeInitializer, sizeof( ObjectTypeInitializer ) );
     ObjectTypeInitializer.Length = sizeof( ObjectTypeInitializer );
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.GenericMapping = MiSectionMapping;
     ObjectTypeInitializer.PoolType = PagedPool;
     ObjectTypeInitializer.DefaultPagedPoolCharge = sizeof(SECTION);
@@ -857,12 +866,16 @@ Return Value:
     // Create the permanent section which maps physical memory.
     //
 
-    Segment = (PSEGMENT)ExAllocatePoolWithTag (PagedPool, sizeof(SEGMENT), 'gSmM');
+    Segment = (PSEGMENT)ExAllocatePoolWithTag (PagedPool,
+                                               sizeof(SEGMENT),
+                                               'gSmM');
     if (Segment == NULL) {
         return FALSE;
     }
 
-    ControlArea = ExAllocatePoolWithTag( NonPagedPool, (ULONG)sizeof(CONTROL_AREA), MMCONTROL);
+    ControlArea = ExAllocatePoolWithTag (NonPagedPool,
+                                         (ULONG)sizeof(CONTROL_AREA),
+                                         MMCONTROL);
     if (ControlArea == NULL) {
         return FALSE;
     }
@@ -967,7 +980,7 @@ Return Value:
 {
     PCONTROL_AREA ControlArea;
     KIRQL OldIrql;
-    BOOLEAN state;
+    ULONG state;
 
     //
     // Check the status of the control area, if the control area is in use
@@ -981,7 +994,7 @@ Return Value:
                                       &OldIrql);
 
     if (ControlArea == NULL) {
-        return state;
+        return (BOOLEAN)state;
     }
 
     //
@@ -1013,7 +1026,7 @@ Return Value:
     //
 
     MiCleanSection (ControlArea);
-    return(TRUE);
+    return TRUE;
 }
 
 VOID
@@ -1067,13 +1080,15 @@ Return Value:
     LARGE_INTEGER TempOffset;
     NTSTATUS Status;
     IO_STATUS_BLOCK IoStatus;
-    BOOLEAN WriteNow = FALSE;
-    BOOLEAN ImageSection = FALSE;
+    ULONG WriteNow = FALSE;
+    ULONG ImageSection = FALSE;
     ULONG DelayCount = 0;
+    ULONG First;
 
     if (ControlArea->u.Flags.Image) {
         ImageSection = TRUE;
     }
+    ASSERT (ControlArea->FilePointer);
 
     PointerPte = ControlArea->Segment->PrototypePte;
     LastPte = PointerPte + ControlArea->Segment->NonExtendedPtes;
@@ -1121,7 +1136,7 @@ Return Value:
         //
 
         ControlArea->u.Flags.SetMappedFileIoComplete = 1;
-
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(&MmMappedFileIoComplete,
@@ -1129,23 +1144,33 @@ Return Value:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
         LOCK_PFN (OldIrql);
     }
 
  for (;;) {
 
-    MiMakeSystemAddressValidPfn (PointerPte);
-
+    First = TRUE;
     while (PointerPte < LastPte) {
 
-        if (((ULONG)PointerPte & (PAGE_SIZE - 1)) == 0) {
+        if ((((ULONG)PointerPte & (PAGE_SIZE - 1)) == 0) || First) {
+            First = FALSE;
 
-            //
-            // We are on a page boundary, make sure this PTE is resident.
-            //
-
-            if (MmIsAddressValid (PointerPte) == FALSE) {
+            if ((ImageSection) ||
+                (MiCheckProtoPtePageState(PointerPte, FALSE))) {
                 MiMakeSystemAddressValidPfn (PointerPte);
+            } else {
+
+                //
+                // Paged pool page is not resident, hence no transition or valid
+                // prototype PTEs can be present in it.  Skip it.
+                //
+
+                PointerPte = (PMMPTE)((((ULONG)PointerPte | PAGE_SIZE - 1)) + 1);
+                if (LastWritten != NULL) {
+                    WriteNow = TRUE;
+                }
+                goto WriteItOut;
             }
         }
 
@@ -1175,7 +1200,7 @@ Return Value:
 
                 Pfn1 = MI_PFN_ELEMENT (PteContents.u.Trans.PageFrameNumber);
 
-                if (Pfn1->ReferenceCount != 0) {
+                if (Pfn1->u3.e2.ReferenceCount != 0) {
                     if (DelayCount < 20) {
 
                         //
@@ -1232,7 +1257,7 @@ Return Value:
                         ASSERT ((LONG)ControlArea->NumberOfPfnReferences >= 0);
                     }
 
-                    MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                    MiDecrementShareCount (Pfn1->PteFrame);
 
                     //
                     // Check the reference count for the page, if the reference
@@ -1243,7 +1268,7 @@ Return Value:
                     // on the free list.
                     //
 
-                    if ((Pfn1->ReferenceCount == 0) &&
+                    if ((Pfn1->u3.e2.ReferenceCount == 0) &&
                          (Pfn1->u3.e1.PageLocation != FreePageList)) {
 
                         MiUnlinkPageFromList (Pfn1);
@@ -1275,7 +1300,7 @@ Return Value:
                         ControlArea->NumberOfPfnReferences -= 1;
                         ASSERT ((LONG)ControlArea->NumberOfPfnReferences >= 0);
 
-                        MiDecrementShareCount (Pfn1->u3.e1.PteFrame);
+                        MiDecrementShareCount (Pfn1->PteFrame);
 
                         //
                         // Check the reference count for the page, if the reference
@@ -1286,7 +1311,7 @@ Return Value:
                         // free list.
                         //
 
-                        if ((Pfn1->ReferenceCount == 0) &&
+                        if ((Pfn1->u3.e2.ReferenceCount == 0) &&
                              (Pfn1->u3.e1.PageLocation != FreePageList)) {
 
                             MiUnlinkPageFromList (Pfn1);
@@ -1354,7 +1379,7 @@ Return Value:
                         // is I/O in progress.
                         //
 
-                        Pfn1->ReferenceCount += 1;
+                        Pfn1->u3.e2.ReferenceCount += 1;
 
                         //
                         // Clear the modified bit for the page and set the write
@@ -1401,6 +1426,8 @@ Return Value:
         PointerPte += 1;
         DelayCount = 0;
 
+WriteItOut:
+
         if ((WriteNow) ||
             ((PointerPte == LastPte) && (LastWritten != NULL))) {
 
@@ -1435,7 +1462,7 @@ Return Value:
             }
 
 #if DBG
-            if (MmDebug & 0x10000) {
+            if (MmDebug & MM_DBG_FLUSH_SECTION) {
                 DbgPrint("MM:flush page write begun %lx\n",
                         Mdl->ByteCount);
             }
@@ -1525,7 +1552,7 @@ Return Value:
                         ControlArea->NumberOfPfnReferences -= 1;
                         ASSERT ((LONG)ControlArea->NumberOfPfnReferences >= 0);
 
-                        MiDecrementShareCount (Pfn2->u3.e1.PteFrame);
+                        MiDecrementShareCount (Pfn2->PteFrame);
 
                         //
                         // Check the reference count for the page,
@@ -1537,7 +1564,7 @@ Return Value:
                         // it will be placed on the free list.
                         //
 
-                        if ((Pfn2->ReferenceCount == 0) &&
+                        if ((Pfn2->u3.e2.ReferenceCount == 0) &&
                            (Pfn2->u3.e1.PageLocation != FreePageList)) {
 
                             MiUnlinkPageFromList (Pfn2);
@@ -1637,7 +1664,7 @@ Environment:
     POBJECT_NAME_INFORMATION FileNameInfo;
     ULONG whocares;
     NTSTATUS Status;
-    BOOLEAN Dereference;
+    ULONG Dereference;
 
     Dereference = TRUE;
 #define xMAX_NAME 1024
@@ -1662,7 +1689,7 @@ Environment:
         return STATUS_SECTION_NOT_IMAGE;
     }
 
-    FileNameInfo = ExAllocatePool(PagedPool,xMAX_NAME);
+    FileNameInfo = ExAllocatePoolWithTag (PagedPool, xMAX_NAME, '  mM');
     if ( !FileNameInfo ) {
         if ( Dereference ) ObDereferenceObject (SectionObject);
         return STATUS_NO_MEMORY;
@@ -1683,7 +1710,9 @@ Environment:
 
     FileName->Length = 0;
     FileName->MaximumLength = (FileNameInfo->Name.Length/sizeof(WCHAR)) + 1;
-    FileName->Buffer = ExAllocatePool(PagedPool,FileName->MaximumLength);
+    FileName->Buffer = ExAllocatePoolWithTag (PagedPool,
+                                              FileName->MaximumLength,
+                                              '  mM');
     if ( !FileName->Buffer ) {
         ExFreePool(FileNameInfo);
         return STATUS_NO_MEMORY;
@@ -1754,7 +1783,7 @@ Environment:
                 // by the Segment, derferenced the Segment object.
                 //
 
-                ControlArea->u.Flags.BeingDeleted = 0;
+                ControlArea->u.Flags.BeingDeleted = 1;
                 DereferenceSegment = TRUE;
 
                 ASSERT (ControlArea->u.Flags.FilePointerNull == 0);
@@ -1831,6 +1860,7 @@ Environment:
 
                 if (DeleteOnClose && !DereferenceSegment) {
                     ControlArea->NumberOfMappedViews = 1;
+                    ControlArea->u.Flags.BeingDeleted = 1;
                 }
             }
 
@@ -1990,11 +2020,11 @@ Environment:
 }
 
 
-BOOLEAN
+ULONG
 MiCheckControlAreaStatus (
     IN SECTION_CHECK_TYPE SectionCheckType,
     IN PSECTION_OBJECT_POINTERS SectionObjectPointers,
-    IN BOOLEAN DelayClose,
+    IN ULONG DelayClose,
     OUT PCONTROL_AREA *ControlAreaOut,
     OUT PKIRQL PreviousIrql
     )
@@ -2055,7 +2085,7 @@ Environment:
 {
     PEVENT_COUNTER IoEvent;
     PEVENT_COUNTER SegmentEvent;
-    BOOLEAN DeallocateSegmentEvent = TRUE;
+    ULONG DeallocateSegmentEvent = TRUE;
     PCONTROL_AREA ControlArea;
     ULONG SectRef;
     KIRQL OldIrql;
@@ -2180,6 +2210,7 @@ Environment:
         // Release the mutex and wait for the event.
         //
 
+        KeEnterCriticalRegion();
         UNLOCK_PFN_AND_THEN_WAIT(OldIrql);
 
         KeWaitForSingleObject(&IoEvent->Event,
@@ -2187,6 +2218,7 @@ Environment:
                               KernelMode,
                               FALSE,
                               (PLARGE_INTEGER)NULL);
+        KeLeaveCriticalRegion();
 
         LOCK_PFN (OldIrql);
         MiFreeEventCounter (IoEvent, TRUE);
@@ -2441,7 +2473,7 @@ Environment:
     return FALSE;
 }
 
-BOOLEAN
+ULONG
 MmCanFileBeTruncatedInternal (
     IN PSECTION_OBJECT_POINTERS SectionPointer,
     IN PLARGE_INTEGER NewFileSize OPTIONAL,
@@ -2560,8 +2592,9 @@ UnlockAndReturn:
     return FALSE;
 }
 
+
 VOID
-MiRemoveUnusedSegments(
+MiRemoveUnusedSegments (
     VOID
     )
 
@@ -2590,6 +2623,7 @@ Environment:
     KIRQL OldIrql;
     PLIST_ENTRY NextEntry;
     PCONTROL_AREA ControlArea;
+    NTSTATUS Status;
 
     while (MmUnusedSegmentCount > MmUnusedSegmentCountGoal) {
 
@@ -2597,6 +2631,8 @@ Environment:
         // Eliminate some of the unused segments which are only
         // kept in memory because they contain transition pages.
         //
+
+        Status = STATUS_SUCCESS;
 
         LOCK_PFN (OldIrql);
 
@@ -2618,7 +2654,7 @@ Environment:
                                          CONTROL_AREA,
                                          DereferenceList );
 #if DBG
-        if (MmDebug & 0x100) {
+        if (MmDebug & MM_DBG_SECTIONS) {
             DbgPrint("MM: cleaning segment %lx control %lx\n",
                 ControlArea->Segment, ControlArea);
         }
@@ -2665,6 +2701,74 @@ Environment:
                 continue;
             }
 
+            //
+            // Up the number of mapped views to prevent other threads
+            // from freeing this.
+            //
+
+            ControlArea->NumberOfMappedViews = 1;
+            UNLOCK_PFN (OldIrql);
+            {
+                PSUBSECTION Subsection;
+                PSUBSECTION LastSubsection;
+                PMMPTE PointerPte;
+                PMMPTE LastPte;
+                IO_STATUS_BLOCK IoStatus;
+
+                Subsection = (PSUBSECTION)(ControlArea + 1);
+                PointerPte = &Subsection->SubsectionBase[0];
+                LastSubsection = Subsection;
+                while (LastSubsection->NextSubsection != NULL) {
+                    LastSubsection = LastSubsection->NextSubsection;
+                }
+                LastPte = &LastSubsection->SubsectionBase
+                                    [LastSubsection->PtesInSubsection - 1];
+
+                //
+                //  Preacquire the file to prevent deadlocks with other flushers
+                //
+
+                FsRtlAcquireFileForCcFlush (ControlArea->FilePointer);
+
+                Status = MiFlushSectionInternal (PointerPte,
+                                                 LastPte,
+                                                 Subsection,
+                                                 LastSubsection,
+                                                 FALSE,
+                                                 &IoStatus);
+                //
+                //  Now release the file
+                //
+
+                FsRtlReleaseFileForCcFlush (ControlArea->FilePointer);
+            }
+
+            LOCK_PFN (OldIrql);
+
+            if (!NT_SUCCESS(Status)) {
+                if ((Status == STATUS_FILE_LOCK_CONFLICT) ||
+                    (ControlArea->u.Flags.Networked == 0)) {
+
+                    //
+                    // If an error occurs, don't flush this section, unless
+                    // it's a networked file and the status is not
+                    // LOCK_CONFLICT.
+                    //
+
+                    ControlArea->NumberOfMappedViews -= 1;
+                    UNLOCK_PFN (OldIrql);
+                    continue;
+                }
+            }
+
+            if (!((ControlArea->NumberOfMappedViews == 1) &&
+                (ControlArea->NumberOfSectionReferences == 0) &&
+                (ControlArea->u.Flags.BeingDeleted == 0))) {
+                ControlArea->NumberOfMappedViews -= 1;
+                UNLOCK_PFN (OldIrql);
+                continue;
+            }
+
             ControlArea->u.Flags.BeingDeleted = 1;
 
             //
@@ -2673,16 +2777,7 @@ Environment:
             //
 
             ControlArea->u.Flags.NoModifiedWriting = 1;
-            ControlArea->NumberOfMappedViews = 1;
             ASSERT (ControlArea->u.Flags.FilePointerNull == 0);
-            ControlArea->u.Flags.FilePointerNull = 1;
-            if (ControlArea->u.Flags.Image) {
-                ((PCONTROL_AREA)(ControlArea->FilePointer->SectionObjectPointer->ImageSectionObject)) =
-                                                                NULL;
-            } else {
-                ((PCONTROL_AREA)(ControlArea->FilePointer->SectionObjectPointer->DataSectionObject)) =
-                                                                NULL;
-            }
             UNLOCK_PFN (OldIrql);
             MiCleanSection (ControlArea);
         } else {

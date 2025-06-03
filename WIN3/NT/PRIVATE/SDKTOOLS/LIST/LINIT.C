@@ -250,7 +250,7 @@ char *fname;
 //  npt =  (struct Flist FAR *) Mem_Alloc (sizeof (struct Flist));
 //  npt->fname = strdupf (fname);
     npt =  (struct Flist FAR *) malloc (sizeof (struct Flist));
-    npt->fname = strdup (fname);
+    npt->fname = _strdup (fname);
 
     pt = strrchr (fname, '\\');
     pt = pt == NULL ? fname : pt+1;
@@ -265,9 +265,9 @@ char *fname;
 //      npt->rootname = strdupf (s);
 //  } else
 //      npt->rootname = strdupf (pt);
-        npt->rootname = strdup (s);
+        npt->rootname = _strdup (s);
     } else
-        npt->rootname = strdup (pt);
+        npt->rootname = _strdup (pt);
 
 //    npt->FileTime.DoubleSeconds = -1;    /* Cause info to be invalid     */
 //    npt->FileTime.Minutes = -1;          /* Cause info to be invalid     */
@@ -321,7 +321,7 @@ void PASCAL FindIni ()
     while (fgets (s, 200, fp) != NULL) {
         if ((s[0] != '[')||(s[5] != ']'))
             continue;
-        strupr (s);
+        _strupr (s);
         if (strstr (s, "LIST") == NULL)
             continue;
         /*
@@ -340,7 +340,7 @@ void PASCAL FindIni ()
             if (value == NULL)
                 value = "";
 
-            strupr (verb);
+            _strupr (verb);
             if (strcmp (verb, "TAB") == 0)          vDisTab = (Uchar)atoi(value);
             else if (strcmp (verb, "WIDTH")   == 0) vSetWidth = atoi(value);
             else if (strcmp (verb, "HEIGHT")  == 0) vSetLines = atoi(value);

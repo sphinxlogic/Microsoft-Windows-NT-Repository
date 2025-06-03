@@ -50,4 +50,3 @@ INT			GetResourceSem (VOID*);
 VOID		FreeResourceSem (VOID*);
 
 #endif		/* _RES_ */
-

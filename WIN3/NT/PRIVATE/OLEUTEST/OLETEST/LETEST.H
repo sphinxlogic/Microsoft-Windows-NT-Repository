@@ -43,4 +43,7 @@ void LEOle1ClipTest2( void *);
 HRESULT LEDataAdviseHolderTest( void );
 HRESULT LEOleAdviseHolderTest( void );
 
+HRESULT TestOleQueryCreateFromDataMFCHack( void );
+
+
 #endif  //!_LETEST_H

@@ -25,7 +25,6 @@ Revision History:
 // the names of the system services that use the definition when satisfying
 // a wait.
 //
-// end_ntddk
 
 //
 // Priority increment used when satisfying a wait on an executive event
@@ -34,6 +33,7 @@ Revision History:
 
 #define EVENT_INCREMENT                 1
 
+// end_ntddk
 //
 // Priority increment used when satisfying a wait on an executive event pair
 //

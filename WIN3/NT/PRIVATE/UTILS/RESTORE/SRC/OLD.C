@@ -352,15 +352,27 @@ Return Value:
     //
     //  Locate file component of name
     //
+#ifdef DBCS
+    Name = (PCHAR)&(OldFileHeader.Path[OldFileHeader.PathLen]);
+    Name = PrevChar( (PCHAR)&(OldFileHeader.Path[ 0 ]), Name );
+    while (*Name != '\\' && Name >= (PCHAR)&(OldFileHeader.Path)) {
+        Name = PrevChar( (PCHAR)&(OldFileHeader.Path[0]), Name );
+    }
+#else
     Name = (PCHAR)&(OldFileHeader.Path[OldFileHeader.PathLen-1]);
     while (*Name != '\\' && Name >= (PCHAR)&(OldFileHeader.Path)) {
         Name--;
     }
+#endif
 
     //if (Name != (PCHAR)&(OldFileHeader.Path)) {
     //    *Name = '\0';
     //}
+#ifdef DBCS
+    Name = NextChar( Name );
+#else
     Name++;
+#endif
     strcpy(FileInfo->FileName, Name);
     *Name = '\0';
 
@@ -512,3 +524,4 @@ Return Value:
 
     return RestoreStatus;
 }
+

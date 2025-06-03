@@ -68,8 +68,13 @@ Notes:
 
     if (sscanf(ArgumentString, "%lx", &Address) < 0) {
         Address = (*GetExpression)(
-            "ntvdm!_VdmTib"
+            "ntvdm!VdmTib"
             );
+    }
+
+    if (!Address) {
+        (*Print)("Error geting VdmTib address\n");
+        return;
     }
 
     //
@@ -142,4 +147,4 @@ Return Value:
 }
 
 
-
+

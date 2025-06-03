@@ -27,7 +27,9 @@ Notes:
 
 Revision History:
 
-    22nd June 94    -Venkat  Added /b(BugCheck)	and /n(RandomWriteDrop) feature
+    22nd June 94    -Venkat  Added /b(BugCheck) and /n(RandomWriteDrop) feature
+    22nd Nov. 94    -KPeery  Added /t(Resest) feature for restarts
+    23rd Mar. 95    -KPeery  fixed resest feature on arc systems.
 
 --*/
 
@@ -36,6 +38,13 @@ Revision History:
 #include "stdio.h"
 #include "ntdddisk.h"
 #include "simbad.h"
+
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'daBS')
+#endif
 
 #if DBG
 
@@ -61,6 +70,17 @@ SimBadDebugPrint(
 #endif // DBG
 
 //
+// Pool debugging support - add unique tag to simbad allocations.
+//
+
+#ifdef POOL_TAGGING
+#undef ExAllocatePool
+#undef ExAllocatePoolWithQuota
+#define ExAllocatePool(a,b)          ExAllocatePoolWithTag(a,b,'BmiS')
+#define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'BmiS')
+#endif
+
+//
 // This macro has the effect of Bit = log2(Data)
 //
 
@@ -71,6 +91,36 @@ SimBadDebugPrint(
         }                             \
     }                                 \
 }
+
+//
+// Hal definitions that normal drivers would never call.
+//
+
+//
+// Define the firmware routine types
+//
+
+typedef enum _FIRMWARE_REENTRY {
+    HalHaltRoutine,
+    HalPowerDownRoutine,
+    HalRestartRoutine,
+    HalRebootRoutine,
+    HalInteractiveModeRoutine,
+    HalMaximumRoutine
+} FIRMWARE_REENTRY, *PFIRMWARE_REENTRY;
+
+NTHALAPI
+VOID
+HalReturnToFirmware (
+    IN FIRMWARE_REENTRY Routine
+    );
+
+NTHALAPI
+BOOLEAN
+HalMakeBeep(
+    IN ULONG Frequency
+    );
+
 
 //
 // Device Extension
@@ -413,7 +463,7 @@ Return Value:
         // Physical disk starts at byte offset 0.
         //
 
-        deviceExtension->PartitionOffset = LiFromUlong(0);
+        deviceExtension->PartitionOffset.QuadPart = (LONGLONG)0;
 
         //
         // Set the event object to the unsignaled state.
@@ -482,7 +532,7 @@ Return Value:
         // This driver will not check if IO off end of physical device.
         //
 
-        deviceExtension->PartitionLength = LiFromUlong((ULONG)-1);
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG) -1;
 
         //
         // Store information to be used during repartitioning.
@@ -740,6 +790,7 @@ Return Value:
     ULONG              i;
     KIRQL              currentIrql;
     static ULONG       Iter=0;
+
     //
     // Check that SimBad is enabled.
     //
@@ -758,23 +809,46 @@ Return Value:
             IoCompleteRequest(Irp, IO_NO_INCREMENT);
             return STATUS_IO_DEVICE_ERROR;
         }
-	if (badSectors->RandomWriteDrop) {
-		  Iter++;
-	    if	( Iter % badSectors->Seed == 0 ) {
-		  DbgPrint("Dropping a Write. Iter %d Seed %d\n", Iter, badSectors->Seed);
-		  Irp->IoStatus.Status = STATUS_SUCCESS;
-		  IoCompleteRequest(Irp, IO_NO_INCREMENT);
-		  return STATUS_SUCCESS;
-	    }else{
-		  // DbgPrint("Not Dropping a Write Iter %d %d\n", Iter, badSectors->Seed);
-	    }
-	}
 
-	if (badSectors->BugCheck){
-	    LPSTR lp=NULL;
-	    DbgPrint("System about to bug check...\n");
-	    while(TRUE) *lp=NULL;
-	}
+        if (badSectors->RandomWriteDrop) {
+            Iter++;
+            if ((Iter % badSectors->Seed) == 0) {
+                DbgPrint("Dropping a Write. Iter %d Seed %d\n", Iter, badSectors->Seed);
+                Irp->IoStatus.Status = STATUS_SUCCESS;
+                IoCompleteRequest(Irp, IO_NO_INCREMENT);
+                return STATUS_SUCCESS;
+            } else {
+                  // DbgPrint("Not Dropping a Write Iter %d %d\n", Iter, badSectors->Seed);
+            }
+        }
+
+        if (badSectors->BugCheck){
+            PUCHAR lp = NULL;
+            UCHAR  value;
+
+            DbgPrint("Simbad: System about to bug check...\n");
+            while(TRUE) {
+                value = *lp;
+                lp++;
+
+                //
+                // This DbgPrint uses value, so that the dereference is
+                // is not optimized out of the code, on free builds.
+                //
+                DbgPrint("Simbad: Prevent optimization emlimination... %d.\n", \
+                         value);
+            }
+        }
+
+        if (badSectors->FirmwareReset){
+            LARGE_INTEGER liDelay = RtlConvertLongToLargeInteger(-100000);
+
+            DbgPrint("Simbad: System about to reset...\n");
+            HalMakeBeep( 1000 );
+            KeDelayExecutionThread( KernelMode, FALSE, &liDelay );
+            HalMakeBeep( 0 );
+            HalReturnToFirmware(HalRebootRoutine);
+        }
 
         //
         // Copy stack parameters to next stack.
@@ -796,9 +870,9 @@ Return Value:
         // is contained entirely in the lowpart of the result.
         //
 
-        beginningSector =
-            LiShr(currentIrpStack->Parameters.Read.ByteOffset,
-                  (CCHAR)deviceExtension->SectorShift).LowPart;
+        beginningSector = (ULONG)
+                 (currentIrpStack->Parameters.Read.ByteOffset.QuadPart >>
+                  (CCHAR)deviceExtension->SectorShift);
 
         //
         // Calculate ending sector.
@@ -957,10 +1031,9 @@ Return Value:
         // Convert from byte to sector counts.
         //
 
-        beginningSector = LiShr(verifyInfo->StartingOffset,
-                  (CCHAR)deviceExtension->SectorShift).LowPart;
-        sectorCount = verifyInfo->Length >>
-            deviceExtension->SectorShift;
+        beginningSector = (ULONG)(verifyInfo->StartingOffset.QuadPart >>
+                                 (CCHAR)deviceExtension->SectorShift);
+        sectorCount = verifyInfo->Length >> deviceExtension->SectorShift;
 
     } else {
 
@@ -976,9 +1049,8 @@ Return Value:
         // is contained entirely in the lowpart of the result.
         //
 
-        beginningSector =
-            LiShr(irpStack->Parameters.Read.ByteOffset,
-                  (CCHAR)deviceExtension->SectorShift).LowPart;
+        beginningSector = (ULONG)(irpStack->Parameters.Read.ByteOffset.QuadPart >>
+                                  (CCHAR)deviceExtension->SectorShift);
     }
 
     //
@@ -1262,9 +1334,8 @@ Return Value:
 
         deviceExtension->SectorSize = 512;
         deviceExtension->SectorShift = 9;
-        deviceExtension->PartitionOffset =
-        deviceExtension->PartitionOffset = LiFromUlong(0);
-        deviceExtension->PartitionLength = LiFromUlong(0);
+        deviceExtension->PartitionOffset.QuadPart = (LONGLONG)0;
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG)0;
 
         //
         // Chain this new device into the partition chain.
@@ -1417,7 +1488,7 @@ Return Value:
         // list is turned off.
         //
 
-        if (LiEqlZero(deviceExtension->PartitionLength)) {
+        if (!deviceExtension->PartitionLength.QuadPart) {
             deviceExtension->SimBadSectors->Enabled = FALSE;
         }
     }
@@ -1531,14 +1602,6 @@ Return Value:
                         } // end for (k= ...)
 
                         //
-                        // Zero out vacant entry.
-                        //
-
-                        simBadSectors->Sector[k].BlockAddress = 0;
-                        simBadSectors->Sector[k].AccessType = 0;
-                        simBadSectors->Sector[k].Status = 0;
-
-                        //
                         // Update driver's bad sector count.
                         //
 
@@ -1643,25 +1706,39 @@ Return Value:
             simBadSectors->Orphaned = TRUE;
             status = STATUS_SUCCESS;
             break;
-	case SIMBAD_RANDOM_WRITE_FAIL:
-	    //
-	    // Fails write randomly
+
+        case SIMBAD_RANDOM_WRITE_FAIL:
+
+            //
+            // Fails write randomly
             //
 
-	    DbgPrint(
-		"SimBadDeviceControl: Failing writes randomly\n");
-	    simBadSectors->RandomWriteDrop = TRUE;
-	    simBadSectors->Seed = simBadDataIn->Count;
+            DbgPrint(
+                "SimBadDeviceControl: Failing writes randomly\n");
+            simBadSectors->RandomWriteDrop = TRUE;
+            simBadSectors->Seed = simBadDataIn->Count;
             status = STATUS_SUCCESS;
-	    break;
-	case SIMBAD_BUG_CHECK:
+            break;
 
-	    //
-	    // Bug check the system
-	    //
-	    simBadSectors->BugCheck=TRUE;
-	    status = STATUS_SUCCESS;
-	    break;
+        case SIMBAD_BUG_CHECK:
+
+            //
+            // Bug check the system
+            //
+
+            simBadSectors->BugCheck=TRUE;
+            status = STATUS_SUCCESS;
+            break;
+
+        case SIMBAD_FIRMWARE_RESET:
+
+            //
+            // Reset the system.
+            //
+
+            simBadSectors->FirmwareReset=TRUE;
+            status = STATUS_SUCCESS;
+            break;
 
         default:
 
@@ -1679,9 +1756,9 @@ Return Value:
         PREASSIGN_BLOCKS blockList = Irp->AssociatedIrp.SystemBuffer;
         BOOLEAN          missedOne = FALSE;
         BOOLEAN          sectorFound = FALSE;
-        ULONG            startingSector = LiShr(
-                                           deviceExtension->PartitionOffset,
-                                           (CCHAR)deviceExtension->SectorShift).LowPart;
+        ULONG            startingSector = (ULONG)
+                                   (deviceExtension->PartitionOffset.QuadPart >>
+                                   (CCHAR)deviceExtension->SectorShift);
         KIRQL            currentIrql;
 
         //
@@ -1732,14 +1809,6 @@ Return Value:
 
                         simBadSectors->Sector[k-1]=simBadSectors->Sector[k];
                     }
-
-                    //
-                    // Zero out vacant entry.
-                    //
-
-                    simBadSectors->Sector[k].BlockAddress = 0;
-                    simBadSectors->Sector[k].AccessType = 0;
-                    simBadSectors->Sector[k].Status = 0;
 
                     //
                     // Update driver's bad sector count.

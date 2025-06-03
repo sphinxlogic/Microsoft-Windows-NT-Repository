@@ -19,6 +19,7 @@
 #if WIN32 == 100 || WIN32 == 200
 DEFINE_GUID(GUID_NULL, 0L, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
+DEFINE_OLEGUID(IID_IUnknown,            0x00000000L, 0, 0);
 DEFINE_OLEGUID(IID_ILockBytes,          0x0000000aL, 0, 0);
 DEFINE_OLEGUID(IID_IStorage,            0x0000000bL, 0, 0);
 DEFINE_OLEGUID(IID_IStream,             0x0000000cL, 0, 0);

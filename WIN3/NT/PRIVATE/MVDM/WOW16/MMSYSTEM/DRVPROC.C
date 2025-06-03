@@ -236,11 +236,10 @@ void NEAR PASCAL AppExit(HTASK hTask, BOOL fNormalExit)
             //
             // clear these to force MCI to close the device
             //
-            MCI_lpDeviceList[wDeviceID]->bIsClosing = FALSE;
-            MCI_lpDeviceList[wDeviceID]->bIsAutoClosing = FALSE;
+            MCI_lpDeviceList[wDeviceID]->dwMCIFlags &= ~MCINODE_ISCLOSING;
+            MCI_lpDeviceList[wDeviceID]->dwMCIFlags &= ~MCINODE_ISAUTOCLOSING;
 
-            err = (UINT)mciSendCommand( (wDeviceID | 0x8000),
-                                        MCI_CLOSE, NULL, NULL);
+            err = (UINT)mciSendCommand(wDeviceID, MCI_CLOSE, NULL, NULL);
 
 #ifdef DEBUG
             if (err != 0)

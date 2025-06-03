@@ -258,9 +258,9 @@ VPVOID FASTCALL stackalloc16(UINT cb)
 
     // grow ss:sp and return this imaginary pointer.
 
-    if (ptd->fInitvpCBStack) {
+    if (ptd->dwFlags & TDF_INITCALLBACKSTACK) {
         ptd->vpCBStack = ptd->vpStack - cb;
-        ptd->fInitvpCBStack = FALSE;
+        ptd->dwFlags &= ~TDF_INITCALLBACKSTACK;
     }
     else {
         ptd->vpCBStack -= cb;
@@ -268,4 +268,4 @@ VPVOID FASTCALL stackalloc16(UINT cb)
 
     return (VPVOID)ptd->vpCBStack;
 }
-
+

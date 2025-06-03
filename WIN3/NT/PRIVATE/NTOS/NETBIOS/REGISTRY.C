@@ -27,7 +27,7 @@ Notes:
 
 #include "Nb.h"
 //#include <zwapi.h>
-//#include <wcstr.h>
+//#include <stdlib.h>
 #include <crt\stdlib.h>
 
 typedef struct _LANA_MAP {
@@ -80,6 +80,11 @@ NbReadSingleParameter(
     IN LONG DefaultValue
     );
 
+BOOLEAN
+NbCheckLana (
+	PUNICODE_STRING	DeviceName
+    );
+
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, GetIrpStackSize)
 #pragma alloc_text(PAGE, ReadRegistry)
@@ -88,6 +93,7 @@ NbReadSingleParameter(
 #pragma alloc_text(PAGE, NbCloseRegistry)
 #pragma alloc_text(PAGE, NbReadLinkageInformation)
 #pragma alloc_text(PAGE, NbReadSingleParameter)
+#pragma alloc_text(PAGE, NbCheckLana)
 #endif
 
 CCHAR
@@ -604,6 +610,9 @@ Return Value:
 
         CurBindValue = (PWCHAR)pfcb->RegistrySpace;
 
+#if DBG
+		DbgPrint ("NETBIOS: Enumerating lanas ...\n");
+#endif
         while (*CurBindValue != 0) {
 
             if ((ConfigBindings > pfcb->MaxLana) ||
@@ -616,14 +625,31 @@ Return Value:
                CurBindValue);
 
             if ( pLanaMap[ConfigBindings].Enum != FALSE ) {
-                //
-                //  Record that the lana number is enabled
-                //
+				if (NbCheckLana (
+						&pfcb->pDriverName[pLanaMap[ConfigBindings].Lana])) {
+					//
+					//  Record that the lana number is enabled
+					//
 
-                pfcb->LanaEnum.lana[pfcb->LanaEnum.length] =
-                    pLanaMap[ConfigBindings].Lana;
-                pfcb->LanaEnum.length++;
+					pfcb->LanaEnum.lana[pfcb->LanaEnum.length] =
+						pLanaMap[ConfigBindings].Lana;
+					pfcb->LanaEnum.length++;
+#if DBG
+					DbgPrint ("NETBIOS: Lana %d (%ls) added OK.\n",
+						pLanaMap[ConfigBindings].Lana, CurBindValue);
+#endif
+				}
+#if DBG
+				else
+					DbgPrint ("NETBIOS: Lana's %d %ls could not be opened.\n",
+						pLanaMap[ConfigBindings].Lana, CurBindValue);
+#endif
             }
+#if DBG
+			else
+				DbgPrint ("NETBIOS: Lana %d (%ls) is disabled.\n",
+						pLanaMap[ConfigBindings].Lana, CurBindValue);
+#endif
 
             ++ConfigBindings;
 
@@ -727,6 +753,93 @@ Return Value:
     return ReturnValue;
 
 }   /* NbReadSingleParameter */
+
+
+BOOLEAN
+NbCheckLana (
+	PUNICODE_STRING	DeviceName
+    )
+/*++
+
+Routine Description:
+
+    This routine uses the transport to create an entry in the NetBIOS
+    table with the value of "Name". It will re-use an existing entry if
+    "Name" already exists.
+
+    Note: This synchronous call may take a number of seconds. If this matters
+    then the caller should specify ASYNCH and a post routine so that it is
+    performed by the thread created by the netbios dll routines.
+
+    If pdncb == NULL then a special handle is returned that is capable of
+    administering the transport. For example to execute an ASTAT.
+
+Arguments:
+
+    FileHandle - Pointer to where the filehandle is to be returned.
+
+    *Object - Pointer to where the file object pointer is to be stored
+
+    pfcb - supplies the device names for the lana number.
+
+    LanNumber - supplies the network adapter to be opened.
+
+    pdncb - Pointer to either an NCB or NULL.
+
+Return Value:
+
+    The function value is the status of the operation.
+
+--*/
+{
+    IO_STATUS_BLOCK IoStatusBlock;
+    NTSTATUS Status;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    HANDLE FileHandle;
+
+    PAGED_CODE();
+
+
+    InitializeObjectAttributes (
+        &ObjectAttributes,
+        DeviceName,
+        0,
+        NULL,
+        NULL);
+
+    Status = ZwCreateFile (
+                 &FileHandle,
+                 GENERIC_READ | GENERIC_WRITE, // desired access.
+                 &ObjectAttributes,     // object attributes.
+                 &IoStatusBlock,        // returned status information.
+                 NULL,                  // Allocation size (unused).
+                 FILE_ATTRIBUTE_NORMAL, // file attributes.
+                 FILE_SHARE_WRITE,
+                 FILE_CREATE,
+                 0,                     // create options.
+                 NULL,
+                 0
+                 );
+
+    if ( NT_SUCCESS( Status )) {
+        Status = IoStatusBlock.Status;
+    }
+
+    //  Obtain a referenced pointer to the file object.
+    if (NT_SUCCESS( Status )) {
+        NTSTATUS localstatus;
+		
+        localstatus = ZwClose( FileHandle);
+
+        ASSERT(NT_SUCCESS(localstatus));
+		return TRUE;
+	}
+	else {
+		return FALSE;
+	}
+
+}
+
 
 #ifdef UTILITY
 void

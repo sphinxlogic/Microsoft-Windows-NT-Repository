@@ -32,8 +32,6 @@ Revision History:
 
 --*/
 
-//  BUGBUG: If any Mdl allocation fails we must exit INSUFFICIENT_RESOURCES
-
 #define INCLUDE_SMB_TRANSACTION
 #include "precomp.h"
 #pragma hdrstop
@@ -252,6 +250,7 @@ Return Value:
     PMDL PadMdl = NULL;
     BOOLEAN PadMdlLocked = FALSE;
     ULONG TranceiveFlags = NT_NORMAL;
+    ULONG Longterm = 0;
 
     //
     // Partial Mdl covering part of [In|Out]DataMdl-position and length
@@ -363,8 +362,6 @@ Return Value:
             goto ReturnStatus;
         }
 
-//  BUGBUG: Do we want all T2's to be short term and all T1's to be longterm?
-
         Context.Header.TransferSize = InSetupCount+*OutSetupCount+InParameterCount+*OutParameterCount+
                         InDataCount+*OutDataCount+sizeofTransRequest +
                         sizeofTransResponse;
@@ -374,15 +371,47 @@ Return Value:
         //  operation, otherwise, mark it as a short term operation.
         //
 
+        if (TimeoutInMilliseconds >= (RdrRequestTimeout*1000)) {
+            Longterm = NT_LONGTERM;
+        } else if (ARGUMENT_PRESENT(Name)) {
+            if ( InSetupCount > 0 ) {
+                ASSERT( TRANS_SET_NMPIPE_STATE < TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_QUERY_NMPIPE_STATE < TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_QUERY_NMPIPE_INFO < TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_MAILSLOT_WRITE < TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_TRANSACT_NMPIPE > TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_READ_NMPIPE > TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_WRITE_NMPIPE > TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_WAIT_NMPIPE > TRANS_PEEK_NMPIPE );
+                ASSERT( TRANS_CALL_NMPIPE > TRANS_PEEK_NMPIPE );
+                ASSERT( *(PUSHORT)Setup != TRANS_RAW_READ_NMPIPE );
+                ASSERT( *(PUSHORT)Setup != TRANS_RAW_WRITE_NMPIPE );
+                if ( *(PUSHORT)Setup > TRANS_PEEK_NMPIPE ) {
+                    Longterm = NT_LONGTERM;
+                }
+            } else {
+
+                //
+                // Remote API.  Try longterm, but don't require it.
+                // Otherwise, can't do remote APIs to Windows 95
+                // servers, which set MaximumRequests to 1.
+                //
+
+                Longterm = NT_PREFER_LONGTERM;
+            }
+        } else if ( NtTransactFunction != 0 ) {
+            Longterm = NT_PREFER_LONGTERM;
+        }
+
         Status = RdrStartTranceive(Irp, Connection,
                                         Se,
                                         (BOOLEAN) (ARGUMENT_PRESENT(Fid) ? FALSE : TRUE),   // Allow Reconnect
 #ifdef _CAIRO_
-                                        FlagOn(Flags, SMB_TRANSACTION_RECONNECTING),
+                                        BooleanFlagOn(Flags, SMB_TRANSACTION_RECONNECTING),
 #else // _CAIRO_
                                         FALSE,                  // Reconnecting
 #endif // _CAIRO_
-                                        (BOOLEAN )((ARGUMENT_PRESENT(Name) || TimeoutInMilliseconds != 0) ? TRUE : FALSE),  // Longterm
+                                        Longterm,
                                         FALSE,                  // Cannot be canceled
                                         &Mte,
                                         Context.Header.TransferSize);
@@ -436,7 +465,7 @@ Return Value:
 
     if ( InDataCount && ARGUMENT_PRESENT( InData ) ) {
 
-        InDataMdl = IoAllocateMdl(InData,InDataCount,FALSE,FALSE,NULL);
+        InDataMdl = IoAllocateMdl((PVOID)InData,InDataCount,FALSE,FALSE,NULL);
 
         if (InDataMdl == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -452,7 +481,7 @@ Return Value:
         try {
             MmProbeAndLockPages( InDataMdl,
                     KernelMode,
-                    IoWriteAccess );
+                    IoReadAccess );
         } except (EXCEPTION_EXECUTE_HANDLER) {
             Status = GetExceptionCode();
             goto ReturnStatus;
@@ -492,7 +521,7 @@ Return Value:
 
     if ( *OutDataCount && ARGUMENT_PRESENT( OutData ) ) {
 
-        OutDataMdl = IoAllocateMdl(OutData,*OutDataCount,FALSE,FALSE,NULL);
+        OutDataMdl = IoAllocateMdl((PVOID)OutData,*OutDataCount,FALSE,FALSE,NULL);
 
         if (OutDataMdl == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -582,7 +611,7 @@ Return Value:
 
         PadMdlLocked = TRUE;
 
-        ParameterMdl = IoAllocateMdl(Parameters,
+        ParameterMdl = IoAllocateMdl((PVOID)Parameters,
             MAX(InParameterCount, *OutParameterCount),
             FALSE,
             FALSE,
@@ -679,8 +708,7 @@ Return Value:
 
         ULONG Pid;
 
-        RdrSmbScrounge(Header, Connection->Server, TRUE, TRUE);
-
+        RdrSmbScrounge(Header, Connection->Server, BooleanFlagOn(Flags, SMB_TRANSACTION_DFSFILE), TRUE, TRUE);
         Pid = (ULONG)IoGetRequestorProcess(Irp);
 
         SmbPutUshort(&Header->Pid, (USHORT)(Pid & 0xFFFF));
@@ -854,7 +882,7 @@ Return Value:
         // Set the Parameter length to the parameter length
 
         IoBuildPartialMdl(ParameterMdl, InParameterPartialMdl,
-                                   Parameters,  // first one is start of buffer
+                                   (PVOID)Parameters,  // first one is start of buffer
                                    pData - pParam);
 
         SendSmbBuffer->Mdl->Next = InParameterPartialMdl;
@@ -865,7 +893,7 @@ Return Value:
         if ( lData ) {
 
             IoBuildPartialMdl(InDataMdl, InDataPartialMdl,
-                                   InData,
+                                   (PVOID)InData,
                                    lData);
 
             ASSERT (MmGetMdlByteCount(InDataPartialMdl)==lData);
@@ -880,7 +908,7 @@ Return Value:
     } else if ( lData ) {
 
         IoBuildPartialMdl(InDataMdl, InDataPartialMdl,
-                                   InData,
+                                   (PVOID)InData,
                                    lData);
 
         ASSERT (MmGetMdlByteCount(InDataPartialMdl)==lData);
@@ -947,8 +975,6 @@ Return Value:
     //  If this is a no response SMB, and
     //
 
-// BUGBUG: Need to determine correct datagram size from TDI providers
-
     if (WriteMailslot2D) {
         UNICODE_STRING DestinationName;
         UCHAR SignatureByte = PRIMARY_DOMAIN_SIGNATURE;
@@ -980,7 +1006,7 @@ Return Value:
         //  Clean up the SMB header somewhat.
         //
 
-        RdrSmbScrounge(Header, NULL, TRUE, TRUE);
+        RdrSmbScrounge(Header, NULL, BooleanFlagOn(Flags, SMB_TRANSACTION_DFSFILE), TRUE, TRUE);
 
         Status = RdrTdiSendDatagramOnAllTransports(&DestinationName, SignatureByte, SendSmbBuffer->Mdl);
 
@@ -988,23 +1014,10 @@ Return Value:
 
     } else {
 
-//  BUGBUG: Do we want all T2's to be short term and all T1's to be longterm?
+        TranceiveFlags |= Longterm;
 
-        if (ARGUMENT_PRESENT(Name)) {
-            ASSERT( TRANS_SET_NMPIPE_STATE < TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_QUERY_NMPIPE_STATE < TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_QUERY_NMPIPE_INFO < TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_MAILSLOT_WRITE < TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_TRANSACT_NMPIPE > TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_READ_NMPIPE > TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_WRITE_NMPIPE > TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_WAIT_NMPIPE > TRANS_PEEK_NMPIPE );
-            ASSERT( TRANS_CALL_NMPIPE > TRANS_PEEK_NMPIPE );
-            ASSERT( *(PUSHORT)Setup != TRANS_RAW_READ_NMPIPE );
-            ASSERT( *(PUSHORT)Setup != TRANS_RAW_WRITE_NMPIPE );
-            if ( *(PUSHORT)Setup > TRANS_PEEK_NMPIPE ) {
-                TranceiveFlags |= NT_LONGTERM;
-            }
+        if (FlagOn(Flags, SMB_TRANSACTION_DFSFILE)) {
+            TranceiveFlags |= NT_DFSFILE;
         }
 
         if (ARGUMENT_PRESENT(Fid)) {
@@ -1061,11 +1074,7 @@ Return Value:
         // interim one, and send the remaining request messages.
         //
 
-        while ( rParam | rData ) {
-            PREQ_TRANSACTION_SECONDARY Request; // overrides outer declaration
-            PREQ_NT_TRANSACTION_SECONDARY NtRequest; // overrides outer declaration
-
-            dprintf(DPRT_SMB, ("rParam: %lx rData: %lx\n", rParam, rData));
+        if ( rParam | rData) {
 
             //  Set the event that indicates we have received everything back to
             //  the not-signalled state. When we received the InterimPacket it
@@ -1073,6 +1082,14 @@ Return Value:
             //  and data it must be reset.
 
             KeClearEvent( &Context.Header.KernelEvent );
+
+        }
+
+        while ( rParam | rData ) {
+            PREQ_TRANSACTION_SECONDARY Request; // overrides outer declaration
+            PREQ_NT_TRANSACTION_SECONDARY NtRequest; // overrides outer declaration
+
+            dprintf(DPRT_SMB, ("rParam: %lx rData: %lx\n", rParam, rData));
 
             //
             //  We're going to be re-using the parameter and data partial MDL,
@@ -1112,7 +1129,7 @@ Return Value:
             Request = (PREQ_TRANSACTION_SECONDARY)(Header + 1);
             NtRequest = (PREQ_NT_TRANSACTION_SECONDARY)(Header + 1);
 
-            RtlZeroMemory( Request, sizeof(REQ_TRANSACTION_SECONDARY) );
+            RtlZeroMemory( (PVOID)Request, sizeof(REQ_TRANSACTION_SECONDARY) );
 
             if ( ARGUMENT_PRESENT ( Name ) ) {
                 Header->Command = SMB_COM_TRANSACTION_SECONDARY;
@@ -1292,7 +1309,7 @@ Return Value:
                 //  Stick the PID in the SMB.
                 //
 
-                RdrSmbScrounge(Header, Connection->Server, TRUE, TRUE);
+                RdrSmbScrounge(Header, Connection->Server, BooleanFlagOn(Flags, SMB_TRANSACTION_DFSFILE), TRUE, TRUE);
 
                 Pid = (ULONG)IoGetRequestorProcess(Irp);
 
@@ -1301,7 +1318,9 @@ Return Value:
                 SmbPutUshort(&Header->Reserved2[0], (USHORT)(Pid >> 16));
 
             } else {
-                RdrSmbScrounge(Header, Connection->Server, TRUE, TRUE);
+
+                RdrSmbScrounge(Header, Connection->Server, FALSE, TRUE, TRUE);
+
             }
 
             Status = NetTransmit(NT_NORMAL | NT_DONTSCROUNGE,
@@ -1327,6 +1346,8 @@ Return Value:
         }
 
         if (Context.Header.ErrorType==NoError) {
+            ASSERT(Context.Header.Type == CONTEXT_TRAN2_END);
+
 //            if (Context.ErrorMoreData == FALSE) {
                 Status = STATUS_SUCCESS;
 //            } else {
@@ -1335,8 +1356,6 @@ Return Value:
         } else {
             Status = Context.Header.ErrorCode;
         }
-
-        ASSERT(Context.Header.Type == CONTEXT_TRAN2_END);
 
         // Inform caller of how much was actually received
 
@@ -1412,7 +1431,7 @@ ReturnStatus:
     }
 
     if ( Context.ReceiveIrp) {
-        IoFreeIrp(Context.ReceiveIrp);
+        FREE_IRP( Context.ReceiveIrp, 29, &Context );
     }
 
     dprintf(DPRT_SMB, ("RdrTransact return Status: %X\n", Status));
@@ -1505,7 +1524,7 @@ Return Value:
                 Status = RdrStartTranceive(Irp, CLE, Se,
                             (BOOLEAN )(Flags & NT_NORECONNECT ? FALSE : TRUE),
                             FALSE,              // Reconnecting
-                            (BOOLEAN )(Flags & NT_LONGTERM ? TRUE : FALSE),
+                            Flags & (NT_LONGTERM | NT_PREFER_LONGTERM),
                             (BOOLEAN )(Flags & NT_CANNOTCANCEL ? TRUE : FALSE),
                             pMTE,
                             Context->Header.TransferSize);
@@ -1537,7 +1556,12 @@ Return Value:
 
             BOOLEAN BufferLocked = TRUE;
 
-            Context->ReceiveIrp = RdrAllocateIrp(CLE->Server->ConnectionContext->ConnectionObject, NULL);
+            Context->ReceiveIrp = ALLOCATE_IRP(
+                                    CLE->Server->ConnectionContext->ConnectionObject,
+                                    NULL,
+                                    22,
+                                    Context
+                                    );
 
             if (Context->ReceiveIrp == NULL) {
                 Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1690,6 +1714,9 @@ Note:
 
     NTSTATUS Status = STATUS_SUCCESS;
 
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Server);
+
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
     ASSERT(MpxEntry->Signature == STRUCTURE_SIGNATURE_MPX_ENTRY);
@@ -1812,7 +1839,7 @@ Note:
         //
 
         if (DataOffset == 0 && DataCount == 0) {
-            DataOffset = *SmbLength;
+            DataOffset = ParameterOffset + ParameterCount;
         }
 
         //
@@ -1830,17 +1857,25 @@ Note:
 
         if (NT_SUCCESS(SmbStatus) &&
             (Response->WordCount != 0) &&
-            (((LONG)DataOffset < 0) || ((LONG)DataCount < 0) ||
-             (DataOffset+DataCount > MpxEntry->SLE->BufferSize) ||
-             ((LONG)ParameterOffset < 0) || ((LONG)ParameterCount < 0) ||
+            (
+             ((LONG)ParameterOffset < 0) ||
+             ((LONG)ParameterCount < 0) ||
              (ParameterOffset+ParameterCount > MpxEntry->SLE->BufferSize) ||
+             ((LONG)TotalParameterCount < 0) ||
+             (MAX(TotalParameterCount,ParameterCount) >
+                ((Context->ParameterMdl == NULL) ? 0 : MmGetMdlByteCount(Context->ParameterMdl))) ||
              (DataOffset < ParameterOffset) ||
+             ((LONG)DataOffset < 0) ||
+             ((LONG)DataCount < 0) ||
+             (DataOffset+DataCount > MpxEntry->SLE->BufferSize) ||
              ((LONG)TotalDataCount < 0) ||
-             (Context->OutDataMdl != NULL && (TotalDataCount > MmGetMdlByteCount(Context->OutDataMdl))) ||
-             (Context->OutDataMdl != NULL && (DataCount > MmGetMdlByteCount(Context->OutDataMdl))) ||
-             (((ParameterOffset != 0) &&
-               (DataOffset != 0) &&
-               ((DataOffset - ParameterOffset) - ParameterCount) > PADMAX)) )) {
+             (MAX(TotalDataCount,DataCount) >
+                ((Context->OutDataMdl == NULL) ? 0 : MmGetMdlByteCount(Context->OutDataMdl))) ||
+             ((ParameterOffset != 0) &&
+              (DataOffset != 0) &&
+              ((DataOffset - ParameterOffset) - ParameterCount) > PADMAX)
+            )
+           ) {
 
             //
             //  We can't accept this incoming transaction, it must be bad.
@@ -1944,7 +1979,7 @@ Note:
         if (SetupCount) {
 
             if (Context->MaxSetupWords > (ULONG)SetupCount) {
-                RtlCopyMemory(Context->SetupWords, SetupPointer, SetupCount*sizeof(WORD));
+                RtlCopyMemory(Context->SetupWords, (PVOID)SetupPointer, SetupCount*sizeof(WORD));
             }
 
             Context->MaxSetupWords -= SetupCount;
@@ -2233,7 +2268,6 @@ try_exit: NOTHING;
 
     return Status;
 
-    if (MpxEntry || Server);
 }
 
 DBGSTATIC
@@ -2269,6 +2303,8 @@ Return Value:
 
 {
     PTRANCEIVE2CONTEXT Context = (PTRANCEIVE2CONTEXT) Ctx;
+
+    UNREFERENCED_PARAMETER(DeviceObject);
 
     DISCARDABLE_CODE(RdrFileDiscardableSection);
 
@@ -2370,7 +2406,6 @@ Return Value:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
-    if (DeviceObject);
 }
 
 
@@ -2389,44 +2424,46 @@ NetTransmit(
     PAGED_CODE();
 
     dprintf(DPRT_SMB, ("NetTransmit\n"));
-    try {
+
+    if (ARGUMENT_PRESENT(Irp)) {
+
+        //
+        // If the IRP has been cancelled, or if the thread is terminating,
+        // bail out.  (Actually, if the thread is terminating, the Cancel
+        // bit should be set, but we'll check both for completeness.)
+        //
+
+        if ( Irp->Cancel || PsIsThreadTerminating(Irp->Tail.Overlay.Thread) ) {
+            return STATUS_CANCELLED;
+        }
 
         RdrMarkIrpAsNonCanceled( Irp );
 
-        if (!NT_SUCCESS( Status = RdrSendSMB (
-            Flags | NT_NOSENDRESPONSE,
-            Irp,
-            CLE,
-            Se,
-            *pMTE,
-            SendMdl) )) {
-            try_return( Status );
-        }
+    }
 
-        //
-        //  Guarantee that the MPX table entries context is a context header.
-        //
+    if (!NT_SUCCESS( Status = RdrSendSMB (
+        Flags | NT_NOSENDRESPONSE,
+        CLE,
+        Se,
+        *pMTE,
+        SendMdl) )) {
+        return( Status );
+    }
 
-        ASSERT((*pMTE)->Signature == STRUCTURE_SIGNATURE_MPX_ENTRY);
+    //
+    //  Guarantee that the MPX table entries context is a context header.
+    //
 
-        ASSERT((*pMTE)->RequestContext->Type>=STRUCTURE_SIGNATURE_CONTEXT_BASE);
+    ASSERT((*pMTE)->Signature == STRUCTURE_SIGNATURE_MPX_ENTRY);
 
-        //  Wait until packet sent before proceeding.
+    ASSERT((*pMTE)->RequestContext->Type>=STRUCTURE_SIGNATURE_CONTEXT_BASE);
 
-        Status = KeWaitForSingleObject( &(*pMTE)->SendCompleteEvent,
-                        Executive, KernelMode, // Wait reason, WaitMode
-                        FALSE, NULL); // Alertable, Timeout
+    //  Wait until packet sent before proceeding.
 
-        try_return( Status );
+    Status = KeWaitForSingleObject( &(*pMTE)->SendCompleteEvent,
+                    Executive, KernelMode, // Wait reason, WaitMode
+                    FALSE, NULL); // Alertable, Timeout
 
-try_exit: NOTHING;
-        } finally {
-
-            dprintf(DPRT_SMB, ("NetTransmit status return: %X\n", Status));
-
-        }
     return Status;
 
-
-    if ( Se );
 }

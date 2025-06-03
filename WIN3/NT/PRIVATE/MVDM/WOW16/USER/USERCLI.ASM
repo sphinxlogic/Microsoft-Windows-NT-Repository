@@ -9,13 +9,13 @@
 
     .286p
 
-;    .xlist
+    .xlist
     include ks386p.inc
     .286p
+NOEXTERNS=1         ; to suppress including most of the crap in user.inc
     include wow.inc
     include wowusr.inc
-    include cmacros.inc
-NOEXTERNS=1         ; to suppress including most of the crap in user.inc
+    ;;;;;include cmacros.inc
     include user.inc
 
     .list
@@ -24,6 +24,7 @@ createSeg   _TEXT,CODE,WORD,PUBLIC,CODE
 createSeg   _DATA,DATA,WORD,PUBLIC,DATA,DGROUP
 defgrp      DGROUP,DATA
 
+externFP WowSetCompatHandle
 ;---------------------------------------------------------------------------
 ; Optimized thunks for x86 only
 ;
@@ -434,19 +435,7 @@ COPYRECT macro lprect16, lprect32
 endm
 
 APISPECIFICCODE_GETCLIENTRECT macro
-    or  eax, eax
-    jz  @F
-    les bx, arg2
-    mov es:[bx].rcLeft, 0
-    mov es:[bx].rcTop, 0
-    mov ecx, [eax].rclRight
-    sub ecx, [eax].rclLeft
-    mov es:[bx].rcRight, cx
-    mov ecx, [eax].rclBottom
-    sub ecx, [eax].rclTop
-    mov es:[bx].rcBottom, cx
     xor eax, eax
-@@:
 endm
 
 APISPECIFICCODE_GETKEYSTATE macro
@@ -463,6 +452,17 @@ APISPECIFICCODE_GETWINDOWRECT macro
 @@:
 endm
 
+; The following call is only for a dBase for Windows 5.0 bug. Notice however, that this
+; means that the internal KERNEL api WowSetCompatHandle will be called for every
+; single invocation of GetDlgItem, no matter what app is running. This is bad, but
+; on X86 platforms we don't transition to WOW32, and the cost of testing for it
+; is just about as expensive as just saving it. Still, this should be removed as
+; soon as we are convinced that the dBase bug has been fixed. -NeilSa
+APISPECIFICCODE_GETDLGITEM macro
+     push ax
+     call WowSetCompatHandle
+endm
+
 public _wow16gpsi
 public _wow16CsrFlag
 
@@ -471,22 +471,22 @@ _wow16gpsi            DD 0
 _wow16CsrFlag          DD 0
 sEnd   CODE
 
-    ; the follwing may endup calling wow32
+    ; the following may end up calling wow32
 
     USER16CLIENTTHUNK UserThunk,   DEFHOOKPROC,      <int, word, dword, hhook>, dword, WOW16DefHookProc,,srvcond
     USER16CLIENTTHUNK UserThunk,   ENABLEMENUITEM,   <hwnd, word, word>, word,,,srvcond
     USER16CLIENTTHUNK DUserThunk,  GETKEYSTATE,      <int>, int,, compatcode, srvcond
+    USER16CLIENTTHUNK UserThunk,   GETKEYBOARDSTATE, <nonoptpsz>, boolzero,,,srvcond
 
     ; the following are all thunked locally
 
     USER16CLIENTTHUNK UserThunk,   CLIENTTOSCREEN,   <hwnd, psz>,boolzero
     USER16CLIENTTHUNK UserThunk,   GETCLASSNAME,     <hwnd, psz, word>, word, GETCLASSNAMEA
-    USER16CLIENTTHUNK UserThunk,   GETCLIENTRECT,    <hwnd, lprectO>, bool,,compatcode
+    USER16CLIENTTHUNK UserThunk,   GETCLIENTRECT,    <hwnd, psz>, bool,,compatcode
     USER16CLIENTTHUNK UserThunk,   GETCURSORPOS,     <psz>, boolzero
     USER16CLIENTTHUNK DUserThunk,  GETDESKTOPHWND,   <>, hwnd, GETDESKTOPWINDOW
     USER16CLIENTTHUNK DUserThunk,  GETDESKTOPWINDOW, <>, hwnd
-    USER16CLIENTTHUNK UserThunk,   GETDLGITEM,       <hwnd, word>, hwnd
-    USER16CLIENTTHUNK UserThunk,   GETKEYBOARDSTATE, <nonoptpsz>, boolzero
+    USER16CLIENTTHUNK UserThunk,   GETDLGITEM,       <hwnd, word>, hwnd,,compatcode
     USER16CLIENTTHUNK UserThunk,   GETMENU,          <hwnd>, hmenu
     USER16CLIENTTHUNK UserThunk,   GETMENUITEMCOUNT, <hwnd>, int
     USER16CLIENTTHUNK UserThunk,   GETMENUITEMID,    <hwnd, int>, uint
@@ -560,5 +560,3 @@ endif
 
 sEnd    CODE
 end
-
-

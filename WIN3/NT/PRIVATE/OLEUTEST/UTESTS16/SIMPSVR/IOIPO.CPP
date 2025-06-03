@@ -47,7 +47,7 @@
 
 STDMETHODIMP COleInPlaceObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In COleInPlaceObject::QueryInterface\r\n");
+	TestDebugOut("In COleInPlaceObject::QueryInterface\r\n");
 	// need to NULL the out parameter
 	*ppvObj = NULL;
 	return m_lpObj->QueryInterface(riid, ppvObj);
@@ -83,7 +83,7 @@ STDMETHODIMP COleInPlaceObject::QueryInterface ( REFIID riid, LPVOID FAR* ppvObj
 
 STDMETHODIMP_(ULONG) COleInPlaceObject::AddRef ()
 {
-	OutputDebugString("In COleInPlaceObject::AddRef\r\n");
+	TestDebugOut("In COleInPlaceObject::AddRef\r\n");
 	++m_nCount;
 	return m_lpObj->AddRef();
 }
@@ -108,7 +108,7 @@ STDMETHODIMP_(ULONG) COleInPlaceObject::AddRef ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpSvrObj::Release        OBJ.CPP
 //
 // Comments:
@@ -118,7 +118,7 @@ STDMETHODIMP_(ULONG) COleInPlaceObject::AddRef ()
 
 STDMETHODIMP_(ULONG) COleInPlaceObject::Release ()
 {
-	OutputDebugString("In COleInPlaceObject::Release\r\n");
+	TestDebugOut("In COleInPlaceObject::Release\r\n");
 	--m_nCount;
 	return m_lpObj->Release();
 }
@@ -142,7 +142,7 @@ STDMETHODIMP_(ULONG) COleInPlaceObject::Release ()
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleClientSite::QueryInterface          Container
 //      IOleInPlaceSite::OnInPlaceDeactivate    Container
 //      IOleInPlaceSite::Release                Container
@@ -155,7 +155,7 @@ STDMETHODIMP_(ULONG) COleInPlaceObject::Release ()
 
 STDMETHODIMP COleInPlaceObject::InPlaceDeactivate()
 {
-	 OutputDebugString("In COleInPlaceObject::InPlaceDeactivate\r\n");
+	 TestDebugOut("In COleInPlaceObject::InPlaceDeactivate\r\n");
 
 	 // if not inplace active, return NOERROR
 	 if (!m_lpObj->m_fInPlaceActive)
@@ -198,7 +198,7 @@ STDMETHODIMP COleInPlaceObject::InPlaceDeactivate()
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleInPlaceUIWindow::SetActiveObject    Container
 //      IOleInPlaceFrame::SetActiveObject       Container
 //      IOleClientSite::QueryInterface          Container
@@ -215,7 +215,7 @@ STDMETHODIMP COleInPlaceObject::InPlaceDeactivate()
 
 STDMETHODIMP COleInPlaceObject::UIDeactivate()
 {
-	OutputDebugString("In COleInPlaceObject::UIDeactivate\r\n");
+	TestDebugOut("In COleInPlaceObject::UIDeactivate\r\n");
 
 	m_lpObj->DeactivateUI();
 
@@ -244,7 +244,7 @@ STDMETHODIMP COleInPlaceObject::UIDeactivate()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IntersectRect               Windows API
 //      OffsetRect                  Windows API
 //      CopyRect                    Windows API
@@ -260,7 +260,7 @@ STDMETHODIMP COleInPlaceObject::UIDeactivate()
 
 STDMETHODIMP COleInPlaceObject::SetObjectRects  ( LPCRECT lprcPosRect, LPCRECT lprcClipRect)
 {
-	OutputDebugString("In COleInPlaceObject::SetObjectRects\r\n");
+	TestDebugOut("In COleInPlaceObject::SetObjectRects\r\n");
 
 	RECT resRect;
 	POINT pt;
@@ -278,7 +278,7 @@ STDMETHODIMP COleInPlaceObject::SetObjectRects  ( LPCRECT lprcPosRect, LPCRECT l
 
 	char szBuffer[255];
 	wsprintf(szBuffer,"New Scale %3d\r\n",m_lpObj->m_scale);
-	OutputDebugString(szBuffer);
+	TestDebugOut(szBuffer);
 
 	// Adjust the size of the Hatch Window.
 	SetHatchWindowSize(m_lpObj->m_lpDoc->GethHatchWnd(),(LPRECT) lprcPosRect, (LPRECT) lprcClipRect, &pt);
@@ -320,7 +320,7 @@ STDMETHODIMP COleInPlaceObject::SetObjectRects  ( LPCRECT lprcPosRect, LPCRECT l
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleDoc::GethDocWnd      DOC.H
 //
 // Comments:
@@ -330,7 +330,7 @@ STDMETHODIMP COleInPlaceObject::SetObjectRects  ( LPCRECT lprcPosRect, LPCRECT l
 
 STDMETHODIMP COleInPlaceObject::GetWindow  ( HWND FAR* lphwnd)
 {
-	OutputDebugString("In COleInPlaceObject::GetWindow\r\n");
+	TestDebugOut("In COleInPlaceObject::GetWindow\r\n");
 	*lphwnd = m_lpObj->m_lpDoc->GethDocWnd();
 
 	return ResultFromScode( S_OK );
@@ -356,7 +356,7 @@ STDMETHODIMP COleInPlaceObject::GetWindow  ( HWND FAR* lphwnd)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -373,7 +373,7 @@ STDMETHODIMP COleInPlaceObject::GetWindow  ( HWND FAR* lphwnd)
 
 STDMETHODIMP COleInPlaceObject::ContextSensitiveHelp  ( BOOL fEnterMode)
 {
-	OutputDebugString("In COleInPlaceObject::ContextSensitiveHelp\r\n");
+	TestDebugOut("In COleInPlaceObject::ContextSensitiveHelp\r\n");
 	return ResultFromScode( E_NOTIMPL);
 };
 
@@ -397,7 +397,7 @@ STDMETHODIMP COleInPlaceObject::ContextSensitiveHelp  ( BOOL fEnterMode)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -408,6 +408,6 @@ STDMETHODIMP COleInPlaceObject::ContextSensitiveHelp  ( BOOL fEnterMode)
 
 STDMETHODIMP COleInPlaceObject::ReactivateAndUndo  ()
 {
-	OutputDebugString("In COleInPlaceObject::ReactivateAndUndo\r\n");
+	TestDebugOut("In COleInPlaceObject::ReactivateAndUndo\r\n");
 	return ResultFromScode( INPLACE_E_NOTUNDOABLE );
 };

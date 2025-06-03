@@ -47,7 +47,7 @@ Revision History:
 #include <apinums.h>    // API_ equates.
 #include <lmapibuf.h>   // NetApiBufferAllocate(), NetApiBufferFree().
 #include <lmerr.h>      // ERROR_ and NERR_ equates.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rap.h>        // LPDESC.
 #include <remdef.h>     // REM16_, REM32_, REMSmb_ equates.
@@ -88,10 +88,10 @@ Return Value:
     DWORD TotalAvail;
 
     IF_DEBUG(CONFIG) {
-        NetpDbgPrint( PREFIX_NETAPI "RxNetConfigGet: starting, server="
+        NetpKdPrint(( PREFIX_NETAPI "RxNetConfigGet: starting, server="
                 FORMAT_LPTSTR
                 ", component=" FORMAT_LPTSTR ", parm=" FORMAT_LPTSTR ".\n",
-                UncServerName, Component, Parameter );
+                UncServerName, Component, Parameter ));
     }
 
     //

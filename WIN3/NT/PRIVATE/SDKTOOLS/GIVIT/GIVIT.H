@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
-#include <crt\io.h>
+#include <io.h>
 #include <fcntl.h>
 
 
@@ -102,6 +102,11 @@ DbgKdpAsyncControl(
    IN OUT PVOID Data,
    IN OUT PVOID Parm,
    IN USHORT Function
+   );
+
+DWORD
+DbgKdConnectAndInitialize(
+   VOID
    );
 
 #endif // _DBGNT_

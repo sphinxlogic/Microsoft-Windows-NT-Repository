@@ -18,6 +18,7 @@ Abstract:
         CleanupAdapterFileContext
         DlcDriverUnload
         CloseAdapterFileContext
+        DlcKillFileContext
         DlcDeviceIoControl
         DlcCompleteIoRequest
 
@@ -170,7 +171,7 @@ static PFDLC_COMMAND_HANDLER DispatchTable[IOCTL_DLC_LAST_COMMAND] = {
     DlcBufferGet,
     DlcBufferCreate,
     DirSetExceptionFlags,
-    DlcCloseStation,
+    DlcCloseStation,                    // DLC.CLOSE.STATION
     DlcConnectStation,
     DlcFlowControl,
     DlcOpenLinkStation,
@@ -183,9 +184,9 @@ static PFDLC_COMMAND_HANDLER DispatchTable[IOCTL_DLC_LAST_COMMAND] = {
     DirTimerCancelGroup,
     DirTimerSet,
     DlcOpenSap,
-    DlcCloseStation,
+    DlcCloseStation,                    // DLC.CLOSE.SAP
     DirOpenDirect,
-    DlcCloseStation,
+    DlcCloseStation,                    // DIR.CLOSE.DIRECT
     DirOpenAdapter,
     DirCloseAdapter,
     DlcReallocate,
@@ -201,11 +202,11 @@ USHORT aSpecialOutputBuffers[3] = {
     sizeof(UCHAR)                      // TransmitFrameStatus
 };
 
-NDIS_SPIN_LOCK DlcLock;
+NDIS_SPIN_LOCK DlcDriverLock;
 
 #ifdef LOCK_CHECK
 
-LONG DlcLockLevel = 0;
+LONG DlcDriverLockLevel = 0;
 
 ULONG __line = 0;
 PCHAR __file = NULL;
@@ -234,15 +235,33 @@ ULONG cFramesReleased = 0;
 ULONG cLockedXmitBuffers = 0;
 ULONG cUnlockedXmitBuffers = 0;
 
+#endif
+
 //UINT InputIndex = 0;
 //LLC_SM_TRACE aLast[LLC_INPUT_TABLE_SIZE];
 
-//UINT LlcTraceIndex = 0;
-//UCHAR LlcTraceTable[LLC_TRACE_TABLE_SIZE];
+#if DBG & DLC_TRACE_ENABLED
 
-#endif
+UINT LlcTraceIndex = 0;
+UCHAR LlcTraceTable[LLC_TRACE_TABLE_SIZE];
+
+#endif // DBG & DLC_TRACE_ENABLED
 
 
+//
+// prototypes
+//
+
+VOID
+LinkFileContext(
+    IN PDLC_FILE_CONTEXT pFileContext
+    );
+
+PDLC_FILE_CONTEXT
+UnlinkFileContext(
+    IN PDLC_FILE_CONTEXT pFileContext
+    );
+
 //
 // global data
 //
@@ -251,32 +270,20 @@ BOOLEAN MemoryLockFailed = FALSE;   // this limits unneceasary memory locks
 KSPIN_LOCK DlcSpinLock;             // syncnhronize the final cleanup
 PDEVICE_OBJECT ThisDeviceContext;   // required for unloading driver
 
-#if DBG
-
-BOOLEAN Prolix;
-MEMORY_USAGE DriverMemoryUsage;
-MEMORY_USAGE DriverStringUsage; // how much string does it take to hang a DLC driver?
-
 //
-// in the debug version we maintain a singly-linked list of FILE_CONTEXT
-// structures to aid in figuring out where memory went. Required because
-// in some cases, we lose the pointer information from ADAPTER or BINDING
-// contexts
+// we now maintain a singly-linked list of FILE_CONTEXTs for debug and retail
+// versions
 //
 
 SINGLE_LIST_ENTRY FileContexts = {NULL};
 KSPIN_LOCK FileContextsLock;
 KIRQL PreviousIrql;
 
-VOID
-LinkFileContext(
-    IN PDLC_FILE_CONTEXT pFileContext
-    );
+#if DBG
 
-VOID
-UnlinkFileContext(
-    IN PDLC_FILE_CONTEXT pFileContext
-    );
+BOOLEAN Prolix;
+MEMORY_USAGE DriverMemoryUsage;
+MEMORY_USAGE DriverStringUsage; // how much string does it take to hang a DLC driver?
 
 #endif
 
@@ -284,7 +291,10 @@ UnlinkFileContext(
 // external data
 //
 
-extern POBJECT_TYPE *IoFileObjectType;
+
+//
+// functions
+//
 
 
 NTSTATUS
@@ -327,9 +337,10 @@ Return Value:
     }
     KeInitializeSpinLock(&DriverMemoryUsage.SpinLock);
     KeInitializeSpinLock(&DriverStringUsage.SpinLock);
-    KeInitializeSpinLock(&FileContextsLock);
     InitializeMemoryPackage();
 #endif
+
+    KeInitializeSpinLock(&FileContextsLock);
 
     //
     // load any initialization-time parameters from the registry
@@ -389,7 +400,7 @@ Return Value:
 
     KeInitializeSpinLock(&DlcSpinLock);
 
-    NdisAllocateSpinLock(&DlcLock);
+    NdisAllocateSpinLock(&DlcDriverLock);
 
     //
     // Initialize the driver object with this driver's entry points.
@@ -458,13 +469,13 @@ Return Value:
         goto ErrorExit2;
     }
 
-#if DBG
-
     //
     // add this file context to our global list of opened file contexts
     //
 
     LinkFileContext(pFileContext);
+
+#if DBG
 
     //
     // record who owns this memory usage and add it to our global list of
@@ -511,29 +522,7 @@ Return Value:
     }
 
     //
-    // we have done everything required to provide the caller with an open file
-    // handle to a DLC device instance. Increment the reference count of the
-    // I/O subsystem's file object. This prevents the file object from being
-    // deleted until we have performed the corresponding close processing
-    //
-
-    //
-    // RLF 03/22/93
-    //
-    // We should NOT be messing with the reference counters on the file object
-    // from within a driver. However, removing this may break DLC! Corresponding
-    // dereference code has been removed from DereferenceFileContext[ByTwo]
-    //
-
-//
-//    Status = ObReferenceObjectByPointer(pIrpSp->FileObject,
-//                                        FILE_ALL_ACCESS,
-//                                        *IoFileObjectType,
-//                                        KernelMode
-//                                        );
-
-    //
-    // similarly, we increment the reference count in our file context
+    // set the file context reference count to 1 - this file context is ALIVE!
     //
 
     ReferenceFileContext(pFileContext);
@@ -549,12 +538,14 @@ Return Value:
 ErrorExit1:
 
     if (Status != STATUS_SUCCESS) {
+
         DELETE_PACKET_POOL_FILE(&pFileContext->hLinkStationPool);
         DELETE_PACKET_POOL_FILE(&pFileContext->hPacketPool);
         CHECK_MEMORY_RETURNED_FILE();
 
-#if DBG
         UnlinkFileContext(pFileContext);
+
+#if DBG
         UnlinkMemoryUsage(&pFileContext->MemoryUsage);
 #endif
 
@@ -632,12 +623,15 @@ Return Value:
 
     if (pFileContext->State == DLC_FILE_CONTEXT_OPEN) {
         IoMarkIrpPending(pIrp);
+
+        //
+        // as for Ioctl processing, add 2 to the file context reference count
+        // The combination of the dereference below, the completion of the
+        // close adapter call and the processing of a close IRP will cause the
+        // file context to be destroyed
+        //
+
         ReferenceFileContextByTwo(pFileContext);
-
-#if DBG
-        DbgPrint("IRP_MJ_CLEANUP: Panic Close!!!\n");
-#endif
-
         Status = DirCloseAdapter(pIrp,
                                  pFileContext,
                                  NULL,
@@ -710,7 +704,7 @@ Return Value:
     CHECK_STRING_RETURNED_DRIVER();
     CHECK_DRIVER_MEMORY_USAGE(TRUE);
 
-    NdisFreeSpinLock(&DlcLock);
+    NdisFreeSpinLock(&DlcDriverLock);
 
     //
     // now tell I/O subsystem that this device context is no longer current
@@ -748,8 +742,6 @@ Return Value:
 {
     PIO_STACK_LOCATION pIrpSp;
     PDLC_FILE_CONTEXT pFileContext;
-    KIRQL irql;
-    PVOID pBindingContext;
 
     UNREFERENCED_PARAMETER(pDeviceObject);
 
@@ -761,93 +753,49 @@ Return Value:
     }
 #endif
 
-    //
-    // It seems to be possible, that this routine is called twice!
-    // We can have only one guy closing the file context.
-    //
-
-    ACQUIRE_DRIVER_LOCK();
-
-    ACQUIRE_DLC_LOCK(irql);
-
     pIrp->IoStatus.Status = STATUS_SUCCESS;
     pIrp->IoStatus.Information = 0;
     pIrpSp = IoGetCurrentIrpStackLocation(pIrp);
     pFileContext = pIrpSp->FileObject->FsContext;
-    if (pFileContext != NULL) {
+
+    //
+    // if we have a non-NULL file context pointer AND the file context is still
+    // on the list, then begin the deallocation process
+    //
+
+    if (pFileContext && UnlinkFileContext(pFileContext)) {
+
+        ULONG count;
+
         pIrpSp->FileObject->FsContext = NULL;
 
-        RELEASE_DLC_LOCK(irql);
-
         //
-        // Free all memory ever allocated for this file context.
-        // Spinlock checks, that nobody is still accessing to the file context!!!
-        // FileObject may be dereferenced asynchronously =>
-        // File context reference count hits zero and io-system
-        // calls this routine, the spin lock prevent us to delete file
-        // context when it is still used by somebody.
+        // RLF 07/27/94
         //
-
-        ENTER_DLC(pFileContext);
-
-        DELETE_PACKET_POOL_FILE(&pFileContext->hPacketPool);
-        DELETE_PACKET_POOL_FILE(&pFileContext->hLinkStationPool);
-
-        LEAVE_DLC(pFileContext);
-
-        DEALLOCATE_SPIN_LOCK(&pFileContext->SpinLock);
-
-        pBindingContext = pFileContext->pBindingContext;
-
-        //
-        // Finally, close the NDIS adapter. we have already disabled all
-        // indications from it
+        // We hit a situation where a thread is processing a transmit request
+        // which completes while at the same time the app owning the thread is
+        // closing. When I/O subsystem sees transmit IRP get completed, it
+        // allows this close handler to be called. We free up the file context.
+        // Problem is: the thread processing the transmit still has a pointer
+        // to the file context and dereferences it, causing a blue screen on
+        // a checked build (0xd0ffffff is used as a pointer!). So we now must
+        // check reference count - if decrement to 0, free all resources, else
+        // allow the other thread which last incremented the reference count to
+        // handle the close. The rest of the processing has moved to
+        // DlcKillFileContext(), below
         //
 
-        if (pBindingContext) {
+        ACQUIRE_DRIVER_LOCK();
 
-            //
-            // RLF 04/26/94
-            //
-            // We need to call LlcDisableAdapter here to terminate the DLC timer
-            // if it is not already terminated. Else we can end up with the timer
-            // still in the adapter's tick list (if there are other bindings to
-            // the adapter), and sooner or later that will cause an access
-            // violation, followed very shortly thereafter by a blue screen
-            //
+        DereferenceFileContext(pFileContext);
 
-            LlcDisableAdapter(pBindingContext);
-            LlcCloseAdapter(pBindingContext, TRUE);
-        }
-
-        CHECK_MEMORY_RETURNED_FILE();
-
-#if DBG
-        UnlinkFileContext(pFileContext);
-        UnlinkMemoryUsage(&pFileContext->MemoryUsage);
-#endif
-
-        FREE_MEMORY_DRIVER(pFileContext);
-
-#if LLC_DBG
-        if ((LockedPageCount != 0
-        || AllocatedMdlCount != 0
-        || AllocatedNonPagedPool != 0)
-        && pAdapters == NULL) {
-            DbgPrint("DLC.CloseAdapterFileContext: Error: Resources not released\n");
-            //PrintMemStatus();
-            DbgBreakPoint();
-        }
-        FailedMemoryLockings = 0;
-#endif
-
-    } else {
-
-        RELEASE_DLC_LOCK(irql);
+        RELEASE_DRIVER_LOCK();
 
     }
 
-    RELEASE_DRIVER_LOCK();
+    //
+    // complete the Close IRP
+    //
 
     DlcCompleteIoRequest(pIrp, FALSE);
 
@@ -858,6 +806,110 @@ Return Value:
 #endif
 
     return STATUS_SUCCESS;
+}
+
+
+VOID
+DlcKillFileContext(
+    IN PDLC_FILE_CONTEXT pFileContext
+    )
+
+/*++
+
+Routine Description:
+
+    Called when the reference count on a file context structure is decremented
+    to zero. Frees all memory owned by the file context and removes it from the
+    file context list.
+
+    After this function, no references to the file context structure can be made!
+
+Arguments:
+
+    pFileContext    - pointer to DLC file context structure to kill
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    KIRQL irql;
+    PVOID pBindingContext;
+
+    ASSUME_IRQL(DISPATCH_LEVEL);
+
+//    ACQUIRE_DLC_LOCK(irql);
+
+    ENTER_DLC(pFileContext);
+
+    //
+    // delete all events on the file context event list before we delete the
+    // packet pool
+    //
+
+    PurgeDlcEventQueue(pFileContext);
+    PurgeDlcFlowControlQueue(pFileContext);
+
+    DELETE_PACKET_POOL_FILE(&pFileContext->hPacketPool);
+    DELETE_PACKET_POOL_FILE(&pFileContext->hLinkStationPool);
+
+    LEAVE_DLC(pFileContext);
+
+    DEALLOCATE_SPIN_LOCK(&pFileContext->SpinLock);
+
+    pBindingContext = pFileContext->pBindingContext;
+
+    //
+    // Finally, close the NDIS adapter. we have already disabled all
+    // indications from it
+    //
+
+    if (pBindingContext) {
+
+        //
+        // RLF 04/26/94
+        //
+        // We need to call LlcDisableAdapter here to terminate the DLC timer
+        // if it is not already terminated. Else we can end up with the timer
+        // still in the adapter's tick list (if there are other bindings to
+        // the adapter), and sooner or later that will cause an access
+        // violation, followed very shortly thereafter by a blue screen
+        //
+
+        LlcDisableAdapter(pBindingContext);
+        LlcCloseAdapter(pBindingContext, TRUE);
+    }
+
+    CHECK_MEMORY_RETURNED_FILE();
+
+    UnlinkFileContext(pFileContext);
+
+#if DBG
+
+    UnlinkMemoryUsage(&pFileContext->MemoryUsage);
+
+#endif
+
+    FREE_MEMORY_DRIVER(pFileContext);
+
+//    RELEASE_DLC_LOCK(irql);
+
+#if LLC_DBG
+
+    if ((LockedPageCount != 0
+    || AllocatedMdlCount != 0
+    || AllocatedNonPagedPool != 0)
+    && pAdapters == NULL) {
+        DbgPrint("DLC.CloseAdapterFileContext: Error: Resources not released\n");
+        //PrintMemStatus();
+        DbgBreakPoint();
+    }
+    FailedMemoryLockings = 0;
+
+#endif
+
 }
 
 
@@ -1074,11 +1126,11 @@ Return Value:
         IoMarkIrpPending(pIrp);
 
         //
-        // We use the file context reference counter to prevent the IO system
-        // from deleting the file context due to a Close request arriving
-        // while we are still in this function.
-        // ReferenceObjectByPointer / DereferenceObject are called only when
-        // the file context reference count is zero
+        // The reason why we add 2 here is that during the processing of the
+        // current IRP we may complete the request, causing us to decrement the
+        // reference counter on the file context. If we just incremented by 1
+        // here, the decrement could cause a pending close IRP to be allowed to
+        // delete the file context while we are still using it
         //
 
         ReferenceFileContextByTwo(pFileContext);
@@ -1168,8 +1220,21 @@ Return Value:
             }
 
             if (ioControlCode != IOCTL_DLC_RESET) {
+
+                //
+                // DLC.RESET returns an immediate status and does not complete
+                // asynchronously
+                //
+
                 DereferenceFileContextByTwo(pFileContext);
             } else {
+
+                //
+                // everything else that returns a non-pending status completes
+                // asynchronously, which also causes the other reference count
+                // to be removed
+                //
+
                 DereferenceFileContext(pFileContext);
             }
 
@@ -1200,19 +1265,31 @@ Return Value:
             //
 
             if (BufferPoolCheckThresholds(pFileContext->hBufferPool)) {
+
                 ReferenceBufferPool(pFileContext);
 
                 LEAVE_DLC(pFileContext);
 
+#if DBG
+                BufferPoolExpand(pFileContext, (PDLC_BUFFER_POOL)pFileContext->hBufferPool);
+#else
                 BufferPoolExpand((PDLC_BUFFER_POOL)pFileContext->hBufferPool);
+#endif
 
                 ENTER_DLC(pFileContext);
 
                 DereferenceBufferPool(pFileContext);
             }
-            DereferenceFileContext(pFileContext);
 
             LEAVE_DLC(pFileContext);
+
+            //
+            // if this dereference causes the count to go to 0, the file context
+            // will be destroyed. Implicitly we must be closing the adapter and
+            // have received a close IRP for this to happen
+            //
+
+            DereferenceFileContext(pFileContext);
 
             RELEASE_DRIVER_LOCK();
 
@@ -1284,8 +1361,6 @@ Return Value:
     IoCompleteRequest(pIrp, (CCHAR)IO_NETWORK_INCREMENT);
 }
 
-#if DBG
-
 VOID
 LinkFileContext(
     IN PDLC_FILE_CONTEXT pFileContext
@@ -1296,7 +1371,7 @@ LinkFileContext(
     KeReleaseSpinLock(&FileContextsLock, PreviousIrql);
 }
 
-VOID
+PDLC_FILE_CONTEXT
 UnlinkFileContext(
     IN PDLC_FILE_CONTEXT pFileContext
     )
@@ -1310,12 +1385,16 @@ UnlinkFileContext(
     }
     if (p) {
         prev->Next = p->Next;
-    } else {
-        DbgPrint("DLC.UnlinkFileContext: Error: FILE_CONTEXT @%08X not on list??\n",
-                pFileContext
-                );
+//    } else {
+//
+//#if DBG
+//        DbgPrint("DLC.UnlinkFileContext: Error: FILE_CONTEXT @%08X not on list??\n",
+//                pFileContext
+//                );
+//#endif
+//
     }
     KeReleaseSpinLock(&FileContextsLock, PreviousIrql);
-}
 
-#endif
+    return (PDLC_FILE_CONTEXT)p;
+}

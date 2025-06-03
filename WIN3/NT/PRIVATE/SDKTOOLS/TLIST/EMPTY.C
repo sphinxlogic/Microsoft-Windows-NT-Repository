@@ -34,6 +34,7 @@ DWORD       pid;
 CHAR        pname[MAX_PATH];
 TASK_LIST   tlist[MAX_TASKS];
 
+CHAR System[] = "System";
 
 VOID GetCommandLineArgs(VOID);
 
@@ -60,8 +61,9 @@ main(
     }
 
     //
-    // lets be god
+    // let's be god
     //
+
     EnableDebugPriv();
 
     if (pid) {
@@ -109,6 +111,12 @@ main(
         }
     }
 
+    if (MatchPattern(System, pname )) {
+        if (!EmptySystemWorkingSet()) {
+            printf( "could not empty working set for process #%d [%s]\n",0,&System );
+        }
+    }
+
     return rval;
 }
 
@@ -150,7 +158,7 @@ GetCommandLineArgs(
             ch = *lpstrCmd++;
         }
         *p = '\0';
-        strupr( pname );
+        _strupr( pname );
     }
 
     return;

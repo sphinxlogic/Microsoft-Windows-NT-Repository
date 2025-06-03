@@ -28,7 +28,6 @@
 #ifndef __SMARTP_HXX__
 #define __SMARTP_HXX__
 
-#include <types.hxx>
 #include <safepnt.hxx>
 
 //+-------------------------------------------------------------------------

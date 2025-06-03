@@ -18,6 +18,8 @@
 
 MODNAME(wutmr.c);
 
+LIST_ENTRY TimerList;
+
 // Element Zero is unused.
 
 STATIC PTMR aptmrWOWTimers[] = {
@@ -52,6 +54,11 @@ STATIC TIMERPROC afnTimerFuncs[] = {
  */
 
 
+//
+// Search for a timer by its 16-bit information.  Looks in the list of
+// active timers.  If the timer is found by this routine, then SetTimer()
+// has been called and KillTimer() has not yet been called.
+//
 PTMR IsDuplicateTimer16(HWND16 hwnd16, HTASK16 htask16, WORD wIDEvent)
 {
     register PTMR ptmr;
@@ -80,10 +87,14 @@ PTMR IsDuplicateTimer16(HWND16 hwnd16, HTASK16 htask16, WORD wIDEvent)
     return NULL;
 }
 
+//
+// Search for a timer by its 32-bit information.  Looks in the list of
+// all timers (including those that have already been killed by KillTimer().
+//
+//
 PTMR FindTimer32(HWND16 hwnd16, DWORD dwIDEvent)
 {
     register PTMR ptmr;
-    register INT iTimer;
     HAND16 htask16;
 
     htask16 = CURRENTPTD()->htask16;
@@ -94,17 +105,70 @@ PTMR FindTimer32(HWND16 hwnd16, DWORD dwIDEvent)
     // hwnd16!=NULL and ptmr->hwnd16==NULL
     //
 
-    for (iTimer=1; iTimer<NUMEL(aptmrWOWTimers); iTimer++) {
+    for (ptmr = (PTMR)TimerList.Flink; ptmr != (PTMR)&TimerList; ptmr = (PTMR)ptmr->TmrList.Flink) {
 
-        ptmr = aptmrWOWTimers[iTimer];
+        if (ptmr->dwEventID == dwIDEvent &&
+            ptmr->htask16 == htask16 &&
+            (ptmr->hwnd16 == hwnd16 || (hwnd16 && !ptmr->hwnd16))) {
 
-        if ( ptmr ) {
-            if (ptmr->dwEventID == dwIDEvent &&
-                ptmr->htask16 == htask16 &&
-                (ptmr->hwnd16 == hwnd16 || (hwnd16 && !ptmr->hwnd16))) {
+            return ptmr;
+        }
+    }
 
-                return ptmr;
-            }
+    return (PTMR)NULL;
+}
+
+
+//
+// Search for a timer by its 16-bit information.  Looks in the list of
+// all timers (including those that have already been killed by KillTimer().
+//
+//
+PTMR FindTimer16(HWND16 hwnd16, HTASK16 htask16, WORD wIDEvent)
+{
+    register PTMR ptmr;
+
+    //
+    // Excel calls SetTimer with hwnd==NULL but dispatches the
+    // WM_TIMER messages with hwnd!=NULL.  so call it a match if
+    // hwnd16!=NULL and ptmr->hwnd16==NULL
+    //
+
+    for (ptmr = (PTMR)TimerList.Flink; ptmr != (PTMR)&TimerList; ptmr = (PTMR)ptmr->TmrList.Flink) {
+
+        if (LOWORD(ptmr->dwEventID) == wIDEvent &&
+            ptmr->htask16 == htask16 &&
+            (ptmr->hwnd16 == hwnd16 || (hwnd16 && !ptmr->hwnd16))) {
+
+            return ptmr;
+        }
+    }
+
+    return (PTMR)NULL;
+}
+
+
+//
+// Search for a killed timer by its 16-bit information.
+//
+//
+PTMR FindKilledTimer16(HWND16 hwnd16, HTASK16 htask16, WORD wIDEvent)
+{
+    register PTMR ptmr;
+
+    for (ptmr = (PTMR)TimerList.Flink; ptmr != (PTMR)&TimerList; ptmr = (PTMR)ptmr->TmrList.Flink) {
+
+        if (ptmr->wIndex == 0 &&
+            ptmr->htask16 == htask16 &&
+            ptmr->hwnd16 == hwnd16 &&
+            (LOWORD(ptmr->dwEventID) == wIDEvent || !hwnd16)) {
+            // 1. the timer has been killed and
+            // 2. the timer is in this task and
+            // 3. the hwnds match (both might be 0) and
+            // 4. the IDs match, or the hwnds are both 0 (in that case,
+            //    IDs are ignored)
+
+            return ptmr;
         }
     }
 
@@ -114,40 +178,40 @@ PTMR FindTimer32(HWND16 hwnd16, DWORD dwIDEvent)
 
 VOID FreeTimer16(PTMR ptmr)
 {
-    WOW32ASSERT(ptmr == aptmrWOWTimers[ptmr->wIndex]);
+    WOW32ASSERT(ptmr->wIndex == 0 || ptmr == aptmrWOWTimers[ptmr->wIndex]);
     aptmrWOWTimers[ptmr->wIndex] = NULL;
+    RemoveEntryList(&ptmr->TmrList);
     free_w(ptmr);
 }
 
 
 VOID DestroyTimers16(HTASK16 htask16)
 {
-    register PTMR ptmr;
-    register INT iTimer;
+    PTMR ptmr, next;
 
-    for (iTimer=2; iTimer<NUMEL(aptmrWOWTimers); iTimer++) {
-        if (ptmr = aptmrWOWTimers[iTimer]) {
+    for (ptmr = (PTMR)TimerList.Flink; ptmr != (PTMR)&TimerList; ptmr = next) {
 
-            if (ptmr->htask16 == htask16) {
+        next = (PTMR)ptmr->TmrList.Flink;
+        if (ptmr->htask16 == htask16) {
 
-                //
-                // don't call KillTimer() if the timer was associated with
-                // a window and the window is gone, USER has already
-                // cleaned it up.
-                //
+            //
+            // don't call KillTimer() if the timer was associated with
+            // a window and the window is gone, USER has already
+            // cleaned it up.
+            //
 
-                if (!ptmr->hwnd32 || IsWindow(ptmr->hwnd32)) {
-                    if ( KillTimer(ptmr->hwnd32, ptmr->dwEventID) ) {
-                        LOGDEBUG(LOG_IMPORTANT,
-                           ("DestroyTimers16:Killed %04x\n",ptmr->dwEventID));
-                    } else {
-                        LOGDEBUG(LOG_ERROR,
-                           ("DestroyTimers16:FAILED %04x\n",ptmr->dwEventID));
-                    }
+            if (ptmr == aptmrWOWTimers[ptmr->wIndex] && (!ptmr->hwnd32 || IsWindow(ptmr->hwnd32))) {
+                if ( KillTimer(ptmr->hwnd32, ptmr->dwEventID) ) {
+                    LOGDEBUG(LOG_IMPORTANT,
+                       ("DestroyTimers16:Killed %04x\n",ptmr->dwEventID));
+                } else {
+                    LOGDEBUG(LOG_ERROR,
+                       ("DestroyTimers16:FAILED %04x\n",ptmr->dwEventID));
                 }
-                FreeTimer16(ptmr);
             }
+            FreeTimer16(ptmr);
         }
+
     }
 }
 
@@ -164,7 +228,24 @@ VOID W32TimerFunc(UINT index, HWND hwnd, UINT idEvent, DWORD dwTime)
         return;
     }
 
-    WOW32ASSERT(ptmr->dwEventID == idEvent);
+    if (ptmr->dwEventID != idEvent) {
+        //
+        // This is an extra timer message which was already in the message
+        // queue when the app called KillTimer().  The PTMR isn't in the
+        // array, but it is still linked into the TimerList.
+        //
+        LOGDEBUG(LOG_WARNING,("    W32TimerFunc WARNING: Timer %08x called after KillTimer()\n", idEvent));
+        for (ptmr = (PTMR)TimerList.Flink; ptmr != (PTMR)&TimerList; ptmr = (PTMR)ptmr->TmrList.Flink) {
+            if (ptmr->dwEventID == idEvent) {
+                break;
+            }
+        }
+
+        if ( ptmr == (PTMR)&TimerList ) {
+            LOGDEBUG(LOG_ALWAYS,("    W32TimerFunc ERROR: cannot find timer %08x (second case)\n", idEvent));
+            return;
+        }
+    }
 
     Parm16.WndProc.hwnd   = ptmr->hwnd16;
     Parm16.WndProc.wMsg   = WM_TIMER;
@@ -221,7 +302,8 @@ ULONG FASTCALL WU32KillTimer(PVDMFRAME pFrame)
 
     if (ptmr) {
         ul = GETBOOL16(KillTimer(ptmr->hwnd32, ptmr->dwEventID));
-        FreeTimer16(ptmr);
+        aptmrWOWTimers[ptmr->wIndex] = NULL;
+        ptmr->wIndex = 0;
     }
     else {
         ul = 0;
@@ -329,6 +411,11 @@ ULONG FASTCALL WU32SetTimer(PVDMFRAME pFrame)
     hwnd16        = (HWND16)parg16->f1;
     wIDEvent      = parg16->f2;
     wElapse       = parg16->f3;
+
+    // Don't allow WOW apps to set a timer with a period of less than
+    // 55 ms. Myst and Winstone depend on this.
+    if (wElapse < 55) wElapse = 55;
+
     vpfnTimerProc = VPFN32(parg16->f4);
 
     ptmr = IsDuplicateTimer16(hwnd16, htask16, wIDEvent);
@@ -345,9 +432,23 @@ ULONG FASTCALL WU32SetTimer(PVDMFRAME pFrame)
             */
             if ( !aptmrWOWTimers[iTimer] ) {
 
-                // Allocate a TMR structure for the new timer
+                //
+                // See if there is already thunking information for this
+                // timer.  If there is, delete it from the list of timer
+                // info and re-use its memory because this new timer
+                // superceeds the old thunking information.
+                //
+                ptmr = FindKilledTimer16(hwnd16, htask16, wIDEvent);
+                if (ptmr) {
 
-                ptmr = malloc_w(sizeof(TMR));
+                    RemoveEntryList(&ptmr->TmrList);
+
+                } else {
+
+                    // Allocate a TMR structure for the new timer
+                    ptmr = malloc_w(sizeof(TMR));
+
+                }
 
                 aptmrWOWTimers[iTimer] = ptmr;
 
@@ -366,7 +467,7 @@ ULONG FASTCALL WU32SetTimer(PVDMFRAME pFrame)
         }
 
         // Initialize the constant parts of the TMR structure (done on 1st SetTimer)
-
+        InsertHeadList(&TimerList, &ptmr->TmrList);
         ptmr->hwnd16    = hwnd16;
         ptmr->hwnd32    = HWND32(hwnd16);
         ptmr->htask16   = htask16;

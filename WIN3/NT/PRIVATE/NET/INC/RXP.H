@@ -360,7 +360,7 @@ RxpConvertDataStructures(
                 DWORD size = STRLEN((Input))+1;                          \
                 *(StrPtrPtr) -= size;                                    \
                 RxpAddPointer( *(StrPtrPtr), (CurPtrPtr), (CurSizePtr)); \
-                NetpCopyTStrToStr( *((StrPtrPtr)), (Input) );   \
+                NetpCopyWStrToStrDBCS( *((StrPtrPtr)), (Input) );        \
             }
 
 // VOID

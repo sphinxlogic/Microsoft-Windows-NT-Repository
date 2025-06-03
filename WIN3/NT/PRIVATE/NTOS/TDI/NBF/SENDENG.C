@@ -490,7 +490,7 @@ Return Value:
             } else {
 
                 Status = BuildBufferChainFromMdlChain (
-                            DeviceContext->NdisBufferPoolHandle,
+                            DeviceContext,
                             Connection->sp.CurrentSendMdl,
                             Connection->sp.SendByteOffset,
                             FrameSize,
@@ -911,6 +911,7 @@ Return Value:
     PIO_STACK_LOCATION IrpSp;
     PLIST_ENTRY p;
     BOOLEAN EndOfRecord;
+    KIRQL cancelIrql;
 
     IF_NBFDBG (NBF_DEBUG_SENDENG) {
         NbfPrint1 ("CompleteSend: Entered for connection %lx.\n", Connection);
@@ -959,13 +960,6 @@ Return Value:
 
         EndOfRecord = !(IRP_SEND_FLAGS(IrpSp) & TDI_SEND_PARTIAL);
 
-        //
-        // OK to do this without the cancel spinlock held since
-        // CancelSend takes the connection spinlock, thus it
-        // would not have found this IRP.
-        //
-
-        Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
 #if DBG
         NbfCompletedSends[NbfCompletedSendsNext].Irp = Irp;
         NbfCompletedSends[NbfCompletedSendsNext].Request = NULL;
@@ -994,6 +988,17 @@ Return Value:
         //
 
         RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
+
+        //
+        // Since the irp is no longer on the send list, the cancel routine
+        // cannot find it and will just return. We must grab the cancel
+        // spinlock to lock out the cancel function while we null out
+        // the Irp->CancelRoutine field.
+        //
+
+        IoAcquireCancelSpinLock(&cancelIrql);
+        IoSetCancelRoutine(Irp, NULL);
+        IoReleaseCancelSpinLock(cancelIrql);
 
         NbfCompleteSendIrp (
                 Irp,
@@ -1095,6 +1100,8 @@ Return Value:
     PLIST_ENTRY p;
     BOOLEAN EndOfRecord;
     BOOLEAN GotCurrent = FALSE;
+    KIRQL cancelIrql;
+
 
     IF_NBFDBG (NBF_DEBUG_SENDENG) {
         NbfPrint1 ("FailSend: Entered for connection %lx.\n", Connection);
@@ -1133,20 +1140,18 @@ Return Value:
            GotCurrent = TRUE;
         }
         EndOfRecord = !(IRP_SEND_FLAGS(IrpSp) & TDI_SEND_PARTIAL);
-        RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
-
-        //
-        // OK to do this without the cancel spinlock since
-        // the IRP is now no longer on any connection queues.
-        //
-
-        Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
 
 #if DBG
         NbfCompletedSends[NbfCompletedSendsNext].Irp = Irp;
         NbfCompletedSends[NbfCompletedSendsNext].Status = RequestStatus;
         NbfCompletedSendsNext = (NbfCompletedSendsNext++) % TRACK_TDI_LIMIT;
 #endif
+
+        RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
+
+        IoAcquireCancelSpinLock(&cancelIrql);
+        IoSetCancelRoutine(Irp, NULL);
+        IoReleaseCancelSpinLock(cancelIrql);
 
         //
         // The following dereference will complete the I/O, provided removes
@@ -1156,6 +1161,7 @@ Return Value:
         //
 
         NbfCompleteSendIrp (Irp, RequestStatus, 0);
+
         ACQUIRE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
         ++Connection->TransmissionErrors;
@@ -1178,7 +1184,7 @@ Return Value:
     //
 
 #if MAGIC
-    if ((*(PULONG)NtGlobalFlag) & 0x10000) {
+    if (NbfEnableMagic) {
         extern VOID NbfSendMagicBullet (PDEVICE_CONTEXT, PTP_LINK);
         NbfSendMagicBullet (Connection->Provider, Connection->Link);
     }
@@ -1337,6 +1343,20 @@ Return Value:
 
     ACQUIRE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
+    //
+    // In the case where a local disconnect has been issued, and we get a frame
+    // that causes us to reframe the send our FirstSendIrp and FirstMdl 
+    // pointers are stale.  Catch this condition and prevent faults caused by
+    // this.  A better fix would be to change the logic that switches the
+    // connection sendstate from idle to W_LINK to not do that.  However, this
+    // is a broader change than fixing it right here.
+    //
+
+    if (IsListEmpty(&Connection->SendQueue)) {
+        RELEASE_DPC_SPIN_LOCK(Connection->LinkSpinLock);
+        return;
+    }
+
     BytesLeft = BytesReceived;
     Irp = Connection->FirstSendIrp;
     Mdl = Connection->FirstSendMdl;
@@ -1365,6 +1385,7 @@ Return Value:
     while (BytesLeft != 0) {
 
         if (Mdl == NULL) {
+            KIRQL cancelIrql;
 
             //
             // We have exhausted the MDL chain on this request, so it has
@@ -1376,12 +1397,17 @@ Return Value:
             RELEASE_DPC_SPIN_LOCK (Connection->LinkSpinLock);
 
             Irp = CONTAINING_RECORD (p, IRP, Tail.Overlay.ListEntry);
+
             //
-            // OK to do this without the cancel spinlock since
-            // the IRP is now no longer on any connection queues.
+            // Since the irp is no longer on the list, the cancel routine
+            // won't find it. Grab the cancel spinlock to synchronize
+            // and complete the irp.
             //
 
-            Irp->CancelRoutine = (PDRIVER_CANCEL)NULL;
+            IoAcquireCancelSpinLock(&cancelIrql);
+            IoSetCancelRoutine(Irp, NULL);
+            IoReleaseCancelSpinLock(cancelIrql);
+
             NbfCompleteSendIrp (Irp, STATUS_SUCCESS, Offset);
 
             //
@@ -1555,7 +1581,7 @@ Return Value:
     PTP_CONNECTION Connection;
     PIRP SendIrp;
     PLIST_ENTRY p;
-    BOOLEAN Found, CancelledFirstEor;
+    BOOLEAN Found;
 
     UNREFERENCED_PARAMETER (DeviceObject);
 
@@ -1592,10 +1618,12 @@ Return Value:
 
         //
         // yes, it is the first one on the send queue, so
-        // trash the send/connection.
+        // trash the send/connection.  The first send is a special case
+        // there are multiple pointers to the send request.  Just stop the 
+        // connection.
         //
 
-        p = RemoveHeadList (&Connection->SendQueue);
+        //        p = RemoveHeadList (&Connection->SendQueue);
 
 #if DBG
         NbfCompletedSends[NbfCompletedSendsNext].Irp = SendIrp;
@@ -1627,7 +1655,7 @@ Return Value:
         // we set those values here before the dereference.
         //
 
-        NbfCompleteSendIrp (SendIrp, STATUS_CANCELLED, 0);
+        // NbfCompleteSendIrp (SendIrp, STATUS_CANCELLED, 0);
 
         //
         // Since we are cancelling the current send, blow away
@@ -1647,12 +1675,15 @@ Return Value:
         // mess up our packetizing otherwise. We set CancelledFirstEor
         // to FALSE when we pass an IRP without SEND_PARTIAL.
         //
+        // NO MATTER WHAT WE MUST SHUT DOWN THE CONNECTION!!!!
 
+#if 0
         if (!(IRP_SEND_FLAGS(IoGetCurrentIrpStackLocation(SendIrp)) & TDI_SEND_PARTIAL)) {
             CancelledFirstEor = FALSE;
         } else {
             CancelledFirstEor = TRUE;
         }
+#endif
 
         Found = FALSE;
         p = p->Flink;
@@ -1693,19 +1724,23 @@ Return Value:
                 KeRaiseIrql (DISPATCH_LEVEL, &oldirql1);
 
                 NbfCompleteSendIrp (SendIrp, STATUS_CANCELLED, 0);
-                if (CancelledFirstEor) {
-                    NbfStopConnection (Connection, STATUS_CANCELLED);
-                }
+                //
+                // STOP THE CONNECTION NO MATTER WHAT!!!
+                //
+                NbfStopConnection (Connection, STATUS_CANCELLED);
 
                 KeLowerIrql (oldirql1);
                 break;
 
-            } else {
+            } 
+#if 0
+            else {
 
                 if (CancelledFirstEor && (!(IRP_SEND_FLAGS(IoGetCurrentIrpStackLocation(SendIrp)) & TDI_SEND_PARTIAL))) {
                     CancelledFirstEor = FALSE;
                 }
             }
+#endif
 
             p = p->Flink;
 
@@ -3420,7 +3455,7 @@ Return Value:
 
 NTSTATUS
 BuildBufferChainFromMdlChain (
-    IN NDIS_HANDLE BufferPoolHandle,
+    IN PDEVICE_CONTEXT DeviceContext,
     IN PMDL CurrentMdl,
     IN ULONG ByteOffset,
     IN ULONG DesiredLength,
@@ -3514,12 +3549,12 @@ Return Value:
     NdisCopyBuffer(
         &NdisStatus,
         &NewNdisBuffer,
-        BufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         OldMdl,
         ByteOffset,
         AvailableBytes);
 
-
+        
     if (NdisStatus != NDIS_STATUS_SUCCESS) {
         *NewByteOffset = ByteOffset;
         *TrueLength = 0;
@@ -3565,7 +3600,7 @@ Return Value:
         NdisCopyBuffer(
             &NdisStatus,
             &(NDIS_BUFFER_LINKAGE(NewNdisBuffer)),
-            BufferPoolHandle,
+            DeviceContext->NdisBufferPool,
             OldMdl,
             0,
             AvailableBytes);

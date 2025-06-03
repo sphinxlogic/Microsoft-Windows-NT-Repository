@@ -430,4 +430,3 @@ if (FWriteOk(fwcNil)) /* Check for out-of-memory/ read-only */
         SetUndoMenuStr(IDSTRUndoLook);
         }
 }
-

@@ -9,6 +9,7 @@
 
 #include "ini.h"
 
+BOOL fRefresh;
 BOOL fSummary;
 
 void
@@ -20,13 +21,16 @@ DumpIniFile(
     char *Keywords, *Keyword;
     char *KeyValue;
 
-    Sections = LocalAlloc( 0, 4096 );
-    Keywords = LocalAlloc( 0, 4096 );
-    KeyValue = LocalAlloc( 0, 1024 );
+    Sections = LocalAlloc( 0, 8192 );
+    memset( Sections, 0xFF, 8192 );
+    Keywords = LocalAlloc( 0, 8192 );
+    memset( Keywords, 0xFF, 8192 );
+    KeyValue = LocalAlloc( 0, 2048 );
+    memset( KeyValue, 0xFF, 2048 );
 
     *Sections = '\0';
     if (!GetPrivateProfileString( NULL, NULL, NULL,
-                                  Sections, 4096,
+                                  Sections, 8192,
                                   IniFile
                                 )
        ) {
@@ -45,7 +49,7 @@ DumpIniFile(
             Keyword = Keywords;
             while (*Keyword) {
                 GetPrivateProfileString( Section, Keyword, NULL,
-                                         KeyValue, 1024,
+                                         KeyValue, 2048,
                                          IniFile
                                        );
                 printf( "    %s=%s\n", Keyword, KeyValue );
@@ -72,15 +76,28 @@ DumpIniFileSection(
     char *SectionName
     )
 {
+    DWORD cb;
     char *SectionValue;
     char *s;
 
-    SectionValue = LocalAlloc( 0, 4096 );
-    *SectionValue = '\0';
-    GetPrivateProfileSection( SectionName,
-                              SectionValue, 4096,
-                              IniFile
-                            );
+    cb = 4096;
+    while (TRUE) {
+        SectionValue = LocalAlloc( 0, cb );
+        *SectionValue = '\0';
+        if (GetPrivateProfileSection( SectionName,
+                                      SectionValue,
+                                      cb,
+                                      IniFile
+                                    ) == cb-2
+           ) {
+            LocalFree( SectionValue );
+            cb *= 2;
+            }
+        else {
+            break;
+            }
+        }
+
     printf( "[%s]\n", SectionName );
     s = SectionValue;
     while (*s) {
@@ -98,10 +115,12 @@ DumpIniFileSection(
 void
 Usage( void )
 {
-    fprintf( stderr, "usage: INI [-f FileSpec] [SectionName | SectionName.KeywordName [ = Value]]\n" );
+    fprintf( stderr, "usage: INI | [-f FileSpec] [-r | [SectionName | SectionName.KeywordName [ = Value]]]\n" );
     fprintf( stderr, "Where...\n" );
     fprintf( stderr, "    -f  Specifies the name of the .ini file.  WIN.INI is the default.\n" );
     fprintf( stderr, "    and blanks around = sign are required when setting the value.\n" );
+    fprintf( stderr, "\n" );
+    fprintf( stderr, "    -r  Refresh the .INI file migration information for the specified file.\n" );
     exit( 1 );
 }
 
@@ -120,6 +139,7 @@ char *argv[];
         Usage();
         }
 
+    fRefresh = FALSE;
     fSummary = FALSE;
     IniFile = "win.ini";
     SectionName = NULL;
@@ -132,6 +152,9 @@ char *argv[];
         if (*s == '-' || *s == '/') {
             while (*++s) {
                 switch( tolower( *s ) ) {
+                    case 'r':   fRefresh = TRUE;
+                                break;
+
                     case 's':   fSummary = TRUE;
                                 break;
 
@@ -200,6 +223,12 @@ char *argv[];
         else {
             Usage();
             }
+        }
+
+    if (fRefresh) {
+        printf( "Refreshing .INI file mapping information for %s\n", IniFile );
+        WritePrivateProfileString( NULL, NULL, NULL, IniFile );
+        exit( 0 );
         }
 
     printf( "%s contents of %s\n", KeywordValue ? "Modifying" : "Displaying", IniFile );

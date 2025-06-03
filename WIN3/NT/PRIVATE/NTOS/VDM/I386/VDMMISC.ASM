@@ -465,22 +465,20 @@ Eil42:
          ; termination code forces these to occur.
          ;
          test    eax, 080000000h
-         jnz     short Eil20             ; exit with error
+         jnz     short Eil20             ; exit with Status in eax
 
 Eil50:
          stdCall _VdmpIsThreadTerminating <ecx> ;    check for Term of self
          or      eax, eax
-         jnz     short Eil60
+         jnz     short Eil20             ; exit with Status in eax
 
          mov     edx, CriticalSection
          mov     eax, CsOwningThread[edx]
          stdCall _VdmpIsThreadTerminating <eax> ;    check for Term of CSOwner
          or      eax, eax
-         jz      short Eil40
+         jz      short Eil40             ; retry
+         jmp     short Eil20             ; exit with Status in eax
 
-Eil60:
-         mov     eax, STATUS_THREAD_IS_TERMINATING
-         jmp     short Eil20             ; exit with error
 
 stdENDP _VdmpEnterIcaLock
 

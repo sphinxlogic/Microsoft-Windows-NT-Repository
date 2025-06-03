@@ -44,9 +44,11 @@ typedef struct _BowserData {
     BOOLEAN ProcessHostAnnouncements;
     BOOLEAN MaintainServerList;
     BOOLEAN IsLanmanNt;
+#ifndef _CAIRO_
     BOOLEAN IsPrimaryDomainController;
     BOOLEAN IsDomainMaster;
     BOOLEAN IsDomainMember;
+#endif // _CAIRO_
 } BOWSERDATA, *PBOWSERDATA;
 
 typedef struct _BOWSER_CONFIG_INFO {
@@ -130,10 +132,6 @@ BowserStartTime;
 extern
 KSPIN_LOCK
 BowserTransportMasterNameSpinLock;
-
-extern
-IRP_QUEUE
-BowserLogonStatusQueue;
 
 extern
 PEPROCESS

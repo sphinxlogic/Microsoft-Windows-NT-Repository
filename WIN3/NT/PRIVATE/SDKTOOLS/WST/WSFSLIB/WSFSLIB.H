@@ -47,4 +47,4 @@ USHORT FAR PASCAL 	WsGetWSDIR( PSZ );
 LPVOID APIENTRY 	AllocAndLockMem(DWORD cbMem, HGLOBAL *hMem);
 BOOL   APIENTRY 	UnlockAndFreeMem(HGLOBAL hMem);
 
-
+

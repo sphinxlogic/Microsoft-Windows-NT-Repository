@@ -595,7 +595,7 @@ static INT16 CollectLinkName( FILE_HAND   hand,
 
                buffSizeNeeded = (size_t)U64_Lsw( s_info->size );
                buffSizeNeeded += strsize( DLE_GetDeviceName( hand->fsh->attached_dle ) );
-               buffSizeNeeded += sizeof( CHAR ) * 2;  /* path separator(s) */
+               buffSizeNeeded += sizeof( CHAR ) * 10;  /* path separator(s) */
 
                if ( nt_hand->linkBufferSize < buffSizeNeeded )
                {
@@ -633,7 +633,7 @@ static INT16 CollectLinkName( FILE_HAND   hand,
           {
                BOOLEAN dummy;
 
-               memcpy( nt_hand->linkBuffer + U64_Lsw( nt_hand->curPos),
+               memcpy( nt_hand->linkBuffer + U64_Lsw( nt_hand->curPos)/sizeof(CHAR),
                        buff,
                        (size_t)*size );
 

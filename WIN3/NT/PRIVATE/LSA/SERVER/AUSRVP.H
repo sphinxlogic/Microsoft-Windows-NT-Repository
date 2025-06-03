@@ -140,6 +140,21 @@ typedef struct _LSAP_LOGON_PROCESS {
 
     HANDLE CommPort;
 
+    //
+    //    TrustedClient - If TRUE, the caller has TCB privilege and may
+    //      call any API. If FALSE, the caller may only call
+    //      LookupAuthenticatePackage and CallPackage, which is converted
+    //      to LsaApCallPackageUntrusted.
+    //
+
+    BOOLEAN TrustedClient;
+
+    //
+    // Name of the logon process.
+    //
+
+    WCHAR LogonProcessName[1];
+
 } LSAP_LOGON_PROCESS, *PLSAP_LOGON_PROCESS;
 
 
@@ -185,6 +200,8 @@ typedef struct _LSAP_PACKAGE_TABLE {
     PLSA_AP_LOGON_USER LsapApLogonUser;
     PLSA_AP_CALL_PACKAGE LsapApCallPackage;
     PLSA_AP_LOGON_TERMINATED LsapApLogonTerminated;
+    PLSA_AP_CALL_PACKAGE_UNTRUSTED LsapApCallPackageUntrusted;
+    PLSA_AP_LOGON_USER_EX LsapApLogonUserEx;
 } LSAP_PACKAGE_TABLE, *PLSA_PACKAGE_TABLE;
 
 
@@ -308,6 +325,14 @@ typedef struct _LSAP_LOGON_SESSION {
 
     PLSAP_PACKAGE_CREDENTIALS Packages;
 
+    //
+    // License Server Handle.
+    //
+    // Null if the license server need not be notified upon logoff.
+    //
+
+    HANDLE LicenseHandle;
+
 } LSAP_LOGON_SESSION, *PLSAP_LOGON_SESSION;
 
 
@@ -337,7 +362,8 @@ LsapAuAddClientContext(
 BOOLEAN
 LsapAuReferenceClientContext(
     PLSAP_CLIENT_REQUEST ClientRequest,
-    BOOLEAN RemoveContext
+    BOOLEAN RemoveContext,
+    PBOOLEAN TrustedClient
     );
 
 VOID
@@ -371,27 +397,32 @@ LsapAuLoopInitialize(
 typedef
 NTSTATUS                   // Template dispatch routine
 (* PLSAP_AU_API_DISPATCH)(
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     );
 
 NTSTATUS
 LsapAuApiDispatchLookupPackage(     // LsaLookupPackage() dispatch routine
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     );
 
 NTSTATUS
 LsapAuApiDispatchLogonUser(         // LsaLogonUser() dispatch routine
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     );
 
 NTSTATUS
 LsapAuApiDispatchCallPackage(       // LsaCallAuthenticationPackage() dispatch routine
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     );
 
 NTSTATUS
 LsapAuApiDeregisterLogonProcess(       // LsaDeregisterLogonProcess() dispatch routine
-    IN OUT PLSAP_CLIENT_REQUEST ClientRequest
+    IN OUT PLSAP_CLIENT_REQUEST ClientRequest,
+    IN BOOLEAN TrustedClient
     );
 
 
@@ -631,6 +662,11 @@ LsapUnloadPackage();
 VOID
 LsapAuLogonTerminatedPackages(
     IN PLUID LogonId
+    );
+
+VOID
+LsaFreeLicenseHandle(
+    IN HANDLE LicenseHandle
     );
 
 

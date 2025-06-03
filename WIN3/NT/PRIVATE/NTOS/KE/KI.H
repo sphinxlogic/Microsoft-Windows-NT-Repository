@@ -22,7 +22,9 @@ Revision History:
 #ifndef _KI_
 #define _KI_
 #include "ntos.h"
+#include "stdio.h"
 #include "stdlib.h"
+#include "zwapi.h"
 
 //
 // Private (internal) constant definitions.
@@ -36,25 +38,10 @@ Revision History:
 #define TIMER_EXPIRE_INCREMENT 0    // Timer expiration priority increment
 
 //
-// Define fast path priority base priority threshold.
-//
-
-#define BASE_PRIORITY_THRESHOLD NORMAL_BASE_PRIORITY
-
-//
 // Define NIL pointer value.
 //
 
 #define NIL (PVOID)NULL             // Null pointer to void
-
-//
-// Thread table expansion size and shift count.
-//
-// N.B. This MUST be a power of 2.
-//
-
-#define THREAD_TABLE_EXPANSION 256
-#define THREAD_TABLE_SHIFT 8
 
 //
 // Define macros which are used in the kernel only
@@ -74,98 +61,68 @@ Revision History:
 
 #define FindFirstSetLeftMember(Set, Member) {                          \
     ULONG _Bit;                                                        \
-    if (Set >> 16) {                                                   \
-        if (Set >> 24) {                                               \
-            _Bit = Set >> 24;                                          \
-        } else {                                                       \
-            _Bit = Set >> 16;                                          \
-        }                                                              \
-    } else {                                                           \
-        if (Set >> 8) {                                                \
-            _Bit = Set >> 8;                                           \
-        } else {                                                       \
-            _Bit = Set >> 0;                                           \
-        }                                                              \
+    ULONG _Mask;                                                       \
+    ULONG _Offset = 16;                                                \
+    if ((_Mask = Set >> 16) == 0) {                                    \
+        _Offset = 0;                                                   \
+        _Mask = Set;                                                   \
     }                                                                  \
-    *(Member) = KiFindFirstSetLeft[_Bit];                              \
+    if (_Mask >> 8) {                                                  \
+        _Offset += 8;                                                  \
+    }                                                                  \
+    if ((_Bit = Set >> _Offset) & 0xf0) {                              \
+        _Bit >>= 4;                                                    \
+        _Offset += 4;                                                  \
+    }                                                                  \
+    *(Member) = KiFindLeftNibbleBitTable[_Bit] + _Offset;              \
 }
 
 //
-// Insert processor in active matrix and set summary bit
+// Lock and unlock APC queue lock.
 //
 
-#ifdef NT_UP
-#define InsertActiveMatrix(Processor, Priority)
+#if defined(NT_UP)
+#define KiLockApcQueue(Thread, OldIrql) \
+    *(OldIrql) = KeRaiseIrqlToSynchLevel()
 #else
-#define InsertActiveMatrix(Processor, Priority) {\
-    SetMember((Processor), KiActiveMatrix[Priority]); \
-    SetMember((Priority), KiActiveSummary); \
-}
+#define KiLockApcQueue(Thread, OldIrql) \
+    *(OldIrql) = KeAcquireSpinLockRaiseToSynch(&(Thread)->ApcQueueLock)
+#endif
+
+#if defined(NT_UP)
+#define KiUnlockApcQueue(Thread, OldIrql) KeLowerIrql((OldIrql))
+#else
+#define KiUnlockApcQueue(Thread, OldIrql) KeReleaseSpinLock(&(Thread)->ApcQueueLock, (OldIrql))
 #endif
 
 //
-// Remove processor from active matrix and conditionally clear summary bit
+// Lock and unlock context swap lock.
 //
 
-#ifdef NT_UP
-#define RemoveActiveMatrix(Processor, Priority)
+#if defined(NT_UP)
+#define KiLockContextSwap(OldIrql) \
+    *(OldIrql) = KeRaiseIrqlToSynchLevel()
 #else
-#define RemoveActiveMatrix(Processor, Priority) {\
-    ClearMember((Processor), KiActiveMatrix[Priority]); \
-    if (!KiActiveMatrix[Priority]) { \
-        ClearMember((Priority), KiActiveSummary); \
-    }\
-}
+#define KiLockContextSwap(OldIrql) \
+    *(OldIrql) = KeAcquireSpinLockRaiseToSynch(&KiContextSwapLock)
+#endif
+
+#if defined(NT_UP)
+#define KiUnlockContextSwap(OldIrql) KeLowerIrql((OldIrql))
+#else
+#define KiUnlockContextSwap(OldIrql) KeReleaseSpinLock(&KiContextSwapLock, (OldIrql))
 #endif
 
 //
-// Lock and unlock APC Queue.
+// Lock and unlock dispatcher database lock.
 //
 
-#ifdef NT_UP
-#define KiLockApcQueue(OldIrql) \
-    KeRaiseIrql(DISPATCH_LEVEL, (OldIrql))
-#else
-#define KiLockApcQueue(OldIrql) \
-    KeAcquireSpinLock(&KiApcQueueLock, (OldIrql))
-#endif
-
-#ifdef NT_UP
-#define KiUnlockApcQueue(OldIrql) \
-    KeLowerIrql((OldIrql))
-#else
-#define KiUnlockApcQueue(OldIrql) \
-    KeReleaseSpinLock(&KiApcQueueLock, (OldIrql))
-#endif
-
-//
-// Lock and unlock APC Queue at DPC level.
-//
-
-#ifdef NT_UP
-#define KiLockApcQueueAtDpcLevel()
-#else
-#define KiLockApcQueueAtDpcLevel() \
-    KiAcquireSpinLock(&KiApcQueueLock)
-#endif
-
-#ifdef NT_UP
-#define KiUnlockApcQueueFromDpcLevel()
-#else
-#define KiUnlockApcQueueFromDpcLevel() \
-    KiReleaseSpinLock(&KiApcQueueLock)
-#endif
-
-//
-// Lock and unlock dispatcher database.
-//
-
-#ifdef NT_UP
+#if defined(NT_UP)
 #define KiLockDispatcherDatabase(OldIrql) \
-    KeRaiseIrql(DISPATCH_LEVEL, (OldIrql))
+    *(OldIrql) = KeRaiseIrqlToSynchLevel()
 #else
 #define KiLockDispatcherDatabase(OldIrql) \
-    KeAcquireSpinLock(&KiDispatcherLock, (OldIrql))
+    *(OldIrql) = KeAcquireSpinLockRaiseToSynch(&KiDispatcherLock)
 #endif
 
 VOID
@@ -222,10 +179,47 @@ KiUnlockDispatcherDatabase (
     }                                                           \
 }
 
+// VOID
+// KiInsertWaitList (
+//    IN KPROCESSOR_MODE WaitMode,
+//    IN PKTHREAD Thread
+//    )
 //
-// Private (internal) structure definitions
+//*++
 //
-// APC Parameter structure
+// Routine Description:
+//
+//    This function inserts the specified thread in the appropriate
+//    wait list.
+//
+// Arguments:
+//
+//    WaitMode - Supplies the processor mode of the wait operation.
+//
+//    Thread - Supplies a pointer to a dispatcher object of type
+//        thread.
+//
+// Return Value:
+//
+//    None.
+//
+//--*
+
+#define KiInsertWaitList(_WaitMode, _Thread) {                  \
+    PLIST_ENTRY _ListHead;                                      \
+    _ListHead = &KiWaitInListHead;                              \
+    if (((_WaitMode) == KernelMode) ||                          \
+        ((_Thread)->EnableStackSwap == FALSE) ||                \
+        ((_Thread)->Priority >= (LOW_REALTIME_PRIORITY + 9))) { \
+        _ListHead = &KiWaitOutListHead;                         \
+    }                                                           \
+    InsertTailList(_ListHead, &(_Thread)->WaitListEntry);       \
+}
+
+//
+// Private (internal) structure definitions.
+//
+// APC Parameter structure.
 //
 
 typedef struct _KAPC_RECORD {
@@ -234,86 +228,6 @@ typedef struct _KAPC_RECORD {
     PVOID SystemArgument1;
     PVOID SystemArgument2;
 } KAPC_RECORD, *PKAPC_RECORD;
-
-//
-// External references to private kernel data structures
-//
-
-extern KSPIN_LOCK KiApcQueueLock;
-extern KAFFINITY KiActiveMatrix[MAXIMUM_PRIORITY];
-extern ULONG KiActiveSummary;
-#if DEVL
-extern PMESSAGE_RESOURCE_DATA  KiBugCodeMessages;
-#endif
-extern UCHAR KiClockQuantumDecrement;
-extern PKDEBUG_ROUTINE KiDebugRoutine;
-extern PKDEBUG_SWITCH_ROUTINE KiDebugSwitchRoutine;
-extern SCHAR KiDecrementCount;
-extern KSPIN_LOCK KiDispatcherLock;
-extern LIST_ENTRY KiDispatcherReadyListHead[MAXIMUM_PRIORITY];
-extern CCHAR KiFindFirstSetLeft[256];
-extern CCHAR KiFindFirstSetRight[256];
-extern CALL_PERFORMANCE_DATA KiFlushSingleCallData;
-extern ULONG KiHardwareTrigger;
-extern KAFFINITY KiIdleSummary;
-extern KEVENT KiSwapEvent;
-extern LIST_ENTRY KiProcessInSwapListHead;
-extern LIST_ENTRY KiProcessOutSwapListHead;
-extern LIST_ENTRY KiStackInSwapListHead;
-extern ULONG KiProfileCount;
-extern ULONG KiProfileInterval;
-extern LIST_ENTRY KiProfileListHead;
-extern KSPIN_LOCK KiProfileLock;
-extern ULONG KiReadySummary;
-extern CALL_PERFORMANCE_DATA KiSetEventCallData;
-extern ULONG KiThreadQuantum;
-extern ULONG KiTickOffset;
-extern LARGE_INTEGER KiTimeIncrementReciprocal;
-extern CCHAR KiTimeIncrementShiftCount;
-extern LIST_ENTRY KiTimerTableListHead[TIMER_TABLE_SIZE];
-extern KAFFINITY KiTimeProcessor;
-extern KDPC KiTimerExpireDpc;
-extern KSPIN_LOCK KiFreezeExecutionLock;
-extern BOOLEAN KiSlavesStartExecution;
-extern LIST_ENTRY KiWaitInListHead;
-extern LIST_ENTRY KiWaitOutListHead;
-extern ULONG KiWaitQuantumDecrement;
-extern CALL_PERFORMANCE_DATA KiWaitSingleCallData;
-
-#if !defined(_MIPS_)
-
-extern KIPI_PACKET KiIpiPacket;
-extern volatile BOOLEAN KiIpiStallFlags[MAXIMUM_PROCESSORS];
-
-#endif
-
-#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
-
-extern ULONG KiMasterPid;
-extern ULONG KiMasterSequence;
-extern KSPIN_LOCK KiProcessIdWrapLock;
-
-extern KINTERRUPT KxUnexpectedInterrupt;
-
-#endif
-
-#if NT_INST
-
-extern KIPI_COUNTS KiIpiCounts[MAXIMUM_PROCESSORS];
-
-#endif
-
-
-extern KSPIN_LOCK KiFreezeLockBackup;
-extern ULONG KiFreezeFlag;
-
-#if DBG
-
-extern ULONG KiCurrentTimerCount;
-extern ULONG KiMaximumSearchCount;
-extern ULONG KiMaximumTimerCount;
-
-#endif
 
 //
 // Executive initialization.
@@ -326,18 +240,127 @@ ExpInitializeExecutive (
     );
 
 //
+// Kernel executive object function defintions.
+//
+
+BOOLEAN
+KiChannelInitialization (
+    VOID
+    );
+
+VOID
+KiRundownChannel (
+    VOID
+    );
+
+//
+// Interprocessor interrupt function defintions.
+//
+// Define immediate interprocessor commands.
+//
+
+#define IPI_APC 1                       // APC interrupt request
+#define IPI_DPC 2                       // DPC interrupt request
+#define IPI_FREEZE 4                    // freeze execution request
+#define IPI_PACKET_READY 8              // packet ready request
+
+//
+// Define interprocess interrupt types.
+//
+
+typedef ULONG KIPI_REQUEST;
+
+typedef
+ULONG
+(*PKIPI_BROADCAST_WORKER)(
+    IN ULONG Argument
+    );
+
+#if NT_INST
+
+#define IPI_INSTRUMENT_COUNT(a,b) KiIpiCounts[a].b++;
+
+#else
+
+#define IPI_INSTRUMENT_COUNT(a,b)
+
+#endif
+
+//
+// Define interprocessor interrupt function prototypes.
+//
+
+ULONG
+KiIpiGenericCall (
+    IN PKIPI_BROADCAST_WORKER BroadcastFunction,
+    IN ULONG Context
+    );
+
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
+
+ULONG
+KiIpiProcessRequests (
+    VOID
+    );
+
+#endif
+
+VOID
+FASTCALL
+KiIpiSend (
+    IN KAFFINITY TargetProcessors,
+    IN KIPI_REQUEST Request
+    );
+
+VOID
+KiIpiSendPacket (
+    IN KAFFINITY TargetProcessors,
+    IN PKIPI_WORKER WorkerFunction,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
+    );
+
+// begin_nthal
+
+BOOLEAN
+KiIpiServiceRoutine (
+    IN struct _KTRAP_FRAME *TrapFrame,
+    IN struct _KEXCEPTION_FRAME *ExceptionFrame
+    );
+
+// end_nthal
+
+VOID
+FASTCALL
+KiIpiSignalPacketDone (
+    IN PKIPI_CONTEXT SignalDone
+    );
+
+VOID
+KiIpiStallOnPacketTargets (
+    VOID
+    );
+
+//
 // Private (internal) function definitions.
 //
 
 VOID
 FASTCALL
 KiActivateWaiterQueue (
-    IN PKQUEUE Queue
+    IN PRKQUEUE Queue
     );
 
 VOID
 KiApcInterrupt (
     VOID
+    );
+
+NTSTATUS
+KiCallUserMode (
+    IN PVOID *OutputBuffer,
+    IN PULONG OutputLength
     );
 
 VOID
@@ -349,7 +372,7 @@ KiChainedDispatch (
 
 VOID
 KiCheckTimerTable (
-    IN LARGE_INTEGER SystemTime
+    IN ULARGE_INTEGER SystemTime
     );
 
 #endif
@@ -363,13 +386,14 @@ KiComputeReciprocal (
 ULONG KiComputeTimerTableIndex (
     IN LARGE_INTEGER Interval,
     IN LARGE_INTEGER CurrentCount,
-    IN PKTIMER Timer
+    IN PRKTIMER Timer
     );
 
 PLARGE_INTEGER
 FASTCALL
 KiComputeWaitInterval (
-    IN PKTIMER Timer,
+    IN PRKTIMER Timer,
+    IN PLARGE_INTEGER OriginalTime,
     IN OUT PLARGE_INTEGER NewTime
     );
 
@@ -383,8 +407,8 @@ KiContinue (
 NTSTATUS
 KiContinueClientWait (
     IN PVOID ClientEvent,
-    IN KWAIT_REASON WaitReason,
-    IN KPROCESSOR_MODE WaitMode
+    IN ULONG WaitReason,
+    IN ULONG WaitMode
     );
 
 VOID
@@ -435,7 +459,6 @@ PKTHREAD
 FASTCALL
 KiFindReadyThread (
     IN ULONG Processor,
-    KPRIORITY HighPriority,
     KPRIORITY LowPriority
     );
 
@@ -445,6 +468,7 @@ KiFloatingDispatch (
     );
 
 VOID
+FASTCALL
 KiFlushSingleTb (
     IN BOOLEAN Invalid,
     IN PVOID Virtual
@@ -487,6 +511,11 @@ KiProbeEntryTb (
 
 #endif
 
+PULONG
+KiGetUserModeStackAddress (
+    VOID
+    );
+
 VOID
 KiInitializeContextThread (
     IN PKTHREAD Thread,
@@ -511,6 +540,11 @@ KiInitSystem (
     VOID
     );
 
+BOOLEAN
+KiInitMachineDependent (
+    VOID
+    );
+
 VOID
 KiInitializeUserApc (
     IN PKEXCEPTION_FRAME ExceptionFrame,
@@ -524,8 +558,9 @@ KiInitializeUserApc (
 LONG
 FASTCALL
 KiInsertQueue (
-    IN PKQUEUE Queue,
-    IN PLIST_ENTRY Entry
+    IN PRKQUEUE Queue,
+    IN PLIST_ENTRY Entry,
+    IN BOOLEAN Head
     );
 
 BOOLEAN
@@ -535,10 +570,10 @@ KiInsertQueueApc (
     IN KPRIORITY Increment
     );
 
-BOOLEAN
+LOGICAL
 FASTCALL
 KiInsertTreeTimer (
-    IN PKTIMER Timer,
+    IN PRKTIMER Timer,
     IN LARGE_INTEGER Interval
     );
 
@@ -556,6 +591,55 @@ VOID
 KiInterruptDispatchSame (
     IN PKINTERRUPT Interrupt
     );
+#if defined(i386)
+
+VOID
+KiInitializePcr (
+    IN ULONG Processor,
+    IN PKPCR    Pcr,
+    IN PKIDTENTRY Idt,
+    IN PKGDTENTRY Gdt,
+    IN PKTSS Tss,
+    IN PKTHREAD Thread
+    );
+
+VOID
+KiFlushNPXState (
+    VOID
+    );
+
+VOID
+Ke386ConfigureCyrixProcessor (
+    VOID
+    );
+
+ULONG
+KiCopyInformation (
+    IN OUT PEXCEPTION_RECORD ExceptionRecord1,
+    IN PEXCEPTION_RECORD ExceptionRecord2
+    );
+
+VOID
+KiSetHardwareTrigger (
+    VOID
+    );
+
+#ifdef DBGMP
+VOID
+KiPollDebugger (
+    VOID
+    );
+#endif
+
+VOID
+FASTCALL
+KiIpiSignalPacketDoneAndStall (
+    IN PKIPI_CONTEXT Signaldone,
+    IN ULONG volatile *ReverseStall
+    );
+
+#endif
+
 
 KIRQL
 KiLockDeviceQueue (
@@ -567,7 +651,7 @@ KiPassiveRelease (
     VOID
     );
 
-PKTHREAD
+PRKTHREAD
 KiQuantumEnd (
     VOID
     );
@@ -584,22 +668,28 @@ KiRaiseException (
 VOID
 FASTCALL
 KiReadyThread (
-    IN PKTHREAD Thread
+    IN PRKTHREAD Thread
+    );
+
+LOGICAL
+FASTCALL
+KiReinsertTreeTimer (
+    IN PRKTIMER Timer,
+    IN ULARGE_INTEGER DueTime
     );
 
 #if DBG
 
-#define KiRemoveTreeTimer(Timer) \
-    KiCurrentTimerCount -= 1;    \
-    (Timer)->Inserted = FALSE;   \
+#define KiRemoveTreeTimer(Timer)               \
+    (Timer)->Header.Inserted = FALSE;          \
     RemoveEntryList(&(Timer)->TimerListEntry); \
-    (Timer)->TimerListEntry.Flink = NULL; \
+    (Timer)->TimerListEntry.Flink = NULL;      \
     (Timer)->TimerListEntry.Blink = NULL
 
 #else
 
-#define KiRemoveTreeTimer(Timer) \
-    (Timer)->Inserted = FALSE;   \
+#define KiRemoveTreeTimer(Timer)               \
+    (Timer)->Header.Inserted = FALSE;          \
     RemoveEntryList(&(Timer)->TimerListEntry)
 
 #endif
@@ -632,16 +722,16 @@ KiReadyThread (
 
 #endif
 
-PKTHREAD
+PRKTHREAD
 FASTCALL
 KiSelectNextThread (
-    IN PKTHREAD Thread
+    IN PRKTHREAD Thread
     );
 
 VOID
 FASTCALL
 KiSetPriorityThread (
-    IN PKTHREAD Thread,
+    IN PRKTHREAD Thread,
     IN KPRIORITY Priority
     );
 
@@ -670,7 +760,7 @@ KiSuspendThread (
 NTSTATUS
 FASTCALL
 KiSwapContext (
-    IN PKTHREAD Thread,
+    IN PRKTHREAD Thread,
     IN BOOLEAN Ready
     );
 
@@ -678,6 +768,20 @@ BOOLEAN
 KiSwapProcess (
     IN PKPROCESS NewProcess,
     IN PKPROCESS OldProcess
+    );
+
+NTSTATUS
+FASTCALL
+KiSwapThread (
+    VOID
+    );
+
+NTSTATUS
+KiSwitchToThread (
+    IN PKTHREAD TargetThread,
+    IN ULONG WaitReason,
+    IN ULONG WaitMode,
+    IN PVOID WaitObject
     );
 
 VOID
@@ -694,6 +798,13 @@ KiTimerExpiration (
     );
 
 VOID
+FASTCALL
+KiTimerListExpire (
+    IN PLIST_ENTRY ExpiredListHead,
+    IN KIRQL OldIrql
+    );
+
+VOID
 KiUnexpectedInterrupt (
     VOID
     );
@@ -707,7 +818,7 @@ KiUnlockDeviceQueue (
 VOID
 FASTCALL
 KiUnwaitThread (
-    IN PKTHREAD Thread,
+    IN PRKTHREAD Thread,
     IN NTSTATUS WaitStatus,
     IN KPRIORITY Increment
     );
@@ -728,8 +839,8 @@ KiUserExceptionDispatcher (
 
 VOID
 FASTCALL
-KiWaitSatisfy (
-    IN PKWAIT_BLOCK WaitBlock
+KiWaitSatisfyAll (
+    IN PRKWAIT_BLOCK WaitBlock
     );
 
 //
@@ -758,7 +869,7 @@ KiWaitSatisfy (
 //
 
 #define KiWaitSatisfyAny(_Object_, _Thread_) {                               \
-    if ((_Object_)->Header.Type == EventObject) {                            \
+    if (((_Object_)->Header.Type & DISPATCHER_OBJECT_TYPE_MASK) == EventSynchronizationObject) { \
         (_Object_)->Header.SignalState = 0;                                  \
                                                                              \
     } else if ((_Object_)->Header.Type == SemaphoreObject) {                 \
@@ -842,7 +953,7 @@ KiWaitSatisfy (
 //
 
 #define KiWaitSatisfyOther(_Object_) {                                       \
-    if ((_Object_)->Header.Type == EventObject) {                            \
+    if (((_Object_)->Header.Type & DISPATCHER_OBJECT_TYPE_MASK) == EventSynchronizationObject) { \
         (_Object_)->Header.SignalState = 0;                                  \
                                                                              \
     } else if ((_Object_)->Header.Type == SemaphoreObject) {                 \
@@ -856,11 +967,6 @@ FASTCALL
 KiWaitTest (
     IN PVOID Object,
     IN KPRIORITY Increment
-    );
-
-VOID
-KiWakeInterrupt (
-    VOID
     );
 
 VOID
@@ -886,6 +992,11 @@ KiRestoreProcessorState (
     IN PKEXCEPTION_FRAME ExceptionFrame
     );
 
+VOID
+KiRestoreProcessorControlState (
+    IN PKPROCESSOR_STATE ProcessorState
+    );
+
 #if defined(_MIPS_) || defined(_ALPHA_)
 
 VOID
@@ -900,4 +1011,118 @@ KiTryToAcquireSpinLock (
     IN PKSPIN_LOCK SpinLock
     );
 
+#if defined(_ALPHA_)
+
+//
+// Prototypes for memory barrier instructions
+//
+
+VOID
+KiImb(
+    VOID
+    );
+
+VOID
+KiMb(
+    VOID
+    );
+
+#endif
+
 #endif // _KI_
+
+//
+// External references to private kernel data structures
+//
+
+#if DEVL
+extern PMESSAGE_RESOURCE_DATA  KiBugCodeMessages;
+#endif
+
+extern ULONG KiDmaIoCoherency;
+extern ULONG KiMaximumDpcQueueDepth;
+extern ULONG KiMinimumDpcRate;
+extern ULONG KiAdjustDpcThreshold;
+extern KSPIN_LOCK KiContextSwapLock;
+extern PKDEBUG_ROUTINE KiDebugRoutine;
+extern PKDEBUG_SWITCH_ROUTINE KiDebugSwitchRoutine;
+extern KSPIN_LOCK KiDispatcherLock;
+extern LIST_ENTRY KiDispatcherReadyListHead[MAXIMUM_PRIORITY];
+extern CCHAR KiFindFirstSetLeft[256];
+extern CCHAR KiFindFirstSetRight[256];
+extern CALL_PERFORMANCE_DATA KiFlushSingleCallData;
+extern ULONG KiHardwareTrigger;
+extern KAFFINITY KiIdleSummary;
+extern UCHAR KiFindLeftNibbleBitTable[];
+extern KEVENT KiSwapEvent;
+extern LIST_ENTRY KiProcessInSwapListHead;
+extern LIST_ENTRY KiProcessOutSwapListHead;
+extern LIST_ENTRY KiStackInSwapListHead;
+extern LIST_ENTRY KiProfileSourceListHead;
+extern BOOLEAN KiProfileAlignmentFixup;
+extern ULONG KiProfileAlignmentFixupInterval;
+extern ULONG KiProfileAlignmentFixupCount;
+extern ULONG KiProfileInterval;
+extern LIST_ENTRY KiProfileListHead;
+extern KSPIN_LOCK KiProfileLock;
+extern ULONG KiReadySummary;
+extern UCHAR KiArgumentTable[];
+extern ULONG KiServiceLimit;
+extern ULONG KiServiceTable[];
+extern CALL_PERFORMANCE_DATA KiSetEventCallData;
+extern ULONG KiTickOffset;
+extern LARGE_INTEGER KiTimeIncrementReciprocal;
+extern CCHAR KiTimeIncrementShiftCount;
+extern LIST_ENTRY KiTimerTableListHead[TIMER_TABLE_SIZE];
+extern KAFFINITY KiTimeProcessor;
+extern KDPC KiTimerExpireDpc;
+extern KSPIN_LOCK KiFreezeExecutionLock;
+extern BOOLEAN KiSlavesStartExecution;
+extern PSWAP_CONTEXT_NOTIFY_ROUTINE KiSwapContextNotifyRoutine;
+extern PTHREAD_SELECT_NOTIFY_ROUTINE KiThreadSelectNotifyRoutine;
+extern PTIME_UPDATE_NOTIFY_ROUTINE KiTimeUpdateNotifyRoutine;
+extern LIST_ENTRY KiWaitInListHead;
+extern LIST_ENTRY KiWaitOutListHead;
+extern CALL_PERFORMANCE_DATA KiWaitSingleCallData;
+
+#if defined(_PPC_)
+
+extern ULONG KiMasterPid;
+extern ULONG KiMasterSequence;
+extern KSPIN_LOCK KiProcessIdWrapLock;
+
+#endif
+
+#if defined(i386)
+
+extern KIRQL KiProfileIrql;
+
+#endif
+
+#if defined(_MIPS_) || defined(_ALPHA_)
+
+extern ULONG KiSynchIrql;
+
+#endif
+
+#if defined(_MIPS_) || defined(_ALPHA_) || defined(_PPC_)
+
+extern KINTERRUPT KxUnexpectedInterrupt;
+
+#endif
+
+#if NT_INST
+
+extern KIPI_COUNTS KiIpiCounts[MAXIMUM_PROCESSORS];
+
+#endif
+
+extern KSPIN_LOCK KiFreezeLockBackup;
+extern ULONG KiFreezeFlag;
+extern volatile ULONG KiSuspendState;
+
+#if DBG
+
+extern ULONG KiMaximumSearchCount;
+
+#endif

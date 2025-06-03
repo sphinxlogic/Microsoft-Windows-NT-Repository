@@ -131,7 +131,7 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
 */
    {  // ChooseComputer
    BOOL                     bSuccess ;
-   WCHAR                    wszWideComputer[MAX_COMPUTERNAME_LENGTH + 3] ;
+   WCHAR                    wszWideComputer[MAX_PATH + 3] ;
    HLIBRARY                 hLibrary ;
    LPFNI_SYSTEMFOCUSDIALOG  lpfnChooseComputer ;
    LONG                     lError ;
@@ -151,6 +151,7 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
 
       if (!lpfnChooseComputer)
          {
+         FreeLibrary (hLibrary) ;
          return (FALSE) ;
          }
 
@@ -161,6 +162,8 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
          &bSuccess,
          pszHelpFile,
          HC_PM_idDlgSelectNetworkComputer) ;
+
+      FreeLibrary (hLibrary) ;
       }
    else
       {
@@ -173,7 +176,6 @@ BOOL ChooseComputer (HWND hWndParent, LPTSTR lpszComputer)
    if (bSuccess)
       {
       lstrcpy (lpszComputer, wszWideComputer) ;
-//      wcstombs(lpszComputer, wszWideComputer, MAX_COMPUTERNAME_LENGTH + 3) ;
       }
 
    return (bSuccess) ;
@@ -292,11 +294,11 @@ void ShowPerfmonWindowText ()
          break ;
 
       default:
-         *ppFileName = NULL ;
+         ppFileName = NULL ;
          break ;
       }
 
-   if (*ppFileName == NULL)
+   if (ppFileName == NULL)
       {
       ppFileName = &pWorkSpaceFileName ;
       }
@@ -393,7 +395,7 @@ BOOL DoWindowDrag (HWND hWnd, LPARAM lParam)
 #define FILETIMES_PER_SECOND     10000000
 
 
-int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2)
+int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2, BOOL bAbs)
    {
    LARGE_INTEGER  li1, li2 ;
    LARGE_INTEGER  liDifference, liDifferenceSeconds ;
@@ -424,35 +426,29 @@ int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2)
       return INT_MAX ;
       }
 
-   liDifference = RtlLargeIntegerSubtract (li2, li1) ;
-   bNegative = RtlLargeIntegerLessThanZero (liDifference) ;
+   liDifference.QuadPart = li2.QuadPart - li1.QuadPart ;
+   bNegative = liDifference.QuadPart < 0 ;
 
    // add the round-off factor before doing the division
    if (bNegative)
       {
-      liDifferenceSeconds = RtlConvertLongToLargeInteger (
-         - FILETIMES_PER_SECOND / 2) ;
+      liDifferenceSeconds.QuadPart = (LONGLONG)(- FILETIMES_PER_SECOND / 2) ;
       }
    else
       {
-      liDifferenceSeconds = RtlConvertLongToLargeInteger (
-         FILETIMES_PER_SECOND / 2) ;
+      liDifferenceSeconds.QuadPart = (LONGLONG)(FILETIMES_PER_SECOND / 2) ;
       }
 
 
-   liDifferenceSeconds = RtlLargeIntegerAdd (
-      liDifferenceSeconds,
-      liDifference) ;
+   liDifferenceSeconds.QuadPart = liDifferenceSeconds.QuadPart +
+      liDifference.QuadPart ;
 
-   liDifferenceSeconds =
-     RtlExtendedLargeIntegerDivide (
-         liDifferenceSeconds,
-         FILETIMES_PER_SECOND, 
-         &uRemainder) ;
+   liDifferenceSeconds.QuadPart = liDifferenceSeconds.QuadPart /
+      FILETIMES_PER_SECOND;
 
    RetInteger = liDifferenceSeconds.LowPart;
 
-   if (bNegative)
+   if (bNegative && bAbs)
       {
       return (-RetInteger) ;
       }
@@ -466,7 +462,7 @@ int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2)
 BOOL InsertLine (PLINE pLine)
 {  // InsertLine
 
-    BOOL bReturn;
+    BOOL bReturn = FALSE;
    
     switch (pLine->iLineType) {  // switch
         case LineTypeChart:
@@ -512,7 +508,12 @@ BOOL OpenWorkspace (HANDLE hFile, DWORD dwMajorVersion, DWORD dwMinorVersion)
          if (dwMinorVersion >= 1)
             {
             // setup the window position and size
-            SetWindowPlacement (hWndMain, &(DiskWorkspace.WindowPlacement)) ;
+            DiskWorkspace.WindowPlacement.length = sizeof(WINDOWPLACEMENT);
+            DiskWorkspace.WindowPlacement.flags = WPF_SETMINPOSITION;
+            if (!SetWindowPlacement (hWndMain, &(DiskWorkspace.WindowPlacement)))
+                {
+                goto Exit0 ;
+                }
             }
 
          // change to the view as stored in the workspace file
@@ -634,7 +635,12 @@ BOOL SaveWorkspace (void)
    // and write into this guy later.
    memset (&DiskWorkspace, 0, sizeof(DiskWorkspace)) ;
    DiskWorkspacePosition = FileTell (hFile) ;
-   GetWindowPlacement (hWndMain, &(DiskWorkspace.WindowPlacement)) ;
+   DiskWorkspace.WindowPlacement.length = sizeof(WINDOWPLACEMENT);
+   if (!GetWindowPlacement (hWndMain, &(DiskWorkspace.WindowPlacement)))
+      {
+      goto Exit0 ;
+      }
+
    if (!FileWrite (hFile, &DiskWorkspace, sizeof (DISKWORKSPACE)))
       {
       goto Exit0 ;
@@ -684,7 +690,7 @@ Exit0:
       }
 
    CloseHandle (hFile) ;
-
+   return TRUE;
    }  // SaveWorkspace
 
 void SetPerfmonOptions (OPTIONS *pOptions)
@@ -697,8 +703,8 @@ void SetPerfmonOptions (OPTIONS *pOptions)
 
 void ChangeSaveFileName (LPTSTR szFileName, int iPMView)
    {
-   LPTSTR   *ppFullName ;
-   LPTSTR   *ppFileName ;
+   LPTSTR   *ppFullName = NULL;
+   LPTSTR   *ppFileName = NULL;
    BOOL     errorInput = FALSE ;
    TCHAR    szApplication [MessageLen] ;
 
@@ -902,6 +908,7 @@ Return Value:
 {
     WCHAR           tempString [SIZE_OF_BIGGEST_INTEGER] ;
     DWORD           dwStrLen, dwNewStrLen;
+    LPTSTR          szFormatString;
 
     if (!pwszValueList) {
         return FALSE;
@@ -911,7 +918,12 @@ Return Value:
         return FALSE;   // object already in list
     } else {
         // append the new object id the  value list
-        TSPRINTF (tempString, TEXT("%d "), dwObjectId) ;
+        // if this is the first string to enter then don't
+        // prefix with a space character otherwise do
+
+        szFormatString = (*pwszValueList == 0) ? TEXT("%d") : TEXT(" %d");
+
+        TSPRINTF (tempString, szFormatString, dwObjectId) ;
 
         // see if string will fit (compare in bytes)
 
@@ -962,7 +974,7 @@ RemoveObjectsFromSystem (
 
     if (ARGUMENT_PRESENT (pSystem)) {
         // don't do foreign computers
-        if (pSystem->lpszValue && !strsame (pSystem->lpszValue, L"Foreign")){
+        if (pSystem->lpszValue && (_wcsnicmp(pSystem->lpszValue, L"Foreign", 7) != 0)){
             dwBufferSize = MemorySize (pSystem->lpszValue);
 
             memset (pSystem->lpszValue, 0, dwBufferSize);
@@ -1051,9 +1063,12 @@ SetSystemValueNameToGlobal (
 
     if (!bEditLine && ARGUMENT_PRESENT(pSystem)) {
         if (pSystem->lpszValue && RemoveObjectsFromSystem(pSystem)) {
-            lstrcpy (
-                pSystem->lpszValue,
-                TEXT("Global")) ;
+            if (pSystem->lpszValue && (_wcsnicmp(pSystem->lpszValue, L"Foreign",7) != 0)){
+                // don't change foreign computer strings
+                lstrcpy (
+                    pSystem->lpszValue,
+                    TEXT("Global")) ;
+            }
             return TRUE;
         } else {
             return FALSE;
@@ -1119,6 +1134,7 @@ void CreatePerfmonSystemObjects ()
    hBrushFace = CreateSolidBrush (ColorBtnFace) ;
    hPenHighlight = CreatePen (PS_SOLID, 1, GetSysColor (COLOR_BTNHIGHLIGHT)) ;
    hPenShadow = CreatePen (PS_SOLID, 1, GetSysColor (COLOR_BTNSHADOW)) ;
+   SetClassLong (hWndMain, GCL_HBRBACKGROUND, (LONG)hBrushFace);
 }
 
 void DeletePerfmonSystemObjects ()
@@ -1496,4 +1512,5 @@ void ReconvertDecimalPoint (LPTSTR lpFloatPointStr)
 }  // ReconvertDecimalPoint
 
 
-
+
+

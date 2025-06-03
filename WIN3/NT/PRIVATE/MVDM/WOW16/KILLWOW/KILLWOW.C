@@ -27,5 +27,5 @@ HANDLE hInst;	/* current instance */
 
 int PASCAL WinMain(HANDLE hInstance, HANDLE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-	ExitKernel();
+        ExitKernelThunk(0);
 }

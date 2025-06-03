@@ -22,6 +22,9 @@ Revision History:
 
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
+
 DECLARE_API( locks )
 
 /*++
@@ -83,7 +86,7 @@ Return Value:
     DisplayZero = FALSE;
     Performance = FALSE;
     Verbose = FALSE;
-    s       = args;
+    s       = (PSTR)args;
     while ( s != NULL && *s ) {
         if (*s == '-' || *s == '/') {
             while (*++s) {
@@ -352,11 +355,16 @@ gotBlank:
 
         //
         //  Detect here if this is an NtDdk resource, and behave
-        //  appropriatelty.
+        //  appropriatelty.  If the OwnerThreads is a pointer to the initial
+        //  owner threads array (this must take into account that the LOCAL
+        //  data structure is a copy of what's in the remote machine in a
+        //  different address)
         //
 
         DdkResource = (PNTDDK_ERESOURCE)&ResourceContents;
-        if (DdkResource->OwnerThreads == &DdkResource->InitialOwnerThreads[0]) {
+        if (DdkResource->OwnerThreads ==
+                &((PNTDDK_ERESOURCE)Resource)->InitialOwnerThreads[0]) {
+
             if ( !ReadMemory( (DWORD)Resource,
                               &DdkResourceContents,
                               sizeof(NTDDK_ERESOURCE),
@@ -428,47 +436,34 @@ gotBlank:
                 }
 
                 if (ActiveCount != 0) {
-                    dprintf("    Owned by:\n");
-                    for (i=0; i < DdkResource->Depth; i++) {
-                        dumpSymbolicAddress((ULONG)DdkResource->OwnerBackTrace[i],
-                                            chSymbol,
-                                            FALSE);
-
-                        dprintf( "        %s\n", chSymbol );
-                    }
+                    dprintf("    Owned\n");
                 }
             }
 
 #endif // i386
 
             if (ActiveCount != 0) {
+                j = 0;
+
                 dprintf("     Threads: ");
 
                 if (DdkResource == NULL) {
                     Thread = (PKTHREAD)ResourceContents.OwnerThreads[0].OwnerThread;
                     ThreadCount = ResourceContents.OwnerThreads[0].OwnerCount;
                     if (Thread != NULL) {
-                        if (j++ == 4) {
-                            j = 1;
-                            dprintf("\n              ");
-                        }
-
+                        j++;
                         dprintf("%08lx-%02x    ", Thread, ThreadCount);
                     }
 
                     Thread = (PKTHREAD)ResourceContents.OwnerThreads[1].OwnerThread;
                     ThreadCount = ResourceContents.OwnerThreads[1].OwnerCount;
                     if (Thread != NULL) {
-                        if (j++ == 4) {
-                            j = 1;
-                            dprintf("\n              ");
-                        }
-
+                        j++;
                         dprintf("%08lx-%02x    ", Thread, ThreadCount);
                     }
                 }
 
-                for (j=i=0; i < TableSize; i++) {
+                for (i = 0; i < TableSize; i++) {
 
 
                     if (DdkResource != NULL) {
@@ -476,7 +471,7 @@ gotBlank:
                                           &Thread,
                                           sizeof (Thread),
                                           &Result) ) {
-                            dprintf("\n%08lx: Unable to read ThreadTable for resource\n",&ResourceContents.OwnerThreads[i] );
+                            dprintf("\n%08lx: DDK: Unable to read ThreadTable for resource\n",&ResourceContents.OwnerThreads[i] );
                             break;
                         }
 
@@ -489,7 +484,7 @@ gotBlank:
                                           &DdkThreadCount,
                                           sizeof (ThreadCount),
                                           &Result) ) {
-                            dprintf("\n%08lx: Unable to read ThreadCount for resource\n",&DdkResource->OwnerCounts[i]);
+                            dprintf("\n%08lx: DDK: Unable to read ThreadCount for resource\n",&DdkResource->OwnerCounts[i]);
                             break;
 
                             ThreadCount = DdkThreadCount;
@@ -497,11 +492,11 @@ gotBlank:
 
                     } else {
 
-                        if ( !ReadMemory( (DWORD)&ResourceContents.OwnerThreads[i],
+                        if ( !ReadMemory( (DWORD)&ResourceContents.OwnerTable[i],
                                           &OwnerEntry,
                                           sizeof (OWNER_ENTRY),
                                           &Result) ) {
-                            dprintf("\n%08lx: Unable to read ThreadCount for resource\n", &ResourceContents.OwnerThreads[i]);
+                            dprintf("\n%08lx: Unable to read ThreadCount for resource\n", &Resource->OwnerTable[i]);
                             break;
                         }
 
@@ -513,19 +508,22 @@ gotBlank:
                         continue;
                     }
 
-                    if (j++ == 4) {
-                        j = 1;
+                    if (j == 4) {
+                        j = 0;
                         dprintf("\n              ");
                     }
 
                     dprintf("%08lx-%02x    ", Thread, ThreadCount);
+                    j++;
 
                     if ( CheckControlC() ) {
                         return;
                     }
                 }
 
-                dprintf("\n");
+                if (j) {
+                    dprintf("\n");
+                }
             }
 
         } else {

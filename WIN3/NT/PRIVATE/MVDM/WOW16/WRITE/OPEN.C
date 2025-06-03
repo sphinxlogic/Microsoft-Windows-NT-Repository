@@ -603,4 +603,4 @@ rgbSprm[2 + iftcSwiss] = FtcScanDocFfn(doc, PffnDefault(FF_SWISS));
 AddSprmCps(rgbSprm, doc, (typeCP)0, (**hpdocdod)[doc].cpMac);
 return(vfSysFull == 0);
 }
-
+

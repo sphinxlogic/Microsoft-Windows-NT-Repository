@@ -86,9 +86,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupAdd: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetGroupAdd: header at %lx, params at %lx, "
                       "level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -126,7 +126,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetGroupAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -153,7 +153,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetGroupAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -161,8 +161,8 @@ Return Value:
     }
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupAdd: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetGroupAdd: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -189,8 +189,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupAdd: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetGroupAdd: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -210,7 +210,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupAdd: NetGroupAdd failed: %X\n", status );
+            NetpKdPrint(( "XsNetGroupAdd: NetGroupAdd failed: %X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -285,8 +285,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupAddUser: NetGroupAddUser failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupAddUser: NetGroupAddUser failed: %X\n",
+                          status ));
         }
     }
 
@@ -337,9 +337,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupDel: header at %lx, params at %lx, name %s\n",
+        NetpKdPrint(( "XsNetGroupDel: header at %lx, params at %lx, name %s\n",
                       Header, parameters,
-                      SmbGetUlong( &parameters->GroupName ));
+                      SmbGetUlong( &parameters->GroupName )));
     }
 
     //
@@ -362,7 +362,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupDel: NetGroupDel failed: %X\n", status );
+            NetpKdPrint(( "XsNetGroupDel: NetGroupDel failed: %X\n", status ));
         }
     }
 
@@ -437,8 +437,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupDelUser: NetGroupDelUser failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupDelUser: NetGroupDelUser failed: %X\n",
+                          status ));
         }
     }
 
@@ -495,10 +495,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetGroupEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -527,16 +527,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetGroupEnum: NetGroupEnum failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupEnum: NetGroupEnum failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetGroupEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -580,10 +580,10 @@ Return Value:
         );
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -671,9 +671,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetGroupGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -704,8 +704,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetGroupGetInfo: NetGroupGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetGroupGetInfo: NetGroupGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -759,8 +759,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetGroupGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -768,9 +768,9 @@ Return Value:
     }
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -784,19 +784,19 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupGetInfo: Buffer too small %ld s.b. %ld.\n",
+            NetpKdPrint(( "XsNetGroupGetInfo: Buffer too small %ld s.b. %ld.\n",
                 SmbGetUshort( &parameters->BufLen ),
                 RapStructureSize(
                     StructureDesc,
                     Response,
-                    FALSE ) );
+                    FALSE ) ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetGroupGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetGroupGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -879,10 +879,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupGetUsers: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetGroupGetUsers: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -917,16 +917,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetGroupGetUsers: NetGroupGetUsers failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupGetUsers: NetGroupGetUsers failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupGetUsers: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetGroupGetUsers: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -948,10 +948,10 @@ Return Value:
         );
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -1076,8 +1076,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetInfo: Problem with conversion: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupSetInfo: Problem with conversion: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1099,8 +1099,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetInfo: NetGroupSetInfo failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupSetInfo: NetGroupSetInfo failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -1165,9 +1165,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupSetUsers: header at %lx, params at %lx,"
+        NetpKdPrint(( "XsNetGroupSetUsers: header at %lx, params at %lx,"
                       "level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1207,7 +1207,7 @@ Return Value:
 
     if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetUsers: failed to allocate memory" );
+            NetpKdPrint(( "XsNetGroupSetUsers: failed to allocate memory" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -1232,7 +1232,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetUsers: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetGroupSetUsers: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -1259,15 +1259,15 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetUsers: failed to create buffer" );
+            NetpKdPrint(( "XsNetGroupSetUsers: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
     }
 
     IF_DEBUG(GROUP) {
-        NetpDbgPrint( "XsNetGroupSetUsers: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetGroupSetUsers: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -1293,8 +1293,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetUsers: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetGroupSetUsers: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -1344,8 +1344,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetGroupSetUsers: NetGroupSetUsers failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetGroupSetUsers: NetGroupSetUsers failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

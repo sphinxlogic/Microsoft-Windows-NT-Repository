@@ -65,8 +65,8 @@ BOOL DlgOk;
 
 
 /*+-------------------------------------------------------------------------+
-  | BrowseListCompare()                                                     |
-  |                                                                         |
+  | BrowseListCompare()
+  |
   +-------------------------------------------------------------------------+*/
 int __cdecl BrowseListCompare(const void *arg1, const void *arg2) {
    SERVER_BROWSE_BUFFER *SLarg1, *SLarg2;
@@ -81,8 +81,8 @@ int __cdecl BrowseListCompare(const void *arg1, const void *arg2) {
 
 
 /*+-------------------------------------------------------------------------+
-  | BrowseListInit()                                                        |
-  |                                                                         |
+  | BrowseListInit()
+  |
   +-------------------------------------------------------------------------+*/
 void BrowseListInit(HWND hDlg, int ServerType) {
    SERVER_BROWSE_BUFFER *SList;
@@ -121,8 +121,8 @@ void BrowseListInit(HWND hDlg, int ServerType) {
 
 
 /*+-------------------------------------------------------------------------+
-  | BrowseListFree()                                                        |
-  |                                                                         |
+  | BrowseListFree()
+  |
   +-------------------------------------------------------------------------+*/
 void BrowseListFree(SERVER_BROWSE_LIST *ServList) {
    DWORD i;
@@ -145,8 +145,8 @@ void BrowseListFree(SERVER_BROWSE_LIST *ServList) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgServSel_Do()                                                         |
-  |                                                                         |
+  | DlgServSel_Do()
+  |
   +-------------------------------------------------------------------------+*/
 int DlgServSel_Do(int BType, HWND hwndOwner) {
     int result;
@@ -170,8 +170,8 @@ int DlgServSel_Do(int BType, HWND hwndOwner) {
 
 
 /*+-------------------------------------------------------------------------+
-  | BrowseListFind()                                                        |
-  |                                                                         |
+  | BrowseListFind()
+  |
   +-------------------------------------------------------------------------+*/
 SERVER_BROWSE_BUFFER *BrowseListFind(DWORD dwData) {
    DWORD ContainerNum;
@@ -193,8 +193,8 @@ SERVER_BROWSE_BUFFER *BrowseListFind(DWORD dwData) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgServSel_OnDrawItem()                                                 |
-  |                                                                         |
+  | DlgServSel_OnDrawItem()
+  |
   +-------------------------------------------------------------------------+*/
 VOID DlgServSel_OnDrawItem(HWND hwnd, DRAWITEMSTRUCT FAR* lpDrawItem) {
    TCHAR  szText[MAX_PATH + 1];
@@ -256,8 +256,8 @@ VOID DlgServSel_OnDrawItem(HWND hwnd, DRAWITEMSTRUCT FAR* lpDrawItem) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgServSel_OnCommand()                                                  |
-  |                                                                         |
+  | DlgServSel_OnCommand()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL DlgServSel_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
    int wmId, wmEvent;
@@ -311,7 +311,7 @@ BOOL DlgServSel_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
          EndDialog(hDlg, 0);
          break;
 
-      case IDC_HELP:
+      case IDHELP:
          switch (BrowseType) {
             case BROWSE_TYPE_NT:
                WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_BROWSENT);
@@ -418,8 +418,8 @@ BOOL DlgServSel_OnCommand(HWND hDlg, WPARAM wParam, LPARAM lParam) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgServSel_ActionItem()                                                 |
-  |                                                                         |
+  | DlgServSel_ActionItem()
+  |
   +-------------------------------------------------------------------------+*/
 VOID DlgServSel_ActionItem(HWND hWndList, DWORD dwData, WORD wItemNum) {
    DWORD dwIncr;
@@ -522,11 +522,11 @@ VOID DlgServSel_ActionItem(HWND hWndList, DWORD dwData, WORD wItemNum) {
 
 
 /*+-------------------------------------------------------------------------+
-  | ServerListScan()                                                        |
-  |                                                                         |
-  |    Given a key, scans the list of servers to find a matching first      |
-  |    letter in the server name.                                           |
-  |                                                                         |
+  | ServerListScan()
+  |
+  |    Given a key, scans the list of servers to find a matching first
+  |    letter in the server name.
+  |
   +-------------------------------------------------------------------------+*/
 WORD ServerListScan(HWND hWnd, DWORD dwData, TCHAR Key) {
    BOOL Found = FALSE;
@@ -607,11 +607,11 @@ static WNDPROC _wpOrigWndProc;
 #define LISTBOX_COUNT 13
 
 /*+-------------------------------------------------------------------------+
-  | ListSubClassProc()                                                      |
-  |                                                                         |
-  |    Handles key processing for the hierarchical listbox.  Specifically   |
-  |    the up/down arrow keys and the letter keys.                          |
-  |                                                                         |
+  | ListSubClassProc()
+  |
+  |    Handles key processing for the hierarchical listbox.  Specifically
+  |    the up/down arrow keys and the letter keys.
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK ListSubClassProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
    LRESULT lResult = 0;
@@ -715,8 +715,8 @@ LRESULT CALLBACK ListSubClassProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgServSel()                                                            |
-  |                                                                         |
+  | DlgServSel()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgServSel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
    HWND hCtrl;
@@ -762,12 +762,6 @@ LRESULT CALLBACK DlgServSel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
          BrowseListFree(ServList);
          break;
 
-#ifdef Ctl3d
-      case WM_SYSCOLORCHANGE:
-         Ctl3dColorChange();
-         break;
-#endif
-
       case WM_SETFONT:
          // Set the text height
          HierDraw_DrawSetTextHeight(GetDlgItem(hDlg, IDC_LIST1),   (HFONT)wParam, &HierDrawStruct);
@@ -797,8 +791,8 @@ LRESULT CALLBACK DlgServSel(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgGetServ_OnInitDialog()                                               |
-  |                                                                         |
+  | DlgGetServ_OnInitDialog()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL DlgGetServ_OnInitDialog(HWND hDlg, HWND hwndFocus, LPARAM lParam) {
    HWND hCtrl;
@@ -821,8 +815,8 @@ BOOL DlgGetServ_OnInitDialog(HWND hDlg, HWND hwndFocus, LPARAM lParam) {
 
 
 /*+-------------------------------------------------------------------------+
-  | MapShare()                                                              |
-  |                                                                         |
+  | MapShare()
+  |
   +-------------------------------------------------------------------------+*/
 // CODEWORK:  This routine can be condensed - all the virtual add share stuff 
 // can be compacted to a subroutine
@@ -985,8 +979,8 @@ dprintf(TEXT("Couldn't Map Share: %s\n"), Share->Name);
 
 
 /*+-------------------------------------------------------------------------+
-  | ShareListInit()                                                         |
-  |                                                                         |
+  | ShareListInit()
+  |
   +-------------------------------------------------------------------------+*/
 void ShareListInit(SHARE_LIST *ShareList, DEST_SERVER_BUFFER *DServ) {
    SHARE_BUFFER *SList;
@@ -1007,8 +1001,8 @@ void ShareListInit(SHARE_LIST *ShareList, DEST_SERVER_BUFFER *DServ) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgGetServ_OnCommand()                                                  |
-  |                                                                         |
+  | DlgGetServ_OnCommand()
+  |
   +-------------------------------------------------------------------------+*/
 BOOL DlgGetServ_OnCommand(HWND hDlg, int wmId, HWND hwndCtl, UINT wmEvent) {
    HWND hCtrl;
@@ -1073,7 +1067,7 @@ BOOL DlgGetServ_OnCommand(HWND hDlg, int wmId, HWND hwndCtl, UINT wmEvent) {
          return (TRUE);
          break;
 
-      case IDC_HELP:
+      case IDHELP:
          WinHelp(hDlg, HELP_FILE, HELP_CONTEXT, (DWORD) IDC_HELP_ADD);
          return (TRUE);
          break;
@@ -1116,20 +1110,14 @@ BOOL DlgGetServ_OnCommand(HWND hDlg, int wmId, HWND hwndCtl, UINT wmEvent) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DlgGetServ()                                                            |
-  |                                                                         |
+  | DlgGetServ()
+  |
   +-------------------------------------------------------------------------+*/
 LRESULT CALLBACK DlgGetServ(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
 
    switch (msg) {
       HANDLE_MSG(hDlg, WM_INITDIALOG, DlgGetServ_OnInitDialog);
       HANDLE_MSG(hDlg, WM_COMMAND, DlgGetServ_OnCommand);
-
-#ifdef Ctl3d
-   case WM_SYSCOLORCHANGE:
-      Ctl3dColorChange();
-      break;
-#endif
 
    }
 
@@ -1140,8 +1128,8 @@ LRESULT CALLBACK DlgGetServ(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 
 /*+-------------------------------------------------------------------------+
-  | DialogGetServ()                                                         |
-  |                                                                         |
+  | DialogGetServ()
+  |
   +-------------------------------------------------------------------------+*/
 DWORD DialogServerBrowse(HINSTANCE hInst, HWND hDlg, SOURCE_SERVER_BUFFER **lpSourceServer, DEST_SERVER_BUFFER **lpDestServer) {
    DLGPROC lpfnDlg;

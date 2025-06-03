@@ -361,6 +361,9 @@ Numlev          equ     8               ; Number of stack registers
 InitControlWord	equ	37FH		; Default - Round near,
 					; 64 bits, all exceptions masked
 
+DefaultControlWord equ  27FH            ; Default - Round near,
+                                        ; 53 bits, all exceptions masked
+
 EmulatorTebData struc
     TbSystemResrvd  db      TbSystemReserved1 DUP (?)   ; Skip to Emulator area
 

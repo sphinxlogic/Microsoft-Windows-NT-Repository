@@ -20,7 +20,7 @@ Revision History:
 
 #include "msp.h"
 #include "nlp.h"
-#include <wcstr.h>
+#include <stdlib.h>
 #include <rpc.h>
 #include <samisrv.h>
 #include <lsarpc.h>
@@ -296,7 +296,7 @@ Arguments:
     }
 
     if ((ComputerName->Length + (USHORT) sizeof(WCHAR) <= ComputerName->MaximumLength) &&
-        (ComputerName->Buffer[ComputerName->Length] == UNICODE_NULL)) {
+        (ComputerName->Buffer[ComputerName->Length/sizeof(WCHAR)] == UNICODE_NULL)) {
 
         IsNullTerminated = TRUE;
     }
@@ -362,7 +362,8 @@ MspChangePasswordSam(
     IN PLSA_CLIENT_REQUEST ClientRequest,
     IN BOOLEAN Impersonating,
     OUT PDOMAIN_PASSWORD_INFORMATION *DomainPasswordInfo,
-    OUT PPOLICY_PRIMARY_DOMAIN_INFO *PrimaryDomainInfo OPTIONAL
+    OUT PPOLICY_PRIMARY_DOMAIN_INFO *PrimaryDomainInfo OPTIONAL,
+    OUT PBOOLEAN Authoritative
     )
 
 /*++
@@ -404,19 +405,18 @@ Return Value:
     NTSTATUS                    Status;
     OBJECT_ATTRIBUTES           ObjectAttributes;
     SECURITY_QUALITY_OF_SERVICE SecurityQos;
-    PULONG                      UserId = NULL;
-    PSID_NAME_USE               NameUse = NULL;
     SAM_HANDLE                  SamHandle = NULL;
     SAM_HANDLE                  DomainHandle = NULL;
-    SAM_HANDLE                  UserHandle = NULL;
-    LSA_HANDLE  LSAPolicyHandle = NULL;
-    OBJECT_ATTRIBUTES LSAObjectAttributes;
+    LSA_HANDLE                  LSAPolicyHandle = NULL;
+    OBJECT_ATTRIBUTES           LSAObjectAttributes;
     PPOLICY_ACCOUNT_DOMAIN_INFO AccountDomainInfo = NULL;
 
     //
     // If we're impersonating (ie, winlogon impersonated its caller before calling us),
     // impersonate again.  This allows us to get the name of the caller for auditing.
     //
+
+    *Authoritative = FALSE;
 
     if ( Impersonating ) {
 
@@ -439,52 +439,133 @@ Return Value:
     }
 
 
+
+
     if (!NT_SUCCESS( Status )) {
         goto Cleanup;
     }
 
-    //
-    // Setup ObjectAttributes for SamConnect call.
-    //
+    Status = SamChangePasswordUser2(
+                UncComputerName,
+                UserName,
+                OldPassword,
+                NewPassword
+                );
 
-    InitializeObjectAttributes(&ObjectAttributes, NULL, 0, 0, NULL);
-    ObjectAttributes.SecurityQualityOfService = &SecurityQos;
-
-    SecurityQos.Length = sizeof(SecurityQos);
-    SecurityQos.ImpersonationLevel = SecurityIdentification;
-    SecurityQos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
-    SecurityQos.EffectiveOnly = FALSE;
-
-    Status = SamConnect(
-                 UncComputerName,
-                 &SamHandle,
-                 SAM_SERVER_LOOKUP_DOMAIN,
-                 &ObjectAttributes
-                 );
 
     if ( !NT_SUCCESS(Status) ) {
+        if (( Status == STATUS_WRONG_PASSWORD ) ||
+            ( Status == STATUS_PASSWORD_RESTRICTION ) ||
+            ( Status == STATUS_ACCOUNT_RESTRICTION ) ||
+            ( Status == STATUS_ILL_FORMED_PASSWORD) ) {
+            *Authoritative = TRUE;
+        } else if ( ( Status != RPC_NT_SERVER_UNAVAILABLE) &&
+                    ( Status != STATUS_INVALID_DOMAIN_ROLE) &&
+                    (Impersonating) ) {
 
 #ifdef COMPILED_BY_DEVELOPER
-        KdPrint(("MspChangePasswordSam: SamConnect(%wZ) failed, status %x\n",
+        KdPrint(("MspChangePasswordSam: SamChangePasswordUser2(%wZ) failed, status %x\n",
                  UncComputerName, Status));
 #endif // COMPILED_BY_DEVELOPER
 
-        //
-        // If we failed to connect and we were impersonating a client
-        // then we may want to try again using the NULL session.
-        // Only try this if we found a server last try.  Otherwise,
-        // we'll subject our user to another long timeout.
-        //
+            //
+            // If we failed to connect and we were impersonating a client
+            // then we may want to try again using the NULL session.
+            // Only try this if we found a server last try.  Otherwise,
+            // we'll subject our user to another long timeout.
+            //
 
-        if ( Impersonating                           &&
-             Status != RPC_NT_SERVER_UNAVAILABLE     &&
-             Status != RPC_S_SERVER_UNAVAILABLE   ) {
 
             Status = MspDisableAdminsAlias();
 
             if (!NT_SUCCESS(Status)) {
                 goto Cleanup;
             }
+
+            Status = SamChangePasswordUser2(
+                        UncComputerName,
+                        UserName,
+                        OldPassword,
+                        NewPassword
+                        );
+
+
+            if ( !NT_SUCCESS(Status) &&
+               (( Status == STATUS_WRONG_PASSWORD ) ||
+                ( Status == STATUS_PASSWORD_RESTRICTION ) ||
+                ( Status == STATUS_ACCOUNT_RESTRICTION ) ||
+                ( Status == STATUS_ILL_FORMED_PASSWORD) )) {
+                *Authoritative = TRUE;
+            }
+        }
+    }
+
+
+
+    if ( !NT_SUCCESS(Status) ) {
+
+#ifdef COMPILED_BY_DEVELOPER
+        KdPrint(("MspChangePasswordSam: Cannot change password for %wZ, status %x\n",
+                 UserName, Status));
+#endif // COMPILED_BY_DEVELOPER
+        if (Status == RPC_NT_SERVER_UNAVAILABLE ||
+            Status == RPC_S_SERVER_UNAVAILABLE ) {
+
+            Status = STATUS_CANT_ACCESS_DOMAIN_INFO;
+        } else if (Status == STATUS_PASSWORD_RESTRICTION) {
+
+            //
+            // Get the password restrictions for this domain and return them
+            //
+
+
+
+            //
+            // Get the SID of the account domain from LSA
+            //
+
+            InitializeObjectAttributes( &LSAObjectAttributes,
+                                          NULL,             // Name
+                                          0,                // Attributes
+                                          NULL,             // Root
+                                          NULL );           // Security Descriptor
+
+            Status = LsaOpenPolicy( UncComputerName,
+                                    &LSAObjectAttributes,
+                                    POLICY_VIEW_LOCAL_INFORMATION,
+                                    &LSAPolicyHandle );
+
+            if( !NT_SUCCESS(Status) ) {
+                KdPrint(("MspChangePasswordSam: LsaOpenPolicy(%wZ) failed, status %x\n",
+                         UncComputerName, Status));
+                LSAPolicyHandle = NULL;
+                goto Cleanup;
+            }
+
+            Status = LsaQueryInformationPolicy(
+                            LSAPolicyHandle,
+                            PolicyAccountDomainInformation,
+                            (PVOID *) &AccountDomainInfo );
+
+            if( !NT_SUCCESS(Status) ) {
+                KdPrint(("MspChangePasswordSam: LsaQueryInformationPolicy(%wZ) failed, status %x\n",
+                         UncComputerName, Status));
+                AccountDomainInfo = NULL;
+                goto Cleanup;
+            }
+
+
+            //
+            // Setup ObjectAttributes for SamConnect call.
+            //
+
+            InitializeObjectAttributes(&ObjectAttributes, NULL, 0, 0, NULL);
+            ObjectAttributes.SecurityQualityOfService = &SecurityQos;
+
+            SecurityQos.Length = sizeof(SecurityQos);
+            SecurityQos.ImpersonationLevel = SecurityIdentification;
+            SecurityQos.ContextTrackingMode = SECURITY_STATIC_TRACKING;
+            SecurityQos.EffectiveOnly = FALSE;
 
             Status = SamConnect(
                          UncComputerName,
@@ -493,138 +574,33 @@ Return Value:
                          &ObjectAttributes
                          );
 
-#ifdef COMPILED_BY_DEVELOPER
+
             if ( !NT_SUCCESS(Status) ) {
-                KdPrint(("MspChangePasswordSam: SamConnect(%wZ) (2nd attempt) failed, status %x\n",
-                 UncComputerName, Status));
-                }
-#endif // COMPILED_BY_DEVELOPER
-        }
-
-        //
-        // Flag certain error codes to indicate we should try downlevel
-        //
-
-        if ( !NT_SUCCESS(Status) ) {
-            if (Status == RPC_NT_SERVER_UNAVAILABLE ||
-                Status == RPC_S_SERVER_UNAVAILABLE ) {
-
-                Status = STATUS_CANT_ACCESS_DOMAIN_INFO;
+                KdPrint(("MspChangePasswordSam: Cannot open sam on %wZ, status %x\n",
+                         UncComputerName, Status));
+                DomainHandle = NULL;
+                goto Cleanup;
             }
 
-            SamHandle = NULL;
-            goto Cleanup;
-        }
-    }
-
-
-
-    //
-    // Get the SID of the account domain from LSA
-    //
-
-    InitializeObjectAttributes( &LSAObjectAttributes,
-                                  NULL,             // Name
-                                  0,                // Attributes
-                                  NULL,             // Root
-                                  NULL );           // Security Descriptor
-
-    Status = LsaOpenPolicy( UncComputerName,
-                            &LSAObjectAttributes,
-                            POLICY_VIEW_LOCAL_INFORMATION,
-                            &LSAPolicyHandle );
-
-    if( !NT_SUCCESS(Status) ) {
-        KdPrint(("MspChangePasswordSam: LsaOpenPolicy(%wZ) failed, status %x\n",
-                 UncComputerName, Status));
-        LSAPolicyHandle = NULL;
-        goto Cleanup;
-    }
-
-    Status = LsaQueryInformationPolicy(
-                    LSAPolicyHandle,
-                    PolicyAccountDomainInformation,
-                    (PVOID *) &AccountDomainInfo );
-
-    if( !NT_SUCCESS(Status) ) {
-        KdPrint(("MspChangePasswordSam: LsaQueryInformationPolicy(%wZ) failed, status %x\n",
-                 UncComputerName, Status));
-        AccountDomainInfo = NULL;
-        goto Cleanup;
-    }
-
-
-
-    //
-    // Open the Account domain in SAM.
-    //
-
-    Status = SamOpenDomain(
-                 SamHandle,
-                 GENERIC_EXECUTE,
-                 AccountDomainInfo->DomainSid,
-                 &DomainHandle
-                 );
-
-    if ( !NT_SUCCESS(Status) ) {
-        KdPrint(("MspChangePasswordSam: Cannot open domain on %wZ, status %x\n",
-                 UncComputerName, Status));
-        DomainHandle = NULL;
-        goto Cleanup;
-    }
-
-    Status = SamLookupNamesInDomain(
-                 DomainHandle,
-                 1,
-                 UserName,
-                 &UserId,
-                 &NameUse
-                 );
-
-    if ( !NT_SUCCESS(Status) ) {
-
-        KdPrint(("MspChangePasswordSam: Cannot lookup user %wZ, status %x\n",
-                 UserName, Status));
-
-        if (Status == STATUS_NONE_MAPPED) {
-            Status = STATUS_NO_SUCH_USER;
-        }
-
-        goto Cleanup;
-    }
-
-    Status = SamOpenUser(
-                 DomainHandle,
-                 USER_CHANGE_PASSWORD,
-                 *UserId,
-                 &UserHandle
-                 );
-
-    if ( !NT_SUCCESS(Status) ) {
-        KdPrint(("MspChangePasswordSam: Cannot open user %wZ, status %x\n",
-                 UserName, Status));
-        UserHandle = NULL;
-        goto Cleanup;
-    }
-
-    Status = SamChangePasswordUser(
-                 UserHandle,
-                 OldPassword,
-                 NewPassword
-                 );
-
-    if ( !NT_SUCCESS(Status) ) {
-
-#ifdef COMPILED_BY_DEVELOPER
-        KdPrint(("MspChangePasswordSam: Cannot change password for %wZ, status %x\n",
-                 UserName, Status));
-#endif // COMPILED_BY_DEVELOPER
-
-        if (Status == STATUS_PASSWORD_RESTRICTION) {
 
             //
-            // Get the password restrictions for this domain and return them
+            // Open the Account domain in SAM.
             //
+
+            Status = SamOpenDomain(
+                         SamHandle,
+                         GENERIC_EXECUTE,
+                         AccountDomainInfo->DomainSid,
+                         &DomainHandle
+                         );
+
+            if ( !NT_SUCCESS(Status) ) {
+                KdPrint(("MspChangePasswordSam: Cannot open domain on %wZ, status %x\n",
+                         UncComputerName, Status));
+                DomainHandle = NULL;
+                goto Cleanup;
+            }
+
 
             Status = SamQueryInformationDomain(
                             DomainHandle,
@@ -647,6 +623,7 @@ Cleanup:
     //
     // If the only problem is that this is a BDC,
     //  Return the domain name back to the caller.
+    //
 
     if ( (Status == STATUS_BACKUP_CONTROLLER ||
          Status == STATUS_INVALID_DOMAIN_ROLE) &&
@@ -654,21 +631,48 @@ Cleanup:
 
         NTSTATUS TempStatus;
 
+        //
+        // Open the LSA if we haven't already.
+        //
 
-        TempStatus = LsaQueryInformationPolicy(
-                        LSAPolicyHandle,
-                        PolicyPrimaryDomainInformation,
-                        (PVOID *) PrimaryDomainInfo );
+        if (LSAPolicyHandle == NULL) {
 
-        if( !NT_SUCCESS(TempStatus) ) {
-            KdPrint(("MspChangePasswordSam: LsaQueryInformationPolicy(%wZ) failed, status %x\n",
+            InitializeObjectAttributes( &LSAObjectAttributes,
+                                        NULL,             // Name
+                                        0,                // Attributes
+                                        NULL,             // Root
+                                        NULL );           // Security Descriptor
+
+            TempStatus = LsaOpenPolicy( UncComputerName,
+                                        &LSAObjectAttributes,
+                                        POLICY_VIEW_LOCAL_INFORMATION,
+                                        &LSAPolicyHandle );
+
+            if( !NT_SUCCESS(TempStatus) ) {
+                KdPrint(("MspChangePasswordSam: LsaOpenPolicy(%wZ) failed, status %x\n",
                      UncComputerName, TempStatus));
-            *PrimaryDomainInfo = NULL;
-#ifdef COMPILED_BY_DEVELOPER
-        } else {
-            KdPrint(("MspChangePasswordSam: %wZ is really a BDC in domain %wZ\n",
-                     UncComputerName, &(*PrimaryDomainInfo)->Name));
-#endif // COMPILED_BY_DEVELOPER
+                LSAPolicyHandle = NULL;
+            }
+
+
+        }
+
+        if (LSAPolicyHandle != NULL) {
+            TempStatus = LsaQueryInformationPolicy(
+                            LSAPolicyHandle,
+                            PolicyPrimaryDomainInformation,
+                            (PVOID *) PrimaryDomainInfo );
+
+            if( !NT_SUCCESS(TempStatus) ) {
+                KdPrint(("MspChangePasswordSam: LsaQueryInformationPolicy(%wZ) failed, status %x\n",
+                         UncComputerName, TempStatus));
+                *PrimaryDomainInfo = NULL;
+    #ifdef COMPILED_BY_DEVELOPER
+            } else {
+                KdPrint(("MspChangePasswordSam: %wZ is really a BDC in domain %wZ\n",
+                         UncComputerName, &(*PrimaryDomainInfo)->Name));
+    #endif // COMPILED_BY_DEVELOPER
+            }
         }
 
         Status = STATUS_BACKUP_CONTROLLER;
@@ -690,24 +694,13 @@ Cleanup:
     // Free Locally used resources
     //
 
-    if (UserId) {
-        SamFreeMemory(UserId);
-    }
 
-    if (NameUse) {
-        SamFreeMemory(NameUse);
-    }
-
-    if (UserHandle) {
-        SamCloseHandle(UserHandle);
+    if (SamHandle) {
+        SamCloseHandle(SamHandle);
     }
 
     if (DomainHandle) {
         SamCloseHandle(DomainHandle);
-    }
-
-    if (SamHandle) {
-        SamCloseHandle(SamHandle);
     }
 
     if( LSAPolicyHandle != NULL ) {
@@ -727,7 +720,8 @@ MspChangePasswordDownlevel(
     IN PUNICODE_STRING UncComputerName,
     IN PUNICODE_STRING UserNameU,
     IN PUNICODE_STRING OldPasswordU,
-    IN PUNICODE_STRING NewPasswordU
+    IN PUNICODE_STRING NewPasswordU,
+    OUT PBOOLEAN Authoritative
     )
 
 /*++
@@ -750,6 +744,11 @@ Arguments:
 
     NewPasswordU - Plaintext replacement password.
 
+    Authoritative - If the attempt failed with an error that would
+        otherwise cause the password attempt to fail, this flag, if false,
+        indicates that the error was not authoritative and the attempt
+        should proceed.
+
 Return Value:
 
     STATUS_SUCCESS - Indicates the service completed successfully.
@@ -763,6 +762,8 @@ Return Value:
     LPWSTR           UserName = NULL;
     LPWSTR           OldPassword = NULL;
     LPWSTR           NewPassword = NULL;
+
+    *Authoritative = TRUE;
 
     //
     // Convert UserName from UNICODE_STRING to null-terminated wide string
@@ -860,9 +861,42 @@ Return Value:
     //
 
     if (NetStatus == NERR_InvalidComputer ||
-        NetStatus == ERROR_PATH_NOT_FOUND ) {
+        NetStatus == ERROR_PATH_NOT_FOUND) {
 
         Status = STATUS_NO_SUCH_DOMAIN;
+        *Authoritative = FALSE;
+
+    // ERROR_SEM_TIMEOUT can be returned when the computer name doesn't
+    //  exist.
+    //
+    // ERROR_REM_NOT_LIST can also be returned when the computer name
+    //  doesn't exist.
+    //
+
+    } else if ( NetStatus == ERROR_SEM_TIMEOUT ||
+                NetStatus == ERROR_REM_NOT_LIST) {
+
+        Status = STATUS_BAD_NETWORK_PATH;
+        *Authoritative = FALSE;
+
+    } else if ( (NetStatus == ERROR_INVALID_PARAMETER) &&
+                ((wcslen(NewPassword) > LM20_PWLEN) ||
+                 (wcslen(OldPassword) > LM20_PWLEN)) ) {
+
+        //
+        // The net api returns ERROR_INVALID_PARAMETER if the password
+        // could not be converted to the LM OWF password.  Return
+        // STATUS_PASSWORD_RESTRICTION for this.
+        //
+
+        Status = STATUS_PASSWORD_RESTRICTION;
+
+        //
+        // We never made it to the other machine, so we should continue
+        // trying to change the password.
+        //
+
+        *Authoritative = FALSE;
     } else {
         Status = (*NlpNetpApiStatusToNtStatus)( NetStatus );
     }
@@ -910,7 +944,8 @@ MspChangePassword(
     IN PLSA_CLIENT_REQUEST ClientRequest,
     IN BOOLEAN Impersonating,
     OUT PDOMAIN_PASSWORD_INFORMATION *DomainPasswordInfo,
-    OUT PPOLICY_PRIMARY_DOMAIN_INFO *PrimaryDomainInfo OPTIONAL
+    OUT PPOLICY_PRIMARY_DOMAIN_INFO *PrimaryDomainInfo OPTIONAL,
+    OUT PBOOLEAN Authoritative
     )
 
 /*++
@@ -940,6 +975,10 @@ Arguments:
     PrimaryDomainInfo - DomainNameInformation (returned only if status is
         STATUS_BACKUP_CONTROLLER).
 
+    Authoritative - Indicates that the error code is authoritative
+        and it indicates that password changing should stop. If false,
+        password changing should continue.
+
 
 Return Value:
 
@@ -952,6 +991,8 @@ Return Value:
 {
     NTSTATUS Status;
     UNICODE_STRING UncComputerName;
+
+    *Authoritative = TRUE;
 
     //
     // Ensure the server name is a UNC server name.
@@ -978,7 +1019,8 @@ Return Value:
                  ClientRequest,
                  Impersonating,
                  DomainPasswordInfo,
-                 PrimaryDomainInfo );
+                 PrimaryDomainInfo,
+                 Authoritative );
 
     //
     // If MspChangePasswordSam returns anything other than
@@ -992,7 +1034,8 @@ Return Value:
                      &UncComputerName,
                      UserName,
                      OldPassword,
-                     NewPassword );
+                     NewPassword,
+                     Authoritative );
     }
 
 
@@ -1065,7 +1108,14 @@ Return Value:
     PWKSTA_INFO_100 WkstaInfo100 = NULL;
     BOOLEAN PasswordBufferValidated = FALSE;
     CLIENT_BUFFER_DESC ClientBufferDesc;
+    PSECURITY_SEED_AND_LENGTH SeedAndLength;
+    UCHAR           Seed;
+    BOOLEAN         Authoritative = FALSE;
 
+    RtlInitUnicodeString(
+        &DCNameString,
+        NULL
+        );
     //
     // Sanity checks.
     //
@@ -1079,20 +1129,63 @@ Return Value:
 
     ChangePasswordRequest = (PMSV1_0_CHANGEPASSWORD_REQUEST) ProtocolSubmitBuffer;
 
-    ASSERT( ChangePasswordRequest->MessageType == MsV1_0ChangePassword );
+    ASSERT( ChangePasswordRequest->MessageType == MsV1_0ChangePassword ||
+            ChangePasswordRequest->MessageType == MsV1_0ChangeCachedPassword );
 
     RELOCATE_ONE( &ChangePasswordRequest->DomainName );
 
     RELOCATE_ONE( &ChangePasswordRequest->AccountName );
 
-    RELOCATE_ONE( &ChangePasswordRequest->OldPassword );
+    if ( ChangePasswordRequest->MessageType == MsV1_0ChangeCachedPassword ) {
+        NULL_RELOCATE_ONE( &ChangePasswordRequest->OldPassword );
+    } else {
+        RELOCATE_ONE_ENCODED( &ChangePasswordRequest->OldPassword );
+    }
 
-    RELOCATE_ONE( &ChangePasswordRequest->NewPassword );
+    RELOCATE_ONE_ENCODED( &ChangePasswordRequest->NewPassword );
+
+    SeedAndLength = (PSECURITY_SEED_AND_LENGTH) &ChangePasswordRequest->OldPassword.Length;
+    Seed = SeedAndLength->Seed;
+    SeedAndLength->Seed = 0;
+
+    if (Seed != 0) {
+
+        try {
+            RtlRunDecodeUnicodeString(
+                Seed,
+                &ChangePasswordRequest->OldPassword
+                );
+
+        } except (EXCEPTION_EXECUTE_HANDLER) {
+            Status = STATUS_ILL_FORMED_PASSWORD;
+            goto Cleanup;
+        }
+    }
+
+    SeedAndLength = (PSECURITY_SEED_AND_LENGTH) &ChangePasswordRequest->NewPassword.Length;
+    Seed = SeedAndLength->Seed;
+    SeedAndLength->Seed = 0;
+
+    if (Seed != 0) {
+
+        try {
+            RtlRunDecodeUnicodeString(
+                Seed,
+                &ChangePasswordRequest->NewPassword
+                );
+
+        } except (EXCEPTION_EXECUTE_HANDLER) {
+            Status = STATUS_ILL_FORMED_PASSWORD;
+            goto Cleanup;
+        }
+    }
+
 
     *ReturnBufferSize = 0;
     *ProtocolReturnBuffer = NULL;
     *ProtocolStatus = STATUS_PENDING;
     PasswordBufferValidated = TRUE;
+
 
 #ifdef COMPILED_BY_DEVELOPER
 
@@ -1110,6 +1203,17 @@ Return Value:
 #endif // COMPILED_BY_DEVELOPER
 
     //
+    // If we're just changing the cached password,
+    //  skip changing the password on the domain.
+    //
+
+    if ( ChangePasswordRequest->MessageType == MsV1_0ChangeCachedPassword ) {
+        Status = STATUS_SUCCESS;
+        goto PasswordChangeSuccessfull;
+    }
+
+
+    //
     // This function uses Net apis, and so requires that Netapi.dll be loaded.
     //
 
@@ -1121,6 +1225,112 @@ Return Value:
             Status = STATUS_NO_SUCH_FILE;
             goto Cleanup;
         }
+    }
+
+
+
+    //
+    // Check to see if the name provided is a domain name. If it has no
+    // leading "\\" and does not match the name of the computer, it may be.
+    //
+
+
+
+
+    if ((( ChangePasswordRequest->DomainName.Length < 3 * sizeof(WCHAR)) ||
+        ( ChangePasswordRequest->DomainName.Buffer[0] != L'\\' &&
+          ChangePasswordRequest->DomainName.Buffer[1] != L'\\' ) ) &&
+          !RtlEqualDomainName(
+                   &NlpComputerName,
+                   &ChangePasswordRequest->DomainName )) {
+
+        //
+        // Check if we are PDC in this domain
+        //
+
+        if ( !NlpWorkstation &&
+                   RtlEqualDomainName(
+                       &NlpSamDomainName,
+                       &ChangePasswordRequest->DomainName )) {
+
+            //
+            // We are a Domain Controller for the specified domain.  If our
+            // role is PDC, we already have the PDC ComputerName.  Otherwise,
+            // we need to call NlpNetGetDCName.
+            //
+
+            Status = LsarQueryInformationPolicy(
+                         NlpPolicyHandle,
+                         PolicyLsaServerRoleInformation,
+                         (PLSAPR_POLICY_INFORMATION *) &PolicyLsaServerRoleInfo
+                         );
+
+            if (!NT_SUCCESS(Status)) {
+                goto Cleanup;
+            }
+
+            if (PolicyLsaServerRoleInfo->LsaServerRole == PolicyServerRolePrimary) {
+
+                DCNameString = NlpComputerName;
+
+            }
+        }
+
+        if (DCNameString.Buffer == NULL) {
+
+            //
+            // Build a zero terminated domain name.
+            //
+
+            DomainName = RtlAllocateHeap(
+                            MspHeap,
+                            0,
+                            ChangePasswordRequest->DomainName.Length + sizeof(WCHAR));
+
+            if ( DomainName == NULL ) {
+                Status = STATUS_INSUFFICIENT_RESOURCES;
+                goto Cleanup;
+            }
+
+            RtlCopyMemory( DomainName,
+                           ChangePasswordRequest->DomainName.Buffer,
+                           ChangePasswordRequest->DomainName.Length );
+            DomainName[ChangePasswordRequest->DomainName.Length / sizeof(WCHAR)] = 0;
+
+            NetStatus = (*NlpNetGetDCName)(
+                                NULL,
+                                DomainName,
+                                (LPBYTE *)&DCName );
+
+            if ( NetStatus != NERR_Success ) {
+                Status = STATUS_NO_SUCH_DOMAIN;
+            } else {
+                RtlInitUnicodeString( &DCNameString, DCName );
+            }
+        }
+
+        if (NT_SUCCESS(Status)) {
+
+            Status = MspChangePassword(
+                         &DCNameString,
+                         &ChangePasswordRequest->AccountName,
+                         &ChangePasswordRequest->OldPassword,
+                         &ChangePasswordRequest->NewPassword,
+                         ClientRequest,
+                         ChangePasswordRequest->Impersonating,
+                         &DomainPasswordInfo,
+                         NULL,
+                         &Authoritative );
+
+            if ( NT_SUCCESS(Status) || (Authoritative && (Status == STATUS_PASSWORD_RESTRICTION) ) ) {
+                goto PasswordChangeSuccessfull;
+            }
+            if ( !NT_SUCCESS(Status) && Authoritative) {
+                goto Cleanup;
+            }
+
+        }
+
     }
 
     //
@@ -1140,10 +1350,20 @@ Return Value:
                  ClientRequest,
                  ChangePasswordRequest->Impersonating,
                  &DomainPasswordInfo,
-                 &PrimaryDomainInfo );
+                 &PrimaryDomainInfo,
+                 &Authoritative );
 
-    if ( NT_SUCCESS(Status) || Status == STATUS_PASSWORD_RESTRICTION ) {
+    //
+    // If we succeeded or we got back an authoritative password restriction
+    // then we are done trying.
+    //
+
+    if ( NT_SUCCESS(Status) || (Authoritative && (Status == STATUS_PASSWORD_RESTRICTION) ) ) {
         goto PasswordChangeSuccessfull;
+    }
+
+    if ( !NT_SUCCESS(Status) && Authoritative) {
+        goto Cleanup;
     }
 
 
@@ -1164,10 +1384,11 @@ Return Value:
     //  just return the status to the caller.
     //
 
-    if ( Status != STATUS_BAD_NETWORK_PATH ||
-         ( ChangePasswordRequest->DomainName.Length >= 3 * sizeof(WCHAR) &&
-           ChangePasswordRequest->DomainName.Buffer[0] == L'\\' &&
-           ChangePasswordRequest->DomainName.Buffer[1] == L'\\' ) ) {
+    if ( Authoritative &&
+         ( Status != STATUS_BAD_NETWORK_PATH ||
+           ( ChangePasswordRequest->DomainName.Length >= 3 * sizeof(WCHAR) &&
+             ChangePasswordRequest->DomainName.Buffer[0] == L'\\' &&
+             ChangePasswordRequest->DomainName.Buffer[1] == L'\\' ) ) ) {
 
         //
         // If \\xxx was specified, but xxx doesn't exist,
@@ -1192,7 +1413,7 @@ Return Value:
                     ChangePasswordRequest->DomainName.Length + sizeof(WCHAR));
 
     if ( DomainName == NULL ) {
-        Status = STATUS_NO_MEMORY;
+        Status = STATUS_INSUFFICIENT_RESOURCES;
         goto Cleanup;
     }
 
@@ -1242,10 +1463,15 @@ Return Value:
                          ClientRequest,
                          ChangePasswordRequest->Impersonating,
                          &DomainPasswordInfo,
-                         NULL );
+                         NULL,
+                         &Authoritative );
 
-            if ( NT_SUCCESS(Status) || Status == STATUS_PASSWORD_RESTRICTION ) {
+            if ( NT_SUCCESS(Status) || (Authoritative && (Status == STATUS_PASSWORD_RESTRICTION) ) ) {
                 goto PasswordChangeSuccessfull;
+            }
+
+            if ( !NT_SUCCESS(Status) && Authoritative) {
+                goto Cleanup;
             }
 
         }
@@ -1278,10 +1504,15 @@ Return Value:
                  ClientRequest,
                  ChangePasswordRequest->Impersonating,
                  &DomainPasswordInfo,
-                 NULL );
+                 NULL,
+                 &Authoritative );
 
-    if ( NT_SUCCESS(Status) || Status == STATUS_PASSWORD_RESTRICTION ) {
+    if ( NT_SUCCESS(Status) || (Authoritative && (Status == STATUS_PASSWORD_RESTRICTION) ) ) {
         goto PasswordChangeSuccessfull;
+    }
+
+    if ( !NT_SUCCESS(Status) && Authoritative) {
+        goto Cleanup;
     }
 
     goto Cleanup;

@@ -25,46 +25,27 @@ struct Block  *vpBOther = NULL; /* (above) + for other files                */
 struct Block  *vpBFree  = NULL; /* free blocks. not valid for caching reads */
 
 int     vCntBlks;               /* No of blocks currently is use by cur file*/
-//
-// NT - jaimes - 01/27/91
-// vAllocBlks was never initialized
-//
-// int  vAllocBlks;             /* No of blocks currently alloced           */
 
 int     vAllocBlks = 0;         /* No of blocks currently alloced           */
 int     vMaxBlks     = MINBLKS; /* Max blocks allowed to alloc              */
 long    vThreshold   = MINTHRES*BLOCKSIZE;  /* Min bytes before read ahead  */
 
-//
-// NT - jaimes - 01/29/91
-// The RAM semaphores used on OS/2 were replaced by events on NT
-// Now the events must be created during the initialization of the program
-//
-// long vSemBrief    = 0L;      /* To serialize access to Linked list info  */
-// long vSemReader   = 0L;      /* To wakeup reader thread when threshold   */
-// long vSemMoreData = 0L;      /* Blocker for Disp thread if ahead of read */
-// long vSemSync     = 0L;      /* Used to syncronize to sync to the reader */
-//
 HANDLE  vSemBrief    = 0L;      /* To serialize access to Linked list info  */
 HANDLE  vSemReader   = 0L;      /* To wakeup reader thread when threshold   */
 HANDLE  vSemMoreData = 0L;      /* Blocker for Disp thread if ahead of read */
 HANDLE  vSemSync     = 0L;      /* Used to syncronize to sync to the reader */
 
 
-USHORT  vReadPriNormal; /* Normal priority for reader thread        */
+USHORT  vReadPriNormal;         /* Normal priority for reader thread        */
 unsigned  vReadPriBoost;        /* Boosted priority for reader thread       */
 char      vReaderFlag;          /* Insructions to reader                    */
 
-HANDLE  vFhandle = 0;   /* Current file handle                      */
+HANDLE  vFhandle = 0;           /* Current file handle                      */
 long      vCurOffset;           /* Current offset in file                   */
-char      vpFname [40];        /* Current files name                       */
-struct Flist FAR *vpFlCur =NULL;/* Current file                             */
-USHORT  vFType;         /* Current files handle type                */
-//
-// NT - jaimes - 01/30/91
-//
-// FILEFINDBUF vFInfo;  /* Current files info                       */
-WIN32_FIND_DATA vFInfo; /* Current files info                       */
+char      vpFname [40];         /* Current files name                       */
+struct Flist *vpFlCur =NULL;    /* Current file                             */
+USHORT  vFType;                 /* Current files handle type                */
+WIN32_FIND_DATA vFInfo;         /* Current files info                       */
 char      vDate [30];           /* Printable dat of current file            */
 
 char      vSearchString [50];   /* Searching for this string                */
@@ -78,36 +59,22 @@ int       vMouHandle;           /* Mouse handle (for Mou Apis)              */
 
 
 HANDLE  vhConsoleOutput;        // Handle to the console
-char FAR *vpOrigScreen;         /* Orinal screen contents                   */
+char *vpOrigScreen;             /* Orinal screen contents                   */
 int     vOrigSize;              /* # of bytes in orignal screen             */
-// VIOMODEINFO vVioOrigMode;    /* To reset screen when done                */
 USHORT  vVioOrigRow = 0;        /* Save orignal screen stuff.               */
 USHORT  vVioOrigCol = 0;
-//
-// NT - jaimes - 02/10/91
-//
-// USHORT       vOrigAnsi;              /* Original ANSI state                      */
-// VIOCURSORINFO vVioOrigCurType;
 
 int     vSetBlks     = 0;       /* Used to set INI value                    */
 long    vSetThres    = 0L;      /* Used to set INI value                    */
 int     vSetLines;              /* Used to set INI value                    */
 int     vSetWidth;              /* Used to set INI value                    */
-// VIOMODEINFO vVioCurMode;     /* To restore vio mode                      */
 CONSOLE_SCREEN_BUFFER_INFO       vConsoleCurScrBufferInfo;
 CONSOLE_SCREEN_BUFFER_INFO       vConsoleOrigScrBufferInfo;
 
 /* Screen controling... used to be static in ldisp.c    */
 char      vcntScrLock = 0;      /* Locked screen count                      */
 char      vSpLockFlag = 0;      /* Special locked flag                      */
-//
-// NT - jaimes - 01/29/91
-// The RAM semaphores used on OS/2 were replaced by events on NT
-// Now the events must be created during the initialization of the program
-//
-// long   vSemLock = 0;         /* To access vcntScrLock                    */
 HANDLE    vSemLock = 0;         /* To access vcntScrLock                    */
-
 
 char      vUpdate;
 int       vLines = 23;          /* CRTs no of lines                         */
@@ -117,25 +84,6 @@ Uchar     vWrap = 254;          /* # of chars to wrap at                    */
 Uchar     vIndent = 0;          /* # of chars dispaly is indented           */
 Uchar     vDisTab = 8;          /* # of chars per tab stop                  */
 Uchar     vIniFlag = 0;         /* Various ini bits                         */
-
-//
-// NT - jaimes - 02/20/91
-// Not needed on NT
-//
-// Uchar          vPhysFlag   = 0;      /* 0 = Physical display, 1 = Use Vio        */
-// unsigned  vVirtOFF;
-// unsigned  vVirtLEN;
-//
-// unsigned  vPhysSelec;                /* Start of video memory. Selector          */
-// unsigned  vPhysLen   = 0;    /* Len pointed to by vPhysSelec             */
-
-// NT - jaimes - 01/25/90
-//  SEL vpSavRedraw = 0;        /* For SavRedrawWait                        */
-// Note that vpSavRedraw doesn't have to be of type PAGE_DESCRIPTOR
-// since the memory allocated is not DISCARDABLE
-//
-// Not needed on NT
-// LPSTR vpSavRedraw = 0;               // For SavRedrawWait
 
 
 Uchar     vrgLen   [MAXLINES];  /* Last len of data on each line            */
@@ -147,12 +95,18 @@ unsigned  vScrMass = 0;         /* # of bytes for last screen (used for %)  */
 struct Block *vpBlockTop;       /* Block for start of screen (dis.asm) overw*/
 struct Block *vpCalcBlock;      /* Block for start of screen                */
 long      vTopLine   = 0L;      /* Top line on the display                  */
-WORD      vAttrTitle = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-WORD      vAttrList  = FOREGROUND_GREEN | FOREGROUND_BLUE;
-WORD      vAttrHigh  = BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE;
-WORD      vAttrKey   = FOREGROUND_GREEN;
-WORD      vAttrCmd   = FOREGROUND_RED | FOREGROUND_BLUE;
-WORD      vAttrBar   = FOREGROUND_GREEN;
+
+#define FOREGROUND_WHITE (FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE)
+#define BACKGROUND_WHITE (BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE)
+
+#define HIWHITE_ON_BLUE (BACKGROUND_BLUE | FOREGROUND_WHITE | FOREGROUND_INTENSITY)
+
+WORD      vAttrTitle = HIWHITE_ON_BLUE;
+WORD      vAttrList  = BACKGROUND_BLUE  | FOREGROUND_WHITE;
+WORD      vAttrHigh  = BACKGROUND_WHITE | FOREGROUND_BLUE;
+WORD      vAttrKey   = HIWHITE_ON_BLUE;
+WORD      vAttrCmd   = BACKGROUND_BLUE  | FOREGROUND_WHITE;
+WORD      vAttrBar   = BACKGROUND_BLUE  | FOREGROUND_WHITE;
 
 WORD      vSaveAttrTitle = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
 WORD      vSaveAttrList = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
@@ -167,26 +121,22 @@ char   *vpReaderStack;          /* Readers stack                            */
 
 
 long    vDirOffset;             /* Direct offset to seek to                 */
-long    vLoffset;               /* Offset of last block processed into line */
                                 /* table                                    */
 long    vLastLine;              /* Absolute last line                       */
 long    vNLine;                 /* Next line to process into line table     */
-//
-// NT - jaimes - 01/27/91
-// type of vprgLineTable had to be changed
-//
-long FAR *vprgLineTable [MAXTPAGE]; /* Number of pages for line table           */
+long *vprgLineTable [MAXTPAGE]; /* Number of pages for line table           */
 
-// PAGE_DESCRIPTOR vprgLineTable [MAXTPAGE]; /* Number of pages for line table */
 HANDLE  vStdOut;
 HANDLE  vStdIn;
 
 
 char MEMERR[]= "Malloc failed. Out of memory?";
 
-
-
-void __cdecl main (int argc, char **argv)
+void __cdecl
+main (
+    int argc,
+    char **argv
+    )
 {
     void usage (void);
     char    *pt;
@@ -238,19 +188,7 @@ void __cdecl main (int argc, char **argv)
 
     while (vpFlCur->prev)
         vpFlCur = vpFlCur->prev;
-//
-// NT - jaimes - 01/26/91
-// strcpyf removed from lmisc.c
-//
-//  strcpyf (vpFname, vpFlCur->rootname);
     strcpy (vpFname, vpFlCur->rootname);
-
-
-//
-// NT - jaimes - 01/29/91
-//
-// Create all events used
-//
 
     vSemBrief = CreateEvent( NULL,
                              MANUAL_RESET,
@@ -302,13 +240,12 @@ void __cdecl main (int argc, char **argv)
 }
 
 
-void usage (void)
+void
+usage (
+    void
+    )
 {
     puts ("list [-s:string] [-g:line#] filename, ...");
-//
-// NT - jaimes - 01/30/91
-//
-//    DosExit (1, 0);
     CleanUp();
     ExitProcess(0);
 
@@ -318,18 +255,17 @@ void usage (void)
 /*** main_loop
  *
  */
-void PASCAL main_loop ()
+void
+main_loop ()
 {
-        int     i;
+    int     i;
     int         ccnt = 0;
     char        SkipCnt=0;
     WORD        RepeatCnt=0;
-//    char        s [50];
     INPUT_RECORD    InpBuffer;
     DWORD           cEvents;
     BOOL            bSuccess;
     BOOL            bKeyDown = FALSE;
-//    CONSOLE_SCREEN_BUFFER_INFO       SInf;
 
     for (; ;) {
         if (RepeatCnt <= 1) {
@@ -358,10 +294,6 @@ void PASCAL main_loop ()
                               &InpBuffer,
                               1,
                               &cEvents );
-
-            // sprintf (s, "%d", ccnt++);
-            // DisLn   (65, (Uchar)(vLines+1), s);
-
 
             if (InpBuffer.EventType != KEY_EVENT) {
 #if 0
@@ -400,17 +332,6 @@ void PASCAL main_loop ()
             if (!IsValidKey( &InpBuffer ))
                 continue;
 
-            // GetConsoleScreenBufferInfo( vStdOut, &SInf);
-            // sprintf (s,
-            //     "(dwSz %d,%d) (srWin %d,%d %d,%d) (MaxSz %d,%d)  %d",
-            //     SInf.dwSize.X,              SInf.dwSize.Y,
-            //     SInf.srWindow.Top,          SInf.srWindow.Left,
-            //     SInf.srWindow.Bottom,       SInf.srWindow.Right,
-            //     SInf.dwMaximumWindowSize.X, SInf.dwMaximumWindowSize.Y,
-            //     ccnt++ );
-            // DisLn   (20, (Uchar)(vLines+1), s);
-
-
             RepeatCnt = InpBuffer.Event.KeyEvent.wRepeatCount;
             if (RepeatCnt > 20)
                 RepeatCnt = 20;
@@ -418,85 +339,10 @@ void PASCAL main_loop ()
             RepeatCnt--;
 
 
-
-
-//      if (Kd.fsState & 0x07) {            /* Shift or Cntrl key?  */
-
-/*
-                                            // Shift or Ctrl key?
-        if (InpBuffer.Event.KeyEvent.dwControlKeyState &
-            ( RIGHT_CTRL_PRESSED |
-              LEFT_CTRL_PRESSED |
-              SHIFT_PRESSED ) ) {
-
-            //
-            //  This special case statement is to better handle
-            //  shift & ctrl arrow keys on the larger keyboards
-            //
-            //  Note this falls through to the next case statement
-            //  if not found...
-            //
-
-//          switch (Kd.chScan) {
-            switch (InpBuffer.Event.KeyEvent.wVirtualKeyCode) {
-//              case 72:                    // shift up
-//              case 141:                   // ctrl up
-                case 0x26:                  // shift or ctrl up
-                    HUp ();
-                    continue;
-//              case 80:                    // shift dn
-//              case 145:                   // ctrl dn
-                case 0x28:                  // shift or ctrl dn
-                    HDn ();
-                    continue;
-//              case 79:                    // shift end
-//              case 117:                   // ctrl end
-                case 0x23:                  // shift or ctrl end
-                    HSDn ();
-                    continue;
-//              case 71:                    // shift home
-//              case 119:                   // ctrl home
-                case 0x24:                  // shift or ctrl home
-                    HSUp ();
-                    continue;
-//              case 81:                    // Shift PgDn
-                case 0x22:                  // Shift PgDn
-                    if (InpBuffer.Event.KeyEvent.dwControlKeyState &
-                        SHIFT_PRESSED ) {
-                        HPgDn ();
-                    }
-                    continue;
-//              case 73:                    // Shift PgUp
-                case 0x21:                  // Shift PgUp
-                    if (InpBuffer.Event.KeyEvent.dwControlKeyState &
-                        SHIFT_PRESSED ) {
-                    HPgUp ();
-                    }
-                    continue;
-
-            }
-        }
-*/
-
-#if T_HEATHH
-{  
-        TCHAR tchBuf[100];
-        sprintf(tchBuf,TEXT( "Key event:\n"
-                             "  wVirtualKeyCode   = 0x%0X (%d)\n"
-                             "  dwControlKeyState = 0x%0X\n"),
-                             InpBuffer.Event.KeyEvent.wVirtualKeyCode,
-                             InpBuffer.Event.KeyEvent.wVirtualKeyCode,
-                             InpBuffer.Event.KeyEvent.dwControlKeyState); 
-        OutputDebugString(tchBuf);
-}
-#endif
-
         // First check for a known scan code
-//      switch (Kd.chScan) {
         switch (InpBuffer.Event.KeyEvent.wVirtualKeyCode) {
-//          case 73:                                    /* PgUp */
-            case 0x21:                                  /* PgUp */
-                if (InpBuffer.Event.KeyEvent.dwControlKeyState &      // shift up
+            case 0x21:                                              /* PgUp */
+                if (InpBuffer.Event.KeyEvent.dwControlKeyState &    // shift up
                     SHIFT_PRESSED ) {
                     HPgUp ();
                 }
@@ -517,9 +363,8 @@ void PASCAL main_loop ()
                     }
                 }
                 continue;
-//          case 72:                                    /* Up   */
-            case 0x26:                                  /* Up   */
-                if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // shift or ctrl up
+            case 0x26:                                              /* Up   */
+                if (InpBuffer.Event.KeyEvent.dwControlKeyState &    // shift or ctrl up
                     ( RIGHT_CTRL_PRESSED | LEFT_CTRL_PRESSED |
                       SHIFT_PRESSED ) ) {
                     HUp ();
@@ -531,7 +376,6 @@ void PASCAL main_loop ()
                     }
                 }
                 continue;
-//          case 81:                                    /* PgDn */
             case 0x22:                                  /* PgDn */
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &      // shift down
                     SHIFT_PRESSED ) {
@@ -554,7 +398,6 @@ void PASCAL main_loop ()
                     }
                 }
                 continue;
-//          case 80:                                    /* Down */
             case 0x28:                                  /* Down */
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // shift or ctrl down
                     ( RIGHT_CTRL_PRESSED | LEFT_CTRL_PRESSED |
@@ -568,21 +411,18 @@ void PASCAL main_loop ()
                     }
                 }
                 continue;
-//          case 75:                                    /* Left */
             case 0x25:                                  /* Left */
                 if (vIndent == 0)
                     continue;
                 vIndent = (Uchar)(vIndent < vDisTab ? 0 : vIndent - vDisTab);
                 SetUpdateM (U_ALL);
                 continue;
-//          case 77:                                    /* Right */
             case 0x27:                                  /* Right */
                 if (vIndent >= (Uchar)(254-vWidth))
                     continue;
                 vIndent += vDisTab;
                 SetUpdateM (U_ALL);
                 continue;
-//          case 71:
             case 0x24:                                  /* HOME */
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // shift or ctrl home
                     ( RIGHT_CTRL_PRESSED | LEFT_CTRL_PRESSED |
@@ -596,7 +436,6 @@ void PASCAL main_loop ()
                     }
                 }
                 continue;
-//          case 79:                                    /* END  */
             case 0x23:                                  /* END  */
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // shift or ctrl end
                     ( RIGHT_CTRL_PRESSED | LEFT_CTRL_PRESSED |
@@ -611,44 +450,17 @@ void PASCAL main_loop ()
                 }
                 continue;
 
-/*
-            case 118:                                   // NextFile
-                if (NextFile (+1, NULL)) {
-                    vStatCode |= S_UPDATE;
-                    SetUpdate (U_ALL);
-                }
-
-                continue;
-            case 132:                                   // PrevFile
-                if (NextFile (-1, NULL)) {
-                    vStatCode |= S_UPDATE;
-                    SetUpdate (U_ALL);
-                }
-
-                continue;
-*/
-//          case 61:                                    /* F3       */
             case 0x72:                                  /* F3       */
                 FindString ();
                 SetUpdate (U_ALL);
                 continue;
-//          case 62:                                    /* F4       */
             case 0x73:                                  /* F4       */
                 vStatCode = (char)((vStatCode^S_MFILE) | S_UPDATE);
                 vDate[ST_SEARCH] = (char)(vStatCode & S_MFILE ? '*' : ' ');
                 SetUpdate (U_HEAD);
                 continue;
 
-//
-// T-HeathH 06/23/94
-//
-// Corrected scan codes for Alt-E and Alt-V.
-// Also: F1
-//
             case 69:
-#if T_HEATHH
-                OutputDebugString( TEXT("[Alt-E]\n") );
-#endif
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // ALT-E
                     ( RIGHT_ALT_PRESSED | LEFT_ALT_PRESSED ) ) {
                     i = vLines <= 41 ? 25 : 43;
@@ -657,10 +469,7 @@ void PASCAL main_loop ()
                 }
                 continue;
             case 86:                                    // ALT-V
-#if T_HEATHH
-                OutputDebugString( TEXT("[Alt-V]\n") );
-#endif
-                if (InpBuffer.Event.KeyEvent.dwControlKeyState & 
+                if (InpBuffer.Event.KeyEvent.dwControlKeyState &
                     ( RIGHT_ALT_PRESSED | LEFT_ALT_PRESSED ) ) {
                     i = vLines >= 48 ? 25 : 60;
                     if (set_mode (i, 0, 0))
@@ -673,7 +482,6 @@ void PASCAL main_loop ()
                             SetUpdate (U_NMODE);
                 }
                 continue;
-//          case 35:                                /* Alt H    */
             case 0x70:                              /* F1       */
                 ShowHelp ();
                 SetUpdate (U_NMODE);
@@ -684,28 +492,18 @@ void PASCAL main_loop ()
                 SlimeTOF  ();
                 SetUpdate (U_ALL);
                 continue;
-//          case 66:                                /* F8       */
             case 0x77:                              // F8
             case 0x1b:                              // ESC
             case 0x51:                              // Q or q
-
-//
-// NT - jaimes - 01/30/91
-//
-//              DosExit (1, 0);
                 CleanUp();
                 ExitProcess(0);
 
         }
 
 
-
         // Now check for a known char code...
 
-//      switch (Kd.chChar) {
         switch (InpBuffer.Event.KeyEvent.uChar.AsciiChar) {
-
-
             case '?':
                 ShowHelp ();
                 SetUpdate (U_NMODE);
@@ -778,7 +576,6 @@ void PASCAL main_loop ()
                 ToggleWrap ();
                 SetUpdate (U_ALL);
                 continue;
-//          case 12:                                        /* REFRESH */
             case 'l':                                       /* REFRESH */
             case 'L':                                       /* REFRESH */
                 if (InpBuffer.Event.KeyEvent.dwControlKeyState &     // ctrl L
@@ -789,53 +586,8 @@ void PASCAL main_loop ()
             case '\r':                                          /* ENTER*/
                 SetUpdate (U_HEAD);
                 continue;
-/*
-            case 'k':
-            case 'K':
-// NT - jaimes - 01/30/91
-// For now, we wont have this option
 
-                rc = DosOpen ("kbd$", &i, &rc, 0L, 0, 0x1, 0x40, 0L);
-                if (!rc) {
-                    ((int *) s)[0] = 0;
-                    ((int *) s)[1] = 30;
-                    rc = DosDevIOCtl (s, s, 0x54, 0x04, i);
-                    DosClose (i);
-                }
-                DisLn (20, (Uchar)(vLines+1), rc ? "KeyRate NOT set" : "KeyRate Set   ");
-
-                continue;
-*/
-
-            /*
-             *  no chChar.  used for overlapped commands.  Ie, M
-             *  for mark, but alt M for mono.
-             */
-/*
-            case 0:
-//              switch (Kd.chScan) {
-                switch (InpBuffer.Event.KeyEvent.wVirtualKeyCode) {
-//                  case 50:                    // MONO
-                    case 0x4d:                  // MONO
-                        i = set_mode (vSetLines, vSetWidth, 1);
-                        if (!i)
-                            i = set_mode (0, 0, 1);
-                        if (!i)
-                            i = set_mode (25, 80, 1);
-                        if (i)
-                            SetUpdate (U_NMODE);
-                        continue;
-                }
-                continue;
-
-*/
             default:
-//              sprintf (s, "Char = %d, %d  ", Kd.chChar, Kd.chScan);
-        //        sprintf (s,
-        //                 "Char = %d, %d  ",
-        //                 InpBuffer.Event.KeyEvent.uChar.AsciiChar,
-        //                 InpBuffer.Event.KeyEvent.wVirtualKeyCode);
-        //        DisLn   (20, (Uchar)(vLines+1), s);
                 continue;
         }
 
@@ -843,8 +595,10 @@ void PASCAL main_loop ()
 }
 
 
-void PASCAL SetUpdate (i)
-int i;
+void
+SetUpdate(
+    int i
+    )
 {
     while (vUpdate>(char)i)
         PerformUpdate ();
@@ -852,10 +606,10 @@ int i;
 }
 
 
-void PASCAL PerformUpdate ()
+void
+PerformUpdate (
+    )
 {
-
-
     if (vUpdate == U_NONE)
         return;
 
@@ -863,7 +617,6 @@ void PASCAL PerformUpdate ()
         vSpLockFlag = 1;
         ScrLock (1);
     }
-
 
     switch (vUpdate) {
         case U_NMODE:
@@ -888,7 +641,10 @@ void PASCAL PerformUpdate ()
 NTSTATUS fncRead(HANDLE, DWORD, DWORD, char *, ULONG *);
 NTSTATUS fncWrite(HANDLE, DWORD, DWORD, char *, ULONG *);
 
-void DumpFileInHex (void)
+void
+DumpFileInHex(
+    void
+    )
 {
     struct  HexEditParm     ei;
     ULONG   CurLine;
@@ -927,16 +683,14 @@ void DumpFileInHex (void)
     vpFlCur->HighTop  = vHighTop;
     vpFlCur->HighLen  = vHighLen;
     vpFlCur->TopLine  = vTopLine;
-    vpFlCur->Loffset  = vLoffset;
+    vpFlCur->Loffset  = GetLoffset();
     vpFlCur->LastLine = vLastLine;
     vpFlCur->NLine    = vNLine;
 
-    memcpy (vpFlCur->prgLineTable, vprgLineTable,
-            sizeof (long FAR *) * MAXTPAGE);
+    memcpy (vpFlCur->prgLineTable, vprgLineTable, sizeof (long *) * MAXTPAGE);
 
     vFInfo.nFileSizeLow = 0;
     setattr2 (0, 0, vWidth, (char)vAttrTitle);
-
 
     //
     // Setup for HexEdit call
@@ -977,18 +731,13 @@ void DumpFileInHex (void)
 }
 
 
-int  PASCAL NextFile (int dir,struct  Flist   FAR *pNewFile)
+int
+NextFile (
+    int    dir,
+    struct Flist   *pNewFile)
 {
-//    int     i;
-    struct  Flist FAR *vpFLCur;
-//
-// NT - jaimes - 01/31/91
-//
-//    unsigned  u;
-//         HANDLE u;
-//       PAGE_DESCRIPTOR   pLine;
-        long FAR         *pLine;
-
+    struct  Flist *vpFLCur;
+    long         *pLine;
 
     vpFLCur = vpFlCur;
     if (pNewFile == NULL) {
@@ -1037,12 +786,11 @@ int  PASCAL NextFile (int dir,struct  Flist   FAR *pNewFile)
         vpFLCur->HighTop  = vHighTop;
         vpFLCur->HighLen  = vHighLen;
         vpFLCur->TopLine  = vTopLine;
-        vpFLCur->Loffset  = vLoffset;
+        vpFLCur->Loffset  = GetLoffset();
         vpFLCur->LastLine = vLastLine;
         vpFLCur->NLine    = vNLine;
 
-        memcpy (vpFLCur->prgLineTable, vprgLineTable,
-                sizeof (long FAR *) * MAXTPAGE);
+        memcpy (vpFLCur->prgLineTable, vprgLineTable, sizeof (long *) * MAXTPAGE);
 
         if (vLastLine == NOLASTLINE)    {
                 pLine = vprgLineTable [vNLine/PLINES] + vNLine % PLINES;
@@ -1072,18 +820,13 @@ int  PASCAL NextFile (int dir,struct  Flist   FAR *pNewFile)
     return (1);
 }
 
-
-
-void PASCAL ToggleWrap ()
+void
+ToggleWrap(
+    )
 {
-
-
     SyncReader ();
 
     vWrap = (Uchar)(vWrap == (Uchar)(vWidth - 1) ? 254 : vWidth - 1);
-//    vpFlCur->FileTime.DoubleSeconds = -1;        /* Cause info to be invalid     */
-//    vpFlCur->FileTime.Minutes = -1;   /* Cause info to be invalid     */
-//    vpFlCur->FileTime.Hours = -1;     /* Cause info to be invalid     */
     vpFlCur->FileTime.dwLowDateTime = (unsigned)-1;          /* Cause info to be invalid     */
     vpFlCur->FileTime.dwHighDateTime = (unsigned)-1;      /* Cause info to be invalid     */
     FreePages (vpFlCur);
@@ -1098,7 +841,8 @@ void PASCAL ToggleWrap ()
  *
  */
 
-void PASCAL QuickHome ()
+void
+QuickHome ()
 {
 
     vTopLine = 0L;                                      /* Line we're after */
@@ -1109,7 +853,8 @@ void PASCAL QuickHome ()
     vpCur = vpHead;
 }
 
-void PASCAL QuickEnd ()
+void
+QuickEnd ()
 {
     vTopLine = 1L;
 
@@ -1132,22 +877,26 @@ void PASCAL QuickEnd ()
     QuickRestore ();
 }
 
-
-void PASCAL QuickRestore ()
+void
+QuickRestore ()
 {
     long    l;
+    long    indx1 = vTopLine/PLINES;
+    long    indx2 = vTopLine%PLINES;
 
     SyncReader ();
-//
-// NT - jaimes - 01/28/91
-// changed vprgLineTable
-//
-//    l = vprgLineTable[vTopLine/PLINES][vTopLine%PLINES];
-//       l = (vprgLineTable[vTopLine/PLINES].pulPointerToPage)[vTopLine%PLINES];
-          l = vprgLineTable[vTopLine/PLINES][vTopLine%PLINES];
 
+    if(indx1 < MAXTPAGE) {
+        l = vprgLineTable[indx1][indx2];
+    } else {
+        puts("Sorry, This file is too big for LIST to handle. MAXTPAGE limit exceeded\n");
+        CleanUp();
+        ExitProcess(0);
+    }
 
-    if (l >= vpHead->offset  &&  l <= vpTail->offset + BLOCKSIZE) {
+    if ((l >= vpHead->offset)  &&
+        (l <= vpTail->offset + BLOCKSIZE))
+    {
         vReaderFlag = F_CHECK;              /* Jump location is alread in   */
                                             /* memory.                      */
         DosSemClear (vSemReader);
@@ -1170,18 +919,15 @@ void PASCAL QuickRestore ()
  *  Should be modified to be smarter about one line movements.
  *
  */
-int PASCAL InfoReady (void)
+int
+InfoReady(
+    void
+    )
 {
     struct Block *pBlock;
-//
-// NT - jaimes - 01/31/91
-//
-//    long   FAR         *pLine;
-//    long    *pLine;
     LONG  *pLine;
     long    foffset, boffset;
     int     index, i, j;
-
 
     /*
      *  Check that first line has been calced
@@ -1193,15 +939,10 @@ int PASCAL InfoReady (void)
         vReaderFlag = F_DOWN;
         return (0);
     }
-//
-// NT -jaimes - 01/28/91
-//
-//    pLine = vprgLineTable [(int)vTopLine / PLINES];
-//       pLine = vprgLineTable [(int)vTopLine / PLINES].pulPointerToPage;
-          pLine = vprgLineTable [(int)vTopLine / PLINES];
-        index = (int)(vTopLine % PLINES);
-    foffset = *(pLine+=index);
 
+    pLine = vprgLineTable [(int)vTopLine / PLINES];
+    index = (int)(vTopLine % PLINES);
+    foffset = *(pLine+=index);
 
     /*
      *  Check that last line has been calced
@@ -1217,7 +958,6 @@ int PASCAL InfoReady (void)
         return (0);
     }
 
-
     /*
      *  Put this loop in assembler.. For more speed
      *  boffset = calc_lens (foffset, i, pLine, index);
@@ -1228,12 +968,7 @@ int PASCAL InfoReady (void)
         pLine++;
         if (++index >= PLINES) {
             index = 0;
-//
-// NT - jaimes - 01/2891
-//
-//          pLine = vprgLineTable [vTopLine / PLINES + 1];
-//              pLine = vprgLineTable [vTopLine / PLINES + 1].pulPointerToPage;
-                pLine = vprgLineTable [vTopLine / PLINES + 1];
+            pLine = vprgLineTable [vTopLine / PLINES + 1];
         }
         boffset += (long)((vrgNewLen[j] = (Uchar)(*pLine - boffset)));
     }

@@ -31,8 +31,8 @@ include callconv.inc                    ; calling convention macros
 include mac386.inc
         .list
 
-        EXTRNP _KeSetEventBoostPriority, 2, IMPORT
-        EXTRNP _KeWaitForSingleObject,5, IMPORT
+        EXTRNP _KeSetEventBoostPriority, 2
+        EXTRNP _KeWaitForSingleObject, 5
 
 ifdef NT_UP
     LOCK_ADD  equ   add
@@ -72,11 +72,13 @@ cPublicFastCall ExAcquireFastMutexUnsafe,1
 cPublicFpo 0,0
 
    LOCK_DEC     dword ptr [ecx].FmCount ; decrement lock count
-        jz      short afm10             ; if z, ownership obtained
-        inc     dword ptr [ecx].FmContention ; increment contention count
+        jnz     short afm10             ; if nz, ownership not obtained
+        fstRet  ExAcquireFastMutexUnsafe ; return
+
+afm10:  inc     dword ptr [ecx].FmContention ; increment contention count
         add     ecx, FmEvent            ; wait for ownership event
         stdCall _KeWaitForSingleObject,<ecx,WrExecutive,0,0,0> ;
-afm10:  fstRet  ExAcquireFastMutexUnsafe ; return
+        fstRet  ExAcquireFastMutexUnsafe ; return
 
 fstENDP ExAcquireFastMutexUnsafe
 
@@ -107,10 +109,12 @@ cPublicFastCall ExReleaseFastMutexUnsafe,1
 cPublicFpo 0,0
 
    LOCK_ADD     dword ptr [ecx].FmCount, 1 ; increment ownership count
-        jg      short rfm10             ; if g, no waiter present
-        add     ecx, FmEvent            ; compute event address
+        jng     short rfm10             ; if ng, waiter present
+        fstRet  ExReleaseFastMutexUnsafe ; return
+
+rfm10:  add     ecx, FmEvent            ; compute event address
         stdCall _KeSetEventBoostPriority,<ecx, 0> ; set ownerhsip event
-rfm10:  fstRet  ExReleaseFastMutexUnsafe ; return
+        fstRet  ExReleaseFastMutexUnsafe ; return
 
 fstENDP ExReleaseFastMutexUnsafe
 

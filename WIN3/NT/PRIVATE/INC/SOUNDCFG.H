@@ -27,6 +27,7 @@ Revision History:
 #define SOUND_REG_DMABUFFERSIZE (L"Dma Buffer Size")
 #define SOUND_REG_CONFIGERROR (L"Configuration Error")
 #define SOUND_REG_LOADTYPE (L"Load Type")
+#define SOUND_REG_PNPDEVICE (L"PnP Device")
 
     //
     //  Values for Load Type
@@ -41,6 +42,7 @@ Revision History:
     //  Values for synth type
     //
 
+    #define SOUND_SYNTH_TYPE_NONE   0x00
     #define SOUND_SYNTH_TYPE_ADLIB  0x01
     #define SOUND_SYNTH_TYPE_OPL3   0x02
 
@@ -63,6 +65,10 @@ Revision History:
 #define SOUND_CONFIG_PORT_INUSE 0x00000007
 #define SOUND_CONFIG_DMA_INUSE  0x00000008
 #define SOUND_CONFIG_INT_INUSE  0x00000009
+
+#define SOUND_CONFIG_NOINT      0x0000000A
+#define SOUND_CONFIG_NODMA      0x0000000B
+
 
 #define PARMS_SUBKEY                  L"Parameters"
 #define SOUND_DEVICES_SUBKEY          L"Devices"

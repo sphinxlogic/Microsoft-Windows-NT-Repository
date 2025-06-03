@@ -26,6 +26,7 @@
 #endif
 
 .rdata
+	.align	3
 _exptable:
 	.word	D(0x3FF00000,0x00000000), D(0x00000000,0x00000000)
 	.word	D(0x3FF059B0,0xD3158540), D(0x3D0A1D73,0xE2A475B4)

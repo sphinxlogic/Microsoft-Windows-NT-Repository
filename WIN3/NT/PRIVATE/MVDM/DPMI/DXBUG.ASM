@@ -663,7 +663,7 @@ if NTDEBUG
 ;
 ;==============================================================================
 
-ifdef WOW
+ifdef WOW_x86
 
 SAVE_STATE_PM MACRO
         push    ebp
@@ -922,7 +922,7 @@ dbgtr_exit:
         RESTORE_STATE_&mode
         ENDM
 
-endif ; WOW
+endif ; WOW_x86
 
 DXDATA  segment
 

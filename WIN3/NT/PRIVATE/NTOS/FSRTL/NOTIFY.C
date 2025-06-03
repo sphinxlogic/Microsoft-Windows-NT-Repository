@@ -103,6 +103,14 @@ typedef struct _NOTIFY_CHANGE {
     PVOID FsContext;
 
     //
+    //  StreamID.  This value matches the FsContext field in the file object for
+    //  the directory being watched.  This is used to identify the directory stream
+    //  when the directory is being deleted.
+    //
+
+    PVOID StreamID;
+
+    //
     //  TraverseAccessCallback.  This is the filesystem-supplied routine used
     //  to call back into the filesystem to check whether the caller has traverse
     //  access when watching a sub-directory.  Only applies when watching a
@@ -197,6 +205,7 @@ typedef struct _NOTIFY_CHANGE {
 #define NOTIFY_CLEANUP_CALLED           (0x0004)
 #define NOTIFY_DEFER_NOTIFY             (0x0008)
 #define NOTIFY_DIR_IS_ROOT              (0x0010)
+#define NOTIFY_STREAM_IS_DELETED        (0x0020)
 
 //
 //  ULONG
@@ -296,12 +305,13 @@ FsRtlNotifyCompleteIrp (
     IN PIRP NotifyIrp,
     IN PNOTIFY_CHANGE Notify,
     IN ULONG DataLength,
-    IN BOOLEAN CalledFromCleanup
+    IN NTSTATUS Status
     );
 
 VOID
 FsRtlNotifySetCancelRoutine (
-    IN PIRP NotifyIrp
+    IN PIRP NotifyIrp,
+    IN BOOLEAN NotifyComplete
     );
 
 BOOLEAN
@@ -318,13 +328,19 @@ FsRtlNotifyUpdateBuffer (
 VOID
 FsRtlNotifyCompleteIrpList (
     IN PNOTIFY_CHANGE Notify,
-    IN BOOLEAN CalledFromCleanup
+    IN NTSTATUS Status
     );
 
 VOID
 FsRtlCancelNotify (
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp
+    );
+
+VOID
+FsRtlCheckNotifyForDelete (
+    IN PLIST_ENTRY NotifyListHead,
+    IN PVOID FsContext
     );
 
 #ifdef ALLOC_PRAGMA
@@ -338,6 +354,7 @@ FsRtlCancelNotify (
 #pragma alloc_text(PAGE, FsRtlNotifyCompleteIrp)
 #pragma alloc_text(PAGE, FsRtlNotifyReportChange)
 #pragma alloc_text(PAGE, FsRtlNotifyUpdateBuffer)
+#pragma alloc_text(PAGE, FsRtlCheckNotifyForDelete)
 #endif
 
 
@@ -557,31 +574,38 @@ Arguments:
         structure to.
 
     FsContext  -  This is supplied by the file system so that this notify
-        structure can be uniquely identified.
+        structure can be uniquely identified.  If the NotifyIrp is not specified
+        then this is used to identify the stream and it will match the FsContext
+        field in the file object of a stream being deleted.
 
     FullDirectoryName  -  Points to the full name for the directory associated
-        with this notify structure.
+        with this notify structure.  Ignored if the NotifyIrp is not specified.
 
     WatchTree  -  This indicates whether all subdirectories for this directory
-        should be watched, or just the directory itself.
+        should be watched, or just the directory itself.  Ignored if the
+        NotifyIrp is not specified.
 
     IgnoreBuffer  -  Indicates whether we will always ignore any user buffer
         and force the directory to be reenumerated.  This will speed up the
-        operation.
+        operation.  Ignored if the NotifyIrp is not specified.
 
     CompletionFilter  -  This provides the mask to determine which operations
-        will trigger the notify operations.
+        will trigger the notify operations.  Ignored if the NotifyIrp is not
+        specified.
 
-    NotifyIrp  -  This is the Irp to complete on notify change.
+    NotifyIrp  -  This is the Irp to complete on notify change.  If this irp is
+        not specified it means that the stream represented by this file object
+        is being deleted.
 
     TraverseCallback  -  If specified we must call this routine when a change
         has occurred in a subdirectory being watched in a tree.  This will
         let the filesystem check if the watcher has traverse access to that
-        directory.
+        directory.  Ignored if the NotifyIrp is not specified.
 
     SubjectContext - If there is a traverse callback routine then we will
         pass this subject context as a parameter to the call.  We will release
-        the context and free the structure when done with it.
+        the context and free the structure when done with it.  Ignored if the
+        NotifyIrp is not specified.
 
 Return Value:
 
@@ -598,12 +622,6 @@ Return Value:
     DebugTrace( +1, Dbg, "FsRtlNotifyFullChangeDirectory:  Entered\n", 0 );
 
     //
-    //  Get the current Stack location
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( NotifyIrp );
-
-    //
     //  Acquire exclusive access to the list by acquiring the mutex.
     //
 
@@ -614,6 +632,23 @@ Return Value:
     //
 
     try {
+
+        //
+        //  If there is no Irp then find all of the pending Irps whose file objects
+        //  refer to the same stream and complete them with STATUS_DELETE_PENDING.
+        //
+
+        if (NotifyIrp == NULL) {
+
+            FsRtlCheckNotifyForDelete( NotifyList, FsContext );
+            try_return( NOTHING );
+        }
+
+        //
+        //  Get the current Stack location
+        //
+
+        IrpSp = IoGetCurrentIrpStackLocation( NotifyIrp );
 
         //
         //  Clear the Iosb in the Irp.
@@ -657,6 +692,7 @@ Return Value:
 
             Notify->NotifySync = (PREAL_NOTIFY_SYNC) NotifySync;
             Notify->FsContext = FsContext;
+            Notify->StreamID = IrpSp->FileObject->FsContext;
 
             Notify->TraverseCallback = TraverseCallback;
             Notify->SubjectContext = SubjectContext;
@@ -684,6 +720,11 @@ Return Value:
             } else {
 
                 Notify->CharacterSize = sizeof( CHAR );
+            }
+
+            if (FullDirectoryName->Length == Notify->CharacterSize) {
+
+                SetFlag( Notify->Flags, NOTIFY_DIR_IS_ROOT );
             }
 
             Notify->CompletionFilter = CompletionFilter;
@@ -715,6 +756,21 @@ Return Value:
             IoMarkIrpPending( NotifyIrp );
 
             FsRtlCompleteRequest( NotifyIrp, STATUS_NOTIFY_CLEANUP );
+            try_return( NOTHING );
+
+        //
+        //  If this file has been deleted then complete with STATUS_DELETE_PENDING.
+        //
+
+        } else if (FlagOn( Notify->Flags, NOTIFY_STREAM_IS_DELETED )) {
+
+            //
+            //  Always mark this Irp as pending returned.
+            //
+
+            IoMarkIrpPending( NotifyIrp );
+
+            FsRtlCompleteRequest( NotifyIrp, STATUS_DELETE_PENDING );
             try_return( NOTHING );
 
         //
@@ -759,7 +815,7 @@ Return Value:
             FsRtlNotifyCompleteIrp( NotifyIrp,
                                     Notify,
                                     ThisDataLength,
-                                    FALSE );
+                                    STATUS_SUCCESS );
 
             try_return( NOTHING );
         }
@@ -776,7 +832,7 @@ Return Value:
         //  Call the routine to set the cancel routine.
         //
 
-        FsRtlNotifySetCancelRoutine( NotifyIrp );
+        FsRtlNotifySetCancelRoutine( NotifyIrp, FALSE );
 
     try_exit:  NOTHING;
     } finally {
@@ -1114,9 +1170,9 @@ Return Value:
             //  characters match exactly.
             //
 
-            if (RtlCompareMemory( Notify->FullDirectoryName->Buffer,
-                                  NormalizedParentName->Buffer,
-                                  Notify->FullDirectoryName->Length ) != Notify->FullDirectoryName->Length) {
+            if (!RtlEqualMemory( Notify->FullDirectoryName->Buffer,
+                                 NormalizedParentName->Buffer,
+                                 Notify->FullDirectoryName->Length )) {
 
                 continue;
             }
@@ -1631,7 +1687,7 @@ Return Value:
 
                 if (!IsListEmpty( &Notify->NotifyIrps )) {
 
-                    FsRtlNotifyCompleteIrpList( Notify, FALSE );
+                    FsRtlNotifyCompleteIrpList( Notify, STATUS_SUCCESS );
                 }
             }
         }
@@ -1724,7 +1780,7 @@ Return Value:
 
             if (!IsListEmpty( &Notify->NotifyIrps )) {
 
-                FsRtlNotifyCompleteIrpList( Notify, TRUE );
+                FsRtlNotifyCompleteIrpList( Notify, STATUS_NOTIFY_CLEANUP );
             }
 
             RemoveEntryList( &Notify->NotifyList );
@@ -1849,7 +1905,7 @@ FsRtlNotifyCompleteIrp (
     IN PIRP NotifyIrp,
     IN PNOTIFY_CHANGE Notify,
     IN ULONG DataLength,
-    IN BOOLEAN CalledFromCleanup
+    IN NTSTATUS Status
     )
 
 /*++
@@ -1869,7 +1925,7 @@ Arguments:
         structure.  A value of zero indicates that we should complete the
         request with STATUS_NOTIFY_ENUM_DIR.
 
-    CalledFromCleanup  -  Indicates if we were called from cleanup.
+    Status  -  Indicates the status to complete the Irp with.
 
 Return Value:
 
@@ -1878,7 +1934,6 @@ Return Value:
 --*/
 
 {
-    NTSTATUS Status;
     PIO_STACK_LOCATION IrpSp;
 
     PAGED_CODE();
@@ -1889,17 +1944,13 @@ Return Value:
     //  Clear the Iosb in the Irp.
     //
 
-    NotifyIrp->IoStatus.Information = 0;
+    FsRtlNotifySetCancelRoutine( NotifyIrp, TRUE );
 
     //
-    //  If called from cleanup then we just need the status code.
+    //  We only process the buffer if the status is STATUS_SUCCESS.
     //
 
-    if (CalledFromCleanup) {
-
-        Status = STATUS_NOTIFY_CLEANUP;
-
-    } else {
+    if (Status == STATUS_SUCCESS) {
 
         //
         //  Get the current Stack location
@@ -1942,8 +1993,6 @@ Return Value:
         //
 
         } else {
-
-            Status = STATUS_SUCCESS;
 
             if (Notify->AllocatedBuffer != NULL) {
 
@@ -2041,7 +2090,8 @@ Return Value:
 
 VOID
 FsRtlNotifySetCancelRoutine (
-    IN PIRP NotifyIrp
+    IN PIRP NotifyIrp,
+    IN BOOLEAN NotifyComplete
     )
 
 /*++
@@ -2053,6 +2103,10 @@ Routine Description:
 Arguments:
 
     NotifyIrp  -  Set the cancel routine in this Irp.
+
+    NotifyComplete - Set to TRUE if we are in the process of completing an
+        Irp normally.  If so then we simply need to clear the necessary Irp
+        fields while holding the spinlock.
 
 Return Value:
 
@@ -2068,11 +2122,23 @@ Return Value:
     IoAcquireCancelSpinLock( &NotifyIrp->CancelIrql );
 
     //
+    //  If we are completing an Irp then clear the cancel routine and
+    //  the information field.
+    //
+
+    if (NotifyComplete) {
+
+        IoSetCancelRoutine( NotifyIrp, NULL );
+        NotifyIrp->IoStatus.Information = 0;
+
+        IoReleaseCancelSpinLock( NotifyIrp->CancelIrql );
+
+    //
     //  If the cancel flag is set, we complete the Irp with cancelled
     //  status and exit.
     //
 
-    if (NotifyIrp->Cancel) {
+    } else if (NotifyIrp->Cancel) {
 
         DebugTrace( 0, Dbg, "Irp has been cancelled\n", 0 );
 
@@ -2264,7 +2330,7 @@ Return Value:
 VOID
 FsRtlNotifyCompleteIrpList (
     IN OUT PNOTIFY_CHANGE Notify,
-    IN BOOLEAN CalledFromCleanup
+    IN NTSTATUS Status
     )
 
 /*++
@@ -2281,8 +2347,9 @@ Arguments:
 
     Notify  -  This is the notify change structure.
 
-    CalledFromCleanup  -  Indicates that we were called from cleanup.  In that
-        case we will try to complet all of the Irps.
+    Status  -  Indicates the status used to complete the request.  If this status
+        is STATUS_SUCCESS then we only want to complete one Irp.  Otherwise we
+        want complete all the Irps in the list.
 
 Return Value:
 
@@ -2333,13 +2400,13 @@ Return Value:
         FsRtlNotifyCompleteIrp( Irp,
                                 Notify,
                                 DataLength,
-                                CalledFromCleanup );
+                                Status );
 
         //
-        //  If we weren't called from cleanup then exit the loop.
+        //  If we were only to complete one Irp then break now.
         //
 
-        if (!CalledFromCleanup) {
+        if (Status == STATUS_SUCCESS) {
 
             break;
         }
@@ -2402,6 +2469,7 @@ Return Value:
     //
 
     IoSetCancelRoutine( Irp, NULL );
+    Irp->IoStatus.Information = 0;
     IoReleaseCancelSpinLock( Irp->CancelIrql );
 
     FsRtlEnterFileSystem();
@@ -2448,8 +2516,6 @@ Return Value:
                 //
 
                 RemoveEntryList( Links->Flink );
-
-                ThisIrp->IoStatus.Information = 0;
 
                 IoMarkIrpPending( ThisIrp );
 
@@ -2633,6 +2699,18 @@ Return Value:
                 }
 
                 //
+                //  If this is not the Irp we were passed then we need
+                //  to carefully clear the cancel information.  Otherwise
+                //  a real cancel on this Irp may come in and we might
+                //  look at stale values in the .Information field.
+                //
+
+                if (ThisIrp != Irp) {
+
+                    FsRtlNotifySetCancelRoutine( ThisIrp, TRUE );
+                }
+
+                //
                 //  Complete the Irp with status cancelled.
                 //
 
@@ -2658,3 +2736,80 @@ Return Value:
     return;
 }
 
+
+//
+//  Local support routine
+//
+
+VOID
+FsRtlCheckNotifyForDelete (
+    IN PLIST_ENTRY NotifyListHead,
+    IN PVOID StreamID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when a stream is being marked for delete.  We will
+    walk through the notify structures looking for an Irp for the same stream.
+    We will complete these Irps with STATUS_DELETE_PENDING.
+
+Arguments:
+
+    NotifyListHead  -  This is the start of the notify list.
+
+    StreamID  -  This is the Context ID used to identify the stream.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PLIST_ENTRY Link;
+
+    PNOTIFY_CHANGE ThisNotify;
+
+    PAGED_CODE();
+
+    //
+    //  Walk through all the entries on the list looking for a match.
+    //
+
+    for (Link = NotifyListHead->Flink;
+         Link != NotifyListHead;
+         Link = Link->Flink) {
+
+        //
+        //  Obtain the notify structure from the link.
+        //
+
+        ThisNotify = CONTAINING_RECORD( Link, NOTIFY_CHANGE, NotifyList );
+
+        //
+        //  If the context field matches, then complete any waiting Irps.
+        //
+
+        if (ThisNotify->StreamID == StreamID) {
+
+            //
+            //  Start by marking the notify structure as file deleted.
+            //
+
+            SetFlag( ThisNotify->Flags, NOTIFY_STREAM_IS_DELETED );
+
+            //
+            //  Now complete all of the Irps on this list.
+            //
+
+            if (!IsListEmpty( &ThisNotify->NotifyIrps )) {
+
+                FsRtlNotifyCompleteIrpList( ThisNotify, STATUS_DELETE_PENDING );
+            }
+        }
+    }
+
+    return;
+}

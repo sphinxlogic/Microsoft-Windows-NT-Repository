@@ -265,6 +265,7 @@ Revision History:
 #define SepTokenAuthenticationId( Token )   (((PTOKEN)(Token))->AuthenticationId)
 
 
+
 //
 //
 // BOOLEAN
@@ -330,7 +331,7 @@ extern BOOLEAN SepAuditShutdownEvents;
 // Spinlock protecting the queue of work being passed to LSA
 //
 
-extern FAST_MUTEX SepLsaQueueLock;
+extern ERESOURCE SepLsaQueueLock;
 
 extern ULONG SepLsaQueueLength;
 
@@ -342,11 +343,18 @@ extern LIST_ENTRY SepLsaQueue;
 
 
 
-#define SepLockLsaQueue() ExAcquireFastMutex(&SepLsaQueueLock)
+#define SepLockLsaQueue() ExAcquireResourceExclusive(&SepLsaQueueLock, TRUE)
 
-#define SepUnlockLsaQueue() ExReleaseFastMutex(&SepLsaQueueLock)
+#define SepUnlockLsaQueue() ExReleaseResource(&SepLsaQueueLock)
 
 #define  SepWorkListHead()  ((PSEP_LSA_WORK_ITEM)(&SepLsaQueue)->Flink)
+
+#ifndef ExAllocatePool
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'  eS')
+#endif
+#ifndef ExAllocatePoolWithQuota
+#define ExAllocatePoolWithQuota(a,b) ExAllocatePoolWithQuotaTag(a,b,'  eS')
+#endif
 
 typedef
 VOID
@@ -470,8 +478,11 @@ SepCreateToken(
     IN PSID PrimaryGroup,
     IN PACL DefaultDacl OPTIONAL,
     IN PTOKEN_SOURCE TokenSource,
-    IN BOOLEAN SystemToken
+    IN BOOLEAN SystemToken,
+    IN PSECURITY_TOKEN_PROXY_DATA ProxyData OPTIONAL,
+    IN PSECURITY_TOKEN_AUDIT_DATA AuditData OPTIONAL
     );
+
 
 
 NTSTATUS
@@ -501,6 +512,8 @@ SepGetDefaultsSubjectContext(
     IN PSECURITY_SUBJECT_CONTEXT SubjectContext,
     OUT PSID *Owner,
     OUT PSID *Group,
+    OUT PSID *ServerOwner,
+    OUT PSID *ServerGroup,
     OUT PACL *Dacl
     );
 
@@ -508,7 +521,8 @@ SepGetDefaultsSubjectContext(
 BOOLEAN
 SepValidOwnerSubjectContext(
     IN PSECURITY_SUBJECT_CONTEXT SubjectContext,
-    IN PSID Owner
+    IN PSID Owner,
+    IN BOOLEAN ServerObject
     );
 
 
@@ -635,6 +649,15 @@ SepExamineSacl(
     OUT PBOOLEAN GenerateAlarm
     );
 
+NTSTATUS
+SepCreateServerAcl(
+    IN PACL NewDacl,
+    IN BOOLEAN DaclUntrusted,
+    IN PSID ServerSid,
+    OUT PACL *ServerDacl,
+    OUT BOOLEAN *ServerDaclAllocated
+    );
+
 
 VOID
 SepCopyString (
@@ -687,6 +710,32 @@ BOOLEAN
 SepAdtValidateAuditBounds(
     ULONG Upper,
     ULONG Lower
+    );
+
+NTSTATUS
+SepAdtInitializeCrashOnFail(
+    VOID
+    );
+
+BOOLEAN
+SepAdtInitializePrivilegeAuditing(
+    VOID
+    );
+
+NTSTATUS
+SepCopyProxyData (
+    OUT PSECURITY_TOKEN_PROXY_DATA * DestProxyData,
+    IN PSECURITY_TOKEN_PROXY_DATA SourceProxyData
+    );
+
+VOID
+SepFreeProxyData (
+    IN PSECURITY_TOKEN_PROXY_DATA ProxyData
+    );
+
+NTSTATUS
+SepProbeAndCaptureQosData(
+    IN PSECURITY_ADVANCED_QUALITY_OF_SERVICE CapturedSecurityQos
     );
 
 #endif // _SEP_

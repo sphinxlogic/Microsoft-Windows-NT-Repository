@@ -64,6 +64,7 @@ Notes on Labels:
 	PRT_SWITCH_PREFIX		= 0x00008000,	// prefix proc names with user
 											// defined prefix.
 	PRT_SUPPRESS_MODEL		= 0x00010000,	// suppress __far, etc 
+	PRT_QUALIFIED_NAME		= 0x00020000,	// add <classname>:: to procs
 	};
 	
 typedef unsigned long PRTFLAGS;
@@ -131,54 +132,5 @@ typedef unsigned long PRTFLAGS;
 // given a type, print a cast to it
 #define PRT_CAST_TO_TYPE			( PRT_CAST )
 
-
-class  INDENTMGR
-/*++
-
-Class Description:
-
-    This struct provides indentation management
-
-Fields:
-
-    usCurrIndent - Contains the current indentation.
-
---*/
-{
-	unsigned short	usCurrIndent		: 16;
-	unsigned short	usPreferredIndent	: 16;
-
-public:
-	INDENTMGR(unsigned short Preferred = 2)
-		{
-		usCurrIndent = 0;
-		usPreferredIndent = Preferred;
-		};
-
-	void IndentInc (unsigned short usIndent)
-		{
-		usCurrIndent += usIndent;
-		}
-	void IndentInc ()
-		{
-		usCurrIndent += usPreferredIndent;
-		}
-	void IndentDec (unsigned short usIndent)
-		{
-		usCurrIndent -= usIndent;
-		}
-	void IndentDec ()
-		{
-		usCurrIndent -= usPreferredIndent;
-		}
-	void InitLine (STREAM * pStream);
-
-	void InitIndent()
-			{
-			usCurrIndent = 0;
-			}
-
-
-} ;
 
 #endif // __PRTTYPE_HXX__

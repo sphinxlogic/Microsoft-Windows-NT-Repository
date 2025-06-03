@@ -160,18 +160,24 @@ DBGSTATIC
 PMPX_ENTRY
 AllocateMPXEntry (
     IN PSERVERLISTENTRY Server,
-    IN BOOLEAN LongTermOperation
+    IN ULONG LongtermOperation
     );
+
+#define ReferenceMPXEntry(_mte) {           \
+    ASSERT( (_mte)->ReferenceCount != 0 );  \
+    (_mte)->ReferenceCount++;               \
+}
 
 DBGSTATIC
 VOID
-FreeMPXEntry (
+DereferenceMPXEntry (
     IN PMPX_ENTRY MpxEntry
     );
 
 NTSTATUS
 RdrCancelSmbRequest (
-    IN PMPX_ENTRY Mte
+    IN PMPX_ENTRY Mte,
+    IN PKIRQL OldIrql
     );
 
 NTSTATUS
@@ -285,14 +291,12 @@ HandleServerDisconnectionPart1 (
 #pragma alloc_text(PAGE, HandleServerDisconnectionPart2)
 #pragma alloc_text(PAGE, RdrUninitializeSmbExchangeForConnection)
 #pragma alloc_text(PAGE, RdrpInitializeSmbExchange)
-#pragma alloc_text(PAGE, RdrpUninitializeSmbExchange)
-
 
 #pragma alloc_text(PAGE2VC, NetTranceiveCallback)
 #pragma alloc_text(PAGE2VC, NetTranceiveComplete)
 #pragma alloc_text(PAGE2VC, RdrSetMpxEntryContextAndCallback)
-#pragma alloc_text(PAGE2VC, RdrCheckForControlCOnMpxEntry)
 #pragma alloc_text(PAGE2VC, RdrMarkIrpAsNonCanceled)
+#pragma alloc_text(PAGE2VC, RdrCheckForControlCOnMpxEntry)
 #pragma alloc_text(PAGE2VC, RdrSetCallbackTranceive)
 #pragma alloc_text(PAGE2VC, RdrCallbackTranceive)
 #pragma alloc_text(PAGE2VC, RdrCancelTranceiveNoRelease)
@@ -301,7 +305,7 @@ HandleServerDisconnectionPart1 (
 #pragma alloc_text(PAGE2VC, RdrCompleteCancel)
 #pragma alloc_text(PAGE2VC, RdrAbandonOutstandingRequests)
 #pragma alloc_text(PAGE2VC, AllocateMPXEntry)
-#pragma alloc_text(PAGE2VC, FreeMPXEntry)
+#pragma alloc_text(PAGE2VC, DereferenceMPXEntry)
 #pragma alloc_text(PAGE2VC, RdrSendSMB)
 #pragma alloc_text(PAGE2VC, RdrCompleteSend)
 #pragma alloc_text(PAGE2VC, RdrStartReceiveForMpxEntry)
@@ -362,11 +366,6 @@ typedef struct _SendContext {
     PSERVERLISTENTRY ServerListEntry;
     PMPX_ENTRY MpxTableEntry;
     PIRP OriginatingIrp;
-//    PTRANSPORT_CONNECTION TransportConnection;
-    PIRP OriginalIrp;                   // Original IRP if send IRP not allocated
-    PVOID OriginalSystemBuffer;         // Original contents of Irp.System...
-    PVOID OriginalUserBuffer;           // Original contents of Irp.UserBuffer
-    PMDL OriginalMdlAddress;            // Original contents of Irp.MdlAddr...
 } SENDCONTEXT, *PSENDCONTEXT;
 
 
@@ -481,37 +480,14 @@ NOTE:
                 Se,
                 (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
                 (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                (BOOLEAN )(((Flags & (NT_LONGTERM | NT_PREFER_LONGTERM)) != 0)),
+                Flags & (NT_LONGTERM | NT_PREFER_LONGTERM),
                 (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
                 &Mte,
                 Context->Header.TransferSize);
 
     if (!NT_SUCCESS(Status)) {
-
-        if (Flags & NT_PREFER_LONGTERM) {
-
-            //
-            //  If this is a PREFER_LONGTERM operation, retry as a non-longterm
-            //  operation.
-            //
-
-            Status = RdrStartTranceive(
-                Irp,
-                CLE,
-                Se,
-                (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
-                (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                FALSE,
-                (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
-                &Mte,
-                Context->Header.TransferSize);
-        }
-
-        if (!NT_SUCCESS(Status)) {
-            FREE_POOL(Context);
-            return Status;
-        }
-
+        FREE_POOL(Context);
+        return Status;
     }
 
     if (ARGUMENT_PRESENT(ReceiveMDL)) {
@@ -526,7 +502,12 @@ NOTE:
             goto Return;
         }
 
-        Context->ReceiveIrp = RdrAllocateIrp(CLE->Server->ConnectionContext->ConnectionObject, NULL);
+        Context->ReceiveIrp = ALLOCATE_IRP(
+                                CLE->Server->ConnectionContext->ConnectionObject,
+                                NULL,
+                                6,
+                                Context
+                                );
 
         if (Context->ReceiveIrp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -615,7 +596,9 @@ Return:
                                         FALSE,
                                         NULL);
 
-        IoFreeIrp(Context->ReceiveIrp);
+        if (Context->ReceiveIrp != NULL) {
+            FREE_IRP( Context->ReceiveIrp, 7, Context );
+        }
     }
 
     if (ConnectionObjectReferenced) {
@@ -659,7 +642,7 @@ Arguments:
 
     Irp - Pointer to the I/O request packet from the transport
     IncomingSmb - Pointer to incoming SMB buffer
-    MpxTable - Mpx Table entry for request.
+    MpxEntry - Mpx Table entry for request.
     Context - Context information passed into NetTranceiveNoWait
     ErrorIndicator - TRUE if the network request was in error.
     NetworkErrorCode - Error code if request completed with network error
@@ -689,6 +672,10 @@ Note:
 
     PTRANCEIVECONTEXT Context = Ctx;
     NTSTATUS Status;
+
+    UNREFERENCED_PARAMETER(SmbLength);
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Server);
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
@@ -755,7 +742,6 @@ Note:
 
     return STATUS_SUCCESS;      // We're done, eat response and return
 
-    if (SmbLength||MpxEntry||Server);
 }
 
 DBGSTATIC
@@ -791,6 +777,8 @@ Return Value:
 
 {
     struct _TranceiveContext *Context = Ctx;
+
+    UNREFERENCED_PARAMETER(DeviceObject);
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
@@ -851,7 +839,6 @@ Return Value:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
-    if (DeviceObject);
 }
 
 
@@ -932,6 +919,7 @@ Detailed description of parameters:
     NTSTATUS Status = STATUS_SUCCESS;
     PTRANCEIVE_HEADER Header = (PTRANCEIVE_HEADER) ContextInformation;
     PMPX_ENTRY pLocalMTE = NULL;        // MPX table entry
+    USHORT Uid;
 
 #ifndef PAGING_OVER_THE_NET
     PAGED_CODE();
@@ -984,35 +972,13 @@ Detailed description of parameters:
                                     Se,
                                     (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
                                     (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                                    (BOOLEAN )((Flags & (NT_LONGTERM | NT_PREFER_LONGTERM)) != 0),
+                                    Flags & (NT_LONGTERM | NT_PREFER_LONGTERM),
                                     (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
                                     &pLocalMTE,
                                     Header->TransferSize);
 
                 if (!NT_SUCCESS(Status)) {
-
-                    if (Flags & NT_PREFER_LONGTERM) {
-
-                        //
-                        //  If this is a PREFER_LONGTERM operation, retry
-                        //  as a non-longterm operation.
-                        //
-
-                        Status = RdrStartTranceive(
-                                        Irp,
-                                        Connection,
-                                        Se,
-                                        (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
-                                        (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                                        FALSE,
-                                        (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
-                                        &pLocalMTE,
-                                        Header->TransferSize);
-                    }
-
-                    if (!NT_SUCCESS(Status)) {
-                        return Status;
-                    }
+                    return Status;
                 }
 
                 if (ARGUMENT_PRESENT(pMTE)) {
@@ -1143,96 +1109,26 @@ Detailed description of parameters:
 
         }
 
-        if (Status == STATUS_USER_SESSION_DELETED) {
-            PSMB_HEADER Smb;
-            USHORT UserId = 0xffff;
+        if ((Status == STATUS_USER_SESSION_DELETED) ||
+            (Status == STATUS_NETWORK_NAME_DELETED)) {
 
-            Smb = MmGetSystemAddressForMdl(SendMDL);
-
-            UserId = SmbGetUshort(&Smb->Uid);
-
-            if (UserId != 0 && !FlagOn(Flags, NT_RECONNECTING)) {
-
-                //
-                // We can't wait for the SessionStateModifiedLock here,
-                // because we already own the OutstandingRequestResource,
-                // and that's the wrong order for acquiring these two
-                // locks (see HandleServerDisconnectionPart1, for
-                // example).  So we instead try to acquire the SSM lock
-                // without waiting.  If we don't get it, that's OK.  We
-                // just won't invalidate the security entries associated
-                // with this UID right now.  Maybe the next time we send
-                // an SMB for this UID (and get the error again), we'll
-                // get lucky and grab the SSM lock.
-                //
-
-                if (ExAcquireResourceExclusive(&Connection->Server->SessionStateModifiedLock,
-                                               FALSE)) {
-                    RdrInvalidateConnectionActiveSecurityEntries(NULL,
-                                                Connection->Server,
-                                                Connection,
-                                                FALSE,
-                                                UserId
-                                                );
-                    ExReleaseResource(&Connection->Server->SessionStateModifiedLock);
-                }
+            if (Status == STATUS_USER_SESSION_DELETED) {
+                PSMB_HEADER Smb;
+                Smb = MmGetSystemAddressForMdl(SendMDL);
+                Uid = SmbGetUshort(&Smb->Uid);
+            } else {
+                Uid = 0;
             }
 
-            //
-            //  Set things up so we retry this operation
-            //
+            RdrCheckForSessionOrShareDeletion(
+                Status,
+                Uid,
+                BooleanFlagOn(Flags, NT_RECONNECTING),
+                Connection,
+                Header,
+                Irp
+                );
 
-            Header->ErrorType = NetError;
-
-        }
-
-        //
-        //  If we got the special error STATUS_NETWORK_NAME_DELETED, it means
-        //  that the server has deleted the share.  Before we reconnect, we
-        //  want to invalidate the tree connection and raise a hard error
-        //  to tell the user something bad happened.
-        //
-
-        if (Status == STATUS_NETWORK_NAME_DELETED) {
-
-            //
-            //  We no longer have a valid tree id for this connection.
-            //
-
-            //
-            //  Test to see if the connection flag has already been invalidated.
-            //
-            //  If it is still valid, invalidate the tree connection.
-            //
-            //  We perform this invalidation unsafely
-            //
-
-            if (Connection->HasTreeId) {
-
-                Connection->HasTreeId = FALSE;
-
-                //
-                //  Raise a hard error indicating that the name was deleted.
-                //
-                //  We only raise this if the error came from an application (ie
-                //  we don't raise if we get an invalid tree id when blowing away
-                //  a dormant connection).
-                //
-                //  We don't want to pop up this hard error ontop of a system
-                //  thread.
-                //
-
-                if (!(Flags & NT_RECONNECTING) &&
-                    (Irp != NULL) &&
-                    !IoIsSystemThread(Irp->Tail.Overlay.Thread)) {
-#if MAGIC_BULLET
-                    RdrSendMagicBullet(NULL);
-                    DbgPrint( "RDR: About to raise NETWORK_NAME_DELETED hard error for IRP %x\n", Irp );
-                    DbgBreakPoint();
-#endif
-                    IoRaiseInformationalHardError(Status, NULL, Irp->Tail.Overlay.Thread);
-                }
-            }
         }
 
         //
@@ -1374,37 +1270,14 @@ Detailed description of parameters:
                                         Se,
                                         (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
                                         (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                                        (BOOLEAN )((Flags & (NT_LONGTERM | NT_PREFER_LONGTERM)) != 0),
+                                        Flags & (NT_LONGTERM | NT_PREFER_LONGTERM),
                                         (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
                                         &Mte,
                                         TransferSize);
 
             if (!NT_SUCCESS(Status)) {
-
                 ASSERT (Mte == NULL);
-
-                if (Flags & NT_PREFER_LONGTERM) {
-                    Status = RdrStartTranceive(Irp,
-                                        Connection,
-                                        Se,
-                                        (BOOLEAN )((Flags & NT_NORECONNECT) == 0),
-                                        (BOOLEAN )((Flags & NT_RECONNECTING) != 0),
-                                        FALSE,
-                                        (BOOLEAN )(((Flags & NT_CANNOTCANCEL) != 0)),
-                                        &Mte,
-                                        TransferSize);
-
-                }
-
-                if (!NT_SUCCESS(Status)) {
-                    //
-                    //  The request failed, if appropriate, return the error.
-                    //
-
-                    ASSERT (Mte == NULL);
-
-                    try_return(Status);
-                }
+                try_return(Status);
             }
 
             MpxEntryAllocated = TRUE;
@@ -1429,7 +1302,7 @@ Detailed description of parameters:
         //  Send the SMB on its way
         //
 
-        Status = RdrSendSMB(Flags, Irp, Connection, Se, Mte, SendMDL);
+        Status = RdrSendSMB(Flags, Connection, Se, Mte, SendMDL);
 
 try_exit:NOTHING;
     } finally {
@@ -1551,6 +1424,8 @@ Note:
 
     PAGED_CODE();
 
+    UNREFERENCED_PARAMETER(Flags);
+
     Context = ALLOCATE_POOL(NonPagedPool, sizeof(TRANCEIVECONTEXT), POOL_TRANCEIVECONTEXT);
 
     if (Context == NULL) {
@@ -1572,6 +1447,7 @@ Note:
     //  but we will use RdrSendSMB, RdrWaitTranceive, and RdrEndTranceive
     //  to handle the actual exchange mechanism.
     //
+
     if (ARGUMENT_PRESENT(ReceiveMDL)) {
         Context->Header.TransferSize =
             RdrMdlLength( SendMDL ) + RdrMdlLength (ReceiveMDL );
@@ -1579,7 +1455,7 @@ Note:
         Context->Header.TransferSize = RdrMdlLength( SendMDL );
     }
 
-    Status = RdrStartTranceive(Irp, Cle, Se, FALSE, FALSE, FALSE, FALSE, &Mte, Context->Header.TransferSize);
+    Status = RdrStartTranceive(Irp, Cle, Se, FALSE, FALSE, 0, FALSE, &Mte, Context->Header.TransferSize);
 
     if (!NT_SUCCESS(Status)) {
         FREE_POOL(Context);
@@ -1603,7 +1479,12 @@ Note:
 
         Context->Header.Type = CONTEXT_NET_TRANCEIVE;
 
-        Context->ReceiveIrp = RdrAllocateIrp(Cle->Server->ConnectionContext->ConnectionObject, NULL);
+        Context->ReceiveIrp = ALLOCATE_IRP(
+                                Cle->Server->ConnectionContext->ConnectionObject,
+                                NULL,
+                                7,
+                                Context
+                                );
 
         if (Context->ReceiveIrp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1644,7 +1525,7 @@ Note:
 
         }
 
-        Status = RdrSendSMB(Flags, Irp, Cle, Se, Mte, SendMDL);
+        Status = RdrSendSMB(Flags, Cle, Se, Mte, SendMDL);
 
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
@@ -1697,7 +1578,7 @@ try_exit:NOTHING;
                                         FALSE,
                                         NULL);
 
-            IoFreeIrp(Context->ReceiveIrp);
+            FREE_IRP( Context->ReceiveIrp, 8, Context );
         }
 
         RdrEndTranceive(Mte);
@@ -1708,7 +1589,6 @@ try_exit:NOTHING;
 
     return Status;
 
-    if (Flags);
 }
 
 
@@ -1719,7 +1599,7 @@ RdrStartTranceive (
     IN PSECURITY_ENTRY Se OPTIONAL,
     IN BOOLEAN AllowReconnection,
     IN BOOLEAN Reconnecting,
-    IN BOOLEAN LongtermOperation,
+    IN ULONG LongtermOperation,
     IN BOOLEAN CannotCancelRequest,
     OUT PMPX_ENTRY *pMte,
     IN ULONG TransferSize
@@ -1740,7 +1620,7 @@ Arguments:
     IN PSECURITY_ENTRY Se - Security context associated with request.
     IN BOOLEAN AllowReconnection - TRUE iff reconnect is allowed.
     IN BOOLEAN Reconnecting - TRUE if we are in the process of reconnecting.
-    IN BOOLEAN LongtermOperation - TRUE if this is a long term operation.
+    IN ULONG LongtermOperation - 0, NT_LONGTERM, or NT_PREFER_LONGTERM.
     OUT PMPX_ENTRY *pMte - MPX table allocated.
     IN ULONG TransferSize - Expected number of bytes being exchanged.
 
@@ -1786,7 +1666,11 @@ Return Value:
     }
 
 
-    if (LongtermOperation) {
+    ASSERT( (LongtermOperation == 0) ||
+            (LongtermOperation == NT_LONGTERM) ||
+            (LongtermOperation == NT_PREFER_LONGTERM) );
+
+    if (LongtermOperation != 0) {
         ASSERT (ARGUMENT_PRESENT(Irp));
     }
 
@@ -1878,10 +1762,7 @@ Return Value:
         GateHeld = TRUE;
 
         //
-        //  First allocate an MPX table entry to map this request.
-        //
-        //  RdrAllocate_MPX_Entry will block until an MPX entry becomes
-        //  available.
+        //  Finally, allocate an MPX table entry to map this request.
         //
 
         *pMte = AllocateMPXEntry(Sle, LongtermOperation);
@@ -1893,8 +1774,6 @@ Return Value:
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
 
         }
-
-//        ASSERT ((*pMte)->Connection == TransportConnection);
 
         //
         //  Store the transfer size for use in timeout calculations.
@@ -1914,10 +1793,6 @@ Return Value:
         if ( ARGUMENT_PRESENT(Irp) ) {
             PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation(Irp);
             (*pMte)->FileObject = IrpSp->FileObject;
-        }
-
-        if (LongtermOperation) {
-            (*pMte)->Flags |= MPX_ENTRY_LONGTERM;
         }
 
         if (CannotCancelRequest) {
@@ -1949,11 +1824,7 @@ try_exit:NOTHING;
                                     FALSE); // We aren't going to block.
             }
 
-            if (*pMte != NULL) {
-
-                FreeMPXEntry(*pMte);
-                *pMte = NULL;
-            }
+            ASSERT(*pMte == NULL);
 
             if (ServerReferenced) {
                 RdrDereferenceServer(NULL, Sle);
@@ -2065,6 +1936,25 @@ Return Value:
             RdrCheckForControlCOnMpxEntry(MpxEntry);
         }
 
+        //
+        //  There is a small race window in which a VC disconnect received
+        //  in the middle of a multi-SMB tranceive might be overwritten. If
+        //  that happens, this routine will continue to wait forever, since
+        //  nobody is ever going to set MpxEntry->RequestContext->KernelEvent.
+        //  So, we bail out if this is the case.
+        //
+
+        if (Status == STATUS_TIMEOUT &&
+                FlagOn(MpxEntry->Flags, MPX_ENTRY_LONGTERM) &&
+                    !MpxEntry->SLE->ConnectionValid) {
+
+            Status = STATUS_SUCCESS;
+
+            MpxEntry->RequestContext->ErrorType = NetError;
+            MpxEntry->RequestContext->ErrorCode = STATUS_VIRTUAL_CIRCUIT_CLOSED;
+
+        }
+
     } while ( (Status == STATUS_KERNEL_APC) ||
               (Status == STATUS_USER_APC) ||
               (Status == STATUS_TIMEOUT) ||
@@ -2113,7 +2003,6 @@ Return Value:
 {
     PSERVERLISTENTRY Server = Mte->SLE;
     ERESOURCE_THREAD RequestorsThread = Mte->RequestorsThread;
-//    PTRANSPORT_CONNECTION Connection = Mte->Connection;
     PAGED_CODE();
 
     dprintf(DPRT_SMB, ("RdrEndTranceive %lx\n", Mte));
@@ -2131,7 +2020,7 @@ Return Value:
 
     }
 
-    FreeMPXEntry(Mte);                  // Release the MPX table entry.
+    DereferenceMPXEntry(Mte);           // Release the MPX table entry.
 
     //
     //  Release the server's "gate semaphore".
@@ -2273,23 +2162,15 @@ NOTE:   IT IS CRITICAL THAT THE CALLBACK ROUTINE NOT ACQUIRE THE
         FlagOn(MpxTableEntry->Flags, MPX_ENTRY_SENDCOMPLETE)) {
 
         IoAcquireCancelSpinLock(&MpxTableEntry->OriginatingIrp->CancelIrql);
-
-        MpxTableEntry->OriginatingIrp->Cancel = FALSE;
-
         IoSetCancelRoutine(MpxTableEntry->OriginatingIrp, NULL);
-
         IoReleaseCancelSpinLock(MpxTableEntry->OriginatingIrp->CancelIrql);
     }
 
     //
-    //  Release the spin lock while sending the magic bullet.
+    //  If we've not called this guy back, call his callback routine.
     //
 
     RELEASE_SPIN_LOCK(&RdrMpxTableEntryCallbackSpinLock, OldIrql);
-
-    //
-    //  If we've not called this guy back, call his callback routine.
-    //
 
     if (Callback != NULL) {
 
@@ -2312,8 +2193,6 @@ NOTE:   IT IS CRITICAL THAT THE CALLBACK ROUTINE NOT ACQUIRE THE
     } else {
 
         if (!Error) {
-//  BUGBUG: Need to log an error for this - Data we weren't expecting.
-
 #if DBG
             dprintf(DPRT_ERROR, ("RDR: Received indication data for a request that has already been completed\n"));
 #endif
@@ -2322,7 +2201,7 @@ NOTE:   IT IS CRITICAL THAT THE CALLBACK ROUTINE NOT ACQUIRE THE
             IFDEBUG(ERROR) ndump_core((PCHAR )Smb, *SmbLength);
 
 #if MAGIC_BULLET
-            IFDEBUG(ERROR) {
+            if ( RdrEnableMagic ) {
                 RdrSendMagicBullet(NULL);
             }
 #endif
@@ -2386,7 +2265,8 @@ Return Value:
             !FlagOn(Mte->Flags, MPX_ENTRY_CANNOT_CANCEL) &&
             (Mte->OriginatingIrp == Irp) &&
             (Irp->Cancel)) {
-            if (Mte->SLE->Capabilities & DF_NT_SMBS) {
+            if ( FlagOn(Mte->SLE->Capabilities, DF_NT_SMBS) &&
+                 (OldIrql < DISPATCH_LEVEL) ) {
 
                 if (Mte->Flags & MPX_ENTRY_LONGTERM) {
                     //
@@ -2417,7 +2297,7 @@ Return Value:
                 //  unwind the request.
                 //
 
-                RdrCancelSmbRequest(Mte);
+                RdrCancelSmbRequest(Mte, &OldIrql);
 
             } else {
 
@@ -2456,7 +2336,6 @@ Return Value:
                                      NULL,
                                      Mte->RequestContext,
                                      Mte->SLE,
-//                                     Mte->Connection,
                                      TRUE,
                                      STATUS_CANCELLED,
                                      NULL,
@@ -2493,20 +2372,13 @@ Return Value:
 
     None.
 
-Note:
-    This routine relies on the fact that RdrCompleteSend will set the
-    Irp->IoStatus.Information field to the transport connection that the
-    request is outstanding on.
-
 --*/
 {
-    PSERVERLISTENTRY Server = (PSERVERLISTENTRY)Irp->IoStatus.Information;
+    PSERVERLISTENTRY Server = (PSERVERLISTENTRY)Irp->Tail.Overlay.ListEntry.Flink;
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
     ASSERT (Server->Signature == STRUCTURE_SIGNATURE_SERVERLISTENTRY);
-
-    IoSetCancelRoutine(Irp, NULL);
 
     IoReleaseCancelSpinLock(Irp->CancelIrql);
 
@@ -2517,7 +2389,8 @@ Note:
 
 NTSTATUS
 RdrCancelSmbRequest (
-    IN PMPX_ENTRY Mte
+    IN PMPX_ENTRY Mte,
+    IN PKIRQL OldIrql
     )
 /*++
 
@@ -2542,8 +2415,9 @@ Note:
 
 
 {
-    PIRP Irp = RdrAllocateIrp(Mte->SLE->ConnectionContext->ConnectionObject,
-                              Mte->SLE->ConnectionContext->TransportProvider->DeviceObject);
+    PSERVERLISTENTRY Server = Mte->SLE;
+    PIRP Irp;
+    PDEVICE_OBJECT DeviceObject;
 
     PSMB_HEADER CancelRequest = NULL;
     PREQ_NT_CANCEL NtCancel;
@@ -2553,6 +2427,12 @@ Note:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
+    Irp = ALLOCATE_IRP(
+            Server->ConnectionContext->ConnectionObject,
+            Server->ConnectionContext->TransportProvider->DeviceObject,
+            8,
+            Mte
+            );
     if (Irp == NULL) {
         return(STATUS_INSUFFICIENT_RESOURCES);
     }
@@ -2560,33 +2440,29 @@ Note:
     CancelRequest = ALLOCATE_POOL(NonPagedPoolMustSucceed, sizeof(SMB_HEADER)+sizeof(REQ_NT_CANCEL), POOL_CANCELREQ);
 
     if (CancelRequest == NULL) {
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 9, Mte );
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     NtCancel = (PREQ_NT_CANCEL)(CancelRequest+1);
 
-    RdrSmbScrounge(CancelRequest, NULL, TRUE, TRUE);
+    RdrSmbScrounge(CancelRequest, NULL, FALSE, TRUE, TRUE);
 
     CancelRequest->Command = SMB_COM_NT_CANCEL;
 
     NtCancel->WordCount = 0;
-
     NtCancel->ByteCount = 0;
 
     SmbPutAlignedUshort(&CancelRequest->Mid, Mte->Mid);
-
     SmbPutAlignedUshort(&CancelRequest->Uid, Mte->Uid);
-
     SmbPutAlignedUshort(&CancelRequest->Tid, Mte->Tid);
-
     SmbPutAlignedUshort(&CancelRequest->Pid, Mte->Pid);
 
     SendMdl = IoAllocateMdl(CancelRequest, sizeof(SMB_HEADER)+FIELD_OFFSET(REQ_NT_CANCEL, Buffer[0]), FALSE, FALSE, NULL);
 
     if (SendMdl == NULL) {
 
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 10, Mte );
 
         FREE_POOL(CancelRequest);
 
@@ -2599,7 +2475,7 @@ Note:
 
     MmBuildMdlForNonPagedPool(SendMdl);
 
-    RdrBuildSend(Irp, Mte->SLE, RdrCompleteCancel, CancelRequest, SendMdl, 0,
+    RdrBuildSend(Irp, Server, RdrCompleteCancel, CancelRequest, SendMdl, 0,
                     sizeof(SMB_HEADER)+FIELD_OFFSET(REQ_NT_CANCEL, Buffer[0]));
 
 #if     RDRDBG
@@ -2610,11 +2486,29 @@ Note:
 
     SMBTRACE_RDR(SendMdl);
 
-    Status = IoCallDriver(Mte->SLE->ConnectionContext->TransportProvider->DeviceObject, Irp);
+    RdrReferenceServer( Server );
 
-    if (!NT_SUCCESS(Status)) {
-        RdrStatistics.InitiallyFailedOperations += 1;
+    RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, *OldIrql);
+
+    Status = RdrReferenceTransportConnection( Server );
+
+    if ( NT_SUCCESS(Status) ) {
+
+        DeviceObject = Server->ConnectionContext->TransportProvider->DeviceObject;
+
+        Status = IoCallDriver(DeviceObject, Irp);
+
+        if (!NT_SUCCESS(Status)) {
+            RdrStatistics.InitiallyFailedOperations += 1;
+        }
+
+        RdrDereferenceTransportConnection( Server );
+
     }
+
+    RdrDereferenceServer( NULL, Server );
+
+    ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
 
     return Status;
 }
@@ -2626,6 +2520,8 @@ RdrCompleteCancel (
     IN PVOID Context
     )
 {
+    UNREFERENCED_PARAMETER(DeviceObject);
+    UNREFERENCED_PARAMETER(Context);
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
@@ -2637,13 +2533,9 @@ RdrCompleteCancel (
 
     IoFreeMdl(Irp->MdlAddress);
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 11, NULL );
 
     return(STATUS_MORE_PROCESSING_REQUIRED);
-
-    UNREFERENCED_PARAMETER(DeviceObject);
-
-    UNREFERENCED_PARAMETER(Context);
 
 }
 
@@ -2754,7 +2646,7 @@ NOTE:
 
             Mte->StartTime = RdrCurrentTime;
 
-            RdrCancelSmbRequest( Mte );
+            RdrCancelSmbRequest(Mte, &OldIrql);
         }
 
     }
@@ -2770,7 +2662,7 @@ NOTE:
 PMPX_ENTRY
 AllocateMPXEntry (
     IN PSERVERLISTENTRY Server,
-    IN BOOLEAN LongtermOperation
+    IN ULONG LongtermOperation
     )
 
 /*++
@@ -2785,9 +2677,7 @@ individual network request.  They are allocated in a first available order.
 
 Arguments:
 
-    BOOLEAN LongtermOperation - TRUE if this is a long term operation.  We
-                                will not allow a long term operation to take
-                                the last MPX entry.
+    IN ULONG LongtermOperation - 0, NT_LONGTERM, or NT_PREFER_LONGTERM.
 
 Return Value:
 
@@ -2803,6 +2693,10 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 //    PAGED_CODE();
+
+    ASSERT( (LongtermOperation == 0) ||
+            (LongtermOperation == NT_LONGTERM) ||
+            (LongtermOperation == NT_PREFER_LONGTERM) );
 
     do {
 
@@ -2830,19 +2724,25 @@ Return Value:
         //          is a blocking read outstanding.
         //
 
-        if ( LongtermOperation &&
-             ( Server->NumberOfLongTermEntries == ( Server->MaximumCommands - 1 ) )
-           ) {
+        if ( (LongtermOperation != 0) &&
+             ( Server->NumberOfLongTermEntries == ( Server->MaximumCommands - 1 ) ) ) {
 
-           RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+            if ( LongtermOperation == NT_PREFER_LONGTERM ) {
 
-           //
-           //  Returning NULL indicates insufficient resources (which is close
-           //  enough to being the real reason for the failure)
-           //
+                LongtermOperation = 0;
 
-           return NULL;
+            } else {
 
+                RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+
+                //
+                //  Returning NULL indicates insufficient resources (which is close
+                //  enough to being the real reason for the failure)
+                //
+
+                return NULL;
+
+            }
         }
 
         for ( i=0 ; i < Server->NumberOfEntries ; i++) {
@@ -2903,6 +2803,8 @@ Return Value:
 
                 Server->NumberOfActiveEntries += 1;
 
+                Mte->Flags = MPX_ENTRY_ALLOCATED; // Allocate entry
+
                 if (LongtermOperation) {
 
                     //
@@ -2910,12 +2812,9 @@ Return Value:
                     //
 
                     Server->NumberOfLongTermEntries += 1;
+                    Mte->Flags |= MPX_ENTRY_LONGTERM;
 
                 }
-
-                Mte->Flags = MPX_ENTRY_ALLOCATED; // Allocate entry
-
-//                Mte->Connection = TransportConnection;
 
                 //
                 //  We release the spin lock as soon as possible.
@@ -2926,6 +2825,7 @@ Return Value:
                 Mte->FileObject = NULL;
 
                 Mte->SendIrp = NULL;
+                Mte->SendIrpToFree = NULL;
                 Mte->ReceiveIrp = NULL;
 
                 //
@@ -2965,6 +2865,12 @@ Return Value:
 
                 Mte->TransferSize = 0;
 
+                //
+                // Initialize the MPX entry's reference count to 1.
+                //
+
+                Mte->ReferenceCount = 1;
+
                 RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
 
                 dprintf(DPRT_SMB, ("Allocate MPX Entry %lx Mid %x\n", Mte, Mte->Mid));
@@ -2998,7 +2904,7 @@ Return Value:
 
 DBGSTATIC
 VOID
-FreeMPXEntry (
+DereferenceMPXEntry (
     IN PMPX_ENTRY MpxEntry
     )
 
@@ -3006,8 +2912,8 @@ FreeMPXEntry (
 
 Routine Description:
 
-    This routine will free up an allocated MPX table entry
-.
+    This routine will dereference and possibly free up an allocated MPX table entry.
+
 Arguments:
 
     IN PMPX_ENTRY MpxEntry - Supplies a pointer to the MPX table entry to free
@@ -3024,76 +2930,78 @@ Return Value:
     PSERVERLISTENTRY Server = MpxEntry->SLE;
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
-//    PAGED_CODE();
 
     dprintf(DPRT_SMB, ("Deallocate MPX Entry \n"));
 
     ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
 
-    ACQUIRE_SPIN_LOCK(&RdrMpxTableEntryCallbackSpinLock, &OldIrql2);
+    ASSERT( MpxEntry->ReferenceCount != 0 );
 
-    ASSERT(MpxEntry->Flags & MPX_ENTRY_ALLOCATED);
+    if ( --MpxEntry->ReferenceCount == 0 ) {
 
-    Server->NumberOfActiveEntries -= 1;
+        ACQUIRE_SPIN_LOCK(&RdrMpxTableEntryCallbackSpinLock, &OldIrql2);
 
-    ASSERT ( Server->NumberOfActiveEntries >= 0 );
+        ASSERT(MpxEntry->Flags & MPX_ENTRY_ALLOCATED);
 
-    if (MpxEntry->Flags & MPX_ENTRY_LONGTERM) {
+        Server->NumberOfActiveEntries -= 1;
+
+        ASSERT ( Server->NumberOfActiveEntries >= 0 );
+
+        if (MpxEntry->Flags & MPX_ENTRY_LONGTERM) {
+
+            //
+            //  Decrement the number of allocated MPX entries
+            //
+
+            Server->NumberOfLongTermEntries -= 1;
+
+            ASSERT ( Server->NumberOfLongTermEntries >= 0 );
+
+        }
+
+        ASSERT ( Server->NumberOfLongTermEntries <= Server->NumberOfActiveEntries );
 
         //
-        //  Decrement the number of allocated MPX entries
+        //  Turn off the "allocated" bit in the MPX table flags.  Also,
+        //  turn off the CANCEL_SEND and CANCEL_RECEIVE bits so that
+        //  RdrCancelOutstandingRequestsOnServer doesn't try to cancel
+        //  the already-completed IRPs.
         //
 
-        Server->NumberOfLongTermEntries -= 1;
+        MpxEntry->Flags &= ~(MPX_ENTRY_ALLOCATED |
+                             MPX_ENTRY_CANCEL_SEND | MPX_ENTRY_CANCEL_RECEIVE);
 
-        ASSERT ( Server->NumberOfLongTermEntries >= 0 );
+        //
+        //  Reset the MID to guarantee that incoming requests never see
+        //  this MPX entry.
+        //
+
+        MpxEntry->Mid = 0;
+        MpxEntry->RequestContext = NULL;
+        MpxEntry->Callback = NULL;
+        MpxEntry->OriginatingIrp = NULL;
+        MpxEntry->SLE = NULL;
+
+        RELEASE_SPIN_LOCK(&RdrMpxTableEntryCallbackSpinLock, OldIrql2);
+
+        RdrStatistics.CurrentCommands--;
+
+        if (MpxEntry->SendIrpToFree != NULL) {
+            FREE_IRP( MpxEntry->SendIrpToFree, 12, MpxEntry );
+            MpxEntry->SendIrpToFree = NULL;
+        }
 
     }
-
-    ASSERT ( Server->NumberOfLongTermEntries <= Server->NumberOfActiveEntries );
-
-    //
-    //  Turn of the "allocated" bit in the MPX table flags.
-    //
-    //
-    //  Note that we turn off the bit with an XOR, not an AND, this is ok,
-    //  since we have asserted that the flag is on.
-    //
-
-    MpxEntry->Flags &= ~MPX_ENTRY_ALLOCATED;
-
-    //
-    //  Reset the MID to guarantee that incoming requests never see
-    //  this MPX entry.
-    //
-
-    MpxEntry->Mid = 0;
-
-    MpxEntry->RequestContext = NULL;
-
-    MpxEntry->Callback = NULL;
-
-    MpxEntry->OriginatingIrp = NULL;
-
-//    MpxEntry->Connection = NULL;
-
-    MpxEntry->SLE = NULL;
-
-    RdrStatistics.CurrentCommands--;
-
-    RELEASE_SPIN_LOCK(&RdrMpxTableEntryCallbackSpinLock, OldIrql2);
 
     RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
 }
 
-
 NTSTATUS
 RdrSendSMB (
     IN ULONG Flags,
-    IN PIRP Irp OPTIONAL,
     IN PCONNECTLISTENTRY Connection,
     IN PSECURITY_ENTRY Se OPTIONAL,
-    IN PMPX_ENTRY MpxTable,
+    IN PMPX_ENTRY Mte,
     IN PMDL SendSMB
     )
 
@@ -3106,9 +3014,8 @@ Routine Description:
 
 Arguments:
 
-    IN PIRP Irp OPTIONAL - Supplies an IRP to be used for the send (or none)
     IN PSERVERLISTENTRY Server - Supplies the server to send the data to
-    IN PMPX_ENTRY MpxTable - Supplies a pointer to the MPX table for exchange
+    IN PMPX_ENTRY Mte - Supplies a pointer to the MPX table entry for exchange
     IN PMDL SendSMB - Supplies a pointer to the SMB to send on the wire.
 
 Return Value:
@@ -3118,6 +3025,7 @@ Return Value:
 --*/
 
 {
+    PIRP Irp;
     PSENDCONTEXT SendContext;
     PSMB_HEADER SmbToSend;
     PSERVERLISTENTRY Server = Connection->Server;
@@ -3151,7 +3059,7 @@ Return Value:
     //  state.
     //
 
-    KeInitializeEvent(&MpxTable->SendCompleteEvent, NotificationEvent, FALSE);
+    KeInitializeEvent(&Mte->SendCompleteEvent, NotificationEvent, FALSE);
 
     //
     //  Gain addressability to the send SMB buffer.
@@ -3166,14 +3074,14 @@ Return Value:
     //
 
     if (!(Flags & NT_DONTSCROUNGE)) {
-        RdrSmbScrounge(SmbToSend, Server, TRUE, TRUE);
+        RdrSmbScrounge(SmbToSend, Server, BooleanFlagOn(Flags, NT_DFSFILE), TRUE, TRUE);
     }
 
     if (!(Flags & NT_NOCONNECTLIST)) {
 
         SmbPutAlignedUshort(&SmbToSend->Tid, Connection->TreeId);
 
-        MpxTable->Tid = Connection->TreeId;
+        Mte->Tid = Connection->TreeId;
     } else {
 
         //
@@ -3181,7 +3089,7 @@ Return Value:
         //  we will be sending on the wire.
         //
 
-        MpxTable->Tid = SmbGetAlignedUshort(&SmbToSend->Tid);
+        Mte->Tid = SmbGetAlignedUshort(&SmbToSend->Tid);
     }
 
     ASSERT (KeGetCurrentIrql() <= APC_LEVEL);
@@ -3189,7 +3097,7 @@ Return Value:
     if (ARGUMENT_PRESENT(Se)) {
         SmbPutAlignedUshort(&SmbToSend->Uid, Se->UserId);
 
-        MpxTable->Uid = Se->UserId;
+        Mte->Uid = Se->UserId;
     } else {
 
         //
@@ -3197,20 +3105,20 @@ Return Value:
         //  we will be sending on the wire.
         //
 
-        MpxTable->Uid = SmbGetAlignedUshort(&SmbToSend->Uid);
+        Mte->Uid = SmbGetAlignedUshort(&SmbToSend->Uid);
     }
 
     //
     //  Save away the PID of this SMB request.
     //
 
-    MpxTable->Pid = SmbGetAlignedUshort(&SmbToSend->Pid);
+    Mte->Pid = SmbGetAlignedUshort(&SmbToSend->Pid);
 
     if (Flags & NT_NOSENDRESPONSE) {
         SendFlags |= TDI_SEND_NO_RESPONSE_EXPECTED;
     }
 
-    SmbPutAlignedUshort(&SmbToSend->Mid, MpxTable->Mid);
+    SmbPutAlignedUshort(&SmbToSend->Mid, Mte->Mid);
 
     SendContext = ALLOCATE_POOL(NonPagedPool, sizeof(SENDCONTEXT), POOL_SENDCTX);
 
@@ -3220,34 +3128,11 @@ Return Value:
 
     SendContext->Type = CONTEXT_SEND_COMPLETE;
     SendContext->SentMDL = SendSMB;
-    SendContext->OriginatingIrp = MpxTable->OriginatingIrp;
-//    SendContext->TransportConnection = MpxTable->Connection;
-    SendContext->MpxTableEntry = MpxTable;
+    SendContext->OriginatingIrp = Mte->OriginatingIrp;
+    SendContext->MpxTableEntry = Mte;
     SendContext->ServerListEntry = Server;
 
-    //
-    //  If the caller did not provide an IRP, we will have to allocate one,
-    //  set things up so that the Irp will be freed when we are done.
-    //
-
-    if (ARGUMENT_PRESENT(Irp)) {
-        MpxTable->SendIrpAllocated = FALSE;
-        //
-        //  Save away the fields in the Irp that might be tromped by
-        //  building the Irp for the TdiSend.
-        //
-        SendContext->OriginalIrp = Irp;
-        SendContext->OriginalSystemBuffer = Irp->AssociatedIrp.SystemBuffer;
-        SendContext->OriginalUserBuffer = Irp->UserBuffer;
-        SendContext->OriginalMdlAddress = Irp->MdlAddress;
-
-    } else {
-        MpxTable->SendIrpAllocated = TRUE;
-    }
-
-    MpxTable->SendIrpReferenceCount = 1;
-
-#if     RDRDBG
+#if RDRDBG
     IFDEBUG(SMBTRACE) {
         DumpSMB(SendSMB);
     }
@@ -3259,25 +3144,22 @@ Return Value:
     //  Set the timeout for this request if appropriate.
     //
 
-    // BUGBUG We don't need spinlock to do this if were careful?
-    ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
+    Mte->StartTime = RdrCurrentTime;
 
-    if (Flags & NT_LONGTERM) {
+    dprintf(DPRT_SMB, ("Setting MTE StartTime to %lx\n", Mte->StartTime));
 
-        MpxTable->Flags |= MPX_ENTRY_LONGTERM;
+    dprintf(DPRT_SMB, ("SendData.  Connection: %lx \n",Mte->SLE->ConnectionContext->ConnectionObject));
 
-    }
+    //
+    // If the MTE is being reused, and already has a send IRP, we
+    // can use the IRP instead of allocating a new one.
+    //
 
-    MpxTable->StartTime = RdrCurrentTime;
-
-    dprintf(DPRT_SMB, ("Setting MTE StartTime to %lx\n", MpxTable->StartTime));
-
-    RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
-
-    dprintf(DPRT_SMB, ("SendData.  Connection: %lx \n",MpxTable->SLE->ConnectionContext->ConnectionObject));
-
-    if (Irp == NULL) {
-        Irp = RdrAllocateIrp(MpxTable->SLE->ConnectionContext->ConnectionObject, NULL);
+    if ( Mte->SendIrpToFree != NULL ) {
+        Irp = Mte->SendIrpToFree;
+        Mte->SendIrpToFree = NULL;
+    } else {
+        Irp = ALLOCATE_IRP(Mte->SLE->ConnectionContext->ConnectionObject, NULL, 9, Mte);
         if (Irp == NULL) {
             return STATUS_INSUFFICIENT_RESOURCES;
         }
@@ -3291,6 +3173,7 @@ Return Value:
         ( Server->BufferSize != 0 )) {
 
         ASSERT( FALSE );    //  We built a bad packet for this server
+        FREE_IRP( Irp, 13, Mte );
         return  STATUS_UNSUCCESSFUL;
     }
 
@@ -3299,9 +3182,10 @@ Return Value:
 
     ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
 
-    MpxTable->SendIrp = Irp;
+    Mte->SendIrp = Irp;
+    Mte->SendIrpToFree = Irp;
 
-    MpxTable->Flags |= MPX_ENTRY_SENDIRPGIVEN;
+    Mte->Flags |= MPX_ENTRY_SENDIRPGIVEN;
 
     RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
 
@@ -3380,6 +3264,8 @@ Return Value:
     KIRQL OldIrql;
     NTSTATUS Status = Irp->IoStatus.Status;
 
+    UNREFERENCED_PARAMETER(DeviceObject);
+
     ASSERT(Context->Type == CONTEXT_SEND_COMPLETE);
     dprintf(DPRT_SMB, ("SendComplete %lx", Irp));
 
@@ -3433,31 +3319,6 @@ Return Value:
         dprintf(DPRT_SMB, ("Send successful\n"));
 #endif
     }
-
-    ACQUIRE_SPIN_LOCK(&RdrMpxTableSendReferenceSpinLock, &OldIrql);
-    Mte->SendIrpReferenceCount--;
-
-    if (Mte->SendIrpAllocated) {
-
-        if (Mte->SendIrpReferenceCount == 0) {
-            IoFreeIrp(Irp);
-        }
-
-    } else {
-
-        //
-        //      Restore the global fields in the IRP that were trashed
-        //      for the TDI_SEND request to the original contents of the
-        //      IRP.
-        //
-        PIRP OriginalIrp = Context->OriginalIrp;
-        OriginalIrp->AssociatedIrp.SystemBuffer = Context->OriginalSystemBuffer;
-        OriginalIrp->UserBuffer = Context->OriginalUserBuffer;
-        OriginalIrp->MdlAddress = Context->OriginalMdlAddress;
-
-    }
-
-    RELEASE_SPIN_LOCK(&RdrMpxTableSendReferenceSpinLock, OldIrql);
 
     //
     //  If the send IRP was not canceled by RdrCancelOutstandingRequests,
@@ -3535,7 +3396,8 @@ Return Value:
 
                     } else {
 
-                        OriginatingIrp->IoStatus.Information = (ULONG)Context->ServerListEntry;
+                        OriginatingIrp->Tail.Overlay.ListEntry.Flink =
+                                                        (PLIST_ENTRY)Context->ServerListEntry;
 
                         IoSetCancelRoutine(OriginatingIrp, RdrCancelTranceive);
 
@@ -3564,8 +3426,6 @@ Return Value:
     FREE_POOL(Context);
 
     return STATUS_MORE_PROCESSING_REQUIRED; // Short circuit I/O completion
-
-    if (DeviceObject);
 
 }
 
@@ -3727,6 +3587,16 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
+    //
+    //  If this connection is not associated with a server,
+    //  then ignore the receive indication.
+    //
+
+    if (Server == NULL) {
+        *BytesTaken = BytesAvailable;
+        return STATUS_SUCCESS;
+    }
+
 //#if DBG
 //    if (SmbLength > 128) {
 //        SmbLength = 128;
@@ -3744,11 +3614,7 @@ Return Value:
     //  continue.
     //
 
-//    ASSERT (Connection->Signature == STRUCTURE_SIGNATURE_TRANSPORT_CONNECTION);
-//    ASSERT (Connection->Size = sizeof(TRANSPORT_CONNECTION));
-
     ASSERT (Server->Signature==STRUCTURE_SIGNATURE_SERVERLISTENTRY);
-//    ASSERT (Connection->TransportProvider->FileObject==TransportEndpoint);
 
     ASSERT (BytesAvailable >= BytesIndicated);
 
@@ -3791,7 +3657,9 @@ Return Value:
 #if     RDRDBG
         IFDEBUG(ERROR) ndump_core(Tsdu, SmbLength);
 #if MAGIC_BULLET
-        IFDEBUG(ERROR) RdrSendMagicBullet(NULL);
+        if ( RdrEnableMagic ) {
+            RdrSendMagicBullet(NULL);
+        }
 #endif
 #endif
 
@@ -3818,7 +3686,9 @@ Return Value:
 #endif
 
 #if MAGIC_BULLET
-        IFDEBUG(ERROR) RdrSendMagicBullet(NULL);
+        if ( RdrEnableMagic ) {
+            RdrSendMagicBullet(NULL);
+        }
 #endif
 
         *BytesTaken = BytesAvailable;
@@ -3832,7 +3702,9 @@ Return Value:
         if (!RdrCheckSmb(Server, Tsdu, SmbLength)) {
 
 #if MAGIC_BULLET
-            IFDEBUG(ERROR) RdrSendMagicBullet(NULL);
+            if ( RdrEnableMagic ) {
+                RdrSendMagicBullet(NULL);
+            }
 #endif
 
             Status = RdrCallbackTranceive(MpxEntry, Smb, &SmbLength,
@@ -3958,22 +3830,20 @@ RdrCancelOutstandingRequestsOnServer(
 
     ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
 
+    if (Server->InCancel) {
+
+        RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+
+        return;
+
+    } else {
+
+        Server->InCancel = TRUE;
+
+    }
+
     for (i=0;i<Server->NumberOfEntries;i++) {
         PMPX_ENTRY Mte = Server->MpxTable[i].Entry;
-
-#if MAGIC_BULLET
-#if 0
-        if ((Mte != NULL) &&
-            (Mte->Flags & MPX_ENTRY_ALLOCATED) &&
-            (Mte->SLE != NULL) &&
-            (Mte->Flags & MPX_ENTRY_LONGTERM) &&
-            (Mte->StartTime != -1) &&
-            ((RdrCurrentTime - Mte->StartTime) > 30)) {
-            RdrSendMagicBullet(Mte->Server->TransportProvider);
-            DbgPrint("Request took more than 30 seconds: %wZ on transport %x\n", &Mte->SLE->Text, Mte->Server->TransportProvider);
-        }
-#endif
-#endif
 
         //
         //  If this MPX entry is allocated, it has had a request
@@ -4076,11 +3946,13 @@ RdrCancelOutstandingRequestsOnServer(
 
                 RdrStatistics.HungSessions += 1;
 #if MAGIC_BULLET
-                RdrSendMagicBullet(NULL);
-                DbgPrint("RDR: Timing out request to remote server %wZ\n", &Server->Text);
-                DbgPrint("RDR: Current Time is %lx, MID: %lx\n", RdrCurrentTime, Mte->Mid);
-                DbgPrint("RDR: Start Time is %lx, Timeout time: %lx\n", Mte->StartTime, Mte->TimeoutTime);
-                DbgBreakPoint();
+                if ( RdrEnableMagic ) {
+                    RdrSendMagicBullet(NULL);
+                    DbgPrint("RDR: Timing out request to remote server %wZ\n", &Server->Text);
+                    DbgPrint("RDR: Current Time is %lx, MID: %lx\n", RdrCurrentTime, Mte->Mid);
+                    DbgPrint("RDR: Start Time is %lx, Timeout time: %lx\n", Mte->StartTime, Mte->TimeoutTime);
+                    DbgBreakPoint();
+                }
 #endif
 
                 timeoutOccurred = TRUE;
@@ -4176,17 +4048,11 @@ RdrCancelOutstandingRequestsOnServer(
                 //  If the send hasn't been completed yet, cancel it.
                 //
 
-                KeAcquireSpinLockAtDpcLevel( &RdrMpxTableSendReferenceSpinLock );
-
-                if (Mte->SendIrpReferenceCount > 0) {
-                    PIRP SendIrp = Mte->SendIrp;
-                    Mte->SendIrpReferenceCount++;
+                if (!FlagOn(Mte->Flags, MPX_ENTRY_SENDCOMPLETE)) {
+                    Mte->StartTime = (ULONG)Mte->SendIrp;
                     Mte->SendIrp = NULL;
-                    Mte->StartTime = (ULONG)SendIrp;
                     Mte->Flags |= (MPX_ENTRY_SENDCOMPLETE | MPX_ENTRY_CANCEL_SEND);
                 }
-
-                KeReleaseSpinLockFromDpcLevel( &RdrMpxTableSendReferenceSpinLock );
 
                 //
                 //  If the receive hasn't been completed yet, cancel it.
@@ -4194,9 +4060,8 @@ RdrCancelOutstandingRequestsOnServer(
 
                 if (!FlagOn(Mte->Flags, MPX_ENTRY_RECEIVE_COMPLETE) &&
                     (Mte->ReceiveIrp != NULL)) {
-                    PIRP ReceiveIrp = Mte->ReceiveIrp;
+                    Mte->TimeoutTime = (ULONG)Mte->ReceiveIrp;
                     Mte->ReceiveIrp = NULL;
-                    Mte->TimeoutTime = (ULONG)ReceiveIrp;
                     Mte->Flags |= MPX_ENTRY_CANCEL_RECEIVE;
                 }
 
@@ -4214,27 +4079,23 @@ RdrCancelOutstandingRequestsOnServer(
         for (i=0;i<Server->NumberOfEntries;i++) {
             PMPX_ENTRY Mte = Server->MpxTable[i].Entry;
             PIRP SendIrp;
+            PIRP ReceiveIrp;
 
             if ((Mte != NULL) &&
 
                 (Mte->Flags & MPX_ENTRY_CANCEL_SEND)) {
                 Mte->Flags &= ~MPX_ENTRY_CANCEL_SEND;
 
+                ReferenceMPXEntry(Mte);
                 SendIrp = (PIRP)Mte->StartTime;
-                IoCancelIrp(SendIrp);
-
                 Mte->StartTime = 0xffffffff;
 
-                if (Mte->SendIrpAllocated) {
-                    KeAcquireSpinLockAtDpcLevel( &RdrMpxTableSendReferenceSpinLock );
-                    Mte->SendIrpReferenceCount--;
-                    if (Mte->SendIrpReferenceCount == 0) {
-                        KeReleaseSpinLockFromDpcLevel( &RdrMpxTableSendReferenceSpinLock );
-                        IoFreeIrp(SendIrp);
-                    } else {
-                        KeReleaseSpinLockFromDpcLevel( &RdrMpxTableSendReferenceSpinLock );
-                    }
-                }
+                RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+                IoCancelIrp(SendIrp);
+                DereferenceMPXEntry(Mte);
+                ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
+
+                Mte = Server->MpxTable[i].Entry;
             }
 
             if ((Mte != NULL) &&
@@ -4243,15 +4104,21 @@ RdrCancelOutstandingRequestsOnServer(
 
                 Mte->Flags &= ~MPX_ENTRY_CANCEL_RECEIVE;
 
-                IoCancelIrp((PIRP)Mte->TimeoutTime);
-
+                ReferenceMPXEntry(Mte);
+                ReceiveIrp = (PIRP)Mte->TimeoutTime;
                 Mte->TimeoutTime = 0xffffffff;
+
+                RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+                IoCancelIrp(ReceiveIrp);
+                DereferenceMPXEntry(Mte);
+                ACQUIRE_SPIN_LOCK(&RdrMpxTableSpinLock, &OldIrql);
 
             }
         }
 
     }
 
+    Server->InCancel = FALSE;
 
     RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
 
@@ -4293,7 +4160,7 @@ Return Value:
 --*/
 
 {
-    INTERLOCKED_RESULT InterlockedResult;
+    LONG InterlockedResult;
 
     PAGED_CODE();
 
@@ -4307,9 +4174,9 @@ Return Value:
         //  Decrement the ping timer by 1
         //
 
-        InterlockedResult = ExInterlockedDecrementLong(&PingTimerCounter, &RdrPingTimeInterLock);
+        InterlockedResult = InterlockedDecrement(&PingTimerCounter);
 
-        if (InterlockedResult == ResultNegative) {
+        if (InterlockedResult == 0) {
 
             RdrForeachServer(RdrPingLongtermOperationsOnServer, NULL);
 
@@ -4322,7 +4189,9 @@ Return Value:
                               RdrRequestTimeout / SCAVENGER_TIMER_GRANULARITY,
                               &RdrPingTimeInterLock);
         }
+
     }
+
 }
 
 VOID
@@ -4625,6 +4494,10 @@ Return Value:
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
 
+    UNREFERENCED_PARAMETER(MpxEntry);
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(SmbLength);
+
     ASSERT(Context->Header.Type == CONTEXT_PING);
 
     dprintf(DPRT_TDI, ("RdrPingCallback"));
@@ -4679,10 +4552,6 @@ ReturnStatus:
     ExQueueWorkItem(&Context->WorkItem, DelayedWorkQueue);
 
     return STATUS_SUCCESS;
-
-    UNREFERENCED_PARAMETER(MpxEntry);
-    UNREFERENCED_PARAMETER(Irp);
-    UNREFERENCED_PARAMETER(SmbLength);
 }
 
 DBGSTATIC
@@ -4788,6 +4657,12 @@ Return Value:
     PFILE_OBJECT TransportEndpoint = EventContext;
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
+
+    UNREFERENCED_PARAMETER(DisconnectDataLength);
+    UNREFERENCED_PARAMETER(DisconnectData);
+    UNREFERENCED_PARAMETER(DisconnectInformationLength);
+    UNREFERENCED_PARAMETER(DisconnectInformation);
+
 //    DbgBreakPoint();
 
     dprintf(DPRT_ERROR, ("Disconnect indication: Endpoint %lx Context %lx, Indicators:%lx\n",
@@ -4828,11 +4703,6 @@ Return Value:
     //
 
     return STATUS_SUCCESS;
-
-    UNREFERENCED_PARAMETER(DisconnectDataLength);
-    UNREFERENCED_PARAMETER(DisconnectData);
-    UNREFERENCED_PARAMETER(DisconnectInformationLength);
-    UNREFERENCED_PARAMETER(DisconnectInformation);
 
 }
 
@@ -5359,7 +5229,6 @@ Return Value:
                                  0,
                                  Mte->RequestContext,
                                  Server,
-//                                 Mte->Connection,
                                  TRUE,
                                  Status,
                                  NULL,
@@ -5561,7 +5430,7 @@ Note:
 
 {
     USHORT MpxIndex;
-    PMPX_TABLE MpxTable = NULL;
+    PMPX_TABLE MpxTable;
     KIRQL OldIrql;
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
@@ -5657,6 +5526,7 @@ Return Value:
 {
     KIRQL OldIrql;
     PVOID MpxTable;
+    PVOID OldTable;
     ULONG i;
 
     ASSERT (KeGetCurrentIrql() < DISPATCH_LEVEL);
@@ -5716,38 +5586,30 @@ Return Value:
             return STATUS_SUCCESS;
         }
 
+        //
+        //  We've successfully allocated a new table.  Zero out the new MPX table.
+        //  Copy over the old table (if there is an old one) on top of the new one.
+        //
+
         RtlZeroMemory(MpxTable, NumberOfEntries*sizeof(MPX_TABLE));
 
-        //
-        //  If we need to allocate more entries
-        //
+        OldTable = Server->MpxTable;
 
-        if (Server->NumberOfEntries < NumberOfEntries) {
-
-            //
-            //  We've successfully allocated a new table.  Zero out the old MPX table.
-            //
-            //  Copy over the old table (if there is an old one) on top of the new one.
-            //
-
-            if (Server->MpxTable != NULL) {
-
-                RtlCopyMemory(MpxTable, Server->MpxTable, Server->NumberOfEntries*sizeof(MPX_TABLE));
-
-                FREE_POOL(Server->MpxTable);
-
-            } else {
-                Server->NumberOfActiveEntries = 0;
-
-            }
-
+        if (OldTable != NULL) {
+            RtlCopyMemory(MpxTable, OldTable, Server->NumberOfEntries*sizeof(MPX_TABLE));
+        } else {
+            Server->NumberOfActiveEntries = 0;
         }
 
         Server->NumberOfEntries = NumberOfEntries;
-
         Server->MpxTable = MpxTable;
 
         RELEASE_SPIN_LOCK(&RdrMpxTableSpinLock, OldIrql);
+
+        if (OldTable != NULL) {
+            FREE_POOL(OldTable);
+        }
+
     }
 
 
@@ -5892,10 +5754,9 @@ Return Value:
 
     PAGED_CODE();
 
-    RdrMpxWaitTimeout.QuadPart = (LONGLONG)RDR_MPX_POLL_TIMEOUT * -10000;
+    RdrMpxWaitTimeout.QuadPart = Int32x32To64(RDR_MPX_POLL_TIMEOUT, -10000);
 
     KeInitializeSpinLock(&RdrMpxTableSpinLock);
-    KeInitializeSpinLock(&RdrMpxTableSendReferenceSpinLock);
     KeInitializeSpinLock(&RdrMpxTableEntryCallbackSpinLock);
 
     //
@@ -5911,31 +5772,106 @@ Return Value:
 
 }
 
-
-NTSTATUS
-RdrpUninitializeSmbExchange (
-    VOID
+
+VOID
+RdrCheckForSessionOrShareDeletion (
+    NTSTATUS Status,
+    USHORT Uid,
+    BOOLEAN Reconnecting,
+    PCONNECTLISTENTRY Connection,
+    PTRANCEIVE_HEADER Header,
+    PIRP Irp OPTIONAL
     )
-
-/*++
-
-Routine Description:
-
-    This routine undoes everything performed by RdrInitializeSmbExchange.
-
-
-Arguments:
-
-    None
-
-Return Value:
-
-    None.
-
---*/
-
 {
-    PAGED_CODE();
+    if (Status == STATUS_USER_SESSION_DELETED) {
 
-    return STATUS_SUCCESS;
-}
+        if ((Uid != 0) && !Reconnecting) {
+
+            //
+            // We can't wait for the SessionStateModifiedLock here,
+            // because we already own the OutstandingRequestResource,
+            // and that's the wrong order for acquiring these two
+            // locks (see HandleServerDisconnectionPart1, for
+            // example).  So we instead try to acquire the SSM lock
+            // without waiting.  If we don't get it, that's OK.  We
+            // just won't invalidate the security entries associated
+            // with this UID right now.  Maybe the next time we send
+            // an SMB for this UID (and get the error again), we'll
+            // get lucky and grab the SSM lock.
+            //
+
+            if (ExAcquireResourceExclusive(&Connection->Server->SessionStateModifiedLock,
+                                           FALSE)) {
+                RdrInvalidateConnectionActiveSecurityEntries(NULL,
+                                            Connection->Server,
+                                            Connection,
+                                            FALSE,
+                                            Uid
+                                            );
+                ExReleaseResource(&Connection->Server->SessionStateModifiedLock);
+            }
+        }
+
+        //
+        //  Set things up so we retry this operation
+        //
+
+        Header->ErrorType = NetError;
+
+    }
+
+    //
+    //  If we got the special error STATUS_NETWORK_NAME_DELETED, it means
+    //  that the server has deleted the share.  Before we reconnect, we
+    //  want to invalidate the tree connection and raise a hard error
+    //  to tell the user something bad happened.
+    //
+
+    if (Status == STATUS_NETWORK_NAME_DELETED) {
+
+        //
+        //  We no longer have a valid tree id for this connection.
+        //
+
+        //
+        //  Test to see if the connection flag has already been invalidated.
+        //
+        //  If it is still valid, invalidate the tree connection.
+        //
+        //  We perform this invalidation unsafely
+        //
+
+        if (Connection->HasTreeId) {
+
+            Connection->HasTreeId = FALSE;
+
+            //
+            //  Raise a hard error indicating that the name was deleted.
+            //
+            //  We only raise this if the error came from an application (ie
+            //  we don't raise if we get an invalid tree id when blowing away
+            //  a dormant connection).
+            //
+            //  We don't want to pop up this hard error ontop of a system
+            //  thread.
+            //
+
+            if (!Reconnecting &&
+                ARGUMENT_PRESENT(Irp) &&
+                !IoIsSystemThread(Irp->Tail.Overlay.Thread)) {
+#if MAGIC_BULLET
+                if ( RdrEnableMagic ) {
+                    RdrSendMagicBullet(NULL);
+                    DbgPrint( "RDR: About to raise NETWORK_NAME_DELETED hard error for IRP %x\n", Irp );
+                    DbgBreakPoint();
+                }
+#endif
+                IoRaiseInformationalHardError(Status, NULL, Irp->Tail.Overlay.Thread);
+            }
+        }
+    }
+
+    return;
+
+} // RdrCheckForSessionOrShareDeletion
+

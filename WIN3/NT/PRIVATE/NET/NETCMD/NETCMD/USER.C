@@ -30,11 +30,16 @@
  *  02/15/91, danhi, converted to 16/32 mapping layer
  *  09/01/92, chuckc, cleanup to remove dead functionality (ie LOGONSERVER,
  *                    MAXSTORAGE)
+ *  10/06/94, chuckc, added FPNW support.
  */
 
-
-
 /*---- Include files ----*/
+#include <nt.h>		   // base definitions
+#include <ntrtl.h>	   
+#include <nturtl.h>	   // these 2 includes allows <windows.h> to compile. 
+			           // since we'vealready included NT, and <winnt.h> will
+			           // not be picked up, and <winbase.h> needs these defs.
+
 
 #define INCL_NOCOMMON
 #define INCL_DOSFILEMGR
@@ -64,11 +69,14 @@
 #include "nettext.h"
 #include "luidate.h"
 
+#include "nwsupp.h" 
+
 /*---- Constants ----*/
 
 #define CHANGE  0
 #define ADD 1
 #define USERS_ALIAS TEXT("USERS")
+#define DEFAULT_RANDOM_PASSWD_LEN  8
 
 /*---- Time stuff ----*/
 
@@ -86,7 +94,7 @@
 /*---- Forward declarations ----*/
 
 void SamErrorExit(USHORT err) ;   // CODEWORK. move to netcmds.h 
-VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int add);
+VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int add, int *is_nw, int *random_len);
 USHORT NEAR get_password_dates ( ULONG, ULONG *, ULONG *, ULONG *, TCHAR * );
 VOID NEAR print_logon_hours ( USHORT2ULONG, USHORT2ULONG, UCHAR FAR [] );
 int NEAR yes_or_no ( TCHAR *, TCHAR * );
@@ -105,6 +113,7 @@ int _CRTAPI1 CmpUserInfo0(const VOID FAR *, const VOID FAR *) ;
 int _CRTAPI1 CmpAlias(const VOID FAR * alias1, const VOID FAR * alias2) ;
 
 USHORT add_to_users_alias(TCHAR *controller, TCHAR *domain, TCHAR *user) ;
+void   GenerateRandomPassword(TCHAR *pword, int len) ;
 
 /*---- functions proper -----*/
 
@@ -125,8 +134,9 @@ VOID user_add(TCHAR * user, TCHAR * pass)
     static TCHAR      pword[PWLEN+1];
     USHORT           err;       /* Portable API return status */
     struct user_info_3 FAR * user_entry;
-    TCHAR            controller[UNCLEN+1];   /* DC name */
+    TCHAR            controller[MAX_PATH+1];   /* DC name */
     TCHAR            domainname[DNLEN+1];   
+    int              isNetWareSwitch, random_len = 0  ;
 
     /* Register this as memory to zero out on exit.
      */
@@ -165,7 +175,9 @@ VOID user_add(TCHAR * user, TCHAR * pass)
     COPYTOARRAY(user_entry->usri3_name, user);
 
     if (pass == NULL)
+    {
         user_entry->usri3_password = NULL;
+    }
     else if (! _tcscmp(TEXT("*"), pass))
     {
         ReadPass(pword, PWLEN, 1, APE_UserUserPass, 0, TRUE);
@@ -182,7 +194,28 @@ VOID user_add(TCHAR * user, TCHAR * pass)
      *  command line.
      */
 
-    user_munge(user_entry, ADD);
+    user_munge(user_entry, ADD, &isNetWareSwitch, &random_len);
+
+    /*  If no password specified and /RANDOM is specified, use random password
+     */ 
+    if ((pass == NULL) && random_len)
+    {
+        GenerateRandomPassword(pword, random_len) ;
+        COPYTOARRAY(user_entry->usri3_password, pword);
+    }
+
+    /*  Set the dummy NetWare password field
+     */ 
+    if (isNetWareSwitch == LUI_YES_VAL)
+    {
+        err = SetNetWareProperties( user_entry, 
+                                    L"",      // dummy password
+                                    TRUE,     // set password only
+                                    FALSE ) ; // doesn't matter 
+
+        if (err)
+            ErrorExit(APE_CannotSetNW);  
+    }
 
     /*  Record is all set up, ADD IT.
      */
@@ -219,9 +252,66 @@ VOID user_add(TCHAR * user, TCHAR * pass)
                                  user_entry->usri3_name);
         if (err)
         {
-	    ErrorPrint(err,0) ;
- 	    ErrorExit(APE_UserFailAddToUsersAlias) ;
+	        ErrorPrint(err,0) ;
+ 	        ErrorExit(APE_UserFailAddToUsersAlias) ;
         }
+    }
+
+    //
+    // This has been specified as NetWare user. set NetWare properties
+    // Note we add the user first so that the RID is defined before we can
+    // perform this step.
+    //
+    if (isNetWareSwitch == LUI_YES_VAL)
+    {
+        struct user_info_3 FAR * user_3_entry;
+        BOOL ntas ;
+
+        //
+        // if local machine is NTAS or if /DOMAIN is specified, then
+        // must be NTAS.
+        //
+        ntas = (!(IsLocalMachineWinNT() || IsLocalMachineStandard()) ||
+                (_tcslen(controller) > 0)) ;
+
+        //
+        // retrieve the user parms & RID
+        //
+        err = MNetUserGetInfo(controller,
+                              user,
+                              3,
+                              (LPBYTE*)&user_3_entry) ;
+        if (err)
+            ErrorExit(APE_CannotEnableNW);  
+
+        //
+        // munge the user proprties
+        //
+        err = SetNetWareProperties(user_3_entry, 
+                                   user_entry->usri3_password,
+                                   FALSE,    // new user, so set ALL
+                                   ntas) ;  
+        if (err)
+            ErrorExit(APE_CannotEnableNW);  
+
+        //
+        // now set it.
+        //
+        err = MNetUserSetInfo(controller,
+                              user,
+                              3,
+                              (LPBYTE)user_3_entry,
+                              LITTLE_BUFFER_SIZE,
+                              0);
+        if (err)
+            ErrorExit(APE_CannotEnableNW);  
+    }
+
+    if ((pass == NULL) && random_len)
+    {
+        IStrings[0] = user ;
+        IStrings[1] = pword ;
+        InfoPrintIns(APE_RandomPassword, 2) ;
     }
 
     InfoSuccess();
@@ -243,7 +333,7 @@ VOID user_add(TCHAR * user, TCHAR * pass)
 VOID user_del(TCHAR * user)
 {
     USHORT  err;       /* return status */
-    TCHAR    controller[UNCLEN+1];   /* domain controller */
+    TCHAR    controller[MAX_PATH+1];   /* domain controller */
     struct user_info_2 FAR *        user_2_entry;
 
     /* find primary domain controller */
@@ -299,16 +389,22 @@ VOID user_del(TCHAR * user)
 VOID user_change(TCHAR * user, TCHAR * pass)
 {
     static TCHAR              pword[PWLEN+1];
-    USHORT                   err;        /* API return status */
-    struct user_info_3 FAR * user_entry;
-    TCHAR                     controller[UNCLEN+1];   /* domain controller */
+    USHORT                    err, errNW = NERR_Success;        
+    struct user_info_3 FAR *  user_entry;
+    TCHAR                     controller[MAX_PATH+1];   /* domain controller */
+    BOOL                      ntas ;
+    BOOL                      already_netware = FALSE ;
+    int                       isNetWareSwitch, random_len = 0 ;
+    TCHAR                     dummyChar ;
+    UNICODE_STRING            dummyUnicodeStr ;
 
     /* add this to list of mem to zero out on exit */
+    pword[0] = 0 ;
     AddToMemClearList(pword, sizeof(pword), FALSE) ;
 
     /* munge switches once just to check them */
     user_entry = (struct user_info_3 FAR *) BigBuf;
-    user_munge(user_entry, CHANGE);
+    user_munge(user_entry, CHANGE, &isNetWareSwitch, &random_len);
 
     /* find primary domain controller */
     if (err = GetSAMLocation(controller, DIMENSION(controller), 
@@ -327,7 +423,17 @@ VOID user_change(TCHAR * user, TCHAR * pass)
     }
 
     if (pass == NULL)
-        user_entry->usri3_password, NULL ;
+    {
+        if (random_len)
+        {
+            GenerateRandomPassword(pword, random_len) ;
+            COPYTOARRAY(user_entry->usri3_password, pword);
+        }
+        else
+        {
+            COPYTOARRAY(user_entry->usri3_password, NULL) ;
+        }
+    }
     else if (! _tcscmp(TEXT("*"), pass))
     {
         ReadPass(pword, PWLEN, 1, APE_UserUserPass, 0, TRUE);
@@ -338,12 +444,114 @@ VOID user_change(TCHAR * user, TCHAR * pass)
         if (err = LUI_CanonPassword(pass))
             ErrorExit(err);
         COPYTOARRAY(user_entry->usri3_password, pass);
+        _tcscpy(pword, pass);
     }
 
-    user_munge(user_entry, CHANGE);
+    user_munge(user_entry, CHANGE, NULL, NULL);
 
+    //
+    // if local machine is NTAS or if /DOMAIN is specified, then
+    // must be NTAS.
+    //
+    ntas = (!(IsLocalMachineWinNT() || IsLocalMachineStandard()) ||
+            (_tcslen(controller) > 0)) ;
+
+
+    //
+    // query the NW passwd to see if user is already NW enabled.
+    //
+    if (NT_SUCCESS(NetcmdQueryUserProperty(user_entry->usri3_parms,
+                                           NWPASSWORD,
+                                           &dummyChar,
+                                           &dummyUnicodeStr)) &&
+        dummyUnicodeStr.Buffer != NULL)
+    {
+        already_netware = TRUE ;
+        LocalFree(dummyUnicodeStr.Buffer) ;
+    }
+
+    //
+    // check if /NW is specified
+    //
+    if (isNetWareSwitch == LUI_YES_VAL)
+    {
+        if (!pass && !random_len)  // no password specified
+        {
+            if (!already_netware)
+            {
+                //
+                // NW specified, no NW passwd yet, need prompt for one
+                //
+                ReadPass(pword, PWLEN, 1, APE_UserUserPass, 0, TRUE);
+                COPYTOARRAY(user_entry->usri3_password, pword);
+                errNW = SetNetWareProperties(user_entry, 
+                                             pword, 
+                                             FALSE, // set all, since first time
+                                             ntas) ;  
+            }
+            else
+            {
+                // no new passwd specified, already NW, nothing more to do
+            }
+        }
+        else       // password specified on command line
+        {
+            if (!already_netware)
+            {
+                //
+                // not NW user yet. so we need set the new properties.
+                //
+                errNW = SetNetWareProperties(user_entry, 
+                                             pword, 
+                                             FALSE, // set all, since first time
+                                             ntas) ;  
+            }
+            else
+            {
+                //
+                // already NW user. just set password
+                //
+                errNW = SetNetWareProperties(user_entry, 
+                                             pword, 
+                                             TRUE,    // passwd only
+                                             ntas) ;  
+            }
+        }
+    }
+    else if (isNetWareSwitch == LUI_UNDEFINED_VAL)   // no change
+    {
+        if (pass && already_netware)
+        {
+            //
+            // already NW user, so we need set NW password to match NT one.
+            //
+            errNW = SetNetWareProperties(user_entry, 
+                                         pword, 
+                                         TRUE,    // passwd only
+                                         ntas) ;  
+        }
+        else
+        {
+            // in all other cases, it is of no interest to FPNW.
+        }
+    }
+    else    // disable NetWare
+    {
+        if (already_netware)
+        {
+            errNW = DeleteNetWareProperties(user_entry) ;
+        }
+        else
+        {
+            // no-op 
+        }
+    }
+
+    //
+    // finally, set the info
+    //
     err = MNetUserSetInfo(controller, user, 3, (LPBYTE)user_entry,
-    LITTLE_BUFFER_SIZE, 0);
+                          LITTLE_BUFFER_SIZE, 0);
 
     switch (err)
     {
@@ -356,9 +564,19 @@ VOID user_change(TCHAR * user, TCHAR * pass)
     }
 
     NetApiBufferFree((TCHAR FAR *) user_entry);
-    InfoSuccess();
+    if (errNW)
+        ErrorExit(APE_CannotSetNW) ;
+    else
+    {
+        if ((pass == NULL) && random_len)
+        {
+            IStrings[0] = user ;
+            IStrings[1] = pword ;
+            InfoPrintIns(APE_RandomPassword, 2) ;
+        }
+        InfoSuccess();
+    }
 }
-
 
 
 /***
@@ -381,10 +599,10 @@ VOID user_enum(VOID)
     USHORT2ULONG        i, j;
     int             t_err = 0;
     int             more_data = FALSE;
-    TCHAR                            localserver[CNLEN+1];
+    TCHAR                            localserver[MAX_PATH+1];
     struct user_info_0 FAR *        user_entry;
     struct wksta_info_10 FAR *      wksta_entry;
-    TCHAR    controller[UNCLEN+1];   /* domain controller */
+    TCHAR    controller[MAX_PATH+1];   /* domain controller */
     TCHAR   *pszTmp ;
 
 
@@ -437,7 +655,7 @@ VOID user_enum(VOID)
         }
 
 
-        WriteToCon(TEXT("%-25.25Fws"), user_entry->usri0_name);
+        WriteToCon(TEXT("%Fws"), PaddedString(25,user_entry->usri0_name,NULL));
         if (((j + 1) % 3) == 0)
             PrintNL();
     }
@@ -551,6 +769,8 @@ static MESSAGE msglist[] = {
 #define UDVT_ANY        7
 #define UDVT_DC     8
 #define UDVT_LOCKED	9
+#define UDVT_NEVER_EXPIRED 10
+#define UDVT_NEVER_LOGON   11
 
 static MESSAGE valtext[] = {
     {   APE2_GEN_YES,           NULL },
@@ -563,6 +783,8 @@ static MESSAGE valtext[] = {
     {   APE2_GEN_ANY,           NULL },
     {   APE2_USERDISP_LOGONSRV_DC,  NULL },
     {   APE2_USERDISP_LOCKOUT,   NULL },
+    {   APE2_NEVER_EXPIRED,     NULL },
+    {   APE2_NEVER_LOGON,     NULL },
     };
 
 
@@ -600,8 +822,10 @@ VOID user_display(TCHAR * user)
     TCHAR FAR *                      usrcountry_textptr ;
     TCHAR FAR *                      ptr;        /* Temp ptr */
     USHORT                          maxmsglen, dummy;
-    TCHAR                            controller[UNCLEN+1]; /* DC name */
+    TCHAR                            controller[MAX_PATH+1]; /* DC name */
     TCHAR                            domainname[DNLEN+1];
+    TCHAR                            dummyChar ;
+    UNICODE_STRING                   dummyUnicodeStr ;
 
     /* determine where to make the API call */
     if (err = GetSAMLocation(controller, DIMENSION(controller), 
@@ -657,28 +881,38 @@ VOID user_display(TCHAR * user)
 
     /*  Finally ... display the user's info */
 
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_NAME].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_NAME].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_name);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_FULLNAME].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_FULLNAME].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_full_name);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_COMMENT].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_COMMENT].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_comment);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_USRCOMMENT].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_USRCOMMENT].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_usr_comment);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_CCODE].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_CCODE].msg_text, NULL),
             (TCHAR FAR *) usrcountry_textptr);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_ENABLED].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_ENABLED].msg_text, NULL),
             (TCHAR FAR *) usrdisab_textptr);
     if ((acct_expires = user_3_entry->usri3_acct_expires) != TIMEQ_FOREVER)
     {
         UnicodeCtime ( &acct_expires, ctime_buf, DIMENSION(ctime_buf) );
         ptr = (TCHAR FAR *) ctime_buf ;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_EXPIRES].msg_text, ptr );
+        WriteToCon(fmtPSZ, 0, fsz, 
+           PaddedString(fsz,msglist[UDMN_EXPIRES].msg_text,NULL),
+           ptr );
     }
     else
     {
-        ptr = valtext[UDVT_NEVER].msg_text;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_EXPIRES].msg_text, ptr );
+        ptr = valtext[UDVT_NEVER_EXPIRED].msg_text;
+        WriteToCon(fmtPSZ, 0, fsz, 
+           PaddedString(fsz,msglist[UDMN_EXPIRES].msg_text,NULL),
+           ptr );
     }
 
     PrintNL();
@@ -688,60 +922,90 @@ VOID user_display(TCHAR * user)
     ErrorExit(err);
 
     UnicodeCtime ( &pw_mod, ctime_buf, DIMENSION(ctime_buf) );
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWSET].msg_text,
-            (TCHAR FAR *) ctime_buf);
+    WriteToCon(fmtPSZ, 0, fsz,
+               PaddedString(fsz,msglist[UDMN_PWSET].msg_text,NULL),
+               (TCHAR FAR *) ctime_buf);
 
     if ( (user_3_entry->usri3_flags & UF_DONT_EXPIRE_PASSWD)
          || (pw_exp == TIMEQ_FOREVER))
     {
-        ptr = valtext[UDVT_NEVER].msg_text;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWEXP].msg_text, ptr );
+        ptr = valtext[UDVT_NEVER_EXPIRED].msg_text;
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_PWEXP].msg_text, NULL),
+           ptr );
     }
     else
     {
         UnicodeCtime ( &pw_exp, ctime_buf, DIMENSION(ctime_buf) );
         ptr = (TCHAR FAR *) ctime_buf ;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWEXP].msg_text, ptr );
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_PWEXP].msg_text, NULL),
+           ptr );
     }
-
 
     if (pw_chg != TIMEQ_FOREVER)
     {
         UnicodeCtime ( &pw_chg, ctime_buf, DIMENSION(ctime_buf) );
         ptr = (TCHAR FAR *) ctime_buf ;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWCHG].msg_text, ptr );
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_PWCHG].msg_text, NULL),
+           ptr );
     }
     else
     {
-        ptr = valtext[UDVT_NEVER].msg_text;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWCHG].msg_text, ptr );
+        ptr = valtext[UDVT_NEVER_EXPIRED].msg_text;
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_PWCHG].msg_text, NULL),
+           ptr );
     }
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWREQ].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_PWREQ].msg_text, NULL),
             usrpwreq_textptr );
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PWUCHNG].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_PWUCHNG].msg_text, NULL),
             usrpwuchng_textptr );
-
 
     PrintNL();
 
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_WKSTA].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_WKSTA].msg_text, NULL),
             (TCHAR FAR *) usrwksta_textptr );
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LOGONSCRIPT].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_LOGONSCRIPT].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_script_path);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PROFILEPATH].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_PROFILEPATH].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_profile);
-    WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_HOMEDIR].msg_text,
+    WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_HOMEDIR].msg_text, NULL),
             (TCHAR FAR *) user_3_entry->usri3_home_dir);
     if ((last_logon = user_3_entry->usri3_last_logon) > 0)
     {
         UnicodeCtime ( &last_logon, ctime_buf, DIMENSION(ctime_buf) );
         ptr = (TCHAR FAR *) ctime_buf ;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LASTON].msg_text, ptr );
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_LASTON].msg_text, NULL),
+           ptr );
     }
     else
     {
-        ptr = valtext[UDVT_NEVER].msg_text;
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LASTON].msg_text, ptr );
+        ptr = valtext[UDVT_NEVER_LOGON].msg_text;
+        WriteToCon(fmtPSZ, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_LASTON].msg_text, NULL),
+           ptr );
+    }
+
+    if (NT_SUCCESS(NetcmdQueryUserProperty(user_3_entry->usri3_parms,
+                                           NWPASSWORD,
+                                           &dummyChar,
+                                           &dummyUnicodeStr)) &&
+        dummyUnicodeStr.Buffer != NULL)
+    {
+        TCHAR   NWString[256] ;
+        NWString[0] = NULLC ;
+        LUI_GetMsg(NWString, (USHORT) DIMENSION(NWString), APE_NWCompat) ;
+        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_PARMS].msg_text, NWString );
+        LocalFree(dummyUnicodeStr.Buffer) ;
     }
 
     PrintNL();
@@ -785,14 +1049,15 @@ VOID user_display(TCHAR * user)
         gpl = (fsz > 30 ? 1 : 2);
         group_entry = (struct group_info_0 FAR *) pBuffer;
 
-        WriteToCon(fmt2, fsz, fsz, msglist[UDMN_GROUPS].msg_text );
+        WriteToCon(fmt2, 0, fsz,
+           PaddedString(fsz, msglist[UDMN_GROUPS].msg_text ,NULL));
 
         for (i = 0; i < num_read; i++, group_entry++)
         {
             /* Pad if needed */
             if ((i != 0) && ((i % gpl) == 0))
                 WriteToCon(fmt2, fsz, fsz, NULL_STRING );
-            WriteToCon(TEXT("*%-21.21Fws"), group_entry->grpi0_name);
+            WriteToCon(TEXT("*%Fws"), PaddedString(21, group_entry->grpi0_name, NULL));
             /* If end of line, put out newline */
             if (((i + 1) % gpl) == 0)
                 PrintNL();
@@ -849,7 +1114,7 @@ VOID NEAR print_logon_hours ( USHORT2ULONG fsz, USHORT2ULONG upw,
 
 
 #ifdef DEBUG
-    WriteToCon(TEXT("hptr is %Fp\n"), hrptr);
+    WriteToCon(TEXT("hptr is %Fp\r\n"), hrptr);
     brkpt();
 #endif
 
@@ -857,14 +1122,15 @@ VOID NEAR print_logon_hours ( USHORT2ULONG fsz, USHORT2ULONG upw,
 
     if (hrptr == NULL)
     {
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LOGONHRS].msg_text,
+        WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_LOGONHRS].msg_text, NULL),
             (TCHAR FAR *) valtext[UDVT_ALL].msg_text );
         return;
     }
 
 
 #ifdef DEBUG
-    WriteToCon(TEXT("UPW is %u, UPD is %u\n"), upw, upd);
+    WriteToCon(TEXT("UPW is %u, UPD is %u\r\n"), upw, upd);
 #endif
 
     if (upw == 0 || (upw % 7) != 0)
@@ -881,7 +1147,7 @@ VOID NEAR print_logon_hours ( USHORT2ULONG fsz, USHORT2ULONG upw,
     timeinc = SECS_PER_DAY / upd;   /* Time per bit in seconds */
 
 #ifdef DEBUG
-    WriteToCon(TEXT("timeinc is %ld\n"), timeinc);
+    WriteToCon(TEXT("timeinc is %ld\r\n"), timeinc);
 #endif
 
     for (bitno=0; bitno<upw; bitno++)
@@ -899,7 +1165,8 @@ VOID NEAR print_logon_hours ( USHORT2ULONG fsz, USHORT2ULONG upw,
             end_time = timeinc * bitno;
 
             if (start_time == 0 && bitno >= upw)
-                WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LOGONHRS].msg_text,
+                WriteToCon(fmtPSZ, 0, fsz,
+                    PaddedString(fsz, msglist[UDMN_LOGONHRS].msg_text, NULL),
                     (TCHAR FAR *) valtext[UDVT_ALL].msg_text );
             else
                 print_times(fsz, start_time, end_time, first);
@@ -908,7 +1175,8 @@ VOID NEAR print_logon_hours ( USHORT2ULONG fsz, USHORT2ULONG upw,
     }
 
     if (first)
-        WriteToCon(fmtPSZ, fsz, fsz, msglist[UDMN_LOGONHRS].msg_text,
+        WriteToCon(fmtPSZ, 0, fsz,
+            PaddedString(fsz, msglist[UDMN_LOGONHRS].msg_text, NULL),
             (TCHAR FAR *) valtext[UDVT_NONE].msg_text );
 
     return;
@@ -947,9 +1215,10 @@ VOID NEAR print_times ( USHORT2ULONG fsz, LONG start, LONG end,
     int     day_1, day_2;
     TCHAR    ctime_buf[NET_CTIME_FMT2_LEN];
 
-    static TCHAR prtmfmt_1[] = TEXT("%-*.*ws%ws%Fws -");
+    /* use PaddedString rather than left justify formatting */
+    static TCHAR prtmfmt_1[] = TEXT("%ws%ws%Fws -");
     static TCHAR prtmfmt_2[] = TEXT(" %ws");
-    static TCHAR prtmfmt_3[] = TEXT("%Fws\n");
+    static TCHAR prtmfmt_3[] = TEXT("%Fws\r\n");
 
 
 
@@ -959,7 +1228,7 @@ VOID NEAR print_times ( USHORT2ULONG fsz, LONG start, LONG end,
     time = (start % SECS_PER_DAY) + TIME_PAD;
     NetpLocalTimeToGmtTime(time, &GmtTime) ;
 #ifdef DEBUG
-    WriteToCon(TEXT("start day %d time %ld\n"), day_1, GmtTime);
+    WriteToCon(TEXT("start day %d time %ld\r\n"), day_1, GmtTime);
 #endif
     UnicodeCtime ( &GmtTime, ctime_buf, DIMENSION(ctime_buf) );
     time_text = _tcschr(ctime_buf,BLANK);
@@ -967,7 +1236,8 @@ VOID NEAR print_times ( USHORT2ULONG fsz, LONG start, LONG end,
     if (first)
         left_text = msglist[UDMN_LOGONHRS].msg_text;
 
-    WriteToCon ( prtmfmt_1, fsz, fsz, left_text, day_text, time_text );
+    /* use PaddedString rather than left justify formatting */
+    WriteToCon ( prtmfmt_1, PaddedString(fsz, left_text, NULL), day_text, time_text );
 
     day_2 = (int) (end / SECS_PER_DAY) % 7 ;
 
@@ -977,7 +1247,7 @@ VOID NEAR print_times ( USHORT2ULONG fsz, LONG start, LONG end,
     time = (end % SECS_PER_DAY) + TIME_PAD;
     NetpLocalTimeToGmtTime(time, &GmtTime) ;
 #ifdef DEBUG
-    WriteToCon(TEXT("end day %d time %ld\n"), day_2, GmtTime);
+    WriteToCon(TEXT("end day %d time %ld\r\n"), day_2, GmtTime);
 #endif
     UnicodeCtime ( &GmtTime, ctime_buf, DIMENSION(ctime_buf) );
 
@@ -1016,12 +1286,20 @@ VOID NEAR print_times ( USHORT2ULONG fsz, LONG start, LONG end,
  *  nothing - success
  *  exit 2 - command failed
  */
-VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
+VOID NEAR user_munge(
+    struct user_info_3 FAR * user_entry,
+    int flag,
+    int *is_nw,
+    int *random_len)
 {
     USHORT          err;
     int             i;
     TCHAR *          ptr;
     ULONG           type;
+
+    /* init this to false if present */
+    if (is_nw)
+        *is_nw = LUI_UNDEFINED_VAL ;
 
     /* process /Switches */
     for (i = 0; SwitchList[i]; i++)
@@ -1041,6 +1319,18 @@ VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
         else if (! _tcscmp(SwitchList[i], swtxt_SW_USER_ACTIVE))
         {
             user_entry->usri3_flags &= ~(UF_ACCOUNTDISABLE | UF_LOCKOUT);
+            continue;
+        }
+        else if (! _tcscmp(SwitchList[i], swtxt_SW_RANDOM))
+        {
+            if (random_len)
+                *random_len = DEFAULT_RANDOM_PASSWD_LEN ;
+            continue;
+        }
+        else if (! _tcscmp(SwitchList[i], swtxt_SW_NETWARE))
+        {
+            if (is_nw)
+                *is_nw = LUI_YES_VAL ;
             continue;
         }
 
@@ -1132,6 +1422,19 @@ VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
             else
                 user_entry->usri3_flags |= UF_ACCOUNTDISABLE;
         }
+        else if (! _tcscmp(SwitchList[i], swtxt_SW_NETWARE))
+        {
+            if (yes_or_no(ptr,swtxt_SW_NETWARE))
+            {
+                if (is_nw)
+                    *is_nw = LUI_YES_VAL ;
+            }
+            else
+            {
+                if (is_nw)
+                    *is_nw = LUI_NO_VAL ;
+            }
+        }
         else if (! _tcscmp(SwitchList[i], swtxt_SW_USER_PASSWORDREQ))
         {
             if (yes_or_no(ptr,swtxt_SW_USER_PASSWORDREQ))
@@ -1145,13 +1448,6 @@ VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
                 user_entry->usri3_flags &= (~ UF_PASSWD_CANT_CHANGE);
             else
                 user_entry->usri3_flags |= UF_PASSWD_CANT_CHANGE;
-        }
-        else if (! _tcscmp(SwitchList[i], swtxt_SW_USER_HOMEDIRREQ))
-        {
-            if (yes_or_no(ptr,swtxt_SW_USER_HOMEDIRREQ))
-                user_entry->usri3_flags |= UF_HOMEDIR_REQUIRED;
-            else
-                user_entry->usri3_flags &= (~ UF_HOMEDIR_REQUIRED);
         }
         else if (! _tcscmp(SwitchList[i], swtxt_SW_USER_TIMES))
         {
@@ -1173,6 +1469,21 @@ VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
             }
             user_entry->usri3_country_code = ccode ;
         }
+        else if (! _tcscmp(SwitchList[i], swtxt_SW_RANDOM))
+        {
+            USHORT ccode ;
+            if (random_len)
+            {
+                *random_len = do_atou(ptr,
+                                      APE_CmdArgIllegal,
+                                      swtxt_SW_RANDOM) ;
+                if (*random_len > PWLEN)
+                {
+                    ErrorExitInsTxt(APE_CmdArgIllegal,
+                                    swtxt_SW_RANDOM) ;
+                }
+            }
+        }
         else if (! _tcscmp(SwitchList[i], swtxt_SW_USER_EXPIRES))
         {
             LONG acct_expires ;
@@ -1181,18 +1492,18 @@ VOID NEAR user_munge(struct user_info_3 FAR * user_entry, int flag)
             {
                 acct_expires = TIMEQ_FOREVER ;
                 user_entry->usri3_acct_expires = acct_expires ;
-	    }
+            }
             else 
             {
                 ULONG   GmtTime ;
-		if ((err = LUI_ParseDate(ptr, & acct_expires, & len, 0)) ||
+                if ((err = LUI_ParseDate(ptr, & acct_expires, & len, 0)) ||
                   len != (USHORT) _tcslen(ptr))
-		{
+                {
                     ErrorExit(APE_BadDateFormat) ;
-		}
-    		NetpLocalTimeToGmtTime(acct_expires, &GmtTime) ;
+                }
+                NetpLocalTimeToGmtTime(acct_expires, &GmtTime) ;
                 user_entry->usri3_acct_expires = GmtTime ;
-	    }
+            }
         }
         *--ptr = ':';        /* restore colon for next call */
     }
@@ -1385,7 +1696,7 @@ UCHAR FAR * NEAR set_logon_hours(TCHAR FAR *  txt)
 TCHAR * get_wksta_list(TCHAR *  inbuf)
 {
     USHORT2ULONG  count ;
-    TCHAR      tmpbuf[(CNLEN+1) * MAXWORKSTATIONS] ;
+    TCHAR      tmpbuf[MAX_PATH * 2] ;
 
     if ( inbuf == NULL || _tcslen(inbuf)==0 || !stricmpf(inbuf,WKSTA_ALL) )
         return(TEXT("")) ;
@@ -1608,13 +1919,13 @@ VOID print_aliases(TCHAR *controller,
 
     /* display all members */
     gpl = (fsz > 30 ? 1 : 2);
-    WriteToCon(fmt, fsz, fsz, msgtext );
+    WriteToCon(fmt, 0, fsz, PaddedString(fsz, msgtext, NULL) );
     for (i = 0 ; i < num_aliases; i++)
     {
         /* Pad if needed */
         if ((i != 0) && ((i % gpl) == 0))
             WriteToCon(fmt, fsz, fsz, NULL_STRING );
-        WriteToCon(TEXT("*%-21.21Fws"), alias_list[i]);
+        WriteToCon(TEXT("*%Fws"), PaddedString(21,alias_list[i],NULL));
         /* If end of line, put out newline */
         if (((i + 1) % gpl) == 0)
             PrintNL();
@@ -1632,6 +1943,7 @@ VOID print_aliases(TCHAR *controller,
 }
 
 
+
 /***
  *  CmpAliasMemberEntry(member1,member2)
  *
@@ -1644,3 +1956,30 @@ int _CRTAPI1 CmpAlias(const VOID FAR * alias1, const VOID FAR * alias2)
     return stricmpf ( *(TCHAR **)alias1,
                       *(TCHAR **)alias2 );
 }
+
+TCHAR *PasswordChars = TEXT("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%-$:_") ;
+
+/***
+ *   GenerateRandomPassword
+ *  
+ *   Args:
+ *       pword  - array to receive random password 
+ *       len    - length of random password
+ *  
+ *   Returns:
+ *       nothing
+ */
+void   GenerateRandomPassword(TCHAR *pword, int len) 
+{
+    int i, chars ; 
+ 
+    srand(GetTickCount()) ;
+    chars = _tcslen(PasswordChars) ;
+
+    for (i = 0; i < len; i++)
+    {
+        int index = rand() % chars ;
+        pword[i] = PasswordChars[index] ;
+    }
+}
+

@@ -24,7 +24,7 @@ typedef     void    (RPC_ENTRY * PFREE_ROUTINE)(
 						PFORMAT_STRING
 					);
 
-extern PFREE_ROUTINE		pfnFreeRoutines[];
+extern const PFREE_ROUTINE * pfnFreeRoutines;
 
 void 
 NdrpUnionFree(

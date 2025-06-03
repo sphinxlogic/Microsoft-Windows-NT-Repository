@@ -5,6 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <conio.h>
+
+#define LF    0x0a
+#define CR    0x0d
 
 _CRTAPI1 main (argc, argv)
 int argc;
@@ -12,34 +17,50 @@ char *argv[];
 {
     char line[MAXLINESIZE];
     char *prompt = "";
-    char *format = "%s\n";
+    char *formats = "%s\n";
+    char *formatc = "%c\n";
+    char inputchar;
     FILE *file = stdout;
     int argcount = 0;
+    int getline = 1;
 
     while (++argcount < argc) {
-        if (!(stricmp(argv[argcount], "-p"))) {
+        if (!(_stricmp(argv[argcount], "-p"))) {
             if (++argcount != argc) {
                 prompt = argv[argcount];
             }
-        } else if (!(stricmp(argv[argcount], "-f"))) {
+        } else if (!(_stricmp(argv[argcount], "-f"))) {
             if (++argcount != argc) {
                 if ((file = fopen(argv[argcount], "a")) == NULL) {
                     printf("Could not open %s\n", argv[argcount]);
                     exit(1);
                 }
             }
-        } else if (!(stricmp(argv[argcount], "-t"))) {
+        } else if (!(_stricmp(argv[argcount], "-t"))) {
             if (++argcount != argc) {
-                format = argv[argcount];
+                formats = argv[argcount];
             }
+        } else if (!(_stricmp(argv[argcount], "-c"))) {
+                getline = 0;
         } else {
-            printf("usage: readline [-p prompt] [-f file] [-t format]\n");
+            printf("usage: readline [-c] [-p prompt] [-f file] [-t formats]\n");
             exit(2);
         }
     }
 
     printf("%s", prompt);
-    gets(line);
 
-    fprintf(file, format, line);
+    if (getline == 1)
+        gets(line);
+    else {
+        inputchar = (char)_getch();
+        _putch(inputchar);
+        _putch(LF);
+        _putch(CR);
+    }
+
+    if (getline == 1)
+        fprintf(file, formats, line);
+    else
+        fprintf(file, formatc, inputchar);
 }

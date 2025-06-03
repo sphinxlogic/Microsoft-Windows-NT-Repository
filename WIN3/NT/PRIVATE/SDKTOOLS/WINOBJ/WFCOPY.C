@@ -3523,4 +3523,4 @@ BOOL NEAR PASCAL IsSerialDevice(INT hFile)
     UNREFERENCED_PARAMETER(hFile);
     return FALSE;  // BUG BUG. How to findout if its a serialdevice
 }
-
+

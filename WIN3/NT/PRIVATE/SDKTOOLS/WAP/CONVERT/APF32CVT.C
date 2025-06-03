@@ -20,6 +20,9 @@
         8-22-90, created, (vaidy)
        10-12-90, cleanup, redoc, "special" module names, ui (jamesg)
         6-13-91, modified to work with Win32 (t-philm)
+		3-21-95, modified to work with new bounded import entries (rswaney)
+		   		 deleted local SIGNATURE defines (conflicted with ntimage.h)
+				 Use read-only access when no imports are specified
  --*/
 
 #include <stdio.h>
@@ -30,6 +33,7 @@
 #include <ntrtl.h>
 #include <nturtl.h>
 #include <windows.h>
+#include <imagehlp.h>
 
 
 // Max number of imports
@@ -57,18 +61,9 @@ DWORD OldAttributes,Error;
 # define	ERROR_CODE	0
 # define	UNREC_CODE	1
 # define	DOS_CODE	2
-# define	WIN_CODE	3
+# define	VXD_CODE	3
 # define	NT_CODE		4
 # define	OS2_CODE	5
-# define	DOSX_CODE	6
-
-
-# define    IMAGE_DOS_SIGNATURE     0x5A4D		// MZ - DOS
-# define    IMAGE_WIN_SIGNATURE     0x454E		// NE - OS/2 1.x or Windows
-# define    IMAGE_NT_SIGNATURE      0x4550		// PE - NT
-# define    IMAGE_OS2_SIGNATURE     0x584C		// LX - OS/2 2.x
-# define    IMAGE_DOSX_SIGNATURE    0x454C		// LE - OS/2 2.x beta or DOS extender
-
 
 // errors
 //
@@ -80,14 +75,15 @@ DWORD OldAttributes,Error;
 #define FAIL_UNMAP              40
 #define FAIL_CLOSE              41
 #define FAIL_FLUSH              42
-#define FAIL_RESETATTRIBUTES    44
+#define FAIL_RESET_ATTRIBUTES   44
+#define FAIL_READ_ATTRIBUTES	45
+#define FAIL_SET_ATTRIBUTES		46
 #define NOT_NT_IMAGE            50
 
 
 VOID  DoError        (int iErr, char * szMessage);
 VOID  ConvertImports (char *);
 ULONG GetImageType   (LPTSTR lpApplicationName);
-
 
 
 void _CRTAPI1 main (int argc, char * argv[])
@@ -108,7 +104,7 @@ void _CRTAPI1 main (int argc, char * argv[])
 
         // import names will be lower case
         //
-        strlwr(*++argv);
+        _strlwr(*++argv);
         iLen = strlen(*argv);
 
 		//
@@ -161,86 +157,79 @@ void _CRTAPI1 main (int argc, char * argv[])
 
 } /* main () */
 
+ /*========================================================================================= 
+ /  convertImportName (importName,verbose)
+ /
+ /  This routine compares an import name (excluding the first character and any extension)
+ /  against the list of new import names. If the name matches the firsy character is replaced
+ /  with that of the new import name.
+ /
+ /  Inputs:
+ /	CHAR * importName   	String to search for and possibly replace
+ /  BOOL verbose			Flag to control printing of conversion info
+ /	apszNewImports (global)	Array of new import name
+ /	cNewImports (global)	Number of new names
+ /
+ /  Outputs:
+ /	importName[0]	        Char changed if name matched
+ /	BOOL  return value		True if name changed, false if not
+ /=========================================================================================*/
+
+BOOL convertImportName (CHAR * importName, BOOL verbose)
+{
+  CHAR *pchDot;
+  int	iNewImp;
+  ULONG	importNameLen;
+  BOOL stat = FALSE;
+
+   if ( (pchDot = strchr(importName, '.')) == NULL ) {
+
+       importNameLen = strlen(importName);
+   }
+   else {
+       importNameLen = pchDot - importName;
+   }
+
+   if (verbose) printf("\t%-15s",importName);
+
+   for (iNewImp = 0; iNewImp < cNewImports; iNewImp++) {
+
+       // New imports must match in length and in all chars
+       // except for the first -- i.e. looking for "*mport" to
+       // match "import"
+       //
+       if ((importNameLen == strlen(apszNewImports[iNewImp])) &&
+              (!_strnicmp(importName+1, apszNewImports[iNewImp]+1,importNameLen-1))) {
+           strncpy(importName, apszNewImports[iNewImp],1);
+           if (verbose) printf(" --> changed to %s",importName);
+	   stat = TRUE;
+           break;
+       }
+    }
+    if (verbose) printf("\n");
+
+    return stat;
+
+} /* convertImportName () */
+
 /*++
 
 ConvertImports(File)
 
-    Converts import names to newnames.
-    New names are considered to match and replace an import name if
-    they are the same length and match all but the first character.
+   Converts import names to newnames.
+   New names are considered to match and replace an import name if
+   they are the same length and match all but the first character.
+   Import names appear in two directory entries: imports and
+   bound imports.
 
+   The file is Opened, a mapping object is created, and the file
+   is mapped.  Note that the file is mapped as DATA, and not as an
+   IMAGE, because no changes may be performed to the file on disk
+   when the file is mapped as an image.  Also note that, for COFF
+   images, 'preferred' values assume that the file is mapped as an image.
 
-    The file is Opened, a mapping object is created, and the file
-    is mapped.  Note that the file is mapped as DATA, and not as an
-    IMAGE, because no changes may be performed to the file on disk
-    when the file is mapped as an image.  Also note that, for COFF
-    images, 'preferred'    values assume that the file is mapped as an image.
-
-    For COFF Images:
-
-        The Import Descriptor, obtained from RtlImageDirectoryEntryToData,
-    contains a REAL virtual address for the import name.  This address
-    assumes that the image is based at its preferred base.
-
-    For example, if the preferred base of an application is 10000,
-    the preferred import descriptor base may be 50000, and the address
-    of an import name as given in the import descriptor may be
-    50260.  This is a problem if the image is not mapped at its
-    preferred base.  Loader fixups would fix this if the file was
-    actually being loaded as an image, but this is not the case.
-    So, this procedure applies its own 'fixups.'
-
-    The preferred import descriptor base must be determined.  Then,
-    this number may be subtracted from the address of the import name.
-    This new value may then be added to the address of the ACTUAL
-    import descriptor to obtain the address of the import name.
-
-    Continuing the above example, if the ACTUAL import descriptor
-    (when the file is mapped as DATA) is based at 6e5c00,then the
-    first import name is found at
-
-        6e5c00 + (50260 - 50000) = 6e5e60.
-
-
-    The preferred import base is calculated by:
-
-        preferred image base + (Actual image import descriptor -
-            Actual image base)
-
-
-    Note that the actual import descriptor is calculated aas if the
-    file was mapped as an image.  This is done by
-    RtlIMageDirectoryEntryToData, which takes a parameter specifying
-    the mapping type.
-
-    The term (Actual import descriptor - Actual image base) is
-    another offset, the offset of the import descriptor from the
-    image base.  This value is then added to the preferred base.
-    As above, suppose the actual image base was 6e0000, and
-    the import descriptor (mapped as image) is 720000. The difference
-    is 40000, and, when added to the preferred base (10000) results
-    in the required 50000.
-
-    Once this preferred import base has been calculated, the import
-    descriptor for the data-mapped file is used as the actual
-    import base.  The actual address of the import name is calculated
-    as follows:
-
-        Actual Name Addr. = (Data Import Descr Name - Preferred import base)
-            + Actual import base
-
-    The term (Import descr name - preferred import base) is an
-    offset from the import descriptor to the import name.
-    As above, if the address of the actual, data-mapped import
-    descriptor is 6e5c00, and the preferred import base is 50000,
-    and the first import name is found at 50260, the name is actually
-    found at
-
-        (50260 - 50000) + 6e5c00 = 6e5e60.
-
-       The imports are then changed and the changes
-   are flushed to disk via FlushViewOfFile.
-
+   The imports are then changed and the changes are flushed to disk 
+   via FlushViewOfFile.
 
    Input:
        File -- Name of the file to convert
@@ -260,232 +249,222 @@ ConvertImports(File)
 
 void ConvertImports (char * File)
 {
-    PIMAGE_IMPORT_DESCRIPTOR ImageImportDescr,DataImportDescr;
-    HANDLE  mFile;
-    ULONG   ImportSize,
-            ImportName,
-            PreferredImportBase,
-            ImportNameLen,
-            DataImportBase;
+    PIMAGE_IMPORT_DESCRIPTOR ImportDescr;
+    PIMAGE_BOUND_IMPORT_DESCRIPTOR BoundImportDescr;
+ 	HANDLE  mFile;
+    ULONG   ImportSize;
     BOOL    BoolError;
-    CHAR   *pchDot;
-    LPVOID  FileBase=NULL;
-    int     iNewImp;
-
-    ULONG   ulBinaryType ;
+    CHAR    *ImportName,
+	    	*BoundDescrBase;
     PIMAGE_NT_HEADERS NtHeaders;
+    ULONG   ulBinaryType ;
     ULONG	CheckSum;
     ULONG	HeaderSum;
+    LPVOID  FileBase;
+	BOOL	FileChanged;
+	BOOL	ViewOnly;
+    PIMAGE_SECTION_HEADER pLastSecHdr = NULL; //Cached header for ImageRvaToVa
 	
-    
-    // Get file attributes
+    mFile = NULL;
+	hFile = NULL;
+	FileChanged = FALSE;
+	ViewOnly = (cNewImports == 0);
+
+    // If we are going to update the file, make sure we can write to it
+	if (!ViewOnly)
+	{
+    	OldAttributes = GetFileAttributes(File);
+		if (OldAttributes == 0xFFFFFFFF)
+		{
+			DoError(FAIL_READ_ATTRIBUTES,File);
+			return;
+		}
+
+    	if (OldAttributes & FILE_ATTRIBUTE_READONLY)
+    	{
+        	if (!SetFileAttributes(File, OldAttributes & ~FILE_ATTRIBUTE_READONLY))
+        	{
+				DoError(FAIL_SET_ATTRIBUTES,File);
+				return;    
+	    	}
+		}
+	}
+
+	// get file image type
+   	ulBinaryType = GetImageType ( File ) ;
+
     //
-    OldAttributes = GetFileAttributes(File);
-    if (OldAttributes != FILE_ATTRIBUTE_NORMAL) {
-        BoolError = SetFileAttributes(File, FILE_ATTRIBUTE_NORMAL);
-    }
-
-
-    ulBinaryType = GetImageType ( File ) ;
-
-    //
-	// Open file
+    // Open file
     //
     hFile=CreateFile(File,
-        GENERIC_READ | GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
+     	ViewOnly ? (GENERIC_READ) : (GENERIC_READ | GENERIC_WRITE),
+        ViewOnly ? (FILE_SHARE_READ) : (FILE_SHARE_READ | FILE_SHARE_WRITE),
         NULL,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
         (HANDLE)NULL);
-    if (hFile==INVALID_HANDLE_VALUE) {
 
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
 #ifdef DEBUG
         Error = GetLastError();
         printf("Error in creating file %lx\n",Error);
 #endif
         DoError (FAIL_OPEN, File);
-        return;
+		hFile = NULL;
+		goto Abort;
     }
 
 //
 //  tomzak
 //
-    if ( ulBinaryType != NT_CODE ) {
+    if ( ulBinaryType != NT_CODE )
+    {
         DoError (NOT_NT_IMAGE, File);
-		//
-		// Close file handle
-		//
-		BoolError = CloseHandle(hFile);
-		if (!BoolError) {
-			DoError(FAIL_CLOSE,NULL);
-		}
-        return ;
+		goto Abort;
     }
-
 
     // Create the file map
     //
-    mFile=CreateFileMapping(hFile,NULL,PAGE_READWRITE,0L,0L,NULL);
-
-    if (!mFile) {
-
+    mFile=CreateFileMapping(hFile, NULL, 
+    						ViewOnly ? PAGE_READONLY : PAGE_READWRITE,
+    						0L, 0L, NULL);
+    if (!mFile) 
+    {
 #ifdef DEBUG
         Error = GetLastError();
         printf("Can't make map object %lx\n",Error);
 #endif
-
         DoError(CREATE_MAP,NULL);
-        return;
+        goto Abort;
     }
 
     // Map a view of the file as data
     //
-    FileBase=MapViewOfFile(mFile, FILE_MAP_READ | FILE_MAP_WRITE, 0L, 0L, 0L);
-
-    if (!FileBase) {
+    FileBase = MapViewOfFile(mFile,
+    						ViewOnly ? FILE_MAP_READ : (FILE_MAP_READ | FILE_MAP_WRITE),
+    						0L, 0L, 0L);
+    if (!FileBase)
+    {
         DoError(VIEW_FILE_MAP,NULL);
+		goto Abort;
     }
 
-    // Get the address of the import descriptor as if the file was mapped
-    // as data (the FALSE parameter below is the value of the parameter
-    // MappedAsImage).
-    DataImportDescr = (PIMAGE_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(
+    // Locate NT Header
+    NtHeaders = RtlImageNtHeader(FileBase);
+
+    // Get the address of the import descriptors
+    ImportDescr = (PIMAGE_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(
                         FileBase,
-			FALSE,
+						FALSE,    		// mappedAsImage = false
                         IMAGE_DIRECTORY_ENTRY_IMPORT,
                         &ImportSize);
-
-    // Get the address of the import descriptor as if the file was mapped
-    // as an image (MappedAsImage = TRUE).
-    ImageImportDescr = (PIMAGE_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(
-        FileBase,
-	TRUE,
-        IMAGE_DIRECTORY_ENTRY_IMPORT,
-        &ImportSize);
-
-    // The preferred import base offset is ImageImportDescr - FileBase
-    // (RVA)
-    //
-    PreferredImportBase = (ULONG)ImageImportDescr-(ULONG)FileBase;
-
-    // Make sure it is positive;  it's a ULONG.
-    //
-    if (PreferredImportBase> MAX_ULONG) {
-	PreferredImportBase = (-(INT)PreferredImportBase);
-    }
-
-    if (DataImportDescr) {
+  
+    if (ImportDescr)
+    {
         printf("%s imports:\n",File);
 
-        // Keep the import base around
-        //
-        DataImportBase = (ULONG)DataImportDescr;
+        while (ImportDescr->Name && ImportDescr->FirstThunk)
+        {
+	    	// Get actual address of name
+            ImportName = (CHAR *)ImageRvaToVa(NtHeaders,FileBase,ImportDescr->Name,&pLastSecHdr);
 
-        // Go through the import names and check to see if the name
-        // should be changed by comparing it the the "new import" list
-        //
-        while (DataImportDescr->Name && DataImportDescr->FirstThunk) {
+	    	// Convert name if it matches an import name
+	    	FileChanged |= convertImportName(ImportName, TRUE);
 
-            // Actual import name address is
-            //    (Name - PreferredImportBase) +
-            //    ActualImportBase(added below).
-            //
-            // RVA - RVA
-            //
-            ImportName = (DataImportDescr->Name - PreferredImportBase);
-
-            // Make sure it's positive
-            //
-            if (ImportName > MAX_ULONG) {
-		 ImportName = (-(INT)ImportName);
-            }
-
-            // Add the actual import base
-            //
-            ImportName += DataImportBase;
-
-            if ( (pchDot = strchr((CHAR *)ImportName, '.')) == NULL ) {
-                ImportNameLen = strlen((CHAR *)ImportName);
-            }
-            else {
-                ImportNameLen = abs((int)((ULONG)pchDot - ImportName));
-            }
-
-            printf("\t%-15s",ImportName);
-            for (iNewImp = 0; iNewImp < cNewImports; iNewImp++) {
-
-               // New imports must match in length and in all chars
-               // except for the first -- i.e. looking for "*mport" to
-               // match "import"
-               //
-               if ((ImportNameLen == strlen(apszNewImports[iNewImp])) &&
-                   (!strnicmp((CHAR *)ImportName+1, apszNewImports[iNewImp]+1,
-                             ImportNameLen-1))) {
-                   strncpy((CHAR *)ImportName, apszNewImports[iNewImp],1);
-                   BoolError = FlushViewOfFile((PVOID)ImportName, 1);
-                   printf(" --> changed to %s",ImportName);
-                   break;
-               }
-            }
-            printf("\n");
-
-            // Go to next import descriptor
-            //
-            ++DataImportDescr;
+            ++ImportDescr;
         }
     }
-    else {
+
+    // Get the address of the bound import descriptors
+    BoundImportDescr = (PIMAGE_BOUND_IMPORT_DESCRIPTOR)RtlImageDirectoryEntryToData(
+                       	FileBase,
+						FALSE,    		// mappedAsImage = false
+                        IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT,
+                        &ImportSize);
+	
+    if (BoundImportDescr)
+    {
+     	BoundDescrBase = (CHAR *)BoundImportDescr;
+
+		// End of list marked by zero module name offset
+        while (BoundImportDescr->OffsetModuleName) {
+
+	    	// Get address of module name
+            ImportName = BoundDescrBase + BoundImportDescr->OffsetModuleName;
+
+	    	// Convert name if it matches an import name (Don't print names again)
+	    	FileChanged |= convertImportName(ImportName, FALSE);
+ 
+	    	// Skip over import descriptor plus appended forwarder descriptors
+            BoundImportDescr = (PIMAGE_BOUND_IMPORT_DESCRIPTOR)(
+                  	         ((PIMAGE_BOUND_FORWARDER_REF)(BoundImportDescr+1)) 
+            			     + BoundImportDescr->NumberOfModuleForwarderRefs);
+		}
+    }
+
+    if (!ImportDescr && !BoundImportDescr)
+    {
         printf("%s has no imports\n",File);
         printf("Done\n\n\n");
     }
 
-    
-    //
-    // If the file is being update, then recompute the checksum (see sdktools\bind\bind.c)
-    //
 
-    NtHeaders = RtlImageNtHeader(FileBase);
-
-    NtHeaders->OptionalHeader.CheckSum = 0;
-    CheckSumMappedFile(
+    // If the file is being updated, then recompute the checksum (see sdktools\bind\bind.c)
+    //
+	if (FileChanged && !ViewOnly)
+	{
+     	NtHeaders->OptionalHeader.CheckSum = 0;
+    	CheckSumMappedFile(
                 FileBase,
                 GetFileSize(hFile, NULL),
                 &HeaderSum,
                 &CheckSum
                 );
 
-    NtHeaders->OptionalHeader.CheckSum = CheckSum;
-
+    	NtHeaders->OptionalHeader.CheckSum = CheckSum;
+	}
     
     // Unmap view of file to save changes
     //
     BoolError = UnmapViewOfFile(FileBase);
-    if (!BoolError) {
-        DoError(FAIL_UNMAP,NULL);
-    }
+    if (!BoolError) DoError(FAIL_UNMAP,NULL);
 
     // Close handle to map-object
     //
     BoolError = CloseHandle(mFile);
-    if (!BoolError) {
-        DoError(FAIL_CLOSE,NULL);
-    }
+    if (!BoolError) DoError(FAIL_CLOSE,NULL);
 
     // Close file handle
     //
     BoolError = CloseHandle(hFile);
-    if (!BoolError) {
-        DoError(FAIL_CLOSE,NULL);
-    }
+    if (!BoolError) DoError(FAIL_CLOSE,NULL);
 
-    // Reset the file attributes
+    // if read-only attribute was turned off, restore it
     //
-    BoolError = SetFileAttributes(File, OldAttributes);
-    if (!BoolError) {
-        DoError(FAIL_RESETATTRIBUTES,File);
-    }
+	if (!ViewOnly && (OldAttributes & FILE_ATTRIBUTE_READONLY))
+	{
+    	if (!SetFileAttributes(File, OldAttributes))
+		{
+        	 DoError(FAIL_RESET_ATTRIBUTES,File);
+    	}
+	}
 
+	return;
+
+////////////////////////////////////////////////////////
+// Clean up on failure
+
+Abort:
+
+	if (mFile != NULL) CloseHandle(mFile);
+	
+	if (hFile != NULL) CloseHandle(hFile);
+	
+	if (!ViewOnly && (OldAttributes & FILE_ATTRIBUTE_READONLY))
+	{
+		 SetFileAttributes(File, OldAttributes);
+	}
 } /* ConvertImports () */
 
 
@@ -506,7 +485,7 @@ void DoError (int iErr, char * szMessage)
             "\t%s [<new import names>] <modules to convert>\n"
             "\t  o If no import names specified, just dumps current imports\n"
             "\t  o Quick names to setup profiling:\n"
-	    "\t    - <win32> == zernel32, zdi32, zser32, zdvapi32, zrtdll\n"
+	    	"\t    - <win32> == zernel32, zdi32, zser32, zdvapi32, zrtdll\n"
             "\t  o Quick reconversion to original imports:\n"
             "\t    - <undo> or <restore>\n",
             szMessage);
@@ -532,7 +511,7 @@ void DoError (int iErr, char * szMessage)
                 "\tCan not open file %s.\n", szMessage);
         return;
 
-    case CREATE_MAP:
+	case CREATE_MAP:
         printf("ERROR:\n"
                "\tFailed to create map object.\n"
                "\tCheck file name.\n");
@@ -541,15 +520,28 @@ void DoError (int iErr, char * szMessage)
         printf("ERROR:\n"
                "\tUnable to view map of file.\n");
         return;
+
     case FAIL_UNMAP:
         printf("ERROR:\n"
                "\tUnable to unmap file. Changes not made.\n");
         return;
+
     case FAIL_CLOSE:
         printf("ERROR:\n"
                "\tUnable to close handle.\n");
         return;
-    case FAIL_RESETATTRIBUTES:
+
+    case FAIL_READ_ATTRIBUTES:
+        printf("ERROR:\n"
+               "\t Unable to read file attributes for %s\n",szMessage);
+        return;
+
+     case FAIL_SET_ATTRIBUTES:
+        printf("ERROR:\n"
+               "\t Unable to set file attributes for %s\n",szMessage);
+        return;
+
+    case FAIL_RESET_ATTRIBUTES:
         printf("ERROR:\n"
                "\t Unable to reset file attributes for %s\n",szMessage);
         return;
@@ -576,10 +568,8 @@ ULONG GetImageType ( LPTSTR szFileName )
 
     status = fread ( & usExeSig , sizeof ( usExeSig ) , 1 , fp ) ;
 
-    //
 	// if first bytes aren't "MZ" then it ain't got no EXE header
 	//
-
 	if ( usExeSig != IMAGE_DOS_SIGNATURE ) {
         printf ( "File (%s) has invalid EXE signature ***\n" , szFileName ) ;
 		fclose ( fp ) ;
@@ -591,53 +581,43 @@ ULONG GetImageType ( LPTSTR szFileName )
 	//       undefined information at location 60...
 	//
 
-	//
 	// go to where new EXE header stores pointer to header extension
 	//
-
     status = fseek ( fp , 60 , SEEK_SET ) ;
 
-	//
 	// find out where extended ID is located
 	//
-
 	status = fread ( & ulExeIdLoc , sizeof ( ulExeIdLoc ) , 1 , fp ) ;
 
-    //
 	// go to extended ID
 	//
+   	status = fseek ( fp , ulExeIdLoc , SEEK_SET ) ;
 
-	status = fseek ( fp , ulExeIdLoc , SEEK_SET ) ;
-
-	//
 	// read extended ID
 	//
-
 	status = fread ( & usExeId , sizeof ( usExeId ) , 1 , fp ) ;
 
-	//
 	// if read failed, it's DOS
 	//
-
 	if ( status != 1 ) usExeId = usExeSig ;
 
 	switch ( usExeId ) {
         case IMAGE_DOS_SIGNATURE :
 			retval = DOS_CODE ;
             break ;
-        case IMAGE_WIN_SIGNATURE :
-			retval = WIN_CODE ;
-            break ;
-        case IMAGE_NT_SIGNATURE :
-			retval = NT_CODE ;
-            break ;
+
         case IMAGE_OS2_SIGNATURE :
 			retval = OS2_CODE ;
             break ;
-        case IMAGE_DOSX_SIGNATURE :
-			retval = DOSX_CODE ;
+
+        case IMAGE_NT_SIGNATURE :
+			retval = NT_CODE ;
             break ;
 
+        case IMAGE_VXD_SIGNATURE :
+			retval = VXD_CODE ;
+            break ;
+ 
 		default :
 			retval = UNREC_CODE ;
             break ;

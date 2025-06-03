@@ -40,10 +40,22 @@ extern UNICODE_STRING CmRegistryMachineHardwareDeviceMapName;
                             // \REGISTRY\MACHINE\HARDWARE\DEVICEMAP
 extern UNICODE_STRING CmRegistryMachineHardwareResourceMapName;
                             // \REGISTRY\MACHINE\HARDWARE\RESOURCEMAP
+extern UNICODE_STRING CmRegistryMachineHardwareOwnerMapName;
+                            // \REGISTRY\MACHINE\HARDWARE\OWNERMAP
 extern UNICODE_STRING CmRegistryMachineSystemName;
                             // \REGISTRY\MACHINE\SYSTEM
 extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSet;
                             // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumName;
+                            // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\ENUM
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetEnumRootName;
+                            // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\ENUM\ROOT
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetServices;
+                            // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\SERVICES
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetHardwareProfilesCurrent;
+                            // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\HARDWARE PROFILES\CURRENT
+extern UNICODE_STRING CmRegistryMachineSystemCurrentControlSetControlClass;
+                            // \REGISTRY\MACHINE\SYSTEM\CURRENTCONTROLSET\CONTROL\CLASS
 extern UNICODE_STRING CmRegistryUserName;            // \REGISTRY\USER
 
 //
@@ -151,6 +163,16 @@ VOID
 CmGetSystemControlValues(
     PVOID                   SystemHiveBuffer,
     PCM_SYSTEM_CONTROL_VECTOR  ControlVector
+    );
+
+VOID
+CmQueryRegistryQuotaInformation(
+    IN PSYSTEM_REGISTRY_QUOTA_INFORMATION RegistryQuotaInformation
+    );
+
+VOID
+CmSetRegistryQuotaInformation(
+    IN PSYSTEM_REGISTRY_QUOTA_INFORMATION RegistryQuotaInformation
     );
 
 

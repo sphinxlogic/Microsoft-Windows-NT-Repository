@@ -19,7 +19,7 @@ MODNAME(wuman.c);
 
 WBP W32WordBreakProc = NULL;
 
-extern DWORD fThunklstrcmp;
+extern DWORD fThunkStrRtns;
 
 
 /* Called By Kernel When Initialization is Complete */
@@ -94,10 +94,23 @@ ULONG FASTCALL WU32NotifyWow(PVDMFRAME pFrame)
                 static BYTE CallCsrFlag = 0;
                 extern DWORD   gpsi;
                 PUSERCLIENTGLOBALS pfinit16;
+                WORD UNALIGNED *pwMaxDWPMsg;
+                PBYTE pDWPBits;
+#ifdef DEBUG
+                WORD wMsg;
+                int i;
+                PSZ pszFormat;
+#endif
 
                 GETVDMPTR(parg16->pData, sizeof(USERCLIENTGLOBALS), pfinit16);
+                GETVDMPTR(pfinit16->lpwMaxDWPMsg, sizeof(WORD), pwMaxDWPMsg);
+                GETVDMPTR(pfinit16->lpDWPBits, pfinit16->cbDWPBits, pDWPBits);
+
                 // store the 16bit hmod of user.exe
                 gUser16hInstance = (WORD)pfinit16->hInstance;
+                WOW32ASSERTMSGF((gUser16hInstance),
+                                ("WOW Error gUser16hInstance == NULL!\n"));
+
                 // store the 16bit CS of user.exe
                 gUser16CS = HIWORD(pFrame->vpCSIP);
 
@@ -107,32 +120,77 @@ ULONG FASTCALL WU32NotifyWow(PVDMFRAME pFrame)
                     BYTE **lpT;
                     GETVDMPTR(pfinit16->lpgpsi, sizeof(DWORD), lpT);
                     *lpT = (BYTE *)gpsi;
-                    FLUSHVDMCODEPTR(pfinit16->lpgpsi, sizeof(DWORD), lpT);
+                    FLUSHVDMCODEPTR((ULONG)pfinit16->lpgpsi, sizeof(DWORD), lpT);
                     FREEVDMPTR(lpT);
                 }
                 if (pfinit16->lpCsrFlag) {
                     BYTE **lpT;
                     GETVDMPTR(pfinit16->lpCsrFlag, sizeof(DWORD), lpT);
                     *lpT = (LPSTR)&CallCsrFlag;
-                    FLUSHVDMCODEPTR(pfinit16->lpCsrFlag, sizeof(DWORD), lpT);
+                    FLUSHVDMCODEPTR((ULONG)pfinit16->lpCsrFlag, sizeof(DWORD), lpT);
                     FREEVDMPTR(lpT);
                 }
 
+                if (HIWORD(pfinit16->dwBldInfo) != HIWORD(pfnOut.dwBldInfo)) {
+                    MessageBeep(0);
+                    MessageBoxA(NULL, "user.exe and user32.dll are mismatched.",
+                            "WOW Error", MB_OK | MB_ICONEXCLAMATION);
+                }
+
+                *pwMaxDWPMsg = (pfnOut.pfnWowGetDefWindowProcBits)(pDWPBits, pfinit16->cbDWPBits);
+
+                FLUSHVDMCODEPTR(pfinit16->lpwMaxDWPMsg, sizeof(WORD), pwMaxDWPMsg);
+                FLUSHVDMCODEPTR(pfinit16->lpDWPBits, pfinit16->cbDWPBits, pDWPBits);
+
+#ifdef DEBUG
+                LOGDEBUG(LOG_TRACE, ("WU32NotifyWow: got DefWindowProc bits, wMaxDWPMsg = 0x%x.\n", *pwMaxDWPMsg));
+                LOGDEBUG(LOG_TRACE, ("The following messages will be passed on to 32-bit DefWindowProc:\n"));
+
+#define FPASSTODWP32(msg) \
+    (pDWPBits[msg >> 3] & (1 << (msg & 7)))
+
+                wMsg = 0;
+                i = 0;
+
+                while (wMsg <= *pwMaxDWPMsg) {
+                    if (FPASSTODWP32(wMsg)) {
+                        if ( i & 3 ) {
+                            pszFormat = ", %s";
+                        } else {
+                            pszFormat = "\n%s";
+                        }
+                        LOGDEBUG(LOG_TRACE, (pszFormat, aw32Msg[wMsg].lpszW32));
+                        i++;
+                    }
+                    wMsg++;
+                }
+
+                LOGDEBUG(LOG_TRACE, ("\n\n"));
+#endif
+
                 //
                 // Return value tells User16 whether to thunk
-                // lstrcmp and lstrcmpi to Win32 or use the fast
+                // string routines to Win32 or use the fast
                 // US-only versions.  TRUE means thunk.
+                //
+                // If the locale is U.S. English, we default to
+                // not thunking, outside the U.S. we default to
+                // thunking.  See wow32.c's use of fThunkStrRtns.
                 //
                 // We engage in this nastiness because the Winstone 94
                 // Access 1.1 test takes *twice* as long to run in
                 // the US if we thunk lstrcmp and lstrcmpi to Win32.
                 //
-                // By adding a value "fastlstrcmp" to the WOW registry
+                // By adding a value "ThunkNLS" to the WOW registry
                 // key of type REG_DWORD, the user can force thunking
-                // to Win32 (value 0) or use the fast US-only ones (value 1).
+                // to Win32 (value 1) or use the fast US-only ones (value 0).
                 //
 
-                ul = fThunklstrcmp;
+                ul = fThunkStrRtns;
+
+                FREEVDMPTR(pDWPBits);
+                FREEVDMPTR(pwMaxDWPMsg);
+                FREEVDMPTR(pfinit16);
 
             }
             break;
@@ -163,4 +221,67 @@ ULONG FASTCALL WU32WordBreakProc(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-
+
+//
+// WU32MouseEvent:  Thunk for 16-bit register-based API mouse_event,
+//                  with the help of user16 function mouse_event (in
+//                  winmisc2.asm).
+//
+
+ULONG FASTCALL WU32MouseEvent(PVDMFRAME pFrame)
+{
+    ULONG ul;
+    register PMOUSEEVENT16 parg16;
+    typedef ULONG (WINAPI *PFMOUSE_EVENT)(DWORD, DWORD, DWORD, DWORD, DWORD);
+
+    GETARGPTR(pFrame, sizeof(PMOUSEEVENT16), parg16);
+
+    //
+    // mouse_event is declared void, but we'll return the same value as
+    // user32.
+    //
+
+    ul = ((PFMOUSE_EVENT)(PVOID)mouse_event)(
+             parg16->wFlags,
+             parg16->dx,
+             parg16->dy,
+             parg16->cButtons,
+             parg16->dwExtraInfo
+             );
+
+    FREEARGPTR(parg16);
+    RETURN(ul);
+}
+
+
+
+//
+// WU32KeybdEvent:  Thunk for 16-bit register-based API keybd_event,
+//                  with the help of user16 function keybd_event (in
+//                  winmisc2.asm).
+//
+
+ULONG FASTCALL WU32KeybdEvent(PVDMFRAME pFrame)
+{
+    ULONG ul;
+    register PKEYBDEVENT16 parg16;
+    typedef ULONG (WINAPI *PFKEYBD_EVENT)(BYTE, BYTE, DWORD, DWORD);
+
+    GETARGPTR(pFrame, sizeof(PKEYBDEVENT16), parg16);
+
+    //
+    // keybd_event is declared void, but we'll return the same value as
+    // user32.
+    //
+
+    ul = ((PFKEYBD_EVENT)(PVOID)keybd_event)(
+             LOBYTE(parg16->bVirtualKey),
+             LOBYTE(parg16->bScanCode),
+             ((HIBYTE(parg16->bVirtualKey) == 0x80) ? KEYEVENTF_KEYUP : 0) |
+             ((HIBYTE(parg16->bScanCode) == 0x1) ? KEYEVENTF_EXTENDEDKEY : 0),
+             parg16->dwExtraInfo
+             );
+
+    FREEARGPTR(parg16);
+    RETURN(ul);
+}

@@ -5,7 +5,7 @@
  * This file replaces the original "files." header file. It defines, for
  * the IBM PC/XT version, the target parser function source file, overriding
  * file name string defines, and other system-specific definitions and
- * parameters. 
+ * parameters.
  *
  * Bob Denny    06-Dec-80
  *
@@ -59,13 +59,5 @@
 #define EX_ERR 2
 #define EX_SEV 4
 
-/*
- *  Handle C6 vs C7 function name convention diferences
- */
-#ifdef	DOS_OS2_BUILD
 #define MIDL_UNLINK  _unlink
 #define MIDL_STRDUP  _strdup
-#else
-#define MIDL_UNLINK  unlink
-#define MIDL_STRDUP  strdup
-#endif	//DOS_OS2_BUILD

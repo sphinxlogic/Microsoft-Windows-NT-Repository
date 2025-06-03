@@ -659,9 +659,10 @@ Return Value:
         // Initialize some drawing registers.
         //
 
-        while (INPW(hwDeviceExtension, INDEX_GE_STAT) & FIFO_5_EMPTY)
+        while (INPW(hwDeviceExtension, INDEX_GE_STAT) & FIFO_6_EMPTY)
             ;
 
+        OUTPW(hwDeviceExtension, INDEX_PIX_CNTL,      0x5006);
         OUTPW(hwDeviceExtension, INDEX_SCISSORS_T,    0x1000);
         OUTPW(hwDeviceExtension, INDEX_SCISSORS_L,    0x2000);
         OUTPW(hwDeviceExtension, INDEX_SCISSORS_B,    0x35ff);

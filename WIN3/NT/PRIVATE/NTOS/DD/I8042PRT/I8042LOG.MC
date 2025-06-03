@@ -229,5 +229,14 @@ Language=English
 An error occurred while trying to determine the number of mouse buttons.
 .
 
+MessageId=0x0023 Facility=i8042prt Severity=Informational SymbolicName=I8042_UNEXPECTED_MOUSE_RESET
+Language=English
+An unexpected RESET was detected from the mouse device.
+.
+
+MessageId=0x0024 Facility=i8042prt Severity=Warning SymbolicName=I8042_UNEXPECTED_WHEEL_MOUSE_RESET
+Language=English
+An unexpected RESET was detected from the mouse device.  The wheel has been deactivated.
+.
 
 ;#endif /* _I8042LOG_ */

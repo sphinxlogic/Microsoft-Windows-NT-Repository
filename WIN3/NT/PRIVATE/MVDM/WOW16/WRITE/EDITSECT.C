@@ -180,4 +180,3 @@ for (ised = 0, psed = &(**hsetb).rgsed[0]; ised < csed; ised++, psed++)
 return hsetb;
 } /* end of  H s e t b C r e a t e  */
 #endif  /* CASHMERE */
-

@@ -736,7 +736,7 @@ rafailmem1:
         xor     ax,ax
         jmps    raexit
 
-ra_done:                                ; 3 feb 1990, shit!!+!! this
+ra_done:                                ; 3 feb 1990, this
         push    ax                      ;  is a last minute hack
         push    bx
         push    cx
@@ -831,7 +831,7 @@ cBegin nogen
         or      ax,ax
         jz      ra_free
 
-; !! the following shit was added Tue 06-Feb-1990 01:47:12
+; !! the following was added Tue 06-Feb-1990 01:47:12
 ;  it doesn't belong here really but it is the only way to
 ;  prevent selector leak.
 
@@ -851,7 +851,7 @@ cBegin nogen
         rcr     cx, 1                   ; 17 bitdom
         shr     cx, 11
         sub     bl, cl
-        jbe     ignore_this_shit
+        jbe     ignore_this_shi
 
         xor     bh,bh                   ; BX = number of selectors to free
         shl     cx,3
@@ -862,12 +862,12 @@ cBegin nogen
         add     bx,SIZE DscPtr
         loop    @B
 
-ignore_this_shit:
+ignore_this_shi:
         pop     si
         pop     cx
         pop     bx
 
-; end of shit
+; end of shi
 
         Handle_To_Sel   al
         cCall   set_sel_limit,<ax>

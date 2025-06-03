@@ -27,6 +27,7 @@
 #endif
 
 .rdata
+	.align	3
 _logtable:
 	.word	D(0x00000000,0x00000000), D(0x00000000,0x00000000)
 	.word	D(0x3F7FE02A,0x6B200000), D(0xBD6F30EE,0x07912DF9)

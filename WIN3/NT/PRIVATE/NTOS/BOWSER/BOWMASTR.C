@@ -306,6 +306,7 @@ BowserPrimeDomainTableWithOtherDomains(
         OtherDomainPrototype.ServerVersionMinor = 0;
 
         OtherDomainPrototype.ServerPeriodicity = 0xffff;
+        OtherDomainPrototype.ExpirationTime = 0xffffffff;
 
         OtherDomainPrototype.SerialId = 0;
 
@@ -625,6 +626,7 @@ BowserMasterAnnouncementWorker(
     BowserDereferenceTransportName(Context->TransportName);
     BowserDereferenceTransport(Transport);
 
+    InterlockedDecrement( &BowserPostedDatagramCount );
     FREE_POOL(Context);
 
 }

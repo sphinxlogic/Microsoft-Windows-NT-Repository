@@ -72,6 +72,8 @@ Return Value:
     PFILE_FULL_EA_INFORMATION ea;
     ULONG eaBufferLength;
 
+    PAGED_CODE( );
+
     //
     // Set up local pointers.
     //
@@ -82,10 +84,18 @@ Return Value:
     ASSERT( IS_AFD_ENDPOINT_TYPE( endpoint ) );
 
     //
+    // Bomb off if this is a helper endpoint.
+    //
+
+    if ( endpoint->Type == AfdBlockTypeHelper ) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
     // If the client wants a unique address, make sure that there are no
     // other sockets with this address.
 
-    ExAcquireResourceShared( &AfdResource, TRUE );
+    ExAcquireResourceExclusive( AfdResource, TRUE );
 
     if ( IrpSp->Parameters.DeviceIoControl.OutputBufferLength != 0 ) {
 
@@ -124,14 +134,14 @@ Return Value:
                      (compareEndpoint->State != AfdEndpointStateClosing) ) {
 
                 //
-                // Compare the bits in the endpoint's address and the 
-                // address we're attempting to bind to.  Note that we 
-                // also compare the transport device names on the 
-                // endpoints, as it is legal to bind to the same address 
-                // on different transports (e.g.  bind to same port in 
-                // TCP and UDP).  We can just compare the transport 
-                // device name pointers because unique names are stored 
-                // globally.  
+                // Compare the bits in the endpoint's address and the
+                // address we're attempting to bind to.  Note that we
+                // also compare the transport device names on the
+                // endpoints, as it is legal to bind to the same address
+                // on different transports (e.g.  bind to same port in
+                // TCP and UDP).  We can just compare the transport
+                // device name pointers because unique names are stored
+                // globally.
                 //
 
                 if ( compareEndpoint->LocalAddressLength ==
@@ -143,19 +153,20 @@ Return Value:
                          compareEndpoint->LocalAddress,
                          compareEndpoint->LocalAddressLength,
                          requestedAddress,
-                         requestedAddressLength
+                         requestedAddressLength,
+                         FALSE
                          )
 
                      &&
 
-                     endpoint->TransportInfo == 
+                     endpoint->TransportInfo ==
                          compareEndpoint->TransportInfo ) {
 
                     //
                     // The addresses are equal.  Fail the request.
                     //
 
-                    ExReleaseResource( &AfdResource );
+                    ExReleaseResource( AfdResource );
 
                     Irp->IoStatus.Information = 0;
                     Irp->IoStatus.Status = STATUS_SHARING_VIOLATION;
@@ -170,17 +181,20 @@ Return Value:
     // Store the address to which the endpoint is bound.
     //
 
-    endpoint->LocalAddress = 
-        AFD_ALLOCATE_POOL( NonPagedPool, requestedAddressLength );
+    endpoint->LocalAddress = AFD_ALLOCATE_POOL(
+                                 NonPagedPool,
+                                 requestedAddressLength,
+                                 AFD_LOCAL_ADDRESS_POOL_TAG
+                                 );
 
     if ( endpoint->LocalAddress == NULL ) {
 
-        ExReleaseResource( &AfdResource );
+        ExReleaseResource( AfdResource );
 
         Irp->IoStatus.Information = 0;
-        Irp->IoStatus.Status = STATUS_NO_MEMORY;
+        Irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
 
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     endpoint->LocalAddressLength =
@@ -192,7 +206,7 @@ Return Value:
         endpoint->LocalAddressLength
         );
 
-    ExReleaseResource( &AfdResource );
+    ExReleaseResource( AfdResource );
 
     //
     // Allocate memory to hold the EA buffer we'll use to specify the
@@ -204,13 +218,21 @@ Return Value:
                          IrpSp->Parameters.DeviceIoControl.InputBufferLength;
 
 #if DBG
-    ea = AFD_ALLOCATE_POOL( NonPagedPool, eaBufferLength );
+    ea = AFD_ALLOCATE_POOL(
+             NonPagedPool,
+             eaBufferLength,
+             AFD_EA_POOL_TAG
+             );
 #else
-    ea = AFD_ALLOCATE_POOL( PagedPool, eaBufferLength );
+    ea = AFD_ALLOCATE_POOL(
+             PagedPool,
+             eaBufferLength,
+             AFD_EA_POOL_TAG
+             );
 #endif
 
     if ( ea == NULL ) {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
     //
@@ -268,7 +290,10 @@ Return Value:
                  eaBufferLength
                  );
 
-    AFD_FREE_POOL( ea );
+    AFD_FREE_POOL(
+        ea,
+        AFD_EA_POOL_TAG
+        );
 
     if ( !NT_SUCCESS(status) ) {
 
@@ -281,12 +306,17 @@ Return Value:
 
         endpoint->LocalAddress = NULL;
         endpoint->LocalAddressLength = 0;
-        AFD_FREE_POOL( localAddress );
+        AFD_FREE_POOL(
+            localAddress,
+            AFD_LOCAL_ADDRESS_POOL_TAG
+            );
 
         KeDetachProcess( );
 
         return status;
     }
+
+    AfdRecordAddrOpened();
 
     //
     // Get a pointer to the file object of the address.
@@ -303,10 +333,22 @@ Return Value:
 
     ASSERT( NT_SUCCESS(status) );
 
+    AfdRecordAddrRef();
+
     IF_DEBUG(BIND) {
         KdPrint(( "AfdBind: address file object for endpoint %lx at %lx\n",
                       endpoint, endpoint->AddressFileObject ));
     }
+
+    //
+    // Remember the device object to which we need to give requests for
+    // this address object.  We can't just use the
+    // fileObject->DeviceObject pointer because there may be a device
+    // attached to the transport protocol.
+    //
+
+    endpoint->AddressDeviceObject =
+        IoGetRelatedDeviceObject( endpoint->AddressFileObject );
 
     //
     // Determine whether the TDI provider supports data bufferring.
@@ -343,7 +385,7 @@ Return Value:
     //
 
     status = AfdSetEventHandler(
-                 endpoint->AddressHandle,
+                 endpoint->AddressFileObject,
                  TDI_EVENT_ERROR,
                  AfdErrorEventHandler,
                  endpoint
@@ -354,10 +396,20 @@ Return Value:
     }
 #endif
 
-    if ( endpoint->EndpointType == AfdEndpointTypeDatagram ) {
+    if ( IS_DGRAM_ENDPOINT(endpoint) ) {
+
+        endpoint->EventsActive = AFD_POLL_SEND;
+
+        IF_DEBUG(EVENT_SELECT) {
+            KdPrint((
+                "AfdBind: Endp %08lX, Active %08lX\n",
+                endpoint,
+                endpoint->EventsActive
+                ));
+        }
 
         status = AfdSetEventHandler(
-                     endpoint->AddressHandle,
+                     endpoint->AddressFileObject,
                      TDI_EVENT_RECEIVE_DATAGRAM,
                      AfdReceiveDatagramEventHandler,
                      endpoint
@@ -371,7 +423,7 @@ Return Value:
     } else {
 
         status = AfdSetEventHandler(
-                     endpoint->AddressHandle,
+                     endpoint->AddressFileObject,
                      TDI_EVENT_DISCONNECT,
                      AfdDisconnectEventHandler,
                      endpoint
@@ -383,9 +435,9 @@ Return Value:
 #endif
 
         if ( endpoint->TdiBufferring ) {
-    
+
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_RECEIVE,
                          AfdReceiveEventHandler,
                          endpoint
@@ -395,9 +447,9 @@ Return Value:
                 DbgPrint( "AFD: Setting TDI_EVENT_RECEIVE failed: %lx\n", status );
             }
 #endif
-        
+
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_RECEIVE_EXPEDITED,
                          AfdReceiveExpeditedEventHandler,
                          endpoint
@@ -407,9 +459,9 @@ Return Value:
                 DbgPrint( "AFD: Setting TDI_EVENT_RECEIVE_EXPEDITED failed: %lx\n", status );
             }
 #endif
-        
+
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_SEND_POSSIBLE,
                          AfdSendPossibleEventHandler,
                          endpoint
@@ -423,7 +475,7 @@ Return Value:
         } else {
 
             status = AfdSetEventHandler(
-                         endpoint->AddressHandle,
+                         endpoint->AddressFileObject,
                          TDI_EVENT_RECEIVE,
                          AfdBReceiveEventHandler,
                          endpoint
@@ -442,7 +494,7 @@ Return Value:
             if ( (endpoint->TransportInfo->ProviderInfo.ServiceFlags &
                      TDI_SERVICE_EXPEDITED_DATA) != 0 ) {
                 status = AfdSetEventHandler(
-                             endpoint->AddressHandle,
+                             endpoint->AddressFileObject,
                              TDI_EVENT_RECEIVE_EXPEDITED,
                              AfdBReceiveExpeditedEventHandler,
                              endpoint
@@ -492,6 +544,7 @@ Return Value:
     NTSTATUS status;
     PAFD_ENDPOINT endpoint;
     PFILE_OBJECT fileObject;
+    PDEVICE_OBJECT deviceObject;
 
     PAGED_CODE( );
 
@@ -523,8 +576,10 @@ Return Value:
                  TDI_ADDRESS_TYPE_NETBIOS ) {
         ASSERT( endpoint->Common.VcConnecting.Connection->Type == AfdBlockTypeConnection );
         fileObject = endpoint->Common.VcConnecting.Connection->FileObject;
+        deviceObject = endpoint->Common.VcConnecting.Connection->DeviceObject;
     } else {
         fileObject = endpoint->AddressFileObject;
+        deviceObject = endpoint->AddressDeviceObject;
     }
 
     //
@@ -535,7 +590,7 @@ Return Value:
 
     TdiBuildQueryInformation(
         Irp,
-        fileObject->DeviceObject,
+        deviceObject,
         fileObject,
         AfdRestartGetAddress,
         endpoint,
@@ -543,12 +598,11 @@ Return Value:
         Irp->MdlAddress
         );
 
-
     //
     // Call the TDI provider to get the address.
     //
 
-    return AfdIoCallDriver( endpoint, fileObject->DeviceObject, Irp );
+    return AfdIoCallDriver( endpoint, deviceObject, Irp );
 
 complete:
 
@@ -597,7 +651,7 @@ AfdRestartGetAddress (
 
         } while ( mdl != NULL  );
 
-        KeAcquireSpinLock( &AfdSpinLock, &oldIrql );
+        AfdAcquireSpinLock( &AfdSpinLock, &oldIrql );
 
         //
         // If the new address is longer than the original address, allocate
@@ -610,18 +664,26 @@ AfdRestartGetAddress (
 
             PVOID newAddress;
 
-            newAddress = AFD_ALLOCATE_POOL( NonPagedPool, addressLength-4 );
+            newAddress = AFD_ALLOCATE_POOL(
+                             NonPagedPool,
+                             addressLength-4,
+                             AFD_LOCAL_ADDRESS_POOL_TAG
+                             );
+
             if ( newAddress == NULL ) {
-                KeReleaseSpinLock( &AfdSpinLock, oldIrql );
-                return STATUS_NO_MEMORY;
+                AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
+                return STATUS_INSUFFICIENT_RESOURCES;
             }
 
-            AFD_FREE_POOL( endpoint->LocalAddress );
+            AFD_FREE_POOL(
+                endpoint->LocalAddress,
+                AFD_LOCAL_ADDRESS_POOL_TAG
+                );
 
             endpoint->LocalAddress = newAddress;
             endpoint->LocalAddressLength = addressLength-4;
         }
-    
+
         status = TdiCopyMdlToBuffer(
                      Irp->MdlAddress,
                      4,
@@ -631,19 +693,19 @@ AfdRestartGetAddress (
                      &endpoint->LocalAddressLength
                      );
         ASSERT( NT_SUCCESS(status) );
-    
-        KeReleaseSpinLock( &AfdSpinLock, oldIrql );
+
+        AfdReleaseSpinLock( &AfdSpinLock, oldIrql );
     }
 
     AfdCompleteOutstandingIrp( endpoint, Irp );
-    
+
     //
-    // If pending has be returned for this irp then mark the current 
-    // stack as pending.  
+    // If pending has been returned for this irp then mark the current
+    // stack as pending.
     //
 
     if ( Irp->PendingReturned ) {
-        IoMarkIrpPending(Irp);
+        IoMarkIrpPending( Irp );
     }
 
     return STATUS_SUCCESS;
@@ -655,50 +717,53 @@ CHAR ZeroNodeAddress[6];
 
 BOOLEAN
 AfdAreTransportAddressesEqual (
-    IN PTRANSPORT_ADDRESS Address1,
-    IN ULONG Address1Length,
-    IN PTRANSPORT_ADDRESS Address2,
-    IN ULONG Address2Length
+    IN PTRANSPORT_ADDRESS EndpointAddress,
+    IN ULONG EndpointAddressLength,
+    IN PTRANSPORT_ADDRESS RequestAddress,
+    IN ULONG RequestAddressLength,
+    IN BOOLEAN HonorWildcardIpPortInEndpointAddress
     )
 {
-    if ( Address1->Address[0].AddressType == TDI_ADDRESS_TYPE_IP &&
-         Address2->Address[0].AddressType == TDI_ADDRESS_TYPE_IP ) {
+    if ( EndpointAddress->Address[0].AddressType == TDI_ADDRESS_TYPE_IP &&
+         RequestAddress->Address[0].AddressType == TDI_ADDRESS_TYPE_IP ) {
 
-        TDI_ADDRESS_IP UNALIGNED *ipAddress1;
-        TDI_ADDRESS_IP UNALIGNED *ipAddress2;
-    
+        TDI_ADDRESS_IP UNALIGNED *ipEndpointAddress;
+        TDI_ADDRESS_IP UNALIGNED *ipRequestAddress;
+
         //
         // They are both IP addresses.  If the ports are the same, and
         // the IP addresses are or _could_be_ the same, then the addresses
         // are equal.  The "cound be" part is true if either IP address
         // is 0, the "wildcard" IP address.
         //
-    
-        ipAddress1 = (TDI_ADDRESS_IP UNALIGNED *)&Address1->Address[0].Address[0];
-        ipAddress2 = (TDI_ADDRESS_IP UNALIGNED *)&Address2->Address[0].Address[0];
-    
-        if ( ipAddress1->sin_port == ipAddress2->sin_port &&
-             ( ipAddress1->in_addr == ipAddress2->in_addr ||
-               ipAddress1->in_addr == 0 || ipAddress2->in_addr == 0 ) ) {
-    
+
+        ipEndpointAddress = (TDI_ADDRESS_IP UNALIGNED *)&EndpointAddress->Address[0].Address[0];
+        ipRequestAddress = (TDI_ADDRESS_IP UNALIGNED *)&RequestAddress->Address[0].Address[0];
+
+        if ( ( ipEndpointAddress->sin_port == ipRequestAddress->sin_port ||
+               ( HonorWildcardIpPortInEndpointAddress &&
+                 ipEndpointAddress->sin_port == 0 ) ) &&
+             ( ipEndpointAddress->in_addr == ipRequestAddress->in_addr ||
+               ipEndpointAddress->in_addr == 0 || ipRequestAddress->in_addr == 0 ) ) {
+
             return TRUE;
         }
-    
+
         //
         // The addresses are not equal.
         //
-    
+
         return FALSE;
     }
 
-    if ( Address1->Address[0].AddressType == TDI_ADDRESS_TYPE_IPX &&
-         Address2->Address[0].AddressType == TDI_ADDRESS_TYPE_IPX ) {
+    if ( EndpointAddress->Address[0].AddressType == TDI_ADDRESS_TYPE_IPX &&
+         RequestAddress->Address[0].AddressType == TDI_ADDRESS_TYPE_IPX ) {
 
-        TDI_ADDRESS_IPX UNALIGNED *ipxAddress1;
-        TDI_ADDRESS_IPX UNALIGNED *ipxAddress2;
+        TDI_ADDRESS_IPX UNALIGNED *ipxEndpointAddress;
+        TDI_ADDRESS_IPX UNALIGNED *ipxRequestAddress;
 
-        ipxAddress1 = (TDI_ADDRESS_IPX UNALIGNED *)&Address1->Address[0].Address[0];
-        ipxAddress2 = (TDI_ADDRESS_IPX UNALIGNED *)&Address2->Address[0].Address[0];
+        ipxEndpointAddress = (TDI_ADDRESS_IPX UNALIGNED *)&EndpointAddress->Address[0].Address[0];
+        ipxRequestAddress = (TDI_ADDRESS_IPX UNALIGNED *)&RequestAddress->Address[0].Address[0];
 
         //
         // They are both IPX addresses.  Check the network addresses
@@ -706,9 +771,9 @@ AfdAreTransportAddressesEqual (
         // are different.
         //
 
-        if ( ipxAddress1->NetworkAddress != ipxAddress2->NetworkAddress &&
-             ipxAddress1->NetworkAddress != 0 &&
-             ipxAddress2->NetworkAddress != 0 ) {
+        if ( ipxEndpointAddress->NetworkAddress != ipxRequestAddress->NetworkAddress &&
+             ipxEndpointAddress->NetworkAddress != 0 &&
+             ipxRequestAddress->NetworkAddress != 0 ) {
             return FALSE;
         }
 
@@ -724,18 +789,18 @@ AfdAreTransportAddressesEqual (
         ASSERT( ZeroNodeAddress[4] == 0 );
         ASSERT( ZeroNodeAddress[5] == 0 );
 
-        if ( RtlCompareMemory(
-                 ipxAddress1->NodeAddress,
-                 ipxAddress2->NodeAddress,
-                 6 ) != 6 &&
-             RtlCompareMemory(
-                 ipxAddress1->NodeAddress,
+        if ( !RtlEqualMemory(
+                 ipxEndpointAddress->NodeAddress,
+                 ipxRequestAddress->NodeAddress,
+                 6 ) &&
+             !RtlEqualMemory(
+                 ipxEndpointAddress->NodeAddress,
                  ZeroNodeAddress,
-                 6 ) != 6 &&
-             RtlCompareMemory(
-                 ipxAddress2->NodeAddress,
+                 6 ) &&
+             !RtlEqualMemory(
+                 ipxRequestAddress->NodeAddress,
                  ZeroNodeAddress,
-                 6 ) != 6 ) {
+                 6 ) ) {
             return FALSE;
         }
 
@@ -743,21 +808,21 @@ AfdAreTransportAddressesEqual (
         // Finally, make sure the socket numbers match.
         //
 
-        if ( ipxAddress1->Socket != ipxAddress2->Socket ) {
+        if ( ipxEndpointAddress->Socket != ipxRequestAddress->Socket ) {
             return FALSE;
         }
 
         return TRUE;
 
     }
-    
+
     //
-    // If either address is not of a known address type, then do a 
-    // simple memory compare.  
+    // If either address is not of a known address type, then do a
+    // simple memory compare.
     //
 
-    return ( Address1Length == RtlCompareMemory(
-                                   Address1,
-                                   Address2,
-                                   Address2Length ) );
+    return ( EndpointAddressLength == RtlCompareMemory(
+                                   EndpointAddress,
+                                   RequestAddress,
+                                   RequestAddressLength ) );
 } // AfdAreTransportAddressesEqual

@@ -40,4 +40,4 @@ void TLineRedraw (HDC hDC, PGRAPHSTRUCT pGraph) ;
 extern BOOL TLineWindowUp ;
 #define IsTLineWindowUp() (TLineWindowUp)
 
-
+

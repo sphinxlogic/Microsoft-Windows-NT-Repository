@@ -41,9 +41,9 @@ EFLAGS_SHIFT                    equ     9
 _TEXT   SEGMENT DWORD PUBLIC 'CODE'
         ASSUME  DS:FLAT, ES:FLAT, SS:FLAT, FS:NOTHING, GS:NOTHING
 
-; BUGBUG shielint   Not sure when this routine will be called.
-;        Since there is no irql 0 interrupt, this routine won't
-;        get called.
+; NOTE  This routine is never actually called on standard x86 hardware,
+;       because passive level doesn't actually exist.  It's here to
+;       fill out the portable skeleton.
 ;
 ; The following code is called when a passive release occurs and there is
 ; no interrupt to process.
@@ -118,7 +118,8 @@ stdENDP _KiDisableInterrupts
 ;--
 cPublicProc _KiRestoreInterrupts    ,1
 cPublicFpo 1, 0
-        mov     eax,[esp]+4
+        xor     eax, eax
+        mov     al, byte ptr [esp]+4
         shl     eax,EFLAGS_SHIFT            ; (eax) == the interrupt bit
         pushfd
         or      [esp],eax                   ; or EI into flags

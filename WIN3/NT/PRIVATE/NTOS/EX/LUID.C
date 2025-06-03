@@ -24,7 +24,7 @@ Revision History:
 //  Global variables needed to support locally unique IDs.
 //
 
-LUID ExpLuid;
+LARGE_INTEGER ExpLuid;
 LARGE_INTEGER ExpLuidIncrement;
 extern KSPIN_LOCK ExpLuidLock;
 
@@ -73,7 +73,7 @@ Return Value:
     ExpLuid.LowPart = 1001;
     ExpLuid.HighPart = 0;
     KeInitializeSpinLock(&ExpLuidLock);
-    ExpLuidIncrement = LiFromUlong( 1 );
+    ExpLuidIncrement.QuadPart = 1;
     return TRUE;
 }
 

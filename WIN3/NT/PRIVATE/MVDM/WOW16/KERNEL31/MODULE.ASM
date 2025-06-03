@@ -123,6 +123,7 @@ assumes ES,NOTHING
 
 externNP MapDStoDATA
 externNP DecExeUsage
+externNP FlushPatchAppCache
 IFNDEF NO_APPLOADER
 externNP ExitAppl
 ENDIF ;!NO_APPLOADER
@@ -379,8 +380,8 @@ IFNDEF NO_APPLOADER
 	cCall	ExitAppl,<es>
 normal_unload:
 ENDIF ;!NO_APPLOADER			; END code from FreeModule
-
-	cCall	FlushCachedFileHandle,<pExe>	; Flush out of file handle cache
+    cCall   FlushPatchAppCache, <pExe>      ; Flush out Module Patch  cache
+    cCall   FlushCachedFileHandle,<pExe>    ; Flush out of file handle cache
 	cCall	Far_genter		; so we don't interfere with lrusweep
 	SetKernelDSNRes
 	mov	es,pExe

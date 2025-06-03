@@ -28,7 +28,10 @@
                                          by C8 when /Gf is used; these names
                                          are strings which are to be merged
                                          at link time.
-
+ 
+        DaveWolfe   06-Jul-1994 00.01.01 (Motorola) Added -ppc option for
+                                         PowerPC to strip entry point symbols
+                                         generated for PPC TOC.
 */
 
 #include <ctype.h>
@@ -73,7 +76,7 @@
 //  Messages.
 //
 
-char _szBanner[]                = "%s version 00.01.00\n";
+char _szBanner[]                = "%s version 00.01.01\n";
 char _szCannotOpenForRead[]     = "Cannot open %s for read access.";
 char _szCannotOpenForWrite[]    = "Cannot open %s for write access.";
 char _szErrorCopyingHeader[]    = "Error copying header to output.";
@@ -93,6 +96,7 @@ FILE * _fileOut;
 FILE * _fileHeader;
 int    _fStripLeadingUnderscore;
 int    _fNukeStdcallDecoration;
+int    _fPowerPC;
 
 char * _pszExclusionListFile = NULL ;
 void * _pvExclusionBlock = NULL ;
@@ -481,7 +485,7 @@ int ExtractSymbol( char * pszLineFromCoff,
         return 0;
     }
 
-    if( (    strnicmp( pszToken, pszSect, 4 ) )
+    if( (    _strnicmp( pszToken, pszSect, 4 ) )
           || ! IsHexNumber( pszToken + 4 ) )
     {
         return 0 ;
@@ -493,7 +497,7 @@ int ExtractSymbol( char * pszLineFromCoff,
     pszToken = strtok( NULL, pszDelimiters );
 
     if( pszToken == NULL ||
-        stricmp( pszToken, pszNoType ) )
+        _stricmp( pszToken, pszNoType ) )
     {
         return 0;
     }
@@ -508,16 +512,23 @@ int ExtractSymbol( char * pszLineFromCoff,
         return 0;
     }
 
-    if ( strcmp( pszToken, "()" ) == 0 )
+    if ( strcmp( pszToken, "()" ) != 0 )
     {
-        pszToken = strtok( NULL, pszDelimiters );
+        return 0;
     }
 
     //
     //  Next, we need "External"
     //
+    pszToken = strtok( NULL, pszDelimiters );
+
+    if( pszToken == NULL )
+    {
+        return 0;
+    }
+
     if( pszToken == NULL ||
-        stricmp( pszToken, pszExternal ) )
+        _stricmp( pszToken, pszExternal ) )
     {
         return 0;
     }
@@ -528,7 +539,7 @@ int ExtractSymbol( char * pszLineFromCoff,
     pszToken = strtok( NULL, pszDelimiters );
 
     if( pszToken == NULL ||
-        stricmp( pszToken, "|" ) )
+        _stricmp( pszToken, "|" ) )
     {
         return 0;
     }
@@ -544,6 +555,13 @@ int ExtractSymbol( char * pszLineFromCoff,
         return 0;
     }
 
+    //
+    // Strip prefix from PowerPC function symbols
+    //
+    if( _fPowerPC )
+    {
+        pszPotentialSymbol += 2 ;
+    }
 
     if( strlen( pszPotentialSymbol ) > MAX_SYMBOL )
     {
@@ -713,6 +731,7 @@ char * NoPath( char * pszPathName )
 
     HISTORY:
         KeithMo     12-Aug-1992 Broke out of main().
+        DaveWolfe   06-Jul-1994 Added -ppc.
 
 ********************************************************************/
 void ProcessCommandLine( int    cArgs,
@@ -731,6 +750,7 @@ void ProcessCommandLine( int    cArgs,
 
     _fStripLeadingUnderscore = 0;
     _fNukeStdcallDecoration  = 0;
+    _fPowerPC                = 0;
 
     //
     //  Parse the command line arguments.
@@ -778,6 +798,21 @@ void ProcessCommandLine( int    cArgs,
 
         switch( chSwitch )
         {
+        case 'p' :
+        case 'P' :
+            //
+            //  -ppc
+            //
+            //  Strip prefix ".." from "..symbol".
+            //
+            if( _stricmp( pszArg, "ppc") != 0 )
+            {
+                Usage();
+            }
+
+            _fPowerPC = 1;
+            break;
+
         case 'h' :
         case 'H' :
             //
@@ -961,6 +996,8 @@ void StripStdcallDecoration( char * pszSymbol )
     HISTORY:
         KeithMo     09-Aug-1992 Created.
 
+        DaveWolfe   06-Jul-1994 Added -ppc option.
+
 ********************************************************************/
 void Usage( void )
 {
@@ -973,6 +1010,7 @@ void Usage( void )
     fprintf( stderr, "    -s             = strip first leading underscore from symbols\n" );
     fprintf( stderr, "    -n             = do not strip __stdcall decoration @nn\n" );
     fprintf( stderr, "    -x:excl_file   = name of file containing excluded symbols\n" );
+    fprintf( stderr, "    -ppc           = input is PowerPC symbol dump\n" );
     fprintf( stderr, "    -?             = show this help\n" );
     fprintf( stderr, "\n" );
     fprintf( stderr, "Defaults are:\n" );
@@ -980,6 +1018,7 @@ void Usage( void )
     fprintf( stderr, "    output_file = stdout\n" );
     fprintf( stderr, "    header_file = none\n" );
     fprintf( stderr, "    don't strip first leading underscore from symbol\n" );
+    fprintf( stderr, "    input is not PowerPC symbol dump\n" );
 
     Cleanup();
     exit( 1 );

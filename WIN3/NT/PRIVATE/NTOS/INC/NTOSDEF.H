@@ -23,6 +23,59 @@ Revision History:
 #define _NTOSDEF_
 
 //
+// Define interlocked sequenced list structure.
+//
+// begin_ntddk begin_nthal begin_ntifs begin_ntndis
+
+typedef union _SLIST_HEADER {
+    ULONGLONG Alignment;
+    struct {
+        SINGLE_LIST_ENTRY Next;
+        USHORT Depth;
+        USHORT Sequence;
+    };
+} SLIST_HEADER, *PSLIST_HEADER;
+
+//
+// Define fastcall decoration for functions.
+//
+
+#if defined(_M_IX86)
+#define FASTCALL _fastcall
+#else
+#define FASTCALL
+#endif
+
+// end_ntddk end_nthal end_ntifs end_ntndis
+
+//
+// Define the number of small pool lists.
+//
+// N.B. This value is used in pool.h and is used to allocate single entry
+//      lookaside lists in the processor block of each processor.
+
+#define POOL_SMALL_LISTS 8
+
+//
+// Define nonpaged small pool lookaside list descriptor structure.
+//
+// N.B. This stucture must be a multiple of 8 bytes in size.
+//
+
+typedef struct _SMALL_POOL_LOOKASIDE {
+    SLIST_HEADER SListHead;
+    USHORT Depth;
+    USHORT MaximumDepth;
+    ULONG TotalAllocates;
+    ULONG AllocateHits;
+    ULONG TotalFrees;
+    ULONG FreeHits;
+    ULONG LastTotalAllocates;
+    ULONG LastAllocateHits;
+    KSPIN_LOCK Lock;
+} SMALL_POOL_LOOKASIDE, *PSMALL_POOL_LOOKASIDE;
+
+//
 // Define alignment macros to align structure sizes up and down.
 //
 
@@ -150,9 +203,7 @@ typedef struct _KAPC {
     CCHAR ApcStateIndex;
     KPROCESSOR_MODE ApcMode;
     BOOLEAN Inserted;
-} KAPC;
-
-typedef KAPC *PKAPC;
+} KAPC, *PKAPC, *RESTRICTED_POINTER PRKAPC;
 
 // begin_ntndis
 //
@@ -171,19 +222,86 @@ VOID
     );
 
 //
+// Define DPC importance.
+//
+// LowImportance - Queue DPC at end of target DPC queue.
+// MediumImportance - Queue DPC at front of target DPC queue.
+// HighImportance - Queue DPC at front of target DPC DPC queue and interrupt
+//     the target processor if the DPC is targeted and the system is an MP
+//     system.
+//
+// N.B. If the target processor is the same as the processor on which the DPC
+//      is queued on, then the processor is always interrupted if the DPC queue
+//      was previously empty.
+//
+
+typedef enum _KDPC_IMPORTANCE {
+    LowImportance,
+    MediumImportance,
+    HighImportance
+} KDPC_IMPORTANCE;
+
+//
 // Deferred Procedure Call (DPC) object
 //
 
 typedef struct _KDPC {
     CSHORT Type;
-    CSHORT Size;
+    UCHAR Number;
+    UCHAR Importance;
     LIST_ENTRY DpcListEntry;
     PKDEFERRED_ROUTINE DeferredRoutine;
     PVOID DeferredContext;
     PVOID SystemArgument1;
     PVOID SystemArgument2;
     PULONG Lock;
-} KDPC, *PKDPC;
+} KDPC, *PKDPC, *RESTRICTED_POINTER PRKDPC;
+
+//
+// Interprocessor interrupt worker routine function prototype.
+//
+
+typedef PULONG PKIPI_CONTEXT;
+
+typedef
+VOID
+(*PKIPI_WORKER)(
+    IN PKIPI_CONTEXT PacketContext,
+    IN PVOID Parameter1,
+    IN PVOID Parameter2,
+    IN PVOID Parameter3
+    );
+
+//
+// Define interprocessor interrupt performance counters.
+//
+
+typedef struct _KIPI_COUNTS {
+    ULONG Freeze;
+    ULONG Packet;
+    ULONG DPC;
+    ULONG APC;
+    ULONG FlushSingleTb;
+    ULONG FlushMultipleTb;
+    ULONG FlushEntireTb;
+    ULONG GenericCall;
+    ULONG ChangeColor;
+    ULONG SweepDcache;
+    ULONG SweepIcache;
+    ULONG SweepIcacheRange;
+    ULONG FlushIoBuffers;
+    ULONG GratuitousDPC;
+} KIPI_COUNTS, *PKIPI_COUNTS;
+
+#if defined(NT_UP)
+
+#define HOT_STATISTIC(a) a
+
+#else
+
+#define HOT_STATISTIC(a) (KeGetCurrentPrcb()->a)
+
+#endif
 
 //
 // I/O system definitions.
@@ -222,20 +340,28 @@ typedef struct _MDL {
 #define MDL_MAPPED_TO_SYSTEM_VA     0x0001
 #define MDL_PAGES_LOCKED            0x0002
 #define MDL_SOURCE_IS_NONPAGED_POOL 0x0004
-#define MDL_ALLOCATED_FROM_ZONE     0x0008
+#define MDL_ALLOCATED_FIXED_SIZE    0x0008
 #define MDL_PARTIAL                 0x0010
 #define MDL_PARTIAL_HAS_BEEN_MAPPED 0x0020
 #define MDL_IO_PAGE_READ            0x0040
 #define MDL_WRITE_OPERATION         0x0080
 #define MDL_PARENT_MAPPED_SYSTEM_VA 0x0100
 #define MDL_LOCK_HELD               0x0200
+#define MDL_SCATTER_GATHER_VA       0x0400
+#define MDL_IO_SPACE                0x0800
+#define MDL_NETWORK_HEADER          0x1000
+#define MDL_MAPPING_CAN_FAIL        0x2000
+#define MDL_ALLOCATED_MUST_SUCCEED  0x4000
 
-#define MDL_MAPPING_FLAGS (MDL_MAPPED_TO_SYSTEM_VA |     \
-                           MDL_PAGES_LOCKED |            \
+
+#define MDL_MAPPING_FLAGS (MDL_MAPPED_TO_SYSTEM_VA     | \
+                           MDL_PAGES_LOCKED            | \
                            MDL_SOURCE_IS_NONPAGED_POOL | \
                            MDL_PARTIAL_HAS_BEEN_MAPPED | \
                            MDL_PARENT_MAPPED_SYSTEM_VA | \
-                           MDL_LOCK_HELD )
+                           MDL_LOCK_HELD               | \
+                           MDL_SYSTEM_VA               | \
+                           MDL_IO_SPACE )
 
 // end_ntndis
 //

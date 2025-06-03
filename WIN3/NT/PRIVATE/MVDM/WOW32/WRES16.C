@@ -22,10 +22,16 @@
 //  02-Feb-1994 Jonle
 //
 #define VALIDPUT(p)      ((UINT)p>65535)
-#define PUTWORD(p,w,c)   {if (VALIDPUT(p)) *(PWORD)p=w; ((PWORD)p)++; }
-#define PUTDWORD(p,d,c)  {if (VALIDPUT(p)) *(PDWORD)p=d;((PDWORD)p)++;}
-#define GETWORD(pb)   (*((UNALIGNED WORD *)pb)++)
-#define GETDWORD(pb)  (*((UNALIGNED DWORD *)pb)++)
+#define PUTWORD(p,w)     {if (VALIDPUT(p)) *(PWORD)p=w; ((PWORD)p)++; }
+#define PUTDWORD(p,d)    {if (VALIDPUT(p)) *(PDWORD)p=d;((PDWORD)p)++;}
+#define PUTUDWORD(p,d)   {if (VALIDPUT(p)) *(DWORD UNALIGNED *)p=d;((DWORD UNALIGNED *)p)++;}
+#define GETWORD(pb)      (*((UNALIGNED WORD *)pb)++)
+#define GETDWORD(pb)     (*((UNALIGNED DWORD *)pb)++)
+
+#define ADVGET(p,i)      {(UINT)p+=i;}
+#define ADVPUT(p,i)      {(UINT)p+=i;}
+#define ALIGNWORD(p)     {(UINT)p+=( ((UINT)p)&(sizeof(WORD)-1));}
+#define ALIGNDWORD(p)    {(UINT)p+=(-((INT)p)&(sizeof(DWORD)-1));}
 
 
 MODNAME(wres16.c);
@@ -385,16 +391,16 @@ DWORD ConvertMenu16(WORD wExeVer, PBYTE pmenu32, VPBYTE vpmenu16, DWORD cb, DWOR
     wVer = 0;
     if (wExeVer >= 0x300)
         wVer = GETWORD(pmenu16);
-    PUTWORD(pmenu32, wVer, cb);     // transfer versionNumber
+    PUTWORD(pmenu32, wVer);         // transfer versionNumber
     wOffset = 0;
     if (wExeVer >= 0x300)
         wOffset = GETWORD(pmenu16);
-    PUTWORD(pmenu32, wOffset, cb);  // transfer offset
+    PUTWORD(pmenu32, wOffset);      // transfer offset
     ADVGET(pmenu16, wOffset);       // and advance by offset
-    ADVPUT(pmenu32, wOffset, cb);
-    ALIGNWORD(pmenu32, cb);             // this is the DIFFERENCE for WIN32
-    cb = pmenu32 - pmenu32T;
-    cb += ConvertMenuItems16(wExeVer, &pmenu32, &pmenu16);
+    ADVPUT(pmenu32, wOffset);
+    ALIGNWORD(pmenu32);             // this is the DIFFERENCE for WIN32
+    cb = pmenu32 - pmenu32T;        // pmenu32 will == 4 for size queries
+    cb += ConvertMenuItems16(wExeVer, &pmenu32, &pmenu16, vpmenu16+(pmenu16 - pmenu16Save));
 
     FREEVDMPTR(pmenu16Save);
     RETURN(cb);
@@ -406,9 +412,11 @@ DWORD ConvertMenu16(WORD wExeVer, PBYTE pmenu32, VPBYTE vpmenu16, DWORD cb, DWOR
  * ConvertMenuItems16
  *
  * Returns the number of bytes in the CONVERTED menu
+ * Note: This can be called with ppmenu32==4 which means the caller is looking
+ *       for the size to allocate for the 32-bit menu structure.
  */
 
-DWORD ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16)
+DWORD ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16, VPBYTE vpmenu16)
 {
     INT cbAnsi;
     DWORD cbTotal = 0;
@@ -416,6 +424,7 @@ DWORD ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16)
     WORD wOption, wID;
     PBYTE pmenu32 = *ppmenu32;
     PBYTE pmenu16 = *ppmenu16;
+    PBYTE pmenu16T = pmenu16;
     PBYTE pmenu32T = pmenu32;
 
     do {
@@ -423,27 +432,47 @@ DWORD ConvertMenuItems16(WORD wExeVer, PPBYTE ppmenu32, PPBYTE ppmenu16)
             wOption = GETBYTE(pmenu16);
         else
             wOption = GETWORD(pmenu16);
-        PUTWORD(pmenu32, wOption, cbTotal);  // transfer mtOption
+        PUTWORD(pmenu32, wOption);           // transfer mtOption
         if (!(wOption & MF_POPUP)) {
             wID = GETWORD(pmenu16);
-            PUTWORD(pmenu32, wID, cbTotal);  // transfer mtID
+            PUTWORD(pmenu32, wID);           // transfer mtID
         }
         cbAnsi = strlen(pmenu16)+1;
-        if (VALIDPUT(pmenu32)) {
-            RtlMultiByteToUnicodeN((LPWSTR)pmenu32, MAXULONG, (PULONG)&cbUni, pmenu16, cbAnsi);
-        } else {
-            cbUni = cbAnsi * sizeof(WCHAR);
+
+        // If this is an ownerdraw menu don't copy the ANSI memu string to
+        // Unicode. Put a 16:16 pointer into the 32-bit resource which
+        // points to menu string instead.  User will place this pointer in 
+        // MEASUREITEMSTRUCT->itemData before sending WM_MEASUREITEM.  If it's a
+        // NULL string User will place a NULL in MEASUREITEMSTRUCT->itemData.
+        // Chess Master and Mavis Beacon Teaches Typing depend on this.
+        if ((wOption & MFT_OWNERDRAW) && *pmenu16) {
+            if (VALIDPUT(pmenu32)) {
+                *(DWORD UNALIGNED *)pmenu32 = vpmenu16 + (pmenu16 - pmenu16T);
+            }
+            cbUni = sizeof(DWORD);
+        }
+        else {
+            if (VALIDPUT(pmenu32)) {
+                RtlMultiByteToUnicodeN((LPWSTR)pmenu32, MAXULONG, (PULONG)&cbUni, pmenu16, cbAnsi);
+
+            } 
+            else {
+                cbUni = cbAnsi * sizeof(WCHAR);
+            }
         }
 
         ADVGET(pmenu16, cbAnsi);
-        ADVPUT(pmenu32, cbUni, cbTotal);
-        ALIGNWORD(pmenu32, cbTotal);         // this is the DIFFERENCE for WIN32
+        ADVPUT(pmenu32, cbUni);
+        ALIGNWORD(pmenu32);         // this is the DIFFERENCE for WIN32
         if (wOption & MF_POPUP)
-            cbTotal += ConvertMenuItems16(wExeVer, &pmenu32, &pmenu16);
+            cbTotal += ConvertMenuItems16(wExeVer, &pmenu32, &pmenu16, vpmenu16+(pmenu16 - pmenu16T));
+
+
     } while (!(wOption & MF_END));
 
     *ppmenu32 = pmenu32;
     *ppmenu16 = pmenu16;
+
     return (pmenu32 - pmenu32T);
 }
 
@@ -461,14 +490,14 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
 
     pdlg16 = GETVDMPTR(vpdlg16, cb16, pdlg16Save);
     dwStyle = GETDWORD(pdlg16);
-    PUTDWORD(pdlg32, dwStyle, cb);  // transfer style
-    PUTDWORD(pdlg32, 0, cb);            // Add NEW extended style
+    PUTDWORD(pdlg32, dwStyle);          // transfer style
+    PUTDWORD(pdlg32, 0);                // Add NEW extended style
 
     cItems = GETBYTE(pdlg16);
-    PUTWORD(pdlg32, (WORD)cItems, cb);  // stretch count to WORD for WIN32
+    PUTWORD(pdlg32, (WORD)cItems);      // stretch count to WORD for WIN32
     for (i=0; i<4; i++) {
         w = GETWORD(pdlg16);
-        PUTWORD(pdlg32, w, cb);     // transfer x & y, then cx & cy
+        PUTWORD(pdlg32, w);             // transfer x & y, then cx & cy
     }
 
     //
@@ -481,9 +510,9 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
     for (i=0; i<3; i++) {
         if (i==0 && *pdlg16 == 0xFF) {  // special encoding of szMenuName
             GETBYTE(pdlg16);            // advance past the ff byte
-            PUTWORD(pdlg32, 0xffff, cb);// copy the f word
+            PUTWORD(pdlg32, 0xffff);    // copy the f word
             w = GETWORD(pdlg16);        // get the menu ordinal
-            PUTWORD(pdlg32, w, cb);     // transfer it
+            PUTWORD(pdlg32, w);         // transfer it
         } else {    // ordinary string
             cbAnsi = strlen(pdlg16)+1;
             if (VALIDPUT(pdlg32)) {
@@ -492,14 +521,14 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
                 cbUni = cbAnsi * sizeof(WCHAR);
             }
             ADVGET(pdlg16, cbAnsi);
-            ADVPUT(pdlg32, cbUni, cb);
-            ALIGNWORD(pdlg32, cb);  // fix next field alignment for WIN32
+            ADVPUT(pdlg32, cbUni);
+            ALIGNWORD(pdlg32);          // fix next field alignment for WIN32
         }
     }
 
     if (dwStyle & DS_SETFONT) {
         w = GETWORD(pdlg16);
-        PUTWORD(pdlg32, w, cb);     // transfer cPoints
+        PUTWORD(pdlg32, w);             // transfer cPoints
         cbAnsi = strlen(pdlg16)+1;      // then szTypeFace
         if (VALIDPUT(pdlg32)) {
             RtlMultiByteToUnicodeN((LPWSTR)pdlg32, MAXULONG, (PULONG)&cbUni, pdlg16, cbAnsi);
@@ -507,17 +536,17 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
             cbUni = cbAnsi * sizeof(WCHAR);
         }
         ADVGET(pdlg16, cbAnsi);
-        ADVPUT(pdlg32, cbUni, cb);
+        ADVPUT(pdlg32, cbUni);
 
     }
     while (cItems--) {
-        ALIGNDWORD(pdlg32, cb);     // items start on DWORD boundaries
-        PUTDWORD(pdlg32, FETCHDWORD(*(PDWORD)(pdlg16+sizeof(WORD)*5)), cb);
-        PUTDWORD(pdlg32, 0, cb);            // Add NEW extended style
+        ALIGNDWORD(pdlg32);         // items start on DWORD boundaries
+        PUTDWORD(pdlg32, FETCHDWORD(*(PDWORD)(pdlg16+sizeof(WORD)*5)));
+        PUTDWORD(pdlg32, 0);        // Add NEW extended style
 
         for (i=0; i<5; i++) {
             w = GETWORD(pdlg16);
-            PUTWORD(pdlg32, w, cb); // transfer x & y, then cx & cy, then id
+            PUTWORD(pdlg32, w);     // transfer x & y, then cx & cy, then id
         }
 
         ADVGET(pdlg16, sizeof(DWORD));  // skip style, which we already copied
@@ -530,41 +559,41 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
         //
 
         if (*pdlg16 & 0x80) {
-            PUTWORD(pdlg32, 0xFFFF, cb);// NEW encoding marker 0xFFFF
-            b = GETBYTE(pdlg16);    // special encoding for predefined class
-            PUTWORD(pdlg32, (WORD)b, cb);
+            PUTWORD(pdlg32, 0xFFFF); // NEW encoding marker 0xFFFF
+            b = GETBYTE(pdlg16);     // special encoding for predefined class
+            PUTWORD(pdlg32, (WORD)b);
         } else {
             cbAnsi = strlen(pdlg16)+1;
-            if (VALIDPUT(pdlg32)) {     // transfer szClass
+            if (VALIDPUT(pdlg32)) {  // transfer szClass
                 RtlMultiByteToUnicodeN((LPWSTR)pdlg32, MAXULONG, (PULONG)&cbUni, pdlg16, cbAnsi);
             } else {
                 cbUni = cbAnsi * sizeof(WCHAR);
             }
             ADVGET(pdlg16, cbAnsi);
-            ADVPUT(pdlg32, cbUni, cb);
+            ADVPUT(pdlg32, cbUni);
         }
-        ALIGNWORD(pdlg32, cb);      // fix next field alignment for WIN32
+        ALIGNWORD(pdlg32);           // fix next field alignment for WIN32
 
         //
         // transfer the item text
         //
 
-        if (*pdlg16 == 0xFF) {      // special encoding
+        if (*pdlg16 == 0xFF) {       // special encoding
             GETBYTE(pdlg16);
-            PUTWORD(pdlg32, 0xFFFF, cb);
+            PUTWORD(pdlg32, 0xFFFF);
             w = GETWORD(pdlg16);
-            PUTWORD(pdlg32, w, cb);
+            PUTWORD(pdlg32, w);
         } else {
             cbAnsi = strlen(pdlg16)+1;
-            if (VALIDPUT(pdlg32)) {     // otherwise, just transfer szText
+            if (VALIDPUT(pdlg32)) {  // otherwise, just transfer szText
                 RtlMultiByteToUnicodeN((LPWSTR)pdlg32, MAXULONG, (PULONG)&cbUni, pdlg16, cbAnsi);
             } else {
                 cbUni = cbAnsi * sizeof(WCHAR);
             }
             ADVGET(pdlg16, cbAnsi);
-            ADVPUT(pdlg32, cbUni, cb);
+            ADVPUT(pdlg32, cbUni);
         }
-        ALIGNWORD(pdlg32, cb);      // fix next field alignment for WIN32
+        ALIGNWORD(pdlg32);           // fix next field alignment for WIN32
 
         //
         // transfer the create params
@@ -600,12 +629,12 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
 
             // store 32-bit createparams size (room for 16:16 ptr)
 
-            PUTWORD(pdlg32, sizeof(pdlg16), cb);
-            ALIGNDWORD(pdlg32, cb);
+            PUTWORD(pdlg32, sizeof(pdlg16));
+            //ALIGNDWORD(pdlg32);
 
             // store 16:16 pointer in 32-bit createparams
 
-            PUTDWORD(pdlg32, (DWORD)vpdlg16 + (DWORD)(pdlg16 - pdlg16Save), cb);
+            PUTUDWORD(pdlg32, (DWORD)vpdlg16 + (DWORD)(pdlg16 - pdlg16Save));
 
             // point pdlg16 past createparams
 
@@ -615,8 +644,8 @@ DWORD ConvertDialog16(PBYTE pdlg32, VPBYTE vpdlg16, DWORD cb, DWORD cb16)
 
             // there are no createparams, store size of zero.
 
-            PUTWORD(pdlg32, 0, cb);
-            ALIGNDWORD(pdlg32, cb);
+            PUTWORD(pdlg32, 0);
+            //ALIGNDWORD(pdlg32);
         }
 
     }

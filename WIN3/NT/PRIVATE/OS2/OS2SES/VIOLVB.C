@@ -247,26 +247,26 @@ VioLVBCopyStr( IN PUCHAR   Sour,
 
 #ifdef DBCS
 // MSKK Oct.13.1993 V-AkihiS
-        if (Offset == 2) 
+        if (Offset == 2)
         {
             for (;Len-- ; )
             {
                 *Ptr = *Sou++;
                 Ptr += Offset;
             }
-        } else 
+        } else
         {
             for (;Len-- ; )
             {
                 *Ptr = *Sou;                     // copy character to lvb
                 Ptr += Offset-1;                 // skip to 3rd byte attr
-                if (Ow2NlsIsDBCSLeadByte(*Sou++, SesGrp->VioCP)) 
+                if (Ow2NlsIsDBCSLeadByte(*Sou++, SesGrp->VioCP))
                 {
                     *Ptr++ = OS2_COMMON_LVB_LEADING_BYTE;
-                    if (Len) 
+                    if (Len)
                     {
                         //
-                        // Copy trailing byte charater, and mark 
+                        // Copy trailing byte charater, and mark
                         // this char as trailing byte
                         //
                         *Ptr = *Sou++;
@@ -276,16 +276,16 @@ VioLVBCopyStr( IN PUCHAR   Sour,
                     } else
                     {
                         //
-                        // If last written character was a lead byte, 
+                        // If last written character was a lead byte,
                         // erase it.
                         //
                         *(Ptr-Offset) = ' ';
                         *(Ptr-1) = OS2_COMMON_LVB_SBCS;
                     }
-                } else 
+                } else
                 {
                     //
-                    // Copy SBCS charater, and mark this char 
+                    // Copy SBCS charater, and mark this char
                     // as SBCS
                     //
                     *Ptr++ = OS2_COMMON_LVB_SBCS;
@@ -312,13 +312,13 @@ VioLVBCopyCellStr( IN PUCHAR   Sour,
     {
 #ifdef DBCS
 // MSKK Oct.13.1993 V-AkihiS
-        if (SesGrp->BytesPerCell == 2) 
+        if (SesGrp->BytesPerCell == 2)
         {
             memmove(
                      GET_LVB_PTR( Coord.Y, Coord.X ),
                      Sour,
                      LengthInCell << SesGrp->VioLength2CellShift);
-        } else 
+        } else
         {
             register UCHAR  *Ptr;
             register ULONG  Len = LengthInCell;
@@ -328,7 +328,7 @@ VioLVBCopyCellStr( IN PUCHAR   Sour,
 
             for (;Len-- ; )
             {
-                if (Ow2NlsIsDBCSLeadByte(*Sou, SesGrp->VioCP)) 
+                if (Ow2NlsIsDBCSLeadByte(*Sou, SesGrp->VioCP))
                 {
                     //
                     // Copy leading byte charater, 1st attr and 2nd attr
@@ -337,10 +337,10 @@ VioLVBCopyCellStr( IN PUCHAR   Sour,
                     *Ptr++ = *Sou++; *Ptr++ = *Sou++; *Ptr++ = *Sou++;
                     *Ptr++ = OS2_COMMON_LVB_LEADING_BYTE;
                     Sou++;                      // skip source 3rd attr.
-                    if (Len) 
+                    if (Len)
                     {
                         //
-                        // Copy trailing byte charater, and mark 
+                        // Copy trailing byte charater, and mark
                         // this char as trailing byte
                         //
                         *Ptr++ = *Sou++; *Ptr++ = *Sou++; *Ptr++ = *Sou++;
@@ -350,16 +350,16 @@ VioLVBCopyCellStr( IN PUCHAR   Sour,
                     } else
                     {
                         //
-                        // If last written chell was a lead byte, 
+                        // If last written chell was a lead byte,
                         // erase it.
                         //
                         *(Ptr-4) = ' ';
                         *(Ptr-1) = OS2_COMMON_LVB_SBCS;
                     }
-                } else 
+                } else
                 {
                     //
-                    // Copy SBCS charater, and mark this char 
+                    // Copy SBCS charater, and mark this char
                     // as SBCS
                     //
                     *Ptr++ = *Sou++; *Ptr++ = *Sou++; *Ptr++ = *Sou++;
@@ -393,9 +393,9 @@ VOID VioLVBFillChar(IN PBYTE pChar,
 
         Ptr = GET_LVB_PTR( Coord.Y, Coord.X );
 
-        if (Offset == 2) 
+        if (Offset == 2)
         {
-            if (Ow2NlsIsDBCSLeadByte(*pCha, SesGrp->VioCP)) 
+            if (Ow2NlsIsDBCSLeadByte(*pCha, SesGrp->VioCP))
             {
                 Len /= 2;
                 for ( ;Len-- ; )
@@ -405,7 +405,7 @@ VOID VioLVBFillChar(IN PBYTE pChar,
                     *Ptr = *(pCha+1);
                     Ptr += Offset;
                 }
-            } else 
+            } else
             {
                 for ( ;Len-- ; )
                 {
@@ -413,7 +413,7 @@ VOID VioLVBFillChar(IN PBYTE pChar,
                     Ptr += Offset;
                 }
             }
-        } else 
+        } else
         {
             if (Ow2NlsIsDBCSLeadByte(*pCha, SesGrp->VioCP))
             {
@@ -427,7 +427,7 @@ VOID VioLVBFillChar(IN PBYTE pChar,
                     Ptr += Offset-1;
                     *Ptr++ = OS2_COMMON_LVB_TRAILING_BYTE;
                 }
-            } else 
+            } else
             {
                 for ( ;Len-- ; )
                 {
@@ -529,7 +529,7 @@ VOID VioLVBFillCell(IN PBYTE pCell,
         if ( SesGrp->BytesPerCell == 4 )
         {
             if (Ow2NlsIsDBCSLeadByte(pCell[0], SesGrp->VioCP))
-            {        
+            {
                 register ATTR_3_BYTES  LeadAttr = *(PATTR_3_BYTES)(&pCell[1]);
                 register ATTR_3_BYTES  TrailAttr = *(PATTR_3_BYTES)(&pCell[5]);
                 register ULONG  Len = LengthInCell / 2;
@@ -551,7 +551,7 @@ VOID VioLVBFillCell(IN PBYTE pCell,
                     *(PATTR_3_BYTES)Ptr = TrailAttr;
                     Ptr += 3;
                 }
-            } else 
+            } else
             {
                 Pattern = (ULONG)((pCell[3] << 24) |
                                   (pCell[2] << 16) |
@@ -566,12 +566,12 @@ VOID VioLVBFillCell(IN PBYTE pCell,
             }
         } else {
             if (Ow2NlsIsDBCSLeadByte(pCell[0], SesGrp->VioCP))
-            {        
+            {
                 Pattern = (ULONG)((pCell[3] << 24) |
                                   (pCell[2] << 16) |
                                   (pCell[1] << 8) |
                                   (pCell[0]));
-            } else 
+            } else
             {
                 Pattern = (ULONG)((pCell[1] << 24) |
                                   (pCell[0] << 16) |
@@ -612,11 +612,17 @@ VOID VioLVBFillCell(IN PBYTE pCell,
                               (pCell[1] << 8) |
                               (pCell[0]));
 
-            if (LengthInCell & 1)
-            {
+            if ((ULONG)Ptr & 3) {
+                LengthInCell--;
                 *(Ptr++) = pCell[0];
                 *(Ptr++) = pCell[1];
+            }
+
+            if (LengthInCell & 1)
+            {
                 LengthInCell-- ;
+                *(Ptr + (LengthInCell << 1)) = pCell[0];
+                *(Ptr + (LengthInCell << 1) +  1) = pCell[1];
             }
         }
 
@@ -646,7 +652,7 @@ VioLVBScrollBuff(IN DWORD   LineNum)
 #ifdef DBCS
 // MSKK Oct.20.1993 V-AkihiS
         Size = SesGrp->BytesPerCell * SesGrp->ScreenColNum * LineNum;
-        if (SesGrp->BytesPerCell == 2) 
+        if (SesGrp->BytesPerCell == 2)
         {
             Pattern = (ULONG)((SesGrp->AnsiCellAttr[0] << 24) |
                               (' ' << 16) |
@@ -671,10 +677,10 @@ VioLVBScrollBuff(IN DWORD   LineNum)
                       LVBBuffer + Size,
                       SesGrp->LVBsize - Size);
 
-        
+
 #ifdef DBCS
 // MSKK Oct.20.1993 V-AkihiS
-        if (SesGrp->BytesPerCell == 4) 
+        if (SesGrp->BytesPerCell == 4)
         {
             Size = SesGrp->ScreenColNum * LineNum;
         }
@@ -749,15 +755,15 @@ LVBUpdateTTYCharWithAttrAndCurPosDBCS(
         } else {
             *Ptr++ = SesGrp->AnsiCellAttr[0];
             *Ptr++ = SesGrp->AnsiCellAttr[1];
-            if (State == MODDBCS) 
+            if (State == MODDBCS)
             {
                 *Ptr++ = OS2_COMMON_LVB_TRAILING_BYTE;
-            } else 
+            } else
             {
                 *Ptr++ = OS2_COMMON_LVB_LEADING_BYTE;
             }
         }
-        
+
         *LVBPtr = Ptr;
     }
 }

@@ -176,4 +176,3 @@ typedef struct _SP_MODEM_STATUS {
 } SP_MODEM_STATUS, *PSP_MODEM_STATUS;
 
 #endif // _JAZZSERP_
-

@@ -136,10 +136,27 @@ OUT void PAPI *pBuff		// buffer to marshell to
 #define hCContext ((CCONTEXT PAPI *) hCC)  // cast opeqe pointer to internal
 
     if (!hCContext)
-
-	memset(pBuff, 0, cbNDRContext);
+        memset(pBuff, 0, cbNDRContext);
     else
-	memcpy(pBuff, &hCContext->NDR, sizeof(hCContext->NDR));
+        {
+
+        // Check the magic value to see if this is a legit context
+        
+        RpcTryExcept
+            {
+            if ( ((CCONTEXT PAPI *) hCContext)->MagicValue != CONTEXT_MAGIC_VALUE )
+                {
+                RpcRaiseException(RPC_X_SS_CONTEXT_MISMATCH);
+                }
+            }
+        RpcExcept(1)
+            {
+            RpcRaiseException(RPC_X_SS_CONTEXT_MISMATCH);
+            }
+        RpcEndExcept
+        
+     	memcpy(pBuff, &hCContext->NDR, sizeof(hCContext->NDR));
+        }
 
 #undef hCContext
 }
@@ -148,7 +165,7 @@ OUT void PAPI *pBuff		// buffer to marshell to
 static void
 ByteSwapWireContext(
     IN WIRE_CONTEXT PAPI * WireContext,
-    IN unsigned char PAPI * DataRepresentation
+    IN unsigned long PAPI * DataRepresentation
     )
 /*++
 
@@ -166,7 +183,8 @@ Arguments:
 
 --*/
 {
-    if ( DataConvertEndian(DataRepresentation) != 0 )
+    if ( (*DataRepresentation & NDR_LITTLE_ENDIAN) 
+                      != NDR_LOCAL_ENDIAN ) 
         {
         ByteSwapLong(WireContext->ContextType);
         ByteSwapLong(WireContext->ContextUuid.Data1);
@@ -191,7 +209,7 @@ IN  unsigned long DataRepresentation	// pointer to NDR data rep
     // destory this context if the server returned none
 
     ByteSwapWireContext((WIRE_CONTEXT PAPI *) pBuff,
-            (unsigned char PAPI *) &DataRepresentation);
+            (unsigned long PAPI *) &DataRepresentation);
 
     ASSERT( !RpcpCheckHeap() );
 
@@ -210,37 +228,47 @@ IN  unsigned long DataRepresentation	// pointer to NDR data rep
 	return;
 	}
 
-    if (! hCC)			// allocate new if none existed
-	{
-	hCC = (PCCONTEXT) I_RpcAllocate(sizeof(CCONTEXT));
+	PCCONTEXT hCCtemp = 0;
 
-        if (hCC == 0)
+    if (! hCC)			// allocate new if none existed
+        {
+        hCCtemp = (PCCONTEXT) I_RpcAllocate(sizeof(CCONTEXT));
+
+        if (hCCtemp == 0)
            {
            RpcRaiseException(RPC_S_OUT_OF_MEMORY);
            }
 
-        hCC->MagicValue = CONTEXT_MAGIC_VALUE;
-	*phCContext = (NDR_CCONTEXT)hCC;
-	}
+        hCCtemp->MagicValue = CONTEXT_MAGIC_VALUE;
+        }
+    else if (memcmp(&hCC->NDR, pBuff, sizeof(hCC->NDR)) == 0)
+        {
+        // the returned context is the same as the app's context.
 
-    // if the context has changed, destory old binding
+        return;
+        }
 
-    else if (memcmp(&hCC->NDR, pBuff, sizeof(hCC->NDR)) != 0)
 
-	RpcBindingFree(&(hCC->hRPC));
-    else
-	return;
+    RPC_BINDING_HANDLE hBindtemp ;
 
-    memcpy(&hCC->NDR, pBuff, sizeof(hCC->NDR));
-
-    if( I_RpcBindingCopy(hRPC, &hCC->hRPC) != RPC_S_OK )
+    if( I_RpcBindingCopy(hRPC, &hBindtemp) != RPC_S_OK )
         {
         ASSERT( !RpcpCheckHeap() );
-        hCC->MagicValue = 0;
+        I_RpcFree( hCCtemp );
         RpcRaiseException(RPC_S_OUT_OF_MEMORY);
         }
 
+    if ( hCCtemp )
+        hCC = hCCtemp;
+    else
+        RpcBindingFree(&(hCC->hRPC));
+
+    memcpy(&hCC->NDR, pBuff, sizeof(hCC->NDR));
+    hCC->hRPC = hBindtemp;
+
     ASSERT( !RpcpCheckHeap() );
+
+    *phCContext = (NDR_CCONTEXT)hCC;
 }
 
 

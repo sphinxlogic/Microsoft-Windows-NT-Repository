@@ -212,7 +212,6 @@ cBegin <nogen>
 	push	MM_MCINOTIFY		; Message
 	push	ax			; wParam == wStatus
 	push	0			; HIWORD of lParam
-        or      cx,8000h                ; mangle device ID
 	push	cx			; LOWORD of lParam == wDeviceID
 	push	dx			; Put return address back
 	push	bx

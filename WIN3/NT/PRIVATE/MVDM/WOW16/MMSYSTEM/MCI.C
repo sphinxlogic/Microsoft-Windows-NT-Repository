@@ -172,8 +172,9 @@ MciNotify(
     //  wParam is the notify status
     //  lParam is the MCI device id
     //
-    if (MCI_VALID_DEVICE_ID(LOWORD(lParam)) && !MCI_lpDeviceList[LOWORD(lParam)]->bIsClosing) {
-        MCI_lpDeviceList[LOWORD(lParam)]->bIsAutoClosing = TRUE;
+    if (MCI_VALID_DEVICE_ID(LOWORD(lParam)) &&
+        !(MCI_lpDeviceList[LOWORD(lParam)]->dwMCIFlags & MCINODE_ISCLOSING)) {
+        MCI_lpDeviceList[LOWORD(lParam)]->dwMCIFlags |= MCINODE_ISAUTOCLOSING;
         mciCloseDevice (LOWORD(lParam), 0L, NULL, TRUE);
     }
 }
@@ -244,7 +245,7 @@ mciDebugOut(
     }
     else if (nodeWorking != NULL)
     {
-        if (nodeWorking->dwFlags & MCI_OPEN_ELEMENT_ID)
+        if (nodeWorking->dwMCIOpenFlags & MCI_OPEN_ELEMENT_ID)
         {
             wsprintf(lszDebugOut + lstrlen(lszDebugOut), " Element ID:0x%lx", nodeWorking->dwElementID);
         } else if (nodeWorking->lpstrName != NULL)
@@ -427,13 +428,7 @@ mciBreak(
 
     } else if (dwFlags & MCI_BREAK_OFF) {
 
-        /*
-        ** Turn on the 16 bit device ID flag.  If we don't do this
-        ** mciSetYieldProc gets confused and thinks its been passed a 32 bit
-        ** device ID.
-        */
-        wDeviceID |= 0x8000;
-        mciSetYieldProc (wDeviceID, NULL, 0);
+        mciSetYieldProc(wDeviceID, NULL, 0);
         return 0;
 
     } else
@@ -576,11 +571,9 @@ mciSendSingleCommand(
 
                 if (wMessage == MCI_OPEN) {
 
-                    ((LPMCI_OPEN_PARMS)dwParam2)->wDeviceID |= 0x8000;
                     mciConvertReturnValue( wReturnType, HIWORD(dwRet),
                                            wDeviceID, (LPDWORD)dwParam2,
                                            strTemp, sizeof(strTemp));
-                    ((LPMCI_OPEN_PARMS)dwParam2)->wDeviceID &= 0x7FFF;
                 }
                 else {
                     mciConvertReturnValue( wReturnType, HIWORD(dwRet),
@@ -675,7 +668,7 @@ mciSendCommandInternal(
 // If the device is in the process of closing and the message
 // is not MCI_CLOSE_DRIVER then return an error
         if (nodeWorking != NULL &&
-            nodeWorking->bIsClosing &&
+            (nodeWorking->dwMCIFlags & MCINODE_ISCLOSING) &&
             wMessage != MCI_CLOSE_DRIVER)
         {
             dwRetVal = MCIERR_DEVICE_LOCKED;
@@ -692,7 +685,7 @@ mciSendCommandInternal(
             {
 // Don't even allow close from mciSendCommand if auto-open device has a
 // pending close
-                if (nodeWorking->bIsAutoClosing)
+                if (nodeWorking->dwMCIFlags & MCINODE_ISAUTOCLOSING)
                 {
 // But at least give the close a chance to take place
 //!!                    Yield();
@@ -898,19 +891,21 @@ mciSendCommand(
     DWORD dwParam2
     )
 {
+    // Initialize the 16-bit device list if needed.
+    if (!MCI_bDeviceListInitialized && !mciInitDeviceList())
+        return MCIERR_OUT_OF_MEMORY;
+
+    // MCI_OPEN_DRIVER & MCI_CLOSE_DRIVER only supported on 16-bit drivers
+    if ( (wMessage == MCI_OPEN_DRIVER) || (wMessage == MCI_CLOSE_DRIVER) ) {
+        return mciSendCommand16( wDeviceID, wMessage, dwParam1, dwParam2 );
+    }
 
     /*
     ** If we are opening the device try the 32 bit side first.  If this
     ** worked (hopefully this is the usual case) we return the given
-    ** device ID.  Otherwise, we try for a 16 bit device.  If this worked
-    ** we set the high bit of the device ID so that we can identify it
-    ** later.
+    ** device ID.  Otherwise, we try for a 16 bit device.
     */
-    if ( (wMessage == MCI_OPEN_DRIVER) || (wMessage == MCI_CLOSE_DRIVER) ) {
-
-        return mciSendCommand16( wDeviceID, wMessage, dwParam1, dwParam2 );
-    }
-    else if ( wMessage == MCI_OPEN ) {
+    if ( wMessage == MCI_OPEN ) {
 
         DWORD dwErr;
 
@@ -944,7 +939,6 @@ mciSendCommand(
             if ( dwErr == MMSYSERR_NOERROR ) {
 
                 LPMCI_OPEN_PARMS lpOpenParms = (LPMCI_OPEN_PARMS)dwParam2;
-                lpOpenParms->wDeviceID |= 0x8000;
 
                 DPRINTF(("mciSendCommand: We have a 16 bit driver,"
                          " devID = 0x%X\r\n", lpOpenParms->wDeviceID ));
@@ -959,36 +953,17 @@ mciSendCommand(
         DWORD dwErr32;
 
         /*
-        ** If we have a device ID greater than 0x8000 then we have either
-        ** a 16 bit device ID or the MCI_ALL_DEVICE_ID.
-        **
         ** If we have been given the MCI_ALL_DEVICE_ID then we have to
         ** send the command to both the 32 and 16 bit side.
         **
         ** Special care needs to be taken with the MCI_ALL_DEVICE_ID.
         ** The message must be passed on to both 32 and 16 bit devices.
-        ** However, the return code
         */
 
-        if ( wDeviceID > 0x8000 ) {
-
-
-            /*
-            ** Turn off the device ID mangling if we are NOT dealing with
-            ** MCI_ALL_DEVICE_ID device.
-            */
-            if ( wDeviceID != MCI_ALL_DEVICE_ID ) {
-                wDeviceID &= 0x7FFF;
-            }
-
+        if (CouldBe16bitDrv(wDeviceID)) {
             dwErr16 = mciSendCommand16( wDeviceID, wMessage,
                                         dwParam1, dwParam2 );
 
-            /*
-            ** If this wasn't the MCI_ALL_DEVICE_ID device then we have
-            ** finished, so just return the result, otherwise fall thru into
-            ** the code below which calls the 32 bit devices.
-            */
             if ( wDeviceID != MCI_ALL_DEVICE_ID ) {
                 return dwErr16;
             }
@@ -1040,9 +1015,6 @@ mciSendCommand16(
     DWORD dwErr;
     MCI_INTERNAL_OPEN_INFO OpenInfo;
 
-    // Initialize the device list
-    if (!MCI_bDeviceListInitialized && !mciInitDeviceList())
-        return MCIERR_OUT_OF_MEMORY;
 
     //
     // Send the command.  This shell is responsible for adding the device ID
@@ -1680,7 +1652,7 @@ mciSendStringInternal(
         LPMCI_DEVICE_NODE nodeWorking = MCI_lpDeviceList[wDeviceID];
 
         // Is there a pending auto-close message?
-        if (nodeWorking->bIsAutoClosing)
+        if (nodeWorking->dwMCIFlags & MCINODE_ISAUTOCLOSING)
         {
             // Let the device close
             //!!            Yield();
@@ -1933,10 +1905,6 @@ mciSendStringInternal(
     if (dwErr & MCI_INTEGER_RETURNED)
         wConvertReturnValue = MCI_INTEGER;
 
-    if ( wMessage == MCI_OPEN ) {
-        ((LPMCI_OPEN_PARMS)lpdwParams)->wDeviceID |= 0x8000;
-    }
-
     // If the return value must be converted
     if (wConvertReturnValue != 0 && wReturnLength != 0)
         wErr = mciConvertReturnValue (wConvertReturnValue, HIWORD(dwErr),
@@ -2054,6 +2022,11 @@ mciSendString(
     LPSTR   lpstr;
     BOOL    fHaveAll = FALSE;
 
+    // Initialize the 16-bit device list
+    if (!MCI_bDeviceListInitialized && !mciInitDeviceList()) {
+        return MCIERR_OUT_OF_MEMORY;
+    }
+
     dwErr32 = mciMessage( THUNK_MCI_SENDSTRING, (DWORD)lpstrCommand,
                           (DWORD)lpstrReturnString, (DWORD)wReturnLength,
                           (DWORD)hwndCallback );
@@ -2083,13 +2056,6 @@ mciSendString(
         return dwErr32;
     }
     else {
-
-        //
-        // Initialize the device list
-        //
-        if (!MCI_bDeviceListInitialized && !mciInitDeviceList()) {
-            return MCIERR_OUT_OF_MEMORY;
-        }
 
         dwErr16 = mciSendStringInternal( lpstrCommand, lpstrReturnString,
                                          wReturnLength, hwndCallback, NULL );

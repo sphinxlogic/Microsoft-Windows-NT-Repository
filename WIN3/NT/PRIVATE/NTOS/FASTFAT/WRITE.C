@@ -33,6 +33,21 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_WRITE)
 
+//
+//  Macros to increment the appropriate performance counters.
+//
+
+#define CollectWriteStats(VCB,OPEN_TYPE,BYTE_COUNT) {                                   \
+    PFILESYSTEM_STATISTICS Stats = &(VCB)->Statistics[KeGetCurrentProcessorNumber()];   \
+    if (((OPEN_TYPE) == UserFileOpen)) {                                                \
+        Stats->UserFileWrites += 1;                                                     \
+        Stats->UserFileWriteBytes += (ULONG)(BYTE_COUNT);                               \
+    } else if (((OPEN_TYPE) == VirtualVolumeFile || ((OPEN_TYPE) == DirectoryFile))) {  \
+        Stats->MetaDataWrites += 1;                                                     \
+        Stats->MetaDataWriteBytes += (ULONG)(BYTE_COUNT);                               \
+    }                                                                                   \
+}
+
 BOOLEAN FatNoAsync = FALSE;
 
 //
@@ -267,6 +282,8 @@ Return Value:
 
     NTSTATUS Status;
 
+
+
     FAT_IO_CONTEXT StackFatIoContext;
 
     //
@@ -361,24 +378,38 @@ Return Value:
                    (StartingByte.HighPart == 0xffffffff) );
 
     //
-    //  Check for a > 2Gig offset or byte count
+    //  Extract the nature of the write from the file object, and case on it
+    //
+
+    TypeOfWrite = FatDecodeFileObject(FileObject, &Vcb, &FcbOrDcb, &Ccb);
+
+    //
+    //  Collect interesting statistics.  The FLAG_USER_IO bit will indicate
+    //  what type of io we're doing in the FatNonCachedIo function.
+    //
+
+    if (PagingIo) {
+        CollectWriteStats(Vcb, TypeOfWrite, ByteCount);
+
+        if (TypeOfWrite == UserFileOpen) {
+            SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO);
+        } else {
+            ClearFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_USER_IO);
+        }
+    }
+
+    //
+    //  Check for a > 4Gig offset + byte count
     //
 
     if (!WriteToEof &&
-        ((StartingByte.HighPart != 0) ||
-         (StartingByte.LowPart >= 0x80000000) ||
-         (ByteCount >= 0x80000000))) {
+        (TypeOfWrite != UserVolumeOpen) &&
+        (StartingByte.QuadPart + ByteCount > 0xfffffffe)) {
 
         Irp->IoStatus.Information = 0;
         FatCompleteRequest( IrpContext, Irp, STATUS_INVALID_PARAMETER );
         return STATUS_INVALID_PARAMETER;
     }
-
-    //
-    //  Extract the nature of the write from the file object, and case on it
-    //
-
-    TypeOfWrite = FatDecodeFileObject(FileObject, &Vcb, &FcbOrDcb, &Ccb);
 
     //
     //  Check for Double Space
@@ -726,6 +757,12 @@ Return Value:
                 IoRuns[Fat].ByteCount = WriteLength;
             }
 
+            //
+            //  Keep track of meta-data disk ios.
+            //
+
+            Vcb->Statistics[KeGetCurrentProcessorNumber()].MetaDataDiskWrites += Vcb->Bpb.Fats;
+
             try {
 
                 FatMultipleAsync( IrpContext,
@@ -835,6 +872,31 @@ Return Value:
 
             SetFlag( Ccb->Flags, CCB_FLAG_DASD_PURGE_DONE |
                                  CCB_FLAG_DASD_FLUSH_DONE );
+        }
+
+        if (!FlagOn( Ccb->Flags, CCB_FLAG_ALLOW_EXTENDED_DASD_IO )) {
+
+            ULONG VolumeSize;
+
+            //
+            //  Make sure we don't try to write past end of volume,
+            //  reducing the requested byte count if necessary.
+            //
+
+            VolumeSize = Vcb->Bpb.BytesPerSector *
+                         (Vcb->Bpb.Sectors != 0 ? Vcb->Bpb.Sectors :
+                                                  Vcb->Bpb.LargeSectors);
+
+            if (WriteToEof || StartingVbo >= VolumeSize) {
+
+                FatCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+                return STATUS_SUCCESS;
+            }
+
+            if (ByteCount > VolumeSize - StartingVbo) {
+
+                ByteCount = VolumeSize - StartingVbo;
+            }
         }
 
         //
@@ -992,6 +1054,15 @@ Return Value:
         }
 
         //
+        //  If for any reason the Mcb was reset, re-initialize it.
+        //
+
+        if (FcbOrDcb->Header.AllocationSize.LowPart == 0xffffffff) {
+
+            FatLookupFileAllocationSize( IrpContext, FcbOrDcb );
+        }
+
+        //
         //  Do the usual STATUS_PENDING things.
         //
 
@@ -1058,10 +1129,19 @@ Return Value:
 
                 FcbOrDcbAcquired = TRUE;
 
+                //
+                //  We hold PagingIo shared around the flush to fix a
+                //  cache coherency problem.
+                //
+
+                ExAcquireSharedStarveExclusive( FcbOrDcb->Header.PagingIoResource, TRUE );
+
                 CcFlushCache( FileObject->SectionObjectPointer,
                               WriteToEof ? &FcbOrDcb->Header.FileSize : &StartingByte,
                               ByteCount,
                               &Irp->IoStatus );
+
+                ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
 
                 if (!NT_SUCCESS( Irp->IoStatus.Status)) {
 
@@ -1110,6 +1190,20 @@ Return Value:
                         FcbOrDcb->Header.PagingIoResource;
                 }
 
+                //
+                //  Check to see if we colided with a MoveFile call, and if
+                //  so block until it completes.
+                //
+
+                if (FcbOrDcb->MoveFileEvent) {
+
+                    (VOID)KeWaitForSingleObject( FcbOrDcb->MoveFileEvent,
+                                                 Executive,
+                                                 KernelMode,
+                                                 FALSE,
+                                                 NULL );
+                }
+
             } else {
 
                 //
@@ -1117,6 +1211,7 @@ Return Value:
                 //  we don't exhaust the number of times a single thread can
                 //  acquire the resource.
                 //
+
 
                 if (!Wait && NonCachedIo) {
 
@@ -1180,7 +1275,7 @@ Return Value:
             //
             //  Get a first tentative file size and valid data length.
             //  We must get ValidDataLength first since it is always
-            //  increased second (the case we are unprotected) and
+            //  increased second (in case we are unprotected) and
             //  we don't want to capture ValidDataLength > FileSize.
             //
 
@@ -1417,7 +1512,7 @@ Return Value:
                                                    1,
                                                    &FatData.StrucSupSpinLock ) == 0) {
 
-                            KeResetEvent( FcbOrDcb->NonPaged->OutstandingAsyncEvent );
+                            KeClearEvent( FcbOrDcb->NonPaged->OutstandingAsyncEvent );
                         }
 
                         UnwindOutstandingAsync = TRUE;
@@ -1565,96 +1660,100 @@ Return Value:
 
                 if ( FileSize > FcbOrDcb->Header.AllocationSize.LowPart ) {
 
-                    ULONG ApproximateClusterCount;
-                    ULONG TargetAllocation;
-                    ULONG Multiplier;
-                    ULONG BytesPerCluster;
-                    ULONG ClusterAlignedFileSize;
-
-                    BOOLEAN AllocateMinimumSize;
+                    BOOLEAN AllocateMinimumSize = TRUE;
 
                     //
-                    //  We are going to try and allocate a bigger chunk than
-                    //  we actually need in order to maximize FastIo usage.
-                    //
-                    //  The multiplier is computed as follows:
-                    //
-                    //
-                    //            (FreeDiskSpace            )
-                    //  Mult =  ( (-------------------------) / 32 ) + 1
-                    //            (FileSize - AllocationSize)
-                    //
-                    //          and max out at 32.
-                    //
-                    //  With this formula we start winding down chunking
-                    //  as we get near the disk space wall.
-                    //
-                    //  For instance on an empty 1 MEG floppy doing an 8K
-                    //  write, the multiplier is 6, or 48K to allocate.
-                    //  When this disk is half full, the multipler is 3,
-                    //  and when it is 3/4 full, the mupltiplier is only 1.
-                    //
-                    //  On a larger disk, the multiplier for a 8K read will
-                    //  reach its maximum of 32 when there is at least ~8 Megs
-                    //  available.
+                    //  Only do allocation chuncking on writes if this is
+                    //  not the first allocation added to the file.
                     //
 
-                    //
-                    //  Small write performance note, use cluster aligned
-                    //  file size in above equation.
-                    //
+                    if (FcbOrDcb->Header.AllocationSize.LowPart != 0 ) {
 
-                    BytesPerCluster = 1 << Vcb->AllocationSupport.LogOfBytesPerCluster;
+                        ULONG ApproximateClusterCount;
+                        ULONG TargetAllocation;
+                        ULONG Multiplier;
+                        ULONG BytesPerCluster;
+                        ULONG ClusterAlignedFileSize;
 
-                    ClusterAlignedFileSize = (FileSize +
-                                              (BytesPerCluster - 1)) &
-                                             ~(BytesPerCluster - 1);
+                        //
+                        //  We are going to try and allocate a bigger chunk than
+                        //  we actually need in order to maximize FastIo usage.
+                        //
+                        //  The multiplier is computed as follows:
+                        //
+                        //
+                        //            (FreeDiskSpace            )
+                        //  Mult =  ( (-------------------------) / 32 ) + 1
+                        //            (FileSize - AllocationSize)
+                        //
+                        //          and max out at 32.
+                        //
+                        //  With this formula we start winding down chunking
+                        //  as we get near the disk space wall.
+                        //
+                        //  For instance on an empty 1 MEG floppy doing an 8K
+                        //  write, the multiplier is 6, or 48K to allocate.
+                        //  When this disk is half full, the multipler is 3,
+                        //  and when it is 3/4 full, the mupltiplier is only 1.
+                        //
+                        //  On a larger disk, the multiplier for a 8K read will
+                        //  reach its maximum of 32 when there is at least ~8 Megs
+                        //  available.
+                        //
 
-                    Multiplier = (((Vcb->AllocationSupport.NumberOfFreeClusters *
-                                    BytesPerCluster) /
-                                   (ClusterAlignedFileSize -
-                                    FcbOrDcb->Header.AllocationSize.LowPart)) / 32) + 1;
+                        //
+                        //  Small write performance note, use cluster aligned
+                        //  file size in above equation.
+                        //
 
-                    if (Multiplier > 32) {
+                        BytesPerCluster = 1 << Vcb->AllocationSupport.LogOfBytesPerCluster;
 
-                        Multiplier = 32;
-                    }
+                        ClusterAlignedFileSize = (FileSize +
+                                                  (BytesPerCluster - 1)) &
+                                                 ~(BytesPerCluster - 1);
 
-                    TargetAllocation = FcbOrDcb->Header.AllocationSize.LowPart +
+                        Multiplier = (((Vcb->AllocationSupport.NumberOfFreeClusters *
+                                        BytesPerCluster) /
                                        (ClusterAlignedFileSize -
-                                        FcbOrDcb->Header.AllocationSize.LowPart) *
-                                       Multiplier;
+                                        FcbOrDcb->Header.AllocationSize.LowPart)) / 32) + 1;
 
-                    //
-                    //  Now do an unsafe check here to see if we should even
-                    //  try to allocate this much.  If not, just allocate
-                    //  the minimum size we need, if so so try it, but if it
-                    //  fails, just allocate the minimum size we need.
+                        if (Multiplier > 32) {
 
-                    ApproximateClusterCount = (TargetAllocation / BytesPerCluster) + 1;
-
-                    if (ApproximateClusterCount < Vcb->AllocationSupport.NumberOfFreeClusters) {
-
-                        AllocateMinimumSize = FALSE;
-
-                        try {
-
-                            FatAddFileAllocation( IrpContext,
-                                                  FcbOrDcb,
-                                                  FileObject,
-                                                  TargetAllocation );
-
-                            SetFlag( FcbOrDcb->FcbState, FCB_STATE_TRUNCATE_ON_CLOSE );
-
-                        } except( GetExceptionCode() == STATUS_DISK_FULL ?
-                                  EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
-
-                            AllocateMinimumSize = TRUE;
+                            Multiplier = 32;
                         }
 
-                    } else {
+                        TargetAllocation = FcbOrDcb->Header.AllocationSize.LowPart +
+                                           (ClusterAlignedFileSize -
+                                            FcbOrDcb->Header.AllocationSize.LowPart) *
+                                           Multiplier;
 
-                        AllocateMinimumSize = TRUE;
+                        //
+                        //  Now do an unsafe check here to see if we should even
+                        //  try to allocate this much.  If not, just allocate
+                        //  the minimum size we need, if so so try it, but if it
+                        //  fails, just allocate the minimum size we need.
+
+                        ApproximateClusterCount = (TargetAllocation / BytesPerCluster) + 1;
+
+                        if (ApproximateClusterCount < Vcb->AllocationSupport.NumberOfFreeClusters) {
+
+                            AllocateMinimumSize = FALSE;
+
+                            try {
+
+                                FatAddFileAllocation( IrpContext,
+                                                      FcbOrDcb,
+                                                      FileObject,
+                                                      TargetAllocation );
+
+                                SetFlag( FcbOrDcb->FcbState, FCB_STATE_TRUNCATE_ON_CLOSE );
+
+                            } except( GetExceptionCode() == STATUS_DISK_FULL ?
+                                      EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH ) {
+
+                                AllocateMinimumSize = TRUE;
+                            }
+                        }
                     }
 
                     if ( AllocateMinimumSize ) {
@@ -1673,7 +1772,7 @@ Return Value:
                 }
 
                 //
-                //  Set the new file size in the Fcb.
+                //  Set the new file size in the Fcb
                 //
 
                 ASSERT( FileSize <= FcbOrDcb->Header.AllocationSize.LowPart );
@@ -1792,6 +1891,7 @@ Return Value:
                     ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT );
                 }
 
+
                 if (FatNonCachedIo( IrpContext,
                                     Irp,
                                     FcbOrDcb,
@@ -1841,6 +1941,8 @@ Return Value:
 
                 } else {
 
+                    ULONG Temp;
+
                     //
                     //  Else set the context block to reflect the entire write
                     //  Also assert we got how many bytes we asked for.
@@ -1849,6 +1951,16 @@ Return Value:
                     ASSERT( Irp->IoStatus.Information == BytesToWrite );
 
                     Irp->IoStatus.Information = ByteCount;
+
+                    //
+                    //  Take this opportunity to update ValidDataToDisk.
+                    //
+
+                    Temp = StartingVbo + BytesToWrite;
+
+                    if (FcbOrDcb->ValidDataToDisk < Temp) {
+                        FcbOrDcb->ValidDataToDisk = Temp;
+                    }
                 }
 
                 //
@@ -1927,8 +2039,6 @@ Return Value:
                             LARGE_INTEGER OneSecondFromNow;
                             PFLOPPY_FLUSH_CONTEXT FlushContext;
 
-                            extern POBJECT_TYPE *IoFileObjectType;
-
                             //
                             //  Get pool and initialize the timer and DPC
                             //
@@ -1947,12 +2057,7 @@ Return Value:
                             //  We have to reference the file object here.
                             //
 
-                            Status = ObReferenceObjectByPointer( FileObject,
-                                                                 PROCESS_ALL_ACCESS,
-                                                                 *IoFileObjectType,
-                                                                 KernelMode );
-
-                            ASSERT(NT_SUCCESS(Status));
+                            ObReferenceObject( FileObject );
 
                             FlushContext->File = FileObject;
 
@@ -1960,7 +2065,7 @@ Return Value:
                             //  Let'er rip!
                             //
 
-                            OneSecondFromNow = LiFromLong(-1*1000*1000*10);
+                            OneSecondFromNow.QuadPart = (LONG)-1*1000*1000*10;
 
                             KeSetTimer( &FlushContext->Timer,
                                         OneSecondFromNow,
@@ -2069,7 +2174,7 @@ Return Value:
             //  mucking with the internals of the EA file.
             //
 
-            if (!ExAcquireResourceShared( FcbOrDcb->Header.PagingIoResource,
+            if (!ExAcquireSharedStarveExclusive( FcbOrDcb->Header.PagingIoResource,
                                           Wait )) {
 
                 DebugTrace( 0, Dbg, "Cannot acquire FcbOrDcb = %08lx shared without waiting\n", FcbOrDcb );
@@ -2083,6 +2188,20 @@ Return Value:
 
                 IrpContext->FatIoContext->Wait.Async.Resource =
                     FcbOrDcb->Header.PagingIoResource;
+            }
+
+            //
+            //  Check to see if we colided with a MoveFile call, and if
+            //  so block until it completes.
+            //
+
+            if (FcbOrDcb->MoveFileEvent) {
+
+                (VOID)KeWaitForSingleObject( FcbOrDcb->MoveFileEvent,
+                                             Executive,
+                                             KernelMode,
+                                             FALSE,
+                                             NULL );
             }
 
             //
@@ -2315,18 +2434,33 @@ Return Value:
 
                             (VOID)ExAcquireResourceExclusive(FcbOrDcb->Header.PagingIoResource, TRUE);
                             FcbOrDcb->Header.FileSize.LowPart = InitialFileSize;
+
+                            //
+                            //  Pull back the cache map as well
+                            //
+
+
+                            if (FileObject->SectionObjectPointer->SharedCacheMap != NULL) {
+
+                                *CcGetFileSizePointer(FileObject) = FcbOrDcb->Header.FileSize;
+                            }
+
                             ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
 
                         } else {
 
                             FcbOrDcb->Header.FileSize.LowPart = InitialFileSize;
+
+                            //
+                            //  Pull back the cache map as well
+                            //
+
+
+                            if (FileObject->SectionObjectPointer->SharedCacheMap != NULL) {
+
+                                *CcGetFileSizePointer(FileObject) = FcbOrDcb->Header.FileSize;
+                            }
                         }
-
-                        //
-                        //  Pull back the cache map as well
-                        //
-
-                        CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&FcbOrDcb->Header.AllocationSize );
                     }
 
                     DebugTrace( 0, Dbg, "Passing request to Fsp\n", 0 );
@@ -2357,24 +2491,17 @@ Return Value:
                 //  pull back either file size or valid data length.
                 //
 
-                if (FcbOrDcb->Header.PagingIoResource != NULL) {
-
-                    (VOID)ExAcquireResourceExclusive(FcbOrDcb->Header.PagingIoResource, TRUE);
-                    FcbOrDcb->Header.FileSize.LowPart = InitialFileSize;
-                    FcbOrDcb->Header.ValidDataLength.LowPart = InitialValidDataLength;
-                    ExReleaseResource( FcbOrDcb->Header.PagingIoResource );
-
-                } else {
-
-                    FcbOrDcb->Header.FileSize.LowPart = InitialFileSize;
-                    FcbOrDcb->Header.ValidDataLength.LowPart = InitialValidDataLength;
-                }
+                FcbOrDcb->Header.FileSize.LowPart = InitialFileSize;
+                FcbOrDcb->Header.ValidDataLength.LowPart = InitialValidDataLength;
 
                 //
                 //  Pull back the cache map as well
                 //
 
-                CcSetFileSizes( FileObject, (PCC_FILE_SIZES)&FcbOrDcb->Header.AllocationSize );
+                if (FileObject->SectionObjectPointer->SharedCacheMap != NULL) {
+
+                    *CcGetFileSizePointer(FileObject) = FcbOrDcb->Header.FileSize;
+                }
             }
         }
 
@@ -2536,3 +2663,4 @@ Return Value:
 
     ExFreePool( Parameter );
 }
+

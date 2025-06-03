@@ -615,6 +615,17 @@ Revision History:
     ListIndex++;
 
     //
+    //  save byte/word emulation count per period
+    //
+
+    PerfListItem[ListIndex].ChangeScale = UpdatePerfInfo(
+                    &PerfListItem[ListIndex].TotalTime[0],
+                    (ExceptionInfo.ByteWordEmulationCount -
+                        PreviousExceptionInfo.ByteWordEmulationCount),
+                    &PerfListItem[ListIndex].Max);
+    ListIndex++;
+
+    //
     // If the elapsed system time is not zero, then compute the percentage
     // of time spent in user and kdrnel mode. Otherwise, default the time
     // to zero.

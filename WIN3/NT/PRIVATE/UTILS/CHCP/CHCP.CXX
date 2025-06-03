@@ -373,10 +373,50 @@ Notes:
 --*/
 
 {
+
+#ifdef DBCS
+// MSKK Nov.11.1992 KazuM
+	_Screen.MoveCursorTo(0, 0);
+
+//  v-junm - 08/18/93 : Added EraseScreenAndAttribute();
+//	_Screen.EraseScreen();
+	_Screen.EraseScreenAndResetAttribute();
+
+#endif
+
     UINT OldCP = _Screen.QueryCodePage( );
 
     if ( _Screen.SetCodePage( _CodePage ) ) {
         if (_Screen.SetOutputCodePage( _CodePage ) ) {
+
+//#ifdef DBCS
+//// MSKK Nov.23.1992 KazuM
+//	_Screen.MoveCursorTo(0, 0);
+//	_Screen.EraseScreen();
+//#endif
+#ifdef JAPAN  // v-junm - 07/22/93
+// Since FormatMessage checks the current TEB's locale, and the Locale for
+// CHCP is initialized when the message class is initialized, the TEB has to
+// be updated after the code page is changed successfully.  All other code
+// pages other than JP and US are ignored.
+
+	if ( GetConsoleOutputCP() == 932 )
+		SetThreadLocale( 
+			MAKELCID(
+				MAKELANGID( LANG_JAPANESE, SUBLANG_ENGLISH_US ),
+				SORT_DEFAULT
+				)
+			);
+	else
+		SetThreadLocale( 
+			MAKELCID(
+				MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),
+				SORT_DEFAULT
+				)
+			);
+
+#endif	// JAPAN
+
             return DisplayCodePage( );
         } else {
             _Screen.SetCodePage( OldCP );
@@ -385,3 +425,4 @@ Notes:
     DisplayMessage( MSG_CHCP_INVALID_CODEPAGE, ERROR_MESSAGE );
     return FALSE;
 }
+

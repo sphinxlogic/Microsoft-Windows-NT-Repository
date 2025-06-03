@@ -25,7 +25,6 @@ Revision History:
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( PAGE, SrvAllocateConnection )
-#pragma alloc_text( PAGE, SrvCheckAndReferenceConnection )
 #pragma alloc_text( PAGE, SrvCloseConnectionsFromClient )
 #pragma alloc_text( PAGE, SrvFreeConnection )
 #endif
@@ -109,9 +108,7 @@ Return Value:
 
     RtlZeroMemory( pagedConnection, sizeof(PAGED_CONNECTION) );
 
-    SET_BLOCK_TYPE( connection, BlockTypeConnection );
-    SET_BLOCK_STATE( connection, BlockStateInitializing );
-    SET_BLOCK_SIZE( connection, sizeof(CONNECTION) );
+    SET_BLOCK_TYPE_STATE_SIZE( connection, BlockTypeConnection, BlockStateInitializing, sizeof( CONNECTION ) );
 
     connection->PagedConnection = pagedConnection;
     pagedConnection->PagedHeader.NonPagedBlock = connection;
@@ -191,6 +188,7 @@ Return Value:
     INITIALIZE_SPIN_LOCK( &connection->Interlock );
 
     INITIALIZE_LOCK( &connection->Lock, CONNECTION_LOCK_LEVEL, "ConnectionLock" );
+    INITIALIZE_LOCK( &connection->LicenseLock, LICENSE_LOCK_LEVEL, "LicenseLock" );
 
     //
     // Initialize the client machine name string.
@@ -225,12 +223,13 @@ Return Value:
 
     //
     // Initialize the in-progress work item list, the outstanding
-    // oplock breaks list, and the cached-after-close RFCB list.
+    // oplock breaks list, and the cached-after-close lists.
     //
 
     InitializeListHead( &connection->InProgressWorkItemList );
     InitializeListHead( &connection->OplockWorkList );
     InitializeListHead( &connection->CachedOpenList );
+    InitializeListHead( &connection->CachedDirectoryList );
 
     //
     // Indicate that no IPX saved response buffer has been allocated.
@@ -278,63 +277,6 @@ error_exit:
     return;
 
 } // SrvAllocateConnection
-
-
-BOOLEAN
-SrvCheckAndReferenceConnection (
-    PCONNECTION Connection
-    )
-
-/*++
-
-Routine Description:
-
-    This function atomically verifies that a connection is active and
-    increments the reference count on the connection if it is.
-
-Arguments:
-
-    Connection - Address of connection
-
-Return Value:
-
-    BOOLEAN - Returns TRUE if the connection is active, FALSE otherwise.
-
---*/
-
-{
-    PAGED_CODE( );
-
-    //
-    // Acquire the lock that guards the connection's state field.
-    //
-
-    ACQUIRE_LOCK( &Connection->Lock );
-
-    //
-    // If the connection is active, reference it and return TRUE.
-    //
-
-    if ( GET_BLOCK_STATE(Connection) == BlockStateActive ) {
-
-        SrvReferenceConnection( Connection );
-
-        RELEASE_LOCK( &Connection->Lock );
-
-        return TRUE;
-
-    }
-
-    //
-    // The connection isn't active.  Return FALSE.
-    //
-
-    RELEASE_LOCK( &Connection->Lock );
-
-    return FALSE;
-
-} // SrvCheckAndReferenceConnection
-
 
 VOID
 SrvCloseConnection (
@@ -389,7 +331,8 @@ Return Value:
             UpdateConnectionHistory( "CLOS", Connection->Endpoint, Connection );
         }
 #endif
-        IF_DEBUG(BLOCK1) KdPrint(( "Closing connection at %lx\n", Connection ));
+        IF_DEBUG(TDI) KdPrint(( "Closing connection at %lx for %Z\n",
+                    Connection, &Connection->OemClientMachineNameString ));
 
         SET_BLOCK_STATE( Connection, BlockStateClosing );
 
@@ -580,6 +523,7 @@ Return Value:
     PPAGED_CONNECTION pagedConnection = Connection->PagedConnection;
     PPAGED_CONNECTION testPagedConnection;
     PCONNECTION testConnection;
+    BOOLEAN Connectionless = Connection->Endpoint->IsConnectionless == 1;
 
     PAGED_CODE( );
 
@@ -592,8 +536,9 @@ Return Value:
 
     IF_DEBUG(TDI) {
         KdPrint(( "SrvCloseConnectionsFromClient entered for connection "
-                    "%lx, name %Z\n", Connection,
-                    &Connection->OemClientMachineNameString ));
+                    "%lx, OemName %Z, looking for %Z\n", Connection,
+                    &Connection->OemClientMachineNameString,
+                    &pagedConnection->ClientMachineNameString));
     }
 
     ACQUIRE_LOCK( &SrvEndpointLock );
@@ -602,6 +547,7 @@ Return Value:
 
     while ( listEntry != &SrvEndpointList.ListHead ) {
 
+
         endpoint = CONTAINING_RECORD(
                         listEntry,
                         ENDPOINT,
@@ -609,11 +555,35 @@ Return Value:
                         );
 
         //
-        // If this endpoint is closing, skip to the next one.
+        // If this endpoint is closing, or if the types don't match,
+        // skip to the next one.
         // Otherwise, reference the endpoint so that it can't go away.
         //
 
-        if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ) {
+        if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ||
+             endpoint->IsConnectionless != Connectionless ) {
+            listEntry = listEntry->Flink;
+            continue;
+        }
+
+        //
+        // If this endpoint doesn't have the same netbios name as the
+        // endpoint of the passed-in connection then skip it.  This is
+        // to allow servers to have more than one name on the network.
+        //
+
+        if( Connection->Endpoint->TransportAddress.Length !=
+            endpoint->TransportAddress.Length ||
+
+            !RtlEqualMemory( Connection->Endpoint->TransportAddress.Buffer,
+                             endpoint->TransportAddress.Buffer,
+                             endpoint->TransportAddress.Length ) ) {
+
+            //
+            // This connection is for an endpoint having a different network
+            //  name than does this endpoint.  Skip this endpoint.
+            //
+
             listEntry = listEntry->Flink;
             continue;
         }
@@ -640,45 +610,64 @@ Return Value:
                 break;
             }
 
-            //
-            // If this is a different connection than the one we are
-            // setting up and it has the same machine name, then we
-            // should close the connection.
-            //
+            if( testConnection == Connection ) {
+                //
+                // Skip ourselves!
+                //
+                SrvDereferenceConnection( testConnection );
+                continue;
+            }
 
-            if ( testConnection != Connection ) {
+            testPagedConnection = testConnection->PagedConnection;
 
-                testPagedConnection = testConnection->PagedConnection;
+            if( Connectionless ) {
+                //
+                // Connectionless clients match on IPX address...
+                //
 
+                if( !RtlEqualMemory( &Connection->IpxAddress,
+                                     &testConnection->IpxAddress,
+                                     sizeof(Connection->IpxAddress) ) ) {
+
+                    SrvDereferenceConnection( testConnection );
+                    continue;
+                }
+
+            } else {
+                //
+                // All other clients match on computername
+                //
                 if ( RtlCompareUnicodeString(
                          &testPagedConnection->ClientMachineNameString,
                          &pagedConnection->ClientMachineNameString,
                          TRUE
-                         ) == 0 ) {
+                         ) != 0 ) {
+                    SrvDereferenceConnection( testConnection );
+                    continue;
+                }
+            }
 
-                    //
-                    // We found a connection that we need to kill.  We
-                    // have to release the lock in order to close it.
-                    //
+            //
+            // We found a connection that we need to kill.  We
+            // have to release the lock in order to close it.
+            //
 
-                    RELEASE_LOCK( &SrvEndpointLock );
+            RELEASE_LOCK( &SrvEndpointLock );
 
-                    IF_DEBUG(TDI) {
-                        KdPrint(( "SrvCloseConnectionsFromClient closing "
-                                    "connection %lx\n", testConnection ));
-                    }
+            IF_DEBUG(TDI) {
+                KdPrint(( "SrvCloseConnectionsFromClient closing "
+                            "connection %lx, MachineNameString %Z\n",
+                            testConnection,
+                            &testPagedConnection->ClientMachineNameString ));
+            }
 
 #if SRVDBG29
-                    UpdateConnectionHistory( "CFC1", testConnection->Endpoint, testConnection );
-                    UpdateConnectionHistory( "CFC2", testConnection->Endpoint, Connection );
+            UpdateConnectionHistory( "CFC1", testConnection->Endpoint, testConnection );
+            UpdateConnectionHistory( "CFC2", testConnection->Endpoint, Connection );
 #endif
-                    SrvCloseConnection( testConnection, FALSE );
+            SrvCloseConnection( testConnection, FALSE );
 
-                    ACQUIRE_LOCK( &SrvEndpointLock );
-
-                }
-
-            }
+            ACQUIRE_LOCK( &SrvEndpointLock );
 
             //
             // Dereference the connection to account for the reference
@@ -870,7 +859,6 @@ Return Value:
         }
 #endif
 
-#if SRVDBG_CLIENT
         //
         // Free the space allocated for client Domain, OS Name, and
         // LAN type.
@@ -880,7 +868,15 @@ Return Value:
             DEALLOCATE_NONPAGED_POOL( Connection->ClientOSType.Buffer );
             Connection->ClientOSType.Buffer = NULL;
         }
-#endif
+
+        //
+        // Keep the WORK_QUEUE statistic correct
+        //
+        if( Connection->CurrentWorkQueue )
+            InterlockedDecrement( &Connection->CurrentWorkQueue->CurrentClients );
+
+        ASSERT( Connection->CurrentWorkQueue->CurrentClients >= 0 );
+
         endpoint = Connection->Endpoint;
 
         ACQUIRE_LOCK( &SrvEndpointLock );
@@ -986,7 +982,8 @@ Return Value:
     // Free cached transactions.
     //
 
-    listEntry = PopEntryList( &Connection->CachedTransactionList );
+    listEntry = ExInterlockedPopEntrySList( &Connection->CachedTransactionList,
+                                            &Connection->SpinLock );
 
     while ( listEntry != NULL ) {
 
@@ -997,7 +994,9 @@ Return Value:
         FREE_HEAP( transaction );
         INCREMENT_DEBUG_STAT( SrvDbgStatistics.TransactionInfo.Frees );
 
-        listEntry = PopEntryList( &Connection->CachedTransactionList );
+        listEntry = ExInterlockedPopEntrySList(
+                        &Connection->CachedTransactionList,
+                        &Connection->SpinLock );
 
     }
 
@@ -1025,12 +1024,15 @@ Return Value:
     DELETE_LOCK( &Connection->Lock );
 
     //
+    // Delete the license server lock
+    //
+    DELETE_LOCK( &Connection->LicenseLock );
+
+    //
     // Free the connection block.
     //
 
-    DEBUG SET_BLOCK_TYPE( Connection, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Connection, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Connection, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Connection, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Connection->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Connection );
 

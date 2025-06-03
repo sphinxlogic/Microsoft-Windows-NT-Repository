@@ -484,6 +484,14 @@ BOOL StatusApplyChanges(VOID)
             GetDlgItemText(hwndStatus, DID_STATUSSYM, szSym, CCHTEXTMAX);
             GetDlgItemText(hwndStatus, DID_STATUSSYMID, szSymID, CCHIDMAX + 1);
             GetDlgItemText(hwndStatus, DID_STATUSTEXT, szText, CCHTEXTMAX);
+#ifdef JAPAN
+            {
+                TCHAR   szTmp[CCHTEXTMAX];
+
+                KKExpandCopy(szTmp, szText, CCHTEXTMAX);
+                lstrcpy(szText, szTmp);
+            }
+#endif
             if (!ValidateNewID(gnpcSel, szSym, szSymID, &idSymNew, &fAddSymLabel))
                 return FALSE;
 
@@ -1374,7 +1382,16 @@ STATICFN VOID StatusSetText(
     if (Type == W_ICON)
         StatusSetName(pszText, Type);
     else
+#ifdef JAPAN
+    {
+        TCHAR   szTmp[CCHTEXTMAX];
+
+        KDExpandCopy(szTmp, pszText, CCHTEXTMAX);
+        SetDlgItemText(hwndStatus, DID_STATUSTEXT, szTmp);
+    }
+#else
         SetDlgItemText(hwndStatus, DID_STATUSTEXT, pszText);
+#endif
 }
 
 
@@ -1802,3 +1819,46 @@ VOID StatusSetEnable(VOID)
     EnableWindow(GetDlgItem(hwndStatus, DID_STATUSNAME), fEnableName);
     EnableWindow(GetDlgItem(hwndStatus, DID_STATUSNAMEID), fEnableName);
 }
+
+#ifdef JAPAN
+/************************************************************************
+* Copy strings to the buffer. text string "\036" and "\037" are expend to
+* Codes \036 and \037 respectively.
+************************************************************************/
+
+VOID KKExpandCopy(LPTSTR pszDest, LPTSTR pszSrc, WORD wLimit)
+{
+    int  i;
+    LPTSTR p = pszSrc;
+#if defined(DBCS) && !defined(UNICODE)
+#define wcsncmp     strncmp
+#endif
+
+    wLimit--;
+    for (i = 0; i < wLimit && p && *p; i++) {
+        if (*p == TEXT('\\')) {
+            if(!wcsncmp(p+1, TEXT("036"), 3)) {
+                pszDest[i] = 036;
+                p+=4;
+                continue;
+            }
+            else if(!wcsncmp(p+1, TEXT("037"), 3)) {
+                pszDest[i] = 037;
+                p+=4;
+                continue;
+           }
+        }
+        pszDest[i] = *p;
+#if defined(DBCS) && !defined(UNICODE)
+        if (IsDBCSLeadByte((BYTE)*p)) {
+            if (i == wLimit - 1) {
+                break;
+            }
+            pszDest[++i] = *(p+1);
+        }
+#endif
+        p = CharNext(p);
+    }
+    pszDest[i] = '\0';
+}
+#endif

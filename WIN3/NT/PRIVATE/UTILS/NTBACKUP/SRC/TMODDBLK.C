@@ -1056,6 +1056,10 @@ DBLK_PTR  fdb )     /* I - Descriptor block of fdb */
      CHAR_PTR name ;
      BOOLEAN is_reg_dir = FALSE ;
 
+     return FS_NORMAL_FILE ;
+
+     //Special files are handled differently for ntbackup
+
      if ( ( nt_fdb != NULL ) && ( nt_ddb != NULL ) ) {
 
           if ( NTFS_GetRegistryPathSize(fsh->attached_dle) != 0 ) {

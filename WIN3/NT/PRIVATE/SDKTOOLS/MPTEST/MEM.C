@@ -9,6 +9,7 @@
 
 #include "mptest.h"
 
+typedef volatile ULONG *PVULONG;
 
 ULONG   GlobalValue;
 
@@ -23,9 +24,224 @@ VOID CommonValue (PTHREADDATA p, BOOLEAN f)
 
 VOID UniqueValue (PTHREADDATA p, BOOLEAN f)
 {
-    p->CurValue = &p->UniqueValue;
+    p->CurValue  = &p->UniqueValue;
+    p->CurValue2 = &p->UniqueValue2;
 }
 
+
+ULONG R3ReadCell (PTHREADDATA p)
+{
+    ULONG       i, junk;
+    PVULONG     value;
+
+    value = p->CurValue;
+    for (i = 5000000 * MultIter; i; i--) {
+      // 1
+        junk = *value;      // 1
+        junk = *value;      // 2
+        junk = *value;      // 3
+        junk = *value;      // 4
+        junk = *value;      // 5
+        junk = *value;      // 6
+        junk = *value;      // 7
+        junk = *value;      // 8
+        junk = *value;      // 9
+        junk = *value;      // 10
+
+      // 2
+        junk = *value;      // 1
+        junk = *value;      // 2
+        junk = *value;      // 3
+        junk = *value;      // 4
+        junk = *value;      // 5
+        junk = *value;      // 6
+        junk = *value;      // 7
+        junk = *value;      // 8
+        junk = *value;      // 9
+        junk = *value;      // 10
+
+      // 3
+        junk = *value;      // 1
+        junk = *value;      // 2
+        junk = *value;      // 3
+        junk = *value;      // 4
+        junk = *value;      // 5
+        junk = *value;      // 6
+        junk = *value;      // 7
+        junk = *value;      // 8
+        junk = *value;      // 9
+        junk = *value;      // 10
+
+      // 4
+        junk = *value;      // 1
+        junk = *value;      // 2
+        junk = *value;      // 3
+        junk = *value;      // 4
+        junk = *value;      // 5
+        junk = *value;      // 6
+        junk = *value;      // 7
+        junk = *value;      // 8
+        junk = *value;      // 9
+        junk = *value;      // 10
+
+      // 5
+        junk = *value;      // 1
+        junk = *value;      // 2
+        junk = *value;      // 3
+        junk = *value;      // 4
+        junk = *value;      // 5
+        junk = *value;      // 6
+        junk = *value;      // 7
+        junk = *value;      // 8
+        junk = *value;      // 9
+        junk = *value;      // 10
+
+    }
+    return 0;
+}
+
+
+ULONG R3WriteCell (PTHREADDATA p)
+{
+    ULONG	i, junk;
+    PVULONG     value;
+
+    value = p->CurValue;
+    junk  = 0;
+
+    for (i = 5000000 * MultIter; i; i--) {
+      // 1
+        *value = junk;      // 1
+        *value = junk;      // 2
+        *value = junk;      // 3
+        *value = junk;      // 4
+        *value = junk;      // 5
+        *value = junk;      // 6
+        *value = junk;      // 7
+        *value = junk;      // 8
+        *value = junk;      // 9
+        *value = junk;      // 10
+
+      // 2
+        *value = junk;      // 1
+        *value = junk;      // 2
+        *value = junk;      // 3
+        *value = junk;      // 4
+        *value = junk;      // 5
+        *value = junk;      // 6
+        *value = junk;      // 7
+        *value = junk;      // 8
+        *value = junk;      // 9
+        *value = junk;      // 10
+
+      // 3
+        *value = junk;      // 1
+        *value = junk;      // 2
+        *value = junk;      // 3
+        *value = junk;      // 4
+        *value = junk;      // 5
+        *value = junk;      // 6
+        *value = junk;      // 7
+        *value = junk;      // 8
+        *value = junk;      // 9
+        *value = junk;      // 10
+
+      // 4
+        *value = junk;      // 1
+        *value = junk;      // 2
+        *value = junk;      // 3
+        *value = junk;      // 4
+        *value = junk;      // 5
+        *value = junk;      // 6
+        *value = junk;      // 7
+        *value = junk;      // 8
+        *value = junk;      // 9
+        *value = junk;      // 10
+
+      // 5
+        *value = junk;      // 1
+        *value = junk;      // 2
+        *value = junk;      // 3
+        *value = junk;      // 4
+        *value = junk;      // 5
+        *value = junk;      // 6
+        *value = junk;      // 7
+        *value = junk;      // 8
+        *value = junk;      // 9
+        *value = junk;      // 10
+    }
+    return 0;
+}
+
+ULONG R3ReadWriteCell (PTHREADDATA p)
+{
+    ULONG   i;
+    PVULONG value;
+
+    value = p->CurValue;
+    for (i = 5000000 * MultIter; i; i--) {
+      // 1
+        (*value)++;         // 1
+        (*value)++;         // 2
+        (*value)++;         // 3
+        (*value)++;         // 4
+        (*value)++;         // 5
+        (*value)++;         // 6
+        (*value)++;         // 7
+        (*value)++;         // 8
+        (*value)++;         // 9
+        (*value)++;         // 10
+
+      // 2
+        (*value)++;         // 1
+        (*value)++;         // 2
+        (*value)++;         // 3
+        (*value)++;         // 4
+        (*value)++;         // 5
+        (*value)++;         // 6
+        (*value)++;         // 7
+        (*value)++;         // 8
+        (*value)++;         // 9
+        (*value)++;         // 10
+
+      // 3
+        (*value)++;         // 1
+        (*value)++;         // 2
+        (*value)++;         // 3
+        (*value)++;         // 4
+        (*value)++;         // 5
+        (*value)++;         // 6
+        (*value)++;         // 7
+        (*value)++;         // 8
+        (*value)++;         // 9
+        (*value)++;         // 10
+
+      // 4
+        (*value)++;         // 1
+        (*value)++;         // 2
+        (*value)++;         // 3
+        (*value)++;         // 4
+        (*value)++;         // 5
+        (*value)++;         // 6
+        (*value)++;         // 7
+        (*value)++;         // 8
+        (*value)++;         // 9
+        (*value)++;         // 10
+
+      // 5
+        (*value)++;         // 1
+        (*value)++;         // 2
+        (*value)++;         // 3
+        (*value)++;         // 4
+        (*value)++;         // 5
+        (*value)++;         // 6
+        (*value)++;         // 7
+        (*value)++;         // 8
+        (*value)++;         // 9
+        (*value)++;         // 10
+    }
+    return 0;
+}
 
 ULONG R3Interlock (PTHREADDATA p)
 {
@@ -33,33 +249,27 @@ ULONG R3Interlock (PTHREADDATA p)
     PULONG  value;
 
     value = p->CurValue;
-    for (i=0; i < 500000; i++) {
-        LocalInterlockedIncrement (value);
+    for (i = 500000 * MultIter; i; i--) {
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
+        InterlockedIncrement (value);
     }
 
     return 0;
 }
 
-LocalInterlockedIncrement (PULONG p)
-{
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-    InterlockedIncrement (p);
-}
-
-
 ULONG R3MemShare  (PTHREADDATA p)
 {
     ULONG   i;
 
-    for (i=0; i < 1000000; i++) {
+    for (i = 2000000 * MultIter; i; i--) {
         AddOne ();
         AddOne ();
         AddOne ();
@@ -97,7 +307,7 @@ ULONG R3MemCompare (PTHREADDATA p)
 {
     ULONG   i;
 
-    for (i=0; i < 500000; i++) {
+    for (i = 1000000 * MultIter; i; i--) {
         CompareMem (p);
         CompareMem (p);
         CompareMem (p);
@@ -118,7 +328,7 @@ ULONG R3MemCopy (PTHREADDATA p)
     ULONG   i;
 
 
-    for (i=0; i < 5000; i++) {
+    for (i = 5000 * MultIter; i; i--) {
         CopyMem (p);
     }
     memset (p->Buffer1, 0xAA, 32768);
@@ -126,121 +336,3 @@ ULONG R3MemCopy (PTHREADDATA p)
 
     return 0;
 }
-
-
-#if 0
-VOID CallStub (VOID)
-{
-}
-
-
-static VOID (*CallStubPtr)(VOID) = CallStub;
-
-
-ULONG TestMovCall (PTHREADDATA p)
-{
-    ULONG   i;
-
-    for (i=0; i < 5000000; i++) {
-        _asm {
-            mov     eax, CallStubPtr
-            call    eax
-        }
-    }
-    return 0;
-}
-
-
-ULONG TestMovCall2 (PTHREADDATA p)
-{
-
-    ULONG   i;
-
-    for (i=0; i < 5000000; i++) {
-        _asm {
-            mov     ebx, GlobalValue
-            mov     eax, CallStubPtr
-            call    eax
-        }
-    }
-    return 0;
-}
-
-
-
-
-ULONG TestCallInd  (PTHREADDATA p)
-{
-    _asm {
-        nop
-        nop
-
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-        nop
-
-        mov     esi, 4c4b40h
-
-tag44:
-        call    dword ptr [CallStubPtr]
-
-        sub     esi, 1
-        jnz     short tag44
-    }
-
-
-
-    return 0;
-}
-
-
-
-
-
-ULONG TestCallInd2 (PTHREADDATA p)
-{
-    _asm {
-        nop
-        nop
-        nop
-
-        mov     ebx, GlobalValue
-
-        mov     esi, 4c4b40h
-
-tag55:
-        nop
-        call    dword ptr [CallStubPtr]
-
-        dec     esi
-        jnz     short tag55
-    }
-
-    return 0;
-}
-
-#endif

@@ -75,7 +75,11 @@ externNP AssociateSelector32
 externNP free_arena_header
 externNP PageLockLinear
 externNP UnlinkWin386Block
+ifdef WOW
+        ; WOW doesn't decommit pages this way
+else
 externNP gwin386discard
+endif
 externNP PreAllocArena
 
 if KDEBUG
@@ -222,7 +226,6 @@ endif
 	test	dh, GA_DISCARDABLE	; We have a fixed block
 	jnz	short not_moveable	; Not interested in discardable blocks
 	mov	bx, ax
-%OUT WRONG DPMI CALL
 ifdef WOW
         ; the following dpmicall is basically a NOP. so just
         ; avoid the call altogether.
@@ -543,31 +546,31 @@ ranolock:
 
 	call	rashrink
 
-	mov	bx, h
-	mov	ax, pgLockSel		; Were we page locked?
-	or	ax, ax
-	jz	short rasame		;  no, nothing to do
-	Handle_To_Sel	bl
 ifdef WOW
         ; the following dpmicall is basically a NOP. so just
         ; avoid the call altogether.
         ;                                    - Nanduri Ramakrishna
 else
-	DPMICALL 0004h
+        mov     bx, h
+	mov	ax, pgLockSel		; Were we page locked?
+	or	ax, ax
+	jz	short rasame		;  no, nothing to do
+	Handle_To_Sel	bl
+        DPMICALL 0004h
 endif
 
 rasame_pglock:
-	mov	bx, pgLockSel		; Were we page locked?
-	or	bx, bx
-	jz	short rasame
 ifdef WOW
         ; avoid the call altogether.
 else
-	DPMICALL 0005h
+        mov     bx, pgLockSel           ; Were we page locked?
+	or	bx, bx
+	jz	short rasame
+        DPMICALL 0005h
 endif
-	
+
 rasame:
-	mov	ax,h			; Return the same handle
+        mov     ax,h                    ; Return the same handle
 	jmp	raexit			; All done
 
 raextend:
@@ -612,7 +615,7 @@ ramove:
 racompact:
 	xor	dx,dx			; No, get size of largest free block
 	call	gcompact
-	jmps	racantmove
+        jmp     racantmove
 
 ramove1:
 	test	h, GA_FIXED
@@ -642,8 +645,35 @@ ramove3:
 	mov	edx,eax
 
 	call	gmovebusy		; Call common code to move busy block
-					; (AX destroyed)
-	cCall	set_selector_limit32,<ds:[esi].pga_handle,ds:[esi].pga_size>
+                                        ; (AX destroyed)
+
+        push    ebx
+        push    esi
+        mov     esi, edx                        ; free block just emptied
+        mov     ebx, ds:[esi].pga_prev          ; See if block can be
+	cmp	ds:[ebx].pga_owner, GA_NOT_THERE; returned to win386
+        jne     short ra_no_unlink
+        push    ecx
+        mov     ecx, ds:[esi].pga_next
+	cmp	ds:[ecx].pga_owner, GA_NOT_THERE
+        jne     short ra_no_unlink_ecx
+        mov     eax, ds:[ecx].pga_next
+        cmp     eax, ds:[eax].pga_next          ; Sentinel?
+        je      short ra_no_unlink_ecx          ;  yes, keep this block
+
+        push    edx
+        push    edi
+        cCall   UnlinkWin386Block
+        pop     edi
+        pop     edx
+
+ra_no_unlink_ecx:
+        pop     ecx
+ra_no_unlink:
+        pop     esi
+        pop     ebx
+
+        cCall   set_selector_limit32,<ds:[esi].pga_handle,ds:[esi].pga_size>
 	jmp	rasame_pglock
 
 racantmove:
@@ -996,8 +1026,8 @@ cEnd	nogen
 ;									;
 ; Arguments:								;
 ;	DX = owner field value to match or zero if dont care		;
-;	DS:DI = address of global heap info				;
-;	ES:DI = address of arena header					;
+;       DS:DI = address of global heap info                             ;
+;       ES:ESI = address of arena header                                ;
 ;									;
 ; Returns:								;
 ;	AX = 0								;
@@ -1029,17 +1059,17 @@ cBegin	nogen
 	jmps	free_object_exit
 free_it:
 	call	glrudel				; delete object from LRU chain
-	movzx	cx, ds:[esi].pga_pglock
+ifdef WOW
+        ; No need to call DPMI to unpagelock
+else
+        movzx   cx, ds:[esi].pga_pglock
 	jcxz	fo_notpglocked
 	mov	bx, ds:[esi].pga_handle
 unpagelock:
-ifdef WOW
-        ; avoid the call altogether.
-else
-	DPMICALL 0005h
+        DPMICALL 0005h
+        loop    unpagelock
 endif
-	loop	unpagelock
-	mov	ds:[esi].pga_pglock, 0
+        mov     ds:[esi].pga_pglock, 0
 fo_notpglocked:
 	push	dx
 	xor	edx,edx
@@ -1061,7 +1091,11 @@ fo_notpglocked:
 	jmps	fo_no_discard
 
 fo_no_return:
-	call	gwin386discard
+ifdef WOW
+        ; WOW doesn't decommit pages this way
+else
+        call    gwin386discard
+endif
 fo_no_discard:
 	Handle_To_Sel	dl
 	cCall	AssociateSelector32,<dx,edi>	; Trash sel table entry
@@ -1071,6 +1105,51 @@ fo_no_discard:
 free_object_exit:
 	ret
 cEnd	nogen
+
+
+cProc   free_object2,<PUBLIC,FAR>
+cBegin	nogen
+	call	glrudel				; delete object from LRU chain
+ifdef WOW
+        ; No need to call DPMI to unpagelock
+else
+        movzx   cx, ds:[esi].pga_pglock
+        jcxz    fo2_notpglocked
+	mov	bx, ds:[esi].pga_handle
+unpagelock2:
+        DPMICALL 0005h
+        loop    unpagelock2
+endif
+        mov     ds:[esi].pga_pglock, 0
+fo2_notpglocked:
+	xor	edx,edx
+	call	gmarkfree			; free the object
+
+	mov	ebx, ds:[esi].pga_prev		; See if block can be
+	cmp	ds:[ebx].pga_owner, GA_NOT_THERE; returned to win386
+        jne     short fo2_no_return
+	mov	ecx, ds:[esi].pga_next
+	cmp	ds:[ecx].pga_owner, GA_NOT_THERE
+        jne     short fo2_no_return
+	push	ecx
+	mov	ecx, ds:[ecx].pga_next
+	cmp	ecx, ds:[ecx].pga_next		; Sentinel?
+	pop	ecx
+        je      short fo2_no_return              ;  yes, keep this block
+
+	cCall	UnlinkWin386Block
+        jmps    fo2_no_discard
+
+fo2_no_return:
+ifdef WOW
+        ; WOW doesn't decommit pages this way
+else
+        call    gwin386discard
+endif
+fo2_no_discard:
+	xor	ax,ax			;!!! just for now force success
+	ret
+cEnd    nogen
 
 
 ;-----------------------------------------------------------------------;

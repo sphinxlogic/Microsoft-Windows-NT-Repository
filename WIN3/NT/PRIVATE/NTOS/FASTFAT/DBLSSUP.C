@@ -494,7 +494,7 @@ Return Value:
         //  Check for the proper signature in the Cvf Header
         //
 
-        if (RtlCompareMemory( &PackedCvfHeader->Oem[0], "MSDSP6.0", 8) != 8) {
+        if (!RtlEqualMemory( &PackedCvfHeader->Oem[0], "MSDSP6.0", 8)) {
 
             FatRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR );
         }
@@ -1027,7 +1027,7 @@ Return Value:
 
     } finally {
 
-        ExReleaseResource( &Dscb->Resource );
+        ExReleaseResource( Dscb->Resource );
 
     }
 
@@ -1891,7 +1891,7 @@ Return Value:
 {
     ULONG AmountWritten;
 
-    ExAcquireResourceExclusive( &Dscb->Resource, TRUE );
+    ExAcquireResourceExclusive( Dscb->Resource, TRUE );
 
     try {
 
@@ -1974,7 +1974,7 @@ Return Value:
 
     } finally {
 
-        ExReleaseResource( &Dscb->Resource );
+        ExReleaseResource( Dscb->Resource );
 
         FatUnpinRepinnedBcbs( IrpContext );
     }
@@ -2035,7 +2035,7 @@ Return Value:
     //  Simply pin the data, we'll always wait
     //
 
-    ExAcquireResourceExclusive( &Dscb->Resource, TRUE );
+    ExAcquireResourceExclusive( Dscb->Resource, TRUE );
 
     try {
 
@@ -2097,7 +2097,7 @@ Return Value:
             CcUnpinData( Bcb );
         }
 
-        ExReleaseResource( &Dscb->Resource );
+        ExReleaseResource( Dscb->Resource );
 
         FatUnpinRepinnedBcbs( IrpContext );
     }

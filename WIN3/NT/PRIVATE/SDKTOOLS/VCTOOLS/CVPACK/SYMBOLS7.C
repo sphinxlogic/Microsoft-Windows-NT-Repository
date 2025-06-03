@@ -7,10 +7,7 @@
 #include "compact.h"
 
 
-LOCAL	void	FixupPublics (uchar *, ushort);
-LOCAL	uchar  *RemoveComDat (uchar *Symbols);
 LOCAL	void	RewritePublics (uchar *, DirEntry *, PMOD);
-LOCAL	void	RewriteSrcLnSeg (uchar *, DirEntry *, uchar *, PMOD);
 LOCAL	void	RewriteSymbols (uchar *, DirEntry *, char *, PMOD);
 LOCAL	void	CheckSearchSym (ushort, ushort *);
 
@@ -54,7 +51,6 @@ extern uchar **ExtraSymbolLink;
 extern uchar *ExtraSymbols;
 extern ulong InitialSymInfoSize;
 extern ulong FinalSymInfoSize;
-extern char    *ModAddr;
 extern ulong ulCVTypeSignature; // The signature from the modules type segment
 
 extern ushort segnum[MAXCDF];
@@ -209,7 +205,6 @@ void C7CalcNewSizeOfSymbols (uchar *Symbols, ulong SymbolCount,
 					// sps - 10/16/92
 
 					HashFwdLocal (((UDTPTR)pOldSym)->name, ((UDTPTR)pOldSym)->typind);
-#ifndef NO_TDB
 					if (NeedToClearTDB) {
 						NeedToClearTDB = TDBStayedResident = FALSE;
 						*Add = AddInit;
@@ -223,7 +218,6 @@ void C7CalcNewSizeOfSymbols (uchar *Symbols, ulong SymbolCount,
 						C7CalcNewSizeOfSymbols (Symbols, SymbolCount, Add, Sub);
 						return;
 					}
-#endif
 				   break;
 			}
 		}
@@ -432,7 +426,7 @@ void C7RewritePublics (uchar *pOldPublics, OMFDirEntry *pDir)
 			case S_PUB16:
 				switch (ulCVTypeSignature) {
 					case CV_SIGNATURE_C7:
-						if (delete == TRUE) {
+						if (fDelete) {
 							if (((DATAPTR16)pNewPublics)->typind >= CV_FIRST_NONPRIM) {
 								((DATAPTR16)pNewPublics)->typind = T_NOTYPE;
 							}
@@ -444,7 +438,7 @@ void C7RewritePublics (uchar *pOldPublics, OMFDirEntry *pDir)
 						break;
 
 					default:
-						if (delete == TRUE) {
+						if (fDelete) {
 							((DATAPTR16)pNewPublics)->typind = T_NOTYPE;
 						}
 						else {
@@ -458,7 +452,7 @@ void C7RewritePublics (uchar *pOldPublics, OMFDirEntry *pDir)
 			case S_PUB32:
 				switch (ulCVTypeSignature) {
 					case CV_SIGNATURE_C7:
-						if (delete == TRUE) {
+						if (fDelete) {
 							if (((DATAPTR32)pNewPublics)->typind >= CV_FIRST_NONPRIM) {
 								((DATAPTR32)pNewPublics)->typind = T_NOTYPE;
 							}
@@ -470,7 +464,7 @@ void C7RewritePublics (uchar *pOldPublics, OMFDirEntry *pDir)
 						break;
 
 					default:
-						if (delete == TRUE) {
+						if (fDelete) {
 							((DATAPTR16)pNewPublics)->typind = T_NOTYPE;
 						}
 						else {
@@ -605,10 +599,10 @@ LOCAL void ObjNameSym (void)
 	OBJNAMEPTR	pSym;
 
 	DASSERT(DiscardProc == 0);
-	if (PackingPreComp == TRUE) {
-		pSym = (OBJNAMEPTR)pOldSym;
+	if (PackingPreComp) {
+		pSym = (OBJNAMEPTR) pOldSym;
 		if ((pCurMod->pName = TrapMalloc ((size_t)(pSym->name[0] + 1))) == NULL) {
-			ErrorExit (ERR_NOMEM, NULL, NULL);
+			ErrorExit(ERR_NOMEM, NULL, NULL);
 		}
 
 		DASSERT(pCurMod->signature == pSym->signature);
@@ -722,43 +716,6 @@ LOCAL void UDTSym (void)
 }
 
 
-
-
-
-
-LOCAL uchar *C7RemoveComDat (uchar *Symbols)
-{
-	int level = 1;
-
-	SymbolSizeSub += Symbols[0] + 1;
-	Symbols[1] = OSYMRESERVED;
-	Symbols += Symbols[0] + 1;
-
-	while (level) {
-		switch (Symbols[1] & 0x7f) {
-		case OSYMWITH:
-		case OSYMBLOCKSTART:
-		case OSYMTHUNK:
-		case OSYMCV4BLOCK:
-		case OSYMCV4WITH:
-		case OSYMPROCSTART:
-		case OSYMLOCALPROC:
-			level++;
-			break;
-		case OSYMEND:
-			level--;
-			break;
-		default:
-			break;
-		}
-
-		SymbolSizeSub += Symbols[0] + 1;
-		Symbols[1] = OSYMRESERVED;
-		Symbols += Symbols[0] + 1;
-	}
-	return (Symbols);
-}
-
 BOOL CodeAddrInCurMod (PMOD pMod, unsigned short Seg, unsigned long Off)
 {
 	OMFModule  *psstMod;
@@ -767,10 +724,10 @@ BOOL CodeAddrInCurMod (PMOD pMod, unsigned short Seg, unsigned long Off)
 	unsigned short	i;
 
 	if ((pModTable = (char *) pMod->ModulesAddr) == NULL) {
-		ErrorExit (ERR_NOMEM, NULL, NULL);
+		ErrorExit(ERR_NOMEM, NULL, NULL);
 	}
 	psstMod = (OMFModule *)pModTable;
-	for (i = 0, pSegDesc = (OMFSegDesc *) (pModTable + offsetof(OMFModule, SegInfo));
+	for (i = 0, pSegDesc = psstMod->SegInfo;
 		 i < psstMod->cSeg;
 		 i++, pSegDesc++) {
 		if (((Off - pSegDesc->Off) < pSegDesc->cbSeg) &&

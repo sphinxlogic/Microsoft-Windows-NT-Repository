@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------
 //
-// Copyright (C) 1993, Microsoft Corporation.
+// Copyright (C) 1995, Microsoft Corporation.
 //
 // File:        FileEnum.cxx
 //
@@ -74,7 +74,8 @@ ULONG CFileEnumerate::Init(CHAR *filename, WCHAR **wfilename, BOOL *fdir)
         // make it wchar
         WCHAR winfilename[MAX_PATH];
 
-        for (_pwfileposition = winfilename; *_pwfileposition = (WCHAR)(*filename);_pwfileposition++,filename++);
+
+        mbstowcs(winfilename,filename,MAX_PATH);        
 
         // finish initialization
 
@@ -157,8 +158,6 @@ ULONG CFileEnumerate::_ialize(WCHAR *winfilename, WCHAR **wfilename, BOOL *fdir)
          (wcslen(_wpath) > 1) &&
          (_wpath[wcslen(_wpath) - 2] == L':') )
     {
-        _wfd.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
-        _wfd.cFileName[0] = L'\0';
         *wfilename = _wpath;
         *fdir = TRUE;
         _froot = TRUE;
@@ -169,13 +168,13 @@ ULONG CFileEnumerate::_ialize(WCHAR *winfilename, WCHAR **wfilename, BOOL *fdir)
         {
             ret = GetLastError();
             _fcannotaccess = (ERROR_ACCESS_DENIED == ret);
-            
+
             ENUMERATE_FAIL((stderr, "find first returned: %ld\n",ret))
         }
         if (ERROR_SUCCESS == ret)
         {
             // reject . & .. filenames (go on to next file )
-        
+
             if ( (0 == wcscmp(_wfd.cFileName, L".")) ||
                  (0 == wcscmp(_wfd.cFileName, L"..")) )
             {
@@ -183,16 +182,16 @@ ULONG CFileEnumerate::_ialize(WCHAR *winfilename, WCHAR **wfilename, BOOL *fdir)
             } else
             {
                 // return the current directory
-        
+
                 if (_wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                     *fdir = TRUE;
                 else
                     *fdir = FALSE;
-        
+
                 // add the filename to the path so the whole thing is returned
-        
+
                 wcscpy(_pwfileposition, _wfd.cFileName);
-        
+
                 *wfilename = _wpath;
             }
         }
@@ -205,6 +204,11 @@ ULONG CFileEnumerate::_ialize(WCHAR *winfilename, WCHAR **wfilename, BOOL *fdir)
     if ( _fdeep && ( ( ERROR_NO_MORE_FILES == ret ) ||
                      ( ERROR_FILE_NOT_FOUND == ret ) ) )
     {
+        if (_handle != INVALID_HANDLE_VALUE)
+        {
+            FindClose(_handle);
+            _handle = INVALID_HANDLE_VALUE;
+        }
         ret = _InitDir(wfilename, fdir);
     }
 
@@ -243,6 +247,11 @@ ULONG CFileEnumerate::Next(WCHAR **wfilename, BOOL *fdir)
              ( ( ERROR_NO_MORE_FILES == ret ) ||
                ( ERROR_FILE_NOT_FOUND == ret ) || _froot ) )
         {
+            if (_handle != INVALID_HANDLE_VALUE)
+            {
+                FindClose(_handle);
+                _handle = INVALID_HANDLE_VALUE;
+            }
             ret = _InitDir(wfilename, fdir);
             _froot = FALSE; // (we are past the root now)
         }
@@ -352,7 +361,7 @@ ULONG CFileEnumerate::_InitDir(WCHAR **wfilename, BOOL *fdir)
 
     // check and see if a directory was entered as the filename
 
-    if ( (0 == wcsicmp(_wwildcards, _wfd.cFileName)) &&
+    if ( (0 == _wcsicmp(_wwildcards, _wfd.cFileName)) &&
          (_wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
     {
         ENUMERATE_EXTRA((stderr, "first file matched directory = %ws\n", _wpath))

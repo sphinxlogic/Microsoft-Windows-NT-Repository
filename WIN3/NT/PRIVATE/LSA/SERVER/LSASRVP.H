@@ -73,6 +73,12 @@ Revision History:
 #define LSAP_DIAGNOSTICS 1
 #endif // DBG
 
+//
+// BUGBUG: remove when shipping. This is to track the closing of the
+// LsapDbHandle
+//
+
+// #define TRACK_HANDLE_CLOSE 1
 
 //
 // These definitions are useful diagnostics aids
@@ -98,7 +104,7 @@ Revision History:
 #define LsapDiagPrint( FlagName, _Text_ )                               \
     IF_LSAP_GLOBAL( FlagName )                                          \
         DbgPrint _Text_
-    
+
 
 
 
@@ -167,7 +173,7 @@ Revision History:
 // An error should be logged in this case.
 //
 
-#define LSAP_CONTEXT_SID_LIMIT 10000
+#define LSAP_CONTEXT_SID_LIMIT 1000
 
 
 //
@@ -229,6 +235,27 @@ typedef struct _LSAP_CLIENT_CONTROL_BLOCK {
     ACCESS_MASK GrantedAccess;  // Accesses granted to LSA Database Object
 } LSAP_CLIENT_CONTROL_BLOCK, *PLSAP_CLIENT_CONTROL_BLOCK;
 
+
+//
+// LSA Privilege Pseudo-Object Types and Flags
+//
+
+// *********************** IMPORTANT NOTE ************************
+//
+// Privilege objects (privileges containing a list of users who have that
+// privilge) are pseudo-objects that use the account objects as a backing
+// stored.  There are currently no public interfaces to open a privilege
+// object, so there need not be public access flags.
+//
+
+#define PRIVILEGE_VIEW      0x00000001L
+#define PRIVILEGE_ADJUST    0x00000002L
+#define PRIVILEGE_ALL       (STANDARD_RIGHTS_REQUIRED | \
+                             PRIVILEGE_VIEW | \
+                             PRIVILEGE_ADJUST)
+
+
+
 //
 // LSA API Error Handling Cleanup Flags
 //
@@ -258,6 +285,14 @@ LsapRPCInit(
 
 BOOLEAN
 LsapAuInit(       // Authentication initialization
+    );
+
+NTSTATUS
+LsapDbInitializeRights(
+    );
+
+VOID
+LsapDbCleanupRights(
     );
 
 NTSTATUS
@@ -440,7 +475,7 @@ extern LONG LsapAuCallsToProcess;
 #if DBG
 
 //
-// Used to extend the resource timeout for lsass.exe to 
+// Used to extend the resource timeout for lsass.exe to
 // prevent it from hitting deadlock warnings in stress tests.
 //
 

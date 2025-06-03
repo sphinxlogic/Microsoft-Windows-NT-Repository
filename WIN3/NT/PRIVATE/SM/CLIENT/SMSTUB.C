@@ -81,7 +81,7 @@ Return Value:
     if ( NT_SUCCESS(st) ) {
         st = SmApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("SmExecPgm: NtRequestWaitReply Failed %lx\n",st);
+        KdPrint(("SmExecPgm: NtRequestWaitReply Failed %lx\n",st));
     }
 
     NtClose(ProcessInformation->Process);
@@ -144,7 +144,7 @@ Return Value:
     if ( NT_SUCCESS(st) ) {
         st = SmApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("SmExecPgm: NtRequestWaitReply Failed %lx\n",st);
+        KdPrint(("SmExecPgm: NtRequestWaitReply Failed %lx\n",st));
     }
 
     return st;
@@ -206,7 +206,7 @@ Return Value:
     if ( NT_SUCCESS(st) ) {
         st = SmApiMsg.ReturnedStatus;
     } else {
-        DbgPrint("SmCompleteSession: NtRequestWaitReply Failed %lx\n",st);
+        KdPrint(("SmCompleteSession: NtRequestWaitReply Failed %lx\n",st));
     }
 
     return st;

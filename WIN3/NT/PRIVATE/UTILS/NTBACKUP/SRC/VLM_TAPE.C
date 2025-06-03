@@ -914,6 +914,7 @@ BOOLEAN VLM_TapesListCreate( )
    RSM_StringCopy( IDS_VLMTAPETITLE, title, MAX_UI_RESOURCE_LEN );
 
    gb_tapes_win = WM_Create( (WORD)(WM_MDIPRIMARY | WM_TREELIST |
+                                     WM_MIN |
                              WM_FLATLISTSC | (WORD)CDS_GetTapeInfo ( pCDS ).nSize),
                              title,
                              NULL,
@@ -1378,4 +1379,4 @@ WORD ObjectNum )
 
    return( ret_val );
 }
-
+

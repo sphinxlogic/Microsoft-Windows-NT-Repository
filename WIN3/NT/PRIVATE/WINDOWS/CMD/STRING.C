@@ -1,5 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 /***
  *
@@ -46,7 +45,7 @@ InitializeDbcsLeadCharTable(
 
     UINT  i, k;
 
-    if (! GetCPInfo((CurrentCP=GetConsoleOutputCP()), &CurrentCPInfo )) { 
+    if (! GetCPInfo((CurrentCP=GetConsoleOutputCP()), &CurrentCPInfo )) {
         //
         // GetCPInfo failed. What should we do ?
         //
@@ -66,7 +65,7 @@ InitializeDbcsLeadCharTable(
     memset( DbcsLeadCharTable, 0, 256 * sizeof (BOOLEAN)  );
     for (k=0 ; CurrentCPInfo.LeadByte[k] && CurrentCPInfo.LeadByte[k+1]; k+=2) {
         for (i=CurrentCPInfo.LeadByte[k] ; i<=CurrentCPInfo.LeadByte[k+1] ; i++)
-            DbcsLeadCharTable[i] = TRUE; 
+            DbcsLeadCharTable[i] = TRUE;
     }
     if ( CurrentCPInfo.LeadByte[0] && CurrentCPInfo.LeadByte[1] )
         AnyDbcsLeadChars = TRUE;
@@ -85,18 +84,18 @@ InitializeDbcsLeadCharTable(
  */
 
 TCHAR *
-mystrchr(TCHAR const *string, int c)
+mystrchr(TCHAR const *string, TCHAR c)
 {
     int    c0;
 
-	/* handle null seperatly to make main loop easier to code */
-	if (string == NULL)
-	    return(NULL);
+        /* handle null seperatly to make main loop easier to code */
+        if (string == NULL)
+            return(NULL);
 
-	if (c == NULLC)
+        if (c == NULLC)
         return((TCHAR *)(string + mystrlen(string)));
 
-    return _tcschr( string, (TCHAR)c );
+    return _tcschr( string, c );
 }
 
 
@@ -110,30 +109,30 @@ mystrchr(TCHAR const *string, int c)
  */
 
 TCHAR *
-mystrrchr(TCHAR const *string, int c)
+mystrrchr(TCHAR const *string, TCHAR c)
 {
     int c0;
     TCHAR const *finger = NULL;
 
-	/* handle null seperatly to make main loop easier to code */
-	if ((TCHAR *)string == NULL)
+        /* handle null seperatly to make main loop easier to code */
+        if ((TCHAR *)string == NULL)
         return(NULL);
 
-	if ((char)c == NULLC)
-		return((TCHAR *)(string + mystrlen(string)));
+        if ((char)c == NULLC)
+                return((TCHAR *)(string + mystrlen(string)));
 
-    return _tcsrchr( string, (TCHAR)c );
+    return _tcsrchr( string, c );
 }
 
 
 
 /***
  * mystrcspn (str1, str2) will find the first character of str1 that is also
- * in str2. note that only str1 may contain double byte characters.
+ * in str2.
  * Return value:
- *	if a match is found return the position in str1 where the matching
- *		character was found (the first position is 0).
- *	If nomatch is found, return the position of the trailing null.
+ *      if a match is found return the position in str1 where the matching
+ *              character was found (the first position is 0).
+ *      If nomatch is found, return the position of the trailing null.
  */
 
 size_t
@@ -144,19 +143,19 @@ TCHAR const *str2;
         TCHAR c;
         int position = 0;
 
-	if ((str1 == NULL) || (str2 == NULL))
-	    return (0);
+        if ((str1 == NULL) || (str2 == NULL))
+            return (0);
 
-	/* Since str2 may not contain any double byte characters,
-	   when we see a double byte character in str1, we just skip it.
-	   Otherwise, use mystrchr to see if we have a match */
-	while (c = *str1++) {
-		if (mystrchr(str2, c))
-			break;
-		position++;
-	}
+        /* Since str2 may not contain any double byte characters,
+           when we see a double byte character in str1, we just skip it.
+           Otherwise, use mystrchr to see if we have a match */
+        while (c = *str1++) {
+                if (mystrchr(str2, c))
+                        break;
+                position++;
+        }
 
-	return(position);
+        return(position);
 }
 
 
@@ -168,13 +167,12 @@ TCHAR const *str2;
 TCHAR *lastc(str)
 TCHAR *str;
 {
-TCHAR *last = str;
+        TCHAR *last = str;
 
-	while(*str) {
-		last = str;
-		str++;
-	}
-	return(last);
+        while(*str)
+            last = str++;
+
+        return(last);
 }
 
 
@@ -192,12 +190,12 @@ TCHAR *str;
 TCHAR *last = str;
 TCHAR *penul = str;
 
-	while(*str) {
-		penul = last;
-		last = str;
-		str++;
-	}
-	return(penul);
+        while(*str) {
+                penul = last;
+                last = str;
+                str++;
+        }
+        return(penul);
 }
 
 
@@ -214,76 +212,76 @@ TCHAR *str1, *str2;
 {
 TCHAR *prev = str1;
 
-	while (str1 != str2) {
-		if (!*str1)
-			return(NULL);
-		prev = str1;
-		str1++;
-	}
+        while (str1 != str2) {
+                if (!*str1)
+                        return(NULL);
+                prev = str1;
+                str1++;
+        }
 
-	return(prev);
+        return(prev);
 }
 
 /****************************************************************
- * 
+ *
  *  ZScan - scan data in an arbitrary segment for ^Zs
  *
  *   Purpose:
- *	If flag is on, scan buffer for a ^Z.  If it is found, update the
- *	buffer length and return 0.  Otherwise return -1.
- *	Double byte characters are taken into account.
+ *      If flag is on, scan buffer for a ^Z.  If it is found, update the
+ *      buffer length and return 0.  Otherwise return -1.
+ *      Double byte characters are taken into account.
  *
  *   int ZScan(int flag, long buffer, unsigned *buflenptr, int *skip_first)
  *
  *   Args:
- *	flag - nonzero if any scanning is to be done
- *	buffer - a long pointer to the buffer to use
- *	buflenptr - ptr to the length of buffer
- *	skip_first - ptr to an integer. The initial value of *skip_first
- *		must be 0 on the first call when scanning a file. There
- *		after, the caller leaves *skip_first alone. ZScan uses
- *		the variable to remember if the first byte of the next
- *		buffer is going to be the second have of a double
- *		byte character.
+ *      flag - nonzero if any scanning is to be done
+ *      buffer - a long pointer to the buffer to use
+ *      buflenptr - ptr to the length of buffer
+ *      skip_first - ptr to an integer. The initial value of *skip_first
+ *              must be 0 on the first call when scanning a file. There
+ *              after, the caller leaves *skip_first alone. ZScan uses
+ *              the variable to remember if the first byte of the next
+ *              buffer is going to be the second have of a double
+ *              byte character.
  *
  *   Returns:
- *	See above.
+ *      See above.
  *
  *   Notes:
- *	This routine will need to be modified once the MMU code is in the DOS.
- *	macro is defined in cmd.h.
+ *      This routine will need to be modified once the MMU code is in the DOS.
+ *      macro is defined in cmd.h.
  *
  *
- *	ZScan
- *	if (flag) then
- *		buffer = buffer + *skip_first
- *		dbcs_flag = 0
- *		count = *buflenptr - *skip_first
- *		use rep scanb to find first ^Z in buffer
- *		if (no ^z was found)
- *			goto FZSNoZ
- *		do {
- *			count++;
- *			buffer--;
- *		} until (*buffer < 0x80 || count = *buflenptr);
- *		while (--count > 0) loop
- *			if (dbcs_flag == 0) then
- *				if (*buffer == ^Z) then
- *					*buflenptr = count
- *					return(0)
- *				else if (*buffer is a dbcs_lead_char) then
- *					dbcs_flag = 1
- *				endif
- *				endif
- *			else
- *				dbcs_flag = 0
- *			buffer = buffer + 1
- *			count = count - 1
- *		end loop
- *		*skip_first = dbcs_flag
- *	endif
+ *      ZScan
+ *      if (flag) then
+ *              buffer = buffer + *skip_first
+ *              dbcs_flag = 0
+ *              count = *buflenptr - *skip_first
+ *              use rep scanb to find first ^Z in buffer
+ *              if (no ^z was found)
+ *                      goto FZSNoZ
+ *              do {
+ *                      count++;
+ *                      buffer--;
+ *              } until (*buffer < 0x80 || count = *buflenptr);
+ *              while (--count > 0) loop
+ *                      if (dbcs_flag == 0) then
+ *                              if (*buffer == ^Z) then
+ *                                      *buflenptr = count
+ *                                      return(0)
+ *                              else if (*buffer is a dbcs_lead_char) then
+ *                                      dbcs_flag = 1
+ *                              endif
+ *                              endif
+ *                      else
+ *                              dbcs_flag = 0
+ *                      buffer = buffer + 1
+ *                      count = count - 1
+ *              end loop
+ *              *skip_first = dbcs_flag
+ *      endif
  *FZSNoZ:
- *	return(-1)
+ *      return(-1)
  *----
  ****************************************************************/
 
@@ -292,26 +290,26 @@ int
 ZScan(BOOL flag, PTCHAR buf, PULONG buflen, PULONG skip)
 {
     PTCHAR pbuf = buf,
-	  bufend;
+          bufend;
 
     TCHAR  c0;
-    
+
     if ( flag ) {
-	pbuf += *skip;
-	bufend = buf + *buflen - *skip;
+        pbuf += *skip;
+        bufend = buf + *buflen - *skip;
 
-	while ((pbuf < bufend) && ((c0 = *pbuf) != CTRLZ)) {
-	    pbuf++;
-	}
+        while ((pbuf < bufend) && ((c0 = *pbuf) != CTRLZ)) {
+            pbuf++;
+        }
 
-	if (c0 == CTRLZ) {
-	    // *buflen = pbuf+1 - buf;
-	    *buflen = pbuf - buf;
-	    *skip = 0;
-	    return(0);
-	} else {
-	    *skip = pbuf - bufend;
-	}
+        if (c0 == CTRLZ) {
+            // *buflen = pbuf+1 - buf;
+            *buflen = pbuf - buf;
+            *skip = 0;
+            return(0);
+        } else {
+            *skip = pbuf - bufend;
+        }
     }
     return(-1);
 }

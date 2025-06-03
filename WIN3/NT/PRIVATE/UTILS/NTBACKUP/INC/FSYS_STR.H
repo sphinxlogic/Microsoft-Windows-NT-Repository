@@ -296,6 +296,18 @@ Added new table entry GeneratedErrorLog
 #define   FS_GRFS_MAC           21
 #define   FS_GRFS_MAC_VER       0
 
+#define   FS_EMS_MDB_ID         30
+#define   FS_EMS_MDB_VER         0
+
+#define   FS_EMS_DSA_ID         31
+#define   FS_EMS_DSA_VER         0
+
+//#define   FS_EMS_BRICK_ID       32
+//#define   FS_EMS_BRICK_VER       0
+//
+//#define   FS_EMS_SERVER_ID      33
+//#define   FS_EMS_SERVER_VER      0
+
 #define   FS_UNKNOWN_VER        -1
 
 
@@ -568,6 +580,9 @@ typedef struct GEN_VCB_DATA {
      UINT32         pba ;                 /* physical block address                */
      UINT32         set_cat_pba ;         /* oba if set catatalog                  */
      UINT16         set_cat_tape_seq_num ;/* sequence number of tape where cat is  */
+     UINT16         set_cat_num_files ;   /* number of files */
+     UINT16         set_cat_num_dirs ;    /* numbers of directores in set */
+     UINT16         set_cat_num_corrupt ; /* number of corrupt objects */
      UINT16         on_tape_cat_level ;   /* catalog level FULL - PARTIAL- NONE    */
      BOOLEAN        set_cat_info_valid ;  /* TRUE if the set catalog info is valid */
      UINT8          on_tape_cat_ver ;     /* OTC version                           */
@@ -692,6 +707,7 @@ typedef struct FUNC_LIST {
 
      INT16     ( *AttachToDLE )( FSYS_HAND fsh, GENERIC_DLE_PTR dle, CHAR_PTR uname, CHAR_PTR pswd ) ;
      INT16     ( *DetachDLE )( FSYS_HAND fsh ) ;
+     INT32     ( *EndOperationOnDLE )( FSYS_HAND fsh ) ;
 
      BOOLEAN   ( *ProcessDDB )( FSYS_HAND fsh, DBLK_PTR ddb ) ;
      INT16     ( *GetCurrentDDB )( FSYS_HAND fsh, DBLK_PTR ddb ) ;
@@ -795,6 +811,9 @@ typedef struct VCB {
      /* this information is for On Tape Catalogs */
      UINT32    set_cat_pba ;         /* oba if set catatalog                  */
      UINT16    set_cat_tape_seq_num ;/* sequence number of tape where cat is  */
+     UINT16    set_cat_num_files ;   /* number of files */
+     UINT16    set_cat_num_dirs ;    /* numbers of directores in set */
+     UINT16    set_cat_num_corrupt ; /* number of corrupt objects */
      UINT16    on_tape_cat_level ;   /* catalog level FULL - PARTIAL- NONE    */
      BOOLEAN   set_cat_info_valid ;  /* TRUE if the set catalog info is valid */
      UINT8     on_tape_cat_ver ;     /* OTC version                           */

@@ -1,9 +1,9 @@
 /*  init.c - routines for managing TOOLS.INI-like files
  *
  *  Modifications
- *	15-Jul-87   danl    Start of section is <optionalwhitespace>[...]
- *	05-Aug-1988 mz	    Use buffer equate for swgoto.
- *	05-Jul-1989 bw	    Use MAXPATHLEN
+ *      15-Jul-87   danl    Start of section is <optionalwhitespace>[...]
+ *      05-Aug-1988 mz      Use buffer equate for swgoto.
+ *      05-Jul-1989 bw      Use MAXPATHLEN
  *
  */
 
@@ -21,10 +21,10 @@ static char *space = "\t ";
  *
  *  We treat the mark set as a collection of whitespace-separated names
  *
- *  pMark	pointer to mark set (contents modified)
- *  pTag	tag to find
+ *  pMark       pointer to mark set (contents modified)
+ *  pTag        tag to find
  *
- *  returns	TRUE if match was found
+ *  returns     TRUE if match was found
  */
 static flagType fMatchMark (pMark, pTag)
 char *pMark, *pTag;
@@ -32,13 +32,13 @@ char *pMark, *pTag;
     char *p, c;
 
     while (*pMark != 0) {
-	pMark = strbscan (p = strbskip (pMark, space), space);
-	c = *pMark;
-	*pMark = 0;
-	if (!stricmp (p, pTag))
-	    return TRUE;
-	*pMark = c;
-	}
+        pMark = strbscan (p = strbskip (pMark, space), space);
+        c = *pMark;
+        *pMark = 0;
+        if (!_stricmp (p, pTag))
+            return TRUE;
+        *pMark = c;
+        }
     return FALSE;
 }
 
@@ -69,7 +69,7 @@ char *tag;
             register char *p;
 
             if ((p = ismark (buf)) != NULL) {
-		if (fMatchMark (p, tag))
+                if (fMatchMark (p, tag))
                     return TRUE;
                 }
             }
@@ -83,12 +83,15 @@ char *file, *tag;
 {
     FILE *fh;
     char buf[MAX_PATH];
+    char buftmp[MAX_PATH];
 
-    if ((fh = pathopen (file, buf, "rb")) == NULL)
+    strncpy(buftmp, file, MAX_PATH);
+
+    if ((fh = pathopen (buftmp, buf, "rb")) == NULL)
         return NULL;
 
     if (swgoto (fh, tag))
-	return fh;
+        return fh;
 
     fclose (fh);
     return NULL;
@@ -115,7 +118,7 @@ FILE *fh;
         if (ismark (buf) != NULL)
             return 0;
         else {
-	    p = strbskip (buf, space);
+            p = strbskip (buf, space);
             if (*p != 0 && *p != ';') {
                 strcpy (buf, p);
                 return -1;
@@ -151,9 +154,9 @@ char *pstrTag;
         while (swread (buf, BUFLEN, fh) != 0 && !ismark(buf) ) {
             if ( *(p = strbscan (buf, "=" )) ) {
                 *p++ = '\0';
-		if (!strcmpis (buf, pstrEntry)) {
-		    if (*(p = strbskip (p, space)))
-                        q = strdup (p);
+                if (!strcmpis (buf, pstrEntry)) {
+                    if (*(p = strbskip (p, space)))
+                        q = _strdup (p);
                     break;
                     }
                 }

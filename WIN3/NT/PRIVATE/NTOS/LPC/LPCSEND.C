@@ -20,42 +20,12 @@ Revision History:
 
 #include "lpcp.h"
 
-#define LpcpDetermineQueuePort( po, qp, rp, pc, msg, deref )                \
-    if (((po)->Flags & PORT_TYPE) == SERVER_CONNECTION_PORT) {              \
-        pc = 0;                                                             \
-        qp = (po);                                                          \
-        rp = (qp);                                                          \
-        }                                                                   \
-    else {                                                                  \
-        qp = (po)->ConnectedPort;                                           \
-        rp = (qp);                                                          \
-        if (qp == NULL) {                                                   \
-            ExReleaseSpinLock( &LpcpLock, OldIrql );                        \
-            if ((deref)) ObDereferenceObject( (po) );                       \
-            return( STATUS_PORT_DISCONNECTED );                             \
-            }                                                               \
-                                                                            \
-        if (((po)->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {       \
-            pc = (qp)->pc;                                                  \
-            qp = (po)->ConnectionPort;                                      \
-            }                                                               \
-        else {                                                              \
-            pc = 0;                                                         \
-            if (((po)->Flags & PORT_TYPE) != SERVER_COMMUNICATION_PORT) {   \
-                qp = (po)->ConnectionPort;                                  \
-                }                                                           \
-            }                                                               \
-        }                                                                   \
-                                                                            \
-    if ((ULONG)(msg)->u1.s1.TotalLength > (qp)->MaxMessageLength ||         \
-        (ULONG)(msg)->u1.s1.TotalLength <= (ULONG)(msg)->u1.s1.DataLength   \
-       ) {                                                                  \
-        ExReleaseSpinLock( &LpcpLock, OldIrql );                            \
-        if ((deref)) ObDereferenceObject( (po) );                           \
-        return( STATUS_PORT_MESSAGE_TOO_LONG );                             \
-        }
-
-
+#ifdef ALLOC_PRAGMA
+#pragma alloc_text(PAGE,LpcRequestPort)
+#pragma alloc_text(PAGE,NtRequestPort)
+#pragma alloc_text(PAGE,LpcRequestWaitReplyPort)
+#pragma alloc_text(PAGE,NtRequestWaitReplyPort)
+#endif
 
 NTSTATUS
 LpcRequestPort(
@@ -65,12 +35,10 @@ LpcRequestPort(
 {
     PLPCP_PORT_OBJECT PortObject = (PLPCP_PORT_OBJECT)PortAddress;
     PLPCP_PORT_OBJECT QueuePort;
-    PLPCP_PORT_OBJECT RundownPort;
-    PVOID PortContext;
-    KIRQL OldIrql;
     ULONG MsgType;
     PLPCP_MESSAGE Msg;
 
+    PAGED_CODE();
     //
     // Get previous processor mode and validate parameters
     //
@@ -92,24 +60,32 @@ LpcRequestPort(
         }
 
     //
-    // Determine which port to queue the message to and get client
-    // port context if client sending to server.  Also validate
-    // length of message being sent.
+    // Validate the message length
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    LpcpDetermineQueuePort( PortObject, QueuePort, RundownPort, PortContext, RequestMessage, FALSE );
+    if ((ULONG)RequestMessage->u1.s1.TotalLength > PortObject->MaxMessageLength ||
+        (ULONG)RequestMessage->u1.s1.TotalLength <= (ULONG)RequestMessage->u1.s1.DataLength
+       ) {
+        return STATUS_PORT_MESSAGE_TOO_LONG;
+        }
 
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( RequestMessage->u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    //
+    // Allocate a message block
+    //
+
+    ExAcquireFastMutex( &LpcpLock );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( RequestMessage->u1.s1.TotalLength );
+    ExReleaseFastMutex( &LpcpLock );
     if (Msg == NULL) {
         return( STATUS_NO_MEMORY );
         }
 
+    //
+    // Fill in the message block.
+    //
+
     Msg->RepliedToThread = NULL;
-    Msg->PortContext = PortContext;
+    Msg->PortContext = NULL;
     LpcpMoveMessage( &Msg->Request,
                      RequestMessage,
                      (RequestMessage + 1),
@@ -118,44 +94,78 @@ LpcRequestPort(
                    );
 
     //
-    // Acquire the global Lpc spin lock that gaurds the LpcReplyMessage
+    // Acquire the global Lpc mutex that gaurds the LpcReplyMessage
     // field of the thread and the request message queue.  Stamp the
     // request message with a serial number, insert the message at
     // the tail of the request message queue
     //
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-
-    Msg->Request.MessageId = LpcpGenerateMessageId();
-    PsGetCurrentThread()->LpcReplyMessageId = 0;
-    InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
-
-    LpcpTrace(( "%s Send DataGram (%s) Msg %lx [%08x %08x %08x %08x] to Port %lx (%s)\n",
-                PsGetCurrentProcess()->ImageFileName,
-                LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
-                Msg,
-                *((PULONG)(Msg+1)+0),
-                *((PULONG)(Msg+1)+1),
-                *((PULONG)(Msg+1)+2),
-                *((PULONG)(Msg+1)+3),
-                QueuePort,
-                LpcpGetCreatorName( QueuePort )
-             ));
-
-    //
-    // Increment the request message queue semaphore by one for
-    // the newly inserted request message.  Release the spin
-    // lock, while remaining at the dispatcher IRQL.
+    // This all needs to be performed with APCs disabled to avoid
+    // the situation where something gets put on the queue and this
+    // thread gets suspended before being able to release the semaphore.
     //
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    KeEnterCriticalRegion();
+    ExAcquireFastMutexUnsafe( &LpcpLock );
 
-    KeReleaseSemaphore( &QueuePort->MsgQueue.Semaphore,
-                        LPC_RELEASE_WAIT_INCREMENT,
-                        1L,
-                        FALSE
-                      );
-    return( STATUS_SUCCESS );
+    if ((PortObject->Flags & PORT_TYPE) != SERVER_CONNECTION_PORT) {
+        QueuePort = PortObject->ConnectedPort;
+        if (QueuePort != NULL) {
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = QueuePort->PortContext;
+                QueuePort = PortObject->ConnectionPort;
+                }
+            else
+            if ((PortObject->Flags & PORT_TYPE) != SERVER_COMMUNICATION_PORT) {
+                QueuePort = PortObject->ConnectionPort;
+                }
+            }
+        }
+    else {
+        QueuePort = PortObject;
+        }
+
+    if (QueuePort != NULL) {
+        Msg->Request.MessageId = LpcpGenerateMessageId();
+        Msg->Request.CallbackId = 0;
+        PsGetCurrentThread()->LpcReplyMessageId = 0;
+
+        InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
+
+        LpcpTrace(( "%s Send DataGram (%s) Msg %lx [%08x %08x %08x %08x] to Port %lx (%s)\n",
+                    PsGetCurrentProcess()->ImageFileName,
+                    LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
+                    Msg,
+                    *((PULONG)(Msg+1)+0),
+                    *((PULONG)(Msg+1)+1),
+                    *((PULONG)(Msg+1)+2),
+                    *((PULONG)(Msg+1)+3),
+                    QueuePort,
+                    LpcpGetCreatorName( QueuePort )
+                 ));
+
+        //
+        // Release the mutex, increment the request message queue
+        // semaphore by one for the newly inserted request message,
+        // then exit the critical region.
+        //
+
+        ExReleaseFastMutexUnsafe( &LpcpLock );
+
+        KeReleaseSemaphore( QueuePort->MsgQueue.Semaphore,
+                            LPC_RELEASE_WAIT_INCREMENT,
+                            1L,
+                            FALSE
+                          );
+        KeLeaveCriticalRegion();
+        return( STATUS_SUCCESS );
+        }
+    else {
+        LpcpFreeToPortZone( Msg, TRUE );
+        }
+
+    ExReleaseFastMutexUnsafe( &LpcpLock );
+    KeLeaveCriticalRegion();
+    return STATUS_PORT_DISCONNECTED;
 }
 
 
@@ -167,14 +177,12 @@ NtRequestPort(
 {
     PLPCP_PORT_OBJECT PortObject;
     PLPCP_PORT_OBJECT QueuePort;
-    PLPCP_PORT_OBJECT RundownPort;
     PORT_MESSAGE CapturedRequestMessage;
-    PVOID PortContext;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
 
+    PAGED_CODE();
 
     //
     // Get previous processor mode and validate parameters
@@ -220,25 +228,33 @@ NtRequestPort(
         }
 
     //
+    // Validate the message length
+    //
+
+    if ((ULONG)CapturedRequestMessage.u1.s1.TotalLength > PortObject->MaxMessageLength ||
+        (ULONG)CapturedRequestMessage.u1.s1.TotalLength <= (ULONG)CapturedRequestMessage.u1.s1.DataLength
+       ) {
+        ObDereferenceObject( PortObject );
+        return STATUS_PORT_MESSAGE_TOO_LONG;
+        }
+
+    //
     // Determine which port to queue the message to and get client
     // port context if client sending to server.  Also validate
     // length of message being sent.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    LpcpDetermineQueuePort( PortObject, QueuePort, RundownPort, PortContext, &CapturedRequestMessage, TRUE );
+    ExAcquireFastMutex( &LpcpLock );
 
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedRequestMessage.u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedRequestMessage.u1.s1.TotalLength );
+    ExReleaseFastMutex( &LpcpLock );
     if (Msg == NULL) {
         ObDereferenceObject( PortObject );
         return( STATUS_NO_MEMORY );
         }
 
     Msg->RepliedToThread = NULL;
-    Msg->PortContext = PortContext;
+    Msg->PortContext = NULL;
     try {
         LpcpMoveMessage( &Msg->Request,
                          &CapturedRequestMessage,
@@ -257,47 +273,82 @@ NtRequestPort(
         }
 
     //
-    // Acquire the global Lpc spin lock that gaurds the LpcReplyMessage
+    // Acquire the global Lpc mutex that gaurds the LpcReplyMessage
     // field of the thread and the request message queue.  Stamp the
     // request message with a serial number, insert the message at
     // the tail of the request message queue and remember the address
     // of the message in the LpcReplyMessage field for the current thread.
     //
-
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-
-    Msg->Request.MessageId = LpcpGenerateMessageId();
-    PsGetCurrentThread()->LpcReplyMessageId = 0;
-    InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
-
-    LpcpTrace(( "%s Send DataGram (%s) Msg %lx [%08x %08x %08x %08x] to Port %lx (%s)\n",
-                PsGetCurrentProcess()->ImageFileName,
-                LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
-                Msg,
-                *((PULONG)(Msg+1)+0),
-                *((PULONG)(Msg+1)+1),
-                *((PULONG)(Msg+1)+2),
-                *((PULONG)(Msg+1)+3),
-                QueuePort,
-                LpcpGetCreatorName( QueuePort )
-             ));
-
-    //
-    // Increment the request message queue semaphore by one for
-    // the newly inserted request message.  Release the spin
-    // lock, while remaining at the dispatcher IRQL.
+    // This all needs to be performed with APCs disabled to avoid
+    // the situation where something gets put on the queue and this
+    // thread gets suspended before being able to release the semaphore.
     //
 
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    KeEnterCriticalRegion();
+    ExAcquireFastMutexUnsafe( &LpcpLock );
 
-    KeReleaseSemaphore( &QueuePort->MsgQueue.Semaphore,
-                        LPC_RELEASE_WAIT_INCREMENT,
-                        1L,
-                        FALSE
-                      );
+    if ((PortObject->Flags & PORT_TYPE) != SERVER_CONNECTION_PORT) {
+        QueuePort = PortObject->ConnectedPort;
+        if (QueuePort != NULL) {
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = QueuePort->PortContext;
+                QueuePort = PortObject->ConnectionPort;
+                }
+            else
+            if ((PortObject->Flags & PORT_TYPE) != SERVER_COMMUNICATION_PORT) {
+                QueuePort = PortObject->ConnectionPort;
+                }
+            }
+        }
+    else {
+        QueuePort = PortObject;
+        }
 
-    ObDereferenceObject( PortObject );
-    return( Status );
+    if (QueuePort != NULL) {
+        Msg->Request.MessageId = LpcpGenerateMessageId();
+        Msg->Request.CallbackId = 0;
+        PsGetCurrentThread()->LpcReplyMessageId = 0;
+        InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
+
+        LpcpTrace(( "%s Send DataGram (%s) Msg %lx [%08x %08x %08x %08x] to Port %lx (%s)\n",
+                    PsGetCurrentProcess()->ImageFileName,
+                    LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
+                    Msg,
+                    *((PULONG)(Msg+1)+0),
+                    *((PULONG)(Msg+1)+1),
+                    *((PULONG)(Msg+1)+2),
+                    *((PULONG)(Msg+1)+3),
+                    QueuePort,
+                    LpcpGetCreatorName( QueuePort )
+                 ));
+
+
+        //
+        // Release the mutex, increment the request message queue
+        // semaphore by one for the newly inserted request message,
+        // then exit the critical region.
+        //
+
+        ExReleaseFastMutexUnsafe( &LpcpLock );
+
+        KeReleaseSemaphore( QueuePort->MsgQueue.Semaphore,
+                            LPC_RELEASE_WAIT_INCREMENT,
+                            1L,
+                            FALSE
+                          );
+
+        KeLeaveCriticalRegion();
+
+        ObDereferenceObject( PortObject );
+        return( Status );
+        }
+    else {
+        LpcpFreeToPortZone( Msg, TRUE );
+        }
+
+    ExReleaseFastMutexUnsafe( &LpcpLock );
+    KeLeaveCriticalRegion();
+    return STATUS_PORT_DISCONNECTED;
 }
 
 
@@ -311,14 +362,14 @@ LpcRequestWaitReplyPort(
     PLPCP_PORT_OBJECT PortObject = (PLPCP_PORT_OBJECT)PortAddress;
     PLPCP_PORT_OBJECT QueuePort;
     PLPCP_PORT_OBJECT RundownPort;
-    PVOID PortContext;
     PKSEMAPHORE ReleaseSemaphore;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
     PETHREAD CurrentThread;
     PETHREAD WakeupThread;
     BOOLEAN CallbackRequest;
+
+    PAGED_CODE();
 
     CurrentThread = PsGetCurrentThread();
     if (CurrentThread->LpcExitThreadCalled) {
@@ -349,24 +400,28 @@ LpcRequestWaitReplyPort(
         }
 
     //
+    // Validate the message length
+    //
+
+    if ((ULONG)RequestMessage->u1.s1.TotalLength > PortObject->MaxMessageLength ||
+        (ULONG)RequestMessage->u1.s1.TotalLength <= (ULONG)RequestMessage->u1.s1.DataLength
+       ) {
+        return STATUS_PORT_MESSAGE_TOO_LONG;
+        }
+
+    //
     // Determine which port to queue the message to and get client
     // port context if client sending to server.  Also validate
     // length of message being sent.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    LpcpDetermineQueuePort( PortObject, QueuePort, RundownPort, PortContext, RequestMessage, FALSE );
-
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( RequestMessage->u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( RequestMessage->u1.s1.TotalLength );
+    ExReleaseFastMutex( &LpcpLock );
     if (Msg == NULL) {
-        ObDereferenceObject( WakeupThread );
         return( STATUS_NO_MEMORY );
         }
 
-    Msg->PortContext = PortContext;
     if (CallbackRequest) {
         //
         // Translate the ClientId from the request into a
@@ -384,26 +439,45 @@ LpcRequestWaitReplyPort(
             }
 
         //
-        // Acquire the spin lock that gaurds the LpcReplyMessage field of
+        // Acquire the mutex that gaurds the LpcReplyMessage field of
         // the thread and get the pointer to the message that the thread
         // is waiting for a reply to.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
 
         //
         // See if the thread is waiting for a reply to the message
         // specified on this call.  If not then a bogus message
-        // has been specified, so release the spin lock, dereference the thread
+        // has been specified, so release the mutex, dereference the thread
         // and return failure.
         //
 
         if (WakeupThread->LpcReplyMessageId != RequestMessage->MessageId
            ) {
             LpcpFreeToPortZone( Msg, TRUE );
-            ExReleaseSpinLock( &LpcpLock, OldIrql );
+            ExReleaseFastMutex( &LpcpLock );
             ObDereferenceObject( WakeupThread );
             return( STATUS_REPLY_MESSAGE_MISMATCH );
+            }
+
+        QueuePort = NULL;
+        Msg->PortContext = NULL;
+        if ((PortObject->Flags & PORT_TYPE) == SERVER_CONNECTION_PORT) {
+            RundownPort = PortObject;
+            }
+        else {
+            RundownPort = PortObject->ConnectedPort;
+            if (RundownPort == NULL) {
+                LpcpFreeToPortZone( Msg, TRUE );
+                ExReleaseFastMutex( &LpcpLock );
+                ObDereferenceObject( WakeupThread );
+                return( STATUS_PORT_DISCONNECTED );
+                }
+
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = RundownPort->PortContext;
+                }
             }
 
         //
@@ -416,12 +490,13 @@ LpcRequestWaitReplyPort(
                          0,
                          &CurrentThread->Cid
                        );
-
-        LpcpTrace(( "%s CallBack Request (%s) Msg %lx (%u) [%08x %08x %08x %08x] to Thread %lx (%s)\n",
+        Msg->Request.CallbackId = LpcpGenerateCallbackId();
+        LpcpTrace(( "%s CallBack Request (%s) Msg %lx (%u.%u) [%08x %08x %08x %08x] to Thread %lx (%s)\n",
                     PsGetCurrentProcess()->ImageFileName,
                     LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
                     Msg,
                     Msg->Request.MessageId,
+                    Msg->Request.CallbackId,
                     *((PULONG)(Msg+1)+0),
                     *((PULONG)(Msg+1)+1),
                     *((PULONG)(Msg+1)+2),
@@ -444,7 +519,7 @@ LpcRequestWaitReplyPort(
         CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
         CurrentThread->LpcReplyMessage = NULL;
         InsertTailList( &RundownPort->LpcReplyChainHead, &CurrentThread->LpcReplyChain );
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         //
         // Wake up the thread that is waiting for an answer to its request
@@ -462,16 +537,43 @@ LpcRequestWaitReplyPort(
                        );
 
         //
-        // Acquire the global Lpc spin lock that gaurds the LpcReplyMessage
+        // Acquire the global Lpc mutex that gaurds the LpcReplyMessage
         // field of the thread and the request message queue.  Stamp the
         // request message with a serial number, insert the message at
         // the tail of the request message queue and remember the address
         // of the message in the LpcReplyMessage field for the current thread.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
+
+        Msg->PortContext = NULL;
+        if ((PortObject->Flags & PORT_TYPE) != SERVER_CONNECTION_PORT) {
+            QueuePort = PortObject->ConnectedPort;
+            if (QueuePort == NULL) {
+                LpcpFreeToPortZone( Msg, TRUE );
+                ExReleaseFastMutex( &LpcpLock );
+                ObDereferenceObject( PortObject );
+                return( STATUS_PORT_DISCONNECTED );
+                }
+
+            RundownPort = QueuePort;
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = QueuePort->PortContext;
+                QueuePort = PortObject->ConnectionPort;
+                }
+            else
+            if ((PortObject->Flags & PORT_TYPE) != SERVER_COMMUNICATION_PORT) {
+                QueuePort = PortObject->ConnectionPort;
+                }
+            }
+        else {
+            QueuePort = PortObject;
+            RundownPort = PortObject;
+            }
+
         Msg->RepliedToThread = NULL;
         Msg->Request.MessageId = LpcpGenerateMessageId();
+        Msg->Request.CallbackId = 0;
         CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
         CurrentThread->LpcReplyMessage = NULL;
         InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
@@ -490,7 +592,7 @@ LpcRequestWaitReplyPort(
                     LpcpGetCreatorName( QueuePort )
                  ));
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         //
         // Increment the request message queue semaphore by one for
@@ -500,7 +602,7 @@ LpcRequestWaitReplyPort(
         // for the current thread.
         //
 
-        ReleaseSemaphore = &QueuePort->MsgQueue.Semaphore;
+        ReleaseSemaphore = QueuePort->MsgQueue.Semaphore;
         }
 
 
@@ -525,10 +627,10 @@ LpcRequestWaitReplyPort(
         }
 
     //
-    // Acquire the LPC spin lock.  Remove the reply message from the current thread
+    // Acquire the LPC mutex.  Remove the reply message from the current thread
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
     Msg = CurrentThread->LpcReplyMessage;
     CurrentThread->LpcReplyMessage = NULL;
     CurrentThread->LpcReplyMessageId = 0;
@@ -557,7 +659,7 @@ LpcRequestWaitReplyPort(
                  ));
         }
 #endif
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 
     //
     // If the wait succeeded, copy the reply to the reply buffer.
@@ -573,12 +675,12 @@ LpcRequestWaitReplyPort(
                            );
 
             //
-            // Acquire the LPC spin lock and decrement the reference count for the
+            // Acquire the LPC mutex and decrement the reference count for the
             // message.  If the reference count goes to zero the message will be
             // deleted.
             //
 
-            ExAcquireSpinLock( &LpcpLock, &OldIrql );
+            ExAcquireFastMutex( &LpcpLock );
 
             if (Msg->RepliedToThread != NULL) {
                 ObDereferenceObject( Msg->RepliedToThread );
@@ -587,7 +689,7 @@ LpcRequestWaitReplyPort(
 
             LpcpFreeToPortZone( Msg, TRUE );
 
-            ExReleaseSpinLock( &LpcpLock, OldIrql );
+            ExReleaseFastMutex( &LpcpLock );
             }
         else {
             Status = STATUS_LPC_REPLY_LOST;
@@ -595,18 +697,16 @@ LpcRequestWaitReplyPort(
         }
     else {
         //
-        // Wait failed, acquire the LPC spin lock and free the message.
+        // Wait failed, acquire the LPC mutex and free the message.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
-
-        LpcpPrint(( "LpcRequestWaitReply wait failed - Status == %lx\n", Status ));
+        ExAcquireFastMutex( &LpcpLock );
 
         if (Msg != NULL) {
             LpcpFreeToPortZone( Msg, TRUE );
             }
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         }
 
     return( Status );
@@ -624,21 +724,18 @@ NtRequestWaitReplyPort(
     PLPCP_PORT_OBJECT QueuePort;
     PLPCP_PORT_OBJECT RundownPort;
     PORT_MESSAGE CapturedRequestMessage;
-    PVOID PortContext;
     PKSEMAPHORE ReleaseSemaphore;
     KPROCESSOR_MODE PreviousMode;
     NTSTATUS Status;
-    KIRQL OldIrql;
     PLPCP_MESSAGE Msg;
     PETHREAD CurrentThread;
     PETHREAD WakeupThread;
     BOOLEAN CallbackRequest;
 
+    PAGED_CODE();
+
     CurrentThread = PsGetCurrentThread();
     if (CurrentThread->LpcExitThreadCalled) {
-#if DBG
-        KdPrint(( "LPC: 0 Status == %08x\n", STATUS_THREAD_IS_TERMINATING ));
-#endif
         return( STATUS_THREAD_IS_TERMINATING );
         }
 
@@ -661,9 +758,6 @@ NtRequestWaitReplyPort(
             }
         except( EXCEPTION_EXECUTE_HANDLER ) {
             Status = GetExceptionCode();
-#if DBG
-            KdPrint(( "LPC: 1 Status == %08x\n", Status ));
-#endif
             return Status;
             }
         }
@@ -676,9 +770,6 @@ NtRequestWaitReplyPort(
         }
     else
     if (CapturedRequestMessage.u2.s2.Type != 0) {
-#if DBG
-        KdPrint(( "LPC: 2 Status == %08x\n", STATUS_INVALID_PARAMETER ));
-#endif
         return( STATUS_INVALID_PARAMETER );
         }
     else {
@@ -696,10 +787,18 @@ NtRequestWaitReplyPort(
                                       &PortObject
                                     );
     if (!NT_SUCCESS( Status )) {
-#if DBG
-        KdPrint(( "LPC: 3 Status == %08x\n", Status ));
-#endif
         return( Status );
+        }
+
+    //
+    // Validate the message length
+    //
+
+    if ((ULONG)CapturedRequestMessage.u1.s1.TotalLength > PortObject->MaxMessageLength ||
+        (ULONG)CapturedRequestMessage.u1.s1.TotalLength <= (ULONG)CapturedRequestMessage.u1.s1.DataLength
+       ) {
+        ObDereferenceObject( PortObject );
+        return STATUS_PORT_MESSAGE_TOO_LONG;
         }
 
     //
@@ -708,21 +807,14 @@ NtRequestWaitReplyPort(
     // length of message being sent.
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
-    LpcpDetermineQueuePort( PortObject, QueuePort, RundownPort, PortContext, &CapturedRequestMessage, TRUE );
-
-    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedRequestMessage.u1.s1.TotalLength,
-                                                   &OldIrql
-                                                 );
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
+    Msg = (PLPCP_MESSAGE)LpcpAllocateFromPortZone( CapturedRequestMessage.u1.s1.TotalLength );
+    ExReleaseFastMutex( &LpcpLock );
     if (Msg == NULL) {
-#if DBG
-        KdPrint(( "LPC: 4 Status == %08x\n", STATUS_NO_MEMORY ));
-#endif
+        ObDereferenceObject( PortObject );
         return( STATUS_NO_MEMORY );
         }
 
-    Msg->PortContext = PortContext;
     if (CallbackRequest) {
         //
         // Translate the ClientId from the request into a
@@ -737,24 +829,21 @@ NtRequestWaitReplyPort(
         if (!NT_SUCCESS( Status )) {
             LpcpFreeToPortZone( Msg, FALSE );
             ObDereferenceObject( PortObject );
-#if DBG
-            KdPrint(( "LPC: 5 Status == %08x\n", Status ));
-#endif
             return( Status );
             }
 
         //
-        // Acquire the spin lock that guards the LpcReplyMessage field of
+        // Acquire the mutex that guards the LpcReplyMessage field of
         // the thread and get the pointer to the message that the thread
         // is waiting for a reply to.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
 
         //
         // See if the thread is waiting for a reply to the message
         // specified on this call.  If not then a bogus message has been
-        // specified, so release the spin lock, dereference the thread
+        // specified, so release the mutex, dereference the thread
         // and return failure.
         //
 
@@ -776,21 +865,18 @@ NtRequestWaitReplyPort(
                         WakeupThread->Cid.UniqueThread
                      ));
 #if DBG
-            if (NtGlobalFlag & FLG_STOP_ON_EXCEPTION) {
+            if (LpcpStopOnReplyMismatch) {
                 DbgBreakPoint();
                 }
 #endif
             LpcpFreeToPortZone( Msg, TRUE );
-            ExReleaseSpinLock( &LpcpLock, OldIrql );
+            ExReleaseFastMutex( &LpcpLock );
             ObDereferenceObject( WakeupThread );
             ObDereferenceObject( PortObject );
-#if DBG
-            KdPrint(( "LPC: 6 Status == %08x\n", STATUS_REPLY_MESSAGE_MISMATCH ));
-#endif
             return( STATUS_REPLY_MESSAGE_MISMATCH );
             }
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         try {
             LpcpMoveMessage( &Msg->Request,
@@ -805,21 +891,41 @@ NtRequestWaitReplyPort(
             }
 
         if (!NT_SUCCESS( Status )) {
+            LpcpFreeToPortZone( Msg, FALSE );
             ObDereferenceObject( WakeupThread );
             ObDereferenceObject( PortObject );
-#if DBG
-            KdPrint(( "LPC: 7 Status == %08x\n", Status ));
-#endif
             return( Status );
             }
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
 
-        LpcpTrace(( "%s CallBack Request (%s) Msg %lx (%u) [%08x %08x %08x %08x] to Thread %lx (%s)\n",
+        QueuePort = NULL;
+        Msg->PortContext = NULL;
+        if ((PortObject->Flags & PORT_TYPE) == SERVER_CONNECTION_PORT) {
+            RundownPort = PortObject;
+            }
+        else {
+            RundownPort = PortObject->ConnectedPort;
+            if (RundownPort == NULL) {
+                LpcpFreeToPortZone( Msg, TRUE );
+                ExReleaseFastMutex( &LpcpLock );
+                ObDereferenceObject( WakeupThread );
+                ObDereferenceObject( PortObject );
+                return( STATUS_PORT_DISCONNECTED );
+                }
+
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = RundownPort->PortContext;
+                }
+            }
+        Msg->Request.CallbackId = LpcpGenerateCallbackId();
+
+        LpcpTrace(( "%s CallBack Request (%s) Msg %lx (%u.%u) [%08x %08x %08x %08x] to Thread %lx (%s)\n",
                     PsGetCurrentProcess()->ImageFileName,
                     LpcpMessageTypeName[ Msg->Request.u2.s2.Type ],
                     Msg,
                     Msg->Request.MessageId,
+                    Msg->Request.CallbackId,
                     *((PULONG)(Msg+1)+0),
                     *((PULONG)(Msg+1)+1),
                     *((PULONG)(Msg+1)+2),
@@ -842,7 +948,7 @@ NtRequestWaitReplyPort(
         CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
         CurrentThread->LpcReplyMessage = NULL;
         InsertTailList( &RundownPort->LpcReplyChainHead, &CurrentThread->LpcReplyChain );
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         //
         // Wake up the thread that is waiting for an answer to its request
@@ -861,15 +967,37 @@ NtRequestWaitReplyPort(
                            );
             }
         except( EXCEPTION_EXECUTE_HANDLER ) {
-            LpcpFreeToPortZone( Msg, TRUE );
+            LpcpFreeToPortZone( Msg, FALSE );
             ObDereferenceObject( PortObject );
-#if DBG
-            KdPrint(( "LPC: 8 Status == %08x\n", GetExceptionCode() ));
-#endif
             return( GetExceptionCode() );
             }
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
+
+        Msg->PortContext = NULL;
+        if ((PortObject->Flags & PORT_TYPE) != SERVER_CONNECTION_PORT) {
+            QueuePort = PortObject->ConnectedPort;
+            if (QueuePort == NULL) {
+                LpcpFreeToPortZone( Msg, TRUE );
+                ExReleaseFastMutex( &LpcpLock );
+                ObDereferenceObject( PortObject );
+                return( STATUS_PORT_DISCONNECTED );
+                }
+
+            RundownPort = QueuePort;
+            if ((PortObject->Flags & PORT_TYPE) == CLIENT_COMMUNICATION_PORT) {
+                Msg->PortContext = QueuePort->PortContext;
+                QueuePort = PortObject->ConnectionPort;
+                }
+            else
+            if ((PortObject->Flags & PORT_TYPE) != SERVER_COMMUNICATION_PORT) {
+                QueuePort = PortObject->ConnectionPort;
+                }
+            }
+        else {
+            QueuePort = PortObject;
+            RundownPort = PortObject;
+            }
 
         //
         // Stamp the request message with a serial number, insert the message
@@ -877,6 +1005,7 @@ NtRequestWaitReplyPort(
         //
         Msg->RepliedToThread = NULL;
         Msg->Request.MessageId = LpcpGenerateMessageId();
+        Msg->Request.CallbackId = 0;
         CurrentThread->LpcReplyMessageId = Msg->Request.MessageId;
         CurrentThread->LpcReplyMessage = NULL;
         InsertTailList( &QueuePort->MsgQueue.ReceiveHead, &Msg->Entry );
@@ -895,14 +1024,14 @@ NtRequestWaitReplyPort(
                     LpcpGetCreatorName( QueuePort )
                  ));
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
 
         //
         // Increment the request message queue semaphore by one for
         // the newly inserted request message.
         //
 
-        ReleaseSemaphore = &QueuePort->MsgQueue.Semaphore;
+        ReleaseSemaphore = QueuePort->MsgQueue.Semaphore;
         }
 
     Status = KeReleaseWaitForSemaphore( ReleaseSemaphore,
@@ -926,10 +1055,10 @@ NtRequestWaitReplyPort(
         }
 
     //
-    // Acquire the LPC spin lock.  Remove the reply message from the current thread
+    // Acquire the LPC mutex.  Remove the reply message from the current thread
     //
 
-    ExAcquireSpinLock( &LpcpLock, &OldIrql );
+    ExAcquireFastMutex( &LpcpLock );
     Msg = CurrentThread->LpcReplyMessage;
     CurrentThread->LpcReplyMessage = NULL;
     CurrentThread->LpcReplyMessageId = 0;
@@ -960,7 +1089,7 @@ NtRequestWaitReplyPort(
             }
         }
 #endif
-    ExReleaseSpinLock( &LpcpLock, OldIrql );
+    ExReleaseFastMutex( &LpcpLock );
 
     //
     // If the wait succeeded, copy the reply to the reply buffer.
@@ -981,12 +1110,19 @@ NtRequestWaitReplyPort(
                 }
 
             //
-            // Acquire the LPC spin lock and decrement the reference count for the
+            // Acquire the LPC mutex and decrement the reference count for the
             // message.  If the reference count goes to zero the message will be
             // deleted.
             //
 
-            LpcpFreeToPortZone( Msg, FALSE );
+            if (Msg->Request.u2.s2.Type == LPC_REQUEST &&
+                Msg->Request.u2.s2.DataInfoOffset != 0
+               ) {
+                LpcpSaveDataInfoMessage( PortObject, Msg );
+                }
+            else {
+                LpcpFreeToPortZone( Msg, FALSE );
+                }
             }
         else {
             Status = STATUS_LPC_REPLY_LOST;
@@ -994,10 +1130,10 @@ NtRequestWaitReplyPort(
         }
     else {
         //
-        // Wait failed, acquire the LPC spin lock and free the message.
+        // Wait failed, acquire the LPC mutex and free the message.
         //
 
-        ExAcquireSpinLock( &LpcpLock, &OldIrql );
+        ExAcquireFastMutex( &LpcpLock );
 
         LpcpTrace(( "%s NtRequestWaitReply wait failed - Status == %lx\n",
                     PsGetCurrentProcess()->ImageFileName,
@@ -1008,15 +1144,10 @@ NtRequestWaitReplyPort(
             LpcpFreeToPortZone( Msg, TRUE );
             }
 
-        ExReleaseSpinLock( &LpcpLock, OldIrql );
+        ExReleaseFastMutex( &LpcpLock );
         }
 
     ObDereferenceObject( PortObject );
 
-#if DBG
-    if (Status != STATUS_SUCCESS && Status != STATUS_USER_APC) {
-        KdPrint(( "LPC: 9 Status == %08x\n", Status ));
-        }
-#endif
     return( Status );
 }

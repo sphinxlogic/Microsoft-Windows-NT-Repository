@@ -86,6 +86,7 @@ FUNC_LIST NTFSFuncTab = {
 
      NTFS_AttachToDLE,
      NTFS_DetachDLE,
+     NTFS_EndOperationOnDLE,
 
      NTFS_ProcessDDB,
      NTFS_GetCurrentDDB,

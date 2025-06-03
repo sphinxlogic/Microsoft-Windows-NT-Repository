@@ -28,7 +28,6 @@ Notes:
 
 #include "resource.h"
 
-#include "clb.h"
 #include "dialogs.h"
 #include "msg.h"
 #include "registry.h"
@@ -37,6 +36,7 @@ Notes:
 #include "strtab.h"
 #include "winmsd.h"
 
+#include <winbase.h>
 #include <string.h>
 #include <tchar.h>
 
@@ -67,22 +67,34 @@ MakeKey(
     NULL
     );
 
+
 //
-// Device/driver resource lists.
+// Flag to indicate what we are viewing, initially false
 //
 
-SYSTEM_RESOURCES
-_SystemResourceLists;
+BOOL _fDevices = FALSE;
+
+//
+// Used to keep track of current ListView Item
+//
+
+UINT _nCurrentLVItem = 1;
 
 //
 // Internal function prototypes.
 //
 
-LPRESOURCE_DESCRIPTOR
-GetSelectedResourceDescriptor(
-    IN HWND hWnd,
-    IN UINT ListId
+BOOL
+InitializeIrqTab(
+    HWND hWnd
     );
+
+BOOL
+DisplayResourceData(
+    IN HWND hWnd,
+    IN UINT iDisplayOptions
+    );
+
 
 VOID
 UpdateShareDisplay(
@@ -97,9 +109,37 @@ UpdateTextDisplay(
     IN DWORD CountOfValueIdMap,
     IN DWORD Value
     );
+
+BOOL
+DisplayResourcePropertySheet(
+    HWND hWnd,
+    LPRESOURCE_DESCRIPTOR ResourceDescriptor
+    );
+
+BOOL
+DisplayDevicePropertySheet(
+    HWND hWnd,
+    LPDEVICE RawDevice
+    );
+
+BOOL
+DeviceDisplayList(
+    IN HWND hWnd,
+    IN UINT iDisplayOption
+    );
+
+UINT
+CALLBACK
+DeviceListViewCompareProc(LPARAM lParam1,
+                    LPARAM lParam2,
+                    LPARAM lParamSort
+                    );
+
+
 
-LPSYSTEM_RESOURCES
+BOOL
 CreateSystemResourceLists(
+    LPSYSTEM_RESOURCES SystemResourceLists
     )
 
 /*++
@@ -112,11 +152,11 @@ Routine Description:
 
 Arguments:
 
-    None.
+    SystemResourceLists - a pointer to the initial structure for the resource list
 
 Return Value:
 
-    LPSYSTEM_RESOURCES - Retunrs a pointer to a RESOURCE_LIST
+    True or False
 
 --*/
 
@@ -130,7 +170,7 @@ Return Value:
     // Set all of the list pointers to NULL.
     //
 
-    ZeroMemory( &_SystemResourceLists, sizeof( _SystemResourceLists ));
+    ZeroMemory( SystemResourceLists, sizeof( SYSTEM_RESOURCES ));
 
     //
     // Make a local copy of the Registry key that points at the device/driver
@@ -147,7 +187,7 @@ Return Value:
     hRegKey = OpenRegistryKey( &ResourceMapKey );
     DbgHandleAssert( hRegKey );
     if( hRegKey == NULL ) {
-        return NULL;
+        return FALSE;
     }
 
     //
@@ -155,7 +195,7 @@ Return Value:
     // these device/driver
     //
 
-    Success = InitializeSystemResourceLists( hRegKey );
+    Success = InitializeSystemResourceLists( hRegKey, SystemResourceLists );
     DbgAssert( Success );
 
     //
@@ -165,11 +205,7 @@ Return Value:
     RegSuccess = CloseRegistryKey( hRegKey );
     DbgAssert( RegSuccess );
 
-    //
-    // Return a pointer to the resource lists or NULL if an error occurred.
-    //
-
-    return ( Success ) ? &_SystemResourceLists : NULL;
+    return Success;
 }
 
 BOOL
@@ -210,12 +246,6 @@ Return Value:
                                     SystemResourceLists->MemoryHead,
                                     SystemResourceLists->PortHead
                                 };
-
-    //
-    // Validate  that the supplied SYSTEM_RESOURCES is the one created.
-    //
-
-    DbgAssert( SystemResourceLists == &_SystemResourceLists );
 
     //
     // Walk the list of DEVICE objects freeing all of their resources
@@ -292,9 +322,9 @@ Return Value:
     }
     return TRUE;
 }
-
+
 BOOL
-DeviceListDlgProc(
+DeviceDlgProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
@@ -305,8 +335,7 @@ DeviceListDlgProc(
 
 Routine Description:
 
-    DeviceListDlgProc displays the list of devices in the system. It also
-    supports viewing of the resources associated with a selected device.
+    DeviceDlgProc is the main tab proc for the IRQ/DMA/PORT/MEM tab
 
 Arguments:
 
@@ -320,262 +349,153 @@ Return Value:
 
 {
     BOOL    Success;
+    HCURSOR hSaveCursor;
+
+    static
+    SYSTEM_RESOURCES sr;
 
     switch( message ) {
 
-    CASE_WM_CTLCOLOR_DIALOG;
 
     case WM_INITDIALOG:
         {
-            LPDEVICE_PAIR   DevicePair;
-            LPDEVICE        RawDevice;
 
-            //
-            // Retrieve the head pointers to the device list.
-            //
+           //
+           // Initialize a SYSTEM_RESOURCES object (Linked list of all resource in system
+           //
 
-            RawDevice = (( LPSYSTEM_RESOURCES ) lParam )
-                ->DeviceHead;
-            DbgPointerAssert( RawDevice );
-            DbgAssert( CheckSignature( RawDevice ));
+           //
+           // Set the pointer to an hourglass - this could take a while
+           //
 
-            if(     ( ! RawDevice )
-                ||  ( ! CheckSignature( RawDevice ))) {
+           hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
+           DbgHandleAssert( hSaveCursor ) ;
 
-                EndDialog( hWnd, 0 );
-                return FALSE;
-            }
+           Success = CreateSystemResourceLists( &sr );
 
-            //
-            // Walk the list of DEVICE objects
-            //
+           // Store the pointer to the SystemResourceList in the user data of the ListView window
 
-            while( RawDevice ) {
+           SetWindowLong(GetDlgItem(hWnd, IDC_LV_IRQ), GWL_USERDATA, (LONG) &sr);
 
-                LONG    Index;
+           //
+           //  Lengthy operation completed.  Restore Cursor.
+           //
 
-                //
-                // Add the name of the device to the list.
-                //
+           SetCursor ( hSaveCursor ) ;
 
-                Index = SendDlgItemMessage(
-                                hWnd,
-                                IDC_LIST_DEVICES,
-                                LB_ADDSTRING,
-                                0,
-                                ( LPARAM ) RawDevice->Name
-                                );
-                DbgAssert( Index != LB_ERR );
+           DbgPointerAssert(( LPSYSTEM_RESOURCES ) &sr );
+           if(( LPSYSTEM_RESOURCES ) &sr == NULL ) {
+               return 0;
+           }
 
-                //
-                // Create a DEVICE_PAIR object.
-                //
+           InitializeIrqTab(hWnd);
 
-                DevicePair = AllocateObject( DEVICE_PAIR, 1 );
-                DbgPointerAssert( DevicePair );
-                if( DevicePair == NULL ) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-
-                //
-                // Initialize the DEVICE_PAIR object with the RAW objects.
-                //
-
-                DevicePair->Lists        = RawDevice;
-                SetSignature( DevicePair );
-
-                //
-                // Associate the DEVICE_PAIR object with this DEVICE in
-                // the list box.
-                //
-
-                Index = SendDlgItemMessage(
-                                hWnd,
-                                IDC_LIST_DEVICES,
-                                LB_SETITEMDATA,
-                                ( WPARAM ) Index,
-                                ( LPARAM ) DevicePair
-                                );
-                DbgAssert( Index != LB_ERR );
-                if( Index == LB_ERR ) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Get the next DEVICE objects.
-                //
-
-                RawDevice           = RawDevice->Next;
-            }
-
-            return TRUE;
+           return FALSE;
         }
 
-    case WM_CLOSE:
-        {
-            LPDEVICE_PAIR   DevicePair;
-            LONG            Index;
 
-            //
-            // Delete all of the DEVICE_PAIR objects.
-            //
 
-            Index = 0;
-            while(( DevicePair = ( LPDEVICE_PAIR )
-                        SendDlgItemMessage(
-                            hWnd,
-                            IDC_LIST_DEVICES,
-                            LB_GETITEMDATA,
-                            ( WPARAM ) Index,
-                            0
-                            ))
-                    != ( LPDEVICE_PAIR ) LB_ERR ) {
+    case WM_DESTROY:
+       {
+         //
+         // free all the memory associated with the linked list
+         //
 
-                DbgAssert(( LONG ) DevicePair != LB_ERR );
-                DbgAssert( CheckSignature( DevicePair ));
-                Success = FreeObject( DevicePair );
-                DbgAssert( Success );
+         LPSYSTEM_RESOURCES SystemResourceLists =
+              ( LPSYSTEM_RESOURCES ) GetWindowLong( GetDlgItem(hWnd, IDC_LV_IRQ), GWL_USERDATA);
 
-                //
-                // Get the next DEVICE_PAIR object.
-                //
+         DbgPointerAssert( SystemResourceLists );
 
-                Index++;
-            }
+         if(SystemResourceLists == NULL ) {
+               return 0;
+         }
 
-            return 0;
-        }
+         Success = DestroySystemResourceLists( SystemResourceLists );
+         DbgAssert( Success );
+
+         break;
+
+       }
+
+    case WM_NOTIFY:
+       return (DeviceNotifyHandler( hWnd, message, wParam, lParam ) );
+
 
     case WM_COMMAND:
 
         switch( LOWORD( wParam )) {
 
-        case IDC_LIST_DEVICES:
+        case IDC_PUSH_SHOW_IRQ:
+        case IDC_PUSH_SHOW_PORTS:
+        case IDC_PUSH_SHOW_DMA:
+        case IDC_PUSH_SHOW_MEMORY:
 
-            switch( HIWORD( wParam )) {
+           EnableControl( hWnd, IDC_SHOW_HAL, TRUE);
+           _fDevices = FALSE;
+           DeviceDisplayList(GetDlgItem(hWnd, IDC_LV_IRQ), LOWORD( wParam ));
+           break;
 
-            case LBN_SELCHANGE:
+        case IDC_PUSH_SHOW_DEVICE:
 
-                //
-                // If the selection changed, enable the display driver button
-                //  (i.e. its originally disabled until a device/driver is
-                // selected).
-                //
+           EnableControl( hWnd, IDC_SHOW_HAL, FALSE);
+           _fDevices = TRUE;
+           DeviceDisplayList(GetDlgItem(hWnd, IDC_LV_IRQ), LOWORD( wParam ));
 
-                Success = EnableControl(
-                                hWnd,
-                                IDC_PUSH_DISPLAY_RESOURCES,
-                                TRUE
-                                );
-                DbgAssert( Success );
+           break;
 
-                return 0;
+        case IDC_SHOW_HAL:
+        case IDC_PUSH_REFRESH:
 
-            case LBN_DBLCLK:
+           DeviceDisplayList(GetDlgItem(hWnd, IDC_LV_IRQ), 0);
+           break;
 
-                //
-                // Simulate that the device/driver details button was pushed.
-                //
+        case IDC_PUSH_PROPERTIES:
+           {
+               LV_ITEM lvi;
 
-                SendMessage(
-                        hWnd,
-                        WM_COMMAND,
-                        MAKEWPARAM( IDC_PUSH_DISPLAY_RESOURCES, BN_CLICKED ),
-                        ( LPARAM ) GetDlgItem( hWnd, IDC_PUSH_DISPLAY_RESOURCES )
-                        );
+               //
+               // Get the lParam of the current item
+               //
 
-                return 0;
-            }
-            break;
+               lvi.mask = LVIF_PARAM;
+               lvi.iItem = (int) _nCurrentLVItem;
+               lvi.iSubItem = 0;
+               Success = ListView_GetItem( GetDlgItem( hWnd, IDC_LV_IRQ ), &lvi);
 
-        case IDC_PUSH_DISPLAY_RESOURCES:
-            {
-                LPDEVICE_PAIR   DevicePair;
-                LONG            Index;
+               if ( _fDevices ) {
 
-                //
-                // Retrieve the index of the currently selected device.
-                //
+                  DisplayDevicePropertySheet( hWnd, (LPDEVICE) lvi.lParam );
 
-                Index = SendDlgItemMessage(
-                            hWnd,
-                            IDC_LIST_DEVICES,
-                            LB_GETCURSEL,
-                            0,
-                            0
-                            );
-                DbgAssert( Index != LB_ERR );
-                if( Index == LB_ERR ) {
-                    break;
-                }
+               } else {
 
-                //
-                // Retrieve the DEVICE_PAIR object for the currently
-                // selected device.
-                //
+                  DisplayResourcePropertySheet( hWnd, (LPRESOURCE_DESCRIPTOR) lvi.lParam );
+               }
 
-                DevicePair = ( LPDEVICE_PAIR ) SendDlgItemMessage(
-                                                    hWnd,
-                                                    IDC_LIST_DEVICES,
-                                                    LB_GETITEMDATA,
-                                                    ( WPARAM ) Index,
-                                                    0
-                                                    );
-                DbgAssert(( LONG ) DevicePair != LB_ERR );
-                DbgAssert( CheckSignature( DevicePair ));
-                if(    (( LONG ) DevicePair == LB_ERR )
-                    || ( ! CheckSignature( DevicePair ))) {
+               return( TRUE );
 
-                    break;
-                }
+           }
 
-                //
-                // Create the Device Resource dialog box, passing it the
-                // DEVICE_PAIR object for the selected DEVICE_OBJECT.
-                //
 
-                DialogBoxParam(
-                   _hModule,
-                   MAKEINTRESOURCE( IDD_DEVICE_RESOURCE ),
-                   hWnd,
-                   DeviceResourceDlgProc,
-                   ( LPARAM ) DevicePair
-                   );
-
-                return TRUE;
-            }
-
-        case IDOK:
-        case IDCANCEL:
-
-            EndDialog( hWnd, 1 );
-            return TRUE;
         }
-        break;
+        return TRUE;
     }
 
-    return FALSE;
+    return(FALSE);
+
 }
-
+
 BOOL
-DeviceResourceDlgProc(
+ResourcePropertiesProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
     IN LPARAM lParam
     )
-
 /*++
 
 Routine Description:
 
-    DeviceResourceDlgProc displays all of the resources owned by the passed in
-    device/driver. This includes dma, interrupts, memory and ports.
+    ResourcePropertiesProc displays the details about the current resource
 
 Arguments:
 
@@ -588,534 +508,431 @@ Return Value:
 --*/
 
 {
-    BOOL            Success;
-
-    static
-    LPDEVICE_PAIR   DevicePair;
+    BOOL    Success;
+    TCHAR   szBuffer[MAX_PATH];
 
     switch( message ) {
 
-    CASE_WM_CTLCOLOR_DIALOG;
 
     case WM_INITDIALOG:
         {
+        LPRESOURCE_DESCRIPTOR ResourceDescriptor = ( LPRESOURCE_DESCRIPTOR ) ( ( LPPROPSHEETPAGE ) lParam)->lParam;
+        UINT  i;
+        VALUE_ID_MAP            ShareMap[ ] = {
 
-            DWORD           DmaWidths[ ] = {
-
-                                12,
-                                ( DWORD ) -1
-                            };
-
-            DWORD           InterruptWidths[ ] = {
-
-                                5,
-                                5,
-                                16,
-                                ( DWORD ) -1
-                            };
-
-            DWORD           MemoryWidths[ ] = {
-
-                                22,
-                                10,
-                                ( DWORD ) -1
-                            };
-
-            DWORD           PortWidths[ ] = {
-
-                                12,
-                                10,
-                                ( DWORD ) -1
-                            };
-
-            int             i;
-            VALUE_ID_MAP    Widths[ ] = {
-
-                ( int ) DmaWidths,          IDC_LIST_DMA,
-                ( int ) InterruptWidths,    IDC_LIST_INTERRUPTS,
-                ( int ) MemoryWidths,       IDC_LIST_MEMORY
-            };
-
-            //
-            // Retrieve and validate the DEVICE_PAIR object.
-            //
-
-            DevicePair = ( LPDEVICE_PAIR ) lParam;
-            DbgPointerAssert( DevicePair );
-            DbgAssert( CheckSignature( DevicePair ));
-            if(    ( DevicePair == NULL )
-                || ( ! CheckSignature( DevicePair ))) {
-
-                EndDialog( hWnd, 0 );
-                return FALSE;
-            }
-
-            //
-            // Set the window title to the name of the device.
-            //
-
-            Success = SetWindowText(
-                        hWnd,
-                        DevicePair->Lists->Name
-                        );
-            DbgAssert( Success );
-
-            //
-            // Set the column widths in the DMA, Interrupt and memory Clbs.
-            //
-
-            for( i = 0; i < NumberOfEntries( Widths ); i++ ) {
-
-                Success = ClbSetColumnWidths(
-                                hWnd,
-                                Widths[ i ].Id,
-                                ( LPDWORD ) Widths[ i ].Value
-                                );
-                DbgAssert( Success );
-                if( Success == FALSE ) {
-                    return FALSE;
-                }
-            }
-
-            //
-            // Initialize the Port list.
-            //
-
-            return InitializeResourceDlgProc(
-                        hWnd,
-                        IDC_LIST_PORTS,
-                        PortWidths
-                        );
-        }
-
-    case WM_COMPAREITEM:
-        {
-            LPCOMPAREITEMSTRUCT     lpcis;
-            LPCLB_ROW               ClbRow1;
-            LPCLB_ROW               ClbRow2;
-            ULONG                   Compare;
-
-            lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-            DbgAssert( lpcis->CtlType == ODT_LISTBOX );
-
-            //
-            // Extract the two rows to be compared.
-            //
-
-            ClbRow1 = ( LPCLB_ROW ) lpcis->itemData1;
-            ClbRow2 = ( LPCLB_ROW ) lpcis->itemData2;
-
-            //
-            // Sort the Clbs. In the case of DMA and INTERRUPT, sort by channel
-            // and vector respectively. For MEMORY and PORT sort by starting
-            // physical address.
-            //
-
-            switch( lpcis->CtlID ) {
-
-            case IDC_LIST_DMA:
-            case IDC_LIST_INTERRUPTS:
-
-                Compare =   ( ULONG ) ClbRow1->Strings[ 0 ].Data
-                          - ( ULONG ) ClbRow2->Strings[ 0 ].Data;
-
-                if( Compare == 0 ) {
-                    Compare =   ( ULONG ) ClbRow1->Strings[ 1 ].Data
-                              - ( ULONG ) ClbRow2->Strings[ 1 ].Data;
-                }
-            break;
-
-            case IDC_LIST_MEMORY:
-            case IDC_LIST_PORTS:
-                {
-                    PPHYSICAL_ADDRESS       Start1;
-                    PPHYSICAL_ADDRESS       Start2;
-
-                    Start1 = ( PPHYSICAL_ADDRESS ) ClbRow1->Strings[ 0 ].Data;
-                    Start2 = ( PPHYSICAL_ADDRESS ) ClbRow2->Strings[ 0 ].Data;
-
-                    Compare = Start1->LowPart - Start2->LowPart;
-
-                    if( Compare == 0 ) {
-                        Compare = Start1->HighPart - Start2->HighPart;
-                    }
-                }
-            }
-
-            return Compare;
-        }
-
-    case WM_COMMAND:
+              CmResourceShareUndetermined,    IDC_TEXT_UNDETERMINED,
+              CmResourceShareDeviceExclusive, IDC_TEXT_DEVICE_EXCLUSIVE,
+              CmResourceShareDriverExclusive, IDC_TEXT_DRIVER_EXCLUSIVE,
+              CmResourceShareShared,          IDC_TEXT_SHARED
+        };
 
         //
-        // End the dialog if OK or Cancel was pressed.
+        // Do all common initialization here, then do case specific init.
         //
 
-        if(( LOWORD( wParam ) == IDOK ) || ( LOWORD( wParam ) == IDCANCEL )) {
+        SetDlgItemText(hWnd, IDC_RESOURCE_OWNER, ResourceDescriptor->Owner->Name);
 
-            EndDialog( hWnd, 1 );
-            return TRUE;
-        }
+        lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+        SetDlgItemText(hWnd, IDC_BUS_TYPE, szBuffer);
 
-        switch( HIWORD( wParam )) {
-
-        case LBN_SELCHANGE:
-            {
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-
-                //
-                // Get the RESOURCE_DESCRIPTOR for the currently selected
-                // resource and update the share disposition display.
-                //
-
-                ResourceDescriptor = GetSelectedResourceDescriptor(
-                                        hWnd,
-                                        LOWORD( wParam )
-                                        );
-                DbgPointerAssert( ResourceDescriptor );
-                if( ResourceDescriptor == NULL ) {
-                    return ~0;
-                }
-
-                UpdateShareDisplay(
-                    hWnd,
-                    ResourceDescriptor->CmResourceDescriptor.ShareDisposition
-                    );
-
-                return 0;
-            }
-
-        case LBN_KILLFOCUS:
-
-            //
-            // Remove the selection when the list box loses focus.
-            //
-
-            SendDlgItemMessage(
-                hWnd,
-                LOWORD( wParam ),
-                LB_SETCURSEL,
-                (WPARAM) -1,
-                0
-                );
-            return 0;
-
-        case BN_CLICKED:
-            {
-
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-                CLB_ROW                 ClbRow;
-                int                     i;
-                UINT                    ListIds[ ] = {
-
-                    IDC_LIST_DMA,
-                    IDC_LIST_INTERRUPTS,
-                    IDC_LIST_MEMORY,
-                    IDC_LIST_PORTS
-                };
-
-                ResourceDescriptor = DevicePair->Lists
-                    ->ResourceDescriptorHead;
-
-                //
-                // If there are no resources (i.e. ResourceDescriptor == NULL)
-                // Put up a message box instead of an empty dialog
-                //
-
-                if ( ResourceDescriptor == NULL ) {
-                    MessageBox ( hWnd,
-                                 GetString ( IDS_NO_DEVICE_RESOURCES ),
-                                 DevicePair->Lists->Name,
-                                 MB_APPLMODAL | MB_ICONINFORMATION | MB_OK ) ;
-                    EndDialog ( hWnd, 0 ) ;
-                    return FALSE;
-                }
-
-                DbgAssert( CheckSignature( ResourceDescriptor ));
-                if( ! CheckSignature( ResourceDescriptor )) {
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Empty each of the list boxes.
-                //
-
-                for( i = 0; i < NumberOfEntries( ListIds ); i++ ) {
-
-                    SendDlgItemMessage(
-                        hWnd,
-                        ListIds[ i ],
-                        LB_RESETCONTENT,
-                        0,
-                        0
+        WFormatMessage( szBuffer,
+                        sizeof( szBuffer ),
+                        IDS_FORMAT_DECIMAL,
+                        ResourceDescriptor->BusNumber
                         );
-                }
+        SetDlgItemText(hWnd, IDC_BUS_NUMBER, szBuffer);
 
-                //
-                // Walk the list of resources for this device.
-                //
+        for( i = 0; i < NumberOfEntries( ShareMap ); i++ ) {
 
-                while( ResourceDescriptor ) {
+             Success = EnableControl(
+                         hWnd,
+                         ShareMap[ i ].Id,
+                         ResourceDescriptor->CmResourceDescriptor.ShareDisposition
+                         == ShareMap[ i ].Value
+                         );
 
-                    UINT    ListId;
-
-                    //
-                    // Associate the resource descriptor with the row
-                    // about to be added.
-                    //
-
-                    ClbRow.Data = ResourceDescriptor;
-
-                    //
-                    // Based on the resource type, extract the information from
-                    // the resource decriptor and format and display it in the
-                    // appropriate list.
-                    //
-
-                    switch( ResourceDescriptor->CmResourceDescriptor.Type ) {
-
-                    case CmResourceTypeDma:
-                        {
-                            TCHAR       ChannelBuffer[ MAX_PATH ];
-                            TCHAR       PortBuffer[ MAX_PATH ];
-
-                            CLB_STRING  ClbString[ ] = {
-
-                                { ChannelBuffer,    0, 0, NULL },
-                                { PortBuffer,       0, 0, NULL }
-                            };
-
-                            ListId = IDC_LIST_DMA;
-
-                            ClbRow.Count    = NumberOfEntries( ClbString );
-                            ClbRow.Strings  = ClbString;
-
-                            ClbString[ 0 ].Length = WFormatMessage(
-                                                        ChannelBuffer,
-                                                        sizeof( ChannelBuffer ),
-                                                        IDS_FORMAT_DECIMAL,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
-                                                        );
-                            ClbString[ 0 ].Format = CLB_RIGHT;
-                            ClbString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel;
-
-                            ClbString[ 1 ].Length = WFormatMessage(
-                                                        PortBuffer,
-                                                        sizeof( PortBuffer ),
-                                                        IDS_FORMAT_DECIMAL,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Dma.Port
-                                                        );
-                            ClbString[ 1 ].Format = CLB_RIGHT;
-                            ClbString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Dma.Port;
-
-                            break;
-                        }
-
-                    case CmResourceTypeInterrupt:
-                        {
-                            TCHAR                   VectorBuffer[ MAX_PATH ];
-                            TCHAR                   LevelBuffer[ MAX_PATH ];
-                            TCHAR                   AffinityBuffer[ MAX_PATH ];
-
-                            CLB_STRING              ClbString[ ] = {
-
-                                { VectorBuffer,     0, 0, NULL },
-                                { LevelBuffer,      0, 0, NULL },
-                                { AffinityBuffer,   0, 0, NULL },
-                                { NULL,             0, 0, NULL }
-                            };
-
-                            ClbRow.Count    = NumberOfEntries( ClbString );
-                            ClbRow.Strings  = ClbString;
-
-                            ListId = IDC_LIST_INTERRUPTS;
-
-                            ClbString[ 0 ].Length = WFormatMessage(
-                                                        VectorBuffer,
-                                                        sizeof( VectorBuffer ),
-                                                        IDS_FORMAT_DECIMAL,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Vector
-                                                        );
-                            ClbString[ 0 ].Format = CLB_RIGHT;
-                            ClbString[ 0 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Vector;
-
-                            ClbString[ 1 ].Length = WFormatMessage(
-                                                        LevelBuffer,
-                                                        sizeof( LevelBuffer ),
-                                                        IDS_FORMAT_DECIMAL,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
-                                                        );
-                            ClbString[ 1 ].Format = CLB_RIGHT;
-                            ClbString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level;
-
-                            ClbString[ 2 ].Length = WFormatMessage(
-                                                        AffinityBuffer,
-                                                        sizeof( AffinityBuffer ),
-                                                        IDS_FORMAT_HEX32,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Affinity
-                                                        );
-                            ClbString[ 2 ].Format = CLB_RIGHT;
-
-                            ClbString[ 3 ].String = ( LPTSTR )
-                                                    GetString(
-                                                        GetStringId(
-                                                            StringTable,
-                                                            StringTableCount,
-                                                            InterruptType,
-                                                            ResourceDescriptor->CmResourceDescriptor.Flags
-                                                            )
-                                                        );
-                            ClbString[ 3 ].Length = _tcslen( ClbString[ 3 ].String );
-                            ClbString[ 3 ].Format = CLB_LEFT;
-
-                            break;
-                        }
-
-                    case CmResourceTypeMemory:
-                        {
-                            TCHAR       StartBuffer[ MAX_PATH ];
-                            TCHAR       LengthBuffer[ MAX_PATH ];
-                            TCHAR       AccessBuffer[ MAX_PATH ];
-
-                            CLB_STRING  ClbString[ ] = {
-
-                                { StartBuffer,  0, 0, NULL },
-                                { LengthBuffer, 0, 0, NULL },
-                                { AccessBuffer, 0, 0, NULL }
-                            };
-
-                            ClbRow.Count    = NumberOfEntries( ClbString );
-                            ClbRow.Strings  = ClbString;
-
-                            ListId = IDC_LIST_MEMORY;
-
-                            ClbString[ 0 ].Length = WFormatMessage(
-                                                        StartBuffer,
-                                                        sizeof( StartBuffer ),
-                                                        IDS_FORMAT_HEX,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart
-                                                        );
-                            ClbString[ 0 ].Format = CLB_RIGHT;
-                            ClbString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Memory.Start;
-
-                            ClbString[ 1 ].Length = WFormatMessage(
-                                                        LengthBuffer,
-                                                        sizeof( LengthBuffer ),
-                                                        IDS_FORMAT_HEX,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Memory.Length
-                                                        );
-                            ClbString[ 1 ].Format = CLB_RIGHT;
-                            ClbString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Memory.Length;
-
-                            ClbString[ 2 ].String = ( LPTSTR )
-                                                    GetString(
-                                                        GetStringId(
-                                                            StringTable,
-                                                            StringTableCount,
-                                                            MemoryAccess,
-                                                            ResourceDescriptor->CmResourceDescriptor.Flags
-                                                            )
-                                                        );
-                            ClbString[ 2 ].Length = _tcslen( ClbString[ 2 ].String );
-                            ClbString[ 2 ].Format = CLB_LEFT;
-
-                            break;
-                        }
-
-                    case CmResourceTypePort:
-                        {
-                            TCHAR       StartBuffer[ MAX_PATH ];
-                            TCHAR       LengthBuffer[ MAX_PATH ];
-
-                            CLB_STRING  ClbString[ ] = {
-
-                                { StartBuffer,  0, 0, NULL },
-                                { LengthBuffer, 0, 0, NULL },
-                                { NULL,         0, 0, NULL }
-                            };
-
-                            ClbRow.Count    = NumberOfEntries( ClbString );
-                            ClbRow.Strings  = ClbString;
-
-                            ListId = IDC_LIST_PORTS;
-
-                            ClbString[ 0 ].Length = WFormatMessage(
-                                                        StartBuffer,
-                                                        sizeof( StartBuffer ),
-                                                        IDS_FORMAT_HEX,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart
-                                                        );
-                            ClbString[ 0 ].Format = CLB_RIGHT;
-                            ClbString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Port.Start;
-
-                            ClbString[ 1 ].Length = WFormatMessage(
-                                                        LengthBuffer,
-                                                        sizeof( LengthBuffer ),
-                                                        IDS_FORMAT_HEX,
-                                                        ResourceDescriptor->CmResourceDescriptor.u.Port.Length
-                                                        );
-                            ClbString[ 1 ].Format = CLB_RIGHT;
-                            ClbString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Port.Length;
-
-                            ClbString[ 2 ].String = ( LPTSTR )
-                                                    GetString(
-                                                        GetStringId(
-                                                            StringTable,
-                                                            StringTableCount,
-                                                            PortType,
-                                                            ResourceDescriptor->CmResourceDescriptor.Flags
-                                                            )
-                                                        );
-                            ClbString[ 2 ].Length = _tcslen( ClbString[ 2 ].String );
-                            ClbString[ 2 ].Format = CLB_LEFT;
-
-                            break;
-                        }
-
-                    default:
-
-                        DbgAssert( FALSE );
-                        continue;
-                    }
-
-                    //
-                    // Add the CLB_ROW object to the appropriate Clb.
-                    //
-
-                    Success  = ClbAddData(
-                                    hWnd,
-                                    ListId,
-                                    &ClbRow
-                                    );
-                    DbgAssert( Success );
-
-                    ResourceDescriptor = ResourceDescriptor->NextDiff;
-                }
-
-                return TRUE;
-            }
-
-            break;
+             DbgAssert( Success );
         }
-    }
+
+        switch (ResourceDescriptor->CmResourceDescriptor.Type) {
+
+        case CmResourceTypePort:
+
+           lstrcpy(szBuffer, GetString( IDS_ADDRESS ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1, szBuffer);
+
+           // ?: conditional accounts for zero length resources
+           wsprintf(  szBuffer,
+                      L"%.4X - %.4X",
+                      ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart,
+                      ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart +
+                      (ResourceDescriptor->CmResourceDescriptor.u.Port.Length ? 
+                      ResourceDescriptor->CmResourceDescriptor.u.Port.Length - 1 : 0 ) 
+                      );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_LENGTH ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2, szBuffer);
+
+           WFormatMessage( szBuffer,
+                           sizeof( szBuffer ),
+                           IDS_FORMAT_HEX,
+                           ResourceDescriptor->CmResourceDescriptor.u.Port.Length
+                           );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2_TEXT, szBuffer);
+
+           break;
+
+        case CmResourceTypeInterrupt:
+
+           lstrcpy(szBuffer, GetString( IDS_VECTOR ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1, szBuffer);
+
+           WFormatMessage(szBuffer,
+                          sizeof( szBuffer ),
+                          IDS_FORMAT_DECIMAL,
+                          ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Vector
+                          );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_AFFINITY ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2, szBuffer);
+
+           WFormatMessage( szBuffer,
+                           sizeof( szBuffer ),
+                           IDS_FORMAT_HEX32,
+                           ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Affinity
+                           );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_INTERFACE_TYPE ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD3, szBuffer);
+
+           if ( ResourceDescriptor->CmResourceDescriptor.Flags ==
+                CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE )            {
+               lstrcpy(szBuffer, GetString( IDS_CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE ) );
+           } else {
+               lstrcpy(szBuffer, GetString( IDS_CM_RESOURCE_INTERRUPT_LATCHED ) );
+           }
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD3_TEXT, szBuffer);
+
+           break;
+
+        case CmResourceTypeMemory:
+
+           lstrcpy(szBuffer, GetString( IDS_ADDRESS ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1, szBuffer);
+
+           // the ? : conditional accounts for zero length resources 
+           wsprintf(  szBuffer,
+                      L"%.8X - %.8X",
+                      ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart,
+                      ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart +
+                      (ResourceDescriptor->CmResourceDescriptor.u.Memory.Length ? 
+                      ResourceDescriptor->CmResourceDescriptor.u.Memory.Length - 1 : 0 )            
+                      );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_LENGTH ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2, szBuffer);
+
+           WFormatMessage( szBuffer,
+                           sizeof( szBuffer ),
+                           IDS_FORMAT_HEX,
+                           ResourceDescriptor->CmResourceDescriptor.u.Memory.Length
+                           );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_ACCESS_TYPE ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD3, szBuffer);
+
+           lstrcpy(szBuffer, GetString(
+                                GetStringId(
+                                    StringTable,
+                                    StringTableCount,
+                                    MemoryAccess,
+                                    ResourceDescriptor->CmResourceDescriptor.Flags
+                                    )
+                                ));
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD3_TEXT, szBuffer);
+
+           break;
+
+        case CmResourceTypeDma:
+
+           lstrcpy(szBuffer, GetString( IDS_CHANNEL ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1, szBuffer);
+
+           wsprintf(  szBuffer,
+                      L"%d",
+                      ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
+                      );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD1_TEXT, szBuffer);
+
+           lstrcpy(szBuffer, GetString( IDS_DMA_PORT ));
+           lstrcat(szBuffer, L":");
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2, szBuffer);
+
+           WFormatMessage( szBuffer,
+                           sizeof( szBuffer ),
+                           IDS_FORMAT_DECIMAL,
+                           ResourceDescriptor->CmResourceDescriptor.u.Dma.Port
+                           );
+           SetDlgItemText(hWnd, IDC_RESOURCE_FIELD2_TEXT, szBuffer);
+
+           break;
+        }
+
+
+        break;
+        }
+    }           
+
     return FALSE;
+
 }
-
+
 BOOL
-DmaAndMemoryResourceDlgProc(
+DevicePropertiesProc(
     IN HWND hWnd,
     IN UINT message,
     IN WPARAM wParam,
     IN LPARAM lParam
+    )
+/*++
+
+Routine Description:
+
+    DevicePropertiesProc displays the details about the current resource
+
+Arguments:
+
+    Standard DLGPROC entry.
+
+Return Value:
+
+    BOOL - Depending on input message and processing options.
+
+--*/
+
+{
+    BOOL    Success;
+    TCHAR   szBuffer[MAX_PATH];
+
+    switch( message ) {
+
+    case WM_INITDIALOG:
+        {
+        LPDEVICE                RawDevice = ( LPDEVICE ) ( ( LPPROPSHEETPAGE ) lParam)->lParam;
+        LPRESOURCE_DESCRIPTOR   ResourceDescriptor = RawDevice->ResourceDescriptorHead;
+        LV_COLUMN               lvc;
+        LV_ITEM                 lvI;
+        UINT                    index = 0;
+        TCHAR                   szBuffer[MAX_PATH];
+        BOOL                    Success;
+        RECT                    rect;
+
+        //
+        // First set up the columns in the list view
+        //
+
+        lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT;
+        lvc.fmt = LVCFMT_LEFT;
+
+        LoadString(_hModule, IDS_RESOURCE_TYPE, szBuffer, cchSizeof(szBuffer));
+        lvc.cx = 140;
+        lvc.pszText = szBuffer;
+        ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_RESOURCES), 0, &lvc);
+
+        LoadString(_hModule, IDS_BUS, szBuffer, cchSizeof(szBuffer));
+        lvc.cx = 60;
+        lvc.pszText = szBuffer;
+        ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_RESOURCES), 1, &lvc);
+
+        lvc.cx = 40;
+        LoadString(_hModule, IDS_SETTING, szBuffer, cchSizeof(szBuffer));
+        lvc.pszText = szBuffer;
+        ListView_InsertColumn(GetDlgItem(hWnd, IDC_LV_RESOURCES), 2, &lvc);
+
+        //
+        // Display the owner name
+        //
+
+        SetDlgItemText(hWnd, IDC_RESOURCE_OWNER, RawDevice->Name);
+
+        //
+        // Walk the list of resources for this device.
+        //
+
+        while( ResourceDescriptor ) {
+
+           switch( ResourceDescriptor->CmResourceDescriptor.Type ) {
+
+           case CmResourceTypeDma:
+               {
+
+                 lstrcpy(szBuffer, GetString( IDS_DMA_CHANNEL ) );
+
+                 lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+                 lvI.iItem = index++;
+                 lvI.iSubItem = 0;
+                 lvI.pszText= szBuffer;
+                 lvI.cchTextMax = 128;
+                 lvI.lParam = (LPARAM) ResourceDescriptor;
+
+                 Success = ListView_InsertItem(GetDlgItem(hWnd, IDC_LV_RESOURCES), &lvI);
+
+
+                 lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 1, szBuffer);
+
+                 wsprintf( szBuffer,
+                         L"%.2d",
+                         ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
+                         );
+
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 2, szBuffer);
+                 break;
+               }
+
+           case CmResourceTypeInterrupt:
+               {
+
+                 lstrcpy(szBuffer, GetString( IDS_INTERRUPT ) );
+
+                 lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+                 lvI.iItem = index++;
+                 lvI.iSubItem = 0;
+                 lvI.pszText= szBuffer;
+                 lvI.cchTextMax = 128;
+                 lvI.lParam = (LPARAM) ResourceDescriptor;
+
+                 Success = ListView_InsertItem(GetDlgItem(hWnd, IDC_LV_RESOURCES), &lvI);
+
+                 lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 1, szBuffer);
+
+                 wsprintf( szBuffer,
+                         L"%.2d",
+                         ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
+                         );
+
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 2, szBuffer);
+
+                 break;
+               }
+
+           case CmResourceTypeMemory:
+               {
+                 lstrcpy(szBuffer, GetString( IDS_MEMORY_RANGE ) );
+
+                 lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+                 lvI.iItem = index++;
+                 lvI.iSubItem = 0;
+                 lvI.pszText= szBuffer;
+                 lvI.cchTextMax = 128;
+                 lvI.lParam = (LPARAM) ResourceDescriptor;
+
+                 Success = ListView_InsertItem(GetDlgItem(hWnd, IDC_LV_RESOURCES), &lvI);
+
+                 lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 1, szBuffer);
+
+
+                 // ?: conditional accounts for zero-length resources
+                 wsprintf( szBuffer,
+                         L"%.8X - %.8X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Memory.Length ? 
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Length - 1 : 0 ) 
+                         );
+
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 2, szBuffer);
+
+                  break;
+               }
+
+           case CmResourceTypePort:
+               {
+
+                 lstrcpy(szBuffer, GetString( IDS_IO_RANGE ) );
+
+                 lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+                 lvI.iItem = index++;
+                 lvI.iSubItem = 0;
+                 lvI.pszText= szBuffer;
+                 lvI.cchTextMax = 128;
+                 lvI.lParam = (LPARAM) ResourceDescriptor;
+
+                 Success = ListView_InsertItem(GetDlgItem(hWnd, IDC_LV_RESOURCES), &lvI);
+
+                 lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 1, szBuffer);
+
+                 // ?: conditional accounts for zero length resources
+                 wsprintf( szBuffer,
+                         L"%.4X - %.4X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Port.Length ? 
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Length - 1 : 0 )
+                         );
+
+                 ListView_SetItemText( GetDlgItem( hWnd, IDC_LV_RESOURCES ), Success, 2, szBuffer);
+
+                 break;
+               }
+
+           default:
+
+               DbgAssert( FALSE );
+               continue;
+           }
+
+           ResourceDescriptor = ResourceDescriptor->NextDiff;
+         }
+
+
+         //
+         // Set the extended style to get full row selection
+         //
+         SendDlgItemMessage(hWnd, IDC_LV_RESOURCES, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT);
+
+
+         //adjust the column width to make it look good
+         GetClientRect( GetDlgItem(hWnd, IDC_LV_RESOURCES), &rect );
+         ListView_SetColumnWidth( GetDlgItem(hWnd, IDC_LV_RESOURCES), 2, rect.right - 200);
+
+        break;
+        }
+    }
+
+    return FALSE;
+
+}
+
+
+BOOL
+DisplayResourceData(
+    IN HWND hWnd,
+    IN UINT iDisplayOptions
     )
 
 /*++
 
 Routine Description:
 
-    DmaAndMemoryResourceDlgProc supports the display of DMA and memory resources
-    for each device/driver in the system.
+    DisplayResourceData fills the ListView columns
 
 Arguments:
 
@@ -1132,571 +949,435 @@ Return Value:
 
     static
     LPSYSTEM_RESOURCES  SystemResourceLists;
-
-    switch( message ) {
-
-    CASE_WM_CTLCOLOR_DIALOG;
-
-    case WM_INITDIALOG:
-        {
-
-            DWORD       DmaWidths[ ] = {
-
-                            12,
-                            12,
-                            ( DWORD ) -1
-                        };
-
-            DWORD       MemWidths[ ] = {
-
-                            22,
-                            10,
-                            ( DWORD ) -1
-                        };
-
-            //
-            // Retrieve and validate the system resource lists.
-            //
-
-            SystemResourceLists = ( LPSYSTEM_RESOURCES ) lParam;
-            DbgPointerAssert( SystemResourceLists );
-            DbgAssert( CheckSignature( SystemResourceLists ));
-            if(     ( ! SystemResourceLists )
-                ||  ( ! CheckSignature( SystemResourceLists ))) {
-
-                EndDialog( hWnd, 0 );
-                return FALSE;
-            }
-
-            //
-            // Set the port column widths.
-            //
-
-            Success = ClbSetColumnWidths(
-                            hWnd,
-                            IDC_LIST_DMA,
-                            DmaWidths
-                            );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                return FALSE;
-            }
-
-            //
-            // Call InitializeResourceDlgProc to set memory column widths
-            //
-
-            return InitializeResourceDlgProc(
-                        hWnd,
-                        IDC_LIST_MEMORY,
-                        MemWidths
-                        );
-        }
-
-    case WM_COMPAREITEM:
-        {
-            LPCOMPAREITEMSTRUCT     lpcis;
-            LPCLB_ROW               ClbRow1;
-            LPCLB_ROW               ClbRow2;
-            ULONG                   Compare;
-
-            lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-
-            //
-            // Sort the list by vector number.
-            //
-
-            ClbRow1 = ( LPCLB_ROW ) lpcis->itemData1;
-            ClbRow2 = ( LPCLB_ROW ) lpcis->itemData2;
-
-            //
-            // Sort the Clbs. In the case of DMA, sort by channel
-            // and vector respectively. For MEMORY sort by starting
-            // physical address.
-            //
-
-            switch( lpcis->CtlID ) {
-
-            case IDC_LIST_DMA:
-
-                Compare =   ( ULONG ) ClbRow1->Strings[ 0 ].Data
-                          - ( ULONG ) ClbRow2->Strings[ 0 ].Data;
-
-                if( Compare == 0 ) {
-                    Compare =   ( ULONG ) ClbRow1->Strings[ 1 ].Data
-                              - ( ULONG ) ClbRow2->Strings[ 1 ].Data;
-                }
-            break;
-
-            case IDC_LIST_MEMORY:
-                {
-                    PPHYSICAL_ADDRESS       Start1;
-                    PPHYSICAL_ADDRESS       Start2;
-
-                    Start1 = ( PPHYSICAL_ADDRESS ) ClbRow1->Strings[ 0 ].Data;
-                    Start2 = ( PPHYSICAL_ADDRESS ) ClbRow2->Strings[ 0 ].Data;
-
-                    Compare = Start1->LowPart - Start2->LowPart;
-
-                    if( Compare == 0 ) {
-                        Compare = Start1->HighPart - Start2->HighPart;
-                    }
-                }
-            }
-
-            return Compare;
-        }
-
-    case WM_COMMAND:
-
-        //
-        // Dismiss the dialog if the user presses OK or Cancel
-        // (i.e. presses <ESC>).
-        //
-
-        if(( LOWORD( wParam ) == IDOK ) || ( LOWORD( wParam ) == IDCANCEL )) {
-
-            EndDialog( hWnd, 0 );
-            return TRUE;
-        }
-
-        switch( HIWORD( wParam )) {
-
-        case LBN_SELCHANGE:
-            {
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-                VALUE_ID_MAP            MemoryAccessMap[ ] = {
-
-                    CM_RESOURCE_MEMORY_READ_ONLY,          IDC_TEXT_READ,
-                    CM_RESOURCE_MEMORY_WRITE_ONLY,         IDC_TEXT_WRITE
-                };
-
-                if ( LOWORD( wParam ) == IDC_LIST_MEMORY ) {
-
-                    //
-                    // Update the share disposition and memory type displays
-                    // when the selected resource changes.
-                    //
-
-                    ResourceDescriptor = GetSelectedResourceDescriptor(
-                                        hWnd,
-                                        LOWORD( wParam )
-                                        );
-                    DbgPointerAssert( ResourceDescriptor );
-                    if( ResourceDescriptor == NULL ) {
-                        return ~0;
-                    }
-
-                    UpdateShareDisplay(
-                        hWnd,
-                        ResourceDescriptor->CmResourceDescriptor.ShareDisposition
-                        );
-
-                    //
-                    // If the memory resource is both readable and writable, adjust
-                    // the values in the access map so that both are forced enabled
-                    // by UpdateTextDisplay.
-                    //
-
-                    if( ResourceDescriptor->CmResourceDescriptor.Flags
-                        == CM_RESOURCE_MEMORY_READ_WRITE ) {
-
-                        MemoryAccessMap[ 0 ].Value = CM_RESOURCE_MEMORY_READ_WRITE;
-                        MemoryAccessMap[ 1 ].Value = CM_RESOURCE_MEMORY_READ_WRITE;
-                    }
-
-                    UpdateTextDisplay(
-                        hWnd,
-                        MemoryAccessMap,
-                        NumberOfEntries( MemoryAccessMap ),
-                        ResourceDescriptor->CmResourceDescriptor.Flags
-                        );
-                    } else {
-
-                        ResourceDescriptor = GetSelectedResourceDescriptor(
-                                        hWnd,
-                                        LOWORD( wParam )
-                                        );
-                        DbgPointerAssert( ResourceDescriptor );
-                        if( ResourceDescriptor == NULL ) {
-                            return ~0;
-                        }
-
-                        UpdateShareDisplay(
-                            hWnd,
-                            ResourceDescriptor->CmResourceDescriptor.ShareDisposition
-                            );
-                    }
-
-                return 0;
-            }
-
-        case LBN_KILLFOCUS:
-
-            //
-            // Remove the selection when the list box loses focus.
-            //
-
-            SendDlgItemMessage(
-                hWnd,
-                LOWORD( wParam ),
-                LB_SETCURSEL,
-                (WPARAM) -1,
-                0
-                );
-            return 0;
-
-        case BN_CLICKED:
-            {
-
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-                TCHAR                   StartBuffer[ MAX_PATH ];
-                TCHAR                   LengthBuffer[ MAX_PATH ];
-                TCHAR                   ChannelBuffer[ MAX_PATH ];
-                TCHAR                   PortBuffer[ MAX_PATH ];
-                // TCHAR                   LengthBuffer[ MAX_PATH ];
-
-                CLB_ROW                 ClbDmaRow;
-                CLB_ROW                 ClbMemRow;
-
-                CLB_STRING              ClbMemString[ ] = {
-
-                                            { StartBuffer,      0, 0, NULL },
-                                            { LengthBuffer,     0, 0, NULL },
-                                            { NULL,             0, 0, NULL }
-                                        };
-
-                CLB_STRING              ClbDmaString[ ] = {
-
-                                            { ChannelBuffer,  0, 0, NULL },
-                                            { PortBuffer,     0, 0, NULL },
-                                            { NULL,           0, 0, NULL }
-                                        };
-
-                //
-                // Empty the list boxes.
-                //
-
-                SendDlgItemMessage(
-                    hWnd,
-                    IDC_LIST_MEMORY,
-                    LB_RESETCONTENT,
-                    0,
-                    0
-                    );
-
-                SendDlgItemMessage(
-                    hWnd,
-                    IDC_LIST_DMA,
-                    LB_RESETCONTENT,
-                    0,
-                    0
-                    );
-
-                //
-                // Fill in the DMA CLB
-                //
-
-                ResourceDescriptor = SystemResourceLists->DmaHead;
-                DbgPointerAssert( ResourceDescriptor );
-                DbgAssert( CheckSignature( ResourceDescriptor ));
-                if(     ( ! ResourceDescriptor )
-                    ||  ( ! CheckSignature( ResourceDescriptor ))) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Initialize the constants in the CLB_ROW object.
-                //
-
-                ClbDmaRow.Count    = NumberOfEntries( ClbDmaString );
-                ClbDmaRow.Strings  = ClbDmaString;
-
-                //
-                // Walk the resource descriptor list, formatting the appropriate
-                // values and adding the CLB_ROW to the Clb.
-                //
-
-                while( ResourceDescriptor ) {
-
-                    if ( lstrcmp ( ResourceDescriptor->Owner->Name,
-                                   L"PC Compatible Eisa/Isa HAL" ) ) {
-
-                        DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
-                               == CmResourceTypeDma );
-
-                        ClbDmaString[ 0 ].Length = WFormatMessage(
-                                                ChannelBuffer,
-                                                sizeof( ChannelBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
-                                                );
-                        ClbDmaString[ 0 ].Format = CLB_RIGHT;
-                        ClbDmaString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel;
-
-                        ClbDmaString[ 1 ].Length = WFormatMessage(
-                                                PortBuffer,
-                                                sizeof( PortBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Dma.Port
-                                                );
-                        ClbDmaString[ 1 ].Format = CLB_RIGHT;
-                        ClbDmaString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Dma.Port;
-
-                        ClbDmaString[ 2 ].String = ResourceDescriptor->Owner->Name;
-                        ClbDmaString[ 2 ].Length = _tcslen( ClbDmaString[ 2 ].String );
-                        ClbDmaString[ 2 ].Format = CLB_LEFT;
-
-                        //
-                        // Associate the current resource descriptor with this row.
-                        //
-
-                        ClbDmaRow.Data = ResourceDescriptor;
-
-                        Success  = ClbAddData(
-                                    hWnd,
-                                    IDC_LIST_DMA,
-                                    &ClbDmaRow
-                                    );
-                        DbgAssert( Success );
-                    }
-
-                    //
-                    // Get the next resource descriptor.
-                    //
-
-                    ResourceDescriptor = ResourceDescriptor->NextSame;
-
-                }
-
-                //
-                // Fill in the Memory CLB
-                //
-
-                ResourceDescriptor = SystemResourceLists->MemoryHead;
-                DbgPointerAssert( ResourceDescriptor );
-                DbgAssert( CheckSignature( ResourceDescriptor ));
-                if(     ( ! ResourceDescriptor )
-                    ||  ( ! CheckSignature( ResourceDescriptor ))) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Initialize the constants in the CLB_ROW object.
-                //
-
-                ClbMemRow.Count    = NumberOfEntries( ClbMemString );
-                ClbMemRow.Strings  = ClbMemString;
-
-                //
-                // Walk the resource descriptor list, formatting the appropriate
-                // values and adding the CLB_ROW to the Clb.
-                //
-
-                while( ResourceDescriptor ) {
-
-                    DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
-                               == CmResourceTypeMemory );
-                    //
-                    // Do not display HAL information.  If ResourceDescriptor->Owner->Name
-                    // is "PC Compatible Eisa/Isa HAL", do not add it to the list box
-                    //
-
-                    if ( lstrcmp ( ResourceDescriptor->Owner->Name,
-                                   L"PC Compatible Eisa/Isa HAL" ) ) {
-                        ClbMemString[ 0 ].Length = WFormatMessage(
-                                                StartBuffer,
-                                                sizeof( StartBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart
-                                                );
-                        ClbMemString[ 0 ].Format = CLB_RIGHT;
-                        ClbMemString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Memory.Start;
-
-                        ClbMemString[ 1 ].Length = WFormatMessage(
-                                                LengthBuffer,
-                                                sizeof( LengthBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Memory.Length
-                                                );
-                        ClbMemString[ 1 ].Format = CLB_RIGHT;
-                        ClbMemString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Memory.Length;
-
-                        ClbMemString[ 2 ].String = ResourceDescriptor->Owner->Name;
-                        ClbMemString[ 2 ].Length = _tcslen( ClbMemString[ 2 ].String );
-                        ClbMemString[ 2 ].Format = CLB_LEFT;
-
-                        //
-                        // Associate the current resource descriptor with this row.
-                        //
-
-                        ClbMemRow.Data = ResourceDescriptor;
-
-                        Success  = ClbAddData(
-                                    hWnd,
-                                    IDC_LIST_MEMORY,
-                                    &ClbMemRow
-                                    );
-                        DbgAssert( Success );
-                    }
-                    //
-                    // Get the next resource descriptor.
-                    //
-
-                    ResourceDescriptor = ResourceDescriptor->NextSame;
-                }
-
-                return TRUE;
-            }
-        }
-        break;
-    }
-
-    return FALSE;
-
-}
-
-LPRESOURCE_DESCRIPTOR
-GetSelectedResourceDescriptor(
-    IN HWND hWnd,
-    IN UINT ListId
-    )
-
-/*++
-
-Routine Description:
-
-    Retrieve a pointer to the RESOURCE_DESCRIPTOR for the currently
-    selected resource.
-
-Arguments:
-
-    hWnd    - Supplies window handle for the dialog box that contains the list.
-    ListId  - Supplies a control id for the list that contains the selected
-              resource.
-
-Return Value:
-
-    None.
-
---*/
-
-{
-
     LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-    LPCLB_ROW               ClbRow;
-    LONG                    Index;
 
-    DbgHandleAssert( hWnd );
+    LV_ITEM             lvI;
+    UINT                index = 0;
+    TCHAR               szBuffer[MAX_PATH];
+    UINT                iSubItem;
+    RECT                rect;
 
-    //
-    // Retrieve the index of the currently selected resource.
-    //
+    BOOL                fShowHAL;
 
-    Index = SendDlgItemMessage(
-                hWnd,
-                ListId,
-                LB_GETCURSEL,
-                0,
-                0
-                );
-    DbgAssert( Index != LB_ERR );
-    if( Index == LB_ERR ) {
-        return NULL;
-    }
 
     //
-    // Retrieve the data for the currently selected resource.
+    // Determine whether we are showing HAL resources or not
     //
 
-    ClbRow = ( LPCLB_ROW ) SendDlgItemMessage(
-                            hWnd,
-                            ListId,
-                            LB_GETITEMDATA,
-                            ( WPARAM ) Index,
-                            0
-                            );
-    ResourceDescriptor = ( LPRESOURCE_DESCRIPTOR ) ClbRow->Data;
-    DbgAssert(( LONG ) ResourceDescriptor != LB_ERR );
-    DbgAssert( CheckSignature( ResourceDescriptor ));
-    if(    (( LONG ) ResourceDescriptor == LB_ERR )
-        || ( ! CheckSignature( ResourceDescriptor ))) {
+    fShowHAL = IsDlgButtonChecked( GetParent(hWnd), IDC_SHOW_HAL );
 
-        return NULL;
-    }
-
-    return ResourceDescriptor;
-}
-
-BOOL
-InitializeResourceDlgProc(
-    IN HWND hWnd,
-    IN UINT ListId,
-    IN LPDWORD Widths
-    )
-
-/*++
-
-Routine Description:
-
-    InitializeResourceDlgProc performs common initialization functions for
-    all of the dialog procedures that display information about device/drivers.
-
-Arguments:
-
-    hWnd    - Supplies window handle for the dialog box being initialized.
-    ListId  - Supplies a control id for the list box that displays the
-              resource data.
-    Widths  - Supplies an array of DWORDs which contains the widths of each
-              column in the list.
-
-Return Value:
-
-    BOOL    - Returns TRUE if all of the initialization was succesful,
-              FALSE otherwise.
-
---*/
-
-{
-    BOOL                Success;
 
     //
-    // Set the column widths in the Clb.
+    // Retrieve and validate the system resource lists.
     //
 
-    Success = ClbSetColumnWidths(
-                    hWnd,
-                    ListId,
-                    Widths
-                    );
-    DbgAssert( Success );
-    if( Success == FALSE ) {
+    SystemResourceLists = ( LPSYSTEM_RESOURCES ) GetWindowLong( hWnd, GWL_USERDATA);
+
+    DbgPointerAssert( SystemResourceLists );
+    DbgAssert( CheckSignature( SystemResourceLists ));
+    if(     ( ! SystemResourceLists )
+         ||  ( ! CheckSignature( SystemResourceLists ))) {
+
         return FALSE;
     }
 
-    //
-    // Update the data in the ListBoxes.
-    // This is left over from v1.0 where we used to have to select
-    // the data to be shown.
-    //
 
-    SendMessage(
-            hWnd,
-            WM_COMMAND,
-            MAKEWPARAM( 0, BN_CLICKED ),
-            0L
-            );
+    switch (iDisplayOptions) {
 
-    return TRUE;
+    case IDC_PUSH_SHOW_IRQ:
+       {
+
+       //
+       // Get a pointer to the head of the IRQ list
+       //
+
+       ResourceDescriptor = SystemResourceLists->InterruptHead;
+       DbgPointerAssert( ResourceDescriptor );
+       DbgAssert( CheckSignature( ResourceDescriptor ));
+       if(     ( ! ResourceDescriptor )
+           ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+           return FALSE;
+       }
+
+       //
+       // Walk the resource descriptor list
+       //
+
+       while( ResourceDescriptor ) {
+
+           DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
+                      == CmResourceTypeInterrupt );
+
+           //
+           // Only Display the HAL resource if the "Show HAL Resources" is Checked
+           //
+
+           if (( fShowHAL & ResourceDescriptor->Owner->fIsHAL) ||
+                (!ResourceDescriptor->Owner->fIsHAL )           ){
+
+              // Add the IRQ to the ListView. Store a
+              // pointer to this resource descriptor in the lParam.
+              wsprintf( szBuffer,
+                        L"%.2d",
+                        ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
+                        );
+
+              lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+              lvI.iItem = index++;
+              lvI.iSubItem = 0;
+              lvI.pszText= szBuffer;
+              lvI.cchTextMax = MAX_PATH;
+              lvI.lParam = (LONG) ResourceDescriptor;
+
+              Success = ListView_InsertItem(hWnd, &lvI);
+
+              //
+              // Init the rest of the columns to callback
+              //
+
+              iSubItem = 4;
+              while( iSubItem > 0 ){
+
+                  ListView_SetItemText( hWnd,
+                     Success,
+                     iSubItem--,
+                     LPSTR_TEXTCALLBACK);
+              }
+
+           }
+           //
+           // Get the next resource descriptor.
+           //
+
+           ResourceDescriptor = ResourceDescriptor->NextSame;
+       }
+
+       //adjust the device column width to make it look good
+       GetClientRect( hWnd, &rect );
+       ListView_SetColumnWidth( hWnd, 1, rect.right - 140);
+
+
+       //
+       // Sort the list by IRQ
+       //
+       ListView_SortItems( hWnd, DeviceListViewCompareProc, (LPARAM)IDS_IRQ);
+
+
+       break;
+       }
+
+    case IDC_PUSH_SHOW_PORTS:
+       {
+          //
+          // Get a pointer to the Port Head
+          //
+
+          ResourceDescriptor = SystemResourceLists->PortHead;
+          DbgPointerAssert( ResourceDescriptor );
+          DbgAssert( CheckSignature( ResourceDescriptor ));
+          if(     ( ! ResourceDescriptor )
+              ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+              EndDialog( hWnd, 0 );
+              return FALSE;
+          }
+
+          while( ResourceDescriptor ) {
+
+           //
+           // Only Display the HAL resource if the "Show HAL Resources" is Checked
+           //
+
+           if (( fShowHAL & ResourceDescriptor->Owner->fIsHAL) ||
+                (!ResourceDescriptor->Owner->fIsHAL )           ){
+
+              // Add the Port to the ListView. Store a
+              // pointer to this resource descriptor in the lParam.
+
+               // ?: conditional accounts for zero length resources
+              wsprintf( szBuffer,
+                         L"%.4X - %.4X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Port.Length ? 
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Length - 1 : 0 )
+                         );
+
+              lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+              lvI.iItem = index++;
+              lvI.iSubItem = 0;
+              lvI.pszText= szBuffer;
+              lvI.cchTextMax = MAX_PATH;
+              lvI.lParam = (LONG) ResourceDescriptor;
+
+              Success = ListView_InsertItem(hWnd, &lvI);
+
+              //
+              // Init the rest of the columns to callback
+              //
+
+              iSubItem = 3;
+              while( iSubItem > 0 ){
+
+                  ListView_SetItemText( hWnd,
+                     Success,
+                     iSubItem--,
+                     LPSTR_TEXTCALLBACK);
+              }
+
+
+           }
+
+           //
+           // Get the next resource descriptor.
+           //
+
+           ResourceDescriptor = ResourceDescriptor->NextSame;
+
+       }
+       //adjust the device column width to make it look good
+       GetClientRect( hWnd, &rect );
+       ListView_SetColumnWidth( hWnd, 1, rect.right - 180);
+
+       //
+       // Sort the list by PORT Address
+       //
+       ListView_SortItems( hWnd, DeviceListViewCompareProc, (LPARAM)IDS_PORTADDRESS);
+
+
+       break;
+
+     }
+
+    case IDC_PUSH_SHOW_DMA:
+       {
+          //
+          // Get a pointer to the DMA head
+          //
+
+          ResourceDescriptor = SystemResourceLists->DmaHead;
+          DbgPointerAssert( ResourceDescriptor );
+          DbgAssert( CheckSignature( ResourceDescriptor ));
+          if(     ( ! ResourceDescriptor )
+              ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+              EndDialog( hWnd, 0 );
+              return FALSE;
+          }
+
+
+          while( ResourceDescriptor ) {
+
+           //
+           // Only Display the HAL resource if the "Show HAL Resources" is Checked
+           //
+
+           if (( fShowHAL & ResourceDescriptor->Owner->fIsHAL) ||
+                (!ResourceDescriptor->Owner->fIsHAL )           ){
+
+              DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
+                         == CmResourceTypeDma );
+
+
+              // Add the DMA Channel to the ListView. Store a
+              // pointer to this resource descriptor in the lParam.
+
+
+              wsprintf( szBuffer,
+                         L"%.2d",
+                         ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
+                         );
+
+              lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+              lvI.iItem = index++;
+              lvI.iSubItem = 0;
+              lvI.pszText= szBuffer;
+              lvI.cchTextMax = MAX_PATH;
+              lvI.lParam = (LONG) ResourceDescriptor;
+
+              Success = ListView_InsertItem(hWnd, &lvI);
+
+
+              //
+              // Init the rest of the columns to callback
+              //
+
+              iSubItem = 2;
+              while( iSubItem > 0 ){
+
+                  ListView_SetItemText( hWnd,
+                     Success,
+                     iSubItem--,
+                     LPSTR_TEXTCALLBACK);
+              }
+
+
+              //
+              // Get the next resource descriptor.
+              //
+              }
+              ResourceDescriptor = ResourceDescriptor->NextSame;
+
+          }
+         //adjust the device column width to make it look good
+         GetClientRect( hWnd, &rect );
+         ListView_SetColumnWidth( hWnd, 2, rect.right - 200);
+
+       //
+       // Sort the list by DMA Channel
+       //
+       ListView_SortItems( hWnd, DeviceListViewCompareProc, (LPARAM)IDS_CHANNEL);
+
+       break;
+
+       }
+    case IDC_PUSH_SHOW_MEMORY:
+       {
+          // if there are no Memory Resources, skip this.
+          if (!SystemResourceLists->MemoryHead){
+             break;
+          }
+
+          //
+          // Get a pointer to the Memory head
+          //
+
+          ResourceDescriptor = SystemResourceLists->MemoryHead;
+          DbgPointerAssert( ResourceDescriptor );
+          DbgAssert( CheckSignature( ResourceDescriptor ));
+          if(     ( ! ResourceDescriptor )
+              ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+              EndDialog( hWnd, 0 );
+              return FALSE;
+          }
+
+          //
+          // Walk the resource descriptor list, adding the memory values to the LV
+          //
+
+          while( ResourceDescriptor ) {
+
+              //
+              // Only Display the HAL resource if the "Show HAL Resources" is Checked
+              //
+
+              if (( fShowHAL & ResourceDescriptor->Owner->fIsHAL) ||
+                (!ResourceDescriptor->Owner->fIsHAL )           ){
+
+
+                  //?: conditional accounts for zero-length resources
+                    wsprintf( szBuffer,
+                         L"%.8X - %.8X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Memory.Length ? 
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Length - 1 : 0 ) 
+                         );
+
+                    lvI.mask = LVIF_TEXT | LVIF_PARAM ;
+                    lvI.iItem = index++;
+                    lvI.iSubItem = 0;
+                    lvI.pszText= szBuffer;
+                    lvI.cchTextMax = MAX_PATH;
+                    lvI.lParam = (LONG) ResourceDescriptor;
+
+                    Success = ListView_InsertItem(hWnd, &lvI);
+
+                    //
+                    // Init the rest of the columns to callback
+                    //
+
+                    iSubItem = 2;
+                    while( iSubItem > 0 ){
+
+                        ListView_SetItemText( hWnd,
+                           Success,
+                           iSubItem--,
+                           LPSTR_TEXTCALLBACK);
+                    }
+
+
+                    //
+                    // Get the next resource descriptor.
+                    //
+                }
+
+                ResourceDescriptor = ResourceDescriptor->NextSame;
+          }
+          //adjust the device column width to make it look good
+          GetClientRect( hWnd, &rect );
+          ListView_SetColumnWidth( hWnd, 1, rect.right - 220);
+
+       //
+       // Sort the list by  Address
+       //
+       ListView_SortItems( hWnd, DeviceListViewCompareProc, (LPARAM)IDS_ADDRESS);
+
+
+          break;
+
+       }
+    case IDC_PUSH_SHOW_DEVICE:
+       {
+
+            LPDEVICE        RawDevice;
+
+            //
+            // Retrieve the head pointers to the device list.
+            //
+
+            RawDevice = SystemResourceLists->DeviceHead;
+            DbgPointerAssert( RawDevice );
+            DbgAssert( CheckSignature( RawDevice ));
+
+            if(     ( ! RawDevice )
+                ||  ( ! CheckSignature( RawDevice ))) {
+                return FALSE;
+            }
+
+            //
+            // Walk the list of DEVICE objects
+            //
+
+            while( RawDevice ) {
+
+                //
+                // Add the name of the device to the list.
+                //
+
+                lvI.mask = LVIF_TEXT | LVIF_PARAM;
+                lvI.iItem = index++;
+                lvI.iSubItem = 0;
+                lvI.pszText= RawDevice->Name;
+                lvI.cchTextMax = MAX_PATH;
+                lvI.lParam = (LONG) RawDevice;
+                Success = ListView_InsertItem(hWnd, &lvI);
+
+                //
+                // Get the next DEVICE objects.
+                //
+
+                RawDevice           = RawDevice->Next;
+            }
+
+
+       break;
+       }
+
+
+    } //end switch
+
 }
+
+
+
 
 BOOL
 InitializeSystemResourceLists(
-    IN HREGKEY hRegKey
+    LPKEY hRegKey,
+    LPSYSTEM_RESOURCES SystemResourceLists
     )
 
 /*++
@@ -1708,7 +1389,7 @@ Routine Description:
     that links all resources of the same type together, as well as linking all
     resources belonging to a specific device/driver together. Lastly each
     resource is independently linked to the device/driver that owns it. This
-    leds to a 'mesh' of linked lists with back pointers to the owning
+    leads to a 'mesh' of linked lists with back pointers to the owning
     device/driver object.
 
 Arguments:
@@ -1726,6 +1407,9 @@ Return Value:
     BOOL    Success;
     HREGKEY hRegSubkey;
 
+    static
+    BOOL    fIsHal = TRUE;  //assume first call to QueryNextValue returns HAL info
+
     DbgHandleAssert( hRegKey );
 
     //
@@ -1742,6 +1426,8 @@ Return Value:
         DWORD                           i;
         DWORD                           j;
 
+        LPBYTE                          lpbLastValidAddress = (LPBYTE) hRegKey->Data + hRegKey->Size;
+        TCHAR temp[1024];
         //
         // Based on the type of key, prepare to walk the list of
         // RESOURCE_DESCRIPTORS (the list may be one in length).
@@ -1770,10 +1456,11 @@ Return Value:
         Device = AllocateObject( DEVICE, 1 );
         DbgPointerAssert( Device );
         if( Device == NULL ) {
-            Success = DestroySystemResourceLists( &_SystemResourceLists );
+            Success = DestroySystemResourceLists( SystemResourceLists );
             DbgAssert( Success );
             return FALSE;
         }
+
 
         //
         // Allocate a buffer for the device/driver name. The maximum size of
@@ -1789,9 +1476,18 @@ Return Value:
                             );
         DbgPointerAssert( Device->Name );
         if( Device->Name == NULL ) {
-            Success = DestroySystemResourceLists( &_SystemResourceLists );
+            Success = DestroySystemResourceLists( SystemResourceLists );
             DbgAssert( Success );
             return FALSE;
+        }
+
+        //
+        // If this is the HAL key, mark it (working on the assumption the the HAL key is first).
+        //
+
+        if(fIsHal){
+           Device->fIsHAL = TRUE;
+           fIsHal = FALSE;
         }
 
         //
@@ -1809,12 +1505,20 @@ Return Value:
         // Based on the device name, determine if the resource descriptors
         // should be added to the RAW list.
         //
+        Extension = _tcsstr( Device->Name, TEXT( ".Raw" ));
+        if( Extension ) {
 
-        if( Extension = _tcsstr( Device->Name, TEXT( ".Raw" ))) {
-
-            SystemResource = &_SystemResourceLists;
+            SystemResource = SystemResourceLists;
 
         } else {
+
+            DbgPointerAssert( Device->Name );
+            Success = FreeObject( Device->Name );
+            DbgAssert( Success );
+
+            Success = FreeObject( Device );
+            DbgAssert( Success );
+
             continue;
         }
 
@@ -1823,6 +1527,19 @@ Return Value:
         //
 
         Device->Name[ Extension - Device->Name ] = TEXT( '\0' );
+
+        //
+        // Strip off the initial \Device\, if it exists
+        //
+        if( ( _tcsnicmp( Device->Name, TEXT( "\\Device\\" ), 8 ) == 0 )) {
+
+            MoveMemory( Device->Name,
+                        Device->Name + 8,
+                        (wcslen( Device->Name + 8 )*2)+2
+                        );
+        }
+
+        _tcscpy( Device->Name, hRegKey->Name);
 
         //
         // Set the signature in the DEVICE object.
@@ -1869,8 +1586,13 @@ Return Value:
 
             } else {
 
+                DbgPointerAssert( Device->Name );
+                Success = FreeObject( Device->Name );
+                DbgAssert( Success );
+
                 Success = FreeObject( Device );
                 DbgAssert( Success );
+
             }
         }
 
@@ -1899,23 +1621,54 @@ Return Value:
                 LPRESOURCE_DESCRIPTOR*  Tail;
 
                 //
+                // Get a pointer to the current CM_PARTIAL_RESOURCE_DESCRIPTOR
+                // in the current CM_FULLRESOURCE_DESCRIPTOR in the list.
+                //
+
+                PartialResourceDescriptor = &( FullResource->PartialResourceList.PartialDescriptors[ j ]);
+
+                //
+                // Make sure we do not run past the last valid address, becuase
+                // the resource count can be wrong.
+                //
+
+                if ((LPBYTE) (PartialResourceDescriptor) > lpbLastValidAddress - sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR)) {
+                   continue;
+
+                }
+
+                //
                 // Allocate a RESOURCE_DESCRIPTOR object.
                 //
 
                 ResourceDescriptor = AllocateObject( RESOURCE_DESCRIPTOR, 1 );
                 DbgPointerAssert( ResourceDescriptor );
                 if( ResourceDescriptor == NULL ) {
-                    Success = DestroySystemResourceLists( &_SystemResourceLists );
+                    Success = DestroySystemResourceLists( SystemResourceLists );
                     DbgAssert( Success );
                     return FALSE;
                 }
 
+
                 //
-                // Get a pointer to the current CM_PARTIAL_RESOURCE_DESCRIPTOR
-                // in the current CM_FULLRESOURCE_DESCRIPTOR in the list.
+                // Store the Bus number and interface type here
                 //
 
-                PartialResourceDescriptor = &( FullResource[ i ].PartialResourceList.PartialDescriptors[ j ]);
+	             ResourceDescriptor->InterfaceType = FullResource->InterfaceType;
+	             ResourceDescriptor->BusNumber = FullResource->BusNumber;
+
+
+                //
+                // Validate the resource type, if unknown, then continue to next for statement
+                //
+                if ( (PartialResourceDescriptor->Type != CmResourceTypePort )      &&
+                     (PartialResourceDescriptor->Type != CmResourceTypeInterrupt ) &&
+                     (PartialResourceDescriptor->Type != CmResourceTypeMemory )    &&
+                     (PartialResourceDescriptor->Type != CmResourceTypeDma )         ){
+
+                    continue;
+
+                }
 
                 //
                 // Based on the resource type grab the pointers to the head and
@@ -1954,15 +1707,10 @@ Return Value:
                     // Since device specific data is not be collected, free the
                     // associated RESOURCCE_DESCRIPTOR object.
                     //
-
                     Success = FreeObject( ResourceDescriptor );
                     DbgAssert( Success );
                     break;
 
-                default:
-
-                    DbgPrintf(( L"Winmsd : Unknown PartialResourceDescriptor->Type == %1!d!\n", PartialResourceDescriptor->Type ));
-                    continue;
                 }
 
                 //
@@ -2002,6 +1750,8 @@ Return Value:
                 //
 
                 ResourceDescriptor->Owner = SystemResource->DeviceTail;
+
+
 
                 //
                 // The RESOURCE_DESCRIPTOR is complete so set its signature.
@@ -2055,11 +1805,11 @@ Return Value:
 
     while(( hRegSubkey = QueryNextSubkey( hRegKey )) != NULL ) {
 
-        Success = InitializeSystemResourceLists( hRegSubkey );
+        Success = InitializeSystemResourceLists( hRegSubkey, SystemResourceLists );
         DbgAssert( Success );
         if( Success == FALSE ) {
 
-            Success = DestroySystemResourceLists( &_SystemResourceLists );
+            Success = DestroySystemResourceLists( SystemResourceLists );
             DbgAssert( Success );
             return FALSE;
         }
@@ -2068,7 +1818,7 @@ Return Value:
         DbgAssert( Success );
         if( Success == FALSE ) {
 
-            Success = DestroySystemResourceLists( &_SystemResourceLists );
+            Success = DestroySystemResourceLists( SystemResourceLists );
             DbgAssert( Success );
             return FALSE;
         }
@@ -2078,463 +1828,14 @@ Return Value:
     // Set the signatures in both of the fully initialized lists.
     //
 
-    SetSignature( &_SystemResourceLists);
+    SetSignature( SystemResourceLists );
+
+    //
+    // Reset the HAL flag
+    //
+    fIsHal = TRUE;
 
     return TRUE;
-}
-
-BOOL
-IrqAndPortResourceDlgProc(
-    IN HWND hWnd,
-    IN UINT message,
-    IN WPARAM wParam,
-    IN LPARAM lParam
-    )
-
-/*++
-
-Routine Description:
-
-    IrqAndPortResourceDlgProc supports the display of interrupt and port
-    resources for each device/driver in the system.
-
-Arguments:
-
-    Standard DLGPROC entry.
-
-Return Value:
-
-    BOOL - Depending on input message and processing options.
-
---*/
-
-{
-    BOOL                Success;
-
-    static
-    LPSYSTEM_RESOURCES  SystemResourceLists;
-
-    switch( message ) {
-
-    CASE_WM_CTLCOLOR_DIALOG;
-
-    case WM_INITDIALOG:
-        {
-
-            DWORD       IrqWidths[ ] = {
-
-                            5,
-                            5,
-                            16,
-                            ( DWORD ) -1
-                        };
-
-            DWORD       PortWidths[ ] = {
-
-                            12,
-                            10,
-                            ( DWORD ) -1
-                        };
-
-            //
-            // Retrieve and validate the system resource lists.
-            //
-
-            SystemResourceLists = ( LPSYSTEM_RESOURCES ) lParam;
-            DbgPointerAssert( SystemResourceLists );
-            DbgAssert( CheckSignature( SystemResourceLists ));
-            if(     ( ! SystemResourceLists )
-                ||  ( ! CheckSignature( SystemResourceLists ))) {
-
-                EndDialog( hWnd, 0 );
-                return FALSE;
-            }
-
-            //
-            // Set the port column widths.
-            //
-
-            Success = ClbSetColumnWidths(
-                            hWnd,
-                            IDC_LIST_PORTS,
-                            PortWidths
-                            );
-            DbgAssert( Success );
-            if( Success == FALSE ) {
-                return FALSE;
-            }
-
-            //
-            // Call InitializeResourceDlgProc to set IRQ column widths
-            //
-
-            return InitializeResourceDlgProc(
-                        hWnd,
-                        IDC_LIST_INTERRUPTS,
-                        IrqWidths
-                        );
-        }
-
-    case WM_COMPAREITEM:
-        {
-            LPCOMPAREITEMSTRUCT     lpcis;
-            LPCLB_ROW               ClbRow1;
-            LPCLB_ROW               ClbRow2;
-            ULONG                   Compare;
-
-            lpcis = ( LPCOMPAREITEMSTRUCT ) lParam;
-
-            //
-            // Sort the list by vector number.
-            //
-
-            ClbRow1 = ( LPCLB_ROW ) lpcis->itemData1;
-            ClbRow2 = ( LPCLB_ROW ) lpcis->itemData2;
-
-            //
-            // Sort the Clbs. In the case of INTERRUPT, sort by channel
-            // and vector respectively. For PORT sort by starting
-            // physical address.
-            //
-
-            switch( lpcis->CtlID ) {
-
-            case IDC_LIST_INTERRUPTS:
-
-                Compare =   ( ULONG ) ClbRow1->Strings[ 0 ].Data
-                          - ( ULONG ) ClbRow2->Strings[ 0 ].Data;
-
-                if( Compare == 0 ) {
-                    Compare =   ( ULONG ) ClbRow1->Strings[ 1 ].Data
-                              - ( ULONG ) ClbRow2->Strings[ 1 ].Data;
-                }
-            break;
-
-            case IDC_LIST_PORTS:
-                {
-                    PPHYSICAL_ADDRESS       Start1;
-                    PPHYSICAL_ADDRESS       Start2;
-
-                    Start1 = ( PPHYSICAL_ADDRESS ) ClbRow1->Strings[ 0 ].Data;
-                    Start2 = ( PPHYSICAL_ADDRESS ) ClbRow2->Strings[ 0 ].Data;
-
-                    Compare = Start1->LowPart - Start2->LowPart;
-
-                    if( Compare == 0 ) {
-                        Compare = Start1->HighPart - Start2->HighPart;
-                    }
-                }
-            }
-
-            return Compare;
-        }
-
-    case WM_COMMAND:
-
-        //
-        // Dismiss the dialog if the user presses OK or Cancel
-        // (i.e. presses <ESC>).
-        //
-
-        if(( LOWORD( wParam ) == IDOK ) || ( LOWORD( wParam ) == IDCANCEL )) {
-
-            EndDialog( hWnd, 0 );
-            return TRUE;
-        }
-
-        switch( HIWORD( wParam )) {
-
-        case LBN_SELCHANGE:
-            {
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-                VALUE_ID_MAP            InterruptTypeMap[ ] = {
-
-                    CM_RESOURCE_INTERRUPT_LEVEL_SENSITIVE, IDC_TEXT_LEVEL_SENSITIVE,
-                    CM_RESOURCE_INTERRUPT_LATCHED,         IDC_TEXT_LATCHED
-                };
-
-                if ( LOWORD( wParam ) == IDC_LIST_INTERRUPTS ) {
-
-                    //
-                    // Update the share disposition and interrupt type displays
-                    // when the selected resource changes.
-                    //
-
-                    ResourceDescriptor = GetSelectedResourceDescriptor(
-                                        hWnd,
-                                        LOWORD( wParam )
-                                        );
-                    DbgPointerAssert( ResourceDescriptor );
-                    if( ResourceDescriptor == NULL ) {
-                        return ~0;
-                    }
-
-                    UpdateShareDisplay(
-                        hWnd,
-                        ResourceDescriptor->CmResourceDescriptor.ShareDisposition
-                        );
-
-                    UpdateTextDisplay(
-                        hWnd,
-                        InterruptTypeMap,
-                        NumberOfEntries( InterruptTypeMap ),
-                        ResourceDescriptor->CmResourceDescriptor.Flags
-                        );
-                    } else {
-
-                        ResourceDescriptor = GetSelectedResourceDescriptor(
-                                        hWnd,
-                                        LOWORD( wParam )
-                                        );
-                        DbgPointerAssert( ResourceDescriptor );
-                        if( ResourceDescriptor == NULL ) {
-                            return ~0;
-                        }
-
-                        UpdateShareDisplay(
-                            hWnd,
-                            ResourceDescriptor->CmResourceDescriptor.ShareDisposition
-                            );
-                    }
-
-                return 0;
-            }
-
-        case LBN_KILLFOCUS:
-
-            //
-            // Remove the selection when the list box loses focus.
-            //
-
-            SendDlgItemMessage(
-                hWnd,
-                LOWORD( wParam ),
-                LB_SETCURSEL,
-                (WPARAM) -1,
-                0
-                );
-            return 0;
-
-        case BN_CLICKED:
-            {
-
-                LPRESOURCE_DESCRIPTOR   ResourceDescriptor;
-                TCHAR                   VectorBuffer[ MAX_PATH ];
-                TCHAR                   LevelBuffer[ MAX_PATH ];
-                TCHAR                   AffinityBuffer[ MAX_PATH ];
-                TCHAR                   StartBuffer[ MAX_PATH ];
-                TCHAR                   LengthBuffer[ MAX_PATH ];
-
-                CLB_ROW                 ClbPortRow;
-                CLB_ROW                 ClbIrqRow;
-
-                CLB_STRING              ClbIrqString[ ] = {
-
-                                            { VectorBuffer,     0, 0, NULL },
-                                            { LevelBuffer,      0, 0, NULL },
-                                            { AffinityBuffer,   0, 0, NULL },
-                                            { NULL,             0, 0, NULL }
-                                        };
-
-                CLB_STRING              ClbPortString[ ] = {
-
-                                            { StartBuffer,  0, 0, NULL },
-                                            { LengthBuffer, 0, 0, NULL },
-                                            { NULL,         0, 0, NULL }
-                                        };
-
-                //
-                // Empty the list boxes.
-                //
-
-                SendDlgItemMessage(
-                    hWnd,
-                    IDC_LIST_PORTS,
-                    LB_RESETCONTENT,
-                    0,
-                    0
-                    );
-
-                SendDlgItemMessage(
-                    hWnd,
-                    IDC_LIST_INTERRUPTS,
-                    LB_RESETCONTENT,
-                    0,
-                    0
-                    );
-
-                //
-                // Fill in the Port CLB
-                //
-
-                ResourceDescriptor = SystemResourceLists->PortHead;
-                DbgPointerAssert( ResourceDescriptor );
-                DbgAssert( CheckSignature( ResourceDescriptor ));
-                if(     ( ! ResourceDescriptor )
-                    ||  ( ! CheckSignature( ResourceDescriptor ))) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Initialize the constants in the CLB_ROW object.
-                //
-
-                ClbPortRow.Count    = NumberOfEntries( ClbPortString );
-                ClbPortRow.Strings  = ClbPortString;
-
-                //
-                // Walk the resource descriptor list, formatting the appropriate
-                // values and adding the CLB_ROW to the Clb.
-                //
-
-                while( ResourceDescriptor ) {
-
-                    if ( lstrcmp ( ResourceDescriptor->Owner->Name,
-                                   L"PC Compatible Eisa/Isa HAL" ) ) {
-
-                        DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
-                               == CmResourceTypePort );
-
-                        ClbPortString[ 0 ].Length = WFormatMessage(
-                                                StartBuffer,
-                                                sizeof( StartBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart
-                                                );
-                        ClbPortString[ 0 ].Format = CLB_RIGHT;
-                        ClbPortString[ 0 ].Data = ( LPVOID ) &ResourceDescriptor->CmResourceDescriptor.u.Port.Start;
-
-                        ClbPortString[ 1 ].Length = WFormatMessage(
-                                                LengthBuffer,
-                                                sizeof( LengthBuffer ),
-                                                IDS_FORMAT_HEX,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Port.Length
-                                                );
-                        ClbPortString[ 1 ].Format = CLB_RIGHT;
-                        ClbPortString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Port.Length;
-
-                        ClbPortString[ 2 ].String = ResourceDescriptor->Owner->Name;
-                        ClbPortString[ 2 ].Length = _tcslen( ClbPortString[ 2 ].String );
-                        ClbPortString[ 2 ].Format = CLB_LEFT;
-
-                        //
-                        // Associate the current resource descriptor with this row.
-                        //
-
-                        ClbPortRow.Data = ResourceDescriptor;
-
-                        Success  = ClbAddData(
-                                    hWnd,
-                                    IDC_LIST_PORTS,
-                                    &ClbPortRow
-                                    );
-                        DbgAssert( Success );
-                    }
-
-                    //
-                    // Get the next resource descriptor.
-                    //
-
-                    ResourceDescriptor = ResourceDescriptor->NextSame;
-
-                }
-
-                //
-                // Fill in the Interrupt CLB
-                //
-
-                ResourceDescriptor = SystemResourceLists->InterruptHead;
-                DbgPointerAssert( ResourceDescriptor );
-                DbgAssert( CheckSignature( ResourceDescriptor ));
-                if(     ( ! ResourceDescriptor )
-                    ||  ( ! CheckSignature( ResourceDescriptor ))) {
-
-                    EndDialog( hWnd, 0 );
-                    return FALSE;
-                }
-
-                //
-                // Initialize the constants in the CLB_ROW object.
-                //
-
-                ClbIrqRow.Count    = NumberOfEntries( ClbIrqString );
-                ClbIrqRow.Strings  = ClbIrqString;
-
-                //
-                // Walk the resource descriptor list, formatting the appropriate
-                // values and adding the CLB_ROW to the Clb.
-                //
-
-                while( ResourceDescriptor ) {
-
-                    DbgAssert( ResourceDescriptor->CmResourceDescriptor.Type
-                               == CmResourceTypeInterrupt );
-                    //
-                    // Do not display HAL information.  If ResourceDescriptor->Owner->Name
-                    // is "PC Compatible Eisa/Isa HAL", do not add it to the list box
-                    //
-
-                    if ( lstrcmp ( ResourceDescriptor->Owner->Name,
-                                   L"PC Compatible Eisa/Isa HAL" ) ) {
-                        ClbIrqString[ 0 ].Length = WFormatMessage(
-                                                VectorBuffer,
-                                                sizeof( VectorBuffer ),
-                                                IDS_FORMAT_DECIMAL,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Vector
-                                                );
-                        ClbIrqString[ 0 ].Format = CLB_RIGHT;
-                        ClbIrqString[ 0 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Vector;
-
-                        ClbIrqString[ 1 ].Length = WFormatMessage(
-                                                LevelBuffer,
-                                                sizeof( LevelBuffer ),
-                                                IDS_FORMAT_DECIMAL,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
-                                                );
-                        ClbIrqString[ 1 ].Format = CLB_RIGHT;
-                        ClbIrqString[ 1 ].Data = ( LPVOID ) ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level;
-
-                        ClbIrqString[ 2 ].Length = WFormatMessage(
-                                                AffinityBuffer,
-                                                sizeof( AffinityBuffer ),
-                                                IDS_FORMAT_HEX32,
-                                                ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Affinity
-                                                );
-                        ClbIrqString[ 2 ].Format = CLB_RIGHT;
-
-                        ClbIrqString[ 3 ].String = ResourceDescriptor->Owner->Name;
-                        ClbIrqString[ 3 ].Length = _tcslen( ClbIrqString[ 3 ].String );
-                        ClbIrqString[ 3 ].Format = CLB_LEFT;
-
-                        //
-                        // Associate the current resource descriptor with this row.
-                        //
-
-                        ClbIrqRow.Data = ResourceDescriptor;
-
-                        Success  = ClbAddData(
-                                    hWnd,
-                                    IDC_LIST_INTERRUPTS,
-                                    &ClbIrqRow
-                                    );
-                        DbgAssert( Success );
-                    }
-                    //
-                    // Get the next resource descriptor.
-                    //
-
-                    ResourceDescriptor = ResourceDescriptor->NextSame;
-                }
-
-                return TRUE;
-            }
-        }
-        break;
-    }
-
-    return FALSE;
 }
 
 
@@ -2644,5 +1945,788 @@ Return Value:
     }
 }
 
+BOOL
+DeviceDisplayList(
+    IN HWND hWnd,
+    IN UINT iDisplayOption
+    )
+/*++
+
+Routine Description:
+
+    Displays the appropriate drivers or services in the ListView box
+
+Arguments:
+
+    hWnd - to the ListView Window
+    iDisplayOption - indicated whether we are displaying IRQ's, DMA's, Ports,
+                     Memory, or listing by device. This may be 0 to use the
+                     last known value for this param.
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+   LV_COLUMN               lvc;
+   UINT                    index = 0;
+   TCHAR                   szBuffer[128];
+   RECT                    rect;
+   BOOL                    Success;
+
+
+   static
+   UINT                    iType;
+
+   // as long as this is not 0 set iType to iDisplayOption
+   if (iDisplayOption)
+      iType = iDisplayOption;
+
+   // make sure we have a valid type
+   if ( (iType != IDC_PUSH_SHOW_IRQ)     &&
+        (iType != IDC_PUSH_SHOW_PORTS)   &&
+        (iType != IDC_PUSH_SHOW_DMA)     &&
+        (iType != IDC_PUSH_SHOW_MEMORY)  &&
+        (iType != IDC_PUSH_SHOW_DEVICE)     ) {
+
+        iType = 0;
+   }
+
+
+   //
+   // initialize the list view
+   //
+
+   // first delete any items
+   Success = ListView_DeleteAllItems( hWnd );
+
+   // delete all columns
+   index = 10;
+
+   while(index) {
+      Success = ListView_DeleteColumn( hWnd, --index );
+   }
+
+   // Get the column rect
+   GetClientRect( hWnd, &rect );
+
+   //initialize the new columns
+   lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+   lvc.fmt = LVCFMT_LEFT;
+
+
+   // do case specific column initialization
+   switch(iType){
+
+   case IDC_PUSH_SHOW_IRQ:
+
+         LoadString(_hModule, IDS_IRQ, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_IRQ;
+         lvc.cx = 40;
+         ListView_InsertColumn(hWnd, 0, &lvc);
+
+         LoadString(_hModule, IDS_DEVICE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DEVICE;
+         lvc.cx = 130;
+         ListView_InsertColumn( hWnd, 1, &lvc);
+
+         LoadString(_hModule, IDS_BUS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_BUS;
+         lvc.cx = 40;
+         ListView_InsertColumn( hWnd, 3, &lvc);
+
+         LoadString(_hModule, IDS_INTERFACE_TYPE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_INTERFACE_TYPE;
+         lvc.cx = 60;
+         ListView_InsertColumn( hWnd, 4, &lvc);
+
+
+      break;
+
+   case IDC_PUSH_SHOW_MEMORY:
+
+         LoadString(_hModule, IDS_ADDRESS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_ADDRESS;
+         lvc.cx = 120;
+         ListView_InsertColumn(hWnd, 0, &lvc);
+
+         LoadString(_hModule, IDS_DEVICE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DEVICE;
+         lvc.cx = 150;
+         ListView_InsertColumn( hWnd, 1, &lvc);
+
+         LoadString(_hModule, IDS_BUS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_BUS;
+         lvc.cx = 40;
+         ListView_InsertColumn( hWnd, 2, &lvc);
+
+         LoadString(_hModule, IDS_INTERFACE_TYPE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_INTERFACE_TYPE;
+         lvc.cx = 60;
+         ListView_InsertColumn( hWnd, 3, &lvc);
+
+
+      break;
+
+   case IDC_PUSH_SHOW_PORTS:
+
+         LoadString(_hModule, IDS_PORTADDRESS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_PORTADDRESS;
+         lvc.cx = 80;
+         ListView_InsertColumn(hWnd, 0, &lvc);
+
+         LoadString(_hModule, IDS_DEVICE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DEVICE;
+         lvc.cx = 80;
+         ListView_InsertColumn( hWnd, 1, &lvc);
+
+         LoadString(_hModule, IDS_BUS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_BUS;
+         lvc.cx = 40;
+         ListView_InsertColumn( hWnd, 3, &lvc);
+
+         LoadString(_hModule, IDS_INTERFACE_TYPE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_INTERFACE_TYPE;
+         lvc.cx = 60;
+         ListView_InsertColumn( hWnd, 4, &lvc);
+
+
+      break;
+
+   case IDC_PUSH_SHOW_DMA:
+
+         LoadString(_hModule, IDS_CHANNEL, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DMA;
+         lvc.cx = 60;
+         ListView_InsertColumn(hWnd, 0, &lvc);
+
+         LoadString(_hModule, IDS_DMA_PORT, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DMA_PORT;
+         lvc.cx = 40;
+         ListView_InsertColumn(hWnd, 1, &lvc);
+
+         LoadString(_hModule, IDS_DEVICE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DEVICE;
+         lvc.cx = 80;
+         ListView_InsertColumn( hWnd, 2, &lvc);
+
+         LoadString(_hModule, IDS_BUS, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_BUS;
+         lvc.cx = 40;
+         ListView_InsertColumn( hWnd, 3, &lvc);
+
+         LoadString(_hModule, IDS_INTERFACE_TYPE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_INTERFACE_TYPE;
+         lvc.cx = 60;
+         ListView_InsertColumn( hWnd, 5, &lvc);
+
+
+      break;
+
+   case IDC_PUSH_SHOW_DEVICE:
+
+         LoadString(_hModule, IDS_DEVICE, szBuffer, cchSizeof(szBuffer));
+         lvc.pszText = szBuffer;
+         lvc.iSubItem = IDS_DEVICE;
+         lvc.cx = rect.right;
+         ListView_InsertColumn(hWnd, 0, &lvc);
+
+      break;
+   }
+
+   UpdateWindow ( hWnd );
+
+   //
+   // Fill out columns
+   //
+
+   DisplayResourceData( hWnd, iType);
+
+   return(TRUE);
+}
+
+
+BOOL
+DisplayResourcePropertySheet(
+    HWND hWnd,
+    LPRESOURCE_DESCRIPTOR   ResourceDescriptor
+    )
+/*++
+
+Routine Description:
+
+    Displays the property pages for the current resource
+
+Arguments:
+
+    hWnd - Handle of the owner window
+    ResourceDescriptor - pointer to LPRESOURCE_DESCRIPTOR structure we will display
+
+Return Value:
+
+    BOOL - TRUE if succesful
+
+--*/
+
+{
+      PROPSHEETPAGE psp[1];
+      PROPSHEETHEADER psh;
+      TCHAR Tab1[256];
+      TCHAR szWindowTitle[128];
+
+      DbgPointerAssert( ResourceDescriptor );
+      DbgAssert( CheckSignature( ResourceDescriptor ));
+      if(     ( ! ResourceDescriptor )
+         ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+        return FALSE;
+      }
+
+
+      //
+      // Create a case specific title
+      //
+      switch (ResourceDescriptor->CmResourceDescriptor.Type) {
+
+      case CmResourceTypePort:
+
+           wsprintf(  szWindowTitle,
+                      L"%s",
+                      GetString( IDS_DMA_PORT )
+                      );
+           break;
+
+        case CmResourceTypeInterrupt:
+
+           wsprintf(  szWindowTitle,
+                      L"%s %d",
+                      GetString( IDS_IRQ ),
+                      ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
+                      );
+           break;
+
+        case CmResourceTypeMemory:
+
+           wsprintf(  szWindowTitle,
+                      L"%s",
+                      GetString( IDS_MEM )
+                      );
+           break;
+
+        case CmResourceTypeDma:
+
+           wsprintf(  szWindowTitle,
+                      L"%s",
+                      GetString( IDS_DMA ),
+                      ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
+                      );
+           break;
+      }
+
+      // Get Tab names
+      wsprintf (Tab1, (LPTSTR) GetString( IDS_GENERAL_TAB ));
+
+      //Fill out the PROPSHEETPAGE data structure for the General info sheet
+
+      psp[0].dwSize = sizeof(PROPSHEETPAGE);
+      psp[0].dwFlags = PSP_USETITLE;
+      psp[0].hInstance = _hModule;
+      psp[0].pszTemplate = MAKEINTRESOURCE(IDD_RESOURCE_PROPERTIES);
+      psp[0].pfnDlgProc = ResourcePropertiesProc;
+      psp[0].pszTitle = Tab1;
+      psp[0].lParam = (LONG) ResourceDescriptor;
+
+      //Fill out the PROPSHEETHEADER
+
+      psh.dwSize = sizeof(PROPSHEETHEADER);
+      psh.dwFlags = PSH_USEICONID | PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW | PSH_PROPTITLE;
+      psh.hwndParent = hWnd;
+      psh.hInstance = _hModule;
+      psh.pszIcon = MAKEINTRESOURCE(IDI_WINMSD);
+      psh.pszCaption = szWindowTitle;
+      psh.nPages = sizeof(psp) / sizeof(PROPSHEETPAGE);
+      psh.ppsp = (LPCPROPSHEETPAGE) &psp;
+
+      //And finally display the dialog with the two property sheets.
+
+      return PropertySheet(&psh);
+
+
+}
+
+BOOL
+DisplayDevicePropertySheet(
+    HWND hWnd,
+    LPDEVICE RawDevice
+    )
+/*++
+
+Routine Description:
+
+    Displays the property page for the current device
+
+Arguments:
+
+    hWnd - Handle of the owner window
+    RawDevice - pointer to LPDEVICE structure we will display
+
+Return Value:
+
+    BOOL - TRUE if succesful
+
+--*/
+
+{
+      PROPSHEETPAGE psp[1];
+      PROPSHEETHEADER psh;
+      TCHAR Tab1[256];
+      TCHAR szWindowTitle[128];
+
+      DbgPointerAssert( RawDevice );
+      DbgAssert( CheckSignature( RawDevice ));
+      if(     ( ! RawDevice )
+         ||  ( ! CheckSignature( RawDevice ))) {
+
+        return FALSE;
+      }
+
+
+      lstrcpy( szWindowTitle, RawDevice->Name );
+
+      // Get Tab names
+      wsprintf (Tab1, (LPTSTR) GetString( IDS_GENERAL_TAB ));
+
+      //Fill out the PROPSHEETPAGE data structure for the General info sheet
+
+      psp[0].dwSize = sizeof(PROPSHEETPAGE);
+      psp[0].dwFlags = PSP_USETITLE;
+      psp[0].hInstance = _hModule;
+      psp[0].pszTemplate = MAKEINTRESOURCE(IDD_DEVICE_PROPERTIES);
+      psp[0].pfnDlgProc = DevicePropertiesProc;
+      psp[0].pszTitle = Tab1;
+      psp[0].lParam = (LONG) RawDevice;
+
+      //Fill out the PROPSHEETHEADER
+
+      psh.dwSize = sizeof(PROPSHEETHEADER);
+      psh.dwFlags = PSH_USEICONID | PSH_PROPSHEETPAGE | PSH_NOAPPLYNOW | PSH_PROPTITLE;
+      psh.hwndParent = hWnd;
+      psh.hInstance = _hModule;
+      psh.pszIcon = MAKEINTRESOURCE(IDI_WINMSD);
+      psh.pszCaption = szWindowTitle;
+      psh.nPages = sizeof(psp) / sizeof(PROPSHEETPAGE);
+      psh.ppsp = (LPCPROPSHEETPAGE) &psp;
+
+      //And finally display the dialog with the two property sheets.
+
+      return PropertySheet(&psh);
+
+
+}
+
+
+LRESULT
+DeviceNotifyHandler( HWND hWnd,
+                     UINT uMsg,
+                     WPARAM wParam,
+                     LPARAM lParam)
+/*++
+
+Routine Description:
+
+    Handles WM_NOTIFY messages
+
+Arguments:
+
+    Standard DLGPROC entry.
+
+Return Value:
+
+    LRESULT - Depending on input message and processing options.
+
+--*/
+
+{
+   LV_DISPINFO *pLvdi = (LV_DISPINFO *)lParam;
+   NM_LISTVIEW *pNm = (NM_LISTVIEW *)lParam;
+
+   LV_COLUMN   lvc;
+
+   static
+   TCHAR szBuffer[MAX_PATH];
+
+   if (wParam != IDC_LV_IRQ)
+      return 0L;
+
+   switch(pLvdi->hdr.code)
+   {
+   case LVN_GETDISPINFO:
+         {
+
+         LPRESOURCE_DESCRIPTOR   ResourceDescriptor = ( LPRESOURCE_DESCRIPTOR ) pLvdi->item.lParam;
+
+         DbgPointerAssert( ResourceDescriptor );
+         DbgAssert( CheckSignature( ResourceDescriptor ));
+         if(     ( ! ResourceDescriptor )
+              ||  ( ! CheckSignature( ResourceDescriptor ))) {
+
+             return FALSE;
+         }
+
+
+         //
+         // Get subitem associated with the column and switch on that
+         //
+
+         lvc.mask = LVCF_SUBITEM;
+         ListView_GetColumn( GetDlgItem(hWnd, IDC_LV_IRQ), pLvdi->item.iSubItem, &lvc );
+
+         switch (lvc.iSubItem)
+         {
+
+
+         case IDS_DEVICE:
+
+               pLvdi->item.pszText = ResourceDescriptor->Owner->Name;
+
+               break;
+
+         case IDS_IRQ:
+
+               wsprintf( szBuffer,
+                         L"%.2d",
+                         ResourceDescriptor->CmResourceDescriptor.u.Interrupt.Level
+                         );
+
+               pLvdi->item.pszText = szBuffer;
+
+               break;
+
+
+         case IDS_CHANNEL:
+
+               wsprintf( szBuffer,
+                         L"%.2d",
+                         ResourceDescriptor->CmResourceDescriptor.u.Dma.Channel
+                         );
+
+               pLvdi->item.pszText = szBuffer;
+
+               break;
+
+
+         case IDS_DMA_PORT:
+
+               WFormatMessage( szBuffer,
+                               sizeof( szBuffer ),
+                               IDS_FORMAT_DECIMAL,
+                               ResourceDescriptor->CmResourceDescriptor.u.Dma.Port
+                               );
+
+               pLvdi->item.pszText = szBuffer;
+
+               break;
+
+
+         case IDS_ADDRESS:
+
+             // ?: conditional accounts for zero length resources
+               wsprintf( szBuffer,
+                         L"%.8X - %.8X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Memory.Length ? 
+                         ResourceDescriptor->CmResourceDescriptor.u.Memory.Length - 1 : 0 ) 
+                         );
+
+               pLvdi->item.pszText = szBuffer;
+
+               break;
+
+
+         case IDS_PORTADDRESS:
+
+             // ?: conditional accounts for zero length resources
+               wsprintf( szBuffer,
+                         L"%.4X - %.4X",
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart,
+                         ResourceDescriptor->CmResourceDescriptor.u.Port.Start.LowPart +
+                         (ResourceDescriptor->CmResourceDescriptor.u.Port.Length ? 
+                          ResourceDescriptor->CmResourceDescriptor.u.Port.Length - 1 : 0 )
+                         );
+
+               pLvdi->item.pszText = szBuffer;
+
+               break;
+
+
+         case IDS_BUS:
+
+               WFormatMessage( szBuffer,
+                               sizeof( szBuffer ),
+                               IDS_FORMAT_DECIMAL,
+                               ResourceDescriptor->BusNumber
+                               );
+
+               pLvdi->item.pszText = szBuffer;
+               break;
+
+         case IDS_INTERFACE_TYPE:
+
+               lstrcpy( szBuffer, GetString( IDS_BASE_BUS_TYPE + ResourceDescriptor->InterfaceType ) );
+               pLvdi->item.pszText = szBuffer;
+               break;
+
+
+         default:
+               break;
+
+         }
+
+         break;
+         }
+   case LVN_COLUMNCLICK:
+         {
+
+         //
+         // Get subitem associated with the column and switch on that
+         //
+
+         lvc.mask = LVCF_SUBITEM;
+         ListView_GetColumn( GetDlgItem(hWnd, IDC_LV_IRQ), pNm->iSubItem, &lvc );
+
+         ListView_SortItems( pNm->hdr.hwndFrom,
+                        DeviceListViewCompareProc,
+                        (LPARAM)lvc.iSubItem);
+
+         ListView_SetItemState(pNm->hdr.hwndFrom,
+                               0,
+                               LVIS_SELECTED | LVIS_FOCUSED,
+                               LVIS_SELECTED | LVIS_FOCUSED
+                               );
+         break;
+         }
+   case LVN_ITEMCHANGED:
+
+         //
+         // Store the index to the current item
+         //
+
+         if(pNm->uNewState & LVIS_FOCUSED){
+
+              _nCurrentLVItem = (UINT) pNm->iItem;
+
+         }
+
+         break;
+
+   case NM_DBLCLK:
+        {
+
+        // pretend we have clicked the Property button
+
+        PostMessage(
+              GetParent(hWnd),
+              WM_COMMAND,
+              MAKEWPARAM( IDC_PUSH_PROPERTIES, BN_CLICKED ),
+              0
+              );
+
+        break;
+
+        }
+
+   }
+
+   return(FALSE);
+
+}
+
+UINT
+CALLBACK
+DeviceListViewCompareProc(LPARAM lParam1,
+                          LPARAM lParam2,
+                          LPARAM lParamSort
+                          )
+{
+   LPRESOURCE_DESCRIPTOR   ResourceDescriptor1 = ( LPRESOURCE_DESCRIPTOR ) lParam1;
+   LPRESOURCE_DESCRIPTOR   ResourceDescriptor2 = ( LPRESOURCE_DESCRIPTOR ) lParam2;
+   TCHAR szBuffer1[MAX_PATH];
+   TCHAR szBuffer2[MAX_PATH];
+   int iResult;
+
+
+   switch (lParamSort){
+
+   case IDS_DEVICE:
+      {
+         //
+         // if we are viewing devices, use different pointers.
+         //
+
+         if ( _fDevices ) {
+
+            LPDEVICE RawDevice1 = (LPDEVICE) lParam1;
+            LPDEVICE RawDevice2 = (LPDEVICE) lParam2;
+
+            iResult = lstrcmpi(RawDevice1->Name, RawDevice2->Name);
+
+         }  else {
+
+            iResult = lstrcmpi(ResourceDescriptor1->Owner->Name, ResourceDescriptor2->Owner->Name);
+
+         }
+
+
+      }
+
+      break;
+
+   case IDS_IRQ:
+      iResult = (ResourceDescriptor1->CmResourceDescriptor.u.Interrupt.Level) -
+                  (ResourceDescriptor2->CmResourceDescriptor.u.Interrupt.Level);
+      break;
+
+   case IDS_CHANNEL:
+      iResult = (ResourceDescriptor1->CmResourceDescriptor.u.Dma.Channel) -
+                  (ResourceDescriptor2->CmResourceDescriptor.u.Dma.Channel);
+      break;
+
+   case IDS_DMA_PORT:
+      iResult = (ResourceDescriptor1->CmResourceDescriptor.u.Dma.Port) -
+                  (ResourceDescriptor2->CmResourceDescriptor.u.Dma.Port);
+      break;
+
+   case IDS_ADDRESS:
+      iResult = (ResourceDescriptor1->CmResourceDescriptor.u.Memory.Start.LowPart) -
+                  (ResourceDescriptor2->CmResourceDescriptor.u.Memory.Start.LowPart);
+      break;
+
+   case IDS_PORTADDRESS:
+      iResult = (ResourceDescriptor1->CmResourceDescriptor.u.Port.Start.LowPart) -
+                  (ResourceDescriptor2->CmResourceDescriptor.u.Port.Start.LowPart);
+
+      break;
+
+   case IDS_BUS:
+      iResult = (ResourceDescriptor1->BusNumber) -
+                  (ResourceDescriptor2->BusNumber);
+      break;
+
+   case IDS_INTERFACE_TYPE:
+      iResult = (ResourceDescriptor1->InterfaceType) -
+                  (ResourceDescriptor2->InterfaceType);
+      break;
+
+   default:
+      break;
+
+         }
+
+   return(iResult);
+}
+
+BOOL
+InitializeIrqTab(
+    HWND hWnd
+    )
+/*++
+
+Routine Description:
+
+    Adds the appropriate controls to the irq tab control and
+    initializes any needed structures.
+
+Arguments:
+
+    hWnd - to the main window
+
+Return Value:
+
+    BOOL - TRUE if successful
+
+--*/
+{
+   HCURSOR hSaveCursor;
+
+   DLGHDR *pHdr = (DLGHDR *) GetWindowLong(
+        GetParent(hWnd), GWL_USERDATA);
+
+   //
+   // Set the pointer to an hourglass
+   //
+
+   hSaveCursor = SetCursor ( LoadCursor ( NULL, IDC_WAIT ) ) ;
+   DbgHandleAssert( hSaveCursor ) ;
+
+   //
+   // set state of global buttons
+   //
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_PROPERTIES,
+                  TRUE);
+
+   EnableControl( GetParent(hWnd),
+                  IDC_PUSH_REFRESH,
+                  TRUE);
+
+   //
+   // Size and position the child dialog
+   //
+   SetWindowPos(hWnd, HWND_TOP,
+        pHdr->rcDisplay.left,
+        pHdr->rcDisplay.top,
+        pHdr->rcDisplay.right - pHdr->rcDisplay.left,
+        pHdr->rcDisplay.bottom - pHdr->rcDisplay.top,
+        SWP_SHOWWINDOW);
+
+
+   //
+   // Set the extended style to get full row selection
+   //
+   SendDlgItemMessage(hWnd, IDC_LV_IRQ, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT);
+
+
+   //
+   // Initialize the selection buttons
+   //
+   SendDlgItemMessage( hWnd,
+                       IDC_PUSH_SHOW_IRQ,
+                       BM_SETCHECK,
+                       BST_CHECKED,
+                       0
+                       );
+
+   //
+   // Fill out the fields initially with resources
+   //
+   {
+      DeviceDisplayList(GetDlgItem(hWnd, IDC_LV_IRQ), IDC_PUSH_SHOW_IRQ);
+      _fDevices = FALSE;
+   }
+
+   SetCursor ( hSaveCursor ) ;
+
+   return( TRUE );
+
+}
 
 

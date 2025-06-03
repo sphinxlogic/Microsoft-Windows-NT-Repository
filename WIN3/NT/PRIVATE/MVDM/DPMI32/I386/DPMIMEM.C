@@ -27,26 +27,12 @@ Revision History:
 
 
 --*/
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include <softpc.h>
 #include <suballoc.h>
 #include <xmsexp.h>
 
-//
-// Internal structure definitions
-//
-#pragma pack(1)
-typedef struct _DpmiMemInfo {
-    DWORD LargestFree;
-    DWORD MaxUnlocked;
-    DWORD MaxLocked;
-    DWORD AddressSpaceSize;
-    DWORD UnlockedPages;
-    DWORD FreePages;
-    DWORD PhysicalPages;
-    DWORD FreeAddressSpace;
-    DWORD PageFileSize;
-} DPMIMEMINFO, *PDPMIMEMINFO;
-#pragma pack()
 
 NTSTATUS
 DpmiAllocateVirtualMemory(
@@ -170,7 +156,7 @@ Return Value:
         return Status;
     }
 
-    *NewAddress = BlockAddress;
+    *NewAddress = (PVOID) BlockAddress;
     //
     // Copy data to new block (choose smaller of the two sizes)
     //
@@ -180,12 +166,12 @@ Return Value:
         SizeChange = *NewSize;
     }
 
-    CopyMemory(BlockAddress, OldAddress, SizeChange);
+    CopyMemory((PVOID)BlockAddress, OldAddress, SizeChange);
 
     //
     // Free up the old block
     //
-    BlockAddress = OldAddress;
+    BlockAddress = (ULONG) OldAddress;
     SizeChange = OldSize;
     NtFreeVirtualMemory(
         NtCurrentProcess(),
@@ -195,4 +181,86 @@ Return Value:
         );
         
     return Status;
+}
+
+VOID
+DpmiGetMemoryInfo(
+    VOID
+    )
+/*++
+
+Routine Description:
+
+    This routine returns information about memory to the dos extender
+
+Arguments:
+
+    None
+
+Return Value:
+
+    None.
+
+--*/
+{
+    MEMORYSTATUS MemStatus;
+    PDPMIMEMINFO MemInfo;
+    DWORD dwLargestFree;
+
+    //
+    // Get a pointer to the return structure
+    //
+    MemInfo = (PDPMIMEMINFO)Sim32GetVDMPointer(
+        ((ULONG)getES()) << 16,
+        1,
+        TRUE
+        );
+
+    (CHAR *)MemInfo += (*GetDIRegister)();
+
+    //
+    // Initialize the structure
+    //
+    RtlFillMemory(MemInfo, sizeof(DPMIMEMINFO), 0xFF);
+
+    //
+    // Get the information on memory
+    //
+    MemStatus.dwLength = sizeof(MEMORYSTATUS);
+    GlobalMemoryStatus(&MemStatus);
+
+    //
+    // Return the information
+    //
+
+    // 
+    // Calculate the largest free block. This information is not returned
+    // by NT, so we take a percentage based on the allowable commit charge for
+    // the process. This is really what dwAvailPageFile is. But we limit
+    // that value to a maximum of 15meg, since some apps (e.g. pdox45.dos)
+    // can't handle more.
+    //
+
+    // Filled in MaxUnlocked,MaxLocked,UnlockedPages fields in this structute.
+    // Director 4.0 get completlely confused if these fields are -1.
+    // MaxUnlocked is correct based on LargestFree. The other two are fake
+    // and match values on a real WFW machine. I have no way of making them
+    // any better than this at this point. Hell, it makes director happy.
+    //
+    // sudeepb 01-Mar-1995.
+
+    dwLargestFree = (((MemStatus.dwAvailPageFile*4)/5)/4096)*4096;
+
+    MemInfo->LargestFree = (dwLargestFree < 15*ONE_MB) ?
+                                         dwLargestFree : 15*ONE_MB;
+
+    MemInfo->MaxUnlocked = MemInfo->LargestFree/4096;
+    MemInfo->MaxLocked = 0xb61;
+    MemInfo->AddressSpaceSize = MemStatus.dwTotalVirtual / 4096;
+    MemInfo->UnlockedPages = 0xb68;
+    MemInfo->FreePages = MemStatus.dwAvailPhys / 4096;
+    MemInfo->PhysicalPages = MemStatus.dwTotalPhys / 4096;
+    MemInfo->FreeAddressSpace = MemStatus.dwAvailVirtual / 4096;
+    MemInfo->PageFileSize = MemStatus.dwTotalPageFile / 4096;
+
 }

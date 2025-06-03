@@ -183,8 +183,7 @@ Return Value:
 
 --*/
 {
-    NET_TIME_FORMAT TimeFormat={NULL,NULL,0,0,NULL,NULL};
-
+    NET_TIME_FORMAT TimeFormat={0};
 
     NetpGetTimeFormat(&TimeFormat);
     NetpMakeTimeString(TimeStruct, &TimeFormat,Buffer,BufferLength);
@@ -358,17 +357,16 @@ NetpRoundUpLargeIntegerTimeToOneSecond(
         LargeRemainder.HighPart = 0;
         LargeRemainder.LowPart  = (DWORD) Remainder;
 
-        LargeResult = RtlLargeIntegerSubtract (
-                OriginalLargeIntegerTime,  // minuend
-                LargeRemainder );       // subtrahend
+
+        LargeResult.QuadPart = OriginalLargeIntegerTime.QuadPart
+                             - LargeRemainder.QuadPart;
 
         // Now add a whole second.
         LargeOneSecond.HighPart = 0;
         LargeOneSecond.LowPart  = UNITS_PER_SECOND;
 
-        LargeResult = RtlLargeIntegerAdd (
-                LargeResult,            // BUGBUG: return value and arg OK?
-                LargeOneSecond );
+
+        LargeResult.QuadPart += LargeOneSecond.QuadPart;
 
         *LargeInteger = LargeResult;
 
@@ -623,6 +621,22 @@ Return Value:
     }
 
     //-----------------------------------------
+    // Where put AMPM string?
+    //-----------------------------------------
+    TimeFormat->TimePrefix = FALSE;
+    numChars = GetProfileStringA(
+                ProfileLoc,
+                "iTimePrefix",
+                emptyStr,
+                czParseString,
+                MAX_TIME_SIZE);
+    if (numChars > 0) {
+        if (*czParseString == '1'){
+            TimeFormat->TimePrefix = TRUE;
+        }
+    }
+
+    //-----------------------------------------
     // Is there a Leading Zero?
     //-----------------------------------------
     TimeFormat->LeadingZero = FALSE;
@@ -712,7 +726,7 @@ NetpMakeTimeString(
     struct tm           *TimeStruct,
     LPNET_TIME_FORMAT   TimeFormat,
     CHAR                *Buffer,
-    int                 BufferLength 
+    int                 BufferLength
     )
 
 /*++
@@ -803,7 +817,7 @@ Return Value:
                 *pCurLoc = '0';
                 pCurLoc++;
             }
-            ultoa(TimeStruct->tm_mon, pCurLoc, 10);
+            _ultoa(TimeStruct->tm_mon, pCurLoc, 10);
             pCurLoc += strlen(pCurLoc);
             break;
 
@@ -818,7 +832,7 @@ Return Value:
                 *pCurLoc = '0';
                 pCurLoc++;
             }
-            ultoa(TimeStruct->tm_mday, pCurLoc, 10);
+            _ultoa(TimeStruct->tm_mday, pCurLoc, 10);
             pCurLoc += strlen(pCurLoc);
             break;
 
@@ -826,7 +840,7 @@ Return Value:
         case 'y':
 
             TimeStruct->tm_year += 1900;
-            ultoa(TimeStruct->tm_year, pCurLoc, 10);
+            _ultoa(TimeStruct->tm_year, pCurLoc, 10);
             //
             // If we are only to show 2 digits, take the
             // 3rd and 4th, and move them into the first two
@@ -879,6 +893,14 @@ Return Value:
     dateStringSize = strlen(czTimeString);
     pTime = czTimeString + (dateStringSize + 1);
 
+    //
+    // If TimePrefix is TRUE, we should put AMPMstring first.
+    //
+	if(TimeFormat->TimePrefix ){
+        strcpy(pTime,pAMPMString);
+    	pTime += strlen(pTime);
+	}
+
     if (TimeFormat->TwelveHour) {
         if (TimeStruct->tm_hour > 12) {
             TimeStruct->tm_hour -= 12;
@@ -898,7 +920,7 @@ Return Value:
     //
     // Hour
     //
-    ultoa(TimeStruct->tm_hour, pTime, 10);
+    _ultoa(TimeStruct->tm_hour, pTime, 10);
     pTime += strlen(pTime);
     //
     // Time Separator
@@ -913,11 +935,13 @@ Return Value:
         *pTime = '0';
         pTime++;
     }
-    ultoa(TimeStruct->tm_min, pTime, 10);
+    _ultoa(TimeStruct->tm_min, pTime, 10);
 
-    if (strlen(pAMPMString) <= MAX_AM_PM) {
-        strcat(pTime,pAMPMString);
-    }
+	if( !TimeFormat->TimePrefix ){
+	    if (strlen(pAMPMString) <= MAX_AM_PM) {
+		    strcat(pTime,pAMPMString);
+	    }
+	}
 
     pTime = czTimeString + (strlen(czTimeString) + 1);
 

@@ -59,4 +59,3 @@ void            TransparentBlt(HDC, UINT, UINT, HBITMAP, UINT, UINT, UINT, UINT,
 
 
 #endif //_RESIMAGE_H_
-

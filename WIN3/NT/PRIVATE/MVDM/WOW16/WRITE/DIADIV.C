@@ -625,4 +625,4 @@ SetUnits:
     }
     return (TRUE);
 } /* end of DialogDivision */
-
+

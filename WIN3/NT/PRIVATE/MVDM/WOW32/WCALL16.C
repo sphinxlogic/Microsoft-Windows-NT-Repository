@@ -152,7 +152,7 @@ VPVOID LocalLock16(HANDLE hMem)
 
 LOCK1:
         LOW(retval) = plhe->lhe_address;
-        FLUSHVDMPTR(hMem, sizeof(*plhe), plhe);
+        FLUSHVDMPTR((ULONG)hMem, sizeof(*plhe), plhe);
         FREEVDMPTR(plhe);
     }
 
@@ -195,7 +195,7 @@ BOOL LocalUnlock16(HANDLE hMem)
     plhe->lhe_count = count;
     rc = (BOOL)((SHORT)count);
 
-    FLUSHVDMPTR(hMem, sizeof(*plhe), plhe);
+    FLUSHVDMPTR((ULONG)hMem, sizeof(*plhe), plhe);
 
 UNLOCK1:
     FREEVDMPTR(plhe);
@@ -423,20 +423,6 @@ HAND16 GetExePtr16( HAND16 hInst )
     return (HAND16)LOWORD(ul);
 }
 
-UINT GetModuleUsage16( HAND16 hModule16 )
-{
-    PARM16 Parm16;
-    ULONG ul;
-
-    /*
-    ** Function returns count of module usages, given an hModule
-    */
-    Parm16.WndProc.wParam = hModule16;
-    CallBack16(RET_GETMODULEUSAGE, &Parm16, 0, &ul );
-
-    return( (UINT)LOWORD(ul) );
-}
-
 
 WORD GetModuleFileName16( HAND16 hInst, VPVOID lpszModuleName, WORD cchModuleName )
 {
@@ -546,7 +532,7 @@ BOOL WOWCallback16Ex(
     if (fFirstTime) {
 
         //
-        // Ensure that wownt32.h's definition of WCB16_MAX_CBARG
+        // Ensure that wownt32.h's definition of WCB16_MAX_CBARGS
         // matches wow.h's definition of PARMWCB16.
         //
 
@@ -632,14 +618,14 @@ BOOL CallBack16(INT iRetID, PPARM16 pParm16, VPPROC vpfnProc, PVPVOID pvpReturn)
     "SETCURSORICONFLAG",    // RET_SETCURSORICONFLAG
     "SETABORTPROC",         // RET_SETABORTPROC
     "ENUMPROPSPROC",        // RET_ENUMPROPSPROC
-    "MIDIINFUNC",           // RET_MIDIINFUNC - MultiMedia, MikeTri
-    "MIDIOUTFUNC",          // RET_MIDIOUTFUNC
-    "IOPROC",               // RET_IOPROC
-    "TIMEFUNC",             // RET_TIMEFUNC
-    "WAVEINFUNC",           // RET_WAVEINFUNC
-    "WAVEOUTFUNC",          // RET_WAVEOUTFUNC
+    "FORCESEGMENTFAULT",    // RET_FORCESEGMENTFAULT
+    "UNUSEDFUNC",           // 
+    "UNUSEDFUNC",           // 
+    "UNUSEDFUNC",           // 
+    "UNUSEDFUNC",           // 
+    "UNUSEDFUNC",           // 
     "GETEXEPTR",            // RET_GETEXEPTR
-    "GETMODULEUSAGE",       // RET_GETMODULEUSAGE
+    "UNUSEDFUNC",           //
     "FORCETASKFAULT",       // RET_FORCETASKFAULT
     "GETEXPWINVER",         // RET_GETEXPWINVER
     "GETCURDIR",            // RET_GETCURDIR
@@ -663,6 +649,10 @@ BOOL CallBack16(INT iRetID, PPARM16 pParm16, VPPROC vpfnProc, PVPVOID pvpReturn)
     register PVDMFRAME pFrame;
     register PCBVDMFRAME pCBFrame;
     WORD wAX;
+#if FASTBOPPING
+#else
+    USHORT SaveIp;
+#endif
 #ifdef DEBUG
     VPVOID   vpStackT, vpCBStackT;
 #endif
@@ -677,16 +667,17 @@ BOOL CallBack16(INT iRetID, PPARM16 pParm16, VPPROC vpfnProc, PVPVOID pvpReturn)
     // Just making sure that this thread matches the current 16-bit task
 
     WOW32ASSERT((pFrame->wTDB == ptd->htask16) ||
-        (ptd->htask16 == 0));
+                (ptd->dwFlags & TDF_IGNOREINPUT) ||
+                (ptd->htask16 == 0));
 
     // Prep the frame for the callback
     // make it word aligned.
 
-    if (ptd->fInitvpCBStack) {
+    if (ptd->dwFlags & TDF_INITCALLBACKSTACK) {
         ptd->vpCBStack = (ptd->vpStack - sizeof(CBVDMFRAME)) & (~0x1);
     }
     else {
-        ptd->fInitvpCBStack = TRUE;
+        ptd->dwFlags |= TDF_INITCALLBACKSTACK;
         ptd->vpCBStack = (ptd->vpCBStack - sizeof(CBVDMFRAME)) & (~0x1);
     }
     GETFRAMEPTR(ptd->vpCBStack, (PVDMFRAME)pCBFrame);
@@ -780,12 +771,14 @@ BOOL CallBack16(INT iRetID, PPARM16 pParm16, VPPROC vpfnProc, PVPVOID pvpReturn)
     //
 
 #if FASTBOPPING
-    *CurrentMonitorTeb = (ULONG)NtCurrentTeb();
+    CurrentMonitorTeb = NtCurrentTeb();
     FastWOWCallbackCall();
     // fastbop code refreshes ptd->vpStack
 #else
     // Time to get the IEU running task-time code again
+    SaveIp = getIP();
     host_simulate();
+    setIP(SaveIp);
     ptd->vpStack = VDMSTACK();
 #endif
 

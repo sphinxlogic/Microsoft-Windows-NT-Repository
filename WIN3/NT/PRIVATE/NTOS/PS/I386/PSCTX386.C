@@ -31,9 +31,9 @@ Revision History:
 
 #include "psp.h"
 
-#define ALIGN_DOWN(address,amt) ((ULONG)(address) & ~(( amt ) - 1))
+#define PSPALIGN_DOWN(address,amt) ((ULONG)(address) & ~(( amt ) - 1))
 
-#define ALIGN_UP(address,amt) (ALIGN_DOWN( (address + (amt) - 1), (amt) ))
+#define PSPALIGN_UP(address,amt) (PSPALIGN_DOWN( (address + (amt) - 1), (amt) ))
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,PspGetContext )
@@ -58,8 +58,6 @@ Routine Description:
     be NtGetContextThread.
 
     N.B. - NonVolatileContext is IGNORED on the 386.
-
-    BUGBUG bryanwi 9-jan-90 - Need to punt useless parm.
 
 Arguments:
 
@@ -103,8 +101,6 @@ Routine Description:
     context by storing through the thread's nonvolatile context pointers.
 
     N.B. - NonVolatileContext is IGNORED on the 386.
-
-    BUGBUG bryanwi 9-jan-90 - Need to punt useless parm.
 
 Arguments:
 
@@ -186,7 +182,7 @@ Return Value:
     Thread = Apc->SystemArgument2;
 
     TrapFrame = (PKTRAP_FRAME)((PUCHAR)Thread->Tcb.InitialStack -
-                ALIGN_UP(sizeof(KTRAP_FRAME),KTRAP_FRAME_ALIGN) -
+                PSPALIGN_UP(sizeof(KTRAP_FRAME),KTRAP_FRAME_ALIGN) -
                 sizeof(FLOATING_SAVE_AREA));
 
     if ( Apc->SystemArgument1 ) {

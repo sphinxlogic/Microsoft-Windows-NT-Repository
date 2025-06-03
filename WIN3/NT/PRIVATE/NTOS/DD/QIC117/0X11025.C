@@ -15,6 +15,17 @@
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117cd\src\0x11025.c  $
 *	
+*	   Rev 1.7   15 May 1995 10:47:18   GaryKiwi
+*	Phoenix merge from CBW95s
+*	
+*	   Rev 1.6.1.0   11 Apr 1995 18:03:56   garykiwi
+*	PHOENIX pass #1
+*	
+*	   Rev 1.7   30 Jan 1995 14:24:02   BOBLEHMA
+*	Changed device_descriptor.version to cqd_context->firmware_version.
+*	Changed vendor defines to ARCHIVE_CONNER, WANGTEK_REXON and MOUNTAIN_SUMMIT.
+*	Set the model field in the device_descriptor to the ~VENDOR_MASK & vendor_id.
+*	
 *	   Rev 1.6   17 Feb 1994 11:49:06   KEVINKES
 *	Added Exabyte support and removed the call to
 *	kdi_UpdateRegistry.
@@ -43,6 +54,7 @@
 #define FCT_ID 0x11025
 #include "include\public\adi_api.h"
 #include "include\public\frb_api.h"
+#include "include\public\vendor.h"
 #include "include\private\kdi_pub.h"
 #include "include\private\cqd_pub.h"
 #include "q117cd\include\cqd_defs.h"
@@ -81,7 +93,7 @@ dStatus cqd_GetDeviceType
    if ((status = cqd_Report(
                         cqd_context,
                         FW_CMD_REPORT_ROM,
-                        (dUWord *)&cqd_context->device_descriptor.version,
+                        (dUWord *)&cqd_context->firmware_version,
                         READ_BYTE, dNULL_PTR)) != DONT_PANIC) {
 
       return status;
@@ -91,7 +103,7 @@ dStatus cqd_GetDeviceType
 	kdi_CheckedDump(
 		QIC117INFO,
 		"Q117i: FW Version %02x\n",
-		cqd_context->device_descriptor.version);
+		cqd_context->firmware_version);
 
    if ((status = cqd_SendByte(cqd_context, FW_CMD_REPORT_VENDOR32)) !=
       DONT_PANIC) {
@@ -199,6 +211,7 @@ dStatus cqd_GetDeviceType
 
       if (signature == CMS_SIG) {
 
+         cqd_context->device_descriptor.model = (dUByte)(vendor_id & ~VENDOR_MASK);
          cqd_context->device_descriptor.vendor = VENDOR_CMS;
 			kdi_CheckedDump(
 				QIC117INFO,
@@ -215,12 +228,13 @@ dStatus cqd_GetDeviceType
 
    } else {
 
+      cqd_context->device_descriptor.model = (dUByte)(vendor_id & ~VENDOR_MASK);
       if (vendor_id == CONNER_VEND_NO_OLD) {
 
-         cqd_context->device_descriptor.vendor = VENDOR_CONNER;
+         cqd_context->device_descriptor.vendor = VENDOR_ARCHIVE_CONNER;
 			kdi_CheckedDump(
 				QIC117INFO,
-				"Q117i: Drive Vendor CONNER (old version)\n", 0l);
+				"Q117i: Drive Vendor ARCHIVE_CONNER (old version)\n", 0l);
 
       } else {
 
@@ -234,10 +248,10 @@ dStatus cqd_GetDeviceType
             break;
 
          case SUMMIT_VEND_NO:
-            cqd_context->device_descriptor.vendor = VENDOR_SUMMIT;
+            cqd_context->device_descriptor.vendor = VENDOR_MOUNTAIN_SUMMIT;
 				kdi_CheckedDump(
 					QIC117INFO,
-					"Q117i: Drive Vendor SUMMIT\n", 0l);
+					"Q117i: Drive Vendor MOUNTAIN_SUMMIT\n", 0l);
             break;
 
          case IOMEGA_VEND_NO:
@@ -248,10 +262,10 @@ dStatus cqd_GetDeviceType
             break;
 
          case WANGTEK_VEND_NO:
-            cqd_context->device_descriptor.vendor = VENDOR_WANGTEK;
+            cqd_context->device_descriptor.vendor = VENDOR_WANGTEK_REXON;
 				kdi_CheckedDump(
 					QIC117INFO,
-					"Q117i: Drive Vendor WANGTEK\n", 0l);
+					"Q117i: Drive Vendor WANGTEK_REXON\n", 0l);
             break;
 
          case CORE_VEND_NO:
@@ -262,10 +276,10 @@ dStatus cqd_GetDeviceType
             break;
 
          case CONNER_VEND_NO_NEW:
-            cqd_context->device_descriptor.vendor = VENDOR_CONNER;
+            cqd_context->device_descriptor.vendor = VENDOR_ARCHIVE_CONNER;
 				kdi_CheckedDump(
 					QIC117INFO,
-					"Q117i: Drive Vendor CONNER (new version)\n", 0l);
+					"Q117i: Drive Vendor ARCHIVE_CONNER (new version)\n", 0l);
             break;
 
          default:
@@ -282,10 +296,10 @@ dStatus cqd_GetDeviceType
 						"Q117i: Drive Vendor CMS_ENHANCEMENTS", 0l);
             }
             if (report_failed && (signature != CMS_SIG)) {
-               cqd_context->device_descriptor.vendor = VENDOR_WANGTEK;
+               cqd_context->device_descriptor.vendor = VENDOR_WANGTEK_REXON;
 					kdi_CheckedDump(
 						QIC117INFO,
-						"Q117i: Drive Vendor WANGTEK\n", 0l);
+						"Q117i: Drive Vendor WANGTEK_REXON\n", 0l);
             }
          }
       }

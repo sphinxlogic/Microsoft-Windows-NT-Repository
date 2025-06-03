@@ -1,5 +1,5 @@
 #include    "types.h"
-#include    "cvtypes.h"
+#include    "cvtypes.hxx"
 
 #ifndef FAR
 #ifdef WIN32
@@ -113,4 +113,3 @@ typedef BLOCKSYM        FAR *BLOCKPTR;
 typedef PROCSYM         FAR *PROCPTR;
 typedef THUNKSYM        FAR *THUNKPTR;
 typedef WITHSYM         FAR *WITHPTR;
-

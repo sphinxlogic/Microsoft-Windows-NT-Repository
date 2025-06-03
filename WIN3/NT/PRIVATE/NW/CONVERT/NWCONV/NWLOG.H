@@ -5,6 +5,10 @@
 #ifndef _NWLOG_
 #define _NWLOG_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 void LogInit();
 void LogWriteLog(int Level, LPTSTR szFormat, ...);
 void LogWriteErr(LPTSTR szFormat, ...);
@@ -18,6 +22,7 @@ void ErrorReset();
 void ErrorSet(LPTSTR szFormat, ...);
 BOOL ErrorOccured();
 void ErrorBox(LPTSTR szFormat, ...);
+int ErrorBoxRetry(LPTSTR szFormat, ...);
 
 void LogOptionsInit();
 void LogOptionsSave( HANDLE hFile );
@@ -26,5 +31,9 @@ BOOL PopupOnError();
 BOOL VerboseFileLogging();
 BOOL VerboseUserLogging();
 void DoLoggingDlg(HWND hDlg);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

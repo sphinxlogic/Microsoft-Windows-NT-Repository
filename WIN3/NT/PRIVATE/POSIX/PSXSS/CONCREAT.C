@@ -26,7 +26,7 @@ Revision History:
 #define NTPSX_ONLY
 #include "sesport.h"
 
-VOID 
+VOID
 SetDefaultLibPath(
     OUT PANSI_STRING LibPath,
     IN  PCHAR EnvStrings
@@ -36,7 +36,7 @@ SetDefaultLibPath(
 
 	// BUGBUG: Unicode
 	for (p = EnvStrings; '\0' != *p; p += strlen(p) + 1) {
-		if (0 == strnicmp(p, "_PSXLIBPATH=",
+		if (0 == _strnicmp(p, "_PSXLIBPATH=",
 			sizeof("_PSXLIBPATH=") - 1)) {
 			p += sizeof("_PSXLIBPATH=") - 1;
 			break;

@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1991  Microsoft Corporation
+Copyright (c) 1991-1996  Microsoft Corporation
 
 Module Name:
 
@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    Declarations for the NT ICMP Echo request API.
+    Declarations for the Win32 ICMP Echo request API.
 
 Author:
 
@@ -30,6 +30,10 @@ Notes:
 //
 
 //++
+//
+// Routine Name:
+//
+//     IcmpCreateFile
 //
 // Routine Description:
 //
@@ -54,6 +58,10 @@ IcmpCreateFile(
 
 
 //++
+//
+// Routine Name:
+//
+//     IcmpCloseHandle
 //
 // Routine Description:
 //
@@ -80,9 +88,13 @@ IcmpCloseHandle(
 
 //++
 //
+// Routine Name:
+//
+//     IcmpSendEcho
+//
 // Routine Description:
 //
-//     Sends an ICMP Echo request and returns one or more replies. The
+//     Sends an ICMP Echo request and returns any replies. The
 //     call returns when the timeout has expired or the reply buffer
 //     is filled.
 //
@@ -102,11 +114,12 @@ IcmpCloseHandle(
 //
 //     ReplyBuffer          - A buffer to hold any replies to the request.
 //                            On return, the buffer will contain an array of
-//                            ICMP_ECHO_REPLY structures followed by options
-//                            and data. The buffer should be large enough to
-//                            hold at least one ICMP_ECHO_REPLY structure
-//                            and 8 bytes of data - this is the size of
-//                            an ICMP error message.
+//                            ICMP_ECHO_REPLY structures followed by the
+//                            options and data for the replies. The buffer
+//                            should be large enough to hold at least one
+//                            ICMP_ECHO_REPLY structure plus
+//                            MAX(RequestSize, 8) bytes of data since an ICMP
+//                            error message contains 8 bytes of data.
 //
 //     ReplySize            - The size in bytes of the reply buffer.
 //
@@ -114,9 +127,10 @@ IcmpCloseHandle(
 //
 // Return Value:
 //
-//     Returns the number of replies received and stored in ReplyBuffer. If
-//     the return value is zero, extended error information is available
-//     via GetLastError().
+//     Returns the number of ICMP_ECHO_REPLY structures stored in ReplyBuffer.
+//     The status of each reply is contained in the structure. If the return
+//     value is zero, extended error information is available via
+//     GetLastError().
 //
 //--
 
@@ -136,4 +150,3 @@ IcmpSendEcho(
 
 #endif // _ICMP_INCLUDED_
 
-

@@ -986,7 +986,7 @@ Return Value:
                 //  file.
                 //
 
-                Vcb->EaFcb->Header.AllocationSize = LiFromLong(-1);
+                Vcb->EaFcb->Header.AllocationSize.QuadPart = (LONG)-1;
 
                 FatLookupFileAllocationSize( IrpContext, Vcb->EaFcb );
 
@@ -995,7 +995,7 @@ Return Value:
                 //  manager.
                 //
 
-                SectionSize = LiFromUlong( (*EaDirent)->FileSize );
+                SectionSize.QuadPart = (*EaDirent)->FileSize;
                 Vcb->EaFcb->Header.AllocationSize = SectionSize;
                 Vcb->EaFcb->Header.FileSize = SectionSize;
 
@@ -1017,7 +1017,6 @@ Return Value:
 
             } else if (CreateFile) {
 
-                ULONG BytesPerSector;
                 ULONG BytesPerCluster;
                 ULONG OffsetTableSize;
                 ULONG AllocationSize;
@@ -1029,19 +1028,18 @@ Return Value:
 
                 DebugTrace(0, Dbg, "FatGetEaFile:  Creating local IrpContext\n", 0);
 
-                BytesPerSector = Vcb->Bpb.BytesPerSector;
                 BytesPerCluster = 1 << Vcb->AllocationSupport.LogOfBytesPerCluster;
 
-                AllocationSize = ((BytesPerSector << 1) + BytesPerCluster - 1)
+                AllocationSize = ((sizeof( EA_FILE_HEADER ) << 1) + BytesPerCluster - 1)
                                  & ~(BytesPerCluster - 1);
 
                 AllocatedClusters = (USHORT) (AllocationSize
                                     >> Vcb->AllocationSupport.LogOfBytesPerCluster);
 
-                OffsetTableSize = AllocationSize - BytesPerSector;
+                OffsetTableSize = AllocationSize - sizeof( EA_FILE_HEADER );
 
                 //
-                //  Allocate disk space, the space allocated is 2 sectors
+                //  Allocate disk space, the space allocated is 1024 bytes
                 //  rounded up to the nearest cluster size.
                 //
 
@@ -1086,7 +1084,8 @@ Return Value:
                                     | FAT_DIRENT_ATTR_HIDDEN
                                     | FAT_DIRENT_ATTR_SYSTEM
                                     | FAT_DIRENT_ATTR_ARCHIVE,
-                                    TRUE );
+                                    TRUE,
+                                    NULL );
 
                 (*EaDirent)->FileSize = AllocationSize;
 
@@ -1102,7 +1101,7 @@ Return Value:
                 //  manager.
                 //
 
-                SectionSize = LiFromUlong( (*EaDirent)->FileSize );
+                SectionSize.QuadPart = (*EaDirent)->FileSize;
                 Vcb->EaFcb->Header.AllocationSize = SectionSize;
                 Vcb->EaFcb->Header.FileSize = SectionSize;
                 UnwindUpdatedSizes = TRUE;
@@ -1222,8 +1221,8 @@ Return Value:
 
                 if (UnwindUpdatedSizes) {
 
-                    Vcb->EaFcb->Header.AllocationSize = FatLargeZero;
-                    Vcb->EaFcb->Header.FileSize = FatLargeZero;
+                    Vcb->EaFcb->Header.AllocationSize.QuadPart = 0;
+                    Vcb->EaFcb->Header.FileSize.QuadPart = 0;
                 }
 
                 FatUnpinBcb( IrpContext, EaBcb );
@@ -1342,7 +1341,7 @@ Return Value:
     //  the EaOffet table for this index.
     //
 
-    EaOffsetVbo = Vcb->Bpb.BytesPerSector + ((EaHandle >> 7) << 8);
+    EaOffsetVbo = sizeof( EA_FILE_HEADER ) + ((EaHandle >> 7) << 8);
 
     //
     //  Zero the Ea range structures.
@@ -1587,7 +1586,7 @@ Return Value:
     //  the EaOffet table for this index.
     //
 
-    EaOffsetVbo = Vcb->Bpb.BytesPerSector + ((EaHandle >> 7) << 8);
+    EaOffsetVbo = sizeof( EA_FILE_HEADER ) + ((EaHandle >> 7) << 8);
 
     //
     //  Zero the Ea range structures.
@@ -2076,7 +2075,6 @@ Return Value:
 --*/
 
 {
-    ULONG BytesPerSector = Vcb->Bpb.BytesPerSector;
     ULONG BytesPerCluster = 1 << Vcb->AllocationSupport.LogOfBytesPerCluster;
 
     EA_RANGE EaHeaderRange;
@@ -2167,7 +2165,7 @@ Return Value:
         //
 
         EaNewOffsetVbo = EaHeader->EaBaseTable[0] << Vcb->AllocationSupport.LogOfBytesPerCluster;
-        EaOffsetTableSize = EaNewOffsetVbo - BytesPerSector;
+        EaOffsetTableSize = EaNewOffsetVbo - sizeof( EA_FILE_HEADER );
 
         //
         //  Pin down the entire offset table.
@@ -2177,7 +2175,7 @@ Return Value:
                        VirtualEaFile,
                        EaFcb,
                        &EaOffsetRange,
-                       BytesPerSector,
+                       sizeof( EA_FILE_HEADER ),
                        EaOffsetTableSize,
                        STATUS_DATA_ERROR );
 
@@ -2599,7 +2597,7 @@ Return Value:
                        VirtualEaFile,
                        EaFcb,
                        &EaOffsetRange,
-                       BytesPerSector + ((NewEaIndex >> 7) << 8),
+                       sizeof( EA_FILE_HEADER ) + ((NewEaIndex >> 7) << 8),
                        sizeof( EA_OFF_TABLE ),
                        STATUS_DATA_ERROR );
 
@@ -3543,7 +3541,7 @@ Return Value:
         //  Pin the page and remember the data start.
         //
 
-        LargeVbo = LiFromUlong( StartingVbo );
+        LargeVbo.QuadPart = StartingVbo;
 
         if (ByteCount > Length) {
 
@@ -3641,7 +3639,7 @@ Return Value:
 
         LARGE_INTEGER LargeVbo;
 
-        LargeVbo = LiFromUlong( EaRange->StartingVbo );
+        LargeVbo.QuadPart = EaRange->StartingVbo;
 
         CcCopyWrite( EaFileObject,
                      &LargeVbo,

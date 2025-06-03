@@ -23,6 +23,8 @@ Revision History:
 
 #define PROCESS_FOREGROUND_PRIORITY (9)
 
+ULONG MmDelayPageFaults;
+
 #if DBG
 ULONG MmProtoPteVadLookups = 0;
 ULONG MmProtoPteDirect = 0;
@@ -34,11 +36,12 @@ PMMPTE MmPteHit = NULL;
 #endif
 
 #if DBG
-extern ULONG MmPagingFileDebug[8192];
+ULONG MmLargePageFaultError;
 #endif
 
-extern KSPIN_LOCK KiDispatcherLock;
-
+#if DBG
+extern ULONG MmPagingFileDebug[8192];
+#endif
 
 
 NTSTATUS
@@ -150,6 +153,20 @@ Environment:
 
         MiCheckPdeForPagedPool (VirtualAddress);
 
+#ifdef _X86_
+        if (PointerPde->u.Hard.Valid == 1) {
+            if (PointerPde->u.Hard.LargePage == 1) {
+#if DBG
+                if (MmLargePageFaultError < 10) {
+                    DbgPrint ("MM - fault on Large page %lx\n",VirtualAddress);
+                }
+                MmLargePageFaultError += 1;
+#endif //DBG
+                return STATUS_SUCCESS;
+            }
+        }
+#endif //X86
+
         if ((PointerPde->u.Hard.Valid == 0) || (PointerPte->u.Hard.Valid == 0)) {
             KdPrint(("MM:***PAGE FAULT AT IRQL > 1  Va %lx, IRQL %lx\n",VirtualAddress,
                 PreviousIrql));
@@ -187,13 +204,11 @@ Environment:
 #endif //DBG
 
             MI_NO_FAULT_FOUND (TempPte, PointerPte, VirtualAddress, FALSE);
-
             return STATUS_SUCCESS;
         }
     }
 
-
-    if (VirtualAddress > (PVOID)MM_SYSTEM_RANGE_START) {
+    if (VirtualAddress >= (PVOID)MM_SYSTEM_RANGE_START) {
 
         //
         // This is a fault in the system address space.  User
@@ -206,23 +221,36 @@ Environment:
         }
 #endif // _X86_ || _ALPHA_ || _PPC_
 
-        LOCK_PFN (OldIrql);
+RecheckPde:
+
         if (PointerPde->u.Hard.Valid == 1) {
+#ifdef _X86_
+            if (PointerPde->u.Hard.LargePage == 1) {
+#if DBG
+                if (MmLargePageFaultError < 10) {
+                    DbgPrint ("MM - fault on Large page %lx\n",VirtualAddress);
+                }
+                MmLargePageFaultError += 1;
+#endif //DBG
+                return STATUS_SUCCESS;
+            }
+#endif //X86
+
             if (PointerPte->u.Hard.Valid == 1) {
-                MI_NO_FAULT_FOUND (TempPte, PointerPte, VirtualAddress, TRUE);
+
+                // Acquire the PFN lock, check to see if the address is still
+                // valid if writable, update dirty bit.
+                //
+
+                LOCK_PFN (OldIrql);
+                TempPte = *(volatile MMPTE *)PointerPte;
+                if (TempPte.u.Hard.Valid == 1) {
+                    MI_NO_FAULT_FOUND (TempPte, PointerPte, VirtualAddress, TRUE);
+                }
                 UNLOCK_PFN (OldIrql);
                 return STATUS_SUCCESS;
             }
-        }
-
-        if ((VirtualAddress < (PVOID)PTE_BASE) ||
-            (VirtualAddress > (PVOID)HYPER_SPACE_END)) {
-
-
-            //
-            // As this is a system fault, no need to acquire the
-            // working set mutex.
-            //
+        } else {
 
             //
             // Due to G-bits in kernel mode code, accesses to paged pool
@@ -231,9 +259,48 @@ Environment:
             // tracked properly.
             //
 
+            MiCheckPdeForPagedPool (VirtualAddress);
+
             if (PointerPde->u.Hard.Valid == 0) {
-                MiCheckPdeForPagedPool (VirtualAddress);
+                KeBugCheckEx (PAGE_FAULT_IN_NONPAGED_AREA,
+                              (ULONG)VirtualAddress,
+                              StoreInstruction,
+                              PreviousMode,
+                              2);
+                return STATUS_SUCCESS;
             }
+
+            //
+            // Now that the PDE is valid, go look at the PTE again.
+            //
+
+            goto RecheckPde;
+        }
+
+        if ((VirtualAddress < (PVOID)PTE_BASE) ||
+            (VirtualAddress > (PVOID)HYPER_SPACE_END)) {
+
+            //
+            // Acquire system working set lock.  While this lock
+            // is held, no pages may go from valid to invalid.
+            //
+            // HOWEVER - transition pages may go to valid, but
+            // may not be added to the working set list.  This
+            // is done in the cache manager support routines to
+            // shortcut faults on transition prototype PTEs.
+            //
+
+            if (PsGetCurrentThread() == MmSystemLockOwner) {
+
+                //
+                // Recursively trying to acquire the system working set
+                // fast mutex - cause an IRQL > 1 bug check.
+                //
+
+                return STATUS_IN_PAGE_ERROR | 0x10000000;
+            }
+
+            LOCK_SYSTEM_WS (PreviousIrql);
 
             TempPte = *PointerPte;
 
@@ -248,8 +315,13 @@ Environment:
                 // PTE is already valid, return.
                 //
 
-                MI_NO_FAULT_FOUND (TempPte, PointerPte, VirtualAddress, TRUE);
+                LOCK_PFN (OldIrql);
+                TempPte = *(volatile MMPTE *)PointerPte;
+                if (TempPte.u.Hard.Valid == 1) {
+                    MI_NO_FAULT_FOUND (TempPte, PointerPte, VirtualAddress, TRUE);
+                }
                 UNLOCK_PFN (OldIrql);
+                UNLOCK_SYSTEM_WS (PreviousIrql);
                 return STATUS_SUCCESS;
 
             } else if (TempPte.u.Soft.Prototype != 0) {
@@ -260,7 +332,8 @@ Environment:
                 //
 
                 PointerProtoPte = MiPteToProto (&TempPte);
-            } else if (TempPte.u.Soft.Transition == 0 && TempPte.u.Soft.Protection == 0) {
+            } else if ((TempPte.u.Soft.Transition == 0) &&
+                        (TempPte.u.Soft.Protection == 0)) {
 
                 //
                 // Page file format.  If the protection is ZERO, this
@@ -274,15 +347,34 @@ Environment:
                               0);
                 return STATUS_SUCCESS;
             }
+//fixfix remove this - also see procsup.c / mminpagekernelstack.
+             else {
+                 if (TempPte.u.Soft.Protection == 31) {
+                    KeBugCheckEx (PAGE_FAULT_IN_NONPAGED_AREA,
+                                  (ULONG)VirtualAddress,
+                                  StoreInstruction,
+                                  PreviousMode,
+                                  0);
 
+                 }
+            }
+//end of fixfix
             status = MiDispatchFault (StoreInstruction,
                                       VirtualAddress,
                                       PointerPte,
                                       PointerProtoPte,
                                       NULL);
 
+            ASSERT (KeGetCurrentIrql() == APC_LEVEL);
             PageFrameIndex = MmSystemCacheWs.PageFaultCount;
-            UNLOCK_PFN (OldIrql);
+
+            if (MmSystemCacheWs.AllowWorkingSetAdjustment == MM_GROW_WSLE_HASH) {
+                MiGrowWsleHash (&MmSystemCacheWs, TRUE);
+                LOCK_EXPANSION_IF_ALPHA (OldIrql);
+                MmSystemCacheWs.AllowWorkingSetAdjustment = TRUE;
+                UNLOCK_EXPANSION_IF_ALPHA (OldIrql);
+            }
+            UNLOCK_SYSTEM_WS (PreviousIrql);
 
             if ((PageFrameIndex & 0x3FFFF) == 0x30000) {
 
@@ -295,14 +387,17 @@ Environment:
                 KeDelayExecutionThread (KernelMode, FALSE, &MmShortTime);
             }
             return status;
+        } else {
+            if (MiCheckPdeForPagedPool (VirtualAddress) == STATUS_WAIT_1) {
+                return STATUS_SUCCESS;
+            }
         }
-        UNLOCK_PFN (OldIrql);
     }
 
-
-    if ((MmModifiedPageListHead.Total >= (MmModifiedPageMaximum + 100)) &&
+    if (MmDelayPageFaults ||
+        ((MmModifiedPageListHead.Total >= (MmModifiedPageMaximum + 100)) &&
         (MmAvailablePages < (1024*1024 / PAGE_SIZE)) &&
-            (CurrentProcess->ModifiedPageCount > ((64*1024)/PAGE_SIZE))) {
+            (CurrentProcess->ModifiedPageCount > ((64*1024)/PAGE_SIZE)))) {
 
         //
         // This process has placed more than 64k worth of pages on the modified
@@ -313,9 +408,7 @@ Environment:
                                 FALSE,
              (CurrentProcess->Pcb.BasePriority < PROCESS_FOREGROUND_PRIORITY) ?
                                     &MmHalfSecond : &Mm30Milliseconds);
-        LOCK_PFN (OldIrql);
         CurrentProcess->ModifiedPageCount = 0;
-        UNLOCK_PFN (OldIrql);
     }
 
     //
@@ -327,6 +420,8 @@ Environment:
     //
 
     KeRaiseIrql (APC_LEVEL, &PreviousIrql);
+
+
     LOCK_WS (CurrentProcess);
 
     //
@@ -393,16 +488,13 @@ Environment:
         // the status of the corresponding PTE.
         //
 
-        //ASSERT (KeReadStateMutant (&CurrentProcess->WorkingSetLock) == 0);
-
-        LOCK_PFN (OldIrql);
-
         status = MiDispatchFault (TRUE,  //page table page always written
                                   PointerPte,   //Virtual address
                                   PointerPde,   // PTE (PDE in this case)
                                   NULL,
                                   CurrentProcess);
 
+        ASSERT (KeGetCurrentIrql() == APC_LEVEL);
         if (PointerPde->u.Hard.Valid == 0) {
 
             //
@@ -411,9 +503,9 @@ Environment:
             goto ReturnStatus1;
         }
 
-        MI_SET_PAGE_DIRTY (PointerPde, PointerPte, TRUE);
+        //KeFillEntryTb ((PHARDWARE_PTE)PointerPde, (PVOID)PointerPte, TRUE);
 
-        UNLOCK_PFN (OldIrql);
+        MI_SET_PAGE_DIRTY (PointerPde, PointerPte, FALSE);
 
         //
         // Now that the PDE is accessable, get the PTE - let this fall
@@ -497,8 +589,11 @@ Environment:
     //
 
     if (TempPte.u.Long == MM_DEMAND_ZERO_WRITE_PTE) {
-        LOCK_PFN (OldIrql);
-        MiResolveDemandZeroFault (VirtualAddress, PointerPte, CurrentProcess);
+        MiResolveDemandZeroFault (VirtualAddress,
+                                  PointerPte,
+                                  CurrentProcess,
+                                  0);
+
         status = STATUS_PAGE_FAULT_DEMAND_ZERO;
         goto ReturnStatus1;
     }
@@ -608,6 +703,7 @@ Environment:
                 (CurrentProcess->ForkInProgress != PsGetCurrentThread())) {
                 MiWaitForForkToComplete (CurrentProcess);
                 status = STATUS_SUCCESS;
+                UNLOCK_PFN (OldIrql);
                 goto ReturnStatus1;
             }
 
@@ -629,6 +725,8 @@ Environment:
                 MmInfoCounters.DemandZeroCount += 1;
                 MiInitializePfn (PageFrameIndex, PointerPte, 1);
 
+                UNLOCK_PFN (OldIrql);
+
                 //
                 // As this page is demand zero, set the modified bit in the
                 // PFN database element and set the dirty bit in the PTE.
@@ -642,13 +740,15 @@ Environment:
                                    PointerPte);
 
                 if (TempPte.u.Hard.Write != 0) {
-                    TempPte.u.Hard.Dirty = MM_PTE_DIRTY;
+                    MI_SET_PTE_DIRTY (TempPte);
                 }
 
                 *PointerPte = TempPte;
 
+                ASSERT (Pfn1->u1.WsIndex == 0);
+                Pfn1->u1.WsIndex = (ULONG)PsGetCurrentThread();
                 WorkingSetIndex = MiLocateAndReserveWsle (&CurrentProcess->Vm);
-                MiUpdateWsle (WorkingSetIndex,
+                MiUpdateWsle (&WorkingSetIndex,
                               VirtualAddress,
                               MmWorkingSetList,
                               Pfn1);
@@ -656,6 +756,8 @@ Environment:
                 KeFillEntryTb ((PHARDWARE_PTE)PointerPte,
                                 VirtualAddress,
                                 FALSE);
+            } else {
+                UNLOCK_PFN (OldIrql);
             }
 
             status = STATUS_PAGE_FAULT_DEMAND_ZERO;
@@ -754,23 +856,59 @@ Environment:
         }
     }
 
-
     //
     // This is a page fault, invoke the page fault handler.
     //
 
-    //ASSERT (KeReadStateMutant (&CurrentProcess->WorkingSetLock) == 0);
+    if (PointerProtoPte != NULL) {
 
-    LOCK_PFN (OldIrql);
+        //
+        // Lock page containing prototype PTEs in memory by
+        // incrementing the reference count for the page.
+        //
+
+
+        if (!MI_IS_PHYSICAL_ADDRESS(PointerProtoPte)) {
+            PointerPde = MiGetPteAddress (PointerProtoPte);
+            LOCK_PFN (OldIrql);
+            if (PointerPde->u.Hard.Valid == 0) {
+                MiMakeSystemAddressValidPfn (PointerProtoPte);
+            }
+            Pfn1 = MI_PFN_ELEMENT (PointerPde->u.Hard.PageFrameNumber);
+            Pfn1->u3.e2.ReferenceCount += 1;
+            ASSERT (Pfn1->u3.e2.ReferenceCount > 1);
+            UNLOCK_PFN (OldIrql);
+        }
+    }
     status = MiDispatchFault (StoreInstruction,
                               VirtualAddress,
                               PointerPte,
                               PointerProtoPte,
                               CurrentProcess);
 
+    if (PointerProtoPte != NULL) {
+
+        //
+        // Unlock page containing prototype PTEs.
+        //
+
+        if (!MI_IS_PHYSICAL_ADDRESS(PointerProtoPte)) {
+            LOCK_PFN (OldIrql);
+            ASSERT (Pfn1->u3.e2.ReferenceCount > 1);
+            Pfn1->u3.e2.ReferenceCount -= 1;
+            UNLOCK_PFN (OldIrql);
+        }
+    }
+
 ReturnStatus1:
 
-    UNLOCK_PFN (OldIrql);
+    ASSERT (KeGetCurrentIrql() <= APC_LEVEL);
+    if (CurrentProcess->Vm.AllowWorkingSetAdjustment == MM_GROW_WSLE_HASH) {
+        MiGrowWsleHash (&CurrentProcess->Vm, FALSE);
+        LOCK_EXPANSION_IF_ALPHA (OldIrql);
+        CurrentProcess->Vm.AllowWorkingSetAdjustment = TRUE;
+        UNLOCK_EXPANSION_IF_ALPHA (OldIrql);
+    }
 
 ReturnStatus2:
 
@@ -790,8 +928,9 @@ ReturnStatus2:
 
             KeDelayExecutionThread (KernelMode, FALSE, &MmShortTime);
             MmAdjustWorkingSetSize (
-                    CurrentProcess->Vm.MinimumWorkingSetSize + 10,
-                    CurrentProcess->Vm.MaximumWorkingSetSize + 10);
+                    (CurrentProcess->Vm.MinimumWorkingSetSize + 10) << PAGE_SHIFT,
+                    (CurrentProcess->Vm.MaximumWorkingSetSize + 10) << PAGE_SHIFT,
+                    FALSE);
         }
     }
 

@@ -159,7 +159,8 @@ FastMutexFrameLength:                   // frame length
 //
 // synchronize all previous writes before the mutex is released
 //
-        wmb
+//
+        mb
 #endif
 
 //
@@ -388,8 +389,7 @@ FastMutexFrameLength:                   // frame length
 // Synchronize all previous writes before the mutex is released.
 //
 
-        wmb
-
+        mb
 #endif
 
 //

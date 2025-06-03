@@ -27,6 +27,12 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
+#include <nbtioctl.h>
+
+#ifdef RDR_PNP_POWER
+#include "ntddbrow.h"
+#endif
+
 #define TDI_CONNECT_IN_PARALLEL 1
 #define PRIMARY_TRANSPORT_CHECK 1
 
@@ -58,11 +64,12 @@ RdrTdiDisconnectTimeout = {0};
 //  modifying the transport chain.
 //
 
-DBGSTATIC
 ERESOURCE
-TransportResource = {0};
+RdrTransportResource = {0};
 
 #if MAGIC_BULLET
+BOOLEAN RdrEnableMagic = FALSE;
+
 PFILE_OBJECT
 MagicBulletFileObject = NULL;
 
@@ -80,7 +87,7 @@ typedef struct _RDR_TDI_CONNECT_CONTEXT {
     ULONG       QualityOfService;   // QOS of transport
     TDI_CONNECTION_INFORMATION RemoteConnectionInformation;
     TDI_CONNECTION_INFORMATION ConnectedConnectionInformation;
-    CHAR        TransportAddressBuffer[sizeof(TA_NETBIOS_ADDRESS)];
+    CHAR    TransportAddressBuffer[1];  // start of the transport address
 } RDR_TDI_CONNECT_CONTEXT, *PRDR_TDI_CONNECT_CONTEXT;
 
 //
@@ -130,15 +137,7 @@ NTSTATUS
 RdrTdiOpenConnection (
     IN PTRANSPORT Transport,
     IN PVOID ConnectionContext,
-#ifdef _CAIRO_
-    IN KPROCESSOR_MODE RequestorMode,
-#endif // _CAIRO_
     OUT PHANDLE ConnectionHandle
-    );
-
-NTSTATUS
-RdrTdiCloseConnection (
-    IN HANDLE Handle
     );
 
 NTSTATUS
@@ -157,10 +156,12 @@ RdrTdiAssociateAddress(
 
 NTSTATUS
 RdrDoTdiConnect(
-    IN PIRP Irp OPTIONAL,
-    IN PFILE_OBJECT ConnectionObject,
-    IN PTA_NETBIOS_ADDRESS RemoteTransport,
-    OUT PTA_NETBIOS_ADDRESS ConnectedTransport
+    IN  PIRP Irp OPTIONAL,
+    IN  PFILE_OBJECT ConnectionObject,
+    IN  PTRANSPORT_ADDRESS RemoteTransport,
+    OUT PTRANSPORT_ADDRESS ConnectedTransport,
+    IN  ULONG              RemoteTransportAddresLength,
+    IN  ULONG              ConnectedTransportAddressLength
     );
 
 DBGSTATIC
@@ -177,14 +178,34 @@ RdrRemoveConnectionsOnServerForTransport(
     IN PVOID Ctx
     );
 
-VOID
-RdrReferenceTransportForConnection(
-    IN PTRANSPORT Transport
-    );
-VOID
-RdrDereferenceTransportForConnection(
-    IN PTRANSPORT Transport
-    );
+#define RDR_COMPUTE_TRANSPORT_ADDRESS_LENGTH( _ta ) \
+    ((PTRANSPORT_ADDRESS)(_ta))->Address[0].AddressLength + FIELD_OFFSET( TRANSPORT_ADDRESS, Address[0].Address )
+
+// VOID
+// RdrReferenceTransportForConnection(
+//     IN PTRANSPORT Transport
+//     );
+#define RdrReferenceTransportForConnection( _Transport ) {                                  \
+    InterlockedIncrement(&(_Transport)->ConnectionReferenceCount);                          \
+    dprintf(DPRT_TRANSPORT, ("Reference transport %lx (%wZ) for connection, now at %lx\n",  \
+            (_Transport), &(_Transport)->TransportName,                                     \
+            (_Transport)->ConnectionReferenceCount));                                       \
+    }
+
+// VOID
+// RdrDereferenceTransportForConnection(
+//     IN PTRANSPORT Transport
+//     );
+#define RdrDereferenceTransportForConnection( _Transport ) {                                    \
+    ASSERT ((_Transport)->NonPagedTransport->ReferenceCount > 0);                               \
+    ASSERT ((_Transport)->NonPagedTransport->ReferenceCount >=                                  \
+                                    (_Transport)->ConnectionReferenceCount);                    \
+    InterlockedDecrement(&(_Transport)->ConnectionReferenceCount);                              \
+    dprintf(DPRT_TRANSPORT, ("Dereference transport %lx (%wZ) for connection, now at %lx\n",    \
+            (_Transport), &(_Transport)->TransportName,                                         \
+            (_Transport)->ConnectionReferenceCount));                                           \
+    }
+
 
 VOID
 RdrMarkTransportConnectionValid(
@@ -230,7 +251,7 @@ RdrDoTdiDisconnect(
 #if TDI_CONNECT_IN_PARALLEL
 NTSTATUS
 RdrAllocateConnectionContext(
-    IN PIRP Irp,
+    IN PIRP Irp OPTIONAL,
     IN PTRANSPORT Transport,
     IN PSERVERLISTENTRY Server,
     IN PUNICODE_STRING ServerName,
@@ -243,6 +264,26 @@ RdrCheckPrimaryTransport(
     IN PUNICODE_STRING ServerName
     );
 #endif
+
+extern BOOLEAN
+RdrIsLoopBack(PUNICODE_STRING ServerName);
+
+extern ULONG
+RdrComputeTransportAddressSize(
+   PUNICODE_STRING ServerName);
+
+extern NTSTATUS
+RdrBuildNetbiosAddress(
+    IN PTRANSPORT_ADDRESS TransportAddress,
+    IN ULONG              TransportAddressLength,
+    IN PUNICODE_STRING    ServerName
+    );
+
+extern NTSTATUS
+RdrpTranslateNetbiosNameToIpAddress(
+    IN  OEM_STRING *pName,
+    OUT ULONG  *pRemoteIpAddress
+    );
 
 #ifdef  ALLOC_PRAGMA
 #pragma alloc_text(PAGE, RdrpTdiAllocateTransport)
@@ -263,18 +304,16 @@ RdrCheckPrimaryTransport(
 #pragma alloc_text(PAGE, RdrTdiAssociateAddress)
 #pragma alloc_text(PAGE, RdrTdiDisassociateAddress)
 #pragma alloc_text(PAGE, RdrTdiOpenConnection)
-#pragma alloc_text(PAGE, RdrTdiCloseConnection)
 #pragma alloc_text(PAGE, RdrDoTdiConnect)
 #pragma alloc_text(PAGE, RdrQueryProviderInformation)
 #pragma alloc_text(PAGE, RdrQueryAdapterStatus)
 #pragma alloc_text(PAGE, RdrpTdiCreateAddress)
 #pragma alloc_text(PAGE, RdrpTdiSetEventHandler)
+#pragma alloc_text(PAGE, RdrBuildNetbiosAddress)
+#pragma alloc_text(PAGE, RdrComputeTransportAddressSize)
+#pragma alloc_text(PAGE, RdrpTranslateNetbiosNameToIpAddress)
 #pragma alloc_text(PAGE, RdrBuildTransportAddress)
 #pragma alloc_text(INIT, RdrpInitializeTdi)
-#pragma alloc_text(PAGE, RdrpUninitializeTdi)
-#pragma alloc_text(PAGE, RdrReferenceTransportForConnection)
-#pragma alloc_text(PAGE, RdrDereferenceTransportForConnection)
-#pragma alloc_text(PAGE, RdrReferenceTransport)
 #pragma alloc_text(PAGE, RdrFreeConnectionContext)
 #pragma alloc_text(PAGE, RdrDoTdiDisconnect)
 #if TDI_CONNECT_IN_PARALLEL
@@ -296,6 +335,272 @@ RdrCheckPrimaryTransport(
 #pragma alloc_text(PAGE2VC, RdrQueryConnectionInformation)
 #endif
 
+
+#ifdef RDR_PNP_POWER
+
+typedef struct {
+    WORK_QUEUE_ITEM WorkItem;
+    UNICODE_STRING DeviceName;      // New device name
+    ULONG  QualityOfService;
+    BOOLEAN DoSignal;               // Should Event be signaled upon completion?
+    KEVENT Event;                   // Event signaled upon completion
+    NTSTATUS Status;                // Status code of completion
+} *PNP_BROWSER_REQUEST;
+
+/*
+ * This routine is called in the system context
+ */
+VOID
+PnpBindBrowser( PVOID Ctx )
+{
+    PNP_BROWSER_REQUEST Context = Ctx;
+    HANDLE browserHandle;
+    PLMDR_REQUEST_PACKET drrp = NULL;
+    ULONG size = sizeof( *drrp ) + Context->DeviceName.Length;
+    IO_STATUS_BLOCK ioStatusBlock;
+    OBJECT_ATTRIBUTES objectAttributes;
+    UNICODE_STRING browserDeviceName;
+    NTSTATUS browserStatus;
+
+    Context->Status = RdrpTdiAllocateTransport( &Context->DeviceName, Context->QualityOfService );
+
+    //
+    // We might have failed the above call, but that does not mean that the
+    // browser is going to fail it as well. So, we bravely continue on.
+    //
+
+    //
+    // Open up a handle to the browser
+    //
+    RtlInitUnicodeString( &browserDeviceName, DD_BROWSER_DEVICE_NAME_U);
+
+    InitializeObjectAttributes(
+        &objectAttributes,
+        &browserDeviceName,
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+        );
+
+    browserStatus = ZwCreateFile(
+                &browserHandle,                 // FileHandle
+                SYNCHRONIZE,                    // DesiredAccess
+                &objectAttributes,              // ObjectAttributes
+                &ioStatusBlock,                 // IoStatusBlock
+                NULL,                           // AllocationSize
+                0L,                             // FileAttributes
+                FILE_SHARE_VALID_FLAGS,         // ShareAccess
+                FILE_OPEN,                      // Disposition
+                FILE_SYNCHRONOUS_IO_NONALERT,   // CreateOptions
+                NULL,                           // EaBuffer
+                0                               // EaLength
+            );
+
+    if( NT_SUCCESS( browserStatus ) ) {
+        browserStatus = ioStatusBlock.Status;
+    }
+
+    if( !NT_SUCCESS( browserStatus ) ) {
+        browserHandle = NULL;
+        goto Cleanup;
+    }
+
+    drrp = ALLOCATE_POOL( NonPagedPool, size, POOL_PNP_DATA );
+
+    if( drrp == NULL ) {
+        browserStatus = STATUS_INSUFFICIENT_RESOURCES;
+        goto Cleanup;
+    }
+
+    //
+    // Tell the browser to bind to this new transport
+    //
+    RtlZeroMemory( drrp, size );
+    drrp->Version = LMDR_REQUEST_PACKET_VERSION;
+    drrp->Parameters.Bind.TransportNameLength = Context->DeviceName.Length;
+    RtlCopyMemory( drrp->Parameters.Bind.TransportName, Context->DeviceName.Buffer, Context->DeviceName.Length );
+
+    browserStatus = ZwDeviceIoControlFile(
+                        browserHandle,                  // FileHandle
+                        NULL,                           // Event
+                        NULL,                           // ApcRoutine
+                        NULL,                           // ApcContext
+                        &ioStatusBlock,                 // IoStatusBlock
+                        IOCTL_LMDR_BIND_TO_TRANSPORT,   // IoControlCode
+                        drrp,                           // InputBuffer
+                        size,                           // InputBufferLength
+                        NULL,                           // OutputBuffer
+                        0                               // OutputBufferLength
+                        );
+    if( NT_SUCCESS( browserStatus ) ) {
+        browserStatus = ioStatusBlock.Status;
+    }
+
+Cleanup:
+
+    if (browserHandle != NULL)
+        ZwClose( browserHandle );
+
+    if (drrp != NULL)
+        FREE_POOL( drrp );
+
+    //
+    // If we successfully bound to the transport, then we'll return the
+    // browser status. Otherwise, our status is more important
+    //
+
+    if (NT_SUCCESS(Context->Status)) {
+        Context->Status = browserStatus;
+    }
+
+    if( Context->DoSignal ) {
+        KeSetEvent( &Context->Event, 0, FALSE );
+    }
+
+    return;
+}
+
+
+VOID
+RdrTdiBindCallback(
+    IN PUNICODE_STRING DeviceName
+)
+/*++
+
+Routine Description:
+    TDI calls this routine whenever a transport creates a new device object.  If
+      the DeviceName is a device in our binding list, a work item is queued over
+      to the DelayedWorkQueue to initiate a bind to the transport.
+
+Arguments:
+    DeviceName - the name of the newly created device object
+
+--*/
+{
+    PWSTR p;
+    ULONG qualityOfService = 65536;
+    PNP_BROWSER_REQUEST Context;
+
+    if( RdrTransportBindingList == NULL ) {
+        return;
+    }
+
+    //
+    // Check to see if this is one of the devices we're interested in.
+    //   If it is, bind to the transport
+    //
+    for( p = RdrTransportBindingList; *p; p += wcslen(p) + 1 ) {
+
+        --qualityOfService;
+
+        if( wcslen( p ) != DeviceName->Length / sizeof( WCHAR ) ) {
+            continue;
+        }
+
+        if( _wcsnicmp( p, DeviceName->Buffer, DeviceName->Length / sizeof( WCHAR ) ) != 0 ) {
+            continue;
+        }
+
+        //
+        // DeviceName is in our binding list!  We need to bind the redirector
+        //   as well as the browser to this device. Use a kernel worker thread
+        //   to ensure that we're in the system context so the open of the browser
+        //   will succeed.
+        //
+
+        Context = ALLOCATE_POOL( NonPagedPool,
+                                 sizeof( *Context ) + DeviceName->Length,
+                                 POOL_PNP_DATA
+                               );
+
+        if( Context != NULL ) {
+            Context->DeviceName.Buffer = (PUSHORT)(Context + 1);
+            Context->DeviceName.Length = DeviceName->Length;
+            Context->DeviceName.MaximumLength = DeviceName->MaximumLength;
+            Context->QualityOfService = qualityOfService;
+            RtlCopyMemory( Context->DeviceName.Buffer, DeviceName->Buffer, DeviceName->Length );
+
+            //
+            // Since we will be opening handles, we must ensure we are in the system
+            // process.  If not, queue an item over to a kernel worker thread.  If we
+            // are in the system process, just go ahead and do the work now.
+            //
+            if (PsGetCurrentProcess() != RdrFspProcess) {
+                //
+                // Send the request over to a kernel worker thread, and wait for completion
+                //
+                KeInitializeEvent( &Context->Event, NotificationEvent, FALSE );
+                Context->DoSignal = TRUE;
+                ExInitializeWorkItem( &Context->WorkItem, PnpBindBrowser, Context );
+                RdrQueueWorkItem( &Context->WorkItem, DelayedWorkQueue );
+                KeWaitForSingleObject( &Context->Event,
+                                        Executive,
+                                        KernelMode,
+                                        FALSE,
+                                        NULL
+                                      );
+            } else {
+                //
+                // Go ahead and do the binding right now
+                //
+                Context->DoSignal = FALSE;
+                PnpBindBrowser( Context );
+            }
+
+            FREE_POOL( Context );
+        }
+
+        break;
+    }
+}
+
+VOID
+RdrTdiUnbindCallback(
+    IN PUNICODE_STRING DeviceName
+)
+/*++
+
+Routine Description:
+    TDI calls this routine whenever a transport deletes a device object
+
+Arguments:
+    DeviceName = the name of the deleted device object
+
+--*/
+{
+}
+
+NTSTATUS
+RdrRegisterForPnpNotifications()
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if( RdrTdiNotificationHandle == NULL ) {
+
+        status = TdiRegisterNotificationHandler (
+                                        RdrTdiBindCallback,
+                                        RdrTdiUnbindCallback,
+                                        &RdrTdiNotificationHandle );
+    }
+
+    return status;
+}
+
+NTSTATUS
+RdrDeRegisterForPnpNotifications()
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    if( RdrTdiNotificationHandle != NULL ) {
+        status = TdiDeregisterNotificationHandler( RdrTdiNotificationHandle );
+        if( NT_SUCCESS( status ) ) {
+            RdrTdiNotificationHandle = NULL;
+        }
+    }
+
+    return status;
+}
+#endif
 
 NTSTATUS
 RdrpTdiAllocateTransport (
@@ -328,10 +633,13 @@ Return Value:
     PNONPAGED_TRANSPORT NonPagedTransport = NULL;
     BOOLEAN TransportAcquired = FALSE;
     BOOLEAN TransportInitialized = FALSE;
+    PLIST_ENTRY PreviousEntry;
+    PLIST_ENTRY NextEntry;
+    PTRANSPORT NextTransport;
 
     PAGED_CODE();
 
-    ExAcquireResourceExclusive(&TransportResource, TRUE);
+    ExAcquireResourceExclusive(&RdrTransportResource, TRUE);
 
     TransportAcquired = TRUE;
 
@@ -391,31 +699,24 @@ Return Value:
             TransportInitialized = TRUE;
 
             //
-            // If the new transport indicates a higher quality of service than
-            // the previous head transport, then insert the new transport at
-            // the head of the list, otherwise insert it at the tail of the
-            // list.
+            // Insert the new transport in the transport list in order based
+            // on its quality of service.  A higher quality of service means
+            // the transport is more preferred and goes earlier in the list.
             //
 
-            if (!IsListEmpty(&RdrTransportHead)) {
-                if (QualityOfService > CONTAINING_RECORD(RdrTransportHead.Flink,
-                                TRANSPORT, GlobalNext)->QualityOfService) {
-
-                    InsertHeadList(&RdrTransportHead, &NewTransport->GlobalNext);
-
-                } else {
-
-                    InsertTailList(&RdrTransportHead, &NewTransport->GlobalNext);
-
+            PreviousEntry = &RdrTransportHead;
+            NextEntry = PreviousEntry->Flink;
+            while ( NextEntry != &RdrTransportHead ) {
+                NextTransport = CONTAINING_RECORD( NextEntry, TRANSPORT, GlobalNext );
+                if ( QualityOfService > NextTransport->QualityOfService ) {
+                    break;
                 }
-            } else {
-                InsertHeadList (&RdrTransportHead, &NewTransport->GlobalNext);
-
+                PreviousEntry = NextEntry;
+                NextEntry = PreviousEntry->Flink;
             }
+            InsertHeadList( PreviousEntry, &NewTransport->GlobalNext );
 
-            InsertTailList(&RdrTransportEnumHead, &NewTransport->EnumNext);
-
-            ExReleaseResource(&TransportResource);
+            ExReleaseResource(&RdrTransportResource);
 
             TransportAcquired = FALSE;
 
@@ -440,11 +741,11 @@ Return Value:
                     }
 
                     if (NC == 2) {
-                        if (wcsnicmp(&NewTransport->TransportName.Buffer[i], L"\\Nbf_", 5) == 0) {
+                        if (_wcsnicmp(&NewTransport->TransportName.Buffer[i], L"\\Nbf_", 5) == 0) {
                             //
                             //  This is NBF.  See if it is RAS.
                             //
-                            if (wcsnicmp(&NewTransport->TransportName.Buffer[i], L"\\Nbf_Ras", 8) != 0) {
+                            if (_wcsnicmp(&NewTransport->TransportName.Buffer[i], L"\\Nbf_Ras", 8) != 0) {
                                 MagicBulletDeviceObject = NewTransport->NonPagedTransport->DeviceObject;
                                 MagicBulletFileObject = NewTransport->FileObject;
                             }
@@ -489,7 +790,7 @@ try_exit:NOTHING;
         }
 
         if (TransportAcquired) {
-            ExReleaseResource(&TransportResource);
+            ExReleaseResource(&RdrTransportResource);
         }
 
     }
@@ -691,7 +992,7 @@ RdrUnbindFromAllTransports(
 
     RdrReferenceDiscardableCode(RdrVCDiscardableSection);
 
-    ExAcquireResourceExclusive(&TransportResource, TRUE);
+    ExAcquireResourceExclusive(&RdrTransportResource, TRUE);
 
     for (TransportEntry = RdrTransportHead.Flink;
          TransportEntry != &RdrTransportHead;
@@ -703,11 +1004,11 @@ RdrUnbindFromAllTransports(
 
         RdrReferenceTransport(Transport->NonPagedTransport);
 
-        ExReleaseResource(&TransportResource);
+        ExReleaseResource(&RdrTransportResource);
 
         Status = RdrRemoveConnectionsTransport(Irp, Transport, USE_LOTS_OF_FORCE);
 
-        ExAcquireResourceExclusive(&TransportResource, TRUE);
+        ExAcquireResourceExclusive(&RdrTransportResource, TRUE);
 
         NextEntry = TransportEntry->Flink;
 
@@ -717,7 +1018,7 @@ RdrUnbindFromAllTransports(
 
     }
 
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
 
@@ -754,13 +1055,13 @@ Return Value:
 
     dprintf(DPRT_TRANSPORT, ("RdrDereferenceTransportByName: %wZ", TransportName));
 
-    ExAcquireResourceExclusive(&TransportResource, TRUE);
+    ExAcquireResourceExclusive(&RdrTransportResource, TRUE);
 
     Transport = RdrFindTransport(TransportName);
 
     if (Transport == NULL) {
 
-        ExReleaseResource(&TransportResource);
+        ExReleaseResource(&RdrTransportResource);
 
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
@@ -778,25 +1079,9 @@ Return Value:
 
     RdrDereferenceTransport(Transport->NonPagedTransport);
 
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     return STATUS_SUCCESS;
-}
-
-VOID
-RdrReferenceTransport(
-    IN PNONPAGED_TRANSPORT Transport
-    )
-{
-
-    PAGED_CODE();
-
-    DISCARDABLE_CODE(RdrVCDiscardableSection);
-
-    ExInterlockedIncrementLong(&Transport->ReferenceCount, NULL);
-
-    dprintf(DPRT_TRANSPORT, ("Reference transport %lx (%wZ), now at %lx\n", Transport, &Transport->PagedTransport->TransportName, Transport->ReferenceCount));
-
 }
 
 NTSTATUS
@@ -838,7 +1123,7 @@ RdrDereferenceTransport(
     //  remove the reference.
     //
 
-    ExAcquireResourceExclusive(&TransportResource, TRUE);
+    ExAcquireResourceExclusive(&RdrTransportResource, TRUE);
 
     ACQUIRE_SPIN_LOCK(&RdrTransportReferenceSpinLock, &OldIrql);
 
@@ -856,10 +1141,10 @@ RdrDereferenceTransport(
 
         RemoveEntryList(&Transport->PagedTransport->GlobalNext);
 
-        RemoveEntryList(&Transport->PagedTransport->EnumNext);
-
         if (Transport->PagedTransport->FileObject != NULL) {
             ObDereferenceObject (Transport->PagedTransport->FileObject);
+
+            ASSERT( PsGetCurrentProcess() == RdrFspProcess );
 
             ZwClose (Transport->PagedTransport->Handle);
         }
@@ -872,40 +1157,9 @@ RdrDereferenceTransport(
 
     }
 
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     return STATUS_SUCCESS;
-}
-
-
-VOID
-RdrReferenceTransportForConnection(
-    IN PTRANSPORT Transport
-    )
-{
-    PAGED_CODE();
-
-    ExInterlockedIncrementLong(&Transport->ConnectionReferenceCount, NULL);
-
-    dprintf(DPRT_TRANSPORT, ("Reference transport %lx (%wZ) for connection, now at %lx\n", Transport, &Transport->TransportName, Transport->ConnectionReferenceCount));
-
-}
-
-VOID
-RdrDereferenceTransportForConnection(
-    IN PTRANSPORT Transport
-    )
-{
-    PAGED_CODE();
-
-    ASSERT (Transport->NonPagedTransport->ReferenceCount > 0);
-
-    ASSERT (Transport->NonPagedTransport->ReferenceCount >= Transport->ConnectionReferenceCount);
-
-    ExInterlockedDecrementLong(&Transport->ConnectionReferenceCount, NULL);
-
-    dprintf(DPRT_TRANSPORT, ("Dereference transport %lx (%wZ) for connection, now at %lx\n", Transport, &Transport->TransportName, Transport->ConnectionReferenceCount));
-
 }
 
 PTRANSPORT
@@ -937,7 +1191,7 @@ Return Value:
 
     dprintf(DPRT_TRANSPORT, ("RdrFindTransport %wZ\n", TransportName));
 
-    ExAcquireResourceShared(&TransportResource, TRUE);
+    ExAcquireResourceShared(&RdrTransportResource, TRUE);
 
     for (TransportEntry = RdrTransportHead.Flink ;
         TransportEntry != &RdrTransportHead ;
@@ -951,13 +1205,13 @@ Return Value:
 
             RdrReferenceTransport(Transport->NonPagedTransport);
 
-            ExReleaseResource(&TransportResource);
+            ExReleaseResource(&RdrTransportResource);
 
             //
             //  Wait for the transport to be initialized.
             //
 
-            KeWaitForSingleObject(Transport->InitEvent, KernelMode, Executive, FALSE, NULL);
+            KeWaitForSingleObject(Transport->InitEvent, Executive, KernelMode, FALSE, NULL);
 
             //
             //  If the transport failed to initialize,
@@ -975,7 +1229,7 @@ Return Value:
         }
     }
 
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     return NULL;
 
@@ -1007,17 +1261,17 @@ RdrEnumerateTransports(
         return GetExceptionCode();
     }
 
-    if (!ExAcquireResourceShared(&TransportResource, Wait)) {
+    if (!ExAcquireResourceShared(&RdrTransportResource, Wait)) {
         return STATUS_PENDING;
     }
 
     *InputBufferLength = sizeof(LMR_REQUEST_PACKET);
     OutputBufferEnd = ((PCHAR )OutputBuffer)+OutputBufferLength;
 
-    for (TransportEntry = RdrTransportEnumHead.Flink ;
-         TransportEntry != &RdrTransportEnumHead ;
+    for (TransportEntry = RdrTransportHead.Flink ;
+         TransportEntry != &RdrTransportHead ;
          TransportEntry = TransportEntry->Flink) {
-        PTRANSPORT Transport = CONTAINING_RECORD(TransportEntry, TRANSPORT, EnumNext);
+        PTRANSPORT Transport = CONTAINING_RECORD(TransportEntry, TRANSPORT, GlobalNext);
         ULONG TransportSize;
 
         ASSERT (Transport->Signature == STRUCTURE_SIGNATURE_TRANSPORT);
@@ -1093,13 +1347,13 @@ RdrEnumerateTransports(
                 OutputBuffer++;
 
             } except (EXCEPTION_EXECUTE_HANDLER) {
-                ExReleaseResource(&TransportResource);
+                ExReleaseResource(&RdrTransportResource);
                 return GetExceptionCode();
             }
         }
     }
 
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     //
     // Return the correct error code.
@@ -1126,17 +1380,29 @@ RdrTdiSendDatagramOnAllTransports(
     PLIST_ENTRY TransportEntry;
     NTSTATUS Status = STATUS_BAD_NETWORK_PATH;
     BOOLEAN AnySendSucceeded = FALSE;
+    PTRANSPORT_ADDRESS RemoteAddress;
+    ULONG size;
 
     PAGED_CODE();
 
-    ExAcquireResourceShared(&TransportResource, TRUE);
+    size = sizeof( TA_NETBIOS_ADDRESS );
+    if( DestinationName->Length > NETBIOS_NAME_LEN ) {
+        size += DestinationName->Length - NETBIOS_NAME_LEN;
+    }
 
-    for (TransportEntry = RdrTransportEnumHead.Flink ;
-         TransportEntry != &RdrTransportEnumHead ;
+    RemoteAddress = ALLOCATE_POOL( NonPagedPool, size, POOL_TRANSPORT );
+
+    if( RemoteAddress == NULL ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    ExAcquireResourceShared(&RdrTransportResource, TRUE);
+
+    for (TransportEntry = RdrTransportHead.Flink ;
+         TransportEntry != &RdrTransportHead ;
          TransportEntry = TransportEntry->Flink) {
-        PTRANSPORT Transport = CONTAINING_RECORD(TransportEntry, TRANSPORT, EnumNext);
+        PTRANSPORT Transport = CONTAINING_RECORD(TransportEntry, TRANSPORT, GlobalNext);
 
-        TA_NETBIOS_ADDRESS RemoteAddress;
         TDI_CONNECTION_INFORMATION ConnectionInformation;
         PIRP Irp;
 
@@ -1144,7 +1410,7 @@ RdrTdiSendDatagramOnAllTransports(
         //  Wait for the transport to be initialized.
         //
 
-        KeWaitForSingleObject(Transport->InitEvent, KernelMode, Executive, FALSE, NULL);
+        KeWaitForSingleObject(Transport->InitEvent, Executive, KernelMode, FALSE, NULL);
 
         //
         //  If the transport failed to initialize, skip to the next transport.
@@ -1154,7 +1420,7 @@ RdrTdiSendDatagramOnAllTransports(
             continue;
         }
 
-        Status = RdrBuildTransportAddress(&RemoteAddress, DestinationName);
+        Status = RdrBuildNetbiosAddress( RemoteAddress, size, DestinationName );
 
         if (!NT_SUCCESS(Status)) {
             goto ReturnStatus;
@@ -1164,14 +1430,19 @@ RdrTdiSendDatagramOnAllTransports(
         //  Stick the correct signature byte to the computer name.
         //
 
-        RemoteAddress.Address[0].Address[0].NetbiosName[NETBIOS_NAME_LEN-1] = SignatureByte;
+        if( RemoteAddress->Address[0].AddressType == TDI_ADDRESS_TYPE_NETBIOS &&
+            RemoteAddress->Address[0].AddressLength == sizeof( TDI_ADDRESS_NETBIOS ) ) {
+
+            ((PTA_NETBIOS_ADDRESS)RemoteAddress)->Address[0].Address[0].NetbiosName[NETBIOS_NAME_LEN-1] = SignatureByte;
+        }
 
         ConnectionInformation.UserDataLength = 0;
         ConnectionInformation.OptionsLength = 0;
-        ConnectionInformation.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
-        ConnectionInformation.RemoteAddress = &RemoteAddress;
 
-        Irp = RdrAllocateIrp(Transport->FileObject, Transport->NonPagedTransport->DeviceObject);
+        ConnectionInformation.RemoteAddress = RemoteAddress;
+        ConnectionInformation.RemoteAddressLength = RDR_COMPUTE_TRANSPORT_ADDRESS_LENGTH( RemoteAddress );
+
+        Irp = ALLOCATE_IRP(Transport->FileObject, Transport->NonPagedTransport->DeviceObject, 11, NULL);
 
         if (Irp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1188,7 +1459,7 @@ RdrTdiSendDatagramOnAllTransports(
                              &ConnectionInformation);
         Status = SubmitTdiRequest(Transport->NonPagedTransport->DeviceObject, Irp);
 
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 15, NULL );
 
         //
         //  If the send succeeded, mark that it worked.  Regardless, go try
@@ -1201,11 +1472,13 @@ RdrTdiSendDatagramOnAllTransports(
 
     }
 ReturnStatus:
-    ExReleaseResource(&TransportResource);
+    ExReleaseResource(&RdrTransportResource);
 
     //
     //  If any of the sends succeeded, succeed the call.
     //
+
+    FREE_POOL( RemoteAddress );
 
     if (AnySendSucceeded) {
         Status = STATUS_SUCCESS;
@@ -1333,10 +1606,7 @@ TryAgain:
 
         Server->ConnectionReferenceCount += 1;
 
-        ObReferenceObjectByPointer(Server->ConnectionContext->ConnectionObject,
-                                        FILE_ALL_ACCESS,
-                                        *IoFileObjectType,
-                                        KernelMode);
+        ObReferenceObject(Server->ConnectionContext->ConnectionObject);
         RELEASE_SPIN_LOCK(&RdrServerConnectionValidSpinLock, OldIrql);
 
     } else {
@@ -1733,7 +2003,7 @@ Return Value:
 
 NTSTATUS
 RdrAllocateConnectionContext(
-    IN PIRP Irp,
+    IN PIRP Irp OPTIONAL,
     IN PTRANSPORT Transport,
     IN PSERVERLISTENTRY Server,
     IN PUNICODE_STRING ServerName,
@@ -1741,15 +2011,20 @@ RdrAllocateConnectionContext(
     )
 {
     NTSTATUS Status;
-    PTA_NETBIOS_ADDRESS RemoteTransportAddress;
+    PTRANSPORT_ADDRESS       RemoteTransportAddress;
     PRDR_TDI_CONNECT_CONTEXT Context;
     BOOLEAN ProcessAttached = FALSE;
     PRDR_CONNECTION_CONTEXT RdrConnectionContext;
+    ULONG size,NetbiosAddressSize,TransportAddressLength;
+
     PAGED_CODE();
 
     try {
 
-        Context = ALLOCATE_POOL(NonPagedPool, sizeof(RDR_TDI_CONNECT_CONTEXT), POOL_CONNECT_CONTEXT);
+        TransportAddressLength = RdrComputeTransportAddressSize(ServerName);
+        size = sizeof( RDR_TDI_CONNECT_CONTEXT ) + TransportAddressLength;
+
+        Context = ALLOCATE_POOL(NonPagedPool, size, POOL_CONNECT_CONTEXT);
 
         if (Context == NULL) {
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
@@ -1757,7 +2032,7 @@ RdrAllocateConnectionContext(
 
         RdrConnectionContext = Context->ConnectionContext = ALLOCATE_POOL(NonPagedPool, sizeof(RDR_CONNECTION_CONTEXT), POOL_CONNECT_CONTEXT);
 
-        if (ConnectionContext == NULL) {
+        if (RdrConnectionContext == NULL) {
             try_return(Status = STATUS_INSUFFICIENT_RESOURCES);
         }
 
@@ -1769,13 +2044,22 @@ RdrAllocateConnectionContext(
 
         dprintf(DPRT_TDI, ("Connect context %lx for transport %wZ\n", Context, &Transport->TransportName));
 
-        RemoteTransportAddress = (PTA_NETBIOS_ADDRESS)Context->TransportAddressBuffer;
+        RemoteTransportAddress = (PTRANSPORT_ADDRESS)Context->TransportAddressBuffer;
 
-        Status = RdrBuildTransportAddress(RemoteTransportAddress, ServerName);
+        Status = RdrBuildTransportAddress((PTRANSPORT_ADDRESS)RemoteTransportAddress,
+                                          size - sizeof( RDR_TDI_CONNECT_CONTEXT ),
+                                          ServerName);
 
         if (!NT_SUCCESS(Status)) {
             try_return(Status);
         }
+
+        //
+        // If the server's name matches the redirector's name, up to but not
+        // including the signature byte, then this is a loopback connection.
+        //
+
+        Server->IsLoopback = RdrIsLoopBack(ServerName);
 
         KeInitializeEvent(&Context->ConnectComplete, NotificationEvent, FALSE);
 
@@ -1795,9 +2079,6 @@ RdrAllocateConnectionContext(
         Status = RdrTdiOpenConnection(
                     Transport,
                     RdrConnectionContext,
-#ifdef _CAIRO_
-                    Irp->RequestorMode,
-#endif // _CAIRO_
                     &RdrConnectionContext->ConnectionHandle);
 
         if (!NT_SUCCESS(Status)) {
@@ -1837,15 +2118,15 @@ RdrAllocateConnectionContext(
 
         Context->RemoteConnectionInformation.UserDataLength = 0;
         Context->RemoteConnectionInformation.OptionsLength = 0;
-        Context->RemoteConnectionInformation.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
+        Context->RemoteConnectionInformation.RemoteAddressLength = TransportAddressLength;
         Context->RemoteConnectionInformation.RemoteAddress = RemoteTransportAddress;
 
         Context->ConnectedConnectionInformation.UserDataLength = 0;
         Context->ConnectedConnectionInformation.OptionsLength = 0;
-        Context->ConnectedConnectionInformation.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
+        Context->ConnectedConnectionInformation.RemoteAddressLength = TransportAddressLength;
         Context->ConnectedConnectionInformation.RemoteAddress = &Context->TransportAddressBuffer;
 
-        Context->Irp = RdrAllocateIrp(RdrConnectionContext->ConnectionObject, NULL);
+        Context->Irp = ALLOCATE_IRP(RdrConnectionContext->ConnectionObject, NULL, 12, Context);
 
         if (Context->Irp == NULL) {
 
@@ -1881,6 +2162,20 @@ try_exit:NOTHING;
     return Status;
 }
 #endif
+
+BOOLEAN
+RdrNoTransportBindings (
+    VOID
+    )
+{
+    BOOLEAN bEmpty;
+
+    ExAcquireResourceShared (&RdrTransportResource, TRUE);
+    bEmpty = IsListEmpty(&RdrTransportHead);
+    ExReleaseResource(&RdrTransportResource);
+
+    return bEmpty;
+}
 
 
 NTSTATUS
@@ -1925,12 +2220,12 @@ Return Value:
     //  Prepare to walk the transport list.
     //
 
-    ExAcquireResourceShared (&TransportResource, TRUE);
+    ExAcquireResourceShared (&RdrTransportResource, TRUE);
 
     TransportLocked = TRUE;
 
     if (IsListEmpty(&RdrTransportHead)) {
-        ExReleaseResource(&TransportResource);
+        ExReleaseResource(&RdrTransportResource);
 
         return STATUS_BAD_NETWORK_PATH;
     }
@@ -1944,7 +2239,7 @@ Return Value:
     ASSERT (ExIsResourceAcquiredExclusive(&Server->OutstandingRequestResource));
 
     try {
-        for (XPortList = RdrTransportHead.Flink ;
+        for (XPortList = RdrTransportHead.Flink;
              XPortList != &RdrTransportHead ;
              XPortList = XPortList->Flink
             ) {
@@ -1955,7 +2250,7 @@ Return Value:
             //  Wait for the transport to be bound.
             //
 
-            KeWaitForSingleObject(Transport->InitEvent, KernelMode, Executive, FALSE, NULL);
+            KeWaitForSingleObject(Transport->InitEvent, Executive, KernelMode, FALSE, NULL);
 
             //
             //  Skip over unsuccessful transports.
@@ -1991,7 +2286,6 @@ Return Value:
         //  of the connect requests completing.
         //
 
-
         //
         //  Submit all the connect requests in parallel.
         //
@@ -2026,10 +2320,10 @@ Return Value:
             do {
 
                 Status = KeWaitForSingleObject(&Context->ConnectComplete,
-                                            KernelMode,
-                                            Executive,
-                                            FALSE,
-                                            &RdrTdiPollTimeout);
+                                        Executive,
+                                        KernelMode,
+                                        FALSE,
+                                        &RdrTdiPollTimeout);
 
                 //
                 //  If we timed out the wait, and the thread is terminating,
@@ -2200,7 +2494,7 @@ try_exit:NOTHING;
         Server->LastConnectTime = RdrCurrentTime;
 
         if (TransportLocked) {
-            ExReleaseResource(&TransportResource);
+            ExReleaseResource(&RdrTransportResource);
         }
     }
 
@@ -2211,6 +2505,7 @@ try_exit:NOTHING;
     return Status;
 }
 
+
 VOID
 RdrFreeConnectionContext(
     IN PRDR_TDI_CONNECT_CONTEXT ConnectionContext
@@ -2218,10 +2513,10 @@ RdrFreeConnectionContext(
 {
     PRDR_CONNECTION_CONTEXT context;
     NTSTATUS status;
-    BOOLEAN processAttached;
+    BOOLEAN processAttached = FALSE;
 
     if (ConnectionContext->Irp != NULL) {
-        IoFreeIrp(ConnectionContext->Irp);
+        FREE_IRP( ConnectionContext->Irp, 16, NULL );
     }
 
     context = ConnectionContext->ConnectionContext;
@@ -2329,9 +2624,10 @@ Return Value:
     NTSTATUS Status = STATUS_BAD_NETWORK_PATH;
     PLIST_ENTRY XportList;
     PTRANSPORT Xport;
-    ULONG ConnectionRetryCount = 1;
+    ULONG ConnectionRetryCount;
     BOOLEAN TransportLocked = FALSE;
     BOOLEAN PrimaryTransport = TRUE;
+    PTRANSPORT NewXport;
 
     PAGED_CODE();
 
@@ -2342,13 +2638,13 @@ Return Value:
     //  without trying anything.
     //
 
-    ExAcquireResourceShared (&TransportResource, TRUE);
+    ExAcquireResourceShared (&RdrTransportResource, TRUE);
 
     TransportLocked = TRUE;
 
     if (IsListEmpty(&RdrTransportHead)) {
 
-        ExReleaseResource(&TransportResource);
+        ExReleaseResource(&RdrTransportResource);
 
         RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
 
@@ -2363,12 +2659,13 @@ Return Value:
 
     RdrReferenceTransport(Xport->NonPagedTransport);
 
-    ExReleaseResource (&TransportResource);
+    ExReleaseResource (&RdrTransportResource);
 
     TransportLocked = FALSE;
 
     do {
-        PTRANSPORT NewXport = NULL;
+
+        ConnectionRetryCount = 1;
 
 RetryConnection:
 
@@ -2411,7 +2708,7 @@ RetryConnection:
 
         ASSERT (!TransportLocked);
 
-        ExAcquireResourceShared (&TransportResource, TRUE);
+        ExAcquireResourceShared (&RdrTransportResource, TRUE);
 
         TransportLocked = TRUE;
 
@@ -2426,7 +2723,7 @@ RetryConnection:
             NewXport = NULL;
         }
 
-        ExReleaseResource(&TransportResource);
+        ExReleaseResource(&RdrTransportResource);
 
         TransportLocked = FALSE;
 
@@ -2450,7 +2747,7 @@ RetryConnection:
     } while ( Xport != NULL );
 
     if (TransportLocked) {
-        ExReleaseResource (&TransportResource);
+        ExReleaseResource (&RdrTransportResource);
     }
 
     if (Xport != NULL) {
@@ -2553,7 +2850,7 @@ RdrResetTransportConnectionValid(
 
 NTSTATUS
 RdrTdiConnectOnTransport(
-    IN PIRP Irp,
+    IN PIRP Irp OPTIONAL,
     IN PTRANSPORT Transport,
     IN PUNICODE_STRING ServerName,
     IN PSERVERLISTENTRY Server
@@ -2569,7 +2866,6 @@ Arguments:
     IN PIRP Irp - Optional IRP to use connecting to server.
     IN PTRANSPORT - Specifies the transport to connect to.
     IN PUNICODE_STRING RemoteTransportAddress - Specifies the name to connect to.
-    OUT PTRANSPORT_CONNECTION Connection - Connection structure to use.
 
 Return Value:
 
@@ -2581,10 +2877,11 @@ Return Value:
     NTSTATUS Status = STATUS_BAD_NETWORK_PATH;
     BOOLEAN AddressAssociated = FALSE;
     BOOLEAN ProcessAttached = FALSE;
-    CHAR TransportAddressBuffer[sizeof(TA_NETBIOS_ADDRESS)];
-    PTA_NETBIOS_ADDRESS RemoteTransportAddress = (PTA_NETBIOS_ADDRESS)TransportAddressBuffer;
-    PTA_NETBIOS_ADDRESS ConnectedTransportAddress = (PTA_NETBIOS_ADDRESS)TransportAddressBuffer;
+    PTRANSPORT_ADDRESS TransportAddressBuffer;
+    PTRANSPORT_ADDRESS RemoteTransportAddress;
+    PTRANSPORT_ADDRESS ConnectedTransportAddress;
     PRDR_CONNECTION_CONTEXT ConnectionContext = NULL;
+    ULONG TransportAddressSize;
 
     PAGED_CODE();
 
@@ -2593,18 +2890,37 @@ Return Value:
     //  name.
     //
 
-    Status = RdrBuildTransportAddress(RemoteTransportAddress, ServerName);
+    TransportAddressSize = RdrComputeTransportAddressSize(ServerName);
+
+    TransportAddressBuffer = ALLOCATE_POOL( NonPagedPool, TransportAddressSize, POOL_TRANSPORT );
+
+    if( TransportAddressBuffer == NULL ) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    Status = RdrBuildTransportAddress( TransportAddressBuffer, TransportAddressSize, ServerName );
 
     if (!NT_SUCCESS(Status)) {
+        FREE_POOL( TransportAddressBuffer );
         return Status;
     }
+
+    RemoteTransportAddress =
+        ConnectedTransportAddress = (PTRANSPORT_ADDRESS)TransportAddressBuffer;
+
+    //
+    // If the server's name matches the redirector's name, up to but not
+    // including the signature byte, then this is a loopback connection.
+    //
+
+    Server->IsLoopback = RdrIsLoopBack(ServerName);
 
     IFDEBUG(TDI) {
         OEM_STRING String;
 
         String.MaximumLength = RemoteTransportAddress->Address[0].AddressLength;
         String.Length = NETBIOS_NAME_LEN;
-        String.Buffer = RemoteTransportAddress->Address[0].Address[0].NetbiosName;
+        //String.Buffer = RemoteTransportAddress->Address[0].Address[0].NetbiosName;
         dprintf(DPRT_TDI, ("Connect to \"%Z\"\n",&String));
     }
 
@@ -2659,7 +2975,7 @@ Return Value:
         //  Wait for the transport to be bound in.
         //
 
-        KeWaitForSingleObject(Transport->InitEvent, KernelMode, Executive, FALSE, NULL);
+        KeWaitForSingleObject(Transport->InitEvent, Executive, KernelMode, FALSE, NULL);
 
         //
         //  If the transport failed to initialize, fail the connect request.
@@ -2687,9 +3003,6 @@ Return Value:
         S1 = Status = RdrTdiOpenConnection(
                             Transport,
                             ConnectionContext,
-#ifdef _CAIRO_
-                            Irp->RequestorMode,
-#endif // _CAIRO_
                             &ConnectionContext->ConnectionHandle);
 
         if (!NT_SUCCESS(Status)) {
@@ -2734,7 +3047,13 @@ Return Value:
         //  Now perform the actual connection operation.
         //
 
-        S4 = Status = RdrDoTdiConnect(Irp, ConnectionContext->ConnectionObject, RemoteTransportAddress, ConnectedTransportAddress);
+        S4 = Status = RdrDoTdiConnect(
+                           Irp,
+                           ConnectionContext->ConnectionObject,
+                           RemoteTransportAddress,
+                           ConnectedTransportAddress,
+                           TransportAddressSize,
+                           TransportAddressSize);
 
         Server->LastConnectStatus = Status;
         Server->LastConnectTime = RdrCurrentTime;
@@ -2796,7 +3115,7 @@ try_exit:NOTHING;
 
                 if (ConnectionContext->ConnectionHandle != NULL) {
                     NTSTATUS CloseStatus;
-                    CloseStatus = RdrTdiCloseConnection(ConnectionContext->ConnectionHandle);
+                    CloseStatus = ZwClose(ConnectionContext->ConnectionHandle);
 
                     ASSERT (NT_SUCCESS(CloseStatus));
 
@@ -2814,8 +3133,11 @@ try_exit:NOTHING;
 
             RdrResetTransportConnectionValid(Server);
 
-
-//            RdrSendMagicBullet(Transport);
+#if 0 && MAGIC_BULLET
+            if ( RdrEnableMagic ) {
+                RdrSendMagicBullet(Transport);
+            }
+#endif
 
             //
             //  The connect failed - Dereference the transport for the
@@ -2838,7 +3160,7 @@ try_exit:NOTHING;
 
                 String.MaximumLength = RemoteTransportAddress->Address[0].AddressLength;
                 String.Length = NETBIOS_NAME_LEN;
-                String.Buffer = RemoteTransportAddress->Address[0].Address[0].NetbiosName;
+          //      String.Buffer = RemoteTransportAddress->Address[0].Address[0].NetbiosName;
                 dprintf(DPRT_TDI, ("Connect to \"%Z\"\n",&String));
                 dprintf(DPRT_TDI, ("Connection Handle:%lx\n",Server->ConnectionContext->ConnectionHandle));
             }
@@ -2855,7 +3177,7 @@ try_exit:NOTHING;
         }
     }
 
-
+    FREE_POOL( TransportAddressBuffer );
     return Status;
 }
 
@@ -2915,21 +3237,21 @@ Return Value:
         ProcessAttached = TRUE;
     }
 
-    Status = RdrTdiCloseConnection(Server->ConnectionContext->ConnectionHandle);
+    Status = ZwClose(Server->ConnectionContext->ConnectionHandle);
 
     ASSERT (NT_SUCCESS(Status));
 
     Server->ConnectionContext->ConnectionHandle = NULL;
-
-    if (ProcessAttached) {
-        KeDetachProcess();
-    }
 
     RdrDereferenceTransportForConnection(Server->ConnectionContext->TransportProvider->PagedTransport);
 
     ASSERT (NT_SUCCESS(Status));
 
     RdrDereferenceTransportConnectionNoRelease(Server);
+
+    if (ProcessAttached) {
+        KeDetachProcess();
+    }
 
     RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
 
@@ -3046,7 +3368,7 @@ Return Value:
         Status = Irp->IoStatus.Status;
     }
 
-    dprintf(DPRT_TDI, ("TDI request complete "));
+    dprintf(DPRT_TDI, ("TDI request complete\n"));
 
     RdrDereferenceDiscardableCode(RdrVCDiscardableSection);
 
@@ -3085,8 +3407,7 @@ Return Value:
     PAGED_CODE();
 
     if (!ARGUMENT_PRESENT(Irp)) {
-        Irp = RdrAllocateIrp(ConnectionObject,
-                                deviceObject);
+        Irp = ALLOCATE_IRP(ConnectionObject, deviceObject, 13, NULL);
         if (Irp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             return Status;
@@ -3103,7 +3424,7 @@ Return Value:
     Status = SubmitTdiRequest(deviceObject, Irp);
 
     if (IrpAllocated) {
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 17, NULL );
     }
 
     return(Status);
@@ -3126,7 +3447,7 @@ RdrDoTdiDisconnect(
     //
 
     if (!ARGUMENT_PRESENT(Irp)) {
-        Irp = RdrAllocateIrp(ConnectionObject, NULL);
+        Irp = ALLOCATE_IRP(ConnectionObject, NULL, 14, NULL);
 
         if (Irp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -3143,7 +3464,7 @@ RdrDoTdiDisconnect(
     Status = SubmitTdiRequest(IoGetRelatedDeviceObject(ConnectionObject), Irp);
 
     if (IrpAllocated) {
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 18, NULL );
     }
 
     return Status;
@@ -3178,7 +3499,7 @@ Return Value:
     PAGED_CODE();
 
     if (!ARGUMENT_PRESENT(Irp)) {
-        Irp = RdrAllocateIrp(ConnectionObject, NULL);
+        Irp = ALLOCATE_IRP(ConnectionObject, NULL, 15, NULL);
         if (Irp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             return Status;
@@ -3195,7 +3516,7 @@ Return Value:
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
     if (IrpAllocated) {
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 19, NULL );
     }
 
     return(Status);
@@ -3206,9 +3527,6 @@ Return Value:
 RdrTdiOpenConnection (
     IN PTRANSPORT Transport,
     IN PVOID ConnectionContext,
-#ifdef _CAIRO_
-    IN KPROCESSOR_MODE RequestorMode,
-#endif // _CAIRO_
     OUT PHANDLE Handle
     )
 /*++
@@ -3270,42 +3588,19 @@ Return Value:
                                     NULL,                   // RootDirectory
                                     NULL);                  // SecurityDescriptor
 
-#ifdef _CAIRO_
-
-    if (RequestorMode == KernelMode) {
-        Status = IoCreateFile(Handle,               // Handle
-                              GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
-                              &AddressAttributes, // Object Attributes
-                              &IoStatusBlock, // Final I/O status block
-                              NULL,           // Allocation Size
-                              FILE_ATTRIBUTE_NORMAL, // Normal attributes
-                              FILE_SHARE_READ | FILE_SHARE_WRITE, // Sharing attributes
-                              FILE_OPEN_IF,   // Create disposition
-                              0,              // CreateOptions
-                              EABuffer,       // EA Buffer
-                              sizeof(FILE_FULL_EA_INFORMATION) +
-                                TDI_CONNECTION_CONTEXT_LENGTH + 1 +
-                                sizeof(CONNECTION_CONTEXT),
-                              CreateFileTypeNone,
-                              (PVOID)NULL,
-                              0);
-    } else
-
-#endif // _CAIRO_
-
-        Status = ZwCreateFile(Handle,               // Handle
-                              GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
-                              &AddressAttributes, // Object Attributes
-                              &IoStatusBlock, // Final I/O status block
-                              NULL,           // Allocation Size
-                              FILE_ATTRIBUTE_NORMAL, // Normal attributes
-                              FILE_SHARE_READ | FILE_SHARE_WRITE, // Sharing attributes
-                              FILE_OPEN_IF,   // Create disposition
-                              0,              // CreateOptions
-                              EABuffer,       // EA Buffer
-                              sizeof(FILE_FULL_EA_INFORMATION) +
-                                TDI_CONNECTION_CONTEXT_LENGTH + 1 +
-                                sizeof(CONNECTION_CONTEXT));
+    Status = ZwCreateFile(Handle,               // Handle
+                          GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE,
+                          &AddressAttributes, // Object Attributes
+                          &IoStatusBlock, // Final I/O status block
+                          NULL,           // Allocation Size
+                          FILE_ATTRIBUTE_NORMAL, // Normal attributes
+                          FILE_SHARE_READ | FILE_SHARE_WRITE, // Sharing attributes
+                          FILE_OPEN_IF,   // Create disposition
+                          0,              // CreateOptions
+                          EABuffer,       // EA Buffer
+                          sizeof(FILE_FULL_EA_INFORMATION) +
+                            TDI_CONNECTION_CONTEXT_LENGTH + 1 +
+                            sizeof(CONNECTION_CONTEXT));
 
 
 
@@ -3321,49 +3616,15 @@ Return Value:
 
     return(Status);
 }
-NTSTATUS
-RdrTdiCloseConnection (
-    IN HANDLE Handle
-    )
-/*++
-
-Routine Description:
-
-    This routine submits a request to TDI and waits for it to complete.
-
-Arguments:
-
-    IN PTRANSPORT Transport - Supplies the transport provider to disconnect
-    IN ULONG Function - Supplies the function to submit to TDI.
-    IN PVOID Buffer1 - Supplies the primary buffer (Input Buffer)
-    IN ULONG Buffer1Size - Supplies the size of Buffer1
-    IN PVOID Buffer2 - Supplies the secondary buffer (Output Buffer)
-    IN ULONG Buffer2Size - Supplies the size of Buffer2
-
-Return Value:
-
-    NTSTATUS - Final status of request.
-
---*/
-
-{
-    NTSTATUS Status;
-
-    PAGED_CODE();
-
-    dprintf(DPRT_TDI, ("RdrTdiCloseConnection: Closing connection handle %lx\n", Handle));
-
-    Status = ZwClose(Handle);
-
-    return Status;
-}
 
 NTSTATUS
 RdrDoTdiConnect (
     PIRP Irp OPTIONAL,
-    IN PFILE_OBJECT ConnectionObject,
-    IN PTA_NETBIOS_ADDRESS RemoteAddress,
-    OUT PTA_NETBIOS_ADDRESS ConnectedAddress
+    IN   PFILE_OBJECT ConnectionObject,
+    IN   PTRANSPORT_ADDRESS RemoteAddress,
+    OUT  PTRANSPORT_ADDRESS ConnectedAddress,
+    IN   ULONG RemoteTransportAddressSize,
+    IN   ULONG ConnectedTransportAddressSize
     )
 /*++
 
@@ -3397,16 +3658,20 @@ Return Value:
 
     RemoteConnectionInformation.UserDataLength = 0;
     RemoteConnectionInformation.OptionsLength = 0;
-    RemoteConnectionInformation.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
+
+    RemoteConnectionInformation.RemoteAddressLength =
+        RemoteTransportAddressSize;
+
     RemoteConnectionInformation.RemoteAddress = RemoteAddress;
 
     ConnectedConnectionInformation.UserDataLength = 0;
     ConnectedConnectionInformation.OptionsLength = 0;
-    ConnectedConnectionInformation.RemoteAddressLength = sizeof(TA_NETBIOS_ADDRESS);
+    ConnectedConnectionInformation.RemoteAddressLength = RemoteConnectionInformation.RemoteAddressLength;
     ConnectedConnectionInformation.RemoteAddress = ConnectedAddress;
 
+
     if (!ARGUMENT_PRESENT(Irp)) {
-        Irp = RdrAllocateIrp(ConnectionObject, NULL);
+        Irp = ALLOCATE_IRP(ConnectionObject, NULL, 16, NULL);
         if (Irp == NULL) {
             Status = STATUS_INSUFFICIENT_RESOURCES;
             return Status;
@@ -3425,7 +3690,7 @@ Return Value:
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
     if (IrpAllocated) {
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 20, NULL );
     }
 
     if (Status == STATUS_IO_TIMEOUT) {
@@ -3467,6 +3732,9 @@ Return Value:
 --*/
 
 {
+    UNREFERENCED_PARAMETER(Irp);
+    UNREFERENCED_PARAMETER(DeviceObject);
+
     dprintf(DPRT_TDI, ("CompleteTdiRequest: %lx\n", Ctx));
 
     DISCARDABLE_CODE(RdrVCDiscardableSection);
@@ -3480,9 +3748,6 @@ Return Value:
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 
-    //  Quiet the compiler.
-
-    if (Irp || DeviceObject){};
 }
 
 NTSTATUS
@@ -3516,7 +3781,7 @@ Return Value:
 
     DeviceObject = IoGetRelatedDeviceObject(TransportObject);
 
-    Irp = RdrAllocateIrp(TransportObject, DeviceObject);
+    Irp = ALLOCATE_IRP(TransportObject, DeviceObject, 17, NULL);
 
     if (Irp == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -3534,7 +3799,7 @@ Return Value:
 
     if (Mdl == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 21, NULL );
         goto ReturnStatus;
     }
 
@@ -3546,11 +3811,133 @@ Return Value:
 
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 22, NULL );
 
 ReturnStatus:
     if (Mdl != NULL) {
         IoFreeMdl(Mdl);
+    }
+
+    return(Status);
+}
+
+NTSTATUS
+RdrQueryServerAddresses(
+    IN PSERVERLISTENTRY Server,
+    OUT PUNICODE_STRING NBName,
+    OUT PTDI_ADDRESS_IP IPAddress
+    )
+/*++
+
+Routine Description:
+
+    This routine will determine a server's NetBIOS and IP address. Useful
+    for filling in the NBAddress and IPAddress fields of an SLE.
+
+Arguments:
+
+    IN PSERVERLISTENTRY Server - The server whose NB/IP address is desired
+    OUT PUNICODE_STRING NBName - Buffer to fill with the NetBIOS name,
+                                 without the trailing spaces. Must have a
+                                 buffer of atleast 16 WCHARs
+    OUT PTDI_ADDRESS_IP IPAddress - Struct to fill in with the IP address
+
+
+Return Value:
+
+    Status of operation.
+
+--*/
+{
+    PIRP Irp;
+    PFILE_OBJECT FileObject;
+    PDEVICE_OBJECT DeviceObject;
+    PMDL Mdl = NULL;
+    PNBT_ADDRESS_PAIR_INFO AddressPairInfo = NULL;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    PAGED_CODE();
+
+    AddressPairInfo =
+        ALLOCATE_POOL(
+            NonPagedPool,
+            sizeof(NBT_ADDRESS_PAIR_INFO),
+            POOL_TRANSPORT);
+
+    if (AddressPairInfo == NULL) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto ReturnStatus;
+    }
+
+    FileObject = Server->ConnectionContext->ConnectionObject;
+
+    DeviceObject = IoGetRelatedDeviceObject(FileObject);
+
+    Irp = ALLOCATE_IRP(FileObject, DeviceObject, 17, NULL);
+
+    if (Irp == NULL) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        goto ReturnStatus;
+    }
+
+    //
+    //  Allocate an MDL to hold the provider info.
+    //
+
+    Mdl = IoAllocateMdl(AddressPairInfo, sizeof(NBT_ADDRESS_PAIR_INFO),
+                        FALSE,
+                        FALSE,
+                        NULL);
+
+    if (Mdl == NULL) {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+        FREE_IRP( Irp, 21, NULL );
+        goto ReturnStatus;
+    }
+
+    MmBuildMdlForNonPagedPool(Mdl);
+
+    TdiBuildQueryInformation(Irp, DeviceObject, FileObject,
+                            NULL, NULL,
+                            TDI_QUERY_ADDRESS_INFO, Mdl);
+
+    Status = SubmitTdiRequest(DeviceObject, Irp);
+
+    if (NT_SUCCESS(Status)) {
+        USHORT i;
+        ANSI_STRING nbNameInAnsi;
+        PTDI_ADDRESS_NETBIOS nbAddr;
+
+        ASSERT(NBName->MaximumLength >= 16);
+
+        nbAddr = &AddressPairInfo->AddressPair.AddressNetBIOS.Address;
+
+        //
+        // Pick up the NetBIOS name without the trailing spaces
+        //
+
+        for (i = 15; (i > 0) && (nbAddr->NetbiosName[i-1] == ' '); i--) {
+            NOTHING;
+        }
+
+        nbNameInAnsi.Length = i;
+        nbNameInAnsi.MaximumLength = i;
+        nbNameInAnsi.Buffer = nbAddr->NetbiosName;
+
+        RtlAnsiStringToUnicodeString(NBName, &nbNameInAnsi, FALSE);
+
+        *IPAddress = AddressPairInfo->AddressPair.AddressIP.Address;
+    }
+
+    FREE_IRP( Irp, 22, NULL );
+
+ReturnStatus:
+    if (Mdl != NULL) {
+        IoFreeMdl(Mdl);
+    }
+
+    if (AddressPairInfo != NULL) {
+        FREE_POOL(AddressPairInfo);
     }
 
     return(Status);
@@ -3596,7 +3983,7 @@ Return Value:
 
     DeviceObject = IoGetRelatedDeviceObject(Server->ConnectionContext->ConnectionObject);
 
-    Irp = RdrAllocateIrp(Server->ConnectionContext->ConnectionObject, DeviceObject);
+    Irp = ALLOCATE_IRP(Server->ConnectionContext->ConnectionObject, DeviceObject, 18, NULL);
 
     if (Irp == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -3615,7 +4002,7 @@ Return Value:
     if (Mdl == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
 
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 23, NULL );
 
         goto ReturnStatus;
     }
@@ -3628,14 +4015,14 @@ Return Value:
 
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 24, NULL );
 
     if (NT_SUCCESS(Status)) {
         KIRQL OldIrql;
         LARGE_INTEGER WriteBehindAmount;
         LARGE_INTEGER ReadAheadThroughput;
 
-        ReadAheadThroughput.QuadPart = RdrData.ReadAheadThroughput * 1024;  //  Change to bytes per second
+        ReadAheadThroughput.QuadPart = Int32x32To64(RdrData.ReadAheadThroughput, 1024);  //  Change to bytes per second
 
         ACQUIRE_SPIN_LOCK(&RdrServerConnectionValidSpinLock, &OldIrql);
 
@@ -3679,31 +4066,46 @@ Return Value:
             Server->Throughput = ConnectionInfo.Throughput.LowPart;
         }
 
-        if ( ConnectionInfo.Throughput.QuadPart > ReadAheadThroughput.QuadPart ) {
-            Server->ReadAhead = TRUE;
+        if( Server->SupportsRawRead ) {
+
+            Server->ReadAhead = (Server->RawReadMaximum >= 32*1024);
+
         } else {
-            Server->ReadAhead = FALSE;
+
+            Server->ReadAhead = ConnectionInfo.Throughput.QuadPart > ReadAheadThroughput.QuadPart;
         }
 
         //
         //  Calculate the amount of data transfered in 30 seconds.
         //
-        if (Server->Throughput != 0) {
+        if( Server->SupportsRawWrite ) {
+
+            if( RdrRawTimeLimit != 0 && RdrRawTimeLimit < 30 ) {
+                Server->ThirtySecondsOfData.QuadPart = Server->RawWriteMaximum
+                                                       * ((30 + RdrRawTimeLimit - 1) / RdrRawTimeLimit);
+            } else {
+                Server->ThirtySecondsOfData.QuadPart = ConnectionInfo.Throughput.QuadPart
+                                                       * WRITE_BEHIND_AMOUNT_TIME;
+            }
+
+        } else if (Server->Throughput != 0) {
 
             //
             //  Save away the # of bytes that can be written in 30 seconds.
             //
 
-            Server->ThirtySecondsOfData.QuadPart = ConnectionInfo.Throughput.QuadPart * WRITE_BEHIND_AMOUNT_TIME;
+            Server->ThirtySecondsOfData.QuadPart = ConnectionInfo.Throughput.QuadPart
+                                                   * WRITE_BEHIND_AMOUNT_TIME;
+        } else {
+            Server->ThirtySecondsOfData.QuadPart = 0;
+        }
 
-            WriteBehindAmount.QuadPart = Server->ThirtySecondsOfData.QuadPart + PAGE_SIZE - 1;
+        WriteBehindAmount.QuadPart = Server->ThirtySecondsOfData.QuadPart + PAGE_SIZE - 1;
 
-            WriteBehindAmount.QuadPart = WriteBehindAmount.QuadPart / PAGE_SIZE;
+        WriteBehindAmount.QuadPart = WriteBehindAmount.QuadPart / PAGE_SIZE;
 
-            if (WriteBehindAmount.HighPart == 0) {
-                Server->WriteBehindPages = WriteBehindAmount.LowPart;
-            }
-
+        if (WriteBehindAmount.HighPart == 0) {
+            Server->WriteBehindPages = WriteBehindAmount.LowPart;
         }
 
         RELEASE_SPIN_LOCK(&RdrServerConnectionValidSpinLock, OldIrql);
@@ -3753,7 +4155,7 @@ Return Value:
 
     DeviceObject = IoGetRelatedDeviceObject(TransportObject);
 
-    Irp = RdrAllocateIrp(TransportObject, DeviceObject);
+    Irp = ALLOCATE_IRP(TransportObject, DeviceObject, 19, NULL);
 
     if (Irp == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -3771,7 +4173,7 @@ Return Value:
 
     if (Mdl == NULL) {
         Status = STATUS_INSUFFICIENT_RESOURCES;
-        IoFreeIrp(Irp);
+        FREE_IRP( Irp, 25, NULL );
         goto ReturnStatus;
     }
     MmBuildMdlForNonPagedPool(Mdl);
@@ -3782,7 +4184,7 @@ Return Value:
 
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 26, NULL );
 
 ReturnStatus:
     if (Mdl != NULL) {
@@ -3927,17 +4329,6 @@ Return Value:
     }
 
     //
-    //  Register the redirector's Error event handler.
-    //
-
-    Status = RdrpTdiSetEventHandler(DeviceObject, Transport->FileObject, TDI_EVENT_ERROR,
-                                        (PVOID )RdrTdiErrorHandler);
-
-    if (!NT_SUCCESS(Status)) {
-        goto error_cleanup;
-    }
-
-    //
     //  Register the redirector's Disconnection event handler.
     //
 
@@ -4040,7 +4431,7 @@ Return Value:
 
     PAGED_CODE();
 
-    Irp = RdrAllocateIrp(FileObject, NULL);
+    Irp = ALLOCATE_IRP(FileObject, NULL, 20, NULL);
 
     if (Irp == NULL) {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -4052,15 +4443,16 @@ Return Value:
 
     Status = SubmitTdiRequest(DeviceObject, Irp);
 
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 27, NULL );
 
     return Status;
 }
 
 
 NTSTATUS
-RdrBuildTransportAddress (
-    IN PTA_NETBIOS_ADDRESS RemoteAddress,
+RdrBuildNetbiosAddress (
+    IN PTRANSPORT_ADDRESS     TransportAddress,
+    IN ULONG                  TransportAddressLength,
     IN PUNICODE_STRING Name
     )
 /*++
@@ -4072,11 +4464,9 @@ Routine Description:
 
 Arguments:
 
-    OUT PTA_NETBIOS_ADDRESS RemoteAddress, - Supplies the structure to fill in
+    OUT TRANSPORT_ADDRESS RemoteAddress, - Supplies the structure to fill in
+    IN TransportAddressLength - Supplies the length of the buffer at TransportAddress
     IN PUNICODE_STRING Name - Supplies the name to put into the transport
-
-    Please note that it is CRITICAL that the TA_NETBIOS_ADDRESS pointed to by
-    RemoteAddress be of sufficient size to hold the full network name.
 
 Return Value:
 
@@ -4087,56 +4477,401 @@ Return Value:
 {
     OEM_STRING ComputerName;
     NTSTATUS Status;
-#ifdef MULTIPLE_VCS_PER_SERVER
-    USHORT i;
-    USHORT OriginalNameLength;
-#endif
+    PTA_NETBIOS_ADDRESS pNetbiosAddress = (PTA_NETBIOS_ADDRESS)TransportAddress;
 
     PAGED_CODE();
 
-    RemoteAddress->TAAddressCount = 1;
-    RemoteAddress->Address[0].AddressType = TDI_ADDRESS_TYPE_NETBIOS;
-    RemoteAddress->Address[0].AddressLength = TDI_ADDRESS_LENGTH_NETBIOS;
-    RemoteAddress->Address[0].Address[0].NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
-
-    ComputerName.MaximumLength = NETBIOS_NAME_LEN;
-
-    ComputerName.Buffer = RemoteAddress->Address[0].Address[0].NetbiosName;
-
-#ifdef MULTIPLE_VCS_PER_SERVER
-    OriginalNameLength = Name->Length;
-
-    //
-    //  The "+" Character is an illegal character in computer names.  We use
-    //  this as a delimiter to indicate that the name of the server is
-    //  in fact the name specified up (but not including) the "+".  This
-    //  allows the redirector to perform multiple connections to a given
-    //  server.
-    //
-
-    for ( i = 0 ; i < (Name->Length) / sizeof(WCHAR) ; i += 1 ) {
-        if (Name->Buffer[i] == L'+') {
-            Name->Length = i*sizeof(WCHAR);
-            break;
-        }
+    if( TransportAddressLength < sizeof( TA_NETBIOS_ADDRESS ) ) {
+        return STATUS_BUFFER_OVERFLOW;
     }
-#endif
 
+    pNetbiosAddress->TAAddressCount = 1;
+    pNetbiosAddress->Address[0].AddressType = TDI_ADDRESS_TYPE_NETBIOS;
+    pNetbiosAddress->Address[0].Address[0].NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_UNIQUE;
+
+    ComputerName.Buffer = pNetbiosAddress->Address[0].Address[0].NetbiosName;
+    ComputerName.MaximumLength = NETBIOS_NAME_LEN + (USHORT)TransportAddressLength - sizeof( TA_NETBIOS_ADDRESS );
 
     Status = RtlUpcaseUnicodeStringToOemString(&ComputerName, Name, FALSE);
-
-#ifdef MULTIPLE_VCS_PER_SERVER
-    Name->Length = OriginalNameLength;
-#endif
-
-    if (!NT_SUCCESS(Status)) {
-
+    if( !NT_SUCCESS( Status ) ) {
         return STATUS_BAD_NETWORK_PATH;
-
     }
 
-    RtlCopyMemory(&ComputerName.Buffer[ComputerName.Length], "                ",
-                                    NETBIOS_NAME_LEN-ComputerName.Length);
+    TransportAddress->Address[0].AddressLength = TDI_ADDRESS_LENGTH_NETBIOS;
+
+    if( ComputerName.Length < NETBIOS_NAME_LEN ) {
+
+        //
+        // Ensure that the name is at least big enough to fit in the TA_NETBIOS_ADDRESS
+        //  structure.  If it is too small, then pad it on out with blanks.
+        //
+        RtlCopyMemory( &ComputerName.Buffer[ ComputerName.Length ],
+                       "                ",
+                       NETBIOS_NAME_LEN - ComputerName.Length
+                     );
+
+    } else {
+
+        //
+        // If the passed-in name is longer than a netbios name, then just reflect it
+        // into the structure. Transports will reject if if they can't handle it.
+        //
+        TransportAddress->Address[0].AddressLength += ComputerName.Length - NETBIOS_NAME_LEN;
+    }
+
+    return STATUS_SUCCESS;
+}
+
+BOOLEAN
+RdrIsLoopBack(
+   PUNICODE_STRING pServerName)
+/*++
+
+Routine Description:
+
+    This routine takes a computer name (PUNICODE_STRING) and determines if it is the same
+    as the client machine, i.e. a loopback has occurred.
+
+Arguments:
+
+    IN PUNICODE_STRING Name - Supplies the name to put into the transport
+
+Return Value:
+
+    TRUE if loop back FALSE otherwise
+
+Notes:
+
+    This routine needs to be changed so that we merely compare the names. This should be
+    done by modifying the redirector data initialization so that a UNICODE_STRING is
+    stored for the client name.
+
+--*/
+{
+   BOOLEAN        LoopBack;
+   NTSTATUS       Status;
+   OEM_STRING     OemServerName;
+   CHAR           OemStringBuffer[NETBIOS_NAME_LEN];
+   UNICODE_STRING ComputerName;
+
+   OemServerName.MaximumLength = NETBIOS_NAME_LEN;
+   OemServerName.Buffer = OemStringBuffer;
+
+   ComputerName.MaximumLength = (NETBIOS_NAME_LEN - 1) * sizeof(WCHAR);
+   if (pServerName->Length > (NETBIOS_NAME_LEN * sizeof(WCHAR))) {
+      ComputerName.Length = ComputerName.MaximumLength;
+   } else {
+      ComputerName.Length = pServerName->Length;
+   }
+   ComputerName.Buffer = pServerName->Buffer;
+
+   Status = RtlUpcaseUnicodeStringToOemString(&OemServerName, &ComputerName, FALSE);
+
+   ASSERT(Status == STATUS_SUCCESS);
+
+   LoopBack = (BOOLEAN)RtlEqualMemory(
+                              OemServerName.Buffer,
+                              RdrData.ComputerName->Address[0].Address[0].NetbiosName,
+                              OemServerName.Length);
+
+   return LoopBack;
+}
+
+ULONG
+RdrComputeTransportAddressSize(
+   IN PUNICODE_STRING pServerName)
+
+/*++
+
+Routine Description:
+
+    This routine takes a computer name (PUNICODE_STRING) and computes the size of the
+    TRANSPORT_ADDRESSS buffer required to connect to it.
+
+Arguments:
+
+    IN PUNICODE_STRING Name - Supplies the name to put into the transport
+
+Return Value:
+
+    size of the buffer.
+
+Notes:
+
+    The compound transport address passed to the transports consists of two
+    TDI_NETBIOS_EX_ADDRESSes and a TDI_NETBIOS_ADDRESS. The two NETBIOS_EX addresses refer
+    to the two different endpoints registered by the server, i.e., *SMBSERVER and
+    the Server name padded upto NETBIOS_ANEM_LEN with blanks. The order in which
+    the two NETBIOS_EX addresses are constructed depend upon the length of the server
+    name. If it is greater than NETBIOS_NAME_LEN *SMBSERVER is the first enpoint
+    and vice versa
+
+--*/
+{
+   ULONG NetbiosAddressLength,NetbiosExAddressLength,TransportAddressSize;
+   ULONG OemServerNameLength;
+
+   OemServerNameLength = pServerName->Length / sizeof(WCHAR);
+
+   NetbiosAddressLength = sizeof(TDI_ADDRESS_NETBIOS);
+   if( OemServerNameLength > NETBIOS_NAME_LEN ) {
+       NetbiosAddressLength += OemServerNameLength - NETBIOS_NAME_LEN;
+   }
+
+   NetbiosExAddressLength = FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,NetbiosAddress) +
+                        NetbiosAddressLength;
+
+   TransportAddressSize = FIELD_OFFSET(TRANSPORT_ADDRESS,Address) +
+                          3 * FIELD_OFFSET(TA_ADDRESS,Address) +
+                          NetbiosAddressLength +
+                          2 * NetbiosExAddressLength;
+
+   return TransportAddressSize;
+}
+
+NTSTATUS
+RdrBuildTransportAddress (
+    IN PTRANSPORT_ADDRESS pTransportAddress,
+    IN ULONG              TransportAddressLength,
+    IN PUNICODE_STRING    pServerName
+    )
+/*++
+
+Routine Description:
+
+    This routine takes a computer name (PUNICODE_STRING) and converts it into an
+    acceptable form for passing in as transport address.
+
+Arguments:
+
+    OUT TRANSPORT_ADDRESS RemoteAddress, - Supplies the structure to fill in
+    IN TransportAddressLength - Supplies the length of the buffer at TransportAddress
+    IN PUNICODE_STRING Name - Supplies the name to put into the transport
+
+Return Value:
+
+    None.
+
+Notes:
+
+    The compound transport address passed to the transports consists of two
+    TDI_NETBIOS_EX_ADDRESSes and a TDI_NETBIOS_ADDRESS. The two NETBIOS_EX addresses refer
+    to the two different endpoints registered by the server, i.e., *SMBSERVER and
+    the Server name padded upto NETBIOS_NAME_LEN with blanks. The order in which
+    the two NETBIOS_EX addresses are constructed depend upon the length of the server
+    name. If it is greater than NETBIOS_NAME_LEN *SMBSERVER is the first enpoint
+    and vice versa
+
+    The WINS database can be inconsistent for extended periods of time. In order to
+    account for this inconsistency on NETBIOS names and DNS names we will not
+    issue the address for *SMBSERVER. This will be revisited when we have a better
+    mechanism for identifying/authenticating the server and the client machine to each other.
+
+--*/
+
+{
+    OEM_STRING OemServerName;
+    NTSTATUS   Status;
+
+    PTDI_ADDRESS_NETBIOS_EX pTdiNetbiosExAddress;
+    PTDI_ADDRESS_NETBIOS    pTdiNetbiosAddress;
+    PTA_ADDRESS             pFirstNetbiosExAddress,pSecondNetbiosExAddress,pNetbiosAddress;
+
+    PCHAR  FirstEndpointName,SecondEndpointName;
+    CHAR   EndpointNameBuffer[NETBIOS_NAME_LEN];
+    USHORT NetbiosAddressLength,NetbiosExAddressLength;
+    USHORT NetbiosAddressType = TDI_ADDRESS_TYPE_NETBIOS;
+
+    ULONG  ComponentLength;
+
+    ULONG   RemoteIpAddress;
+    BOOLEAN ServerNameIsInIpAddressForm;
+
+    PAGED_CODE();
+
+    if (TransportAddressLength < RdrComputeTransportAddressSize(pServerName)) {
+       return STATUS_BUFFER_OVERFLOW;
+    }
+
+    pFirstNetbiosExAddress = &pTransportAddress->Address[0];
+
+    pTdiNetbiosExAddress = (PTDI_ADDRESS_NETBIOS_EX)pFirstNetbiosExAddress->Address;
+    pTdiNetbiosExAddress->NetbiosAddress.NetbiosNameType = TDI_ADDRESS_NETBIOS_TYPE_QUICK_UNIQUE;
+
+    OemServerName.Length = pServerName->Length;
+    OemServerName.MaximumLength = OemServerName.Length + 1;
+    OemServerName.Buffer = pTdiNetbiosExAddress->NetbiosAddress.NetbiosName;
+
+    Status = RtlUpcaseUnicodeStringToOemString(&OemServerName, pServerName, FALSE);
+    if( !NT_SUCCESS( Status ) ) {
+        return STATUS_BAD_NETWORK_PATH;
+    }
+
+    if (OemServerName.Length < NETBIOS_NAME_LEN) {
+       RtlCopyMemory( &OemServerName.Buffer[ OemServerName.Length ],
+                      "                ",
+                      NETBIOS_NAME_LEN - OemServerName.Length
+                    );
+       OemServerName.Length = NETBIOS_NAME_LEN;
+    }
+
+    Status = RdrpTranslateNetbiosNameToIpAddress(&OemServerName,&RemoteIpAddress);
+    if (Status == STATUS_SUCCESS) {
+        if ((RemoteIpAddress == 0) || (RemoteIpAddress == 0xffffffff)) {
+           // If the server name is a valid IP address and matches with one of the two
+           // broadcast addresses used by IP turn back the request.
+           return STATUS_INVALID_ADDRESS_COMPONENT;
+        }
+
+        ServerNameIsInIpAddressForm = TRUE;
+    } else {
+        ServerNameIsInIpAddressForm = FALSE;
+    }
+
+
+    NetbiosAddressLength = sizeof(TDI_ADDRESS_NETBIOS);
+    if( OemServerName.Length > NETBIOS_NAME_LEN ) {
+        NetbiosAddressLength += OemServerName.Length - NETBIOS_NAME_LEN;
+    }
+
+    NetbiosExAddressLength = FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,NetbiosAddress) +
+                             NetbiosAddressLength;
+
+    pFirstNetbiosExAddress->AddressLength = NetbiosExAddressLength;
+    pFirstNetbiosExAddress->AddressType   = TDI_ADDRESS_TYPE_NETBIOS_EX;
+
+#if 0
+    // This arm of the code will be activated and the other arm deactivated when we have
+    // mutual authenitication between server and client machines in NT5.0
+
+    if (ServerNameIsInIpAddressForm) {
+       pTransportAddress->TAAddressCount = 2;
+
+       pNetbiosAddress = (PTA_ADDRESS)((PCHAR)pFirstNetbiosExAddress +
+                                       FIELD_OFFSET(TA_ADDRESS,Address) +
+                                       NetbiosExAddressLength);
+
+       FirstEndpointName = SMBSERVER_LOCAL_ENDPOINT_NAME;
+    } else {
+       pTransportAddress->TAAddressCount = 3;
+
+       pSecondNetbiosExAddress = (PTA_ADDRESS)((PCHAR)pFirstNetbiosExAddress +
+                                         FIELD_OFFSET(TA_ADDRESS,Address) +
+                                         NetbiosExAddressLength);
+
+       pNetbiosAddress = (PTA_ADDRESS)((PCHAR)pSecondNetbiosExAddress +
+                                       FIELD_OFFSET(TA_ADDRESS,Address) +
+                                       NetbiosExAddressLength);
+
+       // Scan the server name till the first delimiter (DNS delimiter .) and form
+       // the endpoint name by padding the remaining name with blanks.
+
+       RtlCopyMemory(
+             EndpointNameBuffer,
+             OemServerName.Buffer,
+             NETBIOS_NAME_LEN);
+
+       ComponentLength = 0;
+       while (ComponentLength < NETBIOS_NAME_LEN) {
+          if (EndpointNameBuffer[ComponentLength] == '.') {
+             break;
+          }
+          ComponentLength++;
+       }
+
+       if (ComponentLength == NETBIOS_NAME_LEN) {
+          EndpointNameBuffer[NETBIOS_NAME_LEN - 1] = ' ';
+       } else {
+          RtlCopyMemory(&EndpointNameBuffer[ComponentLength],
+                        "                ",
+                        NETBIOS_NAME_LEN - ComponentLength);
+       }
+
+       FirstEndpointName  = EndpointNameBuffer;
+       SecondEndpointName = SMBSERVER_LOCAL_ENDPOINT_NAME;
+    }
+#else
+    pTransportAddress->TAAddressCount = 2;
+
+    pNetbiosAddress = (PTA_ADDRESS)((PCHAR)pFirstNetbiosExAddress +
+                                    FIELD_OFFSET(TA_ADDRESS,Address) +
+                                    NetbiosExAddressLength);
+    if (ServerNameIsInIpAddressForm) {
+       FirstEndpointName = SMBSERVER_LOCAL_ENDPOINT_NAME;
+    } else {
+       // Scan the server name till the first delimiter (DNS delimiter .) and form
+       // the endpoint name by padding the remaining name with blanks.
+
+       RtlCopyMemory(
+             EndpointNameBuffer,
+             OemServerName.Buffer,
+             NETBIOS_NAME_LEN);
+
+       ComponentLength = 0;
+       while (ComponentLength < NETBIOS_NAME_LEN) {
+          if (EndpointNameBuffer[ComponentLength] == '.') {
+             break;
+          }
+          ComponentLength++;
+       }
+
+       if (ComponentLength == NETBIOS_NAME_LEN) {
+          EndpointNameBuffer[NETBIOS_NAME_LEN - 1] = ' ';
+       } else {
+          RtlCopyMemory(&EndpointNameBuffer[ComponentLength],
+                        "                ",
+                        NETBIOS_NAME_LEN - ComponentLength);
+       }
+
+       FirstEndpointName  = EndpointNameBuffer;
+    }
+#endif
+
+    // Copy the first endpoint name
+    RtlCopyMemory(
+        pTdiNetbiosExAddress->EndpointName,
+        FirstEndpointName,
+        NETBIOS_NAME_LEN);
+
+#if 0
+    // This will be activated alongwith the other code when mutual authentication is
+    // in place
+    if (!ServerNameIsInIpAddressForm) {
+       // The same NETBIOS_EX address needs to be duplicated with a different endpoint name
+       // for the second TA_ADDRESS.
+
+       RtlCopyMemory(
+            pSecondNetbiosExAddress,
+            pFirstNetbiosExAddress,
+            (FIELD_OFFSET(TA_ADDRESS,Address) + NetbiosExAddressLength));
+
+       RtlCopyMemory(
+            ((PCHAR)pSecondNetbiosExAddress +
+             FIELD_OFFSET(TA_ADDRESS,Address) +
+             FIELD_OFFSET(TDI_ADDRESS_NETBIOS_EX,EndpointName)),
+            SecondEndpointName,
+            NETBIOS_NAME_LEN);
+    }
+#else
+    ASSERT(pTransportAddress->TAAddressCount == 2);
+#endif
+    // The Netbios address associated with the first NETBIOS_EX address is the last netbios
+    // address that is passed in.
+
+    RtlCopyMemory(
+         ((PCHAR)pNetbiosAddress),
+         &NetbiosAddressLength,
+         sizeof(USHORT));
+
+    RtlCopyMemory(
+         ((PCHAR)pNetbiosAddress + FIELD_OFFSET(TA_ADDRESS,AddressType)),
+         &NetbiosAddressType,
+         sizeof(USHORT));
+
+    RtlCopyMemory(
+         ((PCHAR)pNetbiosAddress + FIELD_OFFSET(TA_ADDRESS,Address)),
+         &pTdiNetbiosExAddress->NetbiosAddress,
+         NetbiosAddressLength);
 
     return STATUS_SUCCESS;
 }
@@ -4166,25 +4901,23 @@ Return Value:
 {
     PAGED_CODE();
 
-    RdrTdiPollTimeout.QuadPart = (LONGLONG)RDR_TDI_POLL_TIMEOUT * -10000;
+    RdrTdiPollTimeout.QuadPart = Int32x32To64(RDR_TDI_POLL_TIMEOUT, -10000);
 
-    RdrTdiConnectTimeout.QuadPart = (LONGLONG)RdrTdiConnectTimeoutSeconds * 1000 * -10000;
+    RdrTdiConnectTimeout.QuadPart = Int32x32To64(RdrTdiConnectTimeoutSeconds, 1000 * -10000);
 
-    RdrTdiDisconnectTimeout.QuadPart = (LONGLONG)RdrTdiDisconnectTimeoutSeconds * 1000 * -10000;
+    RdrTdiDisconnectTimeout.QuadPart = Int32x32To64(RdrTdiDisconnectTimeoutSeconds, 1000 * -10000);
 
     //
     //  Allocate a spin lock to protect the transport chain
     //
 
-    ExInitializeResource(&TransportResource);
+    ExInitializeResource(&RdrTransportResource);
 
     //
     //  Initialize the Transport list chain
     //
 
     InitializeListHead(&RdrTransportHead);
-
-    InitializeListHead(&RdrTransportEnumHead);
 
     RdrTransportIndex = 0;
 
@@ -4196,45 +4929,139 @@ Return Value:
     KeInitializeSpinLock(&RdrTransportReferenceSpinLock);
 }
 
-VOID
-RdrpUninitializeTdi (
-    VOID
+NTSTATUS
+RdrpTranslateNetbiosNameToIpAddress(
+    IN  OEM_STRING *pName,
+    OUT ULONG      *pIpAddress
     )
-
 /*++
 
 Routine Description:
 
-    This routine uninitializes the global variables used in the transport
-    package.
+    This routine converts ascii ipaddr (11.101.4.25) into a ULONG.  This is
+    based on the inet_addr code in winsock
 
 Arguments:
-
-    None.
+    pName   - the string containing the ipaddress
 
 Return Value:
 
-    None.
+    the ipaddress as a ULONG if it's a valid ipaddress.  Otherwise, 0.
+
+Notes:
+
+    The body of this routine has been borrowed fron NetBt.
 
 --*/
-
 {
-    PAGED_CODE();
+    NTSTATUS  Status;
+    PCHAR    pStr;
+    int      i;
+    int      len, fieldLen;
+    int      fieldsDone;
+    ULONG    IpAddress;
+    BYTE     ByteVal;
+    PCHAR    pIpPtr;
+    BOOLEAN  fDotFound;
+    BOOLEAN  fieldOk;
+
+    Status = STATUS_INVALID_ADDRESS_COMPONENT;
+
+    if (pName->Length > NETBIOS_NAME_LEN) {
+        return Status;
+    }
+
+    pStr = pName->Buffer;
+    len = 0;
+    pIpPtr = (PCHAR)&IpAddress;
+    pIpPtr += 3;                   // so that we store in network order
+    fieldsDone=0;
 
     //
-    //  Remove the resource protecting the transport chain.
+    // the 11.101.4.25 format can be atmost 15 chars, and pName is guaranteed
+    // to be at least 16 chars long (how convenient!!).  Convert the string to
+    // a ULONG.
     //
+    while(len < NETBIOS_NAME_LEN)
+    {
+        fieldLen=0;
+        fieldOk = FALSE;
+        ByteVal = 0;
+        fDotFound = FALSE;
 
-    ExDeleteResource(&TransportResource);
+        //
+        // This loop traverses each of the four fields (max len of each
+        // field is 3, plus 1 for the '.'
+        //
+        while (fieldLen < 4)
+        {
+            if (*pStr >='0' && *pStr <='9')
+            {
+                ByteVal = (ByteVal*10) + (*pStr - '0');
+                fieldOk = TRUE;
+            }
+
+            else if (*pStr == '.' || *pStr == ' ' || *pStr == '\0')
+            {
+                *pIpPtr = ByteVal;
+                pIpPtr--;
+                fieldsDone++;
+
+                if (*pStr == '.')
+                    fDotFound = TRUE;
+
+                // if we got a space or 0, assume it's the 4th field
+                if (*pStr == ' ' || *pStr == '\0')
+                {
+                    break;
+                }
+            }
+
+            // unacceptable char: can't be ipaddr
+            else
+            {
+                return(Status);
+            }
+
+            pStr++;
+            len++;
+            fieldLen++;
+
+            // if we found the dot, we are done with this field: go to the next one
+            if (fDotFound)
+                break;
+        }
+
+        // this field wasn't ok (e.g. "11.101..4" or "11.101.4." etc.)
+        if (!fieldOk)
+        {
+            return(Status);
+        }
+
+        // if we are done with all 4 fields, we are done with the outer loop too
+        if ( fieldsDone == 4)
+            break;
+
+        if (!fDotFound)
+        {
+            return(Status);
+        }
+    }
 
     //
-    //  Uninitialize the Transport list chain
+    // make sure the remaining chars are spaces or 0's (i.e. don't allow
+    // 11.101.4.25xyz to succeed)
     //
+    for (i=len; i<NETBIOS_NAME_LEN; i++, pStr++)
+    {
+        if (*pStr != ' ' && *pStr != '\0')
+        {
+            return(Status);
+        }
+    }
 
-    ASSERT (IsListEmpty(&RdrTransportHead));
-
-    ASSERT (IsListEmpty(&RdrTransportEnumHead));
-
+    *pIpAddress = IpAddress;
+    return( STATUS_SUCCESS );
 }
 
 #if MAGIC_BULLET
@@ -4281,7 +5108,7 @@ Note:
         return STATUS_SUCCESS;
     }
 
-    Irp = RdrAllocateIrp(MagicBulletFileObject, MagicBulletDeviceObject);
+    Irp = ALLOCATE_IRP(MagicBulletFileObject, MagicBulletDeviceObject, 21, NULL);
 
     if (Irp == NULL) {
         return(STATUS_INSUFFICIENT_RESOURCES);
@@ -4307,7 +5134,7 @@ CompleteMagicBullet (
     IN PVOID Context
     )
 {
-    IoFreeIrp(Irp);
+    FREE_IRP( Irp, 28, NULL );
 
     return(STATUS_MORE_PROCESSING_REQUIRED);
 
@@ -4317,3 +5144,4 @@ CompleteMagicBullet (
 
 }
 #endif // DBG
+

@@ -19,6 +19,7 @@ Revision History:
 --*/
 
 #include "dbgdllp.h"
+#include "ldrp.h"
 
 NTSTATUS
 DbgSspConnectToDbg( VOID )
@@ -588,7 +589,7 @@ Return Value:
         }
     }
 
-    ContinueKey = (PDBGSS_CONTINUE_KEY) RtlAllocateHeap(RtlProcessHeap(), 0, sizeof(*ContinueKey));
+    ContinueKey = (PDBGSS_CONTINUE_KEY) RtlAllocateHeap(RtlProcessHeap(), MAKE_TAG( DBG_TAG ), sizeof(*ContinueKey));
     if ( !ContinueKey ) {
         ApiMsg->ReturnedStatus = STATUS_NO_MEMORY;
         if ( ARGUMENT_PRESENT(ReplyEvent) ) {
@@ -599,6 +600,7 @@ Return Value:
                             );
         }
         ASSERT(NT_SUCCESS(st));
+        return;
     }
     ContinueKey->KmApiMsg = *ApiMsg;
 
@@ -804,5 +806,5 @@ Return Value:
     // Make the compiler happy
     //
 
-    return STATUS_UNSUCCESSFUL;
+    return st;
 }

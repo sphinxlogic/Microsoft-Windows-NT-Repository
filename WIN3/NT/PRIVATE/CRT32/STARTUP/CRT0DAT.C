@@ -246,9 +246,9 @@ PF _FPinit;			/* floating point init. */
 extern PF __xi_a[], __xi_z[];	/* C initializers */
 extern PF __xc_a[], __xc_z[];	/* C++ initializers */
 extern PF __xp_a[], __xp_z[];	/* C pre-terminators */
-extern PF __xt_a[], __xt_z[];	/* C terminators */ 
+extern PF __xt_a[], __xt_z[];	/* C terminators */
 
-#if ( defined(_MIPS_) || defined(_ALPHA_) )
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 /*
  * For MIPS or ALPHA compilers, must explicitly force in and call the floating
  * point initialization (those system always have floating-point hardware).
@@ -360,9 +360,9 @@ void _CALLTYPE1 _cinit (
 	/*
 	 * initialize floating point package, if present
 	 */
-#if ( defined(_MIPS_) || defined(_ALPHA_) )
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
 	/*
-	 * The Mips or ALPHA compiler don't emit external reference to
+	 * The Mips, Alpha, and PPC compilers don't emit external reference to
          * _fltused. Therefore, must always force in the floating point
          * initialization.
 	 */
@@ -773,7 +773,7 @@ static void _CALLTYPE4 _initterm (
 	PF * pfbegin,
 	PF * pfend
 	)
-{ 
+{
 	/*
 	 * walk the table of function pointers from the bottom up, until
 	 * the end is encountered.  Do not skip the first entry.  The initial

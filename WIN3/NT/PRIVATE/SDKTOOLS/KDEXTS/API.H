@@ -29,6 +29,8 @@ Environment:
 #undef _MIPS_
 #undef ALPHA
 #undef _ALPHA_
+#undef PPC
+#undef _PPC_
 
 //
 // Get rid of as much of Windows as possible
@@ -54,7 +56,6 @@ Environment:
 #define  NOGDI
 #define  NOKERNEL
 #define  NOUSER
-#define  NONLS
 #define  NOMB
 #define  NOMEMMGR
 #define  NOMETAFILE
@@ -73,7 +74,9 @@ Environment:
 #define  NOPROFILER
 #define  NODEFERWINDOWPOS
 
-
+#define ADDRESS_NOT_VALID 0
+#define ADDRESS_VALID 1
+#define ADDRESS_TRANSITION 2
 
 
 //-----------------------------------------------------------------------------------------
@@ -84,6 +87,8 @@ Environment:
 #if defined(TARGET_MIPS)
 
 #pragma message( "Compiling for target = mips" )
+
+#define EXR_ADDRESS_BIAS 0
 
 #define _MIPS_
 
@@ -149,6 +154,8 @@ Environment:
 
 #pragma message( "Compiling for target = x86" )
 
+#define EXR_ADDRESS_BIAS 0
+
 #define _X86_
 
 #if defined(HOST_MIPS)
@@ -204,6 +211,11 @@ Environment:
 #define _cdecl
 #endif
 
+#if defined(HOST_PPC)
+#undef _cdecl
+#define _cdecl
+#endif
+
 #if !defined(HOST_i386)
 #undef _X86_
 #endif
@@ -216,6 +228,8 @@ Environment:
 #elif defined(TARGET_ALPHA)
 
 #pragma message( "Compiling for target = alpha" )
+
+#define EXR_ADDRESS_BIAS 0
 
 #define _ALPHA_ 1
 
@@ -282,6 +296,82 @@ Environment:
 #undef _ALPHA_
 #endif
 
+//-----------------------------------------------------------------------------------------
+//
+// PowerPC
+//
+//-----------------------------------------------------------------------------------------
+#elif defined(TARGET_PPC)
+
+#pragma message( "Compiling for target = powerpc" )
+
+#define EXR_ADDRESS_BIAS (sizeof(STACK_FRAME_HEADER) + (8 * sizeof(ULONG)) + FIELD_OFFSET(KTRAP_FRAME,ExceptionRecord))
+
+#define _PPC_ 1
+
+#if defined(HOST_i386)
+#define __unaligned
+#endif
+
+#if defined(HOST_MIPS)
+#define MIPS
+#endif
+
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
+#include <ntos.h>
+#include <srb.h>
+#include <iop.h>
+#include <windows.h>
+#include <imagehlp.h>
+#include <wdbgexts.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if defined(HOST_MIPS)
+#undef MIPS
+#undef R4000
+#undef R3000
+#endif
+#define PPC
+
+#ifdef POOL_TAGGING
+#undef ExAllocatePool
+#undef ExAllocatePoolWithQuota
+#endif
+
+#include <mi.h>
+
+#ifdef POOL_TAGGING
+#undef ExAllocatePool
+#undef ExAllocatePoolWithQuota
+#endif
+
+#include <cmp.h>
+
+#if defined(HOST_MIPS)
+#define R4000
+#define R3000
+#define MIPS
+#endif
+#undef PPC
+
+
+#if defined(HOST_MIPS)
+#undef _cdecl
+#define _cdecl
+#endif
+
+#if defined(HOST_i386)
+#undef UNALIGNED
+#define UNALIGNED
+#endif
+
+#if !defined(HOST_PPC)
+#undef _PPC_
+#endif
+
 
 #else
 
@@ -313,7 +403,7 @@ extern WINDBG_EXTENSION_APIS ExtensionApis;
     ((loh)->NameInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->NameInfoOffset))
 
 #define KD_OBJECT_HEADER_TO_CREATOR_INFO( roh, loh ) (POBJECT_HEADER_CREATOR_INFO) \
-    ((loh)->CreatorInfoOffset == 0 ? NULL : ((PCHAR)(roh) - (loh)->CreatorInfoOffset))
+    (((loh)->Flags & OB_FLAG_CREATOR_INFO) == 0 ? NULL : ((PCHAR)(roh) - sizeof(OBJECT_HEADER_CREATOR_INFO))))
 
 
 //-----------------------------------------------------------------------------------------
@@ -340,14 +430,6 @@ MiGetFrameFromPte (
     ULONG lpte
     );
 
-#undef MiGetSubsectionAddress
-
-PVOID
-MiGetSubsectionAddress (
-    ULONG lpte
-    );
-
-
 
 #define move(dst, src)\
 try {\
@@ -364,7 +446,115 @@ try {\
 }
 
 
+#define _KB (PAGE_SIZE/1024)
 
+
+//
+//  Read remote memory to local space, saving the remote pointer
+//
+
+__inline BOOLEAN
+ReadAtAddress(
+    PVOID RemoteAddress,
+    PVOID LocalAddress,
+    ULONG ObjectSize,
+    PVOID *SavedRemoteAddress OPTIONAL
+    )
+{
+    ULONG _r;
+    PVOID Temp;
+
+    Temp = RemoteAddress;
+
+    if (!ReadMemory( (ULONG)RemoteAddress, LocalAddress, ObjectSize, &_r ) || (_r < ObjectSize)) {
+
+        dprintf("Can't Read Memory at %08lx\n", RemoteAddress);
+        return FALSE;
+    }
+
+    if (SavedRemoteAddress) {
+
+        *SavedRemoteAddress = Temp;
+    }
+
+    return TRUE;
+}
+
+//
+//  Splay helpers similar to the regular RTL
+//
+
+#define DbgRtlParent(Links) (           \
+    (PRTL_SPLAY_LINKS)(Links).Parent \
+    )
+
+#define DbgRtlLeftChild(Links) (           \
+    (PRTL_SPLAY_LINKS)(Links).LeftChild \
+    )
+
+#define DbgRtlRightChild(Links) (           \
+    (PRTL_SPLAY_LINKS)(Links).RightChild \
+    )
+
+__inline BOOLEAN
+DbgRtlIsRightChild(
+    RTL_SPLAY_LINKS Links,
+    PRTL_SPLAY_LINKS pLinks,
+    PRTL_SPLAY_LINKS Parent
+    )
+{
+    if (DbgRtlParent(Links) == pLinks) {
+
+        return FALSE;
+    }
+
+    if (!ReadAtAddress(DbgRtlParent(Links), Parent, sizeof(RTL_SPLAY_LINKS), NULL)) {
+
+        return FALSE;
+    }
+
+    if (DbgRtlRightChild(*Parent) == pLinks) {
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+__inline BOOLEAN
+DbgRtlIsLeftChild(
+    RTL_SPLAY_LINKS Links,
+    PRTL_SPLAY_LINKS pLinks,
+    PRTL_SPLAY_LINKS Parent
+    )
+{
+    if (DbgRtlParent(Links) == pLinks) {
+
+        return FALSE;
+    }
+
+    if (!ReadAtAddress(DbgRtlParent(Links), Parent, sizeof(RTL_SPLAY_LINKS), NULL)) {
+
+        return FALSE;
+    }
+
+    if (DbgRtlLeftChild(*Parent) == pLinks) {
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/////////////////////////////////////////////
+//
+//  Cxr.c
+//
+/////////////////////////////////////////////
+VOID
+DumpCxr(
+    PCONTEXT Context
+    );
 
 
 /////////////////////////////////////////////
@@ -501,7 +691,7 @@ BOOLEAN
 DumpObject(
     IN char     *Pad,
     IN PVOID    Object,
-    IN PNONPAGED_OBJECT_HEADER OptNonPagedObjectHeader OPTIONAL,
+    IN POBJECT_HEADER OptObjectHeader OPTIONAL,
     IN ULONG    Flags
     );
 
@@ -552,6 +742,7 @@ DumpProcess (
 
 BOOL
 DumpThread (
+    IN ULONG Processor,
     IN char *Pad,
     IN PETHREAD Thread,
     IN PETHREAD RealThreadBase,
@@ -575,6 +766,24 @@ LookupUniqueId(
     HANDLE UniqueId
     );
 
+ULONG
+GetAddressState(
+    IN PVOID VirtualAddress
+    );
+
+typedef struct _PROCESS_COMMIT_USAGE {
+    UCHAR ImageFileName[ 16 ];
+    ULONG CommitCharge;
+    ULONG NumberOfPrivatePages;
+    ULONG NumberOfLockedPages;
+} PROCESS_COMMIT_USAGE, *PPROCESS_COMMIT_USAGE;
+
+PPROCESS_COMMIT_USAGE
+GetProcessCommit (
+    PULONG TotalCommitCharge,
+    PULONG NumberOfProcesses
+    );
+
 
 
 /////////////////////////////////////////////
@@ -587,3 +796,41 @@ VOID
 DumpImageName(
     IN PEPROCESS ProcessContents
     );
+
+typedef VOID
+(*PDUMP_SPLAY_NODE_FN)(
+    PVOID RemoteAddress,
+    ULONG Level
+    );
+
+ULONG
+DumpSplayTree(
+    IN PVOID pSplayLinks,
+    IN PDUMP_SPLAY_NODE_FN DumpNodeFn
+    );
+
+/////////////////////////////////////////////
+//
+//  Exsup.c
+//
+/////////////////////////////////////////////
+
+VOID
+InterpretExceptionData(
+    PLAST_EXCEPTION_LOG LogRecord,
+    PVOID *Terminator,
+    PVOID *Filter,
+    PVOID *Handler
+    );
+
+
+
+//
+// Miscellaneous includes for semi-private NT definitions
+//
+
+#include <atom.h>
+#include <heap.h>
+#include <ntcsrsrv.h>
+#include <pool.h>
+#include <tokenp.h>

@@ -120,7 +120,7 @@ Return Value:
 
         LfsAcquireLfcb( Lfcb );
 
-    } while ( LastLsn.QuadPart > FlushedLsn->QuadPart );                                           //**** xxGtr( LastLsn, *FlushedLsn )
+    } while ( LastLsn.QuadPart > FlushedLsn->QuadPart );
 
     DebugTrace( -1, Dbg, "LfsFlushLbcb:  Exit\n", 0 );
     return;
@@ -167,7 +167,7 @@ Return Value:
     //  exception if not.
     //
 
-    if ( Lsn.QuadPart > Lfcb->RestartArea->CurrentLsn.QuadPart ) {                                 //**** xxGtr( Lsn, Lfcb->RestartArea->CurrentLsn )
+    if ( Lsn.QuadPart > Lfcb->RestartArea->CurrentLsn.QuadPart ) {
 
         DebugTrace( 0, Dbg, "Lsn is not in the file\n", 0 );
         ExRaiseStatus( STATUS_INVALID_PARAMETER );
@@ -179,7 +179,7 @@ Return Value:
     //  active queue.
     //
 
-    if ( Lsn.QuadPart > Lfcb->LastFlushedLsn.QuadPart ) {                                          //**** xxGtr( Lsn, Lfcb->LastFlushedLsn )
+    if ( Lsn.QuadPart > Lfcb->LastFlushedLsn.QuadPart ) {
 
         PLIST_ENTRY ThisEntry;
         PLBCB ThisLbcb;
@@ -215,7 +215,7 @@ Return Value:
                 //  to the desired Lsn, we exit the loop.
                 //
 
-                if ( ThisLbcb->LastEndLsn.QuadPart >= Lsn.QuadPart ) {                             //**** xxGeq( ThisLbcb->LastEndLsn, Lsn )
+                if ( ThisLbcb->LastEndLsn.QuadPart >= Lsn.QuadPart ) {
 
                     break;
                 }
@@ -252,9 +252,9 @@ Return Value:
                                   &CurrentAvail,
                                   (PULONG)&UnusedBytes );
 
-            CurrentAvail = CurrentAvail - Lfcb->TotalUndoCommitment;                               //**** xxSub( CurrentAvail, Lfcb->TotalUndoCommitment );
+            CurrentAvail = CurrentAvail - Lfcb->TotalUndoCommitment;
 
-            if ( UnusedBytes > CurrentAvail ) {                                                    //**** xxGtr( UnusedBytes, CurrentAvail )
+            if ( UnusedBytes > CurrentAvail ) {
 
                 DebugTrace( -1, Dbg, "Have to preserve these bytes for possible aborts\n", 0 );
 
@@ -333,10 +333,17 @@ Return Value:
                                 &PageHeaderBcb );
 
         //
+        //  Put our signature into the page so we won't fail if we
+        //  see a previous 'BAAD' signature.
+        //
+
+        *((PULONG) PageHeader) = LFS_SIGNATURE_RECORD_PAGE_ULONG;
+
+        //
         //  Now allocate an Lbcb.
         //
 
-        LfsAllocateLbcb( &Lbcb );
+        LfsAllocateLbcb( Lfcb, &Lbcb );
 
         //
         //  If we are at the beginning of the file we test that the
@@ -344,9 +351,9 @@ Return Value:
         //
 
         if (!FlagOn( Lfcb->Flags, LFCB_NO_LAST_LSN | LFCB_REUSE_TAIL )
-            && ( Lfcb->NextLogPage == Lfcb->FirstLogPage )) {                                                          //**** xxEql( Lfcb->NextLogPage, Lfcb->FirstLogPage )
+            && ( Lfcb->NextLogPage == Lfcb->FirstLogPage )) {
 
-            Lfcb->SeqNumber = Lfcb->SeqNumber + 1;                                                                     //**** xxAdd( Lfcb->SeqNumber, LfsLi1 );
+            Lfcb->SeqNumber = Lfcb->SeqNumber + 1;
 
             //
             //  If the sequence number is going from 0 to 1, then
@@ -355,7 +362,7 @@ Return Value:
             //  large spiral writes.
             //
 
-            if (( Lfcb->SeqNumber << Lfcb->FileDataBits ) == 0) {                                                      //**** xxEqlZero( xxShl( Lfcb->SeqNumber, Lfcb->FileDataBits ))
+            if (Int64ShllMod32( Lfcb->SeqNumber, Lfcb->FileDataBits ) == 0) {
 
                 DebugTrace( 0, Dbg, "Log sequence number about to wrap:  Lfcb -> %08lx\n", Lfcb );
                 KeBugCheck( FILE_SYSTEM );
@@ -367,7 +374,7 @@ Return Value:
             //
 
             if (!FlagOn( Lfcb->Flags, LFCB_LOG_WRAPPED )
-                && ( Lfcb->SeqNumber >= Lfcb->SeqNumberForWrap )) {                                                    //**** xxGeq( Lfcb->SeqNumber, Lfcb->SeqNumberForWrap )
+                && ( Lfcb->SeqNumber >= Lfcb->SeqNumberForWrap )) {
 
                 SetFlag( Lbcb->LbcbFlags, LBCB_LOG_WRAPPED );
                 SetFlag( Lfcb->Flags, LFCB_LOG_WRAPPED );
@@ -409,6 +416,10 @@ Return Value:
             ClearFlag( Lfcb->Flags, LFCB_REUSE_TAIL );
 
             (ULONG)Lbcb->BufferOffset = Lfcb->ReusePageOffset;
+
+            Lbcb->Flags = ((PLFS_RECORD_PAGE_HEADER) PageHeader)->Flags;
+            Lbcb->LastLsn = ((PLFS_RECORD_PAGE_HEADER) PageHeader)->Copy.LastLsn;
+            Lbcb->LastEndLsn = ((PLFS_RECORD_PAGE_HEADER) PageHeader)->Header.Packed.LastEndLsn;
         }
 
         //
@@ -432,7 +443,7 @@ Return Value:
 
             if (Lbcb != NULL) {
 
-                LfsDeallocateLbcb( Lbcb );
+                LfsDeallocateLbcb( Lfcb, Lbcb );
                 Lbcb = NULL;
             }
 

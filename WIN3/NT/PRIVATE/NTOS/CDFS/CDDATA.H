@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -22,205 +22,259 @@ Revision History:
 #define _CDDATA_
 
 //
-//  The global fsd data record and a global zero large integer.
+//  Global data structures
 //
 
 extern CD_DATA CdData;
-
-extern LARGE_INTEGER CdLargeZero;
-extern LARGE_INTEGER CdMaxLarge;
-
-//
-//  The global structure used to contain our fast I/O callbacks
-//
-
 extern FAST_IO_DISPATCH CdFastIoDispatch;
 
 //
-//  This is a copy of the self string.
+//  Global constants
 //
 
-extern STRING CdSelfString;
-
 //
-// Define fast I/O procedure prototypes.
+//  This is the number of times a mounted Vcb will be referenced on behalf
+//  of the system.  The counts include the following references.
 //
-// Fast I/O read and write procedures.
+//      1 reference - shows the volume is mounted
+//      1 reference - 1 for VolumeDasdFcb.
+//      2 references - 1 for RootIndexFcb, 1 for internal stream.
+//      2 references - 1 for PathTableFcb, 1 for internal stream.
 //
-
-extern
-BOOLEAN
-CdFastRead (
-    IN struct _FILE_OBJECT *FileObject,
-    IN PLARGE_INTEGER FileOffset,
-    IN ULONG Length,
-    IN BOOLEAN Wait,
-    IN ULONG LockKey,
-    OUT PVOID Buffer,
-    OUT PIO_STATUS_BLOCK IoStatus
-    );
-
-extern
-BOOLEAN
-CdFastWrite (
-    IN struct _FILE_OBJECT *FileObject,
-    IN PLARGE_INTEGER FileOffset,
-    IN ULONG Length,
-    IN BOOLEAN Wait,
-    IN ULONG LockKey,
-    IN PVOID Buffer
-    );
-
-//
-//  Statically defined codepages supported.
+//  For user references we add one for the reference in each of the internal
+//  Fcb's.
 //
 
-extern CODEPAGE PrimaryCodePage;
-extern CODEPAGE KanjiCodePage;
+#define CDFS_RESIDUAL_REFERENCE                     (6)
+#define CDFS_RESIDUAL_USER_REFERENCE                (3)
 
 //
-//  The global Cdfs debug level variable, its values are:
-//
-//      0x00000000      Always gets printed (used when about to bug check)
-//
-//      0x00000001      Error conditions
-//      0x00000002      Debug hooks
-//      0x00000004      Catch exceptions before completing Irp
-//      0x00000008
-//
-//      0x00000010
-//      0x00000020
-//      0x00000040
-//      0x00000080
-//
-//      0x00000100
-//      0x00000200
-//      0x00000400
-//      0x00000800
-//
-//      0x00001000
-//      0x00002000
-//      0x00004000
-//      0x00008000
-//
-//      0x00010000
-//      0x00020000
-//      0x00040000
-//      0x00080000
-//
-//      0x00100000
-//      0x00200000
-//      0x00400000
-//      0x00800000
-//
-//      0x01000000
-//      0x02000000
-//      0x04000000
-//      0x08000000
-//
-//      0x10000000
-//      0x20000000
-//      0x40000000
-//      0x80000000
+//  Reserved directory strings
 //
 
-#ifdef CDDBG
+extern WCHAR CdUnicodeSelfArray[];
+extern WCHAR CdUnicodeParentArray[];
 
-#define DEBUG_TRACE_ERROR                (0x00000001)
-#define DEBUG_TRACE_DEBUG_HOOKS          (0x00000002)
-#define DEBUG_TRACE_CATCH_EXCEPTIONS     (0x00000004)
-#define DEBUG_TRACE_UNWIND               (0x00000008)
-#define DEBUG_TRACE_CLEANUP              (0x00000010)
-#define DEBUG_TRACE_CLOSE                (0x00000020)
-#define DEBUG_TRACE_CREATE               (0x00000040)
-#define DEBUG_TRACE_DIRCTRL              (0x00000080)
-#define DEBUG_TRACE_EA                   (0x00000100)
-#define DEBUG_TRACE_FILEINFO             (0x00000200)
-#define DEBUG_TRACE_FSCTRL               (0x00000400)
-#define DEBUG_TRACE_LOCKCTRL             (0x00000800)
-#define DEBUG_TRACE_READ                 (0x00001000)
-#define DEBUG_TRACE_VOLINFO              (0x00002000)
-#define DEBUG_TRACE_WRITE                (0x00004000)
-#define DEBUG_TRACE_DEVCTRL              (0x00008000)
-#define DEBUG_TRACE_0x00010000           (0x00010000)
-#define DEBUG_TRACE_0x00020000           (0x00020000)
-#define DEBUG_TRACE_LMCB                 (0x00040000)
-#define DEBUG_TRACE_PATHSUP              (0x00080000)
-#define DEBUG_TRACE_ACCHKSUP             (0x00100000)
-#define DEBUG_TRACE_ALLOCSUP             (0x00200000)
-#define DEBUG_TRACE_DIRSUP               (0x00400000)
-#define DEBUG_TRACE_FILOBSUP             (0x00800000)
-#define DEBUG_TRACE_NAMESUP              (0x01000000)
-#define DEBUG_TRACE_VERFYSUP             (0x02000000)
-#define DEBUG_TRACE_CACHESUP             (0x04000000)
-#define DEBUG_TRACE_PREFXSUP             (0x08000000)
-#define DEBUG_TRACE_DEVIOSUP             (0x10000000)
-#define DEBUG_TRACE_STRUCSUP             (0x20000000)
-#define DEBUG_TRACE_FSP_DISPATCHER       (0x40000000)
-#define DEBUG_TRACE_FSP_DUMP             (0x80000000)
-
-extern LONG CdDebugTraceLevel;
-extern LONG CdDebugTraceIndent;
-
-#define DebugTrace(INDENT,LEVEL,X,Y) {                      \
-    LONG _i;                                                \
-    if (((LEVEL) == 0) || (CdDebugTraceLevel & (LEVEL))) {  \
-        _i = (ULONG)PsGetCurrentThread();                   \
-        DbgPrint("%08lx:",_i);                              \
-        if ((INDENT) < 0) {                                 \
-            CdDebugTraceIndent += (INDENT);                 \
-        }                                                   \
-        if (CdDebugTraceIndent < 0) {                       \
-            CdDebugTraceIndent = 0;                         \
-        }                                                   \
-        for (_i = 0; _i < CdDebugTraceIndent; _i += 1) {    \
-            DbgPrint(" ");                                  \
-        }                                                   \
-        DbgPrint(X,Y);                                      \
-        if ((INDENT) > 0) {                                 \
-            CdDebugTraceIndent += (INDENT);                 \
-        }                                                   \
-    }                                                       \
-}
-
-#define DebugUnwind(X) {                                                        \
-    if (AbnormalTermination()) {                                                \
-        DebugTrace(0, DEBUG_TRACE_UNWIND, #X ", Abnormal termination.\n", 0);   \
-    }                                                                           \
-}
-
-#define DebugDoit(X)                     {X;}
+extern UNICODE_STRING CdUnicodeDirectoryNames[];
 
 //
-//  I need this because C can't support conditional compilation within
-//  a macro.
+//  Volume descriptor identifier strings.
 //
 
-extern PVOID CdNull;
-
-#else
-
-#define DebugTrace(INDENT,LEVEL,X,Y)     {NOTHING;}
-#define DebugUnwind(X)                   {NOTHING;}
-#define DebugDoit(X)                     {NOTHING;}
-
-#define CdNull NULL
-
-#endif // CDDBG
+extern CHAR CdHsgId[];
+extern CHAR CdIsoId[];
+extern CHAR CdXaId[];
 
 //
-//  The following macro is for all people who compile with the DBG switch
-//  set, not just cdfs dbg users
+//  Volume label for audio disks.
+//
+
+extern WCHAR CdAudioLabel[];
+extern USHORT CdAudioLabelLength;
+
+//
+//  Pseudo file names for audio disks.
+//
+
+extern CHAR CdAudioFileName[];
+extern UCHAR CdAudioFileNameLength;
+extern ULONG CdAudioDirentSize;
+extern ULONG CdAudioDirentsPerSector;
+extern ULONG CdAudioSystemUseOffset;
+
+#define AUDIO_NAME_ONES_OFFSET              (6)
+#define AUDIO_NAME_TENS_OFFSET              (5)
+
+//
+//  Escape sequences for mounting Unicode volumes.
+//
+
+extern PCHAR CdJolietEscape[];
+
+//
+//  Hardcoded header for RIFF files.
+//
+
+extern LONG CdXAFileHeader[];
+extern LONG CdAudioPlayHeader[];
+extern LONG CdXAAudioPhileHeader[];
+
+
+//
+//  Turn on pseudo-asserts if CD_FREE_ASSERTS is defined.
+//
+
+#if !DBG
+#ifdef CD_FREE_ASSERTS
+#undef ASSERT
+#undef ASSERTMSG
+#define ASSERT(exp)        if (!(exp)) { extern BOOLEAN KdDebuggerEnabled; DbgPrint("%s:%d %s\n",__FILE__,__LINE__,#exp); if (KdDebuggerEnabled) { DbgBreakPoint(); } }
+#define ASSERTMSG(msg,exp) if (!(exp)) { extern BOOLEAN KdDebuggerEnabled; DbgPrint("%s:%d %s %s\n",__FILE__,__LINE__,msg,#exp); if (KdDebuggerEnabled) { DbgBreakPoint(); } }
+#endif
+#endif
+
+
+//
+//  The following assertion macros ensure that the indicated structure
+//  is valid
+//
+//      ASSERT_STRUCT( IN PVOID Struct, IN CSHORT NodeType );
+//      ASSERT_OPTIONAL_STRUCT( IN PVOID Struct OPTIONAL, IN CSHORT NodeType );
+//
+//      ASSERT_VCB( IN PVCB Vcb );
+//      ASSERT_OPTIONAL_VCB( IN PVCB Vcb OPTIONAL );
+//
+//      ASSERT_FCB( IN PFCB Fcb );
+//      ASSERT_OPTIONAL_FCB( IN PFCB Fcb OPTIONAL );
+//
+//      ASSERT_FCB_NONPAGED( IN PFCB_NONPAGED FcbNonpaged );
+//      ASSERT_OPTIONAL_FCB( IN PFCB_NONPAGED FcbNonpaged OPTIONAL );
+//
+//      ASSERT_CCB( IN PSCB Ccb );
+//      ASSERT_OPTIONAL_CCB( IN PSCB Ccb OPTIONAL );
+//
+//      ASSERT_IRP_CONTEXT( IN PIRP_CONTEXT IrpContext );
+//      ASSERT_OPTIONAL_IRP_CONTEXT( IN PIRP_CONTEXT IrpContext OPTIONAL );
+//
+//      ASSERT_IRP( IN PIRP Irp );
+//      ASSERT_OPTIONAL_IRP( IN PIRP Irp OPTIONAL );
+//
+//      ASSERT_FILE_OBJECT( IN PFILE_OBJECT FileObject );
+//      ASSERT_OPTIONAL_FILE_OBJECT( IN PFILE_OBJECT FileObject OPTIONAL );
+//
+//  The following macros are used to check the current thread owns
+//  the indicated resource
+//
+//      ASSERT_EXCLUSIVE_RESOURCE( IN PERESOURCE Resource );
+//
+//      ASSERT_SHARED_RESOURCE( IN PERESOURCE Resource );
+//
+//      ASSERT_RESOURCE_NOT_MINE( IN PERESOURCE Resource );
+//
+//  The following macros are used to check whether the current thread
+//  owns the resoures in the given structures.
+//
+//      ASSERT_EXCLUSIVE_CDDATA
+//
+//      ASSERT_EXCLUSIVE_VCB( IN PVCB Vcb );
+//
+//      ASSERT_SHARED_VCB( IN PVCB Vcb );
+//
+//      ASSERT_EXCLUSIVE_FCB( IN PFCB Fcb );
+//
+//      ASSERT_SHARED_FCB( IN PFCB Fcb );
+//
+//      ASSERT_EXCLUSIVE_FILE( IN PFCB Fcb );
+//
+//      ASSERT_SHARED_FILE( IN PFCB Fcb );
+//
+//      ASSERT_LOCKED_VCB( IN PVCB Vcb );
+//
+//      ASSERT_NOT_LOCKED_VCB( IN PVCB Vcb );
+//
+//      ASSERT_LOCKED_FCB( IN PFCB Fcb );
+//
+//      ASSERT_NOT_LOCKED_FCB( IN PFCB Fcb );
+//
+
+//
+//  Turn on the sanity checks if this is DBG or CD_FREE_ASSERTS
 //
 
 #if DBG
+#undef CD_SANITY
+#define CD_SANITY
+#endif
 
-#define DbgDoit(X)                       {X;}
+#ifdef CD_SANITY
+
+#define ASSERT_STRUCT(S,T)                  ASSERT( SafeNodeType( S ) == (T) )
+#define ASSERT_OPTIONAL_STRUCT(S,T)         ASSERT( ((S) == NULL) ||  (SafeNodeType( S ) == (T)) )
+
+#define ASSERT_VCB(V)                       ASSERT_STRUCT( (V), CDFS_NTC_VCB )
+#define ASSERT_OPTIONAL_VCB(V)              ASSERT_OPTIONAL_STRUCT( (V), CDFS_NTC_VCB )
+
+#define ASSERT_FCB(F)                                           \
+    ASSERT( (SafeNodeType( F ) == CDFS_NTC_FCB_DATA ) ||        \
+            (SafeNodeType( F ) == CDFS_NTC_FCB_INDEX ) ||       \
+            (SafeNodeType( F ) == CDFS_NTC_FCB_PATH_TABLE ) )
+
+#define ASSERT_OPTIONAL_FCB(F)                                  \
+    ASSERT( ((F) == NULL) ||                                    \
+            (SafeNodeType( F ) == CDFS_NTC_FCB_DATA ) ||        \
+            (SafeNodeType( F ) == CDFS_NTC_FCB_INDEX ) ||       \
+            (SafeNodeType( F ) == CDFS_NTC_FCB_PATH_TABLE ) )
+
+#define ASSERT_FCB_NONPAGED(FN)             ASSERT_STRUCT( (FN), CDFS_NTC_FCB_NONPAGED )
+#define ASSERT_OPTIONAL_FCB_NONPAGED(FN)    ASSERT_OPTIONAL_STRUCT( (FN), CDFS_NTC_FCB_NONPAGED )
+
+#define ASSERT_CCB(C)                       ASSERT_STRUCT( (C), CDFS_NTC_CCB )
+#define ASSERT_OPTIONAL_CCB(C)              ASSERT_OPTIONAL_STRUCT( (C), CDFS_NTC_CCB )
+
+#define ASSERT_IRP_CONTEXT(IC)              ASSERT_STRUCT( (IC), CDFS_NTC_IRP_CONTEXT )
+#define ASSERT_OPTIONAL_IRP_CONTEXT(IC)     ASSERT_OPTIONAL_STRUCT( (IC), CDFS_NTC_IRP_CONTEXT )
+
+#define ASSERT_IRP(I)                       ASSERT_STRUCT( (I), IO_TYPE_IRP )
+#define ASSERT_OPTIONAL_IRP(I)              ASSERT_OPTIONAL_STRUCT( (I), IO_TYPE_IRP )
+
+#define ASSERT_FILE_OBJECT(FO)              ASSERT_STRUCT( (FO), IO_TYPE_FILE )
+#define ASSERT_OPTIONAL_FILE_OBJECT(FO)     ASSERT_OPTIONAL_STRUCT( (FO), IO_TYPE_FILE )
+
+#define ASSERT_EXCLUSIVE_RESOURCE(R)        ASSERT( ExIsResourceAcquiredExclusive( R ))
+
+#define ASSERT_SHARED_RESOURCE(R)           ASSERT( ExIsResourceAcquiredShared( R ))
+
+#define ASSERT_RESOURCE_NOT_MINE(R)         ASSERT( !ExIsResourceAcquiredShared( R ))
+
+#define ASSERT_EXCLUSIVE_CDDATA             ASSERT( ExIsResourceAcquiredExclusive( &CdData.DataResource ))
+#define ASSERT_EXCLUSIVE_VCB(V)             ASSERT( ExIsResourceAcquiredExclusive( &(V)->VcbResource ))
+#define ASSERT_SHARED_VCB(V)                ASSERT( ExIsResourceAcquiredShared( &(V)->VcbResource ))
+
+#define ASSERT_EXCLUSIVE_FCB(F)             ASSERT( ExIsResourceAcquiredExclusive( &(F)->FcbNonpaged->FcbResource ))
+#define ASSERT_SHARED_FCB(F)                ASSERT( ExIsResourceAcquiredShared( &(F)->FcbNonpaged->FcbResource ))
+
+#define ASSERT_EXCLUSIVE_FILE(F)            ASSERT( ExIsResourceAcquiredExclusive( (F)->Resource ))
+#define ASSERT_SHARED_FILE(F)               ASSERT( ExIsResourceAcquiredShared( (F)->Resource ))
+
+#define ASSERT_LOCKED_VCB(V)                ASSERT( (V)->VcbLockThread == PsGetCurrentThread() )
+#define ASSERT_NOT_LOCKED_VCB(V)            ASSERT( (V)->VcbLockThread != PsGetCurrentThread() )
+
+#define ASSERT_LOCKED_FCB(F)                ASSERT( (F)->FcbLockThread == PsGetCurrentThread() )
+#define ASSERT_NOT_LOCKED_FCB(F)            ASSERT( (F)->FcbLockThread != PsGetCurrentThread() )
 
 #else
 
-#define DbgDoit(X)                       {NOTHING;}
+#define ASSERT_STRUCT(S,T)              { NOTHING; }
+#define ASSERT_OPTIONAL_STRUCT(S,T)     { NOTHING; }
+#define ASSERT_VCB(V)                   { NOTHING; }
+#define ASSERT_OPTIONAL_VCB(V)          { NOTHING; }
+#define ASSERT_FCB(F)                   { NOTHING; }
+#define ASSERT_OPTIONAL_FCB(F)          { NOTHING; }
+#define ASSERT_FCB_NONPAGED(FN)         { NOTHING; }
+#define ASSERT_OPTIONAL_FCB(FN)         { NOTHING; }
+#define ASSERT_CCB(C)                   { NOTHING; }
+#define ASSERT_OPTIONAL_CCB(C)          { NOTHING; }
+#define ASSERT_IRP_CONTEXT(IC)          { NOTHING; }
+#define ASSERT_OPTIONAL_IRP_CONTEXT(IC) { NOTHING; }
+#define ASSERT_IRP(I)                   { NOTHING; }
+#define ASSERT_OPTIONAL_IRP(I)          { NOTHING; }
+#define ASSERT_FILE_OBJECT(FO)          { NOTHING; }
+#define ASSERT_OPTIONAL_FILE_OBJECT(FO) { NOTHING; }
+#define ASSERT_EXCLUSIVE_RESOURCE(R)    { NOTHING; }
+#define ASSERT_SHARED_RESOURCE(R)       { NOTHING; }
+#define ASSERT_RESOURCE_NOT_MINE(R)     { NOTHING; }
+#define ASSERT_EXCLUSIVE_CDDATA         { NOTHING; }
+#define ASSERT_EXCLUSIVE_VCB(V)         { NOTHING; }
+#define ASSERT_SHARED_VCB(V)            { NOTHING; }
+#define ASSERT_EXCLUSIVE_FCB(F)         { NOTHING; }
+#define ASSERT_SHARED_FCB(F)            { NOTHING; }
+#define ASSERT_EXCLUSIVE_FILE(F)        { NOTHING; }
+#define ASSERT_SHARED_FILE(F)           { NOTHING; }
+#define ASSERT_LOCKED_VCB(V)            { NOTHING; }
+#define ASSERT_NOT_LOCKED_VCB(V)        { NOTHING; }
+#define ASSERT_LOCKED_FCB(F)            { NOTHING; }
+#define ASSERT_NOT_LOCKED_FCB(F)        { NOTHING; }
 
-#endif // DBG
+#endif
 
 #endif // _CDDATA_

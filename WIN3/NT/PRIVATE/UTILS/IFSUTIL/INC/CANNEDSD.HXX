@@ -29,6 +29,17 @@ Author:
 
 #define _CANNED_SECURITY_DEFN
 
+
+#if defined ( _AUTOCHECK_ )
+#define IFSUTIL_EXPORT
+#elif defined ( _IFSUTIL_MEMBER_ )
+#define IFSUTIL_EXPORT    __declspec(dllexport)
+#else
+#define IFSUTIL_EXPORT    __declspec(dllimport)
+#endif
+
+
+
 // The IFS utilities use the following kinds of canned Security Descriptors:
 //
 //  NoAccess    --  No one is granted any access (empty ACL).
@@ -65,17 +76,21 @@ class CANNED_SECURITY : public OBJECT {
 
     public:
 
+        IFSUTIL_EXPORT
         DECLARE_CONSTRUCTOR( CANNED_SECURITY );
 
+        IFSUTIL_EXPORT
         ~CANNED_SECURITY(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         BOOLEAN
         Initialize(
             );
 
         NONVIRTUAL
+        IFSUTIL_EXPORT
         PVOID
         GetCannedSecurityDescriptor(
             IN  CANNED_SECURITY_TYPE    Type,

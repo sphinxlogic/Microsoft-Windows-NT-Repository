@@ -19,55 +19,140 @@
 #include <vdmdbg.h>
 #include <winbasep.h>
 
+
+#include <profile.h>
+
+typedef
+DWORD
+(*PWX86_EXTENSION_ROUTINE)(
+       HANDLE hCurrentProcess,
+       HANDLE hCurrentThread,
+       PNTSD_EXTENSION_APIS lpExtensionApis,
+       DEBUG_EVENT *pDebugEvent,
+       DWORD *pContinueStatus
+       );
+
+DWORD
+Wx86ExceptionEvent(
+     DEBUG_EVENT *pDebugEvent,
+     DWORD *pContinueStatus
+     );
+
+DWORD
+DoWx86ExtApi(
+    PWX86_EXTENSION_ROUTINE pWx86Ext,
+    DEBUG_EVENT *pDebugEvent,
+    DWORD *pContinueStatus
+    );
+
+DWORD
+Wx86CreateProcessEvent(
+     DEBUG_EVENT *pDebugEvent
+     );
+
+#define WX86_HANDLED  0
+#define WX86_PROMPT   1
+#define WX86_CONTINUE 2
+
+typedef PFPO_DATA (*PFINDFPODATA)(DWORD dwPCAddr);
+
+typedef ULONG (*PWX86DISASM)(
+    ULONG Offset,
+    PUCHAR  pBuffer,
+    BOOLEAN fShowEA,
+    LPVDMCONTEXT ContextX86
+    );
+
+typedef struct _NtsdRoutines {
+   PFINDFPODATA FindFpoDataForModule;
+   PREAD_PROCESS_MEMORY_ROUTINE  SwReadMemory;
+   PGET_MODULE_BASE_ROUTINE SwGetModuleBase;
+   PWX86DISASM Wx86Disasm;
+} NTSDROUTINES, *PNTSDROUTINES;
+
+PWX86_EXTENSION_ROUTINE pfnWx86ExtCreateProcess;
+PWX86_EXTENSION_ROUTINE pfnWx86ExtException;
+
+HANDLE hWx86ExtensionsDll=NULL;
+
+SYSTEM_INFO  SystemInfo;
+OSVERSIONINFO OsVersionInfo;
+
+// from ntcmd.c  , used by Wx86 enhancements
+ULONG GetExpressionRoutine(char *CommandString);
+void  GetSymbolRoutine(LPVOID, PUCHAR, PULONG);
+DWORD disasmExportRoutine(LPDWORD, LPSTR, BOOL);
+DWORD CheckControlC (VOID);
+void SuspendAllThreads(void);
+void ResumeAllThreads(void);
+
+// from stkwalk.c
+BOOL
+SwReadMemory(
+    HANDLE  hProcess,
+    LPCVOID lpBaseAddress,
+    LPVOID  lpBuffer,
+    DWORD   nSize,
+    LPDWORD lpNumberOfBytesRead
+    );
+
+DWORD
+SwGetModuleBase(
+    HANDLE  hProcess,
+    DWORD   Address
+    );
+
+CHAR symBuffer[SYM_BUFFER_SIZE];
+CHAR symStartBuffer[SYM_BUFFER_SIZE];
+PIMAGEHLP_SYMBOL sym = (PIMAGEHLP_SYMBOL) symBuffer;
+PIMAGEHLP_SYMBOL symStart = (PIMAGEHLP_SYMBOL) symStartBuffer;
+
 #define EXCEPTIONCODE   lpDebugEvent->u.Exception.ExceptionRecord.ExceptionCode
 #define FIRSTCHANCE     lpDebugEvent->u.Exception.dwFirstChance
 
-PPROCESS_INFO    pProcessHead = NULL;
+PPROCESS_INFO    pProcessHead;
 PPROCESS_INFO    pProcessEvent;
 PPROCESS_INFO    pProcessCurrent;
-int              fControlC = 0;
-int              fFlushInput = 0;
-USHORT           ProcessorType = 0;
+int              fControlC;
+int              fFlushInput;
 
 #define EXCEPTION_LIST_MAX 20
-BOOLEAN          fDefaultExceptionBreak = FALSE;
+BOOLEAN          fDefaultExceptionBreak;
 DWORD            ExceptionList[EXCEPTION_LIST_MAX];
-ULONG            cExceptionList = 0;
-DWORD            dwPidToDebug = 0;
-HANDLE           hProcessToDebug = NULL;
-HANDLE           BaseHandle = NULL;
-BOOLEAN          fWaitingForDebugEvent = FALSE;
+ULONG            cExceptionList;
+DWORD            dwPidToDebug;
+HANDLE           hProcessToDebug;
+HANDLE           BaseHandle;
+BOOLEAN          fWaitingForDebugEvent;
 DWORD            dwRipPrintLevel = SLE_ERROR;
 DWORD            dwRipBreakLevel = SLE_ERROR;
-DWORD            hEventToSignal = 0;
-HANDLE           hThreadToResume = NULL;
-BOOLEAN          fCreateProcessAlso = FALSE;
+DWORD            hEventToSignal;
+HANDLE           hThreadToResume;
+BOOLEAN          fCreateProcessAlso;
 BOOLEAN          fStopFirst = TRUE;
-BOOLEAN          fWOWStopFirst = FALSE;
+BOOLEAN          fWOWStopFirst;
 BOOLEAN          fLazyLoad = TRUE;
 BOOLEAN          fStopOnProcessExit = TRUE;
 PUCHAR           LogFileName = "ntsd.log";
-PUCHAR           DefaultExtDllName = "userexts";
-BOOLEAN          fLogAppend = FALSE;
+PUCHAR           DefaultExtDllName = NULL;
+BOOLEAN          fLogAppend;
 BOOLEAN          fExecuteLoop = TRUE;
+BOOLEAN          MYOB;
 
 char szUnknownImage[] = "UNKNOWN";
 
-void _CRTAPI1 main(int, char *[], char *[]);
-#ifdef  MIPS
-USHORT GetProcessorType(void);
-#endif
 ULONG GetPageSize(void);
 void NtsdExecution(void);
 BOOLEAN GetDefaultBreak(DWORD);
-void SetDefaultBreak(DWORD, BOOLEAN);
+void SetDefaultBreak(DWORD, BOOL);
+PUCHAR SetDefaultExtDllName(PUCHAR);
 void fnSetException(void);
 void ListDefaultBreak(void);
 DWORD GetContinueStatus(DWORD, BOOLEAN);
 void InitEventVars(DEBUG_EVENT *);
 void SetTermStatus(DEBUG_EVENT *);
-PPROCESS_INFO pProcessFromIndex(UCHAR);
-PTHREAD_INFO pThreadFromIndex(UCHAR);
+PPROCESS_INFO pProcessFromIndex(ULONG);
+PTHREAD_INFO pThreadFromIndex(ULONG);
 PIMAGE_INFO pImageFromIndex(UCHAR);
 static int GetToken(PUCHAR*, PUCHAR);
 void ReadIniFile(PULONG);
@@ -82,63 +167,68 @@ void PrintDebugString(DEBUG_EVENT *);
 void PrintRip(DEBUG_EVENT *);
 BOOL VDMEvent(DEBUG_EVENT *);
 
+void fnBangCmd(PUCHAR, PUCHAR*);
+
 PPROCESS_INFO pProcessFromEvent(DEBUG_EVENT *);
 PTHREAD_INFO pThreadFromEvent(DEBUG_EVENT *);
 void OutputProcessInfo(char *);
 
 void     BrkptInit(void);
+VOID
+ValidateBreakpointTable(
+    PCHAR file,
+    int line
+    );
 NTSTATUS DbgKdWriteBreakPoint(PVOID, PULONG);
 NTSTATUS DbgKdRestoreBreakPoint(ULONG);
 BOOLEAN ReadVirtualMemory(PUCHAR, PUCHAR, ULONG, PULONG);
-//NTSTATUS DbgKdReadVirtualMemory(PVOID, PVOID, ULONG, PULONG);
 NTSTATUS DbgKdWriteVirtualMemory(PVOID, PVOID, ULONG, PULONG);
 
-extern void InitSymContext(PPROCESS_INFO);
-extern void UnloadSymbols(PIMAGE_INFO);
-extern void RemoveProcessBps(PPROCESS_INFO);
-extern void RemoveThreadBps(PTHREAD_INFO);
-extern void DeferSymbolLoad(PIMAGE_INFO);
+void RemoveProcessBps(PPROCESS_INFO);
+void RemoveThreadBps(PTHREAD_INFO);
+void DeferSymbolLoad(PIMAGE_INFO);
 
-extern void _CRTAPI1 _cinit(void);
-extern PVOID GetClientId(void);
+PVOID GetClientId(void);
 
 long     vm86DefaultSeg = -1L;
-unsigned short fVm86 = FALSE;
-unsigned short f16pm = FALSE;
-PUCHAR  pszScriptFile = NULL;
-BOOLEAN fCreateThreadBreak = FALSE;
-BOOLEAN fExitThreadBreak = FALSE;
-BOOLEAN fLoadDllBreak = FALSE;
-BOOLEAN fPortDisconnectBreak = FALSE;
+unsigned short fVm86;
+unsigned short f16pm;
+PUCHAR  pszScriptFile;
+BOOLEAN fCreateThreadBreak;
+BOOLEAN fExitThreadBreak;
+BOOLEAN fLoadDllBreak;
+BOOLEAN fPortDisconnectBreak;
+BOOLEAN fIgnoreLdrThunkAV;
+#define STATUS_CPP_EH_EXCEPTION    0xe06d7363
+BOOLEAN fEhExceptionBreak;
 BOOLEAN fAccessViolationBreak = TRUE;
 BOOLEAN fInpageIoErrorBreak = TRUE;
 BOOLEAN fControlCHandled = TRUE;
+BOOLEAN fDivideByZeroBreak = TRUE;
+BOOLEAN fInvalidHandleBreak = TRUE;
 UCHAR   oldcmdState;
-UCHAR   chExceptionHandle;              //  defined only when cmdState == 'g'
-                                        //  values are: 'n' - not handled
-                                        //              'h' - handled
-BOOLEAN fSecondConsole = FALSE;         //  if FALSE,run child in same console
-BOOLEAN fDebugOutput = FALSE;           //  if FALSE, output to user screen
+BOOLEAN fSecondConsole;         //  if FALSE,run child in same console
+BOOLEAN fDebugOutput;           //  if FALSE, output to user screen
                                         //  if TRUE, output to debug screen
-BOOLEAN fVerboseOutput = FALSE;         //  if TRUE, output verbose info
+BOOLEAN fVerboseOutput;         //  if TRUE, output verbose info
 
-HWND    hOurWnd = NULL;
+HWND    hOurWnd;
 
 extern ULONG  pageSize;
 extern ULONG  WatchCount;
 extern ULONG SystemReportedTime;
 extern BOOLEAN Timing;
 
-BOOL fVDMInitDone = FALSE;
-BOOL fVDMActive = FALSE;
-BOOL (WINAPI *pfnVDMProcessException)(LPDEBUG_EVENT) = NULL;
-BOOL (WINAPI *pfnVDMGetThreadSelectorEntry)(HANDLE,HANDLE,DWORD,LPVDMLDT_ENTRY) = NULL;
+BOOL fVDMInitDone;
+BOOL fVDMActive;
+BOOL (WINAPI *pfnVDMProcessException)(LPDEBUG_EVENT);
+BOOL (WINAPI *pfnVDMGetThreadSelectorEntry)(HANDLE,HANDLE,DWORD,LPVDMLDT_ENTRY);
 ULONG (WINAPI *pfnVDMGetPointer)(HANDLE,HANDLE,WORD,DWORD,BOOL);
-BOOL (WINAPI *pfnVDMGetThreadContext)(LPDEBUG_EVENT,LPVDMCONTEXT) = NULL;
-BOOL (WINAPI *pfnVDMSetThreadContext)(LPDEBUG_EVENT,LPVDMCONTEXT) = NULL;
-BOOL (WINAPI *pfnVDMKillWOW)(VOID) = NULL;
-BOOL (WINAPI *pfnVDMDetectWOW)(VOID) = NULL;
-BOOL (WINAPI *pfnVDMBreakThread)(HANDLE) = NULL;
+BOOL (WINAPI *pfnVDMGetThreadContext)(LPDEBUG_EVENT,LPVDMCONTEXT);
+BOOL (WINAPI *pfnVDMSetThreadContext)(LPDEBUG_EVENT,LPVDMCONTEXT);
+BOOL (WINAPI *pfnVDMKillWOW)(VOID);
+BOOL (WINAPI *pfnVDMDetectWOW)(VOID);
+BOOL (WINAPI *pfnVDMBreakThread)(HANDLE);
 BOOL (WINAPI *pfnVDMGetSelectorModule)(HANDLE,HANDLE,WORD,PUINT,LPSTR, UINT,LPSTR, UINT);
 BOOL (WINAPI *pfnVDMGetModuleSelector)(HANDLE,HANDLE,UINT,LPSTR,LPWORD);
 BOOL (WINAPI *pfnVDMModuleFirst)(HANDLE,HANDLE,LPMODULEENTRY,DEBUGEVENTPROC,LPVOID);
@@ -161,6 +251,13 @@ typedef struct _segentry {
 #define MAXSEGENTRY 1024
 
 SEGENTRY segtable[MAXSEGENTRY];
+
+#ifdef BP_CORRUPTION
+BOOL
+IsAddrInBrkptList(
+    DWORD Address
+    );
+#endif BP_CORRUPTION
 
 BOOL
 NtsdDebugActiveProcess (
@@ -205,6 +302,48 @@ BOOL ControlCHandler(
     return TRUE;
 }
 
+NtsdMainExceptionFilter(
+    LPEXCEPTION_POINTERS ep
+    )
+{
+    DWORD ExceptionCode = ep->ExceptionRecord->ExceptionCode;
+    PVOID ExceptionAddress = ep->ExceptionRecord->ExceptionAddress;
+    PDWORD ExceptionInformation = ep->ExceptionRecord->ExceptionInformation;
+
+#ifdef BP_CORRUPTION
+    if (ExceptionCode == EXCEPTION_ACCESS_VIOLATION) {
+        if (ExceptionInformation[0] == 1 &&
+            IsAddrInBrkptList(ExceptionInformation[1])) {
+
+            dprintf("%s: Unexpected write to breakpoint list (%08x) at code address %08x\n",
+                    DebuggerName,
+                    ExceptionInformation[1],
+                    (DWORD)ExceptionAddress
+                    );
+            DbgPrint("%s: Unexpected write to breakpoint list (%08x) at code address %08x\n",
+                    DebuggerName,
+                    ExceptionInformation[1],
+                    (DWORD)ExceptionAddress
+                    );
+            DebugBreak();
+        }
+    }
+#endif BP_CORRUPTION
+
+
+    if (dwPidToDebug == 0xffffffff) {
+        dprintf("%s: Fatal Unhandled Exception %x while debugging CSR\n",
+                DebuggerName,
+                ExceptionCode);
+        DbgPrint("%s: Fatal Unhandled Exception %x while debugging CSR\n",
+                DebuggerName,
+                ExceptionCode);
+        DebugBreak();
+    }
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 /*** main - main program of NT-WIN32 debugger
 *
 *   Purpose:
@@ -230,421 +369,461 @@ BOOL ControlCHandler(
 *
 *************************************************************************/
 
-void _CRTAPI1 main (int argc, char *argv[], char *envp[])
+int
+_CRTAPI1
+main(
+    int argc,
+    char *argv[],
+    char *envp[]
+    )
 {
     LPSTR       lpstrCmd;
-    LPSTR       lpTemp;
     STARTUPINFO StartupInfo;
     STARTUPINFO MyStartupInfo;
     PROCESS_INFORMATION ProcessInformation;
     BOOL        b;
     UCHAR       ch;
+    ULONG       n;
     ULONG       debugType = DEBUG_ONLY_THIS_PROCESS;
     ULONG       separateWowVDM = 0;
     DWORD       dwTemp;
     extern      PUCHAR  Version_String;
+    DWORD       ExitCode;
+    ULONG       SymOptions = SYMOPT_CASE_INSENSITIVE | SYMOPT_UNDNAME | SYMOPT_NO_CPP;
 
     UNREFERENCED_PARAMETER(argc);
     UNREFERENCED_PARAMETER(argv);
     UNREFERENCED_PARAMETER(envp);
 
     DebuggerName = "NTSD";
+    ExitCode = 0;
 
-    try {
-    ReadIniFile(&debugType);
+    GetSystemInfo(&SystemInfo);
+    OsVersionInfo.dwOSVersionInfoSize = sizeof(OsVersionInfo);
+    GetVersionEx(&OsVersionInfo);
 
-#ifdef  MIPS
-    ProcessorType = GetProcessorType();
-#endif
-    pageSize = GetPageSize();
+    __try {
+        ReadIniFile(&debugType);
 
-    lpstrCmd = GetCommandLine();
+        pageSize = GetPageSize();
 
-    // skip over program name
+        lpstrCmd = GetCommandLine();
 
-    do
-        ch = *lpstrCmd++;
-    while (ch != ' ' && ch != '\t' && ch != '\0');
+        // skip over program name
 
-    //  skip over any following white space
-
-    while (ch == ' ' || ch == '\t')
-        ch = *lpstrCmd++;
-
-    //  process each switch character '-' as encountered
-
-    while (ch == '-') {
-        ch = *lpstrCmd++;
-
-        //  process multiple switch characters as needed
-
-        do {
-            switch (ch) {
-                case '-':
-                    // '--' is the equivalent of -G -g -o -p -1
-
-                    debugType = DEBUG_PROCESS;
-                    fLazyLoad = TRUE;
-                    fStopOnProcessExit = FALSE;
-                    fDebugOutput = TRUE;
-                    fStopFirst = FALSE;
-                    dwPidToDebug = 0xffffffff;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'S':
-                case 's':
-                    fLazyLoad = FALSE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'X':
-                case 'x':
-                    fAccessViolationBreak = FALSE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'A':
-                case 'a':
-                    lpstrCmd++;
-                    while (*lpstrCmd == ' ' || *lpstrCmd == '\t')
-                        lpstrCmd++;
-                    lpTemp = lpstrCmd;
-                    while (*lpTemp != ' ' && *lpTemp != '\t')
-                        lpTemp++;
-                    dwTemp = lpTemp - lpstrCmd;
-                    DefaultExtDllName = malloc(dwTemp+1);
-                    if (!DefaultExtDllName) {
-                        dprintf("%s: Couldn't allocate memory\n", DebuggerName);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                    }
-                    strncpy(DefaultExtDllName, lpstrCmd, dwTemp);
-                    DefaultExtDllName[dwTemp] = '\0';
-                    lpstrCmd += dwTemp;
-                    ch = *lpstrCmd;
-                    break;
-
-                case  'O':
-                case  'o':
-                    debugType = DEBUG_PROCESS;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case  '2':
-                    fSecondConsole = TRUE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'D':
-                case 'd':
-                    fDebugOutput = TRUE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'g':
-                    fStopFirst = FALSE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'G':
-                    fStopOnProcessExit = FALSE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'V':
-                case 'v':
-                    fVerboseOutput = TRUE;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'W':
-                case 'w':
-                    separateWowVDM = CREATE_SEPARATE_WOW_VDM;
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'P':
-                case 'p':
-                    // pid debug takes decimal argument
-
-                    do
-                        ch = *lpstrCmd++;
-                    while (ch == ' ' || ch == '\t');
-
-                    if (dwPidToDebug) {
-                        dprintf("%s: pid number redefined\n", DebuggerName);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                        }
-                    if ( ch == '-' ) {
-                        ch = *lpstrCmd++;
-                        if ( ch == '1' ) {
-                            fDebugOutput = TRUE;
-                            dwPidToDebug = 0xffffffff;
-                            ch = *lpstrCmd++;
-                            }
-                        }
-                    else {
-                        while (ch >= '0' && ch <= '9') {
-                            dwTemp = dwPidToDebug * 10 + ch - '0';
-                            if (dwTemp < dwPidToDebug) {
-                                dprintf("%s: pid number overflow\n", DebuggerName);
-                                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                                }
-                            dwPidToDebug = dwTemp;
-                            ch = *lpstrCmd++;
-                            }
-                        }
-                    if (!dwPidToDebug) {
-                        dprintf("%s: bad pid '%ld'\n", DebuggerName, dwPidToDebug);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                        }
-                    break;
-                case 'R':
-                case 'r':
-                    // Rip flags takes single-char decimal argument
-
-                    do
-                        ch = *lpstrCmd++;
-                    while (ch == ' ' || ch == '\t');
-
-                    dwRipBreakLevel = ch - '0';
-                    if (dwRipBreakLevel > 3) {
-                        dprintf("%s: bad Rip level '%ld'\n", DebuggerName, dwRipBreakLevel);
-                        dwRipBreakLevel = 0;
-                    } else {
-                        dwRipPrintLevel = dwRipBreakLevel;
-                    }
-
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'T':
-                case 't':
-                    // Rip flags takes single-char decimal argument
-
-                    do
-                        ch = *lpstrCmd++;
-                    while (ch == ' ' || ch == '\t');
-
-                    dwRipPrintLevel = ch - '0';
-                    if (dwRipPrintLevel > 3) {
-                        dprintf("%s: bad Rip level '%ld'\n", DebuggerName, dwRipPrintLevel);
-                        dwRipPrintLevel = 0;
-                    }
-
-                    ch = *lpstrCmd++;
-                    break;
-
-                case 'e':
-                case 'E':
-
-
-                    // event to signal takes decimal argument
-
-                    do
-                        ch = *lpstrCmd++;
-                    while (ch == ' ' || ch == '\t');
-
-                    if (hEventToSignal) {
-                        dprintf("%s: Event to signal redefined\n", DebuggerName);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                        }
-                    while (ch >= '0' && ch <= '9') {
-                        dwTemp = hEventToSignal * 10 + ch - '0';
-                        if (dwTemp < hEventToSignal) {
-                            dprintf("%s: Event To Signal\n", DebuggerName);
-                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                            }
-                        hEventToSignal = dwTemp;
-                        ch = *lpstrCmd++;
-                        }
-
-                    if (!hEventToSignal) {
-                        dprintf("%s: bad hEventToSignal '%ld'\n", DebuggerName, hEventToSignal);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                        }
-                    break;
-
-                case 'Z':
-                case 'z':
-                    ch = *lpstrCmd++;
-                    if (GetClientId()) {
-                        dprintf("%s: OS2 SubSystem not started", DebuggerName);
-                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                        }
-                    break;
-
-                default:
-                    dprintf("%s: bad switch '%c'\n", DebuggerName, ch);
-                    ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-                }
-            }
+        do
+            ch = *lpstrCmd++;
         while (ch != ' ' && ch != '\t' && ch != '\0');
 
         //  skip over any following white space
 
         while (ch == ' ' || ch == '\t')
             ch = *lpstrCmd++;
+
+        //  process each switch character '-' as encountered
+
+        while (ch == '-') {
+            ch = *lpstrCmd++;
+
+            //  process multiple switch characters as needed
+
+            do {
+                switch (ch) {
+                    case '-':
+                        // '--' is the equivalent of -G -g -o -p -1
+
+                        debugType = DEBUG_PROCESS;
+                        fLazyLoad = TRUE;
+                        fStopOnProcessExit = FALSE;
+                        fDebugOutput = TRUE;
+                        fStopFirst = FALSE;
+                        dwPidToDebug = 0xffffffff;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'S':
+                    case 's':
+                        fLazyLoad = FALSE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'I':
+                    case 'i':
+                        fIgnoreLdrThunkAV = TRUE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'A':
+                    case 'a':
+                        lpstrCmd++;
+                        lpstrCmd = SetDefaultExtDllName(lpstrCmd);
+                        ch = *lpstrCmd;
+                        break;
+
+                    case  'O':
+                    case  'o':
+                        debugType = DEBUG_PROCESS;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case  '2':
+                        fSecondConsole = TRUE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'D':
+                    case 'd':
+                        fDebugOutput = TRUE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'g':
+                        fStopFirst = FALSE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'G':
+                        fStopOnProcessExit = FALSE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'V':
+                    case 'v':
+                        fVerboseOutput = TRUE;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'W':
+                    case 'w':
+                        separateWowVDM = CREATE_SEPARATE_WOW_VDM;
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'P':
+                    case 'p':
+                        // pid debug takes decimal argument
+
+                        do
+                            ch = *lpstrCmd++;
+                        while (ch == ' ' || ch == '\t');
+
+                        if (dwPidToDebug) {
+                            dprintf("%s: pid number redefined\n", DebuggerName);
+                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                            }
+                        if ( ch == '-' ) {
+                            ch = *lpstrCmd++;
+                            if ( ch == '1' ) {
+                                fDebugOutput = TRUE;
+                                dwPidToDebug = 0xffffffff;
+                                ch = *lpstrCmd++;
+                                }
+                            }
+                        else {
+                            while (ch >= '0' && ch <= '9') {
+                                dwTemp = dwPidToDebug * 10 + ch - '0';
+                                if (dwTemp < dwPidToDebug) {
+                                    dprintf("%s: pid number overflow\n", DebuggerName);
+                                    ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                                    }
+                                dwPidToDebug = dwTemp;
+                                ch = *lpstrCmd++;
+                                }
+                            }
+                        if (!dwPidToDebug) {
+                            dprintf("%s: bad pid '%ld'\n", DebuggerName, dwPidToDebug);
+                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                            }
+                        break;
+                    case 'R':
+                    case 'r':
+                        // Rip flags takes single-char decimal argument
+
+                        do {
+                            ch = *lpstrCmd++;
+                        } while (ch == ' ' || ch == '\t');
+
+                        dwRipBreakLevel = ch - '0';
+                        if (dwRipBreakLevel > 3) {
+                            dprintf("%s: bad Rip level '%ld'\n", DebuggerName, dwRipBreakLevel);
+                            dwRipBreakLevel = 0;
+                        } else {
+                            dwRipPrintLevel = dwRipBreakLevel;
+                        }
+
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'T':
+                    case 't':
+                        // Rip flags takes single-char decimal argument
+
+                        do
+                            ch = *lpstrCmd++;
+                        while (ch == ' ' || ch == '\t');
+
+                        dwRipPrintLevel = ch - '0';
+                        if (dwRipPrintLevel > 3) {
+                            dprintf("%s: bad Rip level '%ld'\n", DebuggerName, dwRipPrintLevel);
+                            dwRipPrintLevel = 0;
+                        }
+
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'e':
+                    case 'E':
+
+
+                        // event to signal takes decimal argument
+
+                        do
+                            ch = *lpstrCmd++;
+                        while (ch == ' ' || ch == '\t');
+
+                        if (hEventToSignal) {
+                            dprintf("%s: Event to signal redefined\n", DebuggerName);
+                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                            }
+                        while (ch >= '0' && ch <= '9') {
+                            dwTemp = hEventToSignal * 10 + ch - '0';
+                            if (dwTemp < hEventToSignal) {
+                                dprintf("%s: Event To Signal\n", DebuggerName);
+                                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                                }
+                            hEventToSignal = dwTemp;
+                            ch = *lpstrCmd++;
+                            }
+
+                        if (!hEventToSignal) {
+                            dprintf("%s: bad hEventToSignal '%ld'\n", DebuggerName, hEventToSignal);
+                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                            }
+                        break;
+
+                    case 'M':
+                    case 'm':
+                        ch = *lpstrCmd++;
+                        if (_strcmpi(lpstrCmd, "yob") == 0) {
+                            MYOB = TRUE;
+                            break;
+                        } else {
+                            goto badswitch;
+                        }
+
+                    case 'x':
+                    case 'X':
+                        ch = *lpstrCmd++;
+                        if (ch == 0 || ch == ' ' || ch == '\t') {
+                            fAccessViolationBreak = FALSE;
+                            break;
+                        } else if (ch == 'e') {
+                            b = TRUE;
+                        } else if (ch == 'd') {
+                            b = FALSE;
+                        } else {
+                            goto badswitch;
+                        }
+                        while (isspace(*lpstrCmd)) {
+                            lpstrCmd++;
+                        }
+                        dwTemp = strtol(lpstrCmd, &lpstrCmd, 16);
+                        if (dwTemp == 0) {
+                            goto badswitch;
+                        }
+                        SetDefaultBreak(dwTemp, b);
+                        ch = *lpstrCmd++;
+                        break;
+
+                    case 'Z':
+                    case 'z':
+                        ch = *lpstrCmd++;
+                        if (GetClientId()) {
+                            dprintf("%s: OS2 SubSystem not started", DebuggerName);
+                            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                            }
+                        break;
+
+                    default:
+                    badswitch:
+                        dprintf("%s: bad switch '%c'\n", DebuggerName, ch);
+                        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                    }
+                }
+            while (ch != ' ' && ch != '\t' && ch != '\0');
+
+            //  skip over any following white space
+
+            while (ch == ' ' || ch == '\t')
+                ch = *lpstrCmd++;
+            }
+
+        //  if no image name and not attaching to active process, error
+
+        if (ch == '\0' && !dwPidToDebug) {
+            dprintf("Usage: ntsd [-o] [-d] (-p pid-num | "
+                                    "name-of-image [parameters...])\n");
+            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
         }
 
-    //  if no image name and not attaching to active process, error
+        lpstrCmd--;
 
-    if (ch == '\0' && !dwPidToDebug) {
-        dprintf("Usage: ntsd [-o] [-d] (-p pid-num | "
-                                "name-of-image [parameters...])\n");
-        ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+        if (fLazyLoad) {
+            SymOptions |= SYMOPT_DEFERRED_LOADS;
         }
 
-    lpstrCmd--;
+        SymSetOptions( SymOptions );
 
-    if (!fDebugOutput) {
+        if (!DefaultExtDllName) {
+            SetDefaultExtDllName("userexts");
+        }
+
+#if defined (TARGET_MIPS)
+        if (OsVersionInfo.dwPlatformId == VER_PLATFORM_WIN32_NT &&
+            (OsVersionInfo.dwBuildNumber & 0xffff) > 1144) {
+            MipsContextSize = Ctx64Bit;
+        } else {
+            MipsContextSize = Ctx32Bit;
+        }
+#endif // TARGET_MIPS
+
+        if (!fDebugOutput) {
 #ifndef NTSD_INHERIT_CONSOLE
-        BOOL Success;
-        extern void _CRTAPI1 _cinit( void );
+            BOOL Success;
 
-        Success = AllocConsole();
-        ASSERT(Success);
-        _cinit();
-        if (!SetConsoleCtrlHandler(ControlCHandler, TRUE)) {
-            dprintf("Warning: unable to set control-c handler.\n");
-            }
+            Success = AllocConsole();
+            assert(Success);
+            if (!SetConsoleCtrlHandler(ControlCHandler, TRUE)) {
+                dprintf("Warning: unable to set control-c handler.\n");
+                }
 
-        ConsoleInputHandle = CreateFile( "CONIN$",
-                                         GENERIC_READ,
-                                         FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                         NULL,
-                                         OPEN_EXISTING,
-                                         0,
-                                         NULL
-                                       );
-        if (ConsoleInputHandle == INVALID_HANDLE_VALUE) {
-            DbgPrint( "%s: Unable to open input console handle - error %u\n",
-                     DebuggerName,
-                     GetLastError() );
-            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-            }
+            ConsoleInputHandle = CreateFile( "CONIN$",
+                                             GENERIC_READ,
+                                             FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                             NULL,
+                                             OPEN_EXISTING,
+                                             0,
+                                             NULL
+                                           );
+            if (ConsoleInputHandle == INVALID_HANDLE_VALUE) {
+                DbgPrint( "%s: Unable to open input console handle - error %u\n",
+                         DebuggerName,
+                         GetLastError() );
+                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                }
 
-        ConsoleOutputHandle = CreateFile( "CONOUT$",
-                                          GENERIC_WRITE,
-                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                          NULL,
-                                          OPEN_EXISTING,
-                                          0,
-                                          NULL
-                                        );
-        if (ConsoleOutputHandle == INVALID_HANDLE_VALUE) {
-            DbgPrint( "%s: Unable to open output console handle - error %u\n",
-                    DebuggerName,
-                    GetLastError() );
-            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
-            }
+            ConsoleOutputHandle = CreateFile( "CONOUT$",
+                                              GENERIC_WRITE,
+                                              FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                              NULL,
+                                              OPEN_EXISTING,
+                                              0,
+                                              NULL
+                                            );
+            if (ConsoleOutputHandle == INVALID_HANDLE_VALUE) {
+                DbgPrint( "%s: Unable to open output console handle - error %u\n",
+                        DebuggerName,
+                        GetLastError() );
+                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                }
 #else // ndef NTSD_INHERIT_CONSOLE
-        if (!SetConsoleCtrlHandler(ControlCHandler, TRUE)) {
-            dprintf("%s: unable to set control-c handler.\n", DebuggerName);
-            }
+            if (!SetConsoleCtrlHandler(ControlCHandler, TRUE)) {
+                dprintf("%s: unable to set control-c handler.\n", DebuggerName);
+                }
 
-        ConsoleInputHandle = GetStdHandle(STD_INPUT_HANDLE);
-        ConsoleOutputHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+            ConsoleInputHandle = GetStdHandle(STD_INPUT_HANDLE);
+            ConsoleOutputHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 #endif
 
-        SetPriorityClass(GetCurrentProcess(),HIGH_PRIORITY_CLASS);
-        }
-    else {
-        SetPriorityClass(GetCurrentProcess(),REALTIME_PRIORITY_CLASS);
-        }
-    if ( ch != '\0' && dwPidToDebug ) {
-        fCreateProcessAlso = TRUE;
-        debugType |= CREATE_SUSPENDED;
-        }
-
-    if (dwPidToDebug == 0 || fCreateProcessAlso) {
-        GetStartupInfo(&MyStartupInfo);
-        memset(&StartupInfo, 0, sizeof(StartupInfo));
-        StartupInfo.cb = sizeof(StartupInfo);
-        StartupInfo.lpDesktop = MyStartupInfo.lpDesktop;
-        debugType |= separateWowVDM;
-
-        b = CreateProcess(
-                NULL,
-                lpstrCmd,
-                NULL,
-                NULL,
-                TRUE,
-                debugType | (fSecondConsole?CREATE_NEW_CONSOLE:0),
-//              DEBUG_ONLY_THIS_PROCESS,
-                NULL,
-                NULL,
-                &StartupInfo,
-                &ProcessInformation
-                );
-
-        if (!b) {
-            dprintf("%s: cannot execute '%s' : error = %lx\n", DebuggerName, lpstrCmd,
-                    GetLastError());
-            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+            SetPriorityClass(GetCurrentProcess(),HIGH_PRIORITY_CLASS);
             }
         else {
-            if ( fCreateProcessAlso ) {
-                hThreadToResume = ProcessInformation.hThread;
+            SetPriorityClass(GetCurrentProcess(),REALTIME_PRIORITY_CLASS);
+            }
+        if ( ch != '\0' && dwPidToDebug ) {
+            fCreateProcessAlso = TRUE;
+            debugType |= CREATE_SUSPENDED;
+            }
+
+        if (dwPidToDebug == 0 || fCreateProcessAlso) {
+            GetStartupInfo(&MyStartupInfo);
+            memset(&StartupInfo, 0, sizeof(StartupInfo));
+            StartupInfo.cb = sizeof(StartupInfo);
+            StartupInfo.lpDesktop = MyStartupInfo.lpDesktop;
+            debugType |= separateWowVDM;
+
+            b = CreateProcess(
+                    NULL,
+                    lpstrCmd,
+                    NULL,
+                    NULL,
+                    TRUE,
+                    debugType | (fSecondConsole?CREATE_NEW_CONSOLE:0),
+//                  DEBUG_ONLY_THIS_PROCESS,
+                    NULL,
+                    NULL,
+                    &StartupInfo,
+                    &ProcessInformation
+                    );
+
+            if (!b) {
+                dprintf("%s: cannot execute '%s' : error = %lx\n", DebuggerName, lpstrCmd,
+                        GetLastError());
+                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                }
+            else {
+                if ( fCreateProcessAlso ) {
+                    hThreadToResume = ProcessInformation.hThread;
+                    }
                 }
             }
-        }
-    if ( dwPidToDebug ) {
+        if ( dwPidToDebug ) {
 
-        //
-        //  Enable the privilege that allows the user to debug
-        //  another process.
-        //
-        //  If this call fails, we can't debug any other processes.
-        //
+            //
+            //  Enable the privilege that allows the user to debug
+            //  another process.
+            //
+            //  If this call fails, we can't debug any other processes.
+            //
 
-        b = NtsdDebugActiveProcess(dwPidToDebug);
+            b = NtsdDebugActiveProcess(dwPidToDebug);
 
-        if (!b) {
-            dprintf("%s: cannot debug pid %ld (error = %ld)\n",
-                    DebuggerName,
-                    dwPidToDebug,
-                    GetLastError());
-            ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+            if (!b) {
+                dprintf("%s: cannot debug pid %ld (error = %ld)\n",
+                        DebuggerName,
+                        dwPidToDebug,
+                        GetLastError());
+                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+                }
             }
-        }
-    InitNtCmd();
-    dprintf("%s",Version_String);
-    SetSymbolSearchPath(FALSE);
-    dprintf("CommandLine: %s\n",lpstrCmd);
+        InitNtCmd();
+        dprintf("%s",Version_String);
+        dprintf("CommandLine: %s\n",lpstrCmd);
 
-    SetDebugErrorLevel(max(dwRipPrintLevel, dwRipBreakLevel));
+        SetDebugErrorLevel(max(dwRipPrintLevel, dwRipBreakLevel));
 
-    if (dwPidToDebug == 0xffffffff) {
-        CloseProfileUserMapping();
-        }
+        if (dwPidToDebug == 0xffffffff) {
+            CloseProfileUserMapping();
+            }
 
-    NtsdExecution();
+        NtsdExecution();
 
-    } except (dwPidToDebug == 0xffffffff ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-        DbgPrint("%s: Fatal Unhandled Exception %x while debugging CSR\n",
-                DebuggerName,
-                GetExceptionCode());
-        DbgBreakPoint();
+    } __except (NtsdMainExceptionFilter(GetExceptionInformation())) {
+        ;
     }
-}
 
-#ifdef  MIPS
-USHORT GetProcessorType (void)
-{
-    SYSTEM_INFO  systeminfo;
-
-    GetSystemInfo(&systeminfo);
-    return (USHORT)(systeminfo.dwProcessorType == PROCESSOR_MIPS_R4000);
+    if (dwPidToDebug == 0 || fCreateProcessAlso) {
+        if (!GetExitCodeProcess(ProcessInformation.hProcess, &ExitCode)) {
+            ExitCode = (DWORD)STATUS_UNSUCCESSFUL;
+        }
+    }
+    ExitProcess(ExitCode);
+    return (int)ExitCode;
 }
-#endif
 
 ULONG GetPageSize (void)
 {
-    SYSTEM_INFO  systeminfo;
-
-    GetSystemInfo(&systeminfo);
-    return (ULONG)systeminfo.dwPageSize;
+    return (ULONG)SystemInfo.dwPageSize;
 }
 
 /*** DebugEventHandler - main dispatch table
@@ -706,12 +885,18 @@ DWORD DebugEventHandler(
                         DebuggerName,
                         lpDebugEvent->dwProcessId,
                         lpDebugEvent->dwThreadId);
+
+            Wx86CreateProcessEvent(lpDebugEvent);
             break;
 
         case EXIT_PROCESS_DEBUG_EVENT:
             if (fVerboseOutput)
                 dprintf("*** exit process\n");
             InitEventVars(lpDebugEvent);
+
+            if (pProcessCurrent->fWx86Process) {
+                DoWx86ExtApi(pfnWx86ExtCreateProcess, lpDebugEvent, NULL);
+                }
             SetTermStatus(lpDebugEvent);
             if (fVerboseOutput)
                 dprintf("%s: process exited: %ld.%ld\n",
@@ -746,12 +931,21 @@ DWORD DebugEventHandler(
             oldcmdState = cmdState;
             cmdState = 'i';
             ProcessStateChange(FALSE,(BOOLEAN)(fCreateThreadBreak ? FALSE : TRUE));
+
+            if (pProcessCurrent->fWx86Process) {
+                DoWx86ExtApi(pfnWx86ExtCreateProcess, lpDebugEvent, NULL);
+                }
             break;
 
         case EXIT_THREAD_DEBUG_EVENT:
             if (fVerboseOutput)
                 dprintf("*** exit thread\n");
             InitEventVars(lpDebugEvent);
+
+            if (pProcessCurrent->fWx86Process) {
+                DoWx86ExtApi(pfnWx86ExtCreateProcess, lpDebugEvent, NULL);
+                }
+
             SetTermStatus(lpDebugEvent);
             if (fVerboseOutput)
                 dprintf("%s: thread exited: %ld.%ld\n",
@@ -813,6 +1007,45 @@ DWORD DebugEventHandler(
         case EXCEPTION_DEBUG_EVENT:
             InitEventVars(lpDebugEvent);
 
+            //
+            // If we are debugging a crashed process, force the
+            // desktop we are on to the front so the user will know
+            // what happened.
+            //
+            if ( hEventToSignal ) {
+                HDESK hDesk;
+                if (!fDebugOutput) {
+                    hDesk = GetThreadDesktop(GetCurrentThreadId());
+                    SwitchDesktop(hDesk);
+                }
+            }
+
+            if (pProcessCurrent->fWx86Process) {
+                switch (Wx86ExceptionEvent(lpDebugEvent, &ContinueStatus)) {
+                   case WX86_PROMPT:
+                        if (!FIRSTCHANCE)
+                            dprintf("%s: !!! second chance !!!\n", DebuggerName);
+
+                        cmdState = 'i';
+                        ProcessStateChange(FALSE, FALSE);
+                        ResumeAllThreads();
+                        // fall thru
+
+                   case WX86_HANDLED:
+                        if ( hEventToSignal ) {
+                            SetEvent((HANDLE)hEventToSignal);
+                            hEventToSignal = 0L;
+                        }
+                        return ContinueStatus;
+
+                   case WX86_CONTINUE:
+                   default:
+
+                        // undefined nonsense fall thru to normal actions
+                        break;
+                }
+            }
+
             switch (EXCEPTIONCODE) {
 
                 case STATUS_BREAKPOINT:
@@ -830,10 +1063,6 @@ DWORD DebugEventHandler(
                     if ( hThreadToResume ) {
                         ResumeThread(hThreadToResume);
                         hThreadToResume = NULL;
-                        }
-                    if ( hEventToSignal ) {
-                        SetEvent((HANDLE)hEventToSignal);
-                        hEventToSignal = 0L;
                         }
                     break;
 
@@ -863,6 +1092,34 @@ DWORD DebugEventHandler(
                     break;
 
                 case STATUS_ACCESS_VIOLATION:
+                    if (FIRSTCHANCE && fIgnoreLdrThunkAV) {
+                        UCHAR chSymBuffer[SYMBOLSIZE];
+                        LPSTR s;
+                        ULONG displacement;
+
+                        //
+                        // This option allows new 3.51 binaries to run under
+                        // this debugger on old 3.1, 3.5 systems and avoid stopping
+                        // at access violations inside LDR that will be handled
+                        // by the LDR anyway.
+                        //
+                        GetSymbolStdCall( (ULONG)(lpDebugEvent->u.Exception.ExceptionRecord.ExceptionAddress),
+                                   chSymBuffer,
+                                   &displacement,
+                                   NULL
+                                 );
+                        s = (LPSTR)chSymBuffer;
+                        if (!_strnicmp( s, "ntdll!", 6 )) {
+                            s += 6;
+                            if (*s == '_') s += 1;
+                            if (!_stricmp( s, "LdrpSnapThunk" ) ||
+                                !_stricmp( s, "LdrpWalkImportDescriptor" )
+                               ) {
+                                goto ignoreAV;
+                                }
+                            }
+                        }
+
                     dprintf("%s: access violation\n", DebuggerName);
                     if (!FIRSTCHANCE)
                         dprintf("%s: !!! second chance !!!\n", DebuggerName);
@@ -872,9 +1129,11 @@ DWORD DebugEventHandler(
                         ProcessStateChange(FALSE, FALSE);
                         ContinueStatus = GetContinueStatus(FIRSTCHANCE,
                                                            FALSE);
-                        }
-                    else
+                    } else {
+ignoreAV:
                         ContinueStatus = (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+                    }
+
                     break;
 
                 case STATUS_IN_PAGE_ERROR:
@@ -893,6 +1152,24 @@ DWORD DebugEventHandler(
                         }
                     else
                         ContinueStatus = (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+                    break;
+
+                case STATUS_INVALID_HANDLE:
+                    dprintf("%s: Invalid handle\n", DebuggerName );
+
+                    if (!FIRSTCHANCE) {
+                        dprintf("%s: !!! second chance !!!\n", DebuggerName);
+                    }
+
+                    if (!FIRSTCHANCE || fInvalidHandleBreak) {
+                        cmdState = 'i';
+                        ProcessStateChange(FALSE, FALSE);
+                        ContinueStatus = GetContinueStatus(FIRSTCHANCE,
+                                                           FALSE);
+                        }
+                    else {
+                        ContinueStatus = (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+                        }
                     break;
 
                 case STATUS_PORT_DISCONNECTED:
@@ -917,19 +1194,51 @@ DWORD DebugEventHandler(
                                                        FALSE);
                     break;
 
+                case STATUS_INTEGER_DIVIDE_BY_ZERO:
+                    dprintf("%s: integer divide by zero\n", DebuggerName);
+                    if (!FIRSTCHANCE)
+                        dprintf("%s: !!! second chance !!!\n", DebuggerName);
+                    if (!FIRSTCHANCE || fDivideByZeroBreak) {
+                        cmdState = 'i';
+                        ProcessStateChange(FALSE, FALSE);
+                        ContinueStatus = GetContinueStatus(FIRSTCHANCE,
+                                                           FALSE);
+                    }
+                    else
+                        ContinueStatus = (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+                    break;
+
+                case STATUS_CPP_EH_EXCEPTION:
+                    dprintf("%s: C++ EH Exception\n", DebuggerName);
+                    if (!FIRSTCHANCE)
+                        dprintf("%s: !!! second chance !!!\n", DebuggerName);
+                    if (!FIRSTCHANCE || fEhExceptionBreak) {
+                        cmdState = 'i';
+                        ProcessStateChange(FALSE, FALSE);
+                        ContinueStatus = GetContinueStatus(FIRSTCHANCE, FALSE);
+                    }
+                    else
+                        ContinueStatus = (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+                    break;
+
                 case STATUS_POSSIBLE_DEADLOCK:
                     {
                         CHAR Symbol[SYMBOLSIZE];
                         DWORD Displacement;
 
-                        GetSymbol(lpDebugEvent->u.Exception.ExceptionRecord.ExceptionInformation[0],Symbol,&Displacement);
+                        GetSymbolStdCall(lpDebugEvent->u.Exception.ExceptionRecord.ExceptionInformation[0],
+                                  Symbol,
+                                  &Displacement,
+                                  NULL
+                                  );
                         dprintf("%s: Possible Deadlock Lock %s+%lx at %lx\n",
                                 DebuggerName,
                                 Symbol,
                                 Displacement,
                                 lpDebugEvent->u.Exception.ExceptionRecord.ExceptionInformation[0]);
-                        if (!FIRSTCHANCE)
+                        if (!FIRSTCHANCE) {
                             dprintf("%s: !!! second chance !!!\n", DebuggerName);
+                        }
                         cmdState = 'i';
                         ProcessStateChange(FALSE, FALSE);
                         ContinueStatus = GetContinueStatus(FIRSTCHANCE,
@@ -941,6 +1250,7 @@ DWORD DebugEventHandler(
                     b = VDMEvent(lpDebugEvent);
                     ContinueStatus = b ? (DWORD)DBG_CONTINUE : (DWORD)DBG_EXCEPTION_NOT_HANDLED;
                     break;
+
                 default:
                     dprintf("%s: exception number %08lx\n",
                             DebuggerName,
@@ -955,6 +1265,19 @@ DWORD DebugEventHandler(
                                                        FALSE);
                     break;
                 }
+
+
+            //
+            // Do this for all exceptions, just in case some other
+            // thread caused an exception before we get around to
+            // handling the breakpoint event.
+            //
+            if ( hEventToSignal ) {
+                SetEvent((HANDLE)hEventToSignal);
+                hEventToSignal = 0L;
+            }
+
+
             break;
 
         default:
@@ -1046,7 +1369,7 @@ BOOLEAN GetDefaultBreak (DWORD ExceptionCode)
     return fBreak;
 }
 
-void SetDefaultBreak (DWORD ExceptionCode, BOOLEAN fSet)
+void SetDefaultBreak (DWORD ExceptionCode, BOOL fSet)
 {
     ULONG   index;
 
@@ -1097,6 +1420,8 @@ void fnSetException (void)
     BOOLEAN fSetException;
     ULONG   value;
 
+    UCHAR   prevCmdState;
+
     ch = PeekChar();
     ch = (UCHAR)tolower(ch);
     if (ch == '\0')
@@ -1131,6 +1456,36 @@ void fnSetException (void)
                 fPortDisconnectBreak = fSetException;
             else if (ch == 'c' && ch2 == 'c')
                 fControlCHandled = fSetException;
+            else if (ch == 'd' && ch2 == 'z')
+                fDivideByZeroBreak = fSetException;
+            else if (ch == 'e' && ch2 == 'h')
+                fEhExceptionBreak = fSetException;
+            else if (ch == 'c' && ch2 == 'h')
+                fInvalidHandleBreak = fSetException;
+            else if (ch == 'p' && ch2 == 'f')
+            {
+                // call routine to start/stop profiling of DLL
+                fProfilingDLL = fSetException;
+                prevCmdState = cmdState;
+                cmdState = 'd';
+
+                if (fSetException)
+                {
+                    if (fProfilingDLL) {
+                        fnStartProfilingDLL(&ps_ProfileDLL);
+                    } else {
+                        fProfilingDLL = fnStartProfilingDLL(&ps_ProfileDLL);
+                    }
+                }
+                else
+                {
+                    fProfilingDLL = TRUE;
+                    fnStopProfilingDLL(&ps_ProfileDLL);
+                    fProfilingDLL = FALSE;
+                }
+
+                cmdState = prevCmdState;
+            }
             else {
                 pchCommand -= 2;
                 value = GetExpression();
@@ -1146,28 +1501,40 @@ void ListDefaultBreak (void)
 {
     ULONG   index;
 
-    dprintf("ct - break on create thread     - ");
+    dprintf("ct - break on create thread      - ");
     dprintf(fCreateThreadBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("et - break on exit thread       - ");
+    dprintf("et - break on exit thread        - ");
     dprintf(fExitThreadBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("ld - break on load DLL          - ");
+    dprintf("ld - break on load DLL           - ");
     dprintf(fLoadDllBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("av - break on access violation  - ");
+    dprintf("av - break on access violation   - ");
     dprintf(fAccessViolationBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("ip - break on in page io error  - ");
+    dprintf("dz - break on divide by zero     - ");
+    dprintf(fDivideByZeroBreak ? "enabled\n" : "disabled\n");
+
+    dprintf("ip - break on in page io error   - ");
     dprintf(fInpageIoErrorBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("3c - break on gui app exit      - ");
+    dprintf("3c - break on gui app exit       - ");
     dprintf(fPortDisconnectBreak ? "enabled\n" : "disabled\n");
 
-    dprintf("cc - handle control-c           - ");
+    dprintf("cc - handle control-c            - ");
     dprintf(fControlCHandled ? "enabled\n" : "disabled\n");
 
-    dprintf("\n*  - break on default exception - ");
+    dprintf("eh - break on C++ EH exception   - ");
+    dprintf(fEhExceptionBreak ? "enabled\n" : "disabled\n");
+
+    dprintf("ch = break on closing bad handle - ");
+    dprintf(fInvalidHandleBreak ? "enabled\n" : "disabled\n");
+
+    dprintf("pf - profiling DLL               - ");
+    dprintf(fProfilingDLL ? "enabled\n" : "disabled\n");
+
+    dprintf("\n*  - break on default exception  - ");
     dprintf(fDefaultExceptionBreak ? "enabled\n" : "disabled\n");
     if (cExceptionList) {
         dprintf("    opposite break on:\n");
@@ -1176,18 +1543,30 @@ void ListDefaultBreak (void)
         }
 }
 
-DWORD GetContinueStatus (DWORD fFirstChance, BOOLEAN fDefault)
+PUCHAR SetDefaultExtDllName(PUCHAR lpstrCmd)
 {
-    if (cmdState == 'g') {
-        if (chExceptionHandle == 'h')
-            return (DWORD)DBG_EXCEPTION_HANDLED;
-        if (chExceptionHandle == 'n')
-            return (DWORD)DBG_EXCEPTION_NOT_HANDLED;
-        }
-    if (!fFirstChance || fDefault)
-        return (DWORD)DBG_EXCEPTION_HANDLED;
-    else
-        return (DWORD)DBG_EXCEPTION_NOT_HANDLED;
+    LPSTR       lpTemp;
+    DWORD       dwTemp;
+
+    if (DefaultExtDllName) {
+        free(DefaultExtDllName);
+    }
+
+    while (*lpstrCmd == ' ' || *lpstrCmd == '\t')
+        lpstrCmd++;
+    lpTemp = lpstrCmd;
+    while (*lpTemp && *lpTemp != ' ' && *lpTemp != '\t')
+        lpTemp++;
+    dwTemp = lpTemp - lpstrCmd;
+    DefaultExtDllName = malloc(dwTemp+1);
+    if (!DefaultExtDllName) {
+        dprintf("%s: Couldn't allocate memory\n", DebuggerName);
+    } else {
+        strncpy(DefaultExtDllName, lpstrCmd, dwTemp);
+        DefaultExtDllName[dwTemp] = '\0';
+    }
+    lpstrCmd += dwTemp;
+    return(lpstrCmd);
 }
 
 void InitEventVars (DEBUG_EVENT *pDebugEvent)
@@ -1205,7 +1584,7 @@ void SetTermStatus (DEBUG_EVENT *pDebugEvent)
     pThread->fTerminating = TRUE;
 }
 
-PPROCESS_INFO pProcessFromIndex (UCHAR index)
+PPROCESS_INFO pProcessFromIndex (ULONG index)
 {
     PPROCESS_INFO pProcess;
 
@@ -1216,7 +1595,7 @@ PPROCESS_INFO pProcessFromIndex (UCHAR index)
     return pProcess;
 }
 
-PTHREAD_INFO pThreadFromIndex (UCHAR index)
+PTHREAD_INFO pThreadFromIndex (ULONG index)
 {
     PTHREAD_INFO pThread;
 
@@ -1240,7 +1619,7 @@ typedef struct BrkptStruc {
     ULONG   Instr;
     } BRKPT, *PBRKPT;
 
-#define BRKPTNUM 22
+#define BRKPTNUM MAX_NUMBER_OF_BREAKPOINTS
 
 BRKPT BrkptArray[BRKPTNUM];
 PBRKPT pBrkpt = &BrkptArray[0];
@@ -1422,13 +1801,16 @@ NTSTATUS DbgKdWriteVirtualMemory (PVOID addr, PVOID buffer, ULONG count,
 
 ////////////////////////////////////////////
 
-void AddProcess (DEBUG_EVENT *pDebugEvent)
+void
+AddProcess (
+    DEBUG_EVENT *pDebugEvent
+    )
 {
     PPROCESS_INFO  pProcessNew;
     PPROCESS_INFO  pProcess;
     PPROCESS_INFO  pProcessAfter;
     PTHREAD_INFO   pThreadNew;
-    UCHAR          index = 0;
+    ULONG          index = 0;
     DEBUG_EVENT    FakeDllLoadForApplication;
 
     pProcessNew = calloc(1,sizeof(PROCESS_INFO));
@@ -1454,10 +1836,8 @@ void AddProcess (DEBUG_EVENT *pDebugEvent)
         }
     pProcessNew->index = index;
     pProcessNew->dwProcessId = pDebugEvent->dwProcessId;
-
     pProcessNew->hProcess = pDebugEvent->u.CreateProcessInfo.hProcess;
     pProcessNew->fStopOnBreakPoint = fStopFirst;
-    InitSymContext(pProcessNew);
     pProcessCurrent = pProcessNew;
 
     pThreadNew = calloc(1,sizeof(THREAD_INFO));
@@ -1475,6 +1855,14 @@ void AddProcess (DEBUG_EVENT *pDebugEvent)
                           pThreadNew->fTerminating = FALSE;
     pProcessNew->pThreadHead = pThreadNew;
 
+    sym->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    sym->MaxNameLength = MAX_SYMNAME_SIZE;
+    symStart->SizeOfStruct  = sizeof(IMAGEHLP_SYMBOL);
+    symStart->MaxNameLength = MAX_SYMNAME_SIZE;
+    SymInitialize( pProcessCurrent->hProcess, NULL, FALSE );
+    SymRegisterCallback( pProcessCurrent->hProcess, SymbolCallbackFunction, NULL );
+    SetSymbolSearchPath(FALSE);
+
     FakeDllLoadForApplication.dwProcessId = pDebugEvent->dwProcessId;
     FakeDllLoadForApplication.u.LoadDll.hFile = pDebugEvent->u.CreateProcessInfo.hFile;
     FakeDllLoadForApplication.u.LoadDll.lpBaseOfDll = pDebugEvent->u.CreateProcessInfo.lpBaseOfImage;
@@ -1491,8 +1879,7 @@ void DelProcess (DEBUG_EVENT *pDebugEvent)
     PPROCESS_INFO pProcess;
     PPROCESS_INFO pProcessLast;
     PIMAGE_INFO   pImage;
-
-    DelThread(pDebugEvent);
+    DWORD         dwThreadId;
 
     pProcessLast = NULL;
     pProcess = pProcessHead;
@@ -1501,23 +1888,31 @@ void DelProcess (DEBUG_EVENT *pDebugEvent)
         pProcess = pProcess->pProcessNext;
         }
     assert(pProcess);
-    assert(pProcess->pThreadHead == 0);
+
+    dwThreadId = pDebugEvent->dwThreadId;
+    while (pProcess->pThreadHead) {
+        pDebugEvent->dwThreadId = pProcess->pThreadHead->dwThreadId;
+        DelThread(pDebugEvent);
+        }
+    pDebugEvent->dwThreadId = dwThreadId;
 
     pProcessCurrent = pProcess;
+    SymCleanup( pProcessCurrent->hProcess );
     while (pImage = pProcess->pImageHead) {
         pProcess->pImageHead = pImage->pImageNext;
-        UnloadSymbols(pImage);
         free(pImage);
         }
 
-    if (pProcessLast)
+    if (pProcessLast) {
         pProcessLast->pProcessNext = pProcess->pProcessNext;
-    else
+        }
+    else {
         pProcessHead = pProcess->pProcessNext;
-
-    free(pProcess);
+        }
 
     RemoveProcessBps(pProcess);
+
+    free(pProcess);
 }
 
 void PrintDebugString(DEBUG_EVENT *pDebugEvent)
@@ -1525,7 +1920,8 @@ void PrintDebugString(DEBUG_EVENT *pDebugEvent)
     PPROCESS_INFO   pProcess;
     LPSTR Str;
     BOOL b;
-    DWORD lpNumberOfBytesRead;
+    DWORD dwNumberOfBytesRead;
+    DWORD   dwInputSig;
 
     pProcess = pProcessFromEvent(pDebugEvent);
 
@@ -1536,27 +1932,71 @@ void PrintDebugString(DEBUG_EVENT *pDebugEvent)
         }
 
     if (pDebugEvent->u.DebugString.nDebugStringLength == 0) {
+        free(Str);
         return;
-        }
+    }
 
     b = ReadProcessMemory(
             pProcess->hProcess,
             pDebugEvent->u.DebugString.lpDebugStringData,
             Str,
             pDebugEvent->u.DebugString.nDebugStringLength,
-            &lpNumberOfBytesRead
+            &dwNumberOfBytesRead
             );
 
     if ( !b ) {
         free(Str);
         return;
         }
-    if ( lpNumberOfBytesRead != (DWORD)pDebugEvent->u.DebugString.nDebugStringLength ) {
+    if ( dwNumberOfBytesRead != (DWORD)pDebugEvent->u.DebugString.nDebugStringLength ) {
         free(Str);
         return;
         }
 
     dprintf("%s",Str);
+
+{
+    //
+    // Special processing for hacky debug input string
+    //
+
+#define INPUT_API_SIG   0xdefaced
+
+struct _hdi {
+    DWORD   dwSignature;
+    BYTE    cLength;
+    BYTE    cStatus;
+};
+typedef struct _hdi HDI;
+
+        HDI hdi;
+
+    b = ReadProcessMemory(
+            pProcess->hProcess,
+            pDebugEvent->u.DebugString.lpDebugStringData+pDebugEvent->u.DebugString.nDebugStringLength,
+            &hdi,
+            sizeof(hdi),
+            &dwNumberOfBytesRead
+            );
+    if ( b ) {
+        if ( hdi.dwSignature == INPUT_API_SIG ) {
+            free(Str);
+            Str = calloc(1,hdi.cLength+1);
+            if ( !Str ) {
+                dprintf("%s: memory allocation failed\n", DebuggerName);
+                ExitProcess((UINT)STATUS_UNSUCCESSFUL);
+            }
+            NtsdPrompt("", Str, hdi.cLength);
+            b = WriteProcessMemory(
+                    pProcess->hProcess,
+                    pDebugEvent->u.DebugString.lpDebugStringData+6,
+                    Str,
+                    (DWORD)hdi.cLength,
+                    &dwNumberOfBytesRead );
+        }
+    }
+}
+
     free(Str);
     return;
 }
@@ -1565,7 +2005,7 @@ void PrintDebugString(DEBUG_EVENT *pDebugEvent)
 void PrintRip(DEBUG_EVENT *pDebugEvent)
 {
     PPROCESS_INFO   pProcess;
-    UCHAR pszErrorString[80];
+    UCHAR pszErrorString[_MAX_PATH];
     va_list arglist;
 
     pProcess = pProcessFromEvent(pDebugEvent);
@@ -1583,6 +2023,221 @@ void PrintRip(DEBUG_EVENT *pDebugEvent)
                   &arglist);
 
     dprintf(pszErrorString);
+}
+
+
+ULONG
+Wx86Disasm(
+    ULONG   Offset,
+    PUCHAR  pBuffer,
+    BOOLEAN fShowEA,
+    LPVDMCONTEXT ContextX86
+    )
+{
+
+  ADDR Addr;
+
+  ADDR32(&Addr, Offset);
+
+  if (ContextX86) {
+      VDMRegisterContext = *ContextX86;
+      }
+
+  if (X86disasm(&Addr, pBuffer, fShowEA)) {
+      return Addr.flat;
+      }
+  else {
+      return 0;
+      }
+}
+
+
+
+LONG
+Wx86ExtApiExceptionFilter(
+    struct _EXCEPTION_POINTERS *ExceptionInfo,
+    PWX86_EXTENSION_ROUTINE pWx86Ext
+    )
+{
+
+    dprintf("%s: %08x Exception in Wx86ExtApi %x\n",
+            DebuggerName,
+            ExceptionInfo->ExceptionRecord->ExceptionCode,
+            pWx86Ext
+            );
+
+    dprintf("      PC: %08x  VA: %08x  R/W: %x  Parameter: %x\n",
+            ExceptionInfo->ExceptionRecord->ExceptionAddress,
+            ExceptionInfo->ExceptionRecord->ExceptionInformation[1],
+            ExceptionInfo->ExceptionRecord->ExceptionInformation[0],
+            ExceptionInfo->ExceptionRecord->ExceptionInformation[2]
+            );
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+
+
+
+
+DWORD
+DoWx86ExtApi(
+    PWX86_EXTENSION_ROUTINE pWx86Ext,
+    DEBUG_EVENT *pDebugEvent,
+    DWORD *pContinueStatus
+    )
+{
+
+    DWORD dwRet;
+    NTSD_EXTENSION_APIS NtsdExtApis;
+    EXCEPTION_RECORD ExRecord;
+
+    NtsdExtApis.nSize = sizeof(NtsdExtApis);
+    NtsdExtApis.lpOutputRoutine = dprintf;
+    NtsdExtApis.lpGetExpressionRoutine = GetExpressionRoutine;
+    NtsdExtApis.lpGetSymbolRoutine = GetSymbolRoutine;
+    NtsdExtApis.lpDisasmRoutine = disasmExportRoutine;
+    NtsdExtApis.lpCheckControlCRoutine = CheckControlC;
+
+    __try {
+        dwRet = (pWx86Ext)( pProcessCurrent->hProcess,
+                            pProcessCurrent->pThreadCurrent->hThread,
+                            &NtsdExtApis,
+                            pDebugEvent,
+                            pContinueStatus
+                            );
+    } __except (Wx86ExtApiExceptionFilter(GetExceptionInformation(),pWx86Ext)) {
+        dwRet = WX86_CONTINUE;
+    }
+
+   return dwRet;
+
+}
+
+
+DWORD
+Wx86CreateProcessEvent(
+   DEBUG_EVENT *pDebugEvent
+   )
+{
+   HANDLE hWx86ExtDll;
+   PVOID  pvCreateProcess;
+   PVOID  pvException;
+   HANDLE Wx86Info;
+   NTSTATUS Status;
+   NTSDROUTINES NtsdRoutines;
+
+   DWORD dwRet = WX86_CONTINUE;
+
+   //
+   // if New process is a Wx86 process, load in the wx86 extensions
+   // dll. This will stay loaded until ntsd exits.
+   //
+#ifdef CHICAGO
+   Status = STATUS_UNSUCCESSFUL;
+#else
+   Status = NtQueryInformationProcess(pDebugEvent->u.CreateProcessInfo.hProcess,
+                                      ProcessWx86Information,
+                                      &Wx86Info,
+                                      sizeof(Wx86Info),
+                                      NULL
+                                      );
+#endif
+
+   if (!NT_SUCCESS(Status)) {
+       Wx86Info = NULL;
+       }
+
+
+   if ((ULONG)Wx86Info == sizeof(WX86TIB)) {
+
+       if (!hWx86ExtensionsDll) {
+           hWx86ExtDll = LoadLibrary("wx86e.dll");
+           if (hWx86ExtDll) {
+               pvCreateProcess = GetProcAddress(hWx86ExtDll,
+                                                "Wx86ExtCreateProcess"
+                                                 );
+
+               pvException = GetProcAddress(hWx86ExtDll,
+                                            "Wx86ExtException"
+                                            );
+
+               if (!pvException || !pvCreateProcess) {
+                   FreeLibrary(hWx86ExtDll);
+                   hWx86ExtDll = NULL;
+                   }
+               }
+           }
+       else {
+           hWx86ExtDll     = hWx86ExtensionsDll;
+           pvCreateProcess = pfnWx86ExtCreateProcess;
+           pvException     = pfnWx86ExtException;
+           }
+
+       if (hWx86ExtDll) {
+           InitEventVars(pDebugEvent);
+
+           NtsdRoutines.FindFpoDataForModule = FindFpoDataForModule;
+           NtsdRoutines.SwReadMemory = SwReadMemory;
+           NtsdRoutines.SwGetModuleBase = SwGetModuleBase;
+           NtsdRoutines.Wx86Disasm = Wx86Disasm;
+
+           dwRet = DoWx86ExtApi(pvCreateProcess,
+                                pDebugEvent,
+                                (PULONG)&NtsdRoutines
+                                );
+
+           if (dwRet != WX86_CONTINUE) {
+               pProcessCurrent->fWx86Process = TRUE;
+               if (!hWx86ExtensionsDll) {
+                   hWx86ExtensionsDll = hWx86ExtDll;
+                   pfnWx86ExtCreateProcess = pvCreateProcess;
+                   pfnWx86ExtException = pvException;
+                   }
+               return dwRet;
+               }
+           }
+
+
+       if (hWx86ExtDll && !hWx86ExtensionsDll) {
+           FreeLibrary(hWx86ExtDll);
+           }
+
+       }
+
+   return dwRet;
+
+}
+
+
+DWORD
+Wx86ExceptionEvent(
+   DEBUG_EVENT *pDebugEvent,
+   DWORD *pContinueStatus
+   )
+{
+   DWORD dwRet = WX86_CONTINUE;
+
+   if (pDebugEvent->u.Exception.dwFirstChance) {
+       DWORD ExCode = pDebugEvent->u.Exception.ExceptionRecord.ExceptionCode;
+       if (ExCode != DBG_CONTROL_C &&
+           ExCode != DBG_CONTROL_BREAK &&
+           ExCode != STATUS_PORT_DISCONNECTED)
+         {
+
+           SuspendAllThreads();
+           dwRet = DoWx86ExtApi(pfnWx86ExtException,
+                                pDebugEvent,
+                                pContinueStatus
+                                );
+
+           if (dwRet != WX86_PROMPT) {
+               ResumeAllThreads();
+               }
+           }
+       }
+
+   return dwRet;
 }
 
 
@@ -1606,7 +2261,8 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
     BOOL            fResult;
     BOOL            fNeedSegTableEdit;
     BOOL            fNeedInteractive;
-    CHAR            achInput[100];
+    CHAR            achInput[_MAX_PATH];
+    PUCHAR          pTemp;
     PTHREAD_INFO    pThread;
     BOOL            fProcess;
     SEGMENT_NOTE    se;
@@ -1621,7 +2277,7 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
     if ( !fVDMInitDone ) {
         HANDLE  hmodVDM;
 
-        hmodVDM = LoadLibrary("VDMDBG");
+        hmodVDM = LoadLibrary("VDMDBG.DLL");
 
         if ( hmodVDM != (HANDLE)NULL ) {
             fVDMActive = TRUE;
@@ -1655,6 +2311,8 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
             pfnVDMGlobalNext = (BOOL (WINAPI *)(HANDLE,HANDLE,LPGLOBALENTRY,WORD,DEBUGEVENTPROC,LPVOID))
                 GetProcAddress( hmodVDM, "VDMGlobalNext" );
 
+        } else {
+            dprintf("LoadLibrary(VDMDBG.DLL) failed\n");
         }
         fVDMInitDone = TRUE;
     }
@@ -1722,7 +2380,7 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
             segslot = 0;
             while ( segslot < MAXSEGENTRY ) {
                 if ( segtable[segslot].type != SEGTYPE_AVAILABLE ) {
-                    if ( stricmp(segtable[segslot].path_name, se.FileName) == 0 ) {
+                    if ( _stricmp(segtable[segslot].path_name, se.FileName) == 0 ) {
                         break;
                     }
                 }
@@ -1763,7 +2421,7 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
             segslot = 0;
             while ( segslot < MAXSEGENTRY ) {
                 if ( segtable[segslot].type != SEGTYPE_AVAILABLE ) {
-                    if ( stricmp(segtable[segslot].path_name, se.FileName) == 0 ) {
+                    if ( _stricmp(segtable[segslot].path_name, se.FileName) == 0 ) {
                         break;
                     }
                 }
@@ -1845,8 +2503,6 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
 
         if ( b ) {
             dprintf("%s:%d!%04x:\n", text, cSeg, (WORD)VDMRegisterContext.Eip );
-        } else {
-            dprintf("VDMGetSelectorModule failed\n");
         }
         addr.seg = (WORD)VDMRegisterContext.SegCs;
         addr.off = VDMRegisterContext.Eip;
@@ -1861,7 +2517,7 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
         }
 
         if ( Flat(addr) == 0 ) {
-            dprintf("VDMGetPointer failed\n");
+            dprintf("Unable to disassemble failing code\n");
         } else {
             X86disasm( &addr, text, TRUE );
             dprintf("%s", text );
@@ -1869,82 +2525,36 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
 
 
         while ( TRUE ) {
-            NtsdPrompt("VDM>", achInput, 80);
+            NtsdPrompt("VDM>", achInput, sizeof(achInput));
 
-            if ( stricmp(achInput,"gh") == 0 || stricmp(achInput,"g") == 0 ) {
+            if ( _stricmp(achInput,"gh") == 0 || _stricmp(achInput,"g") == 0 ) {
                 fResult = TRUE;
                 break;
             }
-            if ( stricmp(achInput,"gn") == 0 ) {
+            if ( _stricmp(achInput,"gn") == 0 ) {
                 fResult = FALSE;
                 break;
             }
-            if ( stricmp(achInput, "t") == 0 ) {
+            if ( _stricmp(achInput, "t") == 0 ) {
                 fResult = TRUE;
                 vc.EFlags |= V86FLAGS_TRACE;
                 break;
             }
-            if ( stricmp(achInput,"lm") == 0 ) {
-                MODULEENTRY me;
-
-                me.dwSize = sizeof(me);
-
-                dprintf("Loaded modules:\n");
-
-                b = (*pfnVDMModuleFirst)(pProcess->hProcess,pThread->hThread,&me,DebugEventHandler,NULL);
-                while ( b ) {
-                    dprintf("%-8.8s : %s\n", me.szModule, me.szExePath );
-                    b = (*pfnVDMModuleNext)(pProcess->hProcess,pThread->hThread,&me,DebugEventHandler,NULL);
-                }
-                continue;
-            }
-            if ( stricmp(achInput,"dh") == 0 ) {
-                GLOBALENTRY ge;
-                dprintf("Global Heap List:\n");
-
-                ge.dwSize = sizeof(GLOBALENTRY);
-                b = (*pfnVDMGlobalFirst)(pProcess->hProcess,pThread->hThread,&ge,GLOBAL_ALL,DebugEventHandler,NULL);
-                while ( b ) {
-                    dprintf("Handle = %04X\n", (UINT)ge.hBlock );
-                    b = (*pfnVDMGlobalNext)(pProcess->hProcess,pThread->hThread,&ge,GLOBAL_ALL,DebugEventHandler,NULL);
-                }
-                continue;
-            }
-            if ( stricmp(achInput,"stack") == 0 ) {
-                ADDR    Addr;
-                extern void fnDumpWordMemory(PADDR, ULONG);
-
-                addr.seg = (WORD)vc.SegSs;
-                addr.off = (WORD)vc.Esp;
-
-                if ( vc.EFlags & V86FLAGS_V86 ) {
-                    addr.type = ADDR_V86 | FLAT_COMPUTED;
-                    addr.flat = (*pfnVDMGetPointer)(pDebugEvent,pThread->hThread,
-                          addr.seg, addr.off, FALSE );
-                } else {
-                    addr.type = ADDR_16 | FLAT_COMPUTED;
-                    addr.flat = (*pfnVDMGetPointer)(pProcess->hProcess,pThread->hThread,
-                                addr.seg, addr.off, TRUE );
-                }
-
-                fnDumpWordMemory( &Addr, 64 );
-                continue;
-            }
-            if ( stricmp(achInput,"r") == 0 ) {
-                // Dump a simulated context
-                VDMRegisterContext = vc;
-                X86OutputAllRegs();
+            if (achInput[0] == '!') {
+                fnBangCmd(&achInput[1], &pTemp);
                 continue;
             }
 
-            if ( stricmp(achInput,"?") == 0 ) {
+            if ( _stricmp(achInput,"?") == 0 ) {
                 dprintf("g  = Go\n");
                 dprintf("gh = Go - Exception handled\n");
                 dprintf("gn = Go - Exception not handled\n");
                 dprintf("t  = Trace 1 instruction\n");
+                dprintf("!<cmd> = execute debugger extension\n");
                 continue;
             }
             dprintf("%s:Illegal command\n", DebuggerName);
+
         }
         VDMRegisterContext = vc;
         (*pfnVDMSetThreadContext)(pDebugEvent,&VDMRegisterContext);
@@ -1977,8 +2587,9 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
                     }
                     break;
                 case DBG_SEGMOVE:
-                    if ( segtable[segslot].selector == selector ) {
-                        segtable[segslot].type = newselect;
+                    if (( segtable[segslot].type != SEGTYPE_AVAILABLE ) &&
+                        ( segtable[segslot].selector == selector )) {
+                        segtable[segslot].selector = newselect;
                         fStop = TRUE;
                     }
                     break;
@@ -1992,7 +2603,7 @@ BOOL VDMEvent(DEBUG_EVENT *pDebugEvent)
                     break;
                 case DBG_MODFREE:
                     if ( segtable[segslot].type != SEGTYPE_AVAILABLE ) {
-                        if ( stricmp(segtable[segslot].path_name,se.FileName) == 0 ) {
+                        if ( _stricmp(segtable[segslot].path_name,se.FileName) == 0 ) {
                             segtable[segslot].type = SEGTYPE_AVAILABLE;
                             free(segtable[segslot].path_name);
                             segtable[segslot].path_name = NULL;
@@ -2041,7 +2652,7 @@ void AddThread (DEBUG_EVENT *pDebugEvent)
     PTHREAD_INFO    pThreadCurrent;
     PTHREAD_INFO    pThreadAfter;
     PTHREAD_INFO    pThreadNew;
-    UCHAR           index = 0;
+    ULONG           index = 0;
 
     pProcess = pProcessFromEvent(pDebugEvent);
     pThreadCurrent = pProcess->pThreadHead;
@@ -2085,6 +2696,10 @@ void DelThread (DEBUG_EVENT *pDebugEvent)
     pProcess = pProcessFromEvent(pDebugEvent);
     assert(pProcess);
 
+    if (!pProcess) {
+        return;
+        }
+
     pThreadLast = NULL;
     pThread = pProcess->pThreadHead;
     while (pThread && pThread->dwThreadId != pDebugEvent->dwThreadId) {
@@ -2093,25 +2708,39 @@ void DelThread (DEBUG_EVENT *pDebugEvent)
         }
     assert(pThread);
 
-    if (pProcess->pThreadCurrent == pThread)
+    if (!pThread) {
+        return;
+        }
+
+    if (pProcess->pThreadCurrent == pThread) {
         pProcess->pThreadCurrent = NULL;
+        }
 
-    if (pThreadLast)
+    if (pThreadLast) {
         pThreadLast->pThreadNext = pThread->pThreadNext;
-    else
+        }
+    else {
         pProcess->pThreadHead = pThread->pThreadNext;
-
-    free(pThread);
+        }
 
     RemoveThreadBps(pThread);
+
+    free(pThread);
 }
 
 void AddImage (DEBUG_EVENT *pDebugEvent)
 {
-    PIMAGE_INFO     pImageNew, *pp;
-    UCHAR           index;
-    WCHAR ImageName[ MAX_PATH ];
-    DWORD cbRead;
+    PIMAGE_INFO         pImageNew;
+    PIMAGE_INFO         *pp;
+    UCHAR               index;
+    WCHAR               NameBuffer[ MAX_PATH ];
+    CHAR                ImageName[ MAX_PATH ];
+    DWORD               cbRead;
+    BOOL                fOk;
+    IMAGEHLP_MODULE     mi;
+    PIMAGEHLP_SYMBOL    sym;
+
+
 
     pProcessCurrent = pProcessFromEvent(pDebugEvent);
 
@@ -2124,32 +2753,62 @@ void AddImage (DEBUG_EVENT *pDebugEvent)
                               )
            ) {
             pDebugEvent->u.LoadDll.lpImageName = NULL;
-            }
         }
+    }
 
     if (pDebugEvent->u.LoadDll.lpImageName) {
-        if (ReadProcessMemory(pProcessCurrent->hProcess,
-                              pDebugEvent->u.LoadDll.lpImageName,
-                              ImageName,
-                              sizeof(ImageName),
-                              &cbRead
-                             )
-           ) {
-            dprintf("%s: %x -> '%ws' loaded at %x\n",
-                     DebuggerName,
-                     pDebugEvent->u.LoadDll.lpImageName,
-                     ImageName,
-                     pDebugEvent->u.LoadDll.lpBaseOfDll
-                   );
-            }
-        else {
-            pDebugEvent->u.LoadDll.lpImageName = NULL;
-            }
-        }
 
-    if (pDebugEvent->u.LoadDll.lpImageName == NULL) {
-        swprintf(ImageName,L"Image@%08x",pDebugEvent->u.LoadDll.lpBaseOfDll);
+        fOk = ReadProcessMemory(pProcessCurrent->hProcess,
+                              pDebugEvent->u.LoadDll.lpImageName,
+                              NameBuffer,
+                              sizeof(NameBuffer),
+                              &cbRead
+                             );
+        if ( !fOk ) {
+            pDebugEvent->u.LoadDll.lpImageName = NULL;
         }
+    }
+
+    if (pDebugEvent->u.LoadDll.lpImageName) {
+        //
+        // we have a name
+        //
+        if (pDebugEvent->u.LoadDll.fUnicode) {
+            if (!WideCharToMultiByte(
+                    CP_ACP,
+                    WC_COMPOSITECHECK,
+                    NameBuffer,
+                    -1,
+                    ImageName,
+                    sizeof(ImageName),
+                    NULL,
+                    NULL
+                    )) {
+                        //
+                        // unicocde -> ansi conversion failed
+                        //
+                        ImageName[0] = 0;
+            }
+        } else {
+            strcpy(ImageName,(PCHAR)NameBuffer);
+        }
+    } else {
+        //
+        // we don't have a name
+        //
+        GetModnameFromImage(
+            (ULONG)pDebugEvent->u.LoadDll.lpBaseOfDll,
+            pDebugEvent->u.LoadDll.hFile,
+            ImageName
+            );
+    }
+
+    if (!ImageName[0]) {
+        //
+        // invent an image name as a last resort
+        //
+        sprintf( ImageName, "Image@%08x", pDebugEvent->u.LoadDll.lpBaseOfDll );
+    }
 
     //  search for existing image at same base address
     //      if found, remove symbols, but leave image structure intact
@@ -2157,23 +2816,23 @@ void AddImage (DEBUG_EVENT *pDebugEvent)
     pp = &pProcessCurrent->pImageHead;
     while (pImageNew = *pp) {
         if (pImageNew->lpBaseOfImage == pDebugEvent->u.LoadDll.lpBaseOfDll) {
-            if (pImageNew->fSymbolsLoaded) {
-                if (fVerboseOutput)
-                    dprintf("%s: force unload of %s\n", DebuggerName, pImageNew->szImagePath);
-                UnloadSymbols(pImageNew);
+            if (SymGetModuleInfo( pProcessCurrent->hProcess, (ULONG)pImageNew->lpBaseOfImage, &mi )) {
+                if (mi.SymType != SymDeferred && mi.SymType != SymNone) {
+                    SymUnloadModule( pProcessCurrent->hProcess, (ULONG)pImageNew->lpBaseOfImage );
+                    if (fVerboseOutput) {
+                        dprintf("%s: force unload of %s\n", DebuggerName, pImageNew->szImagePath);
+                    }
                 }
-
-            break;
             }
 
-        else
-        if (pImageNew->lpBaseOfImage > pDebugEvent->u.LoadDll.lpBaseOfDll) {
+            break;
+        } else if (pImageNew->lpBaseOfImage > pDebugEvent->u.LoadDll.lpBaseOfDll) {
             pImageNew = NULL;
             break;
-            }
+        }
 
         pp = &pImageNew->pImageNext;
-        }
+    }
 
     //  if not found, allocate and fill new image structure
 
@@ -2182,8 +2841,8 @@ void AddImage (DEBUG_EVENT *pDebugEvent)
             if (pProcessCurrent->pImageByIndex[ index ] == NULL) {
                 pImageNew = calloc(sizeof(IMAGE_INFO),1);
                 break;
-                }
             }
+        }
 
         if (!pImageNew) {
             DWORD NewMaxIndex;
@@ -2192,15 +2851,14 @@ void AddImage (DEBUG_EVENT *pDebugEvent)
             NewMaxIndex = pProcessCurrent->MaxIndex + 32;
             if (NewMaxIndex < 0x100) {
                 NewImageByIndex = calloc( NewMaxIndex,  sizeof( *NewImageByIndex ) );
-                }
-            else {
+            } else {
                 NewImageByIndex = NULL;
-                }
+            }
 
             if (NewImageByIndex == NULL) {
                 dprintf("%s: No room for %ws image record.\n", DebuggerName, ImageName );
                 return;
-                }
+            }
 
             if (pProcessCurrent->pImageByIndex) {
                 memcpy( NewImageByIndex,
@@ -2208,29 +2866,80 @@ void AddImage (DEBUG_EVENT *pDebugEvent)
                         pProcessCurrent->MaxIndex * sizeof( *NewImageByIndex )
                       );
                 free( pProcessCurrent->pImageByIndex );
-                }
+            }
 
             pProcessCurrent->pImageByIndex = NewImageByIndex;
             index = (UCHAR)pProcessCurrent->MaxIndex;
             pProcessCurrent->MaxIndex = NewMaxIndex;
             pImageNew = calloc(sizeof(IMAGE_INFO),1);
+
+            if (pImageNew == NULL) {
+                dprintf("%s: Unable to allocate memory for %ws image record.\n",
+                         DebuggerName, ImageName );
+                return;
             }
+        }
 
         pImageNew->pImageNext = *pp;
         *pp = pImageNew;
         pImageNew->index = index;
         pProcessCurrent->pImageByIndex[ index ] = pImageNew;
-        }
+    }
 
     //  pImageNew has either the unloaded structure or the newly created one
 
     pImageNew->hFile  = pDebugEvent->u.LoadDll.hFile;
     pImageNew->lpBaseOfImage = pDebugEvent->u.LoadDll.lpBaseOfDll;
-    DeferSymbolLoad(pImageNew);
+    pImageNew->GoodCheckSum = TRUE;
 
-    if (!fLazyLoad) {
-        LoadSymbols(pImageNew);
+    GetHeaderInfo(
+        (ULONG)pDebugEvent->u.LoadDll.lpBaseOfDll,
+        &pImageNew->dwCheckSum,
+        &pImageNew->DateTimeStamp,
+        &pImageNew->dwSizeOfImage
+        );
+
+    if (pDebugEvent->u.LoadDll.hFile) {
+        CreateModuleNameFromPath(
+            ImageName,
+            pImageNew->szModuleName
+            );
+        SymLoadModule(
+            pProcessCurrent->hProcess,
+            pDebugEvent->u.LoadDll.hFile,
+            ImageName,
+            pImageNew->szModuleName,
+            (ULONG)pImageNew->lpBaseOfImage,
+            pImageNew->dwSizeOfImage
+            );
+    } else {
+        SymLoadModule(
+            pProcessCurrent->hProcess,
+            NULL,
+            ImageName,
+            NULL,
+            (ULONG)pImageNew->lpBaseOfImage,
+            pImageNew->dwSizeOfImage
+            );
+    }
+
+    if (SymGetModuleInfo( pProcessCurrent->hProcess, (ULONG)pImageNew->lpBaseOfImage, &mi )) {
+        pImageNew->dwSizeOfImage = mi.ImageSize;
+        strcpy( pImageNew->szImagePath, mi.ImageName );
+        if (!pImageNew->szImagePath[0]) {
+            strcpy( pImageNew->szImagePath, ImageName );
         }
+        strcpy( pImageNew->szDebugPath, mi.LoadedImageName );
+    }
+
+    CreateModuleNameFromPath( ImageName, pImageNew->szModuleName );
+
+    dprintf( "%s ModLoad: %08lx %08lx   %-8s\n",
+             DebuggerName,
+             pImageNew->lpBaseOfImage,
+             (ULONG)(pImageNew->lpBaseOfImage) + pImageNew->dwSizeOfImage,
+             pImageNew->szImagePath
+             );
 }
 
 PIMAGE_INFO pImageFromIndex (UCHAR index)
@@ -2256,8 +2965,11 @@ void DelImage (DEBUG_EVENT *pDebugEvent)
         if (pImage->lpBaseOfImage == pDebugEvent->u.UnloadDll.lpBaseOfDll) {
             *pp = pImage->pImageNext;
             pProcessCurrent = pProcess;
-            UnloadSymbols(pImage);
+            SymUnloadModule( pProcessCurrent->hProcess, (ULONG)pImage->lpBaseOfImage );
             pProcessCurrent->pImageByIndex[ pImage->index ] = NULL;
+            if (pImage->hFile) {
+                CloseHandle( pImage->hFile );
+            }
             free(pImage);
             }
         else {
@@ -2368,7 +3080,8 @@ static char *(tokens[]) = {
         "stoponprocessexit",
         "sxd",
         "sxe",
-        "inifile"
+        "inifile",
+        "setdll"
 };
 
 
@@ -2377,11 +3090,12 @@ ReadIniFile(PULONG debugType)
 {
     FILE*       file;
     char        pszName[64];
-    char        rchBuf[128];
-    PUCHAR  pszMark = INI_MARK, pchCur;
+    char        rchBuf[_MAX_PATH];
+    PUCHAR      pszMark = INI_MARK;
+    PUCHAR      pchCur;
     DWORD       length;
-    int     index = 0;
-    int     token, value;
+    int         index = 0;
+    int         token, value;
     char        chT, ch = *pszMark;
 
      if (!(length = GetEnvironmentVariable(INI_DIR, pszName,
@@ -2410,16 +3124,16 @@ ReadIniFile(PULONG debugType)
      do {
          PUCHAR   psz = rchBuf;
 
-         if (!fgets(rchBuf, 128, file)) break;
+         if (!fgets(rchBuf, sizeof(rchBuf), file)) break;
          for(index = 0; rchBuf[index] && rchBuf[index] > 26; index++);
          rchBuf[index] = 0;
-         token = GetToken(&psz, rchBuf + 128);
+         token = GetToken(&psz, rchBuf + sizeof(rchBuf));
          if (token >= NTINI_USERREG0 && token <= NTINI_USERREG9) {
                      while ((*psz == ' ' || *psz == '\t' || *psz == ':') && *psz)
                  psz++;
                      if (*psz) {
                              ULONG index = GetRegString(tokens[token - 1]);
-                             SetRegFlagValue(index, (ULONG)psz);
+                             SetRegFlagValue(index, (LONG)psz);
                      }
                      continue;
          }
@@ -2434,16 +3148,19 @@ ReadIniFile(PULONG debugType)
                      pchCommand = pchCur;
                      continue;
                  case NTINI_INIFILE:
-                     pszScriptFile = calloc(1,strlen(psz));
+                     pszScriptFile = calloc(1,strlen(psz)+1);
                      if (!pszScriptFile) {
                          dprintf("%s: memory allocation failed\n", DebuggerName);
                          ExitProcess((UINT)STATUS_UNSUCCESSFUL);
                          }
                      strcpy(pszScriptFile, psz);
                      continue;
+                 case NTINI_DEFAULTEXT:
+                     SetDefaultExtDllName(psz);
+                     continue;
              }
 
-             value = GetToken(&psz, rchBuf + 128) != NTINI_FALSE;
+             value = GetToken(&psz, rchBuf + sizeof(rchBuf)) != NTINI_FALSE;
              switch(token) {
                  case NTINI_STOPONPROCESSEXIT:
                      fStopOnProcessExit = (BOOLEAN)value;
@@ -2496,13 +3213,20 @@ NtsdDebugActiveProcess (
     DWORD dwPidToDebug
     )
 {
+#ifdef CHICAGO
+    BOOL                b;
+
+    b = DebugActiveProcess(dwPidToDebug);
+
+    return( b );
+#else
     HANDLE              Token;
     PTOKEN_PRIVILEGES   NewPrivileges;
     BYTE                OldPriv[1024];
     PBYTE               pbOldPriv;
     ULONG               cbNeeded;
-    BOOLEAN             fRc;
     BOOL                b;
+    BOOLEAN             fRc;
     LUID                LuidPrivilege;
 
     //
@@ -2570,11 +3294,10 @@ NtsdDebugActiveProcess (
         }
     }
 
-
     b = DebugActiveProcess(dwPidToDebug);
 
     CloseHandle( Token );
 
     return( b );
-
+#endif
 }

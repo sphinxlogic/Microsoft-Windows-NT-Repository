@@ -138,6 +138,12 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 #define   DIR_PATH_IN_STREAM_BIT        BIT17
 #define   DIR_CORRUPT_BIT               BIT18
 
+/* The following bit is in the vendor specific portion the DIRB attribute
+   bit field.  It is used internally to indicate that the true type for the
+   DBLK is DBDB (Database DBLK), and is not specified in the MTF document.
+*/
+#define   DIR_IS_REALLY_DB              BIT24
+
 /*   FILE (FDB) attribute defines (common to all OS's) */
 
 #define   FILE_IN_USE_BIT               BIT16

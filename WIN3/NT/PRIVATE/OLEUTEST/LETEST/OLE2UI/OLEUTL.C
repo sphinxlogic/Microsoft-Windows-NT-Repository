@@ -658,4 +658,3 @@ static LPSTR GetWord(LPSTR lpszSrc, LPSTR lpszDst)
 
 
 
-

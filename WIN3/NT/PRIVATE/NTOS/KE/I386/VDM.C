@@ -32,10 +32,9 @@ Revision History:
         created
 --*/
 
-#include "..\ki.h"
+#include "ki.h"
+#pragma hdrstop
 #include "vdmntos.h"
-#include <zwapi.h>
-#include <assert.h>
 
 #define VDM_IO_TEST 0
 
@@ -68,6 +67,7 @@ BOOLEAN
 Ki386VdmDispatchStringIo(
     IN ULONG PortNumber,
     IN ULONG Size,
+    IN BOOLEAN Rep,
     IN BOOLEAN Read,
     IN ULONG Count,
     IN ULONG Address,
@@ -148,13 +148,12 @@ Ki386VdmEnablePentiumExtentions(
 #endif
 
 KMUTEX VdmStringIoMutex;
+ULONG VdmFixedStateLinear;
 
 ULONG KeI386EFlagsAndMaskV86 = EFLAGS_USER_SANITIZE;
 ULONG KeI386EFlagsOrMaskV86 = EFLAGS_INTERRUPT_MASK;
 BOOLEAN KeI386VdmIoplAllowed = FALSE;
 ULONG KeI386VirtualIntExtensions = 0;
-//debugbug
-ULONG DisableVme = FALSE;
 
 
 BOOLEAN
@@ -200,7 +199,7 @@ Note:
     BOOLEAN ReturnValue;
 
     *Flags = 0;
-    
+
     if ((Selector & (SELECTOR_TABLE_INDEX | DPL_USER))
         != (SELECTOR_TABLE_INDEX | DPL_USER)) {
         return FALSE;
@@ -418,6 +417,7 @@ BOOLEAN
 Ki386VdmDispatchStringIo(
     IN ULONG PortNumber,
     IN ULONG Size,
+    IN BOOLEAN Rep,
     IN BOOLEAN Read,
     IN ULONG Count,
     IN ULONG Address,
@@ -479,7 +479,27 @@ Return Value:
     }
 
     if (Success) {
-        *(PUSHORT)(&TrapFrame->Edi) += (USHORT)(Count * Size);
+        PUSHORT pIndexRegister;
+        USHORT Index;
+
+        // WARNING no 32 bit address support
+
+        pIndexRegister = Read ? (PUSHORT)&TrapFrame->Edi
+                              : (PUSHORT)&TrapFrame->Esi;
+
+        if (TrapFrame->EFlags & EFLAGS_DF_MASK) {
+            Index = *pIndexRegister - (USHORT)(Count * Size);
+            }
+        else {
+            Index = *pIndexRegister + (USHORT)(Count * Size);
+            }
+
+        *pIndexRegister = Index;
+
+        if (Rep) {
+            (USHORT)TrapFrame->Ecx = 0;
+            }
+
         TrapFrame->Eip += (ULONG) InstructionSize;
         return TRUE;
     }
@@ -490,6 +510,7 @@ Return Value:
         VdmTib->EventInfo.Event = VdmStringIO;
         VdmTib->EventInfo.StringIoInfo.PortNumber = (USHORT)PortNumber;
         VdmTib->EventInfo.StringIoInfo.Size = (USHORT)Size;
+        VdmTib->EventInfo.StringIoInfo.Rep = Rep;
         VdmTib->EventInfo.StringIoInfo.Read = Read;
         VdmTib->EventInfo.StringIoInfo.Count = Count;
         VdmTib->EventInfo.StringIoInfo.Address = Address;
@@ -1081,6 +1102,8 @@ Return Value:
     UCHAR KeyInformation[sizeof(KEY_VALUE_BASIC_INFORMATION) + 30];
     ULONG ResultLength;
 
+    extern UCHAR V86CriticalInstruction;
+
     KeInitializeMutex( &VdmStringIoMutex, MUTEX_LEVEL_VDM_IO );
 
     //
@@ -1198,8 +1221,33 @@ Return Value:
     }
 
     ZwClose(RegistryHandle);
-}
 
+    //
+    //  Initialize the address of the Vdm communications area based on
+    //  machine type because of non-AT Japanese PCs.  Note that we only
+    //  have to change the op-code for PC-98 machines as the default is
+    //  the PC/AT value.
+    //
+
+    if (KeI386MachineType & MACHINE_TYPE_PC_9800_COMPATIBLE) {
+
+        //
+        //  Set NTVDM state liner for PC-9800 Series
+        //
+
+        VdmFixedStateLinear = FIXED_NTVDMSTATE_LINEAR_PC_98;
+
+        *(PULONG)(&V86CriticalInstruction + 1) = VdmFixedStateLinear;
+
+    } else {
+
+        //
+        //  We are running on an normal PC/AT or a Fujitsu FMR comaptible.
+        //
+
+        VdmFixedStateLinear = FIXED_NTVDMSTATE_LINEAR_PC_AT;
+    }
+}
 
 
 BOOLEAN
@@ -1270,52 +1318,73 @@ Return Value:
 {
 
     PKAPC_STATE ApcState;
+    PKTHREAD ApcThread;
     KIRQL   OldIrql;
     BOOLEAN Inserted;
 
     //
-    // Raise IRQL to dispatcher level, lock dispatcher database, and lock
-    // APC queue.
+    // Raise IRQL to dispatcher level and lock dispatcher database.
     //
 
     KiLockDispatcherDatabase(&OldIrql);
-    KiLockApcQueueAtDpcLevel();
 
     //
-    // If apc object not initialized, then initialize it
+    // If the apc object not initialized, then initialize it and acquire
+    // the target thread APC queue lock.
     //
 
     if (Apc->Type != ApcObject) {
         Apc->Type = ApcObject;
         Apc->Size = sizeof(KAPC);
         Apc->ApcStateIndex  = OriginalApcEnvironment;
-
-    } else if (Apc->Inserted) {
+    } else {
 
         //
-        // if queued to the wrong thread dequeue it
-        // else we are done
+        // Acquire the APC thread APC queue lock.
+        //
+        // If the APC is inserted in the corresponding APC queue, and the
+        // APC thread is not the same thread as the target thread, then
+        // the APC is removed from its current queue, the APC pending state
+        // is updated, the APC thread APC queue lock is released, and the
+        // target thread APC queue lock is acquired. Otherwise, the APC
+        // thread and the target thread are same thread and the APC is already
+        // queued to the correct thread.
+        //
+        // If the APC is not inserted in an APC queue, then release the
+        // APC thread APC queue lock and acquire the target thread APC queue
+        // lock.
         //
 
-        if (Apc->Thread != Thread) {
-            Apc->Inserted = FALSE;
-            RemoveEntryList(&Apc->ApcListEntry);
-            ApcState = Apc->Thread->ApcStatePointer[Apc->ApcStateIndex];
-            if (IsListEmpty(&ApcState->ApcListHead[Apc->ApcMode]) != FALSE) {
-                if (Apc->ApcMode == KernelMode) {
-                    ApcState->KernelApcPending = FALSE;
+        ApcThread = Apc->Thread;
+        if (ApcThread) {
+            KiAcquireSpinLock(&ApcThread->ApcQueueLock);
+            if (Apc->Inserted) {
+                if (ApcThread == Apc->Thread && Apc->Thread != Thread) {
+                    Apc->Inserted = FALSE;
+                    RemoveEntryList(&Apc->ApcListEntry);
+                    ApcState = Apc->Thread->ApcStatePointer[Apc->ApcStateIndex];
+                    if (IsListEmpty(&ApcState->ApcListHead[Apc->ApcMode]) != FALSE) {
+                        if (Apc->ApcMode == KernelMode) {
+                            ApcState->KernelApcPending = FALSE;
+
+                        } else {
+                            ApcState->UserApcPending = FALSE;
+                        }
+                    }
 
                 } else {
-                    ApcState->UserApcPending = FALSE;
+                    KiReleaseSpinLock(&ApcThread->ApcQueueLock);
+                    KiUnlockDispatcherDatabase(OldIrql);
+                    return TRUE;
                 }
             }
 
-        } else {
-            KiUnlockApcQueueFromDpcLevel();
-            KiUnlockDispatcherDatabase(OldIrql);
-            return TRUE;
+            KiReleaseSpinLock(&ApcThread->ApcQueueLock);
         }
     }
+
+
+    KiAcquireSpinLock(&Thread->ApcQueueLock);
 
     Apc->ApcMode = ApcMode;
     Apc->Thread  = Thread;
@@ -1327,11 +1396,10 @@ Return Value:
     Apc->NormalContext   = NormalContext;
 
     //
-    // Unlock the APC queue
+    // Unlock the target thread APC queue.
     //
 
-    KiUnlockApcQueueFromDpcLevel();
-
+    KiReleaseSpinLock(&Thread->ApcQueueLock);
 
     //
     // If APC queuing is enable, then attempt to queue the APC object.
@@ -1340,13 +1408,14 @@ Return Value:
     if (Thread->ApcQueueable && KiInsertQueueApc(Apc, Increment)) {
         Inserted = TRUE;
 
-             //
-             // If UserMode:
-             //    For vdm a UserMode Apc is only queued by a kernel mode
-             //    apc which is on the current thread for the target thread.
-             //    Force UserApcPending for User mode apcstate, so that
-             //    the apc will fire when this thread exits the kernel.
-             //
+        //
+        // If UserMode:
+        //    For vdm a UserMode Apc is only queued by a kernel mode
+        //    apc which is on the current thread for the target thread.
+        //    Force UserApcPending for User mode apcstate, so that
+        //    the apc will fire when this thread exits the kernel.
+        //
+
         if (ApcMode == UserMode) {
             KiBoostPriorityThread(Thread, Increment);
             Thread->ApcState.UserApcPending = TRUE;
@@ -1364,6 +1433,48 @@ Return Value:
     KiUnlockDispatcherDatabase(OldIrql);
     return Inserted;
 }
+
+
+VOID
+Ke386VdmClearApcObject(
+    IN PKAPC Apc
+    )
+/*++
+
+Routine Description:
+
+    Clears a VDM APC object, synchronously with Ke386VdmInsertQueueApc, and
+    is expected to be called by one of the vdm kernel apc routine or the
+    rundown routine.
+
+
+Arguments:
+
+    Apc - Supplies a pointer to a control object of type APC.
+
+
+Return Value:
+
+    void
+
+--*/
+{
+
+    KIRQL   OldIrql;
+
+    //
+    // Take Dispatcher database lock, to sync with Ke386VDMInsertQueueApc
+    //
+
+    KiLockDispatcherDatabase(&OldIrql);
+    Apc->Thread  = NULL;
+    KiUnlockDispatcherDatabase(OldIrql);
+
+}
+
+
+
+
 
 
 
@@ -1527,3 +1638,4 @@ TestIoHandlerStuff(
     }
 }
 #endif
+

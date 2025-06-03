@@ -190,4 +190,3 @@ ShowPage:
     cpTarget = CpFirstSty(cpTarget, styLine);
     Select(cpTarget, cpTarget);
     }
-

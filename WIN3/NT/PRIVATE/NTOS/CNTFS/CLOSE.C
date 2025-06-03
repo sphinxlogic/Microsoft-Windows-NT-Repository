@@ -125,7 +125,7 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-    DebugTrace(+1, Dbg, "NtfsFsdClose\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdClose\n") );
 
     //
     //  Extract and decode the file object, we are willing to handle the unmounted
@@ -141,13 +141,22 @@ Return Value:
 
     if (TypeOfOpen == UnopenedFileObject) {
 
-        DebugTrace(0, Dbg, "Close unopened file object\n", 0);
+        DebugTrace( 0, Dbg, ("Close unopened file object\n") );
 
         Status = STATUS_SUCCESS;
         NtfsCompleteRequest( NULL, &Irp, Status );
 
-        DebugTrace(-1, Dbg, "NtfsFsdClose -> %08lx\n", Status);
+        DebugTrace( -1, Dbg, ("NtfsFsdClose -> %08lx\n", Status) );
         return Status;
+    }
+
+    //
+    //  Remember if this Ccb has gone through close.
+    //
+
+    if (Ccb != NULL) {
+
+        SetFlag( Ccb->Flags, CCB_FLAG_CLOSE );
     }
 
     //
@@ -205,6 +214,17 @@ Return Value:
                             break;
                         }
                     }
+
+                //
+                //  This is a recursive Ntfs call.  Post this unless we already
+                //  own this file.  Otherwise we could deadlock walking
+                //  up the tree.
+                //
+
+                } else if (!NtfsIsExclusiveScb( Scb )) {
+
+                    Status = STATUS_PENDING;
+                    break;
                 }
 
             } else if (Status == STATUS_LOG_FILE_FULL) {
@@ -217,7 +237,8 @@ Return Value:
             //  status is STATUS_PENDING;
             //
 
-            if (FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE )) {
+            if (FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE ) &&
+                (Scb->Fcb->DelayedCloseCount == 0)) {
 
                 Status = STATUS_PENDING;
 
@@ -279,7 +300,8 @@ Return Value:
 
         NtfsCompleteRequest( NULL, &Irp, STATUS_SUCCESS );
 
-        if (FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE )) {
+        if (FlagOn( Scb->ScbState, SCB_STATE_DELAY_CLOSE ) &&
+            (Scb->Fcb->DelayedCloseCount == 0)) {
 
             NtfsQueueClose( IrpContext, TRUE );
 
@@ -299,7 +321,7 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdClose -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdClose -> %08lx\n", Status) );
 
     return Status;
 }
@@ -347,7 +369,7 @@ Return Value:
 
     BOOLEAN SinglePass = FALSE;
 
-    DebugTrace(+1, Dbg, "NtfsFspClose\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFspClose\n") );
 
     PAGED_CODE();
 
@@ -395,10 +417,6 @@ Return Value:
 
         NtfsUpdateIrpContextWithTopLevel( IrpContext, ThreadTopLevelContext );
 
-        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAGS_CLEAR_ON_POST );
-        SetFlag( IrpContext->Flags,
-                 IRP_CONTEXT_FLAG_IN_FSP | IRP_CONTEXT_FLAG_WAIT );
-
         //
         //  Recover the information about the file object being closed from
         //  the data stored in the IrpContext.  The following fields are
@@ -428,6 +446,10 @@ Return Value:
 
             ReadOnly = FALSE;
         }
+
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAGS_CLEAR_ON_POST );
+        SetFlag( IrpContext->Flags,
+                 IRP_CONTEXT_FLAG_IN_FSP | IRP_CONTEXT_FLAG_WAIT );
 
         //
         //  Call the common Close routine.
@@ -531,9 +553,87 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFspClose -> NULL\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsFspClose -> NULL\n") );
 
     return;
+}
+
+
+BOOLEAN
+NtfsAddScbToFspClose (
+    IN PIRP_CONTEXT IrpContext,
+    IN PSCB Scb,
+    IN BOOLEAN DelayClose
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to add an entry for the current Scb onto one
+    of the Fsp close queues.  This is used when we want to guarantee that
+    a teardown will be called on an Scb or Fcb when the current operation
+    can't begin the operation.
+
+Arguments:
+
+    Scb - Scb to add to the queue.
+
+    DelayClose - Indicates which queue this should go into.
+
+Return Value:
+
+    BOOLEAN - Indicates whether or not the SCB was added to the delayed
+        close queue
+
+--*/
+
+{
+    PIRP_CONTEXT NewIrpContext;
+    BOOLEAN Result = TRUE;
+
+    PAGED_CODE();
+
+    //
+    //  Use a try-except to catch any allocation failures.  The only valid
+    //  error here is an allocation failure for the new irp context.
+    //
+
+    try {
+
+        NewIrpContext = NtfsCreateIrpContext( NULL, TRUE );
+
+        //
+        //  Set the necessary fields to post this to the workqueue.
+        //
+
+        NewIrpContext->Vcb = Scb->Vcb;
+        NewIrpContext->MajorFunction = IRP_MJ_CLOSE;
+
+        NewIrpContext->OriginatingIrp = (PIRP) Scb;
+        NewIrpContext->TransactionId = (TRANSACTION_ID) StreamFileOpen;
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_READ_ONLY_FO );
+
+        //
+        //  Now increment the close counts for this Scb.
+        //
+
+        NtfsIncrementCloseCounts( Scb, TRUE, FALSE );
+
+        //
+        //  Now add this to the correct queue.
+        //
+
+        NtfsQueueClose( NewIrpContext, DelayClose );
+
+    } except( FsRtlIsNtstatusExpected( GetExceptionCode() ) ?
+              EXCEPTION_EXECUTE_HANDLER :
+              EXCEPTION_CONTINUE_SEARCH ) {
+
+        Result = FALSE;
+    }
+
+    return Result;
 }
 
 
@@ -626,8 +726,8 @@ Return Value:
     //  Get the current Irp stack location
     //
 
-    DebugTrace(+1, Dbg, "NtfsCommonClose\n", 0);
-    DebugTrace( 0, Dbg, "IrpContext = %08lx\n", IrpContext);
+    DebugTrace( +1, Dbg, ("NtfsCommonClose\n") );
+    DebugTrace( 0, Dbg, ("IrpContext = %08lx\n", IrpContext) );
 
     if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
@@ -650,14 +750,14 @@ Return Value:
         //  acquire the Vcb exclusively and release on exit.
         //
 
-        if ((FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED | VCB_STATE_FLAG_SHUTDOWN ) == VCB_STATE_VOLUME_MOUNTED)
+        if ((FlagOn( Vcb->VcbState,
+                     VCB_STATE_VOLUME_MOUNTED | VCB_STATE_FLAG_SHUTDOWN | VCB_STATE_PERFORMED_DISMOUNT ) == VCB_STATE_VOLUME_MOUNTED)
 
              &&
 
-            (Fcb->FileReference.LowPart >= FIRST_USER_FILE_NUMBER ||
-             Fcb->FileReference.HighPart != 0 ||
-             Fcb->FileReference.LowPart == ROOT_FILE_NAME_INDEX_NUMBER ||
-             Fcb->FileReference.LowPart == VOLUME_DASD_NUMBER)) {
+            (NtfsSegmentNumber( &Fcb->FileReference ) >= FIRST_USER_FILE_NUMBER ||
+             NtfsSegmentNumber( &Fcb->FileReference ) == ROOT_FILE_NAME_INDEX_NUMBER ||
+             NtfsSegmentNumber( &Fcb->FileReference ) == VOLUME_DASD_NUMBER)) {
 
             ReleaseVcb = FALSE;
 
@@ -673,7 +773,7 @@ Return Value:
             if (!(*ExclusiveVcb) &&
                 *AcquiredVcb) {
 
-                NtfsReleaseVcb( IrpContext, Vcb, NULL );
+                NtfsReleaseVcb( IrpContext, Vcb );
                 *AcquiredVcb = FALSE;
             }
         }
@@ -702,7 +802,8 @@ Return Value:
         if (!(*AcquiredVcb)) {
 
             if (NeedVcbExclusive ||
-                Fcb->LcbQueue.Flink != Fcb->LcbQueue.Blink) {
+                (Fcb->LcbQueue.Flink != Fcb->LcbQueue.Blink) ||
+                FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT )) {
 
                 if (!NtfsAcquireExclusiveVcb( IrpContext, Vcb, FALSE )) {
 
@@ -736,7 +837,7 @@ Return Value:
             //  Always release the Vcb.  This can only be from the Fsd thread.
             //
 
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            NtfsReleaseVcb( IrpContext, Vcb );
             *AcquiredVcb = FALSE;
             return STATUS_PENDING;
         }
@@ -750,11 +851,12 @@ Return Value:
         //  Otherwise we need to confirm that our unsafe test above was correct.
         //
 
-        if (Fcb->LcbQueue.Flink != Fcb->LcbQueue.Blink) {
+        if ((Fcb->LcbQueue.Flink != Fcb->LcbQueue.Blink) ||
+            FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT )) {
 
             NeedVcbExclusive = TRUE;
             NtfsReleaseFcb( IrpContext, Fcb );
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            NtfsReleaseVcb( IrpContext, Vcb );
             *AcquiredVcb = FALSE;
 
         } else {
@@ -782,7 +884,7 @@ Return Value:
 
             Lcb = Ccb->Lcb;
             NtfsUnlinkCcbFromLcb( IrpContext, Ccb );
-            NtfsDeleteCcb( IrpContext, &Ccb );
+            NtfsDeleteCcb( IrpContext, Fcb, &Ccb );
 
         } else {
 
@@ -793,12 +895,9 @@ Return Value:
         NtfsDecrementCloseCounts( IrpContext,
                                   Scb,
                                   Lcb,
-                                  1,
-                                  TRUE,
                                   SystemFile,
                                   ReadOnly,
-                                  FALSE,
-                                  &RemovedFcb );
+                                  FALSE );
 
         //
         //  If we had to write a log record for close, it can only be for duplicate
@@ -807,8 +906,7 @@ Return Value:
         //  fail inside the 'except' of a 'try-except'.
         //
 
-        if ((IrpContext->TopLevelIrpContext == IrpContext) &&
-            (IrpContext->TransactionId != 0)) {
+        if (IrpContext->TransactionId != 0) {
 
             try {
 
@@ -816,21 +914,23 @@ Return Value:
 
             } except( EXCEPTION_EXECUTE_HANDLER ) {
 
-                //
-                //  We couldn't write the commit record, we clean up as
-                //  best we can.
-                //
+                if (IrpContext->TransactionId != 0) {
 
-                NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
-                                                  TRUE );
+                    //
+                    //  We couldn't write the commit record, we clean up as
+                    //  best we can.
+                    //
 
-                NtfsFreeRestartTableIndex( IrpContext,
-                                           &Vcb->TransactionTable,
-                                           IrpContext->TransactionId );
+                    NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
+                                                      TRUE );
 
-                NtfsReleaseRestartTable( &Vcb->TransactionTable );
+                    NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
+                                               IrpContext->TransactionId );
 
-                IrpContext->TransactionId = 0;
+                    NtfsReleaseRestartTable( &Vcb->TransactionTable );
+
+                    IrpContext->TransactionId = 0;
+                }
             }
         }
 
@@ -838,18 +938,13 @@ Return Value:
 
         DebugUnwind( NtfsCommonClose );
 
-        if (!RemovedFcb) {
-
-            NtfsReleaseFcb( IrpContext, Fcb );
-        }
-
         if (ReleaseVcb) {
 
-            NtfsReleaseVcb( IrpContext, Vcb, FileObject );
+            NtfsReleaseVcbCheckDelete( IrpContext, Vcb, IRP_MJ_CLOSE, FileObject );
             *AcquiredVcb = FALSE;
         }
 
-        DebugTrace(-1, Dbg, "NtfsCommonClose -> returning\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsCommonClose -> returning\n") );
     }
 
     return STATUS_SUCCESS;
@@ -869,9 +964,17 @@ NtfsQueueClose (
     KIRQL SavedIrql;
     BOOLEAN StartWorker = FALSE;
 
-    KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
 
     if (DelayClose) {
+
+        //
+        //  Increment the delayed close count for the Fcb for this
+        //  file.
+        //
+
+        InterlockedIncrement( &((PSCB) IrpContext->OriginatingIrp)->Fcb->DelayedCloseCount );
+
+        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
 
         InsertTailList( &NtfsData.DelayedCloseList,
                         &IrpContext->WorkQueueItem.List );
@@ -890,6 +993,8 @@ NtfsQueueClose (
         }
 
     } else {
+
+        KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
 
         InsertTailList( &NtfsData.AsyncCloseList,
                         &IrpContext->WorkQueueItem.List );
@@ -923,9 +1028,11 @@ NtfsRemoveClose (
     IN BOOLEAN ThrottleCreate
     )
 {
+
     PLIST_ENTRY Entry;
     KIRQL SavedIrql;
     PIRP_CONTEXT IrpContext = NULL;
+    BOOLEAN FromDelayedClose = FALSE;
 
     ASSERT( Vcb == NULL || NtfsIsExclusiveVcb( Vcb ));
     KeAcquireSpinLock( &NtfsData.StrucSupSpinLock, &SavedIrql );
@@ -1007,6 +1114,7 @@ NtfsRemoveClose (
 
                     RemoveEntryList( Entry );
                     NtfsData.DelayedCloseCount -= 1;
+                    FromDelayedClose = TRUE;
                     break;
 
                 } else {
@@ -1039,6 +1147,8 @@ NtfsRemoveClose (
                 IrpContext = CONTAINING_RECORD( Entry,
                                                 IRP_CONTEXT,
                                                 WorkQueueItem.List );
+                FromDelayedClose = TRUE;
+
             } else {
 
                 NtfsData.ReduceDelayedClose = FALSE;
@@ -1047,18 +1157,31 @@ NtfsRemoveClose (
     }
 
     //
+    //  If this is the delayed close case then decrement the delayed close count
+    //  on this Fcb.
+    //
+
+    if (FromDelayedClose) {
+
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
+
+        InterlockedDecrement( &((PSCB) IrpContext->OriginatingIrp)->Fcb->DelayedCloseCount );
+
+    //
     //  If we are returning NULL, show that we are done.
     //
 
-    if (!ARGUMENT_PRESENT( Vcb ) &&
-        IrpContext == NULL &&
-        !ThrottleCreate) {
+    } else {
 
-        NtfsData.AsyncCloseActive = FALSE;
+        if (!ARGUMENT_PRESENT( Vcb ) &&
+            (IrpContext == NULL) &&
+            !ThrottleCreate) {
+
+            NtfsData.AsyncCloseActive = FALSE;
+        }
+
+        KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
     }
-
-    KeReleaseSpinLock( &NtfsData.StrucSupSpinLock, SavedIrql );
 
     return IrpContext;
 }
-

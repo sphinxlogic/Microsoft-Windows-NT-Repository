@@ -7,10 +7,29 @@
 
 /**********************       PolyTron RCS Utilities
    
-  $Revision:   1.4  $
-      $Date:   06 Jul 1994 16:41:00  $
-	$Author:   RWOLFF  $
-	   $Log:   S:/source/wnt/ms11/miniport/vcs/setup_m.c  $
+  $Revision:   1.11  $
+      $Date:   23 Jan 1996 11:52:14  $
+	$Author:   RWolff  $
+	   $Log:   S:/source/wnt/ms11/miniport/archive/setup_m.c_v  $
+ * 
+ *    Rev 1.11   23 Jan 1996 11:52:14   RWolff
+ * Eliminated level 3 warnings.
+ * 
+ *    Rev 1.10   31 Mar 1995 11:52:06   RWOLFF
+ * Changed from all-or-nothing debug print statements to thresholds
+ * depending on importance of the message.
+ * 
+ *    Rev 1.9   14 Mar 1995 18:17:18   ASHANMUG
+ * Reset engine on fifo space check time-out.
+ * 
+ *    Rev 1.8   14 Mar 1995 15:59:42   ASHANMUG
+ * Timeout on idle check and fifo check.
+ * 
+ *    Rev 1.7   08 Mar 1995 11:35:50   ASHANMUG
+ * Modified return values to be correct
+ * 
+ *    Rev 1.5   22 Jul 1994 17:47:28   RWOLFF
+ * Merged with Richard's non-x86 code stream.
  * 
  *    Rev 1.4   06 Jul 1994 16:41:00   RWOLFF
  * Changed a few loops that I missed for the last checkin to use
@@ -74,15 +93,9 @@ OTHER FILES
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-/*
- * Different include files are needed for the Windows NT device driver
- * and device drivers for other operating systems.
- */
-#ifndef MSDOS
 #include "miniport.h"
 #include "video.h"
 #include "ntddvdeo.h"
-#endif
 
 #include "stdtyp.h"
 #include "amach.h"
@@ -112,7 +125,6 @@ OTHER FILES
 
 
 
-#ifndef MSDOS
 /*
  * VP_STATUS CompatIORangesUsable_m(void);
  *
@@ -165,7 +177,7 @@ VP_STATUS CompatIORangesUsable_m(void)
             VideoPortGetDeviceBase(phwDeviceExtension,
                 DriverIORange_m[Count].RangeStart,
                 DriverIORange_m[Count].RangeLength,
-                DriverIORange_m[Count].RangeInIoSpace)) == (PVOID) -1)
+                DriverIORange_m[Count].RangeInIoSpace)) == NULL)
             {
             return ERROR_INVALID_PARAMETER;
             }
@@ -189,7 +201,6 @@ void CompatMMRangesUsable_m(void)
     int Count;                  /* Loop counter */
     WORD SrcX;                  /* Saved contents of SRC_X register */
     DWORD ExtGeStatusMM;        /* Memory mapped address for EXT_GE_STATUS */
-    int CardType;               /* Used in testing memory mapped registers. */
     struct query_structure *QueryPtr;   /* Query information for the card */
 
     /*
@@ -205,6 +216,15 @@ void CompatMMRangesUsable_m(void)
         {
         return;
         }
+
+    /*
+     * ALPHA machines crash during the test to see whether memory-mapped
+     * registers are usable, so on these machines we assume that
+     * memory-mapped registers are not available.
+     */
+#if defined (ALPHA) || defined (_ALPHA_)
+    return;
+#endif
 
     /*
      * Use an I/O mapped read on the register we're going to use to see
@@ -256,7 +276,7 @@ void CompatMMRangesUsable_m(void)
      * to it. If it doesn't, then undo the memory mapping, since this
      * test shows that memory mapped registers are not available.
      */
-    VideoDebugPrint((DEBUG_SWITCH, "About to test whether memory mapped registers can be used\n"));
+    VideoDebugPrint((DEBUG_DETAIL, "About to test whether memory mapped registers can be used\n"));
     OUTPW(SRC_X, 0x0AAAA);
 
     /*
@@ -274,7 +294,7 @@ void CompatMMRangesUsable_m(void)
 
     if (INPW(R_SRC_X) != 0x02AA)
         {
-        VideoDebugPrint((DEBUG_SWITCH, "Can't use memory mapped ranges\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "Can't use memory mapped ranges\n"));
         for (Count = 0; Count < NUM_IO_ACCESS_RANGES; Count++)
             {
             if (phwDeviceExtension->aVideoAddressMM[Count] != 0)
@@ -290,10 +310,10 @@ void CompatMMRangesUsable_m(void)
         }
     else
         {
-        VideoDebugPrint((DEBUG_SWITCH, "Memory mapped registers are usable\n"));
+        VideoDebugPrint((DEBUG_DETAIL, "Memory mapped registers are usable\n"));
         }
     OUTPW(SRC_X, SrcX);
-    VideoDebugPrint((DEBUG_SWITCH, "Memory mapped register test complete\n"));
+    VideoDebugPrint((DEBUG_DETAIL, "Memory mapped register test complete\n"));
 
     return;
 
@@ -392,7 +412,6 @@ BOOL MemoryMappedEnabled_m(void)
 
 }   /* MemoryMappedEnabled_m() */
 
-#endif  /* not defined MSDOS */
 
 
 
@@ -403,18 +422,27 @@ BOOL MemoryMappedEnabled_m(void)
  * low within a reasonable number of attempts, time out.
  *
  * Returns:
- *  FALSE if timeout
+ *  FALSE if timeout: 3 seconds is an arbitrary value
  *  TRUE  if engine is idle
  */
 int WaitForIdle_m(void)
 {
     int	i;
 
-    for (i=0; i<0x7fff; i++)
+    for (i=0; i<300; i++)
         {
         if ((INPW(EXT_GE_STATUS) & GE_ACTIVE) == 0)
             return(TRUE);
+
+        /* Delay for 1/100th of a second */
+        delay(10);
         }
+
+    /* Something has happened, reset the engine and return false */
+    VideoDebugPrint((DEBUG_ERROR, "ATI: Timeout on WaitForIdle_m()\n"));
+    OUTPW(SUBSYS_CNTL, 0x900F);
+    OUTPW(SUBSYS_CNTL, 0x500F);
+
     return(FALSE);
 
 }   /* WaitForIdle_m() */
@@ -428,12 +456,26 @@ int WaitForIdle_m(void)
  *
  * Wait until the specified number of FIFO entries are free
  * on an 8514/A-compatible ATI accelerator.
+ *
+ * Timeout after 3 seconds
  */
 void CheckFIFOSpace_m(WORD SpaceNeeded)
 {
+    int i;
 
-    while(INPW(EXT_FIFO_STATUS)&SpaceNeeded)
-        short_delay();
+    for (i=0; i<300; i++)
+        {
+        /* Return from test if no more space is needed */
+        if ( !(INPW(EXT_FIFO_STATUS)&SpaceNeeded) )
+            return;
+
+        delay(10);
+        }
+
+    /* Something bad has happened, just return */
+    VideoDebugPrint((DEBUG_ERROR, "ATI: Timeout on CheckFIFOSpace_m()\n"));
+    OUTPW(SUBSYS_CNTL, 0x900F);
+    OUTPW(SUBSYS_CNTL, 0x500F);
     return;
 
 }   /* CheckFIFOSpace_m() */
@@ -456,32 +498,7 @@ BOOL IsApertureConflict_m(struct query_structure *QueryPtr)
 {
 WORD ApertureData;                  /* Value read from MEM_CFG register */
 VP_STATUS Status;                   /* Return value from VideoPortVerifyAccessRanges() */
-#if defined(MSDOS)
-char far *TestPtr;                  /* Place to read/write test string */
-#endif
 
-#ifdef MSDOS
-#ifdef WIN40
-    TestPtr =(char far *)(((DWORD)phwDeviceExtension->FrameAddress) << 16);
-    TestPtr += 2;
-    _fmemcpy((char far *)TestBuffer, TestPtr, APERTURE_TEST_LEN);
-    _fmemcpy(TestPtr, (char far *)APERTURE_TEST, strlen(APERTURE_TEST));
-        
-    if (_fstrcmp(TestPtr, (char far *)APERTURE_TEST))
-        {
-        // restore memory and configure to Coprocessor drawing.
-        _fmemcpy(TestPtr, (char far *)TestBuffer, APERTURE_TEST_LEN);
-        ApertureData = INPW(MEM_CFG);
-        ApertureData &= 0x0fffc;    /* Preserve bits 2-15 */
-        OUTPW(MEM_CFG, ApertureData);
-
-        return TRUE;
-        }
-    else{
-        return FALSE;
-        }
-#endif  /* defined WIN40 */
-#else
     /*
      * If there is an aperture conflict, a call to
      * VideoPortVerifyAccessRanges() including our linear framebuffer in
@@ -504,7 +521,7 @@ char far *TestPtr;                  /* Place to read/write test string */
                                              NUM_IO_ACCESS_RANGES,
                                              DriverIORange_m);
         if (Status != NO_ERROR)
-            VideoDebugPrint((0, "ERROR: Can't reclaim I/O ranges\n"));
+            VideoDebugPrint((DEBUG_ERROR, "ERROR: Can't reclaim I/O ranges\n"));
 
         /*
          * Adjust the list of mode tables to take into account the
@@ -524,7 +541,6 @@ char far *TestPtr;                  /* Place to read/write test string */
 
         return FALSE;
         }
-#endif
 
 }   /* IsApertureConflict_m() */
 
@@ -541,7 +557,6 @@ char far *TestPtr;                  /* Place to read/write test string */
  */
 BOOL IsVGAConflict_m(void)
 {
-WORD ApertureData;                  /* Value read from MEM_CFG register */
 VP_STATUS Status;                   /* Return value from VideoPortVerifyAccessRanges() */
 
     /*
@@ -567,7 +582,7 @@ VP_STATUS Status;                   /* Return value from VideoPortVerifyAccessRa
                                              NUM_IO_ACCESS_RANGES,
                                              DriverIORange_m);
         if (Status != NO_ERROR)
-            VideoDebugPrint((0, "ERROR: Can't reclaim I/O ranges\n"));
+            VideoDebugPrint((DEBUG_ERROR, "ERROR: Can't reclaim I/O ranges\n"));
 
         return TRUE;
         }
@@ -577,4 +592,3 @@ VP_STATUS Status;                   /* Return value from VideoPortVerifyAccessRa
         }
 
 }   /* IsVGAConflict_m() */
-

@@ -30,6 +30,9 @@ Revision History:
 typedef struct _DEVICE_EXTENSION {
 
     KTIMER Timer;
+    FAST_MUTEX Mutex;
+    ULONG ReferenceCount;
+    BOOLEAN TimerSet;
 
 } DEVICE_EXTENSION, *PDEVICE_EXTENSION;
 

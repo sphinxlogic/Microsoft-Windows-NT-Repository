@@ -276,4 +276,3 @@ if(vuab.doc == vuab.doc2)
 #endif
         }
 }
-

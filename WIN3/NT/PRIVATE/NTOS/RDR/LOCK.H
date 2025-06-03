@@ -66,4 +66,6 @@ typedef struct _AND_X_BEHIND {
 
 #define LCB_DIRTY       0x00000001      // Buffer described by lock is dirty.
 
+extern KSPIN_LOCK RdrLockHeadSpinLock;
+
 #endif  // _LOCK_

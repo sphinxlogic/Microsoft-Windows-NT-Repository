@@ -1010,7 +1010,7 @@ Return Value:
         // we may need to update the on disk field for the bin size
         //
         if (!HvMarkDirty(Hive,
-                         FirstBin->FileOffset,
+                         FirstBin->FileOffset + (Type * HCELL_TYPE_MASK),
                          sizeof(HBIN) + sizeof(HCELL))) {
             goto Done;
         }
@@ -1057,7 +1057,11 @@ Return Value:
         FreeBin->Flags = FREE_HBIN_DISCARDABLE;
         while (FreeCell-FirstBin->FileOffset < FirstBin->Size) {
             Map = HvpGetCellMap(Hive, FreeCell);
-            Map->BinAddress |= HMAP_DISCARDABLE;
+            if (Map->BinAddress | HMAP_NEWALLOC) {
+                Map->BinAddress = (ULONG)FirstBin | HMAP_DISCARDABLE | HMAP_NEWALLOC;
+            } else {
+                Map->BinAddress = (ULONG)FirstBin | HMAP_DISCARDABLE;
+            }
             Map->BlockAddress = (ULONG)FreeBin;
             FreeCell += HBLOCK_SIZE;
         }
@@ -1208,6 +1212,10 @@ Return Value:
             KdPrint(("\tNewSize=%08lx\n", NewSize));
         }
         return HCELL_NIL;
+    }
+
+    if (NewSize > HCELL_BIG_ROUND) {
+        NewSize = ROUND_UP(NewSize, HBLOCK_SIZE);
     }
 
     //

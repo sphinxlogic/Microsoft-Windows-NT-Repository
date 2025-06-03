@@ -20,6 +20,8 @@ CALLBACK NewSignalProc(
     LPARAM lParam
     )
 {
+    BOOL fRet;
+
     // Notify installable drivers this app is going away.
     if ( message == SG_EXIT || message == SG_GP_FAULT ) {
         InternalBroadcastDriverMessage( NULL, DRV_EXITAPPLICATION,
@@ -29,7 +31,22 @@ CALLBACK NewSignalProc(
                                        0L, IBDM_FIRSTINSTANCEONLY );
     }
 
-    return SignalProc( hTask, message, wParam, lParam );
+    //
+    // Pass notification on to WOW32 (which passes on to USER32)
+    //
+
+    fRet = SignalProc( hTask, message, wParam, lParam );
+
+    //
+    // After letting WOW32 and User32 cleanup, destroy the shadow
+    // message queue created by InitApp.
+    //
+
+    if ( message == SG_EXIT || message == SG_GP_FAULT ) {
+        DeleteQueue();
+    }
+
+    return fRet;
 }
 
 HINSTANCE LoadAliasedLibrary(LPCSTR szLibFileName,

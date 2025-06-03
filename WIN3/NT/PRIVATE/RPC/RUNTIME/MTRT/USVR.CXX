@@ -40,15 +40,8 @@ I_RpcSendReceive
 
 -------------------------------------------------------------------- */
 
-#include <string.h>
-#include <stdlib.h>
-
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <threads.hxx>
-
+#include <precomp.hxx>
+#include "pipe.h"
 
 /*
 Transports:
@@ -64,6 +57,8 @@ Transports:
 #define RPC_TRANSPORT_SPX 6
 #define RPC_TRANSPORT_UDP 7
 #define RPC_TRANSPORT_IPX 8
+#define RPC_TRANSPORT_DSP 9
+#define RPC_TRANSPORT_VNS 10
 
 #define MAXLISTENTHREADS 12345
 #define MAX_CALL_REQUESTS 0
@@ -72,6 +67,7 @@ unsigned int MinimumListenThreads  = 1;
 unsigned int UseEndpointMapperFlag = 0;
 unsigned int NoSecurityTests       = 0;
 unsigned int DatagramFlag          = 0;
+unsigned int AutoListenFlag        = 0;
 /* --------------------------------------------------------------------
 
 Utility Routines.
@@ -81,6 +77,8 @@ Utility Routines.
 unsigned int WarnFlag = 0; // Flag for warning messages;
 unsigned int ErrorFlag = 0; // Flag for error messages;
 unsigned int TransportType;
+unsigned long ulSecurityPackage = 123 ;
+int FireWallFlag = 0;
 
 char NetBiosProtocol[20] = "ncacn_nb_nb";  // NetBios transport protocol
 char *TransportOption = "-namepipe";
@@ -88,7 +86,33 @@ char *TransportOption = "-namepipe";
 RPC_STATUS Status; // Contains the status of the last RPC API call.
 I_RPC_MUTEX PrintMutex = 0; // Mutex used to serialize print operations.
 
-/* volatile */ int fShutdown; // Flag indicating that shutdown should occur.
+#define CHUNK_SIZE   50
+#define NUM_CHUNKS 100
+#define BUFF_SIZE 100
+
+typedef int pipe_element_t ;
+
+typedef struct {
+    void (*Pull) (
+            PIPE_STATE *state,
+            pipe_element_t *buffer,
+            int max_buf,
+            int *actual_transfer_count
+            ) ;
+
+    void (*Push) (
+        PIPE_STATE *state,
+        pipe_element_t *buffer,
+        int max_buf
+        ) ;
+
+    PIPE_STATE *state ;
+    } pipe_t ;
+
+int ShutdownCalled ;
+unsigned int IsabelleErrors = 0;
+unsigned int HelgaErrors = 0;
+unsigned int SylviaErrors = 0;
 
 void
 ApiError ( // An API error occured; we just print a message.
@@ -102,6 +126,136 @@ ApiError ( // An API error occured; we just print a message.
         I_RpcRequestMutex(&PrintMutex);
         PrintToConsole("    ApiError in %s (%s = %u)\n",Routine,API,status);
         I_RpcClearMutex(PrintMutex);
+        }
+}
+
+void
+CompleteReceive(
+    PRPC_MESSAGE Callee
+    )
+{
+    DWORD size = 0;
+
+    Callee->RpcFlags |=  RPC_BUFFER_EXTRA;
+    Callee->RpcFlags &= ~RPC_BUFFER_PARTIAL;
+
+    if ((Callee->RpcFlags & RPC_BUFFER_COMPLETE) == 0)
+        {
+        Status =  I_RpcReceive(Callee, size) ;
+        if (Status)
+            {
+            ApiError("CompleteReceive", "I_RpcReceive", Status) ;
+            }
+        }
+
+    ASSERT(Callee->RpcFlags & RPC_BUFFER_COMPLETE);
+}
+
+RPC_STATUS
+RpcServerUseProtseqEpWrapper (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN unsigned char PAPI * Endpoint,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    if (FireWallFlag)
+        {
+        Policy.Length = sizeof(RPC_POLICY) ;
+        Policy.NICFlags = RPC_C_BIND_TO_ALL_NICS ;
+        return RpcServerUseProtseqEpEx(Protseq, MaxCalls, Endpoint,
+                        SecurityDescriptor,&Policy) ;
+        }
+    else
+        {
+        return RpcServerUseProtseqEp(Protseq, MaxCalls, Endpoint, SecurityDescriptor) ;
+        }
+}
+
+RPC_STATUS
+RpcServerUseProtseqWrapper (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    if (FireWallFlag)
+        {
+        Policy.Length = sizeof(RPC_POLICY) ;
+        Policy.NICFlags = RPC_C_BIND_TO_ALL_NICS ;
+        return RpcServerUseProtseqEx(Protseq, MaxCalls, SecurityDescriptor, &Policy) ;
+        }
+    else
+        {
+        return RpcServerUseProtseq(Protseq, MaxCalls, SecurityDescriptor) ;
+        }
+}
+
+RPC_STATUS
+RpcServerUseAllProtseqsWrapper (
+    IN unsigned int MaxCalls,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    if (FireWallFlag)
+        {
+        Policy.Length = sizeof(RPC_POLICY) ;
+        Policy.NICFlags = RPC_C_BIND_TO_ALL_NICS ;
+        return RpcServerUseAllProtseqsEx(MaxCalls, SecurityDescriptor, &Policy) ;
+        }
+    else
+        {
+        return RpcServerUseAllProtseqs(MaxCalls, SecurityDescriptor) ;
+        }
+}
+
+RPC_STATUS
+RpcServerUseProtseqIfWrapper (
+    IN unsigned char PAPI * Protseq,
+    IN unsigned int MaxCalls,
+    IN RPC_IF_HANDLE IfSpec,
+    IN void PAPI * SecurityDescriptor
+    )
+{
+    RPC_POLICY Policy ;
+
+    if (FireWallFlag)
+        {
+        Policy.Length = sizeof(RPC_POLICY) ;
+        Policy.NICFlags = RPC_C_BIND_TO_ALL_NICS ;
+        return RpcServerUseProtseqIfEx(Protseq, MaxCalls, IfSpec,
+                    SecurityDescriptor, &Policy) ;
+        }
+    else
+        {
+        return RpcServerUseProtseqIf(Protseq, MaxCalls, IfSpec, SecurityDescriptor) ;
+        }
+}
+
+RPC_STATUS
+RpcServerUseAllProtseqsIfWrapper (
+    IN unsigned int MaxCalls,
+    IN RPC_IF_HANDLE IfSpec,
+    IN void PAPI * SecurityDescriptor OPTIONAL
+    )
+{
+    RPC_POLICY Policy ;
+
+    if (FireWallFlag)
+        {
+        Policy.Length = sizeof(RPC_POLICY) ;
+        Policy.NICFlags = RPC_C_BIND_TO_ALL_NICS ;
+        return RpcServerUseAllProtseqsIfEx(MaxCalls, IfSpec, SecurityDescriptor, &Policy) ;
+        }
+    else
+        {
+        return RpcServerUseAllProtseqsIf(MaxCalls, IfSpec, SecurityDescriptor) ;
         }
 }
 
@@ -146,6 +300,74 @@ Shutdown ( // Awaken the thread waiting on WaitForShutdown.
         {
         ApiError("Shutdown","RpcMgmtStopServerListening",Status);
         }
+    ShutdownCalled = 1 ;
+}
+
+RPC_STATUS
+IfCallbackFunction(
+    IN RPC_IF_HANDLE  InterfaceUuid,
+    IN void *Context
+    )
+{
+    return (RPC_S_OK) ;
+}
+
+RPC_STATUS
+stub_RegisterIf (
+    IN RPC_IF_HANDLE IfSpec,
+    IN UUID PAPI * MgrTypeUuid OPTIONAL,
+    IN RPC_MGR_EPV PAPI * MgrEpv OPTIONAL
+    )
+{
+    unsigned int Flags = 0;
+
+    if (AutoListenFlag)
+        {
+        Flags |= RPC_IF_AUTOLISTEN ;
+        ShutdownCalled = 0 ;
+        }
+
+    return RpcServerRegisterIfEx(IfSpec, MgrTypeUuid, MgrEpv,
+                                               Flags, 1000, 0) ;
+}
+
+RPC_STATUS
+stub_ServerListen (
+    IN unsigned int MinimumCallThreads,
+    IN unsigned int MaxCalls,
+    IN unsigned int DontWait
+    )
+{
+    if (AutoListenFlag)
+        {
+        while (ShutdownCalled == 0)
+            {
+            PauseExecution(500) ;
+            }
+        return (RPC_S_OK) ;
+        }
+    else
+        {
+        return RpcServerListen(MinimumCallThreads, MaxCalls, DontWait) ;
+        }
+}
+
+void IsabelleError (
+    )
+{
+    IsabelleErrors += 1 ;
+}
+
+void HelgaError (
+    )
+{
+    HelgaErrors += 1 ;
+}
+
+void SylviaError (
+    )
+{
+    SylviaErrors += 1 ;
 }
 
 #define SIGFRIED 0
@@ -173,6 +395,8 @@ Shutdown ( // Awaken the thread waiting on WaitForShutdown.
 #define IVAN 27
 #define JASON 28
 #define KENNETH 29
+#define TESTYIELD 30
+#define SPIPE TESTYIELD
 
 
 /*
@@ -213,7 +437,8 @@ char * NamepipeAddresses [] =
     "\\pipe\\herman",
     "\\pipe\\ivan",
     "\\pipe\\jason",
-    "\\pipe\\kenneth"
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
 };
 #else
 char * NamepipeAddresses [] =
@@ -247,9 +472,45 @@ char * NamepipeAddresses [] =
     "\\pipe\\herman",
     "\\pipe\\ivan",
     "\\pipe\\jason",
-    "\\pipe\\kenneth"
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
 };
 #endif
+
+char * DspAddresses [] =
+{
+    "\\pipe\\sigfried",
+    "\\pipe\\elliotmi",
+    "\\pipe\\elliotma",
+    "\\pipe\\elliotno",
+    "\\pipe\\andromno",
+    0,
+    0,
+    "\\pipe\\fredrick",
+    0,
+    0,
+    "\\pipe\\isabelno",
+    "\\pipe\\isabelmi",
+    "\\pipe\\isabelma",
+    "\\pipe\\christ",
+    "\\pipe\\zippyhe",
+    "\\pipe\\zippyis",
+    0,
+    "\\pipe\\tyler",
+    "",
+    "",
+    "\\pipe\\richard",
+    "\\pipe\\richardh",
+    "\\pipe\\david1",
+    "\\pipe\\david2",
+    "\\pipe\\bart",
+    "\\pipe\\grant",
+    "\\pipe\\herman",
+    "\\pipe\\ivan",
+    "\\pipe\\jason",
+    "\\pipe\\kenneth",
+    "\\pipe\\testyield"
+};
 
 char * NetBiosAddresses [] =
 {
@@ -282,75 +543,78 @@ char * NetBiosAddresses [] =
     "221",    // herman
     "222",    // ivan
     "223",    // jason
-    "224"     // kenneth
+    "224",     // kenneth
+    "225"     //testyield
 };
 
 char * TCPAddresses [] =
 {
-    "1025", // SIGFRIED
-    "1026", // ELLIOTMINIMIZE
-    "1027", // ELLIOTMAXIMIZE
-    "1028", // ELLIOTNORMAL
-    "1029", // ANDROMIDA
+    "2025", // SIGFRIED
+    "2026", // ELLIOTMINIMIZE
+    "2027", // ELLIOTMAXIMIZE
+    "2028", // ELLIOTNORMAL
+    "2029", // ANDROMIDA
     0,
     0,
-    "1032", // FREDRICK
+    "2032", // FREDRICK
     0,
     0,
-    "1035", // ISABELLENORMAL
-    "1036", // ISABELLEMINIMIZE
-    "1037", // ISABELLEMAXIMIZE
-    "1038", // CHRISTOPHER
-    "1039", // CHRISTOPHERHELGA
-    "1040", // CHRISTOPHERISABELLE
+    "2035", // ISABELLENORMAL
+    "2036", // ISABELLEMINIMIZE
+    "2037", // ISABELLEMAXIMIZE
+    "2038", // CHRISTOPHER
+    "2039", // CHRISTOPHERHELGA
+    "2040", // CHRISTOPHERISABELLE
     0,
-    "1042", // TYLER
+    "2042", // TYLER
     "chrismfo",
     "chrismft",
-    "1043", // RICHARD
-    "1044", // RICHARDHELPER
-    "1045", // D1
-    "1046", // D2
-    "1047", // BARTHOLOMEW
-    "1048", // GRANT
-    "1049", // HERMAN
-    "1050", // IVAN
-    "1051", // JASON
-    "1052"  // KENNETH
+    "2043", // RICHARD
+    "2044", // RICHARDHELPER
+    "2045", // D1
+    "2046", // D2
+    "2047", // BARTHOLOMEW
+    "2048", // GRANT
+    "2049", // HERMAN
+    "2050", // IVAN
+    "2051", // JASON
+    "2052",  // KENNETH
+    "2053"  // TESTYIELD
 };
 
 char * UDPAddresses [] =
 {
-    "1025", // SIGFRIED
-    "1026", // ELLIOTMINIMIZE
-    "1027", // ELLIOTMAXIMIZE
-    "1028", // ELLIOTNORMAL
-    "1029", // ANDROMIDA
+    "2025", // SIGFRIED
+    "2026", // ELLIOTMINIMIZE
+    "2027", // ELLIOTMAXIMIZE
+    "2028", // ELLIOTNORMAL
+    "2029", // ANDROMIDA
     0,
     0,
-    "1032", // FREDRICK
+    "2032", // FREDRICK
     0,
     0,
-    "1035", // ISABELLENORMAL
-    "1036", // ISABELLEMINIMIZE
-    "1037", // ISABELLEMAXIMIZE
-    "1038", // CHRISTOPHER
-    "1039", // CHRISTOPHERHELGA
-    "1040", // CHRISTOPHERISABELLE
+    "2035", // ISABELLENORMAL
+    "2036", // ISABELLEMINIMIZE
+    "2037", // ISABELLEMAXIMIZE
+    "2038", // CHRISTOPHER
+    "2039", // CHRISTOPHERHELGA
+    "2040", // CHRISTOPHERISABELLE
     0,
-    "1042", // TYLER
+    "2042", // TYLER
     "chrismfo",
     "chrismft",
-    "1043", // RICHARD
-    "1044", // RICHARDHELPER
-    "1045", // D1
-    "1046", // D2
-    "1047", // BARTHOLOMEW
-    "1048", // GRANT
-    "1049", // HERMAN
-    "1050", // IVAN
-    "1051", // JASON
-    "1052"  // KENNETH
+    "2043", // RICHARD
+    "2044", // RICHARDHELPER
+    "2045", // D1
+    "2046", // D2
+    "2047", // BARTHOLOMEW
+    "2048", // GRANT
+    "2049", // HERMAN
+    "2050", // IVAN
+    "2051", // JASON
+    "2052",  // KENNETH
+    "2053"  // TESTYIELD
 };
 
 char * SPCAddresses [] =
@@ -384,7 +648,8 @@ char * SPCAddresses [] =
     "herman",
     "ivan",
     "jason",
-    "kenneth"
+    "kenneth",
+    "testyield"
 };
 
 char * SPXAddresses [] =
@@ -418,7 +683,8 @@ char * SPXAddresses [] =
     "5026",    // herman
     "5027",    // ivan
     "5028",    // jason
-    "5029"     // kenneth
+    "5029",     // kenneth
+    "5030"     // testyield
 };
 
 char * IPXAddresses [] =
@@ -452,8 +718,47 @@ char * IPXAddresses [] =
     "5026",    // herman
     "5027",    // ivan
     "5028",    // jason
-    "5029"     // kenneth
+    "5029",     // kenneth
+    "5030"     // testyield
 };
+
+
+char * VNSAddresses [] =
+{
+    "250",    // sigfried
+    "251",    // elliotmi
+    "252",    // elliotma
+    "253",    // elliotno
+    "254",    // andromno
+    "255",
+    "256",
+    "257",    // fredrick
+    "258",
+    "259",
+    "260",    // isabelno
+    "261",    // isabelmi
+    "262",    // isabelma
+    "263",    // christ
+    "264",    // zippyhe
+    "265",    // zippyis
+    "266",
+    "267",    // tyler
+    "hello",    // christ fail 1
+    "50195019",    // christ fail 2
+    "270",    // richard
+    "271",    // richardh
+    "272",    // david1
+    "273",    // david2
+    "274",    // bart
+    "275",    // grant
+    "276",    // herman
+    "277",    // ivan
+    "278",    // jason
+    "279",     // kenneth
+    "280"     // testyield
+};
+
+
 
 
 unsigned char *
@@ -480,7 +785,9 @@ Transports:
         return((unsigned char *) "ncacn_np");
 
     if (TransportType == RPC_LRPC)
+        {
         return((unsigned char *) "ncalrpc");
+        }
 
     if (TransportType == RPC_TRANSPORT_NETBIOS)
         return((unsigned char *) NetBiosProtocol);
@@ -496,6 +803,14 @@ Transports:
 
     if (TransportType == RPC_TRANSPORT_IPX)
         return((unsigned char *) "ncadg_ipx");
+
+    if (TransportType == RPC_TRANSPORT_DSP)
+    return((unsigned char *) "ncacn_at_dsp") ;
+
+    if (TransportType == RPC_TRANSPORT_VNS)
+    return((unsigned char *) "ncacn_vns_spp") ;
+
+
 
     return(0);
 }
@@ -547,8 +862,15 @@ Transports:
     else if (TransportType == RPC_TRANSPORT_IPX)
         return((unsigned char *) IPXAddresses[Endpoint]);
 
+    else if (TransportType == RPC_TRANSPORT_VNS)
+        return((unsigned char *) VNSAddresses[Endpoint]);
+
+    else if (TransportType == RPC_TRANSPORT_DSP)
+    return ((unsigned char *) DspAddresses[Endpoint]) ;
+
     return(0);
 }
+
 
 /* --------------------------------------------------------------------
 
@@ -695,7 +1017,105 @@ Return Value:
     return(0);
 }
 
-unsigned int HelgaErrors = 0;
+
+
+int
+CheckInitialBuffer (
+    IN void PAPI * Buffer,
+    IN unsigned long BufferLength,
+    OUT unsigned char * pNextValue
+    )
+/*++
+
+Routine Description:
+
+    We need to check that the correct bytes were sent.  We do not check
+    the length of the buffer.
+
+Arguments:
+
+    Buffer - Supplies the buffer to be checked.
+
+    BufferLength - Supplies the length of the buffer to be checked.
+
+Return Value:
+
+    A value of zero will be returned if the buffer contains the correct
+    bytes; otherwise, non-zero will be returned.
+
+--*/
+{
+    unsigned long PAPI * Length;
+    unsigned char PAPI * BufferScan;
+    unsigned char Value;
+
+    Length = (unsigned long PAPI *) Buffer;
+
+    for (BufferScan = (unsigned char PAPI *) (Length + 1),
+                Value = *BufferScan, BufferLength -= 4;
+                BufferLength > 0; BufferLength--, BufferScan++, Value++)
+        {
+        if (*BufferScan != Value)
+            {
+            return(1);
+            }
+        }
+
+    *pNextValue = Value;
+
+    return(0);
+}
+
+
+
+int
+CheckContinuedBuffer (
+    IN void PAPI * Buffer,
+    IN unsigned long BufferLength,
+    IN  unsigned char BeginningValue,
+    OUT unsigned char * pNextValue
+    )
+/*++
+
+Routine Description:
+
+    We need to check that the correct bytes were sent.  We do not check
+    the length of the buffer.
+
+Arguments:
+
+    Buffer - Supplies the buffer to be checked.
+
+    BufferLength - Supplies the length of the buffer to be checked.
+
+Return Value:
+
+    A value of zero will be returned if the buffer contains the correct
+    bytes; otherwise, non-zero will be returned.
+
+    *pValue
+
+--*/
+{
+    unsigned long PAPI * Length;
+    unsigned char PAPI * BufferScan;
+    unsigned char Value;
+
+    for (BufferScan = (unsigned char PAPI *) Buffer, Value = BeginningValue;
+         BufferLength > 0;
+         BufferLength--, BufferScan++, Value++)
+        {
+        if (*BufferScan != Value)
+            {
+            return(1);
+            }
+        }
+
+    *pNextValue = Value;
+
+    return(0);
+}
+
 
 extern RPC_DISPATCH_TABLE HelgaDispatchTable;
 
@@ -711,12 +1131,14 @@ RPC_PROTSEQ_ENDPOINT HelgaRpcProtseqEndpoint[] =
 #else // NTENV
     {(unsigned char *)"ncacn_np",(unsigned char *)"\\pipe\\zippyhe"},
 #endif // NTENV
-    {(unsigned char *) "ncacn_ip_tcp", (unsigned char *) "1039"},
-    {(unsigned char *) "ncadg_ip_udp", (unsigned char *) "1039"},
+    {(unsigned char *) "ncacn_ip_tcp", (unsigned char *) "2039"},
+    {(unsigned char *) "ncadg_ip_udp", (unsigned char *) "2039"},
     {(unsigned char *) "ncalrpc", (unsigned char *) "christopherhelga"},
     {(unsigned char *) "ncacn_nb_nb", (unsigned char *) "211"},
     {(unsigned char *) "ncacn_spx", (unsigned char *) "5014"},
-    {(unsigned char *) "ncadg_ipx", (unsigned char *) "5014"}
+    {(unsigned char *) "ncadg_ipx", (unsigned char *) "5014"},
+    {(unsigned char *) "ncacn_vns_spp", (unsigned char *) "264"},
+    {(unsigned char *) "ncacn_at_dsp",(unsigned char *) "\\pipe\\zippyhe"}
 };
 
 RPC_SERVER_INTERFACE HelgaInterfaceInformation =
@@ -728,7 +1150,10 @@ RPC_SERVER_INTERFACE HelgaInterfaceInformation =
      {0,0}},
     &HelgaDispatchTable,
     sizeof(HelgaRpcProtseqEndpoint) / sizeof(RPC_PROTSEQ_ENDPOINT),
-    HelgaRpcProtseqEndpoint
+    HelgaRpcProtseqEndpoint,
+    NULL,
+    NULL,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 void __RPC_STUB
@@ -738,18 +1163,20 @@ HelgaStub (
 {
     UUID ObjectUuid;
 
+    CompleteReceive(Callee) ;
+
     if ( HelgaCheckObject != 0 )
         {
         Status = RpcBindingInqObject(Callee->Handle, &ObjectUuid);
         if (Status)
             {
             ApiError("HelgaStub", "RpcBindingInqObject", Status);
-            HelgaErrors += 1;
+            HelgaError();
             }
         else if ( CheckUuidValue(HelgaMagicNumber, &ObjectUuid) != 0 )
             {
             OtherError("HelgaStub", "CheckUuidValue() != 0");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
     HelgaMagicNumber += 1;
@@ -757,7 +1184,7 @@ HelgaStub (
     if ( Callee->ProcNum != 0 )
         {
         OtherError("HelgaStub", "Callee->ProcNum != 0");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( memcmp(Callee->RpcInterfaceInformation, &HelgaInterfaceInformation,
@@ -765,7 +1192,7 @@ HelgaStub (
         {
         OtherError("HelgaStub",
                 "Callee->RpcInteraceInformation != &HelgaInterfaceInformation");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( HelgaCheckManagerEpv != 0 )
@@ -773,14 +1200,14 @@ HelgaStub (
         if ( Callee->ManagerEpv != HelgaManagerEpv )
             {
             OtherError("HelgaStub", "Callee->ManagerEpv != HelgaManagerEpv");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
 
     if (Callee->BufferLength != 0)
         {
         OtherError("HelgaStub","*BufferLength != 0");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     Callee->BufferLength = 0;
@@ -790,7 +1217,7 @@ HelgaStub (
     if (Status)
         {
         ApiError("HelgaStub","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         }
 }
 
@@ -799,7 +1226,7 @@ HelgaINStub (
     PRPC_MESSAGE Callee
     )
 {
-    unsigned long * Length;
+    unsigned long Length;
     UUID ObjectUuid;
 
     if ( HelgaCheckObject != 0 )
@@ -808,12 +1235,12 @@ HelgaINStub (
         if (Status)
             {
             ApiError("HelgaINStub", "RpcBindingInqObject", Status);
-            HelgaErrors += 1;
+            HelgaError();
             }
         else if ( CheckUuidValue(HelgaMagicNumber, &ObjectUuid) != 0 )
             {
             OtherError("HelgaINStub", "CheckUuidValue() != 0");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
     HelgaMagicNumber += 1;
@@ -821,7 +1248,7 @@ HelgaINStub (
     if ( Callee->ProcNum != 1 )
         {
         OtherError("HelgaINStub", "Callee->ProcNum != 0");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( memcmp(Callee->RpcInterfaceInformation, &HelgaInterfaceInformation,
@@ -829,7 +1256,7 @@ HelgaINStub (
         {
         OtherError("HelgaINStub",
                 "Callee->RpcInteraceInformation != &HelgaInterfaceInformation");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( HelgaCheckManagerEpv != 0 )
@@ -837,23 +1264,41 @@ HelgaINStub (
         if ( Callee->ManagerEpv != HelgaManagerEpv )
             {
             OtherError("HelgaINStub", "Callee->ManagerEpv != HelgaManagerEpv");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
 
-    Length = (unsigned long *) Callee->Buffer;
-    if (*Length != Callee->BufferLength)
+    //
+    // Check the data we have so far.
+    //
+    Length = *(unsigned long *) Callee->Buffer;
+    if (Length < Callee->BufferLength)
         {
-        OtherError("HelgaINStub","*Length != *BufferLength");
-        HelgaErrors += 1;
+        OtherError("HelgaINStub","*Length < *BufferLength");
+        HelgaError();
         }
 
-    if (CheckBuffer(Callee->Buffer, Callee->BufferLength) != 0)
+    if (0 == (Callee->RpcFlags & RPC_BUFFER_COMPLETE))
+        {
+        CompleteReceive(Callee) ;
+        }
+
+    if (Length != Callee->BufferLength)
+        {
+        OtherError("HelgaINStub","incomplete buffer marked as complete");
+        HelgaError();
+        }
+
+    unsigned char InitialValue;
+    if (CheckInitialBuffer(Callee->Buffer, Callee->BufferLength, &InitialValue) != 0)
         {
         OtherError("HelgaINStub","CheckBuffer Failed");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
+    //
+    // The [out] buffer.
+    //
     Callee->BufferLength = 0;
 
     Status = I_RpcGetBuffer(Callee);
@@ -861,7 +1306,7 @@ HelgaINStub (
     if (Status)
         {
         ApiError("HelgaINStub","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         }
 }
 
@@ -874,18 +1319,20 @@ HelgaOUTStub (
     unsigned int Size;
     UUID ObjectUuid;
 
+    CompleteReceive(Callee) ;
+
     if ( HelgaCheckObject != 0 )
         {
         Status = RpcBindingInqObject(Callee->Handle, &ObjectUuid);
         if (Status)
             {
             ApiError("HelgaOUTStub", "RpcBindingInqObject", Status);
-            HelgaErrors += 1;
+            HelgaError();
             }
         else if ( CheckUuidValue(HelgaMagicNumber, &ObjectUuid) != 0 )
             {
             OtherError("HelgaOUTStub", "CheckUuidValue() != 0");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
     HelgaMagicNumber += 1;
@@ -893,7 +1340,7 @@ HelgaOUTStub (
     if ( Callee->ProcNum != 2 )
         {
         OtherError("HelgaOUTStub", "Callee->ProcNum != 0");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( memcmp(Callee->RpcInterfaceInformation, &HelgaInterfaceInformation,
@@ -901,7 +1348,7 @@ HelgaOUTStub (
         {
         OtherError("HelgaOUTStub",
                 "Callee->RpcInteraceInformation != &HelgaInterfaceInformation");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( HelgaCheckManagerEpv != 0 )
@@ -909,14 +1356,21 @@ HelgaOUTStub (
         if ( Callee->ManagerEpv != HelgaManagerEpv )
             {
             OtherError("HelgaOUTStub", "Callee->ManagerEpv != HelgaManagerEpv");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
 
     if (Callee->BufferLength != sizeof(unsigned long))
         {
-        OtherError("HelgaOUTStub","*BufferLength != sizeof(unsigned int)");
-        HelgaErrors += 1;
+        //
+        // secure datagram calls round the stub data length to a multiple
+        // of eight.
+        //
+        if (!DatagramFlag || Callee->BufferLength != 8)
+            {
+            OtherError("HelgaOUTStub","*BufferLength != sizeof(unsigned int)");
+            HelgaError();
+            }
         }
 
     Length = (unsigned long *) Callee->Buffer;
@@ -928,7 +1382,7 @@ HelgaOUTStub (
     if (Status)
         {
         ApiError("HelgaOUTStub","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         }
     else
         {
@@ -941,8 +1395,7 @@ HelgaINOUTStub (
     PRPC_MESSAGE Callee
     )
 {
-    unsigned long * Length;
-    unsigned int Size;
+    unsigned long Length;
     UUID ObjectUuid;
 
     if ( HelgaCheckObject != 0 )
@@ -951,12 +1404,12 @@ HelgaINOUTStub (
         if (Status)
             {
             ApiError("HelgaINOUTStub", "RpcBindingInqObject", Status);
-            HelgaErrors += 1;
+            HelgaError();
             }
         else if ( CheckUuidValue(HelgaMagicNumber, &ObjectUuid) != 0 )
             {
             OtherError("HelgaINOUTStub", "CheckUuidValue() != 0");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
     HelgaMagicNumber += 1;
@@ -964,7 +1417,7 @@ HelgaINOUTStub (
     if ( Callee->ProcNum != 3 )
         {
         OtherError("HelgaINOUTStub", "Callee->ProcNum != 0");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( memcmp(Callee->RpcInterfaceInformation, &HelgaInterfaceInformation,
@@ -972,7 +1425,7 @@ HelgaINOUTStub (
         {
         OtherError("HelgaINOUTStub",
                 "Callee->RpcInteraceInformation != &HelgaInterfaceInformation");
-        HelgaErrors += 1;
+        HelgaError();
         }
 
     if ( HelgaCheckManagerEpv != 0 )
@@ -981,36 +1434,110 @@ HelgaINOUTStub (
             {
             OtherError("HelgaINOUTStub",
                     "Callee->ManagerEpv != HelgaManagerEpv");
-            HelgaErrors += 1;
+            HelgaError();
             }
         }
 
-    Length = (unsigned long *) Callee->Buffer;
-    if (*Length != Callee->BufferLength)
+    //
+    // Check the data we have so far.
+    //
+    Length = *(unsigned long *) Callee->Buffer;
+    if (Length < Callee->BufferLength)
         {
-        OtherError("HelgaINOUTStub","*Length != *BufferLength");
-        HelgaErrors += 1;
-        }
-    if (CheckBuffer(Callee->Buffer, Callee->BufferLength) != 0)
-        {
-        OtherError("HelgaINOUTStub","CheckBuffer Failed");
-        HelgaErrors += 1;
+        OtherError("HelgaINOUTStub","*Length < *BufferLength");
+        HelgaError();
         }
 
-    Size = (unsigned int) *Length;
-    Callee->BufferLength = Size;
+    unsigned char InitialValue;
+    if (CheckInitialBuffer(Callee->Buffer, Callee->BufferLength, &InitialValue) != 0)
+        {
+        OtherError("HelgaINOUTStub","initial CheckBuffer Failed");
+        HelgaError();
+        }
+
+    if (Length > Callee->BufferLength)
+        {
+        if (Callee->RpcFlags & RPC_BUFFER_COMPLETE)
+            {
+            OtherError("HelgaINOUTStub","incomplete buffer marked as complete");
+            HelgaError();
+            }
+        }
+
+    if (0 == (Callee->RpcFlags & RPC_BUFFER_COMPLETE))
+        {
+        //
+        // Get the rest of the data and check it.
+        //
+        CompleteReceive(Callee) ;
+
+        if (0 != CheckInitialBuffer(Callee->Buffer, Callee->BufferLength, &InitialValue))
+            {
+            OtherError("HelgaINOUTStub","second CheckBuffer Failed");
+            HelgaError();
+            }
+        }
+
+    Callee->BufferLength = Length;
 
     Status = I_RpcGetBuffer(Callee);
 
     if (Status)
         {
         ApiError("HelgaINOUTStub","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         }
     else
         {
-        InitializeBuffer(Callee->Buffer, Size);
+        InitializeBuffer(Callee->Buffer, Length);
         }
+}
+
+void Synchro(
+    PRPC_MESSAGE Callee
+    )
+{
+    PrintToConsole("Sychro called\n") ;
+}
+
+void SvrLazyFunc(
+    PRPC_MESSAGE Callee
+    )
+{
+    PrintToConsole("About to sleep\n") ;
+    PauseExecution(100000) ;
+    PrintToConsole("Waking up\n") ;
+
+    Shutdown() ;
+}
+
+void HelgaLpcSecurity(
+    PRPC_MESSAGE Callee
+    )
+{
+    RPC_STATUS RpcStatus ;
+    RPC_CHAR *UserName ;
+
+    PrintToConsole("HelgaLpcSecurity\n") ;
+
+    RpcStatus = RpcBindingInqAuthClientW(Callee->Handle, (void **) &UserName,
+                                        NULL, NULL, NULL, NULL) ;
+    if (RpcStatus != RPC_S_OK)
+        {
+        HelgaError() ;
+        }
+
+
+    PrintToConsole("HelgaLpcSecurity: (1) UserName: %S\n", UserName) ;
+    UserName = NULL ;
+
+    RpcStatus = RpcBindingInqAuthClientW(Callee->Handle, (void **) &UserName,
+                                        NULL, NULL, NULL, NULL) ;
+    if (RpcStatus != RPC_S_OK)
+        {
+        HelgaError() ;
+        }
+    PrintToConsole("HelgaLpcSecurity: (2) UserName: %S\n", UserName) ;
 }
 
 RPC_DISPATCH_FUNCTION HelgaDispatchFunctions[] =
@@ -1018,12 +1545,15 @@ RPC_DISPATCH_FUNCTION HelgaDispatchFunctions[] =
         HelgaStub,
         HelgaINStub,
         HelgaOUTStub,
-        HelgaINOUTStub
+        HelgaINOUTStub,
+        Synchro,
+        SvrLazyFunc,
+        HelgaLpcSecurity
 };
 
 RPC_DISPATCH_TABLE HelgaDispatchTable =
 {
-    4, HelgaDispatchFunctions
+    7, HelgaDispatchFunctions
 };
 
 /* --------------------------------------------------------------------
@@ -1043,10 +1573,12 @@ RPC_SERVER_INTERFACE SylviaInterfaceInformation =
      {0,0}},
     &SylviaDispatchTable,
     0,
-    0
+    0,
+    0,
+    0,
+    RPC_INTERFACE_HAS_PIPES
 };
 
-unsigned int SylviaErrors = 0;
 
 unsigned int SylviaQueryBinding = 0;
 unsigned int SylviaQueryProtocolStack = 0;
@@ -1055,13 +1587,13 @@ char * SylviaTransportInfo = 0;
 
 unsigned int // Specifies the new count of calls.
 SylviaCallback (
-    unsigned long Depth, // Specifies the depth of recursion desired.
-    unsigned long Breadth, // Specifies the breadth desired.
-    unsigned long Count // Specifies the count of calls up to this point.
+    unsigned /*long*/ char Depth, // Specifies the depth of recursion desired.
+    unsigned /*long*/ char Breadth, // Specifies the breadth desired.
+    unsigned /*long*/ char Count // Specifies the count of calls up to this point.
     )
 {
     RPC_MESSAGE Caller;
-    unsigned long * plScan, ReturnValue;
+    unsigned /*long*/ char * plScan, ReturnValue;
 
     Caller.ProcNum = 0;
     Caller.Handle = I_RpcGetCurrentCallHandle();
@@ -1069,48 +1601,48 @@ SylviaCallback (
     if (Caller.Handle == (RPC_BINDING_HANDLE) 0)
         {
         OtherError("SylviaCallback","Call == (RPC_BINDING_HANDLE) 0");
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
 
-    Caller.BufferLength = sizeof(unsigned long)*3;
+    Caller.BufferLength = sizeof(unsigned /*long*/ char)*4;
     Status = I_RpcGetBuffer(&Caller);
     if (Status)
         {
         ApiError("SylviaCallback","I_RpcGetBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
-    plScan = (unsigned long *) Caller.Buffer;
-    plScan[0] = Depth;
-    plScan[1] = Breadth;
-    plScan[2] = Count;
+    plScan = (unsigned /*long*/ char *) Caller.Buffer;
+    plScan[0] = (unsigned char) Depth;
+    plScan[1] = (unsigned char) Breadth;
+    plScan[2] = (unsigned char) Count;
 
     Status = I_RpcSendReceive(&Caller);
     if (Status)
         {
         ApiError("SylviaCallback","I_RpcSendReceive",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
 
-    plScan = (unsigned long *) Caller.Buffer;
+    plScan = (unsigned /*long*/ char *) Caller.Buffer;
     ReturnValue = *plScan;
     Status = I_RpcFreeBuffer(&Caller);
     if (Status)
         {
         ApiError("SylviaCallback","I_RpcFreeBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         return(0);
         }
     return(ReturnValue);
 }
 
-unsigned long
+unsigned /*long*/ char
 SylviaCallUserCode ( // The user code for SylviaCall.
-    unsigned long Depth,
-    unsigned long Breadth,
-    unsigned long Count
+    unsigned /*long*/ char Depth,
+    unsigned /*long*/ char Breadth,
+    unsigned /*long*/ char Count
     )
 {
     if (Depth > 0)
@@ -1130,12 +1662,12 @@ SylviaCall (
     PRPC_MESSAGE Callee
     )
 {
-    unsigned long ReturnValue, *plScan;
+    unsigned /*long*/ char ReturnValue, *plScan;
 
     if ( Callee->ProcNum != 0 )
         {
         OtherError("SylviaCall", "Callee->ProcNum != 0");
-        SylviaErrors += 1;
+        SylviaError();
         }
 
     if ( memcmp(Callee->RpcInterfaceInformation, &SylviaInterfaceInformation,
@@ -1143,29 +1675,29 @@ SylviaCall (
         {
         OtherError("SylviaCall",
                 "Callee->RpcInteraceInformation != &SylviaInterfaceInformation");
-        SylviaErrors += 1;
+        SylviaError();
         }
 
-    if (Callee->BufferLength != sizeof(unsigned long)*3)
+    if (Callee->BufferLength != sizeof(unsigned /*long*/ char)*4)
         {
-        OtherError("SylviaCall","*BufferLength != sizeof(unsigned long)*3");
-        SylviaErrors += 1;
+        OtherError("SylviaCall","*BufferLength != sizeof(unsigned  char)*4");
+        SylviaError();
         }
 
-    plScan = (unsigned long *) Callee->Buffer;
+    plScan = (unsigned /*long*/ char *) Callee->Buffer;
 
 //    if (   SylviaQueryCall
 //        && VerifyQueryCall(Callee->Handle,&SylviaProtocolStack))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryCall");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
 //    if (   SylviaQueryBinding
 //        && VerifyQueryBinding(Callee->Handle,SylviaServer))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryBinding");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
 //    if (   SylviaQueryProtocolStack
@@ -1173,23 +1705,23 @@ SylviaCall (
 //                        SylviaTransportInfo))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryProtocolStack");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
-    ReturnValue = SylviaCallUserCode(plScan[0],plScan[1],plScan[2]);
+    ReturnValue = (unsigned char) SylviaCallUserCode(plScan[0],plScan[1],plScan[2]);
 
 //    if (   SylviaQueryCall
 //        && VerifyQueryCall(Callee->Handle,&SylviaProtocolStack))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryCall");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
 //    if (   SylviaQueryBinding
 //        && VerifyQueryBinding(Callee->Handle,SylviaServer))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryBinding");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
 //    if (   SylviaQueryProtocolStack
@@ -1197,17 +1729,17 @@ SylviaCall (
 //                        SylviaTransportInfo))
 //        {
 //        OtherError("SylviaCallback","VerifyQueryProtocolStack");
-//        SylviaErrors += 1;
+//        SylviaError();
 //        }
 
-    Callee->BufferLength = sizeof(unsigned long);
+    Callee->BufferLength = sizeof(unsigned /*long*/ char);
     Status = I_RpcGetBuffer((PRPC_MESSAGE) Callee);
     if (Status)
         {
         ApiError("SylviaCall","I_RpcGetBuffer",Status);
-        SylviaErrors += 1;
+        SylviaError();
         }
-    plScan = (unsigned long *) Callee->Buffer;
+    plScan = (unsigned /*long*/ char *) Callee->Buffer;
     *plScan = ReturnValue;
 }
 
@@ -1223,7 +1755,6 @@ Isabelle Interface
 
 -------------------------------------------------------------------- */
 
-unsigned int IsabelleErrors = 0;
 
 extern RPC_DISPATCH_TABLE IsabelleDispatchTable;
 
@@ -1239,12 +1770,14 @@ RPC_PROTSEQ_ENDPOINT IsabelleRpcProtseqEndpoint[] =
 #else // NTENV
     {(unsigned char *)"ncacn_np",(unsigned char *)"\\pipe\\zippyis"},
 #endif // NTENV
-    {(unsigned char *) "ncacn_ip_tcp",(unsigned char *) "1040"},
-    {(unsigned char *) "ncadg_ip_udp",(unsigned char *) "1040"},
+    {(unsigned char *) "ncacn_ip_tcp",(unsigned char *) "2040"},
+    {(unsigned char *) "ncadg_ip_udp",(unsigned char *) "2040"},
     {(unsigned char *) "ncalrpc",(unsigned char *) "christopherisabelle"},
     {(unsigned char *) "ncacn_nb_nb",(unsigned char *) "212"},
     {(unsigned char *) "ncacn_spx",(unsigned char *) "5015"},
-    {(unsigned char *) "ncadg_ipx",(unsigned char *) "5015"}
+    {(unsigned char *) "ncadg_ipx",(unsigned char *) "5015"},
+    {(unsigned char *) "ncacn_vns_spp",(unsigned char *) "265"},
+    {(unsigned char *) "ncacn_at_dsp", (unsigned char *) "\\pipe\\zippyis"}
 };
 
 RPC_SERVER_INTERFACE IsabelleInterfaceInformation =
@@ -1253,10 +1786,13 @@ RPC_SERVER_INTERFACE IsabelleInterfaceInformation =
     {{9,8,8,{7,7,7,7,7,7,7,7}},
      {1,1}},
     {{9,8,7,{6,5,4,3,2,1,2,3}},
-     {4,5}},
+     {0,0}}, /* {4,5}}, */
     &IsabelleDispatchTable,
     sizeof(IsabelleRpcProtseqEndpoint) / sizeof(RPC_PROTSEQ_ENDPOINT),
-    IsabelleRpcProtseqEndpoint
+    IsabelleRpcProtseqEndpoint,
+    0,
+    0,
+    RPC_INTERFACE_HAS_PIPES
 };
 
 void __RPC_STUB
@@ -1267,16 +1803,19 @@ IsabelleShutdown (
     RPC_BINDING_HANDLE BindingHandle;
     unsigned char PAPI * StringBinding;
     unsigned int ClientLocalFlag = 0;
+    RPC_STATUS IsClientLocalStatus;
+
+    CompleteReceive(Callee) ;
 
 #ifdef NTENV
 
     Status = I_RpcBindingIsClientLocal(0, &ClientLocalFlag);
-    if ( Status != RPC_S_CANNOT_SUPPORT )
+    if ( (IsClientLocalStatus = Status) != RPC_S_CANNOT_SUPPORT )
         {
         if ( Status != RPC_S_OK )
             {
             ApiError("IsabelleShutdown", "I_RpcBindingIsClientLocal", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         }
 
@@ -1285,14 +1824,17 @@ IsabelleShutdown (
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleShutdown","*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
-    Status = RpcMgmtIsServerListening(0);
-    if (Status)
+    if (AutoListenFlag == 0)
         {
-        ApiError("IsabelleShutdown", "RpcMgmtIsServerListening", Status);
-        IsabelleErrors += 1;
+        Status = RpcMgmtIsServerListening(0);
+        if (Status)
+            {
+            ApiError("IsabelleShutdown", "RpcMgmtIsServerListening", Status);
+            IsabelleError();
+            }
         }
 
     Status = RpcBindingServerFromClient(Callee->Handle, &BindingHandle);
@@ -1301,16 +1843,18 @@ IsabelleShutdown (
         if ( Status != RPC_S_CANNOT_SUPPORT && (DatagramFlag == 0) )
             {
             ApiError("IsabelleShutdown", "RpcBindingServerFromClient", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
-        if ( ClientLocalFlag != 0 )
-            {
-            PrintToConsole("Local Client\n");
-            }
-        else
-            {
-            PrintToConsole("Remote Client\n");
-            }
+
+#ifdef NTENV
+    if(IsClientLocalStatus == RPC_S_OK)
+       {
+           if ( ClientLocalFlag != 0 )
+             PrintToConsole("Local Client\n");
+           else
+             PrintToConsole("Remote Client\n");
+       }
+#endif
         }
     else
         {
@@ -1318,10 +1862,11 @@ IsabelleShutdown (
         if (Status)
             {
             ApiError("IsabelleShutdown", "RpcBindingToStringBinding", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         else
             {
+#ifdef NTENV
             if ( ClientLocalFlag != 0 )
                 {
                 PrintToConsole("Local Client [%s]\n", StringBinding);
@@ -1330,6 +1875,7 @@ IsabelleShutdown (
                 {
                 PrintToConsole("Remote Client [%s]\n", StringBinding);
                 }
+#endif
             RpcStringFree(&StringBinding);
             RpcBindingFree(&BindingHandle);
             }
@@ -1343,7 +1889,7 @@ IsabelleShutdown (
     if (Status)
         {
         ApiError("IsabelleShutdown","I_RpcGetBuffer",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 }
 
@@ -1377,7 +1923,7 @@ Arguments:
     if (Status != RPC_S_OK)
         {
         ApiError("IsabelleNtSecurity","RpcImpersonateClient",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         }
     else
         {
@@ -1385,7 +1931,7 @@ Arguments:
         if (Status != RPC_S_OK)
             {
             ApiError("IsabelleNtSecurity","RpcRevertToSelf",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         else
             {
@@ -1394,7 +1940,7 @@ Arguments:
                 {
                 ApiError("IsabelleNtSecurity","RpcImpersonateClient",
                         Status);
-                IsabelleErrors += 1;
+                IsabelleError();
                 }
             else
                 {
@@ -1402,7 +1948,7 @@ Arguments:
                 if (Status != RPC_S_OK)
                     {
                     ApiError("IsabelleNtSecurity","RpcRevertToSelf",Status);
-                    IsabelleErrors += 1;
+                    IsabelleError();
                     }
                 }
             }
@@ -1416,7 +1962,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleNtSecurity","I_RpcGetBuffer",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
 }
@@ -1433,7 +1979,7 @@ IsabelleToStringBinding (
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleToStringBinding","*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     Status = RpcBindingToStringBinding(Callee->Handle, &StringBinding);
@@ -1473,7 +2019,7 @@ IsabelleToStringBinding (
     if (Status)
         {
         ApiError("Christopher","I_RpcGetBuffer",Status);
-        HelgaErrors += 1;
+        HelgaError();
         }
 }
 
@@ -1519,15 +2065,16 @@ Arguments:
 
 --*/
 {
-    unsigned long Command;
+    unsigned /*long*/ char Command;
     THREAD * Thread;
     RPC_STATUS RpcStatus = RPC_S_OK;
 
-    if (Callee->BufferLength != sizeof(unsigned long))
+    if (   Callee->BufferLength != sizeof(unsigned char)
+        && Callee->BufferLength != sizeof(unsigned long) )
         {
         OtherError("IsabelleRichardHelper",
                 "*BufferLength != sizeof(unsigned long)");
-        IsabelleErrors += 1;
+        IsabelleError();
         Callee->BufferLength = 0;
 
          Status = I_RpcGetBuffer(Callee);
@@ -1535,19 +2082,17 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleRichardHelper","I_RpcGetBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         return;
         }
 
-    Command = *((unsigned long *) Callee->Buffer);
+    Command = *((unsigned char *) Callee->Buffer);
 
     if (Command == RICHARDHELPER_EXIT)
         {
         PrintToConsole("Richard : RichardHelper Exiting\n");
-
 #ifdef OS2_12
-
         DosExit(EXIT_PROCESS, 0);
 
 #endif // OS2_12
@@ -1571,7 +2116,7 @@ Arguments:
 
         pT += strlen(strcpy(pT, "usvr")) + 1;
         pT += strlen(strcpy(pT, TransportOption));
-        pT += strlen(strcpy(pT, " -richardhelper")) + 1;
+        pT += strlen(strcpy(pT, "-error -richardhelper")) + 1;
         *pT = 0;
 
         Os2Status = DosExecPgm(0,0,EXEC_ASYNC, (unsigned char *)CommandLine, 0,
@@ -1579,7 +2124,7 @@ Arguments:
         if (Os2Status != 0)
             {
             OtherError("IsabelleRichardHelper","DosExecPgm Failed");
-            IsabelleErrors += 1;
+            IsabelleError();
             }
 
 #endif // OS2_12
@@ -1604,6 +2149,7 @@ Arguments:
 
         char CommandLine[200];
 
+    PrintToConsole("Spawning richardhelper\n") ;
         strcpy(CommandLine, "usvr ");
         strcat(CommandLine, TransportOption);
 
@@ -1613,7 +2159,7 @@ Arguments:
                 0, 0, 0, &StartupInfo, &ProcessInformation) == FALSE)
             {
             OtherError("IsabelleRichardHelper","CreateProcessA Failed");
-            IsabelleErrors += 1;
+            IsabelleError();
             }
 
 #endif // WIN32RPC
@@ -1625,33 +2171,33 @@ Arguments:
             || ( RpcStatus != RPC_S_OK ) )
             {
             OtherError("IsabelleRichardHelper","Can Not Create Thread");
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         }
     else if (Command != RICHARDHELPER_IGNORE)
         {
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         OtherError("IsabelleRichardHelper","Unknown Command Requested");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     Callee->BufferLength = 0;
@@ -1685,13 +2231,16 @@ Arguments:
 
 --*/
 {
-    unsigned long Exception;
+    unsigned /*long*/ char Exception;
 
-    if (Callee->BufferLength != sizeof(unsigned long))
+    CompleteReceive(Callee) ;
+
+    if (   Callee->BufferLength != sizeof(unsigned long)
+        && Callee->BufferLength != sizeof(unsigned char) )
         {
         OtherError("IsabelleRaiseException",
-                "*BufferLength != sizeof(unsigned long)");
-        IsabelleErrors += 1;
+                "*BufferLength != 1 or 4");
+        IsabelleError();
         Callee->BufferLength = 0;
 
         Status = I_RpcGetBuffer(Callee);
@@ -1699,19 +2248,19 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleRaiseException","I_RpcGetBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         return;
         }
 
-    Exception = *((unsigned long *) Callee->Buffer);
+    Exception = *((unsigned /*long*/ char *) Callee->Buffer);
 
     RpcRaiseException((RPC_STATUS) Exception);
 
     // This should never be reached.
 
     OtherError("IsabelleRaiseException", "RpcRaiseException Failed");
-    IsabelleErrors += 1;
+    IsabelleError();
 
     Callee->BufferLength = 0;
     Status = I_RpcGetBuffer(Callee);
@@ -1771,10 +2320,12 @@ Arguments:
 
 --*/
 {
+    CompleteReceive(Callee) ;
+
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleSetException", "*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     IsabelleRundownFlag = 0;
@@ -1785,7 +2336,7 @@ Arguments:
     if (Status)
         {
         ApiError("IsabelleSetRundown","I_RpcMonitorAssociation",Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     Callee->BufferLength = 0;
@@ -1817,16 +2368,21 @@ Arguments:
 
 --*/
 {
+    CompleteReceive(Callee) ;
+
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleCheckRundown", "*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
-    if (IsabelleRundownFlag != 1)
+    if (0 == DatagramFlag)
         {
-        OtherError("IsabelleCheckRundown", "IsabelleRundownFlag != 1");
-        IsabelleErrors += 1;
+        if (IsabelleRundownFlag != 1)
+            {
+            OtherError("IsabelleCheckRundown", "IsabelleRundownFlag != 1");
+            IsabelleError();
+            }
         }
 
     Callee->BufferLength = 0;
@@ -1858,16 +2414,18 @@ Arguments:
 
 --*/
 {
+    CompleteReceive(Callee) ;
+
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleCheckNoRundown", "*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     if (IsabelleRundownFlag == 1)
         {
         OtherError("IsabelleCheckNoRundown", "IsabelleRundownFlag == 1");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     Callee->BufferLength = 0;
@@ -1901,10 +2459,12 @@ Arguments:
 {
     void PAPI * Context;
 
+    CompleteReceive(Callee) ;
+
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleCheckContext", "*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     Status = I_RpcGetAssociationContext(&Context);
@@ -1912,7 +2472,7 @@ Arguments:
         {
         ApiError("IsabelleCheckContext", "I_RpcGetAssociationContext",
                 Status);
-        IsabelleErrors += 1;
+        IsabelleError();
 
         Callee->BufferLength = 0;
 
@@ -1921,7 +2481,7 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleCheckContext","I_RpcGetBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
 
         return;
@@ -1931,7 +2491,7 @@ Arguments:
         {
         OtherError("IsabelleCheckContext",
                 "Context != IsabelleAssociationContext");
-        IsabelleErrors += 1;
+        IsabelleError();
 
         Callee->BufferLength = 0;
 
@@ -1940,7 +2500,7 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleCheckContext","I_RpcGetBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         return;
         }
@@ -1950,7 +2510,7 @@ Arguments:
         {
         ApiError("IsabelleCheckContext", "I_RpcSetAssociationContext",
                 Status);
-        IsabelleErrors += 1;
+        IsabelleError();
         }
     else
         IsabelleAssociationContext = Callee->Buffer;
@@ -2192,10 +2752,12 @@ Arguments:
     unsigned char * StringBinding;
     RPC_CHAR * DynamicEndpoint;
 
+    CompleteReceive(Callee) ;
+
     if (Callee->BufferLength != 0)
         {
         OtherError("IsabelleGetStringBinding", "*BufferLength != 0");
-        IsabelleErrors += 1;
+        IsabelleError();
         }
 
     if (BartholomewIndex < BartholomewRpcBindingVector->Count)
@@ -2207,7 +2769,7 @@ Arguments:
             {
             ApiError("IsabelleGetStringBinding", "RpcBindingToStringBinding",
                     Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             Callee->BufferLength = 0;
 
             Status = I_RpcGetBuffer(Callee);
@@ -2215,7 +2777,7 @@ Arguments:
             if (Status)
                 {
                 ApiError("IsabelleGetStringBinding","I_RpcGetBuffer",Status);
-                IsabelleErrors += 1;
+                IsabelleError();
                 }
             return;
             }
@@ -2227,7 +2789,7 @@ Arguments:
             {
             ApiError("IsabelleGetStringBinding",
                     "I_RpcBindingInqDynamicEndpoint", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             Callee->BufferLength = 0;
 
             Status = I_RpcGetBuffer(Callee);
@@ -2235,7 +2797,7 @@ Arguments:
             if (Status)
                 {
                 ApiError("IsabelleGetStringBinding","I_RpcGetBuffer",Status);
-                IsabelleErrors += 1;
+                IsabelleError();
                 }
             return;
             }
@@ -2248,7 +2810,7 @@ Arguments:
                 {
                 OtherError("IsabelleGetStringBinding",
                         "StringBinding == 0");
-                IsabelleErrors += 1;
+                IsabelleError();
                 Callee->BufferLength = 0;
 
                 Status = I_RpcGetBuffer(Callee);
@@ -2256,7 +2818,7 @@ Arguments:
                 if (Status)
                     {
                     ApiError("IsabelleGetStringBinding","I_RpcGetBuffer",Status);
-                    IsabelleErrors += 1;
+                    IsabelleError();
                     }
                 return;
                 }
@@ -2268,7 +2830,7 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleGetStringBinding", "I_RpcGetBuffer", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
 
@@ -2279,7 +2841,7 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleGetStringBinding", "RpcStringFree", Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             return;
             }
 
@@ -2294,10 +2856,495 @@ Arguments:
         if (Status)
             {
             ApiError("IsabelleGetStringBinding","I_RpcGetBuffer",Status);
-            IsabelleErrors += 1;
+            IsabelleError();
             }
         return;
         }
+}
+
+void IsabelleUnregisterInterfaces(
+    PRPC_MESSAGE Callee
+    )
+{
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("IsabelleUnregsterInterface","RpcServerUnregisterIf",Status);
+        PrintToConsole("IsabelleUnregsterInterfaces : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+}
+
+void IsabelleRegisterInterfaces(
+    PRPC_MESSAGE Callee
+    )
+{
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0,0);
+    if (Status)
+        {
+        ApiError("Hybrid","stub_RegisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation,0,0);
+    if (Status)
+        {
+        ApiError("Hybrid","stub_RegisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    //BUGBUG: return error status to client
+}
+
+void PipeAlloc(
+    PIPE_STATE *state,
+    int requested_size,
+    pipe_element_t **allocated_buf,
+    int *allocated_size)
+{
+    if (state->BufferSize < requested_size)
+        {
+        if (state->AllocatedBuffer)
+            {
+            I_RpcFree(state->AllocatedBuffer) ;
+            }
+
+        state->AllocatedBuffer =  I_RpcAllocate(requested_size) ;
+        if (state->AllocatedBuffer == 0)
+            {
+            *allocated_size = 0 ;
+            state->BufferSize = 0 ;
+            }
+        else
+            {
+            *allocated_size = requested_size ;
+            state->BufferSize = requested_size ;
+            }
+
+        *allocated_buf = (pipe_element_t *) state->AllocatedBuffer ;
+        }
+    else
+        {
+        *allocated_buf = (pipe_element_t *) state->AllocatedBuffer ;
+        *allocated_size = state->BufferSize ;
+        }
+}
+
+void PipePull(
+    PIPE_STATE *state,
+    pipe_element_t *buffer,
+    int ecount,
+    int *actual_transfer_count
+    )
+{
+    PRPC_MESSAGE Callee = state->Callee ;
+    int num_elements = 0;
+    DWORD size = (DWORD) ecount * state->PipeElementSize ;
+
+    *actual_transfer_count = 0 ;
+
+    if (state->EndOfPipe)
+        {
+        return ;
+        }
+
+    I_RpcReadPipeElementsFromBuffer(state, (char *) buffer, size, &num_elements) ;
+    *actual_transfer_count += num_elements ;
+    size -= num_elements * state->PipeElementSize ;
+
+    if (state->EndOfPipe == 0 &&
+        num_elements < ecount)
+        {
+        Callee->RpcFlags = RPC_BUFFER_PARTIAL ;
+
+        Status = I_RpcReceive(Callee, size) ;
+        if (Status)
+            {
+            ApiError("PipePull", "I_RpcReceive", Status) ;
+            num_elements = 0 ;
+            return ;
+            }
+
+        state->CurPointer = (char *) Callee->Buffer ;
+        state->BytesRemaining = Callee->BufferLength ;
+        buffer = (pipe_element_t *)
+                    ((char *) buffer + num_elements * state->PipeElementSize) ;
+
+        num_elements = 0 ;
+        I_RpcReadPipeElementsFromBuffer(state,
+                                (char *) buffer, size, &num_elements) ;
+        *actual_transfer_count += num_elements ;
+        }
+}
+
+void PipePush(
+    PIPE_STATE *state,
+    pipe_element_t *buffer,
+    int count
+    )
+{
+    PRPC_MESSAGE Callee = state->Callee ;
+    RPC_MESSAGE TempBuf ;
+    int size = count * state->PipeElementSize + sizeof(DWORD) ;
+    char *temp ;
+
+    Status = I_RpcReallocPipeBuffer(Callee, size+state->SendBufferOffset) ;
+    if (Status)
+        {
+        ApiError("PipePush", "I_RpcGetBuffer", Status) ;
+        return ;
+        }
+
+    temp = (char *) Callee->Buffer+state->SendBufferOffset ;
+
+    *((DWORD *) temp) = count ;
+    RpcpMemoryCopy(temp+sizeof(DWORD),
+                               buffer, count * state->PipeElementSize) ;
+
+    Callee->RpcFlags |= (RPC_BUFFER_PARTIAL) ;
+
+    Status = I_RpcSend(Callee) ;
+    if (Status == RPC_S_SEND_INCOMPLETE)
+        {
+        state->SendBufferOffset = Callee->BufferLength ;
+        }
+    else if (Status)
+        {
+        ApiError("PipePush", "I_RpcSend", Status) ;
+        state->SendBufferOffset = 0 ;
+        return;
+        }
+    else
+        {
+        state->SendBufferOffset = 0 ;
+        }
+}
+
+void IsabelleMgrIN(
+    pipe_t *pipe,
+    int chunksize,
+    int numchunks,
+    int checksum,
+    int buffsize,
+    char *buffer
+    )
+{
+    static pipe_element_t local_buf[CHUNK_SIZE] ;
+    int num_elements ;
+    int i, j ;
+    int localchecksum = 0;
+
+    PrintToConsole("IsabelleMgrIN: client chunk size: %d\n", chunksize) ;
+    PrintToConsole("IsabelleMgrIN: client number of chunks: %d\n", numchunks) ;
+    PrintToConsole("IsabelleMgrIN: buffer size: %d\n", buffsize) ;
+    PrintToConsole("IsabelleMgrIN: checksum: %d\n", checksum) ;
+
+    do
+         {
+         pipe->Pull(pipe->state,
+                        local_buf,
+                        CHUNK_SIZE,
+                        &num_elements
+                        ) ;
+
+         for (i = 0; i <num_elements; i++)
+             {
+             localchecksum += local_buf[i] ;
+             }
+         }
+     while ( num_elements > 0  );
+
+     if (localchecksum != checksum)
+         {
+         IsabelleError() ;
+         PrintToConsole("IsabelleMgrIN: checksums don't match\n") ;
+         }
+}
+
+void IsabellePipeIN(
+    PRPC_MESSAGE Callee
+    )
+{
+    pipe_t mypipe ;
+    PIPE_STATE pipestate ;
+    pipe_element_t pipe_element ;
+    DWORD size = 3* sizeof(int)  ;
+    int chunksize, numchunks, checksum, buffsize ;
+    char *buffer, *temp ;
+    void *savedbuffer ;
+
+    PrintToConsole("IsabellePipeIN called\n") ;
+
+    if (!(Callee->RpcFlags & RPC_BUFFER_COMPLETE) &&
+        Callee->BufferLength < size)
+        {
+        Callee->RpcFlags |= (RPC_BUFFER_PARTIAL | RPC_BUFFER_EXTRA) ;
+        size = size - Callee->BufferLength ;
+
+        Status = I_RpcReceive(Callee, size) ;
+        if (Status)
+            {
+            ApiError("PipePull", "I_RpcReceive", Status) ;
+            return ;
+            }
+        }
+
+    temp = (char *) Callee->Buffer ;
+
+    chunksize = *((int *) temp) ;
+    temp += sizeof(int) ;
+
+    numchunks = *((int *) temp) ;
+    temp += sizeof(int) ;
+
+    checksum = *((int *) temp) ;
+    temp += sizeof(int) ;
+
+    buffsize = *((int *) temp) ;
+    temp += sizeof(int) ;
+
+    size = 4 * sizeof(int) + buffsize + sizeof(DWORD) ;
+
+    if (!(Callee->RpcFlags & RPC_BUFFER_COMPLETE) &&
+        Callee->BufferLength < size)
+        {
+        Callee->RpcFlags |= (RPC_BUFFER_PARTIAL | RPC_BUFFER_EXTRA) ;
+        size = size - Callee->BufferLength ;
+
+        Status = I_RpcReceive(Callee, size) ;
+        if (Status)
+            {
+            ApiError("PipePull", "I_RpcReceive", Status) ;
+            return ;
+            }
+        }
+
+    buffer = (char *) Callee->Buffer + 3 * sizeof(int) ;
+
+    savedbuffer = Callee->Buffer ;
+    Callee->Buffer = 0;
+
+    pipestate.Callee = Callee ;
+    pipestate.CurrentState = start ;
+    pipestate.CurPointer = (char *) buffer+buffsize ;
+    pipestate.BytesRemaining = Callee->BufferLength - 3 * sizeof(int) - buffsize ;
+    pipestate.EndOfPipe = 0 ;
+    pipestate.PipeElementSize = sizeof(pipe_element_t) ;
+    pipestate.PartialPipeElement = &pipe_element ;
+    pipestate.AllocatedBuffer = 0 ;
+    pipestate.BufferSize = 0 ;
+
+    mypipe.Pull = PipePull ;
+    mypipe.Push = PipePush ;
+    mypipe.state = &pipestate ;
+
+    IsabelleMgrIN(&mypipe, chunksize, numchunks, checksum, buffsize, buffer) ;
+
+    Callee->Buffer = savedbuffer ;
+ }
+
+void IsabelleMgrOUT(
+    pipe_t *pipe,
+    int *chunksize,
+    int *numchunks,
+    int *checksum,
+    int *buffsize,
+    char **buffer
+    )
+{
+    static pipe_element_t local_buf[CHUNK_SIZE] ;
+    static int buf[BUFF_SIZE] ;
+    int i ;
+    char j = 0;
+    int localchecksum = 0;
+
+    PrintToConsole("IsabelleMgrOUT called\n") ;
+
+    for (i = 0; i < CHUNK_SIZE; i++, j++)
+        {
+        RpcpMemorySet((char *) &(local_buf[i]), j, sizeof(pipe_element_t)) ;
+        localchecksum += local_buf[i] ;
+        }
+
+    for (i = 0; i < NUM_CHUNKS; i++)
+        {
+        pipe->Push(pipe->state,
+                        local_buf,
+                        CHUNK_SIZE
+                        ) ;
+        }
+    pipe->Push(pipe->state, local_buf, 0) ;
+
+    for (i = 0; i < BUFF_SIZE; i++)
+        {
+        local_buf[i] = i ;
+        }
+
+    *chunksize = CHUNK_SIZE ;
+    *numchunks = NUM_CHUNKS ;
+    *checksum = localchecksum * NUM_CHUNKS;
+    *buffsize = BUFF_SIZE ;
+    *buffer = (char *) buf ;
+}
+
+void IsabellePipeOUT(
+    PRPC_MESSAGE Callee
+    )
+{
+    pipe_t mypipe ;
+    char *Temp ;
+    PIPE_STATE pipestate ;
+    pipe_element_t pipe_element ;
+    int size ;
+    char *buffer ;
+    int chunksize, numchunks, buffsize, checksum ;
+    RPC_MESSAGE TempBuffer ;
+    void *savedbuffer ;
+
+    PrintToConsole("IsabellePipeOUT called\n") ;
+
+    pipestate.Callee = Callee ;
+    pipestate.CurrentState = start ;
+    pipestate.CurPointer = (char *) Callee->Buffer ;
+    pipestate.BytesRemaining = Callee->BufferLength ;
+    pipestate.EndOfPipe = 0 ;
+    pipestate.PipeElementSize = sizeof(pipe_element_t) ;
+    pipestate.PartialPipeElement = &pipe_element ;
+    pipestate.AllocatedBuffer = 0 ;
+    pipestate.BufferSize = 0 ;
+    pipestate.SendBufferOffset = 0 ;
+
+    Callee->Buffer = 0;
+
+    mypipe.Pull = PipePull ;
+    mypipe.Push = PipePush ;
+    mypipe.state = &pipestate ;
+
+    IsabelleMgrOUT(&mypipe, &chunksize, &numchunks, &checksum, &buffsize, &buffer) ;
+
+    size = 3 *sizeof(int) + buffsize ;
+
+    Status = I_RpcReallocPipeBuffer(Callee, size+pipestate.SendBufferOffset) ;
+    if (Status)
+        {
+        ApiError("PipePull", "I_RpcReceive", Status) ;
+        return ;
+        }
+
+    Temp = (char *) Callee->Buffer+pipestate.SendBufferOffset ;
+
+    *((int *) Temp) = chunksize ;
+    Temp += sizeof(int) ;
+
+    *((int *) Temp) = numchunks ;
+    Temp += sizeof(int) ;
+
+    *((int *) Temp) = checksum ;
+    Temp += sizeof(int) ;
+
+    *((int *) Temp) = buffsize ;
+    Temp += sizeof(int) ;
+
+    RpcpMemoryCopy(Temp, buffer, buffsize) ;
+}
+
+void IsabelleMgrINOUT(
+    pipe_t *pipe
+    )
+{
+    int num_elements ;
+    int i, j = 0;
+    static pipe_element_t local_buf[CHUNK_SIZE] ;
+    char *PipeData ;
+    int localchecksum = 0;
+    int outchecksum = 0;
+
+    do
+         {
+         pipe->Pull(pipe->state,
+                        local_buf,
+                        CHUNK_SIZE,
+                        &num_elements
+                        ) ;
+
+         for (i = 0; i <num_elements; i++)
+             {
+             localchecksum += local_buf[i] ;
+             }
+         }
+     while ( num_elements > 0  );
+
+     PrintToConsole("IsabelleMgrINOUT: checksum (IN) = %d\n", localchecksum) ;
+
+     for (i = 0; i < CHUNK_SIZE; i++, j++)
+        {
+        RpcpMemorySet((char *) &(local_buf[i]), j, sizeof(pipe_element_t)) ;
+        outchecksum += local_buf[i] ;
+        }
+
+    PrintToConsole("IsabelleMgrINOUT: checksum (OUT) = %d\n",
+                            outchecksum * NUM_CHUNKS) ;
+
+     for (i = 0; i <NUM_CHUNKS; i++)
+         {
+         pipe->Push(pipe->state, local_buf, CHUNK_SIZE) ;
+         }
+
+     pipe->Push(pipe->state, local_buf, 0) ;
+}
+
+void IsabellePipeINOUT(
+    PRPC_MESSAGE Callee
+    )
+{
+    pipe_t mypipe ;
+    PIPE_STATE pipestate ;
+    pipe_element_t pipe_element ;
+    DWORD size = sizeof(pipe_element_t) + sizeof(DWORD) ;
+
+    PrintToConsole("IsabellePipeINOUT called\n") ;
+
+    if (!(Callee->RpcFlags & RPC_BUFFER_COMPLETE) &&
+        Callee->BufferLength < size)
+        {
+        Callee->RpcFlags |= (RPC_BUFFER_PARTIAL | RPC_BUFFER_EXTRA) ;
+        size = size - Callee->BufferLength ;
+
+        Status = I_RpcReceive(Callee, size) ;
+        if (Status)
+            {
+            ApiError("PipePull", "I_RpcReceive", Status) ;
+            return ;
+            }
+        }
+
+
+    pipestate.Callee = Callee ;
+    pipestate.CurrentState = start ;
+    pipestate.CurPointer = (char *) Callee->Buffer ;
+    pipestate.BytesRemaining = Callee->BufferLength ;
+    pipestate.EndOfPipe = 0 ;
+    pipestate.PipeElementSize = sizeof(pipe_element_t) ;
+    pipestate.PartialPipeElement = &pipe_element ;
+    pipestate.AllocatedBuffer = 0 ;
+    pipestate.BufferSize = 0 ;
+    pipestate.SendBufferOffset = 0 ;
+
+    Callee->Buffer = 0;
+
+    mypipe.Pull = PipePull ;
+    mypipe.Push = PipePush ;
+    mypipe.state = &pipestate ;
+
+    IsabelleMgrINOUT(&mypipe) ;
 }
 
 RPC_DISPATCH_FUNCTION IsabelleDispatchFunction[] =
@@ -2311,12 +3358,18 @@ RPC_DISPATCH_FUNCTION IsabelleDispatchFunction[] =
         IsabelleCheckRundown,
         IsabelleCheckContext,
         IsabelleGetStringBinding,
-        IsabelleCheckNoRundown
+        IsabelleCheckNoRundown,
+        Synchro,
+        IsabelleUnregisterInterfaces,
+        IsabelleRegisterInterfaces,
+        IsabellePipeIN,
+        IsabellePipeOUT,
+        IsabellePipeINOUT
 };
 
 RPC_DISPATCH_TABLE IsabelleDispatchTable =
 {
-    10, IsabelleDispatchFunction
+    16, IsabelleDispatchFunction
 };
 
 
@@ -2378,7 +3431,7 @@ Return Value:
         Status =
         I_RpcBindingInqTransportType(RpcBindingVector->BindingH[Index],
                                      &Transport);
-         
+
         if (Status)
             {
             ApiError(TestName,"I_RpcBindingInqTransportType",Status);
@@ -2462,31 +3515,31 @@ Routine Description:
 {
     PrintToConsole("Sigfried : Verify Basic Server Functionality\n");
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0,0);
     if (Status)
         {
-        ApiError("Sigfried","RpcServerRegisterIf",Status);
+        ApiError("Sigfried","stub_RegisterIf",Status);
         PrintToConsole("Sigfried : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,0,0);
     if (Status)
         {
-        ApiError("Sigfried","RpcServerRegisterIf",Status);
+        ApiError("Sigfried","stub_RegisterIf",Status);
         PrintToConsole("Sigfried : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(SIGFRIED), 0);
     if (Status)
         {
-        ApiError("Sigfried","RpcServerUseProtseqEp",Status);
+        ApiError("Sigfried","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Sigfried : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
@@ -2496,11 +3549,11 @@ Routine Description:
 //        return;
 //        }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Sigfried","RpcServerListen",Status);
-        PrintToConsole("Sigfried : FAIL - RpcServerListen Failed\n");
+        ApiError("Sigfried","stub_ServerListen",Status);
+        PrintToConsole("Sigfried : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -2543,6 +3596,259 @@ Routine Description:
 
 
 void
+Hybrid (
+    )
+/*++
+
+Routine Description:
+
+    This routine is used to perform a build verification test of the
+    rpc runtime.  This test checks for basic functionality of the
+    runtime.  It works with Sebastian in uclnt.exe.
+
+--*/
+{
+    PrintToConsole("Hybrid : Verify Basic Server Functionality\n");
+
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0,0);
+    if (Status)
+        {
+        ApiError("Hybrid","stub_RegisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation,0,0);
+    if (Status)
+        {
+        ApiError("Hybrid","stub_RegisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
+            GetEndpoint(SIGFRIED), 0);
+    if (Status)
+        {
+        ApiError("Hybrid","RpcServerUseProtseqEpWrapper",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Use Protseq Endpoint\n");
+        return;
+        }
+
+//    if ( InquireBindings("Sigfried") != 0 )
+//        {
+//        return;
+//        }
+
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("Hybrid","stub_ServerListen",Status);
+        PrintToConsole("Hybrid : FAIL - stub_ServerListen Failed\n");
+        return;
+        }
+
+    if (HelgaErrors != 0)
+        {
+        PrintToConsole("Hybrid : FAIL - Error(s) in Helga Interface\n");
+        HelgaErrors = 0;
+        return;
+        }
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("Hybrid : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Hybrid","RpcServerUnregisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Hybrid","RpcServerUnregisterIf",Status);
+        PrintToConsole("Hybrid : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    PrintToConsole("Hybrid : PASS\n");
+}
+
+
+void
+LpcSecurity (
+    )
+/*++
+
+Routine Description:
+
+    This routine is used to perform a build verification test of the
+    rpc runtime.  This test checks for basic functionality of the
+    runtime.  It works with Sebastian in uclnt.exe.
+
+--*/
+{
+    PrintToConsole("LpcSecurity : Verify Basic Server Functionality\n");
+
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0,0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","stub_RegisterIf",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation,0,0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","stub_RegisterIf",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
+            GetEndpoint(SIGFRIED), 0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","RpcServerUseProtseqEpWrapper",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Use Protseq Endpoint\n");
+        return;
+        }
+
+//    if ( InquireBindings("Sigfried") != 0 )
+//        {
+//        return;
+//        }
+
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","stub_ServerListen",Status);
+        PrintToConsole("LpcSecurity : FAIL - stub_ServerListen Failed\n");
+        return;
+        }
+
+    if (HelgaErrors != 0)
+        {
+        PrintToConsole("LpcSecurity : FAIL - Error(s) in Helga Interface\n");
+        HelgaErrors = 0;
+        return;
+        }
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("LpcSecurity : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","RpcServerUnregisterIf",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("LpcSecurity","RpcServerUnregisterIf",Status);
+        PrintToConsole("LpcSecurity : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    PrintToConsole("LpcSecurity : PASS\n");
+}
+
+
+void
+SPipe (
+    )
+/*++
+
+Routine Description:
+
+    This routine is used to perform a build verification test of the
+    rpc runtime.  This test checks for basic functionality of the
+    runtime.  It works with Sebastian in uclnt.exe.
+
+--*/
+{
+    PrintToConsole("SPipe : Test Pipes\n");
+
+    Status = RpcServerRegisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation,0,0);
+    if (Status)
+        {
+        ApiError("SPipe","RpcServerRegisterIf",Status);
+        PrintToConsole("SPipe : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
+            GetEndpoint(SPIPE), 0);
+    if (Status)
+        {
+        ApiError("SPipe","RpcServerUseProtseqEpWrapper",Status);
+        PrintToConsole("SPipe : FAIL - Unable to Use Protseq Endpoint\n");
+        return;
+        }
+
+    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("SPipe","RpcServerListen",Status);
+        PrintToConsole("SPipe : FAIL - RpcServerListen Failed\n");
+        return;
+        }
+
+    if (IsabelleErrors != 0)
+        {
+        PrintToConsole("SPipe : FAIL - Error(s) in Isabelle Interface\n");
+        IsabelleErrors = 0;
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("SPipe","RpcServerUnregisterIf",Status);
+        PrintToConsole("SPipe : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    PrintToConsole("SPipe : PASS\n");
+}
+
+
+void
 Grant (
     )
 /*++
@@ -2557,31 +3863,31 @@ Routine Description:
 {
     PrintToConsole("Grant : Verify Basic Server Functionality\n");
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, (RPC_MGR_EPV PAPI *) 722);
     if (Status)
         {
-        ApiError("Grant","RpcServerRegisterIf",Status);
+        ApiError("Grant","stub_RegisterIf",Status);
         PrintToConsole("Grant : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
     if (Status)
         {
-        ApiError("Grant","RpcServerRegisterIf",Status);
+        ApiError("Grant","stub_RegisterIf",Status);
         PrintToConsole("Grant : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(GRANT), 0);
     if (Status)
         {
-        ApiError("Grant","RpcServerUseProtseqEp",Status);
+        ApiError("Grant","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Grant : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
@@ -2593,13 +3899,13 @@ Routine Description:
         HelgaCheckObject = 1;
         }
     HelgaMagicNumber = 106;
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     HelgaCheckObject = 0;
     HelgaCheckManagerEpv = 0;
     if (Status)
         {
-        ApiError("Grant","RpcServerListen",Status);
-        PrintToConsole("Grant : FAIL - RpcServerListen Failed\n");
+        ApiError("Grant","stub_ServerListen",Status);
+        PrintToConsole("Grant : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -2670,78 +3976,83 @@ Routine Description:
 
 #endif // NTENV
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(ELLIOTMAXIMIZE), 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerUseProtseqEp",Status);
+        ApiError("Elliot","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Elliot : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &SylviaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &SylviaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerRegisterIf",Status);
+        ApiError("Elliot","stub_RegisterIf",Status);
         PrintToConsole("Elliot : FAIL - Unable to Register Interface ");
         PrintToConsole("(Sylvia)\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(ELLIOTMINIMIZE), 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerUseProtseqEp",Status);
+        ApiError("Elliot","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Elliot : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(ELLIOTNORMAL), 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerUseProtseqEp",Status);
+        ApiError("Elliot","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Elliot : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerRegisterIf",Status);
+        ApiError("Elliot","stub_RegisterIf",Status);
         PrintToConsole("Elliot : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Elliot","RpcServerRegisterIf",Status);
+        ApiError("Elliot","stub_RegisterIf",Status);
         PrintToConsole("Elliot : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 1);
+    PrintToConsole("Elliot: Start listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 1);
     if (Status)
         {
-        ApiError("Elliot","RpcServerListen",Status);
-        PrintToConsole("Elliot : FAIL - RpcServerListen Failed\n");
+        ApiError("Elliot","stub_ServerListen",Status);
+        PrintToConsole("Elliot : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
-    Status = RpcMgmtWaitServerListen();
-    if (Status)
+    if (AutoListenFlag == 0)
         {
-        ApiError("Elliot","RpcMgmtWaitServerListen",Status);
-        PrintToConsole("Elliot : FAIL - RpcMgmtWaitServerListen Failed\n");
-        return;
+        PrintToConsole("Elliot: RpcMgmtWaitServerListen\n") ;
+        Status = RpcMgmtWaitServerListen();
+        if (Status)
+            {
+            ApiError("Elliot","RpcMgmtWaitServerListen",Status);
+            PrintToConsole("Elliot : FAIL - RpcMgmtWaitServerListen Failed\n");
+            return;
+            }
         }
 
     if (HelgaErrors != 0)
@@ -2765,12 +4076,48 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUnregisterIf(0, 0, 0);
-    if (Status)
+    if (AutoListenFlag)
         {
-        ApiError("Elliot","RpcServerUnregisterIf",Status);
-        PrintToConsole("Elliot : FAIL - Unable to Unregister All Interfaces\n");
-        return;
+        // unregister the interfaces individually
+        Status = RpcServerUnregisterIf(
+         (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
+        if (Status)
+            {
+            ApiError("Elliot","RpcServerUnregisterIf",Status);
+            PrintToConsole("Elliot : FAIL - Unable to Unregister Interface ");
+            PrintToConsole("(Isabelle)\n");
+            return;
+            }
+
+        Status = RpcServerUnregisterIf(
+         (RPC_IF_HANDLE) &SylviaInterfaceInformation, 0, 0);
+        if (Status)
+            {
+            ApiError("Elliot","RpcServerUnregisterIf",Status);
+            PrintToConsole("Elliot : FAIL - Unable to Unregister Interface ");
+            PrintToConsole("(Sylvia)\n");
+            return;
+            }
+
+        Status = RpcServerUnregisterIf(
+         (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+        if (Status)
+            {
+            ApiError("Elliot","RpcServerUnregisterIf",Status);
+            PrintToConsole("Elliot : FAIL - Unable to Unregister Interface ");
+            PrintToConsole("(Helga)\n");
+            return;
+            }
+        }
+    else
+        {
+        Status = RpcServerUnregisterIf(0, 0, 0);
+        if (Status)
+            {
+            ApiError("Elliot","RpcServerUnregisterIf",Status);
+            PrintToConsole("Elliot : FAIL - Unable to Unregister All Interfaces\n");
+            return;
+            }
         }
 
     PrintToConsole("Elliot : PASS\n");
@@ -2791,51 +4138,51 @@ Routine Description:
 {
     PrintToConsole("Andromida : Multithreaded Clients\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(ANDROMIDA), 0);
     if (Status)
         {
-        ApiError("Andromida","RpcServerUseProtseqEp",Status);
+        ApiError("Andromida","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Andromida : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &SylviaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &SylviaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Andromida","RpcServerRegisterIf",Status);
+        ApiError("Andromida","stub_RegisterIf",Status);
         PrintToConsole("Andromida : FAIL - Unable to Register Interface ");
         PrintToConsole("(Sylvia)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Andromida","RpcServerRegisterIf",Status);
+        ApiError("Andromida","stub_RegisterIf",Status);
         PrintToConsole("Andromida : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Andromida","RpcServerRegisterIf",Status);
+        ApiError("Andromida","stub_RegisterIf",Status);
         PrintToConsole("Andromida : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Andromida","RpcServerListen",Status);
-        PrintToConsole("Andromida : FAIL - RpcServerListen Failed\n");
+        ApiError("Andromida","stub_ServerListen",Status);
+        PrintToConsole("Andromida : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -2908,41 +4255,41 @@ Routine Description:
 {
     PrintToConsole("Fredrick : Verify All Client APIs\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(FREDRICK), 0);
     if (Status)
         {
-        ApiError("Fredrick","RpcServerUseProtseqEp",Status);
+        ApiError("Fredrick","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Fredrick : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Fredrick","RpcServerRegisterIf",Status);
+        ApiError("Fredrick","stub_RegisterIf",Status);
         PrintToConsole("Fredrick : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Fredrick","RpcServerRegisterIf",Status);
+        ApiError("Fredrick","stub_RegisterIf",Status);
         PrintToConsole("Fredrick : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Fredrick","RpcServerListen",Status);
-        PrintToConsole("Fredrick : FAIL - RpcServerListen Failed\n");
+        ApiError("Fredrick","stub_ServerListen",Status);
+        PrintToConsole("Fredrick : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -2960,7 +4307,7 @@ Routine Description:
         return;
         }
 
-    PauseExecution(3000L);
+    PauseExecution(10000L);
 
     Status = RpcServerUnregisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0, 0);
@@ -3434,12 +4781,12 @@ Return Value:
     TypeUuid.Data4[6] = 0xDE;
     TypeUuid.Data4[7] = 0xF0;
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             &TypeUuid, (RPC_MGR_EPV PAPI *) 38756);
     if (Status)
         {
-        ApiError("Christopher","RpcServerRegisterIf",Status);
+        ApiError("Christopher","stub_RegisterIf",Status);
         PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return(1);
@@ -3501,12 +4848,12 @@ Routine Description:
     RpcServerInqBindings
     RpcServerInqIf
     RpcServerListen
-    RpcServerRegisterIf
+    stub_RegisterIf
     RpcServerUnregisterIf
     RpcServerUseAllProtseqs
     RpcServerUseAllProtseqsIf
     RpcServerUseProtseq
-    RpcServerUseProtseqEp
+    RpcServerUseProtseqEpWrapper
     RpcServerUseProtseqIf
     RpcMgmtStopServerListening
     RpcMgmtInqIfIds
@@ -3568,34 +4915,46 @@ Routine Description:
     if (ChristopherTestObject() != 0)
         return;
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(CHRISTOPHER), 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerUseProtseqEp",Status);
+        ApiError("Christopher","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Christopher : FAIL - Unable to Use Protseq ");
         PrintToConsole("Endpoint\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(CHRISTOPHER), 0);
     if (Status != RPC_S_DUPLICATE_ENDPOINT)
         {
-        ApiError("Christopher","RpcServerUseProtseqEp",Status);
+        ApiError("Christopher","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Christopher : FAIL - Able to Add Duplicate ");
         PrintToConsole("Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerRegisterIf",Status);
+        ApiError("Christopher","stub_RegisterIf",Status);
         PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    // added for synchro support
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
+    if (Status)
+        {
+        ApiError("Christopher","stub_RegisterIf",Status);
+        PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
         return;
         }
 
@@ -3609,75 +4968,79 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &HelgaInterfaceInformation,
             &TypeUuid, (RPC_MGR_EPV PAPI *) 9814);
     if (Status)
         {
-        ApiError("Christopher","RpcServerRegisterIf",Status);
+        ApiError("Christopher","stub_RegisterIf",Status);
         PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             &TypeUuid, (RPC_MGR_EPV PAPI *) 9814);
     if (Status)
         {
-        ApiError("Christopher","RpcServerRegisterIf",Status);
+        ApiError("Christopher","stub_RegisterIf",Status);
         PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerUseAllProtseqsIf(1,
+    Status = RpcServerUseAllProtseqsIfWrapper(1,
             (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerUseAllProtseqsIf",Status);
+        ApiError("Christopher","RpcServerUseAllProtseqsIfWrapper",Status);
         PrintToConsole("Christopher : FAIL - Unable to Use All Protseqs ");
         PrintToConsole("from Interface\n");
         return;
         }
 
-    Status = RpcServerUseProtseqIf(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqIfWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation, 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerUseProtseqIf",Status);
+        ApiError("Christopher","RpcServerUseProtseqIfWrapper",Status);
         PrintToConsole("Christopher : FAIL - Unable to Use Protseq From ");
         PrintToConsole("Interface\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &SylviaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerRegisterIf",Status);
+        ApiError("Christopher","stub_RegisterIf",Status);
         PrintToConsole("Christopher : FAIL - Unable to Register Interface ");
         PrintToConsole("(Sylvia)\n");
         return;
         }
 
-    Status = RpcServerListen(123, 122, 0);
-    if ( Status != RPC_S_MAX_CALLS_TOO_SMALL )
+    if (AutoListenFlag == 0)
         {
-        ApiError("Christopher", "RpcServerListen", Status);
-        PrintToConsole("Christopher : FAIL - RpcServerListen\n");
-        return;
+        Status = stub_ServerListen(123, 122, 0);
+        if ( Status != RPC_S_MAX_CALLS_TOO_SMALL )
+            {
+            ApiError("Christopher", "stub_ServerListen", Status);
+            PrintToConsole("Christopher : FAIL - stub_ServerListen\n");
+            return;
+            }
         }
 
+    PrintToConsole("Christopher : Start Listening\n") ;
     HelgaManagerEpv = (RPC_MGR_EPV PAPI *) 9814;
     HelgaCheckManagerEpv = 1;
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     HelgaCheckManagerEpv = 0;
     if (Status)
         {
-        ApiError("Christopher","RpcServerListen",Status);
-        PrintToConsole("Christopher : FAIL - RpcServerListen Failed\n");
+        ApiError("Christopher","stub_ServerListen",Status);
+        PrintToConsole("Christopher : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -3713,6 +5076,8 @@ Routine Description:
         PrintToConsole("Christopher : FAIL - Unable to Free IfIdVector\n");
         return;
         }
+
+
 
     if (HelgaErrors != 0)
         {
@@ -3767,7 +5132,7 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseProtseq(GetProtocolSequence(), MAX_CALL_REQUESTS, 0);
+    Status = RpcServerUseProtseqWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS, 0);
     if (Status)
         {
         ApiError("Christopher","RpcServerUseProtseq",Status);
@@ -3775,10 +5140,10 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseAllProtseqs(1, 0);
+    Status = RpcServerUseAllProtseqsWrapper(1, 0);
     if (Status)
         {
-        ApiError("Christopher","RpcServerUseAllProtseqs",Status);
+        ApiError("Christopher","RpcServerUseAllProtseqsWrapper",Status);
         PrintToConsole("Christopher : FAIL - Unable to Use All Protseqs\n");
         return;
         }
@@ -3786,7 +5151,7 @@ Routine Description:
     if (InquireBindings("Christopher") != 0)
         return;
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(CHRISTOPHERMUSTFAILONE), 0);
     if (Status != RPC_S_INVALID_ENDPOINT_FORMAT)
         {
@@ -3796,7 +5161,7 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(CHRISTOPHERMUSTFAILTWO), 0);
     if (Status != RPC_S_INVALID_ENDPOINT_FORMAT)
         {
@@ -3806,7 +5171,7 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseProtseqEp((unsigned char *) "ncacn_bad",
+    Status = RpcServerUseProtseqEpWrapper((unsigned char *) "ncacn_bad",
             MAX_CALL_REQUESTS, GetEndpoint(CHRISTOPHERMUSTFAILONE), 0);
     if (Status != RPC_S_PROTSEQ_NOT_SUPPORTED)
         {
@@ -3815,7 +5180,7 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseProtseqEp((unsigned char *) "mkm_np",
+    Status = RpcServerUseProtseqEpWrapper((unsigned char *) "mkm_np",
             MAX_CALL_REQUESTS, GetEndpoint(CHRISTOPHERMUSTFAILONE), 0);
     if (Status != RPC_S_PROTSEQ_NOT_SUPPORTED)
         {
@@ -3842,40 +5207,52 @@ Routine Description:
 {
     PrintToConsole("David : Association Context and Rundown\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(DAVIDFIRST), 0);
     if (Status)
         {
-        ApiError("David","RpcServerUseProtseqEp",Status);
+        ApiError("David","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("David : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(DAVIDSECOND), 0);
     if (Status)
         {
-        ApiError("David","RpcServerUseProtseqEp",Status);
+        ApiError("David","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("David : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("David","RpcServerRegisterIf",Status);
+        ApiError("David","stub_RegisterIf",Status);
         PrintToConsole("David : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    // Synchro support
+    Status = stub_RegisterIf((RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
     if (Status)
         {
-        ApiError("David","RpcServerListen",Status);
-        PrintToConsole("David : FAIL - RpcServerListen Failed\n");
+        ApiError("David","stub_RegisterIf",Status);
+        PrintToConsole("David : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    PrintToConsole("David: Start Listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("David","stub_ServerListen",Status);
+        PrintToConsole("David : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -3893,6 +5270,17 @@ Routine Description:
         ApiError("David","RpcServerUnregisterIf",Status);
         PrintToConsole("David : FAIL - Unable to Unregister Interface ");
         PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    // Synchro support
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("David","RpcServerUnregisterIf",Status);
+        PrintToConsole("David : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
         return;
         }
 
@@ -3915,39 +5303,39 @@ Routine Description:
 {
     PrintToConsole("Tyler : Test Security\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(TYLER), 0);
     if (Status)
         {
-        ApiError("Tyler","RpcServerUseProtseqEp",Status);
+        ApiError("Tyler","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Tyler : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Tyler","RpcServerRegisterIf",Status);
+        ApiError("Tyler","stub_RegisterIf",Status);
         PrintToConsole("Tyler : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Tyler","RpcServerRegisterIf",Status);
+        ApiError("Tyler","stub_RegisterIf",Status);
         PrintToConsole("Tyler : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
     Status = RpcServerRegisterAuthInfo((unsigned char PAPI *)
-            "ServerPrincipal", 123, 0, 0);
+            "ServerPrincipal", ulSecurityPackage, 0, 0); //hack
     if (Status)
         {
         ApiError("Tyler", "RpcServerRegisterAuthInfo", Status);
@@ -3955,11 +5343,12 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    PrintToConsole("Tyler : Listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Tyler","RpcServerListen",Status);
-        PrintToConsole("Tyler : FAIL - RpcServerListen Failed\n");
+        ApiError("Tyler","stub_ServerListen",Status);
+        PrintToConsole("Tyler : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4016,39 +5405,39 @@ Routine Description:
 {
     PrintToConsole("Terry : Test Security\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(TYLER), 0);
     if (Status)
         {
-        ApiError("Terry","RpcServerUseProtseqEp",Status);
+        ApiError("Terry","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Terry : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Terry","RpcServerRegisterIf",Status);
+        ApiError("Terry","stub_RegisterIf",Status);
         PrintToConsole("Terry : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Terry","RpcServerRegisterIf",Status);
+        ApiError("Terry","stub_RegisterIf",Status);
         PrintToConsole("Terry : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
     Status = RpcServerRegisterAuthInfo((unsigned char PAPI *)
-            "ServerPrincipal", RPC_C_AUTHN_WINNT, 0, 0);
+            "ServerPrincipal", ulSecurityPackage, 0, 0);
     if (Status)
         {
         ApiError("Terry", "RpcServerRegisterAuthInfo", Status);
@@ -4056,11 +5445,11 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Terry","RpcServerListen",Status);
-        PrintToConsole("Terry : FAIL - RpcServerListen Failed\n");
+        ApiError("Terry","stub_ServerListen",Status);
+        PrintToConsole("Terry : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4117,32 +5506,43 @@ Routine Description:
 
     PrintToConsole("Richard : RichardHelper Executed\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(RICHARDHELPER), 0);
     if (Status)
         {
-        ApiError("RichardHelper", "RpcServerUseProtseqEp", Status);
+        ApiError("RichardHelper", "RpcServerUseProtseqEpWrapper", Status);
         PrintToConsole("RichardHelper : FAIL - Unable to Use Protseq ");
         PrintToConsole("Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("RichardHelper","RpcServerRegisterIf",Status);
+        ApiError("RichardHelper","stub_RegisterIf",Status);
         PrintToConsole("RichardHelper : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
     if (Status)
         {
-        ApiError("RichardHelper","RpcServerListen",Status);
-        PrintToConsole("RichardHelper : FAIL - RpcServerListen Failed\n");
+        ApiError("RichardHelper","stub_RegisterIf",Status);
+        PrintToConsole("RichardHelper : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("RichardHelper","stub_ServerListen",Status);
+        PrintToConsole("RichardHelper : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4159,8 +5559,18 @@ Routine Description:
     if (Status)
         {
         ApiError("RichardHelper","RpcServerUnregisterIf",Status);
-        PrintToConsole("RIchardHelper : FAIL - Unable to Unregister ");
+        PrintToConsole("RichardHelper : FAIL - Unable to Unregister ");
         PrintToConsole("Interface (Isabelle)\n");
+        return;
+        }
+
+   Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("RichardHelper","RpcServerUnregisterIf",Status);
+        PrintToConsole("RichardHelper : FAIL - Unable to Unregister ");
+        PrintToConsole("Interface (Helga)\n");
         return;
         }
 }
@@ -4182,31 +5592,44 @@ Description:
 {
     PrintToConsole("Richard : Test Call and Callback Failures\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(RICHARD), 0);
     if (Status)
         {
-        ApiError("Richard","RpcServerUseProtseqEp",Status);
+        ApiError("Richard","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Richard : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Richard","RpcServerRegisterIf",Status);
+        ApiError("Richard","stub_RegisterIf",Status);
         PrintToConsole("Richard : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
     if (Status)
         {
-        ApiError("Richard","RpcServerListen",Status);
-        PrintToConsole("Richard : FAIL - RpcServerListen Failed\n");
+        ApiError("Richard","stub_RegisterIf",Status);
+        PrintToConsole("Richard : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+
+    PrintToConsole("Richard : Listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("Richard","stub_ServerListen",Status);
+        PrintToConsole("Richard : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4227,10 +5650,19 @@ Description:
         return;
         }
 
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Richard","RpcServerUnregisterIf",Status);
+        PrintToConsole("Richard : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
     PrintToConsole("Richard : PASS\n");
 }
 
-
 void
 Kenneth (
     )
@@ -4244,31 +5676,44 @@ Description:
 {
     PrintToConsole("Kenneth : Test Auto Reconnect\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(KENNETH), 0);
     if (Status)
         {
-        ApiError("Kenneth","RpcServerUseProtseqEp",Status);
+        ApiError("Kenneth","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Kenneth : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Kenneth","RpcServerRegisterIf",Status);
+        ApiError("Kenneth","stub_RegisterIf",Status);
         PrintToConsole("Kenneth : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    // Synchro support
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
     if (Status)
         {
-        ApiError("Kenneth","RpcServerListen",Status);
-        PrintToConsole("Kenneth : FAIL - RpcServerListen Failed\n");
+        ApiError("Kenneth","stub_RegisterIf",Status);
+        PrintToConsole("Kenneth : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    PrintToConsole("Kenneth : Listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("Kenneth","stub_ServerListen",Status);
+        PrintToConsole("Kenneth : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4286,6 +5731,17 @@ Description:
         ApiError("Kenneth","RpcServerUnregisterIf",Status);
         PrintToConsole("Kenneth : FAIL - Unable to Unregister Interface ");
         PrintToConsole("(Isabelle)\n");
+        return;
+        }
+
+    // synchro support
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Kenneth","RpcServerUnregisterIf",Status);
+        PrintToConsole("Kenneth : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
         return;
         }
 
@@ -4308,10 +5764,10 @@ Routine Description:
 {
     PrintToConsole("Bartholomew : BartholomewHelper Executed\n");
 
-    Status = RpcServerUseAllProtseqs(1, 0);
+    Status = RpcServerUseAllProtseqsWrapper(1, 0);
     if (Status)
         {
-        ApiError("BartholomewHelper","RpcServerUseAllProtseqs",Status);
+        ApiError("BartholomewHelper","RpcServerUseAllProtseqsWrapper",Status);
         PrintToConsole("BartholomewHelper : FAIL - Unable to Use All Protseqs\n");
         return;
         }
@@ -4365,39 +5821,51 @@ Routine Description:
 {
     PrintToConsole("Bartholomew : Test Dynamic Endpoints\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(BARTHOLOMEW), 0);
     if (Status)
         {
-        ApiError("Bartholomew", "RpcServerUseProtseqEp", Status);
+        ApiError("Bartholomew", "RpcServerUseProtseqEpWrapper", Status);
         PrintToConsole("Bartholomew : FAIL - Unable to Use Protseq ");
         PrintToConsole("Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Bartholomew","RpcServerRegisterIf",Status);
+        ApiError("Bartholomew","stub_RegisterIf",Status);
         PrintToConsole("Bartholomew : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    // Synchro support
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
+    if (Status)
+        {
+        ApiError("Bartholomew","stub_RegisterIf",Status);
+        PrintToConsole("Bartholomew : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &SylviaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Bartholomew","RpcServerRegisterIf",Status);
+        ApiError("Bartholomew","stub_RegisterIf",Status);
         PrintToConsole("Bartholomew : FAIL - Unable to Register Interface ");
         PrintToConsole("(Sylvia)\n");
         return;
         }
 
-    Status = RpcServerUseProtseq(GetProtocolSequence(), MAX_CALL_REQUESTS, 0);
+    Status = RpcServerUseProtseqWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS, 0);
     if (Status)
         {
         ApiError("Bartholomew","RpcServerUseProtseq",Status);
@@ -4405,10 +5873,10 @@ Routine Description:
         return;
         }
 
-    Status = RpcServerUseAllProtseqs(1, 0);
+    Status = RpcServerUseAllProtseqsWrapper(1, 0);
     if (Status)
         {
-        ApiError("Bartholomew","RpcServerUseAllProtseqs",Status);
+        ApiError("Bartholomew","RpcServerUseAllProtseqsWrapper",Status);
         PrintToConsole("Bartholomew : FAIL - Unable to Use All Protseqs\n");
         return;
         }
@@ -4489,11 +5957,12 @@ Routine Description:
         PauseExecution(2000L);
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    PrintToConsole("Bartholomew : Listening\n") ;
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Bartholomew","RpcServerListen",Status);
-        PrintToConsole("Bartholomew : FAIL - RpcServerListen Failed\n");
+        ApiError("Bartholomew","stub_ServerListen",Status);
+        PrintToConsole("Bartholomew : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4509,6 +5978,17 @@ Routine Description:
         {
         PrintToConsole("Bartholomew : FAIL - ");
         PrintToConsole("BartholomewRpcBindingVector != 0\n");
+        return;
+        }
+
+    // Synchro support
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Bartholomew","RpcServerUnregisterIf",Status);
+        PrintToConsole("Bartholomew : FAIL - Unable to Unregister ");
+        PrintToConsole("Interface (Helga)\n");
         return;
         }
 
@@ -4551,6 +6031,62 @@ Routine Description:
     PrintToConsole("Bartholomew : PASS\n");
 }
 
+void
+TestYield (
+    )
+/*++
+
+Routine Description:
+
+    This routine works with Harold in uclnt.exe to test that idle
+    connections get cleaned up properly, and that context is maintained.
+
+--*/
+{
+    PrintToConsole("TestYeild : Test Yielding\n");
+
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
+            GetEndpoint(TESTYIELD), 0);
+    if (Status)
+        {
+        ApiError("TestYield","RpcServerUseProtseqEpWrapper",Status);
+        PrintToConsole("TestYield: FAIL - Unable to Use Protseq Endpoint\n");
+        return;
+        }
+
+    // Synchro support
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
+    if (Status)
+        {
+        ApiError("TestYield","stub_RegisterIf",Status);
+        PrintToConsole("TestYield: FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    if (Status)
+        {
+        ApiError("TestYield","stub_ServerListen",Status);
+        PrintToConsole("TestYield: FAIL - stub_ServerListen Failed\n");
+        return;
+        }
+
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Herman","RpcServerUnregisterIf",Status);
+        PrintToConsole("Herman : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    PrintToConsole("TestYield: PASS\n");
+}
+
 
 void
 Herman (
@@ -4566,31 +6102,43 @@ Routine Description:
 {
     PrintToConsole("Herman : Test Idle Connection Cleanup and Context\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(HERMAN), 0);
     if (Status)
         {
-        ApiError("Herman","RpcServerUseProtseqEp",Status);
+        ApiError("Herman","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Herman : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    // Synchro support
+    Status = stub_RegisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation,
+            0, 0);
+    if (Status)
+        {
+        ApiError("Herman","stub_RegisterIf",Status);
+        PrintToConsole("Herman : FAIL - Unable to Register Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Herman","RpcServerRegisterIf",Status);
+        ApiError("Herman","stub_RegisterIf",Status);
         PrintToConsole("Herman : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Herman","RpcServerListen",Status);
-        PrintToConsole("Herman : FAIL - RpcServerListen Failed\n");
+        ApiError("Herman","stub_ServerListen",Status);
+        PrintToConsole("Herman : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4611,6 +6159,16 @@ Routine Description:
         return;
         }
 
+    Status = RpcServerUnregisterIf(
+            (RPC_IF_HANDLE) &HelgaInterfaceInformation, 0, 0);
+    if (Status)
+        {
+        ApiError("Herman","RpcServerUnregisterIf",Status);
+        PrintToConsole("Herman : FAIL - Unable to Unregister Interface ");
+        PrintToConsole("(Helga)\n");
+        return;
+        }
+
     PrintToConsole("Herman : PASS\n");
 }
 
@@ -4628,42 +6186,42 @@ Routine Description:
 {
     PrintToConsole("Ivan : Stress Test\n");
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(IVAN), 0);
     if (Status)
         {
-        ApiError("Ivan","RpcServerUseProtseqEp",Status);
+        ApiError("Ivan","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Ivan : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Ivan","RpcServerRegisterIf",Status);
+        ApiError("Ivan","stub_RegisterIf",Status);
         PrintToConsole("Ivan : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Ivan","RpcServerRegisterIf",Status);
+        ApiError("Ivan","stub_RegisterIf",Status);
         PrintToConsole("Ivan : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Ivan","RpcServerListen",Status);
-        PrintToConsole("Ivan : FAIL - RpcServerListen Failed\n");
+        ApiError("Ivan","stub_ServerListen",Status);
+        PrintToConsole("Ivan : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4720,42 +6278,42 @@ Routine Description:
     PrintToConsole("Jason : Timing Tests With %d Listen Threads\n",
             MinimumListenThreads);
 
-    Status = RpcServerUseProtseqEp(GetProtocolSequence(), MAX_CALL_REQUESTS,
+    Status = RpcServerUseProtseqEpWrapper(GetProtocolSequence(), MAX_CALL_REQUESTS,
             GetEndpoint(JASON), 0);
     if (Status)
         {
-        ApiError("Jason","RpcServerUseProtseqEp",Status);
+        ApiError("Jason","RpcServerUseProtseqEpWrapper",Status);
         PrintToConsole("Jason : FAIL - Unable to Use Protseq Endpoint\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &IsabelleInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Jason","RpcServerRegisterIf",Status);
+        ApiError("Jason","stub_RegisterIf",Status);
         PrintToConsole("Jason : FAIL - Unable to Register Interface ");
         PrintToConsole("(Isabelle)\n");
         return;
         }
 
-    Status = RpcServerRegisterIf(
+    Status = stub_RegisterIf(
             (RPC_IF_HANDLE) &HelgaInterfaceInformation,
             0, 0);
     if (Status)
         {
-        ApiError("Jason","RpcServerRegisterIf",Status);
+        ApiError("Jason","stub_RegisterIf",Status);
         PrintToConsole("Jason : FAIL - Unable to Register Interface ");
         PrintToConsole("(Helga)\n");
         return;
         }
 
-    Status = RpcServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
+    Status = stub_ServerListen(MinimumListenThreads, MAXLISTENTHREADS, 0);
     if (Status)
         {
-        ApiError("Jason","RpcServerListen",Status);
-        PrintToConsole("Jason : FAIL - RpcServerListen Failed\n");
+        ApiError("Jason","stub_ServerListen",Status);
+        PrintToConsole("Jason : FAIL - stub_ServerListen Failed\n");
         return;
         }
 
@@ -4796,6 +6354,18 @@ Routine Description:
     PrintToConsole("Jason : PASS\n");
 }
 
+extern RPC_STATUS RPC_ENTRY
+I_RpcSetOleCallback(
+    void * pfnCallback
+    ) ;
+
+THREAD_IDENTIFIER OleGetTid (
+    IN UUID *pUUID
+    )
+{
+    return 0 ;
+}
+
 
 #ifdef NTENV
 int _CRTAPI1
@@ -4817,11 +6387,22 @@ Transports:
     int argscan, testflag = 0;
     RPC_STATS_VECTOR * Statistics;
 
+#ifdef NTENV
+    extern int InitializeRpcAllocator(void);
+
+    InitializeRpcAllocator();
+#endif
+
     TransportType = RPC_TRANSPORT_NAMEPIPE;
 
     for (argscan = 1; argscan < argc; argscan++)
         {
-        if (strcmp(argv[argscan],"-warn") == 0)
+        if (strcmp(argv[argscan], "-p") == 0)
+        {
+            ulSecurityPackage = (unsigned long) atol(argv[argscan+1]);
+            argscan++;
+        }
+        else if (strcmp(argv[argscan],"-warn") == 0)
             WarnFlag = 1;
         else if (strcmp(argv[argscan],"-error") == 0)
             ErrorFlag = 1;
@@ -4838,7 +6419,19 @@ Transports:
             testflag = 1;
             PrintToConsole("RPC Runtime Server Build Verification Test\n");
             Sigfried();
-            }
+           }
+       else if (strcmp(argv[argscan],"-hybrid") == 0)
+           {
+           testflag = 1;
+           PrintToConsole("RPC Runtime Hybrid Server Test\n");
+           Hybrid();
+           }
+       else if (strcmp(argv[argscan],"-lpcsecurity") == 0)
+           {
+           testflag = 1;
+           PrintToConsole("RPC Runtime Lpc Security Test\n");
+           LpcSecurity();
+           }
         else if (strcmp(argv[argscan],"-grant") == 0)
             {
             testflag = 1;
@@ -4935,24 +6528,42 @@ Transports:
             PrintToConsole("RPC Runtime Server Build Verification Test\n");
             Kenneth();
             }
+        else if (strcmp(argv[argscan],"-pipe") == 0)
+            {
+            testflag = 1;
+            PrintToConsole("RPC Runtime Server Build Verification Test\n");
+            SPipe();
+            }
+        else if (strcmp(argv[argscan],"-testyield") == 0)
+            {
+            testflag = 1;
+            PrintToConsole("RPC Runtime Server Build Verification Test\n");
+            TestYield();
+            }
         else if (strcmp(argv[argscan],"-namepipe") == 0)
             {
             TransportType = RPC_TRANSPORT_NAMEPIPE;
             TransportOption = argv[argscan];
             }
-
         else if (strcmp(argv[argscan],"-lrpc") == 0)
             {
             TransportType = RPC_LRPC;
             TransportOption = argv[argscan];
             }
-
+        else if (strcmp(argv[argscan],"-wmsg") == 0)
+            {
+            TransportType = RPC_LRPC;
+            TransportOption = argv[argscan];
+            if (I_RpcSetOleCallback((void *) OleGetTid) != RPC_S_OK)
+                {
+                return (1) ;
+                }
+            }
         else if (strcmp(argv[argscan],"-tcp") == 0)
             {
             TransportType = RPC_TRANSPORT_TCP;
             TransportOption = argv[argscan];
             }
-
         else if (strcmp(argv[argscan],"-udp") == 0)
             {
             DatagramFlag = 1;
@@ -4975,6 +6586,28 @@ Transports:
             TransportType = RPC_TRANSPORT_IPX;
             TransportOption = argv[argscan];
             }
+        else if (strcmp(argv[argscan],"-vns") == 0)
+            {
+            TransportType = RPC_TRANSPORT_VNS;
+            TransportOption = argv[argscan];
+            }
+
+        else if (strcmp(argv[argscan], "-dsp") == 0)
+            {
+            TransportType = RPC_TRANSPORT_DSP ;
+            TransportOption = argv[argscan] ;
+            }
+
+        else if (strcmp(argv[argscan], "-autolisten") == 0)
+            {
+            AutoListenFlag = 1 ;
+            }
+
+        else if (strcmp(argv[argscan], "-firewall") == 0)
+            {
+            FireWallFlag = 1 ;
+            }
+
         else if (strcmp(argv[argscan],"-protocol") == 0)
             {
             strcpy(NetBiosProtocol+sizeof("ncacn_nb_")-1, argv[argscan+1]);
@@ -5022,8 +6655,12 @@ Transports:
             PrintToConsole("        -dnet\n");
             PrintToConsole("        -netbios\n");
             PrintToConsole("        -spx\n");
+            PrintToConsole("        -dsp\n") ;
+            PrintToConsole("        -vns\n") ;
             PrintToConsole("        -listen:<listen threads>\n");
             PrintToConsole("        -rpcss\n");
+            PrintToConsole("        -p <security provider #>\n");
+            PrintToConsole("        -nosecuritytests") ;
             return(1);
             }
         }
@@ -5032,22 +6669,33 @@ Transports:
     if (!testflag)
         {
         PrintToConsole("RPC Runtime Server Build Verification Test\n");
+    PrintToConsole("Sigfried\n") ;
         Sigfried();
+    PrintToConsole("Grant\n") ;
         Grant();
+    PrintToConsole("Elliot\n") ;
         Elliot();
+    PrintToConsole("Andromida\n") ;
         Andromida();
+    PrintToConsole("Fredrick\n") ;
         Fredrick();
+    PrintToConsole("Christopher\n") ;
         Christopher();
+    PrintToConsole("David\n") ;
         David();
         if ( NoSecurityTests == 0)
             {
+        PrintToConsole("Tyler\n") ;
             Tyler();
             }
         if ( TransportType != RPC_LRPC )
             {
+        PrintToConsole("Richard\n") ;
             Richard();
             }
+    PrintToConsole("Kenneth\n") ;
         Kenneth();
+    PrintToConsole("Barlholomew\n") ;
         Bartholomew();
         }
 

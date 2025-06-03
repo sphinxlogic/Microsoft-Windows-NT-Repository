@@ -184,7 +184,7 @@ addcmd(set, op, who, oparg, mask)
 			set->cmd2 = ((who & S_IRUSR) ? CMD2_UBITS : 0) |
 				    ((who & S_IRGRP) ? CMD2_GBITS : 0) |
 				    ((who & S_IROTH) ? CMD2_OBITS : 0);
-			set->bits = ~0;
+			set->bits = (unsigned long)~0;
 		} else {
 			set->cmd2 = CMD2_UBITS | CMD2_GBITS | CMD2_OBITS;
 			set->bits = mask;
@@ -223,7 +223,7 @@ setmode(p)
 	mode_t mask;
 	struct bitcmd *set, *saveset, *endset;
 	int permXbits, setlen;
-	static int compress_mode();
+	static void compress_mode();
 
 	/*
 	 * Get a copy of the mask for the permissions that are mask relative.
@@ -410,6 +410,7 @@ dumpmode(set)
  * compacted, but it's not worth the effort.
  */
 static
+void
 compress_mode(set)
 	register struct bitcmd *set;
 {

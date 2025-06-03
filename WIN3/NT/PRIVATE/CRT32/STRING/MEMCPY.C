@@ -26,9 +26,9 @@
 #include <cruntime.h>
 #include <string.h>
 
-#if	defined(_CRUISER_) || defined(i386)
+#ifdef	_MSC_VER
 #pragma function(memcpy)
-#endif  /* ndef _CRUISER_ */
+#endif
 
 /***
 *memcpy - Copy source buffer to destination buffer
@@ -59,7 +59,7 @@ void * _CALLTYPE1 memcpy (
 {
 	void * ret = dst;
 
-#if defined(MIPS) || defined(_ALPHA_)
+#if	defined(_M_MRX000) || defined(_M_ALPHA) || defined(_M_PPC)
         {
         extern void RtlMoveMemory( void *, const void *, size_t count );
 

@@ -584,5 +584,5 @@ extern NRL_FUNCTION_TABLE_PTR gb_NRL_function_table_ptr ; /* set by NRLInitializ
 
 #endif
 
-
-
+
+

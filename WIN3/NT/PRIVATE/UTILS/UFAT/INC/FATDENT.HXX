@@ -20,6 +20,14 @@ Author:
 
 #define FAT_DIRENT_DEFN
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 DECLARE_CLASS( FAT_DIRENT );
 DECLARE_CLASS( WSTRING );
 DECLARE_CLASS( WSTRING        );
@@ -29,11 +37,14 @@ typedef struct _SHORT_FAT_DIRENT {
 
     UCHAR   Name[11];
     UCHAR   Attributes[1];
-    UCHAR   Reserved[6];
+    UCHAR   NtByte[1];
+    UCHAR   CreationMSec[1];            // actually count of 10msec's
+    UCHAR   CreationTime[2];            // two-second resolution
+    UCHAR   CreationDate[2];
     UCHAR   LastAccessDate[2];
     UCHAR   EaHandle[2];
-    UCHAR   Time[2];
-    UCHAR   Date[2];
+    UCHAR   LastWriteTime[2];
+    UCHAR   LastWriteDate[2];
     UCHAR   FirstCluster[2];
     UCHAR   Size[4];
 };
@@ -59,15 +70,18 @@ DEFINE_TYPE( _LONG_FAT_DIRENT, LONG_FAT_DIRENT );
 
 class FAT_DIRENT : public OBJECT {
 
-	public:
+    public:
 
-		DECLARE_CONSTRUCTOR( FAT_DIRENT );
+        UFAT_EXPORT
+        DECLARE_CONSTRUCTOR( FAT_DIRENT );
 
-		VIRTUAL
-		~FAT_DIRENT(
+        VIRTUAL
+        UFAT_EXPORT
+        ~FAT_DIRENT(
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         Initialize(
             IN OUT  PVOID   Dirent
@@ -79,6 +93,7 @@ class FAT_DIRENT : public OBJECT {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         VOID
         QueryName(
             OUT PWSTRING    Name
@@ -111,19 +126,57 @@ class FAT_DIRENT : public OBJECT {
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
-        IsValidTimeStamp(
+        IsValidLastWriteTime(
             ) CONST;
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
-        QueryTimeStamp(
+        QueryLastWriteTime(
             OUT LARGE_INTEGER   *TimeStamp
             ) CONST;
 
         NONVIRTUAL
         BOOLEAN
-        SetTimeStamp(
+        SetLastWriteTime(
+            );
+
+        NONVIRTUAL
+        UFAT_EXPORT
+        BOOLEAN
+        IsValidCreationTime(
+            ) CONST;
+
+        NONVIRTUAL
+        UFAT_EXPORT
+        BOOLEAN
+        QueryCreationTime(
+            OUT LARGE_INTEGER   *TimeStamp
+            ) CONST;
+
+        NONVIRTUAL
+        BOOLEAN
+        SetCreationTime(
+            );
+
+        NONVIRTUAL
+        UFAT_EXPORT
+        BOOLEAN
+        IsValidLastAccessTime(
+            ) CONST;
+
+        NONVIRTUAL
+        UFAT_EXPORT
+        BOOLEAN
+        QueryLastAccessTime(
+            OUT LARGE_INTEGER   *TimeStamp
+            ) CONST;
+
+        NONVIRTUAL
+        BOOLEAN
+        SetLastAccessTime(
             );
 
         NONVIRTUAL
@@ -221,6 +274,17 @@ class FAT_DIRENT : public OBJECT {
 
         NONVIRTUAL
         BOOLEAN
+        Is8LowerCase(
+            ) CONST;
+
+
+        NONVIRTUAL
+        BOOLEAN
+        Is3LowerCase(
+            ) CONST;
+
+        NONVIRTUAL
+        BOOLEAN
         IsLongEntry(
             ) CONST;
 
@@ -250,12 +314,30 @@ class FAT_DIRENT : public OBJECT {
             OUT PWSTRING    NameComponent
             ) CONST;
 
+        NONVIRTUAL
+        BOOLEAN
+        NameHasTilde(
+            ) CONST;
+
+
+        NONVIRTUAL
+        BOOLEAN
+        NameHasExtendedChars(
+            ) CONST;
+
     private:
 
-		NONVIRTUAL
-		VOID
-		Construct (
-			);
+        NONVIRTUAL
+        BOOLEAN
+        TimeStampsAreValid(
+            USHORT t,
+            USHORT d
+            ) CONST;
+
+        NONVIRTUAL
+        VOID
+        Construct(
+            );
 
         NONVIRTUAL
         VOID
@@ -363,7 +445,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return *((PUSHORT) &_dirent[26]);
 }
 
@@ -390,7 +472,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     *((PUSHORT) &_dirent[26]) = NewStartingCluster;
 }
 
@@ -415,7 +497,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return *((PULONG) &_dirent[28]);
 }
 
@@ -441,7 +523,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     *((PULONG) &_dirent[28]) = NewFileSize;
 }
 
@@ -466,7 +548,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return *((PUSHORT) &_dirent[20]);
 }
 
@@ -492,7 +574,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     *((PUSHORT) &_dirent[20]) = NewHandle;
 }
 
@@ -519,7 +601,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return _dirent[0] ? FALSE : TRUE;
 }
 
@@ -545,7 +627,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     _dirent[0] = 0;
 }
 
@@ -571,7 +653,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return _dirent[0] == 0xE5 ? TRUE : FALSE;
 }
 
@@ -596,7 +678,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     _dirent[0] = 0xE5;
 }
 
@@ -622,7 +704,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return _dirent[11]&0x02 ? TRUE : FALSE;
 }
 
@@ -648,7 +730,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return _dirent[11]&0x04 ? TRUE : FALSE;
 }
 
@@ -675,7 +757,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return ((_dirent[11]&0x08) && !IsLongEntry());
 }
 
@@ -807,7 +889,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     _dirent[11] |= 0x08;
 }
 
@@ -833,7 +915,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return ((_dirent[11]&0x10) && !IsLongEntry());
 }
 
@@ -858,7 +940,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     _dirent[11] |= 0x10;
 }
 
@@ -883,7 +965,7 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     _dirent[11] &= ~0x10;
 }
 
@@ -910,13 +992,61 @@ Return Value:
 
 --*/
 {
-    DbgAssert(_dirent);
+    DebugAssert(_dirent);
     return _dirent[11];
 }
 
 
+INLINE
+BOOLEAN
+FAT_DIRENT::Is8LowerCase(
+    ) CONST
+/*++
+
+Routine Description:
+
+    This routine tells whether the first 8 bytes of the short name
+    should be downcased after being read from the disk.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE or FALSE
+
+--*/
+{
+
+    DebugAssert(_dirent);
+    return (_dirent[12] & 0x08) != 0;
+}
 
 
+INLINE
+BOOLEAN
+FAT_DIRENT::Is3LowerCase(
+    ) CONST
+/*++
 
+Routine Description:
+
+    This routine tells whether the last 8 bytes of the short name
+    should be downcased after being read from the disk.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE or FALSE
+
+--*/
+{
+    DebugAssert(_dirent);
+    return (_dirent[12] & 0x10) != 0;
+}
 
 #endif // FAT_DIRENT_DEFN

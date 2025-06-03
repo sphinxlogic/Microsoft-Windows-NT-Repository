@@ -15,6 +15,11 @@
 extern "C" {
 #include "conapi.h"
 #include <ctype.h>
+#ifdef DBCS // isspace patch
+// isspace() causes access violation when x is Unicode char
+// that is not included in ASCII charset.
+#define isspace(x)     ( (x) == ' ' ) ? TRUE : FALSE
+#endif // DBCS
 };
 
 ERRSTACK* perrstk;
@@ -494,6 +499,7 @@ Return Value:
     arglex.SetCaseSensitive(FALSE);
     arglex.PutStartQuotes( "\"" );
     arglex.PutEndQuotes( "\"" );
+    arglex.PutSeparators( " \t" );
 
 
     // Tokenize the command line.

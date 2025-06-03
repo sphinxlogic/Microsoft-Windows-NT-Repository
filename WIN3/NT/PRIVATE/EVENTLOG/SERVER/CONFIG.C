@@ -17,12 +17,20 @@ Author:
 
 Revision History:
 
+    29-Aug-1994     Danl
+        We no longer grow log files in place.  Therefore, the MaxSize value
+        in the registery ends up being advisory only.  We don't try to reserve
+        that much memory at init time.  So it could happen that when we need
+        a larger file size that we may not have enough memory to allocate
+        MaxSize bytes.
     28-Mar-1994     Danl
         ReadRegistryInfo:  LogFileInfo->LogFileName wasn't getting updated
         when using the default (generated) LogFileName.
     16-Mar-1994     Danl
         Fixed Memory Leaks in ReadRegistryInfo().  Call to
         RtlDosPathNameToNtPathName allocates memory that wasn't being free'd.
+    03-Mar-1995     MarkBl
+        Added GuestAccessRestriction flag initialization in ReadRegistryInfo.
 
 --*/
 
@@ -32,7 +40,7 @@ Revision History:
 
 #include <eventp.h>
 #include <elfcfg.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <malloc.h>
 #include <memory.h>
 
@@ -78,7 +86,8 @@ ProcessChange (
         PUNICODE_STRING ModuleName,
         PUNICODE_STRING LogFileName,
         ULONG MaxSize,
-        ULONG Retention
+        ULONG Retention,
+        ULONG GuestAccessRestriction
         )
 
 /*++
@@ -108,6 +117,7 @@ Note:
     PVOID           BaseAddress;
     PUNICODE_STRING pFileNameString;
     LPWSTR          FileName;
+    PVOID           FreeAddress;
 
 
     pModule = GetModuleStruc (ModuleName);
@@ -120,7 +130,7 @@ Note:
     if (pModule == ElfDefaultLogModule &&
         wcscmp(ModuleName->Buffer, ELF_DEFAULT_MODULE_NAME)) {
             Status = SetUpDataStruct(LogFileName, MaxSize, Retention,
-                ModuleName, hLogFile, ElfNormalLog);
+              GuestAccessRestriction, ModuleName, hLogFile, ElfNormalLog);
         return;
     }
 
@@ -162,110 +172,31 @@ Note:
 
     if (pLogFile->ConfigMaxFileSize < ELFFILESIZE(MaxSize)) {
 
-        //
-        // Save away how much we're growing so we can make sure we
-        // can allocate this much more VM space
-        //
+        /*
+            Description of recent changes.  Problem and Solution:
+            A couple of problems exist.  (1) There is no error
+            checking if memory can't be allocated or mapped, and
+            therefore, no error paths exist for handling these
+            situations.  (2) Now that the eventlog is in services.exe
+            there isn't a good way to synchronize memory allocations.
 
-        Size = ELFFILESIZE(MaxSize) - pLogFile->ConfigMaxFileSize;
+            Solution:
+            I considered having some utility routines for managing
+            memory in the eventlog.  These would attempt to
+            extend a reserved block, or get a new reserved block.
+            However, there are so many places where that could fail,
+            it seemed very cumbersome to support the reserved blocks.
+            So the current design only deals with mapped views.
+            The ConfigMaxFileSize is only used to limit the size of
+            the mapped view, and doesn't reserve anything.  This
+            means you are not guaranteed to be operating with a file as
+            large as the MaxSize specified in the registry.  But then,
+            you weren't guarenteed that it would even work with the
+            original design.
+        */
 
-        //
-        // Reserve the increase in size just to make sure we can
-        //
-
-        BaseAddress = NULL;
-        Status = NtAllocateVirtualMemory(
-                    NtCurrentProcess(),
-                    &BaseAddress,
-                    0,  // Hi order bits in address that must be 0
-                    &Size,
-                    MEM_RESERVE,
-                    PAGE_READWRITE);
-
-        if (!NT_SUCCESS(Status)) {
-            //
-            // We must have hit our quota trying to grow the page tables.
-            // All we can do is send an alert and leave things the way
-            // they are.
-            // BUGBUG - send an alert here
-            //
-
-            return;
-        }
-        else {
-
-            Size = 0;
-            Status = NtFreeVirtualMemory(
-                NtCurrentProcess(),
-                &BaseAddress,
-                &Size,
-                MEM_RELEASE);
-
-            ASSERT(NT_SUCCESS(Status));
-
-            //
-            // Now unmap the view
-            //
-
-            Status = NtUnmapViewOfSection(
-                NtCurrentProcess(),
-                pLogFile->BaseAddress);
-
-            ASSERT(NT_SUCCESS(Status));
-
-            //
-            //     Free up the extra address range we had reserved (if any)
-            //
-
-            if (pLogFile->ViewSize < pLogFile->ConfigMaxFileSize) {
-
-                Size = 0;
-                BaseAddress =
-                    (PBYTE) pLogFile->BaseAddress + pLogFile->ViewSize,
-                Status = NtFreeVirtualMemory(
-                    NtCurrentProcess(),
-                    &BaseAddress,
-                    &Size,
-                    MEM_RELEASE);
-
-                ASSERT(NT_SUCCESS(Status));
-            }
-
-            //
-            //
-            //           And allocate/map it all fresh
-            //
-
-            pLogFile->ConfigMaxFileSize = ELFFILESIZE(MaxSize);
-            pLogFile->BaseAddress = NULL;
-            Status = NtMapViewOfSection(
-                pLogFile->SectionHandle,
-                NtCurrentProcess(),
-                &pLogFile->BaseAddress,
-                0,
-                0,
-                NULL,
-                &pLogFile->ViewSize,
-                ViewUnmap,
-                0,
-                PAGE_READWRITE);
-
-            ASSERT(NT_SUCCESS(Status));
-
-            BaseAddress = (PBYTE) pLogFile->BaseAddress +
-                pLogFile->ViewSize;
-            Size = pLogFile->ConfigMaxFileSize - pLogFile->ViewSize;
-            Status = NtAllocateVirtualMemory(
-                NtCurrentProcess(),
-                &BaseAddress,
-                0,
-                &Size,
-                MEM_RESERVE,
-                PAGE_READWRITE);
-
-            ASSERT(NT_SUCCESS(Status));
-
-        }
+        pLogFile->ConfigMaxFileSize    = ELFFILESIZE(MaxSize);
+        pLogFile->NextClearMaxFileSize = ELFFILESIZE(MaxSize);
 
     }
     else if (pLogFile->ConfigMaxFileSize > ELFFILESIZE(MaxSize)) {
@@ -420,7 +351,8 @@ Return Value:
                     &SubKeyName,
                     LogFileInfo.LogFileName,
                     LogFileInfo.MaxFileSize,
-                    LogFileInfo.Retention
+                    LogFileInfo.Retention,
+                    LogFileInfo.GuestAccessRestriction
                     );
 
                 //
@@ -874,6 +806,27 @@ Return Value:
     else {
         LogFileInfo->Retention = *((PULONG)(Buffer +
             ValueBuffer->DataOffset));
+    }
+
+
+    // RestrictGuestAccess
+
+    RtlInitUnicodeString(&ValueName, VALUE_RESTRICT_GUEST_ACCESS);
+
+    Status = NtQueryValueKey(hLogFile, &ValueName,
+        KeyValueFullInformation, ValueBuffer,
+        ELF_MAX_REG_KEY_INFO_SIZE, & ActualSize);
+    if (!NT_SUCCESS(Status)) {
+        LogFileInfo->GuestAccessRestriction = ELF_GUEST_ACCESS_UNRESTRICTED;
+    }
+    else {
+        if (*((PULONG)(Buffer + ValueBuffer->DataOffset)) == 1) {
+            LogFileInfo->GuestAccessRestriction = ELF_GUEST_ACCESS_RESTRICTED;
+        }
+        else {
+            LogFileInfo->GuestAccessRestriction =
+                                            ELF_GUEST_ACCESS_UNRESTRICTED;
+        }
     }
 
 

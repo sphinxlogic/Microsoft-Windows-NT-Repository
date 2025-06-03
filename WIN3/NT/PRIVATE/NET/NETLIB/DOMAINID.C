@@ -52,11 +52,18 @@ Revision History:
 #include <netlibnt.h>   // NetpNtStatusToApiStatus().
 #include <prefix.h>     // PREFIX_ equates.
 
+#ifdef _CAIRO_
+#include <dsys.h>
+#include <caiseapi.h>
+#include <dsid.h>
+#include <dsapi.h>
+#endif
 
 static SID_IDENTIFIER_AUTHORITY NetpBuiltinIdentifierAuthority
         = SECURITY_NT_AUTHORITY;
 
 
+#ifndef _CAIRO_
 NET_API_STATUS
 NetpGetLocalDomainId (
     IN LOCAL_DOMAIN_TYPE TypeWanted,
@@ -129,9 +136,9 @@ Return Value:
             if ( !NT_SUCCESS(NtStatus)) {
                 ApiStatus = NetpNtStatusToApiStatus( NtStatus );
                 IF_DEBUG( DOMAINID ) {
-                    NetpDbgPrint(PREFIX_NETLIB "NetpGetLocalDomainId:\n"
-                            "  Couldn't open Lsa Policy database, nt status = "
-                            FORMAT_NTSTATUS "\n", NtStatus);
+                    NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                            "  Couldn't _open Lsa Policy database, nt status = "
+                            FORMAT_NTSTATUS "\n", NtStatus));
                 }
                 NetpAssert( ApiStatus != NO_ERROR );
                 goto cleanupandexit;
@@ -148,9 +155,9 @@ Return Value:
             if ( !NT_SUCCESS(NtStatus)) {
                 ApiStatus = NetpNtStatusToApiStatus( NtStatus );
                 IF_DEBUG( DOMAINID ) {
-                    NetpDbgPrint(PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
                             "  Couldn't query Lsa Policy database, nt status = "
-                            FORMAT_NTSTATUS "\n", NtStatus);
+                            FORMAT_NTSTATUS "\n", NtStatus));
                 }
                 NetpAssert( ApiStatus != NO_ERROR );
                 goto cleanupandexit;
@@ -188,9 +195,9 @@ Return Value:
 
             if ( *RetDomainId == NULL ) {
                 IF_DEBUG( DOMAINID ) {
-                    NetpDbgPrint(PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
                             "  not enough memory (need " FORMAT_DWORD
-                            ")\n", SidSize);
+                            ")\n", SidSize));
                 }
                 ApiStatus = ERROR_NOT_ENOUGH_MEMORY;
                 goto cleanupandexit;
@@ -207,9 +214,9 @@ Return Value:
             if ( !NT_SUCCESS(NtStatus)) {
                 ApiStatus = NetpNtStatusToApiStatus( NtStatus );
                 IF_DEBUG( DOMAINID ) {
-                    NetpDbgPrint(PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
                             "  RtlCopySid failed, nt status = "
-                            FORMAT_NTSTATUS "\n", NtStatus);
+                            FORMAT_NTSTATUS "\n", NtStatus));
                 }
                 NetpAssert( ApiStatus != NO_ERROR );
                 goto cleanupandexit;
@@ -232,9 +239,9 @@ Return Value:
 
         if ( *RetDomainId == NULL ) {
             IF_DEBUG( DOMAINID ) {
-                NetpDbgPrint(PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
                         "  not enough memory (need " FORMAT_DWORD
-                        ")\n", SidSize);
+                        ")\n", SidSize));
                 }
             ApiStatus = ERROR_NOT_ENOUGH_MEMORY;
             goto cleanupandexit;
@@ -282,3 +289,205 @@ cleanupandexit:
     return (ApiStatus);
 
 }
+
+#else // _CAIRO_
+
+NET_API_STATUS
+NetpGetLocalDomainId (
+    IN LOCAL_DOMAIN_TYPE TypeWanted,
+    OUT PSID *RetDomainId
+    )
+
+/*++
+
+Routine Description:
+
+    This routine obtains the domain id from LSA for the local domain.
+    The routine is a superset of NetpGetDomainId().
+
+Arguments:
+
+    TypeWanted - Indicates which type of local domain ID is wanted:
+        the primary one or the accounts one.
+
+    RetDomainId - This is a pointer to the location where the pointer
+        to the domain id is to be placed.  This must be freed via LocalFree().
+
+Return Value:
+
+    NERR_Success - If the operation was successful.
+
+    It will return assorted Net or Win32 error messages if not.
+
+--*/
+{
+    NET_API_STATUS ApiStatus;
+    NTSTATUS NtStatus;
+    HRESULT hrRet;
+    DWORD SidSize;
+    GUID DomainGuid;
+    DS_MACHINE_STATE MachineState;
+    PSID DomainSid;
+
+    if (RetDomainId == NULL) {
+        ApiStatus = ERROR_INVALID_PARAMETER;
+        goto cleanupandexit;
+    }
+    *RetDomainId = NULL;   // make error paths easy to code.
+
+    //
+    // First get the machine state. Since the ID is dependent on the state,
+    // we need it to determine whether to return the machine ID or the
+    // domain ID.
+    //
+
+    hrRet = DSGetDSState(&MachineState);
+    if (FAILED(hrRet)) {
+        ApiStatus = NetpNtStatusToApiStatus(hrRet);
+        goto cleanupandexit;
+    }
+
+    //
+    // The type of domain the caller wants determines the information class
+    // we have to get LSA to deal with.  So use one to get the other.
+    //
+    switch (TypeWanted) {
+
+    case LOCAL_DOMAIN_TYPE_ACCOUNTS : /*FALLTHROUGH*/
+    {
+        //
+        // The account domain for a non-DC machine is the machine ID, and
+        // for a DC it is the domain ID.
+        //
+
+        if ( MachineState != DS_DC)
+        {
+            hrRet = DSGetMachineID( &DomainGuid );
+            break;
+        }
+
+        //
+        // Fall through if this is a DC.
+        //
+
+    }
+    case LOCAL_DOMAIN_TYPE_PRIMARY :
+    {
+        hrRet = DSGetDomainID( &DomainGuid );
+    }
+
+    case LOCAL_DOMAIN_TYPE_BUILTIN :
+
+#define SUBAUTHORITIES_FOR_BUILTIN_DOMAIN   1
+
+        SidSize = (DWORD)
+                RtlLengthRequiredSid( SUBAUTHORITIES_FOR_BUILTIN_DOMAIN );
+        NetpAssert( SidSize != 0 );
+
+        *RetDomainId = LocalAlloc( LMEM_FIXED, SidSize );
+
+        if ( *RetDomainId == NULL ) {
+            IF_DEBUG( DOMAINID ) {
+                NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                        "  not enough memory (need " FORMAT_DWORD
+                        ")\n", SidSize));
+                }
+            ApiStatus = ERROR_NOT_ENOUGH_MEMORY;
+            goto cleanupandexit;
+        }
+
+        NtStatus = RtlInitializeSid(
+                *RetDomainId,                     // SID being built
+                &NetpBuiltinIdentifierAuthority,  // identifier authority
+                (UCHAR)SUBAUTHORITIES_FOR_BUILTIN_DOMAIN ); // subauth. count
+        NetpAssert( NT_SUCCESS( NtStatus ) );
+
+
+        NetpAssert( SUBAUTHORITIES_FOR_BUILTIN_DOMAIN == 1 );
+        *(RtlSubAuthoritySid(*RetDomainId, 0)) = SECURITY_BUILTIN_DOMAIN_RID;
+
+        NetpAssert( RtlValidSid( *RetDomainId ) );
+        ApiStatus = NO_ERROR;
+        goto cleanupandexit;
+
+    default :
+        ApiStatus = ERROR_INVALID_PARAMETER;
+        goto cleanupandexit;
+    }
+
+    NetpAssert( sizeof(ULONG) <= sizeof(DWORD) );
+
+    hrRet = ConvertSecidToDomainSid(
+                &DomainGuid,
+                &DomainSid
+                );
+
+    if (FAILED(hrRet))
+    {
+        IF_DEBUG( DOMAINID ) {
+            NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    "  not ConvertSecidToDomainSid failed, NtStatus = "
+                    FORMAT_NTSTATUS "\n", hrRet));
+        }
+        ApiStatus = NetpNtStatusToApiStatus(hrRet);
+        goto cleanupandexit;
+    }
+
+    SidSize = (DWORD) RtlLengthSid( DomainSid );
+    NetpAssert( SidSize != 0 );
+
+    *RetDomainId = LocalAlloc( LMEM_FIXED, SidSize );
+
+    if ( *RetDomainId == NULL ) {
+        IF_DEBUG( DOMAINID ) {
+            NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    "  not enough memory (need " FORMAT_DWORD
+                    ")\n", SidSize));
+        }
+        ApiStatus = ERROR_NOT_ENOUGH_MEMORY;
+        goto cleanupandexit;
+    }
+
+    //
+    // Copy the SID (domain ID).
+    //
+
+    NtStatus = RtlCopySid(
+                    SidSize,            // dest size in bytes
+                    *RetDomainId,       // dest sid
+                    DomainSid);    // src sid
+    if ( !NT_SUCCESS(NtStatus)) {
+        ApiStatus = NetpNtStatusToApiStatus( NtStatus );
+        IF_DEBUG( DOMAINID ) {
+            NetpKdPrint((PREFIX_NETLIB "NetpGetLocalDomainId:\n"
+                    "  RtlCopySid failed, nt status = "
+                    FORMAT_NTSTATUS "\n", NtStatus));
+        }
+        NetpAssert( ApiStatus != NO_ERROR );
+        goto cleanupandexit;
+    }
+
+    NetpAssert( RtlValidSid( &DomainSid ) );
+    NetpAssert( RtlEqualSid( &DomainSid, *RetDomainId ) );
+
+    ApiStatus = NO_ERROR;
+
+cleanupandexit:
+
+    //
+    // Clean up (either error or success).
+    //
+
+    if (DomainSid != NULL) {
+        CoTaskMemFree(DomainSid);
+    }
+    if ((ApiStatus!=NO_ERROR) && (RetDomainId!=NULL) && (*RetDomainId!=NULL)) {
+        (VOID) LocalFree( *RetDomainId );
+        *RetDomainId = NULL;
+    }
+
+    return (ApiStatus);
+
+}
+
+#endif // _CAIRO_

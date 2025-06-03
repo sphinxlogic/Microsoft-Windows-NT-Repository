@@ -214,7 +214,8 @@ NTAPI
 ZwCreateTimer (
     OUT PHANDLE TimerHandle,
     IN ACCESS_MASK DesiredAccess,
-    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL
+    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
+    IN TIMER_TYPE TimerType
     );
 NTSYSAPI
 NTSTATUS
@@ -249,6 +250,8 @@ ZwSetTimer (
     IN PLARGE_INTEGER DueTime,
     IN PTIMER_APC_ROUTINE TimerApcRoutine OPTIONAL,
     IN PVOID TimerContext OPTIONAL,
+    IN BOOLEAN ResumeTimer,
+    IN LONG Period OPTIONAL,
     OUT PBOOLEAN PreviousState OPTIONAL
     );
 NTSYSAPI
@@ -289,6 +292,14 @@ ZwAllocateLocallyUniqueId(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwAllocateUuids(
+    OUT PULARGE_INTEGER Time,
+    OUT PULONG Range,
+    OUT PULONG Sequence
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwCreateProfile (
     OUT PHANDLE ProfileHandle,
     IN HANDLE Process OPTIONAL,
@@ -296,7 +307,9 @@ ZwCreateProfile (
     IN ULONG ProfileSize,
     IN ULONG BucketSize,
     IN PULONG Buffer,
-    IN ULONG BufferSize
+    IN ULONG BufferSize,
+    IN KPROFILE_SOURCE ProfileSource,
+    IN KAFFINITY Affinity
     );
 NTSYSAPI
 NTSTATUS
@@ -314,12 +327,14 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 ZwSetIntervalProfile (
-    IN ULONG Interval
+    IN ULONG Interval,
+    IN KPROFILE_SOURCE Source
     );
 NTSYSAPI
 NTSTATUS
 NTAPI
 ZwQueryIntervalProfile (
+    IN KPROFILE_SOURCE ProfileSource,
     OUT PULONG Interval
     );
 NTSYSAPI
@@ -399,6 +414,36 @@ NTSTATUS
 NTAPI
 ZwDisplayString(
     IN PUNICODE_STRING String
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwAddAtom(
+    IN PWSTR AtomName OPTIONAL,
+    IN OUT PRTL_ATOM Atom OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwFindAtom(
+    IN PWSTR AtomName,
+    OUT PRTL_ATOM Atom OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwDeleteAtom(
+    IN RTL_ATOM Atom
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryInformationAtom(
+    IN RTL_ATOM Atom,
+    IN ATOM_INFORMATION_CLASS AtomInformationClass,
+    OUT PVOID AtomInformation,
+    IN ULONG AtomInformationLength,
+    OUT PULONG ReturnLength OPTIONAL
     );
 NTSYSAPI
 NTSTATUS
@@ -564,6 +609,29 @@ ZwQueryDirectoryFile(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwQueryFullAttributesFile(
+    IN POBJECT_ATTRIBUTES ObjectAttributes,
+    OUT PFILE_NETWORK_OPEN_INFORMATION FileInformation
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryOleDirectoryFile(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID FileInformation,
+    IN ULONG Length,
+    IN FILE_INFORMATION_CLASS FileInformationClass,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PUNICODE_STRING FileName OPTIONAL,
+    IN BOOLEAN RestartScan
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwQueryEaFile(
     IN HANDLE FileHandle,
     OUT PIO_STATUS_BLOCK IoStatusBlock,
@@ -584,6 +652,20 @@ ZwQueryInformationFile(
     OUT PVOID FileInformation,
     IN ULONG Length,
     IN FILE_INFORMATION_CLASS FileInformationClass
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryQuotaInformationFile(
+    IN HANDLE FileHandle,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    OUT PVOID Buffer,
+    IN ULONG Length,
+    IN BOOLEAN ReturnSingleEntry,
+    IN PVOID SidList OPTIONAL,
+    IN ULONG SidListLength,
+    IN PSID StartSid OPTIONAL,
+    IN BOOLEAN RestartScan
     );
 NTSYSAPI
 NTSTATUS
@@ -612,6 +694,20 @@ ZwReadFile(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwReadFileScatter(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    IN PFILE_SEGMENT_ELEMENT SegmentArray,
+    IN ULONG Length,
+    IN PLARGE_INTEGER ByteOffset OPTIONAL,
+    IN PULONG Key OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwSetEaFile(
     IN HANDLE FileHandle,
     OUT PIO_STATUS_BLOCK IoStatusBlock,
@@ -627,6 +723,15 @@ ZwSetInformationFile(
     IN PVOID FileInformation,
     IN ULONG Length,
     IN FILE_INFORMATION_CLASS FileInformationClass
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwSetQuotaInformationFile(
+    IN HANDLE FileHandle,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    IN PVOID Buffer,
+    IN ULONG Length
     );
 NTSYSAPI
 NTSTATUS
@@ -665,6 +770,20 @@ ZwWriteFile(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwWriteFileGather(
+    IN HANDLE FileHandle,
+    IN HANDLE Event OPTIONAL,
+    IN PIO_APC_ROUTINE ApcRoutine OPTIONAL,
+    IN PVOID ApcContext OPTIONAL,
+    OUT PIO_STATUS_BLOCK IoStatusBlock,
+    IN PFILE_SEGMENT_ELEMENT SegmentArray,
+    IN ULONG Length,
+    IN PLARGE_INTEGER ByteOffset OPTIONAL,
+    IN PULONG Key OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwLoadDriver(
     IN PUNICODE_STRING DriverServiceName
     );
@@ -678,7 +797,7 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 ZwCreateIoCompletion (
-    IN PHANDLE IoCompletionHandle,
+    OUT PHANDLE IoCompletionHandle,
     IN ACCESS_MASK DesiredAccess,
     IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL,
     IN ULONG Count OPTIONAL
@@ -704,12 +823,90 @@ ZwQueryIoCompletion (
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwSetIoCompletion (
+    IN HANDLE IoCompletionHandle,
+    IN ULONG KeyContext,
+    IN PVOID ApcContext,
+    IN NTSTATUS IoStatus,
+    IN ULONG IoStatusInformation
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwRemoveIoCompletion (
     IN HANDLE IoCompletionHandle,
     OUT PVOID *KeyContext,
     OUT PVOID *ApcContext,
     PIO_STATUS_BLOCK IoStatusBlock,
     IN PLARGE_INTEGER Timeout
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwCallbackReturn (
+    IN PVOID OutputBuffer OPTIONAL,
+    IN ULONG OutputLength,
+    IN NTSTATUS Status
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwW32Call (
+    IN ULONG ApiNumber,
+    IN PVOID InputBuffer,
+    IN ULONG InputLength,
+    OUT PVOID *OutputBuffer,
+    OUT PULONG OutputLength
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwYieldExecution (
+    VOID
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwCreateChannel (
+    OUT PHANDLE ChannelHandle,
+    IN POBJECT_ATTRIBUTES ObjectAttributes OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwOpenChannel (
+    OUT PHANDLE ChannelHandle,
+    IN POBJECT_ATTRIBUTES ObjectAttributes
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwListenChannel (
+    IN HANDLE ChannelHandle,
+    OUT PCHANNEL_MESSAGE *Message
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwSendWaitReplyChannel (
+    IN HANDLE ChannelHandle,
+    IN PVOID Text,
+    IN ULONG Length,
+    OUT PCHANNEL_MESSAGE *Message
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwReplyWaitSendChannel (
+    IN PVOID Text,
+    IN ULONG Length,
+    OUT PCHANNEL_MESSAGE *Message
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwSetContextChannel (
+    IN PVOID Context
     );
 NTSYSAPI
 NTSTATUS
@@ -1045,6 +1242,15 @@ ZwMakeTemporaryObject(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwSignalAndWaitForSingleObject(
+    IN HANDLE SignalHandle,
+    IN HANDLE WaitHandle,
+    IN BOOLEAN Alertable,
+    IN PLARGE_INTEGER Timeout OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwWaitForSingleObject(
     IN HANDLE Handle,
     IN BOOLEAN Alertable,
@@ -1140,6 +1346,32 @@ ZwQuerySymbolicLinkObject(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwGetPlugPlayEvent(
+    IN  PPLUGPLAY_APC_ROUTINE PnPApcRoutine OPTIONAL,
+    IN  PVOID PnPContext OPTIONAL,
+    OUT PPLUGPLAY_EVENT_BLOCK PnPEvent,
+    IN  ULONG EventBufferLength
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwPlugPlayControl(
+    IN     PLUGPLAY_CONTROL_CLASS PnPControlClass,
+    IN OUT PVOID PnPControlData,
+    IN     ULONG PnPControlDataLength,
+    OUT    PULONG RequiredLength OPTIONAL
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwSetSystemPowerState(
+    IN POWER_STATE SystemPowerState,
+    IN BOOLEAN NoResumeAlarm,
+    IN BOOLEAN ForcePowerDown
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwCreateProcess(
     OUT PHANDLE ProcessHandle,
     IN ACCESS_MASK DesiredAccess,
@@ -1165,18 +1397,6 @@ NTAPI
 ZwTerminateProcess(
     IN HANDLE ProcessHandle OPTIONAL,
     IN NTSTATUS ExitStatus
-    );
-NTSYSAPI
-NTSTATUS
-NTAPI
-ZwWaitForProcessMutant(
-    VOID
-    );
-NTSYSAPI
-NTSTATUS
-NTAPI
-ZwReleaseProcessMutant(
-    VOID
     );
 NTSYSAPI
 NTSTATUS
@@ -1320,6 +1540,16 @@ ZwSetLdtEntries(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwQueueApcThread(
+    IN HANDLE ThreadHandle,
+    IN PPS_APC_ROUTINE ApcRoutine,
+    IN PVOID ApcArgument1,
+    IN PVOID ApcArgument2,
+    IN PVOID ApcArgument3
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwCreateKey(
     OUT PHANDLE KeyHandle,
     IN ACCESS_MASK DesiredAccess,
@@ -1401,6 +1631,14 @@ ZwLoadKey(
 NTSYSAPI
 NTSTATUS
 NTAPI
+ZwLoadKey2(
+    IN POBJECT_ATTRIBUTES TargetKey,
+    IN POBJECT_ATTRIBUTES SourceFile,
+    IN ULONG Flags
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
 ZwOpenKey(
     OUT PHANDLE KeyHandle,
     IN ACCESS_MASK DesiredAccess,
@@ -1426,6 +1664,17 @@ ZwQueryValueKey(
     OUT PVOID KeyValueInformation,
     IN ULONG Length,
     OUT PULONG ResultLength
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwQueryMultipleValueKey(
+    IN HANDLE KeyHandle,
+    IN PKEY_VALUE_ENTRY ValueEntries,
+    IN ULONG EntryCount,
+    OUT PVOID ValueBuffer,
+    IN OUT PULONG BufferLength,
+    OUT OPTIONAL PULONG RequiredBufferLength
     );
 NTSYSAPI
 NTSTATUS
@@ -1632,6 +1881,14 @@ NTSYSAPI
 NTSTATUS
 NTAPI
 ZwCloseObjectAuditAlarm (
+    IN PUNICODE_STRING SubsystemName,
+    IN PVOID HandleId,
+    IN BOOLEAN GenerateOnClose
+    );
+NTSYSAPI
+NTSTATUS
+NTAPI
+ZwDeleteObjectAuditAlarm (
     IN PUNICODE_STRING SubsystemName,
     IN PVOID HandleId,
     IN BOOLEAN GenerateOnClose

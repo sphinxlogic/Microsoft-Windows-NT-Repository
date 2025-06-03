@@ -52,7 +52,7 @@ Revision History:
 // These may be included in any order:
 
 #include <netlib.h>             // NetpMemoryAllocate().
-#include <netdebug.h>           // NetpAssert(), NetpDbgPrint(), FORMAT equates.
+#include <netdebug.h>           // NetpAssert(), NetpKdPrint(()), FORMAT equates.
 #include <rap.h>                // LPDESC, my prototype.
 #include <rapdebug.h>           // IF_DEBUG().
 #include <remtypes.h>           // REM_UNSUPPORTED_FIELD.
@@ -129,15 +129,15 @@ Return Value:
     if ( descStart == NULL ) {
 
         IF_DEBUG(PARMNUM) {
-            NetpDbgPrint( "RapParmNumDescriptor: examine says unsupported.\n" );
+            NetpKdPrint(( "RapParmNumDescriptor: examine says unsupported.\n" ));
         }
 
         descStart = descUnsupported;
 
     } else if (*descStart == REM_UNSUPPORTED_FIELD) {
-    
+
         IF_DEBUG(PARMNUM) {
-            NetpDbgPrint( "RapParmNumDescriptor: desc says unsupported.\n" );
+            NetpKdPrint(( "RapParmNumDescriptor: desc says unsupported.\n" ));
         }
     }
 
@@ -172,9 +172,9 @@ Return Value:
     descCopy[length] = '\0';
 
     IF_DEBUG(PARMNUM) {
-        NetpDbgPrint( "RapParmNumDescriptor: final desc for field "
+        NetpKdPrint(( "RapParmNumDescriptor: final desc for field "
                 FORMAT_DWORD " is " FORMAT_LPDESC ".\n",
-                ParmNum, descCopy );
+                ParmNum, descCopy ));
     }
 
     return descCopy;

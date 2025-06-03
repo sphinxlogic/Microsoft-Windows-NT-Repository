@@ -240,41 +240,46 @@ INT F40_GetNextSMEntry(
 INT F40_GetNextFDDEntry(
      CHANNEL_PTR    channel )
 {
-     UINT16         blk_type ;
+     UINT16         blk_type = FDD_UNKNOWN_BLK ;
      INT            ret_val = TFLE_NO_ERR ;
      F40_ENV_PTR    cur_env = (F40_ENV_PTR)( channel->fmt_env ) ;
 
      msassert( cur_env->otc_fdd_fptr != NULL ) ;
-     if( ( ret_val = OTC_GetFDDType( channel, &blk_type ) ) == TFLE_NO_ERR ) {
-          if( blk_type == FDD_VOL_BLK ) {
-               if( ( ret_val = OTC_SkipFDDEntry( channel ) ) == TFLE_NO_ERR ) {
-                    if( ( ret_val = OTC_SkipFDDContEntries( channel ) ) == TFLE_NO_ERR ) {
-                         ret_val = OTC_GetFDDType( channel, &blk_type ) ;
+     while( ret_val == TFLE_NO_ERR && blk_type == FDD_UNKNOWN_BLK ) {
+          if( ( ret_val = OTC_GetFDDType( channel, &blk_type ) ) == TFLE_NO_ERR ) {
+               if( blk_type == FDD_VOL_BLK ) {
+                    if( ( ret_val = OTC_SkipFDDEntry( channel ) ) == TFLE_NO_ERR ) {
+                         if( ( ret_val = OTC_SkipFDDContEntries( channel ) ) == TFLE_NO_ERR ) {
+                              ret_val = OTC_GetFDDType( channel, &blk_type ) ;
+                         }
                     }
                }
-          }
-          if( ret_val == TFLE_NO_ERR ) {
+               if( ret_val == TFLE_NO_ERR ) {
 
-               switch( blk_type ) {
+                    switch( blk_type ) {
 
-               case FDD_DIR_BLK :
-                    ret_val = OTC_RdDIR( channel ) ;
-                    break ;
+                    case FDD_DIR_BLK :
+                         ret_val = OTC_RdDIR( channel ) ;
+                         break ;
 
-               case FDD_FILE_BLK :
-                    ret_val = OTC_RdFILE( channel ) ;
-                    break ;
+                    case FDD_FILE_BLK :
+                         ret_val = OTC_RdFILE( channel ) ;
+                         break ;
 
-               case FDD_END_BLK :
-                    ret_val = TF_NO_MORE_ENTRIES ;
-                    OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
-                    break ;
+                    case FDD_END_BLK :
+                         ret_val = TF_NO_MORE_ENTRIES ;
+                         OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
+                         break ;
 
-               case FDD_UNKNOWN_BLK :
-               default :
-                    msassert( FALSE ) ;
-                    ret_val = TFLE_TAPE_INCONSISTENCY ;
-                    break ;
+                    case FDD_UNKNOWN_BLK :
+                         ret_val = OTC_SkipFDDEntry( channel ) ;
+                         break ;
+
+                    default :
+                         msassert( FALSE ) ;
+                         ret_val = TFLE_TAPE_INCONSISTENCY ;
+                         break ;
+                    }
                }
           }
      }

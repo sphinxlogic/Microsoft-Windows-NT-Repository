@@ -1,49 +1,37 @@
 /************************************************************************
  *  Compdir: compare directories
  *
- * HISTORY:
- *
- *  22-Dec-92 orsonh original check-in
- *  19-Jan-93 orsonh cosmetic code change
- *   9-Feb-93 orsonh added extensions and case-insensitives flags
- *   3-Mar-93 orsonh Added granularity on time checks and verbose mode
- *		     plus some more error checking and cosmetic changes
- *
  ************************************************************************/
 
 #ifdef COMPILE_FOR_DOS
+
 #include <fcntl.h>
 #include <ctype.h>
 #define _CRTAPI1
-#define GET_ATTRIBUTES(FileName, Attributes) _dos_getfileattr(FileName, &Attributes)
 #define IF_GET_ATTR_FAILS(FileName, Attributes) if (GET_ATTRIBUTES(FileName, Attributes) != 0)
 #define SET_ATTRIBUTES(FileName, Attributes) _dos_setfileattr(FileName, Attributes)
 #define FIND_FIRST(String, Buff) _dos_findfirst(String,_A_RDONLY | _A_HIDDEN | _A_SYSTEM | _A_SUBDIR,  &Buff)
 #define FIND_NEXT(handle, Buff)  _dos_findnext(&Buff)
 #define FindClose(bogus)
-#define GetLastError() errno
-#define INVALID_HANDLE_VALUE ENOENT
-#define CloseHandle(file) _dos_close(file)
-#define DeleteFile(file) unlink(file)
 #define BOOLEAN BOOL
-#define ATTRIBUTE_TYPE unsigned
-#else
-#define GET_ATTRIBUTES(FileName, Attributes) Attributes = GetFileAttributes(FileName)
+#define MAX_PATH _MAX_PATH
+
+#else // COMPILE_FOR_NT
+
 #define IF_GET_ATTR_FAILS(FileName, Attributes) GET_ATTRIBUTES(FileName, Attributes); if (Attributes == GetFileAttributeError)
 #define SET_ATTRIBUTES(FileName, Attributes) !SetFileAttributes(FileName, Attributes)
 #define FIND_FIRST(String, Buff) FindFirstFile(String, &Buff)
 #define FIND_NEXT(handle, Buff) !FindNextFile(handle, &Buff)
-#define ATTRIBUTE_TYPE DWORD
 #endif
 
 #include "compdir.h"
 
 #define NONREADONLYSYSTEMHIDDEN (~(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN))
 
-char **MatchList = NULL;    // used in ParseArgs
-int  MatchListLength = 0;   // used in ParseArgs
-char **ExcludeList = NULL;  // used in ParseArgs
-int  ExcludeListLength = 0; // used in ParseArgs
+char *MatchList[MAX_PATH];   // used in ParseArgs
+int  MatchListLength = 0;    // used in ParseArgs
+char *ExcludeList[MAX_PATH*20]; // used in ParseArgs
+int  ExcludeListLength = 0;  // used in ParseArgs
 
 DWORD Granularity = 0;	 // used in ParseArgs
 
@@ -51,103 +39,251 @@ DWORD Granularity = 0;	 // used in ParseArgs
 // Flags passed to COMPDIR
 //
 
+BOOL  fBreakLinks    = FALSE;
 BOOL  fCheckAttribs  = FALSE;
 BOOL  fCheckBits     = FALSE;
+BOOL  fChecking      = FALSE;
 BOOL  fCheckSize     = FALSE;
 BOOL  fCheckTime     = FALSE;
+BOOL  fCreateNew     = FALSE;
+BOOL  fCreateLink    = FALSE;
+BOOL  fDoNotDelete   = FALSE;
+BOOL  fDoNotRecurse  = FALSE;
 BOOL  fExclude	     = FALSE;
 BOOL  fExecute	     = FALSE;
 BOOL  fMatching      = FALSE;
-BOOL  fOneIsAFile    = FALSE;
-BOOL  fOneFileOnly   = FALSE;
 BOOL  fScript	     = FALSE;
 BOOL  fVerbose	     = FALSE;
 
 void  _CRTAPI1 main(int argc, char **argv)
 {
-
     ATTRIBUTE_TYPE Attributes1, Attributes2;
-
     char *Path1, *Path2;
 
+    Attributes1 = GetFileAttributeError;
+    Attributes2 = GetFileAttributeError;
 
     ParseArgs(argc, argv);  // Check argument validity.
 
     //
-    // Check Existence.
+    // Check existence of first path.
     //
 
     IF_GET_ATTR_FAILS(argv[argc - 2], Attributes1) {
 	fprintf(stderr, "Could not find %s (error = %d)\n", argv[argc - 2], GetLastError());
 	exit(1);
     }
-    else {
-        IF_GET_ATTR_FAILS(argv[argc - 1], Attributes2) {
-            if (Attributes1 & FILE_ATTRIBUTE_DIRECTORY) {
-                fprintf(stderr, "Could not find %s (error = %d)\n", argv[argc - 1], GetLastError());
-                exit(1);
+
+    IF_GET_ATTR_FAILS(argv[argc - 1], Attributes2) {
+        if (!fCreateNew) {
+            fprintf(stderr, "Could not find %s (error = %d)\n", argv[argc - 1], GetLastError());
+            exit(1);
+        }
+        else Attributes2 = Attributes1;
+    }
+    //
+    // If second directory is a drive letter append path of first directory
+    //	   to it
+    //
+    if ((strlen(argv[argc-1]) == 2)				      &&
+        (*(argv[argc-1] + 1) == ':')                                    ) {
+
+        if ((Path2 = _strlwr(_fullpath( NULL, argv[argc-2], 0))) == NULL)
+            Path2 = argv[argc-1];
+        else {
+            Path2[0] = *(argv[argc-1]);
+            IF_GET_ATTR_FAILS(Path2, Attributes2) {
+                if (!fCreateNew) {
+                    fprintf(stderr, "Could not find %s (error = %d)\n", Path2, GetLastError());
+                    exit(1);
+                }
+                else Attributes2 = Attributes1;
             }
         }
-        Path1 = _fullpath( NULL, argv[argc - 2], 0);
-        Path2 = _fullpath( NULL, argv[argc - 1], 0);
 
-        CompDir(Path1, Path2);
+    } else if ((Path2 = _strlwr(_fullpath( NULL, argv[argc-1], 0))) == NULL)
+	Path2 = argv[argc-1];
 
-        free(Path1);
-        free(Path2);
+    if ((Path1 = _strlwr(_fullpath( NULL, argv[argc-2], 0))) == NULL) {
+	Path1 = argv[argc-2];
     }
+
+    if (fVerbose) {
+        fprintf( stdout, "Compare criterion: existence" );
+        if (fCheckSize) fprintf( stdout, ", size" );
+        if (fCheckTime) fprintf( stdout, ", date/time" );
+        if (fCheckBits) fprintf( stdout, ", contents" );
+        fprintf( stdout, "\n" );
+        fprintf( stdout, "Path1: %s\n", Path1);
+        fprintf( stdout, "Path2: %s\n", Path2);
+    }
+
+    if (Attributes1 & FILE_ATTRIBUTE_DIRECTORY) CompDir(Path1, Path2, TRUE);
+    else                                        CompDir(Path1, Path2, FALSE);
+
+    free(Path1);
+    free(Path2);
+
 
 }  // main
 
+#ifndef COMPILE_FOR_DOS
+BOOL BinaryCompare(char *file1, char *file2)
+{
+    HANDLE hFile1, hFile2;
+    HANDLE hMappedFile1, hMappedFile2;
+
+    LPVOID MappedAddr1, MappedAddr2;
+
+    if (( hFile1 = CreateFile(file1,
+                              GENERIC_READ,
+                              FILE_SHARE_READ,
+                              NULL,
+                              OPEN_EXISTING,
+                              0,
+                              NULL)) == (HANDLE)-1 ) {
+
+        fprintf( stderr, "Unable to open %s, error code %d\n", file1, GetLastError() );
+        if (hFile1 != INVALID_HANDLE_VALUE) CloseHandle( hFile1 );
+	return FALSE;
+    }
+
+    if (( hFile2 = CreateFile(file2,
+                              GENERIC_READ,
+                              FILE_SHARE_READ,
+                              NULL,
+                              OPEN_EXISTING,
+                              0,
+                              NULL)) == (HANDLE)-1 ) {
+
+        fprintf( stderr, "Unable to open %s, error code %d\n", file2, GetLastError() );
+        if (hFile2 != INVALID_HANDLE_VALUE) CloseHandle( hFile2 );
+	return FALSE;
+    }
+
+    hMappedFile1 = CreateFileMapping(
+                    hFile1,
+                    NULL,
+                    PAGE_READONLY,
+                    0,
+                    0,
+                    NULL
+                    );
+
+    if (hMappedFile1 == NULL) {
+        fprintf( stderr, "Unable to map %s, error code %d\n", file1, GetLastError() );
+        CloseHandle(hFile1);
+	return FALSE;
+    }
+
+    hMappedFile2 = CreateFileMapping(
+                    hFile2,
+                    NULL,
+                    PAGE_READONLY,
+                    0,
+                    0,
+                    NULL
+                    );
+
+    if (hMappedFile2 == NULL) {
+        fprintf( stderr, "Unable to map %s, error code %d\n", file2, GetLastError() );
+        CloseHandle(hFile2);
+	return FALSE;
+    }
+
+    MappedAddr1 = MapViewOfFile(
+     hMappedFile1,
+     FILE_MAP_READ,
+     0,
+     0,
+     0
+     );
+
+    if (MappedAddr1 == NULL) {
+        fprintf( stderr, "Unable to get mapped view of %s, error code %d\n", file1, GetLastError() );
+        CloseHandle( hFile1 );
+        return FALSE;
+    }
+
+    MappedAddr2 = MapViewOfFile(
+     hMappedFile2,
+     FILE_MAP_READ,
+     0,
+     0,
+     0
+     );
+
+    if (MappedAddr2 == NULL) {
+        fprintf( stderr, "Unable to get mapped view of %s, error code %d\n", file1, GetLastError() );
+        UnmapViewOfFile( MappedAddr1 );
+        CloseHandle( hFile1 );
+        return FALSE;
+    }
+
+    CloseHandle(hMappedFile1);
+
+    CloseHandle(hMappedFile2);
+
+    if (memcmp( MappedAddr1, MappedAddr2, GetFileSize(hFile1, NULL)) == 0) {
+        UnmapViewOfFile( MappedAddr1 );
+        UnmapViewOfFile( MappedAddr2 );
+        CloseHandle( hFile1 );
+        CloseHandle( hFile2 );
+        return TRUE;
+    }
+    else {
+        UnmapViewOfFile( MappedAddr1 );
+        UnmapViewOfFile( MappedAddr2 );
+        CloseHandle( hFile1 );
+        CloseHandle( hFile2 );
+        return FALSE;
+    }
+}
+#endif
+
 //
-// CompDir turns Dir1 and Dir2 into:
+// CompDir turns Path1 and Path2 into:
 //
-//   AddList - Files that exist in Dir1 but not in Dir2
+//   AddList - Files that exist in Path1 but not in Path2
 //
-//   DelList - Files that do not exist in Dir1 but exist in Dir2
+//   DelList - Files that do not exist in Path1 but exist in Path2
 //
-//   DifList - Files that are different between Dir1 and Dir2 based
+//   DifList - Files that are different between Path1 and Path2 based
 //	       on criteria provided by flags passed to CompDir
 //
+//   It then passes these lists to CompLists and processes the result.
+//
 
-void CompDir(char *Dir1, char *Dir2)
+void CompDir(char *Path1, char *Path2, BOOL Directories)
 {
-    BOOLEAN Directory1 = TRUE, Directory2 = TRUE; // Boolean to check if a directory or not
-    LinkedFileList AddList = NULL;  //
-    LinkedFileList DelList = NULL;  //	Start with empty lists
-    LinkedFileList DifList = NULL;  //
-    LinkedFileList Node = NULL;
+    LinkedFileList AddList, DelList, DifList;
+    BOOL           SameNames, AppendPath;
 
-    CreateFileList(&AddList, Dir1);
-    if (fOneIsAFile) {
-        Directory1 = FALSE;
-        fOneIsAFile = FALSE;
-    }
-    CreateFileList(&DelList, Dir2);
-    if (fOneIsAFile) {
-        Directory2 = FALSE;
-        fOneIsAFile = FALSE;
-    }
-    if (DelList != NULL) {
-	if (Directory1 ^ Directory2) {
-	    fprintf(stderr, "Cannot compare directory to file\n");
-	    exit(1);
-	}
-    }
-    if ((!Directory1 && !Directory2) ||
-	(!Directory1 && (DelList == NULL)))
-	fOneFileOnly = TRUE;
+    AddList  = NULL;  //
+    DelList  = NULL;  //  Start with empty lists
+    DifList  = NULL;  //
 
-    CompLists(&AddList, &DelList, &DifList);
+    SameNames  = TRUE;
+    AppendPath = TRUE;
 
-    if (fExecute || fScript)
-	ProcessList(AddList, DelList, DifList, Dir1, Dir2);
+    //
+    // If comparing two files and not two directories the files can have
+    //     different names and paths are complete (they don't need to append
+    //     the files names).
+    //
+    if (!Directories) {
 
-    else {
-	PrintList(AddList);
-	PrintList(DelList);
-	PrintList(DifList);
+        SameNames = FALSE;
+        AppendPath = FALSE;
     }
+
+    CreateFileList(&AddList, Path1);
+
+    CreateFileList(&DelList, Path2);
+
+    CompLists(&AddList, &DelList, &DifList, Path1, Path2, SameNames, AppendPath);
+
+    ProcessLists(AddList, DelList, DifList, Path1, Path2, AppendPath);
 
     FreeList(&DifList);
     FreeList(&DelList);
@@ -155,25 +291,26 @@ void CompDir(char *Dir1, char *Dir2)
 
 } // CompDir
 
-BOOL CompFiles(LinkedFileList File1, LinkedFileList File2)
+BOOL CompFiles(LinkedFileList File1, LinkedFileList File2, char *Path1, char *Path2)
 {
 
 #ifndef COMPILE_FOR_DOS
     DWORD High1, High2, Low1, Low2;     // Used in comparing times
 #endif
-    ATTRIBUTE_TYPE AddAttrib, DelAttrib;
     BOOL Differ = FALSE;
-
     //
-    // Check if same name is a directory under Dir1
-    // and a file under Dir2 or vice-versa
+    // Check if same name is a directory under Path1
+    // and a file under Path2 or vice-versa
     //
 
-    if ((*File1).Directory || (*File2).Directory) {
-        if ((*File1).Directory && (*File2).Directory)
-            CompDir((*File1).FullPathName, (*File2).FullPathName);
+    if (((*File1).Attributes & FILE_ATTRIBUTE_DIRECTORY) || ((*File2).Attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (((*File1).Attributes & FILE_ATTRIBUTE_DIRECTORY) && ((*File2).Attributes & FILE_ATTRIBUTE_DIRECTORY))
+            CompDir(Path1, Path2, TRUE);
         else {
-            strcat((*File1).Flag, "@");
+            if(!((*File1).Attributes & FILE_ATTRIBUTE_DIRECTORY))
+                strcat((*File1).Flag, "@");
+            else
+                strcat((*File2).Flag, "@");
             Differ = TRUE;
         }
     }
@@ -226,9 +363,7 @@ BOOL CompFiles(LinkedFileList File1, LinkedFileList File2)
         }
 
         if (fCheckAttribs) {
-            GET_ATTRIBUTES((*File1).FullPathName, AddAttrib);
-            GET_ATTRIBUTES((*File2).FullPathName, DelAttrib);
-            if (AddAttrib != DelAttrib)      {
+            if ((*File1).Attributes != (*File2).Attributes) {
                 strcat((*File1).Flag, "A");
                 Differ = TRUE;
             }
@@ -238,67 +373,83 @@ BOOL CompFiles(LinkedFileList File1, LinkedFileList File2)
             if (((*File1).SizeLow  != (*File2).SizeLow)  ||
                 ((*File1).SizeHigh != (*File2).SizeHigh) ||
                 (((*File1).SizeLow != 0 || (*File1).SizeHigh != 0) &&
-                 !BinaryCompare((*File1).FullPathName, (*File2).FullPathName))) {
+                (!BinaryCompare(Path1, Path2)))) {
                 strcat((*File1).Flag, "B");
                 Differ = TRUE;
             }
         }
 
-        if (Differ) {
-
-            //
-            // Combine Both Nodes together so they
-            // can be printed out together
-            //
-
-            AddToList(File2, &(*File1).DiffNode);
-
-        }
     }
 
     return Differ;
 
-}
+} // CompFiles
 
 //
 // CompLists Does the dirty work for CompDir
 //
-void CompLists(LinkedFileList *AddList, LinkedFileList *DelList, LinkedFileList *DifList)
+void CompLists(LinkedFileList *AddList, LinkedFileList *DelList, LinkedFileList *DifList, char *Path1, char *Path2, BOOL SameNames, BOOL AppendPath)
 {
-    LinkedFileList *TmpAdd = AddList;	// pointer to keep track of position in addlist
-    LinkedFileList Node;
-    LinkedFileList *TmpDel = &Node;     // pointer to keep track of position in dellist
-    LinkedFileList TmpFront = NULL;
-    BOOL Differ;
+    LinkedFileList *TmpAdd, *TmpDel, TmpFront;
+    char *PathWithSlash1, *FullPath1, *PathWithSlash2, *FullPath2;
 
-    while (*TmpAdd != NULL) {
+    if ((DelList == NULL) || (*DelList == NULL) || (AddList == NULL) || (*AddList == NULL))
+        return;
 
-	Differ = FALSE;
+    TmpAdd = AddList;   // pointer to keep track of position in addlist
 
-	if ((DelList == NULL) || (*DelList == NULL)) *TmpDel = NULL;
-	else {
-	    if (fOneFileOnly) *TmpDel = DeleteFromList((**DelList).Name, DelList);
-	    else *TmpDel = DeleteFromList((**TmpAdd).Name, DelList);
-	}
-	if (*TmpDel != NULL) {
+    (Path1[strlen(Path1) - 1] == '\\') ? (PathWithSlash1 = _strdup(Path1)) :
+	(PathWithSlash1 = MyStrCat(Path1, "\\"));
 
-	    Differ = CompFiles(*TmpAdd, *TmpDel);
+    (Path2[strlen(Path2) - 1] == '\\') ? (PathWithSlash2 = _strdup(Path2)) :
+        (PathWithSlash2 = MyStrCat(Path2, "\\"));
 
-            if (Differ) {
-		AddToList(*TmpAdd, DifList);
-                TmpFront = RemoveFront(TmpAdd);
+    do {
+
+        if (SameNames) TmpDel = FindInList((**TmpAdd).Name, DelList);
+
+        else TmpDel = DelList;
+
+        if (TmpDel != NULL) {
+            //
+            // Create Full Path Strings
+            //
+            if (AppendPath) FullPath1 = MyStrCat(PathWithSlash1, (**TmpAdd).Name);
+
+            else FullPath1 = _strdup(Path1);
+
+            if (AppendPath) FullPath2 = MyStrCat(PathWithSlash2, (**TmpDel).Name);
+
+            else FullPath2 = _strdup(Path2);
+
+            if (CompFiles(*TmpAdd, *TmpDel, FullPath1, FullPath2)) {
+                //
+                // Combine Both Nodes together so they
+                // can be printed out together
+                //
+                AddToList(*TmpDel, &(**TmpAdd).DiffNode);
+                AddToList(*TmpAdd, DifList);
+                RemoveFront(TmpAdd);
+                RemoveFront(TmpDel);
             }
             else {
+                TmpFront = RemoveFront(TmpDel);
+                FreeList(&TmpFront);
                 TmpFront = RemoveFront(TmpAdd);
-                FreeList(TmpDel);
-		FreeList(&TmpFront);
-	    }
+                FreeList(&TmpFront);
+            }
 
-	} // if (*TmpDel != NULL)
+            free(FullPath1);
+            free(FullPath2);
 
-	else TmpAdd = &(**TmpAdd).Next;
+        } // if (*TmpDel != NULL)
 
-    } // end while
+        else TmpAdd = &(**TmpAdd).Next;
+
+    } while (*TmpAdd != NULL);
+
+    free(PathWithSlash1);
+    free(PathWithSlash2);
 
 } // CompLists
 
@@ -307,9 +458,9 @@ void CompLists(LinkedFileList *AddList, LinkedFileList *DelList, LinkedFileList 
 // and creats the appropriate parts on the destination node
 //
 
-void CopyNode (char *destination, LinkedFileList source)
+void CopyNode (char *Destination, LinkedFileList Source, char *FullPathSrc)
 {
-    BOOL pend;
+    BOOL pend, CanDetectFreeSpace = TRUE;
     int i;
     DWORD sizeround;
     DWORD BytesPerCluster;
@@ -320,8 +471,8 @@ void CopyNode (char *destination, LinkedFileList source)
     DWORD freespac;
     struct diskfree_t diskfree;
 
-    if( _dos_getdiskfree( (toupper(*destination) - 'A' + 1), &diskfree ) != 0) {
-	    freespac = (unsigned long)-1L;
+    if( _dos_getdiskfree( (toupper(*Destination) - 'A' + 1), &diskfree ) != 0) {
+        CanDetectFreeSpace = FALSE;
     }
     else freespac = ( (DWORD)diskfree.bytes_per_sector *
 		      (DWORD)diskfree.sectors_per_cluster *
@@ -330,12 +481,14 @@ void CopyNode (char *destination, LinkedFileList source)
     BytesPerCluster = diskfree.sectors_per_cluster * diskfree.bytes_per_sector;
 
 #else
+
+    int LastErrorGot;
     __int64 freespac;
-    char root[5] = {*destination,':','\\','\0'};
+    char root[5] = {*Destination,':','\\','\0'};
     DWORD cSecsPerClus, cBytesPerSec, cFreeClus, cTotalClus;
 
     if( !GetDiskFreeSpace( root, &cSecsPerClus, &cBytesPerSec, &cFreeClus, &cTotalClus ) ) {
-        freespac = (__int64)-1L;
+        CanDetectFreeSpace = FALSE;
     }
     else freespac = ( (__int64)cBytesPerSec * (__int64)cSecsPerClus * (__int64)cFreeClus );
 
@@ -343,11 +496,11 @@ void CopyNode (char *destination, LinkedFileList source)
 
 #endif
 
-    if ((*source).Directory) {
+    if ((*Source).Attributes & FILE_ATTRIBUTE_DIRECTORY) {
 	//
 	//  Skip the . and .. entries; they're useless
 	//
-	if (!strcmp ((*source).Name, ".") || !strcmp ((*source).Name, ".."))
+        if (!strcmp ((*Source).Name, ".") || !strcmp ((*Source).Name, ".."))
 	    return;
 
 	sizeround = 256;
@@ -355,47 +508,77 @@ void CopyNode (char *destination, LinkedFileList source)
 	sizeround /= BytesPerCluster;
 	sizeround *= BytesPerCluster;
 
-	if (freespac < sizeround) {
-	    fprintf (stderr, "not enough space\n");
-	    return;
-	}
-        fprintf (stdout, "Making %s\t", destination);
+        if (CanDetectFreeSpace) {
+            if (freespac < sizeround) {
+                fprintf (stderr, "not enough space\n");
+                return;
+            }
+        }
+        fprintf (stdout, "Making %s\t", Destination);
 
-	i = mkdir (destination);
+        i = _mkdir (Destination);
 
         fprintf (stdout, "%s\n", i != -1 ? "[OK]" : "");
 
 	if (i == -1)
-	    fprintf (stderr, "Unable to mkdir %s\n", destination);
+            fprintf (stderr, "Unable to mkdir %s\n", Destination);
 
-	CompDir((*source).FullPathName,destination);
+        CompDir(FullPathSrc, Destination, TRUE);
 
     }
     else {
-	sizeround = (*source).SizeLow;
+        sizeround = (*Source).SizeLow;
 	sizeround += BytesPerCluster - 1;
 	sizeround /= BytesPerCluster;
 	sizeround *= BytesPerCluster;
 
-	if (freespac < sizeround) {
-	    fprintf (stderr, "not enough space\n");
-	    return;
-	}
+        if (CanDetectFreeSpace) {
+            if (freespac < sizeround) {
+                fprintf (stderr, "not enough space\n");
+                return;
+            }
+        }
 
-        fprintf (stdout, "%s => %s\t", (*source).FullPathName, destination);
+        fprintf (stdout, "%s => %s\t", FullPathSrc, Destination);
 
-        GET_ATTRIBUTES(destination, Attributes);
-	SET_ATTRIBUTES(destination, Attributes & NONREADONLYSYSTEMHIDDEN );
+        GET_ATTRIBUTES(Destination, Attributes);
+        SET_ATTRIBUTES(Destination, Attributes & NONREADONLYSYSTEMHIDDEN );
 
-	pend = FCopy ((*source).FullPathName, destination);
+#ifndef COMPILE_FOR_DOS
+        if (!fCreateLink)
+            if (!fBreakLinks)
+                pend = CopyFile (FullPathSrc, Destination, FALSE);
+            else
+                if (NumberOfLinks(Destination) > 1) {
+                    _unlink(Destination);
+                    pend = CopyFile (FullPathSrc, Destination, FALSE);
+                }
+                else pend = CopyFile (FullPathSrc, Destination, FALSE);
+        else
+            pend = MakeLink (FullPathSrc, Destination);
 
+        if (!pend) {
+
+            LastErrorGot = GetLastError ();
+
+            if ((fCreateLink) && (LastErrorGot == 1))
+                fprintf(stderr, "Can only make links on NTFS and OFS");
+            else if (fCreateLink)
+                fprintf(stderr, "(error = %d)", LastErrorGot);
+            else
+                fprintf(stderr, "Copy Error (error = %d)", LastErrorGot);
+        }
+
+#else
+        pend = FCopy (FullPathSrc, Destination);
+#endif
         fprintf (stdout, "%s\n", pend == TRUE ? "[OK]" : "");
 
 	//
-	// Copy attributes from source to destination
-	//
-        GET_ATTRIBUTES((*source).FullPathName, Attributes);
-        SET_ATTRIBUTES(destination, Attributes);
+        // Copy attributes from Source to Destination
+        //
+        GET_ATTRIBUTES(FullPathSrc, Attributes);
+        SET_ATTRIBUTES(Destination, Attributes);
     }
 } // CopyNode
 
@@ -405,7 +588,7 @@ void CopyNode (char *destination, LinkedFileList source)
 void CreateFileList(LinkedFileList *List, char *Path)
 {
     LinkedFileList Node;
-    char *String, *String1;
+    char *String;
     ATTRIBUTE_TYPE Attributes;
 
 #ifdef COMPILE_FOR_DOS
@@ -425,62 +608,41 @@ void CreateFileList(LinkedFileList *List, char *Path)
 
     if (Attributes & FILE_ATTRIBUTE_DIRECTORY) {
         (Path[strlen(Path) - 1] != '\\') ? (String = MyStrCat(Path,"\\*.*")) :
-             (String = MyStrCat(Path,"*.*"));
+            (String = MyStrCat(Path,"*.*"));
+    }
+    else
+	String = _strdup(Path);
 
-        handle = FIND_FIRST(String, Buff);
+    handle = FIND_FIRST(String, Buff);
 
-	free(String);
+    free(String);
 
-	if (handle != INVALID_HANDLE_VALUE) {
+    if (handle != INVALID_HANDLE_VALUE) {
 
-		//
-		// Need to find the '.' or '..' directories and get them out of the way
-		//
+            //
+            // Need to find the '.' or '..' directories and get them out of the way
+            //
 
-            do {
-                if ((strcmp(Buff.cFileName, ".")  != 0) &&
-                    (strcmp(Buff.cFileName, "..") != 0)     ) {
-                    //
-                    // If extensions are defined we match them here
-                    //
-                    if (// We have to do all directories to get what's underneath
-                        ((Buff).dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
-                        (MatchElements(&Buff, Path))) {
+        do {
+            if ((strcmp(Buff.cFileName, ".")  != 0) &&
+                (strcmp(Buff.cFileName, "..") != 0)     ) {
+                //
+                // If extensions are defined we match them here
+                //
+                if (MatchElements(Buff.cFileName, Path)) {
 
-                        //
-                        // Check for trailing \'s
-                        //
-
-                        if (Path[strlen(Path) - 1] != '\\') {
-                             String1 = MyStrCat(Path, "\\");
-                             String  = MyStrCat(String1, Buff.cFileName);
-                        }
-                        else
-                            String = MyStrCat(Path, Buff.cFileName);
-                        CreateNode(&Node, &Buff, String);
-                        free(String);
-                        free(String1);
+                    if ((!fDoNotRecurse)                                    ||
+                        (!(Buff.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) ){
+                        CreateNode(&Node, &Buff);
                         AddToList(Node, List);
                     }
                 }
-            } while (FIND_NEXT(handle, Buff) == 0);
+            }
+        } while (FIND_NEXT(handle, Buff) == 0);
 
-	} // (handle != INVALID_HANDLE_VALUE)
+    } // (handle != INVALID_HANDLE_VALUE)
 
-        FindClose(handle);
-
-    } // (Attributes & FILE_ATTRIBUTE_DIRECTORY)
-    else {
-        fOneIsAFile = TRUE;
-        handle = FIND_FIRST(Path, Buff);
-	if (handle == INVALID_HANDLE_VALUE) {
-	    fprintf(stderr, "%s is inaccesible\n", Path);
-	    exit(1);
-        }
-        FindClose(handle);
-        CreateNode(&Node, &Buff, Path);
-	AddToList(Node, List);
-    }
+    FindClose(handle);
 
 } // CreateFileList
 
@@ -543,7 +705,7 @@ void DelNode (char *Path)
 
         FindClose(handle);
 
-	rmdir (Path);
+	_rmdir (Path);
     }
     else {
 	//
@@ -554,161 +716,80 @@ void DelNode (char *Path)
 	       return;
 	   }
 
-	unlink (Path);
+	_unlink (Path);
     }
 
 } // DelNode
 
-BOOL FCopy (char *src, char *dst)
-{
-    HANDLE srcfh, dstfh;
-    BOOL result;
-    ATTRIBUTE_TYPE Attributes;
-
-#ifdef COMPILE_FOR_DOS
-
-    unsigned filedate, filetime;
-
-#else
-
-    FILETIME CreationTime, LastAccessTime, LastWriteTime;
-
-#endif
-
-    GET_ATTRIBUTES(src, Attributes);
-
-    if (Attributes == FILE_ATTRIBUTE_DIRECTORY) {
-	fprintf( stderr, "\nUnable to open source");
-	return FALSE;
-    }
-
-#ifdef COMPILE_FOR_DOS
-    if (_dos_creatnew( src, _A_RDONLY, &srcfh )  != 0 )
-        if  (_dos_open( src, O_RDONLY, &srcfh) != 0) {
-#else
-    if( ( srcfh = CreateFile( src,
-                              GENERIC_READ,
-                              FILE_SHARE_READ,
-                              NULL,
-                              OPEN_EXISTING,
-                              0,
-                              NULL ) ) == (HANDLE)-1 ) {
-#endif
-	fprintf( stderr, "\nUnable to open source, error code %d", GetLastError() );
-	if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-	return FALSE;
-    }
-
-#ifdef COMPILE_FOR_DOS
-    if (_dos_getftime(srcfh, &filedate, &filetime) != 0) {
-#else
-    if (!GetFileTime(srcfh, &CreationTime, &LastAccessTime, &LastWriteTime)) {
-#endif
-	fprintf( stderr, "\nUnable to get time of source");
-	if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-	return FALSE;
-    }
-
-#ifdef COMPILE_FOR_DOS
-    if (_dos_creatnew( dst, _A_NORMAL, &dstfh) != 0 )
-        if (_dos_open( dst, O_RDWR, &dstfh) != 0 ) {
-#else
-    if( ( dstfh = CreateFile( dst,
-                              GENERIC_WRITE,
-                              FILE_SHARE_WRITE,
-                              NULL,
-                              CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL, srcfh ) ) == INVALID_HANDLE_VALUE) {
-#endif
-	fprintf( stderr, "\nUnable to create destination, error code %d", GetLastError() );
-	if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-	if (dstfh != INVALID_HANDLE_VALUE) CloseHandle( dstfh );
-	return FALSE;
-    }
-
-    result = fastcopy( srcfh, dstfh );
-
-    if(!result) {
-        if (dstfh != INVALID_HANDLE_VALUE) {
-            CloseHandle( dstfh );
-            dstfh = INVALID_HANDLE_VALUE;
-        }
-
-        DeleteFile( dst );
-        if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-        fprintf( stderr, "\nUnable to copy file");
-        return FALSE;
-    }
-
-#ifdef COMPILE_FOR_DOS
-    if (_dos_setftime(dstfh, filedate, filetime != 0)) {
-#else
-    if (!SetFileTime(dstfh, &CreationTime, &LastAccessTime, &LastWriteTime)) {
-#endif
-	fprintf( stderr, "\nUnable to set time of destination");
-	if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-	if (dstfh != INVALID_HANDLE_VALUE) CloseHandle( dstfh );
-	return FALSE;
-    }
-
-    if (srcfh != INVALID_HANDLE_VALUE) CloseHandle( srcfh );
-    if (dstfh != INVALID_HANDLE_VALUE) CloseHandle( dstfh );
-    return TRUE;
-
-} // FCopy
-
 BOOL IsFlag(char *argv)
 {
+    char String[MAX_PATH];
+    char *String1, *String2;
     char *TmpArg;
+    char *ExcludeFile;
+    FILE *FileHandle;
+
 
     if ((*argv == '/') || (*argv == '-')) {
 
-	fMatching	 = FALSE; // If there's a new flag then that's the
-	fExclude = FALSE; // end of the match/exclude list
+        fMatching = FALSE; // If there's a new flag then that's the
+        fExclude  = FALSE; // end of the match/exclude list
 
 	if (strchr(argv, '?'))
             Usage();
 
-	TmpArg = argv;
+        TmpArg = _strlwr(argv);
 
 	while (*++TmpArg != '\0') {
-	    switch (*TmpArg) {
+            switch (*TmpArg) {
 		case 'a' :
-		case 'A' :
-		    fCheckAttribs = TRUE;
+                    fCheckAttribs = TRUE;
+                    fChecking     = TRUE;
 		    break;
 
 		case 'b' :
-		case 'B' :
-		    fCheckBits = TRUE;
+                    fCheckBits = TRUE;
+                    fChecking  = TRUE;
 		    break;
 
 		case 'c' :
-		case 'C' :
 		    fScript = TRUE;
 		    break;
 
+                case 'd' :
+                    fDoNotDelete = TRUE;
+		    break;
+
 		case 'e' :
-		case 'E' :
 		    fExecute = TRUE;
 		    break;
 
+                case 'k' :
+                    fBreakLinks = TRUE;
+		    break;
+
+                case 'l' :
+                    fCreateLink = TRUE;
+		    break;
+
 		case 'm' :
-		case 'M' :
-		    if (MatchList != NULL) {
-			fprintf(stderr, "Can only have one match list");
-                        Usage();
-		    }
 		    fMatching = TRUE;
 		    break;
 
+                case 'n' :
+                    fCreateNew = TRUE;
+		    break;
+
+                case 'r' :
+                    fDoNotRecurse = TRUE;
+		    break;
+
 		case 's' :
-		case 'S' :
-		    fCheckSize = TRUE;
+                    fCheckSize = TRUE;
+                    fChecking  = TRUE;
 		    break;
 
 		case 't' :
-		case 'T' :
 
 		    //
 		    // Get Granularity parameter
@@ -724,23 +805,41 @@ BOOL IsFlag(char *argv)
                            //         10^7/2^23
 #endif
 
-			while isdigit(*(++TmpArg + 1)) {}
+                        while isdigit(*(++TmpArg + 1)) {}
 		    }
 		    fCheckTime = TRUE;
 		    break;
 
 		case 'v' :
-		case 'V' :
 		    fVerbose = TRUE;
 		    break;
 
 		case 'x' :
-		case 'X' :
-		    if (ExcludeList != NULL) {
-			fprintf(stderr, "Can only have one exclude list");
-                        Usage();
-		    }
-		    fExclude = TRUE;
+		    if ((*(TmpArg + 1) == ':') &&
+			(*(TmpArg + 2) != '\0')	) {
+
+                        (ExcludeFile = TmpArg + 2);
+
+                        while isgraph(*(++TmpArg + 1)) {}
+
+                        if  ((FileHandle = fopen (ExcludeFile, "r")) == NULL) {
+                            fprintf (stderr, "cannot open %s\n", ExcludeFile);
+                            Usage();
+                        }
+                        else {
+                            while (fgets (String1   = String, MAX_PATH, FileHandle) != NULL) {
+                                 while  ( *(String2 = &(String1[ strspn  (String1, "\n\r") ])))  {
+                                     if  (*(String1 = &(String2[ strcspn (String2, "\n\r") ])))
+                                         *String1++ = 0;
+                                         ExcludeListLength++;
+                                         ExcludeList[ExcludeListLength - 1] = _strdup (String2);
+                                 }
+                            }
+                            fclose (FileHandle) ;
+                        }
+                    }
+
+                    fExclude = TRUE;
 		    break;
 
 		case '/' :
@@ -758,41 +857,43 @@ BOOL IsFlag(char *argv)
 
 } // IsFlag
 
-#ifdef COMPILE_FOR_DOS
-
-BOOL MatchElements(struct find_t *Buff, char *Path)
-
-#else
-
-BOOL MatchElements(WIN32_FIND_DATA *Buff, char *Path)
-
-#endif
+BOOL MatchElements(char *FileName, char *Path)
 {
-    if ( ((ExcludeList == NULL) && (MatchList == NULL)) ||
+    char *PathPlusName;
+
+    PathPlusName = MyStrCat(Path, FileName);
+
+    if ( ((ExcludeListLength == 0) && (MatchListLength == 0)) ||
         (
          (
-          (ExcludeList == NULL)  ||
+          (ExcludeListLength == 0)  ||
           (
-           (!AnyMatches(ExcludeList, (*Buff).cFileName, ExcludeListLength)) &&
-           (!AnyMatches(ExcludeList, Path, ExcludeListLength))
+           (!AnyMatches(ExcludeList, FileName, ExcludeListLength)) &&
+           (!AnyMatches(ExcludeList, PathPlusName, ExcludeListLength))
           )
          ) &&
          (
-          ( MatchList == NULL)   ||
-          (AnyMatches(MatchList, (*Buff).cFileName, MatchListLength))  ||
-          (AnyMatches(MatchList, Path, MatchListLength))
+          ( MatchListLength == 0)   ||
+          (AnyMatches(MatchList, FileName, MatchListLength))  ||
+          (AnyMatches(MatchList, PathPlusName, MatchListLength))
          )
         )
-    )
+    ) {
+        free(PathPlusName);
         return TRUE;
-    else
+    }
+    else {
+        free(PathPlusName);
         return FALSE;
+    }
 }
 
 void ParseArgs(int argc, char *argv[])
 {
-    int	ArgCount = 1;
-    int FlagCount = 0;
+    int ArgCount, FlagCount;
+
+    ArgCount  = 1;
+    FlagCount = 0;
 
     //
     // Check that number of arguments is two or more
@@ -805,19 +906,27 @@ void ParseArgs(int argc, char *argv[])
     do {
 	if (IsFlag( argv[ArgCount] )) {
 	    if ((fScript) && (fVerbose)) {
-		fprintf(stderr, "Can't do both script and verbose\n");
+                fprintf(stderr, "Cannot do both script and verbose\n");
                 Usage();
 	    }
 	    if ((fVerbose) && (fExecute)) {
-		fprintf(stderr, "Can't do both verbose and execute\n");
+                fprintf(stderr, "Cannot do both verbose and execute\n");
                 Usage();
 	    }
 	    if ((fScript) && (fExecute)) {
-		fprintf(stderr, "Can't do both script and execute\n");
+                fprintf(stderr, "Cannot do both script and execute\n");
                 Usage();
 	    }
 	    if ((fExclude) && (fMatching)) {
-		fprintf(stderr, "Can't do both match and exclude\n");
+                fprintf(stderr, "Cannot do both match and exclude\n");
+                Usage();
+	    }
+            if ((fCreateLink) && (!fExecute)) {
+                fprintf(stderr, "Cannot do link without execute flag\n");
+                Usage();
+	    }
+            if ((fBreakLinks) && (!fExecute)) {
+                fprintf(stderr, "Cannot break links without execute flag\n");
                 Usage();
 	    }
 	    FlagCount++;
@@ -828,13 +937,11 @@ void ParseArgs(int argc, char *argv[])
 	    if (ArgCount + 2 < argc) {
 		if (fMatching) {
 		    MatchListLength++;
-		    if (MatchList == NULL)
-			MatchList = &(argv[ArgCount]);
+                    MatchList[MatchListLength - 1] = argv[ArgCount];
 		}
 		if (fExclude) {
-		    ExcludeListLength++;
-		    if (ExcludeList == NULL)
-			ExcludeList = &(argv[ArgCount]);
+                    ExcludeListLength++;
+                    ExcludeList[ExcludeListLength - 1] = argv[ArgCount];
 		}
 		if ((!fMatching) && (!fExclude)) {
 		    fprintf(stderr, "Don't know option %s\n", argv[ArgCount]);
@@ -851,7 +958,7 @@ void ParseArgs(int argc, char *argv[])
 
 } // ParseArgs
 
-void PrintList(LinkedFileList List)
+void PrintFile(LinkedFileList File, char *Path, char *DiffPath)
 {
 #ifdef COMPILE_FOR_DOS
     struct tm *SysTime;
@@ -859,160 +966,198 @@ void PrintList(LinkedFileList List)
     SYSTEMTIME SysTime;
     FILETIME LocalTime;
 #endif
-    LinkedFileList tmpptr = List;
 
-    while (tmpptr != NULL) {
-	if (((MatchList == NULL) && (ExcludeList == NULL)) ||	   // Don't print Dirs if
-	    !(*tmpptr).Directory			     ) {   // we have match/exclude list
+    if (File != NULL) {
+        // Don't print Dirs if we have match list
+        if ((MatchListLength == 0) || (!(*File).Attributes & FILE_ATTRIBUTE_DIRECTORY)) {
             if (fVerbose) {
 #ifdef COMPILE_FOR_DOS
-		SysTime = localtime(&(*tmpptr).Time);
+		SysTime = localtime(&(*File).Time);
 		
 		fprintf (stdout, "% 9ld %.24s %s\n",
-			 (*tmpptr).SizeLow,
+			 (*File).SizeLow,
 			 asctime(SysTime),
-			 (*tmpptr).FullPathName);
+                         Path);
 #else
-		FileTimeToLocalFileTime(&(*tmpptr).Time, &LocalTime);
+		FileTimeToLocalFileTime(&(*File).Time, &LocalTime);
 		FileTimeToSystemTime(&LocalTime, &SysTime);
 
-                fprintf (stdout, "% 9ld  %2d-%02d-%d  %2d:%02d.%02d.%03d%c %s\n",
-			 (*tmpptr).SizeLow,
+                fprintf (stdout, "%-4s % 9ld  %2d-%02d-%d  %2d:%02d.%02d.%03d%c %s\n",
+			 (*File).Flag,
+                         (*File).SizeLow,
 			 SysTime.wMonth, SysTime.wDay, SysTime.wYear,
 			 ( SysTime.wHour > 12 ? (SysTime.wHour)-12 : SysTime.wHour ),
 			 SysTime.wMinute,
 			 SysTime.wSecond,
 			 SysTime.wMilliseconds,
 			 ( SysTime.wHour >= 12 ? 'p' : 'a' ),
-			 (*tmpptr).FullPathName);
+                         Path);
 #endif
 	    }
 	    else
-                fprintf(stdout, "%-4s %s\n", (*tmpptr).Flag, (*tmpptr).FullPathName);
+                fprintf(stdout, "%-4s %s\n", (*File).Flag, Path);
 	}
-	PrintList((*tmpptr).DiffNode);
-	tmpptr = (*tmpptr).Next;
+        PrintFile((*File).DiffNode, DiffPath, NULL);
     }
-} // PrintList
 
-void ProcessList(LinkedFileList AddList, LinkedFileList DelList, LinkedFileList DifList,
-		   char *Dir1, char *Dir2		 )
+} // PrintFile
+
+void ProcessAdd(LinkedFileList List, char *String1, char *String2)
 {
-    LinkedFileList	TmpList;
-    char Execute[25];
-    char *String1;
-    char *String2;
-
-    (Dir1[strlen(Dir1) - 1] == '\\') ? (String1 = strdup(Dir1)) :
-        (String1 = MyStrCat(Dir1, "\\"));
-
-    if (!fOneFileOnly) {
-    (Dir2[strlen(Dir2) - 1] == '\\') ? (String2 = strdup(Dir2)) :
-        (String2 = MyStrCat(Dir2, "\\"));
+    if (fScript) {
+	(((*List).Attributes & FILE_ATTRIBUTE_DIRECTORY)) ?
+        fprintf(stdout, "echo d | xcopy /cdehikr %s %s\n", String1, String2) :
+        fprintf(stdout, "echo f | xcopy /cdehikr %s %s\n", String1, String2);
     }
-    else (String2 = strdup(Dir2));
+    else if (fExecute)
+	CopyNode (String2, List, String1);
+    else PrintFile(List, String1, NULL);
 
-    TmpList = DelList;
-    while (TmpList != NULL) {
+} // ProcessAdd
+
+void ProcessDel(LinkedFileList List, char *String)
+{
+    if (fScript) {
+	(((*List).Attributes & FILE_ATTRIBUTE_DIRECTORY)) ?
+	fprintf(stdout, "echo y | rd /s %s\n", String) :
+	fprintf(stdout, "del /f %s\n", String);
+    }
+    else if (fExecute) {
+	fprintf(stdout, "Removing %s\n", String);
+	DelNode(String);
+    }
+    else PrintFile(List, String, NULL);
+
+} // ProcessDel
+
+void ProcessDiff(LinkedFileList List, char *String1, char *String2)
+{
+    if (strchr ((*List).Flag, '@')) {
 	if (fScript) {
-	    ((*TmpList).Directory) ? strcpy(Execute, "echo y | rd /s ") :
-		strcpy(Execute, "del /f ");
-            fprintf(stdout, "%s %s\n", Execute, (*TmpList).FullPathName);
+	    if (((*List).Attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+		fprintf(stdout, "echo y | rd /s %s\n", String2);
+                fprintf(stdout, "echo d | xcopy /cdehikr %s %s\n", String1, String2);
+	    }
+	    else {
+		fprintf(stdout, "del /f %s\n", String2);
+                fprintf(stdout, "echo f | xcopy /cdehikr %s %s\n", String1, String2);
+	    }
 	}
 	if (fExecute) {
-            fprintf(stdout, "Removing %s\n", (*TmpList).FullPathName );
-	    DelNode((*TmpList).FullPathName);
+	    fprintf(stdout, "Removing %s\n", String2);
+	    DelNode (String2);
+	    CopyNode (String2, List, String1);
 	}
-	TmpList = (*TmpList).Next;
     }
+    if (fScript) {
+	(((*List).Attributes & FILE_ATTRIBUTE_DIRECTORY)) ?
+        fprintf(stdout, "echo d | xcopy /cdehikr %s %s\n", String1, String2) :
+        fprintf(stdout, "echo f | xcopy /cdehikr %s %s\n", String1, String2);
+    }
+    else if (fExecute)
+	CopyNode (String2, List, String1);
+    else PrintFile(List, String1, String2);
+
+} // ProcessDiff
+
+void ProcessLists(LinkedFileList AddList, LinkedFileList DelList, LinkedFileList DifList,
+                   char *Path1, char *Path2, BOOL AppendPath                             )
+{
+    LinkedFileList	TmpList;
+    char *PathWithSlash1, *String1, *PathWithSlash2, *String2;
+    int PathLength1, PathLength2;
+
+    (Path1[strlen(Path1) - 1] == '\\') ? (PathWithSlash1 = _strdup(Path1)) :
+        (PathWithSlash1 = MyStrCat(Path1, "\\"));
+
+    (Path2[strlen(Path2) - 1] == '\\') ? (PathWithSlash2 = _strdup(Path2)) :
+        (PathWithSlash2 = MyStrCat(Path2, "\\"));
+
+    PathLength1 = strlen(PathWithSlash1);
+    PathLength2 = strlen(PathWithSlash2);
+
+    String1 = _strdup(PathWithSlash1);
+    String2 = _strdup(PathWithSlash2);
+
+    free(PathWithSlash1);
+    free(PathWithSlash2);
 
     TmpList = AddList;
 
     while (TmpList != NULL) {
-	if (fScript) {
-	    ((*TmpList).Directory) ? strcpy(Execute, "echo f | xcopy /kievfhr ") :
-		strcpy(Execute, "echo f | xcopy /kivfhr ");
-	    if (!fOneFileOnly) {
-                fprintf(stdout, "%s %s %s%s\n", Execute,
-				       (*TmpList).FullPathName,
-				       String2,
-				       &((*TmpList).FullPathName[strlen(String1)]));
-	    }
-	    else {
-                fprintf(stdout, "%s %s %s\n", Execute,
-				       (*TmpList).FullPathName,
-				       String2);
-	    }
-	}
-        if (fExecute) {
-	    if (!fOneFileOnly) {
-		CopyNode (MyStrCat( String2,
-				    &((*TmpList).FullPathName[strlen(String1)])),
-				    TmpList);
-	    }
-	    else {
-		CopyNode ( String2, TmpList);
-	    }
-	}
+        String1 = realloc(String1, PathLength1 + strlen((*TmpList).Name) + 1);
+        if (String1 == NULL)
+            OutOfMem();
+        strcpy(&(String1[PathLength1]), (*TmpList).Name);
+        String2 = realloc(String2, PathLength2 + strlen((*TmpList).Name) + 1);
+        if (String2 == NULL)
+            OutOfMem();
+        strcpy(&(String2[PathLength2]), (*TmpList).Name);
+
+        if (AppendPath) ProcessAdd(TmpList, String1, String2);
+
+        else ProcessAdd(TmpList, Path1, Path2);
+
 	TmpList = (*TmpList).Next;
     }
 
-    TmpList = DifList;
+    TmpList = DelList;
+
     while (TmpList != NULL) {
-	if (strchr ((*TmpList).Flag, '@')) {
-	    if (fScript) {
-		((*TmpList).Directory) ? strcpy(Execute, "del /f ") :
-		    strcpy(Execute, "echo | rd /s");
-                fprintf(stdout, "%s %s%s\n", Execute,
-				    String2,
-				    &((*TmpList).FullPathName[strlen(String1)]));
-	    }
-	    if (fExecute) {
-                fprintf(stdout, "Removing %s\n", (*TmpList).FullPathName );
-		DelNode (MyStrCat( String2, &((*TmpList).FullPathName[strlen(String1)])));
-	    }
-	}
-	if (fScript) {
-	    ((*TmpList).Directory) ? strcpy(Execute, "echo f | xcopy /kievfhr ") :
-                strcpy(Execute, "echo f | xcopy /kivfhr ");
-            fprintf(stdout, "%s %s %s%s\n", Execute,
-				   (*TmpList).FullPathName,
-				   String2,
-                                   &((*TmpList).FullPathName[strlen(String1)]));
-	}
-        if (fExecute) {
-            if (!fOneFileOnly) {
-                CopyNode (MyStrCat( String2,
-                                    &((*TmpList).FullPathName[strlen(String1)])),
-                                    TmpList);
-            }
-	    else {
-		CopyNode ( String2, TmpList);
-	    }
-	}
+        String2 = realloc(String2, PathLength2 + strlen((*TmpList).Name) + 1);
+        if (String2 == NULL)
+	    OutOfMem();
+        strcpy(&(String2[PathLength2]), (*TmpList).Name);
+
+        if (!fDoNotDelete) ProcessDel(TmpList, String2);
+        TmpList = (*TmpList).Next;
+    }
+
+    TmpList = DifList;
+
+    while (TmpList != NULL) {
+        String1 = realloc(String1, PathLength1 + strlen((*TmpList).Name) + 1);
+        if (String1 == NULL)
+            OutOfMem();
+        strcpy(&(String1[PathLength1]), (*TmpList).Name);
+        String2 = realloc(String2, PathLength2 + strlen((*TmpList).Name) + 1);
+        if (String2 == NULL)
+            OutOfMem();
+        strcpy(&(String2[PathLength2]), (*TmpList).Name);
+
+        if (AppendPath) ProcessDiff(TmpList, String1, String2);
+
+        else ProcessDiff(TmpList, Path1, Path2);
+
 	TmpList = (*TmpList).Next;
     }
     free (String1);
     free (String2);
 
-} // ProcessList
+} // ProcessLists
 
 void Usage(void)
 {
-    fprintf (stderr, "Usage: compdir [/bcestv] [/m {wildcard specs}] [/x {wildcard specs}] dir1 dir2 \n");
-    fprintf (stderr, "    /a     checks for attribute difference \n");
-    fprintf (stderr, "    /b     checks for sum difference       \n");
-    fprintf (stderr, "    /c     prints out script to make       \n");
-    fprintf (stderr, "           directory2 look like directory1 \n");
-    fprintf (stderr, "    /e     execution of tree duplication   \n");
-    fprintf (stderr, "    /m     marks start of match list       \n");
-    fprintf (stderr, "    /s     checks for size difference      \n");
-    fprintf (stderr, "    /t[:#] checks for time-date difference;\n");
-    fprintf (stderr, "           takes margin-of-error parameter \n");
-    fprintf (stderr, "           in number of seconds.           \n");
-    fprintf (stderr, "    /v     prints verbose output           \n");
-    fprintf (stderr, "    /x     marks start of exclude list     \n");
-    fprintf (stderr, "    /?     prints this message             \n");
+    fprintf (stderr, "Usage: compdir [/abcdelnrstv] [/m {wildcard specs}] [/x {wildcard specs}] Path1 Path2 \n");
+    fprintf (stderr, "    /a     checks for attribute difference       \n");
+    fprintf (stderr, "    /b     checks for sum difference             \n");
+    fprintf (stderr, "    /c     prints out script to make             \n");
+    fprintf (stderr, "           directory2 look like directory1       \n");
+    fprintf (stderr, "    /d     do not perform or denote deletions    \n");
+    fprintf (stderr, "    /e     execution of tree duplication         \n");
+    fprintf (stderr, "    /k     break links if copying files (on NT only)\n");
+    fprintf (stderr, "    /l     use links instead of copies  (on NT only)\n");
+    fprintf (stderr, "    /m     marks start of match list             \n");
+    fprintf (stderr, "    /n     create second path if it doesn't exist\n");
+    fprintf (stderr, "    /r     do not recurse into subdirectories    \n");
+    fprintf (stderr, "    /s     checks for size difference            \n");
+    fprintf (stderr, "    /t[:#] checks for time-date difference;      \n");
+    fprintf (stderr, "           takes margin-of-error parameter       \n");
+    fprintf (stderr, "           in number of seconds.                 \n");
+    fprintf (stderr, "    /v     prints verbose output                 \n");
+    fprintf (stderr, "    /x[:f] marks start of exclude list. f is an  \n");
+    fprintf (stderr, "           exclude file                          \n");
+    fprintf (stderr, "    /?     prints this message                   \n");
     exit(1);
 
 } // Usage

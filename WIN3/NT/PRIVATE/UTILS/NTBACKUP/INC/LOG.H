@@ -117,6 +117,7 @@ enum{
      LOG_WARNING,
      LOG_DIRECTORY,
      LOG_FILE,
+     LOG_STREAM,
      LOG_END
 } LOG_MESSAGES ;
 

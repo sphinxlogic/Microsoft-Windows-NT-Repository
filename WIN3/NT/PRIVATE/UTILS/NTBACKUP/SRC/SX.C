@@ -244,22 +244,23 @@ BOOLEAN SX_OpenFile(
           ThreadSwitch( ) ;
 
           /* open the file */
-          if( ( SX_FileHandle( channel ) = open( lw_cat_file_path, SX_READ_FLAG, SX_READ_PMODE ) ) == -1 ) {
-               result = FALSE ;
-          } else {
-               /* indicate the file is opened for READ */
-               SX_SetStatus( channel, SX_OPEN_FOR_READ ) ;
-               
-               /* be sure we are at the beginning */
-               result = SX_SeekFile( channel, 0L, SEEK_SET, SX_FILE ) ;
 
-               /* indicate where we are at */
-               if( result ) {
-                    SX_SetAt( channel, SX_AT_BOF ) ;
-               } else {
-                    SX_ClearAt( channel ) ;
-               }
-          }
+//          if( ( SX_FileHandle( channel ) = UNI_fopen( lw_cat_file_path, SX_READ_FLAG ) ) == -1 ) {
+//               result = FALSE ;
+//          } else {
+//               /* indicate the file is opened for READ */
+//               SX_SetStatus( channel, SX_OPEN_FOR_READ ) ;
+//               
+//               /* be sure we are at the beginning */
+//               result = SX_SeekFile( channel, 0L, SEEK_SET, SX_FILE ) ;
+//
+//               /* indicate where we are at */
+//               if( result ) {
+//                    SX_SetAt( channel, SX_AT_BOF ) ;
+//               } else {
+//                    SX_ClearAt( channel ) ;
+//               }
+//          }
      }
 
      return( result ) ;
@@ -956,7 +957,8 @@ VOID      SX_EndSampling( CHANNEL_PTR channel )
                strcpy( lw_cat_file_path_end, sx_file_name ) ;
 
                /* open the SX file */
-               if( ( SX_FileHandle( channel ) = open( lw_cat_file_path, SX_WRITE_FLAG, SX_WRITE_PMODE ) ) != -1 ) {
+//               if( ( SX_FileHandle( channel ) = UNI_fopen( lw_cat_file_path, SX_WRITE_FLAG ) ) != -1 ) {
+                 if ( 0 ) {
 
                     /* indicate the SX file is open */
                     SX_SetStatus( channel, SX_OPEN_FOR_WRITE ) ;
@@ -1054,15 +1056,15 @@ static BOOLEAN SX_OpenTmpFile( CHANNEL_PTR channel )
      ThreadSwitch( ) ;
 
      /* open the file */
-     if( ( SX_TmpFileHandle( channel ) = open( lw_cat_file_path, SX_TMP_FLAG, SX_TMP_PMODE ) ) == -1 ) {
-
+//     if( ( SX_TmpFileHandle( channel ) = UNI_fopen( lw_cat_file_path, SX_TMP_FLAG  ) ) == -1 ) {
+//
           SX_SetStatus( channel, SX_ERROR ) ;
           result = FALSE ;
 
-     } else {
-
-          SX_SetStatus( channel, SX_TMP_OPEN_FOR_WRITE ) ;
-     }
+//     } else {
+//
+//          SX_SetStatus( channel, SX_TMP_OPEN_FOR_WRITE ) ;
+//     }
   
      return( result ) ;
 
@@ -1226,11 +1228,7 @@ VOID    SX_InfoDump(
      BE_Zprintf( 0, TEXT("\ntmp      0x%04x"), channel->sx_info.sx_tmp ) ;
      BE_Zprintf( 0, TEXT("\nstatus   0x%04x"), channel->sx_info.status ) ;
 
-#    ifdef UNICODE
-      BE_Zprintf( 0, TEXT("\n\n%ws\n\n"), message ) ;
-#    else
       BE_Zprintf( 0, TEXT("\n\n%s\n\n"), message ) ;
-#    endif
 
      return ;
 
@@ -1238,4 +1236,4 @@ VOID    SX_InfoDump(
 
 #endif
 
-
+

@@ -12,8 +12,8 @@
 --*/
 
 
-    {W32FUN(WD32UNIMPLEMENTEDAPI,            "DUMMYENTRY",                MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "DUMMYENTRY",               MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
     {W32FUN(WD32DdeInitialize,                "DDEINITIALIZE",            MOD_DDEML,   sizeof(DDEINITIALIZE16))},
     {W32FUN(WD32DdeUninitialize,              "DDEUNINITIALIZE",          MOD_DDEML,   sizeof(DDEUNINITIALIZE16))},
     {W32FUN(WD32DdeConnectList,               "DDECONNECTLIST",           MOD_DDEML,   sizeof(DDECONNECTLIST16))},
@@ -41,22 +41,22 @@
     {W32FUN(WD32DdeFreeStringHandle,          "DDEFREESTRINGHANDLE",      MOD_DDEML,   sizeof(DDEFREESTRINGHANDLE16))},
     {W32FUN(WD32DdeQueryString,               "DDEQUERYSTRING",           MOD_DDEML,   sizeof(DDEQUERYSTRING16))},
     {W32FUN(WD32DdeKeepStringHandle,          "DDEKEEPSTRINGHANDLE",      MOD_DDEML,   sizeof(DDEKEEPSTRINGHANDLE16))},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
     {W32FUN(WD32DdeEnableCallback,            "DDEENABLECALLBACK",        MOD_DDEML,   sizeof(DDEENABLECALLBACK16))},
     {W32FUN(WD32DdeNameService,               "DDENAMESERVICE",           MOD_DDEML,   sizeof(DDENAMESERVICE16))},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
 
   /*** 0031 ***/
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
     {W32FUN(WD32DdeCmpStringHandles,          "DDECMPSTRINGHANDLES",      MOD_DDEML,   sizeof(DDECMPSTRINGHANDLES16))},
     {W32FUN(WD32DdeReconnect,                 "DDERECONNECT",             MOD_DDEML,   sizeof(DDERECONNECT16))},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-    {W32FUN(WD32UNIMPLEMENTEDAPI,             "",                         MOD_DDEML,   0)},
-
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+    {W32FUN(UNIMPLEMENTEDAPI,                 "",                         MOD_DDEML,   0)},
+

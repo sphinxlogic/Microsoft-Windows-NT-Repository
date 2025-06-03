@@ -1,111 +1,26 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  mibfuncs.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  Contains MIB functions for GET's and SET's for LM MIB.
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.11  $
-//  $Date:   03 Jul 1992 13:21:02  $
-//  $Author:   ChipS  $
-//
-//  $Log:   N:/lmmib2/vcs/mibfuncs.c_v  $
-//
-//     Rev 1.11   03 Jul 1992 13:21:02   ChipS
-//  Final Unicode Changes
-//
-//     Rev 1.10   03 Jul 1992 12:18:18   ChipS
-//  Enable Unicode
-//
-//     Rev 1.9   13 Jun 1992 12:13:04   ChipS
-//  Fix order of operations on malloc stuff.
-//
-//     Rev 1.8   13 Jun 1992 11:49:30   ChipS
-//  Check all mallocs for errors.
-//
-//     Rev 1.7   07 Jun 1992 17:16:02   ChipS
-//  Turn off unicode.
-//
-//     Rev 1.6   07 Jun 1992 17:03:10   ChipS
-//  Made SETs unicode.
-//
-//     Rev 1.5   07 Jun 1992 16:11:36   ChipS
-//  Fix cast problem
-//
-//     Rev 1.4   07 Jun 1992 15:53:40   ChipS
-//  Fix include file order
-//
-//     Rev 1.3   07 Jun 1992 15:18:36   ChipS
-//  More changes.
-//
-//     Rev 1.2   06 Jun 1992 14:42:54   ChipS
-//  First pass at adding unicode strings.  All should be fixed except sets.
-//
-//     Rev 1.1   01 Jun 1992 12:36:06   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.0   20 May 1992 15:10:28   mlk
-//  Initial revision.
-//
-//     Rev 1.12   03 May 1992 18:10:12   Chip
-//  Fix errors introduced in rev 1.11
-//
-//     Rev 1.11   03 May 1992 17:49:30   Chip
-//  Made changes per dwain's memo response.
-//
-//     Rev 1.10   03 May 1992 16:56:40   Chip
-//  Removed warnings.
-//
-//     Rev 1.9   02 May 1992 21:35:10   todd
-//  Fixed bug with workstation's CACHE not ever getting SET, but thinking that
-//  it had been.
-//
-//     Rev 1.8   02 May 1992 19:08:48   todd
-//  code cleanup
-//
-//     Rev 1.7   01 May 1992 15:40:02   Chip
-//  Get rid of warnings.
-//
-//     Rev 1.6   01 May 1992  0:01:26   Chip
-//  Added code to free complex structures.
-//  Added code to perform single variable sets.
-//
-//     Rev 1.5   30 Apr 1992  9:59:36   Chip
-//  Added cacheing.
-//
-//     Rev 1.4   24 Apr 1992 18:22:24   chip
-//  Integrated with Todd's stuff, works inside XTEST DLL test routine
-//
-//     Rev 1.3   24 Apr 1992 12:31:50   todd
-//  Split off table routines into separate files.
-//
-//     Rev 1.2   24 Apr 1992  9:46:10   todd
-//  Moved prototypes for Services Table into srvc_tbl.c
-//
-//     Rev 1.1   23 Apr 1992 17:58:40   todd
-//
-//     Rev 1.0   22 Apr 1992 17:08:56   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/mibfuncs.c_v  $ $Revision:   1.11  $";
+Module Name:
 
+    mibfuncs.c
+
+Abstract:
+
+    Contains MIB functions for GET's and SET's for LM MIB.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
@@ -129,15 +44,13 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/mibfuncs.c_v  $ $Revision: 
 #endif
 
 #include <stdio.h>
-#include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
-#include <uniconv.h>
+#include <snmputil.h>
 
 #include "mib.h"
 #include "lmcache.h"
@@ -159,7 +72,6 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/mibfuncs.c_v  $ $Revision: 
 //--------------------------- PRIVATE CONSTANTS -----------------------------
 
 #define SafeBufferFree(x)       if(NULL != x) NetApiBufferFree( x )
-#define DEBUGPRINT(x)
 
 //--------------------------- PRIVATE STRUCTS -------------------------------
 
@@ -170,7 +82,7 @@ static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/mibfuncs.c_v  $ $Revision: 
 //--------------------------- PRIVATE PROCEDURES ----------------------------
 
 #ifdef UNICODE
-#define Tstrlen strlen_W
+#define Tstrlen SnmpUtilStrlenW
 #else
 #define Tstrlen strlen
 #endif
@@ -246,16 +158,16 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        wksta_info_one = (WKSTA_INFO_101 *) bufptr ;
-                       itoa(wksta_info_one->wki101_ver_major,temp,10) ;
+                       _itoa(wksta_info_one->wki101_ver_major,temp,10) ;
                        if(NULL ==
-                        (stream = malloc( strlen(temp) ))
+                        (stream = SnmpUtilMemAlloc( strlen(temp) ))
                        )  {
-                          free(retval);
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
@@ -271,7 +183,7 @@ UNREFERENCED_PARAMETER(SetData);
                                 cache_table[C_NETWKSTAGETINFO].bufptr = bufptr ;
                         } // if (cache_it)
                }
-               DEBUGPRINT( "MIB_LM_COMVERSIONMAJ" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_COMVERSIONMAJ.\n" ));
                break;
 
             case MIB_LM_COMVERSIONMIN:
@@ -300,16 +212,16 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        wksta_info_one = (WKSTA_INFO_101 *) bufptr ;
-                       itoa(wksta_info_one->wki101_ver_minor,temp,10) ;
+                       _itoa(wksta_info_one->wki101_ver_minor,temp,10) ;
                        if(NULL ==
-                        (stream = malloc( strlen(temp) ))
+                        (stream = SnmpUtilMemAlloc( strlen(temp) ))
                        ){
-                          free(retval);
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
@@ -326,7 +238,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_COMVERSIONMIN" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_COMVERSIONMIN.\n" ));
                break;
 
             case MIB_LM_COMTYPE:
@@ -355,26 +267,21 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        server_info_two = (SERVER_INFO_102 *) bufptr ;
-                       itoa(server_info_two->sv102_type,temp,16) ; // hex!!
                        if(NULL ==
-                        (stream = malloc( strlen(temp) ))
+                        (stream = SnmpUtilMemAlloc( 4 * sizeof(BYTE) ))
                        ){
-                          free(retval);
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
-                       stream[0]=temp[3];
-                       stream[1]=temp[2];
-                       stream[2]=temp[1];
-                       stream[3]=temp[0];
-                       //memcpy(stream,&temp,strlen(temp));
+                       *(DWORD*)stream=server_info_two->sv102_type & 0x000000FF; 
                        retval->d.octstrval.stream = stream;
-                       retval->d.octstrval.length = strlen(temp);
+                       retval->d.octstrval.length = 4 * sizeof(BYTE);
                        retval->d.octstrval.dynamic = TRUE;
 
                        if(cache_it) {
@@ -385,7 +292,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_COMTYPE" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_COMTYPE.\n" ));
                break;
 
             case MIB_LM_COMSTATSTART:
@@ -416,7 +323,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -431,7 +338,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_STATSTART" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_STATSTART.\n" ));
                break;
 
             case MIB_LM_COMSTATNUMNETIOS:
@@ -463,7 +370,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -480,7 +387,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_STATNUMNETIOS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_STATNUMNETIOS.\n" ));
                break;
 
             case MIB_LM_COMSTATFINETIOS:
@@ -513,7 +420,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -528,7 +435,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_STATFINETIOS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_STATFINETIOS.\n" ));
                break;
 
             case MIB_LM_COMSTATFCNETIOS:
@@ -560,7 +467,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -576,11 +483,11 @@ UNREFERENCED_PARAMETER(SetData);
 
                }
 
-               DEBUGPRINT( "MIB_LM_STATFCNETIOS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_STATFCNETIOS.\n" ));
                break;
 
             default:
-               DEBUGPRINT( "Error:  Data not supported by function\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Data not supported by function.\n" ));
 
                nResult = SNMPAPI_ERROR;
                goto Exit;
@@ -614,7 +521,6 @@ void  * MIB_server_func(
 lan_return_info_type *retval=NULL;
 SERVER_INFO_102 *server_info_two;
 SERVER_INFO_102 server_info_10two;
-SERVER_INFO_101 server_info_one;
 STAT_SERVER_0 *server_stats_zero;
 SERVER_INFO_102 *server_info_102 ;
 SERVER_INFO_403 *server_info_four ;
@@ -684,20 +590,20 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        server_info_two = (SERVER_INFO_102 *) bufptr ;
                        if(NULL ==
-                        (stream = malloc( Tstrlen(server_info_two->sv102_comment) ))
+                        (stream = SnmpUtilMemAlloc( Tstrlen(server_info_two->sv102_comment) + 1 ))
                        ) {
-                          free(retval);
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
                        #ifdef UNICODE
-                                convert_uni_to_ansi(
+                                SnmpUtilUnicodeToAnsi(
                                         &stream,
                                         server_info_two->sv102_comment,
                                         FALSE);
@@ -718,7 +624,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVDESCRIPTION" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVDESCRIPTION.\n" ));
                break;
 
 
@@ -738,7 +644,7 @@ LPWSTR unitemp ;
                NetServiceEnum( NULL,                    // local server
                                 0,                      // level 0
                                 &bufptr,                        // data structure to return
-                                4096,
+                                MAX_PREFERRED_LENGTH,
                                 &entriesread,
                                 &totalentries,
                                 NULL);
@@ -753,7 +659,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -771,7 +677,7 @@ LPWSTR unitemp ;
                }
 
 
-               DEBUGPRINT( "MIB_LM_SVSVCNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSVCNUMBER.\n" ));
                break;
 
 
@@ -805,7 +711,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -821,7 +727,7 @@ LPWSTR unitemp ;
 
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATOPENS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATOPENS.\n" ));
                break;
 
 
@@ -856,7 +762,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -871,7 +777,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATDEVOPENS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATDEVOPENS.\n" ));
                break;
 
                 case MIB_LM_SVSTATQUEUEDJOBS:
@@ -905,7 +811,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -920,7 +826,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATQUEUEDJOBS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATQUEUEDJOBS.\n" ));
                break;
 
                 case MIB_LM_SVSTATSOPENS:
@@ -953,7 +859,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -968,7 +874,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATSOPENS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATSOPENS.\n" ));
                break;
 
                 case MIB_LM_SVSTATERROROUTS:
@@ -1000,7 +906,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1014,7 +920,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATSERROROUTS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATSERROROUTS.\n" ));
                break;
 
                 case MIB_LM_SVSTATPWERRORS:
@@ -1046,7 +952,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1061,7 +967,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATPWERRORS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATPWERRORS.\n" ));
                break;
 
                 case MIB_LM_SVSTATPERMERRORS:
@@ -1093,7 +999,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1108,7 +1014,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATPERMERRORS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATPERMERRORS.\n" ));
                break;
 
                 case MIB_LM_SVSTATSYSERRORS:
@@ -1139,7 +1045,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1154,7 +1060,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATSYSERRORS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATSYSERRORS.\n" ));
                break;
 
                 case MIB_LM_SVSTATSENTBYTES:
@@ -1186,7 +1092,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1201,7 +1107,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATSENTBYTES" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATSENTBYTES.\n" ));
                break;
 
                 case MIB_LM_SVSTATRCVDBYTES:
@@ -1232,7 +1138,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1247,7 +1153,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATRCVDBYTES" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATRCVDBYTES.\n" ));
                break;
 
                 case MIB_LM_SVSTATAVRESPONSE:
@@ -1279,7 +1185,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1294,7 +1200,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATAVRESPONSE" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATAVRESPONSE.\n" ));
                break;
 
          case MIB_LM_SVSECURITYMODE:
@@ -1302,7 +1208,7 @@ LPWSTR unitemp ;
              // hard code USER security per dwaink
              //
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1334,7 +1240,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1349,7 +1255,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 #endif
-               DEBUGPRINT( "MIB_LM_SVSECURITYMODE" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSECURITYMODE.\n" ));
                break;
 
 
@@ -1380,7 +1286,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1395,7 +1301,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVUSERS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVUSERS.\n" ));
                break;
 
                 case MIB_LM_SVSTATREQBUFSNEEDED:
@@ -1427,7 +1333,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1442,7 +1348,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATREQBUFSNEEDED" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATREQBUFSNEEDED.\n" ));
                break;
 
                 case MIB_LM_SVSTATBIGBUFSNEEDED:
@@ -1474,7 +1380,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1489,7 +1395,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATBIGBUFNEEDED" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATBIGBUFNEEDED.\n" ));
                break;
 
                 case MIB_LM_SVSESSIONNUMBER:
@@ -1510,7 +1416,7 @@ LPWSTR unitemp ;
                                 NULL,
                                 2,                      // level
                                 &bufptr,                // data structure to return
-                                4096,
+                                MAX_PREFERRED_LENGTH,
                                 &entriesread,
                                 &totalentries,
                                 NULL                    // no resume handle
@@ -1526,7 +1432,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1545,7 +1451,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSESSIONNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSESSIONNUMBER.\n" ));
                break;
 
                 case MIB_LM_SVAUTODISCONNECTS:
@@ -1577,7 +1483,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1592,7 +1498,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_SVSTATAUTODISCONNECT" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSTATAUTODISCONNECT.\n" ));
                break;
 
                 case MIB_LM_SVDISCONTIME:
@@ -1622,7 +1528,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1637,7 +1543,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_SVDISCONTIME" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVDISCONTIME.\n" ));
                break;
 
                 case MIB_LM_SVAUDITLOGSIZE:
@@ -1650,7 +1556,7 @@ LPWSTR unitemp ;
                 hEventLog = OpenEventLog( NULL,
                                           TEXT("APPLICATION"));
                     if(NULL ==
-                       (retval = malloc( sizeof(lan_return_info_type) ))
+                       (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                     retval->data_element_type = ASN_INTEGER ;
@@ -1688,7 +1594,7 @@ LPWSTR unitemp ;
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1703,7 +1609,7 @@ LPWSTR unitemp ;
                         } // if (cache_it)
                 }
 #endif
-               DEBUGPRINT( "MIB_LM_SVAUDITLOGSIZE" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVAUDITLOGSIZE.\n" ));
                break;
 
 
@@ -1713,13 +1619,13 @@ LPWSTR unitemp ;
 
                 MIB_users_lmget();   // fire off the table get
                 if(NULL ==
-                   (retval = malloc( sizeof(lan_return_info_type) ))
+                   (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
                 retval->d.intval = MIB_UserTable.Len;
 
-               DEBUGPRINT( "MIB_LM_SVUSERNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVUSERNUMBER.\n" ));
                break;
 
 
@@ -1728,14 +1634,14 @@ LPWSTR unitemp ;
 
                 MIB_shares_lmget();   // fire off the table get
                 if(NULL ==
-                   (retval = malloc( sizeof(lan_return_info_type) ) )
+                   (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ) )
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
                 retval->d.intval = MIB_ShareTable.Len;
 
 
-               DEBUGPRINT( "MIB_LM_SVSHARENUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_SVSHARENUMBER.\n" ));
                break;
 
 
@@ -1743,20 +1649,20 @@ LPWSTR unitemp ;
 
                 MIB_prntq_lmget();   // fire off the table get
                 if(NULL ==
-                    (retval = malloc( sizeof(lan_return_info_type) ))
+                    (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
                 retval->d.intval = MIB_PrintQTable.Len;
 
 
-               DEBUGPRINT( "MIB_LM_PRINTQNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_PRINTQNUMBER.\n" ));
                break;
 
 
 
             default:
-               DEBUGPRINT( "Error:  Data not supported by function\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Data not supported by function.\n" ));
 
                nResult = SNMPAPI_ERROR;
                goto Exit;
@@ -1770,34 +1676,64 @@ LPWSTR unitemp ;
 
         case MIB_LM_SVDESCRIPTION:
 
+                // retrieve string to be written
                 strvalue = (AsnOctetString *) SetData ;
-                stream = calloc( strvalue->length+1, 1  );      // force zeros for EOS
+
                 // convert it to zero terminated string
+                stream = SnmpUtilMemAlloc( strvalue->length+1 );
+                if (stream == NULL) {
+                    retval = (void *) FALSE;
+                    break;
+                }
                 memcpy(stream,strvalue->stream,strvalue->length);
-                memset(&server_info_one,0,sizeof(server_info_one));
+                stream[strvalue->length] = 0;
+
+                SNMPDBG((
+                    SNMP_LOG_TRACE,
+                    "LMMIB2: changing server description to %s.\n",
+                    stream
+                    ));
 
                 #ifdef UNICODE
-                convert_ansi_to_uni(    &unitemp,
-                                        stream,
-                                        TRUE );
-                #else
-                server_info_one.sv101_comment = stream ;
+                if (SnmpUtilAnsiToUnicode(&unitemp,
+                                          stream,
+                                          TRUE
+                                          )) {
+                    SnmpUtilMemFree(stream);
+                    retval = (void *) FALSE;
+                    break;
+                }
+                SnmpUtilMemFree(stream);
+                stream = (LPBYTE)unitemp;
                 #endif
 
                 lmCode = NetServerSetInfo(
                                 NULL,                   // this server
-                                SV_COMMENT_INFOLEVEL,       // level
-                                (LPBYTE) &server_info_one,      // data
+                                SV_COMMENT_INFOLEVEL,   // level
+                                (LPBYTE)&stream,        // data
                                 NULL );                 // option
 
-                #ifdef UNICODE
-                free(unitemp);
-                #endif
+                SnmpUtilMemFree(stream);
 
                 if(NERR_Success == lmCode) {
+
                         retval = (void *) TRUE;
+                        cache_table[C_NETSERVERGETINFO].acquisition_time = 0;
+
+                        SNMPDBG((
+                            SNMP_LOG_TRACE,
+                            "LMMIB2: server description changed, invalidating cache.\n"
+                            ));
+
                 } else {
+
                         retval = (void *) FALSE;
+
+                        SNMPDBG((
+                            SNMP_LOG_TRACE,
+                            "LMMIB2: server description not changed 0x%08lx.\n",
+                            lmCode
+                            ));
                 }
                 break ;
 
@@ -1820,26 +1756,7 @@ LPWSTR unitemp ;
 
         case MIB_LM_SVAUDITLOGSIZE:
 
-#if 0
-                strvalue = (AsnOctetString *) SetData ;
-                stream = calloc( strvalue->length+1, 1 );       // force zeros for EOS
-                // convert it to zero terminated string
-                memcpy(stream,strvalue->stream,strvalue->length);
-                memset(&server_info_one,0,sizeof(server_info_one));
-                server_info_one.sv101_comment = stream ;
-                lmCode = NetServerSetInfo(
-                                NULL,                   // this server
-                                SV_COMMENT_INFOLEVEL,   // level
-                                &server_info_one,       // data
-                                NULL );                 // option
-                if(NERR_Success == lmCode) {
-                        retval = (void *) TRUE;
-                } else {
-                        retval = (void *) FALSE;
-                }
-#else
                 retval =  (void *) FALSE;
-#endif
                 break ;
 
             }  // switch(LMData)
@@ -1929,7 +1846,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1944,7 +1861,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_WKSTASTATSESSSTARTS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTASTATSESSSTARTS.\n" ));
                break;
 
 
@@ -1977,7 +1894,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -1992,7 +1909,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_WKSTASTATSESSFAILS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTASTATSESSFAILS.\n" ));
                break;
 
                 case MIB_LM_WKSTASTATUSES:
@@ -2023,7 +1940,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -2038,7 +1955,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_WKSTASTATUSES" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTASTATUSES.\n" ));
                break;
 
                 case MIB_LM_WKSTASTATUSEFAILS:
@@ -2070,7 +1987,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -2085,7 +2002,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_WKSTASTATUSEFAILS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTASTATUSEFAILS.\n" ));
                break;
 
                 case MIB_LM_WKSTASTATAUTORECS:
@@ -2117,7 +2034,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -2132,7 +2049,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                 }
 
-               DEBUGPRINT( "MIB_LM_WKSTASTATAUTORECS" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTASTATAUTORECS.\n" ));
                break;
 
                 case MIB_LM_WKSTAERRORLOGSIZE:
@@ -2161,7 +2078,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -2177,7 +2094,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_WKSTAERRORLOGSIZE" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTAERRORLOGSIZE.\n" ));
                break;
 
 
@@ -2185,18 +2102,18 @@ UNREFERENCED_PARAMETER(SetData);
 
                 MIB_wsuses_lmget();   // fire off the table get
                 if(NULL ==
-                   (retval = malloc( sizeof(lan_return_info_type) ))
+                   (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
                 retval->d.intval = MIB_WkstaUsesTable.Len;
 
 
-               DEBUGPRINT( "MIB_LM_WKSTAUSENUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_WKSTAUSENUMBER.\n" ));
                break;
 
             default:
-               DEBUGPRINT( "Error:  Data not supported by function\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Data not supported by function.\n" ));
 
                nResult = SNMPAPI_ERROR;
                goto Exit;
@@ -2301,19 +2218,19 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        wksta_info_one = (WKSTA_INFO_101 *) bufptr ;
                        if(NULL ==
-                        (stream = malloc( Tstrlen(wksta_info_one->wki101_langroup)+2 ))){
-                          free(retval);
+                        (stream = SnmpUtilMemAlloc( Tstrlen(wksta_info_one->wki101_langroup)+2 ))){
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
 #ifdef UNICODE
-                       convert_uni_to_ansi(
+                       SnmpUtilUnicodeToAnsi(
                                         &stream,
                                         wksta_info_one->wki101_langroup,
                                         FALSE);
@@ -2334,7 +2251,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_DOMPRIMARYDOMAIN" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_DOMPRIMARYDOMAIN.\n" ));
                break;
 
                case MIB_LM_DOMLOGONDOMAIN:
@@ -2363,21 +2280,21 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                        (retval = malloc( sizeof(lan_return_info_type) ))
+                        (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_OCTETSTRING ;
                        wksta_user_info_one = (WKSTA_USER_INFO_1 *) bufptr ;
                        if(NULL ==
-                        (stream = malloc(
+                        (stream = SnmpUtilMemAlloc(
                           Tstrlen(wksta_user_info_one->wkui1_logon_domain)+2 ))
                        ){
-                          free(retval);
+                          SnmpUtilMemFree(retval);
                           retval=NULL;
                           goto Exit ;
                        }
 #ifdef UNICODE
-                        convert_uni_to_ansi(
+                        SnmpUtilUnicodeToAnsi(
                                 &stream,
                                 wksta_user_info_one->wkui1_logon_domain,
                                 FALSE);
@@ -2399,7 +2316,7 @@ UNREFERENCED_PARAMETER(SetData);
                         } // if (cache_it)
                }
 
-               DEBUGPRINT( "MIB_LM_DOMLOGONDOMAIN" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_DOMLOGONDOMAIN.\n" ));
                break;
 
 
@@ -2407,13 +2324,13 @@ UNREFERENCED_PARAMETER(SetData);
 
                 MIB_odoms_lmget();   // fire off the table get
                 if(NULL ==
-                   (retval = malloc( sizeof(lan_return_info_type) ))
+                   (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
                 retval->d.intval = MIB_DomOtherDomainTable.Len;
 
-               DEBUGPRINT( "MIB_LM_DOMOTHERDOMAINNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_DOMOTHERDOMAINNUMBER.\n" ));
                break;
 
 
@@ -2425,7 +2342,7 @@ UNREFERENCED_PARAMETER(SetData);
 
 #endif
                 if(NULL ==
-                  (retval = malloc( sizeof(lan_return_info_type) ))
+                  (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                 retval->data_element_type = ASN_INTEGER ;
@@ -2446,7 +2363,7 @@ UNREFERENCED_PARAMETER(SetData);
                NetServerEnum(   NULL,                   // local server
                                 100,                    // level 0
                                 &bufptr,                        // data structure to return
-                                4096,
+                                MAX_PREFERRED_LENGTH,
                                 &entriesread,
                                 &totalentries,
                                 SV_TYPE_SERVER,
@@ -2463,7 +2380,7 @@ UNREFERENCED_PARAMETER(SetData);
 
                if(lmCode == 0)  {  // valid so return it, otherwise error NULL
                        if(NULL ==
-                         (retval = malloc( sizeof(lan_return_info_type) ))
+                         (retval = SnmpUtilMemAlloc( sizeof(lan_return_info_type) ))
                        )
                           goto Exit ;
                        retval->data_element_type = ASN_INTEGER ;
@@ -2482,7 +2399,7 @@ UNREFERENCED_PARAMETER(SetData);
                }
 
 #endif
-               DEBUGPRINT( "MIB_LM_DOMSERVERNUMBER" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: processing MIB_LM_DOMSERVERNUMBER.\n" ));
                break;
 
 
@@ -2500,7 +2417,7 @@ UNREFERENCED_PARAMETER(SetData);
                case MIB_LM_DOMLOGONMACHINE:
 #endif
             default:
-               DEBUGPRINT( "Error:  Data not supported by function\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Data not supported by function.\n" ));
 
                nResult = SNMPAPI_ERROR;
                goto Exit;
@@ -2587,9 +2504,9 @@ UINT                 nResult;
          else
             {
             // Place correct OID in VarBind
-            SNMP_oidfree( &VarBind->name );
-            SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-            SNMP_oidappend( &VarBind->name, &MibPtr->Oid );
+            SnmpUtilOidFree( &VarBind->name );
+            SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+            SnmpUtilOidAppend( &VarBind->name, &MibPtr->Oid );
             }
 
          // Purposefully let fall through to GET
@@ -2630,14 +2547,14 @@ UINT                 nResult;
                break;
 
             default:
-               printf( "\nInternal Error Processing LAN Manager LEAF Variable\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Processing LAN Manager LEAF Variable\n" ));
                nResult = SNMP_ERRORSTATUS_GENERR;
-               free( MibVal );
+               SnmpUtilMemFree( MibVal );
                goto Exit;
             } // type switch
 
          // Free memory alloc'ed by LM API call
-         free( MibVal );
+         SnmpUtilMemFree( MibVal );
          nResult = SNMP_ERRORSTATUS_NOERROR;
          break;
 
@@ -2681,7 +2598,7 @@ UINT                 nResult;
                   }
                break;
             default:
-               printf( "\nInternal Error Processing LAN Manager LEAF Variable\n" );
+               SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Processing LAN Manager LEAF Variable\n" ));
                nResult = SNMP_ERRORSTATUS_GENERR;
                goto Exit;
             }
@@ -2690,7 +2607,7 @@ UINT                 nResult;
          break;
 
       default:
-         printf( "\nInternal Error Processing LAN Manager LEAF Variable\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Processing LAN Manager LEAF Variable\n" ));
          nResult = SNMP_ERRORSTATUS_GENERR;
       } // switch
 
@@ -2699,4 +2616,3 @@ Exit:
 } // MIB_leaf_func
 
 //-------------------------------- END --------------------------------------
-

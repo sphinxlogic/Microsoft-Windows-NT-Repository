@@ -45,7 +45,9 @@ FsRtlInitSystem (
 
 //
 //  Every file system that uses the cache manager must have FsContext
-//  of the file object point to a common fcb header structure
+//  of the file object point to a common fcb header structure, either
+//  the normal or compressed FsRtl Header (the latter if the file system
+//  supports Fast I/O for compressed reads and writes).
 //
 
 typedef enum _FAST_IO_POSSIBLE {
@@ -53,6 +55,10 @@ typedef enum _FAST_IO_POSSIBLE {
     FastIoIsPossible,
     FastIoIsQuestionable
 } FAST_IO_POSSIBLE;
+
+//
+//  Changes to this structure will affect FSRTL_ADVANCED_FCB_HEADER.
+//
 
 typedef struct _FSRTL_COMMON_FCB_HEADER {
 
@@ -73,6 +79,18 @@ typedef struct _FSRTL_COMMON_FCB_HEADER {
 
     UCHAR IsFastIoPossible; // really type FAST_IO_POSSIBLE
 
+    //
+    //  Second Flags Field
+    //
+
+    UCHAR Flags2;
+
+    //
+    //  The following reserved field should always be 0
+    //
+
+    UCHAR Reserved;
+
     PERESOURCE Resource;
 
     PERESOURCE PagingIoResource;
@@ -83,6 +101,68 @@ typedef struct _FSRTL_COMMON_FCB_HEADER {
 
 } FSRTL_COMMON_FCB_HEADER;
 typedef FSRTL_COMMON_FCB_HEADER *PFSRTL_COMMON_FCB_HEADER;
+
+//
+//  This Fcb header is used for files which support caching
+//  of compressed data, and related new support.
+//
+//  We start out by prefixing this structure with the normal
+//  FsRtl header from above, which we have to do two different
+//  ways for c++ or c.
+//
+
+#ifdef __cplusplus
+typedef struct _FSRTL_ADVANCED_FCB_HEADER:FSRTL_COMMON_FCB_HEADER {
+#else   // __cplusplus
+
+typedef struct _FSRTL_ADVANCED_FCB_HEADER {
+
+    //
+    //  Put in the standard FsRtl header fields
+    //
+
+    FSRTL_COMMON_FCB_HEADER ;
+
+#endif  // __cplusplus
+
+    //
+    //  This is a pointer to a Fast Mutex which may be used to
+    //  properly synchronize access to the FsRtl header.  The
+    //  Fast Mutex must be nonpaged.
+    //
+
+    PFAST_MUTEX FastMutex;
+
+    //
+    //  This is a pointer to a list head which may be used to queue
+    //  up advances to EOF (end of file), via calls to the appropriate
+    //  FsRtl routines.  This listhead may be paged.
+    //
+
+    PLIST_ENTRY PendingEofAdvances;
+
+    //
+    //  When FSRTL_FLAG_ADVANCED_HEADER is set, the following fields
+    //  are present in the header.  If the compressed stream has not
+    //  been initialized, all of the following fields will be NULL.
+    //
+
+    //
+    //  This is the FileObect for the stream in which data is cached
+    //  in its compressed form.
+    //
+
+    PFILE_OBJECT FileObjectC;
+
+    //
+    //  The following field points to the Section Object Pointers for
+    //  the normal data stream used for cache coherency in the fast path.
+    //
+
+    PSECTION_OBJECT_POINTERS SectionObjectPointers;
+
+} FSRTL_ADVANCED_FCB_HEADER;
+typedef FSRTL_ADVANCED_FCB_HEADER *PFSRTL_ADVANCED_FCB_HEADER;
 
 //
 //  Define FsRtl common header flags
@@ -102,6 +182,67 @@ typedef FSRTL_COMMON_FCB_HEADER *PFSRTL_COMMON_FCB_HEADER;
 
 #define FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX (0x08)
 #define FSRTL_FLAG_ACQUIRE_MAIN_RSRC_SH (0x10)
+
+//
+//  This flag will be set by the Cache Manager if a view is mapped
+//  to a file.
+//
+
+#define FSRTL_FLAG_USER_MAPPED_FILE     (0x20)
+
+//
+//  This flag indicates that the file system supports compression
+//  and this is a compressed FsRtl header.
+//
+
+#define FSRTL_FLAG_ADVANCED_HEADER      (0x40)
+
+//
+//  This flag determines whether there currently is an Eof advance
+//  in progress.  All such advances must be serialized.
+//
+
+#define FSRTL_FLAG_EOF_ADVANCE_ACTIVE   (0x80)
+
+//
+//  Flag values for Flags2
+//
+
+//
+//  If this flag is set, the Cache Manager will allow modified writing
+//  in spite of the value of FsContext2.
+//
+
+#define FSRTL_FLAG2_DO_MODIFIED_WRITE   (0x01)
+
+//
+//  The following constants are used to block top level Irp processing when
+//  (in either the fast io or cc case) file system resources have been
+//  acquired above the file system, or we are in an Fsp thread.
+//
+
+#define FSRTL_FSP_TOP_LEVEL_IRP         0x01
+#define FSRTL_CACHE_TOP_LEVEL_IRP       0x02
+#define FSRTL_MOD_WRITE_TOP_LEVEL_IRP   0x03
+#define FSRTL_FAST_IO_TOP_LEVEL_IRP     0x04
+#define FSRTL_MAX_TOP_LEVEL_IRP_FLAG    0x04
+
+//
+//  The following structure is used to synchronize Eof extends.
+//
+
+typedef struct _EOF_WAIT_BLOCK {
+
+    LIST_ENTRY EofWaitLinks;
+    KEVENT Event;
+
+} EOF_WAIT_BLOCK;
+
+typedef EOF_WAIT_BLOCK *PEOF_WAIT_BLOCK;
+
+//
+//  Normal uncompressed Copy and Mdl Apis
+//
 
 NTKERNELAPI
 BOOLEAN
@@ -140,29 +281,11 @@ FsRtlMdlRead (
     OUT PIO_STATUS_BLOCK IoStatus
     );
 
-//
-//  The following constants are used to block top level Irp processing when
-//  (in either the fast io or cc case) file system resources have been
-//  acquired above the file system, or we are in an Fsp thread.
-//
-
-#define FSRTL_FSP_TOP_LEVEL_IRP         0x01
-#define FSRTL_CACHE_TOP_LEVEL_IRP       0x02
-#define FSRTL_MOD_WRITE_TOP_LEVEL_IRP   0x03
-#define FSRTL_FAST_IO_TOP_LEVEL_IRP     0x04
-#define FSRTL_MAX_TOP_LEVEL_IRP_FLAG    0x04
-
-//
-//  VOID
-//  FsRtlMdlReadComplete (
-//      IN PFILE_OBJECT FileObject,
-//      IN PMDL MdlChain
-//      );
-//
-
-#define FsRtlMdlReadComplete(FO,MC) {   \
-    CcMdlReadComplete((FO),(MC));       \
-}
+BOOLEAN
+FsRtlMdlReadComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain
+    );
 
 NTKERNELAPI
 BOOLEAN
@@ -175,17 +298,100 @@ FsRtlPrepareMdlWrite (
     OUT PIO_STATUS_BLOCK IoStatus
     );
 
+BOOLEAN
+FsRtlMdlWriteComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain
+    );
+
+
+NTKERNELAPI
+BOOLEAN
+FsRtlMdlReadDev (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTKERNELAPI
+BOOLEAN
+FsRtlMdlReadCompleteDev (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTKERNELAPI
+BOOLEAN
+FsRtlPrepareMdlWriteDev (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN ULONG Length,
+    IN ULONG LockKey,
+    OUT PMDL *MdlChain,
+    OUT PIO_STATUS_BLOCK IoStatus,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
+NTKERNELAPI
+BOOLEAN
+FsRtlMdlWriteCompleteDev (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain,
+    IN PDEVICE_OBJECT DeviceObject
+    );
+
 //
-//  BOOLEAN
-//  FsRtlMdlWriteComplete (
-//      IN PFILE_OBJECT FileObject,
-//      IN PMDL MdlChain
-//      );
+//  In Irps, compressed reads and writes are  designated by the
+//  subfunction IRP_MN_COMPRESSED must be set and the Compressed
+//  Data Info buffer must be described by the following structure
+//  pointed to by Irp->Tail.Overlay.AuxiliaryBuffer.
 //
 
-#define FsRtlMdlWriteComplete(FO,FOFF,MC) (     \
-    CcMdlWriteComplete((FO),(FOFF),(MC))        \
-)
+typedef struct _FSRTL_AUXILIARY_BUFFER {
+
+    //
+    //  Buffer description with length.
+    //
+
+    PVOID Buffer;
+    ULONG Length;
+
+    //
+    //  Flags
+    //
+
+    ULONG Flags;
+
+    //
+    //  Pointer to optional Mdl mapping buffer for file system use
+    //
+
+    PMDL Mdl;
+
+} FSRTL_AUXILIARY_BUFFER;
+typedef FSRTL_AUXILIARY_BUFFER *PFSRTL_AUXILIARY_BUFFER;
+
+//
+//  If this flag is set, the auxillary buffer structure is
+//  deallocated on Irp completion.  The caller has the
+//  option in this case of appending this structure to the
+//  structure being described, causing it all to be
+//  deallocated at once.  If this flag is clear, no deallocate
+//  occurs.
+//
+
+#define FSRTL_AUXILIARY_FLAG_DEALLOCATE 0x00000001
+
+//
+//  Fast query routines.
+//
 
 NTKERNELAPI
 BOOLEAN
@@ -224,6 +430,25 @@ FsRtlAcquireFileForModWrite (
     IN PFILE_OBJECT FileObject,
     IN PLARGE_INTEGER StartingOffset,
     OUT PERESOURCE *ResourceToRelease
+    );
+
+NTKERNELAPI
+VOID
+FsRtlReleaseFileForModWrite (
+    IN PFILE_OBJECT FileObject,
+    IN PERESOURCE ResourceToRelease
+    );
+
+NTKERNELAPI
+VOID
+FsRtlAcquireFileForCcFlush (
+    IN PFILE_OBJECT FileObject
+    );
+
+NTKERNELAPI
+VOID
+FsRtlReleaseFileForCcFlush (
+    IN PFILE_OBJECT FileObject
     );
 
 //
@@ -348,52 +573,24 @@ typedef struct _FILE_LOCK {
     PUNLOCK_ROUTINE UnlockRoutine;
 
     //
-    // FastIoIsQuestionable is set to true when... bugbug
+    //  FastIoIsQuestionable is set to true when... bugbug
     //
 
     BOOLEAN FastIoIsQuestionable;
-    BOOLEAN Spare6;
-    BOOLEAN Spare7;
-    BOOLEAN Spare8;
+    BOOLEAN SpareC[3];
 
     //
-    // FsRtl lock information
+    //  FsRtl lock information
     //
 
     PVOID   LockInformation;
 
     //
-    // Contains contination information for FsRtlGetNextFileLock
+    //  Contains contination information for FsRtlGetNextFileLock
     //
 
-    FILE_LOCK_INFO LastReturnedLock;
-
-    //
-    //  The following two queues contain a list of the current granted
-    //  locks and a list of the waiting locks
-    //
-
-    LIST_ENTRY Spare2;
-    LIST_ENTRY Spare3;
-
-    //
-    //  The following field indicates if there are any locks outstanding,
-    //  and if the lock is solo or not.
-    //
-    //      0 = no current locks.
-    //
-    //     -1 = there is a lock stored in the Solo Lock Info field.
-    //
-    //     >0 = there are locks stored in the current lock queue.
-    //
-
-    LONG Spare4;
-
-    //
-    //  The following field is only valid if there is a solo lock present
-    //  (i.e., LockCount == -1)
-    //
-
+    FILE_LOCK_INFO  LastReturnedLockInfo;
+    PVOID           LastReturnedLock;
 
 } FILE_LOCK;
 typedef FILE_LOCK *PFILE_LOCK;
@@ -468,7 +665,7 @@ NTSTATUS
 FsRtlFastUnlockSingle (
     IN PFILE_LOCK FileLock,
     IN PFILE_OBJECT FileObject,
-    IN PLARGE_INTEGER FileOffset,
+    IN LARGE_INTEGER UNALIGNED *FileOffset,
     IN PLARGE_INTEGER Length,
     IN PEPROCESS ProcessId,
     IN ULONG Key,
@@ -550,29 +747,89 @@ FsRtlPrivateLock (
 //      IN PFILE_LOCK FileLock
 //      );
 //
-//  BOOLEAN
-//  FsRtlCheckForSoloLock (
-//      IN PFILE_LOCK FileLock,
-//      IN ULONG Key,
-//      IN PFILE_OBJECT FileObject,
-//      IN PVOID ProcessId
-//      );
-//
 
 #define FsRtlAreThereCurrentFileLocks(FL) ( \
     ((FL)->FastIoIsQuestionable))
 
-#if 0
-#define FsRtlCheckForSoloLock(FL,KEY,FO,PID) (  \
-    ((FL)->LockCount == 0) ||                   \
-    (((FL)->LockCount == -1) &&                 \
-     ((FL)->SoloLockInfo.Key == (KEY)) &&       \
-     ((FL)->SoloLockInfo.FileObject == (FO)) && \
-     ((FL)->SoloLockInfo.ProcessId == (PID)))   \
-)
-#endif
-#define FsRtlCheckForSoloLock(FL,KEY,FO,PID)    YUK!
+
 
+//
+//  Filesystem property tunneling, implemented in tunnel.c
+//
+
+//
+//  Tunnel cache structure
+//
+
+typedef struct {
+
+    //
+    //  Mutex for cache manipulation
+    //
+
+    FAST_MUTEX          Mutex;
+
+    //
+    //  Splay Tree of tunneled information keyed by
+    //  DirKey ## Name
+    //
+
+    PRTL_SPLAY_LINKS    Cache;
+
+    //
+    //  Timer queue used to age entries out of the main cache
+    //
+
+    LIST_ENTRY          TimerQueue;
+
+    //
+    //  Keep track of the number of entries in the cache to prevent
+    //  excessive use of memory
+    //
+
+    USHORT              NumEntries;
+
+} TUNNEL, *PTUNNEL;
+
+NTKERNELAPI
+VOID
+FsRtlInitializeTunnelCache (
+    IN TUNNEL *Cache);
+
+NTKERNELAPI
+VOID
+FsRtlAddToTunnelCache (
+    IN TUNNEL *Cache,
+    IN ULONGLONG DirectoryKey,
+    IN UNICODE_STRING *ShortName,
+    IN UNICODE_STRING *LongName,
+    IN BOOLEAN KeyByShortName,
+    IN ULONG DataLength,
+    IN VOID *Data);
+
+NTKERNELAPI
+BOOLEAN
+FsRtlFindInTunnelCache (
+    IN TUNNEL *Cache,
+    IN ULONGLONG DirectoryKey,
+    IN UNICODE_STRING *Name,
+    OUT UNICODE_STRING *ShortName,
+    OUT UNICODE_STRING *LongName,
+    IN OUT ULONG  *DataLength,
+    OUT VOID *Data);
+
+
+NTKERNELAPI
+VOID
+FsRtlDeleteKeyFromTunnelCache (
+    IN TUNNEL *Cache,
+    IN ULONGLONG DirectoryKey);
+
+
+NTKERNELAPI
+VOID
+FsRtlDeleteTunnelCache (
+    IN TUNNEL *Cache);
 
 
 //
@@ -590,114 +847,91 @@ typedef enum _FSRTL_COMPARISON_RESULT {
     GreaterThan = 1
 } FSRTL_COMPARISON_RESULT;
 
+#ifdef NLS_MB_CODE_PAGE_TAG
+#undef NLS_MB_CODE_PAGE_TAG
+#endif // NLS_MB_CODE_PAGE_TAG
+
+#if defined(_NTIFS_) || defined(_NTDRIVER_)
+
+#define LEGAL_ANSI_CHARACTER_ARRAY        (*FsRtlLegalAnsiCharacterArray)
+#define NLS_MB_CODE_PAGE_TAG              (*NlsMbOemCodePageTag)
+#define NLS_OEM_LEAD_BYTE_INFO            (*NlsOemLeadByteInfo)
+
+#else
+
+#define LEGAL_ANSI_CHARACTER_ARRAY        FsRtlLegalAnsiCharacterArray
+#define NLS_MB_CODE_PAGE_TAG              NlsMbOemCodePageTag
+#define NLS_OEM_LEAD_BYTE_INFO            NlsOemLeadByteInfo
+
+#endif
+
+extern PUCHAR LEGAL_ANSI_CHARACTER_ARRAY;
+extern PUSHORT NLS_OEM_LEAD_BYTE_INFO;  // Lead byte info. for ACP
+
 //
 //  These following bit values are set in the FsRtlLegalDbcsCharacterArray
 //
-
-#ifndef _NTIFS_
-extern PUCHAR FsRtlLegalAnsiCharacterArray;
-extern PUSHORT NlsOemLeadByteInfo;  // Lead byte info. for ACP
-#else
-extern PUCHAR *FsRtlLegalAnsiCharacterArray;
-extern PUSHORT *NlsOemLeadByteInfo;  // Lead byte info. for ACP
-#endif
 
 #define FSRTL_FAT_LEGAL         0x01
 #define FSRTL_HPFS_LEGAL        0x02
 #define FSRTL_NTFS_LEGAL        0x04
 #define FSRTL_WILD_CHARACTER    0x08
-
-#ifndef _NTIFS_
+#define FSRTL_OFS_LEGAL         0x10
+#define FSRTL_OLE_LEGAL         0x20
 
 //
 //  The following macro is used to determine if an Ansi character is wild.
 //
 
-#define FsRtlIsAnsiCharacterWild(C) (                                 \
-        ((SCHAR)(C) < 0) ? FALSE :                                    \
-                           FlagOn( FsRtlLegalAnsiCharacterArray[(C)], \
-                                   FSRTL_WILD_CHARACTER )             \
+#define FsRtlIsAnsiCharacterWild(C) (                               \
+    FsRtlTestAnsiCharacter((C), FALSE, FALSE, FSRTL_WILD_CHARACTER) \
 )
 
 //
 //  The following macro is used to determine if an Ansi character is Fat legal.
 //
 
-#define FsRtlIsAnsiCharacterLegalFat(C,WILD_OK) (                           \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( FsRtlLegalAnsiCharacterArray[(C)],       \
-                                   FSRTL_FAT_LEGAL |                        \
-                                   ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
+#define FsRtlIsAnsiCharacterLegalFat(C,WILD_OK) (                 \
+    FsRtlTestAnsiCharacter((C), TRUE, (WILD_OK), FSRTL_FAT_LEGAL) \
 )
 
 //
 //  The following macro is used to determine if an Ansi character is Hpfs legal.
 //
 
-#define FsRtlIsAnsiCharacterLegalHpfs(C,WILD_OK) (                          \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( FsRtlLegalAnsiCharacterArray[(C)],       \
-                                   FSRTL_HPFS_LEGAL |                       \
-                                   ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
+#define FsRtlIsAnsiCharacterLegalHpfs(C,WILD_OK) (                 \
+    FsRtlTestAnsiCharacter((C), TRUE, (WILD_OK), FSRTL_HPFS_LEGAL) \
 )
 
 //
 //  The following macro is used to determine if an Ansi character is Ntfs legal.
 //
 
-#define FsRtlIsAnsiCharacterLegalNtfs(C,WILD_OK) (                          \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( FsRtlLegalAnsiCharacterArray[(C)],       \
-                                   FSRTL_NTFS_LEGAL |                       \
+#define FsRtlIsAnsiCharacterLegalNtfs(C,WILD_OK) (                 \
+    FsRtlTestAnsiCharacter((C), TRUE, (WILD_OK), FSRTL_NTFS_LEGAL) \
+)
+
+//
+//  The following macro is used to determine if an Ansi character is legal,
+//  according to the caller's specification.
+//
+
+#define FsRtlIsAnsiCharacterLegal(C,FLAGS) (          \
+    FsRtlTestAnsiCharacter((C), TRUE, FALSE, (FLAGS)) \
+)
+
+//
+//  The following macro is used to test attributes of an Ansi character,
+//  according to the caller's specified flags.
+//
+
+#define FsRtlTestAnsiCharacter(C, DEFAULT_RET, WILD_OK, FLAGS) (            \
+        ((SCHAR)(C) < 0) ? DEFAULT_RET :                                    \
+                           FlagOn( LEGAL_ANSI_CHARACTER_ARRAY[(C)],         \
+                                   (FLAGS) |                                \
                                    ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
 )
 
-#else
-
-//
-//  The following macro is used to determine if an Ansi character is wild.
-//
-
-#define FsRtlIsAnsiCharacterWild(C) (                                    \
-        ((SCHAR)(C) < 0) ? FALSE :                                       \
-                           FlagOn( (*FsRtlLegalAnsiCharacterArray)[(C)], \
-                                   FSRTL_WILD_CHARACTER )                \
-)
-
-//
-//  The following macro is used to determine if an Ansi character is Fat legal.
-//
-
-#define FsRtlIsAnsiCharacterLegalFat(C,WILD_OK) (                           \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( (*FsRtlLegalAnsiCharacterArray)[(C)],    \
-                                   FSRTL_FAT_LEGAL |                        \
-                                   ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
-)
-
-//
-//  The following macro is used to determine if an Ansi character is Hpfs legal.
-//
-
-#define FsRtlIsAnsiCharacterLegalHpfs(C,WILD_OK) (                          \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( (*FsRtlLegalAnsiCharacterArray)[(C)],    \
-                                   FSRTL_HPFS_LEGAL |                       \
-                                   ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
-)
-
-//
-//  The following macro is used to determine if an Ansi character is Ntfs legal.
-//
-
-#define FsRtlIsAnsiCharacterLegalNtfs(C,WILD_OK) (                          \
-        ((SCHAR)(C) < 0) ? TRUE :                                           \
-                           FlagOn( (*FsRtlLegalAnsiCharacterArray)[(C)],    \
-                                   FSRTL_NTFS_LEGAL |                       \
-                                   ((WILD_OK) ? FSRTL_WILD_CHARACTER : 0) ) \
-)
-
-#endif
 
 //
 //  The following two macros use global data defined in ntos\rtl\nlsdata.c
@@ -727,23 +961,11 @@ extern PUSHORT *NlsOemLeadByteInfo;  // Lead byte info. for ACP
 //
 //
 
-#ifndef _NTIFS_
-
-#define FsRtlIsLeadDbcsCharacter(DBCS_CHAR) (                  \
-    (BOOLEAN)((UCHAR)(DBCS_CHAR) < 0x80 ? FALSE :              \
-              (NlsMbOemCodePageTag &&                          \
-               (NlsOemLeadByteInfo[(UCHAR)(DBCS_CHAR)] != 0))) \
+#define FsRtlIsLeadDbcsCharacter(DBCS_CHAR) (                      \
+    (BOOLEAN)((UCHAR)(DBCS_CHAR) < 0x80 ? FALSE :                  \
+              (NLS_MB_CODE_PAGE_TAG &&                             \
+               (NLS_OEM_LEAD_BYTE_INFO[(UCHAR)(DBCS_CHAR)] != 0))) \
 )
-
-#else
-
-#define FsRtlIsLeadDbcsCharacter(DBCS_CHAR) (                     \
-    (BOOLEAN)((UCHAR)(DBCS_CHAR) < 0x80 ? FALSE :                 \
-              (*NlsMbOemCodePageTag &&                            \
-               ((*NlsOemLeadByteInfo)[(UCHAR)(DBCS_CHAR)] != 0))) \
-)
-
-#endif
 
 NTKERNELAPI
 VOID
@@ -783,6 +1005,7 @@ FsRtlIsHpfsDbcsLegal (
     IN BOOLEAN PathNamePermissible,
     IN BOOLEAN LeadingBackslashPermissible
     );
+
 
 //
 //  Exception filter routines, implemented in Filter.c
@@ -806,44 +1029,26 @@ FsRtlIsNtstatusExpected (
 //  insufficient resource status if pool isn't currently available.
 //
 
-NTKERNELAPI
-PVOID
-FsRtlAllocatePool (
-    IN POOL_TYPE PoolType,
-    IN ULONG NumberOfBytes
-    );
+#define FsRtlAllocatePool(PoolType, NumberOfBytes)                            \
+    ExAllocatePoolWithTag((POOL_TYPE)((PoolType) | POOL_RAISE_IF_ALLOCATION_FAILURE), \
+                   NumberOfBytes,                                             \
+                   'trSF')
 
-NTKERNELAPI
-PVOID
-FsRtlAllocatePoolWithQuota (
-    IN POOL_TYPE PoolType,
-    IN ULONG NumberOfBytes
-    );
+#define FsRtlAllocatePoolWithQuota(PoolType, NumberOfBytes)                   \
+    ExAllocatePoolWithQuotaTag((POOL_TYPE)((PoolType) | POOL_RAISE_IF_ALLOCATION_FAILURE), \
+                               NumberOfBytes,                                 \
+                               'trSF')
 
-#ifdef POOL_TAGGING
+#define FsRtlAllocatePoolWithTag(PoolType, NumberOfBytes, Tag)                \
+    ExAllocatePoolWithTag((POOL_TYPE)((PoolType) | POOL_RAISE_IF_ALLOCATION_FAILURE), \
+                          NumberOfBytes,                                      \
+                          Tag)
 
-NTKERNELAPI
-PVOID
-FsRtlAllocatePoolWithTag (
-    IN POOL_TYPE PoolType,
-    IN ULONG NumberOfBytes,
-    IN ULONG Tag
-    );
 
-NTKERNELAPI
-PVOID
-FsRtlAllocatePoolWithQuotaTag (
-    IN POOL_TYPE PoolType,
-    IN ULONG NumberOfBytes,
-    IN ULONG Tag
-    );
-
-#else
-
-#define FsRtlAllocatePoolWithTag(a,b,c)      FsRtlAllocatePool(a,b)
-#define FsRtlAllocatePoolWithQuotaTag(a,b,c) FsRtlAllocatePoolWithQuota(a,b)
-
-#endif //POOL_TAGGING
+#define FsRtlAllocatePoolWithQuotaTag(PoolType, NumberOfBytes, Tag)           \
+    ExAllocatePoolWithQuotaTag((POOL_TYPE)((PoolType) | POOL_RAISE_IF_ALLOCATION_FAILURE), \
+                               NumberOfBytes,                                 \
+                               Tag)
 
 //
 //  The following function allocates a resource from the FsRtl pool.
@@ -858,13 +1063,20 @@ FsRtlAllocateResource (
 //
 //  Large Integer Mapped Control Blocks routines, implemented in LargeMcb.c
 //
-//  An LARGE_MCB is an opaque structure but we need to declare the size of
-//  it here so that users can allocate space for one.  Consequently the
-//  size computation here must be updated by hand if the MCB changes.
+//  Originally this structure was truely opaque and code outside largemcb was
+//  never allowed to examine or alter the structures.  However, for performance
+//  reasons we want to allow ntfs the ability to quickly truncate down the
+//  mcb without the overhead of an actual call to largemcb.c.  So to do that we
+//  need to export the struture.  This structure is not exact.  The Mapping field
+//  is declared here as a pvoid but largemcb.c it is a pointer to mapping pairs.
 //
 
 typedef struct _LARGE_MCB {
-    ULONG Opaque[ 4 + (sizeof(KMUTEX)+3)/4 ];
+    PFAST_MUTEX FastMutex;
+    ULONG MaximumPairCount;
+    ULONG PairCount;
+    POOL_TYPE PoolType;
+    PVOID Mapping;
 } LARGE_MCB;
 typedef LARGE_MCB *PLARGE_MCB;
 
@@ -1220,22 +1432,10 @@ FsRtlNotifyCleanup (
 //  The following macro is used to determine if a character is wild.
 //
 
-#ifndef _NTIFS_
-
-#define FsRtlIsUnicodeCharacterWild(C) (                                  \
-      (((C) >= 0x40) ? FALSE : FlagOn( FsRtlLegalAnsiCharacterArray[(C)], \
-                                       FSRTL_WILD_CHARACTER ) )           \
+#define FsRtlIsUnicodeCharacterWild(C) (                                \
+      (((C) >= 0x40) ? FALSE : FlagOn( LEGAL_ANSI_CHARACTER_ARRAY[(C)], \
+                                       FSRTL_WILD_CHARACTER ) )         \
 )
-
-#else
-
-#define FsRtlIsUnicodeCharacterWild(C) (                                     \
-      (((C) >= 0x40) ? FALSE : FlagOn( (*FsRtlLegalAnsiCharacterArray)[(C)], \
-                                       FSRTL_WILD_CHARACTER ) )              \
-)
-
-#endif
-
 
 NTKERNELAPI
 VOID
@@ -1274,7 +1474,6 @@ FsRtlIsNameInExpression (
 //  Stack Overflow support routine, implemented in StackOvf.c
 //
 
-
 typedef
 VOID
 (*PFSRTL_STACK_OVERFLOW_ROUTINE) (
@@ -1290,20 +1489,13 @@ FsRtlPostStackOverflow (
     IN PFSRTL_STACK_OVERFLOW_ROUTINE StackOverflowRoutine
     );
 
-
-//
-//  Workque support routines, implemted in WorkQue.c
-//
-//  These routine provide a thread that is ALWAYS available to perform
-//  verify operations for the file systems.
-//
-
 NTKERNELAPI
 VOID
-FsRtlPostRequest (
-    IN PWORK_QUEUE_ITEM Item
+FsRtlPostPagingFileStackOverflow (
+    IN PVOID Context,
+    IN PKEVENT Event,
+    IN PFSRTL_STACK_OVERFLOW_ROUTINE StackOverflowRoutine
     );
-
 
 //
 // UNC Provider support
@@ -1376,8 +1568,8 @@ FsRtlDeregisterUncProvider(
 //
 //--
 
-#define FsRtlEnterFileSystem() {    \
-    KeEnterCriticalRegion(); \
+#define FsRtlEnterFileSystem() { \
+    KeEnterCriticalRegion();     \
 }
 
 //++
@@ -1399,8 +1591,8 @@ FsRtlDeregisterUncProvider(
 //
 //--
 
-#define FsRtlExitFileSystem() {     \
-    KeLeaveCriticalRegion(); \
+#define FsRtlExitFileSystem() { \
+    KeLeaveCriticalRegion();    \
 }
 
 #endif // _FSRTL_

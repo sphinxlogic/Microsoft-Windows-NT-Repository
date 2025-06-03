@@ -36,11 +36,6 @@ Revision History:
 //  Local support routines
 //
 
-VOID
-CcFreeWorkQueueEntry (
-    IN PWORK_QUEUE_ENTRY WorkQueueEntry
-    );
-
 PWORK_QUEUE_ENTRY
 CcReadWorkQueue (
     );
@@ -183,8 +178,10 @@ Return Value:
 
 {
     ULONG PagesToWrite, ForegroundRate, EstimatedDirtyNextInterval;
-    PSHARED_CACHE_MAP SharedCacheMap, LastWrittenCacheMap;
+    PSHARED_CACHE_MAP SharedCacheMap, FirstVisited;
     KIRQL OldIrql;
+    ULONG LoopsWithLockHeld = 0;
+    BOOLEAN AlreadyMoved = FALSE;
 
     //
     //  Top of Lazy Writer scan.
@@ -263,14 +260,26 @@ Return Value:
         //  we just calculated.
         //
 
-        SharedCacheMap = CONTAINING_RECORD( CcDirtySharedCacheMapList.Flink,
+        SharedCacheMap = CONTAINING_RECORD( CcLazyWriterCursor.SharedCacheMapLinks.Flink,
                                             SHARED_CACHE_MAP,
                                             SharedCacheMapLinks );
 
         DebugTrace( 0, me, "Start of Lazy Writer Scan\n", 0 );
 
-        LastWrittenCacheMap = NULL;
-        while (&SharedCacheMap->SharedCacheMapLinks != &CcDirtySharedCacheMapList) {
+        //
+        //  Normally we would just like to visit every Cache Map once on each scan,
+        //  so the scan will terminate normally when we return to FirstVisited.  But
+        //  in the off chance that FirstVisited gets deleted, we are guaranteed to stop
+        //  when we get back to our own listhead.
+        //
+
+        FirstVisited = NULL;
+        while ((SharedCacheMap != FirstVisited) &&
+               (&SharedCacheMap->SharedCacheMapLinks != &CcLazyWriterCursor.SharedCacheMapLinks)) {
+
+            if (FirstVisited == NULL) {
+                FirstVisited = SharedCacheMap;
+            }
 
             //
             //  Skip the SharedCacheMap if a write behind request is
@@ -286,13 +295,15 @@ Return Value:
             //  Skip temporary files unless we currently could not write 196KB
             //
 
-            if (!FlagOn(SharedCacheMap->Flags, WRITE_QUEUED)
+            if (!FlagOn(SharedCacheMap->Flags, WRITE_QUEUED | IS_CURSOR)
 
                     &&
 
                 (((PagesToWrite != 0) && (SharedCacheMap->DirtyPages != 0) &&
-                 (!FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED) ||
-                  ((++SharedCacheMap->LazyWritePassCount & 7) == 0)) &&
+                 (((++SharedCacheMap->LazyWritePassCount & 0xF) == 0) ||
+                  !FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED) ||
+                  (CcCapturedSystemSize == MmSmallSystem) ||
+                  (SharedCacheMap->DirtyPages >= (4 * (MAX_WRITE_BEHIND / PAGE_SIZE)))) &&
                   (!FlagOn(SharedCacheMap->FileObject->Flags, FO_TEMPORARY_FILE) ||
                    !CcCanIWrite(SharedCacheMap->FileObject, 0x30000, FALSE, MAXUCHAR)))
 
@@ -303,19 +314,72 @@ Return Value:
                 PWORK_QUEUE_ENTRY WorkQueueEntry;
 
                 //
+                //  If this is a metadata stream with at least 4 times
+                //  the maximum write behind I/O size, then let's tell
+                //  this guy to write 1/8 of his dirty data on this pass
+                //  so it doesn't build up.
+                //
+                //  Else assume we can write everything (PagesToWrite only affects
+                //  metadata streams - otherwise writing is controlled by the Mbcb).
+                //
+
+                SharedCacheMap->PagesToWrite = SharedCacheMap->DirtyPages;
+
+                if (FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED) &&
+                    (SharedCacheMap->PagesToWrite >= (4 * (MAX_WRITE_BEHIND / PAGE_SIZE))) &&
+                    (CcCapturedSystemSize != MmSmallSystem)) {
+
+                    SharedCacheMap->PagesToWrite /= 8;
+                }
+
+                //
                 //  See if he exhausts the number of pages to write.  (We
                 //  keep going in case there are any closes to do.)
                 //
 
-                if (SharedCacheMap->DirtyPages >= PagesToWrite) {
+                if ((SharedCacheMap->PagesToWrite >= PagesToWrite) && !AlreadyMoved) {
+
+                    //
+                    //  If we met our write quota on a given SharedCacheMap, then make sure
+                    //  we start at him on the next scan, unless it is a metadata stream.
+                    //
+
+                    RemoveEntryList( &CcLazyWriterCursor.SharedCacheMapLinks );
+
+                    //
+                    //  For Metadata streams, set up to resume on the next stream on the
+                    //  next scan.
+                    //
+
+                    if (FlagOn(SharedCacheMap->Flags, MODIFIED_WRITE_DISABLED)) {
+                        InsertHeadList( &SharedCacheMap->SharedCacheMapLinks, &CcLazyWriterCursor.SharedCacheMapLinks );
+
+                    //
+                    //  For other streams, set up to resume on the same stream on the
+                    //  next scan.
+                    //
+
+                    } else {
+                        InsertTailList( &SharedCacheMap->SharedCacheMapLinks, &CcLazyWriterCursor.SharedCacheMapLinks );
+                    }
 
                     PagesToWrite = 0;
-                    LastWrittenCacheMap = SharedCacheMap;
+                    AlreadyMoved = TRUE;
 
                 } else {
 
-                    PagesToWrite -= SharedCacheMap->DirtyPages;
+                    PagesToWrite -= SharedCacheMap->PagesToWrite;
                 }
+
+                //
+                //  Otherwise show we are actively writing, and keep it in the dirty
+                //  list.
+                //
+
+                SetFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+                SharedCacheMap->DirtyPages += 1;
+
+                ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
 
                 //
                 //  Queue the request to do the work to a worker thread.
@@ -327,19 +391,18 @@ Return Value:
                 //  If we failed to allocate a WorkQueueEntry, things must
                 //  be in pretty bad shape.  However, all we have to do is
                 //  break out of our current loop, and try to go back and
-                //  delay a while.
+                //  delay a while.  Even if the current guy should have gone
+                //  away when we clear WRITE_QUEUED, we will find him again
+                //  in the LW scan.
                 //
 
                 if (WorkQueueEntry == NULL) {
 
+                    ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+                    ClearFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+                    SharedCacheMap->DirtyPages -= 1;
                     break;
                 }
-
-                //
-                //  Otherwise show we are actively writing.
-                //
-
-                SetFlag(SharedCacheMap->Flags, WRITE_QUEUED);
 
                 WorkQueueEntry->Function = (UCHAR)WriteBehind;
                 WorkQueueEntry->Parameters.Write.SharedCacheMap = SharedCacheMap;
@@ -348,7 +411,27 @@ Return Value:
                 //  Post it to the regular work queue.
                 //
 
+                ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+                SharedCacheMap->DirtyPages -= 1;
                 CcPostWorkQueue( WorkQueueEntry, &CcRegularWorkQueue );
+
+                LoopsWithLockHeld = 0;
+
+            //
+            //  Make sure we occassionally drop the lock.  Set WRITE_QUEUED
+            //  to keep the guy from going away.
+            //
+
+            } else if ((++LoopsWithLockHeld >= 20) &&
+                       !FlagOn(SharedCacheMap->Flags, WRITE_QUEUED | IS_CURSOR)) {
+
+                SetFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+                SharedCacheMap->DirtyPages += 1;
+                ExReleaseSpinLock( &CcMasterSpinLock, OldIrql );
+                LoopsWithLockHeld = 0;
+                ExAcquireSpinLock( &CcMasterSpinLock, &OldIrql );
+                ClearFlag(SharedCacheMap->Flags, WRITE_QUEUED);
+                SharedCacheMap->DirtyPages -= 1;
             }
 
             //
@@ -362,18 +445,6 @@ Return Value:
         }
 
         DebugTrace( 0, me, "End of Lazy Writer Scan\n", 0 );
-
-        //
-        //  If we met our write quota on a given SharedCacheMap, then make sure
-        //  we start at him on the next scan.  How?  Remove and reinsert the
-        //  listhead, of course!
-        //
-
-        if (LastWrittenCacheMap != NULL) {
-
-            RemoveEntryList( &CcDirtySharedCacheMapList );
-            InsertTailList( &LastWrittenCacheMap->SharedCacheMapLinks, &CcDirtySharedCacheMapList );
-        }
 
         //
         //  Now we can release the global list and loop back, per chance to sleep.
@@ -442,142 +513,6 @@ Return Value:
     }
 }
 
-
-//
-//  Internal support routine
-//
-
-PWORK_QUEUE_ENTRY
-CcAllocateWorkQueueEntry (
-    )
-
-/*++
-
-Routine Description:
-
-    This routine allocates and returns a WorkQueueEntry from the TwilightZone.
-    On return, the entry is not initialized.
-
-Arguments:
-
-    None
-
-Return Value:
-
-    Pointer to allocated WorkQueueEntry, or NULL if one could not be allocated.
-
---*/
-
-{
-    PWORK_QUEUE_ENTRY WorkQueueEntry;
-    KIRQL OldIrql;
-    BOOLEAN AllocatedFromZone;
-
-    //
-    //  Synchronize access to WorkQueue
-    //
-
-    ExAcquireSpinLock( &CcWorkQueueSpinlock, &OldIrql );
-
-    //
-    //  Loop until we have a new Work Queue Entry
-    //
-
-    while (TRUE) {
-
-        PVOID Segment;
-        ULONG SegmentSize;
-
-        WorkQueueEntry = ExAllocateFromZone( &LazyWriter.TwilightZone );
-
-        if (WorkQueueEntry != NULL) {
-            AllocatedFromZone = TRUE;
-            break;
-        }
-
-        ExReleaseSpinLock( &CcWorkQueueSpinlock, OldIrql );
-
-        //
-        //  Allocation failure - on large systems, extend zone
-        //
-
-        if ( MmQuerySystemSize() == MmLargeSystem ) {
-
-            SegmentSize = sizeof(ZONE_SEGMENT_HEADER) +
-                                        ((sizeof(WORK_QUEUE_ENTRY) + 7) & ~7) * 16;
-
-            if ((Segment = ExAllocatePool( NonPagedPool, SegmentSize)) == NULL) {
-
-                return NULL;
-            }
-
-            ExAcquireSpinLock( &CcWorkQueueSpinlock, &OldIrql );
-
-            if (!NT_SUCCESS(ExExtendZone( &LazyWriter.TwilightZone, Segment, SegmentSize ))) {
-                CcBugCheck( 0, 0, 0 );
-            }
-        } else {
-            if ((WorkQueueEntry = ExAllocatePool( NonPagedPool, sizeof(WORK_QUEUE_ENTRY))) == NULL) {
-                return NULL;
-            }
-            AllocatedFromZone = FALSE;
-            break;
-        }
-    }
-
-    WorkQueueEntry->AllocatedFromZone = AllocatedFromZone;
-
-    if ( AllocatedFromZone ) {
-        ExReleaseSpinLock( &CcWorkQueueSpinlock, OldIrql );
-    }
-    return WorkQueueEntry;
-}
-
-
-//
-//  Internal support routine
-//
-
-VOID
-CcFreeWorkQueueEntry (
-    IN PWORK_QUEUE_ENTRY WorkQueueEntry
-    )
-
-/*++
-
-Routine Description:
-
-    This routine deallocates a WorkQueueEntry to the TwilightZone.
-
-Arguments:
-
-    WorkQueueEntry - the entry to deallocate
-
-Return Value:
-
-    None
-
---*/
-
-{
-    KIRQL OldIrql;
-
-    //
-    //  Synchronize access to WorkQueue
-    //
-
-    if ( WorkQueueEntry->AllocatedFromZone ) {
-        ExAcquireSpinLock( &CcWorkQueueSpinlock, &OldIrql );
-
-        ExFreeToZone( &LazyWriter.TwilightZone,
-                      WorkQueueEntry );
-
-        ExReleaseSpinLock( &CcWorkQueueSpinlock, OldIrql );
-    } else {
-        ExFreePool(WorkQueueEntry);
-    }
-    return;
-}
 
 
 //
@@ -685,6 +620,7 @@ Return Value:
 {
     KIRQL OldIrql;
     PWORK_QUEUE_ENTRY WorkQueueEntry;
+    BOOLEAN RescanOk = FALSE;
 
     ASSERT(FIELD_OFFSET(WORK_QUEUE_ENTRY, WorkQueueLinks) == 0);
 
@@ -755,7 +691,7 @@ Return Value:
                 DebugTrace( 0, me, "CcWorkerThread WriteBehind SharedCacheMap = %08lx\n",
                             WorkQueueEntry->Parameters.Write.SharedCacheMap );
 
-                CcWriteBehind( WorkQueueEntry->Parameters.Write.SharedCacheMap );
+                RescanOk = (BOOLEAN)NT_SUCCESS(CcWriteBehind( WorkQueueEntry->Parameters.Write.SharedCacheMap ));
                 break;
 
             //
@@ -788,7 +724,7 @@ Return Value:
 
     ExReleaseFastLock( &CcWorkQueueSpinlock, OldIrql );
 
-    if (!IsListEmpty(&CcDeferredWrites) ) {
+    if (!IsListEmpty(&CcDeferredWrites) && (CcTotalDirtyPages >= 20) && RescanOk) {
         CcLazyWriteScan();
     }
 

@@ -137,8 +137,7 @@ typedef ULONG MASK,*PMASK;
 // The binding info is threaded on two lists.  When
 // the binding is free it is on a single freelist.
 //
-// When the binding is being used it is on a doubly linked
-// index list.
+// When the binding is being used it is on an index list.
 //
 typedef struct _ARC_BINDING_INFO {
     NDIS_HANDLE MacBindingHandle;
@@ -146,9 +145,9 @@ typedef struct _ARC_BINDING_INFO {
     UINT PacketFilters;
     ULONG References;
     struct _ARC_BINDING_INFO *NextOpen;
-    struct _ARC_BINDING_INFO *PrevOpen;
     BOOLEAN ReceivedAPacket;
     UCHAR FilterIndex;
+	UINT	OldPacketFilters;
 } ARC_BINDING_INFO,*PARC_BINDING_INFO;
 
 //
@@ -199,7 +198,9 @@ typedef struct _ARC_FILTER {
     //
     // Address of the adapter.
     //
-    UCHAR AdapterAddress;
+    UCHAR	AdapterAddress;
+
+	UINT	OldCombinedPacketFilter;
 
 } ARC_FILTER,*PARC_FILTER;
 

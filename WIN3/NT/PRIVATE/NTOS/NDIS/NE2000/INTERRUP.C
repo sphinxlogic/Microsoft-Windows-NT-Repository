@@ -26,6 +26,7 @@ Environment:
 Revision History:
 
     Bob Noradki - Apr 93 - added piggyback interrupt code.
+	Jameel Hyder- Dec 94 - Fixed initialization - part of the fixes from JimMcn
 
 --*/
 
@@ -306,7 +307,8 @@ Return Value:
 
             IF_LOG( Ne2000Log('r'); )
 
-            break;
+            if (!(Adapter->InterruptStatus & (ISR_XMIT | ISR_XMIT_ERR)))
+                break;
 
         case TRANSMIT:
 
@@ -468,10 +470,12 @@ Return Value:
     //
     // Loop
     //
-    while (TRUE) {
-
-        if (Adapter->InterruptStatus & ISR_RCV_ERR) {
-
+    while (TRUE)
+    {
+        if ((Adapter->InterruptStatus & ISR_RCV_ERR) &&
+            !Adapter->BufferOverflow
+        )
+        {
             IF_LOUD( DbgPrint ("RCV_ERR, IR=%x\n",Adapter->InterruptStatus); )
 
             //
@@ -899,6 +903,7 @@ Return Value:
     IF_VERY_LOUD( DbgPrint( "Ne2000XmitDpc exiting\n" );)
 
 }
+
 
 BOOLEAN
 Ne2000PacketOK(
@@ -966,7 +971,6 @@ Return Value:
         return FALSE;
 
     }
-
     PacketLoc += 4;
 
     //
@@ -1148,7 +1152,6 @@ Return Value:
     }
 
     return(TRUE);
-
 }
 
 
@@ -1395,6 +1398,7 @@ Notes:
     //
     // Virtual address of the buffer.
     //
+    XMIT_BUF NextBufToXmit;
     PUCHAR BufStart;
 
     //
@@ -1587,6 +1591,10 @@ Notes:
 
             if (Status & ISR_XMIT_ERR) {
                 OctogmetusceratorRevisited(Adapter);
+                Adapter->InterruptStatus &= ~ISR_XMIT_ERR;
+                NdisRawWritePortUchar(Adapter->IoPAddr+NIC_INTR_STATUS, (ISR_XMIT_ERR));
+                Status &= ~ISR_XMIT_ERR;
+
             }
 
             if (Status & (ISR_XMIT)) {
@@ -1594,77 +1602,75 @@ Notes:
 
                 IF_LOG( Ne2000Log('*'); )
 
-                //
-                // Ack the transmit
-                //
-                NdisRawWritePortUchar(Adapter->IoPAddr+NIC_INTR_STATUS, (ISR_XMIT));
-
-                SyncCardGetXmitStatus((PVOID)Adapter);
-
-                Adapter->TransmitInterruptPending = FALSE;
-
-                //
-                // Statistics
-                //
-                if (Adapter->XmitStatus & TSR_XMIT_OK) {
-
-                    Adapter->FramesXmitGood++;
-                    NdisStatus = NDIS_STATUS_SUCCESS;
-
-                } else {
-
-                    Adapter->FramesXmitBad++;
-                    NdisStatus = NDIS_STATUS_FAILURE;
-
-                }
 
                 //
                 // Update NextBufToXmit
                 //
                 Len = (Adapter->PacketLens[Adapter->CurBufXmitting] + 255) >> 8;
+                NextBufToXmit = Adapter->NextBufToXmit + Len;
 
-                for (i = Adapter->CurBufXmitting; i < Adapter->CurBufXmitting + Len; i++) {
-                    Adapter->BufferStatus[i] = EMPTY;
+//                Adapter->NextBufToXmit += Len;
+
+                if (NextBufToXmit == MAX_XMIT_BUFS) {
+                    NextBufToXmit = 0;
                 }
 
-                Adapter->NextBufToXmit += Len;
-
-                if (Adapter->NextBufToXmit == MAX_XMIT_BUFS) {
-                    Adapter->NextBufToXmit = 0;
+                if (Adapter->BufferStatus[NextBufToXmit] == EMPTY &&
+                    Adapter->NextBufToFill != NextBufToXmit) {
+                    NextBufToXmit = 0;
                 }
 
-                if (Adapter->BufferStatus[Adapter->NextBufToXmit] == EMPTY &&
-                    Adapter->NextBufToFill != Adapter->NextBufToXmit) {
-                    Adapter->NextBufToXmit = 0;
-                }
-
-                //
-                // Remove the packet from the packet list.
-                //
-                Packet = Adapter->Packets[Adapter->CurBufXmitting];
-                Adapter->Packets[Adapter->CurBufXmitting] = (PNDIS_PACKET)NULL;
 
                 //
                 // If the next packet is ready to go, start it.
                 //
-                if (Adapter->BufferStatus[Adapter->NextBufToXmit] == FULL) {
+                if (Adapter->BufferStatus[NextBufToXmit] == FULL) {
 
+                    //
+                    // Ack the transmit
+                    //
+
+                    //
+                    // Remove the packet from the packet list.
+                    //
+                    Adapter->NextBufToXmit = NextBufToXmit;
+                    Packet = Adapter->Packets[Adapter->CurBufXmitting];
+                    Adapter->Packets[Adapter->CurBufXmitting] = (PNDIS_PACKET)NULL;
+                    SyncCardGetXmitStatus((PVOID)Adapter);
+
+
+                    //
+                    // Statistics
+                    //
+                    if (Adapter->XmitStatus & TSR_XMIT_OK) {
+
+                        Adapter->FramesXmitGood++;
+                        NdisStatus = NDIS_STATUS_SUCCESS;
+
+                    } else {
+
+                        Adapter->FramesXmitBad++;
+                        NdisStatus = NDIS_STATUS_FAILURE;
+
+                    }
+
+                    for (i = Adapter->CurBufXmitting; i < Adapter->CurBufXmitting + Len; i++) {
+                        Adapter->BufferStatus[i] = EMPTY;
+                    }
+                    Adapter->TransmitInterruptPending = FALSE;
+                    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_INTR_STATUS, (ISR_XMIT));
                     Adapter->CurBufXmitting = Adapter->NextBufToXmit;
                     Adapter->TransmitInterruptPending = TRUE;
 
                     IF_LOG( Ne2000Log('8'); )
+                    Adapter->InterruptStatus &= ~(ISR_XMIT);
                     CardStartXmit(Adapter);
 
                 } else {
-
-                    Adapter->CurBufXmitting = (XMIT_BUF)-1;
+                    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_INTR_STATUS, (ISR_XMIT));
+                    Adapter->InterruptStatus |= (Status);
 
                 }
-
-                //
-                // Setup for the next send
-                //
-                Ne2000DoNextSend(Adapter);
 
             }
 
@@ -1735,7 +1741,6 @@ Notes:
     // Process the next send
     //
     Ne2000DoNextSend(Adapter);
-
     return(NDIS_STATUS_PENDING);
 
 }
@@ -1935,6 +1940,9 @@ Return Value:
         if (CardCopyDownPacket(Adapter, Packet,
                         &Adapter->PacketLens[TmpBuf1]) == FALSE) {
 
+            for (i = TmpBuf1; i < TmpBuf1 + Len; i++) {
+                Adapter->BufferStatus[i] = EMPTY;
+            }
             Adapter->Packets[TmpBuf1] = NULL;
             IF_LOG( Ne2000Log('F'); )
             IF_LOG( Ne2000Log('S'); )
@@ -1944,6 +1952,7 @@ Return Value:
                 Packet,
                 NDIS_STATUS_FAILURE
                 );
+
             continue;
 
         }
@@ -1967,7 +1976,7 @@ Return Value:
         //
         // Set the buffer status
         //
-        for (i = TmpBuf1; i < TmpBuf1 + Len; i++) {
+        for (i = TmpBuf1; i < (TmpBuf1 + Len); i++) {
                 Adapter->BufferStatus[i] = FULL;
         }
 
@@ -2071,6 +2080,8 @@ Return Value:
 
     IF_LOUD( DbgPrint("Octogmetuscerator called!"); )
 
+	IF_LOG( Ne2000Log('y'); )
+
     //
     // Ack the interrupt, if needed
     //
@@ -2110,6 +2121,6 @@ Return Value:
         CardStartXmit(Adapter);
 
     }
-
+	IF_LOG( Ne2000Log('Y'); )
 }
 

@@ -882,5 +882,4 @@ HWND hWndListBox;
  return (cTopic > 0);
 }
 #endif /* ONLINEHELP */
-
-
+

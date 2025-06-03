@@ -54,6 +54,13 @@ NdrConformantStructConvert(
     );
 
 void 
+NdrHardStructConvert(
+    PMIDL_STUB_MESSAGE                  pStubMsg,
+    PFORMAT_STRING                      pFormat,
+    unsigned char                       fConvertPointersOnly
+    );
+
+void 
 NdrComplexStructConvert(
     PMIDL_STUB_MESSAGE                  pStubMsg,
     PFORMAT_STRING                      pFormat,
@@ -142,6 +149,15 @@ NdrByteCountPointerConvert(
 
 void 
 NdrXmitOrRepAsConvert(
+    PMIDL_STUB_MESSAGE                  pStubMsg,
+    PFORMAT_STRING                      pFormat,
+    unsigned char                       fConvertPointersOnly
+    );
+
+/* User_marshall convert */
+
+void 
+NdrUserMarshalConvert(
     PMIDL_STUB_MESSAGE                  pStubMsg,
     PFORMAT_STRING                      pFormat,
     unsigned char                       fConvertPointersOnly
@@ -242,7 +258,7 @@ typedef void 	(* PPRIVATE_CONVERT_ROUTINE)(
 				);
 
 // function table defined in endian.c
-PCONVERT_ROUTINE			pfnConvertRoutines[];
+extern const PCONVERT_ROUTINE * pfnConvertRoutines;
 
 //
 // Conversion stuff.
@@ -253,6 +269,12 @@ extern unsigned char EbcdicToAscii[];
 
 #define NDR_BIG_IEEE_REP                    (unsigned long)0X00000000L
 #define NDR_LITTLE_IEEE_REP                 (unsigned long)0X00000010L
+
+#if defined(__RPC_MAC__)
+#define NDR_LOCAL_ENDIAN_IEEE_REP           NDR_BIG_IEEE_REP
+#else
+#define NDR_LOCAL_ENDIAN_IEEE_REP           NDR_LITTLE_IEEE_REP
+#endif  // mac
 
 //
 // Masks defined for short byte swapping:

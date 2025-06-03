@@ -6,6 +6,9 @@
 ** Copyright(C) 1994 Microsoft Corporation
 ** All rights reserved.
 **
+**  091694 -- JHSimon @ IBM modified for PPC
+**
+**
 */
 #include <windows.h>
 #include <stdio.h>
@@ -15,7 +18,7 @@
 /*
 ** prototypes
 */
-BOOL  GenerateDirectoryTree(void) ;     // Dir Tree (OBJ, i386,MIPS,ALPHA)
+BOOL  GenerateDirectoryTree(void) ;     // Dir Tree (OBJ, i386,MIPS,ALPHA,PPC)
 BOOL  GenerateAPIFiles(void) ;          // WAPI.H, ZAPI.ASM(.S), Z*.LST, z*.def
 BOOL  GenerateInternals(void) ;         // wrapper.c,h; wapi.C, readme.txt
 BOOL  GenerateBuildFiles(void) ;        // Sources; makefile
@@ -51,6 +54,9 @@ TEMPLATEDATA aTemplates[] =
    { 
 #include "wrapaxp.tpl" 
       , "wrapem.s",        TPL_INTERNAL | TPL_MACHINE_SPECIFIC | TPL_AXP | TPL_EXPAND     },
+   { 
+#include "wrapppc.tpl" 
+      , "wrapem.s",        TPL_INTERNAL | TPL_MACHINE_SPECIFIC | TPL_PPC | TPL_EXPAND     },
    { 
 #include "wrapperh.tpl" 
       , "wrapper.h",       TPL_INTERNAL                },
@@ -119,7 +125,7 @@ DWORD dwAPI  = 0 ;
 void DoScan(char *pcEntry,int iOrd,int fData, void *pv)
 {
    int i;
-   
+
    if (fData)
    {
       if ((dwSizeDataNameData - dwOffsetDataNameData) < (strlen(pcEntry)+1))
@@ -281,7 +287,8 @@ int _CRTAPI1 main( int argc, char *argv[] )
    
    // Read API and DATA from the DLL 
    if( !ScanDLL (argv[1], DoScan, NULL) )
-    return 1 ;
+    {fprintf(stderr,"ScanDLL error\n");
+    return 1 ;}
    
    // find base name
    for( i=strlen(achDLLName), pBaseFileName = &achDLLName[i-1]; 
@@ -339,6 +346,10 @@ int _CRTAPI1 main( int argc, char *argv[] )
                
             case TPL_AXP:
                ptr = AXP_DIR ;
+               break ;
+               
+            case TPL_PPC:
+               ptr = PPC_DIR ;
                break ;
          }
          
@@ -534,6 +545,7 @@ void WriteChar( HANDLE hFile, LPSTR lpText, int count )
 */
 BOOL ExpandLineTo( HANDLE hFile, PCHAR pText, PCHAR pReplacement, DWORD dwIndex )
 {
+//   printf("ExpandLineTo: %s \n",pText);
 
    while( *pText )
    {
@@ -691,6 +703,8 @@ BOOL ExpandLineTo( HANDLE hFile, PCHAR pText, PCHAR pReplacement, DWORD dwIndex 
 BOOL ExpandTo( HANDLE hFile, PCHAR pText, PCHAR pReplacement )
 {
    
+//   printf("ExpandTo: %s %s\n",pText,pReplacement);
+
    while( *pText )
    {
       if( '%' == *pText )   
@@ -823,6 +837,8 @@ BOOL ExpandTo( HANDLE hFile, PCHAR pText, PCHAR pReplacement )
 **           --- MIPS
 **          |
 **           --- ALPHA
+**          |
+**           --- PPC
 **
 */
 BOOL GenerateDirectoryTree()
@@ -857,6 +873,14 @@ BOOL GenerateDirectoryTree()
    }
    
    if( !CreateDirectory( "Alpha", NULL ) )
+   {
+      // already exist?
+      if( ERROR_ALREADY_EXISTS == GetLastError() )
+         bRet &= TRUE ;
+      else
+         bRet = FALSE ;   
+   }
+   if( !CreateDirectory( "ppc", NULL ) )
    {
       // already exist?
       if( ERROR_ALREADY_EXISTS == GetLastError() )

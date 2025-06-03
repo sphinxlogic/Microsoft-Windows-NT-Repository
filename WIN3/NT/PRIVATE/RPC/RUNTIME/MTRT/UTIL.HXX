@@ -5,9 +5,12 @@ Internal Header File for RPC Runtime Library
 #ifndef __UTIL_HXX__
 #define __UTIL_HXX__
 
+#ifndef __SYSINC_H__
+#error Needs sysinc.h
+#endif
+
 START_C_EXTERN
 
-#define UNUSED(obj) ((void) (obj))
 #ifndef ARGUMENT_PRESENT
 #define ARGUMENT_PRESENT(Argument) (Argument != 0)
 #endif // ARGUMENT_PRESENT
@@ -52,6 +55,8 @@ END_C_EXTERN
 #define RpcBindingInqAuthInfoW RpcBindingInqAuthInfo
 #define RpcBindingSetAuthInfoW RpcBindingSetAuthInfo
 #define RpcServerRegisterAuthInfoW RpcServerRegisterAuthInfo
+#define RpcBindingSetAuthInfoExW   RpcBindingSetAuthInfoEx
+#define RpcBindingInqAuthInfoExW RpcBindingInqAuthInfoExW
 #endif // RPC_UNICODE_SUPPORTED
 
 START_C_EXTERN
@@ -127,6 +132,7 @@ PerformRpcInitialization (
 
 #define InitializeIfNecessary()
 #define AssertRpcInitialized()
+#define PerformRpcInitialization()
 
 #endif /* RPC_DELAYED_INITIALIZATION */
 

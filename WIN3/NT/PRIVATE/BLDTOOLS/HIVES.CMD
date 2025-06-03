@@ -1,9 +1,4 @@
 @echo off
-setlocal
-%_NTDRIVE%
-cd \nt\public\oak\bin
-call mkhiveg
+pushd  %_NTDRIVE%%_NTROOT%\public\oak\bin
 call mkhiver
-call mkhiven
-endlocal
-call b
+popd

@@ -44,18 +44,13 @@ Environment:
 #define SET_ACCESS_ADMIN   ACCESS_GUEST | ACCESS_USER | ACCESS_ADMIN
 #define ACCESS_MASK        ACCESS_GUEST + ACCESS_USER + ACCESS_ADMIN
 
-
+
 BOOL
 BuildNetworkReport(
-    IN HWND hWnd
-    );
-
-BOOL
-GetNetworkData(
     IN HWND hWnd,
-    IN OUT LPDIALOGTEXT NetworkData
+    IN UINT iDetailLevel
     );
-
+
 BOOL
 NetworkDlgProc(
     IN HWND hWnd,
@@ -63,12 +58,12 @@ NetworkDlgProc(
     IN WPARAM wParam,
     IN LPARAM lParam
     );
-
+
 BOOL
 GetControlLabels(
     IN OUT LPDIALOGTEXT NetworkData
     );
-
+
 BOOL
 XportAddressToIpAddress(
     IN  LPTSTR szXport,
@@ -77,3 +72,4 @@ XportAddressToIpAddress(
     );
 
 #endif // _NETWORK_
+

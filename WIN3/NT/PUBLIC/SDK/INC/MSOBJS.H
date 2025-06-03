@@ -197,6 +197,19 @@ Notes:
 //
 #define SE_ACCESS_NAME_ACCESS_SYS_SEC    ((ULONG)0x00000606L)
 
+////////////////////////////////////////////////
+//
+//        Access Type = MAXIMUM_ALLOWED
+//
+//
+// MessageId: SE_ACCESS_NAME_MAXIMUM_ALLOWED
+//
+// MessageText:
+//
+//  MAX_ALLOWED
+//
+#define SE_ACCESS_NAME_MAXIMUM_ALLOWED   ((ULONG)0x00000607L)
+
 
 //////////////////////////////////////////////////////////////////////////////
 //                                                                          //
@@ -597,6 +610,7 @@ Notes:
 //                                                                          //
 //                  Executive objects are:                                  //
 //                                                                          //
+//                            Channel                                       //
 //                            Device                                        //
 //                            Directory                                     //
 //                            Event                                         //
@@ -1374,6 +1388,45 @@ Notes:
 //
 #define MS_IO_COMPLETION_ACCESS_BIT_1    ((ULONG)0x00001301L)
 
+//
+// CHANNEL object-specific access types
+//
+//
+// MessageId: MS_CHANNEL_ACCESS_BIT_0
+//
+// MessageText:
+//
+//  Channel read message
+//
+#define MS_CHANNEL_ACCESS_BIT_0          ((ULONG)0x00001400L)
+
+//
+// MessageId: MS_CHANNEL_ACCESS_BIT_1
+//
+// MessageText:
+//
+//  Channel write message
+//
+#define MS_CHANNEL_ACCESS_BIT_1          ((ULONG)0x00001401L)
+
+//
+// MessageId: MS_CHANNEL_ACCESS_BIT_2
+//
+// MessageText:
+//
+//  Channel query information
+//
+#define MS_CHANNEL_ACCESS_BIT_2          ((ULONG)0x00001402L)
+
+//
+// MessageId: MS_CHANNEL_ACCESS_BIT_3
+//
+// MessageText:
+//
+//  Channel set information
+//
+#define MS_CHANNEL_ACCESS_BIT_3          ((ULONG)0x00001403L)
+
 
 //////////////////////////////////////////////////////////////////////////////
 //                                                                          //
@@ -2074,7 +2127,7 @@ Notes:
 //
 // MessageText:
 //
-//  Enumerate windowstations
+//  Unused Access Flag
 //
 #define MS_WIN_STA_ACCESS_BIT_7          ((ULONG)0x00001A07L)
 
@@ -2083,9 +2136,18 @@ Notes:
 //
 // MessageText:
 //
-//  Read screen
+//  Include this windowstation in enumerations
 //
 #define MS_WIN_STA_ACCESS_BIT_8          ((ULONG)0x00001A08L)
+
+//
+// MessageId: MS_WIN_STA_ACCESS_BIT_9
+//
+// MessageText:
+//
+//  Read screen
+//
+#define MS_WIN_STA_ACCESS_BIT_9          ((ULONG)0x00001A09L)
 
 //
 // DESKTOP object-specific access types
@@ -2095,7 +2157,7 @@ Notes:
 //
 // MessageText:
 //
-//  Enumerate windows
+//  Read Objects
 //
 #define MS_DESKTOP_ACCESS_BIT_0          ((ULONG)0x00001A10L)
 
@@ -2149,9 +2211,27 @@ Notes:
 //
 // MessageText:
 //
-//  Enumerate desktops
+//  Include this desktop in enumerations
 //
 #define MS_DESKTOP_ACCESS_BIT_6          ((ULONG)0x00001A16L)
+
+//
+// MessageId: MS_DESKTOP_ACCESS_BIT_7
+//
+// MessageText:
+//
+//  Write objects
+//
+#define MS_DESKTOP_ACCESS_BIT_7          ((ULONG)0x00001A17L)
+
+//
+// MessageId: MS_DESKTOP_ACCESS_BIT_8
+//
+// MessageText:
+//
+//  Switch to this desktop
+//
+#define MS_DESKTOP_ACCESS_BIT_8          ((ULONG)0x00001A18L)
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2409,7 +2489,7 @@ Notes:
 //
 // MessageText:
 //
-//  DDE Share Request
+//  DDE Share Read
 //
 #define MS_DDE_SHARE_ACCESS_BIT_0        ((ULONG)0x00001D00L)
 
@@ -2418,7 +2498,7 @@ Notes:
 //
 // MessageText:
 //
-//  DDE Share Advise
+//  DDE Share Write
 //
 #define MS_DDE_SHARE_ACCESS_BIT_1        ((ULONG)0x00001D01L)
 
@@ -2427,7 +2507,7 @@ Notes:
 //
 // MessageText:
 //
-//  DDE Share Poke
+//  DDE Share Initiate Static
 //
 #define MS_DDE_SHARE_ACCESS_BIT_2        ((ULONG)0x00001D02L)
 
@@ -2436,7 +2516,7 @@ Notes:
 //
 // MessageText:
 //
-//  DDE Share Execute
+//  DDE Share Initiate Link
 //
 #define MS_DDE_SHARE_ACCESS_BIT_3        ((ULONG)0x00001D03L)
 
@@ -2445,9 +2525,54 @@ Notes:
 //
 // MessageText:
 //
-//  DDE Share Start Application
+//  DDE Share Request
 //
 #define MS_DDE_SHARE_ACCESS_BIT_4        ((ULONG)0x00001D04L)
+
+//
+// MessageId: MS_DDE_SHARE_ACCESS_BIT_5
+//
+// MessageText:
+//
+//  DDE Share Advise
+//
+#define MS_DDE_SHARE_ACCESS_BIT_5        ((ULONG)0x00001D05L)
+
+//
+// MessageId: MS_DDE_SHARE_ACCESS_BIT_6
+//
+// MessageText:
+//
+//  DDE Share Poke
+//
+#define MS_DDE_SHARE_ACCESS_BIT_6        ((ULONG)0x00001D06L)
+
+//
+// MessageId: MS_DDE_SHARE_ACCESS_BIT_7
+//
+// MessageText:
+//
+//  DDE Share Execute
+//
+#define MS_DDE_SHARE_ACCESS_BIT_7        ((ULONG)0x00001D07L)
+
+//
+// MessageId: MS_DDE_SHARE_ACCESS_BIT_8
+//
+// MessageText:
+//
+//  DDE Share Add Items
+//
+#define MS_DDE_SHARE_ACCESS_BIT_8        ((ULONG)0x00001D08L)
+
+//
+// MessageId: MS_DDE_SHARE_ACCESS_BIT_9
+//
+// MessageText:
+//
+//  DDE Share List Items
+//
+#define MS_DDE_SHARE_ACCESS_BIT_9        ((ULONG)0x00001D09L)
 
 /*lint +e767 */  // Resume checking for different macro definitions // winnt
 

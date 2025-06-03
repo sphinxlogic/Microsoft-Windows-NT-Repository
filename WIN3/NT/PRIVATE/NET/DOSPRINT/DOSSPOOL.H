@@ -20,7 +20,7 @@ Notes:
 
 Revision History:
 
-    22-Jan-1993     congpay	Created
+    22-Jan-1993     congpay Created
 
 --*/
 #include <winspool.h>
@@ -103,4 +103,23 @@ BOOL
     DWORD   Command
 );
 
+typedef
+BOOL
+(*PF_SetPrinterW)(
+    HANDLE hPrinter,
+    DWORD  Level,
+    LPBYTE pPrinter,
+    DWORD  Command
+);
+
+typedef
+BOOL
+(*PF_GetPrinterDriverA)(
+    HANDLE  hPrinter,
+    LPSTR   pEnvironment,
+    DWORD   Level,
+    LPBYTE  pDriver,
+    DWORD   cbBuf,
+    LPDWORD pcbNeeded
+);
 

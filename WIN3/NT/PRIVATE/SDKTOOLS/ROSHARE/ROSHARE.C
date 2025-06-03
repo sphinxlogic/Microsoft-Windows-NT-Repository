@@ -108,7 +108,7 @@ main (
     // the ACL.
     //
 
-    if ( stricmp( argv[1], "-u") == 0 ) {
+    if ( _stricmp( argv[1], "-u") == 0 ) {
 
 #if VERBOSE
         printf("Processing names\n");
@@ -118,7 +118,7 @@ main (
         i=2;  // skip the argument
         Index = 0;
 
-        while ( (stricmp(argv[i], "-s") != 0) && (Index < MAX_NAMES)) {
+        while ( (_stricmp(argv[i], "-s") != 0) && (Index < MAX_NAMES)) {
             Names[Index++] = (LPTSTR)argv[i++];
         }
 

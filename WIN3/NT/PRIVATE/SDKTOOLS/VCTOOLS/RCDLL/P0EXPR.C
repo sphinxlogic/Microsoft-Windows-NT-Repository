@@ -19,8 +19,7 @@
  * Note - Sure, yeah, right. Frankly, I'm frightened! (w-BrianM)
  ************************************************************************/
 
-#include "prerc.h"
-#pragma hdrstop
+#include "rc.h"
 
 /************************************************************************/
 /* Local Function Prototypes                                            */

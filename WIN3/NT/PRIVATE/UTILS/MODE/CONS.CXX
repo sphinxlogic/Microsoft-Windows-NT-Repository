@@ -86,8 +86,8 @@ Notes:
 
 	BOOLEAN Served = TRUE;	//	TRUE if request served OK.
 
-	DbgPtrAssert( Request );
-	DbgAssert( Request->DeviceType == DEVICE_TYPE_CON );
+	DebugPtrAssert( Request );
+	DebugAssert( Request->DeviceType == DEVICE_TYPE_CON );
 
 	//
 	//	So the device is valid. Now serve the request
@@ -140,7 +140,7 @@ Notes:
 
         DisplayMessageAndExit( MODE_ERROR_INVALID_PARAMETER,
 							   NULL,
-							   EXIT_ERROR );
+							   (ULONG)EXIT_ERROR );
 
 	}
 
@@ -199,7 +199,7 @@ Notes:
 
 
     if ( !ConPath.Initialize( (LPWSTR)L"CON" ) ) {
-		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+		DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
 	}
 
 	//
@@ -207,15 +207,15 @@ Notes:
 	//
 	WriteStatusHeader( &ConPath );
 
+   if ( !Screen.Initialize() ) {
+      DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
+   }
+
 	if ( !JustCodePage ) {
 
 		//
 		//	Display non-codepage information
 		//
-
-        if ( !Screen.Initialize() ) {
-            DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
-        }
 
 		Screen.QueryScreenSize( &Rows, &Cols );
 
@@ -290,13 +290,35 @@ Notes:
                         Data.CpSelect);
 
         if ( !Screen.Initialize() ) {
-            DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+            DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
         }
 
         if ( !Screen.SetCodePage( Data->Codepage ) ||
              !Screen.SetOutputCodePage( Data->Codepage) ) {
-            DisplayMessageAndExit( MODE_ERROR_INVALID_CODEPAGE, NULL, EXIT_ERROR );
+            DisplayMessageAndExit( MODE_ERROR_INVALID_CODEPAGE, NULL, (ULONG)EXIT_ERROR );
         }
+
+#ifdef JAPAN // ConCodePage()
+        // In above path, the console input/output codepage has been changed,
+        // we also need to locale data in thread information to get correct
+        // message data from resource.
+
+        if ( Data->Codepage == 932 ) {
+            SetThreadLocale(
+                MAKELCID(
+                    MAKELANGID( LANG_JAPANESE, SUBLANG_ENGLISH_US ),
+                    SORT_DEFAULT
+                    )
+                );
+        } else {
+            SetThreadLocale(
+                MAKELCID(
+                    MAKELANGID( LANG_ENGLISH, SUBLANG_ENGLISH_US ),
+                    SORT_DEFAULT
+                    )
+                );
+        }
+#endif // JAPAN
 
         ConStatus( Request, FALSE );
 
@@ -344,12 +366,12 @@ Notes:
     BOOLEAN         IsFullScreen;
 
 
-	DbgPtrAssert( Request);
+	DebugPtrAssert( Request);
 
 	Data = (PREQUEST_DATA_CON_ROWCOL)&(((PCON_REQUEST)Request)->Data.RowCol);
 
     if ( !Screen.Initialize() ) {
-        DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, EXIT_ERROR );
+        DisplayMessageAndExit( MODE_ERROR_NO_MEMORY, NULL, (ULONG)EXIT_ERROR );
     }
 
 	if ( !Data->SetCol || !Data->SetLines ) {
@@ -381,9 +403,9 @@ Notes:
 		//	Cannot change the screen size
         //
         if ( IsFullScreen ) {
-            DisplayMessageAndExit( MODE_ERROR_FULL_SCREEN, NULL, EXIT_ERROR );
+            DisplayMessageAndExit( MODE_ERROR_FULL_SCREEN, NULL, (ULONG)EXIT_ERROR );
         } else {
-            DisplayMessageAndExit( MODE_ERROR_INVALID_SCREEN_SIZE, NULL, EXIT_ERROR );
+            DisplayMessageAndExit( MODE_ERROR_INVALID_SCREEN_SIZE, NULL, (ULONG)EXIT_ERROR );
         }
 	}
 
@@ -418,19 +440,19 @@ Notes:
 {
 	PREQUEST_DATA_CON_TYPEMATIC		Data;
 
-	DbgPtrAssert( Request);
+	DebugPtrAssert( Request);
 
 
 	Data = (PREQUEST_DATA_CON_TYPEMATIC)&(((PCON_REQUEST)Request)->Data.Typematic);
 
 	if ( Data->SetRate ) {
 		if (!SystemParametersInfo( SPI_SETKEYBOARDSPEED, (UINT)Data->Rate, NULL, SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE )) {
-			DisplayMessageAndExit( MODE_ERROR_INVALID_RATE, NULL, EXIT_ERROR);
+			DisplayMessageAndExit( MODE_ERROR_INVALID_RATE, NULL, (ULONG)EXIT_ERROR);
 		}
 	}
 	if ( Data->SetDelay ) {
 		if (!SystemParametersInfo( SPI_SETKEYBOARDDELAY, (UINT)Data->Delay, NULL, SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE )) {
-			DisplayMessageAndExit( MODE_ERROR_INVALID_DELAY, NULL, EXIT_ERROR);
+			DisplayMessageAndExit( MODE_ERROR_INVALID_DELAY, NULL, (ULONG)EXIT_ERROR);
 		}
 	}
 

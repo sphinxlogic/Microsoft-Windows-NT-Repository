@@ -54,13 +54,12 @@ typedef lfMember		*plfMember;
 typedef lfSTMember		*plfSTMember;
 typedef lfVFuncTab		*plfVFuncTab;
 typedef lfMethod		*plfMethod;
+typedef lfOneMethod		*plfOneMethod;
 typedef lfEnumerate 	*plfEnumerate;
 typedef lfNestType		*plfNestType;
 typedef lfPreComp		*plfPreComp;
 typedef lfEndPreComp	*plfEndPreComp;
-#ifndef NO_TDB
 typedef lfTypeServer	*plfTypeServer;
-#endif
 typedef SYMTYPE 		*SYMPTR;
 typedef CFLAGSYM		*CFLAGPTR;
 typedef CONSTSYM		*CONSTPTR;

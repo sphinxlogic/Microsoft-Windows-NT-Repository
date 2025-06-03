@@ -23,16 +23,7 @@ Revision History:
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <rpcdcep.h>
-#include <util.hxx>
-#include <rpcuuid.hxx>
-#include <mutex.hxx>
-#include <threads.hxx>
-#include <binding.hxx>
-#include <linklist.hxx>
-#include <handle.hxx>
+#include <precomp.hxx>
 
 
 RPC_STATUS RPC_ENTRY
@@ -93,14 +84,6 @@ Revision History:
         }
 
 #endif // DOS
-
-#ifdef WIN
-    // Verify that a there isn't a call already in progress
-    if (I_RpcWinCallInProgress())
-        {
-        return(RPC_S_CALL_IN_PROGRESS);
-        }
-#endif
 
     if (((GENERIC_OBJECT *) (Message->Handle))->InvalidHandle(
             BINDING_HANDLE_TYPE | SCONNECTION_TYPE | CCONNECTION_TYPE) )
@@ -166,3 +149,71 @@ Return Value:
     return(RPC_S_OK);
 }
 
+
+RPC_STATUS RPC_ENTRY
+I_RpcFreePipeBuffer (
+    IN PRPC_MESSAGE Message
+    )
+/*++
+
+Routine Description:
+
+    Free the buffer that was either implicitly or explicitly allocated for use
+    in conjunction with pipes
+
+Arguments:
+
+    Message - Supplies the buffer to be freed and handle information
+        about who owns the buffer.
+
+Return Value:
+
+    RPC_S_OK - The operation completed successfully.
+
+--*/
+{
+    AssertRpcInitialized();
+
+    ASSERT(!RpcpCheckHeap());
+
+    ASSERT( ((GENERIC_OBJECT *) Message->Handle)->InvalidHandle(
+            BINDING_HANDLE_TYPE | SCONNECTION_TYPE | CCONNECTION_TYPE) == 0 );
+
+    ((MESSAGE_OBJECT *) (Message->Handle))->FreePipeBuffer(Message);
+
+    return(RPC_S_OK);
+}
+
+
+RPC_STATUS RPC_ENTRY
+I_RpcReallocPipeBuffer (
+    IN PRPC_MESSAGE Message,
+    IN unsigned int NewSize
+    )
+/*++
+
+Routine Description:
+
+    Realloc a buffer, this is API is used in conjunction with pipes
+
+Arguments:
+
+    Message - Supplies the buffer to be freed and handle information
+        about who owns the buffer.
+
+Return Value:
+
+    RPC_S_OK - The operation completed successfully.
+
+--*/
+
+{
+    AssertRpcInitialized();
+
+    ASSERT(!RpcpCheckHeap());
+
+    ASSERT( ((GENERIC_OBJECT *) Message->Handle)->InvalidHandle(
+            BINDING_HANDLE_TYPE | SCONNECTION_TYPE | CCONNECTION_TYPE) == 0 );
+
+    return ((MESSAGE_OBJECT *) (Message->Handle))->ReallocPipeBuffer(Message, NewSize);
+}

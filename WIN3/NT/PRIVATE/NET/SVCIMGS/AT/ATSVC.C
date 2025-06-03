@@ -40,7 +40,7 @@ Revision History:
 #include <lmsname.h>
 
 #include <rpcutil.h>            // NetpInitRpcServer()
-#include <netdebug.h>           // NetpDbgPrint()
+#include <netdebug.h>           // NetpKdPrint(())
 #include <secobj.h>             // NetpCreateWellKnownSids()
 
 
@@ -107,8 +107,8 @@ Note:
     // Create well-known SIDs
     //
     if (! NT_SUCCESS (ntstatus = NetpCreateWellKnownSids(NULL))) {
-        NetpDbgPrint("[Job] Failed to create well-known SIDs %08lx\n",
-                     ntstatus);
+        NetpKdPrint(("[Job] Failed to create well-known SIDs %08lx\n",
+                     ntstatus));
         return;
     }
 
@@ -129,10 +129,9 @@ Note:
         //
         // BUGBUG: Log an event for failing to start control dispatcher
         //
-        NetpDbgPrint("[Job] Failed to start control dispatcher %lu\n",
-                     GetLastError());
+        NetpKdPrint(("[Job] Failed to start control dispatcher %lu\n",
+                     GetLastError()));
     }
 
     ExitProcess(0);
 }
-

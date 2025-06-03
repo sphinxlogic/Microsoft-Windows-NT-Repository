@@ -1,34 +1,25 @@
-theap.c: ..\heap.c ..\trace.c
+theap.c: ..\heap.c ..\heapdbg.c ..\heapdll.c ..\trace.c
 
-!IF $(386)
-..\error.h: ..\generr.c
-    nmake obj\i386\generr.obj USE_CRTDLL=1
-    -link32 -out:obj\i386\generr.exe -machine:i386 -base:@$(BASEDIR)\PUBLIC\SDK\LIB\coffbase.txt,usermode -subsystem:console -entry:mainCRTStartup obj\i386\generr.obj $(BASEDIR)\PUBLIC\SDK\LIB\i386\crtdll.lib
-    -obj\i386\generr.exe $@
-    -erase obj\i386\error.obj
-    -erase ..\kernel\obj\i386\error.obj
-    -erase obj\i386\generr.obj
-    -erase obj\i386\generr.exe
-!ENDIF
+t.c: ..\handle.c ..\atom.c
 
-!IF $(MIPS)
-..\error.h: ..\generr.c
-    nmake obj\mips\generr.obj USE_CRTDLL=1
-    -link32 -out:obj\mips\generr.exe -machine:mips -base:@$(BASEDIR)\PUBLIC\SDK\LIB\coffbase.txt,usermode -subsystem:console -entry:mainCRTStartup obj\mips\generr.obj $(BASEDIR)\public\sdk\lib\mips\crtdll.lib
-    -obj\mips\generr.exe $@
-    -erase obj\mips\error.obj
-    -erase ..\kernel\obj\mips\error.obj
-    -erase obj\mips\generr.obj
-    -erase obj\mips\generr.exe
-!ENDIF
+..\error.c: ..\error.h
 
-!IF $(ALPHA)
 ..\error.h: ..\generr.c
-    nmake obj\alpha\generr.obj USE_CRTDLL=1
-    -link32 -out:obj\alpha\generr.exe -machine:alpha -base:@$(BASEDIR)\PUBLIC\SDK\LIB\coffbase.txt,usermode -subsystem:console -entry:mainCRTStartup obj\alpha\generr.obj $(BASEDIR)\public\sdk\lib\alpha\crtdll.lib
-    -obj\alpha\generr.exe $@
-    -erase obj\alpha\error.obj
-    -erase ..\kernel\obj\alpha\error.obj
-    -erase obj\alpha\generr.obj
-    -erase obj\alpha\generr.exe
-!ENDIF
+    set PASS0ONLY=
+    nmake obj\$(TARGET_DIRECTORY)\generr.obj USE_CRTDLL=1
+    -link -out:obj\$(TARGET_DIRECTORY)\generr.exe @<<
+-machine:$(TARGET_DIRECTORY)
+-base:@$(BASEDIR)\PUBLIC\SDK\LIB\coffbase.txt,usermode
+-subsystem:console
+-entry:mainCRTStartup
+-ignore:4001,4037,4039,4065,4070,4078,4087,4089,2001
+-force
+-nodefaultlib
+obj\$(TARGET_DIRECTORY)\generr.obj
+$(BASEDIR)\PUBLIC\SDK\LIB\$(TARGET_DIRECTORY)\crtdll.lib
+<<
+    -obj\$(TARGET_DIRECTORY)\generr.exe $@
+    -erase obj\$(TARGET_DIRECTORY)\error.obj
+    -erase ..\kernel\obj\$(TARGET_DIRECTORY)\error.obj
+    -erase obj\$(TARGET_DIRECTORY)\generr.obj
+    -erase obj\$(TARGET_DIRECTORY)\generr.exe

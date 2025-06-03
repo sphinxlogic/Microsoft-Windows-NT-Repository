@@ -54,7 +54,6 @@ handle error return codes from file system.
 
 static INT   VLM_BuildDirList( Q_HEADER_PTR, WININFO_PTR );
 static VOID  VLM_BuildTapeDirList( Q_HEADER_PTR, UINT32, INT16, WININFO_PTR );
-static SLM_OBJECT_PTR VLM_CreateSlm( INT, INT, BOOLEAN, BOOLEAN );
 static VOID  VLM_InsertTapeSLM( Q_HEADER_PTR, SLM_OBJECT_PTR, SLM_OBJECT_PTR );
 static VOID  VLM_InsertDiskSLM( Q_HEADER_PTR, SLM_OBJECT_PTR, SLM_OBJECT_PTR, SLM_OBJECT_PTR );
 static CHAR_PTR   VLM_ReplaceEntry( CHAR_PTR, INT *, CHAR_PTR, INT  );
@@ -127,7 +126,6 @@ VOID VLM_PrevBrotherDir( HWND win )
                         (LMHANDLE)new_slm );
 
          // Fake a single click call to make this guy active.
-
          VLM_SlmSetObjects( new_slm, WM_DLMDOWN, 2 );
          break;
       }
@@ -505,7 +503,8 @@ VOID VLM_CollapseBranch( HWND win )
    wininfo = WM_GetInfoPtr( win );
 
    if ( ( WMDS_GetWinType( wininfo ) != WMTYPE_DISKTREE ) &&
-        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) ) {
+        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) 
+        ) {
 
       // The menu screwed up, we shouldn't have been called.
 
@@ -577,7 +576,8 @@ VOID VLM_ExpandBranch( HWND win )
    wininfo = WM_GetInfoPtr( win );
 
    if ( ( WMDS_GetWinType( wininfo ) != WMTYPE_DISKTREE ) &&
-        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) ) {
+        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) 
+        ) {
 
       // The menu screwed up, we shouldn't have been called.
 
@@ -660,7 +660,8 @@ VOID VLM_ExpandOne( HWND win )
    wininfo = WM_GetInfoPtr( win );
 
    if ( ( WMDS_GetWinType( wininfo ) != WMTYPE_DISKTREE ) &&
-        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) ) {
+        ( WMDS_GetWinType( wininfo ) != WMTYPE_TAPETREE ) 
+        ) {
 
       // The menu screwed up, we shouldn't have been called.
 
@@ -1016,11 +1017,7 @@ HWND parent )          // I - parent window
          strcat( path, TEXT(":") );
       }
 
-#ifndef UNICODE
       sprintf( win_title, TEXT("%s"), path );
-#else //UNICODE
-      sprintf( win_title, TEXT("%ws"), path );
-#endif //UNICODE
 
    }
    else {
@@ -1794,8 +1791,6 @@ BOOLEAN fat_drive )
 
    return( slm );
 }
-
-
 
 
 /***************************************************

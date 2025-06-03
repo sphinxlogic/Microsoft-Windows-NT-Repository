@@ -885,4 +885,3 @@ HANDLE hInstance;
     }
 #endif
 
-

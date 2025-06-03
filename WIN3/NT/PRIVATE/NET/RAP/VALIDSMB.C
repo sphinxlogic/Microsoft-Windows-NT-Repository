@@ -41,7 +41,7 @@ Revision History:
 #include <lmcons.h>             // NET_API_STATUS
 
 // These may be included in any order:
-#include <netdebug.h>           // NetpBreakPoint(), NetpDbgPrint().
+#include <netdebug.h>           // NetpBreakPoint(), NetpKdPrint(()).
 #include <prefix.h>     // PREFIX_ equates.
 #include <rap.h>                // My prototype, LPDESC, DESC_CHAR_IS_DIGIT().
 #include <remtypes.h>           // REM_WORD, etc.
@@ -125,11 +125,11 @@ Return Value:
         case REM_DATA_BLOCK:
 
             if (DESC_CHAR_IS_DIGIT( *Desc )) {
-                NetpDbgPrint( PREFIX_NETRAP
+                NetpKdPrint(( PREFIX_NETRAP
 			"RapIsValidDescriptorSmb: "
                         "Unsupported digit(s) at " FORMAT_LPVOID
                         ": for " FORMAT_LPDESC_CHAR "\n",
-                        (LPVOID) (Desc-1), *(Desc-1) );
+                        (LPVOID) (Desc-1), *(Desc-1) ));
                 NetpBreakPoint();
                 return (FALSE);
             }
@@ -148,19 +148,19 @@ Return Value:
         case REM_EPOCH_TIME_GMT:   /*FALLTHROUGH*/
         case REM_EPOCH_TIME_LOCAL:
             // Internal only!
-            NetpDbgPrint( PREFIX_NETRAP
+            NetpKdPrint(( PREFIX_NETRAP
 		    "RapIsValidDescriptorSmb: Internal use only desc"
                     " at " FORMAT_LPVOID ": " FORMAT_LPDESC_CHAR "\n",
-                    (LPVOID) (Desc-1), *(Desc-1) );
+                    (LPVOID) (Desc-1), *(Desc-1) ));
             NetpBreakPoint();
             return (FALSE);
 
         default:
 
-            NetpDbgPrint( PREFIX_NETRAP
+            NetpKdPrint(( PREFIX_NETRAP
 		    "RapIsValidDescriptorSmb: Unsupported input character"
                     " at " FORMAT_LPVOID ": " FORMAT_LPDESC_CHAR "\n",
-                    (LPVOID) (Desc-1), *(Desc-1) );
+                    (LPVOID) (Desc-1), *(Desc-1) ));
             NetpBreakPoint();
             return (FALSE);
         }

@@ -46,31 +46,25 @@
 
         .set    noreorder
         .set    noat
-        sw      sp,CxIntSp(sp)          // save stack pointer
-        sw      ra,CxIntRa(sp)          // save return address
+        sd      sp,CxXIntSp(sp)         // save stack pointer
+        sd      ra,CxXIntRa(sp)         // save return address
         sw      ra,CxFir(sp)            // save return address
-        sw      s8,CxIntS8(sp)          // save integer register s8
-        sw      gp,CxIntGp(sp)          // save integer register gp
-        sw      s0,CxIntS0(sp)          // save integer registers s0 - s7
-        sw      s1,CxIntS1(sp)          //
-        sw      s2,CxIntS2(sp)          //
-        sw      s3,CxIntS3(sp)          //
-        sw      s4,CxIntS4(sp)          //
-        sw      s5,CxIntS5(sp)          //
-        sw      s6,CxIntS6(sp)          //
-        sw      s7,CxIntS7(sp)          //
-        swc1    f20,CxFltF20(sp)        // store floating registers f20 - f31
-        swc1    f21,CxFltF21(sp)        //
-        swc1    f22,CxFltF22(sp)        //
-        swc1    f23,CxFltF23(sp)        //
-        swc1    f24,CxFltF24(sp)        //
-        swc1    f25,CxFltF25(sp)        //
-        swc1    f26,CxFltF26(sp)        //
-        swc1    f27,CxFltF27(sp)        //
-        swc1    f28,CxFltF28(sp)        //
-        swc1    f29,CxFltF29(sp)        //
-        swc1    f30,CxFltF30(sp)        //
-        swc1    f31,CxFltF31(sp)        //
+        sd      s8,CxXIntS8(sp)         // save integer register s8
+        sd      gp,CxXIntGp(sp)         // save integer register gp
+        sd      s0,CxXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,CxXIntS1(sp)         //
+        sd      s2,CxXIntS2(sp)         //
+        sd      s3,CxXIntS3(sp)         //
+        sd      s4,CxXIntS4(sp)         //
+        sd      s5,CxXIntS5(sp)         //
+        sd      s6,CxXIntS6(sp)         //
+        sd      s7,CxXIntS7(sp)         //
+        sdc1    f20,CxFltF20(sp)        // store floating registers f20 - f31
+        sdc1    f22,CxFltF22(sp)        //
+        sdc1    f24,CxFltF24(sp)        //
+        sdc1    f26,CxFltF26(sp)        //
+        sdc1    f28,CxFltF28(sp)        //
+        sdc1    f30,CxFltF30(sp)        //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -197,6 +191,163 @@ HandlerFrameLength:                     // length of handler frame
 
         .end    KiUserApcHandler
 
+        SBTTL("User Callback Dispatcher")
+//++
+//
+// The following code is never executed. Its purpose is to support unwinding
+// through the call to the APC dispatcher.
+//
+//--
+
+//        EXCEPTION_HANDLER(KiUserCallbackHandler)
+
+        NESTED_ENTRY(KiUserCallbackDispatch, ContextFrameLength, zero);
+
+        .set    noreorder
+        .set    noat
+        sd      sp,CkSp(sp)             // save stack pointer
+        sd      ra,CkRa(sp)             // save return address
+        .set    at
+        .set    reorder
+
+        PROLOGUE_END
+
+//++
+//
+// VOID
+// KiUserCallbackDispatcher (
+//    VOID
+//    )
+//
+// Routine Description:
+//
+//    This routine is entered on a callout from kernel mode to execute a
+//    user mode callback function. All arguments for this function have
+//    been placed on the stack.
+//
+// Arguments:
+//
+//    (sp + ApiNumber) - Supplies the API number of the callback function
+//        that is executed.
+//
+//    (sp + Buffer) - Supplies a pointer to the input buffer.
+//
+//    (sp + Length) - Supplies the input buffer length.
+//
+// Return Value:
+//
+//    This function returns to kernel mode.
+//
+//--
+
+
+        ALTERNATE_ENTRY(KiUserCallbackDispatcher)
+
+        lw      a0,CkBuffer(sp)         // get input buffer address
+        lw      a1,CkLength(sp)         // get input buffer length
+        lw      t0,CkApiNumber(sp)      // get API number
+        li      t1,UsPcr                // get user PCR page address
+        lw      t1,PcTeb(t1)            // get address of TEB
+        lw      t2,TePeb(t1)            // get address of PEB
+        lw      t3,PeKernelCallbackTable(t2) // get address of callback table
+        sll     t0,t0,2                 // compute address of table entry
+        addu    t3,t3,t0                //
+        lw      t3,0(t3)                // get address of callback routine
+        jal     t3                      // call specified function
+
+//
+// If a return from the callback function occurs, then the output buffer
+// address and length are returned as NULL.
+//
+
+        move    a0,zero                 // set zero buffer address
+        move    a1,zero                 // set zero buffer lenfth
+        move    a2,v0                   // set completion status
+        jal     ZwCallbackReturn        // return to kernel mode
+
+//
+// Unsuccessful completion after attempting to return to kernel mode. Use
+// the return status as the exception code, set noncontinuable exception and
+// attempt to raise another exception. Note their is not return from raise
+// status.
+//
+
+10:     move    a0,v0                   // set status value
+        jal     RtlRaiseStatus          // raise exception
+        b       10b                     // loop on return
+
+        .end    KiUserCallbackDispatch
+
+        SBTTL("User Callback Exception Handler")
+//++
+//
+// EXCEPTION_DISPOSITION
+// KiUserCallbackHandler (
+//    IN PEXCEPTION_RECORD ExceptionRecord,
+//    IN ULONG EstablisherFrame,
+//    IN OUT PCONTEXT ContextRecord,
+//    IN OUT PDISPATCHER_CONTEXT DispatcherContext
+//
+// Routine Description:
+//
+//    This function is called when an exception occurs in a user callback
+//    routine or one of its dynamic descendents.
+//
+// Arguments:
+//
+//    ExceptionRecord (a0) - Supplies a pointer to an exception record.
+//
+//    EstablisherFrame (a1) - Supplies the frame pointer of the establisher
+//       of this exception handler.
+//
+//    ContextRecord (a2) - Supplies a pointer to a context record.
+//
+//    DispatcherContext (a3) - Supplies a pointer to the dispatcher context
+//       record.
+//
+// Return Value:
+//
+//    ExceptionContinueSearch is returned as the function value.
+//--
+
+        NESTED_ENTRY(KiUserCallbackHandler, HandlerFrameLength, zero)
+
+        subu    sp,sp,HandlerFrameLength // allocate stack frame
+        sw      ra,HdRa(sp)             // save return address
+
+        PROLOGUE_END
+
+        lw      t0,ErExceptionFlags(a0) // get exception flags
+        and     t0,t0,EXCEPTION_UNWIND  // check if unwind in progress
+        bne     zero,t0,10f             // if ne, unwind in progress
+        li      v0,ExceptionContinueSearch // set disposition value
+        addu    sp,sp,HandlerFrameLength // deallocate stack frame
+        j       ra                      // return
+
+//
+// There is an attempt to unwind through a callback frame. If this were
+// allowed, then a kernel callback frame would be abandoned on the kernel
+// stack. Force a callback return.
+//
+
+10:     lw      a2,ErExceptionCode(a0)  // get exception code
+        move    a0,zero                 // set zero buffer address
+        move    a1,zero                 // set zero buffer lenfth
+        jal     ZwCallbackReturn        // return to kernel mode
+
+//
+// Unsuccessful completion after attempting to return to kernel mode. Use
+// the return status as the exception code, set noncontinuable exception and
+// attempt to raise another exception. Note there is no return from raise
+// status.
+//
+
+20:     move    a0,v0                   // set status value
+        jal     RtlRaiseStatus          // raise exception
+        b       20b                     // loop on return
+
+        .end    KiUserCallbackHandler
+
         SBTTL("User Exception Dispatcher")
 //++
 //
@@ -209,31 +360,25 @@ HandlerFrameLength:                     // length of handler frame
 
         .set    noreorder
         .set    noat
-        sw      sp,CxIntSp(sp)          // save stack pointer
-        sw      ra,CxIntRa(sp)          // save return address
+        sd      sp,CxXIntSp(sp)         // save stack pointer
+        sd      ra,CxXIntRa(sp)         // save return address
         sw      ra,CxFir(sp)            // save return address
-        sw      s8,CxIntS8(sp)          // save integer register s8
-        sw      gp,CxIntGp(sp)          // save integer register gp
-        sw      s0,CxIntS0(sp)          // save integer registers s0 - s7
-        sw      s1,CxIntS1(sp)          //
-        sw      s2,CxIntS2(sp)          //
-        sw      s3,CxIntS3(sp)          //
-        sw      s4,CxIntS4(sp)          //
-        sw      s5,CxIntS5(sp)          //
-        sw      s6,CxIntS6(sp)          //
-        sw      s7,CxIntS7(sp)          //
-        swc1    f20,CxFltF20(sp)        // store floating registers f20 - f31
-        swc1    f21,CxFltF21(sp)        //
-        swc1    f22,CxFltF22(sp)        //
-        swc1    f23,CxFltF23(sp)        //
-        swc1    f24,CxFltF24(sp)        //
-        swc1    f25,CxFltF25(sp)        //
-        swc1    f26,CxFltF26(sp)        //
-        swc1    f27,CxFltF27(sp)        //
-        swc1    f28,CxFltF28(sp)        //
-        swc1    f29,CxFltF29(sp)        //
-        swc1    f30,CxFltF30(sp)        //
-        swc1    f31,CxFltF31(sp)        //
+        sd      s8,CxXIntS8(sp)         // save integer register s8
+        sd      gp,CxXIntGp(sp)         // save integer register gp
+        sd      s0,CxXIntS0(sp)         // save integer registers s0 - s7
+        sd      s1,CxXIntS1(sp)         //
+        sd      s2,CxXIntS2(sp)         //
+        sd      s3,CxXIntS3(sp)         //
+        sd      s4,CxXIntS4(sp)         //
+        sd      s5,CxXIntS5(sp)         //
+        sd      s6,CxXIntS6(sp)         //
+        sd      s7,CxXIntS7(sp)         //
+        sdc1    f20,CxFltF20(sp)        // store floating registers f20 - f31
+        sdc1    f22,CxFltF22(sp)        //
+        sdc1    f24,CxFltF24(sp)        //
+        sdc1    f26,CxFltF26(sp)        //
+        sdc1    f28,CxFltF28(sp)        //
+        sdc1    f30,CxFltF30(sp)        //
         move    s8,sp                   // set frame pointer
         .set    at
         .set    reorder
@@ -320,3 +465,58 @@ HandlerFrameLength:                     // length of handler frame
         b       20b                     // loop of error
 
         .end    KiUserExceptionDispatch
+//++
+//
+// NTSTATUS
+// KiRaiseUserExceptionDispatcher (
+//    IN NTSTATUS ExceptionCode
+//    )
+//
+// Routine Description:
+//
+//    This routine is entered on return from kernel mode to raise a user
+//    mode exception.
+//
+// N.B. This function is not called in the typical way. Instead of a normal
+// subroutine call to the nested entry point above, the alternate entry point
+// address below is stuffed into the Fir address of the trap frame. Thus when
+// the kernel returns from the trap, the following code is executed directly.
+//
+// Arguments:
+//
+//    v0 - Supplies the status code to be raised.
+//
+// Return Value:
+//
+//    ExceptionCode
+//
+//--
+
+        .struct 0
+        .space  4 * 4                   // argument save area
+RaiseRa:.space  4                       // saved return address
+RaiseV0:.space  4                       // saved S0
+RaiseEr:.space  ExceptionRecordLength   // exception record for RtlRaiseException
+RaiseFrameLength:                       // length of handler frame
+
+        NESTED_ENTRY(KiRaiseUserExceptionDispatcher, RaiseFrameLength, zero)
+
+        subu    sp,sp,RaiseFrameLength  // allocate stack frame
+        sw      ra,RaiseRa(sp)          // save return address
+
+        PROLOGUE_END
+
+        sw      v0,RaiseV0(sp)          // save function return status
+        sw      v0,ErExceptionCode + RaiseEr(sp) // set exception code
+        sw      zero,ErExceptionFlags + RaiseEr(sp) // set exception flags
+        sw      zero,ErExceptionRecord + RaiseEr(sp) // clear exception record
+        sw      ra,ErExceptionAddress + RaiseEr(sp) // set exception address
+        sw      zero,ErNumberParameters+RaiseEr(sp) // set number of parameters
+        addu    a0,sp,RaiseEr           // compute exception record address
+        jal     RtlRaiseException       // attempt to raise the exception
+        lw      v0,RaiseV0(sp)          // restore function status
+        lw      ra,RaiseRa(sp)          // restore return address
+        addu    sp,sp,RaiseFrameLength  // deallocate stack frame
+        j       ra                      // return
+
+        .end    KiRaiseUserExceptionDispatch

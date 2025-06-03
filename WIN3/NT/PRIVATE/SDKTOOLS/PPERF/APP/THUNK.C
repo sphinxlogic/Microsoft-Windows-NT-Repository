@@ -51,7 +51,7 @@ ConvertImportAddress (
 );
 
 VOID ThunkCreateDriverList (VOID);
-#define IMPADDRESS(a)  ConvertImportAddress(a, Buffer, &SectionHeader)
+#define IMPADDRESS(a)  ConvertImportAddress((ULONG)a, (ULONG)Buffer, &SectionHeader)
 
 ULONG HookThunk (PNAME_LIST, PNAME_LIST, PNAME_LIST);
 VOID SnapPrivateInfo (PDISPLAY_ITEM);
@@ -60,7 +60,11 @@ PNAME_LIST AddNameEntry (PNAME_LIST *head, PUCHAR name, ULONG Parm);
 VOID FreeNameList (PNAME_LIST  List);
 PNAME_LIST GetComboSelection (HWND h, ULONG id);
 VOID NameList2ListBox (HWND hDlg, ULONG id, PNAME_LIST List);
-VOID loadimagesection (PUCHAR, PUCHAR, PIMAGE_SECTION_HEADER);
+VOID loadimagedir (PUCHAR, ULONG, PIMAGE_SECTION_HEADER);
+VOID RemoveHook (HWND hDlg);
+VOID ClearAllHooks (HWND hDlg);
+VOID AddThunk (HWND hDlg);
+VOID loadexports (PNAME_LIST Driver, PNAME_LIST Item);
 
 
 
@@ -138,7 +142,7 @@ APIENTRY ThunkDlgProc(
     return (FALSE);
 }
 
-AddThunk (HWND hDlg)
+VOID AddThunk (HWND hDlg)
 {
     PDISPLAY_ITEM   pPerf;
     PNAME_LIST      Item;
@@ -183,7 +187,7 @@ AddThunk (HWND hDlg)
     //
 
     Item = malloc (sizeof (NAME_LIST));
-    Item->Name = strdup (pPerf->PerfName);
+    Item->Name = _strdup (pPerf->PerfName);
     Item->Parm = (ULONG) pPerf;
     Item->ChildList = NULL;
     Item->Next = ActiveThunks;
@@ -198,7 +202,7 @@ AddThunk (HWND hDlg)
     //
 
     pPerf->SnapData   = SnapPrivateInfo;        // generic snap
-    pPerf->SnapParam1 = OFFSET(P5STATS, ThunkCounters[id-1]);
+    pPerf->SnapParam1 = OFFSET(PSTATS, ThunkCounters[id-1]);
 
     SetDisplayToTrue (pPerf, 99);
     RefitWindows(NULL, NULL);
@@ -208,7 +212,7 @@ AddThunk (HWND hDlg)
     pPerf->SnapData (pPerf);
 }
 
-ClearAllHooks (HWND hDlg)
+VOID ClearAllHooks (HWND hDlg)
 {
     PDISPLAY_ITEM   pPerf;
     IO_STATUS_BLOCK IOSB;
@@ -235,7 +239,7 @@ ClearAllHooks (HWND hDlg)
             (PIO_APC_ROUTINE) NULL,
             (PVOID) NULL,
             &IOSB,
-            P5STAT_REMOVE_HOOK,
+            PSTAT_REMOVE_HOOK,
             &id,                    // input buffer
             sizeof (ULONG),
             NULL,                   // output buffer
@@ -247,7 +251,7 @@ ClearAllHooks (HWND hDlg)
     RefitWindows (NULL, NULL);
 }
 
-RemoveHook (HWND hDlg)
+VOID RemoveHook (HWND hDlg)
 {
     ULONG           i, id;
     HWND            ListBox;
@@ -258,14 +262,14 @@ RemoveHook (HWND hDlg)
     ListBox = GetDlgItem(hDlg, IDM_THUNK_LIST);
     i =  SendMessage(ListBox, LB_GETCURSEL, 0, 0);
     if (i == -1) {
-        return NULL;
+        return;
     }
 
     pPerf = (PDISPLAY_ITEM) SendMessage(ListBox, LB_GETITEMDATA, i, 0);
 
     Item = NULL;
     for (pp = &ActiveThunks; *pp; pp = &(*pp)->Next) {
-        if ((*pp)->Parm == pPerf) {
+        if ((*pp)->Parm == (ULONG)pPerf) {
             Item = *pp;
             *pp = (*pp)->Next;          // remove from list
             break ;
@@ -290,7 +294,7 @@ RemoveHook (HWND hDlg)
         (PIO_APC_ROUTINE) NULL,
         (PVOID) NULL,
         &IOSB,
-        P5STAT_REMOVE_HOOK,
+        PSTAT_REMOVE_HOOK,
         &id,                    // input buffer
         sizeof (ULONG),
         NULL,                   // output buffer
@@ -312,7 +316,7 @@ NameList2ListBox (HWND hDlg, ULONG id, PNAME_LIST List)
     SendMessage(ListBox, LB_SETITEMDATA, 0L, 0L);
 
     while (List) {
-        nIndex = SendMessage(ListBox, LB_ADDSTRING, 0, List->Name);
+        nIndex = SendMessage(ListBox, LB_ADDSTRING, 0, (LPARAM)List->Name);
         SendMessage(ListBox, LB_SETITEMDATA, nIndex, List->Parm);
         List = List->Next;
     }
@@ -329,7 +333,7 @@ NameList2ComboBox (HWND hDlg, ULONG id, PNAME_LIST List)
     SendMessage(ComboList, CB_SETITEMDATA, 0L, 0L);
 
     while (List) {
-        nIndex = SendMessage(ComboList, CB_ADDSTRING, 0, List->Name);
+        nIndex = SendMessage(ComboList, CB_ADDSTRING, 0, (LPARAM)List->Name);
         SendMessage(ComboList, CB_SETITEMDATA, nIndex, (ULONG) List);
         List = List->Next;
     }
@@ -404,7 +408,7 @@ HookThunk (PNAME_LIST HookSource, PNAME_LIST TargetModule, PNAME_LIST Function)
             (PIO_APC_ROUTINE) NULL,
             (PVOID) NULL,
             &IOSB,
-            P5STAT_HOOK_THUNK,
+            PSTAT_HOOK_THUNK,
             &HookData,              // input buffer
             sizeof (HookData),
             NULL,                   // output buffer
@@ -471,7 +475,7 @@ ThunkCreateDriverList ()
             // Read in source image's headers
             //
             AbortState = Driver;
-            loadimagesection (Driver->Name, ".idata", &SectionHeader);
+            loadimagedir (Driver->Name, IMAGE_DIRECTORY_ENTRY_IMPORT, &SectionHeader);
 
             //
             // Go through each import module
@@ -498,10 +502,10 @@ ThunkCreateDriverList ()
                 // Go through each function for the import module
                 //
 
-                ThunkAddr = IMPADDRESS (ImpDescriptor->FirstThunk);
+                ThunkAddr = IMPADDRESS (ImpDescriptor->OriginalFirstThunk);
                 for (; ;) {
-                    ThunkData = ((PIMAGE_THUNK_DATA) ThunkAddr)->u1.AddressOfData;
-                    if (ThunkData == NULL) {
+                    ThunkData = (ULONG)((PIMAGE_THUNK_DATA) ThunkAddr)->u1.AddressOfData;
+                    if (ThunkData == 0) {
                         // end of table
                         break;
                     }
@@ -534,7 +538,7 @@ ThunkCreateDriverList ()
     // Add "Any driver" selection
     //
 
-    Driver = AddNameEntry(&DriverList, "*Any", -1);
+    Driver = AddNameEntry(&DriverList, "*Any", (ULONG)-1);
 
     //
     // For child module list use complete driver list, which is
@@ -550,7 +554,7 @@ ThunkCreateDriverList ()
     }
 }
 
-loadexports (PNAME_LIST Driver, PNAME_LIST Item)
+VOID loadexports (PNAME_LIST Driver, PNAME_LIST Item)
 {
     IMAGE_SECTION_HEADER                SectionHeader;
     PIMAGE_EXPORT_DIRECTORY             ExpDirectory;
@@ -560,7 +564,11 @@ loadexports (PNAME_LIST Driver, PNAME_LIST Item)
 
 
     try {
-        loadimagesection (Item->Name, ".edata", &SectionHeader);
+        loadimagedir (
+            Item->Name,
+            IMAGE_DIRECTORY_ENTRY_EXPORT,
+            &SectionHeader
+        );
     } except(EXCEPTION_EXECUTE_HANDLER) {
         return ;
     }
@@ -569,7 +577,7 @@ loadexports (PNAME_LIST Driver, PNAME_LIST Item)
 
     try {
         ExpDirectory = (PIMAGE_EXPORT_DIRECTORY) Buffer;
-        ExpNameAddr  = IMPADDRESS (ExpDirectory->AddressOfNames);
+        ExpNameAddr  = (PULONG)IMPADDRESS (ExpDirectory->AddressOfNames);
         for (i=0; i < ExpDirectory->NumberOfNames; i++) {
             AddNameEntry (
                  &Import->ChildList,
@@ -584,14 +592,14 @@ loadexports (PNAME_LIST Driver, PNAME_LIST Item)
 }
 
 VOID
-loadimagesection (
+loadimagedir (
     IN PUCHAR filename,
-    IN PUCHAR sectionname,
+    IN ULONG  dirno,
     OUT PIMAGE_SECTION_HEADER SectionHeader
 )
 {
     HANDLE                      filehandle;
-    ULONG                       i, j;
+    ULONG                       i, j, Dir;
     NTSTATUS                    status;
     IMAGE_DOS_HEADER            DosImageHeader;
     IMAGE_NT_HEADERS            NtImageHeader;
@@ -624,7 +632,7 @@ loadimagesection (
         readfile (
             filehandle,
             DosImageHeader.e_lfanew,
-            sizeof (DosImageHeader),
+            sizeof (NtImageHeader),
             (PVOID) &NtImageHeader
             );
 
@@ -655,26 +663,33 @@ loadimagesection (
             );
 
         //
-        // Lookup import section header
+        // Find section with import directory
         //
 
+        Dir = NtImageHeader.OptionalHeader.DataDirectory[dirno].VirtualAddress;
         i = 0;
-        pSectionHeader = Buffer;
+        pSectionHeader = (PIMAGE_SECTION_HEADER)Buffer;
         for (; ;) {
             if (i >= NtImageHeader.FileHeader.NumberOfSections) {
                 RtlRaiseStatus (1);
             }
-            if (strcmp (pSectionHeader->Name, sectionname) == 0) {
-                break;                                  // found it
+            if (pSectionHeader->VirtualAddress <= Dir  &&
+                pSectionHeader->VirtualAddress + pSectionHeader->SizeOfRawData > Dir) {
+                break;
             }
             i += 1;
             pSectionHeader += 1;
         }
 
+        Dir -= pSectionHeader->VirtualAddress;
+        pSectionHeader->VirtualAddress   += Dir;
+        pSectionHeader->PointerToRawData += Dir;
+        pSectionHeader->SizeOfRawData    -= Dir;
+
         *SectionHeader = *pSectionHeader;
 
         //
-        // read in complete import section from image
+        // read in complete export section from image
         //
 
         if (SectionHeader->SizeOfRawData > BufferSize) {
@@ -703,12 +718,12 @@ AddNameEntry (PNAME_LIST *head, PUCHAR name, ULONG Parm)
     PNAME_LIST  Entry;
 
     Entry = malloc (sizeof (NAME_LIST));
-    Entry->Name = strdup (name);
+    Entry->Name = _strdup (name);
     Entry->Parm = Parm;
     Entry->ChildList = NULL;
 
     if (Parm) {
-        strlwr (Entry->Name);
+        _strlwr (Entry->Name);
     }
 
     Entry->Next = *head;
@@ -735,7 +750,7 @@ openfile (
     // Build name
     //
 
-    UniPathName.Buffer = StringBuf;
+    UniPathName.Buffer = (PWCHAR)StringBuf;
     UniPathName.Length = 0;
     UniPathName.MaximumLength = sizeof( StringBuf );
 

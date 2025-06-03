@@ -666,4 +666,3 @@ FwPrint (
     if ( Spaces > 1 )                              \
         FwPrint( "%c%dC", ASCII_CSI, Spaces - 1)
 #endif // _FWP_
-

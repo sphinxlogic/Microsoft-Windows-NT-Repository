@@ -43,7 +43,8 @@ Revision History:
 
 BOOLEAN
 pOverrideConflict(
-    PDEVICE_EXTENSION DeviceExtension
+    PDEVICE_EXTENSION DeviceExtension,
+    BOOLEAN bSetResources
     )
 
 /*++
@@ -51,7 +52,13 @@ pOverrideConflict(
 Routine Description:
 
     Determine if the port driver should oerride the conflict int he registry.
-    
+
+    bSetResources determines if the routine is checking the state for setting
+    the resources in the registry, or for cleaning them.
+
+    For example, if we are running basevideo and there is a conflict with the
+    vga, we want to override the conflict, but not clear the contents of
+    the registry.
 
 Return Value:
 
@@ -65,25 +72,48 @@ Return Value:
     UNICODE_STRING unicodeString;
     HANDLE handle;
 
+    //
+    // \Driver\Vga is for backwards compatibility since we do not have it
+    // anymore.  It has become \Driver\VgaSave.
+    //
+
     RtlInitUnicodeString(&unicodeString, L"\\Driver\\Vga");
 
-    if (RtlCompareUnicodeString(&(DeviceExtension->DeviceObject->DriverObject->DriverName),
-                                &unicodeString,
-                                TRUE)) {
+    if (!RtlCompareUnicodeString(&(DeviceExtension->DeviceObject->DriverObject->DriverName),
+                                 &unicodeString,
+                                 TRUE)) {
 
         //
-        // Strings were different - try next one.
+        // Strings were equal - return SUCCESS
         //
+
+        pVideoDebugPrint((0, "pOverrideConflict: found Vga string\n"));
+
+        return TRUE;
+
+    } else {
 
         RtlInitUnicodeString(&unicodeString, L"\\Driver\\VgaSave");
 
-        if (RtlCompareUnicodeString(&(DeviceExtension->DeviceObject->DriverObject->DriverName),
-                                     &unicodeString,
-                                     TRUE)) {
+        if (!RtlCompareUnicodeString(&(DeviceExtension->DeviceObject->DriverObject->DriverName),
+                                      &unicodeString,
+                                      TRUE)) {
             //
-            // Strings were different again.
-            // See if we are doing a detect.
+            // Return TRUE if we are just checking for confict (never want this
+            // driver to generate a conflict).
+            // We want to return TRUE only if we are not in basevideo since we
+            // only want to clear the resources if we are NOT in basevideo
+            // we are clearing the resources.
             //
+
+
+            pVideoDebugPrint((0, "pOverrideConflict: found VgaSave string.  Returning %d\n",
+                             bSetResources));
+
+            return (bSetResources || (!VpBaseVideo));
+
+
+        } else {
 
             RtlInitUnicodeString(&unicodeString,
                                  L"\\Registry\\Machine\\System\\CurrentControlSet\\Control\\DetectDisplay");
@@ -106,17 +136,14 @@ Return Value:
 
             } else {
 
+                pVideoDebugPrint((0, "pOverrideConflict: Display Detection Found\n"));
+
                 ZwClose(handle);
+                return TRUE;
 
             }
         }
     }
-
-    //
-    // One of the tests succeded - override
-    //
-
-    return TRUE;
 
 } // end pOverrideConflict()
 
@@ -142,8 +169,6 @@ Routine Description:
     Search for the appropriate device ID.
     Appropriate resources will be returned and automatically stored in the
     resourcemap.
-
-    Currently, only PCI is supported.
 
 Arguments:
 
@@ -182,7 +207,7 @@ Return Value:
         deviceExtension = ((PDEVICE_EXTENSION) HwDeviceExtension) - 1;
 
     PCI_SLOT_NUMBER slotData;
-    ULONG pciBuffer;
+    PCI_COMMON_CONFIG pciBuffer;
     PPCI_COMMON_CONFIG  pciData;
 
     UNICODE_STRING unicodeString;
@@ -234,17 +259,17 @@ Return Value:
 #endif
 
     //
-    // Only PCI is supported
+    // An empty requested resource list means we want to automatic behavoir.
+    // Just call the HAL to get all the information
     //
 
-    if (deviceExtension->AdapterInterfaceType == PCIBus) {
+    if (NumRequestedResources == 0) {
 
         //
-        // An empty requested resource list means we want to automatic behavoir.
-        // Just call the HAL to get all the information
+        // Only PCI is supported for automatic querying
         //
 
-        if (NumRequestedResources == 0) {
+        if (deviceExtension->AdapterInterfaceType == PCIBus) {
 
             status = ERROR_DEV_NOT_EXIST;
 
@@ -268,7 +293,7 @@ Return Value:
                                       deviceExtension->SystemIoBusNumber,
                                       slotData.u.AsULONG,
                                       pciData,
-                                      sizeof(ULONG)) == 0) {
+                                      PCI_COMMON_HDR_LENGTH) == 0) {
 
                         //
                         // Out of functions. Go to next PCI bus.
@@ -297,7 +322,34 @@ Return Value:
 
                         continue;
                     }
+#if 0
+                    //
+                    // This breaks my verite card !
+                    // Andre
+                    //
 
+                    //
+                    // If a PCI device is disabled, lets assume
+                    // that it was disabled by the system, and not
+                    // try to configure the card.
+                    //
+                    // The Command register will be zero if the
+                    // card is disabled.
+                    //
+                    // BUGBUG:
+                    //
+                    // Is this really the right way to handle this?
+                    //
+
+                    if (pciData->Command == 0)
+                    {
+                        //
+                        // Act as if we did not even see the card.
+                        //
+
+                        continue;
+                    }
+#endif
                     if (NT_SUCCESS(HalAssignSlotResources(&unicodeString,
                                                           &VideoClassName,
                                                           deviceExtension->DeviceObject->DriverObject,
@@ -338,205 +390,212 @@ Return Value:
 
         } else {
 
-            PIO_RESOURCE_REQUIREMENTS_LIST RequestedResources;
-            ULONG RequestedResourceSize;
-            NTSTATUS ntStatus;
-
-            status = NO_ERROR;
-
             //
-            // The caller has specified some resources.
-            // Lets call IoAssignResources with that and see what comes back.
+            // This is not a supported bus type.
             //
 
-            RequestedResourceSize = sizeof(IO_RESOURCE_REQUIREMENTS_LIST) +
-                                       ((NumRequestedResources - 1) *
-                                       sizeof(IO_RESOURCE_DESCRIPTOR));
+            status = ERROR_INVALID_PARAMETER;
 
-            RequestedResources = ExAllocatePool(PagedPool, RequestedResourceSize);
+        }
 
-            if (RequestedResources) {
+    } else {
 
-                RequestedResources->ListSize = RequestedResourceSize;
-                RequestedResources->InterfaceType = deviceExtension->AdapterInterfaceType;
-                RequestedResources->BusNumber = deviceExtension->SystemIoBusNumber;
-                RequestedResources->SlotNumber = *Slot;
-                RequestedResources->AlternativeLists = 0;
+        PIO_RESOURCE_REQUIREMENTS_LIST requestedResources;
+        ULONG requestedResourceSize;
+        NTSTATUS ntStatus;
 
-                RequestedResources->List[1].Version = 1;
-                RequestedResources->List[1].Revision = 1;
-                RequestedResources->List[1].Count = NumRequestedResources;
+        status = NO_ERROR;
 
-                RtlMoveMemory(&(RequestedResources->List[1].Descriptors[1]),
-                              RequestedResources,
-                              ((NumRequestedResources - 1) *
-                                 sizeof(IO_RESOURCE_DESCRIPTOR)));
+        //
+        // The caller has specified some resources.
+        // Lets call IoAssignResources with that and see what comes back.
+        //
 
-                ntStatus = IoAssignResources(&unicodeString,
-                                             &VideoClassName,
-                                             deviceExtension->DeviceObject->DriverObject,
-                                             deviceExtension->DeviceObject,
-                                             RequestedResources,
-                                             &cmResourceList);
+        requestedResourceSize = sizeof(IO_RESOURCE_REQUIREMENTS_LIST) +
+                                   ((NumRequestedResources - 1) *
+                                   sizeof(IO_RESOURCE_DESCRIPTOR));
 
-                ExFreePool(RequestedResources);
+        requestedResources = ExAllocatePool(PagedPool, requestedResourceSize);
 
-                if (!NT_SUCCESS(ntStatus)) {
+        if (requestedResources) {
 
-                    status = ERROR_INVALID_PARAMETER;
+            RtlZeroMemory(requestedResources, requestedResourceSize);
 
-                }
+            requestedResources->ListSize = requestedResourceSize;
+            requestedResources->InterfaceType = deviceExtension->AdapterInterfaceType;
+            requestedResources->BusNumber = deviceExtension->SystemIoBusNumber;
+            requestedResources->SlotNumber = Slot ? (*Slot) : -1;
+            requestedResources->AlternativeLists = 1;
+
+            requestedResources->List[0].Version = 1;
+            requestedResources->List[0].Revision = 1;
+            requestedResources->List[0].Count = NumRequestedResources;
+
+            RtlMoveMemory(&(requestedResources->List[0].Descriptors[0]),
+                          RequestedResources,
+                          NumRequestedResources * sizeof(IO_RESOURCE_DESCRIPTOR));
+
+            ntStatus = IoAssignResources(&unicodeString,
+                                         &VideoClassName,
+                                         deviceExtension->DeviceObject->DriverObject,
+                                         deviceExtension->DeviceObject,
+                                         requestedResources,
+                                         &cmResourceList);
+
+            ExFreePool(requestedResources);
+
+            if (!NT_SUCCESS(ntStatus)) {
+
+                status = ERROR_INVALID_PARAMETER;
+
+            }
+
+        } else {
+
+            status = ERROR_NOT_ENOUGH_MEMORY;
+
+        }
+
+    }
+
+    if (status == NO_ERROR) {
+
+        //
+        // We now have a valid cmResourceList.
+        // Lets translate it back to access ranges so the driver
+        // only has to deal with one type of list.
+        //
+
+        //
+        // NOTE: The resources have already been reported at this point in
+        // time.
+        //
+
+        //
+        // Walk resource list to update configuration information.
+        //
+
+        for (i = 0, j = 0;
+             (i < cmResourceList->List->PartialResourceList.Count) &&
+                 (status == NO_ERROR);
+             i++) {
+
+            //
+            // Get resource descriptor.
+            //
+
+            cmResourceDescriptor =
+                &cmResourceList->List->PartialResourceList.PartialDescriptors[i];
+
+            //
+            // Get the share disposition
+            //
+
+            if (cmResourceDescriptor->ShareDisposition == CmResourceShareShared) {
+
+                bShare = 1;
 
             } else {
 
-                status = ERROR_NOT_ENOUGH_MEMORY;
+                bShare = 0;
 
             }
 
-        }
+            switch (cmResourceDescriptor->Type) {
 
-        if (status == NO_ERROR) {
+            case CmResourceTypePort:
+            case CmResourceTypeMemory:
 
-            //
-            // We now have a valid cmResourceList.
-            // Lets translate it back to access ranges so the driver
-            // only has to deal with one type of list.
-            //
 
-            //
-            // NOTE: The resources have already been reported at this point in
-            // time.
-            //
+                // !!! what about sharing when you just do the default
+                // AssignResources ?
 
-            //
-            // Walk resource list to update configuration information.
-            //
-
-            for (i = 0, j = 0;
-                 (i < cmResourceList->List->PartialResourceList.Count) &&
-                     (status == NO_ERROR);
-                 i++) {
 
                 //
-                // Get resource descriptor.
+                // common part
                 //
 
-                cmResourceDescriptor =
-                    &cmResourceList->List->PartialResourceList.PartialDescriptors[i];
+                if (j == NumAccessRanges) {
+
+                    status = ERROR_MORE_DATA;
+                    break;
+
+                }
+
+                AccessRanges[j].RangeLength =
+                    cmResourceDescriptor->u.Memory.Length;
+                AccessRanges[j].RangeStart =
+                    cmResourceDescriptor->u.Memory.Start;
+                AccessRanges[j].RangeVisible = 0;
+                AccessRanges[j].RangeShareable = bShare;
 
                 //
-                // Get the share disposition
+                // separate part
                 //
 
-                if (cmResourceDescriptor->ShareDisposition == CmResourceShareShared) {
-
-                    bShare = 1;
-
+                if (cmResourceDescriptor->Type == CmResourceTypePort) {
+                    AccessRanges[j].RangeInIoSpace = 1;
                 } else {
-
-                    bShare = 0;
-
+                    AccessRanges[j].RangeInIoSpace = 0;
                 }
 
-                switch (cmResourceDescriptor->Type) {
+                j++;
 
-                case CmResourceTypePort:
-                case CmResourceTypeMemory:
+                break;
 
+            case CmResourceTypeInterrupt:
 
-                    // !!! what about sharing when you just do the default
-                    // AssignResources ?
+                deviceExtension->MiniportConfigInfo->BusInterruptVector =
+                    cmResourceDescriptor->u.Interrupt.Vector;
+                deviceExtension->MiniportConfigInfo->BusInterruptLevel =
+                    cmResourceDescriptor->u.Interrupt.Level;
+                deviceExtension->MiniportConfigInfo->InterruptShareable =
+                    bShare;
 
+                break;
 
-                    //
-                    // common part
-                    //
+            case CmResourceTypeDma:
 
-                    if (j == NumAccessRanges) {
+                deviceExtension->MiniportConfigInfo->DmaChannel =
+                    cmResourceDescriptor->u.Dma.Channel;
+                deviceExtension->MiniportConfigInfo->DmaPort =
+                    cmResourceDescriptor->u.Dma.Port;
+                deviceExtension->MiniportConfigInfo->DmaShareable =
+                    bShare;
 
-                        status = ERROR_MORE_DATA;
+                break;
 
-                    }
+            default:
 
-                    AccessRanges[j].RangeLength =
-                        cmResourceDescriptor->u.Memory.Length;
-                    AccessRanges[j].RangeStart =
-                        cmResourceDescriptor->u.Memory.Start;
-                    AccessRanges[j].RangeVisible = 0;
-                    AccessRanges[j].RangeShareable = bShare;
+                pVideoDebugPrint((0, "VideoPortGetAccessRanges: Unknown descriptor type %x\n",
+                                 cmResourceDescriptor->Type ));
 
-                    //
-                    // separate part
-                    //
-
-                    if (cmResourceDescriptor->Type == CmResourceTypePort) {
-                        AccessRanges[j].RangeInIoSpace = 1;
-                    } else {
-                        AccessRanges[j].RangeInIoSpace = 0;
-                    }
-
-                    j++;
-
-                    break;
-
-                case CmResourceTypeInterrupt:
-
-                    deviceExtension->MiniportConfigInfo->BusInterruptVector =
-                        cmResourceDescriptor->u.Interrupt.Vector;
-                    deviceExtension->MiniportConfigInfo->BusInterruptLevel =
-                        cmResourceDescriptor->u.Interrupt.Level;
-                    deviceExtension->MiniportConfigInfo->InterruptShareable =
-                        bShare;
-
-                    break;
-
-                case CmResourceTypeDma:
-
-                    deviceExtension->MiniportConfigInfo->DmaChannel =
-                        cmResourceDescriptor->u.Dma.Channel;
-                    deviceExtension->MiniportConfigInfo->DmaPort =
-                        cmResourceDescriptor->u.Dma.Port;
-                    deviceExtension->MiniportConfigInfo->DmaShareable =
-                        bShare;
-
-                    break;
-
-                default:
-
-                    pVideoDebugPrint((0, "VideoPortGetAccessRanges: Unknown descriptor type %x\n",
-                                     cmResourceDescriptor->Type ));
-
-                    break;
-
-                }
+                break;
 
             }
 
-            //
-            // Free the resource provided by the IO system.
-            //
-
-            ExFreePool(cmResourceList);
-
         }
+
+        //
+        // Free the resource provided by the IO system.
+        //
+
+        ExFreePool(cmResourceList);
+
+    }
 
 #if DBG
+
+    if (status == NO_ERROR)
+    {
         //
         // Indicates resources have been mapped properly
         //
 
         VPResourcesReported = TRUE;
-#endif
-
-    } else {
-
-        //
-        // This is not a supported bus type.
-        //
-
-        status = ERROR_INVALID_PARAMETER;
-
     }
+
+#endif
 
     return status;
 
@@ -577,12 +636,15 @@ Return Value:
 
 {
     PCM_RESOURCE_LIST resourceList;
+    PCM_FULL_RESOURCE_DESCRIPTOR fullResourceDescriptor;
     PCM_PARTIAL_RESOURCE_DESCRIPTOR partialResourceDescriptor;
     ULONG listLength = 0;
     ULONG size;
     ULONG i;
     NTSTATUS ntStatus;
     BOOLEAN overrideConflict;
+    BOOLEAN bAddC0000 = FALSE;
+    VIDEO_ACCESS_RANGE arC0000;
 
     //
     // Create a resource list based on the information in the access range.
@@ -595,7 +657,10 @@ Return Value:
     // Determine if we have DMA and interrupt resources to report
     //
 
-    if (DeviceExtension->HwInterrupt) {
+    if (DeviceExtension->HwInterrupt &&
+        ((DeviceExtension->MiniportConfigInfo->BusInterruptLevel != 0) ||
+         (DeviceExtension->MiniportConfigInfo->BusInterruptVector != 0)) ) {
+
         listLength++;
     }
 
@@ -604,19 +669,14 @@ Return Value:
        listLength++;
     }
 
-/*    size =  FIELD_OFFSET(CM_RESOURCE_LIST, List) +
-            FIELD_OFFSET(CM_FULL_RESOURCE_DESCRIPTOR, PartialResourceList) +
-            FIELD_OFFSET(CM_PARTIAL_RESOURCE_LIST, PartialDescriptors) +
-            listLength * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
-*/
-    size = (listLength - 1) * sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) +
-           sizeof(CM_RESOURCE_LIST);
+    //
+    // Allocate upper bound.
+    //
 
-    pVideoDebugPrint((2, "pVideoPortBuildResourceList data size is %08lx\n",
-                     size));
-
-    resourceList = (PCM_RESOURCE_LIST) ExAllocatePool(PagedPool,
-                                                      size);
+    resourceList = (PCM_RESOURCE_LIST)
+        ExAllocatePool(PagedPool,
+                       sizeof(CM_RESOURCE_LIST) * 2 +
+                           sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR) * listLength);
 
     //
     // Return NULL if the structure could not be allocated.
@@ -629,22 +689,41 @@ Return Value:
 
     } else {
 
+        size = sizeof(CM_RESOURCE_LIST) - sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+
         resourceList->Count = 1;
-        resourceList->List[0].InterfaceType = DeviceExtension->AdapterInterfaceType;
-        resourceList->List[0].BusNumber = DeviceExtension->SystemIoBusNumber;
-        resourceList->List[0].PartialResourceList.Version = 0;
-        resourceList->List[0].PartialResourceList.Revision = 0;
-        resourceList->List[0].PartialResourceList.Count = listLength;
+
+        fullResourceDescriptor = &(resourceList->List[0]);
+        fullResourceDescriptor->InterfaceType = DeviceExtension->AdapterInterfaceType;
+        fullResourceDescriptor->BusNumber = DeviceExtension->SystemIoBusNumber;
+        fullResourceDescriptor->PartialResourceList.Version = 0;
+        fullResourceDescriptor->PartialResourceList.Revision = 0;
+        fullResourceDescriptor->PartialResourceList.Count = 0;
 
         //
         // For each entry in the access range, fill in an entry in the
         // resource list
         //
 
+        partialResourceDescriptor =
+            &(fullResourceDescriptor->PartialResourceList.PartialDescriptors[0]);
+
         for (i = 0; i < NumAccessRanges; i++, AccessRanges++) {
 
-            partialResourceDescriptor =
-                &(resourceList->List[0].PartialResourceList.PartialDescriptors[i]);
+            //
+            // In the case of the new HAL interface, report the C0000 address
+            // as being on the internal bus so that HalTranslateBusAddress
+            // succeeds properly.
+            //
+
+            if ((AccessRanges->RangeStart.LowPart == 0x000C0000) &&
+                (AccessRanges->RangeInIoSpace == 0) &&
+                (VpC0000Compatible == 2)) {
+
+                arC0000 = *AccessRanges;
+                bAddC0000 = TRUE;
+                continue;
+            }
 
             if (AccessRanges->RangeInIoSpace) {
                 partialResourceDescriptor->Type = CmResourceTypePort;
@@ -657,29 +736,36 @@ Return Value:
             partialResourceDescriptor->ShareDisposition =
                     (AccessRanges->RangeShareable ?
                         CmResourceShareShared :
-                        CmResourceShareDriverExclusive);
+                        CmResourceShareDeviceExclusive);
 
             partialResourceDescriptor->u.Memory.Start =
                     AccessRanges->RangeStart;
             partialResourceDescriptor->u.Memory.Length =
                     AccessRanges->RangeLength;
+
+            //
+            // Increment the size for the new entry
+            //
+
+            size += sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+            fullResourceDescriptor->PartialResourceList.Count += 1;
+            partialResourceDescriptor++;
         }
 
         //
         // Fill in the entry for the interrupt if it was present.
         //
 
-        if (DeviceExtension->HwInterrupt) {
-
-            partialResourceDescriptor =
-            &(resourceList->List[0].PartialResourceList.PartialDescriptors[i++]);
+        if (DeviceExtension->HwInterrupt &&
+            ((DeviceExtension->MiniportConfigInfo->BusInterruptLevel != 0) ||
+             (DeviceExtension->MiniportConfigInfo->BusInterruptVector != 0)) ) {
 
             partialResourceDescriptor->Type = CmResourceTypeInterrupt;
 
             partialResourceDescriptor->ShareDisposition =
                     (DeviceExtension->MiniportConfigInfo->InterruptShareable ?
                         CmResourceShareShared :
-                        CmResourceShareDriverExclusive);
+                        CmResourceShareDeviceExclusive);
 
             partialResourceDescriptor->Flags = 0;
 
@@ -690,6 +776,13 @@ Return Value:
 
             partialResourceDescriptor->u.Interrupt.Affinity = 0;
 
+            //
+            // Increment the size for the new entry
+            //
+
+            size += sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+            fullResourceDescriptor->PartialResourceList.Count += 1;
+            partialResourceDescriptor++;
         }
 
         //
@@ -699,15 +792,12 @@ Return Value:
         if ((DeviceExtension->MiniportConfigInfo->DmaChannel) &&
             (DeviceExtension->MiniportConfigInfo->DmaPort)) {
 
-            partialResourceDescriptor =
-            &(resourceList->List[0].PartialResourceList.PartialDescriptors[i]);
-
             partialResourceDescriptor->Type = CmResourceTypeDma;
 
             partialResourceDescriptor->ShareDisposition =
                     (DeviceExtension->MiniportConfigInfo->DmaShareable ?
                         CmResourceShareShared :
-                        CmResourceShareDriverExclusive);
+                        CmResourceShareDeviceExclusive);
 
             partialResourceDescriptor->Flags = 0;
 
@@ -717,6 +807,54 @@ Return Value:
                     DeviceExtension->MiniportConfigInfo->DmaPort;
 
             partialResourceDescriptor->u.Dma.Reserved1 = 0;
+
+            //
+            // Increment the size for the new entry
+            //
+
+            size += sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+            fullResourceDescriptor->PartialResourceList.Count += 1;
+            partialResourceDescriptor++;
+        }
+
+        if (bAddC0000) {
+
+            if (partialResourceDescriptor !=
+                &(fullResourceDescriptor->PartialResourceList.PartialDescriptors[0])) {
+
+                fullResourceDescriptor = (PVOID) partialResourceDescriptor;
+
+                resourceList->Count = 2;
+                fullResourceDescriptor->InterfaceType = Internal;
+                fullResourceDescriptor->BusNumber = 0;
+                fullResourceDescriptor->PartialResourceList.Version = 0;
+                fullResourceDescriptor->PartialResourceList.Revision = 0;
+                fullResourceDescriptor->PartialResourceList.Count = 0;
+
+                partialResourceDescriptor = (&fullResourceDescriptor->PartialResourceList.PartialDescriptors[0]);
+                size += sizeof(CM_FULL_RESOURCE_DESCRIPTOR) -
+                        sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+            }
+
+            partialResourceDescriptor->Type = CmResourceTypeMemory;
+            partialResourceDescriptor->Flags = CM_RESOURCE_MEMORY_READ_WRITE;
+
+            partialResourceDescriptor->ShareDisposition =
+                    (arC0000.RangeShareable ?
+                        CmResourceShareShared :
+                        CmResourceShareDeviceExclusive);
+
+            partialResourceDescriptor->u.Memory.Start  = arC0000.RangeStart;
+            partialResourceDescriptor->u.Memory.Length = arC0000.RangeLength;
+
+
+            //
+            // Increment the size for the new entry
+            //
+
+            size += sizeof(CM_PARTIAL_RESOURCE_DESCRIPTOR);
+            fullResourceDescriptor->PartialResourceList.Count += 1;
+            partialResourceDescriptor++;
 
         }
 
@@ -730,7 +868,7 @@ Return Value:
         //
 
 
-        overrideConflict = pOverrideConflict(DeviceExtension);
+        overrideConflict = pOverrideConflict(DeviceExtension, TRUE);
 
 #if DBG
         if (overrideConflict) {
@@ -761,32 +899,63 @@ Return Value:
         ExFreePool(resourceList);
 
         //
-        // If there was a conflict and we are overriding the conflict
-        // then remove the data from the registry since we don't want other
-        // drivers to fails when we are in detect mode.
+        // This is for hive compatibility back when we have the VGA driver
+        // as opposed to VgaSave.
+        // The Vga also cleans up the resource automatically.
         //
 
-        if ( *Conflict &&
-             overrideConflict &&
-             (NT_SUCCESS(ntStatus)) ) {
+        //
+        // If we tried to override the conflict, let's take a look a what
+        // we want to do with the result
+        //
 
-            ULONG emptyResourceList = 0;
-            BOOLEAN ignore;
+        if ((NT_SUCCESS(ntStatus)) &&
+            overrideConflict &&
+            *Conflict) {
 
-            size = sizeof(ULONG);
+            //
+            // For cases like DetectDisplay, a conflict is bad and we do
+            // want to fail.
+            //
+            // In the case of Basevideo, a conflict is possible.  But we still
+            // want to load the VGA anyways. Return success and reset the
+            // conflict flag !
+            //
+            // pOverrideConflict with the FALSE flag will check that.
+            //
 
-            pVideoDebugPrint((1, "Removing the VGA resources since it conflicted with a SVGA\n"));
+            if (pOverrideConflict(DeviceExtension, FALSE)) {
 
-            ntStatus = IoReportResourceUsage(&VideoClassName,
-                                             DeviceExtension->DeviceObject->DriverObject,
-                                             NULL,
-                                             0L,
-                                             DeviceExtension->DeviceObject,
-                                             (PCM_RESOURCE_LIST)&emptyResourceList,
-                                             size,
-                                             overrideConflict,
-                                             &ignore);
+                ULONG emptyResourceList = 0;
+                BOOLEAN ignore;
 
+                size = sizeof(ULONG);
+
+                pVideoDebugPrint((1, "videoprt: Removing the conflicting resources\n"));
+
+                ntStatus = IoReportResourceUsage(&VideoClassName,
+                                                 DeviceExtension->DeviceObject->DriverObject,
+                                                 NULL,
+                                                 0L,
+                                                 DeviceExtension->DeviceObject,
+                                                 (PCM_RESOURCE_LIST)&emptyResourceList,
+                                                 size,
+                                                 overrideConflict,
+                                                 &ignore);
+
+                //
+                // return a conflict to the vga driver so it does not load.
+                //
+
+                ntStatus = STATUS_CONFLICTING_ADDRESSES;
+
+            } else {
+
+                *Conflict = FALSE;
+
+                return STATUS_SUCCESS;
+
+            }
         }
 
         return ntStatus;

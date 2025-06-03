@@ -52,7 +52,7 @@ extern BOOLEAN SmbTraceActive[];
 //
 // Initialize the SMB tracing package
 //
-VOID
+NTSTATUS
 SmbTraceInitialize (
     IN SMBTRACE_COMPONENT Component
     );

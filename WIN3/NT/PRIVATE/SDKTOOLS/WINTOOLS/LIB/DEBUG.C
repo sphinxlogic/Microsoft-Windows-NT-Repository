@@ -282,7 +282,7 @@ Return Value:
                 & ~FORMAT_MESSAGE_FROM_HMODULE,
                 ( LPVOID ) Format,
                 0,
-                LOWORD(GetThreadLocale()),
+                0,
                 Buffer,
                 sizeof( Buffer ),
                 Args

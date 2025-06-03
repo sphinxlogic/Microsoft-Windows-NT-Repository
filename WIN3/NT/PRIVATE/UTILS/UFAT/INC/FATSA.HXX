@@ -22,6 +22,14 @@ Author:
 #include "supera.hxx"
 #include "message.hxx"
 
+#if defined ( _AUTOCHECK_ )
+#define UFAT_EXPORT
+#elif defined ( _UFAT_MEMBER_ )
+#define UFAT_EXPORT    __declspec(dllexport)
+#else
+#define UFAT_EXPORT    __declspec(dllimport)
+#endif
+
 //
 //    Forward references
 //
@@ -99,9 +107,11 @@ class FAT_SA : public SUPERAREA {
 
     public:
 
+        UFAT_EXPORT
         DECLARE_CONSTRUCTOR(FAT_SA);
 
         VIRTUAL
+        UFAT_EXPORT
         ~FAT_SA(
             );
 
@@ -112,7 +122,7 @@ class FAT_SA : public SUPERAREA {
             IN OUT  PMESSAGE            Message,
             IN      BOOLEAN             Formatted
             ) PURE;
-    
+
         VIRTUAL
         BOOLEAN
         Create(
@@ -132,7 +142,10 @@ class FAT_SA : public SUPERAREA {
             IN      BOOLEAN     OnlyIfDirty     DEFAULT FALSE,
             IN      BOOLEAN     RecoverFree     DEFAULT FALSE,
             IN      BOOLEAN     RecoverAlloc    DEFAULT FALSE,
-            OUT     PULONG      ExitStatus      DEFAULT NULL
+            IN      BOOLEAN     Resize          DEFAULT FALSE,
+            IN      ULONG       LogFileSize     DEFAULT 0,
+            OUT     PULONG      ExitStatus      DEFAULT NULL,
+            IN      PCWSTRING   DriveLetter     DEFAULT NULL
             );
 
         NONVIRTUAL
@@ -189,7 +202,7 @@ class FAT_SA : public SUPERAREA {
         ULONG
         QueryVirtualSectors(
             ) CONST PURE;
-    
+
         VIRTUAL
         USHORT
         QueryFats(
@@ -224,7 +237,7 @@ class FAT_SA : public SUPERAREA {
         BYTE
         QueryVolumeFlags(
             ) CONST PURE;
-        
+
         VIRTUAL
         VOID
         SetVolumeFlags(
@@ -261,6 +274,7 @@ class FAT_SA : public SUPERAREA {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         USHORT
         QueryFileStartingCluster(
             IN  PCWSTRING           FullPathFileName,
@@ -271,6 +285,7 @@ class FAT_SA : public SUPERAREA {
             );
 
         NONVIRTUAL
+        UFAT_EXPORT
         BOOLEAN
         QueryCensusAndRelocate (
             OUT     PCENSUS_REPORT  CensusReport        DEFAULT NULL,
@@ -312,13 +327,13 @@ class FAT_SA : public SUPERAREA {
             IN    ULONG        Cluster,
             OUT   PUCHAR       NumSectors         DEFAULT NULL
             ) PURE;
- 
+
         VIRTUAL
         BOOLEAN
         IsClusterCompressed(
             IN    ULONG        Cluster
             ) CONST PURE;
- 
+
         VIRTUAL
         VOID
         SetClusterCompressed(
@@ -336,13 +351,13 @@ class FAT_SA : public SUPERAREA {
         // These routines are used to manage the sector heap for
         // FATDB, and do nothing on REAL_FAT.
         //
- 
+
         VIRTUAL
         BOOLEAN
         FreeClusterData(
             IN      ULONG       Cluster
             ) PURE;
- 
+
         VIRTUAL
         BOOLEAN
         AllocateClusterData(
@@ -351,7 +366,7 @@ class FAT_SA : public SUPERAREA {
             IN      BOOLEAN     bCompressed,
             IN      UCHAR       PlainSize
             ) PURE;
-    
+
     protected:
 
         PFAT                _fat;           // Pointer to FAT;
@@ -408,13 +423,13 @@ class FAT_SA : public SUPERAREA {
             IN OUT  PMESSAGE    Message,
             IN OUT  PBOOLEAN    NeedErrorsMessage
             );
- 
+
         VIRTUAL
         BOOLEAN
         VerifyFatExtensions(
-            IN		FIX_LEVEL	FixLevel,
-            IN		PMESSAGE    Message,
-            IN		PBOOLEAN    pfNeedMsg
+            IN          FIX_LEVEL       FixLevel,
+            IN          PMESSAGE    Message,
+            IN          PBOOLEAN    pfNeedMsg
             ) PURE;
 
         VIRTUAL
@@ -424,7 +439,7 @@ class FAT_SA : public SUPERAREA {
             IN        PMESSAGE    Message,
             IN        PBOOLEAN    pfNeedMsg
             ) PURE;
-     
+
     private:
 
         NONVIRTUAL
@@ -605,11 +620,11 @@ class FAT_SA : public SUPERAREA {
             IN OUT  PMESSAGE    Message
             );
 
-		NONVIRTUAL
-		BOOLEAN
-		AllocSectorsForChain(	
-			IN		ULONG		StartingCluster
-			);
+                NONVIRTUAL
+                BOOLEAN
+                AllocSectorsForChain(
+                        IN              ULONG           StartingCluster
+                        );
 };
 
 

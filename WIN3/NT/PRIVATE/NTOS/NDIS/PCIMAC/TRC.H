@@ -69,4 +69,3 @@ INT		trc__filter(ULONG filter, CHAR* data, ULONG len);
 
 
 #endif		/* _TRC_ */
-

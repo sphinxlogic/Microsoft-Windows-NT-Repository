@@ -275,6 +275,7 @@
 #define iedBad		((BITS) 0x3fff)		// invalid rgTmpIED IED
 
 #define wprintf		xwprintf	// fix name conflict
+#define IEDCACHE	"iedcache.slm"	// IED cache file name
 #define SLMINI		"slm.ini"	// ini file name
 #define SLMINITMP	"slm.tmp"	// ini temp file name
 #define SLMINIBAK	"slm.bak"	// ini backup file name
@@ -500,7 +501,7 @@ extern struct parm parmLog;
 #define CT_UPPER	(CT_ALL & ~CT_FILE)
 #define CT_DOT		(CT_ALL & ~CT_VOLUME)
 
-char CharType[] = {
+BYTE CharType[] = {
     /* 00 (NUL) */	0,
     /* 01 (SOH) */	0,
     /* 02 (STX) */	0,
@@ -537,7 +538,7 @@ char CharType[] = {
     /* 21   !   */	CT_OWNER | CT_VOLUME | CT_PATH | CT_FILE,
     /* 22   "   */	0,
     /* 23   #   */	CT_OWNER | CT_PATH | CT_FILE,
-    /* 24   $   */	CT_OWNER | CT_PATH | CT_FILE,
+    /* 24   $   */	CT_OWNER | CT_VOLUME | CT_PATH | CT_FILE,
     /* 25   %   */	CT_OWNER | CT_PATH | CT_FILE,
     /* 26   &   */	CT_OWNER | CT_PATH | CT_FILE,
     /* 27   '   */	CT_OWNER | CT_VOLUME | CT_PATH | CT_FILE,
@@ -629,6 +630,142 @@ char CharType[] = {
     /* 7d   }   */	CT_OWNER | CT_PATH | CT_FILE,
     /* 7e   ~   */	CT_OWNER | CT_PATH | CT_FILE,
     /* 7f (DEL) */	0,
+    /* END    */	(BYTE) 0xff
+};
+
+
+#define CTH_VALIDTEXT	0x01
+
+BYTE CharTypeHigh[] = {
+    /* 80 '?' */	0,
+    /* 81 '?' */	0,
+    /* 82 '?' */	0,
+    /* 83 '?' */	0,
+    /* 84 '?' */	0,
+    /* 85 '?' */	0,
+    /* 86 '?' */	0,
+    /* 87 '?' */	0,
+    /* 88 '?' */	0,
+    /* 89 '?' */	0,
+    /* 8a '?' */	0,
+    /* 8b '?' */	0,
+    /* 8c '?' */	0,
+    /* 8d '?' */	0,
+    /* 8e '?' */	0,
+    /* 8f '?' */	0,
+    /* 90 '?' */	0,
+    /* 91 '?' */	0,
+    /* 92 '?' */	0,
+    /* 93 '?' */	0,
+    /* 94 '?' */	0,
+    /* 95 '?' */	0,
+    /* 96 '?' */	0,
+    /* 97 '?' */	0,
+    /* 98 '?' */	0,
+    /* 99 '?' */	0,
+    /* 9a '?' */	0,
+    /* 9b '?' */	0,
+    /* 9c '?' */	0,
+    /* 9d '?' */	0,
+    /* 9e '?' */	0,
+    /* 9f '?' */	0,
+    /* a0 '?' */	0,
+    /* a1 '?' */	0,
+    /* a2 '?' */	0,
+    /* a3 '?' */	0,
+    /* a4 '?' */	0,
+    /* a5 '?' */	0,
+    /* a6 '?' */	0,
+    /* a7 '?' */	0,
+    /* a8 '?' */	0,
+    /* a9 '©' */	CTH_VALIDTEXT,	// Copyright
+    /* aa '?' */	0,
+    /* ab '?' */	0,
+    /* ac '?' */	0,
+    /* ad '?' */	0,
+    /* ae '?' */	0,
+    /* af '?' */	0,
+    /* b0 '?' */	0,
+    /* b1 '?' */	0,
+    /* b2 '?' */	0,
+    /* b3 '³' */	CTH_VALIDTEXT,	// LineVertical
+    /* b4 '?' */	0,
+    /* b5 '?' */	0,
+    /* b6 '?' */	0,
+    /* b7 '?' */	0,
+    /* b8 '?' */	0,
+    /* b9 '?' */	0,
+    /* ba 'º' */	CTH_VALIDTEXT,	// DoubleLineVertical
+    /* bb '?' */	0,
+    /* bc '?' */	0,
+    /* bd '?' */	0,
+    /* be '?' */	0,
+    /* bf '?' */	0,
+    /* c0 'À' */	CTH_VALIDTEXT,	// Elbow
+    /* c1 '?' */	0,
+    /* c2 '?' */	0,
+    /* c3 'Ã' */	CTH_VALIDTEXT,	// Tee
+    /* c4 'Ä' */	CTH_VALIDTEXT,	// LineHorizontal
+    /* c5 '?' */	0,
+    /* c6 '?' */	0,
+    /* c7 '?' */	0,
+    /* c8 'È' */	CTH_VALIDTEXT,	// DoubleElbow
+    /* c9 '?' */	0,
+    /* ca '?' */	0,
+    /* cb '?' */	0,
+    /* cc 'Ì' */	CTH_VALIDTEXT,	// DoubleTee
+    /* cd 'Í' */	CTH_VALIDTEXT,	// DoubleLineHorizontal
+    /* ce '?' */	0,
+    /* cf '?' */	0,
+    /* d0 '?' */	0,
+    /* d1 '?' */	0,
+    /* d2 '?' */	0,
+    /* d3 '?' */	0,
+    /* d4 '?' */	0,
+    /* d5 '?' */	0,
+    /* d6 '?' */	0,
+    /* d7 '?' */	0,
+    /* d8 '?' */	0,
+    /* d9 '?' */	0,
+    /* da '?' */	0,
+    /* db '?' */	0,
+    /* dc 'Ü' */	CTH_VALIDTEXT,	// ThickLineHorizontal
+    /* dd '?' */	0,
+    /* de 'Þ' */	CTH_VALIDTEXT,	// ThickLineVertical
+    /* df '?' */	0,
+    /* e0 '?' */	0,
+    /* e1 '?' */	0,
+    /* e2 '?' */	0,
+    /* e3 '?' */	0,
+    /* e4 '?' */	0,
+    /* e5 '?' */	0,
+    /* e6 '?' */	0,
+    /* e7 '?' */	0,
+    /* e8 '?' */	0,
+    /* e9 '?' */	0,
+    /* ea '?' */	0,
+    /* eb '?' */	0,
+    /* ec '?' */	0,
+    /* ed '?' */	0,
+    /* ee '?' */	0,
+    /* ef '?' */	0,
+    /* f0 '?' */	0,
+    /* f1 '?' */	0,
+    /* f2 '?' */	0,
+    /* f3 '?' */	0,
+    /* f4 '?' */	0,
+    /* f5 '?' */	0,
+    /* f6 '?' */	0,
+    /* f7 '?' */	0,
+    /* f8 '?' */	0,
+    /* f9 '?' */	0,
+    /* fa '?' */	0,
+    /* fb '?' */	0,
+    /* fc '?' */	0,
+    /* fd '?' */	0,
+    /* fe '?' */	0,
+    /* ff '?' */	0,
+    /* END    */	(BYTE) 0xff
 };
 
 
@@ -684,6 +821,7 @@ int cLine;		// dump/input script line number for error reporting
 int cLineDiff;		// diff file line number for error reporting
 int cPara;		// dump paragraph number
 int cStatusFilesWritten;// count of status files written
+int ageInactive;	// age of enlistments to recommend defection
 FILE *pfIn;		// input script
 FILE *pfOut = NULL;	// output file
 char *pszIn = NULL;	// input file name
@@ -721,7 +859,7 @@ void ProcessFiles(void *pv, char *pszpath, FNPROCESSFILE *pfn);
 FNPROCESSFILE ProcessServerFile, ProcessUserFile;
 
 char *GetEnvLogName(void);
-void ProcessArgs(int *pargc,
+int ProcessArgs(int *pargc,
 		 char ***pargv,
 		 char **ppszroot,
 		 char **ppszproj,
@@ -744,8 +882,8 @@ WriteIni(
     char *ppszuserroot,
     char *ppszsubdir);
 void CompareIni(char *pszrelpath, char *pszdir);
-void CheckRepairIni(char *pszrelpath, char *pszpthed);
-void Status(char *pszpath, int cbpath, int cbpathdir, int imdir);
+void CheckRepairIni(char *pszrelpath, int iskip, char *pszpthed);
+void Status(char *pszpath, int cbpath, int cbpathdir, int iskip, int imdir);
 void FlushOutput(void);
 void Log(char *pszpath, int cbpath, int cbpathdir, int facctlog);
 void ShStatus(SH *pshnew, SH *psh, char *pszrelpath);
@@ -764,6 +902,7 @@ void
 EdFsStatus(
     char *pszrelpath,
     char *pszrelpathdir,
+    int iskip,
     SH *psh,
     FI *pfi0,
     FI *pfiend,
@@ -806,8 +945,9 @@ char *FiValidate(FI *pfi,
 		 char *pszfile,
 		 char *pszlast,
 		 int imdir);
-void EdDump(ED *ped, char *pszowner, char *pszpthed, char *pszrelpath);
-char *EdValidate(ED *ped,
+void EdDump(SH *psh, ED *ped, char *pszowner, char *pszpthed, char *pszrelpath);
+char *EdValidate(SH *psh,
+                 ED *ped,
 		 char *pszowner,
 		 char *pszpthed,
 		 int cbpthed,
@@ -841,15 +981,23 @@ void CheckServerFiles(
     char mapbi[],
     BI binext);
 void CheckDiffFile(char *pszdir, char *pszfile, int fk);
-void GetUserDir(char *pszpthed, char *pszrelpath, char *pbuf);
+int GetUserDir(char *pszpthed, char *pszrelpath, int iskip, char *pbuf);
 void CheckUserFiles(
     char *pszrelpath,
+    int iskip,
     FI *pfi0,
     FI *pfiend,
     FS *pfs0,
     char *pszowner,
     char *pszpthed);
-void CompareUserFile(char *pszdir, char *pszrelpath, char *pszfile, int fver);
+void
+CompareUserFile(
+    char *pszdir,
+    char *pszrelpath,
+    char *pszrelpathsub,
+    char *pszrelpathsep,
+    char *pszfile,
+    int fver);
 ULONG FileTimeToMinutes(LARGE_INTEGER *pli);
 ULONG FileTimeToDays(LARGE_INTEGER *pli);
 short TimeToDays(long tm, long tmcur);
@@ -924,7 +1072,8 @@ void oprintf(char *pszowner,
 	     char *pszactivedirs,
 	     char *pszdeleteddirs,
 	     char *pszstatus,
-	     char *pszcomment);
+	     char *pszcomment,
+	     char *pszage);
 void VerifyAdminLock(char *pszrelpath, SH *psh);
 void VerifyOverwrite(char *pszproj, char *pszroot, int cbpath);
 
@@ -951,6 +1100,7 @@ main(int argc, char **argv)
     int cbpath;
     SYSTEMTIME st;
     FILETIME ft;
+    int iskip;
 
     pfIn = stdin;		// default input script on stdin
     tmStart = time(NULL);
@@ -959,16 +1109,20 @@ main(int argc, char **argv)
 	   (p = strrchr(pszProg, '/')) != NULL) {
 	pszProg = ++p;
     }
+    ASSERT(sizeof(CharType) == 128 + 1);
+    ASSERT(CharType[128] == (BYTE) 0xff);
+    ASSERT(sizeof(CharTypeHigh) == 128 + 1);
+    ASSERT(CharTypeHigh[128] == (BYTE) 0xff);
     pszout = NULL;
-    ProcessArgs(
-	&argc,
-	&argv,
-	&pszRoot,
-	&pszProj,
-	&pszLogName,
-	&pszUserRoot,
-	&pszIn,
-	&pszout);
+    iskip = ProcessArgs(
+		    &argc,
+		    &argv,
+		    &pszRoot,
+		    &pszProj,
+		    &pszLogName,
+		    &pszUserRoot,
+		    &pszIn,
+		    &pszout);
 
     if (pszIn != NULL &&
 	(pfIn = fopen(pszIn, "rt")) == NULL) {
@@ -1068,10 +1222,10 @@ main(int argc, char **argv)
 	    pszpath = *++argv;
 	    FixSlash(pszpath, 1);
 	    NewMdir(pszpath, szEmpty, imdir++, 0);
-	    Status(pszpath, 0, 0, imdir);
+	    Status(pszpath, 0, 0, iskip, imdir);
 	}
 	if (cStatusFile > 1) {
-	    cprintf("%s: %u total directories\n", pszProg, cStatusFile);
+	    _cprintf("%s: %u total directories\n", pszProg, cStatusFile);
 	}
     } else {
 	int cbpathdir;
@@ -1097,7 +1251,7 @@ main(int argc, char **argv)
 		if (fDeletedDirs || (aMdir[imdir].Flags & MD_DELETED) == 0) {
 		    sprintf(szpath, "%s\\%s", pszetc, aMdir[imdir].pszDir);
 		    szpath[strlen(szpath) + 1] = '\0';	// for pszrelpathdir
-		    Status(szpath, cbpath, cbpathdir, imdir);
+		    Status(szpath, cbpath, cbpathdir, iskip, imdir);
 		}
 		aMdir[imdir].Flags |= MD_PROCESSED;
 		cmdirprocessed++;
@@ -1114,7 +1268,7 @@ main(int argc, char **argv)
 	    Log(szpath, cbpath, cbpathdir, 1);	// process SLM wrapper log file
 	}
 	if (cStatusFile > 1) {
-	    cprintf(
+	    _cprintf(
 		"%s: %s: %u total directories\n",
 		pszProg,
 		pszProj,
@@ -1169,7 +1323,7 @@ GetEnvLogName(void)
 //	- If any are left, display an error and exit
 //	- If any missing args are required, display an error and exit
 
-void
+int
 ProcessArgs(int *pargc,
 	    char ***pargv,
 	    char **ppszroot,
@@ -1180,6 +1334,7 @@ ProcessArgs(int *pargc,
 	    char **ppszout)
 {
     int ffixcmd = 0;	// saw command line repair requests
+    int iskip = 0;
     char *p, *p2;
     char *pszcmd;
     char **ppsz;
@@ -1252,6 +1407,22 @@ ProcessArgs(int *pargc,
 		}
 		while (*++p) {
 		    switch (*p) {
+		    case 'O':
+			if (p[1] != '\0') {
+			    Usage("extra argument after -eO: -%s", p2);
+			}
+			if (*pargc < 2)
+			{
+			    Usage("missing numeric operand after -eO");
+			}
+			(*pargc)--;
+			ageInactive = atol(*++*pargv);
+			if (ageInactive == 0)
+			{
+			    Usage("bad numeric operand after -eO: %s", **pargv);
+			}
+			break;
+
 		    case 'N': fErrorSuppress++;	     break;
 		    case 'F': fErrorSuppressFile++;  break;
 
@@ -1500,7 +1671,7 @@ doublearg:
 		// trailing "*" or ".*" in order to validate the name.
 
 		psz = *ppsz;
-		strlwr(psz);
+		_strlwr(psz);
 		cchorg = cch = strlen(psz);
 		ch = '\0';
 		if (cch >= 1 && psz[cch - 1] == '*') {
@@ -1541,10 +1712,9 @@ doublearg:
 	    *ppszproj == NULL ||
 	    ((Cmd == CMDSTATUS || fUserFiles || fFixIni) && *ppszuserroot == NULL)) {
 
-	    ReadIni(1, NULL, ppszroot, ppszproj, ppszuserroot, NULL);
+	    iskip = ReadIni(1, NULL, ppszroot, ppszproj, ppszuserroot, NULL);
 	    p = NULL;
 	    if (*ppszroot == NULL || *ppszproj == NULL) {
-		Usage("bad or missing " SLMINI ": -s and -p required");
 		p = "-s and -p";
 	    } else if ((Cmd == CMDSTATUS || fUserFiles || fFixIni) &&
 		*ppszuserroot == NULL) {
@@ -1553,6 +1723,10 @@ doublearg:
 	    }
 	    if (p != NULL) {
 		Usage("'%s' bad or missing " SLMINI ": %s required", pszcmd, p);
+	    }
+	    else
+	    {
+		ASSERT(iskip >= 0);
 	    }
 	}
 	if (fUserFiles && IsDriveLetterPrefix(*ppszuserroot)) {
@@ -1573,12 +1747,14 @@ doublearg:
 	    strcpy(drive2, drive);
 
 	    pszlabel = pthedlabel;
-	    while (*pszur != '/' &&
+	    while (
+		*pszur != '\0' &&
+		*pszur != '/' &&
 		pszlabel < &pthedlabel[sizeof(pthedlabel) - 1]) {
 
 		*pszlabel++ = *pszur++;	// copy volume label
 	    }
-	    if (*pszur != '/') {
+	    if (*pszur != '\0' && *pszur != '/') {
 		eprintf(
 		    "Internal Error: bad pthEd label length: %s",
 		    *ppszuserroot);
@@ -1601,7 +1777,7 @@ doublearg:
 			GetLastError());
 	    } else {
 		label[sizeof(label) - 1] = '\0';
-		if (stricmp(label, pthedlabel)) {
+		if (_stricmp(label, pthedlabel)) {
 		    wprintf("volume label on %s is %s, expected %s",
 			    drive2,
 			    label,
@@ -1632,6 +1808,7 @@ doublearg:
 	    wprintf("use -a or use -r from project root to process entire project");
 	}
     }
+    return(iskip);
 }
 
 
@@ -1674,7 +1851,7 @@ doublearg:
 //	    - Always validate all fields.
 
 void
-Status2(char *pszpath, int cbpath, int cbpathdir, int imdir)
+Status2(char *pszpath, int cbpath, int cbpathdir, int iskip, int imdir)
 {
     SH *psh;
     FI *pfi0, *pfiend;
@@ -1749,7 +1926,7 @@ Status2(char *pszpath, int cbpath, int cbpathdir, int imdir)
     }
     cStatusFile++;
     cbFileTotal += cbfile;
-    if (cbfile < sizeof(SH) || cbfile > 1024L*1024L) {
+    if (cbfile < sizeof(SH) || cbfile > 4*1024L*1024L) {
 	pszerror = "status file size out of range";
 	goto errorsh;
     }
@@ -1847,6 +2024,7 @@ errorsh:
     EdFsStatus(
 	pszrelpath,
 	pszrelpathdir,
+	iskip,
 	psh,
 	pfi0,
 	pfiend,
@@ -1876,7 +2054,8 @@ errorsh:
 
 	// enforce OS/2 & DOS 64k limits
 
-	if (pshnew->version < VERSION && pshnew->iedMac >= ied64KMax) {
+	if (pshnew->version <= VERSION_64k_EDFI && pshnew->iedMac >= ied64KMax)
+	{
 	    wprintf(
 		"%s: enlistments %s do not fit in 64k: %u/%u",
 		pszrelpath,
@@ -1945,7 +2124,7 @@ unmapfile:
 		}
 	    }
 	    sprintf(szstatusbak, "%s\\" STATUSBAK, pszpath);
-	    unlink(szstatusbak);		 // delete backup status file
+	    _unlink(szstatusbak);		 // delete backup status file
 	    if (rename(szstatusnew, szstatusbak)) { // rename old to backup
 		if (!fWriteTest || _doserrno != ERROR_FILE_NOT_FOUND) {
 		    eprintf("cannot rename %s to %s: %d",
@@ -1964,7 +2143,7 @@ unmapfile:
 	    }
 	    cStatusFilesWritten++;
 	} else {
-	    unlink(szstatustmp);		 // delete new status file
+	    _unlink(szstatustmp);		 // delete new status file
 	}
     }
     FlushOutput();
@@ -1974,26 +2153,25 @@ unmapfile:
 ULONG
 DelayTime(int count)
 {
-    ULONG cms;
-
-    if (count <= 1) {
-	cms = 30;
+    if (count <= 1)
+    {
+	return(10);
     }
-    else if (count < 16) {
-	cms = 100 * count;
+    if (count > 48)
+    {
+	return(0);
     }
-    else if (count > 16 && count <= 32) {
-	cms = 200 * count;
+    if ((count % 16) == 0)
+    {
+	return(3000);
     }
-    else {
-	cms = 0;
-    }
-    return(cms);
+    return(30);
 }
 
 
 VOID *pvInPageErrorAddress;
 DWORD InPageErrorCount;
+NTSTATUS InPageStatus;
 
 LONG
 ExceptionFilter(
@@ -2004,6 +2182,13 @@ ExceptionFilter(
     NTSTATUS status = ExceptionCode;
     VOID *pvFaultAddress;
 
+    ASSERT(status != STATUS_ACCESS_VIOLATION);
+
+    pvFaultAddress = NULL;
+    if (pep->ExceptionRecord->NumberParameters >= 2) {
+        pvFaultAddress = (VOID *) pep->ExceptionRecord->ExceptionInformation[1];
+    }
+
     //
     // If this is a fault touching paged out memory (hopefully within
     // a mapped file), then delay and retry the instruction.
@@ -2011,58 +2196,90 @@ ExceptionFilter(
 
     if (ExceptionCode == STATUS_IN_PAGE_ERROR &&
         pep->ExceptionRecord->NumberParameters >= 3) {
-	status = pep->ExceptionRecord->ExceptionInformation[2];
+
+	ULONG cms;
+	char countbuf[20];
 
         //
         // Get the virtual address that caused the in page error
         // from the exception record.
         //
 
-        pvFaultAddress = (VOID *) pep->ExceptionRecord->ExceptionInformation[1];
-	if (status == STATUS_FILE_LOCK_CONFLICT) {
-	    ULONG cms = 0;
-	    char countbuf[20];
+	status = pep->ExceptionRecord->ExceptionInformation[2];
 
-	    if (InPageErrorCount == 0 ||
-		pvFaultAddress != pvInPageErrorAddress) {
+	if (InPageErrorCount == 0 ||
+	    pvFaultAddress != pvInPageErrorAddress ||
+	    ((status == STATUS_FILE_LOCK_CONFLICT) ^
+	     (InPageStatus == STATUS_FILE_LOCK_CONFLICT))) {
 
-		pvInPageErrorAddress = pvFaultAddress;
-		InPageErrorCount = 0;
-		countbuf[0] = '\0';
+	    pvInPageErrorAddress = pvFaultAddress;
+	    InPageErrorCount = 0;
+	    InPageStatus = status;
+	    countbuf[0] = '\0';
+	}
+	if (InPageErrorCount > 0) {
+	    sprintf(countbuf, " (%u times)", InPageErrorCount);
+	}
+	cms = DelayTime(InPageErrorCount);
+	InPageErrorCount++;
+
+	if (cms != 0) {
+	    char *psz = "in-page";
+	    static char szfmt[] =
+	    "%s: Ignoring %s exception (%lx %lx) @%lx->%lx%s after %ld ms%s";
+
+	    if (status == STATUS_FILE_LOCK_CONFLICT) {
+		char *psz = "lock conflict";
 	    }
-	    if (InPageErrorCount++ > 0) {
-		sprintf(countbuf, " (%u times)", InPageErrorCount);
-	    }
-	    cms = DelayTime(InPageErrorCount);
-	    if (cms != 0) {
-		wprintf(
-		    "%s: Ignoring lock conflict exception (%lx %lx) at %lx%s after %ld ms",
+	    if (((InPageErrorCount - 1) % 8) == 0)
+	    {
+		_cprintf(
+		    szfmt,
 		    pszrelpath,
+		    psz,
 		    ExceptionCode,
 		    status,
+		    pep->ExceptionRecord->ExceptionAddress,
 		    pvFaultAddress,
 		    countbuf,
-		    cms);
-		Sleep(cms);
-		return(EXCEPTION_CONTINUE_EXECUTION);
+		    cms,
+		    "\n");
+		wprintf(
+		    szfmt,
+		    pszrelpath,
+		    psz,
+		    ExceptionCode,
+		    status,
+		    pep->ExceptionRecord->ExceptionAddress,
+		    pvFaultAddress,
+		    countbuf,
+		    cms,
+		    "");
 	    }
+	    Sleep(cms);
+	    return(EXCEPTION_CONTINUE_EXECUTION);
 	}
     }
     pvInPageErrorAddress = NULL;
     InPageErrorCount = 0;
-    eprintf("Unhandled exception: %lx %lx", ExceptionCode, status);
+    eprintf(
+	"Unhandled exception: %lx %lx @%lx->%lx",
+	ExceptionCode,
+	status,
+	pep->ExceptionRecord->ExceptionAddress,
+	pvFaultAddress);
     return(EXCEPTION_EXECUTE_HANDLER);
 }
 
 
 void
-Status(char *pszpath, int cbpath, int cbpathdir, int imdir)
+Status(char *pszpath, int cbpath, int cbpathdir, int iskip, int imdir)
 {
     InPageErrorCount = 0;
     try {
-	Status2(pszpath, cbpath, cbpathdir, imdir);
+	Status2(pszpath, cbpath, cbpathdir, iskip, imdir);
 	if ((cStatusFile % 50) == 0) {
-	    cprintf(
+	    _cprintf(
 		"%s: %s: %u directories processed\n",
 		pszProg,
 		&pszpath[cbpath],
@@ -2083,12 +2300,12 @@ FlushOutput(void)
     fflush(stdout);
     if (ferror(stdout)) {
 	eprintf("write error on stdout");
-	cprintf("%s: error: write error on stdout\n", pszProg);
+	_cprintf("%s: error: write error on stdout\n", pszProg);
 	exit(1);
     }
     fflush(stderr);
     if (ferror(stderr)) {
-	cprintf("%s: error: write error on stderr\n", pszProg);
+	_cprintf("%s: error: write error on stderr\n", pszProg);
 	exit(1);
     }
 }
@@ -2149,23 +2366,23 @@ LogMatch(char *apsz[SL_MAX + 1])
     char **ppsz;
 
     if (!fDetail &&
-	stricmp("in", apsz[SL_OPERATION]) != 0 &&
-	stricmp("addfile", apsz[SL_OPERATION]) != 0 &&
-	stricmp("delfile", apsz[SL_OPERATION]) != 0 &&
-	stricmp("rename", apsz[SL_OPERATION]) != 0) {
+	_stricmp("in", apsz[SL_OPERATION]) != 0 &&
+	_stricmp("addfile", apsz[SL_OPERATION]) != 0 &&
+	_stricmp("delfile", apsz[SL_OPERATION]) != 0 &&
+	_stricmp("rename", apsz[SL_OPERATION]) != 0) {
 
 	return(0);
     }
     if (pszLogName != NULL) {
 	char *psz;
 
-	if (stricmp(pszLogName, apsz[SL_NMOWNER]) != 0 &&
+	if (_stricmp(pszLogName, apsz[SL_NMOWNER]) != 0 &&
 	    ((psz = strchr(pszLogName, '*')) == NULL ||
-	     strnicmp(pszLogName, apsz[SL_NMOWNER], psz - pszLogName) != 0)) {
+	     _strnicmp(pszLogName, apsz[SL_NMOWNER], psz - pszLogName) != 0)) {
 	    return(0);
 	}
 	if (*pszUserRoot != '-' &&
-	    stricmp(apsz[SL_PTHED], pszUserRoot) != 0) {
+	    _stricmp(apsz[SL_PTHED], pszUserRoot) != 0) {
 	    return(0);
 	}
     }
@@ -2447,7 +2664,7 @@ Log(char *pszpath, int cbpath, int cbpathdir, int facctlog)
 #if 0
 	FixSlash(apsz[SL_SUBDIR], 0);
 	if (!fErrorSuppressFile &&
-	    stricmp(pszsubdir, apsz[SL_SUBDIR]) != 0) {
+	    _stricmp(pszsubdir, apsz[SL_SUBDIR]) != 0) {
 
 	    int cbdif = 111, cbdif2 = 222;
 
@@ -2455,12 +2672,12 @@ Log(char *pszpath, int cbpath, int cbpathdir, int facctlog)
 
 	    cbdif = strlen(pszsubdir) - strlen(apsz[SL_SUBDIR]);
 	    if (cbdif > 0 &&
-		stricmp(&pszsubdir[cbdif], apsz[SL_SUBDIR]) == 0) {
+		_stricmp(&pszsubdir[cbdif], apsz[SL_SUBDIR]) == 0) {
 
 		FixSlash(apsz[SL_PTHED], 0);
 		cbdif2 = strlen(apsz[SL_PTHED]) - cbdif;
 		if (cbdif2 > 0 &&
-		    strnicmp(&apsz[SL_PTHED][cbdif2], pszsubdir, cbdif) == 0) {
+		    _strnicmp(&apsz[SL_PTHED][cbdif2], pszsubdir, cbdif) == 0) {
 
 		    pszerror = NULL;
 		}
@@ -2953,7 +3170,7 @@ ShStatus(SH *pshnew, SH *psh, char *pszrelpath)
     if (pszsubdir == NULL) {
 	pszsubdir = "\\";			// must be root directory
     }
-    if (stricmp(u.szsubdir, pszsubdir)) {	// subdir need fixing?
+    if (_stricmp(u.szsubdir, pszsubdir)) {	// subdir need fixing?
 	char *psz1 = u.szsubdir;
 	char *psz2 = pszsubdir;
 
@@ -3124,6 +3341,7 @@ void
 EdFsStatus(
     char *pszrelpath,
     char *pszrelpathdir,
+    int iskip,
     SH *psh,
     FI *pfi0,
     FI *pfiend,
@@ -3160,7 +3378,7 @@ EdFsStatus(
     for (ied = 0; ied < psh->iedMac; ied++) {
 	aied[ied] = ied;
     }
-    if (!fNoSort) {
+    if (!fNoSort && !FIsFreeEdValid(psh)) {
 	pedSort = ped0;				// set global for sort routine
 
 	qsort(aied, psh->iedMac, sizeof(aied[0]), CmpIEd);
@@ -3177,9 +3395,10 @@ EdFsStatus(
 	if (Cmd == CMDDUMP && !fDumpListEd && !fDumpListFi) {
 	    cPara = aied[ied] + 1;
 	    cLine = 0;
-	    EdDump(ped, szowner, szpthed, pszrelpathdir); // Dump ED fields
+            EdDump(psh, ped, szowner, szpthed, pszrelpathdir); // Dump ED fields
 	}
-	pszerror = EdValidate(ped,		// Validate ED fields
+        pszerror = EdValidate(psh,
+                              ped,              // Validate ED fields
 			      szowner,
 			      szpthed,
 			      sizeof(szpthed),
@@ -3200,10 +3419,10 @@ EdFsStatus(
 	    }
 	} else {
 	    if ((Cmd == CMDSTATUS || fUserFiles || fFixIni) &&
-		stricmp(szowner, pszLogName) == 0) {
+		_stricmp(szowner, pszLogName) == 0) {
 
 		if (*pszUserRoot == '-' ||
-		    stricmp(szpthed, pszUserRoot) == 0) {
+		    _stricmp(szpthed, pszUserRoot) == 0) {
 
 		    if (fedfound) {
 			if (fedfound == 1 && *pszUserRoot == '-') {
@@ -3220,7 +3439,7 @@ EdFsStatus(
 			fstatus++;
 		    }
 		    fedfound++;
-		} else if (strnicmp(
+		} else if (_strnicmp(
 			       szpthed,
 			       pszUserRoot,
 			       i = strlen(pszUserRoot)) == 0 &&
@@ -3315,6 +3534,7 @@ EdFsStatus(
 	    if (fUserFiles && (aMdir[imdir].Flags & MD_LOCALADD) == 0) {
 		CheckUserFiles(
 		    pszrelpath,
+		    iskip,
 		    pfi0,
 		    pfiend,
 		    pfs0 + (ped - ped0) * psh->ifiMac,
@@ -3322,7 +3542,7 @@ EdFsStatus(
 		    szpthed);
 	    }
 	    if (fFixIni) {
-		CheckRepairIni(pszrelpath, szpthed);
+		CheckRepairIni(pszrelpath, iskip, szpthed);
 	    }
 	}
 	if (!fDumpListEd && !fDumpListFi) {
@@ -3399,8 +3619,8 @@ EdFsStatus(
 
 	// Sort the ED structures.
 
-	if (!fNoSort) {
-	    qsort(ped0new, pshnew->iedMac, sizeof(*ped0new), CmpEd);
+        if (!fNoSort && !FIsFreeEdValid(psh)) {
+            qsort(ped0new, pshnew->iedMac, sizeof(*ped0new), CmpEd);
 	}
 
 	// Copy the appropriate old FS structures, and create new FS
@@ -3547,18 +3767,21 @@ MapFile(char *pszfile,
     ULONG cms;
 
     do {
-	if (!fquiet && pszerror != NULL) {
+	if (pszerror != NULL) {
 	    retrycount++;
 	    cms = DelayTime(retrycount);
 	    if (cms == 0) {
 		break;
 	    }
-	    wprintf(
-		"%s: %s, retrying %d time(s) after %ld ms",
-		pszfile,
-		pszerror,
-		retrycount,
-		cms);
+	    if (!fquiet)
+	    {
+		wprintf(
+		    "%s: %s, retrying %d time(s) after %ld ms",
+		    pszfile,
+		    pszerror,
+		    retrycount,
+		    cms);
+	    }
 	    Sleep(cms);
 	}
 	pszerror = MapFile2(
@@ -3680,7 +3903,7 @@ MapFile2(
 	if (hf == INVALID_HANDLE_VALUE) {
 	    pszerror = "missing file";
 	    rc = GetLastError();
-	    if (rc = ERROR_FILE_NOT_FOUND) {
+	    if (rc == ERROR_FILE_NOT_FOUND) {
 		*pfretry = 1;
 	    }
 	    goto errorrc;
@@ -3968,7 +4191,7 @@ ShValidate(SH *psh, char *pszrelpath)
 
     // enforce OS/2 & DOS 64k limits
 
-    if (psh->version < VERSION) {
+    if (psh->version <= VERSION_64k_EDFI) {
 	if (psh->ifiMac >= ifi64KMax) {
 	    wprintf(
 		"%s: files do not fit in 64k: %u/%u",
@@ -4047,7 +4270,7 @@ ShValidate(SH *psh, char *pszrelpath)
 	if (pszsubdir == NULL) {
 	    pszsubdir = "\\";			// must be root directory
 	}
-	if (stricmp(szsubdir, pszsubdir)) {
+	if (_stricmp(szsubdir, pszsubdir)) {
 	    wprintf("%s:%s bad status file sub directory (%s)",
 		    pszrelpath,
 		    pszRepairing,
@@ -4188,7 +4411,7 @@ FiValidate(FI *pfi, char *pszrelpath, char *pszfile, char *pszlast, int imdir)
 //	EdDump() - Dump ED fields
 
 void
-EdDump(ED *ped, char *pszowner, char *pszpthed, char *pszrelpath)
+EdDump(SH *psh, ED *ped, char *pszowner, char *pszpthed, char *pszrelpath)
 {
     char szpthed[cchPthMax + 1];
     char *pszfmt, *psz1;
@@ -4215,7 +4438,10 @@ EdDump(ED *ped, char *pszowner, char *pszpthed, char *pszrelpath)
     dnprintf(pszfmt, psz1, szpthed, pszrelpath);
     deprintf("%7u\t; fNewVer\n", ped->fNewVer);
     if (fDumpVerbose) {
-	deprintf(" ; rgfSpare:14=%u", ped->rgfSpare);
+        if (!FIsFreeEdValid(psh))
+            deprintf(" ; rgfSpare:14=%u", ped->rgfSpare);
+        else
+            deprintf(" ; rgfSpare:13=%u", ped->rgfSpare);
     }
     deprintf(szNewLine);
 
@@ -4226,6 +4452,12 @@ EdDump(ED *ped, char *pszowner, char *pszpthed, char *pszrelpath)
     }
     deprintf(szNewLine);
 
+    if (FIsFreeEdValid(psh)) {
+        dnprintf(pszfmt, psz1, szpthed, pszrelpath);
+        deprintf("%7u\t; fFreeEd", ped->fFreeEd);
+        deprintf(szNewLine);
+    }
+
     dnprintf(pszfmt, psz1, szpthed, pszrelpath);
     deprintf(";fm    fv    bi   (nmFile)\n");
 }
@@ -4234,7 +4466,8 @@ EdDump(ED *ped, char *pszowner, char *pszpthed, char *pszrelpath)
 //	EdValidate() - Validate ED fields
 
 char *
-EdValidate(ED *ped,
+EdValidate(SH *psh,
+           ED *ped,
 	   char *pszowner,
 	   char *pszpthed,
 	   int cbpthed,
@@ -4277,12 +4510,20 @@ EdValidate(ED *ped,
 	wprintf("%s: %s %s pthEd fNewVer set", pszrelpath, pszowner, pszpthed);
     }
 #endif
-    if (ped->rgfSpare) {
-	wprintfint(pszrelpath, "ed.rgfSpare:14", ped->rgfSpare);
+    if (ped->rgfSpare || (!FIsFreeEdValid(psh) && ped->fFreeEd)) {
+        if (!FIsFreeEdValid(psh))
+            wprintfint(pszrelpath, "ed.rgfSpare:14", ped->rgfSpare | 0x1<<13);
+        else
+            wprintfint(pszrelpath, "ed.rgfSpare:13", ped->rgfSpare);
     }
 #if 0
     if (ped->wSpare) {
 	wprintfint(pszrelpath, "ed.wSpare", ped->wSpare);
+    }
+#endif
+#if 0
+    if (ped->fFreeEd) {
+        wprintfint(pszrelpath, "ed.fFreeEd", ped->fFreeEd);
     }
 #endif
     return(NULL);
@@ -4322,6 +4563,7 @@ unsigned char FsModes[fmMax] = {
 #define UFF_READWRITE	0x02	// user file should be read-write
 #define UFF_SAME	0x04	// user file should be identical to server
 #define UFF_HIDDEN	0x08	// user file should be hidden
+#define UFF_SYSTEM	0x10	// user file should be a system file
 
 
 char UserFileFlags[fmMax] = {
@@ -4714,8 +4956,10 @@ FI afiEtc[] = {		// Keep lower case && sorted by name!!
 
 char mapckEtc[BITSTOBYTES(MAXETCFILES)];
 
+FI fiIedCache = { IEDCACHE, 1, fkText, };
 FI fiSlmIni = { SLMINI, 1, fkText, };
-FS fsSlmIni = { fmIn, 0, 1 };
+
+FS fsDefault = { fmIn, 0, 1 };
 
 
 FI *
@@ -4803,7 +5047,7 @@ CheckServerFiles(
 	if (sc.sff & SFF_ETC) {
 	    memset(mapckEtc, 0, sizeof(mapckEtc));
 	    if (strchr(pszProj, '\\') == NULL &&
-		stricmp(pszrelpath, pszProj) == 0) {
+		_stricmp(pszrelpath, pszProj) == 0) {
 
 		sc.sff |= SFF_ETCROOT;
 	    }
@@ -5005,32 +5249,52 @@ ProcessServerFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 }
 
 
-void
-GetUserDir(char *pszpthed, char *pszrelpath, char *pbuf)
+int
+GetUserDir(char *pszpthed, char *pszrelpath, int iskip, char *pbuf)
 {
+    int iskiprelpath = iskip;
+
     if (IsDriveLetterPrefix(pszpthed)) {
 	pszpthed += 2;			// skip '//'
 	*pbuf++ = *pszpthed++;		// copy drive letter
 	*pbuf++ = *pszpthed++;		// copy colon after drive letter
-	while (*pszpthed != '/') {
+	while (*pszpthed != '\0' && *pszpthed != '/') {
 	    pszpthed++;			// skip volume label
 	}
     }
-    while (*pszrelpath != '\0' && *pszrelpath != '\\') {
+    while (*pszrelpath != '\0') {
+	iskiprelpath++;
+	if (*pszrelpath == '\\') {
+	    break;
+	}
 	pszrelpath++;
     }
-    sprintf(pbuf, "%s%s", pszpthed, pszrelpath);
+    ASSERT(iskip >= 0 && (size_t) iskip >= strlen(pszrelpath));
+    ASSERT(pszrelpath[iskip] == '\0' || pszrelpath[iskip] == '\\');
+    sprintf(pbuf, "%s%s", pszpthed, &pszrelpath[iskip]);
     FixSlash(pbuf, 0);
+    if (fVerbose > 1) {
+	printf(
+	    "GetUserDir:'%s'+'%s'+%d='%s'\n",
+	    pszpthed,
+	    pszrelpath,
+	    iskip,
+	    pbuf);
+    }
+    return(iskiprelpath);
 }
 
 
 struct UserContext {
     char *pszdir;
     char *pszrelpath;
+    char *pszrelpathsub;
+    char *pszrelpathsep;
     FI   *pfi0;
     FI   *pfiend;
     FS   *pfs0;
     int	  fslmini;
+    int	  fiedcache;
     char  mapckfile[CBFILEMAP];
 };
 
@@ -5038,6 +5302,7 @@ struct UserContext {
 void
 CheckUserFiles(
     char *pszrelpath,
+    int iskip,
     FI *pfi0,
     FI *pfiend,
     FS *pfs0,
@@ -5046,24 +5311,31 @@ CheckUserFiles(
 {
     FI *pfi;
     FS *pfs;
+    int iskiprelpath;
     struct UserContext uc;
     char szdir[CBPATH];		// user directory path
 
-    GetUserDir(pszpthed, pszrelpath, szdir);
+    iskiprelpath = GetUserDir(pszpthed, pszrelpath, iskip, szdir);
     strcat(szdir, "\\");
 
-    uc.pszrelpath = pszrelpath;
     uc.pszdir = szdir;
+    uc.pszrelpath = pszrelpath;
+    uc.pszrelpathsub = &pszrelpath[iskiprelpath];
+    uc.pszrelpathsep = *uc.pszrelpathsub == '\0'? "" : "\\";
     uc.pfi0 = pfi0;
     uc.pfiend = pfiend;
     uc.pfs0 = pfs0;
     uc.fslmini = 0;
+    uc.fiedcache = 0;
 
     memset(uc.mapckfile, 0, BITSTOBYTES(pfiend - pfi0)); // clear bitmap
     ProcessFiles(&uc, szdir, ProcessUserFile);
 
     if (!uc.fslmini) {
 	wprintf("%s: missing " SLMINI, pszrelpath);
+    }
+    if (!uc.fiedcache && *uc.pszrelpathsub == '\0') {
+	wprintf("%s: missing " IEDCACHE, pszrelpath);
     }
     for (pfs = pfs0, pfi = pfi0; pfi < pfiend; pfs++, pfi++) {
 	if (!pfi->fDeleted &&
@@ -5090,18 +5362,32 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
     char *pszrealtype = (fa & FILE_ATTRIBUTE_DIRECTORY)? "directory" : "file";
     char *psztype;
     int uff, uffhidden;
+    int f;
     FI *pfi;
     FS *pfs;
 
     pfs = NULL;
     uffhidden = 0;
+    f = 0;
     if ((pfi = FiLookup(pszfile, puc->pfi0, puc->pfiend)) != NULL) {
 	pfs = puc->pfs0 + (pfi - puc->pfi0);
     } else if (strcmp(SLMINI, pszfile) == 0) {
-	puc->fslmini++;
+	f = puc->fslmini++;
 	pfi = &fiSlmIni;
-	pfs = &fsSlmIni;
+	pfs = &fsDefault;
 	uffhidden = UFF_HIDDEN;
+    } else if (*puc->pszrelpathsub == '\0' && strcmp(IEDCACHE, pszfile) == 0) {
+	f = puc->fiedcache++;
+	pfi = &fiIedCache;
+	pfs = &fsDefault;
+	uffhidden = UFF_HIDDEN | UFF_SYSTEM;
+    }
+    if (f) {
+	eprintf(
+	    "ProcessUserFile: Internal Error: saw file twice: %s%s%s",
+	    puc->pszrelpathsub,
+	    puc->pszrelpathsep,
+	    pszfile);
     }
     if (pfs != NULL) {
 	psztype = (pfi->fk == fkDir)? "directory" : "file";
@@ -5112,13 +5398,14 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 	    pfs = NULL;
 	}
     }
-    uff |= uffhidden;
     if (pfs != NULL) {
-	if (pfs != &fsSlmIni) {
+	uff |= uffhidden;
+	if (pfs != &fsDefault) {
 	    if (GETBIT(puc->mapckfile, pfi - puc->pfi0)) {
 		eprintf(
-		    "ProcessUserFile: Internal Error: saw file twice: %s\\%s",
-		    puc->pszrelpath,
+		    "ProcessUserFile: Internal Error: saw file twice: %s%s%s",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile);
 		//exit(1);
 	    }
@@ -5127,44 +5414,51 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 	if (pfi->fk == fkDir) {
 	    if ((fa & FILE_ATTRIBUTE_DIRECTORY) == 0) {
 		wprintf(
-		    "%s\\%s: file should be a directory",
-		    puc->pszrelpath,
+		    "%s%s%s: file should be a directory",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile);
 	    } else if (fa & FILE_ATTRIBUTE_READONLY) {
 		wprintf(
-		    "%s\\%s: directory should be read-write",
-		    puc->pszrelpath,
+		    "%s%s%s: directory should be read-write",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile);
 	    }
 	} else {
 	    if (fa & FILE_ATTRIBUTE_DIRECTORY) {
 		wprintf(
-		    "%s\\%s: directory should be a file",
-		    puc->pszrelpath,
+		    "%s%s%s: directory should be a file",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile);
 	    } else {
 		if ((fa & FILE_ATTRIBUTE_READONLY) == 0) {
 		    if (uff & UFF_READONLY) {
 			wprintf(
-			    "%s\\%s: file should be read-only",
-			    puc->pszrelpath,
+			    "%s%s%s: file should be read-only",
+			    puc->pszrelpathsub,
+			    puc->pszrelpathsep,
 			    pszfile);
 		    }
 		} else {
 		    if ((uff & UFF_READONLY) == 0) {
 			wprintf(
-			    "%s\\%s: file should be read-write",
-			    puc->pszrelpath,
+			    "%s%s%s: file should be read-write",
+			    puc->pszrelpathsub,
+			    puc->pszrelpathsep,
 			    pszfile);
 		    }
 		}
-		if (uff & UFF_SAME) {
-		    if (pfs == &fsSlmIni) {
+		if ((uff & UFF_SAME) && pfs != &fsDefault) {
+		    if (pfi == &fiSlmIni) {
 			CompareIni(puc->pszrelpath, puc->pszdir);
 		    } else if (!fQuick) {
 			CompareUserFile(
 			    puc->pszdir,
 			    puc->pszrelpath,
+			    puc->pszrelpathsub,
+			    puc->pszrelpathsep,
 			    pszfile,
 			    pfi->fk == fkVersion);
 		    }
@@ -5172,25 +5466,39 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 	    }
 	}
 	if (fa & FILE_ATTRIBUTE_SYSTEM) {
-	    wprintf(
-		"%s\\%s: %s should not be a system file",
-		puc->pszrelpath,
-		pszfile,
-		pszrealtype);
+	    if ((uff & UFF_SYSTEM) == 0) {
+		wprintf(
+		    "%s%s%s: %s should not be a system file",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
+		    pszfile,
+		    pszrealtype);
+	    }
+	} else {
+	    if (uff & UFF_SYSTEM) {
+		wprintf(
+		    "%s%s%s: %s should be a system file",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
+		    pszfile,
+		    pszrealtype);
+	    }
 	}
 	if (fa & FILE_ATTRIBUTE_HIDDEN) {
 	    if ((uff & UFF_HIDDEN) == 0) {
 		wprintf(
-		    "%s\\%s: %s should not be hidden",
-		    puc->pszrelpath,
+		    "%s%s%s: %s should not be hidden",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile,
 		    pszrealtype);
 	    }
 	} else {
 	    if (uff & UFF_HIDDEN) {
 		wprintf(
-		    "%s\\%s: %s should be hidden",
-		    puc->pszrelpath,
+		    "%s%s%s: %s should be hidden",
+		    puc->pszrelpathsub,
+		    puc->pszrelpathsep,
 		    pszfile,
 		    pszrealtype);
 	    }
@@ -5210,8 +5518,9 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 		    fsame? szEmpty : " ");
 	    }
 	    wprintf(
-		"%s\\%s: extra %s%s",
-		puc->pszrelpath,
+		"%s%s%s: extra %s%s",
+		puc->pszrelpathsub,
+		puc->pszrelpathsep,
 		pszfile,
 		pszrealtype,
 		szdelfile);
@@ -5221,7 +5530,13 @@ ProcessUserFile(void *pv, char *pszfile, ULONG fa, ULONG cbfile, ULONG age)
 
 
 void
-CompareUserFile(char *pszdir, char *pszrelpath, char *pszfile, int fver)
+CompareUserFile(
+    char *pszdir,
+    char *pszrelpath,
+    char *pszrelpathsub,
+    char *pszrelpathsep,
+    char *pszfile,
+    int fver)
 {
     HANDLE hfserver;
     HANDLE hmserver;
@@ -5276,15 +5591,27 @@ CompareUserFile(char *pszdir, char *pszrelpath, char *pszfile, int fver)
     }
     if (fver) {
 	if (cbserver >= cbuser) {
-	    wprintf("%s: user version file too small", pszrelpath, pszfile);
+	    wprintf(
+		"%s%s%s: user version file too small",
+		pszrelpathsub,
+		pszrelpathsep,
+		pszfile);
 	    goto unmapfile;
 	}
     } else if (cbserver != cbuser) {
-	wprintf("%s\\%s: server file size differs", pszrelpath, pszfile);
+	wprintf(
+	    "%s%s%s: server file size differs",
+	    pszrelpathsub,
+	    pszrelpathsep,
+	    pszfile);
 	goto unmapfile;
     }
     if (memcmp(pbuser, pbserver, cbserver)) {
-	wprintf("%s\\%s: server file differs", pszrelpath, pszfile);
+	wprintf(
+	    "%s%s%s: server file differs",
+	    pszrelpathsub,
+	    pszrelpathsep,
+	    pszfile);
     } else if (fver) {
 	char *pbuserextra;
 	int cbver, cbuserextra;
@@ -5298,15 +5625,16 @@ CompareUserFile(char *pszdir, char *pszrelpath, char *pszfile, int fver)
 	    sizeof(szver) - 30,
 	    pszLogName);
 
-	if (cbuserextra != cbver || strnicmp(pbuserextra, szver, cbver) != 0) {
+	if (cbuserextra != cbver || _strnicmp(pbuserextra, szver, cbver) != 0) {
 	    if (cbuserextra >= 2 &&
 		pbuserextra[cbuserextra - 1] == '\n' &&
 		pbuserextra[cbuserextra - 2] == '\r') {
 		cbuserextra -= 2;
 	    }
 	    wprintf(
-		"%s\\%s: version file szVerUser mismatch: %.*s (expected %s)",
-		pszrelpath,
+		"%s%s%s: version file szVerUser mismatch: %.*s (expected %s)",
+		pszrelpathsub,
+		pszrelpathsep,
 		pszfile,
 		cbuserextra,
 		pbuserextra,
@@ -5332,10 +5660,11 @@ unmapfile:
 }
 
 
-#define chCTLZ	('Z' - 64)
+#define chCTLZ		('Z' - 64)
 
 #define ischValid(ch) \
-	(isascii(ch) && (isprint(ch) || isspace(ch) || (ch) == chCTLZ))
+	((isascii(ch) && (isprint(ch) || isspace(ch) || (ch) == chCTLZ)) || \
+	 (((ch) & 0x80) && (CharTypeHigh[(ch) & 0x7f] & CTH_VALIDTEXT)))
 
 struct DiffHeader {
     char szfile[cchFileMax + 1];	// "#F filename v1"
@@ -5799,7 +6128,7 @@ ProcessFiles(void *pv, char *pszpath, FNPROCESSFILE *pfn)
 #endif
 	    (*pfn)(
 		pv,
-		strlwr(wfd.cFileName),
+		_strlwr(wfd.cFileName),
 		wfd.dwFileAttributes,
 		wfd.nFileSizeLow,
 		age);
@@ -5820,7 +6149,7 @@ ProcessFiles(void *pv, char *pszpath, FNPROCESSFILE *pfn)
     ULONG cbused;
     char *psz;
     WCHAR wsz[15 + CBPATH];		// Unicode path
-    char afdi[4096 + 2048];		// enough for most directories
+    LONGLONG afdi[(4096 + 2048)/8];     // enough for most directories
     FILE_DIRECTORY_INFORMATION *pfdi;
     IO_STATUS_BLOCK iosb;
     UNICODE_STRING str;
@@ -5928,12 +6257,12 @@ ProcessFiles(void *pv, char *pszpath, FNPROCESSFILE *pfn)
 		}
 		(*pfn)(
 		    pv,
-		    strlwr(WszToSz(pfdi->FileName, pfdi->FileNameLength)),
+		    _strlwr(WszToSz(pfdi->FileName, pfdi->FileNameLength)),
 		    pfdi->FileAttributes,
 		    pfdi->EndOfFile.LowPart,
 		    age);
 	    }
-	    cbused = ((char *) pfdi - afdi) +
+            cbused = ((char *) pfdi - (char *) afdi) +
 		     sizeof(*pfdi) +
 		     pfdi->FileNameLength * sizeof(WCHAR);
 
@@ -6072,6 +6401,10 @@ SubDirValidate(char *pch, size_t cch, int *psverror)
 	eprintf("Internal Error: subdir name len: %u/%u", cch, cchUserMax);
 	exit(1);
     }
+    if (*pch == '\0') {
+	*psverror = SV_EMPTY;			// empty string
+	return(0);
+    }
     if (*pch != '/') {
 	*psverror = SV_BADPREFIX;
 	return(0);
@@ -6105,6 +6438,10 @@ PthEdValidate(char *pch, size_t cch, int *psverror)
 	    eprintf("Internal Error: pthed name len: %u/%u", cch, cchPthMax);
 	    exit(1);
 	}
+    }
+    if (*pch == '\0') {
+	*psverror = SV_EMPTY;		// empty string
+	return(0);
     }
     *psverror = SV_BADPREFIX;		// missing vol label/UNC server name?
     if (*pch++ != '/') {
@@ -6420,10 +6757,11 @@ struct parm aparm[] =
     },
 
   'e', CMDALL, NULL,
-    { "[-eN | -eF | -eA | -e[D|L|P|R|S|T|Z]]",
+    { "[-eN | -eF | -eO <days> | -eA | -e[D|L|P|R|S|T|Z]]",
     "\n"
     "    -eN\tsuppress most warnings\n"
     "    -eF\tsuppress file mode/base index warnings\n"
+    "    -eO <days> recommend defecting enlistments older than <days> days\n"
     "\n"
     "    -eA\tprint all possible errors/warnings (except -eU)\n"
     "    -eD\tprint warnings for out of sync deleted files/directories\n"
@@ -6671,7 +7009,7 @@ NewMdir(char *pszdir, char *pszfile, int imdirparent, int flags)
     if (*pszfile != '\0') {
 	strcat(mdir.pszDir, pszfile);
     }
-    strlwr(mdir.pszDir);
+    _strlwr(mdir.pszDir);
 
     mdir.cMed = 0;
     mdir.Flags = flags;
@@ -6860,7 +7198,8 @@ PrintScript(char *pszroot, char *pszproj)
 #define OF_DELETEDDIR		6
 #define OF_STATUS		7
 #define OF_COMMENT		8
-#define OF_MAX			9	// one higher than highest in-use value
+#define OF_AGE			9
+#define OF_MAX			10	// one higher than highest in-use value
 #define OF_MIN		(OF_STATUS + 1)	// minimum field count - OF_STATUS
 
     // Print the main and project headers.
@@ -6873,7 +7212,8 @@ PrintScript(char *pszroot, char *pszproj)
 	    "Proj Dirs",	    // Hdr - Active Dirs
 	    "Deleted Dirs",	    // Hdr - Deleted Dirs
 	    "Status",		    // Hdr - Status
-	    "Comment/Subdir");	    // Hdr - Comment
+	    "Comment/Subdir",	    // Hdr - Comment
+	    "Age");		    // Hdr - Age
     oprintf("~SLM Server",	    // Proj - Owner
 	    pszproj,		    // Proj - Project
 	    "Project",		    // Proj - Action
@@ -6882,7 +7222,8 @@ PrintScript(char *pszroot, char *pszproj)
 	    SzNum(cMdirActive, 1),  // Proj - Active Dirs
 	    SzNum(cMdirDeleted, 2), // Proj - Deleted Dirs
 	    szEmpty,		    // Proj - Status
-	    szEmpty);		    // Proj - Comment
+	    szEmpty,		    // Proj - Comment
+	    szEmpty);		    // Proj - Age
 
     // Print an ExFile request for each deleted directory.
 
@@ -6901,7 +7242,8 @@ PrintScript(char *pszroot, char *pszproj)
 		    szEmpty,		    // ExFile - Active Dirs
 		    szEmpty,		    // ExFile - Deleted Dirs
 		    "Deleted",		    // ExFile - Status
-		    aMdir[imdir].pszDir);   // ExFile - Comment
+		    aMdir[imdir].pszDir,    // ExFile - Comment
+		    szEmpty);		    // ExFile - Age
 	} else if (max < aMdir[imdir].cMed) {
 	    max = aMdir[imdir].cMed;
 	}
@@ -6919,10 +7261,11 @@ PrintScript(char *pszroot, char *pszproj)
 
     for (imed = 0; imed < cMed; imed++) {
 	char achmult[9+10];
+	int age;
 
+	age = HiTimeToDays(apMed[imed]->HiTime, tmStart);
 	pszaction = szEmpty;
 	pszcomments = szEmpty;
-	pszstatus = "Partial";
 	cmdiractive = apMed[imed]->cMdirActive;
 
 	if (apMed[imed]->Flags & ME_CORRUPT) {
@@ -6936,17 +7279,30 @@ PrintScript(char *pszroot, char *pszproj)
 		pszcomments = achmult;
 	    }
 	} else if (cmdiractive < FIXEDPERCENT*cMdirActive/100) {
-	    pszaction = reqDelEd.psztype;
+	    if (ageInactive == 0) {
+		pszaction = reqDelEd.psztype;
+	    }
 	} else if (cmdiractive != cMdirActive) {
 	    pszaction = reqFixEd.psztype;
 	} else {
-	    pszstatus = "Full";
 	    cfull++;
+	}
+
+	pszstatus = "Partial";
+	if (cmdiractive == cMdirActive) {
+	    pszstatus = "Full";
+	}
+
+	if (*pszcomments == '\0') {
+	    if (ageInactive != 0 && (age == AGEINVALID || age > ageInactive)) {
+		pszaction = reqDelEd.psztype;
+		pszcomments = "Inactive";
+	    }
 	}
 	if (*pszcomments == '\0') {
 	    cb = strlen(apMed[imed]->pszEd);
 	    if (cb <= cbproj ||
-		strnicmp(pszproj, &apMed[imed]->pszEd[cb - cbproj], cbproj)) {
+		_strnicmp(pszproj, &apMed[imed]->pszEd[cb - cbproj], cbproj)) {
 		pszcomments = "Bad Base Directory";
 	    }
 	}
@@ -6965,7 +7321,9 @@ PrintScript(char *pszroot, char *pszproj)
 		apMed[imed]->cMdirDeleted?	   // Ed - Deleted Dirs
 		    SzNum(apMed[imed]->cMdirDeleted, 2) : szEmpty,
 		pszstatus,			   // Ed - Status
-		pszcomments);			   // Ed - Comment
+		pszcomments,			   // Ed - Comment
+		age == AGEINVALID?
+		    "None" : SzNum(age, 2));	   // Ed - Age
 
 	// Print the misfits' details.
 	// If more than FIXEDPERCENT valid, print the missing directories;
@@ -6985,7 +7343,8 @@ PrintScript(char *pszroot, char *pszproj)
 				szEmpty,		// -- Active Dirs
 				szEmpty,		// -- Deleted Dirs
 				"Missing",		// -- Status
-				aMdir[imdir].pszDir);	// -- Comment
+				aMdir[imdir].pszDir,	// -- Comment
+				szEmpty);		// -- Active Dirs
 		    }
 		}
 	    } else {
@@ -7001,7 +7360,8 @@ PrintScript(char *pszroot, char *pszproj)
 				szEmpty,		// ++ Active Dirs
 				szEmpty,		// ++ Deleted Dirs
 				"Enlisted",		// ++ Status
-				aMdir[imdir].pszDir);	// ++ Comment
+				aMdir[imdir].pszDir,	// ++ Comment
+				szEmpty);		// ++ Deleted Dirs
 		    }
 		}
 	    }
@@ -7125,12 +7485,12 @@ PrintMedStatistics(char *pszproj)
 	    cmedfull--;
 	}
 	if (pmedlast != NULL &&
-	    stricmp(pmedlast->pszOwner, apMed[imed]->pszOwner) == 0) {
+	    _stricmp(pmedlast->pszOwner, apMed[imed]->pszOwner) == 0) {
 
 	    len = strlen(pmedlast->pszEd);
 	    if (len < strlen(apMed[imed]->pszEd) &&
 		((ch = apMed[imed]->pszEd[len]) == '\\' || ch == '/') &&
-		strnicmp(pmedlast->pszEd, apMed[imed]->pszEd, len) == 0) {
+		_strnicmp(pmedlast->pszEd, apMed[imed]->pszEd, len) == 0) {
 
 		wnprintf("%s %s nested enlistment",
 			apMed[imed]->pszOwner,
@@ -7220,8 +7580,8 @@ FindMed(char *pszowner, char *pszed, int *pimed)
     rc = 1;				// default to insert before the end
     while (imedlow <= imedhigh) {
 	imed = (imedlow + imedhigh)/2;
-	if ((rc = stricmp(pszowner, apMed[imed]->pszOwner)) == 0 &&
-	    (rc = stricmp(pszed, apMed[imed]->pszEd)) == 0) {
+	if ((rc = _stricmp(pszowner, apMed[imed]->pszOwner)) == 0 &&
+	    (rc = _stricmp(pszed, apMed[imed]->pszEd)) == 0) {
 
 	    // If a match was found, scan backwards to the first entry
 	    // (ME_DUPLICATE clear).
@@ -7373,9 +7733,9 @@ CmpEd(const ED *ped1, const ED *ped2)
 {
     int rc;
 
-    rc = strnicmp(ped1->nmOwner, ped2->nmOwner, sizeof(ped1->nmOwner));
+    rc = _strnicmp(ped1->nmOwner, ped2->nmOwner, sizeof(ped1->nmOwner));
     if (rc == 0) {
-	rc = strnicmp(ped1->pthEd, ped2->pthEd, sizeof(ped1->pthEd));
+	rc = _strnicmp(ped1->pthEd, ped2->pthEd, sizeof(ped1->pthEd));
     }
     return(rc);
 }
@@ -7449,17 +7809,17 @@ ReadScript(char *pszroot, char *pszproj)
 		    apsz[OF_PROJECT]);
 	    exit(1);
 	}
-	if (stricmp(apsz[OF_PROJECT], pszproj)) {
+	if (_stricmp(apsz[OF_PROJECT], pszproj)) {
 	    continue;			// skip other projects
 	}
-	if (stricmp(apsz[OF_ACTION], "Action") == 0) {
-	} else if (stricmp(apsz[OF_ACTION], "Project") == 0) {
+	if (_stricmp(apsz[OF_ACTION], "Action") == 0) {
+	} else if (_stricmp(apsz[OF_ACTION], "Project") == 0) {
 
 	    // Project - validate root only
 	    // root    = OF_PTHED
 	    // project = OF_PROJECT
 
-	    if (stricmp(apsz[OF_PTHED], pszroot)) {
+	    if (_stricmp(apsz[OF_PTHED], pszroot)) {
 		iprintf("bad root for %s project: %s (expected %s)",
 			pszproj,
 			apsz[OF_PTHED],
@@ -7477,7 +7837,7 @@ ReadScript(char *pszroot, char *pszproj)
 			apsz[OF_PROJECT],
 			apsz[OF_PTHED]);
 	    }
-	} else if (stricmp(apsz[OF_ACTION], reqExFile.psztype) == 0) {
+	} else if (_stricmp(apsz[OF_ACTION], reqExFile.psztype) == 0) {
 
 	    // ExFile - Expunge File (actually only directories)
 	    // relative path to file = OF_COMMENT
@@ -7490,7 +7850,7 @@ ReadScript(char *pszroot, char *pszproj)
 		NewExFile(FixSlash(apsz[OF_COMMENT], 1));
 	    }
 
-	} else if (stricmp(apsz[OF_ACTION], reqDelEd.psztype) == 0) {
+	} else if (_stricmp(apsz[OF_ACTION], reqDelEd.psztype) == 0) {
 
 	    // DelEd - Delete Enlisted Directory
 	    // logname/nmOwner = OF_OWNER
@@ -7500,7 +7860,7 @@ ReadScript(char *pszroot, char *pszproj)
 		NewPthEdRequest(&reqDelEd, apsz[OF_OWNER], apsz[OF_PTHED], 0);
 	    }
 
-	} else if (stricmp(apsz[OF_ACTION], reqDelDup.psztype) == 0) {
+	} else if (_stricmp(apsz[OF_ACTION], reqDelDup.psztype) == 0) {
 
 	    // DelDup - Delete Duplicate enlisted directory
 	    // logname/nmOwner = OF_OWNER
@@ -7527,7 +7887,7 @@ ReadScript(char *pszroot, char *pszproj)
 	    }
 // BUGBUG end
 
-	} else if (stricmp(apsz[OF_ACTION], reqFixEd.psztype) == 0) {
+	} else if (_stricmp(apsz[OF_ACTION], reqFixEd.psztype) == 0) {
 
 	    // FixEd - Fix Enlisted Directory
 	    // logname/nmOwner = OF_OWNER
@@ -7537,7 +7897,7 @@ ReadScript(char *pszroot, char *pszproj)
 		NewPthEdRequest(&reqFixEd, apsz[OF_OWNER], apsz[OF_PTHED], 0);
 	    }
 
-	} else if (stricmp(apsz[OF_ACTION], szEmpty)) {
+	} else if (_stricmp(apsz[OF_ACTION], szEmpty)) {
 	    iprintf("bad %s entry", apsz[OF_ACTION]);
 	    exit(1);
 	}
@@ -7624,7 +7984,7 @@ NewPthEdRequest(struct req *preq, char *pszowner, char *pszpthed, int fminusallo
     int fbad = 0;
     int fdiffer;
 
-    strupr(pszpthed);
+    _strupr(pszpthed);
     i = UserValidate(pszowner, 0, &sverror);
     if (sverror != SV_OK) {
 	wprintfname(szEmpty, "owner", pszowner, strlen(pszowner), i, sverror);
@@ -7787,8 +8147,8 @@ NewReq(struct req *preq, char *psz1, char *psz2)
     psz2 = preq->arel[preq->creq].psz2 = psz;
 
     for (i = 0; i < preq->creq; i++) {
-	if (stricmp(psz1, preq->arel[i].psz2) == 0 &&
-	    stricmp(psz2, preq->arel[i].psz1) == 0) {
+	if (_stricmp(psz1, preq->arel[i].psz2) == 0 &&
+	    _stricmp(psz2, preq->arel[i].psz1) == 0) {
 
 	    iprintf("duplicate %s request: %s %s", preq->psztype, psz1, psz2);
 	    exit(1);
@@ -7806,8 +8166,8 @@ FindReq(struct req *preq, char *psz1, char *psz2)
     int i;
 
     for (i = 0; i < preq->creq; i++) {
-	if (stricmp(psz1, preq->arel[i].psz1) == 0 &&
-	    (stricmp(psz2, preq->arel[i].psz2) == 0 ||
+	if (_stricmp(psz1, preq->arel[i].psz1) == 0 &&
+	    (_stricmp(psz2, preq->arel[i].psz2) == 0 ||
 	     strcmp(preq->arel[i].psz2, "-") == 0)) {
 	    return(i);
 	}
@@ -8004,6 +8364,7 @@ SzNum(int n, int ibuf)
     static char achbuf2[10];
     static char *apchbuf[3] = { achbuf0, achbuf1 , achbuf2 };
 
+    ASSERT(ibuf >= 0 && ibuf <= 2);
     psz = apchbuf[ibuf];
     sprintf(psz, "%d", n);
     return(psz);
@@ -8184,7 +8545,8 @@ oprintd(char *pszproj, char *pszmsg, int n)
 	    szEmpty,		  // Data - Active Dirs
 	    szEmpty,		  // Data - Deleted Dirs
 	    szEmpty,		  // Data - Status
-	    szEmpty);		  // Data - Comment
+	    szEmpty,		  // Data - Comment
+	    szEmpty);		  // Data - Age
 }
 
 
@@ -8231,7 +8593,8 @@ oprintf(char *pszowner,
 	char *pszactivedirs,
 	char *pszdeleteddirs,
 	char *pszstatus,
-	char *pszcomment)
+	char *pszcomment,
+	char *pszage)
 {
     fprintfname(pfOut, pszowner, strlen(pszowner), '\t');
     fprintfname(pfOut, pszproject, strlen(pszproject), '\t');
@@ -8241,7 +8604,8 @@ oprintf(char *pszowner,
     fprintfname(pfOut, pszactivedirs, strlen(pszactivedirs), '\t');
     fprintfname(pfOut, pszdeleteddirs, strlen(pszdeleteddirs), '\t');
     fprintfname(pfOut, pszstatus, strlen(pszstatus), '\t');
-    fprintfname(pfOut, pszcomment, strlen(pszcomment), '\n');
+    fprintfname(pfOut, pszcomment, strlen(pszcomment), '\t');
+    fprintfname(pfOut, pszage, strlen(pszage), '\n');
 }
 
 
@@ -8278,9 +8642,10 @@ ReadIni(
     void (*pfnerror)(char *pszfmt, ...);
     char *psz;
     FILE *pf;			// Input file pointer
-    int i, fSuccess;
+    int i, retValue;
     int len;			// String length
     int isubdir = 0;
+    int fcheckroot = 0;
     pfx_t *ppfx;		// Prefix pointer
     char *pszsubdir = NULL;	// Subdirectory
     char *pszprojold = *ppszproj;
@@ -8289,7 +8654,7 @@ ReadIni(
     char achsubdir[MAX_PATH + 10];
     char szpath[CBPATH];		// slm.ini file path
 
-    fSuccess = 1;
+    retValue = 0;			// assume success
     pfnerror = falloc? eprintf : wprintf;
     if (ppszsubdir == NULL) {
 	ppszsubdir = &pszsubdir;
@@ -8307,6 +8672,7 @@ ReadIni(
 
     szpath[0] = '\0';
     if (pszdir != NULL) {
+	ASSERT(*pszdir != '\0');
 	strcat(szpath, pszdir);
 	strcat(szpath, "\\");
     }
@@ -8319,8 +8685,8 @@ ReadIni(
 	if (!falloc) {
 	    wprintf("%s: cannot open", szpath);
 	}
-	fSuccess = 0;
-	return(fSuccess);
+	retValue = -1;				// failed
+	return(retValue);
     }
     while (fgets(ach, sizeof(ach), pf) != NULL) { // While strings remain
 	for (ppfx = prefixes; ppfx->pfx_text != NULL; ppfx++) {
@@ -8344,7 +8710,7 @@ ReadIni(
 	    }
 	    if (ppfx->pfx_fset) {
 		wprintf("%s: extraneous '%s'", szpath, ppfx->pfx_text);
-		fSuccess = 0;			// failed
+		retValue = -1;			// failed
 	    }
 	    ppfx->pfx_fset++;
 	    if (ppfx->pfx_ppszvalue != ppszuserroot) {
@@ -8364,7 +8730,7 @@ ReadIni(
 		    if (falloc) {
 			exit(1);
 		    }
-		    fSuccess = 0;		// failed
+		    retValue = -1;		// failed
 		} else {
 		    int fpthedhasdrive, fdirhasdrive;
 		    char *pszerror = "drive";
@@ -8419,15 +8785,18 @@ ReadIni(
 			cchslm = strlen(achdir);
 			cchpthed = strlen(achptheddir);
 			if (cchslm < cchpthed ||
-			    strnicmp(achdir, achptheddir, cchpthed) != 0 ||
+			    _strnicmp(achdir, achptheddir, cchpthed) != 0 ||
 			    (achdir[cchpthed] != '\0' &&
 			     achdir[cchpthed] != '\\')) {
 			    pszerror = "path";
 			} else {
 			    isubdir = cchpthed;
+
 			    if (achdir[isubdir] == '\0') {
 				achdir[isubdir] = '\\';		// fix root
 				achdir[isubdir + 1] = '\0';
+
+				fcheckroot = 1;
 			    }
 			}
 			if (fVerbose > 1) {
@@ -8443,7 +8812,7 @@ ReadIni(
 			if (falloc) {
 			    exit(1);
 			}
-			fSuccess = 0;			// failed
+			retValue = -1;			// failed
 		    }
 		}
 	    }
@@ -8459,14 +8828,14 @@ ReadIni(
 		    *ppfx->pfx_ppszvalue = psznew;
 		}
 	    } else {
-		if (stricmp(psz, *ppfx->pfx_ppszvalue) != 0) {
+		if (_stricmp(psz, *ppfx->pfx_ppszvalue) != 0) {
 		    wprintf(
 			"%s: %s\"%s\" (expected \"%s\")",
 			szpath,
 			ppfx->pfx_text,
 			psz,
 			*ppfx->pfx_ppszvalue);
-		    fSuccess = 0;			// failed
+		    retValue = -1;			// failed
 		}
 	    }
 	    break;		// get next slm.ini line
@@ -8477,20 +8846,56 @@ ReadIni(
     for (i = 0; prefixes[i].pfx_text != NULL; i++) {
 	if (!prefixes[i].pfx_fset) {
 	    wprintf("%s: missing '%s'", szpath, prefixes[i].pfx_text);
-	    fSuccess = 0;				// failed
+	    retValue = -1;				// failed
 	}
     }
-    if (isubdir > 0 && achdir[0] != '\0' && achsubdir[0] != '\0') {
-	if (stricmp(&achdir[isubdir], achsubdir) != '\0') {
+    if (retValue == 0 &&
+	isubdir > 0 &&
+	achdir[0] != '\0' &&
+	achsubdir[0] != '\0') {
+
+	int iskip;
+	int isubdircompare = isubdir;
+
+	// If the subdir is non-root, point isubdir at "" to properly compute
+	// iskip.
+
+	if (fcheckroot &&
+	    (achsubdir[0] != '\\' || achsubdir[1] != '\0')) {
+
+	    isubdircompare++;
+	}
+	iskip = strlen(achsubdir) - strlen(&achdir[isubdircompare]);
+	if (iskip < 0 ||
+	    (achsubdir[iskip] != '\0' && achsubdir[iskip] != '\\')) {
+
+	    iskip = 0;
+	}
+	if (fVerbose > 1) {
+	    printf(
+		"comparing '%s' to '%s' (&'%s'[%d(%d)] to &'%s'[%d])\n",
+		&achdir[isubdircompare],
+		&achsubdir[iskip],
+		achdir,
+		isubdircompare,
+		isubdir,
+		achsubdir,
+		iskip);
+	}
+	if (_stricmp(&achdir[isubdircompare], &achsubdir[iskip]) != '\0') {
 	    (*pfnerror)(
-		"%s: %s vs. %s: subdirectory mismatch",
+		"%s: '%s' vs. '%s': subdirectory mismatch",
 		szpath,
-		&achdir[isubdir],
-		achsubdir);
+		&achdir[isubdircompare],
+		&achsubdir[iskip]);
 	    if (falloc) {
 		exit(1);
 	    }
-	    fSuccess = 0;				// failed
+	    retValue = -1;			// failed
+	}
+	if (retValue == 0)
+	{
+	    retValue = iskip;			// length of subdir to skip
 	}
     }
 
@@ -8505,7 +8910,7 @@ ReadIni(
 	strcat(psz, pszsubdir);
 	*ppszproj = psz;
     }
-    return(fSuccess);
+    return(retValue);
 }
 
 
@@ -8547,10 +8952,10 @@ WriteIni(
 
 	p = &szbuf[ppfx->pfx_len];
 	if (ppfx->pfx_fupper) {
-	    strupr(p);
+	    _strupr(p);
 	}
 	else {
-	    strlwr(p);
+	    _strlwr(p);
 	}
 	UnfixSlash(p);
 	fwrite(szbuf, strlen(szbuf), 1, pf);
@@ -8562,7 +8967,7 @@ WriteIni(
 	return;
     }
     fclose(pf);
-    unlink(szpathbak);		 	// delete backup ini file
+    _unlink(szpathbak);		 	// delete backup ini file
     if (rename(szpath, szpathbak)) {	// rename old to backup
 	if (_doserrno != ERROR_FILE_NOT_FOUND) {
 	    eprintf("cannot rename %s to %s: %d",
@@ -8622,7 +9027,7 @@ CompareIni(char *pszrelpath, char *pszdir)
     if (cbdir > 1 && szdir[cbdir - 1] == '\\') {
 	szdir[cbdir - 1] = '\0';
     }
-    if (!ReadIni(0, szdir, &pszRoot, &pszproj, &pszUserRoot, &pszsubdir) &&
+    if (ReadIni(0, szdir, &pszRoot, &pszproj, &pszUserRoot, &pszsubdir) == -1 &&
 	fFixIni) {
 	WriteIni(szdir, pszRoot, pszproj, pszUserRoot, pszsubdir);
     }
@@ -8630,11 +9035,11 @@ CompareIni(char *pszrelpath, char *pszdir)
 
 
 void
-CheckRepairIni(char *pszrelpath, char *pszpthed)
+CheckRepairIni(char *pszrelpath, int iskip, char *pszpthed)
 {
     char szdir[CBPATH];		// user directory path
 
-    GetUserDir(pszpthed, pszrelpath, szdir);
+    GetUserDir(pszpthed, pszrelpath, iskip, szdir);
     CompareIni(pszrelpath, szdir);
 }
 
@@ -8650,10 +9055,10 @@ VerifyAdminLock(char *pszrelpath, SH *psh)
 
     if (!fOverride && !fWriteTest) {
 	StrInit(szowner, sizeof(szowner), psh->nmLocker, sizeof(psh->nmLocker));
-	if (!psh->fAdminLock || stricmp(szowner, pszLogName)) {
+	if (!psh->fAdminLock || _stricmp(szowner, pszLogName)) {
 	    eprintf(szfmt, pszrelpath, pszLogName);
-	    cprintf(szfmt, pszrelpath, pszLogName);	// to console, too!
-	    cprintf(szNewLine);
+	    _cprintf(szfmt, pszrelpath, pszLogName);	// to console, too!
+	    _cprintf(szNewLine);
 	    fWriteTest++;
 	}
     }
@@ -8680,7 +9085,7 @@ VerifyOverwrite(char *pszproj, char *pszroot, int cbpath)
     static int fasked = 0;
 
     if (fasked++ == 0) {
-	cprintf(
+	_cprintf(
 	    szVerify,
 	    pszProg,
 	    fAll? "ALL THE" : fRecurse? "MULTIPLE" : "A",
@@ -8694,15 +9099,15 @@ VerifyOverwrite(char *pszproj, char *pszroot, int cbpath)
 	if ((psz = gets(buf)) == NULL ||
 	    (cb = strlen(psz)) == 0 ||
 	    strchr(psz, '\\') != NULL ||
-	    strnicmp(pszproj, psz, cb) ||
+	    _strnicmp(pszproj, psz, cb) ||
 	    (pszproj[cb] != '\0' && pszproj[cb] != '\\')) {
 
-	    cprintf("\n%s: aborted without modifying status files\n", pszProg);
+	    _cprintf("\n%s: aborted without modifying status files\n", pszProg);
 	    //printf("%x=%02x %02x %x=%s\n", buf, buf[0], buf[1], psz, psz);
 	    exit(1);
 	}
 	//printf("%x=%02x %02x %x=%s\n", buf, buf[0], buf[1], psz, psz);
-	cprintf(szNewLine);
+	_cprintf(szNewLine);
     } else if (!fRecurse) {
 	eprintf("Internal Error: attempt to overwrite multiple status files");
 	exit(1);

@@ -51,7 +51,7 @@ Revision History:
 #include <lmerr.h>      // LAN Manager network error definitions
 
 #include <debuglib.h>   // IF_DEBUG
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 
 #include <smbtypes.h>   // needed for smb.h
 #include <smb.h>        // Server Message Block definitions
@@ -153,9 +153,9 @@ Return Value:
         IF_DEBUG(NETBIOS) {
 
             Ncb.ncb_name[NCBNAMSZ - 1] = '\0';
-            NetpDbgPrint("[Netlib] Successfully added name " FORMAT_LPSTR ".  "
+            NetpKdPrint(("[Netlib] Successfully added name " FORMAT_LPSTR ".  "
                     "Name number is " FORMAT_DWORD "\n",
-                    Ncb.ncb_name, (DWORD) Ncb.ncb_num);
+                    Ncb.ncb_name, (DWORD) Ncb.ncb_num));
         }
 
         if (ARGUMENT_PRESENT(NetBiosNameNumber)) {
@@ -209,9 +209,9 @@ Return Value:
         IF_DEBUG(NETBIOS) {
 
             Ncb.ncb_name[NCBNAMSZ - 1] = '\0';
-            NetpDbgPrint("[Netlib] Successfully deleted name " FORMAT_LPSTR ".  "
+            NetpKdPrint(("[Netlib] Successfully deleted name " FORMAT_LPSTR ".  "
                     "Name number is " FORMAT_DWORD "\n",
-                    Ncb.ncb_name, (DWORD) Ncb.ncb_num);
+                    Ncb.ncb_name, (DWORD) Ncb.ncb_num));
         }
 
         return NERR_Success;
@@ -312,8 +312,8 @@ Return Value:
 
     if (Status != NERR_Success) {
         IF_DEBUG(NETBIOS) {
-            NetpDbgPrint("[Netlib] Error canonicalizing message alias "
-                    FORMAT_LPSTR " " FORMAT_API_STATUS "\n", String, Status);
+            NetpKdPrint(("[Netlib] Error canonicalizing message alias "
+                    FORMAT_LPSTR " " FORMAT_API_STATUS "\n", String, Status));
         }
         return Status;
     }
@@ -448,7 +448,7 @@ Return Value:
     if (NcbStatus == NRC_GOODRET) {
 
         IF_DEBUG(NETBIOS) {
-            NetpDbgPrint("[Netlib] NetBIOS successfully hung up\n");
+            NetpKdPrint(("[Netlib] NetBIOS successfully hung up\n"));
         }
 
         return NERR_Success;
@@ -507,7 +507,7 @@ Return Value:
     if (NcbStatus == NRC_GOODRET) {
 
         IF_DEBUG(NETBIOS) {
-            NetpDbgPrint("[Netlib] NetBIOS successfully sent data\n");
+            NetpKdPrint(("[Netlib] NetBIOS successfully sent data\n"));
         }
 
         return NERR_Success;
@@ -569,8 +569,8 @@ Return Value:
     Ncb.ncb_length = ReceiveBufferSize;
 
     IF_DEBUG(NETBIOS) {
-        NetpDbgPrint("[Netlib] ncb_length before receive is " FORMAT_WORD_ONLY
-                "\n", (WORD) Ncb.ncb_length);
+        NetpKdPrint(("[Netlib] ncb_length before receive is " FORMAT_WORD_ONLY
+                "\n", (WORD) Ncb.ncb_length));
     }
 
     Ncb.ncb_event = EventHandle;
@@ -580,9 +580,9 @@ Return Value:
     if (NcbStatus == NRC_GOODRET) {
 
         IF_DEBUG(NETBIOS) {
-            NetpDbgPrint("[Netlib] NetBIOS successfully received data\n");
-            NetpDbgPrint("[Netlib] ncb_length after receive is "
-                    FORMAT_WORD_ONLY "\n", (WORD) Ncb.ncb_length);
+            NetpKdPrint(("[Netlib] NetBIOS successfully received data\n"));
+            NetpKdPrint(("[Netlib] ncb_length after receive is "
+                    FORMAT_WORD_ONLY "\n", (WORD) Ncb.ncb_length));
         }
 
         *NumberOfBytesReceived = Ncb.ncb_length;
@@ -604,7 +604,7 @@ NetpNetBiosStatusToApiStatus(
     )
 {
     IF_DEBUG(NETBIOS) {
-        NetpDbgPrint("[Netlib] Netbios status is x%02x\n", NetBiosStatus);
+        NetpKdPrint(("[Netlib] Netbios status is x%02x\n", NetBiosStatus));
     }
 
     //

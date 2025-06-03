@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include    <ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -42,6 +42,10 @@ BOOL        cm_terminated = FALSE;
 BOOL	cm__find_chan(CM_CHAN* chan, CM_FIND_CHAN *fc, VOID* a2);
 BOOL	cm__find_bchan(CM_CHAN* chan, CM_FIND_BCHAN *fc, VOID* a2);
 BOOL	cm__match_str(CHAR* s1, CHAR* s2);
+
+/* driver global vars */
+extern DRIVER_BLOCK	Pcimac;
+
 //
 // added to support the new switch styles
 //

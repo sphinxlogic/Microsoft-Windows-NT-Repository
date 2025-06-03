@@ -28,6 +28,23 @@ Revision History:
 #define Dbg                              (DEBUG_TRACE_CREATE)
 
 //
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('CFtN')
+
+//
+//  Check for stack usage prior to the create call.
+//
+
+#ifdef _X86_
+#define OVERFLOW_CREATE_THRESHHOLD         (0x1200)
+#else
+#define OVERFLOW_CREATE_THRESHHOLD         (0x1B00)
+#endif // _X86_
+
+//
 //  Local macros
 //
 
@@ -42,10 +59,10 @@ Revision History:
 
 #define NtfsVerifyNameIsDirectory( IC, AN, ACN )                        \
     ( ( ((ACN)->Length == 0)                                            \
-        || NtfsAreNamesEqual( IC, ACN, &NtfsIndexAllocation, TRUE ))    \
+        || NtfsAreNamesEqual( IC->Vcb->UpcaseTable, ACN, &NtfsIndexAllocation, TRUE ))    \
       &&                                                                \
       ( ((AN)->Length == 0)                                             \
-        || NtfsAreNamesEqual( IC, AN, &NtfsFileNameIndex, TRUE )))
+        || NtfsAreNamesEqual( IC->Vcb->UpcaseTable, AN, &NtfsFileNameIndex, TRUE )))
 
 //
 //  These are the flags used by the I/O system in deciding whether
@@ -72,9 +89,7 @@ typedef enum _SHARE_MODIFICATION_TYPE {
 
 } SHARE_MODIFICATION_TYPE, *PSHARE_MODIFICATION_TYPE;
 
-UNICODE_STRING NtfsVolumeDasd = { sizeof( L"$Volume" ) - 2,
-                                  sizeof( L"$Volume" ),
-                                  L"$Volume" };
+UNICODE_STRING NtfsVolumeDasd = CONSTANT_UNICODE_STRING ( L"$Volume" );
 
 LUID NtfsSecurityPrivilege = { SE_SECURITY_PRIVILEGE, 0 };
 
@@ -88,11 +103,13 @@ NtfsOpenFcbById (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PVCB Vcb,
+    IN PLCB ParentLcb OPTIONAL,
     IN OUT PFCB *CurrentFcb,
-    IN OUT PBOOLEAN AcquiredCurrentFcb,
+    IN BOOLEAN UseCurrentFcb,
     IN FILE_REFERENCE FileReference,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     );
@@ -108,6 +125,8 @@ NtfsOpenExistingPrefixFcb (
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     );
@@ -133,17 +152,17 @@ NtfsOpenFile (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN PINDEX_ENTRY IndexEntry,
     IN UNICODE_STRING FullPathName,
     IN UNICODE_STRING FinalName,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
     IN BOOLEAN IgnoreCase,
-    IN BOOLEAN TraverseAccessCheck,
     IN BOOLEAN OpenById,
     IN PQUICK_INDEX QuickIndex,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PFCB *CurrentFcb,
     OUT PLCB *LcbForTeardown,
     OUT PSCB *ThisScb,
@@ -156,7 +175,6 @@ NtfsCreateNewFile (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN PFILE_NAME FileNameAttr,
     IN UNICODE_STRING FullPathName,
     IN UNICODE_STRING FinalName,
@@ -165,6 +183,7 @@ NtfsCreateNewFile (
     IN BOOLEAN IgnoreCase,
     IN BOOLEAN OpenById,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
     OUT PFCB *CurrentFcb,
     OUT PLCB *LcbForTeardown,
     OUT PSCB *ThisScb,
@@ -175,7 +194,6 @@ PLCB
 NtfsOpenSubdirectory (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN UNICODE_STRING Name,
     IN BOOLEAN TraverseAccessCheck,
     OUT PFCB *CurrentFcb,
@@ -194,19 +212,8 @@ NtfsOpenAttributeInExistingFile (
     IN UNICODE_STRING AttrName,
     IN ATTRIBUTE_TYPE_CODE AttrTypeCode,
     IN ULONG CcbFlags,
-    IN BOOLEAN VolumeOpen,
     IN BOOLEAN OpenById,
-    OUT PSCB *ThisScb,
-    OUT PCCB *ThisCcb
-    );
-
-NTSTATUS
-NtfsOpenVolume (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
-    IN PIO_STACK_LOCATION IrpSp,
-    IN PFCB ThisFcb,
-    IN BOOLEAN OpenById,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     );
@@ -224,6 +231,7 @@ NtfsOpenExistingAttr (
     IN ULONG CcbFlags,
     IN BOOLEAN OpenById,
     IN BOOLEAN DirectoryOpen,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     );
@@ -275,14 +283,12 @@ NtfsParseNameForCreate (
 
 NTSTATUS
 NtfsCheckValidAttributeAccess (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PVCB Vcb,
     IN PDUPLICATED_INFORMATION Info OPTIONAL,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
-    IN BOOLEAN VolumeOpen,
+    IN BOOLEAN TrailingBackslash,
     OUT PATTRIBUTE_TYPE_CODE AttrTypeCode,
     OUT PULONG CcbFlags,
     OUT PBOOLEAN IndexedAttribute
@@ -293,9 +299,6 @@ NtfsOpenAttributeCheck (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
-    IN PFCB ThisFcb,
-    IN UNICODE_STRING AttrName,
-    IN ATTRIBUTE_TYPE_CODE AttrTypeCode,
     OUT PSCB *ThisScb,
     OUT PSHARE_MODIFICATION_TYPE ShareModificationType
     );
@@ -316,12 +319,14 @@ NtfsInitializeFcbAndStdInfo (
     IN PFCB ThisFcb,
     IN BOOLEAN Directory,
     IN BOOLEAN Compressed,
-    IN ULONG FileAttributes
+    IN ULONG FileAttributes,
+    IN PLONGLONG SetCreationTime OPTIONAL
     );
 
 VOID
 NtfsCreateAttribute (
     IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
     IN OUT PFCB ThisFcb,
     IN OUT PSCB ThisScb,
     IN PLCB ThisLcb,
@@ -342,6 +347,7 @@ NtfsRemoveDataAttributes (
 VOID
 NtfsReplaceAttribute (
     IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
     IN PFCB ThisFcb,
     IN PSCB ThisScb,
     IN PLCB ThisLcb,
@@ -361,6 +367,7 @@ NtfsOpenAttribute (
     IN SHARE_MODIFICATION_TYPE ShareModificationType,
     IN TYPE_OF_OPEN TypeOfOpen,
     IN ULONG CcbFlags,
+    IN PVOID NetworkInfo OPTIONAL,
     IN OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     );
@@ -371,11 +378,7 @@ NtfsBackoutFailedOpens (
     IN PFILE_OBJECT FileObject,
     IN PFCB ThisFcb,
     IN PSCB ThisScb OPTIONAL,
-    IN PCCB ThisCcb OPTIONAL,
-    IN BOOLEAN IndexedAttribute,
-    IN BOOLEAN VolumeOpen,
-    IN PDUPLICATED_INFORMATION Info OPTIONAL,
-    IN ULONG InfoFlags
+    IN PCCB ThisCcb OPTIONAL
     );
 
 VOID
@@ -411,6 +414,17 @@ NtfsBreakBatchOplock (
     OUT PSCB *ThisScb
     );
 
+NTSTATUS
+NtfsCompleteLargeAllocation (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp,
+    IN PLCB Lcb,
+    IN PSCB Scb,
+    IN PCCB Ccb,
+    IN BOOLEAN CreateFileCase,
+    IN BOOLEAN DeleteOnClose
+    );
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsAddEa)
 #pragma alloc_text(PAGE, NtfsBackoutFailedOpens)
@@ -418,10 +432,13 @@ NtfsBreakBatchOplock (
 #pragma alloc_text(PAGE, NtfsCheckExistingFile)
 #pragma alloc_text(PAGE, NtfsCheckValidAttributeAccess)
 #pragma alloc_text(PAGE, NtfsCommonCreate)
+#pragma alloc_text(PAGE, NtfsCommonVolumeOpen)
+#pragma alloc_text(PAGE, NtfsCompleteLargeAllocation)
 #pragma alloc_text(PAGE, NtfsCreateAttribute)
 #pragma alloc_text(PAGE, NtfsCreateNewFile)
 #pragma alloc_text(PAGE, NtfsFsdCreate)
 #pragma alloc_text(PAGE, NtfsInitializeFcbAndStdInfo)
+#pragma alloc_text(PAGE, NtfsNetworkOpenCreate)
 #pragma alloc_text(PAGE, NtfsOpenAttribute)
 #pragma alloc_text(PAGE, NtfsOpenAttributeCheck)
 #pragma alloc_text(PAGE, NtfsOpenAttributeInExistingFile)
@@ -432,7 +449,6 @@ NtfsBreakBatchOplock (
 #pragma alloc_text(PAGE, NtfsOpenNewAttr)
 #pragma alloc_text(PAGE, NtfsOpenSubdirectory)
 #pragma alloc_text(PAGE, NtfsOpenTargetDirectory)
-#pragma alloc_text(PAGE, NtfsOpenVolume)
 #pragma alloc_text(PAGE, NtfsOplockPrePostIrp)
 #pragma alloc_text(PAGE, NtfsOverwriteAttr)
 #pragma alloc_text(PAGE, NtfsParseNameForCreate)
@@ -493,7 +509,7 @@ Return Value:
         return STATUS_SUCCESS;
     }
 
-    DebugTrace(+1, Dbg, "NtfsFsdCreate\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsFsdCreate\n") );
 
     //
     //  Call the common Create routine
@@ -523,7 +539,14 @@ Return Value:
                 NtfsCheckpointForLogFileFull( IrpContext );
             }
 
-            Status = NtfsCommonCreate( IrpContext, Irp );
+            if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_DASD_OPEN )) {
+
+                Status = NtfsCommonVolumeOpen( IrpContext, Irp );
+
+            } else {
+
+                Status = NtfsCommonCreate( IrpContext, Irp, NULL );
+            }
             break;
 
         } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
@@ -532,7 +555,7 @@ Return Value:
             //  We had some trouble trying to perform the requested
             //  operation, so we'll abort the I/O request with
             //  the error status that we get back from the
-            //  execption code
+            //  exception code
             //
 
             Status = NtfsProcessException( IrpContext, Irp, GetExceptionCode() );
@@ -551,16 +574,133 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsFsdCreate -> %08lx\n", Status);
+    DebugTrace( -1, Dbg, ("NtfsFsdCreate -> %08lx\n", Status) );
 
     return Status;
+}
+
+
+BOOLEAN
+NtfsNetworkOpenCreate (
+    IN PIRP Irp,
+    OUT PFILE_NETWORK_OPEN_INFORMATION Buffer,
+    IN PDEVICE_OBJECT DeviceObject
+    )
+
+/*++
+
+Routine Description:
+
+    This routine implements the fast open create for path-based queries.
+
+Arguments:
+
+    Irp - Supplies the Irp being processed
+
+    Buffer - Buffer to return the network query information
+
+    DeviceObject - Supplies the volume device object where the file exists
+
+Return Value:
+
+    BOOLEAN - Indicates whether or not the fast path could be taken.
+
+--*/
+
+{
+    TOP_LEVEL_CONTEXT TopLevelContext;
+    PTOP_LEVEL_CONTEXT ThreadTopLevelContext;
+    BOOLEAN Result = TRUE;
+    BOOLEAN DasdOpen = FALSE;
+
+    NTSTATUS Status;
+    PIRP_CONTEXT IrpContext = NULL;
+
+    ASSERT_IRP( Irp );
+
+    UNREFERENCED_PARAMETER( DeviceObject );
+
+    PAGED_CODE();
+
+    //
+    //
+    //  Call the common Create routine
+    //
+
+    FsRtlEnterFileSystem();
+
+    ThreadTopLevelContext = NtfsSetTopLevelIrp( &TopLevelContext, FALSE, FALSE );
+
+    try {
+
+        IrpContext = NtfsCreateIrpContext( Irp, TRUE );
+        NtfsUpdateIrpContextWithTopLevel( IrpContext, ThreadTopLevelContext );
+
+        Status = NtfsCommonCreate( IrpContext, Irp, Buffer );
+
+    } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
+
+        //
+        //  Catch the case where someone in attempting this on a DASD open.
+        //
+
+        if ((IrpContext != NULL) &&
+            FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_DASD_OPEN )) {
+
+            DasdOpen = TRUE;
+        }
+
+        //
+        //  We had some trouble trying to perform the requested
+        //  operation, so we'll abort the I/O request with
+        //  the error status that we get back from the
+        //  exception code.  Since there is no Irp the exception package
+        //  will always deallocate the IrpContext so we won't do
+        //  any retry in this path.
+        //
+
+        Status = NtfsProcessException( IrpContext, NULL, GetExceptionCode() );
+
+        //
+        //  Always fail the DASD case.
+        //
+
+        if (DasdOpen) {
+
+            Status = STATUS_INVALID_PARAMETER;
+        }
+    }
+
+    //
+    //  Return STATUS_FILE_LOCK_CONFLICT for any retryable error.
+    //
+
+    if ((Status == STATUS_CANT_WAIT) || (Status == STATUS_LOG_FILE_FULL)) {
+
+        Result = FALSE;
+        Status = STATUS_FILE_LOCK_CONFLICT;
+    }
+
+    if (ThreadTopLevelContext == &TopLevelContext) {
+        NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
+    }
+
+    FsRtlExitFileSystem();
+
+    //
+    //  And return to our caller
+    //
+
+    Irp->IoStatus.Status = Status;
+    return Result;
 }
 
 
 NTSTATUS
 NtfsCommonCreate (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+    IN PIRP Irp,
+    OUT PFILE_NETWORK_OPEN_INFORMATION NetworkInfo OPTIONAL
     )
 
 /*++
@@ -568,11 +708,16 @@ NtfsCommonCreate (
 Routine Description:
 
     This is the common routine for Create called by both the fsd and fsp
-    threads.
+    threads.  If this open has already been detected to be a volume open then
+    take we will take the volume open path instead.
 
 Arguments:
 
     Irp - Supplies the Irp to process
+
+    NetworkInfo - Optional buffer to return the queried data for
+        NetworkInformation.  Its presence indicates that we should not
+        do a full open.
 
 Return Value:
 
@@ -584,7 +729,6 @@ Return Value:
     PIO_STACK_LOCATION IrpSp;
     NTSTATUS Status = STATUS_SUCCESS;
 
-    PFILE_OBJECT FileObject;
     PFILE_OBJECT RelatedFileObject;
 
     UNICODE_STRING AttrName;
@@ -598,7 +742,6 @@ Return Value:
     //
 
     PLCB LcbForTeardown = NULL;
-    BOOLEAN HoldVcbExclusive;
 
     //
     //  The following indicate how far down the tree we have scanned.
@@ -612,8 +755,7 @@ Return Value:
     PLCB NextLcb;
 
     BOOLEAN AcquiredVcb = FALSE;
-    BOOLEAN AcquiredParentFcb = FALSE;
-    BOOLEAN AcquiredCurrentFcb = FALSE;
+    BOOLEAN DeleteVcb = FALSE;
 
     //
     //  The following are the results of open operations.
@@ -639,8 +781,7 @@ Return Value:
     BOOLEAN TraverseAccessCheck;
     BOOLEAN IgnoreCase;
     BOOLEAN OpenFileById;
-    BOOLEAN OpenTargetDirectory;
-    BOOLEAN IsPagingFile;
+    UCHAR CreateDisposition;
 
     BOOLEAN CheckForValidName;
     BOOLEAN FirstPass;
@@ -685,9 +826,12 @@ Return Value:
     //      exact case on failures and if we are creating a file.
     //
 
-    UNICODE_STRING OriginalFileName;
-    UNICODE_STRING ExactCaseName;
-    UNICODE_STRING FullFileName;
+    OPLOCK_CLEANUP OplockCleanup;
+
+    PUNICODE_STRING OriginalFileName = &OplockCleanup.OriginalFileName;
+    PUNICODE_STRING FullFileName = &OplockCleanup.FullFileName;
+    PUNICODE_STRING ExactCaseName = &OplockCleanup.ExactCaseName;
+
     UNICODE_STRING RemainingName;
     UNICODE_STRING FinalName;
     ULONG CaseInsensitiveIndex;
@@ -702,32 +846,33 @@ Return Value:
     //
 
     IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    OplockCleanup.FileObject = IrpSp->FileObject;
 
-    DebugTrace( +1, Dbg, "NtfsCommonCreate:  Entered\n", 0 );
-    DebugTrace( 0, Dbg, "IrpContext                = %08lx\n", IrpContext);
-    DebugTrace( 0, Dbg, "Irp                       = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "->Flags                   = %08lx\n", Irp->Flags );
-    DebugTrace( 0, Dbg, "->FileObject              = %08lx\n", IrpSp->FileObject );
-    DebugTrace( 0, Dbg, "->RelatedFileObject       = %08lx\n", IrpSp->FileObject->RelatedFileObject );
-    DebugTrace( 0, Dbg, "->FileName                = %Z\n",    &IrpSp->FileObject->FileName );
-    DebugTrace2(0, Dbg, "->AllocationSize          = %08lx %08lx\n", Irp->Overlay.AllocationSize.LowPart,
-                                                                     Irp->Overlay.AllocationSize.HighPart );
-    DebugTrace( 0, Dbg, "->EaBuffer                = %08lx\n", Irp->AssociatedIrp.SystemBuffer );
-    DebugTrace( 0, Dbg, "->EaLength                = %08lx\n", IrpSp->Parameters.Create.EaLength );
-    DebugTrace( 0, Dbg, "->DesiredAccess           = %08lx\n", IrpSp->Parameters.Create.SecurityContext->DesiredAccess );
-    DebugTrace( 0, Dbg, "->Options                 = %08lx\n", IrpSp->Parameters.Create.Options );
-    DebugTrace( 0, Dbg, "->FileAttributes          = %04x\n",  IrpSp->Parameters.Create.FileAttributes );
-    DebugTrace( 0, Dbg, "->ShareAccess             = %04x\n",  IrpSp->Parameters.Create.ShareAccess );
-    DebugTrace( 0, Dbg, "->Directory               = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
-                                                                       FILE_DIRECTORY_FILE ));
-    DebugTrace( 0, Dbg, "->NonDirectoryFile        = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
-                                                                       FILE_NON_DIRECTORY_FILE ));
-    DebugTrace( 0, Dbg, "->NoIntermediateBuffering = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
-                                                                       FILE_NO_INTERMEDIATE_BUFFERING ));
-    DebugTrace( 0, Dbg, "->CreateDisposition       = %04x\n",  (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff );
-    DebugTrace( 0, Dbg, "->IsPagingFile            = %04x\n",  FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ));
-    DebugTrace( 0, Dbg, "->OpenTargetDirectory     = %04x\n",  FlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY ));
-    DebugTrace( 0, Dbg, "->CaseSensitive           = %04x\n",  FlagOn( IrpSp->Flags, SL_CASE_SENSITIVE ));
+    DebugTrace( +1, Dbg, ("NtfsCommonCreate:  Entered\n") );
+    DebugTrace( 0, Dbg, ("IrpContext                = %08lx\n", IrpContext) );
+    DebugTrace( 0, Dbg, ("Irp                       = %08lx\n", Irp) );
+    DebugTrace( 0, Dbg, ("->Flags                   = %08lx\n", Irp->Flags) );
+    DebugTrace( 0, Dbg, ("->FileObject              = %08lx\n", IrpSp->FileObject) );
+    DebugTrace( 0, Dbg, ("->RelatedFileObject       = %08lx\n", IrpSp->FileObject->RelatedFileObject) );
+    DebugTrace( 0, Dbg, ("->FileName                = %Z\n",    &IrpSp->FileObject->FileName) );
+    DebugTrace( 0, Dbg, ("->AllocationSize          = %08lx %08lx\n", Irp->Overlay.AllocationSize.LowPart,
+                                                                     Irp->Overlay.AllocationSize.HighPart ) );
+    DebugTrace( 0, Dbg, ("->EaBuffer                = %08lx\n", Irp->AssociatedIrp.SystemBuffer) );
+    DebugTrace( 0, Dbg, ("->EaLength                = %08lx\n", IrpSp->Parameters.Create.EaLength) );
+    DebugTrace( 0, Dbg, ("->DesiredAccess           = %08lx\n", IrpSp->Parameters.Create.SecurityContext->DesiredAccess) );
+    DebugTrace( 0, Dbg, ("->Options                 = %08lx\n", IrpSp->Parameters.Create.Options) );
+    DebugTrace( 0, Dbg, ("->FileAttributes          = %04x\n",  IrpSp->Parameters.Create.FileAttributes) );
+    DebugTrace( 0, Dbg, ("->ShareAccess             = %04x\n",  IrpSp->Parameters.Create.ShareAccess) );
+    DebugTrace( 0, Dbg, ("->Directory               = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
+                                                                       FILE_DIRECTORY_FILE )) );
+    DebugTrace( 0, Dbg, ("->NonDirectoryFile        = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
+                                                                       FILE_NON_DIRECTORY_FILE )) );
+    DebugTrace( 0, Dbg, ("->NoIntermediateBuffering = %04x\n",  FlagOn( IrpSp->Parameters.Create.Options,
+                                                                       FILE_NO_INTERMEDIATE_BUFFERING )) );
+    DebugTrace( 0, Dbg, ("->CreateDisposition       = %04x\n",  (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff) );
+    DebugTrace( 0, Dbg, ("->IsPagingFile            = %04x\n",  FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )) );
+    DebugTrace( 0, Dbg, ("->OpenTargetDirectory     = %04x\n",  FlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY )) );
+    DebugTrace( 0, Dbg, ("->CaseSensitive           = %04x\n",  FlagOn( IrpSp->Flags, SL_CASE_SENSITIVE )) );
 
     //
     //  Verify that we can wait and acquire the Vcb exclusively.
@@ -735,13 +880,19 @@ Return Value:
 
     if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
-        DebugTrace( 0, Dbg, "Can't wait in create\n", 0 );
+        DebugTrace( 0, Dbg, ("Can't wait in create\n") );
 
         Status = NtfsPostRequest( IrpContext, Irp );
 
-        DebugTrace( -1, Dbg, "NtfsCommonCreate:  Exit -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsCommonCreate:  Exit -> %08lx\n", Status) );
         return Status;
     }
+
+    //
+    //  Update the IrpContext with the oplock cleanup structure.
+    //
+
+    IrpContext->Union.OplockCleanup = &OplockCleanup;
 
     //
     //  Locate the volume device object and Vcb that we are trying to access.
@@ -774,45 +925,77 @@ Return Value:
         if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
 
             NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
-            HoldVcbExclusive = TRUE;
 
         } else {
 
             NtfsAcquireSharedVcb( IrpContext, Vcb, TRUE );
-            HoldVcbExclusive = FALSE;
         }
 
         AcquiredVcb = TRUE;
 
         //
-        //  Set up local pointers to the file object and the file name.
+        //  Set up local pointers to the file name.
         //
 
-        FileObject = IrpSp->FileObject;
-        FullFileName = OriginalFileName = FileObject->FileName;
+        *FullFileName = *OriginalFileName = OplockCleanup.FileObject->FileName;
 
-        ExactCaseName.Buffer = NULL;
+        ExactCaseName->Buffer = NULL;
 
         //
-        //  If the Vcb is locked then we cannot open another file
+        //  If the Vcb is locked then we cannot open another file.  If we have performed
+        //  a dismount then make sure we have the Vcb acquired exclusive so we can
+        //  check if we should dismount this volume.
         //
 
-        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
+        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_PERFORMED_DISMOUNT )) {
 
-            DebugTrace( 0, Dbg, "Volume is locked\n", 0 );
+            DebugTrace( 0, Dbg, ("Volume is locked\n") );
+
+            if (FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT ) &&
+                !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+
+                NtfsReleaseVcb( IrpContext, Vcb );
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
+                NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+            }
+
+            DeleteVcb = TRUE;
 
             try_return( Status = STATUS_ACCESS_DENIED );
+        }
+
+        //
+        //  Verify that this isn't an open for a structured storage type.
+        //
+
+        if ((IrpSp->Parameters.Create.Options & FILE_STORAGE_TYPE_SPECIFIED) == FILE_STORAGE_TYPE_SPECIFIED) {
+
+            try_return( Status = STATUS_INVALID_PARAMETER );
         }
 
         //
         //  Initialize local copies of the stack values.
         //
 
-        RelatedFileObject = FileObject->RelatedFileObject;
+        RelatedFileObject = OplockCleanup.FileObject->RelatedFileObject;
         IgnoreCase = !BooleanFlagOn( IrpSp->Flags, SL_CASE_SENSITIVE );
-        IsPagingFile = BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE );
         OpenFileById = BooleanFlagOn( IrpSp->Parameters.Create.Options, FILE_OPEN_BY_FILE_ID );
-        OpenTargetDirectory = BooleanFlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY );
+
+        //
+        //  Acquire the paging io resource if we are superseding/overwriting a
+        //  file or if we are opening for non-cached access.
+        //
+
+        CreateDisposition = (UCHAR) ((IrpSp->Parameters.Create.Options >> 24) & 0x000000ff);
+
+        if ((CreateDisposition == FILE_SUPERSEDE) ||
+            (CreateDisposition == FILE_OVERWRITE) ||
+            (CreateDisposition == FILE_OVERWRITE_IF) ||
+            FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING )) {
+
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING );
+        }
 
         //
         //  We don't allow an open for an existing paging file.  To insure that the
@@ -820,7 +1003,7 @@ Return Value:
         //  dereference it if this is a paging file open.
         //
 
-        if (IsPagingFile &&
+        if (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ) &&
             (!IsListEmpty( &NtfsData.AsyncCloseList ) ||
              !IsListEmpty( &NtfsData.DelayedCloseList ))) {
 
@@ -834,7 +1017,7 @@ Return Value:
 
         if (RelatedFileObject != NULL) {
 
-            FileObject->Vpb = RelatedFileObject->Vpb;
+            OplockCleanup.FileObject->Vpb = RelatedFileObject->Vpb;
         }
 
         //
@@ -859,6 +1042,8 @@ Return Value:
 
                 NtfsPerformDismountOnVcb( IrpContext, Vcb, TRUE );
 
+                DeleteVcb = TRUE;
+
                 if (RelatedFileObject == NULL) {
 
                     Irp->IoStatus.Information = IO_REMOUNT;
@@ -879,6 +1064,16 @@ Return Value:
         }
 
         //
+        //  Make sure there is sufficient stack to perform the create.
+        //
+
+        if (IoGetRemainingStackSize( ) < OVERFLOW_CREATE_THRESHHOLD) {
+
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+        }
+
+        //
         //  Let's handle the open by Id case immediately.
         //
 
@@ -886,7 +1081,7 @@ Return Value:
 
             FILE_REFERENCE FileReference;
 
-            if (OriginalFileName.Length != sizeof( FILE_REFERENCE )) {
+            if (OriginalFileName->Length != sizeof( FILE_REFERENCE )) {
 
                 Status = STATUS_INVALID_PARAMETER;
 
@@ -898,29 +1093,71 @@ Return Value:
             //
 
             RtlCopyMemory( &FileReference,
-                           FileObject->FileName.Buffer,
+                           OplockCleanup.FileObject->FileName.Buffer,
                            sizeof( FILE_REFERENCE ));
 
             //
             //  Clear the name in the file object.
             //
 
-            FileObject->FileName.Buffer = NULL;
-            FileObject->FileName.MaximumLength = FileObject->FileName.Length = 0;
+            OplockCleanup.FileObject->FileName.Buffer = NULL;
+            OplockCleanup.FileObject->FileName.MaximumLength = OplockCleanup.FileObject->FileName.Length = 0;
 
             Status = NtfsOpenFcbById( IrpContext,
                                       Irp,
                                       IrpSp,
                                       Vcb,
+                                      NULL,
                                       &CurrentFcb,
-                                      &AcquiredCurrentFcb,
+                                      FALSE,
                                       FileReference,
                                       NtfsEmptyString,
                                       NtfsEmptyString,
+                                      NetworkInfo,
                                       &ThisScb,
                                       &ThisCcb );
 
+            //
+            //  Put the name back into the file object so that the IO system doesn't
+            //  think this is a dasd handle.  Leave the max length at zero so
+            //  we know this is not a real name.
+            //
+
+            OplockCleanup.FileObject->FileName.Buffer = OriginalFileName->Buffer;
+            OplockCleanup.FileObject->FileName.Length = OriginalFileName->Length;
+
             try_return( Status );
+        }
+
+        //
+        //  Here is the  "M A R K   L U C O V S K Y"  hack from hell.
+        //
+        //  It's here because Mark says he can't avoid sending me double beginning
+        //  backslashes win the Win32 layer.
+        //
+
+        if ((OplockCleanup.FileObject->FileName.Length > sizeof( WCHAR )) &&
+            (OplockCleanup.FileObject->FileName.Buffer[1] == L'\\') &&
+            (OplockCleanup.FileObject->FileName.Buffer[0] == L'\\')) {
+
+            OplockCleanup.FileObject->FileName.Length -= sizeof( WCHAR );
+
+            RtlMoveMemory( &OplockCleanup.FileObject->FileName.Buffer[0],
+                           &OplockCleanup.FileObject->FileName.Buffer[1],
+                           OplockCleanup.FileObject->FileName.Length );
+
+            *FullFileName = *OriginalFileName = OplockCleanup.FileObject->FileName;
+
+            //
+            //  If there are still two beginning backslashes, the name is bogus.
+            //
+
+            if ((OplockCleanup.FileObject->FileName.Length > sizeof( WCHAR )) &&
+                (OplockCleanup.FileObject->FileName.Buffer[1] == L'\\')) {
+
+                Status = STATUS_OBJECT_NAME_INVALID;
+                try_return( Status );
+            }
         }
 
         //
@@ -933,25 +1170,46 @@ Return Value:
             PVCB DecodeVcb;
 
             //
-            //  If the first character of the filename is a backslash,
-            //  then this is an invalid name.
+            //  Check for a valid name.  The name can't begin with a backslash
+            //  and can't end with two backslashes.
             //
 
-            if (OriginalFileName.Length != 0) {
+            if (OriginalFileName->Length != 0) {
 
-                if (OriginalFileName.Buffer[ (OriginalFileName.Length / 2) - 1 ] == L'\\') {
+                //
+                //  Check for a leading backslash.
+                //
+
+                if (OriginalFileName->Buffer[0] == L'\\') {
+
+                    DebugTrace( 0, Dbg, ("Invalid name for relative open\n") );
+                    try_return( Status = STATUS_INVALID_PARAMETER );
+                }
+
+                //
+                //  Trim off any trailing backslash.
+                //
+
+                if (OriginalFileName->Buffer[ (OriginalFileName->Length / 2) - 1 ] == L'\\') {
 
                     TrailingBackslash = TRUE;
 
-                    FileObject->FileName.Length -= 2;
+                    OplockCleanup.FileObject->FileName.Length -= 2;
 
-                    OriginalFileName = FullFileName = FileObject->FileName;
+                    *OriginalFileName = *FullFileName = OplockCleanup.FileObject->FileName;
                 }
 
-                if (OriginalFileName.Buffer[0] == L'\\') {
+                //
+                //  Now check if there is a trailing backslash.  Note that if
+                //  there was already a trailing backslash then there must
+                //  be at least one more character or we would have failed
+                //  with the original test.
+                //
 
-                    DebugTrace( 0, Dbg, "Invalid name for relative open\n", 0 );
-                    try_return( Status = STATUS_INVALID_PARAMETER );
+                if (OriginalFileName->Buffer[ (OriginalFileName->Length / 2) - 1 ] == L'\\') {
+
+                    Status = STATUS_OBJECT_NAME_INVALID;
+                    try_return( Status );
                 }
             }
 
@@ -970,7 +1228,7 @@ Return Value:
 
             if (!FlagOn( RelatedCcb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
 
-                DebugTrace( 0, Dbg, "Invalid File object for relative open\n", 0 );
+                DebugTrace( 0, Dbg, ("Invalid File object for relative open\n") );
                 try_return( Status = STATUS_INVALID_PARAMETER );
             }
 
@@ -998,92 +1256,49 @@ Return Value:
 
             RelatedFileObjectTypeOfOpen = UnopenedFileObject;
 
-            if (OriginalFileName.Length > 2) {
+            if ((OriginalFileName->Length > 2) &&
+                (OriginalFileName->Buffer[ (OriginalFileName->Length / 2) - 1 ] == L'\\')) {
 
-                if (OriginalFileName.Buffer[ (OriginalFileName.Length / 2) - 1 ] == L'\\') {
+                TrailingBackslash = TRUE;
 
-                    TrailingBackslash = TRUE;
+                OplockCleanup.FileObject->FileName.Length -= 2;
 
-                    FileObject->FileName.Length -= 2;
+                *OriginalFileName = *FullFileName = OplockCleanup.FileObject->FileName;
 
-                    OriginalFileName = FullFileName = FileObject->FileName;
+                //
+                //  If there is still a trailing backslash on the name then
+                //  the name is invalid.
+                //
+
+
+                if ((OriginalFileName->Length > 2) &&
+                    (OriginalFileName->Buffer[ (OriginalFileName->Length / 2) - 1 ] == L'\\')) {
+
+                    Status = STATUS_OBJECT_NAME_INVALID;
+                    try_return( Status );
                 }
             }
         }
 
-        DebugTrace( 0, Dbg, "Related File Object, TypeOfOpen -> %08lx\n", RelatedFileObjectTypeOfOpen );
+        DebugTrace( 0, Dbg, ("Related File Object, TypeOfOpen -> %08lx\n", RelatedFileObjectTypeOfOpen) );
 
         //
         //  We check if this is a user volume open in that there is no name
-        //  specified and the related file object is valid if present.  We then
-        //  dummy up the name string so that the volume Dasd open will naturally
-        //  be in the normal open operation below.
+        //  specified and the related file object is valid if present.  In that
+        //  case set the correct flags in the IrpContext and raise so we can take
+        //  the volume open path.
         //
 
-        if (OriginalFileName.Length == 0
+        if (OriginalFileName->Length == 0
             && (RelatedFileObjectTypeOfOpen == UnopenedFileObject
                 || RelatedFileObjectTypeOfOpen == UserVolumeOpen)) {
 
-            if (FlagOn( IrpSp->Parameters.Create.Options,
-                        FILE_DIRECTORY_FILE )) {
+            DebugTrace( 0, Dbg, ("Attempting to open entire volume\n") );
 
-                DebugTrace( 0, Dbg, "Cannot open volume as a directory\n", 0 );
-                try_return( Status = STATUS_NOT_A_DIRECTORY );
-            }
+            SetFlag( IrpContext->Flags,
+                     IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX | IRP_CONTEXT_FLAG_DASD_OPEN );
 
-            DebugTrace( 0, Dbg, "Attempting to open entire volume\n", 0 );
-
-            //
-            //  The following are illegal for volume opens.
-            //
-            //      1  Ea buffer
-            //
-
-            if (Irp->AssociatedIrp.SystemBuffer != NULL) {
-
-                DebugTrace( 0, Dbg, "Illegal parameter for volume open\n", 0 );
-
-                try_return( Status = STATUS_INVALID_PARAMETER );
-            }
-
-            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
-
-                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
-                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
-            }
-
-            //
-            //  Make this look like the open of the VolumeDasd File.
-            //
-
-            FullFileName.Buffer = NtfsAllocatePagedPool( 8*2 );
-
-            RtlCopyMemory( FullFileName.Buffer, L"\\$Volume", 8*2 );
-            FullFileName.MaximumLength = FullFileName.Length = 8*2;
-
-            FileObject->FileName = FullFileName;
-
-            //
-            //  Call the open prefix Fcb routine with the Fcb for the Volume Dasd file.
-            //
-
-            CurrentFcb = Vcb->VolumeDasdScb->Fcb;
-            NtfsAcquireExclusiveFcb( IrpContext, CurrentFcb, NULL, TRUE, FALSE );
-            AcquiredCurrentFcb = TRUE;
-
-            Status = NtfsOpenExistingPrefixFcb( IrpContext,
-                                                Irp,
-                                                IrpSp,
-                                                CurrentFcb,
-                                                NULL,
-                                                8*2,
-                                                NtfsEmptyString,
-                                                NtfsEmptyString,
-                                                FALSE,
-                                                &ThisScb,
-                                                &ThisCcb );
-
-            try_return( NOTHING );
+            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
         }
 
         //
@@ -1108,7 +1323,7 @@ Return Value:
             if (!FlagOn( SecurityContext->AccessState->Flags,
                          TOKEN_HAS_TRAVERSE_PRIVILEGE )) {
 
-                DebugTrace( 0, Dbg, "Performing traverse access on this open\n", 0 );
+                DebugTrace( 0, Dbg, ("Performing traverse access on this open\n") );
 
                 TraverseAccessCheck = TRUE;
 
@@ -1152,28 +1367,41 @@ Return Value:
                 CurrentFcb = Vcb->RootIndexScb->Fcb;
             }
 
-            NtfsAcquireExclusiveFcb( IrpContext, CurrentFcb, NULL, TRUE, FALSE );
-            AcquiredCurrentFcb = TRUE;
+            NtfsAcquireFcbWithPaging( IrpContext, CurrentFcb, FALSE );
 
             //
             //  Parse the file object name if we need to.
             //
 
-            FileObjectName = &FileObject->FileName;
+            FileObjectName = &OplockCleanup.FileObject->FileName;
 
             if (!FirstPass) {
 
                 if (!NtfsParseNameForCreate( IrpContext,
                                              RemainingName,
                                              FileObjectName,
-                                             &OriginalFileName,
-                                             &FullFileName,
+                                             OriginalFileName,
+                                             FullFileName,
                                              &AttrName,
                                              &AttrCodeName )) {
 
                     try_return( Status = STATUS_OBJECT_NAME_INVALID );
                 }
 
+                //
+                //  If we might be creating a named stream acquire the
+                //  paging IO as well.  This will keep anyone from peeking
+                //  at the allocation size of any other streams we are converting
+                //  to non-resident.
+                //
+
+                if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING ) &&
+                    (AttrName.Length != 0) &&
+                    ((CreateDisposition == FILE_OPEN_IF) ||
+                     (CreateDisposition == FILE_CREATE))) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING );
+                }
                 CheckForValidName = FALSE;
 
             //
@@ -1192,9 +1420,9 @@ Return Value:
                     WCHAR *CurrentPosition;
                     USHORT AddSeparator;
 
-                    if (FileObjectName->Length == 0
-                        || RelatedCcb->FullFileName.Length == 2
-                        || FileObjectName->Buffer[0] == L':') {
+                    if ((FileObjectName->Length == 0) ||
+                        (RelatedCcb->FullFileName.Length == 2) ||
+                        (FileObjectName->Buffer[0] == L':')) {
 
                         AddSeparator = 0;
 
@@ -1203,19 +1431,19 @@ Return Value:
                         AddSeparator = sizeof( WCHAR );
                     }
 
-                    FullFileName.Length = RelatedCcb->FullFileName.Length +
-                                          FileObjectName->Length +
-                                          AddSeparator;
+                    FullFileName->Length = RelatedCcb->FullFileName.Length +
+                                           FileObjectName->Length +
+                                           AddSeparator;
 
-                    FullFileName.MaximumLength = FullFileName.Length;
+                    FullFileName->MaximumLength = FullFileName->Length;
 
                     //
                     //  We need to allocate a name buffer.
                     //
 
-                    FullFileName.Buffer = NtfsAllocatePagedPool( FullFileName.Length );
+                    FullFileName->Buffer = FsRtlAllocatePoolWithTag(PagedPool, FullFileName->Length, MODULE_POOL_TAG);
 
-                    CurrentPosition = (WCHAR *) FullFileName.Buffer;
+                    CurrentPosition = (WCHAR *) FullFileName->Buffer;
 
                     RtlCopyMemory( CurrentPosition,
                                    RelatedCcb->FullFileName.Buffer,
@@ -1247,7 +1475,7 @@ Return Value:
 
                     if (!IgnoreCase) {
 
-                        CaseInsensitiveIndex = FullFileName.Length;
+                        CaseInsensitiveIndex = FullFileName->Length;
 
                     } else {
 
@@ -1270,13 +1498,13 @@ Return Value:
 
                     if (FileObjectName->Length == 0) {
 
-                        DebugTrace( 0, Dbg, "There is no name to open\n", 0 );
+                        DebugTrace( 0, Dbg, ("There is no name to open\n") );
                         try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
                     }
 
                     if (FileObjectName->Buffer[0] != L'\\') {
 
-                        DebugTrace( 0, Dbg, "Name does not begin with a backslash\n", 0 );
+                        DebugTrace( 0, Dbg, ("Name does not begin with a backslash\n") );
                         try_return( Status = STATUS_INVALID_PARAMETER );
                     }
 
@@ -1288,7 +1516,7 @@ Return Value:
 
                     if (!IgnoreCase) {
 
-                        CaseInsensitiveIndex = FullFileName.Length;
+                        CaseInsensitiveIndex = FullFileName->Length;
 
                     } else {
 
@@ -1302,7 +1530,7 @@ Return Value:
 
             } else {
 
-                CaseInsensitiveIndex = FullFileName.Length;
+                CaseInsensitiveIndex = FullFileName->Length;
             }
 
             //
@@ -1313,29 +1541,29 @@ Return Value:
             //
 
             if (IgnoreCase &&
-                CaseInsensitiveIndex < FullFileName.Length) {
+                CaseInsensitiveIndex < FullFileName->Length) {
 
                 UNICODE_STRING StringToUpcase;
 
-                ExactCaseName.Buffer = NtfsAllocatePagedPool( FullFileName.MaximumLength );
-                ExactCaseName.MaximumLength = FullFileName.MaximumLength;
+                ExactCaseName->Buffer = FsRtlAllocatePoolWithTag(PagedPool, FullFileName->MaximumLength, MODULE_POOL_TAG);
+                ExactCaseName->MaximumLength = FullFileName->MaximumLength;
 
-                RtlCopyMemory( ExactCaseName.Buffer,
-                               FullFileName.Buffer,
-                               FullFileName.MaximumLength );
+                RtlCopyMemory( ExactCaseName->Buffer,
+                               FullFileName->Buffer,
+                               FullFileName->MaximumLength );
 
-                ExactCaseName.Length = FullFileName.Length;
+                ExactCaseName->Length = FullFileName->Length;
 
-                StringToUpcase.Buffer = Add2Ptr( FullFileName.Buffer,
+                StringToUpcase.Buffer = Add2Ptr( FullFileName->Buffer,
                                                  CaseInsensitiveIndex );
 
-                StringToUpcase.Length = FullFileName.Length - (USHORT) CaseInsensitiveIndex;
-                StringToUpcase.MaximumLength = FullFileName.MaximumLength - (USHORT) CaseInsensitiveIndex;
+                StringToUpcase.Length = FullFileName->Length - (USHORT) CaseInsensitiveIndex;
+                StringToUpcase.MaximumLength = FullFileName->MaximumLength - (USHORT) CaseInsensitiveIndex;
 
-                NtfsUpcaseName( IrpContext, &StringToUpcase );
+                NtfsUpcaseName( Vcb->UpcaseTable, Vcb->UpcaseTableSize, &StringToUpcase );
             }
 
-            RemainingName = FullFileName;
+            RemainingName = *FullFileName;
 
             //
             //  If this is the traverse access case or the open by file id case we start
@@ -1474,22 +1702,21 @@ Return Value:
             //  any buffer we may have allocated.
             //
 
-            if (ExactCaseName.Buffer != NULL) {
+            if (ExactCaseName->Buffer != NULL) {
 
-                RtlCopyMemory( FullFileName.Buffer,
-                               ExactCaseName.Buffer,
-                               ExactCaseName.Length );
+                RtlCopyMemory( FullFileName->Buffer,
+                               ExactCaseName->Buffer,
+                               ExactCaseName->Length );
 
-                NtfsFreePagedPool( ExactCaseName.Buffer );
-                ExactCaseName.Buffer = NULL;
+                NtfsFreePool( ExactCaseName->Buffer );
+                ExactCaseName->Buffer = NULL;
             }
 
             //
             //  Let's release the Fcb we have currently acquired.
             //
 
-            NtfsReleaseFcb( IrpContext, CurrentFcb );
-            AcquiredCurrentFcb = FALSE;
+            NtfsReleaseFcbWithPaging( IrpContext, CurrentFcb );
             LcbForTeardown = NULL;
         }
 
@@ -1507,7 +1734,7 @@ Return Value:
         //  Put the new name into the file object.
         //
 
-        FileObject->FileName = FullFileName;
+        OplockCleanup.FileObject->FileName = *FullFileName;
 
         //
         //  If the entire path was parsed, then we have access to the Fcb to
@@ -1536,11 +1763,11 @@ Return Value:
             //  We verify that the matching Lcb is not the root Lcb.
             //
 
-            if (OpenTargetDirectory) {
+            if (FlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY )) {
 
                 if (CurrentLcb == Vcb->RootLcb) {
 
-                    DebugTrace( 0, Dbg, "Can't open parent of root\n", 0 );
+                    DebugTrace( 0, Dbg, ("Can't open parent of root\n") );
                     try_return( Status = STATUS_INVALID_PARAMETER );
                 }
 
@@ -1552,7 +1779,7 @@ Return Value:
                 if (AttrName.Length != 0
                     || AttrCodeName.Length != 0) {
 
-                    DebugTrace( 0, Dbg, "Can't specify complex name for rename\n", 0 );
+                    DebugTrace( 0, Dbg, ("Can't specify complex name for rename\n") );
                     try_return( Status = STATUS_OBJECT_NAME_INVALID );
                 }
 
@@ -1561,11 +1788,11 @@ Return Value:
                 //  input buffer for this case.
                 //
 
-                if (ExactCaseName.Buffer != NULL) {
+                if (ExactCaseName->Buffer != NULL) {
 
-                    RtlCopyMemory( FullFileName.Buffer,
-                                   ExactCaseName.Buffer,
-                                   ExactCaseName.Length );
+                    RtlCopyMemory( FullFileName->Buffer,
+                                   ExactCaseName->Buffer,
+                                   ExactCaseName->Length );
                 }
 
                 //
@@ -1574,8 +1801,7 @@ Return Value:
                 //
 
                 ParentFcb = CurrentLcb->Scb->Fcb;
-                NtfsAcquireExclusiveFcb( IrpContext, ParentFcb, NULL, TRUE, FALSE );
-                AcquiredParentFcb = TRUE;
+                NtfsAcquireFcbWithPaging( IrpContext, ParentFcb, FALSE );
 
                 //
                 //  Call our open target directory, remembering the target
@@ -1587,7 +1813,7 @@ Return Value:
                                                   IrpSp,
                                                   ParentFcb,
                                                   NULL,
-                                                  &FileObject->FileName,
+                                                  &OplockCleanup.FileObject->FileName,
                                                   CurrentLcb->ExactCaseLink.LinkName.Length,
                                                   TRUE,
                                                   DosOnlyComponent,
@@ -1607,13 +1833,23 @@ Return Value:
                                           Irp,
                                           IrpSp,
                                           Vcb,
+                                          CurrentLcb,
                                           &CurrentFcb,
-                                          &AcquiredCurrentFcb,
+                                          TRUE,
                                           CurrentFcb->FileReference,
                                           AttrName,
                                           AttrCodeName,
+                                          NetworkInfo,
                                           &ThisScb,
                                           &ThisCcb );
+
+
+                //
+                //  Set the maximum length in the file object name to
+                //  zero so we know that this is not a full name.
+                //
+
+                OplockCleanup.FileObject->FileName.MaximumLength = 0;
 
             } else {
 
@@ -1626,10 +1862,12 @@ Return Value:
                                                     IrpSp,
                                                     CurrentFcb,
                                                     CurrentLcb,
-                                                    FullFileName.Length,
+                                                    FullFileName->Length,
                                                     AttrName,
                                                     AttrCodeName,
                                                     DosOnlyComponent,
+                                                    TrailingBackslash,
+                                                    NetworkInfo,
                                                     &ThisScb,
                                                     &ThisCcb );
             }
@@ -1642,7 +1880,7 @@ Return Value:
         //
 
         if (CurrentLcb != NULL &&
-            CurrentLcb->FileNameFlags == FILE_NAME_DOS) {
+            CurrentLcb->FileNameAttr->Flags == FILE_NAME_DOS) {
 
             DosOnlyComponent = TRUE;
         }
@@ -1654,6 +1892,8 @@ Return Value:
         //  walk through the names.
         //
 
+        FirstPass = TRUE;
+
         while (TRUE) {
 
             PFILE_NAME IndexFileName;
@@ -1664,7 +1904,7 @@ Return Value:
 
             if (!IsDirectory( &CurrentFcb->Info )) {
 
-                DebugTrace( 0, Dbg, "Intermediate node is not a directory\n", 0 );
+                DebugTrace( 0, Dbg, ("Intermediate node is not a directory\n") );
                 try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
             }
 
@@ -1673,13 +1913,12 @@ Return Value:
             //  We don't need to check for a valid name if we examined the name already.
             //
 
-            NtfsDissectName( IrpContext,
-                             RemainingName,
+            NtfsDissectName( RemainingName,
                              &FinalName,
                              &RemainingName );
 
-            DebugTrace( 0, Dbg, "Final name     -> %Z\n", &FinalName );
-            DebugTrace( 0, Dbg, "Remaining Name -> %Z\n", &RemainingName );
+            DebugTrace( 0, Dbg, ("Final name     -> %Z\n", &FinalName) );
+            DebugTrace( 0, Dbg, ("Remaining Name -> %Z\n", &RemainingName) );
 
             //
             //  If the final name is too long then either the path or the
@@ -1699,6 +1938,29 @@ Return Value:
             }
 
             //
+            //  Catch single dot names (.) before scanning the index.  We don't
+            //  want to allow someone to open the self entry in the root.
+            //
+
+            if ((FinalName.Length == 2) &&
+                (FinalName.Buffer[0] == L'.')) {
+
+                if (RemainingName.Length != 0) {
+
+                    DebugTrace( 0, Dbg, ("Intermediate component in path doesn't exist\n") );
+                    try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
+
+                //
+                //  If the final component is illegal, then return the appropriate error.
+                //
+
+                } else {
+
+                    try_return( Status = STATUS_OBJECT_NAME_INVALID );
+                }
+            }
+
+            //
             //  Get the index allocation Scb for the current Fcb.
             //
 
@@ -1710,10 +1972,10 @@ Return Value:
             //
 
             CurrentScb = NtfsCreateScb( IrpContext,
-                                        Vcb,
                                         CurrentFcb,
                                         $INDEX_ALLOCATION,
-                                        NtfsFileNameIndex,
+                                        &NtfsFileNameIndex,
+                                        FALSE,
                                         NULL );
 
             //
@@ -1721,21 +1983,20 @@ Return Value:
             //  parent, then update the normalized name.
             //
 
-            if (LastScb != NULL &&
-                CurrentScb->ScbType.Index.NormalizedName.Buffer == NULL &&
-                LastScb->ScbType.Index.NormalizedName.Buffer != NULL) {
+            if ((LastScb != NULL) &&
+                (CurrentScb->ScbType.Index.NormalizedName.Buffer == NULL) &&
+                (LastScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
 
-                NtfsUpdateNormalizedName( IrpContext, LastScb, CurrentScb, IndexFileName );
+                NtfsUpdateNormalizedName( IrpContext, LastScb, CurrentScb, IndexFileName, FALSE );
             }
 
             //
             //  Release the parent Scb if we own it.
             //
 
-            if (AcquiredParentFcb) {
+            if (!FirstPass) {
 
-                NtfsReleaseFcb( IrpContext, ParentFcb );
-                AcquiredParentFcb = FALSE;
+                NtfsReleaseFcbWithPaging( IrpContext, ParentFcb );
             }
 
             LastScb = CurrentScb;
@@ -1756,7 +2017,17 @@ Return Value:
             //  Look on the disk to see if we can find the last component on the path.
             //
 
-            NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
+            NtfsUnpinBcb( &IndexEntryBcb );
+
+            //
+            //  Check that the name is valid before scanning the disk.
+            //
+
+            if (CheckForValidName && !NtfsIsFileNameValid( &FinalName, FALSE )) {
+
+                DebugTrace( 0, Dbg, ("Component name is invalid\n") );
+                try_return( Status = STATUS_OBJECT_NAME_INVALID );
+            }
 
             FoundEntry = NtfsLookupEntry( IrpContext,
                                           CurrentScb,
@@ -1768,14 +2039,38 @@ Return Value:
                                           &IndexEntry,
                                           &IndexEntryBcb );
 
+            //
+            //  This call to NtfsLookupEntry may decide to push the root index.
+            //  Create needs to free resources as it walks down the tree to prevent
+            //  deadlocks.  If there is a transaction, commit it now so we will be
+            //  able to free this resource.
+            //
+
+            if (IrpContext->TransactionId != 0) {
+
+                NtfsCheckpointCurrentTransaction( IrpContext );
+#ifdef _CAIRO_
+                //
+                //  Go through and free any Scb's in the queue of shared
+                //  Scb's for transactions.
+                //
+
+                if (IrpContext->SharedScb != NULL) {
+                    ASSERT( IrpContext->SharedScb == NULL );
+                    NtfsReleaseSharedResources( IrpContext );
+                }
+
+#endif // _CAIRO_
+
+            }
+
             if (FoundEntry) {
 
                 //
                 //  Get the file name attribute so we can get the name out of it.
                 //
 
-                IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IrpContext,
-                                                                  IndexEntry );
+                IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IndexEntry );
 
                 if (IgnoreCase) {
 
@@ -1794,17 +2089,8 @@ Return Value:
 
                 if (RemainingName.Length != 0) {
 
-                    DebugTrace( 0, Dbg, "Intermediate component in path doesn't exist\n", 0 );
+                    DebugTrace( 0, Dbg, ("Intermediate component in path doesn't exist\n") );
                     try_return( Status = STATUS_OBJECT_PATH_NOT_FOUND );
-
-                //
-                //  If the final component is illegal, then return the appropriate error.
-                //
-
-                } else if (CheckForValidName
-                           && !NtfsIsFileNameValid( IrpContext, &FinalName, FALSE)) {
-
-                    try_return( Status = STATUS_OBJECT_NAME_INVALID );
                 }
 
                 //
@@ -1816,19 +2102,20 @@ Return Value:
                 if (IgnoreCase) {
 
                     RtlCopyMemory( FinalName.Buffer,
-                                   Add2Ptr( ExactCaseName.Buffer,
-                                            ExactCaseName.Length - FinalName.Length ),
+                                   Add2Ptr( ExactCaseName->Buffer,
+                                            ExactCaseName->Length - FinalName.Length ),
                                    FinalName.Length );
 
                     RtlCopyMemory( FileNameAttr->FileName,
-                                   Add2Ptr( ExactCaseName.Buffer,
-                                            ExactCaseName.Length - FinalName.Length ),
+                                   Add2Ptr( ExactCaseName->Buffer,
+                                            ExactCaseName->Length - FinalName.Length ),
                                    FinalName.Length );
                 }
             }
 
             //
-            //  If we're at the last component in the path, then this is the file to open.
+            //  If we're at the last component in the path, then this is the file
+            //  to open or create
             //
 
             if (RemainingName.Length == 0) {
@@ -1849,7 +2136,6 @@ Return Value:
 
             CurrentLcb = NtfsOpenSubdirectory( IrpContext,
                                                CurrentScb,
-                                               &AcquiredParentFcb,
                                                FinalName,
                                                TraverseAccessCheck,
                                                &CurrentFcb,
@@ -1870,8 +2156,7 @@ Return Value:
             //  Go ahead and insert this link into the splay tree.
             //
 
-            NtfsInsertPrefix( IrpContext,
-                              CurrentLcb,
+            NtfsInsertPrefix( CurrentLcb,
                               IgnoreCase );
 
             //
@@ -1887,10 +2172,12 @@ Return Value:
             //  Check if the current Lcb is a Dos-Only Name.
             //
 
-            if (CurrentLcb->FileNameFlags == FILE_NAME_DOS) {
+            if (CurrentLcb->FileNameAttr->Flags == FILE_NAME_DOS) {
 
                 DosOnlyComponent = TRUE;
             }
+
+            FirstPass = FALSE;
         }
 
         //
@@ -1899,7 +2186,7 @@ Return Value:
         //   the file itself.
         //
 
-        if (OpenTargetDirectory) {
+        if (FlagOn( IrpSp->Flags, SL_OPEN_TARGET_DIRECTORY )) {
 
             //
             //  We don't allow attribute names or attribute codes to
@@ -1909,7 +2196,7 @@ Return Value:
             if (AttrName.Length != 0
                 || AttrCodeName.Length != 0) {
 
-                DebugTrace( 0, Dbg, "Can't specify complex name for rename\n", 0 );
+                DebugTrace( 0, Dbg, ("Can't specify complex name for rename\n") );
                 try_return( Status = STATUS_OBJECT_NAME_INVALID );
             }
 
@@ -1918,11 +2205,11 @@ Return Value:
             //  input buffer for this case.
             //
 
-            if (ExactCaseName.Buffer != NULL) {
+            if (ExactCaseName->Buffer != NULL) {
 
-                RtlCopyMemory( FullFileName.Buffer,
-                               ExactCaseName.Buffer,
-                               ExactCaseName.Length );
+                RtlCopyMemory( FullFileName->Buffer,
+                               ExactCaseName->Buffer,
+                               ExactCaseName->Length );
             }
 
             //
@@ -1935,7 +2222,7 @@ Return Value:
                                               IrpSp,
                                               CurrentFcb,
                                               CurrentLcb,
-                                              &FileObject->FileName,
+                                              &OplockCleanup.FileObject->FileName,
                                               FinalName.Length,
                                               FoundEntry,
                                               DosOnlyComponent,
@@ -1962,15 +2249,15 @@ Return Value:
                                         Irp,
                                         IrpSp,
                                         CurrentScb,
-                                        &AcquiredParentFcb,
                                         FileNameAttr,
-                                        FullFileName,
+                                        *FullFileName,
                                         FinalName,
                                         AttrName,
                                         AttrCodeName,
                                         IgnoreCase,
                                         OpenFileById,
                                         DosOnlyComponent,
+                                        TrailingBackslash,
                                         &CurrentFcb,
                                         &LcbForTeardown,
                                         &ThisScb,
@@ -1984,37 +2271,23 @@ Return Value:
 
         } else {
 
-            //
-            //  If there is a trailing backslash and the user
-            //  didn't specify either of the DIRECTORY bits
-            //  in the create options then set the DIRECTORY bit.
-            //
-
-            if (TrailingBackslash &&
-                !FlagOn( IrpSp->Parameters.Create.Options,
-                         FILE_DIRECTORY_FILE | FILE_NON_DIRECTORY_FILE )) {
-
-                SetFlag( IrpSp->Parameters.Create.Options,
-                         FILE_DIRECTORY_FILE );
-            }
-
             ParentFcb = CurrentFcb;
 
             Status = NtfsOpenFile( IrpContext,
                                    Irp,
                                    IrpSp,
                                    CurrentScb,
-                                   &AcquiredParentFcb,
                                    IndexEntry,
-                                   FullFileName,
+                                   *FullFileName,
                                    FinalName,
                                    AttrName,
                                    AttrCodeName,
                                    IgnoreCase,
-                                   TraverseAccessCheck,
                                    OpenFileById,
                                    &QuickIndex,
                                    DosOnlyComponent,
+                                   TrailingBackslash,
+                                   NetworkInfo,
                                    &CurrentFcb,
                                    &LcbForTeardown,
                                    &ThisScb,
@@ -2027,7 +2300,10 @@ Return Value:
         //  Abort transaction on err by raising.
         //
 
-        NtfsCleanupTransaction( IrpContext, Status );
+        if (Status != STATUS_PENDING) {
+
+            NtfsCleanupTransaction( IrpContext, Status, FALSE );
+        }
 
     } finally {
 
@@ -2037,16 +2313,7 @@ Return Value:
         //  Unpin the index entry.
         //
 
-        NtfsUnpinBcb( IrpContext, &IndexEntryBcb );
-
-        //
-        //  Give up the parent Scb if we have it.
-        //
-
-        if (AcquiredParentFcb) {
-
-            NtfsReleaseFcb( IrpContext, ParentFcb );
-        }
+        NtfsUnpinBcb( &IndexEntryBcb );
 
         //
         //  Free the file name attribute if we allocated it.
@@ -2054,306 +2321,397 @@ Return Value:
 
         if (FileNameAttr != NULL) {
 
-            NtfsFreePagedPool( FileNameAttr );
+            NtfsFreePool( FileNameAttr );
         }
 
         //
-        //  If we successfully opened the file, we need to update the in-memory structures.
+        //  Capture the status code from the IrpContext if we are in the exception path.
         //
 
-        if (NT_SUCCESS( Status )
-            && Status != STATUS_PENDING
-            && !AbnormalTermination()) {
+        if (AbnormalTermination()) {
 
-            if (ExactCaseName.Buffer != NULL) {
+            Status = IrpContext->ExceptionStatus;
+        }
 
-                NtfsFreePagedPool( ExactCaseName.Buffer );
-            }
+        //
+        //  If this is the oplock completion path then don't do any of this completion work,
+        //  The Irp may already have been posted to another thread.
+        //
 
-            //
-            //  Find the Lcb for this open.
-            //
-
-            CurrentLcb = ThisCcb->Lcb;
+        if (Status != STATUS_PENDING) {
 
             //
-            //  Check if we were opening a paging file and if so then make sure that
-            //  the internal attribute stream is all closed down
+            //  If we successfully opened the file, we need to update the in-memory
+            //  structures.
             //
 
-            if (IsPagingFile) {
-
-                NtfsDeleteInternalAttributeStream( IrpContext, ThisScb, TRUE );
-            }
-
-            //
-            //  If we are not done with a large allocation for a new attribute,
-            //  then we must make sure that no one can open the file until we
-            //  try to get it extended.  Do this before dropping the Vcb.
-            //
-
-            if (FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION )) {
+            if (NT_SUCCESS( Status ) && (Status != STATUS_REPARSE)) {
 
                 //
-                //  For a new file, we can clear the link count and mark the
-                //  Lcb (if there is one) delete on close.
+                //  If we modified the original file name, we can delete the original
+                //  buffer.
                 //
 
-                if (CreateFileCase) {
+                if ((OriginalFileName->Buffer != NULL) &&
+                    (OriginalFileName->Buffer != FullFileName->Buffer)) {
 
-                    CurrentFcb->LinkCount = 0;
-
-                    SetFlag( CurrentLcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
-
-#ifndef NTFS_TEST_LINKS
-                    ASSERT( CurrentFcb->TotalLinks == 1 );
-#endif
+                    NtfsFreePool( OriginalFileName->Buffer );
+                    DebugDoit( OriginalFileName->Buffer = NULL );
+                }
 
                 //
-                //  If we just created an attribute, then we will mark that attribute
-                //  delete on close to prevent it from being opened.
+                //  Do our normal processing if this is not a Network Info query.
+                //
+
+                if (!ARGUMENT_PRESENT( NetworkInfo )) {
+
+                    //
+                    //  Find the Lcb for this open.
+                    //
+
+                    CurrentLcb = ThisCcb->Lcb;
+
+                    //
+                    //  Check if we were opening a paging file and if so then make sure that
+                    //  the internal attribute stream is all closed down
+                    //
+
+                    if (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )) {
+
+                        NtfsDeleteInternalAttributeStream( ThisScb, TRUE );
+                    }
+
+                    //
+                    //  If we are not done with a large allocation for a new attribute,
+                    //  then we must make sure that no one can open the file until we
+                    //  try to get it extended.  Do this before dropping the Vcb.
+                    //
+
+                    if (FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION )) {
+
+                        //
+                        //  For a new file, we can clear the link count and mark the
+                        //  Lcb (if there is one) delete on close.
+                        //
+
+                        if (CreateFileCase) {
+
+                            CurrentFcb->LinkCount = 0;
+
+                            SetFlag( CurrentLcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
+
+                        //
+                        //  If we just created an attribute, then we will mark that attribute
+                        //  delete on close to prevent it from being opened.
+                        //
+
+                        } else {
+
+                            SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+                        }
+                    }
+
+                    //
+                    //  Remember the POSIX flag and whether we had to do any traverse
+                    //  access checking.
+                    //
+
+                    if (IgnoreCase) {
+
+                        SetFlag( ThisCcb->Flags, CCB_FLAG_IGNORE_CASE );
+                    }
+
+                    if (TraverseAccessCheck) {
+
+                        SetFlag( ThisCcb->Flags, CCB_FLAG_TRAVERSE_CHECK );
+                    }
+
+                    //
+                    //  We don't do "delete on close" for directories or open
+                    //  by ID files.
+                    //
+
+                    if (FlagOn( IrpSp->Parameters.Create.Options, FILE_DELETE_ON_CLOSE ) &&
+                        !FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+
+                        DeleteOnClose = TRUE;
+
+                        //
+                        //  We modify the Scb and Lcb here only if we aren't in the
+                        //  large allocation case.
+                        //
+
+                        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION )) {
+
+                            SetFlag( ThisCcb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+                        }
+                    }
+
+                    //
+                    //  If this is a named stream open and we have set any of our notify
+                    //  flags then report the changes.
+                    //
+
+                    if ((Vcb->NotifyCount != 0) &&
+                        !FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_BY_FILE_ID ) &&
+                        (ThisScb->AttributeName.Length != 0) &&
+                        NtfsIsTypeCodeUserData( ThisScb->AttributeTypeCode ) &&
+                        FlagOn( ThisScb->ScbState,
+                                SCB_STATE_NOTIFY_ADD_STREAM |
+                                SCB_STATE_NOTIFY_RESIZE_STREAM |
+                                SCB_STATE_NOTIFY_MODIFY_STREAM )) {
+
+                        ULONG Filter = 0;
+                        ULONG Action;
+
+                        //
+                        //  Start by checking for an add.
+                        //
+
+                        if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_ADD_STREAM )) {
+
+                            Filter = FILE_NOTIFY_CHANGE_STREAM_NAME;
+                            Action = FILE_ACTION_ADDED_STREAM;
+
+                        } else {
+
+                            //
+                            //  Check if the file size changed.
+                            //
+
+                            if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM )) {
+
+                                Filter = FILE_NOTIFY_CHANGE_STREAM_SIZE;
+                            }
+
+                            //
+                            //  Now check if the stream data was modified.
+                            //
+
+                            if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM )) {
+
+                                Filter |= FILE_NOTIFY_CHANGE_STREAM_WRITE;
+                            }
+
+                            Action = FILE_ACTION_MODIFIED_STREAM;
+                        }
+
+                        NtfsUnsafeReportDirNotify( IrpContext,
+                                                   Vcb,
+                                                   &ThisCcb->FullFileName,
+                                                   ThisCcb->LastFileNameOffset,
+                                                   &ThisScb->AttributeName,
+                                                   ((FlagOn( ThisCcb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                                     ThisCcb->Lcb != NULL &&
+                                                     ThisCcb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                    &ThisCcb->Lcb->Scb->ScbType.Index.NormalizedName :
+                                                    NULL),
+                                                   Filter,
+                                                   Action,
+                                                   NULL );
+                    }
+
+                    ClearFlag( ThisScb->ScbState,
+                               SCB_STATE_NOTIFY_ADD_STREAM |
+                               SCB_STATE_NOTIFY_REMOVE_STREAM |
+                               SCB_STATE_NOTIFY_RESIZE_STREAM |
+                               SCB_STATE_NOTIFY_MODIFY_STREAM );
+
+                //
+                //  Otherwise copy the data out of the Scb/Fcb and return to our caller.
                 //
 
                 } else {
 
-                    SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
-                }
-            }
-
-            //
-            //  Remember the POSIX flag and whether we had to do any traverse
-            //  access checking.
-            //
-
-            if (IgnoreCase) {
-
-                SetFlag( ThisCcb->Flags, CCB_FLAG_IGNORE_CASE );
-            }
-
-            if (TraverseAccessCheck) {
-
-                SetFlag( ThisCcb->Flags, CCB_FLAG_TRAVERSE_CHECK );
-            }
-
-            //
-            //  We don't do "delete on close" for directories, volume or open
-            //  by ID files.
-            //
-
-            if (FlagOn( IrpSp->Parameters.Create.Options, FILE_DELETE_ON_CLOSE )
-                && ThisScb != Vcb->VolumeDasdScb
-                && ((NodeType( ThisScb ) == NTFS_NTC_SCB_DATA)
-                    || (NodeType( ThisScb ) == NTFS_NTC_SCB_MFT))
-                && !FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )) {
-
-                DeleteOnClose = TRUE;
-
-                //
-                //  We modify the Scb and Lcb here only if we aren't in the
-                //  large allocation case.
-                //
-
-                if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION )) {
-
-                    if (FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
-
-                        //
-                        //  It is ok to get rid of this guy.  All we need to do is
-                        //  mark this Lcb for delete and decrement the link count
-                        //  in the Fcb.  If this is a primary link, then we
-                        //  indicate that the primary link has been deleted.
-                        //
-
-                        SetFlag( CurrentLcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
-
-                        CurrentFcb->LinkCount -= 1;
-
-                        if (FlagOn( CurrentLcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
-
-#ifndef NTFS_TEST_LINKS
-                            ASSERT( FlagOn( CurrentFcb->FcbState, FCB_STATE_DUP_INITIALIZED ));
-#endif
-
-                            SetFlag( CurrentFcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
-                        }
-
-#ifndef NTFS_TEST_LINKS
-                        ASSERT( CurrentFcb->TotalLinks == 1 );
-#endif
+                    RtlZeroMemory( NetworkInfo, sizeof( FILE_NETWORK_OPEN_INFORMATION ));
 
                     //
-                    //  Otherwise we are simply removing the attribute.
+                    //  Fill in the basic information fields
+                    //
+
+                    NetworkInfo->CreationTime.QuadPart = CurrentFcb->Info.CreationTime;
+                    NetworkInfo->LastWriteTime.QuadPart = CurrentFcb->Info.LastModificationTime;
+                    NetworkInfo->ChangeTime.QuadPart = CurrentFcb->Info.LastChangeTime;
+
+                    NetworkInfo->LastAccessTime.QuadPart = CurrentFcb->CurrentLastAccess;
+
+                    NetworkInfo->FileAttributes = CurrentFcb->Info.FileAttributes;
+
+                    ClearFlag( NetworkInfo->FileAttributes,
+                               ~FILE_ATTRIBUTE_VALID_FLAGS | FILE_ATTRIBUTE_TEMPORARY );
+
+                    //
+                    //  DARRYLH - Do you want the directory bit set for streams in
+                    //  the directory.
+                    //
+
+                    if (ThisScb->AttributeTypeCode == $INDEX_ALLOCATION) {
+
+                        if (IsDirectory( &CurrentFcb->Info )) {
+
+                            SetFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_DIRECTORY );
+
+                        //
+                        //  If this is not the main stream then copy the compression
+                        //  value from this Scb.
+                        //
+
+                        } else if (FlagOn( ThisScb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+                            SetFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+
+                        } else {
+
+                            ClearFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+                        }
+
+                    //
+                    //  Return a non-zero size only for data streams.
                     //
 
                     } else {
 
-                        SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
-                    }
-                }
-            }
+                        NetworkInfo->AllocationSize.QuadPart = ThisScb->TotalAllocated;
+                        NetworkInfo->EndOfFile = ThisScb->Header.FileSize;
 
-            //
-            //  If this open is by file Id, we free the file name buffer and
-            //  set the length to zero.  The exception is the open
-            //  target directory case.  We don't use the Ntfs free pool routine
-            //  because we don't know if the memory is paged or non-paged.
-            //
+                        //
+                        //  If not the unnamed data stream then use the Scb
+                        //  compression value.
+                        //
 
-            if (OpenFileById
-                && !OpenTargetDirectory) {
+                        if (!FlagOn( ThisScb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                //
-                //  Clear the name in the file object.
-                //
+                            if (FlagOn( ThisScb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
 
-                FileObject->FileName.Buffer = NULL;
-                FileObject->FileName.MaximumLength = FileObject->FileName.Length = 0;
+                                SetFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
 
-                if (OriginalFileName.Buffer != NULL) {
+                            } else {
 
-                    NtfsFreePagedPool( OriginalFileName.Buffer );
-                }
-
-                if (FullFileName.Buffer != NULL
-                    && FullFileName.Buffer != OriginalFileName.Buffer) {
-
-                    NtfsFreePagedPool( FullFileName.Buffer );
-                }
-
-            //
-            //  Else if we modified the original file name, we can delete the original
-            //  buffer.
-            //
-
-            } else if (OriginalFileName.Buffer != NULL
-                       && OriginalFileName.Buffer != FullFileName.Buffer) {
-
-                NtfsFreePagedPool( OriginalFileName.Buffer );
-            }
-
-            //
-            //  If this is a named stream open and we have set any of our notify
-            //  flags then report the changes.
-            //
-
-            if (!FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_BY_FILE_ID )
-                && ThisScb->AttributeName.Length != 0
-                && ThisScb->AttributeTypeCode == $DATA
-                && FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_ADD_STREAM
-                                              | SCB_STATE_NOTIFY_RESIZE_STREAM
-                                              | SCB_STATE_NOTIFY_MODIFY_STREAM )) {
-
-                ULONG Filter = 0;
-                ULONG Action;
-
-                //
-                //  Start by checking for an add.
-                //
-
-                if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_ADD_STREAM )) {
-
-                    Filter = FILE_NOTIFY_CHANGE_STREAM_NAME;
-                    Action = FILE_ACTION_ADDED_STREAM;
-
-                } else {
-
-                    //
-                    //  Check if the file size changed.
-                    //
-
-                    if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_RESIZE_STREAM )) {
-
-                        Filter = FILE_NOTIFY_CHANGE_STREAM_SIZE;
+                                ClearFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+                            }
+                        }
                     }
 
                     //
-                    //  Now check if the stream data was modified.
+                    //  Set the temporary flag if set in the ThisScb.
                     //
 
-                    if (FlagOn( ThisScb->ScbState, SCB_STATE_NOTIFY_MODIFY_STREAM )) {
+                    if (FlagOn( ThisScb->ScbState, SCB_STATE_TEMPORARY )) {
 
-                        Filter |= FILE_NOTIFY_CHANGE_STREAM_WRITE;
+                        SetFlag( NetworkInfo->FileAttributes, FILE_ATTRIBUTE_TEMPORARY );
                     }
 
-                    Action = FILE_ACTION_MODIFIED_STREAM;
+                    //
+                    //  If there are no flags set then explicitly set the NORMAL flag.
+                    //
+
+                    if (NetworkInfo->FileAttributes == 0) {
+
+                        NetworkInfo->FileAttributes = FILE_ATTRIBUTE_NORMAL;
+                    }
+
+                    //
+                    //  Teardown the Fcb if we should.
+                    //
+
+                    if (!ThisScb->CleanupCount && !ThisScb->Fcb->DelayedCloseCount) {
+                        if (!NtfsAddScbToFspClose( IrpContext, ThisScb, TRUE )) {
+                            NtfsTeardownStructures( IrpContext,
+                                                    CurrentFcb,
+                                                    LcbForTeardown,
+                                                    (BOOLEAN) (IrpContext->TransactionId != 0),
+                                                    NtfsIsExclusiveScb( Vcb->MftScb ),
+                                                    NULL );
+                        }
+                    }
+
+                    Irp->IoStatus.Information = sizeof( FILE_NETWORK_OPEN_INFORMATION );
+
+                    Status = Irp->IoStatus.Status = STATUS_SUCCESS;
                 }
 
-                NtfsReportDirNotify( IrpContext,
-                                     Vcb,
-                                     &ThisCcb->FullFileName,
-                                     ThisCcb->LastFileNameOffset,
-                                     &ThisScb->AttributeName,
-                                     ((FlagOn( ThisCcb->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                       ThisCcb->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                      &ThisCcb->Lcb->Scb->ScbType.Index.NormalizedName :
-                                      NULL),
-                                     Filter,
-                                     Action,
-                                     NULL );
-
-                ClearFlag( ThisScb->ScbState, SCB_STATE_NOTIFY_ADD_STREAM
-                                              | SCB_STATE_NOTIFY_REMOVE_STREAM
-                                              | SCB_STATE_NOTIFY_RESIZE_STREAM
-                                              | SCB_STATE_NOTIFY_MODIFY_STREAM );
-            }
-
-        } else {
-
-            if (ExactCaseName.Buffer != NULL) {
-
-                RtlCopyMemory( FullFileName.Buffer,
-                               ExactCaseName.Buffer,
-                               ExactCaseName.MaximumLength );
-
-                NtfsFreePagedPool( ExactCaseName.Buffer );
-            }
-
             //
-            //  Start the cleanup process if we have looked at any Fcb's.
+            //  Start a teardown on the last Fcb found and restore the name strings on
+            //  a retryable error.
             //
 
-            if (Status != STATUS_PENDING &&
-                CurrentFcb != NULL) {
+            } else {
 
-                BOOLEAN RemovedFcb = FALSE;
+                //
+                //  Start the cleanup process if we have looked at any Fcb's.
+                //  We tell TeardownStructures not to remove any Scb's in
+                //  the open attribute table if there is a transaction underway.
+                //
 
-                NtfsTeardownStructures( IrpContext,
-                                        CurrentFcb,
-                                        LcbForTeardown,
-                                        HoldVcbExclusive,
-                                        &RemovedFcb,
-                                        NtfsIsExclusiveScb( Vcb->MftScb ));
+                if (CurrentFcb != NULL) {
 
-                if (RemovedFcb) {
+                    NtfsTeardownStructures( IrpContext,
+                                            (ThisScb != NULL) ? (PVOID) ThisScb : CurrentFcb,
+                                            LcbForTeardown,
+                                            (BOOLEAN) (IrpContext->TransactionId != 0),
+                                            NtfsIsExclusiveScb( Vcb->MftScb ),
+                                            NULL );
 
-                    AcquiredCurrentFcb = FALSE;
+                    //
+                    //  Someone may have tried to open the $Bitmap stream.  We catch that and
+                    //  fail it but the Fcb won't be in the exclusive list to be released.
+                    //
+
+                    if (NtfsEqualMftRef( &CurrentFcb->FileReference, &BitmapFileReference )) {
+
+                        NtfsReleaseFcb( IrpContext, CurrentFcb );
+                    }
                 }
+
+                if ((Status == STATUS_LOG_FILE_FULL) ||
+                    (Status == STATUS_CANT_WAIT)) {
+
+                    //
+                    //  Recover the exact case name if present for a retryable condition.
+                    //
+
+                    if (ExactCaseName->Buffer != NULL) {
+
+                        RtlCopyMemory( FullFileName->Buffer,
+                                       ExactCaseName->Buffer,
+                                       ExactCaseName->MaximumLength );
+                    }
+                }
+
+                //
+                //  Free any buffer we allocated.
+                //
+
+                if ((FullFileName->Buffer != NULL) &&
+                    (OriginalFileName->Buffer != FullFileName->Buffer)) {
+
+                    NtfsFreePool( FullFileName->Buffer );
+                    DebugDoit( FullFileName->Buffer = NULL );
+                }
+
+                //
+                //  Set the file name in the file object back to it's original value.
+                //
+
+                OplockCleanup.FileObject->FileName = *OriginalFileName;
+
+                //
+                //  Always clear the LARGE_ALLOCATION flag so we don't get
+                //  spoofed by STATUS_REPARSE.
+                //
+
+                ClearFlag( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION );
             }
-
-            //
-            //  Free any buffer we allocated.
-            //
-
-            if (FullFileName.Buffer != NULL
-                && OriginalFileName.Buffer != FullFileName.Buffer) {
-
-                NtfsFreePagedPool( FullFileName.Buffer );
-            }
-
-            //
-            //  Set the file name in the file object back to it's original value.
-            //
-
-            FileObject->FileName = OriginalFileName;
         }
 
         //
-        //  Release the Fcb if still acquired.
+        //  Always free the exact case name if allocated.
         //
 
-        if (AcquiredCurrentFcb) {
+        if (ExactCaseName->Buffer != NULL) {
 
-            NtfsReleaseFcb( IrpContext, CurrentFcb );
+            NtfsFreePool( ExactCaseName->Buffer );
+            DebugDoit( ExactCaseName->Buffer = NULL );
         }
 
         //
@@ -2362,184 +2720,510 @@ Return Value:
 
         if (AcquiredVcb) {
 
-            NtfsReleaseVcb( IrpContext, Vcb, NULL );
-        }
+            if (DeleteVcb) {
 
-        //
-        //  If we didn't post this Irp, and this is not abnormal termination
-        //  we will complete the Irp.
-        //
+                NtfsReleaseVcbCheckDelete( IrpContext, Vcb, IRP_MJ_CREATE, NULL );
 
-        if (Status != STATUS_PENDING
-            && !AbnormalTermination()) {
+            } else {
 
-            if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION )
-                || !NT_SUCCESS( Status )) {
-
-                NtfsCompleteRequest( &IrpContext, &Irp, Status );
+                NtfsReleaseVcb( IrpContext, Vcb );
             }
-
-        //
-        //  If we did an oplock post Irp or abnormal termination, clear the Irp
-        //  address here to make the test correct when leaving the finally clause.
-        //
-
-        } else {
-
-            Irp = NULL;
         }
     }
 
     //
-    //  If the Create was successful, but we did not get all of the space
-    //  allocated that we wanted, we have to complete the allocation now.
-    //  Basically what we do is commit the current transaction and call
-    //  NtfsAddAllocation to get the rest of the space.  Then if the log
-    //  file fills up (or we are posting for other reasons) we turn the
-    //  Irp into an Irp which is just trying to extend the file.  If we
-    //  get any other kind of error, then we just delete the file and
-    //  return with the error from create.
+    //  If we didn't post this Irp then take action to complete the irp.
     //
 
-    if (Irp != NULL) {
-
-        FILE_ALLOCATION_INFORMATION AllInfo;
+    if (Status != STATUS_PENDING) {
 
         //
-        //  Attempt to extend the file, now that we do not own anything.
+        //  If the current status is success and there is more allocation to
+        //  allocate then complete the allocation.
         //
 
-        try {
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION ) &&
+            NT_SUCCESS( Status )) {
 
             //
-            //  Free up all of the ScbSnapshots for this IrpContext.
+            //  If the Create was successful, but we did not get all of the space
+            //  allocated that we wanted, we have to complete the allocation now.
+            //  Basically what we do is commit the current transaction and call
+            //  NtfsAddAllocation to get the rest of the space.  Then if the log
+            //  file fills up (or we are posting for other reasons) we turn the
+            //  Irp into an Irp which is just trying to extend the file.  If we
+            //  get any other kind of error, then we just delete the file and
+            //  return with the error from create.
             //
 
-            NtfsFreeSnapshotsForFcb( IrpContext, NULL );
+            Status = NtfsCompleteLargeAllocation( IrpContext,
+                                                  Irp,
+                                                  CurrentLcb,
+                                                  ThisScb,
+                                                  ThisCcb,
+                                                  CreateFileCase,
+                                                  DeleteOnClose );
+        }
 
-            AllInfo.AllocationSize = Irp->Overlay.AllocationSize;
-            Status = IoSetInformation( FileObject,
-                                       FileAllocationInformation,
-                                       sizeof( FILE_ALLOCATION_INFORMATION ),
-                                       &AllInfo );
+        NtfsCompleteRequest( &IrpContext,
+                             (ARGUMENT_PRESENT( NetworkInfo ) ? NULL : &Irp),
+                             Status );
+    }
+
+    DebugTrace( -1, Dbg, ("NtfsCommonCreate:  Exit -> %08lx\n", Status) );
+
+    return Status;
+}
+
+
+NTSTATUS
+NtfsCommonVolumeOpen (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is opening the Volume Dasd file.  We have already done all the
+    checks needed to verify that the user is opening the $DATA attribute.
+    We check the security attached to the file and take some special action
+    based on a volume open.
+
+Arguments:
+
+Return Value:
+
+    NTSTATUS - The result of this operation.
+
+--*/
+
+{
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    PVCB Vcb;
+    PFCB ThisFcb;
+    PCCB ThisCcb;
+
+    BOOLEAN VcbAcquired = FALSE;
+    BOOLEAN FcbAcquired = FALSE;
+    BOOLEAN DeleteVcb = FALSE;
+
+    BOOLEAN SharingViolation;
+    BOOLEAN LockVolume = FALSE;
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsCommonVolumeOpen:  Entered\n") );
+
+    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  Start by checking the create disposition.  We can only open this
+        //  file.
+        //
+
+        {
+            ULONG CreateDisposition;
+
+            CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
+
+            if (CreateDisposition != FILE_OPEN
+                && CreateDisposition != FILE_OPEN_IF) {
+
+                try_return( Status = STATUS_ACCESS_DENIED );
+            }
+        }
+
+        //
+        //  Make sure the directory flag isn't set for the volume open.
+        //
+
+        if (FlagOn( IrpSp->Parameters.Create.Options, FILE_DIRECTORY_FILE )) {
+
+            try_return( Status = STATUS_INVALID_PARAMETER );
+        }
+
+        //
+        //  Acquire the Vcb and verify the volume isn't locked.
+        //
+
+        Vcb = &((PVOLUME_DEVICE_OBJECT) IrpSp->DeviceObject)->Vcb;
+        NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+        VcbAcquired = TRUE;
+
+        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_PERFORMED_DISMOUNT )) {
+
+            if (FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT )) {
+
+                DeleteVcb = TRUE;
+            }
+
+            try_return( Status = STATUS_ACCESS_DENIED );
+        }
+
+        //
+        //  Ping the volume to make sure the Vcb is still mounted.  If we need
+        //  to verify the volume then do it now, and if it comes out okay
+        //  then clear the verify volume flag in the device object and continue
+        //  on.  If it doesn't verify okay then dismount the volume and
+        //  either tell the I/O system to try and create again (with a new mount)
+        //  or that the volume is wrong. This later code is returned if we
+        //  are trying to do a relative open and the vcb is no longer mounted.
+        //
+
+        if (!NtfsPingVolume( IrpContext, Vcb )) {
+
+            if (!NtfsPerformVerifyOperation( IrpContext, Vcb )) {
+
+                NtfsPerformDismountOnVcb( IrpContext, Vcb, TRUE );
+
+                DeleteVcb = TRUE;
+                NtfsRaiseStatus( IrpContext, STATUS_WRONG_VOLUME, NULL, NULL );
+            }
 
             //
-            //  Success!  We will reacquire the Vcb quickly to undo the
-            //  actions taken above to block access to the new file/attribute.
+            //  The volume verified correctly so now clear the verify bit
+            //  and continue with the create
             //
 
-            if (NT_SUCCESS( Status )) {
+            ClearFlag( Vcb->Vpb->RealDevice->Flags, DO_VERIFY_VOLUME );
+        }
+
+        //
+        //  Now acquire the Fcb for the VolumeDasd and verify the user has
+        //  permission to open the volume.
+        //
+
+        ThisFcb = Vcb->VolumeDasdScb->Fcb;
+
+        if (ThisFcb->PagingIoResource != NULL) {
+
+            NtfsAcquireExclusivePagingIo( IrpContext, ThisFcb );
+        }
+
+        ExAcquireResourceExclusive( ThisFcb->Resource, TRUE );
+        FcbAcquired = TRUE;
+
+        NtfsOpenCheck( IrpContext, ThisFcb, NULL, Irp );
+
+        //
+        //  If the user does not want to share write or delete then we will try
+        //  and take out a lock on the volume.
+        //
+
+        if (!FlagOn( IrpSp->Parameters.Create.ShareAccess,
+                     FILE_SHARE_WRITE | FILE_SHARE_DELETE )) {
+
+            //
+            //  Do a quick test of the volume cleanup count if this opener won't
+            //  share with anyone.  We can safely examine the cleanup count without
+            //  further synchronization because we are guaranteed to have the
+            //  Vcb exclusive at this point.
+            //
+
+            if (!FlagOn( IrpSp->Parameters.Create.ShareAccess, FILE_SHARE_READ) &&
+                Vcb->CleanupCount != 0) {
+
+                try_return( Status = STATUS_SHARING_VIOLATION );
+            }
+
+            //
+            //  Go ahead and flush and purge the volume.  Then test to see if all
+            //  of the user file objects were closed.
+            //
+
+            Status = NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE, TRUE, FALSE );
+
+            //
+            //  If the flush and purge was successful but there are still file objects
+            //  that block this open it is possible that the FspClose thread is
+            //  blocked behind the Vcb.  Drop the Fcb and Vcb to allow this thread
+            //  to get in and then reacquire them.  This will give this Dasd open
+            //  another chance to succeed on the first try.
+            //
+
+            SharingViolation = FALSE;
+
+            if (FlagOn( IrpSp->Parameters.Create.ShareAccess, FILE_SHARE_READ)) {
+
+                if (Vcb->ReadOnlyCloseCount != (Vcb->CloseCount - Vcb->SystemFileCloseCount)) {
+
+                    SharingViolation = TRUE;
+                }
+
+            } else if (Vcb->CloseCount != Vcb->SystemFileCloseCount) {
+
+                SharingViolation = TRUE;
+            }
+
+            if (SharingViolation && NT_SUCCESS( Status )) {
+
+                //
+                //  We need to commit the current transaction and release any
+                //  resources.  This will release the Fcb for the volume as
+                //  well.  Explicitly release the Vcb.
+                //
+
+                NtfsCheckpointCurrentTransaction( IrpContext );
+
+                while (!IsListEmpty(&IrpContext->ExclusiveFcbList)) {
+
+                    NtfsReleaseFcbWithPaging( IrpContext,
+                                    (PFCB)CONTAINING_RECORD(IrpContext->ExclusiveFcbList.Flink,
+                                                            FCB,
+                                                            ExclusiveFcbLinks ));
+                }
+
+                if (ThisFcb->PagingIoResource != NULL) {
+
+                    NtfsReleasePagingIo( IrpContext, ThisFcb );
+                }
+
+                ExReleaseResource( ThisFcb->Resource );
+                FcbAcquired = FALSE;
+
+                NtfsReleaseVcb( IrpContext, Vcb );
+                VcbAcquired = FALSE;
+
+                //
+                //  Now explicitly reacquire the Vcb and Fcb.  Test that no one
+                //  else got in to lock the volume in the meantime.
+                //
 
                 NtfsAcquireExclusiveVcb( IrpContext, Vcb, TRUE );
+                VcbAcquired = TRUE;
 
-                //
-                //  Enable access to new file.
-                //
+                if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED | VCB_STATE_PERFORMED_DISMOUNT )) {
 
-                if (CreateFileCase) {
+                    if (FlagOn( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT )) {
 
-                    CurrentFcb->LinkCount = 1;
-
-                    if (CurrentLcb != NULL) {
-
-                        ClearFlag( CurrentLcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
-
-                        if (FlagOn( CurrentLcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
-
-#ifndef NTFS_TEST_LINKS
-                            ASSERT( FlagOn( CurrentFcb->FcbState, FCB_STATE_DUP_INITIALIZED ));
-#endif
-
-                            ClearFlag( CurrentFcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
-                        }
+                        DeleteVcb = TRUE;
                     }
 
-#ifndef NTFS_TEST_LINKS
-                    ASSERT( CurrentFcb->TotalLinks == 1 );
-#endif
+                    try_return( Status = STATUS_ACCESS_DENIED );
+                }
 
                 //
-                //  Enable access to new attribute.
+                //  Now acquire the Fcb for the VolumeDasd.
+                //
+
+                if (ThisFcb->PagingIoResource != NULL) {
+
+                    NtfsAcquireExclusivePagingIo( IrpContext, ThisFcb );
+                }
+
+                ExAcquireResourceExclusive( ThisFcb->Resource, TRUE );
+                FcbAcquired = TRUE;
+
+                //
+                //  Duplicate the flush/purge and test if there is no sharing
+                //  violation.
+                //
+
+                Status = NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE, TRUE, FALSE );
+
+                SharingViolation = FALSE;
+
+                if (FlagOn( IrpSp->Parameters.Create.ShareAccess, FILE_SHARE_READ)) {
+
+                    if (Vcb->ReadOnlyCloseCount != (Vcb->CloseCount - Vcb->SystemFileCloseCount)) {
+
+                        SharingViolation = TRUE;
+                    }
+
+                } else if (Vcb->CloseCount != Vcb->SystemFileCloseCount) {
+
+                    SharingViolation = TRUE;
+                }
+            }
+
+            //
+            //  Return an error if there are still conflicting file objects.
+            //
+
+            if (SharingViolation) {
+
+                //
+                //  If there was an error in the flush then return it.  Otherwise
+                //  return SHARING_VIOLATION.
+                //
+
+                if (NT_SUCCESS( Status )) {
+
+                    try_return( Status = STATUS_SHARING_VIOLATION );
+
+                } else { try_return( Status ); }
+            }
+
+
+            if (!NT_SUCCESS( Status )) {
+
+                //
+                //  If there are no conflicts but the status indicates disk corruption
+                //  or a section that couldn't be removed then ignore the error.  We
+                //  allow this open to succeed so that chkdsk can open the volume to
+                //  repair the damage.
+                //
+
+                if ((Status == STATUS_UNABLE_TO_DELETE_SECTION) ||
+                    (Status == STATUS_DISK_CORRUPT_ERROR) ||
+                    (Status == STATUS_FILE_CORRUPT_ERROR)) {
+
+                    Status = STATUS_SUCCESS;
+
+                //
+                //  Fail this request on any other failures.
                 //
 
                 } else {
 
-                    ClearFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+                    try_return( Status );
                 }
-
-                //
-                //  If this is the DeleteOnClose case, we mark the Scb and Lcb
-                //  appropriately.
-                //
-
-                if (DeleteOnClose) {
-
-                    if (FlagOn( ThisCcb->Flags, CCB_FLAG_OPEN_AS_FILE )) {
-
-                        //
-                        //  It is ok to get rid of this guy.  All we need to do is
-                        //  mark this Lcb for delete and decrement the link count
-                        //  in the Fcb.  If this is a primary link, then we
-                        //  indicate that the primary link has been deleted.
-                        //
-
-                        SetFlag( CurrentLcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
-
-                        CurrentFcb->LinkCount -= 1;
-
-                        if (FlagOn( CurrentLcb->FileNameFlags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
-
-#ifndef NTFS_TEST_LINKS
-                            ASSERT( FlagOn( CurrentFcb->FcbState, FCB_STATE_DUP_INITIALIZED ));
-#endif
-
-                            SetFlag( CurrentFcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
-                        }
-
-#ifndef NTFS_TEST_LINKS
-                        ASSERT( CurrentFcb->LinkCount == 0 && CurrentFcb->TotalLinks == 1 );
-#endif
-
-                    //
-                    //  Otherwise we are simply removing the attribute.
-                    //
-
-                    } else {
-
-                        SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
-                    }
-                }
-
-                NtfsReleaseVcb( IrpContext, Vcb, NULL );
+            }
 
             //
-            //  Else there was some sort of error, and we need to let cleanup
-            //  and close execute, since when we complete Create with an error
-            //  cleanup and close would otherwise never occur.  Cleanup will
-            //  delete or truncate a file or attribute as appropriate, based on
-            //  how we left the Fcb/Lcb or Scb above.
+            //  Remember that we want to lock the volume.
             //
+
+            LockVolume = TRUE;
+
+        //
+        //  Just flush the volume data if the user requested read or write.
+        //  No need to purge or lock the volume.
+        //
+
+        } else if (FlagOn( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess,
+                           FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA )) {
+
+            if (!NT_SUCCESS( Status = NtfsFlushVolume( IrpContext, Vcb, TRUE, FALSE, TRUE, FALSE ))) {
+
+                try_return( Status );
+            }
+        }
+
+        //
+        //  Put the Volume Dasd name in the file object.
+        //
+
+        {
+            PVOID Temp = IrpSp->FileObject->FileName.Buffer;
+
+            IrpSp->FileObject->FileName.Buffer = FsRtlAllocatePoolWithTag(PagedPool, 8*2, MODULE_POOL_TAG );
+
+            if (Temp != NULL) {
+
+                NtfsFreePool( Temp );
+            }
+
+            RtlCopyMemory( IrpSp->FileObject->FileName.Buffer, L"\\$Volume", 8*2 );
+            IrpSp->FileObject->FileName.MaximumLength =
+            IrpSp->FileObject->FileName.Length = 8*2;
+        }
+
+        //
+        //  We never allow cached access to the volume file.
+        //
+
+        ClearFlag( IrpSp->FileObject->Flags, FO_CACHE_SUPPORTED );
+        SetFlag( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING );
+
+        //
+        //  Go ahead open the attribute.  This should only fail if there is an
+        //  allocation failure or share access failure.
+        //
+
+        if (NT_SUCCESS( Status = NtfsOpenAttribute( IrpContext,
+                                                    IrpSp,
+                                                    Vcb,
+                                                    NULL,
+                                                    ThisFcb,
+                                                    2,
+                                                    NtfsEmptyString,
+                                                    $DATA,
+                                                    (ThisFcb->CleanupCount == 0 ?
+                                                     SetShareAccess :
+                                                     CheckShareAccess),
+                                                    UserVolumeOpen,
+                                                    CCB_FLAG_OPEN_AS_FILE,
+                                                    NULL,
+                                                    &Vcb->VolumeDasdScb,
+                                                    &ThisCcb ))) {
+
+            //
+            //  Perform the final initialization.
+            //
+
+            //
+            //  If we are locking the volume, do so now.
+            //
+
+            if (LockVolume) {
+
+                SetFlag( Vcb->VcbState, VCB_STATE_LOCKED );
+                Vcb->FileObjectWithVcbLocked = IrpSp->FileObject;
+            }
+
+            //
+            //  Report that we opened the volume.
+            //
+
+            Irp->IoStatus.Information = FILE_OPENED;
+        }
+
+    try_exit: NOTHING;
+
+        NtfsCleanupTransaction( IrpContext, Status, FALSE );
+
+        //
+        //  If we have a successful open then remove the name out of
+        //  the file object.  The IO system gets confused when it
+        //  is there.  We will deallocate the buffer with the Ccb
+        //  when the handle is closed.
+        //
+
+        if (Status == STATUS_SUCCESS) {
+
+            IrpSp->FileObject->FileName.Buffer = NULL;
+            IrpSp->FileObject->FileName.MaximumLength =
+            IrpSp->FileObject->FileName.Length = 0;
+
+            SetFlag( ThisCcb->Flags, CCB_FLAG_ALLOCATED_FILE_NAME );
+        }
+
+    } finally {
+
+        DebugUnwind( NtfsCommonVolumeOpen );
+
+        if (VcbAcquired) {
+
+            if (DeleteVcb) {
+
+                NtfsReleaseVcbCheckDelete( IrpContext, Vcb, IRP_MJ_CREATE, NULL );
 
             } else {
 
-                NtfsIoCallSelf( IrpContext, FileObject, IRP_MJ_CLEANUP );
-                NtfsIoCallSelf( IrpContext, FileObject, IRP_MJ_CLOSE );
-            }
-
-        } finally {
-
-            if (!AbnormalTermination()) {
-
-                //
-                //  Finally we can complete this Create with the appropriate status.
-                //
-
-                NtfsCompleteRequest( &IrpContext, &Irp, Status );
+                NtfsReleaseVcb( IrpContext, Vcb );
             }
         }
-    }
 
-    DebugTrace( -1, Dbg, "NtfsCommonCreate:  Exit -> %08lx\n", Status );
+        if (FcbAcquired) { ExReleaseResource( ThisFcb->Resource ); }
+
+        if (!AbnormalTermination()) {
+
+            NtfsCompleteRequest( &IrpContext, &Irp, Status );
+        }
+
+        DebugTrace( -1, Dbg, ("NtfsCommonVolumeOpen:  Exit  ->  %08lx\n", Status) );
+    }
 
     return Status;
 }
@@ -2555,11 +3239,13 @@ NtfsOpenFcbById (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PVCB Vcb,
+    IN PLCB ParentLcb OPTIONAL,
     IN OUT PFCB *CurrentFcb,
-    IN OUT PBOOLEAN AcquiredCurrentFcb,
+    IN BOOLEAN UseCurrentFcb,
     IN FILE_REFERENCE FileReference,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     )
@@ -2580,18 +3266,24 @@ Arguments:
 
     Vcb - Vcb for this volume.
 
+    ParentLcb - Lcb used to reach this Fcb.  Only specified when opening
+        a file by name relative to a directory opened by file Id.
+
     CurrentFcb - Address of Fcb pointer.  It will either be the
         Fcb to open or we will store the Fcb we find here.
 
-    AcquiredCurrentFcb - Used to indicate in the CurrentFcb above
-        points to a real Fcb or if we should find it here.  Set
-        to TRUE if we create and acquire a new Fcb.
+    UseCurrentFcb - Indicate in the CurrentFcb above points to the target
+        Fcb or if we should find it here.
 
     FileReference - This is the file Id for the file to open.
 
     AttrName - This is the name of the attribute to open.
 
     AttrCodeName - This is the name of the attribute code to open.
+
+    NetworkInfo - If specified then this call is a fast open call to query
+        the network information.  We don't update any of the in-memory structures
+        for this.
 
     ThisScb - This is the address to store the Scb from this open.
 
@@ -2605,7 +3297,6 @@ Return Value:
 
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    BOOLEAN VolumeOpen;
 
     LONGLONG MftOffset;
     PFILE_RECORD_SEGMENT_HEADER FileRecord;
@@ -2613,29 +3304,26 @@ Return Value:
 
     BOOLEAN IndexedAttribute;
 
-    DUPLICATED_INFORMATION Info;
-    PDUPLICATED_INFORMATION CurrentInfo = NULL;
-    PDUPLICATED_INFORMATION ExistingFcbInfo = NULL;
-
     PFCB ThisFcb;
-    BOOLEAN ExistingFcb;
+    BOOLEAN ExistingFcb = FALSE;
 
     ULONG CcbFlags = 0;
     ATTRIBUTE_TYPE_CODE AttrTypeCode;
     OLD_SCB_SNAPSHOT ScbSizes;
     BOOLEAN HaveScbSizes = FALSE;
     BOOLEAN DecrementCloseCount = FALSE;
-    ULONG InfoFlags;
 
     PSCB ParentScb = NULL;
-    PLCB Lcb = NULL;
+    PLCB Lcb = ParentLcb;
     BOOLEAN AcquiredParentScb = FALSE;
 
     BOOLEAN AcquiredFcbTable = FALSE;
 
+    UNREFERENCED_PARAMETER( NetworkInfo );
+
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenFcbById:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenFcbById:  Entered\n") );
 
     //
     //  The next thing to do is to figure out what type
@@ -2648,28 +3336,19 @@ Return Value:
     if (NtfsEqualMftRef( &FileReference,
                          &VolumeFileReference )) {
 
-        VolumeOpen = TRUE;
-
         if (AttrName.Length != 0
             || AttrCodeName.Length != 0) {
 
             Status = STATUS_INVALID_PARAMETER;
-            DebugTrace( -1, Dbg, "NtfsOpenFcbById:  Exit  ->  %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOpenFcbById:  Exit  ->  %08lx\n", Status) );
 
             return Status;
         }
 
-        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+        SetFlag( IrpContext->Flags,
+                 IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX | IRP_CONTEXT_FLAG_DASD_OPEN );
 
-            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
-            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
-        }
-
-        SetFlag( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING );
-
-    } else {
-
-        VolumeOpen = FALSE;
+        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
     //
@@ -2683,7 +3362,7 @@ Return Value:
         //  from the disk.
         //
 
-        if (!(*AcquiredCurrentFcb)) {
+        if (!UseCurrentFcb) {
 
             //
             //  We start by reading the disk and checking that the file record
@@ -2692,14 +3371,13 @@ Return Value:
             //  the file if the file Id will lie within the Mft File.
             //
 
-            (ULONG)MftOffset = FileReference.LowPart;
-            ((PLARGE_INTEGER)&MftOffset)->HighPart = (ULONG) FileReference.HighPart;
+            MftOffset = NtfsFullSegmentNumber( &FileReference );
 
-            MftOffset = MftOffset << Vcb->MftShift;
+            MftOffset = Int64ShllMod32(MftOffset, Vcb->MftShift);
 
             if (MftOffset >= Vcb->MftScb->Header.FileSize.QuadPart) {
 
-                DebugTrace( 0, Dbg, "File Id doesn't lie within Mft\n", 0 );
+                DebugTrace( 0, Dbg, ("File Id doesn't lie within Mft\n") );
 
                 try_return( Status = STATUS_INVALID_PARAMETER );
             }
@@ -2735,49 +3413,41 @@ Return Value:
                 //  root directory.
                 //
 
-                if ((FileReference.HighPart == 0)
-                    && (FileReference.LowPart < FIRST_USER_FILE_NUMBER)
-                    && (FileReference.LowPart != VOLUME_DASD_NUMBER)
-                    && (FileReference.LowPart != ROOT_FILE_NAME_INDEX_NUMBER)) {
+                if (NtfsSegmentNumber( &FileReference ) < FIRST_USER_FILE_NUMBER
+                    && NtfsSegmentNumber( &FileReference ) != VOLUME_DASD_NUMBER
+                    && NtfsSegmentNumber( &FileReference ) != ROOT_FILE_NAME_INDEX_NUMBER) {
 
                     Status = STATUS_ACCESS_DENIED;
-                    DebugTrace( 0, Dbg, "Attempting to open system files\n", 0 );
+                    DebugTrace( 0, Dbg, ("Attempting to open system files\n") );
 
                     try_return( NOTHING );
                 }
             }
 
-            IndexedAttribute = BooleanFlagOn( FileRecord->Flags, FILE_FILE_NAME_INDEX_PRESENT );
+            //
+            //  If indexed then use the name for the file name index.
+            //
 
-            NtfsUnpinBcb( IrpContext, &Bcb );
+            if (FlagOn( FileRecord->Flags, FILE_FILE_NAME_INDEX_PRESENT )) {
 
-            ExistingFcbInfo = NULL;
+                AttrName = NtfsFileNameIndex;
+                AttrCodeName = NtfsIndexAllocation;
+            }
+
+            NtfsUnpinBcb( &Bcb );
 
         } else {
 
             ThisFcb = *CurrentFcb;
-
-            if (IsDirectory( &ThisFcb->Info )) {
-
-                IndexedAttribute = TRUE;
-
-            } else {
-
-                IndexedAttribute = FALSE;
-            }
-
-            ExistingFcbInfo = &ThisFcb->Info;
             ExistingFcb = TRUE;
         }
 
-        Status = NtfsCheckValidAttributeAccess( IrpContext,
-                                                Irp,
-                                                IrpSp,
+        Status = NtfsCheckValidAttributeAccess( IrpSp,
                                                 Vcb,
-                                                CurrentInfo,
+                                                ExistingFcb ? &ThisFcb->Info : NULL,
                                                 AttrName,
                                                 AttrCodeName,
-                                                VolumeOpen,
+                                                FALSE,
                                                 &AttrTypeCode,
                                                 &CcbFlags,
                                                 &IndexedAttribute );
@@ -2791,7 +3461,7 @@ Return Value:
         //  If we don't have an Fcb then create one now.
         //
 
-        if (!(*AcquiredCurrentFcb)) {
+        if (!UseCurrentFcb) {
 
             NtfsAcquireFcbTable( IrpContext, Vcb );
             AcquiredFcbTable = TRUE;
@@ -2809,6 +3479,7 @@ Return Value:
                                      Vcb,
                                      FileReference,
                                      BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ),
+                                     TRUE,
                                      &ExistingFcb );
 
             ThisFcb->ReferenceCount += 1;
@@ -2819,10 +3490,10 @@ Return Value:
             //  dereference Fcb.
             //
 
-            if (!NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, TRUE )) {
+            if (!NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, TRUE )) {
 
                 NtfsReleaseFcbTable( IrpContext, Vcb );
-                NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, FALSE );
+                NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, FALSE );
                 NtfsAcquireFcbTable( IrpContext, Vcb );
             }
 
@@ -2837,24 +3508,23 @@ Return Value:
             //
 
             *CurrentFcb = ThisFcb;
-            *AcquiredCurrentFcb = TRUE;
         }
 
         //
-        //  Reference the Fcb so it doesn't go away.
+        //  If the Fcb existed and this is a paging file then either return
+        //  sharing violation or force the Fcb and Scb's to go away.
+        //  Do this for the case where the user is opening a paging file
+        //  but the Fcb is non-paged or the user is opening a non-paging
+        //  file and the Fcb is for a paging file.
         //
 
-        ThisFcb->CloseCount += 1;
-        DecrementCloseCount = TRUE;
+        if (ExistingFcb &&
 
-        //
-        //  If the Fcb existed and this is a paging file then return a sharing violation.
-        //
+            ((FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ) &&
+              !FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE )) ||
 
-        if (ExistingFcb
-            && AttrName.Length != 0
-            && (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )
-                || FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ))) {
+             (FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+              !FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )))) {
 
             if (ThisFcb->CleanupCount != 0) {
 
@@ -2880,17 +3550,28 @@ Return Value:
             } else {
 
                 //
+                //  Reference the Fcb so it doesn't go away.
+                //
+
+                InterlockedIncrement( &ThisFcb->CloseCount );
+                DecrementCloseCount = TRUE;
+
+                //
                 //  Flush and purge this Fcb.
                 //
 
                 NtfsFlushAndPurgeFcb( IrpContext, ThisFcb );
 
+                InterlockedDecrement( &ThisFcb->CloseCount );
+                DecrementCloseCount = FALSE;
+
                 //
-                //  Now raise log file full and allow the general error
-                //  support to call teardown structures on this Fcb.
+                //  Force this request to be posted and then raise
+                //  CANT_WAIT.
                 //
 
-                NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
             }
         }
 
@@ -2901,27 +3582,20 @@ Return Value:
 
         if (!FlagOn( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
 
+            NtfsUpdateFcbInfoFromDisk( IrpContext,
+                                       TRUE,
+                                       ThisFcb,
+                                       NULL,
+                                       &ScbSizes );
+
+            HaveScbSizes = TRUE;
+
             //
-            //  We only update the Fcb for non-Volume opens.
+            //  Fix the quota for this file if necessary.
             //
 
-            if (VolumeOpen) {
+            NtfsConditionallyFixupQuota( IrpContext, ThisFcb );
 
-                SetFlag( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED );
-
-                ThisFcb->LinkCount =
-                ThisFcb->TotalLinks = 1;
-
-            }  else {
-
-                NtfsUpdateFcbInfoFromDisk( IrpContext,
-                                           TRUE,
-                                           ThisFcb,
-                                           NULL,
-                                           &ScbSizes );
-
-                HaveScbSizes = TRUE;
-            }
         }
 
         //
@@ -2934,32 +3608,20 @@ Return Value:
         }
 
         //
-        //  Save the current state of the Fcb info structure.
-        //
-
-        RtlCopyMemory( &Info,
-                       &ThisFcb->Info,
-                       sizeof( DUPLICATED_INFORMATION ));
-
-        CurrentInfo = &Info;
-
-        InfoFlags = ThisFcb->InfoFlags;
-
-        //
         //  We now call the worker routine to open an attribute on an existing file.
         //
 
         Status = NtfsOpenAttributeInExistingFile( IrpContext,
                                                   Irp,
                                                   IrpSp,
-                                                  NULL,
+                                                  ParentLcb,
                                                   ThisFcb,
                                                   0,
                                                   AttrName,
                                                   AttrTypeCode,
                                                   CcbFlags,
-                                                  VolumeOpen,
                                                   TRUE,
+                                                  NULL,
                                                   ThisScb,
                                                   ThisCcb );
 
@@ -2967,8 +3629,7 @@ Return Value:
         //  Check to see if we should update the last access time.
         //
 
-        if (NT_SUCCESS( Status )
-            && Status != STATUS_PENDING) {
+        if (NT_SUCCESS( Status ) && (Status != STATUS_PENDING)) {
 
             PSCB Scb = *ThisScb;
 
@@ -2977,17 +3638,14 @@ Return Value:
             //  structures.
             //
 
-            if (!VolumeOpen) {
-
-                NtfsCheckLastAccess( IrpContext, ThisFcb );
-            }
+            NtfsCheckLastAccess( IrpContext, ThisFcb );
 
             //
             //  Perform the last bit of work.  If this a user file open, we need
             //  to check if we initialize the Scb.
             //
 
-            if (!IndexedAttribute && !VolumeOpen) {
+            if (!IndexedAttribute) {
 
                 if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
@@ -2995,10 +3653,10 @@ Return Value:
                     //  We may have the sizes from our Fcb update call.
                     //
 
-                    if (HaveScbSizes
-                        && AttrTypeCode == $DATA
-                        && AttrName.Length == 0
-                        && !FlagOn( Scb->ScbState, SCB_STATE_CREATE_MODIFIED_SCB )) {
+                    if (HaveScbSizes &&
+                        (AttrTypeCode == $DATA) &&
+                        (AttrName.Length == 0) &&
+                        !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB )) {
 
                         NtfsUpdateScbFromMemory( IrpContext, Scb, &ScbSizes );
 
@@ -3009,64 +3667,71 @@ Return Value:
                 }
 
                 //
-                //  We also check if the allocation or file size have changed
-                //  behind our backs.
+                //  If there is a potential for a write call to be issued, then we
+                //  need to expand the quota.
                 //
 
-                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
+                if (IrpSp->FileObject->WriteAccess) {
 
-                    if (Scb->Header.AllocationSize.QuadPart !=
-                        ThisFcb->Info.AllocatedLength) {
+                    NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
 
-                        ThisFcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_ALLOC_SIZE );
-                    }
-
-                    if (Scb->Header.FileSize.QuadPart != ThisFcb->Info.FileSize) {
-
-                        ThisFcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_FILE_SIZE );
-                    }
                 }
 
                 //
                 //  Let's check if we need to set the cache bit.
                 //
 
-                if (!FlagOn( IrpSp->Parameters.Create.Options,
-                             FILE_NO_INTERMEDIATE_BUFFERING )) {
+                if (!FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING )) {
 
                     SetFlag( IrpSp->FileObject->Flags, FO_CACHE_SUPPORTED );
                 }
             }
 
             //
-            //  If there is some unreported change to the file,
-            //  we update all copies on the disk and report the
-            //  changes to dir notify.
+            //  If this operation was a supersede/overwrite or we created a new
+            //  attribute stream then we want to perform the file record and
+            //  directory update now.  Otherwise we will defer the updates until
+            //  the user closes his handle.
             //
 
-            if (ThisFcb->InfoFlags != 0) {
+            if ((Irp->IoStatus.Information == FILE_CREATED) ||
+                (Irp->IoStatus.Information == FILE_SUPERSEDED) ||
+                (Irp->IoStatus.Information == FILE_OVERWRITTEN)) {
 
-                ASSERT( !VolumeOpen );
+                NtfsUpdateScbFromFileObject( IrpContext, IrpSp->FileObject, *ThisScb, TRUE );
 
-                NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, NULL, NULL );
+                //
+                //  Do the standard information, file sizes and then duplicate information
+                //  if needed.
+                //
 
-                ThisFcb->InfoFlags = 0;
-            }
+                if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
-            //
-            //  If we are to update the standard information attribute,
-            //  we will do this at this time.
-            //
+                    NtfsUpdateStandardInformation( IrpContext, ThisFcb );
+                }
 
-            if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
+                if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE )) {
 
-                NtfsPrepareForUpdateDuplicate( IrpContext, ThisFcb, &Lcb, &ParentScb, &AcquiredParentScb );
-                NtfsUpdateStandardInformation( IrpContext, ThisFcb );
-                NtfsUpdateLcbDuplicateInfo( IrpContext, ThisFcb, Lcb );
+                    NtfsWriteFileSizes( IrpContext,
+                                        *ThisScb,
+                                        &(*ThisScb)->Header.ValidDataLength.QuadPart,
+                                        FALSE,
+                                        TRUE );
+                }
+
+                if (FlagOn( ThisFcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS )) {
+
+                    NtfsPrepareForUpdateDuplicate( IrpContext, ThisFcb, &Lcb, &ParentScb, FALSE );
+                    NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, NULL, NULL );
+                    NtfsUpdateLcbDuplicateInfo( ThisFcb, Lcb );
+                    ThisFcb->InfoFlags = 0;
+                }
+
+                ClearFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+                NtfsAcquireFsrtlHeader( *ThisScb );
+                ClearFlag( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+                NtfsReleaseFsrtlHeader( *ThisScb );
             }
         }
 
@@ -3090,34 +3755,23 @@ Return Value:
         //      Changes to the share access values in the Fcb.
         //
 
-        if (!NT_SUCCESS( Status )
-            || AbnormalTermination()
-            || Status == STATUS_PENDING ) {
+        if (!NT_SUCCESS( Status ) || AbnormalTermination()) {
 
             NtfsBackoutFailedOpens( IrpContext,
                                     IrpSp->FileObject,
                                     ThisFcb,
                                     *ThisScb,
-                                    *ThisCcb,
-                                    IndexedAttribute,
-                                    VolumeOpen,
-                                    CurrentInfo,
-                                    InfoFlags );
+                                    *ThisCcb );
         }
 
         if (DecrementCloseCount) {
 
-            ThisFcb->CloseCount -= 1;
+            InterlockedDecrement( &ThisFcb->CloseCount );
         }
 
-        if (AcquiredParentScb) {
+        NtfsUnpinBcb( &Bcb );
 
-            NtfsReleaseScb( IrpContext, ParentScb );
-        }
-
-        NtfsUnpinBcb( IrpContext, &Bcb );
-
-        DebugTrace( -1, Dbg, "NtfsOpenFcbById:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenFcbById:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -3139,6 +3793,8 @@ NtfsOpenExistingPrefixFcb (
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     )
@@ -3169,6 +3825,13 @@ Arguments:
     DosOnlyComponent - Indicates if there is a DOS-ONLY component in an ancestor
         of this open.
 
+    TrailingBackslash - Indicates if caller had a terminating backslash on the
+        name.
+
+    NetworkInfo - If specified then this call is a fast open call to query
+        the network information.  We don't update any of the in-memory structures
+        for this.
+
     ThisScb - This is the address to store the Scb from this open.
 
     ThisCcb - This is the address to store the Ccb from this open.
@@ -3181,18 +3844,12 @@ Return Value:
 
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    BOOLEAN VolumeOpen;
     ATTRIBUTE_TYPE_CODE AttrTypeCode;
     ULONG CcbFlags;
     BOOLEAN IndexedAttribute;
     BOOLEAN DecrementCloseCount = FALSE;
 
-    DUPLICATED_INFORMATION Info;
-    PDUPLICATED_INFORMATION CurrentInfo = NULL;
-
     ULONG LastFileNameOffset;
-
-    ULONG InfoFlags;
 
     OLD_SCB_SNAPSHOT ScbSizes;
     BOOLEAN HaveScbSizes = FALSE;
@@ -3203,9 +3860,11 @@ Return Value:
     PFCB ParentFcb = NULL;
     BOOLEAN AcquiredParentScb = FALSE;
 
+    LONGLONG CurrentTime;
+
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenExistingPrefixFcb:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenExistingPrefixFcb:  Entered\n") );
 
     if (DosOnlyComponent) {
 
@@ -3224,65 +3883,43 @@ Return Value:
     //  there was a trailing backslash.
     //
 
-    if (NtfsEqualMftRef( &ThisFcb->FileReference,
-                         &VolumeFileReference )) {
+    if (NtfsEqualMftRef( &ThisFcb->FileReference, &VolumeFileReference )) {
 
-        VolumeOpen = TRUE;
-
-        if (AttrName.Length != 0
-            || AttrCodeName.Length != 0) {
+        if ((AttrName.Length != 0) || (AttrCodeName.Length != 0)) {
 
             Status = STATUS_INVALID_PARAMETER;
-            DebugTrace( -1, Dbg, "NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status) );
 
             return Status;
         }
 
-        SetFlag( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING );
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX | IRP_CONTEXT_FLAG_DASD_OPEN );
 
-        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
-
-            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
-            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
-        }
-
-        //
-        //  We get the parent Scb out of the Vcb.
-        //
-
-        ParentScb = ThisFcb->Vcb->RootIndexScb;
-        Lcb = NULL;
-
-        LastFileNameOffset = 2;
-
-    } else {
-
-        VolumeOpen = FALSE;
-        ParentScb = Lcb->Scb;
-
-        LastFileNameOffset = FullPathNameLength - Lcb->ExactCaseLink.LinkName.Length;
+        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
+
+    ParentScb = Lcb->Scb;
+
+    LastFileNameOffset = FullPathNameLength - Lcb->ExactCaseLink.LinkName.Length;
 
     if (ParentScb != NULL) {
 
         ParentFcb = ParentScb->Fcb;
     }
 
-    Status = NtfsCheckValidAttributeAccess( IrpContext,
-                                            Irp,
-                                            IrpSp,
+    Status = NtfsCheckValidAttributeAccess( IrpSp,
                                             ThisFcb->Vcb,
                                             &ThisFcb->Info,
                                             AttrName,
                                             AttrCodeName,
-                                            VolumeOpen,
+                                            TrailingBackslash,
                                             &AttrTypeCode,
                                             &CcbFlags,
                                             &IndexedAttribute );
 
     if (!NT_SUCCESS( Status )) {
 
-        DebugTrace( -1, Dbg, "NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status) );
 
         return Status;
     }
@@ -3296,12 +3933,18 @@ Return Value:
     try {
 
         //
-        //  If the Fcb existed and this is a paging file then return a sharing violation.
+        //  If the Fcb existed and this is a paging file then either return
+        //  sharing violation or force the Fcb and Scb's to go away.
+        //  Do this for the case where the user is opening a paging file
+        //  but the Fcb is non-paged or the user is opening a non-paging
+        //  file and the Fcb is for a paging file.
         //
 
-        if (AttrName.Length != 0
-            && (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )
-                || FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ))) {
+        if ((FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ) &&
+             !FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE )) ||
+
+            (FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+             !FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ))) {
 
             if (ThisFcb->CleanupCount != 0) {
 
@@ -3331,7 +3974,7 @@ Return Value:
                 //  the Fcb.
                 //
 
-                ThisFcb->CloseCount += 1;
+                InterlockedIncrement( &ThisFcb->CloseCount );
                 DecrementCloseCount = TRUE;
 
                 //
@@ -3344,15 +3987,16 @@ Return Value:
                 //  Now decrement the close count we have already biased.
                 //
 
-                ThisFcb->CloseCount -= 1;
+                InterlockedDecrement( &ThisFcb->CloseCount );
                 DecrementCloseCount = FALSE;
 
                 //
-                //  Now raise log file full and allow the general error
-                //  support call teardown structures on this Fcb.
+                //  Force this request to be posted and then raise
+                //  CANT_WAIT.
                 //
 
-                NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
             }
         }
 
@@ -3366,48 +4010,48 @@ Return Value:
         if (!FlagOn( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
 
             //
-            //  We only update the Fcb for non-Volume opens.
+            //  If we have a parent Fcb then make sure to acquire it.
             //
 
-            if (VolumeOpen) {
+            if (ParentScb != NULL) {
 
-                SetFlag( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED );
-
-                ThisFcb->LinkCount =
-                ThisFcb->TotalLinks = 1;
-
-            }  else {
-
-                //
-                //  If we have a parent Fcb then make sure to acquire it.
-                //
-
-                if (ParentScb != NULL) {
-
-                    NtfsAcquireExclusiveScb( IrpContext, ParentScb );
-                    AcquiredParentScb = TRUE;
-                }
-
-                NtfsUpdateFcbInfoFromDisk( IrpContext,
-                                           TRUE,
-                                           ThisFcb,
-                                           ParentFcb,
-                                           &ScbSizes );
-
-                HaveScbSizes = TRUE;
+                NtfsAcquireExclusiveScb( IrpContext, ParentScb );
+                AcquiredParentScb = TRUE;
             }
+
+            NtfsUpdateFcbInfoFromDisk( IrpContext,
+                                       TRUE,
+                                       ThisFcb,
+                                       ParentFcb,
+                                       &ScbSizes );
+
+            HaveScbSizes = TRUE;
+
+            NtfsConditionallyFixupQuota( IrpContext, ThisFcb );
         }
 
         //
-        //  Save the current state of the Fcb info structure.
+        //  Check now whether we will need to acquire the parent to
+        //  perform a update duplicate info.  We need to acquire it
+        //  now to enforce our locking order in case any of the
+        //  routines below acquire the Mft Scb.  Acquire it if we
+        //  are doing a supersede/overwrite or possibly creating
+        //  a named data stream.
         //
 
-        RtlCopyMemory( &Info,
-                       &ThisFcb->Info,
-                       sizeof( DUPLICATED_INFORMATION ));
+        if ((CreateDisposition == FILE_SUPERSEDE) ||
+            (CreateDisposition == FILE_OVERWRITE) ||
+            (CreateDisposition == FILE_OVERWRITE_IF) ||
+            ((AttrName.Length != 0) &&
+             ((CreateDisposition == FILE_OPEN_IF) ||
+              (CreateDisposition == FILE_CREATE)))) {
 
-        CurrentInfo = &Info;
-        InfoFlags = ThisFcb->InfoFlags;
+            NtfsPrepareForUpdateDuplicate( IrpContext,
+                                           ThisFcb,
+                                           &Lcb,
+                                           &ParentScb,
+                                           FALSE );
+        }
 
         //
         //  Call to open an attribute on an existing file.
@@ -3424,8 +4068,8 @@ Return Value:
                                                   AttrName,
                                                   AttrTypeCode,
                                                   CcbFlags,
-                                                  VolumeOpen,
                                                   FALSE,
+                                                  NetworkInfo,
                                                   ThisScb,
                                                   ThisCcb );
 
@@ -3433,8 +4077,7 @@ Return Value:
         //  Check to see if we should update the last access time.
         //
 
-        if (NT_SUCCESS( Status )
-            && Status != STATUS_PENDING) {
+        if (NT_SUCCESS( Status ) && (Status != STATUS_PENDING)) {
 
             PSCB Scb = *ThisScb;
 
@@ -3443,24 +4086,16 @@ Return Value:
             //  to cause this but make sure the normalized name is stored.
             //
 
-            if (NodeType( Scb ) == NTFS_NTC_SCB_INDEX &&
-                Scb->ScbType.Index.NormalizedName.Buffer == NULL &&
-                ParentScb != NULL &&
-                ParentScb->ScbType.Index.NormalizedName.Buffer != NULL) {
+            if ((SafeNodeType( Scb ) == NTFS_NTC_SCB_INDEX) &&
+                (Scb->ScbType.Index.NormalizedName.Buffer == NULL) &&
+                (ParentScb != NULL) &&
+                (ParentScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
 
                 NtfsUpdateNormalizedName( IrpContext,
                                           ParentScb,
                                           Scb,
-                                          NULL );
-            }
-
-            //
-            //  We never update last access on volume opens.
-            //
-
-            if (!VolumeOpen) {
-
-                NtfsCheckLastAccess( IrpContext, ThisFcb );
+                                          NULL,
+                                          FALSE );
             }
 
             //
@@ -3468,7 +4103,7 @@ Return Value:
             //  to check if we initialize the Scb.
             //
 
-            if (!IndexedAttribute && !VolumeOpen) {
+            if (!IndexedAttribute) {
 
                 if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
@@ -3476,40 +4111,22 @@ Return Value:
                     //  We may have the sizes from our Fcb update call.
                     //
 
-                    if (HaveScbSizes
-                        && AttrTypeCode == $DATA
-                        && AttrName.Length == 0
-                        && !FlagOn( Scb->ScbState, SCB_STATE_CREATE_MODIFIED_SCB )) {
+                    if (HaveScbSizes &&
+                        (AttrTypeCode == $DATA) &&
+                        (AttrName.Length == 0) &&
+                        !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB )) {
 
                         NtfsUpdateScbFromMemory( IrpContext, Scb, &ScbSizes );
 
                     } else {
 
                         NtfsUpdateScbFromAttribute( IrpContext, Scb, NULL );
+
                     }
                 }
 
-                //
-                //  We also check if the allocation or file size have changed
-                //  behind our backs.
-                //
-
-                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                    if (Scb->Header.AllocationSize.QuadPart !=
-                        ThisFcb->Info.AllocatedLength) {
-
-                        ThisFcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_ALLOC_SIZE );
-                    }
-
-                    if (Scb->Header.FileSize.QuadPart != ThisFcb->Info.FileSize) {
-
-                        ThisFcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_FILE_SIZE );
-                    }
+                if (IrpSp->FileObject->WriteAccess) {
+                    NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
                 }
 
                 //
@@ -3532,28 +4149,26 @@ Return Value:
                 && (Scb->Header.AllocationSize.QuadPart != 0)
                 && !FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
 
-                LONGLONG ClusterCount;
                 LCN Lcn;
                 VCN Vcn;
                 VCN AllocatedVcns;
 
-                AllocatedVcns = Scb->Header.AllocationSize.QuadPart >> Scb->Vcb->ClusterShift;
+                AllocatedVcns = Int64ShraMod32(Scb->Header.AllocationSize.QuadPart, Scb->Vcb->ClusterShift);
 
-                NtfsLookupAllocation( IrpContext,
-                                      Scb,
-                                      AllocatedVcns,
-                                      &Lcn,
-                                      &ClusterCount,
-                                      NULL );
+                //
+                //  First make sure the Mcb is loaded.
+                //
+
+                NtfsPreloadAllocation( IrpContext, Scb, 0, AllocatedVcns );
 
                 //
                 //  Now make sure the allocation is correctly loaded.  The last
                 //  Vcn should correspond to the allocation size for the file.
                 //
 
-                if (!FsRtlLookupLastLargeMcbEntry( &Scb->Mcb,
-                                                   &Vcn,
-                                                   &Lcn ) ||
+                if (!NtfsLookupLastNtfsMcbEntry( &Scb->Mcb,
+                                                 &Vcn,
+                                                 &Lcn ) ||
                     (Vcn + 1) != AllocatedVcns) {
 
                     NtfsRaiseStatus( IrpContext,
@@ -3564,89 +4179,95 @@ Return Value:
             }
 
             //
-            //  If this open is for an executable image we update the last
-            //  access time.
+            //  If this open is for an executable image we will want to update the
+            //  last access time.
             //
 
-            if (Scb->AttributeTypeCode == $DATA
-                && Scb->AttributeName.Length == 0
-                && FlagOn( IrpSp->Parameters.Create.SecurityContext->DesiredAccess,
-                           FILE_EXECUTE )) {
+            if (FlagOn( IrpSp->Parameters.Create.SecurityContext->DesiredAccess, FILE_EXECUTE ) &&
+                (Scb->AttributeTypeCode == $DATA)) {
 
-                NtfsGetCurrentTime( IrpContext, ThisFcb->CurrentLastAccess );
+                SetFlag( IrpSp->FileObject->Flags, FO_FILE_FAST_IO_READ );
             }
 
             //
-            //  If we are to update the standard information attribute,
-            //  we will do this at this time.
+            //  If this operation was a supersede/overwrite or we created a new
+            //  attribute stream then we want to perform the file record and
+            //  directory update now.  Otherwise we will defer the updates until
+            //  the user closes his handle.
             //
 
-            if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
+            if ((Irp->IoStatus.Information == FILE_CREATED) ||
+                (Irp->IoStatus.Information == FILE_SUPERSEDED) ||
+                (Irp->IoStatus.Information == FILE_OVERWRITTEN)) {
 
-                NtfsUpdateStandardInformation( IrpContext, ThisFcb );
-            }
+                NtfsUpdateScbFromFileObject( IrpContext, IrpSp->FileObject, *ThisScb, TRUE );
 
-            //
-            //  If there is some unreported change to the file,
-            //  we update all copies on the disk and report the
-            //  changes to dir notify.
-            //
+                //
+                //  Do the standard information, file sizes and then duplicate information
+                //  if needed.
+                //
 
-            if (ThisFcb->InfoFlags != 0 ||
-                (Lcb != NULL &&
-                (Lcb->InfoFlags != 0))) {
+                if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
-                ULONG FilterMatch;
-                ULONG InfoFlags;
-
-                ASSERT( !VolumeOpen );
-
-                NtfsPrepareForUpdateDuplicate( IrpContext,
-                                               ThisFcb,
-                                               &Lcb,
-                                               &ParentScb,
-                                               &AcquiredParentScb );
-
-                NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, Lcb, ParentScb );
-
-                InfoFlags = ThisFcb->InfoFlags;
-
-                if (Lcb != NULL) {
-
-                    SetFlag( InfoFlags, Lcb->InfoFlags );
+                    NtfsUpdateStandardInformation( IrpContext, ThisFcb );
                 }
 
-                //
-                //  We map the Fcb info flags into the dir notify flags.
-                //
+                if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE )) {
 
-                FilterMatch = NtfsBuildDirNotifyFilter( IrpContext, ThisFcb, InfoFlags );
-
-                //
-                //  If the filter match is non-zero, that means we also need to do a
-                //  dir notify call.
-                //
-
-                if (FilterMatch != 0) {
-
-                    NtfsReportDirNotify( IrpContext,
-                                         ThisFcb->Vcb,
-                                         &(*ThisCcb)->FullFileName,
-                                         (*ThisCcb)->LastFileNameOffset,
-                                         NULL,
-                                         ((FlagOn( (*ThisCcb)->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                           (*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                          &(*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName :
-                                          NULL),
-                                         FilterMatch,
-                                         FILE_ACTION_MODIFIED,
-                                         ParentFcb );
+                    NtfsWriteFileSizes( IrpContext,
+                                        *ThisScb,
+                                        &(*ThisScb)->Header.ValidDataLength.QuadPart,
+                                        FALSE,
+                                        TRUE );
                 }
 
-                NtfsUpdateLcbDuplicateInfo( IrpContext, ThisFcb, Lcb );
+                if (FlagOn( ThisFcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS )) {
 
-                ThisFcb->InfoFlags = 0;
-                ClearFlag( ThisFcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
+                    ULONG FilterMatch;
+
+                    NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, Lcb, ParentScb );
+
+                    if (ThisFcb->Vcb->NotifyCount != 0) {
+
+                        //
+                        //  We map the Fcb info flags into the dir notify flags.
+                        //
+
+                        FilterMatch = NtfsBuildDirNotifyFilter( IrpContext,
+                                                                ThisFcb->InfoFlags | Lcb->InfoFlags );
+
+                        //
+                        //  If the filter match is non-zero, that means we also need to do a
+                        //  dir notify call.
+                        //
+
+                        if ((FilterMatch != 0) && (*ThisCcb != NULL)) {
+
+                            NtfsReportDirNotify( IrpContext,
+                                                 ThisFcb->Vcb,
+                                                 &(*ThisCcb)->FullFileName,
+                                                 (*ThisCcb)->LastFileNameOffset,
+                                                 NULL,
+                                                 ((FlagOn( (*ThisCcb)->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                                   (*ThisCcb)->Lcb != NULL &&
+                                                   (*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                  &(*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName :
+                                                  NULL),
+                                                 FilterMatch,
+                                                 FILE_ACTION_MODIFIED,
+                                                 ParentFcb );
+                        }
+                    }
+
+                    NtfsUpdateLcbDuplicateInfo( ThisFcb, Lcb );
+                    ThisFcb->InfoFlags = 0;
+                }
+
+                ClearFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+                NtfsAcquireFsrtlHeader( *ThisScb );
+                ClearFlag( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+                NtfsReleaseFsrtlHeader( *ThisScb );
             }
         }
 
@@ -3657,12 +4278,7 @@ Return Value:
 
         if (DecrementCloseCount) {
 
-            ThisFcb->CloseCount -= 1;
-        }
-
-        if (AcquiredParentScb) {
-
-            NtfsReleaseScb( IrpContext, ParentScb );
+            InterlockedDecrement( &ThisFcb->CloseCount );
         }
 
         //
@@ -3675,22 +4291,16 @@ Return Value:
         //      Changes to the share access values in the Fcb.
         //
 
-        if (!NT_SUCCESS( Status )
-            || AbnormalTermination()
-            || Status == STATUS_PENDING ) {
+        if (!NT_SUCCESS( Status ) || AbnormalTermination()) {
 
             NtfsBackoutFailedOpens( IrpContext,
                                     IrpSp->FileObject,
                                     ThisFcb,
                                     *ThisScb,
-                                    *ThisCcb,
-                                    IndexedAttribute,
-                                    VolumeOpen,
-                                    CurrentInfo,
-                                    InfoFlags );
+                                    *ThisCcb );
         }
 
-        DebugTrace( -1, Dbg, "NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -3769,7 +4379,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenTargetDirectory:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenTargetDirectory:  Entered\n") );
 
     if (DosOnlyComponent) {
 
@@ -3812,8 +4422,7 @@ Return Value:
         FullPathName->Length -= sizeof( WCHAR );
     }
 
-    if (!ARGUMENT_PRESENT( ParentLcb )
-        && FullPathName->Length != 0) {
+    if (!ARGUMENT_PRESENT( ParentLcb ) && (FullPathName->Length != 0)) {
 
         PLIST_ENTRY Links;
         PLCB NextLcb;
@@ -3843,11 +4452,10 @@ Return Value:
 
                 if (NameOffset >= 0) {
 
-                    if ((ULONG) NextLcb->ExactCaseLink.LinkName.Length
-                        == RtlCompareMemory( Add2Ptr( FullPathName->Buffer,
-                                                      NameOffset ),
-                                             NextLcb->ExactCaseLink.LinkName.Buffer,
-                                             NextLcb->ExactCaseLink.LinkName.Length )) {
+                    if (RtlEqualMemory( Add2Ptr( FullPathName->Buffer,
+                                                 NameOffset ),
+                                        NextLcb->ExactCaseLink.LinkName.Buffer,
+                                        NextLcb->ExactCaseLink.LinkName.Length )) {
 
                         //
                         //  We found a matching Lcb.  Remember this and exit
@@ -3885,15 +4493,152 @@ Return Value:
                                 (ThisFcb->CleanupCount == 0 ? SetShareAccess : CheckShareAccess),
                                 UserDirectoryOpen,
                                 CcbFlags,
+                                NULL,
                                 ThisScb,
                                 ThisCcb );
 
     if (NT_SUCCESS( Status )) {
 
+        //
+        //  If the Scb does not have a normalized name then update it now.
+        //
+
+        if (((*ThisScb)->ScbType.Index.NormalizedName.Buffer == NULL) ||
+            ((*ThisScb)->ScbType.Index.NormalizedName.Length == 0)) {
+
+            NtfsBuildNormalizedName( IrpContext,
+                                     *ThisScb,
+                                     &(*ThisScb)->ScbType.Index.NormalizedName );
+        }
+
+        //
+        //  If the file object name is not from the root then use the normalized name
+        //  to obtain the full name.
+        //
+
+        if (FlagOn( CcbFlags, CCB_FLAG_OPEN_BY_FILE_ID )) {
+
+            USHORT BytesNeeded;
+            USHORT Index;
+            ULONG ComponentCount;
+            ULONG NormalizedComponentCount;
+            PWCHAR NewBuffer;
+            PWCHAR NextChar;
+
+            //
+            //  Count the number of components in the directory portion of the
+            //  name in the file object.
+            //
+
+            ComponentCount = 0;
+
+            if (FullPathName->Length != 0) {
+
+                ComponentCount = 1;
+                Index = (FullPathName->Length / sizeof( WCHAR )) - 1;
+
+                do {
+
+                    if (FullPathName->Buffer[Index] == L'\\') {
+
+                        ComponentCount += 1;
+                    }
+
+                    Index -= 1;
+
+                } while (Index != 0);
+            }
+
+            //
+            //  Count back this number of components in the normalized name.
+            //
+
+            NormalizedComponentCount = 0;
+            Index = (*ThisScb)->ScbType.Index.NormalizedName.Length / sizeof( WCHAR );
+
+            //
+            //  Special case the root to point directory to the leading backslash.
+            //
+
+            if (Index == 1) {
+
+                Index = 0;
+            }
+
+            while (NormalizedComponentCount < ComponentCount) {
+
+                Index -= 1;
+                while ((*ThisScb)->ScbType.Index.NormalizedName.Buffer[Index] != L'\\') {
+
+                    Index -= 1;
+                }
+
+                NormalizedComponentCount += 1;
+            }
+
+            //
+            //  Compute the size of the buffer needed for the full name.  This
+            //  will be:
+            //
+            //      - Portion of normalized name used plus a separator
+            //      - MaximumLength currently in FullPathName
+            //
+
+            BytesNeeded = ((Index + 1) * sizeof( WCHAR )) + FullPathName->MaximumLength;
+
+            NextChar =
+            NewBuffer = NtfsAllocatePool( PagedPool, BytesNeeded );
+
+            //
+            //  Copy over the portion of the name from the normalized name.
+            //
+
+            if (Index != 0) {
+
+                RtlCopyMemory( NextChar,
+                               (*ThisScb)->ScbType.Index.NormalizedName.Buffer,
+                               Index * sizeof( WCHAR ));
+
+                NextChar += Index;
+            }
+
+            *NextChar = L'\\';
+            NextChar += 1;
+
+            //
+            //  Now copy over the remaining part of the name from the file object.
+            //
+
+            RtlCopyMemory( NextChar,
+                           FullPathName->Buffer,
+                           FullPathName->MaximumLength );
+
+            //
+            //  Now free the pool from the file object and update with the newly
+            //  allocated pool.  Don't forget to update the Ccb to point to this new
+            //  buffer.
+            //
+
+            NtfsFreePool( FullPathName->Buffer );
+
+            FullPathName->Buffer = NewBuffer;
+            FullPathName->MaximumLength =
+            FullPathName->Length = BytesNeeded;
+            FullPathName->Length -= (USHORT) FinalNameLength;
+
+            if (FullPathName->Length > sizeof( WCHAR )) {
+
+                FullPathName->Length -= sizeof( WCHAR );
+            }
+
+            (*ThisCcb)->FullFileName = *FullPathName;
+            (*ThisCcb)->LastFileNameOffset = FullPathName->MaximumLength - (USHORT) FinalNameLength;
+        }
+
         Irp->IoStatus.Information = (TargetExisted ? FILE_EXISTS : FILE_DOES_NOT_EXIST);
     }
 
-    DebugTrace( +1, Dbg, "NtfsOpenTargetDirectory:  Exit -> %08lx\n", Status );
+    DebugTrace( +1, Dbg, ("NtfsOpenTargetDirectory:  Exit -> %08lx\n", Status) );
 
     return Status;
 }
@@ -3909,17 +4654,17 @@ NtfsOpenFile (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN PINDEX_ENTRY IndexEntry,
     IN UNICODE_STRING FullPathName,
     IN UNICODE_STRING FinalName,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
     IN BOOLEAN IgnoreCase,
-    IN BOOLEAN TraverseAccessCheck,
     IN BOOLEAN OpenById,
     IN PQUICK_INDEX QuickIndex,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PFCB *CurrentFcb,
     OUT PLCB *LcbForTeardown,
     OUT PSCB *ThisScb,
@@ -3936,9 +4681,7 @@ Routine Description:
     link between it and its parent directory.  We will add this link to the
     prefix table as well as the link for its parent Scb if specified.
 
-    On entry the caller owns the parent Scb. If this routine updates the
-    CurrentFcb and leaves the ParentScb acquired, this routine updates the
-    AcquiredParentFcb flag.
+    On entry the caller owns the parent Scb.
 
 Arguments:
 
@@ -3947,9 +4690,6 @@ Arguments:
     IrpSp - This is the Irp stack pointer for the filesystem.
 
     ParentScb - This is the Scb for the parent directory.
-
-    AcquiredParentFcb - Address to store TRUE if we acquire a new Fcb
-        and hold the ParentScb.
 
     IndexEntry - This is the index entry from the disk for this file.
 
@@ -3965,14 +4705,17 @@ Arguments:
 
     IgnoreCase - Indicates the type of open.
 
-    TraverseAccessCheck - Indicates that we did traverse access checking on this open.
-
     OpenById - Indicates if we are opening this file relative to a file opened by Id.
 
     DosOnlyComponent - Indicates if there is a DOS-ONLY component in an ancestor
         of this open.
 
-    QuickIndex - This is the location of the index entry being opened.
+    TrailingBackslash - Indicates if caller had a terminating backslash on the
+        name.
+
+    NetworkInfo - If specified then this call is a fast open call to query
+        the network information.  We don't update any of the in-memory structures
+        for this.
 
     CurrentFcb - This is the address to store the Fcb if we successfully find
         one in the Fcb/Scb tree.
@@ -3992,15 +4735,11 @@ Return Value:
 
 {
     NTSTATUS Status = STATUS_SUCCESS;
-    BOOLEAN VolumeOpen;
     ATTRIBUTE_TYPE_CODE AttrTypeCode;
     ULONG CcbFlags = 0;
     BOOLEAN IndexedAttribute;
     PFILE_NAME IndexFileName;
-
-    DUPLICATED_INFORMATION Info;
-    PDUPLICATED_INFORMATION CurrentInfo = NULL;
-    ULONG InfoFlags;
+    BOOLEAN UpdateFcbInfo = FALSE;
 
     OLD_SCB_SNAPSHOT ScbSizes;
     BOOLEAN HaveScbSizes = FALSE;
@@ -4010,19 +4749,18 @@ Return Value:
     PFCB LocalFcbForTeardown = NULL;
     PFCB ThisFcb;
     PLCB ThisLcb;
-    BOOLEAN AcquiredThisFcb = FALSE;
     BOOLEAN DecrementCloseCount = FALSE;
-
     BOOLEAN ExistingFcb;
-    BOOLEAN RemovedFcb = FALSE;
-
     BOOLEAN AcquiredFcbTable = FALSE;
+
+    FILE_REFERENCE PreviousFileReference;
+    BOOLEAN DroppedParent = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenFile:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenFile:  Entered\n") );
 
-    IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IrpContext, IndexEntry );
+    IndexFileName = (PFILE_NAME) NtfsFoundIndexEntry( IndexEntry );
 
     if (DosOnlyComponent) {
 
@@ -4040,45 +4778,34 @@ Return Value:
     if (NtfsEqualMftRef( &IndexEntry->FileReference,
                          &VolumeFileReference )) {
 
-        VolumeOpen = TRUE;
-
         if (AttrName.Length != 0
             || AttrCodeName.Length != 0) {
 
             Status = STATUS_INVALID_PARAMETER;
-            DebugTrace( -1, Dbg, "NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOpenExistingPrefixFcb:  Exit  ->  %08lx\n", Status) );
 
             return Status;
         }
 
-        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX )) {
+        SetFlag( IrpContext->Flags,
+                 IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX | IRP_CONTEXT_FLAG_DASD_OPEN );
 
-            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_VCB_EX );
-            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
-        }
-
-        SetFlag( IrpSp->Parameters.Create.Options, FILE_NO_INTERMEDIATE_BUFFERING );
-
-    } else {
-
-        VolumeOpen = FALSE;
+        NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
     }
 
-    Status = NtfsCheckValidAttributeAccess( IrpContext,
-                                            Irp,
-                                            IrpSp,
+    Status = NtfsCheckValidAttributeAccess( IrpSp,
                                             Vcb,
                                             &IndexFileName->Info,
                                             AttrName,
                                             AttrCodeName,
-                                            VolumeOpen,
+                                            TrailingBackslash,
                                             &AttrTypeCode,
                                             &CcbFlags,
                                             &IndexedAttribute );
 
     if (!NT_SUCCESS( Status )) {
 
-        DebugTrace( -1, Dbg, "NtfsOpenFile:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenFile:  Exit  ->  %08lx\n", Status) );
 
         return Status;
     }
@@ -4106,6 +4833,8 @@ Return Value:
                                  ParentScb->Vcb,
                                  IndexEntry->FileReference,
                                  BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ),
+                                 BooleanFlagOn( IndexFileName->Info.FileAttributes,
+                                                DUP_FILE_NAME_INDEX_PRESENT ),
                                  &ExistingFcb );
 
         ThisFcb->ReferenceCount += 1;
@@ -4118,6 +4847,11 @@ Return Value:
         if (!ExistingFcb) {
 
             LocalFcbForTeardown = ThisFcb;
+
+        } else {
+
+            *LcbForTeardown = NULL;
+            *CurrentFcb = ThisFcb;
         }
 
         //
@@ -4126,27 +4860,37 @@ Return Value:
         //  dereference Fcb.
         //
 
-        if (!NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, TRUE )) {
+        if (!NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, TRUE )) {
+
+            //
+            //  Remember the current file reference in the index entry.
+            //  We want to be able to detect whether an entry is removed.
+            //
+
+            PreviousFileReference = IndexEntry->FileReference;
+            DroppedParent = TRUE;
 
             ParentScb->Fcb->ReferenceCount += 1;
-            ParentScb->CleanupCount += 1;
-            NtfsReleaseScb( IrpContext, ParentScb );
+            InterlockedIncrement( &ParentScb->CleanupCount );
+
+            //
+            //  Set the IrpContext to acquire paging io resources if our target
+            //  has one.  This will lock the MappedPageWriter out of this file.
+            //
+
+            if (ThisFcb->PagingIoResource != NULL) {
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING );
+            }
+
+            NtfsReleaseScbWithPaging( IrpContext, ParentScb );
             NtfsReleaseFcbTable( IrpContext, Vcb );
-            NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, FALSE );
+            NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, FALSE );
             NtfsAcquireExclusiveScb( IrpContext, ParentScb );
             NtfsAcquireFcbTable( IrpContext, Vcb );
-            ParentScb->CleanupCount -= 1;
+            InterlockedDecrement( &ParentScb->CleanupCount );
             ParentScb->Fcb->ReferenceCount -= 1;
-
-            //
-            //  Since we had to release the FcbTable we must make sure
-            //  to teardown on error.
-            //
-
-            LocalFcbForTeardown = ThisFcb;
         }
-
-        AcquiredThisFcb = TRUE;
 
         ThisFcb->ReferenceCount -= 1;
 
@@ -4154,20 +4898,46 @@ Return Value:
         AcquiredFcbTable = FALSE;
 
         //
-        //  Reference the Fcb so it won't go away on any flushes.
+        //  Check if something happened to this file in the window where
+        //  we dropped the parent.
         //
 
-        ThisFcb->CloseCount += 1;
-        DecrementCloseCount = TRUE;
+        if (DroppedParent) {
+
+            //
+            //  Check if the file has been deleted.
+            //
+
+            if (ExistingFcb && (ThisFcb->LinkCount == 0)) {
+
+                try_return( Status = STATUS_DELETE_PENDING );
+
+            //
+            //  Check if the link may have been deleted.
+            //
+
+            } else if (!NtfsEqualMftRef( &IndexEntry->FileReference,
+                                         &PreviousFileReference )) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+            }
+        }
 
         //
-        //  If the Fcb existed and this is a paging file then return a sharing violation.
+        //  If the Fcb existed and this is a paging file then either return
+        //  sharing violation or force the Fcb and Scb's to go away.
+        //  Do this for the case where the user is opening a paging file
+        //  but the Fcb is non-paged or the user is opening a non-paging
+        //  file and the Fcb is for a paging file.
         //
 
-        if (ExistingFcb
-            && AttrName.Length != 0
-            && (FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )
-                || FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ))) {
+        if (ExistingFcb &&
+
+            ((FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ) &&
+              !FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE )) ||
+
+             (FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+              !FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )))) {
 
             if (ThisFcb->CleanupCount != 0) {
 
@@ -4193,18 +4963,29 @@ Return Value:
             } else {
 
                 //
+                //  Reference the Fcb so it won't go away on any flushes.
+                //
+
+                InterlockedIncrement( &ThisFcb->CloseCount );
+                DecrementCloseCount = TRUE;
+
+                //
                 //  Flush and purge this Fcb.
                 //
 
                 NtfsFlushAndPurgeFcb( IrpContext, ThisFcb );
 
+                InterlockedDecrement( &ThisFcb->CloseCount );
+                DecrementCloseCount = FALSE;
+
                 //
-                //  Now raise log file full and allow the general error
-                //  support call teardown structures on this Fcb.
+                //  Force this request to be posted and then raise
+                //  CANT_WAIT.  The Fcb should be torn down in the finally
+                //  clause below.
                 //
 
-                LocalFcbForTeardown = ThisFcb;
-                NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+                NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
             }
         }
 
@@ -4220,13 +5001,12 @@ Return Value:
             //  root directory.
             //
 
-            if ((ThisFcb->FileReference.HighPart == 0)
-                && (ThisFcb->FileReference.LowPart < FIRST_USER_FILE_NUMBER)
-                && (ThisFcb->FileReference.LowPart != VOLUME_DASD_NUMBER)
-                && (ThisFcb->FileReference.LowPart != ROOT_FILE_NAME_INDEX_NUMBER)) {
+            if (NtfsSegmentNumber( &ThisFcb->FileReference )  < FIRST_USER_FILE_NUMBER
+                && NtfsSegmentNumber( &ThisFcb->FileReference ) != VOLUME_DASD_NUMBER
+                && NtfsSegmentNumber( &ThisFcb->FileReference ) != ROOT_FILE_NAME_INDEX_NUMBER) {
 
                 Status = STATUS_ACCESS_DENIED;
-                DebugTrace( 0, Dbg, "Attempting to open system files\n", 0 );
+                DebugTrace( 0, Dbg, ("Attempting to open system files\n") );
 
                 try_return( NOTHING );
             }
@@ -4240,64 +5020,75 @@ Return Value:
 
         if (!FlagOn( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
 
-            //
-            //  We only update the Fcb for non-Volume opens.
-            //
+            NtfsUpdateFcbInfoFromDisk( IrpContext,
+                                       TRUE,
+                                       ThisFcb,
+                                       ParentScb->Fcb,
+                                       &ScbSizes );
 
-            if (VolumeOpen) {
+            HaveScbSizes = TRUE;
 
-                SetFlag( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED );
-
-            }  else {
-
-                NtfsUpdateFcbInfoFromDisk( IrpContext,
-                                           TRUE,
-                                           ThisFcb,
-                                           ParentScb->Fcb,
-                                           &ScbSizes );
-
-                HaveScbSizes = TRUE;
-
-                //
-                //  We have the actual data from the disk stored in the duplicate
-                //  information in the Fcb.  We compare this with the duplicate
-                //  information in the DUPLICATE_INFORMATION structure in the
-                //  filename attribute.  If they don't match, we remember that
-                //  we need to update the duplicate information.
-                //
-
-                if (!ExistingFcb
-                    && RtlCompareMemory( &ThisFcb->Info,
-                                         &IndexFileName->Info,
-                                         sizeof( DUPLICATED_INFORMATION )) != sizeof( DUPLICATED_INFORMATION )) {
-
-                    //
-                    //  We expect this to be very rare.  We will just set all the flags.
-                    //
-
-                    SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_CREATE
-                                                 | FCB_INFO_CHANGED_LAST_MOD
-                                                 | FCB_INFO_CHANGED_LAST_CHANGE
-                                                 | FCB_INFO_CHANGED_LAST_ACCESS
-                                                 | FCB_INFO_CHANGED_ALLOC_SIZE
-                                                 | FCB_INFO_CHANGED_FILE_SIZE
-                                                 | FCB_INFO_CHANGED_FILE_ATTR
-                                                 | FCB_INFO_CHANGED_EA_SIZE );
-                }
-            }
+            NtfsConditionallyFixupQuota( IrpContext, ThisFcb );
         }
 
         //
-        //  Save the current state of the Fcb info structure.
+        //  We have the actual data from the disk stored in the duplicate
+        //  information in the Fcb.  We compare this with the duplicate
+        //  information in the DUPLICATE_INFORMATION structure in the
+        //  filename attribute.  If they don't match, we remember that
+        //  we need to update the duplicate information.
         //
 
-        RtlCopyMemory( &Info,
-                       &ThisFcb->Info,
-                       sizeof( DUPLICATED_INFORMATION ));
+        if (!RtlEqualMemory( &ThisFcb->Info,
+                             &IndexFileName->Info,
+                             sizeof( DUPLICATED_INFORMATION ))) {
 
-        CurrentInfo = &Info;
+            UpdateFcbInfo = TRUE;
 
-        InfoFlags = ThisFcb->InfoFlags;
+            //
+            //  We expect this to be very rare but let's find the ones being changed.
+            //
+
+            if (ThisFcb->Info.CreationTime != IndexFileName->Info.CreationTime) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_CREATE );
+            }
+
+            if (ThisFcb->Info.LastModificationTime != IndexFileName->Info.LastModificationTime) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
+            }
+
+            if (ThisFcb->Info.LastChangeTime != IndexFileName->Info.LastChangeTime) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
+            }
+
+            if (ThisFcb->Info.LastAccessTime != IndexFileName->Info.LastAccessTime) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_ACCESS );
+            }
+
+            if (ThisFcb->Info.AllocatedLength != IndexFileName->Info.AllocatedLength) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_ALLOC_SIZE );
+            }
+
+            if (ThisFcb->Info.FileSize != IndexFileName->Info.FileSize) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_FILE_SIZE );
+            }
+
+            if (ThisFcb->Info.FileAttributes != IndexFileName->Info.FileAttributes) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_FILE_ATTR );
+            }
+
+            if (ThisFcb->Info.PackedEaSize != IndexFileName->Info.PackedEaSize) {
+
+                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_EA_SIZE );
+            }
+        }
 
         //
         //  Now get the link for this traversal.
@@ -4318,8 +5109,6 @@ Return Value:
 
         *LcbForTeardown = ThisLcb;
         *CurrentFcb = ThisFcb;
-        *AcquiredParentFcb = TRUE;
-        AcquiredThisFcb = FALSE;
 
         //
         //  If the link has been deleted, we cut off the open.
@@ -4345,8 +5134,8 @@ Return Value:
                                                   AttrName,
                                                   AttrTypeCode,
                                                   CcbFlags,
-                                                  VolumeOpen,
                                                   OpenById,
+                                                  NetworkInfo,
                                                   ThisScb,
                                                   ThisCcb );
 
@@ -4355,8 +5144,7 @@ Return Value:
         //  and update the last access time.
         //
 
-        if (NT_SUCCESS( Status )
-            && Status != STATUS_PENDING) {
+        if (NT_SUCCESS( Status ) && (Status != STATUS_PENDING)) {
 
             PSCB Scb = *ThisScb;
 
@@ -4364,8 +5152,7 @@ Return Value:
             //  Now we insert the Lcb for this Fcb.
             //
 
-            NtfsInsertPrefix( IrpContext,
-                              ThisLcb,
+            NtfsInsertPrefix( ThisLcb,
                               IgnoreCase );
 
             //
@@ -4373,24 +5160,15 @@ Return Value:
             //  the Scb then do so now.
             //
 
-            if (NodeType( *ThisScb ) == NTFS_NTC_SCB_INDEX &&
-                (*ThisScb)->ScbType.Index.NormalizedName.Buffer == NULL &&
-                ParentScb->ScbType.Index.NormalizedName.Buffer != NULL) {
+            if ((SafeNodeType( *ThisScb ) == NTFS_NTC_SCB_INDEX) &&
+                ((*ThisScb)->ScbType.Index.NormalizedName.Buffer == NULL) &&
+                (ParentScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
 
                 NtfsUpdateNormalizedName( IrpContext,
                                           ParentScb,
                                           *ThisScb,
-                                          IndexFileName );
-            }
-
-            //
-            //  Now look at whether we need to update the Fcb and on disk
-            //  structures.
-            //
-
-            if (!VolumeOpen) {
-
-                NtfsCheckLastAccess( IrpContext, ThisFcb );
+                                          IndexFileName,
+                                          FALSE );
             }
 
             //
@@ -4398,7 +5176,7 @@ Return Value:
             //  to check if we initialize the Scb.
             //
 
-            if (!IndexedAttribute && !VolumeOpen) {
+            if (!IndexedAttribute) {
 
                 if (!FlagOn( Scb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
@@ -4406,10 +5184,10 @@ Return Value:
                     //  We may have the sizes from our Fcb update call.
                     //
 
-                    if (HaveScbSizes
-                        && AttrTypeCode == $DATA
-                        && AttrName.Length == 0
-                        && !FlagOn( Scb->ScbState, SCB_STATE_CREATE_MODIFIED_SCB )) {
+                    if (HaveScbSizes &&
+                        (AttrTypeCode == $DATA) &&
+                        (AttrName.Length == 0) &&
+                        !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB )) {
 
                         NtfsUpdateScbFromMemory( IrpContext, Scb, &ScbSizes );
 
@@ -4419,27 +5197,8 @@ Return Value:
                     }
                 }
 
-                //
-                //  We also check if the allocation or file size have changed
-                //  behind our backs.
-                //
-
-                if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-                    if (Scb->Header.AllocationSize.QuadPart !=
-                        ThisFcb->Info.AllocatedLength) {
-
-                        ThisFcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_ALLOC_SIZE );
-                    }
-
-                    if (Scb->Header.FileSize.QuadPart != ThisFcb->Info.FileSize) {
-
-                        ThisFcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
-                        SetFlag( ThisFcb->InfoFlags,
-                                 FCB_INFO_CHANGED_FILE_SIZE );
-                    }
+                if (IrpSp->FileObject->WriteAccess) {
+                    NtfsExpandQuotaToAllocationSize( IrpContext, Scb );
                 }
 
                 //
@@ -4462,28 +5221,22 @@ Return Value:
                 && (Scb->Header.AllocationSize.QuadPart != 0)
                 && !FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
 
-                LONGLONG ClusterCount;
                 LCN Lcn;
                 VCN Vcn;
                 VCN AllocatedVcns;
 
-                AllocatedVcns = Scb->Header.AllocationSize.QuadPart >> Scb->Vcb->ClusterShift;
+                AllocatedVcns = Int64ShraMod32(Scb->Header.AllocationSize.QuadPart, Scb->Vcb->ClusterShift);
 
-                NtfsLookupAllocation( IrpContext,
-                                      Scb,
-                                      AllocatedVcns,
-                                      &Lcn,
-                                      &ClusterCount,
-                                      NULL );
+                NtfsPreloadAllocation( IrpContext, Scb, 0, AllocatedVcns );
 
                 //
                 //  Now make sure the allocation is correctly loaded.  The last
                 //  Vcn should correspond to the allocation size for the file.
                 //
 
-                if (!FsRtlLookupLastLargeMcbEntry( &Scb->Mcb,
-                                                   &Vcn,
-                                                   &Lcn ) ||
+                if (!NtfsLookupLastNtfsMcbEntry( &Scb->Mcb,
+                                                 &Vcn,
+                                                 &Lcn ) ||
                     (Vcn + 1) != AllocatedVcns) {
 
                     NtfsRaiseStatus( IrpContext,
@@ -4498,22 +5251,10 @@ Return Value:
             //  access time.
             //
 
-            if (Scb->AttributeTypeCode == $DATA
-                && Scb->AttributeName.Length == 0
-                && FlagOn( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess,
-                           FILE_EXECUTE )) {
+            if (FlagOn( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess, FILE_EXECUTE ) &&
+                (Scb->AttributeTypeCode == $DATA)) {
 
-                NtfsGetCurrentTime( IrpContext, ThisFcb->CurrentLastAccess );
-            }
-
-            //
-            //  If we are to update the standard information attribute,
-            //  we will do this at this time.
-            //
-
-            if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
-
-                NtfsUpdateStandardInformation( IrpContext, ThisFcb );
+                SetFlag( IrpSp->FileObject->Flags, FO_FILE_FAST_IO_READ );
             }
 
             //
@@ -4525,56 +5266,85 @@ Return Value:
                            sizeof( QUICK_INDEX ));
 
             //
-            //  If there is some unreported change to the file,
-            //  we update all copies on the disk and report the
-            //  changes to dir notify.
+            //  If this operation was a supersede/overwrite or we created a new
+            //  attribute stream then we want to perform the file record and
+            //  directory update now.  Otherwise we will defer the updates until
+            //  the user closes his handle.
             //
 
-            if (ThisFcb->InfoFlags != 0 ||
-                ThisLcb->InfoFlags != 0) {
+            if (UpdateFcbInfo ||
+                (Irp->IoStatus.Information == FILE_CREATED) ||
+                (Irp->IoStatus.Information == FILE_SUPERSEDED) ||
+                (Irp->IoStatus.Information == FILE_OVERWRITTEN)) {
 
-                ULONG FilterMatch;
+                NtfsUpdateScbFromFileObject( IrpContext, IrpSp->FileObject, *ThisScb, TRUE );
 
-                ASSERT( !VolumeOpen );
+                //
+                //  Do the standard information, file sizes and then duplicate information
+                //  if needed.
+                //
 
-                NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, ThisLcb, ParentScb );
+                if (FlagOn( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO )) {
 
-                if (!OpenById) {
-
-                    //
-                    //  We map the Fcb info flags into the dir notify flags.
-                    //
-
-                    FilterMatch = NtfsBuildDirNotifyFilter( IrpContext,
-                                                            ThisFcb,
-                                                            ThisFcb->InfoFlags | ThisLcb->InfoFlags );
-
-                    //
-                    //  If the filter match is non-zero, that means we also need to do a
-                    //  dir notify call.
-                    //
-
-                    if (FilterMatch != 0) {
-
-                        NtfsReportDirNotify( IrpContext,
-                                             ThisFcb->Vcb,
-                                             &(*ThisCcb)->FullFileName,
-                                             (*ThisCcb)->LastFileNameOffset,
-                                             NULL,
-                                             ((FlagOn( (*ThisCcb)->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
-                                               (*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                              &(*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName :
-                                              NULL),
-                                             FilterMatch,
-                                             FILE_ACTION_MODIFIED,
-                                             ParentScb->Fcb );
-                    }
-
-                    ClearFlag( ThisFcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
+                    NtfsUpdateStandardInformation( IrpContext, ThisFcb );
                 }
 
-                NtfsUpdateLcbDuplicateInfo( IrpContext, ThisFcb, ThisLcb );
-                ThisFcb->InfoFlags = 0;
+                if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE )) {
+
+                    NtfsWriteFileSizes( IrpContext,
+                                        *ThisScb,
+                                        &(*ThisScb)->Header.ValidDataLength.QuadPart,
+                                        FALSE,
+                                        TRUE );
+                }
+
+                if (FlagOn( ThisFcb->InfoFlags, FCB_INFO_DUPLICATE_FLAGS )) {
+
+                    ULONG FilterMatch;
+
+                    NtfsUpdateDuplicateInfo( IrpContext, ThisFcb, *LcbForTeardown, ParentScb );
+
+                    if (Vcb->NotifyCount != 0) {
+
+                        //
+                        //  We map the Fcb info flags into the dir notify flags.
+                        //
+
+                        FilterMatch = NtfsBuildDirNotifyFilter( IrpContext,
+                                                                ThisFcb->InfoFlags | ThisLcb->InfoFlags );
+
+                        //
+                        //  If the filter match is non-zero, that means we also need to do a
+                        //  dir notify call.
+                        //
+
+                        if ((FilterMatch != 0) && (*ThisCcb != NULL)) {
+
+                            NtfsReportDirNotify( IrpContext,
+                                                 ThisFcb->Vcb,
+                                                 &(*ThisCcb)->FullFileName,
+                                                 (*ThisCcb)->LastFileNameOffset,
+                                                 NULL,
+                                                 ((FlagOn( (*ThisCcb)->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                                   (*ThisCcb)->Lcb != NULL &&
+                                                   (*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                  &(*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName :
+                                                  NULL),
+                                                 FilterMatch,
+                                                 FILE_ACTION_MODIFIED,
+                                                 ParentScb->Fcb );
+                        }
+                    }
+
+                    NtfsUpdateLcbDuplicateInfo( ThisFcb, *LcbForTeardown );
+                    ThisFcb->InfoFlags = 0;
+                }
+
+                ClearFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+
+                NtfsAcquireFsrtlHeader( *ThisScb );
+                ClearFlag( (*ThisScb)->ScbState, SCB_STATE_CHECK_ATTRIBUTE_SIZE );
+                NtfsReleaseFsrtlHeader( *ThisScb );
             }
         }
 
@@ -4598,24 +5368,18 @@ Return Value:
         //      Changes to the share access values in the Fcb.
         //
 
-        if (!NT_SUCCESS( Status )
-            || AbnormalTermination()
-            || Status == STATUS_PENDING ) {
+        if (!NT_SUCCESS( Status ) || AbnormalTermination()) {
 
             NtfsBackoutFailedOpens( IrpContext,
                                     IrpSp->FileObject,
                                     ThisFcb,
                                     *ThisScb,
-                                    *ThisCcb,
-                                    IndexedAttribute,
-                                    VolumeOpen,
-                                    CurrentInfo,
-                                    InfoFlags );
+                                    *ThisCcb );
         }
 
         if (DecrementCloseCount) {
 
-            ThisFcb->CloseCount -= 1;
+            InterlockedDecrement( &ThisFcb->CloseCount );
         }
 
         //
@@ -4624,23 +5388,18 @@ Return Value:
         //  leave it alone.
         //
 
-        if (LocalFcbForTeardown != NULL &&
-            Status != STATUS_PENDING) {
+        if ((LocalFcbForTeardown != NULL) &&
+            (Status != STATUS_PENDING)) {
 
             NtfsTeardownStructures( IrpContext,
                                     ThisFcb,
                                     NULL,
+                                    (BOOLEAN) (IrpContext->TransactionId != 0),
                                     FALSE,
-                                    &RemovedFcb,
-                                    FALSE );
+                                    NULL );
         }
 
-        if (AcquiredThisFcb && !RemovedFcb) {
-
-            NtfsReleaseFcb( IrpContext, ThisFcb );
-        }
-
-        DebugTrace( -1, Dbg, "NtfsOpenFile:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenFile:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -4657,7 +5416,6 @@ NtfsCreateNewFile (
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN PFILE_NAME FileNameAttr,
     IN UNICODE_STRING FullPathName,
     IN UNICODE_STRING FinalName,
@@ -4666,6 +5424,7 @@ NtfsCreateNewFile (
     IN BOOLEAN IgnoreCase,
     IN BOOLEAN OpenById,
     IN BOOLEAN DosOnlyComponent,
+    IN BOOLEAN TrailingBackslash,
     OUT PFCB *CurrentFcb,
     OUT PLCB *LcbForTeardown,
     OUT PSCB *ThisScb,
@@ -4691,9 +5450,6 @@ Arguments:
 
     ParentScb - This is the Scb for the parent directory.
 
-    AcquiredParentFcb - Address to store TRUE if we acquire a new Fcb
-        and hold the ParentScb.
-
     FileNameAttr - This is the file name attribute we used to perform the
         search.  The file name is correct but the other fields need to
         be initialized.
@@ -4714,6 +5470,9 @@ Arguments:
     DosOnlyComponent - Indicates if there is a DOS-ONLY component in an ancestor
         of this open.
 
+    TrailingBackslash - Indicates if caller had a terminating backslash on the
+        name.
+
     CurrentFcb - This is the address to store the Fcb if we successfully find
         one in the Fcb/Scb tree.
 
@@ -4723,6 +5482,8 @@ Arguments:
     ThisScb - This is the address to store the Scb from this open.
 
     ThisCcb - This is the address to store the Ccb from this open.
+
+    Tunnel - This is the property tunnel to search for restoration
 
 Return Value:
 
@@ -4747,27 +5508,35 @@ Return Value:
     PFILE_RECORD_SEGMENT_HEADER FileRecord;
 
     PSCB Scb;
-    PLCB ThisLcb;
+    PLCB ThisLcb = NULL;
     PFCB ThisFcb = NULL;
-    PFCB LocalFcbForTeardown = NULL;
     BOOLEAN AcquiredFcbTable = FALSE;
     BOOLEAN RemovedFcb = FALSE;
-    BOOLEAN AcquiredThisFcb = FALSE;
     BOOLEAN DecrementCloseCount = FALSE;
+    BOOLEAN QuotaIndexAcquired = FALSE;
+    BOOLEAN SecurityStreamAcquired = FALSE;
 
     PACCESS_STATE AccessState;
     BOOLEAN ReturnedExistingFcb;
 
+    BOOLEAN LoggedFileRecord = FALSE;
+
+    BOOLEAN HaveTunneledInformation = FALSE;
+    NAME_PAIR NamePair;
+    LONGLONG TunneledCreationTime;
+    ULONG TunneledDataSize;
+
     VCN Cluster;
     LCN Lcn;
     VCN Vcn;
-    LONGLONG ClusterCount;
 
     UCHAR FileNameFlags;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCreateNewFile:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCreateNewFile:  Entered\n") );
+
+    NtfsInitializeNamePair(&NamePair);
 
     if (DosOnlyComponent) {
 
@@ -4785,35 +5554,54 @@ Return Value:
 
         CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
 
-        if (CreateDisposition == FILE_OPEN
-            || CreateDisposition == FILE_OVERWRITE) {
+        if ((CreateDisposition == FILE_OPEN) ||
+            (CreateDisposition == FILE_OVERWRITE)) {
 
             Status = STATUS_OBJECT_NAME_NOT_FOUND;
 
-            DebugTrace( -1, Dbg, "NtfsCreateNewFile:  Exit -> %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit -> %08lx\n", Status) );
+            return Status;
+
+        } else if (FlagOn( IrpSp->Parameters.Create.Options,
+                           FILE_DIRECTORY_FILE ) &&
+                   (CreateDisposition == FILE_OVERWRITE_IF)) {
+
+            Status = STATUS_OBJECT_NAME_INVALID;
+
+            DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit -> %08lx\n", Status) );
             return Status;
         }
     }
 
     Vcb = ParentScb->Vcb;
 
-    Status = NtfsCheckValidAttributeAccess( IrpContext,
-                                            Irp,
-                                            IrpSp,
+    Status = NtfsCheckValidAttributeAccess( IrpSp,
                                             Vcb,
                                             NULL,
                                             AttrName,
                                             AttrCodeName,
-                                            FALSE,
+                                            TrailingBackslash,
                                             &AttrTypeCode,
                                             &CcbFlags,
                                             &IndexedAttribute );
 
     if (!NT_SUCCESS( Status )) {
 
-        DebugTrace( -1, Dbg, "NtfsCreateNewFile:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit  ->  %08lx\n", Status) );
 
         return Status;
+    }
+
+    //
+    //  Fail this request if this is an indexed attribute and the TEMPORARY
+    //  bit is set.
+    //
+
+    if (IndexedAttribute &&
+        FlagOn( IrpSp->Parameters.Create.FileAttributes, FILE_ATTRIBUTE_TEMPORARY )) {
+
+        DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit -> %08lx\n", STATUS_INVALID_PARAMETER) );
+        return STATUS_INVALID_PARAMETER;
     }
 
     //
@@ -4823,7 +5611,7 @@ Return Value:
     if (FlagOn( IrpSp->Parameters.Create.FileAttributes, FILE_ATTRIBUTE_READONLY ) &&
         FlagOn( IrpSp->Parameters.Create.Options, FILE_DELETE_ON_CLOSE )) {
 
-        DebugTrace( -1, Dbg, "NtfsCreateNewFile:  Exit -> %08lx\n", STATUS_CANNOT_DELETE );
+        DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit -> %08lx\n", STATUS_CANNOT_DELETE) );
         return STATUS_CANNOT_DELETE;
     }
 
@@ -4881,6 +5669,25 @@ Return Value:
 
         AccessState->RemainingDesiredAccess = 0;
 
+#ifdef _CAIRO_
+
+        //
+        //  The security stream and quota index must be acquired before
+        //  the mft scb is acquired.
+        //
+
+        NtfsAcquireSecurityStream( IrpContext, Vcb, &SecurityStreamAcquired );
+
+        if (FlagOn(Vcb->QuotaFlags, QUOTA_FLAG_TRACKING_ENABLED)) {
+
+            ASSERT(!NtfsIsExclusiveScb( Vcb->MftScb ) || NtfsIsExclusiveScb( Vcb->QuotaTableScb ));
+
+            NtfsAcquireExclusiveScb( IrpContext, Vcb->QuotaTableScb );
+            QuotaIndexAcquired = TRUE;
+        }
+
+#endif // _CAIRO_
+
         //
         //  We will now try to do all of the on-disk operations.  This means first
         //  allocating and initializing an Mft record.  After that we create
@@ -4889,7 +5696,6 @@ Return Value:
 
         ThisFileReference =  NtfsAllocateMftRecord( IrpContext,
                                                     Vcb,
-                                                    ParentScb->Fcb->FileReference,
                                                     FALSE );
 
         //
@@ -4922,12 +5728,10 @@ Return Value:
                                  Vcb,
                                  ThisFileReference,
                                  BooleanFlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ),
+                                 IndexedAttribute,
                                  &ReturnedExistingFcb );
 
-        LocalFcbForTeardown = ThisFcb;
-
-        NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, FALSE );
-        AcquiredThisFcb = TRUE;
+        NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, FALSE );
 
         NtfsReleaseFcbTable( IrpContext, Vcb );
         AcquiredFcbTable = FALSE;
@@ -4936,7 +5740,7 @@ Return Value:
         //  Reference the Fcb so it won't go away.
         //
 
-        ThisFcb->CloseCount += 1;
+        InterlockedIncrement( &ThisFcb->CloseCount );
         DecrementCloseCount = TRUE;
 
         //
@@ -4956,6 +5760,93 @@ Return Value:
         }
 
         //
+        //  We're about to start creating structures on the disk, for which we'll
+        //  possibly need to have tunneling infomation. Get it, non-POSIX only.
+        //
+
+        if (!IndexedAttribute && IgnoreCase) {
+
+            TunneledDataSize = sizeof(LONGLONG);
+
+            if (FsRtlFindInTunnelCache( &Vcb->Tunnel,
+                                        *(PULONGLONG)&ParentScb->Fcb->FileReference,
+                                        &FinalName,
+                                        &NamePair.Short,
+                                        &NamePair.Long,
+                                        &TunneledDataSize,
+                                        &TunneledCreationTime)) {
+
+                ASSERT(TunneledDataSize == sizeof(LONGLONG));
+
+                HaveTunneledInformation = TRUE;
+            }
+        }
+
+#ifdef _CAIRO_
+
+        SetFlag( ThisFcb->FcbState, FCB_STATE_LARGE_STD_INFO );
+
+        //
+        //  BUGBUG - remove this test when all volumes are CAIRO
+        //
+
+        if (Vcb->SecurityDescriptorStream != NULL)
+        {
+
+            //
+            //  We assign the security for this object in order to generate a SecurityId
+            //  that will be stored in the standard info.
+            //
+
+            NtfsAssignSecurity( IrpContext,
+                                ParentScb->Fcb,
+                                Irp,
+                                ThisFcb,
+                                NULL,               //  BUGBUG delete
+                                NULL,               //  BUGBUG delete
+                                0i64,               //  BUGBUG delete
+                                &LoggedFileRecord );//  BUGBUG delete
+        }
+
+        //
+        //  If quota tracking is enabled then the quota index will have
+        //  been acquired and a owner id should be assigned to the the
+        //  new file.
+        //
+
+        if (QuotaIndexAcquired) {
+
+            PSID Sid;
+            BOOLEAN OwnerDefaulted;
+
+            ASSERT(ThisFcb->SharedSecurity != NULL);
+
+            //
+            //  Extract the security id from the security descriptor.
+            //
+
+            Status = RtlGetOwnerSecurityDescriptor(
+                        ThisFcb->SharedSecurity->SecurityDescriptor,
+                        &Sid,
+                        &OwnerDefaulted );
+
+            if (!NT_SUCCESS(Status)) {
+                leave;
+            }
+
+            //
+            // Generate a owner id for the Fcb.
+            //
+
+            ThisFcb->OwnerId = NtfsGetOwnerId( IrpContext,
+                                               Sid,
+                                               NULL );
+
+            NtfsInitializeQuotaControlBlock( ThisFcb );
+        }
+#endif // _CAIRO_
+
+        //
         //  The changes to make on disk are first to create a standard information
         //  attribute.  We start by filling the Fcb with the information we
         //  know and creating the attribute on disk.
@@ -4964,9 +5855,11 @@ Return Value:
         NtfsInitializeFcbAndStdInfo( IrpContext,
                                      ThisFcb,
                                      IndexedAttribute,
-                                     BooleanFlagOn( ParentScb->ScbState,
-                                                    SCB_STATE_COMPRESSED ),
-                                     IrpSp->Parameters.Create.FileAttributes );
+                                     (BOOLEAN) (!FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_COMPRESSION ) &&
+                                                !FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE ) &&
+                                                FlagOn( ParentScb->ScbState, SCB_STATE_COMPRESSED )),
+                                     IrpSp->Parameters.Create.FileAttributes,
+                                     (HaveTunneledInformation? &TunneledCreationTime : NULL) );
 
         //
         //  Next we create the Index for a directory or the unnamed data for
@@ -4986,16 +5879,20 @@ Return Value:
                                               NULL,
                                               NULL,
                                               0,
-                                              (USHORT)(ParentScb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK),
+                                              (USHORT) ((!FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+                                                         !FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_COMPRESSION )) ?
+                                                        (ParentScb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) :
+                                                        0),
                                               NULL,
                                               FALSE,
                                               &AttrContext );
 
-                NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+                NtfsCleanupAttributeContext( &AttrContext );
                 CleanupAttrContext = FALSE;
 
                 ThisFcb->Info.AllocatedLength = 0;
                 ThisFcb->Info.FileSize = 0;
+
             }
 
         } else {
@@ -5004,21 +5901,16 @@ Return Value:
                              ThisFcb,
                              $FILE_NAME,
                              COLLATION_FILE_NAME,
-                             (UCHAR)Vcb->DefaultClustersPerIndexAllocationBuffer,
+                             Vcb->DefaultBytesPerIndexAllocationBuffer,
+                             (UCHAR)Vcb->DefaultBlocksPerIndexAllocationBuffer,
                              NULL,
-                             (USHORT)(ParentScb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK),
+                             (USHORT) (!FlagOn( IrpSp->Parameters.Create.Options,
+                                                FILE_NO_COMPRESSION ) ?
+                                       (ParentScb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK) :
+                                       0),
                              TRUE,
                              FALSE );
         }
-
-        //
-        //  Next we will assign security to this new file.
-        //
-
-        NtfsAssignSecurity( IrpContext,
-                            ParentScb->Fcb,
-                            Irp,
-                            ThisFcb );
 
         //
         //  Now we create the Lcb, this means that this Fcb is in the graph.
@@ -5030,12 +5922,6 @@ Return Value:
                                  FinalName,
                                  0,
                                  NULL );
-
-        *LcbForTeardown = ThisLcb;
-        *CurrentFcb = ThisFcb;
-        *AcquiredParentFcb = TRUE;
-        AcquiredThisFcb = FALSE;
-        LocalFcbForTeardown = NULL;
 
         //
         //  Finally we create and open the desired attribute for the user.
@@ -5058,6 +5944,7 @@ Return Value:
                                         (OpenById
                                          ? CcbFlags | CCB_FLAG_OPEN_BY_FILE_ID
                                          : CcbFlags),
+                                        NULL,
                                         ThisScb,
                                         ThisCcb );
 
@@ -5113,7 +6000,7 @@ Return Value:
 
                 if (FlagOn( Scb->ScbState, SCB_STATE_UNNAMED_DATA )) {
 
-                    ThisFcb->Info.AllocatedLength = Scb->Header.AllocationSize.QuadPart;
+                    ThisFcb->Info.AllocatedLength = Scb->TotalAllocated;
                     ThisFcb->Info.FileSize = Scb->Header.FileSize.QuadPart;
                 }
             }
@@ -5129,47 +6016,91 @@ Return Value:
                          ParentScb,
                          ThisFcb,
                          FileNameAttr,
-                         FALSE,
+                         &LoggedFileRecord,
                          &FileNameFlags,
-                         &ThisLcb->QuickIndex );
+                         &ThisLcb->QuickIndex,
+                         (HaveTunneledInformation? &NamePair : NULL) );
 
             //
             //  We created the Lcb without knowing the correct value for the
             //  flags.  We update it now.
             //
 
-            ThisLcb->FileNameFlags = FileNameFlags;
+            ThisLcb->FileNameAttr->Flags = FileNameFlags;
             FileNameAttr->Flags = FileNameFlags;
+
+            //
+            //  We also have to fix up the ExactCaseLink of the Lcb since we may have had
+            //  a short name create turned into a tunneled long name create, meaning that
+            //  it should be full uppercase. And the filename in the IRP.
+            //
+
+            if (FileNameFlags == FILE_NAME_DOS) {
+
+                RtlUpcaseUnicodeString(&ThisLcb->ExactCaseLink.LinkName, &ThisLcb->ExactCaseLink.LinkName, FALSE);
+                RtlUpcaseUnicodeString(&IrpSp->FileObject->FileName, &IrpSp->FileObject->FileName, FALSE);
+            }
 
             //
             //  If this is a directory open and the normalized name is not in
             //  the Scb then do so now.
             //
 
-            if (NodeType( *ThisScb ) == NTFS_NTC_SCB_INDEX &&
-                (*ThisScb)->ScbType.Index.NormalizedName.Buffer == NULL &&
-                ParentScb->ScbType.Index.NormalizedName.Buffer != NULL) {
+            if ((SafeNodeType( *ThisScb ) == NTFS_NTC_SCB_INDEX) &&
+                ((*ThisScb)->ScbType.Index.NormalizedName.Buffer == NULL) &&
+                (ParentScb->ScbType.Index.NormalizedName.Buffer != NULL)) {
 
                 NtfsUpdateNormalizedName( IrpContext,
                                           ParentScb,
                                           *ThisScb,
-                                          FileNameAttr );
+                                          FileNameAttr,
+                                          FALSE );
             }
 
             //
             //  Clear the flags in the Fcb that indicate we need to update on
-            //  disk structures.
+            //  disk structures.  Also clear any file object and Ccb flags
+            //  which also indicate we may need to do an update.
             //
 
             ThisFcb->InfoFlags = 0;
             ClearFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-            ClearFlag( ThisFcb->FcbState, FCB_STATE_MODIFIED_SECURITY );
+
+            ClearFlag( IrpSp->FileObject->Flags,
+                       FO_FILE_MODIFIED | FO_FILE_FAST_IO_READ | FO_FILE_SIZE_CHANGED );
+
+            ClearFlag( (*ThisCcb)->Flags,
+                       (CCB_FLAG_UPDATE_LAST_MODIFY |
+                        CCB_FLAG_UPDATE_LAST_CHANGE |
+                        CCB_FLAG_SET_ARCHIVE) );
 
             //
-            //  We now log the new Mft record.
+            //  BUGBUG begin section to delete when all volumes are CAIRO
             //
 
-            Cluster = LlClustersFromBytes( Vcb, FileRecordOffset );
+ #ifdef _CAIRO_
+            if (Vcb->SecurityDescriptorStream == NULL)
+            {
+ #endif
+                //
+                //  Next we will assign security to this new file.
+                //
+
+                NtfsAssignSecurity( IrpContext,
+                                    ParentScb->Fcb,
+                                    Irp,
+                                    ThisFcb,
+                                    FileRecord,
+                                    FileRecordBcb,
+                                    FileRecordOffset,
+                                    &LoggedFileRecord );
+ #ifdef _CAIRO_
+            }
+ #endif //  _CAIRO_
+
+            //
+            //  BUGBUG end section to delete when all volumes are CAIRO
+            //
 
             //
             //  Log the file record.
@@ -5184,10 +6115,14 @@ Return Value:
                                             Noop,
                                             NULL,
                                             0,
-                                            Cluster,
+                                            FileRecordOffset,
                                             0,
                                             0,
-                                            Vcb->ClustersPerFileRecordSegment );
+                                            Vcb->BytesPerFileRecordSegment );
+
+#if 0 // _CAIRO_
+           ASSERT(!NtfsPerformQuotaOperation(ThisFcb) || NtfsCalculateQuotaAdjustment( IrpContext, ThisFcb) == 0);
+#endif
 
             //
             //  Now add the eas for the file.  We need to add them now because
@@ -5210,15 +6145,7 @@ Return Value:
             //  parent.
             //
 
-            NtfsUpdateFcb( IrpContext, ParentScb->Fcb, TRUE );
-
-            //
-            //  Now we insert the Lcb for this Fcb.
-            //
-
-            NtfsInsertPrefix( IrpContext,
-                              ThisLcb,
-                              IgnoreCase );
+            NtfsUpdateFcb( ParentScb->Fcb );
 
             //
             //  If this is the paging file, we want to be sure the allocation
@@ -5227,23 +6154,18 @@ Return Value:
 
             if (FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE )) {
 
-                Cluster = Scb->Header.AllocationSize.QuadPart >> Scb->Vcb->ClusterShift;
+                Cluster = Int64ShraMod32(Scb->Header.AllocationSize.QuadPart, Scb->Vcb->ClusterShift);
 
-                NtfsLookupAllocation( IrpContext,
-                                      Scb,
-                                      Cluster,
-                                      &Lcn,
-                                      &ClusterCount,
-                                      NULL );
+                NtfsPreloadAllocation( IrpContext, Scb, 0, Cluster );
 
                 //
                 //  Now make sure the allocation is correctly loaded.  The last
                 //  Vcn should correspond to the allocation size for the file.
                 //
 
-                if (!FsRtlLookupLastLargeMcbEntry( &Scb->Mcb,
-                                                   &Vcn,
-                                                   &Lcn ) ||
+                if (!NtfsLookupLastNtfsMcbEntry( &Scb->Mcb,
+                                                 &Vcn,
+                                                 &Lcn ) ||
                     (Vcn + 1) != Cluster) {
 
                     NtfsRaiseStatus( IrpContext,
@@ -5257,7 +6179,7 @@ Return Value:
             //  We report to our parent that we created a new file.
             //
 
-            if (!OpenById) {
+            if (!OpenById && (Vcb->NotifyCount != 0)) {
 
                 NtfsReportDirNotify( IrpContext,
                                      ThisFcb->Vcb,
@@ -5265,6 +6187,7 @@ Return Value:
                                      (*ThisCcb)->LastFileNameOffset,
                                      NULL,
                                      ((FlagOn( (*ThisCcb)->Flags, CCB_FLAG_PARENT_HAS_DOS_COMPONENT ) &&
+                                       (*ThisCcb)->Lcb != NULL &&
                                        (*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
                                       &(*ThisCcb)->Lcb->Scb->ScbType.Index.NormalizedName :
                                       NULL),
@@ -5273,20 +6196,16 @@ Return Value:
                                       : FILE_NOTIFY_CHANGE_FILE_NAME),
                                      FILE_ACTION_ADDED,
                                      ParentScb->Fcb );
-
-                ThisFcb->InfoFlags = 0;
             }
 
+            ThisFcb->InfoFlags = 0;
+
             //
-            //  If this is not an indexed attribute and the caller indicated this is
-            //  a temporary stream then set the flag in the Scb.
+            //  Now we insert the Lcb for this Fcb.
             //
 
-            if (!IndexedAttribute
-                && FlagOn( IrpSp->Parameters.Create.FileAttributes, FILE_ATTRIBUTE_TEMPORARY )) {
-
-                SetFlag( Scb->ScbState, SCB_STATE_TEMPORARY );
-            }
+            NtfsInsertPrefix( ThisLcb,
+                              IgnoreCase );
 
             Irp->IoStatus.Information = FILE_CREATED;
         }
@@ -5301,7 +6220,25 @@ Return Value:
             NtfsReleaseFcbTable( IrpContext, Vcb );
         }
 
-        NtfsUnpinBcb( IrpContext, &FileRecordBcb );
+        NtfsUnpinBcb( &FileRecordBcb );
+
+        NtfsReleaseQuotaIndex( IrpContext, Vcb, QuotaIndexAcquired );
+        NtfsReleaseSecurityStream( IrpContext, Vcb, SecurityStreamAcquired );
+
+        if (CleanupAttrContext) {
+
+            NtfsCleanupAttributeContext( &AttrContext );
+        }
+
+        if (DecrementCloseCount) {
+
+            InterlockedDecrement( &ThisFcb->CloseCount );
+        }
+
+        if (NamePair.Long.Buffer != NamePair.LongBuffer) {
+
+            NtfsFreePool(NamePair.Long.Buffer);
+        }
 
         //
         //  We need to cleanup any changes to the in memory
@@ -5314,11 +6251,7 @@ Return Value:
                                     IrpSp->FileObject,
                                     ThisFcb,
                                     *ThisScb,
-                                    *ThisCcb,
-                                    IndexedAttribute,
-                                    FALSE,
-                                    NULL,
-                                    0 );
+                                    *ThisCcb );
 
             //
             //  Always force the Fcb to reinitialized.
@@ -5348,42 +6281,77 @@ Return Value:
 
                     Scb = CONTAINING_RECORD( Links, SCB, FcbLinks );
 
-                    Scb->HighestVcnToDisk =
+                    Scb->ValidDataToDisk =
                     Scb->Header.AllocationSize.QuadPart =
                     Scb->Header.FileSize.QuadPart =
                     Scb->Header.ValidDataLength.QuadPart = 0;
 
                     SetFlag( Scb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
                 }
+
+                //
+                //  Clear the Scb field so our caller doesn't try to teardown
+                //  from this point.
+                //
+
+                *ThisScb = NULL;
+
+                //
+                //  If we created an Fcb then we want to check if we need to
+                //  unwind any structure allocation.  We don't want to remove any
+                //  structures needed for the coming AbortTransaction.  This
+                //  includes the parent Scb as well as the current Fcb if we
+                //  logged the ACL creation.
+                //
+
+                //
+                //  Make sure the parent Fcb doesn't go away.  Then
+                //  start a teardown from the Fcb we just found.
+                //
+
+                InterlockedIncrement( &ParentScb->CleanupCount );
+
+                NtfsTeardownStructures( IrpContext,
+                                        ThisFcb,
+                                        NULL,
+                                        LoggedFileRecord,
+                                        FALSE,
+                                        &RemovedFcb );
+
+                //
+                //  If the Fcb was removed then both the Fcb and Lcb are gone.
+                //
+
+                if (RemovedFcb) {
+
+                    ThisFcb = NULL;
+                    ThisLcb = NULL;
+                }
+
+                InterlockedDecrement( &ParentScb->CleanupCount );
             }
         }
 
-        if (CleanupAttrContext) {
+        //
+        //  If the new Fcb is still present then either return it as the
+        //  deepest Fcb encountered in this open or release it.
+        //
 
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        if (ThisFcb != NULL) {
+
+            //
+            //  If the Lcb is present then this is part of the tree.  Our
+            //  caller knows to release it.
+            //
+
+            if (ThisLcb != NULL) {
+
+                *LcbForTeardown = ThisLcb;
+                *CurrentFcb = ThisFcb;
+            }
         }
 
-        if (DecrementCloseCount) {
-
-            ThisFcb->CloseCount -= 1;
-        }
-
-        if (LocalFcbForTeardown != NULL) {
-
-            NtfsTeardownStructures( IrpContext,
-                                    ThisFcb,
-                                    NULL,
-                                    FALSE,
-                                    &RemovedFcb,
-                                    FALSE );
-        }
-
-        if (AcquiredThisFcb && !RemovedFcb) {
-
-            NtfsReleaseFcb( IrpContext, ThisFcb );
-        }
-
-        DebugTrace( -1, Dbg, "NtfsCreateNewFile:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsCreateNewFile:  Exit  ->  %08lx\n", Status) );
     }
 
     return Status;
@@ -5398,7 +6366,6 @@ PLCB
 NtfsOpenSubdirectory (
     IN PIRP_CONTEXT IrpContext,
     IN PSCB ParentScb,
-    OUT PBOOLEAN AcquiredParentFcb,
     IN UNICODE_STRING Name,
     IN BOOLEAN TraverseAccessCheck,
     OUT PFCB *CurrentFcb,
@@ -5419,9 +6386,6 @@ Routine Description:
 Arguments:
 
     ParentScb - This is the Scb for the parent directory.
-
-    AcquiredParentFcb - Address to store TRUE if we acquire a new Fcb
-        and hold the ParentScb.
 
     Name - This is the name for the entry.
 
@@ -5445,19 +6409,17 @@ Return Value:
     PFCB ThisFcb;
     PLCB ThisLcb;
     PFCB LocalFcbForTeardown = NULL;
-    BOOLEAN AcquiredThisFcb = FALSE;
 
     BOOLEAN AcquiredFcbTable = FALSE;
     BOOLEAN ExistingFcb;
-    BOOLEAN RemovedFcb = FALSE;
 
     PVCB Vcb = ParentScb->Vcb;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenSubdirectory:  Entered\n", 0 );
-    DebugTrace(  0, Dbg, "ParentScb     ->  %08lx\n", 0 );
-    DebugTrace(  0, Dbg, "IndexEntry    ->  %08lx\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenSubdirectory:  Entered\n") );
+    DebugTrace( 0, Dbg, ("ParentScb     ->  %08lx\n") );
+    DebugTrace( 0, Dbg, ("IndexEntry    ->  %08lx\n") );
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -5479,6 +6441,7 @@ Return Value:
                                  ParentScb->Vcb,
                                  IndexEntry->FileReference,
                                  FALSE,
+                                 TRUE,
                                  &ExistingFcb );
 
         ThisFcb->ReferenceCount += 1;
@@ -5491,6 +6454,11 @@ Return Value:
         if (!ExistingFcb) {
 
             LocalFcbForTeardown = ThisFcb;
+
+        } else {
+
+            *CurrentFcb = ThisFcb;
+            *LcbForTeardown = NULL;
         }
 
         //
@@ -5499,27 +6467,29 @@ Return Value:
         //  dereference Fcb.
         //
 
-        if (!NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, TRUE )) {
+        if (!NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, TRUE )) {
 
             ParentScb->Fcb->ReferenceCount += 1;
-            ParentScb->CleanupCount += 1;
-            NtfsReleaseScb( IrpContext, ParentScb );
+            InterlockedIncrement( &ParentScb->CleanupCount );
+
+            //
+            //  Set the IrpContext to acquire paging io resources if our target
+            //  has one.  This will lock the MappedPageWriter out of this file.
+            //
+
+            if (ThisFcb->PagingIoResource != NULL) {
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_ACQUIRE_PAGING );
+            }
+
+            NtfsReleaseScbWithPaging( IrpContext, ParentScb );
             NtfsReleaseFcbTable( IrpContext, Vcb );
-            NtfsAcquireExclusiveFcb( IrpContext, ThisFcb, NULL, TRUE, FALSE );
+            NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, FALSE );
             NtfsAcquireExclusiveScb( IrpContext, ParentScb );
             NtfsAcquireFcbTable( IrpContext, Vcb );
-            ParentScb->CleanupCount -= 1;
+            InterlockedDecrement( &ParentScb->CleanupCount );
             ParentScb->Fcb->ReferenceCount -= 1;
-
-            //
-            //  Since we had to release the FcbTable we must make sure
-            //  to teardown on error.
-            //
-
-            LocalFcbForTeardown = ThisFcb;
         }
-
-        AcquiredThisFcb = TRUE;
 
         ThisFcb->ReferenceCount -= 1;
 
@@ -5537,16 +6507,13 @@ Return Value:
                                  ParentScb,
                                  ThisFcb,
                                  Name,
-                                 ((PFILE_NAME) NtfsFoundIndexEntry( IrpContext,
-                                                                    IndexEntry ))->Flags,
+                                 ((PFILE_NAME) NtfsFoundIndexEntry( IndexEntry ))->Flags,
                                  NULL );
 
         LocalFcbForTeardown = NULL;
 
         *LcbForTeardown = ThisLcb;
         *CurrentFcb = ThisFcb;
-        *AcquiredParentFcb = TRUE;
-        AcquiredThisFcb = FALSE;
 
         if (!FlagOn( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
 
@@ -5555,6 +6522,8 @@ Return Value:
                                        ThisFcb,
                                        ParentScb->Fcb,
                                        NULL );
+
+            NtfsConditionallyFixupQuota( IrpContext, ThisFcb );
         }
 
     } finally {
@@ -5578,16 +6547,11 @@ Return Value:
                                     ThisFcb,
                                     NULL,
                                     FALSE,
-                                    &RemovedFcb,
-                                    FALSE );
+                                    FALSE,
+                                    NULL );
         }
 
-        if (AcquiredThisFcb && !RemovedFcb) {
-
-            NtfsReleaseFcb( IrpContext, ThisFcb );
-        }
-
-        DebugTrace( -1, Dbg, "NtfsOpenSubdirectory:  Lcb  ->  %08lx\n", ThisLcb );
+        DebugTrace( -1, Dbg, ("NtfsOpenSubdirectory:  Lcb  ->  %08lx\n", ThisLcb) );
     }
 
     return ThisLcb;
@@ -5609,8 +6573,8 @@ NtfsOpenAttributeInExistingFile (
     IN UNICODE_STRING AttrName,
     IN ATTRIBUTE_TYPE_CODE AttrTypeCode,
     IN ULONG CcbFlags,
-    IN BOOLEAN VolumeOpen,
     IN BOOLEAN OpenById,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     )
@@ -5644,9 +6608,11 @@ Arguments:
 
     CcbFlags - This is the flag field for the Ccb.
 
-    VolumeOpen - Indicates if this is a volume open operation.
-
     OpenById - Indicates if this open is an open by Id.
+
+    NetworkInfo - If specified then this call is a fast open call to query
+        the network information.  We don't update any of the in-memory structures
+        for this.
 
     ThisScb - This is the address to store the Scb from this open.
 
@@ -5664,40 +6630,118 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenAttributeInExistingFile:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenAttributeInExistingFile:  Entered\n") );
 
     //
-    //  Call our open volume routine if this is a volume open.
+    //  If the caller is ea blind, let's check the need ea count on the
+    //  file.  We skip this check if he is accessing a named data stream.
     //
 
-    if (VolumeOpen) {
+    if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_EA_KNOWLEDGE )
+        && FlagOn( CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
 
-        Status = NtfsOpenVolume( IrpContext,
-                                 Irp,
-                                 IrpSp,
-                                 ThisFcb,
-                                 OpenById,
-                                 ThisScb,
-                                 ThisCcb );
+        PEA_INFORMATION ThisEaInformation;
+        ATTRIBUTE_ENUMERATION_CONTEXT EaInfoAttrContext;
+
+        NtfsInitializeAttributeContext( &EaInfoAttrContext );
+
+        //
+        //  Use a try-finally to facilitate cleanup.
+        //
+
+        try {
+
+            //
+            //  If we find the Ea information attribute we look in there for
+            //  Need ea count.
+            //
+
+            if (NtfsLookupAttributeByCode( IrpContext,
+                                           ThisFcb,
+                                           &ThisFcb->FileReference,
+                                           $EA_INFORMATION,
+                                           &EaInfoAttrContext )) {
+
+                ThisEaInformation = (PEA_INFORMATION) NtfsAttributeValue( NtfsFoundAttribute( &EaInfoAttrContext ));
+
+                if (ThisEaInformation->NeedEaCount != 0) {
+
+                    Status = STATUS_ACCESS_DENIED;
+                }
+            }
+
+        } finally {
+
+            NtfsCleanupAttributeContext( &EaInfoAttrContext );
+        }
+
+        if (Status != STATUS_SUCCESS) {
+
+            DebugTrace( -1, Dbg, ("NtfsOpenAttributeInExistingFile:  Exit\n") );
+
+            return Status;
+        }
+    }
+
+    CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
 
     //
-    //  Else we need to open an attribute of a file.
+    //  If the result is a directory operation, then we know the attribute
+    //  must exist.
     //
+
+    if (AttrTypeCode == $INDEX_ALLOCATION) {
+
+        //
+        //  Check the create disposition.
+        //
+
+        if ((CreateDisposition != FILE_OPEN) && (CreateDisposition != FILE_OPEN_IF)) {
+
+            Status = (ThisLcb == ThisFcb->Vcb->RootLcb
+                      ? STATUS_ACCESS_DENIED
+                      : STATUS_OBJECT_NAME_COLLISION);
+
+        } else {
+
+            Status = NtfsOpenExistingAttr( IrpContext,
+                                           Irp,
+                                           IrpSp,
+                                           ThisLcb,
+                                           ThisFcb,
+                                           LastFileNameOffset,
+                                           NtfsFileNameIndex,
+                                           $INDEX_ALLOCATION,
+                                           CcbFlags,
+                                           OpenById,
+                                           TRUE,
+                                           NetworkInfo,
+                                           ThisScb,
+                                           ThisCcb );
+        }
 
     } else {
 
+        BOOLEAN FoundAttribute;
+
         //
-        //  If the caller is ea blind, let's check the need ea count on the
-        //  file.  We skip this check if he is accessing a named data stream.
+        //  If it exists, we first check if the caller wanted to open that attribute.
         //
 
-        if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_EA_KNOWLEDGE )
-            && FlagOn( CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
+        if (AttrName.Length == 0
+            && AttrTypeCode == $DATA) {
 
-            PEA_INFORMATION ThisEaInformation;
-            ATTRIBUTE_ENUMERATION_CONTEXT EaInfoAttrContext;
+            FoundAttribute = TRUE;
 
-            NtfsInitializeAttributeContext( &EaInfoAttrContext );
+        //
+        //  Otherwise we see if the attribute exists.
+        //
+
+        } else {
+
+            ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
+
+            NtfsInitializeAttributeContext( &AttrContext );
 
             //
             //  Use a try-finally to facilitate cleanup.
@@ -5705,59 +6749,45 @@ Return Value:
 
             try {
 
-                //
-                //  If we find the Ea information attribute we look in there for
-                //  Need ea count.
-                //
+                FoundAttribute = NtfsLookupAttributeByName( IrpContext,
+                                                            ThisFcb,
+                                                            &ThisFcb->FileReference,
+                                                            AttrTypeCode,
+                                                            &AttrName,
+                                                            NULL,
+                                                            (BOOLEAN) !BooleanFlagOn( IrpSp->Flags, SL_CASE_SENSITIVE ),
+                                                            &AttrContext );
 
-                if (NtfsLookupAttributeByCode( IrpContext,
-                                               ThisFcb,
-                                               &ThisFcb->FileReference,
-                                               $EA_INFORMATION,
-                                               &EaInfoAttrContext )) {
+                if (FoundAttribute) {
 
-                    ThisEaInformation = (PEA_INFORMATION) NtfsAttributeValue( NtfsFoundAttribute( &EaInfoAttrContext ));
+                    //
+                    //  If there is an attribute name, we will copy the case of the name
+                    //  to the input attribute name.
+                    //
 
-                    if (ThisEaInformation->NeedEaCount != 0) {
+                    PATTRIBUTE_RECORD_HEADER FoundAttribute;
 
-                        Status = STATUS_ACCESS_DENIED;
-                    }
+                    FoundAttribute = NtfsFoundAttribute( &AttrContext );
+
+                    RtlCopyMemory( AttrName.Buffer,
+                                   Add2Ptr( FoundAttribute, FoundAttribute->NameOffset ),
+                                   AttrName.Length );
                 }
 
             } finally {
 
-                NtfsCleanupAttributeContext( IrpContext, &EaInfoAttrContext );
-            }
-
-            if (Status != STATUS_SUCCESS) {
-
-                DebugTrace( -1, Dbg, "NtfsOpenAttributeInExistingFile:  Exit\n", 0 );
-
-                return Status;
+                NtfsCleanupAttributeContext( &AttrContext );
             }
         }
 
-        CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
-
-        //
-        //  If the result is a directory operation, then we know the attribute
-        //  must exist.
-        //
-
-        if (AttrTypeCode == $INDEX_ALLOCATION) {
+        if (FoundAttribute) {
 
             //
-            //  Check the create disposition.
+            //  In this case we call our routine to open this attribute.
             //
 
-            if (CreateDisposition != FILE_OPEN
-                && CreateDisposition != FILE_OPEN_IF) {
-
-                Status = (ThisLcb == ThisFcb->Vcb->RootLcb
-                          ? STATUS_ACCESS_DENIED
-                          : STATUS_OBJECT_NAME_COLLISION);
-
-            } else {
+            if ((CreateDisposition == FILE_OPEN) ||
+                (CreateDisposition == FILE_OPEN_IF)) {
 
                 Status = NtfsOpenExistingAttr( IrpContext,
                                                Irp,
@@ -5765,449 +6795,124 @@ Return Value:
                                                ThisLcb,
                                                ThisFcb,
                                                LastFileNameOffset,
-                                               NtfsFileNameIndex,
-                                               $INDEX_ALLOCATION,
+                                               AttrName,
+                                               AttrTypeCode,
                                                CcbFlags,
                                                OpenById,
-                                               TRUE,
+                                               FALSE,
+                                               NetworkInfo,
                                                ThisScb,
                                                ThisCcb );
-            }
 
-        } else {
+                if ((Status != STATUS_PENDING) &&
+                    (*ThisScb != NULL)) {
 
-            BOOLEAN FoundAttribute;
-
-            //
-            //  If it exists, we first check if the caller wanted to open that attribute.
-            //
-
-            if (AttrName.Length == 0
-                && AttrTypeCode == $DATA) {
-
-                FoundAttribute = TRUE;
+                    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB );
+                }
 
             //
-            //  Otherwise we see if the attribute exists.
+            //  If he wanted to overwrite this attribute, we call our overwrite routine.
+            //
+
+            } else if ((CreateDisposition == FILE_SUPERSEDE) ||
+                       (CreateDisposition == FILE_OVERWRITE) ||
+                       (CreateDisposition == FILE_OVERWRITE_IF)) {
+
+                //
+                //  Check if mm will allow us to modify this file.
+                //
+
+                Status = NtfsOverwriteAttr( IrpContext,
+                                            Irp,
+                                            IrpSp,
+                                            ThisLcb,
+                                            ThisFcb,
+                                            (BOOLEAN) (CreateDisposition == FILE_SUPERSEDE),
+                                            LastFileNameOffset,
+                                            AttrName,
+                                            AttrTypeCode,
+                                            CcbFlags,
+                                            OpenById,
+                                            ThisScb,
+                                            ThisCcb );
+
+                //
+                //  Remember that this Scb was modified.
+                //
+
+                if ((Status != STATUS_PENDING) &&
+                    (*ThisScb != NULL)) {
+
+                    SetFlag( IrpSp->FileObject->Flags, FO_FILE_MODIFIED );
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB );
+                }
+
+            //
+            //  Otherwise he is trying to create the attribute.
             //
 
             } else {
 
-                ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
-
-                NtfsInitializeAttributeContext( &AttrContext );
-
-                //
-                //  Use a try-finally to facilitate cleanup.
-                //
-
-                try {
-
-                    FoundAttribute = NtfsLookupAttributeByName( IrpContext,
-                                                                ThisFcb,
-                                                                &ThisFcb->FileReference,
-                                                                AttrTypeCode,
-                                                                &AttrName,
-                                                                (BOOLEAN) !BooleanFlagOn( IrpSp->Flags, SL_CASE_SENSITIVE ),
-                                                                &AttrContext );
-
-                    if (FoundAttribute) {
-
-                        //
-                        //  If there is an attribute name, we will copy the case of the name
-                        //  to the input attribute name.
-                        //
-
-                        PATTRIBUTE_RECORD_HEADER FoundAttribute;
-
-                        FoundAttribute = NtfsFoundAttribute( &AttrContext );
-
-                        RtlCopyMemory( AttrName.Buffer,
-                                       Add2Ptr( FoundAttribute, FoundAttribute->NameOffset ),
-                                       AttrName.Length );
-                    }
-
-                } finally {
-
-                    NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-                }
+                Status = STATUS_OBJECT_NAME_COLLISION;
             }
 
-            if (FoundAttribute) {
-
-                //
-                //  In this case we call our routine to open this attribute.
-                //
-
-                if (CreateDisposition == FILE_OPEN
-                    || CreateDisposition == FILE_OPEN_IF) {
-
-                    Status = NtfsOpenExistingAttr( IrpContext,
-                                                   Irp,
-                                                   IrpSp,
-                                                   ThisLcb,
-                                                   ThisFcb,
-                                                   LastFileNameOffset,
-                                                   AttrName,
-                                                   AttrTypeCode,
-                                                   CcbFlags,
-                                                   OpenById,
-                                                   FALSE,
-                                                   ThisScb,
-                                                   ThisCcb );
-
-                    if (*ThisScb != NULL) {
-
-                        ClearFlag( (*ThisScb)->ScbState, SCB_STATE_CREATE_MODIFIED_SCB );
-                    }
-
-                //
-                //  If he wanted to overwrite this attribute, we call our overwrite routine.
-                //
-
-                } else if (CreateDisposition == FILE_SUPERSEDE
-                             || CreateDisposition == FILE_OVERWRITE
-                             || CreateDisposition == FILE_OVERWRITE_IF) {
-
-                    //
-                    //  Check if mm will allow us to modify this file.
-                    //
-
-                    Status = NtfsOverwriteAttr( IrpContext,
-                                                Irp,
-                                                IrpSp,
-                                                ThisLcb,
-                                                ThisFcb,
-                                                (BOOLEAN) (CreateDisposition == FILE_SUPERSEDE),
-                                                LastFileNameOffset,
-                                                AttrName,
-                                                AttrTypeCode,
-                                                CcbFlags,
-                                                OpenById,
-                                                ThisScb,
-                                                ThisCcb );
-
-                    if (*ThisScb != NULL) {
-
-                        SetFlag( (*ThisScb)->ScbState, SCB_STATE_CREATE_MODIFIED_SCB );
-                    }
-
-                //
-                //  Otherwise he is trying to create the attribute.
-                //
-
-                } else {
-
-                    Status = STATUS_OBJECT_NAME_COLLISION;
-                }
-
-            //
-            //  The attribute doesn't exist.  If the user expected it to exist, we fail.
-            //  Otherwise we call our routine to create an attribute.
-            //
-
-            } else if (CreateDisposition == FILE_OPEN
-                       || CreateDisposition == FILE_OVERWRITE) {
-
-                Status = STATUS_OBJECT_NAME_NOT_FOUND;
-
-            } else {
-
-                //
-                //  Perform the open check for this existing file.
-                //
-
-                Status = NtfsCheckExistingFile( IrpContext,
-                                                IrpSp,
-                                                ThisLcb,
-                                                ThisFcb,
-                                                CcbFlags );
-
-                //
-                //  If this didn't fail then attempt to create the stream.
-                //
-
-                if (NT_SUCCESS( Status )) {
-
-                    Status = NtfsOpenNewAttr( IrpContext,
-                                              Irp,
-                                              IrpSp,
-                                              ThisLcb,
-                                              ThisFcb,
-                                              LastFileNameOffset,
-                                              AttrName,
-                                              AttrTypeCode,
-                                              CcbFlags,
-                                              TRUE,
-                                              OpenById,
-                                              ThisScb,
-                                              ThisCcb );
-                }
-
-                if (*ThisScb != NULL) {
-
-                    SetFlag( (*ThisScb)->ScbState, SCB_STATE_CREATE_MODIFIED_SCB );
-                }
-            }
-        }
-    }
-
-    DebugTrace( -1, Dbg, "NtfsOpenAttributeInExistingFile:  Exit\n", 0 );
-
-    return Status;
-}
-
-
-//
-//  Local support routine.
-//
-
-NTSTATUS
-NtfsOpenVolume (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
-    IN PIO_STACK_LOCATION IrpSp,
-    IN PFCB ThisFcb,
-    IN BOOLEAN OpenById,
-    OUT PSCB *ThisScb,
-    OUT PCCB *ThisCcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine is opening the Volume Dasd file.  We have already done all the
-    checks needed to verify that the user is opening the $DATA attribute.
-    We check the security attached to the file and take some special action
-    based on a volume open.
-
-Arguments:
-
-    Irp - This is the Irp for this open operation.
-
-    IrpSp - This is the Irp stack pointer for the filesystem.
-
-    ThisFcb - This is the Fcb to open.
-
-    OpenById - Indicates if this open is by file Id.
-
-    ThisScb - This is the address to store the address of the Scb.
-
-    ThisCcb - This is the address to store the address of the Ccb.
-
-Return Value:
-
-    NTSTATUS - The result of this operation.
-
---*/
-
-{
-    NTSTATUS Status = STATUS_SUCCESS;
-    PVCB Vcb;
-    USHORT ShareAccess;
-    BOOLEAN LockVolume;
-
-    PAGED_CODE();
-
-    DebugTrace( +1, Dbg, "NtfsOpenVolume:  Entered\n", 0 );
-
-    //
-    //  Start by checking the create disposition.  We can only open this
-    //  file.
-    //
-
-    {
-        ULONG CreateDisposition;
-
-        CreateDisposition = (IrpSp->Parameters.Create.Options >> 24) & 0x000000ff;
-
-        if (CreateDisposition != FILE_OPEN
-            && CreateDisposition != FILE_OPEN_IF) {
-
-            Status = STATUS_ACCESS_DENIED;
-
-            DebugTrace( -1, Dbg, "NtfsOpenVolume:  Exit  ->  %08lx\n", Status );
-            return Status;
-        }
-
-    }
-
-
-    //
-    //  Check whether the current state of the locks on the volume
-    //  along with outstanding opens will allow us to open the volume.
-    //  Remember if this open effectively locks the volume.
-    //
-
-    ShareAccess = IrpSp->Parameters.Create.ShareAccess;
-    Vcb = ThisFcb->Vcb;
-
-    //
-    //  Blow away our delayed close file object.
-    //
-
-    if (!IsListEmpty( &NtfsData.AsyncCloseList ) ||
-        !IsListEmpty( &NtfsData.DelayedCloseList )) {
-
-        NtfsFspClose( Vcb );
-    }
-
-    //
-    //  If the user does not want to share write or delete then we will try
-    //  and take out a lock on the volume.
-    //
-
-    if (!FlagOn(ShareAccess, FILE_SHARE_WRITE) &&
-        !FlagOn(ShareAccess, FILE_SHARE_DELETE)) {
-
         //
-        //  Do a quick test of the volume cleanup count if this opener won't
-        //  share with anyone.  We can safely examine the cleanup count without
-        //  further synchronization because we are guaranteed to have the
-        //  Vcb exclusive at this point.
+        //  The attribute doesn't exist.  If the user expected it to exist, we fail.
+        //  Otherwise we call our routine to create an attribute.
         //
 
-        if (!FlagOn(ShareAccess, FILE_SHARE_READ) &&
-            Vcb->CleanupCount != 0) {
+        } else if ((CreateDisposition == FILE_OPEN) ||
+                   (CreateDisposition == FILE_OVERWRITE)) {
 
-            Status = STATUS_SHARING_VIOLATION;
-            DebugTrace( -1, Dbg, "NtfsOpenVolume:  Exit  ->  %08lx\n", Status );
-            return Status;
-        }
-
-        //
-        //  Always flush and purge the volume to force any closes in.
-        //
-
-        Status = NtfsFlushVolume( IrpContext, Vcb, TRUE, TRUE );
-
-        //
-        //  If the user also does not want to share read then we check
-        //  if anyone is already using the volume, and if so then we
-        //  deny the access.  If the user wants to share read then
-        //  we allow the current opens to stay provided they are only
-        //  readonly opens and deny further opens.
-        //
-
-        if (!FlagOn(ShareAccess, FILE_SHARE_READ)) {
-
-            if (Vcb->CloseCount != Vcb->SystemFileCloseCount) {
-
-                Status = STATUS_SHARING_VIOLATION;
-
-                DebugTrace( -1, Dbg, "NtfsOpenVolume:  Exit  ->  %08lx\n", Status );
-                return Status;
-            }
+            Status = STATUS_OBJECT_NAME_NOT_FOUND;
 
         } else {
 
-            if (Vcb->ReadOnlyCloseCount != (Vcb->CloseCount - Vcb->SystemFileCloseCount)) {
+            //
+            //  Perform the open check for this existing file.
+            //
 
-                Status = STATUS_SHARING_VIOLATION;
+            Status = NtfsCheckExistingFile( IrpContext,
+                                            IrpSp,
+                                            ThisLcb,
+                                            ThisFcb,
+                                            CcbFlags );
 
-                DebugTrace( -1, Dbg, "NtfsOpenVolume:  Exit  ->  %08lx\n", Status );
-                return Status;
+            //
+            //  If this didn't fail then attempt to create the stream.
+            //
+
+            if (NT_SUCCESS( Status )) {
+
+                Status = NtfsOpenNewAttr( IrpContext,
+                                          Irp,
+                                          IrpSp,
+                                          ThisLcb,
+                                          ThisFcb,
+                                          LastFileNameOffset,
+                                          AttrName,
+                                          AttrTypeCode,
+                                          CcbFlags,
+                                          TRUE,
+                                          OpenById,
+                                          ThisScb,
+                                          ThisCcb );
+            }
+
+            if (*ThisScb != NULL) {
+
+                if (*ThisCcb != NULL) {
+
+                    SetFlag( (*ThisCcb)->Flags,
+                             CCB_FLAG_UPDATE_LAST_CHANGE | CCB_FLAG_SET_ARCHIVE );
+                }
+
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CREATE_MOD_SCB );
             }
         }
-
-        //
-        //  Ignore the unable to purge error since we would catch the error when
-        //  we check the file objects above.
-        //
-
-        if (Status == STATUS_UNABLE_TO_DELETE_SECTION) {
-
-            Status = STATUS_SUCCESS;
-        }
-
-        //
-        //  Lock the volume
-        //
-
-        LockVolume = TRUE;
-
-    } else {
-
-        //
-        //  Always flush the volume.
-        //
-
-        Status = NtfsFlushVolume( IrpContext, Vcb, TRUE, FALSE );
-
-        LockVolume = FALSE;
     }
 
-    //
-    //  Check this open for security access.
-    //
-
-    NtfsOpenCheck( IrpContext, ThisFcb, NULL, Irp );
-
-    //
-    //  If the flush (and purge) worked, then open the volume dasd attribute.
-    //
-
-    if (NT_SUCCESS( Status )) {
-
-        //
-        //  Call the open attribute routine to perform the open.
-        //
-
-        Status = NtfsOpenAttribute( IrpContext,
-                                    IrpSp,
-                                    Vcb,
-                                    NULL,
-                                    ThisFcb,
-                                    OpenById ? 0 : 2,
-                                    NtfsEmptyString,
-                                    $DATA,
-                                    (ThisFcb->CleanupCount == 0 ? SetShareAccess : CheckShareAccess),
-                                    UserVolumeOpen,
-                                    (CCB_FLAG_OPEN_AS_FILE | (OpenById ? CCB_FLAG_OPEN_BY_FILE_ID : 0)),
-                                    ThisScb,
-                                    ThisCcb );
-    }
-
-    if (NT_SUCCESS( Status )) {
-
-        //
-        //  If we are locking the volume, do so now.
-        //
-
-        if (LockVolume) {
-
-            SetFlag( Vcb->VcbState, VCB_STATE_LOCKED );
-            Vcb->FileObjectWithVcbLocked = IrpSp->FileObject;
-        }
-
-        //
-        //  Always clear the cache flag in the file object.
-        //
-
-        ClearFlag( IrpSp->FileObject->Flags, FO_CACHE_SUPPORTED );
-
-        //
-        //  And set the no intermediate buffering flag in the file object.
-        //
-
-        SetFlag( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING );
-
-        //
-        //  Set this file as having a single link.
-        //
-
-        ThisFcb->LinkCount =
-        ThisFcb->TotalLinks = 1;
-
-        //
-        //  Report that we opened the volume.
-        //
-
-        Irp->IoStatus.Information = FILE_OPENED;
-    }
-
-    DebugTrace( -1, Dbg, "NtfsOpenVolume:  Exit  ->  %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsOpenAttributeInExistingFile:  Exit\n") );
 
     return Status;
 }
@@ -6230,6 +6935,7 @@ NtfsOpenExistingAttr (
     IN ULONG CcbFlags,
     IN BOOLEAN OpenById,
     IN BOOLEAN DirectoryOpen,
+    IN PVOID NetworkInfo OPTIONAL,
     OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     )
@@ -6270,6 +6976,10 @@ Arguments:
 
     DirectoryOpen - Indicates whether this open is a directory open or a data stream.
 
+    NetworkInfo - If specified then this call is a fast open call to query
+        the network information.  We don't update any of the in-memory structures
+        for this.
+
     ThisScb - This is the address to store the address of the Scb.
 
     ThisCcb - This is the address to store the address of the Ccb.
@@ -6289,7 +6999,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenExistingAttr:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenExistingAttr:  Entered\n") );
 
     //
     //  For data streams we need to do a check that includes an oplock check.
@@ -6312,37 +7022,70 @@ Return Value:
                                         CcbFlags );
 
         ShareModificationType = (ThisFcb->CleanupCount == 0 ? SetShareAccess : CheckShareAccess);
-        TypeOfOpen = (OpenById ? UserOpenDirectoryById : UserDirectoryOpen);
+        TypeOfOpen = UserDirectoryOpen;
 
     } else {
 
-        Status = NtfsBreakBatchOplock( IrpContext,
-                                       Irp,
-                                       IrpSp,
-                                       ThisFcb,
-                                       AttrName,
-                                       AttrTypeCode,
-                                       ThisScb );
+        //
+        //  Don't break the batch oplock if opening to query the network info.
+        //
 
-        if (Status != STATUS_PENDING) {
+        if (!ARGUMENT_PRESENT( NetworkInfo )) {
 
-            if (NT_SUCCESS( Status = NtfsCheckExistingFile( IrpContext,
-                                                            IrpSp,
-                                                            ThisLcb,
-                                                            ThisFcb,
-                                                            CcbFlags ))) {
+            Status = NtfsBreakBatchOplock( IrpContext,
+                                           Irp,
+                                           IrpSp,
+                                           ThisFcb,
+                                           AttrName,
+                                           AttrTypeCode,
+                                           ThisScb );
 
-                Status = NtfsOpenAttributeCheck( IrpContext,
-                                                 Irp,
-                                                 IrpSp,
-                                                 ThisFcb,
-                                                 AttrName,
-                                                 AttrTypeCode,
-                                                 ThisScb,
-                                                 &ShareModificationType );
+            if (Status != STATUS_PENDING) {
 
-                TypeOfOpen = (OpenById ? UserOpenFileById : UserFileOpen);
+                if (NT_SUCCESS( Status = NtfsCheckExistingFile( IrpContext,
+                                                                IrpSp,
+                                                                ThisLcb,
+                                                                ThisFcb,
+                                                                CcbFlags ))) {
+
+                    Status = NtfsOpenAttributeCheck( IrpContext,
+                                                     Irp,
+                                                     IrpSp,
+                                                     ThisScb,
+                                                     &ShareModificationType );
+
+#ifndef _CAIRO_
+                    TypeOfOpen = UserFileOpen;
+#else   //  _CAIRO_
+                    TypeOfOpen =
+                        AttrTypeCode == $DATA ? UserFileOpen : UserPropertySetOpen;
+#endif  //  _CAIRO_
+
+                    ASSERT( NtfsIsTypeCodeUserData( AttrTypeCode ));
+                }
             }
+
+        //
+        //  We want to perform the ACL check but not break any oplocks for the
+        //  NetworkInformation query.
+        //
+
+        } else {
+
+            Status = NtfsCheckExistingFile( IrpContext,
+                                            IrpSp,
+                                            ThisLcb,
+                                            ThisFcb,
+                                            CcbFlags );
+
+#ifndef _CAIRO_
+            TypeOfOpen = UserFileOpen;
+#else   //  _CAIRO_
+            TypeOfOpen =
+                AttrTypeCode == $DATA ? UserFileOpen : UserPropertySetOpen;
+#endif  //  _CAIRO_
+
+            ASSERT( NtfsIsTypeCodeUserData( AttrTypeCode ));
         }
     }
 
@@ -6373,6 +7116,7 @@ Return Value:
                                     (OpenById
                                      ? CcbFlags | CCB_FLAG_OPEN_BY_FILE_ID
                                      : CcbFlags),
+                                    NetworkInfo,
                                     ThisScb,
                                     ThisCcb );
 
@@ -6392,7 +7136,7 @@ Return Value:
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsOpenExistingAttr:  Exit -> %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsOpenExistingAttr:  Exit -> %08lx\n", Status) );
 
     return Status;
 }
@@ -6482,13 +7226,31 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOverwriteAttr:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOverwriteAttr:  Entered\n") );
 
     DesiredAccess = &IrpSp->Parameters.Create.SecurityContext->DesiredAccess;
 
     if (FlagOn( *DesiredAccess, MAXIMUM_ALLOWED )) {
 
         MaximumRequested = TRUE;
+    }
+
+    //
+    //  Check the oplock state of this file.
+    //
+
+    Status = NtfsBreakBatchOplock( IrpContext,
+                                   Irp,
+                                   IrpSp,
+                                   ThisFcb,
+                                   AttrName,
+                                   AttrTypeCode,
+                                   ThisScb );
+
+    if (Status == STATUS_PENDING) {
+
+        DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
+        return Status;
     }
 
     //
@@ -6517,13 +7279,14 @@ Return Value:
 
         FileAttributes = (ULONG) IrpSp->Parameters.Create.FileAttributes;
 
-        FileAttributes |= FILE_ATTRIBUTE_ARCHIVE;
-        FileAttributes &= (FILE_ATTRIBUTE_READONLY |
-                           FILE_ATTRIBUTE_HIDDEN   |
-                           FILE_ATTRIBUTE_SYSTEM   |
-                           FILE_ATTRIBUTE_ARCHIVE );
+        SetFlag( FileAttributes, FILE_ATTRIBUTE_ARCHIVE );
+        ClearFlag( FileAttributes,
+                   ~(FILE_ATTRIBUTE_READONLY |
+                     FILE_ATTRIBUTE_HIDDEN   |
+                     FILE_ATTRIBUTE_SYSTEM   |
+                     FILE_ATTRIBUTE_ARCHIVE) );
 
-        DebugTrace( 0, Dbg, "Checking hidden/system for overwrite/supersede\n", 0 );
+        DebugTrace( 0, Dbg, ("Checking hidden/system for overwrite/supersede\n") );
 
         Hidden = BooleanIsHidden( &ThisFcb->Info );
         System = BooleanIsSystem( &ThisFcb->Info );
@@ -6536,11 +7299,11 @@ Return Value:
 
             !FlagOn( IrpSp->Flags, SL_OPEN_PAGING_FILE )) {
 
-            DebugTrace(0, Dbg, "The hidden and/or system bits do not match\n", 0);
+            DebugTrace( 0, Dbg, ("The hidden and/or system bits do not match\n") );
 
             Status = STATUS_ACCESS_DENIED;
 
-            DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
             return Status;
         }
 
@@ -6552,11 +7315,11 @@ Return Value:
         if (FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_EA_KNOWLEDGE )
             && Irp->AssociatedIrp.SystemBuffer != NULL) {
 
-            DebugTrace(0, Dbg, "This opener cannot create Ea's\n", 0);
+            DebugTrace( 0, Dbg, ("This opener cannot create Ea's\n") );
 
             Status = STATUS_ACCESS_DENIED;
 
-            DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
             return Status;
         }
 
@@ -6570,11 +7333,11 @@ Return Value:
 
     } else if (Irp->AssociatedIrp.SystemBuffer != NULL) {
 
-        DebugTrace( 0, Dbg, "Can't specifiy an Ea buffer on an attribute overwrite\n", 0 );
+        DebugTrace( 0, Dbg, ("Can't specifiy an Ea buffer on an attribute overwrite\n") );
 
         Status = STATUS_INVALID_PARAMETER;
 
-        DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
         return Status;
     }
 
@@ -6597,24 +7360,6 @@ Return Value:
     }
 
     //
-    //  Check the oplock state of this file.
-    //
-
-    Status = NtfsBreakBatchOplock( IrpContext,
-                                   Irp,
-                                   IrpSp,
-                                   ThisFcb,
-                                   AttrName,
-                                   AttrTypeCode,
-                                   ThisScb );
-
-    if (Status == STATUS_PENDING) {
-
-        DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
-        return Status;
-    }
-
-    //
     //  Check whether we can open this existing file.
     //
 
@@ -6631,6 +7376,12 @@ Return Value:
 
     if (NT_SUCCESS( Status )) {
 
+        Status = NtfsOpenAttributeCheck( IrpContext,
+                                         Irp,
+                                         IrpSp,
+                                         ThisScb,
+                                         &ShareModificationType );
+
         //
         //  If we biased the desired access we need to remove the same
         //  bits from the granted access.  If maximum allowed was
@@ -6643,14 +7394,12 @@ Return Value:
                        AddedAccess );
         }
 
-        Status = NtfsOpenAttributeCheck( IrpContext,
-                                         Irp,
-                                         IrpSp,
-                                         ThisFcb,
-                                         AttrName,
-                                         AttrTypeCode,
-                                         ThisScb,
-                                         &ShareModificationType );
+        //
+        //  Also remove the bits from the desired access field so we won't
+        //  see them if this request gets posted for any reason.
+        //
+
+        ClearFlag( *DesiredAccess, AddedAccess );
 
         //
         //  If we didn't post the Irp and the operation was successful, we
@@ -6661,144 +7410,161 @@ Return Value:
             && Status != STATUS_PENDING) {
 
             //
-            //  If we can't truncate the file size then return now.
+            //  Reference the Fcb so it doesn't go away.
             //
 
-            if (!MmCanFileBeTruncated( &(*ThisScb)->NonpagedScb->SegmentObject,
-                                       &Li0 )) {
-
-                Status = STATUS_USER_MAPPED_FILE;
-                DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
-
-                return Status;
-            }
+            InterlockedIncrement( &ThisFcb->CloseCount );
 
             //
-            //  Remember the status from the oplock check.
+            //  Use a try-finally to restore the close count correctly.
             //
 
-            OplockStatus = Status;
-
-            //
-            //  We perform the on-disk changes.  For a file overwrite, this includes
-            //  the Ea changes and modifying the file attributes.  For an attribute,
-            //  this refers to modifying the allocation size.  We need to keep the
-            //  Fcb updated and remember which values we changed.
-            //
-
-            if (Irp->AssociatedIrp.SystemBuffer != NULL) {
+            try {
 
                 //
-                //  Remember the values in the Irp.
+                //  If we can't truncate the file size then return now.
                 //
 
-                FullEa = (PFILE_FULL_EA_INFORMATION) Irp->AssociatedIrp.SystemBuffer;
-                FullEaLength = IrpSp->Parameters.Create.EaLength;
-            }
+                if (!MmCanFileBeTruncated( &(*ThisScb)->NonpagedScb->SegmentObject,
+                                           &Li0 )) {
 
-            //
-            //  Acquire the PagingIo resource exclusive here as we will
-            //  be truncating the file size.
-            //
+                    Status = STATUS_USER_MAPPED_FILE;
+                    DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
 
-            if (ThisFcb->PagingIoResource) {
-
-                NtfsAcquireExclusivePagingIo( IrpContext, ThisFcb );
-            }
-
-            //
-            //  Now do the file attributes and either remove or mark for
-            //  delete all of the other $DATA attributes on the file.
-            //
-
-            if (FlagOn( CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
-
-                //
-                //  Replace the current Ea's on the file.  This operation will update
-                //  the Fcb for the file.
-                //
-
-                NtfsAddEa( IrpContext,
-                           ThisFcb->Vcb,
-                           ThisFcb,
-                           FullEa,
-                           FullEaLength,
-                           &Irp->IoStatus );
-
-                //
-                //  We always mark the Fcb indicating that the Scb for the
-                //  Ea's is bad.  This will force us to reread it from the
-                //  disk before we use it.
-                //
-
-                SetFlag( ThisFcb->FcbState, FCB_STATE_EA_SCB_INVALID );
-
-                //
-                //  Copy the directory bit from the current Info structure.
-                //
-
-                if (IsDirectory( &ThisFcb->Info)) {
-
-                    SetFlag( FileAttributes, DUP_FILE_NAME_INDEX_PRESENT );
+                    try_return( Status );
                 }
 
                 //
-                //  Now either add to the current attributes or replace them.
+                //  Remember the status from the oplock check.
                 //
 
-                if (Supersede) {
+                OplockStatus = Status;
 
-                    ThisFcb->Info.FileAttributes = FileAttributes;
+                //
+                //  We perform the on-disk changes.  For a file overwrite, this includes
+                //  the Ea changes and modifying the file attributes.  For an attribute,
+                //  this refers to modifying the allocation size.  We need to keep the
+                //  Fcb updated and remember which values we changed.
+                //
 
-                } else {
+                if (Irp->AssociatedIrp.SystemBuffer != NULL) {
 
-                    ThisFcb->Info.FileAttributes |= FileAttributes;
+                    //
+                    //  Remember the values in the Irp.
+                    //
+
+                    FullEa = (PFILE_FULL_EA_INFORMATION) Irp->AssociatedIrp.SystemBuffer;
+                    FullEaLength = IrpSp->Parameters.Create.EaLength;
                 }
 
-                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_FILE_ATTR );
-                SetFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-
                 //
-                //  Get rid of any named $DATA attributes in the file.
+                //  Now do the file attributes and either remove or mark for
+                //  delete all of the other $DATA attributes on the file.
                 //
 
-                NtfsRemoveDataAttributes( IrpContext,
-                                          ThisFcb,
-                                          ThisLcb,
-                                          IrpSp->FileObject,
-                                          LastFileNameOffset,
-                                          OpenById );
+                if (FlagOn( CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
+
+                    //
+                    //  Replace the current Ea's on the file.  This operation will update
+                    //  the Fcb for the file.
+                    //
+
+                    NtfsAddEa( IrpContext,
+                               ThisFcb->Vcb,
+                               ThisFcb,
+                               FullEa,
+                               FullEaLength,
+                               &Irp->IoStatus );
+
+                    //
+                    //  Copy the directory bit from the current Info structure.
+                    //
+
+                    if (IsDirectory( &ThisFcb->Info)) {
+
+                        SetFlag( FileAttributes, DUP_FILE_NAME_INDEX_PRESENT );
+                    }
+
+                    //
+                    //  Now either add to the current attributes or replace them.
+                    //
+
+                    if (Supersede) {
+
+                        ThisFcb->Info.FileAttributes = FileAttributes;
+
+                    } else {
+
+                        ThisFcb->Info.FileAttributes |= FileAttributes;
+                    }
+
+                    //
+                    //  Get rid of any named $DATA attributes in the file.
+                    //
+
+                    NtfsRemoveDataAttributes( IrpContext,
+                                              ThisFcb,
+                                              ThisLcb,
+                                              IrpSp->FileObject,
+                                              LastFileNameOffset,
+                                              OpenById );
+                }
+
+                //
+                //  Now we perform the operation of opening the attribute.
+                //
+
+                NtfsReplaceAttribute( IrpContext,
+                                      IrpSp,
+                                      ThisFcb,
+                                      *ThisScb,
+                                      ThisLcb,
+                                      *(PLONGLONG)&Irp->Overlay.AllocationSize );
+
+                //
+                //  If we are overwriting a fle and the user doesn't want it marked as
+                //  compressed, then change the attribute flag.
+                //
+
+                if (!FlagOn( (*ThisScb)->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK) &&
+                    FlagOn( ThisFcb->Info.FileAttributes, FILE_ATTRIBUTE_COMPRESSED ) &&
+                    FlagOn( CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
+
+                    ClearFlag( ThisFcb->Info.FileAttributes, FILE_ATTRIBUTE_COMPRESSED );
+                }
+
+                //
+                //  Now attempt to open the attribute.
+                //
+
+                ASSERT( NtfsIsTypeCodeUserData( AttrTypeCode ));
+
+                Status = NtfsOpenAttribute( IrpContext,
+                                            IrpSp,
+                                            ThisFcb->Vcb,
+                                            ThisLcb,
+                                            ThisFcb,
+                                            LastFileNameOffset,
+                                            AttrName,
+                                            AttrTypeCode,
+                                            ShareModificationType,
+#ifndef _CAIRO
+                                            UserFileOpen,
+#else   //  _CAIRO_
+                                            AttrTypeCode == $DATA ? UserFileOpen : UserPropertySetOpen,
+#endif  //  _CAIRO_
+                                            (OpenById
+                                             ? CcbFlags | CCB_FLAG_OPEN_BY_FILE_ID
+                                             : CcbFlags),
+                                            NULL,
+                                            ThisScb,
+                                            ThisCcb );
+
+            try_exit:  NOTHING;
+            } finally {
+
+                InterlockedDecrement( &ThisFcb->CloseCount );
             }
-
-            //
-            //  Now we perform the operation of opening the attribute.
-            //
-
-            NtfsReplaceAttribute( IrpContext,
-                                  ThisFcb,
-                                  *ThisScb,
-                                  ThisLcb,
-                                  *(PLONGLONG)&Irp->Overlay.AllocationSize );
-
-            //
-            //  Now attempt to open the attribute.
-            //
-
-            Status = NtfsOpenAttribute( IrpContext,
-                                        IrpSp,
-                                        ThisFcb->Vcb,
-                                        ThisLcb,
-                                        ThisFcb,
-                                        LastFileNameOffset,
-                                        AttrName,
-                                        AttrTypeCode,
-                                        ShareModificationType,
-                                        (OpenById ? UserOpenFileById : UserFileOpen),
-                                        (OpenById
-                                         ? CcbFlags | CCB_FLAG_OPEN_BY_FILE_ID
-                                         : CcbFlags),
-                                        ThisScb,
-                                        ThisCcb );
 
             if (NT_SUCCESS( Status )) {
 
@@ -6841,7 +7607,7 @@ Return Value:
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsOverwriteAttr:  Exit  ->  %08lx\n", Status) );
 
     return Status;
 }
@@ -6927,7 +7693,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenNewAttr:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenNewAttr:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -6942,10 +7708,10 @@ Return Value:
         //
 
         *ThisScb = NtfsCreateScb( IrpContext,
-                                  ThisFcb->Vcb,
                                   ThisFcb,
                                   AttrTypeCode,
-                                  AttrName,
+                                  &AttrName,
+                                  FALSE,
                                   &ScbExisted );
 
         //
@@ -6958,26 +7724,12 @@ Return Value:
                                          SCB_STATE_FILE_SIZE_LOADED );
 
         //
-        //  If the compression unit is non-zero or this is a resident file
-        //  then set the flag in the common header for the Modified page writer.
-        //
-
-        if ((*ThisScb)->CompressionUnit != 0
-            || FlagOn( (*ThisScb)->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-            SetFlag( (*ThisScb)->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-        } else {
-
-            ClearFlag( (*ThisScb)->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-        }
-
-        //
         //  Create the attribute on disk and update the Scb and Fcb.
         //
 
         NtfsCreateAttribute( IrpContext,
-                                ThisFcb,
+                             IrpSp,
+                             ThisFcb,
                              *ThisScb,
                              ThisLcb,
                              *(PLONGLONG)&Irp->Overlay.AllocationSize,
@@ -6986,6 +7738,8 @@ Return Value:
         //
         //  Now actually open the attribute.
         //
+
+        ASSERT( NtfsIsTypeCodeUserData( AttrTypeCode ));
 
         Status = NtfsOpenAttribute( IrpContext,
                                     IrpSp,
@@ -6996,8 +7750,13 @@ Return Value:
                                     AttrName,
                                     AttrTypeCode,
                                     (ThisFcb->CleanupCount != 0 ? CheckShareAccess : SetShareAccess),
-                                    (OpenById ? UserOpenFileById : UserFileOpen),
+#ifndef _CAIRO_
+                                    UserFileOpen,
+#else   //  _CAIRO_
+                                    AttrTypeCode == $DATA ? UserFileOpen : UserPropertySetOpen,
+#endif  //  _CAIRO_
                                     (CcbFlags | (OpenById ? CCB_FLAG_OPEN_BY_FILE_ID : 0)),
+                                    NULL,
                                     ThisScb,
                                     ThisCcb );
 
@@ -7008,39 +7767,33 @@ Return Value:
         if (NT_SUCCESS( Status )) {
 
             //
-            //  Set the flag to indicate that we created a stream.
-            //
-
-            SetFlag( (*ThisScb)->ScbState, SCB_STATE_NOTIFY_ADD_STREAM );
-
-            Irp->IoStatus.Information = FILE_CREATED;
-
-            //
             //  Read the attribute information from the disk.
             //
 
             NtfsUpdateScbFromAttribute( IrpContext, *ThisScb, NULL );
 
-            SetFlag( (*ThisScb)->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
-
             //
-            //  If we are creating an attribute on an existing file.
-            //  we will want to update the time stamps in the Fcb.
-            //  We look at the LogIt parameter to determine this.  It
-            //  is FALSE on a file creation.
+            //  Set the flag to indicate that we created a stream and also remember to
+            //  to check if we need to truncate on close.
             //
 
-            if (LogIt) {
+            NtfsAcquireFsrtlHeader( *ThisScb );
+            SetFlag( (*ThisScb)->ScbState,
+                     SCB_STATE_TRUNCATE_ON_CLOSE | SCB_STATE_NOTIFY_ADD_STREAM );
 
-                //
-                //  We also update the time stamps on the file.
-                //
+            //
+            //  If we created a temporary stream then mark the Scb.
+            //
 
-                NtfsGetCurrentTime( IrpContext, ThisFcb->Info.LastChangeTime );
+            if (FlagOn( IrpSp->Parameters.Create.FileAttributes, FILE_ATTRIBUTE_TEMPORARY )) {
 
-                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-                SetFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
+                SetFlag( (*ThisScb)->ScbState, SCB_STATE_TEMPORARY );
+                SetFlag( IrpSp->FileObject->Flags, FO_TEMPORARY_FILE );
             }
+
+            NtfsReleaseFsrtlHeader( *ThisScb );
+
+            Irp->IoStatus.Information = FILE_CREATED;
         }
 
     } finally {
@@ -7051,9 +7804,9 @@ Return Value:
         //  Uninitialize the attribute context.
         //
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( -1, Dbg, "NtfsOpenNewAttr:  Exit -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenNewAttr:  Exit -> %08lx\n", Status) );
     }
 
     return Status;
@@ -7133,7 +7886,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsParseNameForCreate:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsParseNameForCreate:  Entered\n") );
 
     //
     //  We loop through the input string calling ParsePath to swallow the
@@ -7177,8 +7930,7 @@ Return Value:
             //  Parse the next chunk in the input string.
             //
 
-            TerminationReason = NtfsParsePath( IrpContext,
-                                               String,
+            TerminationReason = NtfsParsePath( String,
                                                FALSE,
                                                &ParsedPath,
                                                &NameDescript,
@@ -7207,7 +7959,7 @@ Return Value:
                 //  We simply return an error.
                 //
 
-                DebugTrace( -1, Dbg, "NtfsParseNameForCreate:  Illegal character\n", 0 );
+                DebugTrace( -1, Dbg, ("NtfsParseNameForCreate:  Illegal character\n") );
                 return FALSE;
 
             case AttributeOnly :
@@ -7215,14 +7967,17 @@ Return Value:
                 //
                 //  This is legal only if it is the only component of a relative open.  We
                 //  test this by checking that we are at the end of string and the file
-                //  object name has a lead in ':' character.
+                //  object name has a lead in ':' character or this is the root directory
+                //  and the lead in characters are '\:'.
                 //
 
-                if (String.Length != 0
-                    || RemovedIndexName
-                    || FileObjectString->Buffer[0] != L':') {
+                if ((String.Length != 0) ||
+                    RemovedIndexName ||
+                    (FileObjectString->Buffer[0] == L'\\' ?
+                     FileObjectString->Buffer[1] != L':' :
+                     FileObjectString->Buffer[0] != L':')) {
 
-                    DebugTrace( -1, Dbg, "NtfsParseNameForCreate:  Illegal character\n", 0 );
+                    DebugTrace( -1, Dbg, ("NtfsParseNameForCreate:  Illegal character\n") );
                     return FALSE;
                 }
 
@@ -7304,7 +8059,7 @@ Return Value:
                                             TestAttrName,
                                             TestAttrCodeName )) {
 
-                DebugTrace( -1, Dbg, "NtfsParseNameForCreate:  Invalid intermediate component\n", 0 );
+                DebugTrace( -1, Dbg, ("NtfsParseNameForCreate:  Invalid intermediate component\n") );
                 return FALSE;
             }
 
@@ -7363,7 +8118,7 @@ Return Value:
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsParseNameForCreate:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsParseNameForCreate:  Exit\n") );
 
     return TRUE;
 }
@@ -7375,14 +8130,12 @@ Return Value:
 
 NTSTATUS
 NtfsCheckValidAttributeAccess (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
     IN PVCB Vcb,
     IN PDUPLICATED_INFORMATION Info OPTIONAL,
     IN UNICODE_STRING AttrName,
     IN UNICODE_STRING AttrCodeName,
-    IN BOOLEAN VolumeOpen,
+    IN BOOLEAN TrailingBackslash,
     OUT PATTRIBUTE_TYPE_CODE AttrTypeCode,
     OUT PULONG CcbFlags,
     OUT PBOOLEAN IndexedAttribute
@@ -7405,8 +8158,6 @@ Routine Description:
 
 Arguments:
 
-    Irp - This is the Irp for this open operation.
-
     IrpSp - This is the stack location for this open.
 
     Vcb - This is the Vcb for this volume.
@@ -7417,9 +8168,10 @@ Arguments:
 
     AttrCodeName - This is the attribute code name to use to open the attribute.
 
-    VolumeOpen - Indicates if this is a volume open operation.
-
     AttrTypeCode - Used to store the attribute type code determined here.
+
+    TrailingBackslash - Indicates if caller had a terminating backslash on the
+        name.
 
     CcbFlags - We set the Ccb flags here to store in the Ccb later.
 
@@ -7438,7 +8190,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCheckValidAttributeAccess:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCheckValidAttributeAccess:  Entered\n") );
 
     //
     //  If the user specified a attribute code string, we find the
@@ -7448,13 +8200,12 @@ Return Value:
 
     if (AttrCodeName.Length != 0) {
 
-        AttrType = NtfsGetAttributeTypeCode( IrpContext,
-                                             Vcb,
+        AttrType = NtfsGetAttributeTypeCode( Vcb,
                                              AttrCodeName );
 
-        if (AttrType == 0) {
+        if (AttrType == $UNUSED) {
 
-            DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Bad attribute name for index\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  Bad attribute name for index\n") );
             return STATUS_INVALID_PARAMETER;
 
         //
@@ -7467,21 +8218,33 @@ Return Value:
 
             if (AttrName.Length != 0) {
 
-                if (!NtfsAreNamesEqual( IrpContext, &AttrName, &NtfsFileNameIndex, TRUE )) {
+                if (!NtfsAreNamesEqual( Vcb->UpcaseTable, &AttrName, &NtfsFileNameIndex, TRUE )) {
 
-                    DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Bad name for index allocation\n", 0 );
+                    DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  Bad name for index allocation\n") );
                     return STATUS_INVALID_PARAMETER;
                 }
 
                 AttrName.Length = 0;
             }
         }
+#ifdef _CAIRO_
+        //
+        //  BUGBUG - Ntfs does not correctly handle compressing streams that
+        //  are logged.  Despite the fact that property sets can be large,
+        //  we forcibly disable compression on these streams.
+        //
 
-        DebugTrace( 0, Dbg, "Attribute type code  ->  %04x\n", AttrType );
+        else if (AttrType == $PROPERTY_SET) {
+            SetFlag( IrpSp->Parameters.Create.Options, FILE_NO_COMPRESSION );
+        }
+#endif  //  _CAIRO_
+
+
+        DebugTrace( 0, Dbg, ("Attribute type code  ->  %04x\n", AttrType) );
 
     } else {
 
-        AttrType = 0;
+        AttrType = $UNUSED;
     }
 
     //
@@ -7512,7 +8275,8 @@ Return Value:
     //
     //      1 - If there is a duplicated information structure we
     //          set the code to $INDEX_ALLOCATION and remember
-    //          this is indexed.  Otherwise this is a $DATA attribute.
+    //          this is indexed.  Otherwise this is a $DATA/$PROPERTY_SET
+    //          attribute.
     //
     //      2 - If there is a trailing backslash we assume this is
     //          an indexed attribute.
@@ -7522,12 +8286,11 @@ Return Value:
     //  Otherwise we assume a non-indexed attribute.
     //
 
-    if (!Indexed
-        && !FlagOn( IrpSp->Parameters.Create.Options,
-                    FILE_NON_DIRECTORY_FILE )
-        && AttrName.Length == 0) {
+    if (!FlagOn( IrpSp->Parameters.Create.Options,
+                    FILE_NON_DIRECTORY_FILE | FILE_DIRECTORY_FILE) &&
+        (AttrName.Length == 0)) {
 
-        if (AttrType == 0) {
+        if (AttrType == $UNUSED) {
 
             if (ARGUMENT_PRESENT( Info )) {
 
@@ -7551,7 +8314,7 @@ Return Value:
     //  Otherwise it is a non-indexed open.
     //
 
-    if (AttrType == 0) {
+    if (AttrType == $UNUSED) {
 
         if (Indexed && AttrName.Length == 0) {
 
@@ -7574,11 +8337,10 @@ Return Value:
 
     if (Indexed) {
 
-        if (VolumeOpen
-            || (AttrType != $INDEX_ALLOCATION)
+        if ((AttrType != $INDEX_ALLOCATION)
             || (AttrName.Length != 0)) {
 
-            DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Conflict in directory\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  Conflict in directory\n") );
             return STATUS_NOT_A_DIRECTORY;
 
         //
@@ -7621,19 +8383,11 @@ Return Value:
             SetFlag( *CcbFlags, CCB_FLAG_OPEN_AS_FILE );
         }
 
-        if (VolumeOpen) {
+        if (ARGUMENT_PRESENT( Info ) &&
+            IsDirectory( Info ) &&
+            FlagOn( *CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
 
-            if (!FlagOn( *CcbFlags, CCB_FLAG_OPEN_AS_FILE )) {
-
-                DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Volume open conflict\n", 0 );
-                return STATUS_INVALID_PARAMETER;
-            }
-
-        } else if (ARGUMENT_PRESENT( Info ) && IsDirectory( Info)
-
-                   && (FlagOn( *CcbFlags, CCB_FLAG_OPEN_AS_FILE ))) {
-
-            DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Can't open directory as file\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  Can't open directory as file\n") );
             return STATUS_FILE_IS_A_DIRECTORY;
         }
     }
@@ -7649,20 +8403,39 @@ Return Value:
 
     if (NtfsProtectSystemAttributes) {
 
-        if ((AttrType < $FIRST_USER_DEFINED_ATTRIBUTE)
-            && ((AttrType != $DATA)
-                && ((AttrType != $INDEX_ALLOCATION)
-                    || !Indexed))) {
+        if ((AttrType < $FIRST_USER_DEFINED_ATTRIBUTE) &&
+            !NtfsIsTypeCodeUserData( AttrType ) &&
+            ((AttrType != $INDEX_ALLOCATION) || !Indexed)) {
 
-            DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  System attribute code\n", 0 );
+            DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  System attribute code\n") );
             return STATUS_ACCESS_DENIED;
+        }
+
+    }
+
+    //
+    //  Now check if the trailing backslash is compatible with the
+    //  file being opened.
+    //
+
+    if (TrailingBackslash) {
+
+        if (!Indexed ||
+            FlagOn( IrpSp->Parameters.Create.Options, FILE_NON_DIRECTORY_FILE )) {
+
+            return STATUS_OBJECT_NAME_INVALID;
+
+        } else {
+
+            Indexed = TRUE;
+            AttrType = $INDEX_ALLOCATION;
         }
     }
 
     *IndexedAttribute = Indexed;
     *AttrTypeCode = AttrType;
 
-    DebugTrace( -1, Dbg, "NtfsCheckValidAttributeAccess:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCheckValidAttributeAccess:  Exit\n") );
 
     return STATUS_SUCCESS;
 }
@@ -7677,9 +8450,6 @@ NtfsOpenAttributeCheck (
     IN PIRP_CONTEXT IrpContext,
     IN PIRP Irp,
     IN PIO_STACK_LOCATION IrpSp,
-    IN PFCB ThisFcb,
-    IN UNICODE_STRING AttrName,
-    IN ATTRIBUTE_TYPE_CODE AttrTypeCode,
     OUT PSCB *ThisScb,
     OUT PSHARE_MODIFICATION_TYPE ShareModificationType
     )
@@ -7701,14 +8471,6 @@ Arguments:
 
     IrpSp - This is the stack location for this open.
 
-    ThisFcb - This is the Fcb for the file being opened.
-
-    AttrName - This is the attribute name in case we need to create
-        an Scb.
-
-    AttrTypeCode - This is the attribute type code to use to create
-        the Scb.
-
     ThisScb - Address to store the Scb if found or created.
 
     ShareModificationType - Address to store the share modification type
@@ -7726,7 +8488,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenAttributeCheck:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenAttributeCheck:  Entered\n") );
 
     //
     //  We should already have the Scb for this file.
@@ -7741,39 +8503,38 @@ Return Value:
     //  access we open the attribute.
     //
 
-    if ((*ThisScb)->CleanupCount != 0
-        && FlagOn( (*ThisScb)->ScbState, SCB_STATE_SHARE_ACCESS )) {
+    if ((*ThisScb)->CleanupCount != 0) {
 
         //
         //  We check the share access for this file without updating it.
         //
 
-        if (NodeType( *ThisScb ) == NTFS_NTC_SCB_DATA) {
-
-            Status = IoCheckShareAccess( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess,
-                                         IrpSp->Parameters.Create.ShareAccess,
-                                         IrpSp->FileObject,
-                                         &(*ThisScb)->ScbType.Data.ShareAccess,
-                                         FALSE );
-
-        } else {
-
-            Status = IoCheckShareAccess( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess,
-                                         IrpSp->Parameters.Create.ShareAccess,
-                                         IrpSp->FileObject,
-                                         &(*ThisScb)->ScbType.Index.ShareAccess,
-                                         FALSE );
-        }
+        Status = IoCheckShareAccess( IrpSp->Parameters.Create.SecurityContext->AccessState->PreviouslyGrantedAccess,
+                                     IrpSp->Parameters.Create.ShareAccess,
+                                     IrpSp->FileObject,
+                                     &(*ThisScb)->ShareAccess,
+                                     FALSE );
 
         if (!NT_SUCCESS( Status )) {
 
-            DebugTrace( -1, Dbg, "NtfsOpenAttributeCheck:  Exit -> %08lx\n", Status );
+            DebugTrace( -1, Dbg, ("NtfsOpenAttributeCheck:  Exit -> %08lx\n", Status) );
             return Status;
         }
 
-        DebugTrace( 0, Dbg, "Check oplock state of existing Scb\n", 0 );
+        DebugTrace( 0, Dbg, ("Check oplock state of existing Scb\n") );
 
-        if (NodeType( *ThisScb ) == NTFS_NTC_SCB_DATA) {
+        if (SafeNodeType( *ThisScb ) == NTFS_NTC_SCB_DATA) {
+
+            //
+            //  If the handle count is greater than 1 then fail this
+            //  open now if the caller wants a filter oplock.
+            //
+
+            if (FlagOn( IrpSp->Parameters.Create.Options, FILE_RESERVE_OPFILTER ) &&
+                ((*ThisScb)->CleanupCount > 1)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_OPLOCK_NOT_GRANTED, NULL, NULL );
+            }
 
             Status = FsRtlCheckOplock( &(*ThisScb)->ScbType.Data.Oplock,
                                        Irp,
@@ -7782,15 +8543,23 @@ Return Value:
                                        NtfsOplockPrePostIrp );
 
             //
+            //  Update the FastIoField.
+            //
+
+            NtfsAcquireFsrtlHeader( *ThisScb );
+            (*ThisScb)->Header.IsFastIoPossible = NtfsIsFastIoPossible( *ThisScb );
+            NtfsReleaseFsrtlHeader( *ThisScb );
+
+            //
             //  If the return value isn't success or oplock break in progress
             //  the irp has been posted.  We return right now.
             //
 
             if (Status == STATUS_PENDING) {
 
-                DebugTrace( 0, Dbg, "Irp posted through oplock routine\n", 0 );
+                DebugTrace( 0, Dbg, ("Irp posted through oplock routine\n") );
 
-                DebugTrace( -1, Dbg, "NtfsOpenAttributeCheck:  Exit -> %08lx\n", Status );
+                DebugTrace( -1, Dbg, ("NtfsOpenAttributeCheck:  Exit -> %08lx\n", Status) );
                 return Status;
             }
         }
@@ -7829,7 +8598,7 @@ Return Value:
         //  flush call.
         //
 
-        (*ThisScb)->CloseCount += 1;
+        InterlockedIncrement( &(*ThisScb)->CloseCount );
 
         try {
 
@@ -7843,7 +8612,7 @@ Return Value:
                 if (!MmFlushImageSection( &(*ThisScb)->NonpagedScb->SegmentObject,
                                           MmFlushForWrite )) {
 
-                    DebugTrace( 0, Dbg, "Couldn't flush image section\n", 0 );
+                    DebugTrace( 0, Dbg, ("Couldn't flush image section\n") );
 
                     Status = DeleteOnClose ? STATUS_CANNOT_DELETE :
                                              STATUS_SHARING_VIOLATION;
@@ -7852,11 +8621,11 @@ Return Value:
 
         } finally {
 
-            (*ThisScb)->CloseCount -= 1;
+            InterlockedDecrement( &(*ThisScb)->CloseCount );
         }
     }
 
-    DebugTrace( -1, Dbg, "NtfsOpenAttributeCheck:  Exit  ->  %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsOpenAttributeCheck:  Exit  ->  %08lx\n", Status) );
 
     return Status;
 }
@@ -7908,7 +8677,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsAddEa:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsAddEa:  Entered\n") );
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -7938,7 +8707,7 @@ Return Value:
 
             if (!NT_SUCCESS( Status )) {
 
-                DebugTrace( -1, Dbg, "NtfsAddEa:  Invalid ea list\n", 0 );
+                DebugTrace( -1, Dbg, ("NtfsAddEa:  Invalid ea list\n") );
                 NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
             }
 
@@ -7954,7 +8723,7 @@ Return Value:
 
             if (!NT_SUCCESS( Status )) {
 
-                DebugTrace( -1, Dbg, "NtfsAddEa: Couldn't build Ea list\n", 0 );
+                DebugTrace( -1, Dbg, ("NtfsAddEa: Couldn't build Ea list\n") );
                 NtfsRaiseStatus( IrpContext, Status, NULL, NULL );
             }
         }
@@ -7963,9 +8732,7 @@ Return Value:
         //  Now replace the existing EAs.
         //
 
-        NtfsReplaceFileEas( IrpContext,
-                            ThisFcb,
-                            &EaList );
+        NtfsReplaceFileEas( IrpContext, ThisFcb, &EaList );
 
     } finally {
 
@@ -7977,10 +8744,10 @@ Return Value:
 
         if (EaList.FullEa != NULL) {
 
-            NtfsFreePagedPool( EaList.FullEa );
+            NtfsFreePool( EaList.FullEa );
         }
 
-        DebugTrace( -1, Dbg, "NtfsAddEa:  Exit -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsAddEa:  Exit -> %08lx\n", Status) );
     }
 
     return;
@@ -7997,7 +8764,8 @@ NtfsInitializeFcbAndStdInfo (
     IN PFCB ThisFcb,
     IN BOOLEAN Directory,
     IN BOOLEAN Compressed,
-    IN ULONG FileAttributes
+    IN ULONG FileAttributes,
+    IN PLONGLONG SetCreationTime OPTIONAL
     )
 
 /*++
@@ -8021,6 +8789,8 @@ Arguments:
     FileAttributes - These are the attributes the user wants to attach to
         the file.  We will just clear any unsupported bits.
 
+    SetCreationTime - Optionally force the creation time to a given value
+
 Return Value:
 
     None - This routine will raise on error.
@@ -8033,7 +8803,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsInitializeFcbAndStdInfo:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsInitializeFcbAndStdInfo:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -8053,10 +8823,12 @@ Return Value:
             SetFlag( FileAttributes, FILE_ATTRIBUTE_ARCHIVE );
         }
 
-        FileAttributes &= (FILE_ATTRIBUTE_READONLY |
-                           FILE_ATTRIBUTE_HIDDEN   |
-                           FILE_ATTRIBUTE_SYSTEM   |
-                           FILE_ATTRIBUTE_ARCHIVE );
+        ClearFlag( FileAttributes,
+                   ~(FILE_ATTRIBUTE_READONLY  |
+                     FILE_ATTRIBUTE_HIDDEN    |
+                     FILE_ATTRIBUTE_SYSTEM    |
+                     FILE_ATTRIBUTE_TEMPORARY |
+                     FILE_ATTRIBUTE_ARCHIVE) );
 
         if (Directory) {
 
@@ -8074,13 +8846,27 @@ Return Value:
         //  Fill in the rest of the Fcb Info structure.
         //
 
-        NtfsGetCurrentTime( IrpContext, ThisFcb->Info.CreationTime );
+        if (SetCreationTime == NULL) {
 
-        ThisFcb->Info.LastModificationTime = ThisFcb->Info.CreationTime;
-        ThisFcb->Info.LastChangeTime = ThisFcb->Info.CreationTime;
-        ThisFcb->Info.LastAccessTime = ThisFcb->Info.CreationTime;
+            NtfsGetCurrentTime( IrpContext, ThisFcb->Info.CreationTime );
 
-        ThisFcb->CurrentLastAccess = ThisFcb->Info.CreationTime;
+            ThisFcb->Info.LastModificationTime = ThisFcb->Info.CreationTime;
+            ThisFcb->Info.LastChangeTime = ThisFcb->Info.CreationTime;
+            ThisFcb->Info.LastAccessTime = ThisFcb->Info.CreationTime;
+
+            ThisFcb->CurrentLastAccess = ThisFcb->Info.CreationTime;
+
+        } else {
+
+            ThisFcb->Info.CreationTime = *SetCreationTime;
+
+            NtfsGetCurrentTime( IrpContext, ThisFcb->Info.LastModificationTime );
+
+            ThisFcb->Info.LastChangeTime = ThisFcb->Info.LastModificationTime;
+            ThisFcb->Info.LastAccessTime = ThisFcb->Info.LastModificationTime;
+
+            ThisFcb->CurrentLastAccess = ThisFcb->Info.LastModificationTime;
+        }
 
         //
         //  We assume these sizes are zero.
@@ -8102,6 +8888,15 @@ Return Value:
         StandardInformation.LastAccessTime = ThisFcb->Info.LastAccessTime;
 
         StandardInformation.FileAttributes = ThisFcb->Info.FileAttributes;
+
+#ifdef _CAIRO_
+        StandardInformation.ClassId = ThisFcb->ClassId;
+        StandardInformation.OwnerId = ThisFcb->OwnerId;
+        StandardInformation.SecurityId = ThisFcb->SecurityId;
+        StandardInformation.Usn = ThisFcb->Usn;
+
+        SetFlag(ThisFcb->FcbState, FCB_STATE_LARGE_STD_INFO);
+#endif
 
         NtfsCreateAttributeWithValue( IrpContext,
                                       ThisFcb,
@@ -8132,9 +8927,9 @@ Return Value:
 
         DebugUnwind( NtfsInitializeFcbAndStdInfo );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( -1, Dbg, "NtfsInitializeFcbAndStdInfo:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsInitializeFcbAndStdInfo:  Exit\n") );
     }
 
     return;
@@ -8148,6 +8943,7 @@ Return Value:
 VOID
 NtfsCreateAttribute (
     IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
     IN OUT PFCB ThisFcb,
     IN OUT PSCB ThisScb,
     IN PLCB ThisLcb,
@@ -8160,16 +8956,14 @@ NtfsCreateAttribute (
 Routine Description:
 
     This routine is called to create an attribute of a given size on the
-    disk.  It will create a resident or non-resident as required.
+    disk.  This path will only create non-resident attributes unless the
+    allocation size is zero.
+
     The Scb will contain the attribute name and type code on entry.
 
-    We locate the location for the attribute and then check if the
-    attribute will go resident or non-resident.  We then call the
-    appropriate creation routine.  For a resident creation, we
-    set the valid data size to zero so we can truncate as
-    necessary on close.
-
 Arguments:
+
+    IrpSp - Stack location in the Irp for this request.
 
     ThisFcb - This is the Fcb for the file to create the attribute in.
 
@@ -8192,14 +8986,11 @@ Return Value:
     ATTRIBUTE_ENUMERATION_CONTEXT AttrContext;
     PATTRIBUTE_RECORD_HEADER ThisAttribute = NULL;
 
-    BOOLEAN Resident;
-    BOOLEAN UnnamedDataAttribute;
-
-    USHORT AttributeFlags;
+    USHORT AttributeFlags = 0;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsCreateAttribute:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsCreateAttribute:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -8209,7 +9000,38 @@ Return Value:
 
     try {
 
-        AttributeFlags = (USHORT)(ThisLcb->Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK);
+        if (!FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) &&
+            !FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_COMPRESSION )) {
+
+            //
+            //  If this is the root directory then use the Scb from the Vcb.
+            //
+
+            if (ThisLcb == ThisFcb->Vcb->RootLcb) {
+
+                AttributeFlags = (USHORT)(ThisFcb->Vcb->RootIndexScb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK);
+
+            } else {
+
+                AttributeFlags = (USHORT)(ThisLcb->Scb->AttributeFlags & ATTRIBUTE_FLAG_COMPRESSION_MASK);
+            }
+        }
+
+#ifdef _CAIRO_
+
+        if (NtfsPerformQuotaOperation( ThisFcb) &&
+            FlagOn( ThisScb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+            ASSERT( NtfsIsTypeCodeSubjectToQuota( ThisScb->AttributeTypeCode ));
+
+            //
+            //  Since this is a new stream indicate quota is set to
+            //  allocation size.
+            //
+
+            SetFlag( ThisScb->ScbState, SCB_STATE_QUOTA_ENLARGED );
+        }
+#endif
 
         //
         //  We lookup that attribute again and it better not be there.
@@ -8219,61 +9041,7 @@ Return Value:
 
         if (AllocationSize != 0) {
 
-            Resident = FALSE;
-
-        } else {
-
-            PFILE_RECORD_SEGMENT_HEADER FileRecord;
-
-            if (NtfsLookupAttributeByName( IrpContext,
-                                           ThisFcb,
-                                           &ThisFcb->FileReference,
-                                           ThisScb->AttributeTypeCode,
-                                           &ThisScb->AttributeName,
-                                           TRUE,
-                                           &AttrContext )) {
-
-                NtfsRaiseStatus( IrpContext, STATUS_FILE_CORRUPT_ERROR, NULL, ThisFcb );
-            }
-
-            FileRecord = NtfsContainingFileRecord( &AttrContext );
-
-            Resident = NtfsShouldAttributeBeResident( ThisFcb->Vcb,
-                                                      FileRecord,
-                                                      (ULONG)AllocationSize );
-        }
-
-        //
-        //  We either create the attribute resident or non-resident.
-        //
-
-        if (Resident) {
-
-            DebugTrace( 0, Dbg, "Create resident attribute\n", 0 );
-
-            NtfsCleanupAttributeContext( IrpContext, &AttrContext );
-            NtfsInitializeAttributeContext( &AttrContext );
-
-            NtfsCreateAttributeWithValue( IrpContext,
-                                          ThisFcb,
-                                          ThisScb->AttributeTypeCode,
-                                          &ThisScb->AttributeName,
-                                          NULL,
-                                          (ULONG)AllocationSize,
-                                          AttributeFlags,
-                                          NULL,
-                                          LogIt,
-                                          &AttrContext );
-
-            ThisAttribute = NtfsFoundAttribute( &AttrContext );
-
-        //
-        //  Otherwise create the non-resident allocation.
-        //
-
-        } else {
-
-            DebugTrace( 0, Dbg, "Create non-resident attribute\n", 0 );
+            DebugTrace( 0, Dbg, ("Create non-resident attribute\n") );
 
             if (!NtfsAllocateAttribute( IrpContext,
                                         ThisScb,
@@ -8289,6 +9057,43 @@ Return Value:
 
                 SetFlag( IrpContext->Flags, IRP_CONTEXT_LARGE_ALLOCATION );
             }
+
+            SetFlag( ThisScb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
+
+        } else {
+
+#ifdef _CAIRO_
+
+            //
+            //  Update the quota if this is a user stream.
+            //
+
+            if ( FlagOn( ThisScb->ScbState, SCB_STATE_SUBJECT_TO_QUOTA )) {
+
+                LONGLONG Delta = NtfsResidentStreamQuota( ThisFcb->Vcb );
+
+                NtfsConditionallyUpdateQuota( IrpContext,
+                                              ThisFcb,
+                                              &Delta,
+                                              LogIt,
+                                              TRUE );
+            }
+
+#endif // _CAIRO_
+
+            NtfsCreateAttributeWithValue( IrpContext,
+                                          ThisFcb,
+                                          ThisScb->AttributeTypeCode,
+                                          &ThisScb->AttributeName,
+                                          NULL,
+                                          (ULONG) AllocationSize,
+                                          AttributeFlags,
+                                          NULL,
+                                          LogIt,
+                                          &AttrContext );
+
+            ThisAttribute = NtfsFoundAttribute( &AttrContext );
+
         }
 
         //
@@ -8301,43 +9106,17 @@ Return Value:
                                     ThisScb,
                                     ThisAttribute );
 
-        SetFlag( ThisScb->ScbState, SCB_STATE_TRUNCATE_ON_CLOSE );
-
-        //
-        //  If this is the unnamed data attribute we need to store the
-        //  updated sizes in the Info structure.  We have to test the
-        //  fields in the Scb because this bit will not have been set for
-        //  a create operation.
-        //
-
-        UnnamedDataAttribute = (ThisScb->AttributeTypeCode == $DATA
-                                && ThisScb->AttributeName.Length == 0);
-
-        //
-        //  We also update the time stamps on the file.
-        //
-
-        if (LogIt) {
-
-            NtfsGetCurrentTime( IrpContext, ThisFcb->Info.LastChangeTime );
-            SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-
-            if (UnnamedDataAttribute) {
-
-                ThisFcb->Info.LastModificationTime = ThisFcb->Info.LastChangeTime;
-                SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_MOD );
-            }
-
-            SetFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-        }
+#if 0 // _CAIRO_
+        ASSERT( !NtfsPerformQuotaOperation( ThisFcb ) || NtfsCalculateQuotaAdjustment( IrpContext, ThisFcb ) == 0 );
+#endif // _CAIRO_
 
     } finally {
 
         DebugUnwind( NtfsCreateAttribute );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( +1, Dbg, "NtfsCreateAttribute:  Exit\n", 0 );
+        DebugTrace( +1, Dbg, ("NtfsCreateAttribute:  Exit\n") );
     }
 
     return;
@@ -8363,8 +9142,8 @@ NtfsRemoveDataAttributes (
 Routine Description:
 
     This routine is called to remove (or mark for delete) all of the named
-    data attributes on a file.  This is done during an overwrite or
-    supersede operation.
+    data or property set attributes on a file.  This is done during an overwrite
+    or supersede operation.
 
 Arguments:
 
@@ -8389,6 +9168,7 @@ Return Value:
 {
     ATTRIBUTE_ENUMERATION_CONTEXT Context;
     PATTRIBUTE_RECORD_HEADER Attribute;
+    ATTRIBUTE_TYPE_CODE TypeCode = $DATA;
 
     UNICODE_STRING AttributeName;
     PSCB ThisScb;
@@ -8399,115 +9179,163 @@ Return Value:
 
     PAGED_CODE();
 
-    NtfsInitializeAttributeContext( &Context );
-
     //
     //  Use a try-finally to facilitate cleanup.
     //
 
     try {
 
-        //
-        //  Enumerate all of the $DATA attributes.
-        //
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
 
-        MoreToGo = NtfsLookupAttributeByCode( IrpContext,
-                                              ThisFcb,
-                                              &ThisFcb->FileReference,
-                                              $DATA,
-                                              &Context );
+        while (TRUE) {
 
-        while (MoreToGo) {
+            NtfsInitializeAttributeContext( &Context );
 
             //
-            //  Point to the current attribute.
+            //  Enumerate all of the attributes with the matching type code
             //
 
-            Attribute = NtfsFoundAttribute( &Context );
+            MoreToGo = NtfsLookupAttributeByCode( IrpContext,
+                                                  ThisFcb,
+                                                  &ThisFcb->FileReference,
+                                                  TypeCode,
+                                                  &Context );
 
-            //
-            //  We only look at named data attributes.
-            //
-
-            if (Attribute->NameLength != 0) {
-
-                //
-                //  Construct the name and find the Scb for the attribute.
-                //
-
-                AttributeName.Buffer = (PWSTR) Add2Ptr( Attribute, Attribute->NameOffset );
-                AttributeName.MaximumLength = AttributeName.Length = Attribute->NameLength * sizeof( WCHAR );
-
-                ThisScb = NtfsCreateScb( IrpContext,
-                                         ThisFcb->Vcb,
-                                         ThisFcb,
-                                         $DATA,
-                                         AttributeName,
-                                         NULL );
+            while (MoreToGo) {
 
                 //
-                //  If there is an open handle on this file, we simply mark
-                //  the Scb as delete pending.
+                //  Point to the current attribute.
                 //
 
-                if (ThisScb->CleanupCount != 0) {
-
-                    SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+                Attribute = NtfsFoundAttribute( &Context );
 
                 //
-                //  Otherwise we remove the attribute and mark the Scb as
-                //  deleted.  The Scb will be cleaned up when the Fcb is
-                //  cleaned up.
+                //  We only look at named data attributes.
                 //
 
-                } else {
-
-                    NtfsDeleteAttributeRecord( IrpContext,
-                                               ThisFcb,
-                                               TRUE,
-                                               FALSE,
-                                               &Context );
-
-                    SetFlag( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+                if (Attribute->NameLength != 0) {
 
                     //
-                    //  If this is a named stream, then report this to the dir notify
-                    //  package.
+                    //  Construct the name and find the Scb for the attribute.
                     //
 
-                    if (!OpenById
-                        && ThisScb->AttributeName.Length != 0
-                        && ThisScb->AttributeTypeCode == $DATA) {
+                    AttributeName.Buffer = (PWSTR) Add2Ptr( Attribute, Attribute->NameOffset );
+                    AttributeName.MaximumLength = AttributeName.Length = Attribute->NameLength * sizeof( WCHAR );
 
-                        NtfsReportDirNotify( IrpContext,
-                                             ThisFcb->Vcb,
-                                             &FileObject->FileName,
-                                             LastFileNameOffset,
-                                             &ThisScb->AttributeName,
-                                             ((ARGUMENT_PRESENT( ThisLcb ) &&
-                                               ThisLcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
-                                              &ThisLcb->Scb->ScbType.Index.NormalizedName :
-                                              NULL),
-                                             FILE_NOTIFY_CHANGE_STREAM_NAME,
-                                             FILE_ACTION_REMOVED_STREAM,
+                    ThisScb = NtfsCreateScb( IrpContext,
+                                             ThisFcb,
+                                             TypeCode,
+                                             &AttributeName,
+                                             FALSE,
                                              NULL );
+
+                    //
+                    //  If there is an open handle on this file, we simply mark
+                    //  the Scb as delete pending.
+                    //
+
+                    if (ThisScb->CleanupCount != 0) {
+
+                        SetFlag( ThisScb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+
+                    //
+                    //  Otherwise we remove the attribute and mark the Scb as
+                    //  deleted.  The Scb will be cleaned up when the Fcb is
+                    //  cleaned up.
+                    //
+
+                    } else {
+
+#ifdef _CAIRO_
+                    LONGLONG Delta;
+
+                    ASSERT( !FlagOn( ThisScb->ScbState, SCB_STATE_QUOTA_ENLARGED ));
+
+                    if (NtfsPerformQuotaOperation(ThisFcb)) {
+
+                        if (NtfsIsAttributeResident( Attribute )) {
+                            Delta = -(LONG) Attribute->Form.Resident.ValueLength;
+                        } else {
+                            Delta = -(LONGLONG) Attribute->Form.Nonresident.FileSize;
+                        }
+
+                        NtfsUpdateFileQuota( IrpContext,
+                                             ThisFcb,
+                                             &Delta,
+                                             TRUE,
+                                             FALSE );
+
+                    }
+#endif
+
+                        NtfsDeleteAttributeRecord( IrpContext,
+                                                   ThisFcb,
+                                                   TRUE,
+                                                   FALSE,
+                                                   &Context );
+
+                        SetFlag( ThisScb->ScbState, SCB_STATE_ATTRIBUTE_DELETED );
+
+                        //
+                        //  If this is a named stream, then report this to the dir notify
+                        //  package.
+                        //
+
+                        if (!OpenById &&
+                            (ThisScb->Vcb->NotifyCount != 0) &&
+                            (ThisScb->AttributeName.Length != 0) &&
+                            (ThisScb->AttributeTypeCode == TypeCode)) {
+
+                            NtfsReportDirNotify( IrpContext,
+                                                 ThisFcb->Vcb,
+                                                 &FileObject->FileName,
+                                                 LastFileNameOffset,
+                                                 &ThisScb->AttributeName,
+                                                 ((ARGUMENT_PRESENT( ThisLcb ) &&
+                                                   ThisLcb->Scb->ScbType.Index.NormalizedName.Buffer != NULL) ?
+                                                  &ThisLcb->Scb->ScbType.Index.NormalizedName :
+                                                  NULL),
+                                                 FILE_NOTIFY_CHANGE_STREAM_NAME,
+                                                 FILE_ACTION_REMOVED_STREAM,
+                                                 NULL );
+                        }
                     }
                 }
+
+                //
+                //  Get the next attribute.
+                //
+
+                MoreToGo = NtfsLookupNextAttributeByCode( IrpContext,
+                                                          ThisFcb,
+                                                          TypeCode,
+                                                          &Context );
             }
 
             //
-            //  Get the next attribute.
+            //  We've deleted one set of attributes.  Check to see if
+            //  we're done deleting or whether we need to start deleting
+            //  another type code.
             //
 
-            MoreToGo = NtfsLookupNextAttributeByCode( IrpContext,
-                                                      ThisFcb,
-                                                      $DATA,
-                                                      &Context );
+#ifndef _CAIRO_
+            break;
+#else   //  _CAIRO_
+            if (TypeCode == $PROPERTY_SET) {
+                break;
+            } else {
+
+                NtfsCleanupAttributeContext( &Context );
+                TypeCode = $PROPERTY_SET;
+
+            }
+#endif  //  _CAIRO_
         }
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &Context );
+        ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_QUOTA_DISABLE );
+        NtfsCleanupAttributeContext( &Context );
     }
 
     return;
@@ -8521,6 +9349,7 @@ Return Value:
 VOID
 NtfsReplaceAttribute (
     IN PIRP_CONTEXT IrpContext,
+    IN PIO_STACK_LOCATION IrpSp,
     IN PFCB ThisFcb,
     IN PSCB ThisScb,
     IN PLCB ThisLcb,
@@ -8547,6 +9376,8 @@ Routine Description:
 
 Arguments:
 
+    IrpSp - This is the Irp stack location for this request.
+
     ThisFcb - This is the Fcb for the file being opened.
 
     ThisScb - This is the Scb for the given attribute.
@@ -8567,7 +9398,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsReplaceAttribute:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsReplaceAttribute:  Entered\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -8589,6 +9420,12 @@ Return Value:
         NtfsSnapshotScb( IrpContext, ThisScb );
 
         //
+        //  Expand quota to the expected state.
+        //
+
+        NtfsExpandQuotaToAllocationSize( IrpContext, ThisScb );
+
+        //
         //  If the attribute is resident, simply remove the old attribute and create
         //  a new one.
         //
@@ -8601,6 +9438,7 @@ Return Value:
 
             NtfsLookupAttributeForScb( IrpContext,
                                        ThisScb,
+                                       NULL,
                                        &AttrContext );
 
             NtfsDeleteAttributeRecord( IrpContext,
@@ -8613,10 +9451,11 @@ Return Value:
             //  Set all the attribute sizes to zero.
             //
 
-            ThisScb->HighestVcnToDisk =
+            ThisScb->ValidDataToDisk =
             ThisScb->Header.AllocationSize.QuadPart =
             ThisScb->Header.ValidDataLength.QuadPart =
             ThisScb->Header.FileSize.QuadPart = 0;
+            ThisScb->TotalAllocated = 0;
 
             //
             //  Create a stream file for the attribute in order to
@@ -8634,6 +9473,7 @@ Return Value:
             //
 
             NtfsCreateAttribute( IrpContext,
+                                 IrpSp,
                                  ThisFcb,
                                  ThisScb,
                                  ThisLcb,
@@ -8647,24 +9487,6 @@ Return Value:
 
         } else {
 
-            AllocationSize = LlClustersFromBytes( ThisScb->Vcb, AllocationSize );
-            AllocationSize = LlBytesFromClusters( ThisScb->Vcb, AllocationSize );
-
-            //
-            //  Set the file size and valid data size to zero.
-            //
-
-            ThisScb->HighestVcnToDisk = 0;
-            ThisScb->Header.ValidDataLength = Li0;
-            ThisScb->Header.FileSize = Li0;
-
-            DebugTrace2( 0, Dbg, "AllocationSize -> %08lx %08lx\n", AllocationSize.LowPart, AllocationSize.HighPart);
-
-            //
-            //  There may be no allocation work to do if the allocation size isn't
-            //  changing.
-            //
-
             //
             //  Create an internal attribute stream for the file.
             //
@@ -8673,36 +9495,104 @@ Return Value:
                                                ThisScb,
                                                FALSE );
 
-            if (AllocationSize != ThisScb->Header.AllocationSize.QuadPart) {
+            AllocationSize = LlClustersFromBytes( ThisScb->Vcb, AllocationSize );
+            AllocationSize = LlBytesFromClusters( ThisScb->Vcb, AllocationSize );
+
+            //
+            //  Set the file size and valid data size to zero.
+            //
+
+            ThisScb->ValidDataToDisk = 0;
+            ThisScb->Header.ValidDataLength = Li0;
+            ThisScb->Header.FileSize = Li0;
+
+            DebugTrace( 0, Dbg, ("AllocationSize -> %016I64x\n", AllocationSize) );
+
+            //
+            //  Write these changes to the file
+            //
+
+            //
+            //  If the attribute is currently compressed then go ahead and discard
+            //  all of the allocation.
+            //
+
+            if (FlagOn( ThisScb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK )) {
+
+                NtfsDeleteAllocation( IrpContext,
+                                      ThisScb->FileObject,
+                                      ThisScb,
+                                      0,
+                                      MAXLONGLONG,
+                                      TRUE,
+                                      TRUE );
 
                 //
-                //  Now if the file allocation is being increased then we need to only add allocation
-                //  to the attribute
+                //  Checkpoint the current transaction so we have these clusters
+                //  available again.
                 //
 
-                if (ThisScb->Header.AllocationSize.QuadPart < AllocationSize) {
+                NtfsCheckpointCurrentTransaction( IrpContext );
 
-                    NtfsAddAllocation( IrpContext,
-                                       ThisScb->FileObject,
-                                       ThisScb,
-                                       LlClustersFromBytes( ThisScb->Vcb, ThisScb->Header.AllocationSize.QuadPart ),
-                                       LlClustersFromBytes(ThisScb->Vcb, AllocationSize - ThisScb->Header.AllocationSize.QuadPart),
-                                       FALSE );
+                //
+                //  If the user doesn't want this stream to be compressed then
+                //  remove the entire stream and recreate it non-compressed.
+                //
 
-                } else {
+                if (FlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ) ||
+                    FlagOn( IrpSp->Parameters.Create.Options, FILE_NO_COMPRESSION )) {
+
+                    NtfsLookupAttributeForScb( IrpContext,
+                                               ThisScb,
+                                               NULL,
+                                               &AttrContext );
+
+                    NtfsDeleteAttributeRecord( IrpContext,
+                                               ThisFcb,
+                                               TRUE,
+                                               FALSE,
+                                               &AttrContext );
 
                     //
-                    //  Otherwise the allocation is being decreased so we need to delete some allocation
+                    //  Call our create attribute routine.
                     //
 
-                    NtfsDeleteAllocation( IrpContext,
-                                          ThisScb->FileObject,
-                                          ThisScb,
-                                          LlClustersFromBytes( ThisScb->Vcb, AllocationSize ),
-                                          MAXLONGLONG,
-                                          TRUE,
-                                          TRUE );
+                    NtfsCreateAttribute( IrpContext,
+                                         IrpSp,
+                                         ThisFcb,
+                                         ThisScb,
+                                         ThisLcb,
+                                         AllocationSize,
+                                         TRUE );
                 }
+            }
+
+            //
+            //  Now if the file allocation is being increased then we need to only add allocation
+            //  to the attribute
+            //
+
+            if (ThisScb->Header.AllocationSize.QuadPart < AllocationSize) {
+
+                NtfsAddAllocation( IrpContext,
+                                   ThisScb->FileObject,
+                                   ThisScb,
+                                   LlClustersFromBytes( ThisScb->Vcb, ThisScb->Header.AllocationSize.QuadPart ),
+                                   LlClustersFromBytes( ThisScb->Vcb, AllocationSize - ThisScb->Header.AllocationSize.QuadPart ),
+                                   FALSE );
+            //
+            //  Otherwise the allocation is being decreased so we need to delete some allocation
+            //
+
+            } else if (ThisScb->Header.AllocationSize.QuadPart > AllocationSize) {
+
+                NtfsDeleteAllocation( IrpContext,
+                                      ThisScb->FileObject,
+                                      ThisScb,
+                                      LlClustersFromBytes( ThisScb->Vcb, AllocationSize ),
+                                      MAXLONGLONG,
+                                      TRUE,
+                                      TRUE );
             }
 
             //
@@ -8710,46 +9600,26 @@ Return Value:
             //  file size to disk.
             //
 
+            NtfsWriteFileSizes( IrpContext,
+                                ThisScb,
+                                &ThisScb->Header.ValidDataLength.QuadPart,
+                                FALSE,
+                                TRUE );
+
+            NtfsCheckpointCurrentTransaction( IrpContext );
+
             CcSetFileSizes( ThisScb->FileObject,
                             (PCC_FILE_SIZES)&ThisScb->Header.AllocationSize );
 
-            NtfsWriteFileSizes( IrpContext,
-                                ThisScb,
-                                ThisScb->Header.FileSize.QuadPart,
-                                ThisScb->Header.ValidDataLength.QuadPart,
-                                FALSE,
-                                TRUE );
-        }
-
-        //
-        //  We always mark the new allocation and file size in the Fcb.
-        //  Also the last change and last modify time.
-        //
-
-        NtfsGetCurrentTime( IrpContext, ThisFcb->Info.LastChangeTime );
-        SetFlag( ThisFcb->InfoFlags, FCB_INFO_CHANGED_LAST_CHANGE );
-        SetFlag( ThisFcb->FcbState, FCB_STATE_UPDATE_STD_INFO );
-
-        if (FlagOn( ThisScb->ScbState, SCB_STATE_UNNAMED_DATA )) {
-
-            ThisFcb->Info.AllocatedLength = ThisScb->Header.AllocationSize.QuadPart;
-            SetFlag( ThisFcb->InfoFlags,
-                     FCB_INFO_CHANGED_ALLOC_SIZE );
-
-            ThisFcb->Info.FileSize = ThisScb->Header.FileSize.QuadPart;
-            SetFlag( ThisFcb->InfoFlags,
-                     FCB_INFO_CHANGED_FILE_SIZE );
-
-            ThisFcb->Info.LastModificationTime = ThisFcb->Info.LastChangeTime;
         }
 
     } finally {
 
         DebugUnwind( NtfsReplaceAttribute );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        DebugTrace( -1, Dbg, "NtfsReplaceAttribute:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsReplaceAttribute:  Exit\n") );
     }
 
     return;
@@ -8773,6 +9643,7 @@ NtfsOpenAttribute (
     IN SHARE_MODIFICATION_TYPE ShareModificationType,
     IN TYPE_OF_OPEN TypeOfOpen,
     IN ULONG CcbFlags,
+    IN PVOID NetworkInfo OPTIONAL,
     IN OUT PSCB *ThisScb,
     OUT PCCB *ThisCcb
     )
@@ -8811,6 +9682,10 @@ Arguments:
 
     CcbFlags - This is the flag field for the Ccb.
 
+    NetworkInfo - If specified then this open is on behalf of a fast query
+        and we don't want to increment the counts or modify the share
+        access on the file.
+
     ThisScb - If this points to a non-NULL value, it is the Scb to use.  Otherwise we
         store the Scb we create here.
 
@@ -8825,12 +9700,11 @@ Return Value:
 {
     NTSTATUS Status = STATUS_SUCCESS;
     BOOLEAN RemoveShareAccess = FALSE;
-    PSHARE_ACCESS ThisShareAccess;
     ACCESS_MASK GrantedAccess;
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsOpenAttribute:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsOpenAttribute:  Entered\n") );
 
     //
     //  Use a try-finally to facilitate cleanup.
@@ -8850,18 +9724,18 @@ Return Value:
 
         if (*ThisScb == NULL) {
 
-            DebugTrace( 0, Dbg, "Looking for Scb\n", 0 );
+            DebugTrace( 0, Dbg, ("Looking for Scb\n") );
 
             *ThisScb = NtfsCreateScb( IrpContext,
-                                  ThisFcb->Vcb,
-                                  ThisFcb,
-                                  AttrTypeCode,
-                                  AttrName,
-                                  NULL );
+                                      ThisFcb,
+                                      AttrTypeCode,
+                                      &AttrName,
+                                      FALSE,
+                                      NULL );
         }
 
-        DebugTrace( 0, Dbg, "ThisScb -> %08lx\n", *ThisScb );
-        DebugTrace( 0, Dbg, "ThisLcb -> %08lx\n", ThisLcb );
+        DebugTrace( 0, Dbg, ("ThisScb -> %08lx\n", *ThisScb) );
+        DebugTrace( 0, Dbg, ("ThisLcb -> %08lx\n", ThisLcb) );
 
         //
         //  If this Scb is delete pending, we return an error.
@@ -8869,26 +9743,52 @@ Return Value:
 
         if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_DELETE_ON_CLOSE )) {
 
-            DebugTrace( 0, Dbg, "Scb delete is pending\n", 0 );
+            DebugTrace( 0, Dbg, ("Scb delete is pending\n") );
 
             Status = STATUS_DELETE_PENDING;
             try_return( NOTHING );
         }
 
         //
-        //  If this Scb has a share access structure, update it now.
+        //  Skip all of the operations below if the user is doing a fast
+        //  path open.
         //
 
-        if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_SHARE_ACCESS )) {
+        if (!ARGUMENT_PRESENT( NetworkInfo )) {
 
-            if (NodeType( (*ThisScb) ) == NTFS_NTC_SCB_DATA) {
+            //
+            //  If this caller wanted a filter oplock and the cleanup count
+            //  is non-zero then fail the request.
+            //
 
-                ThisShareAccess = &(*ThisScb)->ScbType.Data.ShareAccess;
+            if (FlagOn( IrpSp->Parameters.Create.Options, FILE_RESERVE_OPFILTER )) {
 
-            } else {
+                if (SafeNodeType( *ThisScb ) != NTFS_NTC_SCB_DATA) {
 
-                ThisShareAccess = &(*ThisScb)->ScbType.Index.ShareAccess;
+                    Status = STATUS_INVALID_PARAMETER;
+                    try_return( NOTHING );
+
+                //
+                //  This must be the only open on the file and the requested
+                //  access must be FILE_READ/WRITE_ATTRIBUTES and the
+                //  share access must share with everyone.
+                //
+
+                } else if (((*ThisScb)->CleanupCount != 0) ||
+                           (FlagOn( IrpSp->Parameters.Create.SecurityContext->DesiredAccess,
+                                    ~(FILE_READ_ATTRIBUTES))) ||
+                           ((IrpSp->Parameters.Create.ShareAccess &
+                             (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)) !=
+                            (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE))) {
+
+                    Status = STATUS_OPLOCK_NOT_GRANTED;
+                    try_return( NOTHING );
+                }
             }
+
+            //
+            //  Update the share access structure.
+            //
 
             //
             //  Case on the requested share modification value.
@@ -8898,15 +9798,15 @@ Return Value:
 
             case UpdateShareAccess :
 
-                DebugTrace( 0, Dbg, "Updating share access\n", 0 );
+                DebugTrace( 0, Dbg, ("Updating share access\n") );
 
                 IoUpdateShareAccess( IrpSp->FileObject,
-                                     ThisShareAccess );
+                                     &(*ThisScb)->ShareAccess );
                 break;
 
             case SetShareAccess :
 
-                DebugTrace( 0, Dbg, "Setting share access\n", 0 );
+                DebugTrace( 0, Dbg, ("Setting share access\n") );
 
                 //
                 //  This case is when this is the first open for the file
@@ -8916,12 +9816,12 @@ Return Value:
                 IoSetShareAccess( GrantedAccess,
                                   IrpSp->Parameters.Create.ShareAccess,
                                   IrpSp->FileObject,
-                                  ThisShareAccess );
+                                  &(*ThisScb)->ShareAccess );
                 break;
 
             default:
 
-                DebugTrace( 0, Dbg, "Checking share access\n", 0 );
+                DebugTrace( 0, Dbg, ("Checking share access\n") );
 
                 //
                 //  For this case we need to check the share access and
@@ -8931,7 +9831,7 @@ Return Value:
                 if (!NT_SUCCESS( Status = IoCheckShareAccess( GrantedAccess,
                                                               IrpSp->Parameters.Create.ShareAccess,
                                                               IrpSp->FileObject,
-                                                              ThisShareAccess,
+                                                              &(*ThisScb)->ShareAccess,
                                                               TRUE ))) {
 
                     try_return( NOTHING );
@@ -8939,106 +9839,199 @@ Return Value:
             }
 
             RemoveShareAccess = TRUE;
-        }
-
-        //
-        //  Create the Ccb and put the remaining name in it.
-        //
-
-        *ThisCcb = NtfsCreateCcb( IrpContext,
-                                  ThisFcb->EaModificationCount,
-                                  CcbFlags,
-                                  IrpSp->FileObject->FileName,
-                                  LastFileNameOffset );
-
-        //
-        //  Link the Ccb into the Lcb.
-        //
-
-        if (ARGUMENT_PRESENT( ThisLcb )) {
-
-            NtfsLinkCcbToLcb( IrpContext, *ThisCcb, ThisLcb );
-        }
-
-        //
-        //  Update the Fcb delete counts if necessary.
-        //
-
-        if (RemoveShareAccess) {
 
             //
-            //  Update the count in the Fcb and store a flag in the Ccb
-            //  if the user is not sharing the file for deletes.  We only
-            //  set these values if the user is accessing the file
-            //  for read/write/delete access.  The I/O system ignores
-            //  the sharing mode unless the file is opened with one
-            //  of these accesses.
+            //  If this happens to be the first time we see write access on this
+            //  Scb, then we need to remember it, and check if we have a disk full
+            //  condition.
             //
 
-            if (FlagOn( GrantedAccess, NtfsAccessDataFlags )
-                && !FlagOn( IrpSp->Parameters.Create.ShareAccess,
-                            FILE_SHARE_DELETE )) {
+            if (IrpSp->FileObject->WriteAccess &&
+                !FlagOn((*ThisScb)->ScbState, SCB_STATE_WRITE_ACCESS_SEEN) &&
+                (SafeNodeType( (*ThisScb) ) == NTFS_NTC_SCB_DATA)) {
 
-                ThisFcb->FcbDenyDelete += 1;
-                SetFlag( (*ThisCcb)->Flags, CCB_FLAG_DENY_DELETE );
+                NtfsAcquireReservedClusters( Vcb );
+
+                //
+                //  Does this Scb have reserved space that causes us to exceed the free
+                //  space on the volume?
+                //
+
+                if (((*ThisScb)->ScbType.Data.TotalReserved != 0) &&
+                    ((LlClustersFromBytes(Vcb, (*ThisScb)->ScbType.Data.TotalReserved) + Vcb->TotalReserved) >
+                     Vcb->FreeClusters)) {
+
+                    NtfsReleaseReservedClusters( Vcb );
+
+                    try_return( Status = STATUS_DISK_FULL );
+                }
+
+                //
+                //  Otherwise tally in the reserved space now for this Scb, and
+                //  remember that we have seen write access.
+                //
+
+                Vcb->TotalReserved += LlClustersFromBytes(Vcb, (*ThisScb)->ScbType.Data.TotalReserved);
+                SetFlag( (*ThisScb)->ScbState, SCB_STATE_WRITE_ACCESS_SEEN );
+
+                NtfsReleaseReservedClusters( Vcb );
+
             }
 
             //
-            //  Do the same for the file delete count for any user
-            //  who opened the file as a file and requested delete access.
+            //  Create the Ccb and put the remaining name in it.
             //
 
-            if (FlagOn( (*ThisCcb)->Flags, CCB_FLAG_OPEN_AS_FILE )
-                && FlagOn( GrantedAccess,
-                           DELETE )) {
+            *ThisCcb = NtfsCreateCcb( IrpContext,
+                                      ThisFcb,
+                                      (BOOLEAN) (AttrTypeCode == $INDEX_ALLOCATION),
+                                      ThisFcb->EaModificationCount,
+                                      CcbFlags,
+                                      IrpSp->FileObject->FileName,
+                                      LastFileNameOffset );
 
-                ThisFcb->FcbDeleteFile += 1;
-                SetFlag( (*ThisCcb)->Flags, CCB_FLAG_DELETE_FILE );
+            //
+            //  Link the Ccb into the Lcb.
+            //
+
+            if (ARGUMENT_PRESENT( ThisLcb )) {
+
+                NtfsLinkCcbToLcb( IrpContext, *ThisCcb, ThisLcb );
+            }
+
+            //
+            //  Update the Fcb delete counts if necessary.
+            //
+
+            if (RemoveShareAccess) {
+
+                //
+                //  Update the count in the Fcb and store a flag in the Ccb
+                //  if the user is not sharing the file for deletes.  We only
+                //  set these values if the user is accessing the file
+                //  for read/write/delete access.  The I/O system ignores
+                //  the sharing mode unless the file is opened with one
+                //  of these accesses.
+                //
+
+                if (FlagOn( GrantedAccess, NtfsAccessDataFlags )
+                    && !FlagOn( IrpSp->Parameters.Create.ShareAccess,
+                                FILE_SHARE_DELETE )) {
+
+                    ThisFcb->FcbDenyDelete += 1;
+                    SetFlag( (*ThisCcb)->Flags, CCB_FLAG_DENY_DELETE );
+                }
+
+                //
+                //  Do the same for the file delete count for any user
+                //  who opened the file as a file and requested delete access.
+                //
+
+                if (FlagOn( (*ThisCcb)->Flags, CCB_FLAG_OPEN_AS_FILE )
+                    && FlagOn( GrantedAccess,
+                               DELETE )) {
+
+                    ThisFcb->FcbDeleteFile += 1;
+                    SetFlag( (*ThisCcb)->Flags, CCB_FLAG_DELETE_FILE );
+                }
+            }
+
+            //
+            //  Let our cleanup routine undo the share access change now.
+            //
+
+            RemoveShareAccess = FALSE;
+
+            //
+            //  Increment the cleanup and close counts
+            //
+
+            NtfsIncrementCleanupCounts( *ThisScb,
+                                        ThisLcb,
+                                        BooleanFlagOn( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ));
+
+            NtfsIncrementCloseCounts( *ThisScb,
+                                      BooleanFlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ),
+                                      (BOOLEAN) IsFileObjectReadOnly( IrpSp->FileObject ));
+
+            if (TypeOfOpen != UserDirectoryOpen) {
+
+                DebugTrace( 0, Dbg, ("Updating Vcb and File object for user open\n") );
+
+                //
+                //  Set the section object pointer if this is a data Scb
+                //
+
+                IrpSp->FileObject->SectionObjectPointer = &(*ThisScb)->NonpagedScb->SegmentObject;
+            }
+
+            //
+            //  Set the file object type.
+            //
+
+            NtfsSetFileObject( IrpSp->FileObject,
+                               TypeOfOpen,
+                               *ThisScb,
+                               *ThisCcb );
+
+            //
+            //  If this is a non-cached open and there is a data section and
+            //  there are only non-cached opens then go ahead and try to
+            //  delete the section.
+            //
+
+            if (FlagOn( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ) &&
+                ((*ThisScb)->AttributeTypeCode == $DATA) &&
+                ((*ThisScb)->CleanupCount == (*ThisScb)->NonCachedCleanupCount) &&
+                ((*ThisScb)->NonpagedScb->SegmentObject.DataSectionObject != NULL) &&
+                ((*ThisScb)->NonpagedScb->SegmentObject.ImageSectionObject == NULL) &&
+                ((*ThisScb)->CompressionUnit == 0) &&
+                MmCanFileBeTruncated( &(*ThisScb)->NonpagedScb->SegmentObject, NULL )) {
+
+                //
+                //  Only do this in the Fsp so we have enough stack space for the flush.
+                //
+
+                if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_IN_FSP )) {
+
+                    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+                    NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
+                }
+
+                //
+                //  Flush and purge the stream.
+                //
+
+                NtfsFlushAndPurgeScb( IrpContext,
+                                      *ThisScb,
+                                      (ARGUMENT_PRESENT( ThisLcb ) ?
+                                       ThisLcb->Scb :
+                                       NULL) );
+            }
+
+            //
+            //  Check if we should request a filter oplock.
+            //
+
+            if (FlagOn( IrpSp->Parameters.Create.Options, FILE_RESERVE_OPFILTER )) {
+
+                FsRtlOplockFsctrl( &(*ThisScb)->ScbType.Data.Oplock,
+                                   IrpContext->OriginatingIrp,
+                                   1 );
+            }
+
+            //
+            //  Mark the Scb if this is a temporary file.
+            //
+
+            if (FlagOn( (*ThisScb)->ScbState, SCB_STATE_TEMPORARY ) ||
+                (FlagOn( ThisFcb->Info.FileAttributes, FILE_ATTRIBUTE_TEMPORARY ) &&
+                 FlagOn( (*ThisCcb)->Flags, CCB_FLAG_OPEN_AS_FILE ))) {
+
+                SetFlag( (*ThisScb)->ScbState, SCB_STATE_TEMPORARY );
+                SetFlag( IrpSp->FileObject->Flags, FO_TEMPORARY_FILE );
             }
         }
-
-        //
-        //  Let our cleanup routine undo the share access change now.
-        //
-
-        RemoveShareAccess = FALSE;
-
-        //
-        //  Increment the cleanup and close counts
-        //
-
-        NtfsIncrementCleanupCounts( IrpContext,
-                                    *ThisScb,
-                                    ThisLcb,
-                                    1 );
-
-        NtfsIncrementCloseCounts( IrpContext,
-                                  *ThisScb,
-                                  1,
-                                  BooleanFlagOn( ThisFcb->FcbState, FCB_STATE_PAGING_FILE ),
-                                  (BOOLEAN) IsFileObjectReadOnly( IrpSp->FileObject ));
-
-        if (TypeOfOpen != UserDirectoryOpen
-            && TypeOfOpen != UserOpenDirectoryById) {
-
-            DebugTrace( 0, Dbg, "Updating Vcb and File object for user open\n", 0 );
-
-            //
-            //  Set the section object pointer if this is a data Scb
-            //
-
-            IrpSp->FileObject->SectionObjectPointer = &(*ThisScb)->NonpagedScb->SegmentObject;
-        }
-
-        //
-        //  Set the file object type.
-        //
-
-        NtfsSetFileObject( IrpContext,
-                           IrpSp->FileObject,
-                           TypeOfOpen,
-                           *ThisScb,
-                           *ThisCcb );
 
     try_exit:  NOTHING;
     } finally {
@@ -9052,10 +10045,10 @@ Return Value:
         if (AbnormalTermination()
             && RemoveShareAccess) {
 
-            IoRemoveShareAccess( IrpSp->FileObject, ThisShareAccess );
+            IoRemoveShareAccess( IrpSp->FileObject, &(*ThisScb)->ShareAccess );
         }
 
-        DebugTrace( -1, Dbg, "NtfsOpenAttribute:  Status -> %08lx\n", Status );
+        DebugTrace( -1, Dbg, ("NtfsOpenAttribute:  Status -> %08lx\n", Status) );
     }
 
     return Status;
@@ -9072,11 +10065,7 @@ NtfsBackoutFailedOpens (
     IN PFILE_OBJECT FileObject,
     IN PFCB ThisFcb,
     IN PSCB ThisScb OPTIONAL,
-    IN PCCB ThisCcb OPTIONAL,
-    IN BOOLEAN IndexedAttribute,
-    IN BOOLEAN VolumeOpen,
-    IN PDUPLICATED_INFORMATION Info OPTIONAL,
-    IN ULONG InfoFlags
+    IN PCCB ThisCcb OPTIONAL
     )
 
 /*++
@@ -9089,8 +10078,7 @@ Routine Description:
 
         Vcb - Decrement the open counts.  Check if we locked the volume.
 
-        ThisFcb - Restore the Info structures, the Share Access fields
-            and decrement open counts.
+        ThisFcb - Restore he Share Access fields and decrement open counts.
 
         ThisScb - Decrement the open counts.
 
@@ -9106,14 +10094,6 @@ Arguments:
 
     ThisCcb - This is the Ccb for this open.
 
-    IndexedAttribute - Indicates if this is a directory file.
-
-    VolumeOpen - Indicates that this is a volume open.
-
-    Info - These are the Fcb info fields prior to the open.
-
-    InfoFlags - These are the Fcb info flags prior to the open.
-
 Return Value:
 
     None.
@@ -9123,7 +10103,7 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsBackoutFailedOpens:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsBackoutFailedOpens:  Entered\n") );
 
     //
     //  If there is an Scb and Ccb, we remove the share access from the
@@ -9148,89 +10128,47 @@ Return Value:
         //  Check if we need to remove the share access for this open.
         //
 
-        if (FlagOn( ThisScb->ScbState, SCB_STATE_SHARE_ACCESS )) {
+        IoRemoveShareAccess( FileObject, &ThisScb->ShareAccess );
 
-            PSHARE_ACCESS ShareAccess;
+        //
+        //  Modify the delete counts in the Fcb.
+        //
 
-            if (NodeType( ThisScb ) == NTFS_NTC_SCB_DATA) {
+        if (FlagOn( ThisCcb->Flags, CCB_FLAG_DELETE_FILE )) {
 
-                ShareAccess = &ThisScb->ScbType.Data.ShareAccess;
+            ThisFcb->FcbDeleteFile -= 1;
+            ClearFlag( ThisCcb->Flags, CCB_FLAG_DELETE_FILE );
+        }
 
-            } else {
+        if (FlagOn( ThisCcb->Flags, CCB_FLAG_DENY_DELETE )) {
 
-                ShareAccess = &ThisScb->ScbType.Index.ShareAccess;
-            }
-
-            IoRemoveShareAccess( FileObject, ShareAccess );
-
-            //
-            //  Modify the delete counts in the Fcb.
-            //
-
-            if (FlagOn( ThisCcb->Flags, CCB_FLAG_DELETE_FILE )) {
-
-                ThisFcb->FcbDeleteFile -= 1;
-                ClearFlag( ThisCcb->Flags, CCB_FLAG_DELETE_FILE );
-            }
-
-            if (FlagOn( ThisCcb->Flags, CCB_FLAG_DENY_DELETE )) {
-
-                ThisFcb->FcbDenyDelete -= 1;
-                ClearFlag( ThisCcb->Flags, CCB_FLAG_DENY_DELETE );
-            }
+            ThisFcb->FcbDenyDelete -= 1;
+            ClearFlag( ThisCcb->Flags, CCB_FLAG_DENY_DELETE );
         }
 
         //
         //  Decrement the cleanup and close counts
         //
 
-        NtfsDecrementCleanupCounts( IrpContext,
-                                    ThisScb,
+        NtfsDecrementCleanupCounts( ThisScb,
                                     Lcb,
-                                    1 );
+                                    BooleanFlagOn( FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ));
 
         NtfsDecrementCloseCounts( IrpContext,
                                   ThisScb,
                                   Lcb,
-                                  1,
-                                  TRUE,
                                   (BOOLEAN) BooleanFlagOn(ThisFcb->FcbState, FCB_STATE_PAGING_FILE),
                                   (BOOLEAN) IsFileObjectReadOnly( FileObject ),
-                                  TRUE,
-                                  NULL );
+                                  TRUE );
 
         //
         //  Now clean up the Ccb.
         //
 
-        NtfsDeleteCcb( IrpContext, &ThisCcb );
-
-        //
-        //  If we created the Scb and Ccb, and the volume is locked
-        //  then it must be from this open.
-        //
-
-        if (FlagOn( Vcb->VcbState, VCB_STATE_LOCKED )) {
-
-            ClearFlag( Vcb->VcbState, VCB_STATE_LOCKED );
-            Vcb->FileObjectWithVcbLocked = NULL;
-        }
+        NtfsDeleteCcb( IrpContext, ThisFcb, &ThisCcb );
     }
 
-    //
-    //  Restore the info fields in the Fcb if we are given a pointer.
-    //
-
-    if (ARGUMENT_PRESENT( Info )) {
-
-        RtlCopyMemory( &ThisFcb->Info,
-                       Info,
-                       sizeof( DUPLICATED_INFORMATION ));
-
-        ThisFcb->InfoFlags = InfoFlags;
-    }
-
-    DebugTrace( -1, Dbg, "NtfsBackoutFailedOpens:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsBackoutFailedOpens:  Exit\n") );
 
     return;
 }
@@ -9269,7 +10207,7 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsUpdateScbFromMemory:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsUpdateScbFromMemory:  Entered\n") );
 
     //
     //  Check whether this is resident or nonresident
@@ -9288,6 +10226,8 @@ Return Value:
         Scb->Header.AllocationSize.LowPart =
           QuadAlign( Scb->Header.AllocationSize.LowPart );
 
+        Scb->TotalAllocated = Scb->Header.AllocationSize.QuadPart;
+
         //
         //  Set the resident flag in the Scb.
         //
@@ -9303,10 +10243,10 @@ Return Value:
 
             Scb->Header.ValidDataLength.QuadPart = ScbSizes->ValidDataLength;
             Scb->Header.FileSize.QuadPart = ScbSizes->FileSize;
-            Scb->HighestVcnToDisk =
-                LlClustersFromBytes(Scb->Vcb, ScbSizes->ValidDataLength) - 1;
+            Scb->ValidDataToDisk = ScbSizes->ValidDataLength;
         }
 
+        Scb->TotalAllocated = ScbSizes->TotalAllocated;
         Scb->Header.AllocationSize.QuadPart = ScbSizes->AllocationSize;
 
         ClearFlag( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT );
@@ -9322,11 +10262,13 @@ Return Value:
             (ScbSizes->CompressionUnit < 31)) {
             Scb->CompressionUnit = BytesFromClusters( Scb->Vcb,
                                                       1 << ScbSizes->CompressionUnit );
+            Scb->CompressionUnitShift = ScbSizes->CompressionUnit;
         }
 
         ASSERT( Scb->CompressionUnit == 0
                 || Scb->AttributeTypeCode == $INDEX_ROOT
-                || Scb->AttributeTypeCode == $DATA );
+                || NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode )
+                );
 
         //
         //  Compute the clusters for the file and its allocation.
@@ -9357,6 +10299,11 @@ Return Value:
 
     Scb->AttributeFlags = ScbSizes->AttributeFlags;
 
+    if (FlagOn( Scb->AttributeFlags, ATTRIBUTE_FLAG_SPARSE )) {
+
+        NtfsRaiseStatus( IrpContext, STATUS_ACCESS_DENIED, NULL, NULL );
+    }
+
     if (FlagOn(Scb->AttributeFlags, ATTRIBUTE_FLAG_COMPRESSION_MASK)) {
 
         SetFlag( Scb->ScbState, SCB_STATE_COMPRESSED );
@@ -9369,9 +10316,10 @@ Return Value:
         if (Scb->CompressionUnit == 0) {
 
             Scb->CompressionUnit = BytesFromClusters( Scb->Vcb, 1 << NTFS_CLUSTERS_PER_COMPRESSION );
+            Scb->CompressionUnitShift = NTFS_CLUSTERS_PER_COMPRESSION;
 
             ASSERT( (Scb->AttributeTypeCode == $INDEX_ROOT) ||
-                    (Scb->AttributeTypeCode == $DATA) );
+                    NtfsIsTypeCodeCompressible( Scb->AttributeTypeCode ));
         }
     }
 
@@ -9380,22 +10328,14 @@ Return Value:
     //  then set the flag in the common header for the Modified page writer.
     //
 
-    if (Scb->CompressionUnit != 0
-        || FlagOn( Scb->ScbState, SCB_STATE_ATTRIBUTE_RESIDENT )) {
-
-        SetFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-
-    } else {
-
-        ClearFlag( Scb->Header.Flags, FSRTL_FLAG_ACQUIRE_MAIN_RSRC_EX );
-    }
-
+    NtfsAcquireFsrtlHeader( Scb );
     Scb->Header.IsFastIoPossible = NtfsIsFastIoPossible( Scb );
+    NtfsReleaseFsrtlHeader( Scb );
 
     SetFlag( Scb->ScbState,
              SCB_STATE_UNNAMED_DATA | SCB_STATE_FILE_SIZE_LOADED | SCB_STATE_HEADER_INITIALIZED );
 
-    DebugTrace( -1, Dbg, "NtfsUpdateScbFromMemory:  Exit\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsUpdateScbFromMemory:  Exit\n") );
 
     return;
 }
@@ -9417,15 +10357,15 @@ Routine Description:
 
     This routine performs any neccessary work before STATUS_PENDING is
     returned with the Fsd thread.  This routine is called within the
-    filesystem and by the oplock package.  This routine will do nothing
-    but update the originating Irp in the IrpContext.  There should never be any
-    transaction underway such that the normal release Fcb's were no-opped.
+    filesystem and by the oplock package.  This routine will update
+    the originating Irp in the IrpContext and release all of the Fcbs and
+    paging io resources in the IrpContext.
 
 Arguments:
 
     Context - Pointer to the IrpContext to be queued to the Fsp
 
-    Irp - I/O Request Packet (or FileObject in special close path)
+    Irp - I/O Request Packet
 
 Return Value:
 
@@ -9435,6 +10375,8 @@ Return Value:
 
 {
     PIRP_CONTEXT IrpContext;
+    POPLOCK_CLEANUP OplockCleanup;
+    PFCB Fcb;
 
     PAGED_CODE();
 
@@ -9443,6 +10385,65 @@ Return Value:
     ASSERT_IRP_CONTEXT( IrpContext );
 
     IrpContext->OriginatingIrp = Irp;
+    OplockCleanup = IrpContext->Union.OplockCleanup;
+
+    //
+    //  Adjust the filename strings as needed.
+    //
+
+    if (OplockCleanup->ExactCaseName.Buffer != NULL) {
+
+        RtlCopyMemory( OplockCleanup->FullFileName.Buffer,
+                       OplockCleanup->ExactCaseName.Buffer,
+                       OplockCleanup->ExactCaseName.MaximumLength );
+    }
+
+    //
+    //  Free any buffer we allocated.
+    //
+
+    if ((OplockCleanup->FullFileName.Buffer != NULL) &&
+        (OplockCleanup->OriginalFileName.Buffer != OplockCleanup->FullFileName.Buffer)) {
+
+        NtfsFreePool( OplockCleanup->FullFileName.Buffer );
+        OplockCleanup->FullFileName.Buffer = NULL;
+    }
+
+    //
+    //  Set the file name in the file object back to it's original value.
+    //
+
+    OplockCleanup->FileObject->FileName = OplockCleanup->OriginalFileName;
+
+    Fcb = IrpContext->FcbWithPagingExclusive;
+    if (Fcb != NULL) {
+
+        if (Fcb->NodeTypeCode == NTFS_NTC_FCB) {
+
+            NtfsReleasePagingIo( IrpContext, Fcb );
+        }
+    }
+
+    //
+    //  Release all of the Fcb's in the exlusive lists.
+    //
+
+    while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+        NtfsReleaseFcb( IrpContext,
+                        (PFCB)CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                 FCB,
+                                                 ExclusiveFcbLinks ));
+    }
+
+    //
+    //  Go through and free any Scb's in the queue of shared Scb's for transactions.
+    //
+
+    if (IrpContext->SharedScb != NULL) {
+
+        NtfsReleaseSharedResources( IrpContext );
+    }
 
     //
     //  Mark that we've already returned pending to the user
@@ -9578,7 +10579,7 @@ Return Value:
         && FlagOn( AccessState->PreviouslyGrantedAccess, NtfsAccessDataFlags )
         && !FlagOn( IrpSp->Parameters.Create.ShareAccess, FILE_SHARE_DELETE )) {
 
-        DebugTrace( -1, Dbg, "NtfsOpenAttributeInExistingFile:  Exit\n", 0 );
+        DebugTrace( -1, Dbg, ("NtfsOpenAttributeInExistingFile:  Exit\n") );
         return STATUS_SHARING_VIOLATION;
     }
 
@@ -9618,7 +10619,12 @@ NtfsBreakBatchOplock (
 
 Routine Description:
 
-    This routine will break a batch oplock on an existing Scb.
+    This routine is called for each open of an existing attribute to
+    check for current batch oplocks on the file.  We will also check
+    whether we will want to flush and purge this stream in the case
+    where only non-cached handles remain on the file.  We only want
+    to do that in an Fsp thread because we will require every bit
+    of stack we can get.
 
 Arguments:
 
@@ -9649,7 +10655,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace( +1, Dbg, "NtfsBreakBatchOplock:  Entered\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsBreakBatchOplock:  Entered\n") );
 
     //
     //  In general we will just break the batch oplock for the stream we
@@ -9720,7 +10726,7 @@ Return Value:
                        MAXIMUM_ALLOWED | DELETE )) {
 
         //
-        //  Find all of the other data Scb's and flush them.
+        //  Find all of the other data Scb and check their oplock status.
         //
 
         Links = ThisFcb->ScbQueue.Flink;
@@ -9767,43 +10773,469 @@ Return Value:
     //
 
     *ThisScb = NtfsCreateScb( IrpContext,
-                              ThisFcb->Vcb,
                               ThisFcb,
                               AttrTypeCode,
-                              AttrName,
+                              &AttrName,
+                              FALSE,
                               &ScbExisted );
 
     //
     //  If there was a previous Scb, we examine the oplocks.
     //
 
-    if (ScbExisted
-        && NodeType( *ThisScb ) == NTFS_NTC_SCB_DATA
-        && FsRtlCurrentBatchOplock( &(*ThisScb)->ScbType.Data.Oplock )) {
-
-        DebugTrace( 0, Dbg, "Breaking batch oplock\n", 0 );
+    if (ScbExisted &&
+        (SafeNodeType( *ThisScb ) == NTFS_NTC_SCB_DATA)) {
 
         //
-        //  We remember if a batch oplock break is underway for the
-        //  case where the sharing check fails.
+        //  If we have to flush and purge then we want to be in the Fsp.
         //
 
-        Irp->IoStatus.Information = FILE_OPBATCH_BREAK_UNDERWAY;
+        if (!FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_IN_FSP ) &&
+            FlagOn( IrpSp->FileObject->Flags, FO_NO_INTERMEDIATE_BUFFERING ) &&
+            ((*ThisScb)->CleanupCount == (*ThisScb)->NonCachedCleanupCount) &&
+            ((*ThisScb)->NonpagedScb->SegmentObject.DataSectionObject != NULL)) {
 
-        if (FsRtlCheckOplock( &(*ThisScb)->ScbType.Data.Oplock,
-                              Irp,
-                              (PVOID) IrpContext,
-                              NtfsOplockComplete,
-                              NtfsOplockPrePostIrp ) == STATUS_PENDING) {
-
-            return STATUS_PENDING;
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_FORCE_POST );
+            NtfsRaiseStatus( IrpContext, STATUS_CANT_WAIT, NULL, NULL );
         }
 
-        Irp->IoStatus.Information = 0;
+        if (FsRtlCurrentBatchOplock( &(*ThisScb)->ScbType.Data.Oplock )) {
+
+            //
+            //  If the handle count is greater than 1 then fail this
+            //  open now.
+            //
+
+            if (FlagOn( IrpSp->Parameters.Create.Options, FILE_RESERVE_OPFILTER ) &&
+                ((*ThisScb)->CleanupCount > 1)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_OPLOCK_NOT_GRANTED, NULL, NULL );
+            }
+
+            DebugTrace( 0, Dbg, ("Breaking batch oplock\n") );
+
+            //
+            //  We remember if a batch oplock break is underway for the
+            //  case where the sharing check fails.
+            //
+
+            Irp->IoStatus.Information = FILE_OPBATCH_BREAK_UNDERWAY;
+
+            if (FsRtlCheckOplock( &(*ThisScb)->ScbType.Data.Oplock,
+                                  Irp,
+                                  (PVOID) IrpContext,
+                                  NtfsOplockComplete,
+                                  NtfsOplockPrePostIrp ) == STATUS_PENDING) {
+
+                return STATUS_PENDING;
+            }
+
+            Irp->IoStatus.Information = 0;
+        }
     }
 
-    DebugTrace( -1, Dbg, "NtfsBreakBatchOplock:  Exit  -  %08lx\n", Status );
+    DebugTrace( -1, Dbg, ("NtfsBreakBatchOplock:  Exit  -  %08lx\n", STATUS_SUCCESS) );
 
     return STATUS_SUCCESS;
 }
 
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+NtfsCompleteLargeAllocation (
+    IN PIRP_CONTEXT IrpContext,
+    IN PIRP Irp,
+    IN PLCB Lcb OPTIONAL,
+    IN PSCB Scb,
+    IN PCCB Ccb,
+    IN BOOLEAN CreateFileCase,
+    IN BOOLEAN DeleteOnClose
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when we need to add more allocation to a stream
+    being opened.  This stream could have been reallocated or created with
+    this call but we didn't allocate all of the space in the main path.
+
+Arguments:
+
+    Irp - This is the Irp for this open operation.
+
+    Lcb - This is the Lcb used to reach the stream being opened.  Won't be
+        specified in the open by ID case.
+
+    Scb - This is the Scb for the stream being opened.
+
+    Ccb - This is the Ccb for the this user handle.
+
+    CreateFileCase - Indicates if we reallocated or created this stream.
+
+    DeleteOnClose - Indicates if this handle requires delete on close.
+
+Return Value:
+
+    NTSTATUS - the result of this operation.
+
+--*/
+
+{
+    NTSTATUS Status;
+    FILE_ALLOCATION_INFORMATION AllInfo;
+
+    PAGED_CODE();
+
+    //
+    //  Commit the current transaction and free all resources.
+    //
+
+    NtfsCheckpointCurrentTransaction( IrpContext );
+
+    //
+    //  Free any exclusive paging I/O resource.
+    //
+
+    if (IrpContext->FcbWithPagingExclusive != NULL) {
+        NtfsReleasePagingIo( IrpContext, IrpContext->FcbWithPagingExclusive );
+    }
+
+    while (!IsListEmpty( &IrpContext->ExclusiveFcbList )) {
+
+        NtfsReleaseFcb( IrpContext,
+                        (PFCB) CONTAINING_RECORD( IrpContext->ExclusiveFcbList.Flink,
+                                                  FCB,
+                                                  ExclusiveFcbLinks ));
+    }
+
+    //
+    //  Go through and free any Scb's in the queue of shared Scb's for transactions.
+    //
+
+    if (IrpContext->SharedScb != NULL) {
+
+        NtfsReleaseSharedResources( IrpContext );
+    }
+
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CALL_SELF );
+    AllInfo.AllocationSize = Irp->Overlay.AllocationSize;
+    Status = IoSetInformation( IoGetCurrentIrpStackLocation( Irp )->FileObject,
+                               FileAllocationInformation,
+                               sizeof( FILE_ALLOCATION_INFORMATION ),
+                               &AllInfo );
+
+    //
+    //  Success!  We will reacquire the Vcb quickly to undo the
+    //  actions taken above to block access to the new file/attribute.
+    //
+
+    if (NT_SUCCESS( Status )) {
+
+        NtfsAcquireExclusiveVcb( IrpContext, Scb->Vcb, TRUE );
+
+        //
+        //  Enable access to new file.
+        //
+
+        if (CreateFileCase) {
+
+            Scb->Fcb->LinkCount = 1;
+
+            if (ARGUMENT_PRESENT( Lcb )) {
+
+                ClearFlag( Lcb->LcbState, LCB_STATE_DELETE_ON_CLOSE );
+
+                if (FlagOn( Lcb->FileNameAttr->Flags, FILE_NAME_DOS | FILE_NAME_NTFS )) {
+
+                    ClearFlag( Scb->Fcb->FcbState, FCB_STATE_PRIMARY_LINK_DELETED );
+                }
+            }
+
+        //
+        //  Enable access to new attribute.
+        //
+
+        } else {
+
+            ClearFlag( Scb->ScbState, SCB_STATE_DELETE_ON_CLOSE );
+        }
+
+        //
+        //  If this is the DeleteOnClose case, we mark the Scb and Lcb
+        //  appropriately.
+        //
+
+        if (DeleteOnClose) {
+
+            SetFlag( Ccb->Flags, CCB_FLAG_DELETE_ON_CLOSE );
+        }
+
+        NtfsReleaseVcb( IrpContext, Scb->Vcb );
+
+    //
+    //  Else there was some sort of error, and we need to let cleanup
+    //  and close execute, since when we complete Create with an error
+    //  cleanup and close would otherwise never occur.  Cleanup will
+    //  delete or truncate a file or attribute as appropriate, based on
+    //  how we left the Fcb/Lcb or Scb above.
+    //
+
+    } else {
+
+        NtfsIoCallSelf( IrpContext,
+                        IoGetCurrentIrpStackLocation( Irp )->FileObject,
+                        IRP_MJ_CLEANUP );
+
+        NtfsIoCallSelf( IrpContext,
+                        IoGetCurrentIrpStackLocation( Irp )->FileObject,
+                        IRP_MJ_CLOSE );
+    }
+
+    ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CALL_SELF );
+    return Status;
+}
+
+#ifdef _CAIRO_
+NTSTATUS
+NtfsTryOpenFcb (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    OUT PFCB *CurrentFcb,
+    IN FILE_REFERENCE FileReference
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to open a file by its file segment number.
+    We need to verify that this file Id exists.  This code is
+    patterned after open by Id.
+
+Arguments:
+
+    Vcb - Vcb for this volume.
+
+    CurrentFcb - Address of Fcb pointer.  Store the Fcb we find here.
+
+    FileReference - This is the file Id for the file to open the
+                    sequence number is ignored.
+
+Return Value:
+
+    NTSTATUS - Indicates the result of this create file operation.
+
+Note:
+
+    If the status is successful then the FCB is returned with its reference
+    count incremented and the FCB held exclusive.
+
+--*/
+
+{
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    LONGLONG MftOffset;
+    PFILE_RECORD_SEGMENT_HEADER FileRecord;
+    PBCB Bcb = NULL;
+
+    PFCB ThisFcb;
+
+    BOOLEAN AcquiredFcbTable = FALSE;
+    BOOLEAN AcquiredMft = TRUE;
+    BOOLEAN ThisFcbFree = TRUE;
+
+    PAGED_CODE();
+
+    ASSERT( *CurrentFcb == NULL );
+
+    //
+    //  Do not bother with system files.
+    //
+
+        //
+    //  If this is a system fcb then return.
+    //
+
+    if (NtfsSegmentNumber( &FileReference ) < FIRST_USER_FILE_NUMBER &&
+        NtfsSegmentNumber( &FileReference ) != ROOT_FILE_NAME_INDEX_NUMBER) {
+
+        return STATUS_NOT_FOUND;
+    }
+
+    //
+    //  Calculate the offset in the MFT.
+    //
+
+    MftOffset = NtfsSegmentNumber( &FileReference );
+
+    MftOffset = Int64ShllMod32(MftOffset, Vcb->MftShift);
+
+    //
+    //  Acquire the MFT shared so it cannot shrink on us.
+    //
+
+    NtfsAcquireSharedScb( IrpContext, Vcb->MftScb );
+
+    try {
+
+        if (MftOffset >= Vcb->MftScb->Header.FileSize.QuadPart) {
+
+            DebugTrace( 0, Dbg, ("File Id doesn't lie within Mft\n") );
+
+             Status = STATUS_END_OF_FILE;
+             leave;
+        }
+
+        NtfsReadMftRecord( IrpContext,
+                           Vcb,
+                           &FileReference,
+                           &Bcb,
+                           &FileRecord,
+                           NULL );
+
+        //
+        //  This file record better be in use, have a matching sequence number and
+        //  be the primary file record for this file.
+        //
+
+        if (!FlagOn( FileRecord->Flags, FILE_RECORD_SEGMENT_IN_USE )
+            || (*((PLONGLONG)&FileRecord->BaseFileRecordSegment) != 0)) {
+
+            Status = STATUS_NOT_FOUND;
+            leave;
+        }
+
+        //
+        //  Get the current sequence number.
+        //
+
+        FileReference.SequenceNumber = FileRecord->SequenceNumber;
+
+        NtfsUnpinBcb( &Bcb );
+
+        NtfsAcquireFcbTable( IrpContext, Vcb );
+        AcquiredFcbTable = TRUE;
+
+        //
+        //  We know that it is safe to continue the open.  We start by creating
+        //  an Fcb for this file.  It is possible that the Fcb exists.
+        //  We create the Fcb first, if we need to update the Fcb info structure
+        //  we copy the one from the index entry.  We look at the Fcb to discover
+        //  if it has any links, if it does then we make this the last Fcb we
+        //  reached.  If it doesn't then we have to clean it up from here.
+        //
+
+        ThisFcb = NtfsCreateFcb( IrpContext,
+                                 Vcb,
+                                 FileReference,
+                                 FALSE,
+                                 TRUE,
+                                 NULL );
+
+        //
+        //  ReferenceCount the fcb so it does no go away.
+        //
+
+        ThisFcb->ReferenceCount += 1;
+
+        //
+        //  Release the mft and fcb table before acquiring the FCB exclusive.
+        //
+
+        NtfsReleaseScb( IrpContext, Vcb->MftScb );
+        NtfsReleaseFcbTable( IrpContext, Vcb );
+        AcquiredMft = FALSE;
+        AcquiredFcbTable = FALSE;
+
+        NtfsAcquireFcbWithPaging( IrpContext, ThisFcb, FALSE );
+        ThisFcbFree = FALSE;
+
+        //
+        //  Skip any deleted files.
+        //
+
+        if (FlagOn( ThisFcb->FcbState, FCB_STATE_FILE_DELETED )) {
+
+            DbgPrint( "NtfsTryOpenFcb: Deleted fcb found. Fcb = %lx\n", ThisFcb );
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            ASSERT(ThisFcb->ReferenceCount > 0);
+            ThisFcb->ReferenceCount--;
+            NtfsReleaseFcbTable( IrpContext, Vcb );
+
+            NtfsTeardownStructures( IrpContext,
+                                    ThisFcb,
+                                    NULL,
+                                    FALSE,
+                                    FALSE,
+                                    &ThisFcbFree );
+
+            //
+            //  Release the fcb if it has not been deleted.
+            //
+
+            if (!ThisFcbFree) {
+                NtfsReleaseFcb( IrpContext, ThisFcb );
+                ThisFcbFree = TRUE;
+            }
+
+            //
+            //  Teardown may generate a transaction clean it up.
+            //
+
+            NtfsCompleteRequest( &IrpContext, NULL, Status );
+
+            Status = STATUS_NOT_FOUND;
+            leave;
+        }
+
+        //
+        //  Store this Fcb into our caller's parameter and remember to
+        //  to show we acquired it.
+        //
+
+        *CurrentFcb = ThisFcb;
+        ThisFcbFree = TRUE;
+
+
+        //
+        //  If the Fcb Info field needs to be initialized, we do so now.
+        //  We read this information from the disk.
+        //
+
+        if (!FlagOn( ThisFcb->FcbState, FCB_STATE_DUP_INITIALIZED )) {
+
+            NtfsUpdateFcbInfoFromDisk( IrpContext,
+                                       TRUE,
+                                       ThisFcb,
+                                       NULL,
+                                       NULL );
+
+        }
+
+    } finally {
+
+        if (AcquiredFcbTable) {
+
+            NtfsReleaseFcbTable( IrpContext, Vcb );
+        }
+
+        NtfsUnpinBcb( &Bcb );
+
+        if (AcquiredMft) {
+            NtfsReleaseScb( IrpContext, Vcb->MftScb );
+        }
+
+        if (!ThisFcbFree) {
+            NtfsReleaseFcb( IrpContext, ThisFcb );
+        }
+    }
+
+    return Status;
+
+}
+#endif // _CAIRO_

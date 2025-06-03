@@ -24,6 +24,8 @@ Revision History:
 --*/
 
 #include "exp.h"
+#pragma hdrstop
+
 #include <nturtl.h>
 
 //
@@ -47,25 +49,14 @@ extern ULONG ExpResourceTimeoutCount;
 #undef ExReleaseResourceForThread
 #undef ExDeleteResource
 
-#if DBG && defined(i386)
-
-#define SetCallersAddress(_Resource) {                                              \
-    ULONG Hash = 0;                                                                 \
-    (_Resource)->Depth = RtlCaptureStackBackTrace( 0,                               \
-                                                   4,                               \
-                                                   &(_Resource)->OwnerBackTrace[0], \
-                                                   &Hash );                         \
-}
-
-#else
-
-#define SetCallersAddress(_Resource)
-
-#if NT_UP && defined(i386)
+#if !DBG && NT_UP && defined(i386)
 #define ExReleaseResourceForThread ExpReleaseResourceForThread
+VOID
+ExReleaseResourceForThread(
+    IN PNTDDK_ERESOURCE Resource,
+    IN ERESOURCE_THREAD OurThread
+    );
 #endif
-
-#endif // DBG && defined(i386)
 
 #if DBG
 
@@ -126,27 +117,16 @@ static KSPIN_LOCK ExpResourceSpinLock;
     ASSERT_RESOURCE( _Resource );                           \
 }
 
-#if DBG
-#define ReleaseResourceLock(_Resource,_Irql,_SetCaller) {   \
-    if(_SetCaller) { SetCallersAddress( _Resource ); }      \
-    ASSERT_RESOURCE( _Resource );                           \
+#define ReleaseResourceLock(_Resource,_Irql) {              \
     ExReleaseSpinLock( &_Resource->SpinLock, _Irql );       \
 }
-
-#else
-
-#define ReleaseResourceLock(_Resource,_Irql,_Debug) {       \
-    ExReleaseSpinLock( &_Resource->SpinLock, _Irql );       \
-}
-#endif
-
 
 #define INITIAL_TABLE_SIZE  4
 
 #define WaitForResourceExclusive(_Resource, _OldIrql)   {               \
     _Resource->Flag |= ExclusiveWaiter;                                 \
     _Resource->NumberOfExclusiveWaiters += 1;                           \
-    ReleaseResourceLock ( _Resource, _OldIrql, TRUE );                  \
+    ReleaseResourceLock ( _Resource, _OldIrql );                        \
     ExpWaitForResourceDdk  ( _Resource, &_Resource->ExclusiveWaiters ); \
     AcquireResourceLock ( _Resource, &_OldIrql);                        \
     if (--_Resource->NumberOfExclusiveWaiters != 0) {                   \
@@ -169,7 +149,6 @@ ExpWaitForResourceDdk (
     IN PVOID        Object
     );
 
-#if DEVL
 //
 // The following list head points to a list of all currently
 // initialized Executive Resources in the system.
@@ -177,21 +156,11 @@ ExpWaitForResourceDdk (
 
 extern LIST_ENTRY ExpSystemResourcesList;
 
-#endif // DEVL
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(INIT,ExpResourceInitialization)
 #pragma alloc_text(PAGELK,ExQuerySystemLockInformation)
 #endif
-
-#if defined(ExReleaseResourceForThread)
-VOID
-ExReleaseResourceForThread(
-    IN PNTDDK_ERESOURCE Resource,
-    IN ERESOURCE_THREAD OurThread
-    );
-#endif
-
 
 //
 //
@@ -254,28 +223,23 @@ Return Value:
         Resource->OwnerCounts[i] = 0;
     }
 
-#if DEVL
     Resource->ContentionCount = 0;
     InitializeListHead( &Resource->SystemResourcesList );
 
-#ifdef i386
-    Resource->Depth = 0;
-    if (NtGlobalFlag & FLG_HEAP_TRACE_ALLOCS) {
+#if i386 && !FPO
+    if (NtGlobalFlag & FLG_KERNEL_STACK_TRACE_DB) {
         Resource->CreatorBackTraceIndex = RtlLogStackBackTrace();
         }
     else {
         Resource->CreatorBackTraceIndex = 0;
         }
-#else
-#endif // i386
+#endif // i386 && !FPO
     if (Resource >= (PNTDDK_ERESOURCE)MM_USER_PROBE_ADDRESS) {
         ExInterlockedInsertTailList (
                 &ExpSystemResourcesList,
                 &Resource->SystemResourcesList,
                 &ExpResourceSpinLock );
     }
-
-#endif // DEVL
 
     return STATUS_SUCCESS;
 }
@@ -339,7 +303,7 @@ Return Value:
             Resource->OwnerCounts[0]  = 1;
             Resource->ActiveCount     = 1;
             Resource->Flag           |= ResourceOwnedExclusive;
-            ReleaseResourceLock ( Resource, OldIrql, TRUE );
+            ReleaseResourceLock ( Resource, OldIrql );
             return TRUE;
         }
 
@@ -351,7 +315,7 @@ Return Value:
             //
 
             Resource->OwnerCounts[0] += 1;
-            ReleaseResourceLock( Resource, OldIrql, TRUE );
+            ReleaseResourceLock( Resource, OldIrql );
             return TRUE;
         }
 
@@ -361,7 +325,7 @@ Return Value:
         //
 
         if (!Wait) {
-            ReleaseResourceLock( Resource, OldIrql, FALSE);
+            ReleaseResourceLock( Resource, OldIrql );
             return FALSE;
         }
 
@@ -419,7 +383,7 @@ Return Value:
     //
 
     if (--Resource->OwnerCounts[0] != 0) {
-        ReleaseResourceLock( Resource, OldIrql, TRUE );
+        ReleaseResourceLock( Resource, OldIrql );
         return;
     }
 
@@ -450,7 +414,7 @@ Return Value:
 
     Resource->Flag &= ~ResourceOwnedExclusive;
 
-    ReleaseResourceLock( Resource, OldIrql, TRUE );
+    ReleaseResourceLock( Resource, OldIrql );
     return;
 }
 
@@ -483,7 +447,6 @@ Return Value:
     ASSERT( !IsExclusiveWaiting(Resource) );
 
 
-#if DEVL
     if (Resource >= (PNTDDK_ERESOURCE)MM_USER_PROBE_ADDRESS) {
         KIRQL OldIrql;
 
@@ -492,7 +455,6 @@ Return Value:
         ExReleaseSpinLock( &ExpResourceSpinLock, OldIrql );
 
     }
-#endif // DEVL
 
     return STATUS_SUCCESS;
 }
@@ -527,9 +489,7 @@ Return Value:
     ULONG       i;
 
 
-#if DEVL
     Resource->ContentionCount += 1;
-#endif
 
     i = 0;
     for (; ;) {
@@ -544,8 +504,6 @@ Return Value:
             break;
         }
 
-
-#if DEVL
         if (i++ >= ExpResourceTimeoutCount) {
             i = 0;
 
@@ -566,7 +524,6 @@ Return Value:
             DbgBreakPoint();
             DbgPrint("EX - Rewaiting\n");
         }
-#endif // DEVL
 
         //
         //  Give owning thread(s) a priority boost
@@ -584,7 +541,7 @@ Return Value:
                                   ERESOURCE_INCREMENT );
         }
 
-        ReleaseResourceLock( Resource, OldIrql, FALSE );
+        ReleaseResourceLock( Resource, OldIrql );
 
         //
         //  Loop and wait some more

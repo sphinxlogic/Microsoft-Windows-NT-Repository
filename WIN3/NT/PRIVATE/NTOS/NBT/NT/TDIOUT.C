@@ -92,7 +92,7 @@ Return Value:
 
     // get an Irp to send the message in
     pFileObject = (PFILE_OBJECT)pRequestInfo->Handle.AddressHandle;
-    pDeviceObject = pFileObject->DeviceObject;
+    pDeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
     // get an Irp from the list
     status = GetIrp(&pRequestIrp);
@@ -174,9 +174,7 @@ Return Value:
     if (pSendBuffer->pBuffer)
         pMdl->Next = (PMDL)pSendBuffer->pBuffer;
 
-//    RtlLargeIntegerAdd(NbtConfig.DgramBytesSent,
-                    //RtlConvertUlongToLargeInteger(SendLength));
-
+    CHECK_COMPLETION(pRequestIrp);
     status = IoCallDriver(pDeviceObject,pRequestIrp);
 
     // Fill in the SentSize
@@ -332,7 +330,7 @@ Return Value:
 
     // get an Irp to send the message in
     pFileObject = (PFILE_OBJECT)pRequestInfo->Handle.AddressHandle;
-    pDeviceObject = pFileObject->DeviceObject;
+    pDeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
     // get an Irp from the list
     status = GetIrp(&pRequestIrp);
@@ -372,6 +370,7 @@ Return Value:
 
     pRequestIrp->MdlAddress = NULL;
 
+    CHECK_COMPLETION(pClientIrp);
     status = IoCallDriver(pDeviceObject,pClientIrp);
 
     // the transport always completes the IRP, so we always return status pending
@@ -417,7 +416,7 @@ Return Value:
 
     // get an Irp to send the message in
     pFileObject = (PFILE_OBJECT)pRequestInfo->Handle.AddressHandle;
-    pDeviceObject = pFileObject->DeviceObject;
+    pDeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
     status = GetIrp(&pRequestIrp);
     if (!NT_SUCCESS(status))
@@ -480,6 +479,7 @@ Return Value:
     }
     else
     {
+        CHECK_COMPLETION(pClientIrp);
         status = IoCallDriver(pDeviceObject,pClientIrp);
         // the transport always completes the IRP, so we always return status pending
         return(STATUS_PENDING);
@@ -544,64 +544,6 @@ Return Value:
     return(STATUS_MORE_PROCESSING_REQUIRED);
 
 }
-#if 0
-//----------------------------------------------------------------------------
-NTSTATUS
-TcpDisconnectComplete(
-    IN PDEVICE_OBJECT   DeviceObject,
-    IN PIRP             pIrp,
-    IN PVOID            pContext
-    )
-/*++
-
-Routine Description:
-
-    This routine handles the completion of a TCP session setup.  The TCP
-    connection is either setup or not depending on the status returned here.
-    It must called the clients completion routine (in udpsend.c).  Which should
-    look after sending the NetBios sesion startup pdu across the TCP connection.
-
-    The pContext value is actually one of NBTs irps that is JUST used to store
-    the calling routines completion routine.  The real Irp used is the original
-    client's irp.  This is done so that IoCancelIrp will cancel the connect
-    properly.
-
-Arguments:
-
-
-Return Value:
-
-    NTSTATUS - success or not
-
---*/
-{
-    KIRQL   OldIrq;
-    PIRP    pMyIrp;
-
-    pMyIrp = (PIRP)pContext;
-
-    // check for a completion routine of the clients to call...
-    if (pIrp->Overlay.AsynchronousParameters.UserApcRoutine)
-    {
-       (*((NBT_COMPLETION)pMyIrp->Overlay.AsynchronousParameters.UserApcRoutine))
-                   ((PVOID)pMyIrp->Overlay.AsynchronousParameters.UserApcContext,
-                    pIrp->IoStatus.Status,
-                    0L);
-
-    }
-
-    REMOVE_FROM_LIST(&pRequestIrp->ThreadListEntry);
-    ExInterlockedInsertTailList(&NbtConfig.IrpFreeList,
-                                &pMyIrp->Tail.Overlay.ListEntry,
-                                &NbtConfig.SpinLock);
-
-    // return this status to stop the IO subsystem from further processing the
-    // IRP - i.e. trying to complete it back to the initiating thread! -since
-    // there is not initiating thread - we are the initiator
-    return(STATUS_MORE_PROCESSING_REQUIRED);
-
-}
-#endif
 //----------------------------------------------------------------------------
 NTSTATUS
 TdiSend(
@@ -637,7 +579,7 @@ Return Value:
 
     // get an Irp to send the message in
     pFileObject = (PFILE_OBJECT)pRequestInfo->Handle.AddressHandle;
-    pDeviceObject = pFileObject->DeviceObject;
+    pDeviceObject = IoGetRelatedDeviceObject(pFileObject);
 
     // get an Irp from the list
     status = GetIrp(&pRequestIrp);
@@ -717,6 +659,7 @@ Return Value:
         pMdl->Next = pSendBuffer->pBuffer;
     }
 
+    CHECK_COMPLETION(pRequestIrp);
     status = IoCallDriver(pDeviceObject,pRequestIrp);
 
     *pSentSize = SendLength; // the size we attempted to send
@@ -781,4 +724,4 @@ Return Value:
 }
 
 
-
+

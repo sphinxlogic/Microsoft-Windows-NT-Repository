@@ -24,10 +24,6 @@ Revision History:
 
 
 #include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
-#include <ntos.h>
-#include <windows.h>
 #include "sep.h"
 #include "adt.h"
 #include "adtp.h"
@@ -275,6 +271,8 @@ Return Value:
     CHAR KeyInfo[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + sizeof(BOOLEAN)];
     PKEY_VALUE_PARTIAL_INFORMATION pKeyInfo;
 
+    SepCrashOnAuditFail = FALSE;
+
     //
     // Check the value of the CrashOnAudit flag in the registry.
     //
@@ -295,7 +293,6 @@ Return Value:
                  );
 
     if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
-        SepCrashOnAuditFail = FALSE;
         return( STATUS_SUCCESS );
     }
 
@@ -317,14 +314,12 @@ Return Value:
     // If the key isn't there, don't turn on CrashOnFail.
     //
 
-    if (!NT_SUCCESS( Status )) {
-
-        SepCrashOnAuditFail = FALSE;
-
-    } else {
+    if (NT_SUCCESS( Status )) {
 
         pKeyInfo = (PKEY_VALUE_PARTIAL_INFORMATION)KeyInfo;
-        SepCrashOnAuditFail = (BOOLEAN) *(pKeyInfo->Data);
+        if ((UCHAR) *(pKeyInfo->Data) == LSAP_CRASH_ON_AUDIT_FAIL) {
+            SepCrashOnAuditFail = TRUE;
+        }
     }
 
     return( STATUS_SUCCESS );
@@ -390,11 +385,11 @@ Return Value:
     if (!NT_SUCCESS( Status )) {
 
         if (Status == STATUS_OBJECT_NAME_NOT_FOUND) {
-    
+
             return ( SepInitializePrivilegeFilter( FALSE ));
-    
+
         } else {
-    
+
             return( FALSE );
         }
     }

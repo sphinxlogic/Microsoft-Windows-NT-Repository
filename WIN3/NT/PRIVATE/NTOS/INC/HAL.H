@@ -80,44 +80,6 @@ typedef struct _OEM_FONT_FILE_HEADER {
 } OEM_FONT_FILE_HEADER, *POEM_FONT_FILE_HEADER;
 #include "poppack.h"
 
-// begin_ntddk
-//
-// The following definitions are for HAL structures.
-//
-
-// begin_ntminiport
-//
-// Define types of bus information.
-//
-
-typedef enum _BUS_DATA_TYPE {
-    Cmos,
-    EisaConfiguration,
-    Pos,
-    CbusConfiguration,
-    PCIConfiguration,
-    VMEConfiguration,
-    NuBusConfiguration,
-    PCMCIAConfiguration,
-    MPIConfiguration,
-    MPSAConfiguration,
-    MaximumBusDataType
-} BUS_DATA_TYPE, *PBUS_DATA_TYPE;
-
-// end_ntddk end_ntminiport
-
-//
-// Define the firmware routine types
-//
-
-typedef enum _FIRMWARE_REENTRY {
-    HalHaltRoutine,
-    HalPowerDownRoutine,
-    HalRestartRoutine,
-    HalRebootRoutine,
-    HalInteractiveModeRoutine,
-    HalMaximumRoutine
-} FIRMWARE_REENTRY, *PFIRMWARE_REENTRY;
 
 // begin_ntddk
 //
@@ -412,6 +374,14 @@ HalCreateQva(
     IN PVOID VirtualAddress
     );
 
+NTHALAPI
+PVOID
+HalDereferenceQva(
+    PVOID Qva,
+    INTERFACE_TYPE InterfaceType,
+    ULONG BusNumber
+    );
+
 #endif
 
 #if !defined(_X86_)
@@ -447,16 +417,17 @@ HalSetProfileInterval (
     IN ULONG Interval
     );
 
+
 NTHALAPI
 VOID
 HalStartProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     );
 
 NTHALAPI
 VOID
 HalStopProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     );
 
 //
@@ -483,6 +454,14 @@ FASTCALL
 HalRequestSoftwareInterrupt (
     KIRQL RequestIrql
     );
+
+ULONG
+FASTCALL
+HalSystemVectorDispatchEntry (
+   IN ULONG Vector,
+   OUT PKINTERRUPT_ROUTINE **FlatDispatch,
+   OUT PKINTERRUPT_ROUTINE *NoConnection
+   );
 
 #endif
 
@@ -618,7 +597,7 @@ NTHALAPI
 PVOID
 HalAllocateCrashDumpRegisters(
     IN PADAPTER_OBJECT AdapterObject,
-    IN ULONG NumberOfMapRegisters
+    IN OUT PULONG NumberOfMapRegisters
     );
 
 NTHALAPI
@@ -868,5 +847,826 @@ KeStallExecutionProcessor (
     );
 
 // end_ntddk end_ntndis
+
+
+//*****************************************************************************
+//
+//  HAL BUS EXTENDERS
+
+//
+// Bus handlers
+//
+
+// begin_ntddk
+
+typedef
+VOID
+(*PDEVICE_CONTROL_COMPLETION)(
+    IN struct _DEVICE_CONTROL_CONTEXT     *ControlContext
+    );
+
+typedef struct _DEVICE_CONTROL_CONTEXT {
+    NTSTATUS                Status;
+    PDEVICE_HANDLER_OBJECT  DeviceHandler;
+    PDEVICE_OBJECT          DeviceObject;
+    ULONG                   ControlCode;
+    PVOID                   Buffer;
+    PULONG                  BufferLength;
+    PVOID                   Context;
+} DEVICE_CONTROL_CONTEXT, *PDEVICE_CONTROL_CONTEXT;
+
+// end_ntddk
+
+typedef struct _HAL_DEVICE_CONTROL {
+    //
+    // Handler this DeviceControl is for
+    //
+    struct _BUS_HANDLER         *Handler;
+    struct _BUS_HANDLER         *RootHandler;
+
+    //
+    // Bus specific storage for this Context
+    //
+    PVOID                       BusExtensionData;
+
+    //
+    // Reserved for HALs use
+    //
+    ULONG                       HalReserved[4];
+
+    //
+    // Reserved for BusExtneder use
+    //
+    ULONG                       BusExtenderReserved[4];
+
+    //
+    // DeviceControl Context and the CompletionRoutine
+    //
+    PDEVICE_CONTROL_COMPLETION  CompletionRoutine;
+    DEVICE_CONTROL_CONTEXT      DeviceControl;
+
+} HAL_DEVICE_CONTROL_CONTEXT, *PHAL_DEVICE_CONTROL_CONTEXT;
+
+
+typedef
+ULONG
+(*PGETSETBUSDATA)(
+    IN struct _BUS_HANDLER *BusHandler,
+    IN struct _BUS_HANDLER *RootHandler,
+    IN ULONG SlotNumber,
+    IN PVOID Buffer,
+    IN ULONG Offset,
+    IN ULONG Length
+    );
+
+typedef
+ULONG
+(*PGETINTERRUPTVECTOR)(
+    IN struct _BUS_HANDLER *BusHandler,
+    IN struct _BUS_HANDLER *RootHandler,
+    IN ULONG BusInterruptLevel,
+    IN ULONG BusInterruptVector,
+    OUT PKIRQL Irql,
+    OUT PKAFFINITY Affinity
+    );
+
+typedef
+BOOLEAN
+(*PTRANSLATEBUSADDRESS)(
+    IN struct _BUS_HANDLER *BusHandler,
+    IN struct _BUS_HANDLER *RootHandler,
+    IN PHYSICAL_ADDRESS BusAddress,
+    IN OUT PULONG AddressSpace,
+    OUT PPHYSICAL_ADDRESS TranslatedAddress
+    );
+
+typedef NTSTATUS
+(*PADJUSTRESOURCELIST)(
+    IN struct _BUS_HANDLER *BusHandler,
+    IN struct _BUS_HANDLER *RootHandler,
+    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
+    );
+
+typedef PDEVICE_HANDLER_OBJECT
+(*PREFERENCE_DEVICE_HANDLER)(
+    IN struct _BUS_HANDLER      *BusHandler,
+    IN struct _BUS_HANDLER      *RootHandler,
+    IN ULONG                    SlotNumber
+    );
+
+//typedef VOID
+//(*PDEREFERENCE_DEVICE_HANDLER)(
+//    IN PDEVICE_HANDLER_OBJECT   DeviceHandler
+//    );
+
+typedef NTSTATUS
+(*PASSIGNSLOTRESOURCES)(
+    IN struct _BUS_HANDLER      *BusHandler,
+    IN struct _BUS_HANDLER      *RootHandler,
+    IN PUNICODE_STRING          RegistryPath,
+    IN PUNICODE_STRING          DriverClassName       OPTIONAL,
+    IN PDRIVER_OBJECT           DriverObject,
+    IN PDEVICE_OBJECT           DeviceObject          OPTIONAL,
+    IN ULONG                    SlotNumber,
+    IN OUT PCM_RESOURCE_LIST   *AllocatedResources
+    );
+
+typedef
+NTSTATUS
+(*PQUERY_BUS_SLOTS)(
+    IN struct _BUS_HANDLER      *BusHandler,
+    IN struct _BUS_HANDLER      *RootHandler,
+    IN ULONG                    BufferSize,
+    OUT PULONG                  SlotNumbers,
+    OUT PULONG                  ReturnedLength
+    );
+
+typedef ULONG
+(*PGET_SET_DEVICE_DATA)(
+    IN struct _BUS_HANDLER      *BusHandler,
+    IN struct _BUS_HANDLER      *RootHandler,
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN ULONG                    DataType,
+    IN PVOID                    Buffer,
+    IN ULONG                    Offset,
+    IN ULONG                    Length
+    );
+
+typedef
+NTSTATUS
+(*PDEVICE_CONTROL)(
+    IN PHAL_DEVICE_CONTROL_CONTEXT Context
+    );
+
+
+typedef
+NTSTATUS
+(*PHIBERNATEBRESUMEBUS)(
+    IN struct _BUS_HANDLER      *BusHandler,
+    IN struct _BUS_HANDLER      *RootHandler
+    );
+
+//
+// Supported range structures
+//
+
+#define BUS_SUPPORTED_RANGE_VERSION 1
+
+typedef struct _SUPPORTED_RANGE {
+    struct _SUPPORTED_RANGE     *Next;
+    ULONG                       SystemAddressSpace;
+    LONGLONG                    SystemBase;
+    LONGLONG                    Base;
+    LONGLONG                    Limit;
+} SUPPORTED_RANGE, *PSUPPORTED_RANGE;
+
+typedef struct _SUPPORTED_RANGES {
+    USHORT              Version;
+    BOOLEAN             Sorted;
+    UCHAR               Reserved;
+
+    ULONG               NoIO;
+    SUPPORTED_RANGE     IO;
+
+    ULONG               NoMemory;
+    SUPPORTED_RANGE     Memory;
+
+    ULONG               NoPrefetchMemory;
+    SUPPORTED_RANGE     PrefetchMemory;
+
+    ULONG               NoDma;
+    SUPPORTED_RANGE     Dma;
+} SUPPORTED_RANGES, *PSUPPORTED_RANGES;
+
+//
+// Bus handler structure
+//
+
+#define BUS_HANDLER_VERSION 1
+
+typedef struct _BUS_HANDLER {
+    //
+    // Version of structure
+    //
+
+    ULONG                       Version;
+
+    //
+    // This bus handler struction is for the following bus
+    //
+
+    INTERFACE_TYPE              InterfaceType;
+    BUS_DATA_TYPE               ConfigurationType;
+    ULONG                       BusNumber;
+
+    //
+    // Device object for this bus externder, or NULL if it is
+    // a hal internal bus extender
+    //
+
+    PDEVICE_OBJECT              DeviceObject;
+
+    //
+    // The parent handlers for this bus
+    //
+
+    struct _BUS_HANDLER         *ParentHandler;
+
+    //
+    // Bus specific strorage
+    //
+
+    PVOID                       BusData;
+
+    //
+    // Amount of bus specific strogare needed for DeviceControl function calls
+    //
+
+    ULONG                       DeviceControlExtensionSize;
+
+    //
+    // Supported address ranges this bus allows
+    //
+
+    PSUPPORTED_RANGES           BusAddresses;
+
+    //
+    // For future use
+    //
+
+    ULONG                       Reserved[4];
+
+    //
+    // Handlers for this bus
+    //
+
+    PGETSETBUSDATA              GetBusData;
+    PGETSETBUSDATA              SetBusData;
+    PADJUSTRESOURCELIST         AdjustResourceList;
+    PASSIGNSLOTRESOURCES        AssignSlotResources;
+    PGETINTERRUPTVECTOR         GetInterruptVector;
+    PTRANSLATEBUSADDRESS        TranslateBusAddress;
+
+    PHIBERNATEBRESUMEBUS        HibernateBus;
+    PHIBERNATEBRESUMEBUS        ResumeBus;
+
+    PVOID                       DeleteBus;              // BUGBUG
+
+    PQUERY_BUS_SLOTS            QueryBusSlots;
+    PREFERENCE_DEVICE_HANDLER   ReferenceDeviceHandler;
+    PDEVICE_CONTROL             DeviceControl;
+    PGET_SET_DEVICE_DATA        GetDeviceData;
+    PGET_SET_DEVICE_DATA        SetDeviceData;
+
+} BUS_HANDLER, *PBUS_HANDLER;
+
+
+VOID
+HalpInitBusHandler (
+    VOID
+    );
+
+typedef
+NTSTATUS
+(*PINSTALL_BUS_HANDLER)(
+      IN PBUS_HANDLER   Bus
+      );
+
+typedef
+NTSTATUS
+(*pHalRegisterBusHandler)(
+    IN INTERFACE_TYPE          InterfaceType,
+    IN BUS_DATA_TYPE           AssociatedConfigurationSpace,
+    IN ULONG                   BusNumber,
+    IN INTERFACE_TYPE          ParentBusType,
+    IN ULONG                   ParentBusNumber,
+    IN ULONG                   SizeofBusExtensionData,
+    IN PINSTALL_BUS_HANDLER    InstallBusHandlers,
+    OUT PBUS_HANDLER           *BusHandler
+    );
+
+NTSTATUS
+HaliRegisterBusHandler (
+    IN INTERFACE_TYPE          InterfaceType,
+    IN BUS_DATA_TYPE           AssociatedConfigurationSpace,
+    IN ULONG                   BusNumber,
+    IN INTERFACE_TYPE          ParentBusType,
+    IN ULONG                   ParentBusNumber,
+    IN ULONG                   SizeofBusExtensionData,
+    IN PINSTALL_BUS_HANDLER    InstallBusHandlers,
+    OUT PBUS_HANDLER           *BusHandler
+    );
+
+// begin_ntddk
+typedef
+PBUS_HANDLER
+(FASTCALL *pHalHandlerForBus) (
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG          BusNumber
+    );
+// end_ntddk
+
+PBUS_HANDLER
+FASTCALL
+HaliReferenceHandlerForBus (
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG          BusNumber
+    );
+
+PBUS_HANDLER
+FASTCALL
+HaliHandlerForBus (
+    IN INTERFACE_TYPE InterfaceType,
+    IN ULONG          BusNumber
+    );
+
+typedef VOID
+(FASTCALL *pHalRefernceBusHandler) (
+    IN PBUS_HANDLER   BusHandler
+    );
+
+VOID
+FASTCALL
+HaliDerefernceBusHandler (
+    IN PBUS_HANDLER   BusHandler
+    );
+
+typedef
+PBUS_HANDLER
+(FASTCALL *pHalHandlerForConfigSpace) (
+    IN BUS_DATA_TYPE  ConfigSpace,
+    IN ULONG          BusNumber
+    );
+
+PBUS_HANDLER
+FASTCALL
+HaliHandlerForConfigSpace (
+    IN BUS_DATA_TYPE  ConfigSpace,
+    IN ULONG          BusNumber
+    );
+
+// begin_ntddk
+typedef
+VOID
+(FASTCALL *pHalReferenceBusHandler) (
+    IN PBUS_HANDLER   BusHandler
+    );
+// end_ntddk
+
+VOID
+FASTCALL
+HaliReferenceBusHandler (
+    IN PBUS_HANDLER   BusHandler
+    );
+
+VOID
+FASTCALL
+HaliDereferenceBusHandler (
+    IN PBUS_HANDLER   BusHandler
+    );
+
+
+NTSTATUS
+HaliQueryBusSlots (
+    IN PBUS_HANDLER             BusHandler,
+    IN ULONG                    BufferSize,
+    OUT PULONG                  SlotNumbers,
+    OUT PULONG                  ReturnedLength
+    );
+
+NTSTATUS
+HaliDeviceControl (
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN PDEVICE_OBJECT           DeviceObject,
+    IN ULONG                    ControlCode,
+    IN OUT PVOID                Buffer OPTIONAL,
+    IN OUT PULONG               BufferLength OPTIONAL,
+    IN PVOID                    Context,
+    IN PDEVICE_CONTROL_COMPLETION CompletionRoutine
+    );
+
+NTSTATUS
+HaliCompleteDeviceControl (
+    IN PHAL_DEVICE_CONTROL_CONTEXT Context
+    );
+
+typedef
+NTSTATUS
+(*pHalCompleteDeviceControl) (
+    IN PHAL_DEVICE_CONTROL_CONTEXT Context
+    );
+
+NTSTATUS
+HaliAdjustResourceListRange (
+    IN PSUPPORTED_RANGES                    SupportedRanges,
+    IN PSUPPORTED_RANGE                     InterruptRanges,
+    IN OUT PIO_RESOURCE_REQUIREMENTS_LIST   *pResourceList
+    );
+
+
+
+// begin_ntddk
+
+//*****************************************************************************
+//      HAL Function dispatch
+//
+
+typedef enum _HAL_QUERY_INFORMATION_CLASS {
+    HalInstalledBusInformation,
+    HalProfileSourceInformation,
+    HalSystemDockInformation,
+    HalPowerInformation,
+    HalProcessorSpeedInformation,
+    HalCallbackInformation,
+    HalMapRegisterInformation,
+    HalMcaLogInformation,
+    HalFrameBufferCachingInformation,
+    HalDisplayBiosInformation
+    // information levels >= 0x8000000 reserved for OEM use
+} HAL_QUERY_INFORMATION_CLASS, *PHAL_QUERY_INFORMATION_CLASS;
+
+
+typedef enum _HAL_SET_INFORMATION_CLASS {
+    HalProfileSourceInterval,
+    HalProfileSourceInterruptHandler,
+    HalMcaRegisterDriver
+} HAL_SET_INFORMATION_CLASS, *PHAL_SET_INFORMATION_CLASS;
+
+
+typedef
+NTSTATUS
+(*pHalQuerySystemInformation)(
+    IN HAL_QUERY_INFORMATION_CLASS  InformationClass,
+    IN ULONG     BufferSize,
+    IN OUT PVOID Buffer,
+    OUT PULONG   ReturnedLength
+    );
+
+NTSTATUS
+HaliQuerySystemInformation(
+    IN HAL_SET_INFORMATION_CLASS    InformationClass,
+    IN ULONG     BufferSize,
+    IN OUT PVOID Buffer,
+    OUT PULONG   ReturnedLength
+    );
+
+typedef
+NTSTATUS
+(*pHalSetSystemInformation)(
+    IN HAL_SET_INFORMATION_CLASS    InformationClass,
+    IN ULONG     BufferSize,
+    IN PVOID     Buffer
+    );
+
+NTSTATUS
+HaliSetSystemInformation(
+    IN HAL_SET_INFORMATION_CLASS    InformationClass,
+    IN ULONG     BufferSize,
+    IN PVOID     Buffer
+    );
+
+typedef
+VOID
+(FASTCALL *pHalExamineMBR)(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG SectorSize,
+    IN ULONG MBRTypeIdentifier,
+    OUT PVOID *Buffer
+    );
+
+typedef
+VOID
+(FASTCALL *pHalIoAssignDriveLetters)(
+    IN struct _LOADER_PARAMETER_BLOCK *LoaderBlock,
+    IN PSTRING NtDeviceName,
+    OUT PUCHAR NtSystemPath,
+    OUT PSTRING NtSystemPathString
+    );
+
+typedef
+NTSTATUS
+(FASTCALL *pHalIoReadPartitionTable)(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG SectorSize,
+    IN BOOLEAN ReturnRecognizedPartitions,
+    OUT struct _DRIVE_LAYOUT_INFORMATION **PartitionBuffer
+    );
+
+typedef
+NTSTATUS
+(FASTCALL *pHalIoSetPartitionInformation)(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG SectorSize,
+    IN ULONG PartitionNumber,
+    IN ULONG PartitionType
+    );
+
+typedef
+NTSTATUS
+(FASTCALL *pHalIoWritePartitionTable)(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG SectorSize,
+    IN ULONG SectorsPerTrack,
+    IN ULONG NumberOfHeads,
+    IN struct _DRIVE_LAYOUT_INFORMATION *PartitionBuffer
+    );
+
+typedef
+NTSTATUS
+(*pHalQueryBusSlots)(
+    IN PBUS_HANDLER         BusHandler,
+    IN ULONG                BufferSize,
+    OUT PULONG              SlotNumbers,
+    OUT PULONG              ReturnedLength
+    );
+
+//
+// Define control codes of HalDeviceControl function
+//
+
+#define BCTL_EJECT                                  0x0001
+#define BCTL_QUERY_DEVICE_ID                        0x0002
+#define BCTL_QUERY_DEVICE_UNIQUE_ID                 0x0003
+#define BCTL_QUERY_DEVICE_CAPABILITIES              0x0004
+#define BCTL_QUERY_DEVICE_RESOURCES                 0x0005
+#define BCTL_QUERY_DEVICE_RESOURCE_REQUIREMENTS     0x0006
+#define BCTL_QUERY_EJECT                            0x0007
+#define BCTL_SET_LOCK                               0x0008
+#define BCTL_SET_POWER                              0x0009
+#define BCTL_SET_RESUME                             0x000A
+#define BCTL_SET_DEVICE_RESOURCES                   0x000B
+
+//
+// Defines for BCTL structures
+//
+
+typedef struct {
+    BOOLEAN     PowerSupported;
+    BOOLEAN     ResumeSupported;
+    BOOLEAN     LockSupported;
+    BOOLEAN     EjectSupported;
+    BOOLEAN     Removable;
+} BCTL_DEVICE_CAPABILITIES, *PBCTL_DEVICE_CAPABILITIES;
+
+
+typedef
+NTSTATUS
+(*pHalDeviceControl)(
+    IN PDEVICE_HANDLER_OBJECT   DeviceHandler,
+    IN PDEVICE_OBJECT           DeviceObject,
+    IN ULONG                    ControlCode,
+    IN OUT PVOID                Buffer OPTIONAL,
+    IN OUT PULONG               BufferLength OPTIONAL,
+    IN PVOID                    Context,
+    IN PDEVICE_CONTROL_COMPLETION CompletionRoutine
+    );
+
+// end_ntddk
+
+typedef
+NTSTATUS
+(*PHIBERNATE_CALLBACK)(
+      VOID
+      );
+
+typedef
+NTSTATUS
+(*pHalSuspendHibernateSystem) (
+    IN PTIME_FIELDS         ResumeTime OPTIONAL,
+    IN PHIBERNATE_CALLBACK  SystemCallback OPTIONAL
+    );
+
+NTSTATUS
+HaliSuspendHibernateSystem (
+    IN PTIME_FIELDS         ResumeTime OPTIONAL,
+    IN PHIBERNATE_CALLBACK  SystemCallback OPTIONAL
+    );
+
+typedef
+VOID
+(*pHalHibernateProcessor)(
+    VOID
+    );
+
+NTSTATUS
+HaliHibernateProcessor (
+    VOID
+    );
+
+// begin_ntddk
+
+typedef struct {
+    ULONG                           Version;
+    pHalQuerySystemInformation      HalQuerySystemInformation;
+    pHalSetSystemInformation        HalSetSystemInformation;
+    pHalQueryBusSlots               HalQueryBusSlots;
+    pHalDeviceControl               HalDeviceControl;
+    pHalExamineMBR                  HalExamineMBR;
+    pHalIoAssignDriveLetters        HalIoAssignDriveLetters;
+    pHalIoReadPartitionTable        HalIoReadPartitionTable;
+    pHalIoSetPartitionInformation   HalIoSetPartitionInformation;
+    pHalIoWritePartitionTable       HalIoWritePartitionTable;
+
+    pHalHandlerForBus               HalReferenceHandlerForBus;
+    pHalReferenceBusHandler         HalReferenceBusHandler;
+    pHalReferenceBusHandler         HalDereferenceBusHandler;
+
+} HAL_DISPATCH, *PHAL_DISPATCH;
+
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
+
+extern  PHAL_DISPATCH   HalDispatchTable;
+#define HALDISPATCH     HalDispatchTable
+
+#else
+
+extern  HAL_DISPATCH    HalDispatchTable;
+#define HALDISPATCH     (&HalDispatchTable)
+
+#endif
+
+#define HAL_DISPATCH_VERSION        1
+
+#define HalDispatchTableVersion         HALDISPATCH->Version
+#define HalQuerySystemInformation       HALDISPATCH->HalQuerySystemInformation
+#define HalSetSystemInformation         HALDISPATCH->HalSetSystemInformation
+#define HalQueryBusSlots                HALDISPATCH->HalQueryBusSlots
+#define HalDeviceControl                HALDISPATCH->HalDeviceControl
+#define HalExamineMBR                   HALDISPATCH->HalExamineMBR
+#define HalIoAssignDriveLetters         HALDISPATCH->HalIoAssignDriveLetters
+#define HalIoReadPartitionTable         HALDISPATCH->HalIoReadPartitionTable
+#define HalIoSetPartitionInformation    HALDISPATCH->HalIoSetPartitionInformation
+#define HalIoWritePartitionTable        HALDISPATCH->HalIoWritePartitionTable
+
+#define HalReferenceHandlerForBus       HALDISPATCH->HalReferenceHandlerForBus
+#define HalReferenceBusHandler          HALDISPATCH->HalReferenceBusHandler
+#define HalDereferenceBusHandler        HALDISPATCH->HalDereferenceBusHandler
+
+// end_ntddk
+
+
+typedef struct {
+    ULONG                               Version;
+
+    pHalHandlerForBus                   HalHandlerForBus;
+    pHalHandlerForConfigSpace           HalHandlerForConfigSpace;
+    pHalCompleteDeviceControl           HalCompleteDeviceControl;
+
+    pHalRegisterBusHandler              HalRegisterBusHandler;
+
+// begin _PNP_POWER_
+    pHalHibernateProcessor              HalHibernateProcessor;
+    pHalSuspendHibernateSystem          HalSuspendHibernateSystem;
+    pHalSuspendHibernateSystem          HalpSuspendHibernateSystem;
+// end _PNP_POWER_
+
+} HAL_PRIVATE_DISPATCH, *PHAL_PRIVATE_DISPATCH;
+
+
+#if defined(_NTDRIVER_) || defined(_NTDDK_) || defined(_NTIFS_) || defined(_NTHAL_)
+
+extern  PHAL_PRIVATE_DISPATCH           HalPrivateDispatchTable;
+#define HALPDISPATCH                    HalPrivateDispatchTable
+
+#else
+
+extern  HAL_PRIVATE_DISPATCH            HalPrivateDispatchTable;
+#define HALPDISPATCH                    (&HalPrivateDispatchTable)
+
+#endif
+
+#define HAL_PRIVATE_DISPATCH_VERSION        1
+
+#define HalRegisterBusHandler           HALPDISPATCH->HalRegisterBusHandler
+#define HalHandlerForBus                HALPDISPATCH->HalHandlerForBus
+#define HalHandlerForConfigSpace        HALPDISPATCH->HalHandlerForConfigSpace
+#define HalCompleteDeviceControl        HALPDISPATCH->HalCompleteDeviceControl
+#define HalHibernateProcessor           HALPDISPATCH->HalHibernateProcessor
+#define HalSuspendHibernateSystem       HALPDISPATCH->HalSuspendHibernateSystem
+#define HalpSuspendHibernateSystem      HALPDISPATCH->HalpSuspendHibernateSystem
+
+// begin_ntddk
+
+//
+// HAL System Information Structures.
+//
+
+// for the information class "HalInstalledBusInformation"
+typedef struct _HAL_BUS_INFORMATION{
+    INTERFACE_TYPE  BusType;
+    BUS_DATA_TYPE   ConfigurationType;
+    ULONG           BusNumber;
+    ULONG           Reserved;
+} HAL_BUS_INFORMATION, *PHAL_BUS_INFORMATION;
+
+// for the information class "HalProfileSourceInformation"
+typedef struct _HAL_PROFILE_SOURCE_INFORMATION {
+    KPROFILE_SOURCE Source;
+    BOOLEAN Supported;
+    ULONG Interval;
+} HAL_PROFILE_SOURCE_INFORMATION, *PHAL_PROFILE_SOURCE_INFORMATION;
+
+// for the information class "HalProfileSourceInterval"
+typedef struct _HAL_PROFILE_SOURCE_INTERVAL {
+    KPROFILE_SOURCE Source;
+    ULONG Interval;
+} HAL_PROFILE_SOURCE_INTERVAL, *PHAL_PROFILE_SOURCE_INTERVAL;
+
+// for the information class "HalDispayBiosInformation"
+typedef enum _HAL_DISPLAY_BIOS_INFORMATION {
+    HalDisplayInt10Bios,
+    HalDisplayEmulatedBios,
+    HalDisplayNoBios
+} HAL_DISPLAY_BIOS_INFORMATION, *PHAL_DISPLAY_BIOS_INFORMATION;
+
+// for the information class "HalPowerInformation"
+typedef struct _HAL_POWER_INFORMATION {
+    ULONG   TBD;
+} HAL_POWER_INFORMATION, *PHAL_POWER_INFORMATION;
+
+// for the information class "HalProcessorSpeedInformation"
+typedef struct _HAL_PROCESSOR_SPEED_INFO {
+    ULONG   TBD;
+} HAL_PROCESSOR_SPEED_INFORMATION, *PHAL_PROCESSOR_SPEED_INFORMATION;
+
+// for the information class "HalCallbackInformation"
+typedef struct _HAL_CALLBACKS {
+    PCALLBACK_OBJECT  SetSystemInformation;
+    PCALLBACK_OBJECT  BusCheck;
+} HAL_CALLBACKS, *PHAL_CALLBACKS;
+
+#if defined(_X86_)
+
+// for the information class "HalMcaLogInformation"
+
+//
+// ADDR register for each MCA bank
+//
+
+typedef union _MCI_ADDR{
+    struct {
+        ULONG Address;
+        ULONG Reserved;
+    };
+    
+    ULONGLONG   QuadPart;
+} MCI_ADDR, *PMCI_ADDR;
+    
+
+typedef enum {
+    HAL_MCE_RECORD,
+    HAL_MCA_RECORD
+} MCA_EXCEPTION_TYPE;
+
+//
+// MCA exception log entry 
+// Defined as a union to contain MCA specific log or Pentium style MCE info.
+//
+
+typedef struct _MCA_EXCEPTION {
+    
+    ULONG               VersionNumber;      // Version number of this record type
+    MCA_EXCEPTION_TYPE  ExceptionType;      // MCA or MCE
+    LARGE_INTEGER       TimeStamp;          // exception recording timestamp
+    ULONG               ProcessorNumber;
+         
+    union {
+        struct {
+            UCHAR           BankNumber;
+            MCI_STATS       Status;     
+            MCI_ADDR        Address;
+            ULONGLONG       Misc;
+        } Mca;
+        
+        struct {
+            ULONGLONG       Address;        // physical addr of cycle causing the error
+            ULONGLONG       Type;           // cycle specification causing the error
+        } Mce;
+    } u;
+
+} MCA_EXCEPTION, *PMCA_EXCEPTION;
+
+
+// for the information class "HalMcaRegisterDriver"
+
+typedef
+VOID
+(*PDRIVER_EXCPTN_CALLBACK) (
+    IN PVOID            Context,
+    IN PMCA_EXCEPTION   BankLog
+);
+
+//
+// Structure to record the callbacks from driver
+//
+typedef struct _MCA_DRIVER_INFO {
+    PDRIVER_EXCPTN_CALLBACK ExceptionCallback;
+    PKDEFERRED_ROUTINE      DpcCallback;
+    PVOID                   DeviceContext;
+} MCA_DRIVER_INFO, *PMCA_DRIVER_INFO;
+
+#endif
+
+// end_ntddk
 
 #endif // _HAL_

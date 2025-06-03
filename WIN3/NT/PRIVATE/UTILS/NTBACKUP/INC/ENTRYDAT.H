@@ -54,4 +54,4 @@ INT16 chk_valid_numeral( WDATA_PNTR, CHAR_PTR ) ;
 INT16 chk_valid_yes_no_autodetermine( WDATA_PNTR, CHAR_PTR ) ;
 
 #endif
-
+

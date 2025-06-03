@@ -27,7 +27,14 @@ Revision History:
 
 #define Dbg                              (DEBUG_TRACE_VERFYSUP)
 
-extern POBJECT_TYPE IoFileObjectType;
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('VFtN')
+
+extern BOOLEAN NtfsCheckQuota;
 
 //
 //  Local procedure prototypes
@@ -38,7 +45,7 @@ NtfsPerformVerifyDiskRead (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PVOID Buffer,
-    IN LCN Lcn,
+    IN LONGLONG Offset,
     IN ULONG NumberOfBytesToRead
     );
 
@@ -49,10 +56,16 @@ NtfsVerifyReadCompletionRoutine(
     IN PVOID Contxt
     );
 
+NTSTATUS
+NtfsDeviceIoControlAsync (
+    IN PIRP_CONTEXT IrpContext,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG IoCtl
+    );
+    
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, NtfsCheckpointAllVolumes)
 #pragma alloc_text(PAGE, NtfsMarkVolumeDirty)
-#pragma alloc_text(PAGE, NtfsPerformDismountOnVcb)
 #pragma alloc_text(PAGE, NtfsPerformVerifyOperation)
 #pragma alloc_text(PAGE, NtfsPingVolume)
 #pragma alloc_text(PAGE, NtfsUpdateVersionNumber)
@@ -98,7 +111,7 @@ Return Value:
     PPACKED_BOOT_SECTOR BootSector;
     PFILE_RECORD_SEGMENT_HEADER FileRecord;
 
-    LCN Lcn;
+    LONGLONG Offset;
 
     PSTANDARD_INFORMATION StandardInformation;
 
@@ -107,7 +120,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPerformVerifyOperation, Vcb = %08lx\n", Vcb );
+    DebugTrace( +1, Dbg, ("NtfsPerformVerifyOperation, Vcb = %08lx\n", Vcb) );
 
     BootSector = NULL;
     FileRecord = NULL;
@@ -120,7 +133,7 @@ Return Value:
         //  size is the size of a disk sector.
         //
 
-        BootSector = FsRtlAllocatePool( NonPagedPool,
+        BootSector = NtfsAllocatePool( NonPagedPool,
                                         ROUND_TO_PAGES( Vcb->BytesPerSector ));
 
         NtfsPerformVerifyDiskRead( IrpContext, Vcb, BootSector, (LONGLONG)0, Vcb->BytesPerSector );
@@ -147,12 +160,13 @@ Return Value:
         //  per file record segment.
         //
 
-        FileRecord = FsRtlAllocatePool( NonPagedPoolCacheAligned,
+        FileRecord = NtfsAllocatePool( NonPagedPoolCacheAligned,
                                         ROUND_TO_PAGES( Vcb->BytesPerFileRecordSegment ));
 
-        Lcn = Vcb->MftStartLcn + (VOLUME_DASD_NUMBER * Vcb->ClustersPerFileRecordSegment);
+        Offset = LlBytesFromClusters(Vcb, Vcb->MftStartLcn) +
+                 (VOLUME_DASD_NUMBER * Vcb->BytesPerFileRecordSegment);
 
-        NtfsPerformVerifyDiskRead( IrpContext, Vcb, FileRecord, Lcn, Vcb->BytesPerFileRecordSegment );
+        NtfsPerformVerifyDiskRead( IrpContext, Vcb, FileRecord, Offset, Vcb->BytesPerFileRecordSegment );
 
         //
         //  Given a pointer to a file record we want the value of the first attribute which
@@ -175,6 +189,17 @@ Return Value:
         }
 
         //
+        //  If the device is not writable we won't remount it.
+        //
+
+        if (NtfsDeviceIoControlAsync( IrpContext,
+                                      Vcb->TargetDeviceObject,
+                                      IOCTL_DISK_IS_WRITABLE ) == STATUS_MEDIA_WRITE_PROTECTED) {
+
+            try_return( Results = FALSE );
+        }
+
+        //
         //  At this point we believe that the disk has not changed so can return true and
         //  let our caller reenable the device
         //
@@ -184,11 +209,11 @@ Return Value:
     try_exit: NOTHING;
     } finally {
 
-        if (BootSector != NULL) { ExFreePool( BootSector ); }
-        if (FileRecord != NULL) { ExFreePool( FileRecord ); }
+        if (BootSector != NULL) { NtfsFreePool( BootSector ); }
+        if (FileRecord != NULL) { NtfsFreePool( FileRecord ); }
     }
 
-    DebugTrace(-1, Dbg, "NtfsPerformVerifyOperation -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsPerformVerifyOperation -> %08lx\n", Results) );
 
     return Results;
 }
@@ -227,12 +252,13 @@ Return Value:
 {
     PFCB Fcb;
     PSCB Scb;
+    PVOID RestartKey;
+
+    BOOLEAN Restart;
 
     PVPB NewVpb;
 
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsPerformDismountOnVcb, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsPerformDismountOnVcb, Vcb = %08lx\n", Vcb) );
 
     //
     //  Blow away our delayed close file object.
@@ -251,137 +277,243 @@ Return Value:
     NtfsCommitCurrentTransaction( IrpContext );
 
     //
-    //  Stop the log file.
+    //  Acquire all files exclusively to make dismount atomic.
     //
 
-    NtfsStopLogFile( IrpContext, Vcb );
+    NtfsAcquireAllFiles( IrpContext, Vcb, TRUE, FALSE );
 
     //
-    //  Now for every file Scb with an opened stream file we will delete
-    //  the internal attribute stream
+    //  Use a try-finally to facilitate cleanup.
     //
 
-    Fcb = NULL;
-    while (TRUE) {
+    try {
 
-        NtfsAcquireFcbTable( IrpContext, Vcb );
-        Fcb = NtfsGetNextFcbTableEntry(IrpContext, Vcb, Fcb);
-        NtfsReleaseFcbTable( IrpContext, Vcb );
+        //
+        //  Get rid of Cairo Files
+        //
 
-        if (Fcb == NULL) {
-
-            break;
+#ifdef _CAIRO_
+        if (Vcb->QuotaTableScb != NULL) {
+            NtOfsCloseIndex( IrpContext, Vcb->QuotaTableScb );
+            Vcb->QuotaTableScb = NULL;
         }
+#endif _CAIRO_
 
-        ASSERT_FCB( Fcb );
+        //
+        //  Stop the log file.
+        //
 
-        Scb = NULL;
-        while ((Fcb != NULL) && ((Scb = NtfsGetNextChildScb(IrpContext, Fcb, Scb)) != NULL)) {
+        NtfsStopLogFile( Vcb );
 
-            ASSERT_SCB( Scb );
+        //
+        //  Now for every file Scb with an opened stream file we will delete
+        //  the internal attribute stream
+        //
 
-            if (Scb->FileObject != NULL) {
+        RestartKey = NULL;
+        while (TRUE) {
 
-                //
-                //  For the VolumeDasdScb, we simply decrement the counts that we incremented.
-                //
+            NtfsAcquireFcbTable( IrpContext, Vcb );
+            Fcb = NtfsGetNextFcbTableEntry(Vcb, &RestartKey);
+            NtfsReleaseFcbTable( IrpContext, Vcb );
 
-                if (Scb == Vcb->VolumeDasdScb) {
+            if (Fcb == NULL) {
 
-                    Scb->FileObject = NULL;
+                break;
+            }
 
-                    NtfsDecrementCloseCounts( IrpContext,
-                                              Scb,
-                                              NULL,
-                                              1,
-                                              TRUE,
-                                              TRUE,
-                                              FALSE,
-                                              FALSE,
-                                              NULL );
+            ASSERT_FCB( Fcb );
 
-                    Vcb->VolumeDasdScb = NULL;
+            Scb = NULL;
+            while ((Fcb != NULL) && ((Scb = NtfsGetNextChildScb(Fcb, Scb)) != NULL)) {
 
-                } else {
+                ASSERT_SCB( Scb );
 
-                    NtfsDeleteInternalAttributeStream( IrpContext, Scb, TRUE );
+                if (Scb->FileObject != NULL) {
+
+                    //
+                    //  Assume we want to start from the beginning of the Fcb table.
+                    //
+
+                    Restart = TRUE;
+
+                    //
+                    //  For the VolumeDasdScb and bad cluster file, we simply decrement
+                    //  the counts that we incremented.
+                    //
+
+                    if ((Scb == Vcb->VolumeDasdScb) ||
+                        (Scb == Vcb->BadClusterFileScb)) {
+
+                        Scb->FileObject = NULL;
+
+                        NtfsDecrementCloseCounts( IrpContext,
+                                                  Scb,
+                                                  NULL,
+                                                  TRUE,
+                                                  FALSE,
+                                                  FALSE );
+
+                    //
+                    //  Dereference the file object in the Scb unless it is the one in
+                    //  the Vcb for the Log File.  This routine may not be able to
+                    //  dereference file object because of synchronization problems (there
+                    //  can be a lazy writer callback in process which owns the paging
+                    //  io resource).  In that case we don't want to go back to the beginning
+                    //  of Fcb table or we will loop indefinitely.
+                    //
+
+                    } else if (Scb->FileObject != Vcb->LogFileObject) {
+
+                        Restart = NtfsDeleteInternalAttributeStream( Scb, TRUE );
+
+                    //
+                    //  This is the file object for the Log file.  Remove our
+                    //  extra reference on the logfile Scb.
+                    //
+
+                    } else if (Scb->FileObject != NULL) {
+
+                        //
+                        //  Remember the log file object so we can defer the dereference.
+                        //
+
+                        NtfsDecrementCloseCounts( IrpContext,
+                                                  Vcb->LogFileScb,
+                                                  NULL,
+                                                  TRUE,
+                                                  FALSE,
+                                                  TRUE );
+
+                        Scb->FileObject = NULL;
+                    }
+
+                    if (Restart) {
+
+                        if (Scb == Vcb->MftScb)               { Vcb->MftScb = NULL; }
+                        if (Scb == Vcb->Mft2Scb)              { Vcb->Mft2Scb = NULL; }
+                        if (Scb == Vcb->LogFileScb)           { Vcb->LogFileScb = NULL; }
+                        if (Scb == Vcb->VolumeDasdScb)        { Vcb->VolumeDasdScb = NULL; }
+                        if (Scb == Vcb->AttributeDefTableScb) { Vcb->AttributeDefTableScb = NULL; }
+                        if (Scb == Vcb->UpcaseTableScb)       { Vcb->UpcaseTableScb = NULL; }
+                        if (Scb == Vcb->RootIndexScb)         { Vcb->RootIndexScb = NULL; }
+                        if (Scb == Vcb->BitmapScb)            { Vcb->BitmapScb = NULL; }
+                        if (Scb == Vcb->BadClusterFileScb)    { Vcb->BadClusterFileScb = NULL; }
+                        if (Scb == Vcb->QuotaTableScb)        { Vcb->QuotaTableScb = NULL; }
+                        if (Scb == Vcb->MftBitmapScb)         { Vcb->MftBitmapScb = NULL; }
+
+#if defined (_CAIRO_)
+                        if (Scb == Vcb->SecurityIdIndex)      { Vcb->SecurityIdIndex = NULL; }
+                        if (Scb == Vcb->SecurityDescriptorHashIndex)
+                                                              { Vcb->SecurityDescriptorHashIndex = NULL; }
+                        if (Scb == Vcb->SecurityDescriptorStream)
+                                                              { Vcb->SecurityDescriptorStream = NULL; }
+#endif  //  defined (_CAIRO_)
+
+                        //
+                        //  Now zero out the enumerations so we will start all over again because
+                        //  our call to Delete Internal Attribute Stream just messed up our
+                        //  enumeration.
+                        //
+
+                        Scb = NULL;
+                        Fcb = NULL;
+                        RestartKey = NULL;
+                    }
                 }
-
-                if (Scb == Vcb->MftScb)               { Vcb->MftScb = NULL; }
-                if (Scb == Vcb->Mft2Scb)              { Vcb->Mft2Scb = NULL; }
-                if (Scb == Vcb->LogFileScb)           { Vcb->LogFileScb = NULL; }
-                if (Scb == Vcb->AttributeDefTableScb) { Vcb->AttributeDefTableScb = NULL; }
-                if (Scb == Vcb->UpcaseTableScb)       { Vcb->UpcaseTableScb = NULL; }
-                if (Scb == Vcb->RootIndexScb)         { Vcb->RootIndexScb = NULL; }
-                if (Scb == Vcb->BitmapScb)            { Vcb->BitmapScb = NULL; }
-                if (Scb == Vcb->QuotaTableScb)        { Vcb->QuotaTableScb = NULL; }
-                if (Scb == Vcb->MftBitmapScb)         { Vcb->MftBitmapScb = NULL; }
-
-                //
-                //  Now zero out the enumerations so we will start all over again because
-                //  our call to Delete Internal Attribute Stream just messed up our
-                //  enumeration.
-                //
-
-                Scb = NULL;
-                Fcb = NULL;
             }
         }
-    }
-
-    //
-    //  Mark the volume as not mounted.
-    //
-
-    ClearFlag( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED );
-
-    //
-    //  Now only really dismount the volume if that's what our caller wants
-    //
-
-    if (DoCompleteDismount) {
-
-        PREVENT_MEDIA_REMOVAL Prevent;
 
         //
-        //  Attempt to unlock any removable media, ignoring status.
+        //  Mark the volume as not mounted.
         //
 
-        Prevent.PreventMediaRemoval = FALSE;
-        (PVOID)NtfsDeviceIoControl( IrpContext,
-                                    Vcb->TargetDeviceObject,
-                                    IOCTL_DISK_MEDIA_REMOVAL,
-                                    &Prevent,
-                                    sizeof(PREVENT_MEDIA_REMOVAL),
-                                    NULL,
-                                    0 );
+        ClearFlag( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED );
 
         //
-        //  Remove this voldo from the mounted disk structures
-        //
-        //  The old vpb will go away when we delete the Vcb
+        //  Now only really dismount the volume if that's what our caller wants
         //
 
-        NewVpb = ExAllocatePool( NonPagedPool, sizeof( VPB ) );
+        if (DoCompleteDismount) {
 
-        if (NewVpb == NULL) {
+            PREVENT_MEDIA_REMOVAL Prevent;
+            KIRQL SavedIrql;
 
-            NewVpb = ExAllocatePool( NonPagedPoolMustSucceed, sizeof( VPB ) );
+            //
+            //  Attempt to unlock any removable media, ignoring status.
+            //
+
+            Prevent.PreventMediaRemoval = FALSE;
+            (PVOID)NtfsDeviceIoControl( IrpContext,
+                                        Vcb->TargetDeviceObject,
+                                        IOCTL_DISK_MEDIA_REMOVAL,
+                                        &Prevent,
+                                        sizeof(PREVENT_MEDIA_REMOVAL),
+                                        NULL,
+                                        0 );
+
+            //
+            //  Remove this voldo from the mounted disk structures
+            //
+            //  Assume we will need a new Vpb.  Deallocate it later if not needed.
+            //
+
+            NewVpb = NtfsAllocatePoolWithTag( NonPagedPoolMustSucceed, sizeof( VPB ), 'VftN' );
+            RtlZeroMemory( NewVpb, sizeof( VPB ) );
+
+            IoAcquireVpbSpinLock( &SavedIrql );
+
+            //
+            //  If there are no file objects and no reference counts in the
+            //  Vpb then we can use the existing Vpb.
+            //
+
+            if ((Vcb->CloseCount == 0) &&
+                (Vcb->Vpb->ReferenceCount == 0)) {
+
+                Vcb->Vpb->DeviceObject = NULL;
+                ClearFlag( Vcb->Vpb->Flags, VPB_MOUNTED );
+
+            //
+            //  Otherwise we will swap out the Vpb.
+            //
+
+            } else {
+
+                NewVpb->Type = IO_TYPE_VPB;
+                NewVpb->Size = sizeof( VPB );
+                NewVpb->RealDevice = Vcb->Vpb->RealDevice;
+                Vcb->Vpb->RealDevice->Vpb = NewVpb;
+
+                SetFlag( Vcb->VcbState, VCB_STATE_TEMP_VPB );
+
+                NewVpb = NULL;
+            }
+
+            IoReleaseVpbSpinLock( SavedIrql );
+
+            SetFlag( Vcb->VcbState, VCB_STATE_PERFORMED_DISMOUNT );
+
+            //
+            //  Free the temp Vpb if not used.
+            //
+
+            if (NewVpb) {
+
+                NtfsFreePool( NewVpb );
+            }
         }
 
-        RtlZeroMemory( NewVpb, sizeof( VPB ) );
+    } finally {
 
-        NewVpb->Type = IO_TYPE_VPB;
-        NewVpb->Size = sizeof( VPB );
-        NewVpb->RealDevice = Vcb->Vpb->RealDevice;
-        Vcb->Vpb->RealDevice->Vpb = NewVpb;
+        NtfsReleaseAllFiles( IrpContext, Vcb, FALSE );
+
+        //
+        //  And return to our caller
+        //
+
+        DebugTrace( -1, Dbg, ("NtfsPerformDismountOnVcb -> VOID\n") );
     }
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "NtfsPerformDismountOnVcb -> VOID\n", 0);
 
     return;
 }
@@ -418,7 +550,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsPingVolume, Vcb = %08lx\n", Vcb);
+    DebugTrace( +1, Dbg, ("NtfsPingVolume, Vcb = %08lx\n", Vcb) );
 
     //
     //  If the media is removable and the verify volume flag in the
@@ -490,7 +622,7 @@ Return Value:
         Results = TRUE;
     }
 
-    DebugTrace(-1, Dbg, "NtfsPingVolume -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsPingVolume -> %08lx\n", Results) );
 
     return Results;
 }
@@ -522,66 +654,43 @@ Return Value:
 --*/
 
 {
-    KIRQL SavedIrql;
+    TIMER_STATUS TimerStatus;
+
+    UNREFERENCED_PARAMETER( SystemArgument1 );
+    UNREFERENCED_PARAMETER( SystemArgument2 );
+    UNREFERENCED_PARAMETER( DeferredContext );
+    UNREFERENCED_PARAMETER( Dpc );
 
     //
-    //  Check to see if we should show modification, and then if we to
-    //  restart the timer.
+    //  Atomic reset of status indicating the timer is currently fired.  This
+    //  synchronizes with NtfsSetDirtyBcb.  After NtfsSetDirtyBcb dirties
+    //  a Bcb, it sees if it should enable this timer routine.
+    //
+    //  If the status indicates that a timer is active, it does nothing.  In this
+    //  case it is guaranteed that when the timer fires, it causes a checkpoint (to
+    //  force out the dirty Bcb data).
+    //
+    //  If there is no timer active, it enables it, thus queueing a checkpoint later.
+    //
+    //  If the timer routine actually fires between the dirtying of the Bcb and the
+    //  testing of the status then a single extra checkpoint is generated.  This
+    //  extra checkpoint is not considered harmful.
     //
 
-    KeAcquireSpinLock( &NtfsData.VolumeCheckpointSpinLock, &SavedIrql );
+    //
+    //  Atomically reset status and get previous value
+    //
+
+    TimerStatus = InterlockedExchange( &NtfsData.TimerStatus, TIMER_NOT_SET );
 
     //
-    //  Only queue this item if it is not already in the queue.
+    //  We have only one instance of the work queue item.  It can only be
+    //  queued once.  In a slow system, this checkpoint item may not be processed
+    //  by the time this timer routine fires again.
     //
 
     if (NtfsData.VolumeCheckpointItem.List.Flink == NULL) {
         ExQueueWorkItem( &NtfsData.VolumeCheckpointItem, CriticalWorkQueue );
-    }
-
-    //
-    //  Here are the rules:
-    //
-    //  A - if someone modified something, go to initial state
-    //
-    //  B - if no activity, generate an extra checkpoint
-    //
-    //  C - if still no activity, don't set the timer again
-    //
-
-    if ( NtfsData.Modified ) {
-
-        NtfsData.Modified = FALSE;
-
-        NtfsData.ExtraCheckpoint = FALSE;
-
-        NtfsData.TimerSet = TRUE;
-
-    } else {
-
-        if ( NtfsData.ExtraCheckpoint ) {
-
-            NtfsData.ExtraCheckpoint = FALSE;
-
-            NtfsData.TimerSet = TRUE;
-
-        } else {
-
-            NtfsData.TimerSet = FALSE;
-        }
-    }
-
-    KeReleaseSpinLock( &NtfsData.VolumeCheckpointSpinLock, SavedIrql );
-
-    if ( NtfsData.TimerSet ) {
-
-        LONGLONG FiveSecondsFromNow;
-
-        FiveSecondsFromNow = -5*1000*1000*10;
-
-        KeSetTimer( &NtfsData.VolumeCheckpointTimer,
-                    *(PLARGE_INTEGER)&FiveSecondsFromNow,
-                    &NtfsData.VolumeCheckpointDpc );
     }
 }
 
@@ -622,6 +731,13 @@ Return Value:
     PLIST_ENTRY Links;
     PVCB Vcb;
 
+    BOOLEAN AcquiredGlobal = FALSE;
+    BOOLEAN StartTimer = FALSE;
+
+    TIMER_STATUS TimerStatus;
+
+    UNREFERENCED_PARAMETER( Parameter );
+
     PAGED_CODE();
 
     RtlZeroMemory( &LocalIrpContext, sizeof(LocalIrpContext) );
@@ -633,7 +749,6 @@ Return Value:
     IrpContext->OriginatingIrp = &LocalIrp;
     SetFlag(IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT);
     InitializeListHead( &IrpContext->ExclusiveFcbList );
-    InitializeListHead( &IrpContext->ExclusivePagingIoList );
 
     //
     //  Make sure we don't get any pop-ups
@@ -643,16 +758,17 @@ Return Value:
     ASSERT( ThreadTopLevelContext == &TopLevelContext );
 
     (VOID) ExAcquireResourceShared( &NtfsData.Resource, TRUE );
+    AcquiredGlobal = TRUE;
 
     try {
 
         NtfsUpdateIrpContextWithTopLevel( IrpContext, ThreadTopLevelContext );
 
-        for (Links = NtfsData.VcbQueue.Flink;
-             Links != &NtfsData.VcbQueue;
-             Links = Links->Flink) {
+        try {
 
-            try {
+            for (Links = NtfsData.VcbQueue.Flink;
+                 Links != &NtfsData.VcbQueue;
+                 Links = Links->Flink) {
 
                 Vcb = CONTAINING_RECORD(Links, VCB, VcbLinks);
 
@@ -661,18 +777,77 @@ Return Value:
                 if (FlagOn( Vcb->VcbState, VCB_STATE_VOLUME_MOUNTED )) {
 
                     NtfsCheckpointVolume( IrpContext, Vcb, FALSE, FALSE, TRUE, Li0 );
+
+                    //
+                    //  Check to see whether this was not a clean checkpoint.
+                    //
+
+                    if (!FlagOn( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN )) {
+
+                        StartTimer = TRUE;
+                    }
+
                     NtfsCommitCurrentTransaction( IrpContext );
+#ifdef _CAIRO_
+                    if (NtfsCheckQuota && Vcb->QuotaTableScb != NULL) {
+                        NtfsPostRepairQuotaIndex( IrpContext, Vcb );
+                    }
+#endif // _CAIRO_
+
                 }
+            }
 
-            } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
+        } except(NtfsExceptionFilter( IrpContext, GetExceptionInformation() )) {
 
-                NOTHING;
+            NOTHING;
+        }
+
+        //
+        //  Synchronize with the checkpoint timer and other instances of this routine.
+        //
+        //  Perform an interlocked exchange to indicate that a timer is being set.
+        //
+        //  If the previous value indicates that no timer was set, then we
+        //  enable the volume checkpoint timer.  This will guarantee that a checkpoint
+        //  will occur to flush out the dirty Bcb data.
+        //
+        //  If the timer was set previously, then it is guaranteed that a checkpoint
+        //  will occur without this routine having to reenable the timer.
+        //
+        //  If the timer and checkpoint occurred between the dirtying of the Bcb and
+        //  the setting of the timer status, then we will be queueing a single extra
+        //  checkpoint on a clean volume.  This is not considered harmful.
+        //
+
+        //
+        //  Atomically set the timer status to indicate a timer is being set and
+        //  retrieve the previous value.
+        //
+
+        if (StartTimer) {
+
+            TimerStatus = InterlockedExchange( &NtfsData.TimerStatus, TIMER_SET );
+
+            //
+            //  If the timer is not currently set then we must start the checkpoint timer
+            //  to make sure the above dirtying is flushed out.
+            //
+
+            if (TimerStatus == TIMER_NOT_SET) {
+
+                LONGLONG FiveSecondsFromNow = -5*1000*1000*10;
+
+                KeSetTimer( &NtfsData.VolumeCheckpointTimer,
+                            *(PLARGE_INTEGER) &FiveSecondsFromNow,
+                            &NtfsData.VolumeCheckpointDpc );
             }
         }
 
     } finally {
 
-        ExReleaseResource( &NtfsData.Resource );
+        if (AcquiredGlobal) {
+            ExReleaseResource( &NtfsData.Resource );
+        }
 
         NtfsRestoreTopLevelIrp( ThreadTopLevelContext );
     }
@@ -761,6 +936,8 @@ Return Value:
 
         PVCB Vcb;
         PFCB Fcb;
+        PSCB Scb;
+        PCCB Ccb;
 
         RelatedFileObject = FileObject->RelatedFileObject;
 
@@ -768,14 +945,45 @@ Return Value:
                               RelatedFileObject,
                               &Vcb,
                               &Fcb,
-                              NULL,
-                              NULL,
+                              &Scb,
+                              &Ccb,
                               TRUE );
 
         if (RelatedFileObject != NULL
             && Fcb->LinkCount == 0)  {
 
             NtfsRaiseStatus( IrpContext, STATUS_DELETE_PENDING, NULL, NULL );
+        }
+    }
+
+    //
+    //  If the file object has already been cleaned up, and
+    //
+    //  A) This request is a paging io read or write, or
+    //  B) This request is a close operation, or
+    //  C) This request is a set or query info call (for Lou)
+    //  D) This is an MDL complete
+    //
+    //  let it pass, otherwise return STATUS_FILE_CLOSED.
+    //
+
+    if ( FlagOn(FileObject->Flags, FO_CLEANUP_COMPLETE) ) {
+
+        PIO_STACK_LOCATION IrpSp = IoGetCurrentIrpStackLocation( Irp );
+
+        if ( (FlagOn(Irp->Flags, IRP_PAGING_IO)) ||
+             (IrpSp->MajorFunction == IRP_MJ_CLOSE ) ||
+             (IrpSp->MajorFunction == IRP_MJ_SET_INFORMATION) ||
+             (IrpSp->MajorFunction == IRP_MJ_QUERY_INFORMATION) ||
+             ( ( (IrpSp->MajorFunction == IRP_MJ_READ) ||
+                 (IrpSp->MajorFunction == IRP_MJ_WRITE) ) &&
+               FlagOn(IrpSp->MinorFunction, IRP_MN_COMPLETE) ) ) {
+
+            NOTHING;
+
+        } else {
+
+            NtfsRaiseStatus( IrpContext, STATUS_FILE_CLOSED, NULL, NULL );
         }
     }
 
@@ -792,7 +1000,7 @@ NtfsPerformVerifyDiskRead (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PVOID Buffer,
-    IN LCN Lcn,
+    IN LONGLONG Offset,
     IN ULONG NumberOfBytesToRead
     )
 
@@ -811,7 +1019,7 @@ Arguments:
 
     Buffer - Supplies the buffer that will recieve the results of this operation
 
-    Lcn - Supplies the LCN of where to start reading
+    Offset - Supplies the offset of where to start reading
 
     NumberOfBytesToRead - Supplies the number of bytes to read, this must
         be in multiple of bytes units acceptable to the disk driver.
@@ -825,15 +1033,12 @@ Return Value:
 {
     KEVENT Event;
     PIRP Irp;
-    LONGLONG ByteOffset;
     NTSTATUS Status;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
-
-    DebugTrace2(0, Dbg, "NtfsPerformVerifyDiskRead, Lcn = %08lx %08lx\n", Lcn.LowPart, Lcn.HighPart );
 
     //
     //  Initialize the event we're going to use
@@ -849,13 +1054,11 @@ Return Value:
     //  cannot occur at APC level.
     //
 
-    ByteOffset = Lcn * Vcb->BytesPerCluster;
-
     Irp = IoBuildAsynchronousFsdRequest( IRP_MJ_READ,
                                          Vcb->TargetDeviceObject,
                                          Buffer,
                                          NumberOfBytesToRead,
-                                         (PLARGE_INTEGER)&ByteOffset,
+                                         (PLARGE_INTEGER)&Offset,
                                          NULL );
 
     if ( Irp == NULL ) {
@@ -987,13 +1190,7 @@ Return Value:
     //
 
     if (MajorFunction != IRP_MJ_CLOSE) {
-
-        if (!NT_SUCCESS( Status = ObReferenceObjectByPointer( FileObject,
-                                                              0,
-                                                              IoFileObjectType,
-                                                              KernelMode ) )) {
-            return Status;
-        }
+        ObReferenceObject( FileObject );
     }
 
     //
@@ -1058,7 +1255,7 @@ Return Value:
         //  There should never be an MDL here.
         //
 
-        ASSERT(Irp->MdlAddress != NULL);
+        ASSERT(Irp->MdlAddress == NULL);
 
         IoFreeIrp( Irp );
     }
@@ -1071,12 +1268,140 @@ Return Value:
 
     return Status;
 }
+
+BOOLEAN
+NtfsLogEvent (
+    IN PIRP_CONTEXT IrpContext,
+    IN PQUOTA_USER_DATA UserData OPTIONAL,
+    IN NTSTATUS LogCode,
+    IN NTSTATUS FinalStatus
+    )
+
+/*++
+
+Routine Description:
+
+    This routine logs an io event. If UserData is supplied then the
+    data logged is a FILE_QUOTA_INFORMATION structure; otherwise the
+    volume label is included.
+
+Arguments:
+
+    UserData - Supplies the optional quota user data index entry.
+
+    LogCode - Supplies the Io Log code to use for the ErrorCode field.
+
+    FinalStauts - Supplies the final status of the operation.
+
+Return Value:
+
+    True - if the event was successfully logged.
+
+--*/
+
+{
+    PIO_ERROR_LOG_PACKET ErrorLogEntry;
+    PFILE_QUOTA_INFORMATION FileQuotaInfo;
+    ULONG SidLength;
+    ULONG DumpDataLength = 0;
+    ULONG LabelLength = 0;
+
+    if (IrpContext->Vcb == NULL) {
+        return FALSE;
+    }
+
+    if (UserData == NULL) {
+
+        LabelLength = IrpContext->Vcb->Vpb->VolumeLabelLength + sizeof(WCHAR);
+
+#ifdef _CAIRO_
+
+    } else {
+
+        //
+        //  Calculate the required length of the Sid.
+        //
+
+        SidLength = RtlLengthSid( &UserData->QuotaSid );
+
+        DumpDataLength = SidLength +
+                         FIELD_OFFSET( FILE_QUOTA_INFORMATION, Sid );
+
+#endif // _CAIRO_
+
+    }
+
+    ErrorLogEntry = (PIO_ERROR_LOG_PACKET)
+                    IoAllocateErrorLogEntry( IrpContext->Vcb->TargetDeviceObject,
+                                             (UCHAR) (DumpDataLength +
+                                                      LabelLength +
+                                             sizeof(IO_ERROR_LOG_PACKET)) );
+
+    if (ErrorLogEntry == NULL) {
+        return FALSE;
+    }
+
+    ErrorLogEntry->ErrorCode = LogCode;
+    ErrorLogEntry->FinalStatus = FinalStatus;
+
+    ErrorLogEntry->SequenceNumber = IrpContext->TransactionId;
+    ErrorLogEntry->MajorFunctionCode = IrpContext->MajorFunction;
+    ErrorLogEntry->RetryCount = 0;
+    ErrorLogEntry->DumpDataSize = (USHORT) DumpDataLength;
+
+    if (UserData == NULL) {
+
+        PWCHAR String;
+
+        //
+        //  The label string at the end of the error log entry.
+        //
+
+        String = (PWCHAR) (ErrorLogEntry + 1);
+
+        ErrorLogEntry->NumberOfStrings = 1;
+        ErrorLogEntry->StringOffset = sizeof( IO_ERROR_LOG_PACKET );
+        RtlCopyMemory( String,
+                       IrpContext->Vcb->Vpb->VolumeLabel,
+                       IrpContext->Vcb->Vpb->VolumeLabelLength );
+
+        //
+        //  Make sure the string is null terminated.
+        //
+
+        String += IrpContext->Vcb->Vpb->VolumeLabelLength / sizeof( WCHAR );
+
+        *String = L'\0';
+
+#ifdef _CAIRO_
+
+    } else {
+
+        FileQuotaInfo = (PFILE_QUOTA_INFORMATION) ErrorLogEntry->DumpData;
+
+        FileQuotaInfo->NextEntryOffset = 0;
+        FileQuotaInfo->SidLength = SidLength;
+        FileQuotaInfo->ChangeTime.QuadPart = UserData->QuotaChangeTime;
+        FileQuotaInfo->QuotaUsed.QuadPart = UserData->QuotaUsed;
+        FileQuotaInfo->QuotaThreshold.QuadPart = UserData->QuotaThreshold;
+        FileQuotaInfo->QuotaLimit.QuadPart = UserData->QuotaLimit;
+        RtlCopyMemory( &FileQuotaInfo->Sid,
+                       &UserData->QuotaSid,
+                       SidLength );
+
+#endif // _CAIRO
+
+    }
+
+    IoWriteErrorLogEntry( ErrorLogEntry );
+
+    return TRUE;
+}
 
 
 VOID
 NtfsPostVcbIsCorrupt (
     IN PIRP_CONTEXT IrpContext,
-    IN PVOID VcbOrNull OPTIONAL,
     IN NTSTATUS  Status OPTIONAL,
     IN PFILE_REFERENCE FileReference OPTIONAL,
     IN PFCB Fcb OPTIONAL
@@ -1089,8 +1414,6 @@ Routine Description:
     This routine is called to mark the volume dirty and possibly raise a hard error.
 
 Arguments:
-
-    VcbOrNull - If specified, this is the Vcb being marked dirty.
 
     Status - If not zero, then this is the error code for the popup.
 
@@ -1106,10 +1429,11 @@ Return Value:
 {
     PVCB Vcb = IrpContext->Vcb;
 
-    UNREFERENCED_PARAMETER(VcbOrNull);
-
-#ifdef NTFS_ALLOW_COMPRESSED
+#ifdef NTFS_CORRUPT
+{
+    KdPrint(("NTFS: Post Vcb is corrupt\n", 0));
     DbgBreakPoint();
+}
 #endif
 
     //
@@ -1167,12 +1491,15 @@ Return Value:
 
     PAGED_CODE();
 
-#ifdef NTFS_ALLOW_COMPRESSED
-    DbgBreakPoint();
-#endif
-
 #if DBG
     KdPrint(("NTFS: Marking volume dirty, Vcb: %08lx\n", Vcb));
+#endif
+
+#ifdef NTFS_CORRUPT
+{
+    KdPrint(("NTFS: Marking volume dirty\n", 0));
+    DbgBreakPoint();
+}
 #endif
 
     //  if (FlagOn(*(PULONG)NtGlobalFlag, 0x00080000)) {
@@ -1208,18 +1535,20 @@ Return Value:
 
             SetFlag(VolumeInformation->VolumeFlags, VOLUME_DIRTY);
 
-            NtfsSetDirtyBcb( IrpContext,
-                             NtfsFoundBcb(&AttributeContext),
-                             NULL,
-                             NULL );
+            CcSetDirtyPinnedData( NtfsFoundBcb(&AttributeContext), NULL );
 
-            NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+            NtfsCleanupAttributeContext( &AttributeContext );
         }
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
     }
+
+    NtfsLogEvent( IrpContext,
+                  NULL,
+                  IO_FILE_SYSTEM_CORRUPT,
+                  STATUS_DISK_CORRUPT_ERROR );
 }
 
 
@@ -1284,12 +1613,9 @@ Return Value:
             VolumeInformation->MajorVersion = MajorVersion;
             VolumeInformation->MinorVersion = MinorVersion;
 
-            NtfsSetDirtyBcb( IrpContext,
-                             NtfsFoundBcb(&AttributeContext),
-                             NULL,
-                             NULL );
+            CcSetDirtyPinnedData( NtfsFoundBcb(&AttributeContext), NULL );
 
-            NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+            NtfsCleanupAttributeContext( &AttributeContext );
 
             //
             //  Now flush it out, so the new version numbers will be present on
@@ -1304,7 +1630,7 @@ Return Value:
 
     } finally {
 
-        NtfsCleanupAttributeContext( IrpContext, &AttributeContext );
+        NtfsCleanupAttributeContext( &AttributeContext );
     }
 }
 
@@ -1331,3 +1657,123 @@ NtfsVerifyReadCompletionRoutine(
 
     return STATUS_MORE_PROCESSING_REQUIRED;
 }
+
+//
+//  Local support routine
+//
+
+NTSTATUS
+NtfsDeviceIoControlAsync (
+    IN PIRP_CONTEXT IrpContext,
+    IN PDEVICE_OBJECT DeviceObject,
+    IN ULONG IoCtl
+    )
+    
+/*++
+
+Routine Description:
+
+    This routine is used to perform an IoCtl when we may be at the APC level
+    and calling NtfsDeviceIoControl could be unsafe.
+
+Arguments:
+
+    DeviceObject - Supplies the device object to which to send the ioctl.
+
+    IoCtl - Supplies the I/O control code.
+
+Return Value:
+
+    Status.
+
+--*/
+
+{
+    KEVENT Event;
+    PIRP Irp;
+    NTSTATUS Status;
+    PIO_STACK_LOCATION IrpSp;
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+
+    //
+    //  We'll be leaving the event on the stack, so let's be sure 
+    //  that we've done an FsRtlEnterFileSystem before we got here.
+    //  I claim that we're never going to end up here in the fast 
+    //  io path, but let's make certain.
+    //
+
+    ASSERTMSG( "Didn't FsRtlEnterFileSystem", KeGetCurrentThread()->KernelApcDisable != 0 );
+
+    //
+    //  Initialize the event we're going to use
+    //
+
+    KeInitializeEvent( &Event, NotificationEvent, FALSE );
+
+    //
+    //  Build the irp for the operation and also set the overrride flag
+    //
+    //  Note that we may be at APC level, so do this asyncrhonously and
+    //  use an event for synchronization normal request completion
+    //  cannot occur at APC level.
+    //
+
+    //  ****  Change this irp_mj_ back after Jeff or Peter changes io so
+    //  ****  that we can pass in the right irp_mj_ and no buffers.
+
+    Irp = IoBuildAsynchronousFsdRequest( IRP_MJ_FLUSH_BUFFERS, // **** IRP_MJ_DEVICE_CONTROL,
+                                         DeviceObject,
+                                         NULL,
+                                         0,
+                                         NULL,
+                                         NULL );
+
+    if ( Irp == NULL ) {
+
+        NtfsRaiseStatus( IrpContext, STATUS_INSUFFICIENT_RESOURCES, NULL, NULL );
+    }
+
+    IrpSp = IoGetNextIrpStackLocation( Irp );
+    SetFlag( IrpSp->Flags, SL_OVERRIDE_VERIFY_VOLUME );
+    
+    IrpSp->Parameters.DeviceIoControl.IoControlCode = IoCtl;
+    
+    // **** Remove this, too.
+    
+    IrpSp->MajorFunction = IRP_MJ_DEVICE_CONTROL;
+    
+    //
+    //  Set up the completion routine.
+    //
+
+    IoSetCompletionRoutine( Irp,
+                            NtfsVerifyReadCompletionRoutine,
+                            &Event,
+                            TRUE,
+                            TRUE,
+                            TRUE );
+
+    //
+    //  Call the device to do the io and wait for it to finish.
+    //
+
+    (VOID)IoCallDriver( DeviceObject, Irp );
+    (VOID)KeWaitForSingleObject( &Event, Executive, KernelMode, FALSE, (PLARGE_INTEGER)NULL );
+
+    //
+    //  Grab the Status.
+    //
+
+    Status = Irp->IoStatus.Status;
+
+    IoFreeIrp( Irp );
+
+    //
+    //  And return to our caller.
+    //
+
+    return Status;
+}
+
+

@@ -1569,7 +1569,7 @@ HQ     FAR GetTaskQueue(HTASK);
 HQ     FAR SetTaskQueue(HTASK, HQ);
 void   FAR LockCurrentTask(BOOL);
 HANDLE FAR emscopy();
-void   FAR ExitKernel(int);
+//void   FAR ExitKernel(int);
 int    FAR LocalCountFree(void);
 int    FAR LocalHeapSize(void);
 BOOL   FAR IsWinoldapTask(HTASK);

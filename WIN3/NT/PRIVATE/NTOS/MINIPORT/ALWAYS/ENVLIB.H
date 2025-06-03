@@ -182,4 +182,3 @@ extern void setm(ALLOC_T block, int val, unsigned count);
 extern ALLOC_T shrinkm(ALLOC_T oldblock, unsigned oldsize, unsigned newsize);
 
 #endif /* __ENVLIB_H__ */
-

@@ -58,7 +58,7 @@ void cpfir(void)
                changes |= setunion( wsets[i].ws.lset, wsets[ch].ws.lset );
                if( !pempty[ch] ) break;
                }
-            }
+            }
          }
       }
 

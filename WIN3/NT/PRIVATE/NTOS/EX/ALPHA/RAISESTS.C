@@ -27,7 +27,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
+#include "exp.h"
 
 //
 // Define private function prototypes.

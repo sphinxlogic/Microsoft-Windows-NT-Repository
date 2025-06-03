@@ -1,5 +1,4 @@
 #include "cmd.h"
-#include "cmdproto.h"
 
 extern TCHAR Fmt24[], KeysStr[];
 extern struct envdata CmdEnv ;

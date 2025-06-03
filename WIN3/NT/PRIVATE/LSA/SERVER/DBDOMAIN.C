@@ -290,7 +290,7 @@ Arguments:
                 goto CreateTrustedDomainError;
             }
 
-            InternalPolicyHandleReferenced = FALSE;
+            InternalPolicyHandleReferenced = TRUE;
 
             //
             // Get the next Posix Offset value to be used.  This is stored
@@ -583,6 +583,13 @@ CreateTrustedDomainFinish:
         LogicalNameU.Length = 0;
     }
 
+#ifdef TRACK_HANDLE_CLOSE
+    if (*TrustedDomainHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
     return(Status);
 
 CreateTrustedDomainError:
@@ -667,6 +674,14 @@ Return Values:
                  TrustedDomainHandle,
                  LSAP_DB_ACQUIRE_LOCK
                  );
+
+#ifdef TRACK_HANDLE_CLOSE
+    if (*TrustedDomainHandle == LsapDbHandle)
+    {
+        DbgPrint("BUGBUG: Closing global policy handle\n");
+        DbgBreakPoint();
+    }
+#endif
 
     return(Status);
 }
@@ -1363,6 +1378,10 @@ Return Value:
     PLSAP_DB_ATTRIBUTE NextAttribute;
     ULONG AttributeCount = 0;
     ULONG AttributeNumber;
+    ULONG TrustedDomainPosixOffset;
+    ULONG NextTrustedDomainPosixOffset;
+    ULONG TrustedDomainPosixOffsetLength;
+    BOOLEAN InternalPolicyHandleReferenced = FALSE;
 
     //
     // Validate the Information Class and Trusted Domain Information provided and
@@ -1450,6 +1469,125 @@ Return Value:
 
         TrustedPosixOffsetInfo = (PTRUSTED_POSIX_OFFSET_INFO) TrustedDomainInformation;
 
+        //
+        // If we are setting the posix offset, then we need to make sure
+        // to adjust the next posix offset upward to be greater than this
+        // posix offset.
+        //
+
+
+        //
+        // Acquire the Lsa Database lock.  Reference the handle and start
+        // an Lsa Database transaction.
+        //
+
+        Status = LsapDbReferenceObject(
+                     LsapPolicyHandle,
+                     (ACCESS_MASK) 0,
+                     PolicyObject,
+                     LSAP_DB_TRUSTED
+                     );
+
+        if (!NT_SUCCESS(Status)) {
+
+            goto SetInfoTrustedDomainError;
+        }
+
+        InternalPolicyHandleReferenced = TRUE;
+
+
+        //
+        // Get the next Posix Offset value to be used.  This is stored
+        // as a non-cached attribute of the Policy Object.
+        //
+
+        TrustedDomainPosixOffsetLength = sizeof(ULONG);
+
+        Status = LsapDbReadAttributeObject(
+                     LsapPolicyHandle,
+                     &LsapDbNames[PolNxPxF],
+                     &TrustedDomainPosixOffset,
+                     &TrustedDomainPosixOffsetLength
+                     );
+
+        if (!NT_SUCCESS(Status)) {
+
+            //
+            // If we failed other than becuase the attribute was not
+            // found, set the value to the initial seed.  This allows
+            // the LSA to work on old Policy Databases.
+            //
+
+            if (Status != STATUS_OBJECT_NAME_NOT_FOUND) {
+
+                goto SetInfoTrustedDomainError;
+            }
+
+            Status = STATUS_SUCCESS;
+            TrustedDomainPosixOffset = SE_INITIAL_TRUSTED_DOMAIN_POSIX_OFFSET;
+        }
+
+        //
+        // Set the next posix offset to be either the current next or
+        // the new offset incremented, and possibly rolled over.
+        //
+
+        if (TrustedDomainPosixOffset > TrustedPosixOffsetInfo->Offset) {
+            NextTrustedDomainPosixOffset = TrustedDomainPosixOffset;
+        } else {
+
+            NextTrustedDomainPosixOffset = TrustedPosixOffsetInfo->Offset;
+            if (NextTrustedDomainPosixOffset == SE_MAX_TRUSTED_DOMAIN_POSIX_OFFSET) {
+
+                NextTrustedDomainPosixOffset = SE_INITIAL_TRUSTED_DOMAIN_POSIX_OFFSET;
+
+            } else {
+
+                NextTrustedDomainPosixOffset += SE_TRUSTED_DOMAIN_POSIX_OFFSET_INCR;
+            }
+
+        }
+
+        //
+        // Write the updated next Posix Offset to be given out back to
+        // the Policy Object.
+        //
+
+        Status = LsapDbWriteAttributeObject(
+                     LsapPolicyHandle,
+                     &LsapDbNames[PolNxPxF],
+                     &NextTrustedDomainPosixOffset,
+                     TrustedDomainPosixOffsetLength
+                     );
+
+        if (!NT_SUCCESS(Status)) {
+
+            goto SetInfoTrustedDomainError;
+        }
+
+        //
+        // Apply the transaction to update the next Posix Offset in the
+        // Policy object.  No need to inform the Replicator since
+        // this value is not replicated (Posix Offsets are explicitly
+        // set on BDC's by the replicator (via LsarSetInformationTrustedDomain()).
+        //
+
+        Status = LsapDbDereferenceObject(
+                     &LsapPolicyHandle,
+                     PolicyObject,
+                     0,                 // no flags
+                     (SECURITY_DB_DELTA_TYPE) 0,
+                     Status
+                     );
+
+        InternalPolicyHandleReferenced = FALSE;
+
+        if (!NT_SUCCESS( Status )) {
+
+            goto SetInfoTrustedDomainError;
+        }
+
+
         LsapDbInitializeAttribute(
             NextAttribute,
             &LsapDbNames[TrDmPxOf],
@@ -1485,6 +1623,20 @@ Return Value:
     }
 
 SetInfoTrustedDomainFinish:
+
+
+    if (InternalPolicyHandleReferenced) {
+
+        Status = LsapDbDereferenceObject(
+                     &LsapPolicyHandle,
+                     PolicyObject,
+                     LSAP_DB_RELEASE_LOCK | LSAP_DB_FINISH_TRANSACTION,
+                     (SECURITY_DB_DELTA_TYPE) 0,
+                     Status
+                     );
+
+        InternalPolicyHandleReferenced = FALSE;
+    }
 
     //
     // Free memory allocated by this routine for attribute buffers.
@@ -1622,7 +1774,7 @@ Return Values:
                  );
 
     if (NT_SUCCESS(Status)) {
-        
+
        //
        // Limit the enumeration length except for trusted callers
        //
@@ -1639,7 +1791,7 @@ Return Values:
         //
         // Call worker.
         //
-        
+
         Status = LsapDbEnumerateTrustedDomains(
                      LsapPolicyHandle,
                      EnumerationContext,
@@ -2635,118 +2787,118 @@ Return Value:
         //
         // Acquire exclusive write lock for the Trusted Domain List.
         //
-        
+
         Status = LsapDbAcquireWriteLockTrustedDomainList( NULL );
-        
+
         if (!NT_SUCCESS(Status)) {
-        
+
             goto InsertTrustedDomainListError;
         }
-        
+
         AcquiredListWriteLock = TRUE;
-        
+
         //
         // If the Trusted Domain List is not valid, quit and do nothing.
         //
-        
+
         if (LsapDbIsValidTrustedDomainList( TrustedDomainList )) {
-        
-        
+
+
             //
             // The Trusted Domain List is referenced by us, but otherwise inactive
             // so we can update it.  Create a new Trusted Domain List section for
             // all of the Trusted Domains to be added to the list.
             //
-            
+
             Status = STATUS_INSUFFICIENT_RESOURCES;
-            
+
             TrustedDomainListSection = MIDL_user_allocate(
                                            sizeof(LSAP_DB_TRUSTED_DOMAIN_LIST_SECTION)
                                            );
-            
+
             if (TrustedDomainListSection == NULL) {
-            
+
                 goto InsertTrustedDomainListError;
             }
-            
+
             //
             // Allocate memory for the List of Trust Information entries.
             //
-            
+
             TrustedDomains = MIDL_user_allocate( Count * sizeof(LSAPR_TRUST_INFORMATION) );
-            
+
             if (TrustedDomains == NULL) {
-            
+
                 goto InsertTrustedDomainListError;
             }
-            
+
             Status = STATUS_SUCCESS;
-            
+
             //
             // Allocate memory for and copy the input array of Domain Trust
             // Information entries.
             //
-            
+
             RtlCopyMemory( TrustedDomains, Domains, Count * sizeof(LSAPR_TRUST_INFORMATION));
-            
+
             for (DomainIndex = 0; DomainIndex < Count; DomainIndex++) {
-            
+
                 Status = LsapRpcCopyUnicodeString(
                              &FreeList,
                              (PUNICODE_STRING) &TrustedDomains[DomainIndex].Name,
                              (PUNICODE_STRING) &Domains[DomainIndex].Name
                              );
-            
+
                 if (!NT_SUCCESS(Status)) {
-            
+
                     break;
                 }
-            
+
                 Status = LsapRpcCopySid(
                              &FreeList,
                              (PSID) &TrustedDomains[DomainIndex].Sid,
                              (PSID) Domains[DomainIndex].Sid
                              );
-            
+
                 if (!NT_SUCCESS(Status)) {
-            
+
                     break;
                 }
             }
-            
+
             if (!NT_SUCCESS(Status)) {
-            
+
                 goto InsertTrustedDomainListError;
             }
-            
+
             TrustedDomainListSection->UsedCount = Count;
             TrustedDomainListSection->MaximumCount = Count;
             TrustedDomainListSection->Domains = TrustedDomains;
-            
+
             //
             // Insert the new Trusted Domain List section into the Trusted Domain
             // List at the end.
             //
-            
+
             TrustedDomainListSection->Links.Flink =
                 (PLIST_ENTRY) TrustedDomainList->AnchorListSection;
             TrustedDomainListSection->Links.Blink =
                 TrustedDomainList->AnchorListSection->Links.Blink;
-            
+
             TrustedDomainList->AnchorListSection->Links.Blink->Flink =
                 (PLIST_ENTRY) TrustedDomainListSection;
-            
+
             TrustedDomainList->AnchorListSection->Links.Blink =
                 (PLIST_ENTRY) TrustedDomainListSection;
-            
+
         }
 
         //
         // Delete the Free List structure, leaving the buffer pointers intact.
         //
-        
+
         LsapMmCleanupFreeList( &FreeList, 0 );
-    } 
+    }
 
 InsertTrustedDomainListFinish:
 
@@ -3330,6 +3482,7 @@ Return Values:
 
     if (DomainTrustInfo == NULL) {
 
+        Status = STATUS_INSUFFICIENT_RESOURCES;
         goto EnumerateTrustedDomainListError;
     }
 
@@ -3344,10 +3497,16 @@ Return Values:
     SectionIndex = StartingSectionIndex;
     TrustInformation = StartingTrustInformation;
 
-    EnumerationStatus = InitialEnumerationStatus;
+    Status = InitialEnumerationStatus;
     EntryNumber = (ULONG) 0;
 
     do {
+
+        //
+        // Save away the enumeration status
+        //
+
+        EnumerationStatus = Status;
 
         //
         // Copy in the Trust Information.
@@ -3384,7 +3543,6 @@ Return Values:
                      &TrustInformation
                      );
 
-        EnumerationStatus = Status;
 
         if (!NT_SUCCESS(Status)) {
 

@@ -373,5 +373,5 @@ void StringToWindowPlacement (LPTSTR lpszText,
 DWORD MenuIDToHelpID (DWORD MenuID) ;
 
 
-
-
+
+

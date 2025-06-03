@@ -64,6 +64,7 @@ extern ULONG Elnk3DebugFlag;
 
 #define ELNK3_DEBUG_LOUD               0x00000001  // debugging info
 #define ELNK3_DEBUG_VERY_LOUD          0x00000002  // excessive debugging info
+#define ELNK3_DEBUG_IO                 0x00000004  // debug I/O port access
 
 #define ELNK3_DEBUG_INIT               0x00000100  // init debugging info
 #define ELNK3_DEBUG_SEND               0x00000200  // init debugging info
@@ -71,12 +72,17 @@ extern ULONG Elnk3DebugFlag;
 #define ELNK3_DEBUG_REQ                0x00000800
 
 #define ELNK3_DEBUG_LOG                0x00001000
+
+#define ELNK3_DEBUG_INIT_BREAK         0x80000000  // break at DriverEntry
+#define ELNK3_DEBUG_INIT_FAIL          0x40000000  // fail driver load
+
 //
 // Macro for deciding whether to dump lots of debugging information.
 //
 
 #define IF_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_LOUD ) { A }
 #define IF_VERY_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_VERY_LOUD ) { A }
+#define IF_IO_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_IO ) { A }
 #define IF_INIT_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_INIT ) { A }
 #define IF_SEND_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_SEND ) { A }
 #define IF_RCV_LOUD(A) IF_ELNK3DEBUG( ELNK3_DEBUG_RCV ) { A }
@@ -114,6 +120,7 @@ extern ULONG Elnk3DebugFlag;
 
 #define IF_LOUD(A)
 #define IF_VERY_LOUD(A)
+#define IF_IO_LOUD(A)
 #define IF_INIT_LOUD(A)
 #define IF_SEND_LOUD(A)
 #define IF_RCV_LOUD(A)

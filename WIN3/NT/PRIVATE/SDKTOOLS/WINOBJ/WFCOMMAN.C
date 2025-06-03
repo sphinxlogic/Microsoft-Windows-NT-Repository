@@ -5,9 +5,9 @@
 /*      Windows File System Command Proc                                    */
 /*                                                                          */
 /****************************************************************************/
-#include <nt.h>
-#include <ntrtl.h>
-#include <nturtl.h>
+#include <nt.h>
+#include <ntrtl.h>
+#include <nturtl.h>
 
 #include "winfile.h"
 #include "object.h"
@@ -19,8 +19,8 @@
 
 
 HWND NEAR PASCAL LocateDirWindow(LPSTR pszPath, BOOL bDirOnly);
-VOID NEAR PASCAL AddNetMenuItems(VOID);
-VOID NEAR PASCAL InitNetMenuItems(VOID);
+VOID NEAR PASCAL AddNetMenuItems(VOID);
+VOID NEAR PASCAL InitNetMenuItems(VOID);
 
 
 VOID NEAR PASCAL NotifySearchFSC(PSTR pszPath, WORD wFunction)
@@ -323,7 +323,7 @@ LPSTR lpszTo)
       case FSC_REFRESH:
       case FSC_ATTRIBUTES:
 
-          lFreeSpace = -1L;     // cause this stuff to be refreshed
+          lFreeSpace = -1L;     // cause this stuff to be refreshed
 
           if (hwnd = LocateDirWindow(szFrom, FALSE))
               SendMessage(hwnd, WM_FILESYSCHANGE, wFunction, (DWORD)(LPSTR)szFrom);
@@ -476,7 +476,7 @@ VOID NEAR PASCAL OpenSelection(HWND hwndActive)
         BOOL bDir;
         WORD ret;
         HCURSOR hCursor;
-        CHAR szTemp[MAXPATHLEN];
+        CHAR szTemp[MAXPATHLEN];
         CHAR szPath[MAXPATHLEN];
         HWND hwndTree, hwndDir, hwndDrives, hwndFocus;
 
@@ -516,7 +516,7 @@ VOID NEAR PASCAL OpenSelection(HWND hwndActive)
         p = (LPSTR)SendMessage(hwndActive, FS_GETSELECTION, TRUE, (LONG)&bDir);
 
         if (!*p)
-            goto OpenExit;
+            goto OpenExit;
 
         GetNextFile(p, szPath, sizeof(szPath));
         LocalFree((HANDLE)p);
@@ -554,8 +554,8 @@ VOID NEAR PASCAL OpenSelection(HWND hwndActive)
                     goto OpenExit;
 #endif
 #endif //OLD
-
-#ifdef OLD
+
+#ifdef OLD
                 QualifyPath(szPath);
                 /* Attempt to spawn the selected file. */
                 FixAnsiPathForDos(szPath);
@@ -564,13 +564,13 @@ VOID NEAR PASCAL OpenSelection(HWND hwndActive)
                         MyMessageBox(hwndFrame, IDS_EXECERRTITLE, ret, MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL);
                 else if (bMinOnRun)
                         PostMessage(hwndFrame, WM_SYSCOMMAND, SC_MINIMIZE, 0L);
-#else
-                // Display the object information
-                GetSelectedDirectory(0, szTemp);
-                AddBackslash(szTemp);
-                strcat(szTemp, szPath);
-                DisplayObjectInformation(hwndFrame, szTemp);
-#endif
+#else
+                // Display the object information
+                GetSelectedDirectory(0, szTemp);
+                AddBackslash(szTemp);
+                strcat(szTemp, szPath);
+                DisplayObjectInformation(hwndFrame, szTemp);
+#endif
         }
 
 OpenExit:
@@ -826,7 +826,7 @@ register WORD id)
       case IDM_DISKCOPY:
 
           MSG("AppCommandProc", "IDM_DISKCOPY");
-          if (nFloppies == 1) {
+          if (nFloppies == 1) {
              iCurrentDrive = iFormatDrive = rgiDrive[0];
           } else {
 
@@ -1131,7 +1131,7 @@ CHECK_OPTION:
           RefreshWindow(hwndActive);
           lFreeSpace = -1L;             // update free space
           UpdateStatus(hwndActive);
-          AddNetMenuItems();
+          AddNetMenuItems();
           break;
           }
 
@@ -1152,7 +1152,7 @@ CHECK_OPTION:
 
 ACPCallHelp:
           SheChangeDir(szOriginalDirPath);
-          if (!WinHelp(hwndFrame, szWinfileHelp, wFlags, (LONG)(LPSTR)szNULL)) {
+          if (!WinHelp(hwndFrame, szWinObjHelp, wFlags, (LONG)(LPSTR)szNULL)) {
                 MyMessageBox(hwndFrame, IDS_WINFILE, IDS_WINHELPERR, MB_OK | MB_ICONEXCLAMATION | MB_SYSTEMMODAL);
           }
           break;
@@ -1192,65 +1192,65 @@ ACPCallHelp:
 
   return TRUE;
 }
-
-VOID NEAR PASCAL AddNetMenuItems(VOID)
-{
-    HMENU hMenu;
-
-    hMenu = GetMenu(hwndFrame);
-
-    // add only if net menuitems do not already exist
-    if ((GetMenuState(hMenu, IDM_CONNECT, MF_BYCOMMAND) == -1) &&
-          (GetMenuState(hMenu, IDM_CONNECTIONS, MF_BYCOMMAND) == -1)) {
-        InitNetMenuItems();
-    }
-}
-
-
-VOID NEAR PASCAL InitNetMenuItems(VOID)
-{
-    HMENU hMenu;
-    UINT i;
-    INT iMax;
-    CHAR szValue[MAXPATHLEN];
-    HWND hwndActive;
-
-
-    hwndActive = (HWND)SendMessage(hwndMDIClient, WM_MDIGETACTIVE, 0, 0L);
-    if (hwndActive && GetWindowLong(hwndActive, GWL_STYLE) & WS_MAXIMIZE)
-        iMax = 1;
-    else
-        iMax = 0;
-    hMenu = GetMenu(hwndFrame);
-
-    // No. Now add net items if net has been started.
-
-    i = (WORD)WNetGetCaps(WNNC_DIALOG);
-    bConnect    = i & WNNC_DLG_ConnectDialog;     // note, these should both
-    bDisconnect = i & WNNC_DLG_DisconnectDialog;  // be true or both false
-
-    // use submenu because we are doing this by position
-
-    hMenu = GetSubMenu(hMenu, IDM_DISK + iMax);
-
-    if (i)
-          InsertMenu(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-
-    if (bConnect && bDisconnect) {
-
-          // lanman style double connect/disconnect
-
-          LoadString(hAppInstance, IDS_CONNECT, szValue, sizeof(szValue));
-          InsertMenu(hMenu, 6, MF_BYPOSITION | MF_STRING, IDM_CONNECT, szValue);
-          LoadString(hAppInstance, IDS_DISCONNECT, szValue, sizeof(szValue));
-          InsertMenu(hMenu, 7, MF_BYPOSITION | MF_STRING, IDM_DISCONNECT, szValue);
-    } else if (WNetGetCaps(WNNC_CONNECTION)) {
-
-          // our style
-
-          LoadString(hAppInstance, IDS_CONNECTIONS, szValue, sizeof(szValue));
-          InsertMenu(hMenu, 6, MF_BYPOSITION | MF_STRING, IDM_CONNECTIONS, szValue);
-    }
-}
-
-
+
+VOID NEAR PASCAL AddNetMenuItems(VOID)
+{
+    HMENU hMenu;
+
+    hMenu = GetMenu(hwndFrame);
+
+    // add only if net menuitems do not already exist
+    if ((GetMenuState(hMenu, IDM_CONNECT, MF_BYCOMMAND) == -1) &&
+          (GetMenuState(hMenu, IDM_CONNECTIONS, MF_BYCOMMAND) == -1)) {
+        InitNetMenuItems();
+    }
+}
+
+
+VOID NEAR PASCAL InitNetMenuItems(VOID)
+{
+    HMENU hMenu;
+    UINT i;
+    INT iMax;
+    CHAR szValue[MAXPATHLEN];
+    HWND hwndActive;
+
+
+    hwndActive = (HWND)SendMessage(hwndMDIClient, WM_MDIGETACTIVE, 0, 0L);
+    if (hwndActive && GetWindowLong(hwndActive, GWL_STYLE) & WS_MAXIMIZE)
+        iMax = 1;
+    else
+        iMax = 0;
+    hMenu = GetMenu(hwndFrame);
+
+    // No. Now add net items if net has been started.
+
+    i = (WORD)WNetGetCaps(WNNC_DIALOG);
+    bConnect    = i & WNNC_DLG_ConnectDialog;     // note, these should both
+    bDisconnect = i & WNNC_DLG_DisconnectDialog;  // be true or both false
+
+    // use submenu because we are doing this by position
+
+    hMenu = GetSubMenu(hMenu, IDM_DISK + iMax);
+
+    if (i)
+          InsertMenu(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+
+    if (bConnect && bDisconnect) {
+
+          // lanman style double connect/disconnect
+
+          LoadString(hAppInstance, IDS_CONNECT, szValue, sizeof(szValue));
+          InsertMenu(hMenu, 6, MF_BYPOSITION | MF_STRING, IDM_CONNECT, szValue);
+          LoadString(hAppInstance, IDS_DISCONNECT, szValue, sizeof(szValue));
+          InsertMenu(hMenu, 7, MF_BYPOSITION | MF_STRING, IDM_DISCONNECT, szValue);
+    } else if (WNetGetCaps(WNNC_CONNECTION)) {
+
+          // our style
+
+          LoadString(hAppInstance, IDS_CONNECTIONS, szValue, sizeof(szValue));
+          InsertMenu(hMenu, 6, MF_BYPOSITION | MF_STRING, IDM_CONNECTIONS, szValue);
+    }
+}
+
+

@@ -208,7 +208,7 @@ typedef struct _SCSI_ADDRESS {
 // Define structure for returning crash dump pointers.
 //
 
-typedef struct _ADAPTER_OBJECT;
+struct _ADAPTER_OBJECT;
 
 typedef struct _DUMP_POINTERS {
     struct _ADAPTER_OBJECT *AdapterObject;

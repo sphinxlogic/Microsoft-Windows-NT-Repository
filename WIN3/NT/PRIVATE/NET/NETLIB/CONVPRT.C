@@ -51,7 +51,7 @@ Revision History:
     07-Apr-1993 JohnRo
         RAID 5670: "NET PRINT \\server\share" gives err 124 (bad level) on NT.
     14-Apr-1993 JohnRo
-        RAID 6167: avoid access violation or assert with WFW print server.
+        RAID 6167: avoid _access violation or assert with WFW print server.
 
 --*/
 
@@ -64,7 +64,7 @@ Revision History:
 
 #include <align.h>      // POINTER_IS_ALIGNED(), ALIGN_ equates.
 #include <debuglib.h>   // IF_DEBUG().
-#include <netdebug.h>   // NetpAssert(), NetpDbgPrint(), etc.
+#include <netdebug.h>   // NetpAssert(), NetpKdPrint(()), etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <rxprint.h>    // My prototypes, NetpJobCountForQueue().
 #include <string.h>     // memcpy().
@@ -125,9 +125,10 @@ Revision History:
         } else { \
             P ## typedefRoot ## A structA = ToInfo; \
             P ## typedefRoot ## W structW = FromInfo; \
-            NetpCopyWStrToStr( \
-                    structA->fieldName,  /* dest */ \
-                    structW->fieldName); /* src */ \
+            NetpCopyWStrToStrDBCSN( \
+                    structA->fieldName,         /* dest */ \
+                    structW->fieldName,         /* src */ \
+                    sizeof(structA->fieldName));/*max bytes to copy*/ \
         } \
     }
 
@@ -160,11 +161,11 @@ Revision History:
             } else { \
                 LPSTR Dest; \
                 DWORD DestSize; \
-                DestSize = (wcslen(Src)+1); \
+                DestSize = (NetpUnicodeToDBCSLen(Src)+1); \
                 Dest = (LPVOID) ( (*ToStringAreaPtr) - DestSize ); \
                 *ToStringAreaPtr = (LPVOID) Dest; \
                 structA->fieldName = Dest; \
-                NetpCopyWStrToStr( Dest, Src ); \
+                NetpCopyWStrToStrDBCS( Dest, Src ); \
             } \
         } \
     }
@@ -197,11 +198,11 @@ Revision History:
             if (Src == NULL) { \
                 Src = L""; \
             } \
-            DestSize = (wcslen(Src)+1); \
+            DestSize = (NetpUnicodeToDBCSLen(Src)+1); \
             Dest = (LPVOID) ( (*ToStringAreaPtr) - DestSize ); \
             *ToStringAreaPtr = (LPVOID) Dest; \
             structA->fieldName = Dest; \
-            NetpCopyWStrToStr( Dest, Src ); \
+            NetpCopyWStrToStrDBCS( Dest, Src ); \
         } \
     }
 
@@ -210,7 +211,7 @@ Revision History:
         if (ToUnicode) { \
             NetpCopyStrToWStr( ToInfo, FromInfo ); \
         } else { \
-            NetpCopyWStrToStr( ToInfo, FromInfo ); \
+            NetpCopyWStrToStrDBCS( ToInfo, FromInfo ); \
         } \
     }
 
@@ -219,10 +220,9 @@ Revision History:
         if (ToUnicode) { \
             NetpCopyStrToWStr( ToInfo, FromInfo ); \
         } else { \
-            NetpCopyWStrToStr( ToInfo, FromInfo ); \
+            NetpCopyWStrToStrDBCS( ToInfo, FromInfo ); \
         } \
     }
-
 
 NET_API_STATUS
 NetpConvertPrintDestCharSet(
@@ -235,8 +235,8 @@ NetpConvertPrintDestCharSet(
     )
 {
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpConvertPrintDestCharSet: "
-                "level " FORMAT_DWORD ":\n", Level );
+        NetpKdPrint(( PREFIX_NETLIB "NetpConvertPrintDestCharSet: "
+                "level " FORMAT_DWORD ":\n", Level ));
     }
 
     if ( (FromInfo == NULL) || (ToInfo == NULL) ) {
@@ -292,8 +292,8 @@ NetpConvertPrintDestCharSet(
     }
 
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "NetpConvertPrintDest: converted charset:\n" );
+        NetpKdPrint(( PREFIX_NETLIB
+                "NetpConvertPrintDest: converted charset:\n" ));
         NetpDbgDisplayPrintDest( Level, ToInfo, ToUnicode );
     }
 
@@ -386,8 +386,8 @@ NetpConvertPrintJobCharSet(
     )
 {
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpConvertPrintJobCharSet: "
-                "level " FORMAT_DWORD ":\n", Level );
+        NetpKdPrint(( PREFIX_NETLIB "NetpConvertPrintJobCharSet: "
+                "level " FORMAT_DWORD ":\n", Level ));
     }
 
     if ( (FromInfo == NULL) || (ToInfo == NULL) ) {
@@ -468,8 +468,8 @@ NetpConvertPrintJobCharSet(
     }
 
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "NetpConvertPrintJob: converted charset:\n" );
+        NetpKdPrint(( PREFIX_NETLIB
+                "NetpConvertPrintJob: converted charset:\n" ));
         NetpDbgDisplayPrintJob( Level, ToInfo, ToUnicode );
     }
 
@@ -570,8 +570,8 @@ NetpConvertPrintQCharSet(
     DWORD FromEntrySize, ToEntrySize;
 
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB "NetpConvertPrintQCharSet: "
-                "level " FORMAT_DWORD ":\n", Level );
+        NetpKdPrint(( PREFIX_NETLIB "NetpConvertPrintQCharSet: "
+                "level " FORMAT_DWORD ":\n", Level ));
     }
 
     if ( (FromInfo == NULL) || (ToInfo == NULL) ) {
@@ -748,8 +748,8 @@ NetpConvertPrintQCharSet(
     }
 
     IF_DEBUG( CONVPRT ) {
-        NetpDbgPrint( PREFIX_NETLIB
-                "NetpConvertPrintQ: converted charset:\n" );
+        NetpKdPrint(( PREFIX_NETLIB
+                "NetpConvertPrintQ: converted charset:\n" ));
         NetpDbgDisplayPrintQ( Level, ToInfo, ToUnicode );
     }
 

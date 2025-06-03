@@ -36,7 +36,7 @@ Revision History:
 
 #include <apinums.h>            // API_ equates.
 #include <lmerr.h>              // ERROR_ and NERR_ equates.
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
 #include <rx.h>                 // RxRemoteApi().
 #include <rxerrlog.h>           // My prototype(s).

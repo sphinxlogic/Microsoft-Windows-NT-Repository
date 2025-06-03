@@ -20,12 +20,10 @@
 
 #include "user.h"
 
-#ifdef WOWEDIT
-#include "edit.h"
-#endif
 
 #define FUN_FINALUSERINIT       400 // Internal
 DWORD API NotifyWow(WORD, LPBYTE);
+VOID FAR PASCAL PatchUserStrRtnsToThunk(VOID);
 /***************************************************************************
 
     global data items
@@ -41,7 +39,7 @@ OEMINFO oemInfo;                // lots of interresting info
 HWND    hwndDesktop;        // handle to the desktop window
 #endif
 
-BOOL fThunklstrcmp;         // if TRUE we thunk to Win32
+BOOL fThunkStrRtns;         // if TRUE we thunk to Win32 (see winlang.asm)
 
 FARPROC LPCHECKMETAFILE;
 
@@ -56,12 +54,9 @@ int FAR PASCAL LibMain(HANDLE hInstance)
 #ifdef NEEDED
     HDC hDC;
 #endif
-#ifdef WOWEDIT
-    WNDCLASS wndcls;
-#endif
     HANDLE   hLib;
 
-    dprintf(3,"Initialising...");
+    dprintf(3,"Initializing...");
 
     // Notify the hInstance of USER to wow32. the index FUN_FINALUSERINIT is
     // just an existing index - no need to define new index.
@@ -76,14 +71,22 @@ int FAR PASCAL LibMain(HANDLE hInstance)
         extern _cdecl wow16gpsi(void);
         extern _cdecl wow16CsrFlag(void);
 #endif
+        WORD wCS;
+        extern WORD MaxDWPMsg;
+        extern BYTE DWPBits[1];
+        extern WORD cbDWPBits;
 
         struct {
-            WORD  hInstance;
+            WORD       hInstance;
             LPSTR FAR *lpgpsi;
             LPSTR FAR *lpCallCsrFlag;
+            DWORD      dwBldInfo;
+            LPWORD     lpwMaxDWPMsg;
+            LPSTR      lpDWPBits;
+            WORD       cbDWPBits;
         } UserInit16;
 
-        UserInit16.hInstance        = hInstance;
+        UserInit16.hInstance        = (WORD)hInstance;
 #ifdef PMODE32
         UserInit16.lpgpsi           = (LPSTR *)wow16gpsi;
         UserInit16.lpCallCsrFlag    = (LPSTR *)wow16CsrFlag;
@@ -91,7 +94,30 @@ int FAR PASCAL LibMain(HANDLE hInstance)
         UserInit16.lpgpsi           = (LPSTR *)0;
         UserInit16.lpCallCsrFlag    = (LPSTR *)0;
 #endif
-        fThunklstrcmp = NotifyWow(FUN_FINALUSERINIT, (LPBYTE)&UserInit16);
+
+#ifdef WOWDBG
+        UserInit16.dwBldInfo        = (((DWORD)WOW) << 16) | 0x80000000;
+#else
+        UserInit16.dwBldInfo        = (((DWORD)WOW) << 16);
+#endif
+
+        _asm mov wCS, cs;
+        UserInit16.lpwMaxDWPMsg = (LPWORD) MAKELONG((WORD)&MaxDWPMsg, wCS);
+        UserInit16.lpDWPBits = (LPBYTE) MAKELONG((WORD)&DWPBits[0], wCS);
+        UserInit16.cbDWPBits = *(LPWORD) MAKELONG((WORD)&cbDWPBits, wCS);
+
+        fThunkStrRtns = NotifyWow(FUN_FINALUSERINIT, (LPBYTE)&UserInit16);
+
+        //
+        // fThunkStrRtns defaults to TRUE outside the U.S. English
+        // locale and FALSE in the U.S. English locale.  If we are
+        // thunking, patch the exported U.S. implementations to simply
+        // near jmp to the equivalent thunk.
+        //
+
+        if (fThunkStrRtns) {
+            PatchUserStrRtnsToThunk();
+        }
     }
 
 #ifdef FIRST_CALL_MUST_BE_USER_BUG
@@ -100,20 +126,6 @@ int FAR PASCAL LibMain(HANDLE hInstance)
     WinEval(hwndDesktop = GetDesktopWindow());
 #endif
 
-#ifdef WOWEDIT
-    wndcls.style       = CS_DBLCLKS | CS_PARENTDC;
-    wndcls.lpfnWndProc     = EditWndProc;
-    wndcls.cbClsExtra      = 0;
-    wndcls.cbWndExtra      = CBEDITEXTRA;
-    wndcls.hInstance       = hInstance;
-    wndcls.hIcon       = NULL;
-    wndcls.hCursor     = LoadCursor(NULL, IDC_IBEAM);
-    wndcls.hbrBackground   = NULL;
-    wndcls.lpszMenuName    = NULL;
-    wndcls.lpszClassName   = "Edit";    // BUGBUG 28-May-1991 JeffPar
-                    // Should use string resource instead
-    RegisterClass(&wndcls);
-#endif
 
 #ifdef NEEDED
 

@@ -20,6 +20,9 @@ Revision History:
 
 --*/
 
+
+#define UNICODE
+
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>     // needed for winbase.h
@@ -41,7 +44,7 @@ Revision History:
 
 
 #define printfLuid( L )                               \
-            printf("{0x%lx, 0x%lx}", (L)->HighPart, (L)->LowPart)
+            printf("[%1d, %2d]", (L)->HighPart, (L)->LowPart)
 
 
 
@@ -60,6 +63,10 @@ typedef struct _KNOWN_PRIVILEGE {
     UNICODE_STRING ProgrammaticName;
 } KNOWN_PRIVILEGE, *PKNOWN_PRIVILEGE;
 
+typedef struct _TPRIV_LANGUAGE {
+    USHORT Id;
+    PWSTR Name;
+} TPRIV_LANGUAGE, *PTPRIV_LANGUAGE;
 
 
 
@@ -92,6 +99,27 @@ LSA_HANDLE PolicyHandle = NULL;
 
 ULONG KnownPrivilegeCount;
 KNOWN_PRIVILEGE KnownPrivilege[SE_MAX_WELL_KNOWN_PRIVILEGE];
+
+
+
+//
+// So that we can test each language
+//
+
+TPRIV_LANGUAGE Language[] = {
+    {MAKELANGID( LANG_ENGLISH,    SUBLANG_NEUTRAL ), L"English, Neutral"},
+    {MAKELANGID( LANG_FRENCH,     SUBLANG_NEUTRAL ), L"French, Neutral"},
+    {MAKELANGID( LANG_GERMAN,     SUBLANG_NEUTRAL ), L"German, Neutral"},
+    {MAKELANGID( LANG_SPANISH,    SUBLANG_NEUTRAL ), L"Spanish, Neutral"},
+    {MAKELANGID( LANG_DUTCH,      SUBLANG_NEUTRAL ), L"Dutch, Neutral"},
+    {MAKELANGID( LANG_ITALIAN,    SUBLANG_NEUTRAL ), L"Italian, Neutral"},
+    {MAKELANGID( LANG_DANISH,     SUBLANG_NEUTRAL ), L"Danish, Neutral"},
+    {MAKELANGID( LANG_FINNISH,    SUBLANG_NEUTRAL ), L"Finnish, Neutral"},
+    {MAKELANGID( LANG_NORWEGIAN,  SUBLANG_NEUTRAL ), L"Norweigian, Neutral"},
+    {MAKELANGID( LANG_SWEDISH,    SUBLANG_NEUTRAL ), L"Swedish, Neutral"},
+    {MAKELANGID( LANG_PORTUGUESE, SUBLANG_NEUTRAL ), L"Portuguese, Neutral"},
+    {0, L""}       // End of array
+                };
 
 
 
@@ -146,16 +174,13 @@ char **argv;
     UNICODE_STRING SystemNameU;
     int Index;
     NTSTATUS Status = STATUS_SUCCESS;
-    ULONG IterationCount;
 
 
     SystemName = NULL;
 
-    if ((argc < 1) || (argc > 3)) {
+    if ((argc < 1) || (argc > 2)) {
 
-        printf("Usage:   tprivs   [\\servername] [ -l <1|2>]\n");
-        printf("level 1 = paths not generating exceptions\n");
-        printf("level 2 = all paths\n");
+        printf("Usage:   tprivs   [\\servername]");
         return;
     }
 
@@ -165,8 +190,6 @@ char **argv;
     //
 
     SystemName = NULL;
-    Level = 1;
-    IterationCount = 0;
 
     if (argc >= 2) {
 
@@ -198,40 +221,10 @@ char **argv;
 
                 SystemName = &SystemNameU;
 
-            } else if (strncmp(argv[Index], "-l", 2) == 0) {
-
-
-                Level = atoi(argv[Index]+2);
-
-                if ((Level < 1) || (Level > 2)) {
-
-                    printf("Level not 1 or 2\n");
-                    printf("Test abandoned\n");
-                    return;
-                }
-
-             } else if (strncmp(argv[Index], "-c", 2) == 0) {
-
-                IterationCount = atoi(argv[Index]+2);
-
-                if (IterationCount < 0) {
-
-                    printf("Iteration Count < 0\n");
-                    printf("Test abandoned\n");
-                    return;
-                }
-
             } else {
 
                 printf(
-                    "Usage:  ctlsarpc [\\ServerName] [-l<level] [-c<iter>]\n"
-                    );
-                printf("where <level> = 1 for normal test\n");
-                printf(
-                    "      <level> = 2 for full test with exception cases\n"
-                    );
-                printf(
-                    "      <iter> = iteration count (0 = forever)\n"
+                    "Usage:  tprivs [\\ServerName]\n"
                     );
 
                 return;
@@ -325,55 +318,79 @@ TestInitialize()
         i=0;
 
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_CREATE_TOKEN_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_CREATE_TOKEN_NAME) );
+//        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_CREATE_TOKEN_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, L"SeCreateTokenPrivilege" );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_ASSIGNPRIMARYTOKEN_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_ASSIGNPRIMARYTOKEN_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_LOCK_MEMORY_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_LOCK_MEMORY_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_LOCK_MEMORY_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_INCREASE_QUOTA_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_INCREASE_QUOTA_NAME) );
-        KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_UNSOLICITED_INPUT_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_UNSOLICITED_INPUT_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_INCREASE_QUOTA_NAME) );
+        i++;
+        KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_MACHINE_ACCOUNT_PRIVILEGE);
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_MACHINE_ACCOUNT_NAME) );
+        i++;
 
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_TCB_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_TCB_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_TCB_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_SECURITY_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_SECURITY_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_SECURITY_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_TAKE_OWNERSHIP_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_TAKE_OWNERSHIP_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_TAKE_OWNERSHIP_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_LOAD_DRIVER_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_LOAD_DRIVER_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_LOAD_DRIVER_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_SYSTEM_PROFILE_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_SYSTEM_PROFILE_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_SYSTEM_PROFILE_NAME) );
+        i++;
 
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_SYSTEMTIME_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_SYSTEMTIME_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_SYSTEMTIME_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_PROF_SINGLE_PROCESS_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_PROF_SINGLE_PROCESS_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_PROF_SINGLE_PROCESS_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_INC_BASE_PRIORITY_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_INC_BASE_PRIORITY_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_INC_BASE_PRIORITY_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_CREATE_PAGEFILE_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_CREATE_PAGEFILE_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_CREATE_PAGEFILE_NAME) );
+        i++;
 
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_CREATE_PERMANENT_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_CREATE_PERMANENT_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_CREATE_PERMANENT_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_BACKUP_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_BACKUP_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_BACKUP_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_RESTORE_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_RESTORE_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_RESTORE_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_SHUTDOWN_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_SHUTDOWN_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_SHUTDOWN_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_DEBUG_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_DEBUG_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_DEBUG_NAME) );
+        i++;
 
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_AUDIT_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_AUDIT_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_AUDIT_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_SYSTEM_ENVIRONMENT_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_SYSTEM_ENVIRONMENT_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_SYSTEM_ENVIRONMENT_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_CHANGE_NOTIFY_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_CHANGE_NOTIFY_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_CHANGE_NOTIFY_NAME) );
+        i++;
         KnownPrivilege[i].Luid = RtlConvertLongToLargeInteger(SE_REMOTE_SHUTDOWN_PRIVILEGE);
-        RtlInitUnicodeString( &KnownPrivilege[i++].ProgrammaticName, (SE_REMOTE_SHUTDOWN_NAME) );
+        RtlInitUnicodeString( &KnownPrivilege[i].ProgrammaticName, (SE_REMOTE_SHUTDOWN_NAME) );
+        i++;
 
 
         KnownPrivilegeCount = i;
@@ -406,13 +423,13 @@ TestPrivilegeLookup()
         return(Status);
     }
 
-    printf("  Lookup Programmatic Privilege Names . . . . . . . .Suite\n");
+    printf("\n  Lookup Programmatic Privilege Names . . . . . . . .Suite\n");
     Status = TestLookupProgramName();
     if (!NT_SUCCESS(Status)) {
         return(Status);
     }
 
-    printf("  Lookup Displayable Names  . . . . . . . . . . . . .Suite\n");
+    printf("\n  Lookup Displayable Names  . . . . . . . . . . . . .Suite\n");
     Status = TestLookupDisplayName();
     if (!NT_SUCCESS(Status)) {
         return(Status);
@@ -439,8 +456,7 @@ TestLookupValue()
 
     for (i=0; i<KnownPrivilegeCount; i++) {
 
-        printf("      Lookup *%wZ*\n", &KnownPrivilege[i].ProgrammaticName);
-        printf("      . . . . . . . . . . . . . . . . . . . . . . . . . .");
+        printf("  %-32wZ => ", &KnownPrivilege[i].ProgrammaticName);
         Status = LsaLookupPrivilegeValue(
                      PolicyHandle,
                      &KnownPrivilege[i].ProgrammaticName,
@@ -448,11 +464,11 @@ TestLookupValue()
                      );
         if (!NT_SUCCESS(Status)) {
             printf("** FAILED **\n");
-            printf("    Status is 0x%lx\n", Status);
+            printf("    Call Status is 0x%lx\n", Status);
             CompletionStatus = Status;
         } else {
             if ( !EQUAL_LUID(&Luid,&KnownPrivilege[i].Luid) ) {
-                printf("** FAILED **\n");
+            printf("** FAILED **\n");
                 printf("    LUID value not expected.\n");
                 printf("    Expected:");
                 printfLuid( (&KnownPrivilege[i].Luid) );
@@ -460,7 +476,8 @@ TestLookupValue()
                 printfLuid( (&Luid) );
                 CompletionStatus = STATUS_UNSUCCESSFUL;
             } else {
-                printf("Succeeded\n");
+                printfLuid( (&Luid) );
+                printf("   Succeeded\n");
             }
         }
     }
@@ -483,9 +500,9 @@ TestLookupProgramName()
 
     for (i=0; i<KnownPrivilegeCount; i++) {
 
-        printf("      Lookup ");
-                printfLuid( (&KnownPrivilege[i].Luid) );
-        printf(" . . . . . . . . . . . . . . . . .");
+        printf("  ");
+        printfLuid( (&KnownPrivilege[i].Luid) );
+        printf("  => ");
         Status = LsaLookupPrivilegeName(
                      PolicyHandle,
                      &KnownPrivilege[i].Luid,
@@ -493,7 +510,7 @@ TestLookupProgramName()
                      );
         if (!NT_SUCCESS(Status)) {
             printf("** FAILED **\n");
-            printf("    Status is 0x%lx\n", Status);
+            printf("                Status is 0x%lx\n", Status);
             CompletionStatus = Status;
         } else {
             StringsEqual = RtlEqualUnicodeString(
@@ -503,12 +520,12 @@ TestLookupProgramName()
                                );
             if( StringsEqual == FALSE ) {
                 printf("** FAILED **\n");
-                printf("    Program Name not expected.\n");
-                printf("    Expected: *%wZ*", &KnownPrivilege[i].ProgrammaticName);
-                printf("\n    Received: *%wZ*", Name);
+                printf("                Program Name not expected.\n"
+                       "                Expected: *%wZ*\n", &KnownPrivilege[i].ProgrammaticName);
+                printf("                Received: *%wZ*", Name);
                 CompletionStatus = STATUS_UNSUCCESSFUL;
             } else {
-                printf("Succeeded\n");
+                printf("%-36wZ  Succeeded\n", Name);
             }
             MIDL_user_free( Name );
         }
@@ -523,32 +540,42 @@ TestLookupDisplayName()
 {
     NTSTATUS CompletionStatus = STATUS_SUCCESS;
     NTSTATUS Status;
-    ULONG i;
+    ULONG i, j;
     PUNICODE_STRING Name;
-    BOOLEAN StringsEqual;
     SHORT LanguageReturned;
+    SHORT OriginalLanguage;
+    UNICODE_STRING LanguageName;
 
+    OriginalLanguage = (USHORT)NtCurrentTeb()->CurrentLocale;
 
-    for (i=0; i<KnownPrivilegeCount; i++) {
+    j=0;
+    while (Language[j].Id != 0) {
+        RtlInitUnicodeString( &LanguageName, Language[j].Name );
+        printf("  %wZ\n", &LanguageName);
 
-        printf("      Lookup *%wZ*\n", &KnownPrivilege[i].ProgrammaticName);
-        printf("      . . . . . . . . . . . . . . . . . . . . . . . . . .");
-
-        Status = LsaLookupPrivilegeDisplayName(
-                     PolicyHandle,
-                     &KnownPrivilege[i].ProgrammaticName,
-                     &Name,
-                     &LanguageReturned
-                     );
-        if (!NT_SUCCESS(Status)) {
-            printf("** FAILED **\n");
-            printf("    Status is 0x%lx\n", Status);
-            CompletionStatus = Status;
-        } else {
-            printf("Succeeded\n");
-            printf("    Received: *%wZ*\n", Name);
-            MIDL_user_free( Name );
+        for (i=0; i<KnownPrivilegeCount; i++) {
+        
+            printf("  %-32wZ => ", &KnownPrivilege[i].ProgrammaticName);
+        
+            NtCurrentTeb()->CurrentLocale = Language[j].Id;
+            Status = LsaLookupPrivilegeDisplayName(
+                         PolicyHandle,
+                         &KnownPrivilege[i].ProgrammaticName,
+                         &Name,
+                         &LanguageReturned
+                         );
+            NtCurrentTeb()->CurrentLocale = OriginalLanguage;
+            if (!NT_SUCCESS(Status)) {
+                printf("** FAILED **\n");
+                printf("    Status is 0x%lx\n", Status);
+                CompletionStatus = Status;
+            } else {
+                printf(" %-45wZ\n", Name);
+                MIDL_user_free( Name );
+            }
         }
+        printf("\n");
+        j++;
     }
     return(CompletionStatus);
 }

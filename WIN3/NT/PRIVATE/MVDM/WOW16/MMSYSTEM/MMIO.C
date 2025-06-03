@@ -1458,7 +1458,7 @@ mmioStringToFOURCC(LPCSTR sz, UINT wFlags)
 	LPSTR		pch = (LPSTR) &fcc;
 	int		i;
 
-        V_STRING(sz, -1, NULL);
+    V_STRING(sz, -1, NULL);
 	V_FLAGS(wFlags, MMIO_FOURCC_VALID, mmioStringToFOURCC, -1);
 
 	for (i = sizeof(FOURCC) - 1; i >= 0; i--)
@@ -1466,15 +1466,13 @@ mmioStringToFOURCC(LPCSTR sz, UINT wFlags)
 		if (!*sz)
 			*pch = ' ';
 		else {
-			*pch = *sz;
+            *pch = *sz++;
 			if (wFlags & MMIO_TOUPPER)
 				*pch = (char)(WORD)(LONG)AnsiUpper((LPSTR)(LONG)*pch);
-		}
+        }
 		pch++;
-		sz++;
 	}
-
-	return fcc;
+    return fcc;
 }
 
 

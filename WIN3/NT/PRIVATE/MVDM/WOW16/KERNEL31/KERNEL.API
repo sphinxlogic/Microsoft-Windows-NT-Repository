@@ -1,5 +1,11 @@
 ;===========================================================================
 ;
+; WinError.H constants
+;
+ERROR_INVALID_PARAMETER    EQU     87
+
+;===========================================================================
+;
 ; Validation constants
 ;
 GMEM_VALID          equ 07372h      ; include old GMEM_CODE_DATA
@@ -387,6 +393,8 @@ P_NPHTABLE  equ <P_NPTR>
 P_LPFNRHANDLER equ <P_LPFN>
 P_LPFNGNOTIFY0 equ <P_LPFN0>
 P_LPFNLNOTIFY0 equ <P_LPFN0>
+
+P_HKEY  equ <P_4>
 
 ;===========================================================================
 ;
@@ -1100,6 +1108,58 @@ P_CLPSTR0   lpAppName
 P_CLPSTR0   lpKeyName
 P_CLPSTR0   lpString
 P_CLPSTR    lpFileName
+
+; BUGBUG
+; For Win95, the k16 Reg* APIs get only the weakest validation.
+; This is because they were added without _any_ validation,
+; and validation is being added after the final beta.
+; The purpose of this weak validation is to touch each pointer
+; param if non-zero. We need to do this because the real work of
+; the APIs is done at ring0, where we cannot fault in the segment.
+;
+; Stronger validation should be implemented for the next release.
+;
+; These 32-bit kernel API's are thunked to WK32* functions in WOW32\wkernel.c
+
+API LONG,   RegEnumKey32, TEXT, <DATA>
+;(HKEY lhKey, DWORD dwIndex, LPSTR lpValue, DWORD dwMax)
+P_HKEY      hKey
+P_DWORD     dwIndex
+P_CLPVOID0  lpValue
+P_DWORD     dwMax
+APIERR
+    mov ax,ERROR_INVALID_PARAMETER
+APIEND
+
+API LONG,   RegOpenKey32, TEXT, <DATA>
+;(HKEY hkey, LPCSTR lpSubKey, PHKEY phkResult)
+P_HKEY      hKey
+P_CLPVOID0  lpSubKey
+P_CLPVOID0  phkResult
+APIERR
+    mov ax,ERROR_INVALID_PARAMETER
+APIEND
+
+API LONG,   RegCloseKey32, TEXT, <DATA>
+;(HKEY hkey)
+P_HKEY      hKey
+APIERR
+    mov ax,ERROR_INVALID_PARAMETER
+APIEND
+
+API LONG,   RegEnumValue32, TEXT, <DATA>
+;(HKEY hkey, DWORD dwValue, LPCSTR lpValue, LONG FAR * lpcbValue,DWORD dwReserved,LONG FAR *lpdwType, LPBYTE lpbData, LONG FAR *lpcbData)
+P_HKEY      hKey
+P_DWORD     dwValue
+P_CLPVOID0  lpValue
+P_CLPVOID0  lpcbValue
+P_DWORD     dwReserved
+P_CLPVOID0  lpdwType
+P_CLPVOID0  lpbData
+P_CLPVOID0  lpcbData
+APIERR
+    mov ax,ERROR_INVALID_PARAMETER
+APIEND
 
 ; in CONTEXT.ASM
 API void,   Yield, TEXT, <VOID, ASM, FUNNYFRAME>   ;nogen

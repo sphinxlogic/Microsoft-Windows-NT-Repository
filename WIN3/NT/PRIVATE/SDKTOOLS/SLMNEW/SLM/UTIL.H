@@ -1,3 +1,5 @@
+#ifndef UTIL_INCLUDED
+#define UTIL_INCLUDED
 /* must include sys.h first */
 
 #define cchPvNameMax    32
@@ -84,6 +86,7 @@ typedef struct
 typedef struct ne
 {
     struct ne *pneNext;
+    BOOL fWild;
     FA faNe;
     union
     {
@@ -140,6 +143,11 @@ typedef struct
 #define SzPhysTMf(sz, pmf)              SzPhysPath(sz, PthForTMf(pmf, (PTH *)(sz)))
 #define SzForTdffIdae(tdff, idae, sz)   SzPrint(sz, szCD, ChForTdff(tdff), (idae))
 
+#define PthForCStatusDir(pad, pth)		SzPrint(pth, szYEtcPC, pad);
+#define PthForCStatus(pad, pth)			SzPrint(pth, szYEtcPCT, pad);
+#define PthForCDir(pad, pth)			SzPrint(pth, szYSrcPC, pad)
+#define PthForCFile(pad, pfi, pth)      SzPrint(pth, szYSrcPCF, pad, pfi)
+
 /* SzPrint templates for the Pth... macros above. */
 extern const PTH pthSlmrc[];
 
@@ -164,31 +172,20 @@ extern const char szUQFR[];
 extern const char szUQFCached[];
 extern const char szUQZCache[];
 
+extern const char szYEtcPC[];
+extern const char szYEtcPCT[];
+extern const char szYSrcPC[];
+extern const char szYSrcPCF[];
+
 extern const char szCD[];
 
-#if defined(OS2) || defined(_WIN32)
-#define LpbFromHpb(hpb) ((char far *)(hpb))
-#define CbHugeDiff(hpb1, hpb2) ((char huge *)(hpb1) - (char huge *)(hpb2))
+#define LpbFromHpb(hpb) ((char *)(hpb))
+#define CbHugeDiff(hpb1, hpb2) ((char *)(hpb1) - (char *)(hpb2))
 #define HpbAllocCb(cb,fClear) LpbAllocCb((unsigned)(cb),fClear)
-char far *LpbAllocCb(unsigned, F);
-#elif defined(DOS)
-char huge *HpbAllocCb(P2(long, F));
-char far *LpbAllocCb(P2(unsigned, F));
-char far *LpbFromHpb(P1(char huge *));
-
-//  Under DOS, to compare two huge pointers, we have to convert them
-//  to actual physical addresses, since otherwise we can't.
-//  For example, comparing 4000:0408 to 4040:0008.
-#define PoFromHpb(h)    (((((unsigned long)(h)) >> 12)&0xFFFF0) + (((unsigned long)(h))&0xFFFF))
-#define CbHugeDiff(hpb1, hpb2)  (long)(PoFromHpb(hpb1) - PoFromHpb(hpb2))
-
-#endif /* !OS2 && !Win32 */
+char *LpbAllocCb(unsigned, F);
 
 char *PbAllocCb(), *SzTime();
 
 NE *PneSortDir(); /* SLMCK only */
 
-#ifndef UTIL_INCLUDED
-#define UTIL_INCLUDED
 #endif
-

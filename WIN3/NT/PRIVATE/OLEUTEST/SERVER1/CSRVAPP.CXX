@@ -7,6 +7,7 @@
 //
 //  History:    17-Dec-92   DeanE   Created
 //              31-Dec-93   ErikGav Chicago port
+//              25-Apr-95   BruceMa CoRevokeClassObject before shutting down
 //---------------------------------------------------------------------
 #pragma optimize("",off)
 #include <windows.h>
@@ -86,9 +87,6 @@ SCODE CTestServerApp::InitApp(LPSTR lpszCmdline)
     // Process Command Line arguments
     ProcessCmdLine(lpszCmdline, &_fEmbedded);
 
-#ifndef _CAIRO_
-    sc = OleInitialize(NULL);
-#else
     // Look up the thread mode from the win.ini file.
     DWORD thread_mode;
     TCHAR buffer[80];
@@ -98,15 +96,23 @@ SCODE CTestServerApp::InitApp(LPSTR lpszCmdline)
                             TEXT("ThreadMode"),
                             TEXT("MultiThreaded"),
                             buffer,
-                            sizeof(buffer) );
-    if (lstrcmp(buffer, TEXT("SingleThreaded")) == 0)
-        thread_mode = COINIT_SINGLETHREADED;
-    else
-        thread_mode = COINIT_MULTITHREADED;
+			    sizeof(buffer) / sizeof(TCHAR));
 
-    // Initialize OLE
-    sc = OleInitializeEx(NULL, thread_mode);
-#endif  //  _CAIRO_
+    if (lstrcmp(buffer, TEXT("ApartmentThreaded")) == 0)
+    {
+	thread_mode = COINIT_APARTMENTTHREADED;
+	sc = CoInitialize(NULL);
+    }
+    else
+    {
+#ifdef MULTI_THREADING
+	thread_mode = COINIT_MULTITHREADED;
+	sc = CoInitializeEx(NULL, thread_mode);
+#else
+	// multi-threading not supported
+	sc = E_INVALIDARG;
+#endif
+    }
 
     if (S_OK == sc)
     {
@@ -154,12 +160,6 @@ SCODE CTestServerApp::InitApp(LPSTR lpszCmdline)
 //---------------------------------------------------------------
 SCODE CTestServerApp::CloseApp()
 {
-    // Revoke the class object, if registered
-    if (TRUE == _fRegistered)
-    {
-        CoRevokeClassObject(_dwRegId);
-    }
-
     // Release this apps class factory, and insure the returned count is 0
     if (NULL != _pteClassFactory)
     {
@@ -176,7 +176,7 @@ SCODE CTestServerApp::CloseApp()
     // Uninitialize OLE only if OleInitialize succeeded
     if (TRUE == _fInitialized)
     {
-        OleUninitialize();
+	CoUninitialize();
     }
     return(S_OK);
 }
@@ -235,12 +235,19 @@ ULONG CTestServerApp::IncEmbeddedCount()
 //
 //  History:    17-Dec-92   DeanE   Created
 //
-//  Notes:      BUGBUG - This should be an inline method
 //---------------------------------------------------------------
 ULONG CTestServerApp::DecEmbeddedCount()
 {
     if ((0 == --_cEmbeddedObjs) && _fEmbedded)
     {
+        // Revoke the class object, if registered
+        if (TRUE == _fRegistered)
+        {
+            CoRevokeClassObject(_dwRegId);
+//            OutputDebugStringA("Revoking class object now!\n");
+        }
+
+        // Shut down the app
 	SendMessage(g_hwndMain, WM_USER, 0xFFFFFFFF, 0xFFFFFFFF);
     }
 
@@ -285,4 +292,3 @@ void ProcessCmdLine(LPSTR lpszCmdline, BOOL *pfEmbedded)
 
     return;
 }
-

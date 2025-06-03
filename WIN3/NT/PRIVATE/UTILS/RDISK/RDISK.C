@@ -36,17 +36,8 @@ Environment:
 --*/
 
 
-#include "rdisk.h"
-#include "resource.h"
-#include "shellapi.h"
-#include "commdlg.h"
-#include "dialogs.h"
-#include "gauge.h"
-#include "help.h"
-
-#include <string.h>
-#include <stdio.h>
-
+#include "precomp.h"
+#pragma hdrstop
 
 //
 // Global Variables
@@ -59,6 +50,8 @@ BOOLEAN _SilentMode              = FALSE;
 WCHAR   _szApplicationName[128];
 INT     _ReturnCode;
 BOOLEAN _AutoSkipRepairDisk      = FALSE;
+BOOLEAN _AutoDoRepairDisk        = FALSE;
+
 
 BOOLEAN
 SaveCurrentConfiguration(
@@ -79,14 +72,6 @@ BOOLEAN
 CreateRepairDisk(
     IN BOOLEAN DisplayConfirmCreateDisk
     );
-
-BOOL
-APIENTRY
-ProInit(
-    IN HANDLE hPrev,
-    IN HANDLE hInst
-    );
-
 
 
 HCURSOR
@@ -447,7 +432,7 @@ Return Value:
 
         if(SaveCurrentConfiguration()
         && (    _AutoSkipRepairDisk
-             || (CreateRepairDisk(TRUE) && CopyFilesToRepairDisk(Drive))))
+             || (CreateRepairDisk((BOOLEAN)(!_AutoDoRepairDisk)) && CopyFilesToRepairDisk(Drive))))
         {
             _ReturnCode = 1;
         } else {
@@ -502,7 +487,6 @@ Return Value:
     //
     // Register application's main window class.
     //
-
     wc.style            = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc      = ( WNDPROC )MainWndProc;
     wc.cbClsExtra       = 0;
@@ -510,19 +494,15 @@ Return Value:
     wc.hInstance        = ( HINSTANCE )_hModule;
     wc.hIcon            = LoadIcon( ( HINSTANCE )_hModule, MAKEINTRESOURCE( IDI_REPAIR_UTILITY ));
     wc.hCursor          = LoadCursor( NULL, IDC_ARROW );
-    wc.hbrBackground    = ( HBRUSH )( COLOR_WINDOW + 1 );
+    wc.hbrBackground    = ( HBRUSH )( COLOR_BTNFACE + 1 );
     wc.lpszMenuName     = NULL;
     wc.lpszClassName    = _pszApplicationClass;
 
     if( ! RegisterClass( &wc )) {
         return FALSE;
     }
-    //
-    // Restore previous options.
-    //
-    if( !ProInit( NULL, _hModule ) ) {
-        return( FALSE );
-    }
+
+    InitCommonControls();
 
     //
     //  Get the application name
@@ -594,13 +574,17 @@ Return Value:
 
         p = argv[ 1 ];
 
-        if( ( strnicmp( p, ( LPSTR )"-s", 2 ) == 0 ) ||
-            ( strnicmp( p, ( LPSTR )"/s", 2 ) == 0 ) ) {
+        if( ( _strnicmp( p, ( LPSTR )"-s", 2 ) == 0 ) ||
+            ( _strnicmp( p, ( LPSTR )"/s", 2 ) == 0 ) ) {
 
             _SilentMode = TRUE;
 
             if( p[2] == '-' ) {
                 _AutoSkipRepairDisk = TRUE;
+            } else {
+                if( p[2] == '+' ) {
+                    _AutoDoRepairDisk = TRUE;
+                }
             }
         }
     }
@@ -633,4 +617,3 @@ Return Value:
     }
     return _ReturnCode;
 }
-

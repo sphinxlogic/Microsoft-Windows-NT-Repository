@@ -37,7 +37,7 @@ Revision History:
 
 // These may be included in any order:
 
-#include <netdebug.h>           // NetpAssert(), NetpDbgPrint(), etc.
+#include <netdebug.h>           // NetpAssert(), NetpKdPrint(()), etc.
 #include <netlib.h>             // NetpCopyStringToBuffer().
 #include <rxpdebug.h>           // IF_DEBUG().
 #include <rxsess.h>             // My prototype.
@@ -73,8 +73,8 @@ RxpConvertSessionInfo (
     NetpAssert(StringLocation != NULL);
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "RxpConvertSessionInfo: converting to level "
-                FORMAT_DWORD ".\n", Level );
+        NetpKdPrint(( "RxpConvertSessionInfo: converting to level "
+                FORMAT_DWORD ".\n", Level ));
     }
 
     switch (Level) {
@@ -126,7 +126,7 @@ RxpConvertSessionInfo (
     }
 
     IF_DEBUG(SESSION) {
-        NetpDbgPrint( "RxpConvertSessionInfo results:\n" );
+        NetpKdPrint(( "RxpConvertSessionInfo results:\n" ));
         NetpDbgDisplaySession( Level, OutStructure );
     }
 

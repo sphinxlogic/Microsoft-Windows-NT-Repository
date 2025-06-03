@@ -649,7 +649,16 @@ Return Value:
     RequestMutex();
     pXecb = TimerList;
     if (pXecb) {
-        --pXecb->Ticks;
+
+        //
+        // Decrement if not already zero. Can be zero because the ECB at the
+        // front of the list could have been Cancelled. This makes sure we
+        // do not wrap around to 0xFFFF !!!
+        //
+
+        if (pXecb->Ticks != 0)
+            --pXecb->Ticks;
+
         if (!pXecb->Ticks) {
 
             //
@@ -675,6 +684,7 @@ Return Value:
             }
         }
     }
+
     ReleaseMutex();
 }
 
@@ -772,10 +782,13 @@ Return Value:
     RequestMutex();
     pXecb = TimerList;
     while (pXecb) {
+
         next = pXecb->Next;
+
         if ((SocketNumber && (pXecb->SocketNumber == SocketNumber))
         || (Owner && !(pXecb->Flags & XECB_FLAG_IPX) && (pXecb->Owner == Owner))
         || (TaskId && (pXecb->TaskId == TaskId))) {
+
             prev->Next = next;
 
             IPXDBGPRINT((__FILE__, __LINE__,
@@ -788,6 +801,10 @@ Return Value:
                         ));
 
             CompleteEcb(pXecb, ECB_CC_CANCELLED);
+        }
+        else
+        {
+            prev = pXecb ;
         }
         pXecb = next;
     }
@@ -1342,7 +1359,7 @@ Return Value:
         // packet larger than MyMaxPacketSize
         //
 
-        CompleteEcb(pXecb, ECB_CC_BAD_REQUEST);
+        CompleteOrQueueEcb(pXecb, ECB_CC_BAD_REQUEST);
         if (pSocketInfo->Flags & SOCKET_FLAG_TEMPORARY) {
             KillSocket(pSocketInfo);
         }
@@ -2009,8 +2026,7 @@ Return Value:
         // destination network address structure in the IPX packet header
         //
 
-        *(LPDWORD)&to.sa_netnum[0] = *(ULPDWORD)&pPacket->Destination.Net[0];
-
+        *(ULPDWORD)&to.sa_netnum[0] = *(ULPDWORD)&pPacket->Destination.Net[0];
         //
         // copy the immediate (destination) node number as a DWORD (4 bytes) and
         // a WORD (2 bytes) from the Destination network address structure in
@@ -2018,7 +2034,8 @@ Return Value:
         // safe
         //
 
-        *(LPDWORD)&to.sa_nodenum[0] = *(ULPDWORD)&pPacket->Destination.Node[0];
+        *(ULPDWORD)&to.sa_nodenum[0] = *(ULPDWORD)&pPacket->Destination.Node[0];
+
         *(LPWORD)&to.sa_nodenum[4] = *(ULPWORD)&pPacket->Destination.Node[4];
 
         //
@@ -2186,8 +2203,7 @@ Return Value:
     // destination network address structure in the IPX packet header
     //
 
-    *(LPDWORD)&to.sa_netnum[0] = *(ULPDWORD)&pPacket->Destination.Net[0];
-
+    *(ULPDWORD)&to.sa_netnum[0] = *(ULPDWORD)&pPacket->Destination.Net[0];
     //
     // copy the immediate (destination) node number as a DWORD (4 bytes) and
     // a WORD (2 bytes) from the Destination network address structure in
@@ -2195,7 +2211,7 @@ Return Value:
     // safe
     //
 
-    *(LPDWORD)&to.sa_nodenum[0] = *(ULPDWORD)&pPacket->Destination.Node[0];
+    *(ULPDWORD)&to.sa_nodenum[0] = *(ULPDWORD)&pPacket->Destination.Node[0];
     *(LPWORD)&to.sa_nodenum[4] = *(ULPWORD)&pPacket->Destination.Node[4];
 
     //

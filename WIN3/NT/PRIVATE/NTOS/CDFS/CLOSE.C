@@ -9,11 +9,39 @@ Module Name:
 Abstract:
 
     This module implements the File Close routine for Cdfs called by the
-    dispatch driver.
+    Fsd/Fsp dispatch routines.
+
+    The close operation interacts with both the async and delayed close queues
+    in the CdData structure.  Since close may be called recursively we may
+    violate the locking order in acquiring the Vcb or Fcb.  In this case
+    we may move the request to the async close queue.  If this is the last
+    reference on the Fcb and there is a chance the user may reopen this
+    file again soon we would like to defer the close.  In this case we
+    may move the request to the async close queue.
+
+    Once we are past the decode file operation there is no need for the
+    file object.  If we are moving the request to either of the work
+    queues then we remember all of the information from the file object and
+    complete the request with STATUS_SUCCESS.  The Io system can then
+    reuse the file object and we can complete the request when convenient.
+
+    The async close queue consists of requests which we would like to
+    complete as soon as possible.  They are queued using the original
+    IrpContext where some of the fields have been overwritten with
+    information from the file object.  We will extract this information,
+    cleanup the IrpContext and then call the close worker routine.
+
+    The delayed close queue consists of requests which we would like to
+    defer the close for.  We keep size of this list within a range
+    determined by the size of the system.  We let it grow to some maximum
+    value and then shrink to some minimum value.  We allocate a small
+    structure which contains the key information from the file object
+    and use this information along with an IrpContext on the stack
+    to complete the request.
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -28,138 +56,56 @@ Revision History:
 #define BugCheckFileId                   (CDFS_BUG_CHECK_CLOSE)
 
 //
-//  The local debug trace level
+//  Local support routines
 //
 
-#define Dbg                              (DEBUG_TRACE_CLOSE)
-
-//
-//  Local procedure prototypes
-//
-
-NTSTATUS
-CdCommonClose (
+BOOLEAN
+CdCommonClosePrivate (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
-    IN PVOLUME_DEVICE_OBJECT *VolDo
+    IN PVCB Vcb,
+    IN PFCB Fcb,
+    IN ULONG UserReference,
+    IN BOOLEAN FromFsd
+    );
+
+VOID
+CdQueueClose (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN ULONG UserReference,
+    IN BOOLEAN DelayedClose
+    );
+
+PIRP_CONTEXT
+CdRemoveClose (
+    IN PVCB Vcb OPTIONAL
     );
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, CdCommonClose)
-#pragma alloc_text(PAGE, CdFsdClose)
-#pragma alloc_text(PAGE, CdFspClose)
+#pragma alloc_text(PAGE, CdCommonClosePrivate)
+#pragma alloc_text(PAGE, CdQueueClose)
+#pragma alloc_text(PAGE, CdRemoveClose)
 #endif
 
 
-NTSTATUS
-CdFsdClose (
-    IN PVOLUME_DEVICE_OBJECT VolumeDeviceObject,
-    IN PIRP Irp
-    )
-
-/*++
-
-Routine Description:
-
-    This routine implements the FSD part of closing down the last reference
-    to a file object.
-
-Arguments:
-
-    VolumeDeviceObject - Supplies the volume device object where the
-        file being closed exists
-
-    Irp - Supplies the Irp being processed
-
-Return Value:
-
-    NTSTATUS - The FSD status for the IRP
-
---*/
-
-{
-    NTSTATUS Status;
-    PIRP_CONTEXT IrpContext = NULL;
-
-    BOOLEAN TopLevel;
-
-    PAGED_CODE();
-
-    //
-    //  If we were called with our file system device object instead of a
-    //  volume device object, just complete this request with STATUS_SUCCESS
-    //
-
-    if (VolumeDeviceObject->DeviceObject.Size == (USHORT)sizeof(DEVICE_OBJECT)) {
-
-        Irp->IoStatus.Status = STATUS_SUCCESS;
-        Irp->IoStatus.Information = FILE_OPENED;
-
-        IoCompleteRequest( Irp, IO_DISK_INCREMENT );
-
-        return STATUS_SUCCESS;
-    }
-
-    DebugTrace(+1, Dbg, "CdFsdClose:  Entered\n", 0);
-
-    //
-    //  Call the common close routine, with blocking allowed if synchronous
-    //
-
-    FsRtlEnterFileSystem();
-
-    TopLevel = CdIsIrpTopLevel( Irp );
-
-    try {
-
-        IrpContext = CdCreateIrpContext( Irp, CanFsdWait( Irp ) );
-
-        Status = CdCommonClose( IrpContext, Irp, NULL );
-
-    } except(CdExceptionFilter( IrpContext, GetExceptionInformation() )) {
-
-        //
-        //  We had some trouble trying to perform the requested
-        //  operation, so we'll abort the I/O request with
-        //  the error status that we get back from the
-        //  execption code
-        //
-
-        Status = CdProcessException( IrpContext, Irp, GetExceptionCode() );
-    }
-
-    if (TopLevel) { IoSetTopLevelIrp( NULL ); }
-
-    FsRtlExitFileSystem();
-
-    //
-    //  And return to our caller
-    //
-
-    DebugTrace(-1, Dbg, "CdFsdClose:  Exit -> %08lx\n", Status);
-
-    return Status;
-
-    UNREFERENCED_PARAMETER( VolumeDeviceObject );
-}
-
-
 VOID
-CdFspClose (
-    IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp
+CdFspClose (                                //  implemented in Close.c
+    IN PVCB Vcb OPTIONAL
     )
 
 /*++
 
 Routine Description:
 
-    This routine implements the FSP part of closing down the last reference
-    to a file object.
+    This routine is called to process the close queues in the CdData.  If the
+    Vcb is passed then we want to remove all of the closes for this Vcb.
+    Otherwise we will do as many of the delayed closes as we need to do.
 
 Arguments:
 
-    Irp - Supplies the Irp being processed
+    Vcb - If specified then we are looking for all of the closes for the
+        given Vcb.
 
 Return Value:
 
@@ -168,310 +114,799 @@ Return Value:
 --*/
 
 {
+    PIRP_CONTEXT IrpContext;
+    IRP_CONTEXT StackIrpContext;
+
+    THREAD_CONTEXT ThreadContext;
+
+    PFCB Fcb;
+    ULONG UserReference;
+
+    ULONG VcbHoldCount = 0;
+    PVCB CurrentVcb = NULL;
+
+    BOOLEAN ReleaseCdData = FALSE;
+
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdFspClose:  Entered\n", 0);
+    FsRtlEnterFileSystem();
 
     //
-    //  Call the common close routine.
+    //  Continue processing until there are no more closes to process.
     //
 
-    (VOID)CdCommonClose( IrpContext,
-                         Irp,
-                         (PVOLUME_DEVICE_OBJECT *)IrpContext->RealDevice );
+    while (IrpContext = CdRemoveClose( Vcb )) {
+
+        //
+        //  If we don't have an IrpContext then use the one on the stack.
+        //  Initialize it for this request.
+        //
+
+        if (SafeNodeType( IrpContext ) != CDFS_NTC_IRP_CONTEXT ) {
+
+            //
+            //  Update the local values from the IrpContextLite.
+            //
+
+            Fcb = ((PIRP_CONTEXT_LITE) IrpContext)->Fcb;
+            UserReference = ((PIRP_CONTEXT_LITE) IrpContext)->UserReference;
+
+            //
+            //  Update the stack irp context with the values from the
+            //  IrpContextLite.
+            //
+
+            CdInitializeStackIrpContext( &StackIrpContext,
+                                         (PIRP_CONTEXT_LITE) IrpContext );
+
+            //
+            //  Free the IrpContextLite.
+            //
+
+            CdFreeIrpContextLite( (PIRP_CONTEXT_LITE) IrpContext );
+
+            //
+            //  Remember we have the IrpContext from the stack.
+            //
+
+            IrpContext = &StackIrpContext;
+
+        //
+        //  Otherwise cleanup the existing IrpContext.
+        //
+
+        } else {
+
+            //
+            //  Remember the Fcb and user reference count.
+            //
+
+            Fcb = (PFCB) IrpContext->Irp;
+            IrpContext->Irp = NULL;
+
+            UserReference = (ULONG) IrpContext->ExceptionStatus;
+            IrpContext->ExceptionStatus = STATUS_SUCCESS;
+        }
+
+        //
+        //  We have an IrpContext.  Now we need to set the top level thread
+        //  context.
+        //
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FSP_FLAGS );
+
+        //
+        //  If we were given a Vcb then there is a request on top of this.
+        //
+
+        if (ARGUMENT_PRESENT( Vcb )) {
+
+            ClearFlag( IrpContext->Flags,
+                       IRP_CONTEXT_FLAG_TOP_LEVEL | IRP_CONTEXT_FLAG_TOP_LEVEL_CDFS );
+        }
+
+        CdSetThreadContext( IrpContext, &ThreadContext );
+
+        //
+        //  If we have hit the maximum number of requests to process without
+        //  releasing the Vcb then release the Vcb now.  If we are holding
+        //  a different Vcb to this one then release the previous Vcb.
+        //
+        //  In either case acquire the current Vcb.
+        //
+        //  We use the MinDelayedCloseCount from the CdData since it is
+        //  a convenient value based on the system size.  Only thing we are trying
+        //  to do here is prevent this routine starving other threads which
+        //  may need this Vcb exclusively.
+        //
+
+        ReleaseCdData = !ARGUMENT_PRESENT( Vcb ) &&
+                        (Fcb->Vcb->VcbCondition != VcbMounted) &&
+                        (Fcb->Vcb->VcbCondition != VcbMountInProgress) &&
+                        (Fcb->Vcb->VcbReference <= CDFS_RESIDUAL_REFERENCE + 1);
+
+        if (ReleaseCdData ||
+            (VcbHoldCount > CdData.MinDelayedCloseCount) ||
+            (Fcb->Vcb != CurrentVcb)) {
+
+            if (CurrentVcb != NULL) {
+
+                CdReleaseVcb( IrpContext, CurrentVcb );
+            }
+
+            if (ReleaseCdData) {
+
+                CdAcquireCdData( IrpContext );
+            }
+
+            CurrentVcb = Fcb->Vcb;
+            CdAcquireVcbShared( IrpContext, CurrentVcb, FALSE );
+
+            VcbHoldCount = 0;
+
+        } else {
+
+            VcbHoldCount += 1;
+        }
+
+        //
+        //  Call our worker routine to perform the close operation.
+        //
+
+        CdCommonClosePrivate( IrpContext, CurrentVcb, Fcb, UserReference, FALSE );
+
+        //
+        //  If the reference count on this Vcb is below our residual reference
+        //  then check if we should dismount the volume.
+        //
+
+        if (ReleaseCdData) {
+
+            CdReleaseVcb( IrpContext, CurrentVcb );
+            CdCheckForDismount( IrpContext, CurrentVcb );
+
+            CurrentVcb = NULL;
+
+            CdReleaseCdData( IrpContext );
+            ReleaseCdData = FALSE;
+        }
+
+        //
+        //  Complete the current request to cleanup the IrpContext.
+        //
+
+        CdCompleteRequest( IrpContext, NULL, STATUS_SUCCESS );
+    }
 
     //
-    //  And return to our caller
+    //  Release any Vcb we may still hold.
     //
 
-    DebugTrace(-1, Dbg, "CdFspClose:  Exit -> VOID\n", 0);
+    if (CurrentVcb != NULL) {
 
+        CdReleaseVcb( IrpContext, CurrentVcb );
+
+    }
+
+    FsRtlExitFileSystem();
     return;
 }
 
 
-//
-//  Internal support routine
-//
-
 NTSTATUS
 CdCommonClose (
     IN PIRP_CONTEXT IrpContext,
-    IN PIRP Irp,
-    IN PVOLUME_DEVICE_OBJECT *VolDo
+    IN PIRP Irp
     )
 
 /*++
 
 Routine Description:
 
-    This is the common routine for closing a file/directory called by both
-    the fsd and fsp threads.
-
-    Close is invoked whenever the last reference to a file object is deleted.
-    Cleanup is invoked when the last handle to a file object is closed, and
-    is called before close.
-
-    The function of close is to completely tear down and remove the fcb/dcb/ccb
-    structures associated with the file object.
+    This routine is the Fsd entry for the close operation.  We decode the file
+    object to find the CDFS structures and type of open.  We call our internal
+    worker routine to perform the actual work.  If the work wasn't completed
+    then we post to one of our worker queues.  The Ccb isn't needed after this
+    point so we delete the Ccb and return STATUS_SUCCESS to our caller in all
+    cases.
 
 Arguments:
 
     Irp - Supplies the Irp to process
 
-    VolDo - This is really gross.  If we are really in the Fsp, and a volume
-        goes away.  We need some way to NULL out the VolDo variable in
-        FspDispatch().
-
 Return Value:
 
-    NTSTATUS - The return status for the operation
+    STATUS_SUCCESS
 
 --*/
 
 {
-    NTSTATUS Status;
-
-    PIO_STACK_LOCATION IrpSp;
-
-    PFILE_OBJECT FileObject;
-
     TYPE_OF_OPEN TypeOfOpen;
-    PMVCB Mvcb;
+
     PVCB Vcb;
     PFCB Fcb;
     PCCB Ccb;
+    ULONG UserReference = 0;
 
-    //
-    //  Get a pointer to the current stack location
-    //
-
-    IrpSp = IoGetCurrentIrpStackLocation( Irp );
+    BOOLEAN DelayedClose;
+    BOOLEAN ReleaseCdData = FALSE;
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "CdCommonClose: Entered\n", 0);
-
-    DebugTrace( 0, Dbg, "Irp          = %08lx\n", Irp);
-    DebugTrace( 0, Dbg, "->FileObject = %08lx\n", IrpSp->FileObject);
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_IRP( Irp );
 
     //
-    //  Extract and decode the file object
+    //  If we were called with our file system device object instead of a
+    //  volume device object, just complete this request with STATUS_SUCCESS.
     //
 
-    FileObject = IrpSp->FileObject;
+    if (IrpContext->Vcb == NULL) {
 
-    //
-    //  This action is a noop for unopened file objects.
-    //
-
-    if ((TypeOfOpen = CdDecodeFileObject( FileObject,
-                                          &Mvcb,
-                                          &Vcb,
-                                          &Fcb,
-                                          &Ccb )) == UnopenedFileObject ) {
-
-        DebugTrace(-1, Dbg, "CdCommonClose:  Unopened file object\n", 0);
         CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
         return STATUS_SUCCESS;
     }
 
     //
-    //  Acquire exclusive access to the Vcb and enqueue the irp if we didn't
-    //  get access
+    //  Decode the file object to get the type of open and Fcb/Ccb.
     //
 
-    if (!CdAcquireExclusiveMvcb( IrpContext, Mvcb )) {
+    TypeOfOpen = CdDecodeFileObject( IrpContext,
+                                     IoGetCurrentIrpStackLocation( Irp )->FileObject,
+                                     &Fcb,
+                                     &Ccb );
 
-        DebugTrace(0, Dbg, "CdCommonClose: Cannot Acquire Mvcb\n", 0);
+    //
+    //  No work to do for unopened file objects.
+    //
 
-        Status = CdFsdPostRequest( IrpContext, Irp );
+    if (TypeOfOpen == UnopenedFileObject) {
 
-        DebugTrace(-1, Dbg, "CdCommonCleanup:  Exit -> %08lx\n", Status );
-        return Status;
+        CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+
+        return STATUS_SUCCESS;
+    }
+
+    Vcb = Fcb->Vcb;
+
+    //
+    //  Call the worker routine to perform the actual work.  This routine
+    //  should never raise except for a fatal error.
+    //
+
+    if (Ccb != NULL) {
+
+        UserReference = 1;
+
+        //
+        //  We can always deallocate the Ccb if present.
+        //
+
+        CdDeleteCcb( IrpContext, Ccb );
     }
 
     //
-    //  Synchronize here with other closes regarding volume deletion.  Note
-    //  that the Vcb->OpenCount can be safely incremented here without
-    //  CdData synchronization for the following reasons:
-    //
-    //  This counter only becomes relevant when (holding a spinlock):
-    //
-    //      A: The Vcb->OpenCount is zero, and
-    //      B: The Vpb->Refcount is the residual (2/3 for close/verify)
-    //
-    //  For A to be true, there can be no more pending closes at this point
-    //  in the close code.  For B to be true, in close, there cannot be
-    //  a create in process, and thus no verify in process.
-    //
-    //  Also we only increment the count if this is a top level close.
+    //  If this is a user file or directory then check if we should post
+    //  this to the delayed close queue.  This has to be the last reference
+    //  for a user file or directory open.
     //
 
-    if ( !IrpContext->RecursiveFileSystemCall ) {
+    if ((Vcb->VcbCondition == VcbMounted) &&
+        (Fcb->FcbReference == 1) &&
+        ((TypeOfOpen == UserFileOpen) ||
+         (TypeOfOpen == UserDirectoryOpen))) {
 
-        Mvcb->OpenFileCount += 1;
+        CdQueueClose( IrpContext, Fcb, UserReference, TRUE );
+        IrpContext = NULL;
+
+    //
+    //  Otherwise try to process this close.  Post to the async close queue
+    //  if we can't acquire all of the resources.
+    //
+
+    } else {
+
+        //
+        //  If we may be dismounting this volume then acquire the CdData
+        //  resource.
+        //
+
+        if ((Vcb->VcbReference <= CDFS_RESIDUAL_REFERENCE) &&
+            (Vcb->VcbCondition != VcbMounted) &&
+            (Vcb->VcbCondition != VcbMountInProgress) &&
+            FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_TOP_LEVEL_CDFS )) {
+
+            CdAcquireCdData( IrpContext );
+            ReleaseCdData = TRUE;
+        }
+
+        if (!CdCommonClosePrivate( IrpContext, Vcb, Fcb, UserReference, TRUE )) {
+
+            //
+            //  If we didn't complete the request then post the request as needed.
+            //
+
+            CdQueueClose( IrpContext, Fcb, UserReference, FALSE );
+            IrpContext = NULL;
+
+        //
+        //  Check whether we should be dismounting the volume and then complete
+        //  the request.
+        //
+
+        } else if (ReleaseCdData) {
+
+            CdCheckForDismount( IrpContext, Vcb );
+        }
     }
 
-    try {
+    //
+    //  Always complete this request with STATUS_SUCCESS.
+    //
+
+    CdCompleteRequest( IrpContext, Irp, STATUS_SUCCESS );
+
+    if (ReleaseCdData) {
+
+        CdReleaseCdData( IrpContext );
+    }
+
+    //
+    //  Always return STATUS_SUCCESS for closes.
+    //
+
+    return STATUS_SUCCESS;
+}
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+CdCommonClosePrivate (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN PFCB Fcb,
+    IN ULONG UserReference,
+    IN BOOLEAN FromFsd
+    )
+
+/*++
+
+Routine Description:
+
+    This is the worker routine for the close operation.  We can be called in
+    an Fsd thread or from a worker Fsp thread.  If called from the Fsd thread
+    then we acquire the resources without waiting.  Otherwise we know it is
+    safe to wait.
+
+    We check to see whether we should post this request to the delayed close
+    queue.  If we are to process the close here then we acquire the Vcb and
+    Fcb.  We will adjust the counts and call our teardown routine to see
+    if any of the structures should go away.
+
+Arguments:
+
+    Vcb - Vcb for this volume.
+
+    Fcb - Fcb for this request.
+
+    UserReference - Number of user references for this file object.  This is
+        zero for an internal stream.
+
+    FromFsd - This request was called from an Fsd thread.  Indicates whether
+        we should wait to acquire resources.
+
+    DelayedClose - Address to store whether we should try to put this on
+        the delayed close queue.  Ignored if this routine can process this
+        close.
+
+Return Value:
+
+    BOOLEAN - TRUE if this thread processed the close, FALSE otherwise.
+
+--*/
+
+{
+    BOOLEAN CompletedClose;
+    BOOLEAN RemovedFcb;
+
+    PAGED_CODE();
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_FCB( Fcb );
+
+    //
+    //  Try to acquire the Vcb and Fcb.  If we can't acquire them then return
+    //  and let our caller know he should post the request to the async
+    //  queue.
+    //
+
+    if (CdAcquireVcbShared( IrpContext, Vcb, FromFsd )) {
+
+        if (!CdAcquireFcbExclusive( IrpContext, Fcb, FromFsd )) {
+
+            //
+            //  We couldn't get the Fcb.  Release the Vcb and let our caller
+            //  know to post this request.
+            //
+
+            CdReleaseVcb( IrpContext, Vcb );
+            return FALSE;
+        }
+
+    //
+    //  We didn't get the Vcb.  Let our caller know to post this request.
+    //
+
+    } else {
+
+        return FALSE;
+    }
+
+    //
+    //  Lock the Vcb and decrement the reference counts.
+    //
+
+    CdLockVcb( IrpContext, Vcb );
+    CdDecrementReferenceCounts( IrpContext, Fcb, 1, UserReference );
+    CdUnlockVcb( IrpContext, Vcb );
+
+    //
+    //  Call our teardown routine to see if this object can go away.
+    //  If we don't remove the Fcb then release it.
+    //
+
+    CdTeardownStructures( IrpContext, Fcb, &RemovedFcb );
+
+    if (!RemovedFcb) {
+
+        CdReleaseFcb( IrpContext, Fcb );
+    }
+
+    //
+    //  Release the Vcb and return to our caller.  Let him know we completed
+    //  this request.
+    //
+
+    CdReleaseVcb( IrpContext, Vcb );
+
+    return TRUE;
+}
+
+
+VOID
+CdQueueClose (
+    IN PIRP_CONTEXT IrpContext,
+    IN PFCB Fcb,
+    IN ULONG UserReference,
+    IN BOOLEAN DelayedClose
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called to queue a request to either the async or delayed
+    close queue.  For the delayed queue we need to allocate a smaller
+    structure to contain the information about the file object.  We do
+    that so we don't put the larger IrpContext structures into this long
+    lived queue.  If we can allocate this structure then we put this
+    on the async queue instead.
+
+Arguments:
+
+    Fcb - Fcb for this file object.
+
+    UserReference - Number of user references for this file object.  This is
+        zero for an internal stream.
+
+    DelayedClose - Indicates whether this should go on the async or delayed
+        close queue.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PIRP_CONTEXT_LITE IrpContextLite = NULL;
+    BOOLEAN StartWorker = FALSE;
+
+    PAGED_CODE();
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_FCB( Fcb );
+
+    //
+    //  Start with the delayed queue request.  We can move this to the async
+    //  queue if there is an allocation failure.
+    //
+
+    if (DelayedClose) {
 
         //
-        //  Case on the type of open that we are trying to close.
+        //  Try to allocate non-paged pool for the IRP_CONTEXT_LITE.
         //
 
-        switch (TypeOfOpen) {
+        IrpContextLite = CdCreateIrpContextLite( IrpContext );
+    }
 
-        case UserVolumeOpen:
-        case RawDiskOpen:
+    //
+    //  We want to clear the top level context in this thread if
+    //  necessary.  Call our cleanup routine to do the work.
+    //
 
-            DebugTrace(0, Dbg, "CdCommonClose: Close UserVolumeOpen\n", 0);
+    SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MORE_PROCESSING );
+    CdCleanupIrpContext( IrpContext, TRUE );
 
-            CdDeleteCcb( IrpContext, Ccb );
+    //
+    //  Synchronize with the CdData lock.
+    //
 
-            Mvcb->DirectAccessOpenCount -= 1;
-            Mvcb->OpenFileCount -= 1;
+    CdLockCdData();
 
-            try_return( Status = STATUS_SUCCESS );
+    //
+    //  If we have an IrpContext then put the request on the delayed close queue.
+    //
 
-        case PathTableFile:
+    if (IrpContextLite != NULL) {
 
-            DebugTrace(0, Dbg, "CdCommonClose: Close Path Table file\n", 0);
+        //
+        //  Initialize the IrpContextLite.
+        //
 
-            try_return( STATUS_SUCCESS );
+        IrpContextLite->NodeTypeCode = CDFS_NTC_IRP_CONTEXT_LITE;
+        IrpContextLite->NodeByteSize = sizeof( IRP_CONTEXT_LITE );
+        IrpContextLite->Fcb = Fcb;
+        IrpContextLite->UserReference = UserReference;
+        IrpContextLite->RealDevice = IrpContext->RealDevice;
 
-        case StreamFile:
+        //
+        //  Add this to the delayed close list and increment
+        //  the count.
+        //
 
-            DebugTrace(0, Dbg, "CdCommonClose: Close CacheFile\n", 0);
+        InsertTailList( &CdData.DelayedCloseQueue,
+                        &IrpContextLite->DelayedCloseLinks );
 
-            Fcb->Specific.Dcb.StreamFileOpenCount -= 1;
-            Fcb->Vcb->Mvcb->StreamFileOpenCount -= 1;
+        CdData.DelayedCloseCount += 1;
 
-            //
-            //  Check if we can discard this node.
-            //
+        //
+        //  If we are above our threshold then start the delayed
+        //  close operation.
+        //
 
-            CdCleanupTreeLeaf( IrpContext, Fcb );
-            break;
+        if (CdData.DelayedCloseCount > CdData.MaxDelayedCloseCount) {
 
-        case UserDirectoryOpen:
-        case UserFileOpen:
+            CdData.ReduceDelayedClose = TRUE;
 
-            DebugTrace(0, Dbg, "CdCommonClose:  Close User File/Directory\n", 0);
-            DebugTrace(0, Dbg, "CdCommonClose:  File -> %Z\n", &Fcb->FullFileName);
+            if (!CdData.FspCloseActive) {
 
-            CdDeleteCcb( IrpContext, Ccb );
-
-            Fcb->OpenCount -= 1;
-            Mvcb->OpenFileCount -= 1;
-
-            //
-            //  Cleanup this node if possible.
-            //
-
-            CdCleanupTreeLeaf( IrpContext, Fcb );
-
-            break;
-
-        default:
-
-            CdBugCheck( TypeOfOpen, 0, 0 );
+                CdData.FspCloseActive = TRUE;
+                StartWorker = TRUE;
+            }
         }
 
         //
-        //  At this point we've cleaned up any on-disk structure that needs
-        //  to be done, and we can now update the in-memory structures.
+        //  Unlock the CdData.
         //
 
-        Status = STATUS_SUCCESS;
-
-    try_exit: NOTHING;
-    } finally {
+        CdUnlockCdData();
 
         //
-        //  Check if we should delete the volume.  Unfortunately, to correctly
-        //  synchronize with verify, we can only unsafely checck our own
-        //  transition.  This results in a little bit of extra overhead in the
-        //  1 -> 0 OpenFileCount transition.
-        //
-        //  2 is the residual Vpb->RefCount on a volume to be freed.
+        //  Cleanup the IrpContext.
         //
 
+        CdCompleteRequest( IrpContext, NULL, STATUS_SUCCESS );
+
+    //
+    //  Otherwise drop into the async case below.
+    //
+
+    } else {
+
         //
-        //  Here is the deal with releasing the Mvcb.  We must be holding the
-        //  Mvcb when decrementing the Mvcb->OpenFileCount.  If we don't this
-        //  could cause the decrement to mal-function on an MP system.  But we
-        //  want to be holding the Global resource exclusive when decrement
-        //  the count so that nobody else will try to dismount the volume.
-        //  However, because of locking rules, the Global resource must be
-        //  acquired first, which is why we do what we do below.
+        //  Store the information about the file object into the IrpContext.
         //
 
-        if ( !IrpContext->RecursiveFileSystemCall ) {
+        IrpContext->Irp = (PIRP) Fcb;
+        IrpContext->ExceptionStatus = (NTSTATUS) UserReference;
 
-            if ( Mvcb->Vpb->ReferenceCount == 2 ) {
+        //
+        //  Add this to the async close list and increment the count.
+        //
 
-                PVPB Vpb = Mvcb->Vpb;
+        InsertTailList( &CdData.AsyncCloseQueue,
+                        &IrpContext->WorkQueueItem.List );
 
-                IrpContext->Wait = TRUE;
+        CdData.AsyncCloseCount += 1;
 
-                CdReleaseMvcb( IrpContext, Mvcb );
+        //
+        //  Remember to start the Fsp close thread if not currently started.
+        //
 
-                (VOID)CdAcquireExclusiveGlobal( IrpContext );
-                (VOID)CdAcquireExclusiveMvcb( IrpContext, Mvcb );
+        if (!CdData.FspCloseActive) {
 
-                Mvcb->OpenFileCount -= 1;
+            CdData.FspCloseActive = TRUE;
 
-                CdReleaseMvcb( IrpContext, Mvcb );
+            StartWorker = TRUE;
+        }
 
-                //
-                //  We can now "safely" check OpenFileCount and MvcbCondition.
-                //  If they are OK, we will proceed to checking the
-                //  Vpb Ref Count in CdCheckForDismount.
-                //
+        //
+        //  Unlock the CdData.
+        //
 
-                if ( (Mvcb->OpenFileCount == 0) &&
-                     (Mvcb->MvcbCondition == MvcbNotMounted) &&
-                     CdCheckForDismount( IrpContext, Mvcb ) ) {
+        CdUnlockCdData();
+    }
 
-                    //
-                    //  If this is not the Vpb "attached" to the device, free it.
-                    //
+    //
+    //  Start the FspClose thread if we need to.
+    //
 
-                    if ( Vpb->RealDevice->Vpb != Vpb ) {
+    if (StartWorker) {
 
-                        ExFreePool( Vpb );
-                    }
+        ExQueueWorkItem( &CdData.CloseItem, CriticalWorkQueue );
+    }
 
-                    if ( VolDo != NULL ) {
+    //
+    //  Return to our caller.
+    //
 
-                        *VolDo = NULL;
-                    }
-                }
+    return;
+}
 
-                CdReleaseGlobal( IrpContext );
+
+//
+//  Local support routine
+//
 
-            } else {
+PIRP_CONTEXT
+CdRemoveClose (
+    IN PVCB Vcb OPTIONAL
+    )
 
-                Mvcb->OpenFileCount -= 1;
-                CdReleaseMvcb( IrpContext, Mvcb );
+/*++
+
+Routine Description:
+
+Arguments:
+
+    This routine is called to scan the async and delayed close queues looking
+    for a suitable entry.  If the Vcb is specified then we scan both queues
+    looking for an entry with the same Vcb.  Otherwise we will look in the
+    async queue first for any close item.  If none found there then we look
+    in the delayed close queue provided that we have triggered the delayed
+    close operation.
+
+Return Value:
+
+    PIRP_CONTEXT - NULL if no work item found.  Otherwise it is the pointer to
+        either the IrpContext or IrpContextLite for this request.
+
+--*/
+
+{
+    PIRP_CONTEXT IrpContext = NULL;
+    PIRP_CONTEXT NextIrpContext;
+    PIRP_CONTEXT_LITE NextIrpContextLite;
+
+    PLIST_ENTRY Entry;
+
+    PAGED_CODE();
+
+    ASSERT_OPTIONAL_VCB( Vcb );
+
+    //
+    //  Lock the CdData to perform the scan.
+    //
+
+    CdLockCdData();
+
+    //
+    //  First check the list of async closes.
+    //
+
+    Entry = CdData.AsyncCloseQueue.Flink;
+
+    while (Entry != &CdData.AsyncCloseQueue) {
+
+        //
+        //  Extract the IrpContext.
+        //
+
+        NextIrpContext = CONTAINING_RECORD( Entry,
+                                            IRP_CONTEXT,
+                                            WorkQueueItem.List );
+
+        //
+        //  If no Vcb was specified or this Vcb is for our volume
+        //  then perform the close.
+        //
+
+        if (!ARGUMENT_PRESENT( Vcb ) || (NextIrpContext->Vcb == Vcb)) {
+
+            RemoveEntryList( Entry );
+            CdData.AsyncCloseCount -= 1;
+
+            IrpContext = NextIrpContext;
+            break;
+        }
+
+        //
+        //  Move to the next entry.
+        //
+
+        Entry = Entry->Flink;
+    }
+
+    //
+    //  If we didn't find anything look through the delayed close
+    //  queue.
+    //
+    //  We will only check the delayed close queue if we were given
+    //  a Vcb or the delayed close operation is active.
+    //
+
+    if ((IrpContext == NULL) &&
+        (ARGUMENT_PRESENT( Vcb ) ||
+         (CdData.ReduceDelayedClose &&
+          (CdData.DelayedCloseCount > CdData.MinDelayedCloseCount)))) {
+
+        Entry = CdData.DelayedCloseQueue.Flink;
+
+        while (Entry != &CdData.DelayedCloseQueue) {
+
+            //
+            //  Extract the IrpContext.
+            //
+
+            NextIrpContextLite = CONTAINING_RECORD( Entry,
+                                                    IRP_CONTEXT_LITE,
+                                                    DelayedCloseLinks );
+
+            //
+            //  If no Vcb was specified or this Vcb is for our volume
+            //  then perform the close.
+            //
+
+            if (!ARGUMENT_PRESENT( Vcb ) || (NextIrpContextLite->Fcb->Vcb == Vcb)) {
+
+                RemoveEntryList( Entry );
+                CdData.DelayedCloseCount -= 1;
+
+                IrpContext = (PIRP_CONTEXT) NextIrpContextLite;
+                break;
             }
 
-        } else {
+            //
+            //  Move to the next entry.
+            //
 
-            CdReleaseMvcb( IrpContext, Mvcb );
+            Entry = Entry->Flink;
         }
-
-        //
-        //  If this is a normal termination then complete the request
-        //
-
-        if (!AbnormalTermination()) {
-
-            CdCompleteRequest( IrpContext, Irp, Status );
-        }
-
-        DebugTrace(-1, Dbg, "CdCommonClose:  Exit -> %08lx\n", Status);
     }
 
-    return Status;
+    //
+    //  If the Vcb wasn't specified and we couldn't find an entry
+    //  then turn off the Fsp thread.
+    //
+
+    if (!ARGUMENT_PRESENT( Vcb ) && (IrpContext == NULL)) {
+
+        CdData.FspCloseActive = FALSE;
+        CdData.ReduceDelayedClose = FALSE;
+    }
+
+    //
+    //  Unlock the CdData.
+    //
+
+    CdUnlockCdData();
+
+    return IrpContext;
 }
+
+

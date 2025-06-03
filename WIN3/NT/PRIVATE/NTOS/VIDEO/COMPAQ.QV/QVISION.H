@@ -333,6 +333,25 @@ Revision History:
                                             // ORION. (write it to 13c8)
 #define DBL_CLK               0x08          // double clock for 1280 modes
 
+#define   CURSOR_ENABLE      0x02
+#define   CURSOR_DISABLE     0x00
+
+#define CURSOR_WRITE        0x3C8     // HW Cursor registers - ecr
+#define CURSOR_READ         0x3C7
+#define   CURSOR_PLANE_0     0x00
+#define   CURSOR_PLANE_1     0x80
+#define CURSOR_DATA        0x13C7
+#define CURSOR_COLOR_READ  0x83C7
+#define CURSOR_COLOR_WRITE 0x83C8
+#define CURSOR_COLOR_DATA  0x83C9
+#define   OVERSCAN_COLOR     0x00
+#define   CURSOR_COLOR_1     0x01
+#define   CURSOR_COLOR_2     0x02
+#define   CURSOR_COLOR_3     0x03
+#define CURSOR_X           0x93C8     // 16-bit register
+#define CURSOR_Y           0x93C6     // 16-bit register
+#define   CURSOR_CX            32     // h/w pointer width
+#define   CURSOR_CY            32     // h/w pointer height
 
 
 //
@@ -621,6 +640,9 @@ typedef struct _HW_DEVICE_EXTENSION {
                                             // add HW cursor data here
     PHYSICAL_ADDRESS PhysicalVideoMemoryBase; // physical memory address and
     ULONG PhysicalVideoMemoryLength;        // length of display memory
+    PHYSICAL_ADDRESS PhysicalMemoryMappedBase;// physical memory-mapped address and
+    ULONG PhysicalMemoryMappedLength;       // length of memory-mapped block
+                                            // (zero when don't use MM I/O)
     PHYSICAL_ADDRESS PhysicalFrameBase;     // physical memory address and
     ULONG PhysicalFrameLength;              // length of display memory for the
                                             // current mode.
@@ -671,8 +693,21 @@ typedef struct _HW_DEVICE_EXTENSION {
                                             // to by the next field
     PVIDEO_ACCESS_RANGE CurrentVdmAccessRange; // Access range currently
                                             // associated to the VDM
+    ULONG DacCmd2;                          // Current contents of DacCmd2
+                                            // register.
 
 } HW_DEVICE_EXTENSION, *PHW_DEVICE_EXTENSION;
+
+//
+// Hardware pointer information.
+//
+
+#define PTR_HEIGHT          32          // height of hardware pointer in scans
+#define PTR_WIDTH           4           // width of hardware pointer in bytes
+#define PTR_WIDTH_IN_PIXELS 32          // width of hardware pointer in pixels
+
+
+#define VIDEO_MODE_LOCAL_POINTER 0x08   // pointer moves done in display driver
 
 
 //
@@ -809,4 +844,4 @@ extern UCHAR extV32GraIndRegs[];
 #define BLT_FORWARD           0x00
 #define BLT_START             0x01
 #define GLOBAL_BUSY_BIT       0x40
-
+

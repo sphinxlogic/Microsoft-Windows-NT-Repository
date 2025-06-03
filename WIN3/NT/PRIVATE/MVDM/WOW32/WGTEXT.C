@@ -115,15 +115,34 @@ ULONG FASTCALL WG32GetTextExtent(PVDMFRAME pFrame)
     GETARGPTR(pFrame, sizeof(GETTEXTEXTENT16), parg16);
     GETSTRPTR(parg16->f2, parg16->f3, pstr2);
 
-    ul = 0;
     if (GETDWORD16(GetTextExtentPoint(
                     HDC32(parg16->f1),
                     pstr2,
                     INT32(parg16->f3),
                     &size4
                    )))
-        ul = (WORD)size4.cx | (size4.cy << 16);
+    {
+    // check if either cx or cy are bigger than SHRT_MAX == 7fff
+    // but do it in ONE SINGLE check
 
+	if ((size4.cx | size4.cy) & ~SHRT_MAX)
+	{
+	    if (size4.cx > SHRT_MAX)
+	       ul = SHRT_MAX;
+	    else
+	       ul = (ULONG)size4.cx;
+
+	    if (size4.cy > SHRT_MAX)
+	       ul |= (SHRT_MAX << 16);
+	    else
+	       ul |= (ULONG)(size4.cy << 16);
+	}
+	else
+	{
+	    ul = (ULONG)(size4.cx | (size4.cy << 16));
+	}
+
+    }
     FREESTRPTR(pstr2);
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -145,7 +164,7 @@ ULONG FASTCALL WG32GetTextFace(PVDMFRAME pFrame)
                     pb3
                  ));
 
-    FLUSHVDMPTR(parg16->f3, ul, pb3);
+    FLUSHVDMPTR(parg16->f3, (USHORT)ul, pb3);
     FREEVDMPTR(pb3);
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -217,8 +236,11 @@ ULONG FASTCALL WG32SetTextColor(PVDMFRAME pFrame)
 
     color = DWORD32(parg16->f2);
 
-    if ((ULONG)color >= 0x03000000)
-            color &= 0xffffff;
+    if (((ULONG)color >= 0x03000000) &&
+        (HIWORD(color) != 0x10ff))
+    {
+        color &= 0xffffff;
+    }
 
     ul = GETDWORD16(SetTextColor(
         HDC32(parg16->f1),
@@ -269,3 +291,4 @@ ULONG FASTCALL WG32TextOut(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
+

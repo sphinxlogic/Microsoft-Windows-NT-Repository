@@ -95,10 +95,6 @@ Revision History:
 #endif // TOKEN_DIAGNOSTICS_ENABLED
 
 
-
-
-
-
 //
 // The following flags enable or disable various diagnostic
 // capabilities within token code.  These flags are set in
@@ -264,6 +260,8 @@ typedef struct _TOKEN {
     UCHAR TokenFlags;                                   // Ro: 4-Bytes
     BOOLEAN TokenInUse;                                 // Wr: 1-Byte
 
+    PSECURITY_TOKEN_PROXY_DATA ProxyData;               // Ro: 4-Bytes
+    PSECURITY_TOKEN_AUDIT_DATA AuditData;               // Ro: 4-Bytes 
 
     //
     // This marks the beginning of the variable part of the token.
@@ -346,6 +344,13 @@ typedef struct _TOKEN {
 //    TokenInUse - Is a boolean that indicates whether a primary token
 //        is already in use by a process.  This field value is only
 //        valid for primary tokens.
+//
+//    ProxyData - Optionally points to a Proxy data structure, containing
+//        the information to be passed to AVR routines by file systems.
+//        This field being non-null identifies the token as a proxy token.
+//
+//    AuditData - Optionally points to an Audit data structure, containing
+//         global auditing data for this subject.
 //
 //        NOTE:  Access to this field is guarded by the global
 //               PROCESS SECURITY FIELDS LOCK.
@@ -547,12 +552,11 @@ SepPrivilegeCheck(
     IN KPROCESSOR_MODE PreviousMode
     );
 
-
 BOOLEAN
 SepAccessCheck (
     IN PSECURITY_DESCRIPTOR SecurityDescriptor,
-    IN PTOKEN Token,
-    IN BOOLEAN TokenLocked,
+    IN PTOKEN PrimaryToken,
+    IN PTOKEN ClientToken,
     IN ACCESS_MASK DesiredAccess,
     IN PGENERIC_MAPPING GenericMapping,
     IN ACCESS_MASK PreviouslyGrantedAccess,

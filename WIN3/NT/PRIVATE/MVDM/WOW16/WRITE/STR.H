@@ -229,5 +229,4 @@
 #define IDSTRPointDef                       0x7012
 #define IDSTRLineDef                        0x7013
 #define IDSTRAltBSDef                       0x7014
-
-
+

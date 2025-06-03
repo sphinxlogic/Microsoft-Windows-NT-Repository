@@ -79,11 +79,11 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCOUNT) {
-        NetpDbgPrint( "XsNetAccountDeltas: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetAccountDeltas: header at %lx, params at %lx, "
                       "buf size %ld\n",
                       Header,
                       parameters,
-                      SmbGetUshort( &parameters->BufferLen ));
+                      SmbGetUshort( &parameters->BufferLen )));
     }
 
     //
@@ -108,8 +108,8 @@ Return Value:
     //
 
     structure = (LPBYTE)SmbGetUlong( &parameters->RecordID );
-    RtlCopyMemory( infoIn.ComputerName, structure, LM20_CNLEN+1 );
-    structure += LM20_CNLEN + 1;
+    RtlCopyMemory( infoIn.ComputerName, structure, sizeof( infoIn.ComputerName ) );
+    structure += sizeof( infoIn.ComputerName );
     infoIn.TimeCreated = SmbGetUlong( structure );
     structure += sizeof(DWORD);
     infoIn.SerialNumber = SmbGetUlong( structure );
@@ -146,8 +146,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetAccountDeltas: I_NetAccountDeltas failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccountDeltas: I_NetAccountDeltas failed: "
+                          "%X\n", status ));
         }
 
         //
@@ -172,8 +172,8 @@ Return Value:
     //
 
     structure = parameters->NextRecordID;
-    RtlCopyMemory( structure, infoOut.ComputerName, LM20_CNLEN + 1 );
-    structure += LM20_CNLEN + 1;
+    RtlCopyMemory( structure, infoOut.ComputerName, sizeof( infoOut.ComputerName ) );
+    structure += sizeof( infoOut.ComputerName );
     SmbPutUlong( (LPDWORD)structure, infoOut.TimeCreated );
     structure += sizeof(DWORD);
     SmbPutUlong( (LPDWORD)structure, infoOut.SerialNumber );
@@ -251,11 +251,11 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCOUNT) {
-        NetpDbgPrint( "XsNetAccountSync: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetAccountSync: header at %lx, params at %lx, "
                       "buf size %ld\n",
                       Header,
                       parameters,
-                      SmbGetUshort( &parameters->BufferLen ));
+                      SmbGetUshort( &parameters->BufferLen )));
     }
     // NetpBreakPoint();
 
@@ -314,8 +314,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetAccountSync: I_NetAccountSync failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccountSync: I_NetAccountSync failed: "
+                          "%X\n", status ));
         }
 
         //
@@ -340,8 +340,8 @@ Return Value:
     //
 
     structure = parameters->LastRecordID;
-    RtlCopyMemory( structure, infoOut.ComputerName, LM20_CNLEN + 1 );
-    structure += LM20_CNLEN + 1;
+    RtlCopyMemory( structure, infoOut.ComputerName, sizeof( infoOut.ComputerName ) );
+    structure += sizeof( infoOut.ComputerName );
     SmbPutUlong( (LPDWORD)structure, infoOut.TimeCreated );
     structure += sizeof(DWORD);
     SmbPutUlong( (LPDWORD)structure, infoOut.SerialNumber );

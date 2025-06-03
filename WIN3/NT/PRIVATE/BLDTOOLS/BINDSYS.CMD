@@ -1,89 +1,142 @@
 @rem
 @rem Binding Script
 @rem
-@rem Optional arg "notools" will cause binding to be skipped for IDW and MSTOOLS
 
 @echo off
 if not "%Verbose%"=="" echo on
 
-:BindAway
 %BINDRIVE%
-cd %BINROOT%\nt
+cd %BINROOT%
 if not "%ntdebug%" == "" goto End
 
-set ExcludeExe=-x dump\jzsetup.exe -x idw\setup\arcinst.exe -x idw\setup\winnt.exe -x idw\winraid.exe -x mstools\c13232.exe -x mstools\hc30.exe -x mstools\hc31.exe -x mstools\mrbc.exe -x mstools\shed.exe -x regedit.exe -x system32\append.exe
-set ExcludeExe=%ExcludeExe% -x system32\backup.exe -x system32\debug.exe -x system32\dosx.exe -x system32\drwatson.exe -x system32\edlin.exe -x system32\exe2bin.exe -x system32\fastopen.exe -x system32\gdi.exe -x system32\intro.exe -x system32\krnl286.exe
-set ExcludeExe=%ExcludeExe% -x system32\krnl386.exe -x system32\mem.exe -x system32\mscdexnt.exe -x system32\nlsfunc.exe -x system32\ntkrnlmp.exe -x system32\ntoskrnl.exe -x system32\nw16.exe -x system32\qbasic.exe -x system32\redir.exe -x system32\setver.exe
-
-
-
-set ExcludeExe=%ExcludeExe% -x system32\share.exe -x system32\smss.exe -x system32\sysedit.exe -x system32\user.exe -x system32\vwipxspx.exe -x system32\winspool.exe -x system32\wowdeb.exe -x system32\wowexec.exe -x system32\write.exe -x winhelp.exe
+set ExcludeExe=
+set ExcludeExe=%ExcludeExe% -x dump\jzsetup.exe
+set ExcludeExe=%ExcludeExe% -x idw\winraid.exe
+set ExcludeExe=%ExcludeExe% -x mstools\c13232.exe
+set ExcludeExe=%ExcludeExe% -x mstools\hc30.exe
+set ExcludeExe=%ExcludeExe% -x mstools\hc31.exe
+set ExcludeExe=%ExcludeExe% -x mstools\mrbc.exe
+set ExcludeExe=%ExcludeExe% -x mstools\shed.exe
+set ExcludeExe=%ExcludeExe% -x regedit.exe
+set ExcludeExe=%ExcludeExe% -x append.exe
+set ExcludeExe=%ExcludeExe% -x backup.exe
+set ExcludeExe=%ExcludeExe% -x debug.exe
+set ExcludeExe=%ExcludeExe% -x dosx.exe
+set ExcludeExe=%ExcludeExe% -x drwatson.exe
+set ExcludeExe=%ExcludeExe% -x edlin.exe
+set ExcludeExe=%ExcludeExe% -x exe2bin.exe
+set ExcludeExe=%ExcludeExe% -x fastopen.exe
+set ExcludeExe=%ExcludeExe% -x gdi.exe
+set ExcludeExe=%ExcludeExe% -x intro.exe
+set ExcludeExe=%ExcludeExe% -x krnl286.exe
+set ExcludeExe=%ExcludeExe% -x krnl386.exe
+set ExcludeExe=%ExcludeExe% -x mem.exe
+set ExcludeExe=%ExcludeExe% -x mscdexnt.exe
+set ExcludeExe=%ExcludeExe% -x nlsfunc.exe
+set ExcludeExe=%ExcludeExe% -x ntkrnlmp.exe
+set ExcludeExe=%ExcludeExe% -x ntoskrnl.exe
+set ExcludeExe=%ExcludeExe% -x nw16.exe
+set ExcludeExe=%ExcludeExe% -x qbasic.exe
+set ExcludeExe=%ExcludeExe% -x redir.exe
+set ExcludeExe=%ExcludeExe% -x setver.exe
+set ExcludeExe=%ExcludeExe% -x share.exe
+set ExcludeExe=%ExcludeExe% -x smss.exe
+set ExcludeExe=%ExcludeExe% -x sysedit.exe
+set ExcludeExe=%ExcludeExe% -x user.exe
+set ExcludeExe=%ExcludeExe% -x vwipxspx.exe
+set ExcludeExe=%ExcludeExe% -x winspool.exe
+set ExcludeExe=%ExcludeExe% -x wowdeb.exe
+set ExcludeExe=%ExcludeExe% -x wowexec.exe
+set ExcludeExe=%ExcludeExe% -x write.exe
+set ExcludeExe=%ExcludeExe% -x winhelp.exe
 set ExcludeExe=%ExcludeExe% -x write.exe
 
-set ExcludeDll=-x idw\dbnmp3.dll -x idw\w3dblib.dll -x system32\commdlg.dll -x system32\ddeml.dll -x "system32\hal*.dll" -x system32\lzexpand.dll -x system32\mapi.dll -x system32\mciole16.dll -x system32\mmsystem.dll -x system32\mmsystem.dll
-set ExcludeDll=%ExcludeDll% -x system32\msacm.dll -x system32\netapi.dll -x system32\olecli.dll -x system32\olecli.dll -x system32\olesvr.dll -x system32\olesvr.dll -x system32\pmspl.dll -x system32\shell.dll -x system32\shell.dll -x system32\toolhelp.dll
-set ExcludeDll=%ExcludeDll% -x system32\ver.dll -x system32\win87em.dll -x system32\winsock.dll
+set ExcludeDll=
+set ExcludeDll=%ExcludeDll% -x idw\dbnmp3.dll
+set ExcludeDll=%ExcludeDll% -x idw\w3dblib.dll
+set ExcludeDll=%ExcludeDll% -x mstools\tlser32s.dll
+set ExcludeDll=%ExcludeDll% -x commdlg.dll
+set ExcludeDll=%ExcludeDll% -x ddeml.dll
+set ExcludeDll=%ExcludeDll% -x "hal*.dll"
+set ExcludeDll=%ExcludeDll% -x lzexpand.dll
+set ExcludeDll=%ExcludeDll% -x mapi.dll
+set ExcludeDll=%ExcludeDll% -x mciole16.dll
+set ExcludeDll=%ExcludeDll% -x mmsystem.dll
+set ExcludeDll=%ExcludeDll% -x mmsystem.dll
+set ExcludeDll=%ExcludeDll% -x msacm.dll
+set ExcludeDll=%ExcludeDll% -x msjt3032.dll
+set ExcludeDll=%ExcludeDll% -x netapi.dll
+set ExcludeDll=%ExcludeDll% -x odbcjt32.dll
+set ExcludeDll=%ExcludeDll% -x olecli.dll
+set ExcludeDll=%ExcludeDll% -x olecli.dll
+set ExcludeDll=%ExcludeDll% -x olesvr.dll
+set ExcludeDll=%ExcludeDll% -x olesvr.dll
+set ExcludeDll=%ExcludeDll% -x pmspl.dll
+REM Exclude rsabase.dll only for RTMs once it's been cryptographically signed
+set ExcludeDll=%ExcludeDll% -x rsabase.dll
+set ExcludeDll=%ExcludeDll% -x shell.dll
+set ExcludeDll=%ExcludeDll% -x shell.dll
+set ExcludeDll=%ExcludeDll% -x toolhelp.dll
+set ExcludeDll=%ExcludeDll% -x ver.dll
+set ExcludeDll=%ExcludeDll% -x win87em.dll
+set ExcludeDll=%ExcludeDll% -x winsock.dll
 
-set ExcludeCom=-x system32\command.com -x system32\edit.com -x system32\graphics.com -x system32\kb16.com -x system32\loadfix.com -x system32\msherc.com
+@rem
+@rem display\printer drivers loaded by GDI in the kernel
+@rem Image loaded in the kernel CAN NOT be bound, otherwise
+@rem you will get a bugcheck 97
+@rem
 
-if exist Dump\*.Exe						   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 Dump\*.Exe
+set ExcludeDll=%ExcludeDll% -x 8514a.dll
+set ExcludeDll=%ExcludeDll% -x ati.dll
+set ExcludeDll=%ExcludeDll% -x dump\atmdrvr.dll
+set ExcludeDll=%ExcludeDll% -x canon800.dll
+set ExcludeDll=%ExcludeDll% -x cirrus.dll
+set ExcludeDll=%ExcludeDll% -x escp2ms.dll
+set ExcludeDll=%ExcludeDll% -x dec3200.dll
+set ExcludeDll=%ExcludeDll% -x framebuf.dll
+set ExcludeDll=%ExcludeDll% -x jzvxl484.dll
+set ExcludeDll=%ExcludeDll% -x mga.dll
+set ExcludeDll=%ExcludeDll% -x plotter.dll
+set ExcludeDll=%ExcludeDll% -x psidisp.dll
+set ExcludeDll=%ExcludeDll% -x pscript.dll
+set ExcludeDll=%ExcludeDll% -x qv.dll
+set ExcludeDll=%ExcludeDll% -x rasdd.dll
+set ExcludeDll=%ExcludeDll% -x s3.dll
+set ExcludeDll=%ExcludeDll% -x tga.dll
+set ExcludeDll=%ExcludeDll% -x vga.dll
+set ExcludeDll=%ExcludeDll% -x vga256.dll
+set ExcludeDll=%ExcludeDll% -x vga64k.dll
+set ExcludeDll=%ExcludeDll% -x w32.dll
+set ExcludeDll=%ExcludeDll% -x wd90c24a.dll
+set ExcludeDll=%ExcludeDll% -x weitekp9.dll
+set ExcludeDll=%ExcludeDll% -x wowfax.dll
+set ExcludeDll=%ExcludeDll% -x xga.dll
+
+set ExcludeCom=
+set ExcludeCom=%ExcludeCom% -x command.com
+set ExcludeCom=%ExcludeCom% -x edit.com
+set ExcludeCom=%ExcludeCom% -x graphics.com
+set ExcludeCom=%ExcludeCom% -x kb16.com
+set ExcludeCom=%ExcludeCom% -x loadfix.com
+set ExcludeCom=%ExcludeCom% -x msherc.com
+
+if exist System32\*.Dll                                            Bind %ExcludeDll% -u -s Symbols -p System32 System32\*.Dll
+if exist System32\*.Exe                                            Bind %ExcludeExe% -u -s Symbols -p System32 System32\*.Exe
+if exist System32\*.Com                                            Bind %ExcludeCom% -u -s Symbols -p System32 System32\*.Com
+if exist *.Dll                                                     Bind %ExcludeDll% -u -s Symbols -p System32 *.Dll
+if exist *.Exe                                                     Bind %ExcludeExe% -u -s Symbols -p System32 *.Exe
+if exist *.Cpl                                                     Bind %ExcludeDll% -u -s Symbols -p System32 *.Cpl
+if exist *.Com                                                     Bind %ExcludeCom% -u -s Symbols -p System32 *.Com
+if exist MSTOOLS\*.Dll                                             Bind %ExcludeDll% -u -s Symbols -p MSTools;System32 MSTOOLS\*.Dll
+if exist MSTOOLS\*.Exe                                             Bind %ExcludeExe% -u -s Symbols -p MSTools;System32 MSTOOLS\*.Exe
+if exist MSTOOLS\*.Com                                             Bind %ExcludeCom% -u -s Symbols -p MSTools;System32 MSTOOLS\*.Com
+if exist IDW\*.Dll                                                 Bind %ExcludeDll% -u -s Symbols -p IDW;MSTools;System32 IDW\*.Dll
+if exist IDW\*.Exe                                                 Bind %ExcludeExe% -u -s Symbols -p IDW;MSTools;System32 IDW\*.Exe
+if exist IDW\*.Com                                                 Bind %ExcludeCom% -u -s Symbols -p IDW;MSTools;System32 IDW\*.Com
 if exist Dump\*.Dll						   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 Dump\*.Dll
+if exist Dump\*.Exe						   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 Dump\*.Exe
 if exist Dump\*.Com						   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 Dump\*.Com
-if "%1"=="notools" goto skiptools
-if "%1"=="NoTools" goto skiptools
-if "%1"=="NOTOOLS" goto skiptools
-if exist IDW\*.Exe						   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\*.Exe
-if exist IDW\*.Dll						   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\*.Dll
-if exist IDW\*.Com						   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\*.Com
-if exist IDW\SETUP\*.Exe					   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\SETUP\*.Exe
-if exist IDW\SETUP\*.Dll					   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\SETUP\*.Dll
-if exist IDW\SETUP\*.Com					   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 IDW\SETUP\*.Com
-if exist MSTools\*.Exe						   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 MSTools\*.Exe
-if exist MSTOOLS\*.Dll						   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 MSTOOLS\*.Dll
-if exist MSTOOLS\*.Com						   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 MSTOOLS\*.Com
-:skiptools
-if exist *.Exe							   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 *.Exe
-if exist *.Dll							   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 *.Dll
-if exist *.Com							   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 *.Com
-if exist System32\*.Exe						   Bind %ExcludeExe% -u -s Symbols -p Dump;IDW;MSTools;System32 System32\*.Exe
-if exist System32\*.Dll						   Bind %ExcludeDll% -u -s Symbols -p Dump;IDW;MSTools;System32 System32\*.Dll
-if exist System32\*.Com						   Bind %ExcludeCom% -u -s Symbols -p Dump;IDW;MSTools;System32 System32\*.Com
-if exist System32\Spool\Drivers\W32%Processor_Architecture%\*.Exe  goto DriversExe
-
-goto SkipDriversExe
-:DriversExe
-								   Bind %ExcludeExe% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\Drivers\W32%Processor_Architecture%\*.Exe
-:SkipDriversExe
-if exist System32\Spool\Drivers\W32%Processor_Architecture%\*.Dll  goto DriversDll
-
-goto SkipDriversDll
-:DriversDll
-								   Bind %ExcludeDll% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\Drivers\W32%Processor_Architecture%\*.Dll
-:SkipDriversDll
-if exist System32\Spool\Drivers\W32%Processor_Architecture%\*.Com goto DriversCom
-
-goto SkipDriversCom
-:DriversCom
-								   Bind %ExcludeCom% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\Drivers\W32%Processor_Architecture%\*.Com
-:SkipDriversCom
-if exist System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Exe  goto PrtProcsExe
-
-goto SkipPrtProcsExe
-:PrtProcsExe
-								   Bind %ExcludeExe% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Exe
-:SkipPrtProcsExe
-if exist System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Dll  goto PrtProcsDll
-
-goto SkipPrtProcsDll
-:PrtProcsDll
-								   Bind %ExcludeDll% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Dll
-:SkipPrtProcsDll
-if exist System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Com goto PrtProcsCom
-
-goto SkipPrtProcsCom
-:PrtProcsCom
-								   Bind %ExcludeCom% -u %1 -s Symbols -p Dump;IDW;MSTools;System32 System32\Spool\PrtProcs\W32%Processor_Architecture%\*.Com
-:SkipPrtProcsCom
 
 set ExcludeExe=
 set ExcludeDll=

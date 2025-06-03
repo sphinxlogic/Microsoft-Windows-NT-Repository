@@ -12,12 +12,13 @@
  *  Created.
 --*/
 
-BOOL DemInit (int argc, char *argv[], char *DosDirectory);
+BOOL DemInit (int argc, char *argv[]);
 BOOL DemDispatch(ULONG iSvc);
 VOID demCloseAllPSPRecords (VOID);
 DWORD demFileFindFirst (PVOID pDTA, LPSTR lpFile, USHORT usSearchAttr);
 DWORD demFileFindNext (PVOID pDTA);
 ULONG demClientErrorEx (HANDLE hFile, CHAR chDrive, BOOL bSetRegs);
+UCHAR demGetPhysicalDriveType(UCHAR DriveNum);
 
 #define SIZEOF_DOSSRCHDTA 43
 

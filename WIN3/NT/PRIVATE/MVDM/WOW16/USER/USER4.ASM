@@ -16,7 +16,7 @@
 
     .286p
 
-;    .xlist
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
@@ -77,7 +77,7 @@ assumes ES,NOTHING
     DUserThunk  QUERYSENDMESSAGE
     DUserThunk  USERSEEUSERDO
     DUserThunk  LOCKINPUT
-    DUserThunk  GETSYSTEMDEBUGSTATE, 0  ; chandanc
+;   DUserThunk  GETSYSTEMDEBUGSTATE, 0
     UserThunk   ENABLECOMMNOTIFICATION
     UserThunk   EXITWINDOWSEXEC
     DUserThunk  GETCURSOR, 0
@@ -94,10 +94,12 @@ assumes ES,NOTHING
     DUserThunk  GETFREESYSTEMRESOURCES
     DUserThunk  OLDSETDESKWALLPAPER      ;;;;;;
     DUserThunk  GETMESSAGEEXTRAINFO, 0
-    DUserThunk  KEYBD_EVENT
+;;;    DUserThunk  KEYBD_EVENT         ; local API in winmisc2.asm
+    DUserThunk  KEYBDEVENT
     UserThunk   REDRAWWINDOW
     UserThunk   LOCKWINDOWUPDATE
-    DUserThunk  MOUSE_EVENT
+;;    DUserThunk  MOUSE_EVENT          ;; in winmisc2.asm
+    DUserThunk  MOUSEEVENT
 ;;    DUserThunk  MENUWINDOWPROC       ;;;;;; in wclass.asm
     UserThunk   GETCLIPCURSOR
     UserThunk   SCROLLWINDOWEX

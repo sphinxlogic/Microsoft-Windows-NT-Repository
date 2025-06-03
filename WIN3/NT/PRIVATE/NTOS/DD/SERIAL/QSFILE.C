@@ -94,7 +94,7 @@ Return Value:
 
         PFILE_STANDARD_INFORMATION Buf = Irp->AssociatedIrp.SystemBuffer;
 
-        Buf->AllocationSize = RtlConvertUlongToLargeInteger(0ul);
+        Buf->AllocationSize.QuadPart = 0;
         Buf->EndOfFile = Buf->AllocationSize;
         Buf->NumberOfLinks = 0;
         Buf->DeletePending = FALSE;
@@ -105,7 +105,7 @@ Return Value:
                FilePositionInformation) {
 
         ((PFILE_POSITION_INFORMATION)Irp->AssociatedIrp.SystemBuffer)->
-            CurrentByteOffset = RtlConvertUlongToLargeInteger(0ul);
+            CurrentByteOffset.QuadPart = 0;
         Irp->IoStatus.Information = sizeof(FILE_POSITION_INFORMATION);
 
     } else {

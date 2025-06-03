@@ -33,7 +33,7 @@ Revision History:
 #include <debuglib.h>   // IF_DEBUG().
 #include <lmerr.h>      // NO_ERROR, NERR_ and ERROR_ equates.
 #include <errno.h>      // EDOM, ERANGE, etc.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates.
 #include <netlib.h>     // My prototype.
 #include <prefix.h>     // PREFIX_ equates.
 
@@ -323,11 +323,11 @@ NetpErrNoToApiStatus(
     }
 
     IF_DEBUG( ERRNO ) {
-        NetpDbgPrint( PREFIX_NETLIB
+        NetpKdPrint(( PREFIX_NETLIB
                 "NetpErrNoToApiStatus: converted %d to " FORMAT_API_STATUS
-                ".\n", Err, ApiStatus);
+                ".\n", Err, ApiStatus));
     }
-    
+
     return (ApiStatus);
 
 }

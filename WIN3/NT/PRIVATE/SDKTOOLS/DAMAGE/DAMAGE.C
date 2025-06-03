@@ -120,12 +120,12 @@ void parse_args (argc, argv)
   UCHAR *p;
   USHORT i;
 
-  getcwd (disk_name, 80);
+  _getcwd (disk_name, 80);
 
   if (argc < 2)
     usage ();
   for (i=1; i<argc; i++) {
-    p=strlwr (argv [i]);
+    p=_strlwr (argv [i]);
 
     if (p [1] == ':')
      strcpy (disk_name, p);

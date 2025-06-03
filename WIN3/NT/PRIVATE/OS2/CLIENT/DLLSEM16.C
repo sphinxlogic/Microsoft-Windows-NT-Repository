@@ -43,11 +43,13 @@ Revision History:
 
 #if DBG
 // Set the values as appropriate (with NTSD or at compile-time) to see all
-// semaphore operations relating to these 2 semaphores.
+// semaphore operations relating to any of these 4 semaphores.
 // To disable this feature, leave the variables at 0.
 // WARNING: remember to use the flat address, not the 16-bit seg:off
 PVOID Os2DebugSem  = (HSEM)0x0;
 PVOID Os2DebugSem1 = (HSEM)0x0;
+PVOID Os2DebugSem2 = (HSEM)0x0;
+PVOID Os2DebugSem3 = (HSEM)0x0;
 // Undef the 2 lines below to see print-out of failures to open this NT event
 //#define DBG_SEM_EVENT_STR "\\SEM\\HACKNT3C"
 //#define DBG_SEM_INDEX     0x3c
@@ -61,12 +63,10 @@ PVOID Os2DebugSem1 = (HSEM)0x0;
     // SEM_EVENT - event semaphore (sem/wait/clear)
     // Other - mutex semaphore, owned
     //
-#define SEM_DUAL -3
-#define SEM_AT_INIT -2
+#define SEM_DUAL            -3
+#define SEM_AT_INIT         -2
 #define SEM_MUTEX_NOT_OWNED -1
-#define SEM_EVENT 0
-#define SYSSEM_PRIVATE 2
-#define SYSSEM_PUBLIC 1
+#define SEM_EVENT           0
 
 #define OD2SEMTHRESHOLD 800
 ULONG   Od2NumSemCreated = 0;
@@ -151,11 +151,17 @@ Od2AlertableWaitForSingleObject(
 {
     NTSTATUS Status;
 
-    while ((Status =
+    while (((Status =
                 NtWaitForSingleObject(
                     handle,
                     TRUE, // alertable
-                    NULL)) == STATUS_ALERTED);
+                    NULL)) == STATUS_ALERTED) || (Status == STATUS_USER_APC)) {
+#if DBG
+        if (Status == STATUS_USER_APC) {
+            DbgPrint("WARNING !!! Od2AlertableWaitForSingleObject was broken by APC\n");
+        }
+#endif
+    }
     return Status;
 }
 
@@ -298,15 +304,27 @@ Od2LookupSem (
     BOOLEAN TookTaskLock = FALSE;
     NTSTATUS Status;
 
-    if ((*(PULONG)hsem < (ULONG)Od2TiledHeap + OD2TILEDHEAP_SIZE) && (*(PULONG)hsem >= (ULONG)Od2TiledHeap)) {
+    pSem = (POS21X_SEM)(*(PULONG)hsem & 0xFFFFFFFC);
+    if (((ULONG)pSem < (ULONG)Od2TiledHeap + OD2TILEDHEAP_SIZE) && ((ULONG)pSem >= (ULONG)Od2TiledHeap)) {
        //
        // No need for special support (RAM sem in shared memory hook)
        //  - the 4 bytes in user area contains
        // bit: 31                               1
        //      | pointer to prealsem in od2heap | 2bits for set/clear
        //
-       return (POS21X_SEM)(*(PULONG)hsem & 0xFFFFFFFC);
-
+       if (pSem->pMyself == (PVOID)hsem) {
+            return pSem;
+       }
+#if DBG
+       else {
+           DbgPrint("[%d,%d]Od2LookupSem: Private RAM sem signature corrupted hsem=%x, *hsem=%x\n",
+                Od2Process->Pib.ProcessId,
+                Od2CurrentThreadId(),
+                hsem,
+                pSem
+                );
+       }
+#endif // DBG
     }
 
     if (LockFlag) {
@@ -345,7 +363,7 @@ lookagain:
                 // that look for RAM sem being zero after clear
                 //
                 if (((*(PULONG)hsem & 0xFFFFFFFC) == 0) && (pSem->u.SharedRamSignature == 0)){
-                    *(PULONG)hsem |= (ULONG)pSem;
+                    *(PULONG)hsem = (ULONG)pSem | (*(PULONG)hsem & 0x3);
                 }
 
                 if (TookTaskLock) {
@@ -686,9 +704,11 @@ Od2OpenSem(
 #endif
 #if DBG
         if (((Os2DebugSem != 0) && (UserSem == Os2DebugSem)) ||
+            ((Os2DebugSem3 != 0) && (UserSem == Os2DebugSem3)) ||
+            ((Os2DebugSem2 != 0) && (UserSem == Os2DebugSem2)) ||
             ((Os2DebugSem1 != 0) && (UserSem == Os2DebugSem1)))
         {
-            KdPrint(("[%x,%x] Od2OpenSem(%x,*=%x): failed to NtOpenSemaphore, eventname=%s, Status=%x\n",
+            KdPrint(("[%d,%d] Od2OpenSem(%x,*=%x): failed to NtOpenSemaphore, eventname=%s, Status=%x\n",
                         Od2Process->Pib.ProcessId,
                         Od2CurrentThreadId(),
                         UserSem,
@@ -717,9 +737,11 @@ Od2OpenSem(
 #endif
 #if DBG
         if (((Os2DebugSem != 0) && (UserSem == Os2DebugSem)) ||
+            ((Os2DebugSem2 != 0) && (UserSem == Os2DebugSem2)) ||
+            ((Os2DebugSem3 != 0) && (UserSem == Os2DebugSem3)) ||
             ((Os2DebugSem1 != 0) && (UserSem == Os2DebugSem1)))
         {
-            KdPrint(("[%x,%x] Od2OpenSem(%x,*=%x): failed to DosOpenEventSem, rc=%d\n",
+            KdPrint(("[%d,%d] Od2OpenSem(%x,*=%x): failed to DosOpenEventSem, rc=%d\n",
                         Od2Process->Pib.ProcessId,
                         Od2CurrentThreadId(),
                         UserSem,
@@ -905,7 +927,7 @@ Od2CreateSem(
 #if DBG
 #ifdef DBG_SEM_INDEX
                     if (Od2SemIndexHint == DBG_SEM_INDEX) {
-                        DbgPrint("[%x,%x] Od2LookUpOrCreateSem: looping for open, got rc=%x for index %x for hsem=%x, *=%x\n",
+                        DbgPrint("[%d,%d] Od2LookUpOrCreateSem: looping for open, got rc=%x for index %x for hsem=%x, *=%x\n",
                             Od2Process->Pib.ProcessId,
                             Od2CurrentThreadId(),
                             rc,
@@ -1328,6 +1350,10 @@ BOOLEAN GarbageCollect(VOID)
     NTSTATUS Status;
     APIRET rc;
     BOOLEAN DeletedSomeStuff = FALSE;
+    ULONG hsem_value;
+#if DBG
+    ULONG NumSem = 0, NumFreed = 0;
+#endif //DBG
 
     LockFlag = TRUE;
     Status = Od2AcquireMutant(Od2GarbageCollectSem);
@@ -1356,16 +1382,40 @@ BOOLEAN GarbageCollect(VOID)
     for (pRealSem = pPrevSem = (POS21X_SEM)Od2Sem16ListHead;
          pPrevSem->Next != NULL;) {
 
+#if DBG
+            NumSem++;
+#endif //DBG
                 //
                 // check if a private RAM sem
                 //
             hsem = (HSEM)(pRealSem->pMyself);
-            if ((*(PULONG)hsem != (ULONG)hsem) &&
-                ((*(PULONG)hsem & 0xFFF00000) != 0xCCC00000)) {
+
+            // Validate validity of each semaphore in the list
+            try
+            {
+                hsem_value = *(PULONG)hsem;
+            }
+            except( EXCEPTION_EXECUTE_HANDLER )
+            {
+#if DBG
+                DbgPrint("[%d,%d] GarbageCollect: WARNING !!! can't access RAM semaphore %x\n",
+                    Od2Process->Pib.ProcessId,
+                    Od2CurrentThreadId(),
+                    hsem);
+#endif
+                  //
+                  // Can't access this semaphore - maybe memory was released !
+                  // Remove this semaphore from the list and go to next by
+                  // setting value to 0
+                  hsem_value = 0;
+            }
+
+            if ((hsem_value != (ULONG)hsem) &&
+                ((hsem_value & 0xFFF00000) != 0xCCC00000)) {
                     //
                     // Private RAM Semaphore:
                     //
-                if (*(PULONG)hsem == 0) {
+                if (hsem_value == 0) {
 
                     LONG PreviousCount;
 
@@ -1413,6 +1463,9 @@ BOOLEAN GarbageCollect(VOID)
                         DeletedSomeStuff = TRUE;
                     }
 
+#if DBG
+                    NumFreed++;
+#endif
                         //
                         // unlink it
                         //
@@ -1456,6 +1509,8 @@ BOOLEAN GarbageCollect(VOID)
         KdPrint(("Os2 - GarbageCollect: failed to NtReleaseSemaphore on sync sem, Status=%x\n",
                     Status));
     }
+    KdPrint(("Os2 - GarbageCollect: found %d semaphores, deleted %d\n",
+                NumSem,NumFreed));
 #endif
     LockFlag = FALSE;
     return(DeletedSomeStuff);
@@ -1472,7 +1527,7 @@ POS21X_SEM
 Od2LookupOrCreateSem (
         HSEM hsem,
         PBOOLEAN firsttime,
-        BOOLEAN CheckInitializationOfSem
+        ULONG source
         )
 {
     APIRET rc = NO_ERROR;
@@ -1499,11 +1554,10 @@ Od2LookupOrCreateSem (
             // semaphore
             //
 
-            if ((*(PULONG)hsem & 0xFFFC) != (pRealSem->u.SharedRamSignature & 0xFFFC)) {
-                FlushSharedRamSem = TRUE;
+            if ((*(PULONG)hsem & 0x3FFFC) != (pRealSem->u.SharedRamSignature & 0x3FFFC)) {
 #if PMNT
 #if DBG
-                DbgPrint("[%x,%x] Od2LookupOrCreateSem: signature mismatch, hsem=%x, *=%x, signature=%x\n",
+                DbgPrint("[%d,%d] Od2LookupOrCreateSem: signature mismatch, hsem=%x, *=%x, signature=%x\n",
                         Od2Process->Pib.ProcessId,
                         Od2CurrentThreadId(),
                         hsem,
@@ -1511,6 +1565,7 @@ Od2LookupOrCreateSem (
                         pRealSem->u.SharedRamSignature);
 #endif // DBG
 #endif // PMNT
+                FlushSharedRamSem = TRUE;
                 goto SyncLabel;
             }
         }
@@ -1536,16 +1591,38 @@ SyncLabel:
         //
         // see if another thread in this process did not fix it yet
         //
-        if ((*(PULONG)hsem & 0xFFFC) != (pRealSem->u.SharedRamSignature & 0xFFFC)) {
+        if ((*(PULONG)hsem & 0x3FFFC) != (pRealSem->u.SharedRamSignature & 0x3FFFC)) {
 #if DBG
            IF_OD2_DEBUG ( SEMAPHORES ) {
                DbgPrint("FlushSharedRamSem: Flushing reference of *hsem %x, pRealSem at %x\n",
                *(PULONG)hsem, pRealSem);
            }
 #endif
+           if ((source & SEM_FROM_CLEAR) && ((*(PULONG)hsem & 0xFFF00000) != 0xCCC00000)) {
+               Status = Od2ReleaseSync();
+#if DBG
+                if (!NT_SUCCESS(Status)) {
+                    DbgPrint("[%d,%d] Od2LookupOrCreateSem (flashing skipped): failed to NtReleaseMutant on sync sem, Status=%x\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        Status);
+                }
+#endif
+                *firsttime = FALSE;
+                //
+                // *(PULONG)hsem &= 0xffffff00;
+                //
+                __asm
+                {
+                    mov eax, hsem
+                    lock and dword ptr [eax], 0xffffff00
+                }
+                return(pRealSem);
+            }
+
 #if PMNT
 #if DBG
-           DbgPrint("[%x,%x] FlushSharedRamSem: Flushing reference of hsem=%x, *=%x, signature=%x\n",
+           DbgPrint("[%d,%d] FlushSharedRamSem: Flushing reference of hsem=%x, *=%x, signature=%x\n",
                Od2Process->Pib.ProcessId,
                Od2CurrentThreadId(),
                hsem,
@@ -1645,7 +1722,7 @@ SyncLabel:
 #endif
 #if PMNT
 #if DBG
-           DbgPrint("[%x,%x] FlushShareRamSem: Another thread in this process flushed reference of hsem=%x, *=%x, signature=%x\n",
+           DbgPrint("[%d,%d] FlushShareRamSem: Another thread in this process flushed reference of hsem=%x, *=%x, signature=%x\n",
                Od2Process->Pib.ProcessId,
                Od2CurrentThreadId(),
                hsem,
@@ -1715,9 +1792,11 @@ SyncLabel:
             if (rc != NO_ERROR) {
 #if DBG
                 if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+                    ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+                    ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
                     ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1)))
                 {
-                    KdPrint(("[%x,%x] Od2LookupOrCreateSem(%x,*=%x): failed to Od2OpenSem on %s, rc=%d\n",
+                    KdPrint(("[%d,%d] Od2LookupOrCreateSem(%x,*=%x): failed to Od2OpenSem on %s, rc=%d\n",
                                 Od2Process->Pib.ProcessId,
                                 Od2CurrentThreadId(),
                                 hsem,
@@ -1729,16 +1808,20 @@ SyncLabel:
 
                 // Create semaphore.
                 //
-                // CheckInitializationOfSem will be TRUE only if Od2LookupOrCreate was
-                // called from DosSemRequest or DosSemWait.
-                //
 
-                if (!CheckInitializationOfSem) {
+                if (!(source & SEM_FROM_REQUESTWAIT)) {
 
                     // Erase the least significat byte of the semaphore,
                     // so semaphore will not be created in busy state.
 
-                    *(PULONG)hsem &= 0xffffff00;
+                    //
+                    // *(PULONG)hsem &= 0xffffff00;
+                    //
+                    __asm
+                    {
+                        mov eax, hsem
+                        lock and dword ptr [eax], 0xffffff00
+                    }
                 }
 
                *firsttime = TRUE;
@@ -1753,8 +1836,8 @@ SyncLabel:
                     NULL);
 #if DBG
 #ifdef DBG_SEM_INDEX
-               if ((*(PULONG)hsem & 0xFFFC) == (DBG_SEM_INDEX << 2)) {
-                   KdPrint(("[%x,%x] Od2LookupOrCreateSem: created (due to garbage) %x for hsem=%x, *=%x, rc=%x\n",
+               if ((*(PULONG)hsem & 0x3FFFC) == (DBG_SEM_INDEX << 2)) {
+                   KdPrint(("[%d,%d] Od2LookupOrCreateSem: created (due to garbage) %x for hsem=%x, *=%x, rc=%x\n",
                       Od2Process->Pib.ProcessId,
                       Od2CurrentThreadId(),
                       DBG_SEM_INDEX,
@@ -1773,7 +1856,7 @@ SyncLabel:
                 // success opening
                 //
                 if (tmp == (DBG_SEM_INDEX << 2)) {
-                    KdPrint(("[%x,%x] Od2LookupOrCreateSem: opened %x for hsem=%x, *=%x\n",
+                    KdPrint(("[%d,%d] Od2LookupOrCreateSem: opened %x for hsem=%x, *=%x\n",
                        Od2Process->Pib.ProcessId,
                        Od2CurrentThreadId(),
                        DBG_SEM_INDEX,
@@ -1793,17 +1876,19 @@ SyncLabel:
     }
     else {
 
-        //
-        // CheckInitializationOfSem will be TRUE only if Od2LookupOrCreate was
-        // called from DosSemRequest or DosSemWait.
-        //
-
-        if (!CheckInitializationOfSem) {
+        if (!(source & SEM_FROM_REQUESTWAIT)) {
 
             // Erase the least significat byte of the semaphore,
             // so semaphore will not be created in busy state.
 
-            *(PULONG)hsem &= 0xffffff00;
+            //
+            // *(PULONG)hsem &= 0xffffff00;
+            //
+            __asm
+            {
+                mov eax, hsem
+                lock and dword ptr [eax], 0xffffff00
+            }
         }
 
         *firsttime = TRUE;
@@ -1825,8 +1910,8 @@ SyncLabel:
                 pRealSem->u.SharedRamSignature = *(PULONG)hsem;
 #if DBG
 #if DBG_SEM_INDEX
-            if ((*(PULONG)hsem & 0xFFFC) == (DBG_SEM_INDEX << 2)) {
-                KdPrint(("[%x,%x] Od2LookupOrCreateSem: created (new) %x for hsem=%x, *=%x\n",
+            if ((*(PULONG)hsem & 0x3FFFC) == (DBG_SEM_INDEX << 2)) {
+                KdPrint(("[%d,%d] Od2LookupOrCreateSem: created (new) %x for hsem=%x, *=%x\n",
                    Od2Process->Pib.ProcessId,
                    Od2CurrentThreadId(),
                    DBG_SEM_INDEX,
@@ -1842,7 +1927,7 @@ SyncLabel:
 #ifdef PMNT
 #if DBG
         if (FlushSharedRamSem) {
-           DbgPrint("[%x,%x] FlushShareRamSem: created new entry for hsem=%x, *=%x, signature=%x\n",
+           DbgPrint("[%d,%d] FlushShareRamSem: created new entry for hsem=%x, *=%x, signature=%x\n",
                Od2Process->Pib.ProcessId,
                Od2CurrentThreadId(),
                hsem,
@@ -1881,13 +1966,9 @@ SyncLabel:
 #if DBG
             DbgPrint ("Od2LookupOrCreate: GarbageCollect freed some resource, try create again\n");
 #endif
-            // Call Od2LookupOrCreateSem with the same value for parameter
-            // CheckInitializationOfSem. This parameter will be TRUE only if the function
-            // was called from DosSemRequest or DosSemWait. Because of the fact that the
-            // semaphore wasn't created yet, we have chance that it will
-            // be created after the garbage collection.
+            // Call Od2LookupOrCreateSem with the same value for parameter "source"
 
-            return (Od2LookupOrCreateSem (hsem, firsttime, CheckInitializationOfSem));
+            return (Od2LookupOrCreateSem (hsem, firsttime, source));
 
         }
                 //
@@ -1964,9 +2045,23 @@ Od2CloseAllRAMSharedSemaphores( VOID)
             }
 #endif
 
+            if (DosCloseSemNoRemove(pSem,FALSE)) {
+                Status = Od2ReleaseSync();
+#if DBG
+                if (!NT_SUCCESS(Status)) {
+                    DbgPrint("[%d,%d] Od2CloseAllRAMSharedSemaphores (close fail): failed to NtReleaseMutant on sync sem, Status=%x\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId(),
+                            Status);
+                }
+#endif
+                continue;
+            }
+
             hsem = pSem->pMyself;
+
             try {
-                index = (*(PULONG)hsem & 0xFFFF) >> 2;
+                index = (*(PULONG)hsem & 0x3FFFF) >> 2;
             }
             except( EXCEPTION_EXECUTE_HANDLER ) {
                 pSem = (POS21X_SEM)(pSem->Next);
@@ -1980,13 +2075,10 @@ Od2CloseAllRAMSharedSemaphores( VOID)
                             Status);
                 }
 #endif
-
                 continue;
             }
 
-            DosCloseSemNoRemove(pSem,FALSE);
-
-            if ((pSem->u.SharedRamSignature & 0xFFFC) == (*(PULONG)hsem & 0xFFFC)) {
+            if ((pSem->u.SharedRamSignature & 0x3FFFC) == (*(PULONG)hsem & 0x3FFFC)) {
                     //
                     // compose the name for the semaphore
                     //
@@ -1997,14 +2089,48 @@ Od2CloseAllRAMSharedSemaphores( VOID)
                 pchtmp = _itoa (index, &pszSemName[11], 16);
                 rc = Od2OpenSem(NULL, &(POS21X_SEM)tmpsem, pszSemName,FALSE);
 
-                if (rc != NO_ERROR) {
+                if (rc == ERROR_SEM_NOT_FOUND) {
                     //
-                    // This was the last open handle
+                    // This was the last open handle. The semaphore must flushed by other
+                    // processes.
                     //
-                    *(PULONG)hsem = 0xCCC00000;
+                    if ((*(PULONG)hsem & 0xFFF00000) == 0xCCC00000) {
+
+                        //
+                        // *(PULONG)hsem = 0xCCC00000;
+                        //
+                        // If the signature is used by app (it isn't 0xCCC?????) like PMSHELL
+                        // that use the most significant word of the semaphore for managing
+                        // list of free semaphores for reusing, don't write 0xCCC00000 signature.
+                        // In this case the semaphore will be flushed as well.
+                        // Unfortunately there is a small time window that the value that might
+                        // be used by app was destroyed.
+                        //
+                        __asm {
+                            mov eax, hsem
+                            mov cx, 0xCCC0
+                            xchg word ptr [eax+2], cx
+                            mov dx, cx
+                            and dx, 0xFFF0
+                            cmp dx, 0xCCC0
+                            je  Od2CloseRamSemOk
+                            xchg cx, word ptr [eax+2]
+                        Od2CloseRamSemOk:
+                            mov word ptr [eax], 0
+                        }
+                    }
                 }
-                else
+                else if (rc == NO_ERROR) {
                     DosCloseSemNoRemove(tmpsem,TRUE);
+                }
+#if DBG
+                else {
+                    DbgPrint("[%d,%d] Od2CloseAllRAMSharedSemaphores: Fail to open. rc=%d\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        rc);
+                }
+#endif // DBG
             }
 
             pSem = (POS21X_SEM)(pSem->Next);
@@ -2102,7 +2228,6 @@ DosCreateSem(
     *phSem = (POS21X_SEM)(FLATTOFARPTR(Sem));
 
     return(NO_ERROR);
-
 }
 
 
@@ -2195,6 +2320,11 @@ Od2CloseSem(
             IF_OD2_DEBUG ( SEMAPHORES ) {
                 DbgPrint("DosCloseSem: error at DosSemWait, rc %d, return ERROR_SEM_IS_SET\n", rc);
             }
+            DbgPrint("[%d,%d] DosCloseSem(%x): DosSemWait returned rc=%d\n",
+                        Od2Process->Pib.ProcessId,
+                        Od2CurrentThreadId(),
+                        hsem,
+                        rc);
 #endif
             return (ERROR_SEM_IS_SET);
         }
@@ -2342,8 +2472,10 @@ DosSemClear(
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemClear(%x, *=%x): entering\n",
+        KdPrint(("[%d,%d] DosSemClear(%x, *=%x): entering\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -2360,18 +2492,18 @@ DosSemClear(
 
     // If the semaphore will be created in will be initially in not busy state.
 
-    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, FALSE);
+    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, SEM_FROM_CLEAR);
 
     if (pRealSem == NULL)
        return(ERROR_NOT_ENOUGH_MEMORY);
 
     if (firsttime) {
-        if ((*(PULONG)hsem & 0xFFF00000) != 0xCCC00000) {
+//        if ((*(PULONG)hsem & 0xFFF00000) != 0xCCC00000) {
                 //
                 // private mem RAM sem: set value and return
                 //
 //            *(PULONG)hsem = (ULONG)pRealSem;
-        }
+//        }
 #if DBG
         IF_OD2_DEBUG ( SEMAPHORES ) {
             DbgPrint ("[TID %x]: DosSemClear 1st time succeeded: Sem %x, NtSem %lx, Event %lx\n",
@@ -2379,8 +2511,10 @@ DosSemClear(
         }
 
         if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+            ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+            ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
             ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-            KdPrint(("[%x,%x] DosSemClear(%x, *=%x): first time, exiting OK\n",
+            KdPrint(("[%d,%d] DosSemClear(%x, *=%x): first time, exiting OK\n",
                     Od2Process->Pib.ProcessId,
                     Od2CurrentThreadId(),
                     hsem,
@@ -2397,6 +2531,9 @@ DosSemClear(
                 //     OS/2 1.X Apps (SQLQ 1.11 ) expects the semaphore location
                 //     to be actually ZERO (undocumented)
                 //
+
+                // BUGBUG Maybe OS/2 clears only low word
+
         *(PULONG)hsem = 0;
     }
 
@@ -2593,8 +2730,10 @@ DosSemClear(
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemClear(%x, *=%x): exiting, rc=%x\n",
+        KdPrint(("[%d,%d] DosSemClear(%x, *=%x): exiting, rc=%x\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -2622,8 +2761,10 @@ DosSemSet(
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemSet(%x, *=%x): entering\n",
+        KdPrint(("[%d,%d] DosSemSet(%x, *=%x): entering\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -2640,7 +2781,7 @@ DosSemSet(
 
     // If the semaphore will be created it will be initially in not busy state.
 
-    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, FALSE);
+    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, SEM_FROM_SET);
 
     if (pRealSem == NULL)
        return(ERROR_NOT_ENOUGH_MEMORY);
@@ -2654,10 +2795,15 @@ DosSemSet(
             pRealSem->OwnerThread = (TID)SEM_EVENT; // mark it as a WAIT/CLEAR semaphore, no owner
         }
         if ((*(PULONG)hsem & 0xFFF00000) != 0xCCC00000) {
-                //
-                // private mem RAM sem: set value and return
-                //
-            *(PULONG)hsem = (ULONG)pRealSem | 1;
+            //
+            // private mem RAM sem: set value and return
+            //
+            // *(PULONG)hsem |= 1;
+            __asm
+            {
+                mov eax, hsem
+                lock or  dword ptr [eax], 1
+            }
         }
         else {
 #if DBG
@@ -2666,7 +2812,14 @@ DosSemSet(
                             Od2CurrentThreadId(),hsem, *(PULONG)hsem, pRealSem->Mutex,pRealSem->Event );
             }
 #endif
-            *(PULONG)hsem |= 0x00040000;      // WAIT/CLEAR shared RAM sem
+            //
+            // *(PULONG)hsem |= 0x00040000;
+            //
+            __asm
+            {
+                mov eax, hsem
+                lock or  dword ptr [eax], 0x00040000
+            }
         }
     }
 
@@ -2746,8 +2899,10 @@ DosSemSet(
 
 #if DBG
         if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+            ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+            ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
             ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-            KdPrint(("[%x,%x] DosSemSet(%x, *=%x): exiting OK\n",
+            KdPrint(("[%d,%d] DosSemSet(%x, *=%x): exiting OK\n",
                     Od2Process->Pib.ProcessId,
                     Od2CurrentThreadId(),
                     hsem,
@@ -2778,8 +2933,10 @@ DosSemSet(
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemSet(%x, *=%x): exiting, rc=%x\n",
+        KdPrint(("[%d,%d] DosSemSet(%x, *=%x): exiting, rc=%x\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -2802,17 +2959,32 @@ DosSemWait(
     BOOLEAN CheckCurrentOwner = FALSE;
     LARGE_INTEGER CapturedTimeout;
     PLARGE_INTEGER NtTimeout;
+    LARGE_INTEGER StartTimeStamp;
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemWait(%x, *=%x): entering\n",
+        KdPrint(("[%d,%d] DosSemWait(%x, *=%x): entering\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
                 *(PULONG)hsem));
     }
 #endif // DBG
+
+    //
+    // If the least significant byte of RAM semaphore is 0, it is free (OS/2 native
+    // conmpartability).
+    // This fiture of OS/2 is used by Saros Mezzanine, that reuse memory that contain
+    // semaphores that were set. It is enough to zero this memory in OS/2 to free the
+    // semaphores.
+    //
+
+    if (((*(PULONG)hsem & 0xff) == 0) && (*(PULONG)hsem != (ULONG)hsem)) {
+        return NO_ERROR;
+    }
 
     try {
             Od2ProbeForWrite( (PVOID)hsem, sizeof( ULONG ), 1 );
@@ -2824,7 +2996,7 @@ DosSemWait(
     // If the semaphore will be ckeated, will be checked if it must be created
     // in initially busy state.
 
-    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, TRUE);
+    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, SEM_FROM_REQUESTWAIT);
 
     if (pRealSem == NULL)
        return(ERROR_NOT_ENOUGH_MEMORY);
@@ -2857,7 +3029,14 @@ DosSemWait(
                 *(PULONG)hsem = (ULONG)pRealSem;
            }
            else {
-                *(PULONG)hsem |= 0x00040000;      // WAIT/CLEAR shared RAM sem
+                //
+                // *(PULONG)hsem |= 0x00040000;
+                //
+                __asm
+                {
+                    mov eax, hsem
+                    lock or  dword ptr [eax], 0x00040000
+                }
            }
 #if DBG
             IF_OD2_DEBUG ( SEMAPHORES ) {
@@ -2870,17 +3049,25 @@ DosSemWait(
             // return(NO_ERROR);
         }
 
-            //
-            // We Implement a Wait by a Waiting on the Event part of
-            // the OS21X_SEM
-            //
+        //
+        // We Implement a Wait by a Waiting on the Event part of
+        // the OS21X_SEM
+        //
 
 
-            //
-            // RAM semaphore:
-            //     OS/2 1.X apps expect sem location last two bits to be 0
-            //
-        *(PULONG)hsem &= 0XFFFFFFFC;
+        //
+        // RAM semaphore:
+        //     OS/2 1.X apps expect sem location last two bits to be 0
+        //
+
+        //
+        // *(PULONG) hsem &= 0xfffffffc;
+        //
+        __asm
+        {
+            mov eax, hsem
+            lock and dword ptr [eax], 0XFFFFFFFC
+        }
 
         if ((*(PULONG)hsem & 0xFFF00000) == 0xCCC00000) {
                 //
@@ -2896,7 +3083,15 @@ DosSemWait(
             if ((*(PULONG)hsem & 0xFFFC0000) == 0xCCC80000) {
                 CheckCurrentOwner = TRUE;
             }
-            *(PULONG)hsem |= 0x00040000;      // WAIT/CLEAR shared RAM sem
+            // WAIT/CLEAR shared RAM sem
+            //
+            // *(PULONG) hsem |= 0x00040000;
+            //
+            __asm
+            {
+                mov eax, hsem
+                lock or  dword ptr [eax], 0x00040000
+            }
         }
 
         if (CheckCurrentOwner) {
@@ -2913,11 +3108,31 @@ DosSemWait(
                 //
             NtTimeout = Od2CaptureTimeout( lTimeOut, (PLARGE_INTEGER)&CapturedTimeout );
 
-            Status = NtWaitForSingleObject(
-                pRealSem->Mutex,
-                TRUE,               // Alertable
-                NtTimeout
-                );
+            do {
+                if (NtTimeout) {
+                    Od2StartTimeout(&StartTimeStamp);
+                }
+                Status = NtWaitForSingleObject(
+                    pRealSem->Mutex,
+                    TRUE,               // Alertable
+                    NtTimeout
+                    );
+#if DBG
+                if (Status == STATUS_USER_APC) {
+                    DbgPrint("[%d,%d] WARNING !!! DosSemRequest was broken by APC\n",
+                            Od2Process->Pib.ProcessId,
+                            Od2CurrentThreadId()
+                            );
+                }
+#endif
+            } while (Status == STATUS_USER_APC &&
+                     (Status = Od2ContinueTimeout(&StartTimeStamp, NtTimeout)) == STATUS_SUCCESS
+                    );
+
+            //
+            // BUGBUG: This code is a little strange. The status can be positive value,
+            // for example, STATUS_TIMEOUT. In this case rc will remain NO_ERROR too.
+            //
             if (!NT_SUCCESS(Status)) {
                 rc = Or2MapNtStatusToOs2Error(Status, ERROR_SEM_TIMEOUT);
 #if DBG
@@ -2974,8 +3189,10 @@ NoWait:
                 Od2CurrentThreadId(),hsem, pRealSem->Mutex,pRealSem->Event );
     }
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemWait(%x, *=%x): exiting OK\n",
+        KdPrint(("[%d,%d] DosSemWait(%x, *=%x): exiting OK\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -3033,13 +3250,22 @@ DosSemRequest(
     ULONG Dummy;
     LARGE_INTEGER CapturedTimeout;
     PLARGE_INTEGER NtTimeout;
+    LARGE_INTEGER StartTimeStamp;
     BOOLEAN firsttime;
     BOOLEAN CheckIfClear = FALSE;
 
+    //
+    // BUGBUG: In OS/2 native the RAM semaphore that has zero least significant byte is
+    // treated free (see comment for DosSemWait).
+    //
+
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
-        ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemRequest(%x, *=%x): entering\n",
+       ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+       ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
+       ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1)))
+    {
+        KdPrint(("[%d,%d] DosSemRequest(%x, *=%x): entering\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -3057,10 +3283,20 @@ DosSemRequest(
     // If the semaphore will be created, will be checked if it will be created
     // initially busy semaphore.
 
-    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, TRUE);
+    pRealSem = Od2LookupOrCreateSem(hsem, &firsttime, SEM_FROM_REQUESTWAIT);
 
     if (pRealSem == NULL)
        return(ERROR_NOT_ENOUGH_MEMORY);
+
+    if (pRealSem->FlagsByte & SYSSEM_QUEUE) {
+        //
+        // If this is a system semaphore that was used by DosPeekQueue call to DosSemWait.
+        // This is special hack to work around bogus usage of semaphores with queues by
+        // ICL applications (see mail conversations with Thierry Tabard).
+        // [YosefD Jul-19-1995]
+        //
+        return DosSemWait(hsem, lTimeOut);
+    }
 
     if (firsttime) {
         pRealSem->OwnerThread = (TID)SEM_MUTEX_NOT_OWNED; // mark it as a REQUEST/CLEAR semaphore, no owner
@@ -3152,7 +3388,15 @@ DosSemRequest(
         if ((*(PULONG)hsem & 0xFFFC0000) == 0xCCC40000) {
             CheckIfClear = TRUE;
         }
-        *(PULONG)hsem |= 0x00080000;      // REQUST/CLEAR shared RAM sem
+        // REQUST/CLEAR shared RAM sem
+        //
+        // *(PULONG) hsem |= 0x00040000;
+        //
+        __asm
+        {
+            mov eax, hsem
+            lock or  dword ptr [eax], 0x00080000
+        }
     }
 
     if (CheckIfClear) {
@@ -3188,6 +3432,10 @@ DosSemRequest(
         }
     }
 
+DosSemRequest_retry:
+    if (NtTimeout) {
+        Od2StartTimeout(&StartTimeStamp);
+    }
     Status = NtWaitForSingleObject(
             pRealSem->Mutex,
             TRUE,               // Alertable
@@ -3258,14 +3506,18 @@ no_wait:
                 rc = ERROR_SEM_OWNER_DIED;
             }
             else if (Status == STATUS_USER_APC) {
-                // We don't use user APC. Just in the case ...
 #if DBG
-                DbgPrint("[%d,%d] DosSemRequest BUGBUG User APC\n",
+                DbgPrint("[%d,%d] WARNING !!! DosSemRequest was broken by APC\n",
                         Od2Process->Pib.ProcessId,
-                        Od2CurrentThreadId());
+                        Od2CurrentThreadId()
+                        );
 #endif
-                rc = ERROR_INTERRUPT;
-                // goto retry;
+                if (Od2ContinueTimeout(&StartTimeStamp, NtTimeout) == STATUS_SUCCESS) {
+                    goto DosSemRequest_retry;
+                }
+                else {
+                    rc = ERROR_TIMEOUT;
+                }
             }
             else if (Status == STATUS_ALERTED) {
 #if DBG
@@ -3328,12 +3580,19 @@ no_wait:
     if (rc == NO_ERROR) {
 
         if (*(PULONG)hsem != (ULONG)hsem) {
-                //
-                // RAM Semaphore:
-                //     OS/2 1.X Apps expects the semaphore location
-                //     last two bits to be actually 1 (undocumented)
-                //
-            *(PULONG)hsem |= 1;
+            //
+            // RAM Semaphore:
+            //     OS/2 1.X Apps expects the semaphore location
+            //     last two bits to be actually 1 (undocumented)
+            //
+            //
+            // *(PULONG) hsem |= 1;
+            //
+            __asm
+            {
+                mov eax,hsem
+                lock or dword ptr [eax], 1
+            }
         }
 #if DBG
         IF_OD2_DEBUG ( SEMAPHORES ) {
@@ -3347,8 +3606,10 @@ no_wait:
             }
         }
         if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+            ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+            ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
             ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-            KdPrint(("[%x,%x] DosSemRequest(%x, *=%x): exiting OK\n",
+            KdPrint(("[%d,%d] DosSemRequest(%x, *=%x): exiting OK\n",
                     Od2Process->Pib.ProcessId,
                     Od2CurrentThreadId(),
                     hsem,
@@ -3360,8 +3621,10 @@ no_wait:
 
 #if DBG
     if (((Os2DebugSem != 0) && (hsem == Os2DebugSem)) ||
+        ((Os2DebugSem3 != 0) && (hsem == Os2DebugSem3)) ||
+        ((Os2DebugSem2 != 0) && (hsem == Os2DebugSem2)) ||
         ((Os2DebugSem1 != 0) && (hsem == Os2DebugSem1))) {
-        KdPrint(("[%x,%x] DosSemRequest(%x, *=%x): exiting, rc=%x\n",
+        KdPrint(("[%d,%d] DosSemRequest(%x, *=%x): exiting, rc=%x\n",
                 Od2Process->Pib.ProcessId,
                 Od2CurrentThreadId(),
                 hsem,
@@ -3521,7 +3784,7 @@ DosMuxSemWait(
         // If the semaphore will be created, will be checked if it must be
         // created in initially busy state.
 
-        pRealSem = Od2LookupOrCreateSem (FlatSem, &firsttime, TRUE);
+        pRealSem = Od2LookupOrCreateSem (FlatSem, &firsttime, SEM_FROM_REQUESTWAIT);
 
         if (pRealSem == NULL)
             return(ERROR_NOT_ENOUGH_MEMORY);

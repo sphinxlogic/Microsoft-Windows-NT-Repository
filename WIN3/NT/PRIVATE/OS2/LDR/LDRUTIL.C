@@ -65,6 +65,12 @@ BOOLEAN
 ldrCreateSelBitmap(
     )
 {
+
+    ldrBMHeap = RtlAllocateHeap(Os2Heap, 0, (LDT_DISJOINT_ENTRIES + 7) / 8);
+    if (ldrBMHeap == NULL) {
+        return(FALSE);
+    }
+/*
     ldrBMHeap = RtlCreateHeap( HEAP_GROWABLE,
                                NULL,
                                64 * 1024, // Initial size of heap is 64K
@@ -75,7 +81,7 @@ ldrCreateSelBitmap(
     if (ldrBMHeap == NULL) {
         return(FALSE);
     }
-
+*/
     RtlInitializeBitMap(&ldrBitMapHeader ,ldrBMHeap, LDT_DISJOINT_ENTRIES);
     RtlClearAllBits(&ldrBitMapHeader);
     return(TRUE);
@@ -148,6 +154,11 @@ BOOLEAN
 ldrCreateCallGateBitmap(
     )
 {
+    ldrCGHeap = RtlAllocateHeap(Os2Heap, 0, _64K / 8);
+    if (ldrCGHeap == NULL) {
+        return(FALSE);
+    }
+/*
     ldrCGHeap = RtlCreateHeap( HEAP_GROWABLE,
                                NULL,
                                64 * 1024, // Initial size of heap is 64K
@@ -158,7 +169,7 @@ ldrCreateCallGateBitmap(
     if (ldrCGHeap == NULL) {
         return(FALSE);
     }
-
+*/
     RtlInitializeBitMap(&ldrCallGateHeader ,ldrCGHeap, _64K / 8);
     RtlClearAllBits(&ldrCallGateHeader);
     return(TRUE);
@@ -181,7 +192,7 @@ ldrAllocateCallGate()
 {
     ULONG Index;
 
-    Index = RtlFindClearBitsAndSet( &ldrBitMapHeader,
+    Index = RtlFindClearBitsAndSet( &ldrCallGateHeader,
                                     1,
                                     CallGateHintIndex
                                   );

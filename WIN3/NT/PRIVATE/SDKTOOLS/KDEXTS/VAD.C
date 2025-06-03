@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Ramon J San Andres (ramonsa) 8-Nov-1993
+    Lou Perazzoli (loup) 12-Jun-1992
 
 Environment:
 
@@ -20,45 +20,27 @@ Environment:
 
 Revision History:
 
+    Converted to WinDbg extension:
+    Ramon J San Andres (ramonsa) 8-Nov-1993
+
 --*/
 
+#include "precomp.h"
+#pragma hdrstop
 
-#define COMMIT_SIZE 19
+UCHAR *ProtectString[] = {
+                   "NO_ACCESS",
+                   "READONLY",
+                   "EXECUTE",
+                   "EXECUTE_READ",
+                   "READWRITE",
+                   "WRITECOPY",
+                   "EXECUTE_READWRITE",
+                   "EXECUTE_WRITECOPY"
+                   };
 
-#if ((COMMIT_SIZE + PAGE_SHIFT) < 31)
-#error COMMIT_SIZE too small
-#endif
 
-#define MM_MAX_COMMIT ((1 << COMMIT_SIZE) - 1)
 
-typedef struct _XMMVAD_FLAGS {
-    unsigned CommitCharge : COMMIT_SIZE; //limits system to 4k pages or bigger!
-    unsigned PhysicalMapping : 1;
-    unsigned ImageMap : 1;
-    unsigned Inherit : 2;
-    unsigned CopyOnWrite : 1;
-    unsigned Protection : 5;
-    unsigned LargePages : 1;
-    unsigned MemCommit: 1;
-    unsigned PrivateMemory : 1;    //used to tell VAD from VAD_SHORT
-} XMMVAD_FLAGS;
-
-typedef struct _XMMVAD {
-    PVOID StartingVa;
-    PVOID EndingVa;
-    struct _XMMVAD *Parent;
-    struct _XMMVAD *LeftChild;
-    struct _XMMVAD *RightChild;
-    union {
-        ULONG LongFlags;
-        XMMVAD_FLAGS VadFlags;
-    } u;
-    PVOID ControlArea;
-    PVOID FirstPrototypePte;
-    PVOID LastContiguousPte;
-} XMMVAD;
-
-typedef XMMVAD *PXMMVAD;
 
 
 DECLARE_API( vad )
@@ -81,12 +63,12 @@ Return Value:
 
 {
     ULONG   Result;
-    PXMMVAD  Next;
-    PXMMVAD  VadToDump;
-    PXMMVAD  Parent;
-    PXMMVAD  First;
-    PXMMVAD  Left;
-    XMMVAD   CurrentVad;
+    PMMVAD  Next;
+    PMMVAD  VadToDump;
+    PMMVAD  Parent;
+    PMMVAD  First;
+    PMMVAD  Left;
+    MMVAD   CurrentVad;
     ULONG   Flags;
     ULONG   Done;
     ULONG   Level = 0;
@@ -94,7 +76,7 @@ Return Value:
     ULONG   AverageLevel = 0;
     ULONG   MaxLevel = 0;
 
-    VadToDump = (PXMMVAD)0xFFFFFFFF;
+    VadToDump = (PMMVAD)0xFFFFFFFF;
     Flags     = 0;
     sscanf(args,"%lx %lx",&VadToDump,&Flags);
     if (VadToDump == (PVOID)0xFFFFFFFF) {
@@ -103,19 +85,78 @@ Return Value:
     }
 
     First = VadToDump;
-    if (First == (PXMMVAD)NULL) {
+    if (First == (PMMVAD)NULL) {
         return;
     }
 
+    RtlZeroMemory (&CurrentVad, sizeof(MMVAD));
+
     if ( !ReadMemory( (DWORD)First,
                       &CurrentVad,
-                      sizeof(XMMVAD),
+                      sizeof(MMVAD_SHORT),
                       &Result) ) {
         dprintf("%08lx: Unable to get contents of VAD\n",First );
         return;
     }
 
-    while (CurrentVad.LeftChild != (PXMMVAD)NULL) {
+    if (Flags) {
+
+        //
+        // Dump only this vad.
+        //
+
+        if ((CurrentVad.u.VadFlags.PrivateMemory == 0) ||
+            (CurrentVad.u.VadFlags.NoChange == 1))  {
+            if ( !ReadMemory( (DWORD)First,
+                              &CurrentVad,
+                              sizeof(MMVAD),
+                              &Result) ) {
+                dprintf("%08lx: Unable to get contents of VAD\n",First );
+                return;
+            }
+        }
+
+        dprintf("\nVAD @ %8lx\n",VadToDump);
+        dprintf("  Start VA:       %8lx  End VA:  %8lx   Control Area: %8lx\n",
+            CurrentVad.StartingVa,
+            CurrentVad.EndingVa,
+            CurrentVad.ControlArea);
+        dprintf("  First ProtoPte: %8lx  Last PTE %8lx   Commit Charge %8lx (%ld.)\n",
+            CurrentVad.FirstPrototypePte,
+            CurrentVad.LastContiguousPte,
+            CurrentVad.u.VadFlags.CommitCharge,
+            CurrentVad.u.VadFlags.CommitCharge
+            );
+        dprintf("  Secured.Flink   %8lx  Blink    %8lx   Banked:       %8lx\n",
+            CurrentVad.u3.List.Flink,
+            CurrentVad.u3.List.Blink,
+            CurrentVad.Banked);
+
+        dprintf("   ");
+        if (CurrentVad.u.VadFlags.PhysicalMapping) { dprintf("PhysicalMapping "); }
+        if (CurrentVad.u.VadFlags.ImageMap) { dprintf("ImageMap "); }
+        CurrentVad.u.VadFlags.Inherit ? dprintf("ViewShare ") : dprintf("ViewUnmap ");
+        if (CurrentVad.u.VadFlags.NoChange) { dprintf("NoChange "); }
+        if (CurrentVad.u.VadFlags.CopyOnWrite) { dprintf("CopyOnWrite "); }
+        if (CurrentVad.u.VadFlags.LargePages) { dprintf("LargePages "); }
+        if (CurrentVad.u.VadFlags.MemCommit) { dprintf("MemCommit "); }
+        if (CurrentVad.u.VadFlags.PrivateMemory) { dprintf("PrivateMemory "); }
+        dprintf ("%s\n\n",ProtectString[CurrentVad.u.VadFlags.Protection & 7]);
+
+        if (CurrentVad.u2.VadFlags2.SecNoChange) { dprintf("SecNoChange "); }
+        if (CurrentVad.u2.VadFlags2.OneSecured) { dprintf("OneSecured "); }
+        if (CurrentVad.u2.VadFlags2.MultipleSecured) { dprintf("MultipleSecured "); }
+        if (CurrentVad.u2.VadFlags2.ReadOnly) { dprintf("ReadOnly "); }
+        if (CurrentVad.u2.VadFlags2.StoredInVad) { dprintf("StoredInVad "); }
+        dprintf ("\n\n");
+
+        return;
+    }
+
+    while (CurrentVad.LeftChild != (PMMVAD)NULL) {
+        if ( CheckControlC() ) {
+            return;
+        }
         First = CurrentVad.LeftChild;
         Level += 1;
         if (Level > MaxLevel) {
@@ -123,22 +164,25 @@ Return Value:
         }
         if ( !ReadMemory( (DWORD)First,
                           &CurrentVad,
-                          sizeof(XMMVAD),
+                          sizeof(MMVAD_SHORT),
                           &Result) ) {
-            dprintf("%08lx: Unable to get contents of VAD\n",First );
+            dprintf("%08lx:%lx Unable to get contents of VAD\n",First, CurrentVad );
             return;
         }
     }
 
     dprintf("VAD     level      start      end    commit\n");
-    dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s\n",
+    dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s %s\n",
             First,
             Level,
             CurrentVad.StartingVa,
             CurrentVad.EndingVa,
             CurrentVad.u.VadFlags.CommitCharge,
-            CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped",
-            CurrentVad.u.VadFlags.ImageMap ? "Exe":" ");
+            CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped ",
+            CurrentVad.u.VadFlags.ImageMap ? "Exe " :
+                CurrentVad.u.VadFlags.PhysicalMapping ? "Phys" : "    ",
+            ProtectString[CurrentVad.u.VadFlags.Protection & 7]
+            );
     Count += 1;
     AverageLevel += Level;
 
@@ -149,10 +193,13 @@ Return Value:
             return;
         }
 
-        if (CurrentVad.RightChild == (PXMMVAD)NULL) {
+        if (CurrentVad.RightChild == (PMMVAD)NULL) {
 
             Done = TRUE;
-            while ((Parent = CurrentVad.Parent) != (PXMMVAD)NULL) {
+            while ((Parent = CurrentVad.Parent) != (PMMVAD)NULL) {
+                if ( CheckControlC() ) {
+                    return;
+                }
 
                 Level -= 1;
 
@@ -164,22 +211,25 @@ Return Value:
 
                 if ( !ReadMemory( (DWORD)Parent,
                                   &CurrentVad,
-                                  sizeof(XMMVAD),
+                                  sizeof(MMVAD_SHORT),
                                   &Result) ) {
-                    dprintf("%08lx: Unable to get contents of VAD\n",Parent);
+                    dprintf("%08lx:%lx Unable to get contents of VAD\n",Parent, CurrentVad);
                     return;
                 }
 
                 if (CurrentVad.LeftChild == Next) {
                     Next = Parent;
-                    dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s\n",
+                    dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s %s\n",
                             Next,
                             Level,
                             CurrentVad.StartingVa,
                             CurrentVad.EndingVa,
                             CurrentVad.u.VadFlags.CommitCharge,
-                            CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped",
-                            CurrentVad.u.VadFlags.ImageMap ? "Exe":" ");
+                            CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped ",
+                            CurrentVad.u.VadFlags.ImageMap ? "Exe " :
+                                CurrentVad.u.VadFlags.PhysicalMapping ? "Phys" : "    ",
+                            ProtectString[CurrentVad.u.VadFlags.Protection & 7]
+                           );
                     Done = FALSE;
                     Count += 1;
                     AverageLevel += Level;
@@ -205,13 +255,16 @@ Return Value:
 
             if ( !ReadMemory( (DWORD)Next,
                               &CurrentVad,
-                              sizeof(XMMVAD),
+                              sizeof(MMVAD_SHORT),
                               &Result) ) {
-                dprintf("%08lx: Unable to get contents of VAD\n",Next);
+                dprintf("%08lx:%lx Unable to get contents of VAD\n",Next, CurrentVad);
                 return;
             }
 
-            while ((Left = CurrentVad.LeftChild) != (PXMMVAD)NULL) {
+            while ((Left = CurrentVad.LeftChild) != (PMMVAD)NULL) {
+                if ( CheckControlC() ) {
+                    return;
+                }
                 Level += 1;
                 if (Level > MaxLevel) {
                     MaxLevel = Level;
@@ -219,21 +272,24 @@ Return Value:
                 Next = Left;
                 if ( !ReadMemory( (DWORD)Next,
                                   &CurrentVad,
-                                  sizeof(XMMVAD),
+                                  sizeof(MMVAD_SHORT),
                                   &Result) ) {
-                    dprintf("%08lx: Unable to get contents of VAD\n",Next);
+                    dprintf("%08lx:%lx Unable to get contents of VAD\n",Next, CurrentVad);
                     return;
                 }
             }
 
-            dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s\n",
-                    Next,
-                    Level,
-                    CurrentVad.StartingVa,
-                    CurrentVad.EndingVa,
-                    CurrentVad.u.VadFlags.CommitCharge,
-                    CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped",
-                    CurrentVad.u.VadFlags.ImageMap ? "Exe":" ");
+            dprintf("%lx (%2ld)   %8lx %8lx      %4ld %s %s %s\n",
+                      Next,
+                      Level,
+                      CurrentVad.StartingVa,
+                      CurrentVad.EndingVa,
+                      CurrentVad.u.VadFlags.CommitCharge,
+                      CurrentVad.u.VadFlags.PrivateMemory ? "Private" : "Mapped ",
+                      CurrentVad.u.VadFlags.ImageMap ? "Exe " :
+                          CurrentVad.u.VadFlags.PhysicalMapping ? "Phys" : "    ",
+                      ProtectString[CurrentVad.u.VadFlags.Protection & 7]
+                   );
                     Count += 1;
                     AverageLevel += Level;
         }

@@ -104,6 +104,7 @@ Return Value:
     unsigned char __RPC_FAR * ProtocolSequence;
     unsigned char __RPC_FAR * NetworkAddress;
     EP_INQUIRY_CONTEXT __RPC_FAR * EpInquiryContext;
+    unsigned long Timeout;
 
     switch ( InquiryType )
         {
@@ -182,11 +183,20 @@ Return Value:
             {
             return(RpcStatus);
             }
+
+        RpcStatus = RpcMgmtInqComTimeout(EpBinding, &Timeout);
+        if ( RpcStatus != RPC_S_OK )
+            {
+            RpcStringFree(&ProtocolSequence);
+            RpcStringFree(&NetworkAddress);
+            return(RpcStatus);
+            }
         }
     else
         {
-        NetworkAddress = "";
-        ProtocolSequence = "ncacn_np";
+        NetworkAddress = 0;
+        ProtocolSequence = 0;
+        Timeout = RPC_C_BINDING_DEFAULT_TIMEOUT;
         }
 
     // When we reach here, the EpBinding will have been validated, and the
@@ -208,7 +218,7 @@ Return Value:
         }
 
     RpcStatus = BindToEpMapper(&(EpInquiryContext->BindingHandle),
-            NetworkAddress, ProtocolSequence);
+            NetworkAddress, ProtocolSequence, Timeout);
 
     if (EpBinding != 0)
         {
@@ -286,7 +296,7 @@ Return Value:
     return(RPC_S_OK);
 }
 
-#ifdef RPC_UNICODE_SUPPORTED
+#if defined(RPC_UNICODE_SUPPORTED) && !defined(DOSWIN32RPC)
 
 
 unsigned short *
@@ -464,7 +474,7 @@ Return Value:
 
     while (1)
         {
-    
+
         EpEntry.tower = 0;
         RpcTryExcept
             {
@@ -498,13 +508,13 @@ Return Value:
             RpcStatus = EPT_S_CANT_PERFORM_OP;
             }
 
+        if (EpInquiryContext->ContextHandle == 0)
+            {
+            EpInquiryContext->ContextHandle =(ept_lookup_handle_t)NOMOREEPS;
+            }
+
         if ( RpcStatus != RPC_S_OK )
             {
-            if (EpInquiryContext->ContextHandle == 0)
-               {
-               EpInquiryContext->ContextHandle =(ept_lookup_handle_t)NOMOREEPS;
-               }
-
             if (RpcStatus == RPC_S_SERVER_UNAVAILABLE)
                {
                RpcStatus = RPC_X_NO_MORE_ENTRIES;
@@ -518,12 +528,13 @@ Return Value:
                 (char __RPC_FAR * __RPC_FAR *) &Endpoint,
                 (char __RPC_FAR * __RPC_FAR *) &NWAddress
                 );
- 
+
         MIDL_user_free(EpEntry.tower);
         if (RpcStatus != RPC_S_OK)
             {
-            if (EpInquiryContext->ContextHandle == 0)
+            if (  (EpInquiryContext->ContextHandle == 0) || (EpInquiryContext->ContextHandle == (ept_lookup_handle_t)NOMOREEPS) )
               {
+              EpInquiryContext->ContextHandle = (ept_lookup_handle_t)NOMOREEPS;
               return(RPC_X_NO_MORE_ENTRIES);
               }
             else
@@ -541,14 +552,14 @@ Return Value:
                     {
                     return(RpcStatus);
                     }
- 
-                RpcStatus = RpcStringBindingCompose(0, 
+
+                RpcStatus = RpcStringBindingCompose(0,
                                                 ProtocolSequence, NWAddress,
                                                 Endpoint, 0, &StringBinding);
                 if ( RpcStatus == RPC_S_OK )
                     {
                     RpcStatus = RpcBindingFromStringBinding(
-                                                StringBinding, 
+                                                StringBinding,
                                                 Binding
                                                 );
                     RpcStringFree(&StringBinding);
@@ -561,7 +572,17 @@ Return Value:
                        {
                        RpcStringFree(&NWAddress);
                        }
-                    return(RpcStatus);
+
+                    if ( (EpInquiryContext->ContextHandle == 0) || (EpInquiryContext->ContextHandle == (ept_lookup_handle_t)NOMOREEPS) )
+                        {
+                        EpInquiryContext->ContextHandle = (ept_lookup_handle_t)NOMOREEPS;
+                        return(RPC_X_NO_MORE_ENTRIES);
+                        }
+                    else
+                        {
+                        RpcStatus = RPC_S_OK;
+                        continue;
+                        }
                     }
                 }
 
@@ -593,9 +614,9 @@ Return Value:
         break;
         }
 
-        if ( EpInquiryContext->ContextHandle == 0 )
+        if (EpInquiryContext->ContextHandle == 0)
             {
-            return(RPC_X_NO_MORE_ENTRIES);
+            EpInquiryContext->ContextHandle = (ept_lookup_handle_t)NOMOREEPS;
             }
 
         return(RpcStatus);
@@ -656,6 +677,7 @@ Return Value:
     unsigned long ErrorStatus;
     twr_t __RPC_FAR * Tower;
     RPC_TRANSFER_SYNTAX TransferSyntax;
+    unsigned Timeout;
 
     if ( EpBinding != 0 )
         {
@@ -683,11 +705,20 @@ Return Value:
             {
             return(RpcStatus);
             }
+
+        RpcStatus = RpcMgmtInqComTimeout(EpBinding, &Timeout);
+        if ( RpcStatus != RPC_S_OK )
+            {
+            RpcStringFree(&ProtocolSequence);
+            RpcStringFree(&NetworkAddress);
+            return(RpcStatus);
+            }
         }
     else
         {
-        NetworkAddress = "";
-        ProtocolSequence = "ncacn_np";
+        NetworkAddress = 0;
+        ProtocolSequence = 0;
+        Timeout = RPC_C_BINDING_DEFAULT_TIMEOUT;
         }
 
     // When we reach here, the EpBinding will have been validated, and the
@@ -695,7 +726,7 @@ Return Value:
     // mapper have been determined.
 
     RpcStatus = BindToEpMapper(&EpBindingHandle, NetworkAddress,
-            ProtocolSequence);
+            ProtocolSequence, Timeout);
     if ( RpcStatus != RPC_S_OK )
         {
         return(RpcStatus);
@@ -754,7 +785,7 @@ Return Value:
             RpcStatus = EPT_S_NOT_REGISTERED;
             }
         }
-    else 
+    else
     if ( RpcStatus == RPC_S_SERVER_UNAVAILABLE )
         {
         RpcStatus = EPT_S_NOT_REGISTERED;

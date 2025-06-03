@@ -64,7 +64,7 @@ Return Value:
 
     LOCK( pfcb, OldIrql );
 
-    ppcb = FindCb( pfcb, pdncb);
+    ppcb = FindCb( pfcb, pdncb, FALSE);
 
     if ( ppcb == NULL ) {
         //  FindCb has put the error in the NCB

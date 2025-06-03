@@ -499,6 +499,7 @@ stdENDP _RtlpCaptureContext
 ;--
 
 
+ifndef WX86_i386
         page
         subttl  "Get Stack Limits"
 ;++
@@ -546,6 +547,7 @@ cPublicProc _RtlpGetStackLimits ,2
 
 stdENDP _RtlpGetStackLimits
 
+endif
         page
         subttl  "Get Exception Registration List Head"
 ;++

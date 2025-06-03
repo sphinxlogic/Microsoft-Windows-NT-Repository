@@ -21,13 +21,18 @@ Author:
 --*/
 
 #ifdef NTENV
+
+extern "C"
+{
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
 
-#include <windef.h>	// Base windows types
+#include <windef.h> // Base windows types
 #include <winbase.h>
-#endif
+}
+
+#endif // NTENV
 
 
 #include "core.hxx"
@@ -41,9 +46,7 @@ CDEF
 
 ENDDEF
 
-defModule
-
-#ifdef LDEBUG
+#if DBG
 ostream *OSdebug;               // debug output buffer
 #else
 
@@ -124,7 +127,7 @@ Returns:
 
     BUFFER_STREAM_BASE *BuffStreamT;
 
-#ifdef LDEBUG
+#if DBG
     if (!(BuffStreamT = new DEBUG_STREAM))
         AbortServer("Out of Memory");
 
@@ -187,18 +190,18 @@ Returns:
     Role = GetSystemType();
     DLIST(3, "..running on " << Role << nl);
 
-    switch (Role) 
+    switch (Role)
     {
-      
+
       case ROLE_WKSTA_MEMBER:
       case ROLE_LMNT_BACKUPDC:
       case ROLE_LMNT_PDC:
-          
+
                Locator = (NATIVE_CLASS_LOCATOR *)
                                  new DOMAIN_MACHINE_LOCATOR(Role, &Status);
                break;
       case ROLE_WKSTA_WKGRP:
- 
+
                Locator = (NATIVE_CLASS_LOCATOR *)
                                  new WRKGRP_MACHINE_LOCATOR(Role, &Status);
                break;
@@ -236,7 +239,7 @@ Returns:
 #ifdef NTENV
     SECURITY_DESCRIPTOR SecurityDescriptor;
     BOOL Bool;
-#endif 
+#endif
 
     if (result = RpcServerRegisterIf(NsiS_ServerIfHandle, NIL, NIL))
         AbortServer("RpcServerRegisterIf", (int)result);
@@ -275,12 +278,12 @@ Returns:
                );
 #endif
 
-    if (result = RpcServerUseProtseqEp((unsigned char *) "ncacn_np", 
+    if (result = RpcServerUseProtseqEp((unsigned char *) "ncacn_np",
                                        1,
-                                       (unsigned char *)pipeNameLoc, 
+                                       (unsigned char *)pipeNameLoc,
 #ifdef NTENV
                                        &SecurityDescriptor
-#else 
+#else
                                        NULL
 #endif
                                        ))

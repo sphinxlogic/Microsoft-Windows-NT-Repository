@@ -2371,12 +2371,12 @@ Return Value:
             }
 
             StatusToReturn = ElnkiiSetMulticastAddresses(
-                                        Adapter,
-                                        Open,
-                                        NdisRequest,
-                                        (UINT)(OidLength / ETH_LENGTH_OF_ADDRESS),
-                                        (PVOID)InfoBuffer
-                                        );
+                                 Adapter,
+                                 Open,
+                                 NdisRequest,
+                                 (UINT)(OidLength / ETH_LENGTH_OF_ADDRESS),
+                                 (PVOID)InfoBuffer
+                             );
 
             break;
 
@@ -3772,8 +3772,9 @@ Return Value:
 {
 
 
-    PELNKII_ADAPTER Adapter = PELNKII_ADAPTER_FROM_BINDING_HANDLE(MacBindingHandle);
-    PELNKII_PEND_DATA PendOp = PELNKII_PEND_DATA_FROM_PNDIS_REQUEST(NdisRequest);
+    PELNKII_ADAPTER     Adapter = PELNKII_ADAPTER_FROM_BINDING_HANDLE(MacBindingHandle);
+    PELNKII_PEND_DATA   PendOp = PELNKII_PEND_DATA_FROM_PNDIS_REQUEST(NdisRequest);
+    UINT                Filter;
 
     //
     // The open that made this request.
@@ -3806,8 +3807,21 @@ Return Value:
 
         StatusOfAdd = NDIS_STATUS_RESET_IN_PROGRESS;
 
-    } else {
-
+    }
+    else
+    {
+        //
+        //  Verify that the global filter is not all multicast
+        //  or promiscuous modes.  Otherwise adding a multicast
+        //  address will reset the mode.
+        //
+        Filter = ETH_QUERY_FILTER_CLASSES(Adapter->FilterDB);
+        if ((Filter & NDIS_PACKET_TYPE_ALL_MULTICAST) ||
+            (Filter & NDIS_PACKET_TYPE_PROMISCUOUS)
+        )
+        {
+            return(NDIS_STATUS_SUCCESS);
+        }
 
         PendOp->Open = Open;
 

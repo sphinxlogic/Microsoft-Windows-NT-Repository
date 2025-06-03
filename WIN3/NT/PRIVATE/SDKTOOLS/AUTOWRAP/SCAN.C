@@ -39,7 +39,7 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
     unsigned long ul,ulExport,ulSize,ulBase;
     unsigned long  *pul1;
     unsigned short  *pus1;
-    
+
     DWORD dwCodeStart,
           dwCodeEnd  = 0 ;
 
@@ -63,7 +63,7 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 
 	fread(&version,2,1,fp);
 	if (version == IMAGE_OS2_SIGNATURE) {
-#ifdef SCAN_WIN16   
+#ifdef SCAN_WIN16
 	    fseek(fp,eh.e_lfanew,SEEK_SET);
 	    fread(&neh,sizeof neh,1,fp);
 	    fseek(fp,neh.ne_nrestab,SEEK_SET);	  /* go to start of non-res table */
@@ -105,15 +105,18 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 
 	    fclose(fp);
 	    return i;
-#endif // SCAN_WIN16       
+#endif // SCAN_WIN16
 	}
+
+
+
 	fseek(fp,eh.e_lfanew,SEEK_SET);
 	fread(&ul,4,1,fp);
 	fseek(fp,eh.e_lfanew,SEEK_SET);
 	if (ul == IMAGE_NT_SIGNATURE) {
          PULONG *paddr ;
          int fFound = 0 ;
-         
+
 	    fread(&ih,sizeof(IMAGE_NT_HEADERS),1,fp);
 
 //	      printf("ImageBase = %lx,CodeBase = %lx,DataBase = %lx,Export RVA = %lx, size = %lx\n",
@@ -127,23 +130,27 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 
 
 
-   
+
       // Determine the Target machine type and set global - fMachine - accordingly
       switch( ih.FileHeader.Machine )
       {
          case IMAGE_FILE_MACHINE_I386:
             fMachine = TPL_I386 ;
             break ;
-            
+
          case IMAGE_FILE_MACHINE_R3000:
          case IMAGE_FILE_MACHINE_R4000:
             fMachine = TPL_MIPS ;
             break ;
-            
+
          case IMAGE_FILE_MACHINE_ALPHA:
             fMachine = TPL_AXP ;
             break ;
-            
+
+         case IMAGE_FILE_MACHINE_POWERPC:
+            fMachine = TPL_PPC ;
+            break ;
+
          default:
             fMachine = 0 ;
             break ;
@@ -162,42 +169,53 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 			    ish.VirtualAddress &&
                     ih.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress<
 			    ish.VirtualAddress+ish.SizeOfRawData && !fFound) {
-		      ulExport=ish.PointerToRawData;
 		      ulSize = ish.SizeOfRawData;
-		      ulBase = ish.VirtualAddress;
+		      ulBase = ih.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+		      ulExport = ish.PointerToRawData + (ulBase - ish.VirtualAddress) ;
             fFound = TRUE ;
 	      }
-      else
-      {
-         // Assumes that code is contiguous
+//      A section can contain both code and exports!!
+//      else
+//      {
+         // BUGBUG: Assumes that code is contiguous
          if( ish.Characteristics & IMAGE_SCN_CNT_CODE )
          {
             if ( ish.VirtualAddress < dwCodeStart )
                dwCodeStart = ish.VirtualAddress ;
-            
-            if ((ish.VirtualAddress + ish.Misc.VirtualSize) > dwCodeEnd)   
+
+            if ((ish.VirtualAddress + ish.Misc.VirtualSize) > dwCodeEnd)
             {
                dwCodeEnd = ish.VirtualAddress + ish.Misc.VirtualSize ;
             }
          }
-      }   
+//     }
+
+      // PPC HACK
+      // For the PPC the CODE is not in .text but instead appears in .reldata.
+      //
+      if( (fMachine == TPL_PPC) && (strncmp(ish.Name,".reldata",8) == 0) )
+      {
+         dwCodeStart = ish.VirtualAddress ;
+         dwCodeEnd = ish.VirtualAddress + ish.Misc.VirtualSize ;
+      }
+      // PPC HACK
    }
 
 //	      printf("Current file position = %lx\n",ftell(fp));
 
-//	      printf("Export start at %lx\n",ulExport);
+//         printf("Export start at %lx\n",ulExport);
+//         printf( "CODE - Start:%x, End:%x\n", dwCodeStart, dwCodeEnd ) ;
 
 // NAMES
 	    fseek(fp,ulExport,SEEK_SET);
 
 	    fread(&ied,sizeof ied,1,fp);
-
-//	      printf("# Names = %ld, addr Names = %lx,addr Ord = %lx, base = %ld\n",
-//		  ied.NumberOfNames,ied.AddressOfNames,ied.AddressOfNameOrdinals, ied.Base);
+//  printf("# Names = %ld, addr Names = %lx,addr Ord = %lx, base = %ld\n",
+//  ied.NumberOfNames,ied.AddressOfNames,ied.AddressOfNameOrdinals, ied.Base);
 
 	    pus1=malloc(2*ied.NumberOfNames);
 	    pul1=malloc(4*ied.NumberOfNames);
-            paddr=malloc(4*ied.NumberOfFunctions) ;
+       paddr=malloc(4*ied.NumberOfFunctions) ;
 
 	    fseek(fp,ulExport+(long)(ied.AddressOfNameOrdinals)-ulBase,SEEK_SET);
 	    fread(pus1,2,ied.NumberOfNames,fp);
@@ -210,19 +228,21 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 
        //dwCodeStart = ih.OptionalHeader.BaseOfCode ;
        //dwCodeEnd   = ih.OptionalHeader.BaseOfCode + ih.OptionalHeader.SizeOfCode ;
-       
-       
+
+
 	    for (ul=0L;ul<ied.NumberOfNames;ul++) {
          int fData = 0 ;
-         
-//	      printf("Next name starts at %lx\n",pul1[ul]);
+
+//   printf("Next name starts at %lx\n",pul1[ul]);
 	      fseek(fp,ulExport+pul1[ul]-ulBase,SEEK_SET);
 	      fread(acName,1,50,fp);
-//            printf("Name: %s, ordinal %d - Type: %s\n",
-//		      acName,ied.Base+pus1[ul], ((ied.Base+paddr[ul]) >= ih.OptionalHeader.BaseOfData) ? "DATA" : "CODE" );
+//   printf("Name: %s, ordinal %d - Type: %s(%x)\n",
+//   acName,ied.Base+pus1[ul],
+//   (paddr[ul] == 0  || (paddr[ul] < dwCodeEnd && paddr[ul] >= dwCodeStart)) ?  "CODE" : "DATA" ,
+//   paddr[ul] );
 
-         fData = (paddr[ul] == 0  || (ied.Base+paddr[ul] < dwCodeEnd && ied.Base+paddr[ul] >= dwCodeStart)) ? 0 : 1 ;
-         
+         fData = (paddr[ul] == NULL || (paddr[ul] < (PULONG)dwCodeEnd && paddr[ul] >= (PULONG)dwCodeStart)) ? 0 : 1 ;
+
 	      (*pfn)(acName,(int)(ied.Base+pus1[ul]),fData, pv);
 	    }
 
@@ -247,7 +267,7 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 	    fclose(fp);
 	    return 0;
 	}
-   
+
 
 	i=0;
 
@@ -278,8 +298,9 @@ int ScanDLL(char *ac,PFNSCAN pfn,void	* pv) {
 		pcbase=pv1;
 
 		pc1=pcbase+pced->Name;
-		  //printf("dll name = %s, #names = %ld, # ftns = %ld\n",
-		  //  pc1,pced->NumberOfNames,pced->NumberOfFunctions);
+
+//		 printf("dll name = %s, #names = %ld, # ftns = %ld\n",
+//	     pc1,pced->NumberOfNames,pced->NumberOfFunctions);
 
 
 		pul1=(unsigned long  *)(pcbase+(unsigned long)(pced->AddressOfNames));

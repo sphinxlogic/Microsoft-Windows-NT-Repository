@@ -230,8 +230,6 @@ VOID DisplayDirectory(
     WORD  text_size;
     WORD  length = 60;
 
-    strlwr ( buffer_ptr );
-
     hControl = GetDlgItem( hDlg, control_id );
     hDC = GetDC( hControl );
     hDCClient = GetDC( hDlg );

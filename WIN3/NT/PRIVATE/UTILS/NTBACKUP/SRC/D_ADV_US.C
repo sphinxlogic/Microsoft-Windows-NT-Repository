@@ -98,6 +98,7 @@ Initial revision.
         See also:
 
 *****************************************************/
+#ifndef OEM_MSOFT     // The only user of DM_AdvUse is in dialmang.c...
 
 DLGRESULT APIENTRY DM_AdvUse (
 
@@ -125,11 +126,7 @@ DLGRESULT APIENTRY DM_AdvUse (
 
                DM_CenterDialog( hDlg ) ;
 
-#ifndef UNICODE
                wsprintf ( szPathSpec, TEXT("%s%s"),
-#else //UNICODE
-               wsprintf ( szPathSpec, TEXT("%ws%ws"),
-#endif //UNICODE
                           CDS_GetUserDataPath (), TEXT("*.bks") ) ;
 
                //  get the names of all selection files;
@@ -237,11 +234,7 @@ DLGRESULT APIENTRY DM_AdvUse (
 
                               // create the fully qualified path name
 
-#ifndef UNICODE
                               wsprintf ( szPathSpec, TEXT("@%s%s%s"),
-#else //UNICODE
-                              wsprintf ( szPathSpec, TEXT("@%ws%ws%ws"),
-#endif //UNICODE
                                          CDS_GetUserDataPath(),
                                          szFileName, TEXT(".bks") ) ;
 
@@ -271,6 +264,10 @@ DLGRESULT APIENTRY DM_AdvUse (
 
                               VLM_UpdateDisks () ;
                               VLM_UpdateServers () ;
+
+#ifdef  OEM_EMS // Exchange Enterprise View 
+//                              VLM_XchgAdvSelections () ;
+#endif  
                          }
                          else {
 
@@ -309,6 +306,7 @@ DLGRESULT APIENTRY DM_AdvUse (
      }
 }
 
+#endif
 
 /***************************************************
 

@@ -29,6 +29,17 @@ Revision History:
 
 #include "NtfsProc.h"
 
+#ifdef NTFS_FRAGMENT_DISK
+BOOLEAN NtfsFragmentDisk = FALSE;
+ULONG NtfsFragmentLength = 2;
+#endif
+
+//
+//  Define stack overflow threshhold.
+//
+
+#define OVERFLOW_RECORD_THRESHHOLD         (0xF00)
+
 //
 //  A mask of single bits used to clear and set bits in a byte
 //
@@ -59,14 +70,18 @@ RtlFindLastBackwardRunClear (
 
 #define Dbg                              (DEBUG_TRACE_BITMPSUP)
 
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('BFtN')
+
 
 //
 //  This is the size of our LRU array which dictates how much information
 //  will be cached
 //
-
-#define FREE_SPACE_LRU_SIZE              (128)
-#define RECENTLY_ALLOCATED_LRU_SIZE      (128)
 
 #define CLUSTERS_MEDIUM_DISK            (0x80000)
 #define CLUSTERS_LARGE_DISK             (0x100000)
@@ -101,7 +116,7 @@ NtfsFreeBitmapRun (
     IN LONGLONG ClusterCount
     );
 
-VOID
+BOOLEAN
 NtfsFindFreeBitmapRun (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
@@ -113,7 +128,6 @@ NtfsFindFreeBitmapRun (
 
 BOOLEAN
 NtfsAddRecentlyDeallocated (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN LCN Lcn,
     IN OUT PRTL_BITMAP Bitmap
@@ -181,8 +195,7 @@ NtfsIsLcnInCachedFreeRun (
     IN PVCB Vcb,
     IN LCN Lcn,
     OUT PLCN StartingLcn,
-    OUT PLONGLONG ClusterCount,
-    OUT PNTFS_RUN_STATE PrecedingRunState
+    OUT PLONGLONG ClusterCount
     );
 
 VOID
@@ -209,8 +222,7 @@ NtfsGetNextCachedFreeRun (
     IN ULONG RunIndex,
     OUT PLCN StartingLcn,
     OUT PLONGLONG ClusterCount,
-    OUT PNTFS_RUN_STATE RunState,
-    OUT PNTFS_RUN_STATE PrecedingRunState
+    OUT PNTFS_RUN_STATE RunState
     );
 
 //
@@ -233,7 +245,7 @@ NtfsReadAheadCachedBitmap (
 BOOLEAN
 NtfsGetNextHoleToFill (
     IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN StartingVcn,
     IN VCN EndingVcn,
     OUT PVCN VcnToFill,
@@ -244,7 +256,7 @@ NtfsGetNextHoleToFill (
 LONGLONG
 NtfsScanMcbForRealClusterCount (
     IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN StartingVcn,
     IN VCN EndingVcn
     );
@@ -255,11 +267,42 @@ NtfsScanMcbForRealClusterCount (
 
 BOOLEAN
 NtfsAddDeallocatedRecords (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PSCB Scb,
     IN ULONG StartingIndexOfBitmap,
     IN OUT PRTL_BITMAP Bitmap
+    );
+
+//
+//  A local procedure prototype
+//
+
+BOOLEAN
+NtfsReduceMftZone (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb
+    );
+
+//
+//  Local procedure prototype to check the stack usage in the record
+//  package.
+//
+
+VOID
+NtfsCheckRecordStackUsage (
+    IN PIRP_CONTEXT IrpContext
+    );
+
+//
+//  Local procedure prototype to check for a continuos volume bitmap run
+//
+
+VOID
+NtfsRunIsClear (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN LCN StartingLcn,
+    IN LONGLONG RunLength
     );
 
 //
@@ -270,13 +313,12 @@ NtfsAddDeallocatedRecords (
 
 ULONG
 NtfsDumpCachedMcbInformation (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     );
 
 #else
 
-#define NtfsDumpCachedMcbInformation(I,V) (0)
+#define NtfsDumpCachedMcbInformation(V) (0)
 
 #endif // NTFSDBG
 
@@ -289,9 +331,12 @@ NtfsDumpCachedMcbInformation (
 #pragma alloc_text(PAGE, NtfsAllocateClusters)
 #pragma alloc_text(PAGE, NtfsAllocateMftReservedRecord)
 #pragma alloc_text(PAGE, NtfsAllocateRecord)
+#pragma alloc_text(PAGE, NtfsCheckRecordStackUsage)
 #pragma alloc_text(PAGE, NtfsCleanupClusterAllocationHints)
 #pragma alloc_text(PAGE, NtfsCreateMftHole)
 #pragma alloc_text(PAGE, NtfsDeallocateClusters)
+#pragma alloc_text(PAGE, NtfsDeallocateRecord)
+#pragma alloc_text(PAGE, NtfsDeallocateRecordsComplete)
 #pragma alloc_text(PAGE, NtfsFindFreeBitmapRun)
 #pragma alloc_text(PAGE, NtfsFindMftFreeTail)
 #pragma alloc_text(PAGE, NtfsFreeBitmapRun)
@@ -304,6 +349,7 @@ NtfsDumpCachedMcbInformation (
 #pragma alloc_text(PAGE, NtfsIsRecordAllocated)
 #pragma alloc_text(PAGE, NtfsMapOrPinPageInBitmap)
 #pragma alloc_text(PAGE, NtfsReadAheadCachedBitmap)
+#pragma alloc_text(PAGE, NtfsReduceMftZone)
 #pragma alloc_text(PAGE, NtfsRemoveCachedRun)
 #pragma alloc_text(PAGE, NtfsReserveMftRecord)
 #pragma alloc_text(PAGE, NtfsRestartClearBitsInBitMap)
@@ -311,16 +357,29 @@ NtfsDumpCachedMcbInformation (
 #pragma alloc_text(PAGE, NtfsScanEntireBitmap)
 #pragma alloc_text(PAGE, NtfsScanMcbForRealClusterCount)
 #pragma alloc_text(PAGE, NtfsScanMftBitmap)
-#pragma alloc_text(PAGE, NtfsUninitializeCachedBitmap)
 #pragma alloc_text(PAGE, NtfsUninitializeRecordAllocation)
 #pragma alloc_text(PAGE, RtlFindLastBackwardRunClear)
 #pragma alloc_text(PAGE, RtlFindNextForwardRunClear)
+#pragma alloc_text(PAGE, NtfsRunIsClear)
 #endif
 
 //
 //  Temporary routines that need to be coded in Rtl\Bitmap.c
 //
 
+static ULONG FillMaskUlong[] = {
+    0x00000000, 0x00000001, 0x00000003, 0x00000007,
+    0x0000000f, 0x0000001f, 0x0000003f, 0x0000007f,
+    0x000000ff, 0x000001ff, 0x000003ff, 0x000007ff,
+    0x00000fff, 0x00001fff, 0x00003fff, 0x00007fff,
+    0x0000ffff, 0x0001ffff, 0x0003ffff, 0x0007ffff,
+    0x000fffff, 0x001fffff, 0x003fffff, 0x007fffff,
+    0x00ffffff, 0x01ffffff, 0x03ffffff, 0x07ffffff,
+    0x0fffffff, 0x1fffffff, 0x3fffffff, 0x7fffffff,
+    0xffffffff
+};
+
+
 ULONG
 RtlFindNextForwardRunClear (
     IN PRTL_BITMAP BitMapHeader,
@@ -330,14 +389,82 @@ RtlFindNextForwardRunClear (
 {
     ULONG Start;
     ULONG End;
+    PULONG PHunk, BitMapEnd;
+    ULONG Hunk;
 
     PAGED_CODE();
+
+    //
+    // Take care of the boundary case of the null bitmap
+    //
+
+    if (BitMapHeader->SizeOfBitMap == 0) {
+
+                *StartingRunIndex = FromIndex;
+                return 0;
+    }
+
+    //
+    //  Compute the last word address in the bitmap
+    //
+
+    BitMapEnd = BitMapHeader->Buffer + ((BitMapHeader->SizeOfBitMap - 1) / 32);
 
     //
     //  Scan forward for the first clear bit
     //
 
     Start = FromIndex;
+
+    //
+    //  Build pointer to the ULONG word in the bitmap
+    //  containing the Start bit
+    //
+
+    PHunk = BitMapHeader->Buffer + (Start / 32);
+
+    //
+    //  If the first subword is set then we can proceed to
+    //  take big steps in the bitmap since we are now ULONG
+    //  aligned in the search. Make sure we aren't improperly
+    //  looking at the last word in the bitmap.
+    //
+
+    if (PHunk != BitMapEnd) {
+
+        //
+        //  Read in the bitmap hunk. Set the previous bits in this word.
+        //
+
+        Hunk = *PHunk | FillMaskUlong[Start % 32];
+
+        if (Hunk == (ULONG)~0) {
+
+            //
+            //  Adjust the pointers forward
+            //
+
+            Start += 32 - (Start % 32);
+            PHunk++;
+
+            while ( PHunk < BitMapEnd ) {
+
+                    //
+                    //  Stop at first word with unset bits
+                    //
+
+                    if (*PHunk != (ULONG)~0) break;
+
+                    PHunk++;
+                    Start += 32;
+            }
+        }
+    }
+
+    //
+    //  Bitwise search forward for the clear bit
+    //
+
     while ((Start < BitMapHeader->SizeOfBitMap) && (RtlCheckBit( BitMapHeader, Start ) == 1)) { Start += 1; }
 
     //
@@ -345,6 +472,49 @@ RtlFindNextForwardRunClear (
     //
 
     End = Start;
+
+    //
+    //  If we aren't in the last word of the bitmap we may be
+    //  able to keep taking big steps
+    //
+
+    if (PHunk != BitMapEnd) {
+
+        //
+        //  We know that the clear bit was in the last word we looked at,
+        //  so continue from there to find the next set bit, clearing the
+        //  previous bits in the word
+        //
+
+        Hunk = *PHunk & ~FillMaskUlong[End % 32];
+
+        if (Hunk == (ULONG)0) {
+
+            //
+            //  Adjust the pointers forward
+            //
+
+            End += 32 - (End % 32);
+            PHunk++;
+
+            while ( PHunk < BitMapEnd ) {
+
+                    //
+                    //  Stop at first word with set bits
+                    //
+
+                    if (*PHunk != (ULONG)0) break;
+
+                    PHunk++;
+                    End += 32;
+            }
+        }
+    }
+
+    //
+    //  Bitwise search forward for the set bit
+    //
+
     while ((End < BitMapHeader->SizeOfBitMap) && (RtlCheckBit( BitMapHeader, End ) == 0)) { End += 1; }
 
     //
@@ -355,6 +525,7 @@ RtlFindNextForwardRunClear (
     return (End - Start);
 }
 
+
 ULONG
 RtlFindLastBackwardRunClear (
     IN PRTL_BITMAP BitMapHeader,
@@ -364,14 +535,69 @@ RtlFindLastBackwardRunClear (
 {
     ULONG Start;
     ULONG End;
+    PULONG PHunk;
+    ULONG Hunk;
 
     PAGED_CODE();
+
+    //
+    //  Take care of the boundary case of the null bitmap
+    //
+
+    if (BitMapHeader->SizeOfBitMap == 0) {
+
+                *StartingRunIndex = FromIndex;
+                return 0;
+    }
 
     //
     //  Scan backwards for the first clear bit
     //
 
     End = FromIndex;
+
+    //
+    //  Build pointer to the ULONG word in the bitmap
+    //  containing the End bit, then read in the bitmap
+    //  hunk. Set the rest of the bits in this word, NOT
+    //  inclusive of the FromIndex bit.
+    //
+
+    PHunk = BitMapHeader->Buffer + (End / 32);
+    Hunk = *PHunk | ~FillMaskUlong[(End % 32) + 1];
+
+    //
+    //  If the first subword is set then we can proceed to
+    //  take big steps in the bitmap since we are now ULONG
+    //  aligned in the search
+    //
+
+    if (Hunk == (ULONG)~0) {
+
+                //
+                //  Adjust the pointers backwards
+                //
+
+                End -= (End % 32) + 1;
+                PHunk--;
+
+                while ( PHunk > BitMapHeader->Buffer ) {
+
+                        //
+                        //  Stop at first word with set bits
+                        //
+
+                        if (*PHunk != (ULONG)~0) break;
+
+                        PHunk--;
+                        End -= 32;
+            }
+    }
+
+    //
+    //  Bitwise search backward for the clear bit
+    //
+
     while ((End != MAXULONG) && (RtlCheckBit( BitMapHeader, End ) == 1)) { End -= 1; }
 
     //
@@ -379,16 +605,54 @@ RtlFindLastBackwardRunClear (
     //
 
     Start = End;
-    while ((Start != MAXULONG) && (RtlCheckBit( BitMapHeader, Start ) == 0)) { Start -= 1; }
 
     //
+    //  We know that the clear bit was in the last word we looked at,
+    //  so continue from there to find the next set bit, clearing the
+    //  previous bits in the word.
+    //
+
+    Hunk = *PHunk & FillMaskUlong[Start % 32];
+
+    //
+    //  If the subword is unset then we can proceed in big steps
+    //
+
+    if (Hunk == (ULONG)0) {
+
+                //
+                //  Adjust the pointers backward
+                //
+
+                Start -= (Start % 32) + 1;
+                PHunk--;
+
+                while ( PHunk > BitMapHeader->Buffer ) {
+
+                        //
+                        //  Stop at first word with set bits
+                        //
+
+                        if (*PHunk != (ULONG)0) break;
+
+                        PHunk--;
+                        Start -= 32;
+                }
+    }
+
+    //
+    //  Bitwise search backward for the set bit
+    //
+
+    while ((Start != MAXULONG) && (RtlCheckBit( BitMapHeader, Start ) == 0)) { Start -= 1; }
+
+        //
     //  Compute the index and return the length
     //
 
     *StartingRunIndex = Start + 1;
     return (End - Start);
 }
-
 
 
 VOID
@@ -425,7 +689,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsInitializeClusterAllocation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsInitializeClusterAllocation\n") );
 
     NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
 
@@ -443,6 +707,15 @@ Return Value:
 
         FsRtlInitializeLargeMcb( &Vcb->DeallocatedClusters2.Mcb, PagedPool );
         Vcb->ActiveDeallocatedClusters = &Vcb->DeallocatedClusters2;
+
+        //
+        //  The bitmap file currently doesn't have a paging IO resource.
+        //  Create one here so that we won't serialize synchronization
+        //  of the bitmap package with the lazy writer.
+        //
+
+        Vcb->BitmapScb->Header.PagingIoResource =
+        Vcb->BitmapScb->Fcb->PagingIoResource = NtfsAllocateEresource();
 
         //
         //  Now call a bitmap routine to scan the entire bitmap.  This
@@ -463,7 +736,6 @@ Return Value:
 
         {
             LONGLONG ClusterCount;
-            NTFS_RUN_STATE PrecedingRunState;
             NTFS_RUN_STATE RunState;
 
             (VOID) NtfsGetNextCachedFreeRun( IrpContext,
@@ -471,17 +743,18 @@ Return Value:
                                              1,
                                              &Vcb->LastBitmapHint,
                                              &ClusterCount,
-                                             &RunState,
-                                             &PrecedingRunState );
+                                             &RunState );
         }
 
         //
         //  Compute the mft zone.  The mft zone is 1/8 of the disk starting
-        //  at the beginning of the mft
+        //  at the beginning of the mft.
+        //  Round the zone up and down to a ulong boundary to facilitate
+        //  facilitate bitmap usage.
         //
 
-        Vcb->MftZoneStart = Vcb->MftStartLcn;
-        Vcb->MftZoneEnd = Vcb->MftZoneStart + (Vcb->TotalClusters >> 3);
+        Vcb->MftZoneStart = Vcb->MftStartLcn & ~0x1f;
+        Vcb->MftZoneEnd = (Vcb->MftZoneStart + (Vcb->TotalClusters >> 3) + 0x1f) & ~0x1f;
 
     } finally {
 
@@ -490,7 +763,7 @@ Return Value:
         NtfsReleaseScb(IrpContext, Vcb->BitmapScb);
     }
 
-    DebugTrace(-1, Dbg, "NtfsInitializeClusterAllocation -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsInitializeClusterAllocation -> VOID\n") );
 
     return;
 }
@@ -500,7 +773,7 @@ BOOLEAN
 NtfsAllocateClusters (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN OUT PLARGE_MCB Mcb,
+    IN OUT PSCB Scb,
     IN VCN OriginalStartingVcn,
     IN BOOLEAN AllocateAll,
     IN LONGLONG ClusterCount,
@@ -533,14 +806,9 @@ Routine Description:
           get a cache hit, if we do then allocate the cluster
 
        6. If we are still looking then enumerate through the cached free runs
-          and if we find a suitable one (i.e., without a preceding recently
-          allocated cluster).  Allocate the first suitable run we find that
+          and if we find a suitable one.  Allocate the first suitable run we find that
           satisfies our request.  Also in the loop remember the largest
-          suitable and unsuitable run we find.
-
-       7. If we are still looking and if we found an unsuitable free run then
-          allocate the cluster at either 8 clusters into the run or 1/2 the run
-          size, which ever is smaller.
+          suitable run we find.
 
        8. If we are still looking then bite the bullet and scan the bitmap on
           the disk for a free run using either the preceding Lcn as a hint if
@@ -548,8 +816,7 @@ Routine Description:
 
        9. At this point we've located a run of clusters to allocate.  To do the
           actual allocation we allocate the space from the bitmap, decrement
-          the number of free clusters left, update the hint, and add the run to
-          the recently allocated cached run information
+          the number of free clusters left, and update the hint.
 
        10. Before going back to step 4 we move the starting Vcn to be the point
            one after the run we've just allocated.
@@ -562,9 +829,9 @@ Arguments:
 
     Vcb - Supplies the Vcb used in this operation
 
-    Mcb - Supplies an mcb that contains the current retrieval information
-          for the file and on exit will contain the updated retrieval
-          information
+    Scb - Supplies an Scb whose Mcb contains the current retrieval information
+        for the file and on exit will contain the updated retrieval
+        information
 
     StartingVcn - Supplies a starting cluster for us to begin allocation
 
@@ -595,6 +862,8 @@ Important Note:
     VCN EndingVcn;
     VCN DesiredEndingVcn;
 
+    PNTFS_MCB Mcb = &Scb->Mcb;
+
     LONGLONG RemainingDesiredClusterCount;
 
     VCN VcnToFill;
@@ -605,11 +874,7 @@ Important Note:
     LCN FoundLcn;
     LONGLONG FoundClusterCount;
 
-    LCN LargestUnsuitableLcn;
-    LONGLONG LargestUnsuitableClusterCount;
-
     NTFS_RUN_STATE RunState;
-    NTFS_RUN_STATE PrecedingRunState;
 
     ULONG RunIndex;
 
@@ -618,18 +883,18 @@ Important Note:
     ULONG LoopCount = 0;
 
     BOOLEAN ClustersAllocated = FALSE;
-
     BOOLEAN GotAHoleToFill = TRUE;
+    BOOLEAN FoundRun = FALSE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAllocateClusters\n", 0);
-    DebugTrace2(0, Dbg, "StartVcn            = %08lx %08lx\n", StartingVcn.LowPart, StartingVcn.HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount        = %08lx %08lx\n", ClusterCount.LowPart, ClusterCount.HighPart);
-    DebugTrace2(0, Dbg, "DesiredClusterCount = %08lx %08lx\n", DesiredClusterCount->LowPart, DesiredClusterCount->HighPart);
+    DebugTrace( +1, Dbg, ("NtfsAllocateClusters\n") );
+    DebugTrace( 0, Dbg, ("StartVcn            = %0I64x\n", StartingVcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount        = %0I64x\n", ClusterCount) );
+    DebugTrace( 0, Dbg, ("DesiredClusterCount = %0I64x\n", *DesiredClusterCount) );
 
     NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
 
@@ -638,6 +903,55 @@ Important Note:
         if (FlagOn( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS )) {
 
             NtfsScanEntireBitmap( IrpContext, Vcb, TRUE );
+        }
+
+        //
+        //  Check to see if we are defragmenting
+        //
+
+        if (Scb->Union.MoveData != NULL) {
+
+        //
+        //  Check to make sure that the requested range does not conflict
+        //  with the MFT zone.
+        //
+
+            if ((Scb->Union.MoveData->StartingLcn.QuadPart < Vcb->MftZoneEnd) &&
+                (Scb->Union.MoveData->StartingLcn.QuadPart + ClusterCount > Vcb->MftZoneStart)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER, NULL, NULL );
+            }
+
+            //
+            //  Ensure that the run is NOT already allocated
+            //
+
+            NtfsRunIsClear(IrpContext, Vcb, Scb->Union.MoveData->StartingLcn.QuadPart, ClusterCount);
+
+            //
+            //  Get the allocation data from the Scb
+            //
+
+            VcnToFill = OriginalStartingVcn;
+            FoundLcn = Scb->Union.MoveData->StartingLcn.QuadPart;
+            FoundClusterCount = ClusterCount;
+            *DesiredClusterCount = ClusterCount;
+
+            //
+            //  Update the StartingLcn each time through the loop
+            //
+
+            Scb->Union.MoveData->StartingLcn.QuadPart = Scb->Union.MoveData->StartingLcn.QuadPart + ClusterCount;
+
+            GotAHoleToFill = FALSE;
+            ClustersAllocated = TRUE;
+            FoundRun = TRUE;
+
+            //
+            //  We already have the allocation so skip over the allocation section
+            //
+
+            goto Defragment;
         }
 
         //
@@ -650,17 +964,39 @@ Important Note:
 
         ClusterCount = NtfsScanMcbForRealClusterCount( IrpContext, Mcb, StartingVcn, EndingVcn );
 
-        if (ClusterCount > Vcb->FreeClusters) {
+        if ((ClusterCount + IrpContext->DeallocatedClusters) > Vcb->FreeClusters) {
 
             NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
         }
+
+        //
+        //  Let's see if it is ok to allocate clusters for this Scb now,
+        //  in case compressed files have over-reserved the space.  This
+        //  calculation is done in such a way as to guarantee we do not
+        //  have either of the terms subtracting through zero, even if
+        //  we were to over-reserve the free space on the disk due to a
+        //  hot fix or something.  Always satisfy this request if we are
+        //  in the paging IO path because we know we are using clusters
+        //  already reserved for this stream.
+        //
+
+        NtfsAcquireReservedClusters( Vcb );
+        if ((Scb->Header.NodeTypeCode == NTFS_NTC_SCB_DATA) &&
+            (IrpContext->OriginatingIrp != NULL) &&
+            !FlagOn( IrpContext->OriginatingIrp->Flags, IRP_PAGING_IO ) &&
+            (ClusterCount + Vcb->TotalReserved - Scb->ScbType.Data.TotalReserved) > Vcb->FreeClusters) {
+
+            NtfsReleaseReservedClusters( Vcb );
+            NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+        }
+        NtfsReleaseReservedClusters( Vcb );
 
         //
         //  We need to check that the request won't fail because of clusters
         //  in the recently deallocated lists.
         //
 
-        if ((Vcb->FreeClusters - Vcb->DeallocatedClusters) < ClusterCount) {
+        if (Vcb->FreeClusters < (Vcb->DeallocatedClusters + ClusterCount)) {
 
             NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
         }
@@ -695,11 +1031,10 @@ Important Note:
             ClustersAllocated = TRUE;
 
             //
-            //  First indicate that we haven't found anything suitable or unsuitable yet
+            //  First indicate that we haven't found anything suitable yet
             //
 
             FoundClustersToAllocate = FALSE;
-            LargestUnsuitableClusterCount = 0;
 
             //
             //  Check if the preceding lcn is anything other than -1 then with
@@ -713,8 +1048,7 @@ Important Note:
                                               Vcb,
                                               PrecedingLcn + 1,
                                               &FoundLcn,
-                                              &FoundClusterCount,
-                                              &PrecedingRunState )) {
+                                              &FoundClusterCount )) {
 
                     FoundClustersToAllocate = TRUE;
                 }
@@ -736,9 +1070,8 @@ Important Note:
 
                 //
                 //  If we are still looking then scan through all of the cached free runs
-                //  and either take the first suitable one we find, or remember the
-                //  largest unsuitable one we run across.  We also will not consider allocating
-                //  anything in the Mft Zone.
+                //  and either take the first suitable one we find.  We also will not
+                //  consider allocating anything in the Mft Zone.
                 //
 
                 for (RunIndex = 0;
@@ -748,8 +1081,7 @@ Important Note:
                                                                            RunIndex,
                                                                            &FoundLcn,
                                                                            &FoundClusterCount,
-                                                                           &RunState,
-                                                                           &PrecedingRunState );
+                                                                           &RunState );
 
                      RunIndex += 1) {
 
@@ -761,11 +1093,10 @@ Important Note:
                         //  to go outside of the mft zone
                         //
 
-                        if ((FoundLcn > Vcb->MftZoneStart) &&
+                        if ((FoundLcn >= Vcb->MftZoneStart) &&
                             (FoundLcn < Vcb->MftZoneEnd)) {
 
-                            FoundClusterCount = FoundClusterCount -
-                                                (Vcb->MftZoneEnd - FoundLcn);
+                            FoundClusterCount = FoundClusterCount - (Vcb->MftZoneEnd - FoundLcn);
                             FoundLcn = Vcb->MftZoneEnd;
                         }
 
@@ -773,26 +1104,17 @@ Important Note:
                         //  Now if the preceding run state is unknown and because of the bias we still
                         //  have a free run then check if the size of the find is large enough for the
                         //  remaning desired cluster count, and if so then we have a one to use
-                        //  otherwise keep track of the largest suitable run and the largest unsuitable
-                        //  run found.
+                        //  otherwise keep track of the largest suitable run found.
                         //
 
-                        if (PrecedingRunState == RunStateUnknown) {
+                        if (FoundClusterCount > RemainingDesiredClusterCount) {
 
-                            if (FoundClusterCount > RemainingDesiredClusterCount) {
+                            FoundClustersToAllocate = TRUE;
 
-                                FoundClustersToAllocate = TRUE;
+                        } else if (FoundClusterCount > LargestSuitableClusterCount) {
 
-                            } else if (FoundClusterCount > LargestSuitableClusterCount) {
-
-                                LargestSuitableLcn = FoundLcn;
-                                LargestSuitableClusterCount = FoundClusterCount;
-                            }
-
-                        } else if (FoundClusterCount > LargestUnsuitableClusterCount) {
-
-                            LargestUnsuitableLcn = FoundLcn;
-                            LargestUnsuitableClusterCount = FoundClusterCount;
+                            LargestSuitableLcn = FoundLcn;
+                            LargestSuitableClusterCount = FoundClusterCount;
                         }
                     }
                 }
@@ -811,24 +1133,6 @@ Important Note:
 
                         FoundLcn = LargestSuitableLcn;
                         FoundClusterCount = LargestSuitableClusterCount;
-
-                    //
-                    //  If we are still looking then we'll use the largest unsuitable
-                    //  run we found, provided we found one larger than 1MB.
-                    //  The Lcn we'll allocate is the unsuitable lcn plus 0.5MB.  The
-                    //  cluster count for the run is then the original unsuitable cluster count
-                    //  minus the difference between the found lcn and the unsuitable lcn
-                    //
-
-                    } else if (LargestUnsuitableClusterCount >= ((1024*1024) >> Vcb->ClusterShift)) {
-
-                        FoundClustersToAllocate = TRUE;
-
-                        FoundLcn = LargestUnsuitableLcn +
-                                            ((1024*512) >> Vcb->ClusterShift);
-
-                        FoundClusterCount = LargestUnsuitableClusterCount -
-                                            (FoundLcn - LargestUnsuitableLcn);
                     }
                 }
             }
@@ -843,6 +1147,8 @@ Important Note:
             //
 
             if (!FoundClustersToAllocate) {
+
+                BOOLEAN AllocatedFromZone;
 
                 //
                 //  First check if we have already satisfied the core requirements
@@ -863,23 +1169,53 @@ Important Note:
 
                     HintLcn = Vcb->LastBitmapHint;
 
-                    if ((HintLcn > Vcb->MftZoneStart) &&
+                    if ((HintLcn >= Vcb->MftZoneStart) &&
                         (HintLcn < Vcb->MftZoneEnd)) {
 
                         HintLcn = Vcb->MftZoneEnd;
                     }
                 }
 
-                NtfsFindFreeBitmapRun( IrpContext,
-                                       Vcb,
-                                       ClusterCountToFill,
-                                       HintLcn,
-                                       &FoundLcn,
-                                       &FoundClusterCount );
+                AllocatedFromZone = NtfsFindFreeBitmapRun( IrpContext,
+                                                           Vcb,
+                                                           ClusterCountToFill,
+                                                           HintLcn,
+                                                           &FoundLcn,
+                                                           &FoundClusterCount );
 
                 if (FoundClusterCount == 0) {
 
-                    NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL ); //**** or maybe disk corrupt
+                    NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+                }
+
+                //
+                //  Check if we need to reduce the zone.
+                //
+
+                if (AllocatedFromZone &&
+                    (Scb != Vcb->MftScb)) {
+
+                    //
+                    //  If there is space to reduce the zone then do so now
+                    //  and rescan the bitmap.
+                    //
+
+                    if (NtfsReduceMftZone( IrpContext, Vcb )) {
+
+                        FoundClusterCount = 0;
+
+                        NtfsFindFreeBitmapRun( IrpContext,
+                                               Vcb,
+                                               ClusterCountToFill,
+                                               Vcb->MftZoneEnd,
+                                               &FoundLcn,
+                                               &FoundClusterCount );
+
+                        if (FoundClusterCount == 0) {
+
+                            NtfsRaiseStatus( IrpContext, STATUS_DISK_FULL, NULL, NULL );
+                        }
+                    }
                 }
             }
 
@@ -888,8 +1224,7 @@ Important Note:
             //  values in FoundLcn and FoundClusterCount.  We need to trim back
             //  the cluster count to be the amount we really need and then
             //  do the allocation.  To do the allocation we zap the bitmap,
-            //  decrement the free count, insert the run into the recently
-            //  allocated cached bitmap, and add the run to the mcb we're
+            //  decrement the free count, and add the run to the mcb we're
             //  using
             //
 
@@ -903,19 +1238,51 @@ Important Note:
                 FoundClusterCount = ClusterCountToFill;
             }
 
+#ifdef NTFS_FRAGMENT_DISK
+            if (NtfsFragmentDisk && ((ULONG) FoundClusterCount > NtfsFragmentLength)) {
+
+                FoundLcn += 1;
+                FoundClusterCount = NtfsFragmentLength;
+            }
+#endif
             ASSERT(Vcb->FreeClusters >= FoundClusterCount);
+
+            //
+            //  Always remove the cached run information before logging the change.
+            //  Otherwise we could log a partial change but get a log file full
+            //  before removing the run from the free space Mcb.
+            //
+
+            SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MODIFIED_BITMAP );
+
+Defragment:
+
+            NtfsAddCachedRun( IrpContext, Vcb, FoundLcn, FoundClusterCount, RunStateAllocated );  // CHECK for span pages
 
             NtfsAllocateBitmapRun( IrpContext, Vcb, FoundLcn, FoundClusterCount );
 
-            Vcb->FreeClusters = Vcb->FreeClusters - FoundClusterCount;
+            //
+            //  Modify the total allocated for this file.
+            //
 
-            NtfsAddCachedRun( IrpContext, Vcb, FoundLcn, FoundClusterCount, RunStateAllocated );
+            NtfsAcquireReservedClusters( Vcb );
+            Scb->TotalAllocated += (LlBytesFromClusters( Vcb, FoundClusterCount ));
+            NtfsReleaseReservedClusters( Vcb );
 
-            ASSERT_LCN_RANGE_CHECKING( Vcb, (FoundLcn.QuadPart + FoundClusterCount) );
+            //
+            //  Adjust the count of free clusters.  Only store the change in
+            //  the top level irp context in case of aborts.
+            //
 
-ASSERT(FoundClusterCount != 0);
+            Vcb->FreeClusters -= FoundClusterCount;
 
-            FsRtlAddLargeMcbEntry( Mcb, VcnToFill, FoundLcn, FoundClusterCount );
+            IrpContext->FreeClusterChange -= FoundClusterCount;
+
+            ASSERT_LCN_RANGE_CHECKING( Vcb, (FoundLcn + FoundClusterCount) );
+
+            ASSERT(FoundClusterCount != 0);
+
+            NtfsAddNtfsMcbEntry( Mcb, VcnToFill, FoundLcn, FoundClusterCount, FALSE );
 
             //
             //  If this is the Mft file then put these into our AddedClusters Mcb
@@ -953,6 +1320,11 @@ ASSERT(FoundClusterCount != 0);
             RemainingDesiredClusterCount = RemainingDesiredClusterCount - FoundClusterCount;
 
             LoopCount += 1;
+
+            if(FoundRun == TRUE) {
+
+                break;
+            }
         }
 
         //
@@ -980,7 +1352,7 @@ ASSERT(FoundClusterCount != 0);
         //  if we allocated clusters
         //
 
-        if (ClustersAllocated) {
+        if (ClustersAllocated && ((FoundLcn + FoundClusterCount) < Vcb->TotalClusters)) {
 
             NtfsReadAheadCachedBitmap( IrpContext, Vcb, FoundLcn + FoundClusterCount );
         }
@@ -989,13 +1361,13 @@ ASSERT(FoundClusterCount != 0);
 
         DebugUnwind( NtfsAllocateClusters );
 
-        DebugTrace(0, Dbg, "%d\n", NtfsDumpCachedMcbInformation(IrpContext, Vcb));
+        DebugTrace( 0, Dbg, ("%d\n", NtfsDumpCachedMcbInformation(Vcb)) );
 
         NtfsReleaseScb(IrpContext, Vcb->BitmapScb);
     }
 
 
-    DebugTrace(-1, Dbg, "NtfsAllocateClusters -> %08lx\n", ClustersAllocated);
+    DebugTrace( -1, Dbg, ("NtfsAllocateClusters -> %08lx\n", ClustersAllocated) );
 
     return ClustersAllocated;
 }
@@ -1029,15 +1401,15 @@ Return:
 --*/
 
 {
-    PLARGE_MCB Mcb;
+    PNTFS_MCB Mcb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAddBadCluster\n", 0);
-    DebugTrace2(0, Dbg, "Lcn = %08lx %08lx\n", Lcn.LowPart, Lcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsAddBadCluster\n") );
+    DebugTrace( 0, Dbg, ("Lcn = %0I64x\n", Lcn) );
 
     //
     //  Reference the bad cluster mcb and grab exclusive access to the
@@ -1056,19 +1428,22 @@ Return:
         //  bookkeeping
         //
 
-        NtfsAllocateBitmapRun( IrpContext, Vcb, Lcn, 1 );
-
-        Vcb->FreeClusters = Vcb->FreeClusters - 1;
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MODIFIED_BITMAP );
 
         NtfsAddCachedRun( IrpContext, Vcb, Lcn, 1, RunStateAllocated );
 
-        ASSERT_LCN_RANGE_CHECKING( Vcb, (Lcn.QuadPart + 1) );
+        NtfsAllocateBitmapRun( IrpContext, Vcb, Lcn, 1 );
+
+        Vcb->FreeClusters -= 1;
+        IrpContext->FreeClusterChange -= 1;
+
+        ASSERT_LCN_RANGE_CHECKING( Vcb, (Lcn + 1) );
 
         //
         //  Vcn == Lcn in the bad cluster file.
         //
 
-        FsRtlAddLargeMcbEntry( Mcb, Lcn, Lcn, (LONGLONG)1 );
+        NtfsAddNtfsMcbEntry( Mcb, Lcn, Lcn, (LONGLONG)1, FALSE );
 
     } finally {
 
@@ -1077,7 +1452,7 @@ Return:
         NtfsReleaseScb(IrpContext, Vcb->BitmapScb);
     }
 
-    DebugTrace(-1, Dbg, "NtfsAddBadCluster -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsAddBadCluster -> VOID\n") );
 
     return;
 }
@@ -1087,9 +1462,10 @@ BOOLEAN
 NtfsDeallocateClusters (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
-    IN OUT PLARGE_MCB Mcb,
+    IN OUT PNTFS_MCB Mcb,
     IN VCN StartingVcn,
-    IN VCN EndingVcn
+    IN VCN EndingVcn,
+    OUT PLONGLONG TotalAllocated OPTIONAL
     )
 
 /*++
@@ -1136,6 +1512,9 @@ Arguments:
 
     EndingVcn - Supplies the vcn to end deallocating at in the input mcb
 
+    TotalAllocated - If specified we will modifify the total allocated clusters
+        for this file.
+
 Return Value:
 
     FALSE - if nothing was deallocated.
@@ -1148,15 +1527,16 @@ Return Value:
     LCN Lcn;
     LONGLONG ClusterCount;
     BOOLEAN ClustersDeallocated = FALSE;
+    BOOLEAN RaiseLogFull;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsDeallocateClusters\n", 0);
-    DebugTrace2(0, Dbg, "StartingVcn = %08lx %08lx\n", StartingVcn.LowPart, StartingVcn.HighPart);
-    DebugTrace2(0, Dbg, "EndingVcn   = %08lx %08lx\n", EndingVcn.LowPart, EndingVcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsDeallocateClusters\n") );
+    DebugTrace( 0, Dbg, ("StartingVcn = %016I64x\n", StartingVcn) );
+    DebugTrace( 0, Dbg, ("EndingVcn   = %016I64\n", EndingVcn) );
 
     NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
 
@@ -1179,12 +1559,12 @@ Return Value:
             //  in the mcb then return now to our caller
             //
 
-            if (!FsRtlLookupLargeMcbEntry( Mcb, Vcn, &Lcn, &ClusterCount, NULL, NULL, NULL )) {
+            if (!NtfsLookupNtfsMcbEntry( Mcb, Vcn, &Lcn, &ClusterCount, NULL, NULL, NULL, NULL )) {
 
                 try_return( NOTHING );
             }
 
-            ASSERT_LCN_RANGE_CHECKING( Vcb, (Lcn.QuadPart + ClusterCount) );
+            ASSERT_LCN_RANGE_CHECKING( Vcb, (Lcn + ClusterCount) );
 
             //
             //  Make sure that the run we just looked up is not a hole otherwise
@@ -1206,35 +1586,85 @@ Return Value:
                 }
 
                 //
+                //  And to hold us off from reallocating the clusters right away we'll
+                //  add this run to the recently deallocated mcb in the vcb.  If this fails
+                //  because we are growing the mapping then change the code to
+                //  LOG_FILE_FULL to empty the mcb.
+                //
+
+                RaiseLogFull = FALSE;
+
+                try {
+
+                    FsRtlAddLargeMcbEntry( &Vcb->ActiveDeallocatedClusters->Mcb,
+                                           Lcn,
+                                           Lcn,
+                                           ClusterCount );
+
+                } except (((GetExceptionCode() == STATUS_INSUFFICIENT_RESOURCES) &&
+                           (IrpContext != NULL) &&
+                           (IrpContext->MajorFunction == IRP_MJ_CLEANUP)) ?
+                          EXCEPTION_EXECUTE_HANDLER :
+                          EXCEPTION_CONTINUE_SEARCH) {
+
+                    RaiseLogFull = TRUE;
+                }
+
+                if (RaiseLogFull) {
+
+                    NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+                }
+
+                Vcb->ActiveDeallocatedClusters->ClusterCount += ClusterCount;
+
+                Vcb->DeallocatedClusters += ClusterCount;
+                IrpContext->DeallocatedClusters += ClusterCount;
+
+                //
                 //  Now zap the bitmap, increment the free cluster count, and change
                 //  the cached information on this run to indicate that it is now free
                 //
 
+                SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_MODIFIED_BITMAP );
+
                 NtfsFreeBitmapRun( IrpContext, Vcb, Lcn, ClusterCount);
                 ClustersDeallocated = TRUE;
 
-                Vcb->FreeClusters = Vcb->FreeClusters + ClusterCount;
-
                 //
-                //  And to hold us off from reallocating the clusters right away we'll
-                //  add this run to the recently deallocated mcb in the vcb.
+                //  Adjust the count of free clusters and adjust the IrpContext
+                //  field for the change this transaction.
                 //
 
-                {
-                    BOOLEAN BetterBeTrue;
+                Vcb->FreeClusters += ClusterCount;
 
-                    BetterBeTrue = FsRtlAddLargeMcbEntry( &Vcb->ActiveDeallocatedClusters->Mcb,
-                                                          Lcn,
-                                                          Lcn,
-                                                          ClusterCount );
+                //
+                //  If we had shrunk the Mft zone and there is at least 1/8
+                //  of the volume now available, then grow the zone back.
+                //
 
-                    //ASSERT( BetterBeTrue );
+                if (FlagOn( Vcb->VcbState, VCB_STATE_REDUCED_MFT ) &&
+                    (Int64ShraMod32( Vcb->TotalClusters, 3 ) < Vcb->FreeClusters)) {
 
-                    Vcb->ActiveDeallocatedClusters->ClusterCount =
-                        Vcb->ActiveDeallocatedClusters->ClusterCount + ClusterCount;
+                    ClearFlag( Vcb->VcbState, VCB_STATE_REDUCED_MFT );
+                    Vcb->MftZoneEnd = (Vcb->MftZoneStart + (Vcb->TotalClusters >> 3) + 0x1f) & ~0x1f;
+                }
 
-                    Vcb->DeallocatedClusters =
-                        Vcb->DeallocatedClusters + ClusterCount;
+                IrpContext->FreeClusterChange += ClusterCount;
+
+                //
+                //  Modify the total allocated amount if the pointer is specified.
+                //
+
+                if (ARGUMENT_PRESENT( TotalAllocated )) {
+
+                    NtfsAcquireReservedClusters( Vcb );
+                    *TotalAllocated -= (LlBytesFromClusters( Vcb, ClusterCount ));
+
+                    if (*TotalAllocated < 0) {
+
+                        *TotalAllocated = 0;
+                    }
+                    NtfsReleaseReservedClusters( Vcb );
                 }
 
                 //
@@ -1242,7 +1672,7 @@ Return Value:
                 //  loop
                 //
 
-                FsRtlRemoveLargeMcbEntry( Mcb, Vcn, ClusterCount );
+                NtfsRemoveNtfsMcbEntry( Mcb, Vcn, ClusterCount );
 
                 //
                 //  If this is the Mcb for the Mft file then remember this in the
@@ -1264,86 +1694,14 @@ Return Value:
 
         DebugUnwind( NtfsDeallocateClusters );
 
-        DebugTrace(0, Dbg, "%d\n", NtfsDumpCachedMcbInformation(IrpContext, Vcb));
+        DebugTrace( 0, Dbg, ("%d\n", NtfsDumpCachedMcbInformation(Vcb)) );
 
-        NtfsReleaseScb(IrpContext, Vcb->BitmapScb);
+        NtfsReleaseScb( IrpContext, Vcb->BitmapScb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeallocateClusters -> %02lx\n", ClustersDeallocated);
+    DebugTrace( -1, Dbg, ("NtfsDeallocateClusters -> %02lx\n", ClustersDeallocated) );
 
     return ClustersDeallocated;
-}
-
-
-VOID
-NtfsCleanupClusterAllocationHints (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb,
-    IN PLARGE_MCB Mcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine scans the input mcb and removes any corresponding entries from the
-    cached recently allocated cluster information.  It does not change the input
-    mcb at all.
-
-Arguments:
-
-    Vcb - Supplies the vcb used in this operation
-
-    Mcb - Supplies the mcb used in this operation
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ULONG i;
-    VCN Vcn;
-    LCN Lcn;
-    LONGLONG ClusterCount;
-
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_VCB( Vcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsCleanupClusterAllocationHints\n", 0);
-
-    NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
-
-    try {
-
-        //
-        //  For each entry in the mcb that is not a hole we will simply call
-        //  a routine to remove any cached information about the run
-        //
-
-        for (i = 0; FsRtlGetNextLargeMcbEntry(Mcb, i, &Vcn, &Lcn, &ClusterCount); i += 1) {
-
-            if (Lcn != UNUSED_LCN) {
-
-                NtfsRemoveCachedRun( IrpContext, Vcb, Lcn, ClusterCount );
-            }
-        }
-
-    } finally {
-
-        DebugUnwind( NtfsCleanupClusterAllocationHints );
-
-        DebugTrace(0, Dbg, "%d\n", NtfsDumpCachedMcbInformation(IrpContext, Vcb));
-
-        NtfsReleaseScb(IrpContext, Vcb->BitmapScb);
-    }
-
-    DebugTrace(-1, Dbg, "NtfsCleanupClusterAllocationHints -> VOID\n", 0);
-
-    return;
 }
 
 
@@ -1390,7 +1748,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsScanEntireBitmap\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsScanEntireBitmap\n") );
 
     BitmapBcb = NULL;
 
@@ -1402,43 +1760,17 @@ Return Value:
             //  Reinitialize the free space information.
             //
 
-            FsRtlTruncateLargeMcb( &Vcb->FreeSpaceMcb,
-                                   (LONGLONG) 0 );
-            RtlZeroMemory( Vcb->FreeSpaceLruArray,
-                           Vcb->FreeSpaceLruSize * sizeof( LCN ));
-            Vcb->FreeSpaceLruTail = 0;
-            Vcb->FreeSpaceLruHead = 0;
-
-            //
-            //  Now do the same for the recently allocated information.
-            //
-
-            FsRtlTruncateLargeMcb( &Vcb->RecentlyAllocatedMcb,
-                                   (LONGLONG) 0 );
-
-            RtlZeroMemory( Vcb->RecentlyAllocatedLruArray,
-                           Vcb->RecentlyAllocatedLruSize * sizeof( LCN ));
-
-            Vcb->RecentlyAllocatedLruTail = 0;
-            Vcb->RecentlyAllocatedLruHead = 0;
+            FsRtlTruncateLargeMcb( &Vcb->FreeSpaceMcb, (LONGLONG) 0 );
 
         } else {
 
             //
-            //  Check if we are being called to reinitialize the cluster
-            //  allocation information, and if so then simply uninitialize the
-            //  cache bitmap and then go on.
-            //
-
-            if (Vcb->FreeSpaceLruArray != NULL) {
-
-                NtfsUninitializeCachedBitmap( IrpContext, Vcb );
-            }
-
-            //
             //  Now initialize the cached bitmap structures.  This will setup the
-            //  free space mcb/lru and recently allocated mcb/lru fields.
+            //  free space mcb/lru fields.
             //
+
+            FsRtlUninitializeLargeMcb( &Vcb->FreeSpaceMcb );
+            RtlZeroMemory( &Vcb->FreeSpaceMcb, sizeof(LARGE_MCB) );
 
             NtfsInitializeCachedBitmap( IrpContext, Vcb );
         }
@@ -1467,9 +1799,9 @@ Return Value:
             //  Read in the bitmap page and make sure that we haven't messed up the math
             //
 
-            if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
             NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &StartingLcn, &Bitmap, &BitmapBcb );
             ASSERTMSG("Math wrong for bits per page of bitmap", (Lcn == StartingLcn));
 
@@ -1478,14 +1810,13 @@ Return Value:
             //  a free cluster.
             //
 
-            Vcb->FreeClusters =
-                Vcb->FreeClusters + RtlNumberOfClearBits( &Bitmap );
+            Vcb->FreeClusters += RtlNumberOfClearBits( &Bitmap );
 
             //
             //  Now bias the bitmap with the RecentlyDeallocatedMcb.
             //
 
-            StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, StartingLcn, &Bitmap );
+            StuffAdded = NtfsAddRecentlyDeallocated( Vcb, StartingLcn, &Bitmap );
 
             //
             //  Find the longest free run in the bitmap and add it to the cached bitmap.
@@ -1547,7 +1878,6 @@ Return Value:
 
                     Size = RtlFindLastBackwardRunClear( &Bitmap, Bitmap.SizeOfBitMap - 1, &Run );
 
-
                     NtfsAddCachedRun( IrpContext, Vcb, Lcn + Run, (LONGLONG)Size, RunStateFree );
 
                     IsPreviousClusterFree = TRUE;
@@ -1568,78 +1898,12 @@ Return Value:
             ClearFlag( Vcb->VcbState, VCB_STATE_RELOAD_FREE_CLUSTERS );
         }
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsScanEntireBitmap -> VOID\n", 0);
-
-    return;
-}
-
-
-VOID
-NtfsUninitializeCachedBitmap (
-    IN PIRP_CONTEXT IrpContext,
-    IN PVCB Vcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine tears down the allocation used by the mcb/lru structures of the
-    input vcb.
-
-Arguments:
-
-    Vcb - Supplies the vcb used in this operation
-
-Return Value:
-
-    None.
-
---*/
-
-{
-    ASSERT_IRP_CONTEXT( IrpContext );
-    ASSERT_VCB( Vcb );
-
-    PAGED_CODE();
-
-    DebugTrace(+1, Dbg, "NtfsUninitializeCachedBitmap\n", 0);
-
-    //
-    //  First uninitialize the free space information.  This includes the mcb
-    //  lru array, and indices
-    //
-
-    FsRtlUninitializeLargeMcb( &Vcb->FreeSpaceMcb );
-    RtlZeroMemory( &Vcb->FreeSpaceMcb, sizeof(LARGE_MCB) );
-
-    ExFreePool( Vcb->FreeSpaceLruArray );
-
-    Vcb->FreeSpaceLruArray = NULL;
-    Vcb->FreeSpaceLruSize = 0;
-    Vcb->FreeSpaceLruTail = 0;
-    Vcb->FreeSpaceLruHead = 0;
-
-    //
-    //  Now do the same for the recently allocated information fields
-    //
-
-    FsRtlUninitializeLargeMcb( &Vcb->RecentlyAllocatedMcb );
-    RtlZeroMemory( &Vcb->RecentlyAllocatedMcb, sizeof(LARGE_MCB) );
-
-    ExFreePool( Vcb->RecentlyAllocatedLruArray );
-
-    Vcb->RecentlyAllocatedLruArray = NULL;
-    Vcb->RecentlyAllocatedLruSize = 0;
-    Vcb->RecentlyAllocatedLruTail = 0;
-    Vcb->RecentlyAllocatedLruHead = 0;
-
-    DebugTrace(-1, Dbg, "NtfsUninitializeCachedBitmap -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsScanEntireBitmap -> VOID\n") );
 
     return;
 }
@@ -1672,6 +1936,19 @@ Return Value:
     PBCB BitmapBcb = NULL;
     BOOLEAN StuffAdded = FALSE;
     RTL_BITMAP Bitmap;
+    PUCHAR BitmapBuffer;
+    ULONG SizeToMap;
+
+    ULONG BitmapOffset;
+    ULONG BitmapSize;
+    ULONG BitmapIndex;
+
+    ULONG StartIndex;
+    ULONG HoleCount;
+
+    VCN ThisVcn;
+    ULONG MftVcn;
+    ULONG MftClusterCount;
 
     PAGED_CODE();
 
@@ -1681,78 +1958,62 @@ Return Value:
 
     try {
 
-        ULONG Index;
-        ULONG BitmapSize;
-
-        VCN Vcn = 0;
-
         //
         //  Compute the number of records in the Mft file and the full range to
         //  pin in the Mft bitmap.
         //
 
-        Index = (ULONG)(Vcb->MftScb->Header.FileSize.QuadPart >> Vcb->MftShift );
+        BitmapIndex = (ULONG) LlFileRecordsFromBytes( Vcb, Vcb->MftScb->Header.FileSize.QuadPart );
 
         //
         //  Knock this index down to a hole boundary.
         //
 
-        Index &= Vcb->MftHoleInverseMask;
+        BitmapIndex &= Vcb->MftHoleInverseMask;
 
         //
         //  Compute the values for the bitmap.
         //
 
-        BitmapSize = (Index + 7) / 8;
+        BitmapSize = (BitmapIndex + 7) / 8;
 
         //
-        //  Convert the index to the offset on this page.
+        //  Convert the index to the number of bits on this page.
         //
 
-        Index &= (BITS_PER_PAGE - 1);
+        BitmapIndex &= (BITS_PER_PAGE - 1);
+
+        if (BitmapIndex == 0) {
+
+            BitmapIndex = BITS_PER_PAGE;
+        }
 
         //
         //  Set the Vcn count to the full size of the bitmap.
         //
 
-        ((ULONG)Vcn) = ClustersFromBytes( Vcb, ROUND_TO_PAGES( BitmapSize ));
+        BitmapOffset = ROUND_TO_PAGES( BitmapSize );
 
         //
         //  Loop through all of the pages of the Mft bitmap looking for an appropriate
         //  hole.
         //
 
-        while (((ULONG)Vcn) != 0) {
-
-            ULONG BaseIndex;
-            ULONG HoleRecordCount;
-
-            VCN MftVcn;
-            LONGLONG MftClusterCount;
-            LONGLONG StartingByte;
-
-            ULONG SizeToMap;
-            PUCHAR BitmapBuffer;
+        while (BitmapOffset != 0) {
 
             //
             //  Move to the beginning of this page.
             //
 
-            ((ULONG)Vcn) -= Vcb->ClustersPerPage;
+            BitmapOffset -= BITS_PER_PAGE;
 
-            //
-            //  Compute the base index for this page.
-            //
-
-            BaseIndex = ((ULONG)Vcn) >> Vcb->MftToClusterShift;
-
-            if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
             //
             //  Compute the number of bytes to map in the current page.
             //
 
-            SizeToMap = BitmapSize - BytesFromClusters( Vcb, ((ULONG)Vcn) );
+            SizeToMap = BitmapSize - BitmapOffset;
 
             if (SizeToMap > PAGE_SIZE) {
 
@@ -1763,27 +2024,24 @@ Return Value:
             //  Unmap any pages from a previous page and map the current page.
             //
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Initialize the bitmap for this page.
             //
 
-            StartingByte = LlBytesFromClusters( Vcb, Vcn );
-
             NtfsMapStream( IrpContext,
                            Vcb->MftBitmapScb,
-                           StartingByte,
+                           BitmapOffset,
                            SizeToMap,
                            &BitmapBcb,
                            &BitmapBuffer );
 
             RtlInitializeBitMap( &Bitmap, (PULONG) BitmapBuffer, SizeToMap * 8 );
 
-            StuffAdded = NtfsAddDeallocatedRecords( IrpContext,
-                                                    Vcb,
+            StuffAdded = NtfsAddDeallocatedRecords( Vcb,
                                                     Vcb->MftScb,
-                                                    ((ULONG)StartingByte) * 8,
+                                                    BitmapOffset * 8,
                                                     &Bitmap );
 
             //
@@ -1793,24 +2051,21 @@ Return Value:
 
             do {
 
-                ULONG StartIndex;
-                LONGLONG HoleClusterCount;
-
                 //
                 //  Go back one Mft index and look for a clear run.
                 //
 
-                Index -= 1;
+                BitmapIndex -= 1;
 
-                HoleRecordCount = RtlFindLastBackwardRunClear( &Bitmap,
-                                                               Index,
-                                                               &Index );
+                HoleCount = RtlFindLastBackwardRunClear( &Bitmap,
+                                                         BitmapIndex,
+                                                         &BitmapIndex );
 
                 //
                 //  If we couldn't find any run then break out of the loop.
                 //
 
-                if (HoleRecordCount == 0) {
+                if (HoleCount == 0) {
 
                     break;
 
@@ -1818,9 +2073,9 @@ Return Value:
                 //  If this is too small to make a hole then continue on.
                 //
 
-                } else if (HoleRecordCount < Vcb->MftHoleGranularity) {
+                } else if (HoleCount < Vcb->MftHoleGranularity) {
 
-                    Index &= Vcb->MftHoleInverseMask;
+                    BitmapIndex &= Vcb->MftHoleInverseMask;
                     continue;
                 }
 
@@ -1829,30 +2084,23 @@ Return Value:
                 //  adjust the hole count.
                 //
 
-                if (Index & Vcb->MftHoleMask) {
-
-                    StartIndex = (Index + Vcb->MftHoleMask) & Vcb->MftHoleInverseMask;
-                    HoleRecordCount -= (StartIndex - Index);
-
-                } else {
-
-                    StartIndex = Index;
-                }
+                StartIndex = (BitmapIndex + Vcb->MftHoleMask) & Vcb->MftHoleInverseMask;
+                HoleCount -= (StartIndex - BitmapIndex);
 
                 //
                 //  Round the hole count down to a hole boundary.
                 //
 
-                HoleRecordCount &= Vcb->MftHoleInverseMask;
+                HoleCount &= Vcb->MftHoleInverseMask;
 
                 //
                 //  If we couldn't find enough records for a hole then
                 //  go to a previous index.
                 //
 
-                if (HoleRecordCount < Vcb->MftHoleGranularity) {
+                if (HoleCount < Vcb->MftHoleGranularity) {
 
-                    Index &= Vcb->MftHoleInverseMask;
+                    BitmapIndex &= Vcb->MftHoleInverseMask;
                     continue;
                 }
 
@@ -1860,7 +2108,14 @@ Return Value:
                 //  Convert the hole count to a cluster count.
                 //
 
-                HoleClusterCount = HoleRecordCount << Vcb->MftToClusterShift;
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    HoleCount <<= Vcb->MftToClusterShift;
+
+                } else {
+
+                    HoleCount = 1;
+                }
 
                 //
                 //  Loop by finding the run at the given Vcn and walk through
@@ -1869,6 +2124,7 @@ Return Value:
 
                 do {
 
+                    PVOID RangePtr;
                     ULONG McbIndex;
                     VCN ThisVcn;
                     LCN ThisLcn;
@@ -1879,22 +2135,32 @@ Return Value:
                     //  the cluster count for the current hole.
                     //
 
-                    MftVcn = (StartIndex + BaseIndex) << Vcb->MftToClusterShift;
-                    ThisVcn = MftVcn;
+                    ThisVcn = StartIndex + (BitmapOffset * 3);
 
+                    if (Vcb->FileRecordsPerCluster == 0) {
+
+                        ThisVcn <<= Vcb->MftToClusterShift;
+
+                    } else {
+
+                        ThisVcn >>= Vcb->MftToClusterShift;
+                    }
+
+                    MftVcn = (ULONG) ThisVcn;
                     MftClusterCount = 0;
 
                     //
                     //  Lookup the run at the current Vcn.
                     //
 
-                    FsRtlLookupLargeMcbEntry( &Vcb->MftScb->Mcb,
-                                              ThisVcn,
-                                              &ThisLcn,
-                                              &ThisClusterCount,
-                                              NULL,
-                                              NULL,
-                                              &McbIndex );
+                    NtfsLookupNtfsMcbEntry( &Vcb->MftScb->Mcb,
+                                            ThisVcn,
+                                            &ThisLcn,
+                                            &ThisClusterCount,
+                                            NULL,
+                                            NULL,
+                                            &RangePtr,
+                                            &McbIndex );
 
                     //
                     //  Now walk through this bitmap run and look for a run we
@@ -1914,14 +2180,14 @@ Return Value:
                         //  hole then truncate the clusters in this run.
                         //
 
-                        if (ThisClusterCount > HoleClusterCount) {
+                        if (ThisClusterCount > HoleCount) {
 
-                            ThisClusterCount = HoleClusterCount;
-                            HoleClusterCount = 0;
+                            ThisClusterCount = HoleCount;
+                            HoleCount = 0;
 
                         } else {
 
-                            HoleClusterCount = HoleClusterCount - ThisClusterCount;
+                            HoleCount -= (ULONG) ThisClusterCount;
                         }
 
                         //
@@ -1934,19 +2200,19 @@ Return Value:
                             //
                             //  We want to skip this hole.  If we have found a
                             //  hole then we are done.  Otherwise we want to
-                            //  find the next run in the Mft.  Set up the Start
-                            //  Index to point to a potential hole boundary.
+                            //  find the next range in the Mft starting at the point beyond
+                            //  the current run (which is a hole).  Nothing to do if we don't
+                            //  have enough clusters for a full hole.
                             //
 
-                            if (!FoundHole
-                                && ((ULONG)HoleClusterCount) >= Vcb->MftClustersPerHole) {
+                            if (!FoundHole &&
+                                (HoleCount >= Vcb->MftClustersPerHole)) {
 
                                 //
-                                //  Find the index after the current Mft run.
+                                //  Find the Vcn after the current Mft run.
                                 //
 
-                                StartIndex = (ULONG)((ThisVcn + ThisClusterCount) >>
-                                                Vcb->MftToClusterShift);
+                                ThisVcn += ThisClusterCount;
 
                                 //
                                 //  If this isn't on a hole boundary then
@@ -1954,24 +2220,27 @@ Return Value:
                                 //  available clusters for a hole.
                                 //
 
-                                if (StartIndex & Vcb->MftHoleMask) {
+                                MftVcn = (ULONG) (ThisVcn + Vcb->MftHoleClusterMask);
+                                MftVcn = (ULONG) ThisVcn & Vcb->MftHoleClusterInverseMask;
 
-                                    ULONG IndexAdjust;
+                                //
+                                //  Now subtract this from the HoleClusterCount.
+                                //
 
-                                    //
-                                    //  Compute the adjustment for the index.
-                                    //
+                                HoleCount -= MftVcn - (ULONG) ThisVcn;
 
-                                    IndexAdjust = Vcb->MftHoleGranularity
-                                                  - (StartIndex & Vcb->MftHoleMask) ;
+                                //
+                                //  We need to convert the Vcn at this point to an Mft record
+                                //  number.
+                                //
 
-                                    //
-                                    //  Now subtract this from the HoleClusterCount.
-                                    //
+                                if (Vcb->FileRecordsPerCluster == 0) {
 
-                                    ((ULONG)HoleClusterCount) -= (IndexAdjust << Vcb->MftToClusterShift);
+                                    StartIndex = MftVcn >> Vcb->MftToClusterShift;
 
-                                    StartIndex += IndexAdjust;
+                                } else {
+
+                                    StartIndex = MftVcn << Vcb->MftToClusterShift;
                                 }
                             }
 
@@ -1989,34 +2258,32 @@ Return Value:
                             //  are enough clusters to create a hole.
                             //
 
-                            MftClusterCount = MftClusterCount + ThisClusterCount;
+                            MftClusterCount += (ULONG) ThisClusterCount;
 
-                            if (!FoundHole
-                                && ((ULONG)MftClusterCount) >= Vcb->MftClustersPerHole) {
+                            if (MftClusterCount >= Vcb->MftClustersPerHole) {
 
                                 FoundHole = TRUE;
                             }
                         }
 
-                    } while ((HoleClusterCount != 0)
-                             && FsRtlGetNextLargeMcbEntry( &Vcb->MftScb->Mcb,
-                                                           McbIndex,
-                                                           &ThisVcn,
-                                                           &ThisLcn,
-                                                           &ThisClusterCount ));
+                    } while ((HoleCount != 0) &&
+                             NtfsGetSequentialMcbEntry( &Vcb->MftScb->Mcb,
+                                                        &RangePtr,
+                                                        McbIndex,
+                                                        &ThisVcn,
+                                                        &ThisLcn,
+                                                        &ThisClusterCount ));
 
-                } while (!FoundHole
-                         && ((ULONG)HoleClusterCount) >= Vcb->MftClustersPerHole);
+                } while (!FoundHole && (HoleCount >= Vcb->MftClustersPerHole));
 
                 //
                 //  Round down to a hole boundary for the next search for
                 //  a hole candidate.
                 //
 
-                Index &= Vcb->MftHoleInverseMask;
+                BitmapIndex &= Vcb->MftHoleInverseMask;
 
-            } while (!FoundHole
-                     && Index >= Vcb->MftHoleGranularity);
+            } while (!FoundHole && (BitmapIndex >= Vcb->MftHoleGranularity));
 
             //
             //  If we found a hole then deallocate the clusters and record
@@ -2026,7 +2293,7 @@ Return Value:
             if (FoundHole) {
 
                 IO_STATUS_BLOCK IoStatus;
-                LONGLONG FileOffset;
+                LONGLONG MftFileOffset;
 
                 //
                 //  We want to flush the data in the Mft out to disk in
@@ -2034,40 +2301,49 @@ Return Value:
                 //  removed the allocation but before a possible abort.
                 //
 
-                FileOffset = MftVcn << Vcb->ClusterShift;
-
-                CcFlushCache( &Vcb->MftScb->NonpagedScb->SegmentObject,
-                              (PLARGE_INTEGER)&FileOffset,
-                              ((ULONG)MftClusterCount) << Vcb->ClusterShift,
-                              &IoStatus );
-
-                ASSERT( IoStatus.Status == STATUS_SUCCESS );
+                MftFileOffset = LlBytesFromClusters( Vcb, MftVcn );
 
                 //
                 //  Round the cluster count and hole count down to a hole boundary.
                 //
 
-                (ULONG)MftClusterCount &= ~(Vcb->MftClustersPerHole - 1);
-                HoleRecordCount = ((ULONG)MftClusterCount) >> Vcb->MftToClusterShift;
+
+                MftClusterCount &= Vcb->MftHoleClusterInverseMask;
+
+                if (Vcb->FileRecordsPerCluster == 0) {
+
+                    HoleCount = MftClusterCount >> Vcb->MftToClusterShift;
+
+                } else {
+
+                    HoleCount = MftClusterCount << Vcb->MftToClusterShift;
+                }
+
+                CcFlushCache( &Vcb->MftScb->NonpagedScb->SegmentObject,
+                              (PLARGE_INTEGER) &MftFileOffset,
+                              BytesFromClusters( Vcb, MftClusterCount ),
+                              &IoStatus );
+
+                ASSERT( IoStatus.Status == STATUS_SUCCESS );
 
                 //
                 //  Remove the clusters from the Mcb for the Mft.
                 //
 
-                NtfsDeleteAllocation ( IrpContext,
-                                       Vcb->MftScb->FileObject,
-                                       Vcb->MftScb,
-                                       MftVcn,
-                                       MftVcn + (MftClusterCount - 1),
-                                       TRUE,
-                                       FALSE );
+                NtfsDeleteAllocation( IrpContext,
+                                      Vcb->MftScb->FileObject,
+                                      Vcb->MftScb,
+                                      MftVcn,
+                                      (LONGLONG) MftVcn + (MftClusterCount - 1),
+                                      TRUE,
+                                      FALSE );
 
                 //
                 //  Record the change to the hole count.
                 //
 
-                Vcb->MftHoleRecords += HoleRecordCount;
-                Vcb->MftScb->ScbType.Mft.HoleRecordChange += HoleRecordCount;
+                Vcb->MftHoleRecords += HoleCount;
+                Vcb->MftScb->ScbType.Mft.HoleRecordChange += HoleCount;
 
                 //
                 //  Exit the loop.
@@ -2077,19 +2353,18 @@ Return Value:
             }
 
             //
-            //  Set the Index to the end of the page.
+            //  Look at all of the bits on the previous page.
             //
 
-            Index = BITS_PER_PAGE;
-
+            BitmapIndex = BITS_PER_PAGE;
         }
 
     } finally {
 
         DebugUnwind( NtfsCreateMftHole );
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
     return FoundHole;
@@ -2148,7 +2423,7 @@ Return Value:
         //  Find the page and range of the last page of the Mft bitmap.
         //
 
-        FinalIndex = (ULONG)(Vcb->MftScb->Header.FileSize.QuadPart >> Vcb->MftShift) - 1;
+        FinalIndex = (ULONG)Int64ShraMod32(Vcb->MftScb->Header.FileSize.QuadPart, Vcb->MftShift) - 1;
 
         BaseIndex = FinalIndex & ~(BITS_PER_PAGE - 1);
 
@@ -2167,8 +2442,7 @@ Return Value:
 
         RtlInitializeBitMap( &Bitmap, BitmapBuffer, Bitmap.SizeOfBitMap );
 
-        StuffAdded = NtfsAddDeallocatedRecords( IrpContext,
-                                                Vcb,
+        StuffAdded = NtfsAddDeallocatedRecords( Vcb,
                                                 Vcb->MftScb,
                                                 BaseIndex,
                                                 &Bitmap );
@@ -2207,7 +2481,7 @@ Return Value:
             //  Convert this value to a file offset and return it to our caller.
             //
 
-            *FileOffset = ((LONGLONG)ThisIndex) << Vcb->MftShift;
+            *FileOffset = LlBytesFromFileRecords( Vcb, ThisIndex );
 
             MftTailFound = TRUE;
         }
@@ -2217,8 +2491,8 @@ Return Value:
 
         DebugUnwind( NtfsFindMftFreeTail );
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
     return MftTailFound;
@@ -2275,9 +2549,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAllocateBitmapRun\n", 0);
-    DebugTrace2(0, Dbg, "StartingLcn  = %08lx %08lx\n", StartingLcn.LowPart, StartingLcn.HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount = %08lx %08lx\n", ClusterCount.LowPart, ClusterCount.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsAllocateBitmapRun\n") );
+    DebugTrace( 0, Dbg, ("StartingLcn  = %016I64x\n", StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount = %016I64x\n", ClusterCount) );
 
     BitmapBcb = NULL;
 
@@ -2323,6 +2597,17 @@ Return Value:
             //  already set to prevent cross-links.
             //
 
+#ifdef NTFS_CHECK_BITMAP
+            if ((Vcb->BitmapCopy != NULL) &&
+                !NtfsCheckBitmap( Vcb,
+                                  (ULONG) BaseLcn + BitOffset,
+                                  BitsToSet,
+                                  FALSE )) {
+
+                NtfsBadBitmapCopy( IrpContext, (ULONG) BaseLcn + BitOffset, BitsToSet );
+            }
+#endif
+
             if (!RtlAreBitsClear( &Bitmap, BitOffset, BitsToSet )) {
 
                 ASSERTMSG("Cannot set bits that are not clear ", FALSE );
@@ -2346,10 +2631,10 @@ Return Value:
                           ClearBitsInNonresidentBitMap,
                           &BitmapRange,
                           sizeof(BITMAP_RANGE),
-                          BaseLcn >> (CHAR)(Vcb->ClusterShift + 3),
+                          Int64ShraMod32( BaseLcn, 3 ),
                           0,
                           0,
-                          ClustersFromBytes(Vcb, Bitmap.SizeOfBitMap >> 3) );
+                          Bitmap.SizeOfBitMap >> 3 );
 
             //
             //  Now set the bits by calling the same routine used at restart.
@@ -2360,28 +2645,41 @@ Return Value:
                                         BitOffset,
                                         BitsToSet );
 
+#ifdef NTFS_CHECK_BITMAP
+            if (Vcb->BitmapCopy != NULL) {
+
+                ULONG BitmapPage;
+                ULONG StartBit;
+
+                BitmapPage = ((ULONG) (BaseLcn + BitOffset)) / (PAGE_SIZE * 8);
+                StartBit = ((ULONG) (BaseLcn + BitOffset)) & ((PAGE_SIZE * 8) - 1);
+
+                RtlSetBits( Vcb->BitmapCopy + BitmapPage, StartBit, BitsToSet );
+            }
+#endif
+
             //
             // Unpin the Bcb now before possibly looping back.
             //
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Now decrement the cluster count and increment the starting lcn accordling
             //
 
-            ClusterCount = ClusterCount - BitsToSet;
-            StartingLcn  = StartingLcn + BitsToSet;
+            ClusterCount -= BitsToSet;
+            StartingLcn += BitsToSet;
         }
 
     } finally {
 
         DebugUnwind( NtfsAllocateBitmapRun );
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsAllocateBitmapRun -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsAllocateBitmapRun -> VOID\n") );
 
     return;
 }
@@ -2418,7 +2716,7 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
+    UNREFERENCED_PARAMETER( IrpContext );
 
     PAGED_CODE();
 
@@ -2487,9 +2785,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFreeBitmapRun\n", 0);
-    DebugTrace2(0, Dbg, "StartingLcn  = %08lx %08lx\n", StartingLcn.LowPart, StartingLcn.HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount = %08lx %08lx\n", ClusterCount.LowPart, ClusterCount.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsFreeBitmapRun\n") );
+    DebugTrace( 0, Dbg, ("StartingLcn  = %016I64\n", StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount = %016I64x\n", ClusterCount) );
 
     BitmapBcb = NULL;
 
@@ -2535,6 +2833,17 @@ Return Value:
             //  these bits aren't set.
             //
 
+#ifdef NTFS_CHECK_BITMAP
+            if ((Vcb->BitmapCopy != NULL) &&
+                !NtfsCheckBitmap( Vcb,
+                                  (ULONG) BaseLcn + BitOffset,
+                                  BitsToClear,
+                                  TRUE )) {
+
+                NtfsBadBitmapCopy( IrpContext, (ULONG) BaseLcn + BitOffset, BitsToClear );
+            }
+#endif
+
             if (!RtlAreBitsSet( &Bitmap, BitOffset, BitsToClear )) {
 
                 ASSERTMSG("Cannot clear bits that are not set ", FALSE );
@@ -2558,10 +2867,10 @@ Return Value:
                           SetBitsInNonresidentBitMap,
                           &BitmapRange,
                           sizeof(BITMAP_RANGE),
-                          BaseLcn >> (Vcb->ClusterShift + 3),
+                          Int64ShraMod32( BaseLcn, 3 ),
                           0,
                           0,
-                          ClustersFromBytes(Vcb, Bitmap.SizeOfBitMap >> 3) );
+                          Bitmap.SizeOfBitMap >> 3 );
 
 
             //
@@ -2573,28 +2882,41 @@ Return Value:
                                           BitOffset,
                                           BitsToClear );
 
+#ifdef NTFS_CHECK_BITMAP
+            if (Vcb->BitmapCopy != NULL) {
+
+                ULONG BitmapPage;
+                ULONG StartBit;
+
+                BitmapPage = ((ULONG) (BaseLcn + BitOffset)) / (PAGE_SIZE * 8);
+                StartBit = ((ULONG) (BaseLcn + BitOffset)) & ((PAGE_SIZE * 8) - 1);
+
+                RtlClearBits( Vcb->BitmapCopy + BitmapPage, StartBit, BitsToClear );
+            }
+#endif
+
             //
             // Unpin the Bcb now before possibly looping back.
             //
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Now decrement the cluster count and increment the starting lcn accordling
             //
 
-            ClusterCount = ClusterCount - BitsToClear;
-            StartingLcn = StartingLcn + BitsToClear;
+            ClusterCount -= BitsToClear;
+            StartingLcn += BitsToClear;
         }
 
     } finally {
 
         DebugUnwind( NtfsFreeBitmapRun );
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsFreeBitmapRun -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsFreeBitmapRun -> VOID\n") );
 
     return;
 }
@@ -2631,7 +2953,7 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
+    UNREFERENCED_PARAMETER( IrpContext );
 
     PAGED_CODE();
 
@@ -2650,7 +2972,7 @@ Return Value:
 //  Local support routine
 //
 
-VOID
+BOOLEAN
 NtfsFindFreeBitmapRun (
     IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
@@ -2685,29 +3007,55 @@ Arguments:
 
 Return Value:
 
-    None.
+    BOOLEAN - TRUE if clusters allocated from zone.  FALSE otherwise.
 
 --*/
 
 {
     RTL_BITMAP Bitmap;
+    PVOID BitmapBuffer;
+
     PBCB BitmapBcb;
+
+    BOOLEAN AllocatedFromZone = FALSE;
 
     BOOLEAN StuffAdded;
 
     ULONG Count;
-    ULONG BitOffset;
 
-    LCN Lcn;
+    //
+    //  As we walk through the bitmap pages we need to remember
+    //  exactly where we are in the bitmap stream.  We walk through
+    //  the volume bitmap a page at a time but the current bitmap
+    //  contained within the current page but may not be the full
+    //  page.
+    //
+    //      Lcn - Lcn used to find the bitmap page to pin.  This Lcn
+    //          will lie within the page to pin.
+    //
+    //      BaseLcn - Bit offset of the start of the current bitmap in
+    //          the bitmap stream.
+    //
+    //      LcnFromHint - Bit offset of the start of the page after
+    //          the page which contains the StartingSearchHint.
+    //
+    //      BitOffset - Offset of found bits from the beginning
+    //          of the current bitmap.
+    //
+
+    LCN Lcn = StartingSearchHint;
+    LCN BaseLcn;
+    LCN LcnFromHint;
+    ULONG BitOffset;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsFindFreeBitmapRun\n", 0);
-    DebugTrace2(0, Dbg, "NumberToFind       = %08lx %08lx\n", NumberToFind.LowPart, NumberToFind.HighPart);
-    DebugTrace2(0, Dbg, "StartingSearchHint = %08lx %08lx\n", StartingSearchHint.LowPart, StartingSearchHint.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsFindFreeBitmapRun\n") );
+    DebugTrace( 0, Dbg, ("NumberToFind       = %016I64x\n", NumberToFind) );
+    DebugTrace( 0, Dbg, ("StartingSearchHint = %016I64x\n", StartingSearchHint) );
 
     BitmapBcb = NULL;
     StuffAdded = FALSE;
@@ -2734,11 +3082,45 @@ Return Value:
         //  must bias the bitmap by whatever has been recently deallocated.
         //
 
-        NtfsMapPageInBitmap( IrpContext, Vcb, StartingSearchHint, &Lcn, &Bitmap, &BitmapBcb );
+        NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
 
-        StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, Lcn, &Bitmap );
+        LcnFromHint = BaseLcn + Bitmap.SizeOfBitMap;
 
-        BitOffset = (ULONG)(Lcn - StartingSearchHint);
+        StuffAdded = NtfsAddRecentlyDeallocated( Vcb, BaseLcn, &Bitmap );
+        BitmapBuffer = Bitmap.Buffer;
+
+        //
+        //  We don't want to look in the Mft zone if it is at the beginning
+        //  of this page unless the hint is within the zone.  Adjust the
+        //  bitmap so we skip this range.
+        //
+
+        if ((BaseLcn < Vcb->MftZoneEnd) && (Lcn > Vcb->MftZoneEnd)) {
+
+            //
+            //  Find the number of bits to swallow.  We know this will
+            //  a multible of bytes since the Mft zone end is always
+            //  on a ulong boundary.
+            //
+
+            BitOffset = (ULONG) (Vcb->MftZoneEnd - BaseLcn);
+
+            //
+            //  Adjust the bitmap size and buffer to skip this initial
+            //  range in the Mft zone.
+            //
+
+            Bitmap.Buffer = Add2Ptr( Bitmap.Buffer, BitOffset / 8 );
+            Bitmap.SizeOfBitMap -= BitOffset;
+
+            BaseLcn = Vcb->MftZoneEnd;
+        }
+
+        //
+        //  The bit offset is from the base of this bitmap to our starting Lcn.
+        //
+
+        BitOffset = (ULONG)(Lcn - BaseLcn);
 
         //
         //  Now search the bitmap for a clear number of bits based on our hint
@@ -2749,7 +3131,7 @@ Return Value:
 
         if (BitOffset != -1) {
 
-            *ReturnedLcn = BitOffset + Lcn;
+            *ReturnedLcn = BitOffset + BaseLcn;
             *ClusterCountFound = Count;
 
             try_return(NOTHING);
@@ -2764,7 +3146,7 @@ Return Value:
 
         if (Count != 0) {
 
-            *ReturnedLcn = BitOffset + Lcn;
+            *ReturnedLcn = BitOffset + BaseLcn;
             *ClusterCountFound = Count;
 
             try_return(NOTHING);
@@ -2776,27 +3158,24 @@ Return Value:
         //  And again bias the bitmap with recently deallocated clusters.
         //
 
-        for (Lcn = Lcn + Bitmap.SizeOfBitMap;
+        for (Lcn = BaseLcn + Bitmap.SizeOfBitMap;
              Lcn < Vcb->TotalClusters;
-             Lcn = Lcn + Bitmap.SizeOfBitMap) {
+             Lcn = BaseLcn + Bitmap.SizeOfBitMap) {
 
-            {
-                LCN TempLcn;
+            if (StuffAdded) { NtfsFreePool( BitmapBuffer ); StuffAdded = FALSE; }
 
-                if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
+            ASSERTMSG("Math wrong for bits per page of bitmap", (Lcn == BaseLcn));
 
-                NtfsUnpinBcb( IrpContext, &BitmapBcb );
-                NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &TempLcn, &Bitmap, &BitmapBcb );
-                ASSERTMSG("Math wrong for bits per page of bitmap", (Lcn == TempLcn));
-
-                StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, Lcn, &Bitmap );
-            }
+            StuffAdded = NtfsAddRecentlyDeallocated( Vcb, BaseLcn, &Bitmap );
+            BitmapBuffer = Bitmap.Buffer;
 
             Count = RtlFindLongestRunClear( &Bitmap, &BitOffset );
 
             if (Count != 0) {
 
-                *ReturnedLcn = BitOffset + Lcn;
+                *ReturnedLcn = BitOffset + BaseLcn;
                 *ClusterCountFound = Count;
 
                 try_return(NOTHING);
@@ -2805,60 +3184,75 @@ Return Value:
 
         //
         //  Now search the rest of the bitmap starting with right after the mft zone
-        //  followed by the mft zone.
+        //  followed by the mft zone (or the beginning of the disk).
         //
 
-        {
-            for (Lcn = Vcb->MftZoneEnd;
-                 Lcn < Vcb->TotalClusters;
-                 Lcn = Lcn + Bitmap.SizeOfBitMap) {
+        for (Lcn = Vcb->MftZoneEnd;
+             Lcn < LcnFromHint;
+             Lcn = BaseLcn + Bitmap.SizeOfBitMap) {
 
-                {
-                    LCN BaseLcn;
+            if (StuffAdded) { NtfsFreePool( BitmapBuffer ); StuffAdded = FALSE; }
 
-                    if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
 
-                    NtfsUnpinBcb( IrpContext, &BitmapBcb );
-                    NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
+            StuffAdded = NtfsAddRecentlyDeallocated( Vcb, BaseLcn, &Bitmap );
+            BitmapBuffer = Bitmap.Buffer;
 
-                    StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, BaseLcn, &Bitmap );
+            //
+            //  Now adjust the starting Lcn if not at the beginning
+            //  of the bitmap page.  We know this will be a multiple
+            //  of bytes since the MftZoneEnd is always on a ulong
+            //  boundary in the bitmap.
+            //
 
-                    Count = RtlFindLongestRunClear( &Bitmap, &BitOffset );
+            if (BaseLcn != Lcn) {
 
-                    if (Count != 0) {
+                BitOffset = (ULONG) (Lcn - BaseLcn);
 
-                        *ReturnedLcn = BitOffset + BaseLcn;
-                        *ClusterCountFound = Count;
+                Bitmap.SizeOfBitMap -= BitOffset;
+                Bitmap.Buffer = Add2Ptr( Bitmap.Buffer,
+                                         BitOffset / 8 );
 
-                        try_return(NOTHING);
-                    }
-                }
+                BaseLcn = Lcn;
             }
 
-            for (Lcn = Vcb->MftZoneStart;
-                 Lcn < Vcb->MftZoneEnd;
-                 Lcn = Lcn + Bitmap.SizeOfBitMap) {
+            Count = RtlFindLongestRunClear( &Bitmap, &BitOffset );
 
-                {
-                    LCN BaseLcn;
+            if (Count != 0) {
 
-                    if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+                *ReturnedLcn = BitOffset + BaseLcn;
+                *ClusterCountFound = Count;
 
-                    NtfsUnpinBcb( IrpContext, &BitmapBcb );
-                    NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
+                try_return(NOTHING);
+            }
+        }
 
-                    StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, BaseLcn, &Bitmap );
+        //
+        //  Start a scan at the beginning of the disk.
+        //
 
-                    Count = RtlFindLongestRunClear( &Bitmap, &BitOffset );
+        for (Lcn = 0;
+             Lcn < Vcb->MftZoneEnd;
+             Lcn = BaseLcn + Bitmap.SizeOfBitMap) {
 
-                    if (Count != 0) {
+            if (StuffAdded) { NtfsFreePool( BitmapBuffer ); StuffAdded = FALSE; }
 
-                        *ReturnedLcn = BitOffset + BaseLcn;
-                        *ClusterCountFound = Count;
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb );
 
-                        try_return(NOTHING);
-                    }
-                }
+            StuffAdded = NtfsAddRecentlyDeallocated( Vcb, BaseLcn, &Bitmap );
+            BitmapBuffer = Bitmap.Buffer;
+
+            Count = RtlFindLongestRunClear( &Bitmap, &BitOffset );
+
+            if (Count != 0) {
+
+                *ReturnedLcn = BitOffset + BaseLcn;
+                *ClusterCountFound = Count;
+
+                AllocatedFromZone = TRUE;
+                try_return(NOTHING);
             }
         }
 
@@ -2869,16 +3263,16 @@ Return Value:
 
         DebugUnwind( NtfsFindFreeBitmapRun );
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
+        if (StuffAdded) { NtfsFreePool( BitmapBuffer ); }
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
-    DebugTrace2(0, Dbg, "ReturnedLcn <- %08lx %08lx\n", ReturnedLcn->LowPart, ReturnedLcn->HighPart);
-    DebugTrace2(0, Dbg, "ClusterCountFound <- %08lx %08lx\n", ClusterCountFound->LowPart, ClusterCountFound->HighPart);
-    DebugTrace(-1, Dbg, "NtfsFindFreeBitmapRun -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("ReturnedLcn <- %016I64x\n", *ReturnedLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCountFound <- %016I64x\n", *ClusterCountFound) );
+    DebugTrace( -1, Dbg, ("NtfsFindFreeBitmapRun -> VOID\n") );
 
-    return;
+    return AllocatedFromZone;
 }
 
 
@@ -2888,7 +3282,6 @@ Return Value:
 
 BOOLEAN
 NtfsAddRecentlyDeallocated (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN LCN StartingBitmapLcn,
     IN OUT PRTL_BITMAP Bitmap
@@ -2902,6 +3295,10 @@ Routine Description:
     any clusters that are in the recently deallocated mcb.  If we
     do add stuff then we will not modify the bitmap buffer itself but
     will allocate a new copy for the bitmap.
+
+    We will always protect the boot sector on the disk by marking the
+    first 8K as allocated.  This will prevent us from overwriting the
+    boot sector if the volume becomes corrupted.
 
 Arguments:
 
@@ -2920,6 +3317,8 @@ Return Value:
 
 {
     BOOLEAN Results;
+    PVOID NewBuffer;
+
 
     LCN EndingBitmapLcn;
 
@@ -2937,13 +3336,35 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAddRecentlyDeallocated...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsAddRecentlyDeallocated...\n") );
 
     //
     //  Until shown otherwise we will assume that we haven't updated anything
     //
 
     Results = FALSE;
+
+    //
+    //  If this is the first page of the bitmap then mark the first 8K as
+    //  allocated.  This will prevent us from accidentally allocating out
+    //  of the boot sector even if the bitmap is corrupt.
+    //
+
+    if ((StartingBitmapLcn == 0) &&
+        !RtlAreBitsSet( Bitmap, 0, ClustersFromBytes( Vcb, 0x2000 ))) {
+
+        NewBuffer = NtfsAllocatePool(PagedPool, (Bitmap->SizeOfBitMap+7)/8 );
+        RtlCopyMemory( NewBuffer, Bitmap->Buffer, (Bitmap->SizeOfBitMap+7)/8 );
+        Bitmap->Buffer = NewBuffer;
+
+        Results = TRUE;
+
+        //
+        //  Now mark the bits as allocated.
+        //
+
+        RtlSetBits( Bitmap, 0, ClustersFromBytes( Vcb, 0x2000 ));
+    }
 
     //
     //  Now compute the ending bitmap lcn for the bitmap
@@ -2992,7 +3413,7 @@ Return Value:
         //  Skip this Mcb if it has no entries.
         //
 
-        if ( DeallocatedClusters->ClusterCount != 0) {
+        if (DeallocatedClusters->ClusterCount != 0) {
 
             Mcb = &DeallocatedClusters->Mcb;
 
@@ -3035,9 +3456,7 @@ Return Value:
 
                         if (Results == FALSE) {
 
-                            PVOID NewBuffer;
-
-                            NewBuffer = NtfsAllocatePagedPool( (Bitmap->SizeOfBitMap+7)/8 );
+                            NewBuffer = NtfsAllocatePool(PagedPool, (Bitmap->SizeOfBitMap+7)/8 );
                             RtlCopyMemory( NewBuffer, Bitmap->Buffer, (Bitmap->SizeOfBitMap+7)/8 );
                             Bitmap->Buffer = NewBuffer;
 
@@ -3078,7 +3497,7 @@ Return Value:
         DeallocatedClusters = Vcb->ActiveDeallocatedClusters;
     }
 
-    DebugTrace(-1, Dbg, "NtfsAddRecentlyDeallocated -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsAddRecentlyDeallocated -> %08lx\n", Results) );
 
     return Results;
 }
@@ -3140,8 +3559,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsMapOrPinPageInBitmap\n", 0);
-    DebugTrace2(0, Dbg, "Lcn = %08lx %08lx\n", Lcn.LowPart, Lcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsMapOrPinPageInBitmap\n") );
+    DebugTrace( 0, Dbg, ("Lcn = %016I64x\n", Lcn) );
 
     //
     //  Compute the starting lcn index of the page we're after
@@ -3153,17 +3572,11 @@ Return Value:
     //  Compute how many bits there are in the page we need to read
     //
 
-    if ((*StartingLcn + BITS_PER_PAGE) <= Vcb->TotalClusters) {
+    BitmapSize = (ULONG)(Vcb->TotalClusters - *StartingLcn);
+
+    if (BitmapSize > BITS_PER_PAGE) {
 
         BitmapSize = BITS_PER_PAGE;
-
-    } else {
-
-        //
-        //  Get the size of the bitmap
-        //
-
-        BitmapSize = (ULONG)(Vcb->TotalClusters - *StartingLcn);
     }
 
     //
@@ -3176,7 +3589,7 @@ Return Value:
 
         NtfsPinStream( IrpContext,
                        Vcb->BitmapScb,
-                       *StartingLcn >> 3,
+                       Int64ShraMod32( *StartingLcn, 3 ),
                        (BitmapSize+7)/8,
                        BitmapBcb,
                        &Buffer );
@@ -3185,7 +3598,7 @@ Return Value:
 
         NtfsMapStream( IrpContext,
                        Vcb->BitmapScb,
-                       *StartingLcn >> 3,
+                       Int64ShraMod32( *StartingLcn, 3 ),
                        (BitmapSize+7)/8,
                        BitmapBcb,
                        &Buffer );
@@ -3197,8 +3610,8 @@ Return Value:
 
     RtlInitializeBitMap( Bitmap, Buffer, BitmapSize );
 
-    DebugTrace2(0, Dbg, "StartingLcn <- %08lx %08lx\n", StartingLcn->LowPart, StartingLcn->HighPart);
-    DebugTrace(-1, Dbg, "NtfsMapOrPinPageInBitmap -> VOID\n", 0);
+    DebugTrace( 0, Dbg, ("StartingLcn <- %016I64x\n", *StartingLcn) );
+    DebugTrace( -1, Dbg, ("NtfsMapOrPinPageInBitmap -> VOID\n") );
 
     return;
 }
@@ -3218,7 +3631,7 @@ NtfsInitializeCachedBitmap (
 
 Routine Description:
 
-    This routine initializes the cached free and recently allocated
+    This routine initializes the cached free
     mcb/lru structures of the input vcb
 
 Arguments:
@@ -3233,14 +3646,13 @@ Return Value:
 
 {
     BOOLEAN UninitializeFreeSpaceMcb = FALSE;
-    BOOLEAN UninitializeRecentlyAllocMcb = FALSE;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsInitializeCachedBitmap\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsInitializeCachedBitmap\n") );
 
     //
     //  Use a try-finally so we can uninitialize if we don't complete the operation.
@@ -3262,55 +3674,32 @@ Return Value:
         //  the system and the size of the disk.
         //
 
-        if (Vcb->TotalClusters < CLUSTERS_MEDIUM_DISK) {
-
-            Vcb->FreeSpaceLruSize =
-            Vcb->RecentlyAllocatedLruSize = 1;
-
-        } else if (Vcb->TotalClusters < CLUSTERS_LARGE_DISK) {
-
-            Vcb->FreeSpaceLruSize =
-            Vcb->RecentlyAllocatedLruSize = 2;
-
-        } else {
-
-            Vcb->FreeSpaceLruSize =
-            Vcb->RecentlyAllocatedLruSize = 4; //**** 3;
-        }
-
-        if (FlagOn( NtfsData.Flags, NTFS_FLAGS_MEDIUM_SYSTEM )) {
-
-            Vcb->FreeSpaceLruSize *= 16; //**** 2;
-            Vcb->RecentlyAllocatedLruSize *= 16; //**** 2;
-
-        } else if (FlagOn( NtfsData.Flags, NTFS_FLAGS_LARGE_SYSTEM )) {
-
-            Vcb->FreeSpaceLruSize *= 128; //**** 4;
-            Vcb->RecentlyAllocatedLruSize *= 128; //**** 4;
-        }
-
-        Vcb->FreeSpaceLruSize *= FREE_SPACE_LRU_SIZE;
-
-        Vcb->FreeSpaceLruArray = FsRtlAllocatePool( PagedPool, Vcb->FreeSpaceLruSize * sizeof(LCN) );
-        RtlZeroMemory( Vcb->FreeSpaceLruArray, Vcb->FreeSpaceLruSize * sizeof(LCN) );
-
-        Vcb->FreeSpaceLruTail = 0;
-        Vcb->FreeSpaceLruHead = 0;
-
+        //if (Vcb->TotalClusters < CLUSTERS_MEDIUM_DISK) {
         //
-        //  Now do the same for the recently allocated information
+        //    Vcb->FreeSpaceMcbMaximumSize = 16;
         //
+        //} else if (Vcb->TotalClusters < CLUSTERS_LARGE_DISK) {
+        //
+        //    Vcb->FreeSpaceMcbMaximumSize = 32;
+        //
+        //} else {
+        //
+        //    Vcb->FreeSpaceMcbMaximumSize = 64;
+        //}
+        //
+        //if (FlagOn( NtfsData.Flags, NTFS_FLAGS_MEDIUM_SYSTEM )) {
+        //
+        //    Vcb->FreeSpaceMcbMaximumSize *= 2;
+        //
+        //} else if (FlagOn( NtfsData.Flags, NTFS_FLAGS_LARGE_SYSTEM )) {
+        //
+        //    Vcb->FreeSpaceMcbMaximumSize *= 4;
+        //}
+        //
+        //Vcb->FreeSpaceMcbTrimToSize = Vcb->FreeSpaceMcbMaximumSize / 2;
 
-        FsRtlInitializeLargeMcb( &Vcb->RecentlyAllocatedMcb, PagedPool );
-        UninitializeRecentlyAllocMcb = TRUE;
-
-        Vcb->RecentlyAllocatedLruSize *= RECENTLY_ALLOCATED_LRU_SIZE;
-
-        Vcb->RecentlyAllocatedLruArray = FsRtlAllocatePool( PagedPool, Vcb->RecentlyAllocatedLruSize * sizeof(LCN) );
-        RtlZeroMemory( Vcb->RecentlyAllocatedLruArray, Vcb->RecentlyAllocatedLruSize * sizeof(LCN) );
-
-        Vcb->RecentlyAllocatedLruTail = 0;
-        Vcb->RecentlyAllocatedLruHead = 0;
+        Vcb->FreeSpaceMcbMaximumSize = 8192;
+        Vcb->FreeSpaceMcbTrimToSize = 6144;
 
     } finally {
 
@@ -3320,27 +3709,10 @@ Return Value:
 
                 FsRtlUninitializeLargeMcb( &Vcb->FreeSpaceMcb );
             }
-
-            if (UninitializeRecentlyAllocMcb) {
-
-                FsRtlUninitializeLargeMcb( &Vcb->RecentlyAllocatedMcb );
-            }
-
-            if (Vcb->FreeSpaceLruArray != NULL) {
-
-                ExFreePool( Vcb->FreeSpaceLruArray );
-                Vcb->FreeSpaceLruArray = NULL;
-            }
-
-            if (Vcb->RecentlyAllocatedLruArray != NULL) {
-
-                ExFreePool( Vcb->RecentlyAllocatedLruArray );
-                Vcb->RecentlyAllocatedLruArray = NULL;
-            }
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsInitializeCachedBitmap -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsInitializeCachedBitmap -> VOID\n") );
 
     return;
 }
@@ -3356,8 +3728,7 @@ NtfsIsLcnInCachedFreeRun (
     IN PVCB Vcb,
     IN LCN Lcn,
     OUT PLCN StartingLcn,
-    OUT PLONGLONG ClusterCount,
-    OUT PNTFS_RUN_STATE PrecedingRunState
+    OUT PLONGLONG ClusterCount
     )
 
 /*++
@@ -3375,11 +3746,6 @@ Routine Description:
        a starting lcn and cluster count.  If we do not get a hit then
        return false to the caller.
 
-    2. If the starting lcn is zero then the preceding run state is
-       unknown otherwise query the recently allocated mcb at the
-       starting lcn value minus 1 to see if the preceding run is
-       recently allocated or unknown.
-
 Arguments:
 
     Vcb - Supplies the vcb used in the operation
@@ -3391,9 +3757,6 @@ Arguments:
     ClusterCount - Receives the number of clusters in the run
         containing the input lcn
 
-    PrecedingRunState - Receives the state of the cached run preceding
-        the input lcn
-
 Return Value:
 
     BOOLEAN - TRUE if the input lcn is within a cached free run and
@@ -3403,15 +3766,14 @@ Return Value:
 
 {
     BOOLEAN Result;
-    LCN OutputLcn;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsIsLcnInCachedFreeRun\n", 0);
-    DebugTrace2(0, Dbg, "Lcn = %08lx %08lx\n", Lcn.LowPart, Lcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsIsLcnInCachedFreeRun\n") );
+    DebugTrace( 0, Dbg, ("Lcn = %016I64x\n", Lcn) );
 
     //
     //  Check the free space mcb for a hit on the input lcn, if we don't get a
@@ -3436,38 +3798,11 @@ Return Value:
     } else {
 
         Result = TRUE;
-
-        //
-        //  We have a free space from starting lcn for the cluster count.  Now
-        //  if we get a hit on the recently allocated mcb, and we don't get back
-        //  -1 then the space right before us has been recently allocated.
-        //
-
-        ASSERTMSG("Lcn zero can never be free ", (*StartingLcn != 0));
-
-        if ((FsRtlLookupLargeMcbEntry( &Vcb->RecentlyAllocatedMcb,
-                                       *StartingLcn - 1,
-                                       &OutputLcn,
-                                       NULL,
-                                       NULL,
-                                       NULL,
-                                       NULL )
-
-                &&
-
-            (OutputLcn != UNUSED_LCN))) {
-
-            *PrecedingRunState = RunStateAllocated;
-
-        } else {
-
-            *PrecedingRunState = RunStateUnknown;
-        }
     }
 
-    DebugTrace2(0, Dbg, "StartingLcn <- %08lx %08lx\n", StartingLcn->LowPart, StartingLcn->HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount <- %08lx %08lx\n", ClusterCount->LowPart, ClusterCount->HighPart);
-    DebugTrace(-1, Dbg, "NtfsIsLcnInCachedFreeRun -> %08lx\n", Result);
+    DebugTrace( 0, Dbg, ("StartingLcn <- %016I64x\n", *StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount <- %016I64x\n", *ClusterCount) );
+    DebugTrace( -1, Dbg, ("NtfsIsLcnInCachedFreeRun -> %08lx\n", Result) );
 
     return Result;
 }
@@ -3490,7 +3825,7 @@ NtfsAddCachedRun (
 
 Routine Description:
 
-    This procedure adds a new run to the cached free space/recently allocated
+    This procedure adds a new run to the cached free space
     bitmap information.  It also will trim back the cached information
     if the Lru array is full.
 
@@ -3513,20 +3848,15 @@ Return Value:
 
 {
     PLARGE_MCB Mcb;
-    PLARGE_MCB OtherMcb;
-    PLCN LruArray;
-    ULONG LruSize;
-    PULONG LruTail;
-    PULONG LruHead;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAddCachedRun\n", 0);
-    DebugTrace2(0, Dbg, "StartingLcn  = %08lx %08lx\n", StartingLcn.LowPart, StartingLcn.HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount = %08lx %08lx\n", ClusterCount.LowPart, ClusterCount.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsAddCachedRun\n") );
+    DebugTrace( 0, Dbg, ("StartingLcn  = %016I64x\n", StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount = %016I64x\n", ClusterCount) );
 
     //
     //  Based on whether we are adding a free or allocated run we
@@ -3546,85 +3876,47 @@ Return Value:
         }
 
         Mcb = &Vcb->FreeSpaceMcb;
-        OtherMcb = &Vcb->RecentlyAllocatedMcb;
 
-        LruArray = &Vcb->FreeSpaceLruArray[0];
-        LruSize = Vcb->FreeSpaceLruSize;
-        LruTail = &Vcb->FreeSpaceLruTail;
-        LruHead = &Vcb->FreeSpaceLruHead;
+        //
+        //  Trim back the MCB if necessary
+        //
+
+        if (Mcb->PairCount > Vcb->FreeSpaceMcbMaximumSize) {
+
+            Mcb->PairCount = Vcb->FreeSpaceMcbTrimToSize;
+        }
+
+        //
+        //  Sanity check that we aren't adding bits beyond the end of the
+        //  bitmap.
+        //
+
+        ASSERT( StartingLcn + ClusterCount <= Vcb->TotalClusters );
+
+        //
+        //  Now try and add the run to our mcb, this operation might fail because
+        //  of overlapping runs, and if it does then we'll simply remove the range from
+        //  the mcb and then insert it.
+        //
+
+        if (!FsRtlAddLargeMcbEntry( Mcb, StartingLcn, StartingLcn, ClusterCount )) {
+
+            FsRtlRemoveLargeMcbEntry( Mcb, StartingLcn, ClusterCount );
+
+            (VOID) FsRtlAddLargeMcbEntry( Mcb, StartingLcn, StartingLcn, ClusterCount );
+        }
 
     } else {
 
-        Mcb = &Vcb->RecentlyAllocatedMcb;
-        OtherMcb = &Vcb->FreeSpaceMcb;
-
-        LruArray = &Vcb->RecentlyAllocatedLruArray[0];
-        LruSize = Vcb->RecentlyAllocatedLruSize;
-        LruTail = &Vcb->RecentlyAllocatedLruTail;
-        LruHead = &Vcb->RecentlyAllocatedLruHead;
-    }
-
-    //
-    //  The first operation we need to do is add the StartingLcn to the
-    //  lru array.  We do this by incrementing the head index and then
-    //  checking if the head bumped into the tail.  If it did bump the tail
-    //  then we remove the cached entry denoted by the tail if it still
-    //  exists.
-    //
-
-    *LruHead = (*LruHead + 1) % LruSize;
-
-    if (*LruHead == *LruTail) {
-
-        LCN FullRunLcn;
-        LONGLONG FullRunClusterCount;
-
         //
-        //  If we have a hit and it is not -1 then the entry is still in
-        //  the mcb and needs to be removed
+        //  Now remove the run from the free space mcb because it can potentially already be
+        //  there.
         //
 
-        if (FsRtlLookupLargeMcbEntry( Mcb,
-                                      LruArray[*LruTail],
-                                      NULL,
-                                      NULL,
-                                      &FullRunLcn,
-                                      &FullRunClusterCount,
-                                      NULL )
-
-                &&
-
-            (FullRunLcn != UNUSED_LCN)) {
-
-            FsRtlRemoveLargeMcbEntry( Mcb, FullRunLcn, FullRunClusterCount );
-        }
-
-        *LruTail = (*LruTail + 1) % LruSize;
+        FsRtlRemoveLargeMcbEntry( &Vcb->FreeSpaceMcb, StartingLcn, ClusterCount );
     }
 
-    LruArray[*LruHead] = StartingLcn;
-
-    //
-    //  Now remove the run from the other mcb because it can potentially already be
-    //  there.
-    //
-
-    FsRtlRemoveLargeMcbEntry( OtherMcb, StartingLcn, ClusterCount );
-
-    //
-    //  Now try and add the run to our mcb, this operation might fail because
-    //  of overlapping runs, and if it does then we'll simply remove the range from
-    //  the mcb and then insert it.
-    //
-
-    if (!FsRtlAddLargeMcbEntry( Mcb, StartingLcn, StartingLcn, ClusterCount )) {
-
-        FsRtlRemoveLargeMcbEntry( Mcb, StartingLcn, ClusterCount );
-
-        (VOID) FsRtlAddLargeMcbEntry( Mcb, StartingLcn, StartingLcn, ClusterCount );
-    }
-
-    DebugTrace(-1, Dbg, "NtfsAddCachedRun -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsAddCachedRun -> VOID\n") );
 
     return;
 }
@@ -3647,7 +3939,7 @@ NtfsRemoveCachedRun (
 Routine Description:
 
     This routine removes a range of cached run information from both the
-    free space and recently allocated mcbs.
+    free space mcb.
 
 Arguments:
 
@@ -3669,9 +3961,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsRemoveCachedRun\n", 0);
-    DebugTrace2(0, Dbg, "StartingLcn  = %08lx %08lx\n", StartingLcn.LowPart, StartingLcn.HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount = %08lx %08lx\n", ClusterCount.LowPart, ClusterCount.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsRemoveCachedRun\n") );
+    DebugTrace( 0, Dbg, ("StartingLcn  = %016I64x\n", StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount = %016I64x\n", ClusterCount) );
 
     //
     //  To remove a cached entry we only need to remove the run from both
@@ -3680,9 +3972,7 @@ Return Value:
 
     FsRtlRemoveLargeMcbEntry( &Vcb->FreeSpaceMcb, StartingLcn, ClusterCount );
 
-    FsRtlRemoveLargeMcbEntry( &Vcb->RecentlyAllocatedMcb, StartingLcn, ClusterCount );
-
-    DebugTrace(-1, Dbg, "NtfsRemoveCachedRun -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsRemoveCachedRun -> VOID\n") );
 
     return;
 }
@@ -3699,8 +3989,7 @@ NtfsGetNextCachedFreeRun (
     IN ULONG RunIndex,
     OUT PLCN StartingLcn,
     OUT PLONGLONG ClusterCount,
-    OUT PNTFS_RUN_STATE RunState,
-    OUT PNTFS_RUN_STATE PrecedingRunState
+    OUT PNTFS_RUN_STATE RunState
     )
 
 /*++
@@ -3726,10 +4015,6 @@ Arguments:
     RunState - Receives the state of the run indexed by RunIndex it can
         either be free or unknown
 
-    PrecedingRunState - Receives the state of the run preceding the free
-        run indexed by RunIndex if it exists.  This is only set if the run
-        state is free.
-
 Return Value:
 
     BOOLEAN - TRUE if the run index exists and FALSE otherwise
@@ -3740,15 +4025,14 @@ Return Value:
     BOOLEAN Result;
 
     VCN LocalVcn;
-    LCN LocalLcn;
 
     ASSERT_IRP_CONTEXT( IrpContext );
     ASSERT_VCB( Vcb );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsGetNextCachedFreeRun\n", 0);
-    DebugTrace( 0, Dbg, "RunIndex = %08lx\n", RunIndex );
+    DebugTrace( +1, Dbg, ("NtfsGetNextCachedFreeRun\n") );
+    DebugTrace( 0, Dbg, ("RunIndex = %08lx\n", RunIndex) );
 
     //
     //  First lookup and see if we have a hit in the free space mcb
@@ -3776,31 +4060,6 @@ Return Value:
             *RunState = RunStateFree;
 
             ASSERTMSG("Lcn zero can never be free ", (*StartingLcn != 0));
-
-            //
-            //  We have a free space from starting lcn for the cluster count.  Now
-            //  if we get a hit on the recently allocated mcb, and we don't get back
-            //  -1 then the space right before us has been recently allocated.
-            //
-
-            if ((FsRtlLookupLargeMcbEntry( &Vcb->RecentlyAllocatedMcb,
-                                           *StartingLcn - 1,
-                                           &LocalLcn,
-                                           NULL,
-                                           NULL,
-                                           NULL,
-                                           NULL )
-
-                    &&
-
-                (LocalLcn != UNUSED_LCN))) {
-
-                *PrecedingRunState = RunStateAllocated;
-
-            } else {
-
-                *PrecedingRunState = RunStateUnknown;
-            }
         }
 
     } else {
@@ -3808,9 +4067,9 @@ Return Value:
         Result = FALSE;
     }
 
-    DebugTrace2(0, Dbg, "StartingLcn <- %08lx %08lx\n", StartingLcn->LowPart, StartingLcn->HighPart);
-    DebugTrace2(0, Dbg, "ClusterCount <- %08lx %08lx\n", ClusterCount->LowPart, ClusterCount->HighPart);
-    DebugTrace(-1, Dbg, "NtfsGetNextCachedFreeRun -> %08lx\n", Result);
+    DebugTrace( 0, Dbg, ("StartingLcn <- %016I64x\n", *StartingLcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount <- %016I64x\n", *ClusterCount) );
+    DebugTrace( -1, Dbg, ("NtfsGetNextCachedFreeRun -> %08lx\n", Result) );
 
     return Result;
 }
@@ -3860,8 +4119,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReadAheadCachedBitmap\n", 0);
-    DebugTrace2(0, Dbg, "StartingLcn = %08lx %08lx\n", StartingLcn.LowPart, StartingLcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsReadAheadCachedBitmap\n") );
+    DebugTrace( 0, Dbg, ("StartingLcn = %016I64x\n", StartingLcn) );
 
     BitmapBcb = NULL;
     StuffAdded = FALSE;
@@ -3890,7 +4149,7 @@ Return Value:
 
         NtfsMapPageInBitmap( IrpContext, Vcb, StartingLcn, &BaseLcn, &Bitmap, &BitmapBcb );
 
-        StuffAdded = NtfsAddRecentlyDeallocated( IrpContext, Vcb, BaseLcn, &Bitmap );
+        StuffAdded = NtfsAddRecentlyDeallocated( Vcb, BaseLcn, &Bitmap );
 
         Index = (ULONG)(StartingLcn - BaseLcn);
 
@@ -3926,12 +4185,12 @@ Return Value:
 
         DebugUnwind( NtfsReadAheadCachedBitmap );
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsReadAheadCachedBitmap -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsReadAheadCachedBitmap -> VOID\n") );
 
     return;
 }
@@ -3944,7 +4203,7 @@ Return Value:
 BOOLEAN
 NtfsGetNextHoleToFill (
     IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN StartingVcn,
     IN VCN EndingVcn,
     OUT PVCN VcnToFill,
@@ -3993,9 +4252,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsGetNextHoleToFill\n", 0);
-    DebugTrace2(0, Dbg, "StartingVcn = %08lx %08lx\n", StartingVcn.LowPart, StartingVcn.HighPart);
-    DebugTrace2(0, Dbg, "EndingVcn   = %08lx %08lx\n", EndingVcn.LowPart, EndingVcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsGetNextHoleToFill\n") );
+    DebugTrace( 0, Dbg, ("StartingVcn = %016I64x\n", StartingVcn) );
+    DebugTrace( 0, Dbg, ("EndingVcn   = %016I64x\n", EndingVcn) );
 
     //
     //  We'll first assume that there is not a hole to fill unless
@@ -4013,7 +4272,7 @@ Return Value:
         //  to the top of our loop and try again
         //
 
-        if ((McbHit = FsRtlLookupLargeMcbEntry( Mcb, *VcnToFill, &Lcn, ClusterCountToFill, NULL, NULL, NULL )) &&
+        if ((McbHit = NtfsLookupNtfsMcbEntry( Mcb, *VcnToFill, &Lcn, ClusterCountToFill, NULL, NULL, NULL, NULL )) &&
             (Lcn != UNUSED_LCN)) {
 
             NOTHING;
@@ -4046,7 +4305,7 @@ Return Value:
 
                 LlTemp1 = *VcnToFill - 1;
 
-                if (!FsRtlLookupLargeMcbEntry( Mcb, LlTemp1, PrecedingLcn, NULL, NULL, NULL, NULL )) {
+                if (!NtfsLookupNtfsMcbEntry( Mcb, LlTemp1, PrecedingLcn, NULL, NULL, NULL, NULL, NULL )) {
 
                     *PrecedingLcn = UNUSED_LCN;
                 }
@@ -4062,10 +4321,10 @@ Return Value:
         }
     }
 
-    DebugTrace2(0, Dbg, "VcnToFill <- %08lx %08lx\n", VcnToFill->LowPart, VcnToFill->HighPart);
-    DebugTrace2(0, Dbg, "ClusterCountToFill <- %08lx %08lx\n", ClusterCountToFill->LowPart, ClusterCountToFill->HighPart);
-    DebugTrace2(0, Dbg, "PrecedingLcn <- %08lx %08lx\n", PrecedingLcn->LowPart, PrecedingLcn->HighPart);
-    DebugTrace(-1, Dbg, "NtfsGetNextHoleToFill -> %08lx\n", Result);
+    DebugTrace( 0, Dbg, ("VcnToFill <- %016I64x\n", *VcnToFill) );
+    DebugTrace( 0, Dbg, ("ClusterCountToFill <- %016I64x\n", *ClusterCountToFill) );
+    DebugTrace( 0, Dbg, ("PrecedingLcn <- %016I64x\n", *PrecedingLcn) );
+    DebugTrace( -1, Dbg, ("NtfsGetNextHoleToFill -> %08lx\n", Result) );
 
     return Result;
 }
@@ -4078,7 +4337,7 @@ Return Value:
 LONGLONG
 NtfsScanMcbForRealClusterCount (
     IN PIRP_CONTEXT IrpContext,
-    IN PLARGE_MCB Mcb,
+    IN PNTFS_MCB Mcb,
     IN VCN StartingVcn,
     IN VCN EndingVcn
     )
@@ -4116,9 +4375,9 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsScanMcbForRealClusterCount\n", 0);
-    DebugTrace2(0, Dbg, "StartingVcn = %08lx %08lx\n", StartingVcn.LowPart, StartingVcn.HighPart);
-    DebugTrace2(0, Dbg, "EndingVcn   = %08lx %08lx\n", EndingVcn.LowPart, EndingVcn.HighPart);
+    DebugTrace( +1, Dbg, ("NtfsScanMcbForRealClusterCount\n") );
+    DebugTrace( 0, Dbg, ("StartingVcn = %016I64x\n", StartingVcn) );
+    DebugTrace( 0, Dbg, ("EndingVcn   = %016I64x\n", EndingVcn) );
 
     //
     //  First compute free count as if the entire run is already unallocated
@@ -4135,7 +4394,7 @@ Return Value:
         //  the mcb and therefore nothing else above it can be allocated.
         //
 
-        if (!FsRtlLookupLargeMcbEntry( Mcb, Vcn, &Lcn, &RunSize, NULL, NULL, NULL )) {
+        if (!NtfsLookupNtfsMcbEntry( Mcb, Vcn, &Lcn, &RunSize, NULL, NULL, NULL, NULL )) {
 
             break;
         }
@@ -4158,7 +4417,7 @@ Return Value:
         }
     }
 
-    DebugTrace2(-1, Dbg, "NtfsScanMcbForRealClusterCount -> %08lx %08lx\n", FreeCount.LowPart, FreeCount.HighPart);
+    DebugTrace( -1, Dbg, ("NtfsScanMcbForRealClusterCount -> %016I64x\n", FreeCount) );
 
     return FreeCount;
 }
@@ -4172,7 +4431,6 @@ Return Value:
 
 ULONG
 NtfsDumpCachedMcbInformation (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     )
 
@@ -4195,20 +4453,12 @@ Return Value:
 {
     DbgPrint("Dump BitMpSup Information, Vcb@ %08lx\n", Vcb);
 
-    DbgPrint("TotalCluster: %08lx %08lx\n", Vcb->TotalClusters.LowPart, Vcb->TotalClusters.HighPart);
-    DbgPrint("FreeClusters: %08lx %08lx\n", Vcb->FreeClusters.LowPart, Vcb->FreeClusters.HighPart);
+    DbgPrint("TotalCluster: %016I64x\n", Vcb->TotalClusters);
+    DbgPrint("FreeClusters: %016I64x\n", Vcb->FreeClusters);
 
     DbgPrint("FreeSpaceMcb@ %08lx ", &Vcb->FreeSpaceMcb );
-    DbgPrint("Array: %08lx ", Vcb->FreeSpaceLruArray );
-    DbgPrint("Size: %08lx ", Vcb->FreeSpaceLruSize );
-    DbgPrint("Tail: %08lx ", Vcb->FreeSpaceLruTail );
-    DbgPrint("Head: %08lx\n", Vcb->FreeSpaceLruHead );
-
-    DbgPrint("RecentlyAllocatedMcb@ %08lx ", &Vcb->RecentlyAllocatedMcb );
-    DbgPrint("Array: %08lx ", Vcb->RecentlyAllocatedLruArray );
-    DbgPrint("Size: %08lx ", Vcb->RecentlyAllocatedLruSize );
-    DbgPrint("Tail: %08lx ", Vcb->RecentlyAllocatedLruTail );
-    DbgPrint("Head: %08lx\n", Vcb->RecentlyAllocatedLruHead );
+    DbgPrint("McbMaximumSize: %08lx ", Vcb->FreeSpaceMcbMaximumSize );
+    DbgPrint("McbTrimToSize: %08lx ", Vcb->FreeSpaceMcbTrimToSize );
 
     return 1;
 }
@@ -4285,7 +4535,10 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsInitializeRecordAllocation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsInitializeRecordAllocation\n") );
+
+    ASSERT( BytesPerRecord * ExtendGranularity >= DataScb->Vcb->BytesPerCluster );
+    ASSERT( BytesPerRecord * TruncateGranularity >= DataScb->Vcb->BytesPerCluster );
 
     //
     //  First zero out the context record except for the data scb.
@@ -4360,6 +4613,15 @@ Return Value:
 
         try {
 
+            ULONG StartingByte;
+
+            ULONG BitsThisPage;
+            ULONG BytesThisPage;
+            ULONG RemainingBytes;
+
+            ULONG ThisClearIndex;
+            ULONG ThisClearLength;
+
             //
             //  Create the bitmap scb for the bitmap attribute
             //
@@ -4369,10 +4631,10 @@ Return Value:
             BitmapName.Buffer = Add2Ptr(AttributeRecordHeader, AttributeRecordHeader->NameOffset);
 
             RecordAllocationContext->BitmapScb = NtfsCreateScb( IrpContext,
-                                                                DataScb->Vcb,
                                                                 DataScb->Fcb,
                                                                 AttributeRecordHeader->TypeCode,
-                                                                BitmapName,
+                                                                &BitmapName,
+                                                                FALSE,
                                                                 &ReturnedExistingScb );
 
             //
@@ -4381,8 +4643,6 @@ Return Value:
             //
 
             RecordAllocationContext->CurrentBitmapSize = 8 * ((ULONG)AttributeRecordHeader->Form.Nonresident.FileSize);
-
-            ASSERTMSG("Multiple page bitmap attribute not yet supported ", RecordAllocationContext->CurrentBitmapSize <= 16*BITS_PER_PAGE);
 
             //
             //  Create the stream file if not present.
@@ -4394,32 +4654,117 @@ Return Value:
             }
 
             //
-            //  Now map the bitmap data, initialize our local bitmap variable and
-            //  calculate the number of free bits currently available
+            //  Walk through each page of the bitmap and compute the number of set
+            //  bits and the last set bit in the bitmap.
             //
 
-            NtfsMapStream( IrpContext,
-                           RecordAllocationContext->BitmapScb,
-                           (LONGLONG)0,
-                           RecordAllocationContext->CurrentBitmapSize / 8,
-                           &BitmapBcb,
-                           &BitmapBuffer );
+            RecordAllocationContext->NumberOfFreeBits = 0;
+            RemainingBytes = (ULONG) AttributeRecordHeader->Form.Nonresident.FileSize;
+            StartingByte = 0;
+            ClearLength = 0;
 
-            RtlInitializeBitMap( &Bitmap,
-                                 BitmapBuffer,
-                                 RecordAllocationContext->CurrentBitmapSize );
+            while (TRUE) {
 
-            RecordAllocationContext->NumberOfFreeBits = RtlNumberOfClearBits( &Bitmap );
+                BytesThisPage = RemainingBytes;
 
-            ClearLength = RtlFindLastBackwardRunClear( &Bitmap,
-                                                       RecordAllocationContext->CurrentBitmapSize - 1,
-                                                       &ClearIndex );
+                if (RemainingBytes > PAGE_SIZE) {
+
+                    BytesThisPage = PAGE_SIZE;
+                }
+
+                BitsThisPage = BytesThisPage * 8;
+
+                //
+                //  Now map the bitmap data, initialize our local bitmap variable and
+                //  calculate the number of free bits currently available
+                //
+
+                NtfsUnpinBcb( &BitmapBcb );
+
+                NtfsMapStream( IrpContext,
+                               RecordAllocationContext->BitmapScb,
+                               (LONGLONG)StartingByte,
+                               BytesThisPage,
+                               &BitmapBcb,
+                               &BitmapBuffer );
+
+                RtlInitializeBitMap( &Bitmap,
+                                     BitmapBuffer,
+                                     BitsThisPage );
+
+                RecordAllocationContext->NumberOfFreeBits += RtlNumberOfClearBits( &Bitmap );
+
+                //
+                //  We are interested in remembering the last set bit in this bitmap.
+                //  If the bitmap ends with a clear run then the last set bit is
+                //  immediately prior to this clear run.  We need to check each page
+                //  as we go through the bitmap to see if a clear run ends at the end
+                //  of the current page.
+                //
+
+                ThisClearLength = RtlFindLastBackwardRunClear( &Bitmap,
+                                                               BitsThisPage - 1,
+                                                               &ThisClearIndex );
+
+                //
+                //  If there is a run and it ends at the end of the page then
+                //  either combine with a previous run or remember that this is the
+                //  start of the run.
+                //
+
+                if ((ThisClearLength != 0) &&
+                    ((ThisClearLength + ThisClearIndex) == BitsThisPage)) {
+
+                    //
+                    //  If this is the entire page and the previous page ended
+                    //  with a clear run then just extend that run.
+                    //
+
+                    if ((ThisClearIndex == 0) && (ClearLength != 0)) {
+
+                        ClearLength += ThisClearLength;
+
+                    //
+                    //  Otherwise this is a new clear run.  Bias the starting index
+                    //  by the bit offset of this page.
+                    //
+
+                    } else {
+
+                        ClearLength = ThisClearLength;
+                        ClearIndex = ThisClearIndex + (StartingByte * 8);
+                    }
+
+                //
+                //  This page does not end with a clear run.
+                //
+
+                } else {
+
+                    ClearLength = 0;
+                }
+
+                //
+                //  If we are not at the end of the bitmap then update our
+                //  counters.
+                //
+
+                if (RemainingBytes != BytesThisPage) {
+
+                    StartingByte += PAGE_SIZE;
+                    RemainingBytes -= PAGE_SIZE;
+
+                } else {
+
+                    break;
+                }
+            }
 
         } finally {
 
             DebugUnwind( NtfsInitializeRecordAllocation );
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
         }
     }
 
@@ -4437,7 +4782,7 @@ Return Value:
         RecordAllocationContext->IndexOfLastSetBit = RecordAllocationContext->CurrentBitmapSize - 1;
     }
 
-    DebugTrace(-1, Dbg, "NtfsInitializeRecordAllocation -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsInitializeRecordAllocation -> VOID\n") );
 
     return;
 }
@@ -4471,7 +4816,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsUninitializeRecordAllocation\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsUninitializeRecordAllocation\n") );
 
     //
     //  And then for safe measure zero out the entire record except for the
@@ -4482,7 +4827,7 @@ Return Value:
                    sizeof(RECORD_ALLOCATION_CONTEXT) -
                    FIELD_OFFSET( RECORD_ALLOCATION_CONTEXT, BitmapScb ));
 
-    DebugTrace(-1, Dbg, "NtfsUninitializeRecordAllocation -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsUninitializeRecordAllocation -> VOID\n") );
 
     return;
 }
@@ -4531,18 +4876,37 @@ Return Value:
 
 {
     PSCB DataScb;
+    LONGLONG DataOffset;
 
+    LONGLONG ClusterCount;
+
+    ULONG BytesPerRecord;
+    ULONG ExtendGranularity;
+    ULONG TruncateGranularity;
+
+    PULONG CurrentBitmapSize;
+    PULONG NumberOfFreeBits;
+
+    PSCB BitmapScb;
+    PBCB BitmapBcb;
     RTL_BITMAP Bitmap;
-
-    ULONG Index;
+    PUCHAR BitmapBuffer;
+    ULONG BitmapOffset;
+    ULONG BitmapIndex;
+    ULONG BitmapSizeInBytes;
+    ULONG BitmapCurrentOffset = 0;
+    ULONG BitmapSizeInPages;
 
     BOOLEAN StuffAdded = FALSE;
+    BOOLEAN Rescan;
+
+    PVCB Vcb;
 
     ASSERT_IRP_CONTEXT( IrpContext );
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAllocateRecord\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsAllocateRecord\n") );
 
     //
     //  Synchronize by acquiring the data scb exclusive, as an "end resource".
@@ -4553,20 +4917,6 @@ Return Value:
     NtfsAcquireExclusiveScb( IrpContext, DataScb );
 
     try {
-
-        PVCB Vcb;
-        PSCB BitmapScb;
-
-        ULONG BytesPerRecord;
-        ULONG ExtendGranularity;
-        ULONG TruncateGranularity;
-
-        PULONG CurrentBitmapSize;
-        PULONG NumberOfFreeBits;
-
-        PUCHAR BitmapBuffer;
-
-        VCN Vcn = 0;
 
         //
         //  Remember some values for convenience.
@@ -4584,8 +4934,8 @@ Return Value:
         //  below.
         //
 
-        if ((RecordAllocationContext->BitmapScb == NULL)
-            && !NtfsIsAttributeResident( NtfsFoundAttribute( BitmapAttribute ))) {
+        if ((RecordAllocationContext->BitmapScb == NULL) &&
+            !NtfsIsAttributeResident( NtfsFoundAttribute( BitmapAttribute ))) {
 
             NtfsUninitializeRecordAllocation( IrpContext,
                                               RecordAllocationContext );
@@ -4612,6 +4962,8 @@ Return Value:
         CurrentBitmapSize   = &RecordAllocationContext->CurrentBitmapSize;
         NumberOfFreeBits    = &RecordAllocationContext->NumberOfFreeBits;
 
+        BitmapSizeInBytes = *CurrentBitmapSize / 8;
+
         //
         //  We will do different operations based on whether the bitmap is resident or nonresident
         //  The first case we will handle is the resident bitmap.
@@ -4619,7 +4971,7 @@ Return Value:
 
         if (BitmapScb == NULL) {
 
-            BOOLEAN SizeExtended;
+            BOOLEAN SizeExtended = FALSE;
             UCHAR NewByte;
 
             //
@@ -4632,9 +4984,9 @@ Return Value:
                                  (PULONG)BitmapBuffer,
                                  *CurrentBitmapSize );
 
-            StuffAdded = NtfsAddDeallocatedRecords( IrpContext, Vcb, DataScb, 0, &Bitmap );
+            StuffAdded = NtfsAddDeallocatedRecords( Vcb, DataScb, 0, &Bitmap );
 
-            Index = RtlFindClearBits( &Bitmap, 1, Hint );
+            BitmapIndex = RtlFindClearBits( &Bitmap, 1, Hint );
 
             //
             //  Check if we have found a free record that can be allocated,  If not then extend
@@ -4642,7 +4994,7 @@ Return Value:
             //  of the extension we just added
             //
 
-            if (Index == 0xffffffff) {
+            if (BitmapIndex == 0xffffffff) {
 
                 union {
                     QUAD Quad;
@@ -4653,7 +5005,7 @@ Return Value:
 
                 NtfsChangeAttributeValue( IrpContext,
                                           DataScb->Fcb,
-                                          *CurrentBitmapSize / 8,
+                                          BitmapSizeInBytes,
                                           &(ZeroQuadWord.Uchar)[0],
                                           sizeof( QUAD ),
                                           TRUE,
@@ -4662,9 +5014,11 @@ Return Value:
                                           TRUE,
                                           BitmapAttribute );
 
-                Index = *CurrentBitmapSize;
+                BitmapIndex = *CurrentBitmapSize;
                 *CurrentBitmapSize += BITMAP_EXTEND_GRANULARITY;
                 *NumberOfFreeBits += BITMAP_EXTEND_GRANULARITY;
+
+                BitmapSizeInBytes += (BITMAP_EXTEND_GRANULARITY / 8);
 
                 SizeExtended = TRUE;
 
@@ -4678,15 +5032,13 @@ Return Value:
 
             } else {
 
-                SizeExtended = FALSE;
-
                 //
                 //  Capture the current value of the byte for the index if we
                 //  are not extending.  Notice that we always take this from the
                 //  unbiased original bitmap.
                 //
 
-                NewByte = BitmapBuffer[ Index / 8 ];
+                NewByte = BitmapBuffer[ BitmapIndex / 8 ];
             }
 
             //
@@ -4721,13 +5073,13 @@ Return Value:
                 //  the recently-deallocated bits with.
                 //
 
-                ASSERT(!FlagOn( NewByte, BitMask[Index % 8]));
+                ASSERT(!FlagOn( NewByte, BitMask[BitmapIndex % 8]));
 
-                SetFlag( NewByte, BitMask[Index % 8] );
+                SetFlag( NewByte, BitMask[BitmapIndex % 8] );
 
                 NtfsChangeAttributeValue( IrpContext,
                                           DataScb->Fcb,
-                                          Index / 8,
+                                          BitmapIndex / 8,
                                           &NewByte,
                                           1,
                                           FALSE,
@@ -4738,20 +5090,25 @@ Return Value:
             }
         }
 
-        if (BitmapScb != NULL) {
+        //
+        //  Use a loop here to handle the extreme case where extending the allocation
+        //  of the volume bitmap causes us to renter this routine recursively.
+        //  In that case the top level guy will fail expecting the first bit to
+        //  be available in the added clusters.  Instead we will return to the
+        //  top of this loop after extending the bitmap and just do our normal
+        //  scan.
+        //
 
-            ULONG StartingByte;
-            PBCB BitmapBcb = NULL;
+        while (BitmapScb != NULL) {
+
+            ULONG SizeToPin;
+            ULONG HoleIndex;
+
+            BitmapBcb = NULL;
+            Rescan = FALSE;
+            HoleIndex = 0;
 
             try {
-
-                ULONG StartingCluster;
-                ULONG BitmapClusters;
-                ULONG Temp;
-
-                ULONG SizeToPin;
-
-                ULONG HoleIndex = 0;
 
                 if (!FlagOn( BitmapScb->ScbState, SCB_STATE_HEADER_INITIALIZED )) {
 
@@ -4764,8 +5121,6 @@ Return Value:
 
                 NtfsSnapshotScb( IrpContext, BitmapScb );
 
-                BitmapClusters = ClustersFromBytes(Vcb, ROUND_TO_PAGES(*CurrentBitmapSize / 8));
-
                 //
                 //  Create the stream file if not present.
                 //
@@ -4776,44 +5131,55 @@ Return Value:
                 }
 
                 //
-                //  Remember the starting cluster for the page containing the hint.
+                //  Remember the starting offset for the page containing the hint.
                 //
 
-                StartingCluster = ClustersFromBytes( Vcb, (Hint / 8) & ~(PAGE_SIZE - 1));
+                BitmapCurrentOffset = (Hint / 8) & ~(PAGE_SIZE - 1);
                 Hint &= (BITS_PER_PAGE - 1);
+
+                BitmapSizeInPages = ROUND_TO_PAGES( BitmapSizeInBytes );
 
                 //
                 //  Loop for the size of the bitmap plus one page, so that we will
                 //  retry the initial page once starting from a hint offset of 0.
                 //
 
-                for (Temp = 0;
-                     Temp <= BitmapClusters;
-                     Temp += Vcb->ClustersPerPage) {
+                for (BitmapOffset = 0;
+                     BitmapOffset <= BitmapSizeInPages;
+                     BitmapOffset += PAGE_SIZE, BitmapCurrentOffset += PAGE_SIZE) {
 
                     ULONG LocalHint;
 
                     //
-                    //  Calculate the actual Vcn we want to read, by adding in
-                    //  the base of the page containing the hint.
+                    //  If our current position is past the end of the bitmap
+                    //  then go to the beginning of the bitmap.
                     //
 
-                    ((ULONG)Vcn) = Temp + StartingCluster;
+                    if (BitmapCurrentOffset >= BitmapSizeInBytes) {
+
+                        BitmapCurrentOffset = 0;
+                    }
 
                     //
-                    //  If the actual Vcn come out beyond the bitmap, then wrap by
-                    //  subtracting the size of the bitmap rounded to the next page.
+                    //  If this is the Mft and there are more than the system
+                    //  files in the first cluster of the Mft then move past
+                    //  the first cluster.
                     //
 
-                    if (((ULONG)Vcn) >= BitmapClusters) { ((ULONG)Vcn) -= BitmapClusters; }
-                    StartingByte = BytesFromClusters( Vcb, ((ULONG)Vcn) );
+                    if ((BitmapCurrentOffset == 0) &&
+                        (DataScb == Vcb->MftScb) &&
+                        (Vcb->FileRecordsPerCluster > FIRST_USER_FILE_NUMBER) &&
+                        (Hint < Vcb->FileRecordsPerCluster)) {
+
+                        Hint = Vcb->FileRecordsPerCluster;
+                    }
 
                     //
                     //  Calculate the size to read from this point to the end of
                     //  bitmap, or a page, whichever is less.
                     //
 
-                    SizeToPin = (*CurrentBitmapSize / 8) - StartingByte;
+                    SizeToPin = BitmapSizeInBytes - BitmapCurrentOffset;
 
                     if (SizeToPin > PAGE_SIZE) { SizeToPin = PAGE_SIZE; }
 
@@ -4821,9 +5187,9 @@ Return Value:
                     //  Unpin any Bcb from a previous loop.
                     //
 
-                    if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+                    if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-                    NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                    NtfsUnpinBcb( &BitmapBcb );
 
                     //
                     //  Read the desired bitmap page.
@@ -4831,7 +5197,7 @@ Return Value:
 
                     NtfsPinStream( IrpContext,
                                    BitmapScb,
-                                   (LONGLONG)StartingByte,
+                                   (LONGLONG)BitmapCurrentOffset,
                                    SizeToPin,
                                    &BitmapBcb,
                                    &BitmapBuffer );
@@ -4842,10 +5208,9 @@ Return Value:
 
                     RtlInitializeBitMap( &Bitmap, (PULONG) BitmapBuffer, SizeToPin * 8 );
 
-                    StuffAdded = NtfsAddDeallocatedRecords( IrpContext,
-                                                            Vcb,
+                    StuffAdded = NtfsAddDeallocatedRecords( Vcb,
                                                             DataScb,
-                                                            StartingByte * 8,
+                                                            BitmapCurrentOffset * 8,
                                                             &Bitmap );
 
                     //
@@ -4857,20 +5222,19 @@ Return Value:
 
                     while (TRUE) {
 
-                        Index = RtlFindClearBits( &Bitmap, 1, LocalHint );
-
+                        BitmapIndex = RtlFindClearBits( &Bitmap, 1, LocalHint );
 
                         //
                         //  If this is the Mft Scb then check if this is a hole.
                         //
 
-                        if (Index != 0xffffffff
-                            && DataScb == Vcb->MftScb) {
+                        if ((BitmapIndex != 0xffffffff) &&
+                            (DataScb == Vcb->MftScb)) {
 
                             ULONG ThisIndex;
                             ULONG HoleCount;
 
-                            ThisIndex = Index + (StartingByte * 8);
+                            ThisIndex = BitmapIndex + (BitmapCurrentOffset * 8);
 
                             if (NtfsIsMftIndexInHole( IrpContext,
                                                       Vcb,
@@ -4894,7 +5258,7 @@ Return Value:
                                 //  unless the reaches to the end of the page.
                                 //
 
-                                if (Index + HoleCount < SizeToPin * 8) {
+                                if (BitmapIndex + HoleCount < SizeToPin * 8) {
 
                                     //
                                     //  Bias the bitmap with these Mft holes
@@ -4907,17 +5271,17 @@ Return Value:
 
                                         PVOID NewBuffer;
 
-                                        NewBuffer = NtfsAllocatePagedPool( SizeToPin );
+                                        NewBuffer = NtfsAllocatePool(PagedPool, SizeToPin );
                                         RtlCopyMemory( NewBuffer, Bitmap.Buffer, SizeToPin );
                                         Bitmap.Buffer = NewBuffer;
                                         StuffAdded = TRUE;
                                     }
 
                                     RtlSetBits( &Bitmap,
-                                                Index,
+                                                BitmapIndex,
                                                 HoleCount );
 
-                                    LocalHint = Index + HoleCount;
+                                    LocalHint = BitmapIndex + HoleCount;
                                     continue;
                                 }
 
@@ -4926,7 +5290,7 @@ Return Value:
                                 //  anything yet.
                                 //
 
-                                Index = 0xffffffff;
+                                BitmapIndex = 0xffffffff;
                             }
                         }
 
@@ -4937,7 +5301,7 @@ Return Value:
                     //  If we found something, then leave the loop.
                     //
 
-                    if (Index != 0xffffffff) {
+                    if (BitmapIndex != 0xffffffff) {
 
                         break;
                     }
@@ -4955,15 +5319,15 @@ Return Value:
                 //  the size of the bitmap by 64 bits.
                 //
 
-                if (Index == 0xffffffff) {
+                if (BitmapIndex == 0xffffffff) {
 
                     //
                     //  Cleanup from previous loop.
                     //
 
-                    if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+                    if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-                    NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                    NtfsUnpinBcb( &BitmapBcb );
 
                     //
                     //  If we have a hole index it means that we found a free record but
@@ -4974,61 +5338,33 @@ Return Value:
                     //  future defragging.
                     //
 
-                    if (HoleIndex != 0
-                        && FlagOn( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED )) {
+                    if ((HoleIndex != 0) &&
+                        FlagOn( Vcb->MftDefragState, VCB_MFT_DEFRAG_PERMITTED )) {
 
                         //
                         //  Start by filling this hole.
                         //
 
+                        NtfsCheckRecordStackUsage( IrpContext );
                         NtfsFillMftHole( IrpContext, Vcb, HoleIndex );
 
                         //
-                        //  Calculate Vcn and Index of the first bit we will allocate,
-                        //  from the nearest page boundary.
+                        //  Since filling the Mft hole may cause us to allocate
+                        //  a bit we will go back to the start of the routine
+                        //  and scan starting from the hole we just filled in.
                         //
 
-                        ((ULONG)Vcn) = ClustersFromBytes( Vcb, (HoleIndex / 8) & ~(PAGE_SIZE - 1) );
-                        StartingByte = BytesFromClusters( Vcb, ((ULONG)Vcn) );
-
-                        Index = HoleIndex & (BITS_PER_PAGE - 1);
-
-                        SizeToPin = (*CurrentBitmapSize / 8) - StartingByte;
-
-                        if (SizeToPin > PAGE_SIZE) { SizeToPin = PAGE_SIZE; }
-
-                        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
-
-                        //
-                        //  Read the desired bitmap page.
-                        //
-
-                        NtfsPinStream( IrpContext,
-                                       BitmapScb,
-                                       (LONGLONG)StartingByte,
-                                       SizeToPin,
-                                       &BitmapBcb,
-                                       &BitmapBuffer );
-
-                        //
-                        //  Initialize the bitmap.
-                        //
-
-                        RtlInitializeBitMap( &Bitmap, (PULONG) BitmapBuffer, SizeToPin * 8 );
+                        Hint = HoleIndex;
+                        Rescan = TRUE;
+                        try_return( NOTHING );
 
                     } else {
 
-                        LONGLONG SizeOfBitmapInBytes;
-
                         //
-                        //  Calculate Vcn and Index of the first bit we will allocate,
-                        //  from the nearest page boundary.
+                        //  Allocate the first bit past the end of the bitmap.
                         //
 
-                        ((ULONG)Vcn) = ClustersFromBytes( Vcb, (*CurrentBitmapSize / 8) & ~(PAGE_SIZE - 1) );
-                        StartingByte = BytesFromClusters( Vcb, ((ULONG)Vcn) );
-
-                        Index = *CurrentBitmapSize & (BITS_PER_PAGE - 1);
+                        BitmapIndex = *CurrentBitmapSize & (BITS_PER_PAGE - 1);
 
                         //
                         //  Now advance the sizes and calculate the size in bytes to
@@ -5043,35 +5379,34 @@ Return Value:
                         //  bitmap.
                         //
 
-                        SizeOfBitmapInBytes = *CurrentBitmapSize / 8;
+                        BitmapSizeInBytes += BITMAP_EXTEND_GRANULARITY / 8;
 
-                        SizeToPin = ((ULONG)SizeOfBitmapInBytes) - StartingByte;
+                        BitmapCurrentOffset = BitmapScb->Header.FileSize.LowPart & ~(PAGE_SIZE - 1);
+
+                        SizeToPin = BitmapSizeInBytes - BitmapCurrentOffset;
 
                         //
                         //  Check for allocation first.
                         //
 
-                        if (BitmapScb->Header.AllocationSize.QuadPart < SizeOfBitmapInBytes) {
-
-                            VCN StartingVcn;
-                            LONGLONG ClusterCount = 0;
-
-                            StartingVcn =
-                                LlClustersFromBytes(Vcb, BitmapScb->Header.AllocationSize.QuadPart);
+                        if (BitmapScb->Header.AllocationSize.LowPart < BitmapSizeInBytes) {
 
                             //
                             //  Calculate number of clusters to next page boundary, and allocate
                             //  that much.
                             //
 
-                            (ULONG)ClusterCount = Vcb->ClustersPerPage -
-                                                    (((ULONG)StartingVcn) &
-                                                      (Vcb->ClustersPerPage - 1));
+                            ClusterCount = ((BitmapSizeInBytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
 
+                            ClusterCount = LlClustersFromBytes( Vcb,
+                                                                ((ULONG) ClusterCount - BitmapScb->Header.AllocationSize.LowPart) );
+
+                            NtfsCheckRecordStackUsage( IrpContext );
                             NtfsAddAllocation( IrpContext,
                                                BitmapScb->FileObject,
                                                BitmapScb,
-                                               StartingVcn,
+                                               LlClustersFromBytes( Vcb,
+                                                                    BitmapScb->Header.AllocationSize.QuadPart ),
                                                ClusterCount,
                                                FALSE);
                         }
@@ -5080,12 +5415,12 @@ Return Value:
                         //  Tell the cache manager about the new file size.
                         //
 
-                        BitmapScb->Header.FileSize.QuadPart = SizeOfBitmapInBytes;
+                        BitmapScb->Header.FileSize.QuadPart = BitmapSizeInBytes;
 
                         CcSetFileSizes( BitmapScb->FileObject,
                                         (PCC_FILE_SIZES)&BitmapScb->Header.AllocationSize );
 
-                        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+                        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
                         //
                         //  Read the desired bitmap page.
@@ -5093,10 +5428,24 @@ Return Value:
 
                         NtfsPinStream( IrpContext,
                                        BitmapScb,
-                                       (LONGLONG)StartingByte,
+                                       (LONGLONG) BitmapCurrentOffset,
                                        SizeToPin,
                                        &BitmapBcb,
                                        &BitmapBuffer );
+
+                        //
+                        //  If we have just moved to the next page of the bitmap then
+                        //  set this page dirty so it doesn't leave memory while we
+                        //  twiddle valid data length.  Otherwise it will be reread after
+                        //  we advance valid data and we will get garbage data from the
+                        //  disk.
+                        //
+
+                        if (FlagOn( BitmapSizeInBytes, PAGE_SIZE - 1 ) <= BITMAP_EXTEND_GRANULARITY / 8) {
+
+                            *((volatile ULONG *) BitmapBuffer) = *((PULONG) BitmapBuffer);
+                            CcSetDirtyPinnedData( BitmapBcb, NULL );
+                        }
 
                         //
                         //  Initialize the bitmap.
@@ -5109,9 +5458,22 @@ Return Value:
                         //  zeroed) the page.
                         //
 
-                        BitmapScb->Header.ValidDataLength.QuadPart = SizeOfBitmapInBytes;
+                        BitmapScb->Header.ValidDataLength.QuadPart = BitmapSizeInBytes;
 
-                        NtfsWriteFileSizes( IrpContext, BitmapScb, SizeOfBitmapInBytes, SizeOfBitmapInBytes, TRUE, TRUE );
+                        NtfsWriteFileSizes( IrpContext,
+                                            BitmapScb,
+                                            &BitmapScb->Header.ValidDataLength.QuadPart,
+                                            TRUE,
+                                            TRUE );
+
+                        //
+                        //  Now look up a free bit in this page.  We don't trust
+                        //  the index we already had since growing the MftBitmap
+                        //  allocation may have caused another bit in the bitmap
+                        //  to be set.
+                        //
+
+                        BitmapIndex = RtlFindClearBits( &Bitmap, 1, BitmapIndex );
                     }
                 }
 
@@ -5121,14 +5483,13 @@ Return Value:
                 //  the bits are not clear to prevent double allocation.
                 //
 
-                if (!RtlAreBitsClear( &Bitmap, Index, 1 )) {
+                if (!RtlAreBitsClear( &Bitmap, BitmapIndex, 1 )) {
 
                     ASSERTMSG("Cannot set bits that are not clear ", FALSE );
                     NtfsRaiseStatus( IrpContext, STATUS_DISK_CORRUPT_ERROR, NULL, NULL );
                 }
 
                 //
-                //  At this point we must have set Vcn, Index, and Bitmap.
                 //  Set the bit by calling the same routine used at restart.
                 //  But first check if we should revert back to the orginal bitmap
                 //  buffer.
@@ -5136,7 +5497,7 @@ Return Value:
 
                 if (StuffAdded) {
 
-                    NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE;
+                    NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE;
 
                     Bitmap.Buffer = (PULONG) BitmapBuffer;
                 }
@@ -5148,7 +5509,7 @@ Return Value:
                 {
                     BITMAP_RANGE BitmapRange;
 
-                    BitmapRange.BitMapOffset = Index;
+                    BitmapRange.BitMapOffset = BitmapIndex;
                     BitmapRange.NumberOfBits = 1;
 
                     (VOID) NtfsWriteLog( IrpContext,
@@ -5160,32 +5521,45 @@ Return Value:
                                          ClearBitsInNonresidentBitMap,
                                          &BitmapRange,
                                          sizeof(BITMAP_RANGE),
-                                         Vcn,
+                                         BitmapCurrentOffset,
                                          0,
                                          0,
-                                         ClustersFromBytes( Vcb, Bitmap.SizeOfBitMap / 8 ));
+                                         SizeToPin );
 
                     NtfsRestartSetBitsInBitMap( IrpContext,
                                                 &Bitmap,
-                                                Index,
+                                                BitmapIndex,
                                                 1 );
                 }
 
+            try_exit:  NOTHING;
             } finally {
 
                 DebugUnwind( NtfsAllocateRecord );
 
-                if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+                if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-                NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                NtfsUnpinBcb( &BitmapBcb );
             }
+
+            //
+            //  If we added Mft allocation then go to the top of the loop.
+            //
+
+            if (Rescan) { continue; }
 
             //
             //  The Index at this point is actually relative, so convert it to absolute
             //  before rejoining common code.
             //
 
-            Index += (StartingByte * 8);
+            BitmapIndex += (BitmapCurrentOffset * 8);
+
+            //
+            //  Always break out in the normal case.
+            //
+
+            break;
         }
 
         //
@@ -5194,105 +5568,100 @@ Return Value:
 
         *NumberOfFreeBits -= 1;
 
-        {
-            LONGLONG EndOfIndexOffset;
-            LONGLONG ClusterCount;
+        //
+        //  Check if we need to extend the data stream.
+        //
 
-            EndOfIndexOffset = UInt32x32To64( Index + 1, BytesPerRecord );
+        DataOffset = UInt32x32To64( BitmapIndex + 1, BytesPerRecord );
+
+        //
+        //  Now check if we are extending the file.  We update the file size and
+        //  valid data now.
+        //
+
+        if (DataOffset > DataScb->Header.FileSize.QuadPart) {
 
             //
             //  Check for allocation first.
             //
 
-            if (DataScb->Header.AllocationSize.QuadPart < EndOfIndexOffset) {
-
-                ULONG RecordCount;
+            if (DataOffset > DataScb->Header.AllocationSize.QuadPart) {
 
                 //
                 //  We want to allocate up to the next extend granularity
                 //  boundary.
                 //
 
-                Vcn = LlClustersFromBytes( Vcb, DataScb->Header.AllocationSize.QuadPart );
+                ClusterCount = UInt32x32To64( (BitmapIndex + ExtendGranularity) & ~(ExtendGranularity - 1),
+                                              BytesPerRecord );
 
-                RecordCount = (Index + ExtendGranularity) & ~(ExtendGranularity - 1);
+                ClusterCount -= DataScb->Header.AllocationSize.QuadPart;
+                ClusterCount = LlClustersFromBytesTruncate( Vcb, ClusterCount );
 
-                //
-                //  Convert the record count to a file offset and then find the
-                //  number of clusters to add.
-                //
-
-                ClusterCount = UInt32x32To64( RecordCount, BytesPerRecord );
-
-                ClusterCount = ClusterCount - DataScb->Header.AllocationSize.QuadPart;
-                ClusterCount = LlClustersFromBytes( Vcb, ClusterCount );
-
+                NtfsCheckRecordStackUsage( IrpContext );
                 NtfsAddAllocation( IrpContext,
                                    DataScb->FileObject,
                                    DataScb,
-                                   Vcn,
+                                   LlClustersFromBytes( Vcb,
+                                                        DataScb->Header.AllocationSize.QuadPart ),
                                    ClusterCount,
                                    FALSE );
             }
 
-            //
-            //  Now check if we are extending the file.  We update the file size and
-            //  valid data now.
-            //
+            DataScb->Header.FileSize.QuadPart = DataOffset;
+            DataScb->Header.ValidDataLength.QuadPart = DataOffset;
 
-            if (EndOfIndexOffset > DataScb->Header.FileSize.QuadPart) {
-
-                DataScb->Header.FileSize.QuadPart = EndOfIndexOffset;
-                DataScb->Header.ValidDataLength.QuadPart = EndOfIndexOffset;
-
-                NtfsWriteFileSizes( IrpContext,
-                                    DataScb,
-                                    EndOfIndexOffset,
-                                    EndOfIndexOffset,
-                                    TRUE,
-                                    TRUE );
-
-                //
-                //  Tell the cache manager about the new file size.
-                //
-
-                CcSetFileSizes( DataScb->FileObject,
-                                (PCC_FILE_SIZES)&DataScb->Header.AllocationSize );
+            NtfsWriteFileSizes( IrpContext,
+                                DataScb,
+                                &DataScb->Header.ValidDataLength.QuadPart,
+                                TRUE,
+                                TRUE );
 
             //
-            //  If we didn't extend the file then we have used a free file record in the file.
-            //  Update our bookeeping count for free file records.
+            //  Tell the cache manager about the new file size.
             //
 
-            } else if (DataScb == Vcb->MftScb) {
+            CcSetFileSizes( DataScb->FileObject,
+                            (PCC_FILE_SIZES)&DataScb->Header.AllocationSize );
 
-                DataScb->ScbType.Mft.FreeRecordChange -= 1;
-                Vcb->MftFreeRecords -= 1;
-            }
+        //
+        //  If we didn't extend the file then we have used a free file record in the file.
+        //  Update our bookeeping count for free file records.
+        //
+
+        } else if (DataScb == Vcb->MftScb) {
+
+            DataScb->ScbType.Mft.FreeRecordChange -= 1;
+            Vcb->MftFreeRecords -= 1;
         }
 
         //
         //  Now determine if we extended the index of the last set bit
         //
 
-        if ((LONG)Index > RecordAllocationContext->IndexOfLastSetBit) {
+        if ((LONG)BitmapIndex > RecordAllocationContext->IndexOfLastSetBit) {
 
-            RecordAllocationContext->IndexOfLastSetBit = Index;
+            RecordAllocationContext->IndexOfLastSetBit = BitmapIndex;
         }
 
     } finally {
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
 
         NtfsReleaseScb( IrpContext, DataScb );
     }
 
-    ASSERT( DataScb != DataScb->Vcb->MftScb
-            || (Index & ~7) != (DataScb->ScbType.Mft.ReservedIndex & ~7) );
+    //
+    //  We shouldn't allocate within the same byte as the reserved index for
+    //  the Mft.
+    //
 
-    DebugTrace(-1, Dbg, "NtfsAllocateRecord -> %08lx\n", Index);
+    ASSERT( (DataScb != DataScb->Vcb->MftScb) ||
+            ((BitmapIndex & ~7) != (DataScb->ScbType.Mft.ReservedIndex & ~7)) );
 
-    return Index;
+    DebugTrace( -1, Dbg, ("NtfsAllocateRecord -> %08lx\n", BitmapIndex) );
+
+    return BitmapIndex;
 }
 
 
@@ -5336,9 +5705,11 @@ Return Value:
 {
     PSCB DataScb;
 
+    PAGED_CODE();
+
     ASSERT_IRP_CONTEXT( IrpContext );
 
-    DebugTrace(+1, Dbg, "NtfsDeallocateRecord\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsDeallocateRecord\n") );
 
     //
     //  Synchronize by acquiring the data scb exclusive, as an "end resource".
@@ -5360,8 +5731,7 @@ Return Value:
         ULONG TruncateGranularity;
 
         ULONG ClearIndex;
-
-        VCN Vcn = 0;
+        ULONG BitmapOffset = 0;
 
         Vcb = DataScb->Vcb;
 
@@ -5491,12 +5861,11 @@ Return Value:
                 }
 
                 //
-                //  Calculate Vcn and relative index of the bit we will deallocate,
+                //  Calculate offset and relative index of the bit we will deallocate,
                 //  from the nearest page boundary.
                 //
 
-                ((ULONG)Vcn) = ClustersFromBytes( Vcb,
-                                                 (Index / 8) & ~(PAGE_SIZE - 1) );
+                BitmapOffset = Index /8 & ~(PAGE_SIZE - 1);
                 RelativeIndex = Index & (BITS_PER_PAGE - 1);
 
                 //
@@ -5504,8 +5873,7 @@ Return Value:
                 //  bitmap.
                 //
 
-                SizeToPin = (RecordAllocationContext->CurrentBitmapSize / 8)
-                            - BytesFromClusters(Vcb, ((ULONG)Vcn));
+                SizeToPin = (RecordAllocationContext->CurrentBitmapSize / 8) - BitmapOffset;
 
                 if (SizeToPin > PAGE_SIZE) {
 
@@ -5514,7 +5882,7 @@ Return Value:
 
                 NtfsPinStream( IrpContext,
                                BitmapScb,
-                               LlBytesFromClusters( Vcb, Vcn ),
+                               BitmapOffset,
                                SizeToPin,
                                &BitmapBcb,
                                &BitmapBuffer );
@@ -5552,10 +5920,10 @@ Return Value:
                                          SetBitsInNonresidentBitMap,
                                          &BitmapRange,
                                          sizeof(BITMAP_RANGE),
-                                         Vcn,
+                                         BitmapOffset,
                                          0,
                                          0,
-                                         ClustersFromBytes(Vcb, SizeToPin) );
+                                         SizeToPin );
                 }
 
                 //
@@ -5585,23 +5953,23 @@ Return Value:
                     //  value will be 0.
                     //
 
-                    while (ClearLength == (RelativeIndex + 1)
-                           && ((ULONG)Vcn) != 0) {
+                    while ((ClearLength == (RelativeIndex + 1)) &&
+                           (BitmapOffset != 0)) {
 
-                        ((ULONG)Vcn) -= Vcb->ClustersPerPage;
-                        RelativeIndex = (PAGE_SIZE * 8) - 1;
+                        BitmapOffset -= PAGE_SIZE;
+                        RelativeIndex = BITS_PER_PAGE - 1;
 
-                        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                        NtfsUnpinBcb( &BitmapBcb );
 
 
                         NtfsMapStream( IrpContext,
                                        BitmapScb,
-                                       LlBytesFromClusters(Vcb, Vcn),
+                                       BitmapOffset,
                                        PAGE_SIZE,
                                        &BitmapBcb,
                                        &BitmapBuffer );
 
-                        RtlInitializeBitMap( &Bitmap, BitmapBuffer, PAGE_SIZE * 8 );
+                        RtlInitializeBitMap( &Bitmap, BitmapBuffer, BITS_PER_PAGE );
 
                         ClearLength = RtlFindLastBackwardRunClear( &Bitmap, RelativeIndex, &ClearIndex );
                     }
@@ -5611,7 +5979,7 @@ Return Value:
 
                 DebugUnwind( NtfsDeallocateRecord );
 
-                NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                NtfsUnpinBcb( &BitmapBcb );
             }
         }
 
@@ -5630,38 +5998,71 @@ Return Value:
 
         if (Index == (ULONG)*IndexOfLastSetBit) {
 
-            *IndexOfLastSetBit = ClearIndex - 1 + (BytesFromClusters(Vcb, ((ULONG)Vcn)) * 8);
+            *IndexOfLastSetBit = ClearIndex - 1 + (BitmapOffset * 8);
 
             if ((DataScb != Vcb->MftScb) &&
-                (DataScb->Header.FileSize.QuadPart >
-                    ((LONGLONG)(*IndexOfLastSetBit + 1 + TruncateGranularity) * BytesPerRecord))) {
+                (DataScb->Header.AllocationSize.QuadPart >
+                   Int32x32To64( *IndexOfLastSetBit + 1 + TruncateGranularity, BytesPerRecord ))) {
 
                 VCN StartingVcn;
-                VCN EndingVcn;
                 LONGLONG EndOfIndexOffset;
+                LONGLONG TruncatePoint;
 
-                EndOfIndexOffset = (*IndexOfLastSetBit + 1) * BytesPerRecord;
+                //
+                //  We can get into a situation where there is so much extra allocation that
+                //  we can't delete it without overflowing the log file.  We can't perform
+                //  checkpoints in this path so we will forget about truncating in
+                //  this path unless this is the first truncate of the data scb.  We
+                //  only deallocate a small piece of the allocation.
+                //
 
-                StartingVcn = EndOfIndexOffset >> Vcb->ClusterShift;
+                TruncatePoint =
+                EndOfIndexOffset = Int32x32To64( *IndexOfLastSetBit + 1, BytesPerRecord );
 
-                EndingVcn = MAXLONGLONG;
+                if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_EXCESS_LOG_FULL )) {
+
+                    //
+                    //  Use a fudge factor of 8 to allow for the overused bits in
+                    //  the snapshot allocation field.
+                    //
+
+                    if (DataScb->Header.AllocationSize.QuadPart + 8 >= DataScb->ScbSnapshot->AllocationSize) {
+
+                        TruncatePoint = DataScb->Header.AllocationSize.QuadPart - (MAXIMUM_RUNS_AT_ONCE * Vcb->BytesPerCluster);
+
+                        if (TruncatePoint < EndOfIndexOffset) {
+
+                            TruncatePoint = EndOfIndexOffset;
+                        }
+
+                    } else {
+
+                        TruncatePoint = DataScb->Header.AllocationSize.QuadPart;
+                    }
+                }
+
+                StartingVcn = LlClustersFromBytes( Vcb, TruncatePoint );
 
                 NtfsDeleteAllocation( IrpContext,
                                       DataScb->FileObject,
                                       DataScb,
                                       StartingVcn,
-                                      EndingVcn,
+                                      MAXLONGLONG,
                                       TRUE,
                                       FALSE );
 
                 //
-                //  Now truncate the file sizes.
+                //  Now truncate the file sizes to the end of the last allocated record.
                 //
 
+                DataScb->Header.ValidDataLength.QuadPart =
                 DataScb->Header.FileSize.QuadPart = EndOfIndexOffset;
-                DataScb->Header.ValidDataLength.QuadPart = EndOfIndexOffset;
 
-                NtfsWriteFileSizes( IrpContext, DataScb, EndOfIndexOffset, EndOfIndexOffset, FALSE, TRUE );
+                NtfsWriteFileSizes( IrpContext,
+                                    DataScb,
+                                    &DataScb->Header.ValidDataLength.QuadPart,
+                                    FALSE,
+                                    TRUE );
 
                 //
                 //  Tell the cache manager about the new file size.
@@ -5697,8 +6098,8 @@ Return Value:
             //
 
             DeallocatedRecords = NULL;
-            for (Links = IrpContext->TopLevelIrpContext->RecentlyDeallocatedQueue.Flink;
-                 Links != &IrpContext->TopLevelIrpContext->RecentlyDeallocatedQueue;
+            for (Links = IrpContext->RecentlyDeallocatedQueue.Flink;
+                 Links != &IrpContext->RecentlyDeallocatedQueue;
                  Links = Links->Flink) {
 
                 DeallocatedRecords = CONTAINING_RECORD( Links, DEALLOCATED_RECORDS, IrpContextLinks );
@@ -5718,9 +6119,9 @@ Return Value:
 
             if (DeallocatedRecords == NULL) {
 
-                NtfsAllocateDeallocatedRecords( &DeallocatedRecords );
+                DeallocatedRecords = (PDEALLOCATED_RECORDS)ExAllocateFromPagedLookasideList( &NtfsDeallocatedRecordsLookasideList );
                 InsertTailList( &DataScb->ScbType.Index.RecentlyDeallocatedQueue, &DeallocatedRecords->ScbLinks );
-                InsertTailList( &IrpContext->TopLevelIrpContext->RecentlyDeallocatedQueue, &DeallocatedRecords->IrpContextLinks );
+                InsertTailList( &IrpContext->RecentlyDeallocatedQueue, &DeallocatedRecords->IrpContextLinks );
                 DeallocatedRecords->Scb = DataScb;
                 DeallocatedRecords->NumberOfEntries = DEALLOCATED_RECORD_ENTRIES;
                 DeallocatedRecords->NextFreeEntry = 0;
@@ -5743,7 +6144,7 @@ Return Value:
                 //
 
                 BytesInEntryArray = 2 * DeallocatedRecords->NumberOfEntries * sizeof( ULONG );
-                NewDeallocatedRecords = FsRtlAllocatePool( NtfsPagedPool,
+                NewDeallocatedRecords = NtfsAllocatePool( PagedPool,
                                                            DEALLOCATED_RECORDS_HEADER_SIZE + BytesInEntryArray );
                 RtlZeroMemory( NewDeallocatedRecords, DEALLOCATED_RECORDS_HEADER_SIZE + BytesInEntryArray );
 
@@ -5767,7 +6168,7 @@ Return Value:
 
                 InsertTailList( &DataScb->ScbType.Index.RecentlyDeallocatedQueue,
                                 &NewDeallocatedRecords->ScbLinks );
-                InsertTailList( &IrpContext->TopLevelIrpContext->RecentlyDeallocatedQueue,
+                InsertTailList( &IrpContext->RecentlyDeallocatedQueue,
                                 &NewDeallocatedRecords->IrpContextLinks );
 
                 //
@@ -5776,11 +6177,11 @@ Return Value:
 
                 if (DeallocatedRecords->NumberOfEntries == DEALLOCATED_RECORD_ENTRIES) {
 
-                    NtfsFreeDeallocatedRecords( DeallocatedRecords );
+                    ExFreeToPagedLookasideList( &NtfsDeallocatedRecordsLookasideList, DeallocatedRecords );
 
                 } else {
 
-                    ExFreePool( DeallocatedRecords );
+                    NtfsFreePool( DeallocatedRecords );
                 }
 
                 DeallocatedRecords = NewDeallocatedRecords;
@@ -5797,7 +6198,7 @@ Return Value:
         NtfsReleaseScb( IrpContext, DataScb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeallocateRecord -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeallocateRecord -> VOID\n") );
 
     return;
 }
@@ -5850,7 +6251,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsReserveMftRecord\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsReserveMftRecord\n") );
 
     //
     //  Synchronize by acquiring the data scb exclusive, as an "end resource".
@@ -5865,8 +6266,9 @@ Return Value:
         PSCB BitmapScb;
         ULONG BitmapClusters;
         PULONG CurrentBitmapSize;
-        LONGLONG BitmapSizeInBytes;
+        ULONG BitmapSizeInBytes;
         LONGLONG EndOfIndexOffset;
+        LONGLONG ClusterCount;
 
         ULONG Index;
         ULONG BitOffset;
@@ -5875,8 +6277,7 @@ Return Value:
 
         ULONG SizeToPin;
 
-        ULONG PageOffset;
-        VCN Vcn = 0;
+        ULONG BitmapCurrentOffset;
 
         //
         //  See if someone made the bitmap nonresident, and we still think
@@ -5917,8 +6318,6 @@ Return Value:
         CurrentBitmapSize = &Vcb->MftBitmapAllocationContext.CurrentBitmapSize;
         BitmapSizeInBytes = *CurrentBitmapSize / 8;
 
-        BitmapClusters = ClustersFromBytes( Vcb, ROUND_TO_PAGES( (ULONG)BitmapSizeInBytes ));
-
         //
         //  Loop through the entire bitmap.  We always start from the first user
         //  file number as our starting point.
@@ -5926,22 +6325,16 @@ Return Value:
 
         BitOffset = FIRST_USER_FILE_NUMBER;
 
-        for (((ULONG)Vcn) = 0;
-             ((ULONG)Vcn) < BitmapClusters;
-             ((ULONG)Vcn) += Vcb->ClustersPerPage) {
-
-            //
-            //  Remember the offset of the start of this page.
-            //
-
-            PageOffset = BytesFromClusters( Vcb, ((ULONG)Vcn) );
+        for (BitmapCurrentOffset = 0;
+             BitmapCurrentOffset < BitmapSizeInBytes;
+             BitmapCurrentOffset += PAGE_SIZE) {
 
             //
             //  Calculate the size to read from this point to the end of
             //  bitmap, or a page, whichever is less.
             //
 
-            SizeToPin = ((ULONG)BitmapSizeInBytes) - PageOffset;
+            SizeToPin = BitmapSizeInBytes - BitmapCurrentOffset;
 
             if (SizeToPin > PAGE_SIZE) { SizeToPin = PAGE_SIZE; }
 
@@ -5949,18 +6342,17 @@ Return Value:
             //  Unpin any Bcb from a previous loop.
             //
 
-            if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Read the desired bitmap page.
             //
 
-
             NtfsMapStream( IrpContext,
                            BitmapScb,
-                           (LONGLONG)PageOffset,
+                           BitmapCurrentOffset,
                            SizeToPin,
                            &BitmapBcb,
                            &BitmapBuffer );
@@ -5971,10 +6363,9 @@ Return Value:
 
             RtlInitializeBitMap( &Bitmap, BitmapBuffer, SizeToPin * 8 );
 
-            StuffAdded = NtfsAddDeallocatedRecords( IrpContext,
-                                                    Vcb,
+            StuffAdded = NtfsAddDeallocatedRecords( Vcb,
                                                     DataScb,
-                                                    PageOffset * 8,
+                                                    BitmapCurrentOffset * 8,
                                                     &Bitmap );
 
             Index = RtlFindClearBits( &Bitmap, 1, BitOffset );
@@ -6012,15 +6403,15 @@ Return Value:
             //  Cleanup from previous loop.
             //
 
-            if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); StuffAdded = FALSE; }
+            if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); StuffAdded = FALSE; }
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Calculate the page offset for the next page to pin.
             //
 
-            PageOffset = ((ULONG)BitmapSizeInBytes) & ~(PAGE_SIZE - 1);
+            BitmapCurrentOffset = BitmapSizeInBytes & ~(PAGE_SIZE - 1);
 
             //
             //  Calculate the index of next file record to allocate.
@@ -6047,24 +6438,23 @@ Return Value:
             //  Check for allocation first.
             //
 
-            if (BitmapScb->Header.AllocationSize.QuadPart < BitmapSizeInBytes) {
-
-                LONGLONG ClusterCount = 0;
-
-                Vcn = LlClustersFromBytes( Vcb, BitmapScb->Header.AllocationSize.QuadPart );
+            if (BitmapScb->Header.AllocationSize.LowPart < BitmapSizeInBytes) {
 
                 //
                 //  Calculate number of clusters to next page boundary, and allocate
                 //  that much.
                 //
 
-                (ULONG)ClusterCount = Vcb->ClustersPerPage -
-                                        (((ULONG)Vcn) & (Vcb->ClustersPerPage - 1));
+                ClusterCount = ((BitmapSizeInBytes + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1));
+
+                ClusterCount = LlClustersFromBytes( Vcb,
+                                                    ((ULONG) ClusterCount - BitmapScb->Header.AllocationSize.LowPart) );
 
                 NtfsAddAllocation( IrpContext,
                                    BitmapScb->FileObject,
                                    BitmapScb,
-                                   Vcn,
+                                   LlClustersFromBytes( Vcb,
+                                                        BitmapScb->Header.AllocationSize.QuadPart ),
                                    ClusterCount,
                                    FALSE );
             }
@@ -6083,33 +6473,29 @@ Return Value:
             //  be zeroed.
             //
 
-            SizeToPin = ((ULONG)BitmapSizeInBytes) - PageOffset;
+            SizeToPin = BitmapSizeInBytes - BitmapCurrentOffset;
 
             if (SizeToPin > PAGE_SIZE) { SizeToPin = PAGE_SIZE; }
 
             NtfsPinStream( IrpContext,
                            BitmapScb,
-                           (LONGLONG)PageOffset,
+                           BitmapCurrentOffset,
                            SizeToPin,
                            &BitmapBcb,
                            &BitmapBuffer );
 
-            NtfsSetDirtyBcb( IrpContext,
-                             BitmapBcb,
-                             NULL,
-                             NULL );
+            CcSetDirtyPinnedData( BitmapBcb, NULL );
 
             //
             //  Update the ValidDataLength, now that we have read (and possibly
             //  zeroed) the page.
             //
 
-            BitmapScb->Header.ValidDataLength.QuadPart = BitmapSizeInBytes;
+            BitmapScb->Header.ValidDataLength.LowPart = BitmapSizeInBytes;
 
             NtfsWriteFileSizes( IrpContext,
                                 BitmapScb,
-                                BitmapSizeInBytes,
-                                BitmapSizeInBytes,
+                                &BitmapScb->Header.ValidDataLength.QuadPart,
                                 TRUE,
                                 TRUE );
 
@@ -6120,7 +6506,7 @@ Return Value:
             //  before rejoining common code.
             //
 
-            Index += (PageOffset * 8);
+            Index += (BitmapCurrentOffset * 8);
         }
 
         //
@@ -6154,7 +6540,7 @@ Return Value:
             //  Make sure nothing is left pinned in the bitmap.
             //
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Try to fill the hole in the Mft.  We will have this routine
@@ -6172,34 +6558,7 @@ Return Value:
         //  file records so chkdsk won't look at stale data.
         //
 
-        EndOfIndexOffset = ((LONGLONG) ((Index + 8) & ~(7))) << Vcb->MftShift;
-
-        //
-        //  Check for allocation first.
-        //
-
-        if (DataScb->Header.AllocationSize.QuadPart < EndOfIndexOffset) {
-
-            VCN StartingVcn;
-            VCN NextUnallocatedVcn;
-            ULONG FileRecordCount;
-            LONGLONG ClusterCount;
-
-            FileRecordCount = Index + Vcb->MftBitmapAllocationContext.ExtendGranularity;
-            FileRecordCount &= ~(Vcb->MftBitmapAllocationContext.ExtendGranularity - 1);
-
-            StartingVcn = LlClustersFromBytes( Vcb, DataScb->Header.AllocationSize.QuadPart );
-            NextUnallocatedVcn = FileRecordCount << Vcb->MftToClusterShift;
-
-            ClusterCount = NextUnallocatedVcn - StartingVcn;
-
-            NtfsAddAllocation( IrpContext,
-                               DataScb->FileObject,
-                               DataScb,
-                               StartingVcn,
-                               ClusterCount,
-                               FALSE );
-        }
+        EndOfIndexOffset = LlBytesFromFileRecords( Vcb, (Index + 8) & ~(7));
 
         //
         //  Now check if we are extending the file.  We update the file size and
@@ -6212,21 +6571,42 @@ Return Value:
             ULONG CurrentIndex;
 
             //
+            //  Check for allocation first.
+            //
+
+            if (EndOfIndexOffset > DataScb->Header.AllocationSize.QuadPart) {
+
+                ClusterCount = ((Index + Vcb->MftBitmapAllocationContext.ExtendGranularity) &
+                                ~(Vcb->MftBitmapAllocationContext.ExtendGranularity - 1));
+
+                ClusterCount = LlBytesFromFileRecords( Vcb, (ULONG) ClusterCount );
+
+                ClusterCount = LlClustersFromBytesTruncate( Vcb,
+                                                            ClusterCount - DataScb->Header.AllocationSize.QuadPart );
+
+                NtfsAddAllocation( IrpContext,
+                                   DataScb->FileObject,
+                                   DataScb,
+                                   LlClustersFromBytes( Vcb,
+                                                        DataScb->Header.AllocationSize.QuadPart ),
+                                   ClusterCount,
+                                   FALSE );
+            }
+
+            //
             //  Now we have to figure out how many file records we will be
             //  adding.
             //
 
-            CurrentIndex = Index;
-            AddedFileRecords =
-                (ULONG)((EndOfIndexOffset - DataScb->Header.FileSize.QuadPart) >> Vcb->MftShift);
+            AddedFileRecords = (ULONG) (EndOfIndexOffset - DataScb->Header.FileSize.QuadPart);
+            AddedFileRecords = FileRecordsFromBytes( Vcb, AddedFileRecords );
 
             DataScb->Header.FileSize.QuadPart = EndOfIndexOffset;
             DataScb->Header.ValidDataLength.QuadPart = EndOfIndexOffset;
 
             NtfsWriteFileSizes( IrpContext,
                                 DataScb,
-                                EndOfIndexOffset,
-                                EndOfIndexOffset,
+                                &DataScb->Header.ValidDataLength.QuadPart,
                                 TRUE,
                                 TRUE );
 
@@ -6251,6 +6631,7 @@ Return Value:
             //
 
             BitmapByte >>= (8 - AddedFileRecords);
+            CurrentIndex = Index;
 
             while (AddedFileRecords) {
 
@@ -6276,14 +6657,14 @@ Return Value:
 
         DebugUnwind( NtfsReserveMftRecord );
 
-        if (StuffAdded) { NtfsFreePagedPool( Bitmap.Buffer ); }
+        if (StuffAdded) { NtfsFreePool( Bitmap.Buffer ); }
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
 
         NtfsReleaseScb( IrpContext, DataScb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsReserveMftRecord -> Exit\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsReserveMftRecord -> Exit\n") );
 
     return;
 }
@@ -6329,7 +6710,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAllocateMftReservedRecord\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsAllocateMftReservedRecord\n") );
 
     //
     //  Synchronize by acquiring the data scb exclusive, as an "end resource".
@@ -6349,8 +6730,7 @@ Return Value:
         PVOID BitmapBuffer;
 
         BITMAP_RANGE BitmapRange;
-
-        VCN Vcn = 0;
+        ULONG BitmapCurrentOffset = 0;
 
         //
         //  If we are going to allocate file record 15 then do so and set the
@@ -6407,7 +6787,7 @@ Return Value:
         //  Find the start of the page containing the reserved index.
         //
 
-        ((ULONG)Vcn) = ClustersFromBytes( Vcb, (ReservedIndex / 8) & ~(PAGE_SIZE - 1));
+        BitmapCurrentOffset = (ReservedIndex / 8) & ~(PAGE_SIZE - 1);
 
         RelativeIndex = ReservedIndex & (BITS_PER_PAGE - 1);
 
@@ -6417,7 +6797,7 @@ Return Value:
         //
 
         SizeToPin = (Vcb->MftBitmapAllocationContext.CurrentBitmapSize / 8)
-                    - BytesFromClusters( Vcb, ((ULONG)Vcn) );
+                    - BitmapCurrentOffset;
 
         if (SizeToPin > PAGE_SIZE) { SizeToPin = PAGE_SIZE; }
 
@@ -6427,7 +6807,7 @@ Return Value:
 
         NtfsPinStream( IrpContext,
                        BitmapScb,
-                       LlBytesFromClusters( Vcb, Vcn ),
+                       BitmapCurrentOffset,
                        SizeToPin,
                        &BitmapBcb,
                        &BitmapBuffer );
@@ -6454,10 +6834,10 @@ Return Value:
                              ClearBitsInNonresidentBitMap,
                              &BitmapRange,
                              sizeof(BITMAP_RANGE),
-                             Vcn,
+                             BitmapCurrentOffset,
                              0,
                              0,
-                             ClustersFromBytes( Vcb, Bitmap.SizeOfBitMap / 8 ));
+                             Bitmap.SizeOfBitMap >> 3 );
 
         NtfsRestartSetBitsInBitMap( IrpContext, &Bitmap, RelativeIndex, 1 );
 
@@ -6498,12 +6878,12 @@ Return Value:
 
         DebugUnwind( NtfsAllocateMftReserveRecord );
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
 
         NtfsReleaseScb( IrpContext, DataScb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsAllocateMftReserveRecord -> %08lx\n", ReservedIndex);
+    DebugTrace( -1, Dbg, ("NtfsAllocateMftReserveRecord -> %08lx\n", ReservedIndex) );
 
     return ReservedIndex;
 }
@@ -6534,7 +6914,9 @@ Return Value:
 {
     PDEALLOCATED_RECORDS DeallocatedRecords;
 
-    DebugTrace(+1, Dbg, "NtfsDeallocateRecordsComplete\n", 0);
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsDeallocateRecordsComplete\n") );
 
     //
     //  Now while the irp context's recently deallocated queue is not empty
@@ -6564,15 +6946,15 @@ Return Value:
 
         if (DeallocatedRecords->NumberOfEntries == DEALLOCATED_RECORD_ENTRIES) {
 
-            NtfsFreeDeallocatedRecords( DeallocatedRecords );
+            ExFreeToPagedLookasideList( &NtfsDeallocatedRecordsLookasideList, DeallocatedRecords );
 
         } else {
 
-            ExFreePool( DeallocatedRecords );
+            NtfsFreePool( DeallocatedRecords );
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsDeallocateRecordsComplete -> VOID\n", 0);
+    DebugTrace( -1, Dbg, ("NtfsDeallocateRecordsComplete -> VOID\n") );
 
     return;
 }
@@ -6629,7 +7011,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsIsRecordAllocated\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsIsRecordAllocated\n") );
 
     //
     //  Synchronize by acquiring the data scb exclusive, as an "end resource".
@@ -6723,29 +7105,28 @@ Return Value:
             PVOID BitmapBuffer;
             ULONG SizeToMap;
             ULONG RelativeIndex;
-            VCN Vcn = 0;
+            ULONG BitmapCurrentOffset;
 
             //
             //  Calculate Vcn and relative index of the bit we will deallocate,
             //  from the nearest page boundary.
             //
 
-            ((ULONG)Vcn) = ClustersFromBytes( Vcb, (Index / 8) & ~(PAGE_SIZE - 1) );
-            RelativeIndex = Index & ((PAGE_SIZE * 8) - 1);
+            BitmapCurrentOffset = (Index / 8) & ~(PAGE_SIZE - 1);
+            RelativeIndex = Index & (BITS_PER_PAGE - 1);
 
             //
             //  Calculate the size to read from this point to the end of
             //  bitmap.
             //
 
-            SizeToMap = CurrentBitmapSize/8 - BytesFromClusters(Vcb, ((ULONG)Vcn));
+            SizeToMap = CurrentBitmapSize / 8 - BitmapCurrentOffset;
 
             if (SizeToMap > PAGE_SIZE) { SizeToMap = PAGE_SIZE; }
 
-
             NtfsMapStream( IrpContext,
                            BitmapScb,
-                           LlBytesFromClusters(Vcb, Vcn),
+                           BitmapCurrentOffset,
                            SizeToMap,
                            &BitmapBcb,
                            &BitmapBuffer );
@@ -6764,12 +7145,12 @@ Return Value:
 
         DebugUnwind( NtfsIsRecordDeallocated );
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
 
         NtfsReleaseScb( IrpContext, DataScb );
     }
 
-    DebugTrace(-1, Dbg, "NtfsIsRecordAllocated -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsIsRecordAllocated -> %08lx\n", Results) );
 
     return Results;
 }
@@ -6806,7 +7187,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsScanMftBitmap...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsScanMftBitmap...\n") );
 
     NtfsInitializeAttributeContext( &AttrContext );
 
@@ -6816,22 +7197,23 @@ Return Value:
 
     try {
 
+        ULONG SizeToMap;
         ULONG FileRecords;
         ULONG RemainingRecords;
-        ULONG BitmapClusters;
+        ULONG BitmapCurrentOffset;
+        ULONG BitmapBytesToRead;
         PUCHAR BitmapBuffer;
         UCHAR NextByte;
+        VCN Vcn;
         LCN Lcn;
         LONGLONG Clusters;
-
-        VCN Vcn = 0;
 
         //
         //  Start by walking through the file records for the Mft
         //  checking for excess mapping.
         //
 
-        NtfsLookupAttributeForScb( IrpContext, Vcb->MftScb, &AttrContext );
+        NtfsLookupAttributeForScb( IrpContext, Vcb->MftScb, NULL, &AttrContext );
 
         //
         //  We don't care about the first one.  Let's find the rest of them.
@@ -6869,7 +7251,7 @@ Return Value:
         //  separately.
         //
 
-        FileRecords = (ULONG)(Vcb->MftScb->Header.FileSize.QuadPart >> Vcb->MftShift);
+        FileRecords = (ULONG) LlFileRecordsFromBytes( Vcb, Vcb->MftScb->Header.FileSize.QuadPart );
 
         //
         //  Remember how many file records are in the last byte of the bitmap.
@@ -6878,14 +7260,12 @@ Return Value:
         RemainingRecords = FileRecords & 7;
 
         FileRecords &= ~(7);
+        BitmapBytesToRead = FileRecords / 8;
 
-        BitmapClusters = ClustersFromBytes( Vcb, ROUND_TO_PAGES( FileRecords / 8 ));
+        for (BitmapCurrentOffset = 0;
+             BitmapCurrentOffset < BitmapBytesToRead;
+             BitmapCurrentOffset += PAGE_SIZE) {
 
-        for (((ULONG)Vcn) = 0;
-             ((ULONG)Vcn) < BitmapClusters;
-             ((ULONG)Vcn) += Vcb->ClustersPerPage) {
-
-            ULONG SizeToMap;
             RTL_BITMAP Bitmap;
             ULONG MapAdjust;
 
@@ -6894,7 +7274,7 @@ Return Value:
             //  bitmap, or a page, whichever is less.
             //
 
-            SizeToMap = (FileRecords / 8) - BytesFromClusters( Vcb, ((ULONG)Vcn) );
+            SizeToMap = BitmapBytesToRead - BitmapCurrentOffset;
 
             if (SizeToMap > PAGE_SIZE) { SizeToMap = PAGE_SIZE; }
 
@@ -6903,8 +7283,7 @@ Return Value:
             //  in the next byte then pin an extra byte.
             //
 
-            if (SizeToMap != PAGE_SIZE
-                && RemainingRecords != 0) {
+            if ((SizeToMap != PAGE_SIZE) && (RemainingRecords != 0)) {
 
                 MapAdjust = 1;
 
@@ -6917,16 +7296,15 @@ Return Value:
             //  Unpin any Bcb from a previous loop.
             //
 
-            NtfsUnpinBcb( IrpContext, &BitmapBcb );
+            NtfsUnpinBcb( &BitmapBcb );
 
             //
             //  Read the desired bitmap page.
             //
 
-
             NtfsMapStream( IrpContext,
                            Vcb->MftBitmapScb,
-                           LlBytesFromClusters( Vcb, Vcn ),
+                           BitmapCurrentOffset,
                            SizeToMap + MapAdjust,
                            &BitmapBcb,
                            &BitmapBuffer );
@@ -6947,6 +7325,7 @@ Return Value:
 
         if (RemainingRecords) {
 
+            PVOID RangePtr;
             ULONG Index;
 
             //
@@ -6956,24 +7335,31 @@ Return Value:
             //  current file records already.
             //
 
-            if (FileRecords & ~(BITS_PER_PAGE) == 0) {
+            if (SizeToMap == PAGE_SIZE) {
 
                 //
                 //  Unpin any Bcb from a previous loop.
                 //
 
-                NtfsUnpinBcb( IrpContext, &BitmapBcb );
+                NtfsUnpinBcb( &BitmapBcb );
 
                 //
                 //  Read the desired bitmap page.
                 //
 
-                NtfsPinStream( IrpContext,
+                NtfsMapStream( IrpContext,
                                Vcb->MftBitmapAllocationContext.BitmapScb,
-                               LlBytesFromClusters( Vcb, Vcn ),
+                               BitmapCurrentOffset,
                                1,
                                &BitmapBcb,
                                &BitmapBuffer );
+
+                //
+                //  Set this to the byte prior to the last byte.  This will
+                //  set this to the same state as if on the same page.
+                //
+
+                SizeToMap = 0;
             }
 
             //
@@ -6981,7 +7367,7 @@ Return Value:
             //  many bits are set.
             //
 
-            NextByte = *(BitmapBuffer + ((FileRecords / 8) & (PAGE_SIZE - 1)));
+            NextByte = *((PUCHAR) Add2Ptr( BitmapBuffer, SizeToMap + 1 ));
 
             while (RemainingRecords--) {
 
@@ -6999,9 +7385,11 @@ Return Value:
             //  always be an integral number of file records.
             //
 
+            RangePtr = NULL;
             Index = 0;
 
-            while (FsRtlGetNextLargeMcbEntry( &Vcb->MftScb->Mcb,
+            while (NtfsGetSequentialMcbEntry( &Vcb->MftScb->Mcb,
+                                              &RangePtr,
                                               Index,
                                               &Vcn,
                                               &Lcn,
@@ -7013,7 +7401,14 @@ Return Value:
 
                 if (Lcn == UNUSED_LCN) {
 
-                    Vcb->MftHoleRecords += (((ULONG)Clusters) >> Vcb->MftToClusterShift);
+                    if (Vcb->FileRecordsPerCluster == 0) {
+
+                        Vcb->MftHoleRecords += (((ULONG)Clusters) >> Vcb->MftToClusterShift);
+
+                    } else {
+
+                        Vcb->MftHoleRecords += (((ULONG)Clusters) << Vcb->MftToClusterShift);
+                    }
                 }
 
                 Index += 1;
@@ -7024,11 +7419,11 @@ Return Value:
 
         DebugUnwind( NtfsScanMftBitmap );
 
-        NtfsCleanupAttributeContext( IrpContext, &AttrContext );
+        NtfsCleanupAttributeContext( &AttrContext );
 
-        NtfsUnpinBcb( IrpContext, &BitmapBcb );
+        NtfsUnpinBcb( &BitmapBcb );
 
-        DebugTrace(-1, Dbg, "NtfsScanMftBitmap...\n", 0);
+        DebugTrace( -1, Dbg, ("NtfsScanMftBitmap...\n") );
     }
 
     return;
@@ -7041,7 +7436,6 @@ Return Value:
 
 BOOLEAN
 NtfsAddDeallocatedRecords (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb,
     IN PSCB Scb,
     IN ULONG StartingIndexOfBitmap,
@@ -7086,7 +7480,7 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsAddDeallocatedRecords...\n", 0);
+    DebugTrace( +1, Dbg, ("NtfsAddDeallocatedRecords...\n") );
 
     //
     //  Until shown otherwise we will assume that we haven't updated anything
@@ -7105,10 +7499,10 @@ Return Value:
     //  Check if we need to bias the bitmap with the reserved index
     //
 
-    if (Scb == Vcb->MftScb
-        && FlagOn( Vcb->MftReserveFlags, VCB_MFT_RECORD_RESERVED )
-        && StartingIndexOfBitmap <= Scb->ScbType.Mft.ReservedIndex
-        && Scb->ScbType.Mft.ReservedIndex <= EndingIndexOfBitmap ) {
+    if ((Scb == Vcb->MftScb) &&
+        FlagOn( Vcb->MftReserveFlags, VCB_MFT_RECORD_RESERVED ) &&
+        (StartingIndexOfBitmap <= Scb->ScbType.Mft.ReservedIndex) &&
+        (Scb->ScbType.Mft.ReservedIndex <= EndingIndexOfBitmap)) {
 
         //
         //  The index is a hit so now bias the index with the start of the bitmap
@@ -7117,7 +7511,7 @@ Return Value:
 
         Index = Scb->ScbType.Mft.ReservedIndex - StartingIndexOfBitmap;
 
-        NewBuffer = NtfsAllocatePagedPool( SizeOfBitmapInBytes );
+        NewBuffer = NtfsAllocatePool(PagedPool, SizeOfBitmapInBytes );
         RtlCopyMemory( NewBuffer, Bitmap->Buffer, SizeOfBitmapInBytes );
         Bitmap->Buffer = NewBuffer;
 
@@ -7129,12 +7523,6 @@ Return Value:
         //  same byte so we can put all of the file records for the Mft
         //  within the same pages of the Mft.
         //
-
-        //**** remote this assert because in the recursive case we could actually
-        //**** have already allocated the reserve index and setting the index isn't
-        //**** going to hurt anything.
-        //**** ASSERT(!FlagOn( ((PUCHAR)Bitmap->Buffer)[ Index / 8 ], BitMask[Index % 8]));
-
 
         ((PUCHAR) Bitmap->Buffer)[ Index / 8 ] = 0xff;
     }
@@ -7169,7 +7557,7 @@ Return Value:
 
                 if (!Results) {
 
-                    NewBuffer = NtfsAllocatePagedPool( SizeOfBitmapInBytes );
+                    NewBuffer = NtfsAllocatePool(PagedPool, SizeOfBitmapInBytes );
                     RtlCopyMemory( NewBuffer, Bitmap->Buffer, SizeOfBitmapInBytes );
                     Bitmap->Buffer = NewBuffer;
 
@@ -7192,7 +7580,398 @@ Return Value:
     //  And return to our caller
     //
 
-    DebugTrace(-1, Dbg, "NtfsAddDeallocatedRecords -> %08lx\n", Results);
+    DebugTrace( -1, Dbg, ("NtfsAddDeallocatedRecords -> %08lx\n", Results) );
 
     return Results;
 }
+
+
+//
+//  Local support routine
+//
+
+BOOLEAN
+NtfsReduceMftZone (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called when it appears that there is no disk space left on the
+    disk except the Mft zone.  We will try to reduce the zone to make space
+    available for user files.
+
+Arguments:
+
+    Vcb - Supplies the Vcb for the volume
+
+Return Value:
+
+    BOOLEAN - TRUE if the Mft zone was shrunk.  FALSE otherwise.
+
+--*/
+
+{
+    BOOLEAN ReduceMft = FALSE;
+
+    LONGLONG FreeClusters;
+    LONGLONG TargetFreeClusters;
+    LONGLONG PrevFreeClusters;
+
+    ULONG CurrentOffset;
+
+    LCN Lcn;
+    LCN StartingLcn;
+    LCN SplitLcn;
+
+    RTL_BITMAP Bitmap;
+    PBCB BitmapBcb = NULL;
+
+    PAGED_CODE();
+
+    //
+    //  Nothing to do if disk is almost empty.
+    //
+
+    if (Vcb->FreeClusters < (4 * MFT_EXTEND_GRANULARITY)) {
+
+        return FALSE;
+    }
+
+    //
+    //  Use a try-finally to facilitate cleanup.
+    //
+
+    try {
+
+        //
+        //  We want to find the number of free clusters in the Mft zone and
+        //  return half of them to the pool of clusters for users files.
+        //
+
+        FreeClusters = 0;
+
+        for (Lcn = Vcb->MftZoneStart;
+             Lcn < Vcb->MftZoneEnd;
+             Lcn = Lcn + Bitmap.SizeOfBitMap) {
+
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &StartingLcn, &Bitmap, &BitmapBcb );
+
+            if ((StartingLcn + Bitmap.SizeOfBitMap) > Vcb->MftZoneEnd) {
+
+                Bitmap.SizeOfBitMap = (ULONG) (Vcb->MftZoneEnd - StartingLcn);
+            }
+
+            if (StartingLcn != Lcn) {
+
+                Bitmap.SizeOfBitMap -= (ULONG) (Lcn - StartingLcn);
+                Bitmap.Buffer = Add2Ptr( Bitmap.Buffer,
+                                         (ULONG) (Lcn - StartingLcn) / 8 );
+            }
+
+            FreeClusters += RtlNumberOfClearBits( &Bitmap );
+        }
+
+        //
+        //  If we are below our threshold then don't do the split.
+        //
+
+        if (FreeClusters < (4 * MFT_EXTEND_GRANULARITY)) {
+
+            try_return( NOTHING );
+        }
+
+        //
+        //  Now we want to calculate 1/2 of this number of clusters and set the
+        //  zone end to this point.
+        //
+
+        TargetFreeClusters = Int64ShraMod32( FreeClusters, 1 );
+
+        //
+        //  Now look for the page which contains the split point.
+        //
+
+        FreeClusters = 0;
+
+        for (Lcn = Vcb->MftZoneStart;
+             Lcn < Vcb->MftZoneEnd;
+             Lcn = Lcn + Bitmap.SizeOfBitMap) {
+
+            NtfsUnpinBcb( &BitmapBcb );
+            NtfsMapPageInBitmap( IrpContext, Vcb, Lcn, &StartingLcn, &Bitmap, &BitmapBcb );
+
+            if ((StartingLcn + Bitmap.SizeOfBitMap) > Vcb->MftZoneEnd) {
+
+                Bitmap.SizeOfBitMap = (ULONG) (Vcb->MftZoneEnd - StartingLcn);
+            }
+
+            if (StartingLcn != Lcn) {
+
+                Bitmap.SizeOfBitMap -= (ULONG) (Lcn - StartingLcn);
+                Bitmap.Buffer = Add2Ptr( Bitmap.Buffer,
+                                         (ULONG) (Lcn - StartingLcn) / 8 );
+            }
+
+            PrevFreeClusters = FreeClusters;
+            FreeClusters += RtlNumberOfClearBits( &Bitmap );
+
+            //
+            //  Check if we found the page containing the split point.
+            //
+
+            if (FreeClusters >= TargetFreeClusters) {
+
+                CurrentOffset = 0;
+
+                while (TRUE) {
+
+                    if (!RtlCheckBit( &Bitmap, CurrentOffset )) {
+
+                        PrevFreeClusters += 1;
+
+                        if (PrevFreeClusters == TargetFreeClusters) {
+
+                            break;
+                        }
+                    }
+
+                    CurrentOffset += 1;
+                }
+
+                SplitLcn = Lcn + CurrentOffset;
+                ReduceMft = TRUE;
+                break;
+            }
+        }
+
+        //
+        //  If we are to reduce the Mft zone then set the split point and exit.
+        //  We always round the split point up to an eight cluster boundary so
+        //  that the bitmap for the zone fills the last byte.
+        //
+
+        if (ReduceMft) {
+
+            Vcb->MftZoneEnd = (SplitLcn + 0x1f) & ~0x1f;
+            SetFlag( Vcb->VcbState, VCB_STATE_REDUCED_MFT );
+        }
+
+    try_exit:  NOTHING;
+    } finally {
+
+        NtfsUnpinBcb( &BitmapBcb );
+    }
+
+    return ReduceMft;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+NtfsCheckRecordStackUsage (
+    IN PIRP_CONTEXT IrpContext
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called in the record package prior to adding allocation
+    to either a data stream or bitmap stream.  The purpose is to verify
+    that there is room on the stack to perform a log file full in the
+    AddAllocation operation.  This routine will check the stack space and
+    the available log file space and raise LOG_FILE_FULL defensively if
+    both of these reach a critical threshold.
+
+Arguments:
+
+Return Value:
+
+    None - this routine will raise if necessary.
+
+--*/
+
+{
+    LOG_FILE_INFORMATION LogFileInfo;
+    ULONG InfoSize;
+    LONGLONG RemainingLogFile;
+
+    PAGED_CODE();
+
+    //
+    //  Check the stack usage first.
+    //
+
+    if (IoGetRemainingStackSize() < OVERFLOW_RECORD_THRESHHOLD) {
+
+        //
+        //  Now check the log file space.
+        //
+
+        InfoSize = sizeof( LOG_FILE_INFORMATION );
+
+        RtlZeroMemory( &LogFileInfo, InfoSize );
+
+        LfsReadLogFileInformation( IrpContext->Vcb->LogHandle,
+                                   &LogFileInfo,
+                                   &InfoSize );
+
+        //
+        //  Check that 1/4 of the log file is available.
+        //
+
+        if (InfoSize != 0) {
+
+            RemainingLogFile = LogFileInfo.CurrentAvailable - LogFileInfo.TotalUndoCommitment;
+
+            if ((RemainingLogFile <= 0) ||
+                (RemainingLogFile < Int64ShraMod32(LogFileInfo.TotalAvailable, 2))) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+            }
+        }
+    }
+
+    return;
+}
+
+
+//
+//  Local support routine
+//
+
+VOID
+NtfsRunIsClear (
+    IN PIRP_CONTEXT IrpContext,
+    IN PVCB Vcb,
+    IN LCN StartingLcn,
+    IN LONGLONG RunLength
+    )
+
+/*++
+
+Routine Description:
+
+    This routine verifies that a group of clusters are unallocated.
+
+Arguments:
+
+    StartingLcn - Supplies the start of the cluster run
+
+    RunLength   - Supplies the length of the cluster run
+
+Return Value:
+
+    STATUS_SUCCESS if run is unallocated
+
+--*/
+{
+    RTL_BITMAP Bitmap;
+    PBCB BitmapBcb = NULL;
+    BOOLEAN StuffAdded = FALSE;
+    LONGLONG BitOffset;
+    LONGLONG BitCount;
+    LCN BaseLcn;
+    LCN Lcn = StartingLcn;
+    LONGLONG ValidDataLength;
+
+    ASSERT_IRP_CONTEXT( IrpContext );
+    ASSERT_VCB( Vcb );
+
+    PAGED_CODE();
+
+    DebugTrace( +1, Dbg, ("NtfsRunIsClear\n") );
+
+    ValidDataLength = Vcb->BitmapScb->Header.ValidDataLength.QuadPart;
+
+    try {
+
+        //
+        //  Ensure that StartingLcn is not past the length of the bitmap.
+        //
+
+        if (StartingLcn > ValidDataLength * 8) {
+
+            NtfsRaiseStatus( IrpContext, STATUS_INVALID_PARAMETER, NULL, NULL );
+        }
+
+        while (RunLength > 0){
+
+            //
+            //  Access the next page of bitmap and update it
+            //
+
+            NtfsMapPageInBitmap(IrpContext, Vcb, Lcn, &BaseLcn, &Bitmap, &BitmapBcb);
+
+            StuffAdded = NtfsAddRecentlyDeallocated(Vcb, BaseLcn, &Bitmap);
+
+            //
+            //  Get offset into this page and bits to end of this page
+            //
+
+            BitOffset = Lcn - BaseLcn;
+            BitCount = Bitmap.SizeOfBitMap - BitOffset;
+
+            //
+            //  Adjust for bits to end of page
+            //
+
+            if (BitCount > RunLength){
+
+                BitCount = RunLength;
+            }
+
+            //
+            //  If any bit is set get out
+            //
+
+            if (!RtlAreBitsClear( &Bitmap, (ULONG)BitOffset, (ULONG)BitCount)) {
+
+                NtfsRaiseStatus( IrpContext, STATUS_ALREADY_COMMITTED, NULL, NULL );
+            }
+
+            //
+            //  Free up resources
+            //
+
+            if(StuffAdded) { NtfsFreePool(Bitmap.Buffer); StuffAdded = FALSE; }
+
+            NtfsUnpinBcb(&BitmapBcb);
+
+            //
+            //  Decrease remaining bits by amount checked in this page and move Lcn to beginning
+            //  of next page
+            //
+
+            RunLength = RunLength - BitCount;
+            Lcn = BaseLcn + Bitmap.SizeOfBitMap;
+        }
+
+    } finally {
+
+        DebugUnwind(NtfsRunIsClear);
+
+        //
+        //  Free up resources
+        //
+
+        if(StuffAdded){ NtfsFreePool(Bitmap.Buffer); StuffAdded = FALSE; }
+
+        NtfsUnpinBcb(&BitmapBcb);
+    }
+
+    DebugTrace( -1, Dbg, ("NtfsRunIsClear -> VOID\n") );
+
+    return;
+}
+
+
+

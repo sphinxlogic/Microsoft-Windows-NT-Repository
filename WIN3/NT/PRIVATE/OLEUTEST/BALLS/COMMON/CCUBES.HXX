@@ -23,6 +23,9 @@
 #define CUBE_DIAMETER 10
 
 
+STDAPI CoGetCallerTID(DWORD *pTIDCaller);
+STDAPI CoGetCurrentLogicalThreadId(GUID *pguid);
+
 //+-------------------------------------------------------------------------
 //
 //  Class:	CCube
@@ -57,12 +60,17 @@ public:
     STDMETHOD(MoveCube)(ULONG xPos, ULONG yPos);
     STDMETHOD(GetCubePos)(ULONG *xPos, ULONG *yPos);
     STDMETHOD(Contains)(IBalls *pIBall);
+    STDMETHOD(SimpleCall)(DWORD pidCaller, DWORD tidCaller, GUID lidCaller);
+    STDMETHODIMP PrepForInputSyncCall(IUnknown *pUnkIn);
+    STDMETHODIMP InputSyncCall();
 
 private:
 		~CCube(void);
 
-    ULONG		_xPos;
-    ULONG		_yPos;
+    ULONG	_xPos;
+    ULONG	_yPos;
+
+    IUnknown   *_pUnkIn;
 };
 
 

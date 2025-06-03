@@ -38,6 +38,7 @@ MspCallPackageDispatch[] = {
     MspLm20EnumUsers,
     MspLm20GetUserInfo,
     MspLm20ReLogonUsers,
+    MspLm20ChangePassword,
     MspLm20ChangePassword
     };
 
@@ -284,6 +285,128 @@ Return Status:
         ProtocolStatus ) ;
 
 }
+
+
+NTSTATUS
+LsaApCallPackageUntrusted (
+    IN PLSA_CLIENT_REQUEST ClientRequest,
+    IN PVOID ProtocolSubmitBuffer,
+    IN PVOID ClientBufferBase,
+    IN ULONG SubmitBufferLength,
+    OUT PVOID *ProtocolReturnBuffer,
+    OUT PULONG ReturnBufferLength,
+    OUT PNTSTATUS ProtocolStatus
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is the dispatch routine for
+    LsaCallAuthenticationPackage() for untrusted clients.
+
+Arguments:
+
+    ClientRequest - Is a pointer to an opaque data structure
+        representing the client's request.
+
+    ProtocolSubmitBuffer - Supplies a protocol message specific to
+        the authentication package.
+
+    ClientBufferBase - Provides the address within the client
+        process at which the protocol message was resident.
+        This may be necessary to fix-up any pointers within the
+        protocol message buffer.
+
+    SubmitBufferLength - Indicates the length of the submitted
+        protocol message buffer.
+
+    ProtocolReturnBuffer - Is used to return the address of the
+        protocol buffer in the client process.  The authentication
+        package is responsible for allocating and returning the
+        protocol buffer within the client process.  This buffer is
+        expected to have been allocated with the
+        AllocateClientBuffer() service.
+
+        The format and semantics of this buffer are specific to the
+        authentication package.
+
+    ReturnBufferLength - Receives the length (in bytes) of the
+        returned protocol buffer.
+
+    ProtocolStatus - Assuming the services completion is
+        STATUS_SUCCESS, this parameter will receive completion status
+        returned by the specified authentication package.  The list
+        of status values that may be returned are authentication
+        package specific.
+
+Return Status:
+
+    STATUS_SUCCESS - The call was made to the authentication package.
+        The ProtocolStatus parameter must be checked to see what the
+        completion status from the authentication package is.
+
+    STATUS_QUOTA_EXCEEDED -  This error indicates that the return
+        buffer could not could not be allocated because the client
+        does not have sufficient quota.
+
+
+
+
+--*/
+
+{
+    ULONG MessageType;
+
+    //
+    // Get the messsage type from the protocol submit buffer.
+    //
+
+    if ( SubmitBufferLength < sizeof(MSV1_0_PROTOCOL_MESSAGE_TYPE) ) {
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    MessageType =
+        (ULONG) *((PMSV1_0_PROTOCOL_MESSAGE_TYPE)(ProtocolSubmitBuffer));
+
+    if ( MessageType >=
+        (sizeof(MspCallPackageDispatch)/sizeof(MspCallPackageDispatch[0])) ) {
+
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    //
+    // Untrusted clients are only allowed to call the ChangePassword function.
+    //
+
+    if ((MSV1_0_PROTOCOL_MESSAGE_TYPE) MessageType != MsV1_0ChangePassword) {
+
+        return STATUS_ACCESS_DENIED;
+    }
+
+    //
+    // Allow the dispatch routines to only set the return buffer information
+    // on success conditions.
+    //
+
+    *ProtocolReturnBuffer = NULL;
+    *ReturnBufferLength = 0;
+
+    //
+    // Call the appropriate routine for this message.
+    //
+
+    return (*(MspCallPackageDispatch[MessageType]))(
+        ClientRequest,
+        ProtocolSubmitBuffer,
+        ClientBufferBase,
+        SubmitBufferLength,
+        ProtocolReturnBuffer,
+        ReturnBufferLength,
+        ProtocolStatus ) ;
+
+}
+
 
 
 VOID

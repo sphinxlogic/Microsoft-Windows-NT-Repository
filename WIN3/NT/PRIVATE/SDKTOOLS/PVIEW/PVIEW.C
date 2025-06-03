@@ -66,7 +66,7 @@ ExplodeDlgProc(
 
     case WM_INITDIALOG:
 
-        if (!RegisterHotKey(hwnd, 1, MOD_CONTROL | MOD_SHIFT, VK_ESCAPE) ) {
+        if (!RegisterHotKey(hwnd, 1, MOD_CONTROL | MOD_ALT, VK_ESCAPE) ) {
             EndDialog(hwnd, 0);
             return(FALSE);
         }
@@ -455,8 +455,8 @@ int _CRTAPI1 main(
     DialogBoxParam(NULL,
                    MAKEINTRESOURCE(PXPLODEDLG),
                    NULL,
-                   ExplodeDlgProc,
-                   (LONG)0
+                   (DLGPROC)ExplodeDlgProc,
+                   (LPARAM)0
                    );
 
     return 0;
@@ -553,10 +553,7 @@ SetProcessFields(
 
     RtlTimeToTimeFields ( &ProcessInfo->UserTime, &UserTime);
     RtlTimeToTimeFields ( &ProcessInfo->KernelTime, &KernelTime);
-    Time = RtlLargeIntegerSubtract(
-                RefreshTimeOfDayInfo.CurrentTime,
-                ProcessInfo->CreateTime
-                );
+    Time.QuadPart = RefreshTimeOfDayInfo.CurrentTime.QuadPart - ProcessInfo->CreateTime.QuadPart;
     RtlTimeToTimeFields ( &Time, &RunTime);
     wsprintf(TimeString,"%3ld:%02ld:%02ld.%03ld",
                 RunTime.Hour,
@@ -954,10 +951,7 @@ SetThreadFields(
 
     RtlTimeToTimeFields ( &ThreadInfo->UserTime, &UserTime);
     RtlTimeToTimeFields ( &ThreadInfo->KernelTime, &KernelTime);
-    Time = RtlLargeIntegerSubtract(
-                RefreshTimeOfDayInfo.CurrentTime,
-                ThreadInfo->CreateTime
-                );
+    Time.QuadPart = RefreshTimeOfDayInfo.CurrentTime.QuadPart - ThreadInfo->CreateTime.QuadPart;
     RtlTimeToTimeFields ( &Time, &RunTime);
     wsprintf(TimeString,"%3ld:%02ld:%02ld.%03ld",
                 RunTime.Hour,

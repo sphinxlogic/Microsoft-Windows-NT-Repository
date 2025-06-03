@@ -30,7 +30,6 @@ Revision History:
 #include <stdlib.h>
 #include <process.h>    // exit
 #include <elfcommn.h>
-#include <wcstr.h>
 #include <windows.h>
 #include <ntiolog.h>
 #include <malloc.h>

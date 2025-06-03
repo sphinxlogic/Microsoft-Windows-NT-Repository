@@ -41,6 +41,14 @@ TermCreateWindow(
     HWND *phNewWindow,
     void *pvCallBackData);
 
+// make the window for the server
+void
+MakeTheWindow(
+    HANDLE hInstance,
+    TCHAR *pwszAppName);
+
+extern HWND g_hMain;
+
 #ifdef __cplusplus
 }
 #endif // __cplusplus

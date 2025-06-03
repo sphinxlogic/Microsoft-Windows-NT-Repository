@@ -177,6 +177,10 @@ static INT VLM_FontCaseChangeTree( HWND win )
    CHAR *s;
    INT title_size;
 
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( s );
+#endif
+
    wininfo = WM_GetInfoPtr( win );
    appinfo = ( APPINFO_PTR )WM_GetAppPtr( win );
 
@@ -317,6 +321,10 @@ VOID VLM_Refresh( )
 
    switch ( WMDS_GetWinType( wininfo ) ) {
 
+#ifdef OEM_EMS
+      case WMTYPE_EXCHANGE:
+#endif //OEM_EMS
+
       case WMTYPE_SERVERS:
       case WMTYPE_DISKS:
            WM_ShowWaitCursor( TRUE );
@@ -410,6 +418,14 @@ static VOID VLM_RefreshDLE( )
       }
    }
 #  endif //!defined ( OEM_MSOFT ) //unsupported feature
+
+#ifdef OEM_EMS
+   if ( gfExchange ) {
+
+      VLM_ExchangeSync( );
+   }
+#endif // OEM_EMS
+
 }
 
 /**********************
@@ -441,6 +457,12 @@ static VOID VLM_RefreshTree( HWND win )
    CHAR title[ MAX_UI_RESOURCE_SIZE ];
    CHAR text[ MAX_UI_RESOURCE_SIZE ];
    CHAR *temp;
+
+#ifdef OEM_EMS
+   UNREFERENCED_PARAMETER( s );
+   UNREFERENCED_PARAMETER( text );
+   UNREFERENCED_PARAMETER( title );
+#endif
 
    wininfo = WM_GetInfoPtr( win );
    appinfo = ( APPINFO_PTR )WM_GetAppPtr( win );

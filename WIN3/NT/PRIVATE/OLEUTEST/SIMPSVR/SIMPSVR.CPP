@@ -29,6 +29,16 @@ extern "C" {
     OLEDBGDATA_MAIN(TEXT("SIMPSVR"))
 }
 
+BOOL fBeVerbose = FALSE;
+extern "C"
+void TestDebugOut(LPSTR psz)
+{
+    if (fBeVerbose)
+    {
+	OutputDebugStringA(psz);
+    }
+}
+
 CSimpSvrApp FAR * lpCSimpSvrApp;
 CClassFactory FAR * lpClassFactory;
 
@@ -79,8 +89,14 @@ int PASCAL WinMain
 #endif
 {
     MSG msg;
+    fBeVerbose = GetProfileInt("OLEUTEST","BeVerbose",0);
 
-    OutputDebugString(TEXT("Starting Simpsvr.....\n"));
+    if(fBeVerbose == 0)
+    {
+	fBeVerbose = GetProfileInt("OLEUTEST","simpsvr",0);
+    }
+
+    TestDebugOut(TEXT("Starting Simpsvr.....\n"));
 	
     // recommended size for OLE apps
     SetMessageQueue(96);
@@ -238,7 +254,7 @@ long FAR PASCAL EXPORT MainWndProc(HWND hWnd,UINT message,WPARAM wParam,
     switch (message)
         {
         case WM_CLOSE:
-            OutputDebugString(TEXT("*** In WM_CLOSE *** \r\n"));
+            TestDebugOut(TEXT("*** In WM_CLOSE *** \r\n"));
 
             // if there is still a document
             if (lpCSimpSvrApp->GetDoc())
@@ -263,7 +279,7 @@ long FAR PASCAL EXPORT MainWndProc(HWND hWnd,UINT message,WPARAM wParam,
             {
                 if (CoRevokeClassObject(lpCSimpSvrApp->GetRegisterClass())
                     != S_OK)
-                    OutputDebugString(TEXT("Fail in CoRevokeClassObject\n"));
+                    TestDebugOut(TEXT("Fail in CoRevokeClassObject\n"));
             }
             else
                 lpCSimpSvrApp->GetOleObject()->Release();
@@ -435,4 +451,4 @@ long FAR PASCAL EXPORT DocWndProc(HWND hWnd,UINT message,WPARAM wParam,
     }
     return (NULL);
 }
-
+

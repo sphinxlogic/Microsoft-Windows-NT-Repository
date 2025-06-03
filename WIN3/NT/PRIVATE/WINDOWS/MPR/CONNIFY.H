@@ -1,6 +1,10 @@
 #ifndef _CONNIFY_INCLUDED
 #define _CONNIFY_INCLUDED
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 DWORD
 MprConnectNotifyInit(
     VOID
@@ -27,5 +31,9 @@ VOID
 MprFreeConnectContext(
     PVOID   ConnectContext
     );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _CONNIFY_INCLUDED

@@ -2,11 +2,8 @@
 
 --*/
 
-#include <sysinc.h>
-#include <rpc.h>
-#include <util.hxx>
+#include <precomp.hxx>
 #include <queue.hxx>
-#include <memory.h>
 
 
 QUEUE::QUEUE (
@@ -123,4 +120,3 @@ Return Value:
     *Length = QueueSlots[EndOfQueue].BufferLength;
     return(QueueSlots[EndOfQueue].Buffer);
 }
-

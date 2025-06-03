@@ -7,6 +7,8 @@
 #undef _MIPS_
 #undef ALPHA
 #undef _ALPHA_
+#undef PPC
+#undef _PPC_
 
 
 //
@@ -28,6 +30,12 @@
 //      ntmips.h    ifdef MIPS:
 //                      a MIPS typedef for _DBGKD_CONTROL_REPORT et al
 //                      the MIPS CONTEXT record and friends
+//
+// _PPC_ causes:
+//      ntdef.h     UNALIGNED to be defined as __unaligned
+//      nt.h        include "ntppc.h"
+//      ntppc.h     a ppc typedef for _DBGKD_CONTROL_REPORT et al
+//      ntppc.h     the ppc CONTEXT record and friends
 //
 //
 
@@ -61,9 +69,33 @@
 #define UNALIGNED
 #endif
 
+#elif defined(TARGET_PPC)
+
+#define _PPC_ 1
+
+#if defined(HOST_MIPS)
+#define MIPS 1
+#endif
+
+#if defined(HOST_i386)
+#define __unaligned
+#endif
 
 
+#include <windows.h>
+#include <windbgkd.h>
+#include <imagehlp.h>
 
+#if !defined(HOST_MIPS)
+#undef MIPS
+#undef _MIPS_
+#endif
+
+#if defined(HOST_i386)
+#undef _cdecl
+#undef UNALIGNED
+#define UNALIGNED
+#endif
 
 #elif defined(TARGET_i386)
 

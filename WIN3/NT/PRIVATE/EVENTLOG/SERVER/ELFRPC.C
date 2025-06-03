@@ -17,6 +17,12 @@ Author:
 
 Revision History:
 
+    15-Feb-1995     MarkBl
+        Unlink the ElfHandle *prior* to unlinking the module. Otherwise,
+        if another thread happens to coincidentally be in the routine,
+        FindModuleStrucFromAtom, it's not going to get a hit for the
+        module atom.
+                
     18-May-1994     Danl
         IELF_HANDLE_rundown:  If the eventlog has been shutdown, then
         we want to skip the code in this routine because most of the
@@ -112,6 +118,8 @@ Return Value:
         return;
     }
 
+    UnlinkContextHandle (ElfHandle);    // Unlink it from the linked list
+
     //
     // If this handle was for a backup module, then we need to
     // close the file and clean up the data structures.  The standard logs
@@ -201,8 +209,6 @@ Return Value:
 
         RtlReleaseResource ( &pModule->LogFile->Resource );
     }
-
-    UnlinkContextHandle (ElfHandle);    // Unlink it from the linked list
 
     ElfpFreeBuffer (ElfHandle);    // Free the context-handle structure
 

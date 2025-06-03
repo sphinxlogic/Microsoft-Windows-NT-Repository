@@ -108,12 +108,11 @@ public:
 
 							CG_HANDLE( node_skl * pHT, // handle type.
 									   node_skl * pHP,  // handle param or 0.
-									   unsigned long	MS	// memory size
-									 ) : CG_NDR(pHP, (unsigned short)1)
+									   XLAT_SIZE_INFO & Info	// memory size
+									 ) : CG_NDR(pHP, Info )
 								{
 								pHandleType			= pHT;
 								pHandleIDOrParam	= pHP;
-								SetMemorySize( MS );
 								NdrBindDescriptionOffset = -1;
 								}
 
@@ -189,7 +188,17 @@ public:
 								assert(0);
 								}
 
+    virtual
 	void 					GenNdrParamDescription( CCB * pCCB );
+
+    virtual
+	void 					GenNdrParamDescriptionOld( CCB * pCCB );
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return - 1;
+                                }
 	};
 
 //////////////////////////////////////////////////////////////////////////////
@@ -207,9 +216,9 @@ public:
 
 							CG_PRIMITIVE_HANDLE( node_skl * pHT,
 												 node_skl * pHP,
-											     unsigned long	MS	// memory size
+											     XLAT_SIZE_INFO & Info	// memory size
 												  ):
-													CG_HANDLE( pHT, pHP, MS )
+													CG_HANDLE( pHT, pHP, Info )
 								{
 								}
 
@@ -242,15 +251,20 @@ public:
     virtual
     void                    GenNdrParamOffline( CCB * pCCB );
 
-    //
-    // Generates the inline portion of a parameter description.
-    //
     virtual
     void                    GenNdrParamDescription( CCB * pCCB );
 
+    virtual
+    void                    GenNdrParamDescriptionOld( CCB * pCCB );
 
 	virtual
 	void					GenNdrHandleFormat( CCB * pCCB );
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return 0;
+                                }
 
     virtual
     void                    SetNextNdrAlignment( CCB * pCCB )
@@ -288,9 +302,9 @@ public:
 	//
 							CG_GENERIC_HANDLE( node_skl * pHT,
 											   node_skl * pHP,
-											   unsigned long	MS	// memory size
+											   XLAT_SIZE_INFO & Info	// memory size
 											    ) : 
-													CG_HANDLE( pHT, pHP, MS )
+													CG_HANDLE( pHT, pHP, Info )
 								{
 								}
 
@@ -378,12 +392,11 @@ public:
     virtual
     void                    GenNdrParamOffline( CCB * pCCB );
 
-    //
-    // Generates the inline portion of a parameter description.
-    //
     virtual
     void                    GenNdrParamDescription( CCB * pCCB );
 
+    virtual
+    void                    GenNdrParamDescriptionOld( CCB * pCCB );
 
 	virtual
 	void					GenNdrHandleFormat( CCB * pCCB );
@@ -407,6 +420,13 @@ public:
                                 ((CG_NDR *)GetChild())->
                                     SetNextNdrAlignment( pCCB );
                                 }
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return 
+                                ((CG_NDR *)GetChild())->FixedBufferSize( pCCB );
+                                }
 	};
 
 ////////////////////////////////////////////////////////////////////////////
@@ -422,9 +442,9 @@ private:
 public:
 							CG_CONTEXT_HANDLE( node_skl * pHT,
 											   node_skl * pHP,
-											   unsigned long	MS	// memory size
+											   XLAT_SIZE_INFO & Info	// memory size, etc
 												  ):
-													CG_HANDLE( pHT, pHP, MS )
+													CG_HANDLE( pHT, pHP, Info)
 								{
 								pRundownRoutineName = NULL;
 								}
@@ -471,11 +491,11 @@ public:
     virtual
     void                    GenNdrParamOffline( CCB * pCCB );
 
-    //
-    // Generates the inline portion of a parameter description.
-    //
     virtual
     void                    GenNdrParamDescription( CCB * pCCB );
+
+    virtual
+    void                    GenNdrParamDescriptionOld( CCB * pCCB );
 
 	virtual
 	void					GenNdrHandleFormat( CCB * pCCB );
@@ -484,6 +504,12 @@ public:
     void                    SetNextNdrAlignment( CCB * pCCB )
                                 {
                                 pCCB->SetNextNdrAlignment( 20 );
+                                }
+
+    virtual
+    long                    FixedBufferSize( CCB * pCCB )
+                                {
+                                return 24;
                                 }
 	};
 #endif // __BINDCLS_HXX__

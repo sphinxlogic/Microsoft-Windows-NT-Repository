@@ -32,12 +32,19 @@ char msg[80];  /* a temp for building up wsprintf messages in */
 ** until the whole block's free (count gone back to 0), then we free it.
 ** The block holds its handle.  Individual allocations hold a pointer
 ** to the block start.
+**
+** Purely for checking purposes, the blocks are all chained together.
+** List_Term (which has no function other than checking) checks that
+** this chain is empty.  Apart from this we do not keep track of the
+** allocations. We just hand them out and let the calling program keep track.
 */
  #define BLOCKSIZE 25000
- typedef struct
- { HANDLE hMem;     /* memory handle for this block */
-   int iInUse;    /* number of allocations taken out of it.  0 => free it */
-   int iNext;     /* next byte to use */
+ typedef struct blockTag
+ { struct blockTag * PrevBlock; /* backward link (NULL terminated doubly linked chain of blocks) */
+   struct blockTag * NextBlock; /* forward link (pCurrent points to last in chain) */
+   HANDLE hMem;     /* memory handle for this block */
+   int iInUse;      /* number of allocations taken out of it.  0 => free it */
+   int iNext;       /* next byte to use */
    char chData[BLOCKSIZE];
  } BLOCK, FAR *PBLOCK;
 
@@ -62,6 +69,7 @@ char msg[80];  /* a temp for building up wsprintf messages in */
  static LPVOID Alloc(int size)
  { HANDLE hMem;
    LPVOID pRet;
+   PBLOCK pb;
    List_Enter_Crit(&CritSec);
    if ((pCurrent==NULL)||(pCurrent->iNext+size>BLOCKSIZE+1))
    { hMem = GlobalAlloc(GMEM_MOVEABLE|GMEM_SHARE,(DWORD)(sizeof(BLOCK)));
@@ -70,14 +78,21 @@ char msg[80];  /* a temp for building up wsprintf messages in */
          OutputDebugString("GlobalAlloc failed!!\n");
          return NULL;
        }
+     pb = pCurrent;
      pCurrent = (PBLOCK)GlobalLock(hMem);
      if (pCurrent==NULL)
        { OutputDebugString("GlobalLock failed!!\n");
          return NULL;
        }
+     pCurrent->PrevBlock = pb;
+     pCurrent->NextBlock = NULL;
      pCurrent->hMem = hMem;
      pCurrent->iInUse = 0;
      pCurrent->iNext = 0;
+     if (pb==NULL)
+        ;
+     else
+        pb->NextBlock = pCurrent;
    }
    pRet = &(pCurrent->chData[pCurrent->iNext]);
    ++(pCurrent->iInUse);
@@ -99,13 +114,18 @@ char msg[80];  /* a temp for building up wsprintf messages in */
      { wsprintf(msg,"Bug in List code. Tell LaurieGr!\nList block allocation negative (%d)", pBlock->iInUse);
        TRACE_ERROR(msg, FALSE);
      }
+     if (pCurrent==pBlock) pCurrent = pBlock->PrevBlock; /* defend the invariant */
+     /* loop it out of the chain */
+     if (pBlock->PrevBlock!=NULL) pBlock->PrevBlock->NextBlock = pBlock->NextBlock;
+     if (pBlock->NextBlock!=NULL) pBlock->NextBlock->PrevBlock = pBlock->PrevBlock;
      hMem = pBlock->hMem;
      GlobalUnlock(hMem);
      GlobalFree(hMem);
-     if (pCurrent==pBlock) pCurrent = NULL; /* defend the invariant */
    }
    List_Leave_Crit(&CritSec);
  } /* Free */
+
+
 
   /* The following definition tells the truth about what an ITEM is.  The
   |  header file says only that there's a structure with the tag item_tag and
@@ -216,7 +236,15 @@ char msg[80];  /* a temp for building up wsprintf messages in */
      InitializeCriticalSection(&CritSec);
 #endif
      /* assumes layout in storage is linear */
-  }
+  } /* List_Init */
+
+
+  void APIENTRY List_Term(void)
+  {
+     if (pCurrent!=NULL) TRACE_ERROR("List storage not cleared out properly", FALSE);
+  } /* List_Term */
+
+
 
   /* Dump the internals to the debugger. */
   void APIENTRY List_Dump(LPSTR Header, LIST lst)
@@ -255,6 +283,12 @@ char msg[80];  /* a temp for building up wsprintf messages in */
   {  LIST lst;
      if (!bInited) {List_Init(); }          /* prevent some silly errors */
      lst = Alloc(iAnchorSize);
+
+     //{  char msg[80];
+     //   wsprintf(msg, "%8lx List_Create anchor \r\n", lst);
+     //   Trace_File(msg);
+     //}
+
      if (lst==NULL) { return NULL; }
      lst->pBlock = pCurrent;
      List_Leave_Crit(&CritSec);
@@ -277,6 +311,12 @@ char msg[80];  /* a temp for building up wsprintf messages in */
      { TRACE_ERROR("Bug:Attempt to destroy NULL list.  Continuing...", FALSE);
        return;
      }
+
+     //{  char msg[80];
+     //   wsprintf(msg, "%8lx List_Destroy anchor\r\n", *plst);
+     //   Trace_File(msg);
+     //}
+
      /* There is at least an anchor block to destroy */
      pitP = *plst;
      do

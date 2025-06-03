@@ -25,7 +25,7 @@ sBegin  Data
 ;
 ; Stuff needed to avoid the C runtime coming in
 ;
-; also known as "MAGIC SHIT THAT SAVED MY BALLS" - Glenn Steffler 2/7/90
+; also known as "MAGIC THAT SAVED ME" - Glenn Steffler 2/7/90
 ;
 ; Do not remove under penalty of sex change operation!!
 ;

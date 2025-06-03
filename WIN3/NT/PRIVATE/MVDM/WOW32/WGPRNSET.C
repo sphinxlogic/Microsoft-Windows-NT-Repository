@@ -31,7 +31,11 @@ DLLENTRYPOINTS  spoolerapis[WOW_SPOOLERAPI_COUNT] =  {"EXTDEVICEMODE", NULL,
                                     "EndDocPrinter", NULL,
                                     "ClosePrinter", NULL,
                                     "WritePrinter", NULL,
-                                    "DeletePrinter", NULL};
+                                    "DeletePrinter", NULL,
+                                    "GetPrinterDriverDirectoryA", NULL,
+                                    "AddPrinterA", NULL,
+                                    "AddPrinterDriverA", NULL,
+                                    "AddPortExA",NULL};
 
 
 /****************************************************************************
@@ -50,16 +54,37 @@ DLLENTRYPOINTS  spoolerapis[WOW_SPOOLERAPI_COUNT] =  {"EXTDEVICEMODE", NULL,
 *   needed to print the document.                                           *
 *                                                                           *
 ****************************************************************************/
-
 ULONG FASTCALL   WG32DeviceMode (PVDMFRAME pFrame)
 {
 
     register PDEVICEMODE16 parg16;
-    PSZ     psz3, psz4;
+    PSZ      psz, psz3=NULL, psz4=NULL;
+    HWND     hwnd32;
 
     GETARGPTR(pFrame, sizeof(DEVICEMODE16), parg16);
-    GETPSZPTR(parg16->f3, psz3);
-    GETPSZPTR(parg16->f4, psz4);
+
+    // copy all 16-bit params now since 16-bit memory may move if this calls
+    // into a 16-bit fax driver
+    hwnd32 = HWND32(parg16->f1);
+
+    GETPSZPTR(parg16->f3, psz);
+    if(psz) {
+        if(psz3 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz3, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f4, psz);
+    if(psz) {
+        if(psz4 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz4, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    // invalidate all flat ptrs to 16:16 memory now!
+    FREEARGPTR(parg16);
 
     if (!(*spoolerapis[WOW_DEVICEMODE].lpfn)) {
         if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", spoolerapis, WOW_SPOOLERAPI_COUNT)) {
@@ -67,14 +92,21 @@ ULONG FASTCALL   WG32DeviceMode (PVDMFRAME pFrame)
         }
     }
 
-    (*spoolerapis[WOW_DEVICEMODE].lpfn)(HWND32(parg16->f1), NULL, psz3, psz4);
+    // this can callback into a 16-bit fax driver!
+    (*spoolerapis[WOW_DEVICEMODE].lpfn)(hwnd32, NULL, psz3, psz4);
 
-    FREEPSZPTR(psz3);
-    FREEPSZPTR(psz4);
+    if(psz3) {
+        free_w(psz3);
+    }
+    if(psz4) {
+        free_w(psz4);
+    }
 
-    FREEARGPTR(parg16);
     RETURN(1);  // DeviceMode returns void. Charisma checks the return value !
 }
+
+
+
 
 
 /*****************************************************************************
@@ -89,23 +121,55 @@ ULONG FASTCALL   WG32DeviceMode (PVDMFRAME pFrame)
 *   different modes.                                                         *
 *                                                                            *
 *****************************************************************************/
-
 ULONG FASTCALL   WG32ExtDeviceMode (PVDMFRAME pFrame)
 {
-    int       nSize;
+    UINT      cb;
     LONG      l;
-    PSZ       psz4, psz5, psz7;
+    HWND      hWnd1;
+    WORD      wMode8;
+    PSZ       psz;
+    PSZ       psz4 = NULL, psz5 = NULL, psz7 = NULL;
+    VPVOID    vpdm3, vpdm6;
     LPDEVMODE lpdmInput6;
     LPDEVMODE lpdmOutput3;
-    register  PDEVMODE16 pdm16;
     register  PEXTDEVICEMODE16 parg16;
 
 
     GETARGPTR(pFrame, sizeof(EXTDEVICEMODE16), parg16);
 
-    GETPSZPTR(parg16->f4, psz4);
-    GETPSZPTR(parg16->f5, psz5);
-    GETPSZPTR(parg16->f7, psz7);
+    // copy the 16-bit parameters into local vars since this may callback
+    // into a 16-bit fax driver and cause 16-bit memory to move
+    hWnd1  = HWND32(parg16->f1);
+    vpdm3  = FETCHDWORD(parg16->f3);
+    vpdm6  = FETCHDWORD(parg16->f6);
+    wMode8 = FETCHWORD(parg16->f8);
+
+    GETPSZPTR(parg16->f4, psz);
+    if(psz) {
+        if(psz4 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz4, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f5, psz);
+    if(psz) {
+        if(psz5 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz5, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f7, psz);
+    if(psz) {
+        if(psz7 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz7, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    FREEARGPTR(parg16);
+    // all flat ptrs to 16:16 memory are now invalid!!
 
     if (!(*spoolerapis[WOW_EXTDEVICEMODE].lpfn)) {
         if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", spoolerapis, WOW_SPOOLERAPI_COUNT)) {
@@ -113,46 +177,46 @@ ULONG FASTCALL   WG32ExtDeviceMode (PVDMFRAME pFrame)
         }
     }
 
-    lpdmInput6 = GetDevMode32(FETCHDWORD(parg16->f6));
+    lpdmInput6 = ThunkDevMode16to32(FETCHDWORD(vpdm6));
 
     /* if they want output buffer size OR they want to fill output buffer */
-    if( (parg16->f8 == 0) || (parg16->f8 & DM_OUT_BUFFER) ) {
+    if( (wMode8 == 0) || (wMode8 & DM_OUT_BUFFER) ) {
 
         /* get required size for output buffer */
-        l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(HWND32(parg16->f1),
-                          NULL,
-                          NULL,
-                          psz4,
-                          psz5,
-                          lpdmInput6,
-                          psz7,
-                          0);
+        l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(hWnd1,
+                                                   NULL,
+                                                   NULL,
+                                                   psz4,
+                                                   psz5,
+                                                   lpdmInput6,
+                                                   psz7,
+                                                   0);
+
+        // adjust size for WOW handling (see notes in wstruc.c)
+        if(l > 0) {
+            l += sizeof(WOWDM31);
+            cb = (UINT)l;
+        }
 
         /* if caller wants output buffer filled... */
-        if( (parg16->f8 != 0) && (FETCHDWORD(parg16->f3) != 0L) && l > 0 ) {
+        if( (wMode8 != 0) && (vpdm3 != 0L) && l > 0 ) {
 
             if( lpdmOutput3 = malloc_w(l) ) {
 
-                l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(HWND32(parg16->f1),
-                                  NULL,
-                                  lpdmOutput3,
-                                  psz4,
-                                  psz5,
-                                  lpdmInput6,
-                                  psz7,
-                                  parg16->f8);
+                l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(hWnd1,
+                                                           NULL,
+                                                           lpdmOutput3,
+                                                           psz4,
+                                                           psz5,
+                                                           lpdmInput6,
+                                                           psz7,
+                                                           wMode8);
 
-                if( l > 0L ) {
+                /* Data in lpdmOutput3 is only valid with IDOK return. */
+                if( l == IDOK ) {
 
-                    /* BUGBUG what if nSize is > than 16-bit app allocated? */
-                    nSize = lpdmOutput3->dmSize + lpdmOutput3->dmDriverExtra;
-
-                    GETVDMPTR(parg16->f3, nSize, pdm16);
-
-                    RtlCopyMemory(pdm16, lpdmOutput3, nSize);
-
-                    FLUSHVDMPTR(parg16->f3, nSize, pdm16);
-                    FREEVDMPTR(pdm16);
+                    // do our WOW magic on this before we give it to the app
+                    ThunkDevMode32to16(vpdm3, lpdmOutput3, cb);
                 }
 
                 free_w(lpdmOutput3);
@@ -166,25 +230,28 @@ ULONG FASTCALL   WG32ExtDeviceMode (PVDMFRAME pFrame)
     /* else call for cases where they don't want to fill the output buffer */
     else {
 
-        l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(HWND32(parg16->f1),
-                          NULL,
-                          NULL,
-                          psz4,
-                          psz5,
-                          lpdmInput6,
-                          psz7,
-                          parg16->f8);
+        l = (*spoolerapis[WOW_EXTDEVICEMODE].lpfn)(hWnd1,
+                                                   NULL,
+                                                   NULL,
+                                                   psz4,
+                                                   psz5,
+                                                   lpdmInput6,
+                                                   psz7,
+                                                   wMode8);
     }
 
     if( lpdmInput6 ) {
         free_w(lpdmInput6);
     }
-
-    FREEPSZPTR(psz4);
-    FREEPSZPTR(psz5);
-    FREEPSZPTR(psz7);
-
-    FREEARGPTR(parg16);
+    if(psz4) {
+        free_w(psz4);
+    }
+    if(psz5) {
+        free_w(psz5);
+    }
+    if(psz7) {
+        free_w(psz7);
+    }
 
     RETURN((ULONG)l);
 
@@ -196,200 +263,263 @@ ULONG FASTCALL   WG32ExtDeviceMode (PVDMFRAME pFrame)
 ULONG FASTCALL   WG32DeviceCapabilities (PVDMFRAME pFrame)
 {
     LONG      l=0L, cb;
-    PSZ       psz1, psz2;
-    PBYTE     pb4, pOutput;
+    WORD      fwCap3;
+    PSZ       psz;
+    PBYTE     pOutput4, pOutput32;
+    VPVOID    vpOutput4;
+    PSZ       psz1 = NULL;
+    PSZ       psz2 = NULL;
     LPDEVMODE lpdmInput5;
+    DWORD     dwDM5;
     register  PDEVICECAPABILITIES16 parg16;
 
     GETARGPTR(pFrame, sizeof(DEVICECAPABILITIES16), parg16);
 
-    GETPSZPTR(parg16->f1, psz1);
-    GETPSZPTR(parg16->f2, psz2);
-    GETMISCPTR(parg16->f4, pb4);
+    // copy the 16-bit parameters into local vars since this may callback
+    // into a 16-bit fax driver and cause 16-bit memory to move
+    GETPSZPTR(parg16->f1, psz);
+    if(psz) {
+        if(psz1 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz1, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    GETPSZPTR(parg16->f2, psz);
+    if(psz) {
+        if(psz2 = malloc_w(lstrlen(psz)+1)) {
+            lstrcpy(psz2, psz);
+        }
+    }
+    FREEPSZPTR(psz);
+
+    fwCap3 = FETCHWORD(parg16->f3);
+
+    vpOutput4 = FETCHDWORD(parg16->f4);
+
+    dwDM5 = FETCHDWORD(parg16->f5);
+
+    FREEARGPTR(parg16);
+    // all flat ptrs to 16:16 memory are now invalid!!
 
     if (!(*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)) {
-        if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", spoolerapis, WOW_SPOOLERAPI_COUNT)) {
+        if (!LoadLibraryAndGetProcAddresses("WINSPOOL.DRV", 
+                                            spoolerapis, 
+                                            WOW_SPOOLERAPI_COUNT)) {
             return (0);
         }
     }
 
-    lpdmInput5 = GetDevMode32(FETCHDWORD(parg16->f5));
+    lpdmInput5 = ThunkDevMode16to32(dwDM5);
 
-#if DBG
-DbgPrint("WG32DeviceCapabilities %d\n", parg16->f3);
-#endif
+    LOGDEBUG(LOG_TRACE, ("WG32DeviceCapabilities %d\n", fwCap3));
 
-    switch (parg16->f3) {
+    switch (fwCap3) {
 
         // These ones do not fill up an output Buffer
 
-    case DC_FIELDS:
-    case DC_DUPLEX:
-    case DC_SIZE:
-    case DC_EXTRA:
-    case DC_VERSION:
-    case DC_DRIVER:
-    case DC_TRUETYPE:
-    case DC_ORIENTATION:
-    case DC_COPIES:
-#if DBG
-DbgPrint("WG32DeviceCapabilities simple case returned ");
-#endif
-        l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, psz2, parg16->f3, NULL, lpdmInput5);
-#if DBG
-DbgPrint("%d\n", l);
-#endif
-        break;
+        case DC_FIELDS:
+        case DC_DUPLEX:
+        case DC_SIZE:
+        case DC_EXTRA:
+        case DC_VERSION:
+        case DC_DRIVER:
+        case DC_TRUETYPE:
+        case DC_ORIENTATION:
+        case DC_COPIES:
+
+            l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1,
+                                                            psz2, 
+                                                            fwCap3, 
+                                                            NULL, 
+                                                            lpdmInput5);
+
+            LOGDEBUG(LOG_TRACE, ("WG32DeviceCapabilities simple case returned %d\n", l));
+
+            // adjust for WOW handling of devmodes  // see notes in wstruc.c
+            if(fwCap3 == DC_SIZE) {
+            
+                // we always convert NT DevModes to Win3.1 DevModes
+                WOW32WARNMSGF((l==sizeof(DEVMODE)),
+                              ("WG32DeviceCapabilities: Unexpected DevMode size: %d\n",l));
+                if(l == sizeof(DEVMODE)) {
+                    l = sizeof(DEVMODE31); 
+                }
+            }
+            // adjust DriverExtra to allow for difference between NT devmodes
+            // & Win3.1 devmodes + our secret WOW stuff at the end
+            else if(fwCap3 == DC_EXTRA) {
+                l += WOW_DEVMODEEXTRA;
+            }
+            // we tell them Win3.1 for the spec version too
+            else if(fwCap3 == DC_VERSION) {
+                l = WOW_DEVMODE31SPEC; // tell 'em the spec version is Win3.1
+            }
+
+            break;
+
 
         // These require an output buffer
+        case DC_PAPERS:
+        case DC_PAPERSIZE:
+        case DC_MINEXTENT:
+        case DC_MAXEXTENT:
+        case DC_BINS:
+        case DC_BINNAMES:
+        case DC_ENUMRESOLUTIONS:
+        case DC_FILEDEPENDENCIES:
+        case DC_PAPERNAMES:
+    
+            LOGDEBUG(LOG_TRACE, ("WG32DeviceCapabilities more complicated:\n"));
 
-    case DC_PAPERS:
-    case DC_PAPERSIZE:
-    case DC_MINEXTENT:
-    case DC_MAXEXTENT:
-    case DC_BINS:
-    case DC_BINNAMES:
-    case DC_ENUMRESOLUTIONS:
-    case DC_FILEDEPENDENCIES:
-    case DC_PAPERNAMES:
+            // We've got to figure out how much memory we will need
+            GETMISCPTR(vpOutput4, pOutput4);
+            if (pOutput4) { 
 
-#if DBG
-DbgPrint("WG32DeviceCapabilities more complicated:");
-#endif
+                cb = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, 
+                                                                 psz2, 
+                                                                 fwCap3, 
+                                                                 NULL, 
+                                                                 lpdmInput5);
 
-        if (pb4) { // We've got to figure out how much memory we will need
+                FREEPSZPTR(pOutput4); // invalidate -16bit memory may have moved
 
-            cb = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, psz2, parg16->f3, NULL, lpdmInput5);
+                LOGDEBUG(LOG_TRACE, ("we need %d bytes ", cb));
 
-#if DBG
-DbgPrint("we need %d bytes ", cb);
-#endif
+                if (cb > 0) {
 
-            if (cb > 0) {
-
-                switch (parg16->f3) {
-
-                case DC_PAPERS:
-                    cb *= 2;
-                    break;
-
-                case DC_BINNAMES:
-                    cb *= 24;
-                    break;
-
-                case DC_BINS:
-                    cb*=2;
-                    break;
-
-                case DC_FILEDEPENDENCIES:
-                case DC_PAPERNAMES:
-                    cb *= 64;
-                    break;
-
-                case DC_MAXEXTENT:
-                case DC_MINEXTENT:
-                case DC_PAPERSIZE:
-                    cb *= 8;
-#if DBG
-DbgPrint("DC_PAPERSIZE called: Needed %d bytes\n", cb);
-#endif
-                    break;
-
-                case DC_ENUMRESOLUTIONS:
-                    cb *= sizeof(LONG)*2;
-                    break;
-                }
-
-                pOutput = malloc_w(cb);
-
-                if (pOutput) {
-
-                    l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, psz2, parg16->f3, pOutput,
-                                            lpdmInput5);
-
-                    if (l >= 0) {
-
-                        switch (parg16->f3) {
+                    switch (fwCap3) {
 
                         case DC_PAPERS:
-                            if (CURRENTPTD()->dwWOWCompatFlags &
-                                                 WOWCF_RESETPAPER29ANDABOVE) {
-
-                                // wordperfect for windows 5.2 GPs if papertype
-                                // is > 0x28. so reset such paper types to 0x1.
-                                // In particular this happens if the selected
-                                // printer is Epson LQ-510.
-                                //                                   - nanduri
-
-                                LONG i = l;
-                                while(i--) {
-                                    if (((LPWORD)pOutput)[i] > 0x28) {
-                                        ((LPWORD)pOutput)[i] = 0x1;
-                                    }
-                                }
-
-                            }
-                            RtlCopyMemory(pb4, pOutput, cb);
+                            cb *= 2;
                             break;
+
+                        case DC_BINNAMES:
+                            cb *= 24;
+                            break;
+
+                        case DC_BINS:
+                            cb*=2;
+                            break;
+    
+                        case DC_FILEDEPENDENCIES:
+                        case DC_PAPERNAMES:
+                            cb *= 64;
+                            break;
+
                         case DC_MAXEXTENT:
                         case DC_MINEXTENT:
                         case DC_PAPERSIZE:
-#if DBG
-DbgPrint("Copying %d points from %0x to %0x\n", l, pOutput, pb4);
-#endif
-                            putpoint16(parg16->f4, l, (LPPOINT) pOutput);
+                            cb *= 8;
+
+                            LOGDEBUG(LOG_TRACE, ("DC_PAPERSIZE called: Needed %d bytes\n", cb));
+
                             break;
 
-                        default:
-#if DBG
-DbgPrint("Copying %d bytes from %0x to %0x\n",cb, pOutput, pb4);
-#endif
-                            RtlCopyMemory(pb4, pOutput, cb);
+                        case DC_ENUMRESOLUTIONS:
+                            cb *= sizeof(LONG)*2;
                             break;
-                        }
 
-                        FLUSHVDMPTR(parg16->f4, cb, pb4);
-                    }
+                    } // end switch
 
-                    free_w(pOutput);
+                    pOutput32 = malloc_w(cb);
 
+                    if (pOutput32) {
+
+                        l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, psz2, fwCap3, pOutput32, lpdmInput5);
+
+                        if (l >= 0) {
+
+                            GETMISCPTR(vpOutput4, pOutput4);
+
+                            switch (fwCap3) {
+
+                                case DC_PAPERS:
+                                    if (CURRENTPTD()->dwWOWCompatFlags &
+                                        WOWCF_RESETPAPER29ANDABOVE) {
+
+                                        // wordperfect for windows 5.2 GPs if
+                                        // papertype is > 0x28. so reset such 
+                                        // paper types to 0x1. In particular 
+                                        // this happens if the selected printer
+                                        // is Epson LQ-510.
+                                        //                       - nanduri
+
+                                        LONG i = l;
+                                        while(i--) {
+                                            if (((LPWORD)pOutput32)[i] > 0x28) {
+                                                ((LPWORD)pOutput32)[i] = 0x1;
+                                            }
+                                        }
+                                    } // end if
+
+                                    RtlCopyMemory(pOutput4, pOutput32, cb);
+                                    break;
+
+                                case DC_MAXEXTENT:
+                                case DC_MINEXTENT:
+                                case DC_PAPERSIZE:
+                                    LOGDEBUG(LOG_TRACE, ("Copying %d points from %0x to %0x\n", l, pOutput32, pOutput4));
+
+                                    putpoint16(vpOutput4, l,(LPPOINT)pOutput32);
+                                    break;
+
+                                default:
+                                    LOGDEBUG(LOG_TRACE, ("Copying %d bytes from %0x to %0x\n",cb, pOutput32, pOutput4));
+
+                                    RtlCopyMemory(pOutput4, pOutput32, cb);
+                                    break;
+
+                            } // end switch
+
+                            FLUSHVDMPTR(vpOutput4, (USHORT)cb, pOutput4);
+                            FREEPSZPTR(pOutput4);
+
+                        } // end if
+
+                        free_w(pOutput32);
+
+                    } else
+                        l = -1;
                 } else
-                    l = -1;
-            } else
-                l = cb;
+                    l = cb;
 
-        } else {
 
-#if DBG
-DbgPrint("No Output buffer specified:");
-#endif
-            l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1, psz2, parg16->f3, NULL, lpdmInput5);
-#if DBG
-DbgPrint("Returning %d\n", l);
-#endif
-        }
+            } else {
 
-        break;
 
-    default:
-#if DBG
-        DbgPrint("!!!! WG32DeviceCapabilities unhandled %d\n", parg16->f3);
-#endif
-        l = -1L;
-        break;
-    }
+                l = (*spoolerapis[WOW_DEVICECAPABILITIES].lpfn)(psz1,
+                                                                psz2, 
+                                                                fwCap3, 
+                                                                NULL, 
+                                                                lpdmInput5);
 
-    if (lpdmInput5)
+                LOGDEBUG(LOG_TRACE, ("No Output buffer specified: Returning %d\n", l));
+            }
+
+            break;
+
+        default:
+            LOGDEBUG(LOG_TRACE, ("!!!! WG32DeviceCapabilities unhandled %d\n", fwCap3));
+            l = -1L;
+            break;
+
+    } // end switch
+
+    if (lpdmInput5) {
         free_w(lpdmInput5);
-
-    FREEPSZPTR(psz1);
-    FREEPSZPTR(psz2);
-    FREEPSZPTR(pb4);
-
-    FREEARGPTR(parg16);
+    }
+    if(psz1) {
+        free_w(psz1);
+    }
+    if(psz2) {
+        free_w(psz2);
+    }
 
     RETURN(l);
 }
+
+
 
 
 BOOL LoadLibraryAndGetProcAddresses(char *name, DLLENTRYPOINTS *p, int num)
@@ -397,22 +527,48 @@ BOOL LoadLibraryAndGetProcAddresses(char *name, DLLENTRYPOINTS *p, int num)
     int     i;
     HINSTANCE   hInst;
 
-    if (!(hInst = LoadLibrary (name))) {
-        LOGDEBUG (LOG_ALWAYS, ("WOW::LoadLibraryAndGetProcAddresses:LoadLibrary failed\n"));
-        WOW32ASSERT (FALSE);
-        return (FALSE);
+    if (!(hInst = SafeLoadLibrary (name))) {
+        WOW32ASSERTMSGF (FALSE, ("WOW::LoadLibraryAndGetProcAddresses: LoadLibrary('%s') failed\n", name));
+        return FALSE;
     }
 
     for (i = 0; i < num ; i++) {
-        (FARPROC)(p[i].lpfn) = GetProcAddress (hInst, (p[i].name));
-#ifdef  DEBUG
-        if ((!*p[i].lpfn)) {
-            LOGDEBUG (LOG_ALWAYS, ("WOW::LoadLibraryAndGetProcAddresses: GetProcAddress failed on FUNCTION : %s\n", p[i].name));
-            WOW32ASSERT (FALSE);
-        }
-#endif
-
+        p[i].lpfn = (void *) GetProcAddress (hInst, (p[i].name));
+        WOW32ASSERTMSGF (p[i].lpfn, ("WOW::LoadLibraryAndGetProcAddresses: GetProcAddress(%s, '%s') failed\n", name, p[i].name));
     }
 
-    return (TRUE);
+    return TRUE;
 }
+
+#ifdef i386
+/*
+ * "Safe" version of LoadLibrary which preserves floating-point state
+ * across the load.  This is critical on x86 because the FP state being
+ * preserved is the 16-bit app's state.  MSVCRT.DLL is one offender which
+ * changes the Precision bits in its Dll init routine.
+ *
+ * On RISC, this is an alias for LoadLibrary
+ *
+ */
+HINSTANCE SafeLoadLibrary(char *name)
+{
+    HINSTANCE hInst;
+    BYTE FpuState[108];
+
+    // Save the 487 state
+    _asm {
+        lea    ecx, [FpuState]
+        fsave  [ecx]
+    }
+
+    hInst = LoadLibrary(name);
+
+    // Restore the 487 state
+    _asm {
+        lea    ecx, [FpuState]
+        frstor [ecx]
+    }
+
+    return hInst;
+}
+#endif  //i386

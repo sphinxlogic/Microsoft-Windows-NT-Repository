@@ -33,6 +33,7 @@ Revision History:
 --*/
 
 #include <sysinc.h>
+#include <rpc.h>
 
 #ifdef WIN
     #include <windows.h>
@@ -45,6 +46,8 @@ Revision History:
 #include <string.h>
 
 #define MAX_VALUE_LEN 128
+
+#undef PAPI
 
 #ifdef WIN
     #define PAPI    far

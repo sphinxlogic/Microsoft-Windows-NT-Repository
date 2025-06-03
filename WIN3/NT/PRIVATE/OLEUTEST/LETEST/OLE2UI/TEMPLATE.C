@@ -241,4 +241,3 @@ BOOL F<NAME>Init(HWND hDlg, WPARAM wParam, LPARAM lParam)
     UStandardHook((PVOID)p<ABBREV>, hDlg, WM_INITDIALOG, wParam, lpO<ABBREV>->lCustData);
     return TRUE;
     }
-

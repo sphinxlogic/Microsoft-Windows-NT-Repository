@@ -159,7 +159,7 @@ DlgEnviron(
                     EndDialog(hDlg, TRUE);
                     return (TRUE);
 
-                case IDHELP:
+                case IDWINDBGHELP:
                     Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_ENVIRON_HELP));
                     return (TRUE);
             }

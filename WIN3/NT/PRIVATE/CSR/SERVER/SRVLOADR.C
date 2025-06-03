@@ -153,7 +153,7 @@ CsrLoadServerDll(
 
     n = sizeof( *LoadedServerDll ) + ModuleNameString.MaximumLength;
 
-    LoadedServerDll = RtlAllocateHeap( CsrHeap, 0, n );
+    LoadedServerDll = RtlAllocateHeap( CsrHeap, MAKE_TAG( INIT_TAG ), n );
     if (LoadedServerDll == NULL) {
         if (ModuleHandle != NULL) {
             LdrUnloadDll( ModuleHandle );
@@ -368,9 +368,15 @@ CsrSrvCreateSharedSection(
         return( STATUS_NO_MEMORY );
         }
 
+    CsrSharedBaseTag = RtlCreateTagHeap( CsrSrvSharedSectionHeap,
+                                         0,
+                                         L"CSRSHR!",
+                                         L"!CSRSHR\0"
+                                         L"INIT\0"
+                                       );
     CsrSrvSharedStaticServerData = (PVOID *)RtlAllocateHeap(
                                             CsrSrvSharedSectionHeap,
-                                            0,
+                                            MAKE_SHARED_TAG( SHR_INIT_TAG ),
                                             CSR_MAX_SERVER_DLL * sizeof(PVOID)
                                             );
 
@@ -401,7 +407,7 @@ CsrSrvAttachSharedSection(
                                      NULL,
                                      &ViewSize,
                                      ViewUnmap,
-                                     0,
+                                     SEC_NO_CHANGE,
                                      PAGE_EXECUTE_READ
                                    );
         if (!NT_SUCCESS( Status )) {

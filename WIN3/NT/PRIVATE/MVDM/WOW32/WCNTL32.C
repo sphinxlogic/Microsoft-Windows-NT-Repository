@@ -87,7 +87,7 @@ BOOL FASTCALL WM32EMSetSel (LPWM32MSGPARAMEX lpwm32mpex)
     if (lpwm32mpex->fThunk) {
         lpwm32mpex->Parm16.WndProc.wMsg = (WORD) (WM_USER + (lpwm32mpex->uMsg - EM_GETSEL));
         LOW(lpwm32mpex->Parm16.WndProc.lParam) = (WORD) lpwm32mpex->uParam;
-        HIW(lpwm32mpex->Parm16.WndProc.lParam) =  
+        HIW(lpwm32mpex->Parm16.WndProc.lParam) =
                     (lpwm32mpex->lParam != -1) ? lpwm32mpex->lParam :  32767;
     }
 
@@ -431,14 +431,31 @@ BOOL FASTCALL  WM32CBAddString (LPWM32MSGPARAMEX lpwm32mpex)
 // This function thunks the following combo box control messages,
 //
 //  CB_DIR
+//
+//  Code in this routine references code in wparam.c in order to circumvent
+//  copying memory to 16-bit memory space.
+//  GetParam16 verifies that the parameter we get (lparam) had not originated
+//  in 16-bit code. If it did come from 16-bit code, then we send an original
+//  16:16 pointer to the application.
+//  This fixes PagePlus 3.0 application and (if implemented on a broader scale)
+//  will positively affect performance of applications which send a lot of
+//  standard messages and use subclassing a lot.
+//  -- VadimB
 
 BOOL FASTCALL  WM32CBDir (LPWM32MSGPARAMEX lpwm32mpex)
 {
-
-    if ( lpwm32mpex->fThunk ) {
+    if (lpwm32mpex->fThunk) {
         lpwm32mpex->Parm16.WndProc.wMsg = (WORD) (WM_USER + (lpwm32mpex->uMsg - CB_GETEDITSEL));
         if (lpwm32mpex->lParam) {
             INT cb;
+
+            if (W32CheckThunkParamFlag()) {
+                LONG lParam = (LONG)GetParam16(lpwm32mpex->lParam);
+                if (lParam) {
+                    lpwm32mpex->Parm16.WndProc.lParam = lParam;
+                    return (TRUE);
+                }
+            }
 
             cb = strlen((LPSZ)lpwm32mpex->lParam)+1;
             lpwm32mpex->Parm16.WndProc.lParam = malloc16(cb);
@@ -447,9 +464,13 @@ BOOL FASTCALL  WM32CBDir (LPWM32MSGPARAMEX lpwm32mpex)
             putstr16((VPSZ)lpwm32mpex->Parm16.WndProc.lParam, (LPSZ)lpwm32mpex->lParam, cb);
         }
     } else {
+        if (W32CheckThunkParamFlag()) {
+            if (DeleteParamMap(lpwm32mpex->Parm16.WndProc.lParam, PARAM_16, NULL)) {
+                return TRUE;
+            }
+        }
         if (lpwm32mpex->Parm16.WndProc.lParam)
             free16((VPVOID) lpwm32mpex->Parm16.WndProc.lParam);
-
     }
 
     return(TRUE);
@@ -504,12 +525,38 @@ BOOL FASTCALL WM32CBGetLBText (LPWM32MSGPARAMEX lpwm32mpex)
         if (lpwm32mpex->dwParam) {           // if handles are used
             cb = 4;
         } else {
-            cb = SendMessage(lpwm32mpex->hwnd, CB_GETLBTEXTLEN, lpwm32mpex->uParam, 0) + 1;
+            cb = SendMessage(lpwm32mpex->hwnd, CB_GETLBTEXTLEN, lpwm32mpex->uParam, 0);
+            if (cb == CB_ERR) {
+                //
+                // lpwm32mpex->dwTmp[0] is initialized to 0 so that nothing
+                // gets copied to the buffer by getstr16() while unthunking
+                // this message.
+                //
+                // bug # 24415, ChandanC
+                //
+
+                cb = SIZE_BOGUS;
+                lpwm32mpex->dwTmp[0] = 0;
+            }
+            else {
+                //
+                // Add one for NULL character.
+                //
+                cb = cb + 1;
+                (INT) lpwm32mpex->dwTmp[0] = (INT) -1;
+            }
         }
         if (lpwm32mpex->lParam) {
+            BYTE *lpT;
+
+            // See comment on similar code below
+
             lpwm32mpex->Parm16.WndProc.lParam = malloc16(cb);
             if (!(lpwm32mpex->Parm16.WndProc.lParam))
                 return FALSE;
+            GETVDMPTR((lpwm32mpex->Parm16.WndProc.lParam), sizeof(BYTE), lpT);
+            *lpT = 0;
+            FREEVDMPTR(lpT);
         }
     }
     else {
@@ -521,7 +568,8 @@ BOOL FASTCALL WM32CBGetLBText (LPWM32MSGPARAMEX lpwm32mpex)
                 FREEVDMPTR(lpT);
             }
             else {
-                getstr16((VPSZ)lpwm32mpex->Parm16.WndProc.lParam, (LPSZ)lpwm32mpex->lParam, -1);
+                getstr16((VPSZ)lpwm32mpex->Parm16.WndProc.lParam, (LPSZ)lpwm32mpex->lParam,
+                         (INT) lpwm32mpex->dwTmp[0]);
             }
 
             free16((VPVOID) lpwm32mpex->Parm16.WndProc.lParam);
@@ -652,29 +700,50 @@ BOOL FASTCALL WM32LBGetText (LPWM32MSGPARAMEX lpwm32mpex)
             cb = 4;
         }
         else {
-            cb = SendMessage(lpwm32mpex->hwnd, LB_GETTEXTLEN, lpwm32mpex->uParam, 0) + 1;
+            cb = SendMessage(lpwm32mpex->hwnd, LB_GETTEXTLEN, lpwm32mpex->uParam, 0);
 
             // Check for LB_ERR (which is -1) on the above SendMessage().
-            // So, in case of LB_ERR cb will become 0 (adding 1 to 0xFFFFFFFF).
-            // When cb is zero make the size as SIZE_BOGUS (256 bytes), and
-            // allocate a buffer just in case if the app diddles the lParam.
+            // When cb is equal to LB_ERR make the size as SIZE_BOGUS (256 bytes),
+            // and allocate a buffer just in case if the app diddles the lParam.
             // We will free the buffer while unthunking the message (LB_GETTEXT).
             // This fix makes the app MCAD happy.
             // ChandanC 4-21-93.
 
-            if (!cb) {
+            if (cb == LB_ERR) {
                 cb = SIZE_BOGUS;
+            }
+            else {
+                //
+                // Add one for NULL character.
+                //
+                cb = cb + 1;
             }
 
         }
 
         if (lpwm32mpex->lParam) {
+            BYTE *lpT;
+
             lpwm32mpex->Parm16.WndProc.lParam = malloc16(cb);
             if (!(lpwm32mpex->Parm16.WndProc.lParam))
                 return FALSE;
+
+            // The reason for this code to be here is that sometimes thunks 
+            // are executed on a buffer that has not been initialized, e.g.
+            // if the hooks are installed by a wow app. That means we will 
+            // alloc 16-bit buffer while thunking (boils down to uninitialized
+            // data buffer and will try to copy the buffer back while unthunking
+            // overwriting the stack sometimes (as user allocates temp bufs from
+            // the stack). This code initializes data so problem is avoided
+            // App: Grammatik/Windows v6.0 -- VadimB
+
+            GETVDMPTR((lpwm32mpex->Parm16.WndProc.lParam), sizeof(BYTE), lpT);
+            *lpT = 0;
+            FREEVDMPTR(lpT);
         }
     }
     else {
+
         if ((lpwm32mpex->lReturn != LB_ERR) && lpwm32mpex->lParam && lpwm32mpex->Parm16.WndProc.lParam) {
             if (lpwm32mpex->dwParam) {   // if this listbox takes handles
                 UNALIGNED DWORD *lpT;
@@ -706,12 +775,12 @@ BOOL FASTCALL  WM32LBGetTextLen (LPWM32MSGPARAMEX lpwm32mpex)
     if (lpwm32mpex->fThunk) {
         lpwm32mpex->Parm16.WndProc.wMsg = (WORD) (WM_USER + (lpwm32mpex->uMsg - LB_ADDSTRING + 1));
 
-        // USER32 and so do we send the LB_GETTEXTLEN message whenever an 
-        // LB_GETTEXT message is sent. This LB_GETTEXTLEN message is an 
+        // USER32 and so do we send the LB_GETTEXTLEN message whenever an
+        // LB_GETTEXT message is sent. This LB_GETTEXTLEN message is an
         // additional message that an app normally wouldn't see in WIN31.
         // lParam by definition is NULL.
-        // 
-        // Super Project dies (at times) when it receives the LB_GETTEXTLEN 
+        //
+        // Super Project dies (at times) when it receives the LB_GETTEXTLEN
         // message. It doesn't expect to see this message and as a result does
         // strlen(lParam) and dies.
         //                                               - nanduri

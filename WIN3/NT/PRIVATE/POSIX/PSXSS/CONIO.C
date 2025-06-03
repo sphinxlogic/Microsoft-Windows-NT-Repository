@@ -25,7 +25,14 @@ Revision History:
 #include "sesport.h"
 
 BOOLEAN
-ConRead (
+ConOpen(
+    IN PPSX_PROCESS p,
+    IN PFILEDESCRIPTOR Fd,
+    IN OUT PPSX_API_MSG m
+    );
+
+BOOLEAN
+ConRead(
     IN PPSX_PROCESS p,
     IN OUT PPSX_API_MSG m,
     IN PFILEDESCRIPTOR Fd
@@ -68,8 +75,8 @@ ConLastClose (
     )
 
 {
-	NTSTATUS st;
-	SCREQUESTMSG Request;
+    NTSTATUS st;
+    SCREQUESTMSG Request;
 
 #if 0
 //
@@ -78,31 +85,31 @@ ConLastClose (
 // lock or another.
 //
 
-	Request.Request = ConRequest;
-	Request.d.Con.Request = ScCloseFile;
-	Request.d.Con.d.IoBuf.Handle = SystemOpenFile->NtIoHandle;
+    Request.Request = ConRequest;
+    Request.d.Con.Request = ScCloseFile;
+    Request.d.Con.d.IoBuf.Handle = SystemOpenFile->NtIoHandle;
 
-	PORT_MSG_TOTAL_LENGTH(Request) = sizeof(SCREQUESTMSG);
-	PORT_MSG_DATA_LENGTH(Request) = sizeof(SCREQUESTMSG) -
-		sizeof(PORT_MESSAGE);
-	PORT_MSG_ZERO_INIT(Request) = 0;
+    PORT_MSG_TOTAL_LENGTH(Request) = sizeof(SCREQUESTMSG);
+    PORT_MSG_DATA_LENGTH(Request) = sizeof(SCREQUESTMSG) -
+        sizeof(PORT_MESSAGE);
+    PORT_MSG_ZERO_INIT(Request) = 0;
 
-	RtlEnterCriticalSection(&SystemOpenFile->Terminal->Lock);
+    RtlEnterCriticalSection(&SystemOpenFile->Terminal->Lock);
 
-	st = NtRequestWaitReplyPort(
-		SystemOpenFile->Terminal->ConsolePort,
-		(PPORT_MESSAGE)&Request, (PPORT_MESSAGE)&Request);
-	// ASSERT(NT_SUCCESS(st));
+    st = NtRequestWaitReplyPort(
+        SystemOpenFile->Terminal->ConsolePort,
+        (PPORT_MESSAGE)&Request, (PPORT_MESSAGE)&Request);
+    // ASSERT(NT_SUCCESS(st));
 
-	RtlLeaveCriticalSection(&SystemOpenFile->Terminal->Lock);
+    RtlLeaveCriticalSection(&SystemOpenFile->Terminal->Lock);
 #endif
 
-	SystemOpenFile->NtIoHandle = NULL;
+    SystemOpenFile->NtIoHandle = NULL;
 }
 
 
 PSXIO_VECTORS ConVectors = {
-    NULL,
+    ConOpen,
     NULL,
     NULL,
     ConLastClose,
@@ -113,6 +120,56 @@ PSXIO_VECTORS ConVectors = {
     ConLseek,
     ConStat
     };
+
+
+BOOLEAN
+ConOpen(
+    IN PPSX_PROCESS p,
+    IN PFILEDESCRIPTOR Fd,
+    IN OUT PPSX_API_MSG m
+    )
+/*++
+
+Routine Description:
+
+    This routine is called when the path /dev/tty is opened.  Its
+    function is to set up the stuff for stat that doesn't exist because
+    there isn't really such a file.
+
+Arguments:
+
+    p - Supplies the address of the process making the call.
+
+    m - Supplies the address of the message associated with the request.
+
+    Fd - supplies the address of the file descriptor being written.
+
+Return Value:
+
+    FALSE			- Failure.
+    TRUE			- Success.
+
+--*/
+{
+    PPSX_OPEN_MSG args;
+    LARGE_INTEGER time;
+    ULONG posix_time;
+
+    args = &m->u.Open;
+
+    NtQuerySystemTime(&time);
+    if (!RtlTimeToSecondsSince1970(&time, &posix_time)) {
+        posix_time = 0;
+    }
+
+    RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    Fd->SystemOpenFileDesc->IoNode->ModifyDataTime = posix_time;
+    Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = posix_time;
+    Fd->SystemOpenFileDesc->IoNode->AccessDataTime = posix_time;
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+
+    return TRUE;
+}
 
 
 BOOLEAN
@@ -142,60 +199,60 @@ Return Value:
 --*/
 
 {
-	PPSX_WRITE_MSG args;
-	NTSTATUS st;
-	IO_STATUS_BLOCK Iosb;
-	LARGE_INTEGER ByteOffset;
-	ULONG IoBufferSize;
-	FILE_FS_SIZE_INFORMATION SizeInfo;
-	ULONG Avail;
-	PVOID IoBuffer = NULL;
-	LARGE_INTEGER Time;
-	ULONG PosixTime;
+    PPSX_WRITE_MSG args;
+    NTSTATUS st;
+    IO_STATUS_BLOCK Iosb;
+    LARGE_INTEGER ByteOffset;
+    ULONG IoBufferSize;
+    FILE_FS_SIZE_INFORMATION SizeInfo;
+    ULONG Avail;
+    PVOID IoBuffer = NULL;
+    LARGE_INTEGER Time;
+    ULONG PosixTime;
 
-	SCREQUESTMSG Request;
+    SCREQUESTMSG Request;
 
-	args = &m->u.Write;
+    args = &m->u.Write;
 
-	args->Command = IO_COMMAND_DO_CONSIO;
+    args->Command = IO_COMMAND_DO_CONSIO;
 
-	//
-	// We need to tell the dll whether to do non-blocking io
-	// or not.
-	//
+    //
+    // We need to tell the dll whether to do non-blocking io
+    // or not.
+    //
 
-	if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
-		args->Scratch1 = O_NONBLOCK;
-	} else {
-		args->Scratch1 = 0;
-	}
+    if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+        args->Scratch1 = O_NONBLOCK;
+    } else {
+        args->Scratch1 = 0;
+    }
 
-	//
-	// Replace the given file descriptor with the one that should
-	// really be used to do the io to posix.exe.  They might be
-	// different if the one passed in was created by duping 0, 1,
-	// or 2.
-	//
+    //
+    // Replace the given file descriptor with the one that should
+    // really be used to do the io to posix.exe.  They might be
+    // different if the one passed in was created by duping 0, 1,
+    // or 2.
+    //
 
-	args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
+    args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
 
-	//
-	// Update st_mtime and st_ctime.
-	//
+    //
+    // Update st_mtime and st_ctime.
+    //
 
-	NtQuerySystemTime(&Time);
-	if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
-		PosixTime = 0;
-	}
+    NtQuerySystemTime(&Time);
+    if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
+        PosixTime = 0;
+    }
 
-	RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-	Fd->SystemOpenFileDesc->IoNode->ModifyDataTime = PosixTime;
-	Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = PosixTime;
+    Fd->SystemOpenFileDesc->IoNode->ModifyDataTime = PosixTime;
+    Fd->SystemOpenFileDesc->IoNode->ModifyIoNodeTime = PosixTime;
 
-	RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-	return TRUE;
+    return TRUE;
 }
 
 
@@ -227,77 +284,77 @@ Return Value:
 --*/
 
 {
-	PPSX_READ_MSG args;
-	NTSTATUS st;
-	IO_STATUS_BLOCK Iosb;
-	LARGE_INTEGER ByteOffset;
-	ULONG IoBufferSize;
-	PVOID IoBuffer = NULL;
-	LARGE_INTEGER Time;
-	ULONG PosixTime;
-	PSIGDB SigDb;
+    PPSX_READ_MSG args;
+    NTSTATUS st;
+    IO_STATUS_BLOCK Iosb;
+    LARGE_INTEGER ByteOffset;
+    ULONG IoBufferSize;
+    PVOID IoBuffer = NULL;
+    LARGE_INTEGER Time;
+    ULONG PosixTime;
+    PSIGDB SigDb;
 
-	SCREQUESTMSG Request;
+    SCREQUESTMSG Request;
 
-	args = &m->u.Read;
+    args = &m->u.Read;
 
-	//
-	// 1003.1-90 (6.4.1.4): EIO ... The implementation supports job
-	// control, the process is in a background process group and is
-	// attempting to read from its controlling terminal, and either
-	// the process is ignoring or blocking the SIGTTIN signal or
-	// the process group of the process is orphaned.
-	//
+    //
+    // 1003.1-90 (6.4.1.4): EIO ... The implementation supports job
+    // control, the process is in a background process group and is
+    // attempting to read from its controlling terminal, and either
+    // the process is ignoring or blocking the SIGTTIN signal or
+    // the process group of the process is orphaned.
+    //
 
-	SigDb = &p->SignalDataBase;
+    SigDb = &p->SignalDataBase;
 
-	if (NULL != p->PsxSession->Terminal &&
-		p->PsxSession->Terminal->ForegroundProcessGroup !=
-			p->ProcessGroupId &&
-		p->PsxSession->Terminal == Fd->SystemOpenFileDesc->Terminal &&
-		((SigDb->SignalDisposition[SIGTTIN-1].sa_handler == SIG_IGN ||
-			SIGISMEMBER(&SigDb->BlockedSignalMask, SIGTTIN)) ||
-			IsGroupOrphaned(p->ProcessGroupId))) {
+    if (NULL != p->PsxSession->Terminal &&
+        p->PsxSession->Terminal->ForegroundProcessGroup !=
+            p->ProcessGroupId &&
+        p->PsxSession->Terminal == Fd->SystemOpenFileDesc->Terminal &&
+        ((SigDb->SignalDisposition[SIGTTIN-1].sa_handler == SIG_IGN ||
+            SIGISMEMBER(&SigDb->BlockedSignalMask, SIGTTIN)) ||
+            IsGroupOrphaned(p->ProcessGroupId))) {
 
-		m->Error = EIO;
-		return TRUE;
-	}
-	args->Command = IO_COMMAND_DO_CONSIO;
+        m->Error = EIO;
+        return TRUE;
+    }
+    args->Command = IO_COMMAND_DO_CONSIO;
 
-	//
-	// We need to tell the dll whether to do non-blocking io
-	// or not.
-	//
+    //
+    // We need to tell the dll whether to do non-blocking io
+    // or not.
+    //
 
-	if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
-		args->Scratch1 = O_NONBLOCK;
-	} else {
-		args->Scratch1 = 0;
-	}
+    if (Fd->SystemOpenFileDesc->Flags & PSX_FD_NOBLOCK) {
+        args->Scratch1 = O_NONBLOCK;
+    } else {
+        args->Scratch1 = 0;
+    }
 
-	//
-	// Replace the given file descriptor with the one that should
-	// really be used to do the io to posix.exe.  They might be
-	// different if the one passed in was created by duping 0, 1,
-	// or 2.
-	//
+    //
+    // Replace the given file descriptor with the one that should
+    // really be used to do the io to posix.exe.  They might be
+    // different if the one passed in was created by duping 0, 1,
+    // or 2.
+    //
 
-	args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
+    args->FileDes = (int)Fd->SystemOpenFileDesc->NtIoHandle;
 
-	NtQuerySystemTime(&Time);
-	if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
-		PosixTime = 0;
-	}
+    NtQuerySystemTime(&Time);
+    if (!RtlTimeToSecondsSince1970(&Time, &PosixTime)) {
+        PosixTime = 0;
+    }
 
-	//
-	// Update st_atime.
-	//
+    //
+    // Update st_atime.
+    //
 
-	RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
-	Fd->SystemOpenFileDesc->IoNode->AccessDataTime = PosixTime;
-	RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    RtlEnterCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
+    Fd->SystemOpenFileDesc->IoNode->AccessDataTime = PosixTime;
+    RtlLeaveCriticalSection(&Fd->SystemOpenFileDesc->IoNode->IoNodeLock);
 
-	return TRUE;
+    return TRUE;
 }
 
 
@@ -387,12 +444,12 @@ Return Value:
 --*/
 
 {
-	//
-	// Can't seek on a console.
-	//
+    //
+    // Can't seek on a console.
+    //
 
-	m->Error = ESPIPE;   
-	return TRUE;
+    m->Error = ESPIPE;   
+    return TRUE;
 }
 
 
@@ -413,44 +470,33 @@ Routine Description:
 Arguments:
 
     IoNode - supplies a pointer to the ionode of the file for which stat is
-	requested. NULL if no active Ionode entry.
+    requested. NULL if no active Ionode entry.
 
     FileHandle - supplies the Nt file handle of the file .
 
     StatBuf - Supplies the address of the statbuf portion of the message
-	associated with the request.
+    associated with the request.
 
 Return Value:
 
-   ???
+    TRUE
 
 --*/
 {
-	IO_STATUS_BLOCK Iosb;
-	FILE_INTERNAL_INFORMATION SerialNumber;
-	FILE_BASIC_INFORMATION BasicInfo;
-	FILE_STANDARD_INFORMATION StandardInfo;
-	ULONG PosixTime;
-	NTSTATUS st;
+    ULONG PosixTime;
 
-	//
-	// First get the static information on the file from the ionode if
-	// there is one (i.e. if the file currently open.
-	// Open() sets the fields in the ionode.
-	//
+    StatBuf->st_mode = IoNode->Mode;
+    StatBuf->st_ino = IoNode->FileSerialNumber;
+    StatBuf->st_dev = IoNode->DeviceSerialNumber;
+    StatBuf->st_uid = IoNode->OwnerId;
+    StatBuf->st_gid = IoNode->GroupId;
+    StatBuf->st_size = 0;
 
-	StatBuf->st_mode = IoNode->Mode;
-	StatBuf->st_ino = IoNode->FileSerialNumber;
-	StatBuf->st_dev = IoNode->DeviceSerialNumber;
-	StatBuf->st_uid = IoNode->OwnerId;
-	StatBuf->st_gid = IoNode->GroupId;
-	StatBuf->st_size = 0;
+    StatBuf->st_atime = IoNode->AccessDataTime;
+    StatBuf->st_mtime = IoNode->ModifyDataTime;
+    StatBuf->st_ctime = IoNode->ModifyIoNodeTime;
 
-	StatBuf->st_atime = IoNode->AccessDataTime;
-	StatBuf->st_mtime = IoNode->ModifyDataTime;
-	StatBuf->st_ctime = IoNode->ModifyIoNodeTime;
-
-	StatBuf->st_nlink = 0;
-	
-	return TRUE;
+    StatBuf->st_nlink = 1;
+    
+    return TRUE;
 }

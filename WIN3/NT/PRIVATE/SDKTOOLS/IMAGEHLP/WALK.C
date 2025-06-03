@@ -20,9 +20,8 @@ Environment:
 
 --*/
 
-#include <windows.h>
-#define _IMAGEHLP_SOURCE_
-#include <imagehlp.h>
+#include <private.h>
+
 
 
 BOOL
@@ -75,6 +74,15 @@ WalkMips(
     );
 
 BOOL
+WalkPpc(
+    HANDLE                            hProcess,
+    LPSTACKFRAME                      StackFrame,
+    PCONTEXT                          ContextRecord,
+    PREAD_PROCESS_MEMORY_ROUTINE      ReadMemoryRoutine,
+    PFUNCTION_TABLE_ACCESS_ROUTINE    FunctionTableAccessRoutine
+    );
+
+BOOL
 WalkAlpha(
     HANDLE                            hProcess,
     LPSTACKFRAME                      StackFrame,
@@ -100,39 +108,74 @@ StackWalk(
     )
 {
     BOOL rval;
-
-
-    if (!ReadMemory) {
-        ReadMemory = ReadMemoryRoutineLocal;
-    }
+    BOOL UseSym = FALSE;
 
     if (!FunctionTableAccess) {
         FunctionTableAccess = FunctionTableAccessRoutineLocal;
+        UseSym = TRUE;
     }
 
     if (!GetModuleBase) {
         GetModuleBase = GetModuleBaseRoutineLocal;
+        UseSym = TRUE;
+    }
+
+    if (!ReadMemory) {
+        ReadMemory = ReadMemoryRoutineLocal;
     }
 
     if (!TranslateAddress) {
         TranslateAddress = TranslateAddressRoutineLocal;
     }
 
+    if (UseSym) {
+        //
+        // We are using the code in symbols.c
+        // hProcess better be a real valid process handle
+        //
+
+        //
+        // Always call syminitialize.  It's a nop if process
+        // is already loaded.
+        //
+        if (!SymInitialize( hProcess, NULL, FALSE )) {
+            return FALSE;
+        }
+
+    }
 
     switch (MachineType) {
         case IMAGE_FILE_MACHINE_I386:
-            rval = WalkX86( hProcess, hThread, StackFrame, (PCONTEXT) ContextRecord,
-                            ReadMemory, FunctionTableAccess, GetModuleBase, TranslateAddress );
+            rval = WalkX86( hProcess,
+                            hThread,
+                            StackFrame,
+                            (PCONTEXT) ContextRecord,
+                            ReadMemory,
+                            FunctionTableAccess,
+                            GetModuleBase,
+                            TranslateAddress );
             break;
 
         case IMAGE_FILE_MACHINE_R4000:
+        case IMAGE_FILE_MACHINE_R10000:
             rval = WalkMips( hProcess, StackFrame, (PCONTEXT) ContextRecord,
                              ReadMemory, FunctionTableAccess );
             break;
 
         case IMAGE_FILE_MACHINE_ALPHA:
-            rval = WalkAlpha( hProcess, StackFrame, (PCONTEXT) ContextRecord,
-                              ReadMemory, FunctionTableAccess );
+            rval = WalkAlpha( hProcess,
+                              StackFrame,
+                              (PCONTEXT) ContextRecord,
+                              ReadMemory,
+                              FunctionTableAccess );
+            break;
+
+        case IMAGE_FILE_MACHINE_POWERPC:
+            rval = WalkPpc( hProcess,
+                            StackFrame,
+                            (PCONTEXT) ContextRecord,
+                            ReadMemory,
+                            FunctionTableAccess );
             break;
 
         default:
@@ -153,7 +196,11 @@ ReadMemoryRoutineLocal(
     LPDWORD lpNumberOfBytesRead
     )
 {
-    return ReadProcessMemory( hProcess, lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesRead );
+    return ReadProcessMemory( hProcess,
+                              lpBaseAddress,
+                              lpBuffer,
+                              nSize,
+                              lpNumberOfBytesRead );
 }
 
 
@@ -163,7 +210,7 @@ FunctionTableAccessRoutineLocal(
     DWORD   AddrBase
     )
 {
-    return NULL;
+    return SymFunctionTableAccess(hProcess, AddrBase);
 }
 
 DWORD
@@ -172,7 +219,12 @@ GetModuleBaseRoutineLocal(
     DWORD   ReturnAddress
     )
 {
-    return 0;
+    IMAGEHLP_MODULE ModuleInfo;
+    if (SymGetModuleInfo(hProcess, ReturnAddress, &ModuleInfo)) {
+        return ModuleInfo.BaseOfImage;
+    } else {
+        return 0;
+    }
 }
 
 

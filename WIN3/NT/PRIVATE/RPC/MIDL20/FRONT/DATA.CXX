@@ -34,10 +34,6 @@ NOTE: In order to search easily I enter the data items in sorted order of names
  ****************************************************************************/
 
 
-#ifdef DOS_OS2_BUILD
-#pragma data_seg( "FE_data", "data" )
-#endif
-
 #include "nulldefs.h"
 extern	"C"
 	{
@@ -58,14 +54,14 @@ extern	"C"
 	general data declarations
  ****************************************************************************/
 
-short						CompileMode;
 unsigned short 				CurrentIntfKey;
 unsigned short				CurrentZp			= 0;
 ATTR_SUMMARY				DisallowedAttrs[INTERNAL_NODE_END];
 unsigned short 				EnumSize = sizeof(short);
 ATTR_SUMMARY				FieldAttrs;
 BOOL						fPragmaImportOn	= FALSE;
-BOOL						fTypeGraphInited	= 0;
+
+BOOL						fNoLogo			= FALSE;
 short						GrammarAct;
 short						ImportLevel = 0;
 TREGISTRY				*	pCallAsTable;
@@ -84,26 +80,8 @@ PASS_1					*	pPass1;
 PASS_2					*	pPass2;
 PASS_3					*	pPass3;
 pre_type_db				*	pPreAllocTypes;
-IDICT					*	pPreAllocatedBitAttrDict;
-ATTR_SUMMARY			*	pPreAttrArray;
-ATTR_SUMMARY			*	pPreAttrBaseType;
-ATTR_SUMMARY			*	pPreAttrDef;
-ATTR_SUMMARY			*	pPreAttrField;
-ATTR_SUMMARY			*	pPreAttrForward;
-ATTR_SUMMARY			*	pPreAttrID;
-ATTR_SUMMARY			*	pPreAttrInterface;
-ATTR_SUMMARY			*	pPreAttrParam;
-ATTR_SUMMARY			*	pPreAttrPointer;
-ATTR_SUMMARY			*	pPreAttrProc;
-ATTR_SUMMARY			*	pPreAttrStruct;
-ATTR_SUMMARY			*	pPreAttrUnion;
-ATTR_SUMMARY			*	pPostAttrArray;
-ATTR_SUMMARY			*	pPostAttrInterface;
-ATTR_SUMMARY			*	pPostAttrPointer;
-ATTR_SUMMARY			*	pPreAttrWCharT;
 node_source				*	pSourceNode;
 nsa						*	pSymTblMgr;
-class expr_terminator	*	pTerminator;
 SymTable				*	pUUIDTable;
 ISTACK					*	pZpStack;
 ATTR_SUMMARY				RedundantsOk;

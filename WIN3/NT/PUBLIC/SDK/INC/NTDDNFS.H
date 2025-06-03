@@ -38,6 +38,16 @@ Revision History:
 // Note:  For devices that support multiple units, it should be suffixed
 //        with the Ascii representation of the unit number.
 //
+//
+// Device Name - this string is the name of the device.  It is the name
+// that should be passed to NtOpenFile when accessing the device.
+//
+// Note:  For devices that support multiple units, it should be suffixed
+//        with the Ascii representation of the unit number.
+//
+
+#define DD_NFS2_DEVICE_NAME "\\Device\\FsWrap"
+#define DD_NFS2_DEVICE_NAME_U L"\\Device\\FsWrap"
 
 #define DD_NFS_DEVICE_NAME "\\Device\\LanmanRedirector"
 #define DD_NFS_DEVICE_NAME_U L"\\Device\\LanmanRedirector"
@@ -52,19 +62,22 @@ Revision History:
 //
 // EA Names for creating a tree connection
 //
+#define EA_NAME_CONNECT         "NoConnect"
 #define EA_NAME_DOMAIN          "Domain"
 #define EA_NAME_USERNAME        "UserName"
 #define EA_NAME_PASSWORD        "Password"
 #define EA_NAME_TYPE            "Type"
 #define EA_NAME_TRANSPORT       "Transport"
-#define EA_NAME_PRINCIPAL	"Principal"
+#define EA_NAME_PRINCIPAL       "Principal"
+#define EA_NAME_MRXCONTEXT      "MinirdrContext"
 
 #define EA_NAME_DOMAIN_U        L"Domain"
 #define EA_NAME_USERNAME_U      L"UserName"
 #define EA_NAME_PASSWORD_U      L"Password"
 #define EA_NAME_TYPE_U          L"Type"
 #define EA_NAME_TRANSPORT_U     L"Transport"
-#define EA_NAME_PRINCIPAL_U	L"Principal"
+#define EA_NAME_PRINCIPAL_U  	L"Principal"
+#define EA_NAME_MRXCONTEXT_U    L"MinirdrContext"
 
 #define TRANSACTION_REQUEST     0x00000003
 
@@ -84,6 +97,7 @@ Revision History:
 #define RDR_CONFIG_CONNECT_TIMEOUT  L"ConnectMaxTimeout"
 #define RDR_CONFIG_RAW_TIME_LIMIT  L"RawIoTimeLimit"
 #define RDR_CONFIG_OS2_SESSION_LIMIT  L"Os2SessionLimit"
+#define RDR_CONFIG_TURBO_MODE               L"TurboMode"
 
 #define RDR_CONFIG_CURRENT_WINDOWS_VERSION L"\\REGISTRY\\Machine\\Software\\Microsoft\\Windows Nt\\CurrentVersion"
 #define RDR_CONFIG_OPERATING_SYSTEM L"CurrentBuildNumber"
@@ -126,6 +140,14 @@ Revision History:
 #define FSCTL_LMR_GET_STATISTICS         _RDR_CONTROL_CODE(116, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_LMR_START_SMBTRACE         _RDR_CONTROL_CODE(117, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FSCTL_LMR_END_SMBTRACE           _RDR_CONTROL_CODE(118, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+//
+// the following fsctl controlcodes are reserved for the fswrap device and minirdrs
+//
+#define FSCTL_FSWRAP_RESERVED_LOW         _RDR_CONTROL_CODE(200, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_FSWRAP_RESERVED_HIGH        _RDR_CONTROL_CODE(219, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_MINIRDR_RESERVED_LOW        _RDR_CONTROL_CODE(220, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FSCTL_MINIRDR_RESERVED_HIGH       _RDR_CONTROL_CODE(239, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 //
 // Identifies the data structure type for Buffer 2 of each FSCtl
@@ -257,6 +279,7 @@ typedef struct _LMR_CONNECTION_INFO_2 {
     ULONG NumberFilesOpen;              // Number of opened files
 
     UNICODE_STRING UserName;            // User who created connection.
+    UNICODE_STRING DomainName;          // Domain of user who created connection.
     ULONG Capabilities;                 // Bit mask of remote abilities.
     UCHAR UserSessionKey[MSV1_0_USER_SESSION_KEY_LENGTH]; // User session key
     UCHAR LanmanSessionKey[MSV1_0_LANMAN_SESSION_KEY_LENGTH]; // Lanman session key
@@ -270,6 +293,7 @@ typedef struct _LMR_CONNECTION_INFO_3 {
     ULONG NumberFilesOpen;              // Number of opened files
 
     UNICODE_STRING UserName;            // User who created connection.
+    UNICODE_STRING DomainName;          // Domain of user who created connection.
     ULONG Capabilities;                 // Bit mask of remote abilities.
     UCHAR UserSessionKey[MSV1_0_USER_SESSION_KEY_LENGTH]; // User session key
     UCHAR LanmanSessionKey[MSV1_0_LANMAN_SESSION_KEY_LENGTH]; // Lanman session key

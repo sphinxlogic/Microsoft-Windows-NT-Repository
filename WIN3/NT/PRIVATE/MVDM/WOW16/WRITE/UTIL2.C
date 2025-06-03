@@ -416,4 +416,3 @@ if (cchMax < 0)
 *ppch = pch;
 return cch;
 }
-

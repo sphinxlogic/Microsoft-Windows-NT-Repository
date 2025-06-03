@@ -19,40 +19,35 @@
 
 
 const GUID CLSID_QI =
-    {0x00000140,0x0001,0x0008,{0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}};
+    {0x00000140,0x0000,0x0008,{0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}};
+
+const GUID CLSID_QIHANDLER =
+    {0x00000141,0x0000,0x0008,{0xC0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}};
 
 
 //+-------------------------------------------------------------------
 //
 //  Member:	CQIClassFactory::CQIClassFactory, public
 //
-//  Algorithm:
-//
 //  History:	23-Nov-92   Rickhi	Created
 //
 //--------------------------------------------------------------------
-
-CQIClassFactory::CQIClassFactory(void)
+CQIClassFactory::CQIClassFactory(REFCLSID rclsid) : _clsid(rclsid)
 {
     ENLIST_TRACKING(CQIClassFactory);
 }
-
 
 //+-------------------------------------------------------------------
 //
 //  Member:	CQIClassFactory::~CQIClassFactory, public
 //
-//  Algorithm:
-//
 //  History:	23-Nov-92	Rickhi	Created
 //
 //--------------------------------------------------------------------
-
 CQIClassFactory::~CQIClassFactory(void)
 {
     //	automatic actions do the rest of the work
 }
-
 
 //+-------------------------------------------------------------------
 //
@@ -64,26 +59,19 @@ CQIClassFactory::~CQIClassFactory(void)
 //  History:	23-Nov-92	Rickhi	Created
 //
 //--------------------------------------------------------------------
-
 STDMETHODIMP CQIClassFactory::QueryInterface(REFIID riid, void **ppUnk)
 {
-    SCODE sc = S_OK;
-
     if (IsEqualIID(riid, IID_IUnknown) ||
 	IsEqualIID(riid, IID_IClassFactory))
     {
 	*ppUnk = (void *)(IClassFactory *) this;
 	AddRef();
+	return S_OK;
     }
-    else
-    {
-	*ppUnk = NULL;
-	sc = E_NOINTERFACE;
-    }
-    return  sc;
+
+    *ppUnk = NULL;
+    return E_NOINTERFACE;
 }
-
-
 
 //+-------------------------------------------------------------------
 //
@@ -94,7 +82,6 @@ STDMETHODIMP CQIClassFactory::QueryInterface(REFIID riid, void **ppUnk)
 //  History:	23-Nov-92   Rickhi	Created
 //
 //--------------------------------------------------------------------
-
 STDMETHODIMP CQIClassFactory::CreateInstance(IUnknown *punkOuter,
 					     REFIID    riid,
 					     void     **ppunkObject)
@@ -103,8 +90,8 @@ STDMETHODIMP CQIClassFactory::CreateInstance(IUnknown *punkOuter,
 
     *ppunkObject = NULL;	//  in case of failure
 
-    //	create a Cube object.
-    IUnknown *pQI = (IUnknown *) new CQI();
+    // create a new object.
+    IUnknown *pQI = new CQI(_clsid);
 
     if (pQI)
     {
@@ -116,8 +103,6 @@ STDMETHODIMP CQIClassFactory::CreateInstance(IUnknown *punkOuter,
     return  sc;
 }
 
-
-
 //+-------------------------------------------------------------------
 //
 //  Member:	CQIClassFactory::LockServer, public
@@ -127,7 +112,6 @@ STDMETHODIMP CQIClassFactory::CreateInstance(IUnknown *punkOuter,
 //  History:	23-Nov-92   Rickhi	Created
 //
 //--------------------------------------------------------------------
-
 STDMETHODIMP CQIClassFactory::LockServer(BOOL fLock)
 {
     if (fLock)

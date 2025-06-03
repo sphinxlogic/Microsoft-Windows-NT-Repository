@@ -24,6 +24,7 @@ Revision History:
 --*/
 
 #include "ki.h"
+ULONG ChangeColor;
 
 //
 // Define forward referenced prototyes.
@@ -101,26 +102,26 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
+
+    ChangeColor += 1;
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchronization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors and send the change color
     // parameters to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiChangeColorPageTarget,
@@ -128,8 +129,6 @@ Return Value:
                         (PVOID)OldColor,
                         (PVOID)PageFrame);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, ChangeColor);
 
 #endif
 
@@ -147,7 +146,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -196,7 +195,6 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
 
     //
     // Change the color of the page on the current processor and clear
@@ -206,9 +204,7 @@ Return Value:
 #if !defined(NT_UP)
 
     HalChangeColorPage(NewColor, OldColor, (ULONG)PageFrame);
-    *SignalDone = 0;
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, ChangeColor);
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 
@@ -242,26 +238,24 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchronization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors and send the sweep parameters
     // to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiSweepDcacheTarget,
@@ -269,8 +263,6 @@ Return Value:
                         NULL,
                         NULL);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepDcache);
 
 #endif
 
@@ -288,7 +280,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -332,8 +324,6 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Sweep the data cache on the current processor and clear the sweep
     // data cache packet address to signal the source to continue.
@@ -342,9 +332,7 @@ Return Value:
 #if !defined(NT_UP)
 
     HalSweepDcache();
-    *SignalDone = 0;
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepDcache);
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 
@@ -378,26 +366,24 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchrnization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors and send the sweep parameters
     // to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiSweepIcacheTarget,
@@ -406,8 +392,6 @@ Return Value:
                         NULL);
     }
 
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepIcache);
-
 #endif
 
     //
@@ -415,12 +399,7 @@ Return Value:
     //
 
     HalSweepIcache();
-
-#if defined(R4000)
-
     HalSweepDcache();
-
-#endif
 
     //
     // Wait until all target processors have finished sweeping the their
@@ -430,7 +409,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -474,8 +453,6 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Sweep the instruction cache on the current processor and clear
     // the sweep instruction cache packet address to signal the source
@@ -485,16 +462,8 @@ Return Value:
 #if !defined(NT_UP)
 
     HalSweepIcache();
-
-#if defined(R4000)
-
     HalSweepDcache();
-
-#endif
-
-    *SignalDone = 0;
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepIcache);
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 
@@ -538,10 +507,9 @@ Return Value:
 
     ULONG Offset;
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
     // If the length of the range is greater than the size of the primary
@@ -558,20 +526,19 @@ Return Value:
     }
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // Raise IRQL to synchronization level to prevent a context switch.
     //
 
 #if !defined(NT_UP)
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors, and send the sweep range
     // parameters to the target processors, if any, for execution.
     //
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiSweepIcacheRangeTarget,
@@ -579,8 +546,6 @@ Return Value:
                         (PVOID)Length,
                         NULL);
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepIcacheRange);
 
 #endif
 
@@ -593,13 +558,9 @@ Return Value:
     HalSweepIcacheRange((PVOID)((ULONG)BaseAddress & ~PCR->IcacheAlignment),
                         (Offset + Length + PCR->IcacheAlignment) & ~PCR->IcacheAlignment);
 
-#if defined(R4000)
-
     Offset = (ULONG)BaseAddress & PCR->DcacheAlignment;
     HalSweepDcacheRange((PVOID)((ULONG)BaseAddress & ~PCR->DcacheAlignment),
                         (Offset + Length + PCR->DcacheAlignment) & ~PCR->DcacheAlignment);
-
-#endif
 
     //
     // Wait until all target processors have finished sweeping the specified
@@ -609,7 +570,7 @@ Return Value:
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
     //
@@ -660,7 +621,6 @@ Return Value:
 {
 
     ULONG Offset;
-    PKPRCB Prcb;
 
     //
     // Sweep the specified instruction cache range on the current processor.
@@ -672,17 +632,11 @@ Return Value:
     HalSweepIcacheRange((PVOID)((ULONG)(BaseAddress) & ~PCR->IcacheAlignment),
                         (Offset + (ULONG)Length + PCR->IcacheAlignment) & ~PCR->IcacheAlignment);
 
-#if defined(R4000)
-
     Offset = (ULONG)(BaseAddress) & PCR->DcacheAlignment;
     HalSweepDcacheRange((PVOID)((ULONG)(BaseAddress) & ~PCR->DcacheAlignment),
                         (Offset + (ULONG)Length + PCR->DcacheAlignment) & ~PCR->DcacheAlignment);
 
-#endif
-
-    *SignalDone = 0;
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, SweepIcacheRange);
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 
@@ -723,16 +677,48 @@ Return Value:
 {
 
     KIRQL OldIrql;
-    PKPRCB Prcb;
     KAFFINITY TargetProcessors;
 
-    ASSERT(KeGetCurrentIrql() <= DISPATCH_LEVEL);
+    ASSERT(KeGetCurrentIrql() <= KiSynchIrql);
 
     //
-    // Raise IRQL to dispatch level to prevent a context switch.
+    // If the operation is a DMA operation, then check if the flush
+    // can be avoided because the host system supports the right set
+    // of cache coherency attributes. Otherwise, the flush can also
+    // be avoided if the operation is a programmed I/O and not a page
+    // read.
     //
 
-    KeRaiseIrql(DISPATCH_LEVEL, &OldIrql);
+    if (DmaOperation != FALSE) {
+        if (ReadOperation != FALSE) {
+            if ((KiDmaIoCoherency & DMA_READ_ICACHE_INVALIDATE) != 0) {
+
+                ASSERT((KiDmaIoCoherency & DMA_READ_DCACHE_INVALIDATE) != 0);
+
+                return;
+
+            } else if (((Mdl->MdlFlags & MDL_IO_PAGE_READ) == 0) &&
+                ((KiDmaIoCoherency & DMA_READ_DCACHE_INVALIDATE) != 0)) {
+                return;
+            }
+
+        } else if ((KiDmaIoCoherency & DMA_WRITE_DCACHE_SNOOP) != 0) {
+            return;
+        }
+
+    } else if ((Mdl->MdlFlags & MDL_IO_PAGE_READ) == 0) {
+        return;
+    }
+
+    //
+    // Either the operation is a DMA operation and the right coherency
+    // atributes are not supported by the host system, or the operation
+    // is programmed I/O and a page read.
+    //
+    // Raise IRQL to synchronization level to prevent a context switch.
+    //
+
+    OldIrql = KeRaiseIrqlToSynchLevel();
 
     //
     // Compute the set of target processors, and send the flush I/O
@@ -741,8 +727,7 @@ Return Value:
 
 #if !defined(NT_UP)
 
-    Prcb = KeGetCurrentPrcb();
-    TargetProcessors = KeActiveProcessors & ~Prcb->SetMember;
+    TargetProcessors = KeActiveProcessors & PCR->NotMember;
     if (TargetProcessors != 0) {
         KiIpiSendPacket(TargetProcessors,
                         KiFlushIoBuffersTarget,
@@ -750,8 +735,6 @@ Return Value:
                         (PVOID)((ULONG)ReadOperation),
                         (PVOID)((ULONG)DmaOperation));
     }
-
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushIoBuffers);
 
 #endif
 
@@ -762,14 +745,14 @@ Return Value:
     HalFlushIoBuffers(Mdl, ReadOperation, DmaOperation);
 
     //
-    // Wait until all target processors have finished flushing the specified
-    // I/O buffer.
+    // Wait until all target processors have finished flushing the
+    // specified I/O buffer.
     //
 
 #if !defined(NT_UP)
 
     if (TargetProcessors != 0) {
-        KiIpiStallOnPacketTargets(TargetProcessors);
+        KiIpiStallOnPacketTargets();
     }
 
 #endif
@@ -819,8 +802,6 @@ Return Value:
 
 {
 
-    PKPRCB Prcb;
-
     //
     // Flush the specified I/O buffer on the current processor.
     //
@@ -831,9 +812,7 @@ Return Value:
                       (BOOLEAN)((ULONG)ReadOperation),
                       (BOOLEAN)((ULONG)DmaOperation));
 
-    *SignalDone = 0;
-    Prcb = KeGetCurrentPrcb();
-    IPI_INSTRUMENT_COUNT(Prcb->Number, FlushIoBuffers);
+    KiIpiSignalPacketDone(SignalDone);
 
 #endif
 

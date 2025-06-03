@@ -2,30 +2,28 @@
 *                                                                       *
 *   winbase.h -- This module defines the 32-Bit Windows Base APIs       *
 *                                                                       *
-*   Copyright (c) 1990-1994, Microsoft Corp. All rights reserved.       *
+*   Copyright (c) 1990-1996, Microsoft Corp. All rights reserved.       *
 *                                                                       *
 ************************************************************************/
 #ifndef _WINBASE_
 #define _WINBASE_
 
 ;begin_internal
+/*++ BUILD Version: 0001    // Increment this if a change has global effects
 
+Copyright (c) 1985-95, Microsoft Corporation
 
-/*++ BUILD Version: 0001    // Increment this if a change has global effects ;internal_NT
-                                                                         ;internal_NT
-Copyright (c) 1985-91, Microsoft Corporation                             ;internal_NT
-                                                                         ;internal_NT
-Module Name:                                                             ;internal_NT
-                                                                         ;internal_NT
-    winbasep.h                                                           ;internal_NT
-                                                                         ;internal_NT
-Abstract:                                                                ;internal_NT
-                                                                         ;internal_NT
-    Private                                                              ;internal_NT
-    Procedure declarations, constant definitions and macros for the Base ;internal_NT
-    component.                                                           ;internal_NT
-                                                                         ;internal_NT
---*/                                                                     ;internal_NT
+Module Name:
+
+    winbasep.h
+
+Abstract:
+
+    Private
+    Procedure declarations, constant definitions and macros for the Base
+    component.
+
+--*/
 #ifndef _WINBASEP_
 #define _WINBASEP_
 ;end_internal
@@ -104,9 +102,10 @@ extern "C" {
 #define EXCEPTION_STACK_OVERFLOW            STATUS_STACK_OVERFLOW
 #define EXCEPTION_INVALID_DISPOSITION       STATUS_INVALID_DISPOSITION
 #define EXCEPTION_GUARD_PAGE                STATUS_GUARD_PAGE_VIOLATION
+#define EXCEPTION_INVALID_HANDLE            STATUS_INVALID_HANDLE
 #define CONTROL_C_EXIT                      STATUS_CONTROL_C_EXIT
-#define MoveMemory RtlMoveMemory  ;public_NT
-#define CopyMemory RtlCopyMemory  ;public_NT
+#define MoveMemory RtlMoveMemory
+#define CopyMemory RtlCopyMemory
 #define FillMemory RtlFillMemory
 #define ZeroMemory RtlZeroMemory
 
@@ -131,6 +130,31 @@ extern "C" {
 #define OPEN_EXISTING       3
 #define OPEN_ALWAYS         4
 #define TRUNCATE_EXISTING   5
+
+;begin_sur
+//
+// Define possible return codes from the CopyFileEx callback routine
+//
+
+#define PROGRESS_CONTINUE   0
+#define PROGRESS_CANCEL     1
+#define PROGRESS_STOP       2
+#define PROGRESS_QUIET      3
+
+//
+// Define CopyFileEx callback routine state change values
+//
+
+#define CALLBACK_CHUNK_FINISHED         0x00000000
+#define CALLBACK_STREAM_SWITCH          0x00000001
+
+//
+// Define CopyFileEx option flags
+//
+
+#define COPY_FILE_FAIL_IF_EXISTS        0x00000001
+#define COPY_FILE_RESTARTABLE           0x00000002
+;end_sur
 
 //
 // Define the NamedPipe definitions
@@ -238,6 +262,13 @@ typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(
     LPVOID lpThreadParameter
     );
 typedef PTHREAD_START_ROUTINE LPTHREAD_START_ROUTINE;
+
+;begin_sur
+typedef VOID (WINAPI *PFIBER_START_ROUTINE)(
+    LPVOID lpFiberParameter
+    );
+typedef PFIBER_START_ROUTINE LPFIBER_START_ROUTINE;
+;end_sur
 
 typedef RTL_CRITICAL_SECTION CRITICAL_SECTION;
 typedef PRTL_CRITICAL_SECTION PCRITICAL_SECTION;
@@ -465,7 +496,13 @@ typedef struct _COMMCONFIG {
 } COMMCONFIG,*LPCOMMCONFIG;
 
 typedef struct _SYSTEM_INFO {
-    DWORD dwOemId;
+    union {
+        DWORD dwOemId;          // Obsolete field...do not use
+        struct {
+            WORD wProcessorArchitecture;
+            WORD wReserved;
+        };
+    };
     DWORD dwPageSize;
     LPVOID lpMinimumApplicationAddress;
     LPVOID lpMaximumApplicationAddress;
@@ -473,8 +510,13 @@ typedef struct _SYSTEM_INFO {
     DWORD dwNumberOfProcessors;
     DWORD dwProcessorType;
     DWORD dwAllocationGranularity;
-    DWORD dwReserved;
+    WORD wProcessorLevel;
+    WORD wProcessorRevision;
 } SYSTEM_INFO, *LPSYSTEM_INFO;
+
+//
+//
+
 
 #define FreeModule(hLibModule) FreeLibrary((hLibModule))
 #define MakeProcInstance(lpProc,hInstance) (lpProc)
@@ -563,6 +605,8 @@ typedef struct _MEMORYSTATUS {
 #define CREATE_UNICODE_ENVIRONMENT  0x00000400
 
 #define CREATE_SEPARATE_WOW_VDM     0x00000800
+#define CREATE_SHARED_WOW_VDM       0x00001000
+#define CREATE_FORCEDOS             0x00002000
 
 #define CREATE_DEFAULT_ERROR_MODE   0x04000000
 #define CREATE_NO_WINDOW            0x08000000
@@ -660,7 +704,7 @@ typedef struct _DEBUG_EVENT {
         CREATE_THREAD_DEBUG_INFO CreateThread;
         CREATE_PROCESS_DEBUG_INFO CreateProcessInfo;
         EXIT_THREAD_DEBUG_INFO ExitThread;
-        EXIT_THREAD_DEBUG_INFO ExitProcess;
+        EXIT_PROCESS_DEBUG_INFO ExitProcess;
         LOAD_DLL_DEBUG_INFO LoadDll;
         UNLOAD_DLL_DEBUG_INFO UnloadDll;
         OUTPUT_DEBUG_STRING_INFO DebugString;
@@ -668,9 +712,11 @@ typedef struct _DEBUG_EVENT {
     } u;
 } DEBUG_EVENT, *LPDEBUG_EVENT;
 
+#if !defined(MIDL_PASS)
 typedef PCONTEXT LPCONTEXT;
 typedef PEXCEPTION_RECORD LPEXCEPTION_RECORD;
 typedef PEXCEPTION_POINTERS LPEXCEPTION_POINTERS;
+#endif
 
 #define DRIVE_UNKNOWN     0
 #define DRIVE_NO_ROOT_DIR 1
@@ -709,7 +755,7 @@ typedef PEXCEPTION_POINTERS LPEXCEPTION_POINTERS;
 #define INFINITE            0xFFFFFFFF  // Infinite timeout
 
 //
-// Basud rates at which the communication device operates
+// Baud rates at which the communication device operates
 //
 
 #define CBR_110             110
@@ -902,11 +948,13 @@ typedef struct _OFSTRUCT {
 // increment, decrement, and exchange.
 //
 
-#if (defined(_M_MRX000) || defined(_M_ALPHA)) && !defined(RC_INVOKED)
+#if (defined(_M_MRX000) || defined(_M_ALPHA) || (defined(_M_PPC) && (_MSC_VER >= 1000))) && !defined(RC_INVOKED)
 
 #define InterlockedIncrement _InterlockedIncrement
 #define InterlockedDecrement _InterlockedDecrement
 #define InterlockedExchange _InterlockedExchange
+#define InterlockedExchangeAdd _InterlockedExchangeAdd
+#define InterlockedCompareExchange _InterlockedCompareExchange
 
 LONG
 WINAPI
@@ -924,14 +972,33 @@ LONG
 WINAPI
 InterlockedExchange(
     LPLONG Target,
+    LONG Value
+    );
+
+PVOID
+WINAPI
+InterlockedCompareExchange (
+    PVOID *Destination,
+    PVOID Exchange,
+    PVOID Comperand
+    );
+
+LONG
+WINAPI
+InterlockedExchangeAdd(
+    LPLONG Addend,
     LONG Value
     );
 
 #pragma intrinsic(_InterlockedIncrement)
 #pragma intrinsic(_InterlockedDecrement)
 #pragma intrinsic(_InterlockedExchange)
+#pragma intrinsic(_InterlockedCompareExchange)
+#pragma intrinsic(_InterlockedExchangeAdd)
 
 #else
+
+#ifndef _NTOS_
 
 WINBASEAPI
 LONG
@@ -954,6 +1021,25 @@ InterlockedExchange(
     LPLONG Target,
     LONG Value
     );
+
+WINBASEAPI
+LONG
+WINAPI
+InterlockedExchangeAdd(
+    LPLONG Addend,
+    LONG Value
+    );
+
+WINBASEAPI
+PVOID
+WINAPI
+InterlockedCompareExchange (
+    PVOID *Destination,
+    PVOID Exchange,
+    PVOID Comperand
+    );
+
+#endif /* NT_INCLUDED */
 
 #endif
 
@@ -990,7 +1076,7 @@ BOOL
 WINAPI
 FreeLibrary(
     HMODULE hLibModule    ;public_NT
-    HINSTANCE hLibModule  ;public_win40
+    HINSTANCE hLibModule  ;public_chicago
     );
 
 
@@ -1014,7 +1100,7 @@ FARPROC
 WINAPI
 GetProcAddress(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPCSTR lpProcName
     );
 
@@ -1250,6 +1336,27 @@ VirtualQuery(
     );
 
 WINBASEAPI
+LPVOID
+WINAPI
+VirtualAllocEx(
+    HANDLE hProcess,
+    LPVOID lpAddress,
+    DWORD dwSize,
+    DWORD flAllocationType,
+    DWORD flProtect
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+VirtualFreeEx(
+    HANDLE hProcess,
+    LPVOID lpAddress,
+    DWORD dwSize,
+    DWORD dwFreeType
+    );
+
+WINBASEAPI
 BOOL
 WINAPI
 VirtualProtectEx(
@@ -1285,6 +1392,36 @@ WINAPI
 HeapDestroy(
     HANDLE hHeap
     );
+
+;begin_internal
+WINBASEAPI
+DWORD
+WINAPI
+HeapCreateTagsW(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPCWSTR lpTagPrefix,
+    LPCWSTR lpTagNames
+    );
+
+typedef struct _HEAP_TAG_INFO {
+    DWORD dwNumberOfAllocations;
+    DWORD dwNumberOfFrees;
+    DWORD dwBytesAllocated;
+} HEAP_TAG_INFO, *PHEAP_TAG_INFO;
+typedef PHEAP_TAG_INFO LPHEAP_TAG_INFO;
+
+WINBASEAPI
+LPCWSTR
+WINAPI
+HeapQueryTagW(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    WORD wTagIndex,
+    BOOL bResetCounters,
+    LPHEAP_TAG_INFO TagInfo
+    );
+;end_internal
 
 WINBASEAPI
 LPVOID
@@ -1393,6 +1530,65 @@ HeapUnlock(
     HANDLE hHeap
     );
 
+;begin_internal
+
+typedef struct _HEAP_SUMMARY {
+    DWORD cb;
+    DWORD cbAllocated;
+    DWORD cbCommitted;
+    DWORD cbReserved;
+    DWORD cbMaxReserve;
+} HEAP_SUMMARY, *PHEAP_SUMMARY;
+typedef PHEAP_SUMMARY LPHEAP_SUMMARY;
+
+BOOL
+WINAPI
+HeapSummary(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPHEAP_SUMMARY lpSummary
+    );
+
+BOOL
+WINAPI
+HeapExtend(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    LPVOID lpBase,
+    DWORD dwBytes
+    );
+
+typedef struct _HEAP_USAGE_ENTRY {
+    struct _HEAP_USAGE_ENTRY *lpNext;
+    PVOID lpAddress;
+    DWORD dwBytes;
+    DWORD dwReserved;
+} HEAP_USAGE_ENTRY, *PHEAP_USAGE_ENTRY;
+
+typedef struct _HEAP_USAGE {
+    DWORD cb;
+    DWORD cbAllocated;
+    DWORD cbCommitted;
+    DWORD cbReserved;
+    DWORD cbMaxReserve;
+    PHEAP_USAGE_ENTRY lpEntries;
+    PHEAP_USAGE_ENTRY lpAddedEntries;
+    PHEAP_USAGE_ENTRY lpRemovedEntries;
+    DWORD Reserved[ 8 ];
+} HEAP_USAGE, *PHEAP_USAGE;
+
+BOOL
+WINAPI
+HeapUsage(
+    HANDLE hHeap,
+    DWORD dwFlags,
+    BOOL bFirstCall,
+    BOOL bLastCall,
+    PHEAP_USAGE lpUsage
+    );
+
+;end_internal
+
 WINBASEAPI
 BOOL
 WINAPI
@@ -1435,6 +1631,15 @@ GetProcessAffinityMask(
     LPDWORD lpProcessAffinityMask,
     LPDWORD lpSystemAffinityMask
     );
+
+WINBASEAPI
+BOOL
+WINAPI
+SetProcessAffinityMask(
+    HANDLE hProcess,
+    DWORD dwProcessAffinityMask
+    );
+
 
 WINBASEAPI
 BOOL
@@ -1575,6 +1780,45 @@ SetUnhandledExceptionFilter(
     LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter
     );
 
+;begin_sur
+WINBASEAPI
+LPVOID
+WINAPI
+CreateFiber(
+    DWORD dwStackSize,
+    LPFIBER_START_ROUTINE lpStartAddress,
+    LPVOID lpParameter
+    );
+
+WINBASEAPI
+VOID
+WINAPI
+DeleteFiber(
+    LPVOID lpFiber
+    );
+
+WINBASEAPI
+LPVOID
+WINAPI
+ConvertThreadToFiber(
+    LPVOID lpParameter
+    );
+
+WINBASEAPI
+VOID
+WINAPI
+SwitchToFiber(
+    LPVOID lpFiber
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+SwitchToThread(
+    VOID
+    );
+;end_sur
+
 WINBASEAPI
 HANDLE
 WINAPI
@@ -1622,12 +1866,55 @@ SetThreadAffinityMask(
     DWORD dwThreadAffinityMask
     );
 
+;begin_sur
+WINBASEAPI
+DWORD
+WINAPI
+SetThreadIdealProcessor(
+    HANDLE hThread,
+    DWORD dwIdealProcessor
+    );
+;end_sur
+
+WINBASEAPI
+BOOL
+WINAPI
+SetProcessPriorityBoost(
+    HANDLE hProcess,
+    BOOL bDisablePriorityBoost
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+GetProcessPriorityBoost(
+    HANDLE hProcess,
+    PBOOL pDisablePriorityBoost
+    );
+
+
 WINBASEAPI
 BOOL
 WINAPI
 SetThreadPriority(
     HANDLE hThread,
     int nPriority
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+SetThreadPriorityBoost(
+    HANDLE hThread,
+    BOOL bDisablePriorityBoost
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+GetThreadPriorityBoost(
+    HANDLE hThread,
+    PBOOL pDisablePriorityBoost
     );
 
 WINBASEAPI
@@ -1694,6 +1981,8 @@ SetLastError(
     DWORD dwErrCode
     );
 
+#define HasOverlappedIoCompleted(lpOverlapped) ((lpOverlapped)->Internal != STATUS_PENDING)
+
 WINBASEAPI
 BOOL
 WINAPI
@@ -1723,6 +2012,16 @@ GetQueuedCompletionStatus(
     LPDWORD lpCompletionKey,
     LPOVERLAPPED *lpOverlapped,
     DWORD dwMilliseconds
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+PostQueuedCompletionStatus(
+    HANDLE CompletionPort,
+    DWORD dwNumberOfBytesTransferred,
+    DWORD dwCompletionKey,
+    LPOVERLAPPED lpOverlapped
     );
 
 #define SEM_FAILCRITICALERRORS      0x0001
@@ -1759,6 +2058,7 @@ WriteProcessMemory(
     LPDWORD lpNumberOfBytesWritten
     );
 
+#if !defined(MIDL_PASS)
 WINBASEAPI
 BOOL
 WINAPI
@@ -1774,6 +2074,7 @@ SetThreadContext(
     HANDLE hThread,
     CONST CONTEXT *lpContext
     );
+#endif
 
 WINBASEAPI
 DWORD
@@ -1788,6 +2089,24 @@ WINAPI
 ResumeThread(
     HANDLE hThread
     );
+
+
+;begin_sur
+typedef
+VOID
+(APIENTRY *PAPCFUNC)(
+    DWORD dwParam
+    );
+
+WINBASEAPI
+DWORD
+WINAPI
+QueueUserAPC(
+    PAPCFUNC pfnAPC,
+    HANDLE hThread,
+    DWORD dwData
+    );
+;end_sur
 
 WINBASEAPI
 VOID
@@ -1840,6 +2159,15 @@ WINAPI
 LeaveCriticalSection(
     LPCRITICAL_SECTION lpCriticalSection
     );
+
+;begin_sur
+WINBASEAPI
+BOOL
+WINAPI
+TryEnterCriticalSection(
+    LPCRITICAL_SECTION lpCriticalSection
+    );
+;end_sur
 
 WINBASEAPI
 VOID
@@ -1915,7 +2243,7 @@ HGLOBAL
 WINAPI
 LoadResource(
     HMODULE hModule,   ;public_NT
-    HINSTANCE hModule, ;public_win40
+    HINSTANCE hModule, ;public_chicago
     HRSRC hResInfo
     );
 
@@ -1924,7 +2252,7 @@ DWORD
 WINAPI
 SizeofResource(
     HMODULE hModule,   ;public_NT
-    HINSTANCE hModule, ;public_win40
+    HINSTANCE hModule, ;public_chicago
     HRSRC hResInfo
     );
 
@@ -2460,132 +2788,6 @@ Beep(
     );
 
 WINBASEAPI
-VOID
-WINAPI
-OpenSound(
-    VOID
-    );
-
-WINBASEAPI
-VOID
-WINAPI
-CloseSound(
-    VOID
-    );
-
-WINBASEAPI
-VOID
-WINAPI
-StartSound(
-    VOID
-    );
-
-WINBASEAPI
-VOID
-WINAPI
-StopSound(
-    VOID
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-WaitSoundState(
-    DWORD nState
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SyncAllVoices(
-    VOID
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-CountVoiceNotes(
-    DWORD nVoice
-    );
-
-WINBASEAPI
-LPDWORD
-WINAPI
-GetThresholdEvent(
-    VOID
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-GetThresholdStatus(
-    VOID
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetSoundNoise(
-    DWORD nSource,
-    DWORD nDuration
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceAccent(
-    DWORD nVoice,
-    DWORD nTempo,
-    DWORD nVolume,
-    DWORD nMode,
-    DWORD nPitch
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceEnvelope(
-    DWORD nVoice,
-    DWORD nShape,
-    DWORD nRepeat
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceNote(
-    DWORD nVoice,
-    DWORD nValue,
-    DWORD nLength,
-    DWORD nCdots
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceQueueSize(
-    DWORD nVoice,
-    DWORD nBytes
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceSound(
-    DWORD nVoice,
-    DWORD Frequency,
-    DWORD nDuration
-    );
-
-WINBASEAPI
-DWORD
-WINAPI
-SetVoiceThreshold(
-    DWORD nVoice,
-    DWORD nNotes
-    );
-
-WINBASEAPI
 int
 WINAPI
 MulDiv(
@@ -2599,6 +2801,13 @@ VOID
 WINAPI
 GetSystemTime(
     LPSYSTEMTIME lpSystemTime
+    );
+
+WINBASEAPI
+VOID
+WINAPI
+GetSystemTimeAsFileTime(
+    LPFILETIME lpSystemTimeAsFileTime
     );
 
 WINBASEAPI
@@ -2627,6 +2836,13 @@ VOID
 WINAPI
 GetSystemInfo(
     LPSYSTEM_INFO lpSystemInfo
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+IsProcessorFeaturePresent(
+    DWORD ProcessorFeature
     );
 
 typedef struct _TIME_ZONE_INFORMATION {
@@ -2749,6 +2965,7 @@ GetSystemTimeAdjustment(
     PBOOL  lpTimeAdjustmentDisabled
     );
 
+#if !defined(MIDL_PASS)
 WINBASEAPI
 DWORD
 WINAPI
@@ -2761,6 +2978,7 @@ FormatMessage%(
     DWORD nSize,
     va_list *Arguments
     );
+#endif
 
 #define FORMAT_MESSAGE_ALLOCATE_BUFFER 0x00000100
 #define FORMAT_MESSAGE_IGNORE_INSERTS  0x00000200
@@ -2894,15 +3112,9 @@ WINBASEAPI
 BOOL
 WINAPI
 UnmapViewOfFile(
-    LPVOID lpBaseAddress
+    LPCVOID lpBaseAddress
     );
 
-
-//                                                      ;public_chicago
-// Memory Functions                                     ;public_chicago
-//                                                      ;public_chicago
-void WINAPI MoveMemory(void *, const void *, DWORD);    ;public_chicago
-void WINAPI CopyMemory(void *, const void *, DWORD);    ;public_chicago
 
 //
 // _l Compat Functions
@@ -3109,6 +3321,18 @@ WaitForMultipleObjectsEx(
     BOOL bAlertable
     );
 
+;begin_sur
+WINBASEAPI
+DWORD
+WINAPI
+SignalObjectAndWait(
+    HANDLE hObjectToSignal,
+    HANDLE hObjectToWaitOn,
+    DWORD dwMilliseconds,
+    BOOL bAlertable
+    );
+;end_sur
+
 WINBASEAPI
 BOOL
 WINAPI
@@ -3201,6 +3425,28 @@ typedef struct _WIN32_STREAM_ID {
 #define STREAM_CONTAINS_SECURITY        0x00000002
 #define STREAM_CONTAINS_PROPERTIES      0x00000004
 
+WINBASEAPI
+BOOL
+WINAPI
+ReadFileScatter(
+    HANDLE hFile,
+    FILE_SEGMENT_ELEMENT aSegmentArray[],
+    DWORD nNumberOfBytesToRead,
+    LPDWORD lpReserved,
+    LPOVERLAPPED lpOverlapped
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+WriteFileGather(
+    HANDLE hFile,
+    FILE_SEGMENT_ELEMENT aSegmentArray[],
+    DWORD nNumberOfBytesToWrite,
+    LPDWORD lpReserved,
+    LPOVERLAPPED lpOverlapped
+    );
+
 //
 // Dual Mode API below this line. Dual Mode Structures also included.
 //
@@ -3217,6 +3463,7 @@ typedef struct _WIN32_STREAM_ID {
 ;begin_winver_400
 #define STARTF_USEHOTKEY        0x00000200
 #define STARTF_HASSHELLDATA     0x00000400  ;internal
+#define STARTF_TITLEISLINKNAME  0x00000800  ;internal
 ;end_winver_400
 
 typedef struct _STARTUPINFO% {
@@ -3238,10 +3485,6 @@ typedef struct _STARTUPINFO% {
     HANDLE  hStdInput;
     HANDLE  hStdOutput;
     HANDLE  hStdError;
-;begin_winver_400              
-    DWORD   dwHotKey;           ;public_win40
-    DWORD   dwShellData;        ;public_win40
-;end_winver_400
 } STARTUPINFO%, *LPSTARTUPINFO%;
 
 #define SHUTDOWN_NORETRY                0x00000001
@@ -3258,6 +3501,15 @@ typedef struct _WIN32_FIND_DATA% {
     TCHAR% cFileName[ MAX_PATH ];
     TCHAR% cAlternateFileName[ 14 ];
 } WIN32_FIND_DATA%, *PWIN32_FIND_DATA%, *LPWIN32_FIND_DATA%;
+
+typedef struct _WIN32_FILE_ATTRIBUTE_DATA {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime;
+    FILETIME ftLastAccessTime;
+    FILETIME ftLastWriteTime;
+    DWORD nFileSizeHigh;
+    DWORD nFileSizeLow;
+} WIN32_FILE_ATTRIBUTE_DATA, *LPWIN32_FILE_ATTRIBUTE_DATA;
 
 WINBASEAPI
 HANDLE
@@ -3315,6 +3567,53 @@ OpenSemaphore%(
     LPCTSTR% lpName
     );
 
+;begin_sur
+typedef
+VOID
+(APIENTRY *PTIMERAPCROUTINE)(
+    LPVOID lpArgToCompletionRoutine,
+    DWORD dwTimerLowValue,
+    DWORD dwTimerHighValue
+    );
+
+WINBASEAPI
+HANDLE
+WINAPI
+CreateWaitableTimer%(
+    LPSECURITY_ATTRIBUTES lpTimerAttributes,
+    BOOL bManualReset,
+    LPCTSTR% lpTimerName
+    );
+
+WINBASEAPI
+HANDLE
+WINAPI
+OpenWaitableTimer%(
+    DWORD dwDesiredAccess,
+    BOOL bInheritHandle,
+    LPCTSTR% lpTimerName
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+SetWaitableTimer(
+    HANDLE hTimer,
+    const LARGE_INTEGER *lpDueTime,
+    LONG lPeriod,
+    PTIMERAPCROUTINE pfnCompletionRoutine,
+    LPVOID lpArgToCompletionRoutine,
+    BOOL fResume
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+CancelWaitableTimer(
+    HANDLE hTimer
+    );
+;end_sur
+
 WINBASEAPI
 HANDLE
 WINAPI
@@ -3346,7 +3645,7 @@ GetLogicalDriveStrings%(
 
 WINBASEAPI
 HMODULE    ;public_NT
-HINSTANCE  ;public_win40
+HINSTANCE  ;public_chicago
 WINAPI
 LoadLibrary%(
     LPCTSTR% lpLibFileName
@@ -3354,7 +3653,7 @@ LoadLibrary%(
 
 WINBASEAPI
 HMODULE    ;public_NT
-HINSTANCE  ;public_win40
+HINSTANCE  ;public_chicago
 WINAPI
 LoadLibraryEx%(
     LPCTSTR% lpLibFileName,
@@ -3373,7 +3672,7 @@ DWORD
 WINAPI
 GetModuleFileName%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPTSTR% lpFilename,
     DWORD nSize
     );
@@ -3415,6 +3714,13 @@ WINAPI
 GetProcessShutdownParameters(
     LPDWORD lpdwLevel,
     LPDWORD lpdwFlags
+    );
+
+WINBASEAPI
+DWORD
+WINAPI
+GetProcessVersion(
+    DWORD ProcessId
     );
 
 WINBASEAPI
@@ -3477,7 +3783,7 @@ HRSRC
 WINAPI
 FindResource%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPCTSTR% lpName,
     LPCTSTR% lpType
     );
@@ -3487,7 +3793,7 @@ HRSRC
 WINAPI
 FindResourceEx%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPCTSTR% lpType,
     LPCTSTR% lpName,
     WORD    wLanguage
@@ -3495,13 +3801,13 @@ FindResourceEx%(
 
 #ifdef STRICT
 typedef BOOL (CALLBACK* ENUMRESTYPEPROC)(HMODULE hModule, LPTSTR lpType,     ;public_NT
-typedef BOOL (CALLBACK* ENUMRESTYPEPROC)(HINSTANCE hModule, LPTSTR lpType,   ;public_win40
+typedef BOOL (CALLBACK* ENUMRESTYPEPROC)(HINSTANCE hModule, LPTSTR lpType,   ;public_chicago
         LONG lParam);
 typedef BOOL (CALLBACK* ENUMRESNAMEPROC)(HMODULE hModule, LPCTSTR lpType,    ;public_NT
-typedef BOOL (CALLBACK* ENUMRESNAMEPROC)(HINSTANCE hModule, LPCTSTR lpType,  ;public_win40
+typedef BOOL (CALLBACK* ENUMRESNAMEPROC)(HINSTANCE hModule, LPCTSTR lpType,  ;public_chicago
         LPTSTR lpName, LONG lParam);
 typedef BOOL (CALLBACK* ENUMRESLANGPROC)(HMODULE hModule, LPCTSTR lpType,    ;public_NT
-typedef BOOL (CALLBACK* ENUMRESLANGPROC)(HINSTANCE hModule, LPCTSTR lpType,  ;public_win40
+typedef BOOL (CALLBACK* ENUMRESLANGPROC)(HINSTANCE hModule, LPCTSTR lpType,  ;public_chicago
         LPCTSTR lpName, WORD  wLanguage, LONG lParam);
 #else
 typedef FARPROC ENUMRESTYPEPROC;
@@ -3514,7 +3820,7 @@ BOOL
 WINAPI
 EnumResourceTypes%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     ENUMRESTYPEPROC lpEnumFunc,
     LONG lParam
     );
@@ -3525,7 +3831,7 @@ BOOL
 WINAPI
 EnumResourceNames%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPCTSTR% lpType,
     ENUMRESNAMEPROC lpEnumFunc,
     LONG lParam
@@ -3536,7 +3842,7 @@ BOOL
 WINAPI
 EnumResourceLanguages%(
     HMODULE hModule,    ;public_NT
-    HINSTANCE hModule,  ;public_win40
+    HINSTANCE hModule,  ;public_chicago
     LPCTSTR% lpType,
     LPCTSTR% lpName,
     ENUMRESLANGPROC lpEnumFunc,
@@ -3714,7 +4020,6 @@ WritePrivateProfileSection%(
     LPCTSTR% lpFileName
     );
 
-;begin_winver_400
 
 WINBASEAPI
 DWORD
@@ -3746,7 +4051,6 @@ WritePrivateProfileStruct%(
     UINT     uSizeStruct,
     LPCTSTR% szFile
     );
-;end_winver_400
 
 
 WINBASEAPI
@@ -3819,6 +4123,16 @@ GetDiskFreeSpace%(
 WINBASEAPI
 BOOL
 WINAPI
+GetDiskFreeSpaceEx%(
+    LPCTSTR% lpDirectoryName,
+    PULARGE_INTEGER lpFreeBytesAvailableToCaller,
+    PULARGE_INTEGER lpTotalNumberOfBytes,
+    PULARGE_INTEGER lpTotalNumberOfFreeBytes
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
 CreateDirectory%(
     LPCTSTR% lpPathName,
     LPSECURITY_ATTRIBUTES lpSecurityAttributes
@@ -3854,6 +4168,7 @@ GetFullPathName%(
 #define DDD_RAW_TARGET_PATH         0x00000001
 #define DDD_REMOVE_DEFINITION       0x00000002
 #define DDD_EXACT_MATCH_ON_REMOVE   0x00000004
+#define DDD_NO_BROADCAST_SYSTEM     0x00000008
 
 WINBASEAPI
 BOOL
@@ -3903,6 +4218,20 @@ GetFileAttributes%(
     LPCTSTR% lpFileName
     );
 
+typedef enum _GET_FILEEX_INFO_LEVELS {
+    GetFileExInfoStandard,
+    GetFileExMaxInfoLevel
+} GET_FILEEX_INFO_LEVELS;
+
+WINBASEAPI
+BOOL
+WINAPI
+GetFileAttributesEx%(
+    LPCTSTR% lpFileName,
+    GET_FILEEX_INFO_LEVELS fInfoLevelId,
+    LPVOID lpFileInformation
+    );
+
 WINBASEAPI
 DWORD
 WINAPI
@@ -3917,6 +4246,34 @@ WINAPI
 DeleteFile%(
     LPCTSTR% lpFileName
     );
+
+;begin_sur
+typedef enum _FINDEX_INFO_LEVELS {
+    FindExInfoStandard,
+    FindExInfoMaxInfoLevel
+} FINDEX_INFO_LEVELS;
+
+typedef enum _FINDEX_SEARCH_OPS {
+    FindExSearchNameMatch,
+    FindExSearchLimitToDirectories,
+    FindExSearchLimitToDevices,
+    FindExSearchMaxSearchOp
+} FINDEX_SEARCH_OPS;
+
+#define FIND_FIRST_EX_CASE_SENSITIVE   0x00000001
+
+WINBASEAPI
+HANDLE
+WINAPI
+FindFirstFileEx%(
+    LPCTSTR% lpFileName,
+    FINDEX_INFO_LEVELS fInfoLevelId,
+    LPVOID lpFindFileData,
+    FINDEX_SEARCH_OPS fSearchOp,
+    LPVOID lpSearchFilter,
+    DWORD dwAdditionalFlags
+    );
+;end_sur
 
 WINBASEAPI
 HANDLE
@@ -3955,6 +4312,34 @@ CopyFile%(
     BOOL bFailIfExists
     );
 
+;begin_sur
+typedef
+DWORD
+(WINAPI *LPPROGRESS_ROUTINE)(
+    LARGE_INTEGER TotalFileSize,
+    LARGE_INTEGER TotalBytesTransferred,
+    LARGE_INTEGER StreamSize,
+    LARGE_INTEGER StreamBytesTransferred,
+    DWORD dwStreamNumber,
+    DWORD dwCallbackReason,
+    HANDLE hSourceFile,
+    HANDLE hDestinationFile,
+    LPVOID lpData OPTIONAL
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+CopyFileEx%(
+    LPCTSTR% lpExistingFileName,
+    LPCTSTR% lpNewFileName,
+    LPPROGRESS_ROUTINE lpProgressRoutine OPTIONAL,
+    LPVOID lpData OPTIONAL,
+    LPBOOL pbCancel OPTIONAL,
+    DWORD dwCopyFlags
+    );
+;end_sur
+
 WINBASEAPI
 BOOL
 WINAPI
@@ -3975,6 +4360,7 @@ MoveFileEx%(
 #define MOVEFILE_REPLACE_EXISTING   0x00000001
 #define MOVEFILE_COPY_ALLOWED       0x00000002
 #define MOVEFILE_DELAY_UNTIL_REBOOT 0x00000004
+#define MOVEFILE_WRITE_THROUGH      0x00000008
 
 WINBASEAPI
 HANDLE
@@ -4059,6 +4445,13 @@ GetVolumeInformation%(
     LPDWORD lpFileSystemFlags,
     LPTSTR% lpFileSystemNameBuffer,
     DWORD nFileSystemNameSize
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
+CancelIo(
+    HANDLE hFile
     );
 
 //
@@ -4376,6 +4769,16 @@ WINADVAPI
 BOOL
 WINAPI
 ObjectCloseAuditAlarm% (
+    LPCTSTR% SubsystemName,
+    LPVOID HandleId,
+    BOOL GenerateOnClose
+    );
+
+
+WINADVAPI
+BOOL
+WINAPI
+ObjectDeleteAuditAlarm% (
     LPCTSTR% SubsystemName,
     LPVOID HandleId,
     BOOL GenerateOnClose
@@ -4895,6 +5298,22 @@ FindCloseChangeNotification(
     HANDLE hChangeHandle
     );
 
+;begin_sur
+WINBASEAPI
+BOOL
+WINAPI
+ReadDirectoryChangesW(
+    HANDLE hDirectory,
+    LPVOID lpBuffer,
+    DWORD nBufferLength,
+    BOOL bWatchSubtree,
+    DWORD dwNotifyFilter,
+    LPDWORD lpBytesReturned,
+    LPOVERLAPPED lpOverlapped,
+    LPOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+    );
+;end_sur
+
 WINBASEAPI
 BOOL
 WINAPI
@@ -5118,6 +5537,100 @@ GetUserName% (
     );
 
 //
+// Logon Support APIs
+//
+
+#define LOGON32_LOGON_INTERACTIVE   2
+#define LOGON32_LOGON_NETWORK       3
+#define LOGON32_LOGON_BATCH         4
+#define LOGON32_LOGON_SERVICE       5
+
+#define LOGON32_PROVIDER_DEFAULT    0
+#define LOGON32_PROVIDER_WINNT35    1
+;begin_sur
+#define LOGON32_PROVIDER_WINNT40    2
+;end_sur
+
+
+
+WINADVAPI
+BOOL
+WINAPI
+LogonUser% (
+    LPTSTR% lpszUsername,
+    LPTSTR% lpszDomain,
+    LPTSTR% lpszPassword,
+    DWORD dwLogonType,
+    DWORD dwLogonProvider,
+    PHANDLE phToken
+    );
+
+WINADVAPI
+BOOL
+WINAPI
+ImpersonateLoggedOnUser(
+    HANDLE  hToken
+    );
+
+WINADVAPI
+BOOL
+WINAPI
+CreateProcessAsUser% (
+    HANDLE hToken,
+    LPCTSTR% lpApplicationName,
+    LPTSTR% lpCommandLine,
+    LPSECURITY_ATTRIBUTES lpProcessAttributes,
+    LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    BOOL bInheritHandles,
+    DWORD dwCreationFlags,
+    LPVOID lpEnvironment,
+    LPCTSTR% lpCurrentDirectory,
+    LPSTARTUPINFO% lpStartupInfo,
+    LPPROCESS_INFORMATION lpProcessInformation
+    );
+
+WINADVAPI
+BOOL
+WINAPI
+DuplicateTokenEx(
+    HANDLE hExistingToken,
+    DWORD dwDesiredAccess,
+    LPSECURITY_ATTRIBUTES lpTokenAttributes,
+    SECURITY_IMPERSONATION_LEVEL ImpersonationLevel,
+    TOKEN_TYPE TokenType,
+    PHANDLE phNewToken);
+
+
+;begin_sur
+//
+// Plug-and-Play API's
+//
+
+#define HW_PROFILE_GUIDLEN         39      // 36-characters plus NULL terminator
+#define MAX_PROFILE_LEN            80
+
+#define DOCKINFO_UNDOCKED          (0x1)
+#define DOCKINFO_DOCKED            (0x2)
+#define DOCKINFO_USER_SUPPLIED     (0x4)
+#define DOCKINFO_USER_UNDOCKED     (DOCKINFO_USER_SUPPLIED | DOCKINFO_UNDOCKED)
+#define DOCKINFO_USER_DOCKED       (DOCKINFO_USER_SUPPLIED | DOCKINFO_DOCKED)
+
+typedef struct tagHW_PROFILE_INFO% {
+    DWORD  dwDockInfo;
+    TCHAR% szHwProfileGuid[HW_PROFILE_GUIDLEN];
+    TCHAR% szHwProfileName[MAX_PROFILE_LEN];
+} HW_PROFILE_INFO%, *LPHW_PROFILE_INFO%;
+
+
+WINADVAPI
+BOOL
+WINAPI
+GetCurrentHwProfile% (
+    OUT LPHW_PROFILE_INFO%  lpHwProfileInfo
+    );
+;end_sur
+
+//
 // Performance counter API's
 //
 
@@ -5174,12 +5687,6 @@ GetVersionEx%(
 #define TC_GP_TRAP      2
 #define TC_SIGNAL       3
 
-;begin_internal
-DWORD WINAPI RegisterServiceProcess(DWORD dwProcessId, DWORD dwServiceType);
-#define RSP_UNREGISTER_SERVICE	0x00000000
-#define RSP_SIMPLE_SERVICE	0x00000001
-;end_internal
-
 ;begin_winver_400
 //
 // Power Management APIs
@@ -5222,31 +5729,317 @@ SetSystemPowerState(
     BOOL fSuspend,
     BOOL fForce
     );
+
 ;end_winver_400
 
-;begin_internal
 
-#if DEVL
 
-#define BASEP_DUMP_REMOTE_CALL      0x80000000
-#define BASEP_DUMP_SYSTEM_PROCESS   0x40000000
-#define BASEP_DUMP_LOCKS            0x08000000
-#define BASEP_DUMP_HEAP_SUMMARY     0x04000000
-#define BASEP_DUMP_HEAP_HOGS        0x02000000
-#define BASEP_DUMP_HEAP_ENTRIES     0x01000000
-#define BASEP_DUMP_MODULE_TABLE     0x00800000
-#define BASEP_DUMP_BACKTRACES       0x00400000
-#define BASEP_DUMP_OBJECTS          0x00200000
 
-#define BASEP_DUMP_FLAG_MASK        0xFFF00000
-#define BASEP_DUMP_HANDLE_MASK      (~BASEP_DUMP_FLAG_MASK)
+///////////////////////////////////////////////////////////////
+//                                                           //
+//      Win Certificate API and Structures                   //
+//                                                           //
+///////////////////////////////////////////////////////////////
 
-DWORD
-BasepDebugDump(
-    DWORD dwFlags
+//
+// Structures
+//
+
+typedef struct _WIN_CERTIFICATE {
+    DWORD       dwLength;
+    WORD        wRevision;
+    WORD        wCertificateType;   // WIN_CERT_TYPE_xxx
+    BYTE        bCertificate[ANYSIZE_ARRAY];
+} WIN_CERTIFICATE, *LPWIN_CERTIFICATE;
+
+//
+// Currently, the only defined certificate revision is WIN_CERT_REVISION_1_0
+//
+
+#define WIN_CERT_REVISION_1_0           (0x0100)
+
+//
+// Possible certificate types are specified by the following values
+//
+
+#define  WIN_CERT_TYPE_X509               (0x0001)   // bCertificate contains an X.509 Certificate
+#define  WIN_CERT_TYPE_PKCS_SIGNED_DATA   (0x0002)   // bCertificate contains a PKCS SignedData structure
+#define  WIN_CERT_TYPE_RESERVED_1         (0x0003)   // Reserved
+
+//
+// API
+//
+
+
+
+
+BOOL
+WINAPI
+WinSubmitCertificate(
+    LPWIN_CERTIFICATE lpCertificate
     );
 
-#endif  // DEVL
+
+
+///////////////////////////////////////////////////////////////
+//                                                           //
+//             Trust API and Structures                      //
+//                                                           //
+///////////////////////////////////////////////////////////////
+
+LONG
+WINAPI
+WinVerifyTrust(
+    HWND    hwnd,
+    GUID *  ActionID,
+    LPVOID  ActionData
+    );
+
+
+BOOL
+WINAPI
+WinLoadTrustProvider(
+    GUID * ActionID
+    );
+
+///////////////////////////////////////////////////////////////
+//                                                           //
+//             Common Trust API Data Structures              //
+//                                                           //
+///////////////////////////////////////////////////////////////
+
+
+//
+// Data type commonly used in ActionData structures
+//
+
+typedef LPVOID WIN_TRUST_SUBJECT;
+
+//
+// Two commonly used ActionData structures
+//
+
+typedef struct _WIN_TRUST_ACTDATA_CONTEXT_WITH_SUBJECT {
+
+    HANDLE            hClientToken;
+    GUID *            SubjectType;
+    WIN_TRUST_SUBJECT Subject;
+
+} WIN_TRUST_ACTDATA_CONTEXT_WITH_SUBJECT, *LPWIN_TRUST_ACTDATA_CONTEXT_WITH_SUBJECT ;
+
+
+typedef struct _WIN_TRUST_ACTDATA_SUBJECT_ONLY {
+
+    GUID *            SubjectType;
+    WIN_TRUST_SUBJECT Subject;
+
+} WIN_TRUST_ACTDATA_SUBJECT_ONLY, *LPWIN_TRUST_ACTDATA_SUBJECT_ONLY;
+
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+//      SUBJECT FORM DEFINITIONS                                   /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+// Currently defined Subject Type Identifiers.  All of the below   /
+// use the WIN_TRUST_SUBJECT_FILE subject form, defined below.     /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+/* RawFile == 959dc450-8d9e-11cf-8736-00aa00a485eb */
+#define WIN_TRUST_SUBJTYPE_RAW_FILE                              \
+            { 0x959dc450,                                        \
+              0x8d9e,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+/* PeImage == 43c9a1e0-8da0-11cf-8736-00aa00a485eb */
+#define WIN_TRUST_SUBJTYPE_PE_IMAGE                              \
+            { 0x43c9a1e0,                                        \
+              0x8da0,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+
+/* JavaClass = 08ad3990-8da1-11cf-8736-00aa00a485eb */
+#define WIN_TRUST_SUBJTYPE_JAVA_CLASS                            \
+            { 0x08ad3990,                                        \
+              0x8da1,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+/* Cabinet = d17c5374-a392-11cf-9df5-00aa00c184e0 */
+#define WIN_TRUST_SUBJTYPE_CABINET                               \
+            { 0xd17c5374,                                        \
+              0xa392,                                            \
+              0x11cf,                                            \
+              { 0x9d, 0xf5, 0x0, 0xaa, 0x0, 0xc1, 0x84, 0xe0 }   \
+            }
+
+//
+// Associated Subject Data Structure:
+//
+
+typedef struct _WIN_TRUST_SUBJECT_FILE {
+
+    HANDLE  hFile;
+    LPCWSTR lpPath;
+
+} WIN_TRUST_SUBJECT_FILE, *LPWIN_TRUST_SUBJECT_FILE;
+
+
+
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+// The following subject types use the                             /
+// WIN_TRUST_SUBJECT_FILE_AND_DISPLAY subject type, defined        /
+// below.                                                          /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+#define WIN_TRUST_SUBJTYPE_RAW_FILEEX                            \
+            { 0x6f458110,                                        \
+              0xc2f1,                                            \
+              0x11cf,                                            \
+              { 0x8a, 0x69, 0x0, 0xaa, 0x0, 0x6c, 0x37, 0x6 }    \
+            }
+
+#define WIN_TRUST_SUBJTYPE_PE_IMAGEEX                            \
+            { 0x6f458111,                                        \
+              0xc2f1,                                            \
+              0x11cf,                                            \
+              { 0x8a, 0x69, 0x0, 0xaa, 0x0, 0x6c, 0x37, 0x6 }    \
+            }
+
+#define WIN_TRUST_SUBJTYPE_JAVA_CLASSEX                          \
+            { 0x6f458113,                                        \
+              0xc2f1,                                            \
+              0x11cf,                                            \
+              { 0x8a, 0x69, 0x0, 0xaa, 0x0, 0x6c, 0x37, 0x6 }    \
+            }
+
+#define WIN_TRUST_SUBJTYPE_CABINETEX                             \
+            { 0x6f458114,                                        \
+              0xc2f1,                                            \
+              0x11cf,                                            \
+              { 0x8a, 0x69, 0x0, 0xaa, 0x0, 0x6c, 0x37, 0x6 }    \
+            }
+
+//
+// Associated Subject Data Structure:
+//
+
+typedef struct _WIN_TRUST_SUBJECT_FILE_AND_DISPLAY {
+
+    HANDLE  hFile;              // handle to the open file if you got it
+    LPCWSTR lpPath;             // the path to open if you don't
+    LPCWSTR lpDisplayName;      // (optional) display name to show to user 
+                                //      in place of path
+
+} WIN_TRUST_SUBJECT_FILE_AND_DISPLAY, *LPWIN_TRUST_SUBJECT_FILE_AND_DISPLAY;
+
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+// Other subject types:                                            /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+/* OleStorage == c257e740-8da0-11cf-8736-00aa00a485eb */
+#define WIN_TRUST_SUBJTYPE_OLE_STORAGE                           \
+            { 0xc257e740,                                        \
+              0x8da0,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+//      TRUST PROVIDER SPECIFIC DEFINITIONS                        /
+//                                                                 /
+//                                                                 /
+//      Each trust provider will have the following                /
+//      sections defined:                                          /
+//                                                                 /
+//      Actions - What actions are supported by the trust          /
+//          provider.                                              /
+//                                                                 /
+//      SubjectForms - Subjects that may be evaluated by this      /
+//          trust provider.                                        /
+//                                                                 /
+//                     and                                         /
+//                                                                 /
+//      Data structures to support the subject forms.              /
+//                                                                 /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////
+//                                                                 /
+//             Software Publisher Trust Provider                   /
+//                                                                 /
+////////////////////////////////////////////////////////////////////
+
+//
+// Actions:
+//
+
+/* TrustedPublisher == 66426730-8da1-11cf-8736-00aa00a485eb */
+#define WIN_SPUB_ACTION_TRUSTED_PUBLISHER                        \
+            { 0x66426730,                                        \
+              0x8da1,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+/* NtActivateImage == 8bc96b00-8da1-11cf-8736-00aa00a485eb */
+#define     WIN_SPUB_ACTION_NT_ACTIVATE_IMAGE                    \
+            { 0x8bc96b00,                                        \
+              0x8da1,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+/* PublishedSoftware == 64b9d180-8da2-11cf-8736-00aa00a485eb */
+#define WIN_SPUB_ACTION_PUBLISHED_SOFTWARE                       \
+            { 0x64b9d180,                                        \
+              0x8da2,                                            \
+              0x11cf,                                            \
+              {0x87, 0x36, 0x00, 0xaa, 0x00, 0xa4, 0x85, 0xeb}   \
+            }
+
+//
+// Data Structures:
+//
+// WIN_SPUB_ACTION_TRUSTED_PUBLISHER:
+//
+//      Uses WIN_SPUB_TRUSTED_PUBLISHER_DATA
+//
+// WIN_SPUB_ACTION_NT_ACTIVATE_IMAGE:
+//
+//      Uses WIN_TRUST_ACTDATA_CONTEXT_WITH_SUBJECT
+//
+// WIN_SPUB_ACTION_PUBLISHED_SOFTWARE:
+//
+//      Uses WIN_TRUST_ACTDATA_CONTEXT_WITH_SUBJECT
+//
+
+typedef struct _WIN_SPUB_TRUSTED_PUBLISHER_DATA {
+
+    HANDLE            hClientToken;
+    LPWIN_CERTIFICATE lpCertificate;
+
+} WIN_SPUB_TRUSTED_PUBLISHER_DATA, *LPWIN_SPUB_TRUSTED_PUBLISHER_DATA;
+
+;begin_internal
 
 BOOL
 WINAPI
@@ -5354,6 +6147,13 @@ typedef struct _FINDFILE_HANDLE {
 WINBASEAPI
 BOOL
 WINAPI
+IsDebuggerPresent(
+    VOID
+    );
+
+WINBASEAPI
+BOOL
+WINAPI
 GetDaylightFlag(VOID);
 
 WINBASEAPI
@@ -5380,6 +6180,7 @@ GetProcAddress16(
 
 WINBASEAPI
 HINSTANCE
+WINAPI
 LoadLibrary16(
     LPCSTR lpLibFileName
     );
@@ -5429,12 +6230,33 @@ GlobalSize16(
     );
 
 
+WINBASEAPI
+DWORD
+WINAPI
+RegisterServiceProcess(
+    DWORD dwProcessId,
+    DWORD dwServiceType
+    );
+
+#define RSP_UNREGISTER_SERVICE  0x00000000
+#define RSP_SIMPLE_SERVICE      0x00000001
+
+
+
+WINBASEAPI
+VOID
+WINAPI
+ReinitializeCriticalSection(
+    LPCRITICAL_SECTION lpCriticalSection
+    );
+
+;end_internal
+
 #ifdef __cplusplus      ;both
 }                       ;both
 #endif                  ;both
 
 
-#endif  // ndef _WINBASEP_
-;end_internal
+#endif  // ndef _WINBASEP_  ;internal
 
 #endif // _WINBASE_

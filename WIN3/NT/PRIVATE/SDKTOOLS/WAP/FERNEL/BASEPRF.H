@@ -232,4 +232,4 @@ extern TCHAR *		FAR PASCAL FileSyncProfGetModuleName (void);
 
 extern void	FAR PASCAL RtlLargeIntegerPrint (LARGE_INTEGER, LPTSTR);	
 
-
+

@@ -67,7 +67,7 @@ Revision History:
 // Define system time increment value.
 //
 
-#define MAXIMUM_INCREMENT      150000             // 15ms.
+#define MAXIMUM_INCREMENT      100000             // 10ms.
 #define MINIMUM_INCREMENT       10000             // 1ms.
 
 
@@ -76,46 +76,46 @@ Revision History:
 // Interrupt Request Level definitions
 //
 
-#define PASSIVE_LEVEL 0             // Passive release level
-#define LOW_LEVEL 0                 // Lowest interrupt level
-#define APC_LEVEL 1                 // APC interrupt level
-#define DISPATCH_LEVEL 2            // Dispatcher level
+#define PASSIVE_LEVEL    0          // Passive release level
+#define LOW_LEVEL        0          // Lowest interrupt level
+#define APC_LEVEL        1          // APC interrupt level
+#define DISPATCH_LEVEL   2          // Dispatcher level
 
-#define PROFILE_LEVEL 27            // timer used for profiling.
-#define CLOCK1_LEVEL 28             // Interval clock 1 level - Not used on x86
-#define CLOCK2_LEVEL 28             // Interval clock 2 level
-#define IPI_LEVEL 29                // Interprocessor interrupt level
-#define POWER_LEVEL 30              // Power failure level
-#define HIGH_LEVEL 31                // Highest interrupt level
+#define PROFILE_LEVEL   27          // timer used for profiling.
+#define CLOCK1_LEVEL    28          // Interval clock 1 level - Not used on x86
+#define CLOCK2_LEVEL    28          // Interval clock 2 level
+#define IPI_LEVEL       29          // Interprocessor interrupt level
+#define POWER_LEVEL     30          // Power failure level
+#define HIGH_LEVEL      31           // Highest interrupt level
 // end_ntddk
 
 //
 // Define PPC interrupt levels IRQL's
 //
 
-#define EISA_NMI_LEVEL          HIGH_LEVEL
-#define MACHINE_CHECK_LEVEL     EISA_NMI_LEVEL
+#define MAXIMUM_DEVICE_LEVEL    27
+#define DECREMENTER_LEVEL       CLOCK2_LEVEL
+#define MACHINE_CHECK_LEVEL     HIGH_LEVEL
 
-#define MAXIMUM_8259_LEVEL      27
 
 
 //
 // Define kernel dispatch vectors
 //
+#define PMI_VECTOR                3
 #define MACHINE_CHECK_VECTOR      4
-#define DEVICE_VECTOR             5
-#define EISA_NMI_VECTOR           6
+#define EXTERNAL_INTERRUPT_VECTOR 5
 #define DECREMENT_VECTOR          7
-#define PROFILE_VECTOR            DECREMENT_VECTOR
 
 
 //
 // Define device interrupt vectors.
 //
 
-#define EISA_VECTORS 32
+#define DEVICE_VECTORS 32
 
-#define CLOCK2_VECTOR  (0 + EISA_VECTORS)
+#define PROFILE_VECTOR  (0 + DEVICE_VECTORS)
+
 
 #define TIMER_VECTOR      0
 #define KEYBOARD_VECTOR   1               // Keyboard device interrupt vector
@@ -127,15 +127,15 @@ Revision History:
 #define PARALLEL2_VECTOR  7               // Parallel device 2 interrupt vector
 #define SHORT_INT_VECTOR  7               // Default for short interrupts
 #define RTC_VECTOR        8               // Real time clock interrupt vector
-#define PCI_SLOT_2_INT    9               // PCI slot 2 interrupt vector
+#define ISA_IRQ9_VECTOR   9               // ISA vector
 #define SOUND_VECTOR      10              // Sound device interrupt vector
-#define PCI_SLOT_1_INT    11              // PCI slot 1 interrupt vector
+#define ISA_IRQ11_VECTOR  11              // ISA vector
 #define MOUSE_VECTOR      12              // Mouse device interrupt vector
 #define SCSI_VECTOR       13              // SCSI device interrupt vector
-#define ISA_SLOT_2_VECTOR 14              // ISA slot 2 interrupt vector
-#define ISA_SLOT_1_VECTOR 15              // ISA slot 1 interrupt vector
+#define ISA_IRQ14_VECTOR  14              // ISA vector
+#define PCI_VECTOR        15              // PCI interrupt vector
 
-#define MAXIMUM_EISA_VECTOR (15 + EISA_VECTORS) // maximum EISA vector
+#define MAXIMUM_DEVICE_VECTOR (15 + DEVICE_VECTORS) // maximum SIO vector
 
 
 //
@@ -151,4 +151,3 @@ typedef struct _TRANSLATION_ENTRY {
 
 
 #endif // _PPCDEF_
-

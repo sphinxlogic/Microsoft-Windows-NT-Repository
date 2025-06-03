@@ -64,9 +64,10 @@ Revision History:
 #define IDM_ALIGN       128
 #define IDM_EXCEPT      129
 #define IDM_FLOAT       130
-#define IDM_CPU_TOTAL   131
-#define IDM_SEL_LINE    132
-#define IDM_SEL_BAR     133
+#define IDM_INS_EMUL    131
+#define IDM_CPU_TOTAL   132
+#define IDM_SEL_LINE    133
+#define IDM_SEL_BAR     134
 
 
 #define WINPERF_ICON 1011
@@ -332,4 +333,3 @@ DrawCpuBarGraph(
     );
 
 #endif /* _WINPERFH_INCLUDED_ */
-

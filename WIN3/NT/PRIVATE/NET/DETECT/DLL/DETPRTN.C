@@ -87,7 +87,24 @@ static ADAPTER_INFO Adapters[] = {
     {
         1000,
         L"P1390",
-        L"IRQ\0001\0000\000CARDSPEED\0001\0000\000IOADDR\0001\0000\000IOADDRLENGTH\0002\000100\000DMACHANNEL\0001\0000\000CABLETYPE\0001\0000\000",
+        L"IRQ\0"
+        L"1\0"
+        L"0\0"
+        L"CARDSPEED\0"
+        L"1\0"
+        L"0\0"
+        L"IOADDR\0"
+        L"1\0"
+        L"0\0"
+        L"IOADDRLENGTH\0"
+        L"2\0"
+        L"100\0"
+        L"DMACHANNEL\0"
+        L"1\0"
+        L"0\0"
+        L"CABLETYPE\0"
+        L"1\0"
+        L"0\0",
         NULL,
         1
 

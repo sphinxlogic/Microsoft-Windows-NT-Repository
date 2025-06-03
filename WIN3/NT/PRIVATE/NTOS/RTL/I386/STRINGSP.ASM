@@ -68,27 +68,45 @@ _TEXT   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ;--
 
+cPublicProc _RtlInitString ,2
+cPublicFpo 2,2
+        push    edi
+        mov     edi,[esp]+8+4           ; (edi)= SourceString
+        mov     edx,[esp]+4+4           ; (esi)= DestinationString
+        mov     DWORD PTR [edx], 0      ; (Destination).Length = (Destination).MaximumLength = 0
+        mov     DWORD PTR [edx]+4, edi  ; (Destination).Buffer = 0
+        or      edi, edi
+        jz      @f
+        or      ecx, -1
+        xor     eax, eax
+        repne   scasb
+        not     ecx
+        mov     [edx]+2, cx             ; Save maximum length
+        dec     ecx
+        mov     [edx], cx               ; Save length
+@@:     pop     edi
+        stdRET    _RtlInitString
+
+stdENDP _RtlInitString
+
+
 cPublicProc _RtlInitAnsiString ,2
 cPublicFpo 2,2
         push    edi
-        push    esi
-
-        mov     edi,[esp]+8+8           ; (edi)= SourceString
-        mov     esi,[esp]+8+4           ; (esi)= DestinationString
-        mov     WORD PTR [esi], 0       ; (Destination).Length = 0
-        mov     WORD PTR [esi]+2, 0     ; (Destination).MaximumLength = 0
-        mov     DWORD PTR [esi]+4, edi  ; (Destination).Buffer = 0
+        mov     edi,[esp]+8+4           ; (edi)= SourceString
+        mov     edx,[esp]+4+4           ; (esi)= DestinationString
+        mov     DWORD PTR [edx], 0      ; (Destination).Length = (Destination).MaximumLength = 0
+        mov     DWORD PTR [edx]+4, edi  ; (Destination).Buffer = 0
         or      edi, edi
         jz      @f
+        or      ecx, -1
         xor     eax, eax
-        mov     ecx, -1
-  repne scasb                           ; Search for first nul.
-        sub     edi, [esp]+8+8          ; (edi) = EndOfString-String (Length+1)
-        mov     [esi]+2, di             ; Save maximum length
-        dec     edi
-        mov     [esi], di               ; Save length
-@@:     pop     esi
-        pop     edi
+        repne   scasb
+        not     ecx
+        mov     [edx]+2, cx             ; Save maximum length
+        dec     ecx
+        mov     [edx], cx               ; Save length
+@@:     pop     edi
         stdRET    _RtlInitAnsiString
 
 stdENDP _RtlInitAnsiString
@@ -133,25 +151,22 @@ stdENDP _RtlInitAnsiString
 cPublicProc _RtlInitUnicodeString ,2
 cPublicFpo 2,2
         push    edi
-        push    esi
-
-        mov     edi,[esp]+8+8           ; (edi)= SourceString
-        mov     esi,[esp]+4+8           ; (esi)= DestinationString
-        mov     WORD PTR [esi], 0       ; (Destination).Length = 0
-        mov     WORD PTR [esi]+2, 0     ; (Destination).MaximumLength = 0
-        mov     DWORD PTR [esi]+4, edi  ; (Destination).Buffer = 0
+        mov     edi,[esp]+8+4           ; (edi)= SourceString
+        mov     edx,[esp]+4+4           ; (esi)= DestinationString
+        mov     DWORD PTR [edx], 0      ; (Destination).Length = (Destination).MaximumLength = 0
+        mov     DWORD PTR [edx]+4, edi  ; (Destination).Buffer = 0
         or      edi, edi
         jz      @f
-        xor     ax, ax
-RIUS1:  scasw
-        jne     RIUS1
-        sub     edi, [esp]+8+8          ; (edi) = EndOfString-String (Length+1)
-        mov     [esi]+2, di             ; Save maximum length
-        dec     edi
-        dec     edi
-        mov     [esi], di               ; Save length
-@@:     pop     esi
-        pop     edi
+        or      ecx, -1
+        xor     eax, eax
+        repne   scasw
+        not     ecx
+        shl     ecx,1
+        mov     [edx]+2, cx             ; Save maximum length
+        dec     ecx
+        dec     ecx
+        mov     [edx], cx               ; Save length
+@@:     pop     edi
         stdRET    _RtlInitUnicodeString
 
 stdENDP _RtlInitUnicodeString

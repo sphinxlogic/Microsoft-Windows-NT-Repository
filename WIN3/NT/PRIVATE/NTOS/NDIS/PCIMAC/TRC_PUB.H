@@ -47,4 +47,3 @@ typedef struct
 
 #endif		/* _TRC_PUB_ */
 
-

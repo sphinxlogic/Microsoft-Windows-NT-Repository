@@ -26,4 +26,3 @@ struct TXB
 #define cwTxb (cbTxb / sizeof(int))
 #define hszNil	(0)
 #define cidstrRsvd (2)
-

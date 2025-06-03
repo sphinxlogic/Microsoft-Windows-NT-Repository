@@ -2,7 +2,7 @@
 */
 //*++
 //
-// Copyright (c) 1990-1993  Microsoft Corporation
+// Copyright (c) 1990-1996  Microsoft Corporation
 //
 // Module Name:
 //
@@ -23,25 +23,10 @@
 //--*/
 
 //
-// Define load linked and store conditional opcodes if system is not an r4000
-//
-
-#if defined(R3000)
-
-#define ll lw
-#define sc sw
-
-#endif
-
-//
 // Define soft reset vector address for nonhandled cache parity errors.
 //
 
-#if defined(R4000)
-
 #define SOFT_RESET_VECTOR 0xbfc00300    // default parity error routine address
-
-#endif
 
 //
 // Define low memory transfer vector address and TB index address (temporary).
@@ -124,67 +109,8 @@
 #define f31 $f31                        //
 
 //
-// Define R3000 system coprocessor registers.
+// Define R4000/R10000 system coprocessor registers.
 //
-
-#if defined(R3000)
-
-#define index $0                        // TB index register
-#define random $1                       // TB random register
-#define entrylo $2                      // TB entry low register
-#define context $4                      // TB context register
-#define badvaddr $8                     // TB bad virtual address register
-#define entryhi $10                     // TB entry high register
-#define psr $12                         // processor status register
-#define cause $13                       // exception cause register
-#define epc $14                         // exception PC register
-#define prid $15                        // processor id register
-
-//
-// Define R3000 system coprocessor register bit field offsets.
-//
-
-#define INDEX_INDEX 0x8                 // TLB specified index <13:8>
-#define INDEX_PROBE 0x1f                // TLB probe failure <31>
-
-#define RANDOM_INDEX 0x8                // TLB random index <13:8>
-
-#define ENTRYLO_G 0x8                   // Global <8>
-#define ENTRYLO_V 0x9                   // Valid <9>
-#define ENTRYLO_D 0xa                   // Dirty <10>
-#define ENTRYLO_N 0xb                   // Nocache <11>
-#define ENTRYLO_PFN 0xc                 // Page Frame <31:12>
-
-#define ENTRYHI_PID 0x6                 // Process id <11:6>
-#define ENTRYHI_VPN 0xc                 // Virtual page <31:12>
-
-#define PSR_IEC 0x0                     // Current interrupt enable <0>
-#define PSR_KUC 0x1                     // Current kernel/user <1>
-#define PSR_IEP 0x2                     // Previous interrupt enable <2>
-#define PSR_KUP 0x3                     // Previous kernel/user <3>
-#define PSR_PMODE PSR_KUP               // Previous mode bit <3>
-#define PSR_IEO 0x4                     // Old interrupt enable <4>
-#define PSR_KUO 0x5                     // Old kernel/user <5>
-#define PSR_INTMASK 0x8                 // Interrupt mask <15:8>
-#define PSR_ISC 0x10                    // Isolate d-cache <16>
-#define PSR_SWC 0x11                    // Swap caches <17>
-#define PSR_PZ 0x12                     // Parity zero <18>
-#define PSR_CM 0x13                     // Cache miss <19>
-#define PSR_PE 0x14                     // Parity error <20>
-#define PSR_TS 0x15                     // TLB shutdown <21>
-#define PSR_BEV 0x16                    // Bootstrap exception vector <22>
-#define PSR_CU0 0x1c                    // Coprocessor 0 enabled <28>
-#define PSR_CU1 0x1d                    // Coprocessor 1 enabled <29>
-#define PSR_CU2 0x1e                    // Coprocessor 2 enabled <30>
-#define PSR_CU3 0x1f                    // Coprocessor 3 enabled <31>
-
-#endif
-
-//
-// Define R4000 system coprocessor registers.
-//
-
-#if defined(R4000)
 
 #define index $0                        // TB index register
 #define random $1                       // TB random register
@@ -205,6 +131,8 @@
 #define lladdr $17                      // Load linked address register
 #define watchlo $18                     // Watch low address register
 #define watchhi $19                     // Watch high address register
+#define xcontext $20                    // extended context register
+#define framemask $21                   // Frame mask register
 #define ecc $26                         // S-cache ECC and primary parity register
 #define cacheerr $27                    // Cache error and status register
 #define taglo $28                       // Cache tag low register
@@ -290,11 +218,9 @@
 #define TAGLO_P 0x0                     // primary tag even parity <0>
 #define TAGLO_PSTATE 0x6                // primary cache state <7:6>
 #define TAGLO_PTAGLO 0x8                // primary tag low physical address <31:8>
-
-#endif
 
 //
-// Define R3000 and R4000 cause register bit offsets.
+// Define R4000 cause register bit offsets.
 //
 
 #define CAUSE_XCODE 0x2                 // Exception code <6:2>
@@ -303,14 +229,14 @@
 #define CAUSE_BD 0x1f                   // Branch delay slot <31>
 
 //
-// Define R3000 and R4000 processor id register field offsets.
+// Define R4000 processor id register field offsets.
 //
 
 #define PRID_REV 0x0                    // Revision level <7:0>
 #define PRID_IMP 0x8                    // Implementation type <15:8>
 
 //
-// Define R3000 and R4000 exception codes.
+// Define R4000 exception codes.
 //
 
 #define XCODE_INTERRUPT 0x0             // Interrupt
@@ -326,24 +252,11 @@
 #define XCODE_ILLEGAL_INSTRUCTION 0x28  // Illegal instruction
 #define XCODE_COPROCESSOR_UNUSABLE 0x2c // Coprocessor unusable
 #define XCODE_INTEGER_OVERFLOW 0x30     // Arithmetic overflow
-
-#if defined(R3000)
-
-#define XCODE_PANIC 0x3c                // Stack overflow (software)
-
-#define R3000_XCODE_MASK (0xf << CAUSE_XCODE) // R3000 exception code mask
-
-#define R3000_MISS_MASK (R3000_XCODE_MASK & \
-                        (~(XCODE_READ_MISS ^ XCODE_WRITE_MISS))) //
-
-#endif
-
-#if defined(R4000)
-
 #define XCODE_TRAP 0x34                 // Trap instruction
 #define XCODE_VIRTUAL_INSTRUCTION 0x38  // Virtual instruction coherency
 #define XCODE_FLOATING_EXCEPTION 0x3c   // Floating point exception
 #define XCODE_WATCHPOINT 0x5c           // Watch point
+#define XCODE_INVALID_USER_ADDRESS 0x70 // Invalid user address (64-bit)
 #define XCODE_PANIC 0x78                // Stack overflow (software)
 #define XCODE_VIRTUAL_DATA 0x7c         // Virtual data coherency
 
@@ -351,14 +264,10 @@
 
 #define R4000_MISS_MASK (R4000_XCODE_MASK & \
                         (~(XCODE_READ_MISS ^ XCODE_WRITE_MISS))) //
-
-#endif
 
 //
 // Define R4000 page mask values.
 //
-
-#if defined(R4000)
 
 #define PAGEMASK_4KB 0x0                // 4kb page
 #define PAGEMASK_16KB 0x3               // 16kb page
@@ -367,27 +276,19 @@
 #define PAGEMASK_1MB 0xff               // 1mb page
 #define PAGEMASK_4MB 0x3ff              // 4mb page
 #define PAGEMASK_16MB 0xfff             // 16mb page
-
-#endif
 
 //
 // Define R4000 primary cache states.
 //
 
-#if defined(R4000)
-
 #define PRIMARY_CACHE_INVALID 0x0       // primary cache invalid
 #define PRIMARY_CACHE_SHARED 0x1        // primary cache shared (clean or dirty)
 #define PRIMARY_CACHE_CLEAN_EXCLUSIVE 0x2 // primary cache clean exclusive
 #define PRIMARY_CACHE_DIRTY_EXCLUSIVE 0x3 // primary cache dirty exclusive
-
-#endif
 
 //
 // Define R4000 cache instruction operation codes.
 //
-
-#if defined(R4000)
 
 #define INDEX_INVALIDATE_I 0x0          // invalidate primary instruction cache
 #define INDEX_WRITEBACK_INVALIDATE_D 0x1 // writeback/invalidate primary data cache
@@ -420,38 +321,11 @@
 
 #define HIT_SET_VIRTUAL_SI 0x1e         // hit set virtual secondary instruction cache
 #define HIT_SET_VIRTUAL_SD 0x1f         // hit set virtual secondary data cache
-
-#endif
 
 //
 // Define enable and disable interrupt macros.
 //
 
-#if defined(R3000)
-
-#define DISABLE_INTERRUPTS(reg) \
-        .set    noreorder; \
-        .set    noat;      \
-        li      AT,1 << PSR_CU1; \
-        mfc0    reg,psr;   \
-        mtc0    AT,psr;    \
-        nop;               \
-        nop;               \
-        .set    at;        \
-        .set    reorder;
-
-#define ENABLE_INTERRUPTS(reg) \
-        .set    noreorder; \
-        .set    noat;      \
-        mtc0    reg,psr;   \
-        nop;               \
-        .set    at;        \
-        .set    reorder;
-
-#endif
-
-#if defined(R4000)
-
 #define DISABLE_INTERRUPTS(reg) \
         .set    noreorder; \
         .set    noat;      \
@@ -472,8 +346,6 @@
         nop;               \
         .set    at;        \
         .set    reorder;
-
-#endif
 
 //
 // Define floating coprocessor registers
@@ -510,24 +382,6 @@
 // Define save and restore floating state macros.
 //
 
-#if defined(R3000)
-
-#define RESTORE_VOLATILE_FLOAT_STATE         \
-        .set    noreorder;                   \
-        jal     KiRestoreVolatileFloatState; \
-        lwc1    f0,TrFltF0(s8);              \
-        .set    reorder;
-
-#define SAVE_VOLATILE_FLOAT_STATE            \
-        .set    noreorder;                   \
-        jal     KiSaveVolatileFloatState;    \
-        swc1    f0,TrFltF0(s8);              \
-        .set    reorder;
-
-#endif
-
-#if defined(R4000)
-
 #define RESTORE_VOLATILE_FLOAT_STATE         \
         .set    noreorder;                   \
         jal     KiRestoreVolatileFloatState; \
@@ -540,26 +394,6 @@
         sdc1    f0,TrFltF0(s8);              \
         .set    reorder;
 
-#endif
-
-#if defined(R3000)
-
-#define RESTORE_NONVOLATILE_FLOAT_STATE         \
-        .set    noreorder;                      \
-        jal     KiRestoreNonvolatileFloatState; \
-        lwc1    f20,ExFltF20(sp);               \
-        .set    reorder;
-
-#define SAVE_NONVOLATILE_FLOAT_STATE            \
-        .set    noreorder;                      \
-        jal     KiSaveNonvolatileFloatState;    \
-        swc1    f20,ExFltF20(sp);               \
-        .set    reorder;
-
-#endif
-
-#if defined(R4000)
-
 #define RESTORE_NONVOLATILE_FLOAT_STATE         \
         .set    noreorder;                      \
         jal     KiRestoreNonvolatileFloatState; \
@@ -571,34 +405,10 @@
         jal     KiSaveNonvolatileFloatState;    \
         sdc1    f20,ExFltF20(sp);               \
         .set    reorder;
-
-#endif
 
 //
 // Define TB and cache parameters.
 //
-
-#if defined(R3000)
-
-#define NUMBER_PIDS 64                  // number of process ids
-
-#define PCR_ENTRY 0                     // TB entry numbers (2) for the PCR
-#define PDR_ENTRY 2                     // TB entry number (1) for the PDR
-#define KSTACK_ENTRY 3                  // TB entry numbers (2) for kernel stack
-#define KDPORT_ENTRY 5                  // TB entry number (1) for debug port
-#define DMA_ENTRY 6                     // TB entry number (1) for DMA registers
-#define INTERRUPT_ENTRY 7               // TB entry number (1) for interrupt source
-
-#define TB_SIZE 64                      // number of TB entries
-#define TB_ENTRY_SIZE (2 * 4)           // size of TB entry
-#define FIXED_BASE 0                    // base index of fixed TB entries
-#define FIXED_ENTRIES (INTERRUPT_ENTRY + 1) // number of fixed TB entries
-#define RANDOM_BASE FIXED_ENTRIES       // base index of random TB entries
-#define RANDOM_ENTRIES (TB_SIZE - RANDOM_BASE) // number of random TB entries
-
-#endif
-
-#if defined(R4000)
 
 #define PCR_ENTRY 0                     // TB entry numbers (2) for the PCR
 #define PDR_ENTRY 2                     // TB entry number (1) for the PDR
@@ -608,8 +418,6 @@
 #define TB_ENTRY_SIZE (3 * 4)           // size of TB entry
 #define FIXED_BASE 0                    // base index of fixed TB entries
 #define FIXED_ENTRIES (DMA_ENTRY + 1)   // number of fixed TB entries
-
-#endif
 
 //
 // Define cache parameters
@@ -639,42 +447,6 @@ Name:;
 Name:;
 
 //
-// Define trap frame generation macro.
-//
-
-#define GENERATE_TRAP_FRAME             \
-        .set    noreorder;              \
-        .set    noat;                   \
-        jal     KiGenerateTrapFrame;    \
-        sw      AT,TrIntAt(s8);         \
-        .set    at;                     \
-        .set    reorder;
-
-//
-// Define restore volatile integer state macro.
-//
-
-#define RESTORE_VOLATILE_INTEGER_STATE  \
-        .set    noreorder;              \
-        .set    noat;                   \
-        jal     KiRestoreVolatileIntegerState; \
-        lw      AT,TrIntAt(s8);         \
-        .set    at;                     \
-        .set    reorder;
-
-//
-// Define save volatile integer state macro.
-//
-
-#define SAVE_VOLATILE_INTEGER_STATE     \
-        .set    noreorder;              \
-        .set    noat;                   \
-        jal     KiSaveVolatileIntegerState; \
-        sw      AT,TrIntAt(s8);         \
-        .set    at;                     \
-        .set    reorder;
-
-//
 // Define procedure entry macros
 //
 
@@ -684,7 +456,6 @@ Name:;
 
 #define LEAF_ENTRY(Name)                \
         .text;                          \
-        .align  4;                      \
         .globl  Name;                   \
         .ent    Name, 0;                \
 Name:;                                  \
@@ -693,14 +464,12 @@ Name:;                                  \
 
 #define NESTED_ENTRY(Name, fsize, retrg) \
         .text;                          \
-        .align  4;                      \
         .globl  Name;                   \
         .ent    Name, 0;                \
 Name:;                                  \
         .frame  sp, fsize, retrg;
 
 #define ALTERNATE_ENTRY_S(Name)         \
-        .align  5;                      \
         .globl  Name;                   \
 Name:;
 
@@ -714,7 +483,6 @@ Name:;                                  \
 
 #define LEAF_ENTRY_S(Name, Section)     \
         .text   Section;                \
-        .align  5;                      \
         .globl  Name;                   \
         .ent    Name, 0;                \
 Name:;                                  \
@@ -723,7 +491,6 @@ Name:;                                  \
 
 #define NESTED_ENTRY_S(Name, fsize, retrg, Section) \
         .text   Section;                \
-        .align  5;                      \
         .globl  Name;                   \
         .ent    Name, 0;                \
 Name:;                                  \
@@ -745,7 +512,6 @@ Name:;                                  \
 #ifndef HEADER_FILE
 
         .edata  0
-        .align  2
         .text
 
 #endif

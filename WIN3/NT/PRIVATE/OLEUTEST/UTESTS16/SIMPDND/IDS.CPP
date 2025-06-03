@@ -87,7 +87,7 @@ BOOL CSimpleDoc::QueryDrag(POINT pt)
 //      CDataXferObj::QueryInterface DXFEROBJ.CPP
 //      CDataXferObj::Release       DXFEROBJ.CPP
 //      DoDragDrop                  OLE API
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -98,7 +98,7 @@ DWORD CSimpleDoc::DoDragDrop (void)
 	DWORD       dwEffect     = 0;
 	LPDATAOBJECT lpDataObj;
 
-	OutputDebugString("In CSimpleDoc::DoDragDrop\r\n");
+	TestDebugOut("In CSimpleDoc::DoDragDrop\r\n");
 
 	// Create a data transfer object by cloning the existing OLE object
 	CDataXferObj FAR* pDataXferObj = CDataXferObj::Create(m_lpSite,NULL);
@@ -158,7 +158,7 @@ DWORD CSimpleDoc::DoDragDrop (void)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleDoc::QueryInterface  DOC.CPP
 //
 // Comments:
@@ -167,7 +167,7 @@ DWORD CSimpleDoc::DoDragDrop (void)
 
 STDMETHODIMP CDropSource::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In IDS::QueryInterface\r\n");
+	TestDebugOut("In IDS::QueryInterface\r\n");
 
 	// delegate to the document
 	return m_pDoc->QueryInterface(riid, ppvObj);
@@ -194,7 +194,7 @@ STDMETHODIMP CDropSource::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 //      Function                    Location
 //
 //      CSimpleObj::AddReff         OBJ.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -206,7 +206,7 @@ STDMETHODIMP CDropSource::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CDropSource::AddRef()
 {
-	OutputDebugString("In IDS::AddRef\r\n");
+	TestDebugOut("In IDS::AddRef\r\n");
 
 	// increment the interface reference count (for debugging only)
 	++m_nCount;
@@ -235,7 +235,7 @@ STDMETHODIMP_(ULONG) CDropSource::AddRef()
 //      Function                    Location
 //
 //      CSimpleObj::Release         OBJ.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -247,7 +247,7 @@ STDMETHODIMP_(ULONG) CDropSource::AddRef()
 
 STDMETHODIMP_(ULONG) CDropSource::Release()
 {
-	OutputDebugString("In IDS::Release\r\n");
+	TestDebugOut("In IDS::Release\r\n");
 
 	// decrement the interface reference count (for debugging only)
 	--m_nCount;

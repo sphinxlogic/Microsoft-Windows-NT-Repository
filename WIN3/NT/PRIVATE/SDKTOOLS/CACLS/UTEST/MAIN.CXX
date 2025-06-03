@@ -31,10 +31,10 @@ VOID _cdecl main(INT argc, char *argv[])
         exit(1);
     } else if ((argc > 2) && (argv[2][0] == '/') )
     {
-        if (0 == stricmp(&argv[2][1],"r") )
+        if (0 == _stricmp(&argv[2][1],"r") )
         {
             fdebug = 1;
-        } else if (0 == stricmp(&argv[2][1],"d") )
+        } else if (0 == _stricmp(&argv[2][1],"d") )
         {
             fdebug = 2;
         } else
@@ -84,12 +84,12 @@ VOID _cdecl main(INT argc, char *argv[])
                         for (; *ptok == ' ';ptok++);
                         
                         VERBOSE(("ptok (2nd) [%s]\n",ptok))
-                        if (0 == stricmp(ptok, argv[k]))
+                        if (0 == _stricmp(ptok, argv[k]))
                         {
                             if (NULL != (ptok = strtok(NULL, " ")))
                             {
                                 VERBOSE(("ptok (3rd) [%s]\n",ptok))
-                                if ((argc <= k) || (0 != stricmp(ptok, argv[k+1])))
+                                if ((argc <= k) || (0 != _stricmp(ptok, argv[k+1])))
                                 {
                                     VERBOSE(("mismatch type %s != %s\n",ptok))
                                     ret = ERROR_INVALID_DATA;

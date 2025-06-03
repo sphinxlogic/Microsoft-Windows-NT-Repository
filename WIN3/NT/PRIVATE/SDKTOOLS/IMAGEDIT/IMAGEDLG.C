@@ -209,7 +209,7 @@ DIALOGPROC ResourceTypeDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             HELPID_RESOURCETYPE);
                     break;
@@ -255,7 +255,7 @@ DIALOGPROC NewIconImageDlgProc(
             for (pDevice = gpIconDeviceHead; pDevice;
                     pDevice = pDevice->pDeviceNext) {
                 if (!DeviceLinkUsed(pDevice)) {
-                    iSel = (INT)SendMessage(hwndList, LB_INSERTSTRING, -1,
+                    iSel = (INT)SendMessage(hwndList, LB_INSERTSTRING, (WPARAM)-1,
                             (LONG)(LPSTR)pDevice->szDesc);
                     SendMessage(hwndList, LB_SETITEMDATA, iSel,
                             (DWORD)(LPSTR)pDevice);
@@ -291,7 +291,7 @@ DIALOGPROC NewIconImageDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             HELPID_NEWICONIMAGE);
                     break;
@@ -374,8 +374,8 @@ DIALOGPROC NewCursorImageDlgProc(
             for (pDevice = gpCursorDeviceHead; pDevice;
                     pDevice = pDevice->pDeviceNext) {
                 if (!DeviceLinkUsed(pDevice)) {
-                    iSel = (INT)SendMessage(hwndList, LB_INSERTSTRING, -1,
-                            (LONG)(LPSTR)pDevice->szDesc);
+                    iSel = (INT)SendMessage(hwndList, LB_INSERTSTRING, (WPARAM)-1,
+                            (LPARAM)(LPSTR)pDevice->szDesc);
                     SendMessage(hwndList, LB_SETITEMDATA, iSel,
                             (DWORD)(LPSTR)pDevice);
                 }
@@ -410,7 +410,7 @@ DIALOGPROC NewCursorImageDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             HELPID_NEWCURSORIMAGE);
                     break;
@@ -468,7 +468,7 @@ DIALOGPROC SelectImageDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             (giType == FT_ICON) ?
                             HELPID_SELECTICONIMAGE : HELPID_SELECTCURSORIMAGE);
@@ -507,7 +507,7 @@ STATICFN VOID NEAR SelectImageInit(
     hwndLB = GetDlgItem(hwnd, DID_SELECTIMAGELIST);
 
     for (pImage = gpImageHead; pImage; pImage = pImage->pImageNext) {
-        i = (INT)SendMessage(hwndLB, LB_INSERTSTRING, -1,
+        i = (INT)SendMessage(hwndLB, LB_INSERTSTRING, (WPARAM)-1,
                 pImage->pDevice ?
                 (DWORD)(LPSTR)pImage->pDevice->szDesc :
                 (DWORD)(LPSTR)ids(IDS_UNKNOWNIMAGEFORMAT));
@@ -638,7 +638,7 @@ DIALOGPROC BitmapSizeDlgProc(
                     EndDialog(hwnd, IDCANCEL);
                     break;
 
-                case IDHELP:
+                case ID_IMAGE_HELP:
                     WinHelp(ghwndMain, gszHelpFile, HELP_CONTEXT,
                             HELPID_BITMAPSIZE);
                     break;

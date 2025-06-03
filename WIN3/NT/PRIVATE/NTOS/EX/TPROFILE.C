@@ -40,7 +40,9 @@ main()
                               0xFFFFFFFF,
                               16,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("(Expected) create profile #1 failed - status %lx\n", status);
@@ -72,7 +74,9 @@ main()
                               0xFFFFFFFF,
                               16,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("(Expected) create profile #2 failed - status %lx\n", status);
@@ -100,7 +104,9 @@ main()
                               0xFFFFFFFF,
                               18,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("(Unexpected) create profile #3 failed - status %lx\n", status);
@@ -129,7 +135,9 @@ main()
                               0xffffffff,
                               6,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("(Expected) create profile #4 failed - status %lx\n", status);
@@ -157,7 +165,9 @@ main()
                               0x7fffffff,
                               17,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("(Unexpected) create profile #5 failed - status %lx\n", status);
@@ -201,7 +211,10 @@ main()
                               0x3000000,
                               15,
                               Buffer,
-                              (ULONG)64*1024);
+                              (ULONG)64*1024,
+                              ProfileTime,
+                              (KAFFINITY)-1);
+
 
     if (status != STATUS_SUCCESS) {
         DbgPrint("create profile #7 failed - status %lx\n", status);

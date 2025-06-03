@@ -19,8 +19,7 @@ Revision History:
 
 --*/
 
-#include "..\mi.h"
-#include "mm.h"
+#include "mi.h"
 
 //
 // A zero Pte.
@@ -135,15 +134,25 @@ PVOID MmPagedPoolStart =  (PVOID)0xE1000000;
 
 PVOID MmPagedPoolEnd;
 
-#ifdef R4000
 
 //
-// Color tables for free and zeroed pages. (Only on R4000)
+// Color tables for free and zeroed pages.
 //
 
-MMPRIMARY_COLOR_TABLES MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
+MMPFNLIST MmFreePagesByPrimaryColor[2][MM_MAXIMUM_NUMBER_OF_COLORS];
 
-MMCOLOR_TABLES MmFreePagesByColor[2][MM_SECONDARY_COLORS];
+PMMCOLOR_TABLES MmFreePagesByColor[2];
+
+MMPFNLIST MmStandbyPageListByColor[MM_MAXIMUM_NUMBER_OF_COLORS] = {
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
+                             0, StandbyPageList, MM_EMPTY_LIST, MM_EMPTY_LIST
+                            };
 
 
 //
@@ -159,13 +168,15 @@ MMPFNLIST MmModifiedPageListByColor[MM_MAXIMUM_NUMBER_OF_COLORS] = {
                             0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
                             0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST,
                             0, ModifiedPageList, MM_EMPTY_LIST, MM_EMPTY_LIST};
+
+ULONG MmSecondaryColorMask;
+
 //
 // Count of the number of modified pages destined for the paging file.
 //
 
-ULONG MmTotalPagesForPagingFile = 0;
+ULONG MmTotalPagesForPagingFile;
 
-#endif //R4000
 
 //
 // PTE reserved for mapping physical data for debugger.

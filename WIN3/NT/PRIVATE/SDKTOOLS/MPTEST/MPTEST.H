@@ -5,35 +5,46 @@
 typedef struct _THREADDATA {
         DWORD   ThreadId;
         ULONG   ThreadNumber;
+        ULONG   ThreadAffinity;
         HANDLE  ThreadHandle;
         ULONG   StartTime;
         ULONG   FinishTime;
 
         HANDLE  CurIoHandle;
         PULONG  CurValue;
+        PULONG  CurValue2;
         HANDLE  UniqueFile;
         PUCHAR  Buffer1;
         PUCHAR  Buffer2;
-        ULONG   UniqueValue;
 
-        ULONG   pad[16];
+        ULONG   pad1[64];
+        ULONG   UniqueValue;
+        ULONG   pad2[64];
+        ULONG   UniqueValue2;
+        ULONG   pad3[64];
 
 } THREADDATA, *PTHREADDATA;
 #else
 typedef struct _THREADDATA {
         ULONG   ThreadNumber;
+        ULONG   ThreadAffinity;
         HANDLE  ThreadHandle;
         ULONG   StartTime;
         ULONG   FinishTime;
 
         HFILE   CurIoHandle;
         PULONG  CurValue;
+        PULONG  CurValue2;
         HFILE   UniqueFile;
         PUCHAR  Buffer1;
         PUCHAR  Buffer2;
         ULONG   UniqueValue;
 
-        ULONG   pad[16];
+        ULONG   pad1[64];
+        ULONG   UniqueValue;
+        ULONG   pad2[64];
+        ULONG   UniqueValue2;
+        ULONG   pad3[64];
 
 } THREADDATA, *PTHREADDATA;
 #endif
@@ -44,6 +55,7 @@ extern ULONG (* RunTestThread)(PTHREADDATA);
 extern ULONG    RunNo;
 extern ULONG    TestParam;
 extern BOOLEAN  TestError;
+extern ULONG    MultIter;
 
 
 VOID DoNothing   (PTHREADDATA, BOOLEAN);
@@ -52,6 +64,9 @@ VOID CommonFile  (PTHREADDATA, BOOLEAN);
 VOID CommonValue (PTHREADDATA, BOOLEAN);
 VOID UniqueValue (PTHREADDATA, BOOLEAN);
 
+ULONG R3ReadCell     (PTHREADDATA);
+ULONG R3WriteCell    (PTHREADDATA);
+ULONG R3ReadWriteCell(PTHREADDATA);
 ULONG R3Interlock    (PTHREADDATA);
 ULONG R3MemShare     (PTHREADDATA);
 ULONG R3MemCompare   (PTHREADDATA);

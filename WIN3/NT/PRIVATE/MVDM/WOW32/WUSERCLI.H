@@ -1,11 +1,12 @@
 //**************************************************************************
 // wusercli.h : prototypes for thunks that may be handled on 16bit side
-// 
+//
 //**************************************************************************
 
 ULONG FASTCALL WU32DefHookProc(PVDMFRAME pFrame);
 ULONG FASTCALL WU32EnableMenuItem(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetKeyState(PVDMFRAME pFrame);
+ULONG FASTCALL WU32GetKeyboardState(PVDMFRAME pFrame);
 
 
 #ifdef PMODE32
@@ -16,7 +17,6 @@ ULONG FASTCALL WU32GetKeyState(PVDMFRAME pFrame);
 #define WU32GETCURSORPOS               LOCALAPI
 #define WU32GETDESKTOPWINDOW           LOCALAPI
 #define WU32GETDLGITEM                 LOCALAPI
-#define WU32GETKEYBOARDSTATE           LOCALAPI
 #define WU32GETMENU                    LOCALAPI
 #define WU32GETMENUITEMCOUNT           LOCALAPI
 #define WU32GETMENUITEMID              LOCALAPI
@@ -40,13 +40,12 @@ ULONG FASTCALL WU32GetKeyState(PVDMFRAME pFrame);
 
 #else
 
-#define WU32CLIENTTOSCREEN             WU32ClientToScreen 
+#define WU32CLIENTTOSCREEN             WU32ClientToScreen
 #define WU32GETCLASSNAME               WU32GetClassName
 #define WU32GETCLIENTRECT              WU32GetClientRect
 #define WU32GETCURSORPOS               WU32GetCursorPos
 #define WU32GETDESKTOPWINDOW           WU32GetDesktopWindow
 #define WU32GETDLGITEM                 WU32GetDlgItem
-#define WU32GETKEYBOARDSTATE           WU32GetKeyboardState
 #define WU32GETMENU                    WU32GetMenu
 #define WU32GETMENUITEMCOUNT           WU32GetMenuItemCount
 #define WU32GETMENUITEMID              WU32GetMenuItemID
@@ -74,7 +73,6 @@ ULONG FASTCALL WU32GetClientRect(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetCursorPos(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetDesktopWindow(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetDlgItem(PVDMFRAME pFrame);
-ULONG FASTCALL WU32GetKeyboardState(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetMenu(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetMenuItemCount(PVDMFRAME pFrame);
 ULONG FASTCALL WU32GetMenuItemID(PVDMFRAME pFrame);

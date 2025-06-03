@@ -1,84 +1,37 @@
-//-------------------------- MODULE DESCRIPTION ----------------------------
-//
-//  sess_tbl.c
-//
-//  Copyright 1992 Technology Dynamics, Inc.
-//
-//  All Rights Reserved!!!
-//
-//      This source code is CONFIDENTIAL and PROPRIETARY to Technology
-//      Dynamics. Unauthorized distribution, adaptation or use may be
-//      subject to civil and criminal penalties.
-//
-//  All Rights Reserved!!!
-//
-//---------------------------------------------------------------------------
-//
-//  All routines to support opertions on the LM MIB session table.
-//
-//
-//  Project:  Implementation of an SNMP Agent for Microsoft's NT Kernel
-//
-//  $Revision:   1.6  $
-//  $Date:   30 Jun 1992 13:34:44  $
-//  $Author:   mlk  $
-//
-//  $Log:   N:/lmmib2/vcs/sess_tbl.c_v  $
-//
-//     Rev 1.6   30 Jun 1992 13:34:44   mlk
-//  Removed some openissue comments
-//
-//     Rev 1.5   12 Jun 1992 19:19:32   todd
-//  Added support to initialize table variable
-//
-//     Rev 1.4   07 Jun 1992 15:26:32   todd
-//  Correct MIB prefixes for tables due to new alert mib
-//
-//     Rev 1.3   01 Jun 1992 12:35:50   todd
-//  Added 'dynamic' field to octet string
-//
-//     Rev 1.2   01 Jun 1992 10:34:08   unknown
-//  Added set functionality to table commands.
-//
-//     Rev 1.1   22 May 1992 17:38:36   todd
-//  Added return codes to _lmget() functions
-//
-//     Rev 1.0   20 May 1992 15:10:46   mlk
-//  Initial revision.
-//
-//     Rev 1.5   02 May 1992 19:08:34   todd
-//  code cleanup
-//
-//     Rev 1.4   27 Apr 1992  1:42:30   todd
-//  Finished gets and get-nexts
-//
-//     Rev 1.3   26 Apr 1992 16:03:06   todd
-//
-//     Rev 1.2   24 Apr 1992 14:34:14   todd
-//
-//     Rev 1.1   24 Apr 1992 13:36:18   todd
-//
-//     Rev 1.0   23 Apr 1992 18:00:06   todd
-//  Initial revision.
-//
-//---------------------------------------------------------------------------
+/*++
 
-//--------------------------- VERSION INFO ----------------------------------
+Copyright (c) 1992-1996  Microsoft Corporation
 
-static char *vcsid = "@(#) $Logfile:   N:/lmmib2/vcs/sess_tbl.c_v  $ $Revision:   1.6  $";
+Module Name:
 
+    sess_tbl.c
+
+Abstract:
+
+    All routines to support opertions on the LM MIB session table.
+
+Environment:
+
+    User Mode - Win32
+
+Revision History:
+
+    10-May-1996 DonRyan
+        Removed banner from Technology Dynamics, Inc.
+
+--*/
+ 
 //--------------------------- WINDOWS DEPENDENCIES --------------------------
 
 //--------------------------- STANDARD DEPENDENCIES -- #include<xxxxx.h> ----
 
 #include <stdio.h>
 #include <memory.h>
-#include <malloc.h>
 
 //--------------------------- MODULE DEPENDENCIES -- #include"xxxxx.h" ------
 
 #include <snmp.h>
-#include <util.h>
+#include <snmputil.h>
 
 #include "mibfuncs.h"
 
@@ -111,9 +64,11 @@ UINT MIB_sess_get(
         IN OUT RFC1157VarBind *VarBind
         );
 
-UINT MIB_sess_getfirst(
-        AsnObjectIdentifier *Oid,
-        void *RetVal );
+int MIB_sess_match(
+       IN AsnObjectIdentifier *Oid,
+       OUT UINT *Pos,
+       IN BOOL Next
+       );
 
 UINT MIB_sess_copyfromtable(
         IN UINT Entry,
@@ -183,11 +138,11 @@ UINT    ErrStat;
          AsnObjectIdentifier FieldOid = { 1, temp_subs };
 
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_SessPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_SessionTable.Table[0].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_SessPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_SessionTable.Table[0].Oid );
          }
 
          //
@@ -207,7 +162,7 @@ UINT    ErrStat;
             }
 
          // Lookup OID in table
-         Found = MIB_sess_match( &VarBind->name, &Entry );
+         Found = MIB_sess_match( &VarBind->name, &Entry, TRUE );
 
          // Determine which field
          Field = VarBind->name.ids[SESS_FIELD_SUBID];
@@ -266,11 +221,11 @@ UINT    ErrStat;
          FieldOid.idLength = 1;
          FieldOid.ids      = temp_subs;
 
-         SNMP_oidfree( &VarBind->name );
-         SNMP_oidcpy( &VarBind->name, &MIB_OidPrefix );
-         SNMP_oidappend( &VarBind->name, &MIB_SessPrefix );
-         SNMP_oidappend( &VarBind->name, &FieldOid );
-         SNMP_oidappend( &VarBind->name, &MIB_SessionTable.Table[Entry].Oid );
+         SnmpUtilOidFree( &VarBind->name );
+         SnmpUtilOidCpy( &VarBind->name, &MIB_OidPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_SessPrefix );
+         SnmpUtilOidAppend( &VarBind->name, &FieldOid );
+         SnmpUtilOidAppend( &VarBind->name, &MIB_SessionTable.Table[Entry].Oid );
          }
 
          ErrStat = MIB_sess_copyfromtable( Entry, Field, VarBind );
@@ -353,7 +308,7 @@ UINT   ErrStat;
       goto Exit;
       }
 
-   Found = MIB_sess_match( &VarBind->name, &Entry );
+   Found = MIB_sess_match( &VarBind->name, &Entry, FALSE );
 
    // Look for a complete OID match
    if ( Found != MIB_TBL_POS_FOUND )
@@ -392,7 +347,8 @@ Exit:
 //
 int MIB_sess_match(
        IN AsnObjectIdentifier *Oid,
-       OUT UINT *Pos
+       OUT UINT *Pos,
+       IN BOOL Next
        )
 
 {
@@ -408,10 +364,16 @@ int                 nResult;
    *Pos = 0;
    while ( *Pos < MIB_SessionTable.Len )
       {
-      nResult = SNMP_oidcmp( &TempOid, &MIB_SessionTable.Table[*Pos].Oid );
+      nResult = SnmpUtilOidCmp( &TempOid, &MIB_SessionTable.Table[*Pos].Oid );
       if ( !nResult )
          {
          nResult = MIB_TBL_POS_FOUND;
+         if (Next) {
+             while ( ( (*Pos) + 1 < MIB_SessionTable.Len ) &&
+                     !SnmpUtilOidCmp( &TempOid, &MIB_SessionTable.Table[(*Pos)+1].Oid)) {
+                 (*Pos)++;
+             }
+         }
 
          goto Exit;
          }
@@ -461,7 +423,7 @@ UINT ErrStat;
       {
       case SESS_CLIENT_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_SessionTable.Table[Entry].svSesClientName.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -485,7 +447,7 @@ UINT ErrStat;
 
       case SESS_USER_FIELD:
          // Alloc space for string
-         VarBind->value.asnValue.string.stream = malloc( sizeof(char)
+         VarBind->value.asnValue.string.stream = SnmpUtilMemAlloc( sizeof(char)
                        * MIB_SessionTable.Table[Entry].svSesUserName.length );
          if ( VarBind->value.asnValue.string.stream == NULL )
             {
@@ -544,7 +506,7 @@ UINT ErrStat;
          break;
 
       default:
-         printf( "Internal Error Session Table\n" );
+         SNMPDBG(( SNMP_LOG_TRACE, "LMMIB2: Internal Error Session Table\n" ));
          ErrStat = SNMP_ERRORSTATUS_GENERR;
 
          goto Exit;
@@ -557,4 +519,3 @@ Exit:
 } // MIB_sess_copyfromtable
 
 //-------------------------------- END --------------------------------------
-

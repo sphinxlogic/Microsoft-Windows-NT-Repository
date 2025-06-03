@@ -26,7 +26,6 @@ typedef LONG    LPARAM;
 #endif
 
 #define MAXPNAMELEN      32     // max product name length (including NULL)
-#define MAXERRORLENGTH   128    // max error text length (including final NULL)
 
 /* XLATOFF */
 #pragma pack(1)

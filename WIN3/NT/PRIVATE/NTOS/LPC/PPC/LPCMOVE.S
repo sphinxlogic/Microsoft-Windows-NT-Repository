@@ -157,4 +157,3 @@ noquad:
 
         LEAF_EXIT(LpcpMoveMessage)      //  return
 
-

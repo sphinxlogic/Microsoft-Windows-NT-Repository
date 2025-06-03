@@ -29,6 +29,13 @@ Revision History:
 #include "scsi.h"
 #include "class.h"
 
+#ifdef POOL_TAGGING
+#ifdef ExAllocatePool
+#undef ExAllocatePool
+#endif
+#define ExAllocatePool(a,b) ExAllocatePoolWithTag(a,b,'DscS')
+#endif
+
 //
 // Disk device data
 //
@@ -109,7 +116,7 @@ typedef struct _DISK_DATA {
 } DISK_DATA, *PDISK_DATA;
 
 //
-// Define a general structure of identfing disk contorllers with bad
+// Define a general structure of identfing disk controllers with bad
 // hardware.
 //
 
@@ -118,13 +125,22 @@ typedef struct _BAD_CONTROLLER_INFORMATION {
     BOOLEAN DisableTaggedQueuing;
     BOOLEAN DisableSynchronousTransfers;
     BOOLEAN DisableDisconnects;
+    BOOLEAN DisableWriteCache;
 }BAD_CONTROLLER_INFORMATION, *PBAD_CONTROLLER_INFORMATION;
 
 BAD_CONTROLLER_INFORMATION const ScsiDiskBadControllers[] = {
-    { "TOSHIBA MK538FB         60", TRUE, FALSE, FALSE },
-    { "CONNER  CP3500", FALSE, TRUE, FALSE },
-    { "OLIVETTICP3500", FALSE, TRUE, FALSE },
-    { "SyQuest SQ5110          CHC", TRUE, TRUE, FALSE}
+    { "TOSHIBA MK538FB         60",   TRUE,  FALSE, FALSE, FALSE },
+    { "CONNER  CP3500",               FALSE, TRUE,  FALSE, FALSE },
+    { "OLIVETTICP3500",               FALSE, TRUE,  FALSE, FALSE },
+    { "SyQuest SQ5110          CHC",  TRUE,  TRUE,  FALSE, FALSE },
+    { "SEAGATE ST41601N        0102", FALSE, TRUE,  FALSE, FALSE },
+    { "SEAGATE ST3655N",              FALSE, FALSE, FALSE, TRUE  },
+    { "SEAGATE ST3390N",              FALSE, FALSE, FALSE, TRUE  },
+    { "SEAGATE ST12550N",             FALSE, FALSE, FALSE, TRUE  },
+    { "SEAGATE ST31230N",             FALSE, FALSE, FALSE, TRUE  },
+    { "FUJITSU M2652S-512",           TRUE,  FALSE, FALSE, FALSE },
+    { "MAXTOR  MXT-540SL       I1.2", TRUE,  FALSE, FALSE, FALSE }
+
 };
 
 typedef struct _WORK_QUEUE_CONTEXT {
@@ -137,11 +153,33 @@ typedef struct _WORK_QUEUE_CONTEXT {
 #define MODE_DATA_SIZE 192
 #define VALUE_BUFFER_SIZE 2048
 #define SCSI_DISK_TIMEOUT    10
+
+#define KEY_WORK_AREA ((sizeof(KEY_VALUE_FULL_INFORMATION) + \
+                        sizeof(ULONG)) + 64)
+
+#define REGISTRY_HARDWARE_DESCRIPTION_W \
+        L"\\Registry\\Machine\\Hardware\\DESCRIPTION\\System"
+
+#define REGISTRY_MACHINE_IDENTIFIER_W   L"Identifier"
+
+#define FUJITSU_FMR_NAME_W  L"FUJITSU FMR-"
+
+//
+//  The following BOOLEAN allows us to special case this non-standard
+//  Japanese architecture.
+//
+
+BOOLEAN FujitsuFMR;
+
 
 NTSTATUS
 DriverEntry(
     IN PDRIVER_OBJECT DriverObject,
     IN PUNICODE_STRING RegistryPath
+    );
+
+BOOLEAN
+ScsiIsFujitsuFMR (
     );
 
 BOOLEAN
@@ -182,6 +220,20 @@ NTSTATUS
 ScsiDiskShutdownFlush(
     IN PDEVICE_OBJECT DeviceObject,
     IN PIRP Irp
+    );
+
+VOID
+DisableWriteCache(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PSCSI_INQUIRY_DATA LunInfo
+    );
+
+BOOLEAN
+ScsiDiskModeSelect(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PCHAR ModeSelectBuffer,
+    IN ULONG Length,
+    IN BOOLEAN SavePage
     );
 
 BOOLEAN
@@ -235,7 +287,7 @@ UpdateDeviceObjects(
 VOID
 ScanForSpecial(
     PDEVICE_OBJECT DeviceObject,
-    PINQUIRYDATA InquiryData,
+    PSCSI_INQUIRY_DATA LunInfo,
     PIO_SCSI_CAPABILITIES PortCapabilities
     );
 
@@ -246,6 +298,7 @@ ResetScsiBus(
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, DriverEntry)
+#pragma alloc_text(PAGE, ScsiIsFujitsuFMR)
 #pragma alloc_text(PAGE, FindScsiDisks)
 #pragma alloc_text(PAGE, CreateDiskDeviceObject)
 #pragma alloc_text(PAGE, CalculateMbrCheckSum)
@@ -254,6 +307,7 @@ ResetScsiBus(
 #pragma alloc_text(PAGE, IsFloppyDevice)
 #pragma alloc_text(PAGE, ScanForSpecial)
 #pragma alloc_text(PAGE, ScsiDiskDeviceControl)
+#pragma alloc_text(PAGE, ScsiDiskModeSelect)
 #endif
 
 
@@ -307,6 +361,12 @@ Return Value:
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ScsiDiskDeviceControl;
     DriverObject->MajorFunction[IRP_MJ_SHUTDOWN] = ScsiDiskShutdownFlush;
     DriverObject->MajorFunction[IRP_MJ_FLUSH_BUFFERS] = ScsiDiskShutdownFlush;
+
+    //
+    //  Find out if we are running an a FujitsuFMR machine.
+    //
+
+    FujitsuFMR = ScsiIsFujitsuFMR();
 
     //
     // Open port driver device objects by name.
@@ -385,7 +445,129 @@ Return Value:
     }
 
 } // end DriverEntry()
+
 
+BOOLEAN
+ScsiIsFujitsuFMR (
+    )
+
+/*++
+
+Routine Description:
+
+    This routine tells if is we running on a FujitsuFMR machine.
+
+Arguments:
+
+
+Return Value:
+
+    BOOLEAN - TRUE is we are and FALSE otherwise
+
+--*/
+
+{
+    ULONG Value;
+    BOOLEAN Result;
+    HANDLE Handle;
+    NTSTATUS Status;
+    ULONG RequestLength;
+    ULONG ResultLength;
+    UCHAR Buffer[KEY_WORK_AREA];
+    UNICODE_STRING KeyName;
+    UNICODE_STRING ValueName;
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    PKEY_VALUE_FULL_INFORMATION KeyValueInformation;
+
+    //
+    // Set default as PC/AT
+    //
+
+    KeyName.Buffer = REGISTRY_HARDWARE_DESCRIPTION_W;
+    KeyName.Length = sizeof(REGISTRY_HARDWARE_DESCRIPTION_W) - sizeof(WCHAR);
+    KeyName.MaximumLength = sizeof(REGISTRY_HARDWARE_DESCRIPTION_W);
+
+    InitializeObjectAttributes(&ObjectAttributes,
+                               &KeyName,
+                               OBJ_CASE_INSENSITIVE,
+                               NULL,
+                               NULL);
+
+    Status = ZwOpenKey(&Handle,
+                       KEY_READ,
+                       &ObjectAttributes);
+
+    if (!NT_SUCCESS(Status)) {
+
+        return FALSE;
+    }
+
+    ValueName.Buffer = REGISTRY_MACHINE_IDENTIFIER_W;
+    ValueName.Length = sizeof(REGISTRY_MACHINE_IDENTIFIER_W) - sizeof(WCHAR);
+    ValueName.MaximumLength = sizeof(REGISTRY_MACHINE_IDENTIFIER_W);
+
+    RequestLength = KEY_WORK_AREA;
+
+    KeyValueInformation = (PKEY_VALUE_FULL_INFORMATION)Buffer;
+
+    while (1) {
+
+        Status = ZwQueryValueKey(Handle,
+                                 &ValueName,
+                                 KeyValueFullInformation,
+                                 KeyValueInformation,
+                                 RequestLength,
+                                 &ResultLength);
+
+        if (Status == STATUS_BUFFER_OVERFLOW) {
+
+            //
+            // Try to get a buffer big enough.
+            //
+
+            if (KeyValueInformation != (PKEY_VALUE_FULL_INFORMATION)Buffer) {
+
+                ExFreePool(KeyValueInformation);
+            }
+
+            RequestLength += 256;
+
+            KeyValueInformation = (PKEY_VALUE_FULL_INFORMATION)
+                                  ExAllocatePool(PagedPool, RequestLength);
+
+            if (!KeyValueInformation) {
+                return FALSE;
+            }
+
+        } else {
+
+            break;
+        }
+    }
+
+    ZwClose(Handle);
+
+    if (NT_SUCCESS(Status) &&
+        (KeyValueInformation->DataLength >= sizeof(FUJITSU_FMR_NAME_W)) &&
+        (RtlCompareMemory((PUCHAR)KeyValueInformation + KeyValueInformation->DataOffset,
+                          FUJITSU_FMR_NAME_W,
+                          sizeof(FUJITSU_FMR_NAME_W) - sizeof(WCHAR)) ==
+         sizeof(FUJITSU_FMR_NAME_W) - sizeof(WCHAR))) {
+
+        Result = TRUE;
+
+    } else {
+
+        Result = FALSE;
+    }
+
+    if (KeyValueInformation != (PKEY_VALUE_FULL_INFORMATION)Buffer) {
+
+        ExFreePool(KeyValueInformation);
+    }
+
+    return Result;
+}
 
 BOOLEAN
 FindScsiDisks(
@@ -714,27 +896,31 @@ Return Value:
 
 --*/
 {
-    CCHAR ntNameBuffer[MAXIMUM_FILENAME_LENGTH];
-    STRING ntNameString;
+    CCHAR          ntNameBuffer[MAXIMUM_FILENAME_LENGTH];
+    STRING         ntNameString;
     UNICODE_STRING ntUnicodeString;
-    ULONG partitionNumber = 0;
+    ULONG          partitionNumber = 0;
     OBJECT_ATTRIBUTES objectAttributes;
-    HANDLE handle;
-    NTSTATUS status;
+    HANDLE         handle;
+    NTSTATUS       status;
     PDEVICE_OBJECT deviceObject = NULL;
     PDEVICE_OBJECT physicalDevice;
     PDISK_GEOMETRY diskGeometry = NULL;
     PDRIVE_LAYOUT_INFORMATION partitionList;
     PDEVICE_EXTENSION deviceExtension;
-    PDISK_DATA diskData;
-    ULONG bytesPerSector;
-    UCHAR sectorShift;
-    UCHAR pathId = LunInfo->PathId;
-    UCHAR targetId = LunInfo->TargetId;
-    UCHAR lun = LunInfo->Lun;
-    BOOLEAN writeCache;
-    PVOID senseData = NULL;
-    ULONG srbFlags;
+    PDISK_DATA     diskData;
+    ULONG          bytesPerSector;
+    UCHAR          sectorShift;
+    UCHAR          pathId = LunInfo->PathId;
+    UCHAR          targetId = LunInfo->TargetId;
+    UCHAR          lun = LunInfo->Lun;
+    BOOLEAN        writeCache;
+    PVOID          senseData = NULL;
+    ULONG          srbFlags;
+    ULONG          dmByteSkew;
+    PULONG         dmSkew;
+    BOOLEAN        dmActive = FALSE;
+
 
     PAGED_CODE();
 
@@ -977,7 +1163,7 @@ Return Value:
     //
 
     ScanForSpecial(deviceObject,
-                    (PINQUIRYDATA)LunInfo->InquiryData,
+                    LunInfo,
                     PortCapabilities);
 
     srbFlags = deviceExtension->SrbFlags;
@@ -1028,7 +1214,7 @@ Return Value:
     // device, starting at byte offset 0.
     //
 
-    deviceExtension->StartingOffset = LiFromUlong(0);
+    deviceExtension->StartingOffset.QuadPart = (LONGLONG)(0);
 
     //
     // TargetId/LUN describes a device location on the SCSI bus.
@@ -1065,6 +1251,8 @@ Return Value:
         status = STATUS_NO_SUCH_DEVICE;
         goto CreateDiskDeviceObjectsExit;
     }
+
+    DisableWriteCache(deviceObject,LunInfo);
 
     writeCache = deviceExtension->WriteCache;
 
@@ -1140,6 +1328,39 @@ Return Value:
     //
 
     diskData = (PDISK_DATA)(deviceExtension + 1);
+
+    //
+    // Determine is DM Driver is loaded on an IDE drive that is
+    // under control of Atapi - this could be either a crashdump or
+    // an Atapi device is sharing the controller with an IDE disk.
+    //
+
+    HalExamineMBR(deviceExtension->DeviceObject,
+                  deviceExtension->DiskGeometry->BytesPerSector,
+                  (ULONG)0x54,
+                  &dmSkew);
+
+    if (dmSkew) {
+
+        //
+        // Update the device extension, so that the call to IoReadPartitionTable
+        // will get the correct information. Any I/O to this disk will have
+        // to be skewed by *dmSkew sectors aka DMByteSkew.
+        //
+
+        deviceExtension->DMSkew = *dmSkew;
+        deviceExtension->DMActive = TRUE;
+        deviceExtension->DMByteSkew = deviceExtension->DMSkew * bytesPerSector;
+
+        //
+        // Save away the infomation that we need, since this deviceExtension will soon be
+        // blown away.
+        //
+
+        dmActive = TRUE;
+        dmByteSkew = deviceExtension->DMByteSkew;
+
+    }
 
     //
     // Create objects for all the partitions on the device.
@@ -1232,8 +1453,14 @@ Return Value:
         // Check the registry and determine if the BIOS knew about this drive.  If
         // it did then update the geometry with the BIOS information.
         //
+        // FMR does not have ROM Bios. INT 13 disk parameter is invalid.
+        // Do not invoke UpdateGeometry on FMR.
+        //
 
-        UpdateGeometry(deviceExtension);
+        if ( !FujitsuFMR ) {
+
+            UpdateGeometry(deviceExtension);
+        }
 
         //
         // Create device objects for the device partitions (if any).
@@ -1241,8 +1468,9 @@ Return Value:
         // so only one partition means no objects to create.
         //
 
-        DebugPrint((2,"CreateDiskDeviceObjects: Number of partitions is %d\n",
-            partitionList->PartitionCount));
+        DebugPrint((2,
+                    "CreateDiskDeviceObjects: Number of partitions is %d\n",
+                    partitionList->PartitionCount));
 
         for (partitionNumber = 0; partitionNumber <
             partitionList->PartitionCount; partitionNumber++) {
@@ -1251,11 +1479,14 @@ Return Value:
             // Create partition object and set up partition parameters.
             //
 
-            sprintf(ntNameBuffer, "\\Device\\Harddisk%d\\Partition%d",
-                *DeviceCount, partitionNumber + 1);
+            sprintf(ntNameBuffer,
+                    "\\Device\\Harddisk%d\\Partition%d",
+                    *DeviceCount,
+                    partitionNumber + 1);
 
-            DebugPrint((2,"CreateDiskDeviceObjects: Create device object %s\n",
-                ntNameBuffer));
+            DebugPrint((2,
+                        "CreateDiskDeviceObjects: Create device object %s\n",
+                        ntNameBuffer));
 
             RtlInitString (&ntNameString, ntNameBuffer);
 
@@ -1313,6 +1544,18 @@ Return Value:
             //
 
             deviceExtension = deviceObject->DeviceExtension;
+
+            if (dmActive) {
+
+                //
+                // Restore any saved DM values.
+                //
+
+                deviceExtension->DMByteSkew = dmByteSkew;
+                deviceExtension->DMSkew     = *dmSkew;
+                deviceExtension->DMActive   = TRUE;
+
+            }
 
             //
             // Link new device extension to previous disk data
@@ -1577,15 +1820,14 @@ Return Value:
     // the sector size.
     //
 
-    startingOffset = LiFromUlong(transferByteCount);
-    startingOffset = LiAdd(startingOffset,
-                           currentIrpStack->Parameters.Read.ByteOffset);
+    startingOffset.QuadPart = (currentIrpStack->Parameters.Read.ByteOffset.QuadPart +
+                               transferByteCount);
 
-    if (LiGtr( startingOffset, deviceExtension->PartitionLength) ||
+    if ((startingOffset.QuadPart > deviceExtension->PartitionLength.QuadPart) ||
         (transferByteCount & (deviceExtension->DiskGeometry->BytesPerSector - 1))) {
 
         //
-        // If this error maybe caused by the fact that the drive is not ready.
+        // This error maybe caused by the fact that the drive is not ready.
         //
 
         if (((PDISK_DATA)(deviceExtension + 1))->DriveNotReady) {
@@ -1619,12 +1861,11 @@ Return Value:
 
     //
     // Add partition byte offset to make starting byte relative to
-    // beginning of disk.
+    // beginning of disk. In addition, add in skew for DM Driver, if any.
     //
 
-    currentIrpStack->Parameters.Read.ByteOffset = LiAdd(
-            currentIrpStack->Parameters.Read.ByteOffset,
-            deviceExtension->StartingOffset);
+    currentIrpStack->Parameters.Read.ByteOffset.QuadPart += (deviceExtension->StartingOffset.QuadPart +
+                                                             deviceExtension->DMByteSkew);
 
     //
     // Calculate number of pages in this transfer.
@@ -1690,7 +1931,7 @@ Return Value:
     // Return the results of the call to the port driver.
     //
 
-    return(IoCallDriver(deviceExtension->PortDeviceObject, Irp));
+    return IoCallDriver(deviceExtension->PortDeviceObject, Irp);
 
 } // end ScsiDiskReadWrite()
 
@@ -1719,14 +1960,14 @@ Return Value:
 --*/
 
 {
-    PIO_STACK_LOCATION irpStack = IoGetCurrentIrpStackLocation(Irp);
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    PDISK_DATA diskData = (PDISK_DATA)(deviceExtension + 1);
-    PSCSI_REQUEST_BLOCK srb;
-    PCDB cdb;
+    PIO_STACK_LOCATION     irpStack = IoGetCurrentIrpStackLocation(Irp);
+    PDEVICE_EXTENSION      deviceExtension = DeviceObject->DeviceExtension;
+    PDISK_DATA             diskData = (PDISK_DATA)(deviceExtension + 1);
+    PSCSI_REQUEST_BLOCK    srb;
+    PCDB                   cdb;
     PMODE_PARAMETER_HEADER modeData;
-    ULONG length;
-    NTSTATUS status;
+    ULONG                  length;
+    NTSTATUS               status;
 
     PAGED_CODE();
 
@@ -1805,9 +2046,8 @@ Return Value:
 
         PVERIFY_INFORMATION verifyInfo = Irp->AssociatedIrp.SystemBuffer;
         LARGE_INTEGER byteOffset;
-
-        ULONG sectorOffset;
-        USHORT sectorCount;
+        ULONG         sectorOffset;
+        USHORT        sectorCount;
 
         //
         // Validate buffer length.
@@ -1832,22 +2072,20 @@ Return Value:
         // Add disk offset to starting sector.
         //
 
-        byteOffset = LiAdd(deviceExtension->StartingOffset,
-                                        verifyInfo->StartingOffset);
+        byteOffset.QuadPart = deviceExtension->StartingOffset.QuadPart +
+                                        verifyInfo->StartingOffset.QuadPart;
 
         //
         // Convert byte offset to sector offset.
         //
 
-        sectorOffset = LiShr(byteOffset,
-                             deviceExtension->SectorShift).LowPart;
+        sectorOffset = (ULONG)(byteOffset.QuadPart >> deviceExtension->SectorShift);
 
         //
         // Convert ULONG byte count to USHORT sector count.
         //
 
-        sectorCount = (USHORT)(verifyInfo->Length >>
-                                              deviceExtension->SectorShift);
+        sectorCount = (USHORT)(verifyInfo->Length >> deviceExtension->SectorShift);
 
         //
         // Move little endian values into CDB in big endian format.
@@ -2016,11 +2254,11 @@ Return Value:
         } else {
 
             PDRIVE_LAYOUT_INFORMATION partitionList;
-            PDEVICE_EXTENSION physicalExtension = deviceExtension;
-            PPARTITION_INFORMATION partitionEntry;
-            PDISK_DATA diskData;
-            ULONG tempSize;
-            ULONG i;
+            PDEVICE_EXTENSION         physicalExtension = deviceExtension;
+            PPARTITION_INFORMATION    partitionEntry;
+            PDISK_DATA                diskData;
+            ULONG                     tempSize;
+            ULONG                     i;
 
             //
             // Read partition information.
@@ -2041,8 +2279,7 @@ Return Value:
             // into the intermediatery buffer, return it.
             //
 
-            tempSize = FIELD_OFFSET(DRIVE_LAYOUT_INFORMATION,
-                                    PartitionEntry[0]);
+            tempSize = FIELD_OFFSET(DRIVE_LAYOUT_INFORMATION,PartitionEntry[0]);
             tempSize += partitionList->PartitionCount *
                         sizeof(PARTITION_INFORMATION);
 
@@ -2050,6 +2287,7 @@ Return Value:
                irpStack->Parameters.DeviceIoControl.OutputBufferLength) {
 
                 status = STATUS_BUFFER_TOO_SMALL;
+                ExFreePool(partitionList);
                 break;
             }
 
@@ -2058,9 +2296,7 @@ Return Value:
             // partition entries.
             //
 
-            for (i = 0;
-                 i < partitionList->PartitionCount;
-                 i++) {
+            for (i = 0; i < partitionList->PartitionCount; i++) {
 
                 //
                 // Walk partition chain anchored at physical disk extension.
@@ -2091,7 +2327,7 @@ Return Value:
                     // Check if this partition is not currently being used.
                     //
 
-                    if (LiEqlZero(deviceExtension->PartitionLength)) {
+                    if (!deviceExtension->PartitionLength.QuadPart) {
                        continue;
                     }
 
@@ -2110,8 +2346,8 @@ Return Value:
                     // Check if new partition starts where this partition starts.
                     //
 
-                    if (LiNeq(partitionEntry->StartingOffset,
-                              deviceExtension->StartingOffset)) {
+                    if (partitionEntry->StartingOffset.QuadPart !=
+                              deviceExtension->StartingOffset.QuadPart) {
                         continue;
                     }
 
@@ -2119,8 +2355,8 @@ Return Value:
                     // Check if partition length is the same.
                     //
 
-                    if (LiEql(partitionEntry->PartitionLength,
-                              deviceExtension->PartitionLength)) {
+                    if (partitionEntry->PartitionLength.QuadPart ==
+                              deviceExtension->PartitionLength.QuadPart) {
 
                         //
                         // Partitions match. Update partition number.
@@ -2162,8 +2398,7 @@ Return Value:
         // Update the disk with new partition information.
         //
 
-        PDRIVE_LAYOUT_INFORMATION partitionList =
-            Irp->AssociatedIrp.SystemBuffer;
+        PDRIVE_LAYOUT_INFORMATION partitionList = Irp->AssociatedIrp.SystemBuffer;
 
         //
         // Validate buffer length.
@@ -2177,8 +2412,7 @@ Return Value:
         }
 
         length = sizeof(DRIVE_LAYOUT_INFORMATION) +
-            (partitionList->PartitionCount - 1) *
-            sizeof(PARTITION_INFORMATION);
+            (partitionList->PartitionCount - 1) * sizeof(PARTITION_INFORMATION);
 
 
         if (irpStack->Parameters.DeviceIoControl.InputBufferLength <
@@ -2701,96 +2935,351 @@ Return Value:
         return(TRUE);
     }
 
-    //
-    // Check to see if the write cache is enabled.
-    //
-
-    pageData = ScsiClassFindModePage( modeData, length, MODE_PAGE_CACHING);
-
-    //
-    // Assume that write cache is disabled or not supported.
-    //
-
-    deviceExtension->WriteCache = FALSE;
-
-    //
-    // Check if valid caching page exists.
-    //
-
-    if (pageData != NULL) {
-
-        //
-        // Check if write cache is disabled.
-        //
-
-        if (!((PMODE_CACHING_PAGE)pageData)->WriteCacheEnable) {
-/*
-            //
-            // Enable write cache.
-            //
-
-            ((PMODE_CACHING_PAGE)pageData)->WriteCacheEnable = TRUE;
-
-            //
-            // Extract length from caching page.
-            //
-
-            length = ((PMODE_CACHING_PAGE)pageData)->PageLength;
-
-            //
-            // Compensate for page code and page length.
-            //
-
-            length += 2;
-
-            //
-            // Issue mode select to set the parameter.
-            //
-
-            if (ScsiClassModeSelect(DeviceObject,
-                                    pageData,
-                                    length,
-                                    FALSE)) {
-
-                DebugPrint((1,
-                           "SCSIDISK: Disk write cache enabled\n"));
-                deviceExtension->WriteCache = TRUE;
-
-            } else {
-
-                DebugPrint((1,
-                           "SCSIDISK: Mode select to enable write cache failed\n"));
-            }
-*/
-        } else {
-
-            DebugPrint((1,
-                       "SCSIDISK: Disk write cache already enabled\n"));
-
-            //
-            // Check if forced unit access (FUA) is supported.
-            //
-
-            if (((PMODE_PARAMETER_HEADER)modeData)->DeviceSpecificParameter & MODE_DSP_FUA_SUPPORTED) {
-
-                deviceExtension->WriteCache = TRUE;
-
-            } else {
-
-                DebugPrint((1,
-                           "SCSIDISK: Disk does not support FUA or DPO\n"));
-
-                //
-                // TODO: Log this.
-                //
-            }
-        }
-    }
-
     ExFreePool(modeData);
     return(FALSE);
 
 } // end IsFloppyDevice()
+
+
+BOOLEAN
+ScsiDiskModeSelect(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PCHAR ModeSelectBuffer,
+    IN ULONG Length,
+    IN BOOLEAN SavePage
+    )
+
+/*++
+
+Routine Description:
+
+    This routine sends a mode select command.
+
+Arguments:
+
+    DeviceObject - Supplies the device object associated with this request.
+
+    ModeSelectBuffer - Supplies a buffer containing the page data.
+
+    Length - Supplies the length in bytes of the mode select buffer.
+
+    SavePage - Indicates that parameters should be written to disk.
+
+Return Value:
+
+    Length of the transferred data is returned.
+
+--*/
+{
+    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+    PCDB cdb;
+    SCSI_REQUEST_BLOCK srb;
+    ULONG retries = 1;
+    ULONG length2;
+    NTSTATUS status;
+    PULONG buffer;
+    PMODE_PARAMETER_BLOCK blockDescriptor;
+
+    PAGED_CODE();
+
+    length2 = Length + sizeof(MODE_PARAMETER_HEADER) + sizeof(MODE_PARAMETER_BLOCK);
+
+    //
+    // Allocate buffer for mode select header, block descriptor, and mode page.
+    //
+
+    buffer = ExAllocatePool(NonPagedPoolCacheAligned,length2);
+
+    RtlZeroMemory(buffer, length2);
+
+    //
+    // Set length in header to size of mode page.
+    //
+
+    ((PMODE_PARAMETER_HEADER)buffer)->BlockDescriptorLength = sizeof(MODE_PARAMETER_BLOCK);
+
+    (PULONG)blockDescriptor = (buffer + 1);
+
+    //
+    // Set size
+    //
+
+    blockDescriptor->BlockLength[1]=0x02;
+
+    //
+    // Copy mode page to buffer.
+    //
+
+    RtlCopyMemory(buffer + 3, ModeSelectBuffer, Length);
+
+    //
+    // Zero SRB.
+    //
+
+    RtlZeroMemory(&srb, sizeof(SCSI_REQUEST_BLOCK));
+
+    //
+    // Build the MODE SELECT CDB.
+    //
+
+    srb.CdbLength = 6;
+    cdb = (PCDB)srb.Cdb;
+
+    //
+    // Set timeout value from device extension.
+    //
+
+    srb.TimeOutValue = deviceExtension->TimeOutValue * 2;
+
+    cdb->MODE_SELECT.OperationCode = SCSIOP_MODE_SELECT;
+    cdb->MODE_SELECT.SPBit = SavePage;
+    cdb->MODE_SELECT.PFBit = 1;
+    cdb->MODE_SELECT.ParameterListLength = (UCHAR)(length2);
+
+Retry:
+
+    status = ScsiClassSendSrbSynchronous(DeviceObject,
+                                         &srb,
+                                         buffer,
+                                         length2,
+                                         TRUE);
+
+
+    if (status == STATUS_VERIFY_REQUIRED) {
+
+        //
+        // Routine ScsiClassSendSrbSynchronous does not retry requests returned with
+        // this status.
+        //
+
+        if (retries--) {
+
+            //
+            // Retry request.
+            //
+
+            goto Retry;
+        }
+
+    } else if (SRB_STATUS(srb.SrbStatus) == SRB_STATUS_DATA_OVERRUN) {
+        status = STATUS_SUCCESS;
+    }
+
+    ExFreePool(buffer);
+
+    if (NT_SUCCESS(status)) {
+        return(TRUE);
+    } else {
+        return(FALSE);
+    }
+
+} // end SciDiskModeSelect()
+
+
+VOID
+DisableWriteCache(
+    IN PDEVICE_OBJECT DeviceObject,
+    IN PSCSI_INQUIRY_DATA LunInfo
+    )
+
+{
+    PDEVICE_EXTENSION          deviceExtension = DeviceObject->DeviceExtension;
+    PINQUIRYDATA               InquiryData     = (PINQUIRYDATA)LunInfo->InquiryData;
+    BAD_CONTROLLER_INFORMATION const *controller;
+    ULONG                      j,length;
+    PVOID                      modeData;
+    PUCHAR                     pageData;
+
+    for (j = 0; j <  NUMBER_OF_BAD_CONTROLLERS; j++) {
+
+        controller = &ScsiDiskBadControllers[j];
+
+        if (!controller->DisableWriteCache || strncmp(controller->InquiryString, InquiryData->VendorId, strlen(controller->InquiryString))) {
+            continue;
+        }
+
+        DebugPrint((1, "ScsiDisk.DisableWriteCache, Found bad controller! %s\n", controller->InquiryString));
+
+        modeData = ExAllocatePool(NonPagedPoolCacheAligned, MODE_DATA_SIZE);
+
+        if (modeData == NULL) {
+
+            DebugPrint((1,
+                        "ScsiDisk.DisableWriteCache: Check for write-cache enable failed\n"));
+            return;
+        }
+
+        RtlZeroMemory(modeData, MODE_DATA_SIZE);
+
+        length = ScsiClassModeSense(DeviceObject,
+                                    modeData,
+                                    MODE_DATA_SIZE,
+                                    MODE_SENSE_RETURN_ALL);
+
+        if (length < sizeof(MODE_PARAMETER_HEADER)) {
+
+            //
+            // Retry the request in case of a check condition.
+            //
+
+            length = ScsiClassModeSense(DeviceObject,
+                                    modeData,
+                                    MODE_DATA_SIZE,
+                                    MODE_SENSE_RETURN_ALL);
+
+            if (length < sizeof(MODE_PARAMETER_HEADER)) {
+
+
+                DebugPrint((1,
+                            "ScsiDisk.DisableWriteCache: Mode Sense failed\n"));
+
+                ExFreePool(modeData);
+                return;
+
+            }
+        }
+
+        //
+        // If the length is greater than length indicated by the mode data reset
+        // the data to the mode data.
+        //
+
+        if (length > (ULONG) ((PMODE_PARAMETER_HEADER) modeData)->ModeDataLength + 1) {
+            length = ((PMODE_PARAMETER_HEADER) modeData)->ModeDataLength + 1;
+        }
+
+        //
+        // Check to see if the write cache is enabled.
+        //
+
+        pageData = ScsiClassFindModePage( modeData, length, MODE_PAGE_CACHING);
+
+        //
+        // Assume that write cache is disabled or not supported.
+        //
+
+        deviceExtension->WriteCache = FALSE;
+
+        //
+        // Check if valid caching page exists.
+        //
+
+        if (pageData != NULL) {
+
+            BOOLEAN savePage = FALSE;
+
+            savePage = (BOOLEAN)(((PMODE_CACHING_PAGE)pageData)->PageSavable);
+
+            //
+            // Check if write cache is disabled.
+            //
+
+            if (((PMODE_CACHING_PAGE)pageData)->WriteCacheEnable) {
+
+                PIO_ERROR_LOG_PACKET errorLogEntry;
+                LONG                 errorCode;
+
+
+                //
+                // Disable write cache and ensure necessary fields are zeroed.
+                //
+
+                ((PMODE_CACHING_PAGE)pageData)->WriteCacheEnable = FALSE;
+                ((PMODE_CACHING_PAGE)pageData)->Reserved = 0;
+                ((PMODE_CACHING_PAGE)pageData)->PageSavable = 0;
+                ((PMODE_CACHING_PAGE)pageData)->Reserved2 = 0;
+
+                //
+                // Extract length from caching page.
+                //
+
+                length = ((PMODE_CACHING_PAGE)pageData)->PageLength;
+
+                //
+                // Compensate for page code and page length.
+                //
+
+                length += 2;
+
+                //
+                // Issue mode select to set the parameter.
+                //
+
+                if (ScsiDiskModeSelect(DeviceObject,
+                                       pageData,
+                                       length,
+                                       savePage)) {
+
+                    DebugPrint((1,
+                               "SCSIDISK: Disk write cache disabled\n"));
+
+                    deviceExtension->WriteCache = FALSE;
+                    errorCode = IO_WRITE_CACHE_DISABLED;
+
+                } else {
+                    if (ScsiDiskModeSelect(DeviceObject,
+                                           pageData,
+                                           length,
+                                           savePage)) {
+
+                        DebugPrint((1,
+                                   "SCSIDISK: Disk write cache disabled\n"));
+
+                        deviceExtension->WriteCache = FALSE;
+                        errorCode = IO_WRITE_CACHE_DISABLED;
+
+                    } else {
+
+                            DebugPrint((1,
+                                       "SCSIDISK: Mode select to disable write cache failed\n"));
+
+                            deviceExtension->WriteCache = TRUE;
+                            errorCode = IO_WRITE_CACHE_ENABLED;
+                    }
+                }
+
+                //
+                // Log the appropriate informational or error entry.
+                //
+
+                errorLogEntry = (PIO_ERROR_LOG_PACKET)IoAllocateErrorLogEntry(
+                                                         DeviceObject,
+                                                         sizeof(IO_ERROR_LOG_PACKET) + 3
+                                                             * sizeof(ULONG));
+
+                if (errorLogEntry != NULL) {
+
+                    errorLogEntry->FinalStatus     = STATUS_SUCCESS;
+                    errorLogEntry->ErrorCode       = errorCode;
+                    errorLogEntry->SequenceNumber  = 0;
+                    errorLogEntry->MajorFunctionCode = IRP_MJ_SCSI;
+                    errorLogEntry->IoControlCode   = 0;
+                    errorLogEntry->RetryCount      = 0;
+                    errorLogEntry->UniqueErrorValue = 0x1;
+                    errorLogEntry->DumpDataSize    = 3 * sizeof(ULONG);
+                    errorLogEntry->DumpData[0]     = LunInfo->PathId;
+                    errorLogEntry->DumpData[1]     = LunInfo->TargetId;
+                    errorLogEntry->DumpData[2]     = LunInfo->Lun;
+
+                    //
+                    // Write the error log packet.
+                    //
+
+                    IoWriteErrorLogEntry(errorLogEntry);
+                }
+            }
+        }
+
+        //
+        // Found device so exit the loop and return.
+        //
+
+        break;
+    }
+
+    return;
+}
+
 
 
 BOOLEAN
@@ -2816,16 +3305,17 @@ Return Value:
 
 --*/
 {
-    PIRP irp;
+    LARGE_INTEGER   sectorZero;
+    PIRP            irp;
     IO_STATUS_BLOCK ioStatus;
-    LARGE_INTEGER sectorZero = LiFromUlong(0);
-    KEVENT event;
-    NTSTATUS status;
-    ULONG sectorSize;
-    PULONG mbr;
-    ULONG i;
+    KEVENT          event;
+    NTSTATUS        status;
+    ULONG           sectorSize;
+    PULONG          mbr;
+    ULONG           i;
 
     PAGED_CODE();
+    sectorZero.QuadPart = (LONGLONG) 0;
 
     //
     // Create notification event object to be used to signal the inquiry
@@ -2941,24 +3431,24 @@ Return Value:
 
 --*/
 {
-    PDISK_DATA diskData = (PDISK_DATA)(DeviceExtension + 1);
+    PDISK_DATA        diskData = (PDISK_DATA)(DeviceExtension + 1);
+    BOOLEAN           diskFound = FALSE;
     OBJECT_ATTRIBUTES objectAttributes;
-    UNICODE_STRING unicodeString;
-    UNICODE_STRING identifier;
-    ULONG busNumber;
-    ULONG adapterNumber;
-    ULONG diskNumber;
-    HANDLE adapterKey;
-    HANDLE spareKey;
-    HANDLE diskKey;
-    HANDLE targetKey;
-    NTSTATUS status;
-    STRING string;
-    STRING anotherString;
-    ULONG length;
-    UCHAR buffer[16];
+    UNICODE_STRING    unicodeString;
+    UNICODE_STRING    identifier;
+    ULONG             busNumber;
+    ULONG             adapterNumber;
+    ULONG             diskNumber;
+    HANDLE            adapterKey;
+    HANDLE            spareKey;
+    HANDLE            diskKey;
+    HANDLE            targetKey;
+    NTSTATUS          status;
+    STRING            string;
+    STRING            anotherString;
+    ULONG             length;
+    UCHAR             buffer[20];
     PKEY_VALUE_FULL_INFORMATION keyData;
-    BOOLEAN diskFound = FALSE;
 
     PAGED_CODE();
 
@@ -3155,7 +3645,7 @@ Return Value:
                     // Convert checksum to ansi string.
                     //
 
-                    sprintf(buffer, "%x", diskData->MbrCheckSum);
+                    sprintf(buffer, "%08x", diskData->MbrCheckSum);
 
                 } else {
 
@@ -3163,7 +3653,7 @@ Return Value:
                     // Convert signature to ansi string.
                     //
 
-                    sprintf(buffer, "%x", diskData->Signature);
+                    sprintf(buffer, "%08x", diskData->Signature);
 
                     //
                     // Make string point at signature. Can't use scan
@@ -3193,7 +3683,7 @@ Return Value:
 
                 if (RtlCompareString(&string,
                                      &anotherString,
-                                     TRUE) == 0) {
+                                     TRUE) == 0)  {
 
                     diskFound = TRUE;
                     *DiskNumber = diskNumber;
@@ -3267,6 +3757,8 @@ Return Value:
     ULONG sectors;
     ULONG sectorsPerTrack;
     ULONG tracksPerCylinder;
+    BOOLEAN foundEZHooker;
+    PVOID tmpPtr;
 
     PAGED_CODE();
 
@@ -3445,8 +3937,8 @@ diskMatched:
     // Calculate the actual number of sectors.
     //
 
-    sectors = LiShr(DeviceExtension->PartitionLength,
-                                     DeviceExtension->SectorShift).LowPart;
+    sectors = (ULONG)(DeviceExtension->PartitionLength.QuadPart >>
+                                     DeviceExtension->SectorShift);
 
 #if DBG
     if (sectors >= cylinders * tracksPerCylinder * sectorsPerTrack) {
@@ -3483,7 +3975,7 @@ diskMatched:
 
     DeviceExtension->DiskGeometry->SectorsPerTrack = sectorsPerTrack;
     DeviceExtension->DiskGeometry->TracksPerCylinder = tracksPerCylinder;
-    DeviceExtension->DiskGeometry->Cylinders = LiFromUlong(cylinders);
+    DeviceExtension->DiskGeometry->Cylinders.QuadPart = (LONGLONG)cylinders;
 
     DebugPrint((3,
                "SCSIDISK: UpdateGeometry: BIOS spt %x, #heads %x, #cylinders %x\n",
@@ -3492,9 +3984,73 @@ diskMatched:
                cylinders));
 
     ExFreePool(keyData);
+
+    foundEZHooker = FALSE;
+
+    if (!DeviceExtension->DMActive) {
+
+        HalExamineMBR(DeviceExtension->DeviceObject,
+                      DeviceExtension->DiskGeometry->BytesPerSector,
+                      (ULONG)0x55,
+                      &tmpPtr
+                      );
+
+        if (tmpPtr) {
+
+            ExFreePool(tmpPtr);
+            foundEZHooker = TRUE;
+
+        }
+
+    }
+
+    if (DeviceExtension->DMActive || foundEZHooker) {
+
+        while (cylinders > 1024) {
+
+            tracksPerCylinder = tracksPerCylinder*2;
+            cylinders = cylinders/2;
+
+        }
+
+        //
+        // int 13 values are always 1 less.
+        //
+
+        tracksPerCylinder -= 1;
+        cylinders -= 1;
+
+        //
+        // DM reserves the CE cylinder
+        //
+
+        cylinders -= 1;
+
+        DeviceExtension->DiskGeometry->Cylinders.QuadPart = cylinders + 1;
+        DeviceExtension->DiskGeometry->TracksPerCylinder = tracksPerCylinder + 1;
+
+        DeviceExtension->PartitionLength.QuadPart =
+            DeviceExtension->DiskGeometry->Cylinders.QuadPart *
+                DeviceExtension->DiskGeometry->SectorsPerTrack *
+                DeviceExtension->DiskGeometry->BytesPerSector *
+                DeviceExtension->DiskGeometry->TracksPerCylinder;
+
+        if (DeviceExtension->DMActive) {
+
+            DeviceExtension->DMByteSkew = DeviceExtension->DMSkew * DeviceExtension->DiskGeometry->BytesPerSector;
+
+        }
+
+    } else {
+
+        DeviceExtension->DMByteSkew = 0;
+
+    }
+
     return;
 
 } // end UpdateGeometry()
+
 
 
 NTSTATUS
@@ -3525,11 +4081,11 @@ Return Value:
 --*/
 {
 
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
-    NTSTATUS status;
+    PDEVICE_EXTENSION         deviceExtension = DeviceObject->DeviceExtension;
     PDRIVE_LAYOUT_INFORMATION partitionList;
-    PDISK_DATA diskData;
-    ULONG partitionNumber;
+    NTSTATUS                  status;
+    PDISK_DATA                diskData;
+    ULONG                     partitionNumber;
 
     //
     // Determine if the size of the partition may have changed because
@@ -3612,22 +4168,17 @@ Return Value:
         //
 
         diskData->PartitionType = 0;
-
-        diskData->BootIndicator =0;
-
-        deviceExtension->StartingOffset = LiFromLong(0);
-
-        deviceExtension->PartitionLength = LiFromLong(0);
-
+        diskData->BootIndicator = 0;
         diskData->HiddenSectors = 0;
-
+        deviceExtension->StartingOffset.QuadPart  = (LONGLONG)0;
+        deviceExtension->PartitionLength.QuadPart = (LONGLONG)0;
     }
 
     //
     // Free the parition list allocate by I/O read partition table.
     //
 
-    ExFreePool( partitionList );
+    ExFreePool(partitionList);
 
 
     return(STATUS_SUCCESS);
@@ -3700,7 +4251,7 @@ Return Value:
 VOID
 ScanForSpecial(
     PDEVICE_OBJECT DeviceObject,
-    PINQUIRYDATA InquiryData,
+    PSCSI_INQUIRY_DATA LunInfo,
     PIO_SCSI_CAPABILITIES PortCapabilities
     )
 
@@ -3726,9 +4277,12 @@ Return Value:
 --*/
 
 {
-    PDEVICE_EXTENSION deviceExtension = DeviceObject->DeviceExtension;
+    PDEVICE_EXTENSION          deviceExtension = DeviceObject->DeviceExtension;
+    PINQUIRYDATA               InquiryData     = (PINQUIRYDATA)LunInfo->InquiryData;
     BAD_CONTROLLER_INFORMATION const *controller;
-    ULONG j;
+    ULONG                      j,length;
+    PVOID                      modeData;
+    PUCHAR                     pageData;
 
     for (j = 0; j <  NUMBER_OF_BAD_CONTROLLERS; j++) {
 
@@ -3742,6 +4296,7 @@ Return Value:
 
         //
         // Found a listed controller.  Determine what must be done.
+        // DisableWriteCache may be set. This will be picked up in DisableWriteCache().
         //
 
         if (controller->DisableTaggedQueuing) {
@@ -3915,30 +4470,35 @@ Return Value:
 
 --*/
 {
-    PDEVICE_EXTENSION physicalExtension = PhysicalDisk->DeviceExtension;
+    PDEVICE_EXTENSION         physicalExtension = PhysicalDisk->DeviceExtension;
     PDRIVE_LAYOUT_INFORMATION partitionList = Irp->AssociatedIrp.SystemBuffer;
-    ULONG partition;
-    ULONG partitionNumber;
-    ULONG partitionCount;
-    ULONG lastPartition;
-    ULONG partitionOrdinal;
-    PPARTITION_INFORMATION partitionEntry;
-    CCHAR ntNameBuffer[MAXIMUM_FILENAME_LENGTH];
-    STRING ntNameString;
-    UNICODE_STRING ntUnicodeString;
-    PDEVICE_OBJECT deviceObject;
-    PDEVICE_EXTENSION deviceExtension;
-    PDISK_DATA diskData;
-    NTSTATUS status;
-    BOOLEAN found;
+    ULONG                     partition;
+    ULONG                     partitionNumber;
+    ULONG                     partitionCount;
+    ULONG                     lastPartition;
+    ULONG                     partitionOrdinal;
+    PPARTITION_INFORMATION    partitionEntry;
+    CCHAR                     ntNameBuffer[MAXIMUM_FILENAME_LENGTH];
+    STRING                    ntNameString;
+    UNICODE_STRING            ntUnicodeString;
+    PDEVICE_OBJECT            deviceObject;
+    PDEVICE_EXTENSION         deviceExtension;
+    PDISK_DATA                diskData;
+    NTSTATUS                  status;
+    BOOLEAN                   found;
 
     //
-    // BUGBUG: WINDISK has a bug where it is setting up the partition
-    // count incorrectly. This accounts for that bug.
+    // FMR has 10 partition entries.
     //
 
-    partitionCount =
-      ((partitionList->PartitionCount + 3) / 4) * 4;
+    if ( FujitsuFMR ) {
+
+        partitionCount = ((partitionList->PartitionCount + 9) / 10) * 10;
+
+    }else {
+
+        partitionCount = ((partitionList->PartitionCount + 3) / 4) * 4;
+    }
 
     //
     // Zero all of the partition numbers.
@@ -3988,7 +4548,7 @@ Return Value:
         // Check if this partition is not currently being used.
         //
 
-        if (LiEqlZero(deviceExtension->PartitionLength)) {
+        if (!deviceExtension->PartitionLength.QuadPart) {
            continue;
         }
 
@@ -3999,9 +4559,7 @@ Return Value:
         found = FALSE;
         partitionOrdinal = 0;
 
-        for (partition = 0;
-             partition < partitionCount;
-             partition++) {
+        for (partition = 0; partition < partitionCount; partition++) {
 
             //
             // Get partition descriptor.
@@ -4028,8 +4586,8 @@ Return Value:
             // Check if new partition starts where this partition starts.
             //
 
-            if (LiNeq(partitionEntry->StartingOffset,
-                      deviceExtension->StartingOffset)) {
+            if (partitionEntry->StartingOffset.QuadPart !=
+                      deviceExtension->StartingOffset.QuadPart) {
                 continue;
             }
 
@@ -4037,8 +4595,8 @@ Return Value:
             // Check if partition length is the same.
             //
 
-            if (LiEql(partitionEntry->PartitionLength,
-                      deviceExtension->PartitionLength)) {
+            if (partitionEntry->PartitionLength.QuadPart ==
+                      deviceExtension->PartitionLength.QuadPart) {
 
                 DebugPrint((3,
                            "UpdateDeviceObjects: Found match for \\Harddisk%d\\Partition%d\n",
@@ -4096,7 +4654,7 @@ Return Value:
                        physicalExtension->DeviceNumber,
                        diskData->PartitionNumber));
 
-            deviceExtension->PartitionLength = LiFromUlong(0);
+            deviceExtension->PartitionLength.QuadPart = (LONGLONG) 0;
         }
 
     } while (TRUE);
@@ -4179,7 +4737,7 @@ Return Value:
             // A device object is free if the partition length is set to zero.
             //
 
-            if (LiEqlZero(deviceExtension->PartitionLength)) {
+            if (!deviceExtension->PartitionLength.QuadPart) {
                partitionNumber = diskData->PartitionNumber;
                break;
             }

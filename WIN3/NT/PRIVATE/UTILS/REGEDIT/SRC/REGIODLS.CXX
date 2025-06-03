@@ -157,10 +157,10 @@ Return Value:
     IoResourceList  = ( PIO_RESOURCE_LIST )Data;
 
     TmpList = ( PARRAY )NEW( ARRAY );
-    DbgPtrAssert( TmpList );
+    DebugPtrAssert( TmpList );
     if( ( TmpList == NULL ) ||
         ( !TmpList->Initialize() ) ) {
-        DbgPrintf("REGEDT32: Out of memory" );
+        DebugPrintf("REGEDT32: Out of memory" );
         DELETE( TmpList );
         return( FALSE );
     }
@@ -193,7 +193,7 @@ Return Value:
                 //
                 if( ( ULONG )IoResourceDescriptor >
                         ( ULONG )( Data + Size - sizeof( IO_RESOURCE_DESCRIPTOR ) ) ) {
-                    DbgPrintf( "REGEDT32: Invalid IO_RESOURCE_DESCRIPTOR, j = %d \n", j );
+                    DebugPrintf( "REGEDT32: Invalid IO_RESOURCE_DESCRIPTOR, j = %d \n", j );
                     if( DescriptorSize != NULL ) {
                         *DescriptorSize = Size;
                     }
@@ -215,7 +215,7 @@ Return Value:
                                                        IoResourceDescriptor->ShareDisposition,
                                                        IoResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create IO_PORT_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create IO_PORT_DESCRIPTOR" );
                         DELETE( PortDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -234,7 +234,7 @@ Return Value:
                                                             IoResourceDescriptor->ShareDisposition,
                                                             IoResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create IO_INTERRUPT_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create IO_INTERRUPT_DESCRIPTOR" );
                         DELETE( InterruptDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -255,7 +255,7 @@ Return Value:
                                                          IoResourceDescriptor->ShareDisposition,
                                                          IoResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create IO_MEMORY_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create IO_MEMORY_DESCRIPTOR" );
                         DELETE( MemoryDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -274,7 +274,7 @@ Return Value:
                                                       IoResourceDescriptor->ShareDisposition,
                                                       IoResourceDescriptor->Flags ) )
                       ) {
-                        DbgPrintf( "REGEDT32: Unable to create IO_DMA_DESCRIPTOR" );
+                        DebugPrintf( "REGEDT32: Unable to create IO_DMA_DESCRIPTOR" );
                         DELETE( DmaDescriptor );
                         TmpList->DeleteAllMembers();
                         DELETE( TmpList );
@@ -285,7 +285,7 @@ Return Value:
 
                 default:
 
-                    DbgPrintf( "REGEDT32: Unknown IoResourceDescriptor->Type == %#x \n",
+                    DebugPrintf( "REGEDT32: Unknown IoResourceDescriptor->Type == %#x \n",
                                 IoResourceDescriptor->Type );
                     continue;
                 }
@@ -303,7 +303,7 @@ Return Value:
         *DescriptorSize = ( ULONG )( ( ULONG )IoResourceList - ( ULONG )Data );
 #if DBG
         if( *DescriptorSize > Size ) {
-            DbgPrintf( "REGEDT32: Invalid sizes, *DescriptorSize = %d, Size = %d \n", *DescriptorSize, Size );
+            DebugPrintf( "REGEDT32: Invalid sizes, *DescriptorSize = %d, Size = %d \n", *DescriptorSize, Size );
         }
 #endif
     }
@@ -335,8 +335,8 @@ Return Value:
     PITERATOR   Iterator;
     PIO_DESCRIPTOR Descriptor;
 
-    DbgPrintf( "\tVersion = %#x \n", _Version );
-    DbgPrintf( "\tRevision = %#x \n", _Revision );
+    DebugPrintf( "\tVersion = %#x \n", _Version );
+    DebugPrintf( "\tRevision = %#x \n", _Revision );
     if( _DescriptorsList != NULL ) {
         Iterator = _DescriptorsList->QueryIterator();
         while( Descriptor = ( PIO_DESCRIPTOR ) Iterator->GetNext() ) {
@@ -349,7 +349,7 @@ Return Value:
             } else if( Descriptor->IsDescriptorTypeDma() ) {
                 ( ( PIO_DMA_DESCRIPTOR )Descriptor )->DbgDumpObject();
             } else {
-                DbgPrintf( "\tERROR: Unknown Descriptor \n\n" );
+                DebugPrintf( "\tERROR: Unknown Descriptor \n\n" );
             }
         }
         DELETE( Iterator );

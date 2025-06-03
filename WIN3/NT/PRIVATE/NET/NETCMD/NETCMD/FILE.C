@@ -42,7 +42,7 @@
 /* Forward declarations */
 
 VOID NEAR compress_path (TCHAR FAR *, TCHAR *, USHORT2ULONG);
-VOID print_file_info( TCHAR FAR *pifbuf, USHORT2ULONG read );
+VOID print_file_info( TCHAR FAR *pifbuf, USHORT2ULONG _read );
 
 
 
@@ -82,7 +82,7 @@ files_display(TCHAR *  id)
 {
     USHORT		     err;	 /* API return status */
     TCHAR FAR *		     pBuffer;
-    USHORT2ULONG	     read;	 /* num entries read by API */
+    USHORT2ULONG	     _read;	 /* num entries read by API */
     USHORT2ULONG	     total;	 /* num entries available */
     USHORT		     maxLen;	 /* max message length */
     USHORT		     len;	 /* message format size */
@@ -111,14 +111,14 @@ files_display(TCHAR *  id)
 			    3,
 			    (LPBYTE*)&pBuffer,
 			    FULL_SEG_BUFFER_SIZE,
-			    &read,
+			    &_read,
 			    &total,
 			    &resume );
 
 	if( err && err != ERROR_MORE_DATA )
 	    ErrorExit( err );
 
-	if (read == 0)
+	if (_read == 0)
 	    EmptyExit();
 
 	PrintNL();
@@ -127,7 +127,7 @@ files_display(TCHAR *  id)
 
 	/* Print the listing */
 
-	print_file_info( pBuffer, read );
+	print_file_info( pBuffer, _read );
 
 	NetApiBufferFree(pBuffer);
 
@@ -143,14 +143,14 @@ files_display(TCHAR *  id)
 				3,
 				(LPBYTE*)&pBuffer,
 				(DWORD)-1L,
-				&read,
+				&_read,
 				&total,
 				&resume );
 	    if( err && err != ERROR_MORE_DATA )
 		ErrorExit( err );
 
 	    /* Print the listing */
-	    print_file_info( pBuffer, read );
+	    print_file_info( pBuffer, _read );
 	    NetApiBufferFree(pBuffer);
 
 	}
@@ -172,20 +172,27 @@ files_display(TCHAR *  id)
 
 	len = maxLen + (USHORT) 5;
 
-	WriteToCon(fmtULONG, len, len, FileMsgList[FILE_MSG_ID].msg_text,
-		file_list_entry->fi3_id);
 
-	WriteToCon(fmtPSZ, len, len, FileMsgList[FILE_MSG_USER_NAME].msg_text,
-		file_list_entry->fi3_username);
+	WriteToCon(fmtULONG, 0, len,
+               PaddedString(len, FileMsgList[FILE_MSG_ID].msg_text, NULL),
+               file_list_entry->fi3_id);
 
-	WriteToCon(fmtUSHORT, len, len, FileMsgList[FILE_MSG_NUM_LOCKS].msg_text,
-		file_list_entry->fi3_num_locks);
+	WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, FileMsgList[FILE_MSG_USER_NAME].msg_text, NULL),
+               file_list_entry->fi3_username);
 
-	WriteToCon(fmtPSZ, len, len, FileMsgList[FILE_MSG_PATH].msg_text,
-		file_list_entry->fi3_pathname);
+	WriteToCon(fmtUSHORT, 0, len,
+               PaddedString(len, FileMsgList[FILE_MSG_NUM_LOCKS].msg_text, NULL),
+               file_list_entry->fi3_num_locks);
+
+	WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len, FileMsgList[FILE_MSG_PATH].msg_text, NULL),
+               file_list_entry->fi3_pathname);
 
 	PermMap(file_list_entry->fi3_permissions, buf, DIMENSION(buf));
-	WriteToCon(fmtNPSZ, len, len, FileMsgList[FILE_MSG_OPENED_FOR].msg_text, buf);
+	WriteToCon(fmtNPSZ, 0, len,
+               PaddedString(len, FileMsgList[FILE_MSG_OPENED_FOR].msg_text, NULL),
+               buf);
 	NetApiBufferFree((TCHAR FAR *) file_list_entry);
     }
     InfoSuccess();
@@ -201,27 +208,27 @@ files_display(TCHAR *  id)
  *	read - the number of entries to display.
  *
  */
-VOID print_file_info( TCHAR FAR *pifbuf, USHORT2ULONG read )
+VOID print_file_info( TCHAR FAR *pifbuf, USHORT2ULONG _read )
 {
     TCHAR		    comp_path[45];
     struct file_info_3 FAR  *file_list_entry;
     USHORT2ULONG	    i;
 
     for ( i = 0, file_list_entry = (struct file_info_3 FAR *) pifbuf;
-	i < read; i++, file_list_entry++)
+	i < _read; i++, file_list_entry++)
     {
 	WriteToCon(TEXT("%-10lu "),file_list_entry->fi3_id );
 
 	if ( _tcslen (file_list_entry->fi3_pathname) <= 39 )
-	    WriteToCon (TEXT("%-40.40Fws"), file_list_entry->fi3_pathname);
+	    WriteToCon (TEXT("%Fws"), PaddedString(40,file_list_entry->fi3_pathname,NULL));
 	else
 	{
 	    compress_path (file_list_entry->fi3_pathname, comp_path, 39);
-	    WriteToCon(TEXT("%-40.40ws"), comp_path);
+	    WriteToCon(TEXT("%Fws"), PaddedString(40,comp_path,NULL));
 	}
 
-	WriteToCon(TEXT("%-20.20Fws  %-6u\n"),
-		file_list_entry->fi3_username,
+	    WriteToCon(TEXT("%Fws  %-6u\r\n"),
+		PaddedString(20,file_list_entry->fi3_username,NULL),
 		file_list_entry->fi3_num_locks);
     }
 }
@@ -287,7 +294,7 @@ VOID NEAR compress_path(TCHAR FAR *  src, TCHAR * dest, USHORT2ULONG len)
 #ifdef TRACE
     if ( len < 33 )
     {
-	WriteToCon(TEXT("Compress_Path: Length must be at least 33. Given : %d\n"), len);
+	WriteToCon(TEXT("Compress_Path: Length must be at least 33. Given : %d\r\n"), len);
 	return;
     }
 #endif

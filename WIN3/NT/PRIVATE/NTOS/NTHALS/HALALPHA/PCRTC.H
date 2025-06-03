@@ -48,20 +48,30 @@ Revision History:
 #define RTC_CONTROL_REGISTERB 11        // control register B
 #define RTC_CONTROL_REGISTERC 12        // control register C
 #define RTC_CONTROL_REGISTERD 13        // control register D
-
-//
-// The RTC NVRAM byte addresses are 0x0e -- 0x4f.
-//
-// Addresses 0x0E -- 0x3F are reserved for use by VMS/OSF.
-//
-
-// smjfix - these are Jensen specific agreements between the
-//          Flamingo/POST and the NT ARC firmware.
-
-#define RTC_RAM_NT_FLAGS0 0x40          // NT firmware flag set #0
-#define RTC_RAM_CONSOLE_SELECTION 0x4f  // VMS/OSF/NT boot selection
+#define RTC_REGNUMBER_RTC_CR1 0x6A      // control register 1
 
 #ifndef _LANGUAGE_ASSEMBLY
+
+//
+// Definitions for NT area of NVRAM
+//
+typedef struct _RTC_RAM_NT_FLAGS_0 {
+    UCHAR ConfigurationBit : 1;         // Serial line console only
+    UCHAR Fill : 6;
+    UCHAR AutoRunECU : 1;               // Go directly to ECU
+} RTC_RAM_NT_FLAGS_0, *PRTC_RAM_NT_FLAGS_0;
+
+#define RTC_RAM_NT_FLAGS_0_RUNARCAPP    (0x80)
+#define RTC_RAM_NT_FLAGS_0_RESERVED     (0x7E)
+#define RTC_RAM_NT_FLAGS_0_USECOM1FORIO (0x01)
+
+//
+// Values for RTC_RAM_CONSOLE_SELECTION
+//
+
+#define RTC_RAM_CONSOLE_SELECTION_NT    1
+#define RTC_RAM_CONSOLE_SELECTION_VMS   2
+#define RTC_RAM_CONSOLE_SELECTION_OSF   3
 
 //
 // Define Control Register A structure.
@@ -109,6 +119,14 @@ typedef struct _RTC_CONTROL_REGISTER_D {
     UCHAR ValidTime : 1;
 } RTC_CONTROL_REGISTER_D, *PRTC_CONTROL_REGISTER_D;
 
+//
+// Common routine for programming the interval timer
+//
+VOID
+HalpProgramIntervalTimer(
+    IN ULONG RateSelect
+    );
+
 #endif // _LANGUAGE_ASSEMBLY
 
 //
@@ -146,4 +164,3 @@ typedef struct _RTC_CONTROL_REGISTER_D {
 #define MAXIMUM_RATE_SELECT RTC_RATE_SELECT4
 
 #endif // _PCRTC_
-

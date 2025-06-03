@@ -113,39 +113,22 @@ Return Value:
     Template.Process = Process;
 
     //
-    //  Acquire the spinlock
+    //  Now insert this new entry into the event table
     //
 
-    KeAcquireSpinLock( &EventTable->SpinLock, &OldIrql );
+    EventTableEntry = RtlInsertElementGenericTable( &EventTable->Table,
+                                                    &Template,
+                                                    sizeof(EVENT_TABLE_ENTRY),
+                                                    NULL );
 
-    try {
+    //
+    //  Copy over the template again just in case we were given an
+    //  old entry
+    //
 
-        //
-        //  Now insert this new entry into the event table
-        //
+    *EventTableEntry = Template;
 
-        EventTableEntry = RtlInsertElementGenericTable( &EventTable->Table,
-                                                        &Template,
-                                                        sizeof(EVENT_TABLE_ENTRY),
-                                                        NULL );
-
-        //
-        //  Copy over the template again just in case we were given an
-        //  old entry
-        //
-
-        *EventTableEntry = Template;
-
-    } finally {
-
-        //
-        //  Release the spinlock
-        //
-
-        KeReleaseSpinLock( &EventTable->SpinLock, OldIrql );
-
-        DebugTrace(-1, Dbg, "NpAddEventTableEntry -> %08lx\n", EventTableEntry);
-    }
+    DebugTrace(-1, Dbg, "NpAddEventTableEntry -> %08lx\n", EventTableEntry);
 
     //
     //  And now return to our caller
@@ -198,36 +181,19 @@ Return Value:
     }
 
     //
-    //  Acquire the spinlock
+    //  Dereference the event object
     //
 
-    KeAcquireSpinLock( &EventTable->SpinLock, &OldIrql );
+    ObDereferenceObject(Template->Event);
 
-    try {
+    //
+    //  Now remove this element from the generic table
+    //
 
-        //
-        //  Dereference the event object
-        //
+    (VOID)RtlDeleteElementGenericTable( &EventTable->Table,
+                                        Template );
 
-        ObDereferenceObject(Template->Event);
-
-        //
-        //  Now remove this element from the generic table
-        //
-
-        (VOID)RtlDeleteElementGenericTable( &EventTable->Table,
-                                            Template );
-
-    } finally {
-
-        //
-        //  Release the spinlock
-        //
-
-        KeReleaseSpinLock( &EventTable->SpinLock, OldIrql );
-
-        DebugTrace(-1, Dbg, "NpDeleteEventTableEntry -> VOID\n", 0);
-    }
+    DebugTrace(-1, Dbg, "NpDeleteEventTableEntry -> VOID\n", 0);
 
     //
     //  And now return to our caller
@@ -269,29 +235,12 @@ Return Value:
     DebugTrace(+1, Dbg, "NpGetNextEventTableEntry, EventTable = %08lx\n", EventTable);
 
     //
-    //  Acquire the spinlock
+    //  Lookup the next element in the table
     //
 
-    KeAcquireSpinLock( &EventTable->SpinLock, &OldIrql );
+    EventTableEntry = RtlEnumerateGenericTableWithoutSplaying( &EventTable->Table, RestartKey );
 
-    try {
-
-        //
-        //  Lookup the next element in the table
-        //
-
-        EventTableEntry = RtlEnumerateGenericTableWithoutSplaying( &EventTable->Table, RestartKey );
-
-    } finally {
-
-        //
-        //  Release the spinlock
-        //
-
-        KeReleaseSpinLock( &EventTable->SpinLock, OldIrql );
-
-        DebugTrace(-1, Dbg, "NpGetNextEventTableEntry -> %08lx\n", EventTableEntry);
-    }
+    DebugTrace(-1, Dbg, "NpGetNextEventTableEntry -> %08lx\n", EventTableEntry);
 
     //
     //  And now return to our caller

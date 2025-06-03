@@ -65,12 +65,14 @@ CmpFindKeyControlBlockWithLock(
 #pragma alloc_text(PAGE,CmpFreeKeyBody)
 #pragma alloc_text(PAGE,CmpSearchKeyControlBlockTree)
 #pragma alloc_text(PAGE,CmpSearchOpenWorker)
+#pragma alloc_text(PAGE,CmpReinsertKeyControlBlock)
 #endif
 
 PCM_KEY_CONTROL_BLOCK
 CmpCreateKeyControlBlock(
     PHHIVE          Hive,
     HCELL_INDEX     Cell,
+    PCM_KEY_NODE    Node,
     PUNICODE_STRING  BaseName,
     PUNICODE_STRING  KeyName
     )
@@ -89,9 +91,11 @@ Routine Description:
 
 Arguments:
 
-    Hive - Hive that holds the key we are creating a KCB for.
+    Hive - Supplies Hive that holds the key we are creating a KCB for.
 
-    Cell - Cell that contains the key we are creating a KCB for.
+    Cell - Supplies Cell that contains the key we are creating a KCB for.
+
+    Node - Supplies pointer to key node.
 
     BaseName - path of cell relative to which kcb is created
 
@@ -125,21 +129,19 @@ Return Value:
 
     Size = FIELD_OFFSET(CM_KEY_CONTROL_BLOCK, NameBuffer) + namelength;
 
-    kcb = CmpAllocateTag(
-            Size,
-            FALSE,
-            CM_KCB_TAG
-            );
+    kcb = ExAllocatePoolWithTag(PagedPool,
+                                Size,
+                                CM_KCB_TAG);
 
     if (kcb == NULL) {
         UNLOCK_KCB_TREE();
         return(NULL);
     } else {
-        kcb->Signature = CM_KEY_CONTROL_BLOCK_SIGNATURE;
         kcb->Delete = FALSE;
         kcb->RefCount = 0;
         kcb->KeyHive = Hive;
         kcb->KeyCell = Cell;
+        kcb->KeyNode = Node;
 
         kcb->Parent = NULL;
         kcb->Left = NULL;
@@ -181,7 +183,7 @@ Return Value:
                                                &kcbmatch)) {
         case 0:
             // match
-            CmpFree(kcb, KCB_SIZE(kcb));
+            ExFreePool(kcb);
             kcb = kcbmatch;
             break;
 
@@ -474,7 +476,6 @@ Return Value:
     LONG    result;
 
     ASSERT(Root != NULL);
-    ASSERT(Root->Signature == CM_KEY_CONTROL_BLOCK_SIGNATURE);
 
     LOCK_KCB_TREE();
 
@@ -525,7 +526,6 @@ Return Value:
     LONG    result;
 
     ASSERT(Root != NULL);
-    ASSERT(Root->Signature == CM_KEY_CONTROL_BLOCK_SIGNATURE);
 
     p = Root;
 
@@ -596,8 +596,6 @@ Return Value:
 --*/
 {
 
-    ASSERT(KeyControlBlock->Signature == CM_KEY_CONTROL_BLOCK_SIGNATURE);
-
     LOCK_KCB_TREE();
     if (--KeyControlBlock->RefCount == 0) {
 
@@ -612,8 +610,7 @@ Return Value:
         //
         // Free storage
         //
-        KeyControlBlock->Signature = 0;
-        CmpFree(KeyControlBlock, KCB_SIZE(KeyControlBlock));
+        ExFreePool(KeyControlBlock);
 
     }
     UNLOCK_KCB_TREE();
@@ -692,8 +689,6 @@ Return Value:
     PCM_KEY_CONTROL_BLOCK   newparent;
     PCMHIVE CmHive;
 
-
-    ASSERT(KeyControlBlock->Signature == CM_KEY_CONTROL_BLOCK_SIGNATURE);
     ASSERT(KeyControlBlock != CmpKeyControlBlockRoot);
 
     //
@@ -772,6 +767,82 @@ Return Value:
     KeyControlBlock->Right = NULL;
     KeyControlBlock->Parent = NULL;
 
+    return;
+}
+
+
+VOID
+CmpReinsertKeyControlBlock(
+    PCM_KEY_CONTROL_BLOCK   KeyControlBlock
+    )
+/*++
+
+Routine Description:
+
+    Removes a key control block from the KCB tree and reinserts it.
+
+    This is intended to be used when the HCELL_INDEX of a key changes
+    (RestoreKey) to move the KCB to its new place in the tree.
+
+Arguments:
+
+    KeyControlBlock - pointer to a key control block.
+
+Return Value:
+
+    NONE.
+
+--*/
+{
+    PCM_KEY_CONTROL_BLOCK   newparent;
+    PCMHIVE CmHive;
+
+    LOCK_KCB_TREE();
+
+    ASSERT(KeyControlBlock != CmpKeyControlBlockRoot);
+    CmHive = CONTAINING_RECORD(KeyControlBlock->KeyHive, CMHIVE, Hive);
+
+    //
+    // First remove the KCB from the tree.
+    //
+    CmpRemoveKeyControlBlockWithLock(KeyControlBlock);
+
+    //
+    // Now reinsert the KCB in the tree.
+    //
+    switch (CmpFindKeyControlBlockWithLock(CmpKeyControlBlockRoot,
+                                           KeyControlBlock->KeyHive,
+                                           KeyControlBlock->KeyCell,
+                                           &newparent)) {
+        case -1:
+            //
+            // left child
+            //
+            newparent->Left = KeyControlBlock;
+            KeyControlBlock->Parent = newparent;
+            break;
+
+        case 1:
+            //
+            // right child
+            //
+            newparent->Right = KeyControlBlock;
+            KeyControlBlock->Parent = newparent;
+            break;
+
+        default:
+            //
+            // we should never find this, since we just removed it!
+            //
+            KeBugCheckEx(REGISTRY_ERROR,
+                         4, 4,
+                         (ULONG)KeyControlBlock,
+                         (ULONG)newparent);
+
+    }
+
+    CmHive->KcbCount++;     // CmpRemoveKeyControlBlock dereferenced this
+    UNLOCK_KCB_TREE();
     return;
 }
 

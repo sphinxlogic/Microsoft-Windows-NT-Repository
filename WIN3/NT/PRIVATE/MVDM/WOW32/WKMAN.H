@@ -18,10 +18,10 @@
 --*/
 
 ULONG FASTCALL   WK32DirectedYield(PVDMFRAME pFrame);
-ULONG FASTCALL   WK32ExitWindowsExecContinue(PVDMFRAME pFrame);
 ULONG FASTCALL   WK32InitTask(PVDMFRAME pFrame);
 ULONG FASTCALL   WK32KernelTrace(PVDMFRAME pFrame);
-VOID  FASTCALL   WK32KillProcess(PVDMFRAME pFrame);
+ULONG FASTCALL   WK32ExitKernel(PVDMFRAME pFrame);
+ULONG FASTCALL   WK32FatalExit(PVDMFRAME pFrame);
 VOID  FASTCALL   WK32KillRemoteTask(PVDMFRAME pFrame);
 VOID  FASTCALL   WK32KillTask(PVDMFRAME pFrame);
 ULONG FASTCALL   WK32LoadModule32(PVDMFRAME pFrame);
@@ -44,6 +44,14 @@ ULONG FASTCALL   WK32WowWaitForMsgAndEvent(PVDMFRAME pFrame);
 VOID  FASTCALL   WK32WowMsgBox(PVDMFRAME pFrame);
 ULONG FASTCALL   WK32DosWowInit(PVDMFRAME pFrame);
 ULONG FASTCALL   WK32CheckUserGdi(PVDMFRAME pFrame);
+ULONG FASTCALL   WK32WowPartyByNumber(PVDMFRAME pFrame);
+ULONG FASTCALL   WK32WowShouldWeSayWin95(PVDMFRAME pFrame);
+ULONG FASTCALL   WK32GetVersionEx(PVDMFRAME pFrame);
+ULONG FASTCALL WK32WowGetModuleHandle(PVDMFRAME pFrame);
+ULONG FASTCALL WK32GetShortPathName(PVDMFRAME pFrame);
+ULONG FASTCALL WK32FindAndReleaseDib(PVDMFRAME pvf); /* in wdib.c */
+ULONG FASTCALL WK32WowReserveHtask(PVDMFRAME pFrame);
+
 
 BOOL    WK32InitializeHungAppSupport(VOID);
 DWORD   W32HungAppNotifyThread(UINT hKillUniqueID);
@@ -52,20 +60,26 @@ DWORD   W32Thread(LPVOID vpInitialSSSP);
 VOID    W32DestroyTask( PTD ptd);
 VOID    W32EndTask(VOID);
 ULONG   W32GetAppCompatFlags(HTASK16 hTask16);
-VOID	W32InterruptPending(VOID);
-ULONG   W32ReadWOWCompatFlags(HTASK16 htask16);
+ULONG   W32ReadWOWCompatFlags(HTASK16 htask16, DWORD *pdwWOWXCompatFlagsEx);
 VOID    WK32DeleteTask(PTD ptdDelete);
 VOID    WK32InitWowIsKnownDLL(HANDLE hKeyWow);
 LRESULT CALLBACK WK32ForegroundIdleHook(int code, WPARAM wParam, LPARAM lParam);
 VOID    W32RefreshCurrentDirectories (PCHAR lpszzEnv);
+BOOL FASTCALL WowGetProductNameVersion(PSZ pszExePath, PSZ pszProductName,
+                                       DWORD cbProductName, PSZ pszProductVersion,
+                                       DWORD cbProductVersion);
+BOOL FASTCALL WowDoNameVersionMatch(PSZ pszExePath, PSZ pszProductName,
+                                    PSZ pszProductVersion);
 
-
+VOID W32InitWOWSetupNames(VOID);
+BOOL W32IsSetupProgram(PSZ pszModName, PSZ pszFilePath);
 
 // SoftPC Routines
-HANDLE  RegisterWOWIdle(FARPROC W32InterruptPending);
+HANDLE  RegisterWOWIdle(void);
+VOID BlockWOWIdle(BOOL Blocking);
 
 // User32 Routines
-VOID	ShowStartGlass (DWORD GLASSTIME);
+VOID    ShowStartGlass (DWORD GLASSTIME);
 
 typedef struct _HMODCACHE {         /* hmodcache */
     HAND16  hInst16;
@@ -101,19 +115,18 @@ DWORD W32WinOldApThread(PWINOLDAP_THREAD_PARAMS pParams);
 extern INT busycount;               // Used to detect if WOW is hung
 extern HAND16 gKillTaskID;      // 16 bit tdb of task to kill
 extern HAND16 ghShellTDB;       // TDB of WOWEXEC
-extern HANDLE ghwndShell;       // Needed for ExitWindowsExec
-extern LPSTR lpCmdLine;         // For ExitWindowsExecContinue
+extern HWND ghwndShell;       // Needed for ExitWindowsExec
 
-#define CMS_WAITWOWEXECTIMEOUT 60*1000	   // Wait for WOWEXEC to respond
+#define CMS_WAITWOWEXECTIMEOUT 60*1000     // Wait for WOWEXEC to respond
 #define CMS_WAITTASKEXIT       5*1000     // Hung App Wait TimeOut
-#define CMS_FOREVER 0xffffffff         // wait for ever
-#define ALL_TASKS 0xffffffff	       // for exitvdm
+#define CMS_FOREVER            0xffffffff  // wait for ever
+#define ALL_TASKS              0xffffffff  // for exitvdm
 
 // IRQ:     Interrupt: ICA: Line: Description:
 // -------------------------------------------------------------------
-// IRQ1     0x09       0    1	  Keyboard service required.
-#define KEYBOARD_LINE	      1
-#define KEYBOARD_ICA	      0
+// IRQ1     0x09       0    1     Keyboard service required.
+#define KEYBOARD_LINE         1
+#define KEYBOARD_ICA          0
 
 extern HANDLE  hSharedTaskMemory;
 extern DWORD   dwSharedProcessOffset;
@@ -123,5 +136,5 @@ extern VPVOID  vptopPDB;
 VOID CleanseSharedList( VOID );
 VOID AddProcessSharedList( VOID );
 VOID RemoveProcessSharedList( VOID );
-VOID AddTaskSharedList( HTASK16, HAND16 );
+WORD AddTaskSharedList( HTASK16, HAND16, PSZ, PSZ );
 VOID RemoveTaskSharedList( VOID );

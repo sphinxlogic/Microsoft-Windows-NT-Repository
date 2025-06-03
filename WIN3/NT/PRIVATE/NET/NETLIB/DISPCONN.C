@@ -69,10 +69,10 @@ NetpDbgDisplayConnection(
     )
 {
     // largest possible info level (assumes subsets):
-    LPCONNECTION_INFO_1 p = Info; 
+    LPCONNECTION_INFO_1 p = Info;
 
-    NetpDbgPrint( "Connection info (level " FORMAT_DWORD ") at "
-            FORMAT_LPVOID ":\n", Level, (LPVOID) Info);
+    NetpKdPrint(( "Connection info (level " FORMAT_DWORD ") at "
+            FORMAT_LPVOID ":\n", Level, (LPVOID) Info));
 
     switch (Level) {
     case 0 :
@@ -91,7 +91,7 @@ NetpDbgDisplayConnection(
                 p->coni1_netname );
         break;
     default :
-        NetpDbgPrint( "NetpDbgDisplayConnection: **INVALID INFO LEVEL**\n");
+        NetpKdPrint(( "NetpDbgDisplayConnection: **INVALID INFO LEVEL**\n"));
         NetpAssert(FALSE);
         break;
     }
@@ -118,8 +118,8 @@ NetpDbgDisplayConnectionArray(
         EntrySize = sizeof(CONNECTION_INFO_1);
         break;
     default :
-        NetpDbgPrint( "NetpDbgDisplayConnectionArray: "
-                "**INVALID INFO LEVEL**\n");
+        NetpKdPrint(( "NetpDbgDisplayConnectionArray: "
+                "**INVALID INFO LEVEL**\n"));
         NetpAssert(FALSE);
     }
 

@@ -1453,4 +1453,3 @@ node_proc::IsSuitableForMops()
 		   );
 	}
 
-

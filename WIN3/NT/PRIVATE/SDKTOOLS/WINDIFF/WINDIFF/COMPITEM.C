@@ -71,8 +71,8 @@ LPSTR ci_copytext(LPSTR in);
 void ci_makecomposite(COMPITEM ci);
 void ci_compare(COMPITEM ci);
 void FindDelimiters(DIRITEM leftname, DIRITEM rightname, LPSTR delims);
-LPSTR ci_AddTimeString(LPSTR in, COMPITEM ci);
-void WriteLogFile(HFILE hfLog, COMPITEM ci);
+LPSTR ci_AddTimeString(LPSTR in, COMPITEM ci, DIRITEM leftname, DIRITEM rightname);
+void SetStateAndTag( COMPITEM ci, DIRITEM leftname, DIRITEM rightname, BOOL fExact);
 
 
 
@@ -96,10 +96,9 @@ void WriteLogFile(HFILE hfLog, COMPITEM ci);
  * If the list parameter is null, the memory
  * for the compitem is allocated from the gmem_* heap initialised by the app.
  *
- * if hfLog!=NULL then write an entry into the log for each file too.
  */
 COMPITEM
-compitem_new(DIRITEM leftname, DIRITEM rightname, LIST list, BOOL fExact, HFILE hfLog)
+compitem_new(DIRITEM leftname, DIRITEM rightname, LIST list, BOOL fExact)
 {
         COMPITEM ci;
         LPSTR str1, str2;
@@ -159,129 +158,8 @@ compitem_new(DIRITEM leftname, DIRITEM rightname, LIST list, BOOL fExact, HFILE 
                 return(NULL);
         }
 
+        SetStateAndTag(ci, leftname, rightname, fExact);
 
-        /* set the tag (title field) for this item. if the
-         * two files have names that match, we use just that name -
-         * otherwise we use both names separated by a colon 'left : right'.
-         *
-         * in both cases, use the names relative to compare root (the
-         * names will certainly be different if we compare the abs paths)
-         */
-        str1 = dir_getrelname(leftname);
-        str2 = dir_getrelname(rightname);
-
-        /* if only one file - set name to that */
-        if (ci->left == NULL) {
-                ci->tag = ci_copytext(str2);
-        } else if (ci->right == NULL) {
-                ci->tag = ci_copytext(str1);
-        } else {
-                if (lstrcmpi(str1, str2) == 0) {
-                        ci->tag = ci_copytext(str2);
-                } else {
-                        wsprintf(buf, "%s : %s", str1, str2);
-                        ci->tag = ci_copytext(buf);
-                }
-        }
-
-        dir_freerelname(leftname, str1);
-        dir_freerelname(rightname, str2);
-
-
-        if (ci->left == NULL) {
-
-                BOOL Readable = TRUE;
-
-                str1 = dir_getrootdescription(dir_getlist(rightname));
-                wsprintf(buf, "only in %s%s", str1, (Readable ? "" : " (unreadable)"));
-                dir_freerootdescription(dir_getlist(rightname), str1);
-
-                ci->result = ci_copytext(buf);
-                ci->state = STATE_FILERIGHTONLY;
-        } else if (ci->right == NULL) {
-                BOOL Readable = TRUE;
-
-                str1 = dir_getrootdescription(dir_getlist(leftname));
-                wsprintf(buf, "only in %s%s", str1, (Readable ? "" : " (unreadable)"));
-                dir_freerootdescription(dir_getlist(leftname), str1);
-
-                ci->result = ci_copytext(buf);
-                ci->state = STATE_FILELEFTONLY;
-        } else {
-                /* two files - are they the same ? compare
-                 * the file sizes, and if necessary, checksums.
-                 * if the sizes differ, we don't need to checksum.
-                 */
-
-                /* Subtle side-effects below us:
-                   dir_validchecksum merely tells us whether we have YET got a valid
-                   checksum for the file, NOT whether one is available if we tried.
-                   If !fExact then we don't WANT them, so we don't ask.
-                   If fExact then we must FIRST ask for the checksum and only after
-                   that enquire if one is valid.  (file read errors etc will mean that
-                   it is NOT valid).  dir_ getchecksum has side effect of evaluating it
-                   if needed.  If it's by chance available, then we should use it, even
-                   if exact matching is not in operation.
-
-                   Where files differ we report which is earliest in time.
-
-                   The logic is as follows
-                         sizes equal
-                       N     ?                  Y
-                             |          both-sums-known
-                    differ   |          Y       ?      N
-                  (different |      sums-equal  |   exact
-                     sizes)  |     Y    ?  N    |  N  ?          Y
-                             | identical|differ | same|   right-sum-valid
-                             |          |       | size|  N   ?      Y
-                             |          |       |     |right |  left-sum-valid
-                             |          |       |     |un-   | N    ?      Y
-                             |          |       |     |read- |left  |  sums-match
-                             |          |       |     |able  |un-   |  N   ?   Y
-                             |          |       |     |      |read- |differ|identical
-                             |          |       |     |      |able  |      |
-                */
-
-
-                if (dir_getfilesize(leftname) != dir_getfilesize(rightname)) {
-                    ci->state = STATE_DIFFER;
-                    ci->result = ci_AddTimeString("different", ci);
-                } else if (dir_validchecksum(leftname) && dir_validchecksum(rightname)) {
-                    if (dir_getchecksum(leftname) == dir_getchecksum(rightname)) {
-                        ci->result =  ci_copytext("identical");
-                        ci->state = STATE_SAME;
-                     } else {
-                        ci->result = ci_AddTimeString("different", ci);
-                        ci->state = STATE_DIFFER;
-                     }
-                } else if (!fExact){
-                    ci->result = ci_AddTimeString("same size", ci);
-                    ci->state = STATE_SAME;
-                } else {
-                    DWORD LSum = dir_getchecksum(leftname);
-                    DWORD RSum = dir_getchecksum(rightname);
-
-                    if (!dir_validchecksum(rightname) ) {
-                        if (!dir_validchecksum(leftname) ) {
-                            ci->result = ci_AddTimeString("different? (both unreadable).", ci);
-                            ci->state = STATE_DIFFER;
-                        } else {
-                            ci->result = ci_AddTimeString("different? (right unreadable).", ci);
-                            ci->state = STATE_DIFFER;
-                        }
-                    } else if (!dir_validchecksum(leftname) ) {
-                        ci->result = ci_AddTimeString("different? (left unreadable).", ci);
-                        ci->state = STATE_DIFFER;
-                    } else if (LSum!=RSum){
-                        ci->result = ci_AddTimeString("different", ci);
-                        ci->state = STATE_DIFFER;
-                    } else{
-                        ci->result =  ci_copytext("identical");
-                        ci->state = STATE_SAME;
-                    }
-                }
-        }
-        WriteLogFile(hfLog, ci);
 
         /*
          * building the section lists and composite lists can wait
@@ -289,6 +167,39 @@ compitem_new(DIRITEM leftname, DIRITEM rightname, LIST list, BOOL fExact, HFILE 
          */
         return(ci);
 } /* compitem_new */
+
+
+
+/* re-do the checksum based comparison for this file - useful for UNREADABLEs
+   We force fExact to be TRUE - This time we WILL get checksums.
+*/
+void compitem_rescan(COMPITEM ci)
+{
+    DIRITEM diLeft, diRight;
+
+
+    /* This is moderately awkward (see diagram in windiff.c).
+       We need to find out if the thing is remote or not to decide what needs to be
+       nuked and what needs to be rescanned.  The way we get from a ci to the info we
+       need is ci->filedata->diritem->direct->dirlist->hpipe.
+       We let scandir do the work.
+    */
+
+    diLeft = file_getdiritem(ci->left);
+    diRight = file_getdiritem(ci->right);
+
+    dir_rescanfile(diLeft);
+    dir_rescanfile(diRight);
+
+    if (ci->result != NULL) {
+        gmem_free(hHeap, ci->result, lstrlen(ci->result)+1);
+        ci->result = NULL;
+    }
+
+    SetStateAndTag( ci, diLeft, diRight, TRUE);
+} /* compitem_rescan */
+
+
 
 /*
  * delete a compitem and free all associated data.
@@ -671,42 +582,52 @@ compitem_getmark(COMPITEM item)
 /* return TRUE if di looks like it is a text file as opposed to a program file */
 BOOL IsDocName(DIRITEM di)
 {
-        LPSTR ext = dir_getrelname(di);
-        if (ext==NULL) return FALSE;
+        BOOL bRet = FALSE;
+        LPSTR name = dir_getrelname(di);
+        LPSTR ext;                                   /* extension part of name */
+        if (name!=NULL) {                            /* there is a name */
+            ext = _fstrrchr(name, '.');
+            if (ext!=NULL) {                        /* there is a dot in name */
+                ++ext;                              /* skip past the dot */
+                if (   (0==lstrcmp(ext,"doc"))      /* N.B depends on name being lower case */
+                   ||  (0==lstrcmp(ext,"txt"))
+                   ||  (0==lstrcmp(ext,"rtf"))
+                   )
+                        bRet = TRUE;                /* doc type */
+            }
 
-        ext = _fstrrchr(ext, '.');
-        if (ext==NULL) return FALSE;        /* no dot in name */
+        }
 
-        ++ext;                              /* skip past the dot */
-        if (   (0==lstrcmp(ext,"doc"))       /* N.B depends on name being lower case */
-           ||  (0==lstrcmp(ext,"txt"))
-           )
-                return TRUE;                /* doc type */
-
-        return FALSE;                       /* default */
+        if (name!=NULL) dir_freerelname(di, name);
+        return bRet;
 } /* IsDocName */
 
 /* return TRUE if di looks like it is a "C" program file */
 BOOL IsCName(DIRITEM di)
 {
-        LPSTR ext = dir_getrelname(di);
-        if (ext==NULL) return FALSE;
+        BOOL bRet = FALSE;   /* default to not a "C" type */
+        LPSTR name = dir_getrelname(di);
+        LPSTR ext;                                   /* extension part of name */
 
-        ext = _fstrrchr(ext, '.');
-        if (ext==NULL) return FALSE;
+        if (name!=NULL) {                          /* there is a name */
 
-        ++ext;                              /* skip past the dot */
+            ext = _fstrrchr(name, '.');
+            if (ext!=NULL) {                      /* there is a dot in the name */
 
-        if (  (0==lstrcmp(ext,"c"))
-           || (0==lstrcmp(ext,"h"))
-           || (0==lstrcmp(ext,"cxx"))
-           || (0==lstrcmp(ext,"hxx"))
-           || (0==lstrcmp(ext,"cpp"))
-           || (0==lstrcmp(ext,"hpp"))
-           )
-                return TRUE;               /*  "c" type */
+                ++ext;                            /* skip past the dot */
+                if (  (0==lstrcmp(ext,"c"))
+                   || (0==lstrcmp(ext,"h"))
+                   || (0==lstrcmp(ext,"cxx"))
+                   || (0==lstrcmp(ext,"hxx"))
+                   || (0==lstrcmp(ext,"cpp"))
+                   || (0==lstrcmp(ext,"hpp"))
+                   )
+                      bRet = TRUE;                /*  "C" type */
+            }
+        }
 
-        return FALSE;                      /* default  */
+        if (name!=NULL) dir_freerelname(di, name);
+        return bRet;
 } /* IsDocName */
 
 /* This is a bit ugly.  These really belong in a Complist? */
@@ -719,54 +640,6 @@ void compitem_SetCopyPaths(LPSTR RightPath, LPSTR LeftPath)
    lstrcpy(RightRoot, RightPath);
 
 } /* compitem_SetCopyPaths */
-
-/* write to hfLog an entry of the form
-   COPY path1 path2
-   If hfLog is HFILE_ERROR then it means we are not making a log file.
-   compitem_SetCopyPaths MUST be called first.
-*/
-void WriteLogFile(HFILE hfLog, COMPITEM ci)
-{
-    char LogText[1000];
-    DIRITEM diLeft;
-    DIRITEM diRight;
-    char LeftPath[MAX_PATH];
-    char RightPath[MAX_PATH];
-
-    if (hfLog==HFILE_ERROR) return;
-
-    if (  ci->state==STATE_FILELEFTONLY
-       || ci->state==STATE_FILERIGHTONLY
-       || ci->state==STATE_DIFFER
-       ) {
-        diLeft = file_getdiritem(ci->left);
-        diRight = file_getdiritem(ci->right);  // n.b. May return NULL!
-
-        if ( ci->state==STATE_FILERIGHTONLY ) {
-            /* For this case the ValidPath made by dir_MakeValidPath should
-               already exist and not result in any new directories being made!
-               However this is ONLY true because logfiles are ONLY used for
-               Update Local i.e. NOT for copying to a thrid place.
-               I'm not too happy with that restriction, so let's avoid the
-               problem and not call dir_MakeValidPath.
-            */
-            wsprintf( LogText, "REM ERASE %s\\%s\n"
-                    , dir_getrootpath(dir_getlist(diRight)), dir_getrelname(diRight)
-                    );
-        } else if ( ci->state==STATE_FILELEFTONLY ) {
-            /* ignore return codes from MakeValidPath.  Log something anyway */
-            dir_MakeValidPath( LeftPath, diLeft, LeftRoot);
-            dir_MakeValidPath( RightPath, diLeft, RightRoot); // n.b. diRight is NULL!
-            wsprintf( LogText, "COPY %s %s \n", RightPath, LeftPath);
-        } else {
-            /* I think this works out the same paths as the leftonly case would */
-            dir_MakeValidPath( LeftPath, diLeft, LeftRoot);
-            dir_MakeValidPath( RightPath, diRight, RightRoot);
-            wsprintf( LogText, "COPY %s %s\n", RightPath, LeftPath);
-        }
-        _lwrite(hfLog, LogText, lstrlen(LogText));
-    }
-} /* WriteLogFile */
 
 
 
@@ -807,25 +680,33 @@ ci_copytext(LPSTR in)
 } /* ci_copytext */
 
 /* add remark about which is earlier and then ci_copytext it */
-LPSTR ci_AddTimeString(LPSTR in, COMPITEM ci)
+LPSTR ci_AddTimeString(LPSTR in, COMPITEM ci, DIRITEM leftname, DIRITEM rightname)
 {
     FILETIME ftLeft;
     FILETIME ftRight;
     long rc;
-    char buff[200];  /* massively long enough? */
+    char buff[400];  /* massively long enough? */
 
     ftLeft = file_GetTime(ci->left);
     ftRight = file_GetTime(ci->right);
     rc = CompareFileTime(&ftLeft, &ftRight);
 
     lstrcpy(buff, in);
-    if (rc<0)
-        strcat(buff, "(right is more recent)");
-    else if (rc>0)
-        strcat(buff, "(left is more recent)");
+    if (rc<0) {
+        LPSTR str = dir_getrootdescription(dir_getlist(rightname));
+        wsprintf(buff, "%s (%s is more recent)", in, str);
+        dir_freerootdescription(dir_getlist(rightname), str);
+    }
+    else if (rc>0) {
+        LPSTR str = dir_getrootdescription(dir_getlist(leftname));
+        wsprintf(buff, "%s (%s is more recent)", in, str);
+        dir_freerootdescription(dir_getlist(leftname), str);
+    }
     else
         strcat(buff, "(both have identical times)");
+
     return ci_copytext(buff);
+
 } /* ci_AddTimeString */
 
 
@@ -902,7 +783,10 @@ ci_makecomposite(COMPITEM ci)
          * called will refresh the outline view anyway.
          */
         if (ci->state == STATE_DIFFER){
-            if (List_Card(ci->secs_composite) == 1) {
+            if (  (List_Card(ci->secs_composite) == 1)
+               && (STATE_SAME==section_getstate(List_First(ci->secs_composite)))
+               )
+            {
                 windiff_UI(TRUE);
                 MessageBox(hwndClient, "different in blanks only",
                                 "Windiff", MB_ICONINFORMATION|MB_OK);
@@ -913,14 +797,14 @@ ci_makecomposite(COMPITEM ci)
                     ci->result = NULL;
                 }
                 ci->result = ci_copytext("different in blanks only");
-                ci->state = STATE_SAME;
+                // ci->state = STATE_SAME; // No-win situation, but better to leave as differs?
             }
             else ci->state = STATE_DIFFER;  /* could be that blanks option has
                                                changed and it was blanks only
                                                differ which now counts as different
                                             */
         }
-}
+} /* ci_makecomposite */
 
 /*
  * we have two files - compare them and build a composite list.
@@ -1099,10 +983,150 @@ ci_compare(COMPITEM ci)
 }
 
 
+void SetStateAndTag( COMPITEM ci, DIRITEM leftname, DIRITEM rightname, BOOL fExact)
+{
+    /* set the tag (title field) for this item. if the
+     * two files have names that match, we use just that name -
+     * otherwise we use both names separated by a colon 'left : right'.
+     *
+     * in both cases, use the names relative to compare root (the
+     * names will certainly be different if we compare the abs paths)
+     */
+    LPSTR str1 = dir_getrelname(leftname);
+    LPSTR str2 = dir_getrelname(rightname);
+    char buf[2*MAX_PATH+20];
+
+    /* if only one file - set name to that */
+    if (ci->left == NULL) {
+        ci->tag = ci_copytext(str2);
+    } else if (ci->right == NULL) {
+        ci->tag = ci_copytext(str1);
+    } else {
+        if (lstrcmpi(str1, str2) == 0) {
+            ci->tag = ci_copytext(str2);
+        } else {
+            wsprintf(buf, "%s : %s", str1, str2);
+            ci->tag = ci_copytext(buf);
+        }
+    }
+
+    dir_freerelname(leftname, str1);
+    dir_freerelname(rightname, str2);
+
+
+    if (ci->left == NULL) {
+
+        BOOL Readable = TRUE;
+        // At this point we COULD try to set Readable but we would need
+        // to do a rescan to ensure that sumvalid and fileerror are set.
+        // where the file is only found on one side or the other, in the
+        // interests of speed we have NOT TRIED to read the file.
+
+        str1 = dir_getrootdescription(dir_getlist(rightname));
+        wsprintf(buf, "only in %s%s", str1, (Readable ? "" : " (unreadable)"));
+        dir_freerootdescription(dir_getlist(rightname), str1);
+
+        ci->result = ci_copytext(buf);
+        ci->state = STATE_FILERIGHTONLY;
+    } else if (ci->right == NULL) {
+
+        BOOL Readable = TRUE;        // See above
+
+        str1 = dir_getrootdescription(dir_getlist(leftname));
+        wsprintf(buf, "only in %s%s", str1, (Readable ? "" : " (unreadable)"));
+        dir_freerootdescription(dir_getlist(leftname), str1);
+
+        ci->result = ci_copytext(buf);
+        ci->state = STATE_FILELEFTONLY;
+    } else {
+        /* two files - are they the same ? compare
+         * the file sizes, and if necessary, checksums.
+         * if the sizes differ, we don't need to checksum.
+         */
+
+        // if there is some error in the file, we can mark them
+        // as differs and set the text to indicate that one or
+        // both is unreadable.
+        if (dir_fileerror(leftname)) {
+            ci->state = STATE_DIFFER;
+            if (dir_fileerror(rightname)) {
+        	ci->result = ci_copytext("Both files unreadable");
+            } else {
+        	ci->result = ci_copytext("Left file unreadable");
+            }
+        } else if (dir_fileerror(rightname)) {
+            ci->state = STATE_DIFFER;
+            ci->result = ci_copytext("Right file unreadable");
+        }
 
 
 
+        /* Subtle side-effects below us:
+           dir_validchecksum merely tells us whether we have YET got a valid
+           checksum for the file, NOT whether one is available if we tried.
+           If !fExact then we don't WANT them, so we don't ask.
+           If fExact then we must FIRST ask for the checksum and only after
+           that enquire if one is valid.  (file read errors etc will mean that
+           it is NOT valid).  dir_getchecksum has side effect of evaluating it
+           if needed.  If it's by chance available, then we should use it, even
+           if exact matching is not in operation.
+
+           Where files differ we report which is earliest in time.
+
+           The logic is as follows
+                 sizes equal
+               N     ?                  Y
+                     |          both-sums-known
+            differ   |          Y       ?      N
+          (different |      sums-equal  |   exact
+             sizes)  |     Y    ?  N    |  N  ?          Y
+                     | identical|differ | same|   right-sum-valid
+                     |          |       | size|  N   ?      Y
+                     |          |       |     |right |  left-sum-valid
+                     |          |       |     |un-   | N    ?      Y
+                     |          |       |     |read- |left  |  sums-match
+                     |          |       |     |able  |un-   |  N   ?   Y
+                     |          |       |     |      |read- |differ|identical
+                     |          |       |     |      |able  |      |
+        */
 
 
+        else if (dir_getfilesize(leftname) != dir_getfilesize(rightname)) {
+            ci->state = STATE_DIFFER;
+            ci->result = ci_AddTimeString("different", ci, leftname, rightname);
+        } else if (dir_validchecksum(leftname) && dir_validchecksum(rightname)) {
+            if (dir_getchecksum(leftname) == dir_getchecksum(rightname)) {
+                ci->result =  ci_copytext("identical");
+                ci->state = STATE_SAME;
+             } else {
+                ci->result = ci_AddTimeString("different", ci, leftname, rightname);
+                ci->state = STATE_DIFFER;
+             }
+        } else if (!fExact){
+            ci->result = ci_AddTimeString("same size", ci, leftname, rightname);
+            ci->state = STATE_SAME;
+        } else {
+            DWORD LSum = dir_getchecksum(leftname);
+            DWORD RSum = dir_getchecksum(rightname);
 
-
+            if (!dir_validchecksum(rightname) ) {
+                if (!dir_validchecksum(leftname) ) {
+                    ci->result = ci_AddTimeString("different? (both unreadable).", ci, leftname, rightname);
+                    ci->state = STATE_DIFFER;
+                } else {
+                    ci->result = ci_AddTimeString("different? (right unreadable).", ci, leftname, rightname);
+                    ci->state = STATE_DIFFER;
+                }
+            } else if (!dir_validchecksum(leftname) ) {
+                ci->result = ci_AddTimeString("different? (left unreadable).", ci, leftname, rightname);
+                ci->state = STATE_DIFFER;
+            } else if (LSum!=RSum){
+                ci->result = ci_AddTimeString("different", ci, leftname, rightname);
+                ci->state = STATE_DIFFER;
+            } else{
+                ci->result =  ci_copytext("identical");
+                ci->state = STATE_SAME;
+            }
+        }
+    }
+} /* SetStateAndTag */

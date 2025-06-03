@@ -46,6 +46,9 @@ public:
 	LPSTR		m_pszDebuggerOption;
 	FILE *		m_fpLog;
 
+    // set to TRUE when a test fails, reset after WM_TESTSCOMPLETED
+    BOOL        m_fGotErrors;
+
 	// information on running test apps
 	void Reset(void);		//zeros all the data below.
 
@@ -65,4 +68,3 @@ extern OleTestApp vApp;
 
 
 #endif
-

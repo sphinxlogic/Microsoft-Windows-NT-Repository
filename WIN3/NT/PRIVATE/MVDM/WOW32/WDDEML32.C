@@ -167,12 +167,12 @@ ULONG FASTCALL WD32DdeQueryNextServer(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     FREEVDMPTR(pFrame);
 
+#ifdef DEBUG
     GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
-    GETARGPTR(pFrame, sizeof(DDEQUERYNEXTSERVER16), parg16);
-
-    FREEARGPTR(parg16);
     LOGDDEMLRETURN(pFrame, ul);
     FREEVDMPTR(pFrame);
+#endif
+
     RETURN(ul);
 }
 
@@ -189,8 +189,16 @@ ULONG FASTCALL WD32DdeDisconnectList(PVDMFRAME pFrame)
 
     WOW32SAFEASSERTWARN(ul, "WD32DdeDisconnectList\n");
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -210,8 +218,16 @@ ULONG FASTCALL WD32DdeConnect(PVDMFRAME pFrame)
     ul = (ULONG)DdeConnect(parg16->f1, parg16->f2,
                                parg16->f3, (parg16->f4) ? &CC : NULL);
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -229,8 +245,16 @@ ULONG FASTCALL WD32DdeDisconnect(PVDMFRAME pFrame)
 
     WOW32SAFEASSERTWARN(ul, "WD32DdeDisconnect\n");
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -316,8 +340,16 @@ ULONG FASTCALL WD32DdeSetUserHandle(PVDMFRAME pFrame)
 
     WOW32SAFEASSERTWARN(ul, "WD32DdeSetUserHandle\n");
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -396,8 +428,16 @@ ULONG FASTCALL WD32DdeAbandonTransaction(PVDMFRAME pFrame)
 
     WOW32SAFEASSERTWARN(ul, "WD32DdeAbandonTransaction\n");
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -415,8 +455,16 @@ ULONG FASTCALL WD32DdePostAdvise(PVDMFRAME pFrame)
 
     WOW32SAFEASSERTWARN(ul, "WD32DdePostAdvise\n");
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
     FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -452,14 +500,24 @@ ULONG FASTCALL WD32DdeCreateDataHandle(PVDMFRAME pFrame)
                                         parg16->f7);
     }
 
+    // There Could have been a Task Switch Before GetMessage Returned so Don't
+    // Trust any 32 bit flat pointers we have, memory could have been compacted or
+    // moved.
+
+    FREEARGPTR(parg16);
+    FREEVDMPTR(pFrame);
+
     if (lpByte) {
         free_w (lpByte);
     }
 
     WOW32SAFEASSERTWARN(ul, "WD32DdeCreateDataHandle\n");
 
-    FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -488,7 +546,10 @@ ULONG FASTCALL WD32DdeAddData(PVDMFRAME pFrame)
             ul = (ULONG)DdeAddData(parg16->f1, lpByte, cbData, cbOffset);
         } else {
             WOW32SAFEASSERTWARN(0, "WD32DdeAddData:data conversion failed.\n");
-        }
+	}
+	// memory may have moved - invalidate all flat pointers
+	FREEARGPTR(parg16);
+	FREEVDMPTR(pFrame);
         FREEMISCPTR(p);
 
         WOW32SAFEASSERTWARN(ul, "WD32DdeAddData\n");
@@ -498,8 +559,11 @@ ULONG FASTCALL WD32DdeAddData(PVDMFRAME pFrame)
         }
     }
 
-    FREEARGPTR(parg16);
+#ifdef DEBUG
+    GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
     LOGDDEMLRETURN(pFrame, ul);
+    FREEVDMPTR(pFrame);
+#endif
 
     RETURN(ul);
 }
@@ -528,7 +592,13 @@ ULONG FASTCALL WD32DdeGetData(PVDMFRAME pFrame)
         }
 
         DdeDataSize16to32(&(parg16->f3), &(parg16->f4), DataFormat);
-        ul = (ULONG)DdeGetData(parg16->f1, lpByte, parg16->f3, parg16->f4);
+	ul = (ULONG)DdeGetData(parg16->f1, lpByte, parg16->f3, parg16->f4);
+
+	// memory may have moved - invalidate all flat pointers
+	FREEVDMPTR(pFrame);
+	FREEARGPTR(parg16);
+	GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+	GETARGPTR(pFrame, sizeof(DDEGETDATA16), parg16);
 
         GETMISCPTR (parg16->f2, p);
         if (!DdeDataBuf32to16 (p, lpByte, parg16->f3, parg16->f4, DataFormat)) {
@@ -573,7 +643,13 @@ ULONG FASTCALL WD32DdeAccessData(PVDMFRAME pFrame)
         if (lpByte) {
             cbData16 = cbData;
             DdeDataSize32to16(&cbData16, NULL, DataFormat);
-            if (vp = GlobalAllocLock16(GMEM_MOVEABLE, cbData16, &h16)) {
+	    if (vp = GlobalAllocLock16(GMEM_MOVEABLE, cbData16, &h16)) {
+		// 16-bit memory may have moved - invalidate all flat pointers
+		FREEARGPTR(parg16);
+		FREEFRAMEPTR(pFrame);
+		GETFRAMEPTR(((PTD)CURRENTPTD())->vpStack, pFrame);
+		GETARGPTR(pFrame, sizeof(DDEACCESSDATA16), parg16);
+
                 GETMISCPTR (vp, p);
                 if (!DdeIsDataHandleInitialized(parg16->f1) ||
                         DdeDataBuf32to16 (p, lpByte, cbData, 0, DataFormat)) {
@@ -868,7 +944,8 @@ HDDEDATA W32DdemlCallBack(UINT type, UINT fmt, HCONV hconv, HSZ hsz1,
          * On XTYP_CONNECT and XTYP_WILDCONNECT transactions, dwData1 is a
          * pointer to a CONVCONTEXT structure.
          */
-        vpCC = GlobalAllocLock16(GHND, sizeof(CONVCONTEXT16), &hCC16);
+	vpCC = GlobalAllocLock16(GHND, sizeof(CONVCONTEXT16), &hCC16);
+	// WARNING: 16-bit memory may move - invalidate any flat pointers now
         Parm16.Ddeml.dwData1 = vpCC;
         if (vpCC) {
             W32PutConvContext(vpCC, (PCONVCONTEXT)dwData1);
@@ -879,6 +956,7 @@ HDDEDATA W32DdemlCallBack(UINT type, UINT fmt, HCONV hconv, HSZ hsz1,
     Parm16.Ddeml.dwData2 = dwData2;
 
     fSuccess = CallBack16(RET_DDEMLCALLBACK, &Parm16, vp, (PVPVOID)&lReturn);
+    // WARNING: 16-bit memory may move - invalidate any flat pointers now
 
     if (type == XTYP_CONNECT || type == XTYP_WILDCONNECT) {
         GlobalUnlockFree16(vpCC);
@@ -1280,6 +1358,3 @@ VOID W32PutConvContext (VPVOID vp, PCONVCONTEXT pCC32)
 
     FREEMISCPTR(pCC16);
 }
-
-
-

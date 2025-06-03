@@ -18,7 +18,7 @@ extern	char	*malloc();
 extern	char	*strcpy();
 extern	char	*strcat();
 extern	int	strlen();
-extern	char	*mktemp();
+extern	char	*_mktemp();
 
 /* Memory Allocation Hook */
 char *(*mt_alloc)(int) = malloc;
@@ -58,5 +58,5 @@ char *mktmpnam()
 	}
 
 	strcat(pattstr, TMPPATT);
-	return (char *)mktemp(pattstr);
+	return (char *)_mktemp(pattstr);
 }

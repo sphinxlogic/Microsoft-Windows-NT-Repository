@@ -37,7 +37,7 @@ Revision History:
 // These may be included in any order:
 
 #include <ctype.h>              // isprint().
-#include <netdebug.h>           // My prototype, NetpDbgPrint().
+#include <netdebug.h>           // My prototype, NetpKdPrint(()).
 
 
 #if DBG
@@ -50,8 +50,8 @@ Revision History:
 #define DWORDS_PER_LINE  4
 #define BYTES_PER_LINE   (DWORDS_PER_LINE * sizeof(DWORD))
 
-#define SPACE_BETWEEN_BYTES    NetpDbgPrint(" ")
-#define SPACE_BETWEEN_DWORDS   NetpDbgPrint(" ")
+#define SPACE_BETWEEN_BYTES    NetpKdPrint((" "))
+#define SPACE_BETWEEN_DWORDS   NetpKdPrint((" "))
 
 
 DBGSTATIC VOID
@@ -64,12 +64,12 @@ NetpDbgHexDumpLine(
     DWORD BytesDone;
     DWORD HexPosition;
 
-    NetpDbgPrint(FORMAT_LPVOID " ", (LPVOID) StartAddr);
+    NetpKdPrint((FORMAT_LPVOID " ", (LPVOID) StartAddr));
 
     BytePtr = StartAddr;
     BytesDone = 0;
     while (BytesDone < BytesInThisLine) {
-        NetpDbgPrint("%02X", *BytePtr);  // space for "xx" (see pad below).
+        NetpKdPrint(("%02X", *BytePtr));  // space for "xx" (see pad below).
         SPACE_BETWEEN_BYTES;
         ++BytesDone;
         if ( (BytesDone % sizeof(DWORD)) == 0) {
@@ -80,7 +80,7 @@ NetpDbgHexDumpLine(
 
     HexPosition = BytesDone;
     while (HexPosition < BYTES_PER_LINE) {
-        NetpDbgPrint("  ");  // space for "xx" (see byte above).
+        NetpKdPrint(("  "));  // space for "xx" (see byte above).
         SPACE_BETWEEN_BYTES;
         ++HexPosition;
         if ( (HexPosition % sizeof(DWORD)) == 0) {
@@ -90,16 +90,16 @@ NetpDbgHexDumpLine(
 
     BytePtr = StartAddr;
     BytesDone = 0;
-    while (BytesDone < BytesInThisLine) { 
+    while (BytesDone < BytesInThisLine) {
         if (isprint(*BytePtr)) {
-            NetpDbgPrint( FORMAT_CHAR, (CHAR) *BytePtr );
+            NetpKdPrint(( FORMAT_CHAR, (CHAR) *BytePtr ));
         } else {
-            NetpDbgPrint( "." );
+            NetpKdPrint(( "." ));
         }
         ++BytesDone;
         ++BytePtr;
     }
-    NetpDbgPrint("\n");
+    NetpKdPrint(("\n"));
 
 } // NetpDbgHexDumpLine
 

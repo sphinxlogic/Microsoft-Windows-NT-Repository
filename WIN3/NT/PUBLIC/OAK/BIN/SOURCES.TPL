@@ -119,6 +119,8 @@ i860_SOURCES=i860\source1.s
 
 MIPS_SOURCES=mips\source1.s
 
+PPC_SOURCES=ppc\source1.s
+
 
 #
 # Next specify options for the compiler.

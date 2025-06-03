@@ -333,4 +333,4 @@ HWND hWndNewFocus;
 	IMEManage( TRUE );
 #endif
 }
-
+

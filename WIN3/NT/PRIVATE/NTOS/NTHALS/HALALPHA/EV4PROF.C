@@ -12,7 +12,7 @@ Abstract:
     counters within the EV4 core.  This module is appropriate for all
     machines based on microprocessors using the EV4 core.
 
-    N.B. - This module assumes that all processors in a multiprocessor 
+    N.B. - This module assumes that all processors in a multiprocessor
            system are running the microprocessor at the same clock speed.
 
 Author:
@@ -28,36 +28,170 @@ Revision History:
 --*/
 
 #include "halp.h"
-#include "halprof.h"
+#include "axp21064.h"
+
 
 //
-// Define the number of profile interrupts (ticks) that must expire
-// before signaling a profile event.
+// Define space in the HAL-reserved part of the PCR structure for each
+// performance counter's interval count
 //
-
-ULONG HalpNumberOfTicks;
-ULONG HalpNumberOfTicksReload;
-
+// Note that ev4ints.s depends on these positions in the PCR.
 //
-// Define the interval for each profile event (in 100ns units).
-//
+#define PCRProfileCount ((PULONG)(HAL_PCR->ProfileCount.ProfileCount))
+#define PCRProfileCountReload ((PULONG)(&HAL_PCR->ProfileCount.ProfileCountReload))
 
-ULONG HalpProfileInterval;
 
 //
-// Define the event count used to set the performance counter.
+// Define the currently selected profile source for each counter
 //
-
-ULONG EventCount;
-
-//
-// Define the delta between the requested interval and the closest
-// interval that can be generated using the slower clock that is
-// acceptable (in percentage).
-//
+KPROFILE_SOURCE HalpProfileSource0;
+KPROFILE_SOURCE HalpProfileSource1;
 
 #define INTERVAL_DELTA (10)
 
+//
+// Define the mapping between possible profile sources and the
+// CPU-specific settings.
+//
+typedef struct _HALP_PROFILE_MAPPING {
+    BOOLEAN Supported;
+    ULONG MuxControl;
+    ULONG Counter;
+    ULONG EventCount;
+    ULONG NumberOfTicks;
+} HALP_PROFILE_MAPPING, *PHALP_PROFILE_MAPPING;
+
+HALP_PROFILE_MAPPING HalpProfileMapping[ProfileMaximum] =
+    {
+        {TRUE, Ev4TotalCycles,        Ev4PerformanceCounter0, Ev4CountEvents2xx12, 10},
+        {FALSE, 0, 0, 0, 0},
+        {TRUE, Ev4TotalIssues,        Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {TRUE, Ev4PipelineDry,        Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {TRUE, Ev4LoadInstruction,    Ev4PerformanceCounter0, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4PipelineFrozen,     Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {TRUE, Ev4BranchInstructions, Ev4PerformanceCounter0, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4TotalNonIssues,     Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {TRUE, Ev4DcacheMiss,         Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4IcacheMiss,         Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {FALSE, 0, 0, 0, 0},
+        {TRUE, Ev4BranchMispredicts,  Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4StoreInstructions,  Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4FPInstructions,     Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4IntegerOperate,     Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {TRUE, Ev4DualIssues,         Ev4PerformanceCounter1, Ev4CountEvents2xx12, 10},
+        {FALSE, 0, 0, 0, 0},
+        {FALSE, 0, 0, 0, 0},
+        {TRUE, Ev4PalMode,            Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {TRUE, Ev4TotalCycles,        Ev4PerformanceCounter0, Ev4CountEvents2xx16, 10},
+        {FALSE, 0, 0, 0, 0},
+        {FALSE, 0, 0, 0, 0}
+    };
+
+BOOLEAN
+HalQueryProfileInterval(
+    IN KPROFILE_SOURCE Source
+    );
+
+NTSTATUS
+HalSetProfileSourceInterval(
+    IN KPROFILE_SOURCE ProfileSource,
+    IN OUT ULONG *Interval
+    );
+
+
+
+NTSTATUS
+HalpProfileSourceInformation (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength,
+    OUT PULONG  ReturnedLength
+    )
+/*++
+
+Routine Description:
+
+    Returns the HAL_PROFILE_SOURCE_INFORMATION for this processor.
+
+Arguments:
+
+    Buffer - output buffer
+    BufferLength - length of buffer on input
+    ReturnedLength - The length of data returned
+
+Return Value:
+
+    STATUS_SUCCESS
+    STATUS_BUFFER_TOO_SMALL - The ReturnedLength contains the buffersize
+        currently needed.
+
+--*/
+{
+   PHAL_PROFILE_SOURCE_INFORMATION SourceInfo;
+   NTSTATUS Status;
+
+
+   if (BufferLength != sizeof(HAL_PROFILE_SOURCE_INFORMATION)) {
+       Status = STATUS_INFO_LENGTH_MISMATCH;
+       return Status;
+   }
+
+   SourceInfo = (PHAL_PROFILE_SOURCE_INFORMATION)Buffer;
+   SourceInfo->Supported = HalQueryProfileInterval(SourceInfo->Source);
+
+   if (SourceInfo->Supported) {
+       SourceInfo->Interval =
+           HalpProfileMapping[SourceInfo->Source].EventCount *
+           HalpProfileMapping[SourceInfo->Source].NumberOfTicks;
+       if (SourceInfo->Source == ProfileTotalIssues) {
+           //
+           // Convert total issues/2 back into total issues
+           //
+           SourceInfo->Interval = SourceInfo->Interval * 2;
+       }
+   }
+
+   Status = STATUS_SUCCESS;
+   return Status;
+}
+
+NTSTATUS
+HalpProfileSourceInterval (
+    OUT PVOID   Buffer,
+    IN  ULONG   BufferLength
+    )
+/*++
+
+Routine Description:
+
+    Returns the HAL_PROFILE_SOURCE_INTERVAL for this processor.
+
+Arguments:
+
+    Buffer - output buffer
+    BufferLength - length of buffer on input
+
+Return Value:
+
+    STATUS_SUCCESS
+    STATUS_BUFFER_TOO_SMALL - The ReturnedLength contains the buffersize
+        currently needed.
+
+--*/
+{
+   PHAL_PROFILE_SOURCE_INTERVAL Interval;
+   NTSTATUS Status;
+
+
+   if (BufferLength != sizeof(HAL_PROFILE_SOURCE_INTERVAL)) {
+       Status = STATUS_INFO_LENGTH_MISMATCH;
+       return Status;
+   }
+
+   Interval = (PHAL_PROFILE_SOURCE_INTERVAL)Buffer;
+   Status = HalSetProfileSourceInterval(Interval->Source,
+                                        &Interval->Interval);
+   return Status;
+}
 
 VOID
 HalpInitializeProfiler(
@@ -95,7 +229,161 @@ Return Value:
 
     return;
 
-}    
+}
+
+
+BOOLEAN
+HalQueryProfileInterval(
+    IN KPROFILE_SOURCE Source
+    )
+
+/*++
+
+Routine Description:
+
+    Given a profile source, returns whether or not that source is
+    supported.
+
+Arguments:
+
+    Source - Supplies the profile source
+
+Return Value:
+
+    TRUE - Profile source is supported
+
+    FALSE - Profile source is not supported
+
+--*/
+
+{
+    if (Source > (sizeof(HalpProfileMapping)/sizeof(HALP_PROFILE_MAPPING))) {
+        return(FALSE);
+    }
+
+    return(HalpProfileMapping[Source].Supported);
+}
+
+
+NTSTATUS
+HalSetProfileSourceInterval(
+    IN KPROFILE_SOURCE ProfileSource,
+    IN OUT ULONG *Interval
+    )
+
+/*++
+
+Routine Description:
+
+    Sets the profile interval for a specified profile source
+
+Arguments:
+
+    ProfileSource - Supplies the profile source
+
+    Interval - Supplies the specified profile interval
+               Returns the actual profile interval
+
+Return Value:
+
+    NTSTATUS
+
+--*/
+
+{
+    ULONG FastTickPeriod;
+    ULONG SlowTickPeriod;
+    ULONG TickPeriod;
+    ULONGLONG CountEvents;
+    ULONG FastCountEvents;
+    ULONG SlowCountEvents;
+    ULONGLONG TempInterval;
+
+    if (!HalQueryProfileInterval(ProfileSource)) {
+        return(STATUS_NOT_IMPLEMENTED);
+    }
+
+    if (ProfileSource == ProfileTime) {
+
+        //
+        // Convert the clock tick period (in 100ns units ) into
+        // a cycle count period
+        //
+
+        CountEvents = ((ULONGLONG)(*Interval) * 100000) / PCR->CycleClockPeriod;
+    } else if (ProfileSource == ProfileTotalIssues) {
+
+        //
+        // Convert the total issue events into the wonky
+        // total issues/2 form implemented by EV4.
+        //
+
+        CountEvents = (ULONGLONG)(*Interval / 2);
+    } else {
+        CountEvents = (ULONGLONG)*Interval;
+    }
+
+    if (HalpProfileMapping[ProfileSource].Counter == Ev4PerformanceCounter1) {
+        FastCountEvents = Ev4CountEvents2xx8;
+        SlowCountEvents = Ev4CountEvents2xx12;
+    } else {
+        FastCountEvents = Ev4CountEvents2xx12;
+        SlowCountEvents = Ev4CountEvents2xx16;
+    }
+
+    //
+    // Limit the interval to the smallest interval we can time.
+    //
+    if (CountEvents < FastCountEvents) {
+        CountEvents = (ULONGLONG)FastCountEvents;
+    }
+
+    //
+    // Assume we will use the fast event count
+    //
+    HalpProfileMapping[ProfileSource].EventCount = FastCountEvents;
+    HalpProfileMapping[ProfileSource].NumberOfTicks =
+      (ULONG)((CountEvents + FastCountEvents - 1) / FastCountEvents);
+
+    //
+    // See if we can successfully use the slower period. If the requested
+    // interval is greater than the slower tick period and the difference
+    // between the requested interval and the interval that we can deliver
+    // with the slower clock is acceptable, then use the slower clock.
+    // We define an acceptable difference as a difference of less than
+    // INTERVAL_DELTA of the requested interval.
+    //
+    if (CountEvents > SlowCountEvents) {
+        ULONG NewInterval;
+
+        NewInterval = (ULONG)(((CountEvents + SlowCountEvents-1) /
+                               SlowCountEvents) * SlowCountEvents);
+        if (((NewInterval - CountEvents) * 100 / CountEvents) < INTERVAL_DELTA) {
+            HalpProfileMapping[ProfileSource].EventCount = SlowCountEvents;
+            HalpProfileMapping[ProfileSource].NumberOfTicks = NewInterval / SlowCountEvents;
+        }
+    }
+
+    *Interval = HalpProfileMapping[ProfileSource].EventCount *
+                HalpProfileMapping[ProfileSource].NumberOfTicks;
+
+    if (ProfileSource == ProfileTime) {
+        //
+        // Convert cycle count back into 100ns clock ticks
+        //
+        // Use 64-bit integer to prevent overflow.
+        //
+        TempInterval = (ULONGLONG)(*Interval) * (ULONGLONG)(PCR->CycleClockPeriod);
+        *Interval = (ULONG)(TempInterval / 100000);
+    } else if (ProfileSource == ProfileTotalIssues) {
+        //
+        // Convert issues/2 count back into issues
+        //
+        TempInterval = (ULONGLONG)(*Interval) * 2;
+        *Interval = (ULONG)TempInterval;
+    }
+    return(STATUS_SUCCESS);
+}
 
 
 ULONG
@@ -120,78 +408,18 @@ Return Value:
 --*/
 
 {
-    ULONG FastTickPeriod;
-    ULONG SlowTickPeriod;
-    ULONG TickPeriod;
+    ULONG NewInterval;
 
-    //
-    // Compute the tick periods for the 2^12 event count and the
-    // 2^16 event count.  The tick periods are computed in 100ns units,
-    // while the clock period is stored in picoseconds.
-    //
-
-    FastTickPeriod = (CountEvents2xx12 * PCR->CycleClockPeriod) / 100000;
-    SlowTickPeriod = (CountEvents2xx16 * PCR->CycleClockPeriod) / 100000;
-
-    //
-    // Assume that we will use the fast event count.
-    //
-
-    TickPeriod = FastTickPeriod;
-    EventCount = CountEvents2xx12;
-
-    //
-    // Limit the interval to the smallest interval we can time, one
-    // tick of the performance counter interrupt.
-    //
-
-    if( Interval < FastTickPeriod ){
-        Interval = FastTickPeriod;
-    }
-
-    //
-    // See if we can successfully use the slower clock period.  If the
-    // requested interval is greater than the slower tick period and
-    // the difference between the requested interval and the interval that
-    // we can deliver with the slower clock is acceptable than use the
-    // slower clock.  We define an acceptable difference as a difference
-    // of less than INTERVAL_DELTA% of the requested interval.
-    //
-
-    if( Interval > SlowTickPeriod ){
-
-        ULONG NewInterval;
-
-        NewInterval = ((Interval + SlowTickPeriod-1) / SlowTickPeriod) *
-                      SlowTickPeriod;
-
-        if( ((NewInterval - Interval) * 100 / Interval) < INTERVAL_DELTA ){
-            EventCount = CountEvents2xx16;
-            TickPeriod = SlowTickPeriod;
-        }
-
-    }
-
-    HalpNumberOfTicks = (Interval + TickPeriod-1) / TickPeriod;
-    HalpProfileInterval = HalpNumberOfTicks * TickPeriod;
-        
-#if HALDBG
-
-    DbgPrint( "HalSetProfileInterval, FastTick=%d, SlowTick=%d Tick=%d\n",
-              FastTickPeriod, SlowTickPeriod, TickPeriod );
-    DbgPrint( "   Interval=%d, EventCount=%d\n", Interval, EventCount );
-
-#endif //HALDBG
-
-    return HalpProfileInterval;
-
+    NewInterval = Interval;
+    HalSetProfileSourceInterval(ProfileTime, &NewInterval);
+    return(NewInterval);
 }
 
 
 
 VOID
 HalStartProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     )
 
 /*++
@@ -214,42 +442,80 @@ Return Value:
 --*/
 
 {
-    BOOLEAN Enable;
+    ULONG PerformanceCounter;
+    ULONG MuxControl;
+    ULONG EventCount;
+
+    //
+    // Check input to see if we are turning on a source that is
+    // supported.  If it is unsupported, just return.
+    //
+
+    if ((ProfileSource > (sizeof(HalpProfileMapping)/sizeof(HALP_PROFILE_MAPPING))) ||
+        (!HalpProfileMapping[ProfileSource].Supported)) {
+        return;
+    }
 
     //
     // Set the performance counter within the processor to begin
     // counting total cycles.
     //
+    PerformanceCounter = HalpProfileMapping[ProfileSource].Counter;
+    MuxControl = HalpProfileMapping[ProfileSource].MuxControl;
 
-    HalpWritePerformanceCounter( PerformanceCounter0,
-                                 Enable = TRUE,
-                                 TotalCycles,
-                                 (EventCount == CountEvents2xx12) ?
-                                     EventCountHigh :
-                                     EventCountLow
-                               );
+    if (PerformanceCounter == Ev4PerformanceCounter0) {
 
-    //
-    // Set current profile count for the current processor.
-    //
+        HalpProfileSource0 = ProfileSource;
+        EventCount = (HalpProfileMapping[ProfileSource].EventCount == Ev4CountEvents2xx12) ?
+                     Ev4EventCountHigh :
+                     Ev4EventCountLow;
+        HalpWritePerformanceCounter( PerformanceCounter,
+                                     TRUE,
+                                     MuxControl,
+                                     EventCount );
 
-    HalpNumberOfTicksReload = HalpNumberOfTicks;
-    PCR->ProfileCount = HalpNumberOfTicks;
+        PCRProfileCountReload[0] = HalpProfileMapping[ProfileSource].NumberOfTicks;
+        PCRProfileCount[0] = HalpProfileMapping[ProfileSource].NumberOfTicks;
 
-    //
-    // Enable the performance counter interrupt.
-    //
+        //
+        // Enable the performance counter interrupt.
+        //
 
-    HalpEnable21064PerformanceInterrupt( PC0_VECTOR, PROFILE_LEVEL );
+        HalEnableSystemInterrupt ( PC0_VECTOR,
+                                   PROFILE_LEVEL,
+                                   LevelSensitive );
+
+
+    } else {
+
+        HalpProfileSource1 = ProfileSource;
+        EventCount = (HalpProfileMapping[ProfileSource].EventCount == Ev4CountEvents2xx12) ?
+                     Ev4EventCountLow :
+                     Ev4EventCountHigh;
+        HalpWritePerformanceCounter( PerformanceCounter,
+                                     TRUE,
+                                     MuxControl,
+                                     EventCount );
+
+        PCRProfileCountReload[1] = HalpProfileMapping[ProfileSource].NumberOfTicks;
+        PCRProfileCount[1] = HalpProfileMapping[ProfileSource].NumberOfTicks;
+
+        //
+        // Enable the performance counter interrupt.
+        //
+
+        HalEnableSystemInterrupt ( PC1_VECTOR,
+                                   PROFILE_LEVEL,
+                                   LevelSensitive );
+    }
 
     return;
-
 }
 
 
 VOID
 HalStopProfileInterrupt (
-    ULONG Reserved
+    KPROFILE_SOURCE ProfileSource
     )
 
 /*++
@@ -272,30 +538,53 @@ Return Value:
 --*/
 
 {
-    BOOLEAN Enable;
+    ULONG PerformanceCounter;
+    ULONG Vector;
+
+    //
+    // Check input to see if we are turning off a source that is
+    // supported.  If it is unsupported, just return.
+    //
+
+    if ((ProfileSource > (sizeof(HalpProfileMapping)/sizeof(HALP_PROFILE_MAPPING))) ||
+        (!HalpProfileMapping[ProfileSource].Supported)) {
+        return;
+    }
 
     //
     // Stop the performance counter from interrupting.
     //
 
-    HalpWritePerformanceCounter( PerformanceCounter0, 
-                                 Enable = FALSE,
+    PerformanceCounter = HalpProfileMapping[ProfileSource].Counter;
+    HalpWritePerformanceCounter( PerformanceCounter,
+                                 FALSE,
                                  0,
                                  0 );
 
     //
     // Disable the performance counter interrupt.
     //
+    if (PerformanceCounter == Ev4PerformanceCounter0) {
+        HalDisableSystemInterrupt( PC0_VECTOR, PROFILE_LEVEL );
 
-    HalpDisable21064PerformanceInterrupt( PC0_VECTOR );
+        //
+        // Clear the current profile count.  Can't clear value in PCR
+        // since a profile interrupt could be pending or in progress
+        // so clear the reload counter.
+        //
 
-    //
-    // Clear the current profile count.  Can't clear value in PCR
-    // since a profile interrupt could be pending or in progress
-    // so clear the reload counter.
-    //
+        PCRProfileCountReload[0] = 0;
+    } else {
+        HalDisableSystemInterrupt( PC1_VECTOR, PROFILE_LEVEL );
 
-    HalpNumberOfTicksReload = 0;
+        //
+        // Clear the current profile count.  Can't clear value in PCR
+        // since a profile interrupt could be pending or in progress
+        // so clear the reload counter.
+        //
+
+        PCRProfileCountReload[0] = 0;
+    }
 
     return;
 }

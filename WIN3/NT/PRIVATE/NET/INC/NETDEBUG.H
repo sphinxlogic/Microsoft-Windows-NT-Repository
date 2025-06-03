@@ -153,6 +153,10 @@ typedef LPSTR LPDEBUG_STRING;
 #define FORMAT_API_STATUS       "%lu"
 #define FORMAT_LPDEBUG_STRING   "%s"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 // NetpAssert: continue if Predicate is true; otherwise print debug message
 // (if possible) and hit a breakpoint (if possible).  Do nothing at all if
@@ -620,12 +624,10 @@ NetpHexDump(
 
 #else // ndef CDEBUG
 
-//  Nondebug version.  Note that both NetpKdPrint() and NetpDbgPrint()
-//  will eliminate all their arguments, but usage of NetpDbgPrint()
-//  may lead to compiler warnings.
+//  Nondebug version.  Note that NetpKdPrint() eliminates all its
+//  arguments.
 
 #define NetpKdPrint(_x_)
-#define NetpDbgPrint(x,y)
 
 #endif // ndef CDEBUG
 #endif // not DBG
@@ -664,5 +666,9 @@ NetpDbgHexDump(
     /*lint -save -e506 */  /* don't complain about constant values here */ \
     ( ((MaxSize) < REASONABLE_DUMP_SIZE) ? (MaxSize) : REASONABLE_DUMP_SIZE ) \
     /*lint -restore */
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ndef _NETDEBUG_

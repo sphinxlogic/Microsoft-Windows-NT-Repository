@@ -5,22 +5,32 @@
 #ifndef _HNTNETAPI_
 #define _HNTNETAPI_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 #ifndef NTSTATUS
 typedef LONG NTSTATUS;
 #endif
 
+DWORD NTSAMConnect(LPTSTR FileServer, LPTSTR DomainName);
+void NTSAMClose();
+DWORD NTSAMParmsSet(LPTSTR ObjectName, FPNW_INFO fpnw, LPTSTR Password, BOOL ForcePasswordChange);
+DWORD NTObjectIDGet( LPTSTR ObjectName );
+
 DWORD NTShareAdd(LPTSTR ShareName, LPTSTR Path);
+DWORD FPNWShareAdd(LPTSTR ShareName, LPTSTR Path);
 void NTUseDel(LPTSTR ServerName);
 
 DWORD NTServerEnum(LPTSTR Container, SERVER_BROWSE_LIST **ServList);
 DWORD NTDomainEnum(SERVER_BROWSE_LIST **lpServList);
-DWORD NTGroupsEnum(GROUP_LIST **lpGroupList, DWORD *GroupCount);
-DWORD NTUsersEnum(USER_LIST **lpUserList, DWORD *UserCount);
+DWORD NTGroupsEnum(GROUP_LIST **lpGroupList);
+DWORD NTUsersEnum(USER_LIST **lpUserList);
 
 DWORD NTGroupSave(LPTSTR Name);
-DWORD NTUserInfoSave(NT_USER_INFO *NT_UInfo);
+DWORD NTUserInfoSave(NT_USER_INFO *NT_UInfo, PFPNW_INFO fpnw);
 void NTServerInfoReset(HWND hWnd, DEST_SERVER_BUFFER *DServ, BOOL ResetDomain);
-DWORD NTUserInfoSet(NT_USER_INFO *NT_UInfo);
+DWORD NTUserInfoSet(NT_USER_INFO *NT_UInfo, PFPNW_INFO fpnw);
 DWORD NTGroupUserAdd(LPTSTR GroupName, LPTSTR UserName, BOOL Local);
 
 void NTUserRecInit(LPTSTR UserName, NT_USER_INFO *NT_UInfo);
@@ -66,6 +76,10 @@ LPTSTR NTAccessLog(ACCESS_MASK AccessMask);
 void NTUserDefaultsGet(NT_DEFAULTS **UDefaults);
 DWORD NTUserDefaultsSet(NT_DEFAULTS UDefaults);
 void NTUserDefaultsLog(NT_DEFAULTS UDefaults);
+BOOL IsFPNW(LPTSTR ServerName);
 
+#ifdef __cplusplus
+}
 #endif
 
+#endif

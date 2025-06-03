@@ -57,9 +57,10 @@ Revision History:
 // Control bits.
 //
 
-#define SSP_TIMESTAMP     0x20000000 // TimeStamp each output line
+#define SSP_NO_LOCAL       0x10000000 // Force client to use OEM character set
+#define SSP_TIMESTAMP      0x20000000 // TimeStamp each output line
 #define SSP_REQUEST_TARGET 0x40000000 // Force client to ask for target name
-#define SSP_USE_OEM       0x80000000 // Force client to use OEM character set
+#define SSP_USE_OEM        0x80000000 // Force client to use OEM character set
 
 
 //

@@ -18,12 +18,10 @@ Revision History:
 
 --*/
 
-#define DPMI_EXEC_INT(x)    DpmiSwitchToRealMode();         \
-                            DpmiSwitchToDosxStack(FALSE);   \
+#define DPMI_EXEC_INT(x)    DpmiSwitchToDosxStack(FALSE);   \
                             DpmiPushRmInt(x);               \
                             host_simulate();                \
-                            DpmiSwitchFromDosxStack();      \
-                            DpmiSwitchToProtectedMode();
+                            DpmiSwitchFromDosxStack();
 
 //
 // VOID
@@ -34,6 +32,10 @@ Revision History:
 // )
 
 #define DPMI_FLAT_TO_SEGMENTED(buffer, seg, off) {  \
-    *seg = (USHORT)((ULONG)buffer >> 4);            \
-    *off = (USHORT)((ULONG)buffer & 0xf);           \
+    *seg = (USHORT)(((ULONG)buffer-IntelBase) >> 4);            \
+    *off = (USHORT)(((ULONG)buffer-IntelBase) & 0xf);           \
 }
+
+
+#define SELECTOR_TO_INTEL_LINEAR_ADDRESS(sel) \
+    (FlatAddress[(sel & ~7) / sizeof(LDT_ENTRY)] - IntelBase)

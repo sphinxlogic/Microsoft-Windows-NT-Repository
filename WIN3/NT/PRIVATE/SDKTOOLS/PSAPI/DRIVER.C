@@ -42,13 +42,13 @@ Arguments:
     NTSTATUS Status;
     DWORD cbModuleInformation;
     PRTL_PROCESS_MODULES pModuleInformation;
-    DWORD i;
+    DWORD i, ReturnedLength;
 
     Status = NtQuerySystemInformation(
                 SystemModuleInformation,
                 &ModuleInformation,
                 sizeof(ModuleInformation),
-                NULL
+                &ReturnedLength
                 );
 
     if ( !NT_SUCCESS(Status) && (Status != STATUS_INFO_LENGTH_MISMATCH) ) {
@@ -69,7 +69,7 @@ Arguments:
                 SystemModuleInformation,
                 pModuleInformation,
                 cbModuleInformation,
-                NULL
+                &ReturnedLength
                 );
 
     if ( !NT_SUCCESS(Status) ) {
@@ -109,13 +109,13 @@ EnumDeviceDrivers(
     DWORD cbModuleInformation;
     PRTL_PROCESS_MODULES pModuleInformation;
     DWORD cpvMax;
-    DWORD i;
+    DWORD i, ReturnedLength;
 
     Status = NtQuerySystemInformation(
                 SystemModuleInformation,
                 &ModuleInformation,
                 sizeof(ModuleInformation),
-                NULL
+                &ReturnedLength
                 );
 
     if ( !NT_SUCCESS(Status) && (Status != STATUS_INFO_LENGTH_MISMATCH) ) {
@@ -136,7 +136,7 @@ EnumDeviceDrivers(
                 SystemModuleInformation,
                 pModuleInformation,
                 cbModuleInformation,
-                NULL
+                &ReturnedLength
                 );
 
     if ( !NT_SUCCESS(Status) ) {

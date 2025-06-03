@@ -119,6 +119,7 @@ If you change this file, you must also change ntstatus.mc and winerror.mc
 #define RPC_S_NOT_RPC_ERROR               91
 #define RPC_S_SEC_PKG_ERROR               92
 #define RPC_S_NOT_CANCELLED               93
+#define RPC_S_SEND_INCOMPLETE           94
 
 
 #define RPC_S_INTERNAL_ERROR              100
@@ -178,6 +179,10 @@ If you change this file, you must also change ntstatus.mc and winerror.mc
 #define RPC_X_WRONG_ES_VERSION			272
 #define RPC_X_WRONG_STUB_VERSION		273
 #define RPC_X_INVALID_BUFFER			274
+#define RPC_X_INVALID_PIPE_OBJECT    275
+#define RPC_X_INVALID_PIPE_OPERATION 276
+#define RPC_X_WRONG_PIPE_VERSION     277
+
 
 #endif /* __RPCERR_H__ */
 

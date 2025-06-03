@@ -72,6 +72,12 @@ Revision History:
     29-Jun-1994     JonN
         Added parameter to DoProfileErrorDialog
 
+    23-Mar-1995     AnirudhS
+        Added WNFMT_* manifests
+
+    12-Jul-1995     Anirudhs
+        Removed things defined in winnetwk.h and winnetp.h
+
 --*/
 #include <lmcons.h>
 #ifndef _MPR_H_INCLUDED
@@ -85,17 +91,10 @@ Revision History:
 
 // types used by connect.c
 
-typedef struct _CONNECTION_INFO {
+typedef struct _CONNECTION_INFO *LPCONNECTION_INFO;
 
-    BOOL            ContinueFlag;
-    DWORD           ProviderIndex;
-    DWORD           ProviderWait;
-    DWORD           Status;
-    LPTSTR          UserName;
-    NETRESOURCEW    NetResource;
-}CONNECTION_INFO, *LPCONNECTION_INFO;
-
-//The following two structures are used by two threads to share data.
+// The following two structures are used by two threads in mpr.dll and
+// mprui.dll to share data.
 
 typedef struct _PARAMETERS {
     HWND    hDlg;
@@ -115,9 +114,9 @@ typedef struct _PARAMETERS {
     LPCONNECTION_INFO ConnectArray;     //Initialized in WNetRestoreConnection
     }PARAMETERS;
 
-//Running in the second thread. Actually does the restoring of the connection.
-
-VOID DoRestoreConnection(PARAMETERS *Params);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 //function load from mprui.dll.
 
@@ -154,12 +153,6 @@ DWORD ShowReconnectDialog (
 // Return codes from WNetRestoreConnection
 //
 #define WN_CONTINUE     0x00000BB9
-
-DWORD APIENTRY
-WNetRestoreConnection(
-     HWND    hWnd,
-     LPWSTR  lpDevice
-    );
 
 DWORD APIENTRY
 RestoreConnectionA0(
@@ -342,37 +335,6 @@ WNetGetConnection2W(
 #endif  // UNICODE
 
 //
-//  This will call the specified provider and ask the provider to format
-//  their network name based on the WNFMT_* flags and the width of the control
-//  the name is drawn in.
-//
-DWORD
-WNetFormatNetworkNameA(
-    LPSTR   lpProvider,
-    LPSTR   lpRemoteName,
-    LPSTR   lpFormattedName,
-    LPDWORD lpnLength,      // In characters!
-    DWORD   dwFlags,
-    DWORD   dwAveCharPerLine
-    ) ;
-
-DWORD
-WNetFormatNetworkNameW(
-    LPWSTR   lpProvider,
-    LPWSTR   lpRemoteName,
-    LPWSTR   lpFormattedName,
-    LPDWORD  lpnLength,     // In characters!
-    DWORD    dwFlags,
-    DWORD    dwAveCharPerLine
-    ) ;
-
-#ifdef UNICODE
-#define WNetFormatNetworkName WNetFormatNetworkNameW
-#else
-#define WNetFormatNetworkName WNetFormatNetworkNameA
-#endif  // UNICODE
-
-//
 // Versions of the dialog with the ability to supply help.
 // These are not in Win32 because we do not want to force
 // nor encourage apps to have to document the way these
@@ -523,5 +485,28 @@ DWORD WNetFMXGetPermHelp( LPWSTR  lpDriveName,
 #define MPR_NO_VALUE            "no"
 
 #endif  // UNICODE
+
+
+//
+// Internal NP interface used to help the NTLM provider remember
+// whether a persistent connection is a DFS connection or not
+//
+
+DWORD APIENTRY
+NPGetReconnectFlags (
+       IN  LPWSTR   lpLocalName,
+       OUT LPBYTE   lpPersistFlags
+    );
+typedef DWORD (*PF_NPGetReconnectFlags) (
+       LPWSTR   lpLocalName,
+       LPBYTE   lpPersistFlags
+    );
+
+// This macro operates on the dwFlags parameter of NPAddConnection3
+#define CONNECT_PROVIDER_FLAGS(dwFlags)   ((BYTE) (((dwFlags) & 0xFF000000) >> 24))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // _MPR_H_INCLUDED

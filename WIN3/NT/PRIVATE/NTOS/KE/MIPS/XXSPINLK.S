@@ -84,48 +84,161 @@
 //
 //--
 
-	LEAF_ENTRY_S(KeAcquireSpinLock, _TEXT$01)
+	LEAF_ENTRY(KeAcquireSpinLock)
+
+//
+// Disable interrupts and attempt to acquire the specified spinlock.
+//
+
+	li	a2,DISPATCH_LEVEL	// set new IRQL level
+
+10:     DISABLE_INTERRUPTS(t2)          // disable interrupts
+
+#if !defined(NT_UP)
+
+        lw      t0,KiPcr + PcCurrentThread(zero) // get address of current thread
+20:     ll      t1,0(a0)                // get current lock value
+        move    t3,t0                   // set ownership value
+        bne     zero,t1,30f             // if ne, spin lock owned
+        sc      t3,0(a0)                // set spin lock owned
+        beq     zero,t3,20b             // if eq, store conditional failure
+
+#endif
 
 //
 // Raise IRQL to DISPATCH_LEVEL and acquire the specified spinlock.
 //
-// N.B. The raise IRQL code is duplicated here is avoid any extra overhead
+// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
 //      since this is such a common operation.
 //
 
-	li	a2,DISPATCH_LEVEL	// set new IRQL level
         lbu     t0,KiPcr + PcIrqlTable(a2) // get translation table entry value
         li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
         sll     t0,t0,PSR_INTMASK       // shift table entry into position
-        lbu     t2,KiPcr + PcCurrentIrql(zero) // get current IRQL
-
-        DISABLE_INTERRUPTS(t3)          // disable interrupts
-
-        and     t3,t3,t1                // clear current interrupt enables
-        or      t3,t3,t0                // set new interrupt enables
+        lbu     v0,KiPcr + PcCurrentIrql(zero) // get current IRQL
+        and     t2,t2,t1                // clear current interrupt enables
+        or      t2,t2,t0                // set new interrupt enables
         sb      a2,KiPcr + PcCurrentIrql(zero) // set new IRQL
 
-        ENABLE_INTERRUPTS(t3)           // enable interrupts
+        ENABLE_INTERRUPTS(t2)           // enable interrupts
+
+        sb      v0,0(a1)                // store old IRQL
+        j       ra                      // return
+
+#if !defined(NT_UP)
+
+30:     ENABLE_INTERRUPTS(t2)           // enable interrupts
+
+        b       10b                     // try again
+#endif
+
+	.end	KeAcquireSpinLock
+
+        SBTTL("Acquire SpinLock and Raise to Dpc")
+//++
+//
+// KIRQL
+// KeAcquireSpinLockRaiseToDpc (
+//    IN PKSPIN_LOCK SpinLock
+//    )
+//
+// Routine Description:
+//
+//    This function raises the current IRQL to dispatcher level and acquires
+//    the specified spinlock.
+//
+// Arguments:
+//
+//    SpinLock (a0) - Supplies a pointer to the spinlock that is to be
+//        acquired.
+//
+// Return Value:
+//
+//    The previous IRQL is returned at the fucntion value.
+//
+//--
+
+	LEAF_ENTRY(KiAcquireSpinLockRaiseIrql)
+
+	ALTERNATE_ENTRY(KeAcquireSpinLockRaiseToDpc)
+
+	li      a1,DISPATCH_LEVEL       // set new IRQL level
+        b       10f                     // finish in common code
+
+
+        SBTTL("Acquire SpinLock and Raise to Synch")
+//++
+//
+// KIRQL
+// KeAcquireSpinLockRaiseToSynch (
+//    IN PKSPIN_LOCK SpinLock
+//    )
+//
+// Routine Description:
+//
+//    This function raises the current IRQL to synchronization level and
+//    acquires the specified spinlock.
+//
+// Arguments:
+//
+//    SpinLock (a0) - Supplies a pointer to the spinlock that is to be
+//        acquired.
+//
+// Return Value:
+//
+//    The previous IRQL is returned at the fucntion value.
+//
+//--
+
+	ALTERNATE_ENTRY(KeAcquireSpinLockRaiseToSynch)
 
 //
-// Acquire the specified spinlock.
+// Disable interrupts and attempt to acquire the specified spinlock.
 //
 
-#if defined(R4000) && !defined(NT_UP)
+	lbu	a1,KiSynchIrql          // set new IRQL level
+
+10:     DISABLE_INTERRUPTS(t2)          // disable interrupts
+
+#if !defined(NT_UP)
 
         lw      t0,KiPcr + PcCurrentThread(zero) // get address of current thread
-10:     ll      t1,0(a0)                // get current lock value
-        move    t4,t0                   // set ownership value
-        bne     zero,t1,10b             // if ne, spin lock owned
-        sc      t4,0(a0)                // set spin lock owned
-        beq     zero,t4,10b             // if eq, store conditional failure
+20:     ll      t1,0(a0)                // get current lock value
+        move    t3,t0                   // set ownership value
+        bne     zero,t1,30f             // if ne, spin lock owned
+        sc      t3,0(a0)                // set spin lock owned
+        beq     zero,t3,20b             // if eq, store conditional failure
 
 #endif
 
-        sb      t2,0(a1)                // store old IRQL
+//
+// Raise IRQL to synchronization level and acquire the specified spinlock.
+//
+// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
+//      since this is such a common operation.
+//
+
+        lbu     t0,KiPcr + PcIrqlTable(a1) // get translation table entry value
+        li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
+        sll     t0,t0,PSR_INTMASK       // shift table entry into position
+        lbu     v0,KiPcr + PcCurrentIrql(zero) // get current IRQL
+        and     t2,t2,t1                // clear current interrupt enables
+        or      t2,t2,t0                // set new interrupt enables
+        sb      a1,KiPcr + PcCurrentIrql(zero) // set new IRQL
+
+        ENABLE_INTERRUPTS(t2)           // enable interrupts
+
         j       ra                      // return
 
-	.end	KeAcquireSpinLock
+#if !defined(NT_UP)
+
+30:     ENABLE_INTERRUPTS(t2)           // enable interrupts
+
+        b       10b                     // try again
+
+#endif
+
+	.end	KiAcquireSpinLockRaiseIrql
 
         SBTTL("Release Executive Spin Lock")
 //++
@@ -152,13 +265,13 @@
 //    None.
 //
 //--
-	LEAF_ENTRY_S(KeReleaseSpinLock, _TEXT$01)
+	LEAF_ENTRY(KeReleaseSpinLock)
 
 //
 // Release the specified spinlock.
 //
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
         sw      zero,0(a0)              // set spin lock not owned
 
@@ -171,6 +284,7 @@
 //      since this is such a common operation.
 //
 
+        and     a1,a1,0xff              // isolate old IRQL
         lbu     t0,KiPcr + PcIrqlTable(a1) // get translation table entry value
         li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
         sll     t0,t0,PSR_INTMASK       // shift table entry into position
@@ -219,12 +333,12 @@
 //
 //--
 
-	LEAF_ENTRY_S(KeTryToAcquireSpinLock, _TEXT$01)
+	LEAF_ENTRY(KeTryToAcquireSpinLock)
 
 //
 // Raise IRQL to DISPATCH_LEVEL and try to acquire the specified spinlock.
 //
-// N.B. The raise IRQL code is duplicated here is avoid any extra overhead
+// N.B. The raise IRQL code is duplicated here to avoid any extra overhead
 //      since this is such a common operation.
 //
 
@@ -246,7 +360,7 @@
 // Try to acquire the specified spinlock.
 //
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
         lw      t0,KiPcr + PcCurrentThread(zero) // get address of current thread
 10:     ll      t1,0(a0)                // get current lock value
@@ -276,7 +390,7 @@
 //      since this is such a common operation.
 //
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
 20:     lbu     t0,KiPcr + PcIrqlTable(t2) // get translation table entry value
         li      t1,~(0xff << PSR_INTMASK) // get interrupt enable mask
@@ -321,11 +435,11 @@
 //
 //--
 
-        LEAF_ENTRY_S(KiAcquireSpinLock, _TEXT$01)
+        LEAF_ENTRY(KiAcquireSpinLock)
 
         ALTERNATE_ENTRY(KeAcquireSpinLockAtDpcLevel)
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
         lw      t0,KiPcr + PcCurrentThread(zero) // get address of current thread
 10:     ll      t1,0(a0)                // get current lock value
@@ -364,11 +478,11 @@
 //
 //--
 
-        LEAF_ENTRY_S(KiReleaseSpinLock, _TEXT$01)
+        LEAF_ENTRY(KiReleaseSpinLock)
 
         ALTERNATE_ENTRY(KeReleaseSpinLockFromDpcLevel)
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
 
         sw      zero,0(a0)              // set spin lock not owned
@@ -406,9 +520,9 @@
 //
 //--
 
-        LEAF_ENTRY_S(KiTryToAcquireSpinLock, _TEXT$01)
+        LEAF_ENTRY(KiTryToAcquireSpinLock)
 
-#if defined(R4000) && !defined(NT_UP)
+#if !defined(NT_UP)
 
         li      v0,FALSE                // assume attempt to acquire will fail
         lw      t0,KiPcr + PcCurrentThread(zero) // get address of current thread

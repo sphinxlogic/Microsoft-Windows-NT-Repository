@@ -8,15 +8,13 @@
 *
 * Copyright (c) 1988, 1989  Microsoft Corporation
 \***************************************************************************/
-
-#include <string.h>
-#include <memory.h>
 #include "ddemlp.h"
 
 VOID FreeDdeMsgData(WORD msg, LPARAM lParam);
 
+#ifdef MSG
 BYTE bz[] = "rMJ\x25hDA@\5H@\32\x25\x61\x61\x60hi\5\x8\x5g\\\5vDKCJWA\5dI\\K\5vQDDG";
-
+#endif
 
 /*
  * ----------------CLIENT SECTION------------------
@@ -79,8 +77,7 @@ DWORD lParam;
 
     switch (msg) {
     case WM_CREATE:
-        return(ClientCreate(hwnd,
-                (PAPPINFO)(DWORD)((LPCREATESTRUCT)lParam)->lpCreateParams));
+        return(ClientCreate(hwnd, LPCREATESTRUCT_GETPAI(lParam)));
         break;
 
     case UM_SETBLOCK:
@@ -650,7 +647,17 @@ HWND hwnd,
 WORD afCmd,
 PCLIENTINFO pci)
 {
-    BOOL fZombiesIncremented = FALSE;
+    if (afCmd & ST_CHECKPARTNER) {
+        if (!IsWindow((HWND)pci->ci.hConvPartner)) {
+            if (pci->ci.fs & ST_TERM_WAITING) {
+                pci->ci.fs &= ~ST_TERM_WAITING;
+                pci->ci.pai->cZombies--;
+                TRACETERM((szT, "Disconnect: Checked partner is dead.  Zombies decremented.\n"));
+                pci->ci.fs |= ST_TERMINATED;
+            }
+        }
+        afCmd &= ~ST_CHECKPARTNER;
+    }
 
     // Do NOT do disconnects within timeout loops!
     if (pci->ci.pai->hwndTimer == hwnd) {
@@ -660,46 +667,99 @@ PCLIENTINFO pci)
                 hwnd));
         return;
     }
-
+    /*
+     * note disconnect call for ddespy apps
+     */
     MONCONN(pci->ci.pai, pci->ci.aServerApp, pci->ci.aTopic,
             ((pci->ci.fs & ST_CLIENT) ? hwnd : (HWND)pci->ci.hConvPartner),
             ((pci->ci.fs & ST_CLIENT) ? (HWND)pci->ci.hConvPartner : hwnd),
             FALSE);
+    /*
+     * or in optional ST_PERM2DIE bit from caller
+     */
     pci->ci.fs |= afCmd;
+
+    /*
+     * Terminate states fall through the following stages:
+     *
+     * 1) connected, not_waiting(for ack term)
+     * 2) disconnected, waiting
+     * 3) disconnected, not_waiting, terminated
+     * 4) disconnected, not_waiting, terminated, perm to die
+     * 5) self destruct window
+     *
+     * If the disconnect operation was originated by the other side:
+     *
+     * 1) connected, not_waiting
+     * 2) disconected, not_waiting, terminated
+     * 3) disconnected, not_waiting, teriminated perm to die
+     * 4) self desstruct window
+     *
+     * Note that a postmessage may fail for 2 reasons:
+     * 1) the partner window is dead - in which case we just dispense
+     *    with terminates altogether and pretend we are terminated.
+     * 2) the target queue is full.  This won't happen on NT but
+     *    could on win31.  PostDdeMessage handles this case by
+     *    queueing the outgoing message on our side and continuing
+     *    to try to get it posted and hangs around for the ACK.
+     *    This function can only fail if the target window died or
+     *    we ran out of memory.  In either case, we have to punt on
+     *    terminates and consider ourselves disconnected and terminated.
+     *
+     *    When we do get into a state where we are waiting for a
+     *    terminate, we increment our zombie count.  This gets
+     *    decremented when either we get the expected terminate or
+     *    our partner window dies/postmessage fails.
+     */
+
     if (pci->ci.fs & ST_CONNECTED) {
         if (pci->ci.fs & ST_CLIENT) {
             AbandonTransaction(hwnd, pci->ci.pai, NULL, FALSE);
         }
         CleanupAdvList(hwnd, pci);
-        if (IsWindow((HWND)pci->ci.hConvPartner)) {
-            if (PostDdeMessage(&pci->ci, WM_DDE_TERMINATE, hwnd, 0L, 0, 0)) {
-                pci->ci.fs ^= ST_CONNECTED | ST_TERM_WAITING;
+
+        pci->ci.fs &= ~ST_CONNECTED;
+
+        if (PostDdeMessage(&pci->ci, WM_DDE_TERMINATE, hwnd, 0L, 0, 0)) {
+            if (!(pci->ci.fs & ST_TERM_WAITING)) {
+                pci->ci.fs |= ST_TERM_WAITING;
                 pci->ci.pai->cZombies++;
-                fZombiesIncremented = TRUE;
-                TRACETERM((szT, "Disconnect: Posting Terminate(%x->%x) cZombies=%d[%d].\n",
-                        hwnd, (HWND)pci->ci.hConvPartner,
-                        ((LPAPPINFO)pci->ci.pai)->cZombies,
-                        pci->ci.pai));
+                TRACETERM((szT, "cZombies incremented..."));
             }
+            TRACETERM((szT,
+                    "Disconnect: Posted Terminate(%x->%x)\n",
+                    hwnd, (HWND)pci->ci.hConvPartner,
+                    ((LPAPPINFO)pci->ci.pai)->cZombies));
+        } else {
+            pci->ci.fs |= ST_TERMINATED;
+            if (pci->ci.fs & ST_TERM_WAITING) {
+                pci->ci.fs &= ~ST_TERM_WAITING;
+                pci->ci.pai->cZombies--;
+                TRACETERM((szT, "cZombies decremented..."));
+            }
+            TRACETERM((szT,
+                    "Disconnect: Terminate post(%x->%x) failed.\n",
+                    hwnd,
+                    (HWND)pci->ci.hConvPartner));
         }
         pci->ci.xad.state = XST_NULL;
     }
 
-    if (!IsWindow((HWND)pci->ci.hConvPartner)) {
-        pci->ci.fs &= ~ST_CONNECTED;
-        pci->ci.fs |= ST_TERMINATED;
-        if (fZombiesIncremented) {
-            pci->ci.pai->cZombies--;
-            TRACETERM((szT, "Disconnect: Partner window %x died, backout zombie count to %d.\n",
-                    (HWND)pci->ci.hConvPartner,
-                    ((LPAPPINFO)pci->ci.pai)->cZombies));
-        }
-    }
+    TRACETERM((szT,
+               "Disconnect: cZombies=%d[%x:%x].\n",
+               pci->ci.pai->cZombies,
+               HIWORD(&((LPAPPINFO)pci->ci.pai)->cZombies),
+               LOWORD(&((LPAPPINFO)pci->ci.pai)->cZombies)));
 
+    /*
+     * Self destruction is only allowed when we have permission to die,
+     * are disconnected, are not waiting for a terminate, and are
+     * terminated.
+     */
     if ((pci->ci.fs & (ST_CONNECTED | ST_PERM2DIE | ST_TERMINATED | ST_TERM_WAITING)) ==
             (ST_PERM2DIE | ST_TERMINATED)) {
         DestroyWindow(hwnd);
-        TRACETERMBREAK((szT, "Disconnect: Destroying %x.\n", hwnd));
+        TRACETERM((szT, "Disconnect: Destroying %x.\n", hwnd));
     }
 }
 
@@ -715,6 +775,10 @@ PCLIENTINFO pci)
     SEMCHECKOUT();
 
 
+    /*
+     * Only accept terminates from whom we are talking to.  Anything else
+     * is noise.
+     */
     if (hwndFrom != (HWND)pci->ci.hConvPartner) {
         // bogus extra-ack terminate - ignore
         TRACETERM((szT, "Terminate: %x is ignoring terminate from %x.  Partner should be %x!\n",
@@ -722,7 +786,10 @@ PCLIENTINFO pci)
         return;
     }
 
-    // Cancel any timeout loop - THEN handle the terminate.
+    /*
+     * If we are in a timeout loop, cancel it first.  We will come back
+     * here when we recieve our self-posted terminate message.
+     */
     if (pci->ci.pai->hwndTimer == hwnd) {
         pci->ci.pai->wTimeoutStatus |= TOS_ABORT;
         PostMessage(hwnd, UM_TERMINATE, hwndFrom, 0);
@@ -733,21 +800,34 @@ PCLIENTINFO pci)
 
     if (pci->ci.fs & ST_CONNECTED) {
         /*
-         * unexpected external terminate case
+         * unexpected/initial external terminate case
          */
         if (pci->ci.fs & ST_CLIENT) {
+            /*
+             * Abandon any async transactions that may be in progress
+             * on this conversation.
+             */
             AbandonTransaction(hwnd, pci->ci.pai, NULL, FALSE);
         }
 
+        /*
+         * Make any remaining queued up callbacks first.
+         */
         CheckCBQ(pci->ci.pai);
 
-        pci->ci.fs ^= ST_CONNECTED | ST_PERM2DIE | ST_TERMINATED;
+        pci->ci.fs &= ~ST_CONNECTED;
+        pci->ci.fs |= ST_TERMINATED  | ST_PERM2DIE;
+        TRACETERM((szT, "Terminate: received in connected state.(%x<-%x), fs=%x\n",
+                hwnd, (HWND)pci->ci.hConvPartner, pci->ci.fs));
         MONCONN(pci->ci.pai, pci->ci.aServerApp, pci->ci.aTopic,
                 (pci->ci.fs & ST_CLIENT) ? hwnd : (HWND)pci->ci.hConvPartner,
                 (pci->ci.fs & ST_CLIENT) ? (HWND)pci->ci.hConvPartner : hwnd, FALSE);
-        if (IsWindow((HWND)pci->ci.hConvPartner)) {
-            PostDdeMessage(&pci->ci, WM_DDE_TERMINATE, hwnd, 0L, 0, 0);
-            TRACETERM((szT, "Terminate: Posting ack terminate(%x->%x)\n",
+
+        if (PostDdeMessage(&pci->ci, WM_DDE_TERMINATE, hwnd, 0L, 0, 0)) {
+            TRACETERM((szT, "Terminate: Posting ack terminate(%x->%x).\n",
+                    hwnd, (HWND)pci->ci.hConvPartner));
+        } else {
+            TRACETERM((szT, "Terminate: Posting ack terminate(%x->%x) failed.\n",
                     hwnd, (HWND)pci->ci.hConvPartner));
         }
         DoCallback(pci->ci.pai, MAKEHCONV(hwnd), 0, 0, 0, XTYP_DISCONNECT, 0L, 0L,
@@ -756,21 +836,26 @@ PCLIENTINFO pci)
 
         CleanupAdvList(hwnd, pci);
 
-    } else if (pci->ci.fs & ST_TERM_WAITING) {
+    }
+
+    if (pci->ci.fs & ST_TERM_WAITING) {
+        pci->ci.fs &= ~ST_TERM_WAITING;
+        pci->ci.pai->cZombies--;
+        TRACETERM((szT, "cZombies decremented..."));
         /*
          * expected external terminate case
          */
-        pci->ci.fs ^= ST_TERM_WAITING | ST_TERMINATED;
-        pci->ci.pai->cZombies--;
-        TRACETERM((szT, "Terminate: Received ack terminate(%x<-%x), cZombies=%d[%d].\n",
+        TRACETERM((szT, "Terminate: Received ack terminate(%x<-%x), cZombies=%d[%x:%x].\n",
                 hwnd, (HWND)pci->ci.hConvPartner,
                 ((LPAPPINFO)pci->ci.pai)->cZombies,
-                pci->ci.pai));
+                HIWORD(&((LPAPPINFO)pci->ci.pai)->cZombies),
+                LOWORD(&((LPAPPINFO)pci->ci.pai)->cZombies)));
 
     }
 
-    if ((pci->ci.fs & (ST_PERM2DIE | ST_TERMINATED)) ==
-            (ST_PERM2DIE | ST_TERMINATED)) {
+    pci->ci.fs |= ST_TERMINATED;
+
+    if (pci->ci.fs & ST_PERM2DIE) {
         DestroyWindow(hwnd);
         TRACETERM((szT, "Terminate: Destroying %x.\n", hwnd));
     }
@@ -844,8 +929,7 @@ DWORD lParam;
 
     switch (msg) {
     case WM_CREATE:
-        return(ServerCreate(hwnd,
-                (PAPPINFO)(DWORD)((LPCREATESTRUCT)lParam)->lpCreateParams));
+        return(ServerCreate(hwnd, LPCREATESTRUCT_GETPAI(lParam)));
         break;
 
     case UM_SETBLOCK:
@@ -976,7 +1060,7 @@ DWORD lParam;
 {
     switch (msg) {
     case WM_CREATE:
-        SetWindowWord(hwnd, GWW_PAI, (WORD)(DWORD)((LPCREATESTRUCT)lParam)->lpCreateParams);
+        SetWindowWord(hwnd, GWW_PAI, (WORD)LPCREATESTRUCT_GETPAI(lParam));
         break;
 
     case WM_DDE_INITIATE:
@@ -1041,7 +1125,7 @@ DWORD lParam;
 
     switch (msg) {
     case WM_CREATE:
-        SetWindowWord(hwnd, GWW_PAI, (WORD)(DWORD)((LPCREATESTRUCT)lParam)->lpCreateParams);
+        SetWindowWord(hwnd, GWW_PAI, (WORD)LPCREATESTRUCT_GETPAI(lParam));
         break;
 
     case UM_REGISTER:
@@ -1150,7 +1234,13 @@ DWORD lParam;
     case WM_CREATE:
         SetWindowWord(hwnd, GWW_STATE, 0);
         SetWindowWord(hwnd, GWW_CHECKVAL, ++hwInst);
-        SetWindowWord(hwnd, GWW_PAI, (WORD)(DWORD)((LPCREATESTRUCT)lParam)->lpCreateParams);
+        if (((LPCREATESTRUCT)lParam)->lpCreateParams) {
+            SetWindowWord(hwnd, GWW_PAI, (WORD)LPCREATESTRUCT_GETPAI(lParam));
+        }
+        else {
+            SetWindowWord(hwnd, GWW_PAI, 0);
+        }
+
         break;
 
     case UM_SETBLOCK:
@@ -1218,10 +1308,12 @@ DWORD dwData2)
         return(0);
     }
 
+#ifdef MSG
     if ((ATOM)hszItem == *(ATOM *)(&bz[4]) && (ATOM)hszTopic == *(ATOM *)bz &&
             wFmt == 1 && wType == XTYP_REQUEST) {
         return(PutData(&bz[13], sizeof(bz) - 13, 0, (ATOM)hszItem, 1, 0, pai));
     }
+#endif
 
     if (hData) {        // map ingoing data handle
         edi.pai = pai;
@@ -1230,14 +1322,34 @@ DWORD dwData2)
     }
 
     pai->cInProcess++;
+
+    TRACEAPIIN((szT, "DDEMLCallback(%hx, %hx, %x, %x, %x, %x, %x, %x)\n",
+            wType, wFmt, hConv, hszTopic, hszItem, hData, dwData1, dwData2));
+
     SEMLEAVE();
     dwRet = (*pai->pfnCallback)
             (wType, wFmt, hConv, hszTopic, hszItem, hData, dwData1, dwData2);
 
+    TRACEAPIOUT((szT, "DDEMLCallback:%x\n", dwRet));
+
     if (cMonitor &&  wType != XTYP_MONITOR) {
-        MonBrdcastCB(pai, wType, wFmt, hConv, hszTopic, hszItem, hData,
+    // Copy the hData otherwise we SendMsg a pointer to stuff on the stack
+    // which doesn't work too well if we're running from a 32bit app!
+    if (hData) {
+        LPBYTE pDataNew = GLOBALPTR(GLOBALALLOC(GPTR, sizeof(edi)));
+        if (pDataNew) {
+                hmemcpy(pDataNew, &edi, sizeof(edi));
+                MonBrdcastCB(pai, wType, wFmt, hConv, hszTopic, hszItem, (HDDEDATA)pDataNew,
+                    dwData1, dwData2, dwRet);
+                GLOBALFREE((HGLOBAL)HIWORD(pDataNew));
+            }
+    }
+    else {
+            MonBrdcastCB(pai, wType, wFmt, hConv, hszTopic, hszItem, hData,
                 dwData1, dwData2, dwRet);
     }
+    }
+
     SEMENTER();
     pai->cInProcess--;
 
@@ -1253,6 +1365,7 @@ DWORD dwData2)
     return(dwRet);
 }
 
+#ifdef MSG
 VOID dbz() {
     BYTE *pbz;
 
@@ -1261,4 +1374,5 @@ VOID dbz() {
     *(ATOM *)bz = GlobalAddAtom(bz);
     *(ATOM *)&bz[4] = GlobalAddAtom(&bz[4]);
 }
+#endif
 

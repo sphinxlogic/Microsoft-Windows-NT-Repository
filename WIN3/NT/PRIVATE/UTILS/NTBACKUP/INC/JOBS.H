@@ -161,7 +161,7 @@ Initial revision.
 #define MAX_DESC_LEN                60
 #define MAX_DESC_SIZE               61
 #define MAX_DEVICE_NAME_LEN        255
-#define MAX_DEVICE_NAME_SIZE       256
+#define MAX_DEVICE_NAME_SIZE       MAX_DEVICE_NAME_LEN + 1
 #define JOB_NOTSCHEDULED           (-1)
 
 /*  Defines used when accessing the JOB and SCHEDULE files */

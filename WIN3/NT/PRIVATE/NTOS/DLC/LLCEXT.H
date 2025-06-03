@@ -179,6 +179,7 @@ SyncNdisRequest(
 
 NDIS_STATUS
 WaitAsyncOperation(
+    IN PADAPTER_CONTEXT pAdapterContext,
     IN PNDIS_STATUS pAsyncStatus,
     IN NDIS_STATUS Status
     );
@@ -612,6 +613,9 @@ CompletePendingLlcCommand(
 
 DLC_STATUS
 CheckAndDuplicatePacket(
+#if DBG
+    IN PADAPTER_CONTEXT pAdapterContext,
+#endif
     IN PBINDING_CONTEXT pBinding,
     IN PLLC_PACKET pPacket,
     IN PLLC_QUEUE pQueue
@@ -729,9 +733,21 @@ LlcOpenStation(
     OUT PVOID* phStation
     );
 
+DLC_STATUS
+LlcCloseStation(
+    IN PLLC_OBJECT pStation,
+    IN PLLC_PACKET pCompletionPacket
+    );
+
 VOID
 CompleteObjectDelete(
     IN PLLC_OBJECT pStation
+    );
+
+VOID
+LlcSetDirectOpenOptions(
+    IN PLLC_OBJECT pDirect,
+    IN USHORT OpenOptions
     );
 
 //
@@ -760,6 +776,148 @@ LlcSendI(
 VOID
 LlcSendU(
     IN PLLC_OBJECT pStation,
+    IN PLLC_PACKET pPacket,
+    IN UINT eFrameType,
+    IN UINT uDestinationSap
+    );
+
+#else
+
+//
+// LLCADDR.C...
+//
+
+UINT
+LlcCopyReceivedLanHeader(
+    IN PVOID pBinding,
+    IN PUCHAR DestinationAddress,
+    IN PUCHAR SourceAddress
+    );
+
+//
+// LLCLINK.C...
+//
+
+DLC_STATUS
+LlcOpenLinkStation(
+    IN PVOID pSap,
+    IN UCHAR DestinationSap,
+    IN PUCHAR pDestinationAddress OPTIONAL,
+    IN PUCHAR pReceivedLanHeader OPTIONAL,
+    IN PVOID hClientStation,
+    OUT PVOID *phLlcHandle
+    );
+
+VOID
+LlcBindLinkStation(
+    IN PVOID pStation,
+    IN PVOID hClientHandle
+    );
+
+VOID
+LlcConnectStation(
+    IN PVOID pStation,
+    IN PLLC_PACKET pPacket,
+    IN PVOID pSourceRouting OPTIONAL,
+    IN PUSHORT pusMaxInformationField
+    );
+
+VOID
+LlcDisconnectStation(
+    IN PVOID pLink,
+    IN PLLC_PACKET pPacket
+    );
+
+DLC_STATUS
+LlcFlowControl(
+    IN PVOID pStation,
+    IN UCHAR FlowControlState
+    );
+
+DLC_STATUS
+LlcResetBroadcastAddresses(
+    IN PVOID pBindingContext
+    );
+
+//
+// LLCNDIS.C...
+//
+
+VOID
+LlcDisableAdapter(
+    IN PVOID pBindingContext
+    );
+
+
+DLC_STATUS
+LlcCloseAdapter(
+    IN PVOID pBindingContext,
+    IN BOOLEAN CloseAtNdisLevel
+    );
+
+VOID
+LlcNdisReset(
+    IN PVOID pBindingContext,
+    IN PLLC_PACKET pPacket
+    );
+
+//
+// LLCOBJ.C...
+//
+
+DLC_STATUS
+LlcOpenStation(
+    IN PVOID pBindingContext,
+    IN PVOID hClientHandle,
+    IN USHORT ObjectAddress,
+    IN UCHAR ObjectType,
+    IN USHORT OpenOptions,
+    OUT PVOID* phStation
+    );
+
+DLC_STATUS
+LlcCloseStation(
+    IN PVOID pStation,
+    IN PLLC_PACKET pCompletionPacket
+    );
+
+VOID
+CompleteObjectDelete(
+    IN PVOID pStation
+    );
+
+VOID
+LlcSetDirectOpenOptions(
+    IN PVOID pDirect,
+    IN USHORT OpenOptions
+    );
+
+//
+// LLCRCV.C...
+//
+
+VOID
+LlcTransferData(
+    IN PVOID pBindingContext,
+    IN PLLC_PACKET pPacket,
+    IN PMDL pMdl,
+    IN UINT uiCopyOffset,
+    IN UINT cbCopyLength
+    );
+
+//
+// LLCSEND.C...
+//
+
+VOID
+LlcSendI(
+    IN PVOID pStation,
+    IN PLLC_PACKET pPacket
+    );
+
+VOID
+LlcSendU(
+    IN PVOID pStation,
     IN PLLC_PACKET pPacket,
     IN UINT eFrameType,
     IN UINT uDestinationSap

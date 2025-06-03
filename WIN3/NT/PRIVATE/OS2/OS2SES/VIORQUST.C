@@ -1468,7 +1468,7 @@ Ow2VioPopUp(
     */
     strncpy(TitleBuffer, AppName, OS2_MAX_APPL_NAME);
     size = strlen(TitleBuffer);
-    if ((size > 4 ) && !stricmp(&TitleBuffer[size-4], ".exe")) {
+    if ((size > 4 ) && !_stricmp(&TitleBuffer[size-4], ".exe")) {
         TitleBuffer[size-4] = '\0';
     }
     strcat(TitleBuffer, " : POPUP" );
@@ -2330,7 +2330,7 @@ VioSetScreenSize(
     if (Rc)
     {
 #if DBG
-        KdPrint(("OS2SES(VioSetScreenSize): error %lx\n", Status));
+        KdPrint(("OS2SES(VioSetScreenSize): error %lx\n", Rc));
 #endif
         ASSERT(FALSE);
         Status = GetLastError();
@@ -2641,7 +2641,7 @@ SetScreenSizeParm(IN SHORT   Row,
 
     SesGrp->ScreenSize = SesGrp->ScreenRowNum * SesGrp->ScreenColNum;
     OldLVBsize =  SesGrp->LVBsize;
-    SesGrp->LVBsize = (USHORT)(SesGrp->ScreenSize * SesGrp->BytesPerCell);
+    SesGrp->LVBsize = SesGrp->ScreenSize * (ULONG)(SesGrp->BytesPerCell);
     //
     // if LVB size are changed, update lvb.
     //

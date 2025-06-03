@@ -60,12 +60,18 @@ NwCleanupIcb (
 #pragma alloc_text( PAGE, NwCommonCleanup )
 #pragma alloc_text( PAGE, NwCleanupScb )
 
-#pragma alloc_text( PAGE1, NwCleanupRcb )
+#ifndef QFE_BUILD
 #pragma alloc_text( PAGE1, NwCleanupIcb )
+#endif
 
 #endif
 
 #if 0   // Not pageable
+
+NwCleanupRcb
+
+// see ifndef QFE_BUILD above
+
 #endif
 
 
@@ -95,7 +101,7 @@ Return Value:
 
 {
     NTSTATUS status;
-    PIRP_CONTEXT IrpContext;
+    PIRP_CONTEXT IrpContext = NULL;
     BOOLEAN TopLevel;
 
     PAGED_CODE();
@@ -117,17 +123,34 @@ Return Value:
 
     } except(NwExceptionFilter( Irp, GetExceptionInformation() )) {
 
-        //
-        // We had some trouble trying to perform the requested
-        // operation, so we'll abort the I/O request with
-        // the error status that we get back from the
-        // execption code.
-        //
+        if ( IrpContext == NULL ) {
+        
+            //
+            //  If we couldn't allocate an irp context, just complete
+            //  irp without any fanfare.
+            //
 
-        status = NwProcessException( IrpContext, GetExceptionCode() );
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            Irp->IoStatus.Status = status;
+            Irp->IoStatus.Information = 0;
+            IoCompleteRequest ( Irp, IO_NETWORK_INCREMENT );
+
+        } else {
+
+            //
+            // We had some trouble trying to perform the requested
+            // operation, so we'll abort the I/O request with
+            // the error status that we get back from the
+            // execption code.
+            //
+
+            status = NwProcessException( IrpContext, GetExceptionCode() );
+        }
     }
 
-    NwCompleteRequest( IrpContext, status );
+    if ( IrpContext ) {
+        NwCompleteRequest( IrpContext, status );
+    }
 
     if ( TopLevel ) {
         NwSetTopLevelIrp( NULL );
@@ -259,6 +282,11 @@ Routine Description:
 
     The routine cleans up a RCB.
 
+    This routine grabs a spinlock so must not be paged out while running.
+
+    Do not reference the code section since this will start the timer and
+    we don't stop it in the rcb close path.
+
 Arguments:
 
     Irp - Supplies the IRP associated with the cleanup.
@@ -305,6 +333,7 @@ Return Value:
         OwnRcb = FALSE;
 
         closingFileObject = irpSp->FileObject;
+
 
         //
         //  Walk the message queue and complete any outstanding Get Message IRPs
@@ -354,7 +383,7 @@ Return Value:
             KeReleaseSpinLock( &NwMessageSpinLock, OldIrql );
         }
 
-        DebugTrace(-1, Dbg, "MsCleanupRcb -> %08lx\n", status);
+        DebugTrace(-1, Dbg, "NwCleanupRcb -> %08lx\n", status);
     }
 
     //

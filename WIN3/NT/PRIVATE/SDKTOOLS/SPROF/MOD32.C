@@ -383,8 +383,9 @@ Return Value:
             Module->SizeOfCode,
             PROFILE_BUCKET_SIZE,
             Module->ProfileBuffer,
-            Module->ProfileBufferSize
-            );
+            Module->ProfileBufferSize,
+            ProfileTime,
+            (KAFFINITY)-1);
 
         if (!NT_SUCCESS(Status)) {
 

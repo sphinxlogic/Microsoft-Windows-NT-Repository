@@ -93,7 +93,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize the write of the addend
+        mb                              // synchronize the write of the addend
                                         //   before the spinlock is released
         stl     zero, 0(a2)             // set spin lock not owned
 
@@ -114,8 +114,8 @@
 
 20:     ENABLE_INTERRUPTS               // turn on interrupts
 
-22:	ldl	t0, 0(a2)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+22:     ldl     t0, 0(a2)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 22b               // spin in cache until available
 
 #endif
@@ -240,7 +240,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize the update of the addend
+        mb                              // synchronize the update of the addend
                                         //   before the spinlock is released
         stl     zero, 0(a2)             // set spin lock not owned
 
@@ -262,8 +262,8 @@
 20:
         ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-22:	ldl	t0, 0(a2)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+22:     ldl     t0, 0(a2)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 22b               // spin in cache until available
 
 #endif
@@ -327,6 +327,48 @@
 20:     br      zero,10b                // go try spin lock again
 
         .end    ExInterlockedExchangeUlong
+
+        SBTTL("Interlocked Exchange Add Large Integer")
+//++
+//
+// LARGE_INTEGER
+// ExpInterlockedExchangeAddLargeInteger (
+//    IN PLARGE_INTEGER Addend,
+//    IN LARGE_INTEGER Increment
+//    )
+//
+// Routine Description:
+//
+//    This function performs an interlocked add of an increment value to an
+//    addend variable of type large integer. The initial value of the addend
+//    variable is returned as the function value.
+//
+// Arguments:
+//
+//    Addend (a0) - Supplies a pointer to a variable whose value is to be
+//       adjusted by the increment value.
+//
+//    Increment (a1) - Supplies the increment value to be added to the
+//       addend variable.
+//
+// Return Value:
+//
+//    The initial value of the addend variable
+//
+//--
+
+        LEAF_ENTRY(ExpInterlockedExchangeAddLargeInteger)
+10:
+        ldq_l   v0, 0(a0)               // get addend value
+        addq    a1, v0, t1              // add increment
+        stq_c   t1, 0(a0)               // store addend value
+        beq     t1, 15f                 // if eq, store conditional failed
+        ret     zero, (ra)              // return old value to caller
+
+15:
+        beq     zero, 10b               // retry
+        .end    ExpInterlockedExchangeAddLargeInteger
+
 
         SBTTL("Interlocked Decrement Long")
 //++
@@ -535,7 +577,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // sychronize updates to the list
+        mb                              // sychronize updates to the list
                                         //   befor the spinlock is released
         stl     zero, 0(a2)             // set spin lock not owned
 
@@ -557,8 +599,8 @@
 
 20:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-22:	ldl	t0, 0(a2)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+22:     ldl     t0, 0(a2)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 22b               // spin in cache until available
 
 
@@ -627,7 +669,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // sychronize updates to the list
+        mb                              // sychronize updates to the list
                                         //   before the spinlock is released
         stl     zero, 0(a2)             // set spin lock not owned
 
@@ -649,8 +691,8 @@
 
 20:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-22:	ldl	t0, 0(a2)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+22:     ldl     t0, 0(a2)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 22b               // spin in cache until available
 
 #endif
@@ -721,7 +763,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize writes to the list
+        mb                              // synchronize writes to the list
                                         //   before the spinlock is released
         stl     zero, 0(a1)             // set spin lock not owned
 
@@ -742,8 +784,8 @@
 
 30:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-32:	ldl	t0, 0(a1)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+32:     ldl     t0, 0(a1)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 32b               // spin in cache until available
 
 #endif
@@ -811,7 +853,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize writes to the list
+        mb                              // synchronize writes to the list
                                         //   before the spinlock is released
         stl     zero, 0(a1)             // set spin lock not owned
 
@@ -832,8 +874,8 @@
 
 30:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-32:	ldl	t0, 0(a1)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+32:     ldl     t0, 0(a1)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 32b               // spin in cache until available
 
 #endif
@@ -899,7 +941,7 @@
 
 #if !defined(NT_UP)
 
-        wmb                             // synchronize writes to the list
+        mb                              // synchronize writes to the list
                                         //   before the spinlock is released
         stl     zero, 0(a2)             // set spin lock not owned
 
@@ -920,49 +962,146 @@
 
 20:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
 
-22:	ldl	t0, 0(a2)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
+22:     ldl     t0, 0(a2)               // read current lock value
+        beq     t0, 10b                 // try spinlock again if available
         br      zero, 22b               // spin in cache until available
 
 #endif
-
         .end    ExInterlockedPushEntryList
 
-        SBTTL("Interlocked Try Allocate Pool")
+        SBTTL("Interlocked Compare Exchange")
 //++
 //
-// PLIST_ENTRY
-// ExpInterlockedTryAllocatePool(
-//     IN PLIST_ENTRY List,
-//     IN KSPIN_LOCK Lock,
-//     IN ULONG Size,
-//     IN LONG SizeOffset
-//     );
+// PVOID
+// InterlockedCompareExchange (
+//    IN OUT PVOID *Destination,
+//    IN PVOID Exchange,
+//    IN PVOID Comperand
+//    )
 //
 // Routine Description:
 //
-//    This function removes an entry from the head of the a pool block list
-//    so that access to the list is synchronized in a multiprocessor system.
-//    If there are no entries in the list, then a value of NULL is returned.
-//    Otherwise, the size field of the pool block is initialized to the value
-//    specified, and the address of entry that is removed is returned as the
-//    function value.
-//
-//    N.B. It is assumed that this routine will not take a page fault.
+//    This function performs an interlocked compare of the destination
+//    value with the comperand value. If the destination value is equal
+//    to the comperand value, then the exchange value is stored in the
+//    destination. Otherwise, no opeation is performed.
 //
 // Arguments:
 //
-//    List (a0) - Supplies a pointer to the head of the doubly linked list
-//       from which an entry is to be removed.
+//    Destination (a0) - Supplies a pointer to the destination value.
 //
-//    Lock (a1) - Supplies a pointer to a spin lock to be used to synchronize
-//       access to the list.
+//    Exchange (a1) - Supplies the exchange.
 //
-//    Size (a2) - Supplies a size to be placed in the pool block at the
-//       appropriate location.
+//    Comperand (a2) - Supplies the comperand value.
 //
-//    SizeOffset (a3) - Supplies the offset from the address of the block being
-//       removed from the list to the size field in the pool header.
+// Return Value:
+//
+//    The initial destination value is returned as the function value.
+//
+//--
+
+        LEAF_ENTRY(InterlockedCompareExchange)
+
+10:
+#if !defined(NT_UP)
+        mb
+#endif
+        ldl_l   v0, 0(a0)               // get current addend value
+        bis     a1, zero, t0            // copy exchange value for store
+        cmpeq   v0, a2, t1              // if ne, operands mismatch
+        beq     t1, 20f
+        stl_c   t0, 0(a0)               // store updated addend value
+        beq     t0,25f                  // if eq, store conditional failed
+#if !defined(NT_UP)
+        mb
+#endif
+20:     ret     zero, (ra)              // return
+
+//
+// We expect the store conditional will usually succeed the first time so it
+// is faster to branch forward (predicted not taken) to here and then branch
+// backward (predicted taken) to where we wanted to go.
+//
+
+25:     br      zero, 10b               // go try spin lock again
+
+        .end    InterlockedCompareExchange
+
+        SBTTL("Interlocked Exchange Add")
+//++
+//
+// LONG
+// ExInterlockedAdd (
+//    IN PLONG Addend,
+//    IN ULONG Increment
+//    )
+//
+// Routine Description:
+//
+//    This function performs an interlocked add of an increment value to an
+//    addend variable of type unsigned long. The initial value of the addend
+//    variable is returned as the function value.
+//
+// Arguments:
+//
+//    Addend (a0) - Supplies a pointer to a variable whose value is to be
+//       adjusted by the increment value.
+//
+//    Increment (a1) - Supplies the increment value to be added to the
+//       addend variable.
+//
+// Return Value:
+//
+//    The initial value of the addend variable.
+//
+//--
+
+        LEAF_ENTRY(InterlockedExchangeAdd)
+10:
+#if !defined(NT_UP)
+        mb
+#endif
+
+        ldl_l   v0, 0(a0)               // get current addend value - locked
+        addl    v0, a1, t0              // increment addend value
+        stl_c   t0, 0(a0)               // store updated value - conditionally
+        beq     t0, 20f                 // if lock_flag eq zero, store failed
+#if !defined(NT_UP)
+        mb
+#endif
+        ret     zero, (ra)              // return
+
+//
+// We expect the store conditional will usually succeed the first time so it
+// is faster to branch forward (predicted not taken) to here and then branch
+// backward (predicted taken) to where we wanted to go.
+//
+
+20:     br      zero, 10b               // go try spin lock again
+
+        .end    InterlockedExchangeAdd
+
+
+        SBTTL("Interlocked Pop Entry Sequenced List")
+//++
+//
+// PSINGLE_LIST_ENTRY
+// ExpInterlockedPopEntrySList (
+//    IN PSLIST_HEADER ListHead
+//    )
+//
+// Routine Description:
+//
+//    This function removes an entry from the front of a sequenced singly
+//    linked list so that access to the list is synchronized in a MP system.
+//    If there are no entries in the list, then a value of NULL is returned.
+//    Otherwise, the address of the entry that is removed is returned as the
+//    function value.
+//
+// Arguments:
+//
+//    ListHead (a0) - Supplies a pointer to the sequenced listhead from which
+//       an entry is to be removed.
 //
 // Return Value:
 //
@@ -971,65 +1110,148 @@
 //
 //--
 
-        LEAF_ENTRY(ExpInterlockedTryAllocatePool)
+        LEAF_ENTRY(ExpInterlockedPopEntrySList)
 
-10:     DISABLE_INTERRUPTS              // (PALcode) v0 is clobbered
-
+10:
+        ldq     t0, 0(a0)               // get next entry address and sequence
+        addl    t0, zero, v0            // sign extend next entry address
+        beq     v0, 30f                 // if eq, list is empty
+        srl     t0, 32, t1              // shift sequence to low 32-bits
 #if !defined(NT_UP)
-
-        ldl_l   t0, 0(a1)               // get current lock value - locked
-        bne     t0, 30f                 // if ne, spin lock still owned
-        mov     a1, t0                  // set ownership value (lock address)
-        stl_c   t0, 0(a1)               // set spin lock owned - conditionally
-        beq     t0, 30f                 // if lock_flag eq zero, store failed
-        mb                              // synchronize subsequent reads after
-                                        //   the spinlock is acquired
-
+        mb                              // ensure we see updates in the same order
 #endif
 
 //
-// Set the return value in t0 for now since PALcode may use v0.
+// N.B. It is possible for the following instruction to fault in the rare
+//      case where the first entry in the list is allocated on another
+//      processor and free between the time the free pointer is read above
+//      and the following instruction. When this happens, the access fault
+//      code continues execution by skipping the following instruction.
+//      This results in the compare failing and the entire operation is
+//      retried.
 //
+        ALTERNATE_ENTRY(ExpInterlockedPopEntrySListFault)
 
-        ldl     t2, LsFlink(a0)         // get address of next entry
-        xor     t2, a0, t0              // if t2=a0, list empty, set t0 to NULL
-        beq     t0, 20f                 // if eq [NULL], list is empty
+        ldl     t5, 0(v0)               // get address of successor entry
+        zapnot  t5, 0xf ,t2             // clear high 32-bits for merge
+        ldq_l   t3, 0(a0)               // reload next entry address and sequence
+        ldil    t5, 0xffff              // decrement list depth and
+        addl    t1, t5, t1              // increment sequence number
+        sll     t1, 32, t1              // merge successor address and sequence
+        cmpeq   t0, t3, t4              // if ne, listhead has changed
+        beq     t4, 15f                 //
+        bis     t1, t2, t1              //
+        stq_c   t1, 0(a0)               // store next entry address and sequence
+        beq     t1, 15f                 // if eq, store conditional failed
 
-        ldl     t1, LsFlink(t2)         // get address of next entry
-        stl     t1, LsFlink(a0)         // store address of next in head
-        stl     a0, LsBlink(t1)         // store address of previous in next
-        addl    t2, a2, t1              // compute address to store size in t1
-        stl     a3, 0(t1)               // set size of block allocated
-        mov     t2, t0                  // return the address of entry removed
-20:                                     //
-
+30:
 #if !defined(NT_UP)
-
-        wmb                             // synchronize list updates before
-                                        //   the spinlock is released
-        stl     zero, 0(a2)             // set spin lock not owned
-
+        mb                              // ensure consistent view of memory
 #endif
+        ret     zero, (ra)
 
-        ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
+15:
+        br      zero, 10b               // retry
 
-        mov     t0, v0                  // set return value
-        ret     zero, (ra)              // return
+        .end    ExpInterlockedPopEntrySList
+
+        SBTTL("Interlocked Push Entry Sequenced List")
+//++
+//
+// PSINGLE_LIST_ENTRY
+// ExpInterlockedPushEntrySList (
+//    IN PSLIST_HEADER ListHead,
+//    IN PSINGLE_LIST_ENTRY ListEntry
+//    )
+//
+// Routine Description:
+//
+//    This function inserts an entry at the head of a sequenced singly linked
+//    list so that access to the list is synchronized in an MP system.
+//
+// Arguments:
+//
+//    ListHead (a0) - Supplies a pointer to the sequenced listhead into which
+//       an entry is to be inserted.
+//
+//    ListEntry (a1) - Supplies a pointer to the entry to be inserted at the
+//       head of the list.
+//
+// Return Value:
+//
+//    Previous contents of ListHead.  NULL implies list went from empty
+//       to not empty.
+//
+//--
 
+        LEAF_ENTRY(ExpInterlockedPushEntrySList)
+
+10:
+        ldq     t0, 0(a0)               // get next entry address and sequence
+        addl    t0, zero, v0            // sign extend next entry address
+        srl     t0, 32, t1              // shift sequence to low 32-bits
+        stl     v0, 0(a1)               // set next link in new first entry
 #if !defined(NT_UP)
-
-//
-// We expect the store conditional will usually succeed the first time so it
-// is faster to branch forward (predicted not taken) to here and then branch
-// backward (predicted taken) to where we wanted to go.
-//
-
-30:     ENABLE_INTERRUPTS               // (PALcode) v0 is clobbered
-
-32:	ldl	t0, 0(a1)		// read current lock value
-	beq	t0, 10b			// try spinlock again if available
-        br      zero, 32b               // spin in cache until available
-
+        mb                              // ensure all writes (including next link) go
 #endif
+        zapnot  a1, 0xf, t2             // zero extend new first entry
+        ldq_l   t3, 0(a0)               // reload next entry address and sequence
+        ldah    t5, 1(zero)             // get sequence adjustment value
+        addl    t1, 1, t1               // increment list depth
+        addl    t1, t5, t1              // increment sequence number
+        sll     t1, 32, t1              // merge new first entry address and sequence
+        cmpeq   t0, t3, t4              // if ne, listhead has changed
+        beq     t4, 15f                 //
+        bis     t1, t2, t2
+        stq_c   t2, 0(a0)               // store next entry address and sequence
+        beq     t2, 15f                 // if eq, store conditional failed
 
-        .end    ExpInterlockedTryAllocatePool
+        ret     zero, (ra)
+15:
+        br      zero, 10b               // retry
+
+        .end    ExpInterlockedPushEntrySList
+
+        SBTTL("Interlocked Compare Exchange 64-bits")
+//++
+//
+// ULONGLONG
+// ExpInterlockedCompareExchange64 (
+//    IN PULONGLONG Destination,
+//    IN PULONGLONG Exchange,
+//    IN PULONGLONG Comperand
+//    )
+//
+// Routine Description:
+//
+//    This function performs an interlocked compare and exchange of 64-bits.
+//
+// Arguments:
+//
+//    Destination (a0) - Supplies a pointer to the destination variable.
+//
+//    Exchange (a1) - Supplies a pointer to the exchange value.
+//
+//    Comperand (a2) - Supplies a pointer to the comperand value.
+//
+// Return Value:
+//
+//    The current destination value are returned as the function value.
+//
+//--
+
+        LEAF_ENTRY(ExpInterlockedCompareExchange64)
+
+        ldq     t0, 0(a1)               // get exchange value
+        ldq     t1, 0(a2)               // get comperand value
+10:     ldq_l   v0, 0(a0)               // get current destination value
+        bis     t0, zero, t2            // set exchange value
+        cmpeq   v0, t1, t3              // check if current and comperand match
+        beq     t3, 20f                 // if eq, current and comperand mismatch
+        stq_c   t2, 0(a0)               // store exchange value
+        beq     t2, 30f                 // if eq, store conditional failed
+20:     ret     zero, (ra)
+
+30:     br      zero, 10b               // retry
+
+        .end    ExpInterlockedCompareExchange64

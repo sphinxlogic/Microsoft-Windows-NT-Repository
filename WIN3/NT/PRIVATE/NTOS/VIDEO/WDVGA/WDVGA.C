@@ -1,6 +1,6 @@
 /*++
 
-Copyright (c) 1992  Microsoft Corporation
+Copyright (c) 1992-1996  Microsoft Corporation
 
 Module Name:
 
@@ -27,6 +27,8 @@ Revision History:
 #include "ntddvdeo.h"
 #include "video.h"
 #include "wdvga.h"
+
+extern USHORT Reset[];
 
 
 //
@@ -190,6 +192,25 @@ VgaValidateModes(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     );
 
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    );
+
+VOID
+GetPanelType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    );
+
+BOOLEAN
+WdResetHw(
+    PVOID HwDeviceExtension,
+    ULONG Columns,
+    ULONG Rows
+    );
+
 #if defined(ALLOC_PRAGMA)
 #pragma alloc_text(PAGE,DriverEntry)
 #pragma alloc_text(PAGE,VgaFindAdapter)
@@ -212,6 +233,7 @@ VgaValidateModes(
 #pragma alloc_text(PAGE,VgaValidatorUcharEntry)
 #pragma alloc_text(PAGE,VgaValidatorUshortEntry)
 #pragma alloc_text(PAGE,VgaValidatorUlongEntry)
+#pragma alloc_text(PAGE,GetPanelType)
 #endif
 
 
@@ -268,6 +290,7 @@ Return Value:
     hwInitData.HwInitialize = VgaInitialize;
     hwInitData.HwInterrupt = NULL;
     hwInitData.HwStartIO = VgaStartIO;
+    hwInitData.HwResetHw = WdResetHw;
 
     //
     // Determine the size we require for the device extension.
@@ -406,24 +429,33 @@ Return Value:
     // the normal registers.
     //
 
-    hwDeviceExtension->ExtendedRegisters = TRUE;
+    hwDeviceExtension->ExtendedRegisters = EXTENDED_AND_FLAT_PANEL_REGISTERS;
 
     status = VideoPortVerifyAccessRanges(hwDeviceExtension,
-                                         NUM_WD_ACCESS_RANGES,
+                                         NUM_ALL_ACCESS_RANGES,
                                          VgaAccessRange);
 
-    if (status != NO_ERROR) {
-
-        hwDeviceExtension->ExtendedRegisters = FALSE;
+    if (status != NO_ERROR)
+    {
+        hwDeviceExtension->ExtendedRegisters = EXTENDED_REGISTERS;
 
         status = VideoPortVerifyAccessRanges(hwDeviceExtension,
-                                             NUM_VGA_ACCESS_RANGES,
+                                             NUM_WD_ACCESS_RANGES,
                                              VgaAccessRange);
 
         if (status != NO_ERROR) {
 
-            return status;
+            hwDeviceExtension->ExtendedRegisters = NO_EXTENDED_REGISTERS;
 
+            status = VideoPortVerifyAccessRanges(hwDeviceExtension,
+                                                 NUM_VGA_ACCESS_RANGES,
+                                                 VgaAccessRange);
+
+            if (status != NO_ERROR) {
+
+                return status;
+
+            }
         }
     }
 
@@ -543,6 +575,7 @@ Return Value:
 
 {
     PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
+    VIDEO_X86_BIOS_ARGUMENTS biosArguments;
 
     //
     // set up the default cursor position and type.
@@ -553,6 +586,146 @@ Return Value:
     hwDeviceExtension->CursorTopScanLine = 0;
     hwDeviceExtension->CursorBottomScanLine = 31;
     hwDeviceExtension->CursorEnable = TRUE;
+
+    //
+    // Assume no BIOS for now
+    //
+
+    hwDeviceExtension->SVGABios = FALSE;
+
+#ifdef INT10_MODE_SET
+
+    //
+    // Make sure we unlock extended registers since the BIOS on some machines
+    // does not do it properly.
+    //
+
+    VideoPortWritePortUshort((PUSHORT)(hwDeviceExtension->IOAddress +
+                             GRAPH_ADDRESS_PORT), 0x050F);
+
+    //
+    // Mode set block that can be repeated.
+    //
+
+    //
+    // Lets try to check and see what level of SVGA Bios
+    // support we have.
+    //
+
+    if (hwDeviceExtension->BoardID == WD90C24A)
+    {
+        //
+        // IsIBM is set during detection
+        //
+
+        if (hwDeviceExtension->IsIBM == TRUE)
+        {
+            ULONG Modes[3] = {0x5f, 0x5c, 0x60};
+            ULONG SVGASupport[3] = {LIMITED_SVGA_BIOS,
+                                    LIMITED_SVGA_BIOS,
+                                    FULL_SVGA_BIOS};
+            ULONG i;
+
+            hwDeviceExtension->SVGABios = NO_SVGA_BIOS;
+
+            for(i=0; i<3; i++)
+            {
+                VideoPortZeroMemory(&biosArguments,
+                                    sizeof(VIDEO_X86_BIOS_ARGUMENTS));
+
+                biosArguments.Eax = Modes[i];
+                VideoPortInt10(hwDeviceExtension, &biosArguments);
+
+                //
+                // now lets see if the modeset worked
+                //
+
+                biosArguments.Eax = 0x0f00;
+                VideoPortInt10(hwDeviceExtension, &biosArguments);
+
+                if ((biosArguments.Eax & 0xff) == Modes[i])
+                {
+                    hwDeviceExtension->SVGABios = SVGASupport[i];
+                }
+            }
+
+            //
+            // IMPORTANT NOTE:
+            //
+            // The 750 Thinkpad has an STN panel.  However, we detect it
+            // as an TFT 800x600 panel.  So, if we detect this type of
+            // panel, but no SVGA support, we'll reset the panel type
+            // to STN_MONO_LCD.
+            //
+
+            if ((hwDeviceExtension->SVGABios == NO_SVGA_BIOS) &&
+                (hwDeviceExtension->DisplayType & IBM_F8532))
+            {
+                hwDeviceExtension->DisplayType &= ~IBM_F8532;
+                hwDeviceExtension->DisplayType |= STN_MONO_LCD;
+            }
+
+            //
+            // On IBM machines, we will use the Thinkpad System
+            // Management API.  We call LCDInit to initialize.
+            //
+
+            LCDInit();
+        }
+        else
+        {
+            //
+            // If this is not an IBM machine, then we will
+            // simply assume that it has a SVGA Bios.
+            //
+            // The reason we do this is because I know of no
+            // non-IBM machines which do not have an SVGA Bios.
+            // Also, some of these machines BIOS's do not
+            // do the mode set into high res modes if the LCD
+            // is enabled.  Therefore, it looks like it does
+            // not have an SVGA when it really does.
+            //
+
+            hwDeviceExtension->SVGABios = FULL_SVGA_BIOS;
+        }
+    }
+
+    if (hwDeviceExtension->BoardID == WD90C24A)
+    {
+
+        //
+        // Check to see if an external monitor is present.
+        //
+        // Note: Do not check for an external monitor, if the panel
+        //       type is STN_MONO_LCD.  This check may corrupt the
+        //       display.
+        //
+
+        if (!(hwDeviceExtension->DisplayType & STN_MONO_LCD))
+        {
+            VideoPortSynchronizeExecution(hwDeviceExtension,
+                                          VpHighPriority,
+                                          (PMINIPORT_SYNCHRONIZE_ROUTINE) ExternalMonitorPresent,
+                                          hwDeviceExtension);
+
+            VideoDebugPrint((1, "\nHwDeviceExtension->DisplayType = 0x%x\n\n",
+                                 hwDeviceExtension->DisplayType));
+        }
+        else
+        {
+            //
+            // We'll have to assume that no external monitor is connected.
+            //
+
+            hwDeviceExtension->DisplayType &= ~MONITOR;
+        }
+    }
+    else
+    {
+        hwDeviceExtension->DisplayType |= MONITOR;
+    }
+
+#endif
 
     return TRUE;
 
@@ -594,12 +767,110 @@ Return Value:
     PVIDEO_MEMORY_INFORMATION memoryInformation;
     ULONG inIoSpace;
 
+    PVIDEO_SHARE_MEMORY pShareMemory;
+    PVIDEO_SHARE_MEMORY_INFORMATION pShareMemoryInformation;
+    PHYSICAL_ADDRESS shareAddress;
+    PVOID virtualAddress;
+    ULONG sharedViewSize;
+    ULONG ulBankSize;
+
+    VOID (*pfnBank)(LONG,LONG,PVOID);
+
     //
     // Switch on the IoContolCode in the RequestPacket. It indicates which
     // function must be performed by the driver.
     //
 
     switch (RequestPacket->IoControlCode) {
+
+
+    case IOCTL_VIDEO_SHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - ShareVideoMemory\n"));
+
+        if ( (RequestPacket->OutputBufferLength < sizeof(VIDEO_SHARE_MEMORY_INFORMATION)) ||
+             (RequestPacket->InputBufferLength < sizeof(VIDEO_MEMORY)) ) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INSUFFICIENT_BUFFER\n"));
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        if ( (pShareMemory->ViewOffset > hwDeviceExtension->AdapterMemorySize) ||
+             ((pShareMemory->ViewOffset + pShareMemory->ViewSize) >
+                  hwDeviceExtension->AdapterMemorySize) ) {
+
+            status = ERROR_INVALID_PARAMETER;
+            VideoDebugPrint((0, "VgaStartIO - ShareVideoMemory - ERROR_INVALID_PARAMETER\n"));
+            break;
+
+        }
+
+        RequestPacket->StatusBlock->Information =
+                                    sizeof(VIDEO_SHARE_MEMORY_INFORMATION);
+
+        //
+        // Beware: the input buffer and the output buffer are the same
+        // buffer, and therefore data should not be copied from one to the
+        // other
+        //
+
+        virtualAddress = pShareMemory->ProcessHandle;
+        sharedViewSize = pShareMemory->ViewSize;
+
+        inIoSpace = 0;
+
+        //
+        // NOTE: we are ignoring ViewOffset
+        //
+
+        shareAddress.QuadPart =
+            hwDeviceExtension->PhysicalFrameBase.QuadPart;
+
+
+        pfnBank = vBankMap;
+        ulBankSize = 0x10000; // 64K banks
+
+        status = VideoPortMapBankedMemory(hwDeviceExtension,
+                                          shareAddress,
+                                          &sharedViewSize,
+                                          &inIoSpace,
+                                          &virtualAddress,
+                                          ulBankSize,   // bank size                  
+                                          FALSE,        // we have separate read/write
+                                          pfnBank,
+                                          (PVOID)hwDeviceExtension);
+
+        pShareMemoryInformation = RequestPacket->OutputBuffer;
+
+        pShareMemoryInformation->SharedViewOffset = pShareMemory->ViewOffset;
+        pShareMemoryInformation->VirtualAddress = virtualAddress;
+        pShareMemoryInformation->SharedViewSize = sharedViewSize;
+
+        break;
+
+
+    case IOCTL_VIDEO_UNSHARE_VIDEO_MEMORY:
+
+        VideoDebugPrint((2, "VgaStartIO - UnshareVideoMemory\n"));
+
+        if (RequestPacket->InputBufferLength < sizeof(VIDEO_SHARE_MEMORY)) {
+
+            status = ERROR_INSUFFICIENT_BUFFER;
+            break;
+
+        }
+
+        pShareMemory = RequestPacket->InputBuffer;
+
+        status = VideoPortUnmapMemory(hwDeviceExtension,
+                                      pShareMemory->RequestedVirtualAddress,
+                                      pShareMemory->ProcessHandle);
+
+        break;
 
 
     case IOCTL_VIDEO_MAP_VIDEO_MEMORY:
@@ -658,7 +929,6 @@ Return Value:
 
         break;
 
-
     case IOCTL_VIDEO_QUERY_AVAIL_MODES:
 
         VideoDebugPrint((2, "VgaStartIO - QueryAvailableModes\n"));
@@ -711,6 +981,13 @@ Return Value:
     case IOCTL_VIDEO_RESET_DEVICE:
 
         VideoDebugPrint((2, "VgaStartIO - Reset Device\n"));
+
+        //
+        // If we are running on an IBM machine with a WD90C24A
+        // chip, then we need to execute some special reset code.
+        //
+
+        WdResetHw(HwDeviceExtension, 0, 0);
 
         videoMode.RequestedMode = DEFAULT_MODE;
 
@@ -1956,6 +2233,14 @@ Return Value:
     //
 
     //
+    // Assume a 90c30
+    //
+
+    HwDeviceExtension->BoardID = WD90C30;
+    pwszChipString = L"WD 90C30";
+    cbChipString = sizeof(L"WD 90C30");
+
+    //
     // Look for extended regsiters that are only in WD90C31 and over
     //
 
@@ -1963,14 +2248,6 @@ Return Value:
 
         UCHAR save;
         PUCHAR ExtendedIOAddress;
-
-        //
-        // Assume we have a WD90C31
-        //
-
-        HwDeviceExtension->BoardID = WD90C31;
-        pwszChipString = L"WD 90C31";
-        cbChipString = sizeof(L"WD 90C31");
 
         //
         // Get WDC31 extended port base address.
@@ -1994,43 +2271,209 @@ Return Value:
 
         temp1 = VideoPortReadPortUchar(ExtendedIOAddress);
 
-        if (temp1 != 0x02) {
+        if (temp1 == 0x02)
+        {
+            UCHAR    temp, pr72;
+            BOOLEAN  IsWD90C24A = FALSE;
 
             //
-            // WD90C30 or older.
+            // Assume we have a WD90C31
             //
 
-            HwDeviceExtension->BoardID = WD90C30;
-            pwszChipString = L"WD 90C30";
-            cbChipString = sizeof(L"WD 90C30");
+            HwDeviceExtension->BoardID = WD90C31;
+            pwszChipString = L"WD 90C31";
+            cbChipString = sizeof(L"WD 90C31");
 
             //
-            // If, after looking at the chip, there is no extended registers,
-            // then undeclare their use.
+            // The following code was derived from IBM's
+            // VESA TSR for the WDVGA.  This code
+            // detects the presence of a WD90C24A chip.
+            //
+
+            VideoPortWritePortUshort((PUSHORT)(HwDeviceExtension->IOAddress +
+                                     SEQ_ADDRESS_PORT),
+                                     0x4806);
+            VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                     SEQ_ADDRESS_PORT,
+                                     0x35);
+            temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                     SEQ_ADDRESS_PORT);
+            if (temp == 0x35)
+            {
+                //
+                // We don't know if it is a WD90C24A yet or not,
+                // but we have passed our first test.
+                //
+
+                pr72 = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                        SEQ_DATA_PORT);
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        SEQ_DATA_PORT,
+                                        0x70);
+                temp = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                                        SEQ_DATA_PORT);
+                VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                                        SEQ_DATA_PORT,
+                                        pr72);
+
+                if (temp == 0x70)
+                {
+                    IsWD90C24A = TRUE;
+                }
+            }
+
+            if (IsWD90C24A)
+            {
+                //
+                // WD90C24A
+                //
+
+                HwDeviceExtension->BoardID = WD90C24A;
+                pwszChipString = L"Western Digital 90C24A";
+                cbChipString = sizeof(L"Western Digital 90C24A");
+
+                //
+                // H/W cursor off for initial phase. Probably enabled after
+                // pointer related IOControl calling.
+                // This is not required if the HAL display initialization code
+                // has already done this. For most of Intel machines this code
+                // is not required because no codes enable this hardware cursor
+                // but the PowerPC firmware did it.
+                //
+
+                VideoPortWritePortUchar(ExtendedIOAddress+0, 0x02);
+                VideoPortWritePortUchar(ExtendedIOAddress+1, 0x00);
+                VideoPortWritePortUchar(ExtendedIOAddress+2, 0x00);
+                VideoPortWritePortUchar(ExtendedIOAddress+3, 0x00);
+                VideoPortWritePortUchar(ExtendedIOAddress+0, 0x00);
+
+                //
+                // Now that we know we have a WD90C24A chip, lets
+                // see if we are on an IBM machine.  We'll check
+                // this by looking at address 0xf000:0xe00e.  This
+                // address should contain the ANSI string IBM if
+                // we are running on an IBM machine.
+                //
+                // Well have to map this range in to examine it.
+                //
+
+                {
+                    PHYSICAL_ADDRESS ID_String;
+                    PVOID VirtualAddress;
+
+                    //
+                    // This is the address in the machine ROM
+                    // where the string "IBM" should appear, if
+                    // the machine is an IBM machine.
+                    //
+
+                    ID_String.HighPart = 0;
+                    ID_String.LowPart = 0xF0016;
+
+                    VirtualAddress =
+                        VideoPortGetDeviceBase(HwDeviceExtension,
+                                               ID_String,
+                                               sizeof("IBM"),
+                                               FALSE);
+
+                    HwDeviceExtension->IsIBM = FALSE;
+
+                    if (VirtualAddress != NULL)
+                    {
+                        //
+                        // check to see if the string IBM is at the location
+                        // we are examining.
+                        //
+                        // NOTE: sizeof("IBM") = 4, but we only want to look
+                        // at the first 3 characters. (There won't be a NULL
+                        // terminator.)
+                        //
+
+                        if (VideoPortCompareMemory(VirtualAddress,
+                                                   "IBM",
+                                                   sizeof("IBM")-1) ==
+                                                   sizeof("IBM")-1)
+                        {
+                            VP_STATUS status;
+
+                            HwDeviceExtension->IsIBM = TRUE;
+
+                            VideoDebugPrint((1, "Machine Type detected as IBM\n"));
+
+                            //
+                            // If this is an IBM machine, we need to verify another
+                            // access range so that we can use IBMs System
+                            // Management API.
+                            //
+
+                            status = VideoPortVerifyAccessRanges(HwDeviceExtension,
+                                                                 NUM_IBM_ACCESS_RANGES,
+                                                                 VgaAccessRange);
+
+                            if (status != NO_ERROR)
+                            {
+                                //
+                                // We can't load if we don't get this access range.
+                                //
+
+                                VideoDebugPrint((0, "Couldn't reserve additional access "
+                                                    "range required by IBM Thinkpad.\n"));
+
+                                goto NOT_WDVGA;
+                            }
+
+                        }
+
+                        //
+                        // Free the memory we got...
+                        //
+
+                        VideoPortFreeDeviceBase(HwDeviceExtension,
+                                                VirtualAddress);
+                    }
+                }
+
+                //
+                // get the panel type
+                //
+
+                GetPanelType(HwDeviceExtension);
+
+            }
+            else
+            {
+                //
+                // we aren't a WD90C24A, so lets release our
+                // our claim on the the panel detection registers.
+                //
+
+                VideoPortVerifyAccessRanges(HwDeviceExtension,
+                                            NUM_WD_ACCESS_RANGES,
+                                            VgaAccessRange);
+
+                HwDeviceExtension->ExtendedRegisters = EXTENDED_REGISTERS;
+
+            }
+
+        }
+        else
+        {
+            //
+            // Release the extended registers since they don't
+            // exist on this chip.
             //
 
             VideoPortVerifyAccessRanges(HwDeviceExtension,
                                         NUM_VGA_ACCESS_RANGES,
                                         VgaAccessRange);
 
-            HwDeviceExtension->ExtendedRegisters = FALSE;
-
+            HwDeviceExtension->ExtendedRegisters = NO_EXTENDED_REGISTERS;
         }
 
         VideoPortWritePortUchar(ExtendedIOAddress, save);
 
         VideoPortFreeDeviceBase(HwDeviceExtension,
                                 ExtendedIOAddress);
-
-    } else {
-
-        //
-        // Assume a 90c30 if we could not claim the extended registers.
-        //
-
-        HwDeviceExtension->BoardID = WD90C30;
-        pwszChipString = L"WD 90C30";
-        cbChipString = sizeof(L"WD 90C30");
 
     }
 
@@ -2146,12 +2589,6 @@ Return Value:
 
     VgaSizeMemory(HwDeviceExtension);
 
-    //
-    // Finally, just validate the list of modes.
-    //
-
-    VgaValidateModes(HwDeviceExtension);
-
     VideoPortSetRegistryParameters(HwDeviceExtension,
                                    L"HardwareInformation.ChipType",
                                    pwszChipString,
@@ -2161,7 +2598,6 @@ Return Value:
                                    L"HardwareInformation.MemorySize",
                                    &HwDeviceExtension->AdapterMemorySize,
                                    sizeof(ULONG));
-
 
 NOT_WDVGA:
 
@@ -2208,37 +2644,68 @@ Return Value:
 
     UCHAR data;
 
-    //
-    // 3CF.B Memory size
-    //
+    if (HwDeviceExtension->BoardID == WD90C24A) {
 
-    VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
-            GRAPH_ADDRESS_PORT, 0x0B);
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            CRTC_ADDRESS_PORT_COLOR, 0x29);
 
-    data = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
-            GRAPH_DATA_PORT);
-        
-    switch ( data & 0xC0 ) {
+        data = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                   CRTC_DATA_PORT_COLOR);
 
-    case 0x00:
-    case 0x40:
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            CRTC_DATA_PORT_COLOR,
+            (UCHAR)((data & (UCHAR)0x077) | (UCHAR)0x080));
+                                                // unlock PR11 3d4.2a
+    
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+            CRTC_ADDRESS_PORT_COLOR, 0x2a);
 
-        HwDeviceExtension->AdapterMemorySize = 0x00040000;
-        break;
+        if ((VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                 CRTC_DATA_PORT_COLOR) & 0x020) == 0x020)
+        {
 
-    case 0x80:
+            HwDeviceExtension->AdapterMemorySize = 0x00080000;
 
-        HwDeviceExtension->AdapterMemorySize = 0x00080000;
-        break;
+        } else {
 
-    case 0xC0:
+            HwDeviceExtension->AdapterMemorySize = 0x00100000;
 
-        HwDeviceExtension->AdapterMemorySize = 0x00100000;
-        break;
+        }
 
-    default:
-        break;
+    } else {
 
+        //
+        // Use 3CF.B to determine memory size on other WD's
+        //
+
+        VideoPortWritePortUchar(HwDeviceExtension->IOAddress +
+                GRAPH_ADDRESS_PORT, 0x0B);
+
+        data = VideoPortReadPortUchar(HwDeviceExtension->IOAddress +
+                GRAPH_DATA_PORT);
+
+        switch ( data & 0xC0 ) {
+
+        case 0x00:
+        case 0x40:
+
+            HwDeviceExtension->AdapterMemorySize = 0x00040000;
+            break;
+
+        case 0x80:
+
+            HwDeviceExtension->AdapterMemorySize = 0x00080000;
+            break;
+
+        case 0xC0:
+
+            HwDeviceExtension->AdapterMemorySize = 0x00100000;
+            break;
+
+        default:
+            break;
+
+        }
     }
 } // end VgaSizeMemory();
 
@@ -5402,3 +5869,237 @@ Return Value:
     return TRUE;
 
 } // end VgaPlaybackValidatorData()
+
+//---------------------------------------------------------------------------
+//
+// The memory manager needs a "C" interface to the banking function
+//
+
+/*++
+
+Routine Description:
+
+    This function is a "C" callable interface to the ASM banking
+    function.  It is NON paged because it is called from the
+    Memory Manager during some page faults.
+
+Arguments:
+
+    iBankRead -     Index of bank we want mapped in to read from.
+    iBankWrite -    Index of bank we want mapped in to write to.
+
+Return Value:
+
+    None.
+
+--*/
+
+
+VOID
+vBankMap(
+    LONG iBankRead,
+    LONG iBankWrite,
+    PVOID pvContext
+    )
+{
+    VideoDebugPrint((1, "vBankMap(%d,%d) - enter\n",iBankRead,iBankWrite));
+#ifdef _X86_
+    _asm {
+        mov     eax,iBankRead
+        mov     edx,iBankWrite
+        lea     ebx,BankSwitchStart
+        call    ebx
+    }
+#endif
+    VideoDebugPrint((1, "vBankMap - exit\n"));
+}
+
+//
+// This routines was taken from the WD90C24A miniport sources for
+// the PPC thinkpad.  We need this driver to be generic, and
+// to work with any portable with a WD90C24 chip.  The addresses
+// used below to test for the panel type (0x102, 0xD00, 0xD01)
+// may be exclusive to Thinkpad's only.  I have tested this routine
+// on a non-ibm machine, and all seemed to work, but it would be
+// nice to determine exactly what these registers are, and how
+// they are used.
+//
+
+VOID
+GetPanelType(
+    PHW_DEVICE_EXTENSION HwDeviceExtension
+    )
+
+/*++
+
+Routine Description:
+
+    This routine get the type of attached LCD display.
+
+Arguments:
+
+    HwDeviceExtension - Pointer to the miniport driver's device extension.
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UCHAR   i;
+    PUCHAR  VAddress[2];
+
+    //
+    // Assume CRT only mode
+    //
+
+    HwDeviceExtension->DisplayType = MONITOR;
+
+    //
+    // if we weren't able to claim the address ranges for the panel
+    // detection registers, then we can't try to detect the panel
+    // type.
+    //
+
+    if (HwDeviceExtension->ExtendedRegisters !=
+        EXTENDED_AND_FLAT_PANEL_REGISTERS)
+    {
+        return;
+    }
+
+    for (i = 0; i < 2; i++) {
+
+        if ((VAddress[i] =
+             VideoPortGetDeviceBase(HwDeviceExtension,
+                                    VgaAccessRange[i+4].RangeStart,
+                                    VgaAccessRange[i+4].RangeLength,
+                                    VgaAccessRange[i+4].RangeInIoSpace)) == NULL) {
+
+            VideoDebugPrint((1, "GetPanelType - Fail to get address\n"));
+            return;
+
+        }
+
+    }
+
+    VideoPortWritePortUchar(VAddress[0], 0x01);
+    VideoPortWritePortUchar(VAddress[1], 0xff);
+
+#if 0
+    {
+        UCHAR temp;
+
+        temp = VideoPortReadPortUchar(VAddress[1] + 1);
+
+        VideoDebugPrint((0, "Pre Panel type = 0x%x\n", temp));
+    }
+#endif
+
+    switch (VideoPortReadPortUchar(VAddress[1] + 1) & 0x0f) {
+        case 0x0e : HwDeviceExtension->DisplayType |= IBM_F8515;
+                    break;
+        case 0x0c : HwDeviceExtension->DisplayType |= IBM_F8532;
+                    break;
+        case 0x0d : HwDeviceExtension->DisplayType |= TOSHIBA_DSTNC;
+                    break;
+        default   : HwDeviceExtension->DisplayType |= UNKNOWN_LCD;
+                    break;
+    }
+
+    VideoDebugPrint((2, "GetPanelType - PanelID = %d\n",HwDeviceExtension->DisplayType & 0x0e));
+
+    for (i = 0; i < 2; i++) {
+
+        VideoPortFreeDeviceBase(HwDeviceExtension,VAddress[i]);
+
+    }
+}
+
+BOOLEAN
+WdResetHw(
+    PVOID HwDeviceExtension,
+    ULONG Columns,
+    ULONG Rows
+    )
+
+/*++
+
+Routine Description:
+
+    This routine preps the Wd card for return to a VGA mode.
+
+    This routine is called during system shutdown.  By returning
+    a FALSE we inform the HAL to do an int 10 to go into text
+    mode before shutting down.  Shutdown would fail with some Wd
+    cards without this.
+
+    We do some clean up before returning so that the int 10
+    will work.
+
+Arguments:
+
+    HwDeviceExtension - Supplies a pointer to the miniport's device extension.
+
+Return Value:
+
+    The return value of FALSE informs the hal to go into text mode.
+
+--*/
+
+{
+    PHW_DEVICE_EXTENSION hwDeviceExtension = HwDeviceExtension;
+
+    UNREFERENCED_PARAMETER(Columns);
+    UNREFERENCED_PARAMETER(Rows);
+
+    if ((hwDeviceExtension->BoardID == WD90C24A) &&
+        (hwDeviceExtension->IsIBM   == TRUE))
+    {
+        BOOLEAN bLCD=FALSE;
+
+        VgaInterpretCmdStream(HwDeviceExtension, Reset);
+
+        //
+        // If the LCD is enabled we also need to SET bit 0
+        // of PR2.
+        //
+        // We will check to see if the LCD is enabled by
+        // checking bit 2 of CRTC register 0x31, and bit
+        // 4 of CRTC register 0x32.  If either of these
+        // is set, then we'll assume an LCD is enabled.
+        //
+
+        VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                CRTC_ADDRESS_PORT_COLOR, 0x31);
+        if (VideoPortReadPortUchar(hwDeviceExtension->IOAddress +
+                                CRTC_DATA_PORT_COLOR) & 0x04)
+        {
+            bLCD = TRUE;
+        }
+
+        VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                CRTC_ADDRESS_PORT_COLOR, 0x32);
+        if (VideoPortReadPortUchar(hwDeviceExtension->IOAddress +
+                                CRTC_DATA_PORT_COLOR) & 0x10)
+        {
+            bLCD = TRUE;
+        }
+
+        if (bLCD == TRUE)
+        {
+            VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                    GRAPH_ADDRESS_PORT, 0x0c);
+            VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                    GRAPH_DATA_PORT, (UCHAR)0x01);
+        }
+        else
+        {
+            VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                    GRAPH_ADDRESS_PORT, 0x0c);
+            VideoPortWritePortUchar(hwDeviceExtension->IOAddress +
+                                    GRAPH_DATA_PORT, (UCHAR)0x00);
+        }
+    }
+
+    return FALSE;
+}

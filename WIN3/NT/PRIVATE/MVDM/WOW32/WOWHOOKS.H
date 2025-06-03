@@ -87,14 +87,6 @@ typedef struct {
     }
 
 
-#define GETEVENTMSG16(pEventMsg16,lpEventMsg) {\
-        (lpEventMsg)->message   = FETCHWORD(pEventMsg16->message);\
-        (lpEventMsg)->paramL    = FETCHWORD(pEventMsg16->paramL);\
-        (lpEventMsg)->paramH    = FETCHWORD(pEventMsg16->paramH);\
-        (lpEventMsg)->time      = FETCHLONG(pEventMsg16->time);\
-    }
-
-
 #define PUTCBTACTIVATESTRUCT16(pCbtAStruct16,lpCbtAStruct) {\
      STOREWORD(pCbtAStruct16->fMouse,  (lpCbtAStruct)->fMouse);\
      STOREWORD(pCbtAStruct16->hWndActive, (GETHWND16((lpCbtAStruct)->hWndActive)));\
@@ -123,6 +115,23 @@ LONG APIENTRY WU32SubStdHookProc12(INT nCode, LONG wParam, LONG lParam);
 LONG APIENTRY WU32SubStdHookProc13(INT nCode, LONG wParam, LONG lParam);
 LONG APIENTRY WU32SubStdHookProc14(INT nCode, LONG wParam, LONG lParam);
 LONG APIENTRY WU32SubStdHookProc15(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc16(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc17(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc18(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc19(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc20(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc21(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc22(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc23(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc24(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc25(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc26(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc27(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc28(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc29(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc30(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc31(INT nCode, LONG wParam, LONG lParam);
+LONG APIENTRY WU32SubStdHookProc32(INT nCode, LONG wParam, LONG lParam);
 
 BOOL W32InitHookState(HANDLE hMod);
 BOOL W32GetNotInUseHookStateData(LPHOOKSTATEDATA lpData);
@@ -172,4 +181,5 @@ LONG ThunkMouseHook16(INT nCode, LONG wParam, VPVOID lpMHStruct,
 LONG ThunkShellHook16(INT nCode, LONG wParam, LONG lParam,
                                                      LPHOOKSTATEDATA lpHSData);
 DWORD  W32GetHookDDEMsglParam(VOID);
-
+VOID GetEventMessage16(PEVENTMSG16 pEventMsg16, LPEVENTMSG  lpEventMsg);
+

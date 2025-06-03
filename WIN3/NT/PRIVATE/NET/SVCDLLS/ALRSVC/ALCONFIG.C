@@ -101,7 +101,7 @@ Return Value:
                       SECT_NT_ALERTER,
                       TRUE             // read-only
                       )) != NERR_Success) {
-        NetpDbgPrint("[Alerter] Could not open config section %lu\n", status);
+        NetpKdPrint(("[Alerter] Could not open config section %lu\n", status));
 
         SubString[0] = ultow(status, StatusString, 10);
         AlLogEvent(
@@ -121,7 +121,7 @@ Return Value:
                                       ALERTER_KEYWORD_ALERTNAMES,
                       &AlertNamesW         // alloc and set ptr
                       )) != NERR_Success) {
-        NetpDbgPrint("[Alerter] Could not get alert names %lu\n", status);
+        NetpKdPrint(("[Alerter] Could not get alert names %lu\n", status));
 
         SubString[0] = ultow(status, StatusString, 10);
         AlLogEvent(
@@ -140,7 +140,7 @@ Return Value:
                                    LMEM_ZEROINIT,
                                    AlertNamesSize
                                    )) == NULL) {
-        NetpDbgPrint("[Alerter] Error allocating AlertNamesA %lu\n", GetLastError());
+        NetpKdPrint(("[Alerter] Error allocating AlertNamesA %lu\n", GetLastError()));
         NetApiBufferFree(AlertNamesW);
         AlertNamesW = NULL;
         goto CloseConfigFile;
@@ -274,8 +274,8 @@ AlLogEvent(
                     );
 
     if (LogHandle == NULL) {
-        NetpDbgPrint("[Alerter] RegisterEventSourceW failed %lu\n",
-                     GetLastError());
+        NetpKdPrint(("[Alerter] RegisterEventSourceW failed %lu\n",
+                     GetLastError()));
         return;
     }
 

@@ -2,12 +2,12 @@ TITLE -  Converted Winrect.c to Assembler
 
     .286p
 
+    .xlist
     include wow.inc
     include wowusr.inc
     include cmacros.inc
 NOEXTERNS=1     ; to suppress including most of the crap in user.inc
     include user.inc
-
     .list
 
 sBegin	CODE

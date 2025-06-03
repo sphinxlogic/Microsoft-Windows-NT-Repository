@@ -216,7 +216,7 @@ Return Value:
         !HpfsOnlyBitmap.SetFree( 0, HpfsVol->QuerySectors().GetLowPart() ) ||
         !Census.Initialize( 1 ) ) {
 
-        DbgPrint( "Can't initialize census stuff.\n" );
+        DebugPrint( "Can't initialize census stuff.\n" );
         return FALSE;
     }
 
@@ -225,7 +225,7 @@ Return Value:
 
     if( !Census.AddClearSector( HpfsVol->QuerySectors().GetLowPart()/2 ) ) {
 
-        DbgPrint( "Can't add clear-sector.\n" );
+        DebugPrint( "Can't add clear-sector.\n" );
         return FALSE;
     }
 
@@ -234,18 +234,20 @@ Return Value:
 
     if( !HpfsSuperArea->TakeCensusAndClear( &HpfsOnlyBitmap, &Census ) ) {
 
-        DbgPrint( "Census failed.\n" );
+        DebugPrint( "Census failed.\n" );
         return FALSE;
     }
 
 
     // Set up the NTFS bitmap.  I start out with it equivalent to the
     // HPFS bitmap, so that new NTFS structures will get put down
-    // only in the volume free space.
+    // only in the volume free space.  The NTFS volume will have a
+    // clusterfactor of 1.
 
-    if( !NtfsVolumeBitmap.Initialize( HpfsVol->QuerySectors(), FALSE ) ) {
+    if( !NtfsVolumeBitmap.Initialize( HpfsVol->QuerySectors(), FALSE,
+         HpfsVol, 1 )) {
 
-        DbgPrint( "Can't initialize NTFS bitmap.\n" );
+        DebugPrint( "Can't initialize NTFS bitmap.\n" );
         return FALSE;
     }
 
@@ -343,7 +345,7 @@ Return Value:
     //
     if( !NtfsSuperArea.Initialize( HpfsVol, Message ) ) {
 
-        DbgPrint( "Can't initialize NTFS Super Area.\n" );
+        DebugPrint( "Can't initialize NTFS Super Area.\n" );
         return FALSE;
     }
 
@@ -351,7 +353,7 @@ Return Value:
     //
     if( !HpfsSuperArea->QueryLabel( &LabelString ) ) {
 
-        DbgPrint( "Can't get existing volume label." );
+        DebugPrint( "Can't get existing volume label." );
         return FALSE;
     }
 
@@ -373,7 +375,7 @@ Return Value:
                                                    HpfsSuperArea->GetBpb(),
                                                    &LabelString ) ) {
 
-        DbgPrint( "CreateElementaryStructures failed.\n" );
+        DebugPrint( "CreateElementaryStructures failed.\n" );
         return FALSE;
     }
 
@@ -394,9 +396,15 @@ Return Value:
                          NULL ) ||
         !Mft.Read() ) {
 
-        DbgPrint( "Can't get the MFT I just created.\n" );
+        DebugPrint( "Can't get the MFT I just created.\n" );
         return FALSE;
     }
+
+    // Tell the ntfs volume bitmap about the mft so it can use the
+    // bad cluster file to keep track of any bad clusters that are
+    // found.
+
+    NtfsVolumeBitmap.SetMftPointer(Mft.GetMasterFileTable());
 
     // Get the upcase table.
     //
@@ -405,7 +413,7 @@ Return Value:
         !UpcaseFile.QueryAttribute( &UpcaseAttribute, &Error, $DATA ) ||
         !UpcaseTable.Initialize( &UpcaseAttribute ) ) {
 
-        DbgPrint( "Can't get the upcase table.\n" );
+        DebugPrint( "Can't get the upcase table.\n" );
         return FALSE;
     }
 
@@ -421,7 +429,7 @@ Return Value:
                      Census.QueryNumberOfDirectories() +
                      0x10 ) ) {
 
-        DbgPrint( "CONVERT: Can't create a sufficiently large Master File Table.\n" );
+        DebugPrint( "CONVERT: Can't create a sufficiently large Master File Table.\n" );
         return FALSE;
     }
 
@@ -431,7 +439,7 @@ Return Value:
     //
     if( !Mft.Flush() ) {
 
-        DbgPrint( "Can't flush the Master File Table.\n" );
+        DebugPrint( "Can't flush the Master File Table.\n" );
         return FALSE;
     }
 
@@ -446,7 +454,7 @@ Return Value:
         !LogFile.CreateDataAttribute( 0, &NtfsVolumeBitmap ) ||
         !LogFile.Flush( &NtfsVolumeBitmap ) ) {
 
-        DbgPrint( "CONVERT: Can't resize log file.\n" );
+        DebugPrint( "CONVERT: Can't resize log file.\n" );
         return FALSE;
     }
 
@@ -475,7 +483,7 @@ Return Value:
                                &RootIndexFile,
                                &FileNameIndexName ) ) {
 
-        DbgPrint( "Can't read/initialize the root file name index.\n" );
+        DebugPrint( "Can't read/initialize the root file name index.\n" );
         return FALSE;
     }
 
@@ -483,7 +491,7 @@ Return Value:
 
     if( !HpfsSuperArea->ReadCodepage() ) {
 
-        DbgPrint( "Can't read codepages--volume is corrupt." );
+        DebugPrint( "Can't read codepages--volume is corrupt." );
         return FALSE;
     }
 
@@ -496,13 +504,13 @@ Return Value:
                                HpfsSuperArea->GetSuper()->
                                                 QueryRootFnodeLbn() ) ) {
 
-        DbgPrint( "Can't initialize root FNode.\n" );
+        DebugPrint( "Can't initialize root FNode.\n" );
         return FALSE;
     }
 
     if( !RootFnode.Read() || !RootFnode.IsFnode() ) {
 
-        DbgPrint( "Root FNode is not an FNode--volume is corrupt.\n" );
+        DebugPrint( "Root FNode is not an FNode--volume is corrupt.\n" );
         return FALSE;
     }
 
@@ -510,13 +518,13 @@ Return Value:
                                 NULL,
                                 RootFnode.QueryRootDirblkLbn() ) ) {
 
-        DbgPrint( "Can't initialize root dirblk.\n" );
+        DebugPrint( "Can't initialize root dirblk.\n" );
         return FALSE;
     }
 
     if( !RootDirblk.Read() || !RootDirblk.IsDirblk() ) {
 
-        DbgPrint( "Root dirblk is not a dirblk--volume is corrupt.\n" );
+        DebugPrint( "Root dirblk is not a dirblk--volume is corrupt.\n" );
         return FALSE;
     }
 
@@ -578,7 +586,7 @@ Return Value:
     if( !RootIndex.Save( &RootIndexFile ) ||
         !RootIndexFile.Write() ) {
 
-        DbgPrint( "Can't save root index.\n" );
+        DebugPrint( "Can't save root index.\n" );
         return FALSE;
     }
 
@@ -602,7 +610,7 @@ Return Value:
 
     if( !Mft.Flush() ) {
 
-        DbgPrint( "Can't flush the Master File Table.\n" );
+        DebugPrint( "Can't flush the Master File Table.\n" );
         return FALSE;
     }
 
@@ -616,7 +624,7 @@ Return Value:
     //
     if( !NtfsSuperArea.Write() ) {
 
-        DbgPrint( "Failed writing the NTFS superarea!!!\n" );
+        DebugPrint( "Failed writing the NTFS superarea!!!\n" );
         return FALSE;
     }
 
@@ -624,7 +632,7 @@ Return Value:
     //
     if( !NtfsSuperArea.WriteRemainingBootCode() ) {
 
-        DbgPrint( "UNTFS: Unable to write boot code.\n" );
+        DebugPrint( "UNTFS: Unable to write boot code.\n" );
     }
 
     // Nuke the signatures in sector 16, to make sure nobody
@@ -654,7 +662,7 @@ Return Value:
     if( Message->IsLoggingEnabled() &&
         !NTFS_SA::DumpMessagesToFile( &BootLogFileName, &Mft, Message ) ) {
 
-        DbgPrintf( "CONVERT: Error writing messages to BOOTEX.LOG\n" );
+        DebugPrintf( "CONVERT: Error writing messages to BOOTEX.LOG\n" );
     }
 
     HpfsVol->FlushCache();

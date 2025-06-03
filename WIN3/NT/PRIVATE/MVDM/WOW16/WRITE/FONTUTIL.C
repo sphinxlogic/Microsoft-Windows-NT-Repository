@@ -260,4 +260,3 @@ int doc;
     vfcidScreen.strFcid.ftc = ftcNil;
     vfcidPrint.strFcid.ftc = ftcNil;
     }
-

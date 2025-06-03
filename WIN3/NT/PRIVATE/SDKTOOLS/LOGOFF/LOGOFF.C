@@ -16,7 +16,7 @@ main(int argc, char ** argv)
 
     extern int optind;
 
-    while (!err && (c = getopt(argc, argv, "fFrRsS")) != EOF) {
+    while (!err && (c = getopt(argc, argv, "qQfFrRsS")) != EOF) {
 
         switch (c) {
 

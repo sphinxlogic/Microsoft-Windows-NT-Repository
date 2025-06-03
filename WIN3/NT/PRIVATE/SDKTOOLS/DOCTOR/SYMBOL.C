@@ -88,7 +88,7 @@ CreateSymbolTable(
         SymbolTable->Size = i;
         SymbolTable->Id = SYMBOLTABLEID;
         SymbolTable->StrCmp = (SYMBOLTABLESTRCMP)(IsCaseSensitive ?
-                                                          strncmp : strnicmp);
+                                                          strncmp : _strnicmp);
         SymbolTable->CountSymbols = 0;
         SymbolTable->CountHashBuckets = CountHashBuckets;
         for (i=0; i<CountHashBuckets; i++) {

@@ -599,6 +599,11 @@ VOID CDS_SetupExePath ( VOID )
      strcpy( gb_exe_fname, pIndex ) ;
      *pIndex = TEXT('\0');
 
+     if (GetTempPath( MAX_UI_PATH_LEN, gb_exe_path ) > MAX_UI_PATH_LEN ) {
+         GetCurrentDirectory( MAX_UI_PATH_LEN, gb_exe_path ) ;
+     }
+
+
 } /* end CDS_SetupExePath() */
 
 

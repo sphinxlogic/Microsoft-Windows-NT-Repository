@@ -51,9 +51,28 @@ UnloadServer (
     IN PDRIVER_OBJECT DriverObject
     );
 
+VOID
+SrvCommonPnpCallback (
+    IN PUNICODE_STRING DeviceName,
+    IN BOOLEAN Bind
+);
+
+VOID
+SrvTdiBindCallback (
+    IN PUNICODE_STRING DeviceName
+);
+
+VOID
+SrvTdiUnbindCallback (
+    IN PUNICODE_STRING DeviceName
+);
+
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text( INIT, DriverEntry )
 #pragma alloc_text( PAGE, UnloadServer )
+#pragma alloc_text( PAGE, SrvCommonPnpCallback )
+#pragma alloc_text( PAGE, SrvTdiBindCallback )
+#pragma alloc_text( PAGE, SrvTdiUnbindCallback )
 #pragma alloc_text( PAGE8FIL, SrvFsdOplockCompletionRoutine )
 #pragma alloc_text( PAGE8FIL, SrvFsdRestartSendOplockIItoNone )
 #endif
@@ -64,7 +83,6 @@ NOT PAGEABLE -- SrvFsdTdiConnectHandler
 NOT PAGEABLE -- SrvFsdTdiDisconnectHandler
 NOT PAGEABLE -- SrvFsdTdiReceiveHandler
 NOT PAGEABLE -- SrvFsdGetReceiveWorkItem
-NOT PAGEABLE -- SrvFsdGetReceiveWorkItem2
 NOT PAGEABLE -- SrvFsdRestartSmbComplete
 NOT PAGEABLE -- SrvFsdRestartSmbAtSendCompletion
 NOT PAGEABLE -- SrvFsdServiceNeedResourceQueue
@@ -108,33 +126,25 @@ Return Value:
 
     PAGED_CODE( );
 
+    //
+    // Make sure we haven't screwed up the size of a WORK_QUEUE structure.
+    //  Really needs to be a multiple of CACHE_LINE_SIZE bytes to get
+    //  proper performance on MP systems.
+    //
+    // This code gets optimized out when the size is correct.
+    //
+    if( sizeof( WORK_QUEUE ) & (CACHE_LINE_SIZE-1) ) {
+        KdPrint(( "sizeof(WORK_QUEUE) == %d!\n", sizeof( WORK_QUEUE )));
+        KdPrint(("Fix the WORK_QUEUE structure to be multiple of CACHE_LINE_SIZE!\n" ));
+        DbgBreakPoint();
+    }
+
 #if SRVDBG_BREAK
     KdPrint(( "SRV: At DriverEntry\n" ));
     DbgBreakPoint( );
 #endif
 
     IF_DEBUG(FSD1) KdPrint(( "SrvFsdInitialize entered\n" ));
-
-#if defined(UP_DRIVER)
-    //
-    // If built for UP, ensure that we're not being loaded on an MP system.
-    //
-
-    if (**(PCCHAR *)&KeNumberProcessors != 1) {
-
-        KdPrint(( "SRV: UP driver loaded on MP system\n"));
-        SrvLogError(
-            DriverObject,
-            EVENT_UP_DRIVER_ON_MP,
-            STATUS_UNSUCCESSFUL,
-            NULL,
-            0,
-            NULL,
-            0
-            );
-        return STATUS_UNSUCCESSFUL;
-    }
-#endif
 
 #ifdef MEMPRINT
     //
@@ -244,6 +254,18 @@ Return Value:
 {
     PAGED_CODE( );
 
+    //
+    // If we are using a smart card to accelerate direct host IPX clients,
+    //   let it know we are going away.
+    //
+    if( SrvIpxSmartCard.DeRegister ) {
+        IF_DEBUG( SIPX ) {
+            KdPrint(("Calling Smart Card DeRegister\n" ));
+        }
+        SrvIpxSmartCard.DeRegister();
+    }
+
+    
     //
     // Clean up global data structures.
     //
@@ -499,10 +521,10 @@ Return Value:
     // Insert the RFCB at the tail of the nonblocking work queue.
     //
 
-    rfcb->FspRestartRoutine = (PRESTART_ROUTINE)SrvOplockBreakNotification;
+    rfcb->FspRestartRoutine = SrvOplockBreakNotification;
 
     SrvInsertWorkQueueTail(
-        &SrvWorkQueue,
+        rfcb->Connection->PreferredWorkQueue,
         (PQUEUEABLE_BLOCK_HEADER)rfcb
         );
 
@@ -570,6 +592,7 @@ Return Value:
     PWORK_CONTEXT workContext;
     PTA_NETBIOS_ADDRESS address;
     KIRQL oldIrql;
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
     UserDataLength, UserData;               // avoid compiler warnings
     OptionsLength, Options;
@@ -581,16 +604,33 @@ Return Value:
                     endpoint ));
     }
 
+    if( SrvCompletedPNPRegistration == FALSE ) {
+        //
+        // Do not become active on any single transport until all of the
+        //   transports have been registered
+        //
+        return STATUS_REQUEST_NOT_ACCEPTED;
+    }
+
     //
     // Take a receive work item off the free list.
     //
 
-    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
-    workContext = SrvFsdGetReceiveWorkItem( );
+    ALLOCATE_WORK_CONTEXT( queue, &workContext );
 
     if ( workContext == NULL ) {
 
-        KeLowerIrql( oldIrql );
+        //
+        // We're out of WorkContext structures, and we aren't able to allocate
+        // any more just now.  Let's at least cause a worker thread to allocate some more
+        // by incrementing the NeedWorkItem counter.  This will cause the next
+        // freed WorkContext structure to get dispatched to SrvServiceWorkItemShortage.
+        // While SrvServiceWorkItemShortage probably won't find any work to do, it will
+        // allocate more WorkContext structures if it can.  Clients generally retry
+        // on connection attempts -- perhaps we'll have a free WorkItem structure next time.
+        //
+
+        InterlockedIncrement( &queue->NeedWorkItem );
 
         INTERNAL_ERROR(
             ERROR_LEVEL_EXPECTED,
@@ -598,9 +638,11 @@ Return Value:
             NULL,
             NULL
             );
-        return STATUS_INSUFFICIENT_RESOURCES;
 
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
+
+    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
 
     ACQUIRE_DPC_GLOBAL_SPIN_LOCK( Fsd );
 
@@ -627,13 +669,13 @@ Return Value:
         //
 
         RELEASE_DPC_GLOBAL_SPIN_LOCK( Fsd );
+        KeLowerIrql( oldIrql );
 
         ASSERT( workContext->BlockHeader.ReferenceCount == 1 );
         workContext->BlockHeader.ReferenceCount = 0;
 
-        RETURN_FREE_WORKITEM_DPC( workContext );
+        RETURN_FREE_WORKITEM( workContext );
 
-        KeLowerIrql( oldIrql );
 
         IF_DEBUG(TDI) {
             KdPrint(( "SrvFsdTdiConnectHandler: no connection available\n" ));
@@ -691,6 +733,21 @@ Return Value:
 
     SrvReferenceConnectionLocked( connection );
     SrvReferenceConnectionLocked( connection );
+
+    //
+    // Set the processor affinity
+    //
+    connection->PreferredWorkQueue = queue;
+    connection->CurrentWorkQueue = queue;
+
+    InterlockedIncrement( &queue->CurrentClients );
+
+#if MULTIPROCESSOR
+    //
+    // Get this client onto the best processor
+    //
+    SrvBalanceLoad( connection );
+#endif
 
     //
     // Put the work item on the in-progress list.
@@ -1019,7 +1076,7 @@ Arguments:
     ReceiveIndicators - Set of flags indicating the status of the
         received message
 
-    Tsdu - Pointer to MDL describing the Transport Service Data Unit
+    Tsdu - Pointer to received data.
 
     Irp - Returns a pointer to I/O request packet, if the returned
         status is STATUS_MORE_PROCESSING_REQUIRED.  This IRP is
@@ -1042,6 +1099,9 @@ Return Value:
     PWORK_CONTEXT workContext;
     PIRP irp;
     PIO_STACK_LOCATION irpSp;
+    PWORK_QUEUE queue;
+    ULONG receiveLength;
+    PMDL mdl;
 
     KIRQL oldIrql;
 
@@ -1064,6 +1124,61 @@ Return Value:
         if ( !(ReceiveFlags & TDI_RECEIVE_AT_DISPATCH_LEVEL) ) {
             KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
         }
+
+
+        //
+        // Check if we received a WRITE_BULK_DATA command, and if so process
+        // it here.
+        //
+
+        if ( (BytesIndicated > (sizeof(SMB_HEADER) + sizeof(REQ_WRITE_BULK_DATA))) &&
+             (((PSMB_HEADER)Tsdu)->Command == SMB_COM_WRITE_BULK_DATA) ) {
+
+            status = RestartWriteBulkData( connection,
+                                           ReceiveFlags,
+                                           BytesIndicated,
+                                           BytesAvailable,
+                                           Tsdu,
+                                           &workContext,
+                                           &mdl,
+                                           &receiveLength,
+                                           BytesTaken,
+                                           &irp
+                                          );
+
+            if ( status == STATUS_MORE_PROCESSING_REQUIRED ) {
+
+                //
+                // If we have more work to do, then it must be to build
+                // the irp.
+                //
+
+                ASSERT( irp != NULL );
+                ASSERT( receiveLength != 0 );
+                ASSERT( mdl != NULL );
+
+                queue = connection->CurrentWorkQueue;
+
+                goto build_irp;
+
+            } else {
+
+                return status;
+
+            }
+
+        }
+#if MULTIPROCESSOR
+        //
+        // See if it's time to home this connection to another
+        // processor
+        //
+        if( --(connection->BalanceCount) == 0 ) {
+            SrvBalanceLoad( connection );
+        }
+#endif
+
+        queue = connection->CurrentWorkQueue;
 
         //
         // We're going to either get a free work item and point it to
@@ -1090,7 +1205,7 @@ Return Value:
         // Try to dequeue a work item from the free list.
         //
 
-        workContext = SrvFsdGetReceiveWorkItem( );
+        ALLOCATE_WORK_CONTEXT( queue, &workContext );
 
         if ( workContext != NULL ) {
 
@@ -1167,7 +1282,7 @@ Return Value:
                 //
 
                 SrvInsertWorkQueueTail(
-                    &SrvWorkQueue,
+                    workContext->CurrentWorkQueue,
                     (PQUEUEABLE_BLOCK_HEADER)workContext
                     );
 
@@ -1188,13 +1303,19 @@ Return Value:
                 IndicationsNotCopied++;
 #endif
 
+
+                *BytesTaken = 0;
+                receiveLength = workContext->RequestBuffer->BufferLength;
+                mdl = workContext->RequestBuffer->Mdl;
+
+build_irp:
                 //
                 // We can't copy the indicated data.  Set up the receive
                 // IRP.
                 //
 
                 irp->Tail.Overlay.OriginalFileObject = NULL;
-                irp->Tail.Overlay.Thread = SrvIrpThread;
+                irp->Tail.Overlay.Thread = queue->IrpThread;
                 DEBUG irp->RequestorMode = KernelMode;
 
                 //
@@ -1226,11 +1347,10 @@ Return Value:
                 //
 
                 parameters = (PTDI_REQUEST_KERNEL_RECEIVE)&irpSp->Parameters;
-                parameters->ReceiveLength =
-                                workContext->RequestBuffer->BufferLength;
+                parameters->ReceiveLength = receiveLength;
                 parameters->ReceiveFlags = 0;
 
-                irp->MdlAddress = workContext->RequestBuffer->Mdl;
+                irp->MdlAddress = mdl;
                 irp->AssociatedIrp.SystemBuffer = NULL;
 
                 //
@@ -1257,7 +1377,6 @@ Return Value:
                 //
 
                 *IoRequestPacket = irp;
-                *BytesTaken = 0;
 
                 status = STATUS_MORE_PROCESSING_REQUIRED;
 
@@ -1283,7 +1402,6 @@ Return Value:
 
             (VOID)SrvAddToNeedResourceQueue( connection, ReceivePending, NULL );
 
-            SrvStatistics.WorkItemShortages++;
             status = STATUS_DATA_NOT_ACCEPTED;
 
         }
@@ -1305,22 +1423,166 @@ Return Value:
     return status;
 
 } // SrvFsdTdiReceiveHandler
+
 
-PWORK_CONTEXT
+#ifdef  SRV_PNP_POWER
+
+VOID
+SrvCommonPnpCallback (
+    IN PUNICODE_STRING DeviceName,
+    IN BOOLEAN Bind
+)
+/*++
+
+Routine Description:
+    This function is called whenever a transport indicates a device to
+    the server
+
+Arguments:
+    DeviceName - The name of the device object
+
+    Bind - If TRUE, we wish to check for binding to the device.  If FALSE,
+        we wish to check for unbinding from the device
+
+Return Value:
+    None
+
+--*/
+{
+    ULONG i;
+    PWORK_CONTEXT workContext;
+    KEVENT pnpEvent;
+
+    PAGED_CODE();
+
+    //
+    // Ensure we have everything we need
+    //
+    if( SrvTransportBindingList == NULL ) {
+        return;
+    }
+
+    //
+    // Check to see if this device is one of the devices
+    //  we're interested in.
+    //
+    for( i=0; SrvTransportBindingList[i]; i++ ) {
+        if( DeviceName->Length / sizeof( WCHAR ) != wcslen( SrvTransportBindingList[i] ) ) {
+            continue;
+        }
+        if( _wcsnicmp( DeviceName->Buffer,
+                      SrvTransportBindingList[i],
+                      DeviceName->Length / sizeof( WCHAR ) ) == 0 ) {
+            break;
+        }
+    }
+
+    //
+    // If we hit the end of the list, then DeviceName is not a device we're
+    //  interested in.
+    //
+    if( SrvTransportBindingList[i] == NULL ) {
+        return;
+    }
+
+    //
+    // Grab a WorkItem and queue a request to a blocking thread
+    //
+
+    ALLOCATE_WORK_CONTEXT( PROCESSOR_TO_QUEUE(), &workContext );
+
+    ASSERT( workContext != NULL );
+
+    if( workContext == NULL ) {
+        IF_DEBUG( PNP ) {
+            KdPrint(( "\tUnable to allocate a work context block\n" ));
+        }
+        return;
+    }
+
+    workContext->Parameters.Pnp.Bind = Bind;
+    workContext->Parameters.Pnp.Index = i;
+
+    //
+    // Queue the bind request off to a blocking worker thread.
+    //
+
+    workContext->FspRestartRoutine = SrvPnpProcessor;
+    workContext->Parameters.Pnp.Event = &pnpEvent;
+    KeInitializeEvent( &pnpEvent, SynchronizationEvent, FALSE );
+    SrvQueueWorkToBlockingThread( workContext );
+
+    //
+    // Wait for the bind to complete before returning
+    //
+    KeWaitForSingleObject(
+        &pnpEvent,
+        WaitAny,
+        KernelMode,     // don't let stack be paged -- event is on stack!
+        FALSE,
+        NULL
+        );
+
+    //
+    // SrvPnpProcessor frees the workContext
+    //
+}
+
+VOID
+SrvTdiBindCallback (
+    IN PUNICODE_STRING DeviceName
+)
+/*++
+
+Routine Description:
+    TDI calls this routine whenever a transport creates a new device object
+
+Arguments:
+    DeviceName - The name of the newly created device object
+
+Return Value:
+    None
+--*/
+{
+    PAGED_CODE();
+
+    SrvCommonPnpCallback( DeviceName, TRUE );
+}
+
+VOID
+SrvTdiUnbindCallback (
+    IN PUNICODE_STRING DeviceName
+)
+/*++
+
+Routine Description:
+    TDI calls this routine whenever a transport deletes a device object
+
+Arguments:
+    DeviceName - The name of the deleted device object
+
+Return Value:
+    None
+--*/
+{
+    PAGED_CODE();
+
+    SrvCommonPnpCallback( DeviceName, FALSE );
+}
+#endif
+
+
+PWORK_CONTEXT SRVFASTCALL
 SrvFsdGetReceiveWorkItem (
-    VOID
+    IN PWORK_QUEUE queue
     )
 
 /*++
 
 Routine Description:
 
-    This function removes a receive work item from the free queue.  If
-    the server is running low on work items, it starts the resource
-    thread so that it can generate more.
-
-    !!! Any changes made to this routine should also be made to
-        SrvFsdGetReceiveWorkItem2
+    This function removes a receive work item from the free queue.  It can
+    be called at either Passive or DPC level
 
 Arguments:
 
@@ -1328,183 +1590,219 @@ Arguments:
 
 Return Value:
 
-    PWORK_CONTEXT - A pointer to the WorkContext->ListEntry field of a
-         receive work item, or NULL if none exist.
-
-
+    PWORK_CONTEXT - A pointer to a WORK_CONTEXT structure,
+         or NULL if none exists.
 --*/
 
 {
-    PSINGLE_LIST_ENTRY listEntry = NULL;
-    CLONG freeWorkItems;
+    PSINGLE_LIST_ENTRY listEntry;
     PWORK_CONTEXT workContext;
+    ULONG i;
+    KIRQL oldIrql;
+    BOOLEAN passiveLevel;
 
-    ASSERT( KeGetCurrentIrql() == DISPATCH_LEVEL );
-
-    ACQUIRE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
+    ASSERT( queue >= SrvWorkQueues && queue < eSrvWorkQueues );
 
     //
     // Try to get a work context block from the initial work queue first.
-    // If this fails, try the normal work queue.
+    // If this fails, try the normal work queue.  If this fails, try to allocate
+    // one.  If we still failed, schedule a worker thread to allocate some later.
     //
 
-    listEntry = PopEntryList( &SrvInitialReceiveWorkItemList );
+    listEntry = ExInterlockedPopEntrySList( &queue->InitialWorkItemList, &queue->SpinLock );
 
-    if ( listEntry == NULL ) goto check_normal_list;
+    if ( listEntry == NULL ) {
 
-got_one:
+        listEntry = ExInterlockedPopEntrySList( &queue->NormalWorkItemList, &queue->SpinLock );
+
+        if( listEntry == NULL ) {
+
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("No workitems for queue %d\n", queue-SrvWorkQueues ));
+            }
+
+            passiveLevel = (KeGetCurrentIrql() == PASSIVE_LEVEL);
+
+            if( passiveLevel ) {
+                //
+                // Since we are at passive level, we can try to allocate a new workcontext
+                // right now!
+                //
+
+                SrvAllocateNormalWorkItem( &workContext, queue );
+                if( workContext != NULL ) {
+                    IF_DEBUG( WORKITEMS ) {
+                        KdPrint(("SrvFsdGetReceiveWorkItem: new work context %X\n",
+                                  workContext ));
+                    }
+                    SrvPrepareReceiveWorkItem( workContext, FALSE );
+                    INITIALIZE_WORK_CONTEXT( queue, workContext );
+                    return workContext;
+                }
+            }
+
+            //
+            // Before we steal from another processor, ensure that
+            //  we're setup to replenish this exhausted free list
+            //
+            ACQUIRE_SPIN_LOCK( &queue->SpinLock, &oldIrql );
+            if( queue->AllocatedWorkItems < queue->MaximumWorkItems &&
+                GET_BLOCK_TYPE(&queue->CreateMoreWorkItems) == BlockTypeGarbage ) {
+
+                SET_BLOCK_TYPE( &queue->CreateMoreWorkItems, BlockTypeWorkContextSpecial );
+                queue->CreateMoreWorkItems.FspRestartRoutine = SrvServiceWorkItemShortage;
+                SrvInsertWorkQueueHead( queue, &queue->CreateMoreWorkItems );
+            }
+            RELEASE_SPIN_LOCK( &queue->SpinLock, oldIrql );
+
+#if MULTIPROCESSOR
+            //
+            // We couldn't find a work item on our processor's free queue.
+            //   See if we can steal one from another processor
+            //
+
+            IF_DEBUG( WORKITEMS ) {
+                KdPrint(("Looking for workitems on other processors\n" ));
+            }
+
+            //
+            // Look around for a workitem we can borrow
+            //
+            for( i = SrvNumberOfProcessors; i > 1; --i ) {
+
+                if( ++queue == eSrvWorkQueues )
+                    queue = SrvWorkQueues;
+
+
+                listEntry = ExInterlockedPopEntrySList( &queue->InitialWorkItemList,
+                                                        &queue->SpinLock );
+
+                if( listEntry == NULL ) {
+                    listEntry = ExInterlockedPopEntrySList( &queue->NormalWorkItemList,
+                                                            &queue->SpinLock );
+                    if( listEntry == NULL ) {
+
+                        if( passiveLevel ) {
+                            //
+                            // Since we are at passive level, we can try to
+                            // allocate a new context right now!
+                            //
+                            SrvAllocateNormalWorkItem( &workContext, queue );
+
+                            if( workContext != NULL ) {
+                                //
+                                // Got a workItem from another processor's queue!
+                                //
+                                ++(queue->StolenWorkItems);
+
+                                IF_DEBUG( WORKITEMS ) {
+                                    KdPrint(("SrvFsdGetReceiveWorkItem: new work context %X\n",
+                                              workContext ));
+                                }
+
+                                SrvPrepareReceiveWorkItem( workContext, FALSE );
+                                INITIALIZE_WORK_CONTEXT( queue, workContext );
+                                return workContext;
+                            }
+                        }
+
+                        //
+                        // Make sure this processor knows it is low on workitems
+                        //
+                        ACQUIRE_SPIN_LOCK( &queue->SpinLock, &oldIrql );
+                        if( queue->AllocatedWorkItems < queue->MaximumWorkItems &&
+                            GET_BLOCK_TYPE(&queue->CreateMoreWorkItems) == BlockTypeGarbage ) {
+
+                            SET_BLOCK_TYPE( &queue->CreateMoreWorkItems,
+                                            BlockTypeWorkContextSpecial );
+
+                            queue->CreateMoreWorkItems.FspRestartRoutine
+                                            = SrvServiceWorkItemShortage;
+                            SrvInsertWorkQueueHead( queue, &queue->CreateMoreWorkItems );
+                        }
+
+                        RELEASE_SPIN_LOCK( &queue->SpinLock, oldIrql );
+                        continue;
+                    }
+                }
+
+                //
+                // Got a workItem from another processor's queue!
+                //
+                ++(queue->StolenWorkItems);
+
+                break;
+            }
+#endif
+
+            if( listEntry == NULL ) {
+                //
+                // We didn't have any free workitems on our queue, and
+                //  we couldn't borrow a workitem from another processor.
+                //  Give up!
+                //
+                IF_DEBUG( WORKITEMS ) {
+                    KdPrint(("No workitems anywhere!\n" ));
+                }
+                ++SrvStatistics.WorkItemShortages;
+
+                return NULL;
+            }
+        }
+    }
+
+    //
+    // We've successfully gotten a free workitem of a processor's queue.
+    //  (it may not be our processor).
+    //
+
+    IF_DEBUG( WORKITEMS ) {
+        if( queue != PROCESSOR_TO_QUEUE() ) {
+            KdPrint(("\tGot WORK_ITEM from processor %d\n" , queue - SrvWorkQueues ));
+        }
+    }
 
     //
     // Decrement the count of free receive work items.
     //
+    InterlockedDecrement( &queue->FreeWorkItems );
+    ASSERT( queue->FreeWorkItems >= 0 );
 
-    freeWorkItems = --SrvFreeWorkItems;
+    if( queue->FreeWorkItems < queue->MinFreeWorkItems &&
+        queue->AllocatedWorkItems < queue->MaximumWorkItems &&
+        GET_BLOCK_TYPE(&queue->CreateMoreWorkItems) == BlockTypeGarbage ) {
 
-    //
-    // If we are running low on receive work items, start the resource
-    // thread so that it can generate more.  If we are completely out of
-    // buffers the calling routine will arouse the resource thread.
-    //
-    // *** This routine does not set the resource thread event if the
-    //     receive work item queue is empty.  It is assumed that the
-    //     caller will set the event after first setting up some work
-    //     for the resource thread to do.
-    //
+        ACQUIRE_SPIN_LOCK( &queue->SpinLock, &oldIrql );
 
-    if ( (freeWorkItems < SrvMinReceiveQueueLength) &&
-         (SrvReceiveWorkItems < SrvMaxReceiveWorkItemCount) ) {
+        if( queue->FreeWorkItems < queue->MinFreeWorkItems &&
+            queue->AllocatedWorkItems < queue->MaximumWorkItems &&
+            GET_BLOCK_TYPE(&queue->CreateMoreWorkItems) == BlockTypeGarbage ) {
 
-        RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
+            //
+            // We're running short of free workitems. Queue a request to
+            // allocate more of them.
+            //
+            SET_BLOCK_TYPE( &queue->CreateMoreWorkItems, BlockTypeWorkContextSpecial );
 
-        ACQUIRE_DPC_GLOBAL_SPIN_LOCK( Fsd );
-        SrvResourceWorkItem = TRUE;
-        SrvFsdQueueExWorkItem(
-            &SrvResourceThreadWorkItem,
-            &SrvResourceThreadRunning,
-            CriticalWorkQueue
-            );
-        RELEASE_DPC_GLOBAL_SPIN_LOCK( Fsd );
+            queue->CreateMoreWorkItems.FspRestartRoutine = SrvServiceWorkItemShortage;
+            SrvInsertWorkQueueHead( queue, &queue->CreateMoreWorkItems );
+        }
 
-    } else {
-        RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
+        RELEASE_SPIN_LOCK( &queue->SpinLock, oldIrql );
     }
+
 
     workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
     ASSERT( workContext->BlockHeader.ReferenceCount == 0 );
-    workContext->BlockHeader.ReferenceCount = 1;
+    ASSERT( workContext->CurrentWorkQueue != NULL );
+
+    INITIALIZE_WORK_CONTEXT( queue, workContext );
 
     return workContext;
-
-check_normal_list:
-
-    listEntry = PopEntryList( &SrvNormalReceiveWorkItemList );
-    if ( listEntry != NULL ) goto got_one;
-    RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
-
-    return NULL;
 
 } // SrvFsdGetReceiveWorkItem
 
-PWORK_CONTEXT
-SrvFsdGetReceiveWorkItem2 (
-    VOID
-    )
-
-/*++
-
-Routine Description:
-
-    This function removes a receive work item from the free queue.  If
-    the server is running low on work items, it starts the resource
-    thread so that it can generate more.
-
-    *** This routine is called with the fsd spinlock held ***
-
-    !!! Any changes made to this routine should also be made to
-        SrvFsdGetReceiveWorkItem
-
-Arguments:
-
-    None.
-
-Return Value:
-
-    PWORK_CONTEXT - A pointer to the WorkContext->ListEntry field of a
-         receive work item, or NULL if none exist.
-
-
---*/
-
-{
-    PSINGLE_LIST_ENTRY listEntry = NULL;
-    CLONG freeWorkItems;
-    PWORK_CONTEXT workContext;
-
-    ASSERT( KeGetCurrentIrql() == DISPATCH_LEVEL );
-
-    ACQUIRE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
-
-    //
-    // Try to get a work context block from the initial work queue first.
-    // If this fails, try the normal work queue.
-    //
-
-    listEntry = PopEntryList( &SrvInitialReceiveWorkItemList );
-
-    if ( listEntry == NULL ) goto check_normal_list;
-
-got_one:
-
-    //
-    // Decrement the count of free receive work items.
-    //
-
-    freeWorkItems = --SrvFreeWorkItems;
-
-    //
-    // If we are running low on receive work items, start the resource
-    // thread so that it can generate more.  If we are completely out of
-    // buffers the calling routine will arouse the resource thread.
-    //
-    // *** This routine does not set the resource thread event if the
-    //     receive work item queue is empty.  It is assumed that the
-    //     caller will set the event after first setting up some work
-    //     for the resource thread to do.
-    //
-
-    if ( (freeWorkItems < SrvMinReceiveQueueLength) &&
-         (SrvReceiveWorkItems < SrvMaxReceiveWorkItemCount) ) {
-
-        RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
-
-        SrvResourceWorkItem = TRUE;
-        SrvFsdQueueExWorkItem(
-            &SrvResourceThreadWorkItem,
-            &SrvResourceThreadRunning,
-            CriticalWorkQueue
-            );
-
-    } else {
-        RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
-    }
-
-    workContext = CONTAINING_RECORD( listEntry, WORK_CONTEXT, SingleListEntry );
-    ASSERT( workContext->BlockHeader.ReferenceCount == 0 );
-    workContext->BlockHeader.ReferenceCount = 1;
-
-    return workContext;
-
-check_normal_list:
-
-    listEntry = PopEntryList( &SrvNormalReceiveWorkItemList );
-    if ( listEntry != NULL ) goto got_one;
-    RELEASE_DPC_GLOBAL_SPIN_LOCK( WorkItem );
-
-    return NULL;
-
-} // SrvFsdGetReceiveWorkItem2
-
-VOID
+VOID SRVFASTCALL
 SrvFsdRequeueReceiveWorkItem (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1557,9 +1855,6 @@ Return Value:
     connection = WorkContext->Connection;
     ASSERT( connection != NULL );
 
-    WorkContext->Connection = NULL;
-    WorkContext->Endpoint = NULL;       // not a referenced pointer
-
     ASSERT( WorkContext->Share == NULL );
     ASSERT( WorkContext->Session == NULL );
     ASSERT( WorkContext->TreeConnect == NULL );
@@ -1578,13 +1873,6 @@ Return Value:
 
     WorkContext->FsdRestartRoutine = SrvQueueWorkToFspAtDpcLevel;
     WorkContext->FspRestartRoutine = SrvRestartReceive;
-
-    //
-    // Initialize the processing count and oplock open state.
-    //
-
-    WorkContext->ProcessingCount = 0;
-    WorkContext->OplockOpen = FALSE;
 
     //
     // Make sure the length specified in the MDL is correct -- it may
@@ -1655,6 +1943,7 @@ Return Value:
         //
 
         DispatchToOrphanage( (PVOID)connection );
+        connection = NULL;
 
     } else {
 
@@ -1662,13 +1951,14 @@ Return Value:
         RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
     }
 
+    KeLowerIrql( oldIrql );
+
     //
     // Requeue the work item.
     //
 
-    RETURN_FREE_WORKITEM_DPC( WorkContext );
+    RETURN_FREE_WORKITEM( WorkContext );
 
-    KeLowerIrql( oldIrql );
     return;
 
 } // SrvFsdRequeueReceiveWorkItem
@@ -1764,7 +2054,7 @@ Return Value:
 } // SrvFsdRestartSendOplockIItoNone
 
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartSmbComplete (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1793,9 +2083,7 @@ Return Value:
 
 {
     PRFCB rfcb;
-#if !defined(UP_DRIVER)
     ULONG oldCount;
-#endif
 
     ASSERT( KeGetCurrentIrql() == DISPATCH_LEVEL );
 
@@ -1817,16 +2105,6 @@ Return Value:
     rfcb = WorkContext->Rfcb;
 
     if ( rfcb != NULL ) {
-
-#if defined(UP_DRIVER)
-        UPDATE_REFERENCE_HISTORY( rfcb, TRUE );
-
-        if ( --rfcb->BlockHeader.ReferenceCount == 0 ) {
-            UPDATE_REFERENCE_HISTORY( rfcb, FALSE );
-            rfcb->BlockHeader.ReferenceCount++;
-            goto queueToFsp;
-        }
-#else
         oldCount = ExInterlockedAddUlong(
             &rfcb->BlockHeader.ReferenceCount,
             (ULONG)-1,
@@ -1844,7 +2122,7 @@ Return Value:
                     );
             goto queueToFsp;
         }
-#endif
+
         WorkContext->Rfcb = NULL;
     }
 
@@ -1853,12 +2131,7 @@ Return Value:
     //
 
     if ( WorkContext->BlockingOperation ) {
-        ExInterlockedAddUlong(
-            &SrvBlockingOpsInProgress,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(Fsd)
-            );
-
+        InterlockedDecrement( &SrvBlockingOpsInProgress );
         WorkContext->BlockingOperation = FALSE;
     }
 
@@ -1893,7 +2166,7 @@ queueToFsp:
 
 NTSTATUS
 SrvFsdRestartSmbAtSendCompletion (
-    IN PDEVICE_OBJECT DeviceObject,
+    IN PDEVICE_OBJECT DeviceObject OPTIONAL,
     IN PIRP Irp,
     IN PWORK_CONTEXT WorkContext
     )
@@ -1928,11 +2201,9 @@ Return Value:
     PRFCB rfcb;
     KIRQL oldIrql;
 
-#if !defined(UP_DRIVER)
     ULONG oldCount;
-#endif
 
-    IF_DEBUG(FSD2) KdPrint(( "SrvFsdRestartSmbComplete entered\n" ));
+    IF_DEBUG(FSD2)KdPrint(( "SrvFsdRestartSmbComplete entered\n" ));
 
     //
     // Check the status of the send completion.
@@ -1968,18 +2239,6 @@ Return Value:
     rfcb = WorkContext->Rfcb;
 
     if ( rfcb != NULL ) {
-#if defined(UP_DRIVER)
-
-        UPDATE_REFERENCE_HISTORY( rfcb, TRUE );
-
-        if ( --rfcb->BlockHeader.ReferenceCount == 0 ) {
-            UPDATE_REFERENCE_HISTORY( rfcb, FALSE );
-            rfcb->BlockHeader.ReferenceCount++;
-            goto queueToFsp;
-        }
-
-#else
-
         oldCount = ExInterlockedAddUlong(
             &rfcb->BlockHeader.ReferenceCount,
             (ULONG)-1,
@@ -1998,7 +2257,6 @@ Return Value:
             goto queueToFsp;
         }
 
-#endif
         WorkContext->Rfcb = NULL;
     }
 
@@ -2007,12 +2265,7 @@ Return Value:
     //
 
     if ( WorkContext->BlockingOperation ) {
-        ExInterlockedAddUlong(
-            &SrvBlockingOpsInProgress,
-            (ULONG)-1,
-            &GLOBAL_SPIN_LOCK(Fsd)
-            );
-
+        InterlockedDecrement( &SrvBlockingOpsInProgress );
         WorkContext->BlockingOperation = FALSE;
     }
 
@@ -2355,13 +2608,13 @@ Return Value:
 {
     KIRQL oldIrql;
 
-    IF_DEBUG( OPLOCK ) {
-        KdPrint(("SrvAddToNeedResourceQueue entered. "
-                 "connection = %x\n", Connection));
-    }
-
     ACQUIRE_GLOBAL_SPIN_LOCK( Fsd, &oldIrql );
     ACQUIRE_DPC_SPIN_LOCK( Connection->EndpointSpinLock );
+
+    IF_DEBUG( WORKITEMS ) {
+        KdPrint(("SrvAddToNeedResourceQueue entered. "
+                 "connection = %x, type %d\n", Connection, ResourceType));
+    }
 
     //
     // Check again to see if the connection is closing.  If it is,
@@ -2380,8 +2633,8 @@ Return Value:
         RELEASE_DPC_SPIN_LOCK( Connection->EndpointSpinLock );
         RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
 
-        IF_DEBUG( OPLOCK ) {
-            KdPrint(("SrvAddToNeedResourceQueue: connection closing.\n"));
+        IF_DEBUG( WORKITEMS ) {
+            KdPrint(("SrvAddToNeedResourceQueue: connection closing. Not queued\n"));
         }
 
         return FALSE;
@@ -2415,58 +2668,42 @@ Return Value:
 
     }
 
-    if ( Connection->OnNeedResourceQueue ) {
-
-        //
-        // The connection is already on the need resource queue.
-        //
-
-        RELEASE_DPC_SPIN_LOCK( Connection->EndpointSpinLock );
-        RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
-
-        IF_DEBUG( OPLOCK ) KdPrint(("SrvAddToNeedResourceQueue complete.\n"));
-        return TRUE;
-
-    }
-
     //
     // Put the connection on the need-resource queue and increment its
     // reference count.
     //
 
-    Connection->OnNeedResourceQueue = TRUE;
+    if( Connection->OnNeedResourceQueue == FALSE ) {
 
-    SrvInsertTailList(
-        &SrvNeedResourceQueue,
-        &Connection->ListEntry
-        );
+        Connection->OnNeedResourceQueue = TRUE;
 
-    SrvReferenceConnectionLocked( Connection );
+        SrvInsertTailList(
+            &SrvNeedResourceQueue,
+            &Connection->ListEntry
+            );
+
+        SrvReferenceConnectionLocked( Connection );
+
+        IF_DEBUG( WORKITEMS ) {
+            KdPrint(("SrvAddToNeedResourceQueue: connection %x inserted on "
+                     "the queue.\n", Connection));
+        }
+    }
 
     RELEASE_DPC_SPIN_LOCK( Connection->EndpointSpinLock );
 
-    IF_DEBUG( OPLOCK ) {
-        KdPrint(("SrvAddToNeedResourceQueue: connection %x inserted on "
-                 "the queue.\n", Connection));
-    }
-
-    //
-    // Make sure the resource thread knows that this connection needs a
-    // work item.
-    //
-
-    SrvResourceNeedResourceQueue = TRUE;
-    SrvFsdQueueExWorkItem(
-        &SrvResourceThreadWorkItem,
-        &SrvResourceThreadRunning,
-        CriticalWorkQueue
-        );
-
     RELEASE_GLOBAL_SPIN_LOCK( Fsd, oldIrql );
 
-    IF_DEBUG( OPLOCK ) KdPrint(("SrvAddToNeedResourceQueue complete.\n"));
+    //
+    // Make sure we know that this connection needs a WorkItem
+    //
+    InterlockedIncrement( &Connection->CurrentWorkQueue->NeedWorkItem );
+
+    IF_DEBUG( WORKITEMS ) {
+        KdPrint(("SrvAddToNeedResourceQueue complete: NeedWorkItem = %d\n",
+                  Connection->CurrentWorkQueue->NeedWorkItem ));
+    }
 
     return TRUE;
 
 } // SrvAddToNeedResourceQueue
-

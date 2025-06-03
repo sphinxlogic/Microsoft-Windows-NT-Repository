@@ -618,10 +618,10 @@ Return Value:
             if (!RemoteAddress) {
                 return STATUS_BAD_NETWORK_PATH;
             }
-            if (RtlCompareMemory(
+            if (!RtlEqualMemory(
                  RemoteAddress->NetbiosName,
                  DeviceContext->ReservedNetBIOSAddress,
-                 NETBIOS_NAME_LENGTH) != NETBIOS_NAME_LENGTH) {
+                 NETBIOS_NAME_LENGTH)) {
 
                  RemoteAdapterStatus = TRUE;
 
@@ -1233,10 +1233,10 @@ Return Value:
         //
 
         if ((address->NetworkName->NetbiosName[0] == 0) &&
-            (RtlCompareMemory(
+            (RtlEqualMemory(
                  address->NetworkName->NetbiosName,
                  DeviceContext->ReservedNetBIOSAddress,
-                 NETBIOS_NAME_LENGTH) == NETBIOS_NAME_LENGTH)) {
+                 NETBIOS_NAME_LENGTH))) {
 
             continue;
         }
@@ -1325,10 +1325,10 @@ Return Value:
                 //
 
                 if ((address->NetworkName->NetbiosName[0] == 0) &&
-                    (RtlCompareMemory(
+                    (RtlEqualMemory(
                          address->NetworkName->NetbiosName,
                          DeviceContext->ReservedNetBIOSAddress,
-                         NETBIOS_NAME_LENGTH) == NETBIOS_NAME_LENGTH)) {
+                         NETBIOS_NAME_LENGTH))) {
 
                     continue;
                 }
@@ -1651,7 +1651,7 @@ Return Value:
         NdisAllocateBuffer(
             &NdisStatus,
             &NdisBuffer,
-            DeviceContext->NdisBufferPoolHandle,
+            DeviceContext->NdisBufferPool,
             ResponseBuffer,
             BytesWritten);
 
@@ -1932,7 +1932,7 @@ Return Value:
 
     for ( ; FindNameBuffer < (PFIND_NAME_BUFFER)(TargetBuffer + Request->BytesWritten); FindNameBuffer++) {
 
-        if (RtlCompareMemory (FindNameBuffer->source_addr, SourceAddress->Address, 6) == 6) {
+        if (RtlEqualMemory (FindNameBuffer->source_addr, SourceAddress->Address, 6)) {
 
             RELEASE_SPIN_LOCK (&Request->SpinLock, oldirql);
             NbfDereferenceRequest ("Duplicate NR", Request, RREF_FIND_NAME);
@@ -2354,7 +2354,7 @@ Return Value:
     NdisAllocateBuffer(
         &NdisStatus,
         &NdisBuffer,
-        DeviceContext->NdisBufferPoolHandle,
+        DeviceContext->NdisBufferPool,
         TargetBuffer,
         ResponseBytesToCopy);
 

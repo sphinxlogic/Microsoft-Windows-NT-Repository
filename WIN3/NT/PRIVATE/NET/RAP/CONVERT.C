@@ -106,10 +106,10 @@ Revision History:
 
 #define UNSUPPORTED_COMBINATION(One, TheOther) \
     { \
-        NetpDbgPrint( PREFIX_NETRAP \
+        NetpKdPrint(( PREFIX_NETRAP \
                   "RapConvertSingleEntry: Unsupported combination: " \
                   "'" FORMAT_DESC_CHAR "' and '" FORMAT_DESC_CHAR "'\n", \
-                  (One), (TheOther) ); \
+                  (One), (TheOther) )); \
         NetpAssert(FALSE); \
     }
 
@@ -225,8 +225,8 @@ Return Value:
     case RapToNative    : inNative=FALSE; outNative=TRUE ; break;
     case RapToRap       : inNative=FALSE; outNative=FALSE; break;
     default :
-        NetpDbgPrint( PREFIX_NETRAP
-                "RapConvertSingleEntry: invalid conversion mode!\n");
+        NetpKdPrint(( PREFIX_NETRAP
+                "RapConvertSingleEntry: invalid conversion mode!\n"));
         NetpAssert(FALSE);
     }
 
@@ -269,9 +269,9 @@ Return Value:
     }
 
     IF_DEBUG(CONVERT) {
-        NetpDbgPrint( PREFIX_NETRAP
+        NetpKdPrint(( PREFIX_NETRAP
                 "RapConvertSingleEntry: bytes required starts at "
-                FORMAT_DWORD "\n", *BytesRequired );
+                FORMAT_DWORD "\n", *BytesRequired ));
     }
 
     //
@@ -285,8 +285,8 @@ Return Value:
         if ( OutStructure + outStructureSize > *StringLocation ) {
             fixedWrite = FALSE;
             IF_DEBUG(CONVERT) {
-                NetpDbgPrint( PREFIX_NETRAP
-                        "RapConvertSingleEntry: NOT WRITING FIXED AREA.\n" );
+                NetpKdPrint(( PREFIX_NETRAP
+                        "RapConvertSingleEntry: NOT WRITING FIXED AREA.\n" ));
             }
         } else {
             fixedWrite = TRUE;
@@ -303,14 +303,14 @@ Return Value:
     while ( *InStructureDesc != '\0' ) {
 
         IF_DEBUG(CONVERT) {
-            NetpDbgPrint( PREFIX_NETRAP "InStruct at " FORMAT_LPVOID
+            NetpKdPrint(( PREFIX_NETRAP "InStruct at " FORMAT_LPVOID
                         ", desc at " FORMAT_LPVOID " (" FORMAT_DESC_CHAR ")"
                         ", outStruct at " FORMAT_LPVOID ", "
                         "desc at " FORMAT_LPVOID " (" FORMAT_DESC_CHAR ")\n",
                         (LPVOID) InStructure, (LPVOID) InStructureDesc,
                         *InStructureDesc,
                         (LPVOID) OutStructure, (LPVOID) OutStructureDesc,
-                        *OutStructureDesc );
+                        *OutStructureDesc ));
         }
 
         NetpAssert( *OutStructureDesc != '\0' );
@@ -365,9 +365,15 @@ Return Value:
                 } else if (inLength == (DWORD) (2*outLength)) {
                     NetpAssert( sizeof(TCHAR) == (2*sizeof(CHAR)) );
                     if ( fixedWrite ) {
+#ifdef DBCS // RapConvertSingleEntry()
+                        NetpCopyWStrToStrDBCS(
+                                (LPSTR) OutStructure,       // dest
+                                (LPWSTR) InStructure);      // src
+#else
                         NetpCopyWStrToStr(
                                 (LPSTR) OutStructure,       // dest
                                 (LPWSTR) InStructure);      // src
+#endif // DBCS
                         OutStructure += outLength;
                     }
                     InStructure += inLength;
@@ -423,9 +429,9 @@ Return Value:
                 *BytesRequired += outLength;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 //
@@ -440,10 +446,10 @@ Return Value:
                         OutStructure += sizeof(LPBYTE);
                     }
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                           "RapConvertSingleEntry: B->b, "
                           "offset after alignment is " FORMAT_LPVOID "\n",
-                          (LPVOID) offset );
+                          (LPVOID) offset ));
                     }
 
                     if ( (DWORD)*StringLocation <
@@ -468,10 +474,10 @@ Return Value:
                     //
 
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                                 "RapConvertSingleEntry: B->b, "
                                 "*StringLocation=" FORMAT_LPVOID "\n",
-                                (LPVOID) *StringLocation );
+                                (LPVOID) *StringLocation ));
                     }
                     *StringLocation = *StringLocation - outLength;
 
@@ -484,20 +490,20 @@ Return Value:
                     if ( fixedWrite ) {
                         if ( SetOffsets ) {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                   "RapConvertSingleEntry: B->b, "
                                   "setting offset " FORMAT_HEX_DWORD "\n",
-                                  (DWORD)( *StringLocation - OutBufferStart ));
+                                  (DWORD)( *StringLocation - OutBufferStart )));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation - OutBufferStart),
                                     outNative );
                         } else {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                         "RapConvertSingleEntry: B->b, "
                                         "setting pointer " FORMAT_HEX_DWORD
-                                        "\n", (DWORD) (*StringLocation) );
+                                        "\n", (DWORD) (*StringLocation) ));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation ),
@@ -638,7 +644,18 @@ Return Value:
 
                 InStructure += inLength;
                 if (inUNICODE) {
+#ifdef DBCS // RapConvertSingleEntry()
+                    if( outUNICODE )
+                    {
+                        stringSize = STRLEN( (LPTSTR) stringPtr );
+                    }
+                    else
+                    {
+                        stringSize = NetpUnicodeToDBCSLen( stringPtr ) + 1;
+                    }
+#else
                     stringSize = STRLEN( (LPTSTR) stringPtr );
+#endif // DBCS
                 } else {
                     // BUGBUG: does this handle codepage right?
                     stringSize = strlen( (LPSTR) stringPtr ) + 1;
@@ -664,9 +681,9 @@ Return Value:
                 *BytesRequired += stringSize;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 if ( outputBufferSupplied ) {
@@ -732,8 +749,13 @@ Return Value:
 
                     } else if ( inUNICODE ) {
 
+#ifdef DBCS // RapConvertSingleEntry()
+                        NetpCopyWStrToStrDBCS( (LPSTR)*StringLocation,
+                            (LPTSTR)stringPtr );
+#else
                         NetpCopyTStrToStr( (LPSTR)*StringLocation,
                             (LPTSTR)stringPtr );
+#endif // DBCS
 
                     } else if ( outUNICODE ) {
 
@@ -782,9 +804,9 @@ Return Value:
             }
 
             IF_DEBUG(CONVERT) {
-                NetpDbgPrint( PREFIX_NETRAP
+                NetpKdPrint(( PREFIX_NETRAP
                         "RapConvertSingleEntry: b->stuff, bytePtr="
-                        FORMAT_LPVOID "\n", (LPVOID) bytePtr );
+                        FORMAT_LPVOID "\n", (LPVOID) bytePtr ));
             }
 
             //
@@ -880,9 +902,9 @@ Return Value:
                 *BytesRequired += outLength;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 //
@@ -897,10 +919,10 @@ Return Value:
                         OutStructure += sizeof(LPBYTE);
                     }
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                           "RapConvertSingleEntry: b->b, "
                           "offset after alignment is " FORMAT_LPVOID "\n",
-                          (LPVOID) offset );
+                          (LPVOID) offset ));
                     }
 
                     if ( (DWORD)*StringLocation <
@@ -925,10 +947,10 @@ Return Value:
                     //
 
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                                 "RapConvertSingleEntry: b->b, "
                                 "*StringLocation=" FORMAT_LPVOID "\n",
-                                (LPVOID) *StringLocation );
+                                (LPVOID) *StringLocation ));
                     }
                     *StringLocation = *StringLocation - outLength;
 
@@ -941,20 +963,20 @@ Return Value:
                     if ( fixedWrite ) {
                         if ( SetOffsets ) {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                   "RapConvertSingleEntry: b->b, "
                                   "setting offset " FORMAT_HEX_DWORD "\n",
-                                  (DWORD)( *StringLocation - OutBufferStart ));
+                                  (DWORD)( *StringLocation - OutBufferStart )));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation - OutBufferStart),
                                     outNative );
                         } else {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                         "RapConvertSingleEntry: b->b, "
                                         "setting pointer " FORMAT_HEX_DWORD
-                                        "\n", (DWORD) (*StringLocation) );
+                                        "\n", (DWORD) (*StringLocation) ));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation ),
@@ -1018,9 +1040,9 @@ Return Value:
             }
 
             IF_DEBUG(CONVERT) {
-                NetpDbgPrint( PREFIX_NETRAP
+                NetpKdPrint(( PREFIX_NETRAP
                         "RapConvertSingleEntry: z->stuff, stringPtr="
-                        FORMAT_LPVOID "\n", (LPVOID) stringPtr );
+                        FORMAT_LPVOID "\n", (LPVOID) stringPtr ));
             }
 
             //
@@ -1065,7 +1087,11 @@ Return Value:
                     if (inUNICODE) {
                         stringSize = STRSIZE( (LPTSTR)stringPtr );
                         if (!outUNICODE) {
+#ifdef DBCS // RapConvertSingleEntry()
+                            stringSize = NetpUnicodeToDBCSLen( stringPtr )+1;
+#else
                             stringSize = stringSize / sizeof(WCHAR);
+#endif // DBCS
                         }
                     } else {
                         stringSize = strlen( (LPSTR)stringPtr ) + 1;
@@ -1082,9 +1108,9 @@ Return Value:
                     if ( currentInStructureDesc == REM_ASCIZ ) {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String too long\n" );
+                                    "String too long\n" ));
                         }
 
                         return ERROR_INVALID_PARAMETER;
@@ -1092,9 +1118,9 @@ Return Value:
                     } else {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String truncated\n" );
+                                    "String truncated\n" ));
                         }
                     }
                 }
@@ -1147,8 +1173,13 @@ Return Value:
                             if ( Source == NULL ) {
                                 return NERR_NoRoom;
                             }
+#ifdef DBCS // RapConvertSingleEntry()
+                            NetpCopyWStrToStrDBCS( Source,
+                                (LPTSTR)stringPtr );
+#else
                             NetpCopyTStrToStr( Source,
                                 (LPTSTR)stringPtr );
+#endif // DBCS
                             stringPtr = (LPBYTE)Source;
                         }
 
@@ -1235,7 +1266,18 @@ Return Value:
                 //
 
                 if (inUNICODE) {
+#ifdef DBCS // RapConvertSingleEntry ()
+                    if( outUNICODE )
+                    {
+                        stringLength = STRLEN( (LPTSTR)stringPtr ) + 1;
+                    }
+                    else
+                    {
+                        stringLength = NetpUnicodeToDBCSLen( stringPtr ) + 1;
+                    }
+#else
                     stringLength = STRLEN( (LPTSTR)stringPtr ) + 1;
+#endif // DBCS
                 } else {
                     stringLength = strlen( (LPSTR)stringPtr ) + 1;
                 }
@@ -1246,9 +1288,9 @@ Return Value:
                     if ( currentInStructureDesc == REM_ASCIZ ) {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String too long\n" );
+                                    "String too long\n" ));
                         }
 
                         return ERROR_INVALID_PARAMETER;
@@ -1256,9 +1298,9 @@ Return Value:
                     } else {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String truncated\n" );
+                                    "String truncated\n" ));
                         }
                     }
 
@@ -1284,9 +1326,9 @@ Return Value:
                 *BytesRequired += stringSize;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 if ( outputBufferSupplied ) {
@@ -1295,10 +1337,10 @@ Return Value:
                         OutStructure += sizeof(LPSTR);
                     }
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                                 "RapConvertSingleEntry: z->z, "
                                 "offset after alignment is " FORMAT_LPVOID "\n",
-                                (LPVOID) offset );
+                                (LPVOID) offset ));
                     }
                     if ( (DWORD)*StringLocation <
                              (DWORD)nextStructureLocation + stringSize ) {
@@ -1322,10 +1364,10 @@ Return Value:
                     //
 
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                                 "RapConvertSingleEntry: z->z, "
                                 "*StringLocation=" FORMAT_LPVOID "\n",
-                                (LPVOID) *StringLocation );
+                                (LPVOID) *StringLocation ));
                     }
                     *StringLocation = *StringLocation - stringSize;
 
@@ -1338,20 +1380,20 @@ Return Value:
                     if ( fixedWrite ) {
                         if ( SetOffsets ) {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                   "RapConvertSingleEntry: z->z, "
                                   "setting offset " FORMAT_HEX_DWORD "\n",
-                                  (DWORD)( *StringLocation - OutBufferStart ));
+                                  (DWORD)( *StringLocation - OutBufferStart )));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation - OutBufferStart),
                                     outNative );
                         } else {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                         "RapConvertSingleEntry: z->z, "
                                         "setting pointer " FORMAT_HEX_DWORD
-                                        "\n", (DWORD) (*StringLocation) );
+                                        "\n", (DWORD) (*StringLocation) ));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation ),
@@ -1372,6 +1414,10 @@ Return Value:
 
                         } else if ( inUNICODE ) {
 
+#ifdef DBCS // RapConvertSingleEntry ()
+                            NetpCopyWStrToStrDBCS( (LPSTR)*StringLocation,
+                                stringPtr );
+#else
                             LPTSTR Source;
 
                             Source = NetpMemoryAllocate(
@@ -1388,8 +1434,10 @@ Return Value:
 
                             NetpMemoryFree( Source );
 
-                        } else if ( outUNICODE ) {
+#endif // DBCS
 
+
+                        } else if ( outUNICODE ) {
                             LPSTR Source;
 
                             Source = NetpMemoryAllocate( stringLength );
@@ -1458,9 +1506,9 @@ Return Value:
                     if ( currentInStructureDesc == REM_ASCIZ ) {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String too long\n" );
+                                    "String too long\n" ));
                         }
 
                         return ERROR_INVALID_PARAMETER;
@@ -1468,9 +1516,9 @@ Return Value:
                     } else {
 
                         IF_DEBUG(CONVERT) {
-                            NetpDbgPrint( PREFIX_NETRAP
+                            NetpKdPrint(( PREFIX_NETRAP
                                     "RapConvertSingleEntry: "
-                                    "String truncated\n" );
+                                    "String truncated\n" ));
                         }
                     }
 
@@ -1505,9 +1553,9 @@ Return Value:
                 *BytesRequired += outLength;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 if ( outputBufferSupplied ) {
@@ -1992,9 +2040,9 @@ Return Value:
             }
 
             IF_DEBUG(CONVERT) {
-                NetpDbgPrint( PREFIX_NETRAP
+                NetpKdPrint(( PREFIX_NETRAP
                         "RapConvertSingleEntry: b->stuff, bytePtr="
-                        FORMAT_LPVOID "\n", (LPVOID) bytePtr );
+                        FORMAT_LPVOID "\n", (LPVOID) bytePtr ));
             }
 
             //
@@ -2065,9 +2113,9 @@ Return Value:
                 *BytesRequired += length;
 
                 IF_DEBUG(CONVERT) {
-                    NetpDbgPrint( PREFIX_NETRAP
+                    NetpKdPrint(( PREFIX_NETRAP
                             "RapConvertSingleEntry: bytes required now "
-                            FORMAT_DWORD "\n", *BytesRequired );
+                            FORMAT_DWORD "\n", *BytesRequired ));
                 }
 
                 //
@@ -2082,10 +2130,10 @@ Return Value:
                         OutStructure += sizeof(LPBYTE);
                     }
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                           "RapConvertSingleEntry: l->l, "
                           "offset after alignment is " FORMAT_LPVOID "\n",
-                          (LPVOID) offset );
+                          (LPVOID) offset ));
                     }
 
                     if ( (DWORD)*StringLocation <
@@ -2110,10 +2158,10 @@ Return Value:
                     //
 
                     IF_DEBUG(CONVERT) {
-                        NetpDbgPrint( PREFIX_NETRAP
+                        NetpKdPrint(( PREFIX_NETRAP
                                 "RapConvertSingleEntry: l->l, "
                                 "*StringLocation=" FORMAT_LPVOID "\n",
-                                (LPVOID) *StringLocation );
+                                (LPVOID) *StringLocation ));
                     }
                     *StringLocation = *StringLocation - length;
 
@@ -2126,20 +2174,20 @@ Return Value:
                     if ( fixedWrite ) {
                         if ( SetOffsets ) {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                   "RapConvertSingleEntry: l->l, "
                                   "setting offset " FORMAT_HEX_DWORD "\n",
-                                  (DWORD)( *StringLocation - OutBufferStart ));
+                                  (DWORD)( *StringLocation - OutBufferStart )));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation - OutBufferStart),
                                     outNative );
                         } else {
                             IF_DEBUG(CONVERT) {
-                                NetpDbgPrint( PREFIX_NETRAP
+                                NetpKdPrint(( PREFIX_NETRAP
                                         "RapConvertSingleEntry: l->l, "
                                         "setting pointer " FORMAT_HEX_DWORD
-                                        "\n", (DWORD) (*StringLocation) );
+                                        "\n", (DWORD) (*StringLocation) ));
                             }
                             RapPutDword( offset,
                                     (DWORD)( *StringLocation ),
@@ -2307,10 +2355,10 @@ Return Value:
 
         default:
 
-            NetpDbgPrint( PREFIX_NETRAP
+            NetpKdPrint(( PREFIX_NETRAP
                     "RapConvertSingleEntry: Unsupported input character"
                     " at " FORMAT_LPVOID ": " FORMAT_DESC_CHAR "\n",
-                    (LPVOID) (InStructureDesc-1), *(InStructureDesc-1) );
+                    (LPVOID) (InStructureDesc-1), *(InStructureDesc-1) ));
             NetpAssert(FALSE);
         }
     }

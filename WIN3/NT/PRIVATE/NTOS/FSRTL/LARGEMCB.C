@@ -283,14 +283,11 @@ FsRtlFreeFirstMapping (
     IN PVOID Mapping
     );
 
-PFAST_MUTEX
-FsRtlAllocateFastMutex (
-    );
+#define FsRtlAllocateFastMutex()      \
+    (PFAST_MUTEX)ExAllocateFromNPagedLookasideList( &FsRtlFastMutexLookasideList )
 
-VOID
-FsRtlFreeFastMutex (
-    IN PFAST_MUTEX FastMutex
-    );
+#define FsRtlFreeFastMutex(FastMutex) \
+    ExFreeToNPagedLookasideList( &FsRtlFastMutexLookasideList, FastMutex )
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE, FsRtlInitializeMcb)
@@ -313,21 +310,9 @@ FsRtlFreeFastMutex (
 
 PVOID FsRtlFreeFirstMappingArray[FREE_FIRST_MAPPING_ARRAY_SIZE];
 
-UCHAR FsRtlFreeFirstMappingSize = 0;
+ULONG FsRtlFreeFirstMappingSize = 0;
 
 ULONG FsRtlNetFirstMapping = 0;
-
-//
-//  Some globals used with the FastMutex allocation
-//
-
-#define FREE_FAST_MUTEX_ARRAY_SIZE      (16)
-
-PFAST_MUTEX FsRtlFreeFastMutexArray[FREE_FAST_MUTEX_ARRAY_SIZE];
-
-UCHAR FsRtlFreeFastMutexSize = 0;
-
-ULONG FsRtlNetFastMutex = 0;
 
 
 //
@@ -655,7 +640,7 @@ Return Value:
 
     if (Mcb->FastMutex == NULL) {
 
-        ASSERTMSG("Being called to uninitialize an Mcb that is already Uninitialized ", FALSE);
+        // ASSERTMSG("Being called to uninitialize an Mcb that is already Uninitialized ", FALSE);
 
         return;
     }
@@ -726,8 +711,11 @@ Return Value:
     PNONOPAQUE_MCB Mcb = (PNONOPAQUE_MCB)OpaqueMcb;
 
     VBN Vbn = ((ULONG)LargeVbn);
+    ULONG Index;
 
-    ASSERTMSG("LargeInteger not supported yet ", ((PLARGE_INTEGER)&LargeVbn)->HighPart == 0);
+    ASSERTMSG("LargeInteger not supported yet ", ((((PLARGE_INTEGER)&LargeVbn)->HighPart == 0) ||
+                                                 ((((PLARGE_INTEGER)&LargeVbn)->HighPart == 0x7FFFFFFF) &&
+                                                  (((ULONG)LargeVbn) == 0xFFFFFFFF))));
 
     PAGED_CODE();
 
@@ -748,12 +736,37 @@ Return Value:
         } else if (Mcb->PairCount > 0) {
 
             //
-            //  Now if the pair count is greater than zero then we will
-            //  call the remove mcb entry routine to actually do the truncation
-            //  for us.
+            //  Find the index for the entry with the last Vcn we want to keep.
+            //  There is nothing to do if the Mcb already ends prior to
+            //  this point.
             //
 
-            FsRtlRemoveMcbEntryPrivate( Mcb, Vbn, 0xffffffff - Vbn );
+            if (FsRtlFindLargeIndex(Mcb, Vbn - 1, &Index)) {
+
+                //
+                //  If this entry currently describes a hole then
+                //  truncate to the previous entry.
+                //
+
+                if (StartingLbn(Mcb, Index) == UNUSED_LBN) {
+
+                    Mcb->PairCount = Index;
+
+                //
+                //  Otherwise we will truncate the Mcb to this point.  Truncate
+                //  the number of Vbns of this run if necessary.
+                //
+
+                } else {
+
+                    Mcb->PairCount = Index + 1;
+
+                    if (NextStartingVbn(Mcb, Index) > Vbn) {
+
+                        (Mcb->Mapping)[Index].NextVbn = Vbn;
+                    }
+                }
+            }
         }
 
         //
@@ -778,26 +791,35 @@ Return Value:
             NewMax = Mcb->PairCount * 2;
             if (NewMax < INITIAL_MAXIMUM_PAIR_COUNT) { NewMax = INITIAL_MAXIMUM_PAIR_COUNT; }
 
-            Mapping = FsRtlAllocatePool( Mcb->PoolType, sizeof(MAPPING) * NewMax );
+            Mapping = ExAllocatePoolWithTag( Mcb->PoolType,
+                                             sizeof(MAPPING) * NewMax,
+                                             'xftN' );
 
             //
-            //  Now copy over the old mapping to the new buffer
+            //  Now check if we really got a new buffer
             //
 
-            RtlCopyMemory( Mapping, Mcb->Mapping, sizeof(MAPPING) * Mcb->PairCount );
+            if (Mapping != NULL) {
 
-            //
-            //  Deallocate the old buffer
-            //
+                //
+                //  Now copy over the old mapping to the new buffer
+                //
 
-            ExFreePool( Mcb->Mapping );
+                RtlCopyMemory( Mapping, Mcb->Mapping, sizeof(MAPPING) * Mcb->PairCount );
 
-            //
-            //  And set up the new buffer in the Mcb
-            //
+                //
+                //  Deallocate the old buffer
+                //
 
-            Mcb->Mapping = Mapping;
-            Mcb->MaximumPairCount = NewMax;
+                ExFreePool( Mcb->Mapping );
+
+                //
+                //  And set up the new buffer in the Mcb
+                //
+
+                Mcb->Mapping = Mapping;
+                Mcb->MaximumPairCount = NewMax;
+            }
         }
 
     } finally {
@@ -911,10 +933,17 @@ Return Value:
             if (StartingLbn(Mcb, Index) != UNUSED_LBN) {
 
                 //
-                //  Assert that the Lbn's line up between the new and existing run
+                //  Check that the Lbn's line up between the new and existing run
                 //
 
-                ASSERT(Lbn == (StartingLbn(Mcb, Index) + (Vbn - StartingVbn(Mcb, Index))));
+                if (Lbn != (StartingLbn(Mcb, Index) + (Vbn - StartingVbn(Mcb, Index)))) {
+
+                    //
+                    //  Let our caller know we couldn't insert the run.
+                    //
+
+                    try_return(Result = FALSE);
+                }
 
                 //
                 //  Check if the new run is contained in the existing run
@@ -954,10 +983,17 @@ Return Value:
             } else if (FsRtlFindLargeIndex(Mcb, EndVbn, &EndIndex) && (Index == (EndIndex-1))) {
 
                 //
-                //  Assert that the Lbn's line up in the overlap
+                //  Check that the Lbn's line up in the overlap
                 //
 
-                ASSERT( StartingLbn(Mcb, EndIndex) == Lbn + (StartingVbn(Mcb, EndIndex) - Vbn) );
+                if (StartingLbn(Mcb, EndIndex) != Lbn + (StartingVbn(Mcb, EndIndex) - Vbn)) {
+
+                    //
+                    //  Let our caller know we couldn't insert the run.
+                    //
+
+                    try_return(Result = FALSE);
+                }
 
                 //
                 //  Truncate the sector count to go up to but not include
@@ -2872,102 +2908,3 @@ Return Value:
         ExFreePool( Mapping );
     }
 }
-
-
-//
-//  Private Routine
-//
-
-PFAST_MUTEX
-FsRtlAllocateFastMutex(
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will if possible allocate the FastMutex from either
-    a zone, a recent deallocated FastMutex, or pool.
-
-Arguments:
-
-Return Value:
-
-    The FastMutex.
-
---*/
-
-{
-    KIRQL _SavedIrql;
-    PFAST_MUTEX FastMutex;
-
-    ExAcquireSpinLock( &FsRtlStrucSupSpinLock, &_SavedIrql );
-
-    FsRtlNetFastMutex += 1;
-
-    if (!ExIsFullZone(&FsRtlFastMutexZone)) {
-        FastMutex = ExAllocateFromZone(&FsRtlFastMutexZone);
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-
-    } else if (FsRtlFreeFastMutexSize > 0) {
-        FastMutex = FsRtlFreeFastMutexArray[--FsRtlFreeFastMutexSize];
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-
-    } else {
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-        FastMutex = FsRtlAllocatePool( NonPagedPool, sizeof(FAST_MUTEX) );
-    }
-
-    return FastMutex;
-}
-
-
-//
-//  Private Routine
-//
-
-VOID
-FsRtlFreeFastMutex (
-    IN PFAST_MUTEX FastMutex
-    )
-
-/*++
-
-Routine Description:
-
-    This routine will if possible allocate the FastMutex from either
-    a zone, a recent deallocated FastMutexs, or pool.
-
-Arguments:
-
-    Mapping - The FastMutex to either free to zone, put on the recent
-        deallocated list or free to pool.
-
-Return Value:
-
-    The mapping.
-
---*/
-
-{
-    KIRQL _SavedIrql;
-
-    ExAcquireSpinLock( &FsRtlStrucSupSpinLock, &_SavedIrql );
-
-    FsRtlNetFastMutex -= 1;
-
-    if (ExIsObjectInFirstZoneSegment(&FsRtlFastMutexZone, FastMutex)) {
-        ExFreeToZone(&FsRtlFastMutexZone, FastMutex);
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-
-    } else if (FsRtlFreeFastMutexSize < FREE_FAST_MUTEX_ARRAY_SIZE) {
-        FsRtlFreeFastMutexArray[FsRtlFreeFastMutexSize++] = FastMutex;
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-
-    } else {
-        ExReleaseSpinLock( &FsRtlStrucSupSpinLock, _SavedIrql );
-        ExFreePool( FastMutex );
-    }
-}
-
-

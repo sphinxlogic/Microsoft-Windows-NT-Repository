@@ -208,6 +208,15 @@ Language=English
 Provider Stats data block released successfully
 .
 ;//
+MessageId=+1
+Severity=Warning
+Facility=Application
+SymbolicName=SPX_NO_DEVICE
+Language=English
+No SPX Devices are currently open or the NWLink SPX/SPXII service has
+not been started. SPX performance data cannot be collected.
+.
+;//
 MessageId=2299
 Severity=Informational
 Facility=Application
@@ -361,7 +370,7 @@ Severity=Error
 Facility=Application
 SymbolicName=TCP_LOAD_LIBRARY_FAIL
 Language=English
-Load of a required DLL failed. Make sure the DLL file is in the PATH. DOS Error number is returned in the data.
+Load of INETMIB1.DLL failed. Make sure the DLL file is in the PATH. WIN32 Error number is returned in the data.
 .
 ;//
 MessageId=+1      
@@ -369,7 +378,7 @@ Severity=Error
 Facility=Application
 SymbolicName=TCP_GET_STRTOOID_ADDR_FAIL
 Language=English
-Unable to look up address of SnmpMgrStrToOid routine in the MGMTAPI.DLL library. Dos Error number is returned in the data.
+Unable to look up address of SnmpMgrStrToOid routine in the MGMTAPI.DLL library. WIN32 Error number is returned in the data.
 .
 ;//
 MessageId=+1      
@@ -377,7 +386,7 @@ Severity=Error
 Facility=Application
 SymbolicName=TCP_LOAD_ROUTINE_FAIL
 Language=English
-Unable to look up address of an SNMP Extension routine in the INETMIB1.DLL library. Dos Error number is returned in the data.
+Unable to look up address of an SNMP Extension routine in the INETMIB1.DLL library. WIN32 Error number is returned in the data.
 .
 ;//
 MessageId=+1
@@ -417,7 +426,7 @@ Severity=Error
 Facility=Application
 SymbolicName=TCP_UNABLE_CREATE_EVENT
 Language=English
-Unable to create an event for subsequent SNMP calls. NtStatus and DOS Error are returned in the data.
+Unable to create an event for subsequent SNMP calls. NtStatus and WIN32 Error are returned in the data.
 .
 ;//
 MessageId=4099
@@ -808,4 +817,5 @@ SymbolicName=DSIS_CLOSED
 Language=English
 Dsis interface closed.
 .
+
 

@@ -119,6 +119,7 @@ void LETest1( void *pvArg )
                        pleti->pszPgm,
                        vApp.m_hwndMain);
 
+        startinfo.cb = sizeof(startinfo);
 
         if( CreateProcess(NULL, szBuf, NULL, NULL, NULL, NULL, NULL,
                 NULL, &startinfo, &procinfo) )
@@ -152,4 +153,3 @@ void LETest1( void *pvArg )
 #endif // WIN32
 
 }
-

@@ -126,7 +126,7 @@ IFDEF   ROM
 include dxrom.inc
 ENDIF
 include intmac.inc
-IFDEF WOW
+IFDEF WOW_x86
 include bop.inc
 include dpmi.inc
 ENDIF
@@ -189,7 +189,7 @@ execblk ends
         extrn   MouseInterruptHandler:NEAR
         extrn   GetIntrVector:NEAR, PutIntrVector:NEAR
         extrn   AllocateXmemBlock:NEAR, FreeXmemBlock:NEAR, ModifyXmemBlock:NEAR
-ifdef WOW
+ifdef WOW_x86
         extrn   NSetSegmentDscr:FAR
 endif
         extrn   ChildTerminationHandler:NEAR
@@ -213,7 +213,7 @@ DXDATA  segment
         extrn   lpfnUserMouseHandler:DWORD
         extrn   npXfrBuf0:WORD, npXfrBuf1:WORD
         extrn   rgbXfrBuf0:BYTE, rgbXfrBuf1:BYTE
-IFDEF WOW
+IFDEF WOW_x86
         extrn   FastBop:FWORD
 ENDIF
 
@@ -744,7 +744,7 @@ DXPMCODE  segment
 
 PMIntrDos       proc    far
 
-IFDEF WOW
+IFDEF WOW_x86
 ;IF 0
 ; BUGBUG filter functions FIRST!!
         push    ds
@@ -2586,7 +2586,7 @@ gtare8: xchg    ax,si           ;ax = original offset
         adc     dh,es:[si].adrbBaseHi386
         mov     si,selDOSScr
         and     si,SELECTOR_INDEX
-ifndef WOW
+ifndef WOW_x86
         mov     es:[si].adrBaseLow,ax
         mov     es:[si].adrBaseHigh,dl
         mov     es:[si].adrbBaseHi386,dh
@@ -2594,7 +2594,7 @@ ifndef WOW
         mov     es:[si].arbSegAccess,STD_DATA
 else
         cCall   NSetSegmentDscr,<si,dx,ax,0,0ffffh,STD_DATA>
-endif   ; WOW
+endif   ; WOW_x86
         pop     es
 
 ; original code... changed to line below to fix file read problem.

@@ -31,8 +31,6 @@
 
 .globl fsinh
 .globl sinhf
-/* use .extern the following labels to cover a bug in ld */
-.extern fsinh2
 
 .ent fsinh
 .aent sinhf

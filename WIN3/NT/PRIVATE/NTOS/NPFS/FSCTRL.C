@@ -296,7 +296,7 @@ Return Value:
 
     case FSCTL_PIPE_DISCONNECT:
 
-        NpAcquireSharedVcb();
+        NpAcquireExclusiveVcb();
         Status = NpDisconnect( NpfsDeviceObject, Irp );
         break;
 
@@ -314,7 +314,7 @@ Return Value:
 
     case FSCTL_PIPE_QUERY_EVENT:
 
-        NpAcquireSharedVcb();
+        NpAcquireExclusiveVcb();
         Status = NpQueryEvent( NpfsDeviceObject, Irp );
         break;
 
@@ -593,10 +593,13 @@ Return Value:
 
     //
     //  Now call the state support routine to set the ccb to
-    //  a disconnected state.
+    //  a disconnected state and remove the client's cached security
+    //  context.
     //
 
     Status = NpSetDisconnectedPipeState( Ccb );
+
+    NpUninitializeSecurity( Ccb );
 
     NpReleaseCcb(Ccb);
 
@@ -801,8 +804,6 @@ Return Value:
         return STATUS_PIPE_DISCONNECTED;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now make sure the node type code is for a ccb otherwise it is an
     //  invalid parameter
@@ -817,6 +818,8 @@ Return Value:
         DebugTrace(-1, Dbg, "NpPeek -> STATUS_INVALID_PARAMETER\n", 0 );
         return STATUS_INVALID_PARAMETER;
     }
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     //
     //  Reference the system buffer as a peek buffer and make sure it's
@@ -1404,8 +1407,6 @@ Return Value:
         return STATUS_PIPE_DISCONNECTED;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now we only will allow transceive operations on the pipe and not a
     //  directory or the device
@@ -1420,6 +1421,8 @@ Return Value:
         DebugTrace(-1, Dbg, "NpTransceive -> STATUS_PIPE_DISCONNECTED\n", 0 );
         return STATUS_PIPE_DISCONNECTED;
     }
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     NpAcquireExclusiveCcb(Ccb);
     WriteIrp = NULL;
@@ -2084,8 +2087,6 @@ Return Value:
         return STATUS_PIPE_DISCONNECTED;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now we only will allow Read operations on the pipe and not a directory
     //  or the device
@@ -2100,6 +2101,8 @@ Return Value:
         DebugTrace(-1, Dbg, "NpInternalRead -> STATUS_INVALID_PARAMETER\n", 0 );
         return STATUS_INVALID_PARAMETER;
     }
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     NpAcquireExclusiveCcb(Ccb);
 
@@ -2282,7 +2285,7 @@ Return Value:
         //  the Irp.
         //
 
-        ReadIrp->Overlay.AllocationSize = LiFromUlong( ReadQueue->BytesInQueue );
+        ReadIrp->Overlay.AllocationSize.QuadPart = ReadQueue->BytesInQueue;
 
         //
         //  Finish up the read irp.
@@ -2391,8 +2394,6 @@ Return Value:
         return STATUS_PIPE_DISCONNECTED;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now we only will allow write operations on the pipe and not a directory
     //  or the device
@@ -2407,6 +2408,8 @@ Return Value:
         DebugTrace(-1, Dbg, "NpInternalWrite -> STATUS_PIPE_DISCONNECTED\n", 0);
         return STATUS_PIPE_DISCONNECTED;
     }
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     NpAcquireExclusiveCcb(Ccb);
 
@@ -2785,8 +2788,6 @@ Return Value:
         return STATUS_PIPE_DISCONNECTED;
     }
 
-    NonpagedCcb = Ccb->NonpagedCcb;
-
     //
     //  Now we only will allow transceive operations on the pipe and not a
     //  directory or the device
@@ -2801,6 +2802,8 @@ Return Value:
         DebugTrace(-1, Dbg, "NpInternalTransceive -> STATUS_INVALID_PARAMETER\n", 0 );
         return STATUS_INVALID_PARAMETER;
     }
+
+    NonpagedCcb = Ccb->NonpagedCcb;
 
     WriteIrp = NULL;
     NpAcquireExclusiveCcb(Ccb);

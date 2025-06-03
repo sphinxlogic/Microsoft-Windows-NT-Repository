@@ -234,7 +234,7 @@ DoPrint (
             FileWrite (pFile->pName, pFile);
 
 	sprintf (pCmdBuf, pPrintCmd, pFile->pName);
-    
+
 
 	if (pBTDPrint->cBTQ > MAXBTQ-2)
 	    disperr (MSGERR_PRTFULL);
@@ -246,7 +246,7 @@ DoPrint (
             disperr (MSGERR_PRTCANT);
 
 	if (fDelete)
-            unlink (pFile->pName);
+            _unlink (pFile->pName);
 
 	return FALSE;
     }
@@ -259,10 +259,10 @@ DoPrint (
 	unsigned int  cLen;		//  Length of line we're printing
 	EDITOR_KEY    Key;		//  User input (for abortion)
 	int	      hPrn;		//  PRN file handle
-    
+
 	dispmsg (MSG_PRINTING,pFile->pName);
 
-	if ((hPrn = open (szPrn, O_WRONLY)) == -1) {
+	if ((hPrn = _open (szPrn, O_WRONLY)) == -1) {
 	    disperr (MSGERR_OPEN, szPrn, error());
 	    fOK = FALSE;
 	}
@@ -276,19 +276,20 @@ DoPrint (
 		    break;
                 }
 		cLen = GetLine (lCur, pLineBuf, pFile);
-		* (int *) (pLineBuf + cLen++) = '\n';
-		if (write (hPrn, pLineBuf, cLen) == -1) {
+//		* (int UNALIGNED *) (pLineBuf + cLen++) = '\n';
+		* (pLineBuf + cLen++) = '\n';
+		if (_write (hPrn, pLineBuf, cLen) == -1) {
 		    disperr (MSGERR_PRTCANT);
 		    fOK = FALSE;
 		    break;
                 }
             }
-	    close (hPrn);
+	    _close (hPrn);
         }
 	domessage (NULL);
 
         if (fDelete) {
-            unlink (pFile->pName);
+            _unlink (pFile->pName);
         }
 	return fOK;
     }
@@ -326,7 +327,7 @@ GetTmpFile (
     if (!*pPath) {
 	pathbuf pName;
 
-	sprintf (pName, "$TMP:ME%06d.PRN", getpid);
+	sprintf (pName, "$TMP:ME%06d.PRN", _getpid);
 	findpath (pName, pPath, TRUE);
 	pVarLoc  = strend (pPath) - 10;
 	*pVarLoc = 'Z';
@@ -368,7 +369,7 @@ CleanPrint (
     flagType fKilled
     )
 {
-    unlink (pName);
+    _unlink (pName);
     fKilled;
 }
 

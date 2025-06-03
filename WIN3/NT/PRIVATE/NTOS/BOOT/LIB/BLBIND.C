@@ -30,8 +30,8 @@ Revision History:
 //
 // This allows the OsLoader to export entry points for SCSI miniport drivers.
 //
-#if i386 || defined(SETUP)
-extern ULONG osloader_EXPORTS,header;
+#if i386
+extern ULONG OsLoaderBase,OsLoaderExports;
 #endif
 
 extern ULONG BlConsoleOutDeviceId;
@@ -46,7 +46,9 @@ BlpBindImportName (
     IN PVOID DllBase,
     IN PVOID ImageBase,
     IN PIMAGE_THUNK_DATA ThunkEntry,
-    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory
+    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory,
+    IN ULONG ExportSize,
+    IN BOOLEAN SnapForwarder
     );
 
 BOOLEAN
@@ -380,7 +382,9 @@ BlpBindImportName (
     IN PVOID DllBase,
     IN PVOID ImageBase,
     IN PIMAGE_THUNK_DATA ThunkEntry,
-    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory
+    IN PIMAGE_EXPORT_DIRECTORY ExportDirectory,
+    IN ULONG ExportSize,
+    IN BOOLEAN SnapForwarder
     )
 
 /*++
@@ -404,6 +408,9 @@ Arguments:
     ExportDirectory - Supplies a pointer to the export directory of the
         DLL from which references are to be resolved.
 
+    SnapForwarder - determine if the snap is for a forwarder, and therefore
+       Address of Data is already setup.
+
 Return Value:
 
     ESUCCESS is returned if the specified thunk is bound. Otherwise, an
@@ -423,13 +430,9 @@ Return Value:
     PUSHORT OrdinalTable;
     LONG Result;
 
-#if i386 || defined(SETUP)
-    if(DllBase == NULL) {
 #if i386
-        DllBase = (PVOID)header;
-#else
-        DllBase = (PVOID)(&header);
-#endif
+    if(DllBase == NULL) {
+        DllBase = (PVOID)OsLoaderBase;
     }
 #endif
 
@@ -438,7 +441,7 @@ Return Value:
     // Otherwise, lookup the import name in the export directory.
     //
 
-    if (IMAGE_SNAP_BY_ORDINAL(ThunkEntry->u1.Ordinal)) {
+    if (IMAGE_SNAP_BY_ORDINAL(ThunkEntry->u1.Ordinal) && !SnapForwarder) {
 
         //
         // Compute the ordinal.
@@ -448,12 +451,14 @@ Return Value:
 
     } else {
 
-        //
-        // Change AddressOfData from an RVA to a VA.
-        //
+        if (!SnapForwarder) {
+            //
+            // Change AddressOfData from an RVA to a VA.
+            //
 
-        ThunkEntry->u1.AddressOfData = (PIMAGE_IMPORT_BY_NAME)((ULONG)ImageBase +
-                                                (ULONG)ThunkEntry->u1.AddressOfData);
+            ThunkEntry->u1.AddressOfData = (PIMAGE_IMPORT_BY_NAME)((ULONG)ImageBase +
+                                                    (ULONG)ThunkEntry->u1.AddressOfData);
+        }
 
         //
         // Lookup the import name in the export table to determine the
@@ -534,15 +539,66 @@ Return Value:
     // return success. Otherwise, return an unsuccessful status.
     //
 
-    FunctionTable = (PULONG)((ULONG)DllBase +
-                                    (ULONG)ExportDirectory->AddressOfFunctions);
 
-    if (Ordinal < ExportDirectory->NumberOfFunctions) {
-        ThunkEntry->u1.Function = (PULONG)((ULONG)DllBase + FunctionTable[Ordinal]);
-        return ESUCCESS;
-
-    } else {
+    if (Ordinal >= ExportDirectory->NumberOfFunctions) {
         return EINVAL;
+    } else {
+        FunctionTable = (PULONG)((ULONG)DllBase + (ULONG)ExportDirectory->AddressOfFunctions);
+        ThunkEntry->u1.Function = (PULONG)((ULONG)DllBase + FunctionTable[Ordinal]);
+
+        //
+        // Check for a forwarder.
+        //
+        if ( ((ULONG)ThunkEntry->u1.Function > (ULONG)ExportDirectory) &&
+             ((ULONG)ThunkEntry->u1.Function < ((ULONG)ExportDirectory + ExportSize)) ) {
+            CHAR ForwardDllName[10];
+            PLDR_DATA_TABLE_ENTRY DataTableEntry;
+            ULONG TargetExportSize;
+            PIMAGE_EXPORT_DIRECTORY TargetExportDirectory;
+
+            RtlCopyMemory(ForwardDllName,
+                          (PCHAR)ThunkEntry->u1.Function,
+                          sizeof(ForwardDllName));
+            *strchr(ForwardDllName,'.') = '\0';
+            if (!BlCheckForLoadedDll(ForwardDllName,&DataTableEntry)) {
+                //
+                // Should load the referenced DLL here, just return failure for now.
+                //
+
+                return(EINVAL);
+            }
+            TargetExportDirectory = (PIMAGE_EXPORT_DIRECTORY)
+                RtlImageDirectoryEntryToData(DataTableEntry->DllBase,
+                                             TRUE,
+                                             IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                             &TargetExportSize);
+            if (TargetExportDirectory) {
+
+                IMAGE_THUNK_DATA thunkData;
+                PIMAGE_IMPORT_BY_NAME addressOfData;
+                UCHAR Buffer[128];
+                ULONG length;
+                PCHAR ImportName;
+                ARC_STATUS Status;
+
+                ImportName = strchr((PCHAR)ThunkEntry->u1.Function, '.') + 1;
+                addressOfData = (PIMAGE_IMPORT_BY_NAME)Buffer;
+                RtlCopyMemory(&addressOfData->Name[0], ImportName, strlen(ImportName)+1);
+                addressOfData->Hint = 0;
+                thunkData.u1.AddressOfData = addressOfData;
+                Status = BlpBindImportName(DataTableEntry->DllBase,
+                                           ImageBase,
+                                           &thunkData,
+                                           TargetExportDirectory,
+                                           TargetExportSize,
+                                           TRUE);
+                ThunkEntry->u1 = thunkData.u1;
+                return(Status);
+            } else {
+                return(EINVAL);
+            }
+        }
+        return ESUCCESS;
     }
 }
 
@@ -557,7 +613,7 @@ BlpCompareDllName (
 Routine Description:
 
     This routine compares a zero terminated character string with a unicode
-    string.
+    string. The UnicodeString's extension is ignored.
 
 Arguments:
 
@@ -580,17 +636,18 @@ Return Value:
 
     //
     // Compute the length of the DLL Name and compare with the length of
-    // the Unicode name. If the lengths are not equal, the strings are not
+    // the Unicode name. If the DLL Name is longer, the strings are not
     // equal.
     //
 
     Length = strlen(DllName);
-    if ((Length * sizeof(WCHAR)) != UnicodeString->Length) {
+    if ((Length * sizeof(WCHAR)) > UnicodeString->Length) {
         return FALSE;
     }
 
     //
-    // Compare the two strings case insensitive.
+    // Compare the two strings case insensitive, ignoring the Unicode
+    // string's extension.
     //
 
     Buffer = UnicodeString->Buffer;
@@ -602,8 +659,14 @@ Return Value:
         DllName += 1;
         Buffer += 1;
     }
-
-    return TRUE;
+    if ((UnicodeString->Length == Length * sizeof(WCHAR)) ||
+        (*Buffer == L'.')) {
+        //
+        // Strings match exactly or match up until the UnicodeString's extension.
+        //
+        return(TRUE);
+    }
+    return FALSE;
 }
 
 ARC_STATUS
@@ -648,18 +711,23 @@ Return Value:
     // address.
     //
 
-    ExportDirectory =
-#if i386 || defined(SETUP)
 #if i386
-        (DllBase == NULL) ? (PIMAGE_EXPORT_DIRECTORY)osloader_EXPORTS :
+    if (DllBase == NULL) {
+        ExportDirectory = (PIMAGE_EXPORT_DIRECTORY)OsLoaderExports;
+    } else {
+        ExportDirectory =
+            (PIMAGE_EXPORT_DIRECTORY)RtlImageDirectoryEntryToData(DllBase,
+                                                                 TRUE,
+                                                                 IMAGE_DIRECTORY_ENTRY_EXPORT,
+                                                                 &ExportTableSize);
+    }
 #else
-        (DllBase == NULL) ? (PIMAGE_EXPORT_DIRECTORY)(&osloader_EXPORTS) :
-#endif
-#endif
+    ExportDirectory =
         (PIMAGE_EXPORT_DIRECTORY)RtlImageDirectoryEntryToData(DllBase,
                                                              TRUE,
                                                              IMAGE_DIRECTORY_ENTRY_EXPORT,
                                                              &ExportTableSize);
+#endif
     if (ExportDirectory == NULL) {
         return EBADF;
     }
@@ -669,8 +737,12 @@ Return Value:
     //
 
     while (ThunkTable->u1.AddressOfData != NULL) {
-        Status = BlpBindImportName(DllBase, ImageBase, ThunkTable++, ExportDirectory);
-
+        Status = BlpBindImportName(DllBase,
+                                   ImageBase,
+                                   ThunkTable++,
+                                   ExportDirectory,
+                                   ExportTableSize,
+                                   FALSE);
         if (Status != ESUCCESS) {
             return Status;
         }

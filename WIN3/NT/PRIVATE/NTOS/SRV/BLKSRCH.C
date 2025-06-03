@@ -108,8 +108,6 @@ Return Value:
 
     RtlZeroMemory( search, blockLength );
 
-    SET_BLOCK_STATE( search, BlockStateActive );
-    SET_BLOCK_SIZE( search, blockLength );
     search->BlockHeader.ReferenceCount = 2;
 
     //
@@ -118,10 +116,10 @@ Return Value:
     //
 
     if ( IsCoreSearch ) {
-        SET_BLOCK_TYPE( search, BlockTypeSearchCore );
+        SET_BLOCK_TYPE_STATE_SIZE( search, BlockTypeSearchCore, BlockStateActive, blockLength );
         KeQuerySystemTime( &search->LastUseTime );
     } else {
-        SET_BLOCK_TYPE( search, BlockTypeSearch );
+        SET_BLOCK_TYPE_STATE_SIZE( search, BlockTypeSearch, BlockStateActive, blockLength );
     }
 
     //
@@ -168,9 +166,8 @@ Return Value:
 
     INITIALIZE_REFERENCE_HISTORY( search );
 
-    ExInterlockedIncrementLong(
-        (PLONG)&SrvStatistics.CurrentNumberOfOpenSearches,
-        &GLOBAL_SPIN_LOCK(Statistics)
+    InterlockedIncrement(
+        (PLONG)&SrvStatistics.CurrentNumberOfOpenSearches
         );
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.SearchInfo.Allocations );
@@ -425,6 +422,7 @@ Return Value:
                     &pagedConnection->CoreSearchList,
                     &Search->LastUseListEntry
                     );
+
                 DECREMENT_DEBUG_STAT2( SrvDbgStatistics.CoreSearches );
 
             }
@@ -523,9 +521,7 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( Search, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Search, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Search, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Search, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Search->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Search );
 
@@ -534,9 +530,8 @@ Return Value:
         SrvPrint1( "SrvFreeSearch: Freed search block at %lx\n", Search );
     }
 
-    ExInterlockedDecrementLong(
-        (PLONG)&SrvStatistics.CurrentNumberOfOpenSearches,
-        &GLOBAL_SPIN_LOCK(Statistics)
+    InterlockedDecrement(
+        (PLONG)&SrvStatistics.CurrentNumberOfOpenSearches
         );
 
     INCREMENT_DEBUG_STAT( SrvDbgStatistics.SearchInfo.Frees );

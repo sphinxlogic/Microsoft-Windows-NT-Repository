@@ -32,7 +32,7 @@ Revision History:
         Handle empty log file.
         Added some assertion checks.
     10-Sep-1992 JohnRo
-        RAID 5174: event viewer access violates after NetErrorRead.
+        RAID 5174: event viewer _access violates after NetErrorRead.
     04-Nov-1992 JohnRo
         RAID 9355: Event viewer: won't focus on LM UNIX machine.
 
@@ -48,7 +48,7 @@ Revision History:
 
 #include <apinums.h>            // API_ equates.
 #include <lmapibuf.h>           // NetApiBufferFree().
-#include <netdebug.h>           // NetpDbgPrint(), FORMAT_ equates.
+#include <netdebug.h>           // NetpKdPrint(()), FORMAT_ equates.
 #include <remdef.h>             // REM16_, REM32_, REMSmb_ equates.
 #include <rx.h>                 // RxRemoteApi().
 #include <rxerrlog.h>           // My prototype, RxpConvertErrorLogArray().
@@ -139,7 +139,7 @@ RxNetErrorLogRead (
         if (UnconvertedBuffer != NULL) {
             (void) NetApiBufferFree( UnconvertedBuffer );
         }
-        
+
     }
 
     if ( *BytesRead == 0) {

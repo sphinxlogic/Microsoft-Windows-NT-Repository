@@ -56,6 +56,8 @@ UINT     GetStrPortTabIndex(PSZ szPort);
 BOOL     InitDCB32(LPDCB pdcb32, LPSTR pszModeStr);
 VOID     InitDEB16(PCOMDEB16 pComDEB16,  UINT iTab,  WORD QInSize,  WORD QOutSize);
 PSZ      StripPortName(PSZ psz);
+PSZ      GetPortStringToken(PSZ pszSrc, PSZ pszToken);
+BOOL     MSRWait(PWOWPORT pwp);
 
 /* prototypes for Modem interrupt emulation thread support */
 VOID  WOWModemIntThread(PWOWPORT pWOWPortStruct);
@@ -116,7 +118,7 @@ ULONG FASTCALL WU32BuildCommDCB(PVDMFRAME pFrame)
         FREEPSZPTR(psz1);
     }
 
-    WOW32ASSERTEXP((ul==0), ("WOW::WU32BuildCommDCB: failed\n"));
+    WOW32ASSERTMSG((ul==0), ("WOW::WU32BuildCommDCB: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -148,7 +150,7 @@ ULONG FASTCALL WU32ClearCommBreak(PVDMFRAME pFrame)
         ul = pWOWPort->dwErrCode;
     }
 
-    WOW32ASSERTEXP((ul!=0x00008000),("WOW::WU32ClearCommBreak: failed\n"));
+    WOW32ASSERTMSG((ul!=0x00008000),("WOW::WU32ClearCommBreak: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -194,10 +196,9 @@ ULONG FASTCALL WU32CloseComm(PVDMFRAME pFrame)
     }
     else {
         LOGDEBUG (0, ("WOW::WU32CloseComm: Not a valid COM or LPT\n"));
-        WOW32ASSERT(FALSE);
     }
 
-    WOW32ASSERTEXP((ul==0), ("WOW::WU32CloseComm: failed\n"));
+    WOW32ASSERTMSG((ul==0), ("WOW::WU32CloseComm: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -209,6 +210,7 @@ ULONG FASTCALL WU32CloseComm(PVDMFRAME pFrame)
 // Win3.1 returns:
 //    TRUE on success.
 //    FALSE if error OR if EnableCommNotification() not supported.
+//          User16 validation layer returns 0 for bad hwnd.
 ULONG FASTCALL WU32EnableCommNotification(PVDMFRAME pFrame)
 {
     ULONG     ul = (ULONG)FALSE;
@@ -233,6 +235,12 @@ ULONG FASTCALL WU32EnableCommNotification(PVDMFRAME pFrame)
             lpComDEB16->RecvTrigger  = (WORD)-1;
             lpComDEB16->SendTrigger  = 0;
             ul = (ULONG)TRUE;
+        }
+
+        // Validate non-null hwnd's since hwnd validation is disabled in 
+        // user16 validation layer
+        else if(!IsWindow(HWND32(parg16->f2))) {
+            ul = (ULONG)FALSE;
         }
 
         // else set up the notification mechanisms
@@ -277,7 +285,7 @@ ULONG FASTCALL WU32EnableCommNotification(PVDMFRAME pFrame)
         ul = (ULONG)FALSE;
     }
 
-    WOW32ASSERTEXP((ul==1), ("WOW::WU32EnableCommNotification: failed\n"));
+    WOW32ASSERTMSG((ul==1), ("WOW::WU32EnableCommNotification: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -348,10 +356,21 @@ ULONG FASTCALL WU32EscapeCommFunction(PVDMFRAME pFrame)
                     ul = pWOWPort->dwErrCode;
                     break;
 
-                // 0: & unimplemented functions.
-                case            0:
+                // 0:
+                case         0:
+                    ul = 0;  // like WFW
+                    break;
+
+                // any other value...
                 default:
-                    ul = pWOWPort->dwErrCode;
+
+                    // non-zero is error: use dwErrcode if there is one
+                    if(pWOWPort->dwErrCode)
+                        ul = pWOWPort->dwErrCode;
+
+                    // else use what WFW seems inclined to return
+                    else
+                        ul = CE_OVERRUN | CE_RXPARITY;
                     break;
                 }
             }
@@ -371,7 +390,7 @@ ULONG FASTCALL WU32EscapeCommFunction(PVDMFRAME pFrame)
         }
     }
 
-    WOW32ASSERTEXP((ul>=0), ("WOW::WU32EscapeCommFunction: failed\n"));
+    WOW32ASSERTMSG((ul>=0), ("WOW::WU32EscapeCommFunction: failed\n"));
     FREEARGPTR(parg16);
 
     RETURN(ul);
@@ -437,7 +456,7 @@ ULONG FASTCALL WU32FlushComm(PVDMFRAME pFrame)
         }
     }
 
-    WOW32ASSERTEXP((ul==0), ("WOW::WU32FlushComm: failed\n"));
+    WOW32ASSERTMSG((ul==0), ("WOW::WU32FlushComm: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -601,7 +620,7 @@ ULONG FASTCALL WU32GetCommState(PVDMFRAME pFrame)
         ul = (ULONG)IE_NOPEN;
     }
 
-    WOW32ASSERTEXP((ul==0), ("WOW::WU32GetCommState: failed\n"));
+    WOW32ASSERTMSG((ul==0), ("WOW::WU32GetCommState: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -682,6 +701,7 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
             ret = IE_HARDWARE;
         }
         else {
+            LOGDEBUG (LOG_ERROR,("WOW::WU32OpenComm CreateFile failed, lasterror=0x%x\n",GetLastError()));
             ret = IE_NOPEN;
         }
         goto ErrorExit0;
@@ -692,16 +712,13 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
     // ignore LPT's for this check like Win3.1 does
     if( !fIsLPTPort ) {
 
-        // common method to see if a COM port is already open
+        // common method apps use to see if a COM port is already open
         if((WORD32(parg16->f2) == 0) &&
            (WORD32(parg16->f3) == 0)) {
             ret = IE_MEMORY;
-            goto ErrorExit0;
+            goto ErrorExit1;
         }
-    }
 
-
-    if ( !fIsLPTPort ) {
         // set up the I/O queues
         cbInQ = (DWORD)WORD32(parg16->f2);
         cbOutQ = (DWORD)WORD32(parg16->f3);
@@ -735,7 +752,7 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
         cbOutQ = (cbOutQ + 1) & ~1;
         if(!SetupComm(h32, cbInQ, cbOutQ)) {
             ret = IE_MEMORY;
-            goto ErrorExit1;
+            goto ErrorExit2;
         }
 
         //
@@ -750,7 +767,7 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
 
         if (!(hWriteEvent = CreateEvent(NULL, FALSE, FALSE, NULL))) {
             ret = IE_MEMORY;
-            goto ErrorExit1;
+            goto ErrorExit2;
         }
 
         //
@@ -759,7 +776,7 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
 
         if(!(hREvent = CreateEvent(NULL, TRUE, FALSE, NULL))) {
             ret = IE_NOPEN;
-            goto ErrorExit2;
+            goto ErrorExit3;
         }
 
         // set the timeout values
@@ -770,22 +787,22 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
         ct.WriteTotalTimeoutConstant=WRITE_TIMEOUT;
         if(!SetCommTimeouts(h32, &ct)) {
             ret = IE_DEFAULT;
-            goto ErrorExit2;
+            goto ErrorExit3;
         }
 
         // make sure the DCB is Win3.1 compatible
         // NOTE: app can pass in a full mode string in Win3.1
-        if((lstrlen(psz1) < 4) || !InitDCB32(&dcb32, psz1)) {
+        if((strlen(psz1) < 4) || !InitDCB32(&dcb32, psz1)) {
             if(!InitDCB32(&dcb32, COMbuf)) {
                 ret = IE_DEFAULT;
-                goto ErrorExit2;
+                goto ErrorExit3;
             }
         }
 
         // set current DCB to Win3.1 compatibility
         if(!SetCommState(h32, &dcb32)) {
             ret = IE_DEFAULT;
-            goto ErrorExit2;
+            goto ErrorExit3;
         }
 
         // purge the I/O buffers just to be sure
@@ -831,22 +848,22 @@ ULONG FASTCALL WU32OpenComm(PVDMFRAME pFrame)
     // init the support struct
     RtlZeroMemory((PVOID)pWOWPort, sizeof(WOWPORT));
 
-    pWOWPort->h32         = h32;
-    pWOWPort->idComDev    = idComDev;
-    pWOWPort->dwComDEB16  = DWORD32(parg16->f4);
-    pWOWPort->lpComDEB16  = lpComDEB16;
-    pWOWPort->dwThreadID  = CURRENTPTD()->dwThreadID;
-    pWOWPort->hREvent     = hREvent;
-    pWOWPort->cbWriteBuf   = cbWriteBuf;
-    pWOWPort->cbWriteFree  = cbWriteBuf - 1;  // never use byte before head.
-    pWOWPort->pchWriteBuf  =
-    pWOWPort->pchWriteHead =
-    pWOWPort->pchWriteTail = pchWriteBuf;
-    pWOWPort->hWriteEvent  = hWriteEvent;
+    pWOWPort->h32            = h32;
+    pWOWPort->idComDev       = idComDev;
+    pWOWPort->dwComDEB16     = DWORD32(parg16->f4);
+    pWOWPort->lpComDEB16     = lpComDEB16;
+    pWOWPort->dwThreadID     = CURRENTPTD()->dwThreadID;
+    pWOWPort->hREvent        = hREvent;
+    pWOWPort->cbWriteBuf     = cbWriteBuf;
+    pWOWPort->cbWriteFree    = cbWriteBuf - 1;  // never use byte before head.
+    pWOWPort->pchWriteBuf    = pchWriteBuf;
+    pWOWPort->pchWriteHead   = pchWriteBuf;
+    pWOWPort->pchWriteTail   = pchWriteBuf;
+    pWOWPort->hWriteEvent    = hWriteEvent;
     pWOWPort->cbWritePending = 0;
     InitializeCriticalSection(&pWOWPort->csWrite);
-    pWOWPort->pdcb16      = pdcb16;
-    pWOWPort->cbInQ       = cbInQ;
+    pWOWPort->pdcb16         = pdcb16;
+    pWOWPort->cbInQ          = cbInQ;
 
     if (!(pWOWPort->olWrite.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL))) {
         LOGDEBUG(0, ("%s", "WU32OpenComm unable to create overlapped write event, failing.\n"));
@@ -888,11 +905,12 @@ ErrorExit4:
     free_w(pWOWPort);
 
 ErrorExit3:
-
-ErrorExit2:
     if (hREvent) { CloseHandle(hREvent); }
     if (hWriteEvent) { CloseHandle(hWriteEvent); }
     if (fIsLPTPort) { free_w(pdcb16); }
+
+ErrorExit2:
+    if(pchWriteBuf) { free_w(pchWriteBuf); }
 
 ErrorExit1:
     CloseHandle(h32);
@@ -914,7 +932,7 @@ CleanExit:
 //    # bytes written on success (*= -1 on error).
 //    0 for bad idComDev OR if app specifies to write 0 bytes.
 //    -1 if port hasn't been opened,
-//
+//    
 
 ULONG FASTCALL WU32WriteComm(PVDMFRAME pFrame)
 {
@@ -926,15 +944,28 @@ ULONG FASTCALL WU32WriteComm(PVDMFRAME pFrame)
     PWOWPORT      pWOWPort;
     DWORD         cbWritten;
 
+
     GETARGPTR(pFrame, sizeof(WRITECOMM16), parg16);
     GETPSZPTR(parg16->f2, psz2);
 
     idComDev = UINT32(parg16->f1);
+    // this will be true only if the (valid) port has been opened
     if (pWOWPort = GETPWOWPTR(idComDev)) {
 
         if(VALIDCOM(idComDev)) {
 
             if ((pwp = GETPWOWPTR(UINT32(parg16->f1))) && psz2) {
+
+                // if the app is interested in timeouts...
+                if(pwp->lpComDEB16->MSRMask) {
+
+                    // ...see if RLSD, CTS, & DSR timeout before going high
+                    if(MSRWait(pwp)) {
+                        FREEPSZPTR(psz2);
+                        FREEARGPTR(parg16);
+                        return(0);  // this is what Win3.1 does for Timeouts
+                    }
+                }
 
                 i = EnqueueCommWrite(pwp, psz2, parg16->f3);
                 if (i != parg16->f3) {
@@ -984,6 +1015,9 @@ ULONG FASTCALL WU32WriteComm(PVDMFRAME pFrame)
             }
         }
     }
+    else if(!(VALIDCOM(idComDev) || VALIDLPT(idComDev))) {
+        i = 0;
+    }
 WriteSuccess:
 
     FREEPSZPTR(psz2);
@@ -1017,11 +1051,19 @@ ULONG FASTCALL WU32ReadComm(PVDMFRAME pFrame)
         if (VALIDCOM(idComDev) && (pWOWPort = PortTab[idComDev].pWOWPort)) {
 
             // if an UnGot char is pending
-            if(pWOWPort->fUnGet) {
+            if (pWOWPort->fUnGet) {
                 fUnGet = TRUE;
                 pWOWPort->fUnGet = FALSE;
                 *pb2++ = pWOWPort->cUnGet;
-                cb--;  // we now need one less char
+
+                // this line commented out 8/3/95
+                // cb--;  // we now need one less char 
+
+                // In order to make this work correctly we should cb-- above
+                // to reflect the ungot char, unfortunately Win3.1 & Win95 
+                // don't do that so we will maintain this bug for "ouch!"
+                // compatibility. a-craigj 8/3/95
+
             }
 
             // TonyE claims we should do this before each read to avoid problems
@@ -1031,13 +1073,32 @@ ULONG FASTCALL WU32ReadComm(PVDMFRAME pFrame)
             Rol.OffsetHigh   = 0;
             Rol.hEvent       = pWOWPort->hREvent;
 
-            if(!ReadFile(pWOWPort->h32,
-                         pb2,
-                         cb,
-                         (LPDWORD)&ul,
-                         &Rol)) {
-                ul = 0;
-                LOGDEBUG(0, ("WOW::WU32ReadComm:ReadFile failed\n"));
+            if (!ReadFile(pWOWPort->h32,
+                          pb2,
+                          cb,
+                          (LPDWORD)&ul,
+                          &Rol)) {
+
+                if (ERROR_IO_PENDING == GetLastError()) {
+
+                    if (!GetOverlappedResult(pWOWPort->h32,
+                                             &Rol,
+                                             &ul,
+                                             TRUE
+                                             )) {
+
+                        LOGDEBUG(0, ("WOW::WU32ReadComm:GetOverlappedResult failed, error = 0x%x\n",
+                                     GetLastError()));
+                        ul = 0;
+
+                    }
+
+                } else {
+
+                    LOGDEBUG(0, ("WOW::WU32ReadComm:ReadFile failed, error = 0x%x\n",
+                                 GetLastError()));
+                    ul = 0;
+                }
             }
 
             if(fUnGet) {
@@ -1045,14 +1106,14 @@ ULONG FASTCALL WU32ReadComm(PVDMFRAME pFrame)
                 pb2--;  // accounts for previous pb2++ for FREEVDMPTR
             }
 
-            FLUSHVDMPTR(parg16->f2, ul, pb2);
+            FLUSHVDMPTR(parg16->f2, (USHORT)ul, pb2);
 
         }
 
         FREEVDMPTR(pb2);
     }
 
-    WOW32ASSERTEXP((ul>=0), ("WOW::WU32ReadComm: failed\n"));
+    WOW32ASSERTMSG((ul>=0), ("WOW::WU32ReadComm: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1083,7 +1144,7 @@ ULONG FASTCALL WU32SetCommBreak(PVDMFRAME pFrame)
         ul = pWOWPort->dwErrCode; // Win3.1 returns last err
     }
 
-    WOW32ASSERTEXP((ul!=CE_MODE), ("WOW::WU32SetCommBreak: failed\n"));
+    WOW32ASSERTMSG((ul!=CE_MODE), ("WOW::WU32SetCommBreak: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1134,7 +1195,7 @@ ULONG FASTCALL WU32SetCommEventMask(PVDMFRAME pFrame)
         }
     }
 
-    WOW32ASSERTEXP((ul!=0), ("WOW::WU32SETCOMMEVENTMASK: failed\n"));
+    WOW32ASSERTMSG((ul!=0), ("WOW::WU32SETCOMMEVENTMASK: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1158,6 +1219,7 @@ ULONG FASTCALL WU32SetCommState(PVDMFRAME pFrame)
     DCB      dcb32;
     PWOWPORT pWOWPort;
     register PSETCOMMSTATE16 parg16;
+    DWORD    dwMSR;
 
     GETARGPTR(pFrame, sizeof(SETCOMMSTATE16), parg16);
     GETMISCPTR(parg16->f1, pdcb16);
@@ -1172,10 +1234,17 @@ ULONG FASTCALL WU32SetCommState(PVDMFRAME pFrame)
 
                 if(SetCommState(pWOWPort->h32, &dcb32)) {
                     ul = 0;
+
+                    // Win 3.1 initializes the MSRShadow during SetCommState
+                    // so we will too. InterNet in a Box Dialer depends on it.
+                    GetCommModemStatus(pWOWPort->h32, &dwMSR);
+                    dwMSR &= MSR_STATEONLY;
+                    pWOWPort->lpComDEB16->MSRShadow = LOBYTE(LOWORD(dwMSR));
                 }
                 else {
                     ul = (ULONG)IE_DEFAULT; // we just say something's wrong
                 }
+
             }
             else {
                 RtlCopyMemory((PVOID)pWOWPort->pdcb16,
@@ -1192,7 +1261,8 @@ ULONG FASTCALL WU32SetCommState(PVDMFRAME pFrame)
         FREEMISCPTR(pdcb16);
     }
 
-    WOW32ASSERTEXP((ul>=0), ("WOW::WU32SetCommState: failed\n"));
+
+    WOW32ASSERTMSG((ul>=0), ("WOW::WU32SetCommState: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1305,7 +1375,7 @@ ULONG FASTCALL WU32UngetCommChar(PVDMFRAME pFrame)
         ul = 0;
     }
 
-    WOW32ASSERTEXP((ul==0), ("WOW::WU32UngetCommChar: failed\n"));
+    WOW32ASSERTMSG((ul==0), ("WOW::WU32UngetCommChar: failed\n"));
 
     FREEARGPTR(parg16);
     RETURN(ul);
@@ -1479,11 +1549,35 @@ void DCB16toDCB32(PWOWPORT pWOWPort, LPDCB lpdcb32, PDCB16 pdcb16)
     lpdcb32->ByteSize          = pdcb16->ByteSize;
     lpdcb32->Parity            = pdcb16->Parity;
     lpdcb32->StopBits          = pdcb16->StopBits;
-    lpdcb32->XonChar           = pdcb16->XonChar;
+
+    // Digiboard driver doesn't want to see XonChar == XoffChar even if
+    // xon/xoff is disabled.
+    if ((pdcb16->XonChar == '\0') && (lpdcb32->XoffChar == '\0')) {
+        lpdcb32->XonChar = pdcb16->XonChar+1;
+    }
+    else {
+        lpdcb32->XonChar = pdcb16->XonChar;
+    }
+
     lpdcb32->XoffChar          = pdcb16->XoffChar;
     lpdcb32->ErrorChar         = pdcb16->PeChar;
     lpdcb32->EofChar           = pdcb16->EofChar;
     lpdcb32->EvtChar           = pdcb16->EvtChar;
+
+    // set up for RLSD, CTS, and DSR timeout support (not supported on NT)
+    pWOWPort->lpComDEB16->MSRMask = 0;
+   
+    pWOWPort->RLSDTimeout = pdcb16->RlsTimeout; 
+    if(pWOWPort->RLSDTimeout != IGNORE_TIMEOUT)
+        pWOWPort->lpComDEB16->MSRMask |= LOBYTE(MS_RLSD_ON);
+
+    pWOWPort->CTSTimeout = pdcb16->CtsTimeout; 
+    if(pWOWPort->CTSTimeout != IGNORE_TIMEOUT)
+        pWOWPort->lpComDEB16->MSRMask |= LOBYTE(MS_CTS_ON);
+
+    pWOWPort->DSRTimeout = pdcb16->DsrTimeout; 
+    if(pWOWPort->DSRTimeout != IGNORE_TIMEOUT)
+        pWOWPort->lpComDEB16->MSRMask |= LOBYTE(MS_DSR_ON);
 
     // these fields remain 0
     //lpdcb32->fDsrSensitivity   = 0;
@@ -1613,15 +1707,18 @@ BOOL DeletePortTabEntry(PWOWPORT pWOWPort)
 
         CloseHandle(pWOWPort->hWriteThread);
         CloseHandle(pWOWPort->hWriteEvent);
+        free_w(pWOWPort->pchWriteBuf);
 
         CloseHandle(pWOWPort->hREvent);
     }
     // else free the LPT DCB support struct
     else {
         free_w(pWOWPort->pdcb16);
+        CloseHandle(pWOWPort->olWrite.hEvent);
         fTimeOut = FALSE;
     }
 
+    DeleteCriticalSection(&pWOWPort->csWrite);
     CloseHandle(pWOWPort->h32);
 
     free_w(pWOWPort);
@@ -1653,31 +1750,28 @@ BOOL GetPortName(LPSTR pszMode, LPSTR pszPort)
 {
 
     INT   len;
-    CHAR  *colon, szTemp[80];  // max len we'll take for DOS style MODE command
+    CHAR  szTemp[80];  // max len we'll take for DOS style MODE command
     BOOL  bRet = FALSE;
 
-    len = lstrlen(pszMode);
+    len = strlen(pszMode);
     if((len >= 3) && (len < 80)) {
 
-        // truncate the mode string at the colon (if it has one)
-        lstrcpy(szTemp, pszMode);
-        if((colon = strstr(szTemp, ":")) != NULL) {
-            *colon = '\0';
-        }
+        // Get the first token from the mode string.
+        GetPortStringToken(pszMode, szTemp);
 
         // map "AUX" or "PRN" to "COM1" or "LPT1" if necessary
-        len = lstrlen(szTemp);
+        len = strlen(szTemp);
         if((len >= 3) && (len <= MAXCOMNAME)) {  //  "AUX" <= len <= "COMx"
 
-            lstrcpy(pszPort, szTemp);
+            strcpy(pszPort, szTemp);
             CharUpper(pszPort);
 
             // filter out duplicate names for the same thing
-            if(!lstrcmp(pszPort, "PRN")) {
-                lstrcpy(pszPort, "LPT1");
+            if(!strcmp(pszPort, "PRN")) {
+                strcpy(pszPort, "LPT1");
             }
-            else if(!lstrcmp(pszPort, "AUX")) {
-                lstrcpy(pszPort, "COM1");
+            else if(!strcmp(pszPort, "AUX")) {
+                strcpy(pszPort, "COM1");
             }
 
             bRet = TRUE;
@@ -1688,6 +1782,49 @@ BOOL GetPortName(LPSTR pszMode, LPSTR pszPort)
 
 }
 
+PSZ StripPortName(PSZ psz)
+{
+    CHAR dummy[80];  // max len we'll take for DOS style MODE command
+
+    return(GetPortStringToken(psz, dummy));
+}
+
+//
+// Copy first token to pszToken. Return pointer to next token or NULL if none.
+// This code cloned from Win 3.1, COMDEV.C, field(). HGW 3.0 modem registration
+// passes "COMx,,," instead of "COMx:,,," so we need to handle all seperators.
+//
+
+PSZ GetPortStringToken(PSZ pszSrc, PSZ pszToken)
+{
+    char   c;
+
+    // While not the end of the string.
+    while (c = *pszSrc) {
+        pszSrc++;
+
+        //Look for seperators.
+        if ((c == ' ') || (c == ':') || (c == ',')) {
+            *pszToken = '\0';
+
+            while (*pszSrc == ' ') {
+                pszSrc++;
+            }
+
+            if (*pszSrc) {
+                return(pszSrc);
+            }
+
+            return(NULL);
+        }
+
+      *pszToken++ = c;
+    }
+
+    *pszToken = '\0';
+
+    return(NULL);
+}
 
 
 UINT GetStrPortTabIndex(PSZ szPort)
@@ -1695,7 +1832,7 @@ UINT GetStrPortTabIndex(PSZ szPort)
     UINT  iTab;
 
     for(iTab = COM1; iTab < NUMPORTS; iTab++) {
-        if(!lstrcmp((LPCTSTR)PortTab[iTab].szPort, (LPCTSTR)szPort)) {
+        if(!strcmp((LPCTSTR)PortTab[iTab].szPort, (LPCTSTR)szPort)) {
             return(iTab);
         }
     }
@@ -1714,7 +1851,7 @@ BOOL InitDCB32(LPDCB pdcb32, LPSTR pszModeStr)
     pszParams = StripPortName(pszModeStr);
 
     // if there are params...  (some apps pass "com1:" -- hence 2nd test)
-    if((pszParams != pszModeStr) && (*pszParams != '\0')) {
+    if(pszParams) {
 
         // initialize everything to 0 (especially the flags)
         RtlZeroMemory((PVOID)pdcb32, sizeof(DCB));
@@ -1765,31 +1902,6 @@ VOID InitDEB16(PCOMDEB16 pComDEB16, UINT iTab, WORD QInSize, WORD QOutSize)
 
 }
 
-
-
-PSZ StripPortName(PSZ psz)
-{
-    PSZ  pszNew;
-
-    pszNew = psz;
-
-    while(*pszNew && (*pszNew != ',')) {
-
-        // if ':' found, return ptr to 1st non-blank that follows
-        if(*pszNew == ':') {
-            pszNew++;
-            while(*pszNew == ' ') {
-                pszNew++;
-            }
-            return(pszNew);
-        }
-        pszNew++;
-    }
-    return(psz);
-}
-
-
-
 /* start thread for Modem interrupt emulation */
 BOOL WOWStartModemIntThread(PWOWPORT pWOWPort)
 {
@@ -1835,7 +1947,7 @@ ErrorExit0:
 
 
 FunctionExit:
-    WOW32ASSERTEXP((ret),("WOW::W32StartModemIntThread failed\n"));
+    WOW32ASSERTMSG((ret),("WOW::W32StartModemIntThread failed\n"));
     return(ret);
 
 }
@@ -1859,8 +1971,6 @@ VOID WOWModemIntThread(PWOWPORT pWOWPort)
     HANDLE     h32;
     PCOMDEB16  lpComDEB16;
     OVERLAPPED ol;
-
-
 
     iTab       = pWOWPort->idComDev;
     lpComDEB16 = pWOWPort->lpComDEB16;
@@ -1889,7 +1999,7 @@ VOID WOWModemIntThread(PWOWPORT pWOWPort)
     // activate modem events in the mask, we want to emulate all the interrupts
     SetCommMask(h32, EV_NTEVENTS);
 
-    // wake up the thread that created this thread in WOWStartMSRThread()
+    // wake up the thread that created this thread in WOWStartModemIntThread()
     SetEvent(pWOWPort->hMiThread);
 
     while(!pWOWPort->fClose) {
@@ -1909,7 +2019,6 @@ VOID WOWModemIntThread(PWOWPORT pWOWPort)
                 LOGDEBUG(0, ("WOW::WUCOMM: WOWModemIntThread : Overlap failed\n"));
             }
         }
-
         ResetEvent(ol.hEvent);
 
         // Get current MSR state, current state of delta bits isn't accurate for us
@@ -1943,7 +2052,7 @@ VOID WOWModemIntThread(PWOWPORT pWOWPort)
         dwEvtWord = 0;
         dwEvtWord = dwRing | (dwEvts & (EV_ERR | EV_BREAK | EV_RXCHAR | EV_TXEMPTY | EV_CTS | EV_DSR | EV_RLSD | EV_RXFLAG));
 
-        // we have to figure these out from the MSR
+        // we have to figure the state bits out from the MSR
 
         if(dwMSR & MS_CTS_ON) dwEvtWord |= EV_CTSS;
         if(dwMSR & MS_DSR_ON) dwEvtWord |= EV_DSRS;
@@ -2294,10 +2403,6 @@ USHORT EnqueueCommWrite(PWOWPORT pwp, PUCHAR pch, USHORT cb)
 //      it is careful to check pwp->fClose before sleeping
 //      again.
 //
-// BUGBUG Do we need to synchronize creation of this thread?
-// What happens if the app thread calls WriteComm which calls
-// EnqueueCommWrite before this thread runs?
-//
 
 ULONG WOWCommWriterThread(LPVOID pWOWPortStruct)
 {
@@ -2364,10 +2469,7 @@ WaitForWriteOrder:
             LeaveCriticalSection(&pwp->csWrite);
 
             if (!WriteFile(pwp->h32, pwp->pchWriteHead, pwp->cbWritePending,
-                           &pwp->cbWritten, &pwp->olWrite))
-               {
-                DWORD dwLastError;
-
+                           &pwp->cbWritten, &pwp->olWrite)) {
 
                 if (ERROR_IO_PENDING == GetLastError() ) {
 
@@ -2450,4 +2552,65 @@ PortClosed:
     CloseHandle(pwp->olWrite.hEvent);
 
     return 0;
+}
+
+
+
+// Checks status on RLSD, CTS, and DSR for timeout support
+// see MSRWait() in win3.1 comm.drv code
+BOOL MSRWait(PWOWPORT pwp)
+{
+    DWORD dwStartTime, dwElapsedTime, dwLineStatus; 
+    DWORD dwErr = 0;
+
+
+    // start the timeout clock (returns msec)
+    dwStartTime = GetTickCount();
+
+    // loop until either all lines are high or a timeout occurs
+    while(!dwErr) {
+
+        // get the current status of the lines
+        GetCommModemStatus(pwp->h32, &dwLineStatus);
+
+        // if all the required lines are up -- we're done
+        if((pwp->lpComDEB16->MSRMask & LOBYTE(dwLineStatus)) == pwp->lpComDEB16->MSRMask)
+            break;
+
+        // get the elapsed time
+        dwElapsedTime = GetTickCount() - dwStartTime;
+
+        if(pwp->RLSDTimeout != IGNORE_TIMEOUT) {
+            // if line is low
+            if(!(dwLineStatus & MS_RLSD_ON)) {
+                if(dwElapsedTime > UINT32(pwp->RLSDTimeout))
+                    dwErr |= CE_RLSDTO;
+            }
+        }
+
+        if(pwp->CTSTimeout != IGNORE_TIMEOUT) {
+            // if line is low
+            if(!(dwLineStatus & MS_CTS_ON)) {
+                if(dwElapsedTime > UINT32(pwp->CTSTimeout))
+                    dwErr |= CE_CTSTO;
+            }
+        }
+
+        if(pwp->DSRTimeout != IGNORE_TIMEOUT) {
+            // if line is low
+            if(!(dwLineStatus & MS_DSR_ON)) {
+                if(dwElapsedTime > UINT32(pwp->DSRTimeout))
+                    dwErr |= CE_DSRTO;
+            }
+        }
+    }
+
+    pwp->dwErrCode |= dwErr;
+    pwp->lpComDEB16->ComErr |= LOWORD(dwErr);
+
+    if(dwErr)
+       return(TRUE);
+    else
+       return(FALSE);
+
 }

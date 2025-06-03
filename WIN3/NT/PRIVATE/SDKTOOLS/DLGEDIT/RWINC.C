@@ -241,6 +241,10 @@ tryagain:
             return READ_BAD;
         else if (fLastAtNewLine && *pchIn == CHAR_POUND)
             break;
+#if defined(DBCS) && !defined(UNICODE)
+        else if (IsDBCSLeadByte(*pchIn))
+            pchIn = GetChar();
+#endif
     }
 
     /*

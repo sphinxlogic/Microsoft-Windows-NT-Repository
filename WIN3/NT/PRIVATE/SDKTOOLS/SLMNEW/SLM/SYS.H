@@ -1,3 +1,5 @@
+#ifndef SYS_INCLUDED
+#define SYS_INCLUDED
 /* must include slm.h first */
 
 /*
@@ -18,12 +20,7 @@
 #define eaURetry 7      /* retry after user intervention */
 #define eaFrcRetry 8    /* not from DOS; force a retry without asking */
 
-#if defined(OS2) || defined(_WIN32)
- #if defined(OS2)
-  #include <neterr.h>
- #else /* _WIN32 */
-  #include <lmerr.h>
- #endif
+#include <lmerr.h>
 #define enInvFunction      NERR_NetNotStarted
 #define enRemNotList       ERROR_REM_NOT_LIST
 #define enNoNetPath        ERROR_BAD_NETPATH
@@ -38,31 +35,9 @@
 #define enBadNetResp       ERROR_BAD_NET_RESP
 #define enNetAccessDenied  ERROR_NETWORK_ACCESS_DENIED
 #define enInvPassword2     NERR_BadPasswordCore
-#if defined(OS2)
-#define enInvPassword      86
-#define enAlreadyAssign    85
-#else
 #define enInvPassword      ERROR_INVALID_PASSWORD
 #define enAlreadyAssign    ERROR_ALREADY_ASSIGNED
-#endif
 #define enInterruptSysCall 95
-#else /* !OS2 && !_WIN32 */
-#define enInvFunction 1
-#define enAccessDenied 5
-#define enRemNotList 51
-#define enDupName 52
-#define enNoNetPath 53
-#define enNetBusy 54
-#define enDevNotExist 55
-#define enBadNetResp 58
-#define enNameDeleted 64
-#define enNetAccessDenied 65
-#define enBadDevType 66
-#define enBadNetName 67
-#define enAlreadyAssign 85
-#define enInvPassword 86
-#define enInterruptSysCall 95
-#endif /* !OS2 */
 
 #define eoWrite     0
 
@@ -80,20 +55,20 @@ typedef char PTH;
 
 #define cchPthMax 96
 
-#define SzCopyPth(sz, pth) LszCopy((char far *)(sz), (char far *)(pth))
-#define SzCatPth(sz, pth) LszCat((char far *)(sz), (char far *)(pth))
-#define PthCopySz(pth, sz) LszCopy((char far *)(pth), (char far *)(sz))
-#define PthCatSz(pth, sz) LszCat((char far *)(pth), (char far *)(sz))
-#define PthCopy(pth1, pth2) LszCopy((char far *)(pth1), (char far *)(pth2))
-#define PthCat(pth1, pth2) LszCat((char far *)(pth1), (char far *)(pth2))
+#define SzCopyPth(sz, pth) LszCopy((char *)(sz), (char *)(pth))
+#define SzCatPth(sz, pth) LszCat((char *)(sz), (char *)(pth))
+#define PthCopySz(pth, sz) LszCopy((char *)(pth), (char *)(sz))
+#define PthCatSz(pth, sz) LszCat((char *)(pth), (char *)(sz))
+#define PthCopy(pth1, pth2) LszCopy((char *)(pth1), (char *)(pth2))
+#define PthCat(pth1, pth2) LszCat((char *)(pth1), (char *)(pth2))
 
 /* ignore case */
 #define PthCmp(pth1, pth2) \
-                CmpiLsz((char far *)(pth1), (char far *)(pth2))
+                CmpiLsz((char *)(pth1), (char *)(pth2))
 #define PthCmpCb(pth1, pth2, cb) \
-                CmpiLszCb((char far *)(pth1), (char far *)(pth2), (cb))
+                CmpiLszCb((char *)(pth1), (char *)(pth2), (cb))
 
-#define CchOfPth(pth) CbLenLsz((char far *)(pth))
+#define CchOfPth(pth) CbLenLsz((char *)(pth))
 #define FEmptyPth(pth) (*(pth) == '\0')
 #define FNetPth(pth) (*(pth) == '/' && *((pth)+1) == '/')
 
@@ -170,22 +145,17 @@ typedef struct
         F fFileLock;            /* must unlock before closing */
         MM mm;
         POS pos;                /* current position within file */
+        F fNoBuffering;         /* fTrue if opened with FILE_FLAG_NO_BUFFERING */
+        F fWritten;             /* fTrue if writes occurred */
         } MF;
 
 typedef int OM;
 
 /* Open Modes for PmfOpen() */
 #define omMask (OM)0xff
-#if defined(DOS) || defined(OS2)
-/*REVIEW: the 0x40 bit is SHARE_DENY_NONE which isn't a valid bit for open() */
-#define omReadOnly (OM)0x40             /* deny none, read only */
-#define omAppend (OM)0x41               /* deny none, write only (append) */
-#define omReadWrite (OM)0x42    /* deny none, read/write */
-#elif defined(_WIN32)
 #define omReadOnly  (OM)_O_RDONLY       /* read only */
 #define omAppend    (OM)_O_WRONLY       /* write only (append) */
 #define omReadWrite (OM)_O_RDWR         /* read/write */
-#endif
 
 /* File permissions */
 #define permRW          0660            /* read/write for owner/group */
@@ -204,16 +174,13 @@ extern MF mfStdout;
 extern MF mfStderr;
 extern MF mfStdlog;
 
-void SleepTicks(int);
+F    SleepTicks(int);
 char *SzForEn(int);
-
-#ifndef SYS_INCLUDED
-#define SYS_INCLUDED
-#endif
-
 
 #define cbDiffEntry 30          /* length of #D line at end of diff entry */
 #define ichCkSum    11
 F fCkSum;
 unsigned long ulCkSum;
 F fCkSumInOutFile;
+
+#endif

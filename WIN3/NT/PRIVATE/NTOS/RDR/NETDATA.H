@@ -60,8 +60,6 @@ typedef struct _RedirData {
     ULONG       DormantFileLimit;       // Maximum # of dormant files in cache.
     ULONG       ReadAheadThroughput;    // K bytes per sec required for readahead.
 
-    USHORT      MaximumCommands;        // Maximum number of SMB buffers & Mpx entries -CONSTANT
-
     BOOLEAN     UseOpportunisticLocking;// True if we want to use oplocks
     BOOLEAN     UseOpBatch;             // True if we want opbatch
     BOOLEAN     UseUnlockBehind;        // True if we want to use unlock behind
@@ -83,6 +81,14 @@ typedef struct _RedirData {
     BOOLEAN     NtSecurityEnabled;      // True if NT security is enabled.
 
 } REDIRDATA, *PREDIRDATA;
+
+//
+// MaximumCommands was moved out of REDIRDATA to allow RdrData to be paged.
+//
+
+extern
+USHORT
+MaximumCommands;        // Maximum number of SMB buffers & Mpx entries -CONSTANT
 
 typedef struct _REDIR_CONFIG_INFO {
     LPWSTR      ConfigParameterName;
@@ -179,16 +185,16 @@ LIST_ENTRY
 RdrServerHead;
 
 extern
+LIST_ENTRY
+RdrServerScavengerListHead;
+
+extern
 KSPIN_LOCK
 RdrMpxTableEntryCallbackSpinLock;
 
 extern
 KSPIN_LOCK
 RdrMpxTableSpinLock;
-
-extern
-KSPIN_LOCK
-RdrMpxTableSendReferenceSpinLock;
 
 extern
 KSPIN_LOCK
@@ -274,7 +280,11 @@ extern
 ULONG
 RdrRawTimeLimit;
 
-#ifndef BUGBUG
+extern
+BOOLEAN
+RdrTurboMode;
+
+#if !defined(DISABLE_POPUP_ON_PRIMARY_TRANSPORT_FAILURE)
 extern
 PWSTR
 RdrServersWithAllTransports;
@@ -362,22 +372,16 @@ LIST_ENTRY
 RdrGlobalSecurityList;
 
 extern
+ERESOURCE
+RdrTransportResource;
+
+extern
 LIST_ENTRY
 RdrTransportHead;
 
 extern
-LIST_ENTRY
-RdrTransportEnumHead;
-
-extern
 ULONG
 RdrTransportIndex;
-
-#ifndef BUGBUG
-extern
-PWSTR
-RdrServersWithAllTransports;
-#endif
 
 extern
 PWSTR
@@ -414,6 +418,26 @@ WCHAR   RdrMailslotName[];
 //
 extern
 WCHAR   RdrDataName[];
+
+#ifdef RDR_PNP_POWER
+//
+// Binding list of transports
+//
+extern LPWSTR RdrTransportBindingList;
+
+//
+// Handle used for TDI PNP notifications
+//
+extern HANDLE RdrTdiNotificationHandle;
+
+#endif
+
+//
+// Whenever we update state on the server we increment the value
+//   of this variable.  This lets us handle a cache of items such
+//   as successful 'checkpath' operations
+//
+extern LONG RdrServerStateUpdated;
 
 typedef struct _STATUS_MAP {
     USHORT ErrorCode;

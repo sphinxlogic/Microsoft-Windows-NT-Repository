@@ -19,9 +19,9 @@
 
 BOOLEAN
 REDIR::Redirect (
-	IN PCPATH	Device,
-	IN PCPATH	Destination
-	)
+    IN PCPATH   Device,
+    IN PCPATH   Destination
+    )
 
 /*++
 
@@ -37,9 +37,9 @@ Routine Description:
 
 Arguments:
 
-	Device		-	Supplies the device to be redirected.
+    Device      -   Supplies the device to be redirected.
 
-	Destination -	Supplies the device to be redirected to
+    Destination -   Supplies the device to be redirected to
 
 Return Value:
 
@@ -54,8 +54,8 @@ Return Value:
     PCWSTRING       DestinationName;
 
 
-    DbgPtrAssert( Device );
-    DbgPtrAssert( Destination );
+    DebugPtrAssert( Device );
+    DebugPtrAssert( Destination );
 
     if( ( Device != NULL ) &&
         ( Destination != NULL ) &&
@@ -69,8 +69,8 @@ Return Value:
 
 #if DBG
         if( !Redirected ) {
-            DbgPrint( "MODE: DefineDosDevice() failed" );
-            DbgPrintf( "MODE: DefineDosDevice() failed, Device = %ls, Destination = %ls, Error = %d \n",
+            DebugPrint( "MODE: DefineDosDevice() failed" );
+            DebugPrintf( "MODE: DefineDosDevice() failed, Device = %ls, Destination = %ls, Error = %d \n",
                        DeviceName->GetWSTR(),
                        DestinationName->GetWSTR(),
                        GetLastError() );
@@ -87,37 +87,94 @@ Return Value:
 BOOLEAN
 REDIR::IsRedirected (
     OUT PREDIR_STATUS   Status,
-	IN  PCPATH	        Device,
-	IN  PCPATH	        Destination
-	)
+    IN  PCPATH          Device,
+    IN  PCPATH          Destination
+    )
 
 /*++
 
 Routine Description:
 
-	Determines if a device is being redirected to a specific device
-	(or to any device).
+    Determines if a device is being redirected to a specific device.
 
 Arguments:
 
     Status      -   Supplies pointer to redirection status. Only set in
                     if the return value of this method is FALSE
 
-	Device		-	Supplies the device about which we want to find out if
-					it is redirected or not.
+    Device      -   Supplies the device about which we want to find out if
+                    it is redirected or not.
 
-	Destination -	Supplies an optional pointer to a destination device.
+    Destination -   Supplies a pointer to a destination device.
 
 Return Value:
 
-	if Destination provided, returns
-		TRUE if the device is redirected to the destination
-		FALSE otherwise
+    TRUE if the device is redirected to the destination
+    FALSE otherwise
 
-	if Destination is not provided, returns
-		TRUE if the device is being redirected
-		FALSE otherwise
+--*/
 
+{
+    BOOLEAN         Redirected  = FALSE;
+    PCWSTRING       DeviceName;
+    PCWSTRING       DestinationName;
+    DSTRING         DstRedir;
+    FSTRING         LptRedirectionPath;
+    DSTRING         TmpString;
+    WCHAR           buf[ 2*(MAX_PATH + 1) ];
+    PWSTR           pwstrTarget;
+
+    DebugPtrAssert( Device );
+
+    *Status = REDIR_STATUS_ERROR;
+
+    if (NULL == (DeviceName = Device->GetPathString())) {
+        return FALSE;
+    }
+
+    if (!QueryDosDevice(DeviceName->GetWSTR(),
+                       buf,
+                       sizeof(buf) / sizeof(WCHAR))) {
+        
+        //  The device probably doesn't exist
+
+        return FALSE;
+    }
+
+    *Status = REDIR_STATUS_NONEXISTENT;
+
+    pwstrTarget = buf;
+
+    //  Find out if the LPT device is redirected to the destination.
+
+    DstRedir.Initialize(pwstrTarget);
+
+    return INVALID_CHNUM != DstRedir.Strstr(Destination->GetPathString());
+}
+
+BOOLEAN
+REDIR::IsRedirected (
+    OUT PREDIR_STATUS   Status,
+    IN  PCPATH          Device
+    )
+
+/*++
+
+Routine Description:
+
+    Determines if a device is being redirected to any device.
+
+Arguments:
+
+    Status      -   Supplies pointer to redirection status. Only set in
+                    if the return value of this method is FALSE
+
+    Device      -   Supplies the device about which we want to find out if
+                    it is redirected or not.
+
+Return Value:
+
+    TRUE if redirected, FALSE otherwise.
 
 --*/
 
@@ -130,20 +187,9 @@ Return Value:
     DSTRING         TmpString;
     WCHAR           Buffer[ 2*(MAX_PATH + 1) ];
     PWSTR           Pointer;
+    PPATH           Destination = NULL;
 
-
-#if 0
-    if( Destination != NULL ) {
-        DbgPrintf( "Device = %ls, Destination = %ls \n",
-                   Device->GetPathString()->GetWSTR(),
-                   Destination->GetPathString()->GetWSTR() );
-    } else {
-        DbgPrintf( "Device = %ls \n", Device->GetPathString()->GetWSTR() );
-    }
-#endif
-
-
-    DbgPtrAssert( Device );
+    DebugPtrAssert( Device );
 
     *Status = REDIR_STATUS_ERROR;
 
@@ -156,17 +202,7 @@ Return Value:
             //
             //  The device probably doesn't exist
             //
-#if 0
-            if( GetLastError() != ERROR_FILE_NOT_FOUND ) {
-                DbgPrint( "MODE: DosQueryDevice() failed" );
-                DbgPrintf( "MODE: DosQueryDevice() failed, Device = %ls, Error = %d \n",
-                           DeviceName->GetWSTR(),
-                           GetLastError() );
-            } else {
-                DbgPrintf( "MODE: The Device %ls doesn't exist \n",
-                           DeviceName->GetWSTR() );
-            }
-#endif
+
             return( FALSE );
         }
 
@@ -175,6 +211,7 @@ Return Value:
         // At this point we know that the device exists.
         // Assume that the device is not redirected.
         //
+
         *Status = REDIR_STATUS_NONEXISTENT;
 
         Pointer = Buffer;
@@ -184,6 +221,7 @@ Return Value:
         //
         //  Find out if the LPT device is redirected to a COM device
         //
+
         while( ( *Pointer != ( WCHAR )'\0' ) &&
                DstRedir.Initialize( Pointer ) &&
                ( DstRedir.Strupr() != NULL ) &&
@@ -206,22 +244,6 @@ Return Value:
         }
     }
 
-# if 0
-    if( Redirected ) {
-        if( Destination == NULL ) {
-            DbgPrintf( "MODE: The device %ls is redirected \n\n",
-                        DeviceName->GetWSTR() );
-        } else {
-            DbgPrintf( "MODE: The device %ls is redirected to %ls \n\n",
-                       DeviceName->GetWSTR(),
-                       DestinationName->GetWSTR() );
-        }
-    } else {
-        DbgPrintf( "MODE: The device %ls is not redirected \n\n",
-                   DeviceName->GetWSTR() );
-    }
-# endif
-
     return Redirected;
 }
 
@@ -230,25 +252,25 @@ Return Value:
 
 BOOLEAN
 REDIR::EndRedirection (
-	IN PCPATH	Device
-	)
+    IN PCPATH   Device
+    )
 
 /*++
 
 Routine Description:
 
-	Ends the redirection of a device
+    Ends the redirection of a device
 
 Arguments:
 
-	Device		-	Supplies the device
+    Device      -   Supplies the device
 
 
 Return Value:
 
 
-	TRUE if the device's redirection has ended.
-	FALSE otherwise
+    TRUE if the device's redirection has ended.
+    FALSE otherwise
 
 
 --*/
@@ -260,20 +282,20 @@ Return Value:
 
 
 
-    DbgPtrAssert( Device );
+    DebugPtrAssert( Device );
 
     if( IsRedirected( &Status, Device ) ) {
         if( ( Device != NULL ) &&
             ( ( DeviceName = Device->GetPathString() ) != NULL ) ) {
 
-            Done = DefineDosDevice( DDD_REMOVE_DEFINITION | DDD_RAW_TARGET_PATH,
+            Done = DefineDosDevice( DDD_REMOVE_DEFINITION /* | DDD_RAW_TARGET_PATH */,
                                     DeviceName->GetWSTR(),
-                                    LPT_REDIRECTION_PATH );
+                                    NULL );
 
 #if DBG
             if( !Done ) {
-                DbgPrint( "MODE: DefineDosDevice() failed" );
-                DbgPrintf( "MODE: DefineDosDevice() failed, Device = %ls, Destination = %ls, Error = %d \n",
+                DebugPrint( "MODE: DefineDosDevice() failed" );
+                DebugPrintf( "MODE: DefineDosDevice() failed, Device = %ls, Destination = %ls, Error = %d \n",
                            DeviceName->GetWSTR(),
                            LPT_REDIRECTION_PATH,
                            GetLastError() );

@@ -72,8 +72,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetFileClose2: NetFileClose failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetFileClose2: NetFileClose failed: %X\n",
+                          status ));
         }
     }
 
@@ -132,10 +132,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "XsNetFileEnum2: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetFileEnum2: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -167,7 +167,7 @@ Return Value:
     resumeKey = (DWORD)SmbGetUlong( &parameters->ResumeKeyOut[2] );
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "XsNetFileEnum2: resume key is %ld\n", resumeKey );
+        NetpKdPrint(( "XsNetFileEnum2: resume key is %ld\n", resumeKey ));
     }
 
     //
@@ -255,8 +255,8 @@ Return Value:
         if ( !XsApiSuccess( status )) {
 
             IF_DEBUG(API_ERRORS) {
-                NetpDbgPrint( "XsNetFileEnum2: NetFileEnum failed: %X\n",
-                              status );
+                NetpKdPrint(( "XsNetFileEnum2: NetFileEnum failed: %X\n",
+                              status ));
             }
 
             Header->Status = (WORD)status;
@@ -264,11 +264,11 @@ Return Value:
         }
 
         IF_DEBUG(FILE) {
-            NetpDbgPrint( "XsNetFileEnum2: received %ld entries at %lx\n",
-                          entriesRead, outBuffer );
+            NetpKdPrint(( "XsNetFileEnum2: received %ld entries at %lx\n",
+                          entriesRead, outBuffer ));
 
-            NetpDbgPrint( "XsNetFileEnum2: resume key is now %ld\n",
-                          resumeKey );
+            NetpKdPrint(( "XsNetFileEnum2: resume key is now %ld\n",
+                          resumeKey ));
         }
 
         //
@@ -299,10 +299,10 @@ Return Value:
             );
 
         IF_DEBUG(FILE) {
-            NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+            NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                           " Entries %ld of %ld\n",
                           outBuffer, SmbGetUlong( &parameters->Buffer ),
-                          bytesRequired, entriesFilled, totalEntries );
+                          bytesRequired, entriesFilled, totalEntries ));
         }
 
         //
@@ -365,7 +365,7 @@ Return Value:
     }
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "XsNetFileEnum2: resume key is now %ld\n", resumeKey );
+        NetpKdPrint(( "XsNetFileEnum2: resume key is now %ld\n", resumeKey ));
     }
 
     //
@@ -435,9 +435,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "XsNetFileGetInfo2: header at %lx, "
+        NetpKdPrint(( "XsNetFileGetInfo2: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -463,8 +463,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetFileGetInfo2: NetFileGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetFileGetInfo2: NetFileGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -517,8 +517,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsFileGetInfo2: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsFileGetInfo2: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -526,9 +526,9 @@ Return Value:
     }
 
     IF_DEBUG(FILE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -542,7 +542,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetFileGetInfo2: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetFileGetInfo2: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
@@ -551,7 +551,7 @@ Return Value:
         if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "NetFileGetInfo2: More data available.\n" );
+                NetpKdPrint(( "NetFileGetInfo2: More data available.\n" ));
             }
             Header->Status = ERROR_MORE_DATA;
 

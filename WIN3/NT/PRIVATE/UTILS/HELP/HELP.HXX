@@ -33,11 +33,13 @@ Environment:
 
 
 STR *Internal_Commands[] = {
+       "ASSOC",
        "BREAK",
        "CALL",
        "CD",
        "CHDIR",
        "CLS",
+       "COLOR",
        "COPY",
        "DATE",
        "DEL",
@@ -47,6 +49,7 @@ STR *Internal_Commands[] = {
        "ERASE",
        "EXIT",
        "FOR",
+       "FTYPE",
        "GOTO",
        "IF",
        "MD",

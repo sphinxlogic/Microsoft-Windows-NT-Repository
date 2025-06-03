@@ -23,7 +23,7 @@ Revision History:
 --*/
 
 #include <stdio.h>
-#include <wcstr.h>
+#include <stdlib.h>
 
 #include <nt.h>
 #include <ntrtl.h>

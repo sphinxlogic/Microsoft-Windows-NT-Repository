@@ -42,7 +42,7 @@ extern char * OperatorToString( OPERATOR Op );
 /***************************************************************************/
 
 void
-_expr_node::PrintWithPrefix(
+expr_node::PrintWithPrefix(
     ISTREAM *   pStream,
     char *      pPrefix )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -64,7 +64,7 @@ _expr_node::PrintWithPrefix(
 ----------------------------------------------------------------------------*/
 {
     ITERATOR  VarList;
-    _expr_variable * pVarNode;
+    expr_variable * pVarNode;
 
     short VarCount = MakeListOfVars( VarList );
     if ( VarCount )
@@ -343,7 +343,7 @@ expr_operator::PrintSubExpr(
 
 
 void
-_expr_variable::Print(
+expr_variable::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -395,7 +395,7 @@ char	*	ConstFormats[]	=
 	};
 
 void
-_expr_constant::Print(
+expr_constant::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -424,7 +424,7 @@ _expr_constant::Print(
 }
 
 void
-_expr_op_unary::Print(
+expr_op_unary::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -461,7 +461,7 @@ _expr_op_unary::Print(
 }
 
 void
-_expr_cast::Print(
+expr_cast::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -492,7 +492,7 @@ _expr_cast::Print(
 }
 
 void
-_expr_sizeof::Print(
+expr_sizeof::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -521,7 +521,7 @@ _expr_sizeof::Print(
 					);
 }
 void
-_expr_pre_incr::Print(
+expr_pre_incr::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -548,7 +548,7 @@ _expr_pre_incr::Print(
 }
 
 void
-_expr_pre_decr::Print(
+expr_pre_decr::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -575,7 +575,7 @@ _expr_pre_decr::Print(
 }
 
 void
-_expr_post_incr::Print(
+expr_post_incr::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -602,7 +602,7 @@ _expr_post_incr::Print(
 }
 
 void
-_expr_post_decr::Print(
+expr_post_decr::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -629,7 +629,7 @@ _expr_post_decr::Print(
 }
 
 void
-_expr_op_binary::Print(
+expr_op_binary::Print(
 	ISTREAM * pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -659,7 +659,7 @@ _expr_op_binary::Print(
 
 }
 void
-_expr_op_binary::PrintCall(
+expr_op_binary::PrintCall(
 	ISTREAM	*	pStream,
 	short		LeftMargin,
 	BOOL		fInProc )
@@ -686,7 +686,7 @@ _expr_op_binary::PrintCall(
 	account.
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pN;
+	expr_node	*	pN;
 	if( pN = GetLeft() )
 		pN->PrintCall( pStream, LeftMargin, fInProc );
 
@@ -696,7 +696,7 @@ _expr_op_binary::PrintCall(
 		pN->PrintCall( pStream, LeftMargin, fInProc );
 }
 void
-_expr_assign::PrintCall(
+expr_assign::PrintCall(
 	ISTREAM	*	pStream,
 	short		LeftMargin,
 	BOOL		fInProc )
@@ -723,7 +723,7 @@ _expr_assign::PrintCall(
 	account.
 ----------------------------------------------------------------------------*/
 {
-	_expr_node	*	pN;
+	expr_node	*	pN;
 	if( pN = GetLeft() )
 		pN->PrintCall( pStream, LeftMargin, fInProc );
 
@@ -734,7 +734,7 @@ _expr_assign::PrintCall(
 }
 
 void
-_expr_index::Print(
+expr_index::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -761,7 +761,7 @@ _expr_index::Print(
 	pStream->Write( ']' );
 }
 void
-_expr_index::PrintCall(
+expr_index::PrintCall(
 	ISTREAM	*	pStream,
 	short		LeftMargin,
 	BOOL		fInProc )
@@ -773,7 +773,7 @@ _expr_index::PrintCall(
 	}
 
 void
-_expr_proc_call::PrintCall(
+expr_proc_call::PrintCall(
 	ISTREAM	*	pStream,
 	short		LeftMargin,
 	BOOL		fInProc )
@@ -840,7 +840,7 @@ _expr_proc_call::PrintCall(
 }
 
 void
-_expr_proc_call::Print(
+expr_proc_call::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -868,7 +868,7 @@ _expr_proc_call::Print(
 }
 
 void
-_expr_param::Print(
+expr_param::Print(
 	ISTREAM	*	pStream )
 /*++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -888,7 +888,7 @@ _expr_param::Print(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node * pNextParam;
+	expr_node * pNextParam;
 
 	GetLeft()->Print( pStream );
 
@@ -901,7 +901,7 @@ _expr_param::Print(
 }
 
 void
-_expr_param::PrintCall(
+expr_param::PrintCall(
 	ISTREAM	*	pStream,
 	short		LeftMargin,
 	BOOL		fInProc )
@@ -926,7 +926,7 @@ _expr_param::PrintCall(
 
 ----------------------------------------------------------------------------*/
 {
-	_expr_node * pNextParam;
+	expr_node * pNextParam;
 
 	GetLeft()->PrintCall( pStream, LeftMargin, fInProc );
 
@@ -989,38 +989,38 @@ OperatorToString(
 
 ----------------------------------------------------------------------------*/
 {
-	char *p;
+    char *p;
 
-	switch( Op )
-		{
-		case OP_PLUS:			p = " + "; break;
-		case OP_MINUS:			p = " - "; break;
-		case OP_STAR:			p = " * "; break;
-		case OP_SLASH:			p = " / "; break;
-		case OP_MOD:			p = " % "; break;
-		case OP_LEFT_SHIFT:		p = " << "; break;
-		case OP_RIGHT_SHIFT:	p = "  >> "; break;
-		case OP_LESS:			p = " < "; break;
-		case OP_LESS_EQUAL:		p = " <= "; break;
-		case OP_GREATER_EQUAL:	p = " >= "; break;
-		case OP_GREATER:		p = " > "; break;
-		case OP_EQUAL:			p = " -- "; break;
-		case OP_NOT_EQUAL:		p = " != "; break;
-		case OP_AND:			p = " & "; break;
-		case OP_OR:				p = " | "; break;
-		case OP_XOR:			p = " ^ "; break;
-		case OP_LOGICAL_AND:	p = " && "; break;
-		case OP_LOGICAL_OR:		p = " || "; break;
-		case OP_QM:				p = " ? "; break;
-		case OP_COLON:			p = " : "; break;
-		case OP_ASSIGN:			p = " = "; break;
-		case OP_DOT:			p = " . "; break;
-		case OP_POINTSTO:		p = " -> "; break;
-		case OP_COMMA:			p = " , "; break;
-		case OP_UNARY_NOT:		p = " ! "; break;
-		default:				p = " X "; break;
-		}
+    switch( Op )
+        {
+        case OP_PLUS:           p = " + ";  break;
+        case OP_MINUS:          p = " - ";  break;
+        case OP_STAR:           p = " * ";  break;
+        case OP_SLASH:          p = " / ";  break;
+        case OP_MOD:            p = " % ";  break;
+        case OP_LEFT_SHIFT:     p = " << "; break;
+        case OP_RIGHT_SHIFT:    p = " >> "; break;
+        case OP_LESS:           p = " < ";  break;
+        case OP_LESS_EQUAL:     p = " <= "; break;
+        case OP_GREATER_EQUAL:  p = " >= "; break;
+        case OP_GREATER:        p = " > ";  break;
+        case OP_EQUAL:          p = " == "; break;
+        case OP_NOT_EQUAL:      p = " != "; break;
+        case OP_AND:            p = " & ";  break;
+        case OP_OR:             p = " | ";  break;
+        case OP_XOR:            p = " ^ ";  break;
+        case OP_LOGICAL_AND:    p = " && "; break;
+        case OP_LOGICAL_OR:     p = " || "; break;
+        case OP_QM:             p = " ? ";  break;
+        case OP_COLON:          p = " : ";  break;
+        case OP_ASSIGN:         p = " = ";  break;
+        case OP_DOT:            p = " . ";  break;
+        case OP_POINTSTO:       p = " -> "; break;
+        case OP_COMMA:          p = " , ";  break;
+        case OP_UNARY_NOT:      p = " ! ";  break;
+        default:                p = " X ";  break;
+        }
 
-	return p;
+    return p;
 }
 

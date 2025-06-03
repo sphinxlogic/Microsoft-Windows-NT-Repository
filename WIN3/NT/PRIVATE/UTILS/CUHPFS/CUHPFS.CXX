@@ -141,6 +141,17 @@ Arguments:
         return FALSE;
     }
 
+    if( HpfsSuperArea->GetSuper()->QueryVersion() != SUPERB_VERSION ||
+        ( HpfsSuperArea->GetSuper()->QueryFuncVersion() != SUPERB_FVERSION_2 &&
+          HpfsSuperArea->GetSuper()->QueryFuncVersion() != SUPERB_FVERSION_3 ) ) {
+
+        Message->Set( MSG_HPFS_CHKDSK_WRONG_VERSION );
+        Message->Display( "" );
+
+        return FALSE;
+    }
+
+
     if( !HpfsSuperArea->IsClean() ) {
 
         Message->Set( MSG_CONV_HPFS_DIRTY_VOLUME );
@@ -171,7 +182,7 @@ Arguments:
         Message->Set( MSG_CONV_NO_MEMORY );
         Message->Display( "" );
 
-        DbgPrint( "Insufficient memory.\n" );
+        DebugPrint( "Insufficient memory.\n" );
         *Status = CONVERT_STATUS_ERROR;
         return FALSE;
     }

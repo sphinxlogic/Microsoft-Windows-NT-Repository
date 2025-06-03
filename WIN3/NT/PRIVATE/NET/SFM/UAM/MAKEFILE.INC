@@ -3,4 +3,3 @@ make_uam:
     binplace sfmuam.rsc
     binplace sfmuam.txt
     binplace sfmicon.vol
-

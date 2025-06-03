@@ -40,7 +40,7 @@ typedef struct _TEST_DIALECT {
 
 TEST_DIALECT TestDialects[] = {
     {NTLANMAN,    SmbDialectNtLanMan},  // NT SMB protocol
-    {NTLM20,      SmbDialectLanMan30},  // OS/2 1.2 LanMan 2.0, NT client
+    //{NTLM20,      SmbDialectLanMan30},  // OS/2 1.2 LanMan 2.0, NT client
     {LANMAN12,    SmbDialectLanMan20},  // OS/2 1.2 LanMan 2.0
     {DOSLANMAN12, SmbDialectDosLanMan20}, // DOS LanMan 2.0
     {LANMAN10,    SmbDialectLanMan10},  // 1st ver. of full LanMan extensions
@@ -223,7 +223,7 @@ VerifyNegotiate(
         IF_DEBUG(2) printf( "MaxBufferSize: %ld\n", Redir->MaxBufferSize );
     }
 
-    if ( Redir->Dialect > SmbDialectLanMan30 ) {
+    if ( Redir->Dialect > SmbDialectNtLanMan ) {
         UCHAR i;
 
         for( i = 0; i < sizeof(TestDialects) / sizeof(TEST_DIALECT); i++ ) {

@@ -2,7 +2,7 @@
  *
  *  msacmdlg.h
  *
- *  Copyright (c) 1991-1993 Microsoft Corporation.  All Rights Reserved.
+ *  Copyright (c) 1991-1995 Microsoft Corporation.  All Rights Reserved.
  *
  *  Description:
  *      Audio Compression Manager Common Dialogs Identifiers

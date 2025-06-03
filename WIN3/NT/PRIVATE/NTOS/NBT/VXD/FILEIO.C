@@ -35,12 +35,36 @@ Revision History:
 
 UCHAR GetNextChar( PLM_FILE pFile ) ;
 
+VOID RestoreOldData( PLM_FILE  pFile );
+
+BackupCurrentData( PLM_FILE  pFile );
+
+//*******************  Pageable Routine Declarations ****************
+#ifdef ALLOC_PRAGMA
+#pragma CTEMakePageable(PAGE, LmCloseFile)
+#pragma CTEMakePageable(PAGE, LmFgets)
+#pragma CTEMakePageable(PAGE, GetNextChar)
+#pragma CTEMakePageable(PAGE, LmOpenFile)
+#pragma CTEMakePageable(PAGE, BackupCurrentData)
+#pragma CTEMakePageable(PAGE, RestoreOldData)
+#endif
+
+#ifdef CHICAGO
 //
-//  This is the address of the V86 mapped memory for the file read buffer and
-//  lmhosts file path
+// In case of chicago, use only linear addresses (Allocate_Global_V86_Data_Area
+// call is available only at init time, not if vnbt is load dynamically!)
+//
+#define pMappedFileBuff pFileBuff
+#define pMappedFilePath pFilePath
+
+#else
+//
+//  In case of snowball, this is the address of the V86 mapped memory for
+//  the file read buffer and lmhosts file path
 //
 PVOID   pMappedFileBuff = NULL ;
 PVOID   pMappedFilePath = NULL ;
+#endif
 
 //
 //  Linear address for file buffer and path (accessible from Vxd)
@@ -49,7 +73,50 @@ PUCHAR  pFileBuff       = NULL ;
 PUCHAR  pFilePath       = NULL ;
 
 
+/*******************************************************************
 
+    NAME:       VxdInitLmHostsSupport
+
+    SYNOPSIS:   This function just allocates memory to read the contents
+                of file into.
+                (trying to minimize on changes to snowball side of code
+                whic has already shipped: that's why this function!)
+
+    ENTRY:      pchLmHostPath - path to lmhosts file (not used here)
+                ulPathSize - size, in chars, of the path
+
+    RETURNS:    TRUE if it works, FALSE if it doesn't.
+    COMMENTS:   This is Chicago version of the function.  Snowball's
+                version is in vxdfile.asm
+
+    HISTORY:
+        Koti    Oct 10, 94
+
+********************************************************************/
+
+#ifdef CHICAGO
+BOOL
+VxdInitLmHostsSupport( PUCHAR pchLmHostPath, USHORT ulPathSize )
+{
+
+    USHORT    Size;
+
+    Size = ulPathSize + LMHOSTS_READ_BUFF_SIZE;
+
+    pFileBuff = CTEAllocInitMem( Size );
+    if (pFileBuff == NULL)
+    {
+        DbgPrint("VxdInitLmHostsSupport: failed to allocate memory") ;
+        return( FALSE );
+    }
+
+    pFilePath = pFileBuff + LMHOSTS_READ_BUFF_SIZE;
+
+    return( TRUE );
+
+}
+
+#endif
 //----------------------------------------------------------------------------
 
 NTSTATUS
@@ -76,6 +143,8 @@ Return Value:
 
 
 {
+    CTEPagedCode();
+
     CDbgPrint(DBGFLAG_LMHOST, "LmCloseFile entered\r\n") ;
     CTEFreeMem( pfile->f_linebuffer );
 
@@ -125,6 +194,8 @@ Return Value:
     BOOL   fDone = FALSE ;
     BOOL   fEOL  = FALSE ;
 
+
+    CTEPagedCode();
 
     while ( TRUE )
     {
@@ -207,6 +278,8 @@ UCHAR GetNextChar( PLM_FILE pFile )
 {
     ULONG BytesRead ;
 
+    CTEPagedCode();
+
     if ( pFile->f_CurPos < pFile->f_EndOfData )
         return pFile->f_buffer[pFile->f_CurPos++] ;
 
@@ -271,13 +344,18 @@ Notes:
     HANDLE         handle;
     PLM_FILE       pfile;
     PCHAR          pLineBuff = CTEAllocMem( MAX_LMHOSTS_LINE ) ;
-
-#ifdef DEBUG
     static int     fInRoutine = 0 ;
-#endif
+
+    CTEPagedCode();
+
+
+    if (fInRoutine++)
+    {
+        CDbgPrint( DBGFLAG_LMHOST, "exiting LmOpenFile: not reentrant!\r\n") ;
+        goto ErrorExit;        // We're not reentrant
+    }
 
     CDbgPrint( DBGFLAG_LMHOST, "LmOpenFile entered\r\n") ;
-    ASSERT( !fInRoutine++ ) ;       // We're not reentrant
 
     strcpy( pFilePath, path ) ;
 
@@ -309,19 +387,17 @@ Notes:
 
     CDbgPrint( DBGFLAG_LMHOST, "LmOpenFile returning\r\n") ;
 
-#ifdef DEBUG
     fInRoutine-- ;
-#endif
+
     return pfile ;
 
 ErrorExit:
 
+    fInRoutine--;
+
     if ( pLineBuff )
         CTEFreeMem( pLineBuff ) ;
 
-#ifdef DEBUG
-    fInRoutine-- ;
-#endif
     return NULL ;
 
 } // LmOpenFile
@@ -353,6 +429,8 @@ Return Value:
 
 --*/
 {
+
+    CTEPagedCode();
 
     pFile->f_BackUp = CTEAllocMem( MAX_LMHOSTS_LINE ) ;
     if (pFile->f_BackUp == NULL )
@@ -387,10 +465,12 @@ Return Value:
 --*/
 {
 
+    CTEPagedCode();
+
     CTEMemCopy( pFile->f_buffer, pFile->f_BackUp, LMHOSTS_READ_BUFF_SIZE );
 
     CTEFreeMem( pFile->f_BackUp ) ;
 
 }
 
-
+

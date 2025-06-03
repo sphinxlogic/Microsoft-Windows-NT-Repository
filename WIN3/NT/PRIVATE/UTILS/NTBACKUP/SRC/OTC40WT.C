@@ -9,6 +9,12 @@ Copyright(c) Maynard Electronics, Inc. 1984-92
 
   $Log:   T:/LOGFILES/OTC40WT.C_V  $
 
+   Rev 1.30.2.1   11 Jan 1995 21:01:18   GREGG
+Added size of FDD header to calculation of FDD end entry size.
+
+   Rev 1.30.2.0   08 Jan 1995 21:49:00   GREGG
+Added database DBLK.
+
    Rev 1.30   01 Dec 1993 15:51:40   GREGG
 Fixed unicode bug in OTC_SetDirLinks.
 
@@ -162,6 +168,7 @@ static INT _near OTC_SetLink( FILE * fptr, long curr_link, long next_link,
 static INT16 _near OTC_SetDirLink( F40_ENV_PTR cur_env,
                                    MTF_FDD_HDR_PTR fdd_hdr,
                                    UINT8_PTR str_ptr, UINT16 size ) ;
+
 
 /**/
 /**
@@ -486,6 +493,13 @@ INT16 OTC_GenDirEntry(
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
      }
+
+     /* for setting the corrupt file bit later (if necessary) */
+     if( !( fdd_hdr.blk_attribs & MTF_DB_CONT_BIT ) ) {
+          cur_env->last_fdd_offset = ftell( fptr ) ;
+          cur_env->last_fdd_type = FDD_DIR_BLK ;
+     }
+
      if( fwrite( &fdd_dir, sizeof( MTF_FDD_DIR_V2 ), 1, fptr ) != 1 ) {
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
@@ -494,6 +508,86 @@ INT16 OTC_GenDirEntry(
      if( fdd_dir.dir_name.data_size != 0 ) {
           if( fwrite( str_ptr, 1, fdd_dir.dir_name.data_size, fptr )
                                              != fdd_dir.dir_name.data_size ) {
+               OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
+               cur_env->fdd_aborted = TRUE ;
+               return( TFLE_NO_ERR ) ;
+          }
+     }
+
+     return( TFLE_NO_ERR ) ;
+}
+
+
+/**/
+/**
+
+     Unit:          Translators
+
+     Name:          OTC_GenDBDBEntry
+
+     Description:   Generates an OTC database entry and writes it to the
+                    FDD temporary file.
+
+     Returns:       INT16 - TFLE_xxx
+
+     Notes:         Currently always returns TFLE_NO_ERR since failed writes
+                    to disk are handled internally and shouldn't cause a
+                    backup to be aborted.
+
+**/
+INT16 OTC_GenDBDBEntry(
+     CHANNEL_PTR    channel,
+     F40_DBDB_PTR   cur_dbdb,
+     INT16          seq_num )
+{
+     F40_ENV_PTR    cur_env = (F40_ENV_PTR)(channel->fmt_env) ;
+     MTF_FDD_HDR    fdd_hdr ;
+     F40_FDD_DBDB   fdd_dbdb ;
+     UINT8_PTR      str_ptr ;
+     FILE *         fptr = cur_env->otc_fdd_fptr ;
+     void *         temp ;
+     UINT16         new_size ;
+
+     /* DO NOT UNICODEIZE THIS CONSTANT!!! */
+     memcpy( fdd_hdr.type, "DBDB", 4 ) ;
+     OTC_SetFDDHeaderFields( &fdd_hdr, &cur_dbdb->block_hdr, seq_num ) ;
+
+     fdd_dbdb.backup_date           = cur_dbdb->backup_date ;
+     fdd_dbdb.database_attribs      = cur_dbdb->database_attribs ;
+     fdd_dbdb.os_info.data_size     = 0 ;
+     fdd_dbdb.os_info.data_offset   = 0 ;
+
+     str_ptr = (UINT8_PTR)cur_dbdb + cur_dbdb->database_name.data_offset ;
+     fdd_dbdb.database_name.data_size = cur_dbdb->database_name.data_size ;
+
+     fdd_dbdb.database_name.data_offset  = sizeof( MTF_FDD_HDR )
+                                           + sizeof( F40_FDD_DBDB ) ;
+
+     fdd_hdr.length = sizeof( MTF_FDD_HDR ) + sizeof( F40_FDD_DBDB )
+                                         + fdd_dbdb.database_name.data_size ;
+
+     fdd_hdr.link = 0 ;
+
+     if( fwrite( &fdd_hdr, sizeof( MTF_FDD_HDR ), 1, fptr ) != 1 ) {
+          OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
+          cur_env->fdd_aborted = TRUE ;
+          return( TFLE_NO_ERR ) ;
+     }
+
+     /* for setting the corrupt file bit later (if necessary) */
+     if( !( fdd_hdr.blk_attribs & MTF_DB_CONT_BIT ) ) {
+          cur_env->last_fdd_offset = ftell( fptr ) ;
+          cur_env->last_fdd_type = FDD_DBDB_BLK ;
+     }
+
+     if( fwrite( &fdd_dbdb, sizeof( F40_FDD_DBDB ), 1, fptr ) != 1 ) {
+          OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
+          cur_env->fdd_aborted = TRUE ;
+          return( TFLE_NO_ERR ) ;
+     }
+     if( fdd_dbdb.database_name.data_size != 0 ) {
+          if( fwrite( str_ptr, 1, fdd_dbdb.database_name.data_size, fptr )
+                                      != fdd_dbdb.database_name.data_size ) {
                OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
                cur_env->fdd_aborted = TRUE ;
                return( TFLE_NO_ERR ) ;
@@ -562,7 +656,8 @@ INT16 OTC_GenFileEntry(
 
      /* for setting the corrupt file bit later (if necessary) */
      if( !( fdd_hdr.blk_attribs & MTF_DB_CONT_BIT ) ) {
-          cur_env->last_file_fdd_offset = ftell( fptr ) ;
+          cur_env->last_fdd_offset = ftell( fptr ) ;
+          cur_env->last_fdd_type = FDD_FILE_BLK ;
      }
 
      if( fwrite( &fdd_file, sizeof( MTF_FDD_FILE_V2 ), 1, fptr ) != 1 ) {
@@ -614,8 +709,9 @@ INT16 OTC_GenEndEntry(
      memcpy( fdd_hdr.type, "FEND", 4 ) ;
 
      /* Set length to include pad out to physical block boundary */
-     len = (UINT16)( ( ftell( fptr ) + sizeof( MTF_STREAM ) )
-                                              % ChannelBlkSize( channel ) ) ;
+     len = (UINT16)( ( ftell( fptr ) +
+                       sizeof( MTF_STREAM ) +
+                       sizeof( MTF_FDD_HDR ) ) % ChannelBlkSize( channel ) ) ;
      fdd_hdr.length = ChannelBlkSize( channel ) - len ;
 
      if( fwrite( &fdd_hdr, sizeof( MTF_FDD_HDR ), 1, fptr ) != 1 ) {
@@ -836,7 +932,7 @@ INT16 OTC_UpdateSMEntry(
 
           sm_entry.num_dirs             = cur_env->dir_count ;
           sm_entry.num_files            = cur_env->file_count ;
-          sm_entry.num_corrupt_files    = cur_env->corrupt_file_count ;
+          sm_entry.num_corrupt_files    = cur_env->corrupt_obj_count ;
 
           if( fseek( fptr, pos, SEEK_SET ) != 0 ) {
                OTC_Close( cur_env, OTC_CLOSE_ALL, TRUE ) ;
@@ -878,12 +974,12 @@ INT16 OTC_UpdateSMEntry(
 
      Unit:          Translators
 
-     Name:          OTC_MarkFileEntryCorrupt
+     Name:          OTC_MarkLastEntryCorrupt
 
-     Description:   Called when the last file backed up is found to be
-                    corrupt, this function reads the last FDD file entry
-                    from the temporary file, sets the corrupt bit in the
-                    attribute field, and write it back out.
+     Description:   Called when the last object backed up is found to be
+                    corrupt, this function reads the last FDD entry from
+                    the temporary file, sets the corrupt bit in the
+                    attribute field, and writes it back out.
 
      Returns:       INT16 - TFLE_xxx
 
@@ -892,31 +988,73 @@ INT16 OTC_UpdateSMEntry(
                     backup to be aborted.
 
 **/
-INT16 OTC_MarkFileEntryCorrupt(
+INT16 OTC_MarkLastEntryCorrupt(
      F40_ENV_PTR    cur_env )
 {
-     MTF_FDD_FILE_V2     fdd_file ;
-     FILE *              fptr = cur_env->otc_fdd_fptr ;
+     union {
+          MTF_FDD_DIR_V2      d ;
+          MTF_FDD_FILE_V2     f ;
+          F40_FDD_DBDB        db ;
+     } fdd_entry ;
 
-     if( fseek( fptr, cur_env->last_file_fdd_offset, SEEK_SET ) != 0 ) {
+//     FDD_ENTRY fdd_entry ;
+
+     FILE *    fptr = cur_env->otc_fdd_fptr ;
+     size_t    size ;
+
+     switch( cur_env->last_fdd_type ) {
+
+     case FDD_DIR_BLK:
+          size = sizeof( MTF_FDD_DIR_V2 ) ;
+          break ;
+
+     case FDD_FILE_BLK:
+          size = sizeof( MTF_FDD_FILE_V2 ) ;
+          break ;
+
+     case FDD_DBDB_BLK:
+          size = sizeof( F40_FDD_DBDB ) ;
+          break ;
+
+     default:
+          msassert( FALSE ) ;
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
      }
-     if( fread( &fdd_file, sizeof( MTF_FDD_FILE_V2 ), 1, fptr ) != 1 ) {
+
+     if( fseek( fptr, cur_env->last_fdd_offset, SEEK_SET ) != 0 ) {
+          OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
+          cur_env->fdd_aborted = TRUE ;
+          return( TFLE_NO_ERR ) ;
+     }
+     if( fread( &fdd_entry, 1, size, fptr ) != size ) {
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
      }
 
-     fdd_file.file_attribs |= OBJ_CORRUPT_BIT ;
+     switch( cur_env->last_fdd_type ) {
 
-     if( fseek( fptr, cur_env->last_file_fdd_offset, SEEK_SET ) != 0 ) {
+     case FDD_DIR_BLK:
+          fdd_entry.d.dir_attribs |= OBJ_CORRUPT_BIT ;
+          break ;
+
+     case FDD_FILE_BLK:
+          fdd_entry.f.file_attribs |= OBJ_CORRUPT_BIT ;
+          break ;
+
+     case FDD_DBDB_BLK:
+          fdd_entry.db.database_attribs |= OBJ_CORRUPT_BIT ;
+          break ;
+     }
+
+     if( fseek( fptr, cur_env->last_fdd_offset, SEEK_SET ) != 0 ) {
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
      }
-     if( fwrite( &fdd_file, sizeof( MTF_FDD_FILE_V2 ), 1, fptr ) != 1 ) {
+     if( fwrite( &fdd_entry, 1, size, fptr ) != size ) {
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
@@ -1116,7 +1254,7 @@ INT16 OTC_PreprocessEOM(
      }
      strcat( lw_cat_file_path, TEXT(".FDD") ) ;
      strcpy( cur_env->eom_fname, lw_cat_file_path_end ) ;
-     if( ( cur_env->otc_eom_fptr = fopen( lw_cat_file_path, TEXT("wb+") ) ) == NULL ) {
+     if( ( cur_env->otc_eom_fptr = UNI_fopen( lw_cat_file_path, 0 ) ) == NULL ) {
           OTC_Close( cur_env, OTC_CLOSE_FDD, TRUE ) ;
           cur_env->fdd_aborted = TRUE ;
           return( TFLE_NO_ERR ) ;
@@ -1494,9 +1632,16 @@ INT16 OTC_PostprocessEOM(
                return( TFLE_NO_ERR ) ;
           }
 
-          /* DO NOT UNICODEIZE THE FOLLOWING CONSTANT!!! */
-          if( memcmp( fdd_hdr.type, "FILE", 4 ) == 0 ) {
-               cur_env->last_file_fdd_offset = ftell( fdd_fptr ) ;
+          /* DO NOT UNICODEIZE THE FOLLOWING CONSTANTS!!! */
+          if( memcmp( fdd_hdr.type, "DIRB", 4 ) == 0 ) {
+               cur_env->last_fdd_type = FDD_DIR_BLK ;
+               cur_env->last_fdd_offset = ftell( fdd_fptr ) ;
+          } else if( memcmp( fdd_hdr.type, "DBDB", 4 ) == 0 ) {
+               cur_env->last_fdd_type = FDD_DBDB_BLK ;
+               cur_env->last_fdd_offset = ftell( fdd_fptr ) ;
+          } else if( memcmp( fdd_hdr.type, "FILE", 4 ) == 0 ) {
+               cur_env->last_fdd_type = FDD_FILE_BLK ;
+               cur_env->last_fdd_offset = ftell( fdd_fptr ) ;
           }
 
           if( fwrite( buff_ptr, 1, len, fdd_fptr ) != len ) {

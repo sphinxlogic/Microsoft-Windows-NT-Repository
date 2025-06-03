@@ -198,5 +198,5 @@ PSZ StrAlloc( PSZ psz )
 
 INT StriCmpFileExt( PSZ pszFile, PSZ pszExt )
 {
-    return stricmp( strchr( pszFile, '.' ), pszExt );
+    return _stricmp( strchr( pszFile, '.' ), pszExt );
 }

@@ -317,13 +317,6 @@ SscFrameLength:                         // size of stack frame
         ldl     t0, LpbProcessorType(s2) // save processor type in pcr
         stl     t0, PcProcessorType(s0) //
 
-
-        lda     a0, KeProcessorType     //
-        ldl     t0, 0(a0)               // Store 1 in KeProcessorType
-        zap     t0, 0xf, t0             // to indicate 21064
-        bis     t0, 1, t0               // Note that this is a USHORT.
-        stl     t0, 0(a0)               //
-
         ldl     t0, LpbProcessorRevision(s2) // save processor revision
         stl     t0, PcProcessorRevision(s0)  //
 
@@ -383,7 +376,7 @@ SscFrameLength:                         // size of stack frame
         ldl     t0, LpbPrcb(s2)         // save Prcb
         stl     t0, PcPrcb(s0)          //
 
-        stl     zero, PcDpcRoutineActive(s0) // clear DPC Active flag
+        stl     zero, PbDpcRoutineActive(t0) // clear DPC Active flag
 
         stl     zero, PcMachineCheckError(s0) // indicate no HAL mchk handler
 
@@ -406,7 +399,7 @@ SscFrameLength:                         // size of stack frame
         bis     s1, zero, a1            // a1 = idle thread address
         ldl     a2, LpbKernelStack(s2)  // a2 = idle thread stack
         ldl     a3, LpbPrcb(s2)         // a3 = processor block address
-        ldbu    a4, PbNumber(a3)        // a4 = processor number
+        LoadByte(a4, PbNumber(a3))      // a4 = processor number
         bis     s2, zero, a5            // a5 = loader parameter block
         bsr     ra, KiInitializeKernel  // initialize system data
 
@@ -416,13 +409,12 @@ SscFrameLength:                         // size of stack frame
 //
 
         GET_PROCESSOR_CONTROL_BLOCK_BASE // get prcb
-        bis     v0, zero, s2            // s2 = prcb address
+        bis     v0, zero, s0            // s0 = prcb address
 
-        lda     s3, PbDpcListHead(s2)   // get DPC listhead address
+        lda     s3, PbDpcListHead(s0)   // get DPC listhead address
 
 #if !defined(NT_UP)
 
-        lda     s4, PbDpcLock(s2)       // get address of DPC lock
         lda     s5, KiDispatcherLock    // get address of dispatcher lock
 
 #endif
@@ -434,11 +426,12 @@ SscFrameLength:                         // size of stack frame
 
         ENABLE_INTERRUPTS               // enable interrupts
 
-        bis     zero, zero, s0          // clear breakin loop counter
+        bis     zero, zero, s2          // clear breakin loop counter
 
-#if !defined(NT_UP)
-        bis     zero, zero, s1          // set processor block array index
-#endif
+        bis     zero, zero, ra          // set bogus RA to stop debugger
+
+        br      zero, KiIdleLoop
+        .end    KiSystemStartupContinue
 
 //
 // The following code represents the idle thread for a processor.  The
@@ -447,151 +440,93 @@ SscFrameLength:                         // size of stack frame
 // from the system initialization routine or as the result of starting up
 // another processor in a multiprocessor configuration.
 //
+        NESTED_ENTRY(KiIdleLoop, ExceptionFrameLength, zero)
 
-        .globl  KiIdleLoop
-KiIdleLoop:
+        lda     sp, -ExceptionFrameLength(sp)   // allocate context frame
+        stq     ra, ExIntRa(sp)                 // set bogus RA to stop debugger
+        stq     s0, ExIntS0(sp)                 // save integer registers s0 - s5
+        stq     s1, ExIntS1(sp)                 //
+        stq     s2, ExIntS2(sp)                 //
+        stq     s3, ExIntS3(sp)                 //
+#if !defined(NT_UP)
+        stq     s5, ExIntS5(sp)                 //
+#endif
 
-#if DEVL
+        PROLOGUE_END
 
-        subl    s0, 1, s0               // decrement breakin loop counter
-        bge     s0, 5f                  // if ge, not time for breakin check
-        ldil    s0, 20 * 1000           // set breakin loop counter
+        lda     t0, KiIdleReturn        // set return address from SwapContext
+        stq     t0, ExSwapReturn(sp)    // directly into exception frame
+
+        bsr     ra, KiSaveNonVolatileFloatState
+
+//
+// restore registers we need after swap context
+//
+KiIdleReturn:
+//
+// Lower IRQL back to DISPATCH_LEVEL
+//
+        ldil    a0, DISPATCH_LEVEL
+        SWAP_IRQL
+
+#if DBG
+        bis     zero, zero, s2          // reset breakin loop counter
+#endif
+
+//
+// N.B. The address of the current processor block (s0) is preserved across
+//      the switch from idle call.
+//
+        ldq     s3, ExIntS3(sp)         // restore address of DPC listhead
+
+#if !defined(NT_UP)
+        ldl     t2, KeNumberProcessors  // get number of processors
+        stq     t2, ExIntS0(sp)         // store number of processors
+        ldq     s5, ExIntS5(sp)         // restore address of dispatcher lock
+#endif
+
+IdleLoop:
+
+#if DBG
+
+        subl    s2, 1, s2               // decrement breakin loop counter
+        bge     s2, 5f                  // if ge, not time for breakin check
+        ldil    s2, 200 * 1000          // set breakin loop counter
         bsr     ra, KdPollBreakIn       // check if breakin is requested
         beq     v0, 5f                  // if eq, then no breakin requested
-        BREAK_BREAKIN                   // execute breakin
+        lda     a0, DBG_STATUS_CONTROL_C
+        bsr     ra, DbgBreakPointWithStatus
 
 5:
 
-#endif //DEVL
+#endif //DBG
 
 //
-// Check if there is any work in the DPC List.
+// Disable interrupts and check if there is any work in the DPC list
+// of the current processor or a target processor.
 //
 
 CheckDpcList:
-        stl     zero, PbQuantumEnd(s2)  // clear quantum end indicator
-
-        DISABLE_INTERRUPTS
-
-//
-// Check to see if there are any DPCs on our processor's queue.
-//
-        bis     s3, zero, v0            // set address of our processor's DPC listhead
-        bis     s4, zero, a5            // set address of our processor's DPC lock
-
-        ldl     t0, LsFlink(s3)         // get address of first entry
-
-#if !defined(NT_UP)
-
-        cmpeq   t0, v0, t1              // points to itself?
-        beq     t1, LockDpcList         // not empty
-
-        ldl     t0, KeNumberProcessors  // get number of processors
-        lda     t1, KiProcessorBlock    // get processor block array address
-        cmplt   s1, t0, t2              // check if number within range
-        cmoveq  t2, zero, s1            // if not, reset to zero
-        s4addl  s1, t1, t0              // compute PRCB address
-        addl    s1, 1, s1               // increment processor to check
-        ldl     v0, 0(t0)               // get address of processor block
-        beq     v0, CheckNextThread     // if NULL, processor not enabled
-        addl    v0, PbDpcLock, a5       // compute address of DPC lock
-        ldl     t0, 0(a5)               // get current lock value
-        bne     t0, CheckNextThread     // if ne, lock currently owned
-        cmpeq   v0, s2, t1              //
-        bne     t1, CheckNextThread     // if eq, current processor block, move to next
-        addl    v0, PbDpcListHead, v0   // compute address of DPC Listhead
-        ldl     t0, LsFlink(v0)
-#endif
-
-        cmpeq   t0, v0, t1
-        bne     t1, CheckNextThread
+        ENABLE_INTERRUPTS               // give interrupts a chance
+        DISABLE_INTERRUPTS              // to interrupt spinning
 
 //
-// This processor has entries on its
-// DPC queue, so decrement the processor
-// number back down so we check the same
-// processor again next time through the
-// loop
+// Process the deferred procedure call list for the current processor.
 //
-        subl    s1, 1, s1
+        ldl     t0, PbDpcQueueDepth(s0) // get current queue depth
+        beq     t0, CheckNextThread     // if eq, DPC list is empty
 
 //
-// Process an entry from the DPC queue.
-//    v0 - address of DPC listhead
-//    a5 - address of DPC lock
+// Clear dispatch interrupt.
 //
-LockDpcList:
-        bis     zero, zero, s0          // clear breakin loop counter
+        ldil    a0, DISPATCH_LEVEL
+        ldl     t0, PbSoftwareInterrupts(s0)    // clear any pending SW interrupts.
+        bic     t0, a0, t1
+        stl     t1, PbSoftwareInterrupts(s0)
+        DEASSERT_SOFTWARE_INTERRUPT             // clear any PAL-requested interrupts.
 
-#if !defined(NT_UP)
-
-10:     ldl_l   t0, 0(a5)               // get current lock value
-        bis     a5, zero, t1            // set lock ownership value
-        bne     t0, 15f                 // if NE, spinlock is owned
-        stl_c   t1, 0(a5)               // set spinlock owned
-        beq     t1, 15f                 // if EQ, store conditional failed
-        mb                              // synchronize subsequent reads
-
-#endif
-
-        ldl     a0, LsFlink(v0)         // get address of next entry
-        cmpeq   a0, v0, t0              // points to itself?
-        bne     t0, 20f                 // if ne [true], DPC list is empty
-        ldl     t0, LsFlink(a0)         // get address of next entry
-        subq    a0, DpDpcListEntry, a0  // compute address of DPC object
-        stl     t0, LsFlink(v0)         // set address of next in header
-        stl     v0, LsBlink(t0)         // set address of previous in next
-        ldl     a1, DpDeferredContext(a0) // get deferred context argument
-        ldl     a2, DpSystemArgument1(a0) // get first system argument
-        ldl     a3, DpSystemArgument2(a0) // get second system argument
-        stl     zero, DpLock(a0)        // clear DPC inserted state
-        ldl     t5, DpDeferredRoutine(a0) // get deferred routine address
-
-#if !defined(NT_UP)
-
-        wmb                             // synchronize all previous writes
-                                        //   before the spinlock is released
-        stl     zero, 0(a5)             // set spin lock not owned
-
-#endif
-
-        ENABLE_INTERRUPTS
-
-        bis     a0, zero, t0            // save copy of a0
-        ldil    a0, TRUE                // set DPC routine active
-        SET_DPC_ACTIVE_FLAG             //
-        bis     t0, zero, a0            // restore a0
-#if DBG
-        bis     t5, zero, fp            // save DPC routine address
-#endif
-        jsr     ra, (t5)                // call DPC routine
-        bis     zero, zero, a0          // clear DPC routine active
-        SET_DPC_ACTIVE_FLAG             //
-
-#if DBG
-        GET_CURRENT_IRQL                // check to ensure we are still at DPC level
-        cmpeq   v0, DISPATCH_LEVEL, v0
-        bne     v0, CheckDpcList        //
-
-        BREAK_DEBUG_STOP
-#else
-        br      zero, CheckDpcList
-#endif
-
-
-//
-// Release DPC lock and check for ready thread
-//
-
-20:
-#if !defined(NT_UP)
-
-        wmb                             // synchronize all previous writes
-                                        //   before the spinlock is released
-        stl     zero, 0(a5)             // set spin lock not owned
-
-#endif
-
+        bis     zero, zero, s2                  // clear breakin loop counter
+        bsr     ra, KiRetireDpcList
 
 //
 // Check if a thread has been selected to run on this processor.
@@ -599,63 +534,252 @@ LockDpcList:
 
 CheckNextThread:
 
-        ldl     a0, PbNextThread(s2)    // get address of next thread object
+        ldl     a0, PbNextThread(s0)    // get address of next thread object
         beq     a0, IdleProcessor       // if eq, no thread selected
-        ENABLE_INTERRUPTS
-
-        bis     zero, zero, s0          // clear breakin loop counter
 
 //
-// A thread has been selected for execution on this processor.  Acquire
+// A thread has been selected for execution on this processor. Acquire
 // dispatcher database lock, get the thread address again (it may have
 // changed), clear the address of the next thread in the processor block,
 // and call swap context to start execution of the selected thread.
 //
+// N.B. If the dispatcher database lock cannot be obtained immediately,
+//      then attempt to process another DPC rather than spinning on the
+//      dispatcher database lock.
+//
 
 #if !defined(NT_UP)
 
-30:
+130:
         ldl_l   t0, 0(s5)               // get current lock value
         bis     s5, zero, t1            // set lock ownership value
         bne     t0, CheckDpcList        // if ne, spin lock owned, go try the DPC list again
         stl_c   t1, 0(s5)               // set spin lock owned
-        beq     t1, 35f                 // if eq, store conditional failed
+        beq     t1, 135f                // if eq, store conditional failed
         mb                              // synchronize subsequent reads after
                                         //   the spinlock is acquired
-
 #endif
 
-        ldl     a0, PbNextThread(s2)    // get address of next thread object
-        bis     zero, zero, a1          // set ready flag to false
-        stl     zero, PbNextThread(s2)  // clear address of next thread object
-        bsr     ra, KiSwapContext       // swap context to new thread
+//
+// Raise IRQL to sync level and re-enable interrupts
+//
+        ldl     a0, KiSynchIrql
+        SWAP_IRQL
+        ENABLE_INTERRUPTS
 
-        br      zero, KiIdleLoop        // restart idle loop
+        ldl     s2, PbNextThread(s0)    // get address of next thread object
+        ldl     s1, PbIdleThread(s0)    // get address of current thread
+        stl     zero, PbNextThread(s0)  // clear next thread address
+        stl     s2, PbCurrentThread(s0) // set address of current thread object
+
+//
+// Set new thread's state to running. Note this must be done
+// under the dispatcher lock so that KiSetPriorityThread sees
+// the correct state.
+//
+        ldil    t0, Running
+        StoreByte( t0, ThState(s2) )
+
+#if !defined(NT_UP)
+//
+// Acquire the context swap lock so the address space of the old thread
+// cannot be deleted and then release the dispatcher database lock. In
+// this case the old thread is the idle thread, but the context swap code
+// releases the context swap lock so it must be acquired.
+//
+// N.B. This lock is used to protect the address space until the context
+//    switch has sufficiently progressed to the point where the address
+//    space is no longer needed. This lock is also acquired by the reaper
+//    thread before it finishes thread termination.
+//
+        lda     t0, KiContextSwapLock   // get context swap lock address
+140:
+        ldl_l   t1, 0(t0)               // get current lock value
+        bis     t0, zero, t2            // set ownership value
+        bne     t1, 145f                // if ne, lock already owned
+        stl_c   t2, 0(t0)               // set lock ownership value
+        beq     t2, 145f                // if eq, store conditional failed
+        mb                              // synchronize reads and writes
+        stl     zero, 0(s5)             // set lock not owned
+#endif
+
+        bsr     ra, SwapFromIdle        // swap context to new thread
+
+//
+// Note control returns directly from SwapFromIdle to the top
+// of the loop (KiIdleReturn) since SwapContext gets ra directly from ExSwapReturn(sp)
+// which was explicitly set when the idle loop was originally entered.
+//
 
 IdleProcessor:
 //
 // There are no entries in the DPC list and a thread has not been selected
-// for execution on this processor. Call the HAL so power managment can be
-// performed.
+// for execution on this processor. Call the HAL so power management can
+// be performed.
+//
+
 //
 // N.B. The HAL is called with interrupts disabled. The HAL will return
 //      with interrupts enabled.
 //
         bsr     ra, HalProcessorIdle    // notify HAL of idle state
-        br      zero, KiIdleLoop
+        br      zero, IdleLoop          // restart idle loop
 
 
 #if !defined(NT_UP)
 
-15:
-        ldl     t0, 0(s4)               // spin in cache until lock free
-        beq     t0, 10b                 // retry spin lock
-        br      zero, 15b
+135:
+//
+// Conditional store of dispatcher lock failed. Retry. Do not
+// spin in cache here. If the lock is owned, we want to check
+// the DPC list again.
+//
+        ENABLE_INTERRUPTS
+        DISABLE_INTERRUPTS
+        br      zero, 130b
 
-35:
-        ldl     t0, 0(s5)               // spin in cache until lock free
-        beq     t0, 30b                 // retry spin lock
-        br      zero, 35b
+145:
+        ldl     t1, 0(t0)               // spin in cache until lock free
+        beq     t1, 140b                // retry spin lock
+        br      zero, 145b
 
 #endif
-        .end    KiSystemStartupContinue
+        .end    KiSwapThread
+
+
+        SBTTL("Retire Deferred Procedure Call List")
+//++
+//
+// Routine Description:
+//
+//    This routine is called to retire the specified deferred procedure
+//    call list. DPC routines are called using the idle thread (current)
+//    stack.
+//
+//    N.B. Interrupts must be disabled and the DPC list lock held on entry
+//         to this routine. Control is returned to the caller with the same
+//         conditions true.
+//
+// Arguments:
+//
+//    s0 - Address of the processor control block.
+//
+// Return value:
+//
+//    None.
+//
+//--
+        .struct 0
+DpRa:   .space  8                       // return address
+        .space  8                       // fill
+
+#if DBG
+
+DpStart:.space  8                       // DPC start time in ticks
+DpFunct:.space  8                       // DPC function address
+DpCount:.space  8                       // interrupt count at start of DPC
+DpTime: .space  8                       // interrupt time at start of DPC
+
+#endif
+
+DpcFrameLength:                         // DPC frame length
+        NESTED_ENTRY(KiRetireDpcList, DpcFrameLength, zero)
+
+        lda     sp, -DpcFrameLength(sp) // allocate stack frame
+        stq     ra, DpRa(sp)            // save return address
+
+        PROLOGUE_END
+
+5:
+        stl     sp, PbDpcRoutineActive(s0)  // set DPC routine active
+
+//
+// Process the DPC list.
+//
+10:     ldl     t0, PbDpcQueueDepth(s0) // get current DPC queue depth
+        beq     t0, 60f                 // if eq, list is empty
+        lda     t2, PbDpcListHead(s0)   // compute DPC list head address
+
+20:
+#if !defined(NT_UP)
+
+        ldl_l   t1, PbDpcLock(s0)       // get current lock value
+        bis     s0, zero, t3            // set lock ownership value
+        bne     t1, 25f                 // if ne, spin lock owned
+        stl_c   t3, PbDpcLock(s0)       // set spin lock owned
+        beq     t3, 25f                 // if eq, store conditional failed
+        mb
+        ldl     t0, PbDpcQueueDepth(s0) // get current DPC queue depth
+        beq     t0, 50f                 // if eq, DPC list is empty
+
+#endif
+
+        ldl     a0, LsFlink(t2)         // get address of next entry
+        ldl     t1, LsFlink(a0)         // get address of next entry
+        lda     a0, -DpDpcListEntry(a0) // compute address of DPC object
+        stl     t1, LsFlink(t2)         // set address of next in header
+        stl     t2, LsBlink(t1)         // set address of previous in next
+        ldl     a1, DpDeferredContext(a0)   // get deferred context argument
+        ldl     a2, DpSystemArgument1(a0)   // get first system argument
+        ldl     a3, DpSystemArgument2(a0)   // get second system argument
+        ldl     t1, DpDeferredRoutine(a0)   // get deferred routine address
+        stl     zero, DpLock(a0)        // clear DPC inserted state
+        subl    t0, 1, t0               // decrement DPC queue depth
+        stl     t0, PbDpcQueueDepth(s0) // update DPC queue depth
+
+#if !defined(NT_UP)
+
+        mb                              // synchronize previous writes
+        stl     zero, PbDpcLock(s0)     // set spinlock not owned
+
+#endif
+        ENABLE_INTERRUPTS               // enable interrupts
+
+        jsr     ra, (t1)
+
+        DISABLE_INTERRUPTS
+        br      zero, 10b
+
+//
+// Unlock DPC list and clear DPC active.
+//
+50:
+#if !defined(NT_UP)
+        mb                              // synchronize previous writes
+        stl     zero, PbDpcLock(s0)     // set spin lock not owned
+#endif
+
+60:
+        stl     zero, PbDpcRoutineActive(s0)    // clear DPC routine active
+        stl     zero, PbDpcInterruptRequested(s0)   // clear DPC interrupt requested
+
+//
+// Check one last time that the DPC list is empty. This is required to
+// close a race condition with the DPC queuing code where it appears that
+// a DPC routine is active (and thus an interrupt is not requested), but
+// this code has decided the DPC list is empty and is clearing the DPC
+// active flag.
+//
+#if !defined(NT_UP)
+        mb
+#endif
+        ldl     t0, PbDpcQueueDepth(s0) // get current DPC queue depth
+        beq     t0, 70f                 // if eq, DPC list is still empty
+
+        stl     sp, PbDpcRoutineActive(s0)          // set DPC routine active
+        lda     t2, PbDpcListHead(s0)               // compute DPC list head address
+        br      zero, 20b
+
+70:
+        ldq     ra, DpRa(sp)            // restore RA
+        lda     sp, DpcFrameLength(sp)  // deallocate stack frame
+        ret     zero, (ra)              // return
+
+#if !defined(NT_UP)
+25:
+        ldl     t1, PbDpcLock(s0)       // spin in cache until lock free
+        beq     t1, 20b                 // retry spinlock
+        br      zero, 25b
+
+#endif
+        .end    KiRetireDpcList

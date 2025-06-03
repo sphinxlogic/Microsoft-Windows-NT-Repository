@@ -51,11 +51,11 @@ BOOL APIPrelude( PAPICALLDATA pData ) \n\
 ** Returns: the value you wish returned from the API call\n\
 **\n\
 */\n\
-DWORD APIPostlude( PAPICALLDATA pData )\n\
+RETVAL APIPostlude( PAPICALLDATA pData )\n\
 {\n\
 	// TO DO: Place any work you wish done AFTER an API call here.\n\
 \n\
-	return pData->dwRet ;	\n\
+	return pData->Ret ;	\n\
 }\n\
 \n\
 /* AUTOWRAP EOF */\n\

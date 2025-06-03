@@ -12,24 +12,45 @@
  *      23-Feb-1994 bens    Added createTempFile()
  *      23-Feb-1994 bens    Added richer tempfile routines
  *      23-Mar-1994 bens    Added Win32<->MS-DOS file attribute mapping
+ *      03-Jun-1994 bens    VER.DLL support
+ *      07-Jun-1994 bens    Move VER.DLL stuff to filever.c
+ *      14-Dec-1994 bens    Update list of exported functions
  *
  *  Exported Functions:
+ *      CopyOneFile           - Make a faithful copy of a file
+ *      getFileSize           - Get size of a file
+ *      GetFileTimeAndAttr    - Get date, time, and attributes from a file
+ *      SetFileTimeAndAttr    - Set date, time, and attributes of a file
+ *      appendPathSeparator   - Append a path separator only if necessary
  *      catDirAndFile         - Concatenate a possibly empty dir and file name
  *      ensureDirectory       - Ensure directory exists (creating as needed)
- *      getFileSize           - Get size of a file
+ *      ensureFile            - Ensure a file can be created
  *      getJustFileNameAndExt - Get last component in filespec
+ *      Attr32FromAttrFAT     - Convert FAT file attributes to Win32 form
+ *      AttrFATFromAttr32     - Convert Win32 file attributes to FAT form
  *      IsWildMatch           - Test filespec against wild card specification
+ *      IsPathRemovable       - See if path refers to a removable media drive
+ *      TmpCreate             - Create a temporary file
+ *      TmpGetStream          - Get FILE* from HTEMPFILE, to perform I/O
+ *      TmpGetDescription     - Get description of temporary file
+ *      TmpGetFileName        - Get filename of temporary file
+ *      TmpClose              - Close temporary file, but keep tempfile handle
+ *      TmpOpen               - Open the stream for a temporary file
+ *      TmpDestroy            - Delete tempfil and destroy handle
  */
 
 #ifndef INCLUDED_FILEUTIL
 #define INCLUDED_FILEUTIL 1
 
 #include "error.h"
+#include <stdio.h>
 
 typedef void *HTEMPFILE;
 
 //** Maximum path length
 #define cbFILE_NAME_MAX		256		// Maximum filespec length
+
+#define pszALL_FILES      "*.*" // Match all files
 
 //** File name characters & wild card characters
 #define chPATH_SEP1     '\\'    // Character to separate file path components
@@ -38,6 +59,9 @@ typedef void *HTEMPFILE;
 
 #define chNAME_EXT_SEP   '.'    // Character that separates file name and ext
                                 //  Ex: one\two\foo<.>dat
+
+#define chDRIVE_SEP      ':'    // Character that separates drive letter
+                                //  Ex: a<:>\foo.dat
 
 #define chWILD_RUN       '*'    // Wild card character that matches a run
 
@@ -56,6 +80,59 @@ typedef struct {
 typedef FILETIMEATTR *PFILETIMEATTR; /* pfta */
 
 
+/***    PFNOVERRIDEFILEPROPERTIES - Function type for CopyOneFile override
+ ***    FNOVERRIDEFILEPROPERTIES - macro to help define CopyOneFile override
+ *
+ *  Entry:
+ *      pfta        - File date/time/attr structure
+ *      pv          - Client context pointer
+ *      perr        - ERROR structure
+ *      
+ *  Exit-Success:
+ *      Returns TRUE, pfta structure may have been modified.
+ *
+ *  Exit-Failure:
+ *      Returns FALSE,
+ *      ERROR structure filled in with details of error.
+ */
+typedef BOOL (*PFNOVERRIDEFILEPROPERTIES)(PFILETIMEATTR  pfta,  /* pfnofp */
+                                          void          *pv,
+                                          PERROR         perr);
+#define FNOVERRIDEFILEPROPERTIES(fn) BOOL fn(PFILETIMEATTR  pfta,   \
+                                             void          *pv,     \
+                                             PERROR         perr)
+
+
+/***    CopyOneFile - Make a faithful copy of a file
+ *
+ *  Entry:
+ *      pszDst   - Name of destination file
+ *      pszSrc   - Name of source file
+ *      fCopy    - TRUE => copy file; FALSE => open src, call pfnofp to
+ *                 merge file date/time/attr values, but skip COPY!
+ *      cbBuffer - Amount of temporary buffer space to use for copying
+ *      pfnofp   - Function to override file properties; called with the
+ *                  file date/time/attributes for pszSrc to permit client
+ *                  to override these values.  Pass NULL if no override
+ *                  desired.
+ *      pv       - Client context pointer
+ *      perr     - ERROR structure
+ *
+ *  Exit-Success:
+ *      Returns TRUE; file copied successfully
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; perr filled in
+ */
+BOOL CopyOneFile(char                      *pszDst,
+                 char                      *pszSrc,
+                 BOOL                       fCopy,
+                 UINT                       cbBuffer,
+                 PFNOVERRIDEFILEPROPERTIES  pfnofp,
+                 void                      *pv,
+                 PERROR                     perr);
+
+
 /***    getFileSize - Get size of a file
  *
  *  Entry:
@@ -69,23 +146,6 @@ typedef FILETIMEATTR *PFILETIMEATTR; /* pfta */
  *      Returns -1; perr filled in with error.
  */
 long getFileSize(char *pszFile, PERROR perr);
-
-
-/***    CopyOneFile - Make a faithful copy of a file
- *
- *  Entry:
- *      pszDst   - Name of destination file
- *      pszSrc   - Name of source file
- *      cbBuffer - Amount of temporary buffer space to use for copying
- *      perr     - ERROR structure
- *
- *  Exit-Success:
- *      Returns TRUE; file copied successfully
- *
- *  Exit-Failure:
- *      Returns FALSE; perr filled in
- */
-BOOL CopyOneFile(char *pszDst, char *pszSrc, UINT cbBuffer, PERROR perr);
 
 
 /***    GetFileTimeAndAttr - Get date, time, and attributes from a file
@@ -118,6 +178,22 @@ BOOL GetFileTimeAndAttr(PFILETIMEATTR pfta, char *pszFile, PERROR perr);
  *      Returns FALSE; perr filled in
  */
 BOOL SetFileTimeAndAttr(char *pszFile, PFILETIMEATTR pfta, PERROR perr);
+
+
+/***    appendPathSeparator - Append a path separator only if necessary
+ *
+ *  Entry:
+ *      pszPathEnd - Pointer to last character in a path string
+ *                      (will be NULL byte if path is empty).
+ *                   Buffer is assumed to have room for one more character!
+ *
+ *  Exit:
+ *      Returns 1 if a path separator was appended
+ *      Returns 0 if no path separator was appended:
+ *          1) Path was empty -or-
+ *          2) Last character of path was '\', '/', or ':'
+ */
+int appendPathSeparator(char *pszPathEnd);
 
 
 /***    catDirAndFile - Concatenate a possibly empty dir and file name
@@ -233,13 +309,29 @@ WORD AttrFATFromAttr32(DWORD attr32);
  *      perr    - ERROR structure to fill in
  *
  *  Exit-Success:
- *      TRUE; pszPath matches pszWild
+ *      Returns TRUE; pszPath matches pszWild
  *
  *  Exit-Failure:
  *      Returns FALSE; no match; use ErrIsError(perr) to see if error
  *          occured.
  */
 BOOL IsWildMatch(char *pszPath, char *pszWild, PERROR perr);
+
+
+/***    IsPathRemovable - See if path refers to a removable media drive
+ *
+ *  Entry:
+ *      pszPath  - Path to test
+ *      pchDrive - Pointer to character to receive drive letter
+ *
+ *  Exit-Success:
+ *      Returns TRUE; path refers to removable media
+ *
+ *  Exit-Failure:
+ *      Returns FALSE; path is not removable
+ *          occured.
+ */
+BOOL IsPathRemovable(char *pszPath, char *pchDrive);
 
 
 /***    TmpCreate - Create a temporary file

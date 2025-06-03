@@ -25,6 +25,7 @@ Revision History:
 #define _NBTIOCTL_
 
 #define NETBIOS_NAMESIZE 16
+#define MAX_IPADDRS_PER_HOST 10
 //
 // Netbt supports this number of adapters
 //
@@ -82,16 +83,27 @@ typedef struct
 
 } tNAMESTATS_INFO;
 
+
+typedef struct
+{
+    USHORT  LanaNumber;
+    ULONG   IpAddress;
+    ULONG   NameServerAddress;     // primary WINS server
+    ULONG   BackupServer;          // backup WINS server
+    ULONG   lDnsServerAddress;     // primary DNS server
+    ULONG   lDnsBackupServer;      // backup DNS server
+} tIPCONFIG_PER_LANA;
+
 //
 // structure returned when ipconfig queries vnbt for parameters being used
 //
 typedef struct
 {
-    USHORT  NodeType;
-    ULONG   NameServerAddress;
-    ULONG   BackupServer;
-    USHORT  ScopeLength;
-    CHAR    szScope[1];
+    USHORT              NumLanas;
+    tIPCONFIG_PER_LANA  LanaInfo[8];
+    USHORT              NodeType;
+    USHORT              ScopeLength;
+    CHAR                szScope[1];
 } tIPCONFIG_INFO;
 
 //
@@ -122,6 +134,14 @@ typedef struct
 } tCONNECTION_LIST;
 
 
+typedef struct
+{
+    ULONG   IpAddress;
+    ULONG   Resolved;
+    UCHAR   Name[16];
+
+} tIPADDR_BUFFER;
+
 // this is the format of the buffer passed to Netbt when it either posts
 // a buffer for subsequent DNS name resolutions, or it replies to a name
 // resolution request. For a posted buffer, Name starts with a null, otherwise
@@ -130,11 +150,12 @@ typedef struct
 //
 typedef struct
 {
-    ULONG   IpAddress;
+    ULONG   IpAddrsList[MAX_IPADDRS_PER_HOST+1];
     ULONG   Resolved;
-    UCHAR   Name[16];
+    UCHAR   pName[261];           // the destination name
+    ULONG   NameLen;              // how big is the name
 
-} tIPADDR_BUFFER;
+} tIPADDR_BUFFER_DNS;
 
 //
 // this is the format of the buffer passed to Nbt by DHCP when DHCP
@@ -158,6 +179,35 @@ typedef struct
     ULONG   BackupWinsServer;
 
 } tWINS_ADDRESSES;
+
+//
+// This structure is returned by Nbt when a TdiQueryInformation()
+// call asks for TDI_QUERY_ADDRESS_INFO on a connection.  This is
+// the same as a TRANSPORT_ADDRESS struct from "tdi.h" containing
+// two address, a NetBIOS address followed by an IP address.
+//
+
+typedef struct _NBT_ADDRESS_PAIR {
+    LONG TAAddressCount;                   // this will always == 2
+
+    struct {
+        USHORT AddressLength;              // length in bytes of this address == 18
+        USHORT AddressType;                // this will == TDI_ADDRESS_TYPE_NETBIOS
+        TDI_ADDRESS_NETBIOS Address;
+    } AddressNetBIOS;
+
+    struct {
+        USHORT AddressLength;              // length in bytes of this address == 14
+        USHORT AddressType;                // this will == TDI_ADDRESS_TYPE_IP
+        TDI_ADDRESS_IP Address;
+    } AddressIP;
+
+} NBT_ADDRESS_PAIR, *PNBT_ADDRESS_PAIR;
+
+typedef struct _NBT_ADDRESS_PAIR_INFO {
+    ULONG ActivityCount;                   // outstanding open file objects/this address.
+    NBT_ADDRESS_PAIR AddressPair;          // the actual address & its components.
+} NBT_ADDRESS_PAIR_INFO, *PNBT_ADDRESS_PAIR_INFO;
 
 
 #define WINS_INTERFACE_NAME "WinsInterface"
@@ -227,12 +277,47 @@ typedef struct
                                                         FILE_ANY_ACCESS)
 #define IOCTL_NETBT_ADAPTER_STATUS    _NETBT_CTRL_CODE( 43, METHOD_OUT_DIRECT, \
                                                         FILE_ANY_ACCESS)
+#define IOCTL_NETBT_CHECK_IP_ADDR    _NETBT_CTRL_CODE( 44, METHOD_OUT_DIRECT, \
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_ADD_INTERFACE   _NETBT_CTRL_CODE( 45, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_DELETE_INTERFACE _NETBT_CTRL_CODE( 46, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_QUERY_INTERFACE_INSTANCE _NETBT_CTRL_CODE( 47, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_SET_WINS_ADDRESS _NETBT_CTRL_CODE( 48, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_ENABLE_EXTENDED_ADDR _NETBT_CTRL_CODE( 49, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+#define IOCTL_NETBT_DISABLE_EXTENDED_ADDR _NETBT_CTRL_CODE( 50, METHOD_BUFFERED,\
+                                                        FILE_ANY_ACCESS)
+
 //
 // This ioctl should be last since Driver.c uses this to decide the range of
 // ioctls to pass to DispatchIoctls
 //
-#define IOCTL_NETBT_LAST_IOCTL       _NETBT_CTRL_CODE( 44, METHOD_OUT_DIRECT, \
+#define IOCTL_NETBT_LAST_IOCTL       _NETBT_CTRL_CODE( 51, METHOD_OUT_DIRECT, \
                                                         FILE_ANY_ACCESS)
+
+//
+// Used in IOCTL_NETBT_ADD_INTERFACE and IOCTL_NETBT_DELETE_INTERFACE
+//
+typedef struct  _netbt_add_del_if {
+    NTSTATUS   Status;
+    ULONG   InstanceNumber; // instance number of this device
+    ULONG   Length; // length of the buffer
+    WCHAR   IfName[1]; // actual data
+} NETBT_ADD_DEL_IF, *PNETBT_ADD_DEL_IF;
+
+//
+// Used in IOCTL_NETBT_SET_WINS_ADDRESS
+//
+typedef struct  _netbt_set_wins_addr {
+    ULONG   PrimaryWinsAddr;
+    ULONG   SecondaryWinsAddr;
+    NTSTATUS   Status;
+} NETBT_SET_WINS_ADDR, *PNETBT_SET_WINS_ADDR;
+
 #else
 
 // defines for VXD
@@ -258,5 +343,5 @@ typedef struct
 #endif  // ifndef VXD
 
 #endif  // ifndef _NBTIOCTL_
-
-
+
+

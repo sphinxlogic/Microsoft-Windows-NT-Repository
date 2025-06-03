@@ -27,7 +27,7 @@ Revision History:
 #include "kdp.h"
 #define END_OF_CONTROL_SPACE    (sizeof(KPROCESSOR_STATE))
 
-extern ULONG CurrentSymbolStart, CurrentSymbolEnd;
+extern ULONG KdpCurrentSymbolStart, KdpCurrentSymbolEnd;
 extern ULONG KdSpecialCalls[];
 extern ULONG KdNumberOfSpecialCalls;
 extern BOOLEAN KdpSendContext;
@@ -72,6 +72,8 @@ KdpGetCallNextOffset (
 #pragma alloc_text(PAGEKD, KdpWriteControlSpace)
 #pragma alloc_text(PAGEKD, KdpReadIoSpace)
 #pragma alloc_text(PAGEKD, KdpWriteIoSpace)
+#pragma alloc_text(PAGEKD, KdpReadMachineSpecificRegister)
+#pragma alloc_text(PAGEKD, KdpWriteMachineSpecificRegister)
 #pragma alloc_text(PAGEKD, KdpGetCallNextOffset)
 #endif
 
@@ -126,7 +128,7 @@ KdpLevelChange (
 
       KdpMoveMemory( (PCHAR)&retaddr, (PCHAR)ContextRecord->Esp, 4 );
 
-      if ( (CurrentSymbolStart < retaddr) && (retaddr < CurrentSymbolEnd) ) {
+      if ( (KdpCurrentSymbolStart < retaddr) && (retaddr < KdpCurrentSymbolEnd) ) {
 
          //
          // returning to the current function.  Either a finally
@@ -244,7 +246,7 @@ Argument:
         if ( (modRM & 0xc0) == 0xc0 ) {
 
             /* Direct register addressing */
-            callAddr = regValue( modRM&0x7, ContextRecord );
+            callAddr = regValue( (UCHAR)(modRM&0x7), ContextRecord );
 
         } else if ( (modRM & 0xc7) == 0x05 ) {
             //
@@ -259,7 +261,7 @@ Argument:
 
             /* sib byte present */
             KdpMoveMemory( (PCHAR)&sib, (PCHAR)Pc+2, 1 );
-            indexValue = regValue( (sib & 0x31) >> 3, ContextRecord );
+            indexValue = regValue( (UCHAR)((sib & 0x31) >> 3), ContextRecord );
             switch ( sib&0xc0 ) {
             case 0x0:  /* x1 */
                 break;
@@ -278,30 +280,30 @@ Argument:
 
             case 0x0: /* no displacement */
                 if ( (sib & 0x7) == 0x5 ) {
-                    KdPrint(( "funny call #1\n" ));
+                    DPRINT(("funny call #1 at %x\n", Pc));
                     return FALSE;
                 }
-                callAddr = indexValue + regValue( sib&0x7, ContextRecord );
+                callAddr = indexValue + regValue((UCHAR)(sib&0x7), ContextRecord );
                 break;
 
             case 0x40:
                 if ( (sib & 0x6) == 0x4 ) {
-                    KdPrint(( "Funny call #2\n" )); /* calling into the stack */
+                    DPRINT(("Funny call #2\n")); /* calling into the stack */
                     return FALSE;
                 }
                 KdpMoveMemory( &d8, (PCHAR)Pc+3,1 );
                 callAddr = indexValue + d8 +
-                                    regValue( sib&0x7, ContextRecord );
+                                    regValue((UCHAR)(sib&0x7), ContextRecord );
                 break;
 
             case 0x80:
                 if ( (sib & 0x6) == 0x4 ) {
-                    KdPrint(( "Funny call #3\n" )); /* calling into the stack */
+                    DPRINT(("Funny call #3\n")); /* calling into the stack */
                     return FALSE;
                 }
                 KdpMoveMemory( (PCHAR)&offset, (PCHAR)Pc+3, 4 );
                 callAddr = indexValue + offset +
-                                    regValue( sib&0x7, ContextRecord );
+                                    regValue((UCHAR)(sib&0x7), ContextRecord );
                 break;
 
             case 0xc0:
@@ -368,7 +370,7 @@ KdpGetReturnAddress (
 {
     ULONG retaddr;
 
-    KdpMoveMemory( &retaddr, ContextRecord->Esp, 4 );
+    KdpMoveMemory((PCHAR)(&retaddr), (PCHAR)(ContextRecord->Esp), 4 );
     return retaddr;
 
 } // KdpGetReturnAddress
@@ -448,7 +450,7 @@ Return Value:
     //
 
     WaitStateChange->NewState = DbgKdExceptionStateChange;
-    WaitStateChange->ProcessorType = (USHORT)KeProcessorType;
+    WaitStateChange->ProcessorLevel = KeProcessorLevel;
     WaitStateChange->Processor = (USHORT)KeGetCurrentPrcb()->Number;
     WaitStateChange->NumberProcessors = (ULONG)KeNumberProcessors;
     WaitStateChange->Thread = (PVOID)KeGetCurrentThread();
@@ -465,9 +467,9 @@ Return Value:
     //
 
     WaitStateChange->ControlReport.InstructionCount =
-        KdpMoveMemory(
-            &(WaitStateChange->ControlReport.InstructionStream[0]),
-            WaitStateChange->ProgramCounter,
+        (USHORT)KdpMoveMemory(
+            (PCHAR)(&(WaitStateChange->ControlReport.InstructionStream[0])),
+            (PCHAR)(WaitStateChange->ProgramCounter),
             DBGKD_MAXSTREAM
             );
 
@@ -477,8 +479,8 @@ Return Value:
 
     if (KdpSendContext) {
         KdpMoveMemory(
-            &WaitStateChange->Context,
-            ContextRecord,
+            (PCHAR)(&WaitStateChange->Context),
+            (PCHAR)ContextRecord,
             sizeof(*ContextRecord)
             );
     }
@@ -517,10 +519,10 @@ Return Value:
     WaitStateChange->ControlReport.Dr7 =
         Prcb->ProcessorState.SpecialRegisters.KernelDr7;
 
-    WaitStateChange->ControlReport.SegCs  = ContextRecord->SegCs;
-    WaitStateChange->ControlReport.SegDs  = ContextRecord->SegDs;
-    WaitStateChange->ControlReport.SegEs  = ContextRecord->SegEs;
-    WaitStateChange->ControlReport.SegFs  = ContextRecord->SegFs;
+    WaitStateChange->ControlReport.SegCs  = (USHORT)(ContextRecord->SegCs);
+    WaitStateChange->ControlReport.SegDs  = (USHORT)(ContextRecord->SegDs);
+    WaitStateChange->ControlReport.SegEs  = (USHORT)(ContextRecord->SegEs);
+    WaitStateChange->ControlReport.SegFs  = (USHORT)(ContextRecord->SegFs);
     WaitStateChange->ControlReport.EFlags = ContextRecord->EFlags;
 
     WaitStateChange->ControlReport.ReportFlags = REPORT_INCLUDES_SEGS;
@@ -581,8 +583,8 @@ Return Value:
             Prcb->ProcessorState.SpecialRegisters.KernelDr6 = 0L;
         }
         if (ManipulateState->u.Continue2.ControlSet.CurrentSymbolStart != 1) {
-            CurrentSymbolStart = ManipulateState->u.Continue2.ControlSet.CurrentSymbolStart;
-            CurrentSymbolEnd = ManipulateState->u.Continue2.ControlSet.CurrentSymbolEnd;
+            KdpCurrentSymbolStart = ManipulateState->u.Continue2.ControlSet.CurrentSymbolStart;
+            KdpCurrentSymbolEnd = ManipulateState->u.Continue2.ControlSet.CurrentSymbolEnd;
         }
     }
 }
@@ -643,7 +645,7 @@ Return Value:
     }
     if ((a->TargetBaseAddress < (PVOID)END_OF_CONTROL_SPACE) &&
         (m->Processor < (USHORT)KeNumberProcessors)) {
-        t = (PUCHAR)END_OF_CONTROL_SPACE - a->TargetBaseAddress;
+        t = (ULONG)END_OF_CONTROL_SPACE - (ULONG)(a->TargetBaseAddress);
         if (t < Length) {
             Length = t;
         }
@@ -887,6 +889,121 @@ Return Value:
             break;
         default:
             m->ReturnStatus = STATUS_INVALID_PARAMETER;
+    }
+
+    KdpSendPacket(
+        PACKET_TYPE_KD_STATE_MANIPULATE,
+        &MessageHeader,
+        NULL
+        );
+    UNREFERENCED_PARAMETER(Context);
+}
+
+VOID
+KdpReadMachineSpecificRegister(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called in response of a read MSR
+    manipulation message.  Its function is to read the MSR.
+
+Arguments:
+
+    m - Supplies the state manipulation message.
+
+    AdditionalData - Supplies any additional data for the message.
+
+    Context - Supplies the current context.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDBGKD_READ_WRITE_MSR a = &m->u.ReadWriteMsr;
+    STRING MessageHeader;
+    LARGE_INTEGER l;
+
+    MessageHeader.Length = sizeof(*m);
+    MessageHeader.Buffer = (PCHAR)m;
+
+    ASSERT(AdditionalData->Length == 0);
+
+    m->ReturnStatus = STATUS_SUCCESS;
+
+    try {
+        l.QuadPart = RDMSR(a->Msr);
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+        l.QuadPart = 0;
+        m->ReturnStatus = STATUS_NO_SUCH_DEVICE;
+    }
+
+    a->DataValueLow  = l.LowPart;
+    a->DataValueHigh = l.HighPart;
+
+    KdpSendPacket(
+        PACKET_TYPE_KD_STATE_MANIPULATE,
+        &MessageHeader,
+        NULL
+        );
+    UNREFERENCED_PARAMETER(Context);
+}
+
+VOID
+KdpWriteMachineSpecificRegister(
+    IN PDBGKD_MANIPULATE_STATE m,
+    IN PSTRING AdditionalData,
+    IN PCONTEXT Context
+    )
+
+/*++
+
+Routine Description:
+
+    This function is called in response of a write of a MSR
+    manipulation message.  Its function is to write to the MSR
+
+Arguments:
+
+    m - Supplies the state manipulation message.
+
+    AdditionalData - Supplies any additional data for the message.
+
+    Context - Supplies the current context.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PDBGKD_READ_WRITE_MSR a = &m->u.ReadWriteMsr;
+    STRING MessageHeader;
+    LARGE_INTEGER l;
+
+    MessageHeader.Length = sizeof(*m);
+    MessageHeader.Buffer = (PCHAR)m;
+
+    ASSERT(AdditionalData->Length == 0);
+
+    m->ReturnStatus = STATUS_SUCCESS;
+
+    l.HighPart = a->DataValueHigh;
+    l.LowPart = a->DataValueLow;
+
+    try {
+        WRMSR (a->Msr, l.QuadPart);
+    } except (EXCEPTION_EXECUTE_HANDLER) {
+        m->ReturnStatus = STATUS_NO_SUCH_DEVICE;
     }
 
     KdpSendPacket(

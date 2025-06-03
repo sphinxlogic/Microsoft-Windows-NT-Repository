@@ -32,213 +32,270 @@ Revision History:
 
 void
 DumpValues(
-    PUNICODE_STRING KeyName,
-    HANDLE KeyHandle,
-    ULONG IndentLevel
+    HKEY KeyHandle,
+    PWSTR KeyName,
+    ULONG Depth
     );
 
 void
 DumpKeys(
-    PUNICODE_STRING KeyName,
-    HANDLE ParentKeyHandle,
-    ULONG IndentLevel
+    HKEY ParentKeyHandle,
+    PWSTR KeyName,
+    PWSTR FullPath,
+    ULONG Depth
     );
 
+BOOLEAN FullPathOutput;
+BOOLEAN SummaryOutput;
 
-PVOID ValueBuffer;
-ULONG ValueBufferSize;
-
-void
-Usage( void )
+BOOL
+CtrlCHandler(
+    IN ULONG CtrlType
+    )
 {
-    fprintf( stderr, "usage: REGDMP [RegistryKeyPaths...]\n" );
-    fprintf( stderr, "       Default registry path is \\Registry\n" );
-    exit( 1 );
+    RTDisconnectFromRegistry( &RegistryContext );
+    return FALSE;
 }
 
-void
-_CRTAPI1 main(
+
+int
+_CRTAPI1
+main(
     int argc,
     char *argv[]
     )
 {
+    ULONG n;
     char *s;
-    ANSI_STRING AnsiString;
-    UNICODE_STRING KeyName;
-    BOOLEAN ArgumentSeen;
+    LONG Error;
+    PWSTR RegistryPath;
 
-    RtlAllocateStringRoutine = NtdllpAllocateStringRoutine;
-    RtlFreeStringRoutine = NtdllpFreeStringRoutine;
+    InitCommonCode( CtrlCHandler,
+                    "REGDMP",
+                    "[-s] [-o outputWidth] registryPath",
+                    "-s specifies summary output.  Value names, type and first line of data\n"
+                    "\n"
+                    "registryPath specifies where to start dumping.  Valid prefix names for\n"
+                    "   easy access to well known parts of the registry are:\n"
+                    "\n"
+                    "   HKEY_LOCAL_MACHINE -> \\Registry\\Machine\n"
+                    "   HKEY_USERS -> \\Registry\\Users\n"
+                    "   HKEY_CURRENT_USER -> \\Registry\\Users\\...\n"
+                    "   USER:   -> HKEY_CURRENT_USER"
+                    "\n"
+                    "If REGDMP detects any REG_SZ or REG_EXPAND_SZ that is missing the\n"
+                    "trailing null character, it will prefix the value string with the\n"
+                    "following text: (*** MISSING TRAILING NULL CHARACTER ***)\n"
+                    "The REGFIND tool can be used to clean these up, as this is a common\n"
+                    "programming error.\n"
+                  );
 
-    ValueBufferSize = VALUE_BUFFER_SIZE;
-    ValueBuffer = VirtualAlloc( NULL, ValueBufferSize, MEM_COMMIT, PAGE_READWRITE );
-    if (ValueBuffer == NULL) {
-        fprintf( stderr, "REGDMP: Unable to allocate value buffer.\n" );
-        exit( 1 );
-        }
-
-    ArgumentSeen = FALSE;
+    RegistryPath = NULL;
     while (--argc) {
         s = *++argv;
         if (*s == '-' || *s == '/') {
             while (*++s) {
                 switch( tolower( *s ) ) {
-                    case 'd':
-                        DebugOutput = TRUE;
+                    case 'f':
+                        FullPathOutput = TRUE;
                         break;
 
                     case 's':
                         SummaryOutput = TRUE;
                         break;
 
-                    default:    Usage();
+                    default:
+                        CommonSwitchProcessing( &argc, &argv, *s );
+                        break;
                     }
                 }
             }
+        else
+        if (RegistryPath == NULL) {
+            RegistryPath = GetArgAsUnicode( s );
+            }
         else {
-            RtlInitString( &AnsiString, s );
-            RtlAnsiStringToUnicodeString( &KeyName, &AnsiString, TRUE );
-            DumpKeys( &KeyName, NULL, 0 );
-            ArgumentSeen = TRUE;
+            Usage( "May only specify one registry path to dump", 0 );
             }
         }
 
-    if (!ArgumentSeen) {
-        RtlInitUnicodeString( &KeyName, L"\\Registry" );
-        DumpKeys( &KeyName, NULL, 0 );
+    Error = RTConnectToRegistry( MachineName,
+                                 HiveFileName,
+                                 HiveRootName,
+                                 Win95Path,
+                                 Win95UserPath,
+                                 &RegistryPath,
+                                 &RegistryContext
+                               );
+    if (Error != NO_ERROR) {
+        FatalError( "Unable to access registry specifed (%u)", Error, 0 );
         }
 
+    DumpKeys( RegistryContext.HiveRootHandle, RegistryPath, RegistryPath, 0 );
 
-    exit( 0 );
+    RTDisconnectFromRegistry( &RegistryContext );
+    return 0;
 }
 
-
 void
 DumpKeys(
-    PUNICODE_STRING KeyName,
-    HANDLE  ParentKeyHandle,
-    ULONG IndentLevel
+    HKEY ParentKeyHandle,
+    PWSTR KeyName,
+    PWSTR FullPath,
+    ULONG Depth
     )
 {
-    NTSTATUS Status;
-    WCHAR KeyBuffer[ 512 ];
-    PKEY_BASIC_INFORMATION KeyInformation;
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    HANDLE KeyHandle;
+    LONG Error;
+    HKEY KeyHandle;
     ULONG SubKeyIndex;
-    UNICODE_STRING SubKeyName;
-    ULONG ResultLength;
+    WCHAR SubKeyName[ MAX_PATH ];
+    ULONG SubKeyNameLength;
+    WCHAR ComputeFullPath[ MAX_PATH ];
+    FILETIME LastWriteTime;
 
-    InitializeObjectAttributes( &ObjectAttributes,
-                                KeyName,
-                                OBJ_CASE_INSENSITIVE,
-                                ParentKeyHandle,
-                                NULL
-                              );
+    Error = RTOpenKey( &RegistryContext,
+                       ParentKeyHandle,
+                       KeyName,
+                       MAXIMUM_ALLOWED,
+                       REG_OPTION_OPEN_LINK,
+                       &KeyHandle
+                     );
 
-    Status = NtOpenKey( &KeyHandle,
-                        MAXIMUM_ALLOWED,
-                        &ObjectAttributes
+    if (Error != NO_ERROR) {
+        if (Depth == 0) {
+            FatalError( "Unable to open key '%ws' (%u)\n",
+                        (ULONG)KeyName,
+                        (ULONG)Error
                       );
-    if (!NT_SUCCESS( Status )) {
-        fprintf( stderr,
-                 "REGDMP: Unable to open key (%wZ) - Status == %lx\n",
-                 KeyName,
-                 Status
-               );
+            }
+
         return;
         }
 
     //
     // Print name of node we are about to dump out
     //
-    printf( "%.*s%wZ\n",
-            IndentLevel,
-            "                                                                                  ",
-            KeyName
-          );
+
+    if (!FullPathOutput) {
+
+        RTFormatKeyName( (PREG_OUTPUT_ROUTINE)fprintf, stdout, Depth * IndentMultiple, KeyName );
+        RTFormatKeySecurity( (PREG_OUTPUT_ROUTINE)fprintf, stdout, KeyHandle, NULL );
+        printf( "\n" );
+        }
 
     //
     // Print out node's values
     //
-    DumpValues( KeyName, KeyHandle, IndentLevel+4 );
+    if (FullPathOutput)
+        DumpValues( KeyHandle, FullPath, 0 );
+    else
+        DumpValues( KeyHandle, KeyName, Depth + 1 );
 
     //
     // Enumerate node's children and apply ourselves to each one
     //
 
-    KeyInformation = (PKEY_BASIC_INFORMATION)KeyBuffer;
     for (SubKeyIndex = 0; TRUE; SubKeyIndex++) {
-        Status = NtEnumerateKey( KeyHandle,
-                                 SubKeyIndex,
-                                 KeyBasicInformation,
-                                 KeyInformation,
-                                 sizeof( KeyBuffer ),
-                                 &ResultLength
-                               );
+        SubKeyNameLength = sizeof( SubKeyName );
+        Error = RTEnumerateKey( &RegistryContext,
+                                KeyHandle,
+                                SubKeyIndex,
+                                &LastWriteTime,
+                                &SubKeyNameLength,
+                                SubKeyName
+                              );
 
-        if (Status == STATUS_NO_MORE_ENTRIES) {
-            return;
-            }
-        else
-        if (!NT_SUCCESS( Status )) {
-            fprintf( stderr,
-                     "REGDMP: NtEnumerateKey( %wZ ) failed - Status ==%08lx, skipping\n",
-                     KeyName,
-                     Status
-                   );
-            return;
+        if (Error != NO_ERROR) {
+            if (Error != ERROR_NO_MORE_ITEMS && Error != ERROR_ACCESS_DENIED) {
+                fprintf( stderr,
+                         "RTEnumerateKey( %ws ) failed (%u), skipping\n",
+                         KeyName,
+                         Error
+                       );
+                }
+
+            break;
             }
 
-        SubKeyName.Buffer = (PWSTR)&(KeyInformation->Name[0]);
-        SubKeyName.Length = (USHORT)KeyInformation->NameLength;
-        SubKeyName.MaximumLength = (USHORT)KeyInformation->NameLength;
-        DumpKeys( &SubKeyName, KeyHandle, IndentLevel+4 );
+        if (FullPathOutput) {
+
+            wcscpy(ComputeFullPath, FullPath);
+            wcscat(ComputeFullPath, L"\\");
+            wcscat(ComputeFullPath, SubKeyName);
+            }
+
+        DumpKeys( KeyHandle, SubKeyName, ComputeFullPath, Depth + 1 );
         }
 
-    NtClose( KeyHandle );
+    RTCloseKey( &RegistryContext, KeyHandle );
+
+    return;
 }
 
-
 void
 DumpValues(
-    PUNICODE_STRING KeyName,
-    HANDLE KeyHandle,
-    ULONG IndentLevel
+    HKEY KeyHandle,
+    PWSTR KeyName,
+    ULONG Depth
     )
 {
-    NTSTATUS Status;
-    PKEY_VALUE_FULL_INFORMATION KeyValueInformation;
-    ULONG ValueIndex;
-    ULONG ResultLength;
+    LONG Error;
+    DWORD ValueIndex;
+    DWORD ValueType;
+    DWORD ValueNameLength;
+    WCHAR ValueName[ MAX_PATH ];
+    DWORD ValueDataLength;
+    WCHAR FullPath[ MAX_PATH ];
 
-    KeyValueInformation = (PKEY_VALUE_FULL_INFORMATION)ValueBuffer;
     for (ValueIndex = 0; TRUE; ValueIndex++) {
-        Status = NtEnumerateValueKey( KeyHandle,
-                                      ValueIndex,
-                                      KeyValueFullInformation,
-                                      KeyValueInformation,
-                                      ValueBufferSize,
-                                      &ResultLength
-                                    );
-        if (Status == STATUS_NO_MORE_ENTRIES) {
-            return;
+        ValueType = REG_NONE;
+        ValueNameLength = sizeof( ValueName ) / sizeof( WCHAR );
+        ValueDataLength = OldValueBufferSize;
+        Error = RTEnumerateValueKey( &RegistryContext,
+                                     KeyHandle,
+                                     ValueIndex,
+                                     &ValueType,
+                                     &ValueNameLength,
+                                     ValueName,
+                                     &ValueDataLength,
+                                     OldValueBuffer
+                                   );
+        if (Error == NO_ERROR) {
+
+            if (FullPathOutput) {
+                wcscpy(FullPath, KeyName);
+                wcscat(FullPath, L"\\");
+                wcscat(FullPath, ValueName);
+                }
+            else {
+                wcscpy(FullPath, ValueName);
+                }
+
+            RTFormatKeyValue( OutputWidth,
+                              (PREG_OUTPUT_ROUTINE)fprintf,
+                              stdout,
+                              SummaryOutput,
+                              Depth * IndentMultiple,
+                              FullPath,
+                              ValueDataLength,
+                              ValueType,
+                              OldValueBuffer
+                            );
             }
         else
-        if (!NT_SUCCESS( Status )) {
-            fprintf( stderr,
-                     "REGDMP: NtEnumerateValueKey( %wZ ) failed - Status == %08lx, skipping\n",
-                     KeyName,
-                     Status
-                   );
+        if (Error == ERROR_NO_MORE_ITEMS) {
             return;
             }
+        else {
+            if (DebugOutput) {
+                fprintf( stderr,
+                         "RTEnumerateValueKey( %ws ) failed (%u)\n",
+                         KeyName,
+                         Error
+                       );
+                }
 
-        try {
-            RegDumpKeyValue( stdout, KeyValueInformation, IndentLevel );
-            }
-        except( EXCEPTION_EXECUTE_HANDLER ) {
-            fprintf( stderr, "REGDMP: Access violation dumping value\n" );
+            return;
             }
         }
 }

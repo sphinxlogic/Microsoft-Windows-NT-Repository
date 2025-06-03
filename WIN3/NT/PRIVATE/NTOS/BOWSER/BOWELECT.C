@@ -29,8 +29,6 @@ Revision History:
 
 #define INCLUDE_SMB_TRANSACTION
 
-extern POBJECT_TYPE *IoFileObjectType;
-
 
 NTSTATUS
 BowserStartElection(
@@ -99,9 +97,18 @@ GetMasterName (
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
 
+
     PagedTransport = Transport->PagedTransport;
 
     try {
+
+        //
+        // Ensure the primary name has been added.
+        //
+
+        if ( Transport->PrimaryDomain == NULL ) {
+            try_return( STATUS_OBJECT_NAME_NOT_FOUND );
+        }
 
         PagedTransport->ElectionCount = ELECTION_COUNT;
 
@@ -477,6 +484,7 @@ try_exit:NOTHING;
 
         UNLOCK_TRANSPORT(Transport);
 
+        InterlockedDecrement( &BowserPostedCriticalDatagramCount );
         FREE_POOL(Context);
 
         if (ClientName.Buffer != NULL) {
@@ -921,6 +929,7 @@ Return Value
             }
 
         } else {
+            ULONG CurrentTime;
             LONG TimeTilNextElection;
 
             //
@@ -938,16 +947,18 @@ Return Value
             //  election, force a new election, otherwise set a timer to
             //  start an election after a reasonable amount of time.
             //
-
-            ASSERT (BowserTimeUp() >= PagedTransport->LastElectionSeen);
-
             //
             //  Calculate the time until the next election only once
             //  since it is possible that we might cross over the ELECTION_TIME
             //  threshold while performing these checks.
             //
 
-            TimeTilNextElection = (ELECTION_TIME - (BowserTimeUp() - PagedTransport->LastElectionSeen));
+            CurrentTime = BowserTimeUp();
+            if   ( CurrentTime >= PagedTransport->LastElectionSeen) {
+                TimeTilNextElection = (ELECTION_TIME - (CurrentTime - PagedTransport->LastElectionSeen));
+            } else {
+                TimeTilNextElection = ELECTION_TIME;
+            }
 
             if ( TimeTilNextElection <= 0 ) {
 

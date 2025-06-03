@@ -581,27 +581,27 @@ ProcessTxtCommand( VOID )
 
     *s++ = '\0';
 
-    if (!stricmp( Cmd, ".title" )) {
+    if (!_stricmp( Cmd, ".title" )) {
         TitleString = MakeString( s );
         return( (BOOLEAN)(TitleString != NULL) );
         }
     else
-    if (!stricmp( Cmd, ".author" )) {
+    if (!_stricmp( Cmd, ".author" )) {
         AuthorName = MakeString( s );
         return( (BOOLEAN)(AuthorName != NULL) );
         }
     else
-    if (!stricmp( Cmd, ".revision" )) {
+    if (!_stricmp( Cmd, ".revision" )) {
         RevisionNumber = MakeString( s );
         return( (BOOLEAN)(RevisionNumber != NULL) );
         }
     else
-    if (!stricmp( Cmd, ".created" )) {
+    if (!_stricmp( Cmd, ".created" )) {
         CreationDate = MakeString( s );
         return( (BOOLEAN)(CreationDate != NULL) );
         }
     else
-    if (!stricmp( Cmd, ".heading" )) {
+    if (!_stricmp( Cmd, ".heading" )) {
         if (!TitlePageWritten) {
             RtfTitlePage( TitleString->Buffer,
                           AuthorName->Buffer,
@@ -613,11 +613,11 @@ ProcessTxtCommand( VOID )
         return( ProcessHeadingCmd( s ) );
         }
     else
-    if (!stricmp( Cmd, ".begin" )) {
+    if (!_stricmp( Cmd, ".begin" )) {
         return( ProcessBeginCmd( s ) );
         }
     else
-    if (!stricmp( Cmd, ".end" )) {
+    if (!_stricmp( Cmd, ".end" )) {
         ErrorMessage( ".end command without .begin command", NULL );
         return( FALSE );
         }
@@ -671,23 +671,23 @@ ProcessBeginCmd(
 {
     CmdLine = SkipSpaces( CmdLine );
 
-    if (!stricmp( CmdLine, "simple" )) {
+    if (!_stricmp( CmdLine, "simple" )) {
         return( ProcessSimpleList() );
         }
     else
-    if (!stricmp( CmdLine, "funclist" )) {
+    if (!_stricmp( CmdLine, "funclist" )) {
         return( ProcessFunctionList() );
         }
     else
-    if (!stricmp( CmdLine, "literal" )) {
+    if (!_stricmp( CmdLine, "literal" )) {
         return( ProcessLiteralText() );
         }
     else
-    if (!stricmp( CmdLine, "funcnames" )) {
+    if (!_stricmp( CmdLine, "funcnames" )) {
         return( ProcessFunctionNames() );
         }
     else
-    if (!stricmp( CmdLine, "fieldnames" )) {
+    if (!_stricmp( CmdLine, "fieldnames" )) {
         return( ProcessFieldNames() );
         }
     else {
@@ -701,7 +701,7 @@ CheckForEndCmd(
     PSZ CmdLine
     )
 {
-    if (!stricmp( CmdLine, ".end" )) {
+    if (!_stricmp( CmdLine, ".end" )) {
         return( TRUE );
         }
     else {
@@ -811,7 +811,7 @@ BOOLEAN ProcessFunction( VOID )
     ReadTxtPara( FALSE );
     if (TxtFilePara.Type != PARA_TXT ||
         TxtFilePara.Lines != 1 ||
-        stricmp( TxtFilePara.Text, "Parameters:" )
+        _stricmp( TxtFilePara.Text, "Parameters:" )
        ) {
         if (!(VoidFunction & FUNC_TYPE_VOID_PARMS)) {
             ErrorMessage( "Missing Parameters: line - %s", TxtFilePara.Text );
@@ -840,7 +840,7 @@ BOOLEAN ProcessFunction( VOID )
         }
 
     if (TxtFilePara.Type != PARA_TXT ||
-        stricmp( TxtFilePara.Text, "Return Value:" )
+        _stricmp( TxtFilePara.Text, "Return Value:" )
        ) {
         if (!(VoidFunction & FUNC_TYPE_VOID_RETURN)) {
             ErrorMessage( "Return Value: line missing - %s", TxtFilePara.Text );

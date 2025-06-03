@@ -42,7 +42,7 @@ Revision History:
 
 #include <lmalert.h>    // My prototype, ALERTER_MAILSLOT, LPSTD_ALERT, etc.
 #include <lmerr.h>      // NO_ERROR, NERR_NoRoom, etc.
-#include <netdebug.h>   // NetpDbgPrint(), FORMAT_ equates, etc.
+#include <netdebug.h>   // NetpKdPrint(()), FORMAT_ equates, etc.
 #include <prefix.h>     // PREFIX_ equates.
 #include <string.h>     // memcpy().
 #include <strucinf.h>   // NetpAlertStructureInfo().
@@ -61,9 +61,9 @@ Revision History:
 
 NET_API_STATUS NET_API_FUNCTION
 NetAlertRaise(
-    IN LPTSTR AlertType,
-    IN LPVOID Buffer,
-    IN DWORD BufferSize
+    IN LPCWSTR AlertType,
+    IN LPVOID  Buffer,
+    IN DWORD   BufferSize
     )
 /*++
 
@@ -109,7 +109,7 @@ Return Value:
     }
 
     ApiStatus = NetpAlertStructureInfo(
-            AlertType,
+            (LPWSTR)AlertType,
             & MaxTotalSize,
             & RequiredFixedSize,
             & MaxVariableSize );
@@ -137,16 +137,16 @@ Return Value:
 
         ApiStatus = (NET_API_STATUS) GetLastError();
         IF_DEBUG( ALERT ) {
-            NetpDbgPrint( PREFIX_NETAPI
+            NetpKdPrint(( PREFIX_NETAPI
                 "NetAlertRaise: Problem with opening mailslot "
-                FORMAT_API_STATUS "\n", ApiStatus );
+                FORMAT_API_STATUS "\n", ApiStatus ));
         }
         return (ApiStatus);
     }
 
     IF_DEBUG( ALERT ) {
-        NetpDbgPrint( PREFIX_NETAPI "NetAlertRaise: "
-                "Successfully opened the mailslot.  Message (partial) is:\n");
+        NetpKdPrint(( PREFIX_NETAPI "NetAlertRaise: "
+                "Successfully opened the mailslot.  Message (partial) is:\n"));
         NetpDbgHexDump( Buffer, NetpDbgReasonable(BufferSize) );
     }
 
@@ -162,16 +162,16 @@ Return Value:
             ) == FALSE) {
 
         ApiStatus = (NET_API_STATUS) GetLastError();
-        NetpDbgPrint( PREFIX_NETAPI "NetAlertRaise: Error " FORMAT_API_STATUS
-                " writing to mailslot.\n", ApiStatus );
+        NetpKdPrint(( PREFIX_NETAPI "NetAlertRaise: Error " FORMAT_API_STATUS
+                " writing to mailslot.\n", ApiStatus ));
     } else {
 
         NetpAssert( NumberOfBytesWritten == BufferSize );
         IF_DEBUG(ALERT) {
-            NetpDbgPrint( PREFIX_NETAPI "NetAlertRaise: "
+            NetpKdPrint(( PREFIX_NETAPI "NetAlertRaise: "
                     "Successful in writing to mailslot; length "
                     FORMAT_DWORD ", bytes written " FORMAT_DWORD "\n",
-                    BufferSize, NumberOfBytesWritten);
+                    BufferSize, NumberOfBytesWritten));
         }
     }
 
@@ -184,10 +184,10 @@ Return Value:
 
 NET_API_STATUS NET_API_FUNCTION
 NetAlertRaiseEx(
-    IN LPTSTR AlertType,
-    IN LPVOID VariableInfo,
-    IN DWORD VariableInfoSize,
-    IN LPTSTR ServiceName
+    IN LPCWSTR AlertType,
+    IN LPVOID  VariableInfo,
+    IN DWORD   VariableInfoSize,
+    IN LPCWSTR ServiceName
     )
 
 /*++

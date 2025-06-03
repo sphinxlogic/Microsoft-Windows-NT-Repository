@@ -39,20 +39,30 @@ include ..\..\vdm\i386\vdmtb.inc
 
         extrn   VdmOpcode0f:proc
         extrn   _DbgPrint:proc
-        extrn   _KeI386CpuType:dword
         extrn   _KeI386VdmIoplAllowed:dword
         extrn   _KeI386VirtualIntExtensions:dword
         EXTRNP  _Ki386VdmDispatchIo,5
-        EXTRNP  _Ki386VdmDispatchStringIo,7
+        EXTRNP  _Ki386VdmDispatchStringIo,8
         EXTRNP  _KiDispatchException,5
         EXTRNP  _Ki386VdmReflectException,1
         EXTRNP  _VdmEndExecution,2
         extrn   VdmDispatchBop:near
-        EXTRNP  _VdmPrinterStatus,3
+	EXTRNP	_VdmPrinterStatus,3
+	EXTRNP	_VdmPrinterWriteData, 3
         EXTRNP  _VdmDispatchInterrupts,2
+        EXTRNP  _KeBugCheck,1
+        EXTRNP  _VdmSkipNpxInstruction,4
+ifdef VDMDBG
+        extrn   TraceOpcode:near
+endif
 
         extrn   _ExVdmOpcodeDispatchCounts:dword
         extrn   OpcodeIndex:byte
+        extrn   _VdmUserCr0MapIn:byte
+
+; SUPPORT Intel CPU/Non PC/AT machine
+        extrn   _VdmFixedStateLinear:dword
+        extrn   _KeI386MachineType:dword
 
         page ,132
 
@@ -102,7 +112,7 @@ _DATA   SEGMENT  DWORD PUBLIC 'DATA'
 ;       OUTB
 ;       OUTW
 ;
-;  BUGBUG What do we do about 32 bit io instructions??
+;  WARNING What do we do about 32 bit io instructions??
 
 
 ;       OpcodeDispatchV86 - table of routines used to emulate instructions
@@ -174,7 +184,7 @@ _PAGE   SEGMENT DWORD USE32 PUBLIC 'CODE'
 ;   NOTE: This routine exits by dispatching through the table again.
 ;--
 opPrefix macro name
-        public Opcode&name&PrefixV86     ; bugbug
+        public Opcode&name&PrefixV86
 Opcode&name&PrefixV86 proc
 
         or      ebx,PREFIX_&name
@@ -225,6 +235,11 @@ endm
 ;             1 success
 
 cPublicProc _Ki386DispatchOpcodeV86,0
+
+ifdef VDMDBG
+        push    0
+        call    TraceOpcode
+endif
 
         mov     esi,[ebp].TsSegCs
         shl     esi,4
@@ -279,7 +294,7 @@ stdENDP _Ki386DispatchOpcodeV86
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeInvalidV86          ; bugbug
+        public OpcodeInvalidV86
 OpcodeInvalidV86 proc
 
 ifdef VDMDBG
@@ -328,7 +343,7 @@ OpcodeInvalidV86 endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeGenericPrefixV86    ; bugbug
+        public OpcodeGenericPrefixV86
 OpcodeGenericPrefixV86 proc
 
         inc     esi
@@ -366,9 +381,9 @@ OpcodeGenericPrefixV86 endp
 ;
 ;   All registers can be trashed except ebp/esp.
 ;
-;  BUGBUG size override?  ds override?
+;  WARNING size override?  ds override?
 
-        public OpcodeINSBV86          ; bugbug
+        public OpcodeINSBV86
 OpcodeINSBV86 proc
 
 ifdef VDMDBG
@@ -393,19 +408,23 @@ endif
         or      eax,ecx
         push    eax                     ; address
         mov     eax,1
+        xor     ecx, ecx
         test    ebx,PREFIX_REP          ; prefixREP
         jz      oisb20
 
+        mov     ecx, 1
         movzx   eax,word ptr [ebp].TsEcx
-oisb20: push    eax                     ; number of io ops
+oisb20:
+        push    eax                     ; number of io ops
         push    TRUE                    ; read op
+        push    ecx                     ; REP prefix ?
         push    1                       ; byte op
         movzx   eax,word ptr [ebp].TsEdx
         push    eax                     ; port number
 
         ; Ki386VdmDispatchStringIo enables interrupts
 IFDEF STD_CALL
-        call    _Ki386VdmDispatchStringIo@28 ; use retval
+        call    _Ki386VdmDispatchStringIo@32 ; use retval
 ELSE
         call    _Ki386VdmDispatchStringIo ; use retval
         add     esp,24
@@ -465,19 +484,23 @@ endif
         or      eax,ecx
         push    eax                     ; address
         mov     eax,1
+        xor     ecx, ecx
         test    ebx,PREFIX_REP          ; prefixREP
         jz      oisw20
 
+        mov     ecx, 1
         movzx   eax,word ptr [ebp].TsEcx
-oisw20: push    eax                     ; number of io ops
+oisw20:
+        push    eax                     ; number of io ops
         push    TRUE                    ; read op
+        push    ecx                     ; REP prefix ?
         push    2                       ; word op
         movzx   eax,word ptr [ebp].TsEdx
         push    eax                     ; port number
 
         ; Ki386VdmDispatchStringIo enables interrupts
 IFDEF STD_CALL
-        call    _Ki386VdmDispatchStringIo@28 ; use retval
+        call    _Ki386VdmDispatchStringIo@32 ; use retval
 ELSE
         call    _Ki386VdmDispatchStringIo ; use retval
         add     esp,24
@@ -531,25 +554,29 @@ endif
 
         push    ebp                     ; trap frame
         push    edi                     ; size of outsb
-        movzx   eax,word ptr [ebp].TsV86Es
+        movzx   eax,word ptr [ebp].TsV86Ds
         shl     eax,16
-        movzx   ecx,word ptr [ebp].TsEdi
+        movzx   ecx,word ptr [ebp].TsEsi
         or      eax,ecx
         push    eax                     ; address
         mov     eax,1
+        xor     ecx, ecx
         test    ebx,PREFIX_REP          ; prefixREP
         jz      oosb20
 
+        mov     ecx, 1
         movzx   eax,word ptr [ebp].TsEcx
-oosb20: push    eax                     ; number of io ops
+oosb20:
+        push    eax                     ; number of io ops
         push    FALSE                   ; write op
+        push    ecx                     ; REP prefix ?
         push    1                       ; byte op
         movzx   eax,word ptr [ebp].TsEdx
         push    eax                     ; port number
 
         ; Ki386VdmDispatchStringIo enables interrupts
 IFDEF STD_CALL
-        call    _Ki386VdmDispatchStringIo@28 ; use retval
+        call    _Ki386VdmDispatchStringIo@32 ; use retval
 ELSE
         call    _Ki386VdmDispatchStringIo ; use retval
         add     esp,24
@@ -602,27 +629,30 @@ endif
 
         push    ebp                     ; trap frame
         push    edi                     ; size of outsw
-        movzx   eax,word ptr [ebp].TsV86Es
+        movzx   eax,word ptr [ebp].TsV86Ds
         shl     eax,16
-        movzx   ecx,word ptr [ebp].TsEdi
+        movzx   ecx,word ptr [ebp].TsEsi
         or      eax,ecx
         push    eax                     ; address
 
         mov     eax,1
+        xor     ecx, ecx
         test    ebx,PREFIX_REP          ; prefixREP
         jz      oosw20
 
+        mov     ecx, 1
         movzx   eax,word ptr [ebp].TsEcx
-
-oosw20: push    eax                     ; number of io ops
+oosw20:
+        push    eax                     ; number of io ops
         push    FALSE                   ; write op
+        push    ecx                     ; REP prefix ?
         push    2                       ; word op
         movzx   eax,word ptr [ebp].TsEdx
         push    eax                     ; port number
 
         ; Ki386VdmDispatchStringIo enables interrupts
 IFDEF STD_CALL
-        call    _Ki386VdmDispatchStringIo@28 ; use retval
+        call    _Ki386VdmDispatchStringIo@32 ; use retval
 ELSE
         call    _Ki386VdmDispatchStringIo ; use retval
         add     esp,24
@@ -663,7 +693,7 @@ OpcodeOUTSWV86 endp
 ;
 ;   All registers can be trashed except ebp/esp.
 ;
-        public OpcodePUSHFV86          ; bugbug
+        public OpcodePUSHFV86
 OpcodePUSHFV86 proc
 
 ifdef VDMDBG
@@ -681,7 +711,7 @@ _DATA ends
         pop     eax
 endif
 
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         mov     eax, dword ptr [eax]         ; get virtual int flag
         and     eax,VDM_VIRTUAL_INTERRUPTS OR VDM_VIRTUAL_AC OR VDM_VIRTUAL_NT
         mov     edx,dword ptr [ebp].TsEFlags
@@ -705,10 +735,6 @@ puf05:
         ret
 
 puf10:  sub     dx,2
-        cmp     _KeI386CpuType,3
-        jnz     puf11           ; nz -> not 386
-        and     eax, NOT EFLAGS_ALIGN_CHECK
-puf11:
         mov     [ecx + edx],eax
         jmp     puf05
 
@@ -738,7 +764,7 @@ OpcodePUSHFV86 endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodePOPFV86          ; bugbug
+        public OpcodePOPFV86
 OpcodePOPFV86 proc
 
 ifdef VDMDBG
@@ -756,7 +782,7 @@ _DATA ends
         pop     ebx
         pop     eax
 endif
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         mov     ecx,[ebp].TsHardwareSegSS
         shl     ecx,4
         movzx   edx,word ptr [ebp].TsHardwareEsp
@@ -826,7 +852,7 @@ OpcodePOPFV86 endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeINTnnV86          ; bugbug
+        public OpcodeINTnnV86
 OpcodeINTnnV86 proc
 
 ifdef VDMDBG
@@ -863,7 +889,7 @@ endif
 ; Else, IF and some other flags bits are virtualized
 ;
 oinnv10:
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         mov     ecx,dword ptr [eax]
         MPLOCK and [eax],NOT VDM_VIRTUAL_INTERRUPTS
         mov     eax,ecx
@@ -927,7 +953,7 @@ OpcodeINTnnV86 endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeINTOV86          ; bugbug
+        public OpcodeINTOV86
 OpcodeINTOV86 proc
 
 
@@ -975,7 +1001,7 @@ OpcodeINTOV86 endp
 ;
 ;
 
-        public OpcodeIRETV86          ; bugbug
+        public OpcodeIRETV86
 OpcodeIRETV86 proc
 
 
@@ -994,7 +1020,7 @@ _DATA ends
         pop     eax
 endif
 
-        mov     eax,FIXED_NTVDMSTATE_LINEAR         ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear         ; get pointer to VDM State
         movzx   ecx,word ptr [ebp].TsHardwareSegSS
         shl     ecx,4
         movzx   edx,word ptr [ebp].TsHardwareEsp    ; ebx+edx is user stack
@@ -1115,27 +1141,9 @@ endif
         inc     edi
         movzx   ecx,byte ptr [esi]
 
-        cmp     ecx, 3bdh
-        jz      oibi_prt1
-        cmp     ecx, 379h
-        jz      oibi_prt1
-        cmp     ecx, 279h
-        jz      oibi_prt1
-
-oibi_reflect:
         ; Ki386VdmDispatchIo enables interrupts
         stdCall   _Ki386VdmDispatchIo, <ecx, 1, TRUE, edi, ebp>
-oibi_com:
         ret
-
-oibi_prt1:
-        ; call printer status routine with port number, size, trap frame
-        push    ecx
-        stdCall _VdmPrinterStatus, <ecx, edi, ebp>
-        pop     ecx
-        or      al,al
-        jz      oibi_reflect
-        jmp     short oibi_com
 
 OpcodeINBimmV86 endp
 
@@ -1219,7 +1227,7 @@ OpcodeINWimmV86 endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeOUTBimmV86          ; bugbug
+        public OpcodeOUTBimmV86
 OpcodeOUTBimmV86 proc
 
 ifdef VDMDBG
@@ -1351,6 +1359,12 @@ endif
 
         movzx   ebx,word ptr [ebp].TsEdx
 
+
+; JAPAN - SUPPORT Intel CPU/Non PC/AT compatible machine
+; Get Hardware Id, PC_AT_COMPATIBLE is 0x00XX
+        test    _KeI386MachineType, MACHINE_TYPE_MASK
+	jnz	oib_reflect
+
 ; edi - instruction size
 ; TRUE - read op
 ; 1 - byte op
@@ -1371,7 +1385,7 @@ oib_com:
 
 oib_prt1:
         ; call printer status routine with port number, size, trap frame
-        stdCall _VdmPrinterStatus, <ebx, edi, ebp>
+	stdCall _VdmPrinterStatus, <ebx, edi, ebp>
         or      al,al
         jz      short oib_reflect
         jmp     short oib_com
@@ -1476,6 +1490,15 @@ endif
 
         movzx   ebx,word ptr [ebp].TsEdx
 
+	cmp	ebx, 3bch
+	jz	oob_prt1
+	cmp	ebx, 378h
+	jz	oob_prt1
+	cmp	ebx, 278h
+	jz	oob_prt1
+
+oob_reflect:
+
 ; edi - instruction size
 ; FALSE - write op
 ; 1 - byte op
@@ -1484,7 +1507,13 @@ endif
         stdCall   _Ki386VdmDispatchIo, <ebx, 1, FALSE, edi, ebp>
 
         ret
-
+oob_prt1:
+	; call printer write data routine with port number, size, trap frame
+	stdCall _VdmPrinterWriteData, <ebx, edi, ebp>
+        or      al,al
+	jz	short oob_reflect
+					;al already has TRUE
+	ret
 OpcodeOUTBV86 endp
 
         page   ,132
@@ -1569,7 +1598,7 @@ OpcodeOUTWV86 endp
 ;
 ;
 
-        public OpcodeCLIV86          ; bugbug
+        public OpcodeCLIV86
 OpcodeCLIV86 proc
 
 ifdef VDMDBG
@@ -1586,7 +1615,7 @@ _DATA ends
         pop     eax
 endif
 
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         MPLOCK and dword ptr [eax],NOT VDM_VIRTUAL_INTERRUPTS
         add     dword ptr [ebp].TsEip,edi
 
@@ -1621,7 +1650,7 @@ OpcodeCLIV86 endp
 ;
 ;
 
-        public OpcodeSTIV86          ; bugbug
+        public OpcodeSTIV86
 OpcodeSTIV86 proc
 
 ifdef VDMDBG
@@ -1639,7 +1668,7 @@ _DATA ends
         pop     eax
 endif
 
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         test    _KeI386VirtualIntExtensions, dword ptr V86_VIRTUAL_INT_EXTENSIONS
         jz      short os10
 
@@ -1751,7 +1780,7 @@ Opcode0FV86 endp
         public VdmDispatchIntAck
 VdmDispatchIntAck proc
 
-        mov     eax,FIXED_NTVDMSTATE_LINEAR  ; get pointer to VDM State
+        mov     eax,_VdmFixedStateLinear  ; get pointer to VDM State
         test    [eax],VDM_INT_HARDWARE       ; check for hardware int
         mov     eax, PCR[PcTeb]
         mov     eax,[eax].TbVdm              ; get pointer to VdmTib
@@ -1813,7 +1842,7 @@ vdmDebugPoint endp
 ;   All registers can be trashed except ebp/esp.
 ;
 
-        public OpcodeHLTV86          ; bugbug
+        public OpcodeHLTV86
 OpcodeHLTV86 proc
 
 ifdef VDMDBG
@@ -1846,7 +1875,9 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 ;
 ;   Routine Description:
 ;
-;       This routine emulates all NPX opcodes.
+;       This routine emulates all NPX opcodes, when the system
+;       has the R3 emulator installed and the c86 apps takes a
+;       trap07.
 ;
 ;   Arguments:
 ;       EBX -> prefix flags
@@ -1864,47 +1895,78 @@ _TEXT$00   SEGMENT DWORD PUBLIC 'CODE'
 
     public OpcodeNPXV86
 OpcodeNPXV86 proc
+        mov     edx, PCR[PcInitialStack]
+        mov     edx, [edx].FpCr0NpxState
+        test    edx, CR0_EM             ; Does app want NPX traps?
+        jnz     short onp40
 
-        cli                     ; interrupts are enabled on entry
-        mov     eax,CR0
-        test    eax,CR0_EM
-        jnz     onp40
+    ; MP bit can never be set while the EM bit is cleared, so we know
+    ; the faulting instruction is not an FWAIT
 
-        and     eax,NOT CR0_TS
-        mov     CR0,eax
-        sti
-        jmp     short onp60
-onp40:
-        sti
-        stdCall _Ki386VdmReflectException, <7>  ; trap #
+onp30:  and     ebx, PREFIX_ADDR32
+        stdCall _VdmSkipNpxInstruction, <ebp, ebx, esi, edi>
+        or      al, al                  ; was it handled?
+        jnz     short onp60             ; no, go raise exception to app
 
-onp60:
-        mov     eax,1
+onp40:  stdCall _Ki386VdmReflectException, <7>  ; trap #
+
+onp60:  mov     eax,1
         ret
+
+
 OpcodeNPXV86 endp
 
 
-;++ SetUserCR0
+;++ KiVdmSetUserCR0
 ;
 ;       eax
 ;
-        public SetUserCR0
-SetUserCR0 proc
+        public KiVdmSetUserCR0
+KiVdmSetUserCR0 proc
 
-        mov     edx,fs:PcInitialStack
-        and     eax,CR0_MP OR CR0_EM
-        cli                             ; insure that CR0 does not change
-        and     [edx].FpCr0NpxState,NOT (CR0_MP OR CR0_EM)
-        or      [edx].FpCr0NpxState,eax
-        mov     ebx,CR0
-        and     ebx,NOT (CR0_MP OR CR0_EM) ; turn off bits we will change
-        or      ebx,eax                 ; set user's bits
-        mov     CR0,ebx
+        and     eax, CR0_MP OR CR0_EM       ; Sanitize parameter
+        shr     eax, 1
+        movzx   eax, _VdmUserCr0MapIn[eax]
+
+        push    esp                         ; Pass current Esp to handler
+        push    offset scr_fault            ; Set Handler address
+        push    PCR[PcExceptionList]        ; Set next pointer
+        mov     PCR[PcExceptionList],esp    ; Link us on
+
+        mov     edx, PCR[PcTeb]             ; Shadow user's CR0 state to
+        mov     edx,[edx].TbVdm             ; Teb for R3 emulator
+        mov     [edx].VtVdmContext.CsFloatSave.FpCr0NpxState, eax
+
+scr10:  pop     PCR[PcExceptionList]        ; Remove our exception handle
+        add     esp, 8                      ; clear stack
+
+        mov     edx, PCR[PcInitialStack]    ; Get fp save area
+        mov     ebx, PCR[PcPrcbData + PbCurrentThread]  ; (ebx) = current thread
+
+scr20:  cli                                 ; sync with context swap
+        and     [edx].FpCr0NpxState, NOT (CR0_MP+CR0_EM+CR0_PE)
+        or      [edx].FpCr0NpxState,eax     ; set fp save area bits
+
+        mov     eax,cr0
+        and     eax, NOT (CR0_MP+CR0_EM+CR0_TS) ; turn off bits we will change
+        or      al, [ebx].ThNpxState        ; set scheduler bits
+        or      eax,[edx].FpCr0NpxState     ; set user's bits
+        mov     cr0,eax
         sti
-
         ret
 
-SetUserCR0 endp
+scr_fault:
+;
+; WARNING: Here we directly unlink the exception handler from the
+; exception registration chain.  NO unwind is performed.  We can take
+; this short cut because we know that our handler is a leaf-node.
+;
+
+        mov     esp, [esp+8]            ; (esp)-> ExceptionList
+        jmp     short scr10
+
+
+KiVdmSetUserCR0 endp
 
 _TEXT$00   ENDS
 

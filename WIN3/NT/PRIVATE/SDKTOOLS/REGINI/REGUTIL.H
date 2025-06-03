@@ -25,111 +25,69 @@ Revision History:
 #include <windows.h>
 
 #include <stdio.h>
+#include <io.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <ctype.h>
 #include <string.h>
-// #include <io.h>
 #include <fcntl.h>
 #include <malloc.h>
 #include <sys\types.h>
 #include <sys\stat.h>
+#include "regtool.h"
 
+REG_CONTEXT RegistryContext;
+PVOID OldValueBuffer;
+ULONG OldValueBufferSize;
+PWSTR MachineName;
+PWSTR HiveFileName;
+PWSTR HiveRootName;
+PWSTR Win95Path;
+PWSTR Win95UserPath;
 
-#define VALUE_BUFFER_SIZE (4096 * 100)
-
-void
-RegInitialize( void );
-
-typedef struct _REG_UNICODE_FILE {
-    LARGE_INTEGER LastWriteTime;
-    PWSTR FileContents;
-    PWSTR EndOfFile;
-    PWSTR BeginLine;
-    PWSTR EndOfLine;
-    PWSTR NextLine;
-} REG_UNICODE_FILE, *PREG_UNICODE_FILE;
-
-NTSTATUS
-RegReadBinaryFile(
-    IN PUNICODE_STRING FileName,
-    OUT PVOID *ValueBuffer,
-    OUT PULONG ValueLength
-    );
-
-NTSTATUS
-RegLoadAsciiFileAsUnicode(
-    IN PUNICODE_STRING FileName,
-    OUT PREG_UNICODE_FILE UnicodeFile
-    );
-
+ULONG OutputWidth;
+ULONG IndentMultiple;
 BOOLEAN DebugOutput;
-BOOLEAN SummaryOutput;
 
-BOOLEAN
-RegGetNextLine(
-    IN OUT PREG_UNICODE_FILE UnicodeFile,
-    OUT PULONG IndentAmount,
-    OUT PWSTR *FirstEqual
-    );
-
-BOOLEAN
-RegGetKeyValue(
-    IN PUNICODE_STRING KeyValue,
-    IN OUT PREG_UNICODE_FILE UnicodeFile,
-    OUT PULONG ValueType,
-    OUT PVOID *ValueBuffer,
-    OUT PULONG ValueLength
-    );
-
-BOOLEAN
-RegGetMultiString(
-    IN OUT PUNICODE_STRING ValueString,
-    OUT PUNICODE_STRING MultiString
+void
+InitCommonCode(
+    PHANDLER_ROUTINE CtrlCHandler,
+    LPSTR ModuleName,
+    LPSTR ModuleUsage1,
+    LPSTR ModuleUsage2
     );
 
 void
-RegDumpKeyValue(
-    FILE *fh,
-    PKEY_VALUE_FULL_INFORMATION KeyValueInformation,
-    ULONG IndentLevel
+Usage(
+    LPSTR Message,
+    ULONG MessageParameter
     );
 
-//
-// routines for creating security descriptors (regacl.c)
-//
-
-BOOLEAN
-RegInitializeSecurity(
-    VOID
+void
+FatalError(
+    LPSTR Message,
+    ULONG MessageParameter1,
+    ULONG MessageParameter2
     );
 
-NTSTATUS
-RegCreateSecurity(
-    IN PUNICODE_STRING Description,
-    OUT PSECURITY_DESCRIPTOR SecurityDescriptor
+void
+InputMessage(
+    PWSTR FileName,
+    ULONG LineNumber,
+    BOOLEAN Error,
+    LPSTR Message,
+    ULONG MessageParameter1,
+    ULONG MessageParameter2
     );
 
-VOID
-RegDestroySecurity(
-    IN PSECURITY_DESCRIPTOR SecurityDescriptor
+PWSTR
+GetArgAsUnicode(
+    LPSTR s
     );
 
-
-PVOID
-NtdllpAllocateStringRoutine(
-    ULONG NumberOfBytes
+void
+CommonSwitchProcessing(
+    PULONG argc,
+    PCHAR **argv,
+    CHAR c
     );
-
-VOID
-NtdllpFreeStringRoutine(
-    PVOID Buffer
-    );
-
-NTSTATUS
-MyRtlFormatCurrentUserKeyPath (
-    OUT PUNICODE_STRING CurrentUserKeyPath
-    );
-
-PRTL_ALLOCATE_STRING_ROUTINE RtlAllocateStringRoutine;
-PRTL_FREE_STRING_ROUTINE RtlFreeStringRoutine;

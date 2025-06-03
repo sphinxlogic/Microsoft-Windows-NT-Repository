@@ -427,8 +427,11 @@ CcFastCopyWrite (
     );
 
 //
-// The following routines provide an Mdl interface for transfers to and
-// from the cache, and are primarily intended for File Servers.
+//  The following routines provide an Mdl interface for transfers to and
+//  from the cache, and are primarily intended for File Servers.
+//
+//  NOBODY SHOULD BE CALLING THESE MDL ROUTINES DIRECTLY, USE FSRTL AND
+//  FASTIO INTERFACES.
 //
 
 NTKERNELAPI
@@ -441,9 +444,20 @@ CcMdlRead (
     OUT PIO_STATUS_BLOCK IoStatus
     );
 
+//
+//  This routine is now a wrapper for FastIo if present or CcMdlReadComplete2
+//
+
 NTKERNELAPI
 VOID
 CcMdlReadComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PMDL MdlChain
+    );
+
+NTKERNELAPI
+VOID
+CcMdlReadComplete2 (
     IN PFILE_OBJECT FileObject,
     IN PMDL MdlChain
     );
@@ -458,9 +472,21 @@ CcPrepareMdlWrite (
     OUT PIO_STATUS_BLOCK IoStatus
     );
 
+//
+//  This routine is now a wrapper for FastIo if present or CcMdlWriteComplete2
+//
+
 NTKERNELAPI
 VOID
 CcMdlWriteComplete (
+    IN PFILE_OBJECT FileObject,
+    IN PLARGE_INTEGER FileOffset,
+    IN PMDL MdlChain
+    );
+
+NTKERNELAPI
+VOID
+CcMdlWriteComplete2 (
     IN PFILE_OBJECT FileObject,
     IN PLARGE_INTEGER FileOffset,
     IN PMDL MdlChain
@@ -564,6 +590,13 @@ NTKERNELAPI
 VOID
 CcUnpinData (
     IN PVOID Bcb
+    );
+
+NTKERNELAPI
+VOID
+CcSetBcbOwnerPointer (
+    IN PVOID Bcb,
+    IN PVOID OwnerPointer
     );
 
 NTKERNELAPI

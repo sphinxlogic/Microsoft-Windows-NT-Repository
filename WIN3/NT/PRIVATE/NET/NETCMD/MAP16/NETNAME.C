@@ -25,14 +25,14 @@ VOID NEAR print_lan_mask(ULONG mask)
 
     USHORT		    err;		/* API return status */
     CHAR FAR *		    pBuffer;
-    USHORT2ULONG	    read;
+    USHORT2ULONG	    _read;
     CHAR		    nameBuf[APE2_GEN_MAX_MSG_LEN];
     struct netbios_info_0 FAR * info_entry;
 
     if (err = MNetBiosEnum(NULL,
 			    0,
 			    &pBuffer,
-			    &read))
+			    &_read))
 	ErrorExit(err);
 
     for (info_entry = (struct netbios_info_0 FAR *) pBuffer;

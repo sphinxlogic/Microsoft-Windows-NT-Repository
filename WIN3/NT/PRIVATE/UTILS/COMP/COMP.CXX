@@ -176,12 +176,12 @@ Return Value:
     _InputPath1 = NULL;
     _InputPath2 = NULL;
     if( !LexArray.Initialize() ) {
-        DbgPrintf( "LexArray.Initialize() Failed!\n" );
+        DebugPrintf( "LexArray.Initialize() Failed!\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
     }
     if( !ArgLex.Initialize(&LexArray) ) {
-        DbgPrintf( "ArgLex.Initialize() Failed!\n" );
+        DebugPrintf( "ArgLex.Initialize() Failed!\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
     }
@@ -194,7 +194,7 @@ Return Value:
     ArgLex.PutEndQuotes( "\"" );
 
     if( !ArgLex.PrepareToParse() ) {
-        DbgPrintf( "ArgLex.PrepareToParse() Failed!\n" );
+        DebugPrintf( "ArgLex.PrepareToParse() Failed!\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
     }
@@ -211,14 +211,14 @@ Return Value:
         !InFile1.Initialize("*")                ||
         !InFile2.Initialize("*") ) {
 
-        DbgPrintf( "Unable to Initialize some or all of the Arguments!\n" );
+        DebugPrintf( "Unable to Initialize some or all of the Arguments!\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
     }
 
 
     if( !ArrayOfArg.Initialize() ) {
-        DbgPrintf( "ArrayOfArg.Initialize() Failed\n" );
+        DebugPrintf( "ArrayOfArg.Initialize() Failed\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
     }
@@ -235,7 +235,7 @@ Return Value:
         !ArrayOfArg.Put(&InFile1)               ||
         !ArrayOfArg.Put(&InFile2) ) {
 
-        DbgPrintf( "ArrayOfArg.Put() Failed!\n" );
+        DebugPrintf( "ArrayOfArg.Put() Failed!\n" );
         Errlev = INTERNAL_ERROR;
         return( FALSE );
 
@@ -287,7 +287,7 @@ Return Value:
             return( FALSE );
         }
         if( !_InputPath1->Initialize( InFile1.GetPath(), FALSE ) ) {
-            DbgAbort( "Failed to initialize canonicolized version of the path 1\n" );
+            DebugAbort( "Failed to initialize canonicolized version of the path 1\n" );
             Errlev = INTERNAL_ERROR;
             return( FALSE );
         }
@@ -304,7 +304,7 @@ Return Value:
             return( FALSE );
         }
         if( !_InputPath2->Initialize( InFile2.GetPath(), FALSE ) ) {
-            DbgAbort( "Failed to initialize canonicolized version of the path 2\n" );
+            DebugAbort( "Failed to initialize canonicolized version of the path 2\n" );
             Errlev = INTERNAL_ERROR;
             return( FALSE );
         }
@@ -410,7 +410,7 @@ Return Value:
                 return;
             }
             if( !_InputPath1->Initialize( &UserInput, FALSE ) ) {
-                DbgPrintf( "Unable to initialize the path for file 1\n" );
+                DebugPrintf( "Unable to initialize the path for file 1\n" );
                 Errlev = INTERNAL_ERROR;
                 return;
             }
@@ -433,7 +433,7 @@ Return Value:
                 return;
             }
             if( !_InputPath2->Initialize( &UserInput, FALSE ) ) {
-                DbgPrintf( "Unable to initialize the path for file 2\n" );
+                DebugPrintf( "Unable to initialize the path for file 2\n" );
                 Errlev = INTERNAL_ERROR;
                 return;
             }
@@ -656,7 +656,7 @@ Return Value:
         // Get a directory based on what the user specified for File 1
         //
         if( ( pTmpPath = CanonPath1.QueryFullPath() ) == NULL ) {
-            DbgPrintf( "Unable to grab the Prefix from the input path...\n" );
+            DebugPrintf( "Unable to grab the Prefix from the input path...\n" );
             Errlev = INTERNAL_ERROR;
             return;
         }
@@ -804,6 +804,53 @@ Return Value:
     return;
 }
 
+
+#ifdef DBCS  // v-junm - 08/30/93
+
+BOOLEAN
+COMP::CharEqual(
+	PUCHAR	c1,
+	PUCHAR	c2
+	)
+/*++
+
+Routine Description:
+
+    Checks to see if a PCHAR DBCS or SBCS char is equal or not.  For SBCS
+    chars, if the CaseInsensitive flag is set, the characters are converted
+    to uppercase and checked for equality.
+
+Arguments:
+
+    c1 - NULL terminating DBCS/SBCS char *.
+    c2 - NULL terminating DBCS/SBCS char *.
+
+Return Value:
+
+    TRUE - if equal.
+
+Notes:
+
+    The char string sequence is:
+        
+        SBCS:
+            c1[0] - char code.
+            c1[1] - 0.
+        DBCS:
+            c1[0] - leadbyte.
+            c1[1] - tailbyte.
+            c1[2] - 0.
+
+--*/
+{
+	if ( (*(c1+1) == 0)  && (*(c2+1) == 0 ) )
+		return( CASE_SENSITIVE( *c1 ) == CASE_SENSITIVE( *c2 ) );
+	else
+		return( (*c1 == *c2) && (*(c1+1) == *(c2+1)) );
+}
+
+#endif
+
 VOID
 COMP::BinaryCompare(
     )
@@ -833,6 +880,13 @@ Notes:
     ULONG   LineCount = 1;                  // Start the line count at 1...
     USHORT  Differences = 0;
     BYTE    Byte1, Byte2;
+#ifdef DBCS  // v-junm - 08/30/93
+	BOOLEAN	Lead = 0;                       // Set when leadbyte is read.
+	UCHAR	Byte1W[3], Byte2W[3];           // PCHAR to contain DBCS/SBCS char.
+    ULONG   DBCSFileOffset = 0;             // When ASCII output and DBCS char,
+                                            //  the offset is where the lead
+                                            //  byte is, not the tail byte.
+#endif
     STR     Message[ 9 ];
     DSTRING ErrType;
 
@@ -861,10 +915,23 @@ Notes:
         Message[ 6 ] = '%';
         Message[ 7 ] = 'd';
     } else {
+#ifdef DBCS  // v-junm - 08/30/93
+// This is needed to display DBCS chars.  DBCS chars will be handed over
+// as a pointer of chars.  In which turns out to go to a call to swprintf in
+// basesys.cxx.  You may wonder why a DBCS char is stored as a string, but
+// it works because before the call to swprintf is made, a 'h' is placed before
+// the '%s' and makes a conversion to unicode.
+
+        Message[ 4 ] = '%';
+        Message[ 5 ] = 's';
+        Message[ 6 ] = '%';
+        Message[ 7 ] = 's';
+#else // DBCS
         Message[ 4 ] = '%';
         Message[ 5 ] = 'c';
         Message[ 6 ] = '%';
         Message[ 7 ] = 'c';
+#endif // DBCS
     }
     Message[ 8 ] = 0;
 
@@ -921,6 +988,119 @@ Notes:
             }
         }
 
+#ifdef DBCS  // v-junm - 08/30/93
+// For hex and decimal display, we don't want to worry about DBCS chars.  This
+// is a different spec than DOS/V (Japanese DOS), but it's much cleaner this
+// way.  So, we will only worry about DBCS chars when the user asks us to
+// display the difference in characters (/A option).  The file offset displayed
+// for DBCS characters is always where the leadbyte is in the file even though
+// only the tailbyte is different.
+		
+		DBCSFileOffset = FileOffset;
+		
+		//
+		// Only going to worry about DBCS when user is comparing with
+		// ASCII output.
+		//
+        //if ( _Mode == OUTPUT_ASCII )  {
+			
+
+        //kksuzuka: #133
+		//We have to worry about DBCS with 'c' option also.
+        if ( (_Mode==OUTPUT_ASCII) || ( _CaseInsensitive ) )  {
+
+			if ( Lead )  {
+
+                //
+                // DBCS leadbyte already found.  Setup variables and
+                // fill in tailbyte and null.
+                //
+
+                DBCSFileOffset--;
+				Lead = FALSE;
+				*(Byte1W+1) = Byte1;
+				*(Byte2W+1) = Byte2;
+				*(Byte1W+2) = *(Byte2W+2) = 0;
+
+			}
+			else if ( IsDBCSLeadByte( Byte1 ) || IsDBCSLeadByte( Byte2 ) )  {
+
+                //
+                // Found leadbyte.  Set lead flag telling the next time
+                // around that the character is a tailbyte.
+				//
+				
+				//
+				// Save the leadbyte.  Tailbyte will be filled next time
+				// around(above).
+				//
+				
+				*Byte1W = Byte1;
+				*Byte2W = Byte2;
+				Lead = TRUE;
+				continue;
+			
+			}
+			else  {
+				
+				//
+				// SBCS char.
+				//
+				
+				*Byte1W = Byte1;
+				*Byte2W = Byte2;
+				*(Byte1W+1) = *(Byte2W+1) = 0;
+				Lead = FALSE;
+			}
+		}
+		else  {
+			
+			//
+			// Not ASCII output (/a option).  Perform original routines.
+			//
+			
+			*Byte1W = Byte1;
+			*Byte2W = Byte2;
+            *(Byte1W+1) = *(Byte2W+1) = 0;
+		}
+
+		//
+		// Check to see if chars are equal.  If not, display difference.
+		//
+		
+		if ( CharEqual( Byte1W, Byte2W ) == FALSE )  {
+
+            psmsg->Set( MSG_COMP_COMPARE_ERROR );
+			
+			if ( _Mode == OUTPUT_ASCII )  {
+            	
+            	if ( _Numbered )
+                	psmsg->Display( Message, &ErrType, 
+                					LineCount, Byte1W, Byte2W );
+	            else
+	                psmsg->Display( Message, &ErrType, 
+	                				DBCSFileOffset, Byte1W, Byte2W );
+            		
+            }
+            else  {
+            	if ( _Numbered )
+                	psmsg->Display( Message, &ErrType, 
+                					LineCount, *Byte1W, *Byte2W );
+                //kksuzuka: #133
+		        //We have to worry about DBCS with c option also.
+	            //else
+				else {
+                    if( *Byte1W != *Byte2W ) {
+	                    psmsg->Display( Message, &ErrType, 
+	                				FileOffset, *Byte1W, *Byte2W );
+				    }
+                    else {
+	                    psmsg->Display( Message, &ErrType, 
+	                				FileOffset, *(Byte1W+1), *(Byte2W+1) );
+					}
+				}
+			}
+#else // DBCS
         // Now compare the bytes...if they are different, report the
         // difference...
         if( CASE_SENSITIVE( Byte1 ) != CASE_SENSITIVE( Byte2 ) ) {
@@ -931,6 +1111,8 @@ Notes:
                 psmsg->Set( MSG_COMP_COMPARE_ERROR );
                 psmsg->Display( Message, &ErrType, FileOffset, Byte1, Byte2 );
             }
+
+#endif // DBCS
 
             if( ++Differences == MAX_DIFF ) {
                 psmsg->Set( MSG_COMP_TOO_MANY_ERRORS );
@@ -945,7 +1127,11 @@ Notes:
         // an inexact method (the differing byte may be '/r') but it is good
         // enough for the purposes of this program.
         //
+#ifdef DBCS // v-junm - 08/30/93
+        if( *Byte1W == '\r' ) {
+#else // DBCS
         if( Byte1 == '\r' ) {
+#endif // DBCS
             LineCount++;
         }
         if( _Limited ) {
@@ -954,6 +1140,33 @@ Notes:
             }
         }
     }
+
+#ifdef DBCS  // v-junm - 08/30/93
+// There may be a leadbyte without a tailbyte at the end of the file.  Check
+// for it, and process accordingly.
+
+	if ( _Mode == OUTPUT_ASCII && Lead )  {
+		
+		//
+		// There is a leadbyte left.  Check to see if they are equal and 
+		// print difference if not.
+		//
+		
+		if ( *Byte2W != *Byte1W )  {
+
+			*(Byte1W+1) = *(Byte2W+1) = 0;
+			Differences++;
+
+            psmsg->Set( MSG_COMP_COMPARE_ERROR );
+			if ( _Numbered )
+                psmsg->Display(Message, &ErrType, LineCount, Byte1W, Byte2W);
+			else
+                psmsg->Display(Message, &ErrType, FileOffset-1, Byte1W, Byte2W);
+		}
+	}
+
+#endif // DBCS
+			
     //
     // Check if any differences were found in the files
     //
@@ -991,7 +1204,7 @@ main(
                    Get_Standard_Error_Stream() );
 
         if( !SYSTEM::IsCorrectVersion() ) {
-            DbgPrintf( "Incorrect Version Number...\n" );
+            DebugPrintf( "Incorrect Version Number...\n" );
             psmsg->Set( MSG_COMP_INCORRECT_VERSION );
             psmsg->Display( "" );
             Comp.Destruct();

@@ -344,7 +344,7 @@ Return Value:
 			m->Error = PsxStatusToErrno(st);
 			return TRUE;
 		}
-		U.Length = U.MaximumLength = pNamesInfo->FileNameLength;
+		U.Length = U.MaximumLength = (USHORT)pNamesInfo->FileNameLength;
 		U.Buffer = pNamesInfo->FileName;
 
 		st = RtlUnicodeStringToAnsiString(&A, &U, TRUE);
@@ -517,8 +517,8 @@ Return Value:
                     FilePositionInformation);
             ASSERT(NT_SUCCESS(st));
 
-            NewByteOffset = RtlLargeIntegerAdd(Offset,
-			       	FilePosition.CurrentByteOffset);
+            NewByteOffset.QuadPart = Offset.QuadPart +
+                FilePosition.CurrentByteOffset.QuadPart;
             break;
 
         case SEEK_END:
@@ -527,7 +527,8 @@ Return Value:
                     FileStandardInformation);
             ASSERT(NT_SUCCESS(st));
 
-            NewByteOffset = RtlLargeIntegerAdd(Offset, StandardInfo.EndOfFile);
+            NewByteOffset.QuadPart = Offset.QuadPart +
+                StandardInfo.EndOfFile.QuadPart;
             break;
 
         default:
@@ -725,8 +726,10 @@ FindOwnerModeFile(
 			RtlFreeHeap(PsxHeap, 0, (PVOID)SecurityDescriptor);
 			return;
 		}
+	} else if (!NT_SUCCESS(st)) {
+        return;
 	}
-	ASSERT(NT_SUCCESS(st));
+
 	ASSERT(RtlValidSecurityDescriptor(SecurityDescriptor));
 
 	//

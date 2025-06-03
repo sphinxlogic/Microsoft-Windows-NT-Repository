@@ -39,4 +39,3 @@ DES_ECB_LM( unsigned            Option,
             const char FAR *    Key,
             unsigned char FAR * Src,
             unsigned char FAR * Dst);
-

@@ -134,9 +134,7 @@ Return Value:
 
     RtlZeroMemory( share, blockSize );
 
-    SET_BLOCK_TYPE( share, BlockTypeShare );
-    SET_BLOCK_STATE( share, BlockStateActive );
-    SET_BLOCK_SIZE( share, blockSize );
+    SET_BLOCK_TYPE_STATE_SIZE( share, BlockTypeShare, BlockStateActive, blockSize );
     share->BlockHeader.ReferenceCount = 2;      // allow for Active status
                                                 //  and caller's pointer
 
@@ -492,7 +490,7 @@ Return Value:
         // Remove the block from the global list.
         //
 
-        SrvRemoveEntryOrderedList( &SrvShareList, Share );
+        SrvRemoveShare( Share );
 
         //
         // Free the share block.
@@ -597,9 +595,7 @@ Return Value:
 {
     PAGED_CODE( );
 
-    DEBUG SET_BLOCK_TYPE( Share, BlockTypeGarbage );
-    DEBUG SET_BLOCK_STATE( Share, BlockStateDead );
-    DEBUG SET_BLOCK_SIZE( Share, -1 );
+    DEBUG SET_BLOCK_TYPE_STATE_SIZE( Share, BlockTypeGarbage, BlockStateDead, -1 );
     DEBUG Share->BlockHeader.ReferenceCount = (ULONG)-1;
     TERMINATE_REFERENCE_HISTORY( Share );
 
@@ -718,7 +714,7 @@ Return Value:
     OBJECT_ATTRIBUTES objectAttributes;
     IO_STATUS_BLOCK iosb;
     PFILE_FS_ATTRIBUTE_INFORMATION attributeInfo;
-    CHAR buffer[ sizeof(FILE_FS_ATTRIBUTE_INFORMATION) + 32 ];
+    CHAR buffer[ FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName ) + 32 ];
     PVOID allocatedBuffer = NULL;
     PFILE_OBJECT fileObject;
     PDEVICE_OBJECT deviceObject;
@@ -870,7 +866,7 @@ Return Value:
         //
 
         allocatedBuffer = ALLOCATE_HEAP(
-                             sizeof(FILE_FS_ATTRIBUTE_INFORMATION) +
+                             FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION,FileSystemName) +
                                  attributeInfo->FileSystemNameLength,
                              BlockTypeDataBuffer
                              );
@@ -888,7 +884,7 @@ Return Value:
                      Share->RootDirectoryHandle,
                      &iosb,
                      allocatedBuffer,
-                     sizeof(FILE_FS_ATTRIBUTE_INFORMATION) +
+                     FIELD_OFFSET(FILE_FS_ATTRIBUTE_INFORMATION, FileSystemName) +
                                  attributeInfo->FileSystemNameLength,
                      FileFsAttributeInformation
                      );
@@ -1155,7 +1151,7 @@ Return Value:
                 }
 
                 Share->CurrentRootHandleReferences--;
-                Share->RootDirectoryHandle == NULL;
+                Share->RootDirectoryHandle = NULL;
                 SrvDereferenceShare( Share );
 
             }
@@ -1205,7 +1201,7 @@ Return Value:
 {
     NTSTATUS status;
     IO_STATUS_BLOCK iosb;
-    CHAR localBuffer[sizeof(FILE_NAME_INFORMATION) + 20];
+    ULONG localBuffer[ (FIELD_OFFSET(FILE_NAME_INFORMATION,FileName) + 20) / sizeof( ULONG ) ];
     PFILE_NAME_INFORMATION nameInfo;
     ULONG nameInfoLength;
 

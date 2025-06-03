@@ -1,11 +1,15 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "bigint.hxx"
 
 
+IFSUTIL_EXPORT
 VOID
 BIG_INT::Set(
     IN  UCHAR   ByteCount,
@@ -57,12 +61,13 @@ Return Value:
 
     // Now copy over the integer.
 
-    DbgAssert( ByteCount <= 8 );
+    DebugAssert( ByteCount <= 8 );
 
     memcpy( &x, CompressedInteger, ByteCount );
 }
 
 
+IFSUTIL_EXPORT
 VOID
 BIG_INT::QueryCompressedInteger(
     OUT PUCHAR  ByteCount,
@@ -91,8 +96,8 @@ Return Value:
     INT     i;
     PUCHAR  p;
 
-    DbgAssert(ByteCount);
-    DbgAssert(CompressedInteger);
+    DebugAssert(ByteCount);
+    DebugAssert(CompressedInteger);
 
     // First copy over the whole thing then determine the number
     // of bytes that you have to keep.
@@ -143,6 +148,8 @@ Return Value:
 }
 
 
+
+IFSUTIL_EXPORT
 VOID
 BIG_INT::operator+=(
     IN  RCBIG_INT   BigInt
@@ -193,13 +200,14 @@ Return Value:
 {
     BIG_INT r;
 
-    r.Set(-x.LowPart, (x.LowPart ? ~x.HighPart : -x.HighPart));
+    r.Set(~x.LowPart + 1, (x.LowPart ? ~x.HighPart : -x.HighPart));
 
     return r;
 }
 
 
 
+IFSUTIL_EXPORT
 VOID
 BIG_INT::operator-=(
     IN  RCBIG_INT   BigInt
@@ -225,6 +233,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator+(
     IN  RCBIG_INT   Left,
@@ -256,6 +265,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator-(
     IN  RCBIG_INT   Left,
@@ -287,6 +297,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator*(
     IN  RCBIG_INT   Left,
@@ -314,6 +325,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator*(
     IN  RCSLONG     Left,
@@ -341,6 +353,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator/(
     IN  RCBIG_INT   Left,
@@ -368,6 +381,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BIG_INT
 operator%(
     IN  RCBIG_INT   Left,
@@ -398,6 +412,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator<(
     IN RCBIG_INT    Left,
@@ -430,6 +445,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator<=(
     IN RCBIG_INT    Left,
@@ -462,6 +478,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator>(
     IN RCBIG_INT    Left,
@@ -494,6 +511,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator>=(
     IN RCBIG_INT    Left,
@@ -526,6 +544,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator==(
     IN RCBIG_INT    Left,
@@ -555,6 +574,7 @@ Return Value:
 
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 operator!=(
     IN RCBIG_INT    Left,

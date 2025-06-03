@@ -31,6 +31,7 @@ extern	"C"
  ****************************************************************************/
 
 extern NFA_INFO					*	pImportCntrl;
+extern short						curr_line_G;
 
 /****************************************************************************
  external procs
@@ -52,7 +53,8 @@ IDICT	*	pFileDict;
 void
 tracked_node::SetLine()
 {
-	FLine = pImportCntrl->GetCurrentLineNo();
+	//FLine = pImportCntrl->GetCurrentLineNo();
+	FLine = curr_line_G;
 }
 
 

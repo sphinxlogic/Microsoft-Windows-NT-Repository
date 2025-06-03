@@ -87,7 +87,7 @@ typedef unsigned short RESOURCE_LOCATION;
 //
 
 
-class RESOURCE	: public _expr_node
+class RESOURCE	: public expr_node
 	{
 private:
 

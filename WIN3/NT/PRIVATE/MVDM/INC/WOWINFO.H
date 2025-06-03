@@ -33,9 +33,11 @@
 
 typedef struct _WOWINFO {               /**/
     LPSTR       lpCmdLine;
+    LPSTR       lpAppName;
     LPSTR       lpEnv;
     DWORD       iTask;
     USHORT      CmdLineSize;
+    USHORT      AppNameSize;
     USHORT      EnvSize;
     USHORT      CurDrive;
     LPSTR       lpCurDir;

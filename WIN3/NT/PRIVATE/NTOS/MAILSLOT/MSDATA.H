@@ -27,7 +27,7 @@ extern LONG MsDebugTraceIndent;
 
 #endif // _MSDATA_
 
-extern ERESOURCE MsGlobalResource;
-extern ERESOURCE MsPrefixTableResource;
-extern ERESOURCE MsCcbListResource;
+extern PERESOURCE MsGlobalResource;
+extern PERESOURCE MsPrefixTableResource;
+extern PERESOURCE MsCcbListResource;
 

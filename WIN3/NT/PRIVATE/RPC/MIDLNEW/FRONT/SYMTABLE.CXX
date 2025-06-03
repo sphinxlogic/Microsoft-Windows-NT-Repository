@@ -396,4 +396,3 @@ SymTable::ExitScope(
 		}
 }
 
-

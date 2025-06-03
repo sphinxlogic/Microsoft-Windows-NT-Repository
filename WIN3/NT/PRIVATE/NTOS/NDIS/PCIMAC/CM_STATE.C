@@ -3,7 +3,7 @@
  */
 
 #include	<ndis.h>
-#include	<ndismini.h>
+//#include	<ndismini.h>
 #include	<ndiswan.h>
 #include	<mytypes.h>
 #include	<mydefs.h>
@@ -19,32 +19,51 @@
 INT
 cm__ans_est_ind(CM_CHAN *chan, IDD_MSG *msg, VOID *idd, USHORT lterm)
 {
-    USHORT      bchan, type, cid;
+    USHORT	bchan, type, cid;
+	INT	RetCode;
     
     D_LOG(D_ENTRY, ("cm__ans_est_ind: entry, chan: 0x%p, msg: 0x%p", \
                                     chan, msg));                                    
+
+    cid = HIWORD(msg->bufid);
 
     /* must not have a channel at this time */
     if ( chan )
     {
         D_LOG(D_ALWAYS, ("cm__ans_est_ind: on used channel, ignored!"));
-        return(CM_E_BADPARAM);
+
+		RetCode = CM_E_BADPARAM;
+
+		//
+		// we need to let the adapter know that we are not processing
+		// this incoming call indication
+		//
+		ignored:
+
+		/* answer channel */
+		cm__est_ignore(idd, cid, lterm);
+
+        return(RetCode);
     }
 
     /* extract info out of message, must have bchan/type */
-    cid = HIWORD(msg->bufid);
     if ( (cm__get_bchan(msg, &bchan) != CM_E_SUCC) ||
          (cm__get_type(msg, &type) != CM_E_SUCC) )
     {
         D_LOG(D_ALWAYS, ("cm__ans_est_ind: bchan or type missing, ignored!"));
-        return(CM_E_BADPARAM);
+
+		RetCode = CM_E_BADPARAM;
+		goto ignored;
     }
+
     if ( !CM_BCHAN_ASSIGNED(bchan) )
     {
         D_LOG(D_ALWAYS, ("cm__ans_est_ind: bchan: %d, unassigned, ignored!",\
                                                 bchan));
-        return(CM_E_BADPARAM);                                                
+		RetCode = CM_E_BADPARAM;
+		goto ignored;
     }
+
     D_LOG(D_ALWAYS, ("cm__ans_est_ind: cid: 0x%x, bchan: %d, type: 0x%d",\
                                                 cid, bchan, type));
 
@@ -52,14 +71,16 @@ cm__ans_est_ind(CM_CHAN *chan, IDD_MSG *msg, VOID *idd, USHORT lterm)
     if ( !cm__find_listen_conn("*", "*", "*", idd) )
     {
         D_LOG(D_ALWAYS, ("cm__ans_est_ind: not listening profile, ignored!"));
-        return(CM_E_NOSUCH);
+		RetCode = CM_E_NOSUCH;
+		goto ignored;
     }
 
     /* allocate a channel out of incoming channel poll */
     if ( !(chan = cm__chan_alloc()) )
     {
         D_LOG(D_ALWAYS, ("cm__ans_est_ind: no channel slot, ignored!"));
-        return(CM_E_NOSLOT);
+		RetCode = CM_E_NOSLOT;
+		goto ignored;
     }
 
     /* fillup channel structure */
@@ -157,7 +178,7 @@ cm__ans_data_ind(CM_CHAN *chan, IDD_MSG *msg)
     }
 
     /* record information from uus */
-	NdisMoveFromMappedMemory (chan->DstAddr, uus->src_addr, 6);
+	NdisMoveMemory (chan->DstAddr, uus->src_addr, 6);
 
     chan->remote_conn_index = uus->conn;
 
@@ -205,7 +226,7 @@ cm__ans_data_ind(CM_CHAN *chan, IDD_MSG *msg)
     cm->remote_conn_index = chan->remote_conn_index;
 	cm->ConnectionType = CM_DKF;
 	NdisMoveMemory(cm->DstAddr, chan->DstAddr, 6);
-	NdisMoveFromMappedMemory (cm->remote_name, uus->rname, sizeof(cm->remote_name));
+	NdisMoveMemory (cm->remote_name, uus->rname, sizeof(cm->remote_name));
 
     cm->timeout = cm->rx_last_frame_time = cm->tx_last_frame_time =
                                             ut_time_now();
@@ -554,7 +575,7 @@ cm__org_data_ind(CM_CHAN *chan, IDD_MSG *msg)
 	if (cm->PPPToDKF)
 	{
         chan->ustate = CM_US_CONN;
-		NdisMoveFromMappedMemory (chan->DstAddr, uus->src_addr, 6);
+		NdisMoveMemory (chan->DstAddr, uus->src_addr, 6);
 		NdisMoveMemory(cm->DstAddr, chan->DstAddr, 6);
 		cm->remote_conn_index = cm->dprof.chan_tbl[0].remote_conn_index;
 		NdisMoveMemory(cm->remote_name, uus->lname, sizeof(cm->remote_name));
@@ -566,7 +587,7 @@ cm__org_data_ind(CM_CHAN *chan, IDD_MSG *msg)
     chan->ustate = CM_US_UUS_OKED;
     chan->timeout = ut_time_now();
 
-	NdisMoveFromMappedMemory (chan->DstAddr, uus->src_addr, 6);
+	NdisMoveMemory (chan->DstAddr, uus->src_addr, 6);
 
     chan->remote_conn_index = uus->conn;
 
@@ -732,4 +753,3 @@ cm__add_chan(CM_CHAN *chan, CM_CHAN *ref_chan, CM *cm)
 
   
  
-

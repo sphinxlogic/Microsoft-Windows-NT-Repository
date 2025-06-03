@@ -115,20 +115,37 @@ SrvFsdTdiReceiveHandler (
     OUT PIRP *IoRequestPacket
     );
 
+#ifdef  SRV_PNP_POWER
+VOID
+SrvTdiBindCallback (
+    IN PUNICODE_STRING  DeviceName
+);
+
+VOID
+SrvTdiUnbindCallback (
+    IN PUNICODE_STRING DeviceName
+);
+#endif
+
 //
 // Routine to get a work item from the free list.  Wakes the resource
 // thread if the list is getting empty.
 //
 
-PWORK_CONTEXT
+PWORK_CONTEXT SRVFASTCALL
 SrvFsdGetReceiveWorkItem (
-    VOID
+    PWORK_QUEUE queue
     );
 
-PWORK_CONTEXT
-SrvFsdGetReceiveWorkItem2 (
-    VOID
+//
+// If a workitem could not be allocated, SrvServiceWorkItemShortage() is called
+// when the next workitem is freed
+//
+VOID SRVFASTCALL
+SrvServiceWorkItemShortage (
+    IN PWORK_CONTEXT WorkContext
     );
+
 
 //
 // Routine to queue an EX work item to an EX worker thread.
@@ -145,12 +162,12 @@ SrvFsdGetReceiveWorkItem2 (
 // SMB processing support routines.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRequeueReceiveWorkItem (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartSmbComplete (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -165,23 +182,43 @@ SrvFsdServiceNeedResourceQueue (
 // SMB processing restart routines referenced by the FSP.
 //
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartRead (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartReadAndX (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
+SrvFsdRestartReadBulk (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+VOID SRVFASTCALL
 SrvFsdRestartWrite (
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 SrvFsdRestartWriteAndX (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+VOID SRVFASTCALL
+SrvFsdRestartWriteBulk (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+VOID SRVFASTCALL
+IpxRestartStartSendOnCorrectProcessor (
+    IN OUT PWORK_CONTEXT WorkContext
+    );
+
+VOID SRVFASTCALL
+SrvFsdRestartLargeReadAndX (
     IN OUT PWORK_CONTEXT WorkContext
     );
 

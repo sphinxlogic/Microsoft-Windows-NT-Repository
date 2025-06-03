@@ -108,9 +108,9 @@ DumpBitMap (
     _CURRENT_POSITION = &((PUCHAR)((RTL_BITMAP)->Buffer))[BYTE_INDEX]; \
 }
 
-#define GET_BYTE(THIS_BYTE)  {          \
-    THIS_BYTE = *(_CURRENT_POSITION++); \
-}
+#define GET_BYTE(THIS_BYTE)  (         \
+    THIS_BYTE = *(_CURRENT_POSITION++) \
+)
 
 
 //
@@ -351,7 +351,9 @@ RtlFindClearBits (
 Routine Description:
 
     This procedure searches the specified bit map for the specified
-    contiguous region of clear bits.
+    contiguous region of clear bits.  If a run is not found from the
+    hint to the end of the bitmap, we will search again from the
+    beginning of the bitmap.
 
 Arguments:
 
@@ -374,8 +376,7 @@ Return Value:
     ULONG SizeOfBitMap;
     ULONG SizeInBytes;
 
-    ULONG HintByte;
-
+    ULONG HintBit;
     ULONG MainLoopIndex;
 
     GET_BYTE_DECLARATIONS();
@@ -419,12 +420,14 @@ Return Value:
         HintIndex = 0;
     }
 
-    HintByte = HintIndex / 8;
+    HintBit = HintIndex % 8;
 
     for (MainLoopIndex = 0; MainLoopIndex < 2; MainLoopIndex += 1) {
 
         ULONG StartByteIndex;
         ULONG EndByteIndex;
+
+        UCHAR CurrentByte;
 
         //
         //  Check for the first time through the main loop, which indicates
@@ -433,7 +436,7 @@ Return Value:
 
         if (MainLoopIndex == 0) {
 
-            StartByteIndex = HintByte;
+            StartByteIndex = HintIndex / 8;
             EndByteIndex = SizeInBytes;
 
         //
@@ -441,9 +444,7 @@ Return Value:
         //  actually something to check before the hint byte
         //
 
-        } else if (HintByte != 0) {
-
-            StartByteIndex = 0;
+        } else if (HintIndex != 0) {
 
             //
             //  The end index for the second time around is based on the
@@ -455,17 +456,15 @@ Return Value:
             //  2 divided by 8 and then add 2.  This will take in to account
             //  the worst possible case where we have one bit hanging off
             //  of each end byte, and all intervening bytes are all zero.
-            //  We only need to add one in the following equation because
-            //  HintByte is already counted.
             //
 
             if (NumberToFind < 2) {
 
-                EndByteIndex = HintByte;
+                EndByteIndex = 0;
 
             } else {
 
-                EndByteIndex = HintByte + ((NumberToFind - 2) / 8) + 1;
+                EndByteIndex = (HintIndex / 8) + ((NumberToFind - 2) / 8) + 2;
 
                 //
                 //  Make sure we don't overrun the end of the bitmap
@@ -476,6 +475,10 @@ Return Value:
                     EndByteIndex = SizeInBytes;
                 }
             }
+
+            HintIndex = 0;
+            HintBit = 0;
+            StartByteIndex = 0;
 
         //
         //  Otherwise we already did a complete loop through the bitmap
@@ -494,6 +497,14 @@ Return Value:
         GET_BYTE_INITIALIZATION(BitMapHeader, StartByteIndex);
 
         //
+        //  Get the first byte, and set any bits before the hint bit.
+        //
+
+        GET_BYTE( CurrentByte );
+
+        CurrentByte |= FillMask[HintBit];
+
+        //
         //  If the number of bits can only fit in 1 or 2 bytes (i.e., 9 bits or
         //  less) we do the following test case.
         //
@@ -501,9 +512,7 @@ Return Value:
         if (NumberToFind <= 9) {
 
             ULONG CurrentBitIndex;
-
             UCHAR PreviousByte;
-            UCHAR CurrentByte;
 
             PreviousByte = 0xff;
 
@@ -512,46 +521,14 @@ Return Value:
             //  for a fit
             //
 
-            for (CurrentBitIndex = StartByteIndex * 8;
-                 CurrentBitIndex < EndByteIndex * 8;
-                 CurrentBitIndex += 8) {
+            CurrentBitIndex = StartByteIndex * 8;
+
+            while (TRUE) {
 
                 //
-                //  Get the current byte
+                //  If this is the first itteration of the loop, mask Current
+                //  byte with the real hint.
                 //
-
-                GET_BYTE( CurrentByte );
-
-                //
-                //  Check to see if a single byte will satisfy the requirement
-                //
-
-                if ((ULONG)RtlpBitsClearAnywhere[CurrentByte] >= NumberToFind) {
-
-                    UCHAR BitMask;
-                    ULONG i;
-
-                    //
-                    //  It all fits in a single byte, so calculate the bit
-                    //  number.  We do this by taking a mask of the appropriate
-                    //  size and shifting it over until it fits.  It fits when
-                    //  we can bitwise-and the current byte with the bitmask
-                    //  and get a zero back.
-                    //
-
-                    BitMask = FillMask[ NumberToFind ];
-                    for (i = 0; (BitMask & CurrentByte) != 0; i += 1) {
-
-                        BitMask <<= 1;
-                    }
-
-                    //
-                    //  return to our caller the located bit index, and the
-                    //  number that we found.
-                    //
-
-                    return CurrentBitIndex + i;
-                }
 
                 //
                 //  The current byte does not satisfy our requirements so we'll
@@ -587,12 +564,59 @@ Return Value:
                 }
 
                 //
+                //  Check to see if a single byte will satisfy the requirement
+                //
+
+                if ((ULONG)RtlpBitsClearAnywhere[CurrentByte] >= NumberToFind) {
+
+                    UCHAR BitMask;
+                    ULONG i;
+
+                    //
+                    //  It all fits in a single byte, so calculate the bit
+                    //  number.  We do this by taking a mask of the appropriate
+                    //  size and shifting it over until it fits.  It fits when
+                    //  we can bitwise-and the current byte with the bitmask
+                    //  and get a zero back.
+                    //
+
+                    BitMask = FillMask[ NumberToFind ];
+                    for (i = 0; (BitMask & CurrentByte) != 0; i += 1) {
+
+                        BitMask <<= 1;
+                    }
+
+                    //
+                    //  return to our caller the located bit index, and the
+                    //  number that we found.
+                    //
+
+                    return CurrentBitIndex + i;
+                }
+
+                //
                 //  For the next iteration through our loop we need to make
                 //  the current byte into the previous byte, and go to the
                 //  top of the loop again.
                 //
 
                 PreviousByte = CurrentByte;
+
+                //
+                //  Increment our Bit Index, and either exit, or get the
+                //  next byte.
+                //
+
+                CurrentBitIndex += 8;
+
+                if ( CurrentBitIndex < EndByteIndex * 8 ) {
+
+                    GET_BYTE( CurrentByte );
+
+                } else {
+
+                    break;
+                }
 
             } // end loop CurrentBitIndex
 
@@ -608,7 +632,6 @@ Return Value:
 
             UCHAR PreviousPreviousByte;
             UCHAR PreviousByte;
-            UCHAR CurrentByte;
 
             PreviousPreviousByte = 0xff;
             PreviousByte = 0xff;
@@ -618,15 +641,9 @@ Return Value:
             //  for a fit
             //
 
-            for (CurrentBitIndex = StartByteIndex * 8;
-                 CurrentBitIndex < EndByteIndex * 8;
-                 CurrentBitIndex += 8) {
+            CurrentBitIndex = StartByteIndex * 8;
 
-                //
-                //  Get the current byte
-                //
-
-                GET_BYTE( CurrentByte );
+            while (TRUE) {
 
                 //
                 //  Check to see if the Previous byte and current byte
@@ -705,6 +722,22 @@ Return Value:
                 PreviousPreviousByte = PreviousByte;
                 PreviousByte = CurrentByte;
 
+                //
+                //  Increment our Bit Index, and either exit, or get the
+                //  next byte.
+                //
+
+                CurrentBitIndex += 8;
+
+                if ( CurrentBitIndex < EndByteIndex * 8 ) {
+
+                    GET_BYTE( CurrentByte );
+
+                } else {
+
+                    break;
+                }
+
             } // end loop CurrentBitIndex
 
         //
@@ -715,8 +748,6 @@ Return Value:
         } else {
 
             ULONG CurrentByteIndex;
-
-            UCHAR CurrentByte;
 
             ULONG ZeroBytesNeeded;
             ULONG ZeroBytesFound;
@@ -744,15 +775,9 @@ Return Value:
             //  Examine all the bytes in our test range searching for a fit
             //
 
-            for (CurrentByteIndex = StartByteIndex;
-                 CurrentByteIndex < EndByteIndex;
-                 CurrentByteIndex += 1) {
+            CurrentByteIndex = StartByteIndex;
 
-                //
-                //  Get the current byte
-                //
-
-                GET_BYTE( CurrentByte );
+            while (TRUE) {
 
                 //
                 //  If the number of zero bytes fits our minimum requirements
@@ -808,6 +833,22 @@ Return Value:
                     ZeroBytesFound = 0;
                     StartOfRunByte = CurrentByte;
                     StartOfRunIndex = CurrentByteIndex;
+                }
+
+                //
+                //  Increment our Byte Index, and either exit, or get the
+                //  next byte.
+                //
+
+                CurrentByteIndex += 1;
+
+                if ( CurrentByteIndex < EndByteIndex ) {
+
+                    GET_BYTE( CurrentByte );
+
+                } else {
+
+                    break;
                 }
 
             } // end loop CurrentByteIndex
@@ -2931,4 +2972,4 @@ Return Value:
 //
 //    return results;
 //}
-
+

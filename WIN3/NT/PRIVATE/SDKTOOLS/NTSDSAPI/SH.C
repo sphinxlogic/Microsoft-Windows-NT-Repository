@@ -387,7 +387,7 @@ PIMAGE_INFO SH_OpenImage( LSZ lszNam )
      *  Make a local copy of the string
      */
 
-     if ( !(lszName = strdup(lszNam)) ) {
+     if ( !(lszName = _strdup(lszNam)) ) {
 	dprintf("SH_OpenImage() can't strdup lszNam\n");
 	return pImage;
      }
@@ -927,7 +927,7 @@ HEXE PASCAL LOADDS SHGethExeFromName( LSZ lszNam)
      *  Make a local copy of the name so we can mangle it
      */
 	
-     if ( !(lszName = strdup(lszNam)) ) {
+     if ( !(lszName = _strdup(lszNam)) ) {
 	dprintf("SHGethExeFromName() can't strdup lszNam\n");
 	return (HEXE)0;
      }
@@ -949,8 +949,8 @@ HEXE PASCAL LOADDS SHGethExeFromName( LSZ lszNam)
      */
     
     while (pImageNew) {
-        if ( stricmp(pImageNew->pszName, Base) == 0  ||
-	     stricmp(pImageNew->pszName, lszModule)  ==  0) break;
+        if ( _stricmp(pImageNew->pszName, Base) == 0  ||
+	     _stricmp(pImageNew->pszName, lszModule)  ==  0) break;
         pImageNew = pImageNew->pImageNext;
         }
 
@@ -1557,7 +1557,7 @@ PCXT PASCAL LOADDS SHSetCxtMod( LPADDR paddr, PCXT pcxt)
 
 SHE LOADDS PASCAL SHSetupExclude(LSZ exclude)
 {
-    lszDLLexclude = strdup(exclude);
+    lszDLLexclude = _strdup(exclude);
 
     if ( lszDLLexclude )
 	return sheNone;

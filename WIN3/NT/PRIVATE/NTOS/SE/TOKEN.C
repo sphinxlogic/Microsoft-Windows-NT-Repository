@@ -224,11 +224,7 @@ Return Value:
 
     Process->Token=Token;
     NewToken->TokenInUse = TRUE;
-    Status = ObReferenceObjectByPointer(NewToken,
-                                        0,
-                                        SepTokenObjectType,
-                                        KernelMode);
-    ASSERT(NT_SUCCESS(Status));
+    ObReferenceObject(NewToken);
     return;
 }
 
@@ -271,8 +267,8 @@ Return Value:
 
     OldToken->TokenInUse = FALSE;
     ObDereferenceObject( OldToken );
-     
-    
+
+
     return;
 }
 
@@ -295,7 +291,7 @@ Routine Description:
 
     The new token is checked to make sure it is not already in use.
 
-    The 
+    The
 
 
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -308,7 +304,7 @@ Routine Description:
 
 Arguments:
 
-    Process - Points to the process whose primary token is being exchanged. 
+    Process - Points to the process whose primary token is being exchanged.
 
     NewAccessToken - Points to the process's new primary token.
 
@@ -380,11 +376,7 @@ Return Value:
 
     Process->Token=NewAccessToken;
     NewToken->TokenInUse = TRUE;
-    Status = ObReferenceObjectByPointer(NewToken,
-                                        0,
-                                        SepTokenObjectType,
-                                        KernelMode);
-    ASSERT(NT_SUCCESS(Status));
+    ObReferenceObject(NewToken);
 
     //
     // Mark the token as "NOT USED"
@@ -854,7 +846,9 @@ Return Value:
                  PrimaryGroup.PrimaryGroup,
                  SeSystemDefaultDacl,
                  &SeSystemTokenSource,
-                 TRUE                        // System token
+                 TRUE,                        // System token
+                 NULL,
+                 NULL
                  );
 
      ASSERT(NT_SUCCESS(Status));
@@ -864,24 +858,24 @@ Return Value:
     // in SepCreateToken for the System Token.
     //
 
-    BufferLength = Length + 
-                   sizeof(SECURITY_DESCRIPTOR) + 
+    BufferLength = Length +
+                   sizeof(SECURITY_DESCRIPTOR) +
                    2 * SeLengthSid(SeAliasAdminsSid);
 
-    Buffer =  (PSECURITY_DESCRIPTOR)ExAllocatePoolWithTag( PagedPool, 
+    Buffer =  (PSECURITY_DESCRIPTOR)ExAllocatePoolWithTag( PagedPool,
                                                            BufferLength,
-                                                           'dSeS' 
+                                                           'dSeS'
                                                            );
 
-    Status =  RtlAbsoluteToSelfRelativeSD( TokenSecurityDescriptor, 
-                                           Buffer, 
-                                           &BufferLength 
+    Status =  RtlAbsoluteToSelfRelativeSD( TokenSecurityDescriptor,
+                                           Buffer,
+                                           &BufferLength
                                            );
     ASSERT(NT_SUCCESS(Status));
 
-    Status =  ObAssignObjectSecurityDescriptor( Token, 
-                                                Buffer, 
-                                                PagedPool 
+    Status =  ObAssignObjectSecurityDescriptor( Token,
+                                                Buffer,
+                                                PagedPool
                                                 );
     ASSERT(NT_SUCCESS(Status));
 
@@ -1004,11 +998,8 @@ Return Value:
 
         if (NT_SUCCESS(Status)) {
 
-            //Status = ObReferenceObjectByPointer(
-            //             NewToken,            // Object
-            //             DELETE,              // DesiredAccess
-            //             SepTokenObjectType,  // ObjectType
-            //             KernelMode           // AccessMode
+            //Status = ObReferenceObject(
+            //             NewToken             // Object
             //             );
             Status = ObReferenceObjectByHandle(
                         NewTokenHandle,      // Handle
@@ -1020,7 +1011,7 @@ Return Value:
                           );
 
             if (NT_SUCCESS(Status)) {
-                
+
                 ((PTOKEN)NewToken)->TokenInUse = TRUE;
                 IgnoreStatus = ZwClose( NewTokenHandle );
             }
@@ -1100,6 +1091,7 @@ BUG, BUG   Need to get system default ACL to protect token object
 
     RtlZeroMemory(&ObjectTypeInitializer,sizeof(ObjectTypeInitializer));
     ObjectTypeInitializer.Length = sizeof(ObjectTypeInitializer);
+    ObjectTypeInitializer.InvalidAttributes = OBJ_OPENLINK;
     ObjectTypeInitializer.GenericMapping = SepTokenMapping;
     ObjectTypeInitializer.SecurityRequired = TRUE;
     ObjectTypeInitializer.UseDefaultObject = TRUE;
@@ -1354,8 +1346,8 @@ Return Value:
 
     HANDLE LocalHandle;
 
-    BOOLEAN SecurityQosPresent;
-    SECURITY_QUALITY_OF_SERVICE CapturedSecurityQos;
+    BOOLEAN SecurityQosPresent = FALSE;
+    SECURITY_ADVANCED_QUALITY_OF_SERVICE CapturedSecurityQos;
 
     LUID CapturedAuthenticationId;
     LARGE_INTEGER CapturedExpirationTime;
@@ -1435,22 +1427,22 @@ Return Value:
     } //end_if
 
     //
-    //  Capture the impersonation level if needed
+    //  Capture the security quality of service.
     //  This capture routine necessarily does some probing of its own.
     //
 
+    Status = SeCaptureSecurityQos(
+                 ObjectAttributes,
+                 PreviousMode,
+                 &SecurityQosPresent,
+                 &CapturedSecurityQos
+                 );
+
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
     if (TokenType == TokenImpersonation) {
-
-        Status = SeCaptureSecurityQos(
-                     ObjectAttributes,
-                     PreviousMode,
-                     &SecurityQosPresent,
-                     &CapturedSecurityQos
-                     );
-
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
 
         if (!SecurityQosPresent) {
             return STATUS_BAD_IMPERSONATION_LEVEL;
@@ -1633,10 +1625,13 @@ Return Value:
             SeReleaseAcl( CapturedDefaultDacl, PreviousMode, TRUE);
         }
 
+        if (SecurityQosPresent == TRUE) {
+            SeFreeCapturedSecurityQos( &CapturedSecurityQos );
+        }
+
         return GetExceptionCode();
 
     }  // end_try{}
-
 
     //
     //  Create the token
@@ -1663,7 +1658,9 @@ Return Value:
                                 CapturedPrimaryGroup,
                                 CapturedDefaultDacl,
                                 &CapturedTokenSource,
-                                FALSE                       // Not a system token
+                                FALSE,                       // Not a system token
+                                SecurityQosPresent ? CapturedSecurityQos.ProxyData : NULL,
+                                SecurityQosPresent ? CapturedSecurityQos.AuditData : NULL
                                 );
     }
 
@@ -1694,7 +1691,9 @@ Return Value:
         SeReleaseAcl( CapturedDefaultDacl, PreviousMode, TRUE);
     }
 
-
+    if (SecurityQosPresent == TRUE) {
+        SeFreeCapturedSecurityQos( &CapturedSecurityQos );
+    }
 
     //
     //  Return the handle to this new token
@@ -1708,6 +1707,7 @@ Return Value:
     return Status;
 
 }
+
 
 
 ////////////////////////////////////////////////////////////////////////
@@ -1758,6 +1758,17 @@ Return Value:
         ExFreePool( ((TOKEN *)Token)->DynamicPart );
     }
 
+    //
+    // Free the Proxy and Global audit structures if present.
+    //
+
+    if (ARGUMENT_PRESENT(((TOKEN *) Token)->ProxyData)) {
+        SepFreeProxyData( ((TOKEN *)Token)->ProxyData );
+    }
+
+    if (ARGUMENT_PRESENT(((TOKEN *)Token)->AuditData )) {
+        ExFreePool( (((TOKEN *)Token)->AuditData) );
+    }
 
 
     return;
@@ -1784,7 +1795,9 @@ SepCreateToken(
     IN PSID PrimaryGroup,
     IN PACL DefaultDacl OPTIONAL,
     IN PTOKEN_SOURCE TokenSource,
-    IN BOOLEAN SystemToken
+    IN BOOLEAN SystemToken,
+    IN PSECURITY_TOKEN_PROXY_DATA ProxyData OPTIONAL,
+    IN PSECURITY_TOKEN_AUDIT_DATA AuditData OPTIONAL
     )
 
 /*++
@@ -1922,6 +1935,7 @@ Return Value:
     UCHAR TokenFlags = 0;
 
     ACCESS_STATE AccessState;
+    AUX_ACCESS_DATA AuxData;
     LUID NewModifiedId;
 
     PAGED_CODE();
@@ -1947,10 +1961,10 @@ Return Value:
 
     for (PrivilegeIndex = 0; PrivilegeIndex < PrivilegeCount; PrivilegeIndex++) {
 
-        if ((RtlLargeIntegerEqualTo(Privileges[PrivilegeIndex].Luid, SeChangeNotifyPrivilege)) 
+        if (((RtlEqualLuid(&Privileges[PrivilegeIndex].Luid,&SeChangeNotifyPrivilege))
                 &&
-            (Privileges[PrivilegeIndex].Attributes & SE_PRIVILEGE_ENABLED)) {
-             
+            (Privileges[PrivilegeIndex].Attributes & SE_PRIVILEGE_ENABLED))) {
+
             TokenFlags = TOKEN_HAS_TRAVERSE_PRIVILEGE;
             break;
         }
@@ -2117,6 +2131,44 @@ Return Value:
 
     Token->VariableLength = VariableLength;
 
+    // Ensure SepTokenDeleteMethod knows the buffers aren't allocated yet.
+    Token->ProxyData = NULL;
+    Token->AuditData = NULL;
+    Token->DynamicPart = NULL;
+
+    if (ARGUMENT_PRESENT( ProxyData )) {
+
+        Status = SepCopyProxyData(
+                    &Token->ProxyData,
+                    ProxyData
+                    );
+
+        if (!NT_SUCCESS(Status)) {
+            ObDereferenceObject( Token );
+            return( STATUS_NO_MEMORY );
+        }
+
+    } else {
+
+        Token->ProxyData = NULL;
+    }
+
+    if (ARGUMENT_PRESENT( AuditData )) {
+
+        Token->AuditData = ExAllocatePool( PagedPool, sizeof( SECURITY_TOKEN_AUDIT_DATA ));
+
+        if (Token->AuditData == NULL) {
+            ObDereferenceObject( Token );
+            return( STATUS_NO_MEMORY );
+        }
+
+        *(Token->AuditData) = *AuditData;
+
+    } else {
+
+        Token->AuditData = NULL;
+    }
+
 
     //
     //  Variable part initialization
@@ -2229,6 +2281,7 @@ Return Value:
 
         Status = SeCreateAccessState(
                      &AccessState,
+                     &AuxData,
                      DesiredAccess,
                      &SepTokenObjectType->TypeInfo.GenericMapping
                      );
@@ -2266,7 +2319,7 @@ Return Value:
     } else {
 
         ASSERT( NT_SUCCESS( Status ) );
-
+        ObDeleteCapturedInsertInfo(Token);
         //
         // Return pointer instead of handle.
         //

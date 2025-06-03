@@ -97,7 +97,7 @@ Return Value:
 NTSTATUS
 CmpQueryKeyData(
     PHHIVE Hive,
-    HCELL_INDEX Cell,
+    PCM_KEY_NODE Node,
     KEY_INFORMATION_CLASS KeyInformationClass,
     PVOID KeyInformation,
     ULONG Length,
@@ -117,7 +117,7 @@ Arguments:
 
     Hive - supplies a pointer to the hive control structure for the hive
 
-    Cell - supplies index of node to whose sub keys are to be found
+    Node - Supplies pointer to node whose subkeys are to be found
 
     KeyInformationClass - Specifies the type of information returned in
         Buffer.  One of the following types:
@@ -143,7 +143,6 @@ Return Value:
 --*/
 {
     NTSTATUS    status;
-    PCELL_DATA  pcell;
     PCELL_DATA  pclass;
     ULONG       requiredlength;
     LONG        leftlength;
@@ -153,8 +152,7 @@ Return Value:
     USHORT      NameLength;
 
     pbuffer = (PKEY_INFORMATION)KeyInformation;
-    pcell = HvGetCell(Hive, Cell);
-    NameLength = CmpHKeyNameLen(&pcell->u.KeyNode);
+    NameLength = CmpHKeyNameLen(Node);
 
     switch (KeyInformationClass) {
 
@@ -179,7 +177,7 @@ Return Value:
         } else {
 
             pbuffer->KeyBasicInformation.LastWriteTime =
-                pcell->u.KeyNode.LastWriteTime;
+                Node->LastWriteTime;
 
             pbuffer->KeyBasicInformation.TitleIndex = 0;
 
@@ -195,15 +193,15 @@ Return Value:
                 status = STATUS_BUFFER_OVERFLOW;
             }
 
-            if (pcell->u.KeyNode.Flags & KEY_COMP_NAME) {
+            if (Node->Flags & KEY_COMP_NAME) {
                 CmpCopyCompressedName(pbuffer->KeyBasicInformation.Name,
                                       leftlength,
-                                      pcell->u.KeyNode.Name,
-                                      pcell->u.KeyNode.NameLength);
+                                      Node->Name,
+                                      Node->NameLength);
             } else {
                 RtlCopyMemory(
                     &(pbuffer->KeyBasicInformation.Name[0]),
-                    &(pcell->u.KeyNode.Name[0]),
+                    &(Node->Name[0]),
                     requiredlength
                     );
             }
@@ -220,7 +218,7 @@ Return Value:
         //
         requiredlength = FIELD_OFFSET(KEY_NODE_INFORMATION, Name) +
                          NameLength +
-                         pcell->u.KeyNode.ClassLength;
+                         Node->ClassLength;
 
         minimumlength = FIELD_OFFSET(KEY_NODE_INFORMATION, Name);
 
@@ -235,12 +233,12 @@ Return Value:
         } else {
 
             pbuffer->KeyNodeInformation.LastWriteTime =
-                pcell->u.KeyNode.LastWriteTime;
+                Node->LastWriteTime;
 
             pbuffer->KeyNodeInformation.TitleIndex = 0;
 
             pbuffer->KeyNodeInformation.ClassLength =
-                pcell->u.KeyNode.ClassLength;
+                Node->ClassLength;
 
             pbuffer->KeyNodeInformation.NameLength =
                 NameLength;
@@ -253,20 +251,20 @@ Return Value:
                 status = STATUS_BUFFER_OVERFLOW;
             }
 
-            if (pcell->u.KeyNode.Flags & KEY_COMP_NAME) {
+            if (Node->Flags & KEY_COMP_NAME) {
                 CmpCopyCompressedName(pbuffer->KeyNodeInformation.Name,
                                       leftlength,
-                                      pcell->u.KeyNode.Name,
-                                      pcell->u.KeyNode.NameLength);
+                                      Node->Name,
+                                      Node->NameLength);
             } else {
                 RtlCopyMemory(
                     &(pbuffer->KeyNodeInformation.Name[0]),
-                    &(pcell->u.KeyNode.Name[0]),
+                    &(Node->Name[0]),
                     requiredlength
                     );
             }
 
-            if (pcell->u.KeyNode.ClassLength > 0) {
+            if (Node->ClassLength > 0) {
 
                 offset = FIELD_OFFSET(KEY_NODE_INFORMATION, Name) +
                             NameLength;
@@ -274,7 +272,7 @@ Return Value:
 
                 pbuffer->KeyNodeInformation.ClassOffset = offset;
 
-                pclass = HvGetCell(Hive, pcell->u.KeyNode.u1.s1.Class);
+                pclass = HvGetCell(Hive, Node->u1.s1.Class);
 
                 pbuffer = (PKEY_INFORMATION)((PUCHAR)pbuffer + offset);
 
@@ -282,7 +280,7 @@ Return Value:
                                     0 :
                                     Length - offset;
 
-                requiredlength = pcell->u.KeyNode.ClassLength;
+                requiredlength = Node->ClassLength;
 
                 if (leftlength < (LONG)requiredlength) {
                     requiredlength = leftlength;
@@ -311,7 +309,7 @@ Return Value:
         // MaxValueDataLen, Class
         //
         requiredlength = FIELD_OFFSET(KEY_FULL_INFORMATION, Class) +
-                         pcell->u.KeyNode.ClassLength;
+                         Node->ClassLength;
 
         minimumlength = FIELD_OFFSET(KEY_FULL_INFORMATION, Class);
 
@@ -326,22 +324,22 @@ Return Value:
         } else {
 
             pbuffer->KeyFullInformation.LastWriteTime =
-                pcell->u.KeyNode.LastWriteTime;
+                Node->LastWriteTime;
 
             pbuffer->KeyFullInformation.TitleIndex = 0;
 
             pbuffer->KeyFullInformation.ClassLength =
-                pcell->u.KeyNode.ClassLength;
+                Node->ClassLength;
 
-            if (pcell->u.KeyNode.ClassLength > 0) {
+            if (Node->ClassLength > 0) {
 
                 pbuffer->KeyFullInformation.ClassOffset =
                         FIELD_OFFSET(KEY_FULL_INFORMATION, Class);
 
-                pclass = HvGetCell(Hive, pcell->u.KeyNode.u1.s1.Class);
+                pclass = HvGetCell(Hive, Node->u1.s1.Class);
 
                 leftlength = Length - minimumlength;
-                requiredlength = pcell->u.KeyNode.ClassLength;
+                requiredlength = Node->ClassLength;
 
                 if (leftlength < (LONG)requiredlength) {
                     requiredlength = leftlength;
@@ -359,23 +357,23 @@ Return Value:
             }
 
             pbuffer->KeyFullInformation.SubKeys =
-                pcell->u.KeyNode.SubKeyCounts[Stable] +
-                pcell->u.KeyNode.SubKeyCounts[Volatile];
+                Node->SubKeyCounts[Stable] +
+                Node->SubKeyCounts[Volatile];
 
             pbuffer->KeyFullInformation.Values =
-                pcell->u.KeyNode.ValueList.Count;
+                Node->ValueList.Count;
 
             pbuffer->KeyFullInformation.MaxNameLen =
-                pcell->u.KeyNode.MaxNameLen;
+                Node->MaxNameLen;
 
             pbuffer->KeyFullInformation.MaxClassLen =
-                pcell->u.KeyNode.MaxClassLen;
+                Node->MaxClassLen;
 
             pbuffer->KeyFullInformation.MaxValueNameLen =
-                pcell->u.KeyNode.MaxValueNameLen;
+                Node->MaxValueNameLen;
 
             pbuffer->KeyFullInformation.MaxValueDataLen =
-                pcell->u.KeyNode.MaxValueDataLen;
+                Node->MaxValueDataLen;
 
         }
 
@@ -494,11 +492,9 @@ Return Value:
                                       pcell->u.KeyValue.Name,
                                       pcell->u.KeyValue.NameLength);
             } else {
-                RtlMoveMemory(
-                    &(pbuffer->KeyValueBasicInformation.Name[0]),
-                    &(pcell->u.KeyValue.Name[0]),
-                    requiredlength
-                    );
+                RtlCopyMemory(&(pbuffer->KeyValueBasicInformation.Name[0]),
+                              &(pcell->u.KeyValue.Name[0]),
+                              requiredlength);
             }
         }
 
@@ -669,4 +665,3 @@ Return Value:
     }
     return status;
 }
-

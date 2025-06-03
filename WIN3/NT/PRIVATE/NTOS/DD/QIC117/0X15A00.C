@@ -13,7 +13,7 @@
 *
 * HISTORY:
 *		$Log:   J:\se.vcs\driver\q117kdi\nt\src\0x15a00.c  $
-*	
+*
 *	   Rev 1.3   17 Feb 1994 11:53:54   KEVINKES
 *	Commented out DbgBreakPoint.
 *
@@ -95,16 +95,87 @@ NTSTATUS DriverEntry
        QIC117INFO,
        "DriverEntry...\n", 0l);
 
+
+#if DBG
+
+    {
+        //
+        // We use this to query into the registry as to whether we
+        // should break at driver entry.
+        //
+
+        RTL_QUERY_REGISTRY_TABLE    paramTable[3];
+        ULONG                       zero = 0;
+
+        ULONG                       debugLevel = 0;
+        ULONG                       shouldBreak = 0;
+        UNICODE_STRING  paramPath;
+#define SubKeyString L"\\Parameters"
+
+        //
+        // The registry path parameter points to our key, we will append
+        // the Parameters key and look for any additional configuration items
+        // there.  We add room for a trailing NUL for those routines which
+        // require it.
+
+        paramPath.MaximumLength = registry_path->Length + sizeof(SubKeyString);
+        paramPath.Buffer = ExAllocatePool(PagedPool, paramPath.MaximumLength);
+
+        if (paramPath.Buffer != NULL)
+        {
+            RtlMoveMemory(
+                paramPath.Buffer, registry_path->Buffer, registry_path->Length);
+
+            RtlMoveMemory(
+                &paramPath.Buffer[registry_path->Length / 2], SubKeyString,
+                sizeof(SubKeyString));
+
+            paramPath.Length = paramPath.MaximumLength;
+        }
+        else
+        {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        RtlZeroMemory(&paramTable[0], sizeof(paramTable));
+
+        paramTable[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[0].Name = L"BreakOnEntry";
+        paramTable[0].EntryContext = &shouldBreak;
+        paramTable[0].DefaultType = REG_DWORD;
+        paramTable[0].DefaultData = &zero;
+        paramTable[0].DefaultLength = sizeof(ULONG);
+
+        paramTable[1].Flags = RTL_QUERY_REGISTRY_DIRECT;
+        paramTable[1].Name = L"DebugLevel";
+        paramTable[1].EntryContext = &debugLevel;
+        paramTable[1].DefaultType = REG_DWORD;
+        paramTable[1].DefaultData = &zero;
+        paramTable[1].DefaultLength = sizeof(ULONG);
+
+        if (!NT_SUCCESS(RtlQueryRegistryValues(
+            RTL_REGISTRY_ABSOLUTE | RTL_REGISTRY_OPTIONAL,
+            paramPath.Buffer, &paramTable[0], NULL, NULL)))
+        {
+            shouldBreak = 0;
+            debugLevel = 0;
+        }
+
+        kdi_debug_level = debugLevel;
+        ExFreePool(paramPath.Buffer);
+
+        if (shouldBreak)
+        {
+            DbgBreakPoint();
+        }
+    }
+
+#endif
+
    /*
     * Ask configuration manager for information on the hardware that
     * we're supposed to support.
    */
-
-#if DBG
-
-/*    DbgBreakPoint();  */
-
-#endif
 
    nt_status = kdi_GetConfigurationInformation( &config_data );
 
@@ -145,6 +216,7 @@ NTSTATUS DriverEntry
 
                partly_successful = TRUE;
             }
+
       }
 
       if ( partly_successful ) {

@@ -33,6 +33,8 @@ BOOLEAN GlommingAllowed = TRUE;
 #define NAME_CLAIM_ATTEMPTS 5
 #define NAME_CLAIM_INTERVAL 500 // milliseconds
 
+#define MPX_HEADER_SIZE (sizeof(SMB_HEADER) + sizeof(REQ_WRITE_MPX))
+
 PCONNECTION
 GetIpxConnection (
     IN PWORK_CONTEXT WorkContext,
@@ -58,12 +60,12 @@ SendNameClaim (
     IN PIPX_DATAGRAM_OPTIONS DatagramOptions
     );
 
-VOID
+VOID SRVFASTCALL
 IpxRestartNegotiate(
     IN OUT PWORK_CONTEXT WorkContext
     );
 
-VOID
+VOID SRVFASTCALL
 IpxRestartReceive (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -76,12 +78,11 @@ SrvFreeIpxConnectionInIndication(
 VOID
 StartSendNoConnection (
     IN OUT PWORK_CONTEXT WorkContext,
-    IN PIO_COMPLETION_ROUTINE SendCompletionRoutine,
     IN BOOLEAN UseNameSocket,
     IN BOOLEAN LocalTargetValid
     );
 
-VOID
+VOID SRVFASTCALL
 SrvIpxFastRestartRead (
     IN OUT PWORK_CONTEXT WorkContext
     );
@@ -123,21 +124,30 @@ SendNameClaim (
     IN PIPX_DATAGRAM_OPTIONS DatagramOptions
     )
 {
-    KIRQL oldIrql;
     PWORK_CONTEXT workContext;
     PSMB_IPX_NAME_PACKET buffer;
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
     //
     // Get a work item to use for the send.
     //
 
-    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
-    workContext = SrvFsdGetReceiveWorkItem( );
-    KeLowerIrql( oldIrql );
+    ALLOCATE_WORK_CONTEXT( queue, &workContext );
 
     if ( workContext == NULL ) {
+        //
+        // We're out of WorkContext structures, and we aren't able to allocate
+        // any more just now.  Let's at least cause a worker thread to allocate some more
+        // by incrementing the NeedWorkItem counter.  This will cause the next
+        // freed WorkContext structure to get dispatched to SrvServiceWorkItemShortage.
+        // While SrvServiceWorkItemShortage probably won't find any work to do, it will
+        // allocate more WorkContext structures if it can.  Maybe this will help next time.
+        //
+        InterlockedIncrement( &queue->NeedWorkItem );
+
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+
 
     //
     // Format the name claim packet.
@@ -168,18 +178,11 @@ SendNameClaim (
         workContext->ClientAddress->DatagramOptions = *DatagramOptions;
         workContext->ClientAddress->DatagramOptions.PacketType = IpxPacketType;
 
-        StartSendNoConnection(
-                        workContext,
-                        RequeueIpxWorkItemAtSendCompletion,
-                        TRUE,
-                        TRUE );
+        StartSendNoConnection( workContext, TRUE, TRUE );
+
     } else {
         workContext->ClientAddress->DatagramOptions.PacketType = IpxPacketType;
-        StartSendNoConnection(
-                        workContext,
-                        RequeueIpxWorkItemAtSendCompletion,
-                        TRUE,
-                        FALSE );
+        StartSendNoConnection( workContext, TRUE, FALSE );
     }
 
 } // SendNameClaim
@@ -331,7 +334,7 @@ Return Value:
     //
 
     packet = (PSMB_IPX_NAME_PACKET)Tsdu;
-    IF_DEBUG(IPX2) {
+    IF_DEBUG(IPXNAMECLAIM) {
         STRING string, srcString;
         string.Buffer = (PSZ)packet->Name;
         string.Length = SMB_IPX_NAME_LENGTH;
@@ -343,18 +346,18 @@ Return Value:
 
     if ( SourceAddressLength < sizeof(IPX_ADDRESS_EXTENDED_FLAGS) ) {
 
-        IF_DEBUG(IPX2) {
+        IF_DEBUG(IPXNAMECLAIM) {
             KdPrint(( "SourceAddress too short.  Expecting %d got %d\n",
                 sizeof(IPX_ADDRESS_EXTENDED_FLAGS), SourceAddressLength ));
         }
         return(STATUS_SUCCESS);
     }
 
-    if ( RtlCompareMemory(
+    if ( !RtlEqualMemory(
             packet->Name,
             endpoint->TransportAddress.Buffer,
-            SMB_IPX_NAME_LENGTH) != SMB_IPX_NAME_LENGTH ) {
-        IF_DEBUG(IPX2) KdPrint(( "  not for us\n" ));
+            SMB_IPX_NAME_LENGTH) ) {
+        IF_DEBUG(IPXNAMECLAIM) KdPrint(( "  not for us\n" ));
         return STATUS_SUCCESS;
     }
 
@@ -362,24 +365,11 @@ Return Value:
     // The packet is for our name.  If we sent it, ignore it.
     //
 
-    if ( RtlCompareMemory(
+    if ( RtlEqualMemory(
             &endpoint->LocalAddress,
             &((PTA_IPX_ADDRESS)SourceAddress)->Address[0].Address[0],
-            sizeof(TDI_ADDRESS_IPX)
-            ) == sizeof(TDI_ADDRESS_IPX) ) {
-        IF_DEBUG(IPX2) KdPrint(( "  we sent it!\n" ));
-        return STATUS_SUCCESS;
-    }
-
-    //
-    // If bit 0x8000 is set, this is from a redir that supports
-    // named pipe correctly.
-    //
-
-    if ( !SrvEnableWfW311DirectIpx &&
-         ((packet->MessageId & 0x8000) == 0)) {
-
-        IF_DEBUG(IPX2) KdPrint(( "  msg ID high bit not set.\n" ));
+            sizeof(TDI_ADDRESS_IPX) ) ) {
+        IF_DEBUG(IPXNAMECLAIM) KdPrint(( "  we sent it!\n" ));
         return STATUS_SUCCESS;
     }
 
@@ -401,13 +391,25 @@ Return Value:
             // This came from another station.
             //
 
-            IF_DEBUG(IPX) KdPrint(( "  name in conflict!\n" ));
+            IF_DEBUG(IPXNAMECLAIM) KdPrint(( "  name in conflict!\n" ));
             endpoint->NameInConflict = TRUE;
         }
 
     } else {
 
-        IF_DEBUG(IPX2) KdPrint(( "  sending name recognized response!\n" ));
+        //
+        // This is a name query.  If bit 0x8000 is set, this is from a
+        // redir that supports named pipes correctly.
+        //
+
+        if ( !SrvEnableWfW311DirectIpx &&
+             ((packet->MessageId & 0x8000) == 0)) {
+
+            IF_DEBUG(IPXNAMECLAIM) KdPrint(( "  msg ID high bit not set.\n" ));
+            return STATUS_SUCCESS;
+        }
+
+        IF_DEBUG(IPXNAMECLAIM) KdPrint(( "  sending name recognized response!\n" ));
         SendNameClaim(
             endpoint,
             endpoint->TransportAddress.Buffer,
@@ -423,10 +425,10 @@ Return Value:
     return STATUS_SUCCESS;
 
 } // SrvIpxNameDatagramHandler
+
 
-#if !defined(SRV_ASM) || !defined(i386)
 NTSTATUS
-SrvIpxServerDatagramHandler (
+SrvIpxServerDatagramHandlerCommon (
     IN PVOID TdiEventContext,
     IN int SourceAddressLength,
     IN PVOID SourceAddress,
@@ -437,7 +439,8 @@ SrvIpxServerDatagramHandler (
     IN ULONG BytesAvailable,
     OUT ULONG *BytesTaken,
     IN PVOID Tsdu,
-    OUT PIRP *IoRequestPacket
+    OUT PIRP *IoRequestPacket,
+    IN PVOID TransportContext
     )
 
 /*++
@@ -471,11 +474,14 @@ Arguments:
 
     BytesTaken - Returns the number of bytes taken by the handler
 
-    Tsdu - Pointer to MDL describing the Transport Service Data Unit
+    Tsdu - Pointer to buffer describing the Transport Service Data Unit
 
     IoRequestPacket - Returns a pointer to I/O request packet, if the
         returned status is STATUS_MORE_PROCESSING_REQUIRED.  This IRP is
         made the 'current' Receive for the endpoint.
+
+    TransportContext - NULL is this is not a chained receive, otherwise this
+        is the pointer to the TransportContext when returning the NDIS buffer.
 
 Return Value:
 
@@ -483,7 +489,9 @@ Return Value:
         processed the request.  If STATUS_MORE_PROCESSING_REQUIRED,
         the Irp parameter points to a formatted Receive request to
         be used to receive the data.  If STATUS_DATA_NOT_ACCEPTED,
-        the message is lost.
+        the message is lost. If STATUS_PENDING, then TransportContext
+        was not NULL and we decided that we are going to keep the NDIS
+        buffer and return it later.
 
 --*/
 
@@ -508,7 +516,7 @@ Return Value:
     USHORT error;
     PTDI_REQUEST_KERNEL_RECEIVE parameters;
     PBUFFER requestBuffer;
-    PWORK_QUEUE workQueue = &SrvWorkQueue;
+    PWORK_QUEUE workQueue;
 
     PREQ_WRITE_MPX request;
 
@@ -517,109 +525,180 @@ Return Value:
     PWRITE_MPX_CONTEXT writeMpx;
     CSHORT index;
     KIRQL oldIrql;
+    NTSTATUS status = STATUS_SUCCESS;
 
+#if DBG
+    workQueue = NULL;
+    workContext = NULL;
+    connection = NULL;
+
+    if ( TransportContext ) {
+        ASSERT( BytesAvailable == BytesIndicated );
+    }
+#endif
+
+    //
+    // Pull out stuff we'll need later..
+    //
     endpoint = (PENDPOINT)TdiEventContext;
-
     header = (PNT_SMB_HEADER)Tsdu;
-    sid = SmbGetUshort( &header->Sid ); // NOT Aligned
+    sid = SmbGetUshort( &header->Sid );
+    sequenceNumber = SmbGetUshort( &header->SequenceNumber );
 
-    //
-    // Allocate a work item.
-    //
+    ASSERT( *(PUCHAR)header == 0xff );  // Must be 0xff'SMB'
+    ASSERT( endpoint != NULL );
 
     KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
-    workContext = SrvFsdGetReceiveWorkItem( );
-    if ( workContext == NULL ) {
-
-        //
-        // Can't get a work item.  Ignore this message.
-        //
-
-        KeLowerIrql( oldIrql );
-        SrvStatistics.WorkItemShortages++;
-        IF_DEBUG(IPX) KdPrint(( "SRVIPX: No work items; ignoring\n" ));
-        return STATUS_SUCCESS;
-    }
 
     if ( sid == 0 ) {
 
-        if ( header->Command == SMB_COM_NEGOTIATE ) {
+        //
+        // Must be a negotiate
+        //
+        if( header->Command != SMB_COM_NEGOTIATE ||
+            GET_BLOCK_STATE( endpoint ) != BlockStateActive ) {
 
-            IF_DEBUG(IPX) KdPrint(( "SRVIPX: Negotiate received\n" ));
+            KeLowerIrql( oldIrql );
+            return STATUS_SUCCESS;
+        }
 
-            //
-            // We can't create a new connection if the endpoint is closing.
-            //
+        //
+        // Do not accept new clients until the server has completed
+        //  registering for PNP notifications
+        //
+        if( SrvCompletedPNPRegistration == FALSE ) {
+            KeLowerIrql( oldIrql );
+            return STATUS_SUCCESS;
+        }
 
-            if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ) {
-                IF_DEBUG(IPX) KdPrint(( "SRVIPX: Endpoint closing; ignoring\n" ));
-                goto return_workitem;
-            }
+        //
+        // Queue this to the fsp.
+        //
+        //
+        // Save the sender's IPX address.
+        //
 
-            //
-            // Queue this to the fsp.
-            //
-            //
-            // Save the sender's IPX address.
-            //
+        workQueue = PROCESSOR_TO_QUEUE();
 
+        ALLOCATE_WORK_CONTEXT( workQueue, &workContext );
+
+        if( workContext != NULL ) {
             workContext->ClientAddress->IpxAddress =
-                                    *(PTA_IPX_ADDRESS)SourceAddress;
+                                *(PTA_IPX_ADDRESS)SourceAddress;
             workContext->ClientAddress->DatagramOptions =
-                                    *(PIPX_DATAGRAM_OPTIONS)Options;
+                                *(PIPX_DATAGRAM_OPTIONS)Options;
 
-            DEBUG connection = NULL;
             irp = workContext->Irp;
             workContext->Endpoint = endpoint;
-            workContext->FsdRestartRoutine = SrvQueueWorkToCriticalThread;
+            workContext->QueueToHead = TRUE;
             workContext->FspRestartRoutine = IpxRestartNegotiate;
-            goto build_irp;
 
-        } else {
+            if ( BytesAvailable == BytesIndicated ) {
 
-            //
-            // Sid == 0 and not a negotiate. Fail this.
-            //
+                TdiCopyLookaheadData(
+                    workContext->RequestBuffer->Buffer,
+                    Tsdu,
+                    BytesIndicated,
+                    ReceiveDatagramFlags
+                    );
 
-            KdPrint(( "SRVIPX: SID zero for non-negotiate smb.\n" ));
-            error = SMB_ERR_BAD_SID;
-            resend = FALSE;
-            goto respond;
+                workContext->RequestBuffer->DataLength = BytesIndicated;
+
+                *BytesTaken = BytesAvailable;
+                goto queue_to_fsp;
+
+            } else {
+
+                workContext->FsdRestartRoutine = SrvQueueWorkToFsp;
+                goto build_irp;
+
+            }
         }
+
+        //
+        // Could not allocate a work context!
+        //
+        KeLowerIrql( oldIrql );
+
+        InterlockedIncrement( &workQueue->NeedWorkItem );
+        return STATUS_SUCCESS;
     }
 
     //
-    // Not a Negotiate.  Try to match up the SID to a connection.
+    // Not a Negotiate, and non-zero SID.
     // Check if the connection is cached.
     //
 
-    sequenceNumber = SmbGetUshort( &header->SequenceNumber ); // NOT Aligned
     idIndex = IPXSID_INDEX( sid );
 
     ACQUIRE_DPC_SPIN_LOCK(
         &ENDPOINT_SPIN_LOCK(idIndex & ENDPOINT_LOCK_MASK) );
 
     tableHeader = &endpoint->ConnectionTable;
+
     if ( (idIndex >= (CSHORT)tableHeader->TableSize) ||
          ((connection = tableHeader->Table[idIndex].Owner) == NULL) ||
          (connection->Sid != sid) ||
          (GET_BLOCK_STATE(connection) != BlockStateActive) ) {
+
         IF_DEBUG(IPX2) {
-            if ( (idIndex >= (CSHORT)tableHeader->TableSize) ||
-                 (connection == NULL) ||
-                 (connection->Sid != sid) ) {
-                KdPrint(( "SRVIPX: Bad SID\n" ));
+            KdPrint(( "Bad Sid: " ));
+            if ( idIndex >= (CSHORT)tableHeader->TableSize ) {
+                KdPrint(( "Index >= tableSize (index %d, size %d)\n",
+                          idIndex, (CSHORT)tableHeader->TableSize ));
+            } else if( tableHeader->Table[ idIndex ].Owner == NULL ) {
+                KdPrint(( "Owner == NULL\n" ));
+            } else if( connection->Sid != sid ) {
+                KdPrint(( "connection->Sid = %X, sid = %X\n", connection->Sid, sid ));
             } else {
-                KdPrint(( "SRVIPX: Connection closing\n" ));
+                KdPrint(( "Connection blk state %X\n", GET_BLOCK_STATE( connection ) ));
             }
         }
 
+        workQueue = PROCESSOR_TO_QUEUE();
+
+        //
+        // We have an invalid SID.  It would be nice to silently fail it,
+        //  but that causes auto-reconnect on clients take an unnecessarily
+        //  long time.
+        //
         RELEASE_DPC_SPIN_LOCK( &
             ENDPOINT_SPIN_LOCK(idIndex & ENDPOINT_LOCK_MASK) );
-        error = SMB_ERR_BAD_SID;
-        resend = FALSE;
-        goto respond;
+
+        ALLOCATE_WORK_CONTEXT( workQueue, &workContext );
+
+        if( workContext != NULL ) {
+            error = SMB_ERR_BAD_SID;
+            resend = FALSE;
+            goto respond;
+        }
+
+        //
+        // Unable to allocate workitem, give up
+        //
+        KeLowerIrql( oldIrql );
+
+        InterlockedIncrement( &workQueue->NeedWorkItem );
+
+        return STATUS_SUCCESS;
+
     }
+
+#if MULTIPROCESSOR
+    //
+    // See if it's time to home this connection to another processor
+    //
+    if( --(connection->BalanceCount) == 0 ) {
+        SrvBalanceLoad( connection );
+    }
+
+    workQueue = connection->CurrentWorkQueue;
+
+#else
+
+    workQueue = &SrvWorkQueues[0];
+
+#endif
 
     //
     // The connection is active.  Record the time that this request
@@ -628,7 +707,7 @@ Return Value:
     //
 
     nextSequenceNumber = connection->SequenceNumber;
-    GET_SERVER_TIME( &connection->LastRequestTime );
+    GET_SERVER_TIME( workQueue, &connection->LastRequestTime );
 
     //
     // If this is a sequenced SMB, it has to have the right sequence
@@ -646,7 +725,6 @@ Return Value:
             if ( sequenceNumber != nextSequenceNumber ) {
 
                 if ( sequenceNumber == tmpNext ) {
-                    IF_DEBUG(IPX) KdPrint(( "SRVIPX: Duplicate sequenced request %x\n", sequenceNumber ));
                     goto duplicate_request;
                 }
 
@@ -655,28 +733,45 @@ Return Value:
                 //
 
                 IF_DEBUG(IPX) KdPrint(( "SRVIPX: Bad sequence number; ignoring\n" ));
+
                 RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
-                goto return_workitem;
+
+                KeLowerIrql( oldIrql );
+                return STATUS_SUCCESS;
             }
         }
 
         //
-        // The sequence number is correct.  Ensure that a work item is
-        // available, then update the connection's sequence number and
+        // The sequence number is correct. Update the connection's sequence number and
         // indicate that we're processing this message.  (We need to
         // allocate the work item first because we're modifying
         // connection state.)  Then go receive the message.
         //
 
-        IF_DEBUG(IPX) KdPrint(( "SRVIPX: Receiving sequenced request %x\n", sequenceNumber ));
-        connection->SequenceNumber = sequenceNumber;
-        connection->LastResponseLength = (USHORT)-1;
+        ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
+        if( workContext != NULL ) {
 
-        if ( header->Command == SMB_COM_WRITE_MPX ) {
-            goto process_writempx;
-        } else {
-            goto process_not_writempx;
+            IF_DEBUG(IPX) KdPrint(( "SRVIPX: Receiving sequenced request %x\n", sequenceNumber ));
+
+            connection->SequenceNumber = sequenceNumber;
+            connection->LastResponseLength = (USHORT)-1;
+            connection->IpxDuplicateCount = 0;
+
+            if ( header->Command == SMB_COM_WRITE_MPX ) {
+                goto process_writempx;
+            } else {
+                goto process_not_writempx;
+            }
         }
+
+        //
+        // Unable to allocate workitem, give up
+        //
+        RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        KeLowerIrql( oldIrql );
+        InterlockedIncrement( &connection->CurrentWorkQueue->NeedWorkItem );
+
+        return STATUS_SUCCESS;
     }
 
     //
@@ -713,17 +808,68 @@ Return Value:
                                         InProgressListEntry );
 
             if ( SmbGetAlignedUshort(&tmpWorkContext->RequestHeader->Mid) == mid ) {
+
                 IF_DEBUG(IPX) KdPrint(( "SRVIPX: Duplicate (queued) unsequenced request mid=%x\n", mid ));
+                if( connection->IpxDuplicateCount++ < connection->IpxDropDuplicateCount ) {
+                    //
+                    // We drop every few duplicate requests from the client
+                    //
+                    RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+                    KeLowerIrql( oldIrql );
+                    return STATUS_SUCCESS;
+                }
+
                 RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
                 error = SMB_ERR_WORKING;
                 resend = FALSE;
-                goto respond;
+                ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
+                if( workContext != NULL ) {
+
+                    connection->IpxDuplicateCount = 0;
+                    goto respond;
+                }
+
+                //
+                // Unable to allocate workitem, give up
+                //
+
+                RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+                KeLowerIrql( oldIrql );
+                InterlockedIncrement( &connection->CurrentWorkQueue->NeedWorkItem );
+                return STATUS_SUCCESS;
             }
         }
 
-        goto process_not_writempx;
+        ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
+        if( workContext != NULL ) {
+            goto process_not_writempx;
+        }
+
+        //
+        // Unable to allocate workitem, give up
+        //
+
+        RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        KeLowerIrql( oldIrql );
+        InterlockedIncrement( &connection->CurrentWorkQueue->NeedWorkItem );
+        return STATUS_SUCCESS;
 
     }
+
+    ASSERT( workContext == NULL );
+
+    ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
+    if( workContext == NULL ) {
+        //
+        // Unable to allocate workitem, give up
+        //
+        RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        KeLowerIrql( oldIrql );
+        InterlockedIncrement( &connection->CurrentWorkQueue->NeedWorkItem );
+        return STATUS_SUCCESS;
+    }
+
+    connection->IpxDuplicateCount = 0;
 
 process_writempx:
 
@@ -732,8 +878,11 @@ process_writempx:
     //
 
     ASSERT( connection != NULL );
+    ASSERT( workContext != NULL );
     SrvReferenceConnectionLocked( connection );
     workContext->Connection = connection;
+
+    workContext->Parameters.WriteMpx.TransportContext = NULL;
 
     //
     // Put the work item on the in-progress list.
@@ -857,7 +1006,7 @@ process_writempx:
     // currently working on, we can accept it.
     //
 
-    writeMpx = rfcb->WriteMpx;
+    writeMpx = &rfcb->WriteMpx;
 
     mid = SmbGetUshort( &header->Mid ); // NOT Aligned
 
@@ -873,12 +1022,12 @@ process_writempx:
     // starts.
     //
     // If this packet is for a new MID, but we're in the middle of
-    // glomming the current MID, then something is wrong -- the redir
+    // processing the current MID, then something is wrong -- the redir
     // should not send a new MID until we've replied to the old MID.
     // Ignore this packet.
     //
 
-    if ( (mid == writeMpx->PreviousMid) || writeMpx->Glomming ) {
+    if ( (mid == writeMpx->PreviousMid) || writeMpx->ReferenceCount ) {
         goto stale_mid;
     }
 
@@ -902,7 +1051,7 @@ process_writempx:
     writeMpx->Mid = mid;
 
 #if SRVDBG_PERF
-    if ( GlommingAllowed )
+    if( GlommingAllowed )
 #endif
     if ( (SmbGetUlong( &request->Mask ) == 1) && writeMpx->MpxGlommingAllowed ) {
         writeMpx->GlomPending = TRUE;
@@ -935,7 +1084,6 @@ mpx_mid_ok:
     //  we receive all the data  and
     //  smbtrace not active
     //
-
     if ( writeMpx->Glomming             &&
         ( BytesIndicated == BytesAvailable ) &&
         !SmbTraceActive[SMBTRACE_SERVER] ) {
@@ -1033,6 +1181,8 @@ process_not_writempx:
     //
 
     ASSERT( connection != NULL );
+    ASSERT( workContext != NULL );
+    ASSERT( workContext->FsdRestartRoutine == SrvQueueWorkToFspAtDpcLevel );
     SrvReferenceConnectionLocked( connection );
 
     //
@@ -1061,21 +1211,17 @@ process_not_writempx:
 
         //
         // If this is a Locking&X SMB that includes at least one unlock
-        // request, we want to process the request in a critical worker
-        // thread.  This allows the unlock to happen more quickly, which
-        // can be of great benefit when there is a lot of contention for
-        // the range being unlocked (e.g., the "constant" lock in dBase).
+        // request, we want to process the request quickly.  So we put
+        // it at the head of the work queue.
         //
 
         PREQ_LOCKING_ANDX request = (PREQ_LOCKING_ANDX)(header + 1);
 
 #if SRVDBG_PERF
-        if ( UnlocksGoFast )
+        if( UnlocksGoFast )
 #endif
         if ( SmbGetUshort(&request->NumberOfUnlocks) != 0 ) {
-            ASSERT( workContext->FsdRestartRoutine == SrvQueueWorkToFspAtDpcLevel );
-            workContext->FsdRestartRoutine = SrvQueueWorkToCriticalThread;
-            workQueue = &SrvCriticalWorkQueue;
+            workContext->QueueToHead = TRUE;
         }
 
     } else if ( (header->Command == SMB_COM_READ) &&
@@ -1102,7 +1248,7 @@ process_not_writempx:
 
             workContext->FspRestartRoutine = SrvIpxFastRestartRead;
             workContext->ProcessingCount++;
-            SrvStatisticsShadow.BytesReceived += BytesIndicated;
+            workQueue->stats.BytesReceived += BytesIndicated;
 
             //
             // Insert the work item at the tail of the nonblocking
@@ -1125,20 +1271,28 @@ process_not_writempx:
                 (header->Command == SMB_COM_NT_CREATE_ANDX) ) {
 
         //
-        // If this is an attempt to open or close a file, route the
-        // request to a blocking worker thread.  This keeps opens and
-        // closes out of the way of handle-based operations.
+        // If this is an attempt to open a file, route the
+        // request to a blocking worker thread.  This keeps opens
+        // out of the way of handle-based operations.
         //
 
 #if SRVDBG_PERF
-        if ( OpensGoSlow )
+        if( OpensGoSlow )
 #endif
         {
-            ASSERT( workContext->FsdRestartRoutine == SrvQueueWorkToFspAtDpcLevel );
             workContext->FsdRestartRoutine = SrvQueueWorkToBlockingThread;
             workQueue = &SrvBlockingWorkQueue;
         }
 
+    } else if ( (header->Command == SMB_COM_CLOSE) ||
+                (header->Command == SMB_COM_FIND_CLOSE) ||
+                (header->Command == SMB_COM_FIND_CLOSE2) ) {
+        //
+        // Closing things is an operation that (1) releases resources, (2) is usually
+        // fast, and (3) can't be repeated indefinately by the client.  Give the client
+        // a reward by putting it at the head of the queue.
+        //
+        workContext->QueueToHead = TRUE;
     }
 
 start_receive:
@@ -1153,12 +1307,46 @@ start_receive:
 
     if ( BytesIndicated == BytesAvailable ) {
 
-        TdiCopyLookaheadData(
-            workContext->RequestBuffer->Buffer,
-            Tsdu,
-            BytesIndicated,
-            ReceiveDatagramFlags
-            );
+        //
+        // If this is a WRITE_MPX, and the buffer is big (how big is BIG?)
+        // and there is a TransportContext (indicating that we can take the
+        // NDIS buffer, then don't copy the data - just save the buffer
+        // address, length and transport context.
+        //
+
+        if ( BytesIndicated > SrvMaxCopyLength &&
+             header->Command == SMB_COM_WRITE_MPX &&
+             TransportContext ) {
+
+            workContext->Parameters.WriteMpx.Buffer = Tsdu;
+            workContext->Parameters.WriteMpx.ReceiveDatagramFlags =
+                            ReceiveDatagramFlags;
+            workContext->Parameters.WriteMpx.TransportContext = TransportContext;
+
+            DEBUG *BytesTaken = BytesIndicated;
+
+            ASSERT( BytesIndicated >= MPX_HEADER_SIZE );
+
+            TdiCopyLookaheadData(
+                workContext->RequestBuffer->Buffer,
+                Tsdu,
+                MPX_HEADER_SIZE,
+                ReceiveDatagramFlags
+                );
+
+            status = STATUS_PENDING;
+
+        } else {
+
+            TdiCopyLookaheadData(
+                workContext->RequestBuffer->Buffer,
+                Tsdu,
+                BytesIndicated,
+                ReceiveDatagramFlags
+                );
+
+            // NB: status is set to STATUS_SUCCESS above!
+        }
 
 #if SRVDBG_PERF
         if ( Trap512s ) {
@@ -1205,10 +1393,6 @@ queue_to_fsp:
 
         irp->Cancel = FALSE;
 
-        IF_DEBUG(IPX2) {
-            SrvPrint1( "FSD working on work context 0x%lx", workContext );
-        }
-
         //
         // *** THE FOLLOWING IS COPIED FROM SrvQueueWorkToFspAtDpcLevel.
         //
@@ -1218,17 +1402,27 @@ queue_to_fsp:
         workContext->ProcessingCount++;
 
         //
-        // Insert the work item at the tail of the nonblocking
-        // work queue.
+        // Insert the work item into the work queue
         //
 
-        SrvInsertWorkQueueTail(
-            workQueue,
-            (PQUEUEABLE_BLOCK_HEADER)workContext
-            );
+        if( workContext->QueueToHead ) {
+
+            SrvInsertWorkQueueHead(
+                workQueue,
+                (PQUEUEABLE_BLOCK_HEADER)workContext
+                );
+
+        } else {
+
+            SrvInsertWorkQueueTail(
+                workQueue,
+                (PQUEUEABLE_BLOCK_HEADER)workContext
+                );
+
+        }
 
         KeLowerIrql( oldIrql );
-        return STATUS_SUCCESS;
+        return status;
 
     }
 
@@ -1238,8 +1432,11 @@ build_irp:
     // We can't copy the indicated data.  Set up the receive IRP.
     //
 
+    ASSERT( workQueue != NULL );
+
     irp->Tail.Overlay.OriginalFileObject = NULL;
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = workQueue->IrpThread;
+
     DEBUG irp->RequestorMode = KernelMode;
 
     //
@@ -1336,20 +1533,47 @@ duplicate_request:
     if ( connection->LastResponseLength == (USHORT)-1 ) {
 
         IF_DEBUG(IPX) KdPrint(( "SRVIPX: request in progress\n" ));
+
+        if( connection->IpxDuplicateCount++ < connection->IpxDropDuplicateCount ) {
+            //
+            // We drop every few duplicate request from the client
+            //
+            RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+            KeLowerIrql( oldIrql );
+            return STATUS_SUCCESS;
+        }
+
         RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        connection->IpxDuplicateCount = 0;
         error = SMB_ERR_WORKING;
         resend = FALSE;
-        goto respond;
+
+    } else {
+
+        //
+        // The request has already been completed.  Resend the response.
+        //
+
+        IF_DEBUG(IPX) KdPrint(( "SRVIPX: resending response\n" ));
+        resend = TRUE;
     }
 
-    //
-    // The request has already been completed.  Resend the response.
-    //
+    ALLOCATE_WORK_CONTEXT( connection->CurrentWorkQueue, &workContext );
+    if( workContext == NULL ) {
 
-    IF_DEBUG(IPX) KdPrint(( "SRVIPX: resending response\n" ));
-    resend = TRUE;
+        if( resend == TRUE ) {
+            RELEASE_DPC_SPIN_LOCK( connection->EndpointSpinLock );
+        }
+
+        KeLowerIrql( oldIrql );
+        InterlockedIncrement( &connection->CurrentWorkQueue->NeedWorkItem );
+        return STATUS_SUCCESS;
+    }
+
 
 respond:
+
+    ASSERT( workContext != NULL );
 
     //
     // Copy the received SMB header into the response buffer.
@@ -1386,6 +1610,10 @@ respond:
         //
 
         SmbPutUlong( &header->Status.NtStatus, connection->LastResponseStatus );
+
+        SmbPutUshort( &header->Tid, connection->LastTid);
+        SmbPutUshort( &header->Uid, connection->LastUid);
+
         RtlCopyMemory(
             (PVOID)params,
             connection->LastResponse,
@@ -1413,11 +1641,7 @@ respond:
     workContext->Endpoint = endpoint;
     DEBUG workContext->FsdRestartRoutine = NULL;
 
-    StartSendNoConnection(
-                    workContext,
-                    RequeueIpxWorkItemAtSendCompletion,
-                    FALSE,
-                    TRUE );
+    StartSendNoConnection( workContext, FALSE, TRUE );
 
     KeLowerIrql( oldIrql );
     return STATUS_SUCCESS;
@@ -1425,17 +1649,194 @@ respond:
 return_connection:
 
     SrvFreeIpxConnectionInIndication( workContext );
-
-return_workitem:
+    KeLowerIrql( oldIrql );
 
     workContext->BlockHeader.ReferenceCount = 0;
-    RETURN_FREE_WORKITEM_DPC( workContext );
+    RETURN_FREE_WORKITEM( workContext );
 
-    KeLowerIrql( oldIrql );
     return STATUS_SUCCESS;
 
+} // SrvIpxServerDatagramHandlerCommon
+
+
+NTSTATUS
+SrvIpxServerDatagramHandler (
+    IN PVOID TdiEventContext,
+    IN int SourceAddressLength,
+    IN PVOID SourceAddress,
+    IN int OptionsLength,
+    IN PVOID Options,
+    IN ULONG ReceiveDatagramFlags,
+    IN ULONG BytesIndicated,
+    IN ULONG BytesAvailable,
+    OUT ULONG *BytesTaken,
+    IN PVOID Tsdu,
+    OUT PIRP *IoRequestPacket
+    )
+
+/*++
+
+Routine Description:
+
+    This is the receive datagram event handler for the IPX server socket.
+    It attempts to dequeue a preformatted work item from a list
+    anchored in the device object.  If this is successful, it returns
+    the IRP associated with the work item to the transport provider to
+    be used to receive the data.  Otherwise, the message is dropped.
+
+Arguments:
+
+    TdiEventContext - Pointer to receiving endpoint
+
+    SourceAddressLength - Length of SourceAddress
+
+    SourceAddress - Address of sender
+
+    OptionsLength - Length of options
+
+    Options - Options for the receive
+
+    ReceiveDatagramFlags - Set of flags indicating the status of the
+        received message
+
+    BytesIndicated - Number of bytes in this indication (lookahead)
+
+    BytesAvailable - Number of bytes in the complete TSDU
+
+    BytesTaken - Returns the number of bytes taken by the handler
+
+    Tsdu - Pointer to buffer describing the Transport Service Data Unit
+
+    IoRequestPacket - Returns a pointer to I/O request packet, if the
+        returned status is STATUS_MORE_PROCESSING_REQUIRED.  This IRP is
+        made the 'current' Receive for the endpoint.
+
+Return Value:
+
+    NTSTATUS - If STATUS_SUCCESS, the receive handler completely
+        processed the request.  If STATUS_MORE_PROCESSING_REQUIRED,
+        the Irp parameter points to a formatted Receive request to
+        be used to receive the data.  If STATUS_DATA_NOT_ACCEPTED,
+        the message is lost.
+
+--*/
+
+{
+    NTSTATUS status;
+
+    status = SrvIpxServerDatagramHandlerCommon(
+                    TdiEventContext,
+                    SourceAddressLength,
+                    SourceAddress,
+                    OptionsLength,
+                    Options,
+                    ReceiveDatagramFlags,
+                    BytesIndicated,
+                    BytesAvailable,
+                    BytesTaken,
+                    Tsdu,
+                    IoRequestPacket,
+                    NULL
+                    );
+
+    ASSERT( status != STATUS_PENDING );
+    return status;
+
 } // SrvIpxServerDatagramHandler
-#endif // !defined(SRV_ASM) || !defined(i386)
+
+
+NTSTATUS
+SrvIpxServerChainedDatagramHandler (
+    IN PVOID TdiEventContext,
+    IN int SourceAddressLength,
+    IN PVOID SourceAddress,
+    IN int OptionsLength,
+    IN PVOID Options,
+    IN ULONG ReceiveDatagramFlags,
+    IN ULONG ReceiveDatagramLength,
+    IN ULONG StartingOffset,
+    IN PMDL Tsdu,
+    IN PVOID TransportContext
+    )
+
+/*++
+
+Routine Description:
+
+    This is the receive datagram event handler for the IPX server socket.
+    It attempts to dequeue a preformatted work item from a list
+    anchored in the device object.  If this is successful, it returns
+    the IRP associated with the work item to the transport provider to
+    be used to receive the data.  Otherwise, the message is dropped.
+
+Arguments:
+
+    TdiEventContext - Pointer to receiving endpoint
+
+    SourceAddressLength - Length of SourceAddress
+
+    SourceAddress - Address of sender
+
+    OptionsLength - Length of options
+
+    Options - Options for the receive
+
+    ReceiveDatagramFlags - Set of flags indicating the status of the
+        received message
+
+    ReceiveDatagramLength - The length in byutes of the client data in the Tsdu
+
+    StartingOffset - Offset, in bytes, from beginning of Tsdu to client's data
+
+    Tsdu - Pointer to an MDL chain describing the received data
+
+    TranportContext - Context to be passed to TdiReturnChainedReceives if
+        buffer is taken
+
+
+Return Value:
+
+    NTSTATUS - If STATUS_SUCCESS, the receive handler completely
+        processed the request.  If STATUS_PENDING, the receive buffer was
+        taken and it will be returned via TdiReturnChainedReceives. If
+        If STATUS_DATA_NOT_ACCEPTED, the message is lost.
+
+--*/
+
+{
+    PVOID receiveBuffer;
+    ULONG bytesTaken;
+    NTSTATUS status;
+    PIRP ioRequestPacket = NULL;
+
+    ASSERT( StartingOffset < 512 );
+    receiveBuffer = (PCHAR)MmGetSystemAddressForMdl( Tsdu ) + StartingOffset;
+
+    status = SrvIpxServerDatagramHandlerCommon(
+                    TdiEventContext,
+                    SourceAddressLength,
+                    SourceAddress,
+                    OptionsLength,
+                    Options,
+                    ReceiveDatagramFlags,
+                    ReceiveDatagramLength,
+                    ReceiveDatagramLength,
+                    &bytesTaken,
+                    receiveBuffer,
+                    &ioRequestPacket,
+                    TransportContext
+                    );
+
+    ASSERT( ioRequestPacket == NULL );
+
+    DEBUG if ( status == STATUS_PENDING ) {
+        ASSERT( bytesTaken == ReceiveDatagramLength );
+    }
+
+    return status;
+
+} // SrvIpxServerChainedDatagramHandler
+
 
 VOID
 SrvIpxStartSend (
@@ -1475,13 +1876,13 @@ Return Value:
     PTDI_CONNECTION_INFORMATION destination;
     PNT_SMB_HEADER header;
 
-    IF_DEBUG(IPX2) SrvPrint0( "SrvIpxStartSend entered\n" );
+//    IF_DEBUG(IPX2) SrvPrint0( "SrvIpxStartSend entered\n" );
 
     //
     // Set ProcessingCount to zero so this send cannot be cancelled.
     // This is used together with setting the cancel flag to false below.
     //
-    // BUGBUG: This still presents us with a tiny window where this
+    // WARNING: This still presents us with a tiny window where this
     // send could be cancelled.
     //
 
@@ -1510,7 +1911,7 @@ Return Value:
 
     irp = WorkContext->Irp;
 
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
     DEBUG irp->RequestorMode = KernelMode;
 
     //
@@ -1564,11 +1965,10 @@ Return Value:
 
     header = (PNT_SMB_HEADER)WorkContext->ResponseHeader;
     ASSERT( header != NULL );
+    connection = WorkContext->Connection;
+    ASSERT( connection != NULL );
 
     if ( SmbGetAlignedUshort(&header->SequenceNumber) != 0 ) {
-
-        connection = WorkContext->Connection;
-        ASSERT( connection != NULL );
 
         IF_DEBUG(IPX) {
             KdPrint(("SRVIPX: Responding to sequenced request %x mid=%x, connection %x\n",
@@ -1669,6 +2069,9 @@ small_response:
         //
 
         connection->LastResponseStatus = SmbGetUlong( &header->Status.NtStatus );
+        connection->LastUid = SmbGetUshort( &header->Uid );
+        connection->LastTid = SmbGetUshort( &header->Tid );
+
         RtlCopyMemory( connection->LastResponse, (header + 1), responseLength );
         connection->LastResponseLength = responseLength;
 
@@ -1678,7 +2081,6 @@ small_response:
             KdPrint(("SRVIPX: Responding to unsequenced request mid=%x\n",
                         SmbGetAlignedUshort(&header->Mid) ));
         }
-
     }
 
     //
@@ -1699,7 +2101,7 @@ small_response:
     if ( SmbTraceActive[SMBTRACE_SERVER] ) {
 
         if ((KeGetCurrentIrql() == DISPATCH_LEVEL) ||
-            (SRV_CURRENT_PROCESS != SERVER_PROCESS)) {
+            (IoGetCurrentProcess() != SrvServerProcess)) {
 
             irp->AssociatedIrp.SystemBuffer = NULL;
             irp->Flags = (ULONG)IRP_BUFFERED_IO;
@@ -1727,15 +2129,10 @@ small_response:
     // Pass the request to the transport provider.
     //
 
-    IF_DEBUG(IPX2) {
-        SrvPrint1( "SrvIpxStartSend posting Send IRP %lx\n", irp );
-    }
-
     //
     // Set the cancel flag to FALSE in case this was cancelled by
     // the SrvSmbNtCancel routine.
     //
-
 
     if ( endpoint->FastTdiSendDatagram ) {
 
@@ -1759,7 +2156,6 @@ small_response:
         (VOID)IoCallDriver( deviceObject, irp );
     }
 
-    IF_DEBUG(IPX2) SrvPrint0( "SrvIpxStartSend complete\n" );
     return;
 
 } // SrvIpxStartSend
@@ -1768,7 +2164,6 @@ small_response:
 VOID
 StartSendNoConnection (
     IN OUT PWORK_CONTEXT WorkContext,
-    IN PIO_COMPLETION_ROUTINE SendCompletionRoutine,
     IN BOOLEAN UseNameSocket,
     IN BOOLEAN LocalTargetValid
     )
@@ -1804,13 +2199,11 @@ Return Value:
     PFILE_OBJECT fileObject;
     PTDI_CONNECTION_INFORMATION destination;
 
-    IF_DEBUG(IPX2) SrvPrint0( "StartSendNoConnection entered\n" );
-
     //
     // Set ProcessingCount to zero so this send cannot be cancelled.
     // This is used together with setting the cancel flag to false below.
     //
-    // BUGBUG: This still presents us with a tiny window where this
+    // WARNING: This still presents us with a tiny window where this
     // send could be cancelled.
     //
 
@@ -1833,7 +2226,7 @@ Return Value:
 
     irp = WorkContext->Irp;
 
-    irp->Tail.Overlay.Thread = SrvIrpThread;
+    irp->Tail.Overlay.Thread = WorkContext->CurrentWorkQueue->IrpThread;
     DEBUG irp->RequestorMode = KernelMode;
 
     //
@@ -1849,7 +2242,7 @@ Return Value:
 
     IoSetCompletionRoutine(
         irp,
-        SendCompletionRoutine,
+        RequeueIpxWorkItemAtSendCompletion,
         (PVOID)WorkContext,
         TRUE,
         TRUE,
@@ -1897,10 +2290,6 @@ Return Value:
     // Pass the request to the transport provider.
     //
 
-    IF_DEBUG(IPX2) {
-        SrvPrint1( "StartSendNoConnection posting Send IRP %lx\n", irp );
-    }
-
     //
     // Set the cancel flag to FALSE in case this was cancelled by
     // the SrvSmbNtCancel routine.
@@ -1928,13 +2317,12 @@ Return Value:
         (VOID)IoCallDriver( deviceObject, irp );
     }
 
-    IF_DEBUG(IPX2) SrvPrint0( "StartSendNoConnection complete\n" );
     return;
 
 } // StartSendNoConnection
 
 
-VOID
+VOID SRVFASTCALL
 IpxRestartReceive (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -1961,8 +2349,6 @@ Return Value:
     PSMB_HEADER header = (PSMB_HEADER)WorkContext->RequestBuffer->Buffer;
 
     PAGED_CODE( );
-
-    IF_DEBUG(IPX2) SrvPrint0( " - IpxRestartReceive\n" );
 
     ASSERT( header->Command == SMB_COM_NEGOTIATE );
 
@@ -2021,12 +2407,6 @@ Return Value:
 --*/
 
 {
-    KIRQL oldIrql;
-
-    IF_DEBUG(IPX2) {
-        KdPrint(( "RequeueIpxWorkItemAtSendCompletion: %x\n", WorkContext ));
-    }
-
     //
     // Check the status of the send completion.
     //
@@ -2039,14 +2419,8 @@ Return Value:
 
     Irp->Cancel = FALSE;
 
-    KeRaiseIrql( DISPATCH_LEVEL, &oldIrql );
-
     ASSERT( WorkContext->BlockHeader.ReferenceCount == 1 );
     WorkContext->BlockHeader.ReferenceCount = 0;
-    WorkContext->ProcessingCount = 0;
-    WorkContext->Endpoint = NULL;
-
-    WorkContext->Connection = NULL;
 
     ASSERT( WorkContext->Share == NULL );
     ASSERT( WorkContext->Session == NULL );
@@ -2073,9 +2447,8 @@ Return Value:
     // Requeue the work item.
     //
 
-    RETURN_FREE_WORKITEM_DPC( WorkContext );
+    RETURN_FREE_WORKITEM( WorkContext );
 
-    KeLowerIrql( oldIrql );
     return STATUS_MORE_PROCESSING_REQUIRED;
 
 } // RequeueIpxWorkItemAtSendCompletion
@@ -2094,6 +2467,7 @@ GetIpxConnection (
     PCHAR clientMachineName;
     ULONG length;
     KIRQL oldIrql;
+    PWORK_QUEUE queue = PROCESSOR_TO_QUEUE();
 
     //
     // Take a connection off the endpoint's free connection list.
@@ -2175,6 +2549,28 @@ GetIpxConnection (
     connection->LastResponseLength = (USHORT)-1;
 
     //
+    // Set the processor affinity
+    //
+    connection->PreferredWorkQueue = queue;
+    connection->CurrentWorkQueue = queue;
+
+    InterlockedIncrement( &queue->CurrentClients );
+
+    //
+    // Set the duplicate drop count.  Start off conservative until
+    // we learn what kind of client we're dealing with
+    //
+    connection->IpxDropDuplicateCount = MIN_IPXDROPDUP;
+    connection->IpxDuplicateCount = 0;
+
+#if MULTIPROCESSOR
+    //
+    // Get this client onto the best possible processor
+    //
+    SrvBalanceLoad( connection );
+#endif
+
+    //
     // Set time stamps.  StartupTime is used by the server to determine
     // whether the connection is old enough to be considered stale and
     // should be closed when another negotiate comes in.  This is used
@@ -2183,10 +2579,10 @@ GetIpxConnection (
     // gets partially processed in the indication routine.
     //
 
-    SET_SERVER_TIME( );
+    SET_SERVER_TIME( connection->CurrentWorkQueue );
 
-    GET_SERVER_TIME( &connection->StartupTime );
-    GET_SERVER_TIME( &connection->LastRequestTime );
+    GET_SERVER_TIME( connection->CurrentWorkQueue, &connection->StartupTime );
+    connection->LastRequestTime = connection->StartupTime;
 
     //
     // Put the work item on the in-progress list.
@@ -2301,7 +2697,7 @@ PurgeIpxConnections (
 
 } // PurgeIpxConnections
 
-VOID
+VOID SRVFASTCALL
 IpxRestartNegotiate(
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2340,28 +2736,72 @@ Return Value:
     KIRQL oldIrql;
     BOOLEAN resend;
     USHORT error;
+    PLIST_ENTRY listEntry;
 
     PTA_IPX_ADDRESS sourceAddress;
     PNT_SMB_HEADER header;
     PSMB_PARAMS params;
 
-    endpoint = WorkContext->Endpoint;
+    ASSERT( WorkContext->Endpoint != NULL );
+
+    IF_DEBUG(IPX) KdPrint(( "SRVIPX: Negotiate received\n" ));
+
+    //
+    // If this endpoint is no longer around, ignore this request.
+    //  This check covers the possibility that the endpoint has been
+    //  removed between the time this request was queued to a worker
+    //  thread and a worker thread actually picked up the request.
+    //
+
+    ACQUIRE_LOCK( &SrvEndpointLock );
+
+    listEntry = SrvEndpointList.ListHead.Flink;
+
+    while ( listEntry != &SrvEndpointList.ListHead ) {
+
+        endpoint = CONTAINING_RECORD(
+                        listEntry,
+                        ENDPOINT,
+                        GlobalEndpointListEntry
+                        );
+
+        if( endpoint == WorkContext->Endpoint &&
+            GET_BLOCK_STATE( endpoint ) == BlockStateActive ) {
+
+            //
+            // We found the endpoint, and it's still active!  Reference
+            //  it so the endpoint will not disappear out from under us.
+            //
+            endpoint->BlockHeader.ReferenceCount++;
+
+            break;
+        }
+
+        listEntry = listEntry->Flink;
+    }
+
+    if( listEntry == &SrvEndpointList.ListHead ) {
+        //
+        // We ran the whole list and did not find the endpoint.  It
+        //  must have gone away.  Ignore this WorkItem.
+        //
+        RELEASE_LOCK( &SrvEndpointLock );
+        IF_DEBUG( IPX ) KdPrint(( "SRVIPX: Endpoint gone.  ignoring\n" ));
+        goto return_workitem;
+    }
+
+    RELEASE_LOCK( &SrvEndpointLock );
+
+    //
+    // The endpoint is still valid, and we have referenced it.  The local var
+    //  'endpoint' points to it.
+    //
+
     sourceAddress = &WorkContext->ClientAddress->IpxAddress;
 
     header = (PNT_SMB_HEADER) WorkContext->RequestHeader;
     sid = SmbGetUshort( &header->Sid ); // NOT Aligned
     ASSERT( sid == 0 );
-
-    IF_DEBUG(IPX) KdPrint(( "SRVIPX: Negotiate received\n" ));
-
-    //
-    // We can't create a new connection if the endpoint is closing.
-    //
-
-    if ( GET_BLOCK_STATE(endpoint) != BlockStateActive ) {
-        IF_DEBUG(IPX) KdPrint(( "SRVIPX: Endpoint closing; ignoring\n" ));
-        goto return_workitem;
-    }
 
     clientName = (PUCHAR)WorkContext->RequestParameters;
     clientName += 2 * (*clientName) + 1;
@@ -2371,11 +2811,10 @@ Return Value:
     // Make sure he's really trying to connect to us.
     //
 
-    if ( RtlCompareMemory(
+    if ( !RtlEqualMemory(
             endpoint->TransportAddress.Buffer,
             clientName + 16,
-            SMB_IPX_NAME_LENGTH
-            ) != SMB_IPX_NAME_LENGTH ) {
+            SMB_IPX_NAME_LENGTH ) ) {
         IF_DEBUG(IPX) KdPrint(( "SRVIPX: Negotiate sent to wrong name!\n" ));
         error = SMB_ERR_NOT_ME;
         resend = FALSE;
@@ -2396,9 +2835,27 @@ Return Value:
 
         connection = (PCONNECTION)tableHeader->Table[i].Owner;
         if ( connection == NULL ) {
-            IF_DEBUG(IPX2) {
-                KdPrint(( "        skipping index %x: no connection\n", i ));
-            }
+            continue;
+        }
+
+        //
+        // Make sure this connection references an endpoint having
+        // the same netbios address that the new client is coming in on
+        //
+        // This is to allow a single server to be registered as more than
+        //  one name on the network.
+        //
+        if( connection->Endpoint->TransportAddress.Length !=
+            endpoint->TransportAddress.Length ||
+
+            !RtlEqualMemory( connection->Endpoint->TransportAddress.Buffer,
+                              endpoint->TransportAddress.Buffer,
+                              endpoint->TransportAddress.Length ) ) {
+
+            //
+            // This connection is for an endpoint having a different network
+            //  name than we have.  Ignore it.
+            //
             continue;
         }
 
@@ -2407,29 +2864,26 @@ Return Value:
         // connection.
         //
 
-        if ( RtlCompareMemory(
+        if ( RtlEqualMemory(
                 &connection->IpxAddress,
                 &sourceAddress->Address[0].Address[0],
-                sizeof(TDI_ADDRESS_IPX)
-                ) == sizeof(TDI_ADDRESS_IPX) ) {
+                sizeof(TDI_ADDRESS_IPX) ) ) {
 
             //
             // The IPX addresses match.  Check the machine name.
             //
 
-            if ( RtlCompareMemory(
+            if ( !RtlEqualMemory(
                     connection->OemClientMachineName,
                     clientName,
-                    SMB_IPX_NAME_LENGTH
-                    ) != SMB_IPX_NAME_LENGTH ) {
+                    SMB_IPX_NAME_LENGTH) ) {
 
                 //
                 // The connection is for a different machine name.
                 // Mark it as no longer valid.  It will be killed
                 // when the Negotiate SMB is processed.
                 //
-
-                IF_DEBUG(IPX) KdPrint(( "SRVIPX: Found stale connection %x\n", connection ));
+                IF_DEBUG(IPX)KdPrint(("SRVIPX: Found stale connection %x\n", connection ));
                 connection->IpxAddress.Socket = 0;
                 break;
 
@@ -2437,8 +2891,8 @@ Return Value:
 
                 ULONG timeNow;
 
-                SET_SERVER_TIME( );
-                GET_SERVER_TIME( &timeNow );
+                SET_SERVER_TIME( connection->CurrentWorkQueue );
+                GET_SERVER_TIME( connection->CurrentWorkQueue, &timeNow );
 
                 //
                 // If the connection was initialized less than 5 seconds ago,
@@ -2454,7 +2908,6 @@ Return Value:
                     // Mark it as no longer valid.  It will be killed when
                     // the Negotiate SMB is processed.
                     //
-
                     IF_DEBUG(IPX) KdPrint(( "SRVIPX: found stale connection %x\n", connection ));
                     connection->IpxAddress.Socket = 0;
                     break;
@@ -2469,6 +2922,7 @@ Return Value:
                         RELEASE_DPC_SPIN_LOCK( &ENDPOINT_SPIN_LOCK(i) );
                     }
                     RELEASE_SPIN_LOCK( &ENDPOINT_SPIN_LOCK(0), oldIrql );
+                    SrvDereferenceEndpoint( endpoint );
                     goto return_workitem;
                 }
             }
@@ -2483,7 +2937,7 @@ Return Value:
             goto duplicate_request;
 
         } else {
-            IF_DEBUG(IPX2) {
+            IF_DEBUG(IPX) {
                 KdPrint(( "        skipping index %x: different address\n", i ));
             }
         }
@@ -2496,6 +2950,7 @@ Return Value:
     for ( i = ENDPOINT_LOCK_COUNT-1; i > 0; i-- ) {
         RELEASE_DPC_SPIN_LOCK( &ENDPOINT_SPIN_LOCK(i) );
     }
+
     RELEASE_SPIN_LOCK( &ENDPOINT_SPIN_LOCK(0), oldIrql );
 
     //
@@ -2510,12 +2965,17 @@ Return Value:
                     clientName
                     );
 
+    //
+    // Now that we've gotten a connection structure for this endpoint,
+    //  we can drop the reference we obtained above.
+    //
+    SrvDereferenceEndpoint( endpoint );
+
     if ( connection == NULL ) {
 
         //
         // Unable to get a free connection.
         //
-
         goto return_workitem;
     }
 
@@ -2593,16 +3053,17 @@ respond:
     WorkContext->ResponseBuffer->Mdl->ByteCount = length;
 
     //
+    // Give up the reference we earlier obtained
+    //
+    SrvDereferenceEndpoint( endpoint );
+
+    //
     // Send the packet.
     //
 
     DEBUG WorkContext->FsdRestartRoutine = NULL;
 
-    StartSendNoConnection(
-                    WorkContext,
-                    RequeueIpxWorkItemAtSendCompletion,
-                    FALSE,
-                    TRUE );
+    StartSendNoConnection( WorkContext, FALSE, TRUE );
 
     return;
 
@@ -2626,7 +3087,7 @@ return_workitem:
 
 } // IpxRestartNegotiate
 
-VOID
+VOID SRVFASTCALL
 SrvIpxFastRestartRead (
     IN OUT PWORK_CONTEXT WorkContext
     )
@@ -2673,6 +3134,7 @@ Return Value:
 
     WorkContext->StartTime = WorkContext->Timestamp;
 
+
     //
     // Update the server network error count.
     //
@@ -2689,7 +3151,50 @@ Return Value:
         );
 
     rfcb = WorkContext->Rfcb;
+
+    //
+    // Form the lock key using the FID and the PID.
+    //
+    // *** The FID must be included in the key in order to account for
+    //     the folding of multiple remote compatibility mode opens into
+    //     a single local open.
+    //
+
+    key = rfcb->ShiftedFid |
+            SmbGetAlignedUshort( &WorkContext->RequestHeader->Pid );
+
     lfcb = rfcb->Lfcb;
+
+    //
+    // See if the direct host IPX smart card can handle this read.  If so,
+    //  return immediately, and the card will call our restart routine at
+    //  SrvIpxSmartCardReadComplete
+    //
+    if( rfcb->PagedRfcb->IpxSmartCardContext ) {
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "SrvIpxFastRestartRead: calling SmartCard Read for context %X\n",
+                        WorkContext ));
+        }
+
+        WorkContext->Parameters.SmartCardRead.MdlReadComplete = lfcb->MdlReadComplete;
+        WorkContext->Parameters.SmartCardRead.DeviceObject = lfcb->DeviceObject;
+
+        if( SrvIpxSmartCard.Read( WorkContext->RequestBuffer->Buffer,
+                                  rfcb->PagedRfcb->IpxSmartCardContext,
+                                  key,
+                                  WorkContext ) == TRUE ) {
+
+            IF_DEBUG( SIPX ) {
+                KdPrint(( "  SrvIpxFastRestartRead:  SmartCard Read returns TRUE\n" ));
+            }
+
+            return;
+        }
+
+        IF_DEBUG( SIPX ) {
+            KdPrint(( "  SrvIpxFastRestartRead:  SmartCard Read returns FALSE\n" ));
+        }
+    }
 
     IF_SMB_DEBUG(READ_WRITE1) {
         KdPrint(( "Read request; FID 0x%lx, count %ld, offset %ld\n",
@@ -2727,17 +3232,6 @@ Return Value:
     //
 
     offset.QuadPart = SmbGetUlong( &request->Offset );
-
-    //
-    // Form the lock key using the FID and the PID.
-    //
-    // *** The FID must be included in the key in order to account for
-    //     the folding of multiple remote compatibility mode opens into
-    //     a single local open.
-    //
-
-    key = rfcb->ShiftedFid |
-            SmbGetAlignedUshort( &WorkContext->RequestHeader->Pid );
 
     //
     // Try the fast I/O path first.  If that fails, fall through to the
@@ -3115,4 +3609,113 @@ SrvFreeIpxConnectionInIndication(
     return;
 
 } // SrvFreeIpxConnectionInIndication
+
+VOID
+SrvIpxSmartCardReadComplete(
+    IN PVOID    Context,
+    IN PFILE_OBJECT FileObject,
+    IN PMDL Mdl OPTIONAL,
+    IN ULONG Length
+)
+/*++
 
+Routine Description:
+
+    Completes the Read performed by an optional smart card that handles
+    direct host IPX clients.
+
+Arguments:
+
+    Context - the WorkContext of the original request
+    FileObject - the file being read from
+    Mdl - the MDL chain obtained from the cache manager to satisfy the read
+    Length - the length of the read
+
+Return Value:
+
+    None
+
+--*/
+{
+    PWORK_CONTEXT workContext = Context;
+    PRFCB rfcb = workContext->Rfcb;
+    UCHAR command = workContext->NextCommand;
+    LARGE_INTEGER position;
+    KIRQL oldIrql;
+    NTSTATUS status;
+
+    ASSERT( workContext != NULL );
+    ASSERT( FileObject != NULL );
+    ASSERT( command == SMB_COM_READ || command == SMB_COM_READ_MPX );
+
+    //
+    // Figure out the file position
+    //
+    if( command == SMB_COM_READ ) {
+        PREQ_READ readParms = (PREQ_READ)workContext->RequestParameters;
+        position.QuadPart = SmbGetUlong( &readParms->Offset ) + Length;
+    } else {
+        PREQ_READ_MPX readMpxParms = (PREQ_READ_MPX)workContext->RequestParameters;
+        position.QuadPart = SmbGetUlong( &readMpxParms->Offset ) + Length;
+    }
+
+    IF_DEBUG( SIPX ) {
+        KdPrint(( "SrvIpxSmartCardReadComplete: %s %X"
+                  " Length %u, New Position %u\n",
+                  command==SMB_COM_READ ? "SMB_COM_READ" : "SMB_COM_READ_MPX",
+                  Context, Length, position.LowPart ));
+    }
+
+    //
+    // Update the position info in the rfcb
+    //
+    ACQUIRE_SPIN_LOCK( &rfcb->SpinLock, &oldIrql );
+    rfcb->CurrentPosition = position.LowPart;
+    RELEASE_SPIN_LOCK( &rfcb->SpinLock, oldIrql );
+
+    UPDATE_READ_STATS( workContext, Length );
+    UPDATE_STATISTICS( workContext, Length, command );
+
+    if( ARGUMENT_PRESENT( Mdl ) ) {
+
+        //
+        // Give the MDL chain back to the cache manager
+        //
+
+        if( workContext->Parameters.SmartCardRead.MdlReadComplete == NULL ||
+            workContext->Parameters.SmartCardRead.MdlReadComplete( FileObject,
+                Mdl,
+                workContext->Parameters.SmartCardRead.DeviceObject ) == FALSE ) {
+
+            //
+            // Fast path didn't work -- try the IRP way
+            //
+            position.QuadPart -= Length;
+
+            status = SrvIssueMdlCompleteRequest( workContext, NULL,
+                                                Mdl,
+                                                IRP_MJ_READ,
+                                                &position,
+                                                Length
+                                                );
+
+            if( !NT_SUCCESS( status ) ) {
+                //
+                // This is very bad, what else can we do?
+                //
+                SrvLogServiceFailure( SRV_SVC_MDL_COMPLETE, status );
+            }
+        }
+    }
+
+    //
+    // Finish the cleanup
+    //
+    if( command ==  SMB_COM_READ ) {
+        workContext->Irp->IoStatus.Status = STATUS_SUCCESS;
+        SrvFsdRestartSmbAtSendCompletion( NULL, workContext->Irp, workContext );
+
+    } else {
+        SrvFsdRestartSmbComplete( workContext );
+    }
+}

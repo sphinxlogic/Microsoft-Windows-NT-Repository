@@ -27,26 +27,13 @@ Revision History:
 
 
 --*/
-#include "dpmi32p.h"
+#include "precomp.h"
+#pragma hdrstop
+#include <softpc.h>
 #include <suballoc.h>
 #include <xmsexp.h>
+#include "memapi.h"
 
-//
-// Internal structure definitions
-//
-#pragma pack(1)
-typedef struct _DpmiMemInfo {
-    DWORD LargestFree;
-    DWORD MaxUnlocked;
-    DWORD MaxLocked;
-    DWORD AddressSpaceSize;
-    DWORD UnlockedPages;
-    DWORD FreePages;
-    DWORD PhysicalPages;
-    DWORD FreeAddressSpace;
-    DWORD PageFileSize;
-} DPMIMEMINFO, *PDPMIMEMINFO;
-#pragma pack()
 
 NTSTATUS
 DpmiAllocateVirtualMemory(
@@ -72,22 +59,30 @@ Return Value:
 --*/
 {
     BOOL Success;
+    NTSTATUS Status;
+
+    Status = VdmAllocateVirtualMemory((PULONG)Address, *Size, TRUE);
+
+    if (Status == STATUS_NOT_IMPLEMENTED) {
     
-    ASSERT(STATUS_SUCCESS == 0);
-    Success = SAAllocate(
-        ExtMemSA,
-        *Size,
-        (PULONG)Address
-        );
-    
-    //
-    // Convert boolean to NTSTATUS (sort of)
-    //
-    if (Success) {
-        return STATUS_SUCCESS;
-    } else {
-        return -1;
+        ASSERT(STATUS_SUCCESS == 0);
+        Success = SAAllocate(
+            ExtMemSA,
+            *Size,
+            (PULONG)Address
+            );
+        
+        //
+        // Convert boolean to NTSTATUS (sort of)
+        //
+        if (Success) {
+            Status = STATUS_SUCCESS;
+        } else {
+            Status = -1;
+        }
     }
+
+    return(Status);
 }
 
 NTSTATUS 
@@ -113,21 +108,29 @@ Return Value:
 --*/
 {
     BOOL Success;
-    
-    Success = SAFree(
-        ExtMemSA,
-        *Size,
-        (ULONG)*Address
-        );
-           
-    //
-    // Convert boolean to NTSTATUS (sort of)
-    //
-    if (Success) {
-        return STATUS_SUCCESS;
-    } else {
-        return -1;
+    NTSTATUS Status;
+
+    Status = VdmFreeVirtualMemory(*(PULONG)Address);
+
+    if (Status == STATUS_NOT_IMPLEMENTED) {
+
+        Success = SAFree(
+            ExtMemSA,
+            *Size,
+            (ULONG)*Address
+            );
+               
+        //
+        // Convert boolean to NTSTATUS (sort of)
+        //
+        if (Success) {
+            Status = STATUS_SUCCESS;
+        } else {
+            Status = -1;
+        }
     }
+
+    return(Status);
 }
 
 BOOL
@@ -156,24 +159,35 @@ Return Value:
     STATUS_SUCCESS if successfull
 --*/
 {
+    NTSTATUS Status;
     BOOL Success;
-    
-    Success = SAReallocate(
-        ExtMemSA,
-        OldSize,
-        (ULONG)OldAddress,
-        *NewSize,
-        (PULONG)NewAddress
-        );
+
+    Status = VdmReallocateVirtualMemory((ULONG)OldAddress,
+                                        (PULONG)NewAddress,
+                                        *NewSize);
+
+    if (Status == STATUS_NOT_IMPLEMENTED) {
+
+        Success = SAReallocate(
+            ExtMemSA,
+            OldSize,
+            (ULONG)OldAddress,
+            *NewSize,
+            (PULONG)NewAddress
+            );
         
-    //
-    // Convert boolean to NTSTATUS (sort of)
-    //
-    if (Success) {
-        return STATUS_SUCCESS;
-    } else {
-        return -1;
+        //
+        // Convert boolean to NTSTATUS (sort of)
+        //
+        if (Success) {
+            Status = STATUS_SUCCESS;
+        } else {
+            Status = -1;
+        }
     }
+
+    return NT_SUCCESS(Status);
+    
 }
 
 VOID
@@ -197,7 +211,9 @@ Return Value:
 --*/
 {
     PDPMIMEMINFO UNALIGNED MemInfo;
+    MEMORYSTATUS MemStatus;
     ULONG TotalFree, LargestFree;
+    NTSTATUS Status;
 
     //
     // Get a pointer to the return structure
@@ -208,7 +224,7 @@ Return Value:
         TRUE
         );
 
-    (CHAR *)MemInfo += getDI();
+    (CHAR *)MemInfo += (*GetDIRegister)();
 
     //
     // Initialize the structure
@@ -218,20 +234,44 @@ Return Value:
     //
     // Get the information on memory
     //
-    SAQueryFree(
-        ExtMemSA,
-        &TotalFree,
-        &LargestFree
-        );
+    Status = VdmQueryFreeVirtualMemory(
+                &TotalFree,
+                &LargestFree
+                );
+
+    if (Status == STATUS_NOT_IMPLEMENTED) {
+        SAQueryFree(
+            ExtMemSA,
+            &TotalFree,
+            &LargestFree
+            );
+    }
     
     //
-    // Return the information
+    // Return the information.
     //
-    MemInfo->LargestFree = LargestFree;
-    MemInfo->FreePages = TotalFree / 4096;
-    MemInfo->AddressSpaceSize = 1024 * 1024 * 16 / 4096;
-    MemInfo->PhysicalPages = 1024 * 1024 * 16 / 4096;
-    MemInfo->PageFileSize = 0;
-    MemInfo->FreeAddressSpace = MemInfo->FreePages;
+    // Filled in MaxUnlocked,MaxLocked,UnlockedPages fields in this structute.
+    // Director 4.0 get completlely confused if these fields are -1.
+    // MaxUnlocked is correct based on LargestFree. The other two are fake
+    // and match values on a real WFW machine. I have no way of making them
+    // any better than this at this point. Hell, it makes director happy.
+    //
+    // sudeepb 01-Mar-1995.
 
+    MemInfo->LargestFree = LargestFree;
+    MemInfo->MaxUnlocked = LargestFree/4096;
+    MemInfo->MaxLocked = 0xb61;
+    MemInfo->AddressSpaceSize = 1024 * 1024 * 16 / 4096;
+    MemInfo->UnlockedPages = 0xb68;
+    MemInfo->FreePages = TotalFree / 4096;
+    MemInfo->PhysicalPages = 1024 * 1024 * 16 / 4096;
+    MemInfo->FreeAddressSpace = MemInfo->FreePages;
+    
+    //
+    // Get the information on the page file
+    //
+    MemStatus.dwLength = sizeof(MEMORYSTATUS);
+    GlobalMemoryStatus(&MemStatus);
+
+    MemInfo->PageFileSize = MemStatus.dwTotalPageFile / 4096;
 }

@@ -26,118 +26,14 @@
 
 class node_skl;
 
-
-class XLAT_SIZE_INFO
-	{
-	unsigned short		MemAlign;
-	unsigned short		WireAlign;
-	unsigned short		StackAlign;
-	unsigned long		MemSize;
-	unsigned long		WireSize;
-	unsigned long		MemOffset;
-	unsigned long		WireOffset;
-	unsigned short		ZeePee;
-
-public:
-						XLAT_SIZE_INFO()
-							{
-							ClearSizes();
-							}
-
-						XLAT_SIZE_INFO(	XLAT_SIZE_INFO * pCtxt )
-							{
-							ClearSizes();
-							ZeePee = pCtxt->ZeePee;
-							}
-
-						
-	void				ClearSizes()
-							{
-							MemAlign		= 1;
-							MemSize			= 0;
-							MemOffset		= 0;
-							WireAlign		= 1;
-							WireSize		= 0;
-							WireOffset		= 0;
-							}
-						
-	unsigned short	&	GetMemAlign()
-							{
-							return MemAlign;
-							}
-
-	unsigned long	&	GetMemSize()
-							{
-							return MemSize;
-							}
-
-	unsigned long	&	GetMemOffset()
-							{
-							return MemOffset;
-							}
-
-	unsigned short	&	GetWireAlign()
-							{
-							return WireAlign;
-							}
-
-	ALIGNMENT_PROPERTY	GetWireAlignProperty()
-							{
-							return CvtAlignToAlignProperty(WireAlign);
-							}
-
-	unsigned long	&	GetWireSize()
-							{
-							return WireSize;
-							}
-
-	unsigned long	&	GetWireOffset()
-							{
-							return WireOffset;
-							}
-
-	unsigned short	&	GetZeePee()
-							{
-							return ZeePee;
-							}
-
- 	BOOL				SameOffsets()
-							{
-							return ( MemOffset == WireOffset );
-							}
-
- 	//
-	// size etc calculation routines
-	//
-
-	void				ReturnSize( XLAT_SIZE_INFO & pCtxt );
-	void				ReturnUnionSize( XLAT_SIZE_INFO & pCtxt );
-	void				BaseTypeSizes( node_skl * pNode );
-	void				EnumTypeSizes( node_skl * pNode, BOOL Enum32 );
-	void				ContextHandleSizes( node_skl * pNode );
-	void				ArraySize( node_skl * pNode, FIELD_ATTR_INFO * pFA );
-	void				GetOffset( XLAT_SIZE_INFO & pInfo );
-	void				AlignOffset();
-	void				AlignConfOffset();
-	void				AdjustForZP();
-	void				AdjustSize();
-	void				AdjustConfSize();
-	void				AdjustTotalSize();
-	void				FixMemSizes( node_skl * pNode );
-	void				IgnoredPtrSizes();
-	void				ReturnOffset( XLAT_SIZE_INFO & pInfo )
-							{
-							GetOffset( pInfo );
-							}
-		
-	};
-
 class XLAT_CTXT;
 
 enum _IL_ANCESTOR_FLAGS
 	{
 	IL_IN_MULTIDIM_CONF		=	0x00000001,	// parent is multidimension conf arr
 	IL_IN_MULTIDIM_VAR		=	0x00000002,	// parent is multidimension var arr
+    IL_IN_LIBRARY           =   0x00000004, // node is contained within a type library
+    IL_IN_LOCAL             =   0x00000008, // node is contained within a local proc
 	};
 
 

@@ -36,7 +36,7 @@ interface CDropTarget : public IDropTarget
 
     CDropTarget(CSimpleDoc FAR * pDoc)
        {
-        OutputDebugString("In IDT's constructor\r\n");
+        TestDebugOut("In IDT's constructor\r\n");
         m_pDoc = pDoc;
         m_fCanDropCopy = FALSE;
         m_fCanDropLink = FALSE;
@@ -48,7 +48,7 @@ interface CDropTarget : public IDropTarget
 
     ~CDropTarget()
        {
-        OutputDebugString("In IDT's destructor\r\n");
+        TestDebugOut("In IDT's destructor\r\n");
        } ;
 
     STDMETHODIMP QueryInterface (REFIID riid, LPVOID FAR* ppv);
@@ -74,4 +74,3 @@ private:
 };
 
 #endif  // _IDT_H_
-

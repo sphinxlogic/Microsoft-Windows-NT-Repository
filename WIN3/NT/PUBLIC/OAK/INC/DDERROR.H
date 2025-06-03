@@ -1,6 +1,6 @@
-/*++ BUILD Version: 0001     Increment this if a change has global effects
+/*++ BUILD Version: 0000     Increment this if a change has global effects
 
-Copyright (c) 1990  Microsoft Corporation
+Copyright (c) 1990-1996  Microsoft Corporation
 
 Module Name:
 

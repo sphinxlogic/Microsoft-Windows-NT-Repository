@@ -46,7 +46,7 @@ Revision History:
 //
 // Default debug mode
 //
-ULONG Ne2000DebugFlag=NE2000_DEBUG_LOG;
+ULONG Ne2000DebugFlag = NE2000_DEBUG_LOG;
 
 //
 // Debug tracing defintions
@@ -61,9 +61,10 @@ Ne2000Log(UCHAR c) {
 
     Ne2000LogBuffer[Ne2000LogLoc++] = c;
 
-    Ne2000LogBuffer[(Ne2000LogLoc + 4) % NE2000_LOG_SIZE] = '\0';
+	Ne2000LogBuffer[(Ne2000LogLoc + 4) % NE2000_LOG_SIZE] = '\0';
 
-    if (Ne2000LogLoc >= NE2000_LOG_SIZE) Ne2000LogLoc = 0;
+	if (Ne2000LogLoc >= NE2000_LOG_SIZE)
+		Ne2000LogLoc = 0;
 }
 
 #endif
@@ -315,6 +316,7 @@ Return Value:
     NDIS_STRING MaxMulticastListStr = MAX_MULTICAST_LIST;
     NDIS_STRING NetworkAddressStr = NETWORK_ADDRESS;
     NDIS_STRING BusTypeStr = NDIS_STRING_CONST("BusType");
+    NDIS_STRING CardTypeStr = NDIS_STRING_CONST("CardType");
 
     //
     // TRUE if there is a configuration error.
@@ -451,6 +453,19 @@ Return Value:
     }
 
     //
+    //  Read in the card type.
+    //
+    NdisReadConfiguration(
+            &Status,
+            &ReturnedValue,
+            ConfigHandle,
+            &CardTypeStr,
+            NdisParameterHexInteger
+            );
+    if (Status == NDIS_STATUS_SUCCESS)
+        Adapter->CardType = (UINT)ReturnedValue->ParameterData.IntegerData;
+
+    //
     // Read net address
     //
     NdisReadNetworkAddress(
@@ -466,8 +481,8 @@ Return Value:
         // Save the address that should be used.
         //
         NdisMoveMemory(
-                NetAddress,
                 Adapter->StationAddress,
+                NetAddress,
                 NE2000_LENGTH_OF_ADDRESS
                 );
 
@@ -595,28 +610,30 @@ Return Value:
             }
             switch ((McaData.PosData1 & MC_IRQ_MASK)>>5) {
                 case 0x00:
-                    InterruptNumber = 4;
+                    InterruptNumber = 3;
                     break;
                 case 0x01:
-                    InterruptNumber = 5;
+                    InterruptNumber = 4;
                     break;
                 case 0x02:
-                    InterruptNumber = 9;
+                    InterruptNumber = 5;
                     break;
                 case 0x03:
-                    InterruptNumber = 10;
+                    InterruptNumber = 9;
                     break;
                 case 0x04:
-                    InterruptNumber = 11;
+                    InterruptNumber = 10;
                     break;
                 case 0x05:
-                    InterruptNumber = 12;
+                    InterruptNumber = 11;
                     break;
                 case 0x06:
+                    InterruptNumber = 12;
+                    break;
+                case 0x07:
                     InterruptNumber = 15;
                     break;
             }
-
         }
 
         //
@@ -696,6 +713,53 @@ Return Value:
 
         }
 
+        //
+        //  If the adapter is a pcmcia card then get the memory window
+        //  address for later use.
+        //
+        if (NE2000_PCMCIA == Adapter->CardType)
+        {
+            NDIS_STRING AttributeMemoryAddrStr =
+                            NDIS_STRING_CONST("PCCARDAttributeMemoryAddress");
+            NDIS_STRING AttributeMemorySizeStr =
+                            NDIS_STRING_CONST("PCCARDAttributeMemorySize");
+
+            //
+            //  Read the attribute memory address.
+            //
+            Adapter->AttributeMemoryAddress = 0xd4000;
+
+            NdisReadConfiguration(
+                &Status,
+                &ReturnedValue,
+                ConfigHandle,
+                &AttributeMemoryAddrStr,
+                NdisParameterHexInteger
+            );
+            if (NDIS_STATUS_SUCCESS == Status)
+            {
+                Adapter->AttributeMemoryAddress =
+                            (ULONG)ReturnedValue->ParameterData.IntegerData;
+            }
+
+            //
+            //  Read the size of the attribute memory range.
+            //
+            Adapter->AttributeMemorySize = 0x1000;
+
+            NdisReadConfiguration(
+                &Status,
+                &ReturnedValue,
+                ConfigHandle,
+                &AttributeMemorySizeStr,
+                NdisParameterHexInteger
+            );
+            if (NDIS_STATUS_SUCCESS == Status)
+            {
+                Adapter->AttributeMemorySize =
+                            (ULONG)ReturnedValue->ParameterData.IntegerData;
+            }
+        }
     }
 
     //
@@ -712,7 +776,8 @@ Return Value:
     if (Status == NDIS_STATUS_SUCCESS) {
 
         MaxMulticastList = ReturnedValue->ParameterData.IntegerData;
-
+		if (ReturnedValue->ParameterData.IntegerData <= DEFAULT_MULTICASTLISTMAX)
+	        MaxMulticastList = ReturnedValue->ParameterData.IntegerData;
     }
 
 
@@ -728,12 +793,22 @@ RegisterAdapter:
     //
     NdisCloseConfiguration(ConfigHandle);
 
-    IF_LOUD( DbgPrint( "Registering adapter # buffers %ld, "
-        "I/O base addr 0x%lx, interrupt number %ld, "
-        "max multicast %ld\n",
-        DEFAULT_NUMBUFFERS, IoBaseAddr,
+    IF_LOUD( DbgPrint(
+        "Registering adapter # buffers %ld\n"
+        "Card type: 0x%x\n"
+        "I/O base addr 0x%lx\n"
+        "interrupt number %ld\n"
+        "max multicast %ld\nattribute memory address 0x%X\n"
+        "attribute memory size 0x%X\n"
+        "CardType: %d\n",
+        DEFAULT_NUMBUFFERS,
+        Adapter->CardType,
+        IoBaseAddr,
         InterruptNumber,
-        DEFAULT_MULTICASTLISTMAX );)
+        DEFAULT_MULTICASTLISTMAX,
+        Adapter->AttributeMemoryAddress,
+        Adapter->AttributeMemorySize,
+        Adapter->CardType );)
 
 
 
@@ -823,22 +898,17 @@ Return Value:
     // check that NumBuffers <= MAX_XMIT_BUFS
     //
 
-    if (Adapter->NumBuffers > MAX_XMIT_BUFS) {
-
-        status = NDIS_STATUS_RESOURCES;
-        goto fail1;
-
-    }
+    if (Adapter->NumBuffers > MAX_XMIT_BUFS)
+        return(NDIS_STATUS_RESOURCES);
 
     //
     // Check for a configuration error
     //
-    if (ConfigError) {
-
+    if (ConfigError)
+    {
         //
         // Log Error and exit.
         //
-
         NdisWriteErrorLogEntry(
             Adapter->MiniportAdapterHandle,
             NDIS_ERROR_CODE_UNSUPPORTED_CONFIGURATION,
@@ -846,8 +916,7 @@ Return Value:
             ConfigErrorValue
             );
 
-        goto fail1;
-
+        return(NDIS_STATUS_FAILURE);
     }
 
     //
@@ -857,8 +926,8 @@ Return Value:
         Adapter->MiniportAdapterHandle,
         (NDIS_HANDLE)Adapter,
         FALSE,
-        NdisInterfaceIsa
-        );
+        Adapter->BusType
+    );
 
     //
     // Register the port addresses.
@@ -868,48 +937,46 @@ Return Value:
                  Adapter->MiniportAdapterHandle,
                  (ULONG)Adapter->IoBaseAddr,
                  0x20
-                 );
+             );
 
+    if (status != NDIS_STATUS_SUCCESS)
+        return(status);
 
-    if (status != NDIS_STATUS_SUCCESS) {
-        goto fail1;
-    }
-
-
-    //
-    // Check that the IoBaseAddress seems to be correct.
-    //
-    IF_VERY_LOUD( DbgPrint("Checking Parameters\n"); )
-
-    if (!CardCheckParameters(Adapter)) {
-
+    if (NE2000_ISA == Adapter->CardType)
+    {
         //
-        // The card does not seem to be there, fail silently.
+        // Check that the IoBaseAddress seems to be correct.
         //
+        IF_VERY_LOUD( DbgPrint("Checking Parameters\n"); )
 
-        IF_VERY_LOUD( DbgPrint("  -- Failed\n"); )
+        if (!CardCheckParameters(Adapter))
+        {
+            //
+            // The card does not seem to be there, fail silently.
+            //
+            IF_VERY_LOUD( DbgPrint("  -- Failed\n"); )
 
-        NdisWriteErrorLogEntry(
-            Adapter->MiniportAdapterHandle,
-            NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
-            0
+            NdisWriteErrorLogEntry(
+                Adapter->MiniportAdapterHandle,
+                NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
+                0
             );
 
-        status = NDIS_STATUS_ADAPTER_NOT_FOUND;
+            status = NDIS_STATUS_ADAPTER_NOT_FOUND;
 
-        goto fail2;
+            goto fail2;
+        }
 
+        IF_VERY_LOUD( DbgPrint("  -- Success\n"); )
     }
-
-    IF_VERY_LOUD( DbgPrint("  -- Success\n"); )
 
     //
     // Initialize the card.
     //
     IF_VERY_LOUD( DbgPrint("CardInitialize\n"); )
 
-    if (!CardInitialize(Adapter)) {
-
+    if (!CardInitialize(Adapter))
+    {
         //
         // Card seems to have failed.
         //
@@ -920,16 +987,14 @@ Return Value:
             Adapter->MiniportAdapterHandle,
             NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
             0
-            );
+        );
 
         status = NDIS_STATUS_ADAPTER_NOT_FOUND;
 
         goto fail2;
-
     }
 
     IF_VERY_LOUD( DbgPrint("  -- Success\n"); )
-
 
     //
     //
@@ -943,7 +1008,6 @@ Return Value:
     // containing the MSB only).
     //
     Adapter->NicXmitStart = (UCHAR)(((ULONG)Adapter->XmitStart) >> 8);
-
 
     //
     // The start of the receive space.
@@ -962,11 +1026,7 @@ Return Value:
     Adapter->PageStop = Adapter->XmitStart + Adapter->RamSize;
     Adapter->NicPageStop = Adapter->NicXmitStart + (UCHAR)(Adapter->RamSize >> 8);
 
-
-
     ASSERT(Adapter->PageStop <= (Adapter->RamBase + Adapter->RamSize));
-
-
 
     IF_LOUD( DbgPrint("Xmit Start (0x%x, 0x%x) : Rcv Start (0x%x, 0x%x) : Rcv End (0x%x, 0x%x)\n",
               Adapter->XmitStart,
@@ -992,14 +1052,26 @@ Return Value:
     //
     // Initialize the transmit buffer states.
     //
-    for (i=0; i<Adapter->NumBuffers; i++) {
+    for (i = 0; i < Adapter->NumBuffers; i++)
         Adapter->BufferStatus[i] = EMPTY;
-    }
 
     //
     // Read the Ethernet address off of the PROM.
     //
-    CardReadEthernetAddress(Adapter);
+    if (!CardReadEthernetAddress(Adapter))
+    {
+        IF_LOUD(DbgPrint("Could not read the ethernet address\n");)
+
+        NdisWriteErrorLogEntry(
+            Adapter->MiniportAdapterHandle,
+            NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
+            0
+            );
+
+        status = NDIS_STATUS_ADAPTER_NOT_FOUND;
+
+        goto fail2;
+    }
 
     //
     // Now initialize the NIC and Gate Array registers.
@@ -1019,8 +1091,8 @@ Return Value:
 
     IF_VERY_LOUD( DbgPrint("Setup\n"); )
 
-    if (!CardSetup(Adapter)) {
-
+    if (!CardSetup(Adapter))
+    {
         //
         // The NIC could not be written to.
         //
@@ -1029,7 +1101,7 @@ Return Value:
             Adapter->MiniportAdapterHandle,
             NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
             0
-            );
+        );
 
         IF_VERY_LOUD( DbgPrint("  -- Failed\n"); )
 
@@ -1051,15 +1123,15 @@ Return Value:
                  FALSE,
                  FALSE,
                  NdisInterruptLatched
-                 );
+             );
 
-    if (status != NDIS_STATUS_SUCCESS) {
-
+    if (status != NDIS_STATUS_SUCCESS)
+    {
         NdisWriteErrorLogEntry(
             Adapter->MiniportAdapterHandle,
             NDIS_ERROR_CODE_INTERRUPT_CONNECT,
             0
-            );
+        );
 
         goto fail3;
     }
@@ -1076,7 +1148,7 @@ Return Value:
     //
     IF_LOUD( DbgPrint(" [ Ne2000 ] : OK\n");)
 
-    return NDIS_STATUS_SUCCESS;
+    return(NDIS_STATUS_SUCCESS);
 
     //
     // Code to unwind what has already been set up when a part of
@@ -1092,18 +1164,17 @@ fail3:
     // Take us out of the AdapterQueue.
     //
 
-    if (Ne2000MiniportBlock.AdapterQueue == Adapter) {
-
+    if (Ne2000MiniportBlock.AdapterQueue == Adapter)
+    {
         Ne2000MiniportBlock.AdapterQueue = Adapter->NextAdapter;
-
-    } else {
-
+    }
+    else
+    {
         PNE2000_ADAPTER TmpAdapter = Ne2000MiniportBlock.AdapterQueue;
 
-        while (TmpAdapter->NextAdapter != Adapter) {
-
+        while (TmpAdapter->NextAdapter != Adapter)
+        {
             TmpAdapter = TmpAdapter->NextAdapter;
-
         }
 
         TmpAdapter->NextAdapter = TmpAdapter->NextAdapter->NextAdapter;
@@ -1113,21 +1184,18 @@ fail3:
     // We already enabled the interrupt on the card, so
     // turn it off.
     //
-    NdisRawWritePortUchar(
-               Adapter->IoPAddr+NIC_COMMAND,
-               CR_STOP
-              );
+    NdisRawWritePortUchar(Adapter->IoPAddr+NIC_COMMAND, CR_STOP);
 
 fail2:
 
-    NdisMDeregisterIoPortRange(Adapter->MiniportAdapterHandle,
-                               (ULONG)Adapter->IoBaseAddr,
-                               0x20,
-                               (PVOID)Adapter->IoPAddr
-                               );
-fail1:
+    NdisMDeregisterIoPortRange(
+        Adapter->MiniportAdapterHandle,
+        (ULONG)Adapter->IoBaseAddr,
+        0x20,
+        (PVOID)Adapter->IoPAddr
+    );
 
-    return status;
+    return(status);
 }
 
 
@@ -1510,8 +1578,8 @@ Return Value:
 
         MoveSource = (PVOID)(GenericArray);
         MoveBytes = sizeof(Adapter->PermanentAddress);
-        break;
 
+        break;
 
     case OID_802_3_CURRENT_ADDRESS:
 
@@ -1521,6 +1589,7 @@ Return Value:
 
         MoveSource = (PVOID)(GenericArray);
         MoveBytes = sizeof(Adapter->StationAddress);
+
         break;
 
     case OID_802_3_MAXIMUM_LIST_SIZE:
@@ -1695,7 +1764,6 @@ Return Value:
         //
         // Verify length
         //
-
         if ((OidLength % NE2000_LENGTH_OF_ADDRESS) != 0){
 
             StatusToReturn = NDIS_STATUS_INVALID_LENGTH;
@@ -1711,9 +1779,30 @@ Return Value:
         // Set the new list on the adapter.
         //
         NdisMoveMemory(Adapter->Addresses, InfoBuffer, OidLength);
-        StatusToReturn = DispatchSetMulticastAddressList(Adapter);
-        break;
 
+        //
+        //  If we are currently receiving all multicast or
+        //  we are promsicuous then we DO NOT call this, or
+        //  it will reset thoes settings.
+        //
+        if
+        (
+            !(Adapter->PacketFilter & (NDIS_PACKET_TYPE_ALL_MULTICAST |
+                                       NDIS_PACKET_TYPE_PROMISCUOUS))
+        )
+        {
+            StatusToReturn = DispatchSetMulticastAddressList(Adapter);
+        }
+        else
+        {
+            //
+            //  Our list of multicast addresses is kept by the
+            //  wrapper.
+            //
+            StatusToReturn = NDIS_STATUS_SUCCESS;
+        }
+
+        break;
 
     case OID_GEN_CURRENT_PACKET_FILTER:
 
@@ -1848,84 +1937,80 @@ Notes:
 
 
 {
-
     //
     // See what has to be put on the card.
     //
 
-    if (Adapter->PacketFilter &
-        (NDIS_PACKET_TYPE_ALL_MULTICAST | NDIS_PACKET_TYPE_PROMISCUOUS)) {
-
+    if
+    (
+        Adapter->PacketFilter & (NDIS_PACKET_TYPE_ALL_MULTICAST |
+                                 NDIS_PACKET_TYPE_PROMISCUOUS)
+    )
+    {
         //
         // need "all multicast" now.
         //
         CardSetAllMulticast(Adapter);    // fills it with 1's
-
-    } else {
-
+    }
+    else
+    {
         //
         // No longer need "all multicast".
         //
-
         DispatchSetMulticastAddressList(Adapter);
-
     }
-
 
     //
     // The multicast bit in the RCR should be on if ANY protocol wants
     // multicast/all multicast packets (or is promiscuous).
     //
-
-    if (Adapter->PacketFilter & (NDIS_PACKET_TYPE_ALL_MULTICAST |
+    if
+    (
+        Adapter->PacketFilter & (NDIS_PACKET_TYPE_ALL_MULTICAST |
                                  NDIS_PACKET_TYPE_MULTICAST |
-                                 NDIS_PACKET_TYPE_PROMISCUOUS)) {
-
+                                 NDIS_PACKET_TYPE_PROMISCUOUS)
+    )
+    {
         Adapter->NicReceiveConfig |= RCR_MULTICAST;
-
-    } else {
-
-        Adapter->NicReceiveConfig &= ~RCR_MULTICAST;
-
     }
-
+    else
+    {
+        Adapter->NicReceiveConfig &= ~RCR_MULTICAST;
+    }
 
     //
     // The promiscuous physical bit in the RCR should be on if ANY
     // protocol wants to be promiscuous.
     //
-
-    if (Adapter->PacketFilter & NDIS_PACKET_TYPE_PROMISCUOUS) {
-
+    if (Adapter->PacketFilter & NDIS_PACKET_TYPE_PROMISCUOUS)
+    {
         Adapter->NicReceiveConfig |= RCR_ALL_PHYS;
-
-    } else {
-
-        Adapter->NicReceiveConfig &= ~RCR_ALL_PHYS;
-
     }
-
+    else
+    {
+        Adapter->NicReceiveConfig &= ~RCR_ALL_PHYS;
+    }
 
     //
     // The broadcast bit in the RCR should be on if ANY protocol wants
     // broadcast packets (or is promiscuous).
     //
-
-    if (Adapter->PacketFilter &
-        (NDIS_PACKET_TYPE_BROADCAST | NDIS_PACKET_TYPE_PROMISCUOUS)) {
-
+    if
+    (
+        Adapter->PacketFilter & (NDIS_PACKET_TYPE_BROADCAST |
+                                 NDIS_PACKET_TYPE_PROMISCUOUS)
+    )
+    {
         Adapter->NicReceiveConfig |= RCR_BROADCAST;
-
-    } else {
-
-        Adapter->NicReceiveConfig &= ~RCR_BROADCAST;
-
     }
-
+    else
+    {
+        Adapter->NicReceiveConfig &= ~RCR_BROADCAST;
+    }
 
     CardSetReceiveConfig(Adapter);
 
-    return NDIS_STATUS_SUCCESS;
+    return(NDIS_STATUS_SUCCESS);
 }
 
 
@@ -1959,7 +2044,6 @@ Implementation Note:
 
 --*/
 {
-
     //
     // Update the local copy of the NIC multicast regs and copy them to the NIC
     //

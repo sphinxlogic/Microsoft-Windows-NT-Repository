@@ -7,6 +7,7 @@
  *      History:
  *          10-Aug-1993 bens    Initial version
  *          09-Feb-1994 bens    Add pszLine to ERROR structure
+ *          03-May-1994 bens    Add err.code and err.pv fields
  */
 
 #ifndef INCLUDED_ERROR
@@ -20,6 +21,8 @@ typedef struct {
     char   *pszFile;            // Name of directives file being processed
     int     iLine;              // Line number in directives file, if >0
     char   *pszLine;            // Text of current line being processed
+    int     code;               // Detailed error code
+    void   *pv;                 // Additional error information
 } ERROR;    /* err */
 typedef ERROR *PERROR;  /* perr */
 
@@ -80,4 +83,3 @@ BOOL ErrIsError(PERROR perr);
 
 
 #endif // !INCLUDED_ERROR
-

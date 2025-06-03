@@ -451,6 +451,15 @@ SerialPutChar(
     IN UCHAR CharToPut
     );
 
+BOOLEAN
+SerialGetStats(
+    IN PVOID Context
+    );
+
+BOOLEAN
+SerialClearStats(
+    IN PVOID Context
+    );
 
 typedef struct _SERIAL_UPDATE_CHAR {
     PSERIAL_DEVICE_EXTENSION Extension;

@@ -31,10 +31,66 @@ Revision History:
 
 #if defined(ALLOC_PRAGMA)
 
+#pragma alloc_text(INIT, KeInitSystem)
 #pragma alloc_text(INIT, KiInitSystem)
 #pragma alloc_text(INIT, KiComputeReciprocal)
 
 #endif
+
+BOOLEAN
+KeInitSystem (
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This function initializes executive structures implemented by the
+    kernel.
+
+    N.B. This function is only called during phase 1 initialization.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    A value of TRUE is returned if initialization is successful. Otherwise,
+    a value of FALSE is returned.
+
+--*/
+
+{
+
+    BOOLEAN Initialized;
+
+    //
+    // Initialize the executive objects.
+    //
+
+#if 0
+
+    if ((Initialized = KiChannelInitialization()) == FALSE) {
+        KdPrint(("Kernel: Channel initialization failed\n"));
+    }
+
+#endif
+
+#if defined(i386)
+
+    //
+    // Perform platform dependent initialization
+    //
+
+    Initialized = KiInitMachineDependent();
+
+#endif
+
+
+    return Initialized;
+}
 
 VOID
 KiInitSystem (
@@ -62,14 +118,6 @@ Return Value:
     ULONG Index;
 
     //
-    // Initialize active matrix.
-    //
-
-    for (Index = 0; Index < MAXIMUM_PRIORITY; Index += 1) {
-        KiActiveMatrix[Index] = 0;
-    }
-
-    //
     // Initialize dispatcher ready queue listheads.
     //
 
@@ -92,10 +140,17 @@ Return Value:
                     (PKDEFERRED_ROUTINE)KiTimerExpiration, NIL);
 
     //
-    // Initialize the profile listhead.
+    // Initialize the profile listhead and profile locks
     //
 
+    KeInitializeSpinLock(&KiProfileLock);
     InitializeListHead(&KiProfileListHead);
+
+    //
+    // Initialize the active profile source listhead.
+    //
+
+    InitializeListHead(&KiProfileSourceListHead);
 
     //
     // Initialize the timer table, the timer completion listhead, and the
@@ -121,6 +176,27 @@ Return Value:
     InitializeListHead(&KiStackInSwapListHead);
     InitializeListHead(&KiWaitInListHead);
     InitializeListHead(&KiWaitOutListHead);
+
+    //
+    // Initialize the system service descriptor table.
+    //
+
+    KeServiceDescriptorTable[0].Base = &KiServiceTable[0];
+    KeServiceDescriptorTable[0].Count = NULL;
+    KeServiceDescriptorTable[0].Limit = KiServiceLimit;
+    KeServiceDescriptorTable[0].Number = &KiArgumentTable[0];
+    for (Index = 1; Index < NUMBER_SERVICE_TABLES; Index += 1) {
+        KeServiceDescriptorTable[Index].Limit = 0;
+    }
+
+    //
+    // Copy the system service descriptor table to the shadow table
+    // which is used to record the Win32 system services.
+    //
+
+    RtlCopyMemory(KeServiceDescriptorTableShadow,
+                  KeServiceDescriptorTable,
+                  sizeof(KeServiceDescriptorTable));
 
     //
     // Initialize call performance data structures.

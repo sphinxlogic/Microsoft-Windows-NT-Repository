@@ -28,7 +28,9 @@ Revision History:
 
 #include <ntdddlc.h>
 
+#undef APIENTRY
 #define APIENTRY
+
 #include <dlcapi.h>
 #include <dlcio.h>
 #include <llcapi.h>
@@ -40,5 +42,7 @@ Revision History:
 #include "dlcreg.h"
 
 #include <memory.h>         // prototype for inline memcpy
+
+#include "llc.h"
 
 #endif  // DLC_INCLUDED

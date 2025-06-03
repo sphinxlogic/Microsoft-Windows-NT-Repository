@@ -14,6 +14,7 @@
 
 #include "precomp.h"
 #pragma hdrstop
+#include "memapi.h"
 
 MODNAME(wkman.c);
 
@@ -22,14 +23,42 @@ LPVOID FASTCALL WK32VirtualAlloc(PVDMFRAME pFrame)
 {
     PVIRTUALALLOC16 parg16;
     LPVOID lpBaseAddress;
+#ifndef i386
+    NTSTATUS Status;
+#endif
 
     GETARGPTR(pFrame, sizeof(VIRTUALALLOC16), parg16);
 
-    lpBaseAddress = VirtualAlloc((LPVOID)parg16->lpvAddress,
-                                    parg16->cbSize,
-                                    parg16->fdwAllocationType,
-                                    parg16->fdwProtect);
 
+#ifndef i386
+    Status = VdmAllocateVirtualMemory((PULONG)&lpBaseAddress,
+                                      parg16->cbSize,
+                                      TRUE);
+
+    if (!NT_SUCCESS(Status)) {
+
+        if (Status == STATUS_NOT_IMPLEMENTED) {
+#endif // i386
+
+            lpBaseAddress = VirtualAlloc((LPVOID)parg16->lpvAddress,
+                                            parg16->cbSize,
+                                            parg16->fdwAllocationType,
+                                            parg16->fdwProtect);
+
+
+#ifndef i386
+        } else {
+
+            lpBaseAddress = NULL;
+        }
+
+    }
+#endif // i386
+
+#ifdef i386
+//BUGBUG we need to either get this working on the new emulator, or
+//       fix the problem the "other" way, by letting the app fault and
+//       zap in just enough 'WOW's to avoid the problem.
     if (lpBaseAddress) {
         // Virtual alloc Zero's the allocated memory. We un-zero it by
         // filling in with ' WOW'. This is required for Lotus Improv.
@@ -40,10 +69,21 @@ LPVOID FASTCALL WK32VirtualAlloc(PVDMFRAME pFrame)
         // So we decided that this a convenient place to initialize
         // the memory to a non-zero value.
         //                                           - Nanduri
+        //
+        // Dbase 5.0 for windows erroneously loops through (past its valid
+        // data) its data buffer till it finds a '\0' at some location -
+        // Most of the time the loop terminates before it reaches the segment
+        // limit. However if the block that was allocated is a 'fresh' block' ie
+        // the block is filled with ' WOW' it never finds a NULL in the buffer
+        // and thus loops past the segment limit to its death
+        //
+        // So we initialize the buffer with '\0WOW' instead of ' WOW'.
+        //                                            - Nanduri
 
         WOW32ASSERT((parg16->cbSize % 4) == 0);      // DWORD aligned?
-        RtlFillMemoryUlong(lpBaseAddress, parg16->cbSize, (ULONG)' WOW');
+        RtlFillMemoryUlong(lpBaseAddress, parg16->cbSize, (ULONG)'\0WOW');
     }
+#endif
 
     FREEARGPTR(parg16);
     return (lpBaseAddress);
@@ -53,22 +93,40 @@ BOOL FASTCALL WK32VirtualFree(PVDMFRAME pFrame)
 {
     PVIRTUALFREE16 parg16;
     BOOL fResult;
+#ifndef i386
+    NTSTATUS Status;
+#endif
 
     GETARGPTR(pFrame, sizeof(VIRTUALFREE16), parg16);
 
-    fResult = VirtualFree((LPVOID)parg16->lpvAddress,
-                             parg16->cbSize,
-                             parg16->fdwFreeType);
+#ifndef i386
+    Status = VdmFreeVirtualMemory((ULONG)parg16->lpvAddress);
+    fResult = NT_SUCCESS(Status);
+
+    if (Status == STATUS_NOT_IMPLEMENTED) {
+#endif // i386
+
+        fResult = VirtualFree((LPVOID)parg16->lpvAddress,
+                                 parg16->cbSize,
+                                 parg16->fdwFreeType);
+
+
+#ifndef i386
+    }
+#endif // i386
 
     FREEARGPTR(parg16);
     return (fResult);
 }
 
 
+#if 0
 BOOL FASTCALL WK32VirtualLock(PVDMFRAME pFrame)
 {
     PVIRTUALLOCK16 parg16;
     BOOL fResult;
+
+    WOW32ASSERT(FALSE);     //BUGBUG we don't appear to ever use this function
 
     GETARGPTR(pFrame, sizeof(VIRTUALLOCK16), parg16);
 
@@ -84,6 +142,8 @@ BOOL FASTCALL WK32VirtualUnLock(PVDMFRAME pFrame)
     PVIRTUALUNLOCK16 parg16;
     BOOL fResult;
 
+    WOW32ASSERT(FALSE);     //BUGBUG we don't appear to ever use this function
+
     GETARGPTR(pFrame, sizeof(VIRTUALUNLOCK16), parg16);
 
     fResult = VirtualUnlock((LPVOID)parg16->lpvAddress,
@@ -92,6 +152,7 @@ BOOL FASTCALL WK32VirtualUnLock(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     return (fResult);
 }
+#endif
 
 
 VOID FASTCALL WK32GlobalMemoryStatus(PVDMFRAME pFrame)

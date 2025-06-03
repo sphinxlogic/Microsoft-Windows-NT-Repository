@@ -24,9 +24,7 @@ extern "C"
 {
 
 #include <windows.h>
-#define WIN32
 #include <port1632.h>
-#undef  WIN32
 
 
 #include <winspool.h>

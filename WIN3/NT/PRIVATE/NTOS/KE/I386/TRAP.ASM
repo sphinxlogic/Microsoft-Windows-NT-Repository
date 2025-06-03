@@ -40,13 +40,12 @@ FAST_V86_TRAP   equ      1
 
 
         page ,132
+        extrn   _KeGdiFlushUserBatch:DWORD
         extrn   _KeTickCount:DWORD
         extrn   _ExpTickCountMultiplier:DWORD
         extrn   _KiDoubleFaultTSS:dword
         extrn   _KiNMITSS:dword
-        extrn   _KiArgumentTable:dword
-        extrn   _KiServiceTable:dword
-        extrn   _KiServiceLimit:dword
+        extrn   _KeServiceDescriptorTable:dword
         extrn   _KiHardwareTrigger:dword
         extrn   _KiBugCheckData:dword
         extrn   _KdpOweBreakpoint:dword
@@ -55,6 +54,7 @@ FAST_V86_TRAP   equ      1
         EXTRNP  KfRaiseIrql,1,IMPORT,FASTCALL
         EXTRNP  KfLowerIrql,1,IMPORT,FASTCALL
         EXTRNP  _KeGetCurrentIrql,0,IMPORT
+        EXTRNP  _PsConvertToGuiThread,0
         EXTRNP  _ZwUnmapViewOfSection,2
 
         EXTRNP  _HalHandleNMI,1,IMPORT
@@ -81,19 +81,18 @@ endif
         extrn   _KiFreezeFlag:dword
         EXTRNP  _Ki386CheckDivideByZeroTrap,1
         EXTRNP  _Ki386CheckDelayedNpxTrap,2
-if DBG
-        extrn   _KeServiceCountTable:dword
-endif
         extrn   SwapContext:near
         EXTRNP  _VdmDispatchIRQ13, 1
 
-        EXTRNP  _KiSetServerWaitClientEvent,3
         extrn   VdmDispatchBop:near
         extrn   _KeI386VdmIoplAllowed:dword
         extrn   _KeI386VirtualIntExtensions:dword
         EXTRNP  _NTFastDOSIO,2
         EXTRNP  _NtSetLdtEntries,6
         extrn   OpcodeIndex:byte
+
+; JAPAN - SUPPORT Intel CPU/Non PC/AT machine
+        extrn   _VdmFixedStateLinear:dword
 
 ;
 ; Equates for exceptions which cause system fatal error
@@ -118,8 +117,6 @@ EXCEPTION_ALIGNMENT_CHECK       EQU     011H
 
 ;
 ; Exception flags
-;
-; BUGBUG Set unknown access to read access violation flag
 ;
 
 EXCEPT_UNKNOWN_ACCESS           EQU     0H
@@ -150,6 +147,12 @@ DR6_BS_MASK                     EQU     4000H
 
 EFLAGS_TF_BIT                   EQU     100h
 EFLAGS_OF_BIT                   EQU     4000H
+
+;
+; The mask of selecot's table indicator (ldt or gdt)
+;
+
+TABLE_INDICATOR_MASK            EQU     4
 
 ;
 ; Opcode for Pop SegReg and iret instructions
@@ -206,15 +209,14 @@ D_TASK                  EQU     D_PRESENT+D_DPL_0+D_GATE+GATE_TYPE_TASK
 
 if DBG
 ;
-; BUGBUG - embedded enlish messages won't fly for NLS!
+; NOTE - embedded enlish messages won't fly for NLS! (OK for debug code only)
 ;
 
 BadInterruptMessage db 0ah,7,7,'!!! Unexpected Interrupt %02lx !!!',0ah,00
 
 KiNMIMessage        db 0ah,'Non-Maskable-Interrupt (NMI) EIP = %08lx',0ah,00
 
-        public  KiAbiosTrapMessage
-KiAbiosTrapMessage  db 0ah,'Exception inside of ABIOS',0ah,00
+Ki16BitStackTrapMessage  db 0ah,'Exception inside of 16bit stack',0ah,00
 endif
 
 ;++
@@ -317,12 +319,8 @@ IDTEntry        _KiTrap04, D_INT332             ; 4: INTO
 IDTEntry        _KiTrap05, D_INT032             ; 5: BOUND/Print Screen
 IDTEntry        _KiTrap06, D_INT032             ; 6: Invalid Opcode
 IDTEntry        _KiTrap07, D_INT032             ; 7: NPX Not Available
-
-; BUGBUG shielint Double Exception should be TASK gate.
 IDTEntry        _KiTrap08, D_INT032             ; 8: Double Exception
-
 IDTEntry        _KiTrap09, D_INT032             ; 9: NPX Segment Overrun
-; BUGBUG shielint Double Exception should be TASK gate.
 IDTEntry        _KiTrap0A, D_INT032             ; A: Invalid TSS
 IDTEntry        _KiTrap0B, D_INT032             ; B: Segment Not Present
 IDTEntry        _KiTrap0C, D_INT032             ; C: Stack Fault
@@ -356,7 +354,7 @@ IDTEntry        _KiTrap0F, D_INT032             ;1F: Reserved for APIC
 IDTEntry        0, 0                            ;invalid IDT entry
         endm
 IDTEntry        _KiGetTickCount,  D_INT332          ;2A: KiGetTickCount service
-IDTEntry        _KiSetHighWaitLowThread,  D_INT332  ;2B: KiSetHighWaitLowThread service
+IDTEntry        _KiCallbackReturn,  D_INT332        ;2B: KiCallbackReturn
 IDTEntry        _KiSetLowWaitHighThread,  D_INT332  ;2C: KiSetLowWaitHighThread service
 IDTEntry        _KiDebugService,  D_INT332          ;2D: debugger calls
 IDTEntry        _KiSystemService, D_INT332          ;2E: system service calls
@@ -380,6 +378,8 @@ _KiUnexpectedEntrySize          dd  _KiUnexpectedInterrupt1 - _KiUnexpectedInter
 ;
 
 PrefixTable     label   byte
+        db      0f2h                    ; rep prefix
+        db      0f3h                    ; rep ins/outs prefix
         db      67h                     ; addr prefix
         db      0f0h                    ; lock prefix
         db      66h                     ; operand prefix
@@ -390,21 +390,21 @@ PrefixTable     label   byte
         db      65h                     ; gs
         db      36h                     ; ss
 
-PREFIX_REPEAT_COUNT     EQU     9       ; Prefix table length
+PREFIX_REPEAT_COUNT     EQU     11      ; Prefix table length
 
 ;
 ; defines all the possible IO privileged IO instructions
 ;
 
 IOInstructionTable      label byte
-        db      0fah                    ; cli
-        db      0fdh                    ; sti
+;       db      0fah                    ; cli
+;       db      0fdh                    ; sti
         db      0e4h, 0e5h, 0ech, 0edh  ; IN
         db      6ch, 6dh                ; INS
         db      0e6h, 0e7h, 0eeh, 0efh  ; OUT
         db      6eh, 6fh                ; OUTS
 
-IO_INSTRUCTION_TABLE_LENGTH     EQU     14
+IO_INSTRUCTION_TABLE_LENGTH     EQU     12
 
 if FAST_V86_TRAP
 
@@ -560,7 +560,8 @@ endif
 @@:     test    _KeI386VdmIoplAllowed, 0ffffffffh
         jnz     short a
 
-        test    ds:[FIXED_NTVDMSTATE_LINEAR], VDM_VIRTUAL_INTERRUPTS
+        mov     ebx, _VdmFixedStateLinear    ; load ntvdm address
+        test    ds:[ebx], VDM_VIRTUAL_INTERRUPTS ; check interrupt
         jnz     short a
 
         and     edx, NOT EFLAGS_INTERRUPT_MASK
@@ -727,7 +728,14 @@ local   V86Exit, V86Exit_1, IntnnExit
         sub     esp, TsErrCode
         mov     [esp].TsEdx, edx
         mov     [esp].TsEcx, ecx
+	mov	[esp].TsEbx, ebx
         mov     [esp].TsEax, eax
+
+        public  _V86CriticalInstruction
+_V86CriticalInstruction:
+	mov     ebx, FIXED_NTVDMSTATE_LINEAR_PC_AT
+        ; above ntvdm address may changed in KeI386VdmInitialize for PC-98
+
 ifdef NT_UP
         mov     byte ptr SS:[P0PCRADDRESS][PcVdmAlert], 0dh
 else
@@ -752,7 +760,7 @@ endif
 
 ALIGN 4
 V86Pushf:
-        mov     eax, ss:[FIXED_NTVDMSTATE_LINEAR]
+        mov     eax, ss:[ebx]                 ; get ntvdm address
         mov     edx, dword ptr [esp].TsEflags ; (edx) = Hardware Eflags
         and     eax,VDM_VIRTUAL_INTERRUPTS OR VDM_VIRTUAL_AC OR VDM_VIRTUAL_NT
         or      eax,EFLAGS_IOPL_MASK
@@ -777,7 +785,7 @@ V86Pushf:
         cmp     cx, (CLI_OP SHL 8) OR PUSHF_OP ; Is there a cli following pushf?
         jnz     short @f
 
-        MPLOCK and dword ptr ss:[FIXED_NTVDMSTATE_LINEAR],NOT VDM_VIRTUAL_INTERRUPTS
+        MPLOCK and dword ptr ss:[ebx],NOT VDM_VIRTUAL_INTERRUPTS
         inc     dword ptr [esp].TsEip ; skip cli
 @@:
         mov     word ptr [esp].TsHardwareEsp, dx ; update client esp
@@ -785,7 +793,8 @@ V86Exit:
         inc     dword ptr [esp].TsEip          ; skip pushf
 V86Exit_1:
         mov     ecx, [esp].TsEcx
-        mov     eax, [esp].TsEax
+        mov     ebx, [esp].TsEbx
+	mov     eax, [esp].TsEax
         mov     edx, [esp].TsEdx
         add     esp, TsEip
 ifdef NT_UP
@@ -797,38 +806,59 @@ endif
 
 ALIGN 4
 V86Cli:
-        MPLOCK and dword ptr ss:[FIXED_NTVDMSTATE_LINEAR],NOT VDM_VIRTUAL_INTERRUPTS
+        MPLOCK and dword ptr ss:[ebx],NOT VDM_VIRTUAL_INTERRUPTS
         jmp     short V86Exit
 
 ALIGN 4
 V86Sti:
-        test    ss:[FIXED_NTVDMSTATE_LINEAR], VDM_INTERRUPT_PENDING
+        test    ss:[ebx], VDM_INTERRUPT_PENDING
                                           ; Can we handle it in fast way?
         jnz     V86PassThrough            ; if nz, no, we need to dispatch int
 
-        MPLOCK or dword ptr ss:[FIXED_NTVDMSTATE_LINEAR], EFLAGS_INTERRUPT_MASK
+	;; Pentium CPU traps sti if
+	;; 1). client's TF is ON or 2). VIP is ON
+	;; we must set EFLAGS_VIF in this case.
+	test	dword ptr _KeI386VirtualIntExtensions, V86_VIRTUAL_INT_EXTENSIONS
+	jz	short v86_sti_01
+	or	dword ptr [esp].TsEflags, EFLAGS_VIF
+v86_sti_01:
+        MPLOCK or dword ptr ss:[ebx], EFLAGS_INTERRUPT_MASK
         jmp     short V86Exit
 
 ALIGN 4
 V86Popf:
-        test    ss:[FIXED_NTVDMSTATE_LINEAR], VDM_INTERRUPT_PENDING
+        test    ss:[ebx], VDM_INTERRUPT_PENDING
                                           ; Can we handle it in fast way?
         jnz     V86PassThrough
 
-        xor     edx, edx
-        mov     dx, word ptr [esp].TsHardwareSegSs ; (edx)= hardware SS
-        xor     eax, eax
+	xor	edx, edx
+	mov	dx, word ptr [esp].TsHardwareSegSs ; (edx)= hardware SS
+	xor	eax, eax
         shl     edx,4
-        mov     ax, word ptr [esp].TsHardwareEsp ; (ecx)= Hardware sp
+	mov	ax, word ptr [esp].TsHardwareEsp ; (ecx)= Hardware sp
         mov     edx, ss:[edx + eax]       ; (edx) = Client flags
         add     ax, 2                     ; (ax) = Client sp
         and     edx, 0FFFFH AND (NOT EFLAGS_IOPL_MASK)
-        MPLOCK and ss:[FIXED_NTVDMSTATE_LINEAR],NOT (EFLAGS_INTERRUPT_MASK OR EFLAGS_ALIGN_CHECK OR EFLAGS_NT_MASK)
+        MPLOCK and ss:[ebx],NOT (EFLAGS_INTERRUPT_MASK OR EFLAGS_ALIGN_CHECK OR EFLAGS_NT_MASK)
         mov     ecx, edx
         and     edx, (EFLAGS_INTERRUPT_MASK OR EFLAGS_ALIGN_CHECK OR EFLAGS_NT_MASK)
         and     ecx, NOT EFLAGS_NT_MASK
-        MPLOCK or ss:[FIXED_NTVDMSTATE_LINEAR],edx
-        or      ecx, (EFLAGS_INTERRUPT_MASK OR EFLAGS_V86_MASK)
+        MPLOCK or ss:[ebx],edx
+	or	ecx, (EFLAGS_INTERRUPT_MASK OR EFLAGS_V86_MASK)
+
+	;; Pentium CPU traps popf if
+	;; 1)client's TF is ON or 2) VIP is on and the client's IF is ON
+	;; We have to propagate IF to VIF if virtual interrupt extension is
+	;; enabled.
+	test	dword ptr _KeI386VirtualIntExtensions, V86_VIRTUAL_INT_EXTENSIONS
+	jz	v86_popf_01
+	and	ecx, NOT EFLAGS_VIF		;clear it first
+	and	edx, EFLAGS_INTERRUPT_MASK	;isolate and move IF to VIF
+	rol	edx, 10 			;position
+.errnz	(EFLAGS_INTERRUPT_MASK SHL 10) - EFLAGS_VIF
+	or	ecx, edx			;propagate it!
+
+v86_popf_01:
         mov     [esp].TsEflags,ecx
         mov     [esp].TsHardwareEsp, eax  ; update client esp
         jmp     V86Exit
@@ -850,7 +880,7 @@ V86Intnn:
         test    ss:_KeI386VdmIoplAllowed,1
         jnz     short @f
 
-        mov     edx, ss:[FIXED_NTVDMSTATE_LINEAR]
+        mov     edx, ss:[ebx]              ; set the contents
         and     ecx, NOT EFLAGS_INTERRUPT_MASK
         and     edx,VDM_VIRTUAL_INTERRUPTS OR VDM_VIRTUAL_AC
         or      ecx, edx
@@ -860,7 +890,7 @@ V86Intnn:
         mov     edx,  [esp].TsEip
         mov     word ptr ss:[eax+2], cx     ; push cs
         add     dx, 2
-        MPLOCK and ss:[FIXED_NTVDMSTATE_LINEAR], NOT VDM_VIRTUAL_INTERRUPTS
+        MPLOCK and ss:[ebx], NOT VDM_VIRTUAL_INTERRUPTS
         mov     word ptr ss:[eax], dx       ; push ip (skip int nn)
         and     [esp].TsEflags, NOT (EFLAGS_NT_MASK OR EFLAGS_TF_MASK)
 IntnnExit:
@@ -884,24 +914,38 @@ IntnnExit:
 
 ALIGN 4
 V86Iret:
-        test    ss:[FIXED_NTVDMSTATE_LINEAR], VDM_INTERRUPT_PENDING
+        test    ss:[ebx], VDM_INTERRUPT_PENDING
         jnz     V86PassThrough
 
-        xor     ecx, ecx
-        mov     cx,word ptr [esp].TsHardwareSegSS
-        xor     edx, edx
+	xor	ecx, ecx
+	mov	cx,word ptr [esp].TsHardwareSegSS
+	xor	edx, edx
         shl     ecx,4
-        mov     dx,word ptr [esp].TsHardwareEsp
+	mov	dx,word ptr [esp].TsHardwareEsp
         add     ecx,edx                            ; (ecx) -> User stack
-        mov     dx,word ptr ss:[ecx+4]             ; get flag value
+	mov	dx,word ptr ss:[ecx+4]		   ; get flag value
         mov     ecx, ss:[ecx]                      ; (ecx) = ret cs:ip
 
         and     edx, NOT (EFLAGS_IOPL_MASK OR EFLAGS_NT_MASK)
         mov     eax,edx
-        or      edx, (EFLAGS_V86_MASK OR EFLAGS_INTERRUPT_MASK)
-        and     eax, EFLAGS_INTERRUPT_MASK
-        MPLOCK and ss:[FIXED_NTVDMSTATE_LINEAR],NOT VDM_VIRTUAL_INTERRUPTS
-        MPLOCK or ss:[FIXED_NTVDMSTATE_LINEAR],eax
+	or	edx, (EFLAGS_V86_MASK OR EFLAGS_INTERRUPT_MASK)
+	and	eax, EFLAGS_INTERRUPT_MASK
+        MPLOCK and ss:[ebx],NOT VDM_VIRTUAL_INTERRUPTS
+        MPLOCK or ss:[ebx],eax
+
+	;; Pentium CPU traps iret if
+	;; 1)client's TF is ON or 2) VIP is on and the client's IF is ON
+	;; We have to propagate IF to VIF if virtual interrupt extension is
+	;; enabled
+	test	dword ptr _KeI386VirtualIntExtensions, V86_VIRTUAL_INT_EXTENSIONS
+	jz	v86_iret_01
+	and	edx, NOT EFLAGS_VIF		;eax must contain ONLY
+						;INTERRUPT_MASK!!!!
+.errnz	(EFLAGS_INTERRUPT_MASK SHL 10) - EFLAGS_VIF
+	rol	eax, 10
+	or	edx, eax
+
+v86_iret_01:
         mov     [esp].TsEFlags,edx                 ; update flags in trap frame
         mov     eax, ecx
         shr     ecx, 16
@@ -926,6 +970,7 @@ endif
         jne     V86Exit_1
 
         mov     ecx, [esp].TsEcx
+	mov     ebx, [esp].TsEbx
         mov     eax, [esp].TsEax
         mov     edx, [esp].TsEdx
         add     esp, TsEip
@@ -950,6 +995,7 @@ V86Trap10Recovery:
 ;;        public  V86TrapDRecovery
 V86TrapDRecovery:
         mov     ecx, [esp].TsEcx
+	mov     ebx, [esp].TsEbx
         mov     eax, [esp].TsEax
         mov     edx, [esp].TsEdx
         add     esp, TsErrCode
@@ -971,10 +1017,9 @@ else
         mov     byte ptr PCR[PcVdmAlert], 0
 endif
         ;
-        ; eax, ecx, edx have been saved already
+        ; eax, ebx, ecx, edx have been saved already
         ; Note, we don't want to destroy ecx, and edx
         ;
-        mov     [esp].TsEbx, ebx
         mov     [esp].TsEbp, ebp
         mov     [esp].TsEsi, esi
         mov     [esp].TsEdi, edi
@@ -1045,7 +1090,6 @@ endm
 
 DISPATCH_USER_APC   macro   TFrame, ReturnCurrentEax
 local   a, b
-; BUGBUG kenr 20mar92 - fix this jump to be shorter
         test    dword ptr [TFrame]+TsEflags, EFLAGS_V86_MASK ; is previous mode v86?
         jnz     short b                             ; if nz, yes, go check for APC
         test    byte ptr [TFrame]+TsSegCs,MODE_MASK ; is previous mode user mode?
@@ -1102,13 +1146,13 @@ endm
 
 if DBG
         page ,132
-        subttl "Processing Exception occurred in ABIOS code"
+        subttl "Processing Exception occurred in a 16 bit stack"
 ;++
 ;
 ; Routine Description:
 ;
-;    This routine is called after an exception being detected
-;    in ABIOS ROM code.  The system will switch 16 stack to 32 bit
+;    This routine is called after an exception being detected during
+;    a 16 bit stack.  The system will switch 16 stack to 32 bit
 ;    stack and bugcheck.
 ;
 ; Arguments:
@@ -1122,10 +1166,11 @@ if DBG
 ;--
 
 align dword
-        public  _KiAbiosException
-_KiAbiosException proc
+        public  _Ki16BitStackException
+_Ki16BitStackException proc
 
-        cli                             ; Interrupts are off
+.FPO (2, 0, 0, 0, 0, FPO_TRAPFRAME)
+
         push    ss
         push    esp
         mov     eax, esp
@@ -1133,15 +1178,20 @@ _KiAbiosException proc
         mov     esp, eax
         mov     eax, KGDT_R0_DATA
         mov     ss, ax
+
+        lea     ebp, [esp+8]
+        cld
+        SET_DEBUG_DATA
+
 if DBG
-        push    offset FLAT:KiAbiosTrapMessage
+        push    offset FLAT:Ki16BitStackTrapMessage
         call    _dbgPrint
         add     esp, 4
 endif
         stdCall _KeBugCheck, <0F000FFFFh> ; Never return
         ret
 
-_KiAbiosException endp
+_Ki16BitStackException endp
 
 endif
 
@@ -1201,9 +1251,29 @@ Kss_ExceptionHandler:
         stdCall   _KeBugCheck, <KMODE_EXCEPTION_NOT_HANDLED>
 endif
 
+;
+; The specified system service number is not within range. Attempt to
+; convert the thread to a GUI thread if the specified system service is
+; not a base service and the thread has not already been converted to a
+; GUI thread.
+;
+
 Kss_ErrorHandler:
-        mov     eax,STATUS_INVALID_SYSTEM_SERVICE   ; (eax) = return status
-        jmp     _KiServiceExit                      ; do trap exit processing
+        cmp     ecx, SERVICE_TABLE_TEST ; test if GUI service
+        jne     short Kss_LimitError    ; if ne, not GUI service
+        push    edx                     ; save argument registers
+        push    ebx                     ;
+        stdcall _PsConvertToGuiThread   ; attempt to convert to GUI thread
+        or      eax, eax                ; check if service was successful
+        pop     eax                     ; restore argument registers
+        pop     edx                     ;
+        mov     ebp, esp                ; reset trap frame address
+        mov     [esi]+ThTrapFrame, ebp  ; save address of trap frame
+        jz      _KiSystemServiceRepeat  ; if eq, successful conversion
+
+Kss_LimitError:                         ;
+        mov     eax, STATUS_INVALID_SYSTEM_SERVICE ; set return status
+        jmp     kss70                   ;
 
         ENTER_DR_ASSIST kss_a, kss_t,NoAbiosAssist,NoV86Assist
 
@@ -1215,17 +1285,51 @@ align 16
         PUBLIC  _KiSystemService
 _KiSystemService        proc
 
-        ENTER_SYSCALL   kss_a, kss_t            ; Set up trap frame
-        sti
+        ENTER_SYSCALL   kss_a, kss_t    ; set up trap frame and save state
+
 ;
-; (eax) = Service #
+; (eax) = Service number
 ; (edx) = Callers stack pointer
+; (esi) = Current thread address
+;
+; All other registers have been saved and are free.
 ;
 ; Check if the service number within valid range
 ;
 
-        cmp     eax, _KiServiceLimit    ; Is it a valid service
-        ja      Kss_ErrorHandler        ; number. no, go report error
+_KiSystemServiceRepeat:
+        mov     edi, eax                ; copy system service number
+        shr     edi, SERVICE_TABLE_SHIFT ; isolate service table number
+        and     edi, SERVICE_TABLE_MASK ;
+        mov     ecx, edi                ; save service table number
+        add     edi, [esi]+ThServiceTable ; compute service descriptor address
+        mov     ebx, eax                ; save system service number
+        and     eax, SERVICE_NUMBER_MASK ; isolate service table offset
+
+;
+; If the specified system service number is not within range, then attempt
+; to convert the thread to a GUI thread and retry the service dispatch.
+;
+
+        cmp     eax, [edi]+SdLimit      ; check if valid service
+        jae     Kss_ErrorHandler        ; if ae, try to convert to GUI thread
+
+;
+; If the service is a GUI service and the GDI user batch queue is not empty,
+; then call the appropriate service to flush the user batch.
+;
+
+        cmp     ecx, SERVICE_TABLE_TEST ; test if GUI service
+        jne     short Kss40             ; if ne, not GUI service
+        mov     ecx, PCR[PcTeb]         ; get current thread TEB address
+        xor     ebx, ebx                ; get number of batched GDI calls
+        or      ebx, [ecx]+TbGdiBatchCount ;
+        jz      short Kss40             ; if z, no batched calls
+        push    edx                     ; save address of user arguments
+        push    eax                     ; save service number
+        call    [_KeGdiFlushUserBatch]  ; flush GDI user batch
+        pop     eax                     ; restore service number
+        pop     edx                     ; restore address of user arguments
 
 ;
 ; The arguments are passed on the stack. Therefore they always need to get
@@ -1235,46 +1339,42 @@ _KiSystemService        proc
 ; argument is very rare.
 ;
 
-        inc     dword ptr PCR[PcPrcbData+PbSystemCalls] ; system calls
+Kss40:  inc     dword ptr PCR[PcPrcbData+PbSystemCalls] ; system calls
+
 if DBG
-        mov     ebx, _KeServiceCountTable   ; add 1 to this service routine's
-        inc     dword ptr [ebx+eax*4]       ; count
-        mov     ebx, PCR[PcPrcbData+PbCurrentThread] ; (ebx)->current thread
-        push    dword ptr [ebx]+ThApcStateIndex             ; (ebp-4)
-        push    dword ptr [ebx]+ThKernelApcDisable          ; (ebp-8)
+        mov     ecx, [edi]+SdCount      ; get count table address
+        jecxz   Kss45                   ; if zero, table not specified
+        inc     dword ptr [ecx+eax*4]   ; increment service count
+Kss45:  push    dword ptr [esi]+ThApcStateIndex ; (ebp-4)
+        push    dword ptr [esi]+ThKernelApcDisable ; (ebp-8)
+
+        ;
+        ; work around errata 19 which can in some cases cause an
+        ; extra dword to be moved in the rep movsd below. In the DBG
+        ; build, this will usually case a bugcheck 1 where ebp-8 is no longer
+        ; the kernel apc disable count
+        ;
+
+        sub     esp,4
+
 FPOFRAME 2, 0
 endif
 
-        xor     ecx, ecx
         mov     esi, edx                ; (esi)->User arguments
-        mov     cl, byte ptr _KiArgumentTable[eax] ; (ecx) = argument size
-        mov     ebx, _KiServiceTable[eax*4] ; (ebx)-> service routine
+        mov     ebx, [edi]+SdNumber     ; get argument table address
+        xor     ecx, ecx
+        mov     cl, byte ptr [ebx+eax]  ; (ecx) = argument size
+        mov     edi, [edi]+SdBase       ; get service table address
+        mov     ebx, [edi+eax*4]        ; (ebx)-> service routine
         sub     esp, ecx                ; allocate space for arguments
         shr     ecx, 2                  ; (ecx) = number of argument DWORDs
         mov     edi, esp                ; (es:edi)->location to receive 1st arg
 
-if 0
-;
-; The following code is our assembly version of TRY-EXCEPT statement
-;
-
-        mov     edx, PCR[PcExceptionList]
-        mov     eax, offset FLAT:kss_ExceptionHandler
-        push    ebp                     ; pass trapframe to exception handler
-        push    eax                     ; set up exception registration record
-        push    edx                     ; save old exception list head
-        mov     PCR[PcExceptionList], esp
-endif
 KiSystemServiceCopyArguments:
         rep     movsd                   ; copy the arguments to top of stack.
                                         ; Since we usually copy more than 3
                                         ; arguments.  rep movsd is faster than
                                         ; mov instructions.
-if 0
-        mov     eax, [esp]              ; Get original except handler
-        add     esp, 12                 ; clear stack
-        mov     PCR[PcExceptionList], eax ; exception list.
-endif
 if DBG
 ;
 ; Check for user mode call into system at elevated IRQL.
@@ -1293,10 +1393,6 @@ endif
 ;
 kssdoit:
         call    ebx                     ; call system service
-
-;
-; BUGBUG - bryanwi 13aug90 - Do we want this check in a production system?
-;
 
 kss60:
 if DBG
@@ -1331,6 +1427,14 @@ endif
 ;
 
         mov     esp, ebp                ; deallocate stack space for arguments
+
+;
+; Restore old trap frame address from the current trap frame.
+;
+
+kss70:  mov     ecx, PCR[PcPrcbData+PbCurrentThread] ; get current thread address
+        mov     edx, [ebp].TsEdx        ; restore previous trap frame address
+        mov     [ecx].ThTrapFrame, edx  ;
 
 ;
 ;   System service's private version of KiExceptionExit
@@ -1474,35 +1578,125 @@ ktgc20:
 
 _KiGetTickCount endp
 
+        page ,132
+        subttl  "Return from User Mode Callback"
+;++
 ;
-; Fast path Nt/Zw SetHighWaitLowThread
+; NTSTATUS
+; NtCallbackReturn (
+;    IN PVOID OutputBuffer OPTIONAL,
+;    IN ULONG OutputLength,
+;    IN NTSTATUS Status
+;    )
 ;
+; Routine Description:
+;
+;    This function returns from a user mode callout to the kernel mode
+;    caller of the user mode callback function.
+;
+;    N.B. This service uses a nonstandard calling sequence.
+;
+; Arguments:
+;
+;    OutputBuffer (ecx) - Supplies an optional pointer to an output buffer.
+;
+;    OutputLength (edx) - Supplies the length of the output buffer.
+;
+;    Status (esp + 4) - Supplies the status value returned to the caller of
+;        the callback function.
+;
+; Return Value:
+;
+;    If the callback return cannot be executed, then an error status is
+;    returned. Otherwise, the specified callback status is returned to
+;    the caller of the callback function.
+;
+;    N.B. This function returns to the function that called out to user
+;         mode is a callout is currently active.
+;
+;--
 
-        ENTER_DR_ASSIST kshwl_a, kshwl_t,NoAbiosAssist,NoV86Assist
 align 16
-        PUBLIC  _KiSetHighWaitLowThread
-_KiSetHighWaitLowThread proc
-        ENTER_SYSCALL   kshwl_a, kshwl_t            ; Set up trap frame
-        sti
-        mov     eax,PCR[PcPrcbData+PbCurrentThread]
-        mov     eax,dword ptr [eax+EtEventPair]
-        or      eax,eax
-        jz      kshwl1
-        mov     ecx,eax                         ; compute address of events
-        add     eax,EpEventHigh                 ; server event
-        add     ecx,EpEventLow                  ; client event
-        stdCall   _KiSetServerWaitClientEvent, <eax, ecx, 1>
-        xor     eax,eax
-kshwl0:
-        cli                                     ; disable interrupts
-        DISPATCH_USER_APC   ebp, ReturnCurrentEax
+        PUBLIC  _KiCallbackReturn
+_KiCallbackReturn proc
 
-        EXIT_ALL    NoRestoreSegs, NoRestoreVolatile
+        push    fs                      ; save segment register
+        push    ecx                     ; save buffer address and return status
+        push    eax                     ;
+        mov     ecx,KGDT_R0_PCR         ; set PCR segment number
+        mov     fs,cx                   ;
+        mov     eax,PCR[PcPrcbData + PbCurrentThread] ; get current thread address
+        mov     ecx,[eax].ThCallbackStack ; get callback stack address
+        or      ecx,ecx                 ; check if callback active
+        jz      short _KiCbExit         ; if z, no callback active
+        mov     edi,[esp] + 4           ; set output buffer address
+        mov     esi,edx                 ; set output buffer length
+        mov     ebp,[esp] + 0           ; set return status
 
-kshwl1:
-        mov     eax,STATUS_NO_EVENT_PAIR
-        jmp     kshwl0
-_KiSetHighWaitLowThread endp
+;
+; N.B. The following code is entered with:
+;
+;    eax - The address of the current thread.
+;    ecx - The callback stack address.
+;    edi - The output buffer address.
+;    esi - The output buffer length.
+;    ebp - The callback service status.
+;
+; Restore the trap frame and callback stack addresses,
+; store the output buffer address and length, and set the service status.
+;
+
+        cld                             ; clear the direction flag
+        mov     ebx,[ecx].CuOutBf       ; get address to store output buffer
+        mov     [ebx],edi               ; store output buffer address
+        mov     ebx,[ecx].CuOutLn       ; get address to store output length
+        mov     [ebx],esi               ; store output buffer length
+        mov     esi,PCR[PcInitialStack] ; get source NPX save area address
+        mov     esp,ecx                 ; trim stack back to callback frame
+        pop     ecx                     ; get previous initial stack address
+        mov     [eax].ThInitialStack,ecx ; restore initial stack address
+        sub     ecx,NPX_FRAME_LENGTH    ; compute destination NPX save area
+        mov     edx,[esi].FpControlWord ; copy NPX state to previous frame
+        mov     [ecx].FpControlWord,edx ;
+        mov     edx,[esi].FpStatusWord  ;
+        mov     [ecx].FpStatusWord,edx  ;
+        mov     edx,[esi].FpTagWord     ;
+        mov     [ecx].FpTagWord,edx     ;
+        mov     edx,[esi].FpCr0NpxState ;
+        mov     [ecx].FpCr0NpxState,edx ;
+        mov     edx,PCR[PcTss]          ; get address of task switch segment
+        mov     PCR[PcInitialStack],ecx ; restore stack check base address
+        sub     ecx,TsV86Gs - TsHardwareSegSs ; bias for missing V86 fields
+        mov     [edx].TssEsp0,ecx       ; restore kernel entry stack address
+        sti                             ; enable interrupts
+        pop     [eax].ThTrapFrame       ; restore current trap frame address
+        pop     [eax].ThCallbackStack   ; restore callback stack address
+        mov     eax,ebp                 ; set callback service status
+
+;
+; Restore nonvolatile registers, clean call parameters from stack, and
+; return to callback caller.
+;
+
+        pop     edi                     ; restore nonvolatile registers
+        pop     esi                     ;
+        pop     ebx                     ;
+        pop     ebp                     ;
+        pop     edx                     ; save return address
+        add     esp,8                   ; remove parameters from stack
+        jmp     edx                     ; return to callback caller
+
+;
+; Restore segment register, set systerm service status, and return.
+;
+
+_KiCbExit:                              ;
+        add     esp, 2 * 4              ; remove saved registers from stack
+        pop     fs                      ; restore segment register
+        mov     eax,STATUS_NO_CALLBACK_ACTIVE ; set service status
+        iretd                           ;
+
+_KiCallbackReturn endp
 
 ;
 ; Fast path Nt/Zw SetLowWaitHighThread
@@ -1512,28 +1706,19 @@ _KiSetHighWaitLowThread endp
 align 16
         PUBLIC  _KiSetLowWaitHighThread
 _KiSetLowWaitHighThread proc
-        ENTER_SYSCALL   kslwh_a, kslwh_t            ; Set up trap frame
-        sti
-        mov     eax,PCR[PcPrcbData+PbCurrentThread]
-        mov     eax,dword ptr [eax+EtEventPair]
-        or      eax,eax
-        jz      kslwh1
 
-        mov     ecx,eax                         ; compute address of events
-        add     eax,EpEventLow                  ; server event
-        add     ecx,EpEventHigh                 ; client event
-        stdCall   _KiSetServerWaitClientEvent, <eax, ecx, 1>
-kslwh0:
-        cli                                     ; disable interrupts
+        ENTER_SYSCALL   kslwh_a, kslwh_t ; Set up trap frame
+
+        mov     eax,STATUS_NO_EVENT_PAIR ; set service status
+        mov     edx,[ebp].TsEdx         ; restore old trap frame address
+        mov     [esi].ThTrapFrame,edx   ;
+        cli                             ; disable interrupts
+
         DISPATCH_USER_APC   ebp, ReturnCurrentEax
 
         EXIT_ALL    NoRestoreSegs, NoRestoreVolatile
 
-kslwh1:
-        mov     eax,STATUS_NO_EVENT_PAIR
-        jmp     kslwh0
 _KiSetLowWaitHighThread endp
-
 
         page ,132
         subttl  "Common Trap Exit"
@@ -1626,9 +1811,6 @@ stdENDP Kei386EoiHelper
 ;
 ;--
 
-;
-; BUGBUG - This should generate a log entry instead of an DbgPrint call
-;
         ENTER_DR_ASSIST kui_a, kui_t
 
         public  _KiUnexpectedInterruptTail
@@ -1761,15 +1943,13 @@ DISPATCH_EXCEPTION macro ExceptCode, ExceptFlags, ExceptRecord, ExceptAddress,\
 ; set up arguments and call _KiDispatchException
 
         mov     ecx, esp                ; (ecx)->exception record
+        mov     eax,[ebp]+TsSegCs
 
         test    dword ptr [ebp]+TsEFlags,EFLAGS_V86_MASK
         jz      de10
 
         mov     eax,0FFFFh
-        jmp     de20
-
-de10:   mov     eax,[ebp]+TsSegCs
-de20:   and     eax,MODE_MASK
+de10:   and     eax,MODE_MASK
 
 ; 1 - first chance TRUE
 ; eax - PreviousMode
@@ -1822,10 +2002,26 @@ de20:   and     eax,MODE_MASK
 ;    None.
 ;
 ;--
+CommonDispatchException0Args:
+        xor     ecx, ecx                ; zero arguments
+        call    CommonDispatchException
+
+CommonDispatchException1Arg0d:
+        xor     edx, edx                ; zero edx
+CommonDispatchException1Arg:
+        mov     ecx, 1                  ; one argument
+        call    CommonDispatchException ; there is no return
+
+CommonDispatchException2Args0d:
+        xor     edx, edx                ; zero edx
+CommonDispatchException2Args:
+        mov     ecx, 2                  ; two arguments
+        call    CommonDispatchException ; there is no return
+
       public CommonDispatchException
 align dword
 CommonDispatchException proc
-
+cPublicFpo 0, ExceptionRecordLength / 4
 ;
 ;       Set up exception record for raising exception
 ;
@@ -1870,7 +2066,7 @@ de20:   and     eax,MODE_MASK
 ; 0 - Null exception frame
 ; ecx - exception record addr
 
-        stdCall _KiDispatchException, <ecx, 0, ebp, eax, 1>
+        stdCall _KiDispatchException,<ecx, 0, ebp, eax, 1>
 
         mov     esp, ebp                ; (esp) -> trap frame
         jmp     _KiExceptionExit
@@ -1928,9 +2124,7 @@ VERIFY_BASE_TRAP_FRAME macro
 
         mov     eax, PCR[PcTeb]
         or      eax, eax                ; Any Teb?
-        jz      short vbfdone           ;  No, then kernel thread
-        test    eax, 80000000h          ; Is Ted a kernel address?
-        jnz     short vbfdone           ;  Yes, then kernel thread
+        jle     short vbfdone           ; Br if zero or kernel thread address
 
         call    KiRestoreBaseFrame
 
@@ -2148,17 +2342,30 @@ _KiTrap00       proc
         jnz     Kt0040            ; trap occured in V86 mode
 
         test    byte ptr [ebp]+TsSegCs, MODE_MASK  ; Is previous mode = USER
-        jnz     short Kt0000            ; if nz, previous mode = user
-        mov     eax, EXCEPTION_DIVIDED_BY_ZERO ; (eax) = exception type
-        jmp     _KiSystemFatalException ; go terminate the system
+        jz      short Kt0000
 
-Kt0000: cmp     word ptr [ebp]+TsSegCs,KGDT_R3_CODE OR RPL_MASK
+        cmp     word ptr [ebp]+TsSegCs,KGDT_R3_CODE OR RPL_MASK
         jne     Kt0020
 ;
 ; Set up exception record for raising Integer_Divided_by_zero exception
 ; and call _KiDispatchException
 ;
+
+Kt0000:
+
+if DBG
+        test    [ebp]+TsEFlags, EFLAGS_INTERRUPT_MASK   ; faulted with
+        jnz     short @f                                ; interrupts disabled?
+
+        xor     eax, eax
+        mov     esi, [ebp]+TsEip        ; [esi] = faulting instruction
+        stdCall _KeBugCheckEx,<IRQL_NOT_LESS_OR_EQUAL,eax,-1,eax,esi>
+@@:
+endif
+
         sti
+
+
 ;
 ; Flat mode
 ;
@@ -2169,8 +2376,7 @@ Kt0000: cmp     word ptr [ebp]+TsSegCs,KGDT_R3_CODE OR RPL_MASK
 ;
         stdCall _Ki386CheckDivideByZeroTrap,<ebp>
         mov     ebx, [ebp]+TsEip        ; (ebx)-> faulting instruction
-        mov     ecx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException0Args ; Won't return
 
 Kt0010:
 ;
@@ -2179,8 +2385,7 @@ Kt0010:
         sti
         mov     ebx, [ebp]+TsEip        ; (ebx)-> faulting instruction
         mov     eax, STATUS_INTEGER_DIVIDE_BY_ZERO
-        mov     ecx, 0
-        call    CommonDispatchException ; never return
+        jmp     CommonDispatchException0Args ; never return
 
 Kt0020:
 ; Check to see if this process is a vdm
@@ -2271,8 +2476,7 @@ kit01_20:
         and     dword ptr [ebp]+TsEflags, not EFLAGS_TF_BIT
         mov     ebx, [ebp]+TsEip                ; (ebx)-> faulting instruction
         mov     eax, STATUS_SINGLE_STEP
-        mov     ecx, 0
-        call    CommonDispatchException         ; Never return
+        jmp     CommonDispatchException0Args    ; Never return
 
 kit01_30:
 
@@ -2569,8 +2773,7 @@ Kt0410: sti
         mov     ebx, [ebp]+TsEip        ; (ebx)-> instr. after INTO
         dec     ebx                     ; (ebx)-> INTO
         mov     eax, STATUS_INTEGER_OVERFLOW
-        mov     ecx, 0
-        call    CommonDispatchException ; Never return
+        jmp     CommonDispatchException0Args ; Never return
 
 Kt0430:
         stdCall _Ki386VdmReflectException_A, <04h>
@@ -2641,8 +2844,7 @@ kt0500: cmp     word ptr [ebp]+TsSegCs,KGDT_R3_CODE OR RPL_MASK
 Kt0510: sti
         mov     ebx, [ebp]+TsEip        ; (ebx)->BOUND instruction
         mov     eax, STATUS_ARRAY_BOUNDS_EXCEEDED
-        mov     ecx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException0Args ; Won't return
 
 Kt0520:
 ; Check to see if this process is a vdm
@@ -2754,14 +2956,10 @@ Kt060i:
         ENTER_TRAP      kit6_a, kit6_t
 
         test    byte ptr [ebp]+TsSegCs, MODE_MASK  ; Is previous mode = USER
-        jnz     Kt0600                  ; if nz, previous mode = user
-        mov     eax, EXCEPTION_INVALID_OPCODE ; (eax) = exception type
-        jmp     _KiSystemFatalException ; go terminate the system
-
-Kt0600:
+        jz      short Kt0635            ; if z, kernel mode - go dispatch exception
 
 ;
-;       did the fault happen in a vdm running in protected mode?
+; UserMode. Did the fault happen in a vdm running in protected mode?
 ;
 
         cmp     word ptr [ebp]+TsSegCs, KGDT_R3_CODE OR RPL_MASK
@@ -2798,8 +2996,7 @@ Kt0610:
 Kt0630: pop     ds
 Kt0635: mov     ebx, [ebp]+TsEip        ; (ebx)-> invalid instruction
         mov     eax, STATUS_ILLEGAL_INSTRUCTION
-        mov     ecx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException0Args ; Won't return
 
 ;
 ; Set up exception record for raising Invalid lock sequence exception
@@ -2808,8 +3005,7 @@ Kt0635: mov     ebx, [ebp]+TsEip        ; (ebx)-> invalid instruction
 Kt0640: pop     ds
         mov     ebx, [ebp]+TsEip        ; (ebx)-> invalid instruction
         mov     eax, STATUS_INVALID_LOCK_SEQUENCE
-        mov     ecx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException0Args ; Won't return
 
 Kt0650:
 
@@ -2947,6 +3143,8 @@ endif
 ; frstor might generate a NPX execption if there's an error image being
 ; loaded.  The handler will simply set the TS bit for this context an iret.
 ;
+
+Kt0704a:
         frstor  [ecx]                   ; reload NPX context
         sti                             ; Allow interrupts & context switches
         nop                             ; sti needs one cycle
@@ -2976,6 +3174,7 @@ endif
 if DBG
 Kt07dbg1:    int 3
 Kt07dbg2:    int 3
+Kt07dbg3:    int 3
         sti
         jmp short $-2
 endif
@@ -2983,7 +3182,7 @@ endif
 Kt0705:
 ;
 ; A Trap07 or Trap10 has occured from a ring 0 ESCAPE instruction.  This
-; may occur when trying to load (or save?) the coprocessors state.  These
+; may occur when trying to load the coprocessors state.  These
 ; code paths rely on Cr0NpxState to signal a delayed error (not CR0) - we
 ; set CR0_TS in Cr0NpxState to get a delayed error, and make sure CR0 CR0_TS
 ; is not set so the R0 ESC instruction(s) can complete.
@@ -2993,53 +3192,20 @@ Kt0705:
 ; Interrupts disabled
 ;
 
-        mov     eax, cr0
-        test    eax, (CR0_TS+CR0_MP+CR0_EM) ; Did we fault because some bit
-        jnz     Kt0707                      ; in CR0?  If so, go try again
-
+if DBG
+        mov     eax, cr0                    ; Did we fault because some bit in CR0
+        test    eax, (CR0_TS+CR0_MP+CR0_EM)
+        jnz     short Kt07dbg3
+endif
 
         or      dword ptr [ecx].FpCr0NpxState, CR0_TS   ; signal a delayed error
         mov     ecx, [ebp]+TsEip
 
-;
-; The fault occured do to an error status in the part.  The only ring-0
-; FP instructions are FNSAVE, FRSTOR_ECX, or FWAIT.   For either FRSTOR
-; or FWAIT we move EIP up to the next instruction.
-; (since the wait or frstor completed)
-;
-        mov     edx, [ecx]
-        and     edx, 0ffffffh
-        cmp     edx, FRSTOR_ECX         ; did we fault on frstor instruction?
-        je      short Kt0706            ; Yes, don't try to frstor again
+        cmp     ecx, Kt0704a                ; Is this fault on reload a thread's context?
+        jne     short Kt0716                ; No, dispatch exception
 
-        cmp     dl, FWAIT_OP            ; FWAIT?
-        jne     short Kt0707            ; No, don't move eip
-
-        sub     dword ptr [ebp]+TsEip, 2    ; Skip fwait. eip = eip-2+3
-Kt0706:
-        add     dword ptr [ebp]+TsEip, 3
-Kt0707:
-        mov     ecx, [ebp]+TsEip
-        and     eax, NOT (CR0_TS+CR0_MP+CR0_EM)     ; clear so kernel code
-        mov     cr0, eax                            ; can continue
-
-        mov     eax, ecx                ; Check Eip for reloading context
-        sub     eax, offset FLAT:Kt0700      ; within Trap07 handler
-        cmp     eax, 1000h              ; (close enough)
-        jc      _KiExceptionExit
-
-        mov     eax, ecx                ; Check for trap while saving NPX
-        sub     eax, offset FLAT:SwapContext ; context.
-        cmp     eax, 1000h              ; (close enough)
-        jc      _KiExceptionExit
-
-        mov     eax, ecx                ; Check for trap while saving NPX
-        sub     eax, offset FLAT:_KiFlushNPXState
-        cmp     eax, 1000h              ; (close enough)
-        jc      _KiExceptionExit
-
-        mov     eax, EXCEPTION_NPX_NOT_AVAILABLE
-        jmp     _KiSystemFatalException
+        add     dword ptr [ebp]+TsEip, 3    ; Skip frstor ecx instruction
+        jmp     _KiExceptionExit
 
 Kt0710:
         mov     eax, PCR[PcPrcbData+PbCurrentThread]
@@ -3063,7 +3229,7 @@ Kt0715:
 ; (ecx) - CurrentThreads NPX save area
 ;
 
-        stdCall _Ki386CheckDelayedNpxTrap,<ebp,ecx>
+Kt0716: stdCall _Ki386CheckDelayedNpxTrap,<ebp,ecx>
         or      al, al
         jnz     _KiExceptionExit        ; Already handled
 
@@ -3084,11 +3250,10 @@ Kt0720:
         mov     cr0, ebx                ; Clear MP+TS+EM to do fnsave & fwait
 
 ;
-; We know that the coprocessor error has already occured so the fnsave will
-; not invoke the trap10 handler. (which could set the TS bit - or on some
-; machines cause a hang).
+; Save the faulting state so we can inspect the cause of the floating
+; point fault
 ;
-        fnsave  [ebp] + KTRAP_FRAME_LENGTH
+        fnsave  [ecx]
         fwait                           ; in case fnsave hasn't finished yet
 
 if DBG
@@ -3117,92 +3282,80 @@ endif
 ; the NPX error and raise an appropriate exception.
 ;
 
-        mov     ebx, [ebp] + KTRAP_FRAME_LENGTH + FpErrorOffset
-        mov     ax, [ebp] + KTRAP_FRAME_LENGTH + FpControlWord
-        and     ax, FSW_INVALID_OPERATION + FSW_DENORMAL + FSW_ZERO_DIVIDE + FSW_OVERFLOW + FSW_UNDERFLOW + FSW_PRECISION
-        not     ax                      ; ax = mask of enabled exceptions
-        and     ax, [ebp] + KTRAP_FRAME_LENGTH + FpStatusWord
-        test    ax, FSW_INVALID_OPERATION ; Is it an invalid op exception?
+        mov     ebx, [ecx] + FpErrorOffset
+        movzx   eax, word ptr [ecx] + FpControlWord
+        and     eax, FSW_INVALID_OPERATION + FSW_DENORMAL + FSW_ZERO_DIVIDE + FSW_OVERFLOW + FSW_UNDERFLOW + FSW_PRECISION
+        not     eax                     ; ax = mask of enabled exceptions
+        and     eax, [ecx] + FpStatusWord
+        test    eax, FSW_INVALID_OPERATION ; Is it an invalid op exception?
         jz      Kt0740                  ; if z, no, go Kt0740
-        test    ax, FSW_STACK_FAULT     ; Is it caused by stack fault?
+        test    eax, FSW_STACK_FAULT    ; Is it caused by stack fault?
         jnz     short Kt0730            ; if nz, yes, go Kt0730
 
 ;
 ; Raise Floating reserved operand exception
 ;
 
-        mov     ecx, 1
-        mov     edx, 0
         mov     eax, STATUS_FLOAT_INVALID_OPERATION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt0730:
 ;
 ; Raise Access Violation exception for stack overflow/underflow
 ;
 
-        mov     esi, [ebp] + KTRAP_FRAME_LENGTH + FpDataOffset  ; (esi) = operand addr
-        mov     ecx, 2
-        mov     edx, 0
+        mov     esi, [ecx] + FpDataOffset  ; (esi) = operand addr
         mov     eax, STATUS_FLOAT_STACK_CHECK
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args0d ; Won't return
 
 
 Kt0740:
 
 ; Check for floating zero divide exception
 
-        test    ax, FSW_ZERO_DIVIDE     ; Is it a zero divide error?
+        test    eax, FSW_ZERO_DIVIDE    ; Is it a zero divide error?
         jz      short Kt0750            ; if z, no, go Kt0750
 
 ; Raise Floating divided by zero exception
 
-        mov     ecx, 1
-        mov     edx, 0
         mov     eax, STATUS_FLOAT_DIVIDE_BY_ZERO
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt0750:
 
 ; Check for denormal error
 
-        test    ax, FSW_DENORMAL        ; Is it a denormal error?
+        test    eax, FSW_DENORMAL       ; Is it a denormal error?
         jz      short Kt0760            ; if z, no, go Kt0760
 
 ; Raise floating reserved operand exception
 
-        mov     ecx, 1
-        mov     edx, 0
         mov     eax, STATUS_FLOAT_INVALID_OPERATION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt0760:
 
 ; Check for floating overflow error
 
-        test    ax, FSW_OVERFLOW        ; Is it an overflow error?
+        test    eax, FSW_OVERFLOW       ; Is it an overflow error?
         jz      short Kt0770            ; if z, no, go Kt0770
 
 ; Raise floating overflow exception
 
         mov     eax, STATUS_FLOAT_OVERFLOW
-        mov     ecx, 1
-        mov     edx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt0770:
 
 ; Check for floating underflow error
 
-        test    ax, FSW_UNDERFLOW       ; Is it a underflow error?
+        test    eax, FSW_UNDERFLOW      ; Is it a underflow error?
         jz      short Kt0780            ; if z, no, go Kt0780
 
 ; Raise floating underflow exception
 
         mov     eax, STATUS_FLOAT_UNDERFLOW
-        mov     ecx, 1
-        mov     edx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt0780:
 
@@ -3212,9 +3365,7 @@ Kt0780:
         jz      short Kt07100           ; if z, no, go Kt07100
 
         mov     eax, STATUS_FLOAT_INEXACT_RESULT
-        mov     ecx, 1
-        mov     edx, 0
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException1Arg0d ; Won't return
 
 Kt07100:
 
@@ -3286,10 +3437,8 @@ Kt07140:
 
         mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
         mov     eax, STATUS_ACCESS_VIOLATION
-        mov     ecx, 2
-        mov     edx, 0
         mov     esi, -1
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args0d ; Won't return
 
 _KiTrap07       endp
 
@@ -3554,16 +3703,13 @@ Kt0b15:
         pop     ecx                                ; (TOS) = OldIrql
         fstCall KfLowerIrql
 
-        ; bugbug pass correct info to indicate seg fault
 Kt0b20: sti
         mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
-        xor     edx, edx
         mov     esi, [ebp]+TsErrCode
         and     esi, 0FFFFh
         or      esi, RPL_MASK
-        mov     ecx, 2
         mov     eax, STATUS_ACCESS_VIOLATION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args0d ; Won't return
 
 Kt0b30:
 ;
@@ -3715,8 +3861,7 @@ Kt0c00: sti
         or      esi, RPL_MASK
         and     esi, 0FFFFh
 kt0c05: mov     eax, STATUS_ACCESS_VIOLATION
-        mov     ecx, 2
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args ; Won't return
 
 kt0c10:
         sti
@@ -3781,8 +3926,7 @@ kt0c10:
         or      esi, RPL_MASK
 @@:
         mov     eax, STATUS_ACCESS_VIOLATION
-        mov     ecx, 2
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args ; Won't return
 
 Kt0c15:
         mov     eax, EXCEPTION_STACK_FAULT      ; (eax) = trap type
@@ -4083,19 +4227,39 @@ Kt0d001:
         mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
         mov     esi, [ebp]+TsErrCode
         and     esi, 0FFFFh
-        mov     edx, 0
-        mov     ecx, 2
         mov     eax, STATUS_ACCESS_VIOLATION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args0d ; Won't return
 
 ;
-; The Exception is not caused by pop instruction.  We now check if DS and
-; ES contain correct value.  If not, this is lazy segment load, we simply
-; set them to valid selector.
+; Kernel mode, first opcode byte is 0f, check for rdmsr or wrmsr instruction
 ;
 
+Kt0d001a:
+        shr     eax, 8
+        cmp     al, 30h
+        je      short Kt0d001b
+        cmp     al, 32h
+        jne     short Kt0d002a
+
+Kt0d001b:
+        mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
+        mov     eax, STATUS_ACCESS_VIOLATION
+        jmp     CommonDispatchException0Args ; Won't return
+
+;
+; The Exception is not caused by pop instruction.  Check to see
+; if the instruction is a rdmsr or wrmsr
+;
 Kt0d002:
+        cmp     al, 0fh
+        je      short Kt0d001a
 
+;
+; We now check if DS and ES contain correct value.  If not, this is lazy
+; segment load, we simply set them to valid selector.
+;
+
+Kt0d002a:
         cmp     word ptr [ebp]+TsSegDs, KGDT_R3_DATA OR RPL_MASK
         je      short Kt0d003
 
@@ -4129,17 +4293,18 @@ Kt0d02: mov     eax, EXCEPTION_GP_FAULT ; (eax) = trap type
         test    byte ptr [ebp]+TsSegCs, MODE_MASK ; Is prevmode=User?
         jz      _KiSystemFatalException ; If z, prevmode=kernel, stop...
 
-;
-;       did the fault happen in a vdm running in protected mode?
-;
 
-        cmp     word ptr [ebp]+TsSegCs, KGDT_R3_CODE OR RPL_MASK
-        jz      kt0d03
-
-; Check to see if this process is a vdm
-
+;       preload pointer to process
         mov     ebx,PCR[PcPrcbData+PbCurrentThread]
         mov     ebx,[ebx]+ThApcState+AsProcess
+
+;       flat or protect mode ?
+        cmp     word ptr [ebp]+TsSegCs, KGDT_R3_CODE OR RPL_MASK
+        jz      kt0d0201
+
+;
+; if vdm running in protected mode, handle instruction
+;
         test    byte ptr [ebx]+PrVdmFlag,0fh ; is this a vdm process?
         jnz     Kt0d110
 
@@ -4147,6 +4312,31 @@ Kt0d02: mov     eax, EXCEPTION_GP_FAULT ; (eax) = trap type
         test    word ptr [ebp]+TsErrCode, 0 ; if errcode<>0, raise access
                                         ; violation exception
         jnz     Kt0d105                 ; if nz, raise access violation
+        jmp     short Kt0d03
+
+
+;
+; if vdm running in flat mode, handle pop fs,gs by setting to Zero
+;
+kt0d0202:
+        add     dword ptr [ebp].TsEip, 2
+        jmp     Kt0d005
+
+kt0d0201:
+        test    byte ptr [ebx]+PrVdmFlag,0fh ; is this a vdm process?
+        jz      short Kt0d03
+
+        mov     eax, [ebp]+TsEip        ; (eax)->faulted Instruction
+        mov     eax, [eax]              ; (eax)= opcode of faulted instruction
+        mov     edx, ebp                ; (edx)-> trap frame
+
+        add     edx, TsSegFs            ; [edx] = prev trapframe + TsSegFs
+        cmp     ax, POP_FS              ; Is it pop fs (2-byte) instruction?
+        jz      short kt0d0202
+
+        add     edx, TsSegGs - TsSegFs  ; [edx] = prev trapframe + TsSegGs
+        cmp     ax, POP_GS              ; Is it pop gs (2-byte) instruction?
+        jz      short kt0d0202
 
 ;
 ; we need to determine if the trap0d was caused by privileged instruction.
@@ -4179,7 +4369,8 @@ Kt0d05: push    ecx                     ; save ecx for loop count
         pop     ecx                     ; restore loop count
         jnz     short Kt0d10            ; (al) not a prefix byte, go kt0d10
         loop    short Kt0d05            ; go check for prefix byte again
-        pop     ds                      ; Restore DS
+        pop     PCR[PcExceptionList]
+        add     esp, 8                  ; clear stack
         jmp     Kt0630                  ; exceed max instruction length,
                                         ; raise ILLEGALINSTRUCTION exception
 
@@ -4190,29 +4381,39 @@ Kt0d05: push    ecx                     ; save ecx for loop count
 ;
 
 Kt0d10: cmp     al, MI_HLT              ; Is it a HLT instruction?
-        je      short Kt0d80            ; if e, yes, go kt0d80
+        je      Kt0d80                  ; if e, yes, go kt0d80
+
         cmp     al, MI_TWO_BYTE         ; Is it a two-byte instruction?
         jne     short Kt0d50            ; if ne, no, go check for IO inst.
+
         lods    byte ptr [esi]          ; (al)= next instruction byte
         cmp     al, MI_LTR_LLDT         ; Is it a LTR or LLDT ?
         jne     short Kt0d20            ; if ne, no, go kt0d20
+
         lods    byte ptr [esi]          ; (al)= ModRM byte of instruction
         and     al, MI_MODRM_MASK       ; (al)= bit 3-5 of ModRM byte
         cmp     al, MI_LLDT_MASK        ; Is it a LLDT instruction?
-        je      short Kt0d80            ; if e, yes, go Kt0d80
+        je      Kt0d80                  ; if e, yes, go Kt0d80
+
         cmp     al, MI_LTR_MASK         ; Is it a LTR instruction?
-        je      short Kt0d80            ; if e, yes, go Kt0d80
+        je      Kt0d80                  ; if e, yes, go Kt0d80
+
         jmp     Kt0d100                 ; if ne, go raise access vioalation
+
 Kt0d20: cmp     al, MI_LGDT_LIDT_LMSW   ; Is it one of these instructions?
         jne     short Kt0d30            ; if ne, no, go check special mov inst.
+
         lods    byte ptr [esi]          ; (al)= ModRM byte of instruction
         and     al, MI_MODRM_MASK       ; (al)= bit 3-5 of ModRM byte
         cmp     al, MI_LGDT_MASK        ; Is it a LGDT instruction?
         je      short Kt0d80            ; if e, yes, go Kt0d80
+
         cmp     al, MI_LIDT_MASK        ; Is it a LIDT instruction?
         je      short Kt0d80            ; if e, yes, go Kt0d80
+
         cmp     al, MI_LMSW_MASK        ; Is it a LMSW instruction?
         je      short Kt0d80            ; if e, yes, go Kt0d80
+
         jmp     Kt0d100                 ; else, raise access violation except
 
 Kt0d30: and     al, MI_SPECIAL_MOV_MASK ; Is it a special mov instruction?
@@ -4225,7 +4426,8 @@ Kt0d30: and     al, MI_SPECIAL_MOV_MASK ; Is it a special mov instruction?
 ;
 ; Now, we need to check if the trap 0d was caused by IO privileged instruct.
 ; (al) = first opcode which is NOT prefix byte
-; Also note, if we can come here, the instruction has 1 byte opcode
+; Also note, if we come here, the instruction has 1 byte opcode (still need to
+; check REP case.)
 ;
 
 Kt0d50: mov     ebx, [ebp]+TsEflags     ; (ebx) = client's eflags
@@ -4237,40 +4439,63 @@ Kt0d50: mov     ebx, [ebp]+TsEflags     ; (ebx) = client's eflags
                                         ; whether IOPL applies.
 
         cmp     ebx,ecx                 ; compare IOPL with CPL of caller
-        jge     Kt0d100                 ; if ge, not IO privileged,
+        jge     short Kt0d100           ; if ge, not IO privileged,
                                         ;        go raise access violation
-        cmp     al, MI_REP_INS_OUTS     ; Is it rep ins or outs?
-        jne     short Kt0d60            ; if ne, check for other IO instr.
-        lods    byte ptr [esi]          ; (al)= next byte of instruction
-        cmp     al, MI_MIN_INS_OUTS     ; Is (al) >= 6cH?
-        jb      short Kt0d100           ; if b, raise access violation
-        cmp     al, MI_MAX_INS_OUTS     ; Is (al) <= 6fh?
-        ja      short Kt0d100           ; If a. raise acess violation
-        jmp     short Kt0d80            ; otherwise, its privileged instr.
 
-Kt0d60: mov     ecx, IO_INSTRUCTION_TABLE_LENGTH
+Kt0d60: cmp     al, CLI_OP              ; Is it a CLI instruction
+        je      short Kt0d80            ; if e, yes. Report it.
+
+        cmp     al, STI_OP              ; Is it a STI?
+        je      short Kt0d80            ; if e, yes, report it.
+
+        mov     ecx, IO_INSTRUCTION_TABLE_LENGTH
         mov     edi, offset FLAT:IOInstructionTable
         repnz   scasb                   ; Is it a IO instruction?
         jnz     short Kt0d100           ; if nz, not io instrct.
 
-;BUGBUG shielint TSS IO map should be tested see if it is really a
-;                privileged instruction violation
+;
+; We know the instr is an IO instr without IOPL.  But, this doesn't mean
+; this is a privileged instruction exception.  We need to make sure the
+; IO port access is not granted in the bit map
+;
+
+
+        mov     edi, fs:PcSelfPcr       ; (edi)->Pcr
+        mov     esi, [edi]+PcGdt        ; (esi)->Gdt addr
+        add     esi, KGDT_TSS
+        movzx   ebx, word ptr [esi]     ; (ebx) = Tss limit
+
+        mov     edx, [ebp].TsEdx        ; [edx] = port addr
+        mov     ecx, edx
+        and     ecx, 07                 ; [ecx] = Bit position
+        shr     edx, 3                  ; [edx] = offset to the IoMap
+
+        mov     edi, [edi]+PcTss        ; (edi)->TSS
+        movzx   eax, word ptr [edi + TssIoMapBase] ; [eax] = Iomap offset
+        add     edx, eax
+        cmp     edx, ebx                ; is the offset addr beyond tss limit?
+        ja      short Kt0d80            ; yes, no I/O priv.
+
+        add     edi, edx                ; (edi)-> byte correspons to the port addr
+        mov     edx, 1
+        shl     edx, cl
+        test    dword ptr [edi], edx    ; Is the bit of the port disabled?
+        jz      short Kt0d100           ; if z, no, then it is access violation
 
 Kt0d80:
         pop     PCR[PcExceptionList]
         add     esp, 8                  ; clear stack
         pop     ds
         mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
-        mov     ecx, 0
         mov     eax, STATUS_PRIVILEGED_INSTRUCTION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException0Args ; Won't return
 
 ;
-;BUGBUG shielint Temporarily, all the GP fault (except the ones we can
-;                easily detect now) will cause access violation exception
-;                AND, all the access violation will be raised with additional
-;                parameters set to "read" and "virtual address which caused
-;                the violation = unknown (-1)"
+;       NOTE    All the GP fault (except the ones we can
+;               easily detect now) will cause access violation exception
+;               AND, all the access violation will be raised with additional
+;               parameters set to "read" and "virtual address which caused
+;               the violation = unknown (-1)"
 ;
 
 Kt0d100:
@@ -4280,11 +4505,9 @@ Kt0d103:
         pop     ds
 Kt0d105:
         mov     ebx, [ebp]+TsEip        ; (ebx)->faulting instruction
-        mov     edx, 0
         mov     esi, -1
-        mov     ecx, 2
         mov     eax, STATUS_ACCESS_VIOLATION
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args0d ; Won't return
 
 Kt0d110:
         ; Raise Irql to APC level, before enabling interrupts
@@ -4377,23 +4600,22 @@ Kt0e01:
 ; of the fault is 2, _MmAccessFault will return approriate error code
 ;
 
+        sub     esp, 12
         mov     eax,[ebp]+TsSegCs
         and     eax,MODE_MASK           ; (eax) = arg3: PreviousMode
-        push    eax
-        push    edi                     ; arg2: Vaddr of fault (edi=cr2)
+        mov     [esp+8], eax
+        mov     [esp+4], edi
         mov     eax, [ebp]+TsErrCode    ; (eax)= error code
         and     eax, ERR_0E_STORE       ; (eax)= 0 if fault caused by read
                                         ;      = 2 if fault caused by write
         shr     eax, 1                  ; (eax) = 0 if read fault, 1 if write fault
-        push    eax                     ; arg3: load/store indicator
+        mov     [esp+0], eax            ; arg3: load/store indicator
 
         call    _MmAccessFault@12
 
 if DEVL
         cmp     _PsWatchEnabled,0
         jz      short xxktskip
-        test    [ebp]+TsSegCs, MODE_MASK    ; test previous mode
-        jz      short xxktskip              ; only call for user-mode
         mov     ebx, [ebp]+TsEip
         stdCall _PsWatchWorkingSet,<eax, ebx, edi>
 xxktskip:
@@ -4411,10 +4633,10 @@ endif
         shl     ebx,16
         or      bx,word ptr [ecx + KGDT_LDT].KgdtBaseLow
         or      ebx,ebx                 ; check for zero
-        jz      Kt0e05                  ; no ldt
+        jz      short Kt0e05            ; no ldt
 
         cmp     edi,ebx
-        jb      Kt0e05                  ; address not in LDT
+        jb      short Kt0e05            ; address not in LDT
 
         ; Form Ldt limit
         movzx   edx,byte ptr [ecx + KGDT_LDT].KgdtLimitHi
@@ -4423,7 +4645,11 @@ endif
         or      dx,word ptr [ecx + KGDT_LDT].KgdtLimitLow
         add     ebx,edx
         cmp     edi,ebx
-        jae     Kt0e05                  ; too high to be an ldt address
+        jae     short Kt0e05            ; too high to be an ldt address
+
+        sldt    cx                      ; Verify this process has an LDT
+        test    ecx, 0ffffh             ; Check CX
+        jz      short Kt0e05            ; If ZY, no LDT
 
         mov     eax, [ebp]+TsErrCode    ; (eax)= error code
         and     eax, ERR_0E_STORE       ; (eax)= 0 if fault caused by read
@@ -4517,7 +4743,7 @@ Kt0e8:
                                         ; handle this exception
 
         mov     ebp, PCR[PcInitialStack]
-        mov     ecx, 0                  ; set to fault-at-read
+        xor     ecx, ecx                ; set to fault-at-read
         sub     ebp, KTRAP_FRAME_LENGTH
         mov     esp, ebp                ; clear stack (ebp)=(esp)->User trap frame
         mov     esi, [ebp]+TsEip        ; (esi)-> faulting instruction
@@ -4563,8 +4789,7 @@ Kt0e9b:
         mov     ebx, esi
         mov     edx, ecx
         mov     esi, edi
-        mov     ecx, 2
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args ; Won't return
 
 .FPO ( 0, 0, 0, 0, 0, FPO_TRAPFRAME )
 
@@ -4701,11 +4926,6 @@ _KiTrap0F       proc
         sti
 
         mov     eax, EXCEPTION_RESERVED_TRAP ; (eax) = trap type
-        test    dword ptr [ebp]+TsEFlags,EFLAGS_V86_MASK
-        jnz     _KiProcessFatalException ; v86 mode => Usermode
-
-        test    byte ptr [ebp]+TsSegCs, MODE_MASK ; Is PrevMode=USER?
-        jnz     _KiProcessFatalException ; go terminate the process
         jmp     _KiSystemFatalException ; go terminate the system
 
 _KiTrap0F       endp
@@ -4834,8 +5054,7 @@ kt11_00:
         mov     edx, EXCEPT_UNKNOWN_ACCESS
 kt11_05:
         mov     eax, STATUS_DATATYPE_MISALIGNMENT
-        mov     ecx, 2
-        call    CommonDispatchException ; Won't return
+        jmp     CommonDispatchException2Args ; Won't return
 
 kt11_10:
 ;
@@ -4913,6 +5132,11 @@ stdENDP _KiCoprocessorError
 
 ;++
 ;
+; VOID
+; KiFlushNPXState (
+;     VOID
+;     )
+;
 ; Routine Description:
 ;
 ;   When a threads NPX context is requested (most likely by a debugger)
@@ -4937,16 +5161,17 @@ cPublicProc _KiFlushNPXState    ,0
 
         mov     eax, PCR[PcPrcbData+PbCurrentThread]
         cmp     byte ptr [eax].ThNpxState, NPX_STATE_LOADED
-        jne     fnpx90
+        jne     short fnpx90
 
         pushfd
         mov     ecx, PCR[PcInitialStack]  ; (ecx) -> top of kernel stack
 
-        fwait                           ; Get any errors now
+; this was only needed for 388/387 support
+;        fwait                          ; Get any errors now
 
         cli                             ; don't context switch
         cmp     byte ptr [eax].ThNpxState, NPX_STATE_LOADED
-        jne     fnpx70                  ; still in coprocessor?
+        jne     short fnpx70            ; still in coprocessor?
 
         fnsave  [ecx]                   ; NPX state to save area
         fwait                           ; Make sure data is in save area
@@ -4969,40 +5194,35 @@ fnpx90: stdRET    _KiFlushNPXState
 stdENDP _KiFlushNPXState
 
 
-        page ,132
-        subttl "Processing Process Fatal Exceptions"
 ;++
+;
+; VOID
+; KiSetHardwareTrigger (
+;     VOID
+;     )
 ;
 ; Routine Description:
 ;
-;    This routine processes the process fatal exceptions.
-;    The offending process is terminated.
+;   This function sets KiHardwareTrigger such that an analyzer can sniff
+;   for this access.   It needs to occur with a lock cycle such that
+;   the processor won't speculatively read this value.   Interlocked
+;   functions can't be used as in a UP build they do not use a
+;   lock prefix.
 ;
 ; Arguments:
 ;
-;    (eax) = trap type
-;    (ebp) -> machine state frame
+;    None
 ;
 ; Return value:
 ;
-;    Process terminated
+;    None
 ;
 ;--
-        assume  ds:nothing, es:nothing, ss:nothing, fs:nothing, gs:nothing
-
-align dword
-        public  _KiProcessFatalException
-_KiProcessFatalException proc
-
-;
-;BUGBUG shielint  To be supplied later.  The code is not available yet.
-;                 here, we simply raise KMODE_EXCEPTION_NOT_HANDLED
-;                 bugcheck. (See exceptn.c)
-;
-
-        stdCall   _KeBugCheck,<KMODE_EXCEPTION_NOT_HANDLED>
-
-_KiProcessFatalException endp
+        ASSUME  DS:FLAT, SS:NOTHING, ES:NOTHING
+cPublicProc _KiSetHardwareTrigger,0
+   lock inc     ds:_KiHardwareTrigger   ; trip hardware analyzer
+        stdRet  _KiSetHardwareTrigger
+stdENDP _KiSetHardwareTrigger
 
 
         page ,132
@@ -5084,7 +5304,15 @@ align dword
 cPublicProc _NtContinue     ,2
 
         push    ebp
-        mov     ebp,esp
+
+;
+; Restore old trap frame address since this service exits directly rather
+; than returning.
+;
+
+        mov     ebx, PCR[PcPrcbData+PbCurrentThread] ; get current thread address
+        mov     edx, [ebp].TsEdx        ; restore old trap frame address
+        mov     [ebx].ThTrapFrame, edx  ;
 
 ;
 ; Call KiContinue to load ContextRecord into TrapFrame.  On x86 TrapFrame
@@ -5093,9 +5321,10 @@ cPublicProc _NtContinue     ,2
 ; KiContinue(NcContextRecord, 0, NcTrapFrame)
 ;
 
+        mov     ebp,esp
         mov     eax, NcTrapFrame
-        mov     ebx, NcContextRecord
-        stdCall  _KiContinue, <ebx, 0, eax>
+        mov     ecx, NcContextRecord
+        stdCall  _KiContinue, <ecx, 0, eax>
         or      eax,eax                 ; return value 0?
         jnz     short Nc20              ; KiContinue failed, go report error
 
@@ -5105,7 +5334,6 @@ cPublicProc _NtContinue     ,2
 
         cmp     byte ptr NcTestAlert,0  ; Check test alert flag
         je      short Nc10              ; if z, don't test alert, go Nc10
-        mov     ebx,PCR[PcPrcbData+PbCurrentThread]
         mov     al,byte ptr [ebx]+ThPreviousMode ; No need to xor eax, eax.
         stdCall _KeTestAlertThread, <eax> ; test alert for current thread
 
@@ -5114,9 +5342,8 @@ Nc10:   pop     ebp                     ; (ebp) -> TrapFrame
         jmp     _KiServiceExit2         ; common exit
 
 Nc20:   pop     ebp                     ; (ebp) -> TrapFrame
-        mov     [ebp]+TsEax,eax         ; stash return code
         mov     esp,ebp                 ; (esp) = (ebp) -> trapframe
-        jmp     _KiServiceExit2         ; commmon exit
+        jmp     _KiServiceExit          ; common exit
 
 stdENDP _NtContinue
 
@@ -5166,13 +5393,22 @@ align dword
 cPublicProc _NtRaiseException ,3
 
         push    ebp
-        mov     ebp,esp                 ; [ebp+0] -> TrapFrame
+
+;
+; Restore old trap frame address since this service exits directly rather
+; than returning.
+;
+
+        mov     ebx, PCR[PcPrcbData+PbCurrentThread] ; get current thread address
+        mov     edx, [ebp].TsEdx        ; restore old trap frame address
+        mov     [ebx].ThTrapFrame, edx  ;
 
 ;
 ;   Put back the ExceptionList so the exception can be properly
 ;   dispatched.
 ;
 
+        mov     ebp,esp                 ; [ebp+0] -> TrapFrame
         mov     ebx, [ebp+0]            ; (ebx)->TrapFrame
         mov     edx, [ebp+16]           ; (edx) = First chance indicator
         mov     eax, [ebx]+TsExceptionList ; Old exception list
@@ -5223,21 +5459,24 @@ stdENDP _NtRaiseException
 ;
 cPublicProc _Ki386VdmReflectException_A, 1
 
+        sub     esp, 4*2
 
         mov     ecx, APC_LEVEL
         fstCall KfRaiseIrql
-        push    eax                         ; Save OldIrql
+
         sti
+        mov     [esp+4], eax                ; Save OldIrql
+        mov     eax, [esp+12]               ; Pick up trap number
+        mov     [esp+0], eax
 
-        mov     eax, [esp+8]
-        stdCall   _Ki386VdmReflectException,<eax>
+        call    _Ki386VdmReflectException@4 ; pops one dword
 
-        pop     ecx                         ; (ecx) = OldIrql
-        push    eax                         ; save ret code
+        mov     ecx, [esp+0]                ; (ecx) = OldIrql
+        mov     [esp+0], eax                ; Save return code
 
         fstCall KfLowerIrql
 
-        pop     eax
+        pop     eax                         ; pops second dword
         ret     4
 
 stdENDP _Ki386VdmReflectException_A

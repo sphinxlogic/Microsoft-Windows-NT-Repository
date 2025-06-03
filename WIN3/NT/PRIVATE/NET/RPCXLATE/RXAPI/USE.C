@@ -73,7 +73,7 @@ Revision History:
 
 
 #define MAX_USE_INFO_0_STRING_LEN \
-        (LM20_DEVLEN+1 + LM20_RMLEN+1)
+        (LM20_DEVLEN+1 + MAX_PATH+1)
 #define MAX_USE_INFO_1_STRING_LEN \
         (MAX_USE_INFO_0_STRING_LEN + LM20_PWLEN+1)
 

@@ -138,44 +138,25 @@ typedef unsigned long SMB_UNALIGNED *PSMB_ULONG;
 
 typedef enum _SMB_DIALECT {
 
-#ifdef _CAIRO_
 
-    SmbDialectCairo = 0,                // Cairo
-    SmbDialectNtLanMan = 1,             // NT LAN Man
-    SmbDialectLanMan21 = 2,             // OS/2 Lanman 2.1
-    SmbDialectDosLanMan21 = 3,          // DOS Lanman 2.1
-    SmbDialectLanMan20 = 4,             // OS/2 1.2 LanMan 2.0
-    SmbDialectDosLanMan20 = 5,          // DOS LanMan 2.0
-    SmbDialectLanMan10 = 6,             // 1st version of full LanMan extensions
-    SmbDialectMsNet30 = 7,              // Larger subset of LanMan extensions
-    SmbDialectMsNet103 = 8,             // Limited subset of LanMan extensions
-    SmbDialectPcLan10 = 9,              // Alternate original protocol
-    SmbDialectPcNet10 = 10,             // Original protocol
-    SmbDialectIllegal  = 11
-
-#else // _CAIRO_
-
-    SmbDialectNtLanMan = 0,             // NT LAN Man
-    SmbDialectLanMan21 = 1,             // OS/2 Lanman 2.1
-    SmbDialectDosLanMan21 = 2,          // DOS Lanman 2.1
-    SmbDialectLanMan20 = 3,             // OS/2 1.2 LanMan 2.0
-    SmbDialectDosLanMan20 = 4,          // DOS LanMan 2.0
-    SmbDialectLanMan10 = 5,             // 1st version of full LanMan extensions
-    SmbDialectMsNet30 = 6,              // Larger subset of LanMan extensions
-    SmbDialectMsNet103 = 7,             // Limited subset of LanMan extensions
-    SmbDialectPcLan10 = 8,              // Alternate original protocol
-    SmbDialectPcNet10 = 9,              // Original protocol
-    SmbDialectIllegal  = 10
-
-#endif
+    SmbDialectCairo,                // Cairo
+    SmbDialectNtLanMan,             // NT LAN Man
+    SmbDialectLanMan21,             // OS/2 Lanman 2.1
+    SmbDialectDosLanMan21,          // DOS Lanman 2.1
+    SmbDialectLanMan20,             // OS/2 1.2 LanMan 2.0
+    SmbDialectDosLanMan20,          // DOS LanMan 2.0
+    SmbDialectLanMan10,             // 1st version of full LanMan extensions
+    SmbDialectMsNet30,              // Larger subset of LanMan extensions
+    SmbDialectMsNet103,             // Limited subset of LanMan extensions
+    SmbDialectPcLan10,              // Alternate original protocol
+    SmbDialectPcNet10,              // Original protocol
+    SmbDialectIllegal,
 
 } SMB_DIALECT, *PSMB_DIALECT;
 
-#ifdef _CAIRO_
 #define FIRST_DIALECT SmbDialectCairo
-#else // not cairo
-#define FIRST_DIALECT SmbDialectNtLanMan
-#endif
+
+#define FIRST_DIALECT_EMULATED  SmbDialectNtLanMan
 
 #define LAST_DIALECT SmbDialectIllegal
 #define IS_DOS_DIALECT(dialect)                                        \
@@ -183,6 +164,10 @@ typedef enum _SMB_DIALECT {
                  (dialect) == SmbDialectDosLanMan20 ||                 \
                  (dialect) > SmbDialectLanMan10 ) )
 #define IS_OS2_DIALECT(dialect) ( (BOOLEAN)!IS_DOS_DIALECT(dialect) )
+
+#define IS_NT_DIALECT(dialect)  ( (dialect) == SmbDialectNtLanMan ||   \
+                                  (dialect) == SmbDialectCairo )
+
 #define DIALECT_HONORS_UID(dialect)     \
     ( (BOOLEAN)(dialect <= SmbDialectDosLanMan20 ) )
 

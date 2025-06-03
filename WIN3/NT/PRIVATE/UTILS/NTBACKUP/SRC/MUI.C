@@ -284,7 +284,6 @@ Initial revision.
 #define MUI_NO_STARTUP_JOBS   0xFFFF
 #define MAX_QUEUED_OPERATIONS 1
 
-
 // PRIVATE MODULE-WIDE VARIABLES
 
 static WORD     mwwLastDocType = ID_NOTDEFINED;
@@ -578,9 +577,9 @@ BOOL MUI_Init ( VOID )
 
      // Guarantee the tool bar, doc, and the rest of the screen is correct.
 
-     MUI_EnableOperations ( (WORD)NULL );
+//     MUI_EnableOperations ( (WORD)NULL );
 
-     WM_ShowWaitCursor ( FALSE );
+ //    WM_ShowWaitCursor ( FALSE );
 
 #    if defined ( OS_WIN32 )  //alternate feature - cmd line batch job
      {
@@ -593,11 +592,16 @@ BOOL MUI_Init ( VOID )
                LPSTR pszNext = NULL;  // Next command line item pointer
                LPSTR pszCmdLine;
                CHAR szBackup[ IDS_OEM_MAX_LEN ];
+               CHAR szEject[ IDS_OEM_MAX_LEN ];
                CHAR szTokens[ IDS_OEM_MAX_LEN ];
+			CHAR szDSA[ IDS_OEM_MAX_LEN ];
+			CHAR szMonolithic[ IDS_OEM_MAX_LEN ];
                OEMOPTS_PTR pOemOpts = NULL;
                BSD_PTR     bsd ;
                LPSTR       pszQuotedString;
                BOOLEAN     QuoteState = FALSE;
+               UINT8       uEmsFSType = (UINT8)FS_UNKNOWN_OS;
+               BOOLEAN     oem_batch_eject_mode = FALSE ;
 
                pszCmdLine = malloc( ( strlen( glpCmdLine ) + 1 ) * sizeof(CHAR) );
 
@@ -619,15 +623,25 @@ BOOL MUI_Init ( VOID )
                RSM_StringCopy ( IDS_OEMBATCH_BACKUP,
                                 szBackup, sizeof ( szBackup ) );
 
+               RSM_StringCopy ( IDS_OEMBATCH_EJECT,
+                                szEject, sizeof ( szEject ) );
+
                RSM_StringCopy ( IDS_OEMOPT_TOKENSEPS,
                                 szTokens, sizeof ( szTokens ) );
 
                pszNext = strtok ( pszCmdLine, szTokens ); //skip leading spaces
 
                if ( pszNext &&
-                    ( strnicmp ( pszNext, szBackup, strlen( pszNext ) ) == 0 ) &&
-                    ( pOemOpts = OEM_DefaultBatchOptions () ) )
+                    ( pOemOpts = OEM_DefaultBatchOptions () ) &&
+                    ( (strnicmp ( pszNext, szBackup, strlen( pszNext ) ) == 0 ) ||
+                    ( strnicmp ( pszNext, szEject, strlen( pszNext ) ) == 0 ) ) ) 
                {
+                    oem_batch_eject_mode = FALSE ;
+
+                    if ( strnicmp ( pszNext, szEject, strlen( pszNext ) ) == 0 ) {
+                         oem_batch_eject_mode = TRUE ;
+                    }
+
                     //  Make sure we're starting with a clear BSD list
 
                     bsd = BSD_GetFirst( bsd_list );
@@ -645,6 +659,11 @@ BOOL MUI_Init ( VOID )
                     if ( strlen( LOG_GetCurrentLogName( ) ) > 0 ) {                                      // chs:07-16-93
                          lresprintf( LOGGING_FILE, LOG_START, FALSE );                                   // chs:07-16-93
                     }                                                                                    // chs:07-16-93
+
+                    RSM_StringCopy ( IDS_OEMOPT_DSA, 
+                                        szDSA, sizeof ( szDSA ) );
+                    RSM_StringCopy ( IDS_OEMOPT_MONOLITHIC,
+                                        szMonolithic, sizeof ( szMonolithic ) );
 
                     while ( pszNext = strtok ( NULL, szTokens ) ) {
 
@@ -672,20 +691,54 @@ BOOL MUI_Init ( VOID )
                                     MUI_ProcessQuotedString ( pszQuotedString, pszNext, &QuoteState );
                                 }
                                 if ( !QuoteState ) {
-                                    //It's not an option, so it must be a path specifier
-                                    //So add this path to the job for processing...
 
-                                    OEM_AddPathToBackupSets ( bsd_list, dle_list, pszQuotedString );
+                                   //It's either a path or Exchange server name, based on the 
+                                   //setting of uEmsFSType.
+                                   if ( ((UINT8)FS_UNKNOWN_OS) == uEmsFSType ) {
+                                       OEM_AddPathToBackupSets ( bsd_list, dle_list, pszNext );
+
+                                   } else {
+                                       // Add EMS Server path to Backup sets and reset EMS flag.
+#ifdef OEM_EMS
+                                       OEM_AddEMSServerToBackupSets ( bsd_list, dle_list, 
+                                                                           pszNext, uEmsFSType );
+                                       uEmsFSType = (UINT8)FS_UNKNOWN_OS;
+#endif
+                                   }
                                 } else {
 
                                    strcat( pszQuotedString, TEXT( " " ) );
                                 }
                             } else {
 
-                                //It's not an option, so it must be a path specifier
-                                //So add this path to the job for processing...
+                                //It's not an option, so it must be a path specifier, an
+                                //Exchange backup specifier, or an Exchange server specifier.
 
-                                OEM_AddPathToBackupSets ( bsd_list, dle_list, pszNext );
+                                //Check first for Exchange DSA backup
+                                if ( strnicmp ( pszNext, szDSA, strlen( pszNext ) ) == 0 ) {
+                                   uEmsFSType = FS_EMS_DSA_ID;
+
+                                //Check next for Exchange Monolithic backup
+                                } else if ( strnicmp ( pszNext, szMonolithic, strlen( pszNext ) ) == 0 ) {
+                                   uEmsFSType = FS_EMS_MDB_ID;
+
+                                } else {
+                                
+                                   //It's either a path or Exchange server name, based on the 
+                                   //setting of uEmsFSType.
+
+                                   if ( ((UINT8)FS_UNKNOWN_OS) == uEmsFSType ) {
+                                      OEM_AddPathToBackupSets ( bsd_list, dle_list, pszNext );
+
+                                   } else {
+#ifdef OEM_EMS                                     
+                                        // Add EMS Server path to Backup sets and reset EMS flag
+                                        OEM_AddEMSServerToBackupSets ( bsd_list, dle_list, 
+                                                                            pszNext, uEmsFSType );
+                                        uEmsFSType = (UINT8)FS_UNKNOWN_OS;
+#endif                                        
+                                   }
+                                }
                             }
 
                          }
@@ -702,7 +755,16 @@ BOOL MUI_Init ( VOID )
 
                     // Now, go do the batch backup operation...
                     CDS_SetYesFlag ( CDS_GetPerm (), YESYES_FLAG );
-                    MUI_StartOperation ( IDM_OPERATIONSBACKUP, TRUE );
+
+                    MUI_EnableOperations ( (WORD)NULL );
+
+                    WM_ShowWaitCursor ( FALSE );
+
+                    if ( oem_batch_eject_mode ) {
+                         MUI_StartOperation ( IDM_OPERATIONSEJECT, TRUE );
+                    } else {
+                         MUI_StartOperation ( IDM_OPERATIONSBACKUP, TRUE );
+                    }
 
                     free ( pszCmdLine );    //don't need this anymore
 
@@ -715,6 +777,9 @@ BOOL MUI_Init ( VOID )
           }
      }
 #endif  //if defined ( OS_WIN32 ) for command line batch jobs
+     MUI_EnableOperations ( (WORD)NULL );
+     WM_ShowWaitCursor ( FALSE );
+
 #if !defined ( OEM_MSOFT )  //OEM_MSOFT can't do jobs or schedules
      {
 
@@ -824,6 +889,7 @@ VOID MUI_Deinit ( VOID )
 
           // Deinitialize and Save the CDS.
 
+          CDS_SaveDisplayConfig ();
           CDS_Deinit ();
 
           // Kill WinHelp if we brought it up and it is still around
@@ -899,15 +965,26 @@ BOOL fUpdateTempCDS )    // I - flag to update the temp CDS (copy of CDS)
 
           if ( ! VLM_StartBackup () ) {
                VLM_ClearAllSelections ();
+               
 #    if !defined ( OEM_MSOFT )
                UI_MakeAutoJobs ( JOBBACKUP );
 #    endif //!defined ( OEM_MSOFT )
           }
+
           else {
                VLM_RematchAllLists( );
                fError = FAILURE;
           }
           break;
+
+#    ifdef OEM_EMS
+     case IDM_OPERATIONSEXCHANGE:
+     
+          DM_ShowDialog ( ghWndFrame, IDD_CONNECT_XCHNG, (PVOID) NULL );
+          
+          break;
+#    endif
+
 
 #  if !defined ( OEM_MSOFT ) // unsupported feature
 
@@ -1264,6 +1341,9 @@ WORD wType )        // I - type of window being activated
      case WMTYPE_DISKS:
      case WMTYPE_DISKTREE:
      case WMTYPE_SERVERS:
+#ifdef OEM_EMS
+     case WMTYPE_EXCHANGE :
+#endif
 
           wType = WMTYPE_DISKS;
 

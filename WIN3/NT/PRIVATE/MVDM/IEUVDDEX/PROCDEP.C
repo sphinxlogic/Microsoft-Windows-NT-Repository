@@ -75,6 +75,90 @@ Return Value:
 
 }
 
+
+VOID
+dt(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN DWORD CurrentPc,
+    IN PWINDBG_EXTENSION_APIS ExtensionApis,
+    IN LPSTR ArgumentString
+    )
+/*++
+
+Routine Description:
+
+    This function toggle whether debug exception are reflected to the debugger,
+    or the Vdm.  This function has no useful purpose on Mips.
+
+Arguments:
+
+    CurrentProcess -- Supplies a handle to the current process
+    CurrentThread -- Supplies a handle to the current thread
+    CurrentPc -- Supplies the current program counter. (may be meaningless)
+    ExtensionApis -- Supplies pointers to ntsd support routines
+    ArgumentString -- Supplies the arguments passed to the command
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UNREFERENCED_PARAMETER(CurrentPc);
+
+    SETUP_WINDBG_POINTERS(ExtensionApis);
+    DumpTrace(
+        CurrentProcess,
+        CurrentThread,
+        ArgumentString,
+        0
+        );
+
+}
+
+
+VOID
+dtr(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN DWORD CurrentPc,
+    IN PWINDBG_EXTENSION_APIS ExtensionApis,
+    IN LPSTR ArgumentString
+    )
+/*++
+
+Routine Description:
+
+    This function toggle whether debug exception are reflected to the debugger,
+    or the Vdm.  This function has no useful purpose on Mips.
+
+Arguments:
+
+    CurrentProcess -- Supplies a handle to the current process
+    CurrentThread -- Supplies a handle to the current thread
+    CurrentPc -- Supplies the current program counter. (may be meaningless)
+    ExtensionApis -- Supplies pointers to ntsd support routines
+    ArgumentString -- Supplies the arguments passed to the command
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UNREFERENCED_PARAMETER(CurrentPc);
+
+    SETUP_WINDBG_POINTERS(ExtensionApis);
+    DumpTrace(
+        CurrentProcess,
+        CurrentThread,
+        ArgumentString,
+        1
+        );
+
+}
+
 VOID
 er(
     IN HANDLE CurrentProcess,
@@ -160,6 +244,45 @@ Return Value:
 #else
     (*Print)("eventinfo is not implemented for MIPS\n");
 #endif
+}
+
+VOID
+ica(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN DWORD CurrentPc,
+    IN PWINDBG_EXTENSION_APIS ExtensionApis,
+    IN LPSTR ArgumentString
+    )
+/*++
+
+Routine Description:
+
+    This function dumps the EventInfo.  This function has no useful purpose
+    on Mips.
+
+Arguments:
+
+    CurrentProcess -- Supplies a handle to the current process
+    CurrentThread -- Supplies a handle to the current thread
+    CurrentPc -- Supplies the current program counter. (may be meaningless)
+    ExtensionApis -- Supplies pointers to ntsd support routines
+    ArgumentString -- Supplies the arguments passed to the command
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UNREFERENCED_PARAMETER(CurrentPc);
+
+    SETUP_WINDBG_POINTERS(ExtensionApis);
+    DumpICA(
+        CurrentProcess,
+        CurrentThread,
+        ArgumentString
+        );
 }
 
 VOID
@@ -394,8 +517,7 @@ sel(
 
 Routine Description:
 
-    This function dumps the Vdm tib.  This function has no useful purpose
-    on Mips.
+    This function dumps ldt selectors.
 
 Arguments:
 
@@ -414,16 +536,52 @@ Return Value:
     UNREFERENCED_PARAMETER(CurrentPc);
 
     SETUP_WINDBG_POINTERS(ExtensionApis);
-#if defined(i386)
     Selp(
         CurrentProcess,
         CurrentThread,
         ArgumentString
         );
-#else
-    (*Print)("vdmtib is not implemented for MIPS\n");
-#endif
 }
+
+
+VOID
+trace(
+    IN HANDLE CurrentProcess,
+    IN HANDLE CurrentThread,
+    IN DWORD CurrentPc,
+    IN PWINDBG_EXTENSION_APIS ExtensionApis,
+    IN LPSTR ArgumentString
+    )
+/*++
+
+Routine Description:
+
+    This function dumps ldt selectors.
+
+Arguments:
+
+    CurrentProcess -- Supplies a handle to the current process
+    CurrentThread -- Supplies a handle to the current thread
+    CurrentPc -- Supplies the current program counter. (may be meaningless)
+    ExtensionApis -- Supplies pointers to ntsd support routines
+    ArgumentString -- Supplies the arguments passed to the command
+
+Return Value:
+
+    None.
+
+--*/
+{
+    UNREFERENCED_PARAMETER(CurrentPc);
+
+    SETUP_WINDBG_POINTERS(ExtensionApis);
+    TraceControl(
+        CurrentProcess,
+        CurrentThread,
+        ArgumentString
+        );
+}
+
 
 VOID
 vdmtib(
@@ -497,7 +655,7 @@ WriteProcessMem(
     )
 {
     if ( fWinDbg ) {
-        return (*WriteProcessMemWinDbg)( lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesWritten );
+        return (*WriteProcessMemWinDbg)( (DWORD)lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesWritten );
     } else {
         return WriteProcessMemory( hProcess, lpBaseAddress, lpBuffer, nSize, lpNumberOfBytesWritten );
     }

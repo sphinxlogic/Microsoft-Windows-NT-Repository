@@ -579,7 +579,7 @@ Return Value:
 
     if ((AbsoluteSd = NetpMemoryAllocate( Size )) == NULL) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpCreateSecurityDescriptor Fail Create abs SD\n");
+            NetpKdPrint(( "NetpCreateSecurityDescriptor Fail Create abs SD\n"));
         }
         ntstatus = STATUS_NO_MEMORY;
         goto Cleanup;
@@ -599,7 +599,7 @@ Return Value:
 
         if ( !NT_SUCCESS(ntstatus) ) {
             IF_DEBUG(SECURITY) {
-                NetpDbgPrint( "NetpCreateSecurityDescriptor Fail DACL Create ACL\n");
+                NetpKdPrint(( "NetpCreateSecurityDescriptor Fail DACL Create ACL\n"));
             }
             goto Cleanup;
         }
@@ -613,7 +613,7 @@ Return Value:
 
         if ( !NT_SUCCESS(ntstatus) ) {
             IF_DEBUG(SECURITY) {
-                NetpDbgPrint( "NetpCreateSecurityDescriptor Fail SACL Create ACL\n");
+                NetpKdPrint(( "NetpCreateSecurityDescriptor Fail SACL Create ACL\n"));
             }
             goto Cleanup;
         }
@@ -625,7 +625,7 @@ Return Value:
 
     if ((MaxAce = NetpMemoryAllocate( MaxAceSize )) == NULL ) {
         IF_DEBUG(SECURITY) {
-            NetpDbgPrint( "NetpCreateSecurityDescriptor Fail Create max ace\n");
+            NetpKdPrint(( "NetpCreateSecurityDescriptor Fail Create max ace\n"));
         }
         ntstatus = STATUS_NO_MEMORY;
         goto Cleanup;
@@ -685,7 +685,7 @@ Return Value:
 
         if ( !NT_SUCCESS( ntstatus ) ) {
             IF_DEBUG(SECURITY) {
-                NetpDbgPrint( "NetpCreateSecurityDescriptor Fail InitAce i: %d ntstatus: %lx\n", i, ntstatus);
+                NetpKdPrint(( "NetpCreateSecurityDescriptor Fail InitAce i: %d ntstatus: %lx\n", i, ntstatus));
             }
             goto Cleanup;
         }
@@ -702,7 +702,7 @@ Return Value:
                                          AceSize
                                          ))) {
             IF_DEBUG(SECURITY) {
-                NetpDbgPrint( "NetpCreateSecurityDescriptor Fail add ace i: %d ntstatus: %lx\n", i, ntstatus);
+                NetpKdPrint(( "NetpCreateSecurityDescriptor Fail add ace i: %d ntstatus: %lx\n", i, ntstatus));
             }
             goto Cleanup;
         }
@@ -907,8 +907,8 @@ Return Value:
                    );
 
     if (! NT_SUCCESS(ntstatus)) {
-        NetpDbgPrint("[Netlib] NetpCreateSecurityDescriptor returned %08lx\n",
-                     ntstatus);
+        NetpKdPrint(("[Netlib] NetpCreateSecurityDescriptor returned %08lx\n",
+                     ntstatus));
         return ntstatus;
     }
 
@@ -919,7 +919,7 @@ Return Value:
                    );
 
     if (! NT_SUCCESS(ntstatus)) {
-        NetpDbgPrint("[Netlib] NtOpenProcessToken returned %08lx\n", ntstatus);
+        NetpKdPrint(("[Netlib] NtOpenProcessToken returned %08lx\n", ntstatus));
         NetpMemoryFree(AbsoluteSd);
         return ntstatus;
     }
@@ -943,8 +943,8 @@ Return Value:
     NtClose(TokenHandle);
 
     if (! NT_SUCCESS(ntstatus)) {
-        NetpDbgPrint("[Netlib] RtlNewSecurityObject returned %08lx\n",
-                     ntstatus);
+        NetpKdPrint(("[Netlib] RtlNewSecurityObject returned %08lx\n",
+                     ntstatus));
     }
 
     //
@@ -1147,7 +1147,7 @@ DumpAcl(
 
 Routine Description:
 
-    This routine dumps via (NetpDbgPrint) an Acl for debug purposes.  It is
+    This routine dumps via (NetpKdPrint) an Acl for debug purposes.  It is
     specialized to dump standard aces.
 
 Arguments:
@@ -1165,7 +1165,7 @@ Return Value:
 
     IF_DEBUG(SECURITY) {
 
-        NetpDbgPrint("DumpAcl @%08lx\n", Acl);
+        NetpKdPrint(("DumpAcl @%08lx\n", Acl));
 
         //
         //  Check if the Acl is null
@@ -1179,9 +1179,9 @@ Return Value:
         //  Dump the Acl header
         //
 
-        NetpDbgPrint("    Revision: %02x", Acl->AclRevision);
-        NetpDbgPrint("    Size: %04x", Acl->AclSize);
-        NetpDbgPrint("    AceCount: %04x\n", Acl->AceCount);
+        NetpKdPrint(("    Revision: %02x", Acl->AclRevision));
+        NetpKdPrint(("    Size: %04x", Acl->AclSize));
+        NetpKdPrint(("    AceCount: %04x\n", Acl->AceCount));
 
         //
         //  Now for each Ace we want do dump it
@@ -1195,7 +1195,7 @@ Return Value:
             //  print out the ace header
             //
 
-            NetpDbgPrint(" AceHeader: %08lx ", *(PULONG)Ace);
+            NetpKdPrint((" AceHeader: %08lx ", *(PULONG)Ace));
 
             //
             //  special case on the standard ace types
@@ -1217,49 +1217,49 @@ Return Value:
                                             "System Alarm  "
                                           };
 
-                NetpDbgPrint(AceTypes[Ace->Header.AceType]);
-                NetpDbgPrint("\nAccess Mask: %08lx ", Ace->Mask);
+                NetpKdPrint((AceTypes[Ace->Header.AceType]));
+                NetpKdPrint(("\nAccess Mask: %08lx ", Ace->Mask));
 
             } else {
 
-                NetpDbgPrint("Unknown Ace Type\n");
+                NetpKdPrint(("Unknown Ace Type\n"));
 
             }
 
-            NetpDbgPrint("\n");
+            NetpKdPrint(("\n"));
 
-            NetpDbgPrint("AceSize = %d\n",Ace->Header.AceSize);
-            NetpDbgPrint("Ace Flags = ");
+            NetpKdPrint(("AceSize = %d\n",Ace->Header.AceSize));
+            NetpKdPrint(("Ace Flags = "));
             if (Ace->Header.AceFlags & OBJECT_INHERIT_ACE) {
-                NetpDbgPrint("OBJECT_INHERIT_ACE\n");
-                NetpDbgPrint("                   ");
+                NetpKdPrint(("OBJECT_INHERIT_ACE\n"));
+                NetpKdPrint(("                   "));
             }
             if (Ace->Header.AceFlags & CONTAINER_INHERIT_ACE) {
-                NetpDbgPrint("CONTAINER_INHERIT_ACE\n");
-                NetpDbgPrint("                   ");
+                NetpKdPrint(("CONTAINER_INHERIT_ACE\n"));
+                NetpKdPrint(("                   "));
             }
 
             if (Ace->Header.AceFlags & NO_PROPAGATE_INHERIT_ACE) {
-                NetpDbgPrint("NO_PROPAGATE_INHERIT_ACE\n");
-                NetpDbgPrint("                   ");
+                NetpKdPrint(("NO_PROPAGATE_INHERIT_ACE\n"));
+                NetpKdPrint(("                   "));
             }
 
             if (Ace->Header.AceFlags & INHERIT_ONLY_ACE) {
-                NetpDbgPrint("INHERIT_ONLY_ACE\n");
-                NetpDbgPrint("                   ");
+                NetpKdPrint(("INHERIT_ONLY_ACE\n"));
+                NetpKdPrint(("                   "));
             }
 
             if (Ace->Header.AceFlags & SUCCESSFUL_ACCESS_ACE_FLAG) {
-                NetpDbgPrint("SUCCESSFUL_ACCESS_ACE_FLAG\n");
-                NetpDbgPrint("            ");
+                NetpKdPrint(("SUCCESSFUL_ACCESS_ACE_FLAG\n"));
+                NetpKdPrint(("            "));
             }
 
             if (Ace->Header.AceFlags & FAILED_ACCESS_ACE_FLAG) {
-                NetpDbgPrint("FAILED_ACCESS_ACE_FLAG\n");
-                NetpDbgPrint("            ");
+                NetpKdPrint(("FAILED_ACCESS_ACE_FLAG\n"));
+                NetpKdPrint(("            "));
             }
 
-            NetpDbgPrint("\n");
+            NetpKdPrint(("\n"));
 
         }
     }

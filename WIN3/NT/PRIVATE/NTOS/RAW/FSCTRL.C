@@ -227,6 +227,9 @@ Return Value:
     VolumeDeviceObject->Vcb.Vpb->SerialNumber = 0xFFFFFFFF;
     VolumeDeviceObject->Vcb.Vpb->VolumeLabelLength = 0;
 
+    VolumeDeviceObject->DeviceObject.Flags &= ~DO_DEVICE_INITIALIZING;
+    VolumeDeviceObject->DeviceObject.StackSize = (UCHAR) (DeviceObjectWeTalkTo->StackSize + 1);
+
     return Status;
 }
 
@@ -344,4 +347,4 @@ Return Value:
 
     return Status;
 }
-
+

@@ -411,7 +411,7 @@ INT	PASCAL INTERNAL ZMSpawner ( HW hWnd, PSTR pProg, PSTR pArg, FLAG fWait )
     putfolder ( fhMailBox );
     stat ( mboxName, &buf );
     st_mtime = buf.st_mtime;
-    if (spawnlp ( P_WAIT, pProg, pProg, pArg, NULL ) == -1)
+    if (_spawnlp ( P_WAIT, pProg, pProg, pArg, NULL ) == -1)
         p = error ();
 
     stat ( mboxName, &buf );
@@ -672,11 +672,11 @@ VOID PASCAL INTERNAL ExpungeBox (VOID)
 	    if ( !( fp == NULL ) &&
 		  !( dMsg == ERROR ) &&
 		  !( TESTFLAG ( rgDoc [ i ].flag, F_DELETED ) ) ) {
-		gettext ( dMsg, fileno ( fp ) );
+		gettext ( dMsg, _fileno ( fp ) );
                 putdoc ( dMsg );
                 fseek ( fp, 0L, 0 );
                 dMsg = getdoc ( fhNew, DOC_CREATE, FALSE);
-                puttext ( dMsg, fileno ( fp ) );
+                puttext ( dMsg, _fileno ( fp ) );
             }
             putdoc ( dMsg );
             fclose ( fp );
@@ -696,8 +696,8 @@ VOID PASCAL INTERNAL ExpungeBox (VOID)
         */
         if ( ( i > idocLast ) && ( fcopy ( pTmpNm1, mboxName ) != NULL ) )
             SendMessage ( hCommand, DISPLAY, "Error during expunge, expunge aborted" );
-        unlink ( pTmpNm1 );
-        unlink ( pTmpNm2 );
+        _unlink ( pTmpNm1 );
+        _unlink ( pTmpNm2 );
         ZMfree ( pTmpNm2 );
     }
     ZMfree ( pTmpNm1 );
@@ -784,7 +784,7 @@ FLAG PASCAL INTERNAL fSetBox ( PSTR pFile, INT mode )
         }
         else {
             rootpath ( pFile, pathBuf );
-            strcpy ( mboxName, strlwr ( pathBuf ) );
+            strcpy ( mboxName, _strlwr ( pathBuf ) );
             strcpy (headerText, strAll);
             if (hHeaders != NULL) {
                 x = hHeaders->win.left;

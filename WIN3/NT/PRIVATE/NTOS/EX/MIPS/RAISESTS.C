@@ -23,8 +23,7 @@ Revision History:
 
 --*/
 
-#include "ntos.h"
-#include "zwapi.h"
+#include "exp.h"
 
 //
 // Define private function prototypes.
@@ -112,9 +111,9 @@ Return Value:
     //
 
     RtlCaptureContext(&ContextRecord);
-    ControlPc = ContextRecord.IntRa - 4;
+    ControlPc = (ULONG)(ContextRecord.XIntRa - 4);
     FunctionEntry = RtlLookupFunctionEntry(ControlPc);
-    NextPc = RtlVirtualUnwind(ControlPc,
+    NextPc = RtlVirtualUnwind(ControlPc | 1,
                               FunctionEntry,
                               &ContextRecord,
                               &InFunction,
@@ -233,9 +232,9 @@ Return Value:
     //
 
     RtlCaptureContext(&ContextRecord);
-    ControlPc = ContextRecord.IntRa - 4;
+    ControlPc = (ULONG)(ContextRecord.XIntRa - 4);
     FunctionEntry = RtlLookupFunctionEntry(ControlPc);
-    NextPc = RtlVirtualUnwind(ControlPc,
+    NextPc = RtlVirtualUnwind(ControlPc | 1,
                               FunctionEntry,
                               &ContextRecord,
                               &InFunction,

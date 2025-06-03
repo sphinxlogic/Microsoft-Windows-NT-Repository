@@ -131,6 +131,8 @@ extern LPCTSTR cszCopyClients;
 extern LPCTSTR csz_ClientTree_;
 extern LPCTSTR csz_ToolsTree_;
 extern LPCTSTR csz_SystemFileSize_;
+extern LPCTSTR cszWarningClients;
+extern LPCTSTR cszCaption;
 //
 //  "hardcoded" filenames
 //
@@ -221,11 +223,15 @@ extern LPCTSTR csz0;
 extern LPCTSTR cszBindings;
 extern LPCTSTR cszHelpFile;
 extern LPCTSTR cszWfwDir;
+extern LPCTSTR cszWin95Dir;
 extern LPCTSTR cszDebug;
 extern LPCTSTR csz2Spaces;
 extern LPCTSTR cszPoundSign;
 extern LPCTSTR cszDefaultLocalizer;
-//      
+extern LPCTSTR cszFrame;
+extern LPCTSTR cszTokenRing;
+extern LPCTSTR cszTokenRingEntry;
+//
 //  miscellaneous character constants
 //
 #define c0              TEXT('0')
@@ -251,4 +257,3 @@ extern LPCTSTR cszDefaultLocalizer;
 #endif  // _otnbtstr_H_
 
 
-

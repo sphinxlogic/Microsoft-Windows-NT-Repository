@@ -60,7 +60,7 @@
 /*
  * Define macros for select mask manipulation.  A sad shame
  *  that this absolutely necessary piece of the interface is
- *  left out of this piece of crap.
+ *  left out of this piece of TTTT.
  */
 
 typedef unsigned long fd_set;

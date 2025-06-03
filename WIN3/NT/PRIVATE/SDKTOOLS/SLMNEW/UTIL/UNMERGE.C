@@ -67,7 +67,7 @@ main(
     int iszMac,
     char *rgsz[])
 {
-    setmode(1 /* stdout */, O_BINARY);
+    _setmode(1 /* stdout */, O_BINARY);
     if (iszMac > 1 && strcmp(rgsz[1], "-d") == 0) {
         fDebug = fTrue;
         iszMac--;

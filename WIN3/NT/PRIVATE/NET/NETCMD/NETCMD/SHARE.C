@@ -142,8 +142,8 @@ VOID share_display_all(VOID)
     for (i = 0, share_entry = (struct share_info_2 FAR *) pBuffer;
         i < num_read; i++, share_entry++)
     {
-        if (_tcslen(share_entry->shi2_netname) <= 12)
-            WriteToCon(TEXT("%-12.12Fws "), share_entry->shi2_netname);
+        if (SizeOfHalfWidthString(share_entry->shi2_netname) <= 12)
+            WriteToCon(TEXT("%Fws "),PaddedString(12,share_entry->shi2_netname,NULL));
         else
         {
             WriteToCon(TEXT("%Fws"), share_entry->shi2_netname);
@@ -156,23 +156,16 @@ VOID share_display_all(VOID)
         if (share_entry->shi2_type == STYPE_PRINTQ)
         {
             get_print_devices(share_entry->shi2_netname);
-            if (_tcslen(Buffer) > 22)
-                WriteToCon(TEXT("%-19.19ws... "), Buffer);
-            else
-                WriteToCon(TEXT("%-22.22ws "), Buffer);
-            WriteToCon(TEXT("%-8.8ws "), ShareMsgList[SHARE_MSG_SPOOLED].msg_text);
+            WriteToCon(TEXT("%ws "),PaddedString(-22, Buffer, NULL));
+            WriteToCon(TEXT("%ws "),PaddedString(  8,
+                                                 ShareMsgList[SHARE_MSG_SPOOLED].msg_text,
+                                                  NULL));
         }
         else
         {
-            if (_tcslen(share_entry->shi2_path) > 31)
-                WriteToCon(TEXT("%-28.28Fws... "), share_entry->shi2_path);
-            else
-                WriteToCon(TEXT("%-31.31Fws "), share_entry->shi2_path);
+            WriteToCon(TEXT("%Fws "),PaddedString(-31,share_entry->shi2_path,NULL));
         }
-        if (_tcslen(share_entry->shi2_remark) > 34)
-            WriteToCon(TEXT("%-31.31Fws..."), share_entry->shi2_remark);
-        else
-            WriteToCon(TEXT("%Fws"), share_entry->shi2_remark);
+        WriteToCon(TEXT("%Fws"),PaddedString(-34,share_entry->shi2_remark,NULL));
         PrintNL();
     }
     InfoSuccess();
@@ -257,20 +250,26 @@ VOID share_display_share(TCHAR * netname)
     else
         _tcscpy(Buffer, share_entry->shi2_path);
 
-    WriteToCon(fmtPSZ, len, len, ShareMsgList[SHARE_MSG_NAME].msg_text,
-            share_entry->shi2_netname);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len,ShareMsgList[SHARE_MSG_NAME].msg_text,NULL),
+               share_entry->shi2_netname);
 
-    WriteToCon(fmtNPSZ, len, len, ShareMsgList[SHARE_MSG_PATH].msg_text, Buffer);
+    WriteToCon(fmtNPSZ, 0, len,
+               PaddedString(len,ShareMsgList[SHARE_MSG_PATH].msg_text,NULL),
+               Buffer);
 
-    WriteToCon(fmtPSZ, len, len, ShareMsgList[SHARE_MSG_REMARK].msg_text,
-            share_entry->shi2_remark);
+    WriteToCon(fmtPSZ, 0, len,
+               PaddedString(len,ShareMsgList[SHARE_MSG_REMARK].msg_text,NULL),
+               share_entry->shi2_remark);
 
     if (share_entry->shi2_max_uses == SHI_USES_UNLIMITED)
-        WriteToCon(fmtNPSZ, len, len, ShareMsgList[SHARE_MSG_MAX_USERS].msg_text,
-                ShareMsgList[SHARE_MSG_ULIMIT].msg_text);
+        WriteToCon(fmtNPSZ, 0, len,
+                   PaddedString(len,ShareMsgList[SHARE_MSG_MAX_USERS].msg_text,NULL),
+                   ShareMsgList[SHARE_MSG_ULIMIT].msg_text);
     else
-        WriteToCon(fmtULONG, len, len, ShareMsgList[SHARE_MSG_MAX_USERS].msg_text,
-                share_entry->shi2_max_uses);
+        WriteToCon(fmtULONG, 0, len,
+                   PaddedString(len,ShareMsgList[SHARE_MSG_MAX_USERS].msg_text,NULL),
+                   share_entry->shi2_max_uses);
 
     NetApiBufferFree((TCHAR FAR *) share_entry);
 
@@ -285,15 +284,18 @@ VOID share_display_share(TCHAR * netname)
         ErrorExit( err );
 
 
-    WriteToCon(TEXT("%-*.*ws"),len,len,ShareMsgList[SHARE_MSG_USERS].msg_text);
+    WriteToCon(TEXT("%-*.*ws"),0,len,
+               PaddedString(len,ShareMsgList[SHARE_MSG_USERS].msg_text,NULL));
     for (i = 0, conn_entry = (struct connection_info_1 FAR *) pBuffer;
         i < num_read; i++, conn_entry++)
     {
         if ((i != 0) && ((i % 3) == 0))
+
             WriteToCon(TEXT("%-*.*ws"),len,len, NULL_STRING);
-        WriteToCon(TEXT("%-21.21Fws"), (conn_entry->coni1_username == NULL)
-                        ? (TCHAR FAR *)txt_UNKNOWN :
-                        conn_entry->coni1_username);
+        WriteToCon(TEXT("%Fws"),
+                   PaddedString(21,(conn_entry->coni1_username == NULL)
+                                   ? (TCHAR FAR *)txt_UNKNOWN :
+                                     conn_entry->coni1_username, NULL));
         if (((i + 1) % 3) == 0)
             PrintNL();
     }

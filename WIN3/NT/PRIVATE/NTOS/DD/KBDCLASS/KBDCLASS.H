@@ -46,6 +46,13 @@ typedef struct _DEVICE_EXTENSION {
     BOOLEAN CleanupWasInitiated;
 
     //
+    // Flag that indicates whether or not a trusted subsystem currently
+    // has a handle open.
+    //
+
+    BOOLEAN TrustedSubsystemConnected;
+
+    //
     // Number of input data items currently in the InputData queue.
     //
 

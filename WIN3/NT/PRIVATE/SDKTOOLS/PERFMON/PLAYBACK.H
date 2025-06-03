@@ -63,4 +63,4 @@ void BuildLogComputerList (HWND hDlg, int DlgID) ;
 LPWSTR *LogBuildNameTable(PPERFSYSTEM pSysInfo) ;
 
 
-
+

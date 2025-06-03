@@ -5,6 +5,8 @@
 #ifndef _SWITCHES_
 #define _SWITCHES_
 
-#define Ctl3d
+#if DBG && !defined(DEBUG)
+#define DEBUG
+#endif
 
 #endif

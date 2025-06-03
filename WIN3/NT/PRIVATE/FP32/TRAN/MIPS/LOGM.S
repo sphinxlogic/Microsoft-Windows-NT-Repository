@@ -166,25 +166,28 @@ logmain:
 	j       ret
 
 8:	/* x <= 0 or x = NaN */
+	 /* is it zero? ($f10 == 0.0) */
 	c.eq.d	$f12, $f10
-	li.d	$f0, -1.0
 	bc1f	9f
+	li.d	$f0, -1.0        // generate -INF
+	li.d	$f10, 0.0
 	div.d	$f0, $f10
 	li	t6, FP_Z
 	j	set_log_err
 
-9:	c.eq.d	$f12, $f12
+9:	/*  x < 0.0 or x == NaN */
+	c.eq.d	$f12, $f12
 	bc1f	7b
-	div.d	$f0, $f10, $f10
+	li.d	$f0, 0.0
+        div.d   $f0, $f10	// generate a NaN
 	li	t6, FP_I
 
 set_log_err:
-	move	$4, t6 		    // exception mask
-	move	$5, t7  	    // operation code (funtion name index)
-	mfc1.d	$6, $f12   	    // arg1 
-	li.d	$f0, 0.0
-	s.d	    $f0, 16(sp)     // default result
-	xor     t5, t5, 0xf80   // inverse exception enable bits
+	move	$4, t6		// exception mask
+	move	$5, t7		// operation code (funtion name index)
+	mfc1.d	$6, $f12	// arg1 
+	s.d	    $f0, 16(sp)	// default result
+	xor     t5, t5, 0xf80	// inverse exception enable bits
 	sw	    t5, 24(sp)
 	jal  	_except1
 	lw      ra, FSIZE-4(sp)

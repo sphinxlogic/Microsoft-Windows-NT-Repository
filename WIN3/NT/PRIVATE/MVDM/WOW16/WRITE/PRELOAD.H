@@ -21,4 +21,3 @@ void PreloadCodeTsk( int );
 #define LoadF(f)             {  int f();  GetCodeHandle( (FARPROC) f );  }
 
 #define LCBAVAIL             0x00030D40 /* 200K */
-

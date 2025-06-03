@@ -12,6 +12,12 @@ Copyright(c) Maynard Electronics, Inc. 1984-89
 
      $Log:   T:/LOGFILES/MAYN31RD.C_V  $
 
+   Rev 1.49.1.4   12 Jan 1995 16:47:44   GREGG
+Added code to deal with continuation bits wrongly set in DDBs.
+
+   Rev 1.49.1.3   05 Jan 1995 16:57:24   GREGG
+Several fixes to translation of OS info and generation of alt data streams.
+
    Rev 1.49.1.2   11 Feb 1994 16:38:56   GREGG
 Clear the MOS bit in MoveToVCB. EPR 948-0244
 
@@ -487,6 +493,7 @@ INT16 F31_RdVCB(
      UINT16              tmp_filter ;
      ACHAR_PTR           vstr_ptr = (ACHAR_PTR)( cur_vcb ) ;
      INT16               ret_val = TFLE_NO_ERR ;
+     F31_ENV_PTR         cur_env = (F31_ENV_PTR)channel->fmt_env ;
 
      /* If processor types don't match, swap bytes */
      if( cur_vcb->hdr.format != CUR_PROCESSOR ) {
@@ -510,6 +517,9 @@ INT16 F31_RdVCB(
 
      if ( cur_vcb->hdr.blk_attribs & F31_DB_CONT_BIT ) {
           gvcb_data.std_data.continue_obj = TRUE ;
+          cur_env->cont_vcb = TRUE ;
+     } else {
+          cur_env->cont_vcb = FALSE ;
      }
 
      /* The IDs for the tape */
@@ -599,6 +609,20 @@ INT16 F31_RdDDB(
      GOS                 gos ;                              
      DATE_TIME           fake_access_date ;
 
+     /* There was a bug in 3.1 write which caused the continuation bit to be
+        set in the first DDB of a set which was not a continuation set.  It
+        is not clear how, why or how often this happened, but it was never
+        discovered because the read translator worked in such a way that it
+        was not apparent during read that anything was wrong.  Now it messes
+        us up big time so we set a flag to tell if the VCB has the
+        continuation bit set, and clear the bit in the DDB if it wasn't set
+        in the VCB.
+     */
+     if( ( !currentEnv->cont_vcb ) &&
+         ( cur_ddb->hdr.blk_attribs & F31_DB_CONT_BIT ) ) {
+          cur_ddb->hdr.blk_attribs &= ~F31_DB_CONT_BIT ;
+     }
+
      /* If the processor types don't match, swap bytes */
      if( cur_ddb->hdr.format != CUR_PROCESSOR ) {
           SwapBlock( blkhdr_layout, (UINT8_PTR)&cur_ddb->hdr.blk_chksm ) ;
@@ -624,6 +648,7 @@ INT16 F31_RdDDB(
      case FS_PC_OS2 :
      {
           F31_OS2_DIR_OS_INFO_PTR dip = di_ptr ;
+
           gos.access_date     = dip->access_date ;
 
           gos.ea_fork_size    = dip->ea_fork_size ;
@@ -639,22 +664,28 @@ INT16 F31_RdDDB(
           gos.long_path_leng  = dip->path_leng ;
           gos.long_path       = (ACHAR_PTR)(VOID_PTR)dip + dip->path ;
 
-          gos.acl_fork_size   = dip->acl_fork_size ;
-          gos.acl_fork_offset = dip->acl_fork_offset ;
+          if( cur_ddb->hdr.os_ver == FS_PC_OS2_ACL_VER ) {
+               gos.acl_fork_size   = dip->acl_fork_size ;
+               gos.acl_fork_offset = dip->acl_fork_offset ;
 
-          if( dip->acl_fork_size ) {
-               currentStream->id   = STRM_OS2_ACL ;
-               currentStream->size = U64_Init( dip->acl_fork_size, 0L ) ;
-               currentStream++ ;
-               currentEnv->no_streams++ ;
+               if( dip->acl_fork_size ) {
+                    currentStream->id   = STRM_OS2_ACL ;
+                    currentStream->size = U64_Init( dip->acl_fork_size, 0L ) ;
+                    currentStream++ ;
+                    currentEnv->no_streams++ ;
+               }
+          } else {
+               gos.acl_fork_size   = 0 ;
+               gos.acl_fork_offset = 0 ;
           }
 
-          break;
+          break ;
      }
 
      case FS_AFP_NOVELL :
      {
           F31_OLD_AFP_DIR_OS_INFO_PTR dip = di_ptr ;
+
           memcpy( gos.finder, dip->finder, sizeof(gos.finder) );
           gos.nov_owner_id      = dip->owner_id ;
 
@@ -670,12 +701,13 @@ INT16 F31_RdDDB(
 
           gos.long_path_leng    = dip->path_leng ;
           gos.long_path         = dip->long_path ;
-          break;
+          break ;
      }
 
      case FS_AFP_NOVELL31 :
      {
           F31_AFP_DIR_OS_INFO_PTR dip = di_ptr ;
+
           memcpy( gos.finder, dip->finder, sizeof(gos.finder) );
           gos.nov_owner_id      = dip->owner_id ;
           gos.trust_fork_size   = dip->trust_fork_size ;
@@ -692,20 +724,33 @@ INT16 F31_RdDDB(
 
           gos.long_path_leng    = dip->lpath_leng ;
           gos.long_path         = (ACHAR_PTR)( (UINT8_PTR)dip + dip->long_path ) ;
-          gos.dir_info_386      = dip->info_386 ;
+
+          gos.dir_info_386.info_valid       = dip->info_386.info_valid ;
+          gos.dir_info_386.maximum_space    = dip->info_386.maximum_space ;
+          gos.dir_info_386.attributes_386   = dip->info_386.attributes_386 ;
+          gos.dir_info_386.extend_attr      = dip->info_386.extend_attr ;
+          gos.dir_info_386.inherited_rights = dip->info_386.inherited_rights ;
+
           memcpy( gos.proDosInfo, dip->proDosInfo, sizeof(gos.proDosInfo) );
-          break;
+          break ;
      }
 
      case FS_NON_AFP_NOV :
      case FS_NON_AFP_NOV31 :
      {
           F31_NOV_DIR_OS_INFO_PTR dip = di_ptr ;
+
           gos.nov_owner_id      = dip->owner_id;
           gos.trust_fork_size   = dip->trust_fork_size ;
           gos.trust_fork_offset = dip->trust_fork_offset;
           gos.trust_fork_format = dip->trust_fork_format ;
-          gos.dir_info_386      = dip->info_386 ;
+
+          gos.dir_info_386.info_valid       = dip->info_386.info_valid ;
+          gos.dir_info_386.maximum_space    = dip->info_386.maximum_space ;
+          gos.dir_info_386.attributes_386   = dip->info_386.attributes_386 ;
+          gos.dir_info_386.extend_attr      = dip->info_386.extend_attr ;
+          gos.dir_info_386.inherited_rights = dip->info_386.inherited_rights ;
+
           if( dip->trust_fork_size ) {
                currentStream->id   = ( dip->trust_fork_format == TRUSTEE_FMT_286 )
                                      ? STRM_NOV_TRUST_286 : STRM_NOV_TRUST_386 ;
@@ -714,12 +759,12 @@ INT16 F31_RdDDB(
                currentStream++ ;
                currentEnv->no_streams++ ;
           }
-          break;
+          break ;
      }
 
      /* case FS_NLM_AFP_NOVELL31: */
      default:
-          break;
+          break ;
      }
 
      /* If this is a continuation DDB, and we've called this function, we
@@ -857,8 +902,8 @@ INT16 F31_RdFDB(
      case FS_PC_OS2 :
      {
           F31_OS2_FILE_OS_INFO_PTR dip = di_ptr ;
-          gos.access_date      = dip->access_date ;
 
+          gos.access_date      = dip->access_date ;
           gos.ea_fork_size     = dip->ea_fork_size ;
           gos.ea_fork_offset   = dip->ea_fork_offset ;
 
@@ -869,14 +914,19 @@ INT16 F31_RdFDB(
                currentEnv->no_streams++ ;
           }
 
-          gos.acl_fork_size    = dip->acl_fork_size ;
-          gos.acl_fork_offset  = dip->acl_fork_offset ;
+          if( cur_fdb->hdr.os_ver == FS_PC_OS2_ACL_VER ) {
+               gos.acl_fork_size    = dip->acl_fork_size ;
+               gos.acl_fork_offset  = dip->acl_fork_offset ;
 
-          if( dip->acl_fork_size ) {
-               currentStream->id   = STRM_OS2_ACL ;
-               currentStream->size = U64_Init( dip->acl_fork_size, 0L ) ;
-               currentStream++ ;
-               currentEnv->no_streams++ ;
+               if( dip->acl_fork_size ) {
+                    currentStream->id   = STRM_OS2_ACL ;
+                    currentStream->size = U64_Init( dip->acl_fork_size, 0L ) ;
+                    currentStream++ ;
+                    currentEnv->no_streams++ ;
+               }
+          } else {
+               gos.acl_fork_size   = 0 ;
+               gos.acl_fork_offset = 0 ;
           }
 
           gos.data_fork_size   = dip->data_fork_size ;
@@ -884,13 +934,14 @@ INT16 F31_RdFDB(
           gos.long_path_leng   = dip->lname_leng ;
           gos.long_path        = (ACHAR_PTR)( (UINT8_PTR)dip + dip->long_name ) ;
           gos.alloc_size       = dip->alloc_size ;
-          break;
+          break ;
      }
 
      case FS_AFP_NOVELL :
      case FS_AFP_NOVELL31 :
      {
           F31_AFP_FILE_OS_INFO_PTR dip = di_ptr ;
+
           memcpy( gos.finder, dip->finder, sizeof(gos.finder) );
           memcpy( gos.long_name, dip->long_name, sizeof(gos.long_name) );
 
@@ -901,27 +952,56 @@ INT16 F31_RdFDB(
           gos.res_fork_offset  = dip->res_fork_offset ;
 
           if( dip->res_fork_size ) {
+               dip->res_fork_size = BSwapLong( dip->res_fork_size ) ;
                currentStream->id   = STRM_MAC_RESOURCE ;
                currentStream->size = U64_Init( dip->res_fork_size, 0L ) ;
                currentStream++ ;
                currentEnv->no_streams++ ;
           }
 
-
           gos.nov_owner_id     = dip->owner_id ;
           gos.access_date16    = dip->access_date ;
-          gos.file_info_386    = dip->info_386 ;
+
+          gos.file_info_386.info_valid        = dip->info_386.info_valid ;
+          gos.file_info_386.creation_time     = dip->info_386.creation_time ;
+          gos.file_info_386.archiver_id       = dip->info_386.archiver_id ;
+          gos.file_info_386.attributes_386    = dip->info_386.attributes_386 ;
+          gos.file_info_386.last_modifier_id  = dip->info_386.last_modifier_id ;
+          gos.file_info_386.trust_fork_size   = dip->info_386.trust_fork_size ;
+          gos.file_info_386.trust_fork_offset = dip->info_386.trust_fork_offset ;
+          gos.file_info_386.trust_fork_format = dip->info_386.trust_fork_format ;
+          gos.file_info_386.inherited_rights  = dip->info_386.inherited_rights ;
+
+          if( dip->info_386.trust_fork_size ) {
+               currentStream->id   = ( dip->info_386.trust_fork_format == TRUSTEE_FMT_286 )
+                                     ? STRM_NOV_TRUST_286 : STRM_NOV_TRUST_386 ;
+
+               currentStream->size = U64_Init( dip->info_386.trust_fork_size, 0L ) ;
+               currentStream++ ;
+               currentEnv->no_streams++ ;
+          }
+
           memcpy( gos.proDosInfo, dip->proDosInfo, sizeof(gos.proDosInfo) );
-          break;
+          break ;
      }
 
      case FS_NON_AFP_NOV :
      case FS_NON_AFP_NOV31 :
      {
           F31_NOV_FILE_OS_INFO_PTR dip = di_ptr ;
+
           gos.nov_owner_id     = dip->owner_id;
           gos.access_date16    = dip->access_date ;
-          gos.file_info_386    = dip->info_386 ;
+
+          gos.file_info_386.info_valid        = dip->info_386.info_valid ;
+          gos.file_info_386.creation_time     = dip->info_386.creation_time ;
+          gos.file_info_386.archiver_id       = dip->info_386.archiver_id ;
+          gos.file_info_386.attributes_386    = dip->info_386.attributes_386 ;
+          gos.file_info_386.last_modifier_id  = dip->info_386.last_modifier_id ;
+          gos.file_info_386.trust_fork_size   = dip->info_386.trust_fork_size ;
+          gos.file_info_386.trust_fork_offset = dip->info_386.trust_fork_offset ;
+          gos.file_info_386.trust_fork_format = dip->info_386.trust_fork_format ;
+          gos.file_info_386.inherited_rights  = dip->info_386.inherited_rights ;
 
           if( dip->info_386.trust_fork_size ) {
                currentStream->id   = ( dip->info_386.trust_fork_format == TRUSTEE_FMT_286 )
@@ -933,12 +1013,12 @@ INT16 F31_RdFDB(
           }
                
           gos.data_fork_offset = dip->data_fork_offset ;
-          break;
+          break ;
      }
 
      /* case FS_NLM_AFP_NOVELL31: */
      default:
-          break;
+          break ;
      }
 
      /* If this is a continuation FDB, and we've called this function, we

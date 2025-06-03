@@ -142,6 +142,8 @@ INT16 NTFS_AttachToDLE( FSYS_HAND       fsh,      /* I - File system handle */
 
 INT16 NTFS_DetachDLE(   FSYS_HAND       fsh );      /* I -  */
 
+INT32 NTFS_EndOperationOnDLE(   FSYS_HAND       fsh );      /* I -  */
+
 INT16 NTFS_CreateObj(   FSYS_HAND fsh,    /* I - File system to create object one */
   DBLK_PTR  dblk);  /* I - Describes object to create       */
 

@@ -17,7 +17,7 @@ Abstract:
     lateness of the change.  Therefore, sometimes you will see NBF
     where you should see TDI.
 
-Created:    
+Created:
 
     Russ Blake  07/30/92
 
@@ -36,7 +36,7 @@ Revision History
 #include <ntprfctr.h>
 #include <windows.h>
 #include <string.h>
-#include <wcstr.h>
+#include <stdlib.h>
 #include <nb30.h>
 #include <tdi.h>
 #include <winperf.h>
@@ -216,9 +216,19 @@ Return Value:
     None.
 
 --*/
-
 {
-    return OpenTDIPerformanceData(lpDeviceNames, SPX_PROTOCOL);
+    DWORD   dwStatus;
+
+    dwStatus = OpenTDIPerformanceData(lpDeviceNames, SPX_PROTOCOL);
+    if (dwStatus == ERROR_FILE_NOT_FOUND) {
+        // no devices is not really an error, even though no counters
+        // will be collected, this presents a much less alarming
+        // message to the user.
+        REPORT_WARNING (SPX_NO_DEVICE, LOG_USER);
+        dwStatus = ERROR_SUCCESS;
+    }
+    return dwStatus;
+
 }
 
 DWORD
@@ -371,7 +381,7 @@ Return Value:
                 break;
         }
 
-        
+
         InitializeObjectAttributes(
             &ObjectAttributes,
             &FileString,
@@ -381,7 +391,6 @@ Return Value:
 
         Status = NtOpenFile(
                      &fileHandle,
-//                     SYNCHRONIZE | FILE_READ_DATA | FILE_WRITE_DATA,
                      SYNCHRONIZE | FILE_READ_DATA,
                      &ObjectAttributes,
                      &IoStatusBlock,
@@ -407,7 +416,7 @@ Return Value:
                 RtlAllocateHeap(RtlProcessHeap(),
                     HEAP_ZERO_MEMORY,
                     sizeof(TDI_DATA_DEFINITION));
-            
+
             if (TDITbl[CurrentProtocol].pTDIData == NULL) {
                 REPORT_ERROR (TDI_PROVIDER_STATS_MEMORY, LOG_DEBUG);
                 NtClose(fileHandle);
@@ -445,7 +454,7 @@ Return Value:
 
         if (TDITbl[CurrentProtocol].pTDIData[NumOfDevices].DeviceName.MaximumLength
             > TDITbl[CurrentProtocol].MaxDeviceName) {
-            TDITbl[CurrentProtocol].MaxDeviceName = 
+            TDITbl[CurrentProtocol].MaxDeviceName =
                 TDITbl[CurrentProtocol].pTDIData[NumOfDevices].DeviceName.MaximumLength;
         }
 
@@ -501,7 +510,7 @@ Return Value:
 
         pTemp = TDITbl[CurrentProtocol].pTDIData;
         TDITbl[CurrentProtocol].MaxNumOfResources = 0;
-                
+
         for (NumOfDevices = 0;
              NumOfDevices < TDITbl[CurrentProtocol].NumOfDevices;
              NumOfDevices++, pTemp++) {
@@ -593,7 +602,7 @@ Arguments:
          pointer to a wide character string passed by registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -602,15 +611,15 @@ Arguments:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  NumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
 Return Value:
@@ -652,7 +661,7 @@ Arguments:
          pointer to a wide character string passed by registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -661,15 +670,15 @@ Arguments:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  NumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
 Return Value:
@@ -711,7 +720,7 @@ Arguments:
          pointer to a wide character string passed by registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -720,15 +729,15 @@ Arguments:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  NumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
 Return Value:
@@ -770,7 +779,7 @@ Arguments:
          pointer to a wide character string passed by registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -779,15 +788,15 @@ Arguments:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  NumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
 Return Value:
@@ -830,7 +839,7 @@ Arguments:
          pointer to a wide character string passed by registry.
 
    IN OUT   LPVOID   *lppData
-         IN: pointer to the address of the buffer to receive the completed 
+         IN: pointer to the address of the buffer to receive the completed
             PerfDataBlock and subordinate structures. This routine will
             append its data to the buffer starting at the point referenced
             by *lppData.
@@ -839,15 +848,15 @@ Arguments:
             its data.
 
    IN OUT   LPDWORD  lpcbTotalBytes
-         IN: the address of the DWORD that tells the size in bytes of the 
+         IN: the address of the DWORD that tells the size in bytes of the
             buffer referenced by the lppData argument
-         OUT: the number of bytes added by this routine is writted to the 
+         OUT: the number of bytes added by this routine is writted to the
             DWORD pointed to by this argument
 
    IN OUT   LPDWORD  NumObjectTypes
-         IN: the address of the DWORD to receive the number of objects added 
-            by this routine 
-         OUT: the number of objects added by this routine is writted to the 
+         IN: the address of the DWORD to receive the number of objects added
+            by this routine
+         OUT: the number of objects added by this routine is writted to the
             DWORD pointed to by this argument
 
     IN      DWORD    CurrentProtocol
@@ -911,10 +920,10 @@ Return Value:
     }
     //
     // before doing anything else,
-    // see if this is a foreign (i.e. non-NT) computer data request 
+    // see if this is a foreign (i.e. non-NT) computer data request
     //
     dwQueryType = GetQueryType (lpValueName);
-    
+
     if ((dwQueryType == QUERY_COSTLY) || (dwQueryType == QUERY_FOREIGN)) {
         // NBF foriegn data requests are not supported so bail out
         REPORT_INFORMATION (TDI_FOREIGN_DATA_REQUEST, LOG_VERBOSE);
@@ -949,7 +958,7 @@ Return Value:
         } // other protocol
     }   // dwQueryType == QUERY_ITEMS
 
-    // if no NBF devices were opened, in the OPEN routine, then 
+    // if no NBF devices were opened, in the OPEN routine, then
     // leave now.
 
     if (TDITbl[CurrentProtocol].pTDIData == NULL) {
@@ -982,7 +991,7 @@ Return Value:
     SpaceNeeded = sizeof(NBF_DATA_DEFINITION) +
                   SIZE_OF_NBF_DATA +
                   ResourceSpace;
-   
+
     // now add in the per instance NBF data
     SpaceNeeded += NumOfDevices *
         (SIZE_OF_NBF_DATA +
@@ -1026,9 +1035,9 @@ Return Value:
         //
         //  Format and collect Nbf data
         //
-    
+
         QueryInfo.QueryType = TDI_QUERY_PROVIDER_STATISTICS;
-    
+
         Status = NtDeviceIoControlFile(
                      pTDIData->fileHandle,
                      NULL,
@@ -1040,7 +1049,7 @@ Return Value:
                      sizeof(TDI_REQUEST_USER_QUERY_INFO),
                      (PVOID)ProviderStats,
                      ProviderStatsLength);
-    
+
         if (Status != STATUS_SUCCESS) {
             REPORT_ERROR (TDI_UNABLE_READ_DEVICE, LOG_DEBUG);
             REPORT_ERROR_DATA (TDI_QUERY_INFO_ERROR,
@@ -1051,9 +1060,9 @@ Return Value:
             *lpNumObjectTypes = (DWORD) 0;
             return ERROR_SUCCESS;
         }
-    
+
         REPORT_INFORMATION (TDI_QUERY_INFO_SUCCESS, LOG_DEBUG);
-    
+
 
         MonBuildInstanceDefinition(
             pPerfInstanceDefinition,
@@ -1063,32 +1072,33 @@ Return Value:
             i,
             &(pTDIData->DeviceName));
 
-    
+
         pPerfCounterBlock->ByteLength = SIZE_OF_NBF_DATA;
-    
+
         pdwCounter = (PDWORD) (&pPerfCounterBlock[1]);
-    
+
         *pdwCounter = ProviderStats->DatagramsSent +
                       ProviderStats->DatagramsReceived;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         pliDatagramBytes = pliCounter;
-        *pliCounter = RtlLargeIntegerAdd(ProviderStats->DatagramBytesSent,
-                                         ProviderStats->DatagramBytesReceived);
+        pliCounter->QuadPart = ProviderStats->DatagramBytesSent.QuadPart +
+                               ProviderStats->DatagramBytesReceived.QuadPart;
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->PacketsSent + ProviderStats->PacketsReceived;
         *++pdwCounter = ProviderStats->DataFramesSent +
                         ProviderStats->DataFramesReceived;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         pliFrameBytes = pliCounter;
-        *pliCounter = RtlLargeIntegerAdd(ProviderStats->DataFrameBytesSent,
-                                         ProviderStats->DataFrameBytesReceived);
-    
+        pliCounter->QuadPart = ProviderStats->DataFrameBytesSent.QuadPart +
+                               ProviderStats->DataFrameBytesReceived.QuadPart;
+
         //  Get the Bytes Total/sec which is the sum of Frame Byte /sec
         //  and Datagram byte/sec
-        *++pliCounter = RtlLargeIntegerAdd(*pliDatagramBytes,
-                                           *pliFrameBytes);
+        ++pliCounter;
+        pliCounter->QuadPart = pliDatagramBytes->QuadPart +
+                               pliFrameBytes->QuadPart;
         //
         //  Get the TDI raw data.
         //
@@ -1107,42 +1117,42 @@ Return Value:
         *++pdwCounter = ProviderStats->NotFoundFailures;
         *++pdwCounter = ProviderStats->NoListenFailures;
         *++pdwCounter = ProviderStats->DatagramsSent;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DatagramBytesSent;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->DatagramsReceived;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DatagramBytesReceived;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->PacketsSent;
         *++pdwCounter = ProviderStats->PacketsReceived;
         *++pdwCounter = ProviderStats->DataFramesSent;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DataFrameBytesSent;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->DataFramesReceived;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DataFrameBytesReceived;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->DataFramesResent;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DataFrameBytesResent;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->DataFramesRejected;
-    
+
         pliCounter = (LARGE_INTEGER UNALIGNED *) ++pdwCounter;
         *pliCounter = ProviderStats->DataFrameBytesRejected;
-    
+
         pdwCounter = (PDWORD) ++pliCounter;
         *pdwCounter = ProviderStats->ResponseTimerExpirations;
         *++pdwCounter = ProviderStats->AckTimerExpirations;
@@ -1159,7 +1169,7 @@ Return Value:
     pNbfResourceDataDefinition = (NBF_RESOURCE_DATA_DEFINITION *)
                                  ++pdwCounter;
     TotalNumberOfResources = 0;
-    
+
     pNbfDataDefinition->NbfObjectType.NumInstances = NumOfDevices;
     pNbfDataDefinition->NbfObjectType.TotalByteLength =
         (PBYTE) pdwCounter - (PBYTE) pNbfDataDefinition;
@@ -1194,7 +1204,7 @@ Return Value:
                              sizeof(TDI_REQUEST_USER_QUERY_INFO),
                              (PVOID)ProviderStats,
                              ProviderStatsLength);
-    
+
                 if (Status != STATUS_SUCCESS) {
                     REPORT_ERROR (TDI_UNABLE_READ_DEVICE, LOG_DEBUG);
                     REPORT_ERROR_DATA (TDI_QUERY_INFO_ERROR,
@@ -1212,11 +1222,11 @@ Return Value:
             for ( NumResource = 0;
                   NumResource < pTDIData->NumberOfResources;
                   NumResource++ ) {
-    
+
                 //
                 //  Format and collect Nbf Resource data
                 //
-    
+
                 if (NumResource < NUMBER_OF_NAMES) {
                     RtlInitUnicodeString(&ResourceName,
                                          NetResourceName[NumResource]);
@@ -1229,7 +1239,7 @@ Return Value:
                                               10,
                                               &ResourceName);
                 }
-    
+
                 MonBuildInstanceDefinition(
                     pPerfInstanceDefinition,
                     (PVOID *)&pPerfCounterBlock,
@@ -1237,25 +1247,25 @@ Return Value:
                     i,
                     NumResource,
                     &ResourceName);
-    
+
                 pPerfCounterBlock->ByteLength = SIZE_OF_NBF_RESOURCE_DATA;
-    
+
                 pdwCounter = (PDWORD)&pPerfCounterBlock[1]; // define pointer to first
                                                             // counter in block
-                *pdwCounter++ = 
+                *pdwCounter++ =
                     ProviderStats->ResourceStats[NumResource].MaximumResourceUsed;
-                *pdwCounter++ = 
+                *pdwCounter++ =
                     ProviderStats->ResourceStats[NumResource].AverageResourceUsed;
-                *pdwCounter++ = 
+                *pdwCounter++ =
                     ProviderStats->ResourceStats[NumResource].ResourceExhausted;
-    
+
                 // set pointer to where next instance buffer should show up
-    
+
                 pPerfInstanceDefinition = (PERF_INSTANCE_DEFINITION *)
                                           ((PBYTE) pPerfCounterBlock +
                                            SIZE_OF_NBF_RESOURCE_DATA);
                 // set for loop termination
-    
+
                 pdwCounter = (PDWORD) pPerfInstanceDefinition;
 
             }  // NumberOfResources
@@ -1264,19 +1274,28 @@ Return Value:
 
     *lppData = pdwCounter;
 
-    *lpcbTotalBytes = (PBYTE) pdwCounter -
-                      (PBYTE) pNbfResourceDataDefinition;
+    pNbfResourceDataDefinition->NbfResourceObjectType.TotalByteLength =
+        (PBYTE) pdwCounter - (PBYTE) pNbfResourceDataDefinition;
 
     if (CurrentProtocol != NBF_PROTOCOL) {
         *lpNumObjectTypes = 1;
+        // bytes used are those of the first (i.e. only) object returned
+        *lpcbTotalBytes = pNbfDataDefinition->NbfObjectType.TotalByteLength;
     } else {
+        // set count of object types returned
         *lpNumObjectTypes = NBF_NUM_PERF_OBJECT_TYPES;
-        pNbfResourceDataDefinition->NbfResourceObjectType.TotalByteLength =
+        // set length of this object
             *lpcbTotalBytes;
+        // note the bytes used by first object
+        *lpcbTotalBytes = pNbfDataDefinition->NbfObjectType.TotalByteLength;
+        // add the bytes used by the second object
+        *lpcbTotalBytes +=
+            pNbfResourceDataDefinition->NbfResourceObjectType.TotalByteLength;
+        // set number of instances loaded
         pNbfResourceDataDefinition->NbfResourceObjectType.NumInstances =
             TotalNumberOfResources;
     }
-   
+
     REPORT_INFORMATION (TDI_COLLECT_DATA, LOG_DEBUG);
     return ERROR_SUCCESS;
 }
@@ -1415,10 +1434,11 @@ Return Value:
         REPORT_INFORMATION (TDI_PROVIDER_STATS_FREED, LOG_VERBOSE);
     }
 
-    MonCloseEventLog ();      
+    MonCloseEventLog ();
 
     return ERROR_SUCCESS;
 
 }
 
-
+
+

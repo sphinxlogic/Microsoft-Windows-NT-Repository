@@ -946,9 +946,10 @@ BOOL HasPath(
 {
     LPTSTR psz;
 
-    for (psz = pszFileSpec; *psz; psz++)
+    for (psz = pszFileSpec; *psz; psz = CharNext(psz)) {
         if (*psz == CHAR_BACKSLASH)
             return TRUE;
+    }
 
     return FALSE;
 }
@@ -988,4 +989,4 @@ BOOL WriteDWordPad(
 
     return TRUE;
 }
-
+

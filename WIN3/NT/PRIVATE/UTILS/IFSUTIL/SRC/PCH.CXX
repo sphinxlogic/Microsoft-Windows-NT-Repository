@@ -4,21 +4,23 @@ Copyright (c) 1994 Microsoft Corporation
 
 Module Name:
 
-	pch.cxx
+        pch.cxx
 
 Abstract:
 
-	This module implements 
+        This module implements
 
 Author:
 
-	Matthew Bradburn (mattbr)  27-Apr-1994
+        Matthew Bradburn (mattbr)  27-Apr-1994
 
 --*/
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
 #include "autoentr.hxx"
 #include "autoreg.hxx"
 #include "bigint.hxx"

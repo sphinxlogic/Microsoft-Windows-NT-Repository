@@ -75,11 +75,11 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareAdd: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetShareAdd: header at %lx, params at %lx, "
                       "level %ld\n",
                       Header,
                       parameters,
-                      SmbGetUshort( &parameters->Level ) );
+                      SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -106,7 +106,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetShareAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -133,7 +133,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetShareAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -141,8 +141,8 @@ Return Value:
     }
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareAdd: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetShareAdd: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -169,8 +169,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareAdd: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetShareAdd: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -190,7 +190,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareAdd: NetShareAdd failed: %X\n", status );
+            NetpKdPrint(( "XsNetShareAdd: NetShareAdd failed: %X\n", status ));
         }
 
         if ( status == ERROR_DIRECTORY ) {
@@ -266,8 +266,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareCheck: NetShareCheck failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetShareCheck: NetShareCheck failed: "
+                          "%X\n", status ));
         }
     }
 
@@ -318,8 +318,8 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareDel: header at %lx, params at %lx, name %s\n",
-                      Header, parameters, SmbGetUlong( &parameters->NetName ));
+        NetpKdPrint(( "XsNetShareDel: header at %lx, params at %lx, name %s\n",
+                      Header, parameters, SmbGetUlong( &parameters->NetName )));
     }
 
     //
@@ -343,7 +343,7 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareDel: NetShareDel failed: %X\n", status );
+            NetpKdPrint(( "XsNetShareDel: NetShareDel failed: %X\n", status ));
         }
     }
 
@@ -398,10 +398,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetShareEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -430,16 +430,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetShareEnum: NetShareEnum failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetShareEnum: NetShareEnum failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetShareEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -488,10 +488,10 @@ Return Value:
         );
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -579,9 +579,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "XsNetShareGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetShareGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -612,8 +612,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetShareGetInfo: NetShareGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetShareGetInfo: NetShareGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -672,8 +672,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetShareGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -681,9 +681,9 @@ Return Value:
     }
 
     IF_DEBUG(SHARE) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -697,14 +697,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetShareGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > (DWORD)SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareGetInfo: More data available.\n" );
+            NetpKdPrint(( "XsNetShareGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -843,8 +843,8 @@ Return Value:
     if ( status != NERR_Success ) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareSetInfo: Problem with conversion: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetShareSetInfo: Problem with conversion: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -872,8 +872,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetShareSetInfo: NetShareSetInfo failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetShareSetInfo: NetShareSetInfo failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

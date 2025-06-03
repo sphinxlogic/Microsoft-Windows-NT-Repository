@@ -1942,7 +1942,7 @@ xxaction(index,xxvar)int index;register TCHAR * xxvar[]; {switch(index) {
 #line 1261 "msnet.nt"
 		case 91 :
 			{help_help(0, USAGE_ONLY); } break;
-		}}
+		} return 0 ;}
 TCHAR * xxswitch[] = {
 TEXT("/SYNCHRONIZE"),
 TEXT("/ADD"),

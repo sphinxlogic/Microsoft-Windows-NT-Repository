@@ -349,4 +349,3 @@ conprompt (
     char *Buffer,
     ULONG BufferSize
     );
-

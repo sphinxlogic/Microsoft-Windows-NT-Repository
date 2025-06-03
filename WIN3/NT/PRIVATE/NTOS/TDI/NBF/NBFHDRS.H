@@ -83,7 +83,8 @@ typedef struct _NBF_HDR_GENERIC {
     USHORT Data2;               // optional parameter.
     USHORT TransmitCorrelator;  // transmit correlator parameter.
     USHORT ResponseCorrelator;  // response correlator parameter.
-} NBF_HDR_GENERIC, UNALIGNED *PNBF_HDR_GENERIC;
+} NBF_HDR_GENERIC;
+typedef NBF_HDR_GENERIC UNALIGNED *PNBF_HDR_GENERIC;
 
 typedef struct _NBF_HDR_CONNECTION {
     USHORT Length;              // length of the header in bytes (14).
@@ -95,7 +96,8 @@ typedef struct _NBF_HDR_CONNECTION {
     USHORT ResponseCorrelator;  // Intel-formatted DW param. (response correlator).
     UCHAR DestinationSessionNumber; // connection identifier of packet receiver.
     UCHAR SourceSessionNumber;      // connection identifier of packet sender.
-} NBF_HDR_CONNECTION, UNALIGNED *PNBF_HDR_CONNECTION;
+} NBF_HDR_CONNECTION;
+typedef NBF_HDR_CONNECTION UNALIGNED *PNBF_HDR_CONNECTION;
 
 typedef struct _NBF_HDR_CONNECTIONLESS {
     USHORT Length;              // length of the header in bytes (44).
@@ -107,7 +109,8 @@ typedef struct _NBF_HDR_CONNECTIONLESS {
     USHORT ResponseCorrelator;  // Intel-formatted DW param. (response correlator).
     UCHAR DestinationName [NETBIOS_NAME_LENGTH]; // name of packet receiver.
     UCHAR SourceName [NETBIOS_NAME_LENGTH];      // name of packet sender.
-} NBF_HDR_CONNECTIONLESS, UNALIGNED *PNBF_HDR_CONNECTIONLESS;
+} NBF_HDR_CONNECTIONLESS;
+typedef NBF_HDR_CONNECTIONLESS UNALIGNED *PNBF_HDR_CONNECTIONLESS;
 
 //
 // These macros are used to retrieve the transmit and response
@@ -132,7 +135,8 @@ typedef union _NBF_HDR {
     NBF_HDR_GENERIC         Generic;
     NBF_HDR_CONNECTION      ConnectionOrientedFrame;
     NBF_HDR_CONNECTIONLESS  ConnectionlessFrame;
-} NBF_HDR, UNALIGNED *PNBF_HDR;
+} NBF_HDR;
+typedef NBF_HDR UNALIGNED *PNBF_HDR;
 
 //
 // The following structures define I-frame, U-frame, and S-frame DLC headers.
@@ -161,11 +165,13 @@ typedef struct _DLC_XID_INFORMATION {
     UCHAR FormatId;                     // format of this XID frame.
     UCHAR Info1;                        // first information byte.
     UCHAR Info2;                        // second information byte.
-} DLC_XID_INFORMATION, UNALIGNED *PDLC_XID_INFORMATION;
+} DLC_XID_INFORMATION;
+typedef DLC_XID_INFORMATION UNALIGNED *PDLC_XID_INFORMATION;
 
 typedef struct _DLC_TEST_INFORMATION {
     UCHAR Buffer [10];                  // this buffer is actually arbitrarily large.
-} DLC_TEST_INFORMATION, UNALIGNED *PDLC_TEST_INFORMATION;
+} DLC_TEST_INFORMATION;
+typedef DLC_TEST_INFORMATION UNALIGNED *PDLC_TEST_INFORMATION;
 
 typedef struct _DLC_FRMR_INFORMATION {
     UCHAR Command;              // format: mmmpmm11, m=modifiers, p=poll/final.
@@ -173,7 +179,8 @@ typedef struct _DLC_FRMR_INFORMATION {
     UCHAR Vs;                   // our next send when error was detected.
     UCHAR Vr;                   // our next receive when error was detected.
     UCHAR Reason;               // reason for sending FRMR: 000VZYXW.
-} DLC_FRMR_INFORMATION, UNALIGNED *PDLC_FRMR_INFORMATION;
+} DLC_FRMR_INFORMATION;
+typedef DLC_FRMR_INFORMATION UNALIGNED *PDLC_FRMR_INFORMATION;
 
 typedef struct _DLC_U_FRAME {
     UCHAR Dsap;                         // Destination Service Access Point.
@@ -185,7 +192,8 @@ typedef struct _DLC_U_FRAME {
         DLC_FRMR_INFORMATION FrmrInfo;  // FRMR information.
         NBF_HDR_CONNECTIONLESS NbfHeader; // UI frame contains NetBIOS header.
     } Information;
-} DLC_U_FRAME, UNALIGNED *PDLC_U_FRAME;
+} DLC_U_FRAME;
+typedef DLC_U_FRAME UNALIGNED *PDLC_U_FRAME;
 
 #define DLC_U_INDICATOR 0x03    // (cmd & DLC_U_IND) == DLC_U_IND --> U-frame.
 #define DLC_U_PF        0x10    // (cmd & DLC_U_PF) -> poll/final set.
@@ -195,7 +203,8 @@ typedef struct _DLC_S_FRAME {
     UCHAR Ssap;                         // Source Service Access Point.
     UCHAR Command;                      // RR, RNR, REJ command code.
     UCHAR RcvSeq;                       // receive seq #, bottom bit is poll/final.
-} DLC_S_FRAME, UNALIGNED *PDLC_S_FRAME;
+} DLC_S_FRAME;
+typedef DLC_S_FRAME UNALIGNED *PDLC_S_FRAME;
 
 #define DLC_S_PF        0x01    // (rcvseq & DLC_S_PF) means poll/final set.
 
@@ -204,7 +213,8 @@ typedef struct _DLC_I_FRAME {
     UCHAR Ssap;                         // Source Service Access Point.
     UCHAR SendSeq;                      // send sequence number, bottom bit 0.
     UCHAR RcvSeq;                       // rcv sequence number, bottom bit p/f.
-} DLC_I_FRAME, UNALIGNED *PDLC_I_FRAME;
+} DLC_I_FRAME;
+typedef DLC_I_FRAME UNALIGNED *PDLC_I_FRAME;
 
 #define DLC_I_PF        0x01    // (rcvseq & DLC_I_PF) means poll/final set.
 #define DLC_I_INDICATOR 0x01    // !(sndseq & DLC_I_INDICATOR) indicates I-frame.
@@ -213,7 +223,8 @@ typedef struct _DLC_FRAME {
     UCHAR Dsap;                         // Destination Service Access Point.
     UCHAR Ssap;                         // Source Service Access Point.
     UCHAR Byte1;                        // command byte.
-} DLC_FRAME, UNALIGNED *PDLC_FRAME;
+} DLC_FRAME;
+typedef DLC_FRAME UNALIGNED *PDLC_FRAME;
 
 
 //

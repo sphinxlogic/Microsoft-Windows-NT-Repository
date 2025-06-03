@@ -167,9 +167,12 @@ BOOL IsValue(
 BOOL HasBlanks(
     LPTSTR psz)
 {
-    while (*psz)
-        if (*psz++ == CHAR_SPACE)
+    while (*psz) {
+        if (*psz == CHAR_SPACE)
             return TRUE;
+        else
+            psz = CharNext(psz);
+    }
 
     return FALSE;
 }

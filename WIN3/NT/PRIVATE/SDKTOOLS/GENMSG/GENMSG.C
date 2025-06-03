@@ -334,7 +334,7 @@ tryagain:
 
         if (State == LOOKING_FOR_MSGID) {
             SyntaxPhrase = "MessageId=";
-            if (strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
+            if (_strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
 syntaxerr:
                 fprintf( stderr,
                          "%s(%d) : error : invalid syntax - %s\n",
@@ -359,7 +359,7 @@ syntaxerr:
             if (!(s = SkipWhiteSpace( s1 ))) {
                 goto syntaxerr;
                 }
-            if (strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
+            if (_strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
                 goto syntaxerr;
                 }
             MsgName = s + strlen( SyntaxPhrase );
@@ -379,7 +379,7 @@ syntaxerr:
         else
         if (State == LOOKING_FOR_LANGUAGE) {
             SyntaxPhrase = "Language=";
-            if (strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
+            if (_strnicmp( s, SyntaxPhrase, strlen( SyntaxPhrase ) )) {
                 State = LOOKING_FOR_MSGID;
                 goto tryagain;
                 }
@@ -451,7 +451,7 @@ FindLanguageId(
 #endif
     pn = LanguageNames;
     while (pn->Id) {
-        if (!stricmp( LanguageName, pn->Name )) {
+        if (!_stricmp( LanguageName, pn->Name )) {
             pn->IdSeen = TRUE;
 #if 0
             fprintf( stderr, " - %lu\n", pn->Id );
@@ -792,4 +792,3 @@ nextlang:
 
     return( TRUE );
 }
-

@@ -102,7 +102,7 @@ view_display ( TCHAR * name )
     USHORT                  err;         /* API return status */
     TCHAR FAR *              pEnumBuffer;
     TCHAR FAR *              pGetInfoBuffer;
-    USHORT2ULONG            read;        /* to receive # of entries read */
+    USHORT2ULONG            _read;        /* to receive # of entries read */
     USHORT                  msgLen;      /* to hold max length of messages */
     TCHAR                  * msgPtr;      /* message to print */
 
@@ -113,7 +113,7 @@ view_display ( TCHAR * name )
     SHORT                       errorflag = 0;
     USHORT2ULONG                i;
     TCHAR FAR *                  comment;
-    TCHAR                        tname[CNLEN+NNLEN+4];   /* for NetUseGetInfo */
+    TCHAR                        tname[MAX_PATH+NNLEN+4];   /* for NetUseGetInfo */
     USHORT                      more_data = FALSE;
     TCHAR FAR *                  DollarPtr;
 
@@ -181,23 +181,23 @@ view_display ( TCHAR * name )
         if ((err = MNetServerEnum(DEFAULT_SERVER,
                                   (Type == SV_TYPE_DOMAIN_ENUM ? 0 : 1),
                                   (LPBYTE*)&pEnumBuffer,
-                                  &read,
+                                  &_read,
                                   Type,
                                   Domain)) == ERROR_MORE_DATA)
             more_data = TRUE;
         else if( err )
             ErrorExit (err);
-        if (read == 0)
+        if (_read == 0)
             EmptyExit();
 
         NetISort(pEnumBuffer,
-                 read,
+                 _read,
                  (Type == SV_TYPE_DOMAIN_ENUM ? sizeof(SERVER_INFO_0) : sizeof(SERVER_INFO_1)),
                  CmpSvrInfo1);
 
         if (Type == SV_TYPE_DOMAIN_ENUM)
             InfoPrint(APE2_VIEW_DOMAIN_HDR);
-	else
+        else
             InfoPrint(APE2_VIEW_ALL_HDR);
         PrintLine();
 
@@ -205,19 +205,19 @@ view_display ( TCHAR * name )
 
         if (Type == SV_TYPE_DOMAIN_ENUM) {
             for (i=0, server_entry_0 =
-                 (SERVER_INFO_0 FAR *) pEnumBuffer; i < read;
+                 (SERVER_INFO_0 FAR *) pEnumBuffer; i < _read;
                 i++, server_entry_0++)
             {
-                WriteToCon(TEXT("%-20.20Fws "), server_entry_0->sv0_name);
+                WriteToCon(TEXT("%Fws "), PaddedString(20,server_entry_0->sv0_name,NULL));
                 PrintNL();
             }
         } else {
 
             for (i=0, server_entry =
-                 (struct server_info_1 FAR *) pEnumBuffer; i < read;
+                 (struct server_info_1 FAR *) pEnumBuffer; i < _read;
                 i++, server_entry++)
             {
-                WriteToCon(TEXT("\\\\%-20.20Fws "), server_entry->sv1_name);
+                WriteToCon(TEXT("\\\\%Fws "), PaddedString(20,server_entry->sv1_name,NULL));
                 display_remarkf (56, server_entry->sv1_comment);
                 PrintNL();
             }
@@ -230,19 +230,19 @@ view_display ( TCHAR * name )
         if ((err = MNetShareEnum(name,
                                  1,
                                  (LPBYTE*)&pEnumBuffer,
-                                 &read
+                                 &_read
                                  ))  == ERROR_MORE_DATA)
             more_data = TRUE;
         else if (err)
             ErrorExit (err);
 
-        if (read == 0)
+        if (_read == 0)
             EmptyExit();
 
         /* Are there any shares that we will display? */
 
         for (i=0, share_entry =(struct share_info_1 FAR *) pEnumBuffer;
-            i < read; i++, share_entry++ )
+            i < _read; i++, share_entry++ )
                 {
                     DollarPtr = strrchrf(share_entry->shi1_netname, DOLLAR);
 
@@ -252,10 +252,10 @@ view_display ( TCHAR * name )
                         break;
                 }
 
-        if (i == read)
+        if (i == _read)
             EmptyExit();
 
-        NetISort(pEnumBuffer, read, sizeof(struct share_info_1), CmpShrInfo1);
+        NetISort(pEnumBuffer, _read, sizeof(struct share_info_1), CmpShrInfo1);
         InfoPrintInsTxt(APE_ViewResourcesAt, name);
 
         if (err = MNetServerGetInfo(name, 1, (LPBYTE*)&pGetInfoBuffer)) {
@@ -265,7 +265,7 @@ view_display ( TCHAR * name )
         {
             server_entry = (struct server_info_1 FAR *)pGetInfoBuffer;
             comment = server_entry->sv1_comment;
-            WriteToCon(TEXT("%Fws\n\n"), comment);
+            WriteToCon(TEXT("%Fws\r\n\r\n"), comment);
             NetApiBufferFree(pGetInfoBuffer);
         }
 
@@ -275,7 +275,7 @@ view_display ( TCHAR * name )
         /* Print the listing */
 
         for (i=0, share_entry =(struct share_info_1 FAR *)
-            pEnumBuffer; i < read; i++, share_entry++ )
+            pEnumBuffer; i < _read; i++, share_entry++ )
         {
             /* if the name end in $, do not print it */
 
@@ -284,8 +284,8 @@ view_display ( TCHAR * name )
             if (DollarPtr && *(DollarPtr + 1) == NULLC)
                 continue;
 
-            if (_tcslen(share_entry->shi1_netname) <= 12)
-                WriteToCon(TEXT("%-12.12Fws "), share_entry->shi1_netname);
+            if (SizeOfHalfWidthString(share_entry->shi1_netname) <= 12)
+                WriteToCon(TEXT("%Fws "), PaddedString(12,share_entry->shi1_netname,NULL));
             else
             {
                 WriteToCon(TEXT("%Fws"), share_entry->shi1_netname);
@@ -313,7 +313,7 @@ view_display ( TCHAR * name )
                     break;
             }
 
-            WriteToCon(TEXT("%-12.12ws "), msgPtr);
+            WriteToCon(TEXT("%Fws "), PaddedString(12,msgPtr,NULL));
 
             _tcscpy(tname, name);
             _tcscat(tname, TEXT("\\"));
@@ -326,7 +326,7 @@ view_display ( TCHAR * name )
             }
             else
             {
-                WriteToCon(TEXT("%-8.8ws "), Buffer);
+                WriteToCon(TEXT("%Fws "), PaddedString(8,Buffer,NULL));
             }
 
             /* Print the remark */
@@ -411,10 +411,7 @@ VOID NEAR display_remarkf ( USHORT  field_width, TCHAR FAR *  remark )
 {
     if( remark )
     {
-        if ( field_width >= (USHORT) _tcslen(remark))
-            WriteToCon(TEXT("%Fws"), remark);
-        else
-            WriteToCon(TEXT("%-*.*Fws..."),field_width-3, field_width-3, remark);
+        WriteToCon(TEXT("%Fws"), PaddedString(-field_width,remark,NULL));
     }
 }
 
@@ -529,7 +526,7 @@ void display_other_net(TCHAR *net, TCHAR *node)
                 for ( i = 0;  i < TopLevelCount;  i++, lpNet++ )
                 {
                     DWORD dwEnumErr ; 
-		    if (!stricmpf(lpNet->lpProvider, ProviderName))
+                    if (!stricmpf(lpNet->lpProvider, ProviderName))
                     {
                         //
                         // found it!
@@ -578,6 +575,8 @@ void display_other_net(TCHAR *net, TCHAR *node)
         NETRESOURCE NetRes ;
         DWORD dwEnumErr ; 
 
+        memset(&NetRes, 0, sizeof(NetRes)) ;
+
         NetRes.lpProvider = ProviderName ;
         NetRes.lpRemoteName = node ;
 
@@ -624,8 +623,9 @@ void display_other_net(TCHAR *net, TCHAR *node)
                     TypeString = L"" ;
                     break ;
             }
-            WriteToCon(TEXT("%-12.12Fs %s\n"), 
-                       TypeString, (*lplpNetResource)->lpRemoteName) ;
+            WriteToCon(TEXT("%Fs %s\r\n"), 
+                       PaddedString(12,TypeString,NULL),
+                       (*lplpNetResource)->lpRemoteName) ;
         }
     }
     else
@@ -635,7 +635,7 @@ void display_other_net(TCHAR *net, TCHAR *node)
 
         for (i = 0; i < ResultCount; i++, lplpNetResource++)
         {
-            WriteToCon(TEXT("%s\n"), (*lplpNetResource)->lpRemoteName) ;
+            WriteToCon(TEXT("%s\r\n"), (*lplpNetResource)->lpRemoteName) ;
         }
     }
 
@@ -665,6 +665,7 @@ DWORD  enum_net_resource(LPNETRESOURCE lpNetResourceStart,
     USHORT         err ;
     LPBYTE         Buffer ;
     DWORD          BufferSize ;
+    BOOL           fDisconnect = FALSE ;
     LPNETRESOURCE *lpNext = (LPNETRESOURCE *)*ResultBuffer ;
  
     //
@@ -679,6 +680,44 @@ DWORD  enum_net_resource(LPNETRESOURCE lpNetResourceStart,
                          lpNetResourceStart, 
                          &EnumHandle) ;
 
+    if (dwErr == ERROR_NOT_AUTHENTICATED)
+    {
+        //
+        // try connecting with default credentials. we need this because 
+        // Win95 changed the behaviour of the API to fail if we are not 
+        // already logged on. below will attempt a logon with default 
+        // credentials, but will fail if that doesnt work.
+        //
+        dwErr = WNetAddConnection2(lpNetResourceStart, NULL, NULL, 0) ;
+
+        if (dwErr == NERR_Success)
+        {
+            dwErr = WNetOpenEnum(RESOURCE_GLOBALNET,  // redo the enum
+                                 0, 
+                                 0, 
+                                 lpNetResourceStart, 
+                                 &EnumHandle) ;
+
+            if (dwErr == NERR_Success)
+            {
+                fDisconnect = TRUE ;   // remember to disconnect
+            }
+            else
+            {
+                //
+                // disconnect now
+                //
+                (void) WNetCancelConnection2(lpNetResourceStart->lpRemoteName,
+                                             0, 
+                                             FALSE) ;
+            }
+        }
+        else
+        {
+            dwErr = ERROR_NOT_AUTHENTICATED ;  // use original error
+        }
+    }
+
     if (dwErr != WN_SUCCESS)
         return ((USHORT)dwErr) ;
 
@@ -690,7 +729,7 @@ DWORD  enum_net_resource(LPNETRESOURCE lpNetResourceStart,
         if (((dwErr == WN_SUCCESS) || (dwErr == WN_NO_MORE_ENTRIES)) &&
             (Count != 0xFFFFFFFF))  
 
-        // BUGBUG - the check for FFFFFFFF is workaround for another BUG
+        // NOTE - the check for FFFFFFFF is workaround for another bug in API.
  
         {
             LPNETRESOURCE lpNetResource ;
@@ -726,7 +765,16 @@ DWORD  enum_net_resource(LPNETRESOURCE lpNetResourceStart,
             if (dwErr == WN_SUCCESS)
             {
                 if ( err = MAllocMem(BufferSize, &Buffer) )
+                {
+                    if (fDisconnect)
+                    {
+                        (void) WNetCancelConnection2(
+                                   lpNetResourceStart->lpRemoteName,
+                                   0, 
+                                   FALSE) ;
+                    }
                     ErrorExit(err) ;
+                }
             }
         }
         else
@@ -735,12 +783,25 @@ DWORD  enum_net_resource(LPNETRESOURCE lpNetResourceStart,
                 dwErr = WN_SUCCESS ;
 
             (void) WNetCloseEnum(EnumHandle) ;  // dont report any errors here
+            if (fDisconnect)
+            {
+                (void) WNetCancelConnection2(lpNetResourceStart->lpRemoteName,
+                                             0, 
+                                             FALSE) ;
+            }
             return ((USHORT) dwErr) ;
         }
 
     } while (dwErr == WN_SUCCESS) ;
 
-    dwErr = WNetCloseEnum(EnumHandle) ;  // we dont report any errors here
+    (void) WNetCloseEnum(EnumHandle) ;  // we dont report any errors here
+
+    if (fDisconnect)
+    {
+        (void) WNetCancelConnection2(lpNetResourceStart->lpRemoteName,
+                                     0, 
+                                     FALSE) ;
+    }
 
     return NERR_Success ;
 }
@@ -838,7 +899,7 @@ USHORT list_nets(void)
 
         if (err == NO_ERROR)
         {
-            WriteToCon(TEXT("\t%s - %s\n"),value_name, value_data) ;
+            WriteToCon(TEXT("\t%s - %s\r\n"),value_name, value_data) ;
         }
 
         iValue++ ;

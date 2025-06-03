@@ -22,12 +22,11 @@ Revision History:
 #ifndef _LFSPROCS_
 #define _LFSPROCS_
 
-#include <ntifs.h>
-//#include <string.h>
-//#include <ntos.h>
-//#include <zwapi.h>
+#include <ntos.h>
+#include <string.h>
+#include <zwapi.h>
 #include <lfs.h>
-//#include <fsrtl.h>
+#include <fsrtl.h>
 
 #include "nodetype.h"
 #include "LfsDisk.h"
@@ -38,12 +37,11 @@ Revision History:
 //  Tag all of our allocations if tagging is turned on
 //
 
-#ifdef POOL_TAGGING
+#undef FsRtlAllocatePool
+#undef FsRtlAllocatePoolWithQuota
 
 #define FsRtlAllocatePool(a,b) FsRtlAllocatePoolWithTag(a,b,' sfL')
 #define FsRtlAllocatePoolWithQuota(a,b) FsRtlAllocatePoolWithQuotaTag(a,b,' sfL')
-
-#endif
 
 
 //
@@ -268,7 +266,7 @@ LfsWriteLogRecordIntoLogPage (
 //
 
 #define LfsFileOffsetToLsn(LFCB,FO,SN) (                                        \
-    (((ULONGLONG)(FO)) >> 3) + ((SN) << (LFCB)->FileDataBits)                                \
+    (((ULONGLONG)(FO)) >> 3) + Int64ShllMod32((SN), (LFCB)->FileDataBits)                                \
 )
 
 #define LfsIsLsnInFile(LFCB,LSN)                                                \
@@ -290,7 +288,7 @@ LfsWriteLogRecordIntoLogPage (
     /*xxShr*/( ((ULONGLONG)/*xxShl*/( (LSN).QuadPart << (LFCB)->SeqNumberBits )) >> ((LFCB)->SeqNumberBits - 3) )
 
 #define LfsLsnToSeqNumber(LFCB,LSN)                                             \
-    /*xxShr*/( ((ULONGLONG)(LSN).QuadPart) >> (LFCB)->FileDataBits )
+    /*xxShr*/Int64ShrlMod32( ((ULONGLONG)(LSN).QuadPart), (LFCB)->FileDataBits )
 
 #define LfsLsnToPageOffset(LFCB,LSN)                                            \
     LfsLogPageOffset( LFCB, (LSN).LowPart << 3 )
@@ -347,6 +345,18 @@ LfsDeallocateLfcb (
     IN BOOLEAN CompleteTeardown
     );
 
+VOID
+LfsAllocateLbcb (
+    IN PLFCB Lfcb,
+    OUT PLBCB *Lbcb
+    );
+
+VOID
+LfsDeallocateLbcb (
+    IN PLFCB Lfcb,
+    IN PLBCB Lbcb
+    );
+
 //
 //  VOID
 //  LfsAllocateLcb (
@@ -373,16 +383,6 @@ LfsDeallocateLfcb (
 //  VOID
 //  LfsDeallocateLch (
 //      IN PLCH Lch
-//      );
-//
-//  VOID
-//  LfsAllocateLbcb (
-//      OUT PLBCB *Lbcb
-//      );
-//
-//  VOID
-//  LfsDeallocateLbcb (
-//      IN PLBCB Lbcb
 //      );
 //
 //  VOID
@@ -433,21 +433,6 @@ LfsDeallocateLfcb (
 
 #define LfsDeallocateLch(LCH)                                   \
     ExFreePool( LCH )
-
-#define LfsAllocateLbcb(NEW)   {                                \
-    *(NEW) = FsRtlAllocatePool( PagedPool, sizeof( LBCB ));     \
-    RtlZeroMemory( *(NEW), sizeof( LBCB ));                     \
-    (*(NEW))->NodeTypeCode = LFS_NTC_LBCB;                      \
-    (*(NEW))->NodeByteSize = sizeof( LBCB );                    \
-}
-
-#define LfsDeallocateLbcb(LBCB) {                               \
-    if (LfsLbcbIsRestart(LBCB)                                  \
-        && (LBCB)->PageHeader != NULL) {                        \
-        ExFreePool( (LBCB)->PageHeader );                       \
-    }                                                           \
-    ExFreePool( LBCB );                                         \
-}
 
 #define LfsAllocateRestartArea(RS,SIZE)                         \
     *(RS) = FsRtlAllocatePool( PagedPool, (SIZE) );             \

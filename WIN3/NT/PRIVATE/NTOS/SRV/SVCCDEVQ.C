@@ -129,11 +129,10 @@ Return Value:
     PAGED_CODE( );
 
 #if SRV_COMM_DEVICES
-    return SrvEnumApiHandler(
+    return SrvShareEnumApiHandler(
                Srp,
                Buffer,
                BufferLength,
-               &SrvShareList,
                FilterCharDevQs,
                SizeCharDevQs,
                FillCharDevQInfoBuffer

@@ -1,12 +1,8 @@
 #include "cmd.h"
-#include "cmdproto.h"
-#include "console.h"
-#include <stdio.h>
 
 //
 // Externals for message buffer translation
 //
-extern TCHAR MsgBuf[];
 extern TCHAR CrLf[];
 extern unsigned msglen;
 extern CPINFO CurrentCPInfo;
@@ -126,7 +122,7 @@ Return Value:
 
 {
 
-    return( WriteFmtString(pscr, TEXT("%ws"), (PVOID)pszString ) );
+    return( WriteFmtString(pscr, TEXT("%s"), (PVOID)pszString ) );
 
 }
 
@@ -167,7 +163,9 @@ Return Value:
     PTCHAR   pszMsg;
     ULONG   cbMsg, cbMsgBuf;
     CHAR    numbuf[ 32 ];
+#ifdef UNICODE
     TCHAR   wnumbuf[ 32 ];
+#endif
     PTCHAR  Inserts[ 2 ];
     STATUS  rc;
 
@@ -212,9 +210,13 @@ Return Value:
     va_end(arglist);
 
     if (cbMsg == 0) {
-        ultoa( MsgNum, numbuf, 16 );
+        _ultoa( MsgNum, numbuf, 16 );
+#ifdef UNICODE
 	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, numbuf, -1, wnumbuf, 32);
         Inserts[ 0 ]= wnumbuf;
+#else
+        Inserts[ 0 ]= numbuf;
+#endif
         Inserts[ 1 ]= (MsgNum >= MSG_RESPONSE_DATA ? TEXT("Application") : TEXT("System"));
         cbMsg = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
 			      FORMAT_MESSAGE_ARGUMENT_ARRAY,
@@ -365,7 +367,7 @@ Return Value:
     CheckPause( pscr );
 
     if ((pscr->ccol + mystrlen(CrLf)) >= pscr->cbMaxBuffer) {
-        pscr->ccol += wsprintf(pscr->pbBuffer + pscr->ccol, TEXT("%ws"), CrLf);
+        pscr->ccol += _stprintf(pscr->pbBuffer + pscr->ccol, TEXT("%s"), CrLf);
         CrLfWritten=TRUE;
     }
 
@@ -587,7 +589,7 @@ Return Value:
         if ((ccolBlanks + pscr->ccol) < pscr->ccolTabMax) {
 #endif /* Japan */
 
-            mywcsnset(pscr->pbBuffer + pscr->ccol, SPACE, ccolBlanks);
+            mytcsnset(pscr->pbBuffer + pscr->ccol, SPACE, ccolBlanks);
             pscr->ccol += ccolBlanks;
             pscr->pbBuffer[pscr->ccol] = NULLC;
             return( SUCCESS );
@@ -631,7 +633,7 @@ Return Value:
 #ifdef JAPAN
     ULONG ccolActual = SizeOfHalfWidthString(pscr->pbBuffer);
     ULONG cb;
-#endif /* not Japan */
+#endif /* Japan */
 
 #ifdef JAPAN
     cb = _tcslen(pscr->pbBuffer);
@@ -655,10 +657,10 @@ Return Value:
     // Only fill to column width of buffer
     //
 #ifdef JAPAN
-    mywcsnset(pscr->pbBuffer + cb, SPACE, ccol - ccolActual);
+    mytcsnset(pscr->pbBuffer + cb, SPACE, ccol - ccolActual);
     ccol = cb + ccol - ccolActual;
 #else /* not Japan */
-    mywcsnset(pscr->pbBuffer + pscr->ccol, SPACE, ccol - pscr->ccol);
+    mytcsnset(pscr->pbBuffer + pscr->ccol, SPACE, ccol - pscr->ccol);
 #endif /* Japan */
     pscr->ccol = ccol;
     pscr->pbBuffer[ccol] = NULLC;
@@ -873,7 +875,7 @@ GetNumRows(
 
 }
 
-#ifdef JAPAN
+#if defined(JAPAN) && defined(UNICODE)
 /***************************************************************************\
 * BOOL IsFullWidth(WCHAR wch)
 *
@@ -915,4 +917,4 @@ int  SizeOfHalfWidthString(PWCHAR pwch)
     }
     return c;
 }
-#endif /* Japan */
+#endif /* defined(JAPAN) && defined(UNICODE) */

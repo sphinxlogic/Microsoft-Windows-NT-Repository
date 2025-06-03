@@ -5,6 +5,10 @@
 #ifndef _HSTATBOX_
 #define _HSTATBOX_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 void Status_CurConv(UINT Num);
 void Status_TotConv(UINT Num);
 void Status_SrcServ(LPTSTR Server);
@@ -32,7 +36,11 @@ void PanelDlg_Do(HWND hDlg, LPTSTR Title);
 BOOL Panel_Cancel();
 void PanelDlgKill();
 
-ULONG UserNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, USER_LIST *User);
-ULONG GroupNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, GROUP_LIST *Group);
+ULONG UserNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, USER_BUFFER *User);
+ULONG GroupNameErrorDlg_Do(LPTSTR Title, LPTSTR Problem, GROUP_BUFFER *Group);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

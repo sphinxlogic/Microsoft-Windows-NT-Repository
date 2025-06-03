@@ -85,16 +85,163 @@ Return Value:
 --*/
 
 {
+    //
+    // Buffer is the buffer to copy from.
+    //
+    PCHAR Buffer = (PCHAR)MiniportReceiveContext + ByteOffset;
 
-    PSONIC_ADAPTER Adapter = PSONIC_ADAPTER_FROM_CONTEXT_HANDLE(MiniportAdapterContext);
+    //
+    // Holds the count of the number of ndis buffers comprising the
+    // destination packet.
+    //
+    UINT DestinationBufferCount;
 
-    SonicCopyFromBufferToPacket(
-            (PCHAR)MiniportReceiveContext + ByteOffset,
-            BytesToTransfer,
-            Packet,
-            0,
-            BytesTransferred
-            );
+    //
+    // Points to the buffer into which we are putting data.
+    //
+    PNDIS_BUFFER DestinationCurrentBuffer;
 
+    //
+    // Points to the location in Buffer from which we are extracting data.
+    //
+    PUCHAR SourceCurrentAddress;
+
+    //
+    // Holds the virtual address of the current destination buffer.
+    //
+    PVOID DestinationVirtualAddress;
+
+    //
+    // Holds the length of the current destination buffer.
+    //
+    UINT DestinationCurrentLength;
+
+    //
+    // Keep a local variable of BytesTransferred so we aren't referencing
+    // through a pointer.
+    //
+    UINT LocalBytesTransferred = 0;
+
+    //
+    // MiniportAdapterContext is not referenced.
+    //
+    MiniportAdapterContext;
+
+    //
+    // Take care of boundary condition of zero length copy.
+    //
+
+    if (BytesToTransfer == 0) {
+        *BytesTransferred = 0;
+        return NDIS_STATUS_SUCCESS;
+    }
+
+    //
+    // Get the first buffer of the destination.
+    //
+
+    NdisQueryPacket(
+        Packet,
+        NULL,
+        &DestinationBufferCount,
+        &DestinationCurrentBuffer,
+        NULL
+        );
+
+    //
+    // Could have a null packet.
+    //
+
+    if (DestinationBufferCount == 0) {
+        *BytesTransferred = 0;
+        return NDIS_STATUS_SUCCESS;
+    }
+
+    NdisQueryBuffer(
+        DestinationCurrentBuffer,
+        &DestinationVirtualAddress,
+        &DestinationCurrentLength
+        );
+
+    //
+    // Set up the source address.
+    //
+
+    SourceCurrentAddress = Buffer;
+
+
+    while (LocalBytesTransferred < BytesToTransfer) {
+
+        //
+        // Check to see whether we've exhausted the current destination
+        // buffer.  If so, move onto the next one.
+        //
+
+        if (DestinationCurrentLength == 0) {
+
+            NdisGetNextBuffer(
+                DestinationCurrentBuffer,
+                &DestinationCurrentBuffer
+                );
+
+            if (DestinationCurrentBuffer == NULL) {
+
+                //
+                // We've reached the end of the packet.  We return
+                // with what we've done so far. (Which must be shorter
+                // than requested.)
+                //
+
+                break;
+
+            }
+
+            NdisQueryBuffer(
+                DestinationCurrentBuffer,
+                &DestinationVirtualAddress,
+                &DestinationCurrentLength
+                );
+
+            continue;
+
+        }
+
+        //
+        // Copy the data.
+        //
+
+        {
+
+            //
+            // Holds the amount of data to move.
+            //
+            UINT AmountToMove;
+
+            //
+            // Holds the amount desired remaining.
+            //
+            UINT Remaining = BytesToTransfer - LocalBytesTransferred;
+
+
+            AmountToMove = DestinationCurrentLength;
+
+            AmountToMove = ((Remaining < AmountToMove)?
+                            (Remaining):(AmountToMove));
+
+            SONIC_MOVE_MEMORY(
+                DestinationVirtualAddress,
+                SourceCurrentAddress,
+                AmountToMove
+                );
+
+            SourceCurrentAddress += AmountToMove;
+            LocalBytesTransferred += AmountToMove;
+            DestinationCurrentLength -= AmountToMove;
+
+        }
+
+    }
+
+    *BytesTransferred = LocalBytesTransferred;
     return NDIS_STATUS_SUCCESS;
 }

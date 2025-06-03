@@ -53,9 +53,10 @@ int             lex_getid (WCHAR);
 void            emit_line (void);
 WCHAR           fpop (void);
 int             io_eob (void);
+int             io_restart (unsigned long int);
 int             newinput (WCHAR *, int);
 int             nested_include (void);
-void            p0_init (PWCHAR, PWCHAR, LIST *);
+void            p0_init (PWCHAR, PWCHAR, LIST *, LIST *);
 void            p0_terminate (void);
 
 /************************************************************************/
@@ -136,4 +137,7 @@ void AfxOutputMacroDefn(pdefn_t p);
 void AfxOutputMacroUse(pdefn_t p);
 void move_to_exp(ptext_t);
 
-
+/************************************************************************/
+/* RCFUTIL utility routine						*/
+/************************************************************************/
+void myfwrite(const void *pv, size_t s, size_t n, FILE *fp);

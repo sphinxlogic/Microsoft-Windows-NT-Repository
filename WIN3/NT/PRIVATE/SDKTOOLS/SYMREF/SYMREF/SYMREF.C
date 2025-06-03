@@ -127,7 +127,7 @@ void GetGlobalName (IN PSZ pszLocal, OUT PSZ pszGlobal)
     //	if the wksta is not the same as server
     //
 
-    if (strcmpi (szWksta, szServer) &&
+    if (_strcmpi (szWksta, szServer) &&
 
 	//
 	//  if local server is started

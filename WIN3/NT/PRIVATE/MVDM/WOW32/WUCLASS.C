@@ -17,7 +17,8 @@
 
 MODNAME(wuclass.c);
 
-extern HANDLE  ghInstanceUser32;
+extern HANDLE ghInstanceUser32;
+extern WORD   gUser16hInstance;
 
 /*++
     BOOL GetClassInfo(<hInstance>, <lpClassName>, <lpWndClass>)
@@ -66,6 +67,7 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
     WNDCLASS    t3;
     register    PGETCLASSINFO16 parg16;
     WORD        w;
+    HINSTANCE   hInst;
     PWC         pwc = NULL;
     PWNDCLASS16 pwc16;
     CHAR        szAtomName[WOWCLASS_ATOM_NAME];
@@ -80,11 +82,37 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
         pszClass = psz2;
     }
 
-    ul = GETBOOL16(GetClassInfo(
-        HMODINST32(parg16->f1),
-        pszClass,
-        &t3
-        ));
+    // map hInst user16 to hMod user32
+    if(parg16->f1 == gUser16hInstance) {
+        hInst = ghInstanceUser32;
+    }
+    else {
+        hInst = HMODINST32(parg16->f1);
+    }
+
+    ul = GETBOOL16(GetClassInfo(hInst, pszClass, &t3));
+
+    // This fine piece of hackery mimicks the difference between the class list 
+    // search algorithms in Win3.1 & SUR.  Essentially SUR checks the private,
+    // public, and global class lists while Win3.1 only checks the private and
+    // global lists.  Note we are striving for Win3.1 compatibility here -- not
+    // always the logical thing!  Finding an existing *stale* class breaks some
+    // apps!  Bug #31269    a-craigj, GerardoB
+    // Restrict this hack to PageMaker 50a for now
+    if(CURRENTPTD()->dwWOWCompatFlagsEx & WOWCFEX_FAKECLASSINFOFAIL) {
+    if(ul && hInst) {
+        
+        // if this class wasn't registered by this app, AND it's not a global
+        // class, then it must have come from the public list and this app 
+        // wouldn't know about it on Win3.1 -- so lie and say it doesn't exist!
+        // Note: The high word is the *hModule* which is what Win3.1 AND NT save
+        //       with the class internally (not the hInstance!)
+        if((HIWORD(t3.hInstance) != HIWORD(hInst)) && !(t3.style & CS_GLOBALCLASS)) {
+            WOW32WARNMSGF(0,("\nWOW:GetClassInfo force failure hack:\n   class = '%s'  wc.hInstance = %X  app_hInst = %X\n\n", pszClass, t3.hInstance, hInst));
+            ul = 0;
+        }
+    }
+    }
 
     if (ul) {
 
@@ -95,12 +123,13 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
 
         GETVDMPTR(parg16->f3, sizeof(WNDCLASS16), pwc16);
         STOREWORD(pwc16->style,          t3.style);
-        if (!stricmp(pszClass, "edit")) {
+        if (!_stricmp(pszClass, "edit")) {
             STOREWORD(pwc16->style, (FETCHWORD(pwc16->style) & ~CS_GLOBALCLASS));
         }
 
         STOREDWORD(pwc16->vpfnWndProc,  0);
 
+        // if this class was registered by WOW
         if ( (DWORD)t3.lpfnWndProc & WNDPROC_WOW ) {
             pwc16->vpfnWndProc = (VPWNDPROC)((DWORD)t3.lpfnWndProc & WNDPROC_MASK);
 
@@ -113,8 +142,13 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
                 pwc16->vpfnWndProc |= (WNDPROC_WOW | WOWCLASS_VIRTUAL_NOT_BIT31);
             }
 
+            // we need to subtract out our WOW DWORDS for WOW classes
+            // (see GCW_CBCLSEXTRA notes in RegisterClass())
+            STORESHORT(pwc16->cbClsExtra, t3.cbClsExtra - (2 * sizeof(DWORD)));
+
         } else {
             pwc16->vpfnWndProc = GetThunkWindowProc((DWORD)t3.lpfnWndProc, pszClass, NULL, NULL);
+            STORESHORT(pwc16->cbClsExtra, t3.cbClsExtra);
         }
 
 #ifdef OLD_WAY
@@ -126,9 +160,19 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
         }
 #endif
 
-        STORESHORT(pwc16->cbClsExtra,    t3.cbClsExtra);
         STORESHORT(pwc16->cbWndExtra,    t3.cbWndExtra);
-        w = VALIDHMOD(t3.hInstance);     STOREWORD(pwc16->hInstance, w);
+
+        // Win3.1 copies the hInst passed in by the app into the WNDCLASS struct
+        // unless hInst == NULL, in which case they copy user's hInst 
+        if((!parg16->f1) || (t3.hInstance == ghInstanceUser32)) {
+            w = gUser16hInstance;
+        } else {
+            w = VALIDHMOD(t3.hInstance);
+            if(w != BOGUSGDT) {
+                w = parg16->f1;
+            }
+        }
+        STOREWORD(pwc16->hInstance, w);
         w = GETHICON16(t3.hIcon);        STOREWORD(pwc16->hIcon, w);
         w = GETHCURSOR16(t3.hCursor);    STOREWORD(pwc16->hCursor, w);
         w = ((ULONG)t3.hbrBackground > COLOR_ENDCOLORS) ?
@@ -196,7 +240,7 @@ ULONG FASTCALL WU32GetClassInfo(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32GetClassLong(PVDMFRAME pFrame)
 {
-    ULONG ul;
+    ULONG ul, flag;
     INT iOffset;
     HWND hwnd;
     register PWW pww;
@@ -278,6 +322,29 @@ ULONG FASTCALL WU32GetClassLong(PVDMFRAME pFrame)
             }
             break;
 
+        case GCL_CBCLSEXTRA:
+            ul = GetClassLong(hwnd, GCL_CBCLSEXTRA);
+
+            // verify that this class was registered by WOW
+            // (see GCW_CBCLSEXTRA notes in thunk for RegisterClass())
+            if(GetClassLong(hwnd, GCL_WNDPROC) & WNDPROC_WOW) { 
+
+                // get the bozo flag
+                iOffset = ul - sizeof(DWORD);
+                flag    = GetClassLong(hwnd, iOffset);
+
+                // if bozo app flag is set, get the value the app saved
+                // otherwise good little apps get cbClsExtra
+                if(flag) {
+                    iOffset -= sizeof(DWORD);
+                    ul = GetClassLong(hwnd, iOffset);
+                }
+                else {
+                    ul -= (2 * sizeof(DWORD)); // account for our WOW DWORDs
+                }
+            }
+            break;
+
         default:
             ul = GetClassLong(hwnd, iOffset);
             break;
@@ -340,9 +407,9 @@ ULONG FASTCALL WU32GetClassLong(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32GetClassWord(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    HWND hwnd;
-    INT iOffset;
+    ULONG  ul, flag;
+    HWND   hwnd;
+    INT    iOffset;
     register PGETCLASSWORD16 parg16;
 
     GETARGPTR(pFrame, sizeof(GETCLASSWORD16), parg16);
@@ -389,10 +456,33 @@ ULONG FASTCALL WU32GetClassWord(PVDMFRAME pFrame)
             break;
 
         case GCL_CBWNDEXTRA:
-        case GCL_CBCLSEXTRA:
         case GCL_STYLE:
             ul = GetClassLong(hwnd, iOffset);
             break;
+
+        case GCL_CBCLSEXTRA:
+            ul = GetClassLong(hwnd, GCL_CBCLSEXTRA);
+
+            // verify that this class was registered by WOW
+            // (see GCW_CBCLSEXTRA notes in thunk for RegisterClass())
+            if(GetClassLong(hwnd, GCL_WNDPROC) & WNDPROC_WOW) { 
+
+                // get the bozo flag
+                iOffset = ul - sizeof(DWORD);
+                flag    = GetClassLong(hwnd, iOffset);
+
+                // if bozo app flag is set, get the value the app saved
+                // otherwise good little apps get cbClsExtra
+                if(flag) {
+                    iOffset -= sizeof(DWORD);
+                    ul = GetClassWord(hwnd, iOffset);
+                }
+                else {
+                    ul -= (2 * sizeof(DWORD)); // account for our WOW DWORDs
+                }
+            }
+            break;
+
 
         default:
             ul = GetClassWord(hwnd, iOffset);
@@ -466,9 +556,21 @@ ULONG FASTCALL WU32RegisterClass(PVDMFRAME pFrame)
     GETWNDCLASS16(parg16->vpWndClass, &t1);
 
     // Fix up the window words for apps that have hardcode values and did not
-    // user the value from GetClassInfo when superclassing system proc.
+    // use the value from GetClassInfo when superclassing system proc.
     // Some items have been expanded from a WORD to a DWORD bug 22014
 //    t1.cbWndExtra = (t1.cbWndExtra + 3) & ~3;
+
+    // Some apps call SetClassWord()and SetClassLong() with the GCW_CBCLSEXTRA
+    // offset specified and clobber the cbClsExtra in the class structure on 
+    // Win3.1 and retreive the value later (Wall Street Analyst, PC Anywhere are
+    // known culprits).  Win'95 allows this for apps whose WinVer is less than
+    // 4.0.  NT can't allow it without exposing the kernel to problems.  What 
+    // we do is add 2 extra DWORDs of class extra bytes to any classes that are
+    // created by WOW. We use the 1st DWORD to save the value the app passed to
+    // us and the 2nd DWORD as a flag that specifies that the bozo app did this.
+    // When an app calls GetClassXXXX(GWC_CBCLSEXTRA) we test the flag and 
+    // return the appropriate value -- either cbClsExtra or the bozo value.
+    t1.cbClsExtra += (2 * sizeof(DWORD));
 
     vpszMenu = (VPSZ)t1.lpszMenuName;
     if (HIWORD(t1.lpszMenuName) != 0) {
@@ -585,7 +687,7 @@ ULONG FASTCALL WU32RegisterClass(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32SetClassLong(PVDMFRAME pFrame)
 {
-    ULONG ul;
+    ULONG ul, flag;
     INT iOffset;
     PSZ pszMenu;
     register PWC pwc;
@@ -702,6 +804,37 @@ ULONG FASTCALL WU32SetClassLong(PVDMFRAME pFrame)
             }
             break;
 
+
+        case GCL_CBCLSEXTRA:
+            // apps shouldn't do this but of course some do!
+            // (see GCW_CBCLSEXTRA notes in thunk for RegisterClass())
+            WOW32WARNMSG(0, ("WOW:SetClassLong(): app changing cbClsExtra!"));
+
+            // only allow this to be set by classes registered via WOW
+            if(GetClassLong(HWND32(parg16->f1), GCL_WNDPROC) & WNDPROC_WOW) { 
+
+                ul = WORD32(parg16->f3);
+
+                // set the bozo flag & save the value the app passed us
+                iOffset =  GetClassLong(HWND32(parg16->f1), GCL_CBCLSEXTRA);
+                iOffset -= sizeof(DWORD);
+                flag    =  SetClassLong(HWND32(parg16->f1), iOffset, 1);
+                iOffset -= sizeof(DWORD);
+                ul      =  SetClassLong(HWND32(parg16->f1), iOffset, ul);
+
+                // SetClassLong() returns the "previous" value.
+                // if this is the first time the app pulls this stunt it will
+                // get back the original cbClsExtra, otherwise it will get back
+                // the value it stored here on the previous call.
+                if(!flag) {
+                    ul = iOffset; // the WOW DWORDs have already been subtracted
+                }
+            }
+            else {
+                ul = 0;  // no can do for non-WOW classes
+            }
+            break;
+
         default:
             ul = SetClassLong(HWND32(parg16->f1), iOffset, LONG32(parg16->f3));
             break;
@@ -765,9 +898,9 @@ ULONG FASTCALL WU32SetClassLong(PVDMFRAME pFrame)
 
 ULONG FASTCALL WU32SetClassWord(PVDMFRAME pFrame)
 {
-    ULONG ul;
-    HWND hwnd;
-    INT iOffset;
+    ULONG  ul, flag;
+    HWND   hwnd;
+    INT    iOffset;
     register PSETCLASSWORD16 parg16;
 
     GETARGPTR(pFrame, sizeof(SETCLASSWORD16), parg16);
@@ -817,9 +950,38 @@ ULONG FASTCALL WU32SetClassWord(PVDMFRAME pFrame)
             break;
 
         case GCL_CBWNDEXTRA:
-        case GCL_CBCLSEXTRA:
         case GCL_STYLE:
             ul = SetClassLong(hwnd, iOffset, (LONG)ul);
+            break;
+
+        case GCL_CBCLSEXTRA:
+            // apps shouldn't do this but of course some do!
+            // (see GCW_CBCLSEXTRA notes in thunk for RegisterClass())
+            WOW32WARNMSG(0, ("WOW:SetClassWord(): app changing cbClsExtra!"));
+
+            // only allow this to be set by classes registered via WOW
+            if(GetClassLong(hwnd, GCL_WNDPROC) & WNDPROC_WOW) { 
+
+                // set the bozo flag 
+                iOffset = GetClassLong(hwnd, GCL_CBCLSEXTRA);
+                iOffset -= sizeof(DWORD);
+                flag = SetClassLong(hwnd, iOffset, 1);
+
+                // save the value the app passed 
+                iOffset -= sizeof(DWORD);
+                ul      = (WORD)SetClassWord(hwnd, iOffset, LOWORD(ul));
+
+                // SetClassWord() returns the "previous" value.
+                // if this is the first time the app pulls this stunt it will
+                // get back the original cbClsExtra, otherwise it will get back
+                // the value it stored here on the previous call.
+                if(!flag) {
+                    ul = iOffset; // the WOW DWORDs have already been subtracted
+                }
+            }
+            else {
+                ul = 0;  // no can do for non-WOW classes
+            }
             break;
 
         default:
@@ -875,7 +1037,7 @@ ULONG FASTCALL WU32UnregisterClass(PVDMFRAME pFrame)
     }
 
 #ifdef WOWEDIT
-    if (!stricmp(pszClass, "Edit"))
+    if (!_stricmp(pszClass, "Edit"))
     pszClass = "WOWEdit";
 #endif
 
@@ -888,4 +1050,3 @@ ULONG FASTCALL WU32UnregisterClass(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-

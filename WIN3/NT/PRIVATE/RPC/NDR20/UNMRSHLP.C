@@ -21,6 +21,7 @@ Revision History :
 
 #include "ndrp.h"
 
+
 PFORMAT_STRING
 NdrpEmbeddedPointerUnmarshall( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -135,6 +136,7 @@ Return :
 		}
 }
 
+
 PFORMAT_STRING
 NdrpEmbeddedRepeatPointerUnmarshall( 
 	PMIDL_STUB_MESSAGE	pStubMsg,
@@ -199,7 +201,9 @@ Return :
             break;
 
         default :
-            NDR_ASSERT(0,"Internal error");
+            NDR_ASSERT(0,"NdrpEmbeddedRepeatPointerUnmarshall : bad format");
+            RpcRaiseException( RPC_S_INTERNAL_ERROR );
+            return 0;
         }
 
     // Increment format string to increment field.

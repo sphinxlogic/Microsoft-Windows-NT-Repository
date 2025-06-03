@@ -83,14 +83,14 @@ char *p;                                /* name of file to be deleted */
     pathcat (idx, RM_IDX);
 
     /* make sure directory exists (reasonably) */
-    if( mkdir (dir) == 0 )
+    if( _mkdir (dir) == 0 )
         SetFileAttributes(dir, FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
 
     /* extract filename/extention of file being deleted */
     fileext (p, szRec);
 
     /* try to open or create the index */
-    if ((fhidx = open (idx, O_CREAT | O_RDWR | O_BINARY,
+    if ((fhidx = _open (idx, O_CREAT | O_RDWR | O_BINARY,
                        S_IWRITE | S_IREAD)) == -1) {
         erc = 3;
         goto cleanup;
@@ -103,10 +103,10 @@ char *p;                                /* name of file to be deleted */
 
     /* determine new name */
     sprintf (strend (dir), "\\deleted.%03x",
-             lseek (fhidx, 0L, SEEK_END) / RM_RECLEN);
+             _lseek (fhidx, 0L, SEEK_END) / RM_RECLEN);
 
     /* move the file into the directory */
-    unlink (dir);
+    _unlink (dir);
 
     if (rename(p, dir) == -1) {
         erc = 2;
@@ -122,7 +122,7 @@ char *p;                                /* name of file to be deleted */
     erc = 0;
 cleanup:
     if (fhidx != -1)
-        close(fhidx);
+        _close(fhidx);
     if (dir != NULL)
         free (dir);
     if (idx != NULL)
@@ -141,7 +141,7 @@ int writeIdxRec (fhIdx, rec)
 int fhIdx;
 char *rec;
 {
-    return write (fhIdx, rec, RM_RECLEN) == RM_RECLEN;
+    return _write (fhIdx, rec, RM_RECLEN) == RM_RECLEN;
 }
 
 /* readIdxRec - Read an index record
@@ -153,7 +153,7 @@ int readIdxRec (fhIdx, rec)
 int fhIdx;
 char *rec;
 {
-    return read (fhIdx, rec, RM_RECLEN) == RM_RECLEN;
+    return _read (fhIdx, rec, RM_RECLEN) == RM_RECLEN;
 }
 
 
@@ -180,11 +180,11 @@ char *dir;
     }
 
     /* If index file is just created then write header */
-    if (lseek (fhIdx, 0L, SEEK_END) == 0L)
+    if (_lseek (fhIdx, 0L, SEEK_END) == 0L)
         writeIdxHdr (fhIdx);
     else {
         /* Go to the beginning */
-        lseek (fhIdx, 0L, SEEK_SET);
+        _lseek (fhIdx, 0L, SEEK_SET);
 
         /* If New Index format then we are done */
         readIdxRec (fhIdx, firstRec);
@@ -199,7 +199,7 @@ char *dir;
             strcpy (newName, dir);
             pathcat (oldName, "\\deleted.000");
             sprintf (strend (newName), "\\deleted.%03x",
-                     lseek (fhIdx, 0L, SEEK_END) / RM_RECLEN);
+                     _lseek (fhIdx, 0L, SEEK_END) / RM_RECLEN);
             if( rename( oldName, newName ) || !writeIdxRec (fhIdx, firstRec)) {
                 iRetCode = FALSE;
                 goto cleanup;
@@ -232,7 +232,7 @@ int writeIdxHdr (fhIdx)
 int fhIdx;
 {
     /* Seek to the beginning of the file */
-    lseek (fhIdx, 0L, SEEK_SET);
+    _lseek (fhIdx, 0L, SEEK_SET);
 
     /* Use rm_header[] from rm.h */
     return writeIdxRec (fhIdx, rm_header);
@@ -289,4 +289,3 @@ unsigned int cbMax
 
     return TRUE;
 }
-

@@ -57,7 +57,7 @@ bool_t  nochangename;   /* if TRUE, don't change the Filename */
                 setviconsoletitle();
         }
 
-        if((access(fname,2) == -1) && (errno == EACCES)) {
+        if((_access(fname,2) == -1) && (errno == EACCES)) {
             readonly = TRUE;
         }
 
@@ -202,7 +202,7 @@ LNPTR    *start, *end;
         register LNPTR   *p;
 
 
-        if((access(fname,2) == -1) && (errno == EACCES)) {
+        if((_access(fname,2) == -1) && (errno == EACCES)) {
             msg("Write access to file is denied");
             return FALSE;
         }

@@ -71,7 +71,7 @@ TestAudit(
     )
 {
     IF_DEBUG(AUDIT) {
-        NetpDbgPrint("\nTestAudit: first test beginning...\n");
+        NetpKdPrint(("\nTestAudit: first test beginning...\n"));
     }
 
     //
@@ -129,7 +129,7 @@ TestAuditRead(
     NET_API_STATUS Status;
 
     IF_DEBUG( AUDIT ) {
-        NetpDbgPrint("\nTestAuditRead: trying NetAuditRead...\n");
+        NetpKdPrint(("\nTestAuditRead: trying NetAuditRead...\n"));
     }
 
     LogHandle.time = 0L;
@@ -151,10 +151,10 @@ TestAuditRead(
             &BytesLeft);        // Count of bytes available after this
 
     IF_DEBUG( AUDIT ) {
-        NetpDbgPrint("TestAuditRead: back from NetAuditRead, stat="
-                FORMAT_API_STATUS "\n", Status);
-        NetpDbgPrint(INDENT "bytes read=" FORMAT_DWORD
-                ", bytes left=" FORMAT_DWORD "\n", BytesRead, BytesLeft);
+        NetpKdPrint(("TestAuditRead: back from NetAuditRead, stat="
+                FORMAT_API_STATUS "\n", Status));
+        NetpKdPrint((INDENT "bytes read=" FORMAT_DWORD
+                ", bytes left=" FORMAT_DWORD "\n", BytesRead, BytesLeft));
     }
 
     if (OrdinaryUserOnly && RxTestIsAccessDenied( Status ) ) {

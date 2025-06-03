@@ -87,7 +87,6 @@ Return Value:
     PCWSTRING           FullFileNameString;
     PATH                DirectoryNamePath;
     PCWSTRING           InvalidName;
-    DSTRING             UpperCaseInvalidName;
     PCWSTRING           TempPathString;
     DSTRING             TempPathStringDrive;
     PATH                PathDrive;
@@ -111,7 +110,7 @@ Return Value:
     // Initialize string that contains End-Of-Line characters
     //
     if( !_EndOfLineString.Initialize( (LPWSTR)L"\r\n" ) ) {
-        DbgPrint( "_EndOfLineString.Initialize() failed" );
+        DebugPrint( "_EndOfLineString.Initialize() failed" );
         return( FALSE );
     }
 
@@ -120,22 +119,29 @@ Return Value:
     //  Parse command line
     //
     if ( !LexArray.Initialize( ) ) {
-        DbgPrint( "LexArray.Initialize() failed \n" );
+        DebugPrint( "LexArray.Initialize() failed \n" );
         return( FALSE );
     }
     if ( !ArgLex.Initialize( &LexArray ) ) {
-        DbgPrint( "ArgLex.Initialize() failed \n" );
+        DebugPrint( "ArgLex.Initialize() failed \n" );
         return( FALSE );
     }
+
     ArgLex.PutSwitches( "/" );
     ArgLex.SetCaseSensitive( FALSE );
+    ArgLex.PutStartQuotes( "\"");
+    ArgLex.PutEndQuotes( "\"");
+    ArgLex.PutSeparators( " \t" );
+
     if( !ArgLex.PrepareToParse() ) {
-        DbgPrint( "ArgLex.PrepareToParse() failed \n" );
+        DebugPrint( "ArgLex.PrepareToParse() failed \n" );
+        _Message.Set( MSG_ATTRIB_PARAMETER_NOT_CORRECT );
+        _Message.Display( " " );
         return( FALSE );
     }
 
     if ( !ArgumentArray.Initialize() ) {
-        DbgPrint( "ArgumentArray.Initialize() failed \n" );
+        DebugPrint( "ArgumentArray.Initialize() failed \n" );
         return( FALSE );
     }
     if( !ProgramNameArgument.Initialize("*") ||
@@ -153,7 +159,7 @@ Return Value:
         !InvalidSwitchPlus.Initialize( "+*" ) ||
         !InvalidSwitchMinus.Initialize( "-*" ) ||
         !_FileNameArgument.Initialize( "*" ) ) {
-        DbgPrint( "Unable to initialize flag or string arguments \n" );
+        DebugPrint( "Unable to initialize flag or string arguments \n" );
         return( FALSE );
     }
     if( !ArgumentArray.Put( &ProgramNameArgument ) ||
@@ -171,7 +177,7 @@ Return Value:
         !ArgumentArray.Put( &InvalidSwitchPlus ) ||
         !ArgumentArray.Put( &InvalidSwitchMinus ) ||
         !ArgumentArray.Put( &_FileNameArgument ) ) {
-        DbgPrint( "ArgumentArray.Put() failed \n" );
+        DebugPrint( "ArgumentArray.Put() failed \n" );
         return( FALSE );
     }
     if( !ArgLex.DoParsing( &ArgumentArray ) ) {
@@ -192,37 +198,37 @@ Return Value:
             // The invalid switch starts with '/'
             //
             if( !InvalidSwitchString.Initialize( "/" ) ) {
-                DbgPrint( "InvalidSwitchString.Initialize( / ) failed \n" );
+                DebugPrint( "InvalidSwitchString.Initialize( / ) failed \n" );
                 return( FALSE );
             }
             InvalidArgument = InvalidSwitch.GetString();
-            DbgPtrAssert( InvalidArgument );
+            DebugPtrAssert( InvalidArgument );
         } else if ( InvalidSwitchPlus.IsValueSet() ) {
             //
             // The invalid switch starts with '+'
             //
             if( !InvalidSwitchString.Initialize( "+" ) ) {
-                DbgPrint( "InvalidSwitchString.Initialize( + ) failed \n" );
+                DebugPrint( "InvalidSwitchString.Initialize( + ) failed \n" );
                 return( FALSE );
             }
             InvalidArgument = InvalidSwitchPlus.GetString();
-            DbgPtrAssert( InvalidArgument );
+            DebugPtrAssert( InvalidArgument );
         } else {
             //
             // The invalid switch starts with '-'
             //
             if( !InvalidSwitchString.Initialize( "-" ) ) {
-                DbgPrint( "InvalidSwitchString.Initialize( - ) failed \n" );
+                DebugPrint( "InvalidSwitchString.Initialize( - ) failed \n" );
                 return( FALSE );
             }
             InvalidArgument = InvalidSwitchMinus.GetString();
-            DbgPtrAssert( InvalidArgument );
+            DebugPtrAssert( InvalidArgument );
         }
         //
         // Display the error message followed by the invalid switch
         //
         if( !InvalidSwitchString.Strcat( InvalidArgument ) ) {
-            DbgPrint( "InvalidSwitchString.Strcat( InvalidArgument ) failed \n" );
+            DebugPrint( "InvalidSwitchString.Strcat( InvalidArgument ) failed \n" );
             return( FALSE );
         }
         _Message.Set( MSG_ATTRIB_INVALID_SWITCH );
@@ -297,17 +303,17 @@ Return Value:
         //
         FullFileNameString = NULL;
         if( !_FullFileNamePath.Initialize( (LPWSTR)L"*.*", TRUE ) ) {
-            DbgPrint( "_FullFileNamePath.Initialize() failed \n" );
+            DebugPrint( "_FullFileNamePath.Initialize() failed \n" );
             return( FALSE );
         }
     } else {
         //
         // Get name specified in the command line
         //
-        FullFileNameString = _FileNameArgument.GetString();
-        DbgPtrAssert( FullFileNameString );
+        FullFileNameString = _FileNameArgument.GetPath()->GetPathString();
+        DebugPtrAssert( FullFileNameString );
         if( !_FullFileNamePath.Initialize( FullFileNameString, TRUE ) ) {
-            DbgPrint( "_FullFileNamePath.Initialize() failed \n" );
+            DebugPrint( "_FullFileNamePath.Initialize() failed \n" );
             return( FALSE );
         }
     }
@@ -316,12 +322,12 @@ Return Value:
     // Get prefix and verify that it exists
     //
     if( ( DynSubDirectory = _FullFileNamePath.QueryPrefix() ) == NULL ) {
-        DbgPrint( "_FullFileNamePath.QueryPrefix() failed \n" );
+        DebugPrint( "_FullFileNamePath.QueryPrefix() failed \n" );
         return( FALSE );
     }
     if( !DirectoryNamePath.Initialize( DynSubDirectory ) ) {
         DELETE( DynSubDirectory );
-        DbgPrint( "DirectoryNamePath.Initialize() failed \n" );
+        DebugPrint( "DirectoryNamePath.Initialize() failed \n" );
         return( FALSE );
     }
     DELETE( DynSubDirectory );
@@ -332,29 +338,29 @@ Return Value:
     //
     if( DirectoryNamePath.IsDrive() ) {
         if( !BackSlashString.Initialize( "\\" ) ) {
-            DbgPrint( "BackSlashString.Initialize() failed \n" );
+            DebugPrint( "BackSlashString.Initialize() failed \n" );
             return( FALSE );
         }
         TempPathString = DirectoryNamePath.GetPathString();
-        DbgPtrAssert( TempPathString );
+        DebugPtrAssert( TempPathString );
         if( !TempPathStringDrive.Initialize( TempPathString ) ) {
-            DbgPrint( "TempPathStringDrive.Initialize() failed \n" );
+            DebugPrint( "TempPathStringDrive.Initialize() failed \n" );
             return( FALSE );
         }
         TempPathStringDrive.Strcat( &BackSlashString );
         if( !PathDrive.Initialize( &TempPathStringDrive ) ) {
-            DbgPrint( "PathDrive.Initialize() failed \n" );
+            DebugPrint( "PathDrive.Initialize() failed \n" );
             return( FALSE );
         }
         if( !DirectoryNamePath.Initialize( &PathDrive ) ) {
-            DbgPrint( "DirectoryNamePath.Initialize() failed \n" );
+            DebugPrint( "DirectoryNamePath.Initialize() failed \n" );
             return( FALSE );
         }
     }
 
     if( ( _InitialDirectory = SYSTEM::QueryDirectory( &DirectoryNamePath ) ) == NULL ) {
         InvalidName = DirectoryNamePath.GetPathString();
-        DbgPtrAssert( InvalidName );
+        DebugPtrAssert( InvalidName );
         _Message.Set( MSG_ATTRIB_PATH_NOT_FOUND );
         _Message.Display( "%W", InvalidName );
         return( FALSE );
@@ -365,17 +371,17 @@ Return Value:
     //
     if( !_FsnFilterDirectory.Initialize() ) {
         DELETE( _InitialDirectory );
-        DbgPrint( "_FsnFilterDirectory.Initialize() failed \n" );
+        DebugPrint( "_FsnFilterDirectory.Initialize() failed \n" );
         return( FALSE );
     }
     if( !_FsnFilterDirectory.SetFileName( "*.*" ) ) {
         DELETE( _InitialDirectory );
-        DbgPrint( "_FsnFilterDirectory.SetFilename() failed \n" );
+        DebugPrint( "_FsnFilterDirectory.SetFilename() failed \n" );
         return( FALSE );
     }
     if( !_FsnFilterDirectory.SetAttributes( FSN_ATTRIBUTE_DIRECTORY ) ) {
         DELETE( _InitialDirectory );
-        DbgPrint( "_FsnFilterDirectory.SetAttributes() failed \n" );
+        DebugPrint( "_FsnFilterDirectory.SetAttributes() failed \n" );
         return( FALSE );
     }
 
@@ -384,21 +390,14 @@ Return Value:
     //
     if( ( DynSubFileName = _FullFileNamePath.QueryName() ) == NULL ) {
         if( _FileNameArgument.IsValueSet() ) {
-            InvalidName = _FileNameArgument.GetString();
+            InvalidName = _FileNameArgument.GetPath()->GetPathString();
         } else {
             InvalidName = DirectoryNamePath.GetPathString();
         }
-        DbgPtrAssert( InvalidName );
-        if( !UpperCaseInvalidName.Initialize( InvalidName ) ) {
-            DbgPrint( "UpperCaseInvalidName.Initialize() failed \n" );
-            return( FALSE );
-        }
-        if( !UpperCaseInvalidName.Strupr() ) {
-            DbgPrint( "UpperCaseInvalidName.Strupr() failed \n" );
-            return( FALSE );
-        }
+        DebugPtrAssert( InvalidName );
+
         _Message.Set( MSG_ATTRIB_FILE_NOT_FOUND );
-        _Message.Display( "%W", &UpperCaseInvalidName );
+        _Message.Display( "%W", InvalidName );
         DELETE( _InitialDirectory );
         return( FALSE );
     }
@@ -422,27 +421,27 @@ Return Value:
     if( !_FsnFilterFile.Initialize() ) {
         DELETE( _InitialDirectory );
         DELETE( DynSubFileName );
-        DbgPrint( "FsnFilter.Initialize() failed \n" );
+        DebugPrint( "FsnFilter.Initialize() failed \n" );
         return( FALSE );
     }
     if( !_FsnFilterFile.SetFileName( DynSubFileName ) ) {
         DELETE( _InitialDirectory );
         DELETE( DynSubFileName );
-        DbgPrint( "FsnFilter.SetFilename() failed \n" );
+        DebugPrint( "FsnFilter.SetFilename() failed \n" );
         return( FALSE );
     }
     if( !ActOnDirectory ) {
         if( !_FsnFilterFile.SetAttributes( 0, 0, FSN_ATTRIBUTE_DIRECTORY ) ) {
             DELETE( _InitialDirectory );
             DELETE( DynSubFileName );
-            DbgPrint( "FsnFilter.SetAttributes() failed \n" );
+            DebugPrint( "FsnFilter.SetAttributes() failed \n" );
             return( FALSE );
         }
     } else {
         if( !_FsnFilterFile.SetAttributes( 0, 0, 0 ) ) {
             DELETE( _InitialDirectory );
             DELETE( DynSubFileName );
-            DbgPrint( "FsnFilter.SetAttributes() failed \n" );
+            DebugPrint( "FsnFilter.SetAttributes() failed \n" );
             return( FALSE );
         }
     }
@@ -514,23 +513,17 @@ Return Value:
 
 {
     PCWSTRING   FileName;
-    DSTRING     UpperCaseFileName;
 
     if( !_FoundFile ) {
         if( _FileNameArgument.IsValueSet() ) {
-            FileName = _FileNameArgument.GetString();
+            FileName = _FileNameArgument.GetPath()->GetPathString();
         } else {
             FileName = _FullFileNamePath.GetPathString();
         }
-        DbgPtrAssert( FileName );
-        if( !UpperCaseFileName.Initialize( FileName ) ) {
-            DbgPrint( "UpperCaseFileName.Initialize() failed \n" );
-        }
-        if( !UpperCaseFileName.Strupr() ) {
-            DbgPrint( "UpperCaseFileName.Strupr() failed \n" );
-        }
+        DebugPtrAssert( FileName );
+
         _Message.Set( MSG_ATTRIB_FILE_NOT_FOUND );
-        _Message.Display( "%W", &UpperCaseFileName );
+        _Message.Display( "%W", FileName );
     }
 }
 
@@ -566,10 +559,10 @@ Return Value:
     WCHAR       Buffer[ 12 ];
     DSTRING     String;
 
-    DbgPtrAssert( Fsn );
-    DbgPtrAssert( Fsn->GetPath( ));
+    DebugPtrAssert( Fsn );
+    DebugPtrAssert( Fsn->GetPath( ));
     pcWcString = ( Fsn->GetPath( ))->GetPathString( );
-    DbgPtrAssert( pcWcString );
+    DebugPtrAssert( pcWcString );
 
 
     swprintf( Buffer,
@@ -583,7 +576,7 @@ Return Value:
         !String.Strcat( pcWcString ) ||
         !String.Strcat( &_EndOfLineString ) ||
         !_OutStream->WriteString( &String ) ) {
-        DbgPrint( "Unable to display message" );
+        DebugPrint( "Unable to display message" );
     }
 }
 
@@ -642,9 +635,9 @@ Return Value:
 
     FSN_ATTRIBUTE       Attributes;
 
-    DbgPtrAssert( FsnFile->GetPath( ));
+    DebugPtrAssert( FsnFile->GetPath( ));
     pcWcString = ( FsnFile->GetPath( ))->GetPathString( );
-    DbgPtrAssert( pcWcString );
+    DebugPtrAssert( pcWcString );
 
     if( ( ( _FlagAddSystemAttribute.QueryFlag() ||
             _FlagRemoveSystemAttribute.QueryFlag() ) &&
@@ -654,18 +647,18 @@ Return Value:
     } else if( !_FlagAddHiddenAttribute.QueryFlag() &&
                !_FlagRemoveHiddenAttribute.QueryFlag() &&
                FsnFile->IsHidden() ) {
-//        DbgPtrAssert( FsnFile->GetPath( ));
+//        DebugPtrAssert( FsnFile->GetPath( ));
 //        pcWcString = ( FsnFile->GetPath( ))->GetPathString( );
-//        DbgPtrAssert( pcWcString );
+//        DebugPtrAssert( pcWcString );
         _Message.Set( MSG_ATTRIB_NOT_RESETTING_HIDDEN_FILE );
         _Message.Display( "%W", pcWcString );
         Change = FALSE;
     } else if( !_FlagAddSystemAttribute.QueryFlag() &&
                !_FlagRemoveSystemAttribute.QueryFlag() &&
                FsnFile->IsSystem() ) {
-//        DbgPtrAssert( FsnFile->GetPath( ));
+//        DebugPtrAssert( FsnFile->GetPath( ));
 //        pcWcString = ( FsnFile->GetPath( ))->GetPathString( );
-//        DbgPtrAssert( pcWcString );
+//        DebugPtrAssert( pcWcString );
         _Message.Set( MSG_ATTRIB_NOT_RESETTING_SYS_FILE );
         _Message.Display( "%W", pcWcString );
         Change = FALSE;
@@ -684,7 +677,7 @@ Return Value:
                 _Message.Set( MSG_ATTRIB_UNABLE_TO_CHANGE_ATTRIBUTE );
             }
             _Message.Display( "%W", pcWcString );
-            DbgPrint( "Unable to change file attribute \n" );
+            DebugPrint( "Unable to change file attribute \n" );
             return( FALSE );
         }
     }
@@ -727,7 +720,7 @@ Return Value:
     PFSNODE             FsnFile;
 
 
-    DbgPtrAssert( Directory );
+    DebugPtrAssert( Directory );
     //
     //  If /S was specified as argument in the command line, builds
     //  an array of PFSN_DIRECTORY of all sub-directories in the current
@@ -735,12 +728,12 @@ Return Value:
     //
     if( _FlagRecurseDirectories.QueryFlag() ) {
         if( ( DirectoryArray = Directory->QueryFsnodeArray( &_FsnFilterDirectory ) ) == NULL ) {
-            DbgPrint( "Directory->QueryFsnodeArray( &_FsnFilterDirectory ) failed \n" );
+            DebugPrint( "Directory->QueryFsnodeArray( &_FsnFilterDirectory ) failed \n" );
             return( FALSE );
         }
         if( ( DirectoryArrayIterator =
                 ( PARRAY_ITERATOR )( DirectoryArray->QueryIterator() ) ) == NULL ) {
-            DbgPrint( "DirectoryArray->QueryIterator() failed \n" );
+            DebugPrint( "DirectoryArray->QueryIterator() failed \n" );
             return( FALSE );
         }
 
@@ -758,12 +751,12 @@ Return Value:
     // criteria, and change or display the attributes of these files
     //
     if( ( FileArray = Directory->QueryFsnodeArray( &_FsnFilterFile ) ) == NULL ) {
-        DbgPrint( "Directory->QueryFsnodeArray( &_FsnFilterFile ) failed \n" );
+        DebugPrint( "Directory->QueryFsnodeArray( &_FsnFilterFile ) failed \n" );
         return( FALSE );
     }
     if( ( FileArrayIterator =
             ( PARRAY_ITERATOR )( FileArray->QueryIterator() ) ) == NULL ) {
-        DbgPrint( "FileArray->QueryIterator() failed \n" );
+        DebugPrint( "FileArray->QueryIterator() failed \n" );
         return( FALSE );
     }
 

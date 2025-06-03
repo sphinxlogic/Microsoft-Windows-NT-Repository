@@ -19,9 +19,9 @@ Revision History:
 
 --*/
 
-#if DBG
-
 #include "exp.h"
+
+#if DBG
 
 FAST_MUTEX  ExpEventIdListMutex;
 LIST_ENTRY ExpEventIdListHead;
@@ -52,7 +52,7 @@ ExDefineEventId(
         while (Next != Head) {
             EventId1 = CONTAINING_RECORD( Next, RTL_EVENT_ID_INFO, Entry );
             if (EventId->EventId == 0) {
-                if (!stricmp( EventId->Name, EventId1->Name )) {
+                if (!_stricmp( EventId->Name, EventId1->Name )) {
                     EventId->EventId = EventId1->EventId;
                     EventId = EventId1;
                     leave;

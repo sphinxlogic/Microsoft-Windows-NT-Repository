@@ -51,7 +51,7 @@ SystemSetupThread (PPERFSYSTEM pSystem)
     SecAttr.bInheritHandle = TRUE ;
     SecAttr.lpSecurityDescriptor = NULL ;
 
-    hThread = CreateThread (&SecAttr, 1024L, 
+    hThread = CreateThread (&SecAttr, 1024L,
         (LPTHREAD_START_ROUTINE)PerfDataThread, (LPVOID)(pSystem), 0L, &dwThreadID);
 
     if (!hThread) {
@@ -73,7 +73,7 @@ SystemSetupThread (PPERFSYSTEM pSystem)
         SystemFree (pSystem, TRUE);
         return (FALSE);
     }
-    
+
     // allocate Perfdata
     pSystemPerfData = (PPERFDATA) MemoryAllocate (4096L) ;
     if (!pSystemPerfData) {
@@ -99,7 +99,7 @@ SystemCreate (
 )
 {
     PPERFSYSTEM     pSystem ;
-    PPERFDATA       pLocalPerfData;
+    PPERFDATA       pLocalPerfData = NULL;
     DWORD           Status ;
     DWORD           dwMemSize;
     TCHAR           GlobalValueBuffer[] = L"Global" ;
@@ -122,7 +122,7 @@ SystemCreate (
     pSystem->CounterInfo.TextString = NULL;
 
     lstrcpy (pSystem->sysName, lpszSystemName) ;
-   
+
     // try to open key to registry, error code is in GetLastError()
 
     pSystem->sysDataKey = OpenSystemPerfData(lpszSystemName);
@@ -134,11 +134,11 @@ SystemCreate (
     //  before giving up, then see if it's a foreign computer
 
     if (!pSystem->sysDataKey) {
-        
+
         // build foreign computer string
 
         lstrcat(ForeignValueBuffer, lpszSystemName) ;
-        
+
         // assign System value name pointer to the local variable for trial
 
         pSystem->lpszValue = ForeignValueBuffer;
@@ -148,9 +148,9 @@ SystemCreate (
 
         pLocalPerfData = MemoryAllocate (STARTING_SYSINFO_SIZE);
         if (pLocalPerfData == NULL) { // no mem so give up
-            SetLastError (ERROR_OUTOFMEMORY);
             pSystem->lpszValue = NULL;
             SystemFree (pSystem, TRUE);
+            SetLastError (ERROR_OUTOFMEMORY);
             return (NULL);
         } else {
             pSystem->sysDataKey = HKEY_PERFORMANCE_DATA; // local machine
@@ -166,12 +166,29 @@ SystemCreate (
             // success means a valid buffer came back
             // more data means someone tried (so it's probably good (?)
 
-            if (!((Status == ERROR_MORE_DATA) || (Status == ERROR_SUCCESS)) ||
-                !((pLocalPerfData->Signature[0] == (WCHAR)'P') &&
-                  (pLocalPerfData->Signature[1] == (WCHAR)'E') &&
-                  (pLocalPerfData->Signature[2] == (WCHAR)'R') &&
-                  (pLocalPerfData->Signature[3] == (WCHAR)'F'))) {
-                MemoryFree (pLocalPerfData) ;
+            if ((Status == ERROR_MORE_DATA) || (Status == ERROR_SUCCESS)) {
+                if (Status == ERROR_SUCCESS) {
+                    // see if a perf buffer was returned
+                    if ((dwMemSize > 0) &&
+                        pLocalPerfData->Signature[0] == (WCHAR)'P' &&
+                        pLocalPerfData->Signature[1] == (WCHAR)'E' &&
+                        pLocalPerfData->Signature[2] == (WCHAR)'R' &&
+                        pLocalPerfData->Signature[3] == (WCHAR)'F' ) {
+                        // valid buffer so continue
+                    } else {
+                        // invalid so unable to connect to that machine
+                        pSystem->lpszValue = NULL;
+                        SystemFree (pSystem, TRUE);
+                        SetLastError (ERROR_BAD_NET_NAME); // unable to find name
+                        return (NULL);
+                    }
+                } else {
+                    // assume that if MORE_DATA is returned that SOME
+                    // data was attempted so the buffer must be valid
+                    // (we hope)
+                }
+                MemoryFree ((LPMEMORY)pLocalPerfData) ;
+                pLocalPerfData = NULL;
 
                 // if we are reading from a setting file, let this pass thru'
                 if (bDelayAddAction == TRUE) {
@@ -183,11 +200,11 @@ SystemCreate (
                    SystemFree (pSystem, FALSE) ;
 
                    pSystem->lpszValue = MemoryAllocate (TEMP_BUF_LEN*sizeof(WCHAR));
-  
+
                    if (!pSystem->lpszValue) {
                       // unable to allocate memory
-                      SetLastError (ERROR_OUTOFMEMORY);
                       SystemFree (pSystem, TRUE);
+                      SetLastError (ERROR_OUTOFMEMORY);
                       return (NULL) ;
                    } else {
                       lstrcpy (pSystem->lpszValue, GlobalValueBuffer);
@@ -196,16 +213,21 @@ SystemCreate (
                    // Setup the thread's stuff
                    if (SystemSetupThread (pSystem))
                       return (pSystem) ;
-                   else 
+                   else
                       return NULL;
                 }
-                SetLastError (ERROR_BAD_NET_NAME); // unable to find name
+            } else {
+                // some other error was returned so pack up and leave
+                pSystem->lpszValue = NULL;
                 SystemFree (pSystem, TRUE);
-                return NULL;
+                SetLastError (ERROR_BAD_NET_NAME); // unable to find name
+                return (NULL);
+            }
+            
+            if (pLocalPerfData != NULL) {
+                MemoryFree ((LPMEMORY)pLocalPerfData);    // don't really need anything from it
             }
 
-            MemoryFree (pLocalPerfData);    // don't really need anything from it
-    
             // ok, so we've established that a foreign data provider
             // exists, now to finish the initialization.
 
@@ -216,21 +238,22 @@ SystemCreate (
             Status = GetSystemNames(pSystem);   // get counter names & explain text
             if (Status != ERROR_SUCCESS) {
                 // unable to get names so bail out
-                SetLastError (Status);
+                pSystem->lpszValue = NULL;
                 SystemFree (pSystem, TRUE);
+                SetLastError (Status);
                 return (NULL) ;
             }
 
             // restore computer name for displays, etc.
 
             lstrcpy (pSystem->sysName, lpszSystemName);
-    
+
             // allocate value string buffer
             pSystem->lpszValue = MemoryAllocate (TEMP_BUF_LEN*sizeof(WCHAR));
             if (!pSystem->lpszValue) {
                 // unable to allocate memory
-                SetLastError (ERROR_OUTOFMEMORY);
                 SystemFree (pSystem, TRUE);
+                SetLastError (ERROR_OUTOFMEMORY);
                 return (NULL) ;
             } else {
                 lstrcpy (pSystem->lpszValue, ForeignValueBuffer);
@@ -242,11 +265,11 @@ SystemCreate (
 
         // get counter names & explain text from local computer
 
-        Status = GetSystemNames(pSystem);   
+        Status = GetSystemNames(pSystem);
         if (Status != ERROR_SUCCESS) {
             // unable to get names so bail out
-            SetLastError (Status);
             SystemFree (pSystem, TRUE);
+            SetLastError (Status);
             return (NULL) ;
         }
 
@@ -255,8 +278,8 @@ SystemCreate (
 
         if (!pSystem->lpszValue) {
             // unable to allocate memory
-            SetLastError (ERROR_OUTOFMEMORY);
             SystemFree (pSystem, TRUE);
+            SetLastError (ERROR_OUTOFMEMORY);
             return (NULL) ;
         } else {
             SetSystemValueNameToGlobal (pSystem);
@@ -273,7 +296,7 @@ SystemCreate (
         // create a thread for data collection
         if (!SystemSetupThread (pSystem))
            return (NULL) ;
-    } 
+    }
 
     SetLastError (ERROR_SUCCESS);
 
@@ -291,7 +314,7 @@ SystemGet (
     if (!pSystemFirst) {
         return (NULL) ;
     }
-    
+
     for (pSystem = pSystemFirst ;
          pSystem ;
          pSystem = pSystem->pSystemNext) {
@@ -306,29 +329,48 @@ SystemGet (
 PPERFSYSTEM
 SystemAdd (
     PPPERFSYSTEM ppSystemFirst,
-    LPCTSTR lpszSystemName
+    LPCTSTR lpszSystemName,
+    HWND    hDlg                    // owner window for error messages
 )
 {
     PPERFSYSTEM       pSystem ;
-    PPERFSYSTEM       pSystemPrev ;
-
+    PPERFSYSTEM       pSystemPrev = NULL;
+    TCHAR             szMessage[256];
+    DWORD             dwLastError;
 
     if (!*ppSystemFirst) {
         *ppSystemFirst = SystemCreate (lpszSystemName) ;
-        return (*ppSystemFirst) ;
+        dwLastError = GetLastError();
+        // save return value
+        pSystem = *ppSystemFirst;
+
+    } else {
+        for (pSystem = *ppSystemFirst ;
+            pSystem ;
+            pSystem = pSystem->pSystemNext) {
+            pSystemPrev = pSystem ;
+            if (strsamei (pSystem->sysName, lpszSystemName)) {
+                return (pSystem) ;
+            }
+        }  // for
+
+        pSystemPrev->pSystemNext = SystemCreate (lpszSystemName) ;
+        // save return value
+        pSystem = pSystemPrev->pSystemNext;
     }
 
-    for (pSystem = *ppSystemFirst ;
-         pSystem ;
-         pSystem = pSystem->pSystemNext) {
-        pSystemPrev = pSystem ;
-        if (strsamei (pSystem->sysName, lpszSystemName)) {
-            return (pSystem) ;
-        }
-    }  // for
+    // display message box here if an error occured trying to add
+    // this system
 
-    pSystemPrev->pSystemNext = SystemCreate (lpszSystemName) ;
-    return (pSystemPrev->pSystemNext) ;
+    if (pSystem == NULL) {
+        dwLastError = GetLastError();
+        if (dwLastError == ERROR_ACCESS_DENIED) {
+            DlgErrorBox (hDlg, ERR_ACCESS_DENIED);
+            SetLastError (dwLastError); // to propogate up to caller
+        }
+    }
+
+    return (pSystem);
 }
 
 void
@@ -404,7 +446,7 @@ SystemFree (
             // if no thread, clean up memory here.
             // Should not happen.
             if (pSystem->pSystemPerfData)
-                MemoryFree (pSystem->pSystemPerfData);
+                MemoryFree ((LPMEMORY)pSystem->pSystemPerfData);
 
             if (pSystem->lpszValue) {
                 MemoryFree (pSystem->lpszValue);
@@ -453,7 +495,7 @@ DeleteUnusedSystems (
           SystemFree (pCurrentSys, TRUE) ;
           iNoUseSystems-- ;
        } else {
-          // pCurrentSys is OK, update the 2 list pointers and 
+          // pCurrentSys is OK, update the 2 list pointers and
           // carry on looping
           pPrevSys = pCurrentSys ;
           pNextSys = pCurrentSys->pSystemNext ;
@@ -469,8 +511,8 @@ FreeSystems (
     PPERFSYSTEM    pSystem, pSystemNext ;
 
 
-    for (pSystem = pSystemFirst; 
-         pSystem; 
+    for (pSystem = pSystemFirst;
+         pSystem;
          pSystem = pSystemNext) {
         pSystemNext = pSystem->pSystemNext ;
         SystemFree (pSystem, TRUE) ;
@@ -496,31 +538,48 @@ GetComputer (
     TCHAR          szComputer [MAX_SYSTEM_NAME_LENGTH + 1] ;
     PPERFSYSTEM    pSystem;
     TCHAR          tempBuffer [LongTextLen] ;
-    DWORD          dwBufferSize ;
+    DWORD          dwBufferSize = 0;
     LPTSTR         pBuffer = NULL ;
+    DWORD          dwLastError;
 
     DialogText (hDlg, wControlID, szComputer) ;
 
     // If necessary, add the system to the lists for this view.
     pSystem = SystemGet (*ppSystemFirst, szComputer) ;
     if (!pSystem) {
-        pSystem = SystemAdd (ppSystemFirst, szComputer) ;
+        pSystem = SystemAdd (ppSystemFirst, szComputer, hDlg) ;
     }
 
     if (!pSystem && bWarn) {
-        DialogSetString (hDlg, wControlID, LocalComputerName) ;
+        dwLastError = GetLastError();
 
-        // Note: this will succeed since the local computer is always
-        // available
         EditSetModified (GetDlgItem(hDlg, wControlID), FALSE) ;
-    
-        pSystem = SystemGet (*ppSystemFirst, LocalComputerName) ;
-        if (!pSystem) {
-            pSystem = SystemAdd (ppSystemFirst, LocalComputerName) ;
-        }
 
-//        MessageBoxResource (hDlg, IDS_COMPUTERNOTFOUND, IDS_APPNAME, MB_OK) ;
-        DlgErrorBox (hDlg, ERR_COMPUTERNOTFOUND) ;
+        // unable to get specified computer so set to:
+        //  the first computer in the system list if present 
+        //      -- or --
+        //  set he local machine if not.
+
+        pSystem = *ppSystemFirst;   // set to first in list
+
+        if (pSystem == NULL) {
+            // this would mean the user can't access the local
+            // system since normally that would be the first one
+            // so the machine name will be restored to the 
+            // local machine (for lack of a better one) but the
+            // system won't be added unless they want to explicitly
+
+            DialogSetString (hDlg, wControlID, LocalComputerName) ;
+        } else {
+            // set to name in system structure 
+            DialogSetString (hDlg, wControlID, pSystem->sysName);
+        }
+        
+        if (dwLastError != ERROR_ACCESS_DENIED) {
+            DlgErrorBox (hDlg, ERR_COMPUTERNOTFOUND) ;
+        } else {
+            // the appropriate error message has already been displayed
+        }
 
         SetFocus (DialogControl(hDlg, wControlID)) ;
     }
@@ -530,9 +589,8 @@ GetComputer (
             *ppPerfData =
             LogDataFromPosition (pSystem, &(PlaybackLog.StartIndexPos)) ;
         } else {
-
             if (pSystem->lpszValue) {
-               // save the previous lpszValue string before 
+               // save the previous lpszValue string before
                // SetSystemValueNameToGlobal screw it up
                dwBufferSize = MemorySize (pSystem->lpszValue) ;
                if (dwBufferSize <= sizeof(tempBuffer)) {
@@ -558,4 +616,4 @@ GetComputer (
     return (pSystem) ;
 
 }  // GetComputer
-
+

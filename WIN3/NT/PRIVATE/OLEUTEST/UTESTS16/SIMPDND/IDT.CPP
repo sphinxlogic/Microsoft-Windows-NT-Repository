@@ -468,7 +468,7 @@ void CDropTarget::DrawDragFeedback( POINTL pointl )
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleDoc::QueryInterface  DOC.CPP
 //
 // Comments:
@@ -477,7 +477,7 @@ void CDropTarget::DrawDragFeedback( POINTL pointl )
 
 STDMETHODIMP CDropTarget::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-	OutputDebugString("In IDT::QueryInterface\r\n");
+	TestDebugOut("In IDT::QueryInterface\r\n");
 
 	// delegate to the document
 	return m_pDoc->QueryInterface(riid, ppvObj);
@@ -504,7 +504,7 @@ STDMETHODIMP CDropTarget::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 //      Function                    Location
 //
 //      CSimpleDoc::AddReff         DOC.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -516,7 +516,7 @@ STDMETHODIMP CDropTarget::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 
 STDMETHODIMP_(ULONG) CDropTarget::AddRef()
 {
-	OutputDebugString("In IDT::AddRef\r\n");
+	TestDebugOut("In IDT::AddRef\r\n");
 
 	// increment the interface reference count (for debugging only)
 	++m_nCount;
@@ -545,7 +545,7 @@ STDMETHODIMP_(ULONG) CDropTarget::AddRef()
 //      Function                    Location
 //
 //      CSimpleDoc::Release         DOC.CPP
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 // Comments:
 //
@@ -557,7 +557,7 @@ STDMETHODIMP_(ULONG) CDropTarget::AddRef()
 
 STDMETHODIMP_(ULONG) CDropTarget::Release()
 {
-	OutputDebugString("In IDT::Release\r\n");
+	TestDebugOut("In IDT::Release\r\n");
 
 	// decrement the interface reference count (for debugging only)
 	--m_nCount;
@@ -594,7 +594,7 @@ STDMETHODIMP_(ULONG) CDropTarget::Release()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      OleQueryCreateFromData      OLE2 API
 //      DoDragScroll                IDT.CPP
 //      QueryDrop                   IDT.CPP
@@ -610,7 +610,7 @@ STDMETHODIMP_(ULONG) CDropTarget::Release()
 
 STDMETHODIMP CDropTarget::DragEnter (LPDATAOBJECT pDataObj, DWORD grfKeyState, POINTL pointl, LPDWORD pdwEffect)
 {
-	OutputDebugString("In IDT::DragEnter\r\n");
+	TestDebugOut("In IDT::DragEnter\r\n");
 
 	/* Determine if the drag source data object offers a data format
 	**  that we understand. we accept only creating embedded objects.
@@ -659,7 +659,7 @@ STDMETHODIMP CDropTarget::DragEnter (LPDATAOBJECT pDataObj, DWORD grfKeyState, P
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      DoDragScroll                IDT.CPP
 //      QueryDrop                   IDT.CPP
 //      DrawDragFeedback            IDT.CPP
@@ -674,7 +674,7 @@ STDMETHODIMP CDropTarget::DragEnter (LPDATAOBJECT pDataObj, DWORD grfKeyState, P
 
 STDMETHODIMP CDropTarget::DragOver  (DWORD grfKeyState, POINTL pointl, LPDWORD pdwEffect)
 {
-	OutputDebugString("In IDT::DragOver\r\n");
+	TestDebugOut("In IDT::DragOver\r\n");
 
 	BOOL fDragScroll = DoDragScroll ( pointl );
 
@@ -706,7 +706,7 @@ STDMETHODIMP CDropTarget::DragOver  (DWORD grfKeyState, POINTL pointl, LPDWORD p
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      UndrawDragFeedback          IDT.CPP
 //      ResultFromScode             OLE2 API
 //
@@ -716,7 +716,7 @@ STDMETHODIMP CDropTarget::DragOver  (DWORD grfKeyState, POINTL pointl, LPDWORD p
 
 STDMETHODIMP CDropTarget::DragLeave ()
 {
-	OutputDebugString("In IDT::DragLeave\r\n");
+	TestDebugOut("In IDT::DragLeave\r\n");
 
 	UndrawDragFeedback();
 
@@ -751,7 +751,7 @@ STDMETHODIMP CDropTarget::DragLeave ()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      CSimpleSite::Create         SITE.CPP
 //      CSimpleSite::InitObject     SITE.CPP
 //      OleCreateFromData           OLE2 API
@@ -774,7 +774,7 @@ STDMETHODIMP CDropTarget::Drop (LPDATAOBJECT pDataObj, DWORD grfKeyState, POINTL
 	FORMATETC fmtetc;
 	SCODE sc = S_OK;
 
-	OutputDebugString("In IDT::Drop\r\n");
+	TestDebugOut("In IDT::Drop\r\n");
 
 	UndrawDragFeedback();
 

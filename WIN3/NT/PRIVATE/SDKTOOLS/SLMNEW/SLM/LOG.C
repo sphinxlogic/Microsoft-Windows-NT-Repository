@@ -1,13 +1,8 @@
 /* log - print one or more of the log records for the project specified */
 
-#include "slm.h"
-#include "sys.h"
-#include "util.h"
-#include "stfile.h"
-#include "ad.h"
-#include "log.h"
-#include "slmproto.h"
-#include "proto.h"
+#include "precomp.h"
+#pragma hdrstop
+EnableAssert
 
 private char *SzLPath(char *, LE *);
 private void PrintTLe(AD *, LE *, F, F);
@@ -27,13 +22,31 @@ F FLogInit(
         Usage(pad);
     }
     if (pad->tdMin.tdt == tdtNone && pad->ileMac == 0)
-        /* neither -# or -t specified; set -10 . */
+        /* neither -# or -t specified; set -32751 if -u specified and -10 if not. */
     {
-        pad->ileMac = 11;
-        pad->ileMin = 1;
+        if (FEmptyNm(pad->nmUser)) {
+            pad->ileMac = 11;
+            pad->ileMin = 1;
+        } else {
+            pad->ileMac = 0x7FF0;
+            pad->ileMin = 1;
+        }
     }
     else if (pad->ileMac != 0 && pad->ileMin == 0)
         pad->ileMin = 1;
+
+#if !defined(PAGE_WRITECOPY)
+    if (pad->flags&flagMappedIO)
+        Warn("memory mapped I/O (-q) is not available on this platform\n");
+#else
+    pad->flags |= flagMappedIO;
+#endif
+
+    //
+    // IED Caching on by default for SSYNC, STATUS, LOG
+    //
+
+    pad->flags |= flagCacheIed;
 
     return fTrue;
 }
@@ -45,7 +58,8 @@ F FLogDir(
 {
     SM sm = smNoFlags;
 
-    if (!FLoadStatus(pad, lckNil, flsNone))
+    if (!pad->fStatusAlreadyLoaded &&
+        !FLoadStatus(pad, lckNil, flsNone))
         return fFalse;
 
     if ((pad->flags&flagLogIns) != 0)
@@ -102,8 +116,8 @@ private void PrintTLe(
     }
     else
     {
-        PrOut("%-16s%-12.12s %-7.7s %&P/C/%-19s", SzTime(ple->timeLog),
-              ple->szUser, ple->szLogOp, pad, szFile);
+        PrOut("%-14s%c %-12.12s %-7.7s %&P/C/%-19s", SzTimeSortable(ple->timeLog),
+              ple->chTimeHacked, ple->szUser, ple->szLogOp, pad, szFile);
     }
 
     /* Don't pass comment through PrOut, it does a Conv[To/From]Slash. */

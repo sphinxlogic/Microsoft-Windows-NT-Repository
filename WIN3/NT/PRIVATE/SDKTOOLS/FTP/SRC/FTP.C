@@ -531,7 +531,7 @@ mdelete()
         char *tmpfilen;
         tmpstr_t name;
 
-        cmdargs[1] = tmpfilen = mktemp(strdup( template ));
+        cmdargs[1] = tmpfilen = _mktemp(_strdup( template ));
         if (noisy) {
                 printf("Getting name list\n");
                 fflush(stdout);
@@ -556,7 +556,7 @@ mdelete()
                 delete();          /* Retrieve this file */
         }
         fclose(tmpfilep);
-        unlink(tmpfilen);
+        _unlink(tmpfilen);
         if( tmpfilen )
                 free( tmpfilen );
         return 0;
@@ -571,7 +571,7 @@ mget()
         char *tmpfilen;
         tmpstr_t name;
 
-        cmdargs[1] = tmpfilen = mktemp( strdup( template ) );
+        cmdargs[1] = tmpfilen = _mktemp( _strdup( template ) );
         if (noisy) {
                 printf("Getting name list\n");
                 fflush(stdout);
@@ -596,7 +596,7 @@ mget()
                 get();          /* Retrieve this file */
         }
         fclose(tmpfilep);
-        unlink(tmpfilen);
+        _unlink(tmpfilen);
         if( tmpfilen )
                 free( tmpfilen );
         return 0;
@@ -642,9 +642,9 @@ char    *ftpcmd;
 
         if (cmdargs[0][0] == '!' || strcmp(cmdargs[1],defval) == 0) {
                 if (noisy)
-                        filep = fdopen(dup(1),"w");
+                        filep = fdopen(_dup(1),"w");
                 else {
-                        tmpfilen = mktemp(strdup( template ));
+                        tmpfilen = _mktemp(_strdup( template ));
                         filep = fopen(tmpfilen,"w");
                 }
         }
@@ -663,11 +663,11 @@ char    *ftpcmd;
         while ((n = getrply()) != 250)
                 if (n/100 > 3) {
                         fclose(filep);
-                        unlink(cmdargs[1]);
+                        _unlink(cmdargs[1]);
                         return 1;
                 }
 
-        filefd = fileno(filep);
+        filefd = _fileno(filep);
         time(&starttime);               /* get a timestamp */
         bytes = 0L;
         while ((cnt = (int) netread(nfd, buffer, sizeof buffer)) > 0) {
@@ -700,7 +700,7 @@ char    *ftpcmd;
         if (tmpfilen) {
                 sprintf(tmpstr,"type %s",tmpfilen);     /* no cat in msdos */
                 system(tmpstr);
-                unlink(tmpfilen);
+                _unlink(tmpfilen);
                 free( tmpfilen );
         }
         if (bellflg)
@@ -727,7 +727,7 @@ mput()
         tmpstr_t name;
         char *tmpfilen;         /* Temporary file name */
 
-        tmpfilen = mktemp(strdup( template ));
+        tmpfilen = _mktemp(_strdup( template ));
         sprintf(name,"ls %s | grep -v 'not found' > %s",cmdargs[0],tmpfilen);
         if (system(name) != 0) {
                 fprintf(stderr,"Can't expand name list\n");
@@ -749,7 +749,7 @@ mput()
         }
         fclose(tmpfilep);
 bye:
-        unlink(tmpfilen);
+        _unlink(tmpfilen);
         if( tmpfilen )
                 free( tmpfilen );
 #endif
@@ -768,7 +768,7 @@ put()
         long starttime, stoptime;
 
         if (strcmp(cmdargs[0],defval) == 0)
-                filep = fdopen(dup(0),"r");
+                filep = fdopen(_dup(0),"r");
         else {
                 if (stat(cmdargs[0], &f_stat) != -1)
                         if ((f_stat.st_mode & S_IFREG) == 0) {
@@ -795,7 +795,7 @@ put()
 #ifdef DEBUG
         fprintf( stderr, "ftp put: using write\n" );
 #endif
-        filefd = fileno(filep);
+        filefd = _fileno(filep);
         time(&starttime);               /* get a timestamp */
         bytes = 0;
         while ((cnt = read(filefd, buffer, sizeof buffer)) > 0) {
@@ -1119,7 +1119,7 @@ cwd()
 int
 cd()
 {
-        if (chdir(cmdargs[0]) != 0)
+        if (_chdir(cmdargs[0]) != 0)
                 perror(cmdargs[0]);
         return 0;
 }
@@ -1337,4 +1337,3 @@ char *op, *file;
         fflush(stdout);
         return strcmp(getstr(), "y") ? 1 : 0;
 }
-

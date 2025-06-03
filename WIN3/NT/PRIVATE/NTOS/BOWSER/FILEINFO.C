@@ -27,7 +27,6 @@ Revision History:
 #include "precomp.h"
 #pragma hdrstop
 
-DBGSTATIC
 NTSTATUS
 BowserCommonQueryVolumeInformationFile (
     IN BOOLEAN Wait,
@@ -77,7 +76,7 @@ Return Value:
 {
     NTSTATUS Status;
     PAGED_CODE();
-    Status = BowserCommonQueryVolumeInformationFile (IoIsOperationSynchronous(Irp),
+    Status = BowserCommonQueryVolumeInformationFile (TRUE,
                                         DeviceObject,
                                         Irp);
     return Status;
@@ -110,7 +109,7 @@ Return Value:
     NTSTATUS Status;
 
     PAGED_CODE();
-    Status = BowserCommonQueryVolumeInformationFile (TRUE,
+    Status = BowserCommonQueryVolumeInformationFile (IoIsOperationSynchronous(Irp),
                                         DeviceObject,
                                         Irp);
     return Status;
@@ -180,7 +179,7 @@ Return Value:
     NTSTATUS Status;
 
     PAGED_CODE();
-    Status = BowserCommonQueryInformationFile(IoIsOperationSynchronous(Irp),
+    Status = BowserCommonQueryInformationFile (TRUE,
                                         DeviceObject,
                                         Irp);
     return Status;
@@ -213,7 +212,7 @@ Return Value:
     NTSTATUS Status;
 
     PAGED_CODE();
-    Status = BowserCommonQueryInformationFile (TRUE,
+    Status = BowserCommonQueryInformationFile(IoIsOperationSynchronous(Irp),
                                         DeviceObject,
                                         Irp);
     return Status;

@@ -54,4 +54,4 @@ void PrintLegend (HDC hDC, PGRAPHSTRUCT pGraph, HWND hWndLegend,
 
 void LegendSetRedraw (HWND hWndLegend, BOOL bRedraw) ;
 
-
+

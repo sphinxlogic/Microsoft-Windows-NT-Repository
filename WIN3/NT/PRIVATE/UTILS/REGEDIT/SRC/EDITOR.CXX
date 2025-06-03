@@ -1,32 +1,30 @@
 /*++
 
-Copyright (c) 1991	Microsoft Corporation
+Copyright (c) 1991      Microsoft Corporation
 
 Module Name:
 
-	Editor.cxx
+        Editor.cxx
 
 Abstract:
 
-	These classes implement the editor functions required for modifying
-	primative data types withe the RegEdit utility.
+        These classes implement the editor functions required for modifying
+        primative data types withe the RegEdit utility.
 
 Author:
 
-	Barry J. Gilhuly	(W-Barry)				July 31, 1991
+        Barry J. Gilhuly        (W-Barry)                               July 31, 1991
 
 Revision History:
 
 
 --*/
 
-extern "C" {
-    #include <wchar.h>
-    #include <stdio.h>
-    #include <stdlib.h>
-    #include <string.h>
-    #include <errno.h>
-}
+#include <wchar.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
 
 #include "uapp.hxx"
 #include "editor.hxx"
@@ -93,16 +91,16 @@ STATIC  PCWSTRING   _BinaryRuler = NULL;
 
 VOID
 BytesToHexString(
-	IN	PBYTE	InBytes,
-	IN	INT		NumBytes,
+        IN      PBYTE   InBytes,
+        IN      INT             NumBytes,
     OUT LPWSTR   OutString
 )
 {
-	while( NumBytes-- ) {
+        while( NumBytes-- ) {
         *( OutString++ ) = NumLookup[ *InBytes >> HEX_WIDTH ].Char;
         *( OutString++ ) = NumLookup[ *InBytes & LOMASK ].Char;
-		InBytes++;
-	}
+                InBytes++;
+        }
     *OutString = ( WCHAR )'\0';      // Terminate the newly converted string.
 }
 
@@ -148,11 +146,15 @@ ConvertMultiSzToSingleSz(
     //
     //  Copy the strings in the source buffer to a destination buffer,
     //  replacing NULs by CR LF
+    //  Just in case, make the buffer 1 character bugger and set the last
+    //  character to NUL. This is because the data may not be of type REG_MULTI_SZ,
+    //  even though we think it is.
     //
-    BufferSize = Size/sizeof( WCHAR ) + NumberOfStrings;
+    BufferSize = Size/sizeof( WCHAR ) + NumberOfStrings + 1;
 
     Buffer = ( PWSTR )CALLOC( ( size_t )BufferSize, ( size_t )sizeof( WCHAR ) );
-    DbgPtrAssert( Buffer );
+    DebugPtrAssert( Buffer );
+    Buffer[BufferSize-1] = ( WCHAR )'\0';
     SrcPointer = ( PWSTR )Data;
     DestPointer = Buffer;
     //
@@ -190,59 +192,59 @@ PVOID
 EDITOR::Edit (
     IN  HWND        hWnd,
     IN  REG_TYPE    DataType,
-	IN	PVOID		DataStream,
-	IN 	ULONG		NumBytesIn,
-	OUT PULONG		NumBytesOut,
-	IN 	REG_TYPE	Type
+        IN      PVOID           DataStream,
+        IN      ULONG           NumBytesIn,
+        OUT PULONG              NumBytesOut,
+        IN      REG_TYPE        Type
 )
 
 /*++
 
 Routine Description:
 
-	Provides an interface between the user code and the editors.  The module
-	calls an editor based on the passed in Type.
+        Provides an interface between the user code and the editors.  The module
+        calls an editor based on the passed in Type.
 
 Arguments:
 
-	hWnd - A handle to the owner window.
+        hWnd - A handle to the owner window.
 
     DataType - Indicates the type to be edited.
 
-	DataStream - A handle to the data segment to edit.
+        DataStream - A handle to the data segment to edit.
 
-	NumBytesIn - The number of bytes to edit.
+        NumBytesIn - The number of bytes to edit.
 
-	NumBytesOut - The number of bytes being returned.
+        NumBytesOut - The number of bytes being returned.
 
-	Type - The type of editor to call.
+        Type - The type of editor to call.
 
 Return Value:
 
-	Returns a HANDLE to the memory location holding the result if the
-	operation was successful.  Otherwise, it returns NULL.
+        Returns a HANDLE to the memory location holding the result if the
+        operation was successful.  Otherwise, it returns NULL.
 
 Notes:
 
-	1) This procedure depends on the fact that the program instance handle
-	is globally available.
+        1) This procedure depends on the fact that the program instance handle
+        is globally available.
 
 --*/
 
 {
     PVOID       DataStreamCopy;
-	DIALOGINFO	DialogInfo;
+        DIALOGINFO      DialogInfo;
     BOOL        retval;
     LONG        SaveHelpContext;
 
-	//
-	// Make a copy of the input data string...
-	//
+        //
+        // Make a copy of the input data string...
+        //
 
     if( NumBytesIn != 0 ) {
         if( DataStream != NULL ) {
             DataStreamCopy = MALLOC( ( size_t )NumBytesIn );
-            DbgPtrAssert( DataStreamCopy );
+            DebugPtrAssert( DataStreamCopy );
             memset( DataStreamCopy, 0, ( size_t )NumBytesIn );
             memcpy( DataStreamCopy, DataStream, ( size_t )NumBytesIn );
         } else {
@@ -250,7 +252,7 @@ Notes:
             // This is an error condition.
             // Assume that no data was passed
             //
-            DbgPrint( "DataStream is a NULL pointer" );
+            DebugPrint( "DataStream is a NULL pointer" );
             NumBytesIn = 0;
             DataStreamCopy = NULL;
         }
@@ -259,20 +261,20 @@ Notes:
         DataStreamCopy = NULL;
     }
 
-	//
-	// Set up the structure to be passed to the dialog.
-	//
+        //
+        // Set up the structure to be passed to the dialog.
+        //
 
-	DialogInfo.DataObject = &DataStreamCopy;
+        DialogInfo.DataObject = &DataStreamCopy;
     DialogInfo.NumBytes = &NumBytesIn;
     DialogInfo.DataType = DataType;
 
 
-	//
-	// Determine the correct dialog to call and invoke it...
-	//
+        //
+        // Determine the correct dialog to call and invoke it...
+        //
 
-	switch( Type ) {
+        switch( Type ) {
 
     case TYPE_REG_BINARY:
 
@@ -340,20 +342,20 @@ Notes:
 
     }
 
-	//
-	// Test if the edit succeeded...if it did, return the newly created
-	// block.  Otherwise, blow the copy away and return NULL.
-	//
+        //
+        // Test if the edit succeeded...if it did, return the newly created
+        // block.  Otherwise, blow the copy away and return NULL.
+        //
 
 
-	if( !retval ) {
-		FREE( DataStreamCopy );
-		*NumBytesOut = 0;
-		return( NULL );
-	}
+        if( !retval ) {
+                FREE( DataStreamCopy );
+                *NumBytesOut = 0;
+                return( NULL );
+        }
 
-	*NumBytesOut = NumBytesIn;
-	return( DataStreamCopy );
+        *NumBytesOut = NumBytesIn;
+        return( DataStreamCopy );
 }
 
 PVOID
@@ -370,8 +372,8 @@ EDITOR::Edit(
 
 Routine Description:
 
-	Provides an interface between the user code and the editors.  The module
-	maps the MessageId to a Type and calls the above Edit method.
+        Provides an interface between the user code and the editors.  The module
+        maps the MessageId to a Type and calls the above Edit method.
 
 Arguments:
 
@@ -379,39 +381,39 @@ Arguments:
 
     DataType - The type of data to be edited.
 
-	DataStream - A pointer to the data to edit.
+        DataStream - A pointer to the data to edit.
 
-	NumBytesIn - The number of bytes to edit.
+        NumBytesIn - The number of bytes to edit.
 
-	NumBytesOut - The number of bytes being returned.
+        NumBytesOut - The number of bytes being returned.
 
-	MessageId - The value from the menu indicating which type of editor to
-		call.  NOTE: This parameter becomes a DWORD when everything is
-		ported to 32 bits.
+        MessageId - The value from the menu indicating which type of editor to
+                call.  NOTE: This parameter becomes a DWORD when everything is
+                ported to 32 bits.
 
 Return Value:
 
-	Returns a PVOID indicating the result of the edit.  NULL if no changes
-	were made.
+        Returns a PVOID indicating the result of the edit.  NULL if no changes
+        were made.
 
 --*/
 
 {
-	REG_TYPE Type;
+        REG_TYPE Type;
 
-	switch( MessageId ) {
+        switch( MessageId ) {
 
-	case IDM_BINARY:
+        case IDM_BINARY:
 
         Type = TYPE_REG_BINARY;
-		break;
+                break;
 
-	case IDM_STRING:
+        case IDM_STRING:
 
         Type = TYPE_REG_SZ;
-		break;
+                break;
 
-	case IDM_ULONG:
+        case IDM_ULONG:
 
         Type = TYPE_REG_DWORD;
         break;
@@ -422,13 +424,13 @@ Return Value:
         break;
 
     default:
-		Type = TYPE_REG_BINARY;
-		break;
+                Type = TYPE_REG_BINARY;
+                break;
     }
 
-	//
-	// Call the Edit() method with the new Type...
-	//
+        //
+        // Call the Edit() method with the new Type...
+        //
 
     return Edit( hWnd, DataType, DataStream, NumBytesIn, NumBytesOut, Type );
 }
@@ -437,156 +439,156 @@ LONG
 APIENTRY
 EXPORT
 EDITOR::EditInteger(
-	HWND	hWnd,
+        HWND    hWnd,
     WORD    msg,
     WPARAM  wParam,
-	LONG	lParam
+        LONG    lParam
 )
 /*++
 
 Routine Description:
 
-	This routine preprocesses the messages that are sent to the edit box
-	in the dialogs.  This version will only check that valid characters are
-	entered and it will switch the displayed radix.
+        This routine preprocesses the messages that are sent to the edit box
+        in the dialogs.  This version will only check that valid characters are
+        entered and it will switch the displayed radix.
 
 Arguments:
 
-	hDlg - a handle to the dialog proceedure.
+        hDlg - a handle to the dialog proceedure.
 
-	msg - the message passed from Windows.
+        msg - the message passed from Windows.
 
-	wParam - extra message dependent data.
+        wParam - extra message dependent data.
 
-	lParam - extra message dependent data.
+        lParam - extra message dependent data.
 
 
 Return Value:
 
-	TRUE if the value was edited.  FALSE if cancelled or if no
-	changes were made.
+        TRUE if the value was edited.  FALSE if cancelled or if no
+        changes were made.
 
 --*/
 {
-	STATIC WPARAM	state = IDD_HEX;
+        STATIC WPARAM   state = IDD_HEX;
     LPWSTR          BinBuf;
     LPWSTR          BinPtr;
     LPWSTR          HexBuf;
     LPWSTR          HexPtr;
-	ULONG			HexSize;
-	ULONG			BinSize;
-	ULONG			Offset;
+        ULONG                   HexSize;
+        ULONG                   BinSize;
+        ULONG                   Offset;
     INT             Index;
     LONG            Count;
     HCURSOR         Cursor;
     BASE            CurrentBase;
 
 
-	switch( msg ) {
+        switch( msg ) {
 
 
     case WM_CHAR:
 
 
-        if( ( wParam == ( WCHAR )'\t' ) || ( wParam == ( WCHAR )'\b' ) ) {
-			break;
-		}
+        if( ( wParam == ( WCHAR )'\t' ) || ( wParam == ( WCHAR )'\b' ) || ( GetKeyState( VK_CONTROL ) < 0 ) ) {
+                        break;
+                }
 
-		switch( state ) {
+                switch( state ) {
 
-		case IDD_BINARY:
+                case IDD_BINARY:
 
-			//
-			// Test for a valid binary number
-			//
+                        //
+                        // Test for a valid binary number
+                        //
             if( wParam != ( WCHAR )'1' && wParam != ( WCHAR )'0' ) {
-				return( TRUE );
-			}
-			break;
+                                return( TRUE );
+                        }
+                        break;
 
-		case IDD_DECIMAL:
+                case IDD_DECIMAL:
 
-			// Unimplemented...
-			break;
+                        // Unimplemented...
+                        break;
 
-		case IDD_HEX:
+                case IDD_HEX:
 
-			//
-			// Test for a valid hex character...
-			//
+                        //
+                        // Test for a valid hex character...
+                        //
             if( !( ( ( wParam >= ( WCHAR )'A' && wParam <= ( WCHAR )'F' ) ||
                      ( wParam >= ( WCHAR )'a' && wParam <= ( WCHAR )'f' ) ||
                      ( wParam >= ( WCHAR )'0' && wParam <= ( WCHAR )'9' ) ) ) ) {
-				return( TRUE );
-			}
-			break;
+                                return( TRUE );
+                        }
+                        break;
 
-		}
-		break;
+                }
+                break;
 
-	case EI_SETSTATE:
+        case EI_SETSTATE:
 
-		//
-		// Check if the current state is already set correctly...
-		//
-		if( state == wParam ) {
-			return( TRUE );
-		}
-		state = wParam;
+                //
+                // Check if the current state is already set correctly...
+                //
+                if( state == wParam ) {
+                        return( TRUE );
+                }
+                state = wParam;
 
         if( SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L ) == 0 ) {
             return( TRUE );
         }
-		switch( state ) {
+                switch( state ) {
 
-		case IDD_BINARY:
+                case IDD_BINARY:
 
-			//
-			// Get the current text string and convert it to binary
-			//
+                        //
+                        // Get the current text string and convert it to binary
+                        //
 
-			HexSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
+                        HexSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
             if( HexSize > 512 ) {
                 Cursor = WINDOWS_APPLICATION::DisplayHourGlass();
             }
 
-			//
-			// The size of the binary buffer needs to be four times
-			// the size of the hex buffer.
-			//
+                        //
+                        // The size of the binary buffer needs to be four times
+                        // the size of the hex buffer.
+                        //
 
-			BinSize = HexSize * 4;
+                        BinSize = HexSize * 4;
 
-			//
-			// Allocate memory for the buffer
-			//
+                        //
+                        // Allocate memory for the buffer
+                        //
 
             HexBuf = (LPWSTR)MALLOC( (size_t)((HexSize + 1)*sizeof( WCHAR ) ) );
             BinBuf = (LPWSTR)MALLOC( (size_t)((BinSize + 1)*sizeof( WCHAR ) ) );
 
-			//
-			// Get the text from the window
-			//
+                        //
+                        // Get the text from the window
+                        //
 
             SendMessage( hWnd, WM_GETTEXT, (UINT)(HexSize + 1), (DWORD)HexBuf );
             *( HexBuf + HexSize ) = ( WCHAR )'\0';
             *( BinBuf + BinSize ) = ( WCHAR )'\0';
             CharUpperBuff( ( LPWSTR )HexBuf, HexSize );
 
-			//
-			// Set up the pointers to the buffers...
-			//
+                        //
+                        // Set up the pointers to the buffers...
+                        //
 
-			HexPtr = HexBuf;
-			BinPtr = BinBuf;
+                        HexPtr = HexBuf;
+                        BinPtr = BinBuf;
 
-			//
-			// Traverse the string and lookup all values in the
-			// table for conversions.
+                        //
+                        // Traverse the string and lookup all values in the
+                        // table for conversions.
             //
 
             for( Offset = 0; Offset < HexSize; Offset++, HexPtr++ ) {
-                DbgAssert( ( ( *HexPtr >= ( WCHAR )'0' ) && ( *HexPtr <= ( WCHAR )'9' ) ||
+                DebugAssert( ( ( *HexPtr >= ( WCHAR )'0' ) && ( *HexPtr <= ( WCHAR )'9' ) ||
                              ( *HexPtr >= ( WCHAR )'A' ) && ( *HexPtr <= ( WCHAR )'F' ) ) );
                 Index = *HexPtr - ( WCHAR )'0';
                 if( Index > 9 ) {
@@ -599,20 +601,20 @@ Return Value:
             }
 
 
-			//
-			// Reset the window text
-			//
+                        //
+                        // Reset the window text
+                        //
 
-// DbgPrintf( "Calling SendMessage with WM_SETTEXT \n" );
-			SendMessage( hWnd, WM_SETTEXT, 0, (DWORD)BinBuf );
-// DbgPrintf( "SendMessage returned \n" );
+// DebugPrintf( "Calling SendMessage with WM_SETTEXT \n" );
+                        SendMessage( hWnd, WM_SETTEXT, 0, (DWORD)BinBuf );
+// DebugPrintf( "SendMessage returned \n" );
 
-			//
-			// Free the buffers.
-			//
+                        //
+                        // Free the buffers.
+                        //
 
-			FREE( HexBuf );
-			FREE( BinBuf );
+                        FREE( HexBuf );
+                        FREE( BinBuf );
 
             if( HexSize > 512 ) {
                 WINDOWS_APPLICATION::RestoreCursor( Cursor );
@@ -623,62 +625,62 @@ Return Value:
         case IDD_HEX:
 
             //
-			// Get the current text string (binary)
-			//
+                        // Get the current text string (binary)
+                        //
 
-			BinSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
+                        BinSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
 
-			//
-			// Make sure that the size is in whole nibbles.
-			//
+                        //
+                        // Make sure that the size is in whole nibbles.
+                        //
 
-			if( ( Offset = BinSize % 4 ) != 0 ) {
-				Offset = 4 - Offset;
-			}
+                        if( ( Offset = BinSize % 4 ) != 0 ) {
+                                Offset = 4 - Offset;
+                        }
 
 
-			//
-			// The size of the hex buffer needs to be a quarter of
-			// the size of the binary buffer.
-			//
+                        //
+                        // The size of the hex buffer needs to be a quarter of
+                        // the size of the binary buffer.
+                        //
 
-			HexSize = ( BinSize + Offset ) / 4;
+                        HexSize = ( BinSize + Offset ) / 4;
 
-			//
-			// Allocate memory for the buffer
-			//
+                        //
+                        // Allocate memory for the buffer
+                        //
 
             HexBuf = (LPWSTR)MALLOC( (size_t)( (HexSize + 1)*sizeof( WCHAR ) ) );
             BinBuf = (LPWSTR)MALLOC( (size_t)( (BinSize + Offset + 1 )*sizeof( WCHAR ) ) );
 
-			//
-			// Get the text from the window
-			//
+                        //
+                        // Get the text from the window
+                        //
 
             SendMessage( hWnd, WM_GETTEXT, (WPARAM)(BinSize + 1), (LPARAM)BinBuf );
 
-			//
-			// Add the zeros to the end (padding) - Borrowing HexPtr since
-			// a BYTE pointer is required instead of a LONG pointer.
-			//
+                        //
+                        // Add the zeros to the end (padding) - Borrowing HexPtr since
+                        // a BYTE pointer is required instead of a LONG pointer.
+                        //
 
             BinPtr = ( LPWSTR )(BinBuf + BinSize);
-			for( ; Offset; Offset-- ) {
+                        for( ; Offset; Offset-- ) {
                 *BinPtr = ( WCHAR )'0';
                 BinPtr++;
-			}
+                        }
             *BinPtr = ( WCHAR )'\0';  // Terminate the string....
 
-			//
-			// Set up the pointers to the buffers...
-			//
+                        //
+                        // Set up the pointers to the buffers...
+                        //
 
-			HexPtr = HexBuf;
-			BinPtr = BinBuf;
+                        HexPtr = HexBuf;
+                        BinPtr = BinBuf;
 
-			//
-			// Traverse the string and lookup all values in the
-			// table for conversions.
+                        //
+                        // Traverse the string and lookup all values in the
+                        // table for conversions.
             //
             Offset = 0;
             while( Offset < BinSize ) {
@@ -693,77 +695,77 @@ Return Value:
 
 
             //
-			// Reset the window text
-			//
+                        // Reset the window text
+                        //
 
             SendMessage( hWnd, WM_SETTEXT, 0, (LPARAM)HexBuf );
 
-			//
-			// Free the buffers.
-			//
+                        //
+                        // Free the buffers.
+                        //
 
-			FREE( HexBuf );
-			FREE( BinBuf );
+                        FREE( HexBuf );
+                        FREE( BinBuf );
 
-			break;
+                        break;
 
 #if 0
-			//
-			// Get the current text string (binary)
-			//
+                        //
+                        // Get the current text string (binary)
+                        //
 
-			BinSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
+                        BinSize = SendMessage( hWnd, WM_GETTEXTLENGTH, 0, 0L );
 
-			//
-			// Make sure that the size is in whole nibbles.
-			//
+                        //
+                        // Make sure that the size is in whole nibbles.
+                        //
 
-			if( ( Offset = BinSize % 4 ) != 0 ) {
-				Offset = 4 - Offset;
-			}
+                        if( ( Offset = BinSize % 4 ) != 0 ) {
+                                Offset = 4 - Offset;
+                        }
 
 
-			//
-			// The size of the hex buffer needs to be a quarter of
-			// the size of the binary buffer.
-			//
+                        //
+                        // The size of the hex buffer needs to be a quarter of
+                        // the size of the binary buffer.
+                        //
 
-			HexSize = ( BinSize + Offset ) / 4;
+                        HexSize = ( BinSize + Offset ) / 4;
 
-			//
-			// Allocate memory for the buffer
-			//
+                        //
+                        // Allocate memory for the buffer
+                        //
 
             HexBuf = (LPWSTR)CALLOC( (size_t)(HexSize + 1), (size_t)sizeof( WCHAR ) );
             BinBuf = (LPWSTR)CALLOC( (size_t)( BinSize + Offset + 1 ), (size_t)sizeof( WCHAR ) );
 
-			//
-			// Get the text from the window
-			//
+                        //
+                        // Get the text from the window
+                        //
 
-			SendMessage( hWnd, WM_GETTEXT, (WORD)BinSize + 1, (DWORD)BinBuf );
+                        SendMessage( hWnd, WM_GETTEXT, (WORD)BinSize + 1, (DWORD)BinBuf );
 
-			//
-			// Add the zeros to the end (padding) - Borrowing HexPtr since
-			// a BYTE pointer is required instead of a LONG pointer.
-			//
+                        //
+                        // Add the zeros to the end (padding) - Borrowing HexPtr since
+                        // a BYTE pointer is required instead of a LONG pointer.
+                        //
 
             HexPtr = ( LPWSTR )(BinBuf + BinSize);
-			for( ; Offset; Offset-- ) {
+                        for( ; Offset; Offset-- ) {
                 *( HexPtr++ ) = ( WCHAR )'0';
-			}
+                        }
             *( HexPtr ) = ( WCHAR )'\0';  // Terminate the string....
 
-			//
-			// Set up the pointers to the buffers...
-			//
+                        //
+                        // Set up the pointers to the buffers...
+                        //
 
-			HexPtr = HexBuf;
-			BinPtr = BinBuf;
+                        HexPtr = HexBuf;
+                        BinPtr = BinBuf;
 
-			//
-			// Traverse the string and lookup all values in the
-			// table for conversions.
+                        //
+                        // Traverse the string and lookup all values in the
+                        // table for conversions.
             //
             Offset = 0;
             while( Offset < BinSize ) {
@@ -777,28 +779,28 @@ Return Value:
 
 
             //
-			// Reset the window text
-			//
+                        // Reset the window text
+                        //
 
-			SendMessage( hWnd, WM_SETTEXT, 0, (DWORD)HexBuf );
+                        SendMessage( hWnd, WM_SETTEXT, 0, (DWORD)HexBuf );
 
-			//
-			// Free the buffers.
-			//
+                        //
+                        // Free the buffers.
+                        //
 
-			FREE( HexBuf );
-			FREE( BinBuf );
+                        FREE( HexBuf );
+                        FREE( BinBuf );
 
-			break;
+                        break;
 #endif
 
 
 
 
-		}
-		return( TRUE );
+                }
+                return( TRUE );
 
-	case EI_GETSTATE:
+        case EI_GETSTATE:
 
         return( state );
 
@@ -810,8 +812,9 @@ Return Value:
 
     case WM_KEYDOWN:
 
-        if( ( wParam == VK_INSERT ) &&
-            ( GetKeyState( VK_SHIFT ) < 0 ) ) {
+        if( ( ( wParam == VK_INSERT ) && ( GetKeyState( VK_SHIFT ) < 0 ) ) ||
+            ( ( ( wParam == ( WCHAR )'V' ) || ( wParam == ( WCHAR )'v' ) ) && ( GetKeyState( VK_CONTROL ) < 0 ) )
+          ) {
             CurrentBase = ( state == IDD_HEX )? BASE_16 : BASE_2;
             if( !IsClipboardDataValid( hWnd, FALSE, CurrentBase ) ) {
                 Beep( 500, 100 );
@@ -821,52 +824,52 @@ Return Value:
         break;
     }
     //
-	// Call the old window routine to deal with everything else...
-	//
-	return( CallWindowProc( OldWndLong, hWnd, msg, wParam, lParam ) );
+        // Call the old window routine to deal with everything else...
+        //
+        return( CallWindowProc( OldWndLong, hWnd, msg, wParam, lParam ) );
 }
 
 BOOL
 APIENTRY
 EXPORT
 EDITOR::BINARYDialogProc(
-	HWND	hDlg,
+        HWND    hDlg,
     WORD    msg,
-	WPARAM wParam,
-	LONG	lParam
+        WPARAM wParam,
+        LONG    lParam
 )
 /*++
 
 Routine Description:
 
-	The dialog proceedure for editing freeform BINARY data.
+        The dialog proceedure for editing freeform BINARY data.
 
 Arguments:
 
-	hDlg - a handle to the dialog proceedure.
+        hDlg - a handle to the dialog proceedure.
 
-	msg - the message passed from Windows.
+        msg - the message passed from Windows.
 
-	wParam - extra message dependent data.
+        wParam - extra message dependent data.
 
-	lParam - extra message dependent data.
+        lParam - extra message dependent data.
 
 
 Return Value:
 
-	TRUE if the value was edited.  FALSE if cancelled or if no
-	changes were made.
+        TRUE if the value was edited.  FALSE if cancelled or if no
+        changes were made.
 
 --*/
 {
-	BYTE			Tmp;
-	INT				i;
+        BYTE                    Tmp;
+        INT                             i;
     PBYTE           ptr2;
     LPWSTR           ptr;
     LPWSTR           NumString;
     STATIC PBYTE*    ppData;
-	STATIC PULONG 	NumBytesIn;
-	ULONG			state;
+        STATIC PULONG   NumBytesIn;
+        ULONG                   state;
     ULONG           size;
     WSTR             Buffer[256];
     LONG            LineNumber;
@@ -875,10 +878,10 @@ Return Value:
     SIZE            StringSize;
     RECT            EditControlRectangle;
 
-	switch( msg ) {
+        switch( msg ) {
 
 
-	case WM_INITDIALOG:
+        case WM_INITDIALOG:
 
 
         //
@@ -916,34 +919,34 @@ Return Value:
         }
         ReleaseDC( GetDlgItem( hDlg, IDD_EDIT ), hDC );
 
-		//
-		// Get the data from the passed structure
-		//
+                //
+                // Get the data from the passed structure
+                //
         ppData = (PBYTE*)( ( ( DIALOGINFO * )lParam )->DataObject );
-		NumBytesIn = ( ( DIALOGINFO * )lParam )->NumBytes;
+                NumBytesIn = ( ( DIALOGINFO * )lParam )->NumBytes;
 
-		//
-		// Subclass the edit box so the type of input and other
-		// modifications can be made.
-		//
+                //
+                // Subclass the edit box so the type of input and other
+                // modifications can be made.
+                //
 
-		OldWndLong = (WNDPROC)GetWindowLong( GetDlgItem( hDlg, IDD_EDIT ), GWL_WNDPROC );
+                OldWndLong = (WNDPROC)GetWindowLong( GetDlgItem( hDlg, IDD_EDIT ), GWL_WNDPROC );
 
-		SetWindowLong( GetDlgItem( hDlg, IDD_EDIT ),
-					   GWL_WNDPROC,
-					   (DWORD)MakeProcInstance( (FARPROC)EditInteger,
-												WINDOWS_APPLICATION::QueryInstance() ) );
-		//
-		// Send a message to the
-		//
-		// The default display for the number will be in Hex...
-		//
-		SendDlgItemMessage( hDlg, IDD_EDIT, EI_SETSTATE, IDD_HEX, 0L );
+                SetWindowLong( GetDlgItem( hDlg, IDD_EDIT ),
+                                           GWL_WNDPROC,
+                                           (DWORD)MakeProcInstance( (FARPROC)EditInteger,
+                                                                                                WINDOWS_APPLICATION::QueryInstance() ) );
+                //
+                // Send a message to the
+                //
+                // The default display for the number will be in Hex...
+                //
+                SendDlgItemMessage( hDlg, IDD_EDIT, EI_SETSTATE, IDD_HEX, 0L );
 
         CheckRadioButton( hDlg, IDD_BINARY, IDD_HEX, IDD_HEX );
 
-		//
-		// Convert the input number into a text string - length is #bytes in * 2 (when separators added, length req'd is BytesIn*3 - 1 )
+                //
+                // Convert the input number into a text string - length is #bytes in * 2 (when separators added, length req'd is BytesIn*3 - 1 )
         //
         if( *NumBytesIn != 0 ) {
             NumString = (LPWSTR)MALLOC( ( size_t )( (*NumBytesIn * 2 + 1)*sizeof( WCHAR ) ) );
@@ -976,16 +979,16 @@ Return Value:
 
         return( TRUE );
 
-	case WM_COMMAND:
+        case WM_COMMAND:
 
 
-		switch( LOWORD( wParam ) ) {
+                switch( LOWORD( wParam ) ) {
 
             case IDD_BINARY:
 
                 //
-				// Inform the editor that the radix has changed...
-				//
+                                // Inform the editor that the radix has changed...
+                                //
                 SendDlgItemMessage( hDlg, IDD_EDIT, EI_SETSTATE, wParam, 0L );
 
                 //
@@ -1018,9 +1021,9 @@ Return Value:
 
             case IDD_HEX:
 
-				//
-				// Inform the editor that the radix has changed...
-				//
+                                //
+                                // Inform the editor that the radix has changed...
+                                //
                 SendDlgItemMessage( hDlg, IDD_EDIT, EI_SETSTATE, wParam, 0L );
 
                 //
@@ -1052,12 +1055,12 @@ Return Value:
                 SetDlgItemText( hDlg, IDD_VERTICAL_RULER, Buffer );
                 return( TRUE );
 
-			case IDOK:
+                        case IDOK:
 
-				//
-				// Get the current size and state...
-				//
-				state = SendDlgItemMessage( hDlg, IDD_EDIT, EI_GETSTATE, 0, 0L );
+                                //
+                                // Get the current size and state...
+                                //
+                                state = SendDlgItemMessage( hDlg, IDD_EDIT, EI_GETSTATE, 0, 0L );
                 size = SendDlgItemMessage( hDlg, IDD_EDIT, WM_GETTEXTLENGTH, 0, 0L );
                 if( size == 0 ) {
                     *NumBytesIn = 0;
@@ -1065,12 +1068,12 @@ Return Value:
                     return( TRUE );
                 }
 
-				//
-				// If number of bytes isn't an even number for the current
-				// state, inform the user.  If he/she decides to continue,
-				// increment the size until it is even and pad the end of the
-				// data with zeros.
-				//
+                                //
+                                // If number of bytes isn't an even number for the current
+                                // state, inform the user.  If he/she decides to continue,
+                                // increment the size until it is even and pad the end of the
+                                // data with zeros.
+                                //
                 if( ( ( i = (INT)( size % 8 ) ) && ( state == IDD_BINARY ) ) ||
                     ( ( i = (INT)( size % 2 ) ) && ( state == IDD_HEX ) ) ) {
                     //
@@ -1087,60 +1090,60 @@ Return Value:
                         return( TRUE );
                     }
 
-					if( state == IDD_BINARY ) {
-						i = 8 - i;
-					} else if( state == IDD_HEX ) {
-						i = 1;
-					}
-				}
+                                        if( state == IDD_BINARY ) {
+                                                i = 8 - i;
+                                        } else if( state == IDD_HEX ) {
+                                                i = 1;
+                                        }
+                                }
 
-				//
-				// Allocate a buffer to store the string...
-				//
+                                //
+                                // Allocate a buffer to store the string...
+                                //
                 NumString = (LPWSTR)CALLOC( ( size_t )(size + i + 1), (size_t)sizeof( WCHAR ) );
                 GetDlgItemText( hDlg, IDD_EDIT, NumString, (INT)(size + 1) );
 
-				//
-				// Add the zeros to the end (padding)
-				//
+                                //
+                                // Add the zeros to the end (padding)
+                                //
                 ptr = NumString + size;
                 size += i;
-				for( ; i; i-- ) {
+                                for( ; i; i-- ) {
                     *( ptr++ ) = ( WCHAR )'0';
-				}
+                                }
                 *( ptr ) = ( WCHAR )'\0';  // Terminate the string....
 
-				//
-				// Convert the displayed text back into a number...
-				//
-				if( state == IDD_BINARY ) {
+                                //
+                                // Convert the displayed text back into a number...
+                                //
+                                if( state == IDD_BINARY ) {
 
-					//
-					// Calculate the new length of the string...
-					//
+                                        //
+                                        // Calculate the new length of the string...
+                                        //
                     *NumBytesIn = size / 8;
                     if( *ppData != NULL ) {
                         *ppData = (PBYTE)REALLOC( *ppData, (size_t)(*NumBytesIn) );
                     } else {
                         *ppData = ( PBYTE )MALLOC( (size_t)(*NumBytesIn) );
                     }
-					ptr = NumString;
-					ptr2 = *ppData;
-					do {
-						for( i = 0, Tmp = 0; i < 8; i++, ptr++ ) {
-							if( !*ptr ) {
-								break;
-							}
-							Tmp <<= 1;
+                                        ptr = NumString;
+                                        ptr2 = *ppData;
+                                        do {
+                                                for( i = 0, Tmp = 0; i < 8; i++, ptr++ ) {
+                                                        if( !*ptr ) {
+                                                                break;
+                                                        }
+                                                        Tmp <<= 1;
                             Tmp += ( *ptr != (WCHAR)'0' );
-						}
-						if( i ) {
+                                                }
+                                                if( i ) {
                             *ptr2 = Tmp;
-							ptr2++;
-						}
-					} while( *ptr );
+                                                        ptr2++;
+                                                }
+                                        } while( *ptr );
 
-				} else if( state == IDD_HEX ) {
+                                } else if( state == IDD_HEX ) {
                     CharUpperBuff( NumString, size );
                     *NumBytesIn = size / 2;
                     if( *ppData != NULL ) {
@@ -1148,33 +1151,33 @@ Return Value:
                     } else {
                         *ppData = ( PBYTE )MALLOC( ( size_t )(*NumBytesIn) );
                     }
-					ptr = NumString;
-					ptr2 = *ppData;
-					do {
-						for( i = 0, Tmp = 0; i < 2; i++, ptr++ ) {
-							if( !*ptr ) {
-								break;
-							}
-							Tmp <<= 4;
+                                        ptr = NumString;
+                                        ptr2 = *ppData;
+                                        do {
+                                                for( i = 0, Tmp = 0; i < 2; i++, ptr++ ) {
+                                                        if( !*ptr ) {
+                                                                break;
+                                                        }
+                                                        Tmp <<= 4;
                             Tmp += IsCharAlpha( *ptr ) ? ( *ptr - (WCHAR)'A' + 10 ) : ( *ptr - ( WCHAR )'0' );
-						}
-						if( i ) {
-						   *ptr2 = Tmp;
-						   ptr2++;
-						}
-					} while( *ptr );
+                                                }
+                                                if( i ) {
+                                                   *ptr2 = Tmp;
+                                                   ptr2++;
+                                                }
+                                        } while( *ptr );
 
-				}
+                                }
 
-				EndDialog( hDlg, TRUE );
-				return( TRUE );
+                                EndDialog( hDlg, TRUE );
+                                return( TRUE );
 
-			case IDCANCEL:
+                        case IDCANCEL:
 
-				EndDialog( hDlg, FALSE );
-				return( TRUE );
+                                EndDialog( hDlg, FALSE );
+                                return( TRUE );
 
-            case IDHELP:
+            case IDB_HELP:
                 DisplayHelp();
                 return( TRUE );
 
@@ -1259,77 +1262,77 @@ BOOL
 APIENTRY
 EXPORT
 EDITOR::SZDialogProc(
-	HWND	hDlg,
-	WORD	msg,
-	WPARAM wParam,
-	LONG	lParam
+        HWND    hDlg,
+        WORD    msg,
+        WPARAM wParam,
+        LONG    lParam
 )
 /*++
 
 Routine Description:
 
-	The dialog proceedure for editing Zero-terminated strings.
+        The dialog proceedure for editing Zero-terminated strings.
 
 Arguments:
 
-	hDlg - a handle to the dialog proceedure.
+        hDlg - a handle to the dialog proceedure.
 
-	msg - the message passed from Windows.
+        msg - the message passed from Windows.
 
-	wParam - extra message dependent data.
+        wParam - extra message dependent data.
 
-	lParam - extra message dependent data.
+        lParam - extra message dependent data.
 
 
 Return Value:
 
-	TRUE if the value was edited.  FALSE if cancelled or if no
-	changes were made.
+        TRUE if the value was edited.  FALSE if cancelled or if no
+        changes were made.
 
 --*/
 {
     STATIC PBYTE*    ppData;
-	STATIC PULONG	pnBytesIn;
+        STATIC PULONG   pnBytesIn;
     ULONG           nBytes;
     DSTRING         String;
     PWSTR            Pointer;
 
-	switch( msg ) {
+        switch( msg ) {
 
-	case WM_INITDIALOG:
+        case WM_INITDIALOG:
 
-		//
-		// Get the data from the passed structure
-		//
+                //
+                // Get the data from the passed structure
+                //
 
         ppData = (PBYTE *)( ( ( DIALOGINFO * )lParam )->DataObject );
-		pnBytesIn = ( ( DIALOGINFO * )lParam )->NumBytes;
+                pnBytesIn = ( ( DIALOGINFO * )lParam )->NumBytes;
 
-		//
-		// Place the input text into the edit window
+                //
+                // Place the input text into the edit window
         //
         if( *pnBytesIn != 0 ) {
             if( !String.Initialize( ( PWSTR )*ppData, *pnBytesIn / sizeof( WCHAR ) ) ) {
-                DbgPrint( "String.Initialize() failed" );
+                DebugPrint( "String.Initialize() failed" );
                 return( FALSE );
             }
             Pointer = String.QueryWSTR();
-            DbgPtrAssert( Pointer );
+            DebugPtrAssert( Pointer );
             SetDlgItemText( hDlg, IDD_EDIT, Pointer );
             FREE( Pointer );
         }
-		return( TRUE );
+                return( TRUE );
 
-	case WM_COMMAND:
+        case WM_COMMAND:
 
-		switch( LOWORD( wParam ) ) {
+                switch( LOWORD( wParam ) ) {
 
-		case IDOK:
+                case IDOK:
 
-			//
+                        //
             // Get the number of characters currently in the edit window adding one
-			// for the terminating null.
-			//
+                        // for the terminating null.
+                        //
             nBytes = SendDlgItemMessage( hDlg, IDD_EDIT, WM_GETTEXTLENGTH, 0, 0L );
             if( nBytes == 0 ) {
                 if( ( *pnBytesIn != 0 ) && ( *ppData != NULL ) ) {
@@ -1358,29 +1361,29 @@ Return Value:
 
                 GetDlgItemText( hDlg, IDD_EDIT, ( PWSTR )*ppData, ( INT ) nBytes );
                 if( !String.Initialize( ( PWSTR )*ppData ) ) {
-                    DbgPrint( "String.Initialize() failed" );
+                    DebugPrint( "String.Initialize() failed" );
                     return( FALSE );
                 }
 
                 FREE( *ppData );
                 *ppData = ( PBYTE )String.QueryWSTR();
-                DbgPtrAssert( *ppData );
+                DebugPtrAssert( *ppData );
                 *pnBytesIn = ( String.QueryChCount() + 1 )*sizeof( WCHAR );
             }
-			EndDialog( hDlg, TRUE );
-			return( TRUE );
+                        EndDialog( hDlg, TRUE );
+                        return( TRUE );
 
-		case IDCANCEL:
+                case IDCANCEL:
 
-			EndDialog( hDlg, FALSE );
-			return( TRUE );
+                        EndDialog( hDlg, FALSE );
+                        return( TRUE );
 
-        case IDHELP:
+        case IDB_HELP:
             DisplayHelp();
-			return( TRUE );
-		}
-	}
-	return( FALSE );
+                        return( TRUE );
+                }
+        }
+        return( FALSE );
 }
 
 
@@ -1459,6 +1462,11 @@ Return Value:
         pnBytesIn = ( ( DIALOGINFO * )lParam )->NumBytes;
         DataType =  ( ( DIALOGINFO * )lParam )->DataType;
 
+        //
+        //  Change maximum number of characters of the edit control, to its
+        //  maximum limit (from 3000 characters to 4G characters).
+        //
+        SendDlgItemMessage( hDlg, IDD_MULTI_SZ_EDIT_CONTROL, EM_LIMITTEXT, 0, 0L );
 
         //
         // Place the input text into the edit window
@@ -1467,11 +1475,11 @@ Return Value:
         if( *pnBytesIn != 0 ) {
             if( DataType != TYPE_REG_SZ ) {
                SingleSz = ConvertMultiSzToSingleSz( *ppData, *pnBytesIn );
-               DbgPtrAssert( SingleSz );
+               DebugPtrAssert( SingleSz );
 #if 0
                ConvertString.Initialize( SingleSz );
                AnsiString = ConvertString.QuerySTR();
-               DbgPtrAssert( AnsiString );
+               DebugPtrAssert( AnsiString );
                SetDlgItemText( hDlg, IDD_MULTI_SZ_EDIT_CONTROL, AnsiString );
                FREE( SingleSz );
 #endif
@@ -1511,7 +1519,7 @@ Return Value:
 
 
                 ReadBuffer = ( PSTR )MALLOC( ( size_t )( StringSize + 1 ) );
-                DbgPtrAssert( ReadBuffer );
+                DebugPtrAssert( ReadBuffer );
 
                 SendDlgItemMessage( hDlg,
                                     IDD_MULTI_SZ_EDIT_CONTROL,
@@ -1553,7 +1561,7 @@ Return Value:
                     FREE( *ppData );
                 }
                 *ppData = ( PBYTE )MALLOC( 2*sizeof( WCHAR ) );
-                DbgPtrAssert( *ppData );
+                DebugPtrAssert( *ppData );
                 if( *ppData == NULL ) {
                     *pnBytesIn = 0;
                 } else {
@@ -1577,9 +1585,9 @@ Return Value:
             //
 
             MultiSzBuffer = ( PWSTR )MALLOC( ( size_t )( ( MultiSzBufferSize + 1 )*sizeof( WCHAR ) ) );
-            DbgPtrAssert( MultiSzBuffer );
+            DebugPtrAssert( MultiSzBuffer );
             ReadBuffer = ( PWSTR )MALLOC( ( size_t )( (MaxStringSize + 1)*sizeof(WCHAR) ) );
-            DbgPtrAssert( ReadBuffer );
+            DebugPtrAssert( ReadBuffer );
 
             DestPointer = MultiSzBuffer;
 
@@ -1599,7 +1607,7 @@ Return Value:
 
                     ConvertString.Initialize( ( PWSTR )( ReadBuffer ), StringSize );
                     UnicodeString = ( PWSTR )ConvertString.QueryWSTR();
-                    DbgPtrAssert( UnicodeString );
+                    DebugPtrAssert( UnicodeString );
                     SrcPointer = UnicodeString;
                     while( *DestPointer++ = *SrcPointer++ );
                     FREE( UnicodeString );
@@ -1636,7 +1644,7 @@ Return Value:
             EndDialog( hDlg, FALSE );
             return( TRUE );
 
-        case IDHELP:
+        case IDB_HELP:
             DisplayHelp();
             return( TRUE );
         }
@@ -1739,9 +1747,9 @@ Return Value:
         //
         if( *NumBytesIn != 0 ) {
             NumString = (LPWSTR)MALLOC( ( size_t )( (2*sizeof( DWORD ) + 1)*sizeof( WCHAR ) ) );
-            DbgPtrAssert( NumString );
+            DebugPtrAssert( NumString );
             if( *NumBytesIn >= sizeof( DWORD ) ) {
-                itoa( (INT)(**Data), (PCHAR)NumString, 16 );
+                _itoa( (INT)(**Data), (PCHAR)NumString, 16 );
                 ConvertString.Initialize( (PSTR)NumString );
                 FREE( NumString );
                 NumString = ConvertString.QueryWSTR();
@@ -1757,7 +1765,7 @@ Return Value:
                 for( ;Index < sizeof( DWORD ); Index++ ) {
                     Array[ Index ] = 0;
                 }
-                itoa( ( int )( *Array ), (PCHAR)NumString, 16 );
+                _itoa( ( int )( *Array ), (PCHAR)NumString, 16 );
                 ConvertString.Initialize( (PSTR)NumString );
                 FREE( NumString );
                 NumString = ConvertString.QueryWSTR();
@@ -1774,7 +1782,7 @@ Return Value:
     case WM_COMMAND:
 
 
-	switch( LOWORD( wParam ) ) {
+        switch( LOWORD( wParam ) ) {
 
             case IDD_BINARY:
             case IDD_DECIMAL:
@@ -1874,7 +1882,7 @@ Return Value:
                     case IDD_BINARY:
 
                         NumString = (LPWSTR)CALLOC( (size_t)(8*sizeof( DWORD ) + 1),(size_t)sizeof(WCHAR) );
-                        DbgPtrAssert( NumString );
+                        DebugPtrAssert( NumString );
                         for( Index = 0; Index < 8*sizeof( DWORD) - Size; Index++ ) {
                             NumString[ Index ] = ( WCHAR )'0';
                         }
@@ -1948,7 +1956,7 @@ Return Value:
                     case IDD_HEX:
 
                         NumString = (LPWSTR)CALLOC( (size_t)(2*sizeof( DWORD ) + 1), (size_t)sizeof(WCHAR) );
-                        DbgPtrAssert( NumString );
+                        DebugPtrAssert( NumString );
                         for( Index = 0; Index < 2*sizeof( DWORD) - Size; Index++ ) {
                             NumString[ Index ] = ( WCHAR )'0';
                         }
@@ -1982,7 +1990,7 @@ Return Value:
                 EndDialog( hDlg, FALSE );
                 return( TRUE );
 
-            case IDHELP:
+            case IDB_HELP:
                 DisplayHelp();
                 return( TRUE );
         }
@@ -2046,7 +2054,7 @@ Return Value:
 
 //        AnsiUpperBuff( (LPSTR)&wParam, 1 );
 
-        if( ( wParam == ( WCHAR )'\t' ) || ( wParam == ( WCHAR )'\b' ) ) {
+        if( ( wParam == ( WCHAR )'\t' ) || ( wParam == ( WCHAR )'\b' ) || ( GetKeyState( VK_CONTROL ) < 0 ) ) {
             break;
         }
 
@@ -2136,7 +2144,7 @@ Return Value:
                          ( WPARAM )(sizeof( BufferOldBase)/sizeof( WCHAR )),
                          ( LONG )BufferOldBase );
             Number = wcstoul( BufferOldBase, NULL, ( int )OldBase );
-            ultoa( Number, ( PSTR )BufferNewBase, ( int )NewBase );
+            _ultoa( Number, ( PSTR )BufferNewBase, ( int )NewBase );
             ConvertString.Initialize( (PSTR)BufferNewBase );
 
 
@@ -2157,10 +2165,11 @@ Return Value:
 
     case WM_KEYDOWN:
 
-        if( ( wParam == VK_INSERT ) &&
-            ( GetKeyState( VK_SHIFT ) < 0 ) ) {
+        if( ( ( wParam == VK_INSERT ) && ( GetKeyState( VK_SHIFT   ) < 0 ) ) ||
+          ( ( ( wParam == ( WCHAR )'V' ) || ( wParam == ( WCHAR )'v' ) ) && ( GetKeyState( VK_CONTROL ) < 0 ) )
+          ) {
             //
-            //  User is wants to paste text from the clipboard
+            //  User wants to paste text from the clipboard
             //
             if( state == IDD_BINARY ) {
                 CurrentBase = BASE_2;
@@ -2250,17 +2259,17 @@ Return Value:
                     }
                     GlobalUnlock( ClipboardHandle );
                 } else {
-                    DbgPrintf( "GlobalLock() failed" );
+                    DebugPrintf( "GlobalLock() failed" );
                 }
             } else {
-                DbgPrint( "GetClipboardData() failed" );
+                DebugPrint( "GetClipboardData() failed" );
             }
             CloseClipboard();
         } else {
             //
             //  Unable to open the clipboard
             //
-            DbgPrint( "OpenClipboard() failed" );
+            DebugPrint( "OpenClipboard() failed" );
         }
     }
     return( Valid );
@@ -2299,7 +2308,7 @@ Return Value:
     PWSTR    Digits;
 
     if( String == NULL ){
-        DbgPrint( "IsValidBinaryString() received a NULL pointer" );
+        DebugPrint( "IsValidBinaryString() received a NULL pointer" );
         return( FALSE );
     }
     if( Base == BASE_2 ) {
@@ -2349,7 +2358,7 @@ Return Value:
     ULONG   MaxNumberOfDigits;
 
     if( String == NULL ){
-        DbgPrint( "IsValidDwordString() received a NULL pointer" );
+        DebugPrint( "IsValidDwordString() received a NULL pointer" );
         return( FALSE );
     }
     if( Base == BASE_2 ) {

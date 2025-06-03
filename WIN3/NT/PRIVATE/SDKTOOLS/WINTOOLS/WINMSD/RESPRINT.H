@@ -29,12 +29,15 @@ Environment:
 
 BOOL
 BuildDevicesReport(
-    IN HWND hWnd
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     );
+
 
 BOOL
-BuildIRQReport(
-    IN HWND hWnd
+BuildResourceReport(
+    IN HWND hWnd,
+    IN UINT iDetailLevel
     );
 
 BOOL
@@ -42,4 +45,5 @@ BuildDMAReport(
     IN HWND hWnd);
 
 #endif // _RESPRINT_
+
 

@@ -233,7 +233,7 @@ THW_PTR              sdrv )       /* I - The starting drive           */
           // NOTE:  COMM_FAILUREs will return ABORT_OPERATION
           if( ( return_status == ABORT_OPERATION ) || ( return_status == USER_ABORT ) && ( LP_GetAbortFlag( lp->lis_ptr ) != ABORT_AT_EOM ) ) {
                lp->rr.lp_message = LRR_ABORT ;
-               if( ( return_status = TF_GetNextTapeRequest( &lp->rr ) ) != SUCCESS ) {
+               if( ( TF_GetNextTapeRequest( &lp->rr ) ) != SUCCESS ) {
                     LP_MsgError( lp->lis_ptr->pid, bsd_ptr, lp->curr_fsys, &lp->tpos, return_status, NULL, NULL, 0L ) ;
                }
           }

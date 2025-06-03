@@ -184,6 +184,8 @@ file_reset(FILEDATA fd)
 
 /*
  * return a checksum identical to one obtained through dir_getchecksum
+ * This will recalculate it for local files, but not for remote ones.
+ * Remote ones would give checksum zero if we didn't have one.
  */
 DWORD
 file_checksum(FILEDATA fd)

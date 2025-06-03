@@ -131,11 +131,13 @@ NEMODINROM	= NEEMSSEPINST	; Module loaded from ROM
 ;	       +---------------------- Contains gangload area
 ;
 
-NELONGNAMES	= 1
-NEINFONT	= 2		; WIN30 - 2.x app runs in 3.x prot mode
-NEINPROT	= 4		; WIN30 - 2.x app gets proportional font
-NEGANGLOAD	= 8		; WIN30 - Contains gangload area
-
+NELONGNAMES     = 1h
+NEINFONT        = 2h            ; WIN30 - 2.x app runs in 3.x prot mode
+NEINPROT        = 4h            ; WIN30 - 2.x app gets proportional font
+NEGANGLOAD      = 8h            ; WIN30 - Contains gangload area
+NEASSUMENODEP   = 10h           ; WIN40 - DllEntryPoint known not to exit
+NEINTLAPP       = 40h           ; WIN31 - intl versions use this.
+NEHASPATCH      = 80h           ; WIN40 - Some segs of this module get patched
 
 ; Target operating systems
 

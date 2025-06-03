@@ -1607,16 +1607,6 @@ VOID MUserFreeAliases(TCHAR **members, USHORT2ULONG count)
 
 /*---------------------- misc sam/lsa related routines ----------------------*/
 
-BOOL IsLocalMachineWinNT(void)
-{
-
-   NT_PRODUCT_TYPE producttype ;
-
-   (VOID) RtlGetNtProductType(&producttype) ;
-  
-   return(producttype != NtProductLanManNt) ;
-}
-
 
 /*
  * MSamCheckIfExists

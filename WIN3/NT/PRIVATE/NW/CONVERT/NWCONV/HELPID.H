@@ -5,6 +5,10 @@
 #ifndef _HHELPID_
 #define _HHELPID_
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 // Identifiers for help contexts
 
 // Main dialog box
@@ -55,5 +59,12 @@
 #define IDM_HELP_THIDDEN   579
 #define IDM_HELP_TSYSTEM   580
 #define IDM_HELP_TKEEP     581
+
+// Mapping Create
+#define IDC_HELP_CMAP      590
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

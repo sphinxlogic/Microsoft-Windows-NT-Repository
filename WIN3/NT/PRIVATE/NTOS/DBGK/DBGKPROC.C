@@ -304,12 +304,19 @@ Return Value:
         CreateProcessArgs->BaseOfImage = Process->SectionBaseAddress;
 
         NtHeaders = RtlImageNtHeader(Process->SectionBaseAddress);
-        CreateThreadArgs->StartAddress = (PVOID)(
-            NtHeaders->OptionalHeader.ImageBase +
-            NtHeaders->OptionalHeader.AddressOfEntryPoint);
+        if ( NtHeaders ) {
+            CreateThreadArgs->StartAddress = (PVOID)(
+                NtHeaders->OptionalHeader.ImageBase +
+                NtHeaders->OptionalHeader.AddressOfEntryPoint);
 
-        CreateProcessArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
-        CreateProcessArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
+            CreateProcessArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
+            CreateProcessArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
+            }
+        else {
+            CreateThreadArgs->StartAddress = NULL;
+            CreateProcessArgs->DebugInfoFileOffset = 0;
+            CreateProcessArgs->DebugInfoSize = 0;
+            }
 
         DBGKM_FORMAT_API_MSG(m,DbgKmCreateProcessApi,sizeof(*CreateProcessArgs));
 
@@ -322,9 +329,14 @@ Return Value:
         LoadDllArgs->BaseOfDll = PsSystemDllBase;
 
         NtHeaders = RtlImageNtHeader(PsSystemDllBase);
-        LoadDllArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
-        LoadDllArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
-
+        if ( NtHeaders ) {
+            LoadDllArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
+            LoadDllArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
+            }
+        else {
+            LoadDllArgs->DebugInfoFileOffset = 0;
+            LoadDllArgs->DebugInfoSize = 0;
+            }
         //
         // Send load dll section for NT dll !
         //
@@ -463,6 +475,13 @@ Return Value:
         return;
     }
 
+    //
+    // this ensures that other timed lockers of the process will bail
+    // since this call is done while holding the process lock, and lock duration
+    // is controlled by debugger
+    //
+    KeQuerySystemTime(&PsGetCurrentProcess()->ExitTime);
+
     args = &m.u.ExitProcess;
     args->ExitStatus = ExitStatus;
 
@@ -521,7 +540,7 @@ Return Value:
 
     Port = Process->DebugPort;
 
-    if ( !Port ) {
+    if ( !Port || KeGetPreviousMode() == KernelMode ) {
         return;
     }
 
@@ -529,9 +548,14 @@ Return Value:
     LoadDllArgs->FileHandle = DbgkpSectionHandleToFileHandle(SectionHandle);
     LoadDllArgs->BaseOfDll = BaseAddress;
     NtHeaders = RtlImageNtHeader(BaseAddress);
-    LoadDllArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
-    LoadDllArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
-
+    if ( NtHeaders ) {
+        LoadDllArgs->DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
+        LoadDllArgs->DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
+        }
+    else {
+        LoadDllArgs->DebugInfoFileOffset = 0;
+        LoadDllArgs->DebugInfoSize = 0;
+        }
     DBGKM_FORMAT_API_MSG(m,DbgKmLoadDllApi,sizeof(*LoadDllArgs));
 
     DbgkpSendApiMessage(&m,Port,TRUE);
@@ -576,7 +600,7 @@ Return Value:
 
     Port = Process->DebugPort;
 
-    if ( !Port ) {
+    if ( !Port || KeGetPreviousMode() == KernelMode ) {
         return;
     }
 

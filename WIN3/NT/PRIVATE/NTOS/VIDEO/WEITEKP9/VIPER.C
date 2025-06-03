@@ -19,43 +19,19 @@ Revision History may be found at the end of this file.
 
 --*/
 
-#include "dderror.h"
-#include "devioctl.h"
-
-#include "miniport.h"
-#include "ntddvdeo.h"
-#include "video.h"
-#include "dac.h"
 #include "p9.h"
 #include "p9gbl.h"
 #include "p9000.h"
 #include "viper.h"
 #include "vga.h"
+#include "p9errlog.h"
+
+
+#define REJECT_ON_BIOS_VERSION  0
 
 //
 // OEM specific static data.
 //
-
-//
-// The default adapter description structure for the Diamond Viper VL board.
-//
-
-ADAPTER_DESC    ViperVLDesc =
-{
-    0L,                                 // P9 Memconf value (un-initialized)
-    HSYNC_INTERNAL | VSYNC_INTERNAL |
-    COMPOSITE_SYNC | VIDEO_NORMAL,      // P9 Srctl value
-    0L,                                 // Number of OEM specific registers
-    TRUE,                               // Should autodetection be attempted?
-    ViperGetBaseAddr,                   // Routine to detect/map P9 base addr
-    ViperSetMode,                       // Routine to set the P9 mode
-    ViperEnableP9,                      // Routine to enable P9 video
-    ViperDisableP9,                     // Routine to disable P9 video
-    ViperEnableMem,                     // Routine to enable P9 memory
-    4,                                  // Clock divisor value
-    TRUE                                // Is a Wtk 5x86 VGA present?
-};
-
 
 //
 // This structure is used to match the possible physical address
@@ -72,8 +48,82 @@ MEM_RANGE   ViperMemRange[] =
 {
     { 0x0A0000000, 0L, MEM_AXXX },
     { 0x080000000, 0L, MEM_8XXX },
-    { 0x020000000, 0L, MEM_2XXX }
+    { 0x020000000, 0L, MEM_2XXX },
+    { 0x01D000000, 0L, MEM_AXXX }
 };
+
+LONG NumMemRanges = sizeof(ViperMemRange) / sizeof(MEM_RANGE);
+
+
+#ifdef REJECT_ON_BIOS_VERSION
+
+/*++
+ ** bRejectOnBiosVersion
+ *
+ *  FILENAME: D:\nt351.nc\weitek\p9x\mini\viper.c
+ *
+ *  PARAMETERS:         PHW_DEVICE_EXTENSION HwDeviceExtension
+ *                                      PUCHAR  pjBios                  linear address of the BIOS
+ *                                      ULONG   ulBiosLength    lengh of the BIOS
+ *
+ *  DESCRIPTION:        Scan the Bios,
+ *
+ *  RETURNS:            TRUE    to reject supporting this card.
+ *                                      FALSE   to support this card.
+ *
+ *
+ --*/
+BOOLEAN
+bRejectOnBiosVersion(
+    PHW_DEVICE_EXTENSION HwDeviceExtension,
+    PUCHAR      pjBiosAddr,
+    ULONG       ulBiosLength)
+{
+
+        // Add the strings you want to detect for rejection to this array
+
+        static  PUCHAR aszBiosVersion[] = {
+                "VIPER VLB  Vers. 1",
+                "VIPER VLB  Vers. 2",
+                NULL
+        };
+
+        LONG    i;
+        BOOLEAN bFound = FALSE;
+
+        for (i = 0; aszBiosVersion[i] != 0; i++)
+        {
+
+            if (VideoPortScanRom(HwDeviceExtension,
+                                 (PUCHAR) pjBiosAddr,
+                                 VGA_BIOS_LEN,
+                                 aszBiosVersion[i]))
+            {
+                        bFound = TRUE;
+                        break;
+            }
+        }
+
+        if (bFound == TRUE)
+        {
+                VideoPortLogError(HwDeviceExtension,
+                                                  NULL,
+                                                  P9_DOWN_LEVEL_BIOS,
+                                                  i);
+                VideoDebugPrint((0, "P9X - Down Level Bios\n"));
+        }
+
+
+        // We will always boot, we'll just warn the user that bad things may happen
+
+        return (FALSE);
+
+
+}
+
+
+
+#endif // REJECT_ON_BIOS_VERSION
 
 
 BOOLEAN
@@ -100,12 +150,10 @@ FALSE   - Board not found.
 
 --*/
 {
-    REGISTRY_DATA_INFO  BaseAddrInfo;
     VP_STATUS           status;
     SHORT               i;
     ULONG               ulBiosAddr;
-    USHORT              holdit;
-    BOOLEAN             bValid;
+    BOOLEAN             bValid = FALSE;
 
     VIDEO_ACCESS_RANGE  BiosAccessRange =
      {
@@ -117,6 +165,8 @@ FALSE   - Board not found.
         1                               // Range should be shareable
      };
 
+    if (HwDeviceExtension->MachineType == SIEMENS_P9100_VLB)
+          return FALSE;
 
     //
     // Determine if a Viper card is installed by scanning the VGA BIOS ROM
@@ -128,12 +178,10 @@ FALSE   - Board not found.
     // return an error.
     //
 
-    BiosAccessRange.RangeStart.HighPart = 0;
-    BiosAccessRange.RangeStart.LowPart = VGA_BIOS_ADDR;
-    BiosAccessRange.RangeLength = VGA_BIOS_LEN;
-    BiosAccessRange.RangeShareable = TRUE;
-    BiosAccessRange.RangeVisible = TRUE;
-    BiosAccessRange.RangeInIoSpace = FALSE;
+    if (HwDeviceExtension->MachineType == SIEMENS)
+    {
+        BiosAccessRange.RangeStart.LowPart += 0x10000000L;
+    }
 
     if (VideoPortVerifyAccessRanges(HwDeviceExtension,
                                     1,
@@ -160,6 +208,13 @@ FALSE   - Board not found.
         return(FALSE);
     }
 
+#ifdef REJECT_ON_BIOS_VERSION
+
+    if (bRejectOnBiosVersion(HwDeviceExtension, (PUCHAR) ulBiosAddr, VGA_BIOS_LEN))
+       return (FALSE);
+
+#endif // REJECT_ON_BIOS_VERSION
+
     VideoPortFreeDeviceBase(HwDeviceExtension, (PVOID) ulBiosAddr);
 
     //
@@ -180,46 +235,20 @@ FALSE   - Board not found.
                             sizeof(VIDEO_ACCESS_RANGE));
 
     //
-    // Set up the info structure so the base address parameter
-    // can be obtained from the Registry. This code is encapsulated
-    // here so that OEMs may use a different method to get
-    // the physical address of the P9000 (e.g. EISA based boards).
+    // A value for the P9 base address may have beens found in the registry,
+    // and it is now stored in the device extension. Ensure the address
+    // value is valid for the Viper card. Then use it to compute
+    // the starting address of the P9000 registers and frame buffer,
+    // and store it in the device extension.
     //
 
-    BaseAddrInfo.pwsDataName = MEMBASE_KEY;
-    BaseAddrInfo.usDataSize = sizeof(ULONG);
-    BaseAddrInfo.pvDataValue = &(HwDeviceExtension->P9PhysAddr.LowPart);
-
-    //
-    // Get the P9 base address from the Registry.
-    //
-
-    status =
-    VideoPortGetRegistryParameters((PVOID) HwDeviceExtension,
-                                        BaseAddrInfo.pwsDataName,
-                                        FALSE,
-                                        P9QueryNamedValueCallback,
-                                        (PVOID) &(BaseAddrInfo));
-    bValid = FALSE;
-
-    if (status == NO_ERROR)
+    for (i = 0; i < NumMemRanges; i++)
     {
-        //
-        // A value for the P9 base address was found in the registry,
-        // and it is now stored in the device extension. Ensure the address
-        // value is valid for the Viper card. Then use it to compute
-        // the starting address of the P9000 registers and frame buffer,
-        // and store it in the device extension.
-        //
-
-        for (i = 0; i < NUM_MEM_RANGES; i++)
+        if (HwDeviceExtension->P9PhysAddr.LowPart ==
+            ViperMemRange[i].BaseMemAddr.LowPart)
         {
-            if (HwDeviceExtension->P9PhysAddr.LowPart ==
-                ViperMemRange[i].BaseMemAddr.LowPart)
-            {
-                bValid = TRUE;
-                break;
-            }
+            bValid = TRUE;
+            break;
         }
     }
 
@@ -233,15 +262,8 @@ FALSE   - Board not found.
         HwDeviceExtension->P9PhysAddr.LowPart = MemBase;
     }
 
-    //
-    // Initialize the high order dword of the device extension base
-    // address field.
-    //
-
-    HwDeviceExtension->P9PhysAddr.HighPart = 0;
-
     return(TRUE);
-};
+}
 
 
 VOID
@@ -332,7 +354,7 @@ Return Value:
 }
 
 
-VOID
+BOOLEAN
 ViperDisableP9(
     PHW_DEVICE_EXTENSION HwDeviceExtension
     )
@@ -351,12 +373,12 @@ Arguments:
 
 Return Value:
 
-    None.
+    TRUE, indicating *no* int10 is needed to complete the switch
 
 --*/
 
 {
-   USHORT holdit;
+    USHORT holdit;
 
     //
     // If this is a Weitek VGA, unlock it.
@@ -400,7 +422,7 @@ Return Value:
         LockVGARegs(HwDeviceExtension);
     }
 
-    return;
+    return TRUE;
 }
 
 
@@ -455,12 +477,10 @@ Return Value:
     // Map the P9000 to the address specified in the device extension.
     //
 
-    for (i = 0; i < NUM_MEM_RANGES; i++ )
+    for (i = 0; i < NumMemRanges; i++ )
     {
-        if ((ViperMemRange[i].BaseMemAddr.LowPart ==
+        if (ViperMemRange[i].BaseMemAddr.LowPart ==
                 HwDeviceExtension->P9PhysAddr.LowPart)
-            && (ViperMemRange[i].BaseMemAddr.HighPart ==
-                HwDeviceExtension->P9PhysAddr.HighPart))
         {
             holdit |= ViperMemRange[i].RegValue;
             break;
@@ -516,6 +536,12 @@ Return Value:
     HwDeviceExtension->MiscRegState = VGA_RD_REG(MISCIN);
 
     //
+    // Enable the Vipers Memory Map.
+    //
+
+    HwDeviceExtension->AdapterDesc.P9EnableMem(HwDeviceExtension);
+
+    //
     // Enable P9000 video.
     //
 
@@ -532,7 +558,10 @@ Return Value:
     // Set the dot clock.
     //
 
-    DevSetClock(HwDeviceExtension, HwDeviceExtension->VideoData.dotfreq1);
+    DevSetClock(HwDeviceExtension,
+                (USHORT) HwDeviceExtension->VideoData.dotfreq1,
+                FALSE,
+                TRUE);
 
     //
     // If this mode uses the palette, clear it to all 0s.
@@ -545,14 +574,3 @@ Return Value:
     }
 
 }
-
-/*++
-
-Revision History:
-
-    $Log:   N:/ntdrv.vcs/miniport.new/viper.c_v  $
- *
- *    Rev 1.0   14 Jan 1994 22:41:22   robk
- * Initial revision.
-
---*/

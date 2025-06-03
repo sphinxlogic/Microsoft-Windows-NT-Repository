@@ -10,10 +10,17 @@
 #include <heap.h>
 #include <imagehlp.h>
 #include "psapi.h"
+#include "cvtoem.h"
 
+
+#define SYM_HANDLE ((HANDLE)0xffffffff)
 #define DEFAULT_INCR (64*1024)
 #define STOP_AT (0x80000000)
 #define FOURMB (4*(1024*1024))
+
+#define MAX_SYMNAME_SIZE  1024
+CHAR symBuffer[sizeof(IMAGEHLP_SYMBOL)+MAX_SYMNAME_SIZE];
+PIMAGEHLP_SYMBOL ThisSymbol = (PIMAGEHLP_SYMBOL) symBuffer;
 
 LIST_ENTRY VaList;
 ULONG ProcessId;
@@ -34,6 +41,7 @@ DWORD FreeBytes;
 DWORD ImageCommitedBytes;
 DWORD ImageReservedBytes;
 DWORD ImageFreeBytes;
+DWORD Displacement;
 
 BOOLEAN fRawSymbols = FALSE;
 BOOLEAN fVerbose = FALSE;
@@ -69,10 +77,9 @@ typedef struct _MODINFO {
     PVOID BaseAddress;
     ULONG VirtualSize;
     LPSTR Name;
-    PVOID MappedAddress;
-    PIMAGE_DEBUG_INFORMATION ImageDebugInfo;
     ULONG CommitVector[MAXPROTECT];
     ULONG WsHits;
+    BOOL  SymbolsLoaded;
 } MODINFO, *PMODINFO;
 #define MODINFO_SIZE 64
 LONG ModInfoNext;
@@ -139,9 +146,6 @@ UCHAR *SharedTable[] = {
     " ",
     "Shared" };
 
-LPSTR SymbolSearchPath;
-
-
 
 LIST_ENTRY LoadedHeapList;
 typedef struct _LOADED_HEAP_SEGMENT {
@@ -157,6 +161,12 @@ typedef struct _LOADED_HEAP {
     ULONG HeapClass;
     LOADED_HEAP_SEGMENT Segments[ HEAP_MAXIMUM_SEGMENTS ];
 } LOADED_HEAP, *PLOADED_HEAP;
+
+BOOL
+SetCurrentPrivilege(
+    LPCTSTR Privilege,      // Privilege to enable/disable
+    BOOL bEnablePrivilege   // to enable or disable privilege
+    );
 
 PLOADED_HEAP
 WhatHeapContainsThisVa(
@@ -207,47 +217,55 @@ LoadTheHeaps(
     HANDLE Process
     )
 {
-    PHEAP pHeap;
     HEAP TheHeap;
     PLOADED_HEAP LoadedHeap;
-    PLIST_ENTRY pHeapListHead,Next;
-    LIST_ENTRY HeapListHead;
+    PHEAP *ProcessHeaps;
     HEAP_SEGMENT TheSegment;
     BOOL b;
-    int i;
+    ULONG cb, i, j;
+    NTSTATUS Status;
+    PROCESS_BASIC_INFORMATION ProcessInformation;
+    PEB ThePeb;
 
     InitializeListHead(&LoadedHeapList);
 
-    //
-    // This is a silly way to get the address of the heap list head pointer,
-    // but it works, and it is surely in line with the rest of vadump
-    //
-
-    pHeap = RtlProcessHeap();
-    pHeapListHead = pHeap->ProcessHeapsList.Blink;
-
-    //
-    // Read the heap list head
-    //
-
-    b = ReadProcessMemory(Process,pHeapListHead,&HeapListHead,sizeof(HeapListHead),NULL);
-    if ( !b ) {
-        InitializeListHead(&LoadedHeapList);
+    Status = NtQueryInformationProcess( Process,
+                                        ProcessBasicInformation,
+                                        &ProcessInformation,
+                                        sizeof( ProcessInformation ),
+                                        NULL
+                                      );
+    if (!NT_SUCCESS( Status )) {
         return;
         }
-    Next = HeapListHead.Flink;
-    while ( Next != pHeapListHead ) {
 
+    //
+    // Read the process's PEB
+    //
 
+    b = ReadProcessMemory(Process,ProcessInformation.PebBaseAddress,&ThePeb,sizeof(ThePeb),NULL);
+    if ( !b ) {
+        return;
+        }
+
+    //
+    // Allocate space for and read the array of process heaps pointers
+    //
+
+    cb = ThePeb.NumberOfHeaps * sizeof( PHEAP );
+    ProcessHeaps = LocalAlloc(LMEM_ZEROINIT,cb);
+    if (ProcessHeaps == NULL) {
+        return;
+        }
+    b = ReadProcessMemory(Process,ThePeb.ProcessHeaps,ProcessHeaps,cb,NULL);
+    if ( b ) for (i=0; i<ThePeb.NumberOfHeaps; i++) {
         //
         // Read the heap
         //
 
-        pHeap = CONTAINING_RECORD(Next, HEAP, ProcessHeapsList);
-
-        b = ReadProcessMemory(Process,pHeap,&TheHeap,sizeof(TheHeap),NULL);
+        b = ReadProcessMemory(Process,ProcessHeaps[i],&TheHeap,sizeof(TheHeap),NULL);
         if ( !b ) {
-            return;
+            break;
             }
 
         //
@@ -256,10 +274,10 @@ LoadTheHeaps(
 
         LoadedHeap = LocalAlloc(LMEM_ZEROINIT,sizeof(*LoadedHeap));
         if ( !LoadedHeap ) {
-            return;
+            break;
             }
 
-        LoadedHeap->HeapAddress = pHeap;
+        LoadedHeap->HeapAddress = ProcessHeaps[i];
         LoadedHeap->HeapClass = TheHeap.Flags & HEAP_CLASS_MASK;
         switch ( LoadedHeap->HeapClass ) {
             case HEAP_CLASS_0:
@@ -304,71 +322,25 @@ LoadTheHeaps(
         // heap
         //
 
-        for(i=0;i<HEAP_MAXIMUM_SEGMENTS;i++){
-            if ( !TheHeap.Segments[i] ) {
+        for(j=0;j<HEAP_MAXIMUM_SEGMENTS;j++){
+            if ( !TheHeap.Segments[j] ) {
                 break;
                 }
             b = ReadProcessMemory(Process,TheHeap.Segments[i],&TheSegment,sizeof(TheSegment),NULL);
             if ( !b ) {
-                return;
+                break;
                 }
-            LoadedHeap->Segments[i].BaseVa = TheSegment.BaseAddress;
-            LoadedHeap->Segments[i].Length = TheSegment.NumberOfPages * SystemInfo.dwPageSize;
+            LoadedHeap->Segments[j].BaseVa = TheSegment.BaseAddress;
+            LoadedHeap->Segments[j].Length = TheSegment.NumberOfPages * SystemInfo.dwPageSize;
             }
 
         InsertTailList(&LoadedHeapList,&LoadedHeap->HeapsList);
-        Next = TheHeap.ProcessHeapsList.Flink;
         }
 
+    LocalFree( ProcessHeaps );
+    return;
 }
 
-void
-SetSymbolSearchPath( )
-{
-    LPSTR lpSymPathEnv, lpAltSymPathEnv, lpSystemRootEnv;
-    ULONG cbSymPath;
-    DWORD dw;
-
-    cbSymPath = 18;
-    if (lpSymPathEnv = getenv("_NT_SYMBOL_PATH")) {
-        cbSymPath += strlen(lpSymPathEnv) + 1;
-    }
-    if (lpAltSymPathEnv = getenv("_NT_ALT_SYMBOL_PATH")) {
-        cbSymPath += strlen(lpAltSymPathEnv) + 1;
-    }
-
-    if (lpSystemRootEnv = getenv("SystemRoot")) {
-        cbSymPath += strlen(lpSystemRootEnv) + 1;
-    }
-
-    SymbolSearchPath = LocalAlloc(LMEM_ZEROINIT,cbSymPath);
-
-    if (lpAltSymPathEnv) {
-        dw = GetFileAttributes(lpAltSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpAltSymPathEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-    if (lpSymPathEnv) {
-        dw = GetFileAttributes(lpSymPathEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpSymPathEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-
-    if (lpSystemRootEnv) {
-        dw = GetFileAttributes(lpSystemRootEnv);
-        if ( dw != 0xffffffff && dw & FILE_ATTRIBUTE_DIRECTORY ) {
-            strcat(SymbolSearchPath,lpSystemRootEnv);
-            strcat(SymbolSearchPath,";");
-            }
-    }
-
-    strcat(SymbolSearchPath,".;");
-
-}
 PMODINFO
 LocateModInfo(
     PVOID Address
@@ -426,13 +398,13 @@ CtrlcH(
     DWORD dwCtrlType
     )
 {
-    PWSINFOCOUNTS WsInfoCount;
-    LONG RunIndex, CountIndex;
-    PMODINFO Mi;
-    RTL_SYMBOL_INFORMATION ThisSymbol;
-    NTSTATUS Status;
-    ULONG Offset;
-    CHAR Line[256];
+    PWSINFOCOUNTS    WsInfoCount;
+    LONG             RunIndex;
+    LONG             CountIndex;
+    IMAGEHLP_MODULE  Mi;
+    ULONG            Offset;
+    CHAR             Line[256];
+
 
     if ( dwCtrlType != CTRL_C_EVENT ) {
         return FALSE;
@@ -489,44 +461,35 @@ CtrlcH(
     //
 
     for ( RunIndex = CountIndex-1; RunIndex >= 0 ; RunIndex-- ) {
-        Mi = LocateModInfo((PVOID)WsInfoCount[RunIndex].FaultingPc);
-        if ( !Mi ) {
+
+        if (!SymGetModuleInfo( SYM_HANDLE, WsInfoCount[RunIndex].FaultingPc, &Mi )) {
             printf("%8d, 0x%08x\n",WsInfoCount[RunIndex].Faults,WsInfoCount[RunIndex].FaultingPc);
             if ( LogFile ) {
                 fprintf(LogFile,"%8d, 0x%08x\n",WsInfoCount[RunIndex].Faults,WsInfoCount[RunIndex].FaultingPc);
-                }
             }
-        else {
-            Status = RtlLookupSymbolByAddress(
-                        Mi->BaseAddress,
-                        Mi->MappedAddress,
-                        (PVOID)WsInfoCount[RunIndex].FaultingPc,
-                        0x4000,
-                        &ThisSymbol,
-                        NULL
-                        );
-            if ( NT_SUCCESS(Status) ) {
-                Offset = (ULONG)WsInfoCount[RunIndex].FaultingPc - (ThisSymbol.Value + (ULONG)Mi->BaseAddress);
+
+        } else {
+
+            if (SymGetSymFromAddr( SYM_HANDLE, WsInfoCount[RunIndex].FaultingPc, &Displacement, ThisSymbol )) {
+                Offset = (ULONG)WsInfoCount[RunIndex].FaultingPc - ThisSymbol->Address;
                 if ( Offset ) {
-                    sprintf(Line,"%8d, %Z+%x\n",WsInfoCount[RunIndex].Faults,&ThisSymbol.Name,Offset);
-                    }
-                else {
-                    sprintf(Line,"%8d, %Z\n",WsInfoCount[RunIndex].Faults, &ThisSymbol.Name);
-                    }
+                    sprintf(Line,"%8d, %s+%x\n",WsInfoCount[RunIndex].Faults,ThisSymbol->Name,Offset);
+                } else {
+                    sprintf(Line,"%8d, %s\n",WsInfoCount[RunIndex].Faults, ThisSymbol->Name);
+                }
                 printf("%s",Line);
                 if ( LogFile ) {
                     fprintf(LogFile,"%s",Line);
-                    }
                 }
-            else {
+            } else {
                 printf("%8d, 0x%08x\n",WsInfoCount[RunIndex].Faults,WsInfoCount[RunIndex].FaultingPc);
                 if ( LogFile ) {
                     fprintf(LogFile,"%8d, 0x%08x\n",WsInfoCount[RunIndex].Faults,WsInfoCount[RunIndex].FaultingPc);
-                    }
                 }
             }
         }
-    ExitProcess(1);
+    }
+    exit(1);
     return FALSE;
 }
 
@@ -555,9 +518,6 @@ DumpWorkingSet(HANDLE Process)
         ULONG TotalDynamicData;
         ULONG TotalSystem;
         PMODINFO Mi;
-        RTL_SYMBOL_INFORMATION ThisSymbol;
-        RTL_SYMBOL_INFORMATION NextSymbol;
-        NTSTATUS Status;
         PLOADED_HEAP pHeap;
         PLIST_ENTRY Next;
         MEMORY_BASIC_INFORMATION BasicInfo;
@@ -589,46 +549,43 @@ DumpWorkingSet(HANDLE Process)
             }
         qsort(&WorkingSetBuffer[1],WorkingSetBuffer[0],sizeof(ULONG),ulcomp);
 
-        if ( !fSummary ) {
+        //
+        // Figure out how many system pages we have
+        //
+        SystemPageBase = (PSYSTEM_PAGE)RunningWorkingSetBuffer;
+        i=0;
+        while (i < WorkingSetBuffer[0]) {
 
-            //
-            // Figure out how many system pages we have
-            //
-            SystemPageBase = (PSYSTEM_PAGE)RunningWorkingSetBuffer;
-            i=0;
-            while (i < WorkingSetBuffer[0]) {
-
-                Va = WorkingSetBuffer[i+1] & 0xFFFFF000;
-                if ( Va & 0x80000000 ) {
-                    SystemPageBase[SystemPageCount].Va = Va;
-                    SystemPageBase[SystemPageCount].BaseAddress = (PVOID)(((Va & 0x3fffffff) >> 12)*FOURMB);
-                    SystemPageCount++;
-                    }
-                i++;
+            Va = WorkingSetBuffer[i+1] & 0xFFFFF000;
+            if ( Va & 0x80000000 ) {
+                SystemPageBase[SystemPageCount].Va = Va;
+                SystemPageBase[SystemPageCount].BaseAddress = (PVOID)(((Va & 0x3fffffff) >> 12)*FOURMB);
+                SystemPageCount++;
                 }
+            i++;
+            }
 
-            //
-            // Now, for all non-system pages, figure out which system page backs it
-            //
+        //
+        // Now, for all non-system pages, figure out which system page backs it
+        //
 
-            i=0;
-            while (i < WorkingSetBuffer[0]) {
+        i=0;
+        while (i < WorkingSetBuffer[0]) {
 
-                Va = WorkingSetBuffer[i+1] & 0xFFFFF000;
-                if ( Va & 0x80000000 ) {
-                    ;
-                    }
-                else {
-                    for(j=0;j<(LONG)SystemPageCount;j++){
-                        if ( Va >= (ULONG)SystemPageBase[j].BaseAddress &&
-                             Va < (ULONG)SystemPageBase[j].BaseAddress +  FOURMB ) {
-                            SystemPageBase[j].ResidentPages++;
-                            break;
-                            }
+            Va = WorkingSetBuffer[i+1] & 0xFFFFF000;
+            if ( Va & 0x80000000 ) {
+                ;
+                }
+            else {
+                for(j=0;j<(LONG)SystemPageCount;j++){
+                    if ( Va >= (ULONG)SystemPageBase[j].BaseAddress &&
+                         Va < (ULONG)SystemPageBase[j].BaseAddress +  FOURMB ) {
+                        SystemPageBase[j].ResidentPages++;
+                        break;
                         }
                     }
-                i++;
                 }
+            i++;
             }
 
         i=0;
@@ -643,42 +600,40 @@ DumpWorkingSet(HANDLE Process)
                 //
 
 
-                if ( !fSummary ) {
-                    for(j=0;j<(LONG)SystemPageCount;j++){
-                        if ( Va == SystemPageBase[j].Va ) {
-                            if (NewLine){
-                                printf("\n");
-                                NewLine = FALSE;
-                                }
-                            printf("0x%08x -> (0x%08x : 0x%08x) %4d Resident Pages\n",
-                                Va,
-                                SystemPageBase[j].BaseAddress,
-                                (ULONG)SystemPageBase[j].BaseAddress + FOURMB - 1,
-                                SystemPageBase[j].ResidentPages
-                                );
-
-                                //
-                                // Figure out which modules are covered by this
-                                // page table page. If the base of the module is within the
-                                // page, or the base+size of the module is covered, then it
-                                // is in the page
-                                //
-
-                            for (k=0;k<ModInfoNext;k++){
-                                if ( (ModInfo[k].BaseAddress >= SystemPageBase[j].BaseAddress &&
-                                      ModInfo[k].BaseAddress < (PVOID)((ULONG)SystemPageBase[j].BaseAddress + FOURMB)) ||
-                                     ((PVOID)((ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize) >= SystemPageBase[j].BaseAddress &&
-                                      (PVOID)((ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize) < (PVOID)((ULONG)SystemPageBase[j].BaseAddress + FOURMB)) ) {
-                                    printf("              (0x%08x : 0x%08x) -> %s\n",
-                                        ModInfo[k].BaseAddress,
-                                        (ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize,
-                                        ModInfo[k].Name
-                                        );
-                                    NewLine = TRUE;
-                                    }
-                                }
-                            break;
+                for(j=0;j<(LONG)SystemPageCount;j++){
+                    if ( Va == SystemPageBase[j].Va ) {
+                        if (NewLine){
+                            printf("\n");
+                            NewLine = FALSE;
                             }
+                        printf("0x%08x -> (0x%08x : 0x%08x) %4d Resident Pages\n",
+                            Va,
+                            SystemPageBase[j].BaseAddress,
+                            (ULONG)SystemPageBase[j].BaseAddress + FOURMB - 1,
+                            SystemPageBase[j].ResidentPages
+                            );
+
+                            //
+                            // Figure out which modules are covered by this
+                            // page table page. If the base of the module is within the
+                            // page, or the base+size of the module is covered, then it
+                            // is in the page
+                            //
+
+                        for (k=0;k<ModInfoNext;k++){
+                            if ( (ModInfo[k].BaseAddress >= SystemPageBase[j].BaseAddress &&
+                                  ModInfo[k].BaseAddress < (PVOID)((ULONG)SystemPageBase[j].BaseAddress + FOURMB)) ||
+                                 ((PVOID)((ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize) >= SystemPageBase[j].BaseAddress &&
+                                  (PVOID)((ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize) < (PVOID)((ULONG)SystemPageBase[j].BaseAddress + FOURMB)) ) {
+                                printf("              (0x%08x : 0x%08x) -> %s\n",
+                                    ModInfo[k].BaseAddress,
+                                    (ULONG)ModInfo[k].BaseAddress+ModInfo[k].VirtualSize,
+                                    ModInfo[k].Name
+                                    );
+                                NewLine = TRUE;
+                                }
+                            }
+                        break;
                         }
                     }
                 SystemPages++;
@@ -808,38 +763,18 @@ unknownprivate:
                     TotalStaticCodeData++;
                     CodePages++;
                     Mi->WsHits++;
-                    try {
-                        Status = RtlLookupSymbolByAddress(
-                                    Mi->BaseAddress,
-                                    Mi->MappedAddress,
-                                    (PVOID)Va,
-                                    0x4000,
-                                    &ThisSymbol,
-                                    &NextSymbol
-                                    );
-                        }
-                    except(EXCEPTION_EXECUTE_HANDLER) {
-                        Status = STATUS_UNSUCCESSFUL;
-                        ErrorPages--;
-                        }
-                    if ( NT_SUCCESS(Status) ) {
+                    if (SymGetSymFromAddr( SYM_HANDLE, Va, &Displacement, ThisSymbol )) {
                         BaseVa = Va;
-                        if ( !fSummary ) printf("0x%08x %s\n",Va,Mi->Name);
+                        if ( !fSummary ) {
+                            printf("0x%08x %s\n",Va,Mi->Name);
+                        }
                         if ( fRawSymbols ) {
-                            printf("\t(%4x) %Z\n",NextSymbol.Value-ThisSymbol.Value,&ThisSymbol.Name);
-                            Va += NextSymbol.Value-ThisSymbol.Value;
+                            printf("\t(%4x) %s\n",ThisSymbol->Size,ThisSymbol->Name);
+                            Va += ThisSymbol->Size;
                             while ( Va < BaseVa + 4096 ) {
-                                Status = RtlLookupSymbolByAddress(
-                                            Mi->BaseAddress,
-                                            Mi->MappedAddress,
-                                            (PVOID)Va,
-                                            0x4000,
-                                            &ThisSymbol,
-                                            &NextSymbol
-                                            );
-                                if ( NT_SUCCESS(Status) ) {
-                                    printf("\t(%4x) %Z\n",NextSymbol.Value-ThisSymbol.Value,&ThisSymbol.Name);
-                                    Va += NextSymbol.Value-ThisSymbol.Value;
+                                if (SymGetSymFromAddr( SYM_HANDLE, Va, &Displacement, ThisSymbol )) {
+                                    printf("\t(%4x) %s\n",ThisSymbol->Size,ThisSymbol->Name);
+                                    Va += ThisSymbol->Size;
                                     }
                                 else {
                                     break;
@@ -910,11 +845,20 @@ unknownprivate:
     else {
         ULONG i;
         PMODINFO Mi,Mi2;
-        RTL_SYMBOL_INFORMATION ThisSymbol;
         NTSTATUS Status;
         ULONG Offset;
         CHAR Line[256];
         BOOLEAN didone;
+        HANDLE ScreenHandle;
+        INPUT_RECORD InputRecord;
+        DWORD NumRead;
+
+        ScreenHandle = GetStdHandle (STD_INPUT_HANDLE);
+        if (ScreenHandle == NULL) {
+            printf("Error obtaining screen handle, error was: 0x%lx\n",
+                    GetLastError());
+            ExitProcess(1);
+        }
 
         Status = NtSetInformationProcess(
                     Process,
@@ -977,21 +921,13 @@ unknownprivate:
                                             }
                                         }
                                     else {
-                                        Status = RtlLookupSymbolByAddress(
-                                                    Mi->BaseAddress,
-                                                    Mi->MappedAddress,
-                                                    (PVOID)NewWorkingSetBuffer[i].FaultingPc,
-                                                    0x4000,
-                                                    &ThisSymbol,
-                                                    NULL
-                                                    );
-                                        if ( NT_SUCCESS(Status) ) {
-                                            Offset = (ULONG)NewWorkingSetBuffer[i].FaultingPc - (ThisSymbol.Value + (ULONG)Mi->BaseAddress);
+                                        if (SymGetSymFromAddr( SYM_HANDLE, (DWORD)NewWorkingSetBuffer[i].FaultingPc, &Displacement, ThisSymbol )) {
+                                            Offset = (ULONG)NewWorkingSetBuffer[i].FaultingPc - ThisSymbol->Address;
                                             if ( Offset ) {
-                                                sprintf(Line,"%Z+%x",&ThisSymbol.Name,Offset);
+                                                sprintf(Line,"%s+%x",ThisSymbol->Name,Offset);
                                                 }
                                             else {
-                                                sprintf(Line,"%Z",&ThisSymbol.Name);
+                                                sprintf(Line,"%s",ThisSymbol->Name);
                                                 }
                                             printf("%s",Line);
                                             if ( LogFile ) {
@@ -1018,21 +954,13 @@ unknownprivate:
                                             }
                                         }
                                     else {
-                                        Status = RtlLookupSymbolByAddress(
-                                                    Mi->BaseAddress,
-                                                    Mi->MappedAddress,
-                                                    (PVOID)NewWorkingSetBuffer[i].FaultingVa,
-                                                    0x4000,
-                                                    &ThisSymbol,
-                                                    NULL
-                                                    );
-                                        if ( NT_SUCCESS(Status) ) {
-                                            Offset = (ULONG)NewWorkingSetBuffer[i].FaultingVa - (ThisSymbol.Value + (ULONG)Mi->BaseAddress);
+                                        if (SymGetSymFromAddr( SYM_HANDLE, (DWORD)NewWorkingSetBuffer[i].FaultingVa, &Displacement, ThisSymbol )) {
+                                            Offset = (ULONG)NewWorkingSetBuffer[i].FaultingVa - ThisSymbol->Address;
                                             if ( Offset ) {
-                                                sprintf(Line," : %Z+%x",&ThisSymbol.Name,Offset);
+                                                sprintf(Line," : %s+%x",ThisSymbol->Name,Offset);
                                                 }
                                             else {
-                                                sprintf(Line," : %Z",&ThisSymbol.Name);
+                                                sprintf(Line," : %s",ThisSymbol->Name);
                                                 }
                                             printf("%s",Line);
                                             if ( LogFile ) {
@@ -1063,6 +991,36 @@ unknownprivate:
                         }
                     }
                 Sleep(1000);
+                while (PeekConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead) && NumRead != 0) {
+                    if (!ReadConsoleInput (ScreenHandle, &InputRecord, 1, &NumRead)) {
+                        break;
+                    }
+                    if (InputRecord.EventType == KEY_EVENT) {
+
+                        //
+                        // Ignore control characters.
+                        //
+
+                        if (InputRecord.Event.KeyEvent.uChar.AsciiChar >= ' ') {
+
+                            switch (InputRecord.Event.KeyEvent.uChar.AsciiChar) {
+
+                                case 'F':
+                                case 'f':
+                                    EmptyWorkingSet(Process);
+                                    printf("\n*** Working Set Flushed ***\n\n");
+                                    if ( LogFile ) {
+                                        fprintf(LogFile,"\n*** Working Set Flushed ***\n\n");
+                                        }
+                                    break;
+
+                                default:
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                 }
             }
         }
@@ -1076,13 +1034,11 @@ ComputeModInfo(
     HMODULE rghModule[MODINFO_SIZE];
     DWORD cbNeeded;
     DWORD chModule;
+    IMAGEHLP_MODULE ModuleInfo;
     int i;
-    HANDLE hFile;
-    HANDLE hMappedFile;
-    PIMAGE_DOS_HEADER DosHeader;
-    PIMAGE_NT_HEADERS FileHeader;
 
-    SetSymbolSearchPath();
+
+    SymInitialize( SYM_HANDLE, NULL, FALSE );
 
     for (i=0;i<ModInfoNext;i++){
         if ( ModInfo[i].BaseAddress &&
@@ -1143,85 +1099,47 @@ ComputeModInfo(
             return;
             }
 
-        hFile = CreateFile(
-                    DllName,
-                    GENERIC_READ,
-                    FILE_SHARE_READ,
-                    NULL,
-                    OPEN_EXISTING,
-                    0,
-                    NULL
-                    );
-        if ( hFile == INVALID_HANDLE_VALUE ) {
-            if ( !strnicmp("\\DosDevices\\",DllName,12) ) {
-                hFile = CreateFile(
-                            &DllName[12],
-                            GENERIC_READ,
-                            FILE_SHARE_READ,
-                            NULL,
-                            OPEN_EXISTING,
-                            0,
-                            NULL
-                            );
-                if ( hFile == INVALID_HANDLE_VALUE ) {
-                    return;
-                    }
-                }
-            else {
-                return;
-                }
-            }
-        hMappedFile = CreateFileMapping(
-                        hFile,
-                        NULL,
-                        PAGE_READONLY,
-                        0,
-                        0,
-                        NULL
+        ModInfo[ModInfoNext].BaseAddress = (PVOID)SymLoadModule(
+                SYM_HANDLE,
+                NULL,
+                ModInfo[ModInfoNext].Name,
+                NULL,
+                (DWORD)ModInfo[ModInfoNext].BaseAddress,
+                0
+                );
+
+        if (ModInfo[ModInfoNext].BaseAddress) {
+            SymGetModuleInfo(
+                SYM_HANDLE,
+                (DWORD)ModInfo[ModInfoNext].BaseAddress,
+                &ModuleInfo
+                );
+
+            ModInfo[ModInfoNext].VirtualSize = ModuleInfo.ImageSize;
+            if (ModuleInfo.SymType == SymNone) {
+                ModInfo[ModInfoNext].SymbolsLoaded = FALSE;
+                if (fVerbose) {
+                    printf( "Could not load symbols: %08x  %s\n",
+                        (DWORD)ModInfo[ModInfoNext].BaseAddress,
+                        ModInfo[ModInfoNext].Name
                         );
-        if ( !hMappedFile ) {
-            CloseHandle(hFile);
-            return;
+                }
+            } else {
+                ModInfo[ModInfoNext].SymbolsLoaded = TRUE;
+                if (fVerbose) {
+                    printf( "Symbols loaded: %08x  %s\n",
+                        (DWORD)ModInfo[ModInfoNext].BaseAddress,
+                        ModInfo[ModInfoNext].Name
+                        );
+                }
             }
-        ModInfo[ModInfoNext].MappedAddress = MapViewOfFile(
-                                                hMappedFile,
-                                                FILE_MAP_READ,
-                                                0,
-                                                0,
-                                                0
-                                                );
-
-        CloseHandle(hMappedFile);
-
-        if ( !ModInfo[ModInfoNext].MappedAddress ) {
-            return;
-            }
-
-        DosHeader = (PIMAGE_DOS_HEADER)ModInfo[ModInfoNext].MappedAddress;
-
-        if ( DosHeader->e_magic != IMAGE_DOS_SIGNATURE ) {
-            return;
-            }
-
-        FileHeader = (PIMAGE_NT_HEADERS)((ULONG)DosHeader + DosHeader->e_lfanew);
-
-        if ( FileHeader->Signature != IMAGE_NT_SIGNATURE ) {
-            return;
-            }
-        ModInfo[ModInfoNext].VirtualSize = FileHeader->OptionalHeader.SizeOfImage;
-
-        ModInfo[ModInfoNext].ImageDebugInfo = MapDebugInformation(
-                                                hFile,
-                                                NULL,
-                                                SymbolSearchPath,
-                                                (DWORD)ModInfo[ModInfoNext].BaseAddress
-                                                );
-        if ( ModInfo[ModInfoNext].ImageDebugInfo ) {
-            ModInfo[ModInfoNext].MappedAddress = ModInfo[ModInfoNext].ImageDebugInfo->CoffSymbols;
-            }
-
-        ModInfo[ModInfoNext+1].BaseAddress = (PVOID)0xffffffff;
+        } else {
+            ModInfo[ModInfoNext].SymbolsLoaded = FALSE;
+            ModInfo[ModInfoNext].BaseAddress = NULL;
+            ModInfo[ModInfoNext].VirtualSize = 0;
         }
+        ModInfo[ModInfoNext+1].BaseAddress = (PVOID)0xffffffff;
+    }
 }
 
 ProtectionToIndex(
@@ -1617,6 +1535,8 @@ _CRTAPI1 main(
     VM_COUNTERS VmCounters;
     LPSTR p;
 
+    BOOL bEnabledDebugPriv;
+
     ProcessId = 0;
 
     GetSystemInfo(&SystemInfo);
@@ -1640,6 +1560,9 @@ _CRTAPI1 main(
         do {
             switch (ch) {
 
+                case '?':
+                    printf("Usage: %s -p decimal_process_id\n", argv[0]);
+                    return 1;
                 case 'F':
                 case 'f':
                     fFast = TRUE;
@@ -1755,6 +1678,12 @@ _CRTAPI1 main(
             ch = *lpstrCmd++;
         }
 
+    //
+    // try to enable SeDebugPrivilege to allow opening any process
+    //
+
+    bEnabledDebugPriv = SetCurrentPrivilege(SE_DEBUG_NAME, TRUE);
+
     if ( ProcessId == 0 || ProcessId == 0xffffffff ) {
         ProcessId = 0xffffffff;
         RtlInitUnicodeString(&Unicode,L"\\WindowsSS");
@@ -1783,6 +1712,13 @@ _CRTAPI1 main(
             return 1;
             }
         }
+
+    //
+    // disable the SeDebugPrivilege if we enabled it above
+    //
+
+    if(bEnabledDebugPriv)
+        SetCurrentPrivilege(SE_DEBUG_NAME, FALSE);
 
     if ( fOldWay ) {
         CaptureWorkingSet(Process);
@@ -1833,4 +1769,74 @@ _CRTAPI1 main(
     printf("PeakPagefileUsage      %9ld\n",VmCounters.PeakPagefileUsage);
 
     return 0;
+}
+
+
+BOOL
+SetCurrentPrivilege(
+    LPCTSTR Privilege,      // Privilege to enable/disable
+    BOOL bEnablePrivilege   // to enable or disable privilege
+    )
+{
+    HANDLE hToken;
+    TOKEN_PRIVILEGES tp;
+    LUID luid;
+    TOKEN_PRIVILEGES tpPrevious;
+    DWORD cbPrevious=sizeof(TOKEN_PRIVILEGES);
+    BOOL bSuccess=FALSE;
+
+    if(!LookupPrivilegeValue(NULL, Privilege, &luid)) return FALSE;
+
+    if(!OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
+            &hToken
+            )) return FALSE;
+
+    //
+    // first pass.  get current privilege setting
+    //
+    tp.PrivilegeCount           = 1;
+    tp.Privileges[0].Luid       = luid;
+    tp.Privileges[0].Attributes = 0;
+
+    AdjustTokenPrivileges(
+            hToken,
+            FALSE,
+            &tp,
+            sizeof(TOKEN_PRIVILEGES),
+            &tpPrevious,
+            &cbPrevious
+            );
+
+    if(GetLastError() == ERROR_SUCCESS) {
+        //
+        // second pass.  set privilege based on previous setting
+        //
+        tpPrevious.PrivilegeCount     = 1;
+        tpPrevious.Privileges[0].Luid = luid;
+
+        if(bEnablePrivilege) {
+            tpPrevious.Privileges[0].Attributes |= (SE_PRIVILEGE_ENABLED);
+        }
+        else {
+            tpPrevious.Privileges[0].Attributes ^= (SE_PRIVILEGE_ENABLED &
+                tpPrevious.Privileges[0].Attributes);
+        }
+
+        AdjustTokenPrivileges(
+                hToken,
+                FALSE,
+                &tpPrevious,
+                cbPrevious,
+                NULL,
+                NULL
+                );
+
+        if(GetLastError() == ERROR_SUCCESS) bSuccess=TRUE;
+    }
+
+    CloseHandle(hToken);
+
+    return bSuccess;
 }

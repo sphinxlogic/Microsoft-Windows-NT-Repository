@@ -58,16 +58,16 @@ RxNetServerDiskEnum (
 
 NET_API_STATUS
 RxNetServerEnum (
-    IN LPTSTR UncServerName,
-    IN LPTSTR TransportName,
+    IN LPCWSTR UncServerName,
+    IN LPCWSTR TransportName,
     IN DWORD Level,
     OUT LPBYTE *BufPtr,
     IN DWORD PrefMaxSize,
     OUT LPDWORD EntriesRead,
     OUT LPDWORD TotalEntries,
     IN DWORD ServerType,
-    IN LPTSTR Domain OPTIONAL,
-    IN OUT LPDWORD Resume_Handle OPTIONAL
+    IN LPCWSTR Domain OPTIONAL,
+    IN LPCWSTR FirstNameToReturn OPTIONAL
     );
 
 NET_API_STATUS
@@ -115,4 +115,3 @@ RxGetServerInfoLevelEquivalent (
     );
 
 #endif // ndef _RXSERVER_
-

@@ -331,6 +331,9 @@ Return Value:
     PHBASE_BLOCK    buffer;
     BOOLEAN         rc;
     ULONG           FileOffset;
+    ULONG           Alignment;
+
+    ASSERT(sizeof(HBASE_BLOCK) >= (HSECTOR_SIZE * Hive->Cluster));
 
     //
     // allocate buffer to hold base block
@@ -340,36 +343,41 @@ Return Value:
     if (buffer == NULL) {
         return NoMemory;
     }
+    //
+    // Make sure the buffer we got back is cluster-aligned. If not, try
+    // harder to get an aligned buffer.
+    //
+    Alignment = Hive->Cluster * HSECTOR_SIZE - 1;
+    if (((ULONG)buffer & Alignment) != 0) {
+        (Hive->Free)(buffer, sizeof(HBASE_BLOCK));
+        buffer = (PHBASE_BLOCK)((Hive->Allocate)(PAGE_SIZE, TRUE));
+        if (buffer == NULL) {
+            return NoMemory;
+        }
+    }
     RtlZeroMemory((PVOID)buffer, sizeof(HBASE_BLOCK));
 
     //
     // attempt to read base block
     //
     FileOffset = 0;
-    rc = (Hive->FileRead)(
-            Hive,
-            HFILE_TYPE_PRIMARY,
-            &FileOffset,
-            (PVOID)buffer,
-            HSECTOR_SIZE
-            );
+    rc = (Hive->FileRead)(Hive,
+                          HFILE_TYPE_PRIMARY,
+                          &FileOffset,
+                          (PVOID)buffer,
+                          HSECTOR_SIZE * Hive->Cluster);
 
     if ( (rc == FALSE)  ||
-         (HvpHeaderCheckSum(buffer) !=
-          (buffer->CheckSum))
-       )
-    {
+         (HvpHeaderCheckSum(buffer) != buffer->CheckSum)) {
         //
         // base block is toast, try the first block in the first bin
         //
         FileOffset = HBLOCK_SIZE;
-        rc = (Hive->FileRead)(
-                Hive,
-                HFILE_TYPE_PRIMARY,
-                &FileOffset,
-                (PVOID)buffer,
-                HSECTOR_SIZE
-                );
+        rc = (Hive->FileRead)(Hive,
+                              HFILE_TYPE_PRIMARY,
+                              &FileOffset,
+                              (PVOID)buffer,
+                              HSECTOR_SIZE * Hive->Cluster);
 
         if ( (rc == FALSE) ||
              ( ((PHBIN)buffer)->Signature != HBIN_SIGNATURE)           ||
@@ -471,6 +479,7 @@ Return Value:
     ULONG           FileOffset;
 
     ASSERT(sizeof(HBASE_BLOCK) == HBLOCK_SIZE);
+    ASSERT(sizeof(HBASE_BLOCK) >= (HSECTOR_SIZE * Hive->Cluster));
 
     //
     // allocate buffer to hold base block
@@ -486,13 +495,11 @@ Return Value:
     // attempt to read base block
     //
     FileOffset = 0;
-    rc = (Hive->FileRead)(
-            Hive,
-            HFILE_TYPE_LOG,
-            &FileOffset,
-            (PVOID)buffer,
-            HSECTOR_SIZE
-            );
+    rc = (Hive->FileRead)(Hive,
+                          HFILE_TYPE_LOG,
+                          &FileOffset,
+                          (PVOID)buffer,
+                          HSECTOR_SIZE * Hive->Cluster);
 
     if ( (rc == FALSE)                                              ||
          (buffer->Signature != HBASE_BLOCK_SIGNATURE)               ||
@@ -500,9 +507,7 @@ Return Value:
          (buffer->Sequence1 != buffer->Sequence2)                   ||
          (HvpHeaderCheckSum(buffer) != buffer->CheckSum)            ||
          (TimeStamp->LowPart != buffer->TimeStamp.LowPart)          ||
-         (TimeStamp->HighPart != buffer->TimeStamp.HighPart)
-       )
-    {
+         (TimeStamp->HighPart != buffer->TimeStamp.HighPart)) {
         //
         // Log is unreadable, invalid, or doesn't apply the right hive
         //

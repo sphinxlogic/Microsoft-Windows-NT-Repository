@@ -168,6 +168,7 @@ try_exit:NOTHING;
             RtlFreeUnicodeString(&UPromoteeName);
         }
 
+        InterlockedDecrement( &BowserPostedDatagramCount );
         FREE_POOL(Context);
 
     }

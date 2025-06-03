@@ -20,6 +20,7 @@ Environment:
 
 Revision History:
 
+	5/15/96		kyleb			Added support for the SNI box.
 
 --*/
 
@@ -28,6 +29,7 @@ Revision History:
 #include <nturtl.h>
 
 #include <windows.h>
+#include <ntstatus.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,20 +38,21 @@ Revision History:
 #include "detect.h"
 
 
+static BOOLEAN fPrintDbgInfo = FALSE;
+
+#if DBG
+#define DBGPRINT(a) { if(fPrintDbgInfo) { DbgPrint a; }}
+#else
+#define DBGPRINT(a)
+#endif
+
+
 //
 // Individual card detection routines
 //
 
 
 //
-// Helper functions
-//
-
-#ifdef WORKAROUND
-
-UCHAR MipsFirstTime = 1;
-
-//
 // List of all the adapters supported in this file, this cannot be > 256
 // because of the way tokens are generated.
 //
@@ -58,55 +61,36 @@ UCHAR MipsFirstTime = 1;
 // MipsQueryCfgHandler() and MipsVerifyCfgHandler() as well!
 //
 
-static ADAPTER_INFO Adapters[] = {
-
-    {
-        1000,
-        L"SONIC",
-        L" ",
-        NULL,
-        1000
-
-    }
-
-};
-
-#else
-
-//
-// List of all the adapters supported in this file, this cannot be > 256
-// because of the way tokens are generated.
-//
-//
-// NOTE : If you change the index of an adapter, be sure the change it in
-// MipsQueryCfgHandler() and MipsVerifyCfgHandler() as well!
-//
-
-static ADAPTER_INFO Adapters[] = {
-
+static ADAPTER_INFO Adapters[] =
+{
     {
         1000,
         L"SONIC",
         L"\0",
         NULL,
         1000
-
-    }
-
+    },
+	{
+		1100,
+		L"SNIMACx00",
+		L"\0",
+		NULL,
+		1000
+	}
 };
 
-#endif
 
 //
 // Structure for holding a particular adapter's complete information
 //
-typedef struct _MIPS_ADAPTER {
-
-    LONG CardType;
-    INTERFACE_TYPE InterfaceType;
-    ULONG BusNumber;
-
-} MIPS_ADAPTER, *PMIPS_ADAPTER;
+typedef struct _MIPS_ADAPTER
+{
+    LONG			CardType;
+    INTERFACE_TYPE	InterfaceType;
+    ULONG			BusNumber;
+}
+	MIPS_ADAPTER,
+	*PMIPS_ADAPTER;
 
 
 extern
@@ -146,72 +130,52 @@ Return Value:
     LONG Length;
     LONG i;
 
+	DBGPRINT(("==>MipsIdentifyHandler\n"));
+
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-#ifdef WORKAROUND
-
-    if (MipsFirstTime) {
-
-        MipsFirstTime = 0;
-
-        for (i = 0; i < NumberOfAdapters; i++) {
-
-            Length = UnicodeStrLen(Adapters[i].Parameters);
-
-            for (; Length > 0; Length--) {
-
-                if (Adapters[i].Parameters[Length] == L' ') {
-
-                    Adapters[i].Parameters[Length] = UNICODE_NULL;
-
-                }
-
-            }
-
-        }
-
-    }
-#endif
+	DBGPRINT(("MipsIdentifyHandler: Number of adapters: %u\n", NumberOfAdapters));
 
     lIndex = lIndex - Code;
 
-    if (((lIndex / 100) - 10) < NumberOfAdapters) {
+	DBGPRINT(("MipsIdentifyHandler: Index: %u, Code: %u\n", lIndex, Code));
 
-        for (i=0; i < NumberOfAdapters; i++) {
-
-            if (Adapters[i].Index == lIndex) {
-
-                switch (Code) {
-
+    if (((lIndex / 100) - 10) < NumberOfAdapters)
+	{
+        for (i = 0; i < NumberOfAdapters; i++)
+		{
+            if (Adapters[i].Index == lIndex)
+			{
+                switch (Code)
+				{
                     case 0:
-
                         //
                         // Find the string length
                         //
-
                         Length = UnicodeStrLen(Adapters[i].InfId);
 
                         Length ++;
 
-                        if (cwchBuffSize < Length) {
+                        if (cwchBuffSize < Length)
+						{
+							DBGPRINT(("MipsIdentifyHandler: cwchBuffSize too small\n"));
+							DBGPRINT(("<==MipsIdentifyHandler\n"));
 
                             return(ERROR_INSUFFICIENT_BUFFER);
-
                         }
 
                         memcpy((PVOID)pwchBuffer, Adapters[i].InfId, Length * sizeof(WCHAR));
                         break;
 
                     case 3:
-
                         //
                         // Maximum value is 1000
                         //
-
-                        if (cwchBuffSize < 5) {
-
+                        if (cwchBuffSize < 5)
+						{
+							DBGPRINT(("MipsIdentifyHandler: cwchBuffSize too small\n"));
+							DBGPRINT(("<==MipsIdentifyHandler\n"));
                             return(ERROR_INSUFFICIENT_BUFFER);
-
                         }
 
                         wsprintf((PVOID)pwchBuffer, L"%d", Adapters[i].SearchOrder);
@@ -220,22 +184,25 @@ Return Value:
 
                     default:
 
+						DBGPRINT(("MipsIdentifyHandler: Invalid code\n"));
+						DBGPRINT(("<==MipsIdentifyHandler\n"));
                         return(ERROR_INVALID_PARAMETER);
-
                 }
 
+				DBGPRINT(("<==MipsIdentifyHandler\n"));
+
                 return(0);
-
             }
-
         }
 
+		DBGPRINT(("MipsIdentifyHandler: Could not find adapter: %u\n", lIndex));
+		DBGPRINT(("<==MipsIdentifyHandler\n"));
         return(ERROR_INVALID_PARAMETER);
-
     }
 
-    return(ERROR_NO_MORE_ITEMS);
+	DBGPRINT(("<==MipsIdentifyHandler\n"));
 
+    return(ERROR_NO_MORE_ITEMS);
 }
 
 
@@ -283,30 +250,154 @@ Return Value:
 --*/
 
 {
-    if (InterfaceType != Internal) {
+	OBJECT_ATTRIBUTES	ObjectAttributes;
+	PWSTR 				MultifunctionAdapter = L"\\Registry\\Machine\\Hardware\\Description\\System\\MultifunctionAdapter\\0\\NetworkController\\0";
+	PWSTR				BusName = L"SNI-Internal Bus";
+	UNICODE_STRING		RootName;
+	HANDLE				hRoot = NULL;
+	PWSTR				Identifier = L"Identifier";
+	UNICODE_STRING		Id;
+	UINT				c;
+	NTSTATUS			Status;
+	ULONG				cbNeeded;
+	ULONG				cbRead;
+	BOOLEAN				fFailure;
+	PWSTR				ValueData;
 
-        *lConfidence = 0;
+	PKEY_VALUE_FULL_INFORMATION		FullInfo = NULL;
+
+	DBGPRINT(("MipsFirstNextHandler\n"));
+
+	//
+	//	I don't have any faith.
+	//
+	*lConfidence = 0;
+
+    if (InterfaceType != Internal)
+	{
+		DBGPRINT(("MipsFirstNextHandler: Invalid InterfaceType: %u\n", InterfaceType));
+		DBGPRINT(("<==MipsFirstNextHandler\n"));
 
         return(0);
-
     }
 
-    if (fFirst) {
+	do
+	{
+		//
+		//	Read the registry and see if this is an SNI adapter.
+		//
+		RtlInitUnicodeString(&RootName, MultifunctionAdapter);
 
-        *ppvToken = 0;
+		//
+		// Initialize the attributes for the root.
+		//
+		InitializeObjectAttributes(
+			&ObjectAttributes,
+			&RootName,
+			OBJ_CASE_INSENSITIVE,
+			(HANDLE)NULL,
+			NULL);
 
-        *lConfidence = 100;
+		//
+		// Open the root.
+		//
+		Status = NtOpenKey(&hRoot, KEY_READ, &ObjectAttributes);
+		if (!NT_SUCCESS(Status))
+		{
+			DBGPRINT(("Failed to open the bus key\n"));
+			break;
+		}
 
-        return(0);
+		RtlInitUnicodeString(&Id, Identifier);
 
-    } else {
+		//
+		//	Get the value for the Identifier.
+		//
+		Status = NtQueryValueKey(
+			hRoot,
+			&Id,
+			KeyValueFullInformation,
+			NULL,
+			0,
+			&cbNeeded);
+		if (STATUS_OBJECT_NAME_NOT_FOUND == Status)
+		{
+			DBGPRINT(("Unable to query Identifier value\n"));
+			break;
+		}
 
-        *lConfidence = 0;
+		FullInfo = DetectAllocateHeap(cbNeeded);
+		if (NULL == FullInfo)
+		{
+			DBGPRINT(("Failed to allocate memory for the identifier information\n"));
+			break;
+		}
 
-        return(0);
+		Status = NtQueryValueKey(
+					hRoot,
+					&Id,
+					KeyValueFullInformation,
+					FullInfo,
+					cbNeeded,
+					&cbRead);
+		if (!NT_SUCCESS(Status))
+		{
+			DBGPRINT(("Failed  to read the information\n"));
+			break;
+		}
 
-    }
+		//
+		//	First verify that this is the correct type of key.
+		//
+		if (REG_SZ == FullInfo->Type)
+		{
+			//
+			//	Get a pointer to the name.
+			//
+			ValueData = (PWSTR)((PUCHAR)FullInfo + FullInfo->DataOffset);
 
+			//
+			//	Check for the bus name...
+			//
+			if ((0 == _wcsicmp(ValueData, L"i82596CA")) ||
+				(0 == _wcsicmp(ValueData, L"i82596DX")))
+			{
+				//
+				//	We've got an sni nic, let's see if that's what
+				//	they're lookin' for.
+				//
+				if (1100 == lNetcardId)
+				{
+					*ppvToken = (PVOID)1;
+					*lConfidence = 100;
+				}
+			}
+			else
+			{
+				//
+				//	It's NOT an sni bus.  Are we looking for a sonic?
+				//
+				if (1000 == lNetcardId)
+				{
+					*ppvToken = (PVOID)0;
+					*lConfidence = 100;
+				}
+			}
+		}
+	} while (FALSE);
+
+	if (NULL != FullInfo)
+	{
+		DetectFreeHeap(FullInfo);
+	}
+
+	if (NULL != hRoot)
+	{
+		NtClose(hRoot);
+	}
+
+	DBGPRINT(("<==MipsFirstNextHandler\n"));
+	return(0);
 }
 
 extern
@@ -345,7 +436,6 @@ Return Value:
     //
     // Get info from the token
     //
-
     InterfaceType = Internal;
 
     BusNumber = 0;
@@ -355,21 +445,15 @@ Return Value:
     //
     // Store information
     //
-
-    Handle = (PMIPS_ADAPTER)DetectAllocateHeap(
-                                 sizeof(MIPS_ADAPTER)
-                                 );
-
-    if (Handle == NULL) {
-
+    Handle = (PMIPS_ADAPTER)DetectAllocateHeap(sizeof(MIPS_ADAPTER));
+    if (Handle == NULL)
+	{
         return(ERROR_NOT_ENOUGH_MEMORY);
-
     }
 
     //
     // Copy across address
     //
-
     Handle->CardType = Adapters[AdapterNumber].Index;
     Handle->InterfaceType = InterfaceType;
     Handle->BusNumber = BusNumber;
@@ -416,36 +500,29 @@ Return Value:
     LONG NumberOfAdapters;
     LONG i;
 
-    if (InterfaceType != Internal) {
-
+    if (InterfaceType != Internal)
+	{
         return(ERROR_INVALID_PARAMETER);
-
     }
 
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             //
             // Store information
             //
-
-            Handle = (PMIPS_ADAPTER)DetectAllocateHeap(
-                                         sizeof(MIPS_ADAPTER)
-                                         );
-
-            if (Handle == NULL) {
-
+            Handle = (PMIPS_ADAPTER)DetectAllocateHeap(sizeof(MIPS_ADAPTER));
+            if (Handle == NULL)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             //
             // Copy across memory address
             //
-
             Handle->CardType = lNetcardId;
             Handle->InterfaceType = InterfaceType;
             Handle->BusNumber = BusNumber;
@@ -453,9 +530,7 @@ Return Value:
             *ppvHandle = (PVOID)Handle;
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -527,11 +602,9 @@ Return Value:
     //
     // Copy in final \0
     //
-
-    if (cwchBuffSize < 2) {
-
+    if (cwchBuffSize < 2)
+	{
         return(ERROR_INSUFFICIENT_BUFFER);
-
     }
 
     pwchBuffer[0] = L'\0';
@@ -608,49 +681,42 @@ Return Value:
     //
     // Find the adapter
     //
-
     NumberOfAdapters = sizeof(Adapters) / sizeof(ADAPTER_INFO);
 
-    for (i=0; i < NumberOfAdapters; i++) {
-
-        if (Adapters[i].Index == lNetcardId) {
-
+    for (i = 0; i < NumberOfAdapters; i++)
+	{
+        if (Adapters[i].Index == lNetcardId)
+		{
             Result = Adapters[i].Parameters;
 
             //
             // Find the string length (Ends with 2 NULLs)
             //
-
-            for (Length=0; ; Length++) {
-
-                if (Result[Length] == L'\0') {
-
+            for (Length=0; ; Length++)
+			{
+                if (Result[Length] == L'\0')
+				{
                     ++Length;
 
-                    if (Result[Length] == L'\0') {
-
+                    if (Result[Length] == L'\0')
+					{
                         break;
 
                     }
-
                 }
-
             }
 
             Length++;
 
-            if (cwchBuffSize < Length) {
-
+            if (cwchBuffSize < Length)
+			{
                 return(ERROR_NOT_ENOUGH_MEMORY);
-
             }
 
             memcpy((PVOID)pwchBuffer, Result, Length * sizeof(WCHAR));
 
             return(0);
-
         }
-
     }
 
     return(ERROR_INVALID_PARAMETER);
@@ -693,7 +759,6 @@ Return Value:
 
 {
     return(ERROR_INVALID_PARAMETER);
-
 }
 
 extern

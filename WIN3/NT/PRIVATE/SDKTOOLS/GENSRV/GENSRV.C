@@ -34,11 +34,10 @@ Revision History:
 
 --*/
 
-#include <excpt.h>
-#include <ntdef.h>
-#undef NULL
+#include <windows.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 CHAR InputFileNameBuffer[ 128 ];
 CHAR StubFileNameBuffer[ 128 ];
@@ -76,6 +75,11 @@ PCHAR ProfTblPrefixFmt = "#include <nt.h>\n\n"
                          "PCHAR NapNames[] = {\n\t\t\"NapCalibrationData\",\n";
 PCHAR ProfTblSuffixFmt = "\t\t\"NapTerminalEntry\" };\n";
 
+VOID
+ClearArchiveBit(
+    PCHAR FileName
+    );
+
 
 VOID _CRTAPI1
 main (argc, argv)
@@ -104,10 +108,12 @@ main (argc, argv)
     FILE *ProfTblFile;
     CHAR Terminal;
     CHAR *GenDirectory;
+    CHAR *AltOutputDirectory;
+    CHAR *StubDirectory;
     CHAR *InputFileName;
-    CHAR *StubFileName;
+    CHAR *StubFileName = NULL;
     CHAR *TableFileName;
-    CHAR *StubHeaderName;
+    CHAR *StubHeaderName = NULL;
     CHAR *TableHeaderName;
     CHAR *TargetDirectory;
     CHAR *TargetExtension;
@@ -164,7 +170,7 @@ main (argc, argv)
     // Change default directory used for generated files.
     //
 
-    if (argc >= 2 && !strcmp(argv[1],"-g")) {
+    if (argc >= 3 && !strcmp(argv[1],"-g")) {
         GenDirectory = argv[2];
         argc -= 2;
         argv += 2;
@@ -172,8 +178,29 @@ main (argc, argv)
         GenDirectory = ".";
     }
 
+
     //
-    // Determine if def file data is to be generated
+    // Change name of usrstubs.s
+    //
+
+    if (argc >= 3 && !strcmp(argv[1],"-stubs")) {
+        StubFileName = argv[2];
+        argc -= 2;
+        argv += 2;
+    }
+
+    //
+    // Change name of services.stb
+    //
+
+    if (argc >= 3 && !strcmp(argv[1],"-sstb")) {
+        StubHeaderName = argv[2];
+        argc -= 2;
+        argv += 2;
+    }
+
+    //
+    // Determine if braces are to be generated
     //
 
     if (argc >= 2 && !strcmp(argv[1],"-B")) {
@@ -197,6 +224,29 @@ main (argc, argv)
     }
 
     //
+    // ALT_PROJECT output directory.
+    //
+    if (argc >= 3 && !strcmp(argv[1],"-a")) {
+        AltOutputDirectory = argv[2];
+        argc -= 2;
+        argv += 2;
+    } else {
+        AltOutputDirectory = GenDirectory;
+    }
+
+    //
+    // table.stb and services.stb directory.
+    //
+    if (argc >= 3 && !strcmp(argv[1],"-s")) {
+        StubDirectory = argv[2];
+        argc -= 2;
+        argv += 2;
+    } else {
+        StubDirectory = GenDirectory;
+    }
+
+
+    //
     // Determine name of input and output files, based on the argument
     // to the program.  If no argument other than program name, then
     // generate the kernel mode system service files (stubs and dispatch
@@ -208,33 +258,39 @@ main (argc, argv)
 
     if (argc == 1) {
         if (DefFileData) {
-            printf("Usage: GENSRV [-d targetdir] [-e targetext] [-f defdata] [-B] [-P] [services.tab directory]\n");
-            return;
+            printf("Usage: GENSRV [-d targetdir] [-e targetext] [-f defdata] [-B] [-P] [-a altoutputdir] [-s stubdir] [services.tab directory]\n");
+            exit(1);
         }
 
         sprintf(InputFileName = InputFileNameBuffer,
                 "%s\\services.tab",GenDirectory);
         sprintf(StubFileName = StubFileNameBuffer,
-                "%s\\%s\\sysstubs.%s",GenDirectory,
+                "%s\\%s\\sysstubs.%s",AltOutputDirectory,
                 TargetDirectory,TargetExtension);
         sprintf(TableFileName = TableFileNameBuffer,
-                "%s\\%s\\systable.%s",GenDirectory,
+                "%s\\%s\\systable.%s",AltOutputDirectory,
                 TargetDirectory,TargetExtension);
         sprintf(TableHeaderName = TableHeaderNameBuffer,
-                "%s\\%s\\table.stb",GenDirectory, TargetDirectory);
+                "%s\\%s\\table.stb",StubDirectory, TargetDirectory);
         sprintf(StubHeaderName = StubHeaderNameBuffer,
-                "%s\\%s\\services.stb",GenDirectory, TargetDirectory);
+                "%s\\%s\\services.stb",StubDirectory, TargetDirectory);
     } else {
         if (argc == 2) {
+            if (StubDirectory == GenDirectory) {
+                StubDirectory = argv[1];
+            }
+
             sprintf(InputFileName = InputFileNameBuffer,
                     "%s\\services.tab",argv[1]);
             if (DefFileData == NULL) {
-                sprintf(StubFileName = StubFileNameBuffer,
-                        "%s\\usrstubs.%s",TargetDirectory,TargetExtension);
-                sprintf(TableHeaderName = TableHeaderNameBuffer,
-                        "%s\\%s\\table.stb",argv[1],TargetDirectory);
-                sprintf(StubHeaderName = StubHeaderNameBuffer,
-                        "%s\\%s\\services.stb",argv[1],TargetDirectory);
+                if (StubFileName == NULL) {
+                    sprintf(StubFileName = StubFileNameBuffer,
+                            "%s\\usrstubs.%s",TargetDirectory,TargetExtension);
+                }
+                if (StubHeaderName == NULL) {
+                    sprintf(StubHeaderName = StubHeaderNameBuffer,
+                            "%s\\%s\\services.stb",StubDirectory,TargetDirectory);
+                }
                 if (Profile) {
                     sprintf(ProfFileName = ProfFileNameBuffer,
                             "%s\\napstubs.%s",TargetDirectory,TargetExtension);
@@ -250,8 +306,8 @@ main (argc, argv)
             }
             TableFileName = NULL;
         } else {
-            printf("Usage: GENSRV [-d targetdir] [-e targetext] [-f defdata] [-B] [-P] [services.tab directory]\n");
-            return;
+            printf("Usage: GENSRV [-d targetdir] [-e targetext] [-f defdata] [-B] [-P] [-a altoutputdir] [-s stubdir] [services.tab directory]\n");
+            exit(1);
         }
     }
 
@@ -263,7 +319,7 @@ main (argc, argv)
     InputFile = fopen(InputFileName, "r");
     if (!InputFile) {
         printf("\n  Unable to open system services file %s\n", InputFileName);
-        return;
+        exit(1);
     }
 
     if (DefFileData == NULL) {
@@ -271,7 +327,7 @@ main (argc, argv)
         if (!StubFile) {
             printf("\n  Unable to open system services file %s\n", StubFileName);
             fclose(InputFile);
-            return;
+            exit(1);
         }
 
         StubHeaderFile = fopen(StubHeaderName, "r");
@@ -279,7 +335,7 @@ main (argc, argv)
             printf("\n  Unable to open system services stub file %s\n", StubHeaderName);
             fclose(StubFile);
             fclose(InputFile);
-            return;
+            exit(1);
         }
 
         if (Profile) {
@@ -289,7 +345,7 @@ main (argc, argv)
                 fclose(StubHeaderFile);
                 fclose(StubFile);
                 fclose(InputFile);
-                return;
+                exit(1);
             }
             ProfFile = fopen(ProfFileName, "w");
             if (!ProfFile) {
@@ -298,7 +354,7 @@ main (argc, argv)
                 fclose(StubHeaderFile);
                 fclose(StubFile);
                 fclose(InputFile);
-                return;
+                exit(1);
             }
             ProfDotHFile = fopen(ProfDotHFileName, "w");
             if (!ProfDotHFile) {
@@ -308,7 +364,7 @@ main (argc, argv)
                 fclose(StubHeaderFile);
                 fclose(StubFile);
                 fclose(InputFile);
-                return;
+                exit(1);
             }
             ProfIncFile = fopen(ProfIncFileName, "w");
             if (!ProfIncFile) {
@@ -318,7 +374,7 @@ main (argc, argv)
                 fclose(StubHeaderFile);
                 fclose(StubFile);
                 fclose(InputFile);
-                return;
+                exit(1);
             }
             ProfTblFile = fopen(ProfTblFileName, "w");
             if (!ProfTblFile) {
@@ -330,7 +386,7 @@ main (argc, argv)
                 fclose(StubHeaderFile);
                 fclose(StubFile);
                 fclose(InputFile);
-                return;
+                exit(1);
             }
         }
     }
@@ -343,7 +399,7 @@ main (argc, argv)
             fclose(StubHeaderFile);
             fclose(StubFile);
             fclose(InputFile);
-            return;
+            exit(1);
         }
         TableHeaderFile = fopen(TableHeaderName, "r");
         if (!TableHeaderFile) {
@@ -353,7 +409,7 @@ main (argc, argv)
             fclose(StubHeaderFile);
             fclose(StubFile);
             fclose(InputFile);
-            return;
+            exit(1);
         }
     } else {
         TableFile = NULL;
@@ -371,7 +427,7 @@ main (argc, argv)
             fclose(StubHeaderFile);
             fclose(StubFile);
             fclose(InputFile);
-            return;
+            exit(1);
         }
     } else {
         DefFile = NULL;
@@ -403,7 +459,7 @@ main (argc, argv)
             fclose(StubHeaderFile);
             fclose(StubFile);
             fclose(InputFile);
-            return;
+            exit(1);
         }
 
         InRegisterArgCount = atol(InputRecord);
@@ -431,12 +487,26 @@ main (argc, argv)
 
     while ( fgets(InputRecord, 132, InputFile) ){
 
+
         //
         // Generate stub file entry.
         //
 
         Ipr = &InputRecord[0];
         Opr = &OutputRecord[0];
+
+        //
+        // If services.tab was generated by C_PREPROCESSOR, there might
+        //  be empty lines in this file. Using the preprocessor allows
+        //  people to use #ifdef, #includes, etc in the original services.tab
+        //
+        switch (*Ipr) {
+            case '\n':
+            case ' ':
+                continue;
+        }
+
+
         while ((*Ipr != '\n') && (*Ipr != ',')) {
             *Opr++ = *Ipr++;
         }
@@ -455,7 +525,7 @@ main (argc, argv)
         }
 
         if ( MemoryArgs[ServiceNumber] > InRegisterArgCount ) {
-            MemoryArgs[ServiceNumber] -= InRegisterArgCount;
+            MemoryArgs[ServiceNumber] -= (CHAR)InRegisterArgCount;
         } else {
             MemoryArgs[ServiceNumber] = 0;
         }
@@ -577,5 +647,37 @@ main (argc, argv)
     }
 
     fclose(InputFile);
+
+    //
+    // Clear the Archive bit for all the files created, since they are
+    // generated, there is no reason to back them up.
+    //
+    ClearArchiveBit(TableFileName);
+    ClearArchiveBit(StubFileName);
+    if (DefFile) {
+        ClearArchiveBit(DefFileData);
+    }
+    if (Profile) {
+        ClearArchiveBit(ProfFileName);
+        ClearArchiveBit(ProfDotHFileName);
+        ClearArchiveBit(ProfIncFileName);
+        ClearArchiveBit(ProfTblFileName);
+    }
+    return;
+}
+
+
+VOID
+ClearArchiveBit(
+    PCHAR FileName
+    )
+{
+    DWORD Attributes;
+
+    Attributes = GetFileAttributes(FileName);
+    if (Attributes != -1 && (Attributes & FILE_ATTRIBUTE_ARCHIVE)) {
+        SetFileAttributes(FileName, Attributes & ~FILE_ATTRIBUTE_ARCHIVE);
+    }
+
     return;
 }

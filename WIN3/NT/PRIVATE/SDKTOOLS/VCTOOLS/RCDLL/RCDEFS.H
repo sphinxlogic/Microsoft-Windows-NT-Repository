@@ -18,8 +18,8 @@ extern "C" {
 #define RC_FAILED		0
 #define RC_CANCELED		-1
 
-#define WM_RC_STATUS    (0x0400+0x0020)
 #define WM_RC_ERROR 	(0x0400+0x0019)
+#define WM_RC_STATUS    (0x0400+0x0020)
 
 
 // How often do I update status information (lineo & RC_xxx == 0)
@@ -29,18 +29,42 @@ extern void UpdateStatus(unsigned nCode, unsigned long dwStatus);
 
 #define MAX_SYMBOL 247 /* from ApStudio */
 
-#ifdef __cplusplus
-extern "C"	{
-#endif
+typedef int (CALLBACK *RC_MESSAGE_CALLBACK)(ULONG, ULONG, PCHAR);
 
-typedef int (CALLBACK *RC_CALLBACK)(unsigned, unsigned long, const PCHAR);
-typedef int (CALLBACK *RCPROC)(unsigned, int, RC_CALLBACK, int, PCHAR*);
-int CALLBACK RC(HWND hWndCaller, int fStatus, RC_CALLBACK lpfn, int argc, PCHAR *argv);
+typedef struct tagRESINFO_PARSE
+{
+	LONG size;
+	PWCHAR type;
+	USHORT typeord;
+	PWCHAR name;
+	USHORT nameord;
+	WORD flags;
+	WORD language;
+	DWORD version;
+	DWORD characteristics;
+} RESINFO_PARSE, *PRESINFO_PARSE;
+
+typedef struct tagCONTEXTINFO_PARSE
+{
+	HANDLE hHeap;
+	HWND hWndCaller;
+	RC_MESSAGE_CALLBACK lpfnMsg;
+	unsigned line;
+	PCHAR format;
+} CONTEXTINFO_PARSE, *PCONTEXTINFO_PARSE;
+
+typedef int (CALLBACK *RC_PARSE_CALLBACK)(PRESINFO_PARSE lpRes, void** lplpData,
+	PCONTEXTINFO_PARSE lpContext);
+
+typedef int (CALLBACK *RCPROC)(HWND hWndCaller, int fStatus,
+		RC_MESSAGE_CALLBACK lpfnMsg, RC_PARSE_CALLBACK lpfnParse,
+		int argc,	PCHAR* argv);
+
+int CALLBACK RC(HWND hWndCaller, int fStatus,
+		RC_MESSAGE_CALLBACK lpfnMsg, RC_PARSE_CALLBACK lpfnParse,
+		int argc, PCHAR* argv);
+
 int RCPP(int argc, PCHAR *argv, PCHAR env);
-
-#ifdef __cplusplus
-}
-#endif
 
 #define RC_ORDINAL (MAKEINTRESOURCE(2))
 

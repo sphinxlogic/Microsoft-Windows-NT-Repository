@@ -20,7 +20,7 @@ ERRSTACK* perrstk;
 
 int _CRTAPI1
 main(
-        )
+    )
 {
     STREAM_MESSAGE  Message;
     DSTRING         FsName;
@@ -33,8 +33,8 @@ main(
     ARRAY               lex_array;
     ARRAY               arg_array;
     STRING_ARGUMENT     progname;
-        FLAG_ARGUMENT       help_arg;
-        PATH_ARGUMENT           path_arg;
+    FLAG_ARGUMENT       help_arg;
+    PATH_ARGUMENT       path_arg;
     PWSTRING            dosdrive = NULL;
     DSTRING             ntdrive;
     NTSTATUS            Status;
@@ -46,8 +46,8 @@ main(
         return 1;
     }
 
-        if (!Message.Initialize(Get_Standard_Output_Stream(),
-                                                Get_Standard_Input_Stream())) {
+    if (!Message.Initialize(Get_Standard_Output_Stream(),
+                            Get_Standard_Input_Stream())) {
         return 1;
     }
 
@@ -59,6 +59,9 @@ main(
         return 1;
     }
 
+    arglex.PutStartQuotes("\"");
+    arglex.PutEndQuotes("\"");
+    arglex.PutSeparators(" \t");
     arglex.SetCaseSensitive(FALSE);
 
     if (!arglex.PrepareToParse()) {
@@ -135,65 +138,63 @@ main(
         DELETE(dosdrive);
         DELETE(CanonicalPath);
         return 1;
+    }
+
+
+    if (!IFS_SYSTEM::QueryFileSystemName(&ntdrive, &FsName, &Status)) {
+
+        if( Status == STATUS_ACCESS_DENIED ) {
+
+            Message.Set( MSG_DASD_ACCESS_DENIED );
+            Message.Display( "" );
+
+        } else {
+
+            Message.Set( MSG_FS_NOT_DETERMINED );
+            Message.Display( "%W", dosdrive );
         }
-
-
-        if (!IFS_SYSTEM::QueryFileSystemName(&ntdrive, &FsName, &Status)) {
-
-                if( Status == STATUS_ACCESS_DENIED ) {
-
-                        Message.Set( MSG_DASD_ACCESS_DENIED );
-                        Message.Display( "" );
-
-                } else {
-
-                        Message.Set( MSG_FS_NOT_DETERMINED );
-                        Message.Display( "%W", dosdrive );
-                }
 
         DELETE(dosdrive);
         DELETE(CanonicalPath);
-                return 1;
-        }
+        return 1;
+    }
 
-        Message.Set(MSG_FILE_SYSTEM_TYPE);
-        Message.Display("%W", &FsName);
+    Message.Set(MSG_FILE_SYSTEM_TYPE);
+    Message.Display("%W", &FsName);
 
-        if (!LibraryName.Initialize("U") ||
-                !LibraryName.Strcat(&FsName) ||
-                !RecoverString.Initialize("Recover")) {
+    if (!LibraryName.Initialize("U") ||
+        !LibraryName.Strcat(&FsName) ||
+        !RecoverString.Initialize("Recover")) {
 
-                Message.Set(MSG_FMT_NO_MEMORY);
-                Message.Display("");
+        Message.Set(MSG_FMT_NO_MEMORY);
+        Message.Display("");
         DELETE(dosdrive);
         DELETE(CanonicalPath);
-                return(1);
-        }
+        return(1);
+    }
 
 
-        if ((Recover =
-                        (RECOVER_FN)SYSTEM::QueryLibraryEntryPoint(&LibraryName,
-                                                                                                           &RecoverString,
-                                                                                                           &FsUtilityHandle))
+    if ((Recover = (RECOVER_FN)SYSTEM::QueryLibraryEntryPoint(&LibraryName,
+                                                              &RecoverString,
+                                                              &FsUtilityHandle))
                 != NULL) {
 
         Recover(CanonicalPath, &Message);
 
-                SYSTEM::FreeLibraryHandle(FsUtilityHandle);
+        SYSTEM::FreeLibraryHandle(FsUtilityHandle);
 
-        } else {
+    } else {
 
-                Message.Set(MSG_FS_NOT_SUPPORTED);
-                Message.Display("%s%W", "RECOVER", &FsName);
-                Message.Set(MSG_BLANK_LINE);
-                Message.Display("");
+        Message.Set(MSG_FS_NOT_SUPPORTED);
+        Message.Display("%s%W", "RECOVER", &FsName);
+        Message.Set(MSG_BLANK_LINE);
+        Message.Display("");
         DELETE(dosdrive);
         DELETE(CanonicalPath);
         return(1);
-        }
-
+    }
 
     DELETE(dosdrive);
     DELETE(CanonicalPath);
-        return(0);
+    return(0);
 }

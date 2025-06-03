@@ -21,6 +21,7 @@ CHAR *pchTmpAutoexecFile;
 CHAR achSYSROOT[] = "%SystemRoot%";
 CHAR achCOMMAND[] = "\\System32\\command.com";
 CHAR achSHELL[]   = "shell";
+CHAR achCOUNTRY[] = "country";
 CHAR achREM[]     = "rem";
 CHAR achENV[]     = "/e:";
 CHAR achEOL[]     = "\r\n";
@@ -152,6 +153,33 @@ VOID DeleteConfigFiles(VOID)
 
 
 
+// if it is a config command
+//    returns pointer to character immediatly following the equal sign
+// else
+//    returns NULL
+
+PCHAR IsConfigCommand(PCHAR pConfigCommand, int CmdLen, PCHAR pLine)
+{
+      PCHAR pch;
+
+      if (!_strnicmp(pLine, pConfigCommand, CmdLen)) {
+           pch = pLine + CmdLen;
+           while (!isgraph(*pch) && !ISEOL(*pch))      // skip to "="
+                  pch++;
+
+           if (*pch++ == '=') {
+               return pch;
+               }
+           }
+
+       return NULL;
+}
+
+
+
+
+
+
 /*
  *  Preprocesses the specfied config file (config.sys\autoexec.bat)
  *  into a temporary file.
@@ -259,16 +287,24 @@ void ExpandConfigFiles(BOOLEAN bConfig)
        if (!dwRawFileSize)  // anything left to do ?
            break;
 
-            // filter out shell= command, saving /E:nn parameter
-       if (bConfig &&
-           !strnicmp(pLine, achSHELL, sizeof(achSHELL) - sizeof(CHAR)))
-	  {
 
-           pTmp = pLine + sizeof(achSHELL) - sizeof(CHAR);
-           while (!isgraph(*pTmp) && !ISEOL(*pTmp))      // skip to "="
-		  pTmp++;
+       if (bConfig)  {
+           //
+           // filter out country= setting we will create our own based
+           // on current country ID and codepage.
+           //
+           pTmp = IsConfigCommand(achCOUNTRY, sizeof(achCOUNTRY) - sizeof(CHAR), pLine);
+           if (pTmp) {
+               while (dwRawFileSize && !ISEOL(*pLine)) {
+                      pLine++;
+                      dwRawFileSize -= sizeof(CHAR);
+                      }
+               continue;
+               }
 
-           if (*pTmp++ == '=') {                  // really is "shell=" line!
+           // filter out shell= command, saving /E:nn parameter
+           pTmp = IsConfigCommand(achSHELL, sizeof(achSHELL) - sizeof(CHAR),pLine);
+           if (pTmp) {
                        // skip leading white space
                while (!isgraph(*pTmp) && !ISEOL(*pTmp)) {
                       dwRawFileSize -= sizeof(CHAR);
@@ -280,11 +316,11 @@ void ExpandConfigFiles(BOOLEAN bConfig)
                    *  else
                    *     append user specifed /e: parameter
                    */
-               if (!strnicmp(achSYSROOT,pTmp,sizeof(achSYSROOT)-sizeof(CHAR)))
+               if (!_strnicmp(achSYSROOT,pTmp,sizeof(achSYSROOT)-sizeof(CHAR)))
                   {
                    dw = sizeof(achSYSROOT) - sizeof(CHAR);
                    }
-               else if (!strnicmp(achSysRoot,pTmp, strlen(achSysRoot)))
+               else if (!_strnicmp(achSysRoot,pTmp, strlen(achSysRoot)))
                   {
                    dw = strlen(achSysRoot);
                    }
@@ -293,7 +329,7 @@ void ExpandConfigFiles(BOOLEAN bConfig)
 		   }
 
 	       if (!dw ||
-                   strnicmp(achCOMMAND,pTmp+dw,sizeof(achCOMMAND)-sizeof(CHAR)) )
+                   _strnicmp(achCOMMAND,pTmp+dw,sizeof(achCOMMAND)-sizeof(CHAR)) )
                   {
                    pPartyShell = pTmp;
                    }
@@ -305,7 +341,7 @@ void ExpandConfigFiles(BOOLEAN bConfig)
 		      if(ISEOL(*pTmp))
 			  break;
 
-                      if (!strnicmp(pTmp,achENV,sizeof(achENV)-sizeof(CHAR)))
+                      if (!_strnicmp(pTmp,achENV,sizeof(achENV)-sizeof(CHAR)))
 			  pEnvParam = pTmp;
 
 		      pTmp++;
@@ -335,7 +371,7 @@ void ExpandConfigFiles(BOOLEAN bConfig)
 	   them.
 	**/
        if (!bConfig)
-	    if (!strnicmp(pLine, achPROMPT, sizeof(achPROMPT) - 1)){
+	    if (!_strnicmp(pLine, achPROMPT, sizeof(achPROMPT) - 1)){
 		// prompt command found.
 		// the syntax of prompt can be eithe
 		// prompt xxyyzz	or
@@ -363,7 +399,7 @@ void ExpandConfigFiles(BOOLEAN bConfig)
 		*lpszzEnv++ = '\0';
 		cchEnv++;
 	    }
-	    else if (!strnicmp(pLine, achPATH, sizeof(achPATH) - 1)) {
+	    else if (!_strnicmp(pLine, achPATH, sizeof(achPATH) - 1)) {
 		    // PATH was found, it has the same syntax as
 		    // PROMPT
 		    strcpy(lpszzEnv, achPATH);
@@ -384,7 +420,7 @@ void ExpandConfigFiles(BOOLEAN bConfig)
 		    *lpszzEnv++ = '\0';
 		    cchEnv++;
 		 }
-		 else if(!strnicmp(pLine, achSET, sizeof(achSET) -1 )) {
+		 else if(!_strnicmp(pLine, achSET, sizeof(achSET) -1 )) {
 			// SET was found, first search for name
 			pTmp = pLine + sizeof(achSET) - 1;
 			while(!isgraph(*pTmp) && !ISEOL(*pTmp))
@@ -425,23 +461,52 @@ void ExpandConfigFiles(BOOLEAN bConfig)
        }  // END, while (dwRawFileSize)
 
 
-     /*  We cannot allow the user to set an incorrect shell= command
-      *  so we will contruct the correct shell= command appending
-      *  either (in order of precedence):
-      *    1.    /c ThirdPartyShell
-      *    2.    /e:NNNN
-      *    3.    nothing
-      *
-      *  If there is a third party shell then we must turn the console
-      *  on now since we no longer have control once system32\command.com
-      *  spawns the third party shell.
-      */
+
     if (bConfig)  {
+        UINT OemCP;
+        UINT CtryId;
+        CHAR szCtryId[64]; // expect "nnn" only
+
+         /*  Ensure that the country settings are in sync with NT This is
+          *  especially important for DosKrnl file UPCASE tables. The
+          *  doskrnl default is "CTRY_UNITED_STATES, 437". But we add the
+          *  country= line to config.sys, even if is US,437, so that the DOS
+          *  will know where the default country.sys is.
+          */
+        if (GetLocaleInfo(LOCALE_USER_DEFAULT, LOCALE_IDEFAULTCOUNTRY,
+                          szCtryId, sizeof(szCtryId) - 1) )
+          {
+           CtryId = strtoul(szCtryId,NULL,10);
+           }
+        else {
+           CtryId = CTRY_UNITED_STATES;
+           }
+
+        OemCP = GetOEMCP();
+
+        sprintf(achRawFile,
+                "%s=%3.3u,%3.3u,%s\\system32\\%s.sys%s",
+                achCOUNTRY, CtryId, OemCP, achSysRoot, achCOUNTRY, achEOL);
+        WriteFileAssert(hTmpFile,achRawFile,strlen(achRawFile));
+
+
+
+         /*  We cannot allow the user to set an incorrect shell= command
+          *  so we will contruct the correct shell= command appending
+          *  either (in order of precedence):
+          *    1.    /c ThirdPartyShell
+          *    2.    /e:NNNN
+          *    3.    nothing
+          *
+          *  If there is a third party shell then we must turn the console
+          *  on now since we no longer have control once system32\command.com
+          *  spawns the third party shell.
+          */
 
            // write shell=....
         sprintf(achRawFile,
-		"shell=%s%s /p %s\\system32",
-                achSysRoot, achCOMMAND, achSysRoot);
+                "%s=%s%s /p %s\\system32",
+                achSHELL,achSysRoot, achCOMMAND, achSysRoot);
         WriteFileAssert(hTmpFile,achRawFile,strlen(achRawFile));
 
            // write extra string (/c ... or /e:nnn)
@@ -517,7 +582,7 @@ DWORD WriteExpanded(HANDLE hFile,  CHAR *pch, DWORD dwChars)
 
   while (dwChars && !ISEOL(*pch)) {
         if (*pch == '%' &&
-            !strnicmp(pch, achSYSROOT, sizeof(achSYSROOT)-sizeof(CHAR)) )
+            !_strnicmp(pch, achSYSROOT, sizeof(achSYSROOT)-sizeof(CHAR)) )
            {
             dw = pch - pSave;
             if (dw)  {

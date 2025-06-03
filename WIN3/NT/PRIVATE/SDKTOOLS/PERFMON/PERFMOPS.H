@@ -30,7 +30,7 @@ void SmallFileSizeString (int iFileSize,
 BOOL DoWindowDrag (HWND hWnd, LPARAM lParam) ;
 
 
-int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2) ;
+int SystemTimeDifference (SYSTEMTIME *pst1, SYSTEMTIME *pst2, BOOL bAbs) ;
 
 
 BOOL OpenFileHandler(HWND hWnd, LPTSTR lpszFilePath) ;
@@ -66,4 +66,4 @@ void ReconvertDecimalPoint (LPTSTR lpFloatPointStr) ;
 
 void ShowPerfmonWindowText (void) ;
 
-
+

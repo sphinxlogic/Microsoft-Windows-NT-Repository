@@ -71,17 +71,17 @@
 void
 Out_UPDecision(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInBuffer,
-	_expr_node	*	pPtrInMemory )
+	expr_node	*	pPtrInBuffer,
+	expr_node	*	pPtrInMemory )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_UP_DECISION_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_UP_DECISION_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 	pPtrInBuffer = MakeRefExprOutOfDeref( pPtrInBuffer );
-	pProc->SetParam( new _expr_param( pPtrInBuffer ) );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar(pPtrInMemory) ) );
+	pProc->SetParam( new expr_param( pPtrInBuffer ) );
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar(pPtrInMemory) ) );
 
 	Out_If( pCCB, pProc );
 	}
@@ -89,15 +89,15 @@ Out_UPDecision(
 void
 Out_TLUPDecision(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInBuffer,
-	_expr_node	*	pPtrInMemory )
+	expr_node	*	pPtrInBuffer,
+	expr_node	*	pPtrInMemory )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_TLUP_DECISION_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_TLUP_DECISION_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ) );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory) ) );
+	pProc->SetParam( new expr_param( pStubMsg ) );
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory) ) );
 
 	Out_If( pCCB, pProc );
 	}
@@ -105,15 +105,15 @@ Out_TLUPDecision(
 void
 Out_TLUPDecisionBufferOnly(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInBuffer,
-	_expr_node	*	pPtrInMemory )
+	expr_node	*	pPtrInBuffer,
+	expr_node	*	pPtrInMemory )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_TLUP_DECISION_RTN_B_ONLY );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_TLUP_DECISION_RTN_B_ONLY );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ) );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ) );
+	pProc->SetParam( new expr_param( pStubMsg ) );
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ) );
 
 	Out_If( pCCB, pProc );
 	}
@@ -121,18 +121,18 @@ Out_TLUPDecisionBufferOnly(
 void
 Out_IfAlloc(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_ALLOC_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_ALLOC_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
 	pPtrInMemory = MakeAddressExpressionNoMatterWhat( pPtrInMemory );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -140,18 +140,18 @@ Out_IfAlloc(
 void
 Out_If_IfAlloc(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_ALLOC_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_ALLOC_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
 	pPtrInMemory = MakeAddressExpressionNoMatterWhat( pPtrInMemory );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	Out_If( pCCB, pProc );
 	// pProc->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -160,18 +160,18 @@ Out_If_IfAlloc(
 void
 Out_If_IfAllocRef(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_ALLOC_REF_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_ALLOC_REF_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
 	pPtrInMemory = MakeAddressExpressionNoMatterWhat( pPtrInMemory );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	Out_If( pCCB, pProc );
 	// pProc->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -180,43 +180,43 @@ Out_If_IfAllocRef(
 void
 Out_Alloc(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc;
-	_expr_node	*	pExpr;
+	expr_proc_call	*	pProc;
+	expr_node	*	pExpr;
 
 	if( pCCB->MustCheckAllocationError() )
 		{
-		_expr_node		*	pStubMsg
+		expr_node		*	pStubMsg
 				= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 		pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-		pProc	= new _expr_proc_call( ENGINE_CHECKED_ALLOC_RTN_NAME );
-		pProc->SetParam( new _expr_param( pStubMsg ) );
+		pProc	= new expr_proc_call( ENGINE_CHECKED_ALLOC_RTN_NAME );
+		pProc->SetParam( new expr_param( pStubMsg ) );
 		}
 	else
-		pProc	= new _expr_proc_call( STUB_MSG_ALLOCATE_RTN_NAME );
+		pProc	= new expr_proc_call( STUB_MSG_ALLOCATE_RTN_NAME );
 		
-	pProc->SetParam( new _expr_param( pExprCount ));
-	pExpr = new _expr_assign( pPtrInMemory, pProc );
+	pProc->SetParam( new expr_param( pExprCount ));
+	pExpr = new expr_assign( pPtrInMemory, pProc );
 	pCCB->GetStream()->NewLine();
 	pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
 void
 Out_IfAllocSet(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_ALLOC_SET_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_ALLOC_SET_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory )));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory )));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -224,18 +224,18 @@ Out_IfAllocSet(
 void
 Out_AllocSet(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( MIDL_MEMSET_RTN_NAME );
-	_expr_node		*	pExpr;
+	expr_proc_call	*	pProc	= new expr_proc_call( MIDL_MEMSET_RTN_NAME );
+	expr_node		*	pExpr;
 	Out_Alloc( pCCB, pPtrInMemory, pBuffer, pExprCount );
 
-	pExpr	= new _expr_u_deref( pPtrInMemory );
-	pProc->SetParam( new _expr_param( pExpr ) );
-	pProc->SetParam( new _expr_param( pExprCount ) );
-	pProc->SetParam( new _expr_param( new _expr_constant(0L) ) );
+	pExpr	= new expr_u_deref( pPtrInMemory );
+	pProc->SetParam( new expr_param( pExpr ) );
+	pProc->SetParam( new expr_param( pExprCount ) );
+	pProc->SetParam( new expr_param( new expr_constant(0L) ) );
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -243,18 +243,18 @@ Out_AllocSet(
 void
 Out_IfCopy(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_COPY_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_COPY_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory ) ));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -262,18 +262,18 @@ Out_IfCopy(
 void
 Out_IfAllocCopy(
 	CCB			*	pCCB,
-	_expr_node	*	pPtrInMemory,
-	_expr_node	*	pBuffer,
-	_expr_node	*	pExprCount )
+	expr_node	*	pPtrInMemory,
+	expr_node	*	pBuffer,
+	expr_node	*	pExprCount )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_ALLOC_COPY_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_ALLOC_COPY_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( pStubMsg ));
 
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory )));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToPtrToUChar( pPtrInMemory )));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -281,16 +281,16 @@ Out_IfAllocCopy(
 void
 Out_Copy(
 	CCB		*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSource,
-	_expr_node	*	pExprCount,
-	_expr_node	*	pAssign )
+	expr_node	*	pDest,
+	expr_node	*	pSource,
+	expr_node	*	pExprCount,
+	expr_node	*	pAssign )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_COPY_RTN_NAME );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_COPY_RTN_NAME );
 
-	pProc->SetParam( new _expr_param( pDest ));
-	pProc->SetParam( new _expr_param( pSource ));
-	pProc->SetParam( new _expr_param( pExprCount ));
+	pProc->SetParam( new expr_param( pDest ));
+	pProc->SetParam( new expr_param( pSource ));
+	pProc->SetParam( new expr_param( pExprCount ));
 	pCCB->GetStream()->NewLine();
 
 	if( pAssign )
@@ -305,13 +305,13 @@ Out_Copy(
 void
 Out_IfFree(
 	CCB		*	pCCB,
-	_expr_node	*	pSrc )
+	expr_node	*	pSrc )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_IF_FREE_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_IF_FREE_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ) );
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToUChar( pSrc ) ) );
+	pProc->SetParam( new expr_param( pStubMsg ) );
+	pProc->SetParam( new expr_param( MakeCastExprPtrToUChar( pSrc ) ) );
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -319,9 +319,9 @@ Out_IfFree(
 void
 Out_ConfStringHdr(
 	CCB			*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSize,
-	_expr_node	*	pLength,
+	expr_node	*	pDest,
+	expr_node	*	pSize,
+	expr_node	*	pLength,
 	BOOL			fMarsh )
 	{
 	PNAME	pName;
@@ -333,10 +333,10 @@ Out_ConfStringHdr(
 	else
 		pName	= NDR_CONF_STRING_HDR_UNMARSHALL;
 
-	_expr_proc_call	*	pProc	= new _expr_proc_call( pName );
-	pProc->SetParam( new _expr_param( pDest ) );
-	pProc->SetParam( new _expr_param( pSize ) );
-	pProc->SetParam( new _expr_param( pLength ) );
+	expr_proc_call	*	pProc	= new expr_proc_call( pName );
+	pProc->SetParam( new expr_param( pDest ) );
+	pProc->SetParam( new expr_param( pSize ) );
+	pProc->SetParam( new expr_param( pLength ) );
 
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
@@ -344,68 +344,68 @@ Out_ConfStringHdr(
 void
 Out_CContextMarshall(
 	CCB		*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSource )
+	expr_node	*	pDest,
+	expr_node	*	pSource )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_C_CTXT_HDL_MARSHALL );
-	_expr_node	*	pExpr;
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_C_CTXT_HDL_MARSHALL );
+	expr_node	*	pExpr;
 
-	pProc->SetParam( new _expr_param( pSource ) );
-	pProc->SetParam( new _expr_param( pDest ) );
-	pExpr	= new _expr_assign( pDest, pProc );
+	pProc->SetParam( new expr_param( pSource ) );
+	pProc->SetParam( new expr_param( pDest ) );
+	pExpr	= new expr_assign( pDest, pProc );
 	pCCB->GetStream()->NewLine();
 	pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
 void
 Out_SContextMarshall(
 	CCB			*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSource,
-	_expr_node	*	pRDRtn )
+	expr_node	*	pDest,
+	expr_node	*	pSource,
+	expr_node	*	pRDRtn )
 	{
-	_expr_proc_call	* pProc	= new _expr_proc_call( NDR_S_CTXT_HDL_MARSHALL );
-	_expr_node	*	pExpr;
+	expr_proc_call	* pProc	= new expr_proc_call( NDR_S_CTXT_HDL_MARSHALL );
+	expr_node	*	pExpr;
 
-	pProc->SetParam( new _expr_param( pSource ) );
-	pProc->SetParam( new _expr_param( pDest ) );
-	pProc->SetParam( new _expr_param( pRDRtn ) );
-	pExpr	= new _expr_assign( pDest, pProc );
+	pProc->SetParam( new expr_param( pSource ) );
+	pProc->SetParam( new expr_param( pDest ) );
+	pProc->SetParam( new expr_param( pRDRtn ) );
+	pExpr	= new expr_assign( pDest, pProc );
 	pCCB->GetStream()->NewLine();
 	pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
 void
 Out_CContextUnMarshall(
 	CCB			*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSource,
-	_expr_node	*	pHandle,
-	_expr_node	*	pDRep )
+	expr_node	*	pDest,
+	expr_node	*	pSource,
+	expr_node	*	pHandle,
+	expr_node	*	pDRep )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_C_CTXT_HDL_UNMARSHALL );
-	_expr_node		*	pExpr;
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_C_CTXT_HDL_UNMARSHALL );
+	expr_node		*	pExpr;
 
-	pProc->SetParam( new _expr_param( pDest ) );
-	pProc->SetParam( new _expr_param( pHandle ) );
-	pProc->SetParam( new _expr_param( pSource ) );
-	pProc->SetParam( new _expr_param( pDRep ) );
+	pProc->SetParam( new expr_param( pDest ) );
+	pProc->SetParam( new expr_param( pHandle ) );
+	pProc->SetParam( new expr_param( pSource ) );
+	pProc->SetParam( new expr_param( pDRep ) );
 
-	pExpr	= new _expr_assign( pSource, pProc );
+	pExpr	= new expr_assign( pSource, pProc );
 	pCCB->GetStream()->NewLine();
 	pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
 void
 Out_SContextUnMarshall(
 	CCB			*	pCCB,
-	_expr_node	*	pDest,
-	_expr_node	*	pSource,
-	_expr_node	*	pDRep )
+	expr_node	*	pDest,
+	expr_node	*	pSource,
+	expr_node	*	pDRep )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_S_CTXT_HDL_UNMARSHALL );
-	_expr_node		*	pExpr;
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_S_CTXT_HDL_UNMARSHALL );
+	expr_node		*	pExpr;
 
-	pProc->SetParam( new _expr_param( pSource ) );
-	pProc->SetParam( new _expr_param( pDRep ) );
-	pExpr	= new _expr_assign( pDest, pProc );
+	pProc->SetParam( new expr_param( pSource ) );
+	pProc->SetParam( new expr_param( pDRep ) );
+	pExpr	= new expr_assign( pDest, pProc );
 	pCCB->GetStream()->NewLine();
 	pExpr->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -415,9 +415,9 @@ Out_RaiseException(
 	CCB			*	pCCB,
 	PNAME			pExceptionName)
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( "RpcRaiseException" );
+	expr_proc_call	*	pProc	= new expr_proc_call( "RpcRaiseException" );
 	
-	pProc->SetParam( new _expr_param( new _expr_variable( pExceptionName ) ) );
+	pProc->SetParam( new expr_param( new expr_variable( pExceptionName ) ) );
 	pCCB->GetStream()->NewLine();
 	pProc->PrintCall( pCCB->GetStream(), 0, 0 );
 	}
@@ -471,19 +471,25 @@ Out_RpcTryExcept( CCB * pCCB )
 	pStream->NewLine();
 	pStream->Write( '{' );
 	}
+
 void
-Out_RpcExcept_1( CCB * pCCB )
-	{
-	ISTREAM	*	pStream	= pCCB->GetStream();
-	pStream->NewLine();
-	pStream->Write('}');
-	pStream->IndentDec();
-	pStream->NewLine();
-	pStream->Write( "RpcExcept(1)" );
-	pStream->IndentInc();
-	pStream->NewLine();
-	pStream->Write( '{' );
-	}
+Out_RpcExcept(
+    CCB * pCCB,
+    char * pFilterString )
+{
+    ISTREAM	*	pStream	= pCCB->GetStream();
+    pStream->NewLine();
+    pStream->Write('}');
+    pStream->IndentDec();
+    pStream->NewLine();
+    pStream->Write( "RpcExcept( " );
+    pStream->Write( pFilterString );
+    pStream->Write( " )" );
+    pStream->IndentInc();
+    pStream->NewLine();
+    pStream->Write( '{' );
+}
+
 void
 Out_RpcEndExcept( CCB * pCCB )
 	{
@@ -497,16 +503,16 @@ Out_RpcEndExcept( CCB * pCCB )
 void
 Out_CallNdrMapCommAndFaultStatus(
 	 CCB * pCCB,
-	_expr_node * pAddrOfStubMsg,
-	_expr_node * StatRes,
-	_expr_node * pCommExpr,
-	_expr_node * pFaultExpr )
+	expr_node * pAddrOfStubMsg,
+	expr_node * StatRes,
+	expr_node * pCommExpr,
+	expr_node * pFaultExpr )
 	{
 	node_skl	*	pType;
 	ISTREAM	*	pStream	= pCCB->GetStream();
-	_expr_proc_call * pProc = new _expr_proc_call( NDR_MAP_COMM_FAULT_RTN_NAME );
-	_expr_node * pExpr;
-	_expr_variable * pExceptionCode = new _expr_variable( "RpcExceptionCode()",0);
+	expr_proc_call * pProc = new expr_proc_call( NDR_MAP_COMM_FAULT_RTN_NAME );
+	expr_node * pExpr;
+	expr_variable * pExceptionCode = new expr_variable( "RpcExceptionCode()",0);
 
 
 	pAddrOfStubMsg = MakeExpressionOfCastToTypeName( PSTUB_MESSAGE_TYPE_NAME,
@@ -518,11 +524,11 @@ Out_CallNdrMapCommAndFaultStatus(
 	pCommExpr = MakeExpressionOfCastPtrToType( pType, pCommExpr );
 	pFaultExpr = MakeExpressionOfCastPtrToType( pType, pFaultExpr );
 
-	pProc->SetParam( new _expr_param( pAddrOfStubMsg ));
-	pProc->SetParam( new _expr_param( pCommExpr ));
-	pProc->SetParam( new _expr_param( pFaultExpr ));
-	pProc->SetParam( new _expr_param( pExceptionCode ));
-	pExpr = new _expr_assign( StatRes, pProc );
+	pProc->SetParam( new expr_param( pAddrOfStubMsg ));
+	pProc->SetParam( new expr_param( pCommExpr ));
+	pProc->SetParam( new expr_param( pFaultExpr ));
+	pProc->SetParam( new expr_param( pExceptionCode ));
+	pExpr = new expr_assign( StatRes, pProc );
 
 	Out_If( pCCB, pExpr );
 	Out_RaiseException( pCCB, ((RESOURCE * )StatRes)->GetResourceName() );
@@ -532,17 +538,17 @@ void
 Out_CallToXmit(
 	CCB	*	pCCB,
 	PNAME	XmittedTypeName,
-	_expr_node * pPresented,
-	_expr_node * pTransmitted )
+	expr_node * pPresented,
+	expr_node * pTransmitted )
 	{
 	ISTREAM	*	pStream	= pCCB->GetStream();
 	char 	*	p	= new char [strlen( XmittedTypeName )+10+1];
 
 	strcpy( p, XmittedTypeName );
 	strcat( p, "_to_xmit" );
-	_expr_proc_call	*	pProc = new _expr_proc_call( p );
-	pProc->SetParam( new _expr_param( pPresented ) );
-	pProc->SetParam( new _expr_param(
+	expr_proc_call	*	pProc = new expr_proc_call( p );
+	pProc->SetParam( new expr_param( pPresented ) );
+	pProc->SetParam( new expr_param(
 						 MakeAddressExpressionNoMatterWhat( pTransmitted ) ));
 
 	pStream->NewLine();
@@ -553,17 +559,17 @@ void
 Out_CallFromXmit(
 	CCB	*	pCCB,
 	PNAME	XmittedTypeName,
-	_expr_node * pPresented,
-	_expr_node * pTransmitted )
+	expr_node * pPresented,
+	expr_node * pTransmitted )
 	{
 	ISTREAM	*	pStream	= pCCB->GetStream();
 	char 	*	p	= new char [strlen( XmittedTypeName )+10+1];
 
 	strcpy( p, XmittedTypeName );
 	strcat( p, "_from_xmit" );
-	_expr_proc_call	*	pProc = new _expr_proc_call( p );
-	pProc->SetParam( new _expr_param( pTransmitted ));
-	pProc->SetParam( new _expr_param( pPresented ) );
+	expr_proc_call	*	pProc = new expr_proc_call( p );
+	pProc->SetParam( new expr_param( pTransmitted ));
+	pProc->SetParam( new expr_param( pPresented ) );
 
 	pStream->NewLine();
 	pProc->PrintCall( pStream, 0, 0 );
@@ -572,16 +578,16 @@ void
 Out_CallFreeXmit(
 	CCB		*	pCCB,
 	PNAME		XmittedTypeName,
-	_expr_node * pTransmitted )
+	expr_node * pTransmitted )
 	{
 	ISTREAM	*	pStream	= pCCB->GetStream();
 	char 	*	p	= new char [strlen( XmittedTypeName )+15+1];
 
 	strcpy( p, XmittedTypeName );
 	strcat( p, "_free_xmit" );
-	_expr_proc_call * pProc = new _expr_proc_call( p );
+	expr_proc_call * pProc = new expr_proc_call( p );
 
-	pProc->SetParam( new _expr_param( pTransmitted ) );
+	pProc->SetParam( new expr_param( pTransmitted ) );
 
 	pStream->NewLine();
 	pProc->PrintCall( pStream, 0, 0 );
@@ -590,16 +596,16 @@ void
 Out_CallFreeInst(
 	CCB		*	pCCB,
 	PNAME		XmittedTypeName,
-	_expr_node *	pPresented )
+	expr_node *	pPresented )
 	{
 	ISTREAM	*	pStream	= pCCB->GetStream();
 	char 	*	p	= new char [strlen( XmittedTypeName )+15+1];
 
 	strcpy( p, XmittedTypeName );
 	strcat( p, "_free_inst" );
-	_expr_proc_call * pProc = new _expr_proc_call( p );
+	expr_proc_call * pProc = new expr_proc_call( p );
 
-	pProc->SetParam( new _expr_param( pPresented ) );
+	pProc->SetParam( new expr_param( pPresented ) );
 
 	pStream->NewLine();
 	pProc->PrintCall( pStream, 0, 0 );
@@ -608,36 +614,36 @@ Out_CallFreeInst(
 void
 Out_StringMarshall(
 	CCB			*	pCCB,
-	_expr_node	*	pMemory,
-	_expr_node	*	pCount,
-	_expr_node	*	pSize )
+	expr_node	*	pMemory,
+	expr_node	*	pCount,
+	expr_node	*	pSize )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_CONF_STR_M_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_CONF_STR_M_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	ISTREAM			*	pStream = pCCB->GetStream();
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
-	pProc->SetParam( new _expr_param( MakeCastExprPtrToUChar( pMemory ) ) );
-	pProc->SetParam( new _expr_param( pCount ) );
-	pProc->SetParam( new _expr_param( pSize ) );
+	pProc->SetParam( new expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( MakeCastExprPtrToUChar( pMemory ) ) );
+	pProc->SetParam( new expr_param( pCount ) );
+	pProc->SetParam( new expr_param( pSize ) );
 	pStream->NewLine();
 	pProc->PrintCall( pStream, 0, 0 );
 	}
 void
 Out_StringUnMarshall(
 	CCB			*	pCCB,
-	_expr_node	*	pMemory,
-	_expr_node	*	pSize )
+	expr_node	*	pMemory,
+	expr_node	*	pSize )
 	{
-	_expr_proc_call	*	pProc	= new _expr_proc_call( NDR_CONF_STR_UN_RTN_NAME );
-	_expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
+	expr_proc_call	*	pProc	= new expr_proc_call( NDR_CONF_STR_UN_RTN_NAME );
+	expr_node		*	pStubMsg= pCCB->GetStandardResource( ST_RES_STUB_MESSAGE_VARIABLE );
 	ISTREAM			*	pStream = pCCB->GetStream();
 
 	pStubMsg	= MakeAddressExpressionNoMatterWhat( pStubMsg );
-	pProc->SetParam( new _expr_param( pStubMsg ));
-	pProc->SetParam( new _expr_param( MakeAddressExpressionNoMatterWhat( MakeCastExprPtrToPtrToUChar( pMemory ) )) );
-	pProc->SetParam( new _expr_param( pSize ) );
+	pProc->SetParam( new expr_param( pStubMsg ));
+	pProc->SetParam( new expr_param( MakeAddressExpressionNoMatterWhat( MakeCastExprPtrToPtrToUChar( pMemory ) )) );
+	pProc->SetParam( new expr_param( pSize ) );
 	pStream->NewLine();
 	pProc->PrintCall( pStream, 0, 0 );
 	}
@@ -680,11 +686,10 @@ Out_EmitSizingProlog(
 	node_skl *	pStructType )
 	{
 	ISTREAM	*	pStream = pCCB->GetStream();
-	char Buffer[ 256 ];
-	_expr_node * pRes;
+	char Buffer[ 510 ];
+	expr_node * pRes;
 
-	pStream->NewLine();
-	pStream->NewLine();
+	pStream->NewLine( 2 );
 	pStream->Write( LENGTH_VAR_TYPE_NAME );
 	pStream->NewLine();
 
@@ -705,7 +710,7 @@ Out_EmitSizingProlog(
 		}
 	pStream->Write(')');
 	pStream->NewLine();
-	pStream->Write("{" );
+	pStream->Write('{' );
 	}
 void
 Out_EndSizingProc(
@@ -722,16 +727,16 @@ Out_EndSizingProc(
 void
 Out_StructMarshallCall(
 	CCB	*	pCCB,
-	_expr_node * pExpr,
-	_expr_node * pPtrInBuffer )
+	expr_node * pExpr,
+	expr_node * pPtrInBuffer )
 	{
 	ISTREAM * pStream = pCCB->GetStream();
 	}
 void
 Out_StructSizingCall(
 	CCB	*	pCCB,
-	_expr_node * pSource,
-	_expr_node * pLengthVar )
+	expr_node * pSource,
+	expr_node * pLengthVar )
 	{
 	}
 void
@@ -798,6 +803,35 @@ Out_TypeDecodePrototypes(
                          pCCB,
                          p->pName,
                          TYPE_DECODE_CODE,
+                         (p->Flags == TYPE_ENCODE_WITH_IMPL_HANDLE));
+        pStream->Write(';');
+        pStream->NewLine();
+        }
+}
+
+void
+Out_TypeFreePrototypes(
+    CCB *   pCCB,
+    ITERATOR&   I )
+{
+    // Currently disabled. This was a code written for Dave Straube.
+    // Still under evaluation.
+
+    if ( NO_FREEING_FOR_PICKLING )
+        return;
+
+    TYPE_ENCODE_INFO    *p;
+    ISTREAM *   pStream = pCCB->GetStream();
+
+    // The iterator items are really a set of name pointers.
+
+    pStream->NewLine();
+    while( ITERATOR_GETNEXT( I, p ) )
+        {
+        GenStdMesPrototype(
+                         pCCB,
+                         p->pName,
+                         TYPE_FREE_CODE,
                          (p->Flags == TYPE_ENCODE_WITH_IMPL_HANDLE));
         pStream->Write(';');
         pStream->NewLine();

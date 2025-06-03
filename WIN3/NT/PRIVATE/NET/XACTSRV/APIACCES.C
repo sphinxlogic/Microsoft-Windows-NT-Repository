@@ -112,7 +112,7 @@ Return Value:
     if ( SmbGetUshort( &acc->acc1_count ) > 64 ) {
 
         IF_DEBUG(CONVERT) {
-            NetpDbgPrint( "XsNetAccessEnumVerify: too many aux. entries\n" );
+            NetpKdPrint(( "XsNetAccessEnumVerify: too many aux. entries\n" ));
         }
 
         return ERROR_MORE_DATA;
@@ -165,9 +165,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessAdd: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetAccessAdd: header at %lx, params at %lx, "
                       "level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -195,7 +195,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetAccessAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -215,7 +215,7 @@ Return Value:
 
     if ( auxDataCount > 64 ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: too many access_lists.\n" );
+            NetpKdPrint(( "XsNetAccessAdd: too many access_lists.\n" ));
         }
         Header->Status = NERR_ACFTooManyLists;
         goto cleanup;
@@ -231,7 +231,7 @@ Return Value:
 
     if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: failed to allocate memory" );
+            NetpKdPrint(( "XsNetAccessAdd: failed to allocate memory" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -256,7 +256,7 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetAccessAdd: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
         goto cleanup;
@@ -283,7 +283,7 @@ Return Value:
 
     if ( buffer == NULL ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: failed to create buffer" );
+            NetpKdPrint(( "XsNetAccessAdd: failed to create buffer" ));
         }
         Header->Status = NERR_NoRoom;
         goto cleanup;
@@ -291,8 +291,8 @@ Return Value:
     }
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessAdd: buffer of %ld bytes at %lx\n",
-                      bufferSize, buffer );
+        NetpKdPrint(( "XsNetAccessAdd: buffer of %ld bytes at %lx\n",
+                      bufferSize, buffer ));
     }
 
     //
@@ -318,8 +318,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessAdd: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -339,8 +339,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessAdd: NetAccessAdd failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessAdd: NetAccessAdd failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -396,9 +396,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessDel: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetAccessDel: header at %lx, params at %lx, "
                       "resource %s\n",
-                      Header, parameters, SmbGetUlong( &parameters->Resource ));
+                      Header, parameters, SmbGetUlong( &parameters->Resource )));
     }
 
     //
@@ -421,8 +421,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessDel: NetAccessDel failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessDel: NetAccessDel failed: "
+                          "%X\n", status ));
         }
     }
 
@@ -485,10 +485,10 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessEnum: header at %lx, params at %lx, "
+        NetpKdPrint(( "XsNetAccessEnum: header at %lx, params at %lx, "
                       "level %ld, buf size %ld\n",
                       Header, parameters, SmbGetUshort( &parameters->Level ),
-                      SmbGetUshort( &parameters->BufLen ));
+                      SmbGetUshort( &parameters->BufLen )));
     }
 
     //
@@ -524,16 +524,16 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetAccessEnum: NetAccessEnum failed: %X\n",
-                          status );
+            NetpKdPrint(( "XsNetAccessEnum: NetAccessEnum failed: %X\n",
+                          status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
     }
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessEnum: received %ld entries at %lx\n",
-                      entriesRead, outBuffer );
+        NetpKdPrint(( "XsNetAccessEnum: received %ld entries at %lx\n",
+                      entriesRead, outBuffer ));
     }
 
     //
@@ -582,10 +582,10 @@ Return Value:
         );
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR,"
                       " Entries %ld of %ld\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired, entriesFilled, totalEntries );
+                      bytesRequired, entriesFilled, totalEntries ));
     }
 
     //
@@ -672,9 +672,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessGetInfo: header at %lx, "
+        NetpKdPrint(( "XsNetAccessGetInfo: header at %lx, "
                       "params at %lx, level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -717,8 +717,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(API_ERRORS) {
-            NetpDbgPrint( "XsNetAccessGetInfo: NetAccessGetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessGetInfo: NetAccessGetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;
@@ -746,7 +746,7 @@ Return Value:
 
         if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessGetInfo: failed to allocate memory" );
+                NetpKdPrint(( "XsNetAccessGetInfo: failed to allocate memory" ));
             }
             Header->Status = NERR_NoRoom;
             goto cleanup;
@@ -787,7 +787,7 @@ Return Value:
 
         if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessGetInfo: failed to allocate memory" );
+                NetpKdPrint(( "XsNetAccessGetInfo: failed to allocate memory" ));
             }
             Header->Status = (WORD)NERR_NoRoom;
             goto cleanup;
@@ -829,8 +829,8 @@ Return Value:
 
     if ( status != NERR_Success ) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessGetInfo: RapConvertSingleEntry failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessGetInfo: RapConvertSingleEntry failed: "
+                          "%X\n", status ));
         }
 
         Header->Status = NERR_InternalError;
@@ -838,9 +838,9 @@ Return Value:
     }
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
+        NetpKdPrint(( "32-bit data at %lx, 16-bit data at %lx, %ld BR\n",
                       outBuffer, SmbGetUlong( &parameters->Buffer ),
-                      bytesRequired );
+                      bytesRequired ));
     }
 
     //
@@ -854,14 +854,14 @@ Return Value:
              )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessGetInfo: Buffer too small.\n" );
+            NetpKdPrint(( "XsNetAccessGetInfo: Buffer too small.\n" ));
         }
         Header->Status = NERR_BufTooSmall;
 
     } else if ( bytesRequired > SmbGetUshort( &parameters-> BufLen )) {
 
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "NetAccessGetInfo: More data available.\n" );
+            NetpKdPrint(( "NetAccessGetInfo: More data available.\n" ));
         }
         Header->Status = ERROR_MORE_DATA;
 
@@ -973,9 +973,9 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessGetUserPerms: "
+            NetpKdPrint(( "XsNetAccessGetUserPerms: "
                           "NetAccessGetUserPerms failed: %X\n",
-                          status );
+                          status ));
         }
     }
 
@@ -1042,9 +1042,9 @@ Return Value:
     API_HANDLER_PARAMETERS_REFERENCE;       // Avoid warnings
 
     IF_DEBUG(ACCESS) {
-        NetpDbgPrint( "XsNetAccessSetInfo: header at %lx, params at %lx,"
+        NetpKdPrint(( "XsNetAccessSetInfo: header at %lx, params at %lx,"
                       " level %ld\n",
-                      Header, parameters, SmbGetUshort( &parameters->Level ) );
+                      Header, parameters, SmbGetUshort( &parameters->Level ) ));
     }
 
     //
@@ -1104,7 +1104,7 @@ Return Value:
                 )) {
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: Buffer too small.\n" );
+                NetpKdPrint(( "XsNetAccessSetInfo: Buffer too small.\n" ));
             }
             Header->Status = NERR_BufTooSmall;
             goto cleanup;
@@ -1124,7 +1124,7 @@ Return Value:
 
         if ( auxDataCount > 64 ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: too many access_lists.\n" );
+                NetpKdPrint(( "XsNetAccessSetInfo: too many access_lists.\n" ));
             }
             Header->Status = NERR_ACFTooManyLists;
             goto cleanup;
@@ -1141,7 +1141,7 @@ Return Value:
 
         if (( longDescriptor == NULL ) || ( longNativeDescriptor == NULL )) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: failed to allocate memory" );
+                NetpKdPrint(( "XsNetAccessSetInfo: failed to allocate memory" ));
             }
             Header->Status = NERR_NoRoom;
             goto cleanup;
@@ -1166,7 +1166,7 @@ Return Value:
                 )) {
 
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: Buffer too small.\n" );
+                NetpKdPrint(( "XsNetAccessSetInfo: Buffer too small.\n" ));
             }
             Header->Status = NERR_BufTooSmall;
             goto cleanup;
@@ -1193,7 +1193,7 @@ Return Value:
 
         if ( buffer == NULL ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: failed to create buffer" );
+                NetpKdPrint(( "XsNetAccessSetInfo: failed to create buffer" ));
             }
             Header->Status = NERR_NoRoom;
             goto cleanup;
@@ -1201,8 +1201,8 @@ Return Value:
         }
 
         IF_DEBUG(ACCESS) {
-            NetpDbgPrint( "XsNetAccessSetInfo: buffer of %ld bytes at %lx\n",
-                          bufferSize, buffer );
+            NetpKdPrint(( "XsNetAccessSetInfo: buffer of %ld bytes at %lx\n",
+                          bufferSize, buffer ));
         }
 
         //
@@ -1228,9 +1228,9 @@ Return Value:
 
         if ( status != NERR_Success ) {
             IF_DEBUG(ERRORS) {
-                NetpDbgPrint( "XsNetAccessSetInfo: "
+                NetpKdPrint(( "XsNetAccessSetInfo: "
                               "RapConvertSingleEntry failed: %X\n",
-                              status );
+                              status ));
             }
 
             Header->Status = NERR_InternalError;
@@ -1255,8 +1255,8 @@ Return Value:
 
     if ( !XsApiSuccess( status )) {
         IF_DEBUG(ERRORS) {
-            NetpDbgPrint( "XsNetAccessSetInfo: NetAccessSetInfo failed: "
-                          "%X\n", status );
+            NetpKdPrint(( "XsNetAccessSetInfo: NetAccessSetInfo failed: "
+                          "%X\n", status ));
         }
         Header->Status = (WORD)status;
         goto cleanup;

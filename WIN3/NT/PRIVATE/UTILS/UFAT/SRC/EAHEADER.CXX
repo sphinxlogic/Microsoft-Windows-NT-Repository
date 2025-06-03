@@ -1,34 +1,38 @@
 #include <pch.cxx>
 
+#define _UFAT_MEMBER_
+#include "ufat.hxx"
+
 #include "error.hxx"
 
 
-DEFINE_CONSTRUCTOR( EA_HEADER, CLUSTER_CHAIN );
+DEFINE_EXPORTED_CONSTRUCTOR( EA_HEADER, CLUSTER_CHAIN, UFAT_EXPORT );
 
 VOID
 EA_HEADER::Construct (
-	)
+        )
 /*++
 
 Routine Description:
 
-	Constructor for EA_HEADER.  Initializes private data to default values.
+        Constructor for EA_HEADER.  Initializes private data to default values.
 
 Arguments:
 
-	None.
+        None.
 
 Return Value:
 
-	None.
+        None.
 
 --*/
 {
-	_ht = NULL;
+        _ht = NULL;
     _off_tab_size = 0;
 }
 
 
+UFAT_EXPORT
 EA_HEADER::~EA_HEADER(
     )
 /*++
@@ -51,6 +55,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 BOOLEAN
 EA_HEADER::Initialize(
     IN OUT  PMEM                Mem,
@@ -103,14 +108,14 @@ Return Value:
             !(_ht->Header.Signature == HeaderSignature) ||
             !(_ht->Header.FormatType == 0) ||
             !(_ht->Header.LogType == 0)) {
-			perrstk->push(ERR_NOT_INIT, QueryClassId());
+                        perrstk->push(ERR_NOT_INIT, QueryClassId());
             Destroy();
             return FALSE;
         }
         for (i = 0; i < BaseTableSize && !_ht->Table.BaseTab[i]; i++) {
         }
         if (i == BaseTableSize) {
-			perrstk->push(ERR_NOT_INIT, QueryClassId());
+                        perrstk->push(ERR_NOT_INIT, QueryClassId());
             Destroy();
             return FALSE;
         }
@@ -120,7 +125,7 @@ Return Value:
     if (!CLUSTER_CHAIN::Initialize(Mem, Drive, FatSuperArea, Fat,
                                    StartingCluster, LengthOfChain) ||
         !(_ht = (PEA_HEADER_AND_TABLE) GetBuf())) {
-		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         Destroy();
         return FALSE;
     }
@@ -134,7 +139,7 @@ Return Value:
     _off_tab_size /= sizeof(USHORT);
 
     if (_off_tab_size < 0) {
-		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         Destroy();
         return FALSE;
     }
@@ -143,6 +148,7 @@ Return Value:
 }
 
 
+UFAT_EXPORT
 USHORT
 EA_HEADER::QueryEaSetClusterNumber(
     IN  USHORT  Handle
@@ -168,18 +174,18 @@ Return Value:
     USHORT  off;
 
     if (!_ht) {
-		perrstk->push(ERR_NOT_INIT, QueryClassId());
+                perrstk->push(ERR_NOT_INIT, QueryClassId());
         return 0;
     }
 
-	Handle = (( Handle << 1 ) >> 1 );
+        Handle = (( Handle << 1 ) >> 1 );
 
-	if ((LONG)Handle >= _off_tab_size ||
+        if ((LONG)Handle >= _off_tab_size ||
         (off = _ht->Table.OffTab[Handle]) == InvalidHandle) {
         return 0;
     }
 
-	return (( off << 1 ) >> 1 ) + _ht->Table.BaseTab[Handle>>7];
+        return (( off << 1 ) >> 1 ) + _ht->Table.BaseTab[Handle>>7];
 }
 
 

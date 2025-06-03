@@ -706,4 +706,3 @@ prun = &rgrun[ifcMin];
 return prun->b;
 }
 #endif  /* BOGUSBL */
-

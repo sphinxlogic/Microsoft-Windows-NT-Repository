@@ -397,9 +397,6 @@ Return Value:
 
             case KEY_CAPS_LOCK:
                 FwCapsLock = !FwCapsLock;
-                //
-                // BUGBUG Need to turn on capslock led.
-                //
                 return;
 
             case KEY_F1:
@@ -495,8 +492,7 @@ Return Value:
                 }
 
                 //
-                // If a character, store it in buffer.  BUGBUG Check for control
-                // character.
+                // If a character, store it in buffer.
                 //
 
                 if (Char) {

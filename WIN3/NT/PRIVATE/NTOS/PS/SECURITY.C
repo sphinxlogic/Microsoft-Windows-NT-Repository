@@ -81,12 +81,7 @@ Return Value:
     //  pointer.
     //
 
-    (VOID) ObReferenceObjectByPointer(
-               Token,               // Object
-               0,                   // DesiredAccess
-               SeTokenObjectType(), // ObjectType
-               KernelMode           // RequestorMode
-               );
+    ObReferenceObject(Token);
 
     //
     //  Release the process security fields
@@ -130,11 +125,11 @@ Arguments:
     Thread - Supplies the address of the thread whose impersonation token
         is to be referenced.
 
-    CopyOnOpen - The current value of the Thread->Client->CopyOnOpen field.
+    CopyOnOpen - The current value of the Thread->ImpersonationInfo->CopyOnOpen field.
 
-    EffectiveOnly - The current value of the Thread->Client->EffectiveOnly field.
+    EffectiveOnly - The current value of the Thread->ImpersonationInfo->EffectiveOnly field.
 
-    ImpersonationLevel - The current value of the Thread->Client->ImpersonationLevel
+    ImpersonationLevel - The current value of the Thread->ImpersonationInfo->ImpersonationLevel
         field.
 
 Return Value:
@@ -159,7 +154,7 @@ Return Value:
     // This check saves about 300 instructions.
     //
 
-    if ( !ARGUMENT_PRESENT(Thread->Client) ) {
+    if ( !Thread->ActiveImpersonationInfo ) {
         return NULL;
     }
 
@@ -175,16 +170,16 @@ Return Value:
     //
 
 
-    if (ARGUMENT_PRESENT(Thread->Client)) {
+    if ( Thread->ActiveImpersonationInfo ) {
 
         //
         //  Return the thread's impersonation level, etc.
         //
 
-        Token = Thread->Client->Token;
-        (*ImpersonationLevel) = Thread->Client->ImpersonationLevel;
-        (*CopyOnOpen) = Thread->Client->CopyOnOpen;
-        (*EffectiveOnly) = Thread->Client->EffectiveOnly;
+        Token = Thread->ImpersonationInfo->Token;
+        (*ImpersonationLevel) = Thread->ImpersonationInfo->ImpersonationLevel;
+        (*CopyOnOpen) = Thread->ImpersonationInfo->CopyOnOpen;
+        (*EffectiveOnly) = Thread->ImpersonationInfo->EffectiveOnly;
 
 
         //
@@ -192,12 +187,7 @@ Return Value:
         //  pointer.
         //
 
-        (VOID) ObReferenceObjectByPointer(
-                   Token,               // Object
-                   0,                   // DesiredAccess
-                   SeTokenObjectType(), // ObjectType
-                   KernelMode           // RequestorMode
-                   );
+        ObReferenceObject(Token);
 
     } else {
         Token = NULL;
@@ -281,17 +271,17 @@ Return Value:
     //
 
 
-    if (ARGUMENT_PRESENT(Thread->Client)) {
+    if ( Thread->ActiveImpersonationInfo ) {
 
-        Token = Thread->Client->Token;
+        Token = Thread->ImpersonationInfo->Token;
 
         //
         //  Return the thread's impersonation level, etc.
         //
 
         (*TokenType) = TokenImpersonation;
-        (*EffectiveOnly) = Thread->Client->EffectiveOnly;
-        (*ImpersonationLevel) = Thread->Client->ImpersonationLevel;
+        (*EffectiveOnly) = Thread->ImpersonationInfo->EffectiveOnly;
+        (*ImpersonationLevel) = Thread->ImpersonationInfo->ImpersonationLevel;
 
 
 
@@ -319,14 +309,7 @@ Return Value:
     //  pointer.
     //
 
-    (VOID) ObReferenceObjectByPointer(
-               Token,               // Object
-               0,                   // DesiredAccess
-               SeTokenObjectType(), // ObjectType
-               KernelMode           // RequestorMode
-               );
-
-
+    ObReferenceObject(Token);
 
     //
     //  Release the security fields.
@@ -643,9 +626,9 @@ Arguments:
 
 
     EffectiveOnly - Is a boolean value to be assigned as the
-        Thread->Client->EffectiveOnly field value for the impersonation.  A value
-        of FALSE indicates the server is allowed to enable currently disabled
-        groups and privileges.
+        Thread->ImpersonationInfo->EffectiveOnly field value for the
+        impersonation.  A value of FALSE indicates the server is allowed
+        to enable currently disabled groups and privileges.
 
     ImpersonationLevel - Is the impersonation level that the server is allowed
         to access the token with.
@@ -684,65 +667,65 @@ Return Value:
         // Clean up any client information.
         //
 
-        if (ARGUMENT_PRESENT(Thread->Client)) {
+        if ( Thread->ActiveImpersonationInfo ) {
 
-            OldToken = Thread->Client->Token;
-            ExFreePool( Thread->Client );
-            Thread->Client = NULL;
+            OldToken = Thread->ImpersonationInfo->Token;
+            Thread->ActiveImpersonationInfo = FALSE;
         } else {
             OldToken = NULL;
         }
 
     } else {
-    
+
         //
         // If we are already impersonating someone,
         // use the already allocated block.  This avoids
         // an alloc and a free.
         //
-        
-        if (ARGUMENT_PRESENT(Thread->Client)) {
-        
+
+        if ( Thread->ActiveImpersonationInfo ) {
+
             //
             // capture the old token pointer.
             // We'll dereference it after unlocking the security fields.
             //
-        
-            OldToken = Thread->Client->Token;
-            NewClient = Thread->Client;
-        
+
+            OldToken = Thread->ImpersonationInfo->Token;
+            NewClient = Thread->ImpersonationInfo;
+
         } else {
-        
+
             OldToken = NULL;
-        
-            //
-            // Allocate and set up the Client block
-            //
-        
-            NewClient = (PPS_IMPERSONATION_INFORMATION)ExAllocatePoolWithTag(
-                            PagedPool,
-                            sizeof(PS_IMPERSONATION_INFORMATION),
-                            'mIsP');
-            if (NewClient == NULL) {
-                PspFreeProcessSecurityFields();
-                return;    // BUG, BUG - ARGH!  I need to fix PsImpersonateClient so that it can fail !!
-                           // CHECK TO MAKE SURE THIS WASN'T EXPORTED TO DRIVERS.
+
+            if ( Thread->ImpersonationInfo ) {
+                NewClient = Thread->ImpersonationInfo;
+            } else {
+
+                //
+                // Allocate and set up the Client block
+                //
+
+                NewClient = (PPS_IMPERSONATION_INFORMATION)ExAllocatePoolWithTag(
+                                PagedPool,
+                                sizeof(PS_IMPERSONATION_INFORMATION),
+                                'mIsP');
+                if (NewClient == NULL) {
+                    PspFreeProcessSecurityFields();
+                    return;    // BUG, BUG - ARGH!  I need to fix PsImpersonateClient so that it can fail !!
+                               // CHECK TO MAKE SURE THIS WASN'T EXPORTED TO DRIVERS.
+                }
+
+                Thread->ImpersonationInfo = NewClient;
             }
-        
-            Thread->Client = NewClient;
         }
 
         NewClient->ImpersonationLevel = ImpersonationLevel;
         NewClient->EffectiveOnly = EffectiveOnly;
         NewClient->CopyOnOpen = CopyOnOpen;
         NewClient->Token = Token;
+        Thread->ActiveImpersonationInfo = TRUE;
 
-        (VOID) ObReferenceObjectByPointer(
-                   NewClient->Token,        // Object
-                   0,                       // DesiredAccess
-                   SeTokenObjectType(),     // ObjectType
-                   KernelMode               // RequestorMode
-                   );
+        ObReferenceObject(NewClient->Token);
     }
 
     //
@@ -823,9 +806,9 @@ Return Value:
     //  Capture the impersonation information (if there is any).
     //
 
-    OldClient = Thread->Client;
-    if (ARGUMENT_PRESENT(OldClient)) {
-    
+    if ( Thread->ActiveImpersonationInfo ) {
+
+        OldClient = Thread->ImpersonationInfo;
         ImpersonationState->Level         = OldClient->ImpersonationLevel;
         ImpersonationState->EffectiveOnly = OldClient->EffectiveOnly;
         ImpersonationState->CopyOnOpen    = OldClient->CopyOnOpen;
@@ -837,6 +820,7 @@ Return Value:
         // The NULL for the token indicates we aren't impersonating.
         //
 
+        OldClient = NULL;
         ImpersonationState->Level         = SecurityAnonymous;
         ImpersonationState->EffectiveOnly = FALSE;
         ImpersonationState->CopyOnOpen    = FALSE;
@@ -847,7 +831,7 @@ Return Value:
     // Clear the Client field to indicate the thread is not impersonating.
     //
 
-    Thread->Client = NULL;
+    Thread->ActiveImpersonationInfo = FALSE;
 
 
     //
@@ -857,15 +841,8 @@ Return Value:
     PspFreeProcessSecurityFields();
 
 
-    if (ARGUMENT_PRESENT(OldClient)) {
+    if ( OldClient ) {
 
-        //
-        // Free the client block, but don't decrement the pointer
-        // reference count so that we are sure we can continue
-        // pointing to it after a PsRestoreImpersonation() call is made.
-        //
-
-        ExFreePool( OldClient );
         return TRUE;
 
     } else {
@@ -961,8 +938,7 @@ Return Value:
     PETHREAD
         Thread = PsGetCurrentThread();
 
-    PPS_IMPERSONATION_INFORMATION
-        OldClient;
+    PACCESS_TOKEN OldToken;
 
     //
     //  Lock the process security fields
@@ -975,11 +951,12 @@ Return Value:
     //  and dereference that token if so.
     //
 
-    if (ARGUMENT_PRESENT(Thread->Client) ) {
+    if ( Thread->ActiveImpersonationInfo ) {
 
-        OldClient = Thread->Client;
-        Thread->Client = NULL;
-
+        Thread->ActiveImpersonationInfo = FALSE;
+        OldToken = Thread->ImpersonationInfo->Token;
+    } else {
+        OldToken = NULL;
     }
 
 
@@ -994,8 +971,9 @@ Return Value:
     // Free the old client info...
     //
 
-    ObDereferenceObject( OldClient->Token );
-    ExFreePool( OldClient );
+    if ( OldToken ) {
+        ObDereferenceObject( OldToken );
+    }
 
     return;
 }
@@ -1300,9 +1278,8 @@ Return Value:
     // Initially not impersonating anyone.
     //
 
-    Thread->Client = NULL;
-
-
+    Thread->ImpersonationInfo = NULL;
+    Thread->ActiveImpersonationInfo = FALSE;
 
     return;
 
@@ -1341,10 +1318,14 @@ Return Value:
     // clean-up client information, if there is any.
     //
 
-    if (ARGUMENT_PRESENT(Thread->Client) ) {
-        ObDereferenceObject( Thread->Client->Token );
-        ExFreePool( Thread->Client );
-        Thread->Client = NULL;
+    if ( Thread->ActiveImpersonationInfo ) {
+        ObDereferenceObject( Thread->ImpersonationInfo->Token );
+    }
+
+    if ( Thread->ImpersonationInfo ) {
+        ExFreePool( Thread->ImpersonationInfo );
+        Thread->ActiveImpersonationInfo = FALSE;
+        Thread->ImpersonationInfo = NULL;
     }
 
     return;
@@ -1353,7 +1334,7 @@ Return Value:
 
 
 NTSTATUS
-PspAssignImpersonationToken(
+PsAssignImpersonationToken(
     IN PETHREAD Thread,
     IN HANDLE Token
     )

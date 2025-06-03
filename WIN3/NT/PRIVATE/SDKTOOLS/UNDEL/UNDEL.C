@@ -109,8 +109,8 @@ char *v[];
     else
         if (fSwitChr(**v)) {
             p = *v;
-            if (!strcmpi(++p, "help")) {
-                int iRetCode = spawnlp(P_WAIT, "qh.exe", "qh", "/u",
+            if (!_strcmpi(++p, "help")) {
+                int iRetCode = _spawnlp(P_WAIT, "qh.exe", "qh", "/u",
                                         "undel.exe", NULL);
                 /* for Return Code QH_TOPIC_NOT_FOUND do Usage(),
                  *   and -1 means that the spawn failed
@@ -147,9 +147,9 @@ char *v[];
 long pfile(p)
 char *p;
 {
-    struct stat sbuf;
+    struct _stat sbuf;
 
-    if (stat(p, &sbuf)) {
+    if (_stat(p, &sbuf)) {
         printf("%s %s\n", p, error());
         return 0L;
     }
@@ -174,12 +174,12 @@ char *p;
 *
 * Input:
 *   fh - Handle of index file.
-*   i  - Number of record to read from index file
+*   i  - Number of record to _read from index file
 *   p  - Target buffer to place record.
 *
 * Output:
 *
-*   Returns TRUE if record read, FALSE otherwise.
+*   Returns TRUE if record _read, FALSE otherwise.
 *
 * Notes:
 *
@@ -196,7 +196,7 @@ char *p;
      */
 
     /* Seek to the beginning of the index file, past the header */
-    lseek(fh, (long) RM_RECLEN, SEEK_SET);
+    _lseek(fh, (long) RM_RECLEN, SEEK_SET);
     /* Read (i - 1) records */
     if (i < 0)
         return TRUE;
@@ -246,7 +246,7 @@ char *p;
     strcat(idx, "\\");
     strcat(idx, RM_IDX);
 
-    if ((fhidx = open(idx, O_RDWR | O_BINARY)) == -1)
+    if ((fhidx = _open(idx, O_RDWR | O_BINARY)) == -1)
         printf("not deleted\n");
     else {
         convertIdxFile(fhidx, szLongName);
@@ -254,11 +254,11 @@ char *p;
         iEntry = -1;
         iDelCount = 0;
         while (getRecord(fhidx, ++iEntry, szLongName))
-            if (!strcmpi(szLongName, buf)) {
+            if (!_strcmpi(szLongName, buf)) {
                 /* Save found entry */
                 i = iEntry;
                 iDelCount++;
-                iDelIndex = (lseek(fhidx, 0L, SEEK_CUR)
+                iDelIndex = (_lseek(fhidx, 0L, SEEK_CUR)
                              - strlen(szLongName)) / RM_RECLEN;
             }
         /* none found */
@@ -274,8 +274,8 @@ char *p;
                 iEntry = -1;
                 printf("No     Size Timestamp\n\n");
                 while (getRecord(fhidx, ++iEntry, szLongName))
-                    if (!strcmpi(szLongName, buf)) {
-                        iDelIndex = (lseek(fhidx, 0L, SEEK_CUR)
+                    if (!_strcmpi(szLongName, buf)) {
+                        iDelIndex = (_lseek(fhidx, 0L, SEEK_CUR)
                                     - strlen(szLongName)) / RM_RECLEN;
                         sprintf(dbuf, "deleted.%03x", iDelIndex);
                         upd(idx, dbuf, dbuf);
@@ -293,17 +293,17 @@ char *p;
                 iEntry = -1;
                 j = 0;
                 while (getRecord(fhidx, ++iEntry, szLongName))
-                    if (!strcmpi(szLongName, buf))
+                    if (!_strcmpi(szLongName, buf))
                         if (j++ == i)
                             break;
-                iDelIndex = (lseek(fhidx, 0L, SEEK_CUR)
+                iDelIndex = (_lseek(fhidx, 0L, SEEK_CUR)
                              - strlen(szLongName)) / RM_RECLEN;
             }
             /* At this stage relevant entry is (iEntry)
              * and this corresponds to ('deleted.%03x', iDelIndex)
              */
             getRecord(fhidx, iEntry, szLongName);
-            close(fhidx);
+            _close(fhidx);
             fdelete(p);
             printf("%s\t", szLongName);
             fflush(stdout);
@@ -314,14 +314,14 @@ char *p;
                 printf(" rename failed - %s\n", error());
             else {
                 printf("[OK]\n");
-                if ((fhidx = open(idx, O_RDWR | O_BINARY)) != -1) {
+                if ((fhidx = _open(idx, O_RDWR | O_BINARY)) != -1) {
                     long lOffPrev,        /* Offset of Previous Entry */
                          lOff;            /* Offset of current entry  */
 
                     getRecord(fhidx, iEntry, szLongName);
-                    lOff = lseek(fhidx, 0L, SEEK_CUR);
+                    lOff = _lseek(fhidx, 0L, SEEK_CUR);
                     getRecord(fhidx, iEntry - 1, szLongName);
-                    lOffPrev = lseek(fhidx, 0L, SEEK_CUR);
+                    lOffPrev = _lseek(fhidx, 0L, SEEK_CUR);
                     for (;lOffPrev != lOff; lOffPrev += RM_RECLEN) {
                         memset((char far *)rec, 0, RM_RECLEN);
                         writeIdxRec(fhidx, rec);
@@ -329,7 +329,7 @@ char *p;
                 }
             }
         }
-        close(fhidx);
+        _close(fhidx);
     }
 }
 
@@ -364,7 +364,7 @@ void dump()
     }
     bPerA = cBytesPerSec * cSecsPerClus;
 
-    if ((fhidx = open(idx, O_RDWR | O_BINARY)) != -1) {
+    if ((fhidx = _open(idx, O_RDWR | O_BINARY)) != -1) {
         convertIdxFile(fhidx, szName);
         totalloc = totbytes = 0L;
         totfiles = 0;
@@ -378,7 +378,7 @@ void dump()
                     printf("    size wdy mmm dd hh:mm:ss yyyy  filename\n\n");
 #endif
                 strcpy(szName, buf);
-                sprintf(buf, "deleted.%03x", (lseek(fhidx, 0L, SEEK_CUR)
+                sprintf(buf, "deleted.%03x", (_lseek(fhidx, 0L, SEEK_CUR)
                         - strlen(buf)) / RM_RECLEN);
                 upd(idx, buf, buf);
                 totbytes += (l = pfile(buf));
@@ -389,12 +389,12 @@ void dump()
                 totalloc += l;
                 totfiles++;
             }
-        close(fhidx);
+        _close(fhidx);
         printf("\n%ld(%ld) bytes in %d deleted files\n", totalloc, totbytes, totfiles);
     }
     // Maybe the file is readonly
     else if (errno == EACCES) {
-        if ((fhidx = open(idx, O_RDONLY | O_BINARY)) != -1) {
+        if ((fhidx = _open(idx, O_RDONLY | O_BINARY)) != -1) {
             // Cannot convert Index file for this case
             totalloc = totbytes = 0L;
             totfiles = 0;
@@ -408,7 +408,7 @@ void dump()
                         printf("    size wdy mmm dd hh:mm:ss yyyy  filename\n\n");
 #endif
                     strcpy(szName, buf);
-                    sprintf(buf, "deleted.%03x", (lseek(fhidx, 0L, SEEK_CUR)
+                    sprintf(buf, "deleted.%03x", (_lseek(fhidx, 0L, SEEK_CUR)
                         - strlen(buf)) / RM_RECLEN);
                     upd(idx, buf, buf);
                     totbytes += (l = pfile(buf));
@@ -419,7 +419,7 @@ void dump()
                     totalloc += l;
                     totfiles++;
                 }
-            close(fhidx);
+            _close(fhidx);
             printf("\n%ld(%ld) bytes in %d deleted files\n", totalloc, totbytes, totfiles);
         }
     }
@@ -447,4 +447,3 @@ void Usage()
 
     exit(1);
 }
-

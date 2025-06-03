@@ -25,9 +25,19 @@ Revision History:
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text(PAGE,HvpBuildMap)
+#pragma alloc_text(PAGE,HvpFreeMap)
+#pragma alloc_text(PAGE,HvpAllocateMap)
 #pragma alloc_text(PAGE,HvpBuildMapAndCopy)
 #pragma alloc_text(PAGE,HvpEnlistFreeCells)
 #endif
+
+extern struct {
+    PHHIVE      Hive;
+    ULONG       Status;
+    ULONG       Space;
+    HCELL_INDEX MapPoint;
+    PHBIN       BinPoint;
+} HvCheckHiveDebug;
 
 NTSTATUS
 HvpBuildMapAndCopy(
@@ -418,6 +428,11 @@ Return Value:
             // Bin is bogus
             //
             Status = STATUS_REGISTRY_CORRUPT;
+            HvCheckHiveDebug.Hive = Hive;
+            HvCheckHiveDebug.Status = 0xA001;
+            HvCheckHiveDebug.Space = Length;
+            HvCheckHiveDebug.MapPoint = Offset;
+            HvCheckHiveDebug.BinPoint = Bin;
             goto ErrorExit2;
         }
 
@@ -450,6 +465,11 @@ Return Value:
             // add free cells in the bin to the appropriate free lists
             //
             if ( ! HvpEnlistFreeCells(Hive, Bin, BinOffset)) {
+                HvCheckHiveDebug.Hive = Hive;
+                HvCheckHiveDebug.Status = 0xA002;
+                HvCheckHiveDebug.Space = Length;
+                HvCheckHiveDebug.MapPoint = BinOffset;
+                HvCheckHiveDebug.BinPoint = Bin;
                 Status = STATUS_REGISTRY_CORRUPT;
                 goto ErrorExit2;
             }
@@ -570,5 +590,100 @@ Return Value:
         p = (PHCELL)((PUCHAR)p + size);
     }
 
+    return TRUE;
+}
+
+
+VOID
+HvpFreeMap(
+    PHHIVE          Hive,
+    PHMAP_DIRECTORY Dir,
+    ULONG           Start,
+    ULONG           End
+    )
+/*++
+
+Routine Description:
+
+    Sweeps through the directory Dir points to and frees Tables.
+    Will free Start-th through End-th entries, INCLUSIVE.
+
+Arguments:
+
+    Hive - supplies pointer to hive control block of interest
+
+    Dir - supplies address of an HMAP_DIRECTORY structure
+
+    Start - index of first map table pointer to clean up
+
+    End - index of last map table pointer to clean up
+
+Return Value:
+
+    NONE.
+
+--*/
+{
+    ULONG   i;
+
+    if (End >= HDIRECTORY_SLOTS) {
+        End = HDIRECTORY_SLOTS - 1;
+    }
+
+    for (i = Start; i <= End; i++) {
+        if (Dir->Directory[i] != NULL) {
+            (Hive->Free)(Dir->Directory[i], sizeof(HMAP_TABLE));
+            Dir->Directory[i] = NULL;
+        }
+    }
+    return;
+}
+
+
+BOOLEAN
+HvpAllocateMap(
+    PHHIVE          Hive,
+    PHMAP_DIRECTORY Dir,
+    ULONG           Start,
+    ULONG           End
+    )
+/*++
+
+Routine Description:
+
+    Sweeps through the directory Dir points to and allocates Tables.
+    Will allocate Start-th through End-th entries, INCLUSIVE.
+
+    Does NOT clean up when out of memory, call HvpFreeMap to do that.
+Arguments:
+
+    Hive - supplies pointer to hive control block of interest
+
+    Dir - supplies address of an HMAP_DIRECTORY structure
+
+    Start - index of first map table pointer to allocate for
+
+    End - index of last map table pointer to allocate for
+
+Return Value:
+
+    TRUE - it worked
+
+    FALSE - insufficient memory
+
+--*/
+{
+    ULONG   i;
+    PVOID   t;
+
+    for (i = Start; i <= End; i++) {
+        ASSERT(Dir->Directory[i] == NULL);
+        t = (PVOID)((Hive->Allocate)(sizeof(HMAP_TABLE), FALSE));
+        if (t == NULL) {
+            return FALSE;
+        }
+        RtlZeroMemory(t, sizeof(HMAP_TABLE));
+        Dir->Directory[i] = (PHMAP_TABLE)t;
+    }
     return TRUE;
 }

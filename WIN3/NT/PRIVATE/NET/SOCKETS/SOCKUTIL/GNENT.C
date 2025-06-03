@@ -20,6 +20,7 @@ Revision History:
     Who         When        What
     --------    --------    ----------------------------------------------
     mikemas     9-20-91     created
+    MuraliK     10-19-94    Nls Enabled 
 
 Notes:
 
@@ -52,7 +53,8 @@ Notes:
 #include <winsock.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+# include "sockutil.h"
+# include "nls.h"
 
 #define MAXALIASES      35
 #ifdef _POSIX_SOURCE
@@ -105,10 +107,11 @@ getnetent(
         register char *cp, **q;
 
         if (netf == NULL && (netf = fopen(NETDB, "r" )) == NULL) {
-            fprintf(stderr,
-                    "\tERROR: cannot open networks database file %s\n",
-                    NETDB
-                   );
+            // fprintf(stderr,
+            //        "\tERROR: cannot open networks database file %s\n",
+            //        NETDB
+            //       );
+            NlsPutMsg( STDERR, IDS_UNABLE_TO_OPEN_NETDB);
             return (NULL);
         }
 again:

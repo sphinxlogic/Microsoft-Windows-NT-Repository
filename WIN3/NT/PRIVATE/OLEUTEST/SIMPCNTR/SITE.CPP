@@ -109,7 +109,7 @@ CSimpleSite::CSimpleSite (CSimpleDoc FAR *lpDoc) : m_OleClientSite(this),
                                                    m_OleInPlaceSite(this)
 #pragma warning (default : 4355)  // Turn the warning back on
 {
-    OutputDebugString (TEXT("In CSimpleSite's Constructor \r\n"));
+    TestDebugOut (TEXT("In CSimpleSite's Constructor \r\n"));
 
     // remember the pointer to the doc
     m_lpDoc = lpDoc;
@@ -144,7 +144,7 @@ CSimpleSite::CSimpleSite (CSimpleDoc FAR *lpDoc) : m_OleClientSite(this),
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleObject::Release                     Object
 //      IStorage::Release                       OLE API
 //
@@ -153,7 +153,7 @@ CSimpleSite::CSimpleSite (CSimpleDoc FAR *lpDoc) : m_OleClientSite(this),
 
 CSimpleSite::~CSimpleSite ()
 {
-    OutputDebugString (TEXT("In CSimpleSite's Destructor \r\n"));
+    TestDebugOut (TEXT("In CSimpleSite's Destructor \r\n"));
 
     if (m_lpOleObject)
        m_lpOleObject->Release();
@@ -182,7 +182,7 @@ CSimpleSite::~CSimpleSite ()
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      IOleObject::QueryInterface              Object
 //      IOleObject::Close                       Object
 //      IOleInPlaceObject::UIDeactivate         Object
@@ -197,7 +197,7 @@ void CSimpleSite::CloseOleObject (void)
     LPOLEINPLACEOBJECT lpObject;
     LPVIEWOBJECT lpViewObject = NULL;
 
-    OutputDebugString (TEXT("In CSimpleSite::CloseOleObject \r\n"));
+    TestDebugOut (TEXT("In CSimpleSite::CloseOleObject \r\n"));
 
     if (m_lpOleObject)
     {
@@ -236,7 +236,7 @@ void CSimpleSite::CloseOleObject (void)
 // Function Calls:
 //      Function                                Location
 //
-//      OutputDebugString                       Windows API
+//      TestDebugOut                       Windows API
 //      CSimpleSite::CloseOleObject             SITE.CPP
 //      IOleObject::QueryInterface              Object
 //      IOleObject::Release                     Object
@@ -248,7 +248,7 @@ void CSimpleSite::CloseOleObject (void)
 
 void CSimpleSite::UnloadOleObject (void)
 {
-    OutputDebugString (TEXT("In CSimpleSite::UnloadOleObject \r\n"));
+    TestDebugOut (TEXT("In CSimpleSite::UnloadOleObject \r\n"));
 
     if (m_lpOleObject)
     {
@@ -295,7 +295,7 @@ void CSimpleSite::UnloadOleObject (void)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //      IsEqualIID                  OLE API
 //      ResultFromScode             OLE API
 //      CSimpleSite::AddRef         OBJ.CPP
@@ -308,7 +308,7 @@ void CSimpleSite::UnloadOleObject (void)
 
 STDMETHODIMP CSimpleSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 {
-    OutputDebugString(TEXT("In CSimpleSite::QueryInterface\r\n"));
+    TestDebugOut(TEXT("In CSimpleSite::QueryInterface\r\n"));
 
     *ppvObj = NULL;     // must set out pointer parameters to NULL
 
@@ -363,14 +363,14 @@ STDMETHODIMP CSimpleSite::QueryInterface(REFIID riid, LPVOID FAR* ppvObj)
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleSite::AddRef()
 {
-    OutputDebugString(TEXT("In CSimpleSite::AddRef\r\n"));
+    TestDebugOut(TEXT("In CSimpleSite::AddRef\r\n"));
 
     return ++m_nCount;
 }
@@ -394,14 +394,14 @@ STDMETHODIMP_(ULONG) CSimpleSite::AddRef()
 // Function Calls:
 //      Function                    Location
 //
-//      OutputDebugString           Windows API
+//      TestDebugOut           Windows API
 //
 //
 //********************************************************************
 
 STDMETHODIMP_(ULONG) CSimpleSite::Release()
 {
-    OutputDebugString(TEXT("In CSimpleSite::Release\r\n"));
+    TestDebugOut(TEXT("In CSimpleSite::Release\r\n"));
 
     if (--m_nCount == 0)
     {
@@ -449,7 +449,7 @@ void CSimpleSite::InitObject(BOOL fCreateNew)
     LPVIEWOBJECT2 lpViewObject2;
     RECT rect;
 
-    OutputDebugString(TEXT("In CSimpleSite::InitObject\r\n"));
+    TestDebugOut(TEXT("In CSimpleSite::InitObject\r\n"));
 
     // Set a View Advise
     m_lpOleObject->QueryInterface(IID_IViewObject2,
@@ -472,7 +472,7 @@ void CSimpleSite::InitObject(BOOL fCreateNew)
     if ((hRes = OleSetContainedObject(m_lpOleObject, TRUE))
         != ResultFromScode(S_OK) )
     {
-       OutputDebugString(TEXT("Fail in OleSetContainedObject\n"));
+       TestDebugOut(TEXT("Fail in OleSetContainedObject\n"));
     }
 
     if (fCreateNew)
@@ -577,7 +577,7 @@ void CSimpleSite::PaintObj(HDC hDC)
         (hRes != ResultFromScode(OLE_E_BLANK)) &&
         (hRes != ResultFromScode(DV_E_NOIVIEWOBJECT)))
     {
-       OutputDebugString(TEXT("Fail in OleDraw\n"));
+       TestDebugOut(TEXT("Fail in OleDraw\n"));
     }
 
     // if the object is open, draw a hatch rect.

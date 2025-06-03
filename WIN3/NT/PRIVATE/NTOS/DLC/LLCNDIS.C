@@ -42,6 +42,7 @@ Abstract:
         LlcNdisReset
         LlcNdisResetComplete
         UnicodeStringCompare
+        PurgeLlcEventQueue
 
 Author:
 
@@ -80,6 +81,11 @@ BOOLEAN
 UnicodeStringCompare(
     IN PUNICODE_STRING String1,
     IN PUNICODE_STRING String2
+    );
+
+VOID
+PurgeLlcEventQueue(
+    IN PBINDING_CONTEXT pBindingContext
     );
 
 //
@@ -1068,7 +1074,9 @@ CleanUp:
         NdisCloseAdapter(&status,
                          pAdapterContext->NdisBindingHandle
                          );
-        WaitAsyncOperation(&(pAdapterContext->AsyncCloseResetStatus), status);
+        WaitAsyncOperation(pAdapterContext,
+						   &(pAdapterContext->AsyncCloseResetStatus),
+						   status);
         pAdapterContext->NdisBindingHandle = NULL;
     }
 
@@ -1375,6 +1383,16 @@ Return Value:
 #endif
 
     //
+    // RLF 08/20/94
+    //
+    // here we must kill any events on the adapter context that may access
+    // this binding context's event indication function pointer. If not, we
+    // can end up with a blue screen (hey! it happened)
+    //
+
+    PurgeLlcEventQueue(pBindingContext);
+
+    //
     // DEBUG: refund memory charged for BINDING_CONTEXT to FILE_CONTEXT
     //
 
@@ -1416,33 +1434,6 @@ Return Value:
             LlcSleep(1000L);      // check the situation after 1 ms
         }
 
-        if (pAdapterContext->hNdisPacketPool) {
-
-            //
-            // Free MDLs allocated for each NDIS packet.
-            //
-
-            while (pAdapterContext->pNdisPacketPool) {
-
-                PLLC_NDIS_PACKET pNdisPacket;
-
-                pNdisPacket = PopFromList(((PLLC_PACKET)pAdapterContext->pNdisPacketPool));
-                IoFreeMdl(pNdisPacket->pMdl);
-
-                DBG_INTERLOCKED_DECREMENT(AllocatedMdlCount);
-            }
-
-            NdisFreePacketPool(pAdapterContext->hNdisPacketPool);
-        }
-
-        //
-        // DEBUG: refund memory charged for UNICODE buffer to driver string usage
-        //
-
-        FREE_STRING_DRIVER(pAdapterContext->Name.Buffer);
-
-        DELETE_PACKET_POOL_ADAPTER(&pAdapterContext->hLinkPool);
-
         //
         // RLF 10/26/92
         //
@@ -1453,30 +1444,73 @@ Return Value:
         // Ndis function to close the adapter
         //
 
-        if (CloseAtNdisLevel) {
+        //
+        // MunilS 6/13/96
+        //
+        // Moved NdisFreePacketPool etc after NdisCloseAdapter to prevent
+        // bugcheck in NDIS while handling outstanding sends.
+        //
+
+        if (CloseAtNdisLevel)
+        {
             pAdapterContext->AsyncCloseResetStatus = NDIS_STATUS_PENDING;
+
             NdisCloseAdapter(&NdisStatus,
                              pAdapterContext->NdisBindingHandle
                              );
-            WaitAsyncOperation(&(pAdapterContext->AsyncCloseResetStatus), NdisStatus);
+
+            WaitAsyncOperation(pAdapterContext,
+							   &(pAdapterContext->AsyncCloseResetStatus),
+							   NdisStatus);
             pAdapterContext->NdisBindingHandle = NULL;
         }
 
-        DELETE_PACKET_POOL_ADAPTER(&pAdapterContext->hPacketPool);
+        if (pAdapterContext->hNdisPacketPool)
+        {
 
-        CHECK_MEMORY_RETURNED_ADAPTER();
-        CHECK_STRING_RETURNED_ADAPTER();
+           //
+           // Free MDLs allocated for each NDIS packet.
+           //
 
-        UNLINK_MEMORY_USAGE(pAdapterContext);
-        UNLINK_STRING_USAGE(pAdapterContext);
+           while (pAdapterContext->pNdisPacketPool) {
 
-        FREE_MEMORY_DRIVER(pAdapterContext);
+               PLLC_NDIS_PACKET pNdisPacket;
+
+               pNdisPacket = PopFromList(((PLLC_PACKET)pAdapterContext->pNdisPacketPool));
+
+               IoFreeMdl(pNdisPacket->pMdl);
+
+               DBG_INTERLOCKED_DECREMENT(AllocatedMdlCount);
+           }
+
+           NdisFreePacketPool(pAdapterContext->hNdisPacketPool);
+       }
+
+       //
+       // DEBUG: refund memory charged for UNICODE buffer to driver string usage
+       //
+
+       FREE_STRING_DRIVER(pAdapterContext->Name.Buffer);
+
+       DELETE_PACKET_POOL_ADAPTER(&pAdapterContext->hLinkPool);
+
+       DELETE_PACKET_POOL_ADAPTER(&pAdapterContext->hPacketPool);
+
+       CHECK_MEMORY_RETURNED_ADAPTER();
+
+       CHECK_STRING_RETURNED_ADAPTER();
+
+       UNLINK_MEMORY_USAGE(pAdapterContext);
+
+       UNLINK_STRING_USAGE(pAdapterContext);
+
+       FREE_MEMORY_DRIVER(pAdapterContext);
 
     } else {
 
-        RELEASE_LLC_LOCK(irql);
+       RELEASE_LLC_LOCK(irql);
 
-        RELEASE_DRIVER_LOCK();
+       RELEASE_DRIVER_LOCK();
 
     }
 
@@ -1642,9 +1676,20 @@ Return Value:
 --*/
 
 {
-    ASSUME_IRQL(DISPATCH_LEVEL);
+    ASSUME_IRQL(ANY_IRQL);
+
+    ACQUIRE_DRIVER_LOCK();
+
+    ACQUIRE_LLC_LOCK(irql);
 
     pAdapterContext->AsyncCloseResetStatus = NdisStatus;
+
+    RELEASE_LLC_LOCK(irql);
+
+    RELEASE_DRIVER_LOCK();
+
+    KeSetEvent(&pAdapterContext->Event, 0L, FALSE);
+
 }
 
 
@@ -1716,6 +1761,17 @@ Return Value:
 
         NTSTATUS SpecificStatus = *(PULONG)StatusBuffer;
 
+		if ( NdisStatus == NDIS_STATUS_RING_STATUS ) {
+#if DBG
+			ASSERT (IS_NDIS_RING_STATUS(SpecificStatus));
+#else	// DBG
+			if (IS_NDIS_RING_STATUS(SpecificStatus))
+#endif	// DBG
+			{
+				SpecificStatus = NDIS_RING_STATUS_TO_DLC_RING_STATUS(SpecificStatus);
+			}
+		}
+
         //
         // These ndis status codes are indicated to all LLC
         // protocol drivers, that have been bound to this adapter:
@@ -1726,18 +1782,18 @@ Return Value:
         //
 
         for (pBinding = pAdapterContext->pBindings;
-             pBinding != NULL;
+             pBinding;
              pBinding = pBinding->pNext) {
 
-            pEvent = AllocatePacket(pAdapterContext->hPacketPool);
+            pEvent = ALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool);
 
-            if (pEvent != NULL) {
-                LlcInsertTailList(&pAdapterContext->QueueEvents, pEvent);
+            if (pEvent) {
                 pEvent->pBinding = pBinding;
                 pEvent->hClientHandle = NULL;
                 pEvent->Event = LLC_NETWORK_STATUS;
                 pEvent->pEventInformation = (PVOID)NdisStatus;
                 pEvent->SecondaryInfo = SpecificStatus;
+                LlcInsertTailList(&pAdapterContext->QueueEvents, pEvent);
             }
         }
     }
@@ -1862,12 +1918,15 @@ Return Value:
 
     pRequest->AsyncStatus = NDIS_STATUS_PENDING;
     NdisRequest(&Status, pAdapterContext->NdisBindingHandle, &pRequest->Ndis);
-    return (DLC_STATUS)WaitAsyncOperation(&(pRequest->AsyncStatus), Status);
+    return (DLC_STATUS)WaitAsyncOperation(pAdapterContext,
+										  &(pRequest->AsyncStatus),
+										  Status);
 }
 
 
 NDIS_STATUS
 WaitAsyncOperation(
+    IN PADAPTER_CONTEXT pAdapterContext,
     IN PNDIS_STATUS pAsyncStatus,
     IN NDIS_STATUS  NdisStatus
     )
@@ -1890,7 +1949,7 @@ Return Value:
 --*/
 
 {
-    UINT i;
+    NDIS_STATUS AsyncStatus;
 
     ASSUME_IRQL(PASSIVE_LEVEL);
 
@@ -1899,60 +1958,50 @@ Return Value:
     //
 
     if (NdisStatus != NDIS_STATUS_PENDING) {
-        *pAsyncStatus = NdisStatus;
-        return NdisStatus;
+        AsyncStatus = NdisStatus;
     }
 
-    //
-    // Wait until the async status flag has been set
-    //
+	else{
+		//
+		// Wait until the async status flag has been set
+		//
 
-    for (i = 0; ; i++) {
+		for ( ; ; ) {
 
-        KIRQL irql;
-        NDIS_STATUS AsyncStatus;
+			KIRQL irql;
 
-        //
-        // The result may be undefined, if we read it in a wrong time =>
-        // Do it interlocked.
-        //
+			KeWaitForSingleObject(&pAdapterContext->Event,
+								  Executive,
+								  KernelMode,
+								  TRUE, // alertable
+								  (PLARGE_INTEGER)NULL
+								  );
 
-        ACQUIRE_DRIVER_LOCK();
+			//
+			// The result may be undefined, if we read it in a wrong time.
+			// Do it interlocked.
+			//
 
-        ACQUIRE_LLC_LOCK(irql);
+			ACQUIRE_DRIVER_LOCK();
 
-        AsyncStatus = *pAsyncStatus;
+			ACQUIRE_LLC_LOCK(irql);
 
-        RELEASE_LLC_LOCK(irql);
+			AsyncStatus = *pAsyncStatus;
 
-        RELEASE_DRIVER_LOCK();
+			RELEASE_LLC_LOCK(irql);
 
-        if (AsyncStatus != NDIS_STATUS_PENDING) {
-            break;
-        }
+			RELEASE_DRIVER_LOCK();
 
-        //
-        // It will never end!
-        //
+			if (AsyncStatus != NDIS_STATUS_PENDING) {
+				break;
+			}
+			else{
+				KeClearEvent(&pAdapterContext->Event);
+			}
 
-        if (i == LLC_OPEN_TIMEOUT) {
-
-#if LLC_DBG
-            DbgPrint("TIMEOUT in NdisCompletion !!!\n");
-            DbgBreakPoint();
-#endif
-
-            *pAsyncStatus = DLC_STATUS_WAIT_TIMEOUT;
-            break;
-        }
-
-        //
-        // wait 50 ms and try again
-        //
-
-        LlcSleep(50000L);
-    }
-    return *pAsyncStatus;
+		}
+	}
+    return AsyncStatus;
 }
 
 
@@ -2013,16 +2062,25 @@ Return Value:
 
 {
     KIRQL irql;
+	PLLC_NDIS_REQUEST pLlcNdisRequest =
+		CONTAINING_RECORD ( RequestHandle, LLC_NDIS_REQUEST, Ndis );
 
     UNREFERENCED_PARAMETER(pAdapterContext);
 
-    ASSUME_IRQL(DISPATCH_LEVEL);
+    ASSUME_IRQL(ANY_IRQL);
+
+    ACQUIRE_DRIVER_LOCK();
 
     ACQUIRE_LLC_LOCK(irql);
 
-    ((PUINT)RequestHandle)[-1] = NdisStatus;
+	pLlcNdisRequest->AsyncStatus = NdisStatus;
 
     RELEASE_LLC_LOCK(irql);
+
+    RELEASE_DRIVER_LOCK();
+
+    KeSetEvent(&pAdapterContext->Event, 0L, FALSE);
+
 }
 
 
@@ -2202,4 +2260,55 @@ Return Value:
         return TRUE;
     }
     return FALSE;
+}
+
+
+VOID
+PurgeLlcEventQueue(
+    IN PBINDING_CONTEXT pBindingContext
+    )
+
+/*++
+
+Routine Description:
+
+    If there are any outstanding events on the adapter context waiting to be
+    indicated to the client of the current binding, they are removed
+
+Arguments:
+
+    pBindingContext - pointer to BINDING_CONTEXT about to be deleted
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    PADAPTER_CONTEXT pAdapterContext = pBindingContext->pAdapterContext;
+    ASSUME_IRQL(DISPATCH_LEVEL);
+
+    if (!IsListEmpty(&pAdapterContext->QueueEvents)) {
+
+        PEVENT_PACKET pEventPacket;
+        PEVENT_PACKET nextEventPacket;
+
+        for (pEventPacket = (PEVENT_PACKET)pAdapterContext->QueueEvents.Flink;
+             pEventPacket != (PEVENT_PACKET)&pAdapterContext->QueueEvents;
+             pEventPacket = nextEventPacket) {
+
+            nextEventPacket = pEventPacket->pNext;
+            if (pEventPacket->pBinding == pBindingContext) {
+                RemoveEntryList((PLIST_ENTRY)&pEventPacket->pNext);
+
+#if DBG
+                DbgPrint("PurgeLlcEventQueue: BC=%x PKT=%x\n", pBindingContext, pEventPacket);
+#endif
+
+                DEALLOCATE_PACKET_LLC_PKT(pAdapterContext->hPacketPool, pEventPacket);
+
+            }
+        }
+    }
 }

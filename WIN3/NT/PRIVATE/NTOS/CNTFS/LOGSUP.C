@@ -21,16 +21,17 @@ Revision History:
 #include "NtfsProc.h"
 
 //
-//  ****    This definition is a temporary solution
-//
-
-#define HACK_LFS_HEADER_SIZE             (0x30)
-
-//
 //  The local debug trace level
 //
 
 #define Dbg                              (DEBUG_TRACE_LOGSUP)
+
+//
+//  Define a tag for general pool allocations from this module
+//
+
+#undef MODULE_POOL_TAG
+#define MODULE_POOL_TAG                  ('LFtN')
 
 #ifdef NTFSDBG
 
@@ -107,10 +108,10 @@ NtfsWriteLog (
     IN NTFS_LOG_OPERATION UndoOperation,
     IN PVOID UndoBuffer OPTIONAL,
     IN ULONG UndoLength,
-    IN VCN Vcn,
+    IN LONGLONG StreamOffset,
     IN ULONG RecordOffset,
     IN ULONG AttributeOffset,
-    IN ULONG ClusterCount
+    IN ULONG StructureSize
     )
 
 /*++
@@ -167,17 +168,18 @@ Arguments:
     UndoLength - Length of the Undo buffer in bytes.  Ignored if RedoBuffer ==
                  UndoBuffer.
 
-                 For a compensation log record, this argument must be 0.
+                 For a compensation log record, this argument must be the length
+                 of the original redo record.  (Used during restart).
 
-    Vcn - Vcn for start of structure being modified (Mft or Index), or
-          simply Vcn at start of update.
+    StreamOffset - Offset within the stream for the start of the structure being
+                   modified (Mft or Index), or simply the stream offset for the start
+                   of the update.
 
-    RecordOffset - Byte offset from start of Vcn above to update reference
+    RecordOffset - Byte offset from StreamOffset above to update reference
 
     AttributeOffset - Offset within a value to which an update applies, if relevant.
 
-    ClusterCount - Number of clusters which must be mapped to read the entire
-                   structure being logged.
+    StructureSize - Size of the entire structure being logged.
 
 Return Value:
 
@@ -218,6 +220,9 @@ Return Value:
     BOOLEAN AttributeTableAcquired = FALSE;
     BOOLEAN TransactionTableAcquired = FALSE;
 
+    ULONG LogClusterCount = ClustersFromBytes( Scb->Vcb, StructureSize );
+    VCN LogVcn = LlClustersFromBytesTruncate( Scb->Vcb, StreamOffset );
+
     PAGED_CODE();
 
     Vcb = Scb->Vcb;
@@ -226,24 +231,24 @@ Return Value:
     //  If the log handle is gone, then we noop this call.
     //
 
-    if (Vcb->LogHandle == 0) {
+    if (!FlagOn( Vcb->VcbState, VCB_STATE_VALID_LOG_HANDLE )) {
 
         return Li0; //**** LfsZeroLsn;
     }
 
-    DebugTrace(+1, Dbg, "NtfsWriteLog:\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08lx\n", Scb );
-    DebugTrace( 0, Dbg, "Bcb = %08lx\n", Bcb );
-    DebugTrace( 0, Dbg, "RedoOperation = %08lx\n", RedoOperation );
-    DebugTrace( 0, Dbg, "RedoBuffer = %08lx\n", RedoBuffer );
-    DebugTrace( 0, Dbg, "RedoLength = %08lx\n", RedoLength );
-    DebugTrace( 0, Dbg, "UndoOperation = %08lx\n", UndoOperation );
-    DebugTrace( 0, Dbg, "UndoBuffer = %08lx\n", UndoBuffer );
-    DebugTrace( 0, Dbg, "UndoLength = %08lx\n", UndoLength );
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
-    DebugTrace( 0, Dbg, "RecordOffset = %08lx\n", RecordOffset );
-    DebugTrace( 0, Dbg, "AttributeOffset = %08lx\n", AttributeOffset );
-    DebugTrace( 0, Dbg, "ClusterCount = %08lx\n", ClusterCount );
+    DebugTrace( +1, Dbg, ("NtfsWriteLog:\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08lx\n", Scb) );
+    DebugTrace( 0, Dbg, ("Bcb = %08lx\n", Bcb) );
+    DebugTrace( 0, Dbg, ("RedoOperation = %08lx\n", RedoOperation) );
+    DebugTrace( 0, Dbg, ("RedoBuffer = %08lx\n", RedoBuffer) );
+    DebugTrace( 0, Dbg, ("RedoLength = %08lx\n", RedoLength) );
+    DebugTrace( 0, Dbg, ("UndoOperation = %08lx\n", UndoOperation) );
+    DebugTrace( 0, Dbg, ("UndoBuffer = %08lx\n", UndoBuffer) );
+    DebugTrace( 0, Dbg, ("UndoLength = %08lx\n", UndoLength) );
+    DebugTrace( 0, Dbg, ("StreamOffset = %016I64x\n", StreamOffset) );
+    DebugTrace( 0, Dbg, ("RecordOffset = %08lx\n", RecordOffset) );
+    DebugTrace( 0, Dbg, ("AttributeOffset = %08lx\n", AttributeOffset) );
+    DebugTrace( 0, Dbg, ("StructureSize = %08lx\n", StructureSize) );
 
     //
     //  Check Redo and Undo lengths
@@ -285,7 +290,11 @@ Return Value:
 
             ||
 
-           (UndoLength <= Scb->Vcb->BytesPerFileRecordSegment));
+           (UndoLength <= Scb->Vcb->BytesPerFileRecordSegment)
+
+            ||
+
+           (UndoOperation == CompensationLogRecord));
 
     //
     //  Initialize local pointers.
@@ -296,11 +305,11 @@ Return Value:
     try {
 
         //
-        //  If ClusterCount is nonzero, then create an open attribute table
+        //  If the structure size is nonzero, then create an open attribute table
         //  entry.
         //
 
-        if (ClusterCount != 0) {
+        if (StructureSize != 0) {
 
             //
             //  Allocate an entry in the open attribute table and initialize it,
@@ -316,63 +325,78 @@ Return Value:
                 AttributeTableAcquired = TRUE;
 
                 //
-                //  Our structures require tables to stay within 64KB, since
-                //  we use USHORT offsets.  Things are getting out of hand
-                //  at this point anyway.  Raise log file full to reset the
-                //  table sizes if we get to this point.
+                //  Only proceed if the OpenAttributeTableIndex is still 0.
+                //  We may reach this point for the MftScb.  It may not be
+                //  acquired when logging changes to file records.  We will
+                //  use the OpenAttributeTable for final synchronization
+                //  for the Mft open attribute table entry.
                 //
 
-                if (SizeOfRestartTable(&Vcb->OpenAttributeTable) > 0xF000) {
-                    NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
-                }
+                if (Scb->NonpagedScb->OpenAttributeTableIndex == 0) {
 
-                Scb->NonpagedScb->OpenAttributeTableIndex =
-                OpenAttributeIndex = NtfsAllocateRestartTableIndex( IrpContext,
-                                                                    &Vcb->OpenAttributeTable );
-                OpenAttributeEntry = GetRestartEntryFromIndex( &Vcb->OpenAttributeTable,
-                                                               OpenAttributeIndex );
-                OpenAttributeEntry->Overlay.Scb = Scb;
-                OpenAttributeEntry->FileReference = Scb->Fcb->FileReference;
-                //  OpenAttributeEntry->LsnOfOpenRecord = ???
-                OpenAttributeEntry->AttributeTypeCode = Scb->AttributeTypeCode;
-                OpenAttributeEntry->AttributeName = Scb->AttributeName;
-                if (Scb->AttributeTypeCode == $INDEX_ALLOCATION) {
+                    //
+                    //  Our structures require tables to stay within 64KB, since
+                    //  we use USHORT offsets.  Things are getting out of hand
+                    //  at this point anyway.  Raise log file full to reset the
+                    //  table sizes if we get to this point.
+                    //
 
-                    OpenAttributeEntry->BytesPerIndexBuffer =
-                      Scb->ScbType.Index.BytesPerIndexBuffer;
+                    if (SizeOfRestartTable(&Vcb->OpenAttributeTable) > 0xF000) {
+                        NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
+                    }
+
+                    Scb->NonpagedScb->OpenAttributeTableIndex =
+                    OpenAttributeIndex = NtfsAllocateRestartTableIndex( &Vcb->OpenAttributeTable );
+                    OpenAttributeEntry = GetRestartEntryFromIndex( &Vcb->OpenAttributeTable,
+                                                                   OpenAttributeIndex );
+                    OpenAttributeEntry->Overlay.Scb = Scb;
+                    OpenAttributeEntry->FileReference = Scb->Fcb->FileReference;
+                    //  OpenAttributeEntry->LsnOfOpenRecord = ???
+                    OpenAttributeEntry->AttributeTypeCode = Scb->AttributeTypeCode;
+                    OpenAttributeEntry->AttributeName = Scb->AttributeName;
+                    OpenAttributeEntry->AttributeNamePresent = FALSE;
+                    if (Scb->AttributeTypeCode == $INDEX_ALLOCATION) {
+
+                        OpenAttributeEntry->BytesPerIndexBuffer = Scb->ScbType.Index.BytesPerIndexBuffer;
+
+                    } else {
+                        OpenAttributeEntry->BytesPerIndexBuffer = 0;
+                    }
+
+                    RtlMoveMemory( &LocalOpenEntry, OpenAttributeEntry, sizeof(OPEN_ATTRIBUTE_ENTRY) );
+
+                    NtfsReleaseRestartTable( &Vcb->OpenAttributeTable );
+                    AttributeTableAcquired = FALSE;
+
+                    //
+                    //  Now log the new open attribute table entry before goin on,
+                    //  to insure that the application of the caller's log record
+                    //  will have the information he needs on the attribute.  We will
+                    //  use the Undo buffer to convey the attribute name.  We will
+                    //  not infinitely recurse, because now this Scb already has an
+                    //  open attribute table index.
+                    //
+
+                    NtfsWriteLog( IrpContext,
+                                  Scb,
+                                  NULL,
+                                  OpenNonresidentAttribute,
+                                  &LocalOpenEntry,
+                                  sizeof(OPEN_ATTRIBUTE_ENTRY),
+                                  Noop,
+                                  Scb->AttributeName.Length != 0 ?
+                                    Scb->AttributeName.Buffer : NULL,
+                                  Scb->AttributeName.Length,
+                                  (LONGLONG)0,
+                                  0,
+                                  0,
+                                  0 );
 
                 } else {
-                    OpenAttributeEntry->BytesPerIndexBuffer = 0;
+
+                    NtfsReleaseRestartTable( &Vcb->OpenAttributeTable );
+                    AttributeTableAcquired = FALSE;
                 }
-
-                RtlMoveMemory( &LocalOpenEntry, OpenAttributeEntry, sizeof(OPEN_ATTRIBUTE_ENTRY) );
-
-                NtfsReleaseRestartTable( &Vcb->OpenAttributeTable );
-                AttributeTableAcquired = FALSE;
-
-                //
-                //  Now log the new open attribute table entry before goin on,
-                //  to insure that the application of the caller's log record
-                //  will have the information he needs on the attribute.  We will
-                //  use the Undo buffer to convey the attribute name.  We will
-                //  not infinitely recurse, because now this Scb already has an
-                //  open attribute table index.
-                //
-
-                NtfsWriteLog( IrpContext,
-                              Scb,
-                              NULL,
-                              OpenNonresidentAttribute,
-                              &LocalOpenEntry,
-                              sizeof(OPEN_ATTRIBUTE_ENTRY),
-                              Noop,
-                              Scb->AttributeName.Length != 0 ?
-                                Scb->AttributeName.Buffer : NULL,
-                              Scb->AttributeName.Length,
-                              (LONGLONG)0,
-                              0,
-                              0,
-                              0 );
             }
         }
 
@@ -382,7 +406,7 @@ Return Value:
         //  completed.
         //
 
-        if (IrpContext->TopLevelIrpContext->TransactionId == 0) {
+        if (IrpContext->TransactionId == 0) {
 
             NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable, TRUE );
             TransactionTableAcquired = TRUE;
@@ -398,12 +422,14 @@ Return Value:
                 NtfsRaiseStatus( IrpContext, STATUS_LOG_FILE_FULL, NULL, NULL );
             }
 
-            IrpContext->TopLevelIrpContext->TransactionId =
-              NtfsAllocateRestartTableIndex( IrpContext, &Vcb->TransactionTable );
+            IrpContext->TransactionId =
+              NtfsAllocateRestartTableIndex( &Vcb->TransactionTable );
+
+            ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WROTE_LOG );
 
             TransactionEntry = (PTRANSACTION_ENTRY)GetRestartEntryFromIndex(
                                 &Vcb->TransactionTable,
-                                IrpContext->TopLevelIrpContext->TransactionId );
+                                IrpContext->TransactionId );
             TransactionEntry->TransactionState = TransactionActive;
             TransactionEntry->FirstLsn =
             TransactionEntry->PreviousLsn =
@@ -432,7 +458,7 @@ Return Value:
             //
 
             if (UndoOperation != Noop) {
-                UndoAdjustmentForLfs += HACK_LFS_HEADER_SIZE;
+                UndoAdjustmentForLfs += Vcb->LogHeaderReservation;
             }
         }
 
@@ -440,20 +466,18 @@ Return Value:
         //  At least for now, assume update is contained in one physical page.
         //
 
-        //ASSERT( (ClusterCount == 0) ||
-        //          (ROUND_TO_PAGES( BytesFromClusters(Vcb, Vcn.LowPart) + 1) ==
-        //          ROUND_TO_PAGES( BytesFromClusters(Vcb, Vcn.LowPart + ClusterCount ))));
+        //ASSERT( (StructureSize == 0) || (StructureSize <= PAGE_SIZE) );
 
         //
         //  If there isn't enough room for this structure on the stack, we
         //  need to allocate an auxilary buffer.
         //
 
-        if (ClusterCount > (PAGE_SIZE / 512)) {
+        if (LogClusterCount > (PAGE_SIZE / 512)) {
 
             MyHeader = (PNTFS_LOG_RECORD_HEADER)
-                       NtfsAllocatePagedPool( sizeof( NTFS_LOG_RECORD_HEADER )
-                                              + (ClusterCount - 1) * sizeof( LCN ));
+                       NtfsAllocatePool(PagedPool, sizeof( NTFS_LOG_RECORD_HEADER )
+                                              + (LogClusterCount - 1) * sizeof( LCN ));
 
         }
 
@@ -469,11 +493,17 @@ Return Value:
         //  Lookup the Runs for this log record
         //
 
-        MyHeader->LcnsToFollow = (USHORT)ClusterCount;
+        MyHeader->LcnsToFollow = (USHORT)LogClusterCount;
 
-        if (ClusterCount != 0) {
-            LookupLcns( IrpContext, Scb, Vcn, ClusterCount, TRUE, &MyHeader->LcnsForPage[0] );
-            WriteEntries[0].ByteLength += (ClusterCount - 1) * sizeof(LCN);
+        if (LogClusterCount != 0) {
+            LookupLcns( IrpContext,
+                        Scb,
+                        LogVcn,
+                        LogClusterCount,
+                        TRUE,
+                        &MyHeader->LcnsForPage[0] );
+
+            WriteEntries[0].ByteLength += (LogClusterCount - 1) * sizeof(LCN);
         }
 
         //
@@ -518,9 +548,11 @@ Return Value:
         MyHeader->UndoLength = (USHORT)UndoLength;
         MyHeader->TargetAttribute = (USHORT)Scb->NonpagedScb->OpenAttributeTableIndex;
         MyHeader->RecordOffset = (USHORT)RecordOffset;
-        MyHeader->TargetVcn = Vcn;
         MyHeader->AttributeOffset = (USHORT)AttributeOffset;
-        MyHeader->Reserved[0] = MyHeader->Reserved[1] = 0;
+        MyHeader->Reserved = 0;
+
+        MyHeader->TargetVcn = LogVcn;
+        MyHeader->ClusterBlockOffset = (USHORT) LogBlocksFromBytesTruncate( ClusterOffset( Vcb, StreamOffset ));
 
         //
         //  Finally, get our current transaction entry and call Lfs.  We acquire
@@ -528,7 +560,7 @@ Return Value:
         //  on return from Lfs, and also to mark the Bcb dirty before any more
         //  log records are written.
         //
-        //  If we do not do serialize the LfsWrite and NtfsSetDirtyBcb, here is
+        //  If we do not do serialize the LfsWrite and CcSetDirtyPinnedData, here is
         //  what can happen:
         //
         //      We log an update for a page and get an Lsn back
@@ -554,7 +586,7 @@ Return Value:
 
         TransactionEntry = (PTRANSACTION_ENTRY)GetRestartEntryFromIndex(
                             &Vcb->TransactionTable,
-                            IrpContext->TopLevelIrpContext->TransactionId );
+                            IrpContext->TransactionId );
 
         //
         //  Set up the UndoNextLsn.  If this is a normal log record, then use
@@ -573,8 +605,13 @@ Return Value:
 
             if (UndoOperation != Noop) {
 
-                UndoBytes += QuadAlign(WriteEntries[UndoIndex].ByteLength) +
-                             QuadAlign(WriteEntries[0].ByteLength);
+                UndoBytes += QuadAlign(WriteEntries[0].ByteLength);
+
+                if (UndoIndex != 0) {
+
+                    UndoBytes += QuadAlign(WriteEntries[UndoIndex].ByteLength);
+                }
+
                 UndoRecords += 1;
             }
 
@@ -590,10 +627,38 @@ Return Value:
             //  will adjust for the rest.
             //
 
-            UndoBytes -= QuadAlign(WriteEntries[RedoIndex].ByteLength) +
-                         QuadAlign(WriteEntries[0].ByteLength);
-            UndoRecords -= 1;
+            if (!FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS )) {
+
+                UndoBytes -= QuadAlign(WriteEntries[0].ByteLength);
+
+                if (RedoIndex != 0) {
+
+                    UndoBytes -= QuadAlign(WriteEntries[RedoIndex].ByteLength);
+                }
+
+                UndoRecords -= 1;
+            }
         }
+
+#ifdef NTFSDBG
+        //
+        //  Perform log-file-full fail checking.  We do not perform this check if
+        //  we are writing an undo record (since we are guaranteed space to undo
+        //  things).
+        //
+
+        if (UndoOperation != CompensationLogRecord &&
+            (IrpContext->MajorFunction != IRP_MJ_FILE_SYSTEM_CONTROL ||
+             IrpContext->MinorFunction != IRP_MN_MOUNT_VOLUME)) {
+            //
+            //  There should never be any log records during clean checkpoints
+            //
+
+            ASSERT( !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CHECKPOINT_ACTIVE ));
+
+            LogFileFullFailCheck( IrpContext );
+        }
+#endif
 
         //
         //  Call Lfs to write the record.
@@ -603,7 +668,7 @@ Return Value:
                   WriteIndex,
                   &WriteEntries[0],
                   LfsClientRecord,
-                  &IrpContext->TopLevelIrpContext->TransactionId,
+                  &IrpContext->TransactionId,
                   UndoNextLsn,
                   TransactionEntry->PreviousLsn,
                   UndoBytes + UndoAdjustmentForLfs,
@@ -644,9 +709,67 @@ Return Value:
 
         DirtyLsn = &ReturnLsn;
 
+        //
+        //  Set the flag in the Irp Context which indicates we wrote
+        //  a log record to disk.
+        //
+
+        SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_WROTE_LOG );
+
     } finally {
 
         DebugUnwind( NtfsWriteLog );
+
+        //
+        //  Now set the Bcb dirty if specified.  We want to set it no matter
+        //  what happens, because our caller has modified the buffer and is
+        //  counting on us to call the Cache Manager.
+        //
+
+        if (ARGUMENT_PRESENT(Bcb)) {
+
+            TIMER_STATUS TimerStatus;
+
+            CcSetDirtyPinnedData( Bcb, DirtyLsn );
+
+            //
+            //  Synchronize with the checkpoint timer and other instances of this routine.
+            //
+            //  Perform an interlocked exchange to indicate that a timer is being set.
+            //
+            //  If the previous value indicates that no timer was set, then we
+            //  enable the volume checkpoint timer.  This will guarantee that a checkpoint
+            //  will occur to flush out the dirty Bcb data.
+            //
+            //  If the timer was set previously, then it is guaranteed that a checkpoint
+            //  will occur without this routine having to reenable the timer.
+            //
+            //  If the timer and checkpoint occurred between the dirtying of the Bcb and
+            //  the setting of the timer status, then we will be queueing a single extra
+            //  checkpoint on a clean volume.  This is not considered harmful.
+            //
+
+            //
+            //  Atomically set the timer status to indicate a timer is being set and
+            //  retrieve the previous value.
+            //
+
+            TimerStatus = InterlockedExchange( &NtfsData.TimerStatus, TIMER_SET );
+
+            //
+            //  If the timer is not currently set then we must start the checkpoint timer
+            //  to make sure the above dirtying is flushed out.
+            //
+
+            if (TimerStatus == TIMER_NOT_SET) {
+
+                LONGLONG FiveSecondsFromNow = -5*1000*1000*10;
+
+                KeSetTimer( &NtfsData.VolumeCheckpointTimer,
+                            *(PLARGE_INTEGER)&FiveSecondsFromNow,
+                            &NtfsData.VolumeCheckpointDpc );
+            }
+        }
 
         if (TransactionTableAcquired) {
             NtfsReleaseRestartTable( &Vcb->TransactionTable );
@@ -658,22 +781,11 @@ Return Value:
 
         if (MyHeader != (PNTFS_LOG_RECORD_HEADER)&LocalHeader) {
 
-            NtfsFreePagedPool( MyHeader );
-        }
-
-        //
-        //  Now set the Bcb dirty if specified.  We want to set it no matter
-        //  what happens, because our caller has modified the buffer and is
-        //  counting on us to call the Cache Manager.
-        //
-
-        if (ARGUMENT_PRESENT(Bcb)) {
-            NtfsSetDirtyBcb( IrpContext, Bcb, DirtyLsn, Vcb );
+            NtfsFreePool( MyHeader );
         }
     }
 
-    DebugTrace2(-1, Dbg, "NtfsWriteLog -> %08lx, %08lx\n", ReturnLsn.LowPart,
-                                                           ReturnLsn.HighPart );
+    DebugTrace( -1, Dbg, ("NtfsWriteLog -> %016I64x\n", ReturnLsn ) );
 
     return ReturnLsn;
 }
@@ -750,8 +862,8 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsCheckpointVolume:\n", 0 );
-    DebugTrace( 0, Dbg, "Vcb = %08lx\n", Vcb );
+    DebugTrace( +1, Dbg, ("NtfsCheckpointVolume:\n") );
+    DebugTrace( 0, Dbg, ("Vcb = %08lx\n", Vcb) );
 
     if (!OwnsCheckpoint) {
 
@@ -781,7 +893,7 @@ Return Value:
 
             } else {
 
-                NtfsCheckForDefrag( IrpContext, Vcb );
+                NtfsCheckForDefrag( Vcb );
 
                 if (FlagOn( Vcb->MftDefragState, VCB_MFT_DEFRAG_TRIGGERED )) {
 
@@ -842,7 +954,7 @@ Return Value:
 
         if (CleanVolume) {
 
-            PreviousPriority = KeSetPriorityThread( PsGetCurrentThread(),
+            PreviousPriority = KeSetPriorityThread( &PsGetCurrentThread()->Tcb,
                                                     LOW_REALTIME_PRIORITY );
 
             if (PreviousPriority != LOW_REALTIME_PRIORITY) {
@@ -866,11 +978,16 @@ Return Value:
 
         //
         //  Now remember the current "last Lsn" value as the start of
-        //  our checkpoint.
+        //  our checkpoint.  We acquire the transaction table to capture
+        //  this value to synchronize with threads who are writing log
+        //  records and setting pages dirty as atomic actions.
         //
 
+        NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable, TRUE );
         BaseLsn =
         RestartArea.StartOfCheckpoint = LfsQueryLastLsn( Vcb->LogHandle );
+        NtfsReleaseRestartTable( &Vcb->TransactionTable );
+
 
         ASSERT( (RestartArea.StartOfCheckpoint.QuadPart != 0) ||
                 FlagOn(Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN) );
@@ -913,12 +1030,11 @@ Return Value:
                 //  Initialize first in case we get an allocation failure.
                 //
 
-                InitializeNewTable( IrpContext,
-                                    sizeof(OPEN_ATTRIBUTE_ENTRY),
+                InitializeNewTable( sizeof(OPEN_ATTRIBUTE_ENTRY),
                                     INITIAL_NUMBER_ATTRIBUTES,
                                     &Pointers );
 
-                NtfsFreePagedPool( Vcb->OpenAttributeTable.Table );
+                NtfsFreePool( Vcb->OpenAttributeTable.Table );
                 Vcb->OpenAttributeTable.Table = Pointers.Table;
             }
 
@@ -943,12 +1059,11 @@ Return Value:
                 //  Initialize first in case we get an allocation failure.
                 //
 
-                InitializeNewTable( IrpContext,
-                                    sizeof(TRANSACTION_ENTRY),
+                InitializeNewTable( sizeof(TRANSACTION_ENTRY),
                                     INITIAL_NUMBER_TRANSACTIONS,
                                     &Pointers );
 
-                NtfsFreePagedPool( Vcb->TransactionTable.Table );
+                NtfsFreePool( Vcb->TransactionTable.Table );
                 Vcb->TransactionTable.Table = Pointers.Table;
             }
 
@@ -994,7 +1109,14 @@ Return Value:
             //  Lock down the volume if this is a clean checkpoint.
             //
 
-            NtfsAcquireAllFiles( IrpContext, Vcb, FlushVolume );
+            NtfsAcquireAllFiles( IrpContext, Vcb, FlushVolume, FALSE );
+
+#ifdef NTFSDBG
+            ASSERT( !FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CHECKPOINT_ACTIVE ));
+            DebugDoit( SetFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CHECKPOINT_ACTIVE ));
+#endif  //  NTFSDBG
+
+
             AcquireFiles = TRUE;
 
             //
@@ -1018,11 +1140,11 @@ Return Value:
 
             if (FlushVolume) {
 
-                (VOID)NtfsFlushVolume( IrpContext, Vcb, TRUE, FALSE );
+                (VOID)NtfsFlushVolume( IrpContext, Vcb, TRUE, FALSE, FALSE, FALSE );
 
             } else {
 
-                NtfsFlushLsnStreams( IrpContext, Vcb );
+                NtfsFlushLsnStreams( Vcb );
             }
 
             SetFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
@@ -1047,11 +1169,14 @@ Return Value:
                  } else {
 
                     //
-                    //  Delete its name, if it has one.
+                    //  Delete its name, if it has one.  Check that we aren't
+                    //  using the hardcode $I30 name.
                     //
 
-                    if (AttributeEntry->AttributeName.Buffer != NULL) {
-                        NtfsFreePagedPool( AttributeEntry->AttributeName.Buffer );
+                    if ((AttributeEntry->AttributeName.Buffer != NULL) &&
+                        (AttributeEntry->AttributeName.Buffer != NtfsFileNameIndexName)) {
+
+                        NtfsFreePool( AttributeEntry->AttributeName.Buffer );
                     }
                 }
 
@@ -1062,8 +1187,7 @@ Return Value:
                 Index = GetIndexFromRestartEntry( &Vcb->OpenAttributeTable,
                                                   AttributeEntry );
 
-                NtfsFreeRestartTableIndex( IrpContext,
-                                           &Vcb->OpenAttributeTable,
+                NtfsFreeRestartTableIndex( &Vcb->OpenAttributeTable,
                                            Index );
 
                 AttributeEntry = NtfsGetNextRestartTable( &Vcb->OpenAttributeTable,
@@ -1076,34 +1200,27 @@ Return Value:
 
             ASSERT(IsRestartTableEmpty(&Vcb->OpenAttributeTable));
 
-            InitializeNewTable( IrpContext,
-                                sizeof(OPEN_ATTRIBUTE_ENTRY),
+            InitializeNewTable( sizeof(OPEN_ATTRIBUTE_ENTRY),
                                 INITIAL_NUMBER_ATTRIBUTES,
                                 &Pointers );
 
-            NtfsFreePagedPool( Vcb->OpenAttributeTable.Table );
+            NtfsFreePool( Vcb->OpenAttributeTable.Table );
             Vcb->OpenAttributeTable.Table = Pointers.Table;
 
             //
             //  Initialize first in case we get an allocation failure.
-            //  Make sure we commit the current transaction.  There may be
-            //  a transaction if we are shutting down and have logged file size
-            //  changes.
+            //  Make sure we commit the current transaction.
             //
 
-            if (FlushVolume) {
-
-                NtfsCommitCurrentTransaction( IrpContext );
-            }
+            NtfsCommitCurrentTransaction( IrpContext );
 
             ASSERT(IsRestartTableEmpty(&Vcb->TransactionTable));
 
-            InitializeNewTable( IrpContext,
-                                sizeof(TRANSACTION_ENTRY),
+            InitializeNewTable( sizeof(TRANSACTION_ENTRY),
                                 INITIAL_NUMBER_TRANSACTIONS,
                                 &Pointers );
 
-            NtfsFreePagedPool( Vcb->TransactionTable.Table );
+            NtfsFreePool( Vcb->TransactionTable.Table );
             Vcb->TransactionTable.Table = Pointers.Table;
 
             //
@@ -1131,8 +1248,7 @@ Return Value:
             //  necessary.
             //
 
-            NtfsInitializeRestartTable( IrpContext,
-                                        sizeof(DIRTY_PAGE_ENTRY) +
+            NtfsInitializeRestartTable( sizeof(DIRTY_PAGE_ENTRY) +
                                           (Vcb->ClustersPerPage - 1) * sizeof(LCN),
                                         32,
                                         &DirtyPages );
@@ -1220,7 +1336,6 @@ Return Value:
             while (DirtyPage != NULL) {
 
                 PSCB Scb;
-                VCN FileSizeInClusters;
 
                 OpenEntry = GetRestartEntryFromIndex( &Vcb->OpenAttributeTable,
                                                       DirtyPage->TargetAttribute );
@@ -1230,29 +1345,6 @@ Return Value:
                 ASSERT( DirtyPage->OldestLsn.QuadPart >= Vcb->LastBaseLsn.QuadPart );
 
                 Scb = OpenEntry->Overlay.Scb;
-
-                //
-                //  Keep the count within the current file size.
-                //
-
-                FileSizeInClusters = Scb->Header.FileSize.QuadPart << Vcb->ClusterShift;
-
-                if ((DirtyPage->Vcn + DirtyPage->LcnsToFollow) > FileSizeInClusters) {
-
-                    //
-                    //  Deallocate the page table entry if entirely beyond.
-                    //
-
-                    if (DirtyPage->Vcn >= FileSizeInClusters) {
-
-                        DirtyPage->LcnsToFollow = 0;
-
-                    } else {
-
-                        DirtyPage->LcnsToFollow =
-                            (ULONG)(FileSizeInClusters - DirtyPage->Vcn);
-                    }
-                }
 
                 //
                 //  If we have Lcn's then look them up.
@@ -1273,8 +1365,7 @@ Return Value:
 
                 } else {
 
-                    NtfsFreeRestartTableIndex( IrpContext,
-                                               &DirtyPages,
+                    NtfsFreeRestartTableIndex( &DirtyPages,
                                                GetIndexFromRestartEntry( &DirtyPages,
                                                                          DirtyPage ));
                 }
@@ -1285,30 +1376,6 @@ Return Value:
 
                 DirtyPage = NtfsGetNextRestartTable( &DirtyPages,
                                                      DirtyPage );
-            }
-
-            //
-            //  Calculate whether the volume is currently clean or not, based
-            //  on whether there is anything in either the Dirty Pages Table
-            //  or the Transaction Table.
-            //
-
-            if (IsRestartTableEmpty(&DirtyPages)
-
-                    &&
-
-                IsRestartTableEmpty(&Vcb->TransactionTable)) {
-
-                SetFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
-
-            //
-            //  If we found some dirty pages, then remember it, as we will want to
-            //  write at least one more checkpoint if the volume is clean next time.
-            //
-
-            } else {
-
-                ClearFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
             }
 
             //
@@ -1327,7 +1394,7 @@ Return Value:
 
                 NameBytes += 4;
                 Name =
-                NamesBuffer = FsRtlAllocatePool( NonPagedPool, NameBytes );
+                NamesBuffer = NtfsAllocatePool( NonPagedPool, NameBytes );
 
                 //
                 //  Now loop to copy the names.
@@ -1366,12 +1433,13 @@ Return Value:
                         //  Delete its name and free it up.
                         //
 
-                        if (AttributeEntry->AttributeName.Buffer != NULL) {
-                            NtfsFreePagedPool( AttributeEntry->AttributeName.Buffer );
+                        if ((AttributeEntry->AttributeName.Buffer != NULL) &&
+                            (AttributeEntry->AttributeName.Buffer != NtfsFileNameIndexName)) {
+
+                            NtfsFreePool( AttributeEntry->AttributeName.Buffer );
                         }
 
-                        NtfsFreeRestartTableIndex( IrpContext,
-                                                   &Vcb->OpenAttributeTable,
+                        NtfsFreeRestartTableIndex( &Vcb->OpenAttributeTable,
                                                    Index );
 
                     //
@@ -1502,6 +1570,12 @@ Return Value:
             NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable, TRUE );
             TransactionTableAcquired = TRUE;
 
+            //
+            //  Assumee will want to do at least one more checkpoint.
+            //
+
+            ClearFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
+
             if ((ULONG)Vcb->TransactionTable.Table->NumberAllocated > JustMe) {
                 RestartArea.TransactionTableLsn =
                 NtfsWriteLog( IrpContext,
@@ -1571,8 +1645,16 @@ Return Value:
                                        2,
                                        QuadAlign(sizeof(RESTART_AREA)) + (2 * PAGE_SIZE) );
                 }
-            }
 
+                //
+                //  If the DirtyPage table is entry then mark this as a clean checkpoint.
+                //
+
+                if (IsRestartTableEmpty( &DirtyPages )) {
+
+                    SetFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
+                }
+            }
 
             NtfsReleaseRestartTable( &Vcb->TransactionTable );
             TransactionTableAcquired = FALSE;
@@ -1632,98 +1714,104 @@ Return Value:
         //  bitmap in order to swap the structures.
         //
 
-        if (Vcb->ActiveDeallocatedClusters != NULL
+        if ((Vcb->ActiveDeallocatedClusters != NULL) &&
 
-            && (( Vcb->PriorDeallocatedClusters->ClusterCount != 0 )
-                || ( Vcb->ActiveDeallocatedClusters->ClusterCount != 0 ))
+            ((Vcb->PriorDeallocatedClusters->ClusterCount != 0) ||
+             (Vcb->ActiveDeallocatedClusters->ClusterCount != 0))) {
 
-            && ( BaseLsn.QuadPart > Vcb->PriorDeallocatedClusters->Lsn.QuadPart )) {
+            if (BaseLsn.QuadPart > Vcb->PriorDeallocatedClusters->Lsn.QuadPart) {
 
-            NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
-            BitmapAcquired = TRUE;
-
-            //
-            //  If the Prior Mcb is not empty then empty it.
-            //
-
-            if (Vcb->PriorDeallocatedClusters->ClusterCount != 0) {
+                NtfsAcquireExclusiveScb( IrpContext, Vcb->BitmapScb );
+                BitmapAcquired = TRUE;
 
                 //
-                //  Decrement the count of deallocated clusters by the amount stored here.
+                //  If the Prior Mcb is not empty then empty it.
                 //
 
-                Vcb->DeallocatedClusters =
-                    Vcb->DeallocatedClusters - Vcb->PriorDeallocatedClusters->ClusterCount;
-
-                //
-                //  Remove all of the mappings in the Mcb.
-                //
-
-                FsRtlTruncateLargeMcb( &Vcb->PriorDeallocatedClusters->Mcb,  (LONGLONG)0 );
-
-                //
-                //  Remember that there are no deallocated structures left in
-                //  the Mcb.
-                //
-
-                Vcb->PriorDeallocatedClusters->ClusterCount = 0;
-            }
-
-            //
-            //  If there are no transactions or dirty pages we will also
-            //  free the active Mcb.  Otherwise we will swap the prior and
-            //  the active.
-            //
-
-            if (Vcb->ActiveDeallocatedClusters->ClusterCount != 0) {
-
-                if (FlagOn( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN )) {
+                if (Vcb->PriorDeallocatedClusters->ClusterCount != 0) {
 
                     //
                     //  Decrement the count of deallocated clusters by the amount stored here.
                     //
 
                     Vcb->DeallocatedClusters =
-                        Vcb->DeallocatedClusters - Vcb->ActiveDeallocatedClusters->ClusterCount;
+                        Vcb->DeallocatedClusters - Vcb->PriorDeallocatedClusters->ClusterCount;
 
                     //
                     //  Remove all of the mappings in the Mcb.
                     //
 
-                    FsRtlTruncateLargeMcb( &Vcb->ActiveDeallocatedClusters->Mcb,  (LONGLONG)0 );
+                    FsRtlTruncateLargeMcb( &Vcb->PriorDeallocatedClusters->Mcb,  (LONGLONG)0 );
 
                     //
                     //  Remember that there are no deallocated structures left in
                     //  the Mcb.
                     //
 
-                    Vcb->ActiveDeallocatedClusters->ClusterCount = 0;
-
-                    //
-                    //  We know the count has gone to zero.
-                    //
-
-                    ASSERT( Vcb->DeallocatedClusters == 0 );
-
-                //
-                //  Swap the ENTRIES.
-                //
-
-                } else {
-
-                    PDEALLOCATED_CLUSTERS Temp;
-
-                    Temp = Vcb->PriorDeallocatedClusters;
-
-                    Vcb->PriorDeallocatedClusters = Vcb->ActiveDeallocatedClusters;
-                    Vcb->ActiveDeallocatedClusters = Temp;
-
-                    //
-                    //  Remember the last Lsn for the prior Mcb.
-                    //
-
-                    Vcb->PriorDeallocatedClusters->Lsn = LfsQueryLastLsn( Vcb->LogHandle );
+                    Vcb->PriorDeallocatedClusters->ClusterCount = 0;
                 }
+
+                //
+                //  If this is a clean checkpoint then free the active deallocated
+                //  clusters.  Otherwise do at least one more checkpoint.
+                //
+
+                if (Vcb->ActiveDeallocatedClusters->ClusterCount != 0) {
+
+                    if (CleanVolume) {
+
+                        //
+                        //  Decrement the count of deallocated clusters by the amount stored here.
+                        //
+
+                        Vcb->DeallocatedClusters =
+                            Vcb->DeallocatedClusters - Vcb->ActiveDeallocatedClusters->ClusterCount;
+
+                        //
+                        //  Remove all of the mappings in the Mcb.
+                        //
+
+                        FsRtlTruncateLargeMcb( &Vcb->ActiveDeallocatedClusters->Mcb,  (LONGLONG)0 );
+
+                        //
+                        //  Remember that there are no deallocated structures left in
+                        //  the Mcb.
+                        //
+
+                        Vcb->ActiveDeallocatedClusters->ClusterCount = 0;
+
+                        //
+                        //  We know the count has gone to zero.
+                        //
+
+                        ASSERT( Vcb->DeallocatedClusters == 0 );
+
+                    } else {
+
+                        PDEALLOCATED_CLUSTERS Temp;
+
+                        Temp = Vcb->PriorDeallocatedClusters;
+
+                        Vcb->PriorDeallocatedClusters = Vcb->ActiveDeallocatedClusters;
+                        Vcb->ActiveDeallocatedClusters = Temp;
+
+                        //
+                        //  Remember the last Lsn for the prior Mcb.
+                        //
+
+                        Vcb->PriorDeallocatedClusters->Lsn = LfsQueryLastLsn( Vcb->LogHandle );
+
+                        //
+                        //  Always do at least one more checkpoint.
+                        //
+
+                        ClearFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
+                    }
+                }
+
+            } else {
+
+                ClearFlag( Vcb->CheckpointFlags, VCB_LAST_CHECKPOINT_CLEAN );
             }
         }
 
@@ -1742,7 +1830,7 @@ Return Value:
         //
 
         if (DirtyPageTableInitialized) {
-            NtfsFreeRestartTable( IrpContext, &DirtyPages );
+            NtfsFreeRestartTable( &DirtyPages );
         }
 
         //
@@ -1762,7 +1850,7 @@ Return Value:
         //
 
         if (NamesBuffer != NULL) {
-            NtfsFreePagedPool( NamesBuffer );
+            NtfsFreePool( NamesBuffer );
         }
 
         //
@@ -1774,8 +1862,7 @@ Return Value:
             NtfsAcquireExclusiveRestartTable( &Vcb->TransactionTable,
                                               TRUE );
 
-            NtfsFreeRestartTableIndex( IrpContext,
-                                       &Vcb->TransactionTable,
+            NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
                                        IrpContext->TransactionId );
 
             NtfsReleaseRestartTable( &Vcb->TransactionTable );
@@ -1785,7 +1872,12 @@ Return Value:
 
         if (AcquireFiles) {
 
-            NtfsReleaseAllFiles( IrpContext, Vcb );
+#ifdef NTFSDBG
+            ASSERT( FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_CHECKPOINT_ACTIVE ));
+            DebugDoit( ClearFlag( IrpContext->Flags, IRP_CONTEXT_FLAG_CHECKPOINT_ACTIVE ));
+#endif  //  NTFSDBG
+
+            NtfsReleaseAllFiles( IrpContext, Vcb, FALSE );
         }
 
         //
@@ -1796,7 +1888,8 @@ Return Value:
         if (!OwnsCheckpoint) {
 
             NtfsAcquireCheckpoint( IrpContext, Vcb );
-            ClearFlag( Vcb->CheckpointFlags, VCB_CHECKPOINT_IN_PROGRESS );
+            ClearFlag( Vcb->CheckpointFlags,
+                       VCB_CHECKPOINT_IN_PROGRESS | VCB_DUMMY_CHECKPOINT_POSTED);
 
             NtfsSetCheckpointNotify( IrpContext, Vcb );
             NtfsReleaseCheckpoint( IrpContext, Vcb );
@@ -1804,7 +1897,7 @@ Return Value:
 
         if (RestorePreviousPriority) {
 
-            KeSetPriorityThread( PsGetCurrentThread(),
+            KeSetPriorityThread( &PsGetCurrentThread()->Tcb,
                                  PreviousPriority );
         }
     }
@@ -1830,7 +1923,7 @@ Return Value:
                 SetFlag( Vcb->MftDefragState, VCB_MFT_DEFRAG_ACTIVE );
                 NtfsReleaseCheckpoint( IrpContext, Vcb );
 
-                DefragMft = FsRtlAllocatePool( NtfsNonPagedPool, sizeof( DEFRAG_MFT ));
+                DefragMft = NtfsAllocatePool( NonPagedPool, sizeof( DEFRAG_MFT ));
 
                 DefragMft->Vcb = Vcb;
                 DefragMft->DeallocateWorkItem = TRUE;
@@ -1860,7 +1953,7 @@ Return Value:
         }
     }
 
-    DebugTrace(-1, Dbg, "NtfsCheckpointVolume -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsCheckpointVolume -> VOID\n") );
 }
 
 
@@ -1911,12 +2004,13 @@ Return Value:
                                                 ExclusiveFcbLinks ));
     }
 
-    while (!IsListEmpty(&IrpContext->ExclusivePagingIoList)) {
+    //
+    //  Go through and free any Scb's in the queue of shared Scb's for transactions.
+    //
 
-        NtfsReleasePagingIo( IrpContext,
-                             (PFCB)CONTAINING_RECORD(IrpContext->ExclusivePagingIoList.Flink,
-                                                     FCB,
-                                                     ExclusivePagingIoLinks ));
+    if (IrpContext->SharedScb != NULL) {
+
+        NtfsReleaseSharedResources( IrpContext );
     }
 
     IrpContext->LastRestartArea = Li0;
@@ -1956,30 +2050,44 @@ Return Value:
     //  If this request created a transaction, complete it now.
     //
 
-    if (IrpContext->TopLevelIrpContext->TransactionId != 0) {
+    if (IrpContext->TransactionId != 0) {
 
         LSN CommitLsn;
 
         //
-        //  Write the log record to "forget" this transaction,
-        //  because it should not be aborted.  Until if/when we
-        //  do real TP, commit and forget are atomic.
+        //  It is possible to get a LOG_FILE_FULL before writing
+        //  out the first log record of a transaction.  In that
+        //  case there is a transaction Id but we haven't reserved
+        //  space in the log file.  It is wrong to write the
+        //  commit record in this case because we can get an
+        //  unexpected LOG_FILE_FULL.  We can also test the UndoRecords
+        //  count in the transaction entry but don't want to acquire
+        //  the restart table to make this check.
         //
 
-        CommitLsn =
-        NtfsWriteLog( IrpContext,
-                      Vcb->MftScb,
-                      NULL,
-                      ForgetTransaction,
-                      NULL,
-                      0,
-                      CompensationLogRecord,
-                      (PVOID)&Li0,
-                      sizeof(LSN),
-                      (LONGLONG)0,
-                      0,
-                      0,
-                      0 );
+        if (FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WROTE_LOG )) {
+
+            //
+            //  Write the log record to "forget" this transaction,
+            //  because it should not be aborted.  Until if/when we
+            //  do real TP, commit and forget are atomic.
+            //
+
+            CommitLsn =
+            NtfsWriteLog( IrpContext,
+                          Vcb->MftScb,
+                          NULL,
+                          ForgetTransaction,
+                          NULL,
+                          0,
+                          CompensationLogRecord,
+                          (PVOID)&Li0,
+                          sizeof(LSN),
+                          (LONGLONG)0,
+                          0,
+                          0,
+                          0 );
+        }
 
         //
         //  We can now free the transaction table index, because we are
@@ -1991,27 +2099,24 @@ Return Value:
 
         TransactionEntry = (PTRANSACTION_ENTRY)GetRestartEntryFromIndex(
                             &Vcb->TransactionTable,
-                            IrpContext->TopLevelIrpContext->TransactionId );
+                            IrpContext->TransactionId );
 
         //
         //  Call Lfs to free our undo space.
         //
 
-        if (TransactionEntry->UndoRecords != 0) {
-
-            ASSERT((TransactionEntry->UndoBytes > 0) ||
-                   FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ));
+        if ((TransactionEntry->UndoRecords != 0) &&
+            (!FlagOn( Vcb->VcbState, VCB_STATE_RESTART_IN_PROGRESS ))) {
 
             LfsResetUndoTotal( Vcb->LogHandle,
                                TransactionEntry->UndoRecords,
                                -TransactionEntry->UndoBytes );
         }
 
-        NtfsFreeRestartTableIndex( IrpContext,
-                                   &Vcb->TransactionTable,
-                                   IrpContext->TopLevelIrpContext->TransactionId );
+        NtfsFreeRestartTableIndex( &Vcb->TransactionTable,
+                                   IrpContext->TransactionId );
 
-        IrpContext->TopLevelIrpContext->TransactionId = 0;
+        IrpContext->TransactionId = 0;
 
         NtfsReleaseRestartTable( &Vcb->TransactionTable );
 
@@ -2023,9 +2128,9 @@ Return Value:
         //  while aborting.
         //
 
-        if (FlagOn(IrpContext->TopLevelIrpContext->Flags, IRP_CONTEXT_FLAG_WRITE_THROUGH) &&
-            IrpContext == IrpContext->TopLevelIrpContext &&
-            IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS) {
+        if (FlagOn( IrpContext->TopLevelIrpContext->Flags, IRP_CONTEXT_FLAG_WRITE_THROUGH ) &&
+            (IrpContext == IrpContext->TopLevelIrpContext) &&
+            (IrpContext->TopLevelIrpContext->ExceptionStatus == STATUS_SUCCESS)) {
 
             NtfsUpdateScbSnapshots( IrpContext );
             LfsFlushToLsn( Vcb->LogHandle, CommitLsn );
@@ -2064,11 +2169,12 @@ Return Value:
     NtfsUpdateScbSnapshots( IrpContext );
 
     //
-    //  Cleanup any recently deallocated record information for the parent of
-    //  the transaction.
+    //  Cleanup any recently deallocated record information for this transaction.
     //
 
-    NtfsDeallocateRecordsComplete( IrpContext->TopLevelIrpContext );
+    NtfsDeallocateRecordsComplete( IrpContext );
+    IrpContext->DeallocatedClusters = 0;
+    IrpContext->FreeClusterChange = 0;
 }
 
 
@@ -2096,15 +2202,14 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsInitializeLogging:\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsInitializeLogging:\n") );
     LfsInitializeLogFileService();
-    DebugTrace(-1, Dbg, "NtfsInitializeLogging -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsInitializeLogging -> VOID\n") );
 }
 
 
 VOID
 NtfsStartLogFile (
-    IN PIRP_CONTEXT IrpContext,
     IN PSCB LogFileScb,
     IN PVCB Vcb
     )
@@ -2133,11 +2238,9 @@ Return Value:
     UNICODE_STRING UnicodeName;
     LFS_INFO LfsInfo;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsStartLogFile:\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsStartLogFile:\n") );
 
     RtlInitUnicodeString( &UnicodeName, L"NTFS" );
 
@@ -2151,21 +2254,21 @@ Return Value:
     LogFileScb->Header.FileSize = LogFileScb->Header.AllocationSize;
     LogFileScb->Header.ValidDataLength = LogFileScb->Header.AllocationSize;
 
-    LfsOpenLogFile( LogFileScb->FileObject,
-                    UnicodeName,
-                    1,
-                    0,
-                    LogFileScb->Header.AllocationSize.QuadPart,
-                    &LfsInfo,
-                    &Vcb->LogHandle );
+    Vcb->LogHeaderReservation = LfsOpenLogFile( LogFileScb->FileObject,
+                                                UnicodeName,
+                                                1,
+                                                0,
+                                                LogFileScb->Header.AllocationSize.QuadPart,
+                                                &LfsInfo,
+                                                &Vcb->LogHandle );
 
-    DebugTrace(-1, Dbg, "NtfsStartLogFile -> VOID\n", 0 );
+    SetFlag( Vcb->VcbState, VCB_STATE_VALID_LOG_HANDLE );
+    DebugTrace( -1, Dbg, ("NtfsStartLogFile -> VOID\n") );
 }
 
 
 VOID
 NtfsStopLogFile (
-    IN PIRP_CONTEXT IrpContext,
     IN PVCB Vcb
     )
 
@@ -2189,26 +2292,25 @@ Return Value:
 {
     LFS_LOG_HANDLE LogHandle = Vcb->LogHandle;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "NtfsStopLogFile:\n", 0 );
+    DebugTrace( +1, Dbg, ("NtfsStopLogFile:\n") );
 
-    if (LogHandle != NULL) {
+    if (FlagOn( Vcb->VcbState, VCB_STATE_VALID_LOG_HANDLE )) {
 
+        ASSERT( LogHandle != NULL );
         LfsFlushToLsn( LogHandle, LfsQueryLastLsn(LogHandle) );
+
+        ClearFlag( Vcb->VcbState, VCB_STATE_VALID_LOG_HANDLE );
         LfsCloseLogFile( LogHandle );
-        Vcb->LogHandle = NULL;
     }
 
-    DebugTrace(-1, Dbg, "NtfsStopLogFile -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsStopLogFile -> VOID\n") );
 }
 
 
 VOID
 NtfsInitializeRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN ULONG EntrySize,
     IN ULONG NumberEntries,
     OUT PRESTART_POINTERS TablePointer
@@ -2246,7 +2348,7 @@ Return Value:
         //  Call common routine to allocate the actual table.
         //
 
-        InitializeNewTable( IrpContext, EntrySize, NumberEntries, TablePointer );
+        InitializeNewTable( EntrySize, NumberEntries, TablePointer );
 
         //
         //  Initialiaze the resource and spin lock.
@@ -2266,7 +2368,7 @@ Return Value:
 
         if (AbnormalTermination()) {
 
-            NtfsFreeRestartTable( IrpContext, TablePointer );
+            NtfsFreeRestartTable( TablePointer );
         }
     }
 }
@@ -2274,7 +2376,6 @@ Return Value:
 
 VOID
 NtfsFreeRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer
     )
 
@@ -2295,24 +2396,22 @@ Return Value:
 --*/
 
 {
-    UNREFERENCED_PARAMETER(IrpContext);
-
     PAGED_CODE();
 
     if (TablePointer->Table != NULL) {
-        NtfsFreePagedPool( TablePointer->Table );
+        NtfsFreePool( TablePointer->Table );
         TablePointer->Table = NULL;
     }
 
     if (TablePointer->ResourceInitialized) {
         ExDeleteResource( &TablePointer->Resource );
+        TablePointer->ResourceInitialized = FALSE;
     }
 }
 
 
 VOID
 NtfsExtendRestartTable (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG NumberNewEntries,
     IN ULONG FreeGoal
@@ -2361,8 +2460,7 @@ Return Value:
     //  Start by initializing a table for the new size.
     //
 
-    InitializeNewTable( IrpContext,
-                        OldTable->EntrySize,
+    InitializeNewTable( OldTable->EntrySize,
                         OldTable->NumberEntries + NumberNewEntries,
                         TablePointer );
 
@@ -2404,7 +2502,7 @@ Return Value:
     //  Free the old table and return the new one.
     //
 
-    NtfsFreePagedPool( OldTable );
+    NtfsFreePool( OldTable );
 
     ASSERT_RESTART_TABLE(NewTable);
 }
@@ -2412,7 +2510,6 @@ Return Value:
 
 ULONG
 NtfsAllocateRestartTableIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer
     )
 
@@ -2444,10 +2541,8 @@ Return Value:
     KIRQL OldIrql;
     PULONG Entry;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
-    DebugTrace(+1, Dbg, "NtfsAllocateRestartTableIndex:\n", 0 );
-    DebugTrace( 0, Dbg, "TablePointer = %08lx\n", TablePointer );
+    DebugTrace( +1, Dbg, ("NtfsAllocateRestartTableIndex:\n") );
+    DebugTrace( 0, Dbg, ("TablePointer = %08lx\n", TablePointer) );
 
     Table = TablePointer->Table;
     ASSERT_RESTART_TABLE(Table);
@@ -2478,7 +2573,7 @@ Return Value:
         //  nothing to release.
         //
 
-        NtfsExtendRestartTable( IrpContext, TablePointer, 16, MAXULONG );
+        NtfsExtendRestartTable( TablePointer, 16, MAXULONG );
 
         //
         //  And re-get our pointer to the restart table
@@ -2508,6 +2603,7 @@ Return Value:
     Entry = (PULONG)GetRestartEntryFromIndex( TablePointer, EntryIndex );
 
     Table->FirstFree = *Entry;
+    ASSERT( Table->FirstFree != RESTART_ENTRY_ALLOCATED );
 
     RtlZeroMemory( Entry, Table->EntrySize );
 
@@ -2534,7 +2630,7 @@ Return Value:
 
     KeReleaseSpinLock( &TablePointer->SpinLock, OldIrql );
 
-    DebugTrace(-1, Dbg, "NtfsAllocateRestartTableIndex -> %08lx\n", EntryIndex );
+    DebugTrace( -1, Dbg, ("NtfsAllocateRestartTableIndex -> %08lx\n", EntryIndex) );
 
     return EntryIndex;
 }
@@ -2542,7 +2638,6 @@ Return Value:
 
 PVOID
 NtfsAllocateRestartTableFromIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG Index
     )
@@ -2582,9 +2677,9 @@ Return Value:
     ULONG ThisIndex;
     ULONG LastIndex;
 
-    DebugTrace( +1, Dbg, "NtfsAllocateRestartTableFromIndex\n", 0 );
-    DebugTrace(  0, Dbg, "TablePointer  = %08lx\n", TablePointer );
-    DebugTrace(  0, Dbg, "Index         = %08lx\n", Index );
+    DebugTrace( +1, Dbg, ("NtfsAllocateRestartTableFromIndex\n") );
+    DebugTrace( 0, Dbg, ("TablePointer  = %08lx\n", TablePointer) );
+    DebugTrace( 0, Dbg, ("Index         = %08lx\n", Index) );
 
     Table = TablePointer->Table;
     ASSERT_RESTART_TABLE(Table);
@@ -2636,8 +2731,7 @@ Return Value:
         //  nothing to release.
         //
 
-        NtfsExtendRestartTable( IrpContext,
-                                TablePointer,
+        NtfsExtendRestartTable( TablePointer,
                                 AddEntries,
                                 TableSize );
 
@@ -2684,6 +2778,7 @@ Return Value:
             //
 
             Table->FirstFree = *Entry;
+            ASSERT( Table->FirstFree != RESTART_ENTRY_ALLOCATED );
 
         //
         //  Otherwise we need to walk through the list looking for the
@@ -2768,7 +2863,7 @@ Return Value:
 
     KeReleaseSpinLock( &TablePointer->SpinLock, OldIrql );
 
-    DebugTrace( -1, Dbg, "NtfsAllocateRestartTableFromIndex -> %08lx\n", Entry );
+    DebugTrace( -1, Dbg, ("NtfsAllocateRestartTableFromIndex -> %08lx\n", Entry) );
 
     return (PVOID)Entry;
 }
@@ -2776,7 +2871,6 @@ Return Value:
 
 VOID
 NtfsFreeRestartTableIndex (
-    IN PIRP_CONTEXT IrpContext,
     IN PRESTART_POINTERS TablePointer,
     IN ULONG Index
     )
@@ -2812,11 +2906,9 @@ Return Value:
     PULONG Entry, OldLastEntry;
     KIRQL OldIrql;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
-    DebugTrace(+1, Dbg, "NtfsFreeRestartTableIndex:\n", 0 );
-    DebugTrace( 0, Dbg, "TablePointer = %08lx\n", TablePointer );
-    DebugTrace( 0, Dbg, "Index = %08lx\n", Index );
+    DebugTrace( +1, Dbg, ("NtfsFreeRestartTableIndex:\n") );
+    DebugTrace( 0, Dbg, ("TablePointer = %08lx\n", TablePointer) );
+    DebugTrace( 0, Dbg, ("Index = %08lx\n", Index) );
 
     //
     //  Get pointers to table and the entry we are freeing.
@@ -2878,7 +2970,7 @@ Return Value:
 
     KeReleaseSpinLock( &TablePointer->SpinLock, OldIrql );
 
-    DebugTrace(-1, Dbg, "NtfsFreeRestartTableIndex -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("NtfsFreeRestartTableIndex -> VOID\n") );
 }
 
 
@@ -3049,16 +3141,14 @@ Return Value:
     PRESTART_POINTERS DirtyPageTable = (PRESTART_POINTERS)Context2;
     PSCB_NONPAGED NonpagedScb;
 
-    DebugTrace(+1, Dbg, "DirtyPageRoutine:\n", 0 );
-    DebugTrace( 0, Dbg, "FileObject = %08lx\n", FileObject );
-    DebugTrace2(0, Dbg, "FileOffset = %08lx, %08lx\n", FileOffset->LowPart,
-                                                       FileOffset->HighPart );
-    DebugTrace( 0, Dbg, "Length = %08lx\n", Length );
-    DebugTrace2(0, Dbg, "OldestLsn = %08lx, %08lx\n", OldestLsn->LowPart,
-                                                      OldestLsn->HighPart );
-    DebugTrace( 0, Dbg, "Context2 = %08lx\n", Context2 );
+    UNREFERENCED_PARAMETER( NewestLsn );
 
-    UNREFERENCED_PARAMETER(NewestLsn);
+    DebugTrace( +1, Dbg, ("DirtyPageRoutine:\n") );
+    DebugTrace( 0, Dbg, ("FileObject = %08lx\n", FileObject) );
+    DebugTrace( 0, Dbg, ("FileOffset = %016I64x\n", *FileOffset) );
+    DebugTrace( 0, Dbg, ("Length = %08lx\n", Length) );
+    DebugTrace( 0, Dbg, ("OldestLsn = %016I64x\n", *OldestLsn) );
+    DebugTrace( 0, Dbg, ("Context2 = %08lx\n", Context2) );
 
     //
     //  Get the Vcb out of the file object.
@@ -3077,7 +3167,7 @@ Return Value:
 
     if (NonpagedScb->OpenAttributeTableIndex == 0 ) {
 
-        DebugTrace(-1, Dbg, "DirtyPageRoutine -> VOID\n", 0 );
+        DebugTrace( -1, Dbg, ("DirtyPageRoutine -> VOID\n") );
         return;
     }
 
@@ -3085,7 +3175,7 @@ Return Value:
     //  First allocate an entry in the dirty page table.
     //
 
-    PageIndex = NtfsAllocateRestartTableIndex( IrpContext, DirtyPageTable );
+    PageIndex = NtfsAllocateRestartTableIndex( DirtyPageTable );
 
     //
     //  Get a pointer to the entry we just allocated.
@@ -3097,7 +3187,7 @@ Return Value:
     //  Calculate the range of Vcns which are dirty.
     //
 
-    Vcn = FileOffset->QuadPart >> Vcb->ClusterShift;
+    Vcn = Int64ShraMod32(FileOffset->QuadPart, Vcb->ClusterShift);
     ClusterCount = ClustersFromBytes( Vcb, Length );
 
     //
@@ -3135,7 +3225,7 @@ Return Value:
 
     AttributeEntry->DirtyPagesSeen = TRUE;
 
-    DebugTrace(-1, Dbg, "DirtyPageRoutine -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("DirtyPageRoutine -> VOID\n") );
 }
 
 
@@ -3190,11 +3280,11 @@ Return Value:
 
     PAGED_CODE();
 
-    DebugTrace(+1, Dbg, "LookupLcns:\n", 0 );
-    DebugTrace( 0, Dbg, "Scb = %08l\n", Scb );
-    DebugTrace2(0, Dbg, "Vcn = %08lx, %08lx\n", Vcn.LowPart, Vcn.HighPart );
-    DebugTrace( 0, Dbg, "ClusterCount = %08l\n", ClusterCount );
-    DebugTrace( 0, Dbg, "FirstLcn = %08lx\n", FirstLcn );
+    DebugTrace( +1, Dbg, ("LookupLcns:\n") );
+    DebugTrace( 0, Dbg, ("Scb = %08l\n", Scb) );
+    DebugTrace( 0, Dbg, ("Vcn = %016I64x\n", Vcn) );
+    DebugTrace( 0, Dbg, ("ClusterCount = %08l\n", ClusterCount) );
+    DebugTrace( 0, Dbg, ("FirstLcn = %08lx\n", FirstLcn) );
 
     //
     //  Loop until we have looked up all of the clusters
@@ -3213,22 +3303,25 @@ Return Value:
                                               Vcn,
                                               &Lcn,
                                               &Clusters,
+                                              NULL,
                                               NULL );
 
             ASSERT( Allocated && (Lcn != 0) );
 
         } else {
 
-           Allocated = FsRtlLookupLargeMcbEntry ( &Scb->Mcb, Vcn, &Lcn, &Clusters, NULL, NULL, NULL );
+           Allocated = NtfsLookupNtfsMcbEntry( &Scb->Mcb, Vcn, &Lcn, &Clusters, NULL, NULL, NULL, NULL );
 
            //
            //   If we are off the end of the Mcb, then set up to just return
            //   Li0 for as many Lcns as are being looked up.
            //
 
-           if (!Allocated) {
+           if (!Allocated ||
+               (Lcn == UNUSED_LCN)) {
                Lcn = 0;
                Clusters = ClusterCount;
+               Allocated = FALSE;
            }
         }
 
@@ -3262,13 +3355,12 @@ Return Value:
         Vcn = Vcn + Clusters;
         ClusterCount -= (ULONG)Clusters;
     }
-    DebugTrace(-1, Dbg, "LookupLcns -> VOID\n", 0 );
+    DebugTrace( -1, Dbg, ("LookupLcns -> VOID\n") );
 }
 
 
 VOID
 InitializeNewTable (
-    IN PIRP_CONTEXT IrpContext,
     IN ULONG EntrySize,
     IN ULONG NumberEntries,
     OUT PRESTART_POINTERS TablePointer
@@ -3301,8 +3393,6 @@ Return Value:
     ULONG Size;
     ULONG Offset;
 
-    UNREFERENCED_PARAMETER(IrpContext);
-
     //
     //  Calculate size of table to allocate.
     //
@@ -3314,7 +3404,7 @@ Return Value:
     //
 
     Table =
-    TablePointer->Table = FsRtlAllocatePool( NonPagedPool, Size );
+    TablePointer->Table = NtfsAllocatePool( NonPagedPool, Size );
 
     RtlZeroMemory( Table, Size );
 

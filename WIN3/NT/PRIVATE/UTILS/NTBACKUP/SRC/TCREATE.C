@@ -263,42 +263,45 @@ static INT16 NTFS_CreateFile( FSYS_HAND     fsh,
                            // by itself and restore it to a seperate path.
 
      ddblk->b.f.handle = CreateFile( path,
-                                     GENERIC_WRITE | WRITE_DAC | WRITE_OWNER,
+                                     GENERIC_WRITE | GENERIC_READ | ACCESS_SYSTEM_SECURITY | WRITE_DAC | WRITE_OWNER,
                                      FILE_SHARE_WRITE | FILE_SHARE_READ,
                                      satr_ptr,
-                                     TRUNCATE_EXISTING,
-//                                     ddblk->dta.os_attr | FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
+                                     CREATE_ALWAYS,
                                      FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
                                      NULL ) ;
 
-     if ( (ddblk->b.f.handle == INVALID_HANDLE_VALUE) &&
-          (GetLastError() == ERROR_ACCESS_DENIED) ) {
+     ret_val = NTFS_TranslateBackupError( GetLastError() );
 
-          SetFileAttributes( path, 0 ) ;
+     if ( (ddblk->b.f.handle == INVALID_HANDLE_VALUE) &&
+          (ret_val == FS_ACCESS_DENIED) ) {
+
+          SetFileAttributes( path, FILE_ATTRIBUTE_NORMAL ) ;
 
 
           ddblk->b.f.handle = CreateFile( path,
-                                     GENERIC_WRITE| WRITE_DAC | WRITE_OWNER,
+                                     GENERIC_WRITE | GENERIC_READ | ACCESS_SYSTEM_SECURITY | WRITE_DAC | WRITE_OWNER,
                                      FILE_SHARE_WRITE | FILE_SHARE_READ,
                                      satr_ptr,
-                                     TRUNCATE_EXISTING,
-//                                     ddblk->dta.os_attr | FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
+                                     CREATE_ALWAYS,
                                      FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
                                      NULL ) ;
+
+          ret_val = NTFS_TranslateBackupError( GetLastError() );
 
      }
 
-     if ( ddblk->b.f.handle == INVALID_HANDLE_VALUE ) {
+     if ( (ddblk->b.f.handle == INVALID_HANDLE_VALUE) &&
+          (ret_val == FS_ACCESS_DENIED) ) {
 
           ddblk->b.f.handle = CreateFile( path,
-                                     GENERIC_WRITE| WRITE_DAC | WRITE_OWNER,
+                                     GENERIC_WRITE | GENERIC_READ | WRITE_DAC | WRITE_OWNER,
                                      FILE_SHARE_WRITE | FILE_SHARE_READ,
                                      satr_ptr,
-                                     OPEN_ALWAYS,
-//                                     ddblk->dta.os_attr | FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
+                                     CREATE_ALWAYS,
                                      FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
                                      NULL ) ;
 
+          ret_val = NTFS_TranslateBackupError( GetLastError() );
      }
 
      if ( ddblk->b.f.handle != INVALID_HANDLE_VALUE ) {
@@ -310,7 +313,8 @@ static INT16 NTFS_CreateFile( FSYS_HAND     fsh,
           ret_val = NTFS_TranslateBackupError( error );
 
           /* Check the error for active file */
-          if ( error == ERROR_SHARING_VIOLATION ) {
+          if ( ( error == ERROR_SHARING_VIOLATION ) ||
+               ( error == ERROR_USER_MAPPED_FILE ) ){
                CHAR  *tempName = NULL;
 
                if ( REG_IsRegistryFile( fsh->attached_dle, path ) ) {
@@ -334,12 +338,25 @@ static INT16 NTFS_CreateFile( FSYS_HAND     fsh,
 
 
                     ddblk->b.f.handle = CreateFile( tempName,
-                                     GENERIC_WRITE| WRITE_DAC | WRITE_OWNER,
+                                     GENERIC_WRITE | GENERIC_READ | ACCESS_SYSTEM_SECURITY | WRITE_DAC | WRITE_OWNER,
                                      0,
                                      satr_ptr,
                                      OPEN_ALWAYS,
                                      FILE_ATTRIBUTE_NORMAL| FILE_FLAG_BACKUP_SEMANTICS,
                                      NULL ) ;
+
+
+                    if ( ddblk->b.f.handle == INVALID_HANDLE_VALUE ) {
+
+                          ddblk->b.f.handle = CreateFile( path,
+                                     GENERIC_WRITE | GENERIC_READ | WRITE_DAC | WRITE_OWNER,
+                                     FILE_SHARE_WRITE | FILE_SHARE_READ,
+                                     satr_ptr,
+                                     OPEN_ALWAYS,
+                                     FILE_FLAG_BACKUP_SEMANTICS | posix_flag,
+                                     NULL ) ;
+
+                    }
 
 
                     if ( ddblk->b.f.handle != INVALID_HANDLE_VALUE ) {

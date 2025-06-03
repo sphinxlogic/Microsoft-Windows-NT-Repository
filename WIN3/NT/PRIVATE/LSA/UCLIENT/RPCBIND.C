@@ -100,4 +100,3 @@ Return Value:
 
     UNREFERENCED_PARAMETER( ServerName );     // This parameter is not used
 }
-

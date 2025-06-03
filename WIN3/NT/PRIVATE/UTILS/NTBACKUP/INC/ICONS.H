@@ -44,6 +44,7 @@ Initial revision.
 #define IDRI_RESTORE          ID(16)
 #define IDRI_TRANSFER         ID(17)
 #define IDRI_DONE             ID(18)
+#define IDRI_EXCHANGE         ID(19)
 
 #define IDRI_BKUP0            ID(20)
 #define IDRI_BKUP1            ID(21)

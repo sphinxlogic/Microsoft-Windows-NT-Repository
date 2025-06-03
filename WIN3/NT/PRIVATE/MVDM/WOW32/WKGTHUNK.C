@@ -24,6 +24,16 @@ HINSTANCE FASTCALL WK32LoadLibraryEx32(PVDMFRAME pFrame)
     HINSTANCE hinstance;
     PLOADLIBRARYEX32 parg16;
 
+#ifdef i386
+    BYTE FpuState[108];
+
+    // Save the 487 state
+    _asm {
+        lea    ecx, [FpuState]
+        fsave  [ecx]
+    }
+#endif
+
     GETARGPTR(pFrame, sizeof(LOADLIBRARYEX32), parg16);
     GETVDMPTR(parg16->lpszLibFile,0,psz1);
 
@@ -36,6 +46,15 @@ HINSTANCE FASTCALL WK32LoadLibraryEx32(PVDMFRAME pFrame)
     hinstance = LoadLibraryEx(psz1, (HANDLE)parg16->hFile, parg16->dwFlags);
 
     FREEARGPTR(parg16);
+
+#ifdef i386
+    // Restore the 487 state
+    _asm {
+        lea    ecx, [FpuState]
+        frstor [ecx]
+    }
+#endif
+
     return (hinstance);
 }
 
@@ -89,8 +108,6 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
     register DWORD dwReturn;
     PICALLPROC32 parg16;
     UNALIGNED DWORD *pArg;
-    VPVOID vp;
-    PVOID pTemp;
     DWORD  fAddress;
     BOOL    fSourceCDECL;
     BOOL    fDestCDECL;
@@ -99,17 +116,10 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
     UNALIGNED DWORD *lpArgs;
     DWORD   dwTemp[32];
 
-    GETARGPTR(pFrame, sizeof(PICALLPROC32), parg16);
+    GETARGPTR(pFrame, sizeof(*parg16), parg16);
 
-    fSourceCDECL = FALSE;
-    fDestCDECL   = FALSE;
-
-    if ( HIWORD(parg16->cParams) & CPEX32_SOURCE_CDECL ) {
-        fSourceCDECL = TRUE;
-    }
-    if ( HIWORD(parg16->cParams) & CPEX32_DEST_CDECL ) {
-        fDestCDECL = TRUE;
-    }
+    fSourceCDECL = HIWORD(parg16->cParams) & CPEX32_SOURCE_CDECL;
+    fDestCDECL =   HIWORD(parg16->cParams) & CPEX32_DEST_CDECL;
 
     // We only support up to 32 parameters
 
@@ -135,13 +145,11 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
     fAddress = parg16->fAddressConvert;
 
     while (fAddress != 0) {
-	if (fAddress & 0x1) {
-	    vp = *pArg;
-	    GETVDMPTR(vp, 0, pTemp);
-            *pArg = (DWORD)pTemp;
-	}
-	pArg++;
-	fAddress = fAddress >> 1;
+        if (fAddress & 0x1) {
+            *pArg = (DWORD) GetPModeVDMPointer(*pArg, 0);
+        }
+        pArg++;
+        fAddress = fAddress >> 1;
     }
 
     //
@@ -152,6 +160,53 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
     // beginning.  Weird for pascal, but that is compatible with what we've
     // already shipped.  cdecl should be more understandable.
     //
+    // The above comment applies to CallProc32W, for CallProc32ExW,
+    // the lowest bit position always refers to the leftmost parameter.
+    //
+
+    //
+    // Make sure the Win32 current directory matches this task's.
+    //
+
+    UpdateDosCurrentDirectory(DIR_DOS_TO_NT);
+
+
+#ifdef i386
+
+    {
+        extern DWORD WK32ICallProc32MakeCall(DWORD pfn, DWORD cArgs, VOID *pArgs);
+
+        //
+        // On x86 we call an assembly routine to actually make the call to
+        // the client's Win32 routine.  The code is much more compact
+        // this way, and it's the only way we can be compatible with
+        // Win95's implementation, which cleans up the stack if the
+        // routine doesn't.
+        //
+        // This assembly routine "pushes" the arguments by copying
+        // them as a block, so they must be in the proper order for
+        // the destination calling convention.
+        //
+
+        if ( ! fSourceCDECL) {
+            //
+            // Invert the parameters
+            //
+            pArg = lpArgs;
+            lpArgs = dwTemp;
+
+            nParam = cParams;
+            while ( nParam != 0 ) {
+                --nParam;
+                lpArgs[nParam] = *pArg;
+                pArg++;
+            }
+        }
+
+        dwReturn = WK32ICallProc32MakeCall(parg16->lpProcAddress, cParams, lpArgs);
+    }
+
+#else
 
     if ( fSourceCDECL != fDestCDECL ) {
         //
@@ -169,16 +224,9 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
     }
 
     //
-    // lpArg now points to the very first parameter in any calling convention
+    // lpArgs now points to the very first parameter in any calling convention
     // And all of the parameters have been appropriately converted to flat ptrs
     //
-
-    //
-    // Make sure the Win32 current directory matches this task's.
-    //
-
-    UpdateDosCurrentDirectory(DIR_DOS_TO_NT);
-
 
     if ( fDestCDECL ) {
         typedef int (FAR WINAPIV *FARFUNC)();
@@ -472,6 +520,9 @@ DWORD FASTCALL WK32ICallProc32(PVDMFRAME pFrame)
         }
     }
 
+#endif
+
+
     FREEARGPTR(parg16);
     return(dwReturn);
 }
@@ -498,4 +549,35 @@ VOID WOWGetVDMPointerUnfix(VPVOID vp)
     UNREFERENCED_PARAMETER(vp);
 
     return;
+}
+
+
+//
+// Yielding functions allow 32-bit thunks to avoid 4 16<-->32 transitions
+// involved in calling back to 16-bit side to call Yield or DirectedYield,
+// which are thunked back to user32.
+//
+
+VOID WOWYield16(VOID)
+{
+    //
+    // Since WK32Yield (the thunk for Yield) doesn't use pStack16,
+    // just call it rather than duplicate the code.
+    //
+
+    WK32Yield(NULL);
+}
+
+VOID WOWDirectedYield16(WORD hTask16)
+{
+    //
+    // This is duplicating the code of WK32DirectedYield, the
+    // two must be kept synchronized.
+    //
+
+    BlockWOWIdle(TRUE);
+
+    (pfnOut.pfnDirectedYield)(THREADID32(hTask16));
+
+    BlockWOWIdle(FALSE);
 }

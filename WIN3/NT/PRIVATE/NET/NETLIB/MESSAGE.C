@@ -36,7 +36,7 @@ Revision History:
 #include <winnls.h>
 #include <lmcons.h>
 #include <lmerr.h>
-#include <netdebug.h> // NetpDbgPrint
+#include <netdebug.h> // NetpKdPrint
 #include <netlib.h>   // NetpMemory*
 #include <netlibnt.h> // NetpNtStatusToApiStatus
 #include <string.h>
@@ -193,7 +193,7 @@ Return Value:
                                             0,       // LanguageId defaulted
                                             UnicodeBuffer,
                                             (DWORD)BufferLength * sizeof(WCHAR),
-                                            UnicodeIStrings);
+                                            (va_list *)UnicodeIStrings);
 
     //
     // If it failed get the return code and map it to an OS/2 equivalent
@@ -208,7 +208,7 @@ Return Value:
             //
             // get the message number in Unicode
             //
-            itoa(MessageId, NumberString, 16);
+            _itoa(MessageId, NumberString, 16);
             Status = MyAllocUnicode(NumberString, &UnicodeNumberString) ;
             if (Status)
                 goto ExitPoint ;
@@ -236,7 +236,7 @@ Return Value:
                                             0,       // LanguageId defaulted
                                             UnicodeBuffer,
                                             (DWORD)BufferLength * sizeof(WCHAR),
-                                            UnicodeIStrings);
+                                            (va_list *)UnicodeIStrings);
             UnicodeIStrings[1] = NULL ;
 
             //
@@ -248,18 +248,17 @@ Return Value:
     
     if (UnicodeBuffer[0])
     {
-        UINT count ;
         BOOL  fUsedDefault;
 
-        count = WideCharToMultiByte(CP_OEMCP,
-                                    0,
-                                    UnicodeBuffer,
-                                    -1,
-                                    Buffer,
-                                    BufferLength,
-                                    NULL, // use system default char
-                                    &fUsedDefault);
-        if (count == 0)
+        *pMessageLength = WideCharToMultiByte(CP_OEMCP,
+                                                0,
+                                                UnicodeBuffer,
+                                                -1,
+                                                Buffer,
+                                                BufferLength,
+                                                NULL, // use system default char
+                                                &fUsedDefault );
+        if (*pMessageLength == 0)
         {
             Status = GetLastError() ;
             goto ExitPoint ;
@@ -274,7 +273,7 @@ ExitPoint:
     //
     if (UnicodeBuffer) NetpMemoryFree(UnicodeBuffer) ;
     MyFreeUnicodeVector(UnicodeIStrings, NumberofStrings) ;
-    return(Status);
+    return (WORD)(Status);
 }
 
 
@@ -380,7 +379,7 @@ Return Value:
                                    0,            // LanguageId defaulted
                                    UnicodeBuffer,
                                    (DWORD)BufferLength * sizeof(WCHAR),
-                                   UnicodeIStrings);
+                                   (va_list *)UnicodeIStrings);
 
    //
    // If it failed get the return code and map it to an OS/2 equivalent
@@ -417,7 +416,7 @@ ExitPoint:
     if (UnicodeInputString) NetpMemoryFree(UnicodeInputString) ;
     if (UnicodeBuffer) NetpMemoryFree(UnicodeBuffer) ;
     MyFreeUnicodeVector(UnicodeIStrings, NumberofStrings) ;
-    return(Status);
+    return (WORD)(Status);
 }
 
 #define SCREEN_WIDTH 80

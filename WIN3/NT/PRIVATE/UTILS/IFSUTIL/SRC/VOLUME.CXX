@@ -1,8 +1,11 @@
 #include <pch.cxx>
 
 #define _NTAPI_ULIB_
+#define _IFSUTIL_MEMBER_
 
 #include "ulib.hxx"
+#include "ifsutil.hxx"
+
 #include "error.hxx"
 #include "volume.hxx"
 #include "supera.hxx"
@@ -11,33 +14,36 @@
 #include "rtmsg.h"
 #include "autoreg.hxx"
 
+#ifndef _AUTOCHECK_
+#include <stdio.h>
+#endif // _AUTOCHECK_
 
-DEFINE_CONSTRUCTOR( VOL_LIODPDRV, LOG_IO_DP_DRIVE );
+
+DEFINE_EXPORTED_CONSTRUCTOR( VOL_LIODPDRV, LOG_IO_DP_DRIVE, IFSUTIL_EXPORT );
 
 VOID
 VOL_LIODPDRV::Construct (
-	)
-
+    )
 /*++
 
 Routine Description:
 
-	Constructor for VOL_LIODPDRV.
+    Constructor for VOL_LIODPDRV.
 
 Arguments:
 
-	None.
+    None.
 
 Return Value:
 
-	None.
+    None.
 
 --*/
 {
-	_sa = NULL;
+    _sa = NULL;
 }
 
-
+IFSUTIL_EXPORT
 VOL_LIODPDRV::~VOL_LIODPDRV(
     )
 /*++
@@ -83,6 +89,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::Initialize(
     IN      PCWSTRING   NtDriveName,
@@ -125,8 +132,8 @@ Return Value:
 
     Destroy();
 
-    DbgAssert(NtDriveName);
-    DbgAssert(SuperArea);
+    DebugAssert(NtDriveName);
+    DebugAssert(SuperArea);
 
     if (!LOG_IO_DP_DRIVE::Initialize(NtDriveName, Message, ExclusiveWrite)) {
         return FALSE;
@@ -163,7 +170,13 @@ Return Value:
             return FALSE;
         }
 
-        if (IsFloppy()) {
+        //
+        //  We make a weird exception here for the Compaq 120MB floppy,
+        //  because it wants to be formatted as if it were a hard disk.
+        //
+
+        if (IsFloppy() && MediaType != F3_120M_512) {
+
             if (!FormatVerifyFloppy(MediaType, &_bad_sectors, Message)) {
                 return FALSE;
             }
@@ -204,13 +217,14 @@ Return Value:
 
 
     if (QuerySectors() == 0) {
-        DbgAbort("Sectors is 0");
+        DebugAbort("Sectors is 0");
         return FALSE;
     }
 
     return TRUE;
 }
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::Initialize(
     IN      PCWSTRING   NtDriveName,
@@ -244,8 +258,8 @@ Return Value:
 {
     Destroy();
 
-    DbgAssert(HostFileName);
-    DbgAssert(SuperArea);
+    DebugAssert(HostFileName);
+    DebugAssert(SuperArea);
 
     if (!LOG_IO_DP_DRIVE::Initialize(NtDriveName,
                                      HostFileName,
@@ -265,6 +279,7 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::Format(
     IN      PCWSTRING   Label,
@@ -313,15 +328,19 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::ChkDsk(
     IN      FIX_LEVEL   FixLevel,
     IN OUT  PMESSAGE    Message,
-	IN		BOOLEAN 	Verbose,
+    IN      BOOLEAN     Verbose,
     IN      BOOLEAN     OnlyIfDirty,
     IN      BOOLEAN     RecoverFree,
     IN      BOOLEAN     RecoverAlloc,
-    OUT     PULONG      ExitStatus
+    IN      BOOLEAN     ResizeLogFile,
+    IN      ULONG       DesiredLogFileSize,
+    OUT     PULONG      ExitStatus,
+    IN      PCWSTRING   DriveLetter
     )
 /*++
 
@@ -333,13 +352,17 @@ Routine Description:
 
 Arguments:
 
-    FixLevel    - Supplies the level to which the volume should be fixed.
-    Message     - Supplies an outlet for messages.
-    Verbose     - Supplies whether or not to be verbose.
-    OnlyIfDirty - Supplies whether the drive should be checked only if
-                    it is dirty (TRUE) or unconditionally (FALSE).
-    Recover     - Supplies whether or not to verify all sectors on the
-                    volume.
+    FixLevel            - Supplies the level to which the volume should be fixed.
+    Message             - Supplies an outlet for messages.
+    Verbose             - Supplies whether or not to be verbose.
+    OnlyIfDirty         - Supplies whether the drive should be checked only if
+                            it is dirty (TRUE) or unconditionally (FALSE).
+    Recover             - Supplies whether or not to verify all sectors on the
+                            volume.
+    ResizeLogFile       - Tells whether to resize the ntfs logfile.       
+    DesiredLogFileSize  - Tells what logfile size the user wants.
+    ExitStatus          - Returns and indication of how the chkdsk went.
+    DriveLetter         - For autochk, tells which drive letter we're checking.
 
 Return Value:
 
@@ -364,10 +387,14 @@ Return Value:
     }
 
     return _sa->VerifyAndFix(FixLevel, Message, Verbose, OnlyIfDirty,
-                             RecoverFree, RecoverAlloc, ExitStatus);
+                             RecoverFree, RecoverAlloc,
+                             ResizeLogFile, DesiredLogFileSize,
+                             ExitStatus,
+                             DriveLetter);
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::Recover(
     IN      PCWSTRING   FullPathFileName,
@@ -407,9 +434,12 @@ Return Value:
 }
 
 
+IFSUTIL_EXPORT
 BOOLEAN
 VOL_LIODPDRV::ForceAutochk(
     IN  BOOLEAN     Recover,
+    IN  BOOLEAN     ResizeLogFile,
+    IN  ULONG       LogFileSize,
     IN  PCWSTRING   Name
     )
 /*++
@@ -417,17 +447,19 @@ VOL_LIODPDRV::ForceAutochk(
 Routine Description:
 
     This method schedules Autochk to be run at next boot.  If the client
-    has not requested bad-sector-detection, this scheduling is done by
-    simply marking the volume dirty.  If bad-sector-detection has been
-    requested, the appropriate entry is put into the registry to force
-    autochk to run.
+    has not requested bad sector detection or logfile resizing, this
+    scheduling is done simply by marking the volume dirty.  If bad sector
+    detection or logfile resizing has been requested, the appropriate entry
+    is put into the registry to force autochk to run.
 
 Arguments:
 
-    Recover --  Supplies a flag which indicates whether the client
-                wants to perform bad-sector recovery on free space
-                and user files.
-    Name    --  Supplies the volume's NT name.
+    Recover         -- Supplies a flag which indicates whether the client
+                        wants to perform bad sector recovery on free space
+                        and user files.
+    ResizeLogFile   -- Tells whether the user wants to resize the ntfs log file.
+    LogFileSize     -- If resizing, tells the desired size in bytes.
+    Name            -- Supplies the volume's NT name.
 
 Return Value:
 
@@ -435,31 +467,54 @@ Return Value:
 
 --*/
 {
-
-#if !defined( _SETUP_LOADER_ )
-
     DSTRING CommandLine;
 
-    if( !Recover ) {
+    if (!Recover && !ResizeLogFile) {
 
-        // The client has not asked for autochk /r, so it suffices
+        // The client has not asked for autochk /r or /l, so it suffices
         // to mark the volume dirty.
         //
+
         return ForceDirty();
-
-    } else {
-
-        // The client wants autochk to ferret out bad sectors,
-        // so we have to schedule autochk /r.
-        //
-        return( CommandLine.Initialize( "autocheck autochk /r " ) &&
-                CommandLine.Strcat( Name ) &&
-                AUTOREG::AddEntry( &CommandLine ) );
     }
 
-#else  //_SETUP
+    // The caller wants to do tricky stuff, so we'll have to schedule an
+    // explicit autocheck.
+    //
 
-    return FALSE;
+    if (!CommandLine.Initialize( "autocheck autochk " )) {
+        return FALSE;
+    }
 
-#endif //_SETUP_LOADER_
+    if (Recover) {
+
+        DSTRING R_Option;
+
+        if (!R_Option.Initialize( "/r " ) ||
+            !CommandLine.Strcat( &R_Option )) {
+
+            return FALSE;
+        }
+    }
+
+#ifndef _AUTOCHECK_
+// Not allowed to call sprintf from autochk; don't need this there code anyway.
+
+    if (ResizeLogFile) {
+
+        DSTRING L_Option;
+        CHAR buf[20];
+        
+        sprintf(buf, "/l:%d ", LogFileSize / 1024);
+
+        if (!L_Option.Initialize( buf ) ||
+            !CommandLine.Strcat( &L_Option )) {
+
+            return FALSE;
+        }
+    }
+#endif // _AUTOCHECK_
+
+    return CommandLine.Strcat( Name ) &&
+           AUTOREG::AddEntry( &CommandLine );
 }

@@ -8,7 +8,7 @@ Module Name:
 
 Abstract:
 
-    This contains a simple (stupid) security support package for testing
+    This contains a simple (and naive) security support package for testing
     the RPC runtime.  It will also serve as an example of how to write
     a security support package.
 
@@ -21,11 +21,14 @@ Revision History:
 --*/
 
 #ifdef NTENV
+#define UNICODE
 #include <nt.h>
 #include <ntrtl.h>
 #include <nturtl.h>
 #define SECURITY_WIN32
 #endif // NTDEV
+
+#include <sysinc.h>
 
 #ifdef DOS
 #define ASSERT(expr)
@@ -36,19 +39,27 @@ Revision History:
 #endif // WIN
 #endif // DOS
 
-#ifdef SECURITY_UNICODE_SUPPORTED
+#ifdef MAC
+#define SECURITY_MAC
+#endif
+
+#ifdef DOSWIN32RPC
+#define ASSERT(expr)
+#endif
+
+#ifdef UNICODE
 #include <wchar.h>
 #endif // SECURITY_UNICODE_SUPPORTED
 #include <string.h>
 #include "rpc.h"
 #include "rpcssp.h"
 
-#define UNUSED(obj) ((void) (obj))
-
-#ifdef SECURITY_UNICODE_SUPPORTED
-#define SECURITY_CONST_STRING(string) ((SEC_CHAR *) L##string)
+#ifdef UNICODE
+typedef SEC_WCHAR X_SEC_CHAR ;
+#define SECURITY_CONST_STRING(string) ((X_SEC_CHAR *) L##string)
 #else // SECURITY_UNICODE_SUPPORTED
-#define SECURITY_CONST_STRING(string) ((SEC_CHAR *) string)
+typedef SEC_CHAR X_SEC_CHAR ;
+#define SECURITY_CONST_STRING(string) ((X_SEC_CHAR *) string)
 #endif // SECURITY_UNICODE_SUPPORTED
 
 #define NAVIER_SECURITY_PACKAGE SECURITY_CONST_STRING("navier")
@@ -70,19 +81,39 @@ Revision History:
 
 #define EXPORT
 
-#ifdef SECURITY_UNICODE_SUPPORTED
+#ifdef UNICODE
 
 #define SecurityStringCompare(FirstString, SecondString) \
     _wcsicmp((const wchar_t *) FirstString, (const wchar_t *) SecondString)
 
 #else // SECURITY_UNICODE_SUPPORTED
 
+// Must be DOS or Mac
+
+#ifdef DOS
+
 #define SecurityStringCompare(FirstString, SecondString) \
     _stricmp((const char _far *) FirstString, (const char _far *) SecondString)
+
+#else // DOS
+
+#define SecurityStringCompare(FirstString, SecondString) \
+    stricmp((const char *) FirstString, (const char *) SecondString)
+
+#endif
+
 
 #endif // SECURITY_UNICODE_SUPPORTED
 
 #endif // WIN
+
+#ifdef MAC
+#define swapshort(Value) \
+   Value = (  (((Value) & 0x00FF) << 8) \
+             | (((Value) & 0xFF00) >> 8))
+#else
+#define swapshort(Value)
+#endif
 
 // We define the two security packages that we support in the following
 // structure.
@@ -123,7 +154,7 @@ typedef struct
     unsigned int ReferenceCount;
     unsigned long CredentialUse;
     void __SEC_FAR * AuthIdentity; // Client
-    SEC_CHAR __SEC_FAR * Principal; // Server
+    X_SEC_CHAR __SEC_FAR * Principal; // Server
     SEC_GET_KEY_FN GetKeyFunction; // Server
     void __SEC_FAR * GetKeyArgument; // Server
 } NAVIER_CREDENTIALS;
@@ -134,7 +165,7 @@ typedef struct
 {
     unsigned long MagicValue;
     NAVIER_CREDENTIALS __SEC_FAR * Credentials;
-    SEC_CHAR __SEC_FAR * ServerPrincipal;
+    X_SEC_CHAR __SEC_FAR * ServerPrincipal;
 } NAVIER_CLIENT_CONTEXT;
 
 typedef struct
@@ -142,7 +173,7 @@ typedef struct
     unsigned long MagicValue;
     unsigned long AuthorizationService;
     NAVIER_CREDENTIALS __SEC_FAR * Credentials;
-    SEC_CHAR ClientPrincipal[32];
+    X_SEC_CHAR ClientPrincipal[32];
 } NAVIER_SERVER_CONTEXT;
 
 #define NAVIER_CLIENT_CONTEXT_MAGIC_VALUE 0x00008466L
@@ -162,7 +193,7 @@ typedef struct _NAVIER_TOKEN
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-EnumeratePackages (
+STUB_EnumeratePackages (
     unsigned long __SEC_FAR * SecurityPackageCount,
     SecPkgInfo __SEC_FAR * __SEC_FAR * SecurityPackages
     )
@@ -176,9 +207,9 @@ EnumeratePackages (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-AcquireCredentialHandle (
-    SEC_CHAR __SEC_FAR * Principal,
-    SEC_CHAR __SEC_FAR * PackageName,
+STUB_AcquireCredentialHandle (
+    X_SEC_CHAR __SEC_FAR * Principal,
+    X_SEC_CHAR __SEC_FAR * PackageName,
     unsigned long CredentialUse,
     void __SEC_FAR * LogonId,
     void __SEC_FAR * AuthData,
@@ -234,7 +265,7 @@ AcquireCredentialHandle (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-FreeCredentialHandle (
+STUB_FreeCredentialHandle (
     PCredHandle CredentialHandle
     )
 {
@@ -261,7 +292,7 @@ CheckSumBufferDescriptor (
     )
 {
     unsigned short CheckSum = 0;
-    unsigned short __SEC_FAR * Buffer;
+    unsigned /*short*/ char __SEC_FAR * Buffer;
     unsigned int Count, Index;
 
     for (Index = 0; Index < BufferDescriptor->cBuffers; Index++)
@@ -271,15 +302,16 @@ CheckSumBufferDescriptor (
             || ( BufferDescriptor->pBuffers[Index].BufferType
                             == (SECBUFFER_DATA | SECBUFFER_READONLY) ) )
             {
-            Buffer = (unsigned short __SEC_FAR *)
+            Buffer = (unsigned /*short*/ char  __SEC_FAR *)
                     BufferDescriptor->pBuffers[Index].pvBuffer;
             for (Count = 0; Count < BufferDescriptor->pBuffers[Index].cbBuffer;
-                        Count += 2, Buffer++)
+                        Count++ /*+= 2*/, Buffer++)
                 {
                 CheckSum += *Buffer;
                 }
             }
         }
+	swapshort(CheckSum) ;
     return(CheckSum);
 }
 
@@ -308,13 +340,16 @@ XorBufferDescriptor (
 
 void
 SecCharToUnsignedChar (
-    SEC_CHAR __SEC_FAR * SecCharString,
+    X_SEC_CHAR __SEC_FAR * SecCharString,
     unsigned char __SEC_FAR * UnsignedCharString
     )
 {
-    while ( *SecCharString != 0 )
+    if (SecCharString)
         {
-        *UnsignedCharString++ = (unsigned char) *SecCharString++;
+        while ( *SecCharString != 0 )
+            {
+            *UnsignedCharString++ = (unsigned char) *SecCharString++;
+            }
         }
     *UnsignedCharString = 0;
 }
@@ -322,25 +357,25 @@ SecCharToUnsignedChar (
 void
 UnsignedCharToSecChar (
     unsigned char __SEC_FAR * UnsignedCharString,
-    SEC_CHAR __SEC_FAR * SecCharString
+    X_SEC_CHAR __SEC_FAR * SecCharString
     )
 {
     while ( *UnsignedCharString != 0 )
         {
-        *SecCharString++ = (SEC_CHAR) *UnsignedCharString++;
+        *SecCharString++ = (X_SEC_CHAR) *UnsignedCharString++;
         }
     *SecCharString = 0;
 }
 
 unsigned int
 StringCompare (
-    SEC_CHAR __SEC_FAR * SecCharString,
+    X_SEC_CHAR __SEC_FAR * SecCharString,
     unsigned char __SEC_FAR * UnsignedCharString
     )
 {
     while ( *SecCharString != 0 )
         {
-        if ( *SecCharString != (SEC_CHAR) *UnsignedCharString )
+        if ( *SecCharString != (X_SEC_CHAR) *UnsignedCharString )
             {
             return(1);
             }
@@ -356,10 +391,10 @@ StringCompare (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-InitializeSecurityContext (
+STUB_InitializeSecurityContext (
     PCredHandle CredentialHandle,
     PCtxtHandle ContextHandle,
-    SEC_CHAR __SEC_FAR * TargetName,
+    X_SEC_CHAR __SEC_FAR * TargetName,
     unsigned long ContextRequirements,
     unsigned long ReservedOne,
     unsigned long TargetDataRep,
@@ -456,7 +491,7 @@ InitializeSecurityContext (
        Credentials = Context->Credentials;
        if ( Credentials->AuthIdentity != 0 )
             {
-            SecCharToUnsignedChar((SEC_CHAR __SEC_FAR *)
+            SecCharToUnsignedChar((X_SEC_CHAR __SEC_FAR *)
                     Credentials->AuthIdentity, ((NAVIER_SIGNATURE __SEC_FAR *)
                     Output->pBuffers[2].pvBuffer)->ClientPrincipal);
             return(SEC_I_COMPLETE_NEEDED);
@@ -478,7 +513,7 @@ InitializeSecurityContext (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-AcceptSecurityContext (
+STUB_AcceptSecurityContext (
     PCredHandle CredentialHandle,
     PCtxtHandle ContextHandle,
     PSecBufferDesc Input,
@@ -584,7 +619,7 @@ AcceptSecurityContext (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-DeleteSecurityContext (
+STUB_DeleteSecurityContext (
     PCtxtHandle ContextHandle
     )
 {
@@ -621,7 +656,7 @@ DeleteSecurityContext (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-CompleteAuthToken (
+STUB_CompleteAuthToken (
     PCtxtHandle ContextHandle,
     PSecBufferDesc BufferDescriptor
     )
@@ -640,7 +675,7 @@ CompleteAuthToken (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-QueryContextAttributes (
+STUB_QueryContextAttributes (
     PCtxtHandle ContextHandle,
     unsigned long Attribute,
     void __SEC_FAR * Buffer
@@ -677,7 +712,7 @@ QueryContextAttributes (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-MakeSignature (
+STUB_MakeSignature (
     PCtxtHandle ContextHandle,
     unsigned long QualityOfProtection,
     PSecBufferDesc BufferDescriptor,
@@ -714,7 +749,7 @@ MakeSignature (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-VerifySignature (
+STUB_VerifySignature (
     PCtxtHandle ContextHandle,
     PSecBufferDesc BufferDescriptor,
     unsigned long SequenceNumber,
@@ -755,7 +790,7 @@ VerifySignature (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-SealMessage (
+STUB_SealMessage (
     PCtxtHandle ContextHandle,
     unsigned long QualityOfProtection,
     PSecBufferDesc BufferDescriptor,
@@ -794,7 +829,7 @@ SealMessage (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-UnsealMessage (
+STUB_UnsealMessage (
     PCtxtHandle ContextHandle,
     PSecBufferDesc BufferDescriptor,
     unsigned long SequenceNumber,
@@ -837,7 +872,7 @@ UnsealMessage (
 
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-ImpersonateSecurityContext (
+STUB_ImpersonateSecurityContext (
     PCtxtHandle ContextHandle
     )
 {
@@ -853,7 +888,7 @@ ImpersonateSecurityContext (
 }
 
 SECURITY_STATUS SEC_ENTRY EXPORT
-RevertSecurityContext (
+STUB_RevertSecurityContext (
     PCtxtHandle ContextHandle
     )
 {
@@ -875,33 +910,38 @@ static SecurityFunctionTableA SecuritySupportProviderInterface =
 #endif
 {
     SECURITY_SUPPORT_PROVIDER_INTERFACE_VERSION,
-    EnumeratePackages,
+    STUB_EnumeratePackages,
     0,
-    AcquireCredentialHandle,
-    FreeCredentialHandle,
+    STUB_AcquireCredentialHandle,
+    STUB_FreeCredentialHandle,
     0,
-    InitializeSecurityContext,
-    AcceptSecurityContext,
-    CompleteAuthToken,
-    DeleteSecurityContext,
+    STUB_InitializeSecurityContext,
+    STUB_AcceptSecurityContext,
+    STUB_CompleteAuthToken,
+    STUB_DeleteSecurityContext,
     0,
-    QueryContextAttributes,
-    ImpersonateSecurityContext,
-    RevertSecurityContext,
-    MakeSignature,
-    VerifySignature,
+    STUB_QueryContextAttributes,
+    STUB_ImpersonateSecurityContext,
+    STUB_RevertSecurityContext,
+    STUB_MakeSignature,
+    STUB_VerifySignature,
     0,                             //FreeContextBuffer
     0,                             //QuerySecurityPackageInfo
-    SealMessage,
-    UnsealMessage
+    STUB_SealMessage,
+    STUB_UnsealMessage
 };
 
+#ifdef MAC
+PSecurityFunctionTableA SEC_ENTRY
+InitStubSecurityInterfaceA (
+#else
 #ifdef NTENV
 PSecurityFunctionTableW SEC_ENTRY
 InitSecurityInterfaceW (
 #else
 PSecurityFunctionTableA SEC_ENTRY
 InitSecurityInterfaceA (
+#endif
 #endif
     void
     )

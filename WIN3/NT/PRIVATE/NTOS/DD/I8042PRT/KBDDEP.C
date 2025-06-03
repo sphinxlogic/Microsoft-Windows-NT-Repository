@@ -211,13 +211,11 @@ Return Value:
 
                 //
                 // We weren't sending a command or parameter to the hardware.
-                // Why would the hardware give us a resend???  Log an error.
+                // This must be a scan code.  I hear the Brazilian keyboard
+                // actually uses this.
                 //
 
-                KeInsertQueueDpc(
-                    &deviceExtension->ErrorLogDpc,
-                    (PIRP) NULL,
-                    (PVOID) (ULONG) I8042_UNEXPECTED_RESEND);
+                goto ScanCodeCase;
 
             } else if (deviceExtension->KeyboardExtension.ResendCount
                        < deviceExtension->Configuration.ResendIterations) {
@@ -345,6 +343,7 @@ Return Value:
         // a complete scan code sequence.
         //
 
+        ScanCodeCase:
         default:
 
             I8xPrint((
@@ -407,6 +406,163 @@ Return Value:
                   case GotE0:
                   case GotE1:
 
+#if defined(JAPAN) && defined(_X86_)
+// Fujitsu Sep.08.1994
+// We want to write debugging information to the file except stop error.
+
+                    if(deviceExtension->Dump1Keys != 0) {
+                        LONG Dump1Keys;
+                        UCHAR DumpKey,DumpKey2;
+                        BOOLEAN onflag;
+                        static UCHAR KeyToScanTbl[134] = {
+                            0x00,0x29,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,
+                            0x0A,0x0B,0x0C,0x0D,0x7D,0x0E,0x0F,0x10,0x11,0x12,
+                            0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,0x1B,0x00,
+                            0x3A,0x1E,0x1F,0x20,0x21,0x22,0x23,0x24,0x25,0x26,
+                            0x27,0x28,0x2B,0x1C,0x2A,0x00,0x2C,0x2D,0x2E,0x2F,
+                            0x30,0x31,0x32,0x33,0x34,0x35,0x73,0x36,0x1D,0x00,
+                            0x38,0x39,0xB8,0x00,0x9D,0x00,0x00,0x00,0x00,0x00,
+                            0x00,0x00,0x00,0x00,0x00,0xD2,0xD3,0x00,0x00,0xCB,
+                            0xC7,0xCF,0x00,0xC8,0xD0,0xC9,0xD1,0x00,0x00,0xCD,
+                            0x45,0x47,0x4B,0x4F,0x00,0xB5,0x48,0x4C,0x50,0x52,
+                            0x37,0x49,0x4D,0x51,0x53,0x4A,0x4E,0x00,0x9C,0x00,
+                            0x01,0x00,0x3B,0x3C,0x3D,0x3E,0x3F,0x40,0x41,0x42,
+                            0x43,0x44,0x57,0x58,0x00,0x46,0x00,0x00,0x00,0x00,
+                            0x00,0x7B,0x79,0x70 };
+
+                        Dump1Keys = deviceExtension->Dump1Keys;
+                        switch(deviceExtension->Dump2Key) {
+                            case 124:           // 'Print Screen'
+                                DumpKey = 0xB7;
+                                DumpKey2 = 0x54;
+                                break;
+                            default:
+                                if(deviceExtension->Dump2Key <= 133)
+                                    DumpKey = KeyToScanTbl[deviceExtension->Dump2Key];
+                                else
+                                    DumpKey = 0;
+                                DumpKey2 = 0;
+                                break;
+                        }
+                        if(scanCode <= (UCHAR) 0x7F) {
+                            //
+                            // make code
+                            //
+                            switch(scanCode) {
+                                case 0x1D:          // 'CTRL'
+                                    if(*scanState == Normal)     // Left
+                                        deviceExtension->DumpFlags |= 0x20;
+                                    else if(*scanState == GotE0) // Right
+                                        deviceExtension->DumpFlags |= 0x02;
+                                    break;
+                                case 0x38:          // 'ALT'
+                                    if(*scanState == Normal)     // Left
+                                        deviceExtension->DumpFlags |= 0x40;
+                                    else if(*scanState == GotE0) // Right
+                                        deviceExtension->DumpFlags |= 0x04;
+                                    break;
+                                case 0x36:          // Right 'Shift'
+                                    if(*scanState == Normal)
+                                        deviceExtension->DumpFlags |= 0x01;
+                                    break;
+                                case 0x2A:          // Left 'Shift'
+                                    if(*scanState == Normal)
+                                        deviceExtension->DumpFlags |= 0x10;
+                                    break;
+                                default:
+                                    if((DumpKey & 0x80) == 0) {
+                                        if(*scanState == Normal
+                                         && DumpKey == scanCode)
+                                            break;
+                                    }
+                                    else {
+                                        if(*scanState == GotE0
+                                         && (DumpKey & 0x7F) == scanCode)
+                                            break;
+                                    }
+                                    if((DumpKey2 & 0x80) == 0) {
+                                        if(*scanState == Normal
+                                         && DumpKey2 == scanCode)
+                                            break;
+                                    }
+                                    else {
+                                        if(*scanState == GotE0
+                                         && (DumpKey2 & 0x7F) == scanCode)
+                                            break;
+                                    }
+                                    deviceExtension->DumpFlags = 0;
+                                    break;
+                            }
+                        }
+                        else {
+                            //
+                            // break code
+                            //
+                            switch(scanCode & 0x7F) {
+                                case 0x1D:          // 'CTRL'
+                                    if(*scanState == Normal)     // Left
+                                        deviceExtension->DumpFlags &= ~0x320;
+                                    else if(*scanState == GotE0) // Right
+                                        deviceExtension->DumpFlags &= ~0x302;
+                                    break;
+                                case 0x38:          // 'ALT'
+                                    if(*scanState == Normal)     // Left
+                                        deviceExtension->DumpFlags &= ~0x340;
+                                    else if(*scanState == GotE0) // Right
+                                        deviceExtension->DumpFlags &= ~0x304;
+                                    break;
+                                case 0x36:          // Right 'Shift'
+                                    if(*scanState == Normal)
+                                        deviceExtension->DumpFlags &= ~0x301;
+                                    break;
+                                case 0x2A:          // Left 'Shift'
+                                    if(*scanState == Normal)
+                                        deviceExtension->DumpFlags &= ~0x310;
+                                    break;
+                                default:
+                                    onflag = 0;
+                                    if((DumpKey & 0x80) == 0) {
+                                        if(*scanState == Normal
+                                         && DumpKey == (scanCode & 0x7F))
+                                            onflag = 1;
+                                    }
+                                    else {
+                                        if(*scanState == GotE0
+                                         && DumpKey == scanCode)
+                                            onflag = 1;
+                                    }
+                                    if((DumpKey2 & 0x80) == 0) {
+                                        if(*scanState == Normal
+                                         && DumpKey2 == (scanCode & 0x7F))
+                                            onflag = 1;
+                                    }
+                                    else {
+                                        if(*scanState == GotE0
+                                         && DumpKey2 == scanCode)
+                                            onflag = 1;
+                                    }
+                                    if(onflag) {
+                                        if((deviceExtension->DumpFlags & Dump1Keys) != Dump1Keys)
+                                            break;
+                                        if(deviceExtension->DumpFlags & 0x100)
+                                           deviceExtension->DumpFlags |= 0x200;
+                                        else
+                                           deviceExtension->DumpFlags |= 0x100;
+                                        break;
+                                    }
+                                    deviceExtension->DumpFlags = 0;
+                                    break;
+                                }
+                            }
+                            Dump1Keys |= 0x300;
+                            if(deviceExtension->DumpFlags == Dump1Keys) {
+                                deviceExtension->DumpFlags = 0;
+                                KeBugCheckEx(0x0000FFFF,0,0,0,0);
+                                                  // make occured blue screen
+                            }
+                    }
+#endif
+
                     if (scanCode > 0x7F) {
 
                         //
@@ -453,7 +609,9 @@ Return Value:
                                 if ((input->MakeCode == KEYBOARD_DEBUG_HOTKEY_ENH) &&
                                      (input->Flags & KEY_E0)) {
                                     try {
-                                        DbgBreakPoint();
+                                        if (**((PUCHAR *)&KdDebuggerEnabled) != FALSE) {
+                                            DbgBreakPointWithStatus(DBG_STATUS_SYSRQ);
+                                        }
 
                                     } except(EXCEPTION_EXECUTE_HANDLER) {
                                     }
@@ -463,11 +621,13 @@ Return Value:
                                 //
 
                             } else if ((input->MakeCode == KEYBOARD_DEBUG_HOTKEY_AT)) {
-                                    try {
-                                        DbgBreakPoint();
-
-                                    } except(EXCEPTION_EXECUTE_HANDLER) {
+                                try {
+                                    if (**((PUCHAR *)&KdDebuggerEnabled) != FALSE) {
+                                        DbgBreakPointWithStatus(DBG_STATUS_SYSRQ);
                                     }
+
+                                } except(EXCEPTION_EXECUTE_HANDLER) {
+                                }
                             }
                         }
                     }
@@ -722,6 +882,7 @@ Return Value:
     PI8042_CONFIGURATION_INFORMATION configuration;
     PKEYBOARD_ID keyboardId;
     LARGE_INTEGER startOfSpin, nextQuery, difference, tenSeconds;
+    BOOLEAN waitForAckOnReset = WAIT_FOR_ACKNOWLEDGE;
 
 #define DUMP_COUNT 4
     ULONG dumpData[DUMP_COUNT];
@@ -741,9 +902,10 @@ Return Value:
     // Reset the keyboard.
     //
 
+StartOfReset:
     status = I8xPutBytePolled(
                  (CCHAR) DataPort,
-                 WAIT_FOR_ACKNOWLEDGE,
+                 waitForAckOnReset,
                  (CCHAR) KeyboardDeviceType,
                  deviceExtension,
                  (UCHAR) KEYBOARD_RESET
@@ -849,21 +1011,12 @@ Return Value:
 
                 KeQueryTickCount(&nextQuery);
 
-                difference = RtlLargeIntegerSubtract(
-                                 nextQuery,
-                                 startOfSpin
-                                 );
-
-                tenSeconds = RtlConvertUlongToLargeInteger(10*10*1000*1000);
+                difference.QuadPart = nextQuery.QuadPart - startOfSpin.QuadPart;
+                tenSeconds.QuadPart = 10*10*1000*1000;
 
                 ASSERT(KeQueryTimeIncrement() <= MAXLONG);
-                if (RtlLargeIntegerGreaterThanOrEqualTo(
-                        RtlExtendedIntegerMultiply(
-                            difference,
-                            (LONG)KeQueryTimeIncrement()
-                            ),
-                            tenSeconds
-                        )) {
+                if (difference.QuadPart*KeQueryTimeIncrement() >=
+                    tenSeconds.QuadPart) {
 
                     break;
                 }
@@ -878,6 +1031,12 @@ Return Value:
     }
 
     if (!NT_SUCCESS(status)) {
+
+        if (waitForAckOnReset == WAIT_FOR_ACKNOWLEDGE) {
+            waitForAckOnReset = NO_WAIT_FOR_ACKNOWLEDGE;
+            goto StartOfReset;
+        }
+
         I8xPrint((
             1,
             "I8042PRT-I8xInitializeKeyboard: failed reset response, status 0x%x, byte 0x%x\n",
@@ -1090,7 +1249,7 @@ Return Value:
 #if !(defined(_X86_) || defined(_PPC_))  // IBMCPK: MIPS specific initialization
 
     //
-    // BUGBUG:  This code is necessary until the MIPS firmware stops
+    // NOTE:    This code is necessary until the MIPS firmware stops
     //          selecting scan code set 3.  Select scan code set 2 here.
     //          Since the translate bit is set, the net effect is that
     //          we will receive scan code set 1 bytes.
@@ -1134,7 +1293,7 @@ Return Value:
             configuration = &deviceExtension->Configuration;
             keyboardId = &configuration->KeyboardAttributes.KeyboardIdentifier;
 
-            keyboardId->Type = 1;
+            keyboardId->Type = 3;
 
             configuration->KeyboardAttributes.NumberOfFunctionKeys =
                 KeyboardTypeInformation[keyboardId->Type - 1].NumberOfFunctionKeys;
@@ -1144,6 +1303,59 @@ Return Value:
                 KeyboardTypeInformation[keyboardId->Type - 1].NumberOfKeysTotal;
 
             status = STATUS_SUCCESS;
+        }
+    }
+#endif
+#ifdef JAPAN
+// NLS Keyboard Support Code.
+    if (IBM02_KEYBOARD(*id)) {
+
+        //
+        // IBM-J 5576-002 Keyboard should set local scan code set for
+        // supplied NLS key.
+        //
+
+        status = I8xPutBytePolled(
+                     (CCHAR) DataPort,
+                     WAIT_FOR_ACKNOWLEDGE,
+                     (CCHAR) KeyboardDeviceType,
+                     deviceExtension,
+                     (UCHAR) SELECT_SCAN_CODE_SET
+                     );
+        if (status != STATUS_SUCCESS) {
+            I8xPrint((
+                1,
+                "I8042PRT-I8xInitializeKeyboard: could not send Select Scan command\n"
+                ));
+            I8xPrint((
+                0,
+                "I8042PRT-I8xInitializeKeyboard: WARNING - using scan set 82h\n"
+                ));
+            deviceExtension->Configuration.KeyboardAttributes.KeyboardMode = 3;
+        } else {
+
+            //
+            // Send the associated parameter byte.
+            //
+
+            status = I8xPutBytePolled(
+                         (CCHAR) DataPort,
+                         WAIT_FOR_ACKNOWLEDGE,
+                         (CCHAR) KeyboardDeviceType,
+                         deviceExtension,
+                         (UCHAR) 0x82
+                         );
+            if (status != STATUS_SUCCESS) {
+                I8xPrint((
+                    1,
+                    "I8042PRT-I8xInitializeKeyboard: could not send Select Scan param\n"
+                    ));
+                I8xPrint((
+                    0,
+                    "I8042PRT-I8xInitializeKeyboard: WARNING - using scan set 82h\n"
+                    ));
+                deviceExtension->Configuration.KeyboardAttributes.KeyboardMode = 3;
+            }
         }
     }
 #endif
@@ -1231,7 +1443,12 @@ Return Value:
                                      WAIT_FOR_ACKNOWLEDGE,
                                      (CCHAR) KeyboardDeviceType,
                                      deviceExtension,
+#ifdef JAPAN
+// NLS Keyboard Support Code.
+                                     (UCHAR) (IBM02_KEYBOARD(*id) ? 0x81 : 1 )
+#else
                                      (UCHAR) 1
+#endif
                                      );
                         if (!NT_SUCCESS(status)) {
                             I8xPrint((
@@ -1319,7 +1536,7 @@ I8xInitializeKeyboardExit:
 
 VOID
 I8xKeyboardConfiguration(
-    IN PDEVICE_EXTENSION DeviceExtension,
+    IN PINIT_EXTENSION InitializationData,
     IN PUNICODE_STRING RegistryPath,
     IN PUNICODE_STRING KeyboardDeviceName,
     IN PUNICODE_STRING PointerDeviceName
@@ -1333,7 +1550,8 @@ Routine Description:
 
 Arguments:
 
-    DeviceExtension - Pointer to the device extension.
+    InitializationData - Pointer to the initialization data, including the
+        device extension.
 
     RegistryPath - Pointer to the null-terminated Unicode name of the
         registry path for this driver.
@@ -1350,6 +1568,7 @@ Return Value:
 
 --*/
 {
+    PDEVICE_EXTENSION deviceExtension = &(InitializationData->DeviceExtension);
     NTSTATUS status = STATUS_SUCCESS;
     PI8042_CONFIGURATION_INFORMATION configuration;
     INTERFACE_TYPE interfaceType;
@@ -1372,9 +1591,9 @@ Return Value:
                                           &peripheralType,
                                           NULL,
                                           I8xKeyboardPeripheralCallout,
-                                          (PVOID) DeviceExtension);
+                                          (PVOID) InitializationData);
 
-        if (DeviceExtension->HardwarePresent & KEYBOARD_HARDWARE_PRESENT) {
+        if (deviceExtension->HardwarePresent & KEYBOARD_HARDWARE_PRESENT) {
 
             //
             // Get the service parameters (e.g., user-configurable number
@@ -1382,12 +1601,13 @@ Return Value:
             //
 
             I8xServiceParameters(
-                DeviceExtension,
+                InitializationData,
                 RegistryPath,
                 KeyboardDeviceName,
                 PointerDeviceName
                 );
-            configuration = &DeviceExtension->Configuration;
+
+            configuration = &(InitializationData->DeviceExtension.Configuration);
 
             keyboardId = &configuration->KeyboardAttributes.KeyboardIdentifier;
             if (!ENHANCED_KEYBOARD(*keyboardId)) {
@@ -1672,6 +1892,7 @@ Return Value:
 --*/
 {
     PDEVICE_EXTENSION deviceExtension;
+    PINIT_EXTENSION initializationData;
     PI8042_CONFIGURATION_INFORMATION configuration;
     UNICODE_STRING unicodeIdentifier;
     PUCHAR controllerData;
@@ -1715,7 +1936,9 @@ Return Value:
     // just return.
     //
 
-    deviceExtension = (PDEVICE_EXTENSION) Context;
+    initializationData = (PINIT_EXTENSION) Context;
+    deviceExtension = &(initializationData->DeviceExtension);
+
     if ((deviceExtension->HardwarePresent & KEYBOARD_HARDWARE_PRESENT)
          || (unicodeIdentifier.Length == 0)) {
         return (status);
@@ -1804,6 +2027,16 @@ Return Value:
     //
 
     if (configuration->KeyboardAttributes.KeyboardIdentifier.Type == 0) {
+
+#if defined(JAPAN) && defined(_X86_)
+        //Fujitsu Aug.23.1994
+        // if not connect keyboard hardware,Insert 106 keyboard type to each structure members
+        // for realizing "keyboard-less system".
+
+        configuration->KeyboardAttributes.KeyboardIdentifier.Type = 0x4;
+        configuration->KeyboardAttributes.KeyboardIdentifier.Subtype = 0;
+        configuration->KeyboardIndicators.LedFlags = KEYBOARD_INDICATORS_DEFAULT;
+#endif
 
         I8xPrint((
             1,
@@ -2009,6 +2242,20 @@ Return Value:
                configuration->PortList[CommandPort] = tmpResourceDescriptor;
         }
     }
+
+#ifdef PNP_IDENTIFY
+    //
+    // We're going to use the keyboard based on this data,
+    // so make sure we can tell PNP that we've claimed it later on
+    //
+
+    initializationData->KeyboardConfig.InterfaceType = BusType;
+    initializationData->KeyboardConfig.InterfaceNumber = BusNumber;
+    initializationData->KeyboardConfig.ControllerType = ControllerType;
+    initializationData->KeyboardConfig.ControllerNumber = ControllerNumber;
+    initializationData->KeyboardConfig.PeripheralType = PeripheralType;
+    initializationData->KeyboardConfig.PeripheralNumber = PeripheralNumber;
+#endif
 
     for (i = 0; i < configuration->PortListCount; i++) {
 

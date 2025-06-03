@@ -12,7 +12,7 @@ Abstract:
 
 Author:
 
-    Brian Andrew    [BrianAn]   02-Jan-1991
+    Brian Andrew    [BrianAn]   01-July-1995
 
 Revision History:
 
@@ -20,143 +20,105 @@ Revision History:
 
 #include "CdProcs.h"
 
+//
+//  The Bug check file id for this module
+//
+
+#define BugCheckFileId                   (CDFS_BUG_CHECK_RESRCSUP)
+
 #ifdef ALLOC_PRAGMA
-#pragma alloc_text(PAGE, CdAcquireExclusiveFcb)
-#pragma alloc_text(PAGE, CdAcquireExclusiveMvcb)
-#pragma alloc_text(PAGE, CdAcquireForReadAhead)
-#pragma alloc_text(PAGE, CdAcquireSharedFcb)
-#pragma alloc_text(PAGE, CdAcquireSharedMvcb)
-#pragma alloc_text(PAGE, CdReleaseFromReadAhead)
+#pragma alloc_text(PAGE, CdAcquireForCache)
+#pragma alloc_text(PAGE, CdAcquireForCreateSection)
+#pragma alloc_text(PAGE, CdAcquireResource)
+#pragma alloc_text(PAGE, CdNoopAcquire)
+#pragma alloc_text(PAGE, CdNoopRelease)
+#pragma alloc_text(PAGE, CdReleaseForCreateSection)
+#pragma alloc_text(PAGE, CdReleaseFromCache)
 #endif
 
 
-FINISHED
-CdAcquireExclusiveMvcb (
+BOOLEAN
+CdAcquireResource (
     IN PIRP_CONTEXT IrpContext,
-    IN PMVCB Mvcb
+    IN PERESOURCE Resource,
+    IN BOOLEAN IgnoreWait,
+    IN BOOLEAN Exclusive
     )
 
 /*++
 
 Routine Description:
 
-    This routine acquires exclusive access to the Mvcb, by first acquiring
-    shared access to the global data resource.
+    This is the single routine used to acquire file system resources.  It
+    looks at the IgnoreWait flag to determine whether to try to acquire the
+    resource without waiting.  Returning TRUE/FALSE to indicate success or
+    failure.  Otherwise it is driven by the WAIT flag in the IrpContext and
+    will raise CANT_WAIT on a failure.
 
 Arguments:
 
-    Mvcb - Supplies the Mvcb to acquire
+    Resource - This is the resource to try and acquire.
+
+    IgnoreWait - If TRUE then this routine will not wait to acquire the
+        resource and will return a boolean indicating whether the resource was
+        acquired.  Otherwise we use the flag in the IrpContext and raise
+        if the resource is not acquired.
+
+    Exclusive - Indicates whether we should acquire the resource shared or
+        exclusively.
 
 Return Value:
 
-    FINISHED - TRUE if the resources are obtained, FALSE if unable to
-               obtain.
+    BOOLEAN - TRUE if the resource is acquired.  FALSE if not acquired and
+        IgnoreWait is specified.  Otherwise we raise CANT_WAIT.
 
 --*/
 
 {
+    BOOLEAN Wait = FALSE;
+    BOOLEAN Acquired;
     PAGED_CODE();
 
-    return ExAcquireResourceExclusive( &Mvcb->Resource, IrpContext->Wait );
-}
+    //
+    //  We look first at the IgnoreWait flag, next at the flag in the Irp
+    //  Context to decide how to acquire this resource.
+    //
 
-
-FINISHED
-CdAcquireSharedMvcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PMVCB Mvcb
-    )
+    if (!IgnoreWait && FlagOn( IrpContext->Flags, IRP_CONTEXT_FLAG_WAIT )) {
 
-/*++
+        Wait = TRUE;
+    }
 
-Routine Description:
+    //
+    //  Attempt to acquire the resource either shared or exclusively.
+    //
 
-    This routine acquires shared access to the Mvcb, by first acquiring
-    shared access to the global data resource.
+    if (Exclusive) {
 
-Arguments:
+        Acquired = ExAcquireResourceExclusive( Resource, Wait );
 
-    Mvcb - Supplies the Mvcb to acquire
+    } else {
 
-Return Value:
+        Acquired = ExAcquireResourceShared( Resource, Wait );
+    }
 
-    FINISHED - TRUE if the resources are obtained, FALSE if unable to
-               obtain.
+    //
+    //  If not acquired and the user didn't specifiy IgnoreWait then
+    //  raise CANT_WAIT.
+    //
 
---*/
+    if (!Acquired && !IgnoreWait) {
 
-{
-    PAGED_CODE();
+        CdRaiseStatus( IrpContext, STATUS_CANT_WAIT );
+    }
 
-    return ExAcquireResourceShared( &Mvcb->Resource, IrpContext->Wait );
-}
-
-
-FINISHED
-CdAcquireExclusiveFcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine acquires exclusive access to the Fcb, by first acquiring
-    shared access to the global data resource.
-
-Arguments:
-
-    Fcb - Supplies the Fcb to acquire
-
-Return Value:
-
-    FINISHED - TRUE if the resources are obtained, FALSE if unable to
-               obtain.
-
---*/
-
-{
-    PAGED_CODE();
-
-    return ExAcquireResourceExclusive( Fcb->NonPagedFcb->Header.Resource, IrpContext->Wait );
-}
-
-
-FINISHED
-CdAcquireSharedFcb (
-    IN PIRP_CONTEXT IrpContext,
-    IN PFCB Fcb
-    )
-
-/*++
-
-Routine Description:
-
-    This routine acquires shared access to the Fcb, by first acquiring
-    shared access to the global data resource.
-
-Arguments:
-
-    Fcb - Supplies the Fcb to acquire
-
-Return Value:
-
-    FINISHED - TRUE if the resources are obtained, FALSE if unable to
-               obtain.
-
---*/
-
-{
-    PAGED_CODE();
-
-    return ExAcquireResourceShared( Fcb->NonPagedFcb->Header.Resource, IrpContext->Wait );
+    return Acquired;
 }
 
 
 BOOLEAN
-CdAcquireForReadAhead (
-    IN PVOID Fcb,
+CdAcquireForCache (
+    IN PFCB Fcb,
     IN BOOLEAN Wait
     )
 
@@ -165,8 +127,7 @@ CdAcquireForReadAhead (
 Routine Description:
 
     The address of this routine is specified when creating a CacheMap for
-    a file.  It is subsequently called by the Lazy Writer prior to its
-    performing read ahead to the file.
+    a file.  It is subsequently called by the Lazy Writer for synchronization.
 
 Arguments:
 
@@ -184,31 +145,13 @@ Return Value:
 {
     PAGED_CODE();
 
-    //
-    //  Do the code of acquire shared fcb but without the irp context
-    //
-
-    if (ExAcquireResourceShared( ((PFCB)Fcb)->NonPagedFcb->Header.Resource, Wait )) {
-
-        //
-        //  This is a kludge because Cc is really the top level.  We it
-        //  enters the file system, we will think it is a resursive call
-        //  and complete the request with hard errors or verify.  It will
-        //  have to deal with them, somehow....
-        //
-
-        IoSetTopLevelIrp((PIRP)FSRTL_CACHE_TOP_LEVEL_IRP);
-
-        return TRUE;
-    }
-
-    return FALSE;
+    return ExAcquireResourceShared( Fcb->Resource, Wait );
 }
 
 
 VOID
-CdReleaseFromReadAhead (
-    IN PVOID Fcb
+CdReleaseFromCache (
+    IN PFCB Fcb
     )
 
 /*++
@@ -216,8 +159,8 @@ CdReleaseFromReadAhead (
 Routine Description:
 
     The address of this routine is specified when creating a CacheMap for
-    a virtual file.  It is subsequently called by the Lazy Writer after its
-    read ahead is complete.
+    a virtual file.  It is subsequently called by the Lazy Writer to release
+    a resource acquired above.
 
 Arguments:
 
@@ -233,14 +176,136 @@ Return Value:
 {
     PAGED_CODE();
 
-    DebugTrace(0, 0, "CdReleaseFromReadAhead\n", 0);
+    ExReleaseResource( Fcb->Resource );
+
+    return;
+}
+
+
+BOOLEAN
+CdNoopAcquire (
+    IN PVOID Fcb,
+    IN BOOLEAN Wait
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does nothing.
+
+Arguments:
+
+    Fcb - The Fcb/Vcb which was specified as a context parameter for this
+          routine.
+
+    Wait - TRUE if the caller is willing to block.
+
+Return Value:
+
+    TRUE
+
+--*/
+
+{
+    PAGED_CODE();
+    return TRUE;
+}
+
+
+VOID
+CdNoopRelease (
+    IN PVOID Fcb
+    )
+
+/*++
+
+Routine Description:
+
+    This routine does nothing.
+
+Arguments:
+
+    Fcb - The Fcb/Vcb which was specified as a context parameter for this
+          routine.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+    return;
+}
+
+
+VOID
+CdAcquireForCreateSection (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This is the callback routine for MM to use to acquire the file exclusively.
+
+Arguments:
+
+    FileObject - File object for a Cdfs stream.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
 
     //
-    //  Clear the kludge at this point.
+    //  Get the file resource exclusively.
     //
 
-    IoSetTopLevelIrp((PIRP)0);
+    ExAcquireResourceExclusive( &((PFCB) FileObject->FsContext)->FcbNonpaged->FcbResource,
+                                TRUE );
 
-    CdReleaseFcb( NULL, ((PFCB) Fcb));
+    return;
+}
+
+
+VOID
+CdReleaseForCreateSection (
+    IN PFILE_OBJECT FileObject
+    )
+
+/*++
+
+Routine Description:
+
+    This is the callback routine for MM to use to release a file acquired with
+    the AcquireForCreateSection call above.
+
+Arguments:
+
+    FileObject - File object for a Cdfs stream.
+
+Return Value:
+
+    None
+
+--*/
+
+{
+    PAGED_CODE();
+
+    //
+    //  Release the resource in the Fcb.
+    //
+
+    ExReleaseResource( &((PFCB) FileObject->FsContext)->FcbNonpaged->FcbResource );
+
     return;
 }

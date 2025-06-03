@@ -23,6 +23,9 @@ Revision History:
 --*/
 
 
+#include "precomp.h"
+#pragma hdrstop
+
 
 DECLARE_API( db )
 
@@ -162,7 +165,7 @@ Return Value:
 
     sscanf(args,"%lx",&Address.LowPart);
 
-    strtok(args," \t,");      // The first token is the address
+    strtok((PSTR)args," \t,");      // The first token is the address
 
     // Since we're picking off one ULONG at a time, we'll make
     // one DbgKdWritePhysicalMemoryAddress call per ULONG.  This
@@ -204,7 +207,7 @@ Return Value:
 
     sscanf(args,"%lx",&Address.LowPart);
 
-    strtok(args," \t,");      // The first token is the address
+    strtok((PSTR)args," \t,");      // The first token is the address
 
     // Since we're picking off one BYTE at a time, we'll make
     // one DbgKdWritePhysicalMemoryAddress call per BYTE.  This

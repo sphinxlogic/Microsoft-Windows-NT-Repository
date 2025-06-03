@@ -249,21 +249,177 @@ static HBITMAP BMTable[] =  {
      0, //113 IDRBM_FOLDER_EOCN
      0, //114 IDRBM_FOLDER_EOCM
      0, //115 IDRBM_FOLDER_EOCP
-     0, //116 IDRBM_
-     0, //117 IDRBM_
-     0, //118 IDRBM_
-     0, //119 IDRBM_
-     0, //120 IDRBM_
-     0, //121 IDRBM_
-     0, //122 IDRBM_
-     0, //123 IDRBM_
-     0, //124 IDRBM_
-     0, //125 IDRBM_
-     0, //126 IDRBM_
-     0, //127 IDRBM_
-     0, //128 IDRBM_
-     0, //129 IDRBM_
+     0, //116 IDRBM_CDROM
+     0, //117 IDRBM_TAPES
+     0, //118 IDRBM_TAPESINDRIVE
+     0, //119 IDRBM_NETCONNECT
+     0, //120 IDRBM_NETCONNECT_GRAY
+     0, //121 IDRBM_NETDISCON
+     0, //122 IDRBM_NETDISCON_GRAY
+     0, //123 IDRBM_FLOPPYSINDRIVE
+     0, //124 IDRBM_FLOPPYINDRIVE
+     0, //125 IDRBM_FLOPPYS
+     0, //126 IDRBM_FLOPPY
+     0, //127 IDRBM_INFO
+     0, //128 IDRBM_INFO_GRAY
+     0, //129 IDRBM_COLINDICATOR
+     0, //130 IDRBM_EMS_ENTERPRISE
+     0, //131 IDRBM_EMS_SITE
+     0, //132 IDRBM_EMS_SERVER
+     0, //133 IDRBM_EMS_MDB
+     0, //134 IDRBM_EMS_DSA
+     0, //135 IDRBM_RCVR_STATUS
+     0, //136 IDRBM_EMS_MDBX
+     0, //137 IDRBM_EMS_DSAX
+     0, //138 IDRBM_EMS_MDBP
+     0, //139 IDRBM_EMS_DSAP
+     0, //140 IDRBM_BLANK16x16
+};
 
+
+static HBITMAP BMTableButton[] =  {
+
+     0, //  0 IDRBM_FLOPPYDRIVE
+     0, //  1 IDRBM_HARDDRIVE
+     0, //  2 IDRBM_RAMDRIVE
+     0, //  3 IDRBM_NETDRIVE
+     0, //  4 IDRBM_TAPEDRIVE01
+     0, //  5 IDRBM_TAPEDRIVE02
+     0, //  6 IDRBM_TAPEDRIVE03
+     0, //  7 IDRBM_MACRO
+     0, //  8 IDRBM_SEL_NONE
+     0, //  9 IDRBM_SEL_PART
+     0, // 10 IDRBM_SEL_ALL
+     0, // 11 IDRBM_FOLDER
+     0, // 12 IDRBM_FOLDERPLUS
+     0, // 13 IDRBM_FOLDERMINUS
+     0, // 14 IDRBM_EXE
+     0, // 15 IDRBM_FILE
+     0, // 16 IDRBM_DOC
+     0, // 17 IDRBM_FOLDEROPEN
+     0, // 18 IDRBM_FOLDERPLUSOPEN
+     0, // 19 IDRBM_FOLDERMINUSOPEN
+     0, // 20 IDRBM_BACKUP
+     0, // 21 IDRBM_RESTORE
+     0, // 22 IDRBM_ERASE
+     0, // 23 IDRBM_RETENSION
+     0, // 24 IDRBM_JOBSTATUS
+     0, // 25 IDRBM_SELECT
+     0, // 26 IDRBM_SELECTALL
+     0, // 27 IDRBM_DESELECT
+     0, // 28 IDRBM_CHECK
+     0, // 29 IDRBM_UNCHECK
+     0, // 30 IDRBM_MODIFIED
+     0, // 31 IDRBM_ADVANCED
+     0, // 32 IDRBM_UNDO
+     0, // 33 IDRBM_RUN
+     0, // 34 IDRBM_SCHEDULE
+     0, // 35 IDRBM_RECORD
+     0, // 36 IDRBM_EDIT
+     0, // 37 IDRBM_SAVE
+     0, // 38 IDRBM_TEST
+     0, // 39 IDRBM_INSERT
+     0, // 40 IDRBM_DELETE
+     0, // 41 IDRBM_SAVEAS
+     0, // 42 IDRBM_CANCEL
+     0, // 43 IDRBM_BACKUP_GRAY
+     0, // 44 IDRBM_RESTORE_GRAY
+     0, // 45 IDRBM_ERASE_GRAY
+     0, // 46 IDRBM_TRANSFER
+     0, // 47 IDRBM_TRANSFER_GRAY
+     0, // 48 IDRBM_RETENSION_GRAY
+     0, // 49 IDRBM_PARENTDIR
+     0, // 50 IDRBM_MEMORY
+     0, // 51 IDRBM_SEARCH
+     0, // 52 IDRBM_TAPE
+     0, // 53 IDRBM_SERVER
+     0, // 54 IDRBM_SDISK
+     0, // 55 IDRBM_BSET
+     0, // 56 IDRBM_LOGFILE
+     0, // 57 IDRBM_UPARROW
+     0, // 58 IDRBM_DNARROW
+     0, // 59 IDRBM_CATALOG
+     0, // 60 IDRBM_VERIFY
+     0, // 61 IDRBM_BSETPART
+     0, // 62 IDRBM_SERVERDETACHED
+     0, // 63 IDRBM_CHECK_GRAY
+     0, // 64 IDRBM_UNCHECK_GRAY
+     0, // 65 IDRBM_MODIFIED_GRAY
+     0, // 66 IDRBM_ADVANCED_GRAY
+     0, // 67 IDRBM_CATALOG_GRAY
+     0, // 68 IDRBM_VERIFY_GRAY
+     0, // 69 IDRBM_SEARCH_GRAY
+     0, // 70 IDRBM_NEXTSET
+     0, // 71 IDRBM_NEXTSET_GRAY
+     0, // 72 IDRBM_EJECT
+     0, // 73 IDRBM_EJECT_GRAY
+     0, // 74 IDRBM_TAPEINDRIVE
+     0, // 75 IDRBM_REWIND
+     0, // 76 IDRBM_REWIND_GRAY
+     0, // 77 IDRBM_LTAPE
+     0, // 78 IDRBM_UPARROW_GRAY
+     0, // 79 IDRBM_DOWNARROW_GRAY
+     0, // 80 IDRBM_RT_ARROW_GRAY
+     0, // 81 IDRBM_CORRUPTFILE
+     0, // 82 IDRBM_FOLDERC
+     0, // 83 IDRBM_FOLDERPLUSC
+     0, // 84 IDRBM_FOLDERMINUSC
+     0, // 85 IDRBM_FOLDEROPENC
+     0, // 86 IDRBM_FOLDERPLUSOPENC
+     0, // 87 IDRBM_FOLDERMINUSOPENC
+     0, // 88 IDRBM_HFILE
+     0, // 89 IDRBM_HEXE
+     0, // 90 IDRBM_HCRPTFILE
+     0, // 91 IDRBM_EXIT
+     0, // 92 IDRBM_EXIT_GRAY
+     0, // 93 IDRBM_LOGO
+     0, // 94 IDRBM_SEL_ALL_RED
+     0, // 95 IDRBM_CHECK_RED
+     0, // 96 IDRBM_UNCHECK_RED
+     0, // 97 IDRBM_ADVANCED_RED
+     0, // 98 IDRBM_SHARK1
+     0, // 99 IDRBM_SHARK2
+     0, //100 IDRBM_SHARK3
+     0, //101 IDRBM_DIVER1
+     0, //102 IDRBM_DIVER2
+     0, //103 IDRBM_DIVER3
+     0, //104 IDRBM_FOLDER_EN
+     0, //105 IDRBM_FOLDER_EM
+     0, //106 IDRBM_FOLDER_EP
+     0, //107 IDRBM_FOLDER_EON
+     0, //108 IDRBM_FOLDER_EOM
+     0, //109 IDRBM_FOLDER_EOP
+     0, //110 IDRBM_FOLDER_ECN
+     0, //111 IDRBM_FOLDER_ECM
+     0, //112 IDRBM_FOLDER_ECP
+     0, //113 IDRBM_FOLDER_EOCN
+     0, //114 IDRBM_FOLDER_EOCM
+     0, //115 IDRBM_FOLDER_EOCP
+     0, //116 IDRBM_CDROM
+     0, //117 IDRBM_TAPES
+     0, //118 IDRBM_TAPESINDRIVE
+     0, //119 IDRBM_NETCONNECT
+     0, //120 IDRBM_NETCONNECT_GRAY
+     0, //121 IDRBM_NETDISCON
+     0, //122 IDRBM_NETDISCON_GRAY
+     0, //123 IDRBM_FLOPPYSINDRIVE
+     0, //124 IDRBM_FLOPPYINDRIVE
+     0, //125 IDRBM_FLOPPYS
+     0, //126 IDRBM_FLOPPY
+     0, //127 IDRBM_INFO
+     0, //128 IDRBM_INFO_GRAY
+     0, //129 IDRBM_COLINDICATOR
+     0, //130 IDRBM_EMS_ENTERPRISE
+     0, //131 IDRBM_EMS_SITE
+     0, //132 IDRBM_EMS_SERVER
+     0, //133 IDRBM_EMS_MDB
+     0, //134 IDRBM_EMS_DSA
+     0, //135 IDRBM_RCVR_STATUS
+     0, //136 IDRBM_EMS_MDBX
+     0, //137 IDRBM_EMS_DSAX
+     0, //138 IDRBM_EMS_MDBP
+     0, //139 IDRBM_EMS_DSAP
+     0, //140 IDRBM_BLANK16x16
 };
 
 #define NUMBITMAPS (sizeof (BMTable) / sizeof (BMTable[0]) )
@@ -314,7 +470,13 @@ HDC  hDC )          // I - handle to a device context
      // Almost all of the time, the bitmap will already be loaded.  This
      // code is optimized (I hope) for this scenario.
 
-     hBM = BMTable[ wBitmapID - BM_OFFSET ];
+     if ( wBitmapID < BTNFACE_BACKGND + BM_OFFSET ) {
+          hBM = BMTable[ wBitmapID - BM_OFFSET ];
+
+     } else {
+
+          hBM = BMTableButton[ wBitmapID - BM_OFFSET - BTNFACE_BACKGND ];
+     }
 
      if ( ! hBM  ) {
 
@@ -547,6 +709,32 @@ VOID RSM_BitmapInit ( VOID )
      RSM_BitmapLoad ( IDRBM_RETENSION,      BackGround );
      RSM_BitmapLoad ( IDRBM_RETENSION_GRAY, BackGround );
 
+
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_HARDDRIVE,       BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_NETDRIVE,        BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_SEL_NONE,        BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_SEL_PART,        BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_SEL_ALL,         BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDER,          BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDERPLUS,      BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDERMINUS,     BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EXE,             BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FILE,            BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDEROPEN,      BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDERPLUSOPEN,  BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_FOLDERMINUSOPEN, BackGround );
+
+#ifdef OEM_EMS
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EMS_ENTERPRISE,  BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EMS_SITE,        BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EMS_SERVER,      BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EMS_MDB,         BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_EMS_DSA,         BackGround );
+     RSM_BitmapLoad ( BTNFACE_BACKGND + IDRBM_BLANK16x16,      BackGround );
+#endif // OEM_EMS
+
+
+
 #    if defined ( OEM_MSOFT )
      {
      }
@@ -597,10 +785,30 @@ VOID RSM_BitmapInit ( VOID )
      RSM_BitmapLoad ( IDRBM_FOLDERPLUSOPEN,  BackGround );
      RSM_BitmapLoad ( IDRBM_FOLDERMINUSOPEN, BackGround );
 
+#ifdef OEM_EMS
+     RSM_BitmapLoad ( IDRBM_EMS_ENTERPRISE,  BackGround );
+     RSM_BitmapLoad ( IDRBM_EMS_SITE,        BackGround );
+     RSM_BitmapLoad ( IDRBM_EMS_SERVER,      BackGround );
+     RSM_BitmapLoad ( IDRBM_EMS_MDB,         BackGround );
+     RSM_BitmapLoad ( IDRBM_EMS_DSA,         BackGround );
+#endif // OEM_EMS
+
+
      mwBitmapBackGnd = BackGround;
 
 } /* end RSM_BitmapInit() */
 
+
+COLORREF RSM_BitmapGetBackgroundColor ( VOID )
+{
+     return mwBitmapBackGnd ;
+}
+
+VOID RSM_BitmapSetBackgroundColor ( COLORREF new_color )
+{
+
+     mwBitmapBackGnd = new_color ;
+}
 
 /******************************************************************************
 
@@ -671,8 +879,24 @@ COLORREF cBackGround )   // I - background replacement color
      // Check to see if the bitmap has already been loaded.  If so, then
      // return the handle from the table.
 
-     if ( BMTable[ nIndex ] ) {
-          return BMTable[ nIndex ];
+     if ( nIndex < BTNFACE_BACKGND ) {
+          if ( BMTable[ nIndex ] ) {
+               return BMTable[ nIndex ];
+          }
+     } else {
+
+          COLORREF ColorGray    = GetSysColor ( COLOR_BTNFACE );
+
+          if ( BMTableButton[ nIndex - BTNFACE_BACKGND ] ) {
+               return BMTableButton[ nIndex - BTNFACE_BACKGND ];
+          }
+          wBitmapID -=  BTNFACE_BACKGND ;
+
+          cBackGround = RGB (
+                        (BYTE)( HIWORD(ColorGray) ),
+                        (BYTE)( (WORD)ColorGray >> 8 ),
+                        (BYTE)ColorGray
+                      );
      }
 
      // THE NO-BACKGROUND-COLOR VERSION.
@@ -760,8 +984,9 @@ COLORREF cBackGround )   // I - background replacement color
      // the current background RGB.
 
      for ( ; lpColorTable < lpColorTableEnd; lpColorTable++ ) {
-
-          if ( *lpColorTable == RSM_MAGICCOLOR ) { // PURE BLUE
+                                
+//          if ( *lpColorTable == RSM_MAGICCOLOR ) { // PURE BLUE
+          if ( *lpColorTable == 0x00ff00FF   ) { // PURE BLUE
 
                *lpColorTable = cBackGround;
                break;
@@ -792,7 +1017,11 @@ COLORREF cBackGround )   // I - background replacement color
      GlobalFree     ( hMem ) ;
 #endif
 
-     BMTable[nIndex] = hBM;
+     if ( nIndex < BTNFACE_BACKGND ) {
+          BMTable[nIndex] = hBM;
+     } else {
+          BMTableButton[nIndex - BTNFACE_BACKGND] = hBM;
+     }
 
      return hBM;
 
@@ -1149,4 +1378,4 @@ LPSTR pID )         // I - ID of the icon to load
 
 } /* end RSM_IconLoad() */
 
-
+

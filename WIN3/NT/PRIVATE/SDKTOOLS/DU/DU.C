@@ -295,7 +295,7 @@ USESTAT DoDu (char *dir)
         do
         {
             if ((wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-                strcmpi (wfd.cFileName, "deleted") &&
+                _strcmpi (wfd.cFileName, "deleted") &&
                 strcmp  (wfd.cFileName,".") &&
                 strcmp  (wfd.cFileName, ".."))
             {

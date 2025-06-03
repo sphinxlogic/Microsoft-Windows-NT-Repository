@@ -67,10 +67,14 @@ Revision History:
 
         Adapted for Alpha AXP.
 
+    Nigel Haslock (haslock) 20-Apr-1995
+
+        Adjustments for additional EV4.5 and EV5 functionality
+
 --*/
 
 #include "ki.h"
-#include "ntrtl.h"
+#pragma hdrstop
 #include "alphaops.h"
 
 #if DBG
@@ -325,7 +329,6 @@ Return Value:
     ULONG Carry1;
     ULONG Carry2;
     BOOLEAN CompareEqual;
-    ULONG CompareFunction;
     BOOLEAN CompareLess;
     BOOLEAN CompareResult;
     FP_CONTEXT_BLOCK ContextBlock;
@@ -339,10 +342,8 @@ Return Value:
     LARGE_INTEGER DoubleQuotient;
     PVOID ExceptionAddress;
     ULONG ExponentDifference;
-    ULONG ExponentSum;
     ULONG Fa;
     ULONG Fb;
-    ULONG Fc;
     ULONG Function;
     ULONG Index;
     ALPHA_INSTRUCTION Instruction;
@@ -459,6 +460,7 @@ Return Value:
 
         } else if (Instruction.FpOp.Opcode == FPOP_OP) {
             switch (Function) {
+            case CVTLQ_FUNC :
             case CVTQL_FUNC :
             case CVTQLV_FUNC :
             case CVTQLSV_FUNC :
@@ -767,6 +769,7 @@ Return Value:
             }
             break;
 
+        case CVTLQ_FUNC :
         case CVTQL_FUNC :
         case CVTQS_FUNC :
         case CVTQT_FUNC :
@@ -1022,7 +1025,7 @@ Return Value:
                     DoubleOperand1.MantissaLow -= DoubleMantissaLow;
                     DoubleOperand1.MantissaHigh -= DoubleMantissaHigh;
                     if (DoubleOperand1.MantissaHigh < 0) {
-                        DoubleOperand1.MantissaLow = -DoubleOperand1.MantissaLow;
+                        DoubleOperand1.MantissaLow = -(LONG)DoubleOperand1.MantissaLow;
                         DoubleOperand1.MantissaHigh = -DoubleOperand1.MantissaHigh;
                         if (DoubleOperand1.MantissaLow != 0) {
                             DoubleOperand1.MantissaHigh -= 1;
@@ -1116,9 +1119,8 @@ Return Value:
             // the other the remaining 1 bit.
             //
 
-            *((PLARGE_INTEGER)(&LargeResult)) =
-                RtlEnlargedUnsignedMultiply(SingleOperand1.Mantissa << (32 - 26),
-                                            SingleOperand2.Mantissa << 1);
+            LargeResult.QuadPart = ((ULONGLONG)((ULONG)(SingleOperand1.Mantissa << (32 - 26)))) *
+                                   ((ULONGLONG)((ULONG)(SingleOperand2.Mantissa << 1)));
 
             SingleOperand1.Mantissa = LargeResult.HighPart;
             StickyBits = LargeResult.LowPart;
@@ -1212,21 +1214,17 @@ Return Value:
             //                              Alow * Blow
             //
 
-            *((PLARGE_INTEGER)(&AhighBhigh)) =
-                    RtlEnlargedUnsignedMultiply(DoubleOperand1.MantissaHigh,
-                                                DoubleOperand2.MantissaHigh);
+            AhighBhigh.QuadPart = (ULONGLONG)(ULONG)DoubleOperand1.MantissaHigh *
+                                  (ULONGLONG)(ULONG)DoubleOperand2.MantissaHigh;
 
-            *((PLARGE_INTEGER)(&AhighBlow)) =
-                    RtlEnlargedUnsignedMultiply(DoubleOperand1.MantissaHigh,
-                                                DoubleOperand2.MantissaLow);
+            AhighBlow.QuadPart = (ULONGLONG)(ULONG)DoubleOperand1.MantissaHigh *
+                                 (ULONGLONG)DoubleOperand2.MantissaLow;
 
-            *((PLARGE_INTEGER)(&AlowBhigh)) =
-                    RtlEnlargedUnsignedMultiply(DoubleOperand1.MantissaLow,
-                                                DoubleOperand2.MantissaHigh);
+            AlowBhigh.QuadPart = (ULONGLONG)DoubleOperand1.MantissaLow *
+                                 (ULONGLONG)(ULONG)DoubleOperand2.MantissaHigh;
 
-            *((PLARGE_INTEGER)(&AlowBlow)) =
-                    RtlEnlargedUnsignedMultiply(DoubleOperand1.MantissaLow,
-                                                DoubleOperand2.MantissaLow);
+            AlowBlow.QuadPart = (ULONGLONG)DoubleOperand1.MantissaLow *
+                                (ULONGLONG)DoubleOperand2.MantissaLow;
 
             AlowBlow.HighPart += AhighBlow.LowPart;
             if (AlowBlow.HighPart < AhighBlow.LowPart) {
@@ -1452,11 +1450,8 @@ Return Value:
                                             DoubleQuotient.LowPart >> 31;
 
                 DoubleQuotient.LowPart <<= 1;
-                if (RtlLargeIntegerGreaterThanOrEqualTo(DoubleDividend,
-                                                        DoubleDivisor) != FALSE) {
-                    DoubleDividend = RtlLargeIntegerSubtract(DoubleDividend,
-                                                             DoubleDivisor);
-
+                if (DoubleDividend.QuadPart >= DoubleDivisor.QuadPart) {
+                    DoubleDividend.QuadPart = DoubleDividend.QuadPart - DoubleDivisor.QuadPart;
                     DoubleQuotient.LowPart |= 1;
                 }
 
@@ -1793,6 +1788,31 @@ Return Value:
                                      StickyBits);
 
         //
+        // Floating convert longword to quadword.
+        //
+        // Floating conversion from longword to quadword is accomplished by
+        // a repositioning of 32 bits of the operand, with sign extension.
+        //
+
+        case CVTLQ_FUNC :
+            DBGPRINT2("cvtlq\n");
+
+            //
+            // Pack floating register longword format into upper 32-bits
+            // by keeping bits 63..62 and 58..29, eliminating unused bits
+            // 61..59. Then right justify and sign extend the 32 bits into
+            // 64 bits.
+            //
+
+            Quadword = ((Quadword >> 62) << 62) | ((ULONGLONG)(Quadword << 5) >> 2);
+            KiSetRegisterValue(ContextBlock.Fc + 32,
+                               Quadword >> 32,
+                               ExceptionFrame,
+                               TrapFrame);
+
+            return TRUE;
+
+        //
         // Floating convert quadword to longword.
         //
         // Floating conversion from quadword to longword is accomplished by
@@ -1847,7 +1867,7 @@ Return Value:
                     SingleOperand1.Exponent -= 1;
                 }
 
-                SingleOperand1.Mantissa = (ULONGLONG)Quadword >> (64 - 26);
+                SingleOperand1.Mantissa = (LONG)((ULONGLONG)Quadword >> (64 - 26));
                 if (Quadword & (((ULONGLONG)1 << (64 - 26)) - 1)) {
                     StickyBits = 1;
 
@@ -1911,8 +1931,8 @@ Return Value:
                     DoubleOperand1.Exponent -= 1;
                 }
 
-                DoubleOperand1.MantissaHigh = (ULONGLONG)Quadword >> ((64 - 55) + 32);
-                DoubleOperand1.MantissaLow = (ULONGLONG)Quadword >> (64 - 55);
+                DoubleOperand1.MantissaHigh = (LONG)((ULONGLONG)Quadword >> ((64 - 55) + 32));
+                DoubleOperand1.MantissaLow = (LONG)((ULONGLONG)Quadword >> (64 - 55));
                 if (Quadword & (((ULONGLONG)1 << (64 - 55)) - 1)) {
                     StickyBits = 1;
 
@@ -2065,8 +2085,8 @@ Return Value:
     SingleFormat = (PSINGLE_FORMAT)&Result;
     DoubleFormat = (PDOUBLE_FORMAT)&DoubleValue;
 
-    SingleFormat->Sign = DoubleFormat->Sign;
-    SingleFormat->Mantissa = DoubleFormat->Mantissa >> (52 - 23);
+    SingleFormat->Sign = (ULONG)DoubleFormat->Sign;
+    SingleFormat->Mantissa = (ULONG)(DoubleFormat->Mantissa >> (52 - 23));
     if (DoubleFormat->Exponent == DOUBLE_MAXIMUM_EXPONENT) {
         SingleFormat->Exponent = SINGLE_MAXIMUM_EXPONENT;
 
@@ -2074,8 +2094,8 @@ Return Value:
         SingleFormat->Exponent = SINGLE_MINIMUM_EXPONENT;
 
     } else {
-        SingleFormat->Exponent = DoubleFormat->Exponent - DOUBLE_EXPONENT_BIAS +
-                                 SINGLE_EXPONENT_BIAS;
+        SingleFormat->Exponent = (ULONG)(DoubleFormat->Exponent - DOUBLE_EXPONENT_BIAS +
+                                         SINGLE_EXPONENT_BIAS);
     }
     return Result;
 }
@@ -2146,6 +2166,8 @@ Return Value:
             IeeeValue->Value.U64Value.HighPart = HIGH_PART(ResultValue);
             return FALSE;
         }
+
+        Fpcr->DisableInvalid = 1;
     }
 
     //
@@ -2236,6 +2258,8 @@ Return Value:
             IeeeValue->Value.Fp64Value.W[1] = ResultValueHigh;
             return FALSE;
         }
+
+        Fpcr->DisableDivisionByZero = 1;
     }
 
     KiSetRegisterValue(ContextBlock->Fc + 32,
@@ -2320,6 +2344,8 @@ Return Value:
             IeeeValue->Value.Fp32Value.W[0] = ResultValue;
             return FALSE;
         }
+
+        Fpcr->DisableDivisionByZero = 1;
     }
 
     KiSetRegisterValue(ContextBlock->Fc + 32,
@@ -2451,6 +2477,8 @@ Return Value:
             IeeeValue->Value.CompareValue = FpCompareUnordered;
             return FALSE;
         }
+
+        Fpcr->DisableInvalid = 1;
     }
 
     return TRUE;
@@ -2567,6 +2595,8 @@ Return Value:
             IeeeValue->Value.Fp64Value.W[1] = ResultValueHigh;
             return FALSE;
         }
+
+        Fpcr->DisableInvalid = 1;
     }
 
     KiSetRegisterValue(ContextBlock->Fc + 32,
@@ -2636,6 +2666,8 @@ Return Value:
         IeeeValue->Value.U64Value.HighPart = HIGH_PART(ResultValue);
         return FALSE;
     }
+
+    Fpcr->DisableInvalid = 1;
 
     KiSetRegisterValue(ContextBlock->Fc + 32,
                        ResultValue,
@@ -2738,6 +2770,8 @@ Return Value:
             IeeeValue->Value.Fp32Value.W[0] = ResultValue;
             return FALSE;
         }
+
+        Fpcr->DisableInvalid = 1;
     }
 
     KiSetRegisterValue(ContextBlock->Fc + 32,
@@ -2865,7 +2899,7 @@ Return Value:
     //
 
     StickyBits |= (Mantissa & 0x1);
-    RoundBit = (Mantissa & 0x2);
+    RoundBit = (ULONG)(Mantissa & 0x2);
     Mantissa >>= 2;
 
     switch (ContextBlock->Round) {
@@ -3160,6 +3194,9 @@ Return Value:
             return FALSE;
         }
 
+        Fpcr->DisableOverflow = 1;
+        Fpcr->DisableInexact = 1;
+
     } else if (Underflow != FALSE) {
         if (Inexact != FALSE) {
             Fpcr->Underflow = 1;
@@ -3189,6 +3226,11 @@ Return Value:
             return FALSE;
         }
 
+        if (Inexact != FALSE) {
+            Fpcr->DisableUnderflow = 1;
+            Fpcr->DisableInexact = 1;
+        }
+
     } else if (Inexact != FALSE) {
         Fpcr->InexactResult = 1;
         Fpcr->SummaryBit = 1;
@@ -3200,6 +3242,8 @@ Return Value:
                 IeeeValue->Value.Fp64Value.W[1] = HIGH_PART(ResultValue);
                 return FALSE;
             }
+
+            Fpcr->DisableInexact = 1;
         }
     }
 
@@ -3339,7 +3383,7 @@ Return Value:
     // sticky bits.
     //
 
-    RoundBit = StickyBits >> 63;
+    RoundBit = (ULONG)(StickyBits >> 63);
     StickyBits <<= 1;
     DBGPRINT(".. ResultValue = %.16Lx, StickyBits = %.16Lx, RoundBit = %lx\n",
              ResultValue, StickyBits, RoundBit);
@@ -3409,7 +3453,7 @@ Return Value:
         }
 
     } else {
-        ResultValue = -ResultValue;
+        ResultValue = -(LONGLONG)ResultValue;
         if ((LONGLONG)ResultValue > 0) {
             Overflow = TRUE;
         }
@@ -3440,6 +3484,8 @@ Return Value:
                 IeeeValue->Value.U64Value.HighPart = HIGH_PART(ResultValue);
                 return FALSE;
             }
+
+            Fpcr->DisableInexact = 1;
         }
     }
 
@@ -3686,7 +3732,7 @@ Return Value:
                 ResultValue = SINGLE_INFINITY_VALUE;
 
             } else {
-                ResultValue = SINGLE_MAXIMUM_VALUE | (1 << 31);
+                ResultValue = (ULONG)(SINGLE_MAXIMUM_VALUE | (1 << 31));
             }
             break;
 
@@ -3700,7 +3746,7 @@ Return Value:
 
         case ROUND_TO_MINUS_INFINITY:
             if (ResultOperand->Sign != 0) {
-                ResultValue = SINGLE_INFINITY_VALUE | (1 << 31);
+                ResultValue = (ULONG)(SINGLE_INFINITY_VALUE | (1 << 31));
 
             } else {
                 ResultValue = SINGLE_MAXIMUM_VALUE;
@@ -3851,6 +3897,9 @@ Return Value:
             return FALSE;
         }
 
+        Fpcr->DisableOverflow = 1;
+        Fpcr->DisableInexact = 1;
+
     } else if (Underflow != FALSE) {
         if (Inexact != FALSE) {
             Fpcr->Underflow = 1;
@@ -3878,6 +3927,11 @@ Return Value:
             return FALSE;
         }
 
+        if (Inexact != FALSE) {
+            Fpcr->DisableUnderflow = 1;
+            Fpcr->DisableInexact = 1;
+        }
+
     } else if (Inexact != FALSE) {
         Fpcr->InexactResult = 1;
         Fpcr->SummaryBit = 1;
@@ -3888,6 +3942,8 @@ Return Value:
                 IeeeValue->Value.Fp32Value.W[0] = ResultValue;
                 return FALSE;
             }
+
+            Fpcr->DisableInexact = 1;
         }
     }
 
@@ -4125,19 +4181,3 @@ Return Value:
              SingleOperand->Exponent, SingleOperand->Mantissa);
     return;
 }
-
-#ifdef _TODO_tvb
-
-o Proper NaN propagation rules for convert instructions.
-o ULONGLONG DoubleOperand->Mantissa instead of MantissaHigh/Low.
-o Perform all single operations using register format to avoid conversions.
-o Check new compiler code generation quality for bit fields.
-o Check Unpack/Pack code path for NaNs and Infinities.
-o Convert long hand multiplication to Rtlp128 functions.
-o Convert long hand division to native 64-bit operations.
-o Release NT portable (X86, Mips, Alpha) C level floating tests.
-o Release Alpha portable (VMS, OSF, NT) assembler level floating tests.
-o Compare performance of NT implementation with EXC_SUM based OSF model.
-o Document remaining X86/Mips/Alpha differences.
-
-#endif

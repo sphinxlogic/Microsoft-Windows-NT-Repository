@@ -210,6 +210,45 @@ BOOL APIENTRY ExportOptionsHookProc (HWND hDlg,
          WindowCenter (hDlg) ;
          break ;
 
+#if WINVER >= 0x0400
+      case WM_NOTIFY:
+        {
+            LPOFNOTIFY  pOfn;
+            pOfn = (LPOFNOTIFY)lParam;
+
+            switch (pOfn->hdr.code) {
+                case CDN_INITDONE:
+                  WindowCenter (pOfn->hdr.hwndFrom) ;
+                  break;
+
+                case CDN_FILEOK:
+                  {
+                  int   iFileIndex ;
+                  HWND  hWndCBox;
+
+                  hWndCBox = GetDlgItem (pOfn->hdr.hwndFrom, cmb1); // Type combo box
+                  iFileIndex = CBSelection (hWndCBox) ;
+                  // the order of the entries in the combo box depends on
+                  // the current delimiter character
+                  if (pDelimiter == TabStr) {
+                    pDelimiter = iFileIndex == 0 ? // 0 = TSV, 1=CSV
+                        TabStr : CommasStr;
+                  } else {
+                    pDelimiter = iFileIndex == 0 ? // 0 = TSV, 1=CSV
+                        CommasStr : TabStr;
+                  }
+                  }
+                  break;
+                 
+                default:
+                  break;
+            }
+        
+        }
+        break;
+        
+#endif
+
       case WM_COMMAND:
          switch (LOWORD(wParam))
             {  // switch
@@ -266,5 +305,5 @@ BOOL APIENTRY ExportOptionsHookProc (HWND hDlg,
 
 }  // ExportOptionsHookProc
 
-
-
+
+

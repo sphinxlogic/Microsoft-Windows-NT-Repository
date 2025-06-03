@@ -96,7 +96,7 @@ DlgDbugrun(HWND hDlg, UINT message, WPARAM wParam, LONG lParam)
                 lpTemp++;
             }
 
-            lpOldDb = strdup(lpTemp);
+            lpOldDb = _strdup(lpTemp);
 
             SetDlgItemText(hDlg,ID_DBUGRUN_ATEXT, lpOldDb);
         }
@@ -128,7 +128,7 @@ DlgDbugrun(HWND hDlg, UINT message, WPARAM wParam, LONG lParam)
 
             if (strcmp (lpTemp, lpOldDb)) {
                 ZFREE(LpszCommandLine);
-                LpszCommandLine = strdup(lpTemp);
+                LpszCommandLine = _strdup(lpTemp);
  
                 if (DebuggeeAlive()) {
                     bRet = MessageBox (hDlg,
@@ -155,7 +155,7 @@ DlgDbugrun(HWND hDlg, UINT message, WPARAM wParam, LONG lParam)
             EndDialog(hDlg, TRUE);
             break;
 
-        case IDHELP:
+        case IDWINDBGHELP:
             Dbg(WinHelp(hDlg, szHelpFileName, (DWORD) HELP_CONTEXT,(DWORD)ID_DBUGRUN_HELP));
             break;
 
@@ -165,4 +165,3 @@ DlgDbugrun(HWND hDlg, UINT message, WPARAM wParam, LONG lParam)
     }
     return (FALSE);
 }                               /* DlgDbugrun */
-

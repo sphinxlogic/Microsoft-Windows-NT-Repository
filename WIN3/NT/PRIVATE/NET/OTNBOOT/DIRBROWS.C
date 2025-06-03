@@ -130,7 +130,7 @@ Return Value:
     LONG    lBsCount;
     LPTSTR  szLastBs;
     LPTSTR  szThisChar;
-    LPTSTR  szRootBs;
+    LPTSTR  szRootBs = NULL;
 
     if (IsPathADir(szPath)) {
         // this one is valid so return it
@@ -152,7 +152,7 @@ Return Value:
                     szThisChar = &szLocalPath[0];
                     while (*szThisChar != 0) {
                         if (*szThisChar == cBackslash) lBsCount++;
-                        if (lBsCount = 4) {
+                        if (lBsCount == 4) {
                             szRootBs = szThisChar;
                             break;
                         }
@@ -932,4 +932,3 @@ Return Value:
         default:            return FALSE;
     }
 }
-

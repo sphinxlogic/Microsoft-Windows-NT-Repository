@@ -17,7 +17,7 @@ Abstract:
 
 Author:
 
-    Scott Birrell       (ScottBi)   	June 17, 1991
+    Scott Birrell       (ScottBi)       June 17, 1991
 
 Environment:
 
@@ -28,14 +28,8 @@ Revision History:
 #include <string.h>
 #include "lsasrvp.h"
 
-#define LsapRtlEqualLuid(FirstLuid, SecondLuid)                          \
-    (RtlLargeIntegerEqualTo(FirstLuid,SecondLuid))
-
 #define LsapRtlEqualPrivileges(FirstPrivilege, SecondPrivilege)                 \
-    (LsapRtlEqualLuid((FirstPrivilege)->Luid, (SecondPrivilege)->Luid))
-
-
-
+    (RtlEqualLuid(&(FirstPrivilege)->Luid, &(SecondPrivilege)->Luid))
 
 NTSTATUS
 LsapRtlAddPrivileges(

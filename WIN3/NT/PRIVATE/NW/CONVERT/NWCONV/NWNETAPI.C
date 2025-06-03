@@ -1,33 +1,30 @@
-/*
-  +-------------------------------------------------------------------------+
-  |                      Netware Conversion API's                           |
-  +-------------------------------------------------------------------------+
-  |                     (c) Copyright 1993, 1994                            |
-  |                          Microsoft Corp.                                |
-  |                        All rights reserved                              |
-  |                                                                         |
-  | Program               : [nwnetapi.c]                                    |
-  | Programmer            : Arthur Hanson                                   |
-  | Original Program Date : [Jul 27, 1993                                   |
-  | Last Update           : [Jun 16, 1994]                                  |
-  |                                                                         |
-  | Version:  1.00                                                          |
-  |                                                                         |
-  | Description:                                                            |
-  |                                                                         |
-  | History:                                                                |
-  |   arth  Jun 16, 1994    1.00    Original Version.                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+
-*/
+/*++
+
+Copyright (c) 1993-1995  Microsoft Corporation
+
+Module Name:
+
+   nwnetapi.c
+
+Abstract:
+
+
+Author:
+
+    Arthur Hanson (arth) 16-Jun-1994
+
+Revision History:
+
+--*/
+
 
 #include "globals.h"
 
 #include <nwapi32.h>
 #include "nwconv.h"
-#include "nwapi32a.h"
 #include "convapi.h"
 #include "nwnetapi.h"
+#include "statbox.h"
 
 #define SUPERVISOR          "SUPERVISOR"
 #define ACCOUNT_LOCKOUT     "ACCT_LOCKOUT"
@@ -38,6 +35,8 @@
 #define PS_OPERATORS        "PS_OPERATORS"
 #define SECURITY_EQUALS     "SECURITY_EQUALS"
 #define USER_DEFAULTS       "USER_DEFAULTS"
+#define MS_EXTENDED_NCPS    "MS_EXTENDED_NCPS"
+#define FPNW_PDC            "FPNWPDC"
 
 #ifdef DEBUG
 int ErrorBoxRetry(LPTSTR szFormat, ...);
@@ -45,6 +44,7 @@ int ErrorBoxRetry(LPTSTR szFormat, ...);
 
 // Couple of NetWare specific data structures - see NetWare programming books for
 // info on these structures
+#pragma pack(1)
 typedef struct tagLoginControl {
    BYTE byAccountExpires[3];
    BYTE byAccountDisabled;
@@ -63,6 +63,7 @@ typedef struct tagLoginControl {
    LONG lNextResetTime;
    BYTE byBadLoginAddr[12];
 };  // tagLoginControl
+#pragma pack()
 
 
 typedef struct tagAccountBalance {
@@ -117,7 +118,7 @@ RIGHTS_MAPPING DirRightsMapping = {
     },
     {   { NW_FILE_READ,       GENERIC_READ|GENERIC_EXECUTE},
         { NW_FILE_WRITE,      GENERIC_WRITE},
-        { NW_FILE_CREATE,     0},
+        { NW_FILE_CREATE,     GENERIC_WRITE},
         { NW_FILE_DELETE,     DELETE},
         { NW_FILE_PERM,       WRITE_DAC},
         { NW_FILE_SCAN,       GENERIC_READ},
@@ -127,40 +128,91 @@ RIGHTS_MAPPING DirRightsMapping = {
     } 
 } ;
 
-void UserInfoLog(LPTSTR UserName, struct tagLoginControl tag);
-void Moveit(NWCONN_HANDLE Conn, LPTSTR UserName);
-void UserRecInit(NT_USER_INFO *UserInfo);
+VOID UserInfoLog(LPTSTR UserName, struct tagLoginControl tag);
+VOID Moveit(NWCONN_HANDLE Conn, LPTSTR UserName);
+VOID UserRecInit(NT_USER_INFO *UserInfo);
+BOOL IsNCPServerFPNW(NWCONN_HANDLE Conn);
 
 static NWCONN_HANDLE CachedConn = 0;
 
 static TCHAR CachedServer[MAX_SERVER_NAME_LEN + 1];
+static DWORD CachedServerTime = 0xffffffff; // minutes since 1985...
 
-/*+-------------------------------------------------------------------------+
-  | NWGetMaxServerNameLen()                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int NWGetMaxServerNameLen() {
+typedef struct _PRINT_SERVER_BUFFER {
+   TCHAR Name[20];
+} PRINT_SERVER_BUFFER;
+
+typedef struct _PRINT_SERVER_LIST {
+   ULONG Count;
+   PRINT_SERVER_BUFFER PSList[];
+} PRINT_SERVER_LIST;
+
+
+
+/////////////////////////////////////////////////////////////////////////
+int 
+NWGetMaxServerNameLen()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    return MAX_SERVER_NAME_LEN;
 
 } // NWGetMaxServerNameLen
 
 
+/////////////////////////////////////////////////////////////////////////
+int 
+NWGetMaxUserNameLen()
 
-/*+-------------------------------------------------------------------------+
-  | NWGetMaxUserNameLen()                                                   |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-int NWGetMaxUserNameLen() {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    return MAX_USER_NAME_LEN;
 
 } // NWGetMaxUserNameLen
 
 
-/*+-------------------------------------------------------------------------+
-  | NWServerFree()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWServerFree() {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NWServerFree()
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
 
    if (CachedConn)
       NWDetachFromFileServer(CachedConn);
@@ -172,37 +224,69 @@ DWORD NWServerFree() {
 } // NWServerFree
 
 
-/*+-------------------------------------------------------------------------+
-  | NWServerSet()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWServerSet(LPTSTR FileServer) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NWServerSet(
+   LPTSTR FileServer
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    NWLOCAL_SCOPE ScopeFlag = 0;
    NWCONN_HANDLE Conn = 0;
    NWCCODE ret = 0;
-   char szAnsiFileServer[MAX_SERVER_NAME_LEN];
+   char szAnsiFileServer[MAX_SERVER_NAME_LEN + 1];
 
    NWServerFree();
 
    lstrcpy(CachedServer, FileServer);
-   wcstombs(szAnsiFileServer, FileServer, lstrlen(FileServer)+1);
+   CharToOem(FileServer, szAnsiFileServer);
 
    ret = NWAttachToFileServer(szAnsiFileServer, ScopeFlag, &Conn);
 
-   if (!ret)
+   if (!ret) {
       CachedConn = Conn;
+      NWServerTimeGet();
+    }
 
    return ((DWORD) ret);
 
 } // NWServerSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUseDel()                                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUseDel(LPTSTR ServerName) {
-   static TCHAR LocServer[CNLEN+3];
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWUseDel(
+   LPTSTR ServerName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   static TCHAR LocServer[MAX_SERVER_NAME_LEN+3];
 
    NWServerFree();
    wsprintf(LocServer, Lids(IDS_S_27), ServerName);
@@ -211,12 +295,27 @@ void NWUseDel(LPTSTR ServerName) {
 } // NWUseDel
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserNameValidate()                                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NWUserNameValidate(LPTSTR szUserName) {
-   TCHAR UserName[MAX_NT_USER_NAME_LEN + 1];
+/////////////////////////////////////////////////////////////////////////
+BOOL
+NWUserNameValidate(
+   LPTSTR szUserName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   TCHAR UserName[MAX_USER_NAME_LEN + 1];
    DWORD Size;
 
    // if same as logged on user then don't convert or overwrite
@@ -240,11 +339,26 @@ BOOL NWUserNameValidate(LPTSTR szUserName) {
 } // NWUserNameValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NWGroupNameValidate()                                                   |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NWGroupNameValidate(LPTSTR szGroupName) {
+/////////////////////////////////////////////////////////////////////////
+BOOL
+NWGroupNameValidate(
+   LPTSTR szGroupName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
 
    if (!lstrcmpi(szGroupName, Lids(IDS_S_31)))
       return FALSE;
@@ -257,11 +371,26 @@ BOOL NWGroupNameValidate(LPTSTR szGroupName) {
 } // NWGroupNameValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NWSpecialNamesMap()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR NWSpecialNamesMap(LPTSTR Name) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR
+NWSpecialNamesMap(
+   LPTSTR Name
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    ULONG i;
    static BOOL InitStrings = FALSE;
    static LPTSTR SpecialNames[5];
@@ -296,15 +425,30 @@ LPTSTR NWSpecialNamesMap(LPTSTR Name) {
 } // NWSpecialNamesMap
 
 
-/*+-------------------------------------------------------------------------+
-  | NWIsAdmin()                                                             |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NWIsAdmin(LPTSTR UserName) {
+/////////////////////////////////////////////////////////////////////////
+BOOL
+NWIsAdmin(
+   LPTSTR UserName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    char szAnsiUserName[MAX_USER_NAME_LEN];
    NWCCODE ret;
 
-   wcstombs(szAnsiUserName, UserName, lstrlen(UserName) + 1);
+   CharToOem(UserName, szAnsiUserName);
    ret = NWIsObjectInSet(CachedConn, szAnsiUserName, OT_USER, SECURITY_EQUALS,
                      SUPERVISOR, OT_USER);
 
@@ -316,13 +460,73 @@ BOOL NWIsAdmin(LPTSTR UserName) {
 } // NWIsAdmin
 
 
+/////////////////////////////////////////////////////////////////////////
+BOOL
+NWObjectNameGet(
+   DWORD ObjectID,
+   LPTSTR ObjectName
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   char szAnsiObjectName[MAX_USER_NAME_LEN + 1];
+   WORD wFoundUserType = 0;
+   NWCCODE ret;
+
+   lstrcpy(ObjectName, TEXT(""));
+
+   if (!(ret = NWGetObjectName(CachedConn, ObjectID, szAnsiObjectName, &wFoundUserType))) {
+
+      //
+      // Got user - now convert and save off the information
+      //
+      OemToChar(szAnsiObjectName, ObjectName);
+   }
+
+   if (ret == SUCCESSFUL)
+      return TRUE;
+   else
+      return FALSE;
+
+} // NWObjectNameGet
+
+
 #define DEF_NUM_RECS 200
-/*+-------------------------------------------------------------------------+
-  | NWUsersEnum()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount) {
-   USER_LIST *Users;
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWUsersEnum(
+   USER_LIST **lpUsers,
+   BOOL Display
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   USER_LIST *Users = NULL;
+   USER_BUFFER *UserBuffer = NULL; 
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
    DWORD Count = 0;
    DWORD status = 0;
@@ -335,11 +539,15 @@ DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount) {
    BYTE byObjectSecurity = 0;
    NWCCODE ret;
 
-   Users =  (USER_LIST *) AllocMemory(NumRecs * sizeof(USER_LIST));
+   if (Display)
+      Status_ItemLabel(Lids(IDS_S_44));
+
+   Users =  (USER_LIST *) AllocMemory(sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
 
    if (!Users) {
       status = ERROR_NOT_ENOUGH_MEMORY;
    } else {
+      UserBuffer = Users->UserBuffer;
 
       // init to NULL so doesn't have garbage if call fails
       lstrcpyA(szAnsiUserName, "");
@@ -351,24 +559,27 @@ DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount) {
 
          // Got user - now convert and save off the information
          OemToChar(szAnsiUserName, szUserName);
-//         mbstowcs(szUserName, szAnsiUserName, lstrlenA(szAnsiUserName)+1);
 
          if (NWUserNameValidate(szUserName)) {
-            lstrcpy(Users[Count].Name, szUserName);
-            lstrcpy(Users[Count].NewName, szUserName);
+            if (Display)
+               Status_Item(szUserName);
+
+            lstrcpy(UserBuffer[Count].Name, szUserName);
+            lstrcpy(UserBuffer[Count].NewName, szUserName);
             Count++;
          }
 
          // Check if we have to re-allocate buffer
          if (Count >= NumRecs) {
             NumRecs += DEF_NUM_RECS;
-            Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, NumRecs * sizeof(USER_LIST));
+            Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
 
             if (!Users) {
                status = ERROR_NOT_ENOUGH_MEMORY;
                break;
             }
 
+            UserBuffer = Users->UserBuffer;
          }
 
       }
@@ -385,16 +596,20 @@ DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount) {
 
    // Now slim down the list to just what we need.
    if (!status) {
-      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, Count * sizeof(USER_LIST));
+      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER)* Count));
 
       if (!Users)
          status = ERROR_NOT_ENOUGH_MEMORY;
-      else 
+      else {
          // Sort the server list before putting it in the dialog
-         qsort((void *) Users, (size_t) Count, sizeof(USER_LIST), UserListCompare);
+         UserBuffer = Users->UserBuffer;
+         qsort((void *) UserBuffer, (size_t) Count, sizeof(USER_BUFFER), UserListCompare);
+      }
    }
 
-   *UserCount = Count;
+   if (Users != NULL)
+      Users->Count = Count;
+
    *lpUsers = Users;
 
    return status;
@@ -402,13 +617,29 @@ DWORD NWUsersEnum(USER_LIST **lpUsers, DWORD *UserCount) {
 } // NWUsersEnum
 
 
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWGroupsEnum(
+   GROUP_LIST **lpGroups,
+   BOOL Display
+   )
 
-/*+-------------------------------------------------------------------------+
-  | NWGroupsEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount) {
-   GROUP_LIST *Groups;
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   GROUP_LIST *Groups = NULL;
+   GROUP_BUFFER *GroupBuffer;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
    DWORD Count = 0;
    DWORD status = 0;
@@ -421,11 +652,15 @@ DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount) {
    BYTE byObjectSecurity = 0;
    NWCCODE ret;
 
-   Groups =  (GROUP_LIST *) AllocMemory(NumRecs * sizeof(GROUP_LIST));
+   if (Display)
+      Status_ItemLabel(Lids(IDS_S_45));
+
+   Groups =  (GROUP_LIST *) AllocMemory(sizeof(GROUP_LIST) + (sizeof(GROUP_BUFFER) * NumRecs));
 
    if (!Groups) {
       status = ERROR_NOT_ENOUGH_MEMORY;
    } else {
+      GroupBuffer = Groups->GroupBuffer;
 
       // init to NULL so doesn't have garbage if call fails
       lstrcpyA(szAnsiGroupName, "");
@@ -436,24 +671,28 @@ DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount) {
                            &byObjectFlag, &byObjectSecurity)) == SUCCESSFUL) {
 
          // Got user - now convert and save off the information
-         mbstowcs(szGroupName, szAnsiGroupName, lstrlenA(szAnsiGroupName)+1);
+         OemToChar(szAnsiGroupName, szGroupName);
 
          if (NWGroupNameValidate(szGroupName)) {
-            lstrcpy(Groups[Count].Name, szGroupName);
-            lstrcpy(Groups[Count].NewName, szGroupName);
+            if (Display)
+               Status_Item(szGroupName);
+
+            lstrcpy(GroupBuffer[Count].Name, szGroupName);
+            lstrcpy(GroupBuffer[Count].NewName, szGroupName);
             Count++;
          }
 
          // Check if we have to re-allocate buffer
          if (Count >= NumRecs) {
             NumRecs += DEF_NUM_RECS;
-            Groups = (GROUP_LIST *) ReallocMemory((HGLOBAL) Groups, NumRecs * sizeof(GROUP_LIST));
+            Groups = (GROUP_LIST *) ReallocMemory((HGLOBAL) Groups, sizeof(GROUP_LIST) + (sizeof(GROUP_BUFFER) * NumRecs));
 
             if (!Groups) {
                status = ERROR_NOT_ENOUGH_MEMORY;
                break;
             }
 
+            GroupBuffer = Groups->GroupBuffer;
          }
 
       }
@@ -470,16 +709,20 @@ DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount) {
 
    // Now slim down the list to just what we need.
    if (!status) {
-      Groups = (GROUP_LIST *) ReallocMemory((HGLOBAL) Groups, Count * sizeof(GROUP_LIST));
+      Groups = (GROUP_LIST *) ReallocMemory((HGLOBAL) Groups, sizeof(GROUP_LIST) + (sizeof(GROUP_BUFFER) * Count));
 
       if (!Groups)
          status = ERROR_NOT_ENOUGH_MEMORY;
-      else 
+      else {
          // Sort the server list before putting it in the dialog
-         qsort((void *) Groups, (size_t) Count, sizeof(GROUP_LIST), UserListCompare);
+         GroupBuffer = Groups->GroupBuffer;
+         qsort((void *) GroupBuffer, (size_t) Count, sizeof(GROUP_BUFFER), UserListCompare);
+      }
    }
 
-   *GroupCount = Count;
+   if (Groups != NULL)
+      Groups->Count = Count;
+
    *lpGroups = Groups;
 
    return status;
@@ -487,12 +730,29 @@ DWORD NWGroupsEnum(GROUP_LIST **lpGroups, DWORD *GroupCount) {
 } // NWGroupsEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWGroupUsersEnum()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers, DWORD *UserCount) {
-   USER_LIST *Users;
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWGroupUsersEnum(
+   LPTSTR GroupName,
+   USER_LIST **lpUsers
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   USER_LIST *Users = NULL;
+   USER_BUFFER *UserBuffer;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
    DWORD Count = 0;
    DWORD i = 0;
@@ -501,49 +761,53 @@ DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers, DWORD *UserCount) 
    char szAnsiGroupName[MAX_GROUP_NAME_LEN + 1];
    TCHAR szUserName[MAX_USER_NAME_LEN + 1];
    WORD wFoundUserType = 0;
-   DWORD dwObjectID = 0xFFFFFFFFL;
    BYTE byPropertyFlags = 0;
    BYTE byObjectFlag = 0;
    BYTE byObjectSecurity = 0;
+   UCHAR Segment = 1;
    DWORD bySegment[32];
    BYTE byMoreSegments;
    NWCCODE ret;
 
-   Users =  (USER_LIST *) AllocMemory(NumRecs * sizeof(USER_LIST));
+   Users =  (USER_LIST *) AllocMemory(sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
 
    if (!Users) {
       status = ERROR_NOT_ENOUGH_MEMORY;
    } else {
+      UserBuffer = Users->UserBuffer;
 
       // init to NULL so doesn't have garbage if call fails
       lstrcpyA(szAnsiUserName, "");
-      wcstombs(szAnsiGroupName, GroupName, lstrlen(GroupName)+1);
+      CharToOem(GroupName, szAnsiGroupName);
 
       // Loop through bindery getting all the users.
       do {
          if (!(ret = NWReadPropertyValue(CachedConn, szAnsiGroupName, OT_USER_GROUP, GROUP_MEMBERS,
-                        1, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
+                        Segment, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
 
+            Segment++;
             // loop through properties converting them to user names
             i = 0;
-            while (bySegment[i]) {
+            while ((bySegment[i]) && (i < 32)) {
                if (!(ret = NWGetObjectName(CachedConn, bySegment[i], szAnsiUserName, &wFoundUserType))) {
                   // Got user - now convert and save off the information
-                  mbstowcs(szUserName, szAnsiUserName, lstrlenA(szAnsiUserName)+1);
+                  OemToChar(szAnsiUserName, szUserName);
 
-                  lstrcpy(Users[Count].Name, szUserName);
-                  lstrcpy(Users[Count].NewName, szUserName);
+                  lstrcpy(UserBuffer[Count].Name, szUserName);
+                  lstrcpy(UserBuffer[Count].NewName, szUserName);
                   Count++;
 
                   // Check if we have to re-allocate buffer
                   if (Count >= NumRecs) {
                      NumRecs += DEF_NUM_RECS;
-                     Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, NumRecs * sizeof(USER_LIST));
+                     Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
                
                      if (!Users) {
                         status = ERROR_NOT_ENOUGH_MEMORY;
                         break;
                      }
+
+                     UserBuffer = Users->UserBuffer;
                   }
                }
                i++;
@@ -566,16 +830,20 @@ DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers, DWORD *UserCount) 
 
    // Now slim down the list to just what we need.
    if (!status) {
-      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, Count * sizeof(USER_LIST));
+      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * Count));
 
       if (!Users)
          status = ERROR_NOT_ENOUGH_MEMORY;
-      else 
+      else  {
          // Sort the server list before putting it in the dialog
-         qsort((void *) Users, (size_t) Count, sizeof(USER_LIST), UserListCompare);
+         UserBuffer = Users->UserBuffer;
+         qsort((void *) UserBuffer, (size_t) Count, sizeof(USER_BUFFER), UserListCompare);
+      }
    }
 
-   *UserCount = Count;
+   if (Users != NULL)
+      Users->Count = Count;
+
    *lpUsers = Users;
 
    return status;
@@ -583,12 +851,29 @@ DWORD NWGroupUsersEnum(LPTSTR GroupName, USER_LIST **lpUsers, DWORD *UserCount) 
 } // NWGroupUsersEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserEquivalenceEnum()                                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers, DWORD *UserCount) {
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWUserEquivalenceEnum(
+   LPTSTR UserName,
+   USER_LIST **lpUsers
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    USER_LIST *Users;
+   USER_BUFFER *UserBuffer;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
    DWORD Count = 0;
    DWORD i = 0;
@@ -601,48 +886,53 @@ DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers, DWORD *UserCou
    BYTE byPropertyFlags = 0;
    BYTE byObjectFlag = 0;
    BYTE byObjectSecurity = 0;
+   UCHAR Segment = 1;
    DWORD bySegment[32];
    BYTE byMoreSegments;
    NWCCODE ret;
 
-   Users =  (USER_LIST *) AllocMemory(NumRecs * sizeof(USER_LIST));
+   Users =  (USER_LIST *) AllocMemory(sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
 
    if (!Users) {
       status = ERROR_NOT_ENOUGH_MEMORY;
    } else {
+      UserBuffer = Users->UserBuffer;
 
       // init to NULL so doesn't have garbage if call fails
       lstrcpyA(szAnsiUserName, "");
-      wcstombs(szAnsiName, UserName, lstrlen(UserName)+1);
+      CharToOem(UserName, szAnsiName);
 
       // Loop through bindery getting all the users.
       do {
          if (!(ret = NWReadPropertyValue(CachedConn, szAnsiName, OT_USER, SECURITY_EQUALS,
-                        1, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
+                        Segment, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
 
+            Segment++;
             // loop through properties converting them to user names
             i = 0;
-            while (bySegment[i]) {
+            while ((bySegment[i]) && (i < 32)) {
                if (!(ret = NWGetObjectName(CachedConn, bySegment[i], szAnsiUserName, &wFoundUserType))) {
                   // Got user - now convert and save off the information
-                  mbstowcs(szUserName, szAnsiUserName, lstrlenA(szAnsiUserName)+1);
+                  OemToChar(szAnsiUserName, szUserName);
 
                   // Map out Everyone equivalence
                   if (lstrcmpi(szUserName, Lids(IDS_S_31))) {
-                     lstrcpy(Users[Count].Name, szUserName);
-                     lstrcpy(Users[Count].NewName, szUserName);
+                     lstrcpy(UserBuffer[Count].Name, szUserName);
+                     lstrcpy(UserBuffer[Count].NewName, szUserName);
                      Count++;
                   }
 
                   // Check if we have to re-allocate buffer
                   if (Count >= NumRecs) {
                      NumRecs += DEF_NUM_RECS;
-                     Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, NumRecs * sizeof(USER_LIST));
+                     Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
                
                      if (!Users) {
                         status = ERROR_NOT_ENOUGH_MEMORY;
                         break;
                      }
+
+                     UserBuffer = Users->UserBuffer;
                   }
                }
                i++;
@@ -665,16 +955,20 @@ DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers, DWORD *UserCou
 
    // Now slim down the list to just what we need.
    if (!status) {
-      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, Count * sizeof(USER_LIST));
+      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * Count));
 
       if (!Users)
          status = ERROR_NOT_ENOUGH_MEMORY;
-      else 
+      else {
          // Sort the server list before putting it in the dialog
-         qsort((void *) Users, (size_t) Count, sizeof(USER_LIST), UserListCompare);
+         UserBuffer = Users->UserBuffer;
+         qsort((void *) UserBuffer, (size_t) Count, sizeof(USER_BUFFER), UserListCompare);
+      }
    }
 
-   *UserCount = Count;
+   if (Users != NULL)
+      Users->Count = Count;
+
    *lpUsers = Users;
 
    return status;
@@ -682,11 +976,29 @@ DWORD NWUserEquivalenceEnum(LPTSTR UserName, USER_LIST **lpUsers, DWORD *UserCou
 } // NWUserEquivalenceEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWFileRightsEnum()                                                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWFileRightsEnum(LPTSTR FileName, USER_RIGHTS_LIST **lpUsers, DWORD *UserCount, BOOL DownLevel) {
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWFileRightsEnum(
+   LPTSTR FileName, 
+   USER_RIGHTS_LIST **lpUsers, 
+   DWORD *UserCount, 
+   BOOL DownLevel
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    BOOL Continue = TRUE;
    USER_RIGHTS_LIST *Users = NULL;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
@@ -727,15 +1039,15 @@ DWORD NWFileRightsEnum(LPTSTR FileName, USER_RIGHTS_LIST **lpUsers, DWORD *UserC
 
       // init to NULL so doesn't have garbage if call fails
       lstrcpyA(szAnsiUserName, "");
-      wcstombs(szAnsiSearchDir, FileName, lstrlen(FileName)+1);
+      CharToOem(FileName, szAnsiSearchDir);
 
       // Loop through bindery getting all the users.
       do {
          if (DownLevel)
-            ret = NWScanDirectoryForTrustees2(CachedConn, nDirHandle, szAnsiSearchDir,
+            ret = NWCScanDirectoryForTrustees2(CachedConn, nDirHandle, szAnsiSearchDir,
                         &Sequence, FoundDir, &dtime, &ownerID, ti);
          else
-            ret = NWScanForTrustees(CachedConn, nDirHandle, szAnsiSearchDir,
+            ret = NWCScanForTrustees(CachedConn, nDirHandle, szAnsiSearchDir,
                            &Sequence, &NumEntries, ti);
 
          if (!ret) {
@@ -744,7 +1056,7 @@ DWORD NWFileRightsEnum(LPTSTR FileName, USER_RIGHTS_LIST **lpUsers, DWORD *UserC
                if (ti[i].objectID != 0) {
                   if (!(ret = NWGetObjectName(CachedConn, ti[i].objectID, szAnsiUserName, &wFoundUserType))) {
                      // Got user - now convert and save off the information
-                     mbstowcs(szUserName, szAnsiUserName, lstrlenA(szAnsiUserName)+1);
+                     OemToChar(szAnsiUserName, szUserName);
 
                      lstrcpy(Users[Count].Name, szUserName);
                      Users[Count].Rights = ti[i].objectRights;
@@ -804,11 +1116,27 @@ DWORD NWFileRightsEnum(LPTSTR FileName, USER_RIGHTS_LIST **lpUsers, DWORD *UserC
 } // NWFileRightsEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWLoginTimesMap()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWLoginTimesMap(BYTE *Times, BYTE *NewTimes) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWLoginTimesMap(
+   BYTE *Times, 
+   BYTE *NewTimes
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD i, j;
    int Bit = 0;
    int Val;
@@ -847,30 +1175,49 @@ void NWLoginTimesMap(BYTE *Times, BYTE *NewTimes) {
 static short _days_month_leap[] = { 31,29,31,30,31,30,31,31,30,31,30,31 };
 static short _days_month[]      = { 31,28,31,30,31,30,31,31,30,31,30,31 };
 
-/*+-------------------------------------------------------------------------+
-  |  NWTimeMap                                                              |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NWTimeMap(DWORD Days, DWORD dwMonth, DWORD dwYear, ULONG *Time) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NWTimeMap(
+   DWORD Days, 
+   DWORD dwMonth, 
+   DWORD dwYear, 
+   DWORD dwBasis,
+   ULONG *Time
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD dw = 0;
    DWORD dwDays = 0;
 
    // Zero
    *Time = 0L;
 
-   // Days from year
-   if((dwYear > 99) && (dw < 1970))
-      return FALSE;
-
+   // Adjust year
    if(dwYear < 70)
       dwYear += 2000L;
    else
       if(dwYear < 100)
          dwYear += 1900L;
 
+   if (dwYear < dwBasis)
+      return FALSE;
+
    // Calculate days in previous years, take -1 so we skip current year
    dw = dwYear - 1;
-   while(dw >= 1970) {
+   while(dw >= dwBasis) {
       dwDays += DAYS_IN_YEAR(dw);
       --dw;
    }
@@ -899,12 +1246,26 @@ BOOL NWTimeMap(DWORD Days, DWORD dwMonth, DWORD dwYear, ULONG *Time) {
 } // NWTimeMap
 
 
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+NWUserNameGet(
+   LPTSTR szUserName
+   )
 
-/*+-------------------------------------------------------------------------+
-  | NWUserNameGet()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR NWUserNameGet(LPTSTR szUserName) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR UserName[128];
    char szAnsiUserName[MAX_USER_NAME_LEN];
    NWCCODE ret;
@@ -912,13 +1273,13 @@ LPTSTR NWUserNameGet(LPTSTR szUserName) {
    BYTE byMoreSegments, byPropertyFlags;
    LPSTR szAnsiFullName;
 
-   wcstombs(szAnsiUserName, szUserName, lstrlen(szUserName)+1);
+   CharToOem(szUserName, szAnsiUserName);
    ret = NWReadPropertyValue(CachedConn, szAnsiUserName, OT_USER, IDENTIFICATION,
                      1, bySegment, &byMoreSegments, &byPropertyFlags);
 
    if (ret == SUCCESSFUL) {
       szAnsiFullName = (LPSTR) bySegment;
-      mbstowcs(UserName, szAnsiFullName, lstrlenA(szAnsiFullName)+1);
+      OemToChar(szAnsiFullName, UserName);
       return UserName;
    }
 
@@ -927,11 +1288,28 @@ LPTSTR NWUserNameGet(LPTSTR szUserName) {
 } // NWUserNameGet
 
 
-/*+-------------------------------------------------------------------------+
-  | Name: NWNetUserMapInfo()                                                |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWNetUserMapInfo (LPTSTR szUserName, void *UInfo, NT_USER_INFO *NT_UInfo ) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWNetUserMapInfo (
+   LPTSTR szUserName, 
+   VOID *UInfo, 
+   NT_USER_INFO *NT_UInfo
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    ULONG expires;
    struct tagLoginControl *tag;
    LPTSTR FullName;
@@ -945,6 +1323,11 @@ void NWNetUserMapInfo (LPTSTR szUserName, void *UInfo, NT_USER_INFO *NT_UInfo ) 
    // Account disabled
    if (tag->byAccountDisabled)
       NT_UInfo->flags = NT_UInfo->flags | 0x02;
+
+   // account locked out
+   if ((tag->wBadLogins == 0xffff) &&
+       (tag->lNextResetTime > (LONG)CachedServerTime))
+      NT_UInfo->flags = NT_UInfo->flags | 0x02; // disable account...
 
    // user can change password
    if ((tag->byRestrictions & 0x01))
@@ -963,18 +1346,68 @@ void NWNetUserMapInfo (LPTSTR szUserName, void *UInfo, NT_USER_INFO *NT_UInfo ) 
          expires = 0;
          NWTimeMap((DWORD) tag->byAccountExpires[2], 
                    (DWORD) tag->byAccountExpires[1], 
-                   (DWORD) tag->byAccountExpires[0], &expires);
+                   (DWORD) tag->byAccountExpires[0], 1970, &expires);
          NT_UInfo->acct_expires = expires;
       }
 
 } // NWNetUserMapInfo
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserDefaultsGet()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUserDefaultsGet(void **UDefaults) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NWFPNWMapInfo(
+   VOID *NWUInfo, 
+   PFPNW_INFO fpnw
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
+   struct tagLoginControl *tag;
+
+   tag = (struct tagLoginControl *) NWUInfo;
+
+   fpnw->MaxConnections = tag->wMaxConnections;
+   fpnw->PasswordInterval = tag->wPasswordInterval;
+   fpnw->GraceLoginAllowed = tag->byGraceLogins;
+   fpnw->GraceLoginRemaining = tag->byGraceLoginReset;
+   fpnw->LoginFrom = NULL;
+   fpnw->HomeDir = NULL;
+
+} // NWFPNWMapInfo
+
+
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NWUserDefaultsGet(
+   VOID **UDefaults
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    struct tagUserDefaults *UserDefaults = NULL;
    NWCCODE ret;
    BYTE bySegment[128];
@@ -999,11 +1432,27 @@ void NWUserDefaultsGet(void **UDefaults) {
 } // NWUserDefaultsGet
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserDefaultsMap()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUserDefaultsMap(void *NWUDefaults, NT_DEFAULTS *NTDefaults) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NWUserDefaultsMap(
+   VOID *NWUDefaults, 
+   NT_DEFAULTS *NTDefaults
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    struct tagUserDefaults *UserDefaults = NULL;
 
    if ((NWUDefaults == NULL) || (NTDefaults == NULL))
@@ -1022,11 +1471,26 @@ void NWUserDefaultsMap(void *NWUDefaults, NT_DEFAULTS *NTDefaults) {
 } // NWUserDefaultsMap
 
 
-/*+-------------------------------------------------------------------------+
-  | NWLoginTimesLog()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWLoginTimesLog(BYTE *Times) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWLoginTimesLog(
+   BYTE *Times
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    TCHAR *szDays[7];
    DWORD Day;
    DWORD Hours;
@@ -1075,12 +1539,26 @@ void NWLoginTimesLog(BYTE *Times) {
 } // NWLoginTimesLog
 
 
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWUserDefaultsLog(
+   VOID *UDefaults
+   )
 
-/*+-------------------------------------------------------------------------+
-  | NWUserDefaultsLog()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUserDefaultsLog(void *UDefaults) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    struct tagUserDefaults *tag;
 
    tag = (struct tagUserDefaults *) UDefaults;
@@ -1154,11 +1632,27 @@ void NWUserDefaultsLog(void *UDefaults) {
 } // NWUserDefaultsLog
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserInfoLog()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUserInfoLog(LPTSTR szUserName, void *UInfo) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWUserInfoLog(
+   LPTSTR szUserName, 
+   VOID *UInfo
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    struct tagLoginControl *tag;
    LPTSTR FullName;
 
@@ -1178,6 +1672,9 @@ void NWUserInfoLog(LPTSTR szUserName, void *UInfo) {
    // Account disabled
    if (tag->byAccountDisabled == 0xff)
       LogWriteLog(2, Lids(IDS_L_121), Lids(IDS_YES));
+   else if ((tag->wBadLogins == 0xffff) &&
+            (tag->lNextResetTime > (LONG)CachedServerTime))
+      LogWriteLog(2,  Lids(IDS_L_121), Lids(IDS_LOCKED_OUT));
    else
       LogWriteLog(2,  Lids(IDS_L_121), Lids(IDS_NO));
 
@@ -1271,11 +1768,27 @@ void NWUserInfoLog(LPTSTR szUserName, void *UInfo) {
 } // NWUserInfoLog
 
 
-/*+-------------------------------------------------------------------------+
-  | NWUserInfoGet()                                                         |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWUserInfoGet(LPTSTR szUserName, void **UInfo) {
+/////////////////////////////////////////////////////////////////////////
+VOID
+NWUserInfoGet(
+   LPTSTR szUserName, 
+   VOID **UInfo
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static struct tagLoginControl xUI;
    struct tagLoginControl *UserInfo = NULL;
    char szAnsiUserName[MAX_USER_NAME_LEN];
@@ -1284,7 +1797,6 @@ void NWUserInfoGet(LPTSTR szUserName, void **UInfo) {
    BYTE byMoreSegments, byPropertyFlags;
 
    CharToOem(szUserName, szAnsiUserName);
-//   wcstombs(szAnsiUserName, szUserName, lstrlen(szUserName)+1);
    ret = NWReadPropertyValue(CachedConn, szAnsiUserName, OT_USER, LOGIN_CONTROL, 1, bySegment, &byMoreSegments, &byPropertyFlags);
 
    if (ret == SUCCESSFUL) {
@@ -1305,12 +1817,27 @@ void NWUserInfoGet(LPTSTR szUserName, void **UInfo) {
 } // NWUserInfoGet
 
 
+/////////////////////////////////////////////////////////////////////////
+DWORD
+NWServerEnum(
+   LPTSTR Container, 
+   SERVER_BROWSE_LIST **lpServList
+   )
 
-/*+-------------------------------------------------------------------------+
-  | NWServerEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWServerEnum(LPTSTR Container, SERVER_BROWSE_LIST **lpServList) {
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    int NumBufs = 0;
    DWORD TotalEntries = 0;
    ENUM_REC *BufHead, *CurrBuf, *OldBuf;
@@ -1391,11 +1918,26 @@ DWORD NWServerEnum(LPTSTR Container, SERVER_BROWSE_LIST **lpServList) {
 } // NWServerEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWShareSizeGet()                                                        |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-ULONG NWShareSizeGet(LPTSTR Share) {
+/////////////////////////////////////////////////////////////////////////
+ULONG 
+NWShareSizeGet(
+   LPTSTR Share
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR RootPath[MAX_PATH + 1];
    DWORD sectorsPC, bytesPS, FreeClusters, Clusters;
    DWORD TotalSpace, FreeSpace;
@@ -1415,11 +1957,26 @@ ULONG NWShareSizeGet(LPTSTR Share) {
 } // NWShareSizeGet
 
 
-/*+-------------------------------------------------------------------------+
-  | NWSharesEnum()                                                          |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWSharesEnum(SHARE_LIST **lpShares) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NWSharesEnum(
+   SHARE_LIST **lpShares
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    int NumBufs = 0;
    DWORD TotalEntries = 0;
    ENUM_REC *BufHead, *CurrBuf, *OldBuf;
@@ -1497,11 +2054,26 @@ DWORD NWSharesEnum(SHARE_LIST **lpShares) {
 } // NWSharesEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWServerInfoReset()                                                     |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWServerInfoReset(SOURCE_SERVER_BUFFER *SServ) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NWServerInfoReset(
+   SOURCE_SERVER_BUFFER *SServ
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static VERSION_INFO NWInfo;
    NWCCODE ret = 0;
 
@@ -1518,11 +2090,27 @@ void NWServerInfoReset(SOURCE_SERVER_BUFFER *SServ) {
 } // NWServerInfoReset
 
 
-/*+-------------------------------------------------------------------------+
-  | NWServerInfoSet()                                                       |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-void NWServerInfoSet(LPTSTR ServerName, SOURCE_SERVER_BUFFER *SServ) {
+/////////////////////////////////////////////////////////////////////////
+VOID 
+NWServerInfoSet(
+   LPTSTR ServerName, 
+   SOURCE_SERVER_BUFFER *SServ
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static VERSION_INFO NWInfo;
    NWCCODE ret = 0;
 
@@ -1559,22 +2147,38 @@ void NWServerInfoSet(LPTSTR ServerName, SOURCE_SERVER_BUFFER *SServ) {
 } // NWServerInfoSet
 
 
-/*+-------------------------------------------------------------------------+
-  | NWServerValidate()                                                      |
-  |                                                                         |
-  |    Validates a given server - makes sure it can be connected to and     |
-  |    that the user has admin privs on it.                                 |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-BOOL NWServerValidate(HWND hWnd, LPTSTR ServerName, BOOL DupFlag) {
+/////////////////////////////////////////////////////////////////////////
+BOOL 
+NWServerValidate(
+   HWND hWnd, 
+   LPTSTR ServerName, 
+   BOOL DupFlag
+   )
+
+/*++
+
+Routine Description:
+
+    Validates a given server - makes sure it can be connected to and
+    that the user has admin privs on it.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    DWORD Status;
    BOOL ret = FALSE;
    SOURCE_SERVER_BUFFER *SServ = NULL;
    DWORD dwObjectID = 0;
    DWORD Size;
    BYTE AccessLevel;
-   TCHAR UserName[MAX_NT_USER_NAME_LEN + 1];
-   static TCHAR LocServer[CNLEN+3];
+   TCHAR UserName[MAX_USER_NAME_LEN + 1];
+   static TCHAR LocServer[MAX_SERVER_NAME_LEN+3];
    LPVOID lpMessageBuffer;
 
    CursorHourGlass();
@@ -1591,7 +2195,7 @@ BOOL NWServerValidate(HWND hWnd, LPTSTR ServerName, BOOL DupFlag) {
       lstrcpy(LocServer, TEXT("\\\\"));
       lstrcat(LocServer, ServerName);
 
-      if (UseAddPswd(hWnd, UserName, LocServer, Lids(IDS_S_6))) {
+      if (UseAddPswd(hWnd, UserName, LocServer, Lids(IDS_S_6), NW_PROVIDER)) {
 
          Status = NWServerSet(ServerName);
 
@@ -1601,19 +2205,23 @@ BOOL NWServerValidate(HWND hWnd, LPTSTR ServerName, BOOL DupFlag) {
                WarningError(Lids(IDS_NWCANT_CON), ServerName);
 
          } else {
-            Status = NWGetBinderyAccessLevel(CachedConn, &AccessLevel, &dwObjectID);
+            if (IsNCPServerFPNW(CachedConn))
+               WarningError(Lids(IDS_E_18), ServerName);
+            else {
+               Status = NWCGetBinderyAccessLevel(CachedConn, &AccessLevel, &dwObjectID);
 
-            if (!Status) {
-               AccessLevel &= BS_SUPER_READ;
-               if (AccessLevel == BS_SUPER_READ)
-                  ret = TRUE;
-               else
-                  WarningError(Lids(IDS_NWNO_ADMIN), ServerName);
+               if (!Status) {
+                  AccessLevel &= BS_SUPER_READ;
+                  if (AccessLevel == BS_SUPER_READ)
+                     ret = TRUE;
+                  else
+                     WarningError(Lids(IDS_NWNO_ADMIN), ServerName);
+               }
             }
          }
       } else {
          FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-                        NULL, GetLastError(), MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US),
+                        NULL, GetLastError(), 0,
                         (LPTSTR) &lpMessageBuffer, 0, NULL );
 
             if (GetLastError() != 0)
@@ -1632,11 +2240,26 @@ BOOL NWServerValidate(HWND hWnd, LPTSTR ServerName, BOOL DupFlag) {
 } // NWServerValidate
 
 
-/*+-------------------------------------------------------------------------+
-  | NWRightsLog()                                                           |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-LPTSTR NWRightsLog(DWORD Rights) {
+/////////////////////////////////////////////////////////////////////////
+LPTSTR 
+NWRightsLog(
+   DWORD Rights
+   )
+
+/*++
+
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    static TCHAR NWRights[15];
    
    lstrcpy(NWRights, Lids(IDS_S_34));
@@ -1678,22 +2301,32 @@ LPTSTR NWRightsLog(DWORD Rights) {
 } // NWRightsLog
 
 
-/*+-------------------------------------------------------------------------+
-  | MapNWRightstoNTAccess() - From ChuckC's NWRights.C                      |
-  |                                                                         |
-  |  Map a NW Right to the appropriate NT AccessMask                        |
-  |                                                                         |
-  | Arguments:                                                              |
-  |                                                                         |
-  |   NWRights - Netware rights we wish to map                              |
-  |   pMap - pointer to structure that defines the mapping                  |
-  |                                                                         |
-  | Return value:                                                           |
-  |                                                                         |
-  |   The NT AccessMask corresponding to the NW Rights                      |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-NTSTATUS MapNwRightsToNTAccess( ULONG NWRights, PRIGHTS_MAPPING pMap, ACCESS_MASK *pAccessMask) {
+/////////////////////////////////////////////////////////////////////////
+NTSTATUS 
+MapNwRightsToNTAccess( 
+   ULONG NWRights, 
+   PRIGHTS_MAPPING pMap, 
+   ACCESS_MASK *pAccessMask
+   )
+
+/*++
+
+Routine Description:
+
+  Map a NW Right to the appropriate NT AccessMask
+
+Arguments:
+
+   NWRights - Netware rights we wish to map
+   pMap - pointer to structure that defines the mapping
+
+Return Value:
+
+   The NT AccessMask corresponding to the NW Rights
+
+--*/
+
+{
     PNW_TO_NT_MAPPING pNWToNtMap = pMap->Nw2NtMapping ;
     ACCESS_MASK AccessMask = 0 ;
 
@@ -1717,20 +2350,26 @@ NTSTATUS MapNwRightsToNTAccess( ULONG NWRights, PRIGHTS_MAPPING pMap, ACCESS_MAS
 } // MapNwRightsToNTAccess
 
 
-typedef struct _PRINT_SERVER_BUFFER {
-   TCHAR Name[20];
-} PRINT_SERVER_BUFFER;
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NWPrintServersEnum(
+   PRINT_SERVER_LIST **PS
+   )
 
-typedef struct _PRINT_SERVER_LIST {
-   ULONG Count;
-   PRINT_SERVER_BUFFER PSList[];
-} PRINT_SERVER_LIST;
+/*++
 
-/*+-------------------------------------------------------------------------+
-  | NWPrintServersEnum()                                                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWPrintServersEnum(PRINT_SERVER_LIST **PS) {
+Routine Description:
+
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    PRINT_SERVER_LIST *psl;
    PRINT_SERVER_BUFFER *pbuff;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
@@ -1761,7 +2400,7 @@ DWORD NWPrintServersEnum(PRINT_SERVER_LIST **PS) {
                            &byObjectFlag, &byObjectSecurity)) == SUCCESSFUL) {
 
          // Got user - now convert and save off the information
-         mbstowcs(szPrinterName, szAnsiPrinterName, lstrlenA(szAnsiPrinterName)+1);
+         OemToChar(szAnsiPrinterName, szPrinterName);
 
          lstrcpy(pbuff[Count].Name, szPrinterName);
          Count++;
@@ -1807,22 +2446,37 @@ DWORD NWPrintServersEnum(PRINT_SERVER_LIST **PS) {
 } // NWPrintServersEnum
 
 
-/*+-------------------------------------------------------------------------+
-  | NWPrintOpsEnum()                                                        |
-  |                                                                         |
-  |   First need to enumerate all the print servers on the NetWare system   |
-  |   we are pointing to.  Next loop through each of these print servers    |
-  |   and enumerate the print operators on each of them.                    |
-  |                                                                         |
-  +-------------------------------------------------------------------------+*/
-DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount) {
+/////////////////////////////////////////////////////////////////////////
+DWORD 
+NWPrintOpsEnum(
+   USER_LIST **lpUsers
+   )
+
+/*++
+
+Routine Description:
+
+   First need to enumerate all the print servers on the NetWare system
+   we are pointing to.  Next loop through each of these print servers
+   and enumerate the print operators on each of them.
+
+Arguments:
+
+
+Return Value:
+
+
+--*/
+
+{
    PRINT_SERVER_LIST *psl = NULL;
    PRINT_SERVER_BUFFER *PSList;
    ULONG pCount;
-   USER_LIST *Users;
+   USER_LIST *Users = NULL;
+   USER_BUFFER *UserBuffer;
    DWORD NumRecs = DEF_NUM_RECS;   // Default 200 names
    DWORD Count = 0;
-   DWORD i = 0;
+   DWORD ipsl = 0, iseg = 0;
    DWORD status = 0;
    char szAnsiUserName[MAX_USER_NAME_LEN + 1];
    char szAnsiName[MAX_GROUP_NAME_LEN + 1];
@@ -1832,12 +2486,12 @@ DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount) {
    BYTE byPropertyFlags = 0;
    BYTE byObjectFlag = 0;
    BYTE byObjectSecurity = 0;
+   UCHAR Segment = 1;
    DWORD bySegment[32];
    BYTE byMoreSegments;
    NWCCODE ret;
 
    *lpUsers = NULL;
-   *UserCount = 0;
 
    // Enumerate the print servers - if there are none, then there are no printer ops
    NWPrintServersEnum(&psl);
@@ -1849,48 +2503,53 @@ DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount) {
    }
 
    // Got some servers - loop through them enumerating users
-   Users =  (USER_LIST *) AllocMemory(NumRecs * sizeof(USER_LIST));
+   Users =  (USER_LIST *) AllocMemory(sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
 
    if (!Users) {
       status = ERROR_NOT_ENOUGH_MEMORY;
    } else {
+      UserBuffer = Users->UserBuffer;
       PSList = psl->PSList;
+
       for (pCount = 0; pCount < psl->Count; pCount++) {
          // init to NULL so doesn't have garbage if call fails
          lstrcpyA(szAnsiUserName, "");
-         wcstombs(szAnsiName, PSList[i].Name, lstrlen(PSList[i].Name)+1);
+         CharToOem(PSList[ipsl++].Name, szAnsiName);
 
          // Loop through bindery getting all the users.
          do {
             if (!(ret = NWReadPropertyValue(CachedConn, szAnsiName, OT_PRINT_SERVER, PS_OPERATORS,
-                           1, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
+                           Segment, (BYTE *) bySegment, &byMoreSegments, &byPropertyFlags))) {
 
+               Segment++;
                // loop through properties converting them to user names
-               i = 0;
-               while (bySegment[i]) {
-                  if (!(ret = NWGetObjectName(CachedConn, bySegment[i], szAnsiUserName, &wFoundUserType))) {
+               iseg = 0;
+               while ((bySegment[iseg]) && (iseg < 32)) {
+                  if (!(ret = NWGetObjectName(CachedConn, bySegment[iseg], szAnsiUserName, &wFoundUserType))) {
                      // Got user - now convert and save off the information
-                     mbstowcs(szUserName, szAnsiUserName, lstrlenA(szAnsiUserName)+1);
+                     OemToChar(szAnsiUserName, szUserName);
 
                      // Map out Supervisor (already print-op privs)
                      if (lstrcmpi(szUserName, Lids(IDS_S_28))) {
-                        lstrcpy(Users[Count].Name, szUserName);
-                        lstrcpy(Users[Count].NewName, szUserName);
+                        lstrcpy(UserBuffer[Count].Name, szUserName);
+                        lstrcpy(UserBuffer[Count].NewName, szUserName);
                         Count++;
                      }
 
                      // Check if we have to re-allocate buffer
                      if (Count >= NumRecs) {
                         NumRecs += DEF_NUM_RECS;
-                        Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, NumRecs * sizeof(USER_LIST));
+                        Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * NumRecs));
                
                         if (!Users) {
                            status = ERROR_NOT_ENOUGH_MEMORY;
                            break;
                         }
+
+                        UserBuffer = Users->UserBuffer;
                      }
                   }
-                  i++;
+                  iseg++;
                }
 
             } else // if NWReadPropertyValue
@@ -1910,16 +2569,18 @@ DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount) {
 
    // Now slim down the list to just what we need.
    if (!status) {
-      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, Count * sizeof(USER_LIST));
+      Users = (USER_LIST *) ReallocMemory((HGLOBAL) Users, sizeof(USER_LIST) + (sizeof(USER_BUFFER) * Count));
 
       if (!Users)
          status = ERROR_NOT_ENOUGH_MEMORY;
-      else 
+      else {
          // Sort the server list before putting it in the dialog
-         qsort((void *) Users, (size_t) Count, sizeof(USER_LIST), UserListCompare);
+         UserBuffer = Users->UserBuffer;
+         qsort((void *) UserBuffer, (size_t) Count, sizeof(USER_BUFFER), UserListCompare);
+      }
    }
 
-   *UserCount = Count;
+   Users->Count = Count;
    *lpUsers = Users;
 
    return status;
@@ -1928,3 +2589,104 @@ DWORD NWPrintOpsEnum(USER_LIST **lpUsers, DWORD *UserCount) {
 
 
 
+/////////////////////////////////////////////////////////////////////////
+
+VOID
+NWServerTimeGet(
+    )
+
+/*++
+
+Routine Description:
+
+    Queries server for it's current local time which is then converted to
+    elasped minutes since 1985 in order to compare with the lNextResetTime
+    field of the LOGIN_CONTROL structure (which must be byte-aligned).
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+    DWORD dwYear = 0;
+    DWORD dwMonth = 0;
+    DWORD dwDay = 0;
+    DWORD dwHour = 0;
+    DWORD dwMinute = 0;
+    DWORD dwSecond = 0;
+    DWORD dwDayOfWeek = 0;
+    DWORD dwServerTime = 0;
+
+    CachedServerTime = 0xffffffff; // re-initialize...
+
+    if (!NWGetFileServerDateAndTime(
+            CachedConn,
+            (LPBYTE)&dwYear,
+            (LPBYTE)&dwMonth,
+            (LPBYTE)&dwDay,
+            (LPBYTE)&dwHour,
+            (LPBYTE)&dwMinute,
+            (LPBYTE)&dwSecond,
+            (LPBYTE)&dwDayOfWeek))
+    {
+        if (NWTimeMap(dwDay, dwMonth, dwYear, 1985, &dwServerTime))
+        {
+            dwServerTime += dwHour * 3600;
+            dwServerTime += dwMinute * 60;
+            dwServerTime += dwSecond;
+
+            CachedServerTime = dwServerTime / 60; // convert to minutes...
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////
+
+BOOL
+IsNCPServerFPNW(
+    NWCONN_HANDLE Conn
+    )
+
+/*++
+
+Routine Description:
+
+    Check if this an FPNW server by checking for a specific object
+    type and property.
+
+Arguments:
+
+    Conn - connection id of ncp server.
+
+Return Value:
+
+    Returns true if ncp server is fpnw.
+
+--*/
+
+{
+    NWCCODE ret;
+    BYTE bySegment[128];
+    BYTE byMoreSegments, byPropertyFlags;
+
+    memset(bySegment, 0, sizeof(bySegment));
+
+    ret = NWReadPropertyValue(
+            CachedConn,
+            MS_EXTENDED_NCPS,
+            0x3B06,
+            FPNW_PDC,
+            1,
+            bySegment,
+            &byMoreSegments,
+            &byPropertyFlags
+            );
+
+    return (ret == SUCCESSFUL) && (BOOL)(BYTE)bySegment[0];
+}

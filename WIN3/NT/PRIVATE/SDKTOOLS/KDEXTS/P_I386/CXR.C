@@ -47,7 +47,6 @@ Return Value:
 {
     ULONG       Address;
     ULONG       result;
-    KTRAP_FRAME TrapFrame;
     CONTEXT     Cxr;
 
     sscanf(args,"%lX",&Address);
@@ -63,25 +62,51 @@ Return Value:
     }
 
     dprintf("\n");
-    dprintf("CtxFlags: %08lx\n", Cxr.ContextFlags);
+    DumpCxr(&Cxr);
 
-    TrapFrame.Eip    = Cxr.Eip;
-    TrapFrame.EFlags = Cxr.EFlags;
-    TrapFrame.Eax    = Cxr.Eax;
-    TrapFrame.Ecx    = Cxr.Ecx;
-    TrapFrame.Edx    = Cxr.Edx;
-    TrapFrame.Ebx    = Cxr.Ebx;
-    TrapFrame.Ebp    = Cxr.Ebp;
-    TrapFrame.Esi    = Cxr.Esi;
-    TrapFrame.Edi    = Cxr.Edi;
-    TrapFrame.SegEs  = Cxr.SegEs;
-    TrapFrame.SegCs  = Cxr.SegCs;
-    TrapFrame.SegDs  = Cxr.SegDs;
-    TrapFrame.SegFs  = Cxr.SegFs;
-    TrapFrame.SegGs  = Cxr.SegGs;
-    TrapFrame.HardwareEsp = Cxr.Esp;
-    TrapFrame.HardwareSegSs = Cxr.SegSs;
+}
+
+VOID
+DumpCxr(
+    PCONTEXT Cxr
+    )
+{
+    KTRAP_FRAME TrapFrame;
+    dprintf("CtxFlags: %08lx\n", Cxr->ContextFlags);
+
+    TrapFrame.Eip    = Cxr->Eip;
+    TrapFrame.EFlags = Cxr->EFlags;
+    TrapFrame.Eax    = Cxr->Eax;
+    TrapFrame.Ecx    = Cxr->Ecx;
+    TrapFrame.Edx    = Cxr->Edx;
+    TrapFrame.Ebx    = Cxr->Ebx;
+    TrapFrame.Ebp    = Cxr->Ebp;
+    TrapFrame.Esi    = Cxr->Esi;
+    TrapFrame.Edi    = Cxr->Edi;
+    TrapFrame.SegEs  = Cxr->SegEs;
+    TrapFrame.SegCs  = Cxr->SegCs;
+    TrapFrame.SegDs  = Cxr->SegDs;
+    TrapFrame.SegFs  = Cxr->SegFs;
+    TrapFrame.SegGs  = Cxr->SegGs;
+    TrapFrame.HardwareEsp = Cxr->Esp;
+    TrapFrame.HardwareSegSs = Cxr->SegSs;
 
     DisplayTrapFrame (&TrapFrame, 0);
     return;
+}
+
+VOID
+GetStackTraceRegs(
+    ULONG   Processor,
+    PULONG  ProgramCounter,
+    PULONG  FramePointer,
+    PULONG  StackPointer
+    )
+{
+    CONTEXT     Context;
+
+    GetContext( Processor, &Context, sizeof(CONTEXT) );
+    *ProgramCounter = Context.Eip;
+    *FramePointer   = Context.Ebp;
+    *StackPointer   = Context.Esp;
 }

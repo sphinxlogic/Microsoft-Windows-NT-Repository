@@ -144,7 +144,7 @@ typedef struct {                /* files.c knows this is
         long lVersion;          /* protocol version (it will be >=1) */
         long lResponse;         /* 22222222 decimal means This is a Response */
         long lCode;             /* response code */
-        ULONG ulSize;           /* file size */
+        ULONG ulSize;           /* file size  (Win32 error code for SSRESP_ERROR) */
         DWORD fileattribs;
         FILETIME ft_create;
         FILETIME ft_lastaccess;

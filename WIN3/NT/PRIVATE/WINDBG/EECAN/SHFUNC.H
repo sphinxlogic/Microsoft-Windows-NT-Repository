@@ -48,15 +48,9 @@ extern PCRF pCRF;
 #define adrTlsBase      7
 #define adrPC           2
 
-// disable the OMF lock and unlock calls for non NT builds
+__inline LPV  MHOmfLock(HDEP hdep) { return((LPV) hdep); }
 
-#ifdef WIN32
-#define MHOmfLock           (*pCVF->pMHOmfLock)
-#define MHOmfUnLock         (*pCVF->pMHOmfUnLock)
-#else
-#define MHOmfLock(a)        (a)
-#define MHOmfUnLock(a)      (a)
-#endif
+__inline void MHOmfUnLock(HDEP hdep) {}
 
 #define DHSetupExecute      (*pCVF->pDHSetupExecute)
 #define DHStartExecute      (*pCVF->pDHStartExecute)

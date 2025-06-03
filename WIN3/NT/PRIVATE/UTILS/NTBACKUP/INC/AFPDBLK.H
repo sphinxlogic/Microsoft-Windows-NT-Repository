@@ -146,4 +146,4 @@ typedef struct AFP_MIN_DDB {
 } AFP_MIN_DDB, *AFP_MIN_DDB_PTR;
 
 #endif
-
+

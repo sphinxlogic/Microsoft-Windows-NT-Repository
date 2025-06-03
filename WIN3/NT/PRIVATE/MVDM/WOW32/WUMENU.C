@@ -1097,7 +1097,7 @@ ULONG FASTCALL WU32LoadMenu(PVDMFRAME pFrame)
         ConvertMenu16(parg16->f5, lpResData, parg16->f3, cb, parg16->f4);
 
     ul = GETHMENU16((pfnOut.pfnServerLoadCreateMenu)(HMODINST32(parg16->f1),
-                                              lpUniName_Menu,
+                                              (LPTSTR) lpUniName_Menu,
                                               lpResData,
                                               cb,
                                               FALSE));
@@ -1355,7 +1355,7 @@ ULONG FASTCALL WU32ModifyMenu(PVDMFRAME pFrame)
         // got through.  Luckily they quickly modify the menu to not have
         // a popup menu soon after that.
         //
-        if ( !IsMenu(wIDNewItem) ) {
+        if ( !IsMenu((HMENU) wIDNewItem) ) {
             //
             // Try again with a better sub-menu handle.
             //
@@ -1610,4 +1610,4 @@ ULONG FASTCALL WU32TrackPopupMenu(PVDMFRAME pFrame)
     FREEARGPTR(parg16);
     RETURN(ul);
 }
-
+

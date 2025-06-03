@@ -453,6 +453,9 @@ typedef struct _CONFIG_DATA {
     ULONG ForceFifoEnable;
     ULONG RxFIFO;
     ULONG TxFIFO;
+    ULONG PermitShare;
+    ULONG PermitSystemWideShare;
+    ULONG LogFifo;
     ULONG MaskInverted;
     KINTERRUPT_MODE InterruptMode;
     INTERFACE_TYPE InterfaceType;
@@ -974,6 +977,11 @@ typedef struct _SERIAL_DEVICE_EXTENSION {
     ULONG TxFifoAmount;
 
     //
+    // Set to indicate that it is ok to share interrupts within the device.
+    //
+    ULONG PermitShare;
+
+    //
     // Holds the timeout controls for the device.  This value
     // is set by the Ioctl processing.
     //
@@ -999,6 +1007,13 @@ typedef struct _SERIAL_DEVICE_EXTENSION {
     // be read at any level with the control lock held.
     //
     SERIAL_HANDFLOW HandFlow;
+
+
+    //
+    // Holds performance statistics that applications can query.
+    // Reset on each open.  Only set at device level.
+    //
+    SERIALPERF_STATS PerfStats;
 
     //
     // This holds what we beleive to be the current value of
@@ -1066,6 +1081,7 @@ typedef struct _SERIAL_DEVICE_EXTENSION {
     // extension is part of a multiport card.
     //
     BOOLEAN PortOnAMultiportCard;
+
 
     //
     // We keep the following values around so that we can connect
